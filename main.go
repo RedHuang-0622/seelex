@@ -18,11 +18,13 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/tool/holder"
 	"github.com/RedHuang-0622/Seele/engine"
 	"github.com/RedHuang-0622/Seele/seelectx/storage"
+	"github.com/RedHuang-0622/Seele/seelectx/tracer"
 	"github.com/RedHuang-0622/Seele/types"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/tui"
 )
 
 var configPath = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
@@ -121,7 +123,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "✖ 初始化存储失败: %v\n", err)
 		os.Exit(1)
 	}
-	eng := engine.New(agt, engine.WithStore(store))
+	eng := engine.New(agt, engine.WithStore(store),
+		engine.WithTracer(tracer.NewSimpleTracer()),
+	)
 
 	// ── 第 4 层：会话管理（薄包装）────────────────────────────────
 	sessionMgr := session.NewManager(store)
@@ -150,11 +154,11 @@ func main() {
 	_ = skillReg.AddLoader(skillLoader) // 无可读目录时不报错
 
 	// ── 第 6 层：命令注册（策略模式）─────────────────────────────
-	initCommands(eng, chatClient, first.Model, sessionMgr)
+	tui.RegisterCommands(eng, chatClient, first.Model, sessionMgr)
 
 	// ── 第 7 层：TUI 装配（装配件模式）─────────────────────────────
 	p := tea.NewProgram(
-		initialModel(eng, first.Model, chatClient, agt, sessionMgr, skillReg),
+		tui.NewModel(eng, first.Model, chatClient, agt, sessionMgr, skillReg),
 		tea.WithAltScreen(),
 	)
 	if _, err := p.Run(); err != nil {
