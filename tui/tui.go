@@ -234,11 +234,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// ── 流式事件（仅 done 事件复位 streaming）────────────────────
+// ── 流式事件处理 ──────────────────────────────────────────────
 
 func (m Model) handleStreamEvent(evt StreamEvent) (tea.Model, tea.Cmd) {
-	if evt.Kind == "done" {
+	switch evt.Kind {
+	case "done":
 		m.streaming = false
+	case "reload":
+		// 从 engine history 重建 messages（Q/A/工具链）
+		m.rebuildMessages()
+		m.syncView()
 	}
 	return m, nil
 }
@@ -367,11 +372,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) resolvePrompt(choice string) {
 	m.prompting = false
-	if choice != "__CANCEL__" {
-		m.messages = append(m.messages, messageView{role: "system", content: "✓ " + choice})
-	}
 	m.promptCh <- choice
-	m.syncView()
 }
 
 func (m *Model) checkPrompt() {
@@ -492,9 +493,9 @@ func (m Model) doStream(input string, eventCh chan StreamEvent) {
 		prog.Println(StyleError.Render("  ✖ " + err.Error()))
 	}
 
-	// 发送 done 事件让 TUI 复位 streaming
+	// 发送 reload 事件让 TUI 重建 messages + 复位 streaming
 	select {
-	case eventCh <- StreamEvent{Kind: "done"}:
+	case eventCh <- StreamEvent{Kind: "reload"}:
 	default:
 	}
 }
@@ -573,6 +574,47 @@ func (m Model) renderPrompt() string {
 	}
 	b.WriteString(StyleMuted.Render("  ↑↓ Enter 数字键"))
 	return b.String()
+}
+
+// ── 从 Engine History 重建 Messages ─────────────────────────
+
+func (m *Model) rebuildMessages() {
+	hist := m.eng.History()
+	m.messages = nil
+	var lastQ string
+	for _, h := range hist {
+		switch h.Role {
+		case "user":
+			if h.Content != nil {
+				lastQ = *h.Content
+				m.messages = append(m.messages, messageView{role: "user", content: lastQ})
+			}
+		case "assistant":
+			if h.Content != nil && *h.Content != "" {
+				m.messages = append(m.messages, messageView{role: "assistant", content: *h.Content})
+			}
+			for _, tc := range h.ToolCalls {
+				args := tc.Function.Arguments
+				if len(args) > 80 {
+					args = args[:80] + "..."
+				}
+				m.messages = append(m.messages, messageView{
+					role: "tool_call", content: fmt.Sprintf("✎ %s(%s)", tc.Function.Name, args),
+				})
+			}
+		case "tool":
+			content := ""
+			if h.Content != nil {
+				content = *h.Content
+				if len(content) > 120 {
+					content = content[:120] + "..."
+				}
+			}
+			m.messages = append(m.messages, messageView{
+				role: "tool_result", content: content,
+			})
+		}
+	}
 }
 
 // ── 消息渲染（仅 Q/A/工具链/diff）───────────────────────────
