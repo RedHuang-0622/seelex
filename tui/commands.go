@@ -219,6 +219,9 @@ func executeCommand(raw string) *messageView {
 		return nil
 	}
 	name := strings.TrimPrefix(strings.ToLower(parts[0]), "/")
+	if name == "" {
+		return nil
+	}
 	args := parts[1:]
 	if cmd, ok := GetCommand(name); ok {
 		r := cmd.Execute(args)

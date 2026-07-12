@@ -117,6 +117,47 @@ func main() {
 		},
 	)
 
+	// ── ask_approve 工具（需人工确认的操作）────────────────────────
+	agt.RegisterTool(
+		"ask_approve",
+		"向用户请求操作确认。当需要执行高风险操作时调用此工具，提供清晰问题描述和选项列表。",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"question": map[string]interface{}{
+					"type":        "string",
+					"description": "向用户展示的确认问题",
+				},
+				"choices": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "string",
+					},
+					"description": "可选项列表（默认: Yes/No）",
+				},
+			},
+			"required": []string{"question"},
+		},
+		func(_ context.Context, argsJSON string) (string, error) {
+			var input struct {
+				Question string   `json:"question"`
+				Choices  []string `json:"choices,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+				return "", fmt.Errorf("ask_approve: %w", err)
+			}
+			choices := input.Choices
+			if len(choices) == 0 {
+				choices = []string{"Yes", "No"}
+			}
+			result := tui.HandleApproval(input.Question, choices)
+			if result == "__CANCEL__" {
+				return `{"approved":false,"reason":"cancelled"}`, nil
+			}
+			return fmt.Sprintf(`{"approved":true,"choice":"%s"}`, result), nil
+		},
+	)
+
 	// ── 第 3 层：会话持久化 + Engine ──────────────────────────────
 	store, err := storage.NewStore("")
 	if err != nil {
@@ -160,6 +201,7 @@ func main() {
 	p := tea.NewProgram(
 		tui.NewModel(eng, first.Model, chatClient, agt, sessionMgr, skillReg),
 		tea.WithAltScreen(),
+			tea.WithMouseCellMotion(),
 	)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "✖ TUI 错误: %v\n", err)
