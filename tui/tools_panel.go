@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -28,7 +29,7 @@ func newSuggestionEngine(agt *agent.Agent) *suggestionEngine {
 }
 
 func (se *suggestionEngine) RefreshTools() {
-	tools := se.agt.VisibleTools(nil)
+	tools := se.agt.VisibleTools(context.TODO())
 	se.tools = make([]suggestion, 0, len(tools))
 	for _, t := range tools {
 		se.tools = append(se.tools, suggestion{

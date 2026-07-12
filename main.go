@@ -166,6 +166,7 @@ func main() {
 	}
 	eng := engine.New(agt, engine.WithStore(store),
 		engine.WithTracer(tracer.NewSimpleTracer()),
+			engine.WithHooks(tui.CreateToolHooks()),
 	)
 
 	// ── 第 4 层：会话管理（薄包装）────────────────────────────────
