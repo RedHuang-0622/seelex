@@ -238,12 +238,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleStreamEvent(evt StreamEvent) (tea.Model, tea.Cmd) {
 	switch evt.Kind {
-	case "done":
+	case "done", "reload":
 		m.streaming = false
-	case "reload":
-		// 从 engine history 重建 messages（Q/A/工具链）
-		m.rebuildMessages()
-		m.syncView()
+		if evt.Kind == "reload" {
+			m.rebuildMessages()
+			m.syncView()
+		}
 	}
 	return m, nil
 }
