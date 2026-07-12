@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/Seele/engine"
 	"github.com/RedHuang-0622/Seele/seelectx/tracer"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -19,10 +20,10 @@ import (
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
-const bannerArt = `
+const seelexLogo = `
     ╔═╗╔═╗╔═╗╔═╗╔╗╔╔╦╗
-    ╚═╗║ ║║ ║║ ║║║║ ║
-    ╚═╝╚═╝╚═╝╚═╝╝╚╝ ╩`
+    ╚═╗║ ║║ ║║ ║║║║ ║║
+    ╚═╝╚═╝╚═╝╚═╝╝╚╝╚╝╩`
 
 // ── 流式事件 ─────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ type Model struct {
 	suggEng    *suggestionEngine
 
 	viewport viewport.Model
+	textarea textarea.Model
 	messages []messageView
 
 	streaming bool
@@ -85,7 +87,6 @@ type Model struct {
 	lastInput string
 	lastStart time.Time
 
-	input    string
 	suggMode bool
 	suggIdx  int
 
@@ -103,7 +104,7 @@ type Model struct {
 	height   int
 	ready    bool
 	quitting bool
-	firstRun bool
+	showLogo bool
 }
 
 // ── 工厂 ─────────────────────────────────────────────────────────
@@ -114,18 +115,27 @@ func NewModel(
 	sessionMgr *session.Manager, skillReg *skill.Registry,
 ) Model {
 	se := newSuggestionEngine(agt)
-	se.RefreshTools()
 	skills := skillReg.All()
 	ss := make([]suggestion, 0, len(skills))
 	for _, s := range skills {
-		ss = append(ss, suggestion{text: "#" + s.Name, description: s.Description, kind: "skill"})
+		ss = append(ss, suggestion{text: s.Name, description: s.Description, kind: "skill"})
 	}
 	se.SetSkills(ss)
+
+	ta := textarea.New()
+	ta.Placeholder = "输入消息…  /help 查看命令"
+	ta.CharLimit = 0
+	ta.SetWidth(80)
+	ta.Focus()
+	ta.ShowLineNumbers = false
+	ta.KeyMap.InsertNewline.SetEnabled(false) // Enter = send
+
 	return Model{
 		eng: eng, client: client, agt: agt, modelName: modelName,
 		sessionMgr: sessionMgr, skillReg: skillReg, suggEng: se,
+		textarea:  ta,
 		streamCh:  make(chan StreamEvent, 256),
-		firstRun:  true,
+		showLogo:  true,
 		lastStart: time.Now(),
 	}
 }
@@ -136,7 +146,7 @@ func (m Model) suggLines() int {
 	if !m.suggMode {
 		return 0
 	}
-	s := m.suggEng.Suggest(m.input)
+	s := m.suggEng.Suggest(m.textarea.Value())
 	if len(s) == 0 {
 		return 0
 	}
@@ -158,17 +168,18 @@ func (m Model) viewportHeight() int {
 	if m.prompting {
 		fixed += m.promptLines()
 	}
-	return max(m.height-fixed, 3)
+	return max(m.height-fixed, 4)
 }
 
 // ── Update ───────────────────────────────────────────────────────
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.firstRun && m.ready {
-		m.firstRun = false
+	// 显示 logo 后切到正常界面
+	if m.showLogo && m.ready {
+		m.showLogo = false
 		m.messages = []messageView{
 			{role: "system", content: fmt.Sprintf("Seele CLI — %s", m.modelName)},
-			{role: "system", content: "/help @工具 #Skill ↑↓历史"},
+			{role: "system", content: "输入 /help 查看命令"},
 		}
 	}
 	m.checkPrompt()
@@ -177,6 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.textarea.SetWidth(msg.Width - 4)
 		vh := m.viewportHeight()
 		if !m.ready {
 			m.viewport = viewport.New(msg.Width, vh)
@@ -195,6 +207,267 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	default:
 		return m, nil
+	}
+}
+
+// ── 键盘 ──────────────────────────────────────────────────────
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.quitting {
+		return m, tea.Quit
+	}
+	if m.prompting {
+		return m.handlePromptKey(msg)
+	}
+	if m.streaming {
+		if msg.String() == "ctrl+c" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	// Enter = 发送（由 textarea 配置决定，但仍需拦截）
+	switch msg.String() {
+	case "enter":
+		return m.handleEnter()
+
+	case "ctrl+c", "ctrl+d":
+		m.quitting = true
+		return m, tea.Quit
+
+	// ↑↓ = 输入历史
+	case "up":
+		if m.suggMode {
+			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
+				m.suggIdx = (m.suggIdx - 1 + len(s)) % len(s)
+			}
+		} else if len(m.inputHist) > 0 {
+			if m.histIdx == -1 {
+				m.histDraft = m.textarea.Value()
+				m.histIdx = len(m.inputHist) - 1
+			} else if m.histIdx > 0 {
+				m.histIdx--
+			}
+			m.textarea.SetValue(m.inputHist[m.histIdx])
+			m.textarea.CursorEnd()
+		}
+		return m, nil
+
+	case "down":
+		if m.suggMode {
+			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
+				m.suggIdx = (m.suggIdx + 1) % len(s)
+			}
+		} else if m.histIdx != -1 {
+			m.histIdx++
+			if m.histIdx >= len(m.inputHist) {
+				m.histIdx = -1
+				m.textarea.SetValue(m.histDraft)
+				m.histDraft = ""
+			} else {
+				m.textarea.SetValue(m.inputHist[m.histIdx])
+			}
+			m.textarea.CursorEnd()
+		}
+		return m, nil
+
+	// 补全接受
+	case "tab":
+		if m.suggMode {
+			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 && m.suggIdx < len(s) {
+				m = m.acceptSugg(s[m.suggIdx])
+			}
+		}
+		return m, nil
+
+	// PgUp/PgDn = viewport 滚动
+	case "pgup":
+		if m.ready {
+			m.viewport.HalfPageUp()
+		}
+		return m, nil
+	case "pgdown":
+		if m.ready {
+			m.viewport.HalfPageDown()
+		}
+		return m, nil
+
+	// 其他键 → 转发给 textarea
+	default:
+		var cmd tea.Cmd
+		m.textarea, cmd = m.textarea.Update(msg)
+		m.afterInput()
+		return m, cmd
+	}
+}
+
+// afterInput 在每次 textarea 更新后执行
+func (m *Model) afterInput() {
+	val := m.textarea.Value()
+	// 检测 / 触发命令补全
+	if strings.HasPrefix(val, "/") && !strings.Contains(val, " ") {
+		m.suggMode = true
+		m.suggIdx = 0
+	} else {
+		m.suggMode = false
+	}
+	m.histIdx = -1
+}
+
+// ── 确认键盘 ──────────────────────────────────────────────────
+
+func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if 0 <= m.promptSel && m.promptSel < len(m.promptOpt) {
+			m.resolvePrompt(m.promptOpt[m.promptSel])
+		}
+		return m, nil
+	case "up":
+		m.promptSel = max(m.promptSel-1, 0)
+		return m, nil
+	case "down":
+		m.promptSel = min(m.promptSel+1, len(m.promptOpt)-1)
+		return m, nil
+	case "ctrl+c", "ctrl+d":
+		m.resolvePrompt("__CANCEL__")
+		return m, nil
+	default:
+		s := msg.String()
+		if len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
+			if idx := int(s[0] - '1'); idx < len(m.promptOpt) {
+				m.resolvePrompt(m.promptOpt[idx])
+			}
+		}
+		return m, nil
+	}
+}
+
+func (m *Model) resolvePrompt(choice string) {
+	m.prompting = false
+	if choice != "__CANCEL__" {
+		m.messages = append(m.messages, messageView{role: "system", content: "✓ " + choice})
+	}
+	m.promptCh <- choice
+	m.syncViewport()
+}
+
+func (m *Model) checkPrompt() {
+	if pendingPrompt.ch != nil && !m.prompting {
+		m.prompting = true
+		m.promptMsg = pendingPrompt.question
+		m.promptOpt = pendingPrompt.choices
+		m.promptSel = 0
+		m.promptCh = pendingPrompt.ch
+		pendingPrompt = promptRequest{}
+	}
+}
+
+// ── Enter ───────────────────────────────────────────────────────
+
+func (m Model) handleEnter() (tea.Model, tea.Cmd) {
+	input := strings.TrimSpace(m.textarea.Value())
+	if input == "" || m.streaming {
+		return m, nil
+	}
+	m.suggMode = false
+
+	// 记录历史
+	if input != "" && (len(m.inputHist) == 0 || m.inputHist[len(m.inputHist)-1] != input) {
+		m.inputHist = append(m.inputHist, input)
+	}
+	m.histIdx = -1
+
+	// 命令
+	if strings.HasPrefix(input, "/") {
+		if input == "/" {
+			m.textarea.Reset()
+			return m, nil
+		}
+		// 尝试 skill 匹配
+		parts := strings.Fields(input[1:])
+		if len(parts) > 0 {
+			if s, ok := m.skillReg.Get(parts[0]); ok {
+				return m.execSkill(s, parts[1:]), nil
+			}
+		}
+		if msg := executeCommand(input); msg != nil {
+			if msg.content == "" && msg.role == "system" {
+				m.quitting = true
+				return m, tea.Quit
+			}
+			m.messages = append(m.messages, *msg)
+		}
+		m.textarea.Reset()
+		m.syncViewport()
+		return m, nil
+	}
+
+	// 对话
+	m.messages = append(m.messages, messageView{role: "user", content: input})
+	m.lastInput = input
+	m.lastStart = time.Now()
+	m.textarea.Reset()
+	m.streaming = true
+	m.streamBuf = ""
+
+	eventCh := make(chan StreamEvent, 256)
+	m.streamCh = eventCh
+	currentStreamCh = eventCh
+	go m.doStream(input, eventCh)
+	return m, waitStream(m.streamCh)
+}
+
+// ── Skill ────────────────────────────────────────────────────────
+
+func (m Model) execSkill(sk skill.Skill, args []string) tea.Model {
+	p := sk.Prompt
+	if len(args) > 0 {
+		p += "\n\n" + strings.Join(args, " ")
+	}
+	m.eng.SetSystemPrompt(p)
+	m.messages = append(m.messages, messageView{role: "system", content: "加载 Skill: " + sk.Name})
+	m.textarea.Reset()
+	m.syncViewport()
+	return m
+}
+
+// ── 接受提示 ──────────────────────────────────────────────────
+
+func (m Model) acceptSugg(s suggestion) Model {
+	val := m.textarea.Value()
+	if idx := strings.LastIndex(val, "/"); idx >= 0 {
+		val = val[:idx+1]
+	} else {
+		val = ""
+	}
+	m.textarea.SetValue(val + s.text + " ")
+	m.textarea.CursorEnd()
+	m.suggMode = false
+	m.suggIdx = 0
+	return m
+}
+
+// ── 流式 goroutine ──────────────────────────────────────────────
+
+func (m Model) doStream(input string, eventCh chan StreamEvent) {
+	ctx := context.Background()
+	_, err := m.eng.ChatStream(ctx, input, func(chunk string) {
+		select {
+		case eventCh <- StreamEvent{Kind: "chunk", Text: chunk}:
+		default:
+		}
+	})
+	select {
+	case eventCh <- StreamEvent{Kind: "done", Err: err}:
+	default:
+	}
+}
+
+func waitStream(ch chan StreamEvent) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
 	}
 }
 
@@ -242,273 +515,6 @@ func (m Model) handleStreamEvent(evt StreamEvent) (tea.Model, tea.Cmd) {
 
 	default:
 		return m, nil
-	}
-}
-
-// ── 键盘 ──────────────────────────────────────────────────────
-
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.quitting {
-		return m, tea.Quit
-	}
-	if m.prompting {
-		return m.handlePromptKey(msg)
-	}
-	if m.streaming {
-		if msg.String() == "ctrl+c" {
-			m.quitting = true
-			return m, tea.Quit
-		}
-		return m, nil
-	}
-
-	switch msg.String() {
-	case "ctrl+c", "ctrl+d":
-		m.quitting = true
-		return m, tea.Quit
-
-	case "enter":
-		return m.handleEnter()
-
-	case "backspace":
-		if len(m.input) > 0 {
-			rs := []rune(m.input)
-			last := string(rs[len(rs)-1])
-			m.input = string(rs[:len(rs)-1])
-			if last == "/" || last == "@" || last == "#" {
-				se := newSuggestionEngine(m.agt)
-				se.RefreshTools()
-				m.suggEng = se
-				m.suggMode = false
-			}
-		}
-		return m, nil
-
-	// ↑↓ = 输入历史
-	case "up":
-		if m.suggMode {
-			if s := m.suggEng.Suggest(m.input); len(s) > 0 {
-				m.suggIdx = (m.suggIdx - 1 + len(s)) % len(s)
-			}
-		} else if len(m.inputHist) > 0 {
-			if m.histIdx == -1 {
-				m.histDraft = m.input
-				m.histIdx = len(m.inputHist) - 1
-			} else if m.histIdx > 0 {
-				m.histIdx--
-			}
-			m.input = m.inputHist[m.histIdx]
-		}
-		return m, nil
-
-	case "down":
-		if m.suggMode {
-			if s := m.suggEng.Suggest(m.input); len(s) > 0 {
-				m.suggIdx = (m.suggIdx + 1) % len(s)
-			}
-		} else if m.histIdx != -1 {
-			m.histIdx++
-			if m.histIdx >= len(m.inputHist) {
-				m.histIdx = -1
-				m.input = m.histDraft
-				m.histDraft = ""
-			} else {
-				m.input = m.inputHist[m.histIdx]
-			}
-		}
-		return m, nil
-
-	// PgUp/PgDn = viewport 滚动
-	case "pgup":
-		if m.ready {
-			m.viewport.HalfPageUp()
-		}
-		return m, nil
-	case "pgdown":
-		if m.ready {
-			m.viewport.HalfPageDown()
-		}
-		return m, nil
-
-	case "tab":
-		if m.suggMode {
-			if s := m.suggEng.Suggest(m.input); len(s) > 0 && m.suggIdx < len(s) {
-				m = m.acceptSugg(s[m.suggIdx])
-			}
-		}
-		return m, nil
-
-	default:
-		s := msg.String()
-		if len(s) > 0 && s[0] >= 0x20 && s[0] != 0x7f {
-			m.input += s
-			m.histIdx = -1
-			switch s {
-			case "/", "@", "#":
-				m.suggEng.RefreshTools()
-				m.suggMode = true
-				m.suggIdx = 0
-			}
-		}
-		if m.suggMode {
-			m.viewport.Height = m.viewportHeight()
-		}
-		return m, nil
-	}
-}
-
-func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		if 0 <= m.promptSel && m.promptSel < len(m.promptOpt) {
-			m.resolvePrompt(m.promptOpt[m.promptSel])
-		}
-		return m, nil
-	case "up":
-		m.promptSel = max(m.promptSel-1, 0)
-		return m, nil
-	case "down":
-		m.promptSel = min(m.promptSel+1, len(m.promptOpt)-1)
-		return m, nil
-	case "ctrl+c", "ctrl+d":
-		m.resolvePrompt("__CANCEL__")
-		return m, nil
-	default:
-		s := msg.String()
-		if len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
-			if idx := int(s[0] - '1'); idx < len(m.promptOpt) {
-				m.resolvePrompt(m.promptOpt[idx])
-			}
-		}
-		return m, nil
-	}
-}
-
-func (m *Model) resolvePrompt(choice string) {
-	m.prompting = false
-	if choice != "__CANCEL__" {
-		m.messages = append(m.messages, messageView{role: "system", content: "✓ 已选择: " + choice})
-	}
-	m.promptCh <- choice
-	m.syncViewport()
-}
-
-func (m *Model) checkPrompt() {
-	if pendingPrompt.ch != nil && !m.prompting {
-		m.prompting = true
-		m.promptMsg = pendingPrompt.question
-		m.promptOpt = pendingPrompt.choices
-		m.promptSel = 0
-		m.promptCh = pendingPrompt.ch
-		pendingPrompt = promptRequest{}
-	}
-}
-
-// ── Enter ───────────────────────────────────────────────────────
-
-func (m Model) handleEnter() (tea.Model, tea.Cmd) {
-	input := strings.TrimSpace(m.input)
-	if input == "" || m.streaming {
-		return m, nil
-	}
-	m.suggMode = false
-
-	if input != "" && (len(m.inputHist) == 0 || m.inputHist[len(m.inputHist)-1] != input) {
-		m.inputHist = append(m.inputHist, input)
-	}
-	m.histIdx = -1
-
-	if strings.HasPrefix(input, "/") {
-		if input == "/" {
-			m.input = ""
-			return m, nil
-		}
-		if msg := executeCommand(input); msg != nil {
-			if msg.content == "" && msg.role == "system" {
-				m.quitting = true
-				return m, tea.Quit
-			}
-			m.messages = append(m.messages, *msg)
-		}
-		m.input = ""
-		m.syncViewport()
-		return m, nil
-	}
-
-	if strings.HasPrefix(input, "#") {
-		return m.skillCall(input), nil
-	}
-
-	m.messages = append(m.messages, messageView{role: "user", content: input})
-	m.lastInput = input
-	m.lastStart = time.Now()
-	m.input = ""
-	m.streaming = true
-	m.streamBuf = ""
-
-	eventCh := make(chan StreamEvent, 256)
-	m.streamCh = eventCh
-	currentStreamCh = eventCh
-	go m.doStream(input, eventCh)
-	return m, waitStream(m.streamCh)
-}
-
-// ── Skill ────────────────────────────────────────────────────────
-
-func (m Model) skillCall(input string) tea.Model {
-	parts := strings.Fields(strings.TrimPrefix(input, "#"))
-	if len(parts) == 0 {
-		m.messages = append(m.messages, messageView{role: "system", content: "用法: #skill_name [参数]"})
-		return m
-	}
-	sk, ok := m.skillReg.Get(parts[0])
-	if !ok {
-		m.messages = append(m.messages, messageView{role: "system", content: "未知 Skill: " + parts[0]})
-		return m
-	}
-	p := sk.Prompt
-	if len(parts) > 1 {
-		p += "\n\n用户参数: " + strings.Join(parts[1:], " ")
-	}
-	m.eng.SetSystemPrompt(p)
-	m.messages = append(m.messages, messageView{role: "system", content: "加载 Skill: " + parts[0]})
-	m.input = ""
-	m.syncViewport()
-	return m
-}
-
-func (m Model) acceptSugg(s suggestion) Model {
-	for _, c := range []string{"/", "@", "#"} {
-		if idx := strings.LastIndex(m.input, c); idx >= 0 {
-			m.input = m.input[:idx+1]
-			break
-		}
-	}
-	m.input += s.text + " "
-	m.suggMode = false
-	m.suggIdx = 0
-	return m
-}
-
-// ── 流式 goroutine ──────────────────────────────────────────────
-
-func (m Model) doStream(input string, eventCh chan StreamEvent) {
-	ctx := context.Background()
-	_, err := m.eng.ChatStream(ctx, input, func(chunk string) {
-		select {
-		case eventCh <- StreamEvent{Kind: "chunk", Text: chunk}:
-		default:
-		}
-	})
-	select {
-	case eventCh <- StreamEvent{Kind: "done", Err: err}:
-	default:
-	}
-}
-
-func waitStream(ch chan StreamEvent) tea.Cmd {
-	return func() tea.Msg {
-		return <-ch
 	}
 }
 
@@ -566,40 +572,50 @@ func (m *Model) rebuildFromHistory() {
 
 func (m Model) View() string {
 	if !m.ready {
-		return StyleBanner.Render(bannerArt) + "\n\n  Loading...\n"
+		return StyleBanner.Render(seelexLogo) + "\n\n  Loading...\n"
 	}
+
+	// Logo 页面
+	if m.showLogo {
+		return StyleBanner.Render(seelexLogo) + "\n" +
+			StyleMuted.Render("  Seele TUI Client  ") +
+			StyleSessionID.Render(m.modelName) + "\n\n" +
+			StyleMuted.Render("  loading...")
+	}
+
 	var b strings.Builder
 
-	b.WriteString(StyleBanner.Render(" ◆ Seele"))
+	// Banner
+	b.WriteString(StyleBanner.Render(" SEELEX"))
 	b.WriteString(StyleMuted.Render(fmt.Sprintf("  %s", m.modelName)))
 	b.WriteString("\n")
 
+	// Viewport
 	m.viewport.SetContent(m.renderMessages())
 	b.WriteString(m.viewport.View())
 
+	// 分隔线
 	b.WriteString(StyleSep.Render(strings.Repeat("─", m.width)))
 	b.WriteString("\n")
 
+	// 确认面板
 	if m.prompting {
 		b.WriteString(m.renderPrompt())
 	}
+
+	// 提示面板
 	if m.suggMode {
-		if s := m.suggEng.Suggest(m.input); len(s) > 0 {
+		if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
 			b.WriteString(renderSuggestions(s, m.suggIdx, m.width))
 		}
 	}
 
+	// 输入框
 	if !m.streaming && !m.prompting {
-		prompt := StyleInputPrompt.Render(">")
-		cursor := " "
-		if time.Now().UnixMilli()/500%2 == 0 {
-			cursor = StyleInputPrompt.Render("▎")
-		}
-		b.WriteString(StyleInputBox.Width(m.width-2).Render(
-			fmt.Sprintf("%s %s%s", prompt, m.input, cursor),
-		))
+		b.WriteString(m.textarea.View())
 	}
 
+	// 状态栏
 	b.WriteString("\n")
 	b.WriteString(m.renderStatus())
 	return b.String()
@@ -625,7 +641,7 @@ func (m Model) renderPrompt() string {
 	return b.String()
 }
 
-// ── 消息渲染（含工具链实时展示）────────────────────────────────
+// ── 消息渲染 ─────────────────────────────────────────────────
 
 func (m Model) renderMessages() string {
 	var b strings.Builder
@@ -666,7 +682,6 @@ func (m Model) renderMessages() string {
 			b.WriteString("\n")
 		}
 	}
-
 	if m.streaming && m.streamBuf != "" {
 		b.WriteString(StyleAssistant.Render("  Seele"))
 		b.WriteString("\n")
@@ -724,7 +739,7 @@ func tokensFromEngine(eng *engine.Engine) string {
 	return "0"
 }
 
-// ── 工具链 hooks 工厂 ─────────────────────────────────────────
+// ── 工具链 hooks ──────────────────────────────────────────────
 
 func CreateToolHooks() *engine.LoopHooks {
 	return &engine.LoopHooks{

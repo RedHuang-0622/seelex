@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -11,7 +10,7 @@ import (
 // ── 提示条目 ────────────────────────────────────────────────────
 
 type suggestion struct {
-	text        string
+	text        string // 补全文本（不含 / @ #）
 	description string
 	kind        string // "command" | "tool" | "skill"
 }
@@ -21,55 +20,51 @@ type suggestion struct {
 type suggestionEngine struct {
 	agt    *agent.Agent
 	skills []suggestion
-	tools  []suggestion
 }
 
 func newSuggestionEngine(agt *agent.Agent) *suggestionEngine {
 	return &suggestionEngine{agt: agt}
 }
 
-func (se *suggestionEngine) RefreshTools() {
-	tools := se.agt.VisibleTools(context.TODO())
-	se.tools = make([]suggestion, 0, len(tools))
-	for _, t := range tools {
-		se.tools = append(se.tools, suggestion{
-			text:        "@" + t.Function.Name,
-			description: t.Function.Description,
-			kind:        "tool",
-		})
-	}
-}
-
 func (se *suggestionEngine) SetSkills(skills []suggestion) {
 	se.skills = skills
 }
 
-func (se *suggestionEngine) Suggest(prefix string) []suggestion {
-	if prefix == "" {
+// Suggest 返回匹配输入前缀的建议列表
+// 输入格式: /prefix  → 命令/skill 补全
+func (se *suggestionEngine) Suggest(input string) []suggestion {
+	if !strings.HasPrefix(input, "/") {
 		return nil
 	}
-	var result []suggestion
-	switch {
-	case strings.HasPrefix(prefix, "/"):
-		result = commandSuggestions(strings.TrimPrefix(prefix, "/"))
-	case strings.HasPrefix(prefix, "@"):
-		q := strings.ToLower(strings.TrimPrefix(prefix, "@"))
-		for _, t := range se.tools {
-			n := strings.TrimPrefix(t.text, "@")
-			if q == "" || strings.HasPrefix(strings.ToLower(n), q) {
-				result = append(result, t)
-			}
-		}
-	case strings.HasPrefix(prefix, "#"):
-		q := strings.ToLower(strings.TrimPrefix(prefix, "#"))
-		for _, s := range se.skills {
-			n := strings.TrimPrefix(s.text, "#")
-			if q == "" || strings.HasPrefix(strings.ToLower(n), q) {
-				result = append(result, s)
-			}
+	prefix := strings.TrimPrefix(input, "/")
+
+	// 收集所有可补全项
+	var all []suggestion
+	// 命令
+	for _, c := range AllCommands() {
+		all = append(all, suggestion{
+			text: c.Name(), description: c.Description(), kind: "command",
+		})
+	}
+	// Skill
+	for _, s := range se.skills {
+		all = append(all, suggestion{
+			text: s.text, description: s.description, kind: s.kind,
+		})
+	}
+
+	if prefix == "" {
+		return all
+	}
+
+	lower := strings.ToLower(prefix)
+	var filtered []suggestion
+	for _, s := range all {
+		if strings.HasPrefix(strings.ToLower(s.text), lower) {
+			filtered = append(filtered, s)
 		}
 	}
-	return result
+	return filtered
 }
 
 // ── 提示面板渲染 ──────────────────────────────────────────────
@@ -88,7 +83,7 @@ func renderSuggestions(suggestions []suggestion, selected int, width int) string
 			prefix = "▸ "
 			nameStyle = StyleSuggActive
 		}
-		line := fmt.Sprintf("%s%s [%s]", prefix, s.text, s.kind)
+		line := fmt.Sprintf("%s/%s  [%s]", prefix, s.text, s.kind)
 		if s.description != "" {
 			desc := s.description
 			maxDesc := width - len(line) - 5
@@ -98,10 +93,13 @@ func renderSuggestions(suggestions []suggestion, selected int, width int) string
 			if len(desc) > maxDesc {
 				desc = desc[:maxDesc-3] + "..."
 			}
-			line += fmt.Sprintf("  %s", StyleSuggKind.Render(desc))
+			line += "  " + StyleSuggKind.Render(desc)
 		}
 		b.WriteString(nameStyle.Render(line))
 		b.WriteString("\n")
 	}
 	return b.String()
 }
+
+// Compile guard
+var _ = agent.Options{}

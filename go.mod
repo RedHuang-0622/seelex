@@ -12,6 +12,7 @@ require (
 require (
 	github.com/RedHuang-0622/TemplatePoolByGO v0.1.8 // indirect
 	github.com/RedHuang-0622/microHub v0.1.5 // indirect
+	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
