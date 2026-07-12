@@ -20,10 +20,38 @@ import (
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
-const seelexLogo = `
-    ╔═╗╔═╗╔═╗╔═╗╔╗╔╔╦╗
-    ╚═╗║ ║║ ║║ ║║║║ ║║
-    ╚═╝╚═╝╚═╝╚═╝╝╚╝╚╝╩`
+// ── 全局 Program 引用（用于 tea.Println 输出）────────────────
+
+var prog *tea.Program
+
+func SetProgram(p *tea.Program) { prog = p }
+
+func PrintOutput(kind, text string) {
+	if prog == nil {
+		return
+	}
+	switch kind {
+	case "tool_call":
+		prog.Println(StyleToolCall.Render("  ✎ " + text))
+	case "tool_result":
+		prog.Println(StyleToolResult.Render("    " + text))
+	case "chunk":
+		fmt.Print(text) // 流式文本直接 stdout
+	case "done":
+		prog.Println("")
+	}
+}
+
+// ── 渐变色 SEELEX 艺术字 ──────────────────────────────────────
+
+var gradientSeelex = lipgloss.JoinVertical(lipgloss.Left,
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Render(`███████╗███████╗███████╗██╗     ███████╗██╗  ██╗`),
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6")).Render(`██╔════╝██╔════╝██╔════╝██║     ██╔════╝╚██╗██╔╝`),
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Render(`███████╗█████╗  █████╗  ██║     █████╗   ╚███╔╝ `),
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399")).Render(`╚════██║██╔══╝  ██╔══╝  ██║     ██╔══╝   ██╔██╗ `),
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981")).Render(`███████║███████╗███████╗███████╗███████╗██╔╝ ██╗`),
+	lipgloss.NewStyle().Foreground(lipgloss.Color("#059669")).Render(`╚══════╝╚══════╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝`),
+)
 
 // ── 流式事件 ─────────────────────────────────────────────────
 
@@ -40,7 +68,7 @@ var currentStreamCh chan StreamEvent
 // ── 消息 ────────────────────────────────────────────────────────
 
 type messageView struct {
-	role    string
+	role    string // "user" | "assistant" | "system" | "diff"
 	content string
 	extra   string
 }
@@ -82,9 +110,7 @@ type Model struct {
 	messages []messageView
 
 	streaming bool
-	streamBuf string
 	streamCh  chan StreamEvent
-	lastInput string
 	lastStart time.Time
 
 	suggMode bool
@@ -128,7 +154,7 @@ func NewModel(
 	ta.SetWidth(80)
 	ta.Focus()
 	ta.ShowLineNumbers = false
-	ta.KeyMap.InsertNewline.SetEnabled(false) // Enter = send
+	ta.KeyMap.InsertNewline.SetEnabled(false)
 
 	return Model{
 		eng: eng, client: client, agt: agt, modelName: modelName,
@@ -174,12 +200,10 @@ func (m Model) viewportHeight() int {
 // ── Update ───────────────────────────────────────────────────────
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// 显示 logo 后切到正常界面
 	if m.showLogo && m.ready {
 		m.showLogo = false
 		m.messages = []messageView{
-			{role: "system", content: fmt.Sprintf("Seele CLI — %s", m.modelName)},
-			{role: "system", content: "输入 /help 查看命令"},
+			{role: "system", content: "/help 查看命令"},
 		}
 	}
 	m.checkPrompt()
@@ -201,9 +225,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
-
-	case StreamEvent:
-		return m.handleStreamEvent(msg)
 
 	default:
 		return m, nil
@@ -227,7 +248,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Enter = 发送（由 textarea 配置决定，但仍需拦截）
 	switch msg.String() {
 	case "enter":
 		return m.handleEnter()
@@ -236,7 +256,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 
-	// ↑↓ = 输入历史
 	case "up":
 		if m.suggMode {
 			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
@@ -272,7 +291,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// 补全接受
 	case "tab":
 		if m.suggMode {
 			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 && m.suggIdx < len(s) {
@@ -281,7 +299,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// PgUp/PgDn = viewport 滚动
 	case "pgup":
 		if m.ready {
 			m.viewport.HalfPageUp()
@@ -293,7 +310,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// 其他键 → 转发给 textarea
 	default:
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
@@ -302,16 +318,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// afterInput 在每次 textarea 更新后执行
 func (m *Model) afterInput() {
 	val := m.textarea.Value()
-	// 检测 / 触发命令补全
-	if strings.HasPrefix(val, "/") && !strings.Contains(val, " ") {
-		m.suggMode = true
-		m.suggIdx = 0
-	} else {
-		m.suggMode = false
-	}
+	m.suggMode = strings.HasPrefix(val, "/") && !strings.Contains(val, " ")
 	m.histIdx = -1
 }
 
@@ -350,7 +359,7 @@ func (m *Model) resolvePrompt(choice string) {
 		m.messages = append(m.messages, messageView{role: "system", content: "✓ " + choice})
 	}
 	m.promptCh <- choice
-	m.syncViewport()
+	m.syncView()
 }
 
 func (m *Model) checkPrompt() {
@@ -373,7 +382,6 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	}
 	m.suggMode = false
 
-	// 记录历史
 	if input != "" && (len(m.inputHist) == 0 || m.inputHist[len(m.inputHist)-1] != input) {
 		m.inputHist = append(m.inputHist, input)
 	}
@@ -385,7 +393,6 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.textarea.Reset()
 			return m, nil
 		}
-		// 尝试 skill 匹配
 		parts := strings.Fields(input[1:])
 		if len(parts) > 0 {
 			if s, ok := m.skillReg.Get(parts[0]); ok {
@@ -400,23 +407,25 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, *msg)
 		}
 		m.textarea.Reset()
-		m.syncViewport()
+		m.syncView()
 		return m, nil
 	}
 
-	// 对话
+	// 对话 — Q 加入 TUI, 流式输出走 tea.Println
 	m.messages = append(m.messages, messageView{role: "user", content: input})
-	m.lastInput = input
+	if prog != nil {
+		prog.Println(StyleUser.Render("  Q: " + input))
+	}
 	m.lastStart = time.Now()
 	m.textarea.Reset()
 	m.streaming = true
-	m.streamBuf = ""
 
 	eventCh := make(chan StreamEvent, 256)
 	m.streamCh = eventCh
 	currentStreamCh = eventCh
+
 	go m.doStream(input, eventCh)
-	return m, waitStream(m.streamCh)
+	return m, nil
 }
 
 // ── Skill ────────────────────────────────────────────────────────
@@ -429,11 +438,9 @@ func (m Model) execSkill(sk skill.Skill, args []string) tea.Model {
 	m.eng.SetSystemPrompt(p)
 	m.messages = append(m.messages, messageView{role: "system", content: "加载 Skill: " + sk.Name})
 	m.textarea.Reset()
-	m.syncViewport()
+	m.syncView()
 	return m
 }
-
-// ── 接受提示 ──────────────────────────────────────────────────
 
 func (m Model) acceptSugg(s suggestion) Model {
 	val := m.textarea.Value()
@@ -449,122 +456,28 @@ func (m Model) acceptSugg(s suggestion) Model {
 	return m
 }
 
-// ── 流式 goroutine ──────────────────────────────────────────────
+// ── 流式 ────────────────────────────────────────────────────────
 
 func (m Model) doStream(input string, eventCh chan StreamEvent) {
 	ctx := context.Background()
 	_, err := m.eng.ChatStream(ctx, input, func(chunk string) {
-		select {
-		case eventCh <- StreamEvent{Kind: "chunk", Text: chunk}:
-		default:
-		}
+		// 流式文本直接 stdout（tea.Println 缓冲区满时用 fmt.Print）
+		fmt.Print(chunk)
 	})
-	select {
-	case eventCh <- StreamEvent{Kind: "done", Err: err}:
-	default:
-	}
-}
+	fmt.Println() // 换行
 
-func waitStream(ch chan StreamEvent) tea.Cmd {
-	return func() tea.Msg {
-		return <-ch
-	}
-}
-
-// ── 流式事件处理 ──────────────────────────────────────────────
-
-func (m Model) handleStreamEvent(evt StreamEvent) (tea.Model, tea.Cmd) {
-	switch evt.Kind {
-	case "chunk":
-		m.streamBuf += evt.Text
-		m.syncViewport()
-		return m, waitStream(m.streamCh)
-
-	case "tool_call":
-		args := evt.Extra
-		if len(args) > 60 {
-			args = args[:60] + "..."
-		}
-		m.messages = append(m.messages, messageView{
-			role: "tool_call", content: fmt.Sprintf("✎ %s(%s)", evt.Text, args),
-		})
-		m.syncViewport()
-		return m, waitStream(m.streamCh)
-
-	case "tool_result":
-		label := fmt.Sprintf("✓ %s", evt.Extra)
-		if evt.Duration > 0 {
-			label += fmt.Sprintf(" (%s)", evt.Duration.Round(time.Millisecond))
-		}
-		m.messages = append(m.messages, messageView{
-			role: "tool_result", content: evt.Text, extra: label,
-		})
-		m.syncViewport()
-		return m, waitStream(m.streamCh)
-
-	case "done":
-		m.streaming = false
-		m.streamBuf = ""
-		currentStreamCh = nil
-		if evt.Err != nil {
-			m.messages = append(m.messages, messageView{role: "error", content: evt.Err.Error()})
-		}
-		m.rebuildFromHistory()
-		m.syncViewport()
-		return m, nil
-
-	default:
-		return m, nil
-	}
-}
-
-// ── 从 History 重建 ──────────────────────────────────────────────
-
-func (m *Model) rebuildFromHistory() {
+	// 流结束后在 TUI 插入 A: 摘要
 	hist := m.eng.History()
-	if len(hist) == 0 {
-		return
-	}
-	welcome := "Seele CLI — " + m.modelName
-	if len(m.messages) > 0 {
-		welcome = m.messages[0].content
-	}
-	m.messages = []messageView{{role: "system", content: welcome}}
-	for _, h := range hist {
-		switch h.Role {
-		case "system":
-			if h.Content != nil {
-				m.messages = append(m.messages, messageView{role: "system", content: *h.Content})
-			}
-		case "user":
-			if h.Content != nil {
-				m.messages = append(m.messages, messageView{role: "user", content: *h.Content})
-			}
-		case "assistant":
-			if h.Content != nil && *h.Content != "" {
-				m.messages = append(m.messages, messageView{role: "assistant", content: *h.Content})
-			}
-			for _, tc := range h.ToolCalls {
-				args := tc.Function.Arguments
-				if len(args) > 80 {
-					args = args[:80] + "..."
-				}
-				m.messages = append(m.messages, messageView{
-					role: "tool_call", content: fmt.Sprintf("✎ %s(%s)", tc.Function.Name, args),
-				})
-			}
-		case "tool":
-			content := ""
-			if h.Content != nil {
-				content = *h.Content
-				if len(content) > 120 {
-					content = content[:120] + "..."
-				}
-			}
-			m.messages = append(m.messages, messageView{
-				role: "tool_result", content: content, extra: "✓ " + h.Name,
-			})
+	for i := len(hist) - 1; i >= 0; i-- {
+		if hist[i].Role == "assistant" && hist[i].Content != nil {
+			prog.Println(StyleAssistant.Render("  A: " + *hist[i].Content))
+			break
 		}
+	}
+	_ = eventCh
+	currentStreamCh = nil
+	if err != nil {
+		prog.Println(StyleError.Render("  ✖ " + err.Error()))
 	}
 }
 
@@ -572,14 +485,11 @@ func (m *Model) rebuildFromHistory() {
 
 func (m Model) View() string {
 	if !m.ready {
-		return StyleBanner.Render(seelexLogo) + "\n\n  Loading...\n"
+		return gradientSeelex + "\n\n  Loading...\n"
 	}
-
-	// Logo 页面
 	if m.showLogo {
-		return StyleBanner.Render(seelexLogo) + "\n" +
-			StyleMuted.Render("  Seele TUI Client  ") +
-			StyleSessionID.Render(m.modelName) + "\n\n" +
+		return gradientSeelex + "\n" +
+			StyleMuted.Render("  " + m.modelName) + "\n\n" +
 			StyleMuted.Render("  loading...")
 	}
 
@@ -590,7 +500,7 @@ func (m Model) View() string {
 	b.WriteString(StyleMuted.Render(fmt.Sprintf("  %s", m.modelName)))
 	b.WriteString("\n")
 
-	// Viewport
+	// Viewport — 仅显示 Q&A + diff
 	m.viewport.SetContent(m.renderMessages())
 	b.WriteString(m.viewport.View())
 
@@ -641,57 +551,42 @@ func (m Model) renderPrompt() string {
 	return b.String()
 }
 
-// ── 消息渲染 ─────────────────────────────────────────────────
+// ── 消息渲染（Q&A + diff）───────────────────────────────────
 
 func (m Model) renderMessages() string {
 	var b strings.Builder
 	for _, msg := range m.messages {
 		switch msg.role {
 		case "user":
-			b.WriteString(StyleUser.Render("  You"))
-			b.WriteString("\n  ")
+			b.WriteString(StyleUser.Render("  Q: "))
 			b.WriteString(msg.content)
 			b.WriteString("\n\n")
 		case "assistant":
-			b.WriteString(StyleAssistant.Render("  Seele"))
-			b.WriteString("\n  ")
+			b.WriteString(StyleAssistant.Render("  A: "))
 			b.WriteString(msg.content)
 			b.WriteString("\n\n")
-		case "tool_call":
-			b.WriteString(StyleToolCall.Render("  " + msg.content))
-			b.WriteString("\n")
-		case "tool_result":
-			if msg.extra != "" {
-				b.WriteString("  ")
-				b.WriteString(StyleConfirm.Render(msg.extra))
-				b.WriteString("\n")
-			}
-			if msg.content != "" {
-				display := msg.content
-				if len(display) > 200 {
-					display = display[:200] + "..."
+		case "diff":
+			// 代码 diff: 绿色+ / 红色-
+			for _, line := range strings.Split(msg.content, "\n") {
+				if strings.HasPrefix(line, "+") {
+					b.WriteString(StyleDiffAdd.Render("  " + line))
+				} else if strings.HasPrefix(line, "-") {
+					b.WriteString(StyleDiffDel.Render("  " + line))
+				} else {
+					b.WriteString("  " + line)
 				}
-				b.WriteString(StyleToolResult.Render("    " + display))
 				b.WriteString("\n")
 			}
+			b.WriteString("\n")
 		case "system":
 			b.WriteString(StyleSystem.Render("  ● " + msg.content))
 			b.WriteString("\n")
-		case "error":
-			b.WriteString(StyleError.Render("  ✖ " + msg.content))
-			b.WriteString("\n")
 		}
-	}
-	if m.streaming && m.streamBuf != "" {
-		b.WriteString(StyleAssistant.Render("  Seele"))
-		b.WriteString("\n")
-		b.WriteString(StyleStream.Render("  " + m.streamBuf))
-		b.WriteString("\n")
 	}
 	return b.String()
 }
 
-func (m *Model) syncViewport() {
+func (m *Model) syncView() {
 	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
 }
@@ -710,9 +605,6 @@ func (m Model) renderStatus() string {
 	}
 	if plugin != "" && plugin != "default" {
 		left += fmt.Sprintf(" [%s]", plugin)
-	}
-	if m.streaming {
-		left += " …"
 	}
 	right := fmt.Sprintf("tok:%s  %s", tokens, elapsed)
 	padding := max(m.width-lipgloss.Width(right)-lipgloss.Width(left)-4, 0)
@@ -744,34 +636,23 @@ func tokensFromEngine(eng *engine.Engine) string {
 func CreateToolHooks() *engine.LoopHooks {
 	return &engine.LoopHooks{
 		OnToolStart: func(_ context.Context, info engine.ToolCallInfo) {
-			if currentStreamCh == nil {
+			if prog == nil {
 				return
 			}
-			select {
-			case currentStreamCh <- StreamEvent{
-				Kind: "tool_call", Text: info.Name, Extra: info.Arguments,
-			}:
-			default:
-			}
+			prog.Println(StyleToolCall.Render("  ✎ " + info.Name + "(" + info.Arguments + ")"))
 		},
 		OnToolComplete: func(_ context.Context, info engine.ToolCallInfo) {
-			if currentStreamCh == nil {
+			if prog == nil {
 				return
 			}
 			result := info.Result
-			if len(result) > 120 {
-				result = result[:120] + "..."
+			if len(result) > 200 {
+				result = result[:200] + "..."
 			}
 			if info.Error != nil {
 				result = info.Error.Error()
 			}
-			select {
-			case currentStreamCh <- StreamEvent{
-				Kind: "tool_result", Text: result, Extra: info.Name,
-				Duration: info.Duration,
-			}:
-			default:
-			}
+			prog.Println(StyleToolResult.Render("    " + result))
 		},
 	}
 }
