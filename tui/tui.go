@@ -226,9 +226,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case StreamEvent:
+		return m.handleStreamEvent(msg)
+
 	default:
 		return m, nil
 	}
+}
+
+// ── 流式事件（仅 done 事件复位 streaming）────────────────────
+
+func (m Model) handleStreamEvent(evt StreamEvent) (tea.Model, tea.Cmd) {
+	if evt.Kind == "done" {
+		m.streaming = false
+	}
+	return m, nil
 }
 
 // ── 键盘 ──────────────────────────────────────────────────────
@@ -425,7 +437,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	currentStreamCh = eventCh
 
 	go m.doStream(input, eventCh)
-	return m, nil
+	return m, waitStream(m.streamCh)
 }
 
 // ── Skill ────────────────────────────────────────────────────────
@@ -461,23 +473,35 @@ func (m Model) acceptSugg(s suggestion) Model {
 func (m Model) doStream(input string, eventCh chan StreamEvent) {
 	ctx := context.Background()
 	_, err := m.eng.ChatStream(ctx, input, func(chunk string) {
-		// 流式文本直接 stdout（tea.Println 缓冲区满时用 fmt.Print）
 		fmt.Print(chunk)
 	})
-	fmt.Println() // 换行
+	fmt.Println()
 
-	// 流结束后在 TUI 插入 A: 摘要
+	// 流结束后打印 A: 摘要
 	hist := m.eng.History()
 	for i := len(hist) - 1; i >= 0; i-- {
 		if hist[i].Role == "assistant" && hist[i].Content != nil {
-			prog.Println(StyleAssistant.Render("  A: " + *hist[i].Content))
+			if prog != nil {
+				prog.Println(StyleAssistant.Render("  A: " + *hist[i].Content))
+			}
 			break
 		}
 	}
-	_ = eventCh
 	currentStreamCh = nil
-	if err != nil {
+	if err != nil && prog != nil {
 		prog.Println(StyleError.Render("  ✖ " + err.Error()))
+	}
+
+	// 发送 done 事件让 TUI 复位 streaming
+	select {
+	case eventCh <- StreamEvent{Kind: "done"}:
+	default:
+	}
+}
+
+func waitStream(ch chan StreamEvent) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
 	}
 }
 
@@ -551,7 +575,7 @@ func (m Model) renderPrompt() string {
 	return b.String()
 }
 
-// ── 消息渲染（Q&A + diff）───────────────────────────────────
+// ── 消息渲染（仅 Q/A/工具链/diff）───────────────────────────
 
 func (m Model) renderMessages() string {
 	var b strings.Builder
@@ -565,8 +589,13 @@ func (m Model) renderMessages() string {
 			b.WriteString(StyleAssistant.Render("  A: "))
 			b.WriteString(msg.content)
 			b.WriteString("\n\n")
+		case "tool_call":
+			b.WriteString(StyleToolCall.Render("  " + msg.content))
+			b.WriteString("\n")
+		case "tool_result":
+			b.WriteString(StyleToolResult.Render("  " + msg.content))
+			b.WriteString("\n")
 		case "diff":
-			// 代码 diff: 绿色+ / 红色-
 			for _, line := range strings.Split(msg.content, "\n") {
 				if strings.HasPrefix(line, "+") {
 					b.WriteString(StyleDiffAdd.Render("  " + line))
@@ -577,9 +606,6 @@ func (m Model) renderMessages() string {
 				}
 				b.WriteString("\n")
 			}
-			b.WriteString("\n")
-		case "system":
-			b.WriteString(StyleSystem.Render("  ● " + msg.content))
 			b.WriteString("\n")
 		}
 	}
