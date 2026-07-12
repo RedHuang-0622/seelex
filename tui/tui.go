@@ -36,7 +36,9 @@ func PrintOutput(kind, text string) {
 	case "tool_result":
 		prog.Println(StyleToolResult.Render("    " + text))
 	case "chunk":
-		fmt.Print(text) // 流式文本直接 stdout
+		if prog != nil {
+			prog.Printf("%s", text)
+		}
 	case "done":
 		prog.Println("")
 	}
@@ -473,10 +475,16 @@ func (m Model) acceptSugg(s suggestion) Model {
 
 func (m Model) doStream(input string, eventCh chan StreamEvent) {
 	ctx := context.Background()
+	var lastOutput string
 	_, err := m.eng.ChatStream(ctx, input, func(chunk string) {
-		fmt.Print(chunk)
+		lastOutput += chunk
+		if prog != nil {
+			prog.Printf("%s", chunk)
+		}
 	})
-	fmt.Println()
+	if lastOutput != "" && prog != nil {
+		prog.Println("")
+	}
 
 	// 流结束后打印 A: 摘要
 	hist := m.eng.History()
