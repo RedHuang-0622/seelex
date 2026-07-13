@@ -60,7 +60,7 @@ func (m Model) handleStreamChunk(msg streamChunk) (tea.Model, tea.Cmd) {
 	}
 	if msg.done {
 		m.state.Streaming = false
-tm.viewport.Height = m.convHeight()
+		m.viewport.Height = m.convHeight()
 		if msg.err != nil {
 			m.state.Conv.Add(Cell{Kind: CellError, Content: msg.err.Error()})
 		} else {

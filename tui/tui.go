@@ -370,7 +370,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	m.lastStart = time.Now()
 	m.textarea.Reset()
 	m.state.Streaming = true
-tm.viewport.Height = m.convHeight()
+	m.viewport.Height = m.convHeight()
 
 	go m.doStream(input)
 	return m, waitStream(m.streamCh)
