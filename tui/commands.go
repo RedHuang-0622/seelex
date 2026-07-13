@@ -236,27 +236,5 @@ func executeCommand(raw string) *messageView {
 	}
 }
 
-// ── 命令补全提示 ────────────────────────────────────────────
-
-func commandSuggestions(prefix string) []suggestion {
-	if prefix == "" {
-		all := AllCommands()
-		s := make([]suggestion, len(all))
-		for i, c := range all {
-			s[i] = suggestion{text: "/" + c.Name(), description: c.Description(), kind: "command"}
-		}
-		return s
-	}
-	lower := strings.ToLower(prefix)
-	var res []suggestion
-	for _, c := range AllCommands() {
-		n := "/" + c.Name()
-		if strings.HasPrefix(strings.ToLower(n), lower) {
-			res = append(res, suggestion{text: n, description: c.Description(), kind: "command"})
-		}
-	}
-	return res
-}
-
 // Keep import of types alive
 var _ = types.Message{}

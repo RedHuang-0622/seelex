@@ -204,7 +204,6 @@ func main() {
 		tea.WithAltScreen(),
 			tea.WithMouseCellMotion(),
 	)
-		tui.SetProgram(p)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "✖ TUI 错误: %v\n", err)
 		os.Exit(1)

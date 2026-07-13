@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/Seele/seelectx/storage"
+	"github.com/RedHuang-0622/Seele/types"
 )
 
 // Manager 薄包装 Seele 的 storage.Store，提供 /new 和 /resume 能力
@@ -56,4 +57,9 @@ func (m *Manager) List() []storage.SessionMeta {
 // Delete 删除会话
 func (m *Manager) Delete(sessionID string) error {
 	return m.store.Delete(sessionID)
+}
+
+// LoadHistory 获取会话的历史消息
+func (m *Manager) LoadHistory(sessionID string) ([]types.Message, error) {
+	return m.store.Load(sessionID)
 }

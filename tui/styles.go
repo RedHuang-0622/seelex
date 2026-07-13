@@ -13,7 +13,7 @@ var (
 	StyleError     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171"))
 
 	// 工具链
-	StyleToolCall  = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Italic(true)
+	StyleToolCall   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Italic(true)
 	StyleToolResult = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
 
 	// 红绿 diff（代码高亮变更）
@@ -21,8 +21,8 @@ var (
 	StyleDiffDel = lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")) // 红：删除
 
 	// 确认/选择
-	StyleConfirm     = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
-	StyleChoiceActive = lipgloss.NewStyle().
+	StyleConfirm       = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B")).Bold(true)
+	StyleChoiceActive  = lipgloss.NewStyle().
 				Background(lipgloss.Color("#7C3AED")).
 				Foreground(lipgloss.Color("#FFFFFF"))
 	StyleChoiceInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB"))
@@ -41,6 +41,17 @@ var (
 
 	// 会话
 	StyleSessionID = lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399"))
+
+	StyleTaskRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B"))
+	StyleTaskDone    = lipgloss.NewStyle().Foreground(lipgloss.Color("#34D399"))
+	StyleTaskItem    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB"))
+
+	// 快捷栏
+	StyleShortcut    = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	StyleShortcutBar = lipgloss.NewStyle().
+				Background(lipgloss.Color("#1F2937")).
+				Foreground(lipgloss.Color("#9CA3AF")).
+				Padding(0, 1)
 
 	// 输入框
 	StyleInputBox    = lipgloss.NewStyle().
