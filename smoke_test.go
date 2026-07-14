@@ -29,7 +29,7 @@ func TestSmokeLLM(t *testing.T) {
 		t.Skipf("跳过: 加载配置失败: %v", err)
 	}
 	first := result.Pool.All()[0]
-	if first.APIKey == "" || first.APIKey == "sk-your-api-key-here" {
+	if first.APIKey == "" || len(first.APIKey) < 10 {
 		t.Skip("跳过: 未配置有效 API Key")
 	}
 
