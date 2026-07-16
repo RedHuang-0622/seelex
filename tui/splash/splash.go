@@ -1,8 +1,5 @@
-// ── 启动画面：渐变色艺术字 ─────────────────────────────────
-//
-// 首条消息发送前全屏居中显示
-
-package tui
+// Package splash 提供启动画面的渐变色艺术字渲染。
+package splash
 
 import (
 	"fmt"
@@ -11,9 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── 渐变色 SEELEX 艺术字 ──────────────────────────────────────
-
-var gradientSeelex = lipgloss.JoinVertical(lipgloss.Left,
+var Gradient = lipgloss.JoinVertical(lipgloss.Left,
 	lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED")).Render(`███████╗███████╗███████╗██╗     ███████╗██╗  ██╗`),
 	lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6")).Render(`██╔════╝██╔════╝██╔════╝██║     ██╔════╝╚██╗██╔╝`),
 	lipgloss.NewStyle().Foreground(lipgloss.Color("#A78BFA")).Render(`███████╗█████╗  █████╗  ██║     █████╗   ╚███╔╝ `),
@@ -22,34 +17,30 @@ var gradientSeelex = lipgloss.JoinVertical(lipgloss.Left,
 	lipgloss.NewStyle().Foreground(lipgloss.Color("#059669")).Render(`╚══════╝╚══════╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝`),
 )
 
-// ── 启动画面渲染（垂直水平居中） ──────────────────────────
-
-func (m Model) renderSplash() string {
-	logo := gradientSeelex
+// Render 返回垂直水平居中的启动画面。
+func Render(width, height int, modelName string) string {
+	logo := Gradient
 	logoLines := strings.Count(logo, "\n") + 1
-	infoLines := 2
-	totalLines := logoLines + infoLines + 1
-	vPad := (m.height - totalLines) / 2
+	totalLines := logoLines + 2 + 1
+	vPad := (height - totalLines) / 2
 	if vPad < 1 {
 		vPad = 1
 	}
 
 	var b strings.Builder
-	for i := 0; i < vPad; i++ {
-		b.WriteString("\n")
-	}
+	b.WriteString(strings.Repeat("\n", vPad))
 	for _, line := range strings.Split(logo, "\n") {
-		padding := (m.width - lipgloss.Width(line)) / 2
-		if padding < 0 {
-			padding = 0
+		pad := (width - lipgloss.Width(line)) / 2
+		if pad < 0 {
+			pad = 0
 		}
-		b.WriteString(strings.Repeat(" ", padding))
+		b.WriteString(strings.Repeat(" ", pad))
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 
-	modelLine := StyleMuted.Render(fmt.Sprintf("  %s", m.modelName))
-	mp := (m.width - lipgloss.Width(modelLine)) / 2
+	modelLine := mutedStyle.Render(fmt.Sprintf("  %s", modelName))
+	mp := (width - lipgloss.Width(modelLine)) / 2
 	if mp < 0 {
 		mp = 0
 	}
@@ -57,8 +48,8 @@ func (m Model) renderSplash() string {
 	b.WriteString(modelLine)
 	b.WriteString("\n\n")
 
-	hint := StyleMuted.Render("  enter to start")
-	hp := (m.width - lipgloss.Width(hint)) / 2
+	hint := mutedStyle.Render("  enter to start")
+	hp := (width - lipgloss.Width(hint)) / 2
 	if hp < 0 {
 		hp = 0
 	}
@@ -67,3 +58,5 @@ func (m Model) renderSplash() string {
 
 	return b.String()
 }
+
+var mutedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))

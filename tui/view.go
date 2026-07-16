@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/RedHuang-0622/seelex/tui/splash"
 )
 
 // ── 布局计算 ────────────────────────────────────────────────────
@@ -28,7 +30,7 @@ func (m Model) topPanelH() int { return 1 + 1 }
 func (m Model) midPanelH() int {
 	h := 0
 	if m.suggMode {
-		if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
+		if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
 			h += suggWindowSize + 3 // 窗口大小 + 上下滚动提示 + 间距
 		}
 	}
@@ -47,10 +49,10 @@ func (m Model) bottomPanelH() int {
 
 func (m Model) View() string {
 	if !m.ready {
-		return gradientSeelex + "\n\n  Loading...\n"
+		return splash.Gradient + "\n\n  Loading...\n"
 	}
 	if m.showLogo {
-		return m.renderSplash()
+		return splash.Render(m.width, m.height, m.modelName)
 	}
 
 	var b strings.Builder
@@ -81,7 +83,7 @@ func (m Model) View() string {
 
 	// ═══ 建议面板 ═══
 	if m.suggMode {
-		if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
+		if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
 			b.WriteString(renderSuggestions(s, m.suggIdx, m.suggOffset, m.width, m.textarea.Value()))
 		}
 	}

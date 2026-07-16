@@ -222,6 +222,9 @@ func main() {
 		skillReg, skillLoader,
 	)
 
+	// 同步命令到 sugg 引擎（Model 创建后执行）
+	tui.SyncCommandSuggestions(m.SuggEng)
+
 	// ── 第 8 层：启动 TUI ────────────────────────────────────────
 	p := tea.NewProgram(
 		m,

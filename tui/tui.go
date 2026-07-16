@@ -23,6 +23,7 @@ import (
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
 	tuiApprove "github.com/RedHuang-0622/seelex/tui/approve"
+	"github.com/RedHuang-0622/seelex/tui/sugg"
 )
 
 // skillsNeedRefresh 由 Skill 管理命令设置，在 handleEnter 中消费
@@ -45,7 +46,7 @@ type Model struct {
 	modelName  string
 	sessionMgr *session.Manager
 	skillReg   *skill.Registry
-	suggEng    *suggestionEngine
+	SuggEng    *sugg.Engine
 
 	// ─ 输入区 ─
 	textarea  textarea.Model
@@ -93,11 +94,11 @@ func NewModel(
 	client *api.ChatClient, agt *agent.Agent,
 	sessionMgr *session.Manager, skillReg *skill.Registry,
 ) Model {
-	se := newSuggestionEngine(agt)
+	se := sugg.NewEngine(agt)
 	skills := skillReg.All()
-	ss := make([]suggestion, 0, len(skills))
+	ss := make([]sugg.Suggestion, 0, len(skills))
 	for _, s := range skills {
-		ss = append(ss, suggestion{text: s.Name, description: s.Description, kind: "skill"})
+		ss = append(ss, sugg.Suggestion{Text: s.Name, Description: s.Description, Kind: "skill"})
 	}
 	se.SetSkills(ss)
 	se.RefreshTools()
@@ -118,7 +119,7 @@ func NewModel(
 		modelName:  modelName,
 		sessionMgr: sessionMgr,
 		skillReg:   skillReg,
-		suggEng:    se,
+		SuggEng:    se,
 		textarea:   ta,
 		streamCh:   make(chan streamChunk, 256),
 		showLogo:   true,
@@ -209,7 +210,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "up":
 		if m.suggMode {
-			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
+			if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
 				m.suggIdx = (m.suggIdx - 1 + len(s)) % len(s)
 				if m.suggIdx < m.suggOffset {
 					m.suggOffset = m.suggIdx
@@ -229,7 +230,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "down":
 		if m.suggMode {
-			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
+			if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
 				m.suggIdx = (m.suggIdx + 1) % len(s)
 				if m.suggIdx >= m.suggOffset+suggWindowSize {
 					m.suggOffset = m.suggIdx - suggWindowSize + 1
@@ -250,7 +251,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "tab":
 		if m.suggMode {
-			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 && m.suggIdx < len(s) {
+			if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 && m.suggIdx < len(s) {
 				m = m.acceptSugg(s[m.suggIdx])
 			}
 		}
@@ -418,23 +419,23 @@ func (m Model) execSkill(sk skill.Skill, args []string) tea.Model {
 // RefreshSkills 从 Registry 重新加载 Skill 到建议引擎
 func (m *Model) RefreshSkills() {
 	skills := m.skillReg.All()
-	ss := make([]suggestion, 0, len(skills))
+	ss := make([]sugg.Suggestion, 0, len(skills))
 	for _, s := range skills {
-		ss = append(ss, suggestion{text: s.Name, description: s.Description, kind: "skill"})
+		ss = append(ss, sugg.Suggestion{Text: s.Name, Description: s.Description, Kind: "skill"})
 	}
-	m.suggEng.SetSkills(ss)
+	m.SuggEng.SetSkills(ss)
 }
 
 // ── 接受提示建议 ─────────────────────────────────────────────
 
-func (m Model) acceptSugg(s suggestion) Model {
+func (m Model) acceptSugg(s sugg.Suggestion) Model {
 	val := m.textarea.Value()
 	if idx := strings.LastIndex(val, "/"); idx >= 0 {
 		val = val[:idx+1]
 	} else {
 		val = ""
 	}
-	m.textarea.SetValue(val + s.text + " ")
+	m.textarea.SetValue(val + s.Text + " ")
 	m.textarea.CursorEnd()
 	m.suggMode = false
 	m.suggIdx = 0
