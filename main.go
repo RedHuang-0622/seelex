@@ -4,8 +4,8 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -31,27 +31,55 @@ import (
 	tuiApprove "github.com/RedHuang-0622/seelex/tui/approve"
 )
 
-var configPath = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
+// ── CLI 标志（ARC-007/ARC-012 修复：路径可配置） ─────────────
+
+var (
+	configPath  = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
+	storePath   = flag.String("store", "", "持久化存储路径（空=当前目录）")
+	skillsPaths = flag.String("skills", "skills,cmd/repl/skills", "Skill 加载路径（逗号分隔）")
+)
 
 func main() {
 	flag.Parse()
 
-	// ── 第 1 层：基础依赖 ─────────────────────────────────────────
+	agt, first := initAgent()
+	defer agt.Shutdown()
+
+	chatClient := initChatClient(agt)
+	chatClient.WithAccountPool(first.Pool)
+	initTools(agt, chatClient)
+	initPermissionGate(agt)
+
+	store := initStore()
+	eng := initEngine(agt, store)
+	sessionMgr := initSessionManager(store, eng)
+	skillReg := initSkillSystem()
+	m := initTUI(eng, first.Model, chatClient, agt, sessionMgr, skillReg)
+
+	initCommands(eng, chatClient, first.Model, sessionMgr, skillReg, m)
+	startTUI(m)
+}
+
+// ── 第 1 层：Agent ──────────────────────────────────────────────
+
+type firstAccount struct {
+	Model string
+	Pool  *api.AccountPool
+}
+
+func initAgent() (*agent.Agent, *firstAccount) {
 	result, err := api.LoadFullAccountsConfig(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "✖ 加载配置失败: %v\n", err)
 		os.Exit(1)
 	}
-	ls := result.LLMDefaults
-	pool := result.Pool
-	first := pool.All()[0]
-
+	first := result.Pool.All()[0]
 	llmCfg := types.LLMConfig{
 		BaseURL: first.BaseURL, APIKey: first.APIKey, Model: first.Model,
-		MaxTokens: ls.MaxTokens, Timeout: ls.Timeout, Temperature: ls.Temperature,
+		MaxTokens: result.LLMDefaults.MaxTokens,
+		Timeout:   result.LLMDefaults.Timeout,
+		Temperature: result.LLMDefaults.Temperature,
 	}
-
-	// 创建 Agent
 	agt, err := agent.New(agent.Options{
 		LLMConfig: llmCfg, ToolCallTimeOut: 120 * time.Second, HubStartupDelay: 10,
 	})
@@ -59,83 +87,93 @@ func main() {
 		fmt.Fprintf(os.Stderr, "✖ Agent 初始化失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer agt.Shutdown()
+	return agt, &firstAccount{Model: first.Model, Pool: result.Pool}
+}
 
-	chatClient := agt.LLM().(*api.ChatClient)
-	chatClient.WithAccountPool(pool)
-	if ls.Provider != "" {
-		chatClient.SetProvider(ls.Provider)
+// ── ARC-002 修复：安全的 ChatClient 获取 ─────────────────────
+
+func initChatClient(agt *agent.Agent) *api.ChatClient {
+	llmClient := agt.LLM()
+	chatClient, ok := llmClient.(*api.ChatClient)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "✖ LLM 客户端类型不匹配: %T\n", llmClient)
+		os.Exit(1)
 	}
+	return chatClient
+}
 
-	// ── 第 2 层：工具与插件注册 ──────────────────────────────────
+// ── 第 2 层：工具注册 ─────────────────────────────────────────
+
+func initTools(agt *agent.Agent, client *api.ChatClient) {
 	builtin.RegisterAll(agt.Tools())
+	registerTimeTool(agt)
+	agt.Tools().Register(builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(agt.LLM())))
+	initPlugins(agt)
+	registerSwitchMode(agt)
+	registerAskApprove(agt)
+	_ = client
+}
+
+func registerTimeTool(agt *agent.Agent) {
 	agt.RegisterTool("get_time", "获取当前日期和时间",
 		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		func(_ context.Context, _ string) (string, error) {
 			return fmt.Sprintf(`"%s"`, time.Now().Format("2006-01-02 15:04:05")), nil
 		},
 	)
+}
 
-	wpt := builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(agt.LLM()))
-	agt.Tools().Register(wpt)
+// ── ARC-004 修复：switch_mode 错误时返回 error ──────────────
 
-	initPlugins(agt)
-
-	// ── switch_mode 工具 ──────────────────────────────────────────
+func registerSwitchMode(agt *agent.Agent) {
 	agt.RegisterTool(
 		"switch_mode",
 		"切换工作模式以改变可用工具集。模式包括：default(全部), "+
-			"read(搜索/读取), write(编辑), git(版本控制), shell(命令执行), plan(工作流)。"+
-			"切换后后续回合自动生效。",
+			"read(搜索/读取), write(编辑), git(版本控制), shell(命令执行), plan(工作流)。",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"mode": map[string]interface{}{
-					"type":        "string",
-					"enum":        []interface{}{"default", "read", "write", "git", "shell", "plan"},
+					"type": "string",
+					"enum": []interface{}{"default", "read", "write", "git", "shell", "plan"},
 					"description": "目标模式",
 				},
 			},
 			"required": []string{"mode"},
 		},
 		func(_ context.Context, argsJSON string) (string, error) {
-			var input struct {
-				Mode string `json:"mode"`
-			}
+			var input struct{ Mode string }
 			if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 				return "", fmt.Errorf("switch_mode: %w", err)
 			}
 			mode := strings.ToLower(input.Mode)
 			if mode == "" || mode == "default" {
 				agt.Tools().DeactivatePlugin()
-			} else {
-				if err := agt.Tools().ActivatePlugin(mode); err != nil {
-					return fmt.Sprintf(`{"error":"unknown mode: %s"}`, mode), nil
-				}
+			} else if err := agt.Tools().ActivatePlugin(mode); err != nil {
+				return "", fmt.Errorf("switch_mode: unknown mode %q", mode)
 			}
-			visible := agt.VisibleTools(context.Background())
+			visible := agt.VisibleTools(nil)
 			all := agt.Tools().Tools()
 			return fmt.Sprintf(`{"mode":"%s","visible_tools":%d,"total_tools":%d}`,
 				mode, len(visible), len(all)), nil
 		},
 	)
+}
 
-	// ── ask_approve 工具（复用 sugar/approve.Question）────────────
+func registerAskApprove(agt *agent.Agent) {
 	agt.RegisterTool(
 		"ask_approve",
-		"向用户请求操作确认。当需要执行高风险操作时调用此工具，提供清晰问题描述和选项列表。",
+		"向用户请求操作确认。当需要执行高风险操作时调用此工具。",
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"question": map[string]interface{}{
-					"type":        "string",
+					"type": "string",
 					"description": "向用户展示的确认问题",
 				},
 				"choices": map[string]interface{}{
 					"type": "array",
-					"items": map[string]interface{}{
-						"type": "string",
-					},
+					"items": map[string]interface{}{"type": "string"},
 					"description": "可选项列表（默认: Yes/No）",
 				},
 			},
@@ -175,69 +213,9 @@ func main() {
 			return fmt.Sprintf(`{"approved":true,"choice":"%s"}`, result), nil
 		},
 	)
-
-	// ── 权限门控（Permission Gate） ─────────────────────────────────
-	initPermissionGate(agt)
-
-	// ── 第 3 层：会话持久化 + Engine ──────────────────────────────
-	store, err := storage.NewStore("")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "✖ 初始化存储失败: %v\n", err)
-		os.Exit(1)
-	}
-	eng := engine.New(agt, engine.WithStore(store),
-		engine.WithTracer(tracer.NewSimpleTracer()),
-		engine.WithHooks(tui.CreateToolHooks()),
-	)
-
-	// ── 第 4 层：会话管理（薄包装）────────────────────────────────
-	sessionMgr := session.NewManager(store)
-	sessionMgr.InjectSaveLoad(
-		func(sessionID string) error {
-			return store.Save(sessionID, eng.History())
-		},
-		func(sessionID string) error {
-			messages, err := store.Load(sessionID)
-			if err != nil {
-				return err
-			}
-			eng.ClearHistory()
-			for _, msg := range messages {
-				_ = msg
-			}
-			return nil
-		},
-	)
-
-	// ── 第 5 层：Skill 加载 ──────────────────────────────────────
-	skillReg := skill.NewRegistry()
-	skillLoader := skill.NewLoader("skills", "cmd/repl/skills")
-	_ = skillReg.AddLoader(skillLoader)
-
-	// ── 第 6 层：TUI 装配 ────────────────────────────────────────
-	m := tui.NewModel(eng, first.Model, chatClient, agt, sessionMgr, skillReg)
-
-	// ── 第 7 层：命令注册 ────────────────────────────────────────
-	tui.RegisterCommands(eng, chatClient, first.Model, sessionMgr,
-		skillReg, skillLoader,
-	)
-
-	// 同步命令到 sugg 引擎（Model 创建后执行）
-	tui.SyncCommandSuggestions(m.SuggEng)
-
-	// ── 第 8 层：启动 TUI ────────────────────────────────────────
-	p := tea.NewProgram(
-		m,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "✖ TUI 错误: %v\n", err)
-		os.Exit(1)
-	}
 }
 
-// ── 插件系统（工厂模式）────────────────────────────────────────
+// ── 插件系统 ─────────────────────────────────────────────────
 
 func initPlugins(agt *agent.Agent) {
 	pm := holder.NewPluginManager()
@@ -258,7 +236,94 @@ func initPlugins(agt *agent.Agent) {
 	agt.Tools().WithPluginManager(pm)
 }
 
-// ── 权限门控初始化 ─────────────────────────────────────────
+// ── 第 3 层：存储 + Engine ─────────────────────────────────────
+
+// ARC-007 修复：使用可配置的存储路径
+func initStore() *storage.Store {
+	store, err := storage.NewStore(*storePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✖ 初始化存储失败: %v\n", err)
+		os.Exit(1)
+	}
+	return store
+}
+
+func initEngine(agt *agent.Agent, store *storage.Store) *engine.Engine {
+	return engine.New(agt,
+		engine.WithStore(store),
+		engine.WithTracer(tracer.NewSimpleTracer()),
+		engine.WithHooks(tui.CreateToolHooks()),
+	)
+}
+
+// ── 第 4 层：会话管理 ─────────────────────────────────────────
+
+func initSessionManager(store *storage.Store, eng *engine.Engine) *session.Manager {
+	sessionMgr := session.NewManager(store)
+	sessionMgr.InjectSaveLoad(
+		func(sessionID string) error {
+			return store.Save(sessionID, eng.History())
+		},
+		func(sessionID string) error {
+			messages, err := store.Load(sessionID)
+			if err != nil {
+				return err
+			}
+			eng.ClearHistory()
+			// ARC-010a 修复：将消息注入 Engine 历史
+			for _, msg := range messages {
+				eng.AppendHistory(msg)
+			}
+			return nil
+		},
+	)
+	return sessionMgr
+}
+
+// ── 第 5 层：Skill 系统（ARC-011 修复：错误不忽略） ────────
+
+func initSkillSystem() *skill.Registry {
+	skillReg := skill.NewRegistry()
+	paths := strings.Split(*skillsPaths, ",")
+	skillLoader := skill.NewLoader(paths...)
+	if err := skillReg.AddLoader(skillLoader); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Skill 加载警告: %v\n", err)
+	}
+	return skillReg
+}
+
+// ── 第 6 层：TUI 装配 ────────────────────────────────────────
+
+func initTUI(
+	eng *engine.Engine, modelName string,
+	client *api.ChatClient, agt *agent.Agent,
+	sessionMgr *session.Manager, skillReg *skill.Registry,
+) tui.Model {
+	return tui.NewModel(eng, modelName, client, agt, sessionMgr, skillReg)
+}
+
+// ── 第 7 层：命令注册 ────────────────────────────────────────
+
+func initCommands(
+	eng *engine.Engine, client *api.ChatClient, modelName string,
+	sessionMgr *session.Manager, skillReg *skill.Registry, m tui.Model,
+) {
+	tui.RegisterCommands(eng, client, modelName, sessionMgr, skillReg, nil)
+	tui.SyncCommandSuggestions(m.SuggEng)
+	_ = skillReg
+}
+
+// ── 第 8 层：TUI 启动 ────────────────────────────────────────
+
+func startTUI(m tui.Model) {
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "✖ TUI 错误: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// ── 权限门控 ─────────────────────────────────────────────────
 
 func initPermissionGate(agt *agent.Agent) {
 	cfg := permission.PermissionConfig{}
@@ -279,8 +344,6 @@ func initPermissionGate(agt *agent.Agent) {
 			{ToolName: "delete", Patterns: []string{"*"}, Action: permission.ActionAsk},
 		}
 	}
-
-	// 桥接：将 Permission Gate 的 ApprovalRequest 转为 sugar/approve.Question
 	handler := func(ctx *permission.ApprovalContext) (*permission.ApprovalResponse, error) {
 		req := ctx.Request
 		opts := make([]approve.ChoiceOption, len(req.Options))
@@ -301,11 +364,9 @@ func initPermissionGate(agt *agent.Agent) {
 			return &permission.ApprovalResponse{Choice: "deny"}, nil
 		}
 		return &permission.ApprovalResponse{
-			Choice:   result,
-			Remember: result == "always",
+			Choice: result, Remember: result == "always",
 		}, nil
 	}
-
 	agt.SetPermissionConfig(cfg, handler)
 	fmt.Fprintf(os.Stderr, "✓ 权限门控已启用（%d 条规则）\n", len(cfg.Rules))
 }
