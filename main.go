@@ -152,7 +152,7 @@ func registerSwitchMode(agt *agent.Agent) {
 			} else if err := agt.Tools().ActivatePlugin(mode); err != nil {
 				return "", fmt.Errorf("switch_mode: unknown mode %q", mode)
 			}
-			visible := agt.VisibleTools(nil)
+			visible := agt.VisibleTools(context.Background())
 			all := agt.Tools().Tools()
 			return fmt.Sprintf(`{"mode":"%s","visible_tools":%d,"total_tools":%d}`,
 				mode, len(visible), len(all)), nil
