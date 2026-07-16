@@ -91,9 +91,9 @@ func (m Model) View() string {
 		b.WriteString(m.renderPrompt())
 	}
 
-	// ═══ 审批面板（增强版卡片式） ═══
-	if m.approvePrompting {
-		b.WriteString(m.renderApprove())
+	// ═══ 审批面板（子包模块） ═══
+	if m.ApproveMgr.Active {
+		b.WriteString(m.ApproveMgr.View(m.width))
 		b.WriteString("\n")
 	}
 

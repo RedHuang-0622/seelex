@@ -21,12 +21,14 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/Seele/seelectx/tracer"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	tea "github.com/charmbracelet/bubbletea"
 	"gopkg.in/yaml.v3"
 
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/tui"
+	tuiApprove "github.com/RedHuang-0622/seelex/tui/approve"
 )
 
 var configPath = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
@@ -118,7 +120,7 @@ func main() {
 		},
 	)
 
-	// ── ask_approve 工具（需人工确认的操作）────────────────────────
+	// ── ask_approve 工具（复用 sugar/approve.Question）────────────
 	agt.RegisterTool(
 		"ask_approve",
 		"向用户请求操作确认。当需要执行高风险操作时调用此工具，提供清晰问题描述和选项列表。",
@@ -151,7 +153,22 @@ func main() {
 			if len(choices) == 0 {
 				choices = []string{"Yes", "No"}
 			}
-			result := tui.HandleApproval(input.Question, choices)
+			opts := make([]approve.ChoiceOption, len(choices))
+			for i, c := range choices {
+				opts[i] = approve.ChoiceOption{Key: c, Label: c}
+				for _, b := range approve.Choices(c) {
+					if b.Key == c {
+						opts[i] = b
+						break
+					}
+				}
+			}
+			q := approve.Question{
+				ID:      fmt.Sprintf("ask_%d", time.Now().UnixNano()),
+				Content: input.Question,
+				Options: opts,
+			}
+			result := tuiApprove.Ask(q, "low", "", "")
 			if result == "__CANCEL__" {
 				return `{"approved":false,"reason":"cancelled"}`, nil
 			}
@@ -242,7 +259,6 @@ func initPlugins(agt *agent.Agent) {
 
 func initPermissionGate(agt *agent.Agent) {
 	cfg := permission.PermissionConfig{}
-
 	if data, err := os.ReadFile("seele.yaml"); err == nil {
 		var yamlPermCfg struct {
 			Permission permission.PermissionConfig `yaml:"permission"`
@@ -251,7 +267,6 @@ func initPermissionGate(agt *agent.Agent) {
 			cfg = yamlPermCfg.Permission
 		}
 	}
-
 	if len(cfg.Rules) == 0 {
 		cfg.Rules = []permission.PermissionRule{
 			{ToolName: "bash", Patterns: []string{"*"}, Action: permission.ActionAsk},
@@ -262,42 +277,32 @@ func initPermissionGate(agt *agent.Agent) {
 		}
 	}
 
+	// 桥接：将 Permission Gate 的 ApprovalRequest 转为 sugar/approve.Question
 	handler := func(ctx *permission.ApprovalContext) (*permission.ApprovalResponse, error) {
 		req := ctx.Request
-		tuiReq := tui.PermissionApprovalRequest{
-			Question:  fmt.Sprintf("需要确认：%s", req.Preview),
-			Options:   toTUIApprovalOpts(req.Options),
-			Risk:      req.Risk,
-			Timeout:   req.Timeout,
-			ToolName:  req.ToolName,
-			Arguments: req.Arguments,
-			Preview:   req.Preview,
+		opts := make([]approve.ChoiceOption, len(req.Options))
+		for i, o := range req.Options {
+			opts[i] = approve.ChoiceOption{
+				Key: o.Key, Label: o.Label,
+				Description: o.Description, Style: o.Style,
+			}
 		}
-		ch := make(chan string, 1)
-		tui.SetPendingApproval(tuiReq, ch)
-		choice := <-ch
-		if choice == "__CANCEL__" || choice == "__TIMEOUT__" || choice == "deny" {
+		q := approve.Question{
+			ID:      fmt.Sprintf("perm_%d", time.Now().UnixNano()),
+			Content: fmt.Sprintf("需要确认：%s", req.Preview),
+			Options: opts,
+			Timeout: req.Timeout,
+		}
+		result := tuiApprove.Ask(q, req.Risk, req.Preview, req.ToolName)
+		if result == "__CANCEL__" || result == "__TIMEOUT__" || result == "deny" {
 			return &permission.ApprovalResponse{Choice: "deny"}, nil
 		}
 		return &permission.ApprovalResponse{
-			Choice:   choice,
-			Remember: choice == "always",
+			Choice:   result,
+			Remember: result == "always",
 		}, nil
 	}
 
 	agt.SetPermissionConfig(cfg, handler)
 	fmt.Fprintf(os.Stderr, "✓ 权限门控已启用（%d 条规则）\n", len(cfg.Rules))
-}
-
-func toTUIApprovalOpts(opts []permission.ApproveOption) []tui.PermissionApprovalOpt {
-	result := make([]tui.PermissionApprovalOpt, len(opts))
-	for i, o := range opts {
-		result[i] = tui.PermissionApprovalOpt{
-			Key:         o.Key,
-			Label:       o.Label,
-			Description: o.Description,
-			Style:       o.Style,
-		}
-	}
-	return result
 }

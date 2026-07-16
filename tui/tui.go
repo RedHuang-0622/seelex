@@ -22,6 +22,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
+	tuiApprove "github.com/RedHuang-0622/seelex/tui/approve"
 )
 
 // skillsNeedRefresh 由 Skill 管理命令设置，在 handleEnter 中消费
@@ -62,9 +63,8 @@ type Model struct {
 	promptSel int
 	promptCh  chan string
 
-	// ─ 审批面板（Phase 2 增强版） ─
-	approve          approveState
-	approvePrompting bool
+	// ─ 审批面板（子包模块） ─
+	ApproveMgr *tuiApprove.Manager
 
 	// ─ 选择器（交互式列表） ─
 	selState  selectState
@@ -122,15 +122,15 @@ func NewModel(
 		textarea:   ta,
 		streamCh:   make(chan streamChunk, 256),
 		showLogo:   true,
-		approve:    newApproveState(),
+		ApproveMgr: tuiApprove.NewManager(),
 		lastStart:  time.Now(),
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	// 启动时检查是否有待处理的审批定时器
-	if m.approvePrompting && !m.approve.resolved {
-		return approveTickCmd()
+	if m.ApproveMgr.Active && !m.ApproveMgr.State.Resolved {
+		return tuiApprove.TickCmd()
 	}
 	return nil
 }
@@ -139,7 +139,7 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.checkPrompt()
-	m.checkPendingApprove()
+	m.ApproveMgr.CheckPending()
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -167,8 +167,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamChunk:
 		return m.handleStreamChunk(msg)
 
-	case approveTickMsg:
-		return m.handleApproveTick(msg)
+	case tuiApprove.TickMsg:
+		return m, m.ApproveMgr.HandleTick()
 
 	default:
 		return m, nil
@@ -181,8 +181,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.quitting {
 		return m, tea.Quit
 	}
-	if m.approvePrompting {
-		return m.handleApproveKey(msg)
+	if handled, cmd := m.ApproveMgr.HandleKey(msg); handled {
+		return m, cmd
 	}
 	if m.prompting {
 		return m.handlePromptKey(msg)
