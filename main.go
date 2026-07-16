@@ -16,11 +16,13 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/agent/core/tool/builtin"
 	"github.com/RedHuang-0622/Seele/agent/core/tool/holder"
+	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/engine"
 	"github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/Seele/seelectx/tracer"
 	"github.com/RedHuang-0622/Seele/types"
 	tea "github.com/charmbracelet/bubbletea"
+	"gopkg.in/yaml.v3"
 
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -33,7 +35,6 @@ func main() {
 	flag.Parse()
 
 	// ── 第 1 层：基础依赖 ─────────────────────────────────────────
-	// 加载账号配置
 	result, err := api.LoadFullAccountsConfig(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "✖ 加载配置失败: %v\n", err)
@@ -158,6 +159,9 @@ func main() {
 		},
 	)
 
+	// ── 权限门控（Permission Gate） ─────────────────────────────────
+	initPermissionGate(agt)
+
 	// ── 第 3 层：会话持久化 + Engine ──────────────────────────────
 	store, err := storage.NewStore("")
 	if err != nil {
@@ -166,7 +170,7 @@ func main() {
 	}
 	eng := engine.New(agt, engine.WithStore(store),
 		engine.WithTracer(tracer.NewSimpleTracer()),
-			engine.WithHooks(tui.CreateToolHooks()),
+		engine.WithHooks(tui.CreateToolHooks()),
 	)
 
 	// ── 第 4 层：会话管理（薄包装）────────────────────────────────
@@ -181,10 +185,8 @@ func main() {
 				return err
 			}
 			eng.ClearHistory()
-			// 重新注入历史消息 — 通过 system prompt 恢复
 			for _, msg := range messages {
 				_ = msg
-				// engine 内部管理历史，加载后自动同步
 			}
 			return nil
 		},
@@ -193,16 +195,21 @@ func main() {
 	// ── 第 5 层：Skill 加载 ──────────────────────────────────────
 	skillReg := skill.NewRegistry()
 	skillLoader := skill.NewLoader("skills", "cmd/repl/skills")
-	_ = skillReg.AddLoader(skillLoader) // 无可读目录时不报错
+	_ = skillReg.AddLoader(skillLoader)
 
-	// ── 第 6 层：命令注册（策略模式）─────────────────────────────
-	tui.RegisterCommands(eng, chatClient, first.Model, sessionMgr)
+	// ── 第 6 层：TUI 装配 ────────────────────────────────────────
+	m := tui.NewModel(eng, first.Model, chatClient, agt, sessionMgr, skillReg)
 
-	// ── 第 7 层：TUI 装配（装配件模式）─────────────────────────────
+	// ── 第 7 层：命令注册 ────────────────────────────────────────
+	tui.RegisterCommands(eng, chatClient, first.Model, sessionMgr,
+		skillReg, skillLoader,
+	)
+
+	// ── 第 8 层：启动 TUI ────────────────────────────────────────
 	p := tea.NewProgram(
-		tui.NewModel(eng, first.Model, chatClient, agt, sessionMgr, skillReg),
+		m,
 		tea.WithAltScreen(),
-			tea.WithMouseCellMotion(),
+		tea.WithMouseCellMotion(),
 	)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "✖ TUI 错误: %v\n", err)
@@ -229,4 +236,68 @@ func initPlugins(agt *agent.Agent) {
 		pm.Define(holder.NewPlugin(p.Name, p.Description, p.Include, p.Exclude))
 	}
 	agt.Tools().WithPluginManager(pm)
+}
+
+// ── 权限门控初始化 ─────────────────────────────────────────
+
+func initPermissionGate(agt *agent.Agent) {
+	cfg := permission.PermissionConfig{}
+
+	if data, err := os.ReadFile("seele.yaml"); err == nil {
+		var yamlPermCfg struct {
+			Permission permission.PermissionConfig `yaml:"permission"`
+		}
+		if err := yaml.Unmarshal(data, &yamlPermCfg); err == nil {
+			cfg = yamlPermCfg.Permission
+		}
+	}
+
+	if len(cfg.Rules) == 0 {
+		cfg.Rules = []permission.PermissionRule{
+			{ToolName: "bash", Patterns: []string{"*"}, Action: permission.ActionAsk},
+			{ToolName: "edit", Patterns: []string{"*"}, Action: permission.ActionAsk},
+			{ToolName: "write_file", Patterns: []string{"*"}, Action: permission.ActionAsk},
+			{ToolName: "create_file", Patterns: []string{"*"}, Action: permission.ActionAsk},
+			{ToolName: "delete", Patterns: []string{"*"}, Action: permission.ActionAsk},
+		}
+	}
+
+	handler := func(ctx *permission.ApprovalContext) (*permission.ApprovalResponse, error) {
+		req := ctx.Request
+		tuiReq := tui.PermissionApprovalRequest{
+			Question:  fmt.Sprintf("需要确认：%s", req.Preview),
+			Options:   toTUIApprovalOpts(req.Options),
+			Risk:      req.Risk,
+			Timeout:   req.Timeout,
+			ToolName:  req.ToolName,
+			Arguments: req.Arguments,
+			Preview:   req.Preview,
+		}
+		ch := make(chan string, 1)
+		tui.SetPendingApproval(tuiReq, ch)
+		choice := <-ch
+		if choice == "__CANCEL__" || choice == "__TIMEOUT__" || choice == "deny" {
+			return &permission.ApprovalResponse{Choice: "deny"}, nil
+		}
+		return &permission.ApprovalResponse{
+			Choice:   choice,
+			Remember: choice == "always",
+		}, nil
+	}
+
+	agt.SetPermissionConfig(cfg, handler)
+	fmt.Fprintf(os.Stderr, "✓ 权限门控已启用（%d 条规则）\n", len(cfg.Rules))
+}
+
+func toTUIApprovalOpts(opts []permission.ApproveOption) []tui.PermissionApprovalOpt {
+	result := make([]tui.PermissionApprovalOpt, len(opts))
+	for i, o := range opts {
+		result[i] = tui.PermissionApprovalOpt{
+			Key:         o.Key,
+			Label:       o.Label,
+			Description: o.Description,
+			Style:       o.Style,
+		}
+	}
+	return result
 }

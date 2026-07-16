@@ -91,6 +91,12 @@ func (m Model) View() string {
 		b.WriteString(m.renderPrompt())
 	}
 
+	// ═══ 审批面板（增强版卡片式） ═══
+	if m.approvePrompting {
+		b.WriteString(m.renderApprove())
+		b.WriteString("\n")
+	}
+
 	// ═══ 输入框（始终显示） ═══
 	b.WriteString(StyleInputBox.Width(m.width - 2).Render(m.renderInputLine()))
 

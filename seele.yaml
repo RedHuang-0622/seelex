@@ -1,0 +1,62 @@
+# ── Seele 权限配置 ──────────────────────────────────────────
+# 声明式权限规则，控制工具的 allow / ask / deny 行为。
+# 规则按顺序评估，最后匹配的规则胜出（LMRW）。
+#
+# 注意：最后匹配的规则覆盖之前的匹配，所以：
+#   1. 宽泛规则放在前面（默认行为）
+#   2. 精确覆盖规则放在后面
+#
+# 将此文件放在 seelex 工作目录下以启用权限门控。
+
+permission:
+  rules:
+    # ─ 默认兜底：未明确允许的工具 → ask ─
+    - tool: "*"
+      action: ask
+
+    # ─ 安全/只读工具 → 直接允许 ─
+    - tool: "read_file"
+      action: allow
+    - tool: "glob"
+      action: allow
+    - tool: "grep*"
+      action: allow
+    - tool: "get_time"
+      action: allow
+    - tool: "git_status"
+      action: allow
+    - tool: "git_log"
+      action: allow
+    - tool: "git_diff"
+      action: allow
+
+    # ─ 安全的 bash 命令模式 → 直接允许 ─
+    - tool: "bash"
+      patterns: ["git *", "ls *", "cat *", "echo *", "head *", "tail *"]
+      action: allow
+    - tool: "bash"
+      patterns: ["pwd", "which *", "whoami", "date", "df *", "du *", "printenv"]
+      action: allow
+
+    # ─ 写操作 → 需要审批 ─
+    - tool: "edit"
+      action: ask
+    - tool: "write_file"
+      action: ask
+    - tool: "create_file"
+      action: ask
+
+    - tool: "bash"
+      patterns: ["npm install *", "go build *", "make *", "docker *"]
+      action: ask
+
+    # ─ 危险操作 → 拒绝或审批 ─
+    - tool: "bash"
+      patterns: ["rm -rf /*", ":(){ :|:& };:", "dd if=* of=*"]
+      action: deny
+    - tool: "delete"
+      action: deny
+
+    - tool: "bash"
+      patterns: ["rm *", "mv *", "chmod *", "chown *"]
+      action: ask

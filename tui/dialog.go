@@ -1,7 +1,7 @@
 // ── 交互式对话框：选择器 + 审批面板 ─────────────────────────
 //
 // 选择器：会话恢复 / 账号切换（↑↓ Enter 选择）
-// 审批：  Agent 请求用户确认操作（Yes/No）
+// 审批：  Agent 请求用户确认操作（支持旧版简单选项和新版丰富卡片）
 
 package tui
 
@@ -193,8 +193,9 @@ func (m *Model) checkPrompt() {
 
 // ── Approve（外部调用入口） ───────────────────────────────────
 
+// HandleApproval 是外部（main.go ask_approve 工具）调用的审批入口。
+// 使用增强版审批桥接（支持描述、样式、倒计时）。
+// 阻塞等待用户选择，返回选择的选项 key。
 func HandleApproval(question string, choices []string) string {
-	ch := initApproval()
-	pendingPrompt = promptRequest{question: question, choices: choices, ch: ch}
-	return <-ch
+	return HandleApprovalBridge(question, choices)
 }

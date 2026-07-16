@@ -24,6 +24,12 @@ import (
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
+// skillsNeedRefresh 由 Skill 管理命令设置，在 handleEnter 中消费
+var skillsNeedRefresh bool
+
+func signalSkillsRefresh() {
+	skillsNeedRefresh = true
+}
 
 // ── 主模型 ───────────────────────────────────────────────────────
 
@@ -55,6 +61,10 @@ type Model struct {
 	promptOpt []string
 	promptSel int
 	promptCh  chan string
+
+	// ─ 审批面板（Phase 2 增强版） ─
+	approve          approveState
+	approvePrompting bool
 
 	// ─ 选择器（交互式列表） ─
 	selState  selectState
@@ -112,16 +122,24 @@ func NewModel(
 		textarea:   ta,
 		streamCh:   make(chan streamChunk, 256),
 		showLogo:   true,
+		approve:    newApproveState(),
 		lastStart:  time.Now(),
 	}
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd {
+	// 启动时检查是否有待处理的审批定时器
+	if m.approvePrompting && !m.approve.resolved {
+		return approveTickCmd()
+	}
+	return nil
+}
 
 // ── Update：事件入口（Elm Architecture）─────────────────────────
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.checkPrompt()
+	m.checkPendingApprove()
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -149,20 +167,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamChunk:
 		return m.handleStreamChunk(msg)
 
+	case approveTickMsg:
+		return m.handleApproveTick(msg)
+
 	default:
 		return m, nil
 	}
 }
-
-// ── 流式 Chunk 处理（含工具事件） ─────────────────────────────
-
-// ── 工具事件处理（实时展示工具调用链） ──────────────────────
 
 // ── 键盘 ──────────────────────────────────────────────────────
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.quitting {
 		return m, tea.Quit
+	}
+	if m.approvePrompting {
+		return m.handleApproveKey(msg)
 	}
 	if m.prompting {
 		return m.handlePromptKey(msg)
@@ -191,7 +211,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.suggMode {
 			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
 				m.suggIdx = (m.suggIdx - 1 + len(s)) % len(s)
-			if m.suggIdx < m.suggOffset {
+				if m.suggIdx < m.suggOffset {
 					m.suggOffset = m.suggIdx
 				}
 			}
@@ -211,22 +231,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.suggMode {
 			if s := m.suggEng.Suggest(m.textarea.Value()); len(s) > 0 {
 				m.suggIdx = (m.suggIdx + 1) % len(s)
-					if m.suggIdx >= m.suggOffset+suggWindowSize {
-						m.suggOffset = m.suggIdx - suggWindowSize + 1
-					}
+				if m.suggIdx >= m.suggOffset+suggWindowSize {
+					m.suggOffset = m.suggIdx - suggWindowSize + 1
 				}
-			} else if m.histIdx != -1 {
-				m.histIdx++
-				if m.histIdx >= len(m.inputHist) {
-					m.histIdx = -1
-					m.textarea.SetValue(m.histDraft)
-					m.histDraft = ""
-				} else {
-					m.textarea.SetValue(m.inputHist[m.histIdx])
-				}
-				m.textarea.CursorEnd()
 			}
-			return m, nil
+		} else if m.histIdx != -1 {
+			m.histIdx++
+			if m.histIdx >= len(m.inputHist) {
+				m.histIdx = -1
+				m.textarea.SetValue(m.histDraft)
+				m.histDraft = ""
+			} else {
+				m.textarea.SetValue(m.inputHist[m.histIdx])
+			}
+			m.textarea.CursorEnd()
+		}
+		return m, nil
 
 	case "tab":
 		if m.suggMode {
@@ -280,9 +300,7 @@ func (m *Model) afterInput() {
 	m.histIdx = -1
 }
 
-// ── 选择器键盘 ──────────────────────────────────────────────
-
-// ── 选择器数据 ──────────────────────────────────────────────// ── 确认键盘 ──────────────────────────────────────────────────// ── Enter：提交输入 ────────────────────────────────────────────
+// ── Enter：提交输入 ────────────────────────────────────────────
 
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	input := strings.TrimSpace(m.textarea.Value())
@@ -346,6 +364,11 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 		m.textarea.Reset()
 		m.syncView()
+		// Skill 变更后刷新建议引擎
+		if skillsNeedRefresh {
+			m.RefreshSkills()
+			skillsNeedRefresh = false
+		}
 		return m, nil
 	}
 
@@ -390,6 +413,18 @@ func (m Model) execSkill(sk skill.Skill, args []string) tea.Model {
 	return m
 }
 
+// ── Skill 刷新 ───────────────────────────────────────────────
+
+// RefreshSkills 从 Registry 重新加载 Skill 到建议引擎
+func (m *Model) RefreshSkills() {
+	skills := m.skillReg.All()
+	ss := make([]suggestion, 0, len(skills))
+	for _, s := range skills {
+		ss = append(ss, suggestion{text: s.Name, description: s.Description, kind: "skill"})
+	}
+	m.suggEng.SetSkills(ss)
+}
+
 // ── 接受提示建议 ─────────────────────────────────────────────
 
 func (m Model) acceptSugg(s suggestion) Model {
@@ -406,9 +441,5 @@ func (m Model) acceptSugg(s suggestion) Model {
 	return m
 }
 
-// ── 从 Engine History 重建会话（流结束后调用）─────────────// addHistoryMessage 将 types.Message 转为 Cell 加入 Conv// ── 流式输出（goroutine） ───────────────────────────────────────
-
-// ── 同步视口 ─────────────────────────────────────────────────// ── Token ───────────────────────────────────────────────────────
-
-
+// 编译期常量引用
 var _ = storage.SessionMeta{}
