@@ -13,7 +13,7 @@ package provider
 import (
 	"context"
 
-	"github.com/RedHuang-0622/seelex/snapshot"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // Provider 抽象上下文来源。
@@ -34,6 +34,6 @@ type Compactable interface {
 
 // Compile-time checks
 var (
-	_ Provider    = (*EngineProvider)(nil)
-	_ Provider    = (*TraceProvider)(nil)
+	_ Provider = (*EngineProvider)(nil)
+	_ Provider = (*TraceProvider)(nil)
 )

@@ -5,19 +5,24 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/RedHuang-0622/Seele/seelectx/storage"
-	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
+
+type Store interface {
+	List() []seelebridge.SessionMeta
+	Delete(sessionID string) error
+	Load(sessionID string) ([]seelebridge.Message, error)
+}
 
 // Manager 薄包装 Seele 的 storage.Store，提供 /new 和 /resume 能力
 type Manager struct {
-	store   *storage.Store
-	mu      sync.Mutex
-	saveFn  func(sessionID string) error // 注入：保存当前会话到 store
-	loadFn  func(sessionID string) error // 注入：从 store 加载到 engine
+	store  Store
+	mu     sync.Mutex
+	saveFn func(sessionID string) error // 注入：保存当前会话到 store
+	loadFn func(sessionID string) error // 注入：从 store 加载到 engine
 }
 
-func NewManager(store *storage.Store) *Manager {
+func NewManager(store Store) *Manager {
 	return &Manager{store: store}
 }
 
@@ -50,7 +55,7 @@ func (m *Manager) Resume(sessionID string) error {
 }
 
 // List 列出所有持久化会话
-func (m *Manager) List() []storage.SessionMeta {
+func (m *Manager) List() []seelebridge.SessionMeta {
 	return m.store.List()
 }
 
@@ -60,6 +65,6 @@ func (m *Manager) Delete(sessionID string) error {
 }
 
 // LoadHistory 获取会话的历史消息
-func (m *Manager) LoadHistory(sessionID string) ([]types.Message, error) {
+func (m *Manager) LoadHistory(sessionID string) ([]seelebridge.Message, error) {
 	return m.store.Load(sessionID)
 }

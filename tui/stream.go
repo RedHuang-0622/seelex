@@ -14,9 +14,9 @@ import (
 	"fmt"
 
 	"github.com/RedHuang-0622/Seele/engine"
-	"github.com/RedHuang-0622/Seele/seelectx/tracer"
-	"github.com/RedHuang-0622/Seele/types"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 // streamEventCh 让 Engine hooks 能把工具事件送回 bubbletea 事件循环
@@ -60,6 +60,8 @@ func (m Model) handleStreamChunk(msg streamChunk) (tea.Model, tea.Cmd) {
 	}
 	if msg.done {
 		m.state.Streaming = false
+		m.SuggEng.RefreshTools()
+		m.RefreshSkills()
 		m.viewport.Height = m.convHeight()
 		if msg.err != nil {
 			m.state.Conv.Add(Cell{Kind: CellError, Content: msg.err.Error()})
@@ -89,7 +91,6 @@ func (m Model) handleToolEvent(evt toolEvent) (tea.Model, tea.Cmd) {
 			Extra:   evt.id,
 			Status:  "running",
 		})
-
 
 	case "complete":
 		for i := len(m.state.Conv.Cells) - 1; i >= 0; i-- {
@@ -138,7 +139,7 @@ func (m *Model) rebuildFromHistory() {
 }
 
 // addHistoryMessage 将 types.Message 转为 Cell 加入 Conv
-func (m *Model) addHistoryMessage(h types.Message) {
+func (m *Model) addHistoryMessage(h seelebridge.Message) {
 	switch h.Role {
 	case "system":
 		if h.Content != nil {
@@ -201,7 +202,7 @@ func tokensFromEngine(eng *engine.Engine) string {
 		return "0"
 	}
 	for _, c := range tree.Root.Children {
-		if c.Kind == tracer.SpanLLMCall {
+		if c.Kind == seelebridge.SpanLLMCall {
 			if t, ok := c.Attrs["total_tokens"]; ok {
 				return t
 			}
@@ -238,7 +239,7 @@ func CreateToolHooks() *engine.LoopHooks {
 			case ch <- streamChunk{
 				tool: &toolEvent{
 					kind: "complete", name: info.Name,
-					id: fmt.Sprintf("%s-%d", info.Name, info.Turn),
+					id:     fmt.Sprintf("%s-%d", info.Name, info.Turn),
 					result: info.Result, err: info.Error,
 				},
 			}:
@@ -247,6 +248,3 @@ func CreateToolHooks() *engine.LoopHooks {
 		},
 	}
 }
-
-// Compile guard
-var _ = types.Message{}

@@ -27,8 +27,8 @@ const (
 type Cell struct {
 	Kind     CellKind
 	Content  string
-	Extra    string        // 工具名 / ID 等元信息
-	Status   string        // tool_call: "running" | "success" | "error"
+	Extra    string // 工具名 / ID 等元信息
+	Status   string // tool_call: "running" | "success" | "error"
 	Duration time.Duration
 }
 
@@ -101,8 +101,8 @@ func (c *Conversation) Add(cell Cell) {
 	// 超出上限时保留首条 system 消息 + 最近 N-1 条
 	if len(c.Cells) > CellSoftLimit {
 		keep := make([]Cell, 0, CellSoftLimit)
-		keep = append(keep, c.Cells[0])                                     // 首条（welcome）
-		keep = append(keep, c.Cells[len(c.Cells)-CellSoftLimit+1:]...)       // 最近条
+		keep = append(keep, c.Cells[0])                                // 首条（welcome）
+		keep = append(keep, c.Cells[len(c.Cells)-CellSoftLimit+1:]...) // 最近条
 		c.Cells = keep
 	}
 }
@@ -141,7 +141,7 @@ func (c *Conversation) Render(width int) string {
 // ── AppState：全局状态 ──────────────────────────────────────────
 
 type AppState struct {
-	Conv  Conversation
+	Conv Conversation
 
 	ModelName string
 

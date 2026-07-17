@@ -17,7 +17,6 @@ package approve
 import (
 	"time"
 
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -38,7 +37,7 @@ func TickCmd() tea.Cmd {
 var pendingRequest pendingReq
 
 type pendingReq struct {
-	q        approve.Question
+	q        Question
 	ch       chan string
 	risk     string
 	preview  string
@@ -47,7 +46,7 @@ type pendingReq struct {
 
 // Ask 发起一个审批问题，阻塞等待用户选择。
 // 从任意 goroutine 调用（工具 handler / Permission Gate 回调）。
-func Ask(q approve.Question, risk, preview, toolName string) string {
+func Ask(q Question, risk, preview, toolName string) string {
 	ch := make(chan string, 1)
 	pendingRequest = pendingReq{q: q, ch: ch, risk: risk, preview: preview, toolName: toolName}
 	return <-ch
@@ -55,17 +54,17 @@ func Ask(q approve.Question, risk, preview, toolName string) string {
 
 // AskSimple 从简单字符串列表发起审批（兼容旧版 ask_approve 工具）。
 func AskSimple(question string, choices []string) string {
-	opts := make([]approve.ChoiceOption, len(choices))
+	opts := make([]ChoiceOption, len(choices))
 	for i, c := range choices {
-		opts[i] = approve.ChoiceOption{Key: c, Label: c}
-		for _, b := range approve.Choices(c) {
+		opts[i] = ChoiceOption{Key: c, Label: c}
+		for _, b := range Choices(c) {
 			if b.Key == c {
 				opts[i] = b
 				break
 			}
 		}
 	}
-	q := approve.Question{
+	q := Question{
 		ID:      "ask",
 		Content: question,
 		Options: opts,

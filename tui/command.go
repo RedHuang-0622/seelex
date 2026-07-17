@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/engine"
 
 	"github.com/RedHuang-0622/seelex/session"
@@ -23,13 +22,14 @@ import (
 // RegisterCommands 注册所有命令并将命令列表同步到 sugg 引擎。
 func RegisterCommands(
 	eng *engine.Engine,
-	client *api.ChatClient,
+	runtime RuntimeView,
 	modelName string,
 	sessionMgr *session.Manager,
 	skillReg *skill.Registry,
 	skillLoader *skill.Loader,
+	plugins PluginController,
 ) {
-	commands.RegisterBuiltin(eng, client, modelName, sessionMgr)
+	commands.RegisterBuiltin(eng, runtime, modelName, sessionMgr, plugins)
 
 	// 将命令名称同步到 sugg 引擎
 	var cmdSuggestions []sugg.Suggestion

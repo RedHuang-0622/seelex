@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/engine"
-	"github.com/RedHuang-0622/Seele/seelectx/tracer"
-	"github.com/RedHuang-0622/seelex/snapshot"
+	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // TraceProvider 实现 Provider 接口，从 tracer.Tree 提取结构信息。
@@ -18,7 +18,9 @@ type TraceProvider struct {
 }
 
 func NewTraceProvider(eng *engine.Engine) *TraceProvider {
-	if eng == nil { panic("provider: TraceProvider requires non-nil engine") }
+	if eng == nil {
+		panic("provider: TraceProvider requires non-nil engine")
+	}
 	return &TraceProvider{eng: eng}
 }
 
@@ -38,33 +40,43 @@ func (p *TraceProvider) Export(_ context.Context) (*snapshot.ContextSnapshot, er
 	snap.Decisions = make([]snapshot.Decision, 0, 8)
 	snap.Findings = make([]string, 0, 8)
 
-	walkTree(tree.Root, func(node *tracer.Node) {
+	walkTree(tree.Root, func(node *seelebridge.TraceNode) {
 		switch node.Kind {
-		case tracer.SpanLLMCall:
+		case seelebridge.SpanLLMCall:
 			extractLLMInfo(node, snap, tree.TraceID)
-		case tracer.SpanToolDispatch:
+		case seelebridge.SpanToolDispatch:
 			extractToolDecision(node, snap)
 		}
 	})
 
-	if len(snap.Decisions) == 0 { snap.Decisions = nil }
-	if len(snap.Findings) == 0 { snap.Findings = nil }
+	if len(snap.Decisions) == 0 {
+		snap.Decisions = nil
+	}
+	if len(snap.Findings) == 0 {
+		snap.Findings = nil
+	}
 	return snap, nil
 }
 
 // ── 树遍历 ────────────────────────────────────────────────────
 
-func walkTree(node *tracer.Node, fn func(*tracer.Node)) {
-	if node == nil { return }
+func walkTree(node *seelebridge.TraceNode, fn func(*seelebridge.TraceNode)) {
+	if node == nil {
+		return
+	}
 	fn(node)
-	for _, child := range node.Children { walkTree(child, fn) }
+	for _, child := range node.Children {
+		walkTree(child, fn)
+	}
 }
 
 // ── llm_call 提取 ─────────────────────────────────────────────
 
-func extractLLMInfo(node *tracer.Node, snap *snapshot.ContextSnapshot, traceID string) {
+func extractLLMInfo(node *seelebridge.TraceNode, snap *snapshot.ContextSnapshot, traceID string) {
 	if tokenStr, ok := node.Attrs["total_tokens"]; ok {
-		if n, err := strconv.Atoi(tokenStr); err == nil { snap.TokenEstimate += n }
+		if n, err := strconv.Atoi(tokenStr); err == nil {
+			snap.TokenEstimate += n
+		}
 	}
 	rt := node.Attrs["response_type"]
 	switch rt {
@@ -82,9 +94,11 @@ func extractLLMInfo(node *tracer.Node, snap *snapshot.ContextSnapshot, traceID s
 
 // ── tool_dispatch 提取 ─────────────────────────────────────────
 
-func extractToolDecision(node *tracer.Node, snap *snapshot.ContextSnapshot) {
+func extractToolDecision(node *seelebridge.TraceNode, snap *snapshot.ContextSnapshot) {
 	toolName := node.Attrs["tool"]
-	if toolName == "" { return }
+	if toolName == "" {
+		return
+	}
 	dec := snapshot.Decision{
 		What: fmt.Sprintf("调用工具 %s", toolName),
 		Why:  fmt.Sprintf("在 %s 中执行", node.Name),
@@ -92,7 +106,7 @@ func extractToolDecision(node *tracer.Node, snap *snapshot.ContextSnapshot) {
 	if args := node.Attrs["arguments"]; args != "" {
 		dec.Alternatives = []string{snapshot.Truncate(args, 100)}
 	}
-	if node.Status == tracer.StatusError {
+	if node.Status == seelebridge.TraceStatusError {
 		if errMsg, ok := node.Attrs["error"]; ok {
 			dec.Why = fmt.Sprintf("执行 %s 时出错: %s", node.Name, errMsg)
 		}

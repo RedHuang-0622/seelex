@@ -18,13 +18,17 @@ func TestFormat_Full(t *testing.T) {
 	}
 	out := snap.Format()
 	for _, s := range []string{"继承上下文", "test goal", "方案A", "重要发现", "50%"} {
-		if !strings.Contains(out, s) { t.Fatalf("expected %q in output", s) }
+		if !strings.Contains(out, s) {
+			t.Fatalf("expected %q in output", s)
+		}
 	}
 }
 
 func TestFormat_Empty(t *testing.T) {
 	out := (&ContextSnapshot{}).Format()
-	if !strings.Contains(out, "继承上下文") { t.Fatal("expected header") }
+	if !strings.Contains(out, "继承上下文") {
+		t.Fatal("expected header")
+	}
 }
 
 func TestFormat_WithEscape(t *testing.T) {
@@ -35,7 +39,9 @@ func TestFormat_WithEscape(t *testing.T) {
 		Escape:          &EscapeInfo{Reason: "done", Message: "ok", Iterations: 3},
 	}
 	out := snap.Format()
-	if !strings.Contains(out, "done") { t.Fatal("expected escape reason") }
+	if !strings.Contains(out, "done") {
+		t.Fatal("expected escape reason")
+	}
 }
 
 func TestBuilderChain(t *testing.T) {
@@ -51,17 +57,23 @@ func TestBuilderChain(t *testing.T) {
 
 func TestValidate_OK(t *testing.T) {
 	err := (&ContextSnapshot{SourceSessionID: "s", ExportedAt: time.Now(), Goal: "g"}).Validate()
-	if err != nil { t.Fatalf("expected nil, got %v", err) }
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
 }
 
 func TestValidate_Nil(t *testing.T) {
 	var snap *ContextSnapshot
-	if err := snap.Validate(); err == nil { t.Fatal("expected error") }
+	if err := snap.Validate(); err == nil {
+		t.Fatal("expected error")
+	}
 }
 
 func TestValidate_NoGoal(t *testing.T) {
 	err := (&ContextSnapshot{SourceSessionID: "s", ExportedAt: time.Now()}).Validate()
-	if err == nil { t.Fatal("expected error") }
+	if err == nil {
+		t.Fatal("expected error")
+	}
 }
 
 func TestValidate_GoalFromParent(t *testing.T) {
@@ -69,22 +81,32 @@ func TestValidate_GoalFromParent(t *testing.T) {
 		SourceSessionID: "s", ExportedAt: time.Now(),
 		Escape: &EscapeInfo{ParentGoal: "parent"},
 	}).Validate()
-	if err != nil { t.Fatalf("expected nil, got %v", err) }
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
 }
 
 func TestValidationError(t *testing.T) {
 	ve := &ValidationError{Field: "f", Err: "bad"}
-	if !strings.Contains(ve.Error(), "f") { t.Fatal("unexpected error string") }
+	if !strings.Contains(ve.Error(), "f") {
+		t.Fatal("unexpected error string")
+	}
 }
 
 func TestTruncate(t *testing.T) {
-	if r := Truncate("hello", 10); r != "hello" { t.Fatalf("got %q", r) }
-	if r := Truncate("hello world", 8); len(r) != 8 { t.Fatalf("got %q len=%d", r, len(r)) }
+	if r := Truncate("hello", 10); r != "hello" {
+		t.Fatalf("got %q", r)
+	}
+	if r := Truncate("hello world", 8); len(r) != 8 {
+		t.Fatalf("got %q len=%d", r, len(r))
+	}
 }
 
 func TestSetParentGoal(t *testing.T) {
 	snap := (&ContextSnapshot{}).SetEscape("done", "ok", 1).SetParentGoal("parent")
-	if snap.Escape.ParentGoal != "parent" { t.Fatal("parent goal not set") }
+	if snap.Escape.ParentGoal != "parent" {
+		t.Fatal("parent goal not set")
+	}
 }
 
 func TestSetParentGoalNoEscape(t *testing.T) {

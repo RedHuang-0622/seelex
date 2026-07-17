@@ -9,12 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/agent"
-	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/engine"
-	"github.com/RedHuang-0622/Seele/seelectx/storage"
-	"github.com/RedHuang-0622/Seele/seelectx/tracer"
-	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 func TestSmokeLLM(t *testing.T) {
@@ -23,38 +19,28 @@ func TestSmokeLLM(t *testing.T) {
 		configPath = v
 	}
 
-	// 1. 加载配置
-	result, err := api.LoadFullAccountsConfig(configPath)
+	// 1. 创建框架运行时
+	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
+		AccountsPath: configPath, ToolCallTimeout: 30 * time.Second,
+	})
 	if err != nil {
 		t.Skipf("跳过: 加载配置失败: %v", err)
 	}
-	first := result.Pool.All()[0]
-	if first.APIKey == "" || len(first.APIKey) < 10 {
-		t.Skip("跳过: 未配置有效 API Key")
-	}
+	defer runtime.Shutdown()
 
-	llmCfg := types.LLMConfig{
-		BaseURL: first.BaseURL, APIKey: first.APIKey, Model: first.Model,
-		MaxTokens: 128, Timeout: 10, Temperature: 0,
-	}
-
-	// 2. Agent
-	agt, err := agent.New(agent.Options{LLMConfig: llmCfg, ToolCallTimeOut: 30 * time.Second})
-	if err != nil {
-		t.Fatalf("Agent 初始化失败: %v", err)
-	}
-	defer agt.Shutdown()
-
-	// 3. Engine
+	// 2. Engine
 	tmpDir, _ := os.MkdirTemp("", "seelex-smoke")
 	defer os.RemoveAll(tmpDir)
-	store, _ := storage.NewStore(tmpDir)
-	eng := engine.New(agt,
-		engine.WithStore(store),
-		engine.WithTracer(tracer.NewSimpleTracer()),
+	store, err := seelebridge.NewSessionStore(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := engine.New(runtime.Agent(),
+		engine.WithStore(store.FrameworkStore()),
+		engine.WithTracer(seelebridge.NewTracer()),
 	)
 
-	// 4. 发送并计时
+	// 3. 发送并计时
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 

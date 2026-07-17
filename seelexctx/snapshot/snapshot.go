@@ -15,9 +15,9 @@ import (
 
 // ContextSnapshot 表示一个会话的可传递上下文摘要。
 type ContextSnapshot struct {
-	SourceSessionID string    `json:"source_session_id"`
-	ExportedAt      time.Time `json:"exported_at"`
-	Goal            string    `json:"goal,omitempty"`
+	SourceSessionID string      `json:"source_session_id"`
+	ExportedAt      time.Time   `json:"exported_at"`
+	Goal            string      `json:"goal,omitempty"`
 	Decisions       []Decision  `json:"decisions,omitempty"`
 	Findings        []string    `json:"findings,omitempty"`
 	Progress        string      `json:"progress,omitempty"`
@@ -109,35 +109,45 @@ func (snap *ContextSnapshot) Format() string {
 // ── Builder 方法 ────────────────────────────────────────────────
 
 func (snap *ContextSnapshot) SetGoal(goal string) *ContextSnapshot {
-	snap.Goal = goal; return snap
+	snap.Goal = goal
+	return snap
 }
 
 func (snap *ContextSnapshot) AddDecision(what, why string) *ContextSnapshot {
-	snap.Decisions = append(snap.Decisions, Decision{What: what, Why: why}); return snap
+	snap.Decisions = append(snap.Decisions, Decision{What: what, Why: why})
+	return snap
 }
 
 func (snap *ContextSnapshot) AddFinding(finding string) *ContextSnapshot {
-	snap.Findings = append(snap.Findings, finding); return snap
+	snap.Findings = append(snap.Findings, finding)
+	return snap
 }
 
 func (snap *ContextSnapshot) SetProgress(progress string) *ContextSnapshot {
-	snap.Progress = progress; return snap
+	snap.Progress = progress
+	return snap
 }
 
 func (snap *ContextSnapshot) AddConstraint(constraint string) *ContextSnapshot {
-	snap.Constraints = append(snap.Constraints, constraint); return snap
+	snap.Constraints = append(snap.Constraints, constraint)
+	return snap
 }
 
 func (snap *ContextSnapshot) AddPendingWork(work string) *ContextSnapshot {
-	snap.PendingWork = append(snap.PendingWork, work); return snap
+	snap.PendingWork = append(snap.PendingWork, work)
+	return snap
 }
 
 func (snap *ContextSnapshot) SetEscape(reason, message string, iterations int) *ContextSnapshot {
-	snap.Escape = &EscapeInfo{Reason: reason, Message: message, Iterations: iterations}; return snap
+	snap.Escape = &EscapeInfo{Reason: reason, Message: message, Iterations: iterations}
+	return snap
 }
 
 func (snap *ContextSnapshot) SetParentGoal(parentGoal string) *ContextSnapshot {
-	if snap.Escape != nil { snap.Escape.ParentGoal = parentGoal }; return snap
+	if snap.Escape != nil {
+		snap.Escape.ParentGoal = parentGoal
+	}
+	return snap
 }
 
 // ── 验证 ────────────────────────────────────────────────────────
@@ -154,12 +164,20 @@ func (ve *ValidationError) Error() string {
 
 // Validate 检查必填字段。
 func (snap *ContextSnapshot) Validate() error {
-	if snap == nil { return &ValidationError{Field: "snapshot", Err: "nil snapshot"} }
-	if snap.SourceSessionID == "" { return &ValidationError{Field: "SourceSessionID", Err: "must not be empty"} }
-	if snap.ExportedAt.IsZero() { return &ValidationError{Field: "ExportedAt", Err: "must not be zero"} }
+	if snap == nil {
+		return &ValidationError{Field: "snapshot", Err: "nil snapshot"}
+	}
+	if snap.SourceSessionID == "" {
+		return &ValidationError{Field: "SourceSessionID", Err: "must not be empty"}
+	}
+	if snap.ExportedAt.IsZero() {
+		return &ValidationError{Field: "ExportedAt", Err: "must not be zero"}
+	}
 	if snap.Goal == "" {
 		hasParent := snap.Escape != nil && snap.Escape.ParentGoal != ""
-		if !hasParent { return &ValidationError{Field: "Goal", Err: "must not be empty when no parent goal"} }
+		if !hasParent {
+			return &ValidationError{Field: "Goal", Err: "must not be empty when no parent goal"}
+		}
 	}
 	return nil
 }
@@ -168,6 +186,8 @@ func (snap *ContextSnapshot) Validate() error {
 
 // Truncate 截断字符串到指定长度。
 func Truncate(s string, maxLen int) string {
-	if len(s) <= maxLen { return s }
+	if len(s) <= maxLen {
+		return s
+	}
 	return s[:maxLen-3] + "..."
 }

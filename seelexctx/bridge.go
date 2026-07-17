@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/engine"
-	"github.com/RedHuang-0622/seelex/provider"
-	"github.com/RedHuang-0622/seelex/snapshot"
+	"github.com/RedHuang-0622/seelex/seelexctx/provider"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // ── 向后兼容导出 ──────────────────────────────────────────────

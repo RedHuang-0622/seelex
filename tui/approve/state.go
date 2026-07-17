@@ -1,17 +1,13 @@
 package approve
 
-import (
-	"time"
-
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
-)
+import "time"
 
 // State 是审批面板的运行时状态。
 type State struct {
 	// ─ 问题内容（来自 approve.Question） ─
-	Question string                // Question.Content
-	Options  []approve.ChoiceOption // Question.Options
-	Timeout  time.Duration        // Question.Timeout
+	Question string         // Question.Content
+	Options  []ChoiceOption // Question.Options
+	Timeout  time.Duration  // Question.Timeout
 
 	// ─ 额外元信息 ─
 	Risk      string // "low" | "medium" | "high"
@@ -20,15 +16,15 @@ type State struct {
 	Preview   string
 
 	// ─ 运行时 ─
-	StartTime time.Time // 审批开始时间
-	Selected  int       // 当前选中项
-	Resolved  bool      // 是否已解决
-	Result    string    // 用户选择的 key
+	StartTime time.Time   // 审批开始时间
+	Selected  int         // 当前选中项
+	Resolved  bool        // 是否已解决
+	Result    string      // 用户选择的 key
 	ch        chan string // 结果通道（未导出）
 }
 
 // newState 从 approve.Question 创建 State。
-func newState(q approve.Question, risk, toolName, preview string) State {
+func newState(q Question, risk, toolName, preview string) State {
 	return State{
 		Question:  q.Content,
 		Options:   q.Options,

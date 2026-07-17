@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -81,7 +80,7 @@ func renderContent(content string) string {
 	return b.String()
 }
 
-func renderOption(idx int, opt approve.ChoiceOption, selected int, resolved bool) string {
+func renderOption(idx int, opt ChoiceOption, selected int, resolved bool) string {
 	num := fmt.Sprintf("%d.", idx+1)
 	label := opt.Label
 	if label == "" {

@@ -4,7 +4,9 @@ import "testing"
 
 func TestEngineProvider_Name(t *testing.T) {
 	p := &EngineProvider{}
-	if n := p.Name(); n != "engine" { t.Fatalf("got %q", n) }
+	if n := p.Name(); n != "engine" {
+		t.Fatalf("got %q", n)
+	}
 }
 
 func TestEngineProvider_NilPanic(t *testing.T) {

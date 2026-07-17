@@ -8,7 +8,6 @@ package tui
 import (
 	"fmt"
 
-	"github.com/RedHuang-0622/Seele/agent/core/api"
 	tea "github.com/charmbracelet/bubbletea"
 
 	tuiApprove "github.com/RedHuang-0622/seelex/tui/approve"
@@ -73,8 +72,11 @@ func (m Model) selConfirm() (tea.Model, tea.Cmd) {
 		}
 		m.syncView()
 	case selAccount:
-		m.client.SetProviderFilter(api.ProviderType(item.id))
-		m.state.Conv.Add(Cell{Kind: CellSystem, Content: fmt.Sprintf("已切换账号: %s", item.label)})
+		if !m.runtime.SelectAccount(item.id) {
+			m.state.Conv.Add(Cell{Kind: CellSystem, Content: fmt.Sprintf("账号不可用: %s", item.label)})
+		} else {
+			m.state.Conv.Add(Cell{Kind: CellSystem, Content: fmt.Sprintf("已切换账号: %s", item.label)})
+		}
 		m.syncView()
 	}
 	return m, nil
@@ -107,13 +109,7 @@ func (m *Model) startSessionSelector() {
 }
 
 func (m *Model) startAccountSelector() {
-	pool := m.client.AccountPool()
-	if pool == nil {
-		m.state.Conv.Add(Cell{Kind: CellSystem, Content: "无账号池"})
-		m.syncView()
-		return
-	}
-	all := pool.All()
+	all := m.runtime.Accounts()
 	if len(all) == 0 {
 		m.state.Conv.Add(Cell{Kind: CellSystem, Content: "无可用账号"})
 		m.syncView()
@@ -129,7 +125,7 @@ func (m *Model) startAccountSelector() {
 			status = " [禁用]"
 		}
 		m.selItems = append(m.selItems, selectItem{
-			id:    string(a.Provider),
+			id:    a.Name,
 			label: a.Name + status,
 			desc:  fmt.Sprintf("%s %s", a.Provider, a.Model),
 		})

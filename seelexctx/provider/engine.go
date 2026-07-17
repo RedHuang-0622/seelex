@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/engine"
-	"github.com/RedHuang-0622/seelex/snapshot"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // EngineProvider 实现 Provider 接口，从 engine.Engine 导出。
@@ -15,12 +15,16 @@ type EngineProvider struct {
 }
 
 func NewEngineProvider(eng *engine.Engine) *EngineProvider {
-	if eng == nil { panic("provider: EngineProvider requires non-nil engine") }
+	if eng == nil {
+		panic("provider: EngineProvider requires non-nil engine")
+	}
 	return &EngineProvider{eng: eng}
 }
 
 func NewEngineProviderWithGoal(eng *engine.Engine, goal string) *EngineProvider {
-	if eng == nil { panic("provider: EngineProvider requires non-nil engine") }
+	if eng == nil {
+		panic("provider: EngineProvider requires non-nil engine")
+	}
 	return &EngineProvider{eng: eng, goal: goal}
 }
 

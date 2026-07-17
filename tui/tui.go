@@ -12,10 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/agent"
-	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/engine"
-	"github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,21 +38,21 @@ type Model struct {
 
 	// ─ 运行时引用 ─
 	eng        *engine.Engine
-	client     *api.ChatClient
-	agt        *agent.Agent
+	runtime    RuntimeView
+	plugins    PluginController
 	modelName  string
 	sessionMgr *session.Manager
 	skillReg   *skill.Registry
 	SuggEng    *sugg.Engine
 
 	// ─ 输入区 ─
-	textarea  textarea.Model
-	suggMode  bool
-	suggIdx   int
+	textarea   textarea.Model
+	suggMode   bool
+	suggIdx    int
 	suggOffset int
-	inputHist []string
-	histIdx   int
-	histDraft string
+	inputHist  []string
+	histIdx    int
+	histDraft  string
 
 	// ─ 确认面板 ─
 	prompting bool
@@ -68,10 +65,10 @@ type Model struct {
 	ApproveMgr *tuiApprove.Manager
 
 	// ─ 选择器（交互式列表） ─
-	selState  selectState
-	selTitle  string
-	selItems  []selectItem
-	selIdx    int
+	selState selectState
+	selTitle string
+	selItems []selectItem
+	selIdx   int
 
 	// ─ Bubble Tea ─
 	viewport viewport.Model
@@ -91,10 +88,10 @@ type Model struct {
 
 func NewModel(
 	eng *engine.Engine, modelName string,
-	client *api.ChatClient, agt *agent.Agent,
+	runtime RuntimeView, plugins PluginController,
 	sessionMgr *session.Manager, skillReg *skill.Registry,
 ) Model {
-	se := sugg.NewEngine(agt)
+	se := sugg.NewEngine(runtime)
 	skills := skillReg.All()
 	ss := make([]sugg.Suggestion, 0, len(skills))
 	for _, s := range skills {
@@ -114,8 +111,8 @@ func NewModel(
 	return Model{
 		state:      NewAppState(modelName),
 		eng:        eng,
-		client:     client,
-		agt:        agt,
+		runtime:    runtime,
+		plugins:    plugins,
 		modelName:  modelName,
 		sessionMgr: sessionMgr,
 		skillReg:   skillReg,
@@ -363,6 +360,10 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			}
 			m.state.Conv.Add(Cell{Kind: CellSystem, Content: msg.content})
 		}
+		if cmdName == "plugin" {
+			m.SuggEng.RefreshTools()
+			m.RefreshSkills()
+		}
 		m.textarea.Reset()
 		m.syncView()
 		// Skill 变更后刷新建议引擎
@@ -441,6 +442,3 @@ func (m Model) acceptSugg(s sugg.Suggestion) Model {
 	m.suggIdx = 0
 	return m
 }
-
-// 编译期常量引用
-var _ = storage.SessionMeta{}

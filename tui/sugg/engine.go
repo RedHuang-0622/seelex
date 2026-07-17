@@ -5,8 +5,12 @@ import (
 	"context"
 	"strings"
 
-	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
+
+type ToolSource interface {
+	VisibleTools(ctx context.Context) []seelebridge.Tool
+}
 
 // Suggestion 表示一个补全条目。
 type Suggestion struct {
@@ -17,15 +21,15 @@ type Suggestion struct {
 
 // Engine 是提示补全引擎，由主 Model 持有。
 type Engine struct {
-	agt    *agent.Agent
+	source ToolSource
 	skills []Suggestion
 	tools  []Suggestion
 	cmds   []Suggestion
 }
 
 // NewEngine 创建提示补全引擎。
-func NewEngine(agt *agent.Agent) *Engine {
-	return &Engine{agt: agt}
+func NewEngine(source ToolSource) *Engine {
+	return &Engine{source: source}
 }
 
 // SetSkills 设置 Skill 补全列表。
@@ -45,14 +49,14 @@ func (e *Engine) SetCommands(cmds []Suggestion) {
 
 // RefreshTools 从 Agent 重新加载工具列表。
 func (e *Engine) RefreshTools() {
-	if e.agt == nil {
+	if e.source == nil {
 		return
 	}
-	tools := e.agt.VisibleTools(context.Background())
+	tools := e.source.VisibleTools(context.Background())
 	e.tools = make([]Suggestion, 0, len(tools))
 	for _, t := range tools {
 		e.tools = append(e.tools, Suggestion{
-			Text: t.Function.Name, Description: t.Function.Description, Kind: "tool",
+			Text: t.Name, Description: t.Description, Kind: "tool",
 		})
 	}
 }

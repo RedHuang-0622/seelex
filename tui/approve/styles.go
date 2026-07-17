@@ -39,23 +39,23 @@ var (
 			Foreground(lipgloss.Color("#F87171"))
 
 	OptDone = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#34D399")).
-			Bold(true)
+		Foreground(lipgloss.Color("#34D399")).
+		Bold(true)
 )
 
 // ── 描述 / 提示 ─────────────────────────────────────────────────
 
 var (
-	DescStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Italic(true)
-	HintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	SepStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	PrevStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 2)
+	DescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Italic(true)
+	HintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	SepStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
+	PrevStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")).Padding(0, 2)
 )
 
 // ── 超时进度条 ─────────────────────────────────────────────────
 
 var (
-	TimerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B"))
+	TimerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B"))
 	TimerUrgentStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F87171")).Bold(true)
 	ProgTrackStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
 	ProgFillStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B"))

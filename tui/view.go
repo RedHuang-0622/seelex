@@ -70,7 +70,7 @@ func (m Model) View() string {
 	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
 
-// ═══ 输入框上方分隔线 ═══
+	// ═══ 输入框上方分隔线 ═══
 	b.WriteString(StyleSep.Render(strings.Repeat("─", m.width)))
 	b.WriteString("\n")
 
@@ -134,11 +134,11 @@ func (m Model) renderConversation() string {
 // ── 状态栏 ─────────────────────────────────────────────────────
 
 func (m Model) renderStatusBar() string {
-	pf := string(m.client.ProviderFilter())
+	pf := m.runtime.Provider()
 	if pf == "" {
 		pf = "round-robin"
 	}
-	plugin := m.agt.Tools().ActivePlugin()
+	plugin := m.runtime.ActivePlugin()
 	tokens := tokensFromEngine(m.eng)
 	elapsed := time.Since(m.lastStart).Round(time.Second)
 	sid := m.eng.SessionID()
