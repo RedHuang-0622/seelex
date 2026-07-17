@@ -214,7 +214,7 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 				ID: fmt.Sprintf("ask_%d", time.Now().UnixNano()), Question: input.Question,
 				Options: options, Risk: "low", ToolName: "ask_approve",
 			})
-			if err != nil || decision.OptionID == "__CANCEL__" || decision.OptionID == "__TIMEOUT__" {
+			if err != nil || !approvalAccepted(decision.OptionID) {
 				return `{"approved":false,"reason":"cancelled"}`, nil
 			}
 			encoded, err := json.Marshal(map[string]interface{}{"approved": true, "choice": decision.OptionID})

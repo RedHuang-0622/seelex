@@ -163,3 +163,12 @@ func approvalOption(choice string) application.InteractionOption {
 	}
 	return application.InteractionOption{ID: choice, Label: choice}
 }
+
+func approvalAccepted(optionID string) bool {
+	switch strings.ToLower(strings.TrimSpace(optionID)) {
+	case "", "__cancel__", "__timeout__", "no", "deny", "reject", "refuse", "cancel", "abort", "skip", "false", "否", "拒绝", "取消", "终止", "跳过":
+		return false
+	default:
+		return true
+	}
+}

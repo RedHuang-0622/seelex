@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -226,5 +227,22 @@ func TestApprovalBrokerResolve(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("approval did not resolve")
+	}
+}
+
+func TestResumeCommandReportsUnavailableCapability(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "/resume"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := service.Snapshot()
+	if snapshot.Interaction != nil {
+		t.Fatalf("resume should not open an interaction when unsupported: %#v", snapshot.Interaction)
+	}
+	last := snapshot.Conversation[len(snapshot.Conversation)-1]
+	if !strings.Contains(last.Content, "会话恢复暂不可用") {
+		t.Fatalf("unexpected resume notice %q", last.Content)
 	}
 }

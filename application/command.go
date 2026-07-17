@@ -114,6 +114,16 @@ func (service *Service) registerBuiltinCommands() {
 		return CommandResult{}, nil
 	})
 	register("resume", "恢复历史会话：/resume <session_id>", func(ctx context.Context, args []string) (CommandResult, error) {
+		service.mu.RLock()
+		capabilities := service.snapshot.Capabilities
+		service.mu.RUnlock()
+		if !capabilities.SessionResume {
+			reason := strings.TrimSpace(capabilities.SessionResumeReason)
+			if reason == "" {
+				reason = "当前 Engine 不支持历史替换"
+			}
+			return CommandResult{Notice: "会话恢复暂不可用: " + reason}, nil
+		}
 		if len(args) == 0 {
 			return CommandResult{Interaction: service.sessionInteraction()}, nil
 		}
