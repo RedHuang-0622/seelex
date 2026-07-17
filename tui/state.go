@@ -1,55 +1,36 @@
-// ── 核心状态模型：Cell → Conversation → AppState ─────────────
-// 对应 Elm Architecture 的 State Store 层
-
 package tui
 
 import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application"
 )
 
-// ── Cell Kind ───────────────────────────────────────────────────
-
-type CellKind string
-
-const (
-	CellUser      CellKind = "user"
-	CellAssistant CellKind = "assistant"
-	CellToolCall  CellKind = "tool_call"
-	CellToolRes   CellKind = "tool_result"
-	CellSystem    CellKind = "system"
-	CellError     CellKind = "error"
-)
-
-// ── Cell：对话中的最小渲染单元 ─────────────────────────────────
+const CellSoftLimit = 500
 
 type Cell struct {
-	Kind     CellKind
-	Content  string
-	Extra    string // 工具名 / ID 等元信息
-	Status   string // tool_call: "running" | "success" | "error"
-	Duration time.Duration
+	Role    string
+	Content string
+	Tool    *application.ToolCall
 }
 
-func (c Cell) Render(width int) string {
-	switch c.Kind {
-	case CellUser:
-		return fmt.Sprintf("%s\n  %s",
-			StyleUser.Render("  You"),
-			c.Content)
-
-	case CellAssistant:
-		if c.Content == "" {
+func (cell Cell) Render(_ int) string {
+	switch cell.Role {
+	case "user":
+		return fmt.Sprintf("%s\n  %s", StyleUser.Render("  You"), cell.Content)
+	case "assistant":
+		if cell.Content == "" {
 			return ""
 		}
-		return fmt.Sprintf("%s\n  %s",
-			StyleAssistant.Render("  Seele"),
-			c.Content)
-
-	case CellToolCall:
+		return fmt.Sprintf("%s\n  %s", StyleAssistant.Render("  Seele"), cell.Content)
+	case "tool":
+		if cell.Tool == nil {
+			return ""
+		}
 		icon := "→"
-		switch c.Status {
+		switch cell.Tool.Status {
 		case "running":
 			icon = StyleTaskRunning.Render("●")
 		case "success":
@@ -57,107 +38,51 @@ func (c Cell) Render(width int) string {
 		case "error":
 			icon = StyleError.Render("✗")
 		}
-		line := fmt.Sprintf("  %s %s", icon, c.Content)
-		if c.Duration > 0 && c.Status != "running" {
-			line += StyleMuted.Render(fmt.Sprintf("  %s",
-				c.Duration.Round(time.Millisecond*100)))
+		arguments := cell.Tool.Arguments
+		if len(arguments) > 80 {
+			arguments = arguments[:80] + "..."
+		}
+		line := fmt.Sprintf("  %s %s(%s)", icon, cell.Tool.Name, arguments)
+		if cell.Tool.Duration > 0 && cell.Tool.Status != "running" {
+			line += StyleMuted.Render(fmt.Sprintf("  %s", cell.Tool.Duration.Round(100*time.Millisecond)))
 		}
 		return StyleToolCall.Render(line)
-
-	case CellToolRes:
-		prefix := ""
-		if c.Extra != "" {
-			prefix = "[" + c.Extra + "] "
+	case "tool_result":
+		content := cell.Content
+		if len(content) > 200 {
+			content = content[:200] + "..."
 		}
-		str := c.Content
-		if len(str) > 120 {
-			str = str[:120] + "..."
+		name := ""
+		if cell.Tool != nil && cell.Tool.Name != "" {
+			name = "[" + cell.Tool.Name + "] "
 		}
-		return StyleToolResult.Render("    ↳ " + prefix + str)
-
-	case CellSystem:
-		if c.Content == "" {
+		return StyleToolResult.Render("    ↳ " + name + content)
+	case "system":
+		if cell.Content == "" {
 			return ""
 		}
-		return StyleSystem.Render("  ● " + c.Content)
-
-	case CellError:
-		return StyleError.Render("  ✖ " + c.Content)
-	}
-	return ""
-}
-
-// CellSoftLimit — 对话 Cell 上限（低配机器友好）
-const CellSoftLimit = 500
-
-// ── Conversation：对话（Cell 有序列表）────────────────────────
-
-type Conversation struct {
-	Cells []Cell
-}
-
-func (c *Conversation) Add(cell Cell) {
-	c.Cells = append(c.Cells, cell)
-	// 超出上限时保留首条 system 消息 + 最近 N-1 条
-	if len(c.Cells) > CellSoftLimit {
-		keep := make([]Cell, 0, CellSoftLimit)
-		keep = append(keep, c.Cells[0])                                // 首条（welcome）
-		keep = append(keep, c.Cells[len(c.Cells)-CellSoftLimit+1:]...) // 最近条
-		c.Cells = keep
+		return StyleSystem.Render("  ● " + cell.Content)
+	case "error":
+		return StyleError.Render("  ✖ " + cell.Content)
+	default:
+		return cell.Content
 	}
 }
 
-func (c *Conversation) Clear() {
-	c.Cells = nil
-}
-
-func (c *Conversation) LastCell() *Cell {
-	if len(c.Cells) == 0 {
-		return nil
+func renderConversation(messages []application.Message, width int) string {
+	if len(messages) > CellSoftLimit {
+		messages = append(messages[:1:1], messages[len(messages)-CellSoftLimit+1:]...)
 	}
-	return &c.Cells[len(c.Cells)-1]
-}
-
-// AppendToLast 向最后一个 Cell 追加内容（流式增量用）
-func (c *Conversation) AppendToLast(text string) {
-	last := c.LastCell()
-	if last == nil {
-		return
-	}
-	last.Content += text
-}
-
-func (c *Conversation) Render(width int) string {
-	var b strings.Builder
-	for i, cell := range c.Cells {
-		if i > 0 {
-			b.WriteString("\n")
+	var builder strings.Builder
+	for index, message := range messages {
+		rendered := (Cell{Role: message.Role, Content: message.Content, Tool: message.Tool}).Render(width)
+		if rendered == "" {
+			continue
 		}
-		b.WriteString(cell.Render(width))
+		if index > 0 && builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString(rendered)
 	}
-	return b.String()
+	return builder.String()
 }
-
-// ── AppState：全局状态 ──────────────────────────────────────────
-
-type AppState struct {
-	Conv Conversation
-
-	ModelName string
-
-	Streaming bool
-}
-
-func NewAppState(modelName string) AppState {
-	return AppState{
-		ModelName: modelName,
-		Conv: Conversation{
-			Cells: []Cell{
-				{Kind: CellSystem, Content: fmt.Sprintf("Seele CLI — %s", modelName)},
-			},
-		},
-	}
-}
-
-// Keep types alive
-var _ = time.Time{}

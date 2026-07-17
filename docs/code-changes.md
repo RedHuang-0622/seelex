@@ -1,93 +1,65 @@
 # 代码变更摘要
 
-## 架构概览
-
-```
-seelex/
-├── main.go                    ─── 入口，装配件模式组装所有依赖
-├── tui.go                     ─── 主模型（装配件），组合各子组件
-├── tui_styles.go              ─── 样式定义（集中管理）
-├── tui_commands.go            ─── 命令策略模式（/help, /new, /resume 等）
-├── tui_tools_panel.go         ─── 提示引擎（/ 命令提示, @ 工具提示, # Skill 提示）
-├── session/
-│   └── manager.go             ─── 会话管理薄包装（包装 Seele storage.Store）
-├── skill/
-│   └── skill.go               ─── Skill 加载器 + 注册表
-├── config/
-│   ├── account-openai.yaml    ─── 单账号配置
-│   └── account-pool.yaml      ─── 多账号池配置
-└── .github/workflows/
-    └── ci.yml                 ─── GitHub Actions CI
-```
-
-## 新增/修改文件
+## 新增/修改/删除文件
 
 | 文件 | 类型 | 说明 | 设计模式 |
 |------|------|------|---------|
-| main.go | 重写 | 7 层装配：依赖→工具→存储→会话→Skill→命令→TUI | 装配件 + 工厂 |
-| tui.go | 重写 | 主模型含 `suggEng`/`sessionMgr`/`skillReg` 子组件 | 装配件模式 |
-| tui_styles.go | 新增 | 全局样式常量 | — |
-| tui_commands.go | 新增 | 命令接口 + 10 个具体命令 | 策略模式 |
-| tui_tools_panel.go | 新增 | 提示引擎 + 提示面板渲染 | — |
-| session/manager.go | 重写 | 薄包装 Seele `storage.Store` | 外观模式 |
-| skill/skill.go | 新增 | Skill 类型 + Loader + Registry | 工厂 + 策略容器 |
-| config/account-pool.yaml | 新增 | 多账号池示例 | 外部化配置 |
-| .github/workflows/ci.yml | 新增 | 跨平台 CI（Linux/Win/Mac） | — |
-| session/store.go | 删除 | 用 Seele 内置 `storage.Store` 替代 | 不重复造轮子 |
+| `application/*.go` | 新增 | Headless application service、DTO、事件、Chat、命令、补全和审批 | Service、Strategy、Pub/Sub、Broker |
+| `application/application_test.go` | 新增 | application 无界面用例与事件测试 | Fake Ports |
+| `application_adapters.go` | 新增 | Engine/Runtime/Plugin/Skill/Session 到 application ports 的转换 | Adapter |
+| `main.go` | 修改 | 按 EventHub → Broker → Engine → Application → TUI 装配 | Composition Root |
+| `tui/*.go` | 重构 | 仅保留 Bubble Tea 输入、局部 UI 状态和 Snapshot 渲染 | UI Adapter |
+| `tui/tui_test.go` | 新增 | 输入、取消和 Interaction 映射测试 | Fake Controller |
+| `tui/approve`, `tui/commands`, `tui/sugg`, `tui/stream` | 删除 | 删除旧业务子包和包级可变桥接 | — |
+| `README.md` | 修改 | 更新架构、装配顺序和项目结构 | — |
+| `scripts/sync-claudecode-account.ps1` | 新增 | 将 Claude Code MiniMax 账号转换为本地 OpenAI 账号池 | Adapter |
+| `.gitignore` | 修改 | 忽略包含真实 Token 的 `config/*.local.yaml` | — |
+
+## API 变更
+
+| API | 变更 | 兼容性 |
+|-----|------|-------|
+| `tui.NewModel` | 改为只接收 `AppController` | 内部破坏性变更，`main.go` 已同步 |
+| `application.Service` | 新增 Snapshot、Subscribe、Submit、CancelChat、Suggestions、ResolveInteraction | 新增 |
+| `application.ApprovalBroker` | 替代 `tui/approve` 的全局同步等待 | 行为保持，依赖方向修正 |
+| `application.ToolHookBridge` | 替代 TUI 包级 stream channel | 新增 |
 
 ## 设计模式使用
 
 | 模式 | 文件 | 效果 |
 |------|------|------|
-| 🏭 **工厂模式** | `main.go`, `skill/skill.go` | NewLoader/NewRegistry/NewManager 工厂方法创建依赖 |
-| 🧩 **装配件模式** | `tui.go` | 主 model 组装 viewport/messages/suggEng/sessionMgr |
-| ⚔️ **策略模式** | `tui_commands.go` | Command 接口 + 10 个策略实现 |
-| 🎯 **策略容器** | `tui_commands.go` | globalCommands 注册表 |
-| 🧊 **外观模式** | `session/manager.go` | 薄包装 Seele storage.Store |
+| Ports and Adapters | `application/ports.go`, `application_adapters.go` | application 不依赖具体产品包 |
+| Strategy | `application/command.go` | 命令实例化注册，无全局 registry |
+| Publish/Subscribe | `application/event.go` | 多前端可独立订阅有序事件 |
+| Broker | `application/approval.go` | 审批请求按 ID 等待和决议 |
+| Snapshot | `application/state.go` | 前端可从稳定 DTO 完整重建画面 |
 
-## 已避免的模式
-| 模式 | 原因 |
-|------|------|
-| ❌ 单例模式 | 所有依赖通过工厂创建 + 参数传递 |
-| ❌ 原型模式 | 无克隆需求 |
+## 接口抽象
 
-## 用户交互增强
-
-| 触发器 | 效果 |
-|--------|------|
-| 输入 `/` | 弹出命令补全列表（如 `/help`, `/new`, `/resume`） |
-| 输入 `@` | 弹出可见工具列表（如 `@grep`, `@read_file`） |
-| 输入 `#` | 弹出已加载 Skill 列表 |
-| Tab | 接受当前高亮提示 |
-| ↑/↓ | 在提示列表中导航 |
-
-## 会话管理
-
-| 命令 | 功能 |
-|------|------|
-| `/new` | 保存当前会话 → 清空历史 → 新建 |
-| `/resume <id>` | 从磁盘加载历史会话 |
-| `/sessions` | 列出所有持久化会话 |
-| 自动保存 | 新建会话时异步持久化 |
-
-## Skill 系统
-- 从 `skills/` 或 `cmd/repl/skills/` 目录加载 `.md` 文件
-- 注册表存储，`#skill_name` 触发调用
-- 支持传递参数：`#skill_name arg1 arg2`
+| 接口 | 实现方 | 使用方 |
+|------|--------|--------|
+| `ChatEngine` | `enginePort` | `application.Service` |
+| `RuntimePort` | `runtimePort` | application runtime/read model |
+| `PluginPort` | `pluginPort` | application plugin use case |
+| `SkillPort` | `skillPort` | application input/completion |
+| `SessionPort` | `sessionPort` | application session commands |
+| `AppController` | `application.Service` | `tui.Model` |
 
 ## 循环依赖检查
-- [x] 确认无循环依赖（所有子包仅单向依赖根包）
-- [x] session/ 仅依赖 Seele storage
-- [x] skill/ 无外部依赖
 
-## 编译验证
-- [x] `go build ./...` — 通过
-- [x] `go vet ./...` — 通过
-- [ ] `go test ./...` — 待运行
+- [x] `application` 不依赖 `tui`
+- [x] `tui` 不依赖 Engine、Plugin、Skill、Session 或 `seelebridge`
+- [x] 无包级事件 channel、命令 registry 或 pending interaction
 
-## API 兼容性
-| 变更 | 兼容性 |
-|------|--------|
-| `initialModel` 签名扩展（新增 sessionMgr, skillReg 参数） | 破坏性变更 ✅ main.go 已同步更新 |
-| `executeCommand` 改为包级函数 | 兼容 |
-| `messageView` / `streamChunk` 定义不变 | 兼容 |
+## Commit 建议
+
+```text
+refactor(tui): separate headless application core
+
+- move chat, commands, completion and interactions into application
+- make TUI consume snapshots and ordered application events
+- replace global stream and approval bridges with instance services
+- update composition root, tests and architecture documentation
+
+Refs: TUI application core separation
+```

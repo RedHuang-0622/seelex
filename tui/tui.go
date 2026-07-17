@@ -1,444 +1,250 @@
-// ── 主模型：Elm Architecture 事件驱动 ──────────────────────────
-//
-// 架构：
-//   Event (tea.Msg) → Update → AppState → Widget Tree → Frame
-//
-// 运行时（Engine/ChatStream）通过 channel 桥接 goroutine → bubbletea
-
 package tui
 
 import (
-	"fmt"
+	"context"
 	"strings"
-	"time"
 
-	"github.com/RedHuang-0622/Seele/engine"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/RedHuang-0622/seelex/session"
-	"github.com/RedHuang-0622/seelex/skill"
-	tuiApprove "github.com/RedHuang-0622/seelex/tui/approve"
-	"github.com/RedHuang-0622/seelex/tui/sugg"
+	"github.com/RedHuang-0622/seelex/application"
 )
 
-// skillsNeedRefresh 由 Skill 管理命令设置，在 handleEnter 中消费
-var skillsNeedRefresh bool
-
-func signalSkillsRefresh() {
-	skillsNeedRefresh = true
+type AppController interface {
+	Snapshot() application.Snapshot
+	Subscribe(buffer int) application.Subscription
+	Submit(context.Context, string) error
+	CancelChat(requestID string) bool
+	Suggestions(input string) []application.Suggestion
+	ResolveInteraction(context.Context, string, string) error
+	SelectAccount(context.Context, string) error
+	SwitchPlugin(context.Context, string) error
 }
-
-// ── 主模型 ───────────────────────────────────────────────────────
 
 type Model struct {
-	// ─ 应用状态（Elm Architecture State Store） ─
-	state AppState
-
-	// ─ 运行时引用 ─
-	eng        *engine.Engine
-	runtime    RuntimeView
-	plugins    PluginController
-	modelName  string
-	sessionMgr *session.Manager
-	skillReg   *skill.Registry
-	SuggEng    *sugg.Engine
-
-	// ─ 输入区 ─
-	textarea   textarea.Model
-	suggMode   bool
-	suggIdx    int
-	suggOffset int
-	inputHist  []string
-	histIdx    int
-	histDraft  string
-
-	// ─ 确认面板 ─
-	prompting bool
-	promptMsg string
-	promptOpt []string
-	promptSel int
-	promptCh  chan string
-
-	// ─ 审批面板（子包模块） ─
-	ApproveMgr *tuiApprove.Manager
-
-	// ─ 选择器（交互式列表） ─
-	selState selectState
-	selTitle string
-	selItems []selectItem
-	selIdx   int
-
-	// ─ Bubble Tea ─
-	viewport viewport.Model
-	ready    bool
-	quitting bool
-	width    int
-	height   int
-	showLogo bool
-
-	// ─ 流式 ─
-	streamCh  chan streamChunk
-	lastInput string
-	lastStart time.Time
+	app            AppController
+	snapshot       application.Snapshot
+	subscription   application.Subscription
+	textarea       textarea.Model
+	viewport       viewport.Model
+	suggMode       bool
+	suggIdx        int
+	suggOffset     int
+	inputHist      []string
+	histIdx        int
+	histDraft      string
+	interactionID  string
+	interactionSel int
+	ready          bool
+	quitting       bool
+	width          int
+	height         int
+	showLogo       bool
+	uiError        string
 }
 
-// ── 工厂 ────────────────────────────────────────────────────────
-
-func NewModel(
-	eng *engine.Engine, modelName string,
-	runtime RuntimeView, plugins PluginController,
-	sessionMgr *session.Manager, skillReg *skill.Registry,
-) Model {
-	se := sugg.NewEngine(runtime)
-	skills := skillReg.All()
-	ss := make([]sugg.Suggestion, 0, len(skills))
-	for _, s := range skills {
-		ss = append(ss, sugg.Suggestion{Text: s.Name, Description: s.Description, Kind: "skill"})
-	}
-	se.SetSkills(ss)
-	se.RefreshTools()
-
-	ta := textarea.New()
-	ta.Placeholder = "输入消息…  /help 查看命令"
-	ta.CharLimit = 0
-	ta.SetWidth(80)
-	ta.Focus()
-	ta.ShowLineNumbers = false
-	ta.KeyMap.InsertNewline.SetEnabled(false)
-
-	return Model{
-		state:      NewAppState(modelName),
-		eng:        eng,
-		runtime:    runtime,
-		plugins:    plugins,
-		modelName:  modelName,
-		sessionMgr: sessionMgr,
-		skillReg:   skillReg,
-		SuggEng:    se,
-		textarea:   ta,
-		streamCh:   make(chan streamChunk, 256),
-		showLogo:   true,
-		ApproveMgr: tuiApprove.NewManager(),
-		lastStart:  time.Now(),
-	}
+func NewModel(app AppController) Model {
+	input := textarea.New()
+	input.Placeholder = "输入消息…  /help 查看命令"
+	input.CharLimit = 0
+	input.SetWidth(80)
+	input.Focus()
+	input.ShowLineNumbers = false
+	input.KeyMap.InsertNewline.SetEnabled(false)
+	return Model{app: app, snapshot: app.Snapshot(), subscription: app.Subscribe(256), textarea: input, histIdx: -1, showLogo: true}
 }
 
-func (m Model) Init() tea.Cmd {
-	// 启动时检查是否有待处理的审批定时器
-	if m.ApproveMgr.Active && !m.ApproveMgr.State.Resolved {
-		return tuiApprove.TickCmd()
-	}
-	return nil
-}
+func (model Model) Init() tea.Cmd { return waitApplicationEvent(model.subscription) }
 
-// ── Update：事件入口（Elm Architecture）─────────────────────────
-
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	m.checkPrompt()
-	m.ApproveMgr.CheckPending()
-
-	switch msg := msg.(type) {
+func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch message := message.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.textarea.SetWidth(msg.Width - 4)
-		vh := m.convHeight()
-		if !m.ready {
-			m.viewport = viewport.New(msg.Width, vh)
-			m.ready = true
+		model.width, model.height = message.Width, message.Height
+		model.textarea.SetWidth(max(message.Width-4, 1))
+		height := model.convHeight()
+		if !model.ready {
+			model.viewport = viewport.New(message.Width, height)
+			model.ready = true
 		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = vh
+			model.viewport.Width, model.viewport.Height = message.Width, height
 		}
-		return m, nil
-
+		model.syncView()
+		return model, nil
 	case tea.KeyMsg:
-		return m.handleKey(msg)
-
+		return model.handleKey(message)
 	case tea.MouseMsg:
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		return m, cmd
-
-	case streamChunk:
-		return m.handleStreamChunk(msg)
-
-	case tuiApprove.TickMsg:
-		return m, m.ApproveMgr.HandleTick()
-
+		var command tea.Cmd
+		model.viewport, command = model.viewport.Update(message)
+		return model, command
+	case applicationEventMsg:
+		model.snapshot = model.app.Snapshot()
+		model.uiError = ""
+		model.syncInteractionSelection()
+		model.syncView()
+		if message.event.Kind == application.EventExitRequested {
+			model.quitting = true
+			return model, tea.Quit
+		}
+		return model, waitApplicationEvent(model.subscription)
+	case submitResultMsg:
+		if message.err != nil {
+			model.uiError = message.err.Error()
+			model.syncView()
+		}
+		return model, waitApplicationEvent(model.subscription)
 	default:
-		return m, nil
+		return model, nil
 	}
 }
 
-// ── 键盘 ──────────────────────────────────────────────────────
-
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.quitting {
-		return m, tea.Quit
+func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if model.quitting {
+		return model, tea.Quit
 	}
-	if handled, cmd := m.ApproveMgr.HandleKey(msg); handled {
-		return m, cmd
+	if model.snapshot.Interaction != nil {
+		return model.handleInteractionKey(message)
 	}
-	if m.prompting {
-		return m.handlePromptKey(msg)
-	}
-	// 选择器模式（交互式列表）
-	if m.selState != selNone {
-		return m.handleSelKey(msg)
-	}
-	if m.state.Streaming {
-		if msg.String() == "ctrl+c" {
-			m.quitting = true
-			return m, tea.Quit
+	if model.snapshot.Chat.Running {
+		if message.String() == "ctrl+c" {
+			model.app.CancelChat(model.snapshot.Chat.RequestID)
 		}
-		return m, nil
+		return model, nil
 	}
-
-	switch msg.String() {
+	switch message.String() {
 	case "enter":
-		return m.handleEnter()
-
+		return model.handleEnter()
 	case "ctrl+c", "ctrl+d":
-		m.quitting = true
-		return m, tea.Quit
-
+		model.quitting = true
+		return model, tea.Quit
 	case "up":
-		if m.suggMode {
-			if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
-				m.suggIdx = (m.suggIdx - 1 + len(s)) % len(s)
-				if m.suggIdx < m.suggOffset {
-					m.suggOffset = m.suggIdx
+		if model.suggMode {
+			suggestions := model.app.Suggestions(model.textarea.Value())
+			if len(suggestions) > 0 {
+				model.suggIdx = (model.suggIdx - 1 + len(suggestions)) % len(suggestions)
+				if model.suggIdx < model.suggOffset {
+					model.suggOffset = model.suggIdx
 				}
 			}
-		} else if len(m.inputHist) > 0 {
-			if m.histIdx == -1 {
-				m.histDraft = m.textarea.Value()
-				m.histIdx = len(m.inputHist) - 1
-			} else if m.histIdx > 0 {
-				m.histIdx--
+		} else if len(model.inputHist) > 0 {
+			if model.histIdx == -1 {
+				model.histDraft = model.textarea.Value()
+				model.histIdx = len(model.inputHist) - 1
+			} else if model.histIdx > 0 {
+				model.histIdx--
 			}
-			m.textarea.SetValue(m.inputHist[m.histIdx])
-			m.textarea.CursorEnd()
+			model.textarea.SetValue(model.inputHist[model.histIdx])
+			model.textarea.CursorEnd()
 		}
-		return m, nil
-
+		return model, nil
 	case "down":
-		if m.suggMode {
-			if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
-				m.suggIdx = (m.suggIdx + 1) % len(s)
-				if m.suggIdx >= m.suggOffset+suggWindowSize {
-					m.suggOffset = m.suggIdx - suggWindowSize + 1
+		if model.suggMode {
+			suggestions := model.app.Suggestions(model.textarea.Value())
+			if len(suggestions) > 0 {
+				model.suggIdx = (model.suggIdx + 1) % len(suggestions)
+				if model.suggIdx >= model.suggOffset+suggWindowSize {
+					model.suggOffset = model.suggIdx - suggWindowSize + 1
 				}
 			}
-		} else if m.histIdx != -1 {
-			m.histIdx++
-			if m.histIdx >= len(m.inputHist) {
-				m.histIdx = -1
-				m.textarea.SetValue(m.histDraft)
-				m.histDraft = ""
+		} else if model.histIdx != -1 {
+			model.histIdx++
+			if model.histIdx >= len(model.inputHist) {
+				model.histIdx = -1
+				model.textarea.SetValue(model.histDraft)
+				model.histDraft = ""
 			} else {
-				m.textarea.SetValue(m.inputHist[m.histIdx])
+				model.textarea.SetValue(model.inputHist[model.histIdx])
 			}
-			m.textarea.CursorEnd()
+			model.textarea.CursorEnd()
 		}
-		return m, nil
-
+		return model, nil
 	case "tab":
-		if m.suggMode {
-			if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 && m.suggIdx < len(s) {
-				m = m.acceptSugg(s[m.suggIdx])
+		if model.suggMode {
+			suggestions := model.app.Suggestions(model.textarea.Value())
+			if len(suggestions) > 0 && model.suggIdx < len(suggestions) {
+				model = model.acceptSuggestion(suggestions[model.suggIdx])
 			}
 		}
-		return m, nil
-
-	// ── 视口滚动 ──
+		return model, nil
 	case "pgup":
-		if m.ready {
-			m.viewport.HalfPageUp()
+		if model.ready {
+			model.viewport.HalfPageUp()
 		}
-		return m, nil
-
+		return model, nil
 	case "pgdown":
-		if m.ready {
-			m.viewport.HalfPageDown()
+		if model.ready {
+			model.viewport.HalfPageDown()
 		}
-		return m, nil
-
+		return model, nil
 	case "home":
-		if m.ready {
-			m.viewport.GotoTop()
+		if model.ready {
+			model.viewport.GotoTop()
 		}
-		return m, nil
-
+		return model, nil
 	case "end":
-		if m.ready {
-			m.viewport.GotoBottom()
+		if model.ready {
+			model.viewport.GotoBottom()
 		}
-		return m, nil
-
+		return model, nil
 	default:
-		var cmd tea.Cmd
-		m.textarea, cmd = m.textarea.Update(msg)
-		m.afterInput()
-		return m, cmd
+		var command tea.Cmd
+		model.textarea, command = model.textarea.Update(message)
+		model.afterInput()
+		return model, command
 	}
 }
 
-func (m *Model) afterInput() {
-	val := m.textarea.Value()
-	wasSugg := m.suggMode
-	m.suggMode = (strings.HasPrefix(val, "/") || strings.HasPrefix(val, "#")) && !strings.Contains(val, " ")
-	if m.suggMode && !wasSugg {
-		m.suggIdx = 0
-		m.suggOffset = 0
-	}
-	m.histIdx = -1
-}
-
-// ── Enter：提交输入 ────────────────────────────────────────────
-
-func (m Model) handleEnter() (tea.Model, tea.Cmd) {
-	input := strings.TrimSpace(m.textarea.Value())
-	if m.state.Streaming {
-		return m, nil
-	}
-	m.suggMode = false
-
-	// Logo 状态：空白 Enter 也隐藏 Logo
-	if m.showLogo {
-		m.showLogo = false
-		m.state.Conv.Clear()
-		m.state.Conv.Add(Cell{Kind: CellSystem, Content: "/help 查看命令"})
+func (model Model) handleEnter() (tea.Model, tea.Cmd) {
+	input := strings.TrimSpace(model.textarea.Value())
+	model.suggMode = false
+	if model.showLogo {
+		model.showLogo = false
 		if input == "" {
-			m.textarea.Reset()
-			m.syncView()
-			return m, nil
+			model.textarea.Reset()
+			return model, nil
 		}
 	}
-
 	if input == "" {
-		return m, nil
+		return model, nil
 	}
-
-	if input != "" && (len(m.inputHist) == 0 || m.inputHist[len(m.inputHist)-1] != input) {
-		m.inputHist = append(m.inputHist, input)
+	if len(model.inputHist) == 0 || model.inputHist[len(model.inputHist)-1] != input {
+		model.inputHist = append(model.inputHist, input)
 	}
-	m.histIdx = -1
-
-	// 命令
-	if strings.HasPrefix(input, "/") {
-		if input == "/" {
-			m.textarea.Reset()
-			return m, nil
-		}
-		parts := strings.Fields(input[1:])
-		if len(parts) > 0 {
-			if s, ok := m.skillReg.Get(parts[0]); ok {
-				return m.execSkill(s, parts[1:]), nil
-			}
-		}
-		// 交互式选择器命令
-		cmdName := strings.ToLower(parts[0])
-		if cmdName == "resume" && len(parts) == 1 {
-			m.startSessionSelector()
-			m.textarea.Reset()
-			return m, nil
-		}
-		if cmdName == "pool" && len(parts) == 1 {
-			m.startAccountSelector()
-			m.textarea.Reset()
-			return m, nil
-		}
-		// 普通命令
-		if msg := executeCommand(input); msg != nil {
-			if msg.content == "" && msg.role == "system" {
-				m.quitting = true
-				return m, tea.Quit
-			}
-			m.state.Conv.Add(Cell{Kind: CellSystem, Content: msg.content})
-		}
-		if cmdName == "plugin" {
-			m.SuggEng.RefreshTools()
-			m.RefreshSkills()
-		}
-		m.textarea.Reset()
-		m.syncView()
-		// Skill 变更后刷新建议引擎
-		if skillsNeedRefresh {
-			m.RefreshSkills()
-			skillsNeedRefresh = false
-		}
-		return m, nil
-	}
-
-	// # → Skill 快速调用
-	if strings.HasPrefix(input, "#") {
-		name := strings.TrimPrefix(input, "#")
-		if name != "" {
-			if s, ok := m.skillReg.Get(name); ok {
-				return m.execSkill(s, nil), nil
-			}
-			m.state.Conv.Add(Cell{Kind: CellSystem, Content: fmt.Sprintf("未知 Skill: %s", name)})
-			m.textarea.Reset()
-			m.syncView()
-			return m, nil
-		}
-	}
-
-	// 对话
-	m.state.Conv.Add(Cell{Kind: CellUser, Content: input})
-	m.state.Conv.Add(Cell{Kind: CellAssistant, Content: ""}) // 流式占位
-	m.lastInput = input
-	m.lastStart = time.Now()
-	m.textarea.Reset()
-	m.state.Streaming = true
-	m.viewport.Height = m.convHeight()
-
-	go m.doStream(input)
-	return m, waitStream(m.streamCh)
+	model.histIdx = -1
+	model.textarea.Reset()
+	return model, submitInput(model.app, input)
 }
 
-// ── Skill ────────────────────────────────────────────────────────
-
-func (m Model) execSkill(sk skill.Skill, args []string) tea.Model {
-	p := sk.Prompt
-	if len(args) > 0 {
-		p += "\n\n" + strings.Join(args, " ")
+func (model *Model) afterInput() {
+	value := model.textarea.Value()
+	wasSuggestion := model.suggMode
+	model.suggMode = (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "#")) && !strings.Contains(value, " ")
+	if model.suggMode && !wasSuggestion {
+		model.suggIdx, model.suggOffset = 0, 0
 	}
-	m.eng.SetSystemPrompt(p)
-	m.state.Conv.Add(Cell{Kind: CellSystem, Content: "加载 Skill: " + sk.Name})
-	m.textarea.Reset()
-	m.syncView()
-	return m
+	model.histIdx = -1
 }
 
-// ── Skill 刷新 ───────────────────────────────────────────────
-
-// RefreshSkills 从 Registry 重新加载 Skill 到建议引擎
-func (m *Model) RefreshSkills() {
-	skills := m.skillReg.All()
-	ss := make([]sugg.Suggestion, 0, len(skills))
-	for _, s := range skills {
-		ss = append(ss, sugg.Suggestion{Text: s.Name, Description: s.Description, Kind: "skill"})
+func (model Model) acceptSuggestion(suggestion application.Suggestion) Model {
+	trigger := "/"
+	if strings.HasPrefix(model.textarea.Value(), "#") {
+		trigger = "#"
 	}
-	m.SuggEng.SetSkills(ss)
+	model.textarea.SetValue(trigger + suggestion.Text + " ")
+	model.textarea.CursorEnd()
+	model.suggMode, model.suggIdx = false, 0
+	return model
 }
 
-// ── 接受提示建议 ─────────────────────────────────────────────
-
-func (m Model) acceptSugg(s sugg.Suggestion) Model {
-	val := m.textarea.Value()
-	if idx := strings.LastIndex(val, "/"); idx >= 0 {
-		val = val[:idx+1]
-	} else {
-		val = ""
+func (model *Model) syncInteractionSelection() {
+	if model.snapshot.Interaction == nil {
+		model.interactionID, model.interactionSel = "", 0
+		return
 	}
-	m.textarea.SetValue(val + s.Text + " ")
-	m.textarea.CursorEnd()
-	m.suggMode = false
-	m.suggIdx = 0
-	return m
+	if model.interactionID != model.snapshot.Interaction.ID {
+		model.interactionID, model.interactionSel = model.snapshot.Interaction.ID, 0
+	}
+	if model.interactionSel >= len(model.snapshot.Interaction.Options) {
+		model.interactionSel = max(len(model.snapshot.Interaction.Options)-1, 0)
+	}
 }

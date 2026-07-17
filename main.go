@@ -14,12 +14,12 @@ import (
 	"github.com/RedHuang-0622/Seele/engine"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/tui"
-	tuiApprove "github.com/RedHuang-0622/seelex/tui/approve"
 )
 
 var (
@@ -38,12 +38,17 @@ func main() {
 	skillRegistry := initSkillSystem()
 	pluginManager := initPluginSystem(runtime, skillRegistry)
 	store := initStore()
-	eng := initEngine(runtime, store)
-	registerProductTools(runtime, pluginManager, eng)
+	events := application.NewEventHub()
+	approval := application.NewApprovalBroker(events)
+	toolHooks := application.NewToolHookBridge()
+	eng := initEngine(runtime, store, toolHooks)
+	registerProductTools(runtime, pluginManager, eng, approval)
 	activateDefaultPlugin(pluginManager, eng)
 	sessionManager := initSessionManager(store, eng)
-	model := initTUI(eng, runtime, pluginManager, sessionManager, skillRegistry)
-	initCommands(eng, runtime, pluginManager, sessionManager, skillRegistry, model)
+	app := initApplication(eng, runtime, pluginManager, sessionManager, skillRegistry, events, approval)
+	defer app.Shutdown()
+	toolHooks.Bind(app)
+	model := initTUI(app)
 	startTUI(model)
 }
 
@@ -88,10 +93,10 @@ func activateDefaultPlugin(manager *plugin.Manager, eng *engine.Engine) {
 	applyPluginPrompt(eng, manager)
 }
 
-func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *engine.Engine) {
+func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *engine.Engine, approval *application.ApprovalBroker) {
 	registerTimeTool(runtime)
 	registerPluginSwitchTools(runtime, plugins, eng)
-	registerAskApprove(runtime)
+	registerAskApprove(runtime, approval)
 }
 
 func registerTimeTool(runtime *seelebridge.Runtime) {
@@ -175,7 +180,7 @@ func applyPluginPrompt(eng *engine.Engine, plugins *plugin.Manager) {
 	eng.SetSystemPrompt(strings.TrimSpace(current.Prompt))
 }
 
-func registerAskApprove(runtime *seelebridge.Runtime) {
+func registerAskApprove(runtime *seelebridge.Runtime, approval *application.ApprovalBroker) {
 	runtime.RegisterTool(
 		"ask_approve",
 		"向用户请求操作确认。当需要执行高风险操作时调用此工具。",
@@ -189,7 +194,7 @@ func registerAskApprove(runtime *seelebridge.Runtime) {
 			},
 			"required": []string{"question"},
 		},
-		func(_ context.Context, argsJSON string) (string, error) {
+		func(ctx context.Context, argsJSON string) (string, error) {
 			var input struct {
 				Question string   `json:"question"`
 				Choices  []string `json:"choices,omitempty"`
@@ -201,25 +206,18 @@ func registerAskApprove(runtime *seelebridge.Runtime) {
 			if len(choices) == 0 {
 				choices = []string{"Yes", "No"}
 			}
-			options := make([]tuiApprove.ChoiceOption, len(choices))
+			options := make([]application.InteractionOption, len(choices))
 			for i, choice := range choices {
-				options[i] = tuiApprove.ChoiceOption{Key: choice, Label: choice}
-				for _, builtinChoice := range tuiApprove.Choices(choice) {
-					if builtinChoice.Key == choice {
-						options[i] = builtinChoice
-						break
-					}
-				}
+				options[i] = approvalOption(choice)
 			}
-			question := tuiApprove.Question{
-				ID:      fmt.Sprintf("ask_%d", time.Now().UnixNano()),
-				Content: input.Question, Options: options,
-			}
-			result := tuiApprove.Ask(question, "low", "", "")
-			if result == "__CANCEL__" {
+			decision, err := approval.Request(ctx, application.ApprovalRequest{
+				ID: fmt.Sprintf("ask_%d", time.Now().UnixNano()), Question: input.Question,
+				Options: options, Risk: "low", ToolName: "ask_approve",
+			})
+			if err != nil || decision.OptionID == "__CANCEL__" || decision.OptionID == "__TIMEOUT__" {
 				return `{"approved":false,"reason":"cancelled"}`, nil
 			}
-			encoded, err := json.Marshal(map[string]interface{}{"approved": true, "choice": result})
+			encoded, err := json.Marshal(map[string]interface{}{"approved": true, "choice": decision.OptionID})
 			return string(encoded), err
 		},
 	)
@@ -233,12 +231,12 @@ func initStore() *seelebridge.SessionStore {
 	return store
 }
 
-func initEngine(runtime *seelebridge.Runtime, store *seelebridge.SessionStore) *engine.Engine {
+func initEngine(runtime *seelebridge.Runtime, store *seelebridge.SessionStore, hooks *application.ToolHookBridge) *engine.Engine {
 	return engine.New(
 		runtime.Agent(),
 		engine.WithStore(store.FrameworkStore()),
 		engine.WithTracer(seelebridge.NewTracer()),
-		engine.WithHooks(tui.CreateToolHooks()),
+		engine.WithHooks(hooks.Hooks()),
 	)
 }
 
@@ -256,27 +254,19 @@ func initSessionManager(store *seelebridge.SessionStore, eng *engine.Engine) *se
 	return manager
 }
 
-func initTUI(
-	eng *engine.Engine,
-	runtime *seelebridge.Runtime,
-	plugins *plugin.Manager,
-	sessions *session.Manager,
-	skills *skill.Registry,
-) tui.Model {
-	return tui.NewModel(eng, runtime.Model(), runtime, plugins, sessions, skills)
+func initApplication(
+	eng *engine.Engine, runtime *seelebridge.Runtime, plugins *plugin.Manager,
+	sessions *session.Manager, skills *skill.Registry,
+	events *application.EventHub, approval *application.ApprovalBroker,
+) *application.Service {
+	return application.New(application.Dependencies{
+		Engine: enginePort{engine: eng}, Runtime: runtimePort{runtime: runtime},
+		Plugins: pluginPort{manager: plugins}, Skills: skillPort{registry: skills},
+		Sessions: sessionPort{manager: sessions}, Events: events, Approval: approval,
+	})
 }
 
-func initCommands(
-	eng *engine.Engine,
-	runtime *seelebridge.Runtime,
-	plugins *plugin.Manager,
-	sessions *session.Manager,
-	skills *skill.Registry,
-	model tui.Model,
-) {
-	tui.RegisterCommands(eng, runtime, runtime.Model(), sessions, skills, nil, plugins)
-	tui.SyncCommandSuggestions(model.SuggEng)
-}
+func initTUI(app *application.Service) tui.Model { return tui.NewModel(app) }
 
 func startTUI(model tui.Model) {
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())

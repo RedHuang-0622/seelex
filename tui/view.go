@@ -1,7 +1,3 @@
-// ── Widget 渲染层：AppState → Widget Tree → Frame ──────────
-//
-// 每个 render* 方法负责一个独立面板，最终由 View() 组合。
-
 package tui
 
 import (
@@ -14,225 +10,172 @@ import (
 	"github.com/RedHuang-0622/seelex/tui/splash"
 )
 
-// ── 布局计算 ────────────────────────────────────────────────────
+const shortcutsBarH = 1
 
-const (
-	shortcutsBarH = 1
-)
-
-func (m Model) convHeight() int {
-	fixed := m.topPanelH() + m.midPanelH() + m.bottomPanelH()
-	return max(m.height-fixed, 4)
+func (model Model) convHeight() int {
+	return max(model.height-model.topPanelH()-model.midPanelH()-model.bottomPanelH(), 4)
 }
-
-func (m Model) topPanelH() int { return 1 + 1 }
-
-func (m Model) midPanelH() int {
-	h := 0
-	if m.suggMode {
-		if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
-			h += suggWindowSize + 3 // 窗口大小 + 上下滚动提示 + 间距
-		}
+func (Model) topPanelH() int { return 2 }
+func (model Model) midPanelH() int {
+	height := 0
+	if model.suggMode && len(currentSuggestions(model)) > 0 {
+		height += suggWindowSize + 3
 	}
-
-	if m.state.Streaming {
-		h += 1 // 流式状态指示行
+	if model.snapshot.Chat.Running {
+		height++
 	}
-	return h
+	if model.uiError != "" {
+		height++
+	}
+	return height
 }
+func (Model) bottomPanelH() int { return 3 + shortcutsBarH + 2 }
 
-func (m Model) bottomPanelH() int {
-	return 3 + shortcutsBarH + 2
-}
-
-// ── View 主入口 ────────────────────────────────────────────────
-
-func (m Model) View() string {
-	if !m.ready {
+func (model Model) View() string {
+	if !model.ready {
 		return splash.Gradient + "\n\n  Loading...\n"
 	}
-	if m.showLogo {
-		return splash.Render(m.width, m.height, m.modelName)
+	if model.showLogo {
+		return splash.Render(model.width, model.height, model.snapshot.Runtime.Model)
 	}
-
-	var b strings.Builder
-
-	// ═══ 顶部状态栏 ═══
-	b.WriteString(m.renderStatusBar())
-	b.WriteString("\n")
-
-	// ═══ 对话视口 或 选择器 ═══
-	if m.selState != selNone {
-		m.viewport.SetContent(m.renderSelector())
+	var builder strings.Builder
+	builder.WriteString(model.renderStatusBar())
+	builder.WriteString("\n")
+	if model.snapshot.Interaction != nil {
+		model.viewport.SetContent(model.renderInteraction())
 	} else {
-		m.viewport.SetContent(m.renderConversation())
+		model.viewport.SetContent(model.renderConversation())
 	}
-	b.WriteString(m.viewport.View())
-	b.WriteString("\n")
-
-	// ═══ 输入框上方分隔线 ═══
-	b.WriteString(StyleSep.Render(strings.Repeat("─", m.width)))
-	b.WriteString("\n")
-
-	// ═══ 流式状态指示（仅流式中显示） ═══
-	if m.state.Streaming {
-		elapsed := time.Since(m.lastStart).Round(time.Millisecond * 100)
-		b.WriteString(StyleStatus.Render(fmt.Sprintf("  ● receiving  %s", elapsed)))
-		b.WriteString("\n")
+	builder.WriteString(model.viewport.View())
+	builder.WriteString("\n")
+	builder.WriteString(StyleSep.Render(strings.Repeat("─", model.width)))
+	builder.WriteString("\n")
+	if model.snapshot.Chat.Running {
+		elapsed := time.Since(model.snapshot.Chat.StartedAt).Round(100 * time.Millisecond)
+		builder.WriteString(StyleStatus.Render(fmt.Sprintf("  ● receiving  %s", elapsed)))
+		builder.WriteString("\n")
 	}
-
-	// ═══ 建议面板 ═══
-	if m.suggMode {
-		if s := m.SuggEng.Suggest(m.textarea.Value()); len(s) > 0 {
-			b.WriteString(renderSuggestions(s, m.suggIdx, m.suggOffset, m.width, m.textarea.Value()))
+	if model.uiError != "" {
+		builder.WriteString(StyleError.Render("  ✖ " + model.uiError))
+		builder.WriteString("\n")
+	}
+	if model.suggMode {
+		suggestions := currentSuggestions(model)
+		if len(suggestions) > 0 {
+			builder.WriteString(renderSuggestions(suggestions, model.suggIdx, model.suggOffset, model.width, model.textarea.Value()))
 		}
 	}
-
-	// ═══ 确认面板 ═══
-	if m.prompting {
-		b.WriteString(m.renderPrompt())
-	}
-
-	// ═══ 审批面板（子包模块） ═══
-	if m.ApproveMgr.Active {
-		b.WriteString(m.ApproveMgr.View(m.width))
-		b.WriteString("\n")
-	}
-
-	// ═══ 输入框（始终显示） ═══
-	b.WriteString(StyleInputBox.Width(m.width - 2).Render(m.renderInputLine()))
-
-	// ═══ 快捷栏 ═══
-	b.WriteString("\n")
-	b.WriteString(m.renderShortcuts())
-
-	return b.String()
+	builder.WriteString(StyleInputBox.Width(max(model.width-2, 1)).Render(model.renderInputLine()))
+	builder.WriteString("\n")
+	builder.WriteString(model.renderShortcuts())
+	return builder.String()
 }
 
-// ── 启动画面（艺术字居中） ──────────────────────────────────
-
-// ── 输入框行（始终显示输入内容） ──────────────────────────
-
-func (m Model) renderInputLine() string {
+func (model Model) renderInputLine() string {
 	cursor := " "
 	if time.Now().UnixMilli()/500%2 == 0 {
 		cursor = StyleInputPrompt.Render("▎")
 	}
-	return fmt.Sprintf("%s %s%s",
-		StyleInputPrompt.Render(">"),
-		m.textarea.Value(),
-		cursor,
-	)
+	return fmt.Sprintf("%s %s%s", StyleInputPrompt.Render(">"), model.textarea.Value(), cursor)
 }
 
-// ── 对话渲染：从 Conversation Cell 树构建 ──────────────────
-
-func (m Model) renderConversation() string {
-	return m.state.Conv.Render(m.width)
+func (model Model) renderConversation() string {
+	return renderConversation(model.snapshot.Conversation, model.width)
 }
 
-// ── 状态栏 ─────────────────────────────────────────────────────
-
-func (m Model) renderStatusBar() string {
-	pf := m.runtime.Provider()
-	if pf == "" {
-		pf = "round-robin"
+func (model Model) renderStatusBar() string {
+	provider := model.snapshot.Runtime.Provider
+	if provider == "" {
+		provider = "round-robin"
 	}
-	plugin := m.runtime.ActivePlugin()
-	tokens := tokensFromEngine(m.eng)
-	elapsed := time.Since(m.lastStart).Round(time.Second)
-	sid := m.eng.SessionID()
-
-	var parts []string
-	parts = append(parts, pf)
-	if plugin != "" && plugin != "default" {
+	parts := []string{provider}
+	if plugin := model.snapshot.Runtime.Plugin; plugin != "" && plugin != "default" {
 		parts = append(parts, plugin)
 	}
-	parts = append(parts, fmt.Sprintf("tok:%s", tokens))
-	parts = append(parts, elapsed.String())
-	if len(sid) > 8 {
-		parts = append(parts, sid[len(sid)-8:])
+	tokens := model.snapshot.Runtime.Tokens
+	if tokens == "" {
+		tokens = "0"
 	}
-
+	parts = append(parts, "tok:"+tokens)
+	if model.snapshot.Chat.Running {
+		parts = append(parts, time.Since(model.snapshot.Chat.StartedAt).Round(time.Second).String())
+	}
+	if sessionID := model.snapshot.Session.ID; len(sessionID) > 8 {
+		parts = append(parts, sessionID[len(sessionID)-8:])
+	}
 	right := strings.Join(parts, "  ")
-	left := StyleBanner.Render(" ◆ Seele") + StyleMuted.Render(fmt.Sprintf("  %s", m.modelName))
-	spacing := max(m.width-lipgloss.Width(left)-lipgloss.Width(right)-4, 1)
+	left := StyleBanner.Render(" ◆ Seele") + StyleMuted.Render(fmt.Sprintf("  %s", model.snapshot.Runtime.Model))
+	spacing := max(model.width-lipgloss.Width(left)-lipgloss.Width(right)-4, 1)
 	return StyleStatus.Render(left + strings.Repeat(" ", spacing) + right)
 }
 
-// ── 任务面板 ───────────────────────────────────────────────────
-
-// ── 选择器渲染（交互式列表） ───────────────────────────────
-
-func (m Model) renderSelector() string {
-	if len(m.selItems) == 0 {
+func (model Model) renderInteraction() string {
+	interaction := model.snapshot.Interaction
+	if interaction == nil {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString(StyleBanner.Render("  " + m.selTitle))
-	b.WriteString("\n\n")
-	maxShow := min(len(m.selItems), 20)
-	for i := 0; i < maxShow; i++ {
-		item := m.selItems[i]
-		prefix := "  "
-		sty := StyleSuggInactive
-		if i == m.selIdx {
-			prefix = " ▸ "
-			sty = StyleSuggActive
-		}
-		num := StyleMuted.Render(fmt.Sprintf("%d.", i+1))
-		line := StyleTaskItem.Render(fmt.Sprintf("%s%s %s", prefix, num, item.label))
-		if item.desc != "" {
-			line += "  " + StyleMuted.Render(item.desc)
-		}
-		b.WriteString(sty.Render(line))
-		b.WriteString("\n")
+	var builder strings.Builder
+	title := interaction.Title
+	if interaction.Question != "" {
+		title = interaction.Question
 	}
-	b.WriteString(StyleMuted.Render("  ↑↓ Enter选择 Esc取消 数字键快捷跳转"))
-	return b.String()
+	builder.WriteString(StyleConfirm.Render("  " + title))
+	builder.WriteString("\n\n")
+	if interaction.ToolName != "" {
+		builder.WriteString(StyleMuted.Render("  Tool: " + interaction.ToolName))
+		builder.WriteString("\n")
+	}
+	if interaction.Preview != "" {
+		builder.WriteString(StyleToolResult.Render("  " + interaction.Preview))
+		builder.WriteString("\n")
+	}
+	for index, option := range interaction.Options {
+		prefix, style := "  ", StyleChoiceInactive
+		if index == model.interactionSel {
+			prefix, style = " ▸ ", StyleChoiceActive
+		}
+		line := fmt.Sprintf("%s%d. %s", prefix, index+1, option.Label)
+		if option.Description != "" {
+			line += StyleMuted.Render("  " + option.Description)
+		}
+		builder.WriteString(style.Render(line))
+		builder.WriteString("\n")
+	}
+	builder.WriteString(StyleMuted.Render("  ↑↓ Enter选择 Esc取消 数字键快捷跳转"))
+	return builder.String()
 }
 
-// ── 快捷栏 ─────────────────────────────────────────────────────
-
-func (m Model) renderShortcuts() string {
-	items := []string{
-		"Ctrl+L", "/clear", "/model", "/sessions", "/help", "/exit",
-	}
-	var b strings.Builder
-	for i, item := range items {
-		if i > 0 {
-			b.WriteString("  ")
+func (Model) renderShortcuts() string {
+	items := []string{"Ctrl+L", "/clear", "/model", "/sessions", "/help", "/exit"}
+	var builder strings.Builder
+	for index, item := range items {
+		if index > 0 {
+			builder.WriteString("  ")
 		}
-		b.WriteString(StyleShortcut.Render(item))
+		builder.WriteString(StyleShortcut.Render(item))
 	}
-	return StyleShortcutBar.Width(m.width).Render(b.String())
+	return StyleShortcutBar.Render(builder.String())
 }
 
-// ── 确认面板 ─────────────────────────────────────────────────
-
-func (m Model) renderPrompt() string {
-	var b strings.Builder
-	b.WriteString(StyleConfirm.Render("  " + m.promptMsg))
-	b.WriteString("\n")
-	for i, opt := range m.promptOpt {
-		prefix := "  "
-		sty := StyleChoiceInactive
-		if i == m.promptSel {
-			prefix = " ▸ "
-			sty = StyleChoiceActive
-		}
-		b.WriteString(sty.Render(fmt.Sprintf("%s%d. %s", prefix, i+1, opt)))
-		b.WriteString("\n")
+func (model *Model) syncView() {
+	if !model.ready {
+		return
 	}
-	b.WriteString(StyleMuted.Render("  ↑↓ Enter 数字键"))
-	return b.String()
+	atBottom := model.viewport.AtBottom()
+	if model.snapshot.Interaction != nil {
+		model.viewport.SetContent(model.renderInteraction())
+	} else {
+		model.viewport.SetContent(model.renderConversation())
+	}
+	model.viewport.Height = model.convHeight()
+	if atBottom {
+		model.viewport.GotoBottom()
+	}
 }
 
-// ── 工具函数 ─────────────────────────────────────────────────
-
-func max(a, b int) int {
-	if a > b {
-		return a
+func max(first, second int) int {
+	if first > second {
+		return first
 	}
-	return b
+	return second
 }

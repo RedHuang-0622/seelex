@@ -1,4 +1,5 @@
 config/account-openai.yaml
+config/*.local.yaml
 *.exe
 *.env
 .seele/

@@ -7,53 +7,42 @@
 ## 架构
 
 ```
-┌──────────────────────────────────────────┐
-│            seelex TUI                     │
-│  ┌────────────────────────────────────┐  │
-│  │          主 Model (tui.go)          │  │
-│  │  ┌──────┐ ┌──────┐ ┌───────────┐  │  │
-│  │  │conv  │ │stream│ │suggest.go │  │  │
-│  │  │渲染  │ │流处理 │ │建议面板   │  │  │
-│  │  └──────┘ └──────┘ └───────────┘  │  │
-│  │                                    │  │
-│  │  子包模块:                          │  │
-│  │  approve/  卡片式审批面板           │  │
-│  │  commands/ 命令系统（策略模式）      │  │
-│  │  sugg/     智能补全引擎              │  │
-│  │  splash/   启动画面艺术字            │  │
-│  └────────────┬───────────────────────┘  │
-│               │                           │
-│               ▼                           │
-│  ┌────────────────────────────────────┐  │
-│  │         Seele Engine                │  │
-│  │  ChatStream / History / Session    │  │
-│  │  Storage / Tool / Permission Gate  │  │
-│  └────────────────────────────────────┘  │
-└──────────────────────────────────────────┘
+Bubble Tea TUI ── AppController ──┐
+                                  ├── application.Service
+Electron/其他前端 ── IPC adapter ─┘      │
+                                         ├── Chat / Command / Completion
+                                         ├── Plugin / Skill / Session
+                                         ├── EventHub / Snapshot
+                                         └── ApprovalBroker
+                                                  │ ports
+                                                  ▼
+                                  Engine / seelebridge / plugin / skill / session
 ```
 
-### 架构分层（main.go 8 层装配）
+`application` 是无界面的应用核心，持有业务状态、副作用和异步生命周期；`tui` 只负责 Bubble Tea 输入事件、终端尺寸、光标/选中项、滚动和 Lipgloss 渲染。Snapshot、Event 和 Interaction DTO 均不依赖 Bubble Tea，可供后续 Electron sidecar 直接序列化。
+
+### 装配顺序
 
 | 层 | 职责 | 对应函数 |
 |----|------|---------|
-| L1 | LLM 配置加载 + Agent 创建 | `initAgent()` |
-| L2 | 工具注册（builtin + switch_mode + ask_approve） | `initTools()`, `registerSwitchMode()` |
-| L3 | 存储 + Engine | `initStore()`, `initEngine()` |
-| L4 | 会话管理 | `initSessionManager()` |
-| L5 | Skill 系统 | `initSkillSystem()` |
-| L6 | TUI Model 装配 | `initTUI()` |
-| L7 | 命令注册 + 建议同步 | `initCommands()` |
-| L8 | Bubble Tea Program 启动 | `startTUI()` |
+| L1 | Runtime、Skill、Plugin、Store | `initRuntime()`, `initSkillSystem()`, `initPluginSystem()` |
+| L2 | 事件与审批基础设施 | `application.NewEventHub()`, `application.NewApprovalBroker()` |
+| L3 | Engine 与实例化 Tool Hooks | `initEngine()` |
+| L4 | 产品工具与 Session | `registerProductTools()`, `initSessionManager()` |
+| L5 | Headless Application Core | `initApplication()` |
+| L6 | TUI Adapter | `initTUI()` |
+| L7 | Bubble Tea Program | `startTUI()` |
 
 ### 设计模式
 
 | 模式 | 用途 |
 |------|------|
-| 🏭 **工厂模式** | 创建 Session / Skill / Model 等依赖 |
-| 🧩 **装配件模式** | Model 组装 viewport / messages / 提示引擎 |
-| ⚔️ **策略模式** | `Command` 接口 + 子包 `commands/` |
+| 🏭 **工厂模式** | 创建 Runtime、Application、Session、Skill 等依赖 |
+| 🔌 **端口适配器** | `application` 定义消费接口，`application_adapters.go` 转换具体实现 |
+| ⚔️ **策略模式** | application 内的实例化 `CommandRegistry` |
+| 📣 **发布订阅** | `EventHub` 向 TUI 或未来 IPC adapter 发布有序事件 |
 | 🧊 **外观模式** | `session.Manager` 薄包装 `storage.Store` |
-| 🚪 **权限门控** | `permission.PermissionChecker` + `TUIApprovalGate` |
+| 🚪 **审批 Broker** | 工具同步等待决议，前端仅展示并 Resolve |
 
 ## 快速开始
 
@@ -90,6 +79,17 @@ accounts:
 ```
 
 > 支持多账号 round-robin 轮询，参见 `config/account-pool.yaml`
+
+#### 从 Claude Code 同步 MiniMax 账号
+
+如果 Claude Code 使用 `https://api.minimaxi.com/anthropic`，可将同一账号转换为 OpenAI 兼容配置：
+
+```powershell
+.\scripts\sync-claudecode-account.ps1
+go run . -c config/account-claudecode.local.yaml
+```
+
+脚本读取 `$HOME/.claude/settings.json` 中的 `ANTHROPIC_AUTH_TOKEN`，使用 OpenAI 兼容端点 `https://api.minimaxi.com/v1` 和模型 `MiniMax-M3` 生成本地账号池。`config/*.local.yaml` 已加入 `.gitignore`，Token 不会进入版本库。MiniMax 的 OpenAI 兼容接口使用 Bearer API Key，并通过 `/v1/chat/completions` 提供文本生成能力。
 
 ### 运行
 
@@ -129,7 +129,7 @@ go build -o seelex.exe .
 
 | 触发器 | 效果 |
 |--------|------|
-| 输入 `/` | 弹出命令补全列表 |
+| 输入 `/` | 合并展示命令、可见工具和 Skill |
 | 输入 `#` | 弹出已加载的 Skill 列表 |
 | `Tab` | 接受高亮提示 |
 | `↑` / `↓` | 在提示列表中导航 |
@@ -206,36 +206,32 @@ LLM 可通过 `switch_mode` 工具自主切换工作模式：
 
 ```
 seelex/
-├── main.go                 # 8 层装配入口
-├── go.work                 # IDE 跨模块解析
+├── main.go                 # 生命周期与依赖装配
+├── application_adapters.go # 具体领域对象到 application ports 的适配
+├── application/            # 无界面的应用核心
+│   ├── app.go              # Service、Snapshot 和公开用例
+│   ├── ports.go            # Engine/Runtime/Plugin/Skill/Session 窄接口
+│   ├── event.go            # EventHub、Subscription、Seq
+│   ├── chat.go             # ChatCoordinator 与 Tool hooks
+│   ├── command.go          # 实例化命令注册表
+│   ├── completion.go       # 命令/工具/Skill 补全
+│   ├── input.go            # 原始输入路由
+│   └── approval.go         # ApprovalBroker
 ├── seele.yaml              # 权限规则配置
 ├── config/                 # LLM 账户配置
 ├── session/                # 会话管理器
 ├── skill/                  # Skill 加载器 + 注册表
-├── tui/                    # TUI 核心
-│   ├── tui.go              # 主 Model + Update
-│   ├── view.go             # 主 View 组合
-│   ├── state.go            # Cell / Conversation / AppState
-│   ├── stream.go           # 流式处理 + Engine hooks
+├── tui/                    # Bubble Tea 前端适配器
+│   ├── tui.go              # AppController + Model + 输入事件
+│   ├── view.go             # Snapshot 到终端页面
+│   ├── state.go            # application.Message 渲染器
+│   ├── stream.go           # application.Event 到 tea.Msg
 │   ├── styles.go           # 共享样式
-│   ├── types.go            # 共享类型
-│   ├── dialog.go           # 旧版审批 + 选择器
-│   ├── command.go          # 命令注册入口
+│   ├── dialog.go           # Interaction 键盘适配
 │   ├── suggest_view.go     # 建议面板渲染
-│   ├── approve/            # 💡 审批面板子包
-│   │   ├── approve.go      #    Manager + Ask + 桥接
-│   │   ├── state.go        #    State 结构体
-│   │   ├── view.go         #    卡片式渲染
-│   │   └── styles.go       #    风险等级配色
-│   ├── commands/           # 💡 命令系统子包
-│   │   ├── commands.go     #    Command 接口 + 注册表
-│   │   └── builtin.go      #    10 个内置命令
-│   ├── sugg/               # 💡 建议引擎子包
-│   │   └── engine.go       #    Engine (补全/过滤)
 │   ├── splash/             # 💡 启动画面子包
 │   │   └── splash.go       #    Gradient + Render
-│   └── stream/             # 💡 工具事件类型
-│       └── event.go        #    Event 类型
+│   └── tui_test.go         # 输入与交互适配测试
 └── docs/                   # 架构文档
     ├── architecture-and-flaws.md
     ├── approve-research.md
@@ -245,17 +241,16 @@ seelex/
 
 ## 改进路线图（来自 docs/）
 
-### Phase 2 — 提升可测试性（待做）
-- **ARC-014**: 为 Model 依赖引入接口（EngineInterface / ChatClientInterface / AgentInterface）
-- **ARC-006 + ARC-017**: 补充单元测试（工具注册 + TUI model）
+### 已完成
+- TUI 渲染与 application core 分离。
+- 命令、补全、ChatStream、工具事件、Plugin/Skill/Session 和审批迁入无界面核心。
+- 删除 TUI 包级 channel、registry 和 pending request。
+- 增加 application 与 TUI adapter 单元测试。
 
-### Phase 3 — 代码组织优化 ✅
-- `main()` 拆分为独立 init 函数
-- Model 子包拆分（approve/splash/sugg/commands）
-
-### Phase 4 — 代码质量（进行中）
-- **ARC-020/021**: 简化命令注册，解耦 Model
-- **Context 改进**: 上下文压缩、双向合并、快照验证
+### 后续
+- 增加 JSON-RPC/stdio sidecar，供 Electron 调用 application core。
+- 为 Snapshot 增加历史分页和协议版本。
+- 提高 application 分支覆盖率并补充端到端审批测试。
 - **CAD 自动化**: FreeCAD 执行底座 + MCP 桥接 + JSON 命令栈
 
 ## 开发
