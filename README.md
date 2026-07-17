@@ -2,7 +2,7 @@
 
 **Seelex** 是 [Seele](https://github.com/RedHuang-0622/Seele) 引擎的独立 TUI 客户端，使用 [Bubble Tea](https://github.com/charmbracelet/bubbletea) 框架构建。
 
-与 Seele 是松耦合关系：Seele 负责 LLM 调用/工具调度/会话管理，Seelex 负责终端交互体验。
+与 Seele 是松耦合关系：Seele 负责提供 LLM 调用/工具调度/会话管理，Seelex 负责终端交互体验。
 
 ## 架构
 

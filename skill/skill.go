@@ -31,6 +31,16 @@ func NewLoader(dirs ...string) *Loader {
 	return &Loader{dirs: dirs}
 }
 
+// PrimaryDir 返回主目录（优先级最高的可写目录）
+func (l *Loader) PrimaryDir() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if len(l.dirs) > 0 {
+		return l.dirs[0]
+	}
+	return "skills"
+}
+
 // LoadAll 从所有目录加载 Skill，按文件名排序
 func (l *Loader) LoadAll() ([]Skill, error) {
 	l.mu.RLock()
@@ -94,6 +104,68 @@ func (l *Loader) Load(name string) (*Skill, error) {
 	return nil, fmt.Errorf("skill %q not found", name)
 }
 
+// Create 创建一个新 Skill 并写入 .md 文件到主目录
+// 如果 name 已存在则返回错误
+func (l *Loader) Create(name, description, prompt string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	dir := l.PrimaryDir()
+
+	// 确保目录存在
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("skill create: mkdir %s: %w", dir, err)
+	}
+
+	fpath := filepath.Join(dir, name+".md")
+
+	// 检查是否已存在
+	if _, err := os.Stat(fpath); err == nil {
+		return fmt.Errorf("skill %q already exists at %s", name, fpath)
+	}
+
+	// 构建 Markdown 内容
+	content := buildMarkdown(name, description, prompt)
+
+	if err := os.WriteFile(fpath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("skill create: write %s: %w", fpath, err)
+	}
+
+	return nil
+}
+
+// Delete 从主目录删除指定 Skill
+func (l *Loader) Delete(name string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	dir := l.PrimaryDir()
+	fpath := filepath.Join(dir, name+".md")
+
+	if _, err := os.Stat(fpath); os.IsNotExist(err) {
+		return fmt.Errorf("skill %q not found", name)
+	}
+
+	if err := os.Remove(fpath); err != nil {
+		return fmt.Errorf("skill delete: remove %s: %w", fpath, err)
+	}
+
+	return nil
+}
+
+// buildMarkdown 构建 Skill 的 Markdown 内容
+func buildMarkdown(name, description, prompt string) string {
+	var b strings.Builder
+	b.WriteString("# " + name + "\n")
+	if description != "" {
+		b.WriteString("\n" + description + "\n")
+	}
+	if prompt != "" {
+		b.WriteString("\n" + prompt + "\n")
+	}
+	return b.String()
+}
+
 // extractDescription 从 Markdown 内容中提取第一行作为描述
 func extractDescription(content string, fallback string) string {
 	lines := strings.SplitN(strings.TrimSpace(content), "\n", 2)
@@ -110,8 +182,9 @@ func extractDescription(content string, fallback string) string {
 
 // Registry Skill 注册表（策略模式容器）
 type Registry struct {
-	skills map[string]Skill
-	mu     sync.RWMutex
+	skills  map[string]Skill
+	loaders []*Loader
+	mu      sync.RWMutex
 }
 
 func NewRegistry() *Registry {
@@ -122,6 +195,13 @@ func (r *Registry) Register(s Skill) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.skills[s.Name] = s
+}
+
+// Remove 从注册表中移除指定 Skill
+func (r *Registry) Remove(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.skills, name)
 }
 
 func (r *Registry) Get(name string) (Skill, bool) {
@@ -144,14 +224,47 @@ func (r *Registry) All() []Skill {
 	return skills
 }
 
-// AddLoader 将 Loader 加载的所有 Skill 注入 Registry
+// AddLoader 将 Loader 加载的所有 Skill 注入 Registry，并记录 loader
 func (r *Registry) AddLoader(loader *Loader) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.loaders = append(r.loaders, loader)
+
 	skills, err := loader.LoadAll()
 	if err != nil {
 		return err
 	}
 	for _, s := range skills {
-		r.Register(s)
+		r.skills[s.Name] = s
 	}
 	return nil
+}
+
+// Reload 从所有 Loader 重新加载 Skill（保留内存中手动注册的 Skill）
+func (r *Registry) Reload() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// 清空现有（重新从 loader 加载）
+	r.skills = make(map[string]Skill)
+
+	for _, loader := range r.loaders {
+		skills, err := loader.LoadAll()
+		if err != nil {
+			continue
+		}
+		for _, s := range skills {
+			r.skills[s.Name] = s
+		}
+	}
+
+	return nil
+}
+
+// Count 返回已注册 Skill 数量
+func (r *Registry) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.skills)
 }
