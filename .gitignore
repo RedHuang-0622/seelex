@@ -2,3 +2,10 @@ config/account-openai.yaml
 *.exe
 *.env
 .seele/
+# IDE workspace (local only)
+go.work
+go.work.sum
+
+# IDE workspace (local only)
+go.work
+go.work.sum
