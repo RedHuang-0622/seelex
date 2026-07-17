@@ -59,4 +59,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/RedHuang-0622/Seele => ../Seele
