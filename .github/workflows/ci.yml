@@ -48,7 +48,8 @@ jobs:
 
       - name: 检查硬编码密钥
         run: |
-          ! grep -rn '"sk-\|"password\|"token\|"secret' --include="*.go" .
+          ! grep -rn '"sk-\|"password\|"token\|"secret' --include="*.go" . \
+            | grep -vE '`json:"[^"]*(password|token|secret)'
         shell: bash
 
       - name: 检查 return nil, nil
