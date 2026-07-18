@@ -1,6 +1,7 @@
 # Seelex 功能打点表
 
-> 更新日期：2026-07-17  
+> 更新日期：2026-07-18  
+> 产品版本：v0.0.2  
 > 产品目标：构建可切换专业 Plugin 形态的工科全栈 Agent；CLI/TUI 面向高效工作，Electron 面向毕设、课程项目和成果交付。
 
 ## 状态定义
@@ -32,6 +33,9 @@
 | 内核 | Headless Application Core | 用户输入、Engine 事件、Interaction 决议 | Snapshot、有序 Event、业务动作 | 已完成 | Seele Engine | application 测试通过率、Event Seq 连续性 | TUI 不持有 Engine/Plugin/Session；核心可无 UI 测试 | ✅ `application/`、`tui.AppController` |
 | 内核 | 流式 Chat 生命周期 | Prompt、context cancel、chunk | Message delta、最终历史、错误状态 | 已完成 | Engine ChatStream | 首 token、完成率、取消延迟 | 并发 Chat 被拒绝；取消和错误不遗留 Running 状态 | ✅ 已有无 UI Chat 测试 |
 | 内核 | EventHub 与重同步 | Snapshot revision、业务事件 | Seq 单调 Event、`resync.required` | 已完成 | 无 | 丢事件率、resync 成功率 | 订阅缓冲溢出后客户端可拉 Snapshot 恢复一致状态 | ✅ 已有背压测试 |
+| 内核 | MCP 调用追溯中间件 | MCP 工具调用（所有 Server） | 可追溯、可回滚的调用记录 | 已完成 | `mcpstack/` 7 个文件 | 记录完整率、查询速度 | 每个 MCP 调用（含熔断事件）自动记录；支持 ByServer/ByTool/Latest 查询 | ✅ `mcpstack/` 18 个测试 |
+| 内核 | 熔断事件通道 | 熔断器状态变化 | 异步 event → mcpstack 记录 | 已完成 | Seele breaker + `mcpstack/breaker.go` | 事件不丢失、不阻塞调用链 | 6 个埋点（opened/half_open/closed/recovering/recovered）经 channel→goroutine 写入 trace | ✅ `mcp_integration_test.go` 9 个测试 |
+| 内核 | 存储接口解耦 | 写入、读取、列表、删除 | Storage 接口 + FileStore 实现 | 已完成 | `seelectx/storage` | 可替换实现、空路径 no-op | 框架只定义接口不提供默认路径；存储实现可切换 | ✅ `storage_test.go` 兼容测试 |
 | 形态系统 | Plugin Manifest | `plugins/*/plugin.md` | Plugin、工具过滤、Prompt、Skill、MCP 配置 | 已完成 | frontmatter loader | 加载成功率、schema 拒绝率 | 非法 schema/名称/路径被拒绝，合法定义可发现 | ✅ Loader 与测试已存在 |
 | 形态系统 | Plugin 切换事务 | 当前 Plugin、目标 Plugin | 工具/Skill/MCP 的一致激活状态 | 已完成 | Seele Tool Holder、MCP | 成功率、回滚成功率、耗时 | 任一步失败后恢复旧 Plugin；并发切换串行一致 | ✅ 回滚与并发测试已存在 |
 | 形态系统 | Plugin 可观测状态 | 激活请求、阶段变化 | activating/active/failed 状态与耗时 | 2—3 人日 | Plugin Manager、EventHub | 分阶段耗时、失败阶段分布 | UI/日志能定位 attach、tool、skill、detach 哪一步失败 | ⬜ 当前只有最终结果 |
