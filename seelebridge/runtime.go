@@ -87,6 +87,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		client.SetProvider(defaults.Provider)
 	}
 	agt.Tools().WithPluginManager(holder.NewPluginManager())
+	// 把 main.go 配置的 ToolCallTimeout（120s）传给 holder，
+	// 否则 holder.New() 默认只有 30s，FreeCAD 复杂操作极易超时熔断。
+	agt.Tools().ToolCallTimeout = cfg.ToolCallTimeout
 
 	mcpStackOpts := []mcpstack.Option{
 		mcpstack.WithSessionID(fmt.Sprintf("mcp-%d", time.Now().Unix())),
