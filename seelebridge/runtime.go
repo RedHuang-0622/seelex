@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/agent/core/tool/builtin"
 	"github.com/RedHuang-0622/Seele/agent/core/tool/holder"
+	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/types"
 )
 
@@ -137,6 +138,11 @@ func (r *Runtime) Provider() string { return string(r.client.ProviderFilter()) }
 
 func (r *Runtime) SetProvider(provider string) {
 	r.client.SetProviderFilter(api.ProviderType(provider))
+}
+
+// SetPermissionConfig 安装权限门控：Mode + Rules + ApprovalHandler。
+func (r *Runtime) SetPermissionConfig(cfg permission.PermissionConfig, handler permission.ApprovalHandler) {
+	r.agent.SetPermissionConfig(cfg, handler)
 }
 
 func summarizeTools(tools []types.Tool) []Tool {

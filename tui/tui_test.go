@@ -33,6 +33,7 @@ func (app *fakeApp) ResolveInteraction(_ context.Context, id, option string) err
 }
 func (*fakeApp) SelectAccount(context.Context, string) error { return nil }
 func (*fakeApp) SwitchPlugin(context.Context, string) error  { return nil }
+func (*fakeApp) LoadMoreHistory(int) error                   { return nil }
 
 func TestEnterSubmitsRawInput(t *testing.T) {
 	app := newFakeApp()

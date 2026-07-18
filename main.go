@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/engine"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -23,10 +24,11 @@ import (
 )
 
 var (
-	configPath   = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
-	storePath    = flag.String("store", "", "持久化存储路径（空=当前目录）")
-	skillsPaths  = flag.String("skills", "skills,cmd/repl/skills", "Skill 加载路径（逗号分隔）")
-	pluginsPaths = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
+	configPath     = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
+	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
+	skillsPaths    = flag.String("skills", "skills,cmd/repl/skills", "Skill 加载路径（逗号分隔）")
+	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
+	permissionMode = flag.String("permission", "full_access", "权限模式: full_access(全部放行) | manual(白名单外需审批)")
 )
 
 func main() {
@@ -40,6 +42,7 @@ func main() {
 	store := initStore()
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
+	setupPermissionGate(runtime, approval)
 	toolHooks := application.NewToolHookBridge()
 	eng := initEngine(runtime, store, toolHooks)
 	registerProductTools(runtime, pluginManager, eng, approval)
@@ -272,6 +275,67 @@ func startTUI(model tui.Model) {
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := program.Run(); err != nil {
 		fatalf("TUI 错误: %v", err)
+	}
+}
+
+// setupPermissionGate 根据 -permission 标志安装权限门控。
+// full_access：所有工具直接放行（默认）。
+// manual：白名单内自动放行，白名单外弹审批框。
+func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.ApprovalBroker) {
+	mode := permission.Mode(strings.ToLower(strings.TrimSpace(*permissionMode)))
+	switch mode {
+	case permission.ModeManual:
+		cfg := permission.PermissionConfig{
+			Mode: permission.ModeManual,
+			Rules: []permission.PermissionRule{
+				{ToolName: "grep_search", Action: permission.ActionAllow},
+				{ToolName: "read_file", Action: permission.ActionAllow},
+				{ToolName: "glob", Action: permission.ActionAllow},
+				{ToolName: "git_status", Action: permission.ActionAllow},
+				{ToolName: "git_log", Action: permission.ActionAllow},
+				{ToolName: "git_diff", Action: permission.ActionAllow},
+				{ToolName: "get_time", Action: permission.ActionAllow},
+				{ToolName: "switch_plugin", Action: permission.ActionAllow},
+				{ToolName: "switch_mode", Action: permission.ActionAllow},
+				{ToolName: "ask_approve", Action: permission.ActionAllow},
+				{ToolName: "plan_load", Action: permission.ActionAllow},
+				{ToolName: "plan_run", Action: permission.ActionAllow},
+				{ToolName: "plan_status", Action: permission.ActionAllow},
+				{ToolName: "plan_export", Action: permission.ActionAllow},
+				{ToolName: "plan_clear", Action: permission.ActionAllow},
+			},
+		}
+		runtime.SetPermissionConfig(cfg, newPermissionBridge(approval))
+	default:
+		cfg := permission.PermissionConfig{Mode: permission.ModeFullAccess}
+		runtime.SetPermissionConfig(cfg, nil)
+	}
+}
+
+// newPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。
+// 每次工具触发审批时，阻塞等待用户在 TUI 交互面板中作出选择。
+func newPermissionBridge(broker *application.ApprovalBroker) permission.ApprovalHandler {
+	return func(ctx *permission.ApprovalContext) (*permission.ApprovalResponse, error) {
+		req := ctx.Request
+		appReq := application.ApprovalRequest{
+			ID:       req.ID,
+			Question: req.Preview,
+			Options:  convertPermissionOptions(req.Options),
+			Risk:     req.Risk,
+			ToolName: req.ToolName,
+			Preview:  req.Preview,
+			Timeout:  req.Timeout,
+		}
+		decision, err := broker.Request(context.Background(), appReq)
+		if err != nil {
+			return nil, err
+		}
+		remember := decision.OptionID == "always"
+		return &permission.ApprovalResponse{
+			RequestID: req.ID,
+			Choice:    decision.OptionID,
+			Remember:  remember,
+		}, nil
 	}
 }
 

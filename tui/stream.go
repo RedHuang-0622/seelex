@@ -10,6 +10,7 @@ import (
 
 type applicationEventMsg struct{ event application.Event }
 type submitResultMsg struct{ err error }
+type loadMoreMsg struct{ err error }
 
 func waitApplicationEvent(subscription application.Subscription) tea.Cmd {
 	return func() tea.Msg {
@@ -23,4 +24,8 @@ func waitApplicationEvent(subscription application.Subscription) tea.Cmd {
 
 func submitInput(app AppController, input string) tea.Cmd {
 	return func() tea.Msg { return submitResultMsg{err: app.Submit(context.Background(), input)} }
+}
+
+func loadMoreHistory(app AppController, limit int) tea.Cmd {
+	return func() tea.Msg { return loadMoreMsg{err: app.LoadMoreHistory(limit)} }
 }

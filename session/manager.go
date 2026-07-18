@@ -12,6 +12,8 @@ type Store interface {
 	List() []seelebridge.SessionMeta
 	Delete(sessionID string) error
 	Load(sessionID string) ([]seelebridge.Message, error)
+	LoadRange(sessionID string, offset, limit int) ([]seelebridge.Message, int, error)
+	MessageCount(sessionID string) (int, error)
 }
 
 // Manager 薄包装 Seele 的 storage.Store，提供 /new 和 /resume 能力
@@ -64,7 +66,17 @@ func (m *Manager) Delete(sessionID string) error {
 	return m.store.Delete(sessionID)
 }
 
-// LoadHistory 获取会话的历史消息
+// LoadHistory 获取会话的全部历史消息（全量，用于 /resume 首次加载）。
 func (m *Manager) LoadHistory(sessionID string) ([]seelebridge.Message, error) {
 	return m.store.Load(sessionID)
+}
+
+// LoadHistoryRange 按偏移量窗口加载会话消息，返回 [offset, offset+limit) 范围内的消息和总数。
+func (m *Manager) LoadHistoryRange(sessionID string, offset, limit int) ([]seelebridge.Message, int, error) {
+	return m.store.LoadRange(sessionID, offset, limit)
+}
+
+// MessageCount 返回会话总消息数。
+func (m *Manager) MessageCount(sessionID string) (int, error) {
+	return m.store.MessageCount(sessionID)
 }

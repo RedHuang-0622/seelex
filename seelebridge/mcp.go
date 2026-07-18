@@ -79,6 +79,24 @@ func (r *Runtime) MCPServerNames() []string {
 	return names
 }
 
+// IsMCPAlive 轻量 ping 检查 MCP 服务器是否存活（2s 超时）。
+func (r *Runtime) IsMCPAlive(name string) bool {
+	provider := r.agent.MCP()
+	if provider == nil {
+		return false
+	}
+	return provider.IsAlive(name)
+}
+
+// MCPServerStatus 返回 MCP 服务器健康状态（alive + tool count + error）。
+func (r *Runtime) MCPServerStatus(name string) (alive bool, tools int, err error) {
+	provider := r.agent.MCP()
+	if provider == nil {
+		return false, 0, fmt.Errorf("seelebridge: MCP provider is unavailable")
+	}
+	return provider.ServerStatus(name)
+}
+
 func (r *Runtime) refreshMCPTools(provider *frameworkmcp.Provider) {
 	tools := r.agent.Tools()
 	tools.Unregister(provider.ProviderName())

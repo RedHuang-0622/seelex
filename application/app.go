@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const defaultHistoryWindow = 200
+
 var ErrChatRunning = errors.New("chat is already running")
 
 type Service struct {
@@ -284,17 +286,87 @@ func (service *Service) resumeSession(sessionID string) error {
 	if err := service.deps.Sessions.Resume(sessionID); err != nil {
 		return err
 	}
-	history, err := service.deps.Sessions.LoadHistory(sessionID)
+	total, err := service.deps.Sessions.MessageCount(sessionID)
 	if err != nil {
 		return err
+	}
+	// 窗口加载：只取最后 defaultHistoryWindow 条，其余用 LoadMoreHistory 按需拉。
+	offset := total - defaultHistoryWindow
+	if offset < 0 {
+		offset = 0
+	}
+	history, _, err := service.deps.Sessions.LoadHistoryRange(sessionID, offset, defaultHistoryWindow)
+	if err != nil {
+		// 降级：全量加载
+		history, err = service.deps.Sessions.LoadHistory(sessionID)
+		if err != nil {
+			return err
+		}
+		offset = 0
+		total = len(history)
 	}
 	service.deps.Engine.ClearHistory()
 	service.mu.Lock()
 	service.snapshot.Conversation = nil
 	service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
 	service.appendHistoryLocked(history)
+	service.snapshot.HistoryOffset = offset
+	service.snapshot.TotalMessages = total
+	service.snapshot.HasMoreHistory = offset > 0
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
+}
+
+// LoadMoreHistory 从存储中加载更早的消息，prepend 到 Conversation 头部。
+// limit 为 0 时使用默认窗口大小。
+func (service *Service) LoadMoreHistory(limit int) error {
+	if limit <= 0 {
+		limit = defaultHistoryWindow
+	}
+
+	service.mu.RLock()
+	offset := service.snapshot.HistoryOffset
+	sessionID := service.snapshot.Session.ID
+	service.mu.RUnlock()
+
+	if offset <= 0 {
+		return nil // 已到最早
+	}
+
+	loadOffset := offset - limit
+	if loadOffset < 0 {
+		loadOffset = 0
+	}
+	loadLimit := offset - loadOffset
+
+	history, total, err := service.deps.Sessions.LoadHistoryRange(sessionID, loadOffset, loadLimit)
+	if err != nil {
+		return fmt.Errorf("load history range: %w", err)
+	}
+
+	adapted := make([]Message, 0, len(history))
+	for _, msg := range history {
+		adapted = append(adapted, adaptEngineMessage(msg))
+	}
+
+	service.mu.Lock()
+	service.snapshot.Conversation = append(adapted, service.snapshot.Conversation...)
+	service.snapshot.HistoryOffset = loadOffset
+	service.snapshot.TotalMessages = total
+	service.snapshot.HasMoreHistory = loadOffset > 0
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	return nil
+}
+
+// adaptEngineMessage 将 EngineMessage 转为本包 Message（由 SessionPort 返回时已是 EngineMessage）。
+func adaptEngineMessage(msg EngineMessage) Message {
+	m := Message{Role: msg.Role, Content: msg.Content}
+	for _, tc := range msg.ToolCalls {
+		m.Tool = &ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Status: "success"}
+	}
+	return m
 }

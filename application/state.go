@@ -3,13 +3,16 @@ package application
 import "time"
 
 type Snapshot struct {
-	Revision     uint64       `json:"revision"`
-	Session      SessionState `json:"session"`
-	Conversation []Message    `json:"conversation"`
-	Chat         ChatState    `json:"chat"`
-	Runtime      RuntimeState `json:"runtime"`
-	Interaction  *Interaction `json:"interaction,omitempty"`
-	Capabilities Capabilities `json:"capabilities"`
+	Revision       uint64       `json:"revision"`
+	Session        SessionState `json:"session"`
+	Conversation   []Message    `json:"conversation"`
+	Chat           ChatState    `json:"chat"`
+	Runtime        RuntimeState `json:"runtime"`
+	Interaction    *Interaction `json:"interaction,omitempty"`
+	Capabilities   Capabilities `json:"capabilities"`
+	HistoryOffset  int          `json:"history_offset"`  // 0 = oldest message at start; >0 = older messages exist in store
+	TotalMessages  int          `json:"total_messages"`  // total count in store (0 for live session, set after resume)
+	HasMoreHistory bool         `json:"has_more_history"` // true if older messages can be loaded via LoadMoreHistory
 }
 
 type SessionState struct {
@@ -97,6 +100,7 @@ type Capabilities struct {
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	copySnapshot := snapshot
 	copySnapshot.Conversation = append([]Message(nil), snapshot.Conversation...)
+	// 标量字段 (HistoryOffset, TotalMessages, HasMoreHistory) 已值拷贝
 	for index := range copySnapshot.Conversation {
 		if copySnapshot.Conversation[index].Tool != nil {
 			tool := *copySnapshot.Conversation[index].Tool

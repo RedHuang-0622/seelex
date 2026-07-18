@@ -10,6 +10,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+replace github.com/RedHuang-0622/Seele => ../Seele
+
 require (
 	github.com/RedHuang-0622/TemplatePoolByGO v0.1.8 // indirect
 	github.com/RedHuang-0622/microHub v0.1.5 // indirect

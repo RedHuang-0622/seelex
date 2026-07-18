@@ -45,6 +45,10 @@ type SessionPort interface {
 	Resume(string) error
 	List() []SessionInfo
 	LoadHistory(string) ([]EngineMessage, error)
+	// LoadHistoryRange 按偏移量窗口加载，返回 [offset, offset+limit) 和总数。
+	LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)
+	// MessageCount 返回会话总消息数。
+	MessageCount(sessionID string) (int, error)
 }
 type Dependencies struct {
 	Engine   ChatEngine

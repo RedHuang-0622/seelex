@@ -114,6 +114,10 @@ func (fakeSessions) List() []SessionInfo {
 func (fakeSessions) LoadHistory(string) ([]EngineMessage, error) {
 	return []EngineMessage{{Role: "assistant", Content: "saved answer"}}, nil
 }
+func (fakeSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
+	return []EngineMessage{{Role: "assistant", Content: "saved answer"}}, 1, nil
+}
+func (fakeSessions) MessageCount(string) (int, error) { return 1, nil }
 
 func newTestService(engine *fakeEngine) *Service {
 	return New(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})

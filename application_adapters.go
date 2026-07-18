@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/engine"
 
 	"github.com/RedHuang-0622/seelex/application"
@@ -120,6 +121,16 @@ func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, err
 	}
 	return adaptMessages(messages), nil
 }
+func (port sessionPort) LoadHistoryRange(id string, offset, limit int) ([]application.EngineMessage, int, error) {
+	messages, total, err := port.manager.LoadHistoryRange(id, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return adaptMessages(messages), total, nil
+}
+func (port sessionPort) MessageCount(id string) (int, error) {
+	return port.manager.MessageCount(id)
+}
 func (port sessionPort) List() []application.SessionInfo {
 	sessions := port.manager.List()
 	result := make([]application.SessionInfo, 0, len(sessions))
@@ -172,4 +183,15 @@ func approvalAccepted(optionID string) bool {
 	default:
 		return true
 	}
+}
+
+// convertPermissionOptions 将 permission.ApproveOption 转为 application.InteractionOption。
+func convertPermissionOptions(opts []permission.ApproveOption) []application.InteractionOption {
+	out := make([]application.InteractionOption, len(opts))
+	for i, o := range opts {
+		out[i] = application.InteractionOption{
+			ID: o.Key, Label: o.Label, Description: o.Description, Style: o.Style,
+		}
+	}
+	return out
 }

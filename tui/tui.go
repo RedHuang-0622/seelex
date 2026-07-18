@@ -20,6 +20,8 @@ type AppController interface {
 	ResolveInteraction(context.Context, string, string) error
 	SelectAccount(context.Context, string) error
 	SwitchPlugin(context.Context, string) error
+	// LoadMoreHistory 加载更早的消息到 Conversation，返回是否还有更多。
+	LoadMoreHistory(limit int) error
 }
 
 type Model struct {
@@ -169,6 +171,9 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgup":
 		if model.ready {
 			model.viewport.HalfPageUp()
+			if model.viewport.AtTop() && model.snapshot.HasMoreHistory {
+				return model, loadMoreHistory(model.app, 0)
+				}
 		}
 		return model, nil
 	case "pgdown":
@@ -179,6 +184,9 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "home":
 		if model.ready {
 			model.viewport.GotoTop()
+			if model.snapshot.HasMoreHistory {
+				return model, loadMoreHistory(model.app, 0)
+			}
 		}
 		return model, nil
 	case "end":
