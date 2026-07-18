@@ -57,7 +57,8 @@ func main() {
 
 func initRuntime() *seelebridge.Runtime {
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath: *configPath, ToolCallTimeout: 120 * time.Second,
+		AccountsPath: *configPath, StorePath: *storePath,
+		ToolCallTimeout: 120 * time.Second,
 	})
 	if err != nil {
 		fatalf("初始化 Seele Runtime 失败: %v", err)
@@ -99,6 +100,7 @@ func activateDefaultPlugin(manager *plugin.Manager, eng *engine.Engine) {
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *engine.Engine, approval *application.ApprovalBroker) {
 	registerTimeTool(runtime)
 	registerWebSearchTool(runtime, *configPath)
+	registerMCPServers(runtime, *configPath) // from mcpconfig.go — 与 websearch 同一生态位
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerAskApprove(runtime, approval)
 }

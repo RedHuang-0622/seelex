@@ -1,12 +1,73 @@
+# ── 密钥与配置 ──────────────────────────────────────────────
+# 账号池配置包含 API Key，永远不进版本库
 config/account-openai.yaml
+config/account-pool.yaml
 config/*.local.yaml
-*.exe
-*.env
+config/*.secret.yaml
+
+# ── 运行时数据 ──────────────────────────────────────────────
+# 会话存储、MCP trace、命令栈快照等运行时产生的数据
 .seele/
-# IDE workspace (local only)
+.seelex/
+*.db
+*.sqlite
+*.sqlite3
+
+# ── 构建产物 ────────────────────────────────────────────────
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.test.exe
+/target/
+/bin/
+/dist/
+/build/
+
+# ── 环境文件 ────────────────────────────────────────────────
+.env
+.env.*
+*.env
+
+# ── 依赖缓存 ────────────────────────────────────────────────
+vendor/
+node_modules/
+
+# ── IDE 与编辑器 ────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.~lock*
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# ── 操作系统 ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+
+# ── Go 工作区 ───────────────────────────────────────────────
 go.work
 go.work.sum
 
-# IDE workspace (local only)
-go.work
-go.work.sum
+# ── 临时文件 ────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
+*_backup/
+tmp/
+temp/
+
+# ── 覆盖产物（CI 生成） ─────────────────────────────────────
+coverage/
+coverage.*
+*.coverprofile

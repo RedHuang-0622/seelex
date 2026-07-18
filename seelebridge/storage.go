@@ -15,36 +15,54 @@ import (
 type Message = types.Message
 type SessionMeta = storage.SessionMeta
 
-// SessionStore adapts Seele storage without exposing it to Seelex business packages.
+// SessionStore wraps a Storage implementation without exposing framework types.
 type SessionStore struct {
-	store   *storage.Store
+	store   storage.Storage
 	baseDir string
 }
 
 func NewSessionStore(path string) (*SessionStore, error) {
-	store, err := storage.NewStore(path)
+	if path == "" {
+		return &SessionStore{baseDir: ""}, nil
+	}
+	s, err := storage.NewFileStore(path)
 	if err != nil {
 		return nil, err
 	}
-	return &SessionStore{store: store, baseDir: path}, nil
+	return &SessionStore{store: s, baseDir: path}, nil
 }
 
-func (s *SessionStore) FrameworkStore() *storage.Store { return s.store }
+func (s *SessionStore) FrameworkStore() storage.Storage { return s.store }
 
 func (s *SessionStore) Save(sessionID string, messages []Message) error {
+	if s.store == nil {
+		return nil
+	}
 	return s.store.Save(sessionID, messages)
 }
 
 func (s *SessionStore) Load(sessionID string) ([]Message, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("seelebridge: no storage configured")
+	}
 	return s.store.Load(sessionID)
 }
 
-func (s *SessionStore) List() []SessionMeta { return s.store.List() }
+func (s *SessionStore) List() []SessionMeta {
+	if s.store == nil {
+		return nil
+	}
+	return s.store.List()
+}
 
-func (s *SessionStore) Delete(sessionID string) error { return s.store.Delete(sessionID) }
+func (s *SessionStore) Delete(sessionID string) error {
+	if s.store == nil {
+		return nil
+	}
+	return s.store.Delete(sessionID)
+}
 
-// LoadRange 直接读取 Seele Store 写出的 shard 文件，只加载覆盖 [offset, offset+limit) 的分片。
-// offset 是 0-based 绝对位置。返回范围内的消息和总消息数。
+// LoadRange 读取 shard 文件，只加载覆盖 [offset, offset+limit) 的分片。
 func (s *SessionStore) LoadRange(sessionID string, offset, limit int) ([]Message, int, error) {
 	if limit <= 0 {
 		return nil, 0, fmt.Errorf("seelebridge: limit must be positive")
@@ -59,7 +77,7 @@ func (s *SessionStore) LoadRange(sessionID string, offset, limit int) ([]Message
 	}
 
 	var result []Message
-	cumulative := 0 // 当前 shard 的起始绝对位置
+	cumulative := 0
 
 	for _, f := range shardFiles {
 		b, err := os.ReadFile(filepath.Join(s.shardDir(sessionID), f))
@@ -99,11 +117,7 @@ func (s *SessionStore) MessageCount(sessionID string) (int, error) {
 	return total, err
 }
 
-// ── 内部：复制 Seele Store 的分片文件结构读取 ──────────────────────
-
-// shardDir 计算 sessionID 对应的分片目录（与 Seele storage.Store 的 SHA-256 hash prefix 一致）。
 func (s *SessionStore) shardDir(sessionID string) string {
-	// 与 Seele 的 sessionDir 逻辑一致
 	h := sha256Sum(sessionID)
 	prefix := fmt.Sprintf("%x", h[:4])
 	return filepath.Join(s.baseDir, prefix)
@@ -131,5 +145,4 @@ func (s *SessionStore) listShardFiles(sessionID string) ([]string, error) {
 	return files, nil
 }
 
-// sha256Sum 计算字符串的 SHA-256 哈希（与 Seele storage.Store 的 sessionDir 前缀逻辑一致）。
 func sha256Sum(s string) [32]byte { return sha256.Sum256([]byte(s)) }

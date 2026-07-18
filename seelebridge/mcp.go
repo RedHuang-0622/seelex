@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	frameworkmcp "github.com/RedHuang-0622/Seele/agent/core/tool/mcp"
+	"github.com/RedHuang-0622/seelex/mcpstack"
 )
 
 // MCPServer is the transport-neutral MCP configuration consumed by Seelex.
@@ -19,6 +21,30 @@ type MCPServer struct {
 	URL       string
 }
 
+// breaker state (instance-level)
+type breakerState struct {
+	ch   chan frameworkmcp.BreakerEvent
+	once sync.Once
+}
+
+// BreakerEvents returns a read-only channel of breaker events.
+// The consumer (mcpstack.ListenBreaker) runs automatically when AttachMCP is called.
+func (r *Runtime) BreakerEvents() <-chan frameworkmcp.BreakerEvent {
+	if r.breaker == nil {
+		r.breaker = &breakerState{}
+	}
+	r.breaker.once.Do(func() {
+		r.breaker.ch = make(chan frameworkmcp.BreakerEvent, 64)
+		r.agent.MCP().SetBreakerEventsChannel(r.breaker.ch)
+	})
+	return r.breaker.ch
+}
+
+// AttachMCP connects and registers a new MCP server.
+// Automatically:
+//  1. Initializes the breaker events channel
+//  2. Starts mcpstack.ListenBreaker to record breaker events into MCPStack
+//  3. Refreshes tool list so new tools are visible
 func (r *Runtime) AttachMCP(ctx context.Context, cfg MCPServer) error {
 	provider := r.agent.MCP()
 	if provider == nil {
@@ -28,6 +54,11 @@ func (r *Runtime) AttachMCP(ctx context.Context, cfg MCPServer) error {
 	if err != nil {
 		return err
 	}
+
+	// Ensure breaker events channel + listener are active
+	ch := r.BreakerEvents()
+	go mcpstack.ListenBreaker(r.MCPStack, ch)
+
 	if err := provider.Attach(ctx, frameworkCfg); err != nil {
 		return fmt.Errorf("seelebridge: attach MCP %q: %w", cfg.Name, err)
 	}
@@ -131,3 +162,6 @@ func toFrameworkMCP(cfg MCPServer) (frameworkmcp.ServerConfig, error) {
 		Args: append([]string(nil), cfg.Args...), Env: append([]string(nil), cfg.Env...), URL: cfg.URL,
 	}, nil
 }
+
+// Compile-time check: ensure *Runtime is used for the unexported breaker field.
+var _ = (*Runtime).BreakerEvents

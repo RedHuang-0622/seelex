@@ -78,7 +78,29 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 | L6 | TUI Adapter | `initTUI()` |
 | L7 | Bubble Tea Program | `startTUI()` |
 
+### MCP 调用链路
+
+Agent 调用 MCP 工具的完整函数链、数据转换和熔断事件通道详见：
+[`docs/arch/mcp-call-chain-flowchart.md`](docs/arch/mcp-call-chain-flowchart.md)
+
+包含：
+- Setup 阶段（AttachMCP 装配）
+- Call 阶段（Agent.Dispatch → MCP Server）
+- 熔断事件异步通道（breaker → channel → mcpstack）
+- 每个函数的包/文件/行号索引
+
 ### 依赖原则
+
+1. interface 定义在使用方，不定义在实现方；
+2. TUI 不直接依赖 Engine、Plugin、Skill、Session 或 Seele 深层类型；
+3. Seele 已有能力优先通过薄适配器复用，不在 Seelex 重造引擎；
+4. Plugin 负责专业能力组合，不把领域逻辑硬编码进 TUI；
+5. CLI 与 Electron 使用同一个 application core，不复制业务状态机。
+
+### 设计决策记录
+
+MCP 中间件从 CAD 专属到通用、熔断器事件通道、框架-应用存储解耦的完整推演过程：
+[`docs/arch/design-decisions-mcp-storage.md`](docs/arch/design-decisions-mcp-storage.md)
 
 1. interface 定义在使用方，不定义在实现方；
 2. TUI 不直接依赖 Engine、Plugin、Skill、Session 或 Seele 深层类型；
@@ -246,7 +268,7 @@ seelex/
 ├── seelexctx/              # 上下文、压缩、合并和快照
 ├── session/                # 会话存储薄包装
 ├── tui/                    # Bubble Tea 前端适配器
-├── docs/                   # 架构、路线和功能打点
+├── docs/                   # 文档：架构(arch/)、CAD(cad/)、研发(devlog/)、调研(research/)
 └── seele.yaml              # 目标权限规则草案，当前尚未强制执行
 ```
 

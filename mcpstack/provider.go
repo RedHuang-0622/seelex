@@ -1,46 +1,30 @@
 package mcpstack
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
-// ── Compile-time checks ─────────────────────────────────────────
-
-var (
-	_ provider.Provider    = (*TraceProvider)(nil)
-	_ provider.Compactable = (*TraceProvider)(nil)
-)
-
-// TraceProvider implements provider.Provider, feeding the MCP call trace
-// into the LLM context chain alongside other providers.
-//
-// This enables the LLM to be aware of all previous MCP calls in the session,
-// including their arguments, results, and error states.
+// TraceProvider exports the MCP call trace as a ContextSnapshot for LLM
+// context injection. Unlike the full Provider interface (which requires
+// importing seelexctx/provider and creates a cycle), this is a simple
+// snapshot builder that can be wrapped at the seelebridge level.
 type TraceProvider struct {
 	stack *MCPStack
-	name  string
 }
 
-// NewProvider creates a TraceProvider wrapping the given MCPStack.
-func NewProvider(stack *MCPStack) *TraceProvider {
-	return &TraceProvider{
-		stack: stack,
-		name:  "mcptrace",
-	}
+// NewTraceProvider creates a TraceProvider wrapping the given MCPStack.
+func NewTraceProvider(stack *MCPStack) *TraceProvider {
+	return &TraceProvider{stack: stack}
 }
 
-func (p *TraceProvider) Name() string { return p.name }
+// Name returns a stable identifier for this provider.
+func (p *TraceProvider) Name() string { return "mcptrace" }
 
-// Export builds a ContextSnapshot from the current MCP call trace.
-//
-// The snapshot includes:
-//   - Findings: formatted trace summary
-//   - PendingWork: any calls still in StatusPending
-func (p *TraceProvider) Export(_ context.Context) (*snapshot.ContextSnapshot, error) {
+// BuildSnapshot exports the current MCP trace state as a ContextSnapshot.
+// Returns the snapshot and any findings/pending work for LLM context.
+func (p *TraceProvider) BuildSnapshot() (*snapshot.ContextSnapshot, error) {
 	p.stack.mu.RLock()
 	defer p.stack.mu.RUnlock()
 
@@ -48,10 +32,8 @@ func (p *TraceProvider) Export(_ context.Context) (*snapshot.ContextSnapshot, er
 		Findings: make([]string, 0, 2),
 	}
 
-	// Add structural summary
 	snap.Findings = append(snap.Findings, FormatSummary(p.stack))
 
-	// Add pending calls as pending work
 	for _, call := range p.stack.Calls[:p.stack.CurrentIdx+1] {
 		if call.Status == StatusPending {
 			snap.PendingWork = append(snap.PendingWork,
@@ -62,13 +44,12 @@ func (p *TraceProvider) Export(_ context.Context) (*snapshot.ContextSnapshot, er
 	return snap, nil
 }
 
-// Compact reduces the trace to a minimal summary respecting token budget.
+// Compact reduces the trace to a minimal summary.
 func (p *TraceProvider) Compact(snap *snapshot.ContextSnapshot, budget int) (*snapshot.ContextSnapshot, error) {
 	if snap == nil {
 		return nil, fmt.Errorf("mcpstack: compact: nil snapshot")
 	}
 
-	// Keep only the last MCP-related finding
 	var lastTrace string
 	for _, f := range snap.Findings {
 		if len(f) > 4 && f[:4] == "MCP " {
@@ -80,6 +61,5 @@ func (p *TraceProvider) Compact(snap *snapshot.ContextSnapshot, budget int) (*sn
 	if lastTrace != "" && budget >= 50 {
 		result.Findings = []string{lastTrace}
 	}
-
 	return result, nil
 }

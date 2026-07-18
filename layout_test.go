@@ -35,7 +35,7 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plugins) != 6 {
-		t.Fatalf("loaded %d plugins, want 6", len(plugins))
+	if len(plugins) != 7 {
+		t.Fatalf("loaded %d plugins, want 7 (6 original + freecad)", len(plugins))
 	}
 }
