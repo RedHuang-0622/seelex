@@ -226,7 +226,7 @@ func (model Model) handleEnter() (tea.Model, tea.Cmd) {
 func (model *Model) afterInput() {
 	value := model.textarea.Value()
 	wasSuggestion := model.suggMode
-	model.suggMode = (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "#")) && !strings.Contains(value, " ")
+	model.suggMode = (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "#") || strings.HasPrefix(value, "@")) && !strings.Contains(value, " ")
 	if model.suggMode && !wasSuggestion {
 		model.suggIdx, model.suggOffset = 0, 0
 	}

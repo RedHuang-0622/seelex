@@ -68,6 +68,13 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 		}
 		return service.submitSkill(parts[0], parts[1:])
 	}
+	if strings.HasPrefix(input, "@") {
+		name := strings.TrimSpace(strings.TrimPrefix(input, "@"))
+		if name == "" {
+			return nil
+		}
+		return service.SwitchPlugin(ctx, name)
+	}
 	return service.startChat(ctx, input)
 }
 

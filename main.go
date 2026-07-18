@@ -98,6 +98,7 @@ func activateDefaultPlugin(manager *plugin.Manager, eng *engine.Engine) {
 
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *engine.Engine, approval *application.ApprovalBroker) {
 	registerTimeTool(runtime)
+	registerWebSearchTool(runtime, *configPath)
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerAskApprove(runtime, approval)
 }
