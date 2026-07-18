@@ -29,8 +29,10 @@ func (service *Service) Suggestions(input string) []Suggestion {
 		return nil
 	}
 	all := make([]Suggestion, 0)
-	for _, skill := range service.deps.Skills.All() {
-		all = append(all, Suggestion{Text: skill.Name, Description: skill.Description, Kind: "skill"})
+	if trigger == "/" || trigger == "#" {
+		for _, skill := range service.deps.Skills.All() {
+			all = append(all, Suggestion{Text: skill.Name, Description: skill.Description, Kind: "skill"})
+		}
 	}
 	if trigger == "/" {
 		for _, command := range service.commands.All() {

@@ -235,8 +235,11 @@ func (model *Model) afterInput() {
 
 func (model Model) acceptSuggestion(suggestion application.Suggestion) Model {
 	trigger := "/"
-	if strings.HasPrefix(model.textarea.Value(), "#") {
+	switch {
+	case strings.HasPrefix(model.textarea.Value(), "#"):
 		trigger = "#"
+	case strings.HasPrefix(model.textarea.Value(), "@"):
+		trigger = "@"
 	}
 	model.textarea.SetValue(trigger + suggestion.Text + " ")
 	model.textarea.CursorEnd()

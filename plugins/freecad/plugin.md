@@ -1,39 +1,34 @@
 ---
 schema_version: 1
 name: freecad
-description: FreeCAD 计算机辅助设计 — 通过现有 FreeCAD MCP Server 接入
+description: FreeCAD 计算机辅助设计 — 通过 Robust MCP Server 接入
 include: [switch_plugin, switch_mode, get_time]
 exclude: []
 mcp_servers:
-  # FreeCAD MCP Server 配置
-  # 参考：https://github.com/FreeCAD/FreeCAD-MCP 或社区 MCP 实现
-  # 用户需根据实际安装路径调整 command 和 args
   - name: freecad
     transport: stdio
-    command: FreeCADCmd
-    args: [-c, freecad_mcp_server.py]
-    env:
-      - FREECAD_USE_HEADLESS=1
+    command: freecad-mcp
+    args: ["--mode", "xmlrpc"]
 ---
 
 # FreeCAD 计算机辅助设计
 
-通过 MCP 协议连接到 headless FreeCAD 实例。
+通过 [Robust MCP Server](https://github.com/spkane/freecad-addon-robust-mcp-server) 连接 FreeCAD（150+ 工具）。
 
-## 插件说明
+## 前提
 
-本插件使用通用 MCP 中间件（`mcpstack`）记录所有 CAD 操作的调用历史，
-并在调用前进行参数合法性验证（防止无效几何参数到达 FreeCAD 内核）。
+- FreeCAD ≥ 0.21 已安装
+- `freecad-robust-mcp` 已安装：`pip install freecad-robust-mcp`
+- Robust MCP Bridge workbench 已安装（FreeCAD Addon Manager → "FreeCAD Robust MCP Suite"）
 
 ## 使用方式
 
-1. 确保 FreeCAD ≥ 0.21 已安装且 `FreeCADCmd` 在 PATH 中
-2. 安装并配置一个 FreeCAD MCP Server（社区已有现成实现）
-3. 在 Seelex 中激活插件：
+1. 打开 FreeCAD → Robust MCP Bridge 工作台 → **Start MCP Bridge**
+2. 在 Seelex 中激活插件：
    ```
    switch_plugin freecad
    ```
-4. LLM 自动使用 CAD 工具
+3. LLM 自动使用 CAD 工具（导入 STEP、草图、拉伸、开孔等）
 
 ## 设计原则
 
