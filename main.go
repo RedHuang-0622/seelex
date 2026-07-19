@@ -8,6 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +34,8 @@ var (
 
 func main() {
 	flag.Parse()
+	*storePath = resolveStorePath(*storePath)
+
 	runtime := initRuntime()
 	defer runtime.Shutdown()
 
@@ -357,6 +361,46 @@ func pluginByName(plugins []plugin.Plugin, name string) (plugin.Plugin, error) {
 	}
 	return plugin.Plugin{}, fmt.Errorf("plugin %q not found", name)
 }
+
+// resolveStorePath 确保多实例不冲突：检测 .lock 文件中的 PID，
+// 若该 PID 还活着则自动递增路径后缀（sessions → sessions_1 → sessions_2…）。
+func resolveStorePath(basePath string) string {
+	for i := 0; i < 100; i++ {
+		path := basePath
+		if i > 0 {
+			path = basePath + "_" + strconv.Itoa(i)
+		}
+		lockFile := filepath.Join(path, ".lock")
+		if tryAcquireLock(lockFile) {
+			return path
+		}
+	}
+	// 理论上不会到这里（100 个实例够多了）
+	path := basePath + "_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	os.MkdirAll(path, 0755)
+	return path
+}
+
+// tryAcquireLock 尝试创建锁文件并写入当前 PID。返回 true 表示获取成功。
+// 如果锁文件已存在但持有进程已死（stale lock），则覆盖。
+func tryAcquireLock(lockFile string) bool {
+	// 检查已有锁
+	if data, err := os.ReadFile(lockFile); err == nil {
+		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+		if parseErr == nil && pid > 0 && processExists(pid) {
+			return false // 锁被活着的进程持有
+		}
+		// Stale lock — 清理
+		os.Remove(lockFile)
+	}
+	// 创建目录 + 锁文件
+	if err := os.MkdirAll(filepath.Dir(lockFile), 0755); err != nil {
+		return false
+	}
+	return os.WriteFile(lockFile, []byte(strconv.Itoa(os.Getpid())), 0644) == nil
+}
+
+// processExists 检查指定 PID 的进程是否存在（平台实现见 main_unix.go / main_windows.go）。
 
 func fatalf(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "✖ "+format+"\n", args...)
