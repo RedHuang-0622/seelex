@@ -52,12 +52,27 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 		service.appendHistoryLocked(service.deps.Engine.History())
 	}
 	service.refreshRuntimeLocked(context.Background())
+	// 处理输入队列：取下一个排队输入自动启动
+	processQueue := len(service.inputQueue) > 0
+	var nextInput string
+	if processQueue {
+		nextInput = service.inputQueue[0]
+		service.inputQueue = service.inputQueue[1:]
+		service.snapshot.Chat.QueuedCount = len(service.inputQueue)
+		if service.snapshot.Chat.QueuedCount == 0 {
+			service.inputQueue = nil
+		}
+	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	if err != nil {
 		service.events.Publish(EventError, revision, requestID, map[string]string{"message": err.Error()})
 	} else {
 		service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+	}
+	// 在锁外启动下一轮，避免死锁
+	if processQueue {
+		go service.runChat(context.Background(), fmt.Sprintf("queue-%d", time.Now().UnixNano()), nextInput)
 	}
 }
 

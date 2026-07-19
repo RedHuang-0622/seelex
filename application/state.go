@@ -35,10 +35,11 @@ type ToolCall struct {
 	Duration  time.Duration `json:"duration,omitempty"`
 }
 type ChatState struct {
-	Running   bool      `json:"running"`
-	RequestID string    `json:"request_id,omitempty"`
-	StartedAt time.Time `json:"started_at,omitempty"`
-	Error     string    `json:"error,omitempty"`
+	Running     bool      `json:"running"`
+	RequestID   string    `json:"request_id,omitempty"`
+	StartedAt   time.Time `json:"started_at,omitempty"`
+	Error       string    `json:"error,omitempty"`
+	QueuedCount int       `json:"queued_count"` // 排队中的输入数
 }
 type RuntimeState struct {
 	Model        string      `json:"model"`

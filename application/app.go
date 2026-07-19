@@ -23,6 +23,7 @@ type Service struct {
 	messageSeq uint64
 	cancelChat context.CancelFunc
 	closed     bool
+	inputQueue []string // 排队中的输入
 }
 
 func New(deps Dependencies) *Service {
@@ -58,6 +59,7 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 	if input == "" {
 		return nil
 	}
+	// 命令/Skill/插件 不排队，直接执行
 	if strings.HasPrefix(input, "/") {
 		return service.submitCommand(ctx, input)
 	}
@@ -75,6 +77,18 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 		}
 		return service.SwitchPlugin(ctx, name)
 	}
+
+	// 对话输入：如果正在运行则排队
+	service.mu.Lock()
+	if service.snapshot.Chat.Running {
+		service.inputQueue = append(service.inputQueue, input)
+		service.snapshot.Chat.QueuedCount = len(service.inputQueue)
+		revision := service.bumpLocked()
+		service.mu.Unlock()
+		service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		return nil
+	}
+	service.mu.Unlock()
 	return service.startChat(ctx, input)
 }
 
@@ -143,14 +157,18 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 		if err := service.deps.Plugins.Deactivate(ctx); err != nil {
 			return fmt.Errorf("停用插件失败: %w", err)
 		}
+		service.deps.Engine.ClearHistory()
 		service.deps.Engine.SetSystemPrompt("")
+		service.resetConversation("已停用插件")
 	} else {
 		if err := service.deps.Plugins.Activate(ctx, name); err != nil {
 			return fmt.Errorf("切换插件失败: %w", err)
 		}
+		service.deps.Engine.ClearHistory()
 		if current, ok := service.deps.Plugins.Current(); ok {
 			service.deps.Engine.SetSystemPrompt(strings.TrimSpace(current.Prompt))
 		}
+		service.resetConversation("已切换到 " + name + " 插件")
 	}
 	service.mu.Lock()
 	service.refreshRuntimeLocked(ctx)
