@@ -136,12 +136,11 @@ func FormatSummary(s *MCPStack) string {
 		StatusRolledBack: 0,
 	}
 
-	s.mu.RLock()
+	// optimistic read — no lock
 	for _, call := range s.Calls[:s.CurrentIdx+1] {
 		serverGroups[call.ServerName]++
 		statusCounts[call.Status]++
 	}
-	s.mu.RUnlock()
 
 	servers := ""
 	for name, count := range serverGroups {

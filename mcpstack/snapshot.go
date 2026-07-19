@@ -7,8 +7,7 @@ import (
 // Snapshot returns a deep copy of the current stack state (thread-safe).
 // The returned stack is fully independent of the original.
 func (s *MCPStack) Snapshot() (*MCPStack, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 
 	data, err := json.Marshal(s)
 	if err != nil {

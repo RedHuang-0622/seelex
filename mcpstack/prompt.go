@@ -11,10 +11,11 @@ import (
 // budget: maximum token count for the generated summary.
 // The output focuses on recent calls and aggregates older ones.
 func (s *MCPStack) ForPrompt(budget int) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 
-	if s.ActiveCount() == 0 {
+	active := s.CurrentIdx + 1
+	total := len(s.Calls)
+	if active <= 0 {
 		return "## MCP 调用历史\n\n当前没有已记录的 MCP 调用。"
 	}
 
@@ -23,7 +24,7 @@ func (s *MCPStack) ForPrompt(budget int) string {
 
 	// Metadata
 	b.WriteString(fmt.Sprintf("会话: %s | 共 %d 次调用, %d 条有效",
-		s.SessionID, s.TotalCount(), s.ActiveCount()))
+		s.SessionID, total, active))
 	if s.Metadata.SessionGoal != "" {
 		b.WriteString(fmt.Sprintf(" | 目标: %s", s.Metadata.SessionGoal))
 	}

@@ -91,7 +91,7 @@ type StackMetadata struct {
 // MCPStack is the immutable, serializable trace of all MCP calls.
 // It is the single source of truth for every MCP interaction.
 type MCPStack struct {
-	mu sync.RWMutex `json:"-"`
+	mu sync.Mutex `json:"-"`
 
 	SessionID  string            `json:"session_id"`            // Session identifier
 	CreatedAt  time.Time         `json:"created_at"`            // Creation timestamp
@@ -210,9 +210,6 @@ func (s *MCPStack) Redo() (*MCPCall, error) {
 
 // Current returns the call at CurrentIdx, or nil if the stack is empty.
 func (s *MCPStack) Current() (*MCPCall, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if len(s.Calls) == 0 {
 		return nil, ErrEmptyStack
 	}
@@ -224,8 +221,7 @@ func (s *MCPStack) Current() (*MCPCall, error) {
 
 // Peek returns the call at CurrentIdx+offset without moving the pointer.
 func (s *MCPStack) Peek(offset int) (*MCPCall, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 
 	if len(s.Calls) == 0 {
 		return nil, ErrEmptyStack
@@ -239,15 +235,13 @@ func (s *MCPStack) Peek(offset int) (*MCPCall, error) {
 
 // ActiveCount returns the number of active (not undone) calls.
 func (s *MCPStack) ActiveCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 	return s.CurrentIdx + 1
 }
 
 // TotalCount returns the total number of calls (including undone ones).
 func (s *MCPStack) TotalCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 	return len(s.Calls)
 }
 
@@ -255,8 +249,7 @@ func (s *MCPStack) TotalCount() int {
 
 // ByServer returns all calls (up to CurrentIdx) that targeted a given server.
 func (s *MCPStack) ByServer(serverName string) []MCPCall {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 
 	var result []MCPCall
 	for _, call := range s.Calls[:s.CurrentIdx+1] {
@@ -269,8 +262,7 @@ func (s *MCPStack) ByServer(serverName string) []MCPCall {
 
 // ByTool returns all calls (up to CurrentIdx) for a given tool name.
 func (s *MCPStack) ByTool(toolName string) []MCPCall {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 
 	var result []MCPCall
 	for _, call := range s.Calls[:s.CurrentIdx+1] {
@@ -283,8 +275,7 @@ func (s *MCPStack) ByTool(toolName string) []MCPCall {
 
 // Latest returns the N most recent active calls.
 func (s *MCPStack) Latest(n int) []MCPCall {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// optimistic read — no lock
 
 	if s.CurrentIdx < 0 {
 		return nil
