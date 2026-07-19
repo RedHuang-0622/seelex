@@ -117,7 +117,7 @@ func loadPlugin(root, directoryName string) (Plugin, error) {
 	if err != nil {
 		return Plugin{}, fmt.Errorf("plugin %q: %w", directoryName, err)
 	}
-	skills, err := skill.NewLoader(filepath.Join(pluginRoot, "skills")).LoadAll()
+	skills, err := skill.LoadPluginDir(pluginRoot)
 	if err != nil {
 		return Plugin{}, fmt.Errorf("plugin %q skills: %w", directoryName, err)
 	}

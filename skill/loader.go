@@ -143,6 +143,10 @@ func (l *Loader) primaryDirLocked() string {
 }
 
 func loadRoot(root string, seen map[string]Skill) error {
+	return loadRootFiltered(root, seen, true)
+}
+
+func loadRootFiltered(root string, seen map[string]Skill, includeLegacy bool) error {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -169,6 +173,9 @@ func loadRoot(root string, seen map[string]Skill) error {
 		seen[s.Name] = s
 	}
 
+	if !includeLegacy {
+		return nil
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || strings.EqualFold(entry.Name(), instructionFile) || filepath.Ext(entry.Name()) != ".md" {
 			continue
@@ -188,6 +195,16 @@ func loadRoot(root string, seen map[string]Skill) error {
 		seen[s.Name] = s
 	}
 	return nil
+}
+
+// LoadPluginDir loads skill directories from a plugin root (no legacy flat files).
+// This avoids accidentally treating plugin.md as a legacy skill.
+func LoadPluginDir(dir string) ([]Skill, error) {
+	seen := make(map[string]Skill)
+	if err := loadRootFiltered(dir, seen, false); err != nil {
+		return nil, err
+	}
+	return sortedSkills(seen), nil
 }
 
 func readSkill(name, path, root string, legacy bool) (Skill, error) {

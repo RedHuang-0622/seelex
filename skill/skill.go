@@ -76,10 +76,12 @@ func (r *Registry) Remove(name string) {
 func (r *Registry) Get(name string) (Skill, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if skills := r.pluginSkills[r.activePlugin]; skills != nil {
+	if r.activePlugin != "" {
+		skills := r.pluginSkills[r.activePlugin]
 		if s, ok := skills[name]; ok {
 			return s, true
 		}
+		return Skill{}, false
 	}
 	if s, ok := r.manual[name]; ok {
 		return s, true
@@ -91,14 +93,15 @@ func (r *Registry) Get(name string) (Skill, bool) {
 func (r *Registry) All() []Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if r.activePlugin != "" {
+		skills := r.pluginSkills[r.activePlugin]
+		return sortedSkills(skills)
+	}
 	merged := make(map[string]Skill, len(r.loaded)+len(r.manual))
 	for name, s := range r.loaded {
 		merged[name] = s
 	}
 	for name, s := range r.manual {
-		merged[name] = s
-	}
-	for name, s := range r.pluginSkills[r.activePlugin] {
 		merged[name] = s
 	}
 	return sortedSkills(merged)

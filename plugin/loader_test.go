@@ -10,7 +10,7 @@ func TestLoaderReadsManifestAndPrivateSkills(t *testing.T) {
 	root := t.TempDir()
 	pluginRoot := filepath.Join(root, "mechanical")
 	mustPluginWrite(t, filepath.Join(pluginRoot, "server.py"), "print('ok')")
-	mustPluginWrite(t, filepath.Join(pluginRoot, "skills", "draw", "SKILL.md"), "# Draw\n")
+	mustPluginWrite(t, filepath.Join(pluginRoot, "draw", "SKILL.md"), "# Draw\n")
 	mustPluginWrite(t, filepath.Join(pluginRoot, manifestFile), `---
 schema_version: 1
 name: mechanical
