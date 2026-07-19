@@ -26,7 +26,6 @@ import (
 var (
 	configPath     = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
-	skillsPaths    = flag.String("skills", "skills,cmd/repl/skills", "Skill 加载路径（逗号分隔）")
 	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
 	permissionMode = flag.String("permission", "full_access", "权限模式: full_access(全部放行) | manual(白名单外需审批)")
 )
@@ -67,12 +66,9 @@ func initRuntime() *seelebridge.Runtime {
 }
 
 func initSkillSystem() *skill.Registry {
-	registry := skill.NewRegistry()
-	loader := skill.NewLoader(splitPaths(*skillsPaths)...)
-	if err := registry.AddLoader(loader); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Skill 加载警告: %v\n", err)
-	}
-	return registry
+	// skills are now per-plugin (plugins/<name>/<skill>/SKILL.md).
+	// The registry is populated via PublishPluginSkills on plugin Load/Activate.
+	return skill.NewRegistry()
 }
 
 func initPluginSystem(

@@ -44,6 +44,7 @@ type Model struct {
 	height         int
 	showLogo       bool
 	uiError        string
+	textareaHeight int
 }
 
 func NewModel(app AppController) Model {
@@ -51,10 +52,10 @@ func NewModel(app AppController) Model {
 	input.Placeholder = "输入消息…  /help 查看命令"
 	input.CharLimit = 0
 	input.SetWidth(80)
+	input.SetHeight(1)
 	input.Focus()
 	input.ShowLineNumbers = false
-	input.KeyMap.InsertNewline.SetEnabled(false)
-	return Model{app: app, snapshot: app.Snapshot(), subscription: app.Subscribe(256), textarea: input, histIdx: -1, showLogo: true}
+	return Model{app: app, snapshot: app.Snapshot(), subscription: app.Subscribe(256), textarea: input, histIdx: -1, showLogo: true, textareaHeight: 1}
 }
 
 func (model Model) Init() tea.Cmd { return waitApplicationEvent(model.subscription) }
@@ -64,6 +65,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		model.width, model.height = message.Width, message.Height
 		model.textarea.SetWidth(max(message.Width-4, 1))
+		model = model.autoResizeTextarea()
 		height := model.convHeight()
 		if !model.ready {
 			model.viewport = viewport.New(message.Width, height)
@@ -74,11 +76,20 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.syncView()
 		return model, nil
 	case tea.KeyMsg:
-		return model.handleKey(message)
+		newModel, cmd := model.handleKey(message)
+		if m, ok := newModel.(Model); ok {
+			newModel = m.autoResizeTextarea()
+		}
+		return newModel, cmd
 	case tea.MouseMsg:
-		var command tea.Cmd
-		model.viewport, command = model.viewport.Update(message)
-		return model, command
+		// 滚轮事件 → 对话区滚动；按键事件 → 忽略，由终端 Shift+拖选处理文本选中
+		switch message.Button {
+		case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+			var cmd tea.Cmd
+			model.viewport, cmd = model.viewport.Update(message)
+			return model, cmd
+		}
+		return model, nil
 	case applicationEventMsg:
 		model.snapshot = model.app.Snapshot()
 		model.uiError = ""
@@ -231,6 +242,24 @@ func (model *Model) afterInput() {
 		model.suggIdx, model.suggOffset = 0, 0
 	}
 	model.histIdx = -1
+}
+
+func (model Model) autoResizeTextarea() Model {
+	lines := model.textarea.LineCount()
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > 10 {
+		lines = 10
+	}
+	if lines != model.textareaHeight {
+		model.textareaHeight = lines
+		model.textarea.SetHeight(lines)
+		if model.ready {
+			model.viewport.Height = model.convHeight()
+		}
+	}
+	return model
 }
 
 func (model Model) acceptSuggestion(suggestion application.Suggestion) Model {

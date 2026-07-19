@@ -29,7 +29,7 @@ func (model Model) midPanelH() int {
 	}
 	return height
 }
-func (Model) bottomPanelH() int { return 3 + shortcutsBarH + 2 }
+func (model Model) bottomPanelH() int { return model.textareaHeight + shortcutsBarH + 2 }
 
 func (model Model) View() string {
 	if !model.ready {
@@ -72,11 +72,8 @@ func (model Model) View() string {
 }
 
 func (model Model) renderInputLine() string {
-	cursor := " "
-	if time.Now().UnixMilli()/500%2 == 0 {
-		cursor = StyleInputPrompt.Render("▎")
-	}
-	return fmt.Sprintf("%s %s%s", StyleInputPrompt.Render(">"), model.textarea.Value(), cursor)
+	// 使用 textarea.View() 而不是 Value()，这样光标跟随实际位置
+	return FormatInput(model.textarea.View())
 }
 
 func (model Model) renderConversation() string {
@@ -171,6 +168,11 @@ func (model *Model) syncView() {
 	if atBottom {
 		model.viewport.GotoBottom()
 	}
+}
+
+// FormatInput 格式化输入行。
+func FormatInput(textareaView string) string {
+	return textareaView
 }
 
 func max(first, second int) int {
