@@ -13,18 +13,6 @@
 | [`mcp-call-chain-flowchart.md`](arch/mcp-call-chain-flowchart.md) | Agent 调用 MCP 全链路函数流 + 熔断事件通道 |
 | [`context-improvement-plan.md`](arch/context-improvement-plan.md) | Context 包拆分为 snapshot/provider/compactor/merger 方案 |
 
-## 🛠 cad/ — CAD 方案（⚠️ 大部分已过时）
-
-| 文档 | 状态 | 说明 |
-|------|:----:|------|
-| [`cad-architecture-overview.md`](cad/cad-architecture-overview.md) | ❌ 废弃 | 旧三支柱 CAD 架构，被通用 mcpstack 取代 |
-| [`cad-command-stack.md`](cad/cad-command-stack.md) | ❌ 废弃 | 旧 commandstack 包设计，已删除→mcpstack |
-| [`cad-freecad-executor.md`](cad/cad-freecad-executor.md) | ❌ 废弃 | 旧自研 Python MCP Server，已删除→用现成 |
-| [`cad-mcp-bridge.md`](cad/cad-mcp-bridge.md) | ❌ 废弃 | 旧自研 MCP 客户端方案，已改用框架 Provider |
-| [`cad-infrastructure-complete.md`](cad/cad-infrastructure-complete.md) | ❌ 废弃 | 旧双栈集成指南，保留作历史对照 |
-
-当前 CAD 定位：FreeCAD 是 Plugin（与 WebSearch 同级），`freecad/` 包仅做参数验证。
-
 ## 📓 devlog/ — 研发过程
 
 | 文档 | 说明 |

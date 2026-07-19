@@ -67,6 +67,30 @@ go.work.sum
 tmp/
 temp/
 
+# ── Python 缓存 ──────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── CAD 测试临时脚本 ────────────────────────────────────────
+docs/test/*.py
+
+# ── FreeCAD / CAD 产物 ──────────────────────────────────────
+*.FCStd
+*.FCBak
+*.FCStd1
+*.FCBak1
+*.step
+*.stl
+*.iges
+*.brep
+*.3mf
+*.obj
+*.ifc
+cad_export/
+FreeCAD_Export/
+*_export/
+
 # ── 覆盖产物（CI 生成） ─────────────────────────────────────
 coverage/
 coverage.*
