@@ -191,6 +191,7 @@ go run . -c config/account-claudecode.local.yaml
 | `Ctrl+V` | 从剪贴板粘贴到输入框 |
 | `Alt+E` | 循环切换 Effort 等级（low→medium→high→max） |
 | `Ctrl+Q` | 退出程序 |
+| `左键拖选` | 选中对话文本，然后 Ctrl+C 复制 |
 | `Tab` | 接受当前建议 |
 | `↑` / `↓` | 切换建议或交互选项 |
 | `#end` | 退栈最近加载的 Skill |

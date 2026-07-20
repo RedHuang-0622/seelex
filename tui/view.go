@@ -191,7 +191,7 @@ func (model Model) renderInteraction() string {
 }
 
 func (Model) renderShortcuts() string {
-	items := []string{"Ctrl+C copy", "Ctrl+V paste", "Alt+E effort", "Ctrl+Q quit"}
+	items := []string{"Ctrl+C copy", "Ctrl+V paste", "Alt+E effort", "Ctrl+Q quit", "drag select"}
 	var builder strings.Builder
 	for index, item := range items {
 		if index > 0 {

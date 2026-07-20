@@ -83,15 +83,6 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			newModel = m.autoResizeTextarea()
 		}
 		return newModel, cmd
-	case tea.MouseMsg:
-		// 滚轮事件 → 对话区滚动；按键事件 → 忽略，由终端 Shift+拖选处理文本选中
-		switch message.Button {
-		case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
-			var cmd tea.Cmd
-			model.viewport, cmd = model.viewport.Update(message)
-			return model, cmd
-		}
-		return model, nil
 	case applicationEventMsg:
 		model.snapshot = model.app.Snapshot()
 		model.uiError = ""

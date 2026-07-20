@@ -277,7 +277,7 @@ func initApplication(
 func initTUI(app *application.Service) tui.Model { return tui.NewModel(app) }
 
 func startTUI(model tui.Model) {
-	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	program := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fatalf("TUI 错误: %v", err)
 	}
