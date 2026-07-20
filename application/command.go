@@ -179,4 +179,18 @@ func (service *Service) registerBuiltinCommands() {
 		return CommandResult{Notice: "已切换插件: " + name}, nil
 	})
 	register("exit", "退出程序", func(context.Context, []string) (CommandResult, error) { return CommandResult{Exit: true}, nil })
+	register("effort", "切换 Effort 等级: /effort <low|medium|high|max>", func(ctx context.Context, args []string) (CommandResult, error) {
+		if len(args) == 0 {
+			return CommandResult{Notice: "当前 Effort: " + service.effortManager.Current() + "（可用: low, medium, high, max）"}, nil
+		}
+		level := strings.ToLower(strings.TrimSpace(args[0]))
+		if err := service.effortManager.Apply(level); err != nil {
+			return CommandResult{}, err
+		}
+		service.mu.Lock()
+		revision := service.bumpLocked()
+		service.mu.Unlock()
+		service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		return CommandResult{Notice: "Effort 已切换为: " + level}, nil
+	})
 }

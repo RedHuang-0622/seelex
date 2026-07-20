@@ -22,6 +22,7 @@ func (port enginePort) ChatStream(ctx context.Context, input string, onChunk fun
 func (port enginePort) ClearHistory()                 { port.engine.ClearHistory() }
 func (port enginePort) SessionID() string             { return port.engine.SessionID() }
 func (port enginePort) SetSystemPrompt(prompt string) { port.engine.SetSystemPrompt(prompt) }
+func (port enginePort) SetMaxLoops(n int)            { port.engine.SetMaxLoops(n) }
 func (port enginePort) TraceText() string {
 	tree := port.engine.ExportTrace()
 	if tree == nil || tree.Root == nil {

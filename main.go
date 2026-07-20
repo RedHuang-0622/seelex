@@ -94,7 +94,9 @@ func activateDefaultPlugin(manager *plugin.Manager, eng *engine.Engine) {
 	if err := manager.Activate(context.Background(), "default"); err != nil {
 		fatalf("激活 default Plugin 失败: %v", err)
 	}
-	applyPluginPrompt(eng, manager)
+	// 系统提示词由 application.Service.buildSystemPrompt 在 initApplication 时组装，
+	// 不要在启动时直接覆盖 engine 的 system prompt。
+	// applyPluginPrompt(eng, manager)
 }
 
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *engine.Engine, approval *application.ApprovalBroker) {

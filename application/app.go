@@ -14,16 +14,18 @@ const defaultHistoryWindow = 200
 var ErrChatRunning = errors.New("chat is already running")
 
 type Service struct {
-	mu         sync.RWMutex
-	deps       Dependencies
-	events     *EventHub
-	approval   *ApprovalBroker
-	commands   *CommandRegistry
-	snapshot   Snapshot
-	messageSeq uint64
-	cancelChat context.CancelFunc
-	closed     bool
-	inputQueue []string // 排队中的输入
+	mu            sync.RWMutex
+	deps          Dependencies
+	events        *EventHub
+	approval      *ApprovalBroker
+	commands      *CommandRegistry
+	snapshot      Snapshot
+	promptStack   *PromptStack
+	effortManager *EffortManager
+	messageSeq    uint64
+	cancelChat    context.CancelFunc
+	closed        bool
+	inputQueue    []string // 排队中的输入
 }
 
 func New(deps Dependencies) *Service {
@@ -33,18 +35,59 @@ func New(deps Dependencies) *Service {
 	if deps.Approval == nil {
 		deps.Approval = NewApprovalBroker(deps.Events)
 	}
-	service := &Service{deps: deps, events: deps.Events, approval: deps.Approval, commands: NewCommandRegistry()}
+	ps := NewPromptStack()
+	service := &Service{
+		deps: deps, events: deps.Events, approval: deps.Approval,
+		commands: NewCommandRegistry(), promptStack: ps,
+	}
+	service.effortManager = NewEffortManager(ps, deps.Engine)
 	service.snapshot = Snapshot{
 		Session:      SessionState{ID: deps.Engine.SessionID()},
-		Runtime:      RuntimeState{Model: deps.Runtime.Model()},
+		Runtime:      RuntimeState{Model: deps.Runtime.Model(), Effort: service.effortManager.Current()},
 		Capabilities: Capabilities{SessionResume: false, SessionResumeReason: "Seele engine does not expose history replacement"},
 	}
 	service.registerBuiltinCommands()
 	service.refreshRuntimeLocked(context.Background())
+	service.buildSystemPrompt()
 	service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", deps.Runtime.Model()), nil)
 	service.snapshot.Revision = 1
 	service.approval.setObserver(service.observeInteraction)
 	return service
+}
+
+// buildSystemPrompt 组装完整的系统提示词并在引擎上生效。
+// 层序: identity (固定) + effort (行为指令) + plugins (插件 prompt) + instructions (切换说明) + skill (可选)
+func (service *Service) buildSystemPrompt() {
+	service.promptStack.ClearKind("identity")
+	service.promptStack.ClearKind("instructions")
+
+	// 1. Identity — 始终在最底层
+	service.promptStack.Push("identity", "identity",
+		"You are Seelex, an intelligent engineering agent built on the Seele framework. "+
+			"You can switch plugins, load skills, and use tools to solve engineering tasks.")
+
+	// 2. Plugin prompt（从当前插件读取，已被 activateDefaultPlugin 激活）
+	if current, ok := service.deps.Plugins.Current(); ok {
+		// promptStack.Reset 会清除所有层重建 base
+		// 所以用 Push 而不是 Reset：先清掉旧的 base，再推新的
+		service.promptStack.ClearKind("base")
+		if prompt := strings.TrimSpace(current.Prompt); prompt != "" {
+			service.promptStack.Push("base", "plugin-"+current.Name, prompt)
+		}
+	}
+
+	// 3. Effort（effortManager.Apply 内部会 Push "effort" 层）
+	service.effortManager.Apply(service.effortManager.Current())
+
+	// 4. Instructions — 固定在 effort/plugin 之上、skill 之下
+	service.promptStack.Push("instructions", "instructions",
+		`## System Capabilities
+- Use switch_plugin tool to switch between plugins for different tool sets.
+- Load skills via #skillname (user-triggered). Use "#end" to unload current skill.
+- Current effort determines thinking depth and tool usage intensity.`)
+
+	// 渲染并写入 engine
+	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 }
 
 func (service *Service) Snapshot() Snapshot {
@@ -82,6 +125,7 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 	service.mu.Lock()
 	if service.snapshot.Chat.Running {
 		service.inputQueue = append(service.inputQueue, input)
+		service.snapshot.Chat.InputQueue = append([]string(nil), service.inputQueue...)
 		service.snapshot.Chat.QueuedCount = len(service.inputQueue)
 		revision := service.bumpLocked()
 		service.mu.Unlock()
@@ -152,13 +196,35 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 	return nil
 }
 
+func (service *Service) SwitchEffort(_ context.Context, level string) error {
+	if level == "" || level == "cycle" {
+		next, err := service.effortManager.Cycle()
+		if err != nil {
+			return err
+		}
+		level = next
+	}
+	if err := service.effortManager.Apply(level); err != nil {
+		return err
+	}
+	service.mu.Lock()
+	service.snapshot.Runtime.Effort = service.effortManager.Current()
+	service.snapshot.Runtime.PromptStack = service.promptStack.Describe()
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	return nil
+}
+
 func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	if name == "off" || name == "none" || name == "" {
 		if err := service.deps.Plugins.Deactivate(ctx); err != nil {
 			return fmt.Errorf("停用插件失败: %w", err)
 		}
 		service.deps.Engine.ClearHistory()
+		service.promptStack.Reset("")
 		service.deps.Engine.SetSystemPrompt("")
+		service.effortManager = NewEffortManager(service.promptStack, service.deps.Engine)
 		service.resetConversation("已停用插件")
 	} else {
 		if err := service.deps.Plugins.Activate(ctx, name); err != nil {
@@ -166,8 +232,10 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 		}
 		service.deps.Engine.ClearHistory()
 		if current, ok := service.deps.Plugins.Current(); ok {
-			service.deps.Engine.SetSystemPrompt(strings.TrimSpace(current.Prompt))
+			service.promptStack.Reset(strings.TrimSpace(current.Prompt))
 		}
+		service.effortManager = NewEffortManager(service.promptStack, service.deps.Engine)
+		service.effortManager.Apply(service.effortManager.Current())
 		service.resetConversation("已切换到 " + name + " 插件")
 	}
 	service.mu.Lock()
@@ -220,6 +288,8 @@ func (service *Service) refreshRuntimeLocked(ctx context.Context) {
 	service.snapshot.Runtime.Model = service.deps.Runtime.Model()
 	service.snapshot.Runtime.Provider = service.deps.Runtime.Provider()
 	service.snapshot.Runtime.Plugin = service.deps.Runtime.ActivePlugin()
+	service.snapshot.Runtime.Effort = service.effortManager.Current()
+	service.snapshot.Runtime.PromptStack = service.promptStack.Describe()
 	service.snapshot.Runtime.VisibleTools = append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...)
 	service.snapshot.Runtime.Skills = append([]SkillInfo(nil), service.deps.Skills.All()...)
 	service.snapshot.Runtime.Tokens = service.deps.Engine.TokenCount()

@@ -39,13 +39,16 @@ type ChatState struct {
 	RequestID   string    `json:"request_id,omitempty"`
 	StartedAt   time.Time `json:"started_at,omitempty"`
 	Error       string    `json:"error,omitempty"`
-	QueuedCount int       `json:"queued_count"` // 排队中的输入数
+	QueuedCount int       `json:"queued_count"`        // 排队中的输入数
+	InputQueue  []string  `json:"input_queue,omitempty"` // 排队消息内容（TUI 显示用）
 }
 type RuntimeState struct {
 	Model        string      `json:"model"`
 	Provider     string      `json:"provider"`
 	Account      string      `json:"account,omitempty"`
 	Plugin       string      `json:"plugin,omitempty"`
+	Effort       string      `json:"effort"`
+	PromptStack  string      `json:"prompt_stack"`
 	VisibleTools []Tool      `json:"visible_tools"`
 	Skills       []SkillInfo `json:"skills"`
 	Tokens       string      `json:"tokens"`

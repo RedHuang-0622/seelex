@@ -19,6 +19,7 @@ type ChatEngine interface {
 	ClearHistory()
 	SessionID() string
 	SetSystemPrompt(string)
+	SetMaxLoops(int)
 	TraceText() string
 	TokenCount() string
 }

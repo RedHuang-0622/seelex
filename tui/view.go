@@ -55,6 +55,7 @@ func (model Model) View() string {
 		builder.WriteString(StyleStatus.Render(fmt.Sprintf("  ● receiving  %s", elapsed)))
 		builder.WriteString("\n")
 	}
+		builder.WriteString(model.renderQueue())
 	if model.uiError != "" {
 		builder.WriteString(StyleError.Render("  ✖ " + model.uiError))
 		builder.WriteString("\n")
@@ -80,15 +81,40 @@ func (model Model) renderConversation() string {
 	return renderConversation(model.snapshot.Conversation, model.width)
 }
 
+func effortBadge(effort string) string {
+	colors := map[string]lipgloss.Color{
+		"low":    lipgloss.Color("241"), // 灰
+		"medium": lipgloss.Color("220"), // 金
+		"high":   lipgloss.Color("75"),  // 蓝
+		"max":    lipgloss.Color("198"), // 紫红
+	}
+	c, ok := colors[effort]
+	if !ok {
+		c = lipgloss.Color("241")
+	}
+	return lipgloss.NewStyle().Foreground(c).Render("E:" + effort)
+}
+
 func (model Model) renderStatusBar() string {
 	provider := model.snapshot.Runtime.Provider
 	if provider == "" {
 		provider = "round-robin"
 	}
 	parts := []string{provider}
+	eff := model.snapshot.Runtime.Effort
+	if eff == "" {
+		eff = "high"
+	}
+	parts = append(parts, effortBadge(eff))
 	if plugin := model.snapshot.Runtime.Plugin; plugin != "" && plugin != "default" {
 		parts = append(parts, plugin)
 	}
+	// Skill 栈状态（仅在加载了 skill 时显示，避免与 effortBadge 重复）
+		if stack := model.snapshot.Runtime.PromptStack; stack != "" && stack != "base" {
+			if strings.Contains(stack, "|") || strings.Contains(stack, "  ") {
+				parts = append(parts, StyleMuted.Render(stack))
+			}
+		}
 	tokens := model.snapshot.Runtime.Tokens
 	if tokens == "" {
 		tokens = "0"
@@ -96,6 +122,9 @@ func (model Model) renderStatusBar() string {
 	parts = append(parts, "tok:"+tokens)
 	if model.snapshot.Chat.Running {
 		parts = append(parts, time.Since(model.snapshot.Chat.StartedAt).Round(time.Second).String())
+		if q := model.snapshot.Chat.QueuedCount; q > 0 {
+			parts = append(parts, fmt.Sprintf("queue:%d", q))
+		}
 	}
 	if sessionID := model.snapshot.Session.ID; len(sessionID) > 8 {
 		parts = append(parts, sessionID[len(sessionID)-8:])
@@ -104,6 +133,25 @@ func (model Model) renderStatusBar() string {
 	left := StyleBanner.Render(" ◆ Seele") + StyleMuted.Render(fmt.Sprintf("  %s", model.snapshot.Runtime.Model))
 	spacing := max(model.width-lipgloss.Width(left)-lipgloss.Width(right)-4, 1)
 	return StyleStatus.Render(left + strings.Repeat(" ", spacing) + right)
+}
+func (model Model) renderQueue() string {
+	queue := model.snapshot.Chat.InputQueue
+	if len(queue) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(StyleMuted.Render("  queue:"))
+	b.WriteString("\n")
+	for i, q := range queue {
+		line := fmt.Sprintf("  %d. ", i+1)
+		disp := strings.ReplaceAll(q, "\n", " ")
+		if len(disp) > 60 {
+			disp = disp[:60] + "..."
+		}
+		b.WriteString(StyleMuted.Render(line + disp))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func (model Model) renderInteraction() string {
@@ -143,7 +191,7 @@ func (model Model) renderInteraction() string {
 }
 
 func (Model) renderShortcuts() string {
-	items := []string{"Ctrl+L", "/clear", "/model", "/sessions", "/help", "/exit"}
+	items := []string{"Ctrl+C copy", "Ctrl+V paste", "Alt+E effort", "Ctrl+Q quit"}
 	var builder strings.Builder
 	for index, item := range items {
 		if index > 0 {

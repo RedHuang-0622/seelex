@@ -49,10 +49,12 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 | 能力 | 状态 | 说明 |
 |------|:---:|------|
 | Headless Application Core | ✅ | TUI 已与业务状态、副作用和异步生命周期分离 |
-| TUI 客户端 | ✅ | 支持流式聊天、命令、补全、工具事件和交互面板 |
+| TUI 客户端 | ✅ | 支持流式聊天、命令、补全、工具事件、交互面板、Alt+E effort 循环 |
 | 文件化 Plugin | ✅ | `plugin.md` 定义工具过滤、Prompt、Skill 和 MCP |
 | Plugin 运行时切换 | ✅ | 支持激活、停用、失败回滚和并发串行化 |
-| Skill 系统 | ✅ | 支持目录加载、注册、Plugin Skill 和补全 |
+| Skill 系统 | ✅ | 支持目录加载、注册、Plugin Skill 和多层 PromptStack 叠加 |
+| Effort 等级 | ✅ | low/medium/high/max 四档，控制 MaxLoops、提示词深度和工具可见性 |
+| PromptStack 分层 | ✅ | system prompt 按 identity + effort + plugins + instructions + skill 五层组装 |
 | 审批交互 Broker | 🟡 | `ask_approve` 和前端决议已实现；强制 Permission Gate 尚未接通 |
 | 会话保存与列表 | ✅ | 支持 `/new` 保存和 `/sessions` 查询 |
 | 会话恢复 | ⛔ | Seele 暂无历史替换 API，当前会明确提示不可用 |
@@ -102,11 +104,11 @@ Agent 调用 MCP 工具的完整函数链、数据转换和熔断事件通道详
 MCP 中间件从 CAD 专属到通用、熔断器事件通道、框架-应用存储解耦的完整推演过程：
 [`docs/arch/design-decisions-mcp-storage.md`](docs/arch/design-decisions-mcp-storage.md)
 
-1. interface 定义在使用方，不定义在实现方；
-2. TUI 不直接依赖 Engine、Plugin、Skill、Session 或 Seele 深层类型；
-3. Seele 已有能力优先通过薄适配器复用，不在 Seelex 重造引擎；
-4. Plugin 负责专业能力组合，不把领域逻辑硬编码进 TUI；
-5. CLI 与 Electron 使用同一个 application core，不复制业务状态机。
+### 架构文档
+
+- [`docs/arch/effort-system-design.md`](docs/arch/effort-system-design.md) — Effort 等级系统完整设计（配置 → API → 提示词 → TUI）
+- [`docs/arch/skill-effort-architecture.md`](docs/arch/skill-effort-architecture.md) — 当前 Skill 系统与 PromptStack 实现方案
+- [`docs/arch/mcp-call-chain-flowchart.md`](docs/arch/mcp-call-chain-flowchart.md) — MCP 工具调用链路
 
 ## 快速开始
 
@@ -184,8 +186,14 @@ go run . -c config/account-claudecode.local.yaml
 |------|------|
 | `/` | 展示命令、当前 Plugin 可见工具和 Skill |
 | `#` | 展示已加载 Skill |
+| `@` | 展示已注册 Plugin |
+| `Ctrl+C` | 复制最后一条 AI 回复到系统剪贴板 |
+| `Ctrl+V` | 从剪贴板粘贴到输入框 |
+| `Alt+E` | 循环切换 Effort 等级（low→medium→high→max） |
+| `Ctrl+Q` | 退出程序 |
 | `Tab` | 接受当前建议 |
 | `↑` / `↓` | 切换建议或交互选项 |
+| `#end` | 退栈最近加载的 Skill |
 
 主要命令：
 
@@ -196,12 +204,27 @@ go run . -c config/account-claudecode.local.yaml
 | `/pool` | 查看并切换账号 |
 | `/plugins` | 列出 Plugin |
 | `/plugin <name>` | 切换 Plugin |
+| `/effort` | 查看当前 Effort 等级 |
+| `/effort <level>` | 切换 Effort 等级（low/medium/high/max） |
 | `/history` | 显示历史统计 |
 | `/trace` | 显示调用追踪 |
 | `/new` | 保存当前会话并清空历史 |
 | `/sessions` | 列出持久化会话 |
 | `/resume <id>` | 当前受 Seele 历史替换能力限制，会返回明确提示 |
 | `/exit` | 退出程序 |
+
+### Effort 等级说明
+
+Effort 控制 Agent 的思考深度和工具使用强度，通过多层 PromptStack 注入行为指令：
+
+| 等级 | MaxLoops | 工具可见性 | 行为特征 |
+|------|----------|-----------|---------|
+| low | 0 | 有限只读 | 直接快速回答，不调工具 |
+| medium | 8 | 标准工具集 | 平衡速度与能力，必要时简述规划 |
+| high | 25 | 全部工具（默认） | 完整 ReAct，复杂任务用 WorkPlan 编排行 |
+| max | 50 | 全部工具 + Fork | 深度推理，多 Agent 并行，交叉验证 |
+
+当前 effort 等级显示在状态栏：`E:low`(灰) / `E:medium`(金) / `E:high`(蓝) / `E:max`(紫红)。Skill 加载栈也同步显示：如 `E:high  goal|code`。
 
 ### 审批与权限现状
 
@@ -281,16 +304,23 @@ seelex/
 - Plugin/Skill 文件化与运行时切换；
 - Plugin MCP 生命周期和失败回滚；
 - 多账号 Runtime、会话保存和基础追踪；
-- application、plugin、skill、bridge 和 TUI adapter 单元测试。
+- Effort 等级系统（low/medium/high/max）：PromptStack 分层 + 行为指令注入 + MaxLoops 控制；
+- Skill 多层叠加与退栈（`#goal` → `#code` 压栈，`#end` 退栈）；
+- Alt+E 循环切换 Effort + 状态栏实时显示；
+- 提示词五层组装：identity + effort + plugins + instructions + skill；
+- application、plugin、skill、bridge、effort 和 TUI adapter 单元测试。
 
 ### 下一阶段
 
-1. 接通强制 Permission Gate，消除权限声明与运行行为差异；
-2. 为 Snapshot 增加分页、协议版本和稳定错误码；
-3. 实现 JSON-RPC/stdio sidecar；
-4. 打通 CAD Plugin 最小垂直闭环；
-5. 建立 Dev Plugin 的代码—测试—Review 闭环；
-6. 基于 sidecar 构建 Electron 毕设与成果展示界面。
+1. Effort 注入 API 参数（Anthropic thinking / OpenAI reasoning_effort）；
+2. Effort → 模型选型（flash/pro 自动切换）；
+3. Effort → Planning 策略（brief/structured/dag）；
+4. 接通强制 Permission Gate，消除权限声明与运行行为差异；
+5. 为 Snapshot 增加分页、协议版本和稳定错误码；
+6. 实现 JSON-RPC/stdio sidecar；
+7. 打通 CAD Plugin 最小垂直闭环；
+8. 建立 Dev Plugin 的代码—测试—Review 闭环；
+9. 基于 sidecar 构建 Electron 毕设与成果展示界面。
 
 ## 开发
 

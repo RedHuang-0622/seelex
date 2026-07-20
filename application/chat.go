@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,16 +53,19 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 		service.appendHistoryLocked(service.deps.Engine.History())
 	}
 	service.refreshRuntimeLocked(context.Background())
-	// 处理输入队列：取下一个排队输入自动启动
+	// 处理输入队列：取所有排队输入合并为一条，批量发送
 	processQueue := len(service.inputQueue) > 0
-	var nextInput string
+	var batchInput string
 	if processQueue {
-		nextInput = service.inputQueue[0]
-		service.inputQueue = service.inputQueue[1:]
-		service.snapshot.Chat.QueuedCount = len(service.inputQueue)
-		if service.snapshot.Chat.QueuedCount == 0 {
-			service.inputQueue = nil
+		// 把所有排队消息显示到对话框
+		for _, q := range service.inputQueue {
+			service.appendMessageLocked("user", q, nil)
 		}
+		// 合并为一条 LLM 输入
+		batchInput = strings.Join(service.inputQueue, "\n---\n")
+		service.inputQueue = nil
+		service.snapshot.Chat.QueuedCount = 0
+		service.snapshot.Chat.InputQueue = nil
 	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()
@@ -70,9 +74,9 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	} else {
 		service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
 	}
-	// 在锁外启动下一轮，避免死锁
+	// 批量发送：所有排队消息一次发给 LLM
 	if processQueue {
-		go service.runChat(context.Background(), fmt.Sprintf("queue-%d", time.Now().UnixNano()), nextInput)
+		go service.startChat(context.Background(), batchInput)
 	}
 }
 

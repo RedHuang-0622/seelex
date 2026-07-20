@@ -50,6 +50,7 @@ func (engine *fakeEngine) SetSystemPrompt(prompt string) {
 	engine.prompt = prompt
 	engine.mu.Unlock()
 }
+func (*fakeEngine) SetMaxLoops(int)    {}
 func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
@@ -149,8 +150,14 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine.mu.Lock()
 	prompt := engine.prompt
 	engine.mu.Unlock()
-	if prompt != "review prompt\n\nstrict" {
-		t.Fatalf("unexpected prompt %q", prompt)
+	if !strings.Contains(prompt, "review prompt") || !strings.Contains(prompt, "strict") {
+		t.Fatalf("prompt missing skill content: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Seelex") {
+		t.Fatalf("prompt missing identity: %q", prompt)
+	}
+	if !strings.Contains(prompt, "high-effort") {
+		t.Fatalf("prompt missing effort: %q", prompt)
 	}
 	if err := service.Submit(context.Background(), "#review focused"); err != nil {
 		t.Fatal(err)
@@ -158,8 +165,8 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine.mu.Lock()
 	prompt = engine.prompt
 	engine.mu.Unlock()
-	if prompt != "review prompt\n\nfocused" {
-		t.Fatalf("unexpected hash skill prompt %q", prompt)
+	if !strings.Contains(prompt, "review prompt") || !strings.Contains(prompt, "focused") {
+		t.Fatalf("hash skill prompt missing content: %q", prompt)
 	}
 }
 

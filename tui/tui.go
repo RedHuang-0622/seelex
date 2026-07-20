@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,7 @@ type AppController interface {
 	ResolveInteraction(context.Context, string, string) error
 	SelectAccount(context.Context, string) error
 	SwitchPlugin(context.Context, string) error
+	SwitchEffort(context.Context, string) error
 	// LoadMoreHistory 加载更早的消息到 Conversation，返回是否还有更多。
 	LoadMoreHistory(limit int) error
 }
@@ -119,17 +121,36 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model.handleInteractionKey(message)
 	}
 	if model.snapshot.Chat.Running {
-		if message.String() == "ctrl+c" {
+		switch message.String() {
+		case "ctrl+c":
 			model.app.CancelChat(model.snapshot.Chat.RequestID)
+			return model, nil
+		case "alt+e":
+			return model, func() tea.Msg {
+				return submitResultMsg{err: model.app.SwitchEffort(context.Background(), "cycle")}
+			}
+		case "enter":
+			input := strings.TrimSpace(model.textarea.Value())
+			if input == "" {
+				return model, nil
+			}
+			model.textarea.Reset()
+			return model, submitInput(model.app, input)
+		default:
+			var cmd tea.Cmd
+			model.textarea, cmd = model.textarea.Update(message)
+			model.afterInput()
+			return model, cmd
 		}
-		return model, nil
 	}
 	switch message.String() {
 	case "enter":
 		return model.handleEnter()
-	case "ctrl+c", "ctrl+d":
+	case "ctrl+q":
 		model.quitting = true
 		return model, tea.Quit
+	case "ctrl+c":
+		return model, copyLastResponse(model)
 	case "up":
 		if model.suggMode {
 			suggestions := model.app.Suggestions(model.textarea.Value())
@@ -205,11 +226,41 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model.viewport.GotoBottom()
 		}
 		return model, nil
+	case "alt+e":
+		return model, func() tea.Msg {
+			return submitResultMsg{err: model.app.SwitchEffort(context.Background(), "cycle")}
+		}
 	default:
 		var command tea.Cmd
 		model.textarea, command = model.textarea.Update(message)
 		model.afterInput()
 		return model, command
+	}
+}
+
+// copyLastResponse 复制最后一条 assistant 回复到系统剪贴板。
+func copyLastResponse(model Model) tea.Cmd {
+	return func() tea.Msg {
+		var last string
+		for i := len(model.snapshot.Conversation) - 1; i >= 0; i-- {
+			msg := model.snapshot.Conversation[i]
+			if msg.Role == "assistant" && msg.Content != "" {
+				last = msg.Content
+				break
+			}
+		}
+		if last == "" {
+			return submitResultMsg{err: nil}
+		}
+		// 分离思考内容与正文（以 "以以以" 或 "---" 为界）
+		if idx := strings.LastIndex(last, "---"); idx > 0 {
+			last = strings.TrimSpace(last[idx+3:])
+		}
+		if err := clipboard.WriteAll(last); err != nil {
+			// 失败不阻塞，复制是辅助功能
+			return submitResultMsg{err: nil}
+		}
+		return submitResultMsg{err: nil}
 	}
 }
 

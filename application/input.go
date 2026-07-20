@@ -45,6 +45,9 @@ func (service *Service) submitSkill(name string, args []string) error {
 	if name == "" {
 		return nil
 	}
+	if name == "end" {
+		return service.endSkill()
+	}
 	skill, ok := service.deps.Skills.Get(name)
 	if !ok {
 		service.addNotice("未知 Skill: " + name)
@@ -53,12 +56,24 @@ func (service *Service) submitSkill(name string, args []string) error {
 	return service.applySkill(skill, args)
 }
 
+func (service *Service) endSkill() error {
+	name := service.promptStack.PopKind("skill")
+	if name == "" {
+		service.addNotice("当前无 Skill 可退栈")
+		return nil
+	}
+	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	service.addNotice("已退栈 Skill: " + name)
+	return nil
+}
+
 func (service *Service) applySkill(skill SkillInfo, args []string) error {
 	prompt := skill.Prompt
 	if len(args) > 0 {
 		prompt += "\n\n" + strings.Join(args, " ")
 	}
-	service.deps.Engine.SetSystemPrompt(prompt)
+	service.promptStack.Push("skill", skill.Name, prompt)
+	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	service.addNotice("加载 Skill: " + skill.Name)
 	return nil
 }
