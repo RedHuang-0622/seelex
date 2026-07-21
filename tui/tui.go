@@ -30,6 +30,8 @@ type AppController interface {
 
 const maxPasteChars = 200 // 超过此字符数视为粘贴
 
+const maxPasteChars = 200 // 超过此字符数视为粘贴
+
 type Model struct {
 	app            AppController
 	snapshot       application.Snapshot
@@ -51,8 +53,8 @@ type Model struct {
 	showLogo       bool
 	uiError        string
 	textareaHeight int
-	pasteBuffer    string // 折叠粘贴时暂存真实内容
-	pasteSeq       int    // 折叠计数器
+	pasteBuffer    string    // 折叠粘贴时暂存真实内容
+	pasteSeq       int       // 折叠计数器
 	lastKeyTime    time.Time // 上次按键时间，用于检测粘贴爆发
 }
 
@@ -206,7 +208,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model.viewport.HalfPageUp()
 			if model.viewport.AtTop() && model.snapshot.HasMoreHistory {
 				return model, loadMoreHistory(model.app, 0)
-				}
+			}
 		}
 		return model, nil
 	case "pgdown":
@@ -235,6 +237,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		model.lastKeyTime = time.Now()
 		var command tea.Cmd
 		model.textarea, command = model.textarea.Update(message)
+		model.foldPaste(old, model.textarea.Value())
 		model.afterInput()
 		return model, command
 	}
@@ -322,6 +325,10 @@ func (model *Model) afterInput() {
 	model.suggMode = (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "#") || strings.HasPrefix(value, "@")) && !strings.Contains(value, " ")
 	if model.suggMode && !wasSuggestion {
 		model.suggIdx, model.suggOffset = 0, 0
+	}
+	// 如果用户编辑了折叠占位符，清除 pasteBuffer
+	if model.pasteBuffer != "" && !strings.HasPrefix(value, "[Pasted text #") {
+		model.pasteBuffer = ""
 	}
 	// 如果用户编辑了折叠占位符，清除 pasteBuffer
 	if model.pasteBuffer != "" && !strings.HasPrefix(value, "[Pasted text #") {
