@@ -30,8 +30,6 @@ type AppController interface {
 
 const maxPasteChars = 200 // 超过此字符数视为粘贴
 
-const maxPasteChars = 200 // 超过此字符数视为粘贴
-
 type Model struct {
 	app            AppController
 	snapshot       application.Snapshot
@@ -236,6 +234,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		model.lastKeyTime = time.Now()
 		var command tea.Cmd
+		old := model.textarea.Value()
 		model.textarea, command = model.textarea.Update(message)
 		model.foldPaste(old, model.textarea.Value())
 		model.afterInput()
@@ -317,6 +316,26 @@ func (model *Model) checkPaste() bool {
 	model.textarea.SetValue(placeholder)
 	model.textarea.CursorEnd()
 	return true
+}
+
+// foldPaste 检测单次按键中是否插入了大量文本（逐字符粘贴特征），是则折叠为占位符。
+func (model *Model) foldPaste(old, newVal string) {
+	if model.pasteBuffer != "" {
+		return
+	}
+	if old == newVal {
+		return
+	}
+	oldLines := strings.Count(old, "\n")
+	newLines := strings.Count(newVal, "\n")
+	if newLines-oldLines < 2 && len(newVal)-len(old) < maxPasteChars {
+		return
+	}
+	model.pasteSeq++
+	model.pasteBuffer = newVal
+	placeholder := fmt.Sprintf("[Pasted text #%d +%d lines]", model.pasteSeq, newLines-oldLines+1)
+	model.textarea.SetValue(placeholder)
+	model.textarea.CursorEnd()
 }
 
 func (model *Model) afterInput() {
