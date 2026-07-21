@@ -1,6 +1,6 @@
 # ── 密钥与配置 ──────────────────────────────────────────────
 # 账号池配置包含 API Key，永远不进版本库
-config/account-openai.yaml
+config/accounts.yaml
 config/account-pool.yaml
 config/*.local.yaml
 config/*.secret.yaml

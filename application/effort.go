@@ -19,17 +19,19 @@ type EffortManager struct {
 
 // effortPrompts 存储各等级的行为指令。
 var effortPrompts = map[string]string{
-	"low": "", // low 不注入 effort 层, 仅靠 MaxLoops=0 约束
+	"lite": "", // lite 不注入 effort 层，仅靠 MaxLoops=0 约束
 
 	"medium": strings.TrimSpace(`
 You are in medium-effort mode.
+- For multi-step tasks, use plan_load to define a plan, then plan_run.
+- Plan node concurrency: maximum 2 nodes may run in parallel.
 - Keep responses concise. Use tools only when necessary.
-- Retry once on tool failure.
-- For multi-step tasks, briefly outline your approach first.`),
+- Retry once on tool failure.`),
 
 	"high": strings.TrimSpace(`
 You are in high-effort mode.
 - For multi-step tasks, use plan_load to define a plan, then plan_run.
+- Plan node concurrency: maximum 4 nodes may run in parallel.
 - On tool failure, attempt auto-fix and retry up to 3 times.
 - Verify results after each change (compile/test).
 - Use ask_approve for destructive operations.
@@ -39,6 +41,7 @@ You are in high-effort mode.
 You are in max-effort mode.
 - Always plan before acting. Use WorkPlan for complex tasks.
 - Use Fork for parallel sub-agents when tasks are independent.
+- Plan node concurrency: unlimited — all independent plan nodes may run in parallel.
 - On tool failure, retry with alternative approach up to 5 times.
 - Cross-verify results with multiple methods.
 - Use worktrees for isolated experiments.
@@ -47,10 +50,10 @@ You are in max-effort mode.
 
 // effortLoops 存储各等级的 MaxLoops 值。
 var effortLoops = map[string]int{
-	"low":    0,
-	"medium": 8,
-	"high":   25,
-	"max":    50,
+	"lite":   20,
+	"medium": 64,
+	"high":   512,
+	"max":    1024,
 }
 
 // NewEffortManager 创建 Effort 管理器。
@@ -103,7 +106,7 @@ func ValidEffortLevels() []string {
 }
 
 // orderedLevels 是 effort 循环顺序。
-var orderedLevels = []string{"low", "medium", "high", "max"}
+var orderedLevels = []string{"lite", "medium", "high", "max"}
 
 // Cycle 循环切换到下一个 effort 等级。
 func (m *EffortManager) Cycle() (string, error) {

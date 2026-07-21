@@ -26,11 +26,23 @@ import (
 )
 
 var (
-	configPath     = flag.String("c", "config/account-openai.yaml", "LLM 配置路径")
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
 	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
 	permissionMode = flag.String("permission", "full_access", "权限模式: full_access(全部放行) | manual(白名单外需审批)")
 )
+
+// accountsPath 返回 accounts.yaml 的路径。
+// 优先使用二进制所在目录（正式部署），回退到当前工作目录（go run / 开发场景）。
+func accountsPath() string {
+	exe, err := os.Executable()
+	if err == nil {
+		p := filepath.Join(filepath.Dir(exe), "config", "accounts.yaml")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return filepath.Join("config", "accounts.yaml")
+}
 
 func main() {
 	flag.Parse()
@@ -60,7 +72,7 @@ func main() {
 
 func initRuntime() *seelebridge.Runtime {
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath: *configPath, StorePath: *storePath,
+		AccountsPath: accountsPath(), StorePath: *storePath,
 		ToolCallTimeout: 120 * time.Second,
 	})
 	if err != nil {
@@ -101,8 +113,8 @@ func activateDefaultPlugin(manager *plugin.Manager, eng *engine.Engine) {
 
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *engine.Engine, approval *application.ApprovalBroker) {
 	registerTimeTool(runtime)
-	registerWebSearchTool(runtime, *configPath)
-	registerMCPServers(runtime, *configPath) // from mcpconfig.go — 与 websearch 同一生态位
+	registerWebSearchTool(runtime, accountsPath())
+	registerMCPServers(runtime, accountsPath()) // from mcpconfig.go — 与 websearch 同一生态位
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerAskApprove(runtime, approval)
 }

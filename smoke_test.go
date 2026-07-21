@@ -14,14 +14,11 @@ import (
 )
 
 func TestSmokeLLM(t *testing.T) {
-	configPath := "config/account-openai.yaml"
-	if v := os.Getenv("SEELEX_CONFIG"); v != "" {
-		configPath = v
-	}
+	cfgPath := accountsPath()
 
 	// 1. 创建框架运行时
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
-		AccountsPath: configPath, ToolCallTimeout: 30 * time.Second,
+		AccountsPath: cfgPath, ToolCallTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		t.Skipf("跳过: 加载配置失败: %v", err)

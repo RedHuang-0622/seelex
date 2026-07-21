@@ -80,11 +80,22 @@ func (service *Service) buildSystemPrompt() {
 	service.effortManager.Apply(service.effortManager.Current())
 
 	// 4. Instructions — 固定在 effort/plugin 之上、skill 之下
-	service.promptStack.Push("instructions", "instructions",
-		`## System Capabilities
+	// 将可用 Skill 列表注入 system prompt，使 LLM 知道有哪些技能可以建议用户加载
+	instructions := `## System Capabilities
 - Use switch_plugin tool to switch between plugins for different tool sets.
 - Load skills via #skillname (user-triggered). Use "#end" to unload current skill.
-- Current effort determines thinking depth and tool usage intensity.`)
+- Current effort determines thinking depth and tool usage intensity.`
+	if skills := service.deps.Skills.All(); len(skills) > 0 {
+		instructions += "\n\n### Available Skills\n"
+		for _, sk := range skills {
+			line := "  - #" + sk.Name
+			if sk.Description != "" {
+				line += ": " + sk.Description
+			}
+			instructions += line + "\n"
+		}
+	}
+	service.promptStack.Push("instructions", "instructions", instructions)
 
 	// 渲染并写入 engine
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())

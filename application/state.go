@@ -52,7 +52,50 @@ type RuntimeState struct {
 	VisibleTools []Tool      `json:"visible_tools"`
 	Skills       []SkillInfo `json:"skills"`
 	Tokens       string      `json:"tokens"`
+	Plan         *PlanState  `json:"plan,omitempty"` // 当前活跃 WorkPlan
 }
+
+// ── Plan 可视化 ────────────────────────────────────────────
+
+// PlanState 描述当前 WorkPlan 的执行状态（nil = 无活跃 Plan）。
+type PlanState struct {
+	Name     string      `json:"name"`
+	Status   PlanStatus  `json:"status"`
+	Nodes    []PlanNode  `json:"nodes,omitempty"`
+	Progress float64     `json:"progress"`
+	Elapsed  string      `json:"elapsed,omitempty"`
+}
+
+type PlanStatus string
+
+const (
+	PlanPending   PlanStatus = "pending"
+	PlanRunning   PlanStatus = "running"
+	PlanCompleted PlanStatus = "completed"
+	PlanFailed    PlanStatus = "failed"
+	PlanAborted   PlanStatus = "aborted"
+)
+
+type PlanNode struct {
+	ID       string     `json:"id"`
+	Label    string     `json:"label"`
+	Kind     string     `json:"kind"`
+	Status   NodeStatus `json:"status"`
+	Depth    int        `json:"depth,omitempty"`    // 缩进层级（0 = 根）
+	Elapsed  string     `json:"elapsed,omitempty"`
+	Children []PlanNode `json:"children,omitempty"` // Fork 子节点
+}
+
+type NodeStatus string
+
+const (
+	NodePending   NodeStatus = "pending"
+	NodeRunning   NodeStatus = "running"
+	NodeCompleted NodeStatus = "completed"
+	NodeFailed    NodeStatus = "failed"
+	NodeAborted   NodeStatus = "aborted"
+	NodeSkipped   NodeStatus = "skipped"
+)
 type Tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`

@@ -13,9 +13,12 @@ import (
 const shortcutsBarH = 1
 
 func (model Model) convHeight() int {
-	return max(model.height-model.topPanelH()-model.midPanelH()-model.bottomPanelH(), 4)
+	return max(model.height-model.topPanelH()-model.planPanelH()-model.midPanelH()-model.bottomPanelH(), 4)
 }
 func (Model) topPanelH() int { return 2 }
+func (model Model) planPanelH() int {
+	return PlanPanelHeight(model.snapshot.Runtime.Plan, model.snapshot.Runtime.Effort)
+}
 func (model Model) midPanelH() int {
 	height := 0
 	if model.suggMode && len(currentSuggestions(model)) > 0 {
@@ -41,6 +44,10 @@ func (model Model) View() string {
 	var builder strings.Builder
 	builder.WriteString(model.renderStatusBar())
 	builder.WriteString("\n")
+	if panel := PlanPanel(model.snapshot.Runtime.Plan, model.snapshot.Runtime.Effort, model.width); panel != "" {
+		builder.WriteString(panel)
+		builder.WriteString("\n")
+	}
 	if model.snapshot.Interaction != nil {
 		model.viewport.SetContent(model.renderInteraction())
 	} else {
@@ -83,7 +90,7 @@ func (model Model) renderConversation() string {
 
 func effortBadge(effort string) string {
 	colors := map[string]lipgloss.Color{
-		"low":    lipgloss.Color("241"), // 灰
+		"lite":    lipgloss.Color("241"), // 灰
 		"medium": lipgloss.Color("220"), // 金
 		"high":   lipgloss.Color("75"),  // 蓝
 		"max":    lipgloss.Color("198"), // 紫红

@@ -62,7 +62,8 @@ func (service *Service) endSkill() error {
 		service.addNotice("当前无 Skill 可退栈")
 		return nil
 	}
-	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	// 恢复当前 effort 等级的 MaxLoops（覆盖 goal 等 skill 设置的免限制）
+	service.effortManager.Apply(service.effortManager.Current())
 	service.addNotice("已退栈 Skill: " + name)
 	return nil
 }
@@ -74,6 +75,10 @@ func (service *Service) applySkill(skill SkillInfo, args []string) error {
 	}
 	service.promptStack.Push("skill", skill.Name, prompt)
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	// goal skill 不受 MaxLoops 限制（设大值模拟无上限）
+	if skill.Name == "goal" {
+		service.deps.Engine.SetMaxLoops(9999)
+	}
 	service.addNotice("加载 Skill: " + skill.Name)
 	return nil
 }

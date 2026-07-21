@@ -130,7 +130,7 @@ func TestEffortApply_ValidLevels(t *testing.T) {
 	eng := &mockEngine{}
 	em := NewEffortManager(ps, eng)
 
-	levels := []string{"low", "medium", "high", "max"}
+	levels := []string{"lite", "medium", "high", "max"}
 	for _, level := range levels {
 		if err := em.Apply(level); err != nil {
 			t.Errorf("Apply %q should not error: %v", level, err)
@@ -162,9 +162,9 @@ func TestEffortApply_UpdatesPromptStack(t *testing.T) {
 		t.Error("effort layer should exist after Apply")
 	}
 
-	em.Apply("low")
+	em.Apply("lite")
 	if ps.Has("effort") {
-		t.Error("effort layer should be removed for low effort")
+		t.Error("effort layer should be removed for lite effort")
 	}
 }
 
@@ -174,21 +174,21 @@ func TestEffortApply_SetsMaxLoops(t *testing.T) {
 	eng := &mockEngine{}
 	em := NewEffortManager(ps, eng)
 
-	em.Apply("low")
+	em.Apply("lite")
 	if eng.maxLoops != 0 {
-		t.Errorf("low effort should set MaxLoops=0, got %d", eng.maxLoops)
+		t.Errorf("lite effort should set MaxLoops=0, got %d", eng.maxLoops)
 	}
 	em.Apply("medium")
-	if eng.maxLoops != 8 {
-		t.Errorf("medium effort should set MaxLoops=8, got %d", eng.maxLoops)
+	if eng.maxLoops != 16 {
+		t.Errorf("medium effort should set MaxLoops=16, got %d", eng.maxLoops)
 	}
 	em.Apply("high")
-	if eng.maxLoops != 25 {
-		t.Errorf("high effort should set MaxLoops=25, got %d", eng.maxLoops)
+	if eng.maxLoops != 50 {
+		t.Errorf("high effort should set MaxLoops=50, got %d", eng.maxLoops)
 	}
 	em.Apply("max")
-	if eng.maxLoops != 50 {
-		t.Errorf("max effort should set MaxLoops=50, got %d", eng.maxLoops)
+	if eng.maxLoops != 100 {
+		t.Errorf("max effort should set MaxLoops=100, got %d", eng.maxLoops)
 	}
 }
 

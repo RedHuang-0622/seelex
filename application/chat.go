@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -115,6 +116,16 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 	service.mu.Lock()
 	tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}
 	message := *service.appendMessageLocked("tool", "", tool)
+
+	// plan_load 启动时：解析 DAG 并初始化 PlanState
+	if name == "plan_load" {
+		service.updatePlanFromLoad(arguments)
+	}
+	// plan_clear 启动时：清空 PlanState
+	if name == "plan_clear" {
+		service.snapshot.Runtime.Plan = nil
+	}
+
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
 	service.mu.Unlock()
@@ -138,6 +149,12 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 	if toolErr != nil {
 		content = errorText
 	}
+
+	// plan_run 完成时：解析结果更新 PlanState
+	if name == "plan_run" && toolErr == nil {
+		service.updatePlanFromRunResult(result)
+	}
+
 	message := *service.appendMessageLocked("tool_result", content, &ToolCall{ID: id, Name: name, Result: result, Error: errorText, Status: status, Duration: duration})
 	service.appendMessageLocked("assistant", "", nil)
 	service.refreshRuntimeLocked(context.Background())
@@ -145,6 +162,144 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 	requestID := service.snapshot.Chat.RequestID
 	service.mu.Unlock()
 	service.events.Publish(EventToolCompleted, revision, requestID, message)
+}
+
+// updatePlanFromLoad 从 plan_load 的参数 JSON 初始化 PlanState。
+func (service *Service) updatePlanFromLoad(argsJSON string) {
+	type planNodeSpec struct {
+		Input string `json:"input"`
+	}
+	var input struct {
+		Entry string                   `json:"entry"`
+		Nodes map[string]planNodeSpec  `json:"nodes"`
+		Edges map[string][]string      `json:"edges"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil || len(input.Nodes) == 0 {
+		return
+	}
+	nodes := make([]PlanNode, 0, len(input.Nodes))
+	for id := range input.Nodes {
+		label := id
+		nodes = append(nodes, PlanNode{ID: id, Label: label, Status: NodePending})
+	}
+	service.snapshot.Runtime.Plan = &PlanState{
+		Name:   input.Entry,
+		Status: PlanPending,
+		Nodes:  nodes,
+	}
+}
+
+// updatePlanFromRunResult 从 plan_run 返回的 JSON 更新 PlanState。
+func (service *Service) updatePlanFromRunResult(resultJSON string) {
+	var out struct {
+		Status       string `json:"status"`
+		NodeCount    int    `json:"node_count"`
+		FinalOutput  string `json:"final_output"`
+		AbortReason  string `json:"abort_reason,omitempty"`
+		// 扩展字段：若框架 plan_run 返回了 per-node 结果
+		Nodes []struct {
+			NodeID    string `json:"node_id"`
+			Kind      string `json:"kind"`
+			Status    string `json:"status"`
+			Elapsed   string `json:"elapsed,omitempty"`
+			Skipped   bool   `json:"skipped"`
+			Aborted   bool   `json:"aborted"`
+			Err       string `json:"err,omitempty"`
+		} `json:"nodes,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(resultJSON), &out); err != nil {
+		return
+	}
+	if service.snapshot.Runtime.Plan == nil {
+		service.snapshot.Runtime.Plan = &PlanState{}
+	}
+	plan := service.snapshot.Runtime.Plan
+
+	switch out.Status {
+	case "completed":
+		plan.Status = PlanCompleted
+		plan.Progress = 1.0
+	case "failed":
+		plan.Status = PlanFailed
+	case "aborted":
+		plan.Status = PlanAborted
+	default:
+		plan.Status = PlanRunning
+	}
+
+	if out.NodeCount > 0 && len(plan.Nodes) == 0 {
+		// 没有 plan_load 数据的情况下，用 node_count 创建占位节点
+		for i := range out.NodeCount {
+			plan.Nodes = append(plan.Nodes, PlanNode{
+				ID:     fmt.Sprintf("node-%d", i+1),
+				Label:  fmt.Sprintf("step-%d", i+1),
+				Status: resolveNodeStatus(out.Nodes, fmt.Sprintf("node-%d", i+1)),
+			})
+		}
+	}
+	// 如果 framework 返回了 per-node 结果，更新详细信息
+	if len(out.Nodes) > 0 {
+		for i := range plan.Nodes {
+			for _, on := range out.Nodes {
+				if plan.Nodes[i].ID == on.NodeID {
+					plan.Nodes[i].Status = PlanNodeStatus(on.Status)
+					plan.Nodes[i].Elapsed = on.Elapsed
+					plan.Nodes[i].Kind = on.Kind
+					if on.Skipped {
+						plan.Nodes[i].Status = NodeSkipped
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// 计算已完成节点比例
+	done := 0
+	for _, n := range plan.Nodes {
+		if n.Status == NodeCompleted || n.Status == NodeSkipped {
+			done++
+		}
+	}
+	if len(plan.Nodes) > 0 {
+		plan.Progress = float64(done) / float64(len(plan.Nodes))
+	}
+}
+
+// resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。
+func resolveNodeStatus(nodes []struct {
+	NodeID    string `json:"node_id"`
+	Kind      string `json:"kind"`
+	Status    string `json:"status"`
+	Elapsed   string `json:"elapsed,omitempty"`
+	Skipped   bool   `json:"skipped"`
+	Aborted   bool   `json:"aborted"`
+	Err       string `json:"err,omitempty"`
+}, nodeID string) NodeStatus {
+	for _, n := range nodes {
+		if n.NodeID == nodeID {
+			return PlanNodeStatus(n.Status)
+		}
+	}
+	return NodePending
+}
+
+// PlanNodeStatus 将字符串转为 NodeStatus。
+func PlanNodeStatus(s string) NodeStatus {
+	switch s {
+	case "running":
+		return NodeRunning
+	case "completed":
+		return NodeCompleted
+	case "failed":
+		return NodeFailed
+	case "aborted":
+		return NodeAborted
+	case "skipped":
+		return NodeSkipped
+	default:
+		return NodePending
+	}
 }
 
 type ToolHookBridge struct {
