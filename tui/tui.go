@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -26,6 +27,8 @@ type AppController interface {
 	LoadMoreHistory(limit int) error
 }
 
+const maxPasteChars = 200 // 超过此字符数视为粘贴
+
 type Model struct {
 	app            AppController
 	snapshot       application.Snapshot
@@ -47,6 +50,8 @@ type Model struct {
 	showLogo       bool
 	uiError        string
 	textareaHeight int
+	pasteBuffer    string // 折叠粘贴时暂存真实内容
+	pasteSeq       int    // 折叠计数器
 }
 
 func NewModel(app AppController) Model {
@@ -222,8 +227,10 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return submitResultMsg{err: model.app.SwitchEffort(context.Background(), "cycle")}
 		}
 	default:
+		old := model.textarea.Value()
 		var command tea.Cmd
 		model.textarea, command = model.textarea.Update(message)
+		model.foldPaste(old, model.textarea.Value())
 		model.afterInput()
 		return model, command
 	}
@@ -276,12 +283,50 @@ func (model Model) handleEnter() (tea.Model, tea.Cmd) {
 	return model, submitInput(model.app, input)
 }
 
+// resolvePaste 如果当前输入是折叠的粘贴占位符，用真实内容替换。
+func (model *Model) resolvePaste() string {
+	if model.pasteBuffer != "" {
+		buf := model.pasteBuffer
+		model.pasteBuffer = ""
+		model.textarea.SetValue(buf)
+		model.textarea.CursorEnd()
+		model.autoResizeTextarea()
+		return buf
+	}
+	return model.textarea.Value()
+}
+
+// foldPaste 检测粘贴行为，超过阈值时折叠为占位符。
+func (model *Model) foldPaste(oldValue, newValue string) {
+	if model.pasteBuffer != "" {
+		return // 已有折叠内容，不再处理
+	}
+	if len(newValue) <= len(oldValue)+maxPasteChars {
+		return // 变化量小，不是粘贴
+	}
+	// 检查增量部分是否来自 oldValue 末尾的追加（粘贴通常追加到末尾）
+	added := newValue[len(oldValue):]
+	lines := strings.Count(added, "\n") + 1
+	if lines < 5 && len(added) < maxPasteChars {
+		return // 行数少且字符数少，不是粘贴
+	}
+	model.pasteSeq++
+	model.pasteBuffer = newValue
+	placeholder := fmt.Sprintf("[Pasted text #%d +%d lines]", model.pasteSeq, lines)
+	model.textarea.SetValue(placeholder)
+	model.textarea.CursorEnd()
+}
+
 func (model *Model) afterInput() {
 	value := model.textarea.Value()
 	wasSuggestion := model.suggMode
 	model.suggMode = (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "#") || strings.HasPrefix(value, "@")) && !strings.Contains(value, " ")
 	if model.suggMode && !wasSuggestion {
 		model.suggIdx, model.suggOffset = 0, 0
+	}
+	// 如果用户编辑了折叠占位符，清除 pasteBuffer
+	if model.pasteBuffer != "" && !strings.HasPrefix(value, "[Pasted text #") {
+		model.pasteBuffer = ""
 	}
 	model.histIdx = -1
 }
