@@ -11,7 +11,8 @@ import (
 // budget: maximum token count for the generated summary.
 // The output focuses on recent calls and aggregates older ones.
 func (s *MCPStack) ForPrompt(budget int) string {
-	// optimistic read — no lock
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	active := s.CurrentIdx + 1
 	total := len(s.Calls)

@@ -22,7 +22,9 @@ func StackPath(sessionID, dir string) string {
 
 // Marshal serializes the stack to JSON (thread-safe).
 func (s *MCPStack) Marshal() ([]byte, error) {
-	// optimistic read — no lock
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return json.MarshalIndent(s, "", "  ")
 }
 
@@ -35,7 +37,9 @@ func (s *MCPStack) Unmarshal(data []byte) error {
 
 // Save writes the stack to a file atomically (write .tmp then rename).
 func (s *MCPStack) Save(path string) error {
-	// optimistic read — no lock
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.save(path)
 }
 

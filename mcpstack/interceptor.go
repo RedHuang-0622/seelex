@@ -124,20 +124,24 @@ func estimateTokenCount(serverName, toolName string, args json.RawMessage) int {
 
 // FormatSummary returns a dense one-line summary of all active calls grouped by server.
 func FormatSummary(s *MCPStack) string {
-	if s.ActiveCount() == 0 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	active := s.CurrentIdx + 1
+	total := len(s.Calls)
+	if active == 0 {
 		return "MCP 调用栈为空"
 	}
 
 	serverGroups := make(map[string]int)
 	statusCounts := map[CallStatus]int{
-		StatusSuccess:  0,
-		StatusFailed:   0,
-		StatusPending:  0,
+		StatusSuccess:   0,
+		StatusFailed:    0,
+		StatusPending:   0,
 		StatusRolledBack: 0,
 	}
 
-	// optimistic read — no lock
-	for _, call := range s.Calls[:s.CurrentIdx+1] {
+	for _, call := range s.Calls[:active] {
 		serverGroups[call.ServerName]++
 		statusCounts[call.Status]++
 	}
@@ -148,7 +152,7 @@ func FormatSummary(s *MCPStack) string {
 	}
 
 	return fmt.Sprintf("MCP trace: %d calls, %d active [servers: %s] (✓%d ✗%d ⏳%d ↩%d)",
-		s.TotalCount(), s.ActiveCount(), servers,
+		total, active, servers,
 		statusCounts[StatusSuccess], statusCounts[StatusFailed],
 		statusCounts[StatusPending], statusCounts[StatusRolledBack])
 }

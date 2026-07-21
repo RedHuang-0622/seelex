@@ -25,7 +25,8 @@ func (p *TraceProvider) Name() string { return "mcptrace" }
 // BuildSnapshot exports the current MCP trace state as a ContextSnapshot.
 // Returns the snapshot and any findings/pending work for LLM context.
 func (p *TraceProvider) BuildSnapshot() (*snapshot.ContextSnapshot, error) {
-	// optimistic read — no lock
+	p.stack.mu.RLock()
+	defer p.stack.mu.RUnlock()
 
 	snap := &snapshot.ContextSnapshot{
 		Findings: make([]string, 0, 2),
