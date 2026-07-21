@@ -3,7 +3,7 @@ module github.com/RedHuang-0622/seelex
 go 1.25.8
 
 require (
-	github.com/RedHuang-0622/Seele v0.0.2
+	github.com/RedHuang-0622/Seele v0.0.3
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -11,8 +11,6 @@ require (
 	github.com/google/uuid v1.6.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/RedHuang-0622/Seele => ../Seele
 
 require (
 	github.com/RedHuang-0622/TemplatePoolByGO v0.1.8 // indirect
