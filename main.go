@@ -66,6 +66,7 @@ func main() {
 	app := initApplication(eng, runtime, pluginManager, sessionManager, skillRegistry, events, approval)
 	defer app.Shutdown()
 	toolHooks.Bind(app)
+	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
 	model := initTUI(app)
 	startTUI(model)
 }

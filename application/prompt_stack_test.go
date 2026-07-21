@@ -175,20 +175,20 @@ func TestEffortApply_SetsMaxLoops(t *testing.T) {
 	em := NewEffortManager(ps, eng)
 
 	em.Apply("lite")
-	if eng.maxLoops != 0 {
-		t.Errorf("lite effort should set MaxLoops=0, got %d", eng.maxLoops)
+	if eng.maxLoops != 20 {
+		t.Errorf("lite effort should set MaxLoops=20, got %d", eng.maxLoops)
 	}
 	em.Apply("medium")
-	if eng.maxLoops != 16 {
-		t.Errorf("medium effort should set MaxLoops=16, got %d", eng.maxLoops)
+	if eng.maxLoops != 64 {
+		t.Errorf("medium effort should set MaxLoops=64, got %d", eng.maxLoops)
 	}
 	em.Apply("high")
-	if eng.maxLoops != 50 {
-		t.Errorf("high effort should set MaxLoops=50, got %d", eng.maxLoops)
+	if eng.maxLoops != 512 {
+		t.Errorf("high effort should set MaxLoops=512, got %d", eng.maxLoops)
 	}
 	em.Apply("max")
-	if eng.maxLoops != 100 {
-		t.Errorf("max effort should set MaxLoops=100, got %d", eng.maxLoops)
+	if eng.maxLoops != 1024 {
+		t.Errorf("max effort should set MaxLoops=1024, got %d", eng.maxLoops)
 	}
 }
 

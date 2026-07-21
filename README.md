@@ -13,6 +13,40 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 
 > 当前阶段重点是稳定 Agent 内核与 Plugin 切换机制。CAD、Dev 和 Electron 将作为建立在同一内核上的产品形态逐步落地。
 
+## 功能特性
+
+### 🧠 多模型 LLM 引擎
+- 支持 **OpenAI / Anthropic / DeepSeek** 等主流 API 和定制 Provider
+- 多账号 **Round-Robin 轮询**，自动故障切换
+- 可配置 `max_tokens`、`temperature`、`timeout` 等模型参数
+
+### 🔌 Plugin 形态切换系统
+- 运行时通过 `switch_plugin` 或 `/plugin <name>` 切换 Agent 专业形态
+- 每个 Plugin 限定 **工具集 + Skill + System Prompt + MCP Server**
+- 内置 7 个基础 Plugin：`default` / `read` / `write` / `git` / `shell` / `plan` / `freecad`
+- 事务式激活/停用，失败自动回滚
+
+### 📜 Skill 技能系统
+- 目录化加载，支持 **全局 Skill** 和 **Plugin 专属 Skill**
+- 多层 **PromptStack** 叠加（identity -> effort -> plugins -> instructions -> skill）
+- 运行时通过 `#skillname` 加载、`#end` 退栈
+
+### ⚡ Effort 等级控制
+- **4 档思考深度**：`low`(只读速答) / `medium`(标准工具) / `high`(完整ReAct) / `max`(深度多Agent)
+- 控制 MaxLoops、工具可见性和提示词注入
+- 状态栏实时显示 `E:high`，`Alt+E` 快捷循环切换
+
+### 🖥️ TUI 交互终端
+- 基于 **Bubble Tea** 构建，流式聊天、命令补全、工具事件面板
+- 命令系统：`/help`、`/model`、`/plugins`、`/effort`、`/sessions`、`/new`
+- 历史、追踪、账号池管理和 Plugin 列表查看
+
+### 🔧 跨平台可执行
+- 预编译 **Windows / Linux / macOS**（amd64 + arm64）二进制
+- 静态编译（CGO_ENABLED=0），**零运行时依赖**，即下即用
+- 体积 16-17 MB/平台
+
+
 ## 产品模型
 
 ```text

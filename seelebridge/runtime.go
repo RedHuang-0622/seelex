@@ -38,6 +38,7 @@ type Runtime struct {
 	MCPStack *mcpstack.MCPStack
 
 	breaker *breakerState // 熔断器事件 channel 状态
+	planTool *builtin.WorkPlanTool // plan 工具，用于设置进度回调
 }
 
 // Account is the non-secret account information exposed to Seelex UI.
@@ -123,7 +124,16 @@ func (r *Runtime) Model() string { return r.model }
 
 func (r *Runtime) RegisterBuiltins() {
 	builtin.RegisterAll(r.agent.Tools())
-	r.agent.Tools().Register(builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(r.agent.LLM())))
+	r.planTool = builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(r.agent.LLM()))
+	r.agent.Tools().Register(r.planTool)
+}
+
+// SetPlanNodeCallback 设置 plan 每节点完成回调（seelex plan visualization）。
+// 可在 runtime 创建后、服务初始化完成后调用。
+func (r *Runtime) SetPlanNodeCallback(cb func(nodeID, kind, status string, elapsed time.Duration)) {
+	if r.planTool != nil {
+		r.planTool.ProgressCallback = cb
+	}
 }
 
 func (r *Runtime) RegisterTool(

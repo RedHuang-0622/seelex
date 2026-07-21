@@ -284,6 +284,39 @@ func resolveNodeStatus(nodes []struct {
 	return NodePending
 }
 
+// HandlePlanNodeComplete 由 plan_run 的 ProgressCallback 调用，
+// 实时更新单节点状态并通知 TUI 重绘。
+// 此方法设计为从 ToolHookBridge 之外的回调链路调用。
+func (service *Service) HandlePlanNodeComplete(nodeID, kind, status string, elapsed time.Duration) {
+	service.mu.Lock()
+	plan := service.snapshot.Runtime.Plan
+	if plan == nil {
+		service.mu.Unlock()
+		return
+	}
+	for i := range plan.Nodes {
+		if plan.Nodes[i].ID == nodeID {
+			plan.Nodes[i].Status = PlanNodeStatus(status)
+			plan.Nodes[i].Elapsed = elapsed.String()
+			break
+		}
+	}
+	// 重新计算进度
+	done := 0
+	for _, n := range plan.Nodes {
+		if n.Status == NodeCompleted || n.Status == NodeSkipped {
+			done++
+		}
+	}
+	if len(plan.Nodes) > 0 {
+		plan.Progress = float64(done) / float64(len(plan.Nodes))
+	}
+	revision := service.bumpLocked()
+	requestID := service.snapshot.Chat.RequestID
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+}
+
 // PlanNodeStatus 将字符串转为 NodeStatus。
 func PlanNodeStatus(s string) NodeStatus {
 	switch s {
