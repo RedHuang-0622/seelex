@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -52,6 +53,7 @@ type Model struct {
 	textareaHeight int
 	pasteBuffer    string // 折叠粘贴时暂存真实内容
 	pasteSeq       int    // 折叠计数器
+	lastKeyTime    time.Time // 上次按键时间，用于检测粘贴爆发
 }
 
 func NewModel(app AppController) Model {
@@ -230,6 +232,7 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return submitResultMsg{err: model.app.SwitchEffort(context.Background(), "cycle")}
 		}
 	default:
+		model.lastKeyTime = time.Now()
 		var command tea.Cmd
 		model.textarea, command = model.textarea.Update(message)
 		model.afterInput()
@@ -264,6 +267,10 @@ func copyLastResponse(model Model) tea.Cmd {
 }
 
 func (model Model) handleEnter() (tea.Model, tea.Cmd) {
+	if model.pasteBuffer == "" && time.Since(model.lastKeyTime) < 50*time.Millisecond {
+		model.lastKeyTime = time.Now()
+		return model, nil
+	}
 	if model.checkPaste() {
 		return model, nil
 	}
@@ -285,19 +292,6 @@ func (model Model) handleEnter() (tea.Model, tea.Cmd) {
 	model.histIdx = -1
 	model.textarea.Reset()
 	return model, submitInput(model.app, input)
-}
-
-// resolvePaste 如果当前输入是折叠的粘贴占位符，用真实内容替换。
-func (model *Model) resolvePaste() string {
-	if model.pasteBuffer != "" {
-		buf := model.pasteBuffer
-		model.pasteBuffer = ""
-		model.textarea.SetValue(buf)
-		model.textarea.CursorEnd()
-		model.autoResizeTextarea()
-		return buf
-	}
-	return model.textarea.Value()
 }
 
 // checkPaste 检测 textarea 是否包含多行粘贴内容，是则折叠为占位符并返回 true。
