@@ -3,7 +3,7 @@ module github.com/RedHuang-0622/seelex
 go 1.25.8
 
 require (
-	github.com/RedHuang-0622/Seele v0.0.3
+	github.com/RedHuang-0622/Seele v0.0.4
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
