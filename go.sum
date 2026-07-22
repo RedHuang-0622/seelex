@@ -1,7 +1,7 @@
 github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ4pzQ=
 github.com/MakeNowJust/heredoc v1.0.0/go.mod h1:mG5amYoWBHf8vpLOuehzbGGw0EHxpZZ6lCpQ4fNJ8LE=
-github.com/RedHuang-0622/Seele v0.0.3 h1:+bJv1TDErI55iSn9fb9Bfdcc4Qd+/d+NwTjfOhidOeg=
-github.com/RedHuang-0622/Seele v0.0.3/go.mod h1:GG1DAQvKcjSldXzKllqodLiCghK+GhzEkNZZKfqmLUM=
+github.com/RedHuang-0622/Seele v0.0.4 h1:nrcNHJc8MheG/IFoj5jdTkiTst7GNY0SQP/Q4ET9jho=
+github.com/RedHuang-0622/Seele v0.0.4/go.mod h1:GG1DAQvKcjSldXzKllqodLiCghK+GhzEkNZZKfqmLUM=
 github.com/RedHuang-0622/TemplatePoolByGO v0.1.8 h1:OoCF9bCpIZDu790FWNNCJcuvIqW5XX0sX7zD+G0H8LA=
 github.com/RedHuang-0622/TemplatePoolByGO v0.1.8/go.mod h1:ekmperz/OrXm0LCP8uICqCsJ/jrR/YuRiPDpLH+GDak=
 github.com/RedHuang-0622/microHub v0.1.5 h1:uGAt5ZaWjU3SnZu9JfbsBFkKwnu+R98Gjr0VBHe4bJg=
