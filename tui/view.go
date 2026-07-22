@@ -25,7 +25,10 @@ func (model Model) midPanelH() int {
 		height += suggWindowSize + 3
 	}
 	if model.snapshot.Chat.Running {
-		height++
+		height++ // ● receiving
+	}
+	if n := len(model.snapshot.Chat.InputQueue); n > 0 {
+		height += 1 + min(n, 10) // queue: 标题 + 条目
 	}
 	if model.uiError != "" {
 		height++

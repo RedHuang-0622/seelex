@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -11,6 +12,7 @@ import (
 type applicationEventMsg struct{ event application.Event }
 type submitResultMsg struct{ err error }
 type loadMoreMsg struct{ err error }
+type tickMsg time.Time
 
 func waitApplicationEvent(subscription application.Subscription) tea.Cmd {
 	return func() tea.Msg {
@@ -28,4 +30,9 @@ func submitInput(app AppController, input string) tea.Cmd {
 
 func loadMoreHistory(app AppController, limit int) tea.Cmd {
 	return func() tea.Msg { return loadMoreMsg{err: app.LoadMoreHistory(limit)} }
+}
+
+// tickEvery 每 d 间隔发送一次 tickMsg，用于刷新界面中的时间显示等。
+func tickEvery(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
