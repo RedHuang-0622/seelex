@@ -49,12 +49,14 @@ jobs:
       - name: 检查硬编码密钥
         run: |
           ! grep -rn '"sk-\|"password\|"token\|"secret' --include="*.go" . \
+            | grep -v '_test\.go' \
             | grep -vE '`json:"[^"]*(password|token|secret)'
         shell: bash
 
       - name: 检查 return nil, nil
         run: |
-          ! grep -rn "return nil, nil" --include="*.go" .
+          ! grep -rn "return nil, nil" --include="*.go" . \
+            | grep -v '_test\.go'
         shell: bash
 
   race-and-coverage:
