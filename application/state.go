@@ -43,16 +43,18 @@ type ChatState struct {
 	InputQueue  []string  `json:"input_queue,omitempty"` // 排队消息内容（TUI 显示用）
 }
 type RuntimeState struct {
-	Model        string      `json:"model"`
-	Provider     string      `json:"provider"`
-	Account      string      `json:"account,omitempty"`
-	Plugin       string      `json:"plugin,omitempty"`
-	Effort       string      `json:"effort"`
-	PromptStack  string      `json:"prompt_stack"`
-	VisibleTools []Tool      `json:"visible_tools"`
-	Skills       []SkillInfo `json:"skills"`
-	Tokens       string      `json:"tokens"`
-	Plan         *PlanState  `json:"plan,omitempty"` // 当前活跃 WorkPlan
+	Model        string        `json:"model"`
+	Provider     string        `json:"provider"`
+	Account      string        `json:"account,omitempty"`
+	Plugin       string        `json:"plugin,omitempty"`
+	Effort       string        `json:"effort"`
+	PromptStack  string        `json:"prompt_stack"`
+	VisibleTools []Tool        `json:"visible_tools"`
+	Skills       []SkillInfo   `json:"skills"`
+	Tokens       string        `json:"tokens"`
+	Plan         *PlanState    `json:"plan,omitempty"`
+	Plugins      []PluginInfo  `json:"plugins,omitempty"`  // 完整插件列表（含描述）
+	Accounts     []AccountInfo `json:"accounts,omitempty"` // 账号池
 }
 
 // ── Plan 可视化 ────────────────────────────────────────────
@@ -156,6 +158,8 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	}
 	copySnapshot.Runtime.VisibleTools = append([]Tool(nil), snapshot.Runtime.VisibleTools...)
 	copySnapshot.Runtime.Skills = append([]SkillInfo(nil), snapshot.Runtime.Skills...)
+	copySnapshot.Runtime.Plugins = append([]PluginInfo(nil), snapshot.Runtime.Plugins...)
+	copySnapshot.Runtime.Accounts = append([]AccountInfo(nil), snapshot.Runtime.Accounts...)
 	if snapshot.Interaction != nil {
 		interaction := *snapshot.Interaction
 		interaction.Options = append([]InteractionOption(nil), snapshot.Interaction.Options...)

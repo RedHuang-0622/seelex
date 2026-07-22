@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -304,6 +306,8 @@ func (service *Service) refreshRuntimeLocked(ctx context.Context) {
 	service.snapshot.Runtime.VisibleTools = append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...)
 	service.snapshot.Runtime.Skills = append([]SkillInfo(nil), service.deps.Skills.All()...)
 	service.snapshot.Runtime.Tokens = service.deps.Engine.TokenCount()
+	service.snapshot.Runtime.Plugins = append([]PluginInfo(nil), service.deps.Plugins.All()...)
+	service.snapshot.Runtime.Accounts = append([]AccountInfo(nil), service.deps.Runtime.Accounts()...)
 }
 
 func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {
@@ -327,6 +331,75 @@ func (service *Service) addNotice(notice string) {
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventMessageAdded, revision, "", message)
+}
+
+// collectDiagnostics 收集系统诊断信息并以格式化文本返回，供 /diag 命令使用。
+func (service *Service) collectDiagnostics() string {
+	service.mu.RLock()
+	effort := service.snapshot.Runtime.Effort
+	tokens := service.snapshot.Runtime.Tokens
+	service.mu.RUnlock()
+
+	model := service.deps.Runtime.Model()
+	provider := service.deps.Runtime.Provider()
+	sessionID := service.deps.Engine.SessionID()
+	plugins := service.deps.Plugins.All()
+	currentPlugin, hasPlugin := service.deps.Plugins.Current()
+	skills := service.deps.Skills.All()
+	accounts := service.deps.Runtime.Accounts()
+
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	skillNames := make([]string, len(skills))
+	for i, s := range skills {
+		skillNames[i] = s.Name
+	}
+	sort.Strings(skillNames)
+
+	var builder strings.Builder
+	builder.WriteString("╔══ System Diagnostics ══╗\n")
+	builder.WriteString(fmt.Sprintf("  Go:       %s  OS: %s/%s  CPU: %d cores\n", runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU()))
+	builder.WriteString(fmt.Sprintf("  Goroutines: %d  Mem: %.1f MB (alloc) / %.1f MB (sys)  GC: %d\n",
+		runtime.NumGoroutine(), float64(mem.Alloc)/1024/1024, float64(mem.Sys)/1024/1024, mem.NumGC))
+	builder.WriteString("── Engine ──\n")
+	builder.WriteString(fmt.Sprintf("  Provider: %s  Model: %s  Effort: %s  Tokens: %s\n", provider, model, effort, tokens))
+	builder.WriteString(fmt.Sprintf("  Session:  %s\n", sessionID))
+	builder.WriteString("── Plugins ──\n")
+	if hasPlugin {
+		builder.WriteString(fmt.Sprintf("  Active: %s (%d total)\n", currentPlugin.Name, len(plugins)))
+	} else {
+		builder.WriteString(fmt.Sprintf("  Active: none (%d total)\n", len(plugins)))
+	}
+	for _, p := range plugins {
+		marker := " "
+		if hasPlugin && p.Name == currentPlugin.Name {
+			marker = "★"
+		}
+		builder.WriteString(fmt.Sprintf("   %s %-16s %s\n", marker, p.Name, p.Description))
+	}
+	builder.WriteString("── Skills ──\n")
+	builder.WriteString(fmt.Sprintf("  %d loaded:\n", len(skills)))
+	if len(skillNames) > 0 {
+		for i, name := range skillNames {
+			if i > 0 && i%4 == 0 {
+				builder.WriteString("\n")
+			}
+			builder.WriteString(fmt.Sprintf("  %-18s", name))
+		}
+		builder.WriteString("\n")
+	}
+	builder.WriteString("── Accounts ──\n")
+	builder.WriteString(fmt.Sprintf("  %d configured\n", len(accounts)))
+	for _, a := range accounts {
+		status := "✓"
+		if a.Disabled {
+			status = "✗"
+		}
+		builder.WriteString(fmt.Sprintf("   %s %-12s %s/%s\n", status, a.Name, a.Provider, a.Model))
+	}
+	builder.WriteString("╚════════════════════════╝")
+	return builder.String()
 }
 
 func (service *Service) resetConversation(notice string) {

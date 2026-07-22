@@ -178,6 +178,9 @@ func (service *Service) registerBuiltinCommands() {
 		}
 		return CommandResult{Notice: "已切换插件: " + name}, nil
 	})
+	register("diag", "系统诊断信息", func(context.Context, []string) (CommandResult, error) {
+		return CommandResult{Notice: service.collectDiagnostics()}, nil
+	})
 	register("exit", "退出程序", func(context.Context, []string) (CommandResult, error) { return CommandResult{Exit: true}, nil })
 	register("effort", "切换 Effort 等级: /effort <lite|medium|high|max>", func(ctx context.Context, args []string) (CommandResult, error) {
 		if len(args) == 0 {

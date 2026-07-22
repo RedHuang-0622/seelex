@@ -1,6 +1,6 @@
 # Seelex — 可切换专业形态的工科全栈 Agent
 
-**Seelex** 是一个面向工程研发、设计与交付全过程的全栈 Agent。它以 [Seele](https://github.com/RedHuang-0622/Seele) 作为 Agent 引擎，通过可声明、可组合、可运行时切换的 Plugin，让同一个 Agent 像切换“形态”一样进入不同专业工作域。
+**Seelex** 是一个面向工程研发、设计与交付全过程的全栈 Agent。它以 [Seele](https://github.com/RedHuang-0622/Seele) 作为 Agent 引擎，通过可声明、可组合、可运行时切换的 Plugin，让同一个 Agent 像切换"形态"一样进入不同专业工作域。
 
 Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 
@@ -27,9 +27,10 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 - 事务式激活/停用，失败自动回滚
 
 ### 📜 Skill 技能系统
-- 目录化加载，支持 **全局 Skill** 和 **Plugin 专属 Skill**
-- 多层 **PromptStack** 叠加（identity -> effort -> plugins -> instructions -> skill）
+- 目录化加载，Skill 位于对应 Plugin 目录下（`plugins/<name>/<skill>/SKILL.md`）
+- 多层 **PromptStack** 叠加（identity → effort → plugins → instructions → skill）
 - 运行时通过 `#skillname` 加载、`#end` 退栈
+- 支持全局 Skill 和 Plugin 专属 Skill
 
 ### ⚡ Effort 等级控制
 - **4 档思考深度**：`low`(只读速答) / `medium`(标准工具) / `high`(完整ReAct) / `max`(深度多Agent)
@@ -45,7 +46,6 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 - 预编译 **Windows / Linux / macOS**（amd64 + arm64）二进制
 - 静态编译（CGO_ENABLED=0），**零运行时依赖**，即下即用
 - 体积 16-17 MB/平台
-
 
 ## 产品模型
 
@@ -92,8 +92,11 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 | 审批交互 Broker | 🟡 | `ask_approve` 和前端决议已实现；强制 Permission Gate 尚未接通 |
 | 会话保存与列表 | ✅ | 支持 `/new` 保存和 `/sessions` 查询 |
 | 会话恢复 | ⛔ | Seele 暂无历史替换 API，当前会明确提示不可用 |
+| MCP 调用追溯 | ✅ | 含熔断事件通道的完整调用链记录 |
+| Plan/WorkPlan 工作流 | ✅ | 支持 plan_load/plan_run/plan_status/plan_export/plan_clear |
+| Web 搜索 | ✅ | 支持 Tavily 等搜索 Provider |
 | Electron sidecar | ⬜ | 计划通过 JSON-RPC/stdio 复用 application core |
-| CAD Plugin | ⬜ | 规划 FreeCAD/MCP/命令栈的最小垂直闭环 |
+| CAD Plugin 垂直闭环 | ⬜ | FreeCAD/MCP/命令栈的最小垂直闭环 |
 | Dev Plugin | ⬜ | 规划代码、测试、审查和交付能力形态 |
 
 完整进度、度量指标和完成标准见 [`docs/feature-instrumentation.md`](docs/feature-instrumentation.md)。
@@ -114,17 +117,6 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 | L6 | TUI Adapter | `initTUI()` |
 | L7 | Bubble Tea Program | `startTUI()` |
 
-### MCP 调用链路
-
-Agent 调用 MCP 工具的完整函数链、数据转换和熔断事件通道详见：
-[`docs/arch/mcp-call-chain-flowchart.md`](docs/arch/mcp-call-chain-flowchart.md)
-
-包含：
-- Setup 阶段（AttachMCP 装配）
-- Call 阶段（Agent.Dispatch → MCP Server）
-- 熔断事件异步通道（breaker → channel → mcpstack）
-- 每个函数的包/文件/行号索引
-
 ### 依赖原则
 
 1. interface 定义在使用方，不定义在实现方；
@@ -133,34 +125,36 @@ Agent 调用 MCP 工具的完整函数链、数据转换和熔断事件通道详
 4. Plugin 负责专业能力组合，不把领域逻辑硬编码进 TUI；
 5. CLI 与 Electron 使用同一个 application core，不复制业务状态机。
 
-### 设计决策记录
-
-MCP 中间件从 CAD 专属到通用、熔断器事件通道、框架-应用存储解耦的完整推演过程：
-[`docs/arch/design-decisions-mcp-storage.md`](docs/arch/design-decisions-mcp-storage.md)
-
 ### 架构文档
 
-- [`docs/arch/effort-system-design.md`](docs/arch/effort-system-design.md) — Effort 等级系统完整设计（配置 → API → 提示词 → TUI）
-- [`docs/arch/skill-effort-architecture.md`](docs/arch/skill-effort-architecture.md) — 当前 Skill 系统与 PromptStack 实现方案
-- [`docs/arch/mcp-call-chain-flowchart.md`](docs/arch/mcp-call-chain-flowchart.md) — MCP 工具调用链路
+- [`docs/arch/architecture-and-flaws.md`](docs/arch/architecture-and-flaws.md) — 架构说明书与已知硬伤清单
+- [`docs/arch/design-decisions-mcp-storage.md`](docs/arch/design-decisions-mcp-storage.md) — MCP 中间件设计与存储解耦推演
+- [`docs/arch/mcp-call-chain-flowchart.md`](docs/arch/mcp-call-chain-flowchart.md) — Agent 调用 MCP 全链路函数流
+- [`docs/arch/effort-system-design.md`](docs/arch/effort-system-design.md) — Effort 等级系统完整设计
+- [`docs/arch/skill-effort-architecture.md`](docs/arch/skill-effort-architecture.md) — Skill 系统与 PromptStack 实现方案
 
 ## 快速开始
 
 ### 前提
 
 - Go ≥ 1.25
+- LLM API Key（OpenAI / Anthropic / DeepSeek 等）
 
 ### 安装与运行
 
 ```bash
 git clone https://github.com/RedHuang-0622/seelex.git
 cd seelex
-cp config/account-openai.yaml config/account-openai.local.yaml
-# 编辑本地配置并填入 API Key
-go run . -c config/account-openai.local.yaml
+
+# 1. 配置账号
+cp config/accounts.yaml config/accounts.local.yaml
+# 编辑 config/accounts.local.yaml 填入 API Key
+
+# 2. 运行
+go run .
 ```
 
-配置示例：
+配置示例（`config/accounts.yaml`）：
 
 ```yaml
 defaults:
@@ -177,31 +171,30 @@ accounts:
     api_key: sk-...
 ```
 
-支持多账号 round-robin 轮询，参见 `config/account-pool.yaml`。
+多账号 round-robin 轮询配置参见 `config/account-pool.yaml`。
 
-### Claude Code MiniMax 账号同步
+### Claude Code 账号同步
 
 ```powershell
 .\scripts\sync-claudecode-account.ps1
-go run . -c config/account-claudecode.local.yaml
+go run .
 ```
 
-脚本读取 `$HOME/.claude/settings.json` 中的 `ANTHROPIC_AUTH_TOKEN`，生成本地 OpenAI 兼容账号配置。`config/*.local.yaml` 已被忽略，不会进入版本库。
+脚本读取 `$HOME/.claude/settings.json` 中的 `ANTHROPIC_AUTH_TOKEN`，生成本地 OpenAI 兼容账号配置。`config/*.local.yaml` 已被 gitignore，不会进入版本库。
 
 ### CLI 标志
 
 | 标志 | 默认值 | 说明 |
 |------|--------|------|
-| `-c` | `config/account-openai.yaml` | LLM 配置路径 |
-| `-store` | `""` | 持久化存储路径，空值表示当前目录 |
-| `-skills` | `skills,cmd/repl/skills` | Skill 加载路径，逗号分隔 |
-| `-plugins` | `plugins` | Plugin 加载路径，逗号分隔 |
+| `-store` | `.seelex/sessions` | 持久化存储路径 |
+| `-plugins` | `plugins` | Plugin 加载路径（逗号分隔） |
+| `-permission` | `full_access` | 权限模式：`full_access`(全部放行) / `manual`(白名单外需审批) |
 
 ## 使用方式
 
 ### Plugin 形态切换
 
-当前仓库包含用于验证 Plugin 基础设施的基础形态：
+当前仓库包含 7 个 Plugin（1 个通用 + 5 个基础形态 + 1 个专业 Plugin）：
 
 | Plugin | 能力范围 |
 |--------|----------|
@@ -211,8 +204,9 @@ go run . -c config/account-claudecode.local.yaml
 | `git` | Git 操作与变更审查 |
 | `shell` | Shell 与 DevOps 操作 |
 | `plan` | 规划和 WorkPlan 工作流 |
+| `freecad` | CAD 设计、建模与工程分析（规划中） |
 
-用户可使用 `/plugin <name>`，Agent 也可调用 `switch_plugin` 或兼容别名 `switch_mode`。后续 CAD、Dev 等专业 Plugin 将沿用相同机制。
+用户可使用 `/plugin <name>`，Agent 也可调用 `switch_plugin` 或兼容别名 `switch_mode`。
 
 ### 命令与补全
 
@@ -243,6 +237,7 @@ go run . -c config/account-claudecode.local.yaml
 | `/effort <level>` | 切换 Effort 等级（low/medium/high/max） |
 | `/history` | 显示历史统计 |
 | `/trace` | 显示调用追踪 |
+| `/diag` | 系统诊断信息（Go运行时、内存、插件、Skill、账号） |
 | `/new` | 保存当前会话并清空历史 |
 | `/sessions` | 列出持久化会话 |
 | `/resume <id>` | 当前受 Seele 历史替换能力限制，会返回明确提示 |
@@ -256,7 +251,7 @@ Effort 控制 Agent 的思考深度和工具使用强度，通过多层 PromptSt
 |------|----------|-----------|---------|
 | low | 0 | 有限只读 | 直接快速回答，不调工具 |
 | medium | 8 | 标准工具集 | 平衡速度与能力，必要时简述规划 |
-| high | 25 | 全部工具（默认） | 完整 ReAct，复杂任务用 WorkPlan 编排行 |
+| high | 25 | 全部工具（默认） | 完整 ReAct，复杂任务用 WorkPlan 编排 |
 | max | 50 | 全部工具 + Fork | 深度推理，多 Agent 并行，交叉验证 |
 
 当前 effort 等级显示在状态栏：`E:low`(灰) / `E:medium`(金) / `E:high`(蓝) / `E:max`(紫红)。Skill 加载栈也同步显示：如 `E:high  goal|code`。
@@ -274,7 +269,7 @@ Effort 控制 Agent 的思考深度和工具使用强度，通过多层 PromptSt
 
 - 对所有工具调用进行强制拦截的 Permission Gate；
 - 自动执行 `seele.yaml` 中的 `allow / ask / deny` 规则；
-- “始终允许”等持久化授权策略。
+- "始终允许"等持久化授权策略。
 
 因此 `seele.yaml` 目前是目标权限策略草案，不能视为已经生效的安全边界。在强制门控接通前，运行高风险工具仍需依赖宿主环境和人工控制。
 
@@ -317,18 +312,47 @@ Electron 不替代 CLI，而是提供另一种产品入口：
 seelex/
 ├── main.go                 # 生命周期与依赖装配
 ├── application_adapters.go # application ports 适配
-├── application/            # 无界面的应用核心
+├── websearch.go            # Web 搜索工具注册
+├── mcpconfig.go            # MCP Server 配置加载与注册
+├── version.go              # 版本号
+├── seele.yaml              # 目标权限规则草案，当前尚未强制执行
+├── application/            # 无界面的应用核心（状态、命令、事件、审批、PromptStack）
 ├── plugin/                 # Plugin Loader 与事务型 Manager
-├── plugins/                # 文件化 Plugin 定义
+├── plugins/                # 文件化 Plugin 定义（含 Skill）
+│   ├── default/            #   通用 Plugin + 9 个全局 Skill
+│   ├── read/               #   只读 Plugin
+│   ├── write/              #   写操作 Plugin
+│   ├── git/                #   Git Plugin
+│   ├── shell/              #   Shell Plugin
+│   ├── plan/               #   Plan Plugin
+│   └── freecad/            #   CAD Plugin（7 个 Skill 模块）
 ├── skill/                  # Skill Loader 与 Registry
-├── skills/                 # 全局 Skill
-├── seelebridge/            # Seele 薄适配层
+├── seelebridge/            # Seele 薄适配层（Anti-Corruption Layer）
 ├── seelexctx/              # 上下文、压缩、合并和快照
-├── session/                # 会话存储薄包装
+├── mcpstack/               # MCP 调用追溯中间件
+├── session/                # 会话存储管理器
 ├── tui/                    # Bubble Tea 前端适配器
-├── docs/                   # 文档：架构(arch/)、CAD(cad/)、研发(devlog/)、调研(research/)
-└── seele.yaml              # 目标权限规则草案，当前尚未强制执行
+│   └── splash/             #   启动画面
+├── config/                 # 账号池配置模板
+├── scripts/                # 构建与同步脚本
+├── docs/                   # 文档
+│   ├── arch/               #   架构设计文档
+│   ├── devlog/             #   研发过程记录
+│   └── research/           #   调研报告
+└── dist/                   # 跨平台构建产物（make build）
 ```
+
+## 已知问题与局限
+
+当前版本（v0.0.2）存在以下已知问题，详见 [`CODE_EVALUATION_REPORT.md`](CODE_EVALUATION_REPORT.md)：
+
+| 类别 | 问题 | 影响 |
+|------|------|------|
+| 代码质量 | `application/command.go` 中使用 `panic` 处理错误 | 生产环境不当 |
+| 并发安全 | `EventHub.Publish` 持锁向 channel 发送 | 低概率死锁 |
+| 依赖装配 | `main.go` 超 400 行手工 DI | 可维护性 |
+| 测试覆盖 | application 51% / TUI 9% | 回归保护不足 |
+| 安全 | 强制 Permission Gate 未接通 | 权限规则不生效 |
 
 ## 路线图
 
@@ -343,7 +367,9 @@ seelex/
 - Skill 多层叠加与退栈（`#goal` → `#code` 压栈，`#end` 退栈）；
 - Alt+E 循环切换 Effort + 状态栏实时显示；
 - 提示词五层组装：identity + effort + plugins + instructions + skill；
-- application、plugin、skill、bridge、effort 和 TUI adapter 单元测试。
+- Plan/WorkPlan 工作流系统；
+- MCP 调用追溯中间件（mcpstack）+ 熔断事件通道；
+- Web 搜索集成。
 
 ### 下一阶段
 
@@ -360,9 +386,20 @@ seelex/
 ## 开发
 
 ```bash
+# 构建
 go build ./...
+
+# 代码检查
 go vet ./...
+
+# 运行测试
 go test ./... -v -count=1 -timeout=120s
+
+# 竞态检测 + 覆盖率
+go test ./... -race -coverprofile=coverage.out ./...
+
+# 跨平台构建
+make build && make package
 ```
 
 ## 许可证
