@@ -3,6 +3,7 @@ package application
 
 import (
 	"strings"
+	"sync"
 )
 
 // PromptLayer 表示 system prompt 的一个分层。
@@ -16,6 +17,7 @@ type PromptLayer struct {
 // 层序从底到顶: base → effort → skill_1 → skill_2 → ...
 // Render() 用分隔符拼接所有层。
 type PromptStack struct {
+	mu     sync.Mutex
 	layers []PromptLayer
 }
 
@@ -26,12 +28,16 @@ func NewPromptStack() *PromptStack {
 
 // Push 压入一层。同名 layer（kind+name 相同）会被覆盖更新。
 func (ps *PromptStack) Push(kind, name, text string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	ps.remove(kind, name)
 	ps.layers = append(ps.layers, PromptLayer{Kind: kind, Name: name, Text: text})
 }
 
 // Pop 按 name 删除一层。返回是否找到并删除。
 func (ps *PromptStack) Pop(name string) bool {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	for i, l := range ps.layers {
 		if l.Name == name {
 			ps.layers = append(ps.layers[:i], ps.layers[i+1:]...)
@@ -44,6 +50,8 @@ func (ps *PromptStack) Pop(name string) bool {
 // PopKind 删除最后一个指定 kind 的层，返回其 name。
 // 如果该 kind 不存在，返回空字符串。
 func (ps *PromptStack) PopKind(kind string) string {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	for i := len(ps.layers) - 1; i >= 0; i-- {
 		if ps.layers[i].Kind == kind {
 			name := ps.layers[i].Name
@@ -56,6 +64,8 @@ func (ps *PromptStack) PopKind(kind string) string {
 
 // ClearKind 删除所有指定 kind 的层。
 func (ps *PromptStack) ClearKind(kind string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	filtered := make([]PromptLayer, 0, len(ps.layers))
 	for _, l := range ps.layers {
 		if l.Kind != kind {
@@ -67,6 +77,8 @@ func (ps *PromptStack) ClearKind(kind string) {
 
 // Reset 清空所有层，设置 base 层。
 func (ps *PromptStack) Reset(baseText string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	ps.layers = make([]PromptLayer, 0, 8)
 	if baseText != "" {
 		ps.layers = append(ps.layers, PromptLayer{Kind: "base", Name: "base", Text: baseText})
@@ -75,6 +87,8 @@ func (ps *PromptStack) Reset(baseText string) {
 
 // Render 将所有层用分隔符拼接为完整 system prompt。
 func (ps *PromptStack) Render() string {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	if len(ps.layers) == 0 {
 		return ""
 	}
@@ -90,6 +104,8 @@ func (ps *PromptStack) Render() string {
 
 // Has 检查是否存在指定 kind 的层。
 func (ps *PromptStack) Has(kind string) bool {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	for _, l := range ps.layers {
 		if l.Kind == kind {
 			return true
@@ -100,6 +116,8 @@ func (ps *PromptStack) Has(kind string) bool {
 
 // Layers 返回当前所有层的副本（用于 TUI 显示）。
 func (ps *PromptStack) Layers() []PromptLayer {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	cp := make([]PromptLayer, len(ps.layers))
 	copy(cp, ps.layers)
 	return cp
@@ -107,6 +125,8 @@ func (ps *PromptStack) Layers() []PromptLayer {
 
 // Count 返回层数。
 func (ps *PromptStack) Count() int {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	return len(ps.layers)
 }
 
@@ -121,6 +141,8 @@ func (ps *PromptStack) remove(kind, name string) {
 
 // Describe 返回人类可读的栈摘要（用于状态栏等）。
 func (ps *PromptStack) Describe() string {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
 	var skills []string
 	var effort string
 	for _, l := range ps.layers {

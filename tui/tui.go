@@ -99,7 +99,17 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.quitting = true
 			return model, tea.Quit
 		}
+		if model.snapshot.Chat.Running {
+			return model, tea.Batch(waitApplicationEvent(model.subscription), tickEvery(3*time.Second))
+		}
 		return model, waitApplicationEvent(model.subscription)
+	case tickMsg:
+		model.snapshot = model.app.Snapshot()
+		model.syncView()
+		if model.snapshot.Chat.Running {
+			return model, tickEvery(3 * time.Second)
+		}
+		return model, nil
 	case submitResultMsg:
 		if message.err != nil {
 			model.uiError = message.err.Error()

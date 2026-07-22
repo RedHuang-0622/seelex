@@ -160,6 +160,18 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	copySnapshot.Runtime.Skills = append([]SkillInfo(nil), snapshot.Runtime.Skills...)
 	copySnapshot.Runtime.Plugins = append([]PluginInfo(nil), snapshot.Runtime.Plugins...)
 	copySnapshot.Runtime.Accounts = append([]AccountInfo(nil), snapshot.Runtime.Accounts...)
+	if snapshot.Runtime.Plan != nil {
+		planCopy := *snapshot.Runtime.Plan
+		planCopy.Nodes = make([]PlanNode, len(snapshot.Runtime.Plan.Nodes))
+		copy(planCopy.Nodes, snapshot.Runtime.Plan.Nodes)
+		for i := range planCopy.Nodes {
+			if len(snapshot.Runtime.Plan.Nodes[i].Children) > 0 {
+				planCopy.Nodes[i].Children = make([]PlanNode, len(snapshot.Runtime.Plan.Nodes[i].Children))
+				copy(planCopy.Nodes[i].Children, snapshot.Runtime.Plan.Nodes[i].Children)
+			}
+		}
+		copySnapshot.Runtime.Plan = &planCopy
+	}
 	if snapshot.Interaction != nil {
 		interaction := *snapshot.Interaction
 		interaction.Options = append([]InteractionOption(nil), snapshot.Interaction.Options...)

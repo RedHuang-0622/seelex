@@ -3,12 +3,14 @@ package application
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // EffortManager 管理 Effort 等级及对应行为。
 // Effort 通过 PromptStack 的 effort 层注入行为指令，
 // 以及通过 engine.SetMaxLoops 控制循环轮次。
 type EffortManager struct {
+	mu          sync.Mutex
 	promptStack *PromptStack
 	engine      interface {
 		SetMaxLoops(int)
@@ -71,6 +73,12 @@ func NewEffortManager(ps *PromptStack, eng interface {
 // Apply 切换 effort 等级。
 // 更新 effort prompt 层、MaxLoops，并重绘完整 system prompt。
 func (m *EffortManager) Apply(level string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.applyLocked(level)
+}
+
+func (m *EffortManager) applyLocked(level string) error {
 	level = strings.ToLower(strings.TrimSpace(level))
 	if _, ok := effortPrompts[level]; !ok {
 		valid := make([]string, 0, len(effortPrompts))
@@ -89,12 +97,15 @@ func (m *EffortManager) Apply(level string) error {
 		m.engine.SetMaxLoops(loops)
 	}
 	m.current = level
-	m.engine.SetSystemPrompt(m.promptStack.Render())
 	return nil
 }
 
 // Current 返回当前 effort 等级。
-func (m *EffortManager) Current() string { return m.current }
+func (m *EffortManager) Current() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.current
+}
 
 // ValidLevels 返回所有有效 effort 等级。
 func ValidEffortLevels() []string {
@@ -110,6 +121,8 @@ var orderedLevels = []string{"lite", "medium", "high", "max"}
 
 // Cycle 循环切换到下一个 effort 等级。
 func (m *EffortManager) Cycle() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	next := orderedLevels[0]
 	for i, l := range orderedLevels {
 		if l == m.current && i+1 < len(orderedLevels) {
@@ -117,5 +130,5 @@ func (m *EffortManager) Cycle() (string, error) {
 			break
 		}
 	}
-	return next, m.Apply(next)
+	return next, m.applyLocked(next)
 }

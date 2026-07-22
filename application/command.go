@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 )
@@ -61,7 +62,7 @@ func (registry *CommandRegistry) All() []Command {
 func (service *Service) registerBuiltinCommands() {
 	register := func(name, description string, execute func(context.Context, []string) (CommandResult, error)) {
 		if err := service.commands.Register(commandFunc{name: name, description: description, execute: execute}); err != nil {
-			panic(err)
+			log.Fatalf("register command %q: %v", name, err)
 		}
 	}
 	register("help", "显示帮助信息", func(context.Context, []string) (CommandResult, error) {
@@ -179,7 +180,10 @@ func (service *Service) registerBuiltinCommands() {
 		return CommandResult{Notice: "已切换插件: " + name}, nil
 	})
 	register("diag", "系统诊断信息", func(context.Context, []string) (CommandResult, error) {
-		return CommandResult{Notice: service.collectDiagnostics()}, nil
+		service.mu.RLock()
+		snap := service.snapshot
+		service.mu.RUnlock()
+		return CommandResult{Notice: RenderDiag(snap)}, nil
 	})
 	register("exit", "退出程序", func(context.Context, []string) (CommandResult, error) { return CommandResult{Exit: true}, nil })
 	register("effort", "切换 Effort 等级: /effort <lite|medium|high|max>", func(ctx context.Context, args []string) (CommandResult, error) {
@@ -190,6 +194,7 @@ func (service *Service) registerBuiltinCommands() {
 		if err := service.effortManager.Apply(level); err != nil {
 			return CommandResult{}, err
 		}
+		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 		service.mu.Lock()
 		revision := service.bumpLocked()
 		service.mu.Unlock()

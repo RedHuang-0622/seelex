@@ -11,7 +11,7 @@ func RenderDiag(snap Snapshot) string {
 	rt := snap.Runtime
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("  ╔══ System Diagnostics ══╗\n"))
+	b.WriteString("  ╔══ System Diagnostics ══╗\n")
 	b.WriteString(fmt.Sprintf("  Go: %s  OS: %s/%s  CPU: %d cores\n",
 		runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU()))
 
@@ -21,18 +21,24 @@ func RenderDiag(snap Snapshot) string {
 		runtime.NumGoroutine(), float64(mem.Alloc)/1024/1024, float64(mem.Sys)/1024/1024, mem.NumGC))
 
 	// Engine
-	b.WriteString(fmt.Sprintf("\n── Engine ──\n"))
+	b.WriteString("\n── Engine ──\n")
 	b.WriteString(fmt.Sprintf("  Provider: %s  Model: %s  Effort: %s  Tokens: %s\n",
 		rt.Provider, rt.Model, rt.Effort, rt.Tokens))
 	b.WriteString(fmt.Sprintf("  Session: %s\n", rt.Account))
 	if rt.Plan != nil {
 		p := rt.Plan
+		done := 0
+		for _, n := range p.Nodes {
+			if n.Status == NodeCompleted || n.Status == NodeSkipped {
+				done++
+			}
+		}
 		b.WriteString(fmt.Sprintf("  Plan: %s (%s, %d/%d nodes)\n",
-			p.Name, p.Status, completedCountDiag(p.Nodes), len(p.Nodes)))
+			p.Name, p.Status, done, len(p.Nodes)))
 	}
 
 	// Plugins
-	b.WriteString(fmt.Sprintf("\n── Plugins ──\n"))
+	b.WriteString("\n── Plugins ──\n")
 	active := rt.Plugin
 	if active == "" {
 		active = "none"
@@ -81,16 +87,6 @@ func RenderDiag(snap Snapshot) string {
 		}
 	}
 
-	b.WriteString(fmt.Sprintf("  ╚════════════════════════╝"))
+	b.WriteString("  ╚════════════════════════╝")
 	return b.String()
-}
-
-func completedCountDiag(nodes []PlanNode) int {
-	n := 0
-	for _, node := range nodes {
-		if node.Status == NodeCompleted || node.Status == NodeSkipped {
-			n++
-		}
-	}
-	return n
 }

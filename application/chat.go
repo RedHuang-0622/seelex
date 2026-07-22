@@ -156,7 +156,10 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 	}
 
 	message := *service.appendMessageLocked("tool_result", content, &ToolCall{ID: id, Name: name, Result: result, Error: errorText, Status: status, Duration: duration})
-	service.appendMessageLocked("assistant", "", nil)
+	// Only append empty assistant if the last message isn't already an empty assistant
+	if n := len(service.snapshot.Conversation); n == 0 || service.snapshot.Conversation[n-1].Role != "assistant" || service.snapshot.Conversation[n-1].Content != "" || service.snapshot.Conversation[n-1].Tool != nil {
+		service.appendMessageLocked("assistant", "", nil)
+	}
 	service.refreshRuntimeLocked(context.Background())
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
