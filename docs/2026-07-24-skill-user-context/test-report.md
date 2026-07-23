@@ -12,7 +12,7 @@
 | Application 稳定性与覆盖率 | ✅ | `count=3` 全通过，statement coverage 76.8% |
 | GUI JavaScript | ✅ | 全部 JS syntax check；26/26 Node tests 通过 |
 | 安全与发布静态门禁 | ✅ | 无硬编码密钥命中、无非测试 `return nil, nil`、config 白名单正确 |
-| Race | CI 承接 | 本机无 C compiler 且 CGO 关闭；`.github/workflows/ci.yml` 的 Ubuntu job 执行 `-race` |
+| Race | ✅ | 远端 Ubuntu `race-and-coverage` 通过，CI run `30028712017` |
 
 ## 执行记录
 
@@ -47,9 +47,18 @@
 ## 未执行项与承接方式
 
 - 仓库没有 `Benchmark*` 或 `Fuzz*` 测试入口，本轮不伪造性能/模糊结果；格式化与 envelope 均为线性内存字符串处理。
-- Windows 本机 `gcc` 不可用，无法本地执行 Go race。推送 `gui` 后由 Ubuntu `race-and-coverage` job 作为合并门禁；其结果将在 CI 中保留。
+- Windows 本机 `gcc` 不可用，无法本地执行 Go race；远端 Ubuntu `race-and-coverage` 已对提交 `ec22256` 执行并通过。
+
+## 远端 CI
+
+GitHub Actions run [`30028712017`](https://github.com/RedHuang-0622/seelex/actions/runs/30028712017) 全部成功：
+
+- GUI tests：success；
+- race-and-coverage：success；
+- release-safety / govulncheck：success；
+- Ubuntu、macOS、Windows build：success。
 
 ## 综合判断
 
 - [x] 通过本地交付门禁
-- [ ] 等待本次远端 race/coverage CI 结果
+- [x] 通过本次远端 CI 门禁

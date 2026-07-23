@@ -45,9 +45,9 @@
 
 1. 持续活动 Skill 会在每轮重复发送指令，增加 token；这是“不进入 system prompt”且保持持续 Skill 语义的必要成本，可用 `#end` 停止。
 2. v1 envelope 写入 Engine History。旧版本客户端不会解包但仍能加载消息；当前版本覆盖 Chat、resume 和分页三条展示路径。
-3. 本地无 CGO 工具链，race 由远端 Ubuntu CI 承接，不作为未验证的“通过”记录。
+3. 本地无 CGO 工具链，race 由远端 Ubuntu CI 承接；提交 `ec22256` 的 run `30028712017` 已通过。
 
 ## 最终判断
 
 - [x] 本地审查通过，可提交并推送
-- [ ] 本次远端 CI 通过后完成最终交付闭环
+- [x] 本次远端 CI 全部通过，交付闭环完成
