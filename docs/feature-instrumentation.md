@@ -61,7 +61,7 @@
 | 协议 | JSON-RPC/stdio sidecar | RPC request、订阅连接 | response、event notification | 5—8 人日 | 稳定 DTO、协议版本 | RPC 成功率、事件延迟、异常退出率 | Node 测试进程可完成 snapshot→chat→approval→cancel | ⬜ 仅远程/IDE 客户端需要 |
 | 前端 | Wails GUI Alpha | Application Bridge、工程产物 | 可视化任务、历史、Plan、审批和专业视图 | 基础与逻辑测试完成，E2E 待补 | Application DTO、系统 WebView | 核心任务完成率、演示稳定性 | 不复制业务逻辑；完整演示 chat/tool/approval/plugin 主链路 | 🟡 `gui/` + 26 个 Node tests + Bridge tests；Windows WebView E2E 待完成 |
 | 前端 | Effort 常驻强度滑杆 | Runtime Effort、用户拖动 | 四档预览/提交、失败回滚、Max 紫色动效 | 已完成 | `EffortManager`、GUI Bridge | 切换成功率、失败回滚率 | 无需打开弹窗；拖动只预览；Max 动效支持 reduced-motion | ✅ `effort-control.js` + 4 个 Node tests + Bridge/Core contracts |
-| 质量 | 测试与发布门禁 | 源码、测试、依赖 | format/build/vet/test/race/coverage/GUI/release-safety | 持续 | CI、C toolchain、Node 22 | 覆盖率、race、GUI tests、构建平台数 | main/gui 均触发；三平台 build；Linux race；GUI Node/contract；发布包安全 | 🟡 GUI job 与分支 trigger 已接线，需以远端首次运行结果确认 |
+| 质量 | 测试与发布门禁 | 源码、测试、依赖 | format/build/vet/test/race/coverage/GUI/release-safety | 持续 | CI、C toolchain、Node 22 | 覆盖率、race、GUI tests、构建平台数 | main/gui 均触发；三平台 build；Linux race；GUI Node/contract；发布包安全 | ✅ `gui` push run 30004410641：六个 job 全绿 |
 | 文档 | 状态与事实同步 | HEAD、测试结果、路线决策 | README、打点表、测试报告 | 持续，每迭代 0.5 人日 | CI/人工 Review | 过时陈述数、更新时间 | README 不宣传未接线能力；报告注明提交和日期 | 🟡 本次已更新 |
 
 ## 本轮变更 v0.0.2 → v0.0.4

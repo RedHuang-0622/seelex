@@ -44,9 +44,9 @@
 | GUI-EFF-003 | Max 动态紫色光效与动效降级 | [Effort §5-6](modules/effort-control.md#5-max-紫色光效) | `styles.css:72-125,358-361`；`effort-control.js:31-40` | `effort-control.test.mjs:43-52` + Edge 静态截图 | 有条件通过：Max/Lite 视觉状态已复核，真实动画时序仍列入 WebView 验收 |
 | GUI-CMD-001 | `/ # @` 指令模式 | [Shell §6](modules/shell-and-interactions.md#6-指令模式) | `gui/bridge.go:205-207`；`app.js:268-354,425-473` | `command_test.go:502-554` | 通过：数据源复用 Core Suggestions |
 | GUI-INT-001 | Approval/Interaction modal | [Shell §7](modules/shell-and-interactions.md#7-runtime-effort-与审批交互) | `application/app.go:163-197,280-303`；`app.js:237-254` | `application_test.go:357`；`command_test.go:620` | 通过：Core 生命周期已测；WebView 点击为手工验收 |
-| GUI-CI-001 | gui 分支 CI 触发 | [CI §2](ci-and-testing.md#2-触发策略) | `.github/workflows/ci.yml:5-10` | workflow 静态审查 | 通过：push/PR 均包含 gui |
-| GUI-CI-002 | GUI Node/contract job | [CI §4](ci-and-testing.md#4-gui-tests-job) | `.github/workflows/ci.yml:83-110` | 本地等价 Node/Go 命令 | 通过：独立稳定 job name |
-| GUI-CI-003 | Windows production tags build | [CI §5](ci-and-testing.md#5-production-build) | `.github/workflows/ci.yml:50-52` | 本地 production build + Windows runner | 通过：满足 Wails manual build tags |
+| GUI-CI-001 | gui 分支 CI 触发 | [CI §2](ci-and-testing.md#2-触发策略) | `.github/workflows/ci.yml:5-10` | push run `30004410641` | 通过：`gui` push 已实际触发 |
+| GUI-CI-002 | GUI Node/contract job | [CI §4](ci-and-testing.md#4-gui-tests-job) | `.github/workflows/ci.yml:83-110` | 本地等价命令 + 远端 `GUI tests` | 通过：独立 job 远端全绿 |
+| GUI-CI-003 | Windows production tags build | [CI §5](ci-and-testing.md#5-production-build) | `.github/workflows/ci.yml:50-52` | 本地 production build + Windows runner | 通过：本地与远端 Windows build 全绿 |
 
 ## 3. 五轴审查
 
@@ -57,7 +57,7 @@
 | 架构 | 通过 | A | Core 单一状态源、调用方接口、纯 reducer、keyed view 和 Effort Controller 依赖单向 |
 | 安全性 | 通过 | A | Markdown 默认转义、URL allowlist、工具 preview 限制、发布配置白名单 |
 | 性能 | 通过 | A- | 流式事件不拉全量 Snapshot，Conversation 不整体重绘；未建立超长会话 benchmark |
-| 测试/平台 | 有条件通过 | B+ | GUI CI 已接线；等待远端 CI 首次通过和真实 WebView E2E |
+| 测试/平台 | 有条件通过 | A- | 首次远端六个 job 全绿；仅真实 WebView E2E/视觉回归仍缺失 |
 
 ## 4. 发现的问题
 
@@ -79,4 +79,4 @@
 
 ## 5. 最终判断
 
-有条件通过，可继续作为 Windows alpha 使用并进入远端 CI。正式预发行门槛还包括：远端 `GUI tests`/race/Windows build 全绿，以及一轮真实 WebView Effort 四档/Max 动效、长输出、历史滚动、工具展开、think、队列、命令和审批验收。
+有条件通过，可继续作为 Windows alpha 使用；远端 `GUI tests`、三平台 build、race/coverage 和 release-safety 已全绿。正式预发行剩余门槛是一轮真实 WebView Effort 四档/Max 动效、长输出、历史滚动、工具展开、think、队列、命令和审批验收。

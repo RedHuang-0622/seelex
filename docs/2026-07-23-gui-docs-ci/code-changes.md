@@ -55,3 +55,5 @@ feat(gui): add persistent Effort control and CI
 
 Refs: GUI-EFF-001, GUI-EFF-002, GUI-EFF-003, GUI-CI-001, GUI-CI-002
 ```
+
+实际实现提交：`df0434b feat(gui): add persistent Effort control and CI`。该提交触发的 GitHub Actions run `30004410641` 六个 job 全部通过。

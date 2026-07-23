@@ -22,6 +22,8 @@ GUI 变更必须同时证明：
 
 此前 workflow 只监听 `main`，因此 direct push `gui` 不触发；PR 到 main 才会触发。当前配置已修正。
 
+首次远端验证：提交 `df0434b` 的 push run [30004410641](https://github.com/RedHuang-0622/seelex/actions/runs/30004410641) 已证明 `gui` trigger、独立 `GUI tests`、三平台 build、race/coverage 和 release-safety 全部生效。
+
 ## 3. Job 划分
 
 ```text
