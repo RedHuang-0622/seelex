@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/plugin"
@@ -14,23 +18,63 @@ import (
 	"github.com/RedHuang-0622/seelex/skill"
 )
 
-type enginePort struct{ engine *engine.Engine }
+type enginePort struct {
+	engine    *engine.Engine
+	mu        sync.RWMutex
+	sessionID string
+}
 
-func (port enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
+func newEnginePort(eng *engine.Engine) *enginePort {
+	return &enginePort{engine: eng, sessionID: eng.SessionID()}
+}
+
+func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	return port.engine.ChatStream(ctx, input, onChunk)
 }
-func (port enginePort) ClearHistory()                 { port.engine.ClearHistory() }
-func (port enginePort) SessionID() string             { return port.engine.SessionID() }
-func (port enginePort) SetSystemPrompt(prompt string) { port.engine.SetSystemPrompt(prompt) }
-func (port enginePort) SetMaxLoops(n int)            { port.engine.SetMaxLoops(n) }
-func (port enginePort) TraceText() string {
+func (port *enginePort) ClearHistory() {
+	port.mu.Lock()
+	port.engine.ClearHistory()
+	port.mu.Unlock()
+}
+func (port *enginePort) ReplaceHistory(sessionID string, history []application.EngineMessage) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("engine: session ID is required")
+	}
+	return port.replaceRawHistory(sessionID, restoreMessages(history))
+}
+func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridge.Message) error {
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	port.engine.ClearHistory()
+	for _, message := range history {
+		port.engine.AppendHistory(message)
+	}
+	port.sessionID = sessionID
+	return nil
+}
+func (port *enginePort) StartSession() string {
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	port.engine.ClearHistory()
+	port.sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	return port.sessionID
+}
+func (port *enginePort) SessionID() string {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	return port.sessionID
+}
+func (port *enginePort) SetSystemPrompt(prompt string) { port.engine.SetSystemPrompt(prompt) }
+func (port *enginePort) SetMaxLoops(n int)             { port.engine.SetMaxLoops(n) }
+func (port *enginePort) TraceText() string {
 	tree := port.engine.ExportTrace()
 	if tree == nil || tree.Root == nil {
 		return ""
 	}
 	return tree.String()
 }
-func (port enginePort) TokenCount() string {
+func (port *enginePort) TokenCount() string {
 	tree := port.engine.ExportTrace()
 	if tree == nil || tree.Root == nil {
 		return "0"
@@ -44,8 +88,13 @@ func (port enginePort) TokenCount() string {
 	}
 	return "0"
 }
-func (port enginePort) History() []application.EngineMessage {
-	return adaptMessages(port.engine.History())
+func (port *enginePort) History() []application.EngineMessage {
+	return adaptMessages(port.rawHistory())
+}
+func (port *enginePort) rawHistory() []seelebridge.Message {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	return append([]seelebridge.Message(nil), port.engine.History()...)
 }
 
 type runtimePort struct{ runtime *seelebridge.Runtime }
@@ -150,13 +199,39 @@ func adaptSkill(item skill.Skill) application.SkillInfo {
 func adaptMessages(messages []seelebridge.Message) []application.EngineMessage {
 	result := make([]application.EngineMessage, 0, len(messages))
 	for _, message := range messages {
-		adapted := application.EngineMessage{Role: message.Role, Name: message.Name}
+		adapted := application.EngineMessage{
+			Role: message.Role, ReasoningContent: message.ReasoningContent,
+			ToolCallID: message.ToolCallID, Name: message.Name,
+		}
 		if message.Content != nil {
 			adapted.Content = *message.Content
+			adapted.ContentSet = true
 		}
 		adapted.ToolCalls = make([]application.EngineToolCall, 0, len(message.ToolCalls))
 		for _, call := range message.ToolCalls {
 			adapted.ToolCalls = append(adapted.ToolCalls, application.EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+		}
+		result = append(result, adapted)
+	}
+	return result
+}
+
+func restoreMessages(messages []application.EngineMessage) []seelebridge.Message {
+	result := make([]seelebridge.Message, 0, len(messages))
+	for _, message := range messages {
+		adapted := seelebridge.Message{
+			Role: message.Role, ReasoningContent: message.ReasoningContent,
+			ToolCallID: message.ToolCallID, Name: message.Name,
+		}
+		if message.ContentSet || message.Content != "" {
+			content := message.Content
+			adapted.Content = &content
+		}
+		for _, call := range message.ToolCalls {
+			adapted.ToolCalls = append(adapted.ToolCalls, types.ToolCall{
+				ID: call.ID, Type: "function",
+				Function: types.ToolCallFunction{Name: call.Name, Arguments: call.Arguments},
+			})
 		}
 		result = append(result, adapted)
 	}

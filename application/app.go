@@ -44,7 +44,7 @@ func New(deps Dependencies) *Service {
 	service.snapshot = Snapshot{
 		Session:      SessionState{ID: deps.Engine.SessionID()},
 		Runtime:      RuntimeState{Model: deps.Runtime.Model(), Effort: service.effortManager.Current()},
-		Capabilities: Capabilities{SessionResume: false, SessionResumeReason: "Seele engine does not expose history replacement"},
+		Capabilities: Capabilities{SessionResume: true},
 	}
 	service.registerBuiltinCommands()
 	service.refreshRuntimeLocked(context.Background())
@@ -103,8 +103,10 @@ func (service *Service) buildSystemPrompt() {
 
 func (service *Service) Snapshot() Snapshot {
 	service.mu.RLock()
-	defer service.mu.RUnlock()
-	return cloneSnapshot(service.snapshot)
+	snapshot := cloneSnapshot(service.snapshot)
+	service.mu.RUnlock()
+	snapshot.Sessions = append([]SessionInfo(nil), service.deps.Sessions.List()...)
+	return snapshot
 }
 func (service *Service) Subscribe(buffer int) Subscription { return service.events.Subscribe(buffer) }
 
@@ -333,8 +335,6 @@ func (service *Service) addNotice(notice string) {
 	service.events.Publish(EventMessageAdded, revision, "", message)
 }
 
-
-
 func (service *Service) resetConversation(notice string) {
 	service.mu.Lock()
 	service.snapshot.Conversation = nil
@@ -395,33 +395,37 @@ func (service *Service) accountInteraction() *Interaction {
 }
 
 func (service *Service) resumeSession(sessionID string) error {
-	if err := service.deps.Sessions.Resume(sessionID); err != nil {
-		return err
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return errors.New("session ID is required")
 	}
-	total, err := service.deps.Sessions.MessageCount(sessionID)
+	service.mu.RLock()
+	running := service.snapshot.Chat.Running
+	service.mu.RUnlock()
+	if running {
+		return ErrChatRunning
+	}
+
+	history, err := service.deps.Sessions.LoadHistory(sessionID)
 	if err != nil {
-		return err
+		return fmt.Errorf("load session %q: %w", sessionID, err)
 	}
-	// 窗口加载：只取最后 defaultHistoryWindow 条，其余用 LoadMoreHistory 按需拉。
+	if err := service.deps.Engine.ReplaceHistory(sessionID, history); err != nil {
+		return fmt.Errorf("replace engine history: %w", err)
+	}
+	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+
+	total := len(history)
 	offset := total - defaultHistoryWindow
 	if offset < 0 {
 		offset = 0
 	}
-	history, _, err := service.deps.Sessions.LoadHistoryRange(sessionID, offset, defaultHistoryWindow)
-	if err != nil {
-		// 降级：全量加载
-		history, err = service.deps.Sessions.LoadHistory(sessionID)
-		if err != nil {
-			return err
-		}
-		offset = 0
-		total = len(history)
-	}
-	service.deps.Engine.ClearHistory()
+	visibleHistory := history[offset:]
 	service.mu.Lock()
+	service.snapshot.Session.ID = sessionID
 	service.snapshot.Conversation = nil
 	service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
-	service.appendHistoryLocked(history)
+	service.appendHistoryLocked(visibleHistory)
 	service.snapshot.HistoryOffset = offset
 	service.snapshot.TotalMessages = total
 	service.snapshot.HasMoreHistory = offset > 0

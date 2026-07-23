@@ -3,10 +3,13 @@ package application
 import "context"
 
 type EngineMessage struct {
-	Role      string
-	Content   string
-	Name      string
-	ToolCalls []EngineToolCall
+	Role             string
+	ReasoningContent string
+	Content          string
+	ContentSet       bool
+	ToolCallID       string
+	Name             string
+	ToolCalls        []EngineToolCall
 }
 type EngineToolCall struct {
 	ID        string
@@ -17,7 +20,9 @@ type ChatEngine interface {
 	ChatStream(context.Context, string, func(string)) (string, error)
 	History() []EngineMessage
 	ClearHistory()
+	ReplaceHistory(string, []EngineMessage) error
 	SessionID() string
+	StartSession() string
 	SetSystemPrompt(string)
 	SetMaxLoops(int)
 	TraceText() string
@@ -43,13 +48,10 @@ type SkillPort interface {
 }
 type SessionPort interface {
 	SaveCurrent(string) error
-	Resume(string) error
 	List() []SessionInfo
 	LoadHistory(string) ([]EngineMessage, error)
 	// LoadHistoryRange 按偏移量窗口加载，返回 [offset, offset+limit) 和总数。
 	LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)
-	// MessageCount 返回会话总消息数。
-	MessageCount(sessionID string) (int, error)
 }
 type Dependencies struct {
 	Engine   ChatEngine

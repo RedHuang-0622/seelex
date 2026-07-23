@@ -3,16 +3,17 @@ package application
 import "time"
 
 type Snapshot struct {
-	Revision       uint64       `json:"revision"`
-	Session        SessionState `json:"session"`
-	Conversation   []Message    `json:"conversation"`
-	Chat           ChatState    `json:"chat"`
-	Runtime        RuntimeState `json:"runtime"`
-	Interaction    *Interaction `json:"interaction,omitempty"`
-	Capabilities   Capabilities `json:"capabilities"`
-	HistoryOffset  int          `json:"history_offset"`  // 0 = oldest message at start; >0 = older messages exist in store
-	TotalMessages  int          `json:"total_messages"`  // total count in store (0 for live session, set after resume)
-	HasMoreHistory bool         `json:"has_more_history"` // true if older messages can be loaded via LoadMoreHistory
+	Revision       uint64        `json:"revision"`
+	Session        SessionState  `json:"session"`
+	Sessions       []SessionInfo `json:"sessions"`
+	Conversation   []Message     `json:"conversation"`
+	Chat           ChatState     `json:"chat"`
+	Runtime        RuntimeState  `json:"runtime"`
+	Interaction    *Interaction  `json:"interaction,omitempty"`
+	Capabilities   Capabilities  `json:"capabilities"`
+	HistoryOffset  int           `json:"history_offset"`   // 0 = oldest message at start; >0 = older messages exist in store
+	TotalMessages  int           `json:"total_messages"`   // total count in store (0 for live session, set after resume)
+	HasMoreHistory bool          `json:"has_more_history"` // true if older messages can be loaded via LoadMoreHistory
 }
 
 type SessionState struct {
@@ -39,7 +40,7 @@ type ChatState struct {
 	RequestID   string    `json:"request_id,omitempty"`
 	StartedAt   time.Time `json:"started_at,omitempty"`
 	Error       string    `json:"error,omitempty"`
-	QueuedCount int       `json:"queued_count"`        // 排队中的输入数
+	QueuedCount int       `json:"queued_count"`          // 排队中的输入数
 	InputQueue  []string  `json:"input_queue,omitempty"` // 排队消息内容（TUI 显示用）
 }
 type RuntimeState struct {
@@ -61,11 +62,11 @@ type RuntimeState struct {
 
 // PlanState 描述当前 WorkPlan 的执行状态（nil = 无活跃 Plan）。
 type PlanState struct {
-	Name     string      `json:"name"`
-	Status   PlanStatus  `json:"status"`
-	Nodes    []PlanNode  `json:"nodes,omitempty"`
-	Progress float64     `json:"progress"`
-	Elapsed  string      `json:"elapsed,omitempty"`
+	Name     string     `json:"name"`
+	Status   PlanStatus `json:"status"`
+	Nodes    []PlanNode `json:"nodes,omitempty"`
+	Progress float64    `json:"progress"`
+	Elapsed  string     `json:"elapsed,omitempty"`
 }
 
 type PlanStatus string
@@ -83,7 +84,7 @@ type PlanNode struct {
 	Label    string     `json:"label"`
 	Kind     string     `json:"kind"`
 	Status   NodeStatus `json:"status"`
-	Depth    int        `json:"depth,omitempty"`    // 缩进层级（0 = 根）
+	Depth    int        `json:"depth,omitempty"` // 缩进层级（0 = 根）
 	Elapsed  string     `json:"elapsed,omitempty"`
 	Children []PlanNode `json:"children,omitempty"` // Fork 子节点
 }
@@ -98,6 +99,7 @@ const (
 	NodeAborted   NodeStatus = "aborted"
 	NodeSkipped   NodeStatus = "skipped"
 )
+
 type Tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
@@ -148,6 +150,7 @@ type Capabilities struct {
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	copySnapshot := snapshot
+	copySnapshot.Sessions = append([]SessionInfo(nil), snapshot.Sessions...)
 	copySnapshot.Conversation = append([]Message(nil), snapshot.Conversation...)
 	// 标量字段 (HistoryOffset, TotalMessages, HasMoreHistory) 已值拷贝
 	for index := range copySnapshot.Conversation {

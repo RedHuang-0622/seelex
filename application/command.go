@@ -110,7 +110,14 @@ func (service *Service) registerBuiltinCommands() {
 		if err := service.deps.Sessions.SaveCurrent(id); err != nil {
 			return CommandResult{}, fmt.Errorf("保存会话失败: %w", err)
 		}
-		service.deps.Engine.ClearHistory()
+		newID := service.deps.Engine.StartSession()
+		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+		service.mu.Lock()
+		service.snapshot.Session.ID = newID
+		service.snapshot.HistoryOffset = 0
+		service.snapshot.TotalMessages = 0
+		service.snapshot.HasMoreHistory = false
+		service.mu.Unlock()
 		service.resetConversation(fmt.Sprintf("已新建会话（已保存 %s）", id))
 		return CommandResult{}, nil
 	})

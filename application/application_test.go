@@ -10,12 +10,13 @@ import (
 )
 
 type fakeEngine struct {
-	mu      sync.Mutex
-	history []EngineMessage
-	chunks  []string
-	prompt  string
-	chatErr error
-	cleared bool
+	mu        sync.Mutex
+	history   []EngineMessage
+	chunks    []string
+	prompt    string
+	chatErr   error
+	cleared   bool
+	sessionID string
 }
 
 func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
@@ -44,7 +45,29 @@ func (engine *fakeEngine) ClearHistory() {
 	engine.cleared = true
 	engine.mu.Unlock()
 }
-func (*fakeEngine) SessionID() string { return "session-1" }
+func (engine *fakeEngine) SessionID() string {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	if engine.sessionID == "" {
+		return "session-1"
+	}
+	return engine.sessionID
+}
+func (engine *fakeEngine) StartSession() string {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.sessionID = "session-new"
+	engine.history = nil
+	engine.cleared = true
+	return engine.sessionID
+}
+func (engine *fakeEngine) ReplaceHistory(sessionID string, history []EngineMessage) error {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.sessionID = sessionID
+	engine.history = append([]EngineMessage(nil), history...)
+	return nil
+}
 func (engine *fakeEngine) SetSystemPrompt(prompt string) {
 	engine.mu.Lock()
 	engine.prompt = prompt
@@ -120,8 +143,62 @@ func (fakeSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, er
 }
 func (fakeSessions) MessageCount(string) (int, error) { return 1, nil }
 
+type trackingSessions struct {
+	fakeSessions
+	mu       sync.Mutex
+	savedIDs []string
+}
+
+func (sessions *trackingSessions) SaveCurrent(sessionID string) error {
+	sessions.mu.Lock()
+	sessions.savedIDs = append(sessions.savedIDs, sessionID)
+	sessions.mu.Unlock()
+	return nil
+}
+
 func newTestService(engine *fakeEngine) *Service {
 	return New(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+}
+
+func TestSnapshotIncludesPersistedSessions(t *testing.T) {
+	t.Parallel()
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+
+	snapshot := service.Snapshot()
+	if len(snapshot.Sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(snapshot.Sessions))
+	}
+	if snapshot.Sessions[0].ID != "saved" || snapshot.Sessions[0].TokenCount != 4 {
+		t.Fatalf("unexpected session metadata: %+v", snapshot.Sessions[0])
+	}
+}
+
+func TestResumedChatPersistsToSelectedSession(t *testing.T) {
+	engine := &fakeEngine{}
+	sessions := &trackingSessions{}
+	service := New(Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{},
+		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills:  fakeSkills{}, Sessions: sessions,
+	})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Submit(context.Background(), "continue"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for service.Snapshot().Chat.Running && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
+	if len(sessions.savedIDs) != 1 || sessions.savedIDs[0] != "saved" {
+		t.Fatalf("saved session IDs = %v, want [saved]", sessions.savedIDs)
+	}
 }
 
 func TestEventHubOrdersAndResyncs(t *testing.T) {
@@ -241,7 +318,7 @@ func TestApprovalBrokerResolve(t *testing.T) {
 	}
 }
 
-func TestResumeCommandReportsUnavailableCapability(t *testing.T) {
+func TestResumeCommandOpensSessionInteraction(t *testing.T) {
 	service := newTestService(&fakeEngine{})
 	defer service.Shutdown()
 
@@ -249,11 +326,7 @@ func TestResumeCommandReportsUnavailableCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
-	if snapshot.Interaction != nil {
-		t.Fatalf("resume should not open an interaction when unsupported: %#v", snapshot.Interaction)
-	}
-	last := snapshot.Conversation[len(snapshot.Conversation)-1]
-	if !strings.Contains(last.Content, "会话恢复暂不可用") {
-		t.Fatalf("unexpected resume notice %q", last.Content)
+	if snapshot.Interaction == nil || snapshot.Interaction.Kind != "session" {
+		t.Fatalf("resume should open a session interaction: %#v", snapshot.Interaction)
 	}
 }

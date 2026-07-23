@@ -203,14 +203,17 @@ func TestBuiltinNew(t *testing.T) {
 	if !cleared {
 		t.Error("engine should be cleared for new session")
 	}
+	if svc.Snapshot().Session.ID != "session-new" {
+		t.Fatalf("new session ID = %q, want session-new", svc.Snapshot().Session.ID)
+	}
 }
 
 func TestBuiltinNew_SaveFails(t *testing.T) {
 	eng := &fakeEngine{}
 	svc := New(Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
-		Skills:  fakeSkills{},
+		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
 		Sessions: &failingSessions{},
 	})
 	defer svc.Shutdown()
@@ -222,50 +225,44 @@ func TestBuiltinNew_SaveFails(t *testing.T) {
 
 type failingSessions struct{}
 
-func (failingSessions) SaveCurrent(string) error { return errors.New("save failed") }
-func (failingSessions) Resume(string) error      { return nil }
-func (failingSessions) List() []SessionInfo      { return nil }
-func (failingSessions) LoadHistory(string) ([]EngineMessage, error)        { return nil, nil }
+func (failingSessions) SaveCurrent(string) error                    { return errors.New("save failed") }
+func (failingSessions) Resume(string) error                         { return nil }
+func (failingSessions) List() []SessionInfo                         { return nil }
+func (failingSessions) LoadHistory(string) ([]EngineMessage, error) { return nil, nil }
 func (failingSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
 	return nil, 0, nil
 }
 func (failingSessions) MessageCount(string) (int, error) { return 0, nil }
 
-func TestBuiltinResume_NotSupported(t *testing.T) {
+func TestBuiltinResumeOpensSessionPicker(t *testing.T) {
 	svc := newTestService(&fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/resume"); err != nil {
 		t.Fatal(err)
 	}
-	notice := lastNotice(t, svc)
-	// Capabilities.SessionResume defaults to false
-	if !strings.Contains(notice, "暂不可用") && !strings.Contains(notice, "不支持") {
-		t.Logf("resume disabled notice: %q", notice)
+	interaction := svc.Snapshot().Interaction
+	if interaction == nil || interaction.Kind != "session" {
+		t.Fatalf("resume interaction = %+v, want session picker", interaction)
 	}
 }
 
 func TestBuiltinResume_WithSessionID(t *testing.T) {
-	// Enable resume capability and test with a session ID
 	eng := &fakeEngine{}
-	svc := New(Dependencies{
-		Engine: eng, Runtime: &fakeRuntime{},
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
-		Skills:  fakeSkills{},
-		Sessions: fakeSessions{},
-	})
+	svc := newTestService(eng)
 	defer svc.Shutdown()
 
-	svc.mu.Lock()
-	svc.snapshot.Capabilities = Capabilities{SessionResume: true}
-	svc.mu.Unlock()
-
-	// fakeSessions.Resume returns "resume unsupported", expect this error
-	err := svc.Submit(context.Background(), "/resume saved")
-	if err == nil {
-		t.Log("resume returned no error (may produce notice instead)")
-	} else {
-		// Error path is also valid
-		t.Logf("resume returned error (expected): %v", err)
+	if err := svc.Submit(context.Background(), "/resume saved"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := svc.Snapshot()
+	if snapshot.Session.ID != "saved" {
+		t.Fatalf("session ID = %q, want saved", snapshot.Session.ID)
+	}
+	eng.mu.Lock()
+	history := append([]EngineMessage(nil), eng.history...)
+	eng.mu.Unlock()
+	if len(history) != 1 || history[0].Content != "saved answer" {
+		t.Fatalf("engine history was not replaced: %+v", history)
 	}
 }
 
@@ -288,8 +285,8 @@ func TestBuiltinSessions_Empty(t *testing.T) {
 	eng := &fakeEngine{}
 	svc := New(Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
-		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
-		Skills:  fakeSkills{},
+		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
 		Sessions: &emptySessions{},
 	})
 	defer svc.Shutdown()
@@ -304,12 +301,14 @@ func TestBuiltinSessions_Empty(t *testing.T) {
 
 type emptySessions struct{}
 
-func (emptySessions) SaveCurrent(string) error                              { return nil }
-func (emptySessions) Resume(string) error                                   { return nil }
-func (emptySessions) List() []SessionInfo                                   { return nil }
-func (emptySessions) LoadHistory(string) ([]EngineMessage, error)           { return nil, nil }
-func (emptySessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) { return nil, 0, nil }
-func (emptySessions) MessageCount(string) (int, error)                      { return 0, nil }
+func (emptySessions) SaveCurrent(string) error                    { return nil }
+func (emptySessions) Resume(string) error                         { return nil }
+func (emptySessions) List() []SessionInfo                         { return nil }
+func (emptySessions) LoadHistory(string) ([]EngineMessage, error) { return nil, nil }
+func (emptySessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
+	return nil, 0, nil
+}
+func (emptySessions) MessageCount(string) (int, error) { return 0, nil }
 
 func TestBuiltinPlugin_NoArg(t *testing.T) {
 	svc := newTestService(&fakeEngine{})
@@ -327,8 +326,8 @@ func TestBuiltinPlugin_NoCurrent(t *testing.T) {
 	eng := &fakeEngine{}
 	svc := New(Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
-		Plugins: &noCurrentPlugins{},
-		Skills:  fakeSkills{},
+		Plugins:  &noCurrentPlugins{},
+		Skills:   fakeSkills{},
 		Sessions: fakeSessions{},
 	})
 	defer svc.Shutdown()
@@ -470,8 +469,8 @@ func TestNew_DefaultState(t *testing.T) {
 	if snap.Runtime.Model != "test-model" {
 		t.Errorf("expected test-model, got %q", snap.Runtime.Model)
 	}
-	if snap.Capabilities.SessionResume {
-		t.Error("resume should be disabled by default")
+	if !snap.Capabilities.SessionResume {
+		t.Error("resume should be enabled by default")
 	}
 	if snap.Revision != 1 {
 		t.Errorf("expected revision 1, got %d", snap.Revision)

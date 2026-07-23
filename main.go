@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
@@ -28,7 +29,9 @@ import (
 var (
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
 	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
-	permissionMode = flag.String("permission", "full_access", "权限模式: full_access(全部放行) | manual(白名单外需审批)")
+	permissionMode = flag.String("permission", "manual", "权限模式: manual(白名单外需审批) | full_access(全部放行)")
+	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui")
+	showVersion    = flag.Bool("version", false, "显示版本号并退出")
 )
 
 // accountsPath 返回 accounts.yaml 的路径。
@@ -46,6 +49,23 @@ func accountsPath() string {
 
 func main() {
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(Version)
+		return
+	}
+	frontend, err := parseFrontendMode(*frontendMode)
+	if err != nil {
+		fatalf("前端模式无效: %v", err)
+	}
+	*frontendMode = frontend
+	if frontend == "gui" && !gui.Available() {
+		fatalf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`)
+	}
+	mode, err := parsePermissionMode(*permissionMode)
+	if err != nil {
+		fatalf("权限模式无效: %v", err)
+	}
+	*permissionMode = string(mode)
 	*storePath = resolveStorePath(*storePath)
 
 	runtime := initRuntime()
@@ -57,18 +77,20 @@ func main() {
 	store := initStore()
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
-	setupPermissionGate(runtime, approval)
+	if err := setupPermissionGate(runtime, approval); err != nil {
+		fatalf("权限模式无效: %v", err)
+	}
 	toolHooks := application.NewToolHookBridge()
-	eng := initEngine(runtime, store, toolHooks)
-	registerProductTools(runtime, pluginManager, eng, approval)
-	activateDefaultPlugin(pluginManager, eng)
-	sessionManager := initSessionManager(store, eng)
-	app := initApplication(eng, runtime, pluginManager, sessionManager, skillRegistry, events, approval)
+	frameworkEngine := initEngine(runtime, toolHooks)
+	registerProductTools(runtime, pluginManager, frameworkEngine, approval)
+	activateDefaultPlugin(pluginManager, frameworkEngine)
+	appEngine := newEnginePort(frameworkEngine)
+	sessionManager := initSessionManager(store, appEngine)
+	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, events, approval)
 	defer app.Shutdown()
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
-	model := initTUI(app)
-	startTUI(model)
+	startFrontend(app)
 }
 
 func initRuntime() *seelebridge.Runtime {
@@ -252,36 +274,36 @@ func initStore() *seelebridge.SessionStore {
 	return store
 }
 
-func initEngine(runtime *seelebridge.Runtime, store *seelebridge.SessionStore, hooks *application.ToolHookBridge) *engine.Engine {
+func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge) *engine.Engine {
 	return engine.New(
 		runtime.Agent(),
-		engine.WithStore(store.FrameworkStore()),
 		engine.WithTracer(seelebridge.NewTracer()),
 		engine.WithHooks(hooks.Hooks()),
 	)
 }
 
-func initSessionManager(store *seelebridge.SessionStore, eng *engine.Engine) *session.Manager {
+func initSessionManager(store *seelebridge.SessionStore, eng *enginePort) *session.Manager {
 	manager := session.NewManager(store)
 	manager.InjectSaveLoad(
-		func(sessionID string) error { return store.Save(sessionID, eng.History()) },
+		func(sessionID string) error { return store.Save(sessionID, eng.rawHistory()) },
 		func(sessionID string) error {
-			if _, err := store.Load(sessionID); err != nil {
+			history, err := store.Load(sessionID)
+			if err != nil {
 				return err
 			}
-			return fmt.Errorf("session resume requires engine history replacement support")
+			return eng.replaceRawHistory(sessionID, history)
 		},
 	)
 	return manager
 }
 
 func initApplication(
-	eng *engine.Engine, runtime *seelebridge.Runtime, plugins *plugin.Manager,
+	eng *enginePort, runtime *seelebridge.Runtime, plugins *plugin.Manager,
 	sessions *session.Manager, skills *skill.Registry,
 	events *application.EventHub, approval *application.ApprovalBroker,
 ) *application.Service {
 	return application.New(application.Dependencies{
-		Engine: enginePort{engine: eng}, Runtime: runtimePort{runtime: runtime},
+		Engine: eng, Runtime: runtimePort{runtime: runtime},
 		Plugins: pluginPort{manager: plugins}, Skills: skillPort{registry: skills},
 		Sessions: sessionPort{manager: sessions}, Events: events, Approval: approval,
 	})
@@ -296,11 +318,35 @@ func startTUI(model tui.Model) {
 	}
 }
 
+func startFrontend(app *application.Service) {
+	switch *frontendMode {
+	case "gui":
+		if err := gui.Run(app, gui.Options{Title: "Seelex", Version: Version}); err != nil {
+			fatalf("GUI 错误: %v", err)
+		}
+	default:
+		startTUI(initTUI(app))
+	}
+}
+
+func parseFrontendMode(value string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	switch mode {
+	case "tui", "gui":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%q，允许值为 tui 或 gui", value)
+	}
+}
+
 // setupPermissionGate 根据 -permission 标志安装权限门控。
-// full_access：所有工具直接放行（默认）。
-// manual：白名单内自动放行，白名单外弹审批框。
-func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.ApprovalBroker) {
-	mode := permission.Mode(strings.ToLower(strings.TrimSpace(*permissionMode)))
+// manual：白名单内自动放行，白名单外弹审批框（默认）。
+// full_access：所有工具直接放行，仅在用户显式选择时启用。
+func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.ApprovalBroker) error {
+	mode, err := parsePermissionMode(*permissionMode)
+	if err != nil {
+		return err
+	}
 	switch mode {
 	case permission.ModeManual:
 		cfg := permission.PermissionConfig{
@@ -324,9 +370,20 @@ func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.App
 			},
 		}
 		runtime.SetPermissionConfig(cfg, newPermissionBridge(approval))
-	default:
+	case permission.ModeFullAccess:
 		cfg := permission.PermissionConfig{Mode: permission.ModeFullAccess}
 		runtime.SetPermissionConfig(cfg, nil)
+	}
+	return nil
+}
+
+func parsePermissionMode(value string) (permission.Mode, error) {
+	mode := permission.Mode(strings.ToLower(strings.TrimSpace(value)))
+	switch mode {
+	case permission.ModeManual, permission.ModeFullAccess:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%q，允许值为 manual 或 full_access", value)
 	}
 }
 

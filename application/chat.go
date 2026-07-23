@@ -37,6 +37,11 @@ func (service *Service) startChat(parent context.Context, input string) error {
 
 func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	_, err := service.deps.Engine.ChatStream(ctx, input, func(chunk string) { service.appendDelta(requestID, chunk) })
+	if err == nil {
+		if saveErr := service.deps.Sessions.SaveCurrent(service.deps.Engine.SessionID()); saveErr != nil {
+			err = fmt.Errorf("保存会话失败: %w", saveErr)
+		}
+	}
 	service.mu.Lock()
 	if service.snapshot.Chat.RequestID != requestID {
 		service.mu.Unlock()
@@ -58,11 +63,7 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	processQueue := len(service.inputQueue) > 0
 	var batchInput string
 	if processQueue {
-		// 把所有排队消息显示到对话框
-		for _, q := range service.inputQueue {
-			service.appendMessageLocked("user", q, nil)
-		}
-		// 合并为一条 LLM 输入
+		// 前端通过 Chat.InputQueue 展示等待项；接续时只保留合并后的真实 LLM 输入，避免重复消息。
 		batchInput = strings.Join(service.inputQueue, "\n---\n")
 		service.inputQueue = nil
 		service.snapshot.Chat.QueuedCount = 0
@@ -107,7 +108,7 @@ func (service *Service) appendHistoryLocked(history []EngineMessage) {
 			service.appendMessageLocked("tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"})
 		}
 		if historyMessage.Role == "tool" {
-			service.appendMessageLocked("tool_result", historyMessage.Content, &ToolCall{Name: historyMessage.Name, Result: historyMessage.Content, Status: "success"})
+			service.appendMessageLocked("tool_result", historyMessage.Content, &ToolCall{ID: historyMessage.ToolCallID, Name: historyMessage.Name, Result: historyMessage.Content, Status: "success"})
 		}
 	}
 }
@@ -173,9 +174,9 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 		Input string `json:"input"`
 	}
 	var input struct {
-		Entry string                   `json:"entry"`
-		Nodes map[string]planNodeSpec  `json:"nodes"`
-		Edges map[string][]string      `json:"edges"`
+		Entry string                  `json:"entry"`
+		Nodes map[string]planNodeSpec `json:"nodes"`
+		Edges map[string][]string     `json:"edges"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil || len(input.Nodes) == 0 {
 		return
@@ -195,19 +196,19 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 // updatePlanFromRunResult 从 plan_run 返回的 JSON 更新 PlanState。
 func (service *Service) updatePlanFromRunResult(resultJSON string) {
 	var out struct {
-		Status       string `json:"status"`
-		NodeCount    int    `json:"node_count"`
-		FinalOutput  string `json:"final_output"`
-		AbortReason  string `json:"abort_reason,omitempty"`
+		Status      string `json:"status"`
+		NodeCount   int    `json:"node_count"`
+		FinalOutput string `json:"final_output"`
+		AbortReason string `json:"abort_reason,omitempty"`
 		// 扩展字段：若框架 plan_run 返回了 per-node 结果
 		Nodes []struct {
-			NodeID    string `json:"node_id"`
-			Kind      string `json:"kind"`
-			Status    string `json:"status"`
-			Elapsed   string `json:"elapsed,omitempty"`
-			Skipped   bool   `json:"skipped"`
-			Aborted   bool   `json:"aborted"`
-			Err       string `json:"err,omitempty"`
+			NodeID  string `json:"node_id"`
+			Kind    string `json:"kind"`
+			Status  string `json:"status"`
+			Elapsed string `json:"elapsed,omitempty"`
+			Skipped bool   `json:"skipped"`
+			Aborted bool   `json:"aborted"`
+			Err     string `json:"err,omitempty"`
 		} `json:"nodes,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(resultJSON), &out); err != nil {
@@ -271,13 +272,13 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 
 // resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。
 func resolveNodeStatus(nodes []struct {
-	NodeID    string `json:"node_id"`
-	Kind      string `json:"kind"`
-	Status    string `json:"status"`
-	Elapsed   string `json:"elapsed,omitempty"`
-	Skipped   bool   `json:"skipped"`
-	Aborted   bool   `json:"aborted"`
-	Err       string `json:"err,omitempty"`
+	NodeID  string `json:"node_id"`
+	Kind    string `json:"kind"`
+	Status  string `json:"status"`
+	Elapsed string `json:"elapsed,omitempty"`
+	Skipped bool   `json:"skipped"`
+	Aborted bool   `json:"aborted"`
+	Err     string `json:"err,omitempty"`
 }, nodeID string) NodeStatus {
 	for _, n := range nodes {
 		if n.NodeID == nodeID {
