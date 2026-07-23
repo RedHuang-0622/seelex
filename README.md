@@ -1,5 +1,7 @@
 # Seelex — 可切换专业形态的工科全栈 Agent
 
+> 当前发布通道：`v0.1.0-alpha.1` Developer Alpha。TUI 为默认入口，桌面 GUI 为显式启用的 Alpha 功能。
+
 **Seelex** 是一个面向工程研发、设计与交付全过程的全栈 Agent。它以 [Seele](https://github.com/RedHuang-0622/Seele) 作为 Agent 引擎，通过可声明、可组合、可运行时切换的 Plugin，让同一个 Agent 像切换"形态"一样进入不同专业工作域。
 
 Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
@@ -9,9 +11,9 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 - **Plugin** 定义 Agent 当前的专业形态，例如基础读写、CAD、软件开发和后续工程领域；
 - **CAD** 是首个重点专业增幅方向，用于验证复杂工程工具链，而不是产品边界；
 - **TUI** 是高效率 CLI 工作入口；
-- **Electron** 面向毕业设计、课程项目、成果展示和更完整的可视化交付体验。
+- **GUI** 基于 Wails/WebView，面向毕业设计、课程项目、成果展示和更完整的可视化交付体验。
 
-> 当前阶段重点是稳定 Agent 内核与 Plugin 切换机制。CAD、Dev 和 Electron 将作为建立在同一内核上的产品形态逐步落地。
+> 当前阶段重点是稳定 Agent 内核、Plugin 切换机制和 TUI/GUI 双前端主链路。CAD 与 Dev 将作为建立在同一内核上的专业形态逐步落地。
 
 ## 功能特性
 
@@ -42,10 +44,15 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 - 命令系统：`/help`、`/model`、`/plugins`、`/effort`、`/sessions`、`/new`
 - 历史、追踪、账号池管理和 Plugin 列表查看
 
+### 🪟 桌面 GUI（Alpha）
+- 与 `tui/` 同级的 `gui/`，直接复用 `application.Service`
+- 支持聊天流、工具卡片、审批、Plugin、Account、Effort、Plan、Skill 和分页历史
+- 使用 `-tags "gui,desktop,production"` 构建，避免默认 TUI 构建依赖桌面 WebView
+
 ### 🔧 跨平台可执行
-- 预编译 **Windows / Linux / macOS**（amd64 + arm64）二进制
+- 预编译 Windows amd64、Linux amd64、macOS amd64/arm64 CLI 二进制
 - 静态编译（CGO_ENABLED=0），**零运行时依赖**，即下即用
-- 体积 16-17 MB/平台
+- Windows GUI 单独构建，依赖系统 WebView2 Runtime
 
 ## 产品模型
 
@@ -67,7 +74,7 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 
  Bubble Tea TUI ── AppController ──┐
                                     ├── application.Service
- Electron UI ───── JSON-RPC/stdio ──┘
+ Wails GUI ─────── gui.Bridge ─────┘
 ```
 
 Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
@@ -84,6 +91,7 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 |------|:---:|------|
 | Headless Application Core | ✅ | TUI 已与业务状态、副作用和异步生命周期分离 |
 | TUI 客户端 | ✅ | 支持流式聊天、命令、补全、工具事件、交互面板、Alt+E effort 循环 |
+| Wails GUI | 🟡 | 已具备完整主界面和 Application Bridge；Alpha 阶段继续补充平台 E2E |
 | 文件化 Plugin | ✅ | `plugin.md` 定义工具过滤、Prompt、Skill 和 MCP |
 | Plugin 运行时切换 | ✅ | 支持激活、停用、失败回滚和并发串行化 |
 | Skill 系统 | ✅ | 支持目录加载、注册、Plugin Skill 和多层 PromptStack 叠加 |
@@ -93,11 +101,11 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 | Plan/WorkPlan 可视化 | ✅ | TUI 四级 Effort Plan 面板（单行/打点表/节点树/全框表）+ 进度回调实时更新 |
 | 系统诊断 /diag | ✅ | Go 运行时、内存、Plugin、Account、Skill 完整列出 |
 | 会话保存与列表 | ✅ | 支持 `/new` 保存和 `/sessions` 查询 |
-| 会话恢复 | ⛔ | Seele 暂无历史替换 API，`/resume` 会明确提示不可用 |
+| 会话恢复 | ✅ | `/resume <id>` 原子替换 Engine 历史，后续对话按选中会话 ID 继续保存 |
 | MCP 调用追溯 | ✅ | 含熔断事件通道的完整调用链记录 |
 | Plan/WorkPlan 工作流 | ✅ | 支持 plan_load/plan_run/plan_status/plan_export/plan_clear |
 | Web 搜索 | ✅ | 支持 Tavily 等搜索 Provider，账号池 YAML 可配置 api_key |
-| Electron sidecar | ⬜ | 计划通过 JSON-RPC/stdio 复用 application core |
+| 多前端远程协议 | ⬜ | 当前 GUI 进程内复用 application core；远程/IDE 客户端仍需版本化协议 |
 | CAD Plugin 垂直闭环 | ⬜ | FreeCAD/MCP/命令栈的最小垂直闭环 |
 | Dev Plugin | ⬜ | 规划代码、测试、审查和交付能力形态 |
 
@@ -105,7 +113,7 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 
 ## 架构
 
-`application` 是无界面的应用核心，持有业务状态、副作用和异步生命周期；`tui` 只负责 Bubble Tea 输入事件、终端尺寸、光标、选中项、滚动和 Lipgloss 渲染。Snapshot、Event 和 Interaction DTO 不依赖 Bubble Tea，可供后续 Electron sidecar 序列化。
+`application` 是无界面的应用核心，持有业务状态、副作用和异步生命周期；`tui` 负责终端交互，`gui` 负责桌面 WebView 适配。两个前端只消费 Snapshot、Event 和 Interaction DTO，不复制业务状态机。
 
 ### 装配顺序
 
@@ -116,8 +124,8 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 | L3 | Engine 与 Tool Hooks | `initEngine()` |
 | L4 | 产品工具与 Session | `registerProductTools()`, `initSessionManager()` |
 | L5 | Headless Application Core | `initApplication()` |
-| L6 | TUI Adapter | `initTUI()` |
-| L7 | Bubble Tea Program | `startTUI()` |
+| L6 | Frontend Adapter | `initTUI()` / `gui.NewBridge()` |
+| L7 | Frontend Program | `startFrontend()` |
 
 ### 依赖原则
 
@@ -125,7 +133,7 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 2. TUI 不直接依赖 Engine、Plugin、Skill、Session 或 Seele 深层类型；
 3. Seele 已有能力优先通过薄适配器复用，不在 Seelex 重造引擎；
 4. Plugin 负责专业能力组合，不把领域逻辑硬编码进 TUI；
-5. CLI 与 Electron 使用同一个 application core，不复制业务状态机。
+5. TUI 与 GUI 使用同一个 application core，不复制业务状态机。
 
 ### 架构文档
 
@@ -148,14 +156,16 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 git clone https://github.com/RedHuang-0622/seelex.git
 cd seelex
 
-# 1. 配置账号 — 编辑 config/accounts.yaml 填入 API Key
-#    也可复制为 config/accounts.local.yaml 本地使用（已 .gitignore）
+# 1. 从公开模板创建本地配置，再填写 API Key
+cp config/accounts.example.yaml config/accounts.yaml
 
 # 2. 运行
 go run .
 ```
 
-配置示例（`config/accounts.yaml`）：
+配置模板见 `config/accounts.example.yaml`。真实的 `config/accounts.yaml` 已被 `.gitignore` 排除，发布脚本也不会复制本机账户文件。
+
+配置示例：
 
 ```yaml
 defaults:
@@ -169,7 +179,7 @@ accounts:
     provider: openai
     model: gpt-4o
     base_url: https://api.openai.com/v1
-    api_key: sk-...
+    api_key: replace-with-your-api-key
 ```
 
 脚本读取 `$HOME/.claude/settings.json` 中的 `ANTHROPIC_AUTH_TOKEN`，生成本地 OpenAI 兼容账号配置。`config/*.local.yaml` 已被 gitignore，不会进入版本库。
@@ -180,7 +190,18 @@ accounts:
 |------|--------|------|
 | `-store` | `.seelex/sessions` | 持久化存储路径 |
 | `-plugins` | `plugins` | Plugin 加载路径（逗号分隔） |
-| `-permission` | `full_access` | 权限模式：`full_access`(全部放行) / `manual`(白名单外需审批) |
+| `-permission` | `manual` | 权限模式：`manual`(白名单外需审批) / `full_access`(显式全部放行) |
+| `-frontend` | `tui` | 前端模式：`tui` / `gui` |
+| `-version` | `false` | 显示版本号并退出 |
+
+### 启动桌面 GUI
+
+```bash
+# GUI 依赖 Wails，必须同时启用项目和 Wails 生产标签
+go run -tags "gui,desktop,production" . -frontend gui
+```
+
+默认 `go run .` 和普通发布包仍启动 TUI。
 
 ## 使用方式
 
@@ -233,7 +254,7 @@ accounts:
 | `/diag` | 系统诊断信息（Go运行时、内存、插件、Skill、账号） |
 | `/new` | 保存当前会话并清空历史 |
 | `/sessions` | 列出持久化会话 |
-| `/resume <id>` | 当前受 Seele 历史替换能力限制，会返回明确提示 |
+| `/resume <id>` | 恢复指定历史会话并继续对话 |
 | `/exit` | 退出程序 |
 
 ### Effort 等级说明
@@ -290,14 +311,15 @@ Dev Plugin 将面向软件工程全过程：
 - Review、变更报告和交付；
 - 与 Git、CI、Issue/Task 系统集成。
 
-### Electron
+### Desktop GUI
 
-Electron 不替代 CLI，而是提供另一种产品入口：
+GUI 不替代 CLI，而是提供另一种产品入口：
 
 - 面向毕业设计和课程项目的可视化操作；
 - 工程任务、产物、Plugin 和执行历史展示；
+- Markdown 消息、折叠思考过程、运行状态动效和可见的后续输入队列；
 - CAD 模型、报告和演示内容集成；
-- 通过 JSON-RPC/stdio 调用与 TUI 相同的 application core。
+- 通过 `gui.Bridge` 进程内调用与 TUI 相同的 application core。
 
 ## 项目结构
 
@@ -323,6 +345,7 @@ seelex/
 │   ├── input.go            #   用户输入处理（命令 / Skill / 普通消息）
 │   ├── prompt_stack.go     #   多层 system prompt 栈（5 层：identity→plugin→effort→instructions→skill）
 │   ├── ports.go            #   Dependencies 接口（ChatEngine / RuntimePort / PluginPort / SkillPort / SessionPort）
+├── gui/                    # Wails GUI Adapter + 嵌入式 Web 前端（与 tui/ 同级）
 │   ├── state.go            #   Snapshot DTO（Session / Message / Chat / Runtime / Plan / Capabilities）
 │   └── websearch.go        #   Web 搜索配置加载
 ├── plugin/                 # Plugin Loader 与事务型 Manager
@@ -398,11 +421,12 @@ seelex/
 │   ├── types.go            #   TUI 类型定义
 │   └── splash/             #   启动画面
 ├── config/                 # 账号池配置模板
-│   ├── accounts.yaml
-│   └── account-pool.yaml
+│   └── accounts.example.yaml
 ├── scripts/                # 构建与同步脚本
-│   ├── sync-claudecode-account.ps1
-│   └── Makefile
+│   ├── build.sh
+│   ├── build.ps1
+│   └── sync-claudecode-account.ps1
+├── Makefile                # Unix/CI 跨平台构建入口
 ├── docs/                   # 文档
 │   ├── arch/               #   架构设计文档
 │   ├── devlog/             #   研发过程记录
@@ -412,17 +436,18 @@ seelex/
 
 ## 已知问题与局限
 
-当前版本（v0.0.4）存在以下已知问题，详见 [`CODE_EVALUATION_REPORT.md`](CODE_EVALUATION_REPORT.md)（评估日期 2025-07-11，评分 72/100）：
+当前版本（`v0.1.0-alpha.1`）仍有以下已知限制：
 
 | 类别 | 问题 | 影响 | 当前状态 |
 |------|------|------|:---:|
-| 代码质量 | `application/command.go` 中使用 `log.Fatalf` 处理注册错误 | 启动即崩溃 | ✅ 已修复 |
+| 代码质量 | `application/command.go` 注册内置命令时仍使用 `log.Fatalf` | 仅编程错误触发，但不利于嵌入 | 待改为返回 error |
 | 并发安全 | `EventHub.Publish` 持锁向 channel 发送 | 低概率阻塞 | 🟡 已有反压+resync，channel 发送优化待改 |
 | 依赖装配 | `main.go` 超 400 行手工 DI | 可维护性 | 待重构 |
-| 安全 | 强制 Permission Gate 未接通 | 权限规则不生效 | 🟡 基础已接线，seele.yaml 规则未强制执行 |
+| 安全 | `seele.yaml` 声明规则尚未自动加载 | 文件声明与硬编码白名单可能漂移 | 🟡 默认已改为 manual，规则加载待完成 |
 | 测试覆盖 | TUI 包仅 6.2% | TUI 回归保护不足 | 待补充 |
+| GUI | 系统 WebView 平台差异尚未完成全平台 E2E | Alpha 体验可能存在差异 | Windows 作为首发 GUI 平台 |
 
-> 自评估报告以来已大幅改善：`application` 包从 42% → 67.4%，`session` 从 0% → 100%，`plugin` 维持 87.6%，`skill` 维持 82.6%。并发安全方面已修复 `PromptStack` 和 `EffortManager` 的 data race，`EventHub` 反压机制已实现。全量 `go test -race` 通过。
+> CI 配置三平台 build/vet/test，并在 Linux 执行 race 与覆盖率；发布前仍应以对应 tag 的实际 CI 结果为准。
 
 ## 路线图
 
@@ -443,19 +468,20 @@ seelex/
 - Web 搜索集成（Tavily，账号池 YAML 可配置 api_key）；
 - /diag 系统诊断面板（Go 运行时、内存、插件、Skill、账号）；
 - Plan 可视化（TUI 面板 + 进度回调）；
-- 全量 `go test -race` 通过，核心并发路径已加固。
+- 与 TUI 同级的 Wails GUI、Application Bridge 和桌面主界面；
+- 默认 manual 权限、公开配置模板和安全发布白名单；
+- tag 驱动的 CLI/Windows GUI 预发行流程和 SHA-256 校验和。
 
 ### 下一阶段
 
 1. Effort 注入 API 参数（Anthropic thinking / OpenAI reasoning_effort）；
 2. Effort → 模型选型（flash/pro 自动切换）；
 3. Effort → Planning 策略（brief/structured/dag）；
-4. 接通强制 Permission Gate，消除权限声明与运行行为差异；
-5. 为 Snapshot 增加分页、协议版本和稳定错误码；
-6. 实现 JSON-RPC/stdio sidecar；
+4. 让 `seele.yaml` 权限规则进入强制门控，消除文件声明与运行行为差异；
+5. 为多进程/远程前端补充协议版本和稳定错误码；
+6. 补齐 GUI Windows E2E、键盘可访问性和长会话虚拟列表；
 7. 打通 CAD Plugin 最小垂直闭环；
-8. 建立 Dev Plugin 的代码—测试—Review 闭环；
-9. 基于 sidecar 构建 Electron 毕设与成果展示界面。
+8. 建立 Dev Plugin 的代码—测试—Review 闭环。
 
 ## 开发
 
@@ -478,6 +504,9 @@ go tool cover -func=coverage.out | tail -1
 
 # 跨平台构建
 make build && make package
+
+# Windows GUI
+.\scripts\build-gui.ps1 -Version v0.1.0-alpha.1
 ```
 
 ### 当前测试覆盖率
