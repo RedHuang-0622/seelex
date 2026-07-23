@@ -409,11 +409,103 @@ func TestSkillLoadViaSubmit(t *testing.T) {
 	if err := svc.Submit(context.Background(), "#review focused"); err != nil {
 		t.Fatal(err)
 	}
+	waitForChatCompletion(t, svc)
 	engine.mu.Lock()
 	prompt := engine.prompt
+	modelInput := engine.lastInput
 	engine.mu.Unlock()
-	if !strings.Contains(prompt, "review prompt") {
-		t.Errorf("prompt missing skill content: %q", prompt)
+	if strings.Contains(prompt, "review prompt") || strings.Contains(prompt, "review code") || strings.Contains(prompt, "focused") || strings.Contains(prompt, "Available Skills") || strings.Contains(prompt, "#review") {
+		t.Errorf("system prompt contains Skill/user request: %q", prompt)
+	}
+	for _, expected := range []string{"- name: review", "review prompt", "## User Request\n#review focused"} {
+		if !strings.Contains(modelInput, expected) {
+			t.Errorf("model input missing %q: %q", expected, modelInput)
+		}
+	}
+	conversation := svc.Snapshot().Conversation
+	if len(conversation) < 2 || conversation[len(conversation)-2].Content != "#review focused" {
+		t.Fatalf("UI conversation must show original input: %#v", conversation)
+	}
+}
+
+func TestSkillWithoutRequirementAppliesToNextInput(t *testing.T) {
+	engine := &fakeEngine{}
+	svc := newTestService(engine)
+	defer svc.Shutdown()
+
+	if err := svc.Submit(context.Background(), "#review"); err != nil {
+		t.Fatal(err)
+	}
+	if svc.Snapshot().Chat.Running || !svc.promptStack.Has("skill") {
+		t.Fatal("Skill without requirement must activate without starting chat")
+	}
+	if err := svc.Submit(context.Background(), "check the change"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, svc)
+	engine.mu.Lock()
+	modelInput := engine.lastInput
+	engine.mu.Unlock()
+	for _, expected := range []string{"- name: review", "review prompt", "## User Request\ncheck the change"} {
+		if !strings.Contains(modelInput, expected) {
+			t.Fatalf("active Skill model input missing %q: %q", expected, modelInput)
+		}
+	}
+
+	if err := svc.Submit(context.Background(), "#end"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Submit(context.Background(), "plain request"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, svc)
+	engine.mu.Lock()
+	modelInput = engine.lastInput
+	engine.mu.Unlock()
+	if modelInput != "plain request" {
+		t.Fatalf("input after #end = %q, want plain request", modelInput)
+	}
+}
+
+func TestQueuedSkillRequestFreezesDisplayAndModelInput(t *testing.T) {
+	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
+	svc := New(Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: fakeSessions{},
+	})
+	defer svc.Shutdown()
+
+	if err := svc.Submit(context.Background(), "running request"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Submit(context.Background(), "#review queued requirement"); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.RLock()
+	queueLength := len(svc.inputQueue)
+	if queueLength != 1 {
+		svc.mu.RUnlock()
+		t.Fatalf("queued requests = %d, want 1", queueLength)
+	}
+	queued := svc.inputQueue[0]
+	svc.mu.RUnlock()
+
+	if queued.displayInput != "#review queued requirement" {
+		t.Fatalf("queued display = %q", queued.displayInput)
+	}
+	for _, expected := range []string{"- name: review", "review prompt", "#review queued requirement"} {
+		if !strings.Contains(queued.modelInput, expected) {
+			t.Fatalf("queued model input missing %q: %q", expected, queued.modelInput)
+		}
+	}
+	if got := svc.Snapshot().Chat.InputQueue; len(got) != 1 || got[0] != queued.displayInput {
+		t.Fatalf("snapshot queue = %#v, want original display", got)
+	}
+	if err := svc.Submit(context.Background(), "#end"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(queued.modelInput, "review prompt") {
+		t.Fatal("#end changed already queued model context")
 	}
 }
 
@@ -426,6 +518,9 @@ func TestSkillUnknown(t *testing.T) {
 	notice := lastNotice(t, svc)
 	if !strings.Contains(notice, "未知 Skill") {
 		t.Errorf("expected unknown skill notice, got %q", notice)
+	}
+	if svc.Snapshot().Chat.Running {
+		t.Error("unknown Skill must not start chat")
 	}
 }
 
@@ -440,9 +535,11 @@ func TestSkillEnd(t *testing.T) {
 	engine.mu.Lock()
 	prompt := engine.prompt
 	engine.mu.Unlock()
-	// After #end, the skill prompt should not be present
+	if svc.promptStack.Has("skill") {
+		t.Error("#end must remove the active Skill")
+	}
 	if strings.Contains(prompt, "review prompt") {
-		t.Log("skill prompt may still be in prompt after #end:", prompt)
+		t.Errorf("Skill must never be present in system prompt: %q", prompt)
 	}
 }
 
@@ -455,6 +552,38 @@ func TestSkillEnd_NoActiveSkill(t *testing.T) {
 	notice := lastNotice(t, svc)
 	if !strings.Contains(notice, "无 Skill") {
 		t.Errorf("expected no skill notice, got %q", notice)
+	}
+}
+
+func TestSkillEndPreservesGoalLoopLimitUntilGoalIsPopped(t *testing.T) {
+	engine := &fakeEngine{}
+	svc := newTestService(engine)
+	defer svc.Shutdown()
+
+	if err := svc.effortManager.Apply("medium"); err != nil {
+		t.Fatal(err)
+	}
+	svc.applySkill(SkillInfo{Name: "goal", Prompt: "goal prompt"})
+	svc.applySkill(SkillInfo{Name: "review", Prompt: "review prompt"})
+
+	if err := svc.endSkill(); err != nil {
+		t.Fatal(err)
+	}
+	engine.mu.Lock()
+	maxLoops := engine.maxLoops
+	engine.mu.Unlock()
+	if maxLoops != 9999 {
+		t.Fatalf("MaxLoops after popping review with goal active = %d, want 9999", maxLoops)
+	}
+
+	if err := svc.endSkill(); err != nil {
+		t.Fatal(err)
+	}
+	engine.mu.Lock()
+	maxLoops = engine.maxLoops
+	engine.mu.Unlock()
+	if maxLoops != effortLoops["medium"] {
+		t.Fatalf("MaxLoops after popping goal = %d, want %d", maxLoops, effortLoops["medium"])
 	}
 }
 

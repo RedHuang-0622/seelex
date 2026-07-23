@@ -64,6 +64,19 @@ Running(request_id)
 3. 完成时 Core 从 Engine 历史重建权威 Conversation，避免 UI 增量成为最终事实。
 4. 运行中输入进入 `Chat.InputQueue`；当前请求结束后合并为下一次真实输入。
 
+### Skill 输入双通道
+
+实现位置：`application/app.go` 的 `submitConversation`、`application/input.go` 的 `activateSkillAndSubmit`、`application/skill_context.go`。
+
+Chat 请求在 Application 内部拆成两份：
+
+| 字段 | 消费方 | 内容 |
+|------|--------|------|
+| `displayInput` | Snapshot/Event/GUI | 用户提交的完整原始文本 |
+| `modelInput` | Engine `ChatStream` | 活动 Skill 条目 + 完整原始文本；无活动 Skill 时保持原文 |
+
+`#review 检查问题` 会激活 Skill 并立即发起或排队 Chat；`#review` 只激活，后续普通输入自动携带活动 Skill。队列在 Submit 时固化两份输入，因此排队后执行 `#end` 不会改变已排队请求的模型上下文。Engine 历史中的版本化 envelope 会在进入 UI 前解包，GUI 不显示 Skill 指令或内部 marker。
+
 ## 4. 工具生命周期
 
 实现位置：

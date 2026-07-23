@@ -17,11 +17,25 @@ func TestPromptStack_PushAndRender(t *testing.T) {
 	if !contains(rendered, "high instructions") {
 		t.Errorf("Render missing effort instructions")
 	}
-	if !contains(rendered, "goal prompt") {
-		t.Errorf("Render missing skill prompt")
+	if contains(rendered, "goal prompt") {
+		t.Errorf("Render must exclude skill prompt: %q", rendered)
 	}
 	if !contains(rendered, "---") {
 		t.Errorf("Render missing separator")
+	}
+}
+
+func TestPromptStack_RenderUsesFixedSystemOrder(t *testing.T) {
+	ps := NewPromptStack()
+	ps.Push("instructions", "instructions", "instructions")
+	ps.Push("skill", "review", "review prompt")
+	ps.Push("effort", "high", "effort")
+	ps.Push("base", "plugin", "plugin")
+	ps.Push("identity", "identity", "identity")
+
+	const want = "identity\n\n---\n\nplugin\n\n---\n\neffort\n\n---\n\ninstructions"
+	if got := ps.Render(); got != want {
+		t.Fatalf("Render() = %q, want %q", got, want)
 	}
 }
 
@@ -35,13 +49,15 @@ func TestPromptStack_Pop(t *testing.T) {
 	if !ps.Pop("goal") {
 		t.Error("Pop goal should return true")
 	}
-	// code should still be there
-	if !contains(ps.Render(), "code prompt") {
-		t.Error("code prompt should remain after popping goal")
+	// code should still be active, but no Skill may enter the system prompt.
+	if !hasLayer(ps.Layers(), "skill", "code") {
+		t.Error("code skill should remain after popping goal")
 	}
-	// goal should be gone
-	if contains(ps.Render(), "goal prompt") {
+	if hasLayer(ps.Layers(), "skill", "goal") {
 		t.Error("goal prompt should be removed after pop")
+	}
+	if contains(ps.Render(), "code prompt") {
+		t.Error("active code skill must remain outside system prompt")
 	}
 }
 
@@ -54,7 +70,7 @@ func TestPromptStack_PopKind(t *testing.T) {
 
 	// PopKind removes the LAST skill (LIFO)
 	name := ps.PopKind("skill")
-	if name != "code" || !contains(ps.Render(), "goal prompt") {
+	if name != "code" || !hasLayer(ps.Layers(), "skill", "goal") {
 		t.Errorf("PopKind should return last skill 'code', got %q", name)
 	}
 
@@ -209,6 +225,15 @@ func contains(s, substr string) bool {
 func containsStr(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLayer(layers []PromptLayer, kind, name string) bool {
+	for _, layer := range layers {
+		if layer.Kind == kind && layer.Name == name {
 			return true
 		}
 	}

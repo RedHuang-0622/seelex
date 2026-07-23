@@ -2,20 +2,20 @@
 package application
 
 import (
+	"sort"
 	"strings"
 	"sync"
 )
 
-// PromptLayer 表示 system prompt 的一个分层。
+// PromptLayer 表示 system prompt 或活动 Skill 的一个上下文分层。
 type PromptLayer struct {
-	Kind string // "base" | "effort" | "skill"
+	Kind string // "identity" | "base" | "effort" | "instructions" | "skill"
 	Name string // plugin name / effort level / skill name
 	Text string // prompt 内容
 }
 
-// PromptStack 实现多层 system prompt 栈。
-// 层序从底到顶: base → effort → skill_1 → skill_2 → ...
-// Render() 用分隔符拼接所有层。
+// PromptStack 保存 system prompt 层和当前活动 Skill。
+// Skill 作为用户消息上下文发送，Render 不将其写入 system prompt。
 type PromptStack struct {
 	mu     sync.Mutex
 	layers []PromptLayer
@@ -92,14 +92,36 @@ func (ps *PromptStack) Render() string {
 	if len(ps.layers) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(ps.layers))
-	for _, l := range ps.layers {
+	layers := append([]PromptLayer(nil), ps.layers...)
+	sort.SliceStable(layers, func(i, j int) bool {
+		return systemPromptPriority(layers[i].Kind) < systemPromptPriority(layers[j].Kind)
+	})
+	parts := make([]string, 0, len(layers))
+	for _, l := range layers {
+		if l.Kind == "skill" {
+			continue
+		}
 		text := strings.TrimSpace(l.Text)
 		if text != "" {
 			parts = append(parts, text)
 		}
 	}
 	return strings.Join(parts, "\n\n---\n\n")
+}
+
+func systemPromptPriority(kind string) int {
+	switch kind {
+	case "identity":
+		return 0
+	case "base":
+		return 1
+	case "effort":
+		return 2
+	case "instructions":
+		return 3
+	default:
+		return 4
+	}
 }
 
 // Has 检查是否存在指定 kind 的层。

@@ -20,6 +20,8 @@ type fakeEngine struct {
 	chatErr   error
 	cleared   bool
 	sessionID string
+	lastInput string
+	maxLoops  int
 }
 
 func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
@@ -32,6 +34,7 @@ func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk 
 		}
 	}
 	engine.mu.Lock()
+	engine.lastInput = input
 	engine.history = []EngineMessage{{Role: "user", Content: input}, {Role: "assistant", Content: "answer"}}
 	err := engine.chatErr
 	engine.mu.Unlock()
@@ -76,7 +79,11 @@ func (engine *fakeEngine) SetSystemPrompt(prompt string) {
 	engine.prompt = prompt
 	engine.mu.Unlock()
 }
-func (*fakeEngine) SetMaxLoops(int)    {}
+func (engine *fakeEngine) SetMaxLoops(maxLoops int) {
+	engine.mu.Lock()
+	engine.maxLoops = maxLoops
+	engine.mu.Unlock()
+}
 func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
@@ -253,11 +260,13 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if err := service.Submit(context.Background(), "/review strict"); err != nil {
 		t.Fatal(err)
 	}
+	waitForChatCompletion(t, service)
 	engine.mu.Lock()
 	prompt := engine.prompt
+	modelInput := engine.lastInput
 	engine.mu.Unlock()
-	if !strings.Contains(prompt, "review prompt") || !strings.Contains(prompt, "strict") {
-		t.Fatalf("prompt missing skill content: %q", prompt)
+	if strings.Contains(prompt, "review prompt") || strings.Contains(prompt, "strict") {
+		t.Fatalf("system prompt contains Skill/user request: %q", prompt)
 	}
 	if !strings.Contains(prompt, "Seelex") {
 		t.Fatalf("prompt missing identity: %q", prompt)
@@ -265,14 +274,22 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if !strings.Contains(prompt, "high-effort") {
 		t.Fatalf("prompt missing effort: %q", prompt)
 	}
+	for _, expected := range []string{"- name: review", "review prompt", "## User Request\n/review strict"} {
+		if !strings.Contains(modelInput, expected) {
+			t.Fatalf("slash Skill model input missing %q: %q", expected, modelInput)
+		}
+	}
 	if err := service.Submit(context.Background(), "#review focused"); err != nil {
 		t.Fatal(err)
 	}
+	waitForChatCompletion(t, service)
 	engine.mu.Lock()
-	prompt = engine.prompt
+	modelInput = engine.lastInput
 	engine.mu.Unlock()
-	if !strings.Contains(prompt, "review prompt") || !strings.Contains(prompt, "focused") {
-		t.Fatalf("hash skill prompt missing content: %q", prompt)
+	for _, expected := range []string{"- name: review", "review prompt", "## User Request\n#review focused"} {
+		if !strings.Contains(modelInput, expected) {
+			t.Fatalf("hash Skill model input missing %q: %q", expected, modelInput)
+		}
 	}
 }
 
@@ -290,6 +307,18 @@ func TestChatPublishesSnapshotWithoutUI(t *testing.T) {
 			if len(snapshot.Conversation) < 3 || snapshot.Conversation[len(snapshot.Conversation)-1].Content != "answer" {
 				t.Fatalf("unexpected conversation: %#v", snapshot.Conversation)
 			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("chat did not complete")
+}
+
+func waitForChatCompletion(t *testing.T, service *Service) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if !service.Snapshot().Chat.Running {
 			return
 		}
 		time.Sleep(time.Millisecond)

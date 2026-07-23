@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/engine"
 )
 
-func (service *Service) startChat(parent context.Context, input string) error {
+func (service *Service) startChat(parent context.Context, request chatRequest) error {
 	service.mu.Lock()
 	if service.closed {
 		service.mu.Unlock()
@@ -25,13 +24,13 @@ func (service *Service) startChat(parent context.Context, input string) error {
 	chatContext, cancel := context.WithCancel(parent)
 	service.cancelChat = cancel
 	service.snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
-	user := *service.appendMessageLocked("user", input, nil)
+	user := *service.appendMessageLocked("user", request.displayInput, nil)
 	assistant := *service.appendMessageLocked("assistant", "", nil)
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventMessageAdded, revision, requestID, user)
 	service.events.Publish(EventMessageAdded, revision, requestID, assistant)
-	go service.runChat(chatContext, requestID, input)
+	go service.runChat(chatContext, requestID, request.modelInput)
 	return nil
 }
 
@@ -61,10 +60,10 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	service.refreshRuntimeLocked(context.Background())
 	// 处理输入队列：取所有排队输入合并为一条，批量发送
 	processQueue := len(service.inputQueue) > 0
-	var batchInput string
+	var batchRequest chatRequest
 	if processQueue {
-		// 前端通过 Chat.InputQueue 展示等待项；接续时只保留合并后的真实 LLM 输入，避免重复消息。
-		batchInput = strings.Join(service.inputQueue, "\n---\n")
+		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
+		batchRequest = combineChatRequests(service.inputQueue)
 		service.inputQueue = nil
 		service.snapshot.Chat.QueuedCount = 0
 		service.snapshot.Chat.InputQueue = nil
@@ -78,7 +77,7 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	}
 	// 批量发送：所有排队消息一次发给 LLM
 	if processQueue {
-		go service.startChat(context.Background(), batchInput)
+		go service.startChat(context.Background(), batchRequest)
 	}
 }
 
@@ -104,7 +103,11 @@ func (service *Service) appendDelta(requestID, chunk string) {
 func (service *Service) appendHistoryLocked(history []EngineMessage) {
 	for _, historyMessage := range history {
 		if historyMessage.Role != "tool" && historyMessage.Content != "" {
-			service.appendMessageLocked(historyMessage.Role, historyMessage.Content, nil)
+			content := historyMessage.Content
+			if historyMessage.Role == "user" {
+				content = displayUserInput(content)
+			}
+			service.appendMessageLocked(historyMessage.Role, content, nil)
 		}
 		for _, call := range historyMessage.ToolCalls {
 			service.appendMessageLocked("tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"})

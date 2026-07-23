@@ -1,6 +1,6 @@
 # Effort 系统完整设计方案
 
-> **状态**: 设计稿
+> **状态**: 历史设计稿（Effort Provider 扩展尚未实现；Skill 传输以 [`skill-effort-architecture.md`](skill-effort-architecture.md) 为准）
 > **日期**: 2026-07-20
 > **领域**: 配置层 / Provider 策略层 / 应用层 / 提示词组装
 > **涉及改动**: `types/model.go` → `api/strategy.go` → `api/client.go` → `application/` → `seelebridge/`
@@ -335,13 +335,13 @@ type PromptAssembly struct {
 }
 
 // Assemble 按 priority 排序所有 part，用分隔符拼接。
-// 固定顺序: identity → effort → plugins → instructions → skill
+// 固定顺序: identity → effort → plugins → instructions
 //
 // identity:     "You are Seelex, an intelligent coding assistant."
 // effort:       effort 行为指令 + planning 策略 + 模型能力说明
 // plugins:      当前插件描述 + 工具能力说明
-// instructions: 插件和技能可切换的说明（始终存在）
-// skill:        #skillname 加载的内容（可选）
+// instructions: 插件和 Skill 上下文协议说明（始终存在）
+// Skill 指令不属于 PromptAssembly；它随 user message 发送。
 func (pa *PromptAssembly) Assemble() string {
     sort(pa.parts, by priority)
     // 固定层序渲染
@@ -375,11 +375,8 @@ func (pa *PromptAssembly) Assemble() string {
   "## System Capabilities
    - You can switch plugins via switch_plugin tool.
    - Available plugins: default, read, write, plan
-   - Skills can be loaded via #skillname (user-triggered).
+   - User-selected skills arrive as structured entries in user messages.
    - Current effort level: high"
-─────────────────────────────────────────
-[Skill]（可选，#skillname 加载时存在）
-  "goal/SKILL.md 的内容..."
 ─────────────────────────────────────────
 ```
 
@@ -482,8 +479,7 @@ func (service *Service) refreshPrompt() {
         Kind: "instructions", Priority: PriorityInstructions,
         Content: service.buildSwitchInstructions()})
 
-    // 5. Skill (如果有)
-    // 已在 applySkill 中通过 Set/Remove 管理
+    // Skill 不参与 system prompt 组装；由 chatRequest 的 modelInput 携带。
 
     // 渲染并写入 engine
     service.deps.Engine.SetSystemPrompt(service.promptAssembly.Assemble())
@@ -514,7 +510,7 @@ func (service *Service) buildSwitchInstructions() string {
     return fmt.Sprintf(`## System Capabilities
 - You can switch plugins via switch_plugin tool.
 - Available plugins: %s
-- Skills can be loaded via #skillname (user-triggered).
+- User-selected skills arrive as structured entries in user messages.
 - Current effort level: %s`,
         strings.Join(names, ", "),
         service.effortManager.Current())
@@ -569,7 +565,7 @@ func (service *Service) buildSwitchInstructions() string {
 | **application** | `application/effort.go` | 加 PlanningStrategy + SelectModel + Prompt 生成 | ~50 行 |
 | **application** | `application/prompt_assembly.go` | **新增** 结构化 PromptAssembly | ~80 行 |
 | **application** | `application/app.go` | Service 集成 PromptAssembly | ~30 行 |
-| **application** | `application/input.go` | applySkill 改用 PromptAssembly | ~10 行 |
+| **application** | `application/input.go` | Skill 激活后构造用户上下文 | ~10 行 |
 | **seelebridge** | `seelebridge/runtime.go` | 暴露模型切换 | ~15 行 |
 | **main** | `main.go` | settings.json effort 读取 | ~20 行 |
 | **总计** | — | — | **~280 行** |

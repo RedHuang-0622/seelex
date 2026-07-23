@@ -70,8 +70,8 @@ func NewEffortManager(ps *PromptStack, eng interface {
 	}
 }
 
-// Apply 切换 effort 等级。
-// 更新 effort prompt 层、MaxLoops，并重绘完整 system prompt。
+// Apply 切换 effort 等级并更新 effort prompt 层与 MaxLoops。
+// 调用方在需要时用 PromptStack.Render 重绘完整 system prompt。
 func (m *EffortManager) Apply(level string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -25,7 +25,7 @@ type Service struct {
 	messageSeq    uint64
 	cancelChat    context.CancelFunc
 	closed        bool
-	inputQueue    []string // 排队中的输入
+	inputQueue    []chatRequest // 排队中的界面输入和模型输入
 }
 
 func New(deps Dependencies) *Service {
@@ -57,7 +57,8 @@ func New(deps Dependencies) *Service {
 }
 
 // buildSystemPrompt 组装完整的系统提示词并在引擎上生效。
-// 层序: identity (固定) + effort (行为指令) + plugins (插件 prompt) + instructions (切换说明) + skill (可选)
+// 层序: identity (固定) + plugins (插件 prompt) + effort (行为指令) + instructions (能力说明)。
+// Skill 指令作为结构化用户上下文发送，不参与 system prompt。
 func (service *Service) buildSystemPrompt() {
 	service.promptStack.ClearKind("identity")
 	service.promptStack.ClearKind("instructions")
@@ -80,22 +81,11 @@ func (service *Service) buildSystemPrompt() {
 	// 3. Effort（effortManager.Apply 内部会 Push "effort" 层）
 	service.effortManager.Apply(service.effortManager.Current())
 
-	// 4. Instructions — 固定在 effort/plugin 之上、skill 之下
-	// 将可用 Skill 列表注入 system prompt，使 LLM 知道有哪些技能可以建议用户加载
+	// 4. Instructions — 只描述协议，不注入 Skill 名称、描述或指令。
 	instructions := `## System Capabilities
 - Use switch_plugin tool to switch between plugins for different tool sets.
-- Load skills via #skillname (user-triggered). Use "#end" to unload current skill.
+- User-selected skills arrive as structured entries in user messages. Apply them to that request.
 - Current effort determines thinking depth and tool usage intensity.`
-	if skills := service.deps.Skills.All(); len(skills) > 0 {
-		instructions += "\n\n### Available Skills\n"
-		for _, sk := range skills {
-			line := "  - #" + sk.Name
-			if sk.Description != "" {
-				line += ": " + sk.Description
-			}
-			instructions += line + "\n"
-		}
-	}
 	service.promptStack.Push("instructions", "instructions", instructions)
 
 	// 渲染并写入 engine
@@ -125,7 +115,7 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 		if len(parts) == 0 {
 			return nil
 		}
-		return service.submitSkill(parts[0], parts[1:])
+		return service.submitSkill(ctx, parts[0], parts[1:], input)
 	}
 	if strings.HasPrefix(input, "@") {
 		name := strings.TrimSpace(strings.TrimPrefix(input, "@"))
@@ -135,11 +125,15 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 		return service.SwitchPlugin(ctx, name)
 	}
 
-	// 对话输入：如果正在运行则排队
+	return service.submitConversation(ctx, input)
+}
+
+func (service *Service) submitConversation(ctx context.Context, input string) error {
+	request := newChatRequest(input, service.promptStack.Layers())
 	service.mu.Lock()
 	if service.snapshot.Chat.Running {
-		service.inputQueue = append(service.inputQueue, input)
-		service.snapshot.Chat.InputQueue = append([]string(nil), service.inputQueue...)
+		service.inputQueue = append(service.inputQueue, request)
+		service.snapshot.Chat.InputQueue = chatRequestDisplays(service.inputQueue)
 		service.snapshot.Chat.QueuedCount = len(service.inputQueue)
 		revision := service.bumpLocked()
 		service.mu.Unlock()
@@ -147,7 +141,7 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 		return nil
 	}
 	service.mu.Unlock()
-	return service.startChat(ctx, input)
+	return service.startChat(ctx, request)
 }
 
 func (service *Service) CancelChat(requestID string) bool {
@@ -485,7 +479,11 @@ func (service *Service) LoadMoreHistory(limit int) error {
 
 // adaptEngineMessage 将 EngineMessage 转为本包 Message（由 SessionPort 返回时已是 EngineMessage）。
 func adaptEngineMessage(msg EngineMessage) Message {
-	m := Message{Role: msg.Role, Content: msg.Content}
+	content := msg.Content
+	if msg.Role == "user" {
+		content = displayUserInput(content)
+	}
+	m := Message{Role: msg.Role, Content: content}
 	for _, tc := range msg.ToolCalls {
 		m.Tool = &ToolCall{ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments, Status: "success"}
 	}

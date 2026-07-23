@@ -1,6 +1,6 @@
 # Seelex 功能打点表
 
-> 更新日期：2026-07-23
+> 更新日期：2026-07-24
 > 产品版本：v0.1.0-alpha.1
 > 产品目标：构建可切换专业 Plugin 形态的工科全栈 Agent；TUI 面向高效工作，Wails GUI 面向毕设、课程项目和成果交付。
 
@@ -42,7 +42,7 @@
 | 内核 | 系统诊断命令 | /diag 命令 | Go 运行时、内存、Plugin 列表、Account 池、Skill 清单 | 已完成 | `application/diag.go`、Snapshot | 诊断信息完整性 | /diag 返回完整系统状态快照（≤ 1ms 收集） | ✅ 已接入 `/diag` |
 | 内核 | TUI 周期性刷新 | tea.Tick 3s | Chat.Running 期间自动重绘时间显示 | 已完成 | Bubble Tea tickEvery | CPU 开销 | streaming 无新 chunk 时 elapsed 时间仍实时刷新 | ✅ `tui/stream.go` + `tui/tui.go` |
 | 内核 | 粘贴折叠 | 多行/高频粘贴 | `[Pasted text #N +M lines]` 占位 | 已完成 | Bubble Tea textarea | 大文本不误发 | 3 行以上粘贴折叠为占位符，确认后展开 | ✅ `tui/tui.go` |
-| 内核 | 技能注入系统提示词 | Skill 注册表 | instructions 层底部注入 `### Available Skills` 列表 | 已完成 | Skill Registry、buildSystemPrompt | 技能可见性 | LLM 在 prompt 中感知所有可用技能，可建议用户 `#skillname` | ✅ `application/app.go` |
+| 内核 | Skill 用户上下文 | `#skillname 需求`、活动 Skill 栈 | 条目化 Skill 名称/指令 + 完整原始问题 | 已完成 | Skill Registry、PromptStack、Chat queue | Skill 发送完整率、system prompt 隔离率、UI 还原率 | 有需求立即发送；空需求只激活；每轮携带活动 Skill；system prompt 不含 Skill 清单/指令；UI 只显示原文 | ✅ `application/input.go`、`application/skill_context.go`、`application/chat.go`；单元/集成/队列/历史测试 |
 | 内核 | 配置路径固定化 | 无 | `<binary-dir>/config/accounts.yaml` 绝对路径 | 已完成 | os.Executable | 配置确定性 | 不移用工作目录，始终读二进制同目录 config/accounts.yaml | ✅ `main.go accountsPath()` |
 | 内核 | Goal Skill 无限制 | #goal skill 加载 | SetMaxLoops(9999)，退栈恢复 effort 值 | 已完成 | EffortManager | Goal 任务不因 loop 限制中断 | Goal 复杂编排不受 MaxLoops 约束 | ✅ `application/input.go` |
 | 形态系统 | Plugin Manifest | `plugins/*/plugin.md` | Plugin、工具过滤、Prompt、Skill、MCP 配置 | 已完成 | frontmatter loader | 加载成功率、schema 拒绝率 | 非法 schema/名称/路径被拒绝，合法定义可发现 | ✅ 7 个 Plugin 全部可用 |
@@ -74,7 +74,7 @@
 | ✅ Plan 可视化 | `tui/plan.go` 四级 Effort Plan 面板（lite 单行 / medium 打点表 / high 节点树 / max 全框表） |
 | ✅ Plan 进度回调 | Seele v0.0.4 `OnNodeDone` — 每节点完成后实时回调到 Service → 更新 PlanState → 发布事件 → TUI 重绘 |
 | ✅ Plan per-node 结果 | `plan_run` 返回 JSON 含 `nodes[]` 字段（node_id/kind/status/elapsed） |
-| ✅ 技能注入提示词 | `buildSystemPrompt` 的 instructions 层底部动态注入 `### Available Skills` 列表 |
+| ✅ Skill 用户上下文 | `#skillname 需求` 将 Skill 名称、指令和原始问题作为条目化用户消息发送；不再注入 system prompt |
 | ✅ 系统诊断 | `/diag` 命令 — Go 运行时、Plugin、Account、Skill 全部列出 |
 | ✅ 配置路径固定 | `<binary-dir>/config/accounts.yaml`，移除 `-c` flag |
 | ✅ TUI 周期性刷新 | streaming 期间每 3s 自动重绘 `● receiving N.Ns` |

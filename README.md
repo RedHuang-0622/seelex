@@ -30,8 +30,9 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 
 ### 📜 Skill 技能系统
 - 目录化加载，Skill 位于对应 Plugin 目录下（`plugins/<name>/<skill>/SKILL.md`）
-- 多层 **PromptStack** 叠加（identity → plugin → effort → instructions → skill）
-- 运行时通过 `#skillname` 加载、`#end` 退栈
+- **PromptStack** 保存活动 Skill 栈，但 system prompt 只渲染 identity → plugin → effort → instructions
+- 运行时通过 `#skillname 需求` 激活并立即发送，`#skillname` 仅激活，`#end` 退栈
+- 每轮把活动 Skill 名称、指令和原始问题作为条目化用户上下文发送，不把 Skill 写入 system prompt
 - 支持全局 Skill 和 Plugin 专属 Skill
 
 ### ⚡ Effort 等级控制
@@ -96,7 +97,7 @@ Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
 | Plugin 运行时切换 | ✅ | 支持激活、停用、失败回滚和并发串行化 |
 | Skill 系统 | ✅ | 支持目录加载、注册、Plugin Skill 和多层 PromptStack 叠加 |
 | Effort 等级 | ✅ | lite/medium/high/max 四档，控制 MaxLoops、提示词深度和工具可见性 |
-| PromptStack 分层 | ✅ | system prompt 按 identity → plugin → effort → instructions → skill 五层组装 |
+| PromptStack 分层 | ✅ | system prompt 按 identity → plugin → effort → instructions 组装；Skill 独立进入用户上下文 |
 | 审批交互 Broker | ✅ | `ask_approve` 和前端决议、TUI 交互面板完整实现；基础 permission gate 已接线 |
 | Plan/WorkPlan 可视化 | ✅ | TUI 四级 Effort Plan 面板（单行/打点表/节点树/全框表）+ 进度回调实时更新 |
 | 系统诊断 /diag | ✅ | Go 运行时、内存、Plugin、Account、Skill 完整列出 |
@@ -343,7 +344,8 @@ seelex/
 │   ├── event.go            #   EventHub（发布/订阅、反压处理）
 │   ├── approval.go         #   ApprovalBroker（审批请求/决议/超时/取消）
 │   ├── input.go            #   用户输入处理（命令 / Skill / 普通消息）
-│   ├── prompt_stack.go     #   多层 system prompt 栈（5 层：identity→plugin→effort→instructions→skill）
+│   ├── prompt_stack.go     #   system prompt 分层 + 活动 Skill 栈（Skill 不参与 Render）
+│   ├── skill_context.go    #   Skill 条目化用户上下文、队列合并与历史显示解包
 │   ├── ports.go            #   Dependencies 接口（ChatEngine / RuntimePort / PluginPort / SkillPort / SessionPort）
 ├── gui/                    # Wails GUI Adapter + 嵌入式 Web 前端（与 tui/ 同级）
 │   ├── state.go            #   Snapshot DTO（Session / Message / Chat / Runtime / Plan / Capabilities）
@@ -462,7 +464,7 @@ seelex/
 - Effort 等级系统（lite/medium/high/max）：PromptStack 分层 + 行为指令注入 + MaxLoops 控制；
 - Skill 多层叠加与退栈（`#goal` → `#code` 压栈，`#end` 退栈）；
 - Alt+E 循环切换 Effort + 状态栏实时显示；
-- 提示词五层组装：identity → plugin → effort → instructions → skill；
+- system prompt 四层组装：identity → plugin → effort → instructions；活动 Skill 作为条目化用户上下文发送；
 - Plan/WorkPlan 工作流系统（plan_load/plan_run/plan_status/plan_export/plan_clear）；
 - MCP 调用追溯中间件（mcpstack）+ 熔断事件通道 + 拦截器；
 - Web 搜索集成（Tavily，账号池 YAML 可配置 api_key）；

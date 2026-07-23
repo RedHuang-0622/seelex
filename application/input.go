@@ -13,7 +13,7 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 	}
 	parts := strings.Fields(trimmed)
 	if skill, ok := service.deps.Skills.Get(parts[0]); ok {
-		return service.applySkill(skill, parts[1:])
+		return service.activateSkillAndSubmit(ctx, skill, parts[1:], input)
 	}
 	command, ok := service.commands.Get(parts[0])
 	if !ok {
@@ -41,7 +41,7 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 	return nil
 }
 
-func (service *Service) submitSkill(name string, args []string) error {
+func (service *Service) submitSkill(ctx context.Context, name string, args []string, input string) error {
 	if name == "" {
 		return nil
 	}
@@ -53,7 +53,7 @@ func (service *Service) submitSkill(name string, args []string) error {
 		service.addNotice("未知 Skill: " + name)
 		return nil
 	}
-	return service.applySkill(skill, args)
+	return service.activateSkillAndSubmit(ctx, skill, args, input)
 }
 
 func (service *Service) endSkill() error {
@@ -62,23 +62,32 @@ func (service *Service) endSkill() error {
 		service.addNotice("当前无 Skill 可退栈")
 		return nil
 	}
-	// 恢复当前 effort 等级的 MaxLoops（覆盖 goal 等 skill 设置的免限制）
-	service.effortManager.Apply(service.effortManager.Current())
+	// goal 仍在活动栈时保持无限循环；否则只恢复循环上限，不改动 prompt 层顺序。
+	maxLoops := effortLoops[service.effortManager.Current()]
+	for _, layer := range service.promptStack.Layers() {
+		if layer.Kind == "skill" && layer.Name == "goal" {
+			maxLoops = 9999
+			break
+		}
+	}
+	service.deps.Engine.SetMaxLoops(maxLoops)
 	service.addNotice("已退栈 Skill: " + name)
 	return nil
 }
 
-func (service *Service) applySkill(skill SkillInfo, args []string) error {
-	prompt := skill.Prompt
-	if len(args) > 0 {
-		prompt += "\n\n" + strings.Join(args, " ")
+func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillInfo, args []string, input string) error {
+	service.applySkill(skill)
+	if len(args) == 0 {
+		return nil
 	}
-	service.promptStack.Push("skill", skill.Name, prompt)
-	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	return service.submitConversation(ctx, input)
+}
+
+func (service *Service) applySkill(skill SkillInfo) {
+	service.promptStack.Push("skill", skill.Name, skill.Prompt)
 	// goal skill 不受 MaxLoops 限制（设大值模拟无上限）
 	if skill.Name == "goal" {
 		service.deps.Engine.SetMaxLoops(9999)
 	}
 	service.addNotice("加载 Skill: " + skill.Name)
-	return nil
 }
