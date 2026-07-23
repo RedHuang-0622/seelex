@@ -34,8 +34,9 @@ func newFakeApplication() *fakeApplication {
 	return &fakeApplication{
 		hub: application.NewEventHub(),
 		snapshot: application.Snapshot{
-			Revision: 1,
-			Runtime:  application.RuntimeState{Model: "test-model"},
+			ProtocolVersion: application.ProtocolVersion,
+			Revision:        1,
+			Runtime:         application.RuntimeState{Model: "test-model"},
 		},
 	}
 }
@@ -178,14 +179,18 @@ func TestBridgeRelaysApplicationEvents(t *testing.T) {
 	if !ok {
 		t.Fatalf("relayed payload type = %T", relayed.payload)
 	}
-	if event.Seq != published.Seq || event.Kind != published.Kind {
+	if event.ProtocolVersion != application.ProtocolVersion || event.Seq != published.Seq || event.Kind != published.Kind {
 		t.Fatalf("relayed event = %#v, want %#v", event, published)
 	}
 }
 
 func TestEmbeddedFrontendExists(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js", "frontend/dist/styles.css"} {
+	for _, name := range []string{
+		"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js",
+		"frontend/dist/protocol.js", "frontend/dist/client-state.js", "frontend/dist/conversation-view.js",
+		"frontend/dist/chat-view.js", "frontend/dist/styles.css",
+	} {
 		if _, err := embeddedFrontend.ReadFile(name); err != nil {
 			t.Fatalf("embedded frontend %q: %v", name, err)
 		}

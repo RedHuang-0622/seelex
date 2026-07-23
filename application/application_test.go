@@ -2,11 +2,14 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/Seele/engine"
 )
 
 type fakeEngine struct {
@@ -211,6 +214,32 @@ func TestEventHubOrdersAndResyncs(t *testing.T) {
 	if event.Kind != EventResyncRequired || event.Seq != 2 {
 		t.Fatalf("expected resync at seq 2, got %#v", event)
 	}
+	if event.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("protocol version = %d, want %d", event.ProtocolVersion, ProtocolVersion)
+	}
+}
+
+func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	subscription := service.Subscribe(1)
+	defer subscription.Close()
+
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
+	message := service.appendMessageLocked("assistant", "", nil)
+	messageID := message.ID
+	service.mu.Unlock()
+
+	service.appendDelta("request-1", "next")
+	event := <-subscription.Events
+	var delta MessageDelta
+	if err := json.Unmarshal(event.Payload, &delta); err != nil {
+		t.Fatal(err)
+	}
+	if delta.MessageID != messageID || delta.Delta != "next" {
+		t.Fatalf("unexpected delta payload: %+v", delta)
+	}
 }
 
 func TestSuggestionsAndSkillRouting(t *testing.T) {
@@ -282,6 +311,46 @@ func TestToolEventsUpdateSnapshot(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("completed tool call not found: %#v", snapshot.Conversation)
+	}
+}
+
+func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	bridge := NewToolHookBridge()
+	bridge.Bind(service)
+	hooks := bridge.Hooks()
+	info := engine.ToolCallInfo{Turn: 1, Name: "read", Arguments: `{"path":"a"}`}
+
+	hooks.OnToolStart(context.Background(), info)
+	hooks.OnToolComplete(context.Background(), info)
+	hooks.OnToolStart(context.Background(), info)
+	hooks.OnToolComplete(context.Background(), info)
+
+	ids := make([]string, 0, 2)
+	for _, message := range service.Snapshot().Conversation {
+		if message.Role == "tool" && message.Tool != nil {
+			ids = append(ids, message.Tool.ID)
+		}
+	}
+	if len(ids) != 2 || ids[0] == ids[1] {
+		t.Fatalf("tool IDs = %v, want two unique IDs", ids)
+	}
+}
+
+func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.HistoryOffset = 1
+	service.mu.Unlock()
+
+	if err := service.LoadMoreHistory(1); err != nil {
+		t.Fatal(err)
+	}
+	conversation := service.Snapshot().Conversation
+	if len(conversation) == 0 || conversation[0].ID == "" {
+		t.Fatalf("loaded history message has no stable ID: %#v", conversation)
 	}
 }
 

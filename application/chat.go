@@ -88,15 +88,17 @@ func (service *Service) appendDelta(requestID, chunk string) {
 		service.mu.Unlock()
 		return
 	}
+	messageID := ""
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
 		if service.snapshot.Conversation[index].Role == "assistant" && service.snapshot.Conversation[index].Tool == nil {
 			service.snapshot.Conversation[index].Content += chunk
+			messageID = service.snapshot.Conversation[index].ID
 			break
 		}
 	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()
-	service.events.Publish(EventMessageDelta, revision, requestID, map[string]string{"delta": chunk})
+	service.events.Publish(EventMessageDelta, revision, requestID, MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {
@@ -129,8 +131,10 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
+	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
 	service.events.Publish(EventToolStarted, revision, requestID, message)
+	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
 }
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
@@ -158,14 +162,21 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 
 	message := *service.appendMessageLocked("tool_result", content, &ToolCall{ID: id, Name: name, Result: result, Error: errorText, Status: status, Duration: duration})
 	// Only append empty assistant if the last message isn't already an empty assistant
+	var assistant *Message
 	if n := len(service.snapshot.Conversation); n == 0 || service.snapshot.Conversation[n-1].Role != "assistant" || service.snapshot.Conversation[n-1].Content != "" || service.snapshot.Conversation[n-1].Tool != nil {
-		service.appendMessageLocked("assistant", "", nil)
+		appended := *service.appendMessageLocked("assistant", "", nil)
+		assistant = &appended
 	}
 	service.refreshRuntimeLocked(context.Background())
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
+	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
 	service.events.Publish(EventToolCompleted, revision, requestID, message)
+	if assistant != nil {
+		service.events.Publish(EventMessageAdded, revision, requestID, *assistant)
+	}
+	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
 }
 
 // updatePlanFromLoad 从 plan_load 的参数 JSON 初始化 PlanState。
@@ -340,8 +351,10 @@ func PlanNodeStatus(s string) NodeStatus {
 }
 
 type ToolHookBridge struct {
-	mu      sync.RWMutex
+	mu      sync.Mutex
 	service *Service
+	toolSeq uint64
+	pending map[string][]string
 }
 
 func NewToolHookBridge() *ToolHookBridge { return &ToolHookBridge{} }
@@ -353,20 +366,54 @@ func (bridge *ToolHookBridge) Bind(service *Service) {
 func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 	return &engine.LoopHooks{
 		OnToolStart: func(_ context.Context, info engine.ToolCallInfo) {
-			bridge.mu.RLock()
-			service := bridge.service
-			bridge.mu.RUnlock()
+			service, id := bridge.beginTool(info)
 			if service != nil {
-				service.handleToolStart(info.Name, fmt.Sprintf("%s-%d", info.Name, info.Turn), info.Arguments)
+				service.handleToolStart(info.Name, id, info.Arguments)
 			}
 		},
 		OnToolComplete: func(_ context.Context, info engine.ToolCallInfo) {
-			bridge.mu.RLock()
-			service := bridge.service
-			bridge.mu.RUnlock()
+			service, id := bridge.completeTool(info)
 			if service != nil {
-				service.handleToolComplete(info.Name, fmt.Sprintf("%s-%d", info.Name, info.Turn), info.Result, info.Error, info.Duration)
+				service.handleToolComplete(info.Name, id, info.Result, info.Error, info.Duration)
 			}
 		},
 	}
+}
+
+func (bridge *ToolHookBridge) beginTool(info engine.ToolCallInfo) (*Service, string) {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	id := bridge.nextToolIDLocked()
+	if bridge.pending == nil {
+		bridge.pending = make(map[string][]string)
+	}
+	key := toolHookKey(info)
+	bridge.pending[key] = append(bridge.pending[key], id)
+	return bridge.service, id
+}
+
+func (bridge *ToolHookBridge) completeTool(info engine.ToolCallInfo) (*Service, string) {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	key := toolHookKey(info)
+	ids := bridge.pending[key]
+	if len(ids) == 0 {
+		return bridge.service, bridge.nextToolIDLocked()
+	}
+	id := ids[0]
+	if len(ids) == 1 {
+		delete(bridge.pending, key)
+	} else {
+		bridge.pending[key] = ids[1:]
+	}
+	return bridge.service, id
+}
+
+func (bridge *ToolHookBridge) nextToolIDLocked() string {
+	bridge.toolSeq++
+	return fmt.Sprintf("tool-%d", bridge.toolSeq)
+}
+
+func toolHookKey(info engine.ToolCallInfo) string {
+	return fmt.Sprintf("%d\x00%s\x00%s", info.Turn, info.Name, info.Arguments)
 }

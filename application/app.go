@@ -42,9 +42,10 @@ func New(deps Dependencies) *Service {
 	}
 	service.effortManager = NewEffortManager(ps, deps.Engine)
 	service.snapshot = Snapshot{
-		Session:      SessionState{ID: deps.Engine.SessionID()},
-		Runtime:      RuntimeState{Model: deps.Runtime.Model(), Effort: service.effortManager.Current()},
-		Capabilities: Capabilities{SessionResume: true},
+		ProtocolVersion: ProtocolVersion,
+		Session:         SessionState{ID: deps.Engine.SessionID()},
+		Runtime:         RuntimeState{Model: deps.Runtime.Model(), Effort: service.effortManager.Current()},
+		Capabilities:    Capabilities{SessionResume: true},
 	}
 	service.registerBuiltinCommands()
 	service.refreshRuntimeLocked(context.Background())
@@ -256,7 +257,7 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	service.mu.Lock()
 	service.refreshRuntimeLocked(ctx)
 	revision := service.bumpLocked()
-	runtime := service.snapshot.Runtime
+	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
 	service.events.Publish(EventRuntimeChanged, revision, "", runtime)
 	return nil
@@ -468,6 +469,10 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	}
 
 	service.mu.Lock()
+	for index := range adapted {
+		service.messageSeq++
+		adapted[index].ID = fmt.Sprintf("message-%d", service.messageSeq)
+	}
 	service.snapshot.Conversation = append(adapted, service.snapshot.Conversation...)
 	service.snapshot.HistoryOffset = loadOffset
 	service.snapshot.TotalMessages = total

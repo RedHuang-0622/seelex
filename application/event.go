@@ -22,11 +22,17 @@ const (
 )
 
 type Event struct {
-	Seq       uint64          `json:"seq"`
-	Revision  uint64          `json:"revision"`
-	RequestID string          `json:"request_id,omitempty"`
-	Kind      EventKind       `json:"kind"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	ProtocolVersion int             `json:"protocol_version"`
+	Seq             uint64          `json:"seq"`
+	Revision        uint64          `json:"revision"`
+	RequestID       string          `json:"request_id,omitempty"`
+	Kind            EventKind       `json:"kind"`
+	Payload         json.RawMessage `json:"payload,omitempty"`
+}
+
+type MessageDelta struct {
+	MessageID string `json:"message_id"`
+	Delta     string `json:"delta"`
 }
 
 type Subscription struct {
@@ -79,7 +85,7 @@ func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, 
 	}
 	hub.mu.Lock()
 	hub.seq++
-	event := Event{Seq: hub.seq, Revision: revision, RequestID: requestID, Kind: kind, Payload: encoded}
+	event := Event{ProtocolVersion: ProtocolVersion, Seq: hub.seq, Revision: revision, RequestID: requestID, Kind: kind, Payload: encoded}
 	for _, subscriber := range hub.subscribers {
 		select {
 		case subscriber <- event:

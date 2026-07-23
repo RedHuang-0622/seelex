@@ -2,18 +2,22 @@ package application
 
 import "time"
 
+// ProtocolVersion identifies the Snapshot/Event contract consumed by frontends.
+const ProtocolVersion = 1
+
 type Snapshot struct {
-	Revision       uint64        `json:"revision"`
-	Session        SessionState  `json:"session"`
-	Sessions       []SessionInfo `json:"sessions"`
-	Conversation   []Message     `json:"conversation"`
-	Chat           ChatState     `json:"chat"`
-	Runtime        RuntimeState  `json:"runtime"`
-	Interaction    *Interaction  `json:"interaction,omitempty"`
-	Capabilities   Capabilities  `json:"capabilities"`
-	HistoryOffset  int           `json:"history_offset"`   // 0 = oldest message at start; >0 = older messages exist in store
-	TotalMessages  int           `json:"total_messages"`   // total count in store (0 for live session, set after resume)
-	HasMoreHistory bool          `json:"has_more_history"` // true if older messages can be loaded via LoadMoreHistory
+	ProtocolVersion int           `json:"protocol_version"`
+	Revision        uint64        `json:"revision"`
+	Session         SessionState  `json:"session"`
+	Sessions        []SessionInfo `json:"sessions"`
+	Conversation    []Message     `json:"conversation"`
+	Chat            ChatState     `json:"chat"`
+	Runtime         RuntimeState  `json:"runtime"`
+	Interaction     *Interaction  `json:"interaction,omitempty"`
+	Capabilities    Capabilities  `json:"capabilities"`
+	HistoryOffset   int           `json:"history_offset"`   // 0 = oldest message at start; >0 = older messages exist in store
+	TotalMessages   int           `json:"total_messages"`   // total count in store (0 for live session, set after resume)
+	HasMoreHistory  bool          `json:"has_more_history"` // true if older messages can be loaded via LoadMoreHistory
 }
 
 type SessionState struct {
@@ -159,26 +163,36 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 			copySnapshot.Conversation[index].Tool = &tool
 		}
 	}
-	copySnapshot.Runtime.VisibleTools = append([]Tool(nil), snapshot.Runtime.VisibleTools...)
-	copySnapshot.Runtime.Skills = append([]SkillInfo(nil), snapshot.Runtime.Skills...)
-	copySnapshot.Runtime.Plugins = append([]PluginInfo(nil), snapshot.Runtime.Plugins...)
-	copySnapshot.Runtime.Accounts = append([]AccountInfo(nil), snapshot.Runtime.Accounts...)
-	if snapshot.Runtime.Plan != nil {
-		planCopy := *snapshot.Runtime.Plan
-		planCopy.Nodes = make([]PlanNode, len(snapshot.Runtime.Plan.Nodes))
-		copy(planCopy.Nodes, snapshot.Runtime.Plan.Nodes)
-		for i := range planCopy.Nodes {
-			if len(snapshot.Runtime.Plan.Nodes[i].Children) > 0 {
-				planCopy.Nodes[i].Children = make([]PlanNode, len(snapshot.Runtime.Plan.Nodes[i].Children))
-				copy(planCopy.Nodes[i].Children, snapshot.Runtime.Plan.Nodes[i].Children)
-			}
-		}
-		copySnapshot.Runtime.Plan = &planCopy
-	}
+	copySnapshot.Runtime = cloneRuntimeState(snapshot.Runtime)
 	if snapshot.Interaction != nil {
 		interaction := *snapshot.Interaction
 		interaction.Options = append([]InteractionOption(nil), snapshot.Interaction.Options...)
 		copySnapshot.Interaction = &interaction
 	}
 	return copySnapshot
+}
+
+func cloneRuntimeState(runtime RuntimeState) RuntimeState {
+	copyRuntime := runtime
+	copyRuntime.VisibleTools = append([]Tool(nil), runtime.VisibleTools...)
+	copyRuntime.Skills = append([]SkillInfo(nil), runtime.Skills...)
+	copyRuntime.Plugins = append([]PluginInfo(nil), runtime.Plugins...)
+	copyRuntime.Accounts = append([]AccountInfo(nil), runtime.Accounts...)
+	if runtime.Plan != nil {
+		planCopy := *runtime.Plan
+		planCopy.Nodes = clonePlanNodes(runtime.Plan.Nodes)
+		copyRuntime.Plan = &planCopy
+	}
+	return copyRuntime
+}
+
+func clonePlanNodes(nodes []PlanNode) []PlanNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	cloned := append([]PlanNode(nil), nodes...)
+	for index := range cloned {
+		cloned[index].Children = clonePlanNodes(nodes[index].Children)
+	}
+	return cloned
 }

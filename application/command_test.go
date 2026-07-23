@@ -463,6 +463,9 @@ func TestNew_DefaultState(t *testing.T) {
 	svc := newTestService(eng)
 	defer svc.Shutdown()
 	snap := svc.Snapshot()
+	if snap.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("protocol version = %d, want %d", snap.ProtocolVersion, ProtocolVersion)
+	}
 	if snap.Session.ID != "session-1" {
 		t.Errorf("expected session-1, got %q", snap.Session.ID)
 	}

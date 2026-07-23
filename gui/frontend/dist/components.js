@@ -43,12 +43,26 @@ export function escapeHtml(value = "") {
 export const markdown = renderMarkdown;
 
 export function renderConversationComponent(messages = [], chat = {}) {
+  const model = renderConversationModel(messages, chat);
+  return { html: model.items.map(item => item.html).join(""), payloads: model.payloads };
+}
+
+export function renderConversationModel(messages = [], chat = {}) {
   const payloads = new Map();
   const items = buildConversationItems(messages);
-  const conversation = items.map((item, index) => item.kind === "tool"
-    ? renderToolCall(item, `tool-${index}`, payloads)
-    : renderMessage(item.message)).join("");
-  return { html: conversation + renderChatActivity(chat), payloads };
+  const rendered = items.map((item, index) => {
+    const key = item.key || `${item.kind}-${index}`;
+    const html = item.kind === "tool"
+      ? renderToolCall(item, key, payloads)
+      : renderMessage(item.message, key);
+    return { key, html };
+  });
+  const activity = renderChatActivity(chat);
+  if (activity) {
+    const key = "chat:activity";
+    rendered.push({ key, html: `<div class="chat-activity-tail" data-conversation-key="${key}">${activity}</div>` });
+  }
+  return { items: rendered, payloads };
 }
 
 export function renderChatActivity(chat = {}) {
@@ -73,9 +87,9 @@ export function buildConversationItems(messages = []) {
   const items = [];
   const pendingByID = new Map();
   const pendingTools = [];
-  for (const message of messages) {
+  for (const [messageIndex, message] of messages.entries()) {
     if (!message.tool) {
-      items.push({ kind: "message", message });
+      items.push({ kind: "message", key: `message:${message.id || messageIndex}`, message });
       continue;
     }
     const tool = message.tool;
@@ -96,6 +110,7 @@ export function buildConversationItems(messages = []) {
     }
     const item = {
       kind: "tool",
+      key: `tool:${tool.id || message.id || messageIndex}`,
       id: tool.id || "",
       name: tool.name || "tool",
       input: tool.arguments || "",
@@ -124,11 +139,11 @@ export function renderSources(sources = []) {
   }).join("");
 }
 
-function renderMessage(message) {
+function renderMessage(message, key) {
   const role = message.role || "assistant";
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const label = role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
-  return `<article class="message ${escapeHtml(role)}">
+  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}">
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(time)}</span></div>
     <div class="message-body">${markdown(message.content || "")}</div>
   </article>`;
@@ -144,7 +159,7 @@ function renderToolCall(tool, key, payloads) {
   const inputView = limitText(input, 1400, 28);
   const outputView = limitText(output, 2400, 40);
   const status = statusMeta(tool.status, tool.error);
-  return `<article class="tool-run ${status.className}">
+  return `<article class="tool-run ${status.className}" data-conversation-key="${escapeHtml(key)}">
     <header class="tool-run-head">
       <span class="tool-symbol">${icon("terminal", 15)}</span>
       <strong>${escapeHtml(tool.name)}</strong>

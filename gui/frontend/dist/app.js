@@ -1,16 +1,16 @@
-import { escapeHtml, hydrateIcons, icon, renderConversationComponent, renderSources } from "./components.js";
+import { escapeHtml, hydrateIcons, icon, renderSources } from "./components.js";
+import { createChatView } from "./chat-view.js";
+import { createGUIClient } from "./client-state.js";
+import { createConversationView } from "./conversation-view.js";
 
 const state = {
-  snapshot: null,
   info: null,
-  refreshing: false,
   commandTrigger: "/",
   commandSuggestions: [],
   commandSelected: 0,
   inlineSuggestions: [],
   inlineSelected: 0,
-  inlineRequest: 0,
-  toolPayloads: new Map()
+  inlineRequest: 0
 };
 
 const elements = Object.fromEntries([
@@ -25,6 +25,18 @@ const elements = Object.fromEntries([
   "load-history", "interaction-modal", "interaction-risk", "interaction-title",
   "interaction-question", "interaction-preview", "interaction-options", "toast"
 ].map(id => [id, document.getElementById(id)]));
+
+const conversationView = createConversationView(elements.conversation, {
+  copyText: value => navigator.clipboard.writeText(value),
+  notify: showToast
+});
+const chatView = createChatView(elements, conversationView);
+const client = createGUIClient({
+  loadSnapshot: () => invoke("Snapshot"),
+  onSnapshot: (snapshot, options) => render(snapshot, options),
+  onIncremental: renderIncremental,
+  onError: showToast
+});
 
 function bridge() {
   return window.go?.gui?.Bridge;
@@ -46,44 +58,40 @@ function showToast(error) {
 }
 
 async function refresh(options = {}) {
-  if (state.refreshing) return;
-  state.refreshing = true;
-  try {
-    const snapshot = await invoke("Snapshot");
-    state.snapshot = snapshot;
-    render(snapshot);
-    if (options.scroll !== false) scrollConversation();
-  } catch (error) {
-    showToast(error);
-  } finally {
-    state.refreshing = false;
-  }
+  return client.refresh(options);
 }
 
-function render(snapshot) {
+function render(snapshot, options = {}) {
   renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {});
   renderProject(snapshot);
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
-  renderConversation(snapshot.conversation || [], snapshot.chat || {});
+  chatView.render(snapshot, options.scrollMode);
   renderPlan(snapshot.runtime?.plan);
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
 
-  const running = Boolean(snapshot.chat?.running);
-  const queuedCount = Number(snapshot.chat?.queued_count || 0);
-  elements["composer-status"].textContent = running
-    ? queuedCount ? `RUN · ${queuedCount} QUEUED` : "RUN"
-    : "READY";
-  elements["send-button"].disabled = false;
-  elements["send-button"].title = running ? "加入队列" : "发送";
-  elements["send-button"].setAttribute("aria-label", running ? "加入队列" : "发送");
-  elements.prompt.placeholder = running ? "继续输入，Enter 加入队列" : "描述任务，输入 / 查看命令，输入 # 加载 Skill";
-  elements.composer.classList.toggle("is-running", running);
-  elements["stop-button"].classList.toggle("hidden", !running);
-  elements["connection-dot"].classList.add("online");
-  elements["history-bar"].classList.toggle("hidden", !snapshot.has_more_history);
+}
+
+function renderIncremental(snapshot, kind) {
+  if (!snapshot) return;
+  if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
+    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto");
+    chatView.renderControls(snapshot);
+    if (kind !== "message.delta") renderProject(snapshot);
+    return;
+  }
+  if (kind === "runtime.changed") {
+    renderRuntime(snapshot.runtime || {});
+    renderPlugins(snapshot.runtime || {});
+    renderAccounts(snapshot.runtime || {});
+    renderPlan(snapshot.runtime?.plan);
+    renderSkills(snapshot.runtime?.skills || []);
+    renderProject(snapshot);
+    return;
+  }
+  if (kind === "interaction.opened" || kind === "interaction.closed") renderInteraction(snapshot.interaction);
 }
 
 function renderProject(snapshot) {
@@ -133,7 +141,7 @@ function renderSessions(sessions, current, capabilities) {
         showToast(capabilities.session_resume_reason || "当前版本暂不支持恢复历史会话");
         return;
       }
-      try { await invoke("Submit", `/resume ${button.dataset.session}`); await refresh(); }
+      try { await invoke("Submit", `/resume ${button.dataset.session}`); await refresh({ scroll: "bottom" }); }
       catch (error) { showToast(error); }
     });
   });
@@ -194,36 +202,6 @@ function renderAccounts(runtime) {
     button.addEventListener("click", async () => {
       try { await invoke("SelectAccount", button.dataset.account); await refresh({ scroll: false }); }
       catch (error) { showToast(error); }
-    });
-  });
-}
-
-function renderConversation(messages, chat = {}) {
-  const active = messages.length > 0 || chat.running || (chat.input_queue || []).length > 0;
-  elements["empty-state"].classList.toggle("hidden", active);
-  const rendered = renderConversationComponent(messages, chat);
-  state.toolPayloads = rendered.payloads;
-  elements.conversation.innerHTML = rendered.html;
-  bindToolActions();
-}
-
-function bindToolActions() {
-  elements.conversation.querySelectorAll("[data-copy]").forEach(button => {
-    button.addEventListener("click", async () => {
-      const value = state.toolPayloads.get(button.dataset.copy) || "";
-      try {
-        await navigator.clipboard.writeText(value);
-        showToast("已复制");
-      } catch (error) { showToast(error); }
-    });
-  });
-  elements.conversation.querySelectorAll("[data-expand]").forEach(button => {
-    button.addEventListener("click", () => {
-      const panel = button.closest(".io-panel");
-      const value = state.toolPayloads.get(button.dataset.expand) || "";
-      panel?.querySelector("pre")?.replaceChildren(document.createTextNode(value));
-      panel?.classList.add("expanded");
-      button.remove();
     });
   });
 }
@@ -381,12 +359,6 @@ function hideInlineSuggestions() {
   elements["inline-suggestions"].classList.add("hidden");
 }
 
-function scrollConversation() {
-  window.requestAnimationFrame(() => {
-    elements.conversation.scrollTop = elements.conversation.scrollHeight;
-  });
-}
-
 elements.composer.addEventListener("submit", async event => {
   event.preventDefault();
   const text = elements.prompt.value.trim();
@@ -396,7 +368,7 @@ elements.composer.addEventListener("submit", async event => {
     elements.prompt.value = "";
     hideInlineSuggestions();
     resizePrompt();
-    await refresh();
+    await refresh({ scroll: "bottom" });
   } catch (error) { showToast(error); }
 });
 
@@ -432,18 +404,18 @@ elements.prompt.addEventListener("input", () => {
 });
 
 elements["stop-button"].addEventListener("click", async () => {
-  const requestID = state.snapshot?.chat?.request_id || "";
+  const requestID = client.current()?.chat?.request_id || "";
   try { await invoke("CancelChat", requestID); await refresh({ scroll: false }); }
   catch (error) { showToast(error); }
 });
 
 elements["load-history"].addEventListener("click", async () => {
-  try { await invoke("LoadMoreHistory", 50); await refresh({ scroll: false }); }
+  try { await invoke("LoadMoreHistory", 50); await refresh({ scroll: "anchor" }); }
   catch (error) { showToast(error); }
 });
 
 elements["new-session"].addEventListener("click", async () => {
-  try { await invoke("Submit", "/new"); await refresh(); }
+  try { await invoke("Submit", "/new"); await refresh({ scroll: "bottom" }); }
   catch (error) { showToast(error); }
 });
 
@@ -511,10 +483,13 @@ async function initialise() {
     state.info = info;
     elements["app-title"].textContent = info.title || "Seelex";
     elements["app-version"].textContent = info.version || "dev";
-    await refresh();
+    await refresh({ scroll: "bottom" });
     if (window.runtime?.EventsOn) {
-      window.runtime.EventsOn("seelex:event", () => refresh());
-      window.runtime.EventsOn("seelex:ready", snapshot => { state.snapshot = snapshot; render(snapshot); });
+      window.runtime.EventsOn("seelex:event", event => client.handleEvent(event));
+      window.runtime.EventsOn("seelex:ready", snapshot => {
+        try { client.acceptSnapshot(snapshot, "bottom"); }
+        catch (error) { showToast(error); }
+      });
     }
   } catch (error) {
     showToast(error);
