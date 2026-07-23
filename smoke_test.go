@@ -14,6 +14,9 @@ import (
 )
 
 func TestSmokeLLM(t *testing.T) {
+	if os.Getenv("SEELEX_RUN_LLM_SMOKE") != "1" {
+		t.Skip("set SEELEX_RUN_LLM_SMOKE=1 to run the external LLM smoke test")
+	}
 	cfgPath := accountsPath()
 
 	// 1. 创建框架运行时
@@ -21,7 +24,7 @@ func TestSmokeLLM(t *testing.T) {
 		AccountsPath: cfgPath, ToolCallTimeout: 30 * time.Second,
 	})
 	if err != nil {
-		t.Skipf("跳过: 加载配置失败: %v", err)
+		t.Fatalf("加载配置失败: %v", err)
 	}
 	defer runtime.Shutdown()
 

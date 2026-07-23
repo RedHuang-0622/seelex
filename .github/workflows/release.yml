@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  cli:
+    strategy:
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            extension: .exe
+            archive: zip
+          - goos: linux
+            goarch: amd64
+            extension: ""
+            archive: tar
+          - goos: darwin
+            goarch: amd64
+            extension: ""
+            archive: tar
+          - goos: darwin
+            goarch: arm64
+            extension: ""
+            archive: tar
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: 构建 CLI
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          version="${GITHUB_REF_NAME}"
+          name="seelex-${version}-${GOOS}-${GOARCH}"
+          mkdir -p "stage/${name}/config"
+          go build -trimpath -ldflags="-s -w -X main.Version=${version}" \
+            -o "stage/${name}/seelex${{ matrix.extension }}" .
+          cp config/accounts.example.yaml "stage/${name}/config/"
+          cp -r plugins "stage/${name}/"
+          cp seele.yaml LICENSE CHANGELOG.md README.md "stage/${name}/"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            (cd stage && zip -qr "${name}.zip" "${name}")
+            sha256sum "stage/${name}.zip" > "stage/${name}.zip.sha256"
+          else
+            tar -czf "stage/${name}.tar.gz" -C stage "${name}"
+            sha256sum "stage/${name}.tar.gz" > "stage/${name}.tar.gz.sha256"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            stage/*.zip
+            stage/*.tar.gz
+            stage/*.sha256
+          if-no-files-found: error
+
+  gui-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: 构建 Windows GUI
+        shell: pwsh
+        run: |
+          & .\scripts\build-gui.ps1 -Version $env:GITHUB_REF_NAME
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-windows-amd64
+          path: |
+            dist/*-gui.zip
+            dist/*-gui.zip.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: [cli, gui-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 发布 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.sha256

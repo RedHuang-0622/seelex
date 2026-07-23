@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
+$ArchiveVersion = $Version.TrimStart("v")
 
 # ─── 目标平台 ────────────────────────────────────────
 $Targets = @(
@@ -42,7 +43,7 @@ foreach ($t in $Targets) {
     $env:GOARCH = $arch
     $env:CGO_ENABLED = "0"
 
-    go build -trimpath -ldflags "-s -w -X main.version=$Version" -o $binPath .
+    go build -trimpath -ldflags "-s -w -X main.Version=$Version" -o $binPath .
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[error] 构建 $os/$arch 失败" -ForegroundColor Red
@@ -52,14 +53,19 @@ foreach ($t in $Targets) {
     # ─── 复制运行时文件 ───────────────────────────────
     Write-Host "[copy]  运行时文件 -> $outDir" -ForegroundColor DarkGray
 
-    # config/
-    Copy-Item -Recurse (Join-Path $Root "config") $outDir -Force
+    # config/ — only publish the tracked example, never local account files.
+    $configOut = Join-Path $outDir "config"
+    New-Item -ItemType Directory -Force -Path $configOut | Out-Null
+    Copy-Item (Join-Path $Root "config/accounts.example.yaml") $configOut -Force
 
     # plugins/
     Copy-Item -Recurse (Join-Path $Root "plugins") $outDir -Force
 
     # seele.yaml
     Copy-Item (Join-Path $Root "seele.yaml") $outDir -Force
+    Copy-Item (Join-Path $Root "LICENSE") $outDir -Force
+    Copy-Item (Join-Path $Root "CHANGELOG.md") $outDir -Force
+    Copy-Item (Join-Path $Root "README.md") $outDir -Force
 
     Write-Host "[ok]   $os/$arch 完成 ($( "{0:N0}" -f (Get-Item $binPath).Length) bytes)" -ForegroundColor Green
 }
@@ -71,7 +77,7 @@ Write-Host "[pack] 生成归档..." -ForegroundColor Cyan
 foreach ($t in $Targets) {
     $os = $t.OS
     $arch = $t.Arch
-    $dirName = "seelex-v$Version-$os-$arch"
+    $dirName = "seelex-v$ArchiveVersion-$os-$arch"
     $srcDir = Join-Path $DistRoot "$os-$arch"
     $archive = Join-Path $DistRoot "$dirName.zip"
 

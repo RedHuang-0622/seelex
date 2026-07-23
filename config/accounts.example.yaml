@@ -1,0 +1,29 @@
+# Copy this file to accounts.yaml and replace the placeholder values.
+# Never commit accounts.yaml or any *.local.yaml / *.secret.yaml file.
+defaults:
+  provider: ""
+  max_tokens: 8192
+  timeout: 120s
+  temperature: 0
+
+websearch:
+  provider: tavily
+  api_key: replace-with-your-tavily-api-key
+  max_results: 5
+  include_answer: true
+  search_depth: advanced
+
+accounts:
+  - name: openai-main
+    provider: openai
+    model: gpt-4o
+    base_url: https://api.openai.com/v1
+    api_key: replace-with-your-openai-api-key
+
+  - name: anthropic-main
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    base_url: https://api.anthropic.com/v1
+    api_key: replace-with-your-anthropic-api-key
+
+mcp_servers: []

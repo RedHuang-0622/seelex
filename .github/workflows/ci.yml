@@ -37,8 +37,18 @@ jobs:
       - name: 下载依赖
         run: go mod download
 
+      - name: 格式检查
+        run: |
+          files="$(gofmt -l .)"
+          test -z "$files" || { echo "$files"; exit 1; }
+        shell: bash
+
       - name: 编译检查
         run: go build ./...
+
+      - name: 编译 Windows GUI
+        if: runner.os == 'Windows'
+        run: go build -tags "gui,desktop,production" ./...
 
       - name: 代码检查
         run: go vet ./...
@@ -57,6 +67,16 @@ jobs:
         run: |
           ! grep -rn "return nil, nil" --include="*.go" . \
             | grep -v '_test\.go'
+        shell: bash
+
+      - name: 检查发布配置白名单
+        run: |
+          tracked="$(git ls-files 'config/*')"
+          test "$tracked" = "config/accounts.example.yaml" || {
+            echo "Unexpected tracked config files:"
+            echo "$tracked"
+            exit 1
+          }
         shell: bash
 
   race-and-coverage:
@@ -90,3 +110,31 @@ jobs:
             coverage.out
             coverage-summary.txt
           if-no-files-found: error
+
+  release-safety:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: 构建候选发布包
+        run: bash scripts/build.sh ci
+
+      - name: 检查发布包不含本地账户文件
+        run: |
+          unexpected="$(find dist -type f -path '*/config/*' ! -name 'accounts.example.yaml' -print)"
+          test -z "$unexpected" || {
+            echo "Unexpected account files in release bundle:"
+            echo "$unexpected"
+            exit 1
+          }
+
+      - name: Go 漏洞扫描
+        uses: golang/govulncheck-action@v1
+        with:
+          go-package: ./...

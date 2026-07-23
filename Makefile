@@ -2,6 +2,7 @@
 # 跨平台构建与打包
 
 VERSION ?= dev
+ARCHIVE_VERSION := $(patsubst v%,%,$(VERSION))
 DIST   := dist
 
 # 目标平台: OS/ARCH
@@ -26,7 +27,7 @@ build:
 		mkdir -p "$$outdir"; \
 		echo "  GOOS=$$os GOARCH=$$arch -> $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-			go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o "$$out" . || exit 1; \
+			go build -trimpath -ldflags="-s -w -X main.Version=$(VERSION)" -o "$$out" . || exit 1; \
 	done
 	@echo "[build] 完成"
 
@@ -37,10 +38,12 @@ package:
 		arch=$$(echo $$p | cut -d/ -f2); \
 		outdir="$(DIST)/$$os-$$arch"; \
 		echo "[copy] $$outdir"; \
-		cp -r config "$$outdir/"; \
+		mkdir -p "$$outdir/config"; \
+		cp config/accounts.example.yaml "$$outdir/config/"; \
 		cp -r plugins "$$outdir/"; \
 		cp seele.yaml "$$outdir/"; \
-		dirname="seelex-v$(VERSION)-$$os-$$arch"; \
+		cp LICENSE CHANGELOG.md README.md "$$outdir/"; \
+		dirname="seelex-v$(ARCHIVE_VERSION)-$$os-$$arch"; \
 		cp -r "$$outdir" "$(DIST)/$$dirname"; \
 		tar -czf "$(DIST)/$$dirname.tar.gz" -C "$(DIST)" "$$dirname"; \
 		rm -rf "$(DIST)/$$dirname"; \

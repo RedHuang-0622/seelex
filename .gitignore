@@ -4,6 +4,7 @@ config/accounts.yaml
 config/account-pool.yaml
 config/*.local.yaml
 config/*.secret.yaml
+!config/accounts.example.yaml
 
 # ── 运行时数据 ──────────────────────────────────────────────
 # 会话存储、MCP trace、命令栈快照等运行时产生的数据

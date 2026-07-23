@@ -4,6 +4,7 @@
 set -euo pipefail
 
 VERSION="${1:-dev}"
+ARCHIVE_VERSION="${VERSION#v}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 
@@ -45,13 +46,15 @@ for platform in "${!TARGETS[@]}"; do
     mkdir -p "$outdir"
 
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-        go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "$binpath" .
+        go build -trimpath -ldflags="-s -w -X main.Version=$VERSION" -o "$binpath" .
 
     # ─── 复制运行时文件 ───────────────────────────────
     echo -e "  [copy] 运行时文件 -> $outdir"
-    cp -r "$ROOT/config" "$outdir/"
+    mkdir -p "$outdir/config"
+    cp "$ROOT/config/accounts.example.yaml" "$outdir/config/"
     cp -r "$ROOT/plugins" "$outdir/"
     cp "$ROOT/seele.yaml" "$outdir/"
+    cp "$ROOT/LICENSE" "$ROOT/CHANGELOG.md" "$ROOT/README.md" "$outdir/"
 
     size=$(du -h "$binpath" | cut -f1)
     echo -e "${GREEN}[ok]   $os/$arch 完成 ($size)${NC}"
@@ -65,7 +68,7 @@ for platform in "${!TARGETS[@]}"; do
     os="${platform%/*}"
     arch="${platform#*/}"
     src="$DIST/${os}-${arch}"
-    dirname="seelex-v${VERSION}-${os}-${arch}"
+    dirname="seelex-v${ARCHIVE_VERSION}-${os}-${arch}"
     archive="$DIST/${dirname}.tar.gz"
 
     echo -e "  [tar] $archive"
