@@ -1,0 +1,95 @@
+# GUI 实现决策记录
+
+## ADR-GUI-001：采用 Go + Wails + 原生 Web 前端
+
+- 状态：已采用
+- 决策：桌面壳与 Core 适配使用 Go/Wails，视图使用无构建依赖的 HTML/CSS/ES Modules。
+- 替代方案：Rust/Tauri、Electron、Go 原生控件。
+- 理由：复用 Go Application Core；Wails 提供跨平台 WebView 和绑定；避免 Electron runtime 体积；当前 UI 对复杂原生控件依赖低。
+- 后果：运行时依赖系统 WebView；Linux/macOS 必须验证系统依赖；前端需要自行维护组件和状态边界。
+- 实现：`gui/run_wails.go:17`、`gui/assets.go:5`、`gui/frontend/dist/index.html:1`。
+
+## ADR-GUI-002：Application Core 是唯一业务状态源
+
+- 状态：已采用
+- 决策：GUI 只能通过 `gui.Application` 调用 Core，并消费 Snapshot/Event；不在 JavaScript 重写会话、Plugin 或审批业务规则。
+- 理由：TUI/GUI 行为一致，业务测试无需启动 WebView，后续 sidecar 也可复用同一 Core。
+- 后果：Bridge 契约必须稳定；前端出现缺口时优先扩展 Core/DTO，而不是创建 UI 私有事实。
+- 实现：`gui/bridge.go:19-30`、`application/app.go:105-151`。
+
+## ADR-GUI-003：显式版本化 Snapshot 与 Event
+
+- 状态：已采用
+- 决策：Snapshot 和每个 Event 都携带 `protocol_version`；不兼容版本由客户端明确拒绝。
+- 理由：Wails 内嵌资源通常同版本，但调试缓存、未来 sidecar 和远程客户端需要可诊断的不兼容行为。
+- 后果：破坏性 schema 变化必须升级版本并提供迁移或明确错误。
+- 实现：`application/state.go:6-23`、`application/event.go:24-30`、`gui/frontend/dist/protocol.js:8-12`。
+
+## ADR-GUI-004：Event reducer + Snapshot 兜底
+
+- 状态：已采用
+- 决策：正常事件通过纯 reducer 增量归并；seq 缺口、未知类型、无效 payload 或客户端无基线时重新拉 Snapshot。
+- 替代方案：每个事件都拉 Snapshot；完全 event sourcing。
+- 理由：兼顾流式性能和恢复正确性，不要求所有 Core 状态都永久事件化。
+- 后果：Snapshot 仍是公开且必须测试的权威接口；EventHub 必须保持单调 seq。
+- 实现：`gui/frontend/dist/protocol.js:15-112`、`gui/frontend/dist/client-state.js:3-55`。
+
+## ADR-GUI-005：用 revision floor 解决 Snapshot/Event 竞争
+
+- 状态：已采用
+- 决策：接受权威 Snapshot 时记录 revision floor；其已包含的旧事件只推进 seq，不再次归并。
+- 理由：Snapshot 返回和 Wails 事件到达可能交错，单纯按当前 revision 拒绝会误伤同一 revision 的多个合法兄弟事件。
+- 后果：floor 只在接受 Snapshot 时更新，不能随每个事件更新。
+- 实现：`gui/frontend/dist/client-state.js:5-40`、`gui/frontend/dist/protocol.js:15-31`。
+
+## ADR-GUI-006：会话使用 keyed DOM 局部协调
+
+- 状态：已采用
+- 决策：消息、工具和活动尾部分别使用 `message:<id>`、`tool:<id>`、`chat:activity`；只替换 HTML 变化的节点。
+- 替代方案：每次设置 `conversation.innerHTML`；引入 React/Vue。
+- 理由：保留滚动和展开状态，减少长会话重排，同时维持零前端构建依赖。
+- 后果：后端必须提供稳定 ID；renderer 需要显式捕获/恢复节点局部状态。
+- 实现：`gui/frontend/dist/components.js:50-66`、`gui/frontend/dist/conversation-view.js:41-89`。
+
+## ADR-GUI-007：工具调用显示为单卡片 IN/OUT 双面板
+
+- 状态：已采用
+- 决策：按 tool call ID 合并 start/result，IN 与 OUT 分框；预览按字符和行数截断，完整值保存在内存并按需展开。
+- 理由：工具调用可扫描，避免大输出压垮布局，又不丢失复制/检查能力。
+- 后果：完整输出仍占客户端内存，但不会默认进入 DOM；极大结果仍应在后端增加持久化/引用策略。
+- 实现：`gui/frontend/dist/components.js:86-190`、`gui/frontend/dist/conversation-view.js:14-38`。
+
+## ADR-GUI-008：Markdown 自有安全子集，think 使用 details
+
+- 状态：已采用
+- 决策：实现项目所需的 block/inline 子集，先转义原始 HTML，只允许 http/https/mailto 与受控相对链接；`<think>` 转成折叠 details，未闭合流式块保持展开。
+- 替代方案：引入第三方 Markdown + sanitizer。
+- 理由：当前无 npm runtime/build pipeline，安全边界可测试且功能范围明确。
+- 后果：不追求完整 CommonMark；新增语法必须先补安全测试。
+- 实现：`gui/frontend/dist/markdown.js:6-201`。
+
+## ADR-GUI-009：命令模式沿用 Core Suggestions
+
+- 状态：已采用
+- 决策：`/`、`#`、`@` 使用同一 Bridge.Suggestions 数据源，面板和输入框内联建议共享渲染函数。
+- 理由：GUI 与 TUI 的命令/Skill/Plugin 生态一致，避免前端硬编码清单。
+- 后果：Suggestion DTO 是多前端契约的一部分；输入执行仍统一走 Submit。
+- 实现：`gui/bridge.go:205-207`、`gui/frontend/dist/app.js:267-353`。
+
+## ADR-GUI-010：GUI CI 使用独立逻辑 job
+
+- 状态：已采用
+- 决策：Ubuntu `gui-tests` 单独执行 Node/JS/Core/Bridge 契约，Windows build matrix 保留 production tags 编译；workflow 监听 `main` 和 `gui`。
+- 替代方案：在三平台 build matrix 中重复执行 Node tests。
+- 理由：检查名稳定、故障定位直接、执行成本更低，并保留平台职责边界。
+- 后果：真实 WebView E2E 仍需后续独立 job/runner。
+- 实现：`.github/workflows/ci.yml:5-10`、`.github/workflows/ci.yml:83-110`。
+
+## ADR-GUI-011：Effort 使用独立常驻滑杆与派生 Max 动效
+
+- 状态：已采用
+- 决策：Effort 从 Runtime modal 移到 topbar，以原生四档 range 常驻；`input` 只预览，`change` 才通过 Bridge 提交；Max 紫色动效完全由 `data-effort` 派生。
+- 替代方案：保留弹窗 segmented buttons；每次 range input 都调用 Core；把 Effort 业务状态复制到前端 store。
+- 理由：Effort 是高频、连续强度语义的运行参数，应无需打开弹窗即可观察和切换；独立 Controller 可用 Node 测试，且不会增加 app.js 的业务状态。
+- 后果：前端档位顺序必须和 Core 同步；视觉预览可能短暂领先于 Core，因此失败必须回滚，Snapshot 必须覆盖 committed 状态；动画必须支持 reduced-motion。
+- 实现：`gui/frontend/dist/index.html:14-22`、`gui/frontend/dist/effort-control.js:1-77`、`gui/frontend/dist/styles.css:72-125`。

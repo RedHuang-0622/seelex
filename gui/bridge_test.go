@@ -189,7 +189,7 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	for _, name := range []string{
 		"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js",
 		"frontend/dist/protocol.js", "frontend/dist/client-state.js", "frontend/dist/conversation-view.js",
-		"frontend/dist/chat-view.js", "frontend/dist/styles.css",
+		"frontend/dist/chat-view.js", "frontend/dist/effort-control.js", "frontend/dist/styles.css",
 	} {
 		if _, err := embeddedFrontend.ReadFile(name); err != nil {
 			t.Fatalf("embedded frontend %q: %v", name, err)
@@ -226,7 +226,8 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	leftEnd := strings.Index(html[leftStart:], `</aside>`)
 	rightEnd := strings.Index(html[rightStart:], `</aside>`)
 	runtimeStart := strings.Index(html, `id="runtime-modal"`)
-	if leftEnd < 0 || rightEnd < 0 || runtimeStart < 0 {
+	effortStart := strings.Index(html, `id="effort-control"`)
+	if leftEnd < 0 || rightEnd < 0 || runtimeStart < 0 || effortStart < 0 {
 		t.Fatal("embedded frontend layout regions are incomplete")
 	}
 	leftPanel := html[leftStart : leftStart+leftEnd]
@@ -234,6 +235,9 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	runtimeModal := html[runtimeStart:]
 	if strings.Contains(leftPanel, `id="plugin-list"`) || strings.Contains(rightPanel, `id="plugin-list"`) || !strings.Contains(runtimeModal, `id="plugin-list"`) {
 		t.Fatal("plugins must be rendered in the runtime modal")
+	}
+	if effortStart > runtimeStart || strings.Contains(runtimeModal, `id="effort-range"`) || !strings.Contains(string(script), "createEffortControl") {
+		t.Fatal("Effort must be a persistent topbar control outside the runtime modal")
 	}
 	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="project-sources"`) {
 		t.Fatal("right sidebar must render project status and sources")

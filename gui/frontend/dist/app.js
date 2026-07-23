@@ -2,6 +2,7 @@ import { escapeHtml, hydrateIcons, icon, renderSources } from "./components.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
+import { createEffortControl } from "./effort-control.js";
 
 const state = {
   info: null,
@@ -18,7 +19,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-switch", "plan-view", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-view", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count",
   "runtime-button", "runtime-modal", "runtime-close", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -35,6 +36,16 @@ const client = createGUIClient({
   loadSnapshot: () => invoke("Snapshot"),
   onSnapshot: (snapshot, options) => render(snapshot, options),
   onIncremental: renderIncremental,
+  onError: showToast
+});
+const effortControl = createEffortControl({
+  root: elements["effort-control"],
+  input: elements["effort-range"],
+  output: elements["effort-value"],
+  selectEffort: async level => {
+    await invoke("SwitchEffort", level);
+    await refresh({ scroll: false });
+  },
   onError: showToast
 });
 
@@ -159,21 +170,11 @@ function renderRuntime(runtime) {
     ["Model", runtime.model || "—"],
     ["Provider", runtime.provider || "—"],
     ["Plugin", runtime.plugin || "—"],
-    ["Effort", runtime.effort || "—"],
     ["Prompt", runtime.prompt_stack || "—"],
     ["Tools", String(runtime.visible_tools?.length || 0)]
   ].map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
 
-  const levels = ["lite", "medium", "high", "max"];
-  elements["effort-switch"].innerHTML = levels.map(level =>
-    `<button class="segment ${runtime.effort === level ? "active" : ""}" data-effort="${level}">${level}</button>`
-  ).join("");
-  elements["effort-switch"].querySelectorAll("button").forEach(button => {
-    button.addEventListener("click", async () => {
-      try { await invoke("SwitchEffort", button.dataset.effort); await refresh({ scroll: false }); }
-      catch (error) { showToast(error); }
-    });
-  });
+  effortControl.setLevel(runtime.effort);
 }
 
 function renderPlugins(runtime) {
@@ -496,5 +497,4 @@ async function initialise() {
     window.setTimeout(initialise, 600);
   }
 }
-
 initialise();

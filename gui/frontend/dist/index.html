@@ -11,6 +11,15 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
+      <div id="effort-control" class="effort-control" data-effort="lite" role="group" aria-labelledby="effort-label">
+        <span id="effort-label" class="effort-label">Effort</span>
+        <div class="effort-slider-shell">
+          <input id="effort-range" class="effort-range" type="range" min="0" max="3" step="1" value="0" aria-label="Effort 级别" aria-valuetext="Lite">
+          <div class="effort-ticks" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        </div>
+        <output id="effort-value" class="effort-value" for="effort-range">Lite</output>
+        <span class="effort-max-aura" aria-hidden="true"></span>
+      </div>
       <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span></div>
     </header>
 
@@ -83,10 +92,6 @@
         <section>
           <div class="section-title"><span>Plugins</span><span id="plugin-count" class="badge">0</span></div>
           <div id="plugin-list" class="stack-list"></div>
-        </section>
-        <section>
-          <div class="section-title">Effort</div>
-          <div id="effort-switch" class="segmented"></div>
         </section>
         <section>
           <div class="section-title">Plan</div>

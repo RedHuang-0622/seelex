@@ -1,12 +1,13 @@
 # Seelex CI — GitHub Actions
-# 每次 push / PR 到 main 时运行
+# 每次 push / PR 到 main 或 gui 时运行
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, gui]
   pull_request:
-    branches: [main]
+    branches: [main, gui]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -78,6 +79,35 @@ jobs:
             exit 1
           }
         shell: bash
+
+  gui-tests:
+    name: GUI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 下载 Go 依赖
+        run: go mod download
+
+      - name: 检查 GUI JavaScript 语法
+        run: find gui/frontend/dist -maxdepth 1 -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: 运行 GUI 前端测试
+        run: node --test gui/frontend/dist/*.test.mjs
+
+      - name: 运行 Application 和 GUI Bridge 契约测试
+        run: go test ./application ./gui -v -count=1
 
   race-and-coverage:
     runs-on: ubuntu-latest

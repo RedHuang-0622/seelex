@@ -1,6 +1,6 @@
 # Seelex 功能打点表
 
-> 更新日期：2026-07-22
+> 更新日期：2026-07-23
 > 产品版本：v0.1.0-alpha.1
 > 产品目标：构建可切换专业 Plugin 形态的工科全栈 Agent；TUI 面向高效工作，Wails GUI 面向毕设、课程项目和成果交付。
 
@@ -24,7 +24,7 @@
 | Application 覆盖率 | 67.4% | ≥ 75%，关键错误路径 ≥ 90% | `go test -cover` |
 | TUI 适配覆盖率 | 6.2% | ≥ 40%，输入/交互/resize 主路径全覆盖 | `go test -cover` |
 | 专业 Plugin 垂直闭环 | FreeCAD 技能 + 插件 manifest 存在 | CAD 1 个、Dev 1 个 | 真实任务从输入到产物的 E2E |
-| 多前端协议兼容 | TUI/GUI 进程内共用核心 | 后续远程前端使用协议版本 | Bridge contract tests + JSON-RPC contract tests |
+| 多前端协议兼容 | TUI/GUI 共用 Core，Snapshot/Event protocol v1 | 远程前端复用 v1 并建立兼容矩阵 | Bridge contract tests + reducer tests + 后续 JSON-RPC contract tests |
 
 ## 功能打点表
 
@@ -54,13 +54,14 @@
 | 安全 | ApprovalBroker + Interaction 面板 | ApprovalRequest、用户选项 | 同步决议、TUI 交互面板（箭头/数字选择） | 已完成 | EventHub、TUI dialog | 超时率、取消率、重复 resolve | 超时/取消/关闭均唤醒等待者；TUI 面板完整交互 | ✅ Broker 和 TUI resolve 已实现 |
 | 安全 | 强制 Permission Gate | Tool call、-permission flag | manual（默认，白名单 + 审批）/ full_access（显式开启） | 🟡 基础完成 | Seele permission middleware | 门控覆盖率、误放行数、决策延迟 | manual 模式白名单工具自动放行，其他弹审批框 | 🟡 默认已收紧；`seele.yaml` 规则文件尚未强制执行 |
 | 会话 | 保存与列表 | Engine History、Session ID | 持久化会话、元数据列表 | 已完成 | Seele Store | 保存成功率、存储耗时 | `/new` 保存当前历史，`/sessions` 可查询 | ✅ 已进入主链路 |
-| 会话 | 恢复会话 | Session ID、持久化 History | Engine 与 Snapshot 同步恢复 | 上游 2—4 人日 | Engine history replacement API | 恢复成功率、历史一致率 | 恢复后下一轮 Chat 使用被恢复上下文 | ⛔ 当前明确禁用（Engine 不支持历史替换） |
+| 会话 | 恢复会话 | Session ID、持久化 History | Engine 与 Snapshot 同步恢复 | 已完成 | EnginePort.ReplaceHistory、SessionPort | 恢复成功率、历史一致率 | 恢复后下一轮 Chat 使用被恢复上下文 | ✅ `application/app.go resumeSession` + command/application tests |
 | 上下文 | 压缩、合并与快照 | 长对话、上下文片段 | 受控 Token 上下文、快照 | 已有基础，集成 4—7 人日 | `seelexctx`、Engine | Token 节省率、关键信息保留率 | 长任务不超窗，关键约束在压缩后可回归验证 | 🟡 工具包测试较好，产品链路不足 |
 | 前端 | TUI 工作入口 | 键盘、终端尺寸、application Event | CLI/TUI 交互界面 | 已完成，补测 3—5 人日 | Bubble Tea、Application | 输入延迟、渲染错误率、覆盖率 | Chat、补全、审批、Plugin 切换和 resize 有回归测试 | 🟡 主功能可用，覆盖率 6.2% |
-| 协议 | Snapshot 分页与版本 | 历史游标、客户端能力 | 分页消息、后续 `protocol_version` | 2—3 人日 | Application DTO | Snapshot 大小、分页延迟、兼容测试数 | 长会话分页加载；远程旧客户端收到可识别错误 | 🟡 分页已进入 Core/GUI，协议版本待实现 |
+| 协议 | Snapshot 分页与版本 | 历史游标、客户端能力 | 分页消息、`protocol_version=1` | 已完成（Core/GUI） | Application DTO | Snapshot 大小、分页延迟、兼容测试数 | 长会话分页加载；不兼容客户端收到可识别错误 | ✅ Core/GUI 已实现版本、seq、revision floor 与分页；远程 sidecar 另立功能点 |
 | 协议 | JSON-RPC/stdio sidecar | RPC request、订阅连接 | response、event notification | 5—8 人日 | 稳定 DTO、协议版本 | RPC 成功率、事件延迟、异常退出率 | Node 测试进程可完成 snapshot→chat→approval→cancel | ⬜ 仅远程/IDE 客户端需要 |
-| 前端 | Wails GUI Alpha | Application Bridge、工程产物 | 可视化任务、历史、Plan、审批和专业视图 | 已完成基础版，补测 5—10 人日 | Application DTO、系统 WebView | 核心任务完成率、演示稳定性 | 不复制业务逻辑；完整演示 chat/tool/approval/plugin 主链路 | 🟡 `gui/` 已实现，Windows 平台 E2E 待完成 |
-| 质量 | 测试与发布门禁 | 源码、测试、依赖 | format/build/vet/test/race/coverage/release-safety | 持续 | CI、C toolchain | 覆盖率、race、构建平台数 | 三平台通过；Linux race；发布包无本地账户文件 | 🟡 门禁已接线，需以 tag CI 实际结果确认 |
+| 前端 | Wails GUI Alpha | Application Bridge、工程产物 | 可视化任务、历史、Plan、审批和专业视图 | 基础与逻辑测试完成，E2E 待补 | Application DTO、系统 WebView | 核心任务完成率、演示稳定性 | 不复制业务逻辑；完整演示 chat/tool/approval/plugin 主链路 | 🟡 `gui/` + 26 个 Node tests + Bridge tests；Windows WebView E2E 待完成 |
+| 前端 | Effort 常驻强度滑杆 | Runtime Effort、用户拖动 | 四档预览/提交、失败回滚、Max 紫色动效 | 已完成 | `EffortManager`、GUI Bridge | 切换成功率、失败回滚率 | 无需打开弹窗；拖动只预览；Max 动效支持 reduced-motion | ✅ `effort-control.js` + 4 个 Node tests + Bridge/Core contracts |
+| 质量 | 测试与发布门禁 | 源码、测试、依赖 | format/build/vet/test/race/coverage/GUI/release-safety | 持续 | CI、C toolchain、Node 22 | 覆盖率、race、GUI tests、构建平台数 | main/gui 均触发；三平台 build；Linux race；GUI Node/contract；发布包安全 | 🟡 GUI job 与分支 trigger 已接线，需以远端首次运行结果确认 |
 | 文档 | 状态与事实同步 | HEAD、测试结果、路线决策 | README、打点表、测试报告 | 持续，每迭代 0.5 人日 | CI/人工 Review | 过时陈述数、更新时间 | README 不宣传未接线能力；报告注明提交和日期 | 🟡 本次已更新 |
 
 ## 本轮变更 v0.0.2 → v0.0.4
@@ -83,22 +84,22 @@
 ## 活动图
 
 ```text
-[稳定 Application Core]    ← v0.0.4 已达成
+[稳定 Application Core + GUI protocol v1]
           │
           ├──→ [强制 Permission Gate] ──→ [seele.yaml 规则生效]  ← manual 模式已接线
           │
-          ├──→ [Snapshot 分页/协议版本] ──→ [JSON-RPC Sidecar] ──→ [Electron]
+          ├──→ [Snapshot 分页/协议版本：已完成] ──→ [JSON-RPC Sidecar] ──→ [远程/IDE 客户端]
           │
           ├──→ [Plugin 可观测状态] ──────┬→ [CAD Plugin 垂直闭环]
           │                              └→ [Dev Plugin 垂直闭环]
           │
-          └──→ [Engine History Replace] ──→ [Session Resume]
+          └──→ [Session Resume：已完成] ──→ [跨版本历史兼容/E2E]
 ```
 
 ## 执行顺序建议
 
 1. **P0：事实与安全一致**：Permission Gate seele.yaml 规则强制执行、审批 E2E。
-2. **P0：协议地基**：Snapshot 分页、协议版本、稳定错误码。
+2. **P0：协议地基后续**：冻结 v1 字段兼容规则、补稳定错误码和 sidecar contract。
 3. **P1：可并行专业闭环**：CAD Plugin 与 Dev Plugin 可在 Plugin 契约稳定后并行推进。
 4. **P1：多前端**：sidecar 完成后启动 Electron，不在 Electron 内复制业务编排。
 5. **P2：体验和效率**：Plugin 切换可观测性、TUI 覆盖率、上下文效果度量。
@@ -116,7 +117,7 @@
 | Dev Plugin | 与基础 read/write/git Plugin 重叠 | Dev Plugin 只组合工作流、Skill 和质量门禁，不复制底层工具 |
 | JSON-RPC | DTO 在开发期频繁变化 | sidecar 上线前冻结 v1；之后只做向后兼容扩展 |
 | Electron | UI 先行导致业务重复实现 | Electron 仅消费 sidecar；缺少 API 时先补 core/协议，不在 TS 临时实现业务状态 |
-| Session Resume | Engine 历史无法替换 | 保持 capability=false 和明确提示，仅允许历史查看，不伪装恢复 |
+| Session Resume | 历史格式跨版本不兼容或 ReplaceHistory 失败 | 原子保持当前会话，显示恢复失败，不提交半恢复 Snapshot |
 
 ## 更新规则
 
