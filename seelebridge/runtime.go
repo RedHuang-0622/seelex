@@ -37,7 +37,7 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	breaker *breakerState // 熔断器事件 channel 状态
+	breaker  *breakerState         // 熔断器事件 channel 状态
 	planTool *builtin.WorkPlanTool // plan 工具，用于设置进度回调
 }
 

@@ -165,4 +165,3 @@ func (ps *PromptStack) Describe() string {
 	}
 	return strings.Join(parts, "  ")
 }
-

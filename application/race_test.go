@@ -16,7 +16,7 @@ import (
 func TestEventHub_RacePublishSubscribe(t *testing.T) {
 	hub := NewEventHub()
 	const publishers = 20
-	const events = 50 // 总计 1000 次 Publish
+	const events = 50                         // 总计 1000 次 Publish
 	sub := hub.Subscribe(publishers * events) // buffer 必须 ≥ 总事件数，否则 default 分支的 drain+resync 会丢失事件，导致消费者永久阻塞
 
 	var wg sync.WaitGroup

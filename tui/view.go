@@ -65,7 +65,7 @@ func (model Model) View() string {
 		builder.WriteString(StyleStatus.Render(fmt.Sprintf("  ● receiving  %s", elapsed)))
 		builder.WriteString("\n")
 	}
-		builder.WriteString(model.renderQueue())
+	builder.WriteString(model.renderQueue())
 	if model.uiError != "" {
 		builder.WriteString(StyleError.Render("  ✖ " + model.uiError))
 		builder.WriteString("\n")
@@ -93,7 +93,7 @@ func (model Model) renderConversation() string {
 
 func effortBadge(effort string) string {
 	colors := map[string]lipgloss.Color{
-		"lite":    lipgloss.Color("241"), // 灰
+		"lite":   lipgloss.Color("241"), // 灰
 		"medium": lipgloss.Color("220"), // 金
 		"high":   lipgloss.Color("75"),  // 蓝
 		"max":    lipgloss.Color("198"), // 紫红
@@ -120,11 +120,11 @@ func (model Model) renderStatusBar() string {
 		parts = append(parts, plugin)
 	}
 	// Skill 栈状态（仅在加载了 skill 时显示，避免与 effortBadge 重复）
-		if stack := model.snapshot.Runtime.PromptStack; stack != "" && stack != "base" {
-			if strings.Contains(stack, "|") || strings.Contains(stack, "  ") {
-				parts = append(parts, StyleMuted.Render(stack))
-			}
+	if stack := model.snapshot.Runtime.PromptStack; stack != "" && stack != "base" {
+		if strings.Contains(stack, "|") || strings.Contains(stack, "  ") {
+			parts = append(parts, StyleMuted.Render(stack))
 		}
+	}
 	tokens := model.snapshot.Runtime.Tokens
 	if tokens == "" {
 		tokens = "0"

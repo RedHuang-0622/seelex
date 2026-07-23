@@ -60,8 +60,8 @@ func TestWalkTree(t *testing.T) {
 func TestExtractLLMInfo_Text(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
 	extractLLMInfo(&tracer.Node{
-		Name: "call1",
-		Kind: tracer.SpanLLMCall,
+		Name:  "call1",
+		Kind:  tracer.SpanLLMCall,
 		Attrs: map[string]string{"response_type": "text", "model": "gpt-4", "total_tokens": "150"},
 	}, snap, "t1")
 	if snap.TokenEstimate != 150 {
@@ -75,8 +75,8 @@ func TestExtractLLMInfo_Text(t *testing.T) {
 func TestExtractLLMInfo_ToolCalls(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
 	extractLLMInfo(&tracer.Node{
-		Name: "call2",
-		Kind: tracer.SpanLLMCall,
+		Name:  "call2",
+		Kind:  tracer.SpanLLMCall,
 		Attrs: map[string]string{"response_type": "tool_calls", "tool_count": "3", "total_tokens": "500"},
 	}, snap, "t2")
 	if snap.TokenEstimate != 500 {
@@ -95,8 +95,8 @@ func TestExtractLLMInfo_NoAttrs(t *testing.T) {
 func TestExtractLLMInfo_InvalidToken(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{TokenEstimate: 0}
 	extractLLMInfo(&tracer.Node{
-		Name: "call4",
-		Kind: tracer.SpanLLMCall,
+		Name:  "call4",
+		Kind:  tracer.SpanLLMCall,
 		Attrs: map[string]string{"total_tokens": "not-a-number"},
 	}, snap, "t4")
 	// Invalid number should not change TokenEstimate
@@ -108,8 +108,8 @@ func TestExtractLLMInfo_InvalidToken(t *testing.T) {
 func TestExtractLLMInfo_UnknownResponseType(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
 	extractLLMInfo(&tracer.Node{
-		Name: "call5",
-		Kind: tracer.SpanLLMCall,
+		Name:  "call5",
+		Kind:  tracer.SpanLLMCall,
 		Attrs: map[string]string{"response_type": "unknown", "model": "gpt-4"},
 	}, snap, "t5")
 	// Unknown response type should not add findings
@@ -121,8 +121,8 @@ func TestExtractLLMInfo_UnknownResponseType(t *testing.T) {
 func TestExtractToolDecision_Normal(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
 	extractToolDecision(&tracer.Node{
-		Name: "read_file",
-		Kind: tracer.SpanToolDispatch,
+		Name:  "read_file",
+		Kind:  tracer.SpanToolDispatch,
 		Attrs: map[string]string{"tool": "read_file", "arguments": `{"path":"/x"}`},
 	}, snap)
 	if len(snap.Decisions) != 1 {
@@ -166,8 +166,8 @@ func TestExtractToolDecision_Error(t *testing.T) {
 func TestExtractToolDecision_NoArgs(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
 	extractToolDecision(&tracer.Node{
-		Name: "search",
-		Kind: tracer.SpanToolDispatch,
+		Name:  "search",
+		Kind:  tracer.SpanToolDispatch,
 		Attrs: map[string]string{"tool": "search"},
 	}, snap)
 	if len(snap.Decisions) != 1 {

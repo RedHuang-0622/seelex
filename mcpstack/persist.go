@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	DefaultDir  = ".seelex/mcp-traces"
-	FileSuffix  = ".mcpstack.json"
+	DefaultDir = ".seelex/mcp-traces"
+	FileSuffix = ".mcpstack.json"
 )
 
 // StackPath returns the conventional file path for a session trace.

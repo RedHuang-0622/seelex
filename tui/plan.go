@@ -21,12 +21,12 @@ var planNodeIcons = map[application.NodeStatus]string{
 }
 
 var planNodeColors = map[application.NodeStatus]lipgloss.Color{
-	application.NodePending:   lipgloss.Color("240"),  // 灰
-	application.NodeRunning:   lipgloss.Color("220"),  // 金
-	application.NodeCompleted: lipgloss.Color("76"),   // 绿
-	application.NodeFailed:    lipgloss.Color("196"),  // 红
-	application.NodeAborted:   lipgloss.Color("124"),  // 暗红
-	application.NodeSkipped:   lipgloss.Color("242"),  // 浅灰
+	application.NodePending:   lipgloss.Color("240"), // 灰
+	application.NodeRunning:   lipgloss.Color("220"), // 金
+	application.NodeCompleted: lipgloss.Color("76"),  // 绿
+	application.NodeFailed:    lipgloss.Color("196"), // 红
+	application.NodeAborted:   lipgloss.Color("124"), // 暗红
+	application.NodeSkipped:   lipgloss.Color("242"), // 浅灰
 }
 
 var planStatusIcons = map[application.PlanStatus]string{

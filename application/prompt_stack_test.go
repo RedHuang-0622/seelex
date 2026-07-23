@@ -199,7 +199,7 @@ type mockEngine struct {
 	prompt   string
 }
 
-func (m *mockEngine) SetMaxLoops(n int)    { m.maxLoops = n }
+func (m *mockEngine) SetMaxLoops(n int)        { m.maxLoops = n }
 func (m *mockEngine) SetSystemPrompt(p string) { m.prompt = p }
 
 func contains(s, substr string) bool {
