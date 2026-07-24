@@ -120,3 +120,12 @@
 - 理由：安全边界可复用、可测试且不依赖 DOM；领域视图比 Agent 自由生成 Workspace 更可预测。
 - 后果：Snapshot 只放摘要，内容改为分页 query；Card 文件跳转必须经过 opaque resource ID 和 Core action resolution。
 - 详设：`modules/workspace-sandbox.md`。
+
+## ADR-GUI-015：多会话采用 SessionActor + Coordinator，不复用单 Engine 热切换
+
+- 状态：拟议。
+- 决策：中心区域用页签多开会话；`WorkbenchCoordinator` 管 open/active 页面和公平调度，每个 `SessionActor` 通过 factory 获得独立 Engine、状态、审批与 Event scope。active 页面唯一，但 running 会话可以有多个。
+- 替代方案：继续用一个 Service 通过 `ReplaceHistory` 切换；每个会话启动独立子进程。
+- 理由：单 Engine 切换不能让后台任务继续且易串 History；子进程隔离更强但显著增加 IPC、监督和桌面打包成本。进程内 actor 能复用当前状态机，并以并发上限 1 渐进迁移。
+- 后果：所有动作和事件必须显式携带 session ID；Effort/Skill/Plan/input queue 变为会话级；共享 Workspace 写需要 revision precondition；页签切换不能调用 `/resume`。
+- 详设：`modules/multi-session-pages.md`。

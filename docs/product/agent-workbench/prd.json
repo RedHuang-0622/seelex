@@ -14,12 +14,13 @@
       "quality"
     ]
   },
-  "vision": "把 Seelex 从以聊天为中心的 Agent GUI 扩展为可验证、可交互、受沙盒约束的工程工作台：Agent 用 JSON DSL 生成安全卡片，用户能完成端到端任务交互，并在右侧 Workspace 中检查文件、变更和产物。",
+  "vision": "把 Seelex 从单会话聊天 GUI 扩展为可验证、可交互、受沙盒约束的并行工程工作台：Agent 用 JSON DSL 生成安全卡片，多个会话页面可同时工作，用户能完成端到端任务交互，并在右侧 Workspace 中检查文件、变更和产物。",
   "problem_statement": [
     "当前 Agent 的结构化结果主要退化为 Markdown 或工具文本，复杂结果缺少可复用的交互表达。",
     "当前 CI 能验证协议和纯函数，但无法覆盖用户从提交任务到工具、审批、卡片、Workspace 和产物的完整交互链。",
     "当前右侧栏只展示静态 Project 摘要与固定资料源，无法成为任务过程中的文件、变更和产物工作台。",
-    "项目根目录目前是展示信息，不是完整的后端路径安全边界；未来文件浏览和产物操作必须先建立沙盒约束。"
+    "项目根目录目前是展示信息，不是完整的后端路径安全边界；未来文件浏览和产物操作必须先建立沙盒约束。",
+    "当前会话列表通过替换单个 Engine History 实现切换，全局 ChatState 同时只允许一个任务运行，无法让多个会话页面并行工作。"
   ],
   "personas": [
     {
@@ -37,7 +38,8 @@
       "goals": [
         "查看代码变更、测试结果和文件定位",
         "恢复会话后继续使用结构化结果",
-        "获得稳定、可复现的 Agent E2E 反馈"
+        "获得稳定、可复现的 Agent E2E 反馈",
+        "同时运行多个独立任务，并在后台完成、错误或审批时得到明确提示"
       ]
     },
     {
@@ -55,7 +57,8 @@
     "声明式数据可以进入渲染层，任意 HTML、JavaScript、CSS 和动态模块不可以。",
     "Workspace 右栏是安全边界的视图，不是安全边界本身；所有路径和动作必须由后端校验。",
     "PR CI 使用确定性 fake，真实模型只作为受预算约束的 nightly 或手工验证。",
-    "新能力先提供降级路径：卡片失败仍能读原始说明，Workspace 失败不影响聊天，会话可从 Snapshot 恢复。"
+    "新能力先提供降级路径：卡片失败仍能读原始说明，Workspace 失败不影响聊天，会话可从 Snapshot 恢复。",
+    "会话是并发与故障隔离边界；一个会话的 Engine、事件、审批或持久化失败不得污染或阻塞其他会话。"
   ],
   "scope": {
     "in_scope": [
@@ -67,7 +70,10 @@
       "提交、流式消息、工具调用、审批、卡片、Workspace、会话恢复的完整 Agent 交互链",
       "右栏 Overview、Files、Changes、Artifacts 四个 Workspace 视图",
       "项目根路径归一化、路径逃逸防护、符号链接策略、预览上限和审批联动",
-      "DSL FileLink 与 Workspace 文件定位联动"
+      "DSL FileLink 与 Workspace 文件定位联动",
+      "在一个桌面窗口中多开会话页面，并允许多个会话同时 running",
+      "会话级 Engine、历史、输入队列、Effort、Skill、Plan、审批、事件和 Workspace binding 隔离",
+      "有界并发调度、后台状态提示、页签切换、关闭保护与重启恢复"
     ],
     "out_of_scope": [
       "执行 Agent 生成的 HTML、JavaScript、CSS、WebAssembly 或远程组件代码",
@@ -77,7 +83,8 @@
       "第一阶段支持多根目录、远程 SSH Workspace 或云端多人协同",
       "将真实付费模型测试设为每个 Pull Request 的强制门禁",
       "绕过现有 Permission Gate 的自动文件写入或命令执行",
-      "将任意工作区文件全文默认发送到前端或模型"
+      "将任意工作区文件全文默认发送到前端或模型",
+      "第一阶段支持多个操作系统窗口、同一会话在多个客户端协同编辑或跨设备同步"
     ]
   },
   "capabilities": [
@@ -246,6 +253,70 @@
         "snapshot_workspace_payload_kb": "<32",
         "artifact_traceability": "100% of registered artifacts"
       }
+    },
+    {
+      "id": "CAP-MULTISESSION",
+      "name": "Concurrent multi-session pages",
+      "priority": "P0",
+      "outcome": "用户可以在一个窗口中打开多个会话页面，让多个 Agent 任务独立并行，并安全地切换、审批、关闭和恢复。",
+      "requirements": [
+        {
+          "id": "MS-001",
+          "text": "产品和协议必须区分持久化会话、已打开页面、唯一前台 active 页面和可同时存在的 running 会话；切页不得停止后台任务。"
+        },
+        {
+          "id": "MS-002",
+          "text": "每个 open session 必须拥有隔离的 Engine history、ChatState、Conversation、PromptStack、Plan、Tool lifecycle 和 cancellation context，不能通过替换单个全局 Engine History 模拟并行。"
+        },
+        {
+          "id": "MS-003",
+          "text": "Application 提供显式携带 session ID 的 open、new、activate、close、snapshot、submit、cancel 和 resolve API；迁移后的 GUI 不依赖隐式当前会话路由。"
+        },
+        {
+          "id": "MS-004",
+          "text": "Workbench shell 与每个 session 使用独立 event scope、seq 和 revision；单会话事件缺口只重同步该会话。"
+        },
+        {
+          "id": "MS-005",
+          "text": "中心对话区提供可键盘操作的会话页签；后台 running、queued、approval、error 和 done/unread 状态可见，切回后恢复草稿、滚动锚点、焦点和卡片局部状态。"
+        },
+        {
+          "id": "MS-006",
+          "text": "所有审批和交互必须绑定 session ID、interaction ID 与 revision；后台审批不抢占当前输入焦点，用户可从 badge 准确跳转到来源页面。"
+        },
+        {
+          "id": "MS-007",
+          "text": "并发由有界公平 scheduler 控制，分别限制 open、running、全局 queued 和单 session queued；超过硬上限必须返回可见错误。"
+        },
+        {
+          "id": "MS-008",
+          "text": "每个会话持有稳定 Workspace binding；共享 Workspace 的并发写在执行前比较资源 revision/hash，冲突不得 last-write-wins，Artifact 保留 producer session 来源。"
+        },
+        {
+          "id": "MS-009",
+          "text": "Workbench 保存页签顺序与 active 页面，各 session 独立 checkpoint；running 或等待审批的页面不能在无确认时静默关闭，重启后 interrupted 状态可解释。"
+        },
+        {
+          "id": "MS-010",
+          "text": "Effort、活动 Skill、输入队列和 Plan 是会话级状态；顶部控件只修改 active session，后台会话不受其他页面配置切换影响。"
+        }
+      ],
+      "acceptance_criteria": [
+        "会话 A 和 B 可同时流式运行；在 A/B 间切页不会取消、串写 History、重复 delta 或重置另一页状态。",
+        "后台会话完成、失败或等待审批时页签出现准确 badge；点击后进入来源会话和对应 item/interaction。",
+        "一个 session 的 event gap、Engine error、checkpoint failure 或慢 subscriber 不影响其他 open session 继续运行。",
+        "达到并发上限后新任务进入有界公平队列；取消 queued/running session 不泄漏 permit 或 goroutine。",
+        "关闭 running/approval 页面必须显式确认；应用重启后页签 layout、各会话 transcript 和 interrupted 状态一致恢复。",
+        "共享 Workspace 的两个会话对同一资源使用过期 precondition 时，后执行者得到冲突而不是覆盖。"
+      ],
+      "success_metrics": {
+        "parallel_session_isolation": "100% in contract and race fixtures",
+        "tab_switch_feedback_p95_ms": "<100 with 8 open sessions",
+        "background_status_delivery_p95_ms": "<250",
+        "scheduler_permit_leaks": "0",
+        "cross_session_event_or_approval_misroutes": "0",
+        "multi_session_restore_consistency": "100% in deterministic fixtures"
+      }
     }
   ],
   "user_journeys": [
@@ -286,6 +357,20 @@
         "用户继续提交下一轮问题"
       ],
       "expected_outcome": "恢复后的结构化上下文与原会话一致，不出现悬空卡片或路径。"
+    },
+    {
+      "id": "JOURNEY-004",
+      "name": "多会话并行任务与后台审批",
+      "steps": [
+        "用户在会话 A 提交长时间分析任务",
+        "用户新建会话 B 并提交独立代码审查任务",
+        "A 和 B 同时流式运行，页签展示各自状态",
+        "用户停留在 B 时 A 进入工具审批，A 页签显示 approval badge",
+        "用户点击 badge 切回 A，核对来源 Workspace 与工具后允许",
+        "用户返回 B，草稿、滚动和 Conversation 状态保持",
+        "A/B 分别完成并保存独立 transcript、Card 与 Artifact"
+      ],
+      "expected_outcome": "用户能并行推进多个任务，所有输出、审批、配置和错误都准确归属于原会话。"
     }
   ],
   "non_functional_requirements": [
@@ -318,6 +403,11 @@
       "id": "NFR-OBS-001",
       "category": "observability",
       "requirement": "记录 card validation、render fallback、Workspace denied、E2E step duration 和 artifact lifecycle 指标，但不得记录秘密或完整敏感文件。"
+    },
+    {
+      "id": "NFR-CONC-001",
+      "category": "concurrency",
+      "requirement": "默认支持 8 个 open、3 个 running 会话；调度、事件、审批、持久化和关闭路径必须通过 race、背压、故障隔离与有界资源测试。"
     }
   ],
   "milestones": [
@@ -381,6 +471,20 @@
     },
     {
       "id": "M4",
+      "name": "Concurrent session pages",
+      "deliverables": [
+        "WorkbenchCoordinator、SessionActor 与 EngineFactory",
+        "scoped Event 与 per-session Snapshot",
+        "会话页签、后台 badge、草稿和滚动恢复",
+        "有界 scheduler、审批路由与关闭保护"
+      ],
+      "exit_criteria": [
+        "CAP-MULTISESSION P0 验收项全部通过",
+        "8 open/3 running race 与负载 fixture 达标"
+      ]
+    },
+    {
+      "id": "M5",
       "name": "Artifacts and production hardening",
       "deliverables": [
         "Artifact registry 与 Artifacts 标签页",
@@ -389,7 +493,7 @@
         "可选 live Agent nightly"
       ],
       "exit_criteria": [
-        "三条用户旅程 E2E 全绿",
+        "四条用户旅程 E2E 全绿",
         "发布门禁和操作手册完成"
       ]
     }
@@ -412,17 +516,27 @@
     },
     {
       "from": "M4",
+      "to": "M0",
+      "type": "requires"
+    },
+    {
+      "from": "M5",
       "to": "M1",
       "type": "requires"
     },
     {
-      "from": "M4",
+      "from": "M5",
       "to": "M2",
       "type": "requires"
     },
     {
-      "from": "M4",
+      "from": "M5",
       "to": "M3",
+      "type": "requires"
+    },
+    {
+      "from": "M5",
+      "to": "M4",
       "type": "requires"
     }
   ],
@@ -432,7 +546,8 @@
     "Node renderer、protocol 和 controller tests 通过",
     "Playwright P0 journeys 通过且上传 trace",
     "PathGuard 跨平台逃逸测试通过",
-    "无任意代码执行、路径越界或绕过审批的高危发现",
+    "多会话并行、路由隔离、调度背压和关闭恢复 E2E 通过",
+    "无任意代码执行、路径越界、跨会话状态污染或绕过审批的高危发现",
     "文档、协议版本和迁移说明同步"
   ],
   "risks": [
@@ -460,6 +575,16 @@
       "id": "RISK-005",
       "risk": "Snapshot 被卡片或文件树撑大",
       "mitigation": "Snapshot 只含可见卡片和 Workspace 摘要，树、预览、diff 独立分页查询并设硬上限。"
+    },
+    {
+      "id": "RISK-006",
+      "risk": "多个会话共享全局 Engine、审批或 runtime 状态导致 History、事件或权限决策串线",
+      "mitigation": "SessionActor 单写者、per-session EngineFactory、显式 session ID API、scoped Event、复合 interaction identity 与 race/E2E 隔离测试。"
+    },
+    {
+      "id": "RISK-007",
+      "risk": "后台任务无界占用 provider、内存、goroutine 或 Workspace 写资源",
+      "mitigation": "有界公平 scheduler、open/running/queue 硬限制、资源 precondition、退出 draining 和负载门禁。"
     }
   ],
   "open_questions": [
@@ -476,7 +601,12 @@
     {
       "id": "Q-003",
       "question": "协议版本采用 v1 additive 还是 v2？",
-      "recommendation": "使用 protocol v2，避免旧客户端对新事件持续 resync，并一次冻结 Card 与 Workspace capability。"
+      "recommendation": "使用 protocol v2，避免旧客户端对新事件持续 resync，并一次冻结 Card、Workspace 与 session scope capability。"
+    },
+    {
+      "id": "Q-004",
+      "question": "第一版是否支持多个操作系统窗口或同页分屏显示两个 Conversation？",
+      "recommendation": "P0 只做单窗口多页签和后台并行；多窗口需要跨 WebView ownership，同页分屏需要新的布局/焦点预算，均在 P1 基于相同 Session API 扩展。"
     }
   ],
   "related_documents": [
@@ -484,6 +614,7 @@
     "../../gui/modules/dsl-card-runtime.md",
     "../../gui/modules/agent-e2e-interaction.md",
     "../../gui/modules/workspace-sandbox.md",
+    "../../gui/modules/multi-session-pages.md",
     "../../research/agent-frontend-design-research.md"
   ]
 }

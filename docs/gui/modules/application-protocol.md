@@ -4,6 +4,8 @@
 
 本模块把 Engine、Session、Plugin、Skill 和审批状态转换为前端可消费的单一状态模型。它负责业务状态、会话恢复、输入队列、流式消息和工具生命周期；不依赖 GUI/Wails。
 
+当前实现是单 Engine、单 active Session：左栏恢复会话会替换 Engine History，同一时刻全局最多一个 Chat running。未来多会话并行不会放宽单个会话内的一次一 turn，而是把本状态机迁入独立 `SessionActor`，由 Workbench 层管理多个 actor；详见 [多会话页面并行规划](multi-session-pages.md)。
+
 上游依赖通过 `application.Dependencies` 中的 ports 注入。下游只看到：
 
 - `Snapshot()`：权威全量状态；

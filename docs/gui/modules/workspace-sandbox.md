@@ -353,7 +353,15 @@ Conversation Card FileLink click
 
 右栏不读取 Card props 里的 path，也不接受前端改写 action payload。导航失败时 Card 保留，action 标记 unavailable，右栏显示可重试错误。
 
-## 15. 缓存与性能
+## 15. 多会话绑定与并发
+
+每个 open session 持有稳定 `workspace_id`，右栏跟随 active session 切换 binding；切页只恢复该页面的 tab/selected resource/scroll viewState，不改变后台 session 的 Workspace identity。
+
+多个会话绑定同一 Workspace 时共享只读 index/cache，但 mutation 继续走 Tool middleware。审批 preview 记录 resource revision/hash，执行前重新 PathGuard 并比较 precondition；若另一会话已修改目标，返回 `WORKSPACE_REVISION_CONFLICT`，不得 last-write-wins。成功 mutation 发布 Workspace scope revision，使所有绑定会话只失效受影响查询。Artifact 额外保存 producer session ID，避免后台产物归属不明。
+
+完整页面生命周期、scheduler 和审批路由见 [多会话页面并行详设](multi-session-pages.md)。
+
+## 16. 缓存与性能
 
 - 前端 query cache key：workspace ID + revision + method + resource/cursor；
 - 同 key 并发请求合并，过期 response 按 revision 拒绝；
@@ -363,7 +371,7 @@ Conversation Card FileLink click
 - 文件系统 watcher 只做失效提示，事实读取仍由 query 完成；
 - 目标：indexed query P95 <150ms，右栏交互反馈 <100ms，Snapshot Workspace <32KiB。
 
-## 16. 错误模型
+## 17. 错误模型
 
 | code | 场景 | UI |
 |------|------|----|
@@ -377,7 +385,7 @@ Conversation Card FileLink click
 | `WORKSPACE_REVISION_CONFLICT` | 旧 query/action | 丢弃旧 response，刷新摘要 |
 | `WORKSPACE_GIT_UNAVAILABLE` | 非 repo/git 不可用 | 切 audit fallback 或 unavailable |
 
-## 17. 计划改动位置
+## 18. 计划改动位置
 
 | 层 | 文件/目录 | 变更 |
 |----|-----------|------|
@@ -391,7 +399,7 @@ Conversation Card FileLink click
 | DSL | `card-action.js` | resource action 中介 |
 | Session | `session/` | artifact metadata、Workspace identity |
 
-## 18. 测试矩阵
+## 19. 测试矩阵
 
 | 层 | 必测项 |
 |----|--------|
@@ -405,7 +413,7 @@ Conversation Card FileLink click
 | Security | path corpus、git option injection、secret redaction、oversized content |
 | Race | index invalidation/query、artifact register/list、Snapshot update |
 
-## 19. 验收追溯
+## 20. 验收追溯
 
 | PRD | 设计落点 |
 |-----|----------|

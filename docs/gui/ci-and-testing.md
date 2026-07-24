@@ -116,6 +116,6 @@ Windows 本机若 `CGO_ENABLED=0`，`go test -race` 会报告需要 CGO。不能
 ## 9. 后续增强
 
 - 引入 workflow/action 静态 linter（例如 actionlint）作为 CI 自检。
-- 用 Playwright 加载静态 shell + fake Bridge，覆盖键盘、modal、DOM reconciliation、DSL 对话卡片与 Workspace 联动；完整方案见 [Agent E2E 交互详设](modules/agent-e2e-interaction.md)。
+- 用 Playwright 加载静态 shell + fake Bridge，覆盖键盘、modal、DOM reconciliation、DSL 对话卡片、Workspace 联动和多会话并行/后台审批；完整方案见 [Agent E2E 交互详设](modules/agent-e2e-interaction.md)。
 - 在 Windows runner 增加启动 smoke test；真实系统 WebView E2E 需要可交互 runner。
 - 给 GUI job 增加测试结果 artifact/JUnit 输出，便于趋势统计。
