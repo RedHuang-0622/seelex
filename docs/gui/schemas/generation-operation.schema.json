@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/generation-operation.schema.json",
+  "title": "Generation checkpoint or rollback operation",
+  "oneOf": [
+    { "$ref": "#/$defs/checkpoint" },
+    { "$ref": "#/$defs/rollback" }
+  ],
+  "$defs": {
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "expected_generation_id", "reason"],
+      "properties": {
+        "operation": { "const": "checkpoint" },
+        "expected_generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "reason": { "enum": ["manual", "turn_complete", "shutdown", "migration", "rebuild"] }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "expected_generation_id", "target_generation_id", "reason"],
+      "properties": {
+        "operation": { "const": "rollback" },
+        "expected_generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "target_generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    }
+  }
+}

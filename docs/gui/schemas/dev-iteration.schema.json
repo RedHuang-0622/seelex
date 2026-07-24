@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/dev-iteration.schema.json",
+  "title": "Requirement-to-development self-iteration run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "iteration_id", "iteration_number", "max_iterations",
+    "status", "baselines", "gate_snapshots", "work_items", "verification",
+    "feedback", "audit"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "iteration_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "iteration_number": { "type": "integer", "minimum": 1 },
+    "max_iterations": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "status": {
+      "enum": [
+        "collecting_evidence", "requirements_ready", "architecture_ready",
+        "design_ready", "implementing", "verifying", "review_required",
+        "blocked", "completed", "failed"
+      ]
+    },
+    "baselines": { "$ref": "#/$defs/baselines" },
+    "gate_snapshots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gateSnapshot" }
+    },
+    "work_items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/workItem" }
+    },
+    "verification": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/verification" }
+    },
+    "feedback": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/feedback" }
+    },
+    "audit": { "$ref": "#/$defs/audit" }
+  },
+  "$defs": {
+    "baselines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_generation_id"],
+      "properties": {
+        "source_generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "requirement_generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "architecture_generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "detailed_design_generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "implementation_revision": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "gateSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "decision", "assessment_ids", "decided_at"],
+      "properties": {
+        "stage": { "enum": ["requirement", "architecture", "detailed_design", "development", "release"] },
+        "decision": { "enum": ["eligible", "review_required", "evidence_insufficient", "blocked_by_conflict", "human_accepted"] },
+        "assessment_ids": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/identifier" }
+        },
+        "decided_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "approved_by": { "$ref": "common.schema.json#/$defs/identifier" },
+        "reason_codes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        }
+      }
+    },
+    "workItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_item_id", "kind", "source_object_ids", "status"],
+      "properties": {
+        "work_item_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "kind": { "enum": ["implementation", "test", "migration", "documentation", "manual_review"] },
+        "source_object_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "common.schema.json#/$defs/identifier" }
+        },
+        "status": { "enum": ["pending", "in_progress", "passed", "failed", "blocked", "skipped_by_human"] }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verification_id", "kind", "result", "evidence_ids"],
+      "properties": {
+        "verification_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "kind": { "enum": ["schema", "unit", "integration", "e2e", "race", "security", "manual"] },
+        "result": { "enum": ["passed", "failed", "blocked", "not_run"] },
+        "evidence_ids": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/identifier" }
+        }
+      }
+    },
+    "feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feedback_id", "classification", "target_object_id", "action", "status"],
+      "properties": {
+        "feedback_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "classification": {
+          "enum": [
+            "requirement_evidence_gap", "requirement_defect", "architecture_defect",
+            "design_defect", "implementation_defect", "test_defect", "environment_issue"
+          ]
+        },
+        "target_object_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "action": {
+          "enum": [
+            "reopen_requirement_gate", "reopen_architecture_gate", "reopen_design_gate",
+            "create_dev_work_item", "create_test_work_item", "request_human_review", "stop_iteration"
+          ]
+        },
+        "status": { "enum": ["open", "accepted", "resolved", "rejected", "deferred"] }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["created_by", "created_at", "updated_at"],
+      "properties": {
+        "created_by": { "$ref": "common.schema.json#/$defs/identifier" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "updated_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    }
+  }
+}

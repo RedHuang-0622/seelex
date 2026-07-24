@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/card.schema.json",
+  "title": "Seelex conversation card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "card_id", "type", "title", "components", "actions"],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "card_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "type": { "enum": ["summary", "table", "artifact", "progress", "error"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "components": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/action" }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "text"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "kind": { "enum": ["text", "code", "metric", "status"] },
+        "text": { "type": "string", "maxLength": 20000 },
+        "language": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "kind", "target"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "kind": { "enum": ["open_resource", "open_artifact", "submit_prompt"] },
+        "target": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    }
+  }
+}

@@ -1,5 +1,7 @@
 # GUI 代码审查与功能追溯
 
+> 2026-07-24 新增的全局并发、循环依赖、模块边界与解耦结论见 [`architecture-review.md`](architecture-review.md)。本文继续保留当前 GUI 功能点到实现与测试证据的追溯矩阵。
+
 ## 1. 审查范围
 
 审查基线为 `gui` 分支的 Wails GUI、Application 前端契约和 `.github/workflows/ci.yml`。功能打点必须同时指向详细设计、当前实现段落和自动化证据；仅有界面或文档不算通过。

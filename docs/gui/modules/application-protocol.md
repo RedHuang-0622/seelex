@@ -1,5 +1,8 @@
 # Application 协议与会话模块详细设计
 
+> 状态：已实现（protocol v1）；v2 scoped contract 为规划
+> 总体架构：[`../architecture.md`](../architecture.md)
+
 ## 1. 职责与边界
 
 本模块把 Engine、Session、Plugin、Skill 和审批状态转换为前端可消费的单一状态模型。它负责业务状态、会话恢复、输入队列、流式消息和工具生命周期；不依赖 GUI/Wails。

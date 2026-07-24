@@ -26,6 +26,12 @@
 | 文档 | 说明 |
 |------|------|
 | [`gui/README.md`](gui/README.md) | GUI 架构总览、模块边界和维护规则 |
+| [`gui/architecture.md`](gui/architecture.md) | Agent Workbench 权威总体架构、并发与 generation 发布模型 |
+| [`gui/module_dotting.json`](gui/module_dotting.json) | 模块职责、状态、接口、输入输出和依赖 DAG |
+| [`gui/schemas/`](gui/schemas/) | 对外及跨模块 JSON Schema 契约与维护规则 |
+| [`gui/api/`](gui/api/) | 规划 HTTP API、安全、分页、错误和快照语义 |
+| [`gui/recipes/`](gui/recipes/) | generation 提交、回滚、重建与故障恢复 |
+| [`gui/architecture-review.md`](gui/architecture-review.md) | 并发、循环依赖、模块边界与解耦审查 |
 | [`gui/decisions.md`](gui/decisions.md) | Wails、协议、reducer、keyed DOM、Markdown 和 CI 决策记录 |
 | [`gui/ci-and-testing.md`](gui/ci-and-testing.md) | GUI 分支 CI、测试分层和本地等价命令 |
 | [`gui/code-review.md`](gui/code-review.md) | 功能打点到详设、源码位置、测试证据的审查追溯矩阵 |

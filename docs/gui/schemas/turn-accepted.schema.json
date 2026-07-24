@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/turn-accepted.schema.json",
+  "title": "Accepted session turn",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "session_id", "accepted_revision", "status"],
+  "properties": {
+    "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "session_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "accepted_revision": { "$ref": "common.schema.json#/$defs/revision" },
+    "status": { "enum": ["queued", "running"] }
+  }
+}

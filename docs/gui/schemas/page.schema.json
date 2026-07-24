@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/page.schema.json",
+  "title": "Seelex workspace entry page",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "has_more", "snapshot_revision"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/workspaceEntry" }
+    },
+    "next_cursor": { "type": "string", "minLength": 16, "maxLength": 2048 },
+    "has_more": { "type": "boolean" },
+    "snapshot_revision": { "$ref": "common.schema.json#/$defs/revision" },
+    "generation_id": { "$ref": "common.schema.json#/$defs/identifier" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "has_more": { "const": true } }, "required": ["has_more"] },
+      "then": { "required": ["next_cursor"] }
+    }
+  ],
+  "$defs": {
+    "workspaceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_id", "name", "kind", "revision"],
+      "properties": {
+        "resource_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "kind": { "enum": ["directory", "file", "artifact"] },
+        "revision": { "$ref": "common.schema.json#/$defs/revision" },
+        "size": { "type": "integer", "minimum": 0 },
+        "media_type": { "type": "string", "minLength": 1 },
+        "modified_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    }
+  }
+}

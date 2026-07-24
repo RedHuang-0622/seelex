@@ -2,7 +2,8 @@
 
 > 状态：拟议方案
 > 产品需求：`CAP-MULTISESSION`
-> 总体架构：[`../../arch/agent-workbench-architecture.md`](../../arch/agent-workbench-architecture.md)
+> 总体架构：[`../architecture.md`](../architecture.md)
+> Generation：[`generation-store.md`](generation-store.md)
 
 ## 1. 目标与语义
 

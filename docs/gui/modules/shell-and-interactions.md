@@ -1,5 +1,8 @@
 # Shell、命令和交互模块详细设计
 
+> 状态：已实现（单 active session）
+> 总体架构：[`../architecture.md`](../architecture.md)
+
 ## 1. 职责与边界
 
 Shell 模块组装页面布局、调用 Bridge、路由客户端状态到各视图，并处理用户输入。它是 composition root，不承载协议 reducer 或会话 DOM 算法。

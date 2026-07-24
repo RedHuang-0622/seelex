@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/error.schema.json",
+  "title": "Seelex API problem",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "title", "status", "code", "detail", "request_id"],
+  "properties": {
+    "type": { "type": "string", "format": "uri" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+    "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+    "detail": { "type": "string", "minLength": 1 },
+    "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "retryable": { "type": "boolean", "default": false },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "reason"],
+        "properties": {
+          "field": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

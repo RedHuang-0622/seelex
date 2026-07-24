@@ -1,5 +1,7 @@
 # Agent Workbench 总体架构
 
+> 本文保留 2026-07-24 的方案推演与选型过程。当前权威架构、JSON 契约、模块登记和 generation 发布语义已迁移到 [`../gui/`](../gui/README.md)；字段或状态冲突时以该设计包为准。
+
 > 状态：拟议方案
 > 日期：2026-07-24
 > 产品输入：[`../product/agent-workbench/prd.json`](../product/agent-workbench/prd.json)

@@ -119,3 +119,22 @@ Windows 本机若 `CGO_ENABLED=0`，`go test -race` 会报告需要 CGO。不能
 - 用 Playwright 加载静态 shell + fake Bridge，覆盖键盘、modal、DOM reconciliation、DSL 对话卡片、Workspace 联动和多会话并行/后台审批；完整方案见 [Agent E2E 交互详设](modules/agent-e2e-interaction.md)。
 - 在 Windows runner 增加启动 smoke test；真实系统 WebView E2E 需要可交互 runner。
 - 给 GUI job 增加测试结果 artifact/JUnit 输出，便于趋势统计。
+
+## 10. 文档契约门禁
+
+`docs_contract_test.go` 是设计包的可执行门禁：
+
+```bash
+go test . -run '^TestGUI' -count=1
+```
+
+它必须完成：
+
+- 编译 `schemas/*.schema.json` 并解析全部 `$ref`；
+- 用对应 Schema 校验 `examples/*.json` 和 `module_dotting.json`；
+- 拒绝未加入契约测试的新增 JSON 示例；
+- 拒绝重复模块 ID、未知依赖、依赖环和缺失模块文档。
+
+Schema 结构通过不替代语义/安全测试。Generation 仍需 hash、路径、原子 rename、崩溃点和恢复测试；HTTP 仍需 auth、cursor 签名、幂等和 revision 测试。
+
+本地 `-race` 要求 CGO 和 C 编译器。Windows 开发机不具备工具链时不得把 race 标为通过；CI runner 必须显式提供可用编译器并执行 `go test -race ./...`。

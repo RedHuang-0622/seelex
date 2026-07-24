@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/interaction-resolution.schema.json",
+  "title": "Resolve a session interaction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["option_id", "expected_revision"],
+  "properties": {
+    "option_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "expected_revision": { "$ref": "common.schema.json#/$defs/revision" }
+  }
+}

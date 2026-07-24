@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/snapshot.schema.json",
+  "title": "Seelex workbench snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "scope", "revision", "generation_id", "captured_at", "active_session_id", "open_sessions", "limits"],
+  "properties": {
+    "protocol_version": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+    "scope": { "const": "workbench" },
+    "revision": { "$ref": "common.schema.json#/$defs/revision" },
+    "generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "captured_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "active_session_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "open_sessions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sessionSummary" },
+      "maxItems": 64
+    },
+    "limits": { "$ref": "#/$defs/limits" },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    }
+  },
+  "$defs": {
+    "sessionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "title", "lifecycle", "active", "unread_count", "pending_approval", "revision", "last_activity_at"],
+      "properties": {
+        "session_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "lifecycle": { "enum": ["loading", "idle", "queued", "running", "awaiting_approval", "error", "closing"] },
+        "workspace_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "active": { "type": "boolean" },
+        "unread_count": { "type": "integer", "minimum": 0 },
+        "pending_approval": { "type": "integer", "minimum": 0 },
+        "revision": { "$ref": "common.schema.json#/$defs/revision" },
+        "last_activity_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_open_sessions", "max_concurrent_running", "max_queued_turns_total", "max_queued_turns_session"],
+      "properties": {
+        "max_open_sessions": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "max_concurrent_running": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "max_queued_turns_total": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "max_queued_turns_session": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    }
+  }
+}

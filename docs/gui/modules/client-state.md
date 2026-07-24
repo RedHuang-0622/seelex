@@ -1,5 +1,8 @@
 # 客户端状态与事件归并模块详细设计
 
+> 状态：已实现（protocol v1）
+> 总体架构：[`../architecture.md`](../architecture.md)
+
 ## 1. 职责与边界
 
 客户端状态层位于 Wails Bridge 与视图之间：

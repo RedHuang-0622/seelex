@@ -1,5 +1,8 @@
 # 会话渲染与内容安全模块详细设计
 
+> 状态：已实现
+> 总体架构：[`../architecture.md`](../architecture.md)
+
 ## 1. 职责与边界
 
 该模块把已归并的 Conversation/Chat DTO 转换为可维护的视图节点，负责：

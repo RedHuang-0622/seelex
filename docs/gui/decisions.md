@@ -129,3 +129,31 @@
 - 理由：单 Engine 切换不能让后台任务继续且易串 History；子进程隔离更强但显著增加 IPC、监督和桌面打包成本。进程内 actor 能复用当前状态机，并以并发上限 1 渐进迁移。
 - 后果：所有动作和事件必须显式携带 session ID；Effort/Skill/Plan/input queue 变为会话级；共享 Workspace 写需要 revision precondition；页签切换不能调用 `/resume`。
 - 详设：`modules/multi-session-pages.md`。
+
+## ADR-GUI-016：Generation 使用不可变目录与原子 current 指针
+
+- 状态：已接受（目标架构）。
+- 决策：checkpoint 先在同文件系统 staging 写完资源和 manifest，校验 hash 后原子发布目录，再用 CAS/atomic replace 更新 `current`；已提交 generation 永不原地修改。
+- 理由：把崩溃结果限制为完整旧版本或完整新版本，支持可验证回滚和故障调查。
+- 后果：需要 manifest Schema、每步崩溃测试、保留/pin/reader lease 与独立 staging 清理；rollback 只切指针并产生新内存 revision。
+
+## ADR-GUI-017：Schema 是 JSON 契约事实源
+
+- 状态：已接受。
+- 决策：对外与跨模块 JSON payload 必须有 Draft 2020-12 Schema、稳定 `$id` 和可校验示例；Markdown、Go struct 或 JS object 不单独定义契约。
+- 理由：避免当前实现、规划模块和多个 adapter 复制出不同字段语义。
+- 后果：Schema、示例和 module DAG 纳入 Go 测试；不兼容变更升级 protocol/schema version 并更新 Changelog。
+
+## ADR-GUI-018：HTTP 与 Wails 是并列 Adapter
+
+- 状态：已接受（HTTP 为规划）。
+- 决策：二者共享 Application ports，但各自拥有 transport DTO、生命周期和错误映射；HTTP 不直接暴露 Wails binding 或内部 channel。
+- 理由：网络边界需要认证、幂等、条件请求、cursor、限流与错误脱敏，桌面进程内调用不应被这些细节污染。
+- 后果：HTTP 默认 loopback，远程模式 fail-closed；API 固定 `/api/v2`，mutation 必须有幂等与 revision precondition。
+
+## ADR-GUI-019：RAG 证据门禁控制需求到 Dev 的自动生成资格
+
+- 状态：已接受（目标架构）。
+- 决策：LLM 只生成候选需求/架构/详设；混合 RAG 为 atomic claim 获取可定位证据，独立 assessor 判定 supports/contradicts/related/insufficient，版本化 policy 依据 evidence readiness 决定自动生成资格。
+- 理由：向量相关性不等于工程支持关系；在线无法知道完整证据全集，不能把相似度或伪 Recall 当门禁。
+- 后果：低证据/冲突条目保留并进入人工队列；项目新增可由人工确认进入 capability gap；需求、架构、详设、代码和测试继承 evidence ID 与审计链；E2E 反馈按责任层重开后继 generation。

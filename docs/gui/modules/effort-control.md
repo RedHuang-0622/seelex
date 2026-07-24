@@ -1,5 +1,8 @@
 # Effort 常驻控件详细设计
 
+> 状态：已实现
+> 总体架构：[`../architecture.md`](../architecture.md)
+
 ## 1. 目标与边界
 
 Effort 控件把 Core 已有的 `lite / medium / high / max` 四档能力变成顶栏常驻滑杆。它负责档位展示、拖动预览、提交状态、失败回滚、可访问性和视觉反馈；它不定义各档 Prompt、循环上限或模型策略。

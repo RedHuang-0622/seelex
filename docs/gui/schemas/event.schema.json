@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/event.schema.json",
+  "title": "Seelex protocol v2 event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "scope", "seq", "revision", "kind", "occurred_at", "payload"],
+  "properties": {
+    "protocol_version": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+    "scope": { "enum": ["workbench", "session", "workspace"] },
+    "session_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "workspace_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "seq": { "type": "integer", "minimum": 1 },
+    "revision": { "$ref": "common.schema.json#/$defs/revision" },
+    "generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "kind": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$" },
+    "occurred_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scope": { "const": "session" } }, "required": ["scope"] },
+      "then": { "required": ["session_id"] }
+    },
+    {
+      "if": { "properties": { "scope": { "const": "workspace" } }, "required": ["scope"] },
+      "then": { "required": ["workspace_id"] }
+    }
+  ]
+}

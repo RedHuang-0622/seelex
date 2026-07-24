@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "card_id": "card-review-01",
+  "type": "summary",
+  "title": "Architecture review",
+  "components": [
+    {
+      "id": "status",
+      "kind": "status",
+      "text": "Conditional pass"
+    },
+    {
+      "id": "finding",
+      "kind": "text",
+      "text": "PromptStack transitions require a single-writer boundary."
+    }
+  ],
+  "actions": [
+    {
+      "id": "open-app",
+      "label": "Open application core",
+      "kind": "open_resource",
+      "target": "res-app-go"
+    }
+  ]
+}

@@ -2,7 +2,8 @@
 
 > 状态：拟议方案
 > 产品需求：`CAP-DSL`
-> 总体架构：[`../../arch/agent-workbench-architecture.md`](../../arch/agent-workbench-architecture.md)
+> 总体架构：[`../architecture.md`](../architecture.md)
+> JSON 契约：[`../schemas/card.schema.json`](../schemas/card.schema.json)
 
 ## 1. 职责与位置
 

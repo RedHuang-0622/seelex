@@ -2,7 +2,8 @@
 
 > 状态：拟议方案
 > 产品需求：`CAP-WORKSPACE`
-> 总体架构：[`../../arch/agent-workbench-architecture.md`](../../arch/agent-workbench-architecture.md)
+> 总体架构：[`../architecture.md`](../architecture.md)
+> 分页契约：[`../schemas/page.schema.json`](../schemas/page.schema.json)
 
 ## 1. 职责与产品边界
 

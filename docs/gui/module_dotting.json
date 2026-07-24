@@ -1,0 +1,163 @@
+{
+  "$schema": "./schemas/module-dotting.schema.json",
+  "schema_version": 1,
+  "system": "seelex-agent-workbench",
+  "modules": [
+    {
+      "id": "application-protocol",
+      "name": "Application protocol and single-session core",
+      "status": "implemented",
+      "responsibility": "Own the authoritative single-session state machine and expose versioned snapshots, events, commands and interactions.",
+      "document": "modules/application-protocol.md",
+      "interfaces": ["application.Service", "application.Dependencies", "application.Subscription"],
+      "planned_paths": ["application/state.go", "application/event.go", "application/app.go", "application/chat.go", "application/ports.go"],
+      "inputs": ["user command", "engine callback", "interaction resolution", "runtime operation"],
+      "outputs": ["schemas/snapshot.schema.json", "schemas/session-snapshot.schema.json", "schemas/event.schema.json"],
+      "depends_on": []
+    },
+    {
+      "id": "desktop-bridge",
+      "name": "Wails desktop bridge",
+      "status": "implemented",
+      "responsibility": "Adapt the caller-owned Application interface to bounded Wails methods and one ordered event transport.",
+      "document": "modules/desktop-bridge.md",
+      "interfaces": ["gui.Application", "gui.Bridge"],
+      "planned_paths": ["gui/bridge.go", "gui/run_wails.go", "gui/assets.go"],
+      "inputs": ["application snapshot", "application event", "Wails-bound request"],
+      "outputs": ["seelex:ready", "seelex:event", "bound Bridge methods"],
+      "depends_on": ["application-protocol"]
+    },
+    {
+      "id": "client-state",
+      "name": "Client state and event reducer",
+      "status": "implemented",
+      "responsibility": "Validate protocol envelopes, merge ordered deltas and recover authoritative state after gaps or incompatible payloads.",
+      "document": "modules/client-state.md",
+      "interfaces": ["createClientState", "reduceEvent", "refreshSnapshot"],
+      "planned_paths": ["gui/frontend/dist/protocol.js", "gui/frontend/dist/client-state.js"],
+      "inputs": ["schemas/snapshot.schema.json", "schemas/event.schema.json"],
+      "outputs": ["client snapshot", "refresh request", "protocol error"],
+      "depends_on": ["application-protocol", "desktop-bridge"]
+    },
+    {
+      "id": "conversation-rendering",
+      "name": "Conversation rendering and content safety",
+      "status": "implemented",
+      "responsibility": "Convert the client snapshot into keyed, escaped and bounded conversation presentation models and DOM nodes.",
+      "document": "modules/conversation-rendering.md",
+      "interfaces": ["renderConversation", "renderMarkdown", "createMessageModel"],
+      "planned_paths": ["gui/frontend/dist/conversation-view.js", "gui/frontend/dist/components.js", "gui/frontend/dist/markdown.js"],
+      "inputs": ["client snapshot", "local view state"],
+      "outputs": ["safe presentation model", "keyed DOM update"],
+      "depends_on": ["client-state"]
+    },
+    {
+      "id": "effort-control",
+      "name": "Effort control",
+      "status": "implemented",
+      "responsibility": "Manage local effort preview, explicit commit and rollback while leaving policy and prompt semantics in the core.",
+      "document": "modules/effort-control.md",
+      "interfaces": ["createEffortController", "Bridge.SwitchEffort"],
+      "planned_paths": ["gui/frontend/dist/effort-control.js", "application/effort.go"],
+      "inputs": ["runtime effort snapshot", "range input"],
+      "outputs": ["effort commit request", "accessible visual state"],
+      "depends_on": ["application-protocol", "desktop-bridge"]
+    },
+    {
+      "id": "shell-interactions",
+      "name": "Application shell and interactions",
+      "status": "implemented",
+      "responsibility": "Compose the desktop page, route commands and interactions, and coordinate views without owning protocol or domain state.",
+      "document": "modules/shell-and-interactions.md",
+      "interfaces": ["bootstrap", "submitInput", "showInteraction"],
+      "planned_paths": ["gui/frontend/dist/app.js", "gui/frontend/dist/index.html", "gui/frontend/dist/styles.css"],
+      "inputs": ["client snapshot", "user input", "interaction options"],
+      "outputs": ["Bridge request", "view coordination", "focus transition"],
+      "depends_on": ["desktop-bridge", "client-state", "conversation-rendering", "effort-control"]
+    },
+    {
+      "id": "dsl-card-runtime",
+      "name": "JSON DSL card runtime",
+      "status": "planned",
+      "responsibility": "Validate, store and safely render versioned conversation cards with an allowlisted action model.",
+      "document": "modules/dsl-card-runtime.md",
+      "interfaces": ["PresentationPort", "CardValidator", "CardRendererRegistry"],
+      "planned_paths": ["presentation/", "gui/frontend/dist/dsl-runtime.js", "gui/frontend/dist/dsl-renderers.js"],
+      "inputs": ["schemas/card.schema.json", "card operation", "card action"],
+      "outputs": ["card conversation item", "safe action request", "error card"],
+      "depends_on": ["application-protocol", "client-state", "conversation-rendering"]
+    },
+    {
+      "id": "workspace-sandbox",
+      "name": "Workspace sandbox",
+      "status": "planned",
+      "responsibility": "Provide root-confined, paginated and revision-aware workspace queries, artifacts and guarded mutations.",
+      "document": "modules/workspace-sandbox.md",
+      "interfaces": ["WorkspacePort", "PathGuard", "ArtifactRegistry"],
+      "planned_paths": ["workspace/", "gui/frontend/dist/workspace-view.js"],
+      "inputs": ["workspace id", "opaque resource id", "expected revision"],
+      "outputs": ["schemas/page.schema.json", "workspace event", "artifact reference"],
+      "depends_on": ["application-protocol", "desktop-bridge", "client-state"]
+    },
+    {
+      "id": "generation-store",
+      "name": "Generation repository",
+      "status": "planned",
+      "responsibility": "Publish immutable session generations atomically, verify manifests and recover the latest complete compatible checkpoint.",
+      "document": "modules/generation-store.md",
+      "interfaces": ["GenerationRepository", "GenerationWriter", "GenerationReader"],
+      "planned_paths": ["session/generation/", "application/ports.go"],
+      "inputs": ["session checkpoint", "resource stream", "parent generation id"],
+      "outputs": ["schemas/generation-manifest.schema.json", "committed generation", "recovery diagnosis"],
+      "depends_on": ["application-protocol"]
+    },
+    {
+      "id": "multi-session-pages",
+      "name": "Multi-session workbench",
+      "status": "planned",
+      "responsibility": "Coordinate isolated session actors, fair bounded scheduling, scoped events, page summaries and protected close semantics.",
+      "document": "modules/multi-session-pages.md",
+      "interfaces": ["WorkbenchService", "SessionRuntimeFactory", "SessionScheduler"],
+      "planned_paths": ["application/workbench.go", "application/session_actor.go", "application/session_scheduler.go", "gui/frontend/dist/session-store.js"],
+      "inputs": ["explicit session request", "scheduler permit", "generation checkpoint"],
+      "outputs": ["workbench snapshot", "session-scoped event", "session checkpoint"],
+      "depends_on": ["application-protocol", "desktop-bridge", "client-state", "generation-store"]
+    },
+    {
+      "id": "http-api-adapter",
+      "name": "HTTP API adapter",
+      "status": "planned",
+      "responsibility": "Expose the application contracts over authenticated HTTP without coupling network DTOs to the Wails bridge.",
+      "document": "modules/http-api-adapter.md",
+      "interfaces": ["HTTPHandler", "Authenticator", "IdempotencyStore"],
+      "planned_paths": ["transport/httpapi/", "cmd/seelex-server/"],
+      "inputs": ["authenticated HTTP request", "opaque cursor", "precondition revision"],
+      "outputs": ["JSON contract", "problem response", "audit event"],
+      "depends_on": ["application-protocol", "generation-store"]
+    },
+    {
+      "id": "evidence-gated-dev-loop",
+      "name": "Evidence-gated requirement-to-development loop",
+      "status": "planned",
+      "responsibility": "Turn versioned sources into evidence-qualified requirements, architecture, detailed design, traced development work and classified E2E feedback without dropping low-evidence candidates.",
+      "document": "modules/evidence-gated-dev-loop.md",
+      "interfaces": ["EvidenceRetriever", "EvidenceAssessor", "GatePolicy", "HumanReviewQueue", "DevIterationOrchestrator"],
+      "planned_paths": ["evidence/", "devloop/", "application/devloop.go", "e2e/devloop/", "gui/frontend/dist/devloop-state.js"],
+      "inputs": ["versioned source generation", "candidate requirement and atomic claims", "retrieval receipt", "human review resolution", "verification feedback"],
+      "outputs": ["schemas/evidence-assessment.schema.json", "schemas/dev-iteration.schema.json", "requirement/architecture/design generations", "traced Dev work items", "feedback routing"],
+      "depends_on": ["application-protocol", "generation-store"]
+    },
+    {
+      "id": "agent-e2e-interaction",
+      "name": "Agent end-to-end verification",
+      "status": "planned",
+      "responsibility": "Verify deterministic core scenarios, browser behavior and Wails lifecycle without depending on live model services.",
+      "document": "modules/agent-e2e-interaction.md",
+      "interfaces": ["ScenarioRunner", "ScriptedEngine", "FakeBridge"],
+      "planned_paths": ["e2e/", "gui/e2e/"],
+      "inputs": ["scenario fixture", "scripted engine step", "expected event"],
+      "outputs": ["scenario report", "browser assertion", "Wails smoke result"],
+      "depends_on": ["shell-interactions", "dsl-card-runtime", "workspace-sandbox", "multi-session-pages", "http-api-adapter", "evidence-gated-dev-loop"]
+    }
+  ]
+}

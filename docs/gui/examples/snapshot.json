@@ -1,0 +1,43 @@
+{
+  "protocol_version": 2,
+  "scope": "workbench",
+  "revision": 42,
+  "generation_id": "gen-20260724-0007",
+  "captured_at": "2026-07-24T09:31:12Z",
+  "active_session_id": "sess-design-01",
+  "open_sessions": [
+    {
+      "session_id": "sess-design-01",
+      "title": "Workbench architecture",
+      "lifecycle": "running",
+      "workspace_id": "ws-seelex",
+      "active": true,
+      "unread_count": 0,
+      "pending_approval": 0,
+      "revision": 42,
+      "last_activity_at": "2026-07-24T09:31:12Z"
+    },
+    {
+      "session_id": "sess-review-02",
+      "title": "Concurrency review",
+      "lifecycle": "awaiting_approval",
+      "workspace_id": "ws-seelex",
+      "active": false,
+      "unread_count": 1,
+      "pending_approval": 1,
+      "revision": 17,
+      "last_activity_at": "2026-07-24T09:30:01Z"
+    }
+  ],
+  "limits": {
+    "max_open_sessions": 8,
+    "max_concurrent_running": 3,
+    "max_queued_turns_total": 20,
+    "max_queued_turns_session": 5
+  },
+  "capabilities": {
+    "multi_session_pages": true,
+    "workspace_queries": true,
+    "dsl_cards": true
+  }
+}

@@ -1,5 +1,8 @@
 # Desktop Bridge 与生命周期模块详细设计
 
+> 状态：已实现（Wails 进程内 adapter）
+> 总体架构：[`../architecture.md`](../architecture.md)
+
 ## 1. 职责与边界
 
 Bridge 是 Application Core 与 Wails/WebView 的唯一桌面适配层。它负责：

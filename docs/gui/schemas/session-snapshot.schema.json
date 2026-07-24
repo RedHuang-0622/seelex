@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/session-snapshot.schema.json",
+  "title": "Seelex session snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "scope", "session_id", "revision", "generation_id", "captured_at", "conversation", "history", "chat", "runtime"],
+  "properties": {
+    "protocol_version": { "$ref": "common.schema.json#/$defs/protocolVersion" },
+    "scope": { "const": "session" },
+    "session_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "revision": { "$ref": "common.schema.json#/$defs/revision" },
+    "generation_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "captured_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "conversation": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/message" }
+    },
+    "history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["has_more"],
+      "properties": {
+        "has_more": { "type": "boolean" },
+        "next_cursor": { "type": "string", "minLength": 16, "maxLength": 2048 }
+      }
+    },
+    "chat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lifecycle", "queued_count"],
+      "properties": {
+        "lifecycle": { "enum": ["idle", "queued", "running", "awaiting_approval", "error"] },
+        "request_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "queued_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "provider", "plugin", "effort"],
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "plugin": { "type": "string" },
+        "effort": { "enum": ["lite", "medium", "high", "max"] },
+        "workspace_id": { "$ref": "common.schema.json#/$defs/identifier" }
+      }
+    }
+  },
+  "$defs": {
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "role", "content", "created_at"],
+      "properties": {
+        "message_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "role": { "enum": ["system", "user", "assistant", "tool", "tool_result", "error"] },
+        "content": { "type": "string", "maxLength": 200000 },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "card_id": { "$ref": "common.schema.json#/$defs/identifier" }
+      }
+    }
+  }
+}

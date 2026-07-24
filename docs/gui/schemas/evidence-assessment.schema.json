@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/evidence-assessment.schema.json",
+  "title": "Evidence-gated requirement assessment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "assessment_id", "requirement_version_id", "statement",
+    "status", "claims", "retrieval", "evidence", "gate", "retrieval_receipt"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "assessment_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "requirement_version_id": { "$ref": "common.schema.json#/$defs/identifier" },
+    "statement": { "type": "string", "minLength": 1, "maxLength": 20000 },
+    "status": {
+      "enum": ["candidate", "retrieval_pending", "evidence_assessed", "human_reviewed"]
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "retrieval": { "$ref": "#/$defs/retrievalMetrics" },
+    "evidence": { "$ref": "#/$defs/evidenceMetrics" },
+    "gate": { "$ref": "#/$defs/gate" },
+    "retrieval_receipt": { "$ref": "#/$defs/retrievalReceipt" },
+    "human_decision": { "$ref": "#/$defs/humanDecision" }
+  },
+  "$defs": {
+    "score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "text", "mandatory", "evidence_bindings"],
+      "properties": {
+        "claim_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "mandatory": { "type": "boolean" },
+        "evidence_bindings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/evidenceBinding" }
+        }
+      }
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "relationship", "source", "retrieval_methods"],
+      "properties": {
+        "evidence_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "relationship": { "enum": ["supports", "contradicts", "related", "insufficient"] },
+        "source": { "$ref": "#/$defs/source" },
+        "retrieval_methods": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["exact", "bm25", "vector", "graph", "manual"] }
+        },
+        "vector_score": { "$ref": "#/$defs/score" },
+        "rerank_score": { "$ref": "#/$defs/score" },
+        "assessor_reason": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "version_id", "content_sha256", "locator", "authority_class"],
+      "properties": {
+        "source_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "version_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "content_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "authority_class": { "enum": ["controlled", "approved_project", "historical", "uncontrolled"] }
+      }
+    },
+    "retrievalMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_count", "supporting_count", "contradicting_count",
+        "unresolved_critical_contradictions", "source_coverage", "claim_coverage"
+      ],
+      "properties": {
+        "candidate_count": { "type": "integer", "minimum": 0 },
+        "supporting_count": { "type": "integer", "minimum": 0 },
+        "contradicting_count": { "type": "integer", "minimum": 0 },
+        "unresolved_critical_contradictions": { "type": "integer", "minimum": 0 },
+        "source_coverage": { "$ref": "#/$defs/score" },
+        "claim_coverage": { "$ref": "#/$defs/score" },
+        "best_vector_score": { "$ref": "#/$defs/score" },
+        "best_rerank_score": { "$ref": "#/$defs/score" }
+      }
+    },
+    "evidenceMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["support_strength", "authority_score", "applicability_score", "freshness_score", "trace_completeness"],
+      "properties": {
+        "support_strength": { "$ref": "#/$defs/score" },
+        "authority_score": { "$ref": "#/$defs/score" },
+        "applicability_score": { "$ref": "#/$defs/score" },
+        "freshness_score": { "$ref": "#/$defs/score" },
+        "trace_completeness": { "$ref": "#/$defs/score" }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readiness", "decision", "generation_eligibility", "reason_codes", "policy_version"],
+      "properties": {
+        "readiness": { "$ref": "#/$defs/score" },
+        "decision": { "enum": ["eligible", "review_required", "evidence_insufficient", "blocked_by_conflict"] },
+        "generation_eligibility": { "type": "boolean" },
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "policy_version": { "$ref": "common.schema.json#/$defs/identifier" },
+        "evaluated_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "retrievalReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query_digest", "retrieval_profile", "candidate_evidence_ids", "executed_at"],
+      "properties": {
+        "query_digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "retrieval_profile": { "$ref": "common.schema.json#/$defs/identifier" },
+        "embedding_model": { "type": "string", "minLength": 1 },
+        "reranker_model": { "type": "string", "minLength": 1 },
+        "candidate_evidence_ids": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/identifier" }
+        },
+        "executed_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "humanDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "reviewer_id", "decided_at", "rationale"],
+      "properties": {
+        "action": {
+          "enum": [
+            "accept_evidence", "add_manual_evidence", "mark_project_specific",
+            "accept_with_limitation", "request_clarification", "reject_candidate",
+            "resolve_conflict", "defer"
+          ]
+        },
+        "reviewer_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "decided_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 5000 },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      }
+    }
+  }
+}
