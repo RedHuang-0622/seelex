@@ -93,3 +93,30 @@
 - 理由：Effort 是高频、连续强度语义的运行参数，应无需打开弹窗即可观察和切换；独立 Controller 可用 Node 测试，且不会增加 app.js 的业务状态。
 - 后果：前端档位顺序必须和 Core 同步；视觉预览可能短暂领先于 Core，因此失败必须回滚，Snapshot 必须覆盖 committed 状态；动画必须支持 reduced-motion。
 - 实现：`gui/frontend/dist/index.html:14-22`、`gui/frontend/dist/effort-control.js:1-77`、`gui/frontend/dist/styles.css:72-125`。
+
+## ADR-GUI-012：DSL 卡片是 Conversation item，使用 Core-owned 协议
+
+- 状态：拟议。
+- 决策：Agent 只能通过 `render_card` 工具提交 JSON DSL；Core 校验、持久化并生成 `ConversationItem(kind=card)`。卡片在中间对话区渲染，不进入右栏 Workspace。
+- 替代方案：前端解析 Markdown fenced JSON；引入 React/A2UI runtime；把 Card 当 Workspace widget。
+- 理由：显式结构化入口便于权限、持久化、恢复和 E2E；保留现有 Wails/ES Modules；Conversation 是 Agent 回复的正确语义位置。
+- 后果：需要 protocol v2 与 transcript/presentation store；通用 surface 抽象在 v1 仍只允许 conversation target。
+- 详设：`modules/dsl-card-runtime.md`。
+
+## ADR-GUI-013：Agent E2E 使用确定性分层，不以真实模型作为 PR 主门禁
+
+- 状态：拟议。
+- 决策：Go scenario 验证真实 Application，Playwright + fake Wails Bridge 验证真实前端，Windows Wails smoke 验证容器；live Agent 只在 opt-in nightly。
+- 替代方案：只跑真实模型/Wails；只增加更多 Node 单元测试。
+- 理由：同时获得状态机真实度、DOM 覆盖、可复现性和可控成本。
+- 后果：需要共享 scenario schema、fixture、trace 与稳定实体 selector。
+- 详设：`modules/agent-e2e-interaction.md`。
+
+## ADR-GUI-014：Workspace 采用后端 Port + PathGuard，右栏只做专用视图
+
+- 状态：拟议。
+- 决策：目录、预览、diff 和产物由 `application.WorkspacePort` 编排，`workspace` adapter 强制 root、symlink、size 和 policy；右栏固定为 Overview/Files/Changes/Artifacts。
+- 替代方案：Bridge 直接读文件；用任意 DSL surface 生成 Workspace UI。
+- 理由：安全边界可复用、可测试且不依赖 DOM；领域视图比 Agent 自由生成 Workspace 更可预测。
+- 后果：Snapshot 只放摘要，内容改为分页 query；Card 文件跳转必须经过 opaque resource ID 和 Core action resolution。
+- 详设：`modules/workspace-sandbox.md`。

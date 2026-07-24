@@ -45,7 +45,10 @@ Seele Engine / Session / Plugin / Skill
 | 会话渲染与内容安全 | [conversation-rendering.md](modules/conversation-rendering.md) | `conversation-view.js`、`components.js`、`chat-view.js`、`markdown.js` |
 | Shell、命令和交互 | [shell-and-interactions.md](modules/shell-and-interactions.md) | `index.html`、`app.js`、`styles.css` |
 | Effort 常驻控件 | [effort-control.md](modules/effort-control.md) | `effort-control.js`、`index.html`、`styles.css` |
-| 实现决策 | [decisions.md](decisions.md) | ADR-GUI-001 至 ADR-GUI-011 |
+| JSON DSL 对话卡片（规划） | [dsl-card-runtime.md](modules/dsl-card-runtime.md) | 计划 `presentation/`、`dsl-*.js`、ConversationItem v2 |
+| Agent E2E 交互（规划） | [agent-e2e-interaction.md](modules/agent-e2e-interaction.md) | 计划 `e2e/scenario/`、`gui/e2e/`、Wails smoke |
+| 右栏 Workspace 沙盒（规划） | [workspace-sandbox.md](modules/workspace-sandbox.md) | 计划 `workspace/`、`workspace-*.js`、Bridge queries |
+| 实现决策 | [decisions.md](decisions.md) | ADR-GUI-001 至 ADR-GUI-014（012—014 为规划） |
 | CI 与测试 | [ci-and-testing.md](ci-and-testing.md) | `.github/workflows/ci.yml`、Go/Node tests |
 | 代码审查与功能追溯 | [code-review.md](code-review.md) | 功能点、详设、源码、测试和结论 |
 
@@ -81,6 +84,7 @@ Seele Engine / Session / Plugin / Skill
 ## 兼容与发布边界
 
 - 当前协议版本：`1`。
+- Agent Workbench 规划使用 protocol v2；在实现合并前当前运行时仍严格保持 v1。
 - GUI 生产构建标签：`gui,desktop,production`。
 - 默认无 GUI tags 的构建使用 stub，不引入桌面 WebView。
 - 前端是嵌入式静态资源，不需要运行时 Node/npm。

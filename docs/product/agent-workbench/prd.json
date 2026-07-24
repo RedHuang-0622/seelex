@@ -1,0 +1,489 @@
+{
+  "schema_version": "1.0",
+  "document_type": "product_requirements",
+  "document_status": "proposed",
+  "updated_at": "2026-07-24",
+  "product": {
+    "name": "Seelex Agent Workbench",
+    "release_name": "Interactive Workbench",
+    "target_branch": "gui",
+    "owners": [
+      "product",
+      "application-core",
+      "gui",
+      "quality"
+    ]
+  },
+  "vision": "把 Seelex 从以聊天为中心的 Agent GUI 扩展为可验证、可交互、受沙盒约束的工程工作台：Agent 用 JSON DSL 生成安全卡片，用户能完成端到端任务交互，并在右侧 Workspace 中检查文件、变更和产物。",
+  "problem_statement": [
+    "当前 Agent 的结构化结果主要退化为 Markdown 或工具文本，复杂结果缺少可复用的交互表达。",
+    "当前 CI 能验证协议和纯函数，但无法覆盖用户从提交任务到工具、审批、卡片、Workspace 和产物的完整交互链。",
+    "当前右侧栏只展示静态 Project 摘要与固定资料源，无法成为任务过程中的文件、变更和产物工作台。",
+    "项目根目录目前是展示信息，不是完整的后端路径安全边界；未来文件浏览和产物操作必须先建立沙盒约束。"
+  ],
+  "personas": [
+    {
+      "id": "engineering-student",
+      "name": "工程类学生",
+      "goals": [
+        "从自然语言任务获得图表、差异、步骤和产物卡片",
+        "在一个窗口中检查 Agent 做了什么以及生成了哪些文件",
+        "在高风险动作前明确确认"
+      ]
+    },
+    {
+      "id": "developer",
+      "name": "软件开发者",
+      "goals": [
+        "查看代码变更、测试结果和文件定位",
+        "恢复会话后继续使用结构化结果",
+        "获得稳定、可复现的 Agent E2E 反馈"
+      ]
+    },
+    {
+      "id": "plugin-author",
+      "name": "Plugin 与 Skill 作者",
+      "goals": [
+        "通过受控 JSON DSL 输出专业卡片而无需注入前端代码",
+        "使用稳定 schema 和错误反馈调试卡片",
+        "声明产物并让 Workspace 自动发现"
+      ]
+    }
+  ],
+  "product_principles": [
+    "Application Core 是业务事实源，GUI 不复制 Agent、权限、Workspace 或持久化规则。",
+    "声明式数据可以进入渲染层，任意 HTML、JavaScript、CSS 和动态模块不可以。",
+    "Workspace 右栏是安全边界的视图，不是安全边界本身；所有路径和动作必须由后端校验。",
+    "PR CI 使用确定性 fake，真实模型只作为受预算约束的 nightly 或手工验证。",
+    "新能力先提供降级路径：卡片失败仍能读原始说明，Workspace 失败不影响聊天，会话可从 Snapshot 恢复。"
+  ],
+  "scope": {
+    "in_scope": [
+      "版本化 JSON DSL 卡片协议、schema 校验、白名单组件注册表和安全降级",
+      "Agent 通过专用 render_card 工具创建和更新卡片",
+      "DSL 卡片作为 Conversation 内容项渲染在对话区，与 Markdown 和 Tool Card 共存",
+      "卡片与会话绑定、事件增量、持久化和恢复",
+      "确定性 Application E2E 场景、Playwright GUI E2E 和可选真实 Wails smoke",
+      "提交、流式消息、工具调用、审批、卡片、Workspace、会话恢复的完整 Agent 交互链",
+      "右栏 Overview、Files、Changes、Artifacts 四个 Workspace 视图",
+      "项目根路径归一化、路径逃逸防护、符号链接策略、预览上限和审批联动",
+      "DSL FileLink 与 Workspace 文件定位联动"
+    ],
+    "out_of_scope": [
+      "执行 Agent 生成的 HTML、JavaScript、CSS、WebAssembly 或远程组件代码",
+      "第一阶段引入 React、Vue、Tauri 或重写现有 Wails GUI",
+      "在右栏实现完整 IDE、终端、语言服务器或 CAD 3D 编辑器",
+      "把通用 DSL 卡片树直接挂载到右侧 Workspace；右栏只使用专用 Workspace 视图",
+      "第一阶段支持多根目录、远程 SSH Workspace 或云端多人协同",
+      "将真实付费模型测试设为每个 Pull Request 的强制门禁",
+      "绕过现有 Permission Gate 的自动文件写入或命令执行",
+      "将任意工作区文件全文默认发送到前端或模型"
+    ]
+  },
+  "capabilities": [
+    {
+      "id": "CAP-DSL",
+      "name": "JSON to DSL cards",
+      "priority": "P0",
+      "outcome": "Agent 可以用受控 JSON 描述结构化结果，GUI 安全地渲染、增量更新、持久化并恢复卡片。",
+      "requirements": [
+        {
+          "id": "DSL-001",
+          "text": "提供专用 render_card 工具作为 Agent 结构化输出入口，不从普通 Markdown 自动执行 JSON。"
+        },
+        {
+          "id": "DSL-002",
+          "text": "每个 payload 必须携带 seelex.card/v1 schema 版本、稳定 surface ID、根组件和扁平组件表。"
+        },
+        {
+          "id": "DSL-003",
+          "text": "Core 必须在发布 Event 和持久化前完成大小、深度、组件类型、属性和引用完整性校验。"
+        },
+        {
+          "id": "DSL-004",
+          "text": "MVP 白名单包含 Card、Stack、Grid、Text、Markdown、Code、Diff、Table、Metric、Badge、Progress、Actions、Button、FileLink、ArtifactLink 和 Error。"
+        },
+        {
+          "id": "DSL-005",
+          "text": "结构更新使用 surface upsert，数据更新使用受限 JSON Patch；patch 只能修改 data 与组件允许的状态字段。"
+        },
+        {
+          "id": "DSL-006",
+          "text": "不支持的组件或无效 payload 显示安全 ErrorCard，并允许复制已截断的诊断信息；不得导致会话渲染失败。"
+        },
+        {
+          "id": "DSL-007",
+          "text": "卡片操作只允许白名单 action：submit_prompt、resolve_interaction、workspace_reveal、open_url、copy；所有副作用重新经过 Core 或用户手势。"
+        },
+        {
+          "id": "DSL-008",
+          "text": "卡片必须绑定 session、turn 和 message，可在会话恢复与历史分页后重建。"
+        },
+        {
+          "id": "DSL-009",
+          "text": "v1 卡片只允许 conversation surface，并作为对应消息的内容项出现在对话区；通用 surface 字段为未来扩展保留，Workspace 不渲染任意 DSL。"
+        }
+      ],
+      "acceptance_criteria": [
+        "合法 Card、Diff、Table 和 FileLink 样例能从 render_card 工具调用渲染为原生卡片。",
+        "所有 DSL 卡片都位于触发它的对话消息内部；右栏只在用户触发 FileLink 或 ArtifactLink 后定位专用 Workspace 资源。",
+        "非法 JSON、未知组件、循环 children、悬空引用、超深树和超限 payload 全部安全拒绝并给出可见错误。",
+        "卡片 patch 不替换无关 DOM 节点，焦点、折叠状态和滚动锚点保持。",
+        "刷新、会话恢复和历史分页后卡片内容与最后成功 revision 一致。",
+        "原始 HTML、script URL、事件属性和任意 action 名不能进入可执行路径。"
+      ],
+      "success_metrics": {
+        "valid_payload_render_success_rate": ">=99.5%",
+        "invalid_payload_safe_fallback_rate": "100%",
+        "card_incremental_render_p95_ms": "<50",
+        "card_restore_consistency": "100% in contract fixtures",
+        "executable_content_incidents": "0"
+      }
+    },
+    {
+      "id": "CAP-E2E",
+      "name": "Agent end-to-end interaction",
+      "priority": "P0",
+      "outcome": "每次关键 GUI 或 Core 变更都能确定性验证真实用户旅程，而不是只验证孤立函数。",
+      "requirements": [
+        {
+          "id": "E2E-001",
+          "text": "定义版本化 scenario JSON，包含初始 Snapshot、脚本化 Engine 行为、用户步骤、预期事件和最终断言。"
+        },
+        {
+          "id": "E2E-002",
+          "text": "Go headless scenario 必须使用真实 application.Service、EventHub、ApprovalBroker 和 fake ports。"
+        },
+        {
+          "id": "E2E-003",
+          "text": "Playwright 必须加载真实 embedded 前端资源，并注入与 Wails 方法及 EventsOn 兼容的 fake Bridge。"
+        },
+        {
+          "id": "E2E-004",
+          "text": "P0 黄金旅程覆盖提交、流式 delta、工具 start/complete、审批、卡片、Workspace 定位、产物和会话恢复。"
+        },
+        {
+          "id": "E2E-005",
+          "text": "失败时上传 scenario trace、事件 JSONL、浏览器日志、截图和最终 Snapshot。"
+        },
+        {
+          "id": "E2E-006",
+          "text": "真实模型测试必须显式启用、限制预算和超时、过滤秘密，默认不阻塞 Pull Request。"
+        },
+        {
+          "id": "E2E-007",
+          "text": "Windows Wails smoke 至少验证应用启动、ready Snapshot、一次提交和正常退出；交互 runner 不可用时保留独立 nightly。"
+        }
+      ],
+      "acceptance_criteria": [
+        "同一 scenario 连续运行 30 次无随机失败。",
+        "用户能在浏览器 E2E 中完成任务提交、审批允许、查看 DSL 卡片、在 Workspace 定位文件并恢复会话。",
+        "审批拒绝、Engine 错误、Event seq gap、无效 DSL 和 Workspace 拒绝都有失败路径用例。",
+        "CI 报告能从失败 step 直接关联事件与截图。"
+      ],
+      "success_metrics": {
+        "deterministic_scenario_pass_rate_30_runs": ">=99%",
+        "critical_user_journey_coverage": "100% of P0 journeys",
+        "pull_request_e2e_p95_minutes": "<5",
+        "untriaged_flake_rate": "<1%",
+        "failure_artifact_completeness": "100%"
+      }
+    },
+    {
+      "id": "CAP-WORKSPACE",
+      "name": "Right sidebar workspace sandbox",
+      "priority": "P0",
+      "outcome": "右栏从静态项目摘要升级为受后端沙盒保护的文件、变更和产物工作台。",
+      "requirements": [
+        {
+          "id": "WS-001",
+          "text": "右栏提供 Overview、Files、Changes、Artifacts 四个标签页；窄窗口可折叠为 drawer。"
+        },
+        {
+          "id": "WS-002",
+          "text": "Application 只在 Snapshot 暴露 Workspace 摘要；目录列表、文件预览和 diff 使用分页查询，避免 Snapshot 膨胀。"
+        },
+        {
+          "id": "WS-003",
+          "text": "所有前端路径是 slash 格式相对路径或 opaque resource ID；绝对路径仅留在后端。"
+        },
+        {
+          "id": "WS-004",
+          "text": "PathGuard 必须拒绝绝对路径、drive/UNC、NUL、父级逃逸和越界符号链接；默认不跟随 Workspace 外链接。"
+        },
+        {
+          "id": "WS-005",
+          "text": "文件预览按字节和行分页，二进制文件只返回元数据；大文件、diff 和目录有明确上限与 truncated 标记。"
+        },
+        {
+          "id": "WS-006",
+          "text": "P0 Workspace 查询为只读；写入、删除、命令和外部打开继续经过 Permission Gate 与 ApprovalBroker。"
+        },
+        {
+          "id": "WS-007",
+          "text": "Changes 展示 git 或无 git fallback 的变更摘要和安全 diff；Artifacts 展示 Agent 声明产物、来源 turn、类型、hash 与操作。"
+        },
+        {
+          "id": "WS-008",
+          "text": "DSL FileLink 和 ArtifactLink 只能引用 Workspace 返回的 resource ID，不能直接传任意系统路径。"
+        },
+        {
+          "id": "WS-009",
+          "text": "Workspace revision 变化通过事件通知；前端只失效相关查询并保留展开、选中和滚动状态。"
+        }
+      ],
+      "acceptance_criteria": [
+        "用户能浏览目录、预览文本、检查 diff、查看产物并从 DSL 卡片定位资源。",
+        "包含 ..、绝对路径、UNC、drive、NUL、符号链接越界和大小写边界的测试全部被后端拒绝。",
+        "10,000 文件 fixture 不进入单个 Snapshot，首层目录和按需展开保持可用。",
+        "Workspace 查询失败只影响右栏并给出重试，不中断 Chat。",
+        "任何写动作都不能从前端查询 API 或 DSL action 直接执行。"
+      ],
+      "success_metrics": {
+        "path_escape_acceptance": "0",
+        "workspace_query_p95_ms": "<150 for indexed project",
+        "right_panel_interaction_p95_ms": "<100",
+        "snapshot_workspace_payload_kb": "<32",
+        "artifact_traceability": "100% of registered artifacts"
+      }
+    }
+  ],
+  "user_journeys": [
+    {
+      "id": "JOURNEY-001",
+      "name": "结构化分析到文件定位",
+      "steps": [
+        "用户提交分析任务",
+        "Agent 流式回复并调用工具",
+        "Agent 调用 render_card 输出指标、Diff 和 FileLink",
+        "用户点击 FileLink",
+        "Core 校验 resource ID，右栏切换 Files 并定位预览",
+        "用户返回卡片继续查看讲解"
+      ],
+      "expected_outcome": "无需复制路径或离开 Seelex 即可从结论定位证据。"
+    },
+    {
+      "id": "JOURNEY-002",
+      "name": "审批后生成工程产物",
+      "steps": [
+        "用户请求生成或修改产物",
+        "Agent 提出写操作并触发审批",
+        "用户查看风险与预览后允许",
+        "工具在 Workspace 策略内执行",
+        "Artifact registry 记录产物 hash、来源和类型",
+        "右栏 Artifacts 出现新条目，Agent 输出 ArtifactLink 卡片"
+      ],
+      "expected_outcome": "用户能证明产物来自哪一轮、哪次工具和哪项审批。"
+    },
+    {
+      "id": "JOURNEY-003",
+      "name": "会话恢复后继续交互",
+      "steps": [
+        "用户完成包含卡片和产物的任务",
+        "用户切换或重启应用",
+        "用户恢复会话",
+        "文本、工具、卡片和 Workspace 资源引用按最后 revision 恢复",
+        "用户继续提交下一轮问题"
+      ],
+      "expected_outcome": "恢复后的结构化上下文与原会话一致，不出现悬空卡片或路径。"
+    }
+  ],
+  "non_functional_requirements": [
+    {
+      "id": "NFR-SEC-001",
+      "category": "security",
+      "requirement": "DSL、Workspace 路径、工具输出和项目内容全部按不可信输入处理。"
+    },
+    {
+      "id": "NFR-PERF-001",
+      "category": "performance",
+      "requirement": "单个卡片 payload 默认不超过 256 KiB、组件不超过 200、嵌套深度不超过 12；默认可由配置降低，不可由 Agent 提高。"
+    },
+    {
+      "id": "NFR-REL-001",
+      "category": "reliability",
+      "requirement": "任何卡片或 Workspace 错误不得破坏 Chat 主链，Snapshot resync 必须能恢复。"
+    },
+    {
+      "id": "NFR-A11Y-001",
+      "category": "accessibility",
+      "requirement": "卡片和右栏完整支持键盘、焦点可见、语义 role/label、reduced-motion 与屏幕阅读器状态。"
+    },
+    {
+      "id": "NFR-COMPAT-001",
+      "category": "compatibility",
+      "requirement": "协议升级必须显式版本化；Wails 内嵌客户端与 Core 同版本发布，旧会话数据提供迁移或可见降级。"
+    },
+    {
+      "id": "NFR-OBS-001",
+      "category": "observability",
+      "requirement": "记录 card validation、render fallback、Workspace denied、E2E step duration 和 artifact lifecycle 指标，但不得记录秘密或完整敏感文件。"
+    }
+  ],
+  "milestones": [
+    {
+      "id": "M0",
+      "name": "Contracts and threat model",
+      "deliverables": [
+        "protocol v2 DTO 草案",
+        "card-v1 JSON Schema",
+        "Workspace PathGuard 测试矩阵",
+        "scenario-v1 JSON Schema",
+        "性能与 payload 限额"
+      ],
+      "exit_criteria": [
+        "三类 schema 有正反 fixture",
+        "循环依赖审查通过",
+        "安全审查无未决 P0"
+      ]
+    },
+    {
+      "id": "M1",
+      "name": "DSL card vertical slice",
+      "deliverables": [
+        "render_card 工具",
+        "Card、Text、Code、Diff、Table、FileLink renderer",
+        "surface upsert/patch/delete 事件",
+        "会话持久化与恢复"
+      ],
+      "exit_criteria": [
+        "CAP-DSL P0 验收项全部通过",
+        "无效 DSL 安全 fixture 全绿"
+      ]
+    },
+    {
+      "id": "M2",
+      "name": "Deterministic Agent E2E",
+      "deliverables": [
+        "Go scenario runner",
+        "Playwright fake Wails Bridge",
+        "黄金旅程与失败路径",
+        "CI trace artifacts"
+      ],
+      "exit_criteria": [
+        "30 次稳定性运行达到目标",
+        "PR E2E P95 小于 5 分钟"
+      ]
+    },
+    {
+      "id": "M3",
+      "name": "Read-only Workspace sidebar",
+      "deliverables": [
+        "WorkspacePort 与 PathGuard",
+        "Overview、Files、Changes 标签页",
+        "分页目录、预览和 diff",
+        "FileLink 联动"
+      ],
+      "exit_criteria": [
+        "路径逃逸矩阵全部拒绝",
+        "大 Workspace 性能达到目标"
+      ]
+    },
+    {
+      "id": "M4",
+      "name": "Artifacts and production hardening",
+      "deliverables": [
+        "Artifact registry 与 Artifacts 标签页",
+        "审批关联和 hash 追溯",
+        "Windows Wails smoke",
+        "可选 live Agent nightly"
+      ],
+      "exit_criteria": [
+        "三条用户旅程 E2E 全绿",
+        "发布门禁和操作手册完成"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "M1",
+      "to": "M0",
+      "type": "requires"
+    },
+    {
+      "from": "M2",
+      "to": "M0",
+      "type": "requires"
+    },
+    {
+      "from": "M3",
+      "to": "M0",
+      "type": "requires"
+    },
+    {
+      "from": "M4",
+      "to": "M1",
+      "type": "requires"
+    },
+    {
+      "from": "M4",
+      "to": "M2",
+      "type": "requires"
+    },
+    {
+      "from": "M4",
+      "to": "M3",
+      "type": "requires"
+    }
+  ],
+  "release_gates": [
+    "所有 JSON Schema 正反 fixture 通过",
+    "Go unit、integration、race 和 coverage 门禁通过",
+    "Node renderer、protocol 和 controller tests 通过",
+    "Playwright P0 journeys 通过且上传 trace",
+    "PathGuard 跨平台逃逸测试通过",
+    "无任意代码执行、路径越界或绕过审批的高危发现",
+    "文档、协议版本和迁移说明同步"
+  ],
+  "risks": [
+    {
+      "id": "RISK-001",
+      "risk": "Agent 生成的 JSON 不稳定或超限",
+      "mitigation": "专用工具 schema、Core 二次校验、大小限制、ErrorCard 和模型可重试错误。"
+    },
+    {
+      "id": "RISK-002",
+      "risk": "DSL 变成远程代码执行通道",
+      "mitigation": "组件与 action 双白名单、禁止 HTML/JS/CSS、URL 策略、所有副作用回到 Core。"
+    },
+    {
+      "id": "RISK-003",
+      "risk": "Workspace symlink 或 Windows 路径语义导致越界",
+      "mitigation": "后端 PathGuard、默认不跟随链接、跨平台 fixture、每次 IO 前重新解析。"
+    },
+    {
+      "id": "RISK-004",
+      "risk": "真实 WebView 与静态浏览器 E2E 行为差异",
+      "mitigation": "Playwright 负责快速主门禁，Windows Wails smoke 负责容器差异，二者不互相替代。"
+    },
+    {
+      "id": "RISK-005",
+      "risk": "Snapshot 被卡片或文件树撑大",
+      "mitigation": "Snapshot 只含可见卡片和 Workspace 摘要，树、预览、diff 独立分页查询并设硬上限。"
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "Q-001",
+      "question": "第一版是否需要 Chart renderer？",
+      "recommendation": "放入 P1；P0 先以 Table、Metric 和 Progress 验证协议，不引入 Canvas 复杂度。"
+    },
+    {
+      "id": "Q-002",
+      "question": "Artifact 默认存储在 Workspace 还是应用数据目录？",
+      "recommendation": "元数据存 Session store；项目型产物默认位于 workspace/.seele/artifacts/<session>，外部路径必须显式审批。"
+    },
+    {
+      "id": "Q-003",
+      "question": "协议版本采用 v1 additive 还是 v2？",
+      "recommendation": "使用 protocol v2，避免旧客户端对新事件持续 resync，并一次冻结 Card 与 Workspace capability。"
+    }
+  ],
+  "related_documents": [
+    "../../arch/agent-workbench-architecture.md",
+    "../../gui/modules/dsl-card-runtime.md",
+    "../../gui/modules/agent-e2e-interaction.md",
+    "../../gui/modules/workspace-sandbox.md",
+    "../../research/agent-frontend-design-research.md"
+  ]
+}
