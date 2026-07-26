@@ -45,7 +45,14 @@
         "provider": { "type": "string", "minLength": 1 },
         "plugin": { "type": "string" },
         "effort": { "enum": ["lite", "medium", "high", "max"] },
-        "workspace_id": { "$ref": "common.schema.json#/$defs/identifier" }
+        "workspace_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "plan": {
+          "description": "Active WorkPlan execution state. Present only when a plan is loaded or running.",
+          "anyOf": [
+            { "$ref": "plan.schema.json" },
+            { "type": "null" }
+          ]
+        }
       }
     }
   },
