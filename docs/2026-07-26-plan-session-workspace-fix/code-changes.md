@@ -8,59 +8,74 @@
 
 | 文件 | 变更 | 设计职责 |
 |------|------|----------|
-| `application/state.go` | 修改 | `PlanState` 新增 `Edges []Edge`；`InputMap` 补充 `Inputs` 字段 |
-| `application/chat.go` | 修改 | `updatePlanFromLoad` 解析 `edges` 构建 `PlanState.Edges` 和 `Children` 树；节点拓扑排序 |
+| `application/state.go` | 修改 | `PlanEdge` 类型（镜像框架 `serialize.PlanEdgeSpec`）；`PlanState.Edges []PlanEdge` |
+| `application/chat.go` | 修改 | `updatePlanFromLoad` 解析 `edges` 邻接表 → `[]PlanEdge` + 拓扑排序 |
 | `application/command.go` | 修改 | `/new` 清理 `Runtime.Plan`、`CurrentWorkspace`、`Interaction` |
 | `application/app.go` | 修改 | `resumeSession` 清理 `Runtime.Plan`、`Interaction` |
-| `application/ports.go` | 不改 | 已有 `WorkspacePort` 接口 |
-| `workspace/workspace.go` | 修改 | 新增 `InjectSaveLoad`、`Save`、`Load`、`Close`，接入文件持久化 |
-| `seelebridge/session_store.go` | 修改 | 新增 `NestedSessionStore` 支持工作区嵌套路径 |
-| `session/manager.go` | 修改 | 支持工作区维度的会话列表和 CRUD |
-| `main.go` | 修改 | Wiring：Workspace 持久化路径、NestedSessionStore 初始化 |
-| `application/ports.go` | 修改 | `SessionPort` 补充 `ListByWorkspace` 等接口 |
-| `gui/bridge.go` | 修改 | 暴露工作区会话相关方法 |
-| `tui/tui.go` / `tui/plan.go` | 修改 | 支持 `PlanState.Edges` 的树形/连线渲染 |
-| `application/*_test.go` | 新增/修改 | 单元、集成、边界、持久化和回归测试 |
+| `workspace/workspace.go` | 修改 | 新增 `InjectSaveLoad`、`Save`、`Load`，JSON 文件持久化 |
+| `seelebridge/session_store.go` | 新增/修改 | `NestedSessionStore` 支持 `workspace/{id}/sessions/` 嵌套路径 |
+| `session/manager.go` | 修改 | `InjectSaveLoad` 增加 `workspaceID` 参数；`ListByWorkspace` |
+| `main.go` | 修改 | Wiring：Workspace 带持久化路径、NestedSessionStore 初始化 |
+| `application/ports.go` | 修改 | `SessionPort` 补充 `ListByWorkspace` |
+| `gui/bridge.go` | 修改 | 暴露工作区会话方法 |
+| `tui/tui.go` / `tui/plan.go` | 修改 | 支持 `PlanEdge` 的连线/树形渲染 |
+| `application/*_test.go` | 新增/修改 | 单元、集成、边界、持久化和回归 |
+| `workspace/workspace_test.go` | 新增 | Workspace Save/Load、bind 持久化 roundtrip |
 
 ---
 
 ## 核心实现
 
-### 1. PlanState 补充 DAG 边信息
+### 1. PlanEdge — 复用框架 serialize.PlanEdgeSpec 设计
 
-**问题代码** — `application/state.go` 当前 PlanState：
+**框架参考** — `G:\Program\go\seele\workplan\runtime\serialize\serialize.go:23-29`:
 
 ```go
-// 当前代码：PlanState 只有平铺 Nodes，没有边
+// 框架序列化边 — 被 plan_export 使用
+type PlanEdgeSpec struct {
+    From      string `json:"from"`
+    To        string `json:"to"`
+    Label     string `json:"label,omitempty"`
+    Condition string `json:"condition,omitempty"` // ConditionRegistry 标签引用
+}
+```
+
+**问题代码** — `application/state.go` 当前 PlanState 无边信息：
+
+```go
 type PlanState struct {
     Name     string     `json:"name"`
     Status   PlanStatus `json:"status"`
     Nodes    []PlanNode `json:"nodes,omitempty"`
     Progress float64    `json:"progress"`
     Elapsed  string     `json:"elapsed,omitempty"`
+    // ← 没有 edges
 }
 ```
 
-**改动后** — 新增 `Edge` 类型和 `Edges` 字段：
+**改动后** — `application/state.go` 新增 `PlanEdge`，与框架 `PlanEdgeSpec` JSON 格式兼容：
 
 ```go
-// 新增：有向边
-type Edge struct {
-    From string `json:"from"`
-    To   string `json:"to"`
+// PlanEdge 镜像框架 serialize.PlanEdgeSpec，JSON 格式完全兼容。
+// 使 GUI 侧可用同一 consumer 处理 plan_load 和 plan_export 的边数据。
+type PlanEdge struct {
+    From      string `json:"from"`
+    To        string `json:"to"`
+    Label     string `json:"label,omitempty"`
+    Condition string `json:"condition,omitempty"` // 条件标签（框架 ConditionRegistry 名称）
 }
 
 type PlanState struct {
     Name     string     `json:"name"`
     Status   PlanStatus `json:"status"`
     Nodes    []PlanNode `json:"nodes,omitempty"`
-    Edges    []Edge     `json:"edges,omitempty"`    // 新增：DAG 有向边
+    Edges    []PlanEdge `json:"edges,omitempty"`   // 新增：DAG 有向边列表
     Progress float64    `json:"progress"`
     Elapsed  string     `json:"elapsed,omitempty"`
 }
 ```
 
-`cloneRuntimeState` 需要同步复制 `Edges`：
+`cloneRuntimeState` 同步深拷贝 Edges：
 
 ```go
 func cloneRuntimeState(runtime RuntimeState) RuntimeState {
@@ -69,19 +84,18 @@ func cloneRuntimeState(runtime RuntimeState) RuntimeState {
     if runtime.Plan != nil {
         planCopy := *runtime.Plan
         planCopy.Nodes = clonePlanNodes(runtime.Plan.Nodes)
-        planCopy.Edges = append([]Edge(nil), runtime.Plan.Edges...)  // 新增
+        planCopy.Edges = append([]PlanEdge(nil), runtime.Plan.Edges...)  // 新增
         copyRuntime.Plan = &planCopy
     }
     return copyRuntime
 }
 ```
 
-### 2. updatePlanFromLoad 解析 edges 构建完整活动图
+### 2. updatePlanFromLoad — 邻接表 → []PlanEdge + 拓扑排序
 
-**问题代码** — `application/chat.go` 当前 `updatePlanFromLoad`：
+**问题代码** — `application/chat.go` 当前：
 
 ```go
-// 当前代码：edges 被解析但从未使用，map 迭代顺序随机
 func (service *Service) updatePlanFromLoad(argsJSON string) {
     type planNodeSpec struct {
         Input string `json:"input"`
@@ -89,31 +103,28 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
     var input struct {
         Entry string                  `json:"entry"`
         Nodes map[string]planNodeSpec `json:"nodes"`
-        Edges map[string][]string     `json:"edges"`   // ← 解析了，但没用到
+        Edges map[string][]string     `json:"edges"`   // ← 解析了但未使用
     }
     if err := json.Unmarshal([]byte(argsJSON), &input); err != nil || len(input.Nodes) == 0 {
         return
     }
     nodes := make([]PlanNode, 0, len(input.Nodes))
-    for id := range input.Nodes {    // ← map 遍历，顺序随机
-        label := id
-        nodes = append(nodes, PlanNode{ID: id, Label: label, Status: NodePending})
+    for id := range input.Nodes {    // ← map 遍历，随机顺序
+        nodes = append(nodes, PlanNode{ID: id, Label: id, Status: NodePending})
     }
     service.snapshot.Runtime.Plan = &PlanState{
         Name:   input.Entry,
         Status: PlanPending,
-        Nodes:  nodes,               // ← 平铺列表，无 edges
+        Nodes:  nodes,               // ← 只有平铺列表，无 edges
     }
 }
 ```
 
-**改动后** — 解析 edges，拓扑排序，构建 Children 树：
+**改动后** — 邻接表 → `[]PlanEdge` + 拓扑排序 + Children 树：
 
 ```go
 func (service *Service) updatePlanFromLoad(argsJSON string) {
-    type planNodeSpec struct {
-        Input string `json:"input"`
-    }
+    type planNodeSpec struct{ Input string `json:"input"` }
     var input struct {
         Entry string                  `json:"entry"`
         Nodes map[string]planNodeSpec `json:"nodes"`
@@ -123,40 +134,39 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
         return
     }
 
-    // 1. 构建边列表（用于 JSON 输出到 GUI 画连线图）
-    edges := make([]Edge, 0)
+    // 1. 邻接表 → []PlanEdge（复用框架 PlanEdgeSpec 格式）
+    edges := make([]PlanEdge, 0)
     for from, targets := range input.Edges {
         for _, to := range targets {
-            edges = append(edges, Edge{From: from, To: to})
+            edges = append(edges, PlanEdge{From: from, To: to})
         }
     }
 
-    // 2. 拓扑排序节点（消除 map 迭代随机性）
+    // 2. 拓扑排序节点列表（消除 map 迭代随机性）
     sortedIDs := topologicalSort(input.Entry, input.Edges, input.Nodes)
 
-    // 3. 构建 Children 树（用于 TUI 树形渲染）
+    // 3. 构建 Children 树（TUI 树形渲染用）
     childrenMap := buildChildrenMap(input.Edges)
 
     // 4. 按拓扑序构造节点列表
     nodes := make([]PlanNode, 0, len(sortedIDs))
     for _, id := range sortedIDs {
         nodes = append(nodes, PlanNode{
-            ID:       id,
-            Label:    id,
-            Status:   NodePending,
+            ID: id, Label: id, Status: NodePending,
             Children: childrenMap[id],
         })
     }
 
-    service.snapshot.Runtime.Plan = &PlanState{
+    plan := &PlanState{
         Name:   input.Entry,
         Status: PlanPending,
         Nodes:  nodes,
-        Edges:  edges,    // ← 新增：JSON 序列化后 GUI 可渲染连线
+        Edges:  edges,            // ← GUI 据此渲染有向连线图
     }
+    service.snapshot.Runtime.Plan = plan
 }
 
-// topologicalSort 从 Entry 开始 BFS 拓扑排序
+// topologicalSort 从 Entry 开始 DFS 后序 → 反转得到拓扑序
 func topologicalSort(entry string, edges map[string][]string, nodes map[string]planNodeSpec) []string {
     visited := make(map[string]bool)
     result := make([]string, 0, len(nodes))
@@ -169,14 +179,14 @@ func topologicalSort(entry string, edges map[string][]string, nodes map[string]p
         for _, next := range edges[id] {
             dfs(next)
         }
-        result = append(result, id)  // 后序 → 逆拓扑序
+        result = append(result, id)
     }
     dfs(entry)
-    // 反转得到拓扑序
+    // 反转 → 拓扑序
     for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
         result[i], result[j] = result[j], result[i]
     }
-    // 处理不在 edges 图中的孤立节点
+    // 孤立节点追加到末尾
     for id := range nodes {
         if !visited[id] {
             result = append(result, id)
@@ -185,15 +195,13 @@ func topologicalSort(entry string, edges map[string][]string, nodes map[string]p
     return result
 }
 
-// buildChildrenMap 从 edges 邻接表构建 Children 映射
+// buildChildrenMap 从邻接表构建 PlanNode 子节点树
 func buildChildrenMap(edges map[string][]string) map[string][]PlanNode {
     children := make(map[string][]PlanNode)
     for from, targets := range edges {
         for _, to := range targets {
             children[from] = append(children[from], PlanNode{
-                ID:     to,
-                Label:  to,
-                Status: NodePending,
+                ID: to, Label: to, Status: NodePending,
             })
         }
     }
@@ -201,11 +209,9 @@ func buildChildrenMap(edges map[string][]string) map[string][]PlanNode {
 }
 ```
 
-`clonePlanNodes` 已经递归复制 `Children`，无需修改。
+### 3. 状态实时打点（验证已有链路）
 
-### 3. 状态实时同步验证
-
-**已有代码** — `HandlePlanNodeComplete`（已有的，验证链路正确）：
+已有逻辑可以复用，无需改动：
 
 ```
 framework scheduler.OnNodeDone(nodeID, kind, status, elapsed)
@@ -215,65 +221,47 @@ framework scheduler.OnNodeDone(nodeID, kind, status, elapsed)
       → plan.Nodes[i].Elapsed = elapsed.String()
       → recalculate Progress
       → events.Publish(EventSnapshotChanged)
-        → TUI: model.snapshot = app.Snapshot() → PlanPanel 重绘
-        → GUI: bridge 收到事件 → 前端 re-render
+        → TUI: model.snapshot = app.Snapshot() → PlanPanel 重绘（含节点图标）
+        → GUI: 前端收到事件 → 活动图节点上更新状态色/图标/耗时
 ```
 
-需要添加的测试：手动触发 `ProgressCallback` 验证 `EventSnapshotChanged` 是否携带更新后的 PlanState。
+`PlanEdge` 无状态字段（边本身没有运行状态，状态在节点上），但 GUI 可根据节点状态动态改变连线颜色（如已完成节点之间的线变绿）。
 
 ### 4. /new 清理 Plan/Workspace/Interaction
 
-**问题代码** — `application/command.go` 当前 `/new`：
+**问题代码** — `application/command.go:108-123`：
 
 ```go
-// 当前代码：只清 HistoryOffset/TotalMessages，不清理 Runtime
-register("new", "新建会话（当前会话自动保存）", func(context.Context, []string) (CommandResult, error) {
-    id := service.deps.Engine.SessionID()
-    if err := service.deps.Sessions.SaveCurrent(id); err != nil {
-        return CommandResult{}, fmt.Errorf("保存会话失败: %w", err)
-    }
+register("new", ... , func(...) {
     newID := service.deps.Engine.StartSession()
-    service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
     service.mu.Lock()
     service.snapshot.Session.ID = newID
     service.snapshot.HistoryOffset = 0
     service.snapshot.TotalMessages = 0
     service.snapshot.HasMoreHistory = false
-    // ← 遗漏：Runtime.Plan、CurrentWorkspace、Interaction
+    // ← 未清理：Runtime.Plan、CurrentWorkspace、Interaction
     service.mu.Unlock()
-    service.resetConversation(...)
-    return CommandResult{}, nil
 })
 ```
 
 **改动后**：
 
 ```go
-register("new", ... , func(context.Context, []string) (CommandResult, error) {
-    id := service.deps.Engine.SessionID()
-    if err := service.deps.Sessions.SaveCurrent(id); err != nil {
-        return CommandResult{}, fmt.Errorf("保存会话失败: %w", err)
-    }
-    newID := service.deps.Engine.StartSession()
-    service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
     service.mu.Lock()
     service.snapshot.Session.ID = newID
     service.snapshot.HistoryOffset = 0
     service.snapshot.TotalMessages = 0
     service.snapshot.HasMoreHistory = false
-    // ★ 新增：清除旧会话残留状态
+    // ★ 清除旧会话残留状态
     service.snapshot.Runtime.Plan = nil
     service.snapshot.CurrentWorkspace = nil
     service.snapshot.Interaction = nil
     service.mu.Unlock()
-    service.resetConversation(...)
-    return CommandResult{}, nil
-})
 ```
 
 ### 5. resumeSession 清理 Plan/Interaction
 
-**问题代码** — `application/app.go` 当前 `resumeSession`：
+**问题代码** — `application/app.go:461-513`：
 
 ```go
 func (service *Service) resumeSession(sessionID string) error {
@@ -283,7 +271,7 @@ func (service *Service) resumeSession(sessionID string) error {
     service.snapshot.Conversation = nil
     service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
     service.appendHistoryLocked(visibleHistory)
-    // ← 遗漏：Runtime.Plan、Interaction
+    // ← 未清理：Runtime.Plan、Interaction
     service.mu.Unlock()
 }
 ```
@@ -291,34 +279,28 @@ func (service *Service) resumeSession(sessionID string) error {
 **改动后**：
 
 ```go
-func (service *Service) resumeSession(sessionID string) error {
-    // ...
     service.mu.Lock()
     service.snapshot.Session.ID = sessionID
     service.snapshot.Conversation = nil
-    // ★ 新增：清除旧会话 Plan 和交互状态
-    service.snapshot.Runtime.Plan = nil
-    service.snapshot.Interaction = nil
+    service.snapshot.Runtime.Plan = nil     // ★ 清除旧 Plan
+    service.snapshot.Interaction = nil      // ★ 清除旧交互
     service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
     service.appendHistoryLocked(visibleHistory)
-    // workspace 绑定已在下面恢复
-    service.mu.Unlock()
-}
 ```
 
 ### 6. Workspace 持久化
 
-**问题代码** — `workspace/workspace.go` 当前 `Repo`：
+**问题代码** — `workspace/workspace.go`：
 
 ```go
 type Repo struct {
     mu         sync.RWMutex
-    workspaces map[string]Info        // 纯内存
-    bindings   map[string]string      // 纯内存，重启丢失
+    workspaces map[string]Info    // 纯内存，重启丢
+    bindings   map[string]string  // 纯内存，重启丢
 }
 ```
 
-**改动后**：
+**改动后** — JSON 文件 Save/Load：
 
 ```go
 type Repo struct {
@@ -330,7 +312,11 @@ type Repo struct {
     loadFn     func(repo *Repo) error
 }
 
-// NewRepoWithStore 创建带持久化的 Repo
+type repoSnapshot struct {
+    Workspaces map[string]Info   `json:"workspaces"`
+    Bindings   map[string]string `json:"bindings"`
+}
+
 func NewRepoWithStore(storePath string) (*Repo, error) {
     r := &Repo{
         workspaces: make(map[string]Info),
@@ -345,38 +331,11 @@ func NewRepoWithStore(storePath string) (*Repo, error) {
     return r, nil
 }
 
-// Save 序列化到 JSON 文件
-func (r *Repo) Save() error {
-    if r.saveFn == nil {
-        return nil
-    }
-    return r.saveFn(r)
-}
-
-// Load 从 JSON 文件恢复
-func (r *Repo) Load() error {
-    if r.loadFn == nil {
-        return nil
-    }
-    return r.loadFn(r)
-}
-
-type repoSnapshot struct {
-    Workspaces map[string]Info            `json:"workspaces"`
-    Bindings   map[string]string          `json:"bindings"`
-}
-
 func defaultSave(r *Repo) error {
     r.mu.RLock()
-    snap := repoSnapshot{
-        Workspaces: r.workspaces,
-        Bindings:   r.bindings,
-    }
+    snap := repoSnapshot{Workspaces: r.workspaces, Bindings: r.bindings}
     r.mu.RUnlock()
-    data, err := json.MarshalIndent(snap, "", "  ")
-    if err != nil {
-        return err
-    }
+    data, _ := json.MarshalIndent(snap, "", "  ")
     return os.WriteFile(filepath.Join(r.storePath, "workspace_index.json"), data, 0644)
 }
 
@@ -384,9 +343,7 @@ func defaultLoad(r *Repo) error {
     path := filepath.Join(r.storePath, "workspace_index.json")
     data, err := os.ReadFile(path)
     if err != nil {
-        if os.IsNotExist(err) {
-            return nil  // 首次运行，没有文件也算成功
-        }
+        if os.IsNotExist(err) { return nil }  // 首次启动
         return err
     }
     var snap repoSnapshot
@@ -401,36 +358,34 @@ func defaultLoad(r *Repo) error {
 }
 ```
 
-`Create` 和 `BindSession` 等修改操作的末尾增加 `r.Save()`：
+`Create`、`Delete`、`BindSession` 等修改操作末尾调用 `r.Save()`：
 
 ```go
 func (r *Repo) Create(name, rootPath, gitRemote string) (Info, error) {
-    // ... 原有代码 ...
+    // ... 原有逻辑 ...
     r.workspaces[id] = w
     r.mu.Unlock()
-    r.Save()  // 新增：持久化
+    r.Save()    // 新增
     return w, nil
 }
 ```
 
-### 7. 会话存储分层
+### 7. 会话按工作区组织 — NestedSessionStore
 
-**问题代码** — 当前会话直接存 `sessions/` 目录：
+**问题代码** — 当前 `sessions/` 目录平铺：
 
 ```
-.seelex/sessions/
-  sess_123456/    ← 平铺，不区分工作区
-  sess_123457/
+.seelex/sessions/ ← 所有会话平铺
 ```
 
-**改动后** — 新增 `NestedSessionStore`：
+**改动后** — `seelebridge/session_store.go` 新增：
 
 ```go
-// seelebridge/session_store.go 新增
 type NestedSessionStore struct {
-    basePath    string                // .seelex/
-    stores      map[string]*SessionStore  // workspaceID → SessionStore
-    defaultPath string                // 无工作区时用 .seelex/sessions/
+    mu          sync.RWMutex
+    basePath    string
+    stores      map[string]*SessionStore  // workspaceID → store
+    defaultPath string
 }
 
 func NewNestedSessionStore(basePath string) *NestedSessionStore {
@@ -441,11 +396,10 @@ func NewNestedSessionStore(basePath string) *NestedSessionStore {
     }
 }
 
-// StoreForWorkspace 获取或创建工作区专属 SessionStore
-func (n *NestedSessionStore) StoreForWorkspace(workspaceID string) *SessionStore {
+// StoreFor 获取/创建工作区专属 SessionStore
+func (n *NestedSessionStore) StoreFor(workspaceID string) *SessionStore {
     if workspaceID == "" {
-        path := n.defaultPath
-        store, _ := NewSessionStore(path)
+        store, _ := NewSessionStore(n.defaultPath)
         return store
     }
     n.mu.Lock()
@@ -461,6 +415,14 @@ func (n *NestedSessionStore) StoreForWorkspace(workspaceID string) *SessionStore
     n.stores[workspaceID] = store
     return store
 }
+
+func (n *NestedSessionStore) ListByWorkspace(workspaceID string) []SessionMeta {
+    store := n.StoreFor(workspaceID)
+    if store == nil {
+        return nil
+    }
+    return store.List()
+}
 ```
 
 `main.go` 初始化调整：
@@ -470,39 +432,30 @@ func initStore() *seelebridge.NestedSessionStore {
     return seelebridge.NewNestedSessionStore(filepath.Dir(*storePath))
 }
 
-func initSessionManager(store *seelebridge.NestedSessionStore, eng *enginePort) *session.Manager {
-    manager := session.NewManager(store)
-    manager.InjectSaveLoad(
-        func(sessionID, workspaceID string) error {
-            s := store.StoreForWorkspace(workspaceID)
-            return s.Save(sessionID, eng.rawHistory())
-        },
-        func(sessionID, workspaceID string) error {
-            s := store.StoreForWorkspace(workspaceID)
-            history, err := s.Load(sessionID)
-            if err != nil {
-                return err
-            }
-            return eng.replaceRawHistory(sessionID, history)
-        },
-    )
-    return manager
+// SessionPort 适配 NestedSessionStore
+type sessionPort struct {
+    store *seelebridge.NestedSessionStore
+    // ...
+}
+
+func (p *sessionPort) SaveCurrent(workspaceID, sessionID string) error {
+    s := p.store.StoreFor(workspaceID)
+    return s.Save(sessionID, p.eng.rawHistory())
+}
+
+func (p *sessionPort) LoadHistory(workspaceID, sessionID string) ([]seelebridge.Message, error) {
+    s := p.store.StoreFor(workspaceID)
+    return s.Load(sessionID)
+}
+
+func (p *sessionPort) ListByWorkspace(workspaceID string) []SessionInfo {
+    return p.store.ListByWorkspace(workspaceID)
 }
 ```
 
 ### 8. 会话列表按工作区过滤
 
-`session/manager.go` 补充接口：
-
-```go
-// Manager 新增方法
-func (m *Manager) ListByWorkspace(workspaceID string) []seelebridge.SessionMeta {
-    store := m.store.StoreForWorkspace(workspaceID)
-    return store.List()
-}
-```
-
-`application/ports.go` `SessionPort` 补充：
+`application/ports.go` 补充接口：
 
 ```go
 type SessionPort interface {
@@ -511,7 +464,7 @@ type SessionPort interface {
     List() []SessionInfo
     ListByWorkspace(workspaceID string) []SessionInfo  // 新增
     LoadHistory(string) ([]EngineMessage, error)
-    LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)
+    LoadHistoryRange(id string, offset, limit int) ([]EngineMessage, int, error)
 }
 ```
 
@@ -519,11 +472,12 @@ type SessionPort interface {
 
 ## 兼容性
 
-- `PlanState.Edges` 用 `omitempty`，旧 Plan（无 edges 字段的 JSON）反序列化后 `nil`，不影响渲染
-- Workspace 持久化文件 `workspace_index.json` 和现有 `sessions/` 目录共存，互不冲突
-- `NestedSessionStore` 优先读工作区路径，无工作区时回退 `sessions/` 目录
+- `PlanEdge` JSON 格式 （`{from, to, label, condition}`）与框架 `serialize.PlanEdgeSpec` 一致，GUI 侧可用同一 consumer
+- `PlanState.Edges` 用 `omitempty`，旧 Plan JSON 不包含 edges 字段时反序列化为 nil
+- Workspace 持久化 `workspace_index.json` 文件与现有 `.seelex/sessions/` 目录共存，互不影响
+- `NestedSessionStore` 优先读 `workspace/{id}/sessions/`，无工作区时回退 `sessions/`
 - Snapshot/Event DTO、Wails Bridge、TUI Controller 公共签名不变
-- 现有 Session schema 不变，只是存储路径分层
+- 现有 Session schema 不变，仅组织路径分层
 
 ## 测试计划
 
@@ -531,37 +485,38 @@ type SessionPort interface {
 
 | 测试 | 文件 | 覆盖 |
 |------|------|------|
-| `TestTopologicalSort` | `application/chat_test.go` | 线性 DAG、fork、孤立节点、空图 |
+| `TestPlanEdgeJSON` | `application/state_test.go` | PlanEdge JSON 序列化 roundtrip，兼容 `PlanEdgeSpec` 格式 |
+| `TestTopologicalSort` | `application/chat_test.go` | 线性 DAG、fork、孤立节点、空图、循环检测 |
 | `TestBuildChildrenMap` | `application/chat_test.go` | 多层嵌套、交叉引用 |
-| `TestPlanEdgesClone` | `application/application_test.go` | `cloneRuntimeState` 的 Edges 深拷贝 |
-| `TestWorkspacePersistence` | `workspace/workspace_test.go` | Create/Delete roundtrip；进程模拟 save→load |
+| `TestPlanStateCloneEdges` | `application/application_test.go` | `cloneRuntimeState` 的 Edges 深拷贝隔离 |
+| `TestWorkspacePersistence` | `workspace/workspace_test.go` | Create roundtrip；进程模拟 save→load→verify |
 | `TestWorkspaceBindPersistence` | `workspace/workspace_test.go` | BindSession → Save → Load → SessionWorkspace |
-| `TestNestedSessionStore` | `seelebridge/session_store_test.go` | 工作区路径、回退路径、并发 |
+| `TestNestedSessionStore` | `seelebridge/session_store_test.go` | 工作区路径创建、回退路径、并发安全 |
 
 ### 集成测试
 
-| 测试 | 覆盖 |
-|------|------|
-| `TestPlanLoadFullDAG` | 完整 `plan_load` → Snapshot 含 edges；`plan_run` → 状态打点 |
-| `TestNewSessionCleansPlan` | `/new` → Snapshot.Runtime.Plan 为 nil |
-| `TestResumeSessionCleansPlan` | `/resume` → 旧 Plan 消失 |
-| `TestWorkspaceRestartRecovery` | 创建 workspace → 模拟重启 → List 恢复 |
+| 测试 | 文件 | 覆盖 |
+|------|------|------|
+| `TestPlanLoadFullDAG` | `application/application_test.go` | `plan_load` 完整 DAG → Snapshot 含 Edges 且格式正确 |
+| `TestNewSessionCleansPlan` | `application/command_test.go` | `/new` 后 Snapshot.Runtime.Plan == nil |
+| `TestResumeSessionCleansPlan` | `application/application_test.go` | `/resume` 后旧 Plan 消失 |
+| `TestWorkspaceRestartRecovery` | `workspace/workspace_test.go` | 创建 workspace → 模拟重启 → List 恢复 |
 
 ### 边界测试
 
-| 测试 | 覆盖 |
+| 场景 | 覆盖 |
 |------|------|
-| 空 Plan (`plan_clear` 后) | PlanState nil → TUI/GUI 不显示 |
-| 无 edges 的 plan_load | 单节点、零边 → Edges 为 nil |
-| `/new` 时 `Interaction` 活跃 | 审批框消失 |
-| 空 Workspace 存储文件 | 首次启动无 `workspace_index.json` |
+| 空 Plan（`plan_clear` 后） | `Runtime.Plan` nil → TUI 不显示、GUI 无 plan 块 |
+| 单节点无 edges | `Edges` 为 nil/空，拓扑序返回 [entry] |
+| `/new` 时 Interaction 活跃 | Interaction 关闭，Plan 清空 |
+| 首次启动无 workspace_index.json | Load 返回 nil 而非错误 |
 
 ### 回归测试
 
 ```bash
-go build ./...
-go vet ./...
-go test -race -count=1 ./application/...
-go test -race -count=1 ./workspace/...
-go test -race -count=1 ./seelebridge/...
+go build ./...                       # 编译
+go vet ./...                         # 静态检查
+go test -race -count=1 ./application/...    # 应用层 race
+go test -race -count=1 ./workspace/...     # 工作区
+go test -race -count=1 ./seelebridge/...   # SessionStore
 ```
