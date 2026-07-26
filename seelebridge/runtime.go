@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/types"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
 )
@@ -131,6 +132,14 @@ func (r *Runtime) RegisterBuiltins() {
 func (r *Runtime) SetPlanNodeCallback(cb func(nr *workplanTypes.NodeResult)) {
 	if r.planTool != nil {
 		r.planTool.ProgressCallback = cb
+	}
+}
+
+// SetPlanApprovalGate 设置 plan kind:manual 节点的审批门控。
+// gate 连接 ApprovalBroker，human-in-the-loop 审批通过时继续执行节点。
+func (r *Runtime) SetPlanApprovalGate(gate approve.ApprovalGate) {
+	if r.planTool != nil {
+		r.planTool.SetGate(gate)
 	}
 }
 

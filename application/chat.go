@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -164,6 +165,8 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 	// plan_run 完成时：解析结果更新 PlanState
 	if name == "plan_run" && toolErr == nil {
 		service.updatePlanFromRunResult(result)
+	} else if name == "plan_run" && toolErr != nil {
+		service.handlePlanRunFailure(toolErr.Error(), result)
 	}
 
 	message := *service.appendMessageLocked("tool_result", content, &ToolCall{ID: id, Name: name, Result: result, Error: errorText, Status: status, Duration: duration})
@@ -189,6 +192,7 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 func (service *Service) updatePlanFromLoad(argsJSON string) {
 	type planNodeSpec struct {
 		Input string `json:"input"`
+		Kind  string `json:"kind,omitempty"` // "auto" (default) or "manual"
 	}
 	var input struct {
 		Entry string                  `json:"entry"`
@@ -210,7 +214,12 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 
 	nodes := make([]PlanNode, 0, len(input.Nodes))
 	for _, id := range order {
-		nodes = append(nodes, PlanNode{ID: id, Label: id, Status: NodePending})
+		spec := input.Nodes[id]
+		kind := spec.Kind
+		if kind == "" {
+			kind = "auto"
+		}
+		nodes = append(nodes, PlanNode{ID: id, Label: id, Kind: kind, Status: NodePending})
 	}
 
 	// 邻接表 → []PlanEdge
@@ -280,7 +289,7 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 			for _, on := range out.Nodes {
 				if plan.Nodes[i].ID == on.NodeID {
 					plan.Nodes[i].Status = PlanNodeStatus(on.Status)
-					plan.Nodes[i].Kind = on.Kind
+					plan.Nodes[i].Kind = mapKindForDisplay(on.Kind)
 					if on.Output != "" {
 						plan.Nodes[i].Output = on.Output
 					}
@@ -367,7 +376,7 @@ func (service *Service) HandlePlanNodeComplete(nr *workplanTypes.NodeResult) {
 		if plan.Nodes[i].ID == nr.NodeID {
 			plan.Nodes[i].Status = PlanNodeStatus(nr.Status)
 			plan.Nodes[i].Elapsed = nr.Elapsed().String()
-			plan.Nodes[i].Kind = nr.Kind
+			plan.Nodes[i].Kind = mapKindForDisplay(nr.Kind)
 			if nr.Output != "" {
 				plan.Nodes[i].Output = nr.Output
 			}
@@ -390,6 +399,18 @@ func (service *Service) HandlePlanNodeComplete(nr *workplanTypes.NodeResult) {
 	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
 }
 
+// mapKindForDisplay 将框架节点 kind 映射为 seelex PlanNode 展示值。
+// 框架内部使用 "approve"（KindApprove），但在用户侧展示为 "manual"。
+func mapKindForDisplay(kind string) string {
+	if kind == "approve" || kind == "" {
+		if kind == "approve" {
+			return "manual"
+		}
+		return "auto"
+	}
+	return kind
+}
+
 // PlanNodeStatus 将字符串转为 NodeStatus。
 func PlanNodeStatus(s string) NodeStatus {
 	switch s {
@@ -406,6 +427,129 @@ func PlanNodeStatus(s string) NodeStatus {
 	default:
 		return NodePending
 	}
+}
+
+// handlePlanRunFailure 处理 plan_run 执行失败的情况。
+// 更新 PlanState 中失败节点的状态，弹出 retry/skip/abort 交互。
+func (service *Service) handlePlanRunFailure(errMsg, resultJSON string) {
+	service.mu.Lock()
+	plan := service.snapshot.Runtime.Plan
+	if plan == nil {
+		service.mu.Unlock()
+		return
+	}
+
+	// 更新计划整体状态
+	plan.Status = PlanFailed
+
+	// 尝试解析 resultJSON 中的部分节点结果（framework 返回失败点之前的节点）
+	if resultJSON != "" {
+		var out struct {
+			Status      string `json:"status"`
+			NodeCount   int    `json:"node_count"`
+			FinalOutput string `json:"final_output"`
+			AbortReason string `json:"abort_reason,omitempty"`
+			Nodes       []struct {
+				NodeID    string `json:"node_id"`
+				Kind      string `json:"kind"`
+				Status    string `json:"status"`
+				Output    string `json:"output,omitempty"`
+				Skipped   bool   `json:"skipped"`
+				Aborted   bool   `json:"aborted"`
+				StartedAt string `json:"started_at,omitempty"`
+				EndedAt   string `json:"ended_at,omitempty"`
+			} `json:"nodes,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(resultJSON), &out); err == nil && len(out.Nodes) > 0 {
+			// 从 result 中的 status 更新计划状态
+			switch out.Status {
+			case "completed":
+				plan.Status = PlanCompleted
+				plan.Progress = 1.0
+			case "aborted":
+				plan.Status = PlanAborted
+			default:
+				plan.Status = PlanFailed
+			}
+
+			// 更新各节点状态
+			for i := range plan.Nodes {
+				for _, on := range out.Nodes {
+					if plan.Nodes[i].ID == on.NodeID {
+						plan.Nodes[i].Status = PlanNodeStatus(on.Status)
+						plan.Nodes[i].Kind = mapKindForDisplay(on.Kind)
+						if on.Output != "" {
+							plan.Nodes[i].Output = on.Output
+						}
+						if on.Skipped {
+							plan.Nodes[i].Status = NodeSkipped
+						}
+						if on.StartedAt != "" && on.EndedAt != "" {
+							if start, err := time.Parse(time.RFC3339, on.StartedAt); err == nil {
+								if end, err2 := time.Parse(time.RFC3339, on.EndedAt); err2 == nil {
+									plan.Nodes[i].Elapsed = end.Sub(start).String()
+								}
+							}
+						}
+						break
+					}
+				}
+			}
+
+			// 重新计算进度
+			done := 0
+			for _, n := range plan.Nodes {
+				if n.Status == NodeCompleted || n.Status == NodeSkipped {
+					done++
+				}
+			}
+			if len(plan.Nodes) > 0 {
+				plan.Progress = float64(done) / float64(len(plan.Nodes))
+			}
+		}
+	}
+
+	// 提取失败节点 ID
+	failedNodeID := extractFailedNodeID(errMsg)
+	if failedNodeID != "" {
+		for i := range plan.Nodes {
+			if plan.Nodes[i].ID == failedNodeID {
+				plan.Nodes[i].Status = NodeFailed
+				break
+			}
+		}
+	}
+
+	// 创建 retry/skip/abort 交互
+	interaction := &Interaction{
+		ID:       fmt.Sprintf("plan-fail-%d", time.Now().UnixNano()),
+		Kind:     "plan_retry",
+		Title:    "节点执行失败",
+		Question: fmt.Sprintf("节点 %s 执行失败：%s", failedNodeID, errMsg),
+		Options: []InteractionOption{
+			{ID: "retry", Label: "重试", Description: "重新执行整个工作流", Style: "warning"},
+			{ID: "skip", Label: "跳过", Description: "修改工作流跳过失败节点再执行", Style: "secondary"},
+			{ID: "abort", Label: "终止", Description: "终止当前工作流", Style: "danger"},
+		},
+		OpenedAt: time.Now(),
+	}
+	service.snapshot.Interaction = interaction
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
+}
+
+// extractFailedNodeID 从 scheduler 错误消息中提取失败节点的 ID。
+// 错误格式: node "X": reason
+func extractFailedNodeID(errMsg string) string {
+	if strings.Contains(errMsg, `node "`) {
+		start := strings.Index(errMsg, `node "`) + len(`node "`)
+		end := strings.Index(errMsg[start:], `"`)
+		if end > 0 {
+			return errMsg[start : start+end]
+		}
+	}
+	return ""
 }
 
 type ToolHookBridge struct {

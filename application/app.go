@@ -182,6 +182,35 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 			service.closeInteraction(id)
 			return err
 		}
+	case "plan_retry":
+		switch optionID {
+		case "retry":
+			service.mu.Lock()
+			service.appendMessageLocked("system", "节点失败，用户选择重试。请调用 plan_run 重新执行工作流。", nil)
+			revision := service.bumpLocked()
+			service.mu.Unlock()
+			service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		case "skip":
+			service.mu.Lock()
+			service.appendMessageLocked("system", "节点失败，用户选择跳过。请修改工作流（plan_clear + plan_load）排除失败节点后重新 plan_run。", nil)
+			revision := service.bumpLocked()
+			service.mu.Unlock()
+			service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		case "abort":
+			service.mu.Lock()
+			if plan := service.snapshot.Runtime.Plan; plan != nil {
+				plan.Status = PlanAborted
+				for i := range plan.Nodes {
+					if plan.Nodes[i].Status == NodePending || plan.Nodes[i].Status == NodeRunning {
+						plan.Nodes[i].Status = NodeAborted
+					}
+				}
+			}
+			service.appendMessageLocked("system", "工作流已终止。", nil)
+			revision := service.bumpLocked()
+			service.mu.Unlock()
+			service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		}
 	default:
 		return fmt.Errorf("unsupported interaction kind %q", interaction.Kind)
 	}

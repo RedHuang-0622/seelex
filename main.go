@@ -78,6 +78,7 @@ func main() {
 	store := initStore()
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
+	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
 	if err := setupPermissionGate(runtime, approval); err != nil {
 		fatalf("权限模式无效: %v", err)
 	}

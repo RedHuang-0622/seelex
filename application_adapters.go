@@ -10,6 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/engine"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/plugin"
@@ -316,6 +317,36 @@ func approvalAccepted(optionID string) bool {
 	default:
 		return true
 	}
+}
+
+// planApprovalGate 适配框架 approve.ApprovalGate → application.ApprovalBroker。
+// plan_run 执行到 kind:manual 节点时，框架调用 Ask 阻塞等待用户在 UI 中选择。
+type planApprovalGate struct {
+	broker *application.ApprovalBroker
+}
+
+// Ask 将框架审批请求转换为 ApprovalBroker.Request，阻塞等待用户选择后返回。
+func (g *planApprovalGate) Ask(ctx context.Context, q approve.Question) (any, error) {
+	options := make([]application.InteractionOption, len(q.Options))
+	for i, opt := range q.Options {
+		options[i] = application.InteractionOption{
+			ID: opt.Key, Label: opt.Label,
+			Description: opt.Description, Style: opt.Style,
+		}
+	}
+
+	req := application.ApprovalRequest{
+		ID:       q.ID,
+		Question: q.Content,
+		Options:  options,
+		Timeout:  q.Timeout,
+	}
+
+	decision, err := g.broker.Request(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return decision.OptionID, nil
 }
 
 // convertPermissionOptions 将 permission.ApproveOption 转为 application.InteractionOption。
