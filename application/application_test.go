@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/types"
 )
 
 type fakeEngine struct {
@@ -84,6 +85,15 @@ func (engine *fakeEngine) SetMaxLoops(maxLoops int) {
 	engine.maxLoops = maxLoops
 	engine.mu.Unlock()
 }
+func (engine *fakeEngine) AppendHistory(msg types.Message) {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	content := ""
+	if msg.Content != nil {
+		content = *msg.Content
+	}
+	engine.history = append(engine.history, EngineMessage{Role: msg.Role, Content: content})
+}
 func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
@@ -154,6 +164,8 @@ func (fakeSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, er
 }
 func (fakeSessions) Delete(string) error                { return nil }
 func (fakeSessions) MessageCount(string) (int, error) { return 1, nil }
+func (fakeSessions) SetWorkspace(string)              {}
+func (fakeSessions) Workspace() string                { return "" }
 
 type trackingSessions struct {
 	fakeSessions

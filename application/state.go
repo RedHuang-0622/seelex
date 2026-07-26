@@ -1,6 +1,10 @@
 package application
 
-import "time"
+import (
+	"time"
+
+	"github.com/RedHuang-0622/seelex/seelebridge"
+)
 
 // ProtocolVersion identifies the Snapshot/Event contract consumed by frontends.
 const ProtocolVersion = 1
@@ -69,11 +73,12 @@ type RuntimeState struct {
 
 // PlanState 描述当前 WorkPlan 的执行状态（nil = 无活跃 Plan）。
 type PlanState struct {
-	Name     string     `json:"name"`
-	Status   PlanStatus `json:"status"`
-	Nodes    []PlanNode `json:"nodes,omitempty"`
-	Progress float64    `json:"progress"`
-	Elapsed  string     `json:"elapsed,omitempty"`
+	Name     string              `json:"name"`
+	Status   PlanStatus          `json:"status"`
+	Nodes    []PlanNode          `json:"nodes,omitempty"`
+	Edges    []seelebridge.PlanEdge `json:"edges,omitempty"`
+	Progress float64             `json:"progress"`
+	Elapsed  string              `json:"elapsed,omitempty"`
 }
 
 type PlanStatus string
@@ -187,6 +192,7 @@ func cloneRuntimeState(runtime RuntimeState) RuntimeState {
 	if runtime.Plan != nil {
 		planCopy := *runtime.Plan
 		planCopy.Nodes = clonePlanNodes(runtime.Plan.Nodes)
+		planCopy.Edges = append([]seelebridge.PlanEdge(nil), runtime.Plan.Edges...)
 		copyRuntime.Plan = &planCopy
 	}
 	return copyRuntime

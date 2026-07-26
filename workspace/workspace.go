@@ -3,6 +3,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -32,20 +33,105 @@ type SessionBinding struct {
 // ErrNotFound is returned when a workspace or binding is not found.
 var ErrNotFound = errors.New("workspace: not found")
 
-// Repo manages workspace CRUD and session bindings in memory.
-// Persistence is injected via Save/Load callbacks (see Manager).
+// repoSnapshot is the on-disk representation of the workspace repository.
+type repoSnapshot struct {
+	Workspaces map[string]Info   `json:"workspaces"`
+	Bindings   map[string]string `json:"bindings"`
+}
+
+// Repo manages workspace CRUD and session bindings.
+// When savePath is non-empty, every mutation auto-persists to disk.
 type Repo struct {
 	mu         sync.RWMutex
 	workspaces map[string]Info
 	bindings   map[string]string // sessionID → workspaceID
+	savePath   string            // path to workspace_index.json (empty = no persistence)
 }
 
-// NewRepo creates an empty workspace repository.
+// NewRepo creates an empty workspace repository without persistence.
 func NewRepo() *Repo {
 	return &Repo{
 		workspaces: make(map[string]Info),
 		bindings:   make(map[string]string),
 	}
+}
+
+// NewRepoWithStore creates a workspace repository that persists to the given
+// directory as workspace_index.json. Returns an error if the file exists but
+// cannot be read.
+func NewRepoWithStore(storePath string) (*Repo, error) {
+	r := &Repo{
+		workspaces: make(map[string]Info),
+		bindings:   make(map[string]string),
+		savePath:   filepath.Join(storePath, "workspace_index.json"),
+	}
+	if err := r.Load(); err != nil && !errors.Is(err, ErrNotFound) && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("workspace: load index: %w", err)
+	}
+	return r, nil
+}
+
+// Save writes the current workspaces and bindings to workspace_index.json.
+func (r *Repo) Save() error {
+	if r.savePath == "" {
+		return nil
+	}
+	r.mu.RLock()
+	snap := repoSnapshot{
+		Workspaces: make(map[string]Info, len(r.workspaces)),
+		Bindings:   make(map[string]string, len(r.bindings)),
+	}
+	for k, v := range r.workspaces {
+		snap.Workspaces[k] = v
+	}
+	for k, v := range r.bindings {
+		snap.Bindings[k] = v
+	}
+	r.mu.RUnlock()
+
+	if err := os.MkdirAll(filepath.Dir(r.savePath), 0755); err != nil {
+		return fmt.Errorf("workspace: create data dir: %w", err)
+	}
+	b, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return fmt.Errorf("workspace: marshal index: %w", err)
+	}
+	if err := os.WriteFile(r.savePath, b, 0644); err != nil {
+		return fmt.Errorf("workspace: write index: %w", err)
+	}
+	return nil
+}
+
+// Load reads workspace_index.json and populates the repo.
+// Returns ErrNotFound if the file does not exist.
+func (r *Repo) Load() error {
+	if r.savePath == "" {
+		return nil
+	}
+	data, err := os.ReadFile(r.savePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return err // caller checks os.IsNotExist
+		}
+		return fmt.Errorf("workspace: read index: %w", err)
+	}
+	var snap repoSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("workspace: unmarshal index: %w", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if snap.Workspaces != nil {
+		r.workspaces = snap.Workspaces
+	} else {
+		r.workspaces = make(map[string]Info)
+	}
+	if snap.Bindings != nil {
+		r.bindings = snap.Bindings
+	} else {
+		r.bindings = make(map[string]string)
+	}
+	return nil
 }
 
 // ── Workspace CRUD ──────────────────────────────────────────
@@ -83,6 +169,9 @@ func (r *Repo) Create(name, rootPath, gitRemote string) (Info, error) {
 		CreatedAt: time.Now(),
 	}
 	r.workspaces[id] = w
+
+	// auto-persist (fire-and-forget; error logged but not surfaced)
+	_ = r.saveLocked()
 	return w, nil
 }
 
@@ -120,6 +209,7 @@ func (r *Repo) Delete(id string) error {
 			delete(r.bindings, sid)
 		}
 	}
+	_ = r.saveLocked()
 	return nil
 }
 
@@ -145,12 +235,14 @@ func (r *Repo) BindSession(sessionID, workspaceID string) {
 	} else {
 		r.bindings[sessionID] = workspaceID
 	}
+	_ = r.saveLocked()
 }
 
 func (r *Repo) UnbindSession(sessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.bindings, sessionID)
+	_ = r.saveLocked()
 }
 
 func (r *Repo) SessionWorkspace(sessionID string) (Info, bool) {
@@ -186,6 +278,35 @@ func (r *Repo) WorkspaceSessions(workspaceID string) []string {
 	}
 	sort.Strings(sessions)
 	return sessions
+}
+
+// saveLocked persists the repo without acquiring the lock (caller holds mu).
+func (r *Repo) saveLocked() error {
+	if r.savePath == "" {
+		return nil
+	}
+	snap := repoSnapshot{
+		Workspaces: make(map[string]Info, len(r.workspaces)),
+		Bindings:   make(map[string]string, len(r.bindings)),
+	}
+	for k, v := range r.workspaces {
+		snap.Workspaces[k] = v
+	}
+	for k, v := range r.bindings {
+		snap.Bindings[k] = v
+	}
+
+	if err := os.MkdirAll(filepath.Dir(r.savePath), 0755); err != nil {
+		return fmt.Errorf("workspace: create data dir: %w", err)
+	}
+	b, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return fmt.Errorf("workspace: marshal index: %w", err)
+	}
+	if err := os.WriteFile(r.savePath, b, 0644); err != nil {
+		return fmt.Errorf("workspace: write index: %w", err)
+	}
+	return nil
 }
 
 // ── helpers ─────────────────────────────────────────────────

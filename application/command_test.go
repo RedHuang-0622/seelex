@@ -6,7 +6,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/Seele/types"
 )
+
+var _ = types.Message{} // used via fakeEngine implementing ChatEngine
 
 // ── CommandRegistry ───────────────────────────────────────────
 
@@ -234,6 +238,8 @@ func (failingSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int,
 }
 func (failingSessions) Delete(string) error                 { return nil }
 func (failingSessions) MessageCount(string) (int, error) { return 0, nil }
+func (failingSessions) SetWorkspace(string)              {}
+func (failingSessions) Workspace() string                { return "" }
 
 func TestBuiltinResumeOpensSessionPicker(t *testing.T) {
 	svc := newTestService(&fakeEngine{})
@@ -311,6 +317,8 @@ func (emptySessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, e
 }
 func (emptySessions) Delete(string) error                 { return nil }
 func (emptySessions) MessageCount(string) (int, error) { return 0, nil }
+func (emptySessions) SetWorkspace(string)              {}
+func (emptySessions) Workspace() string                { return "" }
 
 func TestBuiltinPlugin_NoArg(t *testing.T) {
 	svc := newTestService(&fakeEngine{})

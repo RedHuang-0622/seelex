@@ -117,7 +117,11 @@ func (service *Service) registerBuiltinCommands() {
 		service.snapshot.HistoryOffset = 0
 		service.snapshot.TotalMessages = 0
 		service.snapshot.HasMoreHistory = false
+		service.snapshot.Runtime.Plan = nil     // 清除旧 Plan，避免跨会话残留
+		service.snapshot.CurrentWorkspace = nil // 清除工作区绑定
+		service.snapshot.Interaction = nil      // 清除未完成的交互
 		service.mu.Unlock()
+		service.deps.Sessions.SetWorkspace("")  // 路由回默认 session 目录
 		service.resetConversation(fmt.Sprintf("已新建会话（已保存 %s）", id))
 		return CommandResult{}, nil
 	})

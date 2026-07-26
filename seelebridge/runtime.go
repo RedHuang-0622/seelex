@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/tool/holder"
 	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/types"
+	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
 )
@@ -126,8 +127,8 @@ func (r *Runtime) RegisterBuiltins() {
 }
 
 // SetPlanNodeCallback 设置 plan 每节点完成回调（seelex plan visualization）。
-// 可在 runtime 创建后、服务初始化完成后调用。
-func (r *Runtime) SetPlanNodeCallback(cb func(nodeID, kind, status string, elapsed time.Duration)) {
+// cb 直接接收框架原生 *types.NodeResult，不做签名变换。
+func (r *Runtime) SetPlanNodeCallback(cb func(nr *workplanTypes.NodeResult)) {
 	if r.planTool != nil {
 		r.planTool.ProgressCallback = cb
 	}

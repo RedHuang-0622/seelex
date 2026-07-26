@@ -18,14 +18,43 @@ type Store interface {
 
 // Manager 薄包装 Seele 的 storage.Store，提供 /new 和 /resume 能力
 type Manager struct {
-	store  Store
-	mu     sync.Mutex
-	saveFn func(sessionID string) error // 注入：保存当前会话到 store
-	loadFn func(sessionID string) error // 注入：从 store 加载到 engine
+	store       Store
+	nestedStore *seelebridge.NestedSessionStore // optional workspace-aware store
+	mu          sync.Mutex
+	saveFn      func(sessionID string) error // 注入：保存当前会话到 store
+	loadFn      func(sessionID string) error // 注入：从 store 加载到 engine
 }
 
 func NewManager(store Store) *Manager {
 	return &Manager{store: store}
+}
+
+// WithNestedStore attaches a workspace-aware nested store for routing.
+func (m *Manager) WithNestedStore(ns *seelebridge.NestedSessionStore) {
+	m.nestedStore = ns
+}
+
+// SetWorkspace sets the active workspace for session routing.
+func (m *Manager) SetWorkspace(workspaceID string) {
+	if m.nestedStore != nil {
+		m.nestedStore.SetWorkspace(workspaceID)
+	}
+}
+
+// Workspace returns the currently active workspace ID.
+func (m *Manager) Workspace() string {
+	if m.nestedStore != nil {
+		return m.nestedStore.Workspace()
+	}
+	return ""
+}
+
+// ListByWorkspace lists sessions stored under a specific workspace.
+func (m *Manager) ListByWorkspace(workspaceID string) []seelebridge.SessionMeta {
+	if m.nestedStore != nil {
+		return m.nestedStore.ListByWorkspace(workspaceID)
+	}
+	return nil
 }
 
 // InjectSaveLoad 注入保存/加载回调（由 main.go 装配时传入）

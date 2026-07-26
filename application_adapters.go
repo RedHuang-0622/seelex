@@ -32,6 +32,13 @@ func newEnginePort(eng *engine.Engine) *enginePort {
 func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	return port.engine.ChatStream(ctx, input, onChunk)
 }
+
+// AppendHistory 追加消息到引擎内部对话历史。
+// 由 OnIterationComplete 在 ChatStream 同 goroutine 中调用，无需加锁。
+func (port *enginePort) AppendHistory(msg types.Message) {
+	port.engine.AppendHistory(msg)
+}
+
 func (port *enginePort) ClearHistory() {
 	port.mu.Lock()
 	port.engine.ClearHistory()
@@ -209,9 +216,11 @@ func (port skillPort) All() []application.SkillInfo {
 
 type sessionPort struct{ manager *session.Manager }
 
-func (port sessionPort) SaveCurrent(id string) error { return port.manager.SaveCurrent(id) }
-func (port sessionPort) Delete(id string) error      { return port.manager.Delete(id) }
-func (port sessionPort) Resume(id string) error      { return port.manager.Resume(id) }
+func (port sessionPort) SaveCurrent(id string) error       { return port.manager.SaveCurrent(id) }
+func (port sessionPort) Delete(id string) error            { return port.manager.Delete(id) }
+func (port sessionPort) Resume(id string) error            { return port.manager.Resume(id) }
+func (port sessionPort) SetWorkspace(workspaceID string)   { port.manager.SetWorkspace(workspaceID) }
+func (port sessionPort) Workspace() string                 { return port.manager.Workspace() }
 func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, error) {
 	messages, err := port.manager.LoadHistory(id)
 	if err != nil {

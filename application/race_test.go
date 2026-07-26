@@ -6,7 +6,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/Seele/types"
 )
+
+var _ = types.Message{} // used by blockingEngine (embeds fakeEngine with AppendHistory)
 
 // =============================================================================
 // EventHub 竞态测试

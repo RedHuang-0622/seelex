@@ -87,7 +87,7 @@ func main() {
 	activateDefaultPlugin(pluginManager, frameworkEngine)
 	appEngine := newEnginePort(frameworkEngine)
 	sessionManager := initSessionManager(store, appEngine)
-	wsRepo := workspace.NewRepo()
+	wsRepo := initWorkspaceRepo()
 	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	defer app.Shutdown()
 	toolHooks.Bind(app)
@@ -268,12 +268,23 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 	)
 }
 
-func initStore() *seelebridge.SessionStore {
-	store, err := seelebridge.NewSessionStore(*storePath)
+func initStore() *seelebridge.NestedSessionStore {
+	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
+	baseDir := filepath.Dir(*storePath)
+	ns, err := seelebridge.NewNestedSessionStore(baseDir)
 	if err != nil {
-		fatalf("初始化存储失败: %v", err)
+		fatalf("初始化嵌套存储失败: %v", err)
 	}
-	return store
+	return ns
+}
+
+func initWorkspaceRepo() *workspace.Repo {
+	baseDir := filepath.Dir(*storePath)
+	repo, err := workspace.NewRepoWithStore(baseDir)
+	if err != nil {
+		fatalf("初始化工作区存储失败: %v", err)
+	}
+	return repo
 }
 
 func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge) *engine.Engine {
@@ -284,12 +295,13 @@ func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge)
 	)
 }
 
-func initSessionManager(store *seelebridge.SessionStore, eng *enginePort) *session.Manager {
-	manager := session.NewManager(store)
+func initSessionManager(ns *seelebridge.NestedSessionStore, eng *enginePort) *session.Manager {
+	manager := session.NewManager(ns)
+	manager.WithNestedStore(ns)
 	manager.InjectSaveLoad(
-		func(sessionID string) error { return store.Save(sessionID, eng.rawHistory()) },
+		func(sessionID string) error { return ns.Save(sessionID, eng.rawHistory()) },
 		func(sessionID string) error {
-			history, err := store.Load(sessionID)
+			history, err := ns.Load(sessionID)
 			if err != nil {
 				return err
 			}

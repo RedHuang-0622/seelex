@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/types"
+	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 func (service *Service) startChat(parent context.Context, request chatRequest) error {
@@ -194,34 +198,49 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil || len(input.Nodes) == 0 {
 		return
 	}
-	nodes := make([]PlanNode, 0, len(input.Nodes))
+
+	// 构建所有节点集合，供 TopoSort 使用
+	allNodes := make(map[string]struct{}, len(input.Nodes))
 	for id := range input.Nodes {
-		label := id
-		nodes = append(nodes, PlanNode{ID: id, Label: label, Status: NodePending})
+		allNodes[id] = struct{}{}
 	}
+
+	// 拓扑排序 → 稳定节点顺序
+	order := seelebridge.TopoSort(input.Entry, input.Edges, allNodes)
+
+	nodes := make([]PlanNode, 0, len(input.Nodes))
+	for _, id := range order {
+		nodes = append(nodes, PlanNode{ID: id, Label: id, Status: NodePending})
+	}
+
+	// 邻接表 → []PlanEdge
+	planEdges := seelebridge.AdjacencyToEdges(input.Edges)
+
 	service.snapshot.Runtime.Plan = &PlanState{
 		Name:   input.Entry,
 		Status: PlanPending,
 		Nodes:  nodes,
+		Edges:  planEdges,
 	}
 }
 
 // updatePlanFromRunResult 从 plan_run 返回的 JSON 更新 PlanState。
+// 解析格式对齐框架 NodeBase 的 snake_case JSON 标签（平铺，非嵌套）。
 func (service *Service) updatePlanFromRunResult(resultJSON string) {
 	var out struct {
 		Status      string `json:"status"`
 		NodeCount   int    `json:"node_count"`
 		FinalOutput string `json:"final_output"`
 		AbortReason string `json:"abort_reason,omitempty"`
-		// 扩展字段：若框架 plan_run 返回了 per-node 结果
-		Nodes []struct {
-			NodeID  string `json:"node_id"`
-			Kind    string `json:"kind"`
-			Status  string `json:"status"`
-			Elapsed string `json:"elapsed,omitempty"`
-			Skipped bool   `json:"skipped"`
-			Aborted bool   `json:"aborted"`
-			Err     string `json:"err,omitempty"`
+		Nodes       []struct {
+			NodeID    string `json:"node_id"`
+			Kind      string `json:"kind"`
+			Status    string `json:"status"`
+			Output    string `json:"output,omitempty"`
+			Skipped   bool   `json:"skipped"`
+			Aborted   bool   `json:"aborted"`
+			StartedAt string `json:"started_at,omitempty"`
+			EndedAt   string `json:"ended_at,omitempty"`
 		} `json:"nodes,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(resultJSON), &out); err != nil {
@@ -260,10 +279,17 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 			for _, on := range out.Nodes {
 				if plan.Nodes[i].ID == on.NodeID {
 					plan.Nodes[i].Status = PlanNodeStatus(on.Status)
-					plan.Nodes[i].Elapsed = on.Elapsed
 					plan.Nodes[i].Kind = on.Kind
 					if on.Skipped {
 						plan.Nodes[i].Status = NodeSkipped
+					}
+					// 从 started_at/ended_at 计算耗时
+					if on.StartedAt != "" && on.EndedAt != "" {
+						if start, err := time.Parse(time.RFC3339, on.StartedAt); err == nil {
+							if end, err2 := time.Parse(time.RFC3339, on.EndedAt); err2 == nil {
+								plan.Nodes[i].Elapsed = end.Sub(start).String()
+							}
+						}
 					}
 					break
 				}
@@ -285,13 +311,14 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 
 // resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。
 func resolveNodeStatus(nodes []struct {
-	NodeID  string `json:"node_id"`
-	Kind    string `json:"kind"`
-	Status  string `json:"status"`
-	Elapsed string `json:"elapsed,omitempty"`
-	Skipped bool   `json:"skipped"`
-	Aborted bool   `json:"aborted"`
-	Err     string `json:"err,omitempty"`
+	NodeID    string `json:"node_id"`
+	Kind      string `json:"kind"`
+	Status    string `json:"status"`
+	Output    string `json:"output,omitempty"`
+	Skipped   bool   `json:"skipped"`
+	Aborted   bool   `json:"aborted"`
+	StartedAt string `json:"started_at,omitempty"`
+	EndedAt   string `json:"ended_at,omitempty"`
 }, nodeID string) NodeStatus {
 	for _, n := range nodes {
 		if n.NodeID == nodeID {
@@ -302,9 +329,9 @@ func resolveNodeStatus(nodes []struct {
 }
 
 // HandlePlanNodeComplete 由 plan_run 的 ProgressCallback 调用，
-// 实时更新单节点状态并通知 TUI 重绘。
-// 此方法设计为从 ToolHookBridge 之外的回调链路调用。
-func (service *Service) HandlePlanNodeComplete(nodeID, kind, status string, elapsed time.Duration) {
+// 实时更新单节点状态并通知 TUI/GUI 重绘。
+// 直接接收框架原生 *types.NodeResult，零适配开销。
+func (service *Service) HandlePlanNodeComplete(nr *workplanTypes.NodeResult) {
 	service.mu.Lock()
 	plan := service.snapshot.Runtime.Plan
 	if plan == nil {
@@ -312,9 +339,10 @@ func (service *Service) HandlePlanNodeComplete(nodeID, kind, status string, elap
 		return
 	}
 	for i := range plan.Nodes {
-		if plan.Nodes[i].ID == nodeID {
-			plan.Nodes[i].Status = PlanNodeStatus(status)
-			plan.Nodes[i].Elapsed = elapsed.String()
+		if plan.Nodes[i].ID == nr.NodeID {
+			plan.Nodes[i].Status = PlanNodeStatus(nr.Status)
+			plan.Nodes[i].Elapsed = nr.Elapsed().String()
+			plan.Nodes[i].Kind = nr.Kind
 			break
 		}
 	}
@@ -381,15 +409,37 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 		},
 		OnIterationComplete: func(_ context.Context, turn int) bool {
 			bridge.mu.Lock()
-			service := bridge.service
+			svc := bridge.service
 			bridge.mu.Unlock()
-			if service == nil {
+			if svc == nil {
 				return true
 			}
-			service.mu.Lock()
-			queued := len(service.inputQueue)
-			service.mu.Unlock()
-			return queued == 0
+			// 每轮 ReAct 结束后检查输入队列：非空时清空并注入到引擎对话历史，
+			// 下一轮 LLM 调用将看到这些排队消息，无需停止 loop。
+			svc.mu.Lock()
+			if len(svc.inputQueue) == 0 {
+				svc.mu.Unlock()
+				return true
+			}
+			batch := combineChatRequests(svc.inputQueue)
+			svc.inputQueue = nil
+			svc.snapshot.Chat.QueuedCount = 0
+			svc.snapshot.Chat.InputQueue = nil
+
+			// 追加到引擎内部历史（同 goroutine，无需加锁）
+			batchInput := batch.modelInput
+			svc.mu.Unlock()
+			svc.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &batchInput})
+
+			// 追加到 snapshot conversation → UI 即时展示
+			svc.mu.Lock()
+			svc.appendMessageLocked("user", batch.displayInput, nil)
+			svc.appendMessageLocked("assistant", "", nil) // 占位，下一轮 fill
+			revision := svc.bumpLocked()
+			requestID := svc.snapshot.Chat.RequestID
+			svc.mu.Unlock()
+			svc.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+			return true // 继续 loop，下一轮 LLM 调用将处理排队输入
 		},
 	}
 }

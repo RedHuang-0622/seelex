@@ -299,6 +299,7 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 		return err
 	}
 	service.deps.Workspace.BindSession(service.snapshot.Session.ID, workspaceID)
+	service.deps.Sessions.SetWorkspace(workspaceID)
 	service.mu.Lock()
 	service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
 	service.refreshWorkspaceLocked()
@@ -310,6 +311,7 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 
 func (service *Service) UnbindWorkspace() {
 	service.deps.Workspace.UnbindSession(service.snapshot.Session.ID)
+	service.deps.Sessions.SetWorkspace("")
 	service.mu.Lock()
 	service.snapshot.CurrentWorkspace = nil
 	service.refreshWorkspaceLocked()
@@ -488,6 +490,8 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.mu.Lock()
 	service.snapshot.Session.ID = sessionID
 	service.snapshot.Conversation = nil
+	service.snapshot.Runtime.Plan = nil // 清除旧 Plan，避免跨会话残留
+	service.snapshot.Interaction = nil  // 清除未完成的交互
 	service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
 	service.appendHistoryLocked(visibleHistory)
 	service.snapshot.HistoryOffset = offset
@@ -497,8 +501,10 @@ func (service *Service) resumeSession(sessionID string) error {
 	if service.deps.Workspace != nil {
 		if ws, ok := service.deps.Workspace.SessionWorkspace(sessionID); ok {
 			service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: ws.ID, Name: ws.Name, RootPath: ws.RootPath, GitRemote: ws.GitRemote}
+			service.deps.Sessions.SetWorkspace(ws.ID)
 		} else {
 			service.snapshot.CurrentWorkspace = nil
+			service.deps.Sessions.SetWorkspace("")
 		}
 		all := service.deps.Workspace.List()
 		service.snapshot.Workspaces = make([]WorkspaceInfo, len(all))

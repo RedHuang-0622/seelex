@@ -1,6 +1,10 @@
 package application
 
-import "context"
+import (
+	"context"
+
+	"github.com/RedHuang-0622/Seele/types"
+)
 
 type EngineMessage struct {
 	Role             string
@@ -27,6 +31,9 @@ type ChatEngine interface {
 	SetMaxLoops(int)
 	TraceText() string
 	TokenCount() string
+	// AppendHistory 追加消息到引擎内部对话历史。
+	// 仅在 OnIterationComplete 回调（ChatStream 同 goroutine）中调用，不加锁。
+	AppendHistory(msg types.Message)
 }
 type RuntimePort interface {
 	Model() string
@@ -54,6 +61,10 @@ type SessionPort interface {
 	LoadHistory(string) ([]EngineMessage, error)
 	// LoadHistoryRange 按偏移量窗口加载，返回 [offset, offset+limit) 和总数。
 	LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)
+	// SetWorkspace routes subsequent Save/Load/List to the workspace directory.
+	SetWorkspace(workspaceID string)
+	// Workspace returns the active workspace ID ("" = default).
+	Workspace() string
 }
 
 type WorkspaceInfo struct {
