@@ -217,10 +217,11 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 	planEdges := seelebridge.AdjacencyToEdges(input.Edges)
 
 	service.snapshot.Runtime.Plan = &PlanState{
-		Name:   input.Entry,
-		Status: PlanPending,
-		Nodes:  nodes,
-		Edges:  planEdges,
+		Name:        input.Entry,
+		EntryNodeID: input.Entry,
+		Status:      PlanPending,
+		Nodes:       nodes,
+		Edges:       planEdges,
 	}
 }
 
@@ -280,6 +281,9 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 				if plan.Nodes[i].ID == on.NodeID {
 					plan.Nodes[i].Status = PlanNodeStatus(on.Status)
 					plan.Nodes[i].Kind = on.Kind
+					if on.Output != "" {
+						plan.Nodes[i].Output = on.Output
+					}
 					if on.Skipped {
 						plan.Nodes[i].Status = NodeSkipped
 					}
@@ -306,6 +310,27 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 	}
 	if len(plan.Nodes) > 0 {
 		plan.Progress = float64(done) / float64(len(plan.Nodes))
+	}
+
+	// 计算总耗时（最早 start → 最晚 end）
+	var planStart, planEnd time.Time
+	for _, n := range plan.Nodes {
+		for _, on := range out.Nodes {
+			if n.ID == on.NodeID && on.StartedAt != "" && on.EndedAt != "" {
+				s, _ := time.Parse(time.RFC3339, on.StartedAt)
+				e, _ := time.Parse(time.RFC3339, on.EndedAt)
+				if planStart.IsZero() || s.Before(planStart) {
+					planStart = s
+				}
+				if e.After(planEnd) {
+					planEnd = e
+				}
+				break
+			}
+		}
+	}
+	if plan.Elapsed == "" && !planStart.IsZero() && !planEnd.IsZero() {
+		plan.Elapsed = planEnd.Sub(planStart).String()
 	}
 }
 
@@ -343,6 +368,9 @@ func (service *Service) HandlePlanNodeComplete(nr *workplanTypes.NodeResult) {
 			plan.Nodes[i].Status = PlanNodeStatus(nr.Status)
 			plan.Nodes[i].Elapsed = nr.Elapsed().String()
 			plan.Nodes[i].Kind = nr.Kind
+			if nr.Output != "" {
+				plan.Nodes[i].Output = nr.Output
+			}
 			break
 		}
 	}

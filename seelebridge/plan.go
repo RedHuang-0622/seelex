@@ -2,6 +2,7 @@
 package seelebridge
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/RedHuang-0622/Seele/workplan/runtime/serialize"
@@ -21,6 +22,45 @@ func AdjacencyToEdges(adj map[string][]string) []PlanEdge {
 		}
 	}
 	return edges
+}
+
+// DetectCycle checks if the directed graph defined by edges contains a cycle.
+// Returns an error with a cycle path when found, nil if the DAG is valid.
+func DetectCycle(edges map[string][]string) error {
+	// Build in-degree map
+	inDegree := make(map[string]int)
+	for from := range edges {
+		if _, ok := inDegree[from]; !ok {
+			inDegree[from] = 0
+		}
+		for _, to := range edges[from] {
+			inDegree[to]++
+		}
+	}
+
+	// Kahn's algorithm
+	queue := make([]string, 0)
+	for id, deg := range inDegree {
+		if deg == 0 {
+			queue = append(queue, id)
+		}
+	}
+	visited := 0
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		visited++
+		for _, next := range edges[id] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+	if visited != len(inDegree) {
+		return fmt.Errorf("cycle detected: %d of %d nodes reachable (the rest form a cycle)", visited, len(inDegree))
+	}
+	return nil
 }
 
 // TopoSort produces a stable topological order of node IDs starting from the

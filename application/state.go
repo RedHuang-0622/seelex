@@ -73,12 +73,13 @@ type RuntimeState struct {
 
 // PlanState 描述当前 WorkPlan 的执行状态（nil = 无活跃 Plan）。
 type PlanState struct {
-	Name     string              `json:"name"`
-	Status   PlanStatus          `json:"status"`
-	Nodes    []PlanNode          `json:"nodes,omitempty"`
-	Edges    []seelebridge.PlanEdge `json:"edges,omitempty"`
-	Progress float64             `json:"progress"`
-	Elapsed  string              `json:"elapsed,omitempty"`
+	Name        string              `json:"name"`
+	EntryNodeID string              `json:"entry_node_id"`
+	Status      PlanStatus          `json:"status"`
+	Nodes       []PlanNode          `json:"nodes,omitempty"`
+	Edges       []seelebridge.PlanEdge `json:"edges,omitempty"`
+	Progress    float64             `json:"progress"`
+	Elapsed     string              `json:"elapsed,omitempty"`
 }
 
 type PlanStatus string
@@ -96,7 +97,8 @@ type PlanNode struct {
 	Label    string     `json:"label"`
 	Kind     string     `json:"kind"`
 	Status   NodeStatus `json:"status"`
-	Depth    int        `json:"depth,omitempty"` // 缩进层级（0 = 根）
+	Depth    int        `json:"depth,omitempty"`    // 缩进层级（0 = 根）
+	Output   string     `json:"output,omitempty"`   // 节点输出内容
 	Elapsed  string     `json:"elapsed,omitempty"`
 	Children []PlanNode `json:"children,omitempty"` // Fork 子节点
 }
