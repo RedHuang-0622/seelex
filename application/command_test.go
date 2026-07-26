@@ -232,6 +232,7 @@ func (failingSessions) LoadHistory(string) ([]EngineMessage, error) { return nil
 func (failingSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
 	return nil, 0, nil
 }
+func (failingSessions) Delete(string) error                 { return nil }
 func (failingSessions) MessageCount(string) (int, error) { return 0, nil }
 
 func TestBuiltinResumeOpensSessionPicker(t *testing.T) {
@@ -308,6 +309,7 @@ func (emptySessions) LoadHistory(string) ([]EngineMessage, error) { return nil, 
 func (emptySessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
 	return nil, 0, nil
 }
+func (emptySessions) Delete(string) error                 { return nil }
 func (emptySessions) MessageCount(string) (int, error) { return 0, nil }
 
 func TestBuiltinPlugin_NoArg(t *testing.T) {
@@ -736,8 +738,8 @@ func TestSnapshotAfterChat(t *testing.T) {
 	for time.Now().Before(deadline) {
 		snap := svc.Snapshot()
 		if !snap.Chat.Running {
-			if len(snap.Conversation) < 3 {
-				t.Fatalf("expected at least 3 messages, got %d", len(snap.Conversation))
+			if len(snap.Conversation) < 2 {
+				t.Fatalf("expected at least 2 messages, got %d", len(snap.Conversation))
 			}
 			return
 		}

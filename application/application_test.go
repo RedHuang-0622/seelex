@@ -105,6 +105,7 @@ func (*fakeRuntime) VisibleTools(context.Context) []Tool {
 	return []Tool{{Name: "read", Description: "read files"}}
 }
 func (*fakeRuntime) ActivePlugin() string { return "default" }
+func (*fakeRuntime) SetFullAccess(bool)              {}
 
 type fakePlugins struct{ current PluginInfo }
 
@@ -151,6 +152,7 @@ func (fakeSessions) LoadHistory(string) ([]EngineMessage, error) {
 func (fakeSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
 	return []EngineMessage{{Role: "assistant", Content: "saved answer"}}, 1, nil
 }
+func (fakeSessions) Delete(string) error                { return nil }
 func (fakeSessions) MessageCount(string) (int, error) { return 1, nil }
 
 type trackingSessions struct {
@@ -304,7 +306,7 @@ func TestChatPublishesSnapshotWithoutUI(t *testing.T) {
 	for time.Now().Before(deadline) {
 		snapshot := service.Snapshot()
 		if !snapshot.Chat.Running {
-			if len(snapshot.Conversation) < 3 || snapshot.Conversation[len(snapshot.Conversation)-1].Content != "answer" {
+			if len(snapshot.Conversation) < 2 || snapshot.Conversation[len(snapshot.Conversation)-1].Content != "answer" {
 				t.Fatalf("unexpected conversation: %#v", snapshot.Conversation)
 			}
 			return

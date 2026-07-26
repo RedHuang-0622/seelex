@@ -27,6 +27,11 @@ type Application interface {
 	SwitchPlugin(context.Context, string) error
 	LoadMoreHistory(int) error
 	Suggestions(string) []application.Suggestion
+	DeleteSession(string) error
+	CreateWorkspace(name, rootPath, gitRemote string) error
+	BindWorkspace(workspaceID string) error
+	UnbindWorkspace()
+	SetFullAccess(bool)
 }
 
 type emitter func(context.Context, string, any)
@@ -204,4 +209,24 @@ func (bridge *Bridge) LoadMoreHistory(limit int) error {
 
 func (bridge *Bridge) Suggestions(input string) []application.Suggestion {
 	return bridge.app.Suggestions(input)
+}
+
+func (bridge *Bridge) DeleteSession(sessionID string) error {
+	return bridge.app.DeleteSession(sessionID)
+}
+
+func (bridge *Bridge) CreateWorkspace(name, rootPath, gitRemote string) error {
+	return bridge.app.CreateWorkspace(name, rootPath, gitRemote)
+}
+
+func (bridge *Bridge) BindWorkspace(workspaceID string) error {
+	return bridge.app.BindWorkspace(workspaceID)
+}
+
+func (bridge *Bridge) UnbindWorkspace() {
+	bridge.app.UnbindWorkspace()
+}
+
+func (bridge *Bridge) SetFullAccess(on bool) {
+	bridge.app.SetFullAccess(on)
 }

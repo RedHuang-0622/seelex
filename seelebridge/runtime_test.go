@@ -25,10 +25,10 @@ func TestRuntimeAccountsToolsAndPlugins(t *testing.T) {
 		t.Fatalf("unexpected plugin tools: %#v active=%q", tools, runtime.ActivePlugin())
 	}
 	accounts := runtime.Accounts()
-	if len(accounts) != 1 || accounts[0].Name != "test" || runtime.Model() != "test-model" {
+	if len(accounts) != 1 || accounts[0].Name != "agent-1" || runtime.Model() != "test-model" {
 		t.Fatalf("unexpected accounts: %#v model=%q", accounts, runtime.Model())
 	}
-	if !runtime.SelectAccount("test") || runtime.SelectAccount("missing") {
+	if !runtime.SelectAccount("agent-1") || runtime.SelectAccount("missing") {
 		t.Fatal("account selection result is incorrect")
 	}
 	if runtime.Provider() != "openai" {
@@ -101,16 +101,11 @@ func TestFrameworkMCPValidation(t *testing.T) {
 func newTestRuntime(t *testing.T) *Runtime {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "accounts.yaml")
-	content := `llm_config:
-  provider: openai
-  max_tokens: 128
-  timeout: 1
-accounts:
-  - name: test
-    provider: openai
-    model: test-model
-    base_url: http://localhost
-    api_key: test-key-not-used
+	content := `roles:
+  agent:
+    - model: test-model
+      base_url: http://localhost
+      api_key: test-key-not-used
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)

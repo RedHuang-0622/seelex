@@ -50,7 +50,6 @@ func New(deps Dependencies) *Service {
 	service.registerBuiltinCommands()
 	service.refreshRuntimeLocked(context.Background())
 	service.buildSystemPrompt()
-	service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", deps.Runtime.Model()), nil)
 	service.snapshot.Revision = 1
 	service.approval.setObserver(service.observeInteraction)
 	return service
@@ -257,6 +256,76 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	return nil
 }
 
+// ── Permissions ───────────────────────────────────────────────
+
+func (service *Service) SetFullAccess(on bool) {
+	service.deps.Runtime.SetFullAccess(on)
+}
+
+// ── Sessions ──────────────────────────────────────────────────
+
+func (service *Service) DeleteSession(sessionID string) error {
+	return service.deps.Sessions.Delete(sessionID)
+}
+
+// ── Workspace ─────────────────────────────────────────────────
+
+func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error {
+	if name == "" || rootPath == "" {
+		return fmt.Errorf("workspace name and root path are required")
+	}
+	// 自动检测 git remote（如果调用方未提供）
+	if gitRemote == "" {
+		if detected := service.deps.Workspace.DetectGitRemote(rootPath); detected != "" {
+			gitRemote = detected
+		}
+	}
+	w, err := service.deps.Workspace.Create(name, rootPath, gitRemote)
+	if err != nil {
+		return err
+	}
+	service.mu.Lock()
+	service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
+	service.refreshWorkspaceLocked()
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	return nil
+}
+
+func (service *Service) BindWorkspace(workspaceID string) error {
+	w, err := service.deps.Workspace.Get(workspaceID)
+	if err != nil {
+		return err
+	}
+	service.deps.Workspace.BindSession(service.snapshot.Session.ID, workspaceID)
+	service.mu.Lock()
+	service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
+	service.refreshWorkspaceLocked()
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	return nil
+}
+
+func (service *Service) UnbindWorkspace() {
+	service.deps.Workspace.UnbindSession(service.snapshot.Session.ID)
+	service.mu.Lock()
+	service.snapshot.CurrentWorkspace = nil
+	service.refreshWorkspaceLocked()
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+}
+
+func (service *Service) refreshWorkspaceLocked() {
+	all := service.deps.Workspace.List()
+	service.snapshot.Workspaces = make([]WorkspaceInfo, len(all))
+	for i, w := range all {
+		service.snapshot.Workspaces[i] = WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
+	}
+}
+
 func (service *Service) Shutdown() {
 	service.mu.Lock()
 	if service.closed {
@@ -424,6 +493,19 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.snapshot.HistoryOffset = offset
 	service.snapshot.TotalMessages = total
 	service.snapshot.HasMoreHistory = offset > 0
+	// 恢复该会话绑定的工作区（每个会话独立的工作区上下文）
+	if service.deps.Workspace != nil {
+		if ws, ok := service.deps.Workspace.SessionWorkspace(sessionID); ok {
+			service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: ws.ID, Name: ws.Name, RootPath: ws.RootPath, GitRemote: ws.GitRemote}
+		} else {
+			service.snapshot.CurrentWorkspace = nil
+		}
+		all := service.deps.Workspace.List()
+		service.snapshot.Workspaces = make([]WorkspaceInfo, len(all))
+		for i, w := range all {
+			service.snapshot.Workspaces[i] = WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
+		}
+	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)

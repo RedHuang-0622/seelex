@@ -16,6 +16,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/workspace"
 )
 
 type enginePort struct {
@@ -102,6 +103,7 @@ type runtimePort struct{ runtime *seelebridge.Runtime }
 func (port runtimePort) Model() string                  { return port.runtime.Model() }
 func (port runtimePort) Provider() string               { return port.runtime.Provider() }
 func (port runtimePort) ActivePlugin() string           { return port.runtime.ActivePlugin() }
+func (port runtimePort) SetFullAccess(on bool)           { port.runtime.SetFullAccess(on) }
 func (port runtimePort) SelectAccount(name string) bool { return port.runtime.SelectAccount(name) }
 func (port runtimePort) VisibleTools(ctx context.Context) []application.Tool {
 	tools := port.runtime.VisibleTools(ctx)
@@ -142,6 +144,51 @@ func (port pluginPort) All() []application.PluginInfo {
 	return result
 }
 
+type workspacePort struct{ repo *workspace.Repo }
+
+func (port workspacePort) Create(name, rootPath, gitRemote string) (application.WorkspaceInfo, error) {
+	w, err := port.repo.Create(name, rootPath, gitRemote)
+	if err != nil {
+		return application.WorkspaceInfo{}, err
+	}
+	return application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}, nil
+}
+func (port workspacePort) Get(id string) (application.WorkspaceInfo, error) {
+	w, err := port.repo.Get(id)
+	if err != nil {
+		return application.WorkspaceInfo{}, err
+	}
+	return application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}, nil
+}
+func (port workspacePort) List() []application.WorkspaceInfo {
+	list := port.repo.List()
+	out := make([]application.WorkspaceInfo, len(list))
+	for i, w := range list {
+		out[i] = application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
+	}
+	return out
+}
+func (port workspacePort) Delete(id string) error { return port.repo.Delete(id) }
+func (port workspacePort) BindSession(sessionID, workspaceID string) {
+	port.repo.BindSession(sessionID, workspaceID)
+}
+func (port workspacePort) UnbindSession(sessionID string) {
+	port.repo.UnbindSession(sessionID)
+}
+func (port workspacePort) SessionWorkspace(sessionID string) (application.WorkspaceInfo, bool) {
+	w, ok := port.repo.SessionWorkspace(sessionID)
+	if !ok {
+		return application.WorkspaceInfo{}, false
+	}
+	return application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}, true
+}
+func (port workspacePort) AllBindings() map[string]string {
+	return port.repo.AllBindings()
+}
+func (port workspacePort) DetectGitRemote(rootPath string) string {
+	return workspace.DetectGitRemote(rootPath)
+}
+
 type skillPort struct{ registry *skill.Registry }
 
 func (port skillPort) Get(name string) (application.SkillInfo, bool) {
@@ -163,6 +210,7 @@ func (port skillPort) All() []application.SkillInfo {
 type sessionPort struct{ manager *session.Manager }
 
 func (port sessionPort) SaveCurrent(id string) error { return port.manager.SaveCurrent(id) }
+func (port sessionPort) Delete(id string) error      { return port.manager.Delete(id) }
 func (port sessionPort) Resume(id string) error      { return port.manager.Resume(id) }
 func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, error) {
 	messages, err := port.manager.LoadHistory(id)

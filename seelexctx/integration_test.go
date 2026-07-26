@@ -18,7 +18,7 @@ import (
 func createTestEngine(t *testing.T) (*engine.Engine, *seelebridge.Runtime) {
 	t.Helper()
 	configPath := t.TempDir() + "/accounts.yaml"
-	config := []byte("llm_config:\n  provider: openai\n  max_tokens: 128\n  timeout: 1\naccounts:\n  - name: test\n    provider: openai\n    model: test-model\n    base_url: http://localhost\n    api_key: test-only\n")
+	config := []byte("roles:\n  agent:\n    - model: test-model\n      base_url: http://localhost\n      api_key: test-only\n")
 	if err := os.WriteFile(configPath, config, 0o644); err != nil {
 		t.Fatal(err)
 	}

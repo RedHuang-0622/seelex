@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/tui"
+	"github.com/RedHuang-0622/seelex/workspace"
 )
 
 var (
@@ -86,7 +87,8 @@ func main() {
 	activateDefaultPlugin(pluginManager, frameworkEngine)
 	appEngine := newEnginePort(frameworkEngine)
 	sessionManager := initSessionManager(store, appEngine)
-	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, events, approval)
+	wsRepo := workspace.NewRepo()
+	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	defer app.Shutdown()
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
@@ -300,12 +302,14 @@ func initSessionManager(store *seelebridge.SessionStore, eng *enginePort) *sessi
 func initApplication(
 	eng *enginePort, runtime *seelebridge.Runtime, plugins *plugin.Manager,
 	sessions *session.Manager, skills *skill.Registry,
+	workspaces *workspace.Repo,
 	events *application.EventHub, approval *application.ApprovalBroker,
 ) *application.Service {
 	return application.New(application.Dependencies{
 		Engine: eng, Runtime: runtimePort{runtime: runtime},
 		Plugins: pluginPort{manager: plugins}, Skills: skillPort{registry: skills},
-		Sessions: sessionPort{manager: sessions}, Events: events, Approval: approval,
+		Sessions: sessionPort{manager: sessions}, Workspace: workspacePort{repo: workspaces},
+		Events: events, Approval: approval,
 	})
 }
 
@@ -365,6 +369,7 @@ func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.App
 				{ToolName: "plan_load", Action: permission.ActionAllow},
 				{ToolName: "plan_run", Action: permission.ActionAllow},
 				{ToolName: "plan_status", Action: permission.ActionAllow},
+				{ToolName: "plan_validate", Action: permission.ActionAllow},
 				{ToolName: "plan_export", Action: permission.ActionAllow},
 				{ToolName: "plan_clear", Action: permission.ActionAllow},
 			},

@@ -52,11 +52,10 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	if err != nil {
 		service.snapshot.Chat.Error = err.Error()
 		service.appendMessageLocked("error", err.Error(), nil)
-	} else {
-		service.snapshot.Conversation = nil
-		service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", service.deps.Runtime.Model()), nil)
-		service.appendHistoryLocked(service.deps.Engine.History())
 	}
+	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
+	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
+	// 全量重建可能带入跨会话的残留消息。
 	service.refreshRuntimeLocked(context.Background())
 	// 处理输入队列：取所有排队输入合并为一条，批量发送
 	processQueue := len(service.inputQueue) > 0
@@ -379,6 +378,18 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 			if service != nil {
 				service.handleToolComplete(info.Name, id, info.Result, info.Error, info.Duration)
 			}
+		},
+		OnIterationComplete: func(_ context.Context, turn int) bool {
+			bridge.mu.Lock()
+			service := bridge.service
+			bridge.mu.Unlock()
+			if service == nil {
+				return true
+			}
+			service.mu.Lock()
+			queued := len(service.inputQueue)
+			service.mu.Unlock()
+			return queued == 0
 		},
 	}
 }

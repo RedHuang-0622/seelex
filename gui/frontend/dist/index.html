@@ -11,15 +11,6 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
-      <div id="effort-control" class="effort-control" data-effort="lite" role="group" aria-labelledby="effort-label">
-        <span id="effort-label" class="effort-label">Effort</span>
-        <div class="effort-slider-shell">
-          <input id="effort-range" class="effort-range" type="range" min="0" max="3" step="1" value="0" aria-label="Effort 级别" aria-valuetext="Lite">
-          <div class="effort-ticks" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-        </div>
-        <output id="effort-value" class="effort-value" for="effort-range">Lite</output>
-        <span class="effort-max-aura" aria-hidden="true"></span>
-      </div>
       <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span></div>
     </header>
 
@@ -52,9 +43,22 @@
           <div class="composer-tools">
             <button id="command-button" class="icon-button composer-icon" type="button" title="指令面板 (Ctrl+K)" aria-label="指令面板" data-icon="command"></button>
             <button id="runtime-button" class="icon-button composer-icon" type="button" title="Agent Runtime" aria-label="Agent Runtime" data-icon="runtime"></button>
+            <button id="perm-toggle" class="perm-chip" type="button" title="Full Access 模式">FA</button>
           </div>
           <span id="composer-status">Ready</span>
           <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
+          <div id="effort-control" class="effort-control" data-effort="lite" role="group">
+            <span class="effort-end effort-end--min">Lite</span>
+            <div class="effort-syringe">
+              <div class="syringe-barrel">
+                <div id="syringe-piston" class="syringe-piston"></div>
+              </div>
+              <div class="syringe-ticks" aria-hidden="true"><i></i><i></i><i></i></div>
+              <input id="effort-range" class="syringe-input" type="range" min="0" max="3" step="1" value="0" aria-label="Effort 级别" aria-valuetext="Lite">
+            </div>
+            <span class="effort-end effort-end--max">Max</span>
+            <span class="effort-max-aura" aria-hidden="true"></span>
+          </div>
           <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
         </div>
       </form>
@@ -73,6 +77,11 @@
       <section>
         <div class="section-title">概要</div>
         <div id="project-overview" class="project-overview"></div>
+      </section>
+      <section>
+        <div class="section-title"><span>工作区</span><button id="new-workspace" class="icon-button subtle" type="button" title="新建工作区" data-icon="plus" style="width:16px;height:16px"></button></div>
+        <div id="workspace-info" class="workspace-info"></div>
+        <div id="workspace-list" class="source-list"></div>
       </section>
       <section>
         <div class="section-title"><span>资料来源</span><span id="source-count" class="badge">0</span></div>

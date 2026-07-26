@@ -23,7 +23,7 @@ const elements = Object.fromEntries([
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count",
   "runtime-button", "runtime-modal", "runtime-close", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
-  "load-history", "interaction-modal", "interaction-risk", "interaction-title",
+  "load-history", "interaction-modal", "perm-toggle", "new-workspace", "workspace-info", "workspace-list", "interaction-risk", "interaction-title",
   "interaction-question", "interaction-preview", "interaction-options", "toast"
 ].map(id => [id, document.getElementById(id)]));
 
@@ -82,7 +82,7 @@ function render(snapshot, options = {}) {
   renderPlan(snapshot.runtime?.plan);
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
-
+  renderWorkspace(snapshot);
 }
 
 function renderIncremental(snapshot, kind) {
@@ -139,13 +139,16 @@ function renderSessions(sessions, current, capabilities) {
         ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
         : "当前会话";
       const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
-      return `<button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}">
-        <span class="session-name">${icon("message", 13)} ${escapeHtml(shortSessionID(session.id))}</span><small>${escapeHtml(detail)}</small>
-      </button>`;
+      return `<div class="session-row">
+        <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}">
+          <span class="session-name">${icon("message", 13)} ${escapeHtml(shortSessionID(session.id))}</span><small>${escapeHtml(detail)}</small>
+        </button>
+        <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
+      </div>`;
     }).join("")
     : '<span class="muted list-empty">暂无会话</span>';
 
-  elements["session-list"].querySelectorAll("button").forEach(button => {
+  elements["session-list"].querySelectorAll(".session-button").forEach(button => {
     button.addEventListener("click", async () => {
       if (button.dataset.session === currentID) return;
       if (!capabilities.session_resume) {
@@ -153,6 +156,19 @@ function renderSessions(sessions, current, capabilities) {
         return;
       }
       try { await invoke("Submit", `/resume ${button.dataset.session}`); await refresh({ scroll: "bottom" }); }
+      catch (error) { showToast(error); }
+    });
+  });
+  elements["session-list"].querySelectorAll(".session-del").forEach(button => {
+    button.addEventListener("click", async event => {
+      event.stopPropagation();
+      const sessionID = button.dataset.session;
+      if (!sessionID || sessionID === currentID) {
+        showToast("不能删除当前会话");
+        return;
+      }
+      if (!confirm(`确认删除会话 ${shortSessionID(sessionID)}？`)) return;
+      try { await invoke("DeleteSession", sessionID); await refresh({ scroll: false }); }
       catch (error) { showToast(error); }
     });
   });
@@ -470,6 +486,53 @@ document.addEventListener("keydown", event => {
     closeRuntime();
     closeCommandPalette();
   }
+});
+
+function renderWorkspace(snapshot) {
+  const ws = snapshot.current_workspace;
+  const list = snapshot.workspaces || [];
+  if (ws) {
+    const gitOk = Boolean(ws.git_remote);
+    elements["workspace-info"].innerHTML =
+      '<div class="ws-current"><strong>' + escapeHtml(ws.name) + '</strong>' +
+      '<small>' + escapeHtml(ws.root_path || "") + '</small>' +
+      (gitOk ? '<a class="ws-git" href="' + escapeHtml(ws.git_remote) + '" target="_blank">' + escapeHtml(ws.git_remote) + '</a>' : '<span class="ws-warn">未关联仓库</span>') +
+      '</div>';
+  } else {
+    elements["workspace-info"].innerHTML = '<span class="muted">未绑定工作区 — 文件读写受限</span>';
+  }
+  elements["workspace-list"].innerHTML = list.map(function(w) {
+    return '<button class="stack-button' + (ws && ws.id === w.id ? ' active' : '') + '" data-ws="' + escapeHtml(w.id) + '">' +
+      escapeHtml(w.name) + '<small>' + escapeHtml(w.root_path || "") + '</small></button>';
+  }).join("");
+  elements["workspace-list"].querySelectorAll("button").forEach(function(btn) {
+    btn.addEventListener("click", async function() {
+      try { await invoke("BindWorkspace", btn.dataset.ws); await refresh({ scroll: false }); }
+      catch (error) { showToast(error); }
+    });
+  });
+}
+
+// FA toggle
+let fullAccessOn = false;
+elements["perm-toggle"].addEventListener("click", async function() {
+  fullAccessOn = !fullAccessOn;
+  var btn = elements["perm-toggle"];
+  btn.classList.toggle("is-on", fullAccessOn);
+  btn.textContent = fullAccessOn ? "FA ✓" : "FA";
+  try { await invoke("SetFullAccess", fullAccessOn); }
+  catch (error) { showToast(error); fullAccessOn = !fullAccessOn; btn.classList.toggle("is-on", fullAccessOn); }
+});
+
+// New workspace
+elements["new-workspace"].addEventListener("click", async function() {
+  try {
+    var dir = await invoke("PickDirectory");
+    if (!dir) return;
+    var name = dir.split(/[\\/]/).pop() || "workspace";
+    await invoke("CreateWorkspace", name, dir, "");
+    await refresh({ scroll: false });
+  } catch (error) { showToast(error); }
 });
 
 function resizePrompt() {

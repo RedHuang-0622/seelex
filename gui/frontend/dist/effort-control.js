@@ -7,6 +7,9 @@ const EFFORT_LABELS = Object.freeze({
   max: "Max"
 });
 
+// 每档对应的液柱宽度百分比（lite 也要有一小段可见）
+const PROGRESS_MAP = Object.freeze([10, 38, 66, 100]);
+
 export function effortPresentation(level) {
   const normalized = EFFORT_LEVELS.includes(level) ? level : EFFORT_LEVELS[0];
   const index = EFFORT_LEVELS.indexOf(normalized);
@@ -14,14 +17,14 @@ export function effortPresentation(level) {
     level: normalized,
     label: EFFORT_LABELS[normalized],
     index,
-    progress: Math.round(index / (EFFORT_LEVELS.length - 1) * 100),
+    progress: PROGRESS_MAP[index],
     isMax: normalized === "max"
   });
 }
 
 export function createEffortControl({ root, input, output, selectEffort, onError = () => {} }) {
-  if (!root || !input || !output || typeof selectEffort !== "function") {
-    throw new TypeError("Effort control requires root, input, output and selectEffort");
+  if (!root || !input || typeof selectEffort !== "function") {
+    throw new TypeError("Effort control requires root, input and selectEffort");
   }
 
   let committed = effortPresentation(EFFORT_LEVELS[Number(input.value)]).level;
@@ -31,8 +34,10 @@ export function createEffortControl({ root, input, output, selectEffort, onError
     const view = effortPresentation(level);
     input.value = String(view.index);
     input.setAttribute("aria-valuetext", view.label);
-    output.value = view.label;
-    output.textContent = view.label;
+    if (output) {
+      output.value = view.label;
+      output.textContent = view.label;
+    }
     root.dataset.effort = view.level;
     root.style.setProperty("--effort-progress", `${view.progress}%`);
     return view;

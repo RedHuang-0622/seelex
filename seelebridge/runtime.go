@@ -56,20 +56,19 @@ type Tool struct {
 }
 
 func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
-	loaded, err := api.LoadFullAccountsConfig(cfg.AccountsPath)
+	pool, _, err := loadSimplifiedConfig(cfg.AccountsPath)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: load accounts: %w", err)
 	}
-	accounts := loaded.Pool.All()
+	accounts := pool.All()
 	if len(accounts) == 0 {
 		return nil, fmt.Errorf("seelebridge: accounts configuration is empty")
 	}
 	first := accounts[0]
-	defaults := loaded.LLMDefaults
 	llmCfg := types.LLMConfig{
 		BaseURL: first.BaseURL, APIKey: first.APIKey, Model: first.Model,
-		MaxTokens: defaults.MaxTokens, Timeout: defaults.Timeout,
-		Temperature: defaults.Temperature,
+		MaxTokens: 200000, Timeout: 300,
+		Temperature: 0.7,
 	}
 	agt, err := agent.New(agent.Options{
 		LLMConfig: llmCfg, ToolCallTimeOut: cfg.ToolCallTimeout,
@@ -83,10 +82,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		agt.Shutdown()
 		return nil, fmt.Errorf("seelebridge: unsupported LLM client %T", agt.LLM())
 	}
-	client.WithAccountPool(loaded.Pool)
-	if defaults.Provider != "" {
-		client.SetProvider(defaults.Provider)
-	}
+	client.WithAccountPool(pool)
+	client.SetProvider("openai")
 	agt.Tools().WithPluginManager(holder.NewPluginManager())
 	// 把 main.go 配置的 ToolCallTimeout（120s）传给 holder，
 	// 否则 holder.New() 默认只有 30s，FreeCAD 复杂操作极易超时熔断。
@@ -103,7 +100,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	r := &Runtime{
 		agent:    agt,
 		client:   client,
-		pool:     loaded.Pool,
+		pool:     pool,
 		model:    first.Model,
 		MCPStack: mcpstack.New(mcpStackOpts...),
 	}
@@ -183,6 +180,12 @@ func (r *Runtime) SetProvider(provider string) {
 // SetPermissionConfig 安装权限门控：Mode + Rules + ApprovalHandler。
 func (r *Runtime) SetPermissionConfig(cfg permission.PermissionConfig, handler permission.ApprovalHandler) {
 	r.agent.SetPermissionConfig(cfg, handler)
+}
+
+func (r *Runtime) SetFullAccess(on bool) {
+	if on {
+		r.agent.SetPermissionConfig(permission.PermissionConfig{Mode: permission.ModeFullAccess}, nil)
+	}
 }
 
 func summarizeTools(tools []types.Tool) []Tool {

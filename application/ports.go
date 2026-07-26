@@ -35,6 +35,7 @@ type RuntimePort interface {
 	SelectAccount(string) bool
 	VisibleTools(context.Context) []Tool
 	ActivePlugin() string
+	SetFullAccess(bool)
 }
 type PluginPort interface {
 	All() []PluginInfo
@@ -48,17 +49,39 @@ type SkillPort interface {
 }
 type SessionPort interface {
 	SaveCurrent(string) error
+	Delete(string) error
 	List() []SessionInfo
 	LoadHistory(string) ([]EngineMessage, error)
 	// LoadHistoryRange 按偏移量窗口加载，返回 [offset, offset+limit) 和总数。
 	LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)
 }
+
+type WorkspaceInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	RootPath  string `json:"root_path"`
+	GitRemote string `json:"git_remote,omitempty"`
+}
+
+type WorkspacePort interface {
+	Create(name, rootPath, gitRemote string) (WorkspaceInfo, error)
+	Get(id string) (WorkspaceInfo, error)
+	List() []WorkspaceInfo
+	Delete(id string) error
+	BindSession(sessionID, workspaceID string)
+	UnbindSession(sessionID string)
+	SessionWorkspace(sessionID string) (WorkspaceInfo, bool)
+	AllBindings() map[string]string
+	DetectGitRemote(rootPath string) string
+}
+
 type Dependencies struct {
-	Engine   ChatEngine
-	Runtime  RuntimePort
-	Plugins  PluginPort
-	Skills   SkillPort
-	Sessions SessionPort
-	Events   *EventHub
-	Approval *ApprovalBroker
+	Engine    ChatEngine
+	Runtime   RuntimePort
+	Plugins   PluginPort
+	Skills    SkillPort
+	Sessions  SessionPort
+	Workspace WorkspacePort
+	Events    *EventHub
+	Approval  *ApprovalBroker
 }

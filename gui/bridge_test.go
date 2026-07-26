@@ -77,6 +77,17 @@ func (fake *fakeApplication) Suggestions(input string) []application.Suggestion 
 	fake.suggestionsInput = input
 	return []application.Suggestion{{Text: "help", Kind: "command"}}
 }
+func (fake *fakeApplication) DeleteSession(sessionID string) error {
+	return nil
+}
+func (fake *fakeApplication) CreateWorkspace(name, rootPath, gitRemote string) error {
+	return nil
+}
+func (fake *fakeApplication) BindWorkspace(workspaceID string) error {
+	return nil
+}
+func (fake *fakeApplication) UnbindWorkspace() {}
+func (fake *fakeApplication) SetFullAccess(on bool) {}
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
 	t.Parallel()

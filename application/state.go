@@ -15,9 +15,12 @@ type Snapshot struct {
 	Runtime         RuntimeState  `json:"runtime"`
 	Interaction     *Interaction  `json:"interaction,omitempty"`
 	Capabilities    Capabilities  `json:"capabilities"`
-	HistoryOffset   int           `json:"history_offset"`   // 0 = oldest message at start; >0 = older messages exist in store
-	TotalMessages   int           `json:"total_messages"`   // total count in store (0 for live session, set after resume)
-	HasMoreHistory  bool          `json:"has_more_history"` // true if older messages can be loaded via LoadMoreHistory
+	HistoryOffset    int               `json:"history_offset"`
+	TotalMessages    int               `json:"total_messages"`
+	HasMoreHistory   bool              `json:"has_more_history"`
+	Workspaces       []WorkspaceInfo   `json:"workspaces,omitempty"`
+	CurrentWorkspace *WorkspaceInfo    `json:"current_workspace,omitempty"`
+	SessionWorkspaces map[string]string `json:"session_workspaces,omitempty"`
 }
 
 type SessionState struct {
@@ -156,6 +159,9 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	copySnapshot := snapshot
 	copySnapshot.Sessions = append([]SessionInfo(nil), snapshot.Sessions...)
 	copySnapshot.Conversation = append([]Message(nil), snapshot.Conversation...)
+	if copySnapshot.Conversation == nil {
+		copySnapshot.Conversation = []Message{} // 确保 JSON 序列化为 [] 而非 null
+	}
 	// 标量字段 (HistoryOffset, TotalMessages, HasMoreHistory) 已值拷贝
 	for index := range copySnapshot.Conversation {
 		if copySnapshot.Conversation[index].Tool != nil {
