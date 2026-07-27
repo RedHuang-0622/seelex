@@ -175,13 +175,22 @@ defaults:
   timeout: 60
   temperature: 0.7
 
-accounts:
-  - name: main
-    provider: openai
-    model: gpt-4o
-    base_url: https://api.openai.com/v1
-    api_key: replace-with-your-api-key
+roles:
+  subagent:
+    - model: fast-model
+      base_url: https://api.openai.com/v1
+      api_key: replace-with-your-api-key
+  agent:
+    - model: gpt-4o
+      base_url: https://api.openai.com/v1
+      api_key: replace-with-your-api-key
+  goalplan:
+    - model: deep-reasoning-model
+      base_url: https://api.openai.com/v1
+      api_key: replace-with-your-api-key
 ```
+
+账号按任务角色分组：`subagent` 用于快速隔离任务，`agent` 用于默认对话，`goalplan` 用于深度规划。缺少专属角色时会按 Agent 回退策略选取账号。
 
 脚本读取 `$HOME/.claude/settings.json` 中的 `ANTHROPIC_AUTH_TOKEN`，生成本地 OpenAI 兼容账号配置。`config/*.local.yaml` 已被 gitignore，不会进入版本库。
 

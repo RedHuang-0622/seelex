@@ -50,11 +50,50 @@ func TestRuntimeAccountsToolsAndPlugins(t *testing.T) {
 
 func TestRuntimeRejectsEmptyAccounts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.yaml")
-	if err := os.WriteFile(path, []byte("accounts: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("roles: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewRuntime(RuntimeConfig{AccountsPath: path}); err == nil {
 		t.Fatal("empty accounts should fail")
+	}
+}
+
+func TestRuntimeLoadsGroupedAccountRoles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := `roles:
+  subagent:
+    - model: child-model
+      base_url: http://localhost
+      api_key: test-key
+  agent:
+    - model: main-model
+      base_url: http://localhost
+      api_key: test-key
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pool, roles, err := loadSimplifiedConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pool.All()) != 2 || len(roles) != 2 {
+		t.Fatalf("unexpected accounts=%d roles=%d", len(pool.All()), len(roles))
+	}
+	account, err := ResolveAccount(pool, RoleSubAgent)
+	if err != nil || account.Name != "subagent-1" {
+		t.Fatalf("resolved account=%v err=%v", account, err)
+	}
+}
+
+func TestRuntimeRejectsLegacyAccountsList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := "accounts:\n  - name: main\n    model: test-model\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRuntime(RuntimeConfig{AccountsPath: path}); err == nil {
+		t.Fatal("legacy accounts-list config should fail")
 	}
 }
 

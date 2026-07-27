@@ -1,7 +1,8 @@
 # Copy this file to accounts.yaml and replace the placeholder values.
 # Never commit accounts.yaml or any *.local.yaml / *.secret.yaml file.
+# Accounts are grouped by task role. Add one or more entries under each role.
 defaults:
-  provider: ""
+  provider: openai
   max_tokens: 8192
   timeout: 120s
   temperature: 0
@@ -13,17 +14,23 @@ websearch:
   include_answer: true
   search_depth: advanced
 
-accounts:
-  - name: openai-main
-    provider: openai
-    model: gpt-4o
-    base_url: https://api.openai.com/v1
-    api_key: replace-with-your-openai-api-key
+roles:
+  # SubAgent: fast, isolated task execution.
+  subagent:
+    - model: replace-with-subagent-model
+      base_url: https://api.openai.com/v1
+      api_key: replace-with-your-api-key
 
-  - name: anthropic-main
-    provider: anthropic
-    model: claude-sonnet-4-20250514
-    base_url: https://api.anthropic.com/v1
-    api_key: replace-with-your-anthropic-api-key
+  # Agent: default interactive assistant.
+  agent:
+    - model: replace-with-agent-model
+      base_url: https://api.openai.com/v1
+      api_key: replace-with-your-api-key
+
+  # GoalPlan: deep reasoning and planning.
+  goalplan:
+    - model: replace-with-goalplan-model
+      base_url: https://api.openai.com/v1
+      api_key: replace-with-your-api-key
 
 mcp_servers: []

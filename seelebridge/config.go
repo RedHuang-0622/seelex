@@ -9,24 +9,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// simplifiedAccount is a single entry in the new role-based config format.
+// simplifiedAccount is a single entry in the role-based config format.
 type simplifiedAccount struct {
 	Model   string `yaml:"model"`
 	BaseURL string `yaml:"base_url"`
 	APIKey  string `yaml:"api_key"`
 }
 
-// simplifiedConfig represents the new accounts.yaml format:
+// simplifiedConfig represents the role-grouped accounts.yaml format:
 //
 //	roles:
 //	  agent:
-//	    - model: deepseek-v4-pro
-//	      base_url: https://api.deepseek.com
+//	    - model: balanced-model
+//	      base_url: https://api.openai.com/v1
 //	      api_key: sk-xxx
 //	  subagent:
-//	    - model: ...
+//	    - model: fast-model
 //	  goalplan:
-//	    - model: ...
+//	    - model: deep-model
 type simplifiedConfig struct {
 	Roles struct {
 		Agent    []simplifiedAccount `yaml:"agent"`
@@ -35,9 +35,9 @@ type simplifiedConfig struct {
 	} `yaml:"roles"`
 }
 
-// loadSimplifiedConfig reads the new role-based format and builds an api.AccountPool.
+// loadSimplifiedConfig reads the role-grouped format and builds an api.AccountPool.
 // Missing roles fall back to the agent role; if agent is also missing the first
-// available role is used.
+// available role is used by ResolveAccount.
 func loadSimplifiedConfig(path string) (*api.AccountPool, []AccountRole, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -65,7 +65,6 @@ func loadSimplifiedConfig(path string) (*api.AccountPool, []AccountRole, error) 
 		RoleGoalPlan: cfg.Roles.GoalPlan,
 	}
 
-	// 收集所有配置的 role
 	var availableRoles []AccountRole
 	for _, r := range []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan} {
 		if len(roleMap[r]) > 0 {
@@ -76,7 +75,6 @@ func loadSimplifiedConfig(path string) (*api.AccountPool, []AccountRole, error) 
 		return nil, nil, fmt.Errorf("seelebridge: no accounts configured in any role")
 	}
 
-	// 转换为 Seele api.Account，name 自动生成
 	var accounts []*api.Account
 	for role, entries := range roleMap {
 		for i, entry := range entries {
@@ -112,14 +110,12 @@ func ResolveAccount(pool *api.AccountPool, role AccountRole) (*api.Account, erro
 		return nil, fmt.Errorf("seelebridge: no accounts available")
 	}
 
-	// try exact role match
 	for _, a := range all {
 		if accountRole(a.Name) == role {
 			return a, nil
 		}
 	}
 
-	// fallback chain
 	fallbacks := map[AccountRole][]AccountRole{
 		RoleGoalPlan: {RoleAgent},
 		RoleSubAgent: {RoleAgent},
@@ -132,7 +128,7 @@ func ResolveAccount(pool *api.AccountPool, role AccountRole) (*api.Account, erro
 		}
 	}
 
-	return all[0], nil // last resort
+	return all[0], nil
 }
 
 func accountRole(name string) AccountRole {
