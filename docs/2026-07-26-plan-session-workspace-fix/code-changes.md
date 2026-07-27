@@ -177,3 +177,9 @@ Nodes []struct {
 4. `go test -count=1 ./application/...` — PlanState 变更
 5. `go test -count=1 -race ./application/... ./workspace/...` — 并发安全
 6. 手动 TUI/GUI 验证 Plan 活动图 + 实时打点
+
+## 2026-07-27 审查后修复
+
+- `application/chat.go`：将 Plan 失败处理改为调用方持锁的 `handlePlanRunFailureLocked`，消除 `handleToolComplete` 的二次加锁；同时识别框架返回的 `{"status":"failed"}`，让真实节点失败也能打开 retry / skip / abort 交互。
+- `seelebridge/plan.go`：`AdjacencyToEdges` 以排序后的起点输出；`TopoSort` 改为稳定 Kahn 拓扑排序，保证交叉依赖在其依赖之后出现。
+- `application/application_test.go`、`seelebridge/plan_test.go`：覆盖 JSON failed、非空 tool error 不死锁、交叉依赖和 cycle 检测。

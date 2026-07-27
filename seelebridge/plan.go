@@ -16,7 +16,13 @@ type PlanEdge = serialize.PlanEdgeSpec
 // PlanEdge slice suitable for PlanState.Edges.
 func AdjacencyToEdges(adj map[string][]string) []PlanEdge {
 	edges := make([]PlanEdge, 0)
-	for from, targets := range adj {
+	fromIDs := make([]string, 0, len(adj))
+	for from := range adj {
+		fromIDs = append(fromIDs, from)
+	}
+	sort.Strings(fromIDs)
+	for _, from := range fromIDs {
+		targets := adj[from]
 		for _, to := range targets {
 			edges = append(edges, PlanEdge{From: from, To: to})
 		}
@@ -63,42 +69,67 @@ func DetectCycle(edges map[string][]string) error {
 	return nil
 }
 
-// TopoSort produces a stable topological order of node IDs starting from the
-// entry node. Nodes not reachable from entry are appended in sorted order.
+// TopoSort produces a stable topological order. The entry node is preferred
+// among roots, and all other ties are resolved lexicographically.
 func TopoSort(entry string, edges map[string][]string, allNodes map[string]struct{}) []string {
-	if entry == "" {
-		result := make([]string, 0, len(allNodes))
-		for id := range allNodes {
-			result = append(result, id)
-		}
-		sort.Strings(result)
-		return result
+	inDegree := make(map[string]int, len(allNodes))
+	adjacency := make(map[string][]string, len(allNodes))
+	for id := range allNodes {
+		inDegree[id] = 0
 	}
-
-	visited := make(map[string]bool)
-	result := make([]string, 0, len(allNodes))
-
-	// BFS from entry
-	queue := []string{entry}
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		if visited[id] {
+	for from, targets := range edges {
+		if _, ok := allNodes[from]; !ok {
 			continue
 		}
-		visited[id] = true
-		result = append(result, id)
-		for _, next := range edges[id] {
-			if !visited[next] {
-				queue = append(queue, next)
+		for _, to := range targets {
+			if _, ok := allNodes[to]; !ok {
+				continue
 			}
+			adjacency[from] = append(adjacency[from], to)
+			inDegree[to]++
 		}
 	}
+	for from := range adjacency {
+		sort.Strings(adjacency[from])
+	}
 
-	// Append any nodes not reachable from entry (disconnected subgraphs)
+	ready := make([]string, 0, len(allNodes))
+	for id, degree := range inDegree {
+		if degree == 0 {
+			ready = append(ready, id)
+		}
+	}
+	sort.Strings(ready)
+	result := make([]string, 0, len(allNodes))
+	emitted := make(map[string]bool, len(allNodes))
+	for len(ready) > 0 {
+		index := 0
+		if len(result) == 0 {
+			for i, id := range ready {
+				if id == entry {
+					index = i
+					break
+				}
+			}
+		}
+		id := ready[index]
+		ready = append(ready[:index], ready[index+1:]...)
+		result = append(result, id)
+		emitted[id] = true
+		for _, next := range adjacency[id] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				ready = append(ready, next)
+			}
+		}
+		sort.Strings(ready)
+	}
+
+	// A malformed cyclic graph should be rejected by the caller. Keep the
+	// fallback deterministic so this helper remains total for defensive callers.
 	remaining := make([]string, 0)
 	for id := range allNodes {
-		if !visited[id] {
+		if !emitted[id] {
 			remaining = append(remaining, id)
 		}
 	}

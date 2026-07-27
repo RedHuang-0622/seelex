@@ -162,11 +162,18 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 		content = errorText
 	}
 
-	// plan_run 完成时：解析结果更新 PlanState
-	if name == "plan_run" && toolErr == nil {
-		service.updatePlanFromRunResult(result)
-	} else if name == "plan_run" && toolErr != nil {
-		service.handlePlanRunFailure(toolErr.Error(), result)
+	var planFailure *Interaction
+	if name == "plan_run" {
+		switch {
+		case toolErr != nil:
+			planFailure = service.handlePlanRunFailureLocked(toolErr.Error(), result)
+		default:
+			if failure := planRunFailure(result); failure != "" {
+				planFailure = service.handlePlanRunFailureLocked(failure, result)
+			} else {
+				service.updatePlanFromRunResult(result)
+			}
+		}
 	}
 
 	message := *service.appendMessageLocked("tool_result", content, &ToolCall{ID: id, Name: name, Result: result, Error: errorText, Status: status, Duration: duration})
@@ -182,6 +189,9 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
 	service.events.Publish(EventToolCompleted, revision, requestID, message)
+	if planFailure != nil {
+		service.events.Publish(EventInteractionOpened, revision, planFailure.ID, planFailure)
+	}
 	if assistant != nil {
 		service.events.Publish(EventMessageAdded, revision, requestID, *assistant)
 	}
@@ -200,6 +210,9 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 		Edges map[string][]string     `json:"edges"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil || len(input.Nodes) == 0 {
+		return
+	}
+	if _, ok := input.Nodes[input.Entry]; !ok || seelebridge.DetectCycle(input.Edges) != nil {
 		return
 	}
 
@@ -431,12 +444,10 @@ func PlanNodeStatus(s string) NodeStatus {
 
 // handlePlanRunFailure 处理 plan_run 执行失败的情况。
 // 更新 PlanState 中失败节点的状态，弹出 retry/skip/abort 交互。
-func (service *Service) handlePlanRunFailure(errMsg, resultJSON string) {
-	service.mu.Lock()
+func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *Interaction {
 	plan := service.snapshot.Runtime.Plan
 	if plan == nil {
-		service.mu.Unlock()
-		return
+		return nil
 	}
 
 	// 更新计划整体状态
@@ -534,9 +545,21 @@ func (service *Service) handlePlanRunFailure(errMsg, resultJSON string) {
 		OpenedAt: time.Now(),
 	}
 	service.snapshot.Interaction = interaction
-	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
+	return interaction
+}
+
+func planRunFailure(resultJSON string) string {
+	var result struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(resultJSON), &result); err != nil || result.Status != "failed" {
+		return ""
+	}
+	if result.Error != "" {
+		return result.Error
+	}
+	return "plan_run failed"
 }
 
 // extractFailedNodeID 从 scheduler 错误消息中提取失败节点的 ID。

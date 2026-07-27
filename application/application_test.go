@@ -115,7 +115,7 @@ func (*fakeRuntime) VisibleTools(context.Context) []Tool {
 	return []Tool{{Name: "read", Description: "read files"}}
 }
 func (*fakeRuntime) ActivePlugin() string { return "default" }
-func (*fakeRuntime) SetFullAccess(bool)              {}
+func (*fakeRuntime) SetFullAccess(bool)   {}
 
 type fakePlugins struct{ current PluginInfo }
 
@@ -162,7 +162,7 @@ func (fakeSessions) LoadHistory(string) ([]EngineMessage, error) {
 func (fakeSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
 	return []EngineMessage{{Role: "assistant", Content: "saved answer"}}, 1, nil
 }
-func (fakeSessions) Delete(string) error                { return nil }
+func (fakeSessions) Delete(string) error              { return nil }
 func (fakeSessions) MessageCount(string) (int, error) { return 1, nil }
 func (fakeSessions) SetWorkspace(string)              {}
 func (fakeSessions) Workspace() string                { return "" }
@@ -354,6 +354,49 @@ func TestToolEventsUpdateSnapshot(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("completed tool call not found: %#v", snapshot.Conversation)
+	}
+}
+
+func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
+	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+
+	service.handleToolStart("plan_run", "run-1", `{}`)
+	service.handleToolComplete("plan_run", "run-1", `{"status":"failed","error":"node \"build\": failed"}`, nil, 0)
+
+	snapshot := service.Snapshot()
+	if snapshot.Runtime.Plan == nil || snapshot.Runtime.Plan.Status != PlanFailed {
+		t.Fatalf("plan = %+v, want failed", snapshot.Runtime.Plan)
+	}
+	if snapshot.Runtime.Plan.Nodes[0].Status != NodeFailed {
+		t.Fatalf("node status = %q, want %q", snapshot.Runtime.Plan.Nodes[0].Status, NodeFailed)
+	}
+	if snapshot.Interaction == nil || snapshot.Interaction.Kind != "plan_retry" {
+		t.Fatalf("interaction = %+v, want plan_retry", snapshot.Interaction)
+	}
+}
+
+func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
+	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+
+	done := make(chan struct{})
+	go func() {
+		service.handleToolStart("plan_run", "run-1", `{}`)
+		service.handleToolComplete("plan_run", "run-1", "", errors.New(`node "build": interrupted`), 0)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("plan_run tool error deadlocked")
+	}
+	if interaction := service.Snapshot().Interaction; interaction == nil || interaction.Kind != "plan_retry" {
+		t.Fatalf("interaction = %+v, want plan_retry", interaction)
 	}
 }
 
