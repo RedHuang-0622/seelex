@@ -19,6 +19,7 @@
 | `interaction-resolution.schema.json` | approval/interaction resolution |
 | `evidence-assessment.schema.json` | requirement claims、evidence bindings、readiness gate 与人工处置 |
 | `dev-iteration.schema.json` | requirement→architecture→design→Dev→E2E run 与反馈路由 |
+| `agent-scenario-v1.schema.json` | 确定性 Core/Browser 黄金旅程脚本；fixture 位于 `../../../e2e/fixtures/` |
 | `module-dotting.schema.json` | module registry |
 
 对应 payload 位于 `../examples/`；`module_dotting.json` 位于上级目录。`docs_contract_test.go` 会拒绝未登记验证的示例。

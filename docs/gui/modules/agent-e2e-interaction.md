@@ -1,6 +1,6 @@
 # Agent E2E 交互模块详细设计
 
-> 状态：拟议方案
+> 状态：部分实现
 > 产品需求：`CAP-E2E`
 > 总体架构：[`../architecture.md`](../architecture.md)
 
@@ -41,9 +41,11 @@
 
 L1 与 L2 使用同一个 `scenario-v1` 语义和 fixture ID。它们的 driver 不同，但预期用户旅程一致。
 
+当前最小实现位于 `e2e/scenario/`，使用真实 `application.Service`、`EventHub`、`ToolHookBridge` 和 `ApprovalBroker`。`approval-chat.json` 覆盖 E2E-J01/J02 的 allow 主链路；`manual-plan.json` 经注入的真实 `WorkPlanTool` handler 覆盖 `plan_load → plan_run → manual approval → PlanState`。当前 executable subset 只支持 `assistant.delta`、`tool.call`、`approval.request`、`engine.error`，以及 submit/resolve、Chat、delta、Tool、interaction、event sequence/set 断言；Card、Workspace、Artifact、恢复和多会话步骤会被严格 loader 明确拒绝，不会伪造为通过。
+
 ## 3. Scenario v1
 
-计划新增 `schemas/agent-scenario-v1.schema.json`。Scenario 是数据，不允许内嵌 JavaScript、shell 或 Go callback。
+已新增最小 executable subset 的 `schemas/agent-scenario-v1.schema.json`。Scenario 是数据，不允许内嵌 JavaScript、shell 或 Go callback。下方示例仍是完整目标契约，尚未支持的字段将在后续垂直切片中加入 Schema 与 runner。
 
 ```json
 {
@@ -137,7 +139,7 @@ L1 与 L2 使用同一个 `scenario-v1` 语义和 fixture ID。它们的 driver 
 
 ### 4.1 Go Core runner
 
-计划目录：
+当前最小实现目录：
 
 ```text
 e2e/scenario/
@@ -147,8 +149,10 @@ e2e/scenario/
   scripted_engine.go
   ports.go
   recorder.go
-  assertions.go
+  harness.go
 ```
+
+完整 runner 仍需在 Card、Workspace、多 Session runtime 落地后继续扩展。
 
 Runner 组装真实：
 

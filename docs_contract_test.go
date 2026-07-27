@@ -26,6 +26,7 @@ type moduleRegistry struct {
 func TestGUIDocumentContracts(t *testing.T) {
 	compiler := loadGUISchemas(t)
 	cases := map[string]string{
+		"https://seelex.dev/schemas/agent-scenario-v1.schema.json":      "../../e2e/fixtures/approval-chat.json",
 		"https://seelex.dev/schemas/module-dotting.schema.json":         "module_dotting.json",
 		"https://seelex.dev/schemas/error.schema.json":                  "examples/error.json",
 		"https://seelex.dev/schemas/event.schema.json":                  "examples/event.json",
@@ -52,6 +53,15 @@ func TestGUIDocumentContracts(t *testing.T) {
 		}
 		validated[filepath.Base(example)] = true
 	}
+	scenarioSchema, err := compiler.Compile("https://seelex.dev/schemas/agent-scenario-v1.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualPlan := "../../e2e/fixtures/manual-plan.json"
+	if err := scenarioSchema.Validate(readJSON(t, filepath.Join(guiDocsRoot, manualPlan))); err != nil {
+		t.Errorf("validate %s with agent scenario schema: %v", manualPlan, err)
+	}
+	validated[filepath.Base(manualPlan)] = true
 	examples, err := filepath.Glob(filepath.Join(guiDocsRoot, "examples", "*.json"))
 	if err != nil {
 		t.Fatal(err)

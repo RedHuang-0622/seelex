@@ -150,14 +150,15 @@
     {
       "id": "agent-e2e-interaction",
       "name": "Agent end-to-end verification",
-      "status": "planned",
+      "status": "partial",
       "responsibility": "Verify deterministic core scenarios, browser behavior and Wails lifecycle without depending on live model services.",
       "document": "modules/agent-e2e-interaction.md",
       "interfaces": ["ScenarioRunner", "ScriptedEngine", "FakeBridge"],
       "planned_paths": ["e2e/", "gui/e2e/"],
       "inputs": ["scenario fixture", "scripted engine step", "expected event"],
       "outputs": ["scenario report", "browser assertion", "Wails smoke result"],
-      "depends_on": ["shell-interactions", "dsl-card-runtime", "workspace-sandbox", "multi-session-pages", "http-api-adapter", "evidence-gated-dev-loop"]
+      "depends_on": ["shell-interactions", "dsl-card-runtime", "workspace-sandbox", "multi-session-pages", "http-api-adapter", "evidence-gated-dev-loop"],
+      "notes": "Minimal L1 Core scenario runner implements deterministic chat, generic approval allow flow, and a real WorkPlan manual approval journey. Card, Workspace, Artifact, resume, multi-session, Browser and Wails journeys remain planned."
     }
   ]
 }
