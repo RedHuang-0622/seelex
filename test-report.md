@@ -1,5 +1,16 @@
 # 测试报告
 
+## 本次本地复测（2026-07-27）
+
+| 命令 | 结果 |
+|------|------|
+| `go vet ./...` | ✅ 通过 |
+| `go build ./...` | ✅ 通过 |
+| `go test ./... -count=1` | ✅ 全部通过（含 TUI、e2e、seelebridge） |
+| `go test ./tui ./... -count=1` | ✅ TUI 与全量包通过；首次发现并修复 e2e 测试桩接口缺失 |
+| `go test ./... -race -count=1` | ⚪ 未执行：环境无 GCC，`CGO_ENABLED=1` 后 `runtime/cgo` 无法找到 C 编译器 |
+| `cmd /c "go run . -frontend tui < NUL"` | ⚠️ 进入交互态后受控超时退出；未见启动 panic 或配置解析错误 |
+
 ## 概览
 
 | 项目 | 结果 |

@@ -1,5 +1,17 @@
 # 代码变更摘要
 
+## 本次账号池与测试增量（2026-07-27）
+
+| 文件 | 类型 | 说明 | 设计模式 |
+|------|------|------|---------|
+| `config/accounts.example.yaml` | 修改 | 配置模板改为 `roles.subagent/agent/goalplan` 分组，匹配当前角色路由策略 | Configuration Template / Strategy |
+| `scripts/sync-claudecode-account.ps1` | 修改 | 本地同步脚本输出角色分组格式，并默认写入运行时读取的 `config/accounts.yaml` | Adapter |
+| `seelebridge/config.go` | 修改 | 明确角色分组解析、角色回退和空号池校验 | Strategy / Fallback |
+| `seelebridge/runtime_test.go` | 修改 | 覆盖角色分组、旧 accounts 列表拒绝和空配置边界 | Contract Test |
+| `e2e/scenario/harness.go`、`scripted_engine.go` | 修改 | 补齐 application 新增接口桩，恢复 e2e 场景编译 | Test Double |
+
+本地生成的 `config/accounts.yaml` 已按模板更新，文件被 `.gitignore` 忽略，不进入提交。
+
 ## 新增/修改/删除文件
 
 | 文件 | 类型 | 说明 | 设计模式 |
