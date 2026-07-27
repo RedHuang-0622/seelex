@@ -23,9 +23,9 @@ Effort 控件把 Core 已有的 `lite / medium / high / max` 四档能力变成�
 
 | index | level | 进度 | 展示 |
 |------:|-------|-----:|------|
-| 0 | `lite` | 0% | Lite |
-| 1 | `medium` | 33% | Medium |
-| 2 | `high` | 67% | High |
+| 0 | `lite` | 10% | Lite |
+| 1 | `medium` | 38% | Medium |
+| 2 | `high` | 66% | High |
 | 3 | `max` | 100% | Max |
 
 `effortPresentation(level)` 将不可信 Runtime 值归一为 `lite`，并一次性产生 index、label、progress 和 `isMax`。HTML range 只传递 index，Bridge 只接收归一后的 level 字符串。

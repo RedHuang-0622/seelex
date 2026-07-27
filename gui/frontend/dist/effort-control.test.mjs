@@ -35,7 +35,7 @@ function setup(selectEffort = async () => {}, onError = () => {}) {
 
 test("maps four Effort levels onto discrete progress values", () => {
   assert.deepEqual(EFFORT_LEVELS, ["lite", "medium", "high", "max"]);
-  assert.deepEqual(EFFORT_LEVELS.map(level => effortPresentation(level).progress), [0, 33, 67, 100]);
+  assert.deepEqual(EFFORT_LEVELS.map(level => effortPresentation(level).progress), [10, 38, 66, 100]);
   assert.equal(effortPresentation("max").isMax, true);
   assert.equal(effortPresentation("unknown").level, "lite");
 });
