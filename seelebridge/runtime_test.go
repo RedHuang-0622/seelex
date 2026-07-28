@@ -63,6 +63,23 @@ func TestRuntimeRejectsEmptyAccounts(t *testing.T) {
 	}
 }
 
+func TestMissingAccountsUsesEnvironmentCredential(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	path := filepath.Join(t.TempDir(), "missing-accounts.yaml")
+
+	pool, roles, err := loadSimplifiedConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts := pool.All()
+	if len(accounts) != 1 || accounts[0].APIKey != "test-key" {
+		t.Fatalf("fallback accounts = %+v", accounts)
+	}
+	if len(roles) != 1 || roles[0] != RoleAgent {
+		t.Fatalf("fallback roles = %v", roles)
+	}
+}
+
 func TestRuntimeLoadsGroupedAccountRoles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.yaml")
 	content := `roles:

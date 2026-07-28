@@ -46,7 +46,7 @@ func loadSimplifiedConfig(path string) (*api.AccountPool, []AccountRole, error) 
 			return api.NewAccountPool(&api.Account{
 				Name: "fallback", Provider: "openai",
 				Model: "gpt-4o", BaseURL: "https://api.openai.com/v1",
-				APIKey: "sk-fallback",
+				APIKey: os.Getenv("OPENAI_API_KEY"),
 			}), []AccountRole{RoleAgent}, nil
 		}
 		return nil, nil, err
