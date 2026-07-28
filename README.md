@@ -540,6 +540,24 @@ make build && make package
 | `tui` | 6.2% |
 | `tui/splash` | 0.0% |
 
+## 模块审查入口
+
+仓库协作与文档放置规则见 [`AGENTS.md`](AGENTS.md)。每个代码/运行模块的 README 记录当前实现、依赖边界、生态位、review 风险和验证命令：
+
+| 模块 | 说明 |
+|---|---|
+| [`application`](application/README.md) | 前端共享的应用用例与权威状态。 |
+| [`seelebridge`](seelebridge/README.md) | Seele v0.0.8 防腐层、项目作用域、工具、MCP 与 WorkPlan。 |
+| [`plugin`](plugin/README.md) / [`plugins`](plugins/README.md) | Plugin 运行时与内置能力包。 |
+| [`skill`](skill/README.md) | Skill 加载、资源边界和可见性。 |
+| [`session`](session/README.md) / [`sessionstore`](sessionstore/README.md) | 会话用例适配与原子多后端持久化。 |
+| [`workspace`](workspace/README.md) | 项目定义和 session binding。 |
+| [`gui`](gui/README.md) / [`tui`](tui/README.md) | 桌面与终端前端。 |
+| [`mcpstack`](mcpstack/README.md) | MCP 调用栈和上下文追踪。 |
+| [`seelexctx`](seelexctx/README.md) | 跨 Agent 上下文导出、压缩和合并。 |
+| [`e2e`](e2e/README.md) | 确定性 scenario 验收框架。 |
+| [`config`](config/README.md) / [`scripts`](scripts/README.md) / [`.github`](.github/README.md) | 配置、构建与 CI 运维模块。 |
+
 ## 许可证
 
 MIT

@@ -4,6 +4,8 @@
 
 ---
 
+文档创建与放置规则以根目录 [`AGENTS.md`](../AGENTS.md) 为准；分类目录的维护约定见 [`arch/README.md`](arch/README.md)、[`product/README.md`](product/README.md)、[`research/README.md`](research/README.md)、[`test/README.md`](test/README.md) 和 [`devlog/README.md`](devlog/README.md)。
+
 ## 📐 arch/ — 架构与设计
 
 | 文档 | 说明 |
