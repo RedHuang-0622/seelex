@@ -3,6 +3,7 @@ import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
+import { planToDSL, reconcilePlanDSL } from "./plan-dsl.js";
 
 const state = {
   info: null,
@@ -235,24 +236,7 @@ function renderSkills(skills) {
 }
 
 function renderPlan(plan) {
-  if (!plan) {
-    elements["plan-view"].className = "plan-view muted";
-    elements["plan-view"].textContent = "暂无执行计划";
-    return;
-  }
-  const nodes = flattenNodes(plan.nodes || []);
-  elements["plan-view"].className = "plan-view";
-  elements["plan-view"].innerHTML = `
-    <div class="plan-header"><strong>${escapeHtml(plan.name || "Plan")}</strong><span>${Math.round((plan.progress || 0) * 100)}%</span></div>
-    ${nodes.map(node => `<div class="plan-node ${escapeHtml(node.status || "")}" style="margin-left:${Math.min(node.depth || 0, 5) * 10}px">${escapeHtml(node.label || node.id || "node")}</div>`).join("")}`;
-}
-
-function flattenNodes(nodes, result = []) {
-  for (const node of nodes) {
-    result.push(node);
-    flattenNodes(node.children || [], result);
-  }
-  return result;
+  reconcilePlanDSL(elements["plan-view"], planToDSL(plan));
 }
 
 function renderInteraction(interaction) {

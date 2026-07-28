@@ -317,7 +317,7 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	for _, name := range []string{
 		"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js",
 		"frontend/dist/protocol.js", "frontend/dist/client-state.js", "frontend/dist/conversation-view.js",
-		"frontend/dist/chat-view.js", "frontend/dist/effort-control.js", "frontend/dist/styles.css",
+		"frontend/dist/chat-view.js", "frontend/dist/effort-control.js", "frontend/dist/plan-dsl.js", "frontend/dist/styles.css",
 	} {
 		if _, err := embeddedFrontend.ReadFile(name); err != nil {
 			t.Fatalf("embedded frontend %q: %v", name, err)
@@ -333,6 +333,9 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(string(index), `id="session-list"`) || !strings.Contains(string(script), "renderSessions") {
 		t.Fatal("embedded frontend does not include the session list")
+	}
+	if !strings.Contains(string(script), `from "./plan-dsl.js"`) {
+		t.Fatal("embedded frontend does not load the Plan JSON DSL renderer")
 	}
 	components, err := embeddedFrontend.ReadFile("frontend/dist/components.js")
 	if err != nil {

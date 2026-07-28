@@ -83,9 +83,14 @@ test("applies sibling events sharing a revision above the snapshot floor", () =>
 
 test("applies runtime and interaction events", () => {
   const runtime = applyEvent(snapshot(), {
-    protocol_version: 1, seq: 1, revision: 2, kind: "runtime.changed", payload: { model: "next" }
+    protocol_version: 1, seq: 1, revision: 2, kind: "runtime.changed", payload: {
+      model: "next",
+      plan: { name: "build", status: "running", progress: 0.5, nodes: [{ id: "test", status: "running" }] }
+    }
   });
   assert.equal(runtime.snapshot.runtime.model, "next");
+  assert.equal(runtime.snapshot.runtime.plan.nodes[0].status, "running");
+  assert.equal(runtime.changed, "runtime.changed");
 
   const opened = applyEvent(runtime.snapshot, {
     protocol_version: 1, seq: 2, revision: 3, kind: "interaction.opened", payload: { id: "approval-1" }
