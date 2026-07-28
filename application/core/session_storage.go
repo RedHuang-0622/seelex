@@ -34,5 +34,9 @@ func (service *Service) ConfigureSessionStorage(ctx context.Context, config sess
 	if !ok {
 		return fmt.Errorf("session storage settings are unavailable")
 	}
-	return storage.ConfigureStorage(ctx, config)
+	if err := storage.ConfigureStorage(ctx, config); err != nil {
+		return err
+	}
+	service.clearSessionNames()
+	return nil
 }

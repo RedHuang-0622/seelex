@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -167,20 +168,20 @@ func (port workspacePort) Create(name, rootPath, gitRemote string) (application.
 	if err != nil {
 		return application.WorkspaceInfo{}, err
 	}
-	return application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}, nil
+	return adaptWorkspace(w), nil
 }
 func (port workspacePort) Get(id string) (application.WorkspaceInfo, error) {
 	w, err := port.repo.Get(id)
 	if err != nil {
 		return application.WorkspaceInfo{}, err
 	}
-	return application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}, nil
+	return adaptWorkspace(w), nil
 }
 func (port workspacePort) List() []application.WorkspaceInfo {
 	list := port.repo.List()
 	out := make([]application.WorkspaceInfo, len(list))
 	for i, w := range list {
-		out[i] = application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
+		out[i] = adaptWorkspace(w)
 	}
 	return out
 }
@@ -196,13 +197,31 @@ func (port workspacePort) SessionWorkspace(sessionID string) (application.Worksp
 	if !ok {
 		return application.WorkspaceInfo{}, false
 	}
-	return application.WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}, true
+	return adaptWorkspace(w), true
 }
 func (port workspacePort) AllBindings() map[string]string {
 	return port.repo.AllBindings()
 }
 func (port workspacePort) DetectGitRemote(rootPath string) string {
 	return workspace.DetectGitRemote(rootPath)
+}
+
+func adaptWorkspace(item workspace.Info) application.WorkspaceInfo {
+	return application.WorkspaceInfo{
+		ID:        item.ID,
+		Name:      workspaceDisplayName(item.RootPath, item.Name),
+		RootPath:  item.RootPath,
+		GitRemote: item.GitRemote,
+	}
+}
+
+func workspaceDisplayName(rootPath, fallback string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(rootPath))
+	name := strings.TrimSpace(filepath.Base(cleaned))
+	if name == "" || name == "." || name == string(filepath.Separator) || name == "/" || name == `\` {
+		return strings.TrimSpace(fallback)
+	}
+	return name
 }
 
 type skillPort struct{ registry *skill.Registry }
@@ -246,8 +265,22 @@ func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, err
 	}
 	return adaptMessages(messages), nil
 }
+func (port sessionPort) LoadHistoryWorkspace(workspaceID, id string) ([]application.EngineMessage, error) {
+	messages, err := port.manager.LoadHistoryByWorkspace(workspaceID, id)
+	if err != nil {
+		return nil, err
+	}
+	return adaptMessages(messages), nil
+}
 func (port sessionPort) LoadHistoryRange(id string, offset, limit int) ([]application.EngineMessage, int, error) {
 	messages, total, err := port.manager.LoadHistoryRange(id, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return adaptMessages(messages), total, nil
+}
+func (port sessionPort) LoadHistoryRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.EngineMessage, int, error) {
+	messages, total, err := port.manager.LoadHistoryRangeByWorkspace(workspaceID, id, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -257,7 +290,16 @@ func (port sessionPort) MessageCount(id string) (int, error) {
 	return port.manager.MessageCount(id)
 }
 func (port sessionPort) List() []application.SessionInfo {
-	sessions := port.manager.List()
+	return adaptSessionMeta(port.manager.List())
+}
+func (port sessionPort) ListWorkspace(workspaceID string) []application.SessionInfo {
+	return adaptSessionMeta(port.manager.ListByWorkspace(workspaceID))
+}
+func (port sessionPort) DeleteWorkspace(workspaceID, id string) error {
+	return port.manager.DeleteByWorkspace(workspaceID, id)
+}
+
+func adaptSessionMeta(sessions []seelebridge.SessionMeta) []application.SessionInfo {
 	result := make([]application.SessionInfo, 0, len(sessions))
 	for _, item := range sessions {
 		result = append(result, application.SessionInfo{ID: item.SessionID, UpdatedAt: item.UpdatedAt, TokenCount: item.TokenCount})

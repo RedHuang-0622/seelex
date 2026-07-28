@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -195,11 +196,44 @@ func (sessions *trackingSessions) SaveCurrent(sessionID string) error {
 
 type scopedSessions struct {
 	fakeSessions
-	workspace string
+	workspace       string
+	catalog         map[string][]SessionInfo
+	histories       map[string]map[string][]EngineMessage
+	loadedWorkspace string
+	savedIDs        []string
 }
 
 func (sessions *scopedSessions) SetWorkspace(workspaceID string) { sessions.workspace = workspaceID }
 func (sessions *scopedSessions) Workspace() string               { return sessions.workspace }
+func (sessions *scopedSessions) SaveCurrent(sessionID string) error {
+	sessions.savedIDs = append(sessions.savedIDs, sessionID)
+	return nil
+}
+func (sessions *scopedSessions) ListWorkspace(workspaceID string) []SessionInfo {
+	return append([]SessionInfo(nil), sessions.catalog[workspaceID]...)
+}
+func (sessions *scopedSessions) LoadHistoryWorkspace(workspaceID, sessionID string) ([]EngineMessage, error) {
+	sessions.loadedWorkspace = workspaceID
+	if bySession := sessions.histories[workspaceID]; bySession != nil {
+		if history, ok := bySession[sessionID]; ok {
+			return append([]EngineMessage(nil), history...), nil
+		}
+		return nil, errors.New("session missing from workspace")
+	}
+	return sessions.fakeSessions.LoadHistory(sessionID)
+}
+func (sessions *scopedSessions) LoadHistoryRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+	history, err := sessions.LoadHistoryWorkspace(workspaceID, sessionID)
+	if err != nil {
+		return nil, 0, err
+	}
+	end := min(offset+limit, len(history))
+	return append([]EngineMessage(nil), history[offset:end]...), len(history), nil
+}
+func (sessions *scopedSessions) DeleteWorkspace(workspaceID, sessionID string) error {
+	delete(sessions.histories[workspaceID], sessionID)
+	return nil
+}
 
 type fakeWorkspace struct {
 	items    map[string]WorkspaceInfo
@@ -254,6 +288,70 @@ func newTestService(engine *fakeEngine) *Service {
 	return New(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
 }
 
+func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
+	updatedAt := time.Unix(2, 0)
+	sessions := &scopedSessions{
+		catalog: map[string][]SessionInfo{
+			"project-1": {
+				{ID: "session-a", UpdatedAt: updatedAt},
+				{ID: "session-b", UpdatedAt: updatedAt},
+			},
+		},
+		histories: map[string]map[string][]EngineMessage{
+			"project-1": {
+				"session-a": {{Role: "user", Content: "same question"}},
+				"session-b": {{Role: "user", Content: "same question"}},
+			},
+		},
+	}
+	workspaces := newFakeWorkspace()
+	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: t.TempDir()}
+	service := New(Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+
+	catalog := service.Snapshot().Sessions
+	if len(catalog) != 2 {
+		t.Fatalf("session count = %d, want 2", len(catalog))
+	}
+	if catalog[0].Name != "same question" || catalog[1].Name != "same question" {
+		t.Fatalf("duplicate display names were not preserved: %#v", catalog)
+	}
+	if catalog[0].ID == catalog[1].ID {
+		t.Fatalf("session IDs must remain distinct: %#v", catalog)
+	}
+}
+
+func TestSessionTitleUsesFirstUserQuestion(t *testing.T) {
+	history := []EngineMessage{
+		{Role: "system", Content: "system"},
+		{Role: "assistant", Content: "assistant"},
+		{Role: "user", Content: wrapModelInput("\n  first   question  \nsecond line", "model context")},
+	}
+	if got := sessionTitleFromHistory(history); got != "first question" {
+		t.Fatalf("session title = %q, want %q", got, "first question")
+	}
+	long := strings.Repeat("界", 60)
+	got := sessionTitle(long)
+	if len([]rune(got)) != 48 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("long title was not rune-truncated: %q (%d runes)", got, len([]rune(got)))
+	}
+}
+
+func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	if err := service.Submit(context.Background(), "  first live question  "); err != nil {
+		t.Fatal(err)
+	}
+	if got := service.Snapshot().Session.Name; got != "first live question" {
+		t.Fatalf("current session name = %q", got)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{}
@@ -305,6 +403,154 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 	}
 	if runtime.projectRoot != root || sessions.workspace != "project-1" {
 		t.Fatalf("resume did not restore project scope: root=%q store=%q", runtime.projectRoot, sessions.workspace)
+	}
+}
+
+func TestNewHydratesPersistedWorkspaceSessions(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	sessions := &scopedSessions{catalog: map[string][]SessionInfo{
+		"project-1": {{ID: "saved-1", UpdatedAt: time.Unix(2, 0), TokenCount: 10}},
+		"project-2": {{ID: "saved-2", UpdatedAt: time.Unix(3, 0), TokenCount: 20}},
+	}}
+	workspaces := newFakeWorkspace()
+	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.BindSession("saved-1", "project-1")
+	workspaces.BindSession("saved-2", "project-2")
+
+	service := New(Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	snapshot := service.Snapshot()
+	if len(snapshot.Workspaces) != 2 || len(snapshot.Sessions) != 2 {
+		t.Fatalf("hydrated snapshot workspaces=%v sessions=%v", snapshot.Workspaces, snapshot.Sessions)
+	}
+	if snapshot.Sessions[0].ID != "saved-2" || snapshot.SessionWorkspaces["saved-1"] != "project-1" {
+		t.Fatalf("hydrated session catalog=%v bindings=%v", snapshot.Sessions, snapshot.SessionWorkspaces)
+	}
+}
+
+func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	sessions := &scopedSessions{
+		workspace: "project-2",
+		catalog:   map[string][]SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
+		histories: map[string]map[string][]EngineMessage{
+			"project-1": {"saved": {{Role: "assistant", Content: "project one history"}}},
+		},
+	}
+	workspaces := newFakeWorkspace()
+	root := t.TempDir()
+	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: root}
+	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.BindSession("saved", "project-1")
+
+	service := New(Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.loadedWorkspace != "project-1" || sessions.workspace != "project-1" {
+		t.Fatalf("resume read workspace=%q active=%q", sessions.loadedWorkspace, sessions.workspace)
+	}
+	if runtime.projectRoot != root || engine.History()[0].Content != "project one history" {
+		t.Fatalf("resume root=%q history=%v", runtime.projectRoot, engine.History())
+	}
+}
+
+func TestResumeRepairsBindingWhenHistoryLivesInAnotherWorkspace(t *testing.T) {
+	sessions := &scopedSessions{
+		catalog: map[string][]SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
+		histories: map[string]map[string][]EngineMessage{
+			"project-1": {"saved": {{Role: "assistant", Content: "recover me"}}},
+		},
+	}
+	workspaces := newFakeWorkspace()
+	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.BindSession("saved", "project-2")
+	service := New(Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+		t.Fatal(err)
+	}
+	if workspaces.bindings["saved"] != "project-1" {
+		t.Fatalf("stale binding was not repaired: %v", workspaces.bindings)
+	}
+}
+
+func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
+	history := make([]EngineMessage, 250)
+	for index := range history {
+		history[index] = EngineMessage{Role: "assistant", Content: fmt.Sprintf("message-%d", index)}
+	}
+	sessions := &scopedSessions{
+		catalog: map[string][]SessionInfo{"project-1": {{ID: "saved", UpdatedAt: time.Unix(2, 0)}}},
+		histories: map[string]map[string][]EngineMessage{
+			"project-1": {"saved": history},
+		},
+	}
+	workspaces := newFakeWorkspace()
+	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.BindSession("saved", "project-1")
+	service := New(Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+		t.Fatal(err)
+	}
+	sessions.SetWorkspace("project-2") // simulate unrelated active-scope drift
+	if err := service.LoadMoreHistory(50); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.loadedWorkspace != "project-1" || service.Snapshot().HistoryOffset != 0 {
+		t.Fatalf("history range workspace=%q offset=%d", sessions.loadedWorkspace, service.Snapshot().HistoryOffset)
+	}
+}
+
+func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
+	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "old project"}}}
+	runtime := &fakeRuntime{}
+	sessions := &scopedSessions{workspace: "project-1"}
+	workspaces := newFakeWorkspace()
+	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
+	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
+	workspaces.BindSession("session-1", "project-1")
+	service := New(Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	if err := service.BindWorkspace("project-2"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := service.Snapshot()
+	if snapshot.Session.ID != "session-new" || snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-2" {
+		t.Fatalf("switched snapshot=%+v workspace=%+v", snapshot.Session, snapshot.CurrentWorkspace)
+	}
+	if workspaces.bindings["session-1"] != "project-1" || workspaces.bindings["session-new"] != "project-2" {
+		t.Fatalf("project bindings=%v", workspaces.bindings)
+	}
+	if len(sessions.savedIDs) != 1 || sessions.savedIDs[0] != "session-1" {
+		t.Fatalf("saved sessions=%v", sessions.savedIDs)
 	}
 }
 

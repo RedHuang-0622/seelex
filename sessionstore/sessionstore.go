@@ -150,8 +150,14 @@ func (router *Router) Save(sessionID string, messages []types.Message) error {
 }
 
 func (router *Router) Load(sessionID string) ([]types.Message, error) {
+	return router.LoadWorkspace(router.Workspace(), sessionID)
+}
+
+// LoadWorkspace reads a session from an explicit project scope without
+// changing the router's active write scope.
+func (router *Router) LoadWorkspace(projectID, sessionID string) ([]types.Message, error) {
 	var messages []types.Message
-	err := router.withRepository(func(repository Repository, projectID string) error {
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		messages, err = repository.Read(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
 		return err
@@ -160,9 +166,15 @@ func (router *Router) Load(sessionID string) ([]types.Message, error) {
 }
 
 func (router *Router) LoadRange(sessionID string, offset, limit int) ([]types.Message, int, error) {
+	return router.LoadRangeWorkspace(router.Workspace(), sessionID, offset, limit)
+}
+
+// LoadRangeWorkspace reads a history window from an explicit project scope
+// without changing the router's active write scope.
+func (router *Router) LoadRangeWorkspace(projectID, sessionID string, offset, limit int) ([]types.Message, int, error) {
 	var messages []types.Message
 	var total int
-	err := router.withRepository(func(repository Repository, projectID string) error {
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		messages, total, err = repository.ReadRange(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, offset, limit)
 		return err
@@ -171,8 +183,14 @@ func (router *Router) LoadRange(sessionID string, offset, limit int) ([]types.Me
 }
 
 func (router *Router) List() []frameworkStorage.SessionMeta {
+	return router.ListWorkspace(router.Workspace())
+}
+
+// ListWorkspace lists sessions from an explicit project scope without
+// changing the router's active write scope.
+func (router *Router) ListWorkspace(projectID string) []frameworkStorage.SessionMeta {
 	var result []frameworkStorage.SessionMeta
-	_ = router.withRepository(func(repository Repository, projectID string) error {
+	_ = router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		result, err = repository.List(context.Background(), projectID)
 		return err
@@ -181,7 +199,13 @@ func (router *Router) List() []frameworkStorage.SessionMeta {
 }
 
 func (router *Router) Delete(sessionID string) error {
-	return router.withRepository(func(repository Repository, projectID string) error {
+	return router.DeleteWorkspace(router.Workspace(), sessionID)
+}
+
+// DeleteWorkspace deletes a session from an explicit project scope without
+// changing the router's active write scope.
+func (router *Router) DeleteWorkspace(projectID, sessionID string) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		return repository.Delete(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
 	})
 }
@@ -267,6 +291,15 @@ func (router *Router) withRepository(fn func(Repository, string) error) error {
 		return errors.New("session storage: repository is closed")
 	}
 	return fn(router.repository, router.projectID)
+}
+
+func (router *Router) withRepositoryAt(projectID string, fn func(Repository, string) error) error {
+	router.mu.RLock()
+	defer router.mu.RUnlock()
+	if router.repository == nil {
+		return errors.New("session storage: repository is closed")
+	}
+	return fn(router.repository, strings.TrimSpace(projectID))
 }
 
 func Open(ctx context.Context, config Config) (Repository, error) {

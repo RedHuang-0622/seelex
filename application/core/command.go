@@ -131,6 +131,7 @@ func (service *Service) registerBuiltinCommands() {
 		}
 		service.mu.Lock()
 		service.snapshot.Session.ID = newID
+		service.snapshot.Session.Name = ""
 		service.snapshot.HistoryOffset = 0
 		service.snapshot.TotalMessages = 0
 		service.snapshot.HasMoreHistory = false
@@ -161,14 +162,14 @@ func (service *Service) registerBuiltinCommands() {
 		return CommandResult{}, service.resumeSession(strings.TrimSpace(args[0]))
 	})
 	register("sessions", "列出所有持久化会话", func(context.Context, []string) (CommandResult, error) {
-		sessions := service.deps.Sessions.List()
+		sessions, _ := service.sessionCatalog()
 		if len(sessions) == 0 {
 			return CommandResult{Notice: "暂无持久化会话"}, nil
 		}
 		var builder strings.Builder
 		builder.WriteString("持久化会话:\n")
 		for _, session := range sessions {
-			fmt.Fprintf(&builder, "  %s  %s  tok:%d\n", session.ID, session.UpdatedAt.Format("01-02 15:04"), session.TokenCount)
+			fmt.Fprintf(&builder, "  %s  %s  %s  tok:%d\n", session.ID, session.Name, session.UpdatedAt.Format("01-02 15:04"), session.TokenCount)
 		}
 		return CommandResult{Notice: builder.String()}, nil
 	})

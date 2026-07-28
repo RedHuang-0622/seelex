@@ -131,9 +131,11 @@ function renderProject(snapshot) {
 function renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces) {
   const currentID = current.id || "";
   const workspaceNames = new Map(workspaces.map(workspace => [workspace.id, workspace.name]));
-  const items = [...sessions];
+  const items = sessions.map(session => session.id === currentID && current.name
+    ? { ...session, name: current.name }
+    : session);
   if (currentID && !items.some(session => session.id === currentID)) {
-    items.unshift({ id: currentID, current: true });
+    items.unshift({ id: currentID, name: current.name || "", current: true });
   }
   elements["session-count"].textContent = String(items.length);
   elements["session-list"].innerHTML = items.length
@@ -147,7 +149,7 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       const detail = session.token_count ? `${updated} · ${session.token_count} tokens · ${scope}` : `${updated} · ${scope}`;
       return `<div class="session-row">
         <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}">
-          <span class="session-name">${icon("message", 13)} ${escapeHtml(shortSessionID(session.id))}</span><small>${escapeHtml(detail)}</small>
+          <span class="session-name">${icon("message", 13)} ${escapeHtml(session.name || shortSessionID(session.id))}</span><small>${escapeHtml(detail)}</small>
         </button>
         <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
       </div>`;

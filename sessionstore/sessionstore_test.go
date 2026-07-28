@@ -104,3 +104,34 @@ func TestRouterPersistsAndSwitchesConfiguredBackend(t *testing.T) {
 		t.Fatalf("history=%v err=%v", history, err)
 	}
 }
+
+func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T) {
+	root := t.TempDir()
+	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer router.Close()
+
+	router.SetWorkspace("project-a")
+	if err := router.Save("shared", messages(1, "a")); err != nil {
+		t.Fatal(err)
+	}
+	router.SetWorkspace("project-b")
+	if err := router.Save("shared", messages(1, "b")); err != nil {
+		t.Fatal(err)
+	}
+	router.SetWorkspace("project-a")
+
+	history, err := router.LoadWorkspace("project-b", "shared")
+	if err != nil || len(history) != 1 || *history[0].Content != "b-0" {
+		t.Fatalf("project-b history=%v err=%v", history, err)
+	}
+	if router.Workspace() != "project-a" {
+		t.Fatalf("explicit read changed active workspace to %q", router.Workspace())
+	}
+	listed := router.ListWorkspace("project-b")
+	if len(listed) != 1 || listed[0].SessionID != "shared" {
+		t.Fatalf("project-b sessions=%v", listed)
+	}
+}

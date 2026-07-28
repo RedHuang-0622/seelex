@@ -29,7 +29,8 @@ type Snapshot struct {
 }
 
 type SessionState struct {
-	ID string `json:"id"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 type Message struct {
 	ID        string    `json:"id"`
@@ -149,6 +150,7 @@ type WorkspaceInfo struct {
 
 type SessionInfo struct {
 	ID         string    `json:"id"`
+	Name       string    `json:"name,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	TokenCount int       `json:"token_count"`
 }

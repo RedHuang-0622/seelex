@@ -34,6 +34,9 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	service.cancelChat = cancel
 	service.markBusyLocked()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
+	if service.snapshot.Session.Name == "" {
+		service.snapshot.Session.Name = sessionTitle(request.displayInput)
+	}
 	user := *service.appendMessageLocked("user", request.displayInput, nil)
 	assistant := *service.appendMessageLocked("assistant", "", nil)
 	revision := service.bumpLocked()

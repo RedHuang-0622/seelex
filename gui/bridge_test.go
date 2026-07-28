@@ -334,6 +334,10 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(string(index), `id="session-list"`) || !strings.Contains(string(script), "renderSessions") {
 		t.Fatal("embedded frontend does not include the session list")
 	}
+	if !strings.Contains(string(script), `session.name || shortSessionID(session.id)`) ||
+		!strings.Contains(string(script), `data-session="${escapeHtml(session.id)}"`) {
+		t.Fatal("session list must render display names while keeping IDs as action keys")
+	}
 	if !strings.Contains(string(script), `from "./plan-dsl.js"`) {
 		t.Fatal("embedded frontend does not load the Plan JSON DSL renderer")
 	}

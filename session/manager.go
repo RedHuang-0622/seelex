@@ -89,10 +89,52 @@ func (m *Manager) ConfigureStorage(ctx context.Context, config sessionstore.Conf
 
 // ListByWorkspace lists sessions stored under a specific workspace.
 func (m *Manager) ListByWorkspace(workspaceID string) []seelebridge.SessionMeta {
+	if m.router != nil {
+		return m.router.ListWorkspace(workspaceID)
+	}
 	if m.nestedStore != nil {
 		return m.nestedStore.ListByWorkspace(workspaceID)
 	}
-	return nil
+	if workspaceID == m.Workspace() {
+		return m.store.List()
+	}
+	return []seelebridge.SessionMeta{}
+}
+
+// LoadHistoryByWorkspace reads a session from an explicit workspace without
+// changing the active workspace used by subsequent writes.
+func (m *Manager) LoadHistoryByWorkspace(workspaceID, sessionID string) ([]seelebridge.Message, error) {
+	if m.router != nil {
+		return m.router.LoadWorkspace(workspaceID, sessionID)
+	}
+	if workspaceID != m.Workspace() {
+		return nil, fmt.Errorf("session: explicit workspace reads require the configurable router")
+	}
+	return m.store.Load(sessionID)
+}
+
+// LoadHistoryRangeByWorkspace reads a history window from an explicit
+// workspace without changing the active workspace used by subsequent writes.
+func (m *Manager) LoadHistoryRangeByWorkspace(workspaceID, sessionID string, offset, limit int) ([]seelebridge.Message, int, error) {
+	if m.router != nil {
+		return m.router.LoadRangeWorkspace(workspaceID, sessionID, offset, limit)
+	}
+	if workspaceID != m.Workspace() {
+		return nil, 0, fmt.Errorf("session: explicit workspace reads require the configurable router")
+	}
+	return m.store.LoadRange(sessionID, offset, limit)
+}
+
+// DeleteByWorkspace deletes a session from an explicit workspace without
+// changing the active workspace used by subsequent writes.
+func (m *Manager) DeleteByWorkspace(workspaceID, sessionID string) error {
+	if m.router != nil {
+		return m.router.DeleteWorkspace(workspaceID, sessionID)
+	}
+	if workspaceID != m.Workspace() {
+		return fmt.Errorf("session: explicit workspace deletes require the configurable router")
+	}
+	return m.store.Delete(sessionID)
 }
 
 // InjectSaveLoad 注入保存/加载回调（由 main.go 装配时传入）

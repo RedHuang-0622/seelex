@@ -19,6 +19,7 @@ var (
 
 type Service struct {
 	mu            sync.RWMutex
+	sessionNameMu sync.Mutex
 	deps          Dependencies
 	events        *EventHub
 	approval      *ApprovalBroker
@@ -31,6 +32,7 @@ type Service struct {
 	idle          chan struct{}
 	draining      bool
 	closed        bool
+	sessionNames  map[string]sessionNameCacheEntry
 	inputQueue    []chatRequest // 排队中的界面输入和模型输入
 }
 
@@ -45,6 +47,7 @@ func New(deps Dependencies) *Service {
 	service := &Service{
 		deps: deps, events: deps.Events, approval: deps.Approval,
 		commands: NewCommandRegistry(), promptStack: ps,
+		sessionNames: make(map[string]sessionNameCacheEntry),
 	}
 	service.effortManager = NewEffortManager(ps, deps.Engine)
 	service.idle = closedSignal()
@@ -56,6 +59,15 @@ func New(deps Dependencies) *Service {
 	}
 	service.registerBuiltinCommands()
 	service.refreshRuntimeLocked(context.Background())
+	if deps.Workspace != nil {
+		service.refreshWorkspaceLocked()
+		if workspace, ok := deps.Workspace.SessionWorkspace(service.snapshot.Session.ID); ok {
+			if err := deps.Runtime.BindProjectRoot(workspace.RootPath); err == nil {
+				deps.Sessions.SetWorkspace(workspace.ID)
+				service.snapshot.CurrentWorkspace = &workspace
+			}
+		}
+	}
 	service.buildSystemPrompt()
 	service.snapshot.Revision = 1
 	service.approval.SetObserver(service.observeInteraction)
@@ -102,7 +114,24 @@ func (service *Service) Snapshot() Snapshot {
 	service.mu.RLock()
 	snapshot := cloneSnapshot(service.snapshot)
 	service.mu.RUnlock()
-	snapshot.Sessions = append([]SessionInfo(nil), service.deps.Sessions.List()...)
+	sessions, discoveredBindings := service.sessionCatalog()
+	snapshot.Sessions = sessions
+	if snapshot.Session.Name == "" {
+		for _, session := range sessions {
+			if session.ID == snapshot.Session.ID {
+				snapshot.Session.Name = session.Name
+				break
+			}
+		}
+	}
+	if len(discoveredBindings) > 0 {
+		if snapshot.SessionWorkspaces == nil {
+			snapshot.SessionWorkspaces = make(map[string]string, len(discoveredBindings))
+		}
+		for sessionID, workspaceID := range discoveredBindings {
+			snapshot.SessionWorkspaces[sessionID] = workspaceID
+		}
+	}
 	return snapshot
 }
 func (service *Service) Subscribe(buffer int) Subscription { return service.events.Subscribe(buffer) }
@@ -343,7 +372,23 @@ func (service *Service) SetFullAccess(on bool) {
 // ── Sessions ──────────────────────────────────────────────────
 
 func (service *Service) DeleteSession(sessionID string) error {
-	return service.deps.Sessions.Delete(sessionID)
+	location := service.locateSession(sessionID)
+	if scoped, ok := service.deps.Sessions.(scopedSessionPort); ok {
+		if err := scoped.DeleteWorkspace(location.workspaceID, sessionID); err != nil {
+			return err
+		}
+	} else if err := service.deps.Sessions.Delete(sessionID); err != nil {
+		return err
+	}
+	if service.deps.Workspace != nil {
+		service.deps.Workspace.UnbindSession(sessionID)
+		service.mu.Lock()
+		service.refreshWorkspaceLocked()
+		service.bumpLocked()
+		service.mu.Unlock()
+	}
+	service.invalidateSessionName(sessionID)
+	return nil
 }
 
 // ── Workspace ─────────────────────────────────────────────────
@@ -374,15 +419,51 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 }
 
 func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
+	service.mu.RLock()
+	if service.snapshot.Chat.Running {
+		service.mu.RUnlock()
+		return ErrChatRunning
+	}
+	currentSessionID := service.snapshot.Session.ID
+	currentWorkspaceID := ""
+	if service.snapshot.CurrentWorkspace != nil {
+		currentWorkspaceID = service.snapshot.CurrentWorkspace.ID
+	}
+	service.mu.RUnlock()
+
+	history := service.deps.Engine.History()
+	startFreshSession := currentWorkspaceID != workspace.ID && len(history) > 0
+	if startFreshSession {
+		writeWorkspaceID := currentWorkspaceID
+		if writeWorkspaceID == "" {
+			writeWorkspaceID = service.locateSession(currentSessionID).workspaceID
+		}
+		service.deps.Sessions.SetWorkspace(writeWorkspaceID)
+		if err := service.deps.Sessions.SaveCurrent(currentSessionID); err != nil {
+			return fmt.Errorf("save current session before switching project: %w", err)
+		}
+	}
 	if err := service.deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
 		return err
 	}
-	service.mu.RLock()
-	sessionID := service.snapshot.Session.ID
-	service.mu.RUnlock()
-	service.deps.Workspace.BindSession(sessionID, workspace.ID)
+	if startFreshSession {
+		currentSessionID = service.deps.Engine.StartSession()
+		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	}
+	service.deps.Workspace.BindSession(currentSessionID, workspace.ID)
 	service.deps.Sessions.SetWorkspace(workspace.ID)
 	service.mu.Lock()
+	if startFreshSession {
+		service.snapshot.Session.ID = currentSessionID
+		service.snapshot.Session.Name = ""
+		service.snapshot.Conversation = nil
+		service.snapshot.HistoryOffset = 0
+		service.snapshot.TotalMessages = 0
+		service.snapshot.HasMoreHistory = false
+		service.snapshot.Runtime.Plan = nil
+		service.snapshot.Interaction = nil
+		service.appendMessageLocked("system", fmt.Sprintf("已切换到项目 %s，新建独立会话", workspace.Name), nil)
+	}
 	service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote}
 	service.refreshWorkspaceLocked()
 	revision := service.bumpLocked()
@@ -491,6 +572,7 @@ func (service *Service) addNotice(notice string) {
 func (service *Service) resetConversation(notice string) {
 	service.mu.Lock()
 	service.snapshot.Conversation = nil
+	service.snapshot.Session.Name = ""
 	service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", service.deps.Runtime.Model()), nil)
 	if notice != "" {
 		service.appendMessageLocked("system", notice, nil)
@@ -522,12 +604,12 @@ func (service *Service) closeInteraction(id string) {
 }
 
 func (service *Service) sessionInteraction() *Interaction {
-	sessions := service.deps.Sessions.List()
+	sessions, _ := service.sessionCatalog()
 	options := make([]InteractionOption, 0, len(sessions))
 	for _, session := range sessions {
-		label := session.ID
-		if len(label) > 16 {
-			label = label[:16]
+		label := session.Name
+		if label == "" {
+			label = shortSessionID(session.ID)
 		}
 		options = append(options, InteractionOption{ID: session.ID, Label: label, Description: fmt.Sprintf("tok:%d  %s", session.TokenCount, session.UpdatedAt.Format("01-02 15:04"))})
 	}
@@ -559,7 +641,8 @@ func (service *Service) resumeSession(sessionID string) error {
 		return ErrChatRunning
 	}
 
-	history, err := service.deps.Sessions.LoadHistory(sessionID)
+	location := service.locateSession(sessionID)
+	history, err := service.loadSessionHistory(location, sessionID)
 	if err != nil {
 		return fmt.Errorf("load session %q: %w", sessionID, err)
 	}
@@ -574,21 +657,23 @@ func (service *Service) resumeSession(sessionID string) error {
 		offset = 0
 	}
 	visibleHistory := history[offset:]
-	var currentWorkspace *WorkspaceInfo
+	currentWorkspace := location.workspace
 	if service.deps.Workspace != nil {
-		if ws, ok := service.deps.Workspace.SessionWorkspace(sessionID); ok {
-			currentWorkspace = &WorkspaceInfo{ID: ws.ID, Name: ws.Name, RootPath: ws.RootPath, GitRemote: ws.GitRemote}
-			if err := service.deps.Runtime.BindProjectRoot(ws.RootPath); err != nil {
+		if currentWorkspace != nil {
+			if err := service.deps.Runtime.BindProjectRoot(currentWorkspace.RootPath); err != nil {
 				return fmt.Errorf("bind project root: %w", err)
 			}
-			service.deps.Sessions.SetWorkspace(ws.ID)
+			service.deps.Sessions.SetWorkspace(currentWorkspace.ID)
+			service.deps.Workspace.BindSession(sessionID, currentWorkspace.ID)
 		} else {
 			service.deps.Runtime.UnbindProjectRoot()
 			service.deps.Sessions.SetWorkspace("")
+			service.deps.Workspace.UnbindSession(sessionID)
 		}
 	}
 	service.mu.Lock()
 	service.snapshot.Session.ID = sessionID
+	service.snapshot.Session.Name = sessionTitleFromHistory(history)
 	service.snapshot.Conversation = nil
 	service.snapshot.Runtime.Plan = nil // 清除旧 Plan，避免跨会话残留
 	service.snapshot.Interaction = nil  // 清除未完成的交互
@@ -630,7 +715,13 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	}
 	loadLimit := offset - loadOffset
 
-	history, total, err := service.deps.Sessions.LoadHistoryRange(sessionID, loadOffset, loadLimit)
+	workspaceID := ""
+	service.mu.RLock()
+	if service.snapshot.CurrentWorkspace != nil {
+		workspaceID = service.snapshot.CurrentWorkspace.ID
+	}
+	service.mu.RUnlock()
+	history, total, err := service.loadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
 	if err != nil {
 		return fmt.Errorf("load history range: %w", err)
 	}

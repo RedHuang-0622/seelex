@@ -160,7 +160,13 @@ func (r *Repo) Create(name, rootPath, gitRemote string) (Info, error) {
 		}
 	}
 
-	id := slug(name)
+	id := fmt.Sprintf("ws-%d", time.Now().UnixNano())
+	for {
+		if _, exists := r.workspaces[id]; !exists {
+			break
+		}
+		id += "-1"
+	}
 	w := Info{
 		ID:        id,
 		Name:      name,
@@ -310,21 +316,6 @@ func (r *Repo) saveLocked() error {
 }
 
 // ── helpers ─────────────────────────────────────────────────
-
-func slug(name string) string {
-	s := strings.ToLower(name)
-	s = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			return r
-		}
-		return '-'
-	}, s)
-	s = strings.Trim(s, "-")
-	if s == "" {
-		s = "ws"
-	}
-	return s
-}
 
 // DetectGitRemote 在给定目录中检测 git remote origin 地址。
 // 如果目录不是 git 仓库或没有 remote，返回空字符串。
