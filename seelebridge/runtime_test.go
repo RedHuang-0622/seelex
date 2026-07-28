@@ -140,6 +140,34 @@ func TestRuntimeBuiltinsAndMCPEmptyState(t *testing.T) {
 	}
 }
 
+func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	for _, tool := range runtime.Agent().Tools().Tools() {
+		if tool.Function.Name != "plan_load" {
+			continue
+		}
+		for _, required := range []string{
+			"nodes MUST be an object keyed by node ID",
+			`{"entry":"search","nodes":[{"key":"search","input":"find files"}],"edges":{}}`,
+			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize the file list"}},"edges":{"search":["summarize"]}}`,
+		} {
+			if !strings.Contains(tool.Function.Description, required) {
+				t.Errorf("plan_load description is missing %q", required)
+			}
+		}
+		properties := tool.Function.Parameters["properties"].(map[string]interface{})
+		nodes := properties["nodes"].(map[string]interface{})
+		if nodes["type"] != "object" || nodes["additionalProperties"] == nil {
+			t.Fatalf("plan_load nodes schema = %#v, want object with additionalProperties", nodes)
+		}
+		return
+	}
+	t.Fatal("plan_load tool was not registered")
+}
+
 func TestRuntimeProjectScopedToolsUseBoundProject(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()

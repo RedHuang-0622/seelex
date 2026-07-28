@@ -137,7 +137,7 @@ func (r *Runtime) RegisterBuiltins() {
 	r.scopedToolsReady = true
 	r.planTool = builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(r.agent.LLM()))
 	r.planTool.SetBranchRuntimeResolver(r.resolvePlanBranchRuntime)
-	r.agent.Tools().Register(r.planTool)
+	r.agent.Tools().Register(&planToolProvider{tool: r.planTool})
 }
 
 // BindProjectRoot makes the supplied project the only root used by Seelex

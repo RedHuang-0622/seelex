@@ -123,3 +123,13 @@ callers in the composition root, TUI, GUI, and adapters do not need import-path
 changes. `application/README.md` documents the dependency direction.
 
 Verification: `go test ./application/...` and `go test ./...`.
+
+## Plan-load tool contract
+
+| File | Change | Purpose |
+|---|---|---|
+| `seelebridge/plan_tool_provider.go` | Added | Decorates the framework `plan_load` registration with an explicit JSON contract, an invalid array-based counterexample, a valid adjacency-map DAG example, and a node-value schema. |
+| `seelebridge/runtime.go` | Updated | Registers the decorated provider while preserving the framework's existing WorkPlan handlers. |
+| `seelebridge/runtime_test.go` | Updated | Locks the plan-load description and node object schema into a regression test. |
+
+API compatibility: unchanged. Verification: `go test ./seelebridge -count=1`, `go test ./... -count=1 -timeout=120s`, and `go vet ./...`.
