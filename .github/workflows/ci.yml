@@ -73,7 +73,10 @@ jobs:
       - name: 检查发布配置白名单
         run: |
           tracked="$(git ls-files 'config/*')"
-          test "$tracked" = "config/accounts.example.yaml" || {
+          expected="$(printf '%s\n' \
+            'config/README.md' \
+            'config/accounts.example.yaml')"
+          test "$tracked" = "$expected" || {
             echo "Unexpected tracked config files:"
             echo "$tracked"
             exit 1

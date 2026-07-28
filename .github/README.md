@@ -14,7 +14,7 @@
 - 无业务依赖的 job 分开并行，缩短反馈时间。
 - Linux 承担 race runner；Windows 承担真实 GUI build-tag 编译。
 - 安全 grep 规则必须精确，不能因多返回值或 JSON tag 产生系统性误报。
-- release 只能使用白名单文件，禁止携带本机账号、local config、session data 或开发缓存。
+- 源码仓库的 `config/` 只允许跟踪模块说明和公开示例配置；release 产物仍只允许携带 `accounts.example.yaml`，禁止携带本机账号、local config、session data 或开发缓存。
 
 ## Review 指南
 
