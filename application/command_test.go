@@ -236,7 +236,7 @@ func (failingSessions) LoadHistory(string) ([]EngineMessage, error) { return nil
 func (failingSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
 	return nil, 0, nil
 }
-func (failingSessions) Delete(string) error                 { return nil }
+func (failingSessions) Delete(string) error              { return nil }
 func (failingSessions) MessageCount(string) (int, error) { return 0, nil }
 func (failingSessions) SetWorkspace(string)              {}
 func (failingSessions) Workspace() string                { return "" }
@@ -315,7 +315,7 @@ func (emptySessions) LoadHistory(string) ([]EngineMessage, error) { return nil, 
 func (emptySessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error) {
 	return nil, 0, nil
 }
-func (emptySessions) Delete(string) error                 { return nil }
+func (emptySessions) Delete(string) error              { return nil }
 func (emptySessions) MessageCount(string) (int, error) { return 0, nil }
 func (emptySessions) SetWorkspace(string)              {}
 func (emptySessions) Workspace() string                { return "" }

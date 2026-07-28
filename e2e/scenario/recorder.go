@@ -68,3 +68,9 @@ func (recorder *eventRecorder) waitForChange(ctx context.Context) error {
 		return nil
 	}
 }
+
+func (recorder *eventRecorder) waitForRevision(ctx context.Context, revision uint64) error {
+	return recorder.waitFor(ctx, func(events []application.Event) bool {
+		return len(events) > 0 && events[len(events)-1].Revision >= revision
+	})
+}

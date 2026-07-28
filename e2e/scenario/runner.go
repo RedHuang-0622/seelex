@@ -35,6 +35,7 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	if err := runner.scenario.Validate(); err != nil {
 		return Result{}, err
 	}
+	initialRevision := runner.app.Snapshot().Revision
 	recorder := newEventRecorder(runner.app.Subscribe(256))
 	defer func() {
 		runner.app.Shutdown()
@@ -56,9 +57,18 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	if remaining := runner.script.Remaining(); remaining != 0 {
 		return Result{}, fmt.Errorf("script has %d unconsumed turn(s)", remaining)
 	}
+	finalSnapshot := runner.app.Snapshot()
+	// Snapshot state is committed before its corresponding event is published.
+	// Wait for that event so the result cannot omit earlier lifecycle events
+	// that are still buffered in the recorder goroutine.
+	if finalSnapshot.Revision > initialRevision {
+		if err := recorder.waitForRevision(ctx, finalSnapshot.Revision); err != nil {
+			return Result{}, fmt.Errorf("wait for event recorder: %w", err)
+		}
+	}
 	return Result{
 		SchemaVersion: SchemaVersion, ScenarioID: runner.scenario.ID, PassedSteps: passed,
-		Events: recorder.snapshot(), Snapshot: runner.app.Snapshot(),
+		Events: recorder.snapshot(), Snapshot: finalSnapshot,
 	}, nil
 }
 

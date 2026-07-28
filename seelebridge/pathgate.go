@@ -19,15 +19,15 @@ type pathZoneDefault struct {
 
 type pathGateFile struct {
 	Permission struct {
-		Zones       []pathZone     `yaml:"zones"`
+		Zones       []pathZone      `yaml:"zones"`
 		DefaultZone pathZoneDefault `yaml:"default_zone"`
 	} `yaml:"permission"`
 }
 
 type pathZone struct {
 	Prefix string       `yaml:"prefix"`
-	Read   string       `yaml:"read"`   // "allow" | "deny"
-	Write  string       `yaml:"write"`  // "allow" | "deny"
+	Read   string       `yaml:"read"`  // "allow" | "deny"
+	Write  string       `yaml:"write"` // "allow" | "deny"
 	Reason string       `yaml:"reason"`
 	Scope  string       `yaml:"scope,omitempty"` // "workspace" etc
 	rule   pathZoneRule // parsed
