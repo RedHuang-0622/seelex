@@ -11,6 +11,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/engine"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 type fakeEngine struct {
@@ -97,7 +98,11 @@ func (engine *fakeEngine) AppendHistory(msg types.Message) {
 func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
-type fakeRuntime struct{ account string }
+type fakeRuntime struct {
+	account     string
+	binding     seelebridge.PlanBranchBinding
+	projectRoot string
+}
 
 func (*fakeRuntime) Model() string    { return "test-model" }
 func (*fakeRuntime) Provider() string { return "test-provider" }
@@ -116,6 +121,14 @@ func (*fakeRuntime) VisibleTools(context.Context) []Tool {
 }
 func (*fakeRuntime) ActivePlugin() string { return "default" }
 func (*fakeRuntime) SetFullAccess(bool)   {}
+func (runtime *fakeRuntime) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
+	runtime.binding = binding
+}
+func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
+	runtime.projectRoot = rootPath
+	return nil
+}
+func (runtime *fakeRuntime) UnbindProjectRoot() { runtime.projectRoot = "" }
 
 type fakePlugins struct{ current PluginInfo }
 
@@ -180,8 +193,119 @@ func (sessions *trackingSessions) SaveCurrent(sessionID string) error {
 	return nil
 }
 
+type scopedSessions struct {
+	fakeSessions
+	workspace string
+}
+
+func (sessions *scopedSessions) SetWorkspace(workspaceID string) { sessions.workspace = workspaceID }
+func (sessions *scopedSessions) Workspace() string               { return sessions.workspace }
+
+type fakeWorkspace struct {
+	items    map[string]WorkspaceInfo
+	bindings map[string]string
+}
+
+func newFakeWorkspace() *fakeWorkspace {
+	return &fakeWorkspace{items: make(map[string]WorkspaceInfo), bindings: make(map[string]string)}
+}
+func (repo *fakeWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error) {
+	item := WorkspaceInfo{ID: "project-1", Name: name, RootPath: rootPath, GitRemote: gitRemote}
+	repo.items[item.ID] = item
+	return item, nil
+}
+func (repo *fakeWorkspace) Get(id string) (WorkspaceInfo, error) {
+	item, ok := repo.items[id]
+	if !ok {
+		return WorkspaceInfo{}, errors.New("workspace missing")
+	}
+	return item, nil
+}
+func (repo *fakeWorkspace) List() []WorkspaceInfo {
+	items := make([]WorkspaceInfo, 0, len(repo.items))
+	for _, item := range repo.items {
+		items = append(items, item)
+	}
+	return items
+}
+func (repo *fakeWorkspace) Delete(id string) error { delete(repo.items, id); return nil }
+func (repo *fakeWorkspace) BindSession(sessionID, workspaceID string) {
+	repo.bindings[sessionID] = workspaceID
+}
+func (repo *fakeWorkspace) UnbindSession(sessionID string) { delete(repo.bindings, sessionID) }
+func (repo *fakeWorkspace) SessionWorkspace(sessionID string) (WorkspaceInfo, bool) {
+	workspaceID, ok := repo.bindings[sessionID]
+	if !ok {
+		return WorkspaceInfo{}, false
+	}
+	item, ok := repo.items[workspaceID]
+	return item, ok
+}
+func (repo *fakeWorkspace) AllBindings() map[string]string {
+	bindings := make(map[string]string, len(repo.bindings))
+	for sessionID, workspaceID := range repo.bindings {
+		bindings[sessionID] = workspaceID
+	}
+	return bindings
+}
+func (*fakeWorkspace) DetectGitRemote(string) string { return "" }
+
 func newTestService(engine *fakeEngine) *Service {
 	return New(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+}
+
+func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	sessions := &scopedSessions{}
+	workspaces := newFakeWorkspace()
+	service := New(Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.projectRoot != root || sessions.workspace != "project-1" || workspaces.bindings["session-1"] != "project-1" {
+		t.Fatalf("create project did not bind all scope state: root=%q sessionStore=%q bindings=%v", runtime.projectRoot, sessions.workspace, workspaces.bindings)
+	}
+	if err := service.Submit(context.Background(), "/new"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := service.Snapshot()
+	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" {
+		t.Fatalf("new session lost project binding: %+v", snapshot.CurrentWorkspace)
+	}
+	if workspaces.bindings["session-new"] != "project-1" || sessions.workspace != "project-1" {
+		t.Fatalf("new session did not inherit project: bindings=%v sessionStore=%q", workspaces.bindings, sessions.workspace)
+	}
+	if snapshot.SessionWorkspaces["session-new"] != "project-1" {
+		t.Fatalf("snapshot bindings = %v", snapshot.SessionWorkspaces)
+	}
+}
+
+func TestResumeRestoresProjectScope(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	sessions := &scopedSessions{}
+	workspaces := newFakeWorkspace()
+	root := t.TempDir()
+	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: root}
+	workspaces.BindSession("saved", "project-1")
+	service := New(Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.projectRoot != root || sessions.workspace != "project-1" {
+		t.Fatalf("resume did not restore project scope: root=%q store=%q", runtime.projectRoot, sessions.workspace)
+	}
 }
 
 func TestSnapshotIncludesPersistedSessions(t *testing.T) {
@@ -328,6 +452,99 @@ func TestChatPublishesSnapshotWithoutUI(t *testing.T) {
 	t.Fatal("chat did not complete")
 }
 
+type gracefulShutdownEngine struct {
+	*fakeEngine
+	firstStarted  chan struct{}
+	secondStarted chan struct{}
+	releaseFirst  chan struct{}
+	releaseSecond chan struct{}
+	mu            sync.Mutex
+	calls         int
+}
+
+func newGracefulShutdownEngine() *gracefulShutdownEngine {
+	return &gracefulShutdownEngine{
+		fakeEngine:    &fakeEngine{},
+		firstStarted:  make(chan struct{}),
+		secondStarted: make(chan struct{}),
+		releaseFirst:  make(chan struct{}),
+		releaseSecond: make(chan struct{}),
+	}
+}
+
+func (engine *gracefulShutdownEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
+	engine.mu.Lock()
+	engine.calls++
+	call := engine.calls
+	engine.mu.Unlock()
+	if call == 1 {
+		close(engine.firstStarted)
+		select {
+		case <-engine.releaseFirst:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	if call == 2 {
+		close(engine.secondStarted)
+		select {
+		case <-engine.releaseSecond:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	return engine.fakeEngine.ChatStream(ctx, input, onChunk)
+}
+
+func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
+	engine := newGracefulShutdownEngine()
+	service := newTestService(engine.fakeEngine)
+	service.deps.Engine = engine
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-engine.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first chat did not start")
+	}
+	if err := service.Submit(context.Background(), "queued"); err != nil {
+		t.Fatal(err)
+	}
+	service.BeginGracefulShutdown()
+	if err := service.Submit(context.Background(), "rejected"); !errors.Is(err, ErrApplicationDraining) {
+		t.Fatalf("Submit after graceful shutdown = %v, want ErrApplicationDraining", err)
+	}
+
+	idle := make(chan error, 1)
+	go func() { idle <- service.WaitForIdle(context.Background()) }()
+	close(engine.releaseFirst)
+	select {
+	case <-engine.secondStarted:
+	case <-time.After(time.Second):
+		t.Fatal("queued chat did not start")
+	}
+	select {
+	case err := <-idle:
+		t.Fatalf("WaitForIdle returned before queued chat completed: %v", err)
+	default:
+	}
+	if !service.Snapshot().Chat.Running {
+		t.Fatal("queued chat left an observable idle gap")
+	}
+	close(engine.releaseSecond)
+	select {
+	case err := <-idle:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitForIdle did not return after queued chat completed")
+	}
+}
+
 func waitForChatCompletion(t *testing.T, service *Service) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
@@ -397,6 +614,41 @@ func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T) {
 	}
 	if interaction := service.Snapshot().Interaction; interaction == nil || interaction.Kind != "plan_retry" {
 		t.Fatalf("interaction = %+v, want plan_retry", interaction)
+	}
+}
+
+func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.handleToolStart("plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"}},"edges":{"start":["left"]}}`)
+
+	subscription := service.Subscribe(8)
+	defer subscription.Close()
+	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "queued", BranchID: "left", NodeID: "left"})
+	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "started", BranchID: "left", NodeID: "left"})
+	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "completed", BranchID: "left", NodeID: "left"})
+
+	snapshot := service.Snapshot()
+	if snapshot.Runtime.Plan == nil || snapshot.Runtime.Plan.Status != PlanRunning {
+		t.Fatalf("plan status = %+v, want running", snapshot.Runtime.Plan)
+	}
+	if snapshot.Runtime.Plan.Nodes[0].Status != NodePending || snapshot.Runtime.Plan.Nodes[1].Status != NodeCompleted {
+		t.Fatalf("node statuses = %+v", snapshot.Runtime.Plan.Nodes)
+	}
+	if snapshot.Runtime.Plan.Progress != 0.5 {
+		t.Fatalf("progress = %v, want 0.5", snapshot.Runtime.Plan.Progress)
+	}
+	for index := 0; index < 3; index++ {
+		event := <-subscription.Events
+		if event.Kind != EventRuntimeChanged {
+			t.Fatalf("event %d kind = %q, want runtime.changed", index, event.Kind)
+		}
+	}
+
+	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "panicked", BranchID: "start", NodeID: "start"})
+	snapshot = service.Snapshot()
+	if snapshot.Runtime.Plan.Status != PlanFailed || snapshot.Runtime.Plan.Nodes[0].Status != NodePanicked {
+		t.Fatalf("panic state = %+v", snapshot.Runtime.Plan)
 	}
 }
 

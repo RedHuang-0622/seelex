@@ -2,15 +2,19 @@ package scenario
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/agent/core/tool/builtin"
 	"github.com/RedHuang-0622/Seele/agent/core/tool/interfaces"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
+	"github.com/RedHuang-0622/Seele/workplan/runtime/forkexec"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 func TestGoldenJourneyChatToolApproval(t *testing.T) {
@@ -72,18 +76,93 @@ func TestGoldenJourneyManualPlan(t *testing.T) {
 	}
 }
 
+func TestParallelPlanUsesIsolatedFactoriesAndLifecycle(t *testing.T) {
+	value := Scenario{
+		SchemaVersion: SchemaVersion,
+		ID:            "parallel-plan",
+		Initial:       InitialState{ActiveSessionID: "session-parallel"},
+		EngineScript: []EngineTurn{{
+			OnUser: "run parallel plan",
+			Emit: []Emission{
+				{Type: "tool.call", Name: "plan_load", Arguments: `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"},"right":{"input":"right"}},"edges":{"start":["left","right"]}}`},
+				{Type: "tool.call", Name: "plan_run", Arguments: `{}`},
+			},
+		}},
+		Steps: []Step{
+			{Action: "submit", SessionID: "session-parallel", Text: "run parallel plan"},
+			{Expect: "tool_status", Tool: "plan_run", Status: "success"},
+			{Expect: "chat_running", Running: boolPtr(false)},
+		},
+	}
+	runner, err := NewHarnessRunnerWithToolFactory(value, newParallelWorkPlanToolExecutor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := runner.Run(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := result.Snapshot.Runtime.Plan
+	if plan == nil || plan.Status != application.PlanCompleted || plan.Progress != 1 {
+		t.Fatalf("plan = %+v, want completed", plan)
+	}
+	for _, id := range []string{"left", "right"} {
+		node := planNodeByID(plan, id)
+		if node == nil || node.Status != application.NodeCompleted {
+			t.Fatalf("node %q = %+v, want completed", id, node)
+		}
+		if !strings.Contains(node.Output, "factory:"+id) {
+			t.Fatalf("node %q output %q does not prove its factory", id, node.Output)
+		}
+		for _, status := range []application.NodeStatus{application.NodeQueued, application.NodeRunning, application.NodeCompleted} {
+			if !containsPlanNodeStatus(result.Events, id, status) {
+				t.Fatalf("node %q did not publish lifecycle status %q", id, status)
+			}
+		}
+	}
+}
+
 type workPlanToolExecutor struct {
 	handlers map[string]interfaces.ToolHandler
 }
 
-func newWorkPlanToolExecutor(requester ApprovalRequester) ToolExecutor {
+func newWorkPlanToolExecutor(requester ApprovalRequester, onBranchEvent func(seelebridge.PlanBranchEvent)) ToolExecutor {
 	tool := builtin.NewWorkPlanTool(planAgentFactory{})
 	tool.SetGate(planApprovalGate{requester: requester})
+	tool.SetBranchEventHook(adaptBranchEvent(onBranchEvent))
 	handlers := make(map[string]interfaces.ToolHandler)
 	for _, entry := range tool.Tools() {
 		handlers[entry.Definition.Function.Name] = entry.Handler
 	}
 	return workPlanToolExecutor{handlers: handlers}
+}
+
+func newParallelWorkPlanToolExecutor(_ ApprovalRequester, onBranchEvent func(seelebridge.PlanBranchEvent)) ToolExecutor {
+	tool := builtin.NewWorkPlanTool(planAgentFactory{})
+	tool.SetBranchEventHook(adaptBranchEvent(onBranchEvent))
+	tool.SetBranchRuntimeResolver(func(branchID string) forkexec.BranchRuntime {
+		return forkexec.BranchRuntime{AgentFactory: taggedPlanAgentFactory{tag: branchID}}
+	})
+	handlers := make(map[string]interfaces.ToolHandler)
+	for _, entry := range tool.Tools() {
+		handlers[entry.Definition.Function.Name] = entry.Handler
+	}
+	return workPlanToolExecutor{handlers: handlers}
+}
+
+func adaptBranchEvent(callback func(seelebridge.PlanBranchEvent)) func(forkexec.Event) {
+	return func(event forkexec.Event) {
+		if callback == nil {
+			return
+		}
+		branchEvent := seelebridge.PlanBranchEvent{Type: string(event.Type), BranchID: event.BranchID, NodeID: event.NodeID, At: event.At}
+		if event.Err != nil {
+			branchEvent.Error = event.Err.Error()
+		}
+		callback(branchEvent)
+	}
 }
 
 func (executor workPlanToolExecutor) Execute(ctx context.Context, name, arguments string) (string, error) {
@@ -125,4 +204,47 @@ func (planAgent) Chat(ctx context.Context, input string) (string, error) {
 		return "", err
 	}
 	return "completed: " + input, nil
+}
+
+type taggedPlanAgentFactory struct{ tag string }
+
+func (factory taggedPlanAgentFactory) NewAgent(string) node.Agent {
+	return taggedPlanAgent{tag: factory.tag}
+}
+
+type taggedPlanAgent struct{ tag string }
+
+func (agent taggedPlanAgent) Chat(ctx context.Context, input string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return "factory:" + agent.tag + ": " + input, nil
+}
+
+func boolPtr(value bool) *bool { return &value }
+
+func planNodeByID(plan *application.PlanState, id string) *application.PlanNode {
+	for index := range plan.Nodes {
+		if plan.Nodes[index].ID == id {
+			return &plan.Nodes[index]
+		}
+	}
+	return nil
+}
+
+func containsPlanNodeStatus(events []application.Event, nodeID string, status application.NodeStatus) bool {
+	for _, event := range events {
+		if event.Kind != application.EventRuntimeChanged {
+			continue
+		}
+		var runtime application.RuntimeState
+		if json.Unmarshal(event.Payload, &runtime) != nil || runtime.Plan == nil {
+			continue
+		}
+		node := planNodeByID(runtime.Plan, nodeID)
+		if node != nil && node.Status == status {
+			return true
+		}
+	}
+	return false
 }

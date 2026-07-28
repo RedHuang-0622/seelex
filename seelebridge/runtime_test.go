@@ -2,10 +2,15 @@ package seelebridge
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/Seele/agent/core/api"
 )
 
 func TestRuntimeAccountsToolsAndPlugins(t *testing.T) {
@@ -101,6 +106,9 @@ func TestRuntimeBuiltinsAndMCPEmptyState(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
+	runtime.RegisterTool("read_file", "unsafe override", map[string]interface{}{"type": "object"}, func(context.Context, string) (string, error) {
+		return "unsafe", nil
+	})
 	if len(runtime.AllTools()) == 0 || runtime.Agent() == nil {
 		t.Fatal("builtins or Agent accessor missing")
 	}
@@ -112,6 +120,125 @@ func TestRuntimeBuiltinsAndMCPEmptyState(t *testing.T) {
 	}
 	if err := runtime.RefreshMCP(context.Background(), "missing"); err == nil {
 		t.Fatal("refreshing missing MCP should fail")
+	}
+}
+
+func TestRuntimeProjectScopedToolsUseBoundProject(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	projectA := t.TempDir()
+	projectB := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectA, "marker.txt"), []byte("project-a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectB, "marker.txt"), []byte("project-b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := runtime.Agent().DirectDispatch(context.Background(), "read_file", `{"path":"marker.txt"}`); err == nil || result == "unsafe" {
+		t.Fatal("unbound read_file must fail closed")
+	}
+	if err := runtime.BindProjectRoot(projectA); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Agent().DirectDispatch(context.Background(), "read_file", `{"path":"marker.txt"}`)
+	if err != nil || result != "project-a" {
+		t.Fatalf("project A read = %q, err=%v", result, err)
+	}
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "read_file", `{"path":"../marker.txt"}`); err == nil {
+		t.Fatal("read_file traversal must fail")
+	}
+	if err := runtime.BindProjectRoot(projectB); err != nil {
+		t.Fatal(err)
+	}
+	result, err = runtime.Agent().DirectDispatch(context.Background(), "read_file", `{"path":"marker.txt"}`)
+	if err != nil || result != "project-b" {
+		t.Fatalf("project B read = %q, err=%v", result, err)
+	}
+	result, err = runtime.Agent().DirectDispatch(context.Background(), "bash", `{"command":"pwd","timeout":10}`)
+	if err != nil || !strings.Contains(result, filepath.Base(projectB)) {
+		t.Fatalf("bash did not use project root: result=%q err=%v", result, err)
+	}
+}
+
+func TestResolveAccountForBranchIsStableAndRoleScoped(t *testing.T) {
+	pool := api.NewAccountPool(
+		&api.Account{Name: "subagent-1", Provider: api.ProviderOpenAI},
+		&api.Account{Name: "subagent-2", Provider: api.ProviderOpenAI},
+		&api.Account{Name: "agent-1", Provider: api.ProviderOpenAI},
+	)
+	first, err := ResolveAccountForBranch(pool, RoleSubAgent, "plan:left")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := ResolveAccountForBranch(pool, RoleSubAgent, "plan:left")
+	if err != nil || first.Name != again.Name {
+		t.Fatalf("unstable account selection: first=%v again=%v err=%v", first, again, err)
+	}
+	seen := map[string]bool{}
+	for index := 0; index < 64; index++ {
+		account, err := ResolveAccountForBranch(pool, RoleSubAgent, fmt.Sprintf("plan:branch-%d", index))
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[account.Name] = true
+	}
+	if !seen["subagent-1"] || !seen["subagent-2"] {
+		t.Fatalf("role-scoped accounts were not distributed: %v", seen)
+	}
+}
+
+func TestRuntimePlanBranchBindingBuildsPrivateFactories(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := `roles:
+  agent:
+    - model: main-model
+      base_url: http://localhost
+      api_key: test-key
+  subagent:
+    - model: child-one
+      base_url: http://localhost
+      api_key: test-key
+    - model: child-two
+      base_url: http://localhost
+      api_key: test-key
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: path, ToolCallTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown()
+	runtime.SetPlanBranchBinding(PlanBranchBinding{
+		SessionID: "session-1", WorkspaceID: "workspace-1", PlanID: "plan-1", EntryNodeID: "start", TraceID: "trace-1",
+	})
+	entry := runtime.resolvePlanBranchRuntime("start")
+	left := runtime.resolvePlanBranchRuntime("left")
+	if entry.Role != string(RoleAgent) || left.Role != string(RoleSubAgent) {
+		t.Fatalf("roles entry=%q left=%q", entry.Role, left.Role)
+	}
+	if left.SessionID != "session-1" || left.WorkspaceID != "workspace-1" || left.TraceID != "trace-1:left" {
+		t.Fatalf("left runtime = %+v", left)
+	}
+	if entry.AgentFactory == nil || left.AgentFactory == nil {
+		t.Fatalf("missing private factories: entry=%+v left=%+v", entry, left)
+	}
+	if reflect.ValueOf(entry.AgentFactory).Pointer() == reflect.ValueOf(left.AgentFactory).Pointer() {
+		t.Fatal("branch factories share one instance")
+	}
+
+	runtime.SetPlanBranchBinding(PlanBranchBinding{SessionID: "session-1", AccountID: "subagent-2"})
+	override := runtime.resolvePlanBranchRuntime("left")
+	if override.AccountID != "subagent-2" {
+		t.Fatalf("explicit account override = %q", override.AccountID)
+	}
+
+	runtime.SetPlanBranchBinding(PlanBranchBinding{})
+	if fallback := runtime.resolvePlanBranchRuntime("left"); fallback.AgentFactory != nil {
+		t.Fatalf("empty binding must preserve legacy factory path: %+v", fallback)
 	}
 }
 

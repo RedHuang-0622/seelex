@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 type EngineMessage struct {
@@ -43,6 +44,9 @@ type RuntimePort interface {
 	VisibleTools(context.Context) []Tool
 	ActivePlugin() string
 	SetFullAccess(bool)
+	SetPlanBranchBinding(seelebridge.PlanBranchBinding)
+	BindProjectRoot(rootPath string) error
+	UnbindProjectRoot()
 }
 type PluginPort interface {
 	All() []PluginInfo

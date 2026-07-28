@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/agent"
@@ -15,6 +16,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
 	"github.com/RedHuang-0622/Seele/types"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/Seele/workplan/runtime/forkexec"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
@@ -39,8 +41,14 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	breaker  *breakerState         // 熔断器事件 channel 状态
-	planTool *builtin.WorkPlanTool // plan 工具，用于设置进度回调
+	breaker           *breakerState         // 熔断器事件 channel 状态
+	planTool          *builtin.WorkPlanTool // plan 工具，用于设置进度回调
+	branchMu          sync.RWMutex
+	branchBinding     PlanBranchBinding
+	selectedAccountID string
+	projectScope      *ProjectScope
+	toolCallTimeout   time.Duration
+	scopedToolsReady  bool
 }
 
 // Account is the non-secret account information exposed to Seelex UI.
@@ -100,11 +108,13 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 
 	r := &Runtime{
-		agent:    agt,
-		client:   client,
-		pool:     pool,
-		model:    first.Model,
-		MCPStack: mcpstack.New(mcpStackOpts...),
+		agent:           agt,
+		client:          client,
+		pool:            pool,
+		model:           first.Model,
+		MCPStack:        mcpstack.New(mcpStackOpts...),
+		projectScope:    NewProjectScope(),
+		toolCallTimeout: cfg.ToolCallTimeout,
 	}
 
 	return r, nil
@@ -123,9 +133,20 @@ func (r *Runtime) Model() string { return r.model }
 
 func (r *Runtime) RegisterBuiltins() {
 	builtin.RegisterAll(r.agent.Tools())
+	r.registerProjectScopedTools()
+	r.scopedToolsReady = true
 	r.planTool = builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(r.agent.LLM()))
+	r.planTool.SetBranchRuntimeResolver(r.resolvePlanBranchRuntime)
 	r.agent.Tools().Register(r.planTool)
 }
+
+// BindProjectRoot makes the supplied project the only root used by Seelex
+// filesystem tools for the active session.
+func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope.Bind(rootPath) }
+
+// UnbindProjectRoot makes filesystem and shell tools fail closed until a
+// project is selected.
+func (r *Runtime) UnbindProjectRoot() { r.projectScope.Unbind() }
 
 // SetPlanNodeCallback 设置 plan 每节点完成回调（seelex plan visualization）。
 // cb 直接接收框架原生 *types.NodeResult，不做签名变换。
@@ -143,12 +164,50 @@ func (r *Runtime) SetPlanApprovalGate(gate approve.ApprovalGate) {
 	}
 }
 
+// SetPlanBranchCallback registers a Seelex-facing branch lifecycle callback.
+func (r *Runtime) SetPlanBranchCallback(callback func(PlanBranchEvent)) {
+	if r.planTool == nil {
+		return
+	}
+	r.planTool.SetBranchEventHook(func(event forkexec.Event) {
+		if callback == nil {
+			return
+		}
+		branchEvent := PlanBranchEvent{
+			Type: string(event.Type), BranchID: event.BranchID, NodeID: event.NodeID,
+			At: event.At,
+		}
+		if event.Err != nil {
+			branchEvent.Error = event.Err.Error()
+		}
+		callback(branchEvent)
+	})
+}
+
+// SetPlanBranchBinding freezes context and account-selection inputs for the
+// next plan run. Branches receive private clients created from this binding.
+func (r *Runtime) SetPlanBranchBinding(binding PlanBranchBinding) {
+	r.setPlanBranchBinding(binding)
+}
+
 func (r *Runtime) RegisterTool(
 	name, description string,
 	inputSchema map[string]interface{},
 	handler func(context.Context, string) (string, error),
 ) {
+	if r.scopedToolsReady && isProjectScopedTool(name) {
+		return
+	}
 	r.agent.RegisterTool(name, description, inputSchema, handler)
+}
+
+func isProjectScopedTool(name string) bool {
+	switch name {
+	case "read_file", "grep_search", "glob", "write_file", "edit_file", "bash":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Runtime) AllTools() []Tool {
@@ -178,6 +237,7 @@ func (r *Runtime) SelectAccount(name string) bool {
 		return false
 	}
 	r.client.SetProviderFilter(account.Provider)
+	r.setSelectedAccount(account.Name)
 	return true
 }
 

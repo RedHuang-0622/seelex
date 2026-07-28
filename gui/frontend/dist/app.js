@@ -21,7 +21,7 @@ const elements = Object.fromEntries([
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "effort-control", "effort-range", "effort-value", "plan-view", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count",
-  "runtime-button", "runtime-modal", "runtime-close", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "interaction-modal", "perm-toggle", "new-workspace", "workspace-info", "workspace-list", "interaction-risk", "interaction-title",
   "interaction-question", "interaction-preview", "interaction-options", "toast"
@@ -73,7 +73,7 @@ async function refresh(options = {}) {
 }
 
 function render(snapshot, options = {}) {
-  renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {});
+  renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {}, snapshot.session_workspaces || {}, snapshot.workspaces || []);
   renderProject(snapshot);
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
@@ -106,27 +106,30 @@ function renderIncremental(snapshot, kind) {
 }
 
 function renderProject(snapshot) {
-  const project = state.info?.project || {};
+  const workspace = snapshot.current_workspace || null;
   const runtime = snapshot.runtime || {};
   const running = Boolean(snapshot.chat?.running);
-  const sources = project.sources || [];
-  elements["project-name"].textContent = project.name || "当前工作区";
-  elements["project-root"].textContent = project.root || "";
+  const sources = [];
+  elements["project-name"].textContent = workspace?.name || "No project selected";
+  elements["project-root"].textContent = workspace?.root_path || "";
   elements["project-status"].innerHTML = [
     ["状态", running ? "Agent 执行中" : "Ready"],
     ["会话", shortSessionID(snapshot.session?.id || "—")],
     ["消息", String(snapshot.conversation?.length || 0)],
     ["资料源", String(sources.length)]
   ].map(([label, value]) => `<div class="status-item"><span>${escapeHtml(label)}</span><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
-  elements["project-overview"].textContent = running
-    ? `当前任务正在执行，会话使用 ${runtime.plugin || "default"} 能力形态。`
-    : `工作区已就绪。当前会话包含 ${snapshot.conversation?.length || 0} 条界面消息，可从左侧继续管理会话。`;
+  elements["project-overview"].textContent = workspace
+    ? (running
+      ? `Current task is running with ${runtime.plugin || "default"} capabilities in this project scope.`
+      : `This session can read and write only within ${workspace.name}.`)
+    : "Select a project to define this session's read and write scope.";
   elements["source-count"].textContent = String(sources.length);
   elements["project-sources"].innerHTML = renderSources(sources);
 }
 
-function renderSessions(sessions, current, capabilities) {
+function renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces) {
   const currentID = current.id || "";
+  const workspaceNames = new Map(workspaces.map(workspace => [workspace.id, workspace.name]));
   const items = [...sessions];
   if (currentID && !items.some(session => session.id === currentID)) {
     items.unshift({ id: currentID, current: true });
@@ -138,7 +141,9 @@ function renderSessions(sessions, current, capabilities) {
       const updated = session.updated_at
         ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
         : "当前会话";
-      const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
+      const workspaceID = sessionWorkspaces[session.id];
+      const scope = workspaceID ? `Project: ${workspaceNames.get(workspaceID) || workspaceID}` : "No project";
+      const detail = session.token_count ? `${updated} · ${session.token_count} tokens · ${scope}` : `${updated} · ${scope}`;
       return `<div class="session-row">
         <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}">
           <span class="session-name">${icon("message", 13)} ${escapeHtml(shortSessionID(session.id))}</span><small>${escapeHtml(detail)}</small>
@@ -279,6 +284,43 @@ function openRuntime() {
 
 function closeRuntime() {
   setModal("runtime-modal", false);
+}
+
+async function openSettings() {
+  setModal("settings-modal", true);
+  elements["storage-status"].textContent = "";
+  try {
+    const config = await invoke("SessionStorageConfig");
+    elements["storage-backend"].value = config.backend || "json";
+    elements["storage-path"].value = config.path || "";
+    elements["storage-dsn"].value = "";
+    elements["storage-dsn"].placeholder = config.dsn === "configured" ? "已配置；留空则保持不变" : "postgres://user:password@host:5432/database?sslmode=require";
+    updateStorageFields();
+  } catch (error) { showToast(error); }
+}
+
+function closeSettings() { setModal("settings-modal", false); }
+
+function storageConfig() {
+  return { backend: elements["storage-backend"].value, path: elements["storage-path"].value.trim(), dsn: elements["storage-dsn"].value.trim() };
+}
+
+function updateStorageFields() {
+  const postgres = elements["storage-backend"].value === "postgres";
+  elements["storage-path-field"].classList.toggle("hidden", postgres);
+  elements["storage-dsn-field"].classList.toggle("hidden", !postgres);
+}
+
+async function testStorage() {
+  elements["storage-status"].textContent = "正在测试…";
+  try { await invoke("TestSessionStorage", storageConfig()); elements["storage-status"].textContent = "连接与读写初始化成功。"; }
+  catch (error) { elements["storage-status"].textContent = `失败：${error}`; }
+}
+
+async function saveStorage() {
+  elements["storage-status"].textContent = "正在切换…";
+  try { await invoke("ConfigureSessionStorage", storageConfig()); elements["storage-status"].textContent = "已保存；后续写入将使用该存储。"; }
+  catch (error) { elements["storage-status"].textContent = `失败：${error}`; }
 }
 
 async function openCommandPalette(trigger = "/") {
@@ -438,6 +480,11 @@ elements["new-session"].addEventListener("click", async () => {
 
 elements["runtime-button"].addEventListener("click", openRuntime);
 elements["runtime-close"].addEventListener("click", closeRuntime);
+elements["settings-button"].addEventListener("click", openSettings);
+elements["settings-close"].addEventListener("click", closeSettings);
+elements["storage-backend"].addEventListener("change", updateStorageFields);
+elements["storage-test"].addEventListener("click", testStorage);
+elements["storage-save"].addEventListener("click", saveStorage);
 elements["command-button"].addEventListener("click", () => openCommandPalette("/"));
 elements["command-close"].addEventListener("click", closeCommandPalette);
 
@@ -471,7 +518,7 @@ elements["command-search"].addEventListener("keydown", event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -485,6 +532,7 @@ document.addEventListener("keydown", event => {
   if (event.key === "Escape") {
     closeRuntime();
     closeCommandPalette();
+    closeSettings();
   }
 });
 
@@ -497,7 +545,12 @@ function renderWorkspace(snapshot) {
       '<div class="ws-current"><strong>' + escapeHtml(ws.name) + '</strong>' +
       '<small>' + escapeHtml(ws.root_path || "") + '</small>' +
       (gitOk ? '<a class="ws-git" href="' + escapeHtml(ws.git_remote) + '" target="_blank">' + escapeHtml(ws.git_remote) + '</a>' : '<span class="ws-warn">未关联仓库</span>') +
+      '<button id="unbind-workspace" class="text-button" type="button">Unbind project</button>' +
       '</div>';
+    elements["workspace-info"].querySelector("#unbind-workspace").addEventListener("click", async function() {
+      try { await invoke("UnbindWorkspace"); await refresh({ scroll: false }); }
+      catch (error) { showToast(error); }
+    });
   } else {
     elements["workspace-info"].innerHTML = '<span class="muted">未绑定工作区 — 文件读写受限</span>';
   }

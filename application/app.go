@@ -11,7 +11,10 @@ import (
 
 const defaultHistoryWindow = 200
 
-var ErrChatRunning = errors.New("chat is already running")
+var (
+	ErrChatRunning         = errors.New("chat is already running")
+	ErrApplicationDraining = errors.New("application is finishing active work")
+)
 
 type Service struct {
 	mu            sync.RWMutex
@@ -24,6 +27,8 @@ type Service struct {
 	effortManager *EffortManager
 	messageSeq    uint64
 	cancelChat    context.CancelFunc
+	idle          chan struct{}
+	draining      bool
 	closed        bool
 	inputQueue    []chatRequest // 排队中的界面输入和模型输入
 }
@@ -41,6 +46,7 @@ func New(deps Dependencies) *Service {
 		commands: NewCommandRegistry(), promptStack: ps,
 	}
 	service.effortManager = NewEffortManager(ps, deps.Engine)
+	service.idle = closedSignal()
 	service.snapshot = Snapshot{
 		ProtocolVersion: ProtocolVersion,
 		Session:         SessionState{ID: deps.Engine.SessionID()},
@@ -101,6 +107,16 @@ func (service *Service) Snapshot() Snapshot {
 func (service *Service) Subscribe(buffer int) Subscription { return service.events.Subscribe(buffer) }
 
 func (service *Service) Submit(ctx context.Context, text string) error {
+	service.mu.RLock()
+	draining := service.draining
+	closed := service.closed
+	service.mu.RUnlock()
+	if closed {
+		return errors.New("application is shut down")
+	}
+	if draining {
+		return ErrApplicationDraining
+	}
 	input := strings.TrimSpace(text)
 	if input == "" {
 		return nil
@@ -130,6 +146,14 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 func (service *Service) submitConversation(ctx context.Context, input string) error {
 	request := newChatRequest(input, service.promptStack.Layers())
 	service.mu.Lock()
+	if service.closed {
+		service.mu.Unlock()
+		return errors.New("application is shut down")
+	}
+	if service.draining {
+		service.mu.Unlock()
+		return ErrApplicationDraining
+	}
 	if service.snapshot.Chat.Running {
 		service.inputQueue = append(service.inputQueue, request)
 		service.snapshot.Chat.InputQueue = chatRequestDisplays(service.inputQueue)
@@ -141,6 +165,30 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	}
 	service.mu.Unlock()
 	return service.startChat(ctx, request)
+}
+
+// BeginGracefulShutdown stops new user input while allowing the active chat
+// and any input already queued behind it to finish naturally.
+func (service *Service) BeginGracefulShutdown() {
+	service.mu.Lock()
+	service.draining = true
+	service.mu.Unlock()
+}
+
+// WaitForIdle waits for all accepted chat work to finish. It never cancels an
+// active chat; callers control abandonment through ctx.
+func (service *Service) WaitForIdle(ctx context.Context) error {
+	for {
+		service.mu.RLock()
+		idle := service.idle
+		service.mu.RUnlock()
+		select {
+		case <-idle:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 func (service *Service) CancelChat(requestID string) bool {
@@ -313,13 +361,7 @@ func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error 
 	if err != nil {
 		return err
 	}
-	service.mu.Lock()
-	service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
-	service.refreshWorkspaceLocked()
-	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
-	return nil
+	return service.bindWorkspaceInfo(w)
 }
 
 func (service *Service) BindWorkspace(workspaceID string) error {
@@ -327,10 +369,20 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 	if err != nil {
 		return err
 	}
-	service.deps.Workspace.BindSession(service.snapshot.Session.ID, workspaceID)
-	service.deps.Sessions.SetWorkspace(workspaceID)
+	return service.bindWorkspaceInfo(w)
+}
+
+func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
+	if err := service.deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+		return err
+	}
+	service.mu.RLock()
+	sessionID := service.snapshot.Session.ID
+	service.mu.RUnlock()
+	service.deps.Workspace.BindSession(sessionID, workspace.ID)
+	service.deps.Sessions.SetWorkspace(workspace.ID)
 	service.mu.Lock()
-	service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
+	service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote}
 	service.refreshWorkspaceLocked()
 	revision := service.bumpLocked()
 	service.mu.Unlock()
@@ -339,7 +391,11 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 }
 
 func (service *Service) UnbindWorkspace() {
-	service.deps.Workspace.UnbindSession(service.snapshot.Session.ID)
+	service.deps.Runtime.UnbindProjectRoot()
+	service.mu.RLock()
+	sessionID := service.snapshot.Session.ID
+	service.mu.RUnlock()
+	service.deps.Workspace.UnbindSession(sessionID)
 	service.deps.Sessions.SetWorkspace("")
 	service.mu.Lock()
 	service.snapshot.CurrentWorkspace = nil
@@ -355,6 +411,7 @@ func (service *Service) refreshWorkspaceLocked() {
 	for i, w := range all {
 		service.snapshot.Workspaces[i] = WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
 	}
+	service.snapshot.SessionWorkspaces = service.deps.Workspace.AllBindings()
 }
 
 func (service *Service) Shutdown() {
@@ -516,6 +573,19 @@ func (service *Service) resumeSession(sessionID string) error {
 		offset = 0
 	}
 	visibleHistory := history[offset:]
+	var currentWorkspace *WorkspaceInfo
+	if service.deps.Workspace != nil {
+		if ws, ok := service.deps.Workspace.SessionWorkspace(sessionID); ok {
+			currentWorkspace = &WorkspaceInfo{ID: ws.ID, Name: ws.Name, RootPath: ws.RootPath, GitRemote: ws.GitRemote}
+			if err := service.deps.Runtime.BindProjectRoot(ws.RootPath); err != nil {
+				return fmt.Errorf("bind project root: %w", err)
+			}
+			service.deps.Sessions.SetWorkspace(ws.ID)
+		} else {
+			service.deps.Runtime.UnbindProjectRoot()
+			service.deps.Sessions.SetWorkspace("")
+		}
+	}
 	service.mu.Lock()
 	service.snapshot.Session.ID = sessionID
 	service.snapshot.Conversation = nil
@@ -528,18 +598,8 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.snapshot.HasMoreHistory = offset > 0
 	// 恢复该会话绑定的工作区（每个会话独立的工作区上下文）
 	if service.deps.Workspace != nil {
-		if ws, ok := service.deps.Workspace.SessionWorkspace(sessionID); ok {
-			service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: ws.ID, Name: ws.Name, RootPath: ws.RootPath, GitRemote: ws.GitRemote}
-			service.deps.Sessions.SetWorkspace(ws.ID)
-		} else {
-			service.snapshot.CurrentWorkspace = nil
-			service.deps.Sessions.SetWorkspace("")
-		}
-		all := service.deps.Workspace.List()
-		service.snapshot.Workspaces = make([]WorkspaceInfo, len(all))
-		for i, w := range all {
-			service.snapshot.Workspaces[i] = WorkspaceInfo{ID: w.ID, Name: w.Name, RootPath: w.RootPath, GitRemote: w.GitRemote}
-		}
+		service.snapshot.CurrentWorkspace = currentWorkspace
+		service.refreshWorkspaceLocked()
 	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()

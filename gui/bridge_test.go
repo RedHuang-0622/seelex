@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 type emittedEvent struct {
@@ -42,6 +44,8 @@ func newFakeApplication() *fakeApplication {
 }
 
 func (fake *fakeApplication) Snapshot() application.Snapshot { return fake.snapshot }
+func (*fakeApplication) BeginGracefulShutdown()              {}
+func (*fakeApplication) WaitForIdle(context.Context) error   { return nil }
 func (fake *fakeApplication) Subscribe(buffer int) application.Subscription {
 	return fake.hub.Subscribe(buffer)
 }
@@ -86,8 +90,17 @@ func (fake *fakeApplication) CreateWorkspace(name, rootPath, gitRemote string) e
 func (fake *fakeApplication) BindWorkspace(workspaceID string) error {
 	return nil
 }
-func (fake *fakeApplication) UnbindWorkspace() {}
+func (fake *fakeApplication) UnbindWorkspace()      {}
 func (fake *fakeApplication) SetFullAccess(on bool) {}
+func (fake *fakeApplication) SessionStorageConfig() (sessionstore.Config, error) {
+	return sessionstore.Config{Backend: sessionstore.BackendJSON, Path: "sessions"}, nil
+}
+func (fake *fakeApplication) TestSessionStorage(context.Context, sessionstore.Config) error {
+	return nil
+}
+func (fake *fakeApplication) ConfigureSessionStorage(context.Context, sessionstore.Config) error {
+	return nil
+}
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
 	t.Parallel()
@@ -109,6 +122,17 @@ func TestBridgeDiscoversProjectSources(t *testing.T) {
 	info := bridge.Info()
 	if info.Project.Root != root || len(info.Project.Sources) != 1 || info.Project.Sources[0].Path != "README.md" {
 		t.Fatalf("unexpected project info: %+v", info.Project)
+	}
+}
+
+func TestBridgeDoesNotTreatLaunchDirectoryAsProject(t *testing.T) {
+	t.Parallel()
+	bridge, err := NewBridge(newFakeApplication(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project := bridge.Info().Project; project.Name != "" || project.Root != "" || len(project.Sources) != 0 {
+		t.Fatalf("empty project root discovered launch directory: %+v", project)
 	}
 }
 
@@ -157,6 +181,99 @@ func TestBridgeForwardsCommands(t *testing.T) {
 	}
 	if bridge.Info().Title != "Seelex Test" || bridge.Snapshot().Runtime.Model != "test-model" {
 		t.Fatal("bridge metadata or snapshot mismatch")
+	}
+}
+
+type closeFakeApplication struct {
+	*fakeApplication
+	waitStarted chan struct{}
+	idle        chan struct{}
+
+	mu            sync.Mutex
+	beginCalls    int
+	waitCalls     int
+	waitStartOnce sync.Once
+}
+
+func newCloseFakeApplication(running bool) *closeFakeApplication {
+	fake := newFakeApplication()
+	fake.snapshot.Chat.Running = running
+	return &closeFakeApplication{
+		fakeApplication: fake,
+		waitStarted:     make(chan struct{}),
+		idle:            make(chan struct{}),
+	}
+}
+
+func (fake *closeFakeApplication) BeginGracefulShutdown() {
+	fake.mu.Lock()
+	fake.beginCalls++
+	fake.mu.Unlock()
+}
+
+func (fake *closeFakeApplication) WaitForIdle(ctx context.Context) error {
+	fake.mu.Lock()
+	fake.waitCalls++
+	fake.mu.Unlock()
+	fake.waitStartOnce.Do(func() { close(fake.waitStarted) })
+	select {
+	case <-fake.idle:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestCloseCoordinatorWaitsForRunningChat(t *testing.T) {
+	t.Parallel()
+	fake := newCloseFakeApplication(true)
+	quit := make(chan struct{}, 1)
+	coordinator := newCloseCoordinator(fake, func() { quit <- struct{}{} })
+
+	if !coordinator.BeforeClose() {
+		t.Fatal("running chat must prevent native window close")
+	}
+	if !coordinator.BeforeClose() {
+		t.Fatal("repeated close must remain prevented while waiting")
+	}
+	select {
+	case <-fake.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("idle wait did not start")
+	}
+	select {
+	case <-quit:
+		t.Fatal("application quit before chat became idle")
+	default:
+	}
+
+	close(fake.idle)
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("application did not quit after chat became idle")
+	}
+	if coordinator.BeforeClose() {
+		t.Fatal("coordinator must permit the programmatic close")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.beginCalls != 1 || fake.waitCalls != 1 {
+		t.Fatalf("unexpected close coordination calls: begin=%d wait=%d", fake.beginCalls, fake.waitCalls)
+	}
+}
+
+func TestCloseCoordinatorAllowsIdleClose(t *testing.T) {
+	t.Parallel()
+	fake := newCloseFakeApplication(false)
+	coordinator := newCloseCoordinator(fake, nil)
+	if coordinator.BeforeClose() {
+		t.Fatal("idle application must close immediately")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.beginCalls != 1 || fake.waitCalls != 0 {
+		t.Fatalf("unexpected idle close calls: begin=%d wait=%d", fake.beginCalls, fake.waitCalls)
 	}
 }
 

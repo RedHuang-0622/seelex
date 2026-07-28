@@ -10,20 +10,20 @@ import (
 const ProtocolVersion = 1
 
 type Snapshot struct {
-	ProtocolVersion int           `json:"protocol_version"`
-	Revision        uint64        `json:"revision"`
-	Session         SessionState  `json:"session"`
-	Sessions        []SessionInfo `json:"sessions"`
-	Conversation    []Message     `json:"conversation"`
-	Chat            ChatState     `json:"chat"`
-	Runtime         RuntimeState  `json:"runtime"`
-	Interaction     *Interaction  `json:"interaction,omitempty"`
-	Capabilities    Capabilities  `json:"capabilities"`
-	HistoryOffset    int               `json:"history_offset"`
-	TotalMessages    int               `json:"total_messages"`
-	HasMoreHistory   bool              `json:"has_more_history"`
-	Workspaces       []WorkspaceInfo   `json:"workspaces,omitempty"`
-	CurrentWorkspace *WorkspaceInfo    `json:"current_workspace,omitempty"`
+	ProtocolVersion   int               `json:"protocol_version"`
+	Revision          uint64            `json:"revision"`
+	Session           SessionState      `json:"session"`
+	Sessions          []SessionInfo     `json:"sessions"`
+	Conversation      []Message         `json:"conversation"`
+	Chat              ChatState         `json:"chat"`
+	Runtime           RuntimeState      `json:"runtime"`
+	Interaction       *Interaction      `json:"interaction,omitempty"`
+	Capabilities      Capabilities      `json:"capabilities"`
+	HistoryOffset     int               `json:"history_offset"`
+	TotalMessages     int               `json:"total_messages"`
+	HasMoreHistory    bool              `json:"has_more_history"`
+	Workspaces        []WorkspaceInfo   `json:"workspaces,omitempty"`
+	CurrentWorkspace  *WorkspaceInfo    `json:"current_workspace,omitempty"`
 	SessionWorkspaces map[string]string `json:"session_workspaces,omitempty"`
 }
 
@@ -73,13 +73,13 @@ type RuntimeState struct {
 
 // PlanState 描述当前 WorkPlan 的执行状态（nil = 无活跃 Plan）。
 type PlanState struct {
-	Name        string              `json:"name"`
-	EntryNodeID string              `json:"entry_node_id"`
-	Status      PlanStatus          `json:"status"`
-	Nodes       []PlanNode          `json:"nodes,omitempty"`
+	Name        string                 `json:"name"`
+	EntryNodeID string                 `json:"entry_node_id"`
+	Status      PlanStatus             `json:"status"`
+	Nodes       []PlanNode             `json:"nodes,omitempty"`
 	Edges       []seelebridge.PlanEdge `json:"edges,omitempty"`
-	Progress    float64             `json:"progress"`
-	Elapsed     string              `json:"elapsed,omitempty"`
+	Progress    float64                `json:"progress"`
+	Elapsed     string                 `json:"elapsed,omitempty"`
 }
 
 type PlanStatus string
@@ -97,8 +97,8 @@ type PlanNode struct {
 	Label    string     `json:"label"`
 	Kind     string     `json:"kind"`
 	Status   NodeStatus `json:"status"`
-	Depth    int        `json:"depth,omitempty"`    // 缩进层级（0 = 根）
-	Output   string     `json:"output,omitempty"`   // 节点输出内容
+	Depth    int        `json:"depth,omitempty"`  // 缩进层级（0 = 根）
+	Output   string     `json:"output,omitempty"` // 节点输出内容
 	Elapsed  string     `json:"elapsed,omitempty"`
 	Children []PlanNode `json:"children,omitempty"` // Fork 子节点
 }
@@ -107,11 +107,14 @@ type NodeStatus string
 
 const (
 	NodePending   NodeStatus = "pending"
+	NodeQueued    NodeStatus = "queued"
 	NodeRunning   NodeStatus = "running"
 	NodeCompleted NodeStatus = "completed"
 	NodeFailed    NodeStatus = "failed"
 	NodeAborted   NodeStatus = "aborted"
 	NodeSkipped   NodeStatus = "skipped"
+	NodeCanceled  NodeStatus = "canceled"
+	NodePanicked  NodeStatus = "panicked"
 )
 
 type Tool struct {
@@ -165,6 +168,16 @@ type Capabilities struct {
 func cloneSnapshot(snapshot Snapshot) Snapshot {
 	copySnapshot := snapshot
 	copySnapshot.Sessions = append([]SessionInfo(nil), snapshot.Sessions...)
+	if snapshot.SessionWorkspaces != nil {
+		copySnapshot.SessionWorkspaces = make(map[string]string, len(snapshot.SessionWorkspaces))
+		for sessionID, workspaceID := range snapshot.SessionWorkspaces {
+			copySnapshot.SessionWorkspaces[sessionID] = workspaceID
+		}
+	}
+	if snapshot.CurrentWorkspace != nil {
+		workspace := *snapshot.CurrentWorkspace
+		copySnapshot.CurrentWorkspace = &workspace
+	}
 	copySnapshot.Conversation = append([]Message(nil), snapshot.Conversation...)
 	if copySnapshot.Conversation == nil {
 		copySnapshot.Conversation = []Message{} // 确保 JSON 序列化为 [] 而非 null

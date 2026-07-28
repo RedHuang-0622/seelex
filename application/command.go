@@ -112,16 +112,35 @@ func (service *Service) registerBuiltinCommands() {
 		}
 		newID := service.deps.Engine.StartSession()
 		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+		service.mu.RLock()
+		var currentWorkspace *WorkspaceInfo
+		if service.snapshot.CurrentWorkspace != nil {
+			workspace := *service.snapshot.CurrentWorkspace
+			currentWorkspace = &workspace
+		}
+		service.mu.RUnlock()
+		if currentWorkspace != nil {
+			if err := service.deps.Runtime.BindProjectRoot(currentWorkspace.RootPath); err != nil {
+				return CommandResult{}, fmt.Errorf("绑定项目根目录失败: %w", err)
+			}
+			service.deps.Workspace.BindSession(newID, currentWorkspace.ID)
+			service.deps.Sessions.SetWorkspace(currentWorkspace.ID)
+		} else {
+			service.deps.Runtime.UnbindProjectRoot()
+			service.deps.Sessions.SetWorkspace("")
+		}
 		service.mu.Lock()
 		service.snapshot.Session.ID = newID
 		service.snapshot.HistoryOffset = 0
 		service.snapshot.TotalMessages = 0
 		service.snapshot.HasMoreHistory = false
-		service.snapshot.Runtime.Plan = nil     // 清除旧 Plan，避免跨会话残留
-		service.snapshot.CurrentWorkspace = nil // 清除工作区绑定
-		service.snapshot.Interaction = nil      // 清除未完成的交互
+		service.snapshot.Runtime.Plan = nil // 清除旧 Plan，避免跨会话残留
+		service.snapshot.CurrentWorkspace = currentWorkspace
+		service.snapshot.Interaction = nil // 清除未完成的交互
+		if service.deps.Workspace != nil {
+			service.refreshWorkspaceLocked()
+		}
 		service.mu.Unlock()
-		service.deps.Sessions.SetWorkspace("")  // 路由回默认 session 目录
 		service.resetConversation(fmt.Sprintf("已新建会话（已保存 %s）", id))
 		return CommandResult{}, nil
 	})

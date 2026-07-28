@@ -7,6 +7,7 @@ import (
 
 	seeleengine "github.com/RedHuang-0622/Seele/engine"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 func NewHarnessRunner(value Scenario) (*Runner, error) {
@@ -28,9 +29,6 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	hookBridge := application.NewToolHookBridge()
 	tools := &applicationToolLifecycle{hooks: hookBridge.Hooks()}
 	scriptedEngine := NewScriptedEngine(value.EngineScript, tools, approvals)
-	if factory != nil {
-		scriptedEngine.SetToolExecutor(factory(approvals))
-	}
 	scriptedEngine.SetSessionID(initialSessionID(value))
 	plugin := initialPlugin(value)
 	service := application.New(application.Dependencies{
@@ -40,6 +38,9 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 		Events: events, Approval: approvals,
 	})
 	hookBridge.Bind(service)
+	if factory != nil {
+		scriptedEngine.SetToolExecutor(factory(approvals, service.HandlePlanBranchEvent))
+	}
 	if value.Initial.Effort != "" {
 		if err := service.SwitchEffort(context.Background(), value.Initial.Effort); err != nil {
 			service.Shutdown()
@@ -93,13 +94,16 @@ type harnessRuntime struct {
 	plugin string
 }
 
-func (harnessRuntime) Model() string                                   { return "scripted-e2e" }
-func (harnessRuntime) Provider() string                                { return "local" }
-func (harnessRuntime) Accounts() []application.AccountInfo             { return nil }
-func (harnessRuntime) SelectAccount(string) bool                       { return false }
-func (harnessRuntime) VisibleTools(context.Context) []application.Tool { return nil }
-func (runtime harnessRuntime) ActivePlugin() string                    { return runtime.plugin }
-func (harnessRuntime) SetFullAccess(bool)                              {}
+func (harnessRuntime) Model() string                                      { return "scripted-e2e" }
+func (harnessRuntime) Provider() string                                   { return "local" }
+func (harnessRuntime) Accounts() []application.AccountInfo                { return nil }
+func (harnessRuntime) SelectAccount(string) bool                          { return false }
+func (harnessRuntime) VisibleTools(context.Context) []application.Tool    { return nil }
+func (runtime harnessRuntime) ActivePlugin() string                       { return runtime.plugin }
+func (harnessRuntime) SetFullAccess(bool)                                 {}
+func (harnessRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding) {}
+func (harnessRuntime) BindProjectRoot(string) error                       { return nil }
+func (harnessRuntime) UnbindProjectRoot()                                 {}
 
 type harnessPlugins struct {
 	mu      sync.Mutex

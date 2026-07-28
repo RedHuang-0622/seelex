@@ -105,30 +105,7 @@ const (
 // ResolveAccount picks an account from the pool for the given role.
 // Falls back: goalplan → agent, subagent → agent, agent → first available.
 func ResolveAccount(pool *api.AccountPool, role AccountRole) (*api.Account, error) {
-	all := pool.All()
-	if len(all) == 0 {
-		return nil, fmt.Errorf("seelebridge: no accounts available")
-	}
-
-	for _, a := range all {
-		if accountRole(a.Name) == role {
-			return a, nil
-		}
-	}
-
-	fallbacks := map[AccountRole][]AccountRole{
-		RoleGoalPlan: {RoleAgent},
-		RoleSubAgent: {RoleAgent},
-	}
-	for _, fb := range fallbacks[role] {
-		for _, a := range all {
-			if accountRole(a.Name) == fb {
-				return a, nil
-			}
-		}
-	}
-
-	return all[0], nil
+	return ResolveAccountForBranch(pool, role, "")
 }
 
 func accountRole(name string) AccountRole {

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 const eventName = "seelex:event"
@@ -18,6 +19,8 @@ const eventName = "seelex:event"
 // without constructing the Seele runtime.
 type Application interface {
 	Snapshot() application.Snapshot
+	BeginGracefulShutdown()
+	WaitForIdle(context.Context) error
 	Subscribe(buffer int) application.Subscription
 	Submit(context.Context, string) error
 	CancelChat(string) bool
@@ -32,6 +35,9 @@ type Application interface {
 	BindWorkspace(workspaceID string) error
 	UnbindWorkspace()
 	SetFullAccess(bool)
+	SessionStorageConfig() (sessionstore.Config, error)
+	TestSessionStorage(context.Context, sessionstore.Config) error
+	ConfigureSessionStorage(context.Context, sessionstore.Config) error
 }
 
 type emitter func(context.Context, string, any)
@@ -87,7 +93,7 @@ func NewBridge(app Application, options Options) (*Bridge, error) {
 
 func discoverProject(root string) ProjectInfo {
 	if strings.TrimSpace(root) == "" {
-		root, _ = os.Getwd()
+		return ProjectInfo{}
 	}
 	absRoot, err := filepath.Abs(root)
 	if err == nil {
@@ -229,4 +235,16 @@ func (bridge *Bridge) UnbindWorkspace() {
 
 func (bridge *Bridge) SetFullAccess(on bool) {
 	bridge.app.SetFullAccess(on)
+}
+
+func (bridge *Bridge) SessionStorageConfig() (sessionstore.Config, error) {
+	return bridge.app.SessionStorageConfig()
+}
+
+func (bridge *Bridge) TestSessionStorage(config sessionstore.Config) error {
+	return bridge.app.TestSessionStorage(bridge.requestContext(), config)
+}
+
+func (bridge *Bridge) ConfigureSessionStorage(config sessionstore.Config) error {
+	return bridge.app.ConfigureSessionStorage(bridge.requestContext(), config)
 }

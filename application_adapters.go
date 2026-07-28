@@ -16,6 +16,7 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/workspace"
 )
@@ -108,10 +109,17 @@ func (port *enginePort) rawHistory() []seelebridge.Message {
 
 type runtimePort struct{ runtime *seelebridge.Runtime }
 
-func (port runtimePort) Model() string                  { return port.runtime.Model() }
-func (port runtimePort) Provider() string               { return port.runtime.Provider() }
-func (port runtimePort) ActivePlugin() string           { return port.runtime.ActivePlugin() }
-func (port runtimePort) SetFullAccess(on bool)           { port.runtime.SetFullAccess(on) }
+func (port runtimePort) Model() string         { return port.runtime.Model() }
+func (port runtimePort) Provider() string      { return port.runtime.Provider() }
+func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugin() }
+func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
+func (port runtimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
+	port.runtime.SetPlanBranchBinding(binding)
+}
+func (port runtimePort) BindProjectRoot(rootPath string) error {
+	return port.runtime.BindProjectRoot(rootPath)
+}
+func (port runtimePort) UnbindProjectRoot()             { port.runtime.UnbindProjectRoot() }
 func (port runtimePort) SelectAccount(name string) bool { return port.runtime.SelectAccount(name) }
 func (port runtimePort) VisibleTools(ctx context.Context) []application.Tool {
 	tools := port.runtime.VisibleTools(ctx)
@@ -217,11 +225,20 @@ func (port skillPort) All() []application.SkillInfo {
 
 type sessionPort struct{ manager *session.Manager }
 
-func (port sessionPort) SaveCurrent(id string) error       { return port.manager.SaveCurrent(id) }
-func (port sessionPort) Delete(id string) error            { return port.manager.Delete(id) }
-func (port sessionPort) Resume(id string) error            { return port.manager.Resume(id) }
-func (port sessionPort) SetWorkspace(workspaceID string)   { port.manager.SetWorkspace(workspaceID) }
-func (port sessionPort) Workspace() string                 { return port.manager.Workspace() }
+func (port sessionPort) SaveCurrent(id string) error     { return port.manager.SaveCurrent(id) }
+func (port sessionPort) Delete(id string) error          { return port.manager.Delete(id) }
+func (port sessionPort) Resume(id string) error          { return port.manager.Resume(id) }
+func (port sessionPort) SetWorkspace(workspaceID string) { port.manager.SetWorkspace(workspaceID) }
+func (port sessionPort) Workspace() string               { return port.manager.Workspace() }
+func (port sessionPort) StorageConfig() (sessionstore.Config, error) {
+	return port.manager.StorageConfig()
+}
+func (port sessionPort) TestStorage(ctx context.Context, config sessionstore.Config) error {
+	return port.manager.TestStorage(ctx, config)
+}
+func (port sessionPort) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
+	return port.manager.ConfigureStorage(ctx, config)
+}
 func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, error) {
 	messages, err := port.manager.LoadHistory(id)
 	if err != nil {

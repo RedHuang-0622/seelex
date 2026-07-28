@@ -31,6 +31,7 @@ func Run(app Application, config Options) error {
 	if height <= 0 {
 		height = 900
 	}
+	closer := newCloseCoordinator(app, func() { runtime.Quit(bridge.requestContext()) })
 
 	return wails.Run(&wailsoptions.App{
 		Title:     bridge.info.Title,
@@ -47,7 +48,8 @@ func Run(app Application, config Options) error {
 				runtime.EventsEmit(ctx, name, payload)
 			})
 		},
-		OnShutdown: func(context.Context) { bridge.stop() },
-		Bind:       []interface{}{bridge},
+		OnBeforeClose: func(context.Context) bool { return closer.BeforeClose() },
+		OnShutdown:    func(context.Context) { bridge.stop() },
+		Bind:          []interface{}{bridge},
 	})
 }

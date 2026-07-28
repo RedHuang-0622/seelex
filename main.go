@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/tui"
 	"github.com/RedHuang-0622/seelex/workspace"
@@ -76,6 +77,7 @@ func main() {
 	skillRegistry := initSkillSystem()
 	pluginManager := initPluginSystem(runtime, skillRegistry)
 	store := initStore()
+	defer store.Close()
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
 	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
@@ -93,6 +95,7 @@ func main() {
 	defer app.Shutdown()
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
+	runtime.SetPlanBranchCallback(app.HandlePlanBranchEvent)
 	startFrontend(app)
 }
 
@@ -269,14 +272,14 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 	)
 }
 
-func initStore() *seelebridge.NestedSessionStore {
+func initStore() *sessionstore.Router {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(*storePath)
-	ns, err := seelebridge.NewNestedSessionStore(baseDir)
+	router, err := sessionstore.NewRouter(filepath.Join(baseDir, "session-storage.json"), baseDir)
 	if err != nil {
 		fatalf("初始化嵌套存储失败: %v", err)
 	}
-	return ns
+	return router
 }
 
 func initWorkspaceRepo() *workspace.Repo {
@@ -296,13 +299,13 @@ func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge)
 	)
 }
 
-func initSessionManager(ns *seelebridge.NestedSessionStore, eng *enginePort) *session.Manager {
-	manager := session.NewManager(ns)
-	manager.WithNestedStore(ns)
+func initSessionManager(router *sessionstore.Router, eng *enginePort) *session.Manager {
+	manager := session.NewManager(router)
+	manager.WithRouter(router)
 	manager.InjectSaveLoad(
-		func(sessionID string) error { return ns.Save(sessionID, eng.rawHistory()) },
+		func(sessionID string) error { return router.Save(sessionID, eng.rawHistory()) },
 		func(sessionID string) error {
-			history, err := ns.Load(sessionID)
+			history, err := router.Load(sessionID)
 			if err != nil {
 				return err
 			}

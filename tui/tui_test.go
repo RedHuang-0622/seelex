@@ -81,3 +81,15 @@ func TestCtrlCCancelsActiveChat(t *testing.T) {
 		t.Fatalf("cancelled %q", app.cancelled)
 	}
 }
+
+func TestPlanNodeLifecycleIconsAreDefined(t *testing.T) {
+	for _, status := range []application.NodeStatus{
+		application.NodeQueued,
+		application.NodeCanceled,
+		application.NodePanicked,
+	} {
+		if planNodeIcon(status) == "?" {
+			t.Fatalf("missing icon for %q", status)
+		}
+	}
+}

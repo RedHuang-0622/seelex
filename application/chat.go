@@ -21,6 +21,10 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 		service.mu.Unlock()
 		return fmt.Errorf("application is shut down")
 	}
+	if service.draining {
+		service.mu.Unlock()
+		return ErrApplicationDraining
+	}
 	if service.snapshot.Chat.Running {
 		service.mu.Unlock()
 		return ErrChatRunning
@@ -28,6 +32,7 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	requestID := fmt.Sprintf("chat-%d", time.Now().UnixNano())
 	chatContext, cancel := context.WithCancel(parent)
 	service.cancelChat = cancel
+	service.markBusyLocked()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
 	user := *service.appendMessageLocked("user", request.displayInput, nil)
 	assistant := *service.appendMessageLocked("assistant", "", nil)
@@ -51,9 +56,7 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 		service.mu.Unlock()
 		return
 	}
-	service.snapshot.Chat.Running = false
 	service.snapshot.Chat.Error = ""
-	service.cancelChat = nil
 	if err != nil {
 		service.snapshot.Chat.Error = err.Error()
 		service.appendMessageLocked("error", err.Error(), nil)
@@ -65,12 +68,24 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	// 处理输入队列：取所有排队输入合并为一条，批量发送
 	processQueue := len(service.inputQueue) > 0
 	var batchRequest chatRequest
+	var nextContext context.Context
+	nextRequestID := ""
+	var nextUser, nextAssistant *Message
 	if processQueue {
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(service.inputQueue)
 		service.inputQueue = nil
 		service.snapshot.Chat.QueuedCount = 0
 		service.snapshot.Chat.InputQueue = nil
+		nextRequestID = fmt.Sprintf("chat-%d", time.Now().UnixNano())
+		nextContext, service.cancelChat = context.WithCancel(context.Background())
+		service.snapshot.Chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
+		nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
+		nextAssistant = service.appendMessageLocked("assistant", "", nil)
+	} else {
+		service.snapshot.Chat.Running = false
+		service.cancelChat = nil
+		service.markIdleLocked()
 	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()
@@ -81,7 +96,31 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	}
 	// 批量发送：所有排队消息一次发给 LLM
 	if processQueue {
-		go service.startChat(context.Background(), batchRequest)
+		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextUser)
+		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
+		go service.runChat(nextContext, nextRequestID, batchRequest.modelInput)
+	}
+}
+
+func closedSignal() chan struct{} {
+	idle := make(chan struct{})
+	close(idle)
+	return idle
+}
+
+func (service *Service) markBusyLocked() {
+	select {
+	case <-service.idle:
+		service.idle = make(chan struct{})
+	default:
+	}
+}
+
+func (service *Service) markIdleLocked() {
+	select {
+	case <-service.idle:
+	default:
+		close(service.idle)
 	}
 }
 
@@ -135,6 +174,9 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 	if name == "plan_clear" {
 		service.snapshot.Runtime.Plan = nil
 	}
+	if name == "plan_run" {
+		service.deps.Runtime.SetPlanBranchBinding(service.planBranchBindingLocked())
+	}
 
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
@@ -142,6 +184,22 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 	service.mu.Unlock()
 	service.events.Publish(EventToolStarted, revision, requestID, message)
 	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+}
+
+func (service *Service) planBranchBindingLocked() seelebridge.PlanBranchBinding {
+	binding := seelebridge.PlanBranchBinding{
+		SessionID: service.snapshot.Session.ID,
+		AccountID: service.snapshot.Runtime.Account,
+		TraceID:   service.snapshot.Chat.RequestID,
+	}
+	if workspace := service.snapshot.CurrentWorkspace; workspace != nil {
+		binding.WorkspaceID = workspace.ID
+	}
+	if plan := service.snapshot.Runtime.Plan; plan != nil {
+		binding.PlanID = plan.EntryNodeID
+		binding.EntryNodeID = plan.EntryNodeID
+	}
+	return binding
 }
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
@@ -412,6 +470,38 @@ func (service *Service) HandlePlanNodeComplete(nr *workplanTypes.NodeResult) {
 	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
 }
 
+// HandlePlanBranchEvent applies a branch lifecycle transition received from
+// the bridge and publishes the updated runtime snapshot for both frontends.
+func (service *Service) HandlePlanBranchEvent(event seelebridge.PlanBranchEvent) {
+	service.mu.Lock()
+	plan := service.snapshot.Runtime.Plan
+	if plan == nil {
+		service.mu.Unlock()
+		return
+	}
+	for index := range plan.Nodes {
+		if plan.Nodes[index].ID != event.NodeID {
+			continue
+		}
+		plan.Nodes[index].Status = PlanNodeStatus(event.Type)
+		break
+	}
+	switch event.Type {
+	case "queued", "started":
+		if plan.Status == PlanPending {
+			plan.Status = PlanRunning
+		}
+	case "failed", "panicked":
+		plan.Status = PlanFailed
+	}
+	recalculatePlanProgress(plan)
+	revision := service.bumpLocked()
+	requestID := service.snapshot.Chat.RequestID
+	runtime := cloneRuntimeState(service.snapshot.Runtime)
+	service.mu.Unlock()
+	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+}
+
 // mapKindForDisplay 将框架节点 kind 映射为 seelex PlanNode 展示值。
 // 框架内部使用 "approve"（KindApprove），但在用户侧展示为 "manual"。
 func mapKindForDisplay(kind string) string {
@@ -427,7 +517,9 @@ func mapKindForDisplay(kind string) string {
 // PlanNodeStatus 将字符串转为 NodeStatus。
 func PlanNodeStatus(s string) NodeStatus {
 	switch s {
-	case "running":
+	case "queued":
+		return NodeQueued
+	case "running", "started":
 		return NodeRunning
 	case "completed":
 		return NodeCompleted
@@ -437,8 +529,24 @@ func PlanNodeStatus(s string) NodeStatus {
 		return NodeAborted
 	case "skipped":
 		return NodeSkipped
+	case "canceled":
+		return NodeCanceled
+	case "panicked":
+		return NodePanicked
 	default:
 		return NodePending
+	}
+}
+
+func recalculatePlanProgress(plan *PlanState) {
+	done := 0
+	for _, node := range plan.Nodes {
+		if node.Status == NodeCompleted || node.Status == NodeSkipped {
+			done++
+		}
+	}
+	if len(plan.Nodes) > 0 {
+		plan.Progress = float64(done) / float64(len(plan.Nodes))
 	}
 }
 

@@ -2,10 +2,12 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 type Store interface {
@@ -20,6 +22,7 @@ type Store interface {
 type Manager struct {
 	store       Store
 	nestedStore *seelebridge.NestedSessionStore // optional workspace-aware store
+	router      *sessionstore.Router
 	mu          sync.Mutex
 	saveFn      func(sessionID string) error // 注入：保存当前会话到 store
 	loadFn      func(sessionID string) error // 注入：从 store 加载到 engine
@@ -34,8 +37,19 @@ func (m *Manager) WithNestedStore(ns *seelebridge.NestedSessionStore) {
 	m.nestedStore = ns
 }
 
+// WithRouter installs the atomic, configurable repository used by production.
+// The legacy nested store remains supported for compatibility with old callers.
+func (m *Manager) WithRouter(router *sessionstore.Router) {
+	m.router = router
+	m.store = router
+}
+
 // SetWorkspace sets the active workspace for session routing.
 func (m *Manager) SetWorkspace(workspaceID string) {
+	if m.router != nil {
+		m.router.SetWorkspace(workspaceID)
+		return
+	}
 	if m.nestedStore != nil {
 		m.nestedStore.SetWorkspace(workspaceID)
 	}
@@ -43,10 +57,34 @@ func (m *Manager) SetWorkspace(workspaceID string) {
 
 // Workspace returns the currently active workspace ID.
 func (m *Manager) Workspace() string {
+	if m.router != nil {
+		return m.router.Workspace()
+	}
 	if m.nestedStore != nil {
 		return m.nestedStore.Workspace()
 	}
 	return ""
+}
+
+func (m *Manager) StorageConfig() (sessionstore.Config, error) {
+	if m.router == nil {
+		return sessionstore.Config{}, fmt.Errorf("session: configurable storage is unavailable")
+	}
+	return m.router.Config(), nil
+}
+
+func (m *Manager) TestStorage(ctx context.Context, config sessionstore.Config) error {
+	if m.router == nil {
+		return fmt.Errorf("session: configurable storage is unavailable")
+	}
+	return m.router.Test(ctx, config)
+}
+
+func (m *Manager) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
+	if m.router == nil {
+		return fmt.Errorf("session: configurable storage is unavailable")
+	}
+	return m.router.Configure(ctx, config)
 }
 
 // ListByWorkspace lists sessions stored under a specific workspace.

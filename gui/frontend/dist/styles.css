@@ -440,8 +440,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-view { display: grid; gap: 6px; font-size: 11px; }
 .plan-header { display: flex; justify-content: space-between; }
 .plan-node { padding: 6px 8px; border-left: 2px solid #555; color: #aaa; background: #151515; }
+.plan-node.queued { border-color: #5aa9ff; color: #9bc8ff; }
+.plan-node.running { border-color: #ffd166; color: #ffe0a0; }
 .plan-node.completed { border-color: var(--success); }
 .plan-node.failed { border-color: var(--danger); }
+.plan-node.canceled { border-color: #9a4d4d; color: #cc8686; }
+.plan-node.panicked { border-color: #d06cff; color: #e4a7ff; }
 .muted { color: var(--muted); }
 
 .modal { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .68); backdrop-filter: blur(7px); }
@@ -552,6 +556,14 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .ws-warn { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 3px 6px; border: 1px solid #5a2a2a; border-radius: 4px; color: #d87979; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; background: #1f1414; }
 .ws-git { display: block; margin-top: 5px; color: #6ba8d9; font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .workspace-info { margin-bottom: 6px; }
+.settings-card { width: min(500px, calc(100vw - 28px)); }
+.settings-note { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.settings-field { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: 12px; }
+.settings-field input, .settings-field select { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; background: #111; color: var(--text); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.settings-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.settings-actions button { border: 1px solid var(--border); border-radius: 7px; padding: 8px 11px; cursor: pointer; color: var(--text); background: #1b1b1b; }
+.settings-actions .primary { background: var(--accent); color: #07110d; border-color: var(--accent); }
+.text-button { margin-top: 7px; padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 10px; cursor: pointer; }
 
 /* ── Permission chip ───────────────────────────── */
 .perm-chip { display: inline-flex; align-items: center; height: 27px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--faint); background: #181818; cursor: pointer; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; transition: border-color .2s, background .2s, color .2s; }

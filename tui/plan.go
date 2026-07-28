@@ -13,20 +13,26 @@ import (
 
 var planNodeIcons = map[application.NodeStatus]string{
 	application.NodePending:   "○",
+	application.NodeQueued:    "◌",
 	application.NodeRunning:   "▶",
 	application.NodeCompleted: "✓",
 	application.NodeFailed:    "✗",
 	application.NodeAborted:   "⊘",
 	application.NodeSkipped:   "–",
+	application.NodeCanceled:  "⊘",
+	application.NodePanicked:  "⚠",
 }
 
 var planNodeColors = map[application.NodeStatus]lipgloss.Color{
 	application.NodePending:   lipgloss.Color("240"), // 灰
+	application.NodeQueued:    lipgloss.Color("69"),  // 蓝
 	application.NodeRunning:   lipgloss.Color("220"), // 金
 	application.NodeCompleted: lipgloss.Color("76"),  // 绿
 	application.NodeFailed:    lipgloss.Color("196"), // 红
 	application.NodeAborted:   lipgloss.Color("124"), // 暗红
 	application.NodeSkipped:   lipgloss.Color("242"), // 浅灰
+	application.NodeCanceled:  lipgloss.Color("124"), // 暗红
+	application.NodePanicked:  lipgloss.Color("201"), // 紫红
 }
 
 var planStatusIcons = map[application.PlanStatus]string{
@@ -316,6 +322,10 @@ func styleStatusText(s string) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 	case "failed":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	case "panicked":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("201"))
+	case "canceled":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("124"))
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	}

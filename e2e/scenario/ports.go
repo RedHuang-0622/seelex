@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 type Application interface {
@@ -44,4 +45,4 @@ type ToolExecutor interface {
 	Execute(context.Context, string, string) (string, error)
 }
 
-type ToolExecutorFactory func(ApprovalRequester) ToolExecutor
+type ToolExecutorFactory func(ApprovalRequester, func(seelebridge.PlanBranchEvent)) ToolExecutor
