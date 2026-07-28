@@ -105,3 +105,21 @@ feat(gui): add safe alpha desktop frontend
 
 Refs: release P0, GUI alpha
 ```
+
+## Application modularization (2026-07-28)
+
+| Directory | Responsibility |
+|---|---|
+| `application/model` | Versioned DTOs and safe snapshot copies |
+| `application/event` | Event envelope and subscription hub |
+| `application/approval` | Approval request lifecycle |
+| `application/contract` | Application-owned external ports |
+| `application/prompt` | Prompt stack and effort policy |
+| `application/search` | Tavily web-search provider |
+| `application/core` | Service use-case orchestration |
+
+`application/application.go` preserves the existing public API as a facade, so
+callers in the composition root, TUI, GUI, and adapters do not need import-path
+changes. `application/README.md` documents the dependency direction.
+
+Verification: `go test ./application/...` and `go test ./...`.

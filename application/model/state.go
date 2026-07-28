@@ -1,4 +1,5 @@
-package application
+// Package model defines the versioned application DTOs shared with clients.
+package model
 
 import (
 	"time"
@@ -137,6 +138,15 @@ type AccountInfo struct {
 	Model    string `json:"model"`
 	Disabled bool   `json:"disabled"`
 }
+
+// WorkspaceInfo is the minimal workspace summary carried by application state.
+type WorkspaceInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	RootPath  string `json:"root_path"`
+	GitRemote string `json:"git_remote,omitempty"`
+}
+
 type SessionInfo struct {
 	ID         string    `json:"id"`
 	UpdatedAt  time.Time `json:"updated_at"`
@@ -165,7 +175,8 @@ type Capabilities struct {
 	SessionResumeReason string `json:"session_resume_reason,omitempty"`
 }
 
-func cloneSnapshot(snapshot Snapshot) Snapshot {
+// CloneSnapshot returns an independent copy suitable for concurrent readers.
+func CloneSnapshot(snapshot Snapshot) Snapshot {
 	copySnapshot := snapshot
 	copySnapshot.Sessions = append([]SessionInfo(nil), snapshot.Sessions...)
 	if snapshot.SessionWorkspaces != nil {
@@ -189,7 +200,7 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 			copySnapshot.Conversation[index].Tool = &tool
 		}
 	}
-	copySnapshot.Runtime = cloneRuntimeState(snapshot.Runtime)
+	copySnapshot.Runtime = CloneRuntimeState(snapshot.Runtime)
 	if snapshot.Interaction != nil {
 		interaction := *snapshot.Interaction
 		interaction.Options = append([]InteractionOption(nil), snapshot.Interaction.Options...)
@@ -198,7 +209,8 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	return copySnapshot
 }
 
-func cloneRuntimeState(runtime RuntimeState) RuntimeState {
+// CloneRuntimeState returns an independent copy of mutable runtime slices.
+func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime := runtime
 	copyRuntime.VisibleTools = append([]Tool(nil), runtime.VisibleTools...)
 	copyRuntime.Skills = append([]SkillInfo(nil), runtime.Skills...)

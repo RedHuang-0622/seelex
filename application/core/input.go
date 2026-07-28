@@ -1,4 +1,4 @@
-package application
+package core
 
 import (
 	"context"
@@ -63,14 +63,14 @@ func (service *Service) endSkill() error {
 		return nil
 	}
 	// goal 仍在活动栈时保持无限循环；否则只恢复循环上限，不改动 prompt 层顺序。
-	maxLoops := effortLoops[service.effortManager.Current()]
+	loopLimit := maxLoopsFor(service.effortManager.Current())
 	for _, layer := range service.promptStack.Layers() {
 		if layer.Kind == "skill" && layer.Name == "goal" {
-			maxLoops = 9999
+			loopLimit = 9999
 			break
 		}
 	}
-	service.deps.Engine.SetMaxLoops(maxLoops)
+	service.deps.Engine.SetMaxLoops(loopLimit)
 	service.addNotice("已退栈 Skill: " + name)
 	return nil
 }

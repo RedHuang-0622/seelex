@@ -1,4 +1,5 @@
-package application
+// Package core orchestrates application use cases while depending only on contracts.
+package core
 
 import (
 	"context"
@@ -57,7 +58,7 @@ func New(deps Dependencies) *Service {
 	service.refreshRuntimeLocked(context.Background())
 	service.buildSystemPrompt()
 	service.snapshot.Revision = 1
-	service.approval.setObserver(service.observeInteraction)
+	service.approval.SetObserver(service.observeInteraction)
 	return service
 }
 

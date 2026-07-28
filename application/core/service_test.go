@@ -1,4 +1,4 @@
-package application
+package core
 
 import (
 	"context"
@@ -694,6 +694,8 @@ func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
 
 func TestApprovalBrokerResolve(t *testing.T) {
 	hub := NewEventHub()
+	subscription := hub.Subscribe(1)
+	defer subscription.Close()
 	broker := NewApprovalBroker(hub)
 	result := make(chan ApprovalDecision, 1)
 	go func() {
@@ -702,15 +704,13 @@ func TestApprovalBrokerResolve(t *testing.T) {
 			result <- decision
 		}
 	}()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		broker.mu.Lock()
-		_, pending := broker.pending["approval-1"]
-		broker.mu.Unlock()
-		if pending {
-			break
+	select {
+	case event := <-subscription.Events:
+		if event.Kind != EventInteractionOpened {
+			t.Fatalf("opened event kind = %q, want %q", event.Kind, EventInteractionOpened)
 		}
-		time.Sleep(time.Millisecond)
+	case <-time.After(time.Second):
+		t.Fatal("approval request was not opened")
 	}
 	if err := broker.Resolve("approval-1", ApprovalDecision{OptionID: "yes"}); err != nil {
 		t.Fatal(err)

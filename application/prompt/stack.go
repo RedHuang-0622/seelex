@@ -1,5 +1,5 @@
-// Package application provides the Seelex application service layer.
-package application
+// Package prompt manages system-prompt layers and effort instructions.
+package prompt
 
 import (
 	"sort"

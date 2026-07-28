@@ -1,9 +1,13 @@
-package application
+// Package contract defines the application-owned interfaces for external systems.
+package contract
 
 import (
 	"context"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/approval"
+	"github.com/RedHuang-0622/seelex/application/event"
+	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -39,9 +43,9 @@ type ChatEngine interface {
 type RuntimePort interface {
 	Model() string
 	Provider() string
-	Accounts() []AccountInfo
+	Accounts() []model.AccountInfo
 	SelectAccount(string) bool
-	VisibleTools(context.Context) []Tool
+	VisibleTools(context.Context) []model.Tool
 	ActivePlugin() string
 	SetFullAccess(bool)
 	SetPlanBranchBinding(seelebridge.PlanBranchBinding)
@@ -49,19 +53,19 @@ type RuntimePort interface {
 	UnbindProjectRoot()
 }
 type PluginPort interface {
-	All() []PluginInfo
+	All() []model.PluginInfo
 	Activate(context.Context, string) error
 	Deactivate(context.Context) error
-	Current() (PluginInfo, bool)
+	Current() (model.PluginInfo, bool)
 }
 type SkillPort interface {
-	All() []SkillInfo
-	Get(string) (SkillInfo, bool)
+	All() []model.SkillInfo
+	Get(string) (model.SkillInfo, bool)
 }
 type SessionPort interface {
 	SaveCurrent(string) error
 	Delete(string) error
-	List() []SessionInfo
+	List() []model.SessionInfo
 	LoadHistory(string) ([]EngineMessage, error)
 	// LoadHistoryRange 按偏移量窗口加载，返回 [offset, offset+limit) 和总数。
 	LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)
@@ -71,21 +75,14 @@ type SessionPort interface {
 	Workspace() string
 }
 
-type WorkspaceInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	RootPath  string `json:"root_path"`
-	GitRemote string `json:"git_remote,omitempty"`
-}
-
 type WorkspacePort interface {
-	Create(name, rootPath, gitRemote string) (WorkspaceInfo, error)
-	Get(id string) (WorkspaceInfo, error)
-	List() []WorkspaceInfo
+	Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error)
+	Get(id string) (model.WorkspaceInfo, error)
+	List() []model.WorkspaceInfo
 	Delete(id string) error
 	BindSession(sessionID, workspaceID string)
 	UnbindSession(sessionID string)
-	SessionWorkspace(sessionID string) (WorkspaceInfo, bool)
+	SessionWorkspace(sessionID string) (model.WorkspaceInfo, bool)
 	AllBindings() map[string]string
 	DetectGitRemote(rootPath string) string
 }
@@ -97,6 +94,6 @@ type Dependencies struct {
 	Skills    SkillPort
 	Sessions  SessionPort
 	Workspace WorkspacePort
-	Events    *EventHub
-	Approval  *ApprovalBroker
+	Events    *event.EventHub
+	Approval  *approval.ApprovalBroker
 }

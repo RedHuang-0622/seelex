@@ -1,4 +1,5 @@
-package application
+// Package search contains web-search providers used by Seelex.
+package search
 
 import (
 	"bytes"

@@ -1,4 +1,4 @@
-package application
+package core
 
 import (
 	"context"
@@ -457,7 +457,7 @@ func TestService_ShutdownThenStartChat(t *testing.T) {
 func TestEffortManager_RaceConcurrentApply(t *testing.T) {
 	ps := NewPromptStack()
 	ps.Push("base", "base", "base prompt")
-	eng := &mockEngine{}
+	eng := &fakeEngine{}
 	em := NewEffortManager(ps, eng)
 
 	var wg sync.WaitGroup
@@ -478,7 +478,7 @@ func TestEffortManager_RaceConcurrentApply(t *testing.T) {
 func TestEffortManager_RaceCycleAndApply(t *testing.T) {
 	ps := NewPromptStack()
 	ps.Push("base", "base", "base prompt")
-	eng := &mockEngine{}
+	eng := &fakeEngine{}
 	em := NewEffortManager(ps, eng)
 
 	var wg sync.WaitGroup

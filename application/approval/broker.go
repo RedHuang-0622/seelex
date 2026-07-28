@@ -1,4 +1,5 @@
-package application
+// Package approval manages asynchronous user approval requests.
+package approval
 
 import (
 	"context"
@@ -6,6 +7,9 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/event"
+	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 var (
@@ -13,10 +17,20 @@ var (
 	ErrInteractionResolved = errors.New("interaction already resolved")
 )
 
+type (
+	Interaction       = model.Interaction
+	InteractionOption = model.InteractionOption
+)
+
+const (
+	EventInteractionOpened = event.EventInteractionOpened
+	EventInteractionClosed = event.EventInteractionClosed
+)
+
 type ApprovalRequest struct {
 	ID       string
 	Question string
-	Options  []InteractionOption
+	Options  []model.InteractionOption
 	Risk     string
 	ToolName string
 	Preview  string
@@ -26,22 +40,23 @@ type ApprovalDecision struct {
 	OptionID string `json:"option_id"`
 }
 type approvalPending struct {
-	interaction Interaction
+	interaction model.Interaction
 	result      chan ApprovalDecision
 }
 
 type ApprovalBroker struct {
 	mu       sync.Mutex
 	pending  map[string]*approvalPending
-	events   *EventHub
-	observer func(*Interaction)
+	events   *event.EventHub
+	observer func(*model.Interaction)
 }
 
-func NewApprovalBroker(events *EventHub) *ApprovalBroker {
+func NewApprovalBroker(events *event.EventHub) *ApprovalBroker {
 	return &ApprovalBroker{pending: make(map[string]*approvalPending), events: events}
 }
 
-func (broker *ApprovalBroker) setObserver(observer func(*Interaction)) {
+// SetObserver receives a copy of each newly opened interaction.
+func (broker *ApprovalBroker) SetObserver(observer func(*model.Interaction)) {
 	broker.mu.Lock()
 	broker.observer = observer
 	broker.mu.Unlock()

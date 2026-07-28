@@ -1,8 +1,11 @@
-package application
+// Package event implements application event delivery.
+package event
 
 import (
 	"encoding/json"
 	"sync"
+
+	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 type EventKind string
@@ -85,7 +88,7 @@ func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, 
 	}
 	hub.mu.Lock()
 	hub.seq++
-	event := Event{ProtocolVersion: ProtocolVersion, Seq: hub.seq, Revision: revision, RequestID: requestID, Kind: kind, Payload: encoded}
+	event := Event{ProtocolVersion: model.ProtocolVersion, Seq: hub.seq, Revision: revision, RequestID: requestID, Kind: kind, Payload: encoded}
 	for _, subscriber := range hub.subscribers {
 		select {
 		case subscriber <- event:

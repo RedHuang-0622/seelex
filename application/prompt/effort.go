@@ -1,4 +1,4 @@
-package application
+package prompt
 
 import (
 	"fmt"
@@ -57,6 +57,9 @@ var effortLoops = map[string]int{
 	"high":   512,
 	"max":    1024,
 }
+
+// MaxLoops returns the engine loop limit for an effort level.
+func MaxLoops(level string) int { return effortLoops[level] }
 
 // NewEffortManager 创建 Effort 管理器。
 func NewEffortManager(ps *PromptStack, eng interface {

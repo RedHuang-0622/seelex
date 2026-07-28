@@ -1,9 +1,12 @@
-package application
+package search
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
+
+func contains(text, substring string) bool { return strings.Contains(text, substring) }
 
 func TestWebSearch_EmptyAPIKey(t *testing.T) {
 	cfg := WebSearchConfig{APIKey: ""}

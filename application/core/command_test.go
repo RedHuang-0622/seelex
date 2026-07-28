@@ -1,4 +1,4 @@
-package application
+package core
 
 import (
 	"context"
@@ -592,8 +592,8 @@ func TestSkillEndPreservesGoalLoopLimitUntilGoalIsPopped(t *testing.T) {
 	engine.mu.Lock()
 	maxLoops = engine.maxLoops
 	engine.mu.Unlock()
-	if maxLoops != effortLoops["medium"] {
-		t.Fatalf("MaxLoops after popping goal = %d, want %d", maxLoops, effortLoops["medium"])
+	if maxLoops != maxLoopsFor("medium") {
+		t.Fatalf("MaxLoops after popping goal = %d, want %d", maxLoops, maxLoopsFor("medium"))
 	}
 }
 
