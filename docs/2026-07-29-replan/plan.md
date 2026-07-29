@@ -51,6 +51,7 @@ Replan 请求只携带以下有界信息：
 - `TestResolvePlanFailureReplansWithoutRunningReplacement`
 - `TestResolvePlanFailureKeepsInteractionWhenReplanFails`
 - `TestRuntimePrepareReplanForcesPlanLoadForExplicitLiteRecovery`
+- 定量结果、真实 API 试跑记录和本机验证边界见 [test-report.md](test-report.md)。
 
 ## 真实 API A/B（2026-07-29）
 
@@ -59,6 +60,6 @@ Replan 请求只携带以下有界信息：
 | 组别 | 路径 | 结果 | provider 请求 |
 |---|---|---|---|
 | A / control | Lite + Plan Skill，模型自发调用 `plan_load` | 成功 | 由正常 ReAct 调用 |
-| B / treatment | `PrepareReplan`，隔离请求 + 强制 `plan_load` | 成功 | 1 |
+| B / treatment | `PrepareReplan`，隔离请求 + 强制 `plan_load` | 成功 | 2（首个数组格式被前置拒绝后纠正） |
 
-这个单样本不能证明强制路径会提高模型本身的规划质量；它证明了两条路径都能完成该恢复意图。保留 B 的依据是系统保证：schema、effort policy、幂等键、全局成本预算和可审计指标不依赖模型自觉遵守。
+这个单样本不能证明强制路径会提高模型本身的规划质量；它证明了两条路径都能完成该恢复意图。B 的两次 provider 请求也实际覆盖了“错误 JSON 在载入前被拒绝、单次纠错重试后成功”的幂等边界。保留 B 的依据是系统保证：schema、effort policy、幂等键、全局成本预算和可审计指标不依赖模型自觉遵守。
