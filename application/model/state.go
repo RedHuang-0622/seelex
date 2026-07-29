@@ -67,9 +67,28 @@ type RuntimeState struct {
 	VisibleTools []Tool        `json:"visible_tools"`
 	Skills       []SkillInfo   `json:"skills"`
 	Tokens       string        `json:"tokens"`
+	Replan       ReplanMonitor `json:"replan"`
 	Plan         *PlanState    `json:"plan,omitempty"`
 	Plugins      []PluginInfo  `json:"plugins,omitempty"`  // 完整插件列表（含描述）
 	Accounts     []AccountInfo `json:"accounts,omitempty"` // 账号池
+}
+
+// ReplanMonitor exposes bounded recovery-planning usage without exposing
+// request content or provider credentials.
+type ReplanMonitor struct {
+	InFlight               int       `json:"in_flight"`
+	ConcurrentLimit        int       `json:"concurrent_limit"`
+	WindowAttempts         int       `json:"window_attempts"`
+	WindowLimit            int       `json:"window_limit"`
+	WindowStartedAt        time.Time `json:"window_started_at,omitempty"`
+	Accepted               uint64    `json:"accepted"`
+	Succeeded              uint64    `json:"succeeded"`
+	Failed                 uint64    `json:"failed"`
+	Rejected               uint64    `json:"rejected"`
+	DuplicateRejected      uint64    `json:"duplicate_rejected"`
+	ProviderRequests       uint64    `json:"provider_requests"`
+	ProviderWindowRequests int       `json:"provider_window_requests"`
+	ProviderWindowLimit    int       `json:"provider_window_limit"`
 }
 
 // ── Plan 可视化 ────────────────────────────────────────────
@@ -83,6 +102,7 @@ type PlanState struct {
 	Edges       []seelebridge.PlanEdge `json:"edges,omitempty"`
 	Progress    float64                `json:"progress"`
 	Elapsed     string                 `json:"elapsed,omitempty"`
+	ReplanCount int                    `json:"replan_count,omitempty"`
 }
 
 type PlanStatus string

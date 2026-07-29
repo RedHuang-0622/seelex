@@ -102,15 +102,16 @@ func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
 type fakeRuntime struct {
-	account      string
-	binding      seelebridge.PlanBranchBinding
-	planPolicy   seelebridge.PlanPolicy
-	preflight    []string
-	preflightErr error
-	replans      []seelebridge.ReplanRequest
-	replanResult seelebridge.PlanPreflight
-	replanErr    error
-	projectRoot  string
+	account       string
+	binding       seelebridge.PlanBranchBinding
+	planPolicy    seelebridge.PlanPolicy
+	preflight     []string
+	preflightErr  error
+	replans       []seelebridge.ReplanRequest
+	replanResult  seelebridge.PlanPreflight
+	replanErr     error
+	replanMetrics seelebridge.ReplanMetrics
+	projectRoot   string
 }
 
 func (*fakeRuntime) Model() string    { return "test-model" }
@@ -141,6 +142,7 @@ func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request seelebridge
 	runtime.replans = append(runtime.replans, request)
 	return runtime.replanResult, runtime.replanErr
 }
+func (runtime *fakeRuntime) ReplanMetrics() seelebridge.ReplanMetrics { return runtime.replanMetrics }
 func (runtime *fakeRuntime) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	runtime.binding = binding
 }
@@ -1085,6 +1087,61 @@ func TestResolvePlanFailureKeepsInteractionWhenReplanFails(t *testing.T) {
 	}
 	if current := service.Snapshot().Interaction; current == nil || current.ID != interaction.ID {
 		t.Fatalf("failed replan closed recovery interaction: %+v", current)
+	}
+}
+
+func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
+	runtime := &fakeRuntime{replanResult: seelebridge.PlanPreflight{
+		Arguments: `{"entry":"recover","nodes":{"recover":{"input":"diagnose"}},"edges":{}}`,
+		Result:    `{"status":"loaded","node_count":1}`,
+	}}
+	service := newTestService(&fakeEngine{})
+	service.deps.Runtime = runtime
+	defer service.Shutdown()
+
+	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build"}},"edges":{}}`)
+	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+	for attempt := 0; attempt < maxReplansPerPlanChain; attempt++ {
+		service.handleToolStart("plan_run", fmt.Sprintf("run-%d", attempt), `{}`)
+		service.handleToolComplete("plan_run", fmt.Sprintf("run-%d", attempt), `{"status":"failed","error":"node \"recover\": failed"}`, nil, 0)
+		interaction := service.Snapshot().Interaction
+		if interaction == nil {
+			t.Fatalf("attempt %d did not open recovery interaction", attempt)
+		}
+		if err := service.ResolveInteraction(context.Background(), interaction.ID, "replan"); err != nil {
+			t.Fatalf("attempt %d replan: %v", attempt, err)
+		}
+	}
+	service.handleToolStart("plan_run", "run-limit", `{}`)
+	service.handleToolComplete("plan_run", "run-limit", `{"status":"failed","error":"node \"recover\": failed"}`, nil, 0)
+	interaction := service.Snapshot().Interaction
+	if interaction == nil {
+		t.Fatal("expected recovery interaction after limit")
+	}
+	if err := service.ResolveInteraction(context.Background(), interaction.ID, "replan"); err == nil || !strings.Contains(err.Error(), "recovery limit") {
+		t.Fatalf("limit error = %v", err)
+	}
+	if len(runtime.replans) != maxReplansPerPlanChain {
+		t.Fatalf("replan calls = %d, want %d", len(runtime.replans), maxReplansPerPlanChain)
+	}
+	if plan := service.Snapshot().Runtime.Plan; plan == nil || plan.ReplanCount != maxReplansPerPlanChain {
+		t.Fatalf("plan replan count = %+v", plan)
+	}
+}
+
+func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T) {
+	runtime := &fakeRuntime{replanMetrics: seelebridge.ReplanMetrics{
+		InFlight: 1, ConcurrentLimit: 2, WindowAttempts: 3, WindowLimit: 6,
+		Accepted: 3, Succeeded: 2, Failed: 1, Rejected: 4, DuplicateRejected: 1, ProviderRequests: 5,
+	}}
+	service := newTestService(&fakeEngine{})
+	service.deps.Runtime = runtime
+	service.mu.Lock()
+	service.refreshRuntimeLocked(context.Background())
+	service.mu.Unlock()
+	monitor := service.Snapshot().Runtime.Replan
+	if monitor.InFlight != 1 || monitor.WindowAttempts != 3 || monitor.Rejected != 4 || monitor.ProviderRequests != 5 {
+		t.Fatalf("replan monitor = %+v", monitor)
 	}
 }
 

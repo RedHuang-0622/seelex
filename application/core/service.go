@@ -12,6 +12,8 @@ import (
 
 const defaultHistoryWindow = 200
 
+const maxReplansPerPlanChain = 2
+
 var (
 	ErrChatRunning         = errors.New("chat is already running")
 	ErrApplicationDraining = errors.New("application is finishing active work")
@@ -34,6 +36,7 @@ type Service struct {
 	draining            bool
 	closed              bool
 	sessionNames        map[string]sessionNameCacheEntry
+	replanInFlight      map[string]struct{}
 	inputQueue          []chatRequest // 排队中的界面输入和模型输入
 }
 
@@ -48,7 +51,8 @@ func New(deps Dependencies) *Service {
 	service := &Service{
 		deps: deps, events: deps.Events, approval: deps.Approval,
 		commands: NewCommandRegistry(), promptStack: ps,
-		sessionNames: make(map[string]sessionNameCacheEntry),
+		sessionNames:   make(map[string]sessionNameCacheEntry),
+		replanInFlight: make(map[string]struct{}),
 	}
 	service.effortManager = NewEffortManager(ps, deps.Engine)
 	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
@@ -271,7 +275,7 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 	case "plan_retry":
 		switch optionID {
 		case "replan":
-			if err := service.replanFailedWork(ctx, interaction.Question); err != nil {
+			if err := service.replanFailedWork(ctx, interaction.ID, interaction.Question); err != nil {
 				return err
 			}
 		case "retry":
@@ -578,6 +582,15 @@ func (service *Service) refreshRuntimeLocked(ctx context.Context) {
 	service.snapshot.Runtime.VisibleTools = append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...)
 	service.snapshot.Runtime.Skills = append([]SkillInfo(nil), service.deps.Skills.All()...)
 	service.snapshot.Runtime.Tokens = service.deps.Engine.TokenCount()
+	metrics := service.deps.Runtime.ReplanMetrics()
+	service.snapshot.Runtime.Replan = ReplanMonitor{
+		InFlight: metrics.InFlight, ConcurrentLimit: metrics.ConcurrentLimit,
+		WindowAttempts: metrics.WindowAttempts, WindowLimit: metrics.WindowLimit,
+		WindowStartedAt: metrics.WindowStartedAt, Accepted: metrics.Accepted,
+		Succeeded: metrics.Succeeded, Failed: metrics.Failed, Rejected: metrics.Rejected,
+		DuplicateRejected: metrics.DuplicateRejected, ProviderRequests: metrics.ProviderRequests,
+		ProviderWindowRequests: metrics.ProviderWindowRequests, ProviderWindowLimit: metrics.ProviderWindowLimit,
+	}
 	service.snapshot.Runtime.Plugins = append([]PluginInfo(nil), service.deps.Plugins.All()...)
 	service.snapshot.Runtime.Accounts = append([]AccountInfo(nil), service.deps.Runtime.Accounts()...)
 }
@@ -631,6 +644,7 @@ func (service *Service) openInteraction(interaction *Interaction) {
 
 func (service *Service) closeInteraction(id string) {
 	service.mu.Lock()
+	delete(service.replanInFlight, id)
 	if service.snapshot.Interaction != nil && service.snapshot.Interaction.ID == id {
 		service.snapshot.Interaction = nil
 	}

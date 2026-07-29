@@ -112,11 +112,37 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		t.Fatal("live request completed without a successful plan_load tool call")
 	}
 
+	// A/B control: Lite keeps the same Plan skill but does not run the forced
+	// preflight. This measures whether the provider voluntarily emits a valid
+	// recovery plan for the same failure-shaped request.
+	if err := app.SwitchEffort(ctx, "lite"); err != nil {
+		t.Fatalf("switch to lite control: %v", err)
+	}
+	controlStart := len(app.Snapshot().Conversation)
+	if err := app.Submit(ctx, "A loaded plan failed at node inspect because evidence was incomplete. Create a replacement recovery plan with plan_load only. Do not call plan_run or any other tool."); err != nil {
+		t.Fatalf("submit voluntary replan control: %v", err)
+	}
+	if err := app.WaitForIdle(ctx); err != nil {
+		t.Fatalf("wait for voluntary replan control: %v", err)
+	}
+	control := app.Snapshot()
+	controlLoaded := false
+	for _, message := range control.Conversation[controlStart:] {
+		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
+			controlLoaded = true
+			break
+		}
+	}
+	t.Logf("replan A/control voluntary_plan_load=%t chat_error=%q", controlLoaded, control.Chat.Error)
+
+	// B/treatment: this is the same recovery intent through the isolated,
+	// forced tool-choice path. It must succeed without executing plan_run.
+	beforeTreatment := runtime.ReplanMetrics()
 	replan, err := runtime.PrepareReplan(ctx, seelebridge.ReplanRequest{
-		Objective:    "Inspect and report the repository safely.",
-		PreviousPlan: `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"}},"edges":{}}`,
-		Failure:      `node "inspect": simulated incomplete evidence`,
-		Evidence:     "node=inspect status=failed",
+		Objective:    "Recover a failed repository inspection: create a diagnose node followed by a report node. Do not execute either node.",
+		PreviousPlan: `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the repository"},"report":{"input":"report findings"}},"edges":{"inspect":["report"]}}`,
+		Failure:      `node "inspect": evidence was incomplete`,
+		Evidence:     "node=inspect status=failed output=partial file inventory",
 	})
 	if err != nil {
 		t.Fatalf("live replan request failed: %v", err)
@@ -124,6 +150,8 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	if replan.Arguments == "" || !strings.Contains(replan.Result, `"status":"loaded"`) {
 		t.Fatalf("live replan result = %#v, want successful plan_load", replan)
 	}
+	afterTreatment := runtime.ReplanMetrics()
+	t.Logf("replan B/treatment forced_plan_load=true provider_requests_delta=%d accepted_delta=%d rejected_delta=%d", afterTreatment.ProviderRequests-beforeTreatment.ProviderRequests, afterTreatment.Accepted-beforeTreatment.Accepted, afterTreatment.Rejected-beforeTreatment.Rejected)
 }
 
 func truncateSmokeReply(value string, limit int) string {

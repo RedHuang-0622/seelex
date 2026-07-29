@@ -37,8 +37,28 @@ Replan 请求只携带以下有界信息：
 - 新 Plan 的提示词要求保留完成工作、优先诊断或安全替代，不自动重试失败副作用。
 - Plan 载入成功后不自动 `plan_run`；用户先复核替代 DAG，再显式执行。
 
+## 风暴、成本与幂等保护
+
+- 单个 Plan 链最多允许 2 次成功载入的 recovery Plan；达到上限后保留失败交互，不再请求模型。
+- Runtime 进程全局最多 2 个 replan 同时进行，每分钟最多 6 个 replan 操作。
+- 同一窗口内最多 6 个真实 provider 请求；协议修复重试也必须先取得该预算，因此不会把操作额度放大为双倍 token 消耗。
+- 同一 Interaction ID 和同一 Runtime recovery operation key 都会去重，阻止双击或并发事件重复提交。
+- 只有 `plan_load` 的前置 schema/策略校验失败才允许一次修复重试；任何意外工具调用、执行错误或已成功载入的 Plan 都不会重试。
+- `RuntimeState.replan` 暴露 in-flight、窗口使用量、累计成功/失败/拒绝、重复拒绝和 provider 请求数，且不包含请求内容或密钥。
+
 ## 验证
 
 - `TestResolvePlanFailureReplansWithoutRunningReplacement`
 - `TestResolvePlanFailureKeepsInteractionWhenReplanFails`
 - `TestRuntimePrepareReplanForcesPlanLoadForExplicitLiteRecovery`
+
+## 真实 API A/B（2026-07-29）
+
+同一真实账号、相同的“检查节点证据不完整”恢复意图下：
+
+| 组别 | 路径 | 结果 | provider 请求 |
+|---|---|---|---|
+| A / control | Lite + Plan Skill，模型自发调用 `plan_load` | 成功 | 由正常 ReAct 调用 |
+| B / treatment | `PrepareReplan`，隔离请求 + 强制 `plan_load` | 成功 | 1 |
+
+这个单样本不能证明强制路径会提高模型本身的规划质量；它证明了两条路径都能完成该恢复意图。保留 B 的依据是系统保证：schema、effort policy、幂等键、全局成本预算和可审计指标不依赖模型自觉遵守。

@@ -24,10 +24,14 @@ import (
 
 // RuntimeConfig contains the Seelex-facing subset of Agent configuration.
 type RuntimeConfig struct {
-	AccountsPath    string        // LLM 账号配置路径
-	StorePath       string        // 会话存储目录（空 = 不持久化）
-	ToolCallTimeout time.Duration // 工具调用超时
-	HubStartupDelay time.Duration // Hub 启动等待时间
+	MaxReplanProviderRequests int
+	MaxConcurrentReplans      int
+	MaxReplansPerWindow       int
+	ReplanWindow              time.Duration
+	AccountsPath              string        // LLM 账号配置路径
+	StorePath                 string        // 会话存储目录（空 = 不持久化）
+	ToolCallTimeout           time.Duration // 工具调用超时
+	HubStartupDelay           time.Duration // Hub 启动等待时间
 }
 
 // Runtime owns one Seele Agent and exposes application-oriented facades.
@@ -47,6 +51,7 @@ type Runtime struct {
 	branchBinding     PlanBranchBinding
 	planPolicyMu      sync.RWMutex
 	planPolicy        PlanPolicy
+	replanGuard       *replanGuard
 	selectedAccountID string
 	projectScope      *ProjectScope
 	toolCallTimeout   time.Duration
@@ -117,6 +122,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		MCPStack:        mcpstack.New(mcpStackOpts...),
 		projectScope:    NewProjectScope(),
 		toolCallTimeout: cfg.ToolCallTimeout,
+		replanGuard:     newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
 	}
 
 	return r, nil
@@ -204,6 +210,14 @@ func (r *Runtime) currentPlanPolicy() PlanPolicy {
 	r.planPolicyMu.RLock()
 	defer r.planPolicyMu.RUnlock()
 	return r.planPolicy
+}
+
+// ReplanMetrics returns process-wide replan cost and rejection accounting.
+func (r *Runtime) ReplanMetrics() ReplanMetrics {
+	if r == nil || r.replanGuard == nil {
+		return ReplanMetrics{}
+	}
+	return r.replanGuard.snapshot()
 }
 
 func (r *Runtime) RegisterTool(

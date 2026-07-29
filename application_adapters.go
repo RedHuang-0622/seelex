@@ -123,6 +123,9 @@ func (port runtimePort) PreparePlan(ctx context.Context, input string) (seelebri
 func (port runtimePort) PrepareReplan(ctx context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	return port.runtime.PrepareReplan(ctx, request)
 }
+func (port runtimePort) ReplanMetrics() seelebridge.ReplanMetrics {
+	return port.runtime.ReplanMetrics()
+}
 func (port runtimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	port.runtime.SetPlanBranchBinding(binding)
 }

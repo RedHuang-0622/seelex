@@ -25,6 +25,7 @@ type (
 	ToolCall          = model.ToolCall
 	ChatState         = model.ChatState
 	RuntimeState      = model.RuntimeState
+	ReplanMonitor     = model.ReplanMonitor
 	PlanState         = model.PlanState
 	PlanStatus        = model.PlanStatus
 	PlanNode          = model.PlanNode

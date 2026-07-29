@@ -348,8 +348,24 @@ func TestRuntimePrepareReplanForcesPlanLoadForExplicitLiteRecovery(t *testing.T)
 			return
 		}
 		if calls == 1 {
+			invalid, _ := json.Marshal(map[string]interface{}{
+				"entry": "recover",
+				"nodes": map[string]interface{}{
+					"recover": map[string]string{"input": "diagnose compiler failure"},
+				},
+				// This is the provider failure observed in the live smoke: edges
+				// arrived as an array. Policy rejects it before plan_load delegates
+				// to Seele, so the one corrective retry is idempotent.
+				"edges": []interface{}{map[string]string{"to": "recover"}},
+			})
 			_ = json.NewEncoder(writer).Encode(map[string]interface{}{
-				"choices": []interface{}{map[string]interface{}{"message": map[string]string{"role": "assistant", "content": "I will replan."}}},
+				"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{
+					"role": "assistant",
+					"tool_calls": []interface{}{map[string]interface{}{
+						"id": "invalid-recovery-plan", "type": "function",
+						"function": map[string]string{"name": "plan_load", "arguments": string(invalid)},
+					}},
+				}}},
 			})
 			return
 		}
@@ -402,6 +418,10 @@ func TestRuntimePrepareReplanForcesPlanLoadForExplicitLiteRecovery(t *testing.T)
 	}
 	if calls != 2 {
 		t.Fatalf("replan request count = %d, want one bounded retry", calls)
+	}
+	metrics := runtime.ReplanMetrics()
+	if metrics.ProviderRequests != 2 || metrics.Accepted != 1 || metrics.Succeeded != 1 || metrics.InFlight != 0 {
+		t.Fatalf("replan metrics = %+v", metrics)
 	}
 	if len(payload.Messages) < 2 || !strings.Contains(payload.Messages[1].Content, "compiler failed") {
 		t.Fatalf("replan payload did not include failure context: %+v", payload.Messages)

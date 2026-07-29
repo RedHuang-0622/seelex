@@ -47,6 +47,8 @@ scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝�
 
 `PrepareReplan` uses the same isolated, forced `plan_load` path for an explicitly selected recovery. It receives only the objective, old Plan, failure and completed-node evidence; it atomically replaces the WorkPlan but never calls `plan_run` itself.
 
+Recovery planning is protected by a process-wide guard: by default at most two concurrent operations, six replan operations per minute, and six actual provider requests per minute. Its metrics are safe to expose in Application snapshots; a corrective retry is permitted only after a pre-execution `plan_load` validation failure.
+
 每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。两条 fork 路径统一走 Seele ForkCoordinator，默认 fail-fast；best-effort 只有显式配置才可启用。账号选择按 role 与 seed 确定，避免并发分支共享不可控状态。
 
 ## 兼容性原则

@@ -683,8 +683,8 @@ const maxReplanEvidenceBytes = 12 * 1024
 
 // replanRequestLocked extracts the smallest useful recovery context from the
 // authoritative snapshot. It must be called with service.mu held.
-func (service *Service) replanRequestLocked(failure string) seelebridge.ReplanRequest {
-	request := seelebridge.ReplanRequest{Failure: failure}
+func (service *Service) replanRequestLocked(failure, idempotencyKey string) seelebridge.ReplanRequest {
+	request := seelebridge.ReplanRequest{Failure: failure, IdempotencyKey: idempotencyKey}
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
 		message := service.snapshot.Conversation[index]
 		if request.Objective == "" && message.Role == "user" {
@@ -722,11 +722,37 @@ func (service *Service) replanRequestLocked(failure string) seelebridge.ReplanRe
 
 // replanFailedWork replaces a failed plan without running it. This preserves
 // the user's review point between recovery planning and any new side effect.
-func (service *Service) replanFailedWork(ctx context.Context, failure string) error {
+func (service *Service) replanFailedWork(ctx context.Context, interactionID, failure string) (resultErr error) {
 	service.mu.Lock()
-	request := service.replanRequestLocked(failure)
+	if _, exists := service.replanInFlight[interactionID]; exists {
+		service.mu.Unlock()
+		return fmt.Errorf("replan: duplicate interaction %q is already in progress", interactionID)
+	}
+	planAttempts := 0
+	if plan := service.snapshot.Runtime.Plan; plan != nil {
+		planAttempts = plan.ReplanCount
+		if planAttempts >= maxReplansPerPlanChain {
+			service.mu.Unlock()
+			return fmt.Errorf("replan: plan recovery limit of %d reached", maxReplansPerPlanChain)
+		}
+	}
+	service.replanInFlight[interactionID] = struct{}{}
+	request := service.replanRequestLocked(failure, interactionID)
 	requestID := service.snapshot.Chat.RequestID
 	service.mu.Unlock()
+	succeeded := false
+	defer func() {
+		if succeeded {
+			return
+		}
+		service.mu.Lock()
+		delete(service.replanInFlight, interactionID)
+		service.refreshRuntimeLocked(context.Background())
+		revision := service.bumpLocked()
+		runtime := cloneRuntimeState(service.snapshot.Runtime)
+		service.mu.Unlock()
+		service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+	}()
 
 	result, err := service.deps.Runtime.PrepareReplan(ctx, request)
 	if err != nil {
@@ -738,7 +764,17 @@ func (service *Service) replanFailedWork(ctx context.Context, failure string) er
 	toolID := fmt.Sprintf("%s:plan-replan-%d", requestID, time.Now().UnixNano())
 	service.handleToolStart("plan_load", toolID, result.Arguments)
 	service.handleToolComplete("plan_load", toolID, result.Result, nil, 0)
+	service.mu.Lock()
+	if plan := service.snapshot.Runtime.Plan; plan != nil {
+		plan.ReplanCount = planAttempts + 1
+	}
+	service.refreshRuntimeLocked(context.Background())
+	revision := service.bumpLocked()
+	runtime := cloneRuntimeState(service.snapshot.Runtime)
+	service.mu.Unlock()
+	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
 	service.addNotice("Recovery plan loaded. Review it before calling plan_run.")
+	succeeded = true
 	return nil
 }
 

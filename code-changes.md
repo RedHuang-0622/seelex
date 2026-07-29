@@ -158,9 +158,11 @@ ReAct execution.
 
 | File | Change | Purpose |
 |---|---|---|
-| `seelebridge/plan_preflight.go` | Updated | Adds the bounded `PrepareReplan` recovery request, using the same provider-forced `plan_load` path as preflight. |
-| `application/core/chat.go` / `service.go` | Updated | Adds a user-selected replan branch after `plan_run` failure; it loads a replacement DAG but never automatically runs it. |
+| `seelebridge/plan_preflight.go` / `replan_guard.go` | Updated / Added | Adds the bounded `PrepareReplan` recovery request plus process-wide concurrency, operation-rate and provider-request budgets. A schema/policy rejection may make one corrective request only before any WorkPlan replacement; all other failures are not retried. |
+| `application/core/chat.go` / `service.go` | Updated | Adds a user-selected replan branch after `plan_run` failure; it loads a replacement DAG but never automatically runs it. Interaction ID de-duplicates in-flight UI actions and each Plan chain accepts at most two successful recovery replacements. |
+| `application/model/state.go` | Updated | Exposes a non-secret recovery monitor for in-flight work, budgets, successful/failed/rejected requests and provider-call cost proxy. |
+| `seelebridge/replan_guard_test.go` / `runtime_test.go` | Added / Updated | Covers duplicate in-flight operations, global concurrency/rate/provider budgets, one safe corrective retry and its request accounting. |
 | `docs/2026-07-29-replan/plan.md` | Added | Records the recovery path, bounded context and side-effect boundary. |
 | `manual_smoke_test.go` | Updated | Extends the opt-in real API smoke to make a forced live replan request. |
 
-Verification: core recovery tests, runtime forced-tool tests, full repository test suite, and the opt-in real-account smoke test.
+Verification: core recovery tests, runtime forced-tool tests, guard repeat tests, `BenchmarkPlanLoadSmoke`, full repository test suite, and the opt-in real-account A/B smoke test. The live A/B observed a voluntary Lite `plan_load` control and a forced recovery `plan_load` treatment; the treatment used one provider request.
