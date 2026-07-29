@@ -128,8 +128,8 @@ Verification: `go test ./application/...` and `go test ./...`.
 
 | File | Change | Purpose |
 |---|---|---|
-| `seelebridge/plan_tool_provider.go` | Added | Decorates the framework `plan_load` registration with an explicit JSON contract, an invalid array-based counterexample, a valid adjacency-map DAG example, and a node-value schema. |
+| `seelebridge/plan_tool_provider.go` | Added | Decorates the framework `plan_load` registration with strict top-level, node, and edge contracts; includes array/object counterexamples, a valid adjacency-map DAG example, and schemas for node and edge map values. |
 | `seelebridge/runtime.go` | Updated | Registers the decorated provider while preserving the framework's existing WorkPlan handlers. |
-| `seelebridge/runtime_test.go` | Updated | Locks the plan-load description and node object schema into a regression test. |
+| `seelebridge/runtime_test.go` | Updated | Adds schema regression coverage, a smoke test that dispatches a valid DAG through the real handler, and a benchmark for repeated plan loads. |
 
-API compatibility: unchanged. Verification: `go test ./seelebridge -count=1`, `go test ./... -count=1 -timeout=120s`, and `go vet ./...`.
+API compatibility: unchanged. Verification: `go test ./seelebridge -count=1`, `go test ./... -count=1 -timeout=120s`, `go test ./seelebridge -run TestPlanLoadSmoke -count=1`, `go test ./seelebridge -run '^$' -bench BenchmarkPlanLoadSmoke`, and `go vet ./...`.

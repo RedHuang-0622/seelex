@@ -150,8 +150,12 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 			continue
 		}
 		for _, required := range []string{
+			"Use only these top-level fields: entry, nodes, and edges. Do not use item.",
 			"nodes MUST be an object keyed by node ID",
+			"edges MUST be an object keyed by source node ID",
 			`{"entry":"search","nodes":[{"key":"search","input":"find files"}],"edges":{}}`,
+			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}`,
+			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":{"search":[{"to":"summarize"}]}}`,
 			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize the file list"}},"edges":{"search":["summarize"]}}`,
 		} {
 			if !strings.Contains(tool.Function.Description, required) {
@@ -163,9 +167,57 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 		if nodes["type"] != "object" || nodes["additionalProperties"] == nil {
 			t.Fatalf("plan_load nodes schema = %#v, want object with additionalProperties", nodes)
 		}
+		edges := properties["edges"].(map[string]interface{})
+		if edges["type"] != "object" || edges["additionalProperties"] == nil {
+			t.Fatalf("plan_load edges schema = %#v, want object with additionalProperties", edges)
+		}
+		if tool.Function.Parameters["additionalProperties"] != false {
+			t.Fatalf("plan_load root schema must reject unexpected fields: %#v", tool.Function.Parameters)
+		}
 		return
 	}
 	t.Fatal("plan_load tool was not registered")
+}
+
+const planLoadSmokeInput = `{
+  "entry": "search",
+  "nodes": {
+    "search": {"input": "find files"},
+    "summarize": {"input": "summarize the file list"}
+  },
+  "edges": {
+    "search": ["summarize"]
+  }
+}`
+
+func TestPlanLoadSmoke(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadSmokeInput)
+	if err != nil {
+		t.Fatalf("plan_load returned an error: %v", err)
+	}
+	for _, required := range []string{`"status":"loaded"`, `"node_count":2`, `"edge_count":1`, `"entry":"search"`} {
+		if !strings.Contains(result, required) {
+			t.Errorf("plan_load result %q is missing %s", result, required)
+		}
+	}
+}
+
+func BenchmarkPlanLoadSmoke(b *testing.B) {
+	runtime := newTestRuntime(b)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	b.SetBytes(int64(len(planLoadSmokeInput)))
+	b.ResetTimer()
+	for range b.N {
+		if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadSmokeInput); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func TestRuntimeProjectScopedToolsUseBoundProject(t *testing.T) {
@@ -309,7 +361,7 @@ func TestFrameworkMCPValidation(t *testing.T) {
 	}
 }
 
-func newTestRuntime(t *testing.T) *Runtime {
+func newTestRuntime(t testing.TB) *Runtime {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "accounts.yaml")
 	content := `roles:

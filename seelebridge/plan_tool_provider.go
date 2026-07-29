@@ -8,14 +8,20 @@ import (
 const planLoadContractDescription = `
 
 Strict JSON contract:
+- Use only these top-level fields: entry, nodes, and edges. Do not use item.
 - nodes MUST be an object keyed by node ID. Never send nodes as a JSON array.
 - The object key is the node ID. Do not add a key field inside a node.
-- edges is an adjacency object: each source node maps to an array of successor node IDs.
+- edges MUST be an object keyed by source node ID. Each value is an array of target node ID strings, never edge objects.
+- Every ID named by entry or edges must be a key in nodes.
 
-Invalid example (do not use):
+Invalid nodes example (do not use):
 {"entry":"search","nodes":[{"key":"search","input":"find files"}],"edges":{}}
 
-Valid example:
+Invalid edges examples (do not use):
+{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}
+{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":{"search":[{"to":"summarize"}]}}
+
+Valid complete example:
 {"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize the file list"}},"edges":{"search":["summarize"]}}
 `
 
@@ -40,6 +46,7 @@ func (provider *planToolProvider) Tools() []interfaces.ToolEntry {
 
 func enrichPlanLoadEntry(entry interfaces.ToolEntry) interfaces.ToolEntry {
 	entry.Definition.Function.Description += planLoadContractDescription
+	entry.Definition.Function.Parameters["additionalProperties"] = false
 	properties, ok := entry.Definition.Function.Parameters["properties"].(map[string]interface{})
 	if !ok {
 		return entry
@@ -56,6 +63,15 @@ func enrichPlanLoadEntry(entry interfaces.ToolEntry) interfaces.ToolEntry {
 			"kind":  map[string]interface{}{"type": "string", "enum": []string{"auto", "manual"}},
 		},
 		"required": []string{"input"},
+	}
+	edges, ok := properties["edges"].(map[string]interface{})
+	if !ok {
+		return entry
+	}
+	edges["description"] = "Object keyed by source node ID. Each value is an array of target node ID strings; never edge objects."
+	edges["additionalProperties"] = map[string]interface{}{
+		"type":  "array",
+		"items": map[string]interface{}{"type": "string"},
 	}
 	return entry
 }
