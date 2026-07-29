@@ -162,9 +162,10 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 			continue
 		}
 		for _, required := range []string{
-			"Use only these top-level fields: entry, nodes, and edges. Do not use item.",
+			"Prefer only these top-level fields: entry, nodes, and edges. Do not use item.",
 			"Canonical nodes is an object keyed by node ID",
 			"LLM-friendly adapter form is also accepted",
+			"As a recovery compatibility only, Runtime may merge a referenced top-level node spec",
 			"Every array edge MUST name both its source and target",
 			`{"entry":"search","nodes":[{"input":"find files"}],"edges":{}}`,
 			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}`,
@@ -366,6 +367,24 @@ func TestNormalizePlanLoadArgumentsNormalizesNestedTargetsAndRejectsAmbiguousEdg
 	ambiguous := `{"entry":"inspect","nodes":[{"id":"inspect","input":"inspect"},{"id":"report","input":"report"}],"edges":[{"to":"report"}]}`
 	if _, err := NormalizePlanLoadArguments(ambiguous); err == nil || !strings.Contains(err.Error(), "from") {
 		t.Fatalf("ambiguous edge error = %v, want missing source", err)
+	}
+}
+
+func TestNormalizePlanLoadArgumentsMergesReferencedTopLevelNodeSpecs(t *testing.T) {
+	legacy := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"verify":{"input":"check"},"report":{"input":"summarize"},"edges":{"inspect":["verify"],"verify":["report"]}}`
+	canonical, err := NormalizePlanLoadArguments(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"inspect":{"input":"read"}`, `"verify":{"input":"check"}`, `"report":{"input":"summarize"}`} {
+		if !strings.Contains(canonical, expected) {
+			t.Fatalf("canonical plan %s is missing %s", canonical, expected)
+		}
+	}
+
+	unsafe := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"item":{"input":"metadata"},"edges":{}}`
+	if _, err := NormalizePlanLoadArguments(unsafe); err == nil || !strings.Contains(err.Error(), "unexpected top-level field") {
+		t.Fatalf("unreferenced top-level field error = %v", err)
 	}
 }
 

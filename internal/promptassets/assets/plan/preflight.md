@@ -26,6 +26,8 @@ validation.
 - **Never** set `"entry":"inspect"` while naming the actual node
   `inspect_source`, `inspect-files`, or another different ID. Node IDs are
   exact keys, not descriptive phrases.
+- Put `verify` and `report` inside `nodes`, not beside it. For example, do
+  not emit `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"verify":{"input":"check"},"report":{"input":"summarize"},"edges":{"inspect":["verify"],"verify":["report"]}}`; put all three node specs inside `nodes`. Runtime has a narrow recovery adapter for this historic model error, but canonical output is required because recovery compatibility is not a planning format to depend on.
 
 ### Runtime Boundaries
 

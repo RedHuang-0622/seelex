@@ -12,9 +12,10 @@ import (
 const planLoadContractDescription = `
 
 Strict JSON contract:
-- Use only these top-level fields: entry, nodes, and edges. Do not use item.
+- Prefer only these top-level fields: entry, nodes, and edges. Do not use item.
 - Canonical nodes is an object keyed by node ID; canonical edges is an object keyed by source node ID with arrays of target ID strings.
 - LLM-friendly adapter form is also accepted: nodes may be an array of {id|key,input,kind?}, and edges may be an array of {from|source,to|target}.
+- As a recovery compatibility only, Runtime may merge a referenced top-level node spec into nodes before validation. Do not rely on this form; it rejects unreferenced or non-node fields.
 - An edges object may also use [{"to":"target-id"}] values and will be normalized.
 - Every array edge MUST name both its source and target. Do not send {"to":"target"} without from/source.
 - Every ID named by entry or edges must be a key in nodes.
@@ -25,8 +26,8 @@ Invalid nodes example (do not use):
 Invalid edges examples (do not use):
 {"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}
 
-Invalid top-level node example (do not use):
-{"entry":"inspect","inspect":{"input":"inspect"},"verify":{"input":"verify"},"edges":{}}
+Invalid unrelated top-level field example (do not use):
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect"}},"item":{"input":"metadata"},"edges":{}}
 
 Valid adapter example:
 {"entry":"search","nodes":[{"id":"search","input":"find files"},{"key":"summarize","input":"summarize the file list"}],"edges":[{"from":"search","to":"summarize"}]}

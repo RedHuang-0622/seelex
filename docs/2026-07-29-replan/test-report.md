@@ -264,3 +264,22 @@ Local verification before the live acceptance passed: full Go tests, `go vet`,
 normal and production GUI builds, and 34/34 frontend tests. This validates
 schema compliance and functional acceptance; it is not a statistically
 significant generation-quality comparison.
+
+## Referenced top-level node recovery (2026-07-29)
+
+Some preflight model responses used a valid graph but accidentally emitted
+referenced node specifications beside `nodes`, for example `verify` and
+`report` at the top level. `NormalizePlanLoadArguments` now preserves the
+canonical contract while recovering only those unambiguous node specs: the key
+must be named by `entry` or `edges`, and its object may contain only a
+non-empty `input` plus optional `kind` (`auto` or `manual`). Unreferenced
+top-level fields, including `item`, remain pre-execution errors.
+
+| Check | Result | Quantitative result |
+|---|:---:|---:|
+| Exact-shape normalization regression | pass | The `inspect -> verify -> report` form normalized to three canonical `nodes`; an unreferenced `item` was rejected. |
+| Full local pipeline | pass | `CGO_ENABLED=0 go test ./...`, `go vet ./...`, normal and production GUI builds, and frontend 34/34 completed in 130 s. |
+| Opt-in real-account smoke | pass | 89.10 s; Medium: 1 load, 2 nodes, 1 edge; High: 1 load, 3 nodes, 2 edges; `plan_run=0`; explicit replan accepted +1 after two provider requests. |
+
+The prompt still instructs models to put every node under `nodes`; this
+adapter is a bounded recovery path, not an alternate DAG format.

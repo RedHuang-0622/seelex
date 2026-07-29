@@ -14,11 +14,6 @@ func NormalizePlanLoadArguments(argsJSON string) (string, error) {
 	if err := json.Unmarshal([]byte(argsJSON), &root); err != nil {
 		return "", fmt.Errorf("invalid JSON: %w", err)
 	}
-	for key := range root {
-		if key != "entry" && key != "nodes" && key != "edges" {
-			return "", fmt.Errorf("unexpected top-level field %q", key)
-		}
-	}
 	entry, err := requiredString(root, "entry")
 	if err != nil {
 		return "", err
@@ -29,6 +24,9 @@ func NormalizePlanLoadArguments(argsJSON string) (string, error) {
 	}
 	edges, err := normalizePlanEdges(root["edges"])
 	if err != nil {
+		return "", err
+	}
+	if err := mergeReferencedTopLevelNodes(root, entry, nodes, edges); err != nil {
 		return "", err
 	}
 	if _, ok := nodes[entry]; !ok {
@@ -53,6 +51,65 @@ func NormalizePlanLoadArguments(argsJSON string) (string, error) {
 		return "", fmt.Errorf("encode canonical plan: %w", err)
 	}
 	return string(canonical), nil
+}
+
+// mergeReferencedTopLevelNodes accepts one constrained legacy model shape:
+// node specifications accidentally placed beside nodes. It accepts only an
+// object with input/kind fields whose key is already named by entry or edges.
+// Every other top-level field remains an error, so metadata such as item
+// cannot silently become an executable node.
+func mergeReferencedTopLevelNodes(root map[string]json.RawMessage, entry string, nodes map[string]json.RawMessage, edges map[string][]string) error {
+	referenced := map[string]struct{}{entry: {}}
+	for from, targets := range edges {
+		referenced[from] = struct{}{}
+		for _, target := range targets {
+			referenced[target] = struct{}{}
+		}
+	}
+	for key, raw := range root {
+		if key == "entry" || key == "nodes" || key == "edges" {
+			continue
+		}
+		if _, ok := referenced[key]; !ok {
+			return fmt.Errorf("unexpected top-level field %q", key)
+		}
+		if _, exists := nodes[key]; exists {
+			return fmt.Errorf("node %q is defined both in nodes and at the top level", key)
+		}
+		node, err := normalizeTopLevelNodeSpec(key, raw)
+		if err != nil {
+			return err
+		}
+		nodes[key] = node
+	}
+	return nil
+}
+
+func normalizeTopLevelNodeSpec(id string, raw json.RawMessage) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, fmt.Errorf("top-level node %q must be an object: %w", id, err)
+	}
+	for field := range fields {
+		if field != "input" && field != "kind" {
+			return nil, fmt.Errorf("top-level node %q has unexpected field %q", id, field)
+		}
+	}
+	var node struct {
+		Input string `json:"input"`
+		Kind  string `json:"kind,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &node); err != nil || node.Input == "" {
+		return nil, fmt.Errorf("top-level node %q must include a non-empty input", id)
+	}
+	if node.Kind != "" && node.Kind != "auto" && node.Kind != "manual" {
+		return nil, fmt.Errorf("top-level node %q has invalid kind %q", id, node.Kind)
+	}
+	canonical, err := json.Marshal(node)
+	if err != nil {
+		return nil, fmt.Errorf("encode top-level node %q: %w", id, err)
+	}
+	return canonical, nil
 }
 
 func requiredString(root map[string]json.RawMessage, field string) (string, error) {
