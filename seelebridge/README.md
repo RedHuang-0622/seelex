@@ -45,6 +45,8 @@ scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝�
 
 `Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.
 
+`PrepareReplan` uses the same isolated, forced `plan_load` path for an explicitly selected recovery. It receives only the objective, old Plan, failure and completed-node evidence; it atomically replaces the WorkPlan but never calls `plan_run` itself.
+
 每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。两条 fork 路径统一走 Seele ForkCoordinator，默认 fail-fast；best-effort 只有显式配置才可启用。账号选择按 role 与 seed 确定，避免并发分支共享不可控状态。
 
 ## 兼容性原则

@@ -50,6 +50,7 @@ type RuntimePort interface {
 	SetFullAccess(bool)
 	SetPlanPolicy(seelebridge.PlanPolicy)
 	PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error)
+	PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error)
 	SetPlanBranchBinding(seelebridge.PlanBranchBinding)
 	BindProjectRoot(rootPath string) error
 	UnbindProjectRoot()

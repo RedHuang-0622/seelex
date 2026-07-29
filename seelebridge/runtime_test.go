@@ -324,6 +324,93 @@ func TestRuntimePreparePlanForcesPlanLoad(t *testing.T) {
 	}
 }
 
+func TestRuntimePrepareReplanForcesPlanLoadForExplicitLiteRecovery(t *testing.T) {
+	plan := map[string]interface{}{
+		"entry": "recover",
+		"nodes": map[string]interface{}{
+			"recover": map[string]string{"input": "diagnose compiler failure"},
+		},
+		"edges": map[string][]string{},
+	}
+	var payload struct {
+		ToolChoice json.RawMessage `json:"tool_choice"`
+		Messages   []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		defer request.Body.Close()
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Errorf("decode replan request: %v", err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if calls == 1 {
+			_ = json.NewEncoder(writer).Encode(map[string]interface{}{
+				"choices": []interface{}{map[string]interface{}{"message": map[string]string{"role": "assistant", "content": "I will replan."}}},
+			})
+			return
+		}
+		arguments, _ := json.Marshal(plan)
+		_ = json.NewEncoder(writer).Encode(map[string]interface{}{
+			"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{
+				"role": "assistant",
+				"tool_calls": []interface{}{map[string]interface{}{
+					"id": "recovery-plan", "type": "function",
+					"function": map[string]string{"name": "plan_load", "arguments": string(arguments)},
+				}},
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	accounts := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
+	if err := os.WriteFile(accounts, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: accounts, ToolCallTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "lite"})
+
+	result, err := runtime.PrepareReplan(context.Background(), ReplanRequest{
+		Objective:    "build the release",
+		PreviousPlan: `{"entry":"build"}`,
+		Failure:      `node "build": compiler failed`,
+		Evidence:     "node=lint status=completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var choice struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(payload.ToolChoice, &choice); err != nil {
+		t.Fatal(err)
+	}
+	if choice.Type != "function" || choice.Function.Name != "plan_load" {
+		t.Fatalf("tool_choice = %+v, want forced plan_load", choice)
+	}
+	if calls != 2 {
+		t.Fatalf("replan request count = %d, want one bounded retry", calls)
+	}
+	if len(payload.Messages) < 2 || !strings.Contains(payload.Messages[1].Content, "compiler failed") {
+		t.Fatalf("replan payload did not include failure context: %+v", payload.Messages)
+	}
+	if result.Arguments == "" || !strings.Contains(result.Result, `"status":"loaded"`) {
+		t.Fatalf("replan result = %+v", result)
+	}
+}
+
 func BenchmarkPlanLoadSmoke(b *testing.B) {
 	runtime := newTestRuntime(b)
 	defer runtime.Shutdown()

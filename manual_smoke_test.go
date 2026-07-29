@@ -95,18 +95,35 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	if snapshot.Runtime.Plan == nil || snapshot.Runtime.Plan.EntryNodeID != "inspect" {
 		t.Fatalf("live plan state = %#v, want loaded inspect plan", snapshot.Runtime.Plan)
 	}
+	loaded := false
 	for _, message := range snapshot.Conversation {
 		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
-			return
+			loaded = true
+			break
 		}
 	}
-	for index := len(snapshot.Conversation) - 1; index >= 0; index-- {
-		message := snapshot.Conversation[index]
-		if message.Role == "assistant" && message.Content != "" {
-			t.Fatalf("live request completed without a successful plan_load tool call; assistant reply: %q", truncateSmokeReply(message.Content, 500))
+	if !loaded {
+		for index := len(snapshot.Conversation) - 1; index >= 0; index-- {
+			message := snapshot.Conversation[index]
+			if message.Role == "assistant" && message.Content != "" {
+				t.Fatalf("live request completed without a successful plan_load tool call; assistant reply: %q", truncateSmokeReply(message.Content, 500))
+			}
 		}
+		t.Fatal("live request completed without a successful plan_load tool call")
 	}
-	t.Fatal("live request completed without a successful plan_load tool call")
+
+	replan, err := runtime.PrepareReplan(ctx, seelebridge.ReplanRequest{
+		Objective:    "Inspect and report the repository safely.",
+		PreviousPlan: `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"}},"edges":{}}`,
+		Failure:      `node "inspect": simulated incomplete evidence`,
+		Evidence:     "node=inspect status=failed",
+	})
+	if err != nil {
+		t.Fatalf("live replan request failed: %v", err)
+	}
+	if replan.Arguments == "" || !strings.Contains(replan.Result, `"status":"loaded"`) {
+		t.Fatalf("live replan result = %#v, want successful plan_load", replan)
+	}
 }
 
 func truncateSmokeReply(value string, limit int) string {

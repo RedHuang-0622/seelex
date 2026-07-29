@@ -49,7 +49,7 @@
 
 ## Plan 集成
 
-Tool hooks 把 `plan_load` JSON 转为 Plan DAG，把 `plan_run` node/branch 回调映射为 `PlanState`。失败节点可以打开 retry/skip/abort Interaction。Plan branch binding 携带 session/workspace/account/trace/plan IDs，避免分支结果失去归属。
+Tool hooks 把 `plan_load` JSON 转为 Plan DAG，把 `plan_run` node/branch 回调映射为 `PlanState`。失败节点可以打开 retry/replan/skip/abort Interaction。`replan` 只基于失败原因、旧 Plan 和已完成节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。Plan branch binding 携带 session/workspace/account/trace/plan IDs，避免分支结果失去归属。
 
 ## 依赖边界
 

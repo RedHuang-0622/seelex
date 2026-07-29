@@ -8,6 +8,8 @@ For every non-trivial task, the first action MUST be the `plan_load` tool call. 
 
 使用 `plan_load` 定义 DAG，再调用 `plan_run`。Plan 工具是启动即注册的基础工具，不需要切换到独立 Plugin。
 
+When `plan_run` fails, inspect the failed node and completed-node evidence. A user-selected replan loads a recovery DAG for the remaining work only; it never executes automatically, so review the replacement before calling `plan_run`.
+
 必须使用严格 JSON：`nodes` 是按节点 ID 键控的对象，`edges` 是 `source: [targetID]` 邻接表；不要使用 `item`，也不要把 `nodes` 或 `edges` 写成数组。
 
 当前 Effort 的运行时规则：

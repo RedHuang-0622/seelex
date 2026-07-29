@@ -107,6 +107,9 @@ type fakeRuntime struct {
 	planPolicy   seelebridge.PlanPolicy
 	preflight    []string
 	preflightErr error
+	replans      []seelebridge.ReplanRequest
+	replanResult seelebridge.PlanPreflight
+	replanErr    error
 	projectRoot  string
 }
 
@@ -133,6 +136,10 @@ func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 func (runtime *fakeRuntime) PreparePlan(_ context.Context, input string) (seelebridge.PlanPreflight, error) {
 	runtime.preflight = append(runtime.preflight, input)
 	return seelebridge.PlanPreflight{}, runtime.preflightErr
+}
+func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
+	runtime.replans = append(runtime.replans, request)
+	return runtime.replanResult, runtime.replanErr
 }
 func (runtime *fakeRuntime) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	runtime.binding = binding
@@ -1008,6 +1015,76 @@ func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T) {
 	}
 	if interaction := service.Snapshot().Interaction; interaction == nil || interaction.Kind != "plan_retry" {
 		t.Fatalf("interaction = %+v, want plan_retry", interaction)
+	}
+}
+
+func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{replanResult: seelebridge.PlanPreflight{
+		Arguments: `{"entry":"recover","nodes":{"recover":{"input":"diagnose the failed build"}},"edges":{}}`,
+		Result:    `{"status":"loaded","node_count":1}`,
+	}}
+	service := newTestService(engine)
+	service.deps.Runtime = runtime
+	defer service.Shutdown()
+
+	service.mu.Lock()
+	service.appendMessageLocked("user", "build and verify the release", nil)
+	service.mu.Unlock()
+	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
+	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+	service.handleToolStart("plan_run", "run-1", `{}`)
+	service.handleToolComplete("plan_run", "run-1", `{"status":"failed","error":"node \"build\": compiler failed"}`, nil, 0)
+
+	interaction := service.Snapshot().Interaction
+	if interaction == nil {
+		t.Fatal("expected failed plan interaction")
+	}
+	if err := service.ResolveInteraction(context.Background(), interaction.ID, "replan"); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtime.replans) != 1 {
+		t.Fatalf("replan calls = %d, want 1", len(runtime.replans))
+	}
+	request := runtime.replans[0]
+	if request.Objective != "build and verify the release" || !strings.Contains(request.PreviousPlan, `"build"`) {
+		t.Fatalf("replan request lost task or plan: %+v", request)
+	}
+	if !strings.Contains(request.Failure, "compiler failed") || !strings.Contains(request.Evidence, "node=build status=failed") {
+		t.Fatalf("replan request lost failure evidence: %+v", request)
+	}
+	snapshot := service.Snapshot()
+	if snapshot.Interaction != nil {
+		t.Fatalf("interaction was not closed: %+v", snapshot.Interaction)
+	}
+	if snapshot.Runtime.Plan == nil || snapshot.Runtime.Plan.EntryNodeID != "recover" || snapshot.Runtime.Plan.Status != PlanPending {
+		t.Fatalf("replacement plan = %+v", snapshot.Runtime.Plan)
+	}
+	if engine.lastInput != "" {
+		t.Fatalf("replan unexpectedly entered ChatStream with %q", engine.lastInput)
+	}
+}
+
+func TestResolvePlanFailureKeepsInteractionWhenReplanFails(t *testing.T) {
+	runtime := &fakeRuntime{replanErr: errors.New("planner unavailable")}
+	service := newTestService(&fakeEngine{})
+	service.deps.Runtime = runtime
+	defer service.Shutdown()
+
+	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
+	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+	service.handleToolStart("plan_run", "run-1", `{}`)
+	service.handleToolComplete("plan_run", "run-1", `{"status":"failed","error":"node \"build\": compiler failed"}`, nil, 0)
+
+	interaction := service.Snapshot().Interaction
+	if interaction == nil {
+		t.Fatal("expected failed plan interaction")
+	}
+	if err := service.ResolveInteraction(context.Background(), interaction.ID, "replan"); err == nil || !strings.Contains(err.Error(), "planner unavailable") {
+		t.Fatalf("replan error = %v, want planner unavailable", err)
+	}
+	if current := service.Snapshot().Interaction; current == nil || current.ID != interaction.ID {
+		t.Fatalf("failed replan closed recovery interaction: %+v", current)
 	}
 }
 

@@ -270,6 +270,10 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 		}
 	case "plan_retry":
 		switch optionID {
+		case "replan":
+			if err := service.replanFailedWork(ctx, interaction.Question); err != nil {
+				return err
+			}
 		case "retry":
 			service.mu.Lock()
 			service.appendMessageLocked("system", "节点失败，用户选择重试。请调用 plan_run 重新执行工作流。", nil)

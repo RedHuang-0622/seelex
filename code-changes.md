@@ -153,3 +153,14 @@ the `manualsmoke` tag and an explicit `SEELEX_SMOKE_ACCOUNTS` path. It copies
 the configured account file into a test temporary directory and verifies that a
 real model request produces a successful forced `plan_load` call before normal
 ReAct execution.
+
+## Explicit recovery replan
+
+| File | Change | Purpose |
+|---|---|---|
+| `seelebridge/plan_preflight.go` | Updated | Adds the bounded `PrepareReplan` recovery request, using the same provider-forced `plan_load` path as preflight. |
+| `application/core/chat.go` / `service.go` | Updated | Adds a user-selected replan branch after `plan_run` failure; it loads a replacement DAG but never automatically runs it. |
+| `docs/2026-07-29-replan/plan.md` | Added | Records the recovery path, bounded context and side-effect boundary. |
+| `manual_smoke_test.go` | Updated | Extends the opt-in real API smoke to make a forced live replan request. |
+
+Verification: core recovery tests, runtime forced-tool tests, full repository test suite, and the opt-in real-account smoke test.

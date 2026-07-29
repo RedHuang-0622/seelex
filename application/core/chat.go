@@ -668,6 +668,7 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 		Title:    "节点执行失败",
 		Question: fmt.Sprintf("节点 %s 执行失败：%s", failedNodeID, errMsg),
 		Options: []InteractionOption{
+			{ID: "replan", Label: "Replan", Description: "Load a reviewed recovery plan without executing it.", Style: "primary"},
 			{ID: "retry", Label: "重试", Description: "重新执行整个工作流", Style: "warning"},
 			{ID: "skip", Label: "跳过", Description: "修改工作流跳过失败节点再执行", Style: "secondary"},
 			{ID: "abort", Label: "终止", Description: "终止当前工作流", Style: "danger"},
@@ -676,6 +677,69 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 	}
 	service.snapshot.Interaction = interaction
 	return interaction
+}
+
+const maxReplanEvidenceBytes = 12 * 1024
+
+// replanRequestLocked extracts the smallest useful recovery context from the
+// authoritative snapshot. It must be called with service.mu held.
+func (service *Service) replanRequestLocked(failure string) seelebridge.ReplanRequest {
+	request := seelebridge.ReplanRequest{Failure: failure}
+	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
+		message := service.snapshot.Conversation[index]
+		if request.Objective == "" && message.Role == "user" {
+			request.Objective = message.Content
+		}
+		if request.PreviousPlan == "" && message.Tool != nil && message.Tool.Name == "plan_load" {
+			request.PreviousPlan = message.Tool.Arguments
+		}
+		if request.Objective != "" && request.PreviousPlan != "" {
+			break
+		}
+	}
+	if request.Objective == "" {
+		request.Objective = "Recover the failed plan safely."
+	}
+	if plan := service.snapshot.Runtime.Plan; plan != nil {
+		var evidence strings.Builder
+		for _, node := range plan.Nodes {
+			if node.Status != NodeCompleted && node.Status != NodeSkipped && node.Status != NodeFailed {
+				continue
+			}
+			fmt.Fprintf(&evidence, "node=%s status=%s", node.ID, node.Status)
+			if node.Output != "" {
+				fmt.Fprintf(&evidence, " output=%q", node.Output)
+			}
+			evidence.WriteByte('\n')
+		}
+		request.Evidence = evidence.String()
+	}
+	if len(request.Evidence) > maxReplanEvidenceBytes {
+		request.Evidence = request.Evidence[:maxReplanEvidenceBytes] + "\n[evidence truncated]"
+	}
+	return request
+}
+
+// replanFailedWork replaces a failed plan without running it. This preserves
+// the user's review point between recovery planning and any new side effect.
+func (service *Service) replanFailedWork(ctx context.Context, failure string) error {
+	service.mu.Lock()
+	request := service.replanRequestLocked(failure)
+	requestID := service.snapshot.Chat.RequestID
+	service.mu.Unlock()
+
+	result, err := service.deps.Runtime.PrepareReplan(ctx, request)
+	if err != nil {
+		return fmt.Errorf("replan: %w", err)
+	}
+	if result.Arguments == "" {
+		return fmt.Errorf("replan: runtime returned no plan_load arguments")
+	}
+	toolID := fmt.Sprintf("%s:plan-replan-%d", requestID, time.Now().UnixNano())
+	service.handleToolStart("plan_load", toolID, result.Arguments)
+	service.handleToolComplete("plan_load", toolID, result.Result, nil, 0)
+	service.addNotice("Recovery plan loaded. Review it before calling plan_run.")
+	return nil
 }
 
 func planRunFailure(resultJSON string) string {

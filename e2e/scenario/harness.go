@@ -105,6 +105,9 @@ func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)            {}
 func (harnessRuntime) PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error) {
 	return seelebridge.PlanPreflight{}, nil
 }
+func (harnessRuntime) PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
+	return seelebridge.PlanPreflight{}, nil
+}
 func (harnessRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding) {}
 func (harnessRuntime) BindProjectRoot(string) error                       { return nil }
 func (harnessRuntime) UnbindProjectRoot()                                 {}

@@ -120,6 +120,9 @@ func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 func (port runtimePort) PreparePlan(ctx context.Context, input string) (seelebridge.PlanPreflight, error) {
 	return port.runtime.PreparePlan(ctx, input)
 }
+func (port runtimePort) PrepareReplan(ctx context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
+	return port.runtime.PrepareReplan(ctx, request)
+}
 func (port runtimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	port.runtime.SetPlanBranchBinding(binding)
 }
