@@ -48,18 +48,31 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 }
 
 func (service *Service) runChat(ctx context.Context, requestID string, request chatRequest) {
-	preflight, err := service.runPlanPreflight(ctx, requestID, request)
-	authoritativePlan := err == nil && preflight.Arguments != ""
+	var scope seelebridge.PlanActScope
+	var err error
+	if request.requirePlan {
+		scope, err = service.deps.Runtime.AcquirePlanActScope(requestID)
+	}
+	preflight := seelebridge.PlanPreflight{}
+	if err == nil {
+		preflight, err = service.runPlanPreflight(planActPreflightContext(ctx, scope), requestID, request)
+	}
 	modelInput := request.modelInput
-	if authoritativePlan {
-		modelInput = preflightPlanAuthorityContext(preflight.Arguments, request.modelInput)
-		service.deps.Runtime.SetPreflightPlanAuthority(true)
+	if err == nil && preflight.Arguments != "" {
+		if scope != nil {
+			err = scope.Promote()
+		}
+		if err == nil {
+			modelInput = preflightPlanAuthorityContext(preflight.Arguments, request.modelInput)
+		}
 	}
 	if err == nil {
 		_, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
 	}
-	if authoritativePlan {
-		service.deps.Runtime.SetPreflightPlanAuthority(false)
+	if scope != nil {
+		scope.Release()
+	}
+	if preflight.Arguments != "" {
 		if cleanupErr := service.removePreflightPlanAuthorityContext(); cleanupErr != nil && err == nil {
 			err = cleanupErr
 		}
@@ -118,6 +131,13 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
 		go service.runChat(nextContext, nextRequestID, batchRequest)
 	}
+}
+
+func planActPreflightContext(ctx context.Context, scope seelebridge.PlanActScope) context.Context {
+	if scope == nil {
+		return ctx
+	}
+	return scope.PreflightContext(ctx)
 }
 
 func (service *Service) runPlanPreflight(ctx context.Context, requestID string, request chatRequest) (seelebridge.PlanPreflight, error) {

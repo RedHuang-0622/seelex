@@ -94,6 +94,12 @@ type harnessRuntime struct {
 	plugin string
 }
 
+type noopPlanActScope struct{}
+
+func (noopPlanActScope) PreflightContext(ctx context.Context) context.Context { return ctx }
+func (noopPlanActScope) Promote() error                                       { return nil }
+func (noopPlanActScope) Release()                                             {}
+
 func (harnessRuntime) Model() string                                   { return "scripted-e2e" }
 func (harnessRuntime) Provider() string                                { return "local" }
 func (harnessRuntime) Accounts() []application.AccountInfo             { return nil }
@@ -102,7 +108,9 @@ func (harnessRuntime) VisibleTools(context.Context) []application.Tool { return 
 func (runtime harnessRuntime) ActivePlugin() string                    { return runtime.plugin }
 func (harnessRuntime) SetFullAccess(bool)                              {}
 func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)            {}
-func (harnessRuntime) SetPreflightPlanAuthority(bool)                  {}
+func (harnessRuntime) AcquirePlanActScope(string) (seelebridge.PlanActScope, error) {
+	return noopPlanActScope{}, nil
+}
 func (harnessRuntime) PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error) {
 	return seelebridge.PlanPreflight{}, nil
 }

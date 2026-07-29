@@ -262,7 +262,45 @@ func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	runtime.SetPreflightPlanAuthority(true)
+	// Capture handlers before the scope is acquired. This simulates an LLM
+	// retaining a stale tool snapshot while Runtime enters preflight or ReAct.
+	entries := runtime.planProvider.Tools()
+	scope, err := runtime.AcquirePlanActScope("chat-authority-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.AcquirePlanActScope("second-request"); err == nil || !strings.Contains(err.Error(), "active") {
+		t.Fatalf("concurrent scope acquire error = %v, want active-request rejection", err)
+	}
+	checked := map[string]bool{}
+	for _, entry := range entries {
+		name := entry.Definition.Function.Name
+		if name != "plan_load" && name != "plan_clear" {
+			continue
+		}
+		checked[name] = true
+		if _, err := entry.Handler.Execute(context.Background(), `{}`); err == nil || !strings.Contains(err.Error(), "preflight is reserved") {
+			t.Fatalf("stale %s handler during preflight error = %v, want scope rejection", name, err)
+		}
+	}
+	if !checked["plan_load"] || !checked["plan_clear"] {
+		t.Fatalf("pre-scope tool snapshot checked %v, want plan_load and plan_clear", checked)
+	}
+	if _, err := runtime.Agent().DirectDispatch(scope.PreflightContext(context.Background()), "plan_load", planLoadAdapterInput); err != nil {
+		t.Fatalf("scope preflight plan_load error = %v", err)
+	}
+	if err := scope.Promote(); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := entry.Definition.Function.Name
+		if name != "plan_load" && name != "plan_clear" {
+			continue
+		}
+		if _, err := entry.Handler.Execute(context.Background(), `{}`); err == nil || !strings.Contains(err.Error(), "authoritative preflight plan") {
+			t.Fatalf("stale %s handler after promote error = %v, want authority rejection", name, err)
+		}
+	}
 	for _, tool := range runtime.Agent().VisibleTools(context.Background()) {
 		if tool.Function.Name == "plan_load" || tool.Function.Name == "plan_clear" {
 			t.Fatalf("authoritative visible tools still expose %q", tool.Function.Name)
@@ -272,7 +310,8 @@ func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
 		t.Fatalf("authoritative plan_load error = %v, want hidden replacement tool", err)
 	}
 
-	runtime.SetPreflightPlanAuthority(false)
+	scope.Release()
+	scope.Release()
 	available := false
 	for _, tool := range runtime.Agent().VisibleTools(context.Background()) {
 		if tool.Function.Name == "plan_load" {
@@ -288,6 +327,20 @@ func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
 	}
 	if !strings.Contains(result, `"status":"loaded"`) {
 		t.Fatalf("unlocked plan_load result = %q", result)
+	}
+}
+
+func TestPlanPreflightPromptPrefersCanonicalAndDocumentsAdapter(t *testing.T) {
+	prompt := planPreflightPrompt(PlanPolicy{Effort: "high", RequirePlan: true})
+	for _, required := range []string{
+		"Prefer this canonical object shape", "Compatibility input may use nodes[]", "edges[] with from/source and to/target", "Never put node IDs such as inspect or verify",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("preflight prompt %q is missing %q", prompt, required)
+		}
+	}
+	if strings.Contains(prompt, "never arrays") {
+		t.Fatalf("preflight prompt contradicts adapter contract: %q", prompt)
 	}
 }
 

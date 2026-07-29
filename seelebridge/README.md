@@ -18,6 +18,7 @@
 | `plan.go` | adjacency/edge、cycle detection、topological order。 |
 | `plan_tool_provider.go` | `plan_load` 严格 JSON schema/description 装饰器。 |
 | `plan_preflight.go` | 隔离的强制 `plan_load` 请求和 provider `tool_choice` 注入。 |
+| `plan_authority.go` | 原子 PlanAct scope、preflight 内部调用能力和 authority 生命周期。 |
 | `storage.go` | Seele session store 与旧 nested workspace store 兼容。 |
 | `config.go` | 简化账号 YAML 与 role fallback。 |
 | `trace.go` | Seele tracer 类型别名和构造。 |
@@ -55,12 +56,13 @@ When a Medium, High, or Max preflight succeeds, Application wraps the
 canonical WorkPlan and original request in the current-turn
 `<!-- seelex:plan-context:v1 authority=preflight-loaded -->` envelope,
 parallel to Skill context. It is rewritten to the original input before
-session persistence. While the turn is active, Runtime removes `plan_load`
-and `plan_clear` from model-visible tools and retains a handler guard, so the
-loaded Plan cannot be replaced even if the model ignores the context. Authority
-is released when ChatStream returns; the explicit, guarded `PrepareReplan`
-recovery path therefore has `plan_load` available after a `plan_run`
-failure.
+session persistence. Application acquires a request-ID-bound `PlanActScope`
+before preflight. Its private context is the only caller allowed to load the
+Plan; after a successful load it promotes to authority. Runtime then removes
+`plan_load` and `plan_clear` from model-visible tools and retains guards for
+both stale handlers. A second request cannot enter the scope until its owner
+releases it when ChatStream returns; the explicit, guarded `PrepareReplan`
+recovery path therefore has `plan_load` available after a `plan_run` failure.
 
 每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。两条 fork 路径统一走 Seele ForkCoordinator，默认 fail-fast；best-effort 只有显式配置才可启用。账号选择按 role 与 seed 确定，避免并发分支共享不可控状态。
 

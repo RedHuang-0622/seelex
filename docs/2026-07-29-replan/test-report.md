@@ -124,3 +124,117 @@ each was rejected after the single bounded corrective retry. These are recorded
 as provider-generation failures, not as Plan execution, replacement, or
 unbounded retry. They do not change the successful Medium/High preflight A/B
 observations.
+
+## Follow-up: authority scope and quality-claim boundary (2026-07-29)
+
+`planAuthoritative bool` was replaced with a request-ID-bound exclusive
+`PlanAuthorityLease`. A second request is rejected while the owner is active;
+release is idempotent and restores the visible Plan-mutating tools. The test
+suite captures a pre-authority `plan_load` handler and proves that it still
+rejects a replacement after the lease is acquired, covering a stale model tool
+snapshot as well as normal tool visibility.
+
+The previously recorded High sample remains **systems acceptance evidence**, not
+a statistically significant generation-quality result. Any future quality
+claim must use a predeclared task set, fresh session per sample, fixed timeout,
+at least ten independent samples per effort, and report valid-DAG rate,
+structure score, provider requests, latency, and token cost with confidence
+intervals. Until then, the supported claim is limited to enforced planning and
+bounded failure behavior.
+
+## Follow-up live smoke after authority lease (2026-07-29)
+
+The opt-in real-account smoke passed in 56.47 s after the lease change. The
+account file was copied as an opaque input into a temporary directory and was
+not read, printed, or versioned.
+
+| Path | Result | Actual `plan_load` calls | `plan_run` | Provider request delta |
+|---|:---:|---:|---:|---:|
+| Medium authoritative preflight | pass | 1 | 0 | one forced preflight |
+| High authoritative preflight | pass | 1 | 0 | one forced preflight |
+| Lite voluntary recovery control | pass | 1 | 0 | normal ReAct path |
+| Explicit replan treatment | pass | 1 | 0 | +1 |
+
+An immediately preceding High attempt was rejected before execution by the
+preflight boundary; a retry then passed. This confirms safe failure behavior
+and provider-output variability, not a quality improvement claim.
+
+## Follow-up full local verification (2026-07-29)
+
+The post-lease local pipeline completed in 127.4 s:
+
+```text
+CGO_ENABLED=0 go test ./... -count=1 -timeout=120s
+go vet ./...
+go build ./...
+go build -tags 'gui,desktop,production' ./...
+node --test gui/frontend/dist/*.test.mjs
+git diff --check
+```
+
+All Go packages passed; the slowest packages were `seelebridge` (100.704 s)
+and `seelexctx` (50.151 s). The frontend suite passed 32/32 in 489.531 ms.
+
+## Atomic PlanAct scope and live functional A/B (2026-07-29)
+
+Authority is now an atomic `PlanActScope`: it is acquired before preflight,
+permits `plan_load` only from its private context, promotes to authority only
+after a successful load, and releases after ChatStream. Both `plan_load` and
+`plan_clear` stale handlers reject mutation during preflight and after
+promotion. A second scope request fails closed, so concurrent preflight cannot
+replace the WorkPlan between another request's load and `plan_run`.
+
+One High response before the final prompt refinement placed `verify` at JSON
+top level. The adapter rejected it before execution. The preflight prompt and
+tool contract now explicitly forbid node IDs beside `entry`, `nodes`, and
+`edges`.
+
+The post-refinement opt-in live test ran three fresh Runtime/session samples;
+account configuration was copied as opaque input into temporary directories,
+never read, printed, or versioned. No sample called `plan_run`.
+
+| Path | Result | Quantitative result |
+|---|:---:|---|
+| Medium authoritative preflight | pass | 3/3; one `plan_load`, 2 serial nodes, 1 edge per sample |
+| High authoritative preflight | pass | 3/3; one `plan_load`, at least 3 nodes and 2 edges per sample |
+| Explicit forced replan (B) | pass | 3/3; provider request deltas 2, 2, 1; bounded correction only when needed |
+| Lite voluntary recovery control (A) | observed | 2/3 emitted a successful voluntary `plan_load`; 1/3 completed without one |
+
+Durations were 92.41 s, 92.36 s, and 97.32 s (mean 94.03 s). This is a
+functional A/B observation: forced treatment consistently loaded the required
+Plan while Lite's voluntary behavior varied. It is not a same-task,
+statistically significant model-quality experiment; the ten-samples-per-effort
+quality gate remains unchanged.
+
+## Final local verification after atomic scope (2026-07-29)
+
+`CGO_ENABLED=0 go test ./... -count=1 -timeout=120s`, `go vet ./...`, normal
+and production GUI builds, `node --test gui/frontend/dist/*.test.mjs`, and
+`git diff --check` all passed in 127.1 s. The slowest Go packages were
+`seelebridge` at 100.702 s and `seelexctx` at 50.159 s; frontend passed 32/32
+in 527.2892 ms.
+
+## Latest atomic-scope smoke and functional A/B (2026-07-29)
+
+One additional fresh Runtime/session sample passed in 61.55 s. The account
+configuration was copied as an opaque input into a temporary directory; its
+contents were not read, printed, or versioned.
+
+| Path | Result | Quantitative result |
+|---|:---:|---|
+| Medium authoritative preflight | pass | 1 `plan_load`, 2 serial nodes, 1 edge, `plan_run=0` |
+| High authoritative preflight | pass | 1 `plan_load`, 3 nodes, 2 edges, `plan_run=0` |
+| Explicit forced replan (B) | pass | 1 provider request; accepted +1, rejected +0; `plan_run=0` |
+| Lite voluntary recovery control (A) | observed | successful voluntary `plan_load`; `plan_run=0` |
+
+This extends the functional observation, rather than the quality claim: the
+forced path still loaded the required DAG deterministically and the Lite
+control continued to depend on voluntary model behavior. The evidence remains
+below the predeclared ten-independent-samples-per-effort threshold for a
+generation-quality conclusion.
+
+The current local regression pipeline also passed with `CGO_ENABLED=0`:
+`go test ./... -count=1 -timeout=120s`, `go vet ./...`, `go build ./...`, and
+the targeted Plan boundary suite. It took 158.7 s; `seelebridge` took 100.697 s
+and `seelexctx` took 50.185 s in the full test run. Windows CGO was disabled,
+so this result does not claim a `-race` run.

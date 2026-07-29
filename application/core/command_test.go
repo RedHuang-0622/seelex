@@ -450,8 +450,8 @@ func TestSubmitUsesAuthoritativePreflightPlanForHighEffort(t *testing.T) {
 	if !strings.HasPrefix(engine.lastInput, preflightPlanAuthorityPrefix) || !strings.Contains(engine.lastInput, arguments) || !strings.HasSuffix(engine.lastInput, "inspect the repository") {
 		t.Fatalf("engine input = %q, want authoritative plan context plus original request", engine.lastInput)
 	}
-	if len(runtime.planAuthority) != 2 || !runtime.planAuthority[0] || runtime.planAuthority[1] {
-		t.Fatalf("authority transitions = %v, want [true false]", runtime.planAuthority)
+	if len(runtime.planScopeAcquired) != 1 || len(runtime.planScopePromoted) != 1 || len(runtime.planScopeReleased) != 1 || runtime.planScopeAcquired[0] != runtime.planScopePromoted[0] || runtime.planScopeAcquired[0] != runtime.planScopeReleased[0] {
+		t.Fatalf("PlanAct scope lifecycle = acquired %v promoted %v released %v, want one matching request-scoped scope", runtime.planScopeAcquired, runtime.planScopePromoted, runtime.planScopeReleased)
 	}
 	if len(engine.historyBeforeChat) != 1 || engine.historyBeforeChat[0].Content != "prior answer" {
 		t.Fatalf("history before chat = %+v, want unchanged prior history", engine.historyBeforeChat)

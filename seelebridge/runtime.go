@@ -52,7 +52,7 @@ type Runtime struct {
 	planPolicyMu      sync.RWMutex
 	planPolicy        PlanPolicy
 	planAuthorityMu   sync.RWMutex
-	planAuthoritative bool
+	planActScope      *planActScope
 	planProvider      *planToolProvider
 	replanGuard       *replanGuard
 	selectedAccountID string
@@ -148,7 +148,7 @@ func (r *Runtime) RegisterBuiltins() {
 	r.scopedToolsReady = true
 	r.planTool = builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(r.agent.LLM()))
 	r.planTool.SetBranchRuntimeResolver(r.resolvePlanBranchRuntime)
-	r.planProvider = &planToolProvider{tool: r.planTool, policy: r.currentPlanPolicy, authoritative: r.preflightPlanAuthoritative}
+	r.planProvider = &planToolProvider{tool: r.planTool, policy: r.currentPlanPolicy, authoritative: r.preflightPlanAuthoritative, authorize: r.authorizePlanMutation}
 	r.agent.Tools().Register(r.planProvider)
 }
 
@@ -208,22 +208,6 @@ func (r *Runtime) SetPlanPolicy(policy PlanPolicy) {
 	r.planPolicyMu.Lock()
 	r.planPolicy = policy
 	r.planPolicyMu.Unlock()
-}
-
-// SetPreflightPlanAuthority prevents a normal ReAct turn from replacing a
-// successfully loaded preflight WorkPlan. It is scoped by Application to one
-// ChatStream and must never be used to block an explicit recovery replan.
-func (r *Runtime) SetPreflightPlanAuthority(authoritative bool) {
-	r.planAuthorityMu.Lock()
-	r.planAuthoritative = authoritative
-	r.planAuthorityMu.Unlock()
-	r.refreshPlanToolVisibility()
-}
-
-func (r *Runtime) preflightPlanAuthoritative() bool {
-	r.planAuthorityMu.RLock()
-	defer r.planAuthorityMu.RUnlock()
-	return r.planAuthoritative
 }
 
 // refreshPlanToolVisibility rebuilds the tool snapshot after authority changes.

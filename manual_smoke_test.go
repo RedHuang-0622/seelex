@@ -20,7 +20,7 @@ import (
 // network request. Run it with:
 //
 //	$env:SEELEX_SMOKE_ACCOUNTS = (Resolve-Path config/accounts.yaml)
-//	go test -tags manualsmoke . -run TestManualSmokeRealAccountPlan -count=1 -timeout=2m
+//	go test -tags manualsmoke . -run TestManualSmokeRealAccountPlan -count=1 -timeout=5m
 func TestManualSmokeRealAccountPlan(t *testing.T) {
 	accountsPath := strings.TrimSpace(os.Getenv("SEELEX_SMOKE_ACCOUNTS"))
 	if accountsPath == "" {
@@ -73,18 +73,18 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
 	runtime.SetPlanBranchCallback(app.HandlePlanBranchEvent)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	if err := app.SwitchEffort(ctx, "medium"); err != nil {
+	mediumCtx, cancelMedium := smokePhaseContext()
+	defer cancelMedium()
+	if err := app.SwitchEffort(mediumCtx, "medium"); err != nil {
 		t.Fatalf("switch to medium effort: %v", err)
 	}
-	if err := app.Submit(ctx, "#plan"); err != nil {
+	if err := app.Submit(mediumCtx, "#plan"); err != nil {
 		t.Fatalf("activate plan skill: %v", err)
 	}
-	if err := app.Submit(ctx, "Use plan_load exactly once. Load a serial two-node plan with entry node inspect and a second node report; each node must have a short input. Do not run the plan and do not call any other tool. After a successful load, reply with PLAN_SMOKE_OK."); err != nil {
+	if err := app.Submit(mediumCtx, "Use plan_load exactly once. Load a serial two-node plan with entry node inspect and a second node report; each node must have a short input. Do not run the plan and do not call any other tool. After a successful load, reply with PLAN_SMOKE_OK."); err != nil {
 		t.Fatalf("submit live plan request: %v", err)
 	}
-	if err := app.WaitForIdle(ctx); err != nil {
+	if err := app.WaitForIdle(mediumCtx); err != nil {
 		t.Fatalf("wait for live plan request: %v", err)
 	}
 
@@ -124,14 +124,16 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 
 	// High preflight is authoritative: normal ReAct must observe the loaded DAG
 	// instead of issuing a second replacement plan_load call.
-	if err := app.SwitchEffort(ctx, "high"); err != nil {
+	highCtx, cancelHigh := smokePhaseContext()
+	defer cancelHigh()
+	if err := app.SwitchEffort(highCtx, "high"); err != nil {
 		t.Fatalf("switch to high effort: %v", err)
 	}
 	highStart := len(app.Snapshot().Conversation)
-	if err := app.Submit(ctx, "Create a three-node repository audit plan with nodes inspect, verify, and report. Do not run the plan. After planning, reply with HIGH_AUTHORITY_SMOKE_OK."); err != nil {
+	if err := app.Submit(highCtx, "Create a three-node repository audit plan with nodes inspect, verify, and report. Do not run the plan. After planning, reply with HIGH_AUTHORITY_SMOKE_OK."); err != nil {
 		t.Fatalf("submit authoritative high plan request: %v", err)
 	}
-	if err := app.WaitForIdle(ctx); err != nil {
+	if err := app.WaitForIdle(highCtx); err != nil {
 		t.Fatalf("wait for authoritative high plan request: %v", err)
 	}
 	high := app.Snapshot()
@@ -140,44 +142,27 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	for _, message := range high.Conversation[highStart:] {
 		if message.Role == "tool" && message.Tool != nil && message.Tool.Name == "plan_load" {
 			highPlanLoads++
-			highPlanEvents = append(highPlanEvents, message.Role+":"+message.Tool.Status+":"+truncateSmokeReply(message.Tool.Arguments, 160))
+			highPlanEvents = append(highPlanEvents, message.Role+":"+message.Tool.Status+":"+truncateSmokeReply(message.Tool.Error, 300))
 			if message.Tool.Status != "success" {
-				t.Fatalf("authoritative high plan_load status = %q", message.Tool.Status)
+				t.Fatalf("authoritative high plan_load status = %q error=%q", message.Tool.Status, truncateSmokeReply(message.Tool.Error, 500))
 			}
 		}
 	}
-	if high.Chat.Error != "" || highPlanLoads != 1 {
-		t.Fatalf("authoritative high plan loads = %d chat_error=%q events=%q, want one successful preflight load", highPlanLoads, high.Chat.Error, highPlanEvents)
-	}
-	t.Logf("authoritative high preflight_plan_loads=%d plan_run=0", highPlanLoads)
-
-	// A/B control: Lite keeps the same Plan skill but does not run the forced
-	// preflight. This measures whether the provider voluntarily emits a valid
-	// recovery plan for the same failure-shaped request.
-	if err := app.SwitchEffort(ctx, "lite"); err != nil {
-		t.Fatalf("switch to lite control: %v", err)
-	}
-	controlStart := len(app.Snapshot().Conversation)
-	if err := app.Submit(ctx, "A loaded plan failed at node inspect because evidence was incomplete. Create a replacement recovery plan with plan_load only. Do not call plan_run or any other tool."); err != nil {
-		t.Fatalf("submit voluntary replan control: %v", err)
-	}
-	if err := app.WaitForIdle(ctx); err != nil {
-		t.Fatalf("wait for voluntary replan control: %v", err)
-	}
-	control := app.Snapshot()
-	controlLoaded := false
-	for _, message := range control.Conversation[controlStart:] {
-		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
-			controlLoaded = true
-			break
+	if high.Chat.Error != "" || highPlanLoads != 1 || high.Runtime.Plan == nil || len(high.Runtime.Plan.Nodes) < 3 || len(high.Runtime.Plan.Edges) < 2 {
+		nodeCount, edgeCount := 0, 0
+		if high.Runtime.Plan != nil {
+			nodeCount, edgeCount = len(high.Runtime.Plan.Nodes), len(high.Runtime.Plan.Edges)
 		}
+		t.Fatalf("authoritative high result: plan_loads=%d nodes=%d edges=%d chat_error=%q events=%q, want one successful three-node DAG", highPlanLoads, nodeCount, edgeCount, high.Chat.Error, highPlanEvents)
 	}
-	t.Logf("replan A/control voluntary_plan_load=%t chat_error=%q", controlLoaded, control.Chat.Error)
+	t.Logf("authoritative high preflight_plan_loads=%d nodes=%d edges=%d plan_run=0", highPlanLoads, len(high.Runtime.Plan.Nodes), len(high.Runtime.Plan.Edges))
 
 	// B/treatment: this is the same recovery intent through the isolated,
 	// forced tool-choice path. It must succeed without executing plan_run.
 	beforeTreatment := runtime.ReplanMetrics()
-	replan, err := runtime.PrepareReplan(ctx, seelebridge.ReplanRequest{
+	replanCtx, cancelReplan := smokePhaseContext()
+	defer cancelReplan()
+	replan, err := runtime.PrepareReplan(replanCtx, seelebridge.ReplanRequest{
 		Objective:    "Recover a failed repository inspection: create a diagnose node followed by a report node. Do not execute either node.",
 		PreviousPlan: `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the repository"},"report":{"input":"report findings"}},"edges":{"inspect":["report"]}}`,
 		Failure:      `node "inspect": evidence was incomplete`,
@@ -191,6 +176,37 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	}
 	afterTreatment := runtime.ReplanMetrics()
 	t.Logf("replan B/treatment forced_plan_load=true provider_requests_delta=%d accepted_delta=%d rejected_delta=%d", afterTreatment.ProviderRequests-beforeTreatment.ProviderRequests, afterTreatment.Accepted-beforeTreatment.Accepted, afterTreatment.Rejected-beforeTreatment.Rejected)
+
+	// A/control is intentionally last and observational. Lite keeps the same
+	// Plan skill but does not run forced preflight, so lack of a voluntary tool
+	// call or a provider timeout is an A/B measurement, not a failure of the
+	// mandatory Medium/High path or the explicit recovery treatment.
+	controlCtx, cancelControl := smokePhaseContext()
+	defer cancelControl()
+	if err := app.SwitchEffort(controlCtx, "lite"); err != nil {
+		t.Fatalf("switch to lite control: %v", err)
+	}
+	controlStart := len(app.Snapshot().Conversation)
+	if err := app.Submit(controlCtx, "A loaded plan failed at node inspect because evidence was incomplete. Create a replacement recovery plan with plan_load only. Do not call plan_run or any other tool."); err != nil {
+		t.Fatalf("submit voluntary replan control: %v", err)
+	}
+	if err := app.WaitForIdle(controlCtx); err != nil {
+		t.Logf("replan A/control voluntary_plan_load=unknown wait_error=%q", err)
+		return
+	}
+	control := app.Snapshot()
+	controlLoaded := false
+	for _, message := range control.Conversation[controlStart:] {
+		if message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
+			controlLoaded = true
+			break
+		}
+	}
+	t.Logf("replan A/control voluntary_plan_load=%t chat_error=%q", controlLoaded, control.Chat.Error)
+}
+
+func smokePhaseContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 90*time.Second)
 }
 
 func truncateSmokeReply(value string, limit int) string {

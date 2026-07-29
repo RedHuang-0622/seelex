@@ -124,6 +124,20 @@ changes. `application/README.md` documents the dependency direction.
 
 Verification: `go test ./application/...` and `go test ./...`.
 
+## PlanAct authority follow-up (2026-07-29)
+
+| File | Type | Description | Design |
+|---|---|---|---|
+| `seelebridge/plan_authority.go` | Added | Request-ID-bound atomic PlanAct scope with preflight and authority phases. | State machine / Capability |
+| `seelebridge/plan_preflight.go` | Modified | Canonical object DAG is preferred; supported array forms are compatibility input. | Contract normalization |
+| `application/core/chat.go` | Modified | Acquires/releases authority for exactly one ChatStream request. | Scoped lifecycle |
+| `seelebridge/runtime_test.go` | Modified | Covers concurrent acquisition and a stale `plan_load` handler. | Defense in depth test |
+| `manual_smoke_test.go` | Modified | Reports bounded Plan tool errors when an opt-in live High preflight is rejected. | Observable acceptance test |
+
+The existing real-API High samples remain systems-acceptance evidence rather
+than a statistically significant quality claim; the documented follow-up
+protocol requires fresh sessions and at least ten samples per effort.
+
 ## Plan-load tool contract
 
 | File | Change | Purpose |
@@ -201,3 +215,11 @@ one actual role=tool plan_load call and no plan_run; explicit replan used one
 additional provider request. The earlier apparent second High plan_load was
 the UI tool_result lifecycle record for the same invocation, not a provider
 or tool call.
+
+## Atomic PlanAct scope follow-up (2026-07-29)
+
+| File | Type | Description | Design |
+|---|---|---|---|
+| `seelebridge/plan_authority.go` | Modified | Replaces load-then-lease with atomic preflight/authority scope; private context is the only preflight mutation capability. | State machine / Capability |
+| `seelebridge/plan_tool_provider.go` | Modified | Guards stale `plan_clear` as well as `plan_load`; documents invalid top-level node IDs. | Defense in depth |
+| `manual_smoke_test.go` | Modified | Uses independent phase budgets and asserts High DAG structure; Lite is an observational A/B control. | Resilient smoke harness |

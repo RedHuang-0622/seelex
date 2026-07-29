@@ -57,3 +57,34 @@ CGO_ENABLED=0 go test ./seelebridge ./application/core -count=1 -timeout=120s
 
 结果：通过；`seelebridge` 100.579 s，`application/core` 0.670 s。
 
+## Risk follow-up (2026-07-29)
+
+Items 1, 3, and 4 are implemented in the follow-up working tree:
+
+- `planPreflightPrompt` now says canonical object DAG is preferred and array
+  forms are compatibility input normalized by Runtime; its unit test rejects a
+  return to the contradictory “never arrays” wording.
+- `PlanAuthorityLease` is request-ID-bound, exclusive, and idempotently
+  released. A second owner fails closed rather than changing another request's
+  tool visibility.
+- The authority test holds a pre-authority `plan_load` handler, acquires the
+  lease, and verifies that this stale handler is rejected in addition to hidden
+  tool visibility.
+
+The High live samples are still not sufficient for a generation-quality claim.
+The repeatable measurement protocol is recorded in `test-report.md`.
+
+## Atomic scope P1 follow-up (2026-07-29)
+
+The two P1 review findings are resolved in the current working tree:
+
+- `PlanActScope` is acquired before preflight and grants `plan_load` only to
+  its private context, closing the former load-then-acquire replacement window.
+- `plan_clear` now has the same stale-handler mutation guard as `plan_load`.
+  Tests cover blocked external mutation during preflight, permitted internal
+  load, promoted authority, hidden visible tools, concurrent scope rejection,
+  and idempotent release.
+
+Three post-refinement live samples passed for Medium, High, and forced replan.
+Lite voluntary planning remained variable (2/3), which is recorded as A/B
+behavior rather than a generation-quality significance claim.

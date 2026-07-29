@@ -25,6 +25,9 @@ Invalid nodes example (do not use):
 Invalid edges examples (do not use):
 {"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}
 
+Invalid top-level node example (do not use):
+{"entry":"inspect","inspect":{"input":"inspect"},"verify":{"input":"verify"},"edges":{}}
+
 Valid adapter example:
 {"entry":"search","nodes":[{"id":"search","input":"find files"},{"key":"summarize","input":"summarize the file list"}],"edges":[{"from":"search","to":"summarize"}]}
 
@@ -39,25 +42,33 @@ type planToolProvider struct {
 	tool          *builtin.WorkPlanTool
 	policy        func() PlanPolicy
 	authoritative func() bool
+	authorize     func(context.Context, string) error
 }
 
 func (provider *planToolProvider) ProviderName() string { return "seelex-workplan" }
 
 func (provider *planToolProvider) Tools() []interfaces.ToolEntry {
 	entries := provider.tool.Tools()
-	if provider.authoritative != nil && provider.authoritative() {
-		return withoutAuthoritativePlanMutationTools(entries)
-	}
 	for index := range entries {
-		if entries[index].Definition.Function.Name == "plan_load" {
+		switch entries[index].Definition.Function.Name {
+		case "plan_load":
 			entries[index] = enrichPlanLoadEntry(entries[index])
 			entries[index].Handler = &planLoadPolicyHandler{
-				delegate:      entries[index].Handler,
-				tool:          provider.tool,
-				policy:        provider.policy,
-				authoritative: provider.authoritative,
+				delegate:  entries[index].Handler,
+				tool:      provider.tool,
+				policy:    provider.policy,
+				authorize: provider.authorize,
+			}
+		case "plan_clear":
+			entries[index].Handler = &planMutationGuardHandler{
+				delegate:  entries[index].Handler,
+				toolName:  "plan_clear",
+				authorize: provider.authorize,
 			}
 		}
+	}
+	if provider.authoritative != nil && provider.authoritative() {
+		return withoutAuthoritativePlanMutationTools(entries)
 	}
 	return entries
 }
@@ -78,18 +89,20 @@ func withoutAuthoritativePlanMutationTools(entries []interfaces.ToolEntry) []int
 }
 
 type planLoadPolicyHandler struct {
-	delegate      interfaces.ToolHandler
-	tool          *builtin.WorkPlanTool
-	policy        func() PlanPolicy
-	authoritative func() bool
-	mu            sync.Mutex
+	delegate  interfaces.ToolHandler
+	tool      *builtin.WorkPlanTool
+	policy    func() PlanPolicy
+	authorize func(context.Context, string) error
+	mu        sync.Mutex
 }
 
 func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON string) (string, error) {
 	handler.mu.Lock()
 	defer handler.mu.Unlock()
-	if handler.authoritative != nil && handler.authoritative() {
-		return "", fmt.Errorf("plan_load: authoritative preflight plan is already loaded; use plan_run or explicit replan")
+	if handler.authorize != nil {
+		if err := handler.authorize(ctx, "plan_load"); err != nil {
+			return "", err
+		}
 	}
 	canonicalArgs, err := NormalizePlanLoadArguments(argsJSON)
 	if err != nil {
@@ -106,6 +119,21 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 	}
 	handler.tool.SetMaxForkConcurrency(policy.concurrency(nodeCount))
 	return handler.delegate.Execute(ctx, canonicalArgs)
+}
+
+type planMutationGuardHandler struct {
+	delegate  interfaces.ToolHandler
+	toolName  string
+	authorize func(context.Context, string) error
+}
+
+func (handler *planMutationGuardHandler) Execute(ctx context.Context, argsJSON string) (string, error) {
+	if handler.authorize != nil {
+		if err := handler.authorize(ctx, handler.toolName); err != nil {
+			return "", err
+		}
+	}
+	return handler.delegate.Execute(ctx, argsJSON)
 }
 
 func enrichPlanLoadEntry(entry interfaces.ToolEntry) interfaces.ToolEntry {

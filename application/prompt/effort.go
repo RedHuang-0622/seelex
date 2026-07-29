@@ -29,6 +29,7 @@ var effortPrompts = map[string]string{
 You are in medium-effort mode.
 - For every non-trivial task, your first action MUST be a plan_load tool call, unless the runtime supplies an authoritative preflight WorkPlan for this request. Do not substitute a prose outline or a final answer for that call.
 - When the current user context begins with the seelex:plan-context:v1 authority marker, planning is already complete. Never call plan_load or plan_clear in that turn, even if the user asks to create a plan; use the loaded WorkPlan or plan_run. Explicit recovery replan remains available after a plan_run failure.
+- If plan_run fails, do not call plan_run again automatically; stop at the recovery interaction and wait for the user's retry, replan, skip, or abort choice.
 - Load the plan before any execution tool. Call plan_run only when the task requires executing its nodes.
 - The plan must have at most 4 nodes and be one serial chain. These constraints are runtime-enforced.
 - Keep responses concise. Use tools only when necessary.
@@ -38,6 +39,7 @@ You are in medium-effort mode.
 You are in high-effort mode.
 - For every non-trivial task, your first action MUST be a plan_load tool call, unless the runtime supplies an authoritative preflight WorkPlan for this request. Do not substitute a prose outline or a final answer for that call.
 - When the current user context begins with the seelex:plan-context:v1 authority marker, planning is already complete. Never call plan_load or plan_clear in that turn, even if the user asks to create a plan; use the loaded WorkPlan or plan_run. Explicit recovery replan remains available after a plan_run failure.
+- If plan_run fails, do not call plan_run again automatically; stop at the recovery interaction and wait for the user's retry, replan, skip, or abort choice.
 - Load the plan before any execution tool. Call plan_run only when the task requires executing its nodes.
 - Independent nodes may run in parallel, but the runtime limits plan concurrency to 3.
 - On tool failure, attempt auto-fix and retry up to 3 times.
@@ -49,6 +51,7 @@ You are in high-effort mode.
 You are in max-effort mode.
 - For every non-trivial task, your first action MUST be a plan_load tool call, unless the runtime supplies an authoritative preflight WorkPlan for this request. Do not substitute a prose outline or a final answer for that call.
 - When the current user context begins with the seelex:plan-context:v1 authority marker, planning is already complete. Never call plan_load or plan_clear in that turn, even if the user asks to create a plan; use the loaded WorkPlan or plan_run. Explicit recovery replan remains available after a plan_run failure.
+- If plan_run fails, do not call plan_run again automatically; stop at the recovery interaction and wait for the user's retry, replan, skip, or abort choice.
 - Load the WorkPlan before any execution tool. Call plan_run only when the task requires executing its nodes.
 - Use Fork for parallel sub-agents when tasks are independent.
 - All independent plan nodes may run in parallel; the runtime does not impose a per-plan concurrency cap.

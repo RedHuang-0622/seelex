@@ -171,8 +171,9 @@ func planPreflightPrompt(policy PlanPolicy) string {
 		constraint = " Use no more than 4 nodes in one serial chain."
 	}
 	return "Compile the user request into one valid plan_load call. Return the function call only; do not return prose. " +
-		"Use exactly this JSON shape: {\"entry\":\"inspect\",\"nodes\":{\"inspect\":{\"input\":\"inspect\"},\"report\":{\"input\":\"report\"}},\"edges\":{\"inspect\":[\"report\"]}}. " +
-		"nodes and edges are objects, never arrays; edges values are arrays of target ID strings, never edge objects." + constraint
+		"Prefer this canonical object shape: {\"entry\":\"inspect\",\"nodes\":{\"inspect\":{\"input\":\"inspect\"},\"report\":{\"input\":\"report\"}},\"edges\":{\"inspect\":[\"report\"]}}. " +
+		"Compatibility input may use nodes[] with id/key and edges[] with from/source and to/target; Runtime normalizes either form before validation. " +
+		"Never put node IDs such as inspect or verify beside entry, nodes, and edges at the top level. Every edge must name its source and target; canonical edges values are target ID string arrays." + constraint
 }
 
 func replanPrompt(policy PlanPolicy) string {

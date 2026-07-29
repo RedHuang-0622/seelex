@@ -51,6 +51,14 @@
 
 Tool hooks 把 `plan_load` JSON 转为 Plan DAG，把 `plan_run` node/branch 回调映射为 `PlanState`。失败节点可以打开 retry/replan/skip/abort Interaction。`replan` 只基于失败原因、旧 Plan 和已完成节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。Plan branch binding 携带 session/workspace/account/trace/plan IDs，避免分支结果失去归属。
 
+Medium/High/Max 的成功 preflight 会先加载 canonical DAG，再由当前 request ID 获取独占的 `PlanAuthorityLease`。该 lease 存在期间，普通 ReAct 只可执行或读取已加载 Plan，不能替换或清空；同一 Runtime 的第二个 authority 请求会 fail closed。ChatStream 返回时释放 lease，随后用户显式选择的 replan 才可加载恢复计划。
+
+For Medium/High/Max, `chat.go` acquires an exclusive request-ID-bound
+`PlanActScope` before preflight. Only its private context may load the Plan;
+after promotion, normal ReAct and stale `plan_load`/`plan_clear` handlers are
+both prevented from mutating it. The scope is released after ChatStream, before
+an explicit replan may load a recovery DAG.
+
 ## 依赖边界
 
 允许依赖 Application 子包、`seelebridge` 的稳定桥接 DTO 和 `sessionstore.Config`。禁止依赖 `gui`、`tui`、根目录 main package 或具体数据库实现。

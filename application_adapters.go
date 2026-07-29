@@ -117,8 +117,8 @@ func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) 
 func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	port.runtime.SetPlanPolicy(policy)
 }
-func (port runtimePort) SetPreflightPlanAuthority(authoritative bool) {
-	port.runtime.SetPreflightPlanAuthority(authoritative)
+func (port runtimePort) AcquirePlanActScope(requestID string) (seelebridge.PlanActScope, error) {
+	return port.runtime.AcquirePlanActScope(requestID)
 }
 func (port runtimePort) PreparePlan(ctx context.Context, input string) (seelebridge.PlanPreflight, error) {
 	return port.runtime.PreparePlan(ctx, input)

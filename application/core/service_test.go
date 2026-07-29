@@ -111,18 +111,21 @@ func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
 type fakeRuntime struct {
-	account         string
-	binding         seelebridge.PlanBranchBinding
-	planPolicy      seelebridge.PlanPolicy
-	planAuthority   []bool
-	preflight       []string
-	preflightResult seelebridge.PlanPreflight
-	preflightErr    error
-	replans         []seelebridge.ReplanRequest
-	replanResult    seelebridge.PlanPreflight
-	replanErr       error
-	replanMetrics   seelebridge.ReplanMetrics
-	projectRoot     string
+	account           string
+	binding           seelebridge.PlanBranchBinding
+	planPolicy        seelebridge.PlanPolicy
+	planScopeAcquired []string
+	planScopePromoted []string
+	planScopeReleased []string
+	planScopeErr      error
+	preflight         []string
+	preflightResult   seelebridge.PlanPreflight
+	preflightErr      error
+	replans           []seelebridge.ReplanRequest
+	replanResult      seelebridge.PlanPreflight
+	replanErr         error
+	replanMetrics     seelebridge.ReplanMetrics
+	projectRoot       string
 }
 
 func (*fakeRuntime) Model() string    { return "test-model" }
@@ -145,8 +148,27 @@ func (*fakeRuntime) SetFullAccess(bool)   {}
 func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	runtime.planPolicy = policy
 }
-func (runtime *fakeRuntime) SetPreflightPlanAuthority(authoritative bool) {
-	runtime.planAuthority = append(runtime.planAuthority, authoritative)
+func (runtime *fakeRuntime) AcquirePlanActScope(requestID string) (seelebridge.PlanActScope, error) {
+	if runtime.planScopeErr != nil {
+		return nil, runtime.planScopeErr
+	}
+	runtime.planScopeAcquired = append(runtime.planScopeAcquired, requestID)
+	return &fakePlanActScope{runtime: runtime, requestID: requestID}, nil
+}
+
+type fakePlanActScope struct {
+	runtime   *fakeRuntime
+	requestID string
+	once      sync.Once
+}
+
+func (scope *fakePlanActScope) PreflightContext(ctx context.Context) context.Context { return ctx }
+func (scope *fakePlanActScope) Promote() error {
+	scope.runtime.planScopePromoted = append(scope.runtime.planScopePromoted, scope.requestID)
+	return nil
+}
+func (scope *fakePlanActScope) Release() {
+	scope.once.Do(func() { scope.runtime.planScopeReleased = append(scope.runtime.planScopeReleased, scope.requestID) })
 }
 func (runtime *fakeRuntime) PreparePlan(_ context.Context, input string) (seelebridge.PlanPreflight, error) {
 	runtime.preflight = append(runtime.preflight, input)
