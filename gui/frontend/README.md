@@ -37,6 +37,7 @@ Plan DSL 常驻右侧项目栏；没有 Plan 时隐藏整个 section，加载、
 - session/project 名称只显示；按钮 `data-session`、`data-ws` 必须保存 ID。
 - draft session 没有 ID、没有左侧列表行，不允许触发 resume/delete/binding；物化后列表行为仍只使用真实 ID。
 - DSN、API key 等秘密不能进入 renderer state。
+- system prompt、其装配结果和层摘要不能进入 renderer state；Runtime 面板只显示模型、Provider、Plugin、Effort、工具和 Plan 等可公开诊断信息。
 
 ## Review 指南
 

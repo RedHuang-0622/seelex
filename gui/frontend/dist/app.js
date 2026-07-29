@@ -195,7 +195,6 @@ function renderRuntime(runtime) {
     ["Model", runtime.model || "—"],
     ["Provider", runtime.provider || "—"],
     ["Plugin", runtime.plugin || "—"],
-    ["Prompt", runtime.prompt_stack || "—"],
     ["Tools", String(runtime.visible_tools?.length || 0)]
   ].map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
 

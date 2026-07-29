@@ -13,7 +13,7 @@
 - `Push`/`Pop`/`PopKind`/`ClearKind`：维护层。
 - `Reset`：重置基础 prompt。
 - `Render`：按固定顺序生成最终 system prompt。
-- `Layers`/`Describe`：供输入冻结和 UI 诊断。
+- `Layers`：供服务端输入冻结和 Skill 上下文构建。装配后的 system prompt 与层摘要不得进入 Snapshot、Event 或前端诊断。
 
 ## EffortManager
 

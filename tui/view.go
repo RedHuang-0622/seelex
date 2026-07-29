@@ -119,12 +119,6 @@ func (model Model) renderStatusBar() string {
 	if plugin := model.snapshot.Runtime.Plugin; plugin != "" && plugin != "default" {
 		parts = append(parts, plugin)
 	}
-	// Skill 栈状态（仅在加载了 skill 时显示，避免与 effortBadge 重复）
-	if stack := model.snapshot.Runtime.PromptStack; stack != "" && stack != "base" {
-		if strings.Contains(stack, "|") || strings.Contains(stack, "  ") {
-			parts = append(parts, StyleMuted.Render(stack))
-		}
-	}
 	tokens := model.snapshot.Runtime.Tokens
 	if tokens == "" {
 		tokens = "0"

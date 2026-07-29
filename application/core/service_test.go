@@ -30,6 +30,24 @@ type fakeEngine struct {
 	maxLoops          int
 }
 
+func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	const privateInstruction = "private-system-instruction-must-not-reach-frontend"
+	service.promptStack.Push("base", "private", privateInstruction)
+	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	service.mu.Lock()
+	service.refreshRuntimeLocked(context.Background())
+	service.mu.Unlock()
+
+	payload, err := json.Marshal(service.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), "prompt_stack") || strings.Contains(string(payload), privateInstruction) {
+		t.Fatalf("snapshot leaked system prompt data: %s", payload)
+	}
+}
+
 func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	engine.mu.Lock()
 	engine.historyBeforeChat = append([]EngineMessage(nil), engine.history...)
