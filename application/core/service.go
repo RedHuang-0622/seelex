@@ -18,22 +18,23 @@ var (
 )
 
 type Service struct {
-	mu            sync.RWMutex
-	sessionNameMu sync.Mutex
-	deps          Dependencies
-	events        *EventHub
-	approval      *ApprovalBroker
-	commands      *CommandRegistry
-	snapshot      Snapshot
-	promptStack   *PromptStack
-	effortManager *EffortManager
-	messageSeq    uint64
-	cancelChat    context.CancelFunc
-	idle          chan struct{}
-	draining      bool
-	closed        bool
-	sessionNames  map[string]sessionNameCacheEntry
-	inputQueue    []chatRequest // 排队中的界面输入和模型输入
+	mu                  sync.RWMutex
+	sessionNameMu       sync.Mutex
+	sessionTransitionMu sync.Mutex
+	deps                Dependencies
+	events              *EventHub
+	approval            *ApprovalBroker
+	commands            *CommandRegistry
+	snapshot            Snapshot
+	promptStack         *PromptStack
+	effortManager       *EffortManager
+	messageSeq          uint64
+	cancelChat          context.CancelFunc
+	idle                chan struct{}
+	draining            bool
+	closed              bool
+	sessionNames        map[string]sessionNameCacheEntry
+	inputQueue          []chatRequest // 排队中的界面输入和模型输入
 }
 
 func New(deps Dependencies) *Service {
@@ -175,6 +176,11 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 
 func (service *Service) submitConversation(ctx context.Context, input string) error {
 	request := newChatRequest(input, service.promptStack.Layers())
+	service.sessionTransitionMu.Lock()
+	defer service.sessionTransitionMu.Unlock()
+	if err := service.materializeDraftSession(request.displayInput); err != nil {
+		return err
+	}
 	service.mu.Lock()
 	if service.closed {
 		service.mu.Unlock()
@@ -419,17 +425,34 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 }
 
 func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
+	service.sessionTransitionMu.Lock()
+	defer service.sessionTransitionMu.Unlock()
+
 	service.mu.RLock()
 	if service.snapshot.Chat.Running {
 		service.mu.RUnlock()
 		return ErrChatRunning
 	}
 	currentSessionID := service.snapshot.Session.ID
+	draft := service.snapshot.Session.Draft
 	currentWorkspaceID := ""
 	if service.snapshot.CurrentWorkspace != nil {
 		currentWorkspaceID = service.snapshot.CurrentWorkspace.ID
 	}
 	service.mu.RUnlock()
+	if draft {
+		if err := service.deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+			return err
+		}
+		service.deps.Sessions.SetWorkspace(workspace.ID)
+		service.mu.Lock()
+		service.snapshot.CurrentWorkspace = &WorkspaceInfo{ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote}
+		service.refreshWorkspaceLocked()
+		revision := service.bumpLocked()
+		service.mu.Unlock()
+		service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		return nil
+	}
 
 	history := service.deps.Engine.History()
 	startFreshSession := currentWorkspaceID != workspace.ID && len(history) > 0
@@ -473,11 +496,17 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 }
 
 func (service *Service) UnbindWorkspace() {
+	service.sessionTransitionMu.Lock()
+	defer service.sessionTransitionMu.Unlock()
+
 	service.deps.Runtime.UnbindProjectRoot()
 	service.mu.RLock()
 	sessionID := service.snapshot.Session.ID
+	draft := service.snapshot.Session.Draft
 	service.mu.RUnlock()
-	service.deps.Workspace.UnbindSession(sessionID)
+	if !draft && sessionID != "" {
+		service.deps.Workspace.UnbindSession(sessionID)
+	}
 	service.deps.Sessions.SetWorkspace("")
 	service.mu.Lock()
 	service.snapshot.CurrentWorkspace = nil
@@ -634,6 +663,9 @@ func (service *Service) resumeSession(sessionID string) error {
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
+	service.sessionTransitionMu.Lock()
+	defer service.sessionTransitionMu.Unlock()
+
 	service.mu.RLock()
 	running := service.snapshot.Chat.Running
 	service.mu.RUnlock()
@@ -672,8 +704,7 @@ func (service *Service) resumeSession(sessionID string) error {
 		}
 	}
 	service.mu.Lock()
-	service.snapshot.Session.ID = sessionID
-	service.snapshot.Session.Name = sessionTitleFromHistory(history)
+	service.snapshot.Session = SessionState{ID: sessionID, Name: sessionTitleFromHistory(history)}
 	service.snapshot.Conversation = nil
 	service.snapshot.Runtime.Plan = nil // 清除旧 Plan，避免跨会话残留
 	service.snapshot.Interaction = nil  // 清除未完成的交互

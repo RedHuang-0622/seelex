@@ -30,6 +30,7 @@ type fakeApplication struct {
 	selectedPlugin   string
 	loadedHistory    int
 	suggestionsInput string
+	beganNewSession  bool
 }
 
 func newFakeApplication() *fakeApplication {
@@ -51,6 +52,10 @@ func (fake *fakeApplication) Subscribe(buffer int) application.Subscription {
 }
 func (fake *fakeApplication) Submit(_ context.Context, text string) error {
 	fake.submitted = text
+	return nil
+}
+func (fake *fakeApplication) BeginNewSession() error {
+	fake.beganNewSession = true
 	return nil
 }
 func (fake *fakeApplication) CancelChat(requestID string) bool {
@@ -147,6 +152,9 @@ func TestBridgeForwardsCommands(t *testing.T) {
 	if err := bridge.Submit("hello"); err != nil {
 		t.Fatal(err)
 	}
+	if err := bridge.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
 	if !bridge.CancelChat("request-1") {
 		t.Fatal("CancelChat returned false")
 	}
@@ -167,7 +175,7 @@ func TestBridgeForwardsCommands(t *testing.T) {
 	}
 	suggestions := bridge.Suggestions("/he")
 
-	if fake.submitted != "hello" || fake.cancelled != "request-1" {
+	if fake.submitted != "hello" || !fake.beganNewSession || fake.cancelled != "request-1" {
 		t.Fatalf("chat commands were not forwarded: %#v", fake)
 	}
 	if fake.resolvedID != "approval-1" || fake.resolvedOption != "allow" {
@@ -376,6 +384,18 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="project-sources"`) {
 		t.Fatal("right sidebar must render project status and sources")
+	}
+	if !strings.Contains(rightPanel, `id="plan-view"`) || strings.Contains(runtimeModal, `id="plan-view"`) {
+		t.Fatal("Plan DSL must be mounted in the persistent right sidebar")
+	}
+	if !strings.Contains(string(script), `invoke("BeginNewSession")`) || strings.Contains(string(script), `invoke("Submit", "/new")`) {
+		t.Fatal("GUI new-session action must enter a lazy draft instead of eagerly creating a session")
+	}
+	if strings.Contains(string(script), `session-draft-row`) || strings.Contains(string(script), `尚未创建 Session ID`) {
+		t.Fatal("an unmaterialized draft must not create a row in the session list")
+	}
+	if !strings.Contains(string(script), `session.name || shortSessionID(session.id)`) {
+		t.Fatal("materialized session rows must show display names while retaining ID-only action keys")
 	}
 	if !strings.Contains(html, `id="command-modal"`) || !strings.Contains(string(script), "updateInlineSuggestions") {
 		t.Fatal("embedded frontend does not include GUI command mode")

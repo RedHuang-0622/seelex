@@ -105,45 +105,8 @@ func (service *Service) registerBuiltinCommands() {
 		}
 		return CommandResult{Notice: trace}, nil
 	})
-	register("new", "新建会话（当前会话自动保存）", func(context.Context, []string) (CommandResult, error) {
-		id := service.deps.Engine.SessionID()
-		if err := service.deps.Sessions.SaveCurrent(id); err != nil {
-			return CommandResult{}, fmt.Errorf("保存会话失败: %w", err)
-		}
-		newID := service.deps.Engine.StartSession()
-		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
-		service.mu.RLock()
-		var currentWorkspace *WorkspaceInfo
-		if service.snapshot.CurrentWorkspace != nil {
-			workspace := *service.snapshot.CurrentWorkspace
-			currentWorkspace = &workspace
-		}
-		service.mu.RUnlock()
-		if currentWorkspace != nil {
-			if err := service.deps.Runtime.BindProjectRoot(currentWorkspace.RootPath); err != nil {
-				return CommandResult{}, fmt.Errorf("绑定项目根目录失败: %w", err)
-			}
-			service.deps.Workspace.BindSession(newID, currentWorkspace.ID)
-			service.deps.Sessions.SetWorkspace(currentWorkspace.ID)
-		} else {
-			service.deps.Runtime.UnbindProjectRoot()
-			service.deps.Sessions.SetWorkspace("")
-		}
-		service.mu.Lock()
-		service.snapshot.Session.ID = newID
-		service.snapshot.Session.Name = ""
-		service.snapshot.HistoryOffset = 0
-		service.snapshot.TotalMessages = 0
-		service.snapshot.HasMoreHistory = false
-		service.snapshot.Runtime.Plan = nil // 清除旧 Plan，避免跨会话残留
-		service.snapshot.CurrentWorkspace = currentWorkspace
-		service.snapshot.Interaction = nil // 清除未完成的交互
-		if service.deps.Workspace != nil {
-			service.refreshWorkspaceLocked()
-		}
-		service.mu.Unlock()
-		service.resetConversation(fmt.Sprintf("已新建会话（已保存 %s）", id))
-		return CommandResult{}, nil
+	register("new", "准备新会话（首次发送时创建）", func(context.Context, []string) (CommandResult, error) {
+		return CommandResult{}, service.BeginNewSession()
 	})
 	register("resume", "恢复历史会话：/resume <session_id>", func(ctx context.Context, args []string) (CommandResult, error) {
 		service.mu.RLock()

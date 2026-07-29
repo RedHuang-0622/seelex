@@ -23,6 +23,7 @@ type fakeEngine struct {
 	chatErr   error
 	cleared   bool
 	sessionID string
+	starts    int
 	lastInput string
 	maxLoops  int
 }
@@ -65,6 +66,7 @@ func (engine *fakeEngine) SessionID() string {
 func (engine *fakeEngine) StartSession() string {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
+	engine.starts++
 	engine.sessionID = "session-new"
 	engine.history = nil
 	engine.cleared = true
@@ -352,6 +354,129 @@ func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
 	}
 }
 
+func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
+	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "old question"}}}
+	sessions := &trackingSessions{}
+	service := New(Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions,
+	})
+	defer service.Shutdown()
+
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	engine.mu.Lock()
+	startsBeforeSubmit := engine.starts
+	clearedForDraft := engine.cleared
+	engine.mu.Unlock()
+	if startsBeforeSubmit != 0 || !clearedForDraft {
+		t.Fatalf("draft engine state: starts=%d cleared=%v", startsBeforeSubmit, clearedForDraft)
+	}
+	snapshot := service.Snapshot()
+	if !snapshot.Session.Draft || snapshot.Session.ID != "" || snapshot.Session.Name != "新会话" {
+		t.Fatalf("draft session = %+v", snapshot.Session)
+	}
+	if len(snapshot.Conversation) != 0 || snapshot.Runtime.Plan != nil {
+		t.Fatalf("draft must clear conversation and plan: %+v", snapshot)
+	}
+	sessions.mu.Lock()
+	if len(sessions.savedIDs) != 1 || sessions.savedIDs[0] != "session-1" {
+		t.Fatalf("saved sessions after repeated draft clicks = %v", sessions.savedIDs)
+	}
+	sessions.mu.Unlock()
+
+	if err := service.Submit(context.Background(), "first lazy question"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot = service.Snapshot()
+	if snapshot.Session.Draft || snapshot.Session.ID != "session-new" || snapshot.Session.Name != "first lazy question" {
+		t.Fatalf("materialized session = %+v", snapshot.Session)
+	}
+	engine.mu.Lock()
+	startsAfterSubmit := engine.starts
+	engine.mu.Unlock()
+	if startsAfterSubmit != 1 {
+		t.Fatalf("StartSession calls after first request = %d, want 1", startsAfterSubmit)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	sessions := &scopedSessions{}
+	workspaces := newFakeWorkspace()
+	service := New(Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := workspaces.bindings[""]; exists {
+		t.Fatalf("draft session created an empty-ID binding: %v", workspaces.bindings)
+	}
+	if _, exists := workspaces.bindings["session-new"]; exists {
+		t.Fatalf("draft session was bound before first request: %v", workspaces.bindings)
+	}
+	if err := service.Submit(context.Background(), "project question"); err != nil {
+		t.Fatal(err)
+	}
+	if got := workspaces.bindings["session-new"]; got != "project-1" {
+		t.Fatalf("materialized session workspace = %q, want project-1; bindings=%v", got, workspaces.bindings)
+	}
+	if sessions.workspace != "project-1" || runtime.projectRoot != root {
+		t.Fatalf("materialized project scope: workspace=%q root=%q", sessions.workspace, runtime.projectRoot)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResumeSessionLeavesLazyDraft(t *testing.T) {
+	engine := &fakeEngine{}
+	sessions := &scopedSessions{
+		catalog: map[string][]SessionInfo{"": {{ID: "saved", UpdatedAt: time.Now()}}},
+		histories: map[string]map[string][]EngineMessage{
+			"": {"saved": {{Role: "user", Content: "saved question"}, {Role: "assistant", Content: "saved answer"}}},
+		},
+	}
+	service := New(Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions,
+	})
+	defer service.Shutdown()
+
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := service.Snapshot()
+	if snapshot.Session.Draft || snapshot.Session.ID != "saved" || snapshot.Session.Name != "saved question" {
+		t.Fatalf("resumed session = %+v", snapshot.Session)
+	}
+	engine.mu.Lock()
+	starts := engine.starts
+	engine.mu.Unlock()
+	if starts != 0 {
+		t.Fatalf("resume from draft called StartSession %d times", starts)
+	}
+}
+
 func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{}
@@ -377,11 +502,24 @@ func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" {
 		t.Fatalf("new session lost project binding: %+v", snapshot.CurrentWorkspace)
 	}
-	if workspaces.bindings["session-new"] != "project-1" || sessions.workspace != "project-1" {
-		t.Fatalf("new session did not inherit project: bindings=%v sessionStore=%q", workspaces.bindings, sessions.workspace)
+	if !snapshot.Session.Draft || snapshot.Session.ID != "" {
+		t.Fatalf("/new must remain an unmaterialized draft: %+v", snapshot.Session)
 	}
-	if snapshot.SessionWorkspaces["session-new"] != "project-1" {
-		t.Fatalf("snapshot bindings = %v", snapshot.SessionWorkspaces)
+	if _, exists := workspaces.bindings["session-new"]; exists {
+		t.Fatalf("draft session bound before first request: %v", workspaces.bindings)
+	}
+	if err := service.Submit(context.Background(), "first project question"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot = service.Snapshot()
+	if workspaces.bindings["session-new"] != "project-1" || sessions.workspace != "project-1" {
+		t.Fatalf("materialized session did not inherit project: bindings=%v sessionStore=%q", workspaces.bindings, sessions.workspace)
+	}
+	if snapshot.SessionWorkspaces["session-new"] != "project-1" || snapshot.Session.Name != "first project question" {
+		t.Fatalf("materialized snapshot = %+v", snapshot)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

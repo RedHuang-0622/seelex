@@ -202,18 +202,16 @@ func TestBuiltinNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	eng.mu.Lock()
-	cleared := eng.cleared
+	starts := eng.starts
 	eng.mu.Unlock()
-	if !cleared {
-		t.Error("engine should be cleared for new session")
-	}
-	if svc.Snapshot().Session.ID != "session-new" {
-		t.Fatalf("new session ID = %q, want session-new", svc.Snapshot().Session.ID)
+	session := svc.Snapshot().Session
+	if starts != 0 || !session.Draft || session.ID != "" || session.Name != "新会话" {
+		t.Fatalf("lazy /new state: starts=%d session=%+v", starts, session)
 	}
 }
 
 func TestBuiltinNew_SaveFails(t *testing.T) {
-	eng := &fakeEngine{}
+	eng := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "unsaved"}}}
 	svc := New(Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},

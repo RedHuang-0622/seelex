@@ -20,7 +20,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-view", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -115,7 +115,7 @@ function renderProject(snapshot) {
   elements["project-root"].textContent = workspace?.root_path || "";
   elements["project-status"].innerHTML = [
     ["状态", running ? "Agent 执行中" : "Ready"],
-    ["会话", shortSessionID(snapshot.session?.id || "—")],
+    ["会话", snapshot.session?.draft ? "待发送" : shortSessionID(snapshot.session?.id || "—")],
     ["消息", String(snapshot.conversation?.length || 0)],
     ["资料源", String(sources.length)]
   ].map(([label, value]) => `<div class="status-item"><span>${escapeHtml(label)}</span><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
@@ -238,6 +238,7 @@ function renderSkills(skills) {
 }
 
 function renderPlan(plan) {
+  elements["plan-section"].classList.toggle("hidden", !plan);
   reconcilePlanDSL(elements["plan-view"], planToDSL(plan));
 }
 
@@ -460,7 +461,7 @@ elements["load-history"].addEventListener("click", async () => {
 });
 
 elements["new-session"].addEventListener("click", async () => {
-  try { await invoke("Submit", "/new"); await refresh({ scroll: "bottom" }); }
+  try { await invoke("BeginNewSession"); await refresh({ scroll: "bottom" }); }
   catch (error) { showToast(error); }
 });
 

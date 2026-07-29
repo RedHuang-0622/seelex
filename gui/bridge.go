@@ -23,6 +23,7 @@ type Application interface {
 	WaitForIdle(context.Context) error
 	Subscribe(buffer int) application.Subscription
 	Submit(context.Context, string) error
+	BeginNewSession() error
 	CancelChat(string) bool
 	ResolveInteraction(context.Context, string, string) error
 	SelectAccount(context.Context, string) error
@@ -187,6 +188,10 @@ func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.app.Snapsh
 
 func (bridge *Bridge) Submit(text string) error {
 	return bridge.app.Submit(bridge.requestContext(), text)
+}
+
+func (bridge *Bridge) BeginNewSession() error {
+	return bridge.app.BeginNewSession()
 }
 
 func (bridge *Bridge) CancelChat(requestID string) bool {

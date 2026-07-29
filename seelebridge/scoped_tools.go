@@ -267,19 +267,21 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	shell, flag := "sh", "-c"
+	shell := "sh"
+	shellArgs := []string{"-c", input.Command}
 	if _, err := os.Stat("/bin/bash"); err == nil {
 		shell = "bash"
-	} else if _, err := os.Stat(`C:\Windows\System32\cmd.exe`); err == nil {
-		shell, flag = "cmd.exe", "/c"
-		if _, err := os.Stat(`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`); err == nil {
-			shell, flag = "powershell", "-Command"
-		}
+	} else if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; fileExists(powershell) {
+		shell = powershell
+		shellArgs = []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", input.Command}
+	} else if commandPrompt := `C:\Windows\System32\cmd.exe`; fileExists(commandPrompt) {
+		shell = commandPrompt
+		shellArgs = []string{"/d", "/s", "/c", input.Command}
 	}
 	timeout := r.scopedToolTimeout(input.Timeout)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, shell, flag, input.Command)
+	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
 	cmd.Dir = workdir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -297,6 +299,11 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	}
 	output, _ := json.Marshal(scopedBashResult{Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), ExitCode: exitCode})
 	return string(output), nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (r *Runtime) scopedToolTimeout(requestedSeconds int) time.Duration {
