@@ -85,7 +85,7 @@ jobs:
       - name: 构建 Windows GUI
         shell: pwsh
         run: |
-          & .\scripts\build-gui.ps1 -Version $env:GITHUB_REF_NAME
+          & .\scripts\build-gui.ps1 -Version $env:GITHUB_REF_NAME -BuildKind Publish
 
       - uses: actions/upload-artifact@v4
         with:
