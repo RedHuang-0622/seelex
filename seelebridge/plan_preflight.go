@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/internal/promptassets"
 )
 
 // PlanPreflight is the audited result of the mandatory planning turn that
@@ -166,20 +167,37 @@ func (r *Runtime) planPreflightClient() *api.ChatClient {
 }
 
 func planPreflightPrompt(policy PlanPolicy) string {
-	constraint := ""
-	if policy.RequireSerial {
-		constraint = " Use no more than 4 nodes in one serial chain."
-	}
-	return "Compile the user request into one valid plan_load call. Return the function call only; do not return prose. " +
-		"Prefer this canonical object shape: {\"entry\":\"inspect\",\"nodes\":{\"inspect\":{\"input\":\"inspect\"},\"report\":{\"input\":\"report\"}},\"edges\":{\"inspect\":[\"report\"]}}. " +
-		"Compatibility input may use nodes[] with id/key and edges[] with from/source and to/target; Runtime normalizes either form before validation. " +
-		"Never put node IDs such as inspect or verify beside entry, nodes, and edges at the top level. Every edge must name its source and target; canonical edges values are target ID string arrays." + constraint
+	return promptassets.PlanPreflight(planPromptData(policy))
 }
 
 func replanPrompt(policy PlanPolicy) string {
-	return planPreflightPrompt(policy) + " The prior plan failed. Produce a replacement recovery plan for the remaining work only. " +
-		"Do not repeat completed work or automatically retry the failed side effect. Use the supplied failure and evidence to add diagnosis or a safe alternative before any retry. " +
-		"The replacement must contain at least one node and its entry must be a nodes key. If no automatic recovery is safe, create one manual decision node instead of returning an empty plan."
+	return promptassets.PlanReplan(planPromptData(policy))
+}
+
+func planPromptData(policy PlanPolicy) promptassets.PlanData {
+	nodeLimit := "no fixed node-count limit"
+	if policy.MaxNodes > 0 {
+		nodeLimit = fmt.Sprintf("at most %d nodes", policy.MaxNodes)
+	}
+	topology := "a valid DAG; use edges only for real dependencies"
+	if policy.RequireSerial {
+		topology = "one serial chain from entry; no fan-out or fan-in"
+	}
+	concurrency := "all currently runnable nodes may run concurrently"
+	if policy.MaxForkConcurrency > 0 {
+		concurrency = fmt.Sprintf("at most %d nodes concurrently", policy.MaxForkConcurrency)
+	}
+	verification := "include verification for material claims and observable changes"
+	if policy.Effort == "lite" {
+		verification = "use the smallest observable check needed for recovery"
+	}
+	return promptassets.PlanData{
+		Effort:       policy.Effort,
+		NodeLimit:    nodeLimit,
+		Topology:     topology,
+		Concurrency:  concurrency,
+		Verification: verification,
+	}
 }
 
 func stringPointer(value string) *string { return &value }

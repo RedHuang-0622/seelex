@@ -48,6 +48,8 @@ scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝�
 
 The adapter accepts node entries with `id` or `key`, edge entries with `from`/`source` and `to`/`target`, and adjacency targets written as `{ "to": "id" }`. It never guesses a missing edge source or target; invalid references return a pre-execution `plan_load` error and can use the bounded corrective retry path.
 
+The preflight and recovery prompt templates live in [`internal/promptassets`](../internal/promptassets/README.md). Runtime supplies only the current `PlanPolicy` limits to those templates; prompt prose is not embedded in `seelebridge` Go code.
+
 `PrepareReplan` uses the same isolated, forced `plan_load` path for an explicitly selected recovery. It receives only the objective, old Plan, failure and completed-node evidence; it atomically replaces the WorkPlan but never calls `plan_run` itself.
 
 Recovery planning is protected by a process-wide guard: by default at most two concurrent operations, six replan operations per minute, and six actual provider requests per minute. Its metrics are safe to expose in Application snapshots; a corrective retry is permitted only after a pre-execution `plan_load` validation failure.

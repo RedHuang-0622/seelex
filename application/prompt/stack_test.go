@@ -179,8 +179,8 @@ func TestEffortApply_UpdatesPromptStack(t *testing.T) {
 	}
 
 	em.Apply("lite")
-	if ps.Has("effort") {
-		t.Error("effort layer should be removed for lite effort")
+	if !ps.Has("effort") {
+		t.Error("lite effort layer should document its optional planning policy")
 	}
 }
 

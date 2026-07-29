@@ -19,6 +19,8 @@
 
 `lite`、`medium`、`high`、`max` 映射到行为提示和 Engine MaxLoops。`Apply` 同时更新 PromptStack 与 Engine；`Cycle` 为前端提供顺序切换。
 
+具体提示词不保存在 Go 常量中。Seelex-owned identity、通用系统规则、各 effort 规则和 PlanAct preflight/replan 模板位于 [`internal/promptassets`](../../internal/promptassets/README.md)，并在构建时嵌入二进制。这里仅保留层组合和 effort→运行时 policy 的映射。
+
 ## Review 指南
 
 ## Plan policy

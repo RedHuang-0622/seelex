@@ -223,3 +223,17 @@ or tool call.
 | `seelebridge/plan_authority.go` | Modified | Replaces load-then-lease with atomic preflight/authority scope; private context is the only preflight mutation capability. | State machine / Capability |
 | `seelebridge/plan_tool_provider.go` | Modified | Guards stale `plan_clear` as well as `plan_load`; documents invalid top-level node IDs. | Defense in depth |
 | `manual_smoke_test.go` | Modified | Uses independent phase budgets and asserts High DAG structure; Lite is an observational A/B control. | Resilient smoke harness |
+
+## Prompt assets and evidence-aware PlanAct (2026-07-29)
+
+| File | Type | Description | Design |
+|---|---|---|---|
+| `internal/promptassets/assets/` | Added | Versioned Markdown sources for Seelex identity, system behavior, effort levels, and PlanAct preflight/replan prompts. | Embedded resource / Template |
+| `internal/promptassets/promptassets.go` | Added | Build-time asset embedding and rendering of runtime policy facts without exposing user input or credentials. | Template method |
+| `application/prompt/effort.go` / `application/core/service.go` | Updated | Load system and effort prompt layers from assets instead of Go string literals. | Composition |
+| `seelebridge/plan_preflight.go` | Updated | Renders Plan policy limits into the preflight/recovery templates. | Policy projection |
+| `gui/frontend/dist/read-sources.*` | Added | Projects successful `read_file` calls into the GUI's Agent-read-files sidebar. | Pure projection |
+
+The Plan templates require code-review plans to use `inspect -> verify -> report`
+with evidence-backed findings, distinguish confirmed facts from hypotheses, and
+use explicit node-ID anti-examples to prevent entry/node mismatches.

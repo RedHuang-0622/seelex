@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/internal/promptassets"
 )
 
 const defaultHistoryWindow = 200
@@ -88,9 +90,7 @@ func (service *Service) buildSystemPrompt() {
 	service.promptStack.ClearKind("instructions")
 
 	// 1. Identity — 始终在最底层
-	service.promptStack.Push("identity", "identity",
-		"You are Seelex, an intelligent engineering agent built on the Seele framework. "+
-			"You can switch plugins, load skills, and use tools to solve engineering tasks.")
+	service.promptStack.Push("identity", "identity", promptassets.SystemIdentity())
 
 	// 2. Plugin prompt（从当前插件读取，已被 activateDefaultPlugin 激活）
 	if current, ok := service.deps.Plugins.Current(); ok {
@@ -106,11 +106,7 @@ func (service *Service) buildSystemPrompt() {
 	service.effortManager.Apply(service.effortManager.Current())
 
 	// 4. Instructions — 只描述协议，不注入 Skill 名称、描述或指令。
-	instructions := `## System Capabilities
-- Use switch_plugin tool to switch between plugins for different tool sets.
-- User-selected skills arrive as structured entries in user messages. Apply them to that request.
-- Current effort determines thinking depth and tool usage intensity.`
-	service.promptStack.Push("instructions", "instructions", instructions)
+	service.promptStack.Push("instructions", "instructions", promptassets.SystemInstructions())
 
 	// 渲染并写入 engine
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())

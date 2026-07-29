@@ -330,17 +330,27 @@ func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
 	}
 }
 
-func TestPlanPreflightPromptPrefersCanonicalAndDocumentsAdapter(t *testing.T) {
-	prompt := planPreflightPrompt(PlanPolicy{Effort: "high", RequirePlan: true})
+func TestPlanPreflightPromptRendersPolicyAndEvidenceContract(t *testing.T) {
+	prompt := planPreflightPrompt(PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3})
 	for _, required := range []string{
-		"Prefer this canonical object shape", "Compatibility input may use nodes[]", "edges[] with from/source and to/target", "Never put node IDs such as inspect or verify",
+		"Prefer this canonical object shape", "Compatibility input may use `nodes[]`", "`from`/`source` and `to`/`target`", "put node IDs such as `inspect`", "`verify` beside `entry`",
+		"Effort: `high`", "at most 3 nodes concurrently", "exact node IDs `inspect`", "`verify`, and `report`", "planning document alone is not proof",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("preflight prompt %q is missing %q", prompt, required)
 		}
 	}
-	if strings.Contains(prompt, "never arrays") {
+	if strings.Contains(prompt, "Never use arrays") {
 		t.Fatalf("preflight prompt contradicts adapter contract: %q", prompt)
+	}
+}
+
+func TestPlanPreflightPromptRendersMediumSerialConstraint(t *testing.T) {
+	prompt := planPreflightPrompt(PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1})
+	for _, required := range []string{"at most 4 nodes", "one serial chain from entry", "at most 1 nodes concurrently"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("medium preflight prompt %q is missing %q", prompt, required)
+		}
 	}
 }
 

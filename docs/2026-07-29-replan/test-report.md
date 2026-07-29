@@ -238,3 +238,29 @@ The current local regression pipeline also passed with `CGO_ENABLED=0`:
 the targeted Plan boundary suite. It took 158.7 s; `seelebridge` took 100.697 s
 and `seelexctx` took 50.185 s in the full test run. Windows CGO was disabled,
 so this result does not claim a `-race` run.
+
+## Prompt-asset acceptance (2026-07-29)
+
+Seelex-owned system, effort, preflight, and recovery prompts were moved from
+Go string literals into versioned, build-time-embedded Markdown assets. The
+preflight template now renders the active node, topology, concurrency, and
+verification constraints, and it requires code audits to follow `inspect ->
+verify -> report` with evidence rather than treating a planning document as
+runtime proof.
+
+The first High live smoke after the rewrite produced an entry/node mismatch
+(`entry="inspect"` with a different node key). Runtime rejected it before
+execution, as intended. The template was refined with an explicit node-ID
+counterexample; the next fresh live run passed in 62.09 s.
+
+| Path | Result | Quantitative result |
+|---|:---:|---|
+| Medium authoritative preflight | pass | 1 `plan_load`, 2 serial nodes, 1 edge, `plan_run=0` |
+| High authoritative preflight | pass | 1 `plan_load`, 3 nodes, 2 edges, `plan_run=0` |
+| Explicit forced replan (B) | pass | 1 provider request; accepted +1, rejected +0; `plan_run=0` |
+| Lite voluntary recovery control (A) | observed | successful voluntary `plan_load`; `plan_run=0` |
+
+Local verification before the live acceptance passed: full Go tests, `go vet`,
+normal and production GUI builds, and 34/34 frontend tests. This validates
+schema compliance and functional acceptance; it is not a statistically
+significant generation-quality comparison.

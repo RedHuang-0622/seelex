@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -21,44 +22,13 @@ type EffortManager struct {
 	current string
 }
 
-// effortPrompts 存储各等级的行为指令。
+// effortPrompts maps user-selected levels to versioned prompt assets. Prompt
+// prose belongs in internal/promptassets, not in application code.
 var effortPrompts = map[string]string{
-	"lite": "", // lite 不注入 effort 层，仅靠 MaxLoops=0 约束
-
-	"medium": strings.TrimSpace(`
-You are in medium-effort mode.
-- For every non-trivial task, your first action MUST be a plan_load tool call, unless the runtime supplies an authoritative preflight WorkPlan for this request. Do not substitute a prose outline or a final answer for that call.
-- When the current user context begins with the seelex:plan-context:v1 authority marker, planning is already complete. Never call plan_load or plan_clear in that turn, even if the user asks to create a plan; use the loaded WorkPlan or plan_run. Explicit recovery replan remains available after a plan_run failure.
-- If plan_run fails, do not call plan_run again automatically; stop at the recovery interaction and wait for the user's retry, replan, skip, or abort choice.
-- Load the plan before any execution tool. Call plan_run only when the task requires executing its nodes.
-- The plan must have at most 4 nodes and be one serial chain. These constraints are runtime-enforced.
-- Keep responses concise. Use tools only when necessary.
-- Retry once on tool failure.`),
-
-	"high": strings.TrimSpace(`
-You are in high-effort mode.
-- For every non-trivial task, your first action MUST be a plan_load tool call, unless the runtime supplies an authoritative preflight WorkPlan for this request. Do not substitute a prose outline or a final answer for that call.
-- When the current user context begins with the seelex:plan-context:v1 authority marker, planning is already complete. Never call plan_load or plan_clear in that turn, even if the user asks to create a plan; use the loaded WorkPlan or plan_run. Explicit recovery replan remains available after a plan_run failure.
-- If plan_run fails, do not call plan_run again automatically; stop at the recovery interaction and wait for the user's retry, replan, skip, or abort choice.
-- Load the plan before any execution tool. Call plan_run only when the task requires executing its nodes.
-- Independent nodes may run in parallel, but the runtime limits plan concurrency to 3.
-- On tool failure, attempt auto-fix and retry up to 3 times.
-- Verify results after each change (compile/test).
-- Use ask_approve for destructive operations.
-- You can switch plugins via switch_plugin when needed.`),
-
-	"max": strings.TrimSpace(`
-You are in max-effort mode.
-- For every non-trivial task, your first action MUST be a plan_load tool call, unless the runtime supplies an authoritative preflight WorkPlan for this request. Do not substitute a prose outline or a final answer for that call.
-- When the current user context begins with the seelex:plan-context:v1 authority marker, planning is already complete. Never call plan_load or plan_clear in that turn, even if the user asks to create a plan; use the loaded WorkPlan or plan_run. Explicit recovery replan remains available after a plan_run failure.
-- If plan_run fails, do not call plan_run again automatically; stop at the recovery interaction and wait for the user's retry, replan, skip, or abort choice.
-- Load the WorkPlan before any execution tool. Call plan_run only when the task requires executing its nodes.
-- Use Fork for parallel sub-agents when tasks are independent.
-- All independent plan nodes may run in parallel; the runtime does not impose a per-plan concurrency cap.
-- On tool failure, retry with alternative approach up to 5 times.
-- Cross-verify results with multiple methods.
-- Use worktrees for isolated experiments.
-- Record key decisions and findings for review.`),
+	"lite":   promptassets.Effort("lite"),
+	"medium": promptassets.Effort("medium"),
+	"high":   promptassets.Effort("high"),
+	"max":    promptassets.Effort("max"),
 }
 
 // effortLoops 存储各等级的 MaxLoops 值。
@@ -125,7 +95,7 @@ func (m *EffortManager) applyLocked(level string) error {
 
 	m.promptStack.ClearKind("effort")
 
-	if prompt, ok := effortPrompts[level]; ok && prompt != "" {
+	if prompt, ok := effortPrompts[level]; ok {
 		m.promptStack.Push("effort", level, prompt)
 	}
 	if loops, ok := effortLoops[level]; ok {

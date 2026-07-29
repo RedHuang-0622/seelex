@@ -848,7 +848,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if !strings.Contains(prompt, "Seelex") {
 		t.Fatalf("prompt missing identity: %q", prompt)
 	}
-	if !strings.Contains(prompt, "high-effort") {
+	if !strings.Contains(prompt, "## Effort: High") {
 		t.Fatalf("prompt missing effort: %q", prompt)
 	}
 	for _, expected := range []string{"- name: review", "review prompt", "## User Request\n/review strict"} {
