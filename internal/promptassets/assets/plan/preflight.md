@@ -12,23 +12,6 @@ Prefer this canonical object shape:
 {"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"report":{"input":"report"}},"edges":{"inspect":["report"]}}
 ```
 
-Compatibility input may use `nodes[]` with `id`/`key` and `edges[]` with
-`from`/`source` and `to`/`target`. Runtime normalizes either form before
-validation.
-
-### Invalid Shape
-
-- **Never** put node IDs such as `inspect` or `verify` beside `entry`,
-  `nodes`, and `edges` at the top level.
-- **Never** emit an array edge without both a source (`from` or `source`) and
-  a target (`to` or `target`).
-- **Never** use an outline in prose instead of the required function call.
-- **Never** set `"entry":"inspect"` while naming the actual node
-  `inspect_source`, `inspect-files`, or another different ID. Node IDs are
-  exact keys, not descriptive phrases.
-- Put `verify` and `report` inside `nodes`, not beside it. For example, do
-  not emit `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"verify":{"input":"check"},"report":{"input":"summarize"},"edges":{"inspect":["verify"],"verify":["report"]}}`; put all three node specs inside `nodes`. Runtime has a narrow recovery adapter for this historic model error, but canonical output is required because recovery compatibility is not a planning format to depend on.
-
 ### Runtime Boundaries
 
 - Effort: `{{.Effort}}`
@@ -44,6 +27,11 @@ validation.
   The `inspect` node reads source; `verify` checks each material claim through
   a call path, test, or observed runtime evidence; `report` summarizes the
   result. A planning document alone is not proof.
+  Emit this complete canonical skeleton before filling the inputs:
+
+  ```json
+  {"entry":"inspect","nodes":{"inspect":{"input":"read source"},"verify":{"input":"verify claims"},"report":{"input":"report findings"}},"edges":{"inspect":["verify"],"verify":["report"]}}
+  ```
 - For a code change, plan `inspect -> implement -> verify -> report`.
 - For research, plan `collect evidence -> cross-check material claims ->
   report uncertainty`.
@@ -54,3 +42,16 @@ If task classification is uncertain, prefer an inspect node followed by a
 bounded verification node. Before calling `plan_load`, self-check: is `entry`
 a node key, is every edge complete, and can every node's completion be
 observed?
+
+### Invalid Shape
+
+- **Never** put node IDs such as `inspect` or `verify` beside `entry`,
+  `nodes`, and `edges` at the top level.
+- **Never** use arrays for `nodes` or `edges`; the preflight tool requires the
+  object shape shown above.
+- **Never** encode arrows as an `edges` string. Use the adjacency object from
+  the audit skeleton instead.
+- **Never** use an outline in prose instead of the required function call.
+- **Never** set `"entry":"inspect"` while naming the actual node
+  `inspect_source`, `inspect-files`, or another different ID. Node IDs are
+  exact keys, not descriptive phrases.

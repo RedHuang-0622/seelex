@@ -12,28 +12,24 @@ import (
 const planLoadContractDescription = `
 
 Strict JSON contract:
-- Prefer only these top-level fields: entry, nodes, and edges. Do not use item.
-- Canonical nodes is an object keyed by node ID; canonical edges is an object keyed by source node ID with arrays of target ID strings.
-- LLM-friendly adapter form is also accepted: nodes may be an array of {id|key,input,kind?}, and edges may be an array of {from|source,to|target}.
-- As a recovery compatibility only, Runtime may merge a referenced top-level node spec into nodes before validation. Do not rely on this form; it rejects unreferenced or non-node fields.
-- An edges object may also use [{"to":"target-id"}] values and will be normalized.
-- Every array edge MUST name both its source and target. Do not send {"to":"target"} without from/source.
+- Emit exactly three top-level fields: entry, nodes, and edges. Do not use item.
+- Nodes MUST be an object keyed by node ID. Edges MUST be an object keyed by source node ID with arrays of target ID strings.
 - Every ID named by entry or edges must be a key in nodes.
 
-Invalid nodes example (do not use):
-{"entry":"search","nodes":[{"input":"find files"}],"edges":{}}
+Valid simple example:
+{"entry":"reply","nodes":{"reply":{"input":"answer the user"}},"edges":{}}
 
-Invalid edges examples (do not use):
-{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}
+Valid audit example:
+{"entry":"inspect","nodes":{"inspect":{"input":"read source"},"verify":{"input":"verify claims"},"report":{"input":"report findings"}},"edges":{"inspect":["verify"],"verify":["report"]}}
+
+Valid code-change example:
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect scope"},"implement":{"input":"make change"},"verify":{"input":"run tests"},"report":{"input":"summarize result"}},"edges":{"inspect":["implement"],"implement":["verify"],"verify":["report"]}}
+
+- Do not use node or edge arrays in preflight.
+- Do not encode edges as a string such as "inspect -> verify -> report".
 
 Invalid unrelated top-level field example (do not use):
 {"entry":"inspect","nodes":{"inspect":{"input":"inspect"}},"item":{"input":"metadata"},"edges":{}}
-
-Valid adapter example:
-{"entry":"search","nodes":[{"id":"search","input":"find files"},{"key":"summarize","input":"summarize the file list"}],"edges":[{"from":"search","to":"summarize"}]}
-
-Valid complete example:
-{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize the file list"}},"edges":{"search":["summarize"]}}
 `
 
 // planToolProvider decorates Seele's WorkPlan handlers with Seelex's explicit
@@ -148,43 +144,27 @@ func enrichPlanLoadEntry(entry interfaces.ToolEntry) interfaces.ToolEntry {
 	if !ok {
 		return entry
 	}
-	nodes["description"] = "Canonical object keyed by node ID, or adapter array entries with id/key and input."
-	nodes["oneOf"] = []interface{}{
-		map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"input": map[string]interface{}{"type": "string"},
-				"kind":  map[string]interface{}{"type": "string", "enum": []string{"auto", "manual"}},
-			},
-			"required": []string{"input"},
-		}},
-		map[string]interface{}{"type": "array", "items": map[string]interface{}{
-			"type": "object", "properties": map[string]interface{}{
-				"id": map[string]interface{}{"type": "string"}, "key": map[string]interface{}{"type": "string"},
-				"input": map[string]interface{}{"type": "string"}, "kind": map[string]interface{}{"type": "string", "enum": []string{"auto", "manual"}},
-			}, "required": []string{"input"},
-		}},
+	nodes["description"] = "Required preflight shape: an object keyed by node ID. Do not use an array."
+	nodes["type"] = "object"
+	nodes["additionalProperties"] = map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"input": map[string]interface{}{"type": "string"},
+			"kind":  map[string]interface{}{"type": "string", "enum": []string{"auto", "manual"}},
+		},
+		"required": []string{"input"},
 	}
-	delete(nodes, "type")
-	delete(nodes, "additionalProperties")
+	delete(nodes, "oneOf")
 	edges, ok := properties["edges"].(map[string]interface{})
 	if !ok {
 		return entry
 	}
-	edges["description"] = "Canonical source-to-target adjacency object, or adapter edge array with from/source and to/target."
-	edges["oneOf"] = []interface{}{
-		map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{
-			"type":  "array",
-			"items": map[string]interface{}{"type": "string"},
-		}},
-		map[string]interface{}{"type": "array", "items": map[string]interface{}{
-			"type": "object", "properties": map[string]interface{}{
-				"from": map[string]interface{}{"type": "string"}, "source": map[string]interface{}{"type": "string"},
-				"to": map[string]interface{}{"type": "string"}, "target": map[string]interface{}{"type": "string"},
-			},
-		}},
+	edges["description"] = "Required preflight shape: a source-to-target adjacency object. Do not use an array."
+	edges["type"] = "object"
+	edges["additionalProperties"] = map[string]interface{}{
+		"type":  "array",
+		"items": map[string]interface{}{"type": "string"},
 	}
-	delete(edges, "type")
-	delete(edges, "additionalProperties")
+	delete(edges, "oneOf")
 	return entry
 }

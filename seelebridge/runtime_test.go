@@ -162,15 +162,13 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 			continue
 		}
 		for _, required := range []string{
-			"Prefer only these top-level fields: entry, nodes, and edges. Do not use item.",
-			"Canonical nodes is an object keyed by node ID",
-			"LLM-friendly adapter form is also accepted",
-			"As a recovery compatibility only, Runtime may merge a referenced top-level node spec",
-			"Every array edge MUST name both its source and target",
-			`{"entry":"search","nodes":[{"input":"find files"}],"edges":{}}`,
-			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}`,
-			`{"entry":"search","nodes":[{"id":"search","input":"find files"},{"key":"summarize","input":"summarize the file list"}],"edges":[{"from":"search","to":"summarize"}]}`,
-			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize the file list"}},"edges":{"search":["summarize"]}}`,
+			"Emit exactly three top-level fields: entry, nodes, and edges. Do not use item.",
+			"Nodes MUST be an object keyed by node ID",
+			"Valid simple example:",
+			"Valid audit example:",
+			"Valid code-change example:",
+			"Do not use node or edge arrays in preflight.",
+			`{"entry":"inspect","nodes":{"inspect":{"input":"read source"},"verify":{"input":"verify claims"},"report":{"input":"report findings"}},"edges":{"inspect":["verify"],"verify":["report"]}}`,
 		} {
 			if !strings.Contains(tool.Function.Description, required) {
 				t.Errorf("plan_load description is missing %q", required)
@@ -178,12 +176,12 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 		}
 		properties := tool.Function.Parameters["properties"].(map[string]interface{})
 		nodes := properties["nodes"].(map[string]interface{})
-		if nodes["oneOf"] == nil || nodes["type"] != nil {
-			t.Fatalf("plan_load nodes schema = %#v, want object-or-array oneOf", nodes)
+		if nodes["type"] != "object" || nodes["oneOf"] != nil {
+			t.Fatalf("plan_load nodes schema = %#v, want canonical object only", nodes)
 		}
 		edges := properties["edges"].(map[string]interface{})
-		if edges["oneOf"] == nil || edges["type"] != nil {
-			t.Fatalf("plan_load edges schema = %#v, want object-or-array oneOf", edges)
+		if edges["type"] != "object" || edges["oneOf"] != nil {
+			t.Fatalf("plan_load edges schema = %#v, want canonical object only", edges)
 		}
 		if tool.Function.Parameters["additionalProperties"] != false {
 			t.Fatalf("plan_load root schema must reject unexpected fields: %#v", tool.Function.Parameters)
@@ -334,15 +332,15 @@ func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
 func TestPlanPreflightPromptRendersPolicyAndEvidenceContract(t *testing.T) {
 	prompt := planPreflightPrompt(PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3})
 	for _, required := range []string{
-		"Prefer this canonical object shape", "Compatibility input may use `nodes[]`", "`from`/`source` and `to`/`target`", "put node IDs such as `inspect`", "`verify` beside `entry`",
+		"Prefer this canonical object shape", "Emit this complete canonical skeleton", "use arrays for `nodes` or `edges`", "encode arrows as an `edges` string", "put node IDs such as `inspect`",
 		"Effort: `high`", "at most 3 nodes concurrently", "exact node IDs `inspect`", "`verify`, and `report`", "planning document alone is not proof",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("preflight prompt %q is missing %q", prompt, required)
 		}
 	}
-	if strings.Contains(prompt, "Never use arrays") {
-		t.Fatalf("preflight prompt contradicts adapter contract: %q", prompt)
+	if strings.Contains(prompt, "Compatibility input may use") {
+		t.Fatalf("preflight prompt must not advertise runtime-only compatibility: %q", prompt)
 	}
 }
 
@@ -385,6 +383,23 @@ func TestNormalizePlanLoadArgumentsMergesReferencedTopLevelNodeSpecs(t *testing.
 	unsafe := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"item":{"input":"metadata"},"edges":{}}`
 	if _, err := NormalizePlanLoadArguments(unsafe); err == nil || !strings.Contains(err.Error(), "unexpected top-level field") {
 		t.Fatalf("unreferenced top-level field error = %v", err)
+	}
+}
+
+func TestNormalizePlanLoadArgumentsNormalizesExplicitEdgeChain(t *testing.T) {
+	input := `{"entry":"inspect","nodes":{"inspect":{"input":"read"},"verify":{"input":"check"},"report":{"input":"summarize"}},"edges":"inspect -> verify -> report"}`
+	canonical, err := NormalizePlanLoadArguments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"inspect":["verify"]`, `"verify":["report"]`} {
+		if !strings.Contains(canonical, expected) {
+			t.Fatalf("canonical plan %s is missing %s", canonical, expected)
+		}
+	}
+
+	if _, err := NormalizePlanLoadArguments(`{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":"inspect"}`); err == nil || !strings.Contains(err.Error(), "explicit chain") {
+		t.Fatalf("ambiguous edge string error = %v", err)
 	}
 }
 

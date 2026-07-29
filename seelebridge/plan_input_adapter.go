@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // NormalizePlanLoadArguments converts the LLM-friendly list forms accepted by
@@ -172,6 +173,10 @@ func normalizePlanEdges(raw json.RawMessage) (map[string][]string, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("edges is required")
 	}
+	var chain string
+	if err := json.Unmarshal(raw, &chain); err == nil {
+		return normalizeEdgeChain(chain)
+	}
 	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
 		var sources map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &sources); err != nil {
@@ -209,6 +214,31 @@ func normalizePlanEdges(raw json.RawMessage) (map[string][]string, error) {
 			return nil, fmt.Errorf("edges[%d] must include from (or source) and to (or target)", index)
 		}
 		edges[from] = append(edges[from], target)
+	}
+	return edges, nil
+}
+
+// normalizeEdgeChain accepts only an explicit, ordered recovery chain such as
+// "inspect -> verify -> report". Unlike a partial edge object, every source
+// and target is present in the string, so converting adjacent IDs does not
+// invent dependencies or execution order.
+func normalizeEdgeChain(chain string) (map[string][]string, error) {
+	parts := strings.Split(chain, "->")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("edges string must be an explicit chain such as \"inspect -> verify\"")
+	}
+	edges := make(map[string][]string, len(parts)-1)
+	previous := strings.TrimSpace(parts[0])
+	if previous == "" {
+		return nil, fmt.Errorf("edges string contains an empty node ID")
+	}
+	for _, part := range parts[1:] {
+		target := strings.TrimSpace(part)
+		if target == "" {
+			return nil, fmt.Errorf("edges string contains an empty node ID")
+		}
+		edges[previous] = append(edges[previous], target)
+		previous = target
 	}
 	return edges, nil
 }
