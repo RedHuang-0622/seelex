@@ -13,6 +13,7 @@
 | `dist/conversation-view.js` / `chat-view.js` | keyed conversation 与 chat activity 渲染。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化和卡片渲染。 |
+| `dist/read-sources.js` | 从会话工具事件中收集成功完成的 `read_file` 路径，供右侧栏显示。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
 | `dist/protocol.js` | protocol version 校验。 |

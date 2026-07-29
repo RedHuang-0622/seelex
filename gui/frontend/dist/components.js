@@ -129,7 +129,7 @@ export function buildConversationItems(messages = []) {
 }
 
 export function renderSources(sources = []) {
-  if (!sources.length) return '<span class="muted list-empty">暂无项目资料</span>';
+  if (!sources.length) return '<span class="muted list-empty">暂无 Agent 已读文件</span>';
   return sources.map(source => {
     const sourceIcon = source.kind === "capability" ? "folder" : "file";
     return `<article class="source-item">
@@ -214,5 +214,5 @@ function formatDuration(duration) {
 }
 
 function shortKind(kind = "source") {
-  return ({ documentation: "DOC", configuration: "CFG", capability: "CAP" })[kind] || String(kind).slice(0, 3).toUpperCase();
+  return ({ documentation: "DOC", configuration: "CFG", capability: "CAP", read: "READ" })[kind] || String(kind).slice(0, 3).toUpperCase();
 }

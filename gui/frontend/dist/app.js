@@ -4,6 +4,7 @@ import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
 import { planToDSL, reconcilePlanDSL } from "./plan-dsl.js";
+import { collectReadFileSources } from "./read-sources.js";
 
 const state = {
   info: null,
@@ -110,7 +111,7 @@ function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;
   const runtime = snapshot.runtime || {};
   const running = Boolean(snapshot.chat?.running);
-  const sources = [];
+  const sources = collectReadFileSources(snapshot.conversation || []);
   elements["project-name"].textContent = workspace?.name || "No project selected";
   elements["project-root"].textContent = workspace?.root_path || "";
   elements["project-status"].innerHTML = [
