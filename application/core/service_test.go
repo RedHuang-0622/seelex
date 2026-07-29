@@ -16,19 +16,24 @@ import (
 )
 
 type fakeEngine struct {
-	mu        sync.Mutex
-	history   []EngineMessage
-	chunks    []string
-	prompt    string
-	chatErr   error
-	cleared   bool
-	sessionID string
-	starts    int
-	lastInput string
-	maxLoops  int
+	mu                sync.Mutex
+	history           []EngineMessage
+	historyBeforeChat []EngineMessage
+	chunks            []string
+	prompt            string
+	chatErr           error
+	appendChatHistory bool
+	cleared           bool
+	sessionID         string
+	starts            int
+	lastInput         string
+	maxLoops          int
 }
 
 func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
+	engine.mu.Lock()
+	engine.historyBeforeChat = append([]EngineMessage(nil), engine.history...)
+	engine.mu.Unlock()
 	for _, chunk := range engine.chunks {
 		select {
 		case <-ctx.Done():
@@ -39,7 +44,11 @@ func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk 
 	}
 	engine.mu.Lock()
 	engine.lastInput = input
-	engine.history = []EngineMessage{{Role: "user", Content: input}, {Role: "assistant", Content: "answer"}}
+	if engine.appendChatHistory {
+		engine.history = append(engine.history, EngineMessage{Role: "user", Content: input}, EngineMessage{Role: "assistant", Content: "answer"})
+	} else {
+		engine.history = []EngineMessage{{Role: "user", Content: input}, {Role: "assistant", Content: "answer"}}
+	}
 	err := engine.chatErr
 	engine.mu.Unlock()
 	return "answer", err
@@ -102,16 +111,18 @@ func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
 type fakeRuntime struct {
-	account       string
-	binding       seelebridge.PlanBranchBinding
-	planPolicy    seelebridge.PlanPolicy
-	preflight     []string
-	preflightErr  error
-	replans       []seelebridge.ReplanRequest
-	replanResult  seelebridge.PlanPreflight
-	replanErr     error
-	replanMetrics seelebridge.ReplanMetrics
-	projectRoot   string
+	account         string
+	binding         seelebridge.PlanBranchBinding
+	planPolicy      seelebridge.PlanPolicy
+	planAuthority   []bool
+	preflight       []string
+	preflightResult seelebridge.PlanPreflight
+	preflightErr    error
+	replans         []seelebridge.ReplanRequest
+	replanResult    seelebridge.PlanPreflight
+	replanErr       error
+	replanMetrics   seelebridge.ReplanMetrics
+	projectRoot     string
 }
 
 func (*fakeRuntime) Model() string    { return "test-model" }
@@ -134,9 +145,12 @@ func (*fakeRuntime) SetFullAccess(bool)   {}
 func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	runtime.planPolicy = policy
 }
+func (runtime *fakeRuntime) SetPreflightPlanAuthority(authoritative bool) {
+	runtime.planAuthority = append(runtime.planAuthority, authoritative)
+}
 func (runtime *fakeRuntime) PreparePlan(_ context.Context, input string) (seelebridge.PlanPreflight, error) {
 	runtime.preflight = append(runtime.preflight, input)
-	return seelebridge.PlanPreflight{}, runtime.preflightErr
+	return runtime.preflightResult, runtime.preflightErr
 }
 func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	runtime.replans = append(runtime.replans, request)
@@ -1142,6 +1156,18 @@ func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T) {
 	monitor := service.Snapshot().Runtime.Replan
 	if monitor.InFlight != 1 || monitor.WindowAttempts != 3 || monitor.Rejected != 4 || monitor.ProviderRequests != 5 {
 		t.Fatalf("replan monitor = %+v", monitor)
+	}
+}
+
+func TestNormalizePlanToolCallInfoUsesCanonicalAdapterJSON(t *testing.T) {
+	info := engine.ToolCallInfo{Name: "plan_load", Arguments: `{"entry":"inspect","nodes":[{"id":"inspect","input":"inspect"},{"id":"report","input":"report"}],"edges":[{"from":"inspect","to":"report"}]}`}
+	normalized := normalizePlanToolCallInfo(info)
+	if normalized.Arguments == info.Arguments || !strings.Contains(normalized.Arguments, `"nodes":{"inspect"`) || !strings.Contains(normalized.Arguments, `"edges":{"inspect":["report"]}`) {
+		t.Fatalf("normalized plan args = %q", normalized.Arguments)
+	}
+	invalid := engine.ToolCallInfo{Name: "plan_load", Arguments: `{"entry":"inspect","nodes":[],"edges":[]}`}
+	if got := normalizePlanToolCallInfo(invalid); got.Arguments != invalid.Arguments {
+		t.Fatalf("invalid plan arguments must remain visible: %q", got.Arguments)
 	}
 }
 

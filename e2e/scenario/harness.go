@@ -102,6 +102,7 @@ func (harnessRuntime) VisibleTools(context.Context) []application.Tool { return 
 func (runtime harnessRuntime) ActivePlugin() string                    { return runtime.plugin }
 func (harnessRuntime) SetFullAccess(bool)                              {}
 func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)            {}
+func (harnessRuntime) SetPreflightPlanAuthority(bool)                  {}
 func (harnessRuntime) PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error) {
 	return seelebridge.PlanPreflight{}, nil
 }

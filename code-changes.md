@@ -165,4 +165,39 @@ ReAct execution.
 | `docs/2026-07-29-replan/plan.md` | Added | Records the recovery path, bounded context and side-effect boundary. |
 | `manual_smoke_test.go` | Updated | Extends the opt-in real API smoke to make a forced live replan request. |
 
-Verification: core recovery tests, runtime forced-tool tests, guard repeat tests, `BenchmarkPlanLoadSmoke`, full repository test suite, and the opt-in real-account A/B smoke test. The live A/B observed a voluntary Lite `plan_load` control and a forced recovery `plan_load` treatment; the treatment used one provider request.
+Verification: core recovery tests, runtime forced-tool tests, guard repeat tests, `BenchmarkPlanLoadSmoke`, full repository test suite, and the opt-in real-account A/B smoke test. The live A/B observed a voluntary Lite `plan_load` control and a forced recovery `plan_load` treatment; the treatment uses one provider request when its first response is valid and two when the bounded corrective retry is needed.
+
+## Plan DAG input adapter
+
+| File | Change | Purpose |
+|---|---|---|
+| `seelebridge/plan_input_adapter.go` | Added | Normalizes LLM-friendly node and edge arrays, plus object target entries, into Seele's canonical object-keyed WorkPlan JSON without guessing ambiguous edges. |
+| `seelebridge/plan_tool_provider.go` / `plan_preflight.go` | Updated | Applies normalization before policy validation and forced preflight dispatch; exposes both accepted forms in the function schema and prompt. |
+| `application/core/chat.go` | Updated | Projects normalized `plan_load` arguments to the Application snapshot so UI PlanState matches the WorkPlan that ran. |
+| `seelebridge/runtime_test.go` / `application/core/service_test.go` | Updated | Covers array adaptation, nested targets, missing edge sources, direct dispatch, tool schema, and UI argument projection. |
+
+Canonical compatibility is preserved: existing object-keyed DAG JSON continues to be accepted. The adapter accepts `nodes[]` entries with `id` or `key` and `edges[]` entries with source/from plus target/to; it rejects missing or dangling IDs before execution so preflight may make one safe corrective request.
+
+Post-adapter live A/B: three Lite array-DAG requests produced 3/3 valid, 6/6 structural-score Plans; High produced 2/3 within a 50-second per-sample limit, also 6/6. The High success path made two `plan_load` calls per sample (forced preflight plus normal ReAct), recorded as a follow-up cost/deduplication issue rather than a quality success claim.
+
+## Authoritative preflight WorkPlan
+
+| File | Change | Purpose |
+|---|---|---|
+| `application/core/chat.go` | Updated | Adds a per-turn, non-persistent seelex:plan-context:v1 authority envelope containing the canonical DAG and original request, then restores the original request after ChatStream. |
+| `application/contract/ports.go` / `application_adapters.go` / `e2e/scenario/harness.go` | Updated | Adds the application-owned RuntimePort authority operation and adapters/stubs. |
+| `seelebridge/runtime.go` / `plan_tool_provider.go` | Updated | Temporarily removes plan_load/plan_clear from the normal ReAct tool snapshot and retains a synchronized guard while the preflight WorkPlan is authoritative. |
+| `application/prompt/effort.go` / `plugins/default/plan/SKILL.md` | Updated | Documents the preflight exception to the normal first-action `plan_load` rule. |
+| `application/core/command_test.go` / `seelebridge/runtime_test.go` / `manual_smoke_test.go` | Updated | Covers envelope lifecycle, history cleanup, tool visibility restoration, and opt-in live acceptance of one actual High preflight load. |
+
+The authority guard is scoped to the normal ChatStream only. It prevents
+untrusted ReAct output from replacing the validated plan, then unlocks before
+the user can choose the existing bounded explicit replan interaction.
+
+The authoritative context uses the dedicated
+seelex:plan-context:v1 authority=preflight-loaded envelope, parallel to the
+Skill context envelope. Live verification completed in 49.06 s: High issued
+one actual role=tool plan_load call and no plan_run; explicit replan used one
+additional provider request. The earlier apparent second High plan_load was
+the UI tool_result lifecycle record for the same invocation, not a provider
+or tool call.

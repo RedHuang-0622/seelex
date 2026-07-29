@@ -51,6 +51,9 @@ type Runtime struct {
 	branchBinding     PlanBranchBinding
 	planPolicyMu      sync.RWMutex
 	planPolicy        PlanPolicy
+	planAuthorityMu   sync.RWMutex
+	planAuthoritative bool
+	planProvider      *planToolProvider
 	replanGuard       *replanGuard
 	selectedAccountID string
 	projectScope      *ProjectScope
@@ -145,7 +148,8 @@ func (r *Runtime) RegisterBuiltins() {
 	r.scopedToolsReady = true
 	r.planTool = builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(r.agent.LLM()))
 	r.planTool.SetBranchRuntimeResolver(r.resolvePlanBranchRuntime)
-	r.agent.Tools().Register(&planToolProvider{tool: r.planTool, policy: r.currentPlanPolicy})
+	r.planProvider = &planToolProvider{tool: r.planTool, policy: r.currentPlanPolicy, authoritative: r.preflightPlanAuthoritative}
+	r.agent.Tools().Register(r.planProvider)
 }
 
 // BindProjectRoot makes the supplied project the only root used by Seelex
@@ -204,6 +208,33 @@ func (r *Runtime) SetPlanPolicy(policy PlanPolicy) {
 	r.planPolicyMu.Lock()
 	r.planPolicy = policy
 	r.planPolicyMu.Unlock()
+}
+
+// SetPreflightPlanAuthority prevents a normal ReAct turn from replacing a
+// successfully loaded preflight WorkPlan. It is scoped by Application to one
+// ChatStream and must never be used to block an explicit recovery replan.
+func (r *Runtime) SetPreflightPlanAuthority(authoritative bool) {
+	r.planAuthorityMu.Lock()
+	r.planAuthoritative = authoritative
+	r.planAuthorityMu.Unlock()
+	r.refreshPlanToolVisibility()
+}
+
+func (r *Runtime) preflightPlanAuthoritative() bool {
+	r.planAuthorityMu.RLock()
+	defer r.planAuthorityMu.RUnlock()
+	return r.planAuthoritative
+}
+
+// refreshPlanToolVisibility rebuilds the tool snapshot after authority changes.
+// This hides only Plan-mutating tools during the normal ReAct turn. Application
+// releases authority before an explicit user-selected replan can be requested.
+func (r *Runtime) refreshPlanToolVisibility() {
+	if r.planProvider == nil {
+		return
+	}
+	r.agent.Tools().Unregister(r.planProvider.ProviderName())
+	r.agent.Tools().Register(r.planProvider)
 }
 
 func (r *Runtime) currentPlanPolicy() PlanPolicy {

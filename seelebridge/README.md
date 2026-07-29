@@ -43,11 +43,24 @@ scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝�
 
 ## Effort PlanPolicy
 
-`Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.
+`Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge normalizes either the canonical object-keyed DAG or an LLM-friendly `nodes[]` / `edges[]` form into Seele's canonical JSON, then validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.
+
+The adapter accepts node entries with `id` or `key`, edge entries with `from`/`source` and `to`/`target`, and adjacency targets written as `{ "to": "id" }`. It never guesses a missing edge source or target; invalid references return a pre-execution `plan_load` error and can use the bounded corrective retry path.
 
 `PrepareReplan` uses the same isolated, forced `plan_load` path for an explicitly selected recovery. It receives only the objective, old Plan, failure and completed-node evidence; it atomically replaces the WorkPlan but never calls `plan_run` itself.
 
 Recovery planning is protected by a process-wide guard: by default at most two concurrent operations, six replan operations per minute, and six actual provider requests per minute. Its metrics are safe to expose in Application snapshots; a corrective retry is permitted only after a pre-execution `plan_load` validation failure.
+
+When a Medium, High, or Max preflight succeeds, Application wraps the
+canonical WorkPlan and original request in the current-turn
+`<!-- seelex:plan-context:v1 authority=preflight-loaded -->` envelope,
+parallel to Skill context. It is rewritten to the original input before
+session persistence. While the turn is active, Runtime removes `plan_load`
+and `plan_clear` from model-visible tools and retains a handler guard, so the
+loaded Plan cannot be replaced even if the model ignores the context. Authority
+is released when ChatStream returns; the explicit, guarded `PrepareReplan`
+recovery path therefore has `plan_load` available after a `plan_run`
+failure.
 
 每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。两条 fork 路径统一走 Seele ForkCoordinator，默认 fail-fast；best-effort 只有显式配置才可启用。账号选择按 role 与 seed 确定，避免并发分支共享不可控状态。
 

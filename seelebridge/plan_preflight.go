@@ -104,9 +104,14 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		}
 		if len(message.ToolCalls) == 1 && message.ToolCalls[0].Function.Name == "plan_load" {
 			arguments = message.ToolCalls[0].Function.Arguments
-			result, dispatchErr := r.agent.DirectDispatch(ctx, "plan_load", arguments)
+			canonicalArgs, normalizeErr := NormalizePlanLoadArguments(arguments)
+			if normalizeErr != nil {
+				lastErr = fmt.Errorf("plan_load: normalize DAG input: %w", normalizeErr)
+				continue
+			}
+			result, dispatchErr := r.agent.DirectDispatch(ctx, "plan_load", canonicalArgs)
 			if dispatchErr == nil {
-				return PlanPreflight{Arguments: arguments, Result: result}, nil
+				return PlanPreflight{Arguments: canonicalArgs, Result: result}, nil
 			}
 			if !retryablePlanLoadError(dispatchErr) {
 				return PlanPreflight{Arguments: arguments}, fmt.Errorf("%s load failed; retry is unsafe: %w", stage, dispatchErr)

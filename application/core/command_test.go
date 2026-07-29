@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 var _ = types.Message{} // used via fakeEngine implementing ChatEngine
@@ -425,6 +426,44 @@ func TestSubmitPlansBeforeSendingHighEffortRequest(t *testing.T) {
 	}
 	if engine.lastInput != "inspect the repository" {
 		t.Fatalf("engine input = %q", engine.lastInput)
+	}
+}
+
+func TestSubmitUsesAuthoritativePreflightPlanForHighEffort(t *testing.T) {
+	const arguments = `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the repository"},"report":{"input":"report findings"}},"edges":{"inspect":["report"]}}`
+	engine := &fakeEngine{
+		history:           []EngineMessage{{Role: "assistant", Content: "prior answer"}},
+		appendChatHistory: true,
+	}
+	runtime := &fakeRuntime{preflightResult: seelebridge.PlanPreflight{
+		Arguments: arguments,
+		Result:    `{"status":"loaded","node_count":2}`,
+	}}
+	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "inspect the repository"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+
+	if !strings.HasPrefix(engine.lastInput, preflightPlanAuthorityPrefix) || !strings.Contains(engine.lastInput, arguments) || !strings.HasSuffix(engine.lastInput, "inspect the repository") {
+		t.Fatalf("engine input = %q, want authoritative plan context plus original request", engine.lastInput)
+	}
+	if len(runtime.planAuthority) != 2 || !runtime.planAuthority[0] || runtime.planAuthority[1] {
+		t.Fatalf("authority transitions = %v, want [true false]", runtime.planAuthority)
+	}
+	if len(engine.historyBeforeChat) != 1 || engine.historyBeforeChat[0].Content != "prior answer" {
+		t.Fatalf("history before chat = %+v, want unchanged prior history", engine.historyBeforeChat)
+	}
+	for _, message := range engine.History() {
+		if strings.HasPrefix(message.Content, preflightPlanAuthorityPrefix) {
+			t.Fatalf("authority context leaked into persisted history: %+v", engine.History())
+		}
+	}
+	history := engine.History()
+	if len(history) < 2 || history[len(history)-2].Content != "inspect the repository" {
+		t.Fatalf("persisted history did not restore original request: %+v", history)
 	}
 }
 

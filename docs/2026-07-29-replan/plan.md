@@ -36,6 +36,7 @@ Replan 请求只携带以下有界信息：
 - Lite 不强制首轮规划，但用户显式选择 replan 时可以创建恢复计划。
 - 新 Plan 的提示词要求保留完成工作、优先诊断或安全替代，不自动重试失败副作用。
 - Plan 载入成功后不自动 `plan_run`；用户先复核替代 DAG，再显式执行。
+- `plan_load` 的 canonical 表示仍是 `nodes`/`edges` 对象；LLM 可使用 `nodes[]`（`id` 或 `key`）和 `edges[]`（`from`/`source`、`to`/`target`）适配形式，bridge 会在 policy 校验和 Seele 委托前规范化。缺失边来源或引用不存在节点不会被猜测，而是作为可纠正的前置错误返回。
 
 ## 风暴、成本与幂等保护
 
@@ -63,3 +64,16 @@ Replan 请求只携带以下有界信息：
 | B / treatment | `PrepareReplan`，隔离请求 + 强制 `plan_load` | 成功 | 2（首个数组格式被前置拒绝后纠正） |
 
 这个单样本不能证明强制路径会提高模型本身的规划质量；它证明了两条路径都能完成该恢复意图。B 的两次 provider 请求也实际覆盖了“错误 JSON 在载入前被拒绝、单次纠错重试后成功”的幂等边界。保留 B 的依据是系统保证：schema、effort policy、幂等键、全局成本预算和可审计指标不依赖模型自觉遵守。
+
+## Preflight Plan authority
+
+For Medium, High, and Max, a successful forced preflight load is the
+authoritative WorkPlan for its immediately following ReAct turn. Application
+places the canonical DAG and original request in the dedicated
+`<!-- seelex:plan-context:v1 authority=preflight-loaded -->` envelope,
+parallel to the Skill input envelope. Runtime keeps Plan-mutating tools out of
+that normal ReAct turn and retains a handler guard as a second boundary. The
+envelope is rewritten to the original request before session persistence, and
+the guard/tool visibility are released after ChatStream; the user-selected,
+rate-limited replan flow is consequently unchanged and available only after a
+`plan_run` failure.

@@ -163,11 +163,12 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 		}
 		for _, required := range []string{
 			"Use only these top-level fields: entry, nodes, and edges. Do not use item.",
-			"nodes MUST be an object keyed by node ID",
-			"edges MUST be an object keyed by source node ID",
-			`{"entry":"search","nodes":[{"key":"search","input":"find files"}],"edges":{}}`,
+			"Canonical nodes is an object keyed by node ID",
+			"LLM-friendly adapter form is also accepted",
+			"Every array edge MUST name both its source and target",
+			`{"entry":"search","nodes":[{"input":"find files"}],"edges":{}}`,
 			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":[{"to":"summarize"}]}`,
-			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize"}},"edges":{"search":[{"to":"summarize"}]}}`,
+			`{"entry":"search","nodes":[{"id":"search","input":"find files"},{"key":"summarize","input":"summarize the file list"}],"edges":[{"from":"search","to":"summarize"}]}`,
 			`{"entry":"search","nodes":{"search":{"input":"find files"},"summarize":{"input":"summarize the file list"}},"edges":{"search":["summarize"]}}`,
 		} {
 			if !strings.Contains(tool.Function.Description, required) {
@@ -176,12 +177,12 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 		}
 		properties := tool.Function.Parameters["properties"].(map[string]interface{})
 		nodes := properties["nodes"].(map[string]interface{})
-		if nodes["type"] != "object" || nodes["additionalProperties"] == nil {
-			t.Fatalf("plan_load nodes schema = %#v, want object with additionalProperties", nodes)
+		if nodes["oneOf"] == nil || nodes["type"] != nil {
+			t.Fatalf("plan_load nodes schema = %#v, want object-or-array oneOf", nodes)
 		}
 		edges := properties["edges"].(map[string]interface{})
-		if edges["type"] != "object" || edges["additionalProperties"] == nil {
-			t.Fatalf("plan_load edges schema = %#v, want object with additionalProperties", edges)
+		if edges["oneOf"] == nil || edges["type"] != nil {
+			t.Fatalf("plan_load edges schema = %#v, want object-or-array oneOf", edges)
 		}
 		if tool.Function.Parameters["additionalProperties"] != false {
 			t.Fatalf("plan_load root schema must reject unexpected fields: %#v", tool.Function.Parameters)
@@ -202,6 +203,19 @@ const planLoadSmokeInput = `{
   }
 }`
 
+const planLoadAdapterInput = `{
+  "entry": "inspect",
+  "nodes": [
+    {"id": "inspect", "input": "inspect module boundaries"},
+    {"key": "verify", "input": "verify with tests"},
+    {"id": "report", "input": "write a report"}
+  ],
+  "edges": [
+    {"from": "inspect", "to": "verify"},
+    {"source": "verify", "target": "report"}
+  ]
+}`
+
 func TestPlanLoadSmoke(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
@@ -215,6 +229,80 @@ func TestPlanLoadSmoke(t *testing.T) {
 		if !strings.Contains(result, required) {
 			t.Errorf("plan_load result %q is missing %s", result, required)
 		}
+	}
+}
+
+func TestPlanLoadAdapterNormalizesLLMFriendlyDAG(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	canonical, err := NormalizePlanLoadArguments(planLoadAdapterInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{`"inspect":{"input":"inspect module boundaries"}`, `"verify":["report"]`} {
+		if !strings.Contains(canonical, required) {
+			t.Errorf("canonical plan %q is missing %s", canonical, required)
+		}
+	}
+	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadAdapterInput)
+	if err != nil {
+		t.Fatalf("adapter plan_load returned an error: %v", err)
+	}
+	for _, required := range []string{`"status":"loaded"`, `"node_count":3`, `"edge_count":2`, `"entry":"inspect"`} {
+		if !strings.Contains(result, required) {
+			t.Errorf("adapter plan_load result %q is missing %s", result, required)
+		}
+	}
+}
+
+func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	runtime.SetPreflightPlanAuthority(true)
+	for _, tool := range runtime.Agent().VisibleTools(context.Background()) {
+		if tool.Function.Name == "plan_load" || tool.Function.Name == "plan_clear" {
+			t.Fatalf("authoritative visible tools still expose %q", tool.Function.Name)
+		}
+	}
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadAdapterInput); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("authoritative plan_load error = %v, want hidden replacement tool", err)
+	}
+
+	runtime.SetPreflightPlanAuthority(false)
+	available := false
+	for _, tool := range runtime.Agent().VisibleTools(context.Background()) {
+		if tool.Function.Name == "plan_load" {
+			available = true
+		}
+	}
+	if !available {
+		t.Fatal("plan_load was not restored after authority unlock")
+	}
+	result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadAdapterInput)
+	if err != nil {
+		t.Fatalf("plan_load must be available after authority unlock: %v", err)
+	}
+	if !strings.Contains(result, `"status":"loaded"`) {
+		t.Fatalf("unlocked plan_load result = %q", result)
+	}
+}
+
+func TestNormalizePlanLoadArgumentsNormalizesNestedTargetsAndRejectsAmbiguousEdges(t *testing.T) {
+	nested := `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"report":{"input":"report"}},"edges":{"inspect":[{"to":"report"}]}}`
+	canonical, err := NormalizePlanLoadArguments(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(canonical, `"edges":{"inspect":["report"]}`) {
+		t.Fatalf("nested target canonical form = %s", canonical)
+	}
+	ambiguous := `{"entry":"inspect","nodes":[{"id":"inspect","input":"inspect"},{"id":"report","input":"report"}],"edges":[{"to":"report"}]}`
+	if _, err := NormalizePlanLoadArguments(ambiguous); err == nil || !strings.Contains(err.Error(), "from") {
+		t.Fatalf("ambiguous edge error = %v, want missing source", err)
 	}
 }
 
@@ -438,7 +526,7 @@ func BenchmarkPlanLoadSmoke(b *testing.B) {
 
 	b.SetBytes(int64(len(planLoadSmokeInput)))
 	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planLoadSmokeInput); err != nil {
 			b.Fatal(err)
 		}

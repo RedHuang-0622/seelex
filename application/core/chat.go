@@ -48,9 +48,21 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 }
 
 func (service *Service) runChat(ctx context.Context, requestID string, request chatRequest) {
-	err := service.runPlanPreflight(ctx, requestID, request)
+	preflight, err := service.runPlanPreflight(ctx, requestID, request)
+	authoritativePlan := err == nil && preflight.Arguments != ""
+	modelInput := request.modelInput
+	if authoritativePlan {
+		modelInput = preflightPlanAuthorityContext(preflight.Arguments, request.modelInput)
+		service.deps.Runtime.SetPreflightPlanAuthority(true)
+	}
 	if err == nil {
-		_, err = service.deps.Engine.ChatStream(ctx, request.modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+		_, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+	}
+	if authoritativePlan {
+		service.deps.Runtime.SetPreflightPlanAuthority(false)
+		if cleanupErr := service.removePreflightPlanAuthorityContext(); cleanupErr != nil && err == nil {
+			err = cleanupErr
+		}
 	}
 	if err == nil {
 		if saveErr := service.deps.Sessions.SaveCurrent(service.deps.Engine.SessionID()); saveErr != nil {
@@ -108,9 +120,9 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	}
 }
 
-func (service *Service) runPlanPreflight(ctx context.Context, requestID string, request chatRequest) error {
+func (service *Service) runPlanPreflight(ctx context.Context, requestID string, request chatRequest) (seelebridge.PlanPreflight, error) {
 	if !request.requirePlan {
-		return nil
+		return seelebridge.PlanPreflight{}, nil
 	}
 	result, err := service.deps.Runtime.PreparePlan(ctx, request.displayInput)
 	if result.Arguments != "" {
@@ -119,7 +131,51 @@ func (service *Service) runPlanPreflight(ctx context.Context, requestID string, 
 		service.handleToolComplete("plan_load", toolID, result.Result, err, 0)
 	}
 	if err != nil {
-		return fmt.Errorf("plan preflight: %w", err)
+		return result, fmt.Errorf("plan preflight: %w", err)
+	}
+	return result, nil
+}
+
+// preflightPlanAuthorityPrefix is a dedicated, machine-readable envelope,
+// deliberately parallel to the Skill context envelope. It distinguishes a
+// runtime-loaded WorkPlan from a model-proposed plan in ordinary user text.
+const preflightPlanAuthorityPrefix = "<!-- seelex:plan-context:v1 authority=preflight-loaded -->"
+const preflightPlanAuthorityRequestDelimiter = "\n## Original User Request\n"
+
+func preflightPlanAuthorityContext(arguments, input string) string {
+	return preflightPlanAuthorityPrefix + `
+## Loaded WorkPlan
+- source: runtime preflight
+- status: authoritative and already loaded
+- normal-turn rule: plan_load and plan_clear are forbidden
+- execution: use plan_run only when execution is required
+- recovery: do not self-replan; explicit replan remains available after a plan_run failure and user review
+
+Canonical Plan JSON:
+` + arguments + preflightPlanAuthorityRequestDelimiter + input
+}
+
+func (service *Service) removePreflightPlanAuthorityContext() error {
+	history := service.deps.Engine.History()
+	filtered := make([]EngineMessage, 0, len(history))
+	removed := false
+	for _, message := range history {
+		if message.Role == "user" && strings.HasPrefix(message.Content, preflightPlanAuthorityPrefix) {
+			_, original, found := strings.Cut(message.Content, preflightPlanAuthorityRequestDelimiter)
+			if found {
+				message.Content = original
+				filtered = append(filtered, message)
+			}
+			removed = true
+			continue
+		}
+		filtered = append(filtered, message)
+	}
+	if !removed {
+		return nil
+	}
+	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), filtered); err != nil {
+		return fmt.Errorf("remove preflight plan context: %w", err)
 	}
 	return nil
 }
@@ -821,12 +877,14 @@ func (bridge *ToolHookBridge) Bind(service *Service) {
 func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 	return &engine.LoopHooks{
 		OnToolStart: func(_ context.Context, info engine.ToolCallInfo) {
+			info = normalizePlanToolCallInfo(info)
 			service, id := bridge.beginTool(info)
 			if service != nil {
 				service.handleToolStart(info.Name, id, info.Arguments)
 			}
 		},
 		OnToolComplete: func(_ context.Context, info engine.ToolCallInfo) {
+			info = normalizePlanToolCallInfo(info)
 			service, id := bridge.completeTool(info)
 			if service != nil {
 				service.handleToolComplete(info.Name, id, info.Result, info.Error, info.Duration)
@@ -867,6 +925,20 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 			return true // 继续 loop，下一轮 LLM 调用将处理排队输入
 		},
 	}
+}
+
+// normalizePlanToolCallInfo keeps application snapshots in the same canonical
+// DAG representation that Seele executes. Invalid adapter input is left intact
+// so the tool error remains visible to the user.
+func normalizePlanToolCallInfo(info engine.ToolCallInfo) engine.ToolCallInfo {
+	if info.Name != "plan_load" {
+		return info
+	}
+	canonical, err := seelebridge.NormalizePlanLoadArguments(info.Arguments)
+	if err == nil {
+		info.Arguments = canonical
+	}
+	return info
 }
 
 func (bridge *ToolHookBridge) beginTool(info engine.ToolCallInfo) (*Service, string) {

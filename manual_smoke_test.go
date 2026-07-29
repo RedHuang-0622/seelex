@@ -111,6 +111,45 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		}
 		t.Fatal("live request completed without a successful plan_load tool call")
 	}
+	mediumPlanLoads := 0
+	for _, message := range snapshot.Conversation {
+		if message.Role == "tool" && message.Tool != nil && message.Tool.Name == "plan_load" && message.Tool.Status == "success" {
+			mediumPlanLoads++
+		}
+	}
+	if mediumPlanLoads != 1 || len(snapshot.Runtime.Plan.Nodes) != 2 || len(snapshot.Runtime.Plan.Edges) != 1 {
+		t.Fatalf("medium authority result: plan_loads=%d nodes=%d edges=%d, want one serial two-node Plan", mediumPlanLoads, len(snapshot.Runtime.Plan.Nodes), len(snapshot.Runtime.Plan.Edges))
+	}
+	t.Logf("authoritative medium preflight_plan_loads=%d serial_nodes=%d serial_edges=%d plan_run=0", mediumPlanLoads, len(snapshot.Runtime.Plan.Nodes), len(snapshot.Runtime.Plan.Edges))
+
+	// High preflight is authoritative: normal ReAct must observe the loaded DAG
+	// instead of issuing a second replacement plan_load call.
+	if err := app.SwitchEffort(ctx, "high"); err != nil {
+		t.Fatalf("switch to high effort: %v", err)
+	}
+	highStart := len(app.Snapshot().Conversation)
+	if err := app.Submit(ctx, "Create a three-node repository audit plan with nodes inspect, verify, and report. Do not run the plan. After planning, reply with HIGH_AUTHORITY_SMOKE_OK."); err != nil {
+		t.Fatalf("submit authoritative high plan request: %v", err)
+	}
+	if err := app.WaitForIdle(ctx); err != nil {
+		t.Fatalf("wait for authoritative high plan request: %v", err)
+	}
+	high := app.Snapshot()
+	highPlanLoads := 0
+	highPlanEvents := make([]string, 0)
+	for _, message := range high.Conversation[highStart:] {
+		if message.Role == "tool" && message.Tool != nil && message.Tool.Name == "plan_load" {
+			highPlanLoads++
+			highPlanEvents = append(highPlanEvents, message.Role+":"+message.Tool.Status+":"+truncateSmokeReply(message.Tool.Arguments, 160))
+			if message.Tool.Status != "success" {
+				t.Fatalf("authoritative high plan_load status = %q", message.Tool.Status)
+			}
+		}
+	}
+	if high.Chat.Error != "" || highPlanLoads != 1 {
+		t.Fatalf("authoritative high plan loads = %d chat_error=%q events=%q, want one successful preflight load", highPlanLoads, high.Chat.Error, highPlanEvents)
+	}
+	t.Logf("authoritative high preflight_plan_loads=%d plan_run=0", highPlanLoads)
 
 	// A/B control: Lite keeps the same Plan skill but does not run the forced
 	// preflight. This measures whether the provider voluntarily emits a valid
