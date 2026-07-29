@@ -40,6 +40,8 @@ ProjectScope 先把用户路径解析为 canonical absolute target，再验证�
 
 scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝对路径，并强制 `-NoProfile -NonInteractive`，避免 PATH 命中 WSL shim、用户 profile 或交互启动导致工具超时。所有平台都把 `cmd.Dir` 固定为 ProjectScope 解析后的目录。
 
+Windows GUI 构建还会以 `SysProcAttr.HideWindow` 启动 scoped shell，避免每次 `bash` 工具调用闪现命令行窗口；stdout、stderr 与退出码仍通过工具结果返回。
+
 ## Plan branch
 
 ## Effort PlanPolicy

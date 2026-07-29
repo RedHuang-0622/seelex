@@ -191,20 +191,42 @@ func TestEffortApply_SetsMaxLoops(t *testing.T) {
 	em := NewEffortManager(ps, eng)
 
 	em.Apply("lite")
-	if eng.maxLoops != 20 {
-		t.Errorf("lite effort should set MaxLoops=20, got %d", eng.maxLoops)
+	if eng.maxLoops != 15 {
+		t.Errorf("lite effort should set MaxLoops=15, got %d", eng.maxLoops)
 	}
 	em.Apply("medium")
-	if eng.maxLoops != 64 {
-		t.Errorf("medium effort should set MaxLoops=64, got %d", eng.maxLoops)
+	if eng.maxLoops != 48 {
+		t.Errorf("medium effort should set MaxLoops=48, got %d", eng.maxLoops)
 	}
 	em.Apply("high")
-	if eng.maxLoops != 512 {
-		t.Errorf("high effort should set MaxLoops=512, got %d", eng.maxLoops)
+	if eng.maxLoops != 384 {
+		t.Errorf("high effort should set MaxLoops=384, got %d", eng.maxLoops)
 	}
 	em.Apply("max")
-	if eng.maxLoops != 1024 {
-		t.Errorf("max effort should set MaxLoops=1024, got %d", eng.maxLoops)
+	if eng.maxLoops != 768 {
+		t.Errorf("max effort should set MaxLoops=768, got %d", eng.maxLoops)
+	}
+}
+
+func TestReActBudgetByEffort(t *testing.T) {
+	tests := []struct {
+		level  string
+		rounds int
+		calls  int
+		stalls int
+	}{
+		{"lite", 15, 30, 6},
+		{"medium", 48, 96, 10},
+		{"high", 384, 768, 24},
+		{"max", 768, 1536, 48},
+	}
+	for _, test := range tests {
+		t.Run(test.level, func(t *testing.T) {
+			budget := ReActBudgetFor(test.level)
+			if budget.MaxToolRounds != test.rounds || budget.MaxToolCalls != test.calls || budget.MaxNoProgressRounds != test.stalls {
+				t.Fatalf("ReActBudgetFor(%q) = %+v", test.level, budget)
+			}
+		})
 	}
 }
 

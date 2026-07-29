@@ -93,10 +93,39 @@ func main() {
 	wsRepo := initWorkspaceRepo()
 	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	defer app.Shutdown()
+	registerTaskTerminalTools(runtime, app)
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
 	runtime.SetPlanBranchCallback(app.HandlePlanBranchEvent)
 	startFrontend(app)
+}
+
+func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Service) {
+	completedSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"summary":         map[string]interface{}{"type": "string", "description": "User-facing delivery summary."},
+			"completed_nodes": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"artifacts":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"evidence":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"remaining_risks": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+		},
+		"required": []string{"summary"},
+	}
+	failedSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"summary":            map[string]interface{}{"type": "string", "description": "User-facing failure summary."},
+			"failure_type":       map[string]interface{}{"type": "string", "enum": []string{"blocked", "verification_failed", "invalid_plan", "external_dependency"}},
+			"failed_node":        map[string]interface{}{"type": "string"},
+			"evidence":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"partial_progress":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"replan_recommended": map[string]interface{}{"type": "boolean"},
+		},
+		"required": []string{"summary", "failure_type"},
+	}
+	runtime.RegisterTool("task_complete", "End the current task after delivering the requested result and evidence.", completedSchema, app.TaskTerminalHandler("task_complete"))
+	runtime.RegisterTool("task_failed", "End the current task with bounded failure evidence; recommend replan only when facts require it.", failedSchema, app.TaskTerminalHandler("task_failed"))
 }
 
 func initRuntime() *seelebridge.Runtime {

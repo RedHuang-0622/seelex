@@ -6,6 +6,7 @@ currently runnable Plan nodes to execute concurrently.
 - **Do:** use independent branches only for genuinely independent work.
 - **Do:** cross-check material conclusions with a second method when one is
   available, then record the evidence in the final report.
+- **Do:** deliver after the planned cross-check and reporting stages complete.
 - **Don't:** add parallelism that shares an unprotected file, state, or side
   effect.
 - **Don't:** automatically rerun a failed `plan_run` or silently replace its

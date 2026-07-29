@@ -30,8 +30,14 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 		return ErrChatRunning
 	}
 	requestID := fmt.Sprintf("chat-%d", time.Now().UnixNano())
+	budget := request.budget
+	if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
+		budget = reactBudgetFor(service.effortManager.Current())
+	}
 	chatContext, cancel := context.WithCancel(parent)
 	service.cancelChat = cancel
+	service.startReActBudgetLocked(requestID, budget)
+	service.taskExecution = newTaskExecutionState(requestID, request.displayInput, service.effortManager.Current())
 	service.markBusyLocked()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
 	if service.snapshot.Session.Name == "" {
@@ -48,6 +54,7 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 }
 
 func (service *Service) runChat(ctx context.Context, requestID string, request chatRequest) {
+	defer service.clearReActBudget(requestID)
 	var scope seelebridge.PlanActScope
 	var err error
 	if request.requirePlan {
@@ -64,10 +71,22 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		}
 		if err == nil {
 			modelInput = preflightPlanAuthorityContext(preflight.Arguments, request.modelInput)
+			service.mu.Lock()
+			if state := service.taskExecution; state != nil && state.requestID == requestID {
+				state.planArguments = preflight.Arguments
+				state.progressEpoch++
+			}
+			service.mu.Unlock()
 		}
 	}
 	if err == nil {
 		_, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+		if err == nil {
+			err = service.finalizeReActBudget(ctx, requestID)
+		}
+		if err == nil {
+			err = service.finalizeTaskExecution(requestID)
+		}
 	}
 	if scope != nil {
 		scope.Release()
@@ -76,6 +95,9 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		if cleanupErr := service.removePreflightPlanAuthorityContext(); cleanupErr != nil && err == nil {
 			err = cleanupErr
 		}
+	}
+	if cleanupErr := service.removeTaskContextCheckpoints(); cleanupErr != nil && err == nil {
+		err = cleanupErr
 	}
 	if err == nil {
 		if saveErr := service.deps.Sessions.SaveCurrent(service.deps.Engine.SessionID()); saveErr != nil {
@@ -109,7 +131,13 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		service.snapshot.Chat.QueuedCount = 0
 		service.snapshot.Chat.InputQueue = nil
 		nextRequestID = fmt.Sprintf("chat-%d", time.Now().UnixNano())
+		budget := batchRequest.budget
+		if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
+			budget = reactBudgetFor(service.effortManager.Current())
+		}
 		nextContext, service.cancelChat = context.WithCancel(context.Background())
+		service.startReActBudgetLocked(nextRequestID, budget)
+		service.taskExecution = newTaskExecutionState(nextRequestID, batchRequest.displayInput, service.effortManager.Current())
 		service.snapshot.Chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
 		nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
 		nextAssistant = service.appendMessageLocked("assistant", "", nil)
@@ -131,6 +159,54 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
 		go service.runChat(nextContext, nextRequestID, batchRequest)
 	}
+}
+
+const reactBudgetFinalizationInput = "<!-- seelex:react-budget-finalize:v1 -->\n" +
+	"The execution budget is exhausted. Do not call investigation, execution, or verification tools again. " +
+	"Use task_complete if the evidence supports delivery, or task_failed if it does not; then provide the user-facing result from the evidence already collected."
+
+// finalizeReActBudget reserves one text-only delivery turn after a tool budget
+// is reached. The normal loop has already stopped before this point; this turn
+// exists so the user receives the result rather than a bare budget error.
+func (service *Service) finalizeReActBudget(ctx context.Context, requestID string) error {
+	budgetErr := service.reactBudgetError(requestID)
+	if budgetErr == nil {
+		return nil
+	}
+	result, err := service.deps.Engine.ChatStream(ctx, reactBudgetFinalizationInput, func(chunk string) {
+		service.appendDelta(requestID, chunk)
+	})
+	cleanupErr := service.removeReActBudgetFinalizationInput()
+	if err != nil {
+		return fmt.Errorf("%w; final delivery failed: %v", budgetErr, err)
+	}
+	if strings.TrimSpace(result) == "" {
+		return fmt.Errorf("%w; final delivery returned no text", budgetErr)
+	}
+	if cleanupErr != nil {
+		return cleanupErr
+	}
+	return nil
+}
+
+func (service *Service) removeReActBudgetFinalizationInput() error {
+	history := service.deps.Engine.History()
+	filtered := make([]EngineMessage, 0, len(history))
+	removed := false
+	for _, message := range history {
+		if message.Role == "user" && message.Content == reactBudgetFinalizationInput {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, message)
+	}
+	if !removed {
+		return nil
+	}
+	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), filtered); err != nil {
+		return fmt.Errorf("remove ReAct budget finalization input: %w", err)
+	}
+	return nil
 }
 
 func planActPreflightContext(ctx context.Context, scope seelebridge.PlanActScope) context.Context {
@@ -243,6 +319,9 @@ func (service *Service) appendDelta(requestID, chunk string) {
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {
 	for _, historyMessage := range history {
+		if historyMessage.Role == "user" && isTaskContextCheckpoint(historyMessage.Content) {
+			continue
+		}
 		if historyMessage.Role != "tool" && historyMessage.Content != "" {
 			content := historyMessage.Content
 			if historyMessage.Role == "user" {
@@ -302,6 +381,9 @@ func (service *Service) planBranchBindingLocked() seelebridge.PlanBranchBinding 
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
 	service.mu.Lock()
+	if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
+		state.recordTool(name, result, toolErr)
+	}
 	status, errorText := "success", ""
 	if toolErr != nil {
 		status, errorText = "error", toolErr.Error()
@@ -389,6 +471,9 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 			kind = "auto"
 		}
 		nodes = append(nodes, PlanNode{ID: id, Label: id, Kind: kind, Status: NodePending})
+		if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
+			state.checkpoint(id, spec.Input, string(NodePending), "", "")
+		}
 	}
 
 	// 邻接表 → []PlanEdge
@@ -549,6 +634,9 @@ func (service *Service) HandlePlanNodeComplete(nr *workplanTypes.NodeResult) {
 			if nr.Output != "" {
 				plan.Nodes[i].Output = nr.Output
 			}
+			if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
+				state.checkpoint(nr.NodeID, plan.Nodes[i].Label, nr.Status, nr.Output, "")
+			}
 			break
 		}
 	}
@@ -658,6 +746,9 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 
 	// 更新计划整体状态
 	plan.Status = PlanFailed
+	if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
+		state.checkpoint(extractFailedNodeID(errMsg), "authoritative plan node", "failed", resultJSON, errMsg)
+	}
 
 	// 尝试解析 resultJSON 中的部分节点结果（framework 返回失败点之前的节点）
 	if resultJSON != "" {
@@ -790,6 +881,11 @@ func (service *Service) replanRequestLocked(failure, idempotencyKey string) seel
 		}
 		request.Evidence = evidence.String()
 	}
+	if state := service.taskExecution; state != nil {
+		if checkpointEvidence := state.evidenceText(); checkpointEvidence != "" {
+			request.Evidence += "checkpoint evidence:\n" + checkpointEvidence
+		}
+	}
 	if len(request.Evidence) > maxReplanEvidenceBytes {
 		request.Evidence = request.Evidence[:maxReplanEvidenceBytes] + "\n[evidence truncated]"
 	}
@@ -900,6 +996,7 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 			info = normalizePlanToolCallInfo(info)
 			service, id := bridge.beginTool(info)
 			if service != nil {
+				service.recordReActToolCall()
 				service.handleToolStart(info.Name, id, info.Arguments)
 			}
 		},
@@ -917,6 +1014,14 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 			if svc == nil {
 				return true
 			}
+			if !svc.allowNextReActIteration(turn) {
+				return false
+			}
+			// Context control is token- and checkpoint-based, not wall-clock based.
+			svc.mu.RLock()
+			activeRequestID := svc.snapshot.Chat.RequestID
+			svc.mu.RUnlock()
+			_ = svc.compactTaskContext(activeRequestID)
 			// 每轮 ReAct 结束后检查输入队列：非空时清空并注入到引擎对话历史，
 			// 下一轮 LLM 调用将看到这些排队消息，无需停止 loop。
 			svc.mu.Lock()

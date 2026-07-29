@@ -10,8 +10,18 @@
 
 | 文件 | 职责 |
 |---|---|
-| `service.go` | Service 生命周期、Submit 分派、Runtime/Workspace/Session 用例和 Snapshot。 |
+| `service.go` | `Service` 共享状态、锁、依赖与构造；不承载具体用例。 |
+| `service_assembler.go` | 装配件：补齐基础设施默认值，按既有顺序组合 `Service`、输入路由、Prompt、Runtime 与初始 workspace。 |
+| `service_input.go` | 输入路由、conversation 排队、取消、空闲等待与关闭。 |
+| `input_router.go` | 组合式输入路由器；按 command → skill → plugin → conversation 的策略顺序分派已规范化输入。 |
+| `service_prompt.go` | system prompt 层组装与引擎同步。 |
+| `service_interaction.go` | approval/session/account/plan retry 交互，以及 effort 和 plugin 切换。 |
+| `service_snapshot.go` | Snapshot 读取、runtime 刷新、消息追加、revision 与事件发布。 |
+| `workspace_usecase.go` | session 删除和 workspace 的创建、绑定、解绑与 snapshot 同步。 |
+| `session_history.go` | session 恢复、历史分页加载和 EngineMessage 到 UI Message 的转换。 |
 | `chat.go` | 流式聊天、输入队列、工具事件、Plan 状态打点和 idle/draining。 |
+| `task_execution.go` | 请求私有的 PlanAct checkpoint、终态 payload 校验和 `task_complete` / `task_failed` handler。 |
+| `context_controller.go` | 基于 token 与 checkpoint 的工具结果裁剪；内部控制消息在持久化前清除。 |
 | `command.go` | 内置命令注册与执行。 |
 | `session_scope.go` | 跨项目 session catalog、真实存储位置定位、标题恢复和 scoped read。 |
 | `session_draft.go` | GUI 新会话草稿、首次请求物化和项目 binding。 |
@@ -31,7 +41,11 @@
 4. 完成后保存当前 session；若队列非空，把排队输入冻结并合并为下一 turn。
 5. `WaitForIdle` 在 active turn 和已接受队列全部完成后返回。
 
+每个 conversation request 在提交时冻结其 effort 对应的 ReAct budget（工具轮数、工具调用数）。budget 耗尽时保留一次无工具的最终交付回合；它不把报告导出等交付工具一概禁止。长编码任务不设 wall-clock 超时，用户仍可随时主动取消。
+
 `BeginGracefulShutdown` 拒绝新输入但允许已接受工作完成；`Shutdown` 才取消 active chat 并关闭 broker/events。
+
+每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`，当历史 token 或工具输出过大时 `ContextController` 以 checkpoint 摘要替换冗长工具结果。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete` 或 `task_failed` 结束工具型任务；前者记录交付与证据，后者记录有界失败事实并可供显式 replan 使用。内部 checkpoint marker 不进入 frontend snapshot 或持久化 history。
 
 ## Session 与 Project 语义
 

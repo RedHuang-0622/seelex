@@ -22,40 +22,85 @@ type EffortManager struct {
 	current string
 }
 
-// effortPrompts maps user-selected levels to versioned prompt assets. Prompt
-// prose belongs in internal/promptassets, not in application code.
-var effortPrompts = map[string]string{
-	"lite":   promptassets.Effort("lite"),
-	"medium": promptassets.Effort("medium"),
-	"high":   promptassets.Effort("high"),
-	"max":    promptassets.Effort("max"),
+// ReActBudget bounds one user request. MaxToolRounds counts completed ReAct
+// iterations that made tool calls; MaxToolCalls counts individual tool calls.
+type ReActBudget struct {
+	MaxToolRounds       int
+	MaxToolCalls        int
+	MaxNoProgressRounds int
 }
 
-// effortLoops 存储各等级的 MaxLoops 值。
-var effortLoops = map[string]int{
-	"lite":   20,
-	"medium": 64,
-	"high":   512,
-	"max":    1024,
+// effortProfile keeps every effort-specific behavior in one entry so a new
+// level cannot accidentally receive a prompt without its execution budget.
+type effortProfile struct {
+	prompt     string
+	maxLoops   int
+	planPolicy seelebridge.PlanPolicy
+	budget     ReActBudget
+}
+
+// effortProfiles maps user-selected levels to versioned prompt assets and
+// hard execution budgets. Prompt prose belongs in internal/promptassets, not
+// in application code.
+var effortProfiles = map[string]effortProfile{
+	"lite": {
+		prompt:     promptassets.Effort("lite"),
+		maxLoops:   15,
+		planPolicy: seelebridge.PlanPolicy{Effort: "lite"},
+		budget:     ReActBudget{MaxToolRounds: 15, MaxToolCalls: 30, MaxNoProgressRounds: 6},
+	},
+	"medium": {
+		prompt:     promptassets.Effort("medium"),
+		maxLoops:   48,
+		planPolicy: seelebridge.PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1},
+		budget:     ReActBudget{MaxToolRounds: 48, MaxToolCalls: 96, MaxNoProgressRounds: 10},
+	},
+	"high": {
+		prompt:     promptassets.Effort("high"),
+		maxLoops:   384,
+		planPolicy: seelebridge.PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3},
+		budget:     ReActBudget{MaxToolRounds: 384, MaxToolCalls: 768, MaxNoProgressRounds: 24},
+	},
+	"max": {
+		prompt:     promptassets.Effort("max"),
+		maxLoops:   768,
+		planPolicy: seelebridge.PlanPolicy{Effort: "max", RequirePlan: true},
+		budget:     ReActBudget{MaxToolRounds: 768, MaxToolCalls: 1536, MaxNoProgressRounds: 48},
+	},
+}
+
+func effortProfileFor(level string) (effortProfile, bool) {
+	profile, ok := effortProfiles[strings.ToLower(strings.TrimSpace(level))]
+	return profile, ok
 }
 
 // MaxLoops returns the engine loop limit for an effort level.
-func MaxLoops(level string) int { return effortLoops[level] }
+func MaxLoops(level string) int {
+	profile, ok := effortProfileFor(level)
+	if !ok {
+		return 0
+	}
+	return profile.maxLoops
+}
+
+// ReActBudgetFor returns an immutable execution budget for an effort level.
+func ReActBudgetFor(level string) ReActBudget {
+	profile, ok := effortProfileFor(level)
+	if !ok {
+		profile = effortProfiles["lite"]
+	}
+	return profile.budget
+}
 
 // PlanningPolicy returns the hard runtime constraints for an effort level.
 // Lite leaves planning optional. Max uses the loaded plan's node count as its
 // concurrency cap so all currently runnable nodes can start together.
 func PlanningPolicy(level string) seelebridge.PlanPolicy {
-	switch strings.ToLower(strings.TrimSpace(level)) {
-	case "medium":
-		return seelebridge.PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1}
-	case "high":
-		return seelebridge.PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3}
-	case "max":
-		return seelebridge.PlanPolicy{Effort: "max", RequirePlan: true}
-	default:
-		return seelebridge.PlanPolicy{Effort: "lite"}
+	profile, ok := effortProfileFor(level)
+	if !ok {
+		profile = effortProfiles["lite"]
 	}
+	return profile.planPolicy
 }
 
 // PlanPolicy returns the constraints for the manager's current effort level.
@@ -85,9 +130,10 @@ func (m *EffortManager) Apply(level string) error {
 
 func (m *EffortManager) applyLocked(level string) error {
 	level = strings.ToLower(strings.TrimSpace(level))
-	if _, ok := effortPrompts[level]; !ok {
-		valid := make([]string, 0, len(effortPrompts))
-		for k := range effortPrompts {
+	profile, ok := effortProfileFor(level)
+	if !ok {
+		valid := make([]string, 0, len(effortProfiles))
+		for k := range effortProfiles {
 			valid = append(valid, k)
 		}
 		return fmt.Errorf("invalid effort level %q, valid: %v", level, valid)
@@ -95,12 +141,8 @@ func (m *EffortManager) applyLocked(level string) error {
 
 	m.promptStack.ClearKind("effort")
 
-	if prompt, ok := effortPrompts[level]; ok {
-		m.promptStack.Push("effort", level, prompt)
-	}
-	if loops, ok := effortLoops[level]; ok {
-		m.engine.SetMaxLoops(loops)
-	}
+	m.promptStack.Push("effort", level, profile.prompt)
+	m.engine.SetMaxLoops(profile.maxLoops)
 	m.current = level
 	return nil
 }
@@ -114,8 +156,8 @@ func (m *EffortManager) Current() string {
 
 // ValidLevels 返回所有有效 effort 等级。
 func ValidEffortLevels() []string {
-	levels := make([]string, 0, len(effortPrompts))
-	for k := range effortPrompts {
+	levels := make([]string, 0, len(effortProfiles))
+	for k := range effortProfiles {
 		levels = append(levels, k)
 	}
 	return levels

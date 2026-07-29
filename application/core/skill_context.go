@@ -15,6 +15,7 @@ type chatRequest struct {
 	displayInput string
 	modelInput   string
 	requirePlan  bool
+	budget       ReActBudget
 }
 
 func chatRequestDisplays(requests []chatRequest) []string {

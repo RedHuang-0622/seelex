@@ -48,6 +48,48 @@ func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.startReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
+	service.mu.Unlock()
+
+	bridge := NewToolHookBridge()
+	bridge.Bind(service)
+	hooks := bridge.Hooks()
+	hooks.OnToolStart(context.Background(), engine.ToolCallInfo{Turn: 0, Name: "write_file", Arguments: `{"path":"report.md","content":"done"}`})
+	if !hooks.OnIterationComplete(context.Background(), 0) {
+		t.Fatal("first delivery tool should remain within budget")
+	}
+	hooks.OnToolStart(context.Background(), engine.ToolCallInfo{Turn: 1, Name: "read_file", Arguments: `{"path":"report.md"}`})
+	if hooks.OnIterationComplete(context.Background(), 1) {
+		t.Fatal("tool-call budget should stop the next ReAct iteration")
+	}
+	if err := service.reactBudgetError("budget-request"); !errors.Is(err, ErrReActBudgetExceeded) {
+		t.Fatalf("budget error = %v, want ErrReActBudgetExceeded", err)
+	}
+}
+
+func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
+	engine := &fakeEngine{}
+	service := newTestService(engine)
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.startReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
+	service.reactBudget.reason = "tool-round limit reached (1)"
+	service.mu.Unlock()
+
+	if err := service.finalizeReActBudget(context.Background(), "budget-request"); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range engine.History() {
+		if message.Content == reactBudgetFinalizationInput {
+			t.Fatal("internal budget-finalization input leaked into history")
+		}
+	}
+}
+
 func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	engine.mu.Lock()
 	engine.historyBeforeChat = append([]EngineMessage(nil), engine.history...)

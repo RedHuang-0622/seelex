@@ -283,6 +283,7 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
 	cmd.Dir = workdir
+	configureHiddenCommand(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()

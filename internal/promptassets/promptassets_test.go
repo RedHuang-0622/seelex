@@ -7,7 +7,7 @@ import (
 
 func TestSystemAssetsContainEvidenceAndAuthorityRules(t *testing.T) {
 	instructions := SystemInstructions()
-	for _, required := range []string{"Evidence Before Conclusions", "Hypothesis", "authority=preflight-loaded", "truncated tool output as"} {
+	for _, required := range []string{"Evidence Before Conclusions", "Hypothesis", "authority=preflight-loaded", "truncated tool output as", "Task Terminal Protocol", "task_complete", "task_failed"} {
 		if !strings.Contains(instructions, required) {
 			t.Fatalf("system instructions missing %q", required)
 		}
@@ -29,5 +29,11 @@ func TestPlanTemplatesRenderRuntimeFacts(t *testing.T) {
 				t.Fatalf("%s template missing %q: %s", name, expected, rendered)
 			}
 		}
+	}
+}
+
+func TestPlanActPromptHarness(t *testing.T) {
+	if err := ValidatePlanActHarness(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -98,8 +98,12 @@ func NewEffortManager(stack *PromptStack, engine interface {
 	return prompt.NewEffortManager(stack, engine)
 }
 
+type ReActBudget = prompt.ReActBudget
+
 func cloneSnapshot(snapshot Snapshot) Snapshot { return model.CloneSnapshot(snapshot) }
 
 func cloneRuntimeState(runtime RuntimeState) RuntimeState { return model.CloneRuntimeState(runtime) }
 
 func maxLoopsFor(level string) int { return prompt.MaxLoops(level) }
+
+func reactBudgetFor(level string) prompt.ReActBudget { return prompt.ReActBudgetFor(level) }
