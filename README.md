@@ -25,7 +25,7 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 ### 🔌 Plugin 形态切换系统
 - 运行时通过 `switch_plugin` 或 `/plugin <name>` 切换 Agent 专业形态
 - 每个 Plugin 限定 **工具集 + Skill + System Prompt + MCP Server**
-- 内置 7 个基础 Plugin：`default` / `read` / `write` / `git` / `shell` / `plan` / `freecad`
+- 内置 6 个基础 Plugin：`default` / `read` / `write` / `git` / `shell` / `freecad`；Plan 是默认 Skill 与启动即注册的基础工具。
 - 事务式激活/停用，失败自动回滚
 
 ### 📜 Skill 技能系统
@@ -226,7 +226,6 @@ go run -tags "gui,desktop,production" . -frontend gui
 | `write` | 文件编辑、代码修改和必要的 Shell |
 | `git` | Git 操作与变更审查 |
 | `shell` | Shell 与 DevOps 操作 |
-| `plan` | 规划和 WorkPlan 工作流 |
 | `freecad` | CAD 设计、建模与工程分析（规划中） |
 
 用户可使用 `/plugin <name>`，Agent 也可调用 `switch_plugin` 或兼容别名 `switch_mode`。
@@ -274,9 +273,9 @@ Effort 控制 Agent 的思考深度和工具使用强度，通过多层 PromptSt
 | 等级 | MaxLoops | 工具可见性 | 行为特征 |
 |------|----------|-----------|---------|
 | lite | 20 | 有限只读 | 直接快速回答，不主动规划，不做 loop 限制 |
-| medium | 64 | 标准工具集 | 平衡速度与能力，plan 最多 2 节点并行，失败重试 1 次 |
-| high | 512 | 全部工具（默认） | 完整 ReAct，复杂任务用 WorkPlan 编排，最多 4 节点并行，失败重试 3 次 |
-| max | 1024 | 全部工具 + Fork | 深度推理，无限制并行子代理，失败重试 5 次，交叉验证 |
+| medium | 64 | 标准工具集 | 请求进入 ReAct 前强制加载最多 4 步的串行 Plan，失败重试 1 次 |
+| high | 512 | 全部工具（默认） | 请求进入 ReAct 前强制加载 WorkPlan；允许并行但最多 3 节点，失败重试 3 次 |
+| max | 1024 | 全部工具 + Fork | 请求进入 ReAct 前强制加载 WorkPlan；当前可运行节点不设并发上限，失败重试 5 次，交叉验证 |
 
 当前 effort 等级显示在状态栏：`E:lite`(灰) / `E:medium`(金) / `E:high`(蓝) / `E:max`(紫红)。Skill 加载栈也同步显示：如 `E:high  goal|code`。
 
@@ -387,7 +386,6 @@ seelex/
 │   ├── write/              #   写操作 Plugin
 │   ├── git/                #   Git Plugin
 │   ├── shell/              #   Shell Plugin
-│   └── plan/               #   Plan Plugin
 ├── skill/                  # Skill Loader 与 Registry
 │   ├── skill.go            #   Skill 结构体
 │   ├── loader.go           #   目录加载器（按 Plugin 路径加载 SKILL.md）
@@ -505,6 +503,10 @@ go vet ./...
 
 # 运行测试
 go test ./... -v -count=1 -timeout=120s
+
+# 可选的真实账号 Plan 冒烟测试（使用临时副本，会发起付费网络请求）
+$env:SEELEX_SMOKE_ACCOUNTS = (Resolve-Path config/accounts.yaml)
+go test -tags manualsmoke . -run TestManualSmokeRealAccountPlan -count=1 -timeout=2m
 
 # 竞态检测
 go test ./... -race -count=1

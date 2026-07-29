@@ -208,6 +208,29 @@ func TestEffortApply_SetsMaxLoops(t *testing.T) {
 	}
 }
 
+func TestPlanningPolicyByEffort(t *testing.T) {
+	tests := []struct {
+		level      string
+		required   bool
+		maxNodes   int
+		serial     bool
+		concurrent int
+	}{
+		{level: "lite"},
+		{level: "medium", required: true, maxNodes: 4, serial: true, concurrent: 1},
+		{level: "high", required: true, concurrent: 3},
+		{level: "max", required: true},
+	}
+	for _, test := range tests {
+		t.Run(test.level, func(t *testing.T) {
+			policy := PlanningPolicy(test.level)
+			if policy.Effort != test.level || policy.RequirePlan != test.required || policy.MaxNodes != test.maxNodes || policy.RequireSerial != test.serial || policy.MaxForkConcurrency != test.concurrent {
+				t.Fatalf("PlanningPolicy(%q) = %+v", test.level, policy)
+			}
+		})
+	}
+}
+
 // --- mocks ---
 
 type mockEngine struct {

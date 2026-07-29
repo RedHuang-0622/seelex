@@ -17,7 +17,7 @@ var repositoryModules = []string{
 	"docs/gui/schemas", "docs/product", "docs/research", "docs/test", "e2e",
 	"e2e/scenario", "gui", "gui/frontend", "internal", "internal/frontmatter",
 	"mcpstack", "plugin", "plugins", "plugins/default", "plugins/freecad", "plugins/git",
-	"plugins/plan", "plugins/read", "plugins/shell", "plugins/write", "scripts",
+	"plugins/read", "plugins/shell", "plugins/write", "scripts",
 	"seelebridge", "seelexctx", "seelexctx/compactor", "seelexctx/merger",
 	"seelexctx/provider", "seelexctx/snapshot", "session", "sessionstore", "skill",
 	"tui", "tui/splash", "workspace",
@@ -93,10 +93,25 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plugins) != 7 {
-		t.Fatalf("loaded %d plugins, want 7 (6 original + freecad)", len(plugins))
+	if len(plugins) != 6 {
+		t.Fatalf("loaded %d plugins, want 6 (5 base + freecad)", len(plugins))
 	}
 	for _, p := range plugins {
 		t.Logf("  plugin=%q skills=%d", p.Name, len(p.Skills))
 	}
+	if _, err := plugin.NewLoader("plugins").Load("plan"); err == nil {
+		t.Fatal("plan must be a default skill, not an independently loadable plugin")
+	}
+	for _, p := range plugins {
+		if p.Name != "default" {
+			continue
+		}
+		for _, skill := range p.Skills {
+			if skill.Name == "plan" {
+				return
+			}
+		}
+		t.Fatal("default plugin is missing the plan skill")
+	}
+	t.Fatal("default plugin was not loaded")
 }

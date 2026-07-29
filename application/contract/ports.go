@@ -48,6 +48,8 @@ type RuntimePort interface {
 	VisibleTools(context.Context) []model.Tool
 	ActivePlugin() string
 	SetFullAccess(bool)
+	SetPlanPolicy(seelebridge.PlanPolicy)
+	PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error)
 	SetPlanBranchBinding(seelebridge.PlanBranchBinding)
 	BindProjectRoot(rootPath string) error
 	UnbindProjectRoot()

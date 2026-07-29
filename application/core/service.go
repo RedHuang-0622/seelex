@@ -51,6 +51,7 @@ func New(deps Dependencies) *Service {
 		sessionNames: make(map[string]sessionNameCacheEntry),
 	}
 	service.effortManager = NewEffortManager(ps, deps.Engine)
+	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
 	service.idle = closedSignal()
 	service.snapshot = Snapshot{
 		ProtocolVersion: ProtocolVersion,
@@ -176,6 +177,7 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 
 func (service *Service) submitConversation(ctx context.Context, input string) error {
 	request := newChatRequest(input, service.promptStack.Layers())
+	request.requirePlan = service.effortManager.PlanPolicy().RequirePlan
 	service.sessionTransitionMu.Lock()
 	defer service.sessionTransitionMu.Unlock()
 	if err := service.materializeDraftSession(request.displayInput); err != nil {
@@ -327,6 +329,7 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	if err := service.effortManager.Apply(level); err != nil {
 		return err
 	}
+	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	service.mu.Lock()
 	service.snapshot.Runtime.Effort = service.effortManager.Current()

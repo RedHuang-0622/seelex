@@ -133,3 +133,23 @@ Verification: `go test ./application/...` and `go test ./...`.
 | `seelebridge/runtime_test.go` | Updated | Adds schema regression coverage, a smoke test that dispatches a valid DAG through the real handler, and a benchmark for repeated plan loads. |
 
 API compatibility: unchanged. Verification: `go test ./seelebridge -count=1`, `go test ./... -count=1 -timeout=120s`, `go test ./seelebridge -run TestPlanLoadSmoke -count=1`, `go test ./seelebridge -run '^$' -bench BenchmarkPlanLoadSmoke`, and `go vet ./...`.
+
+## Effort plan policy and default Plan Skill
+
+| File | Change | Purpose |
+|---|---|---|
+| `application/prompt/effort.go` | Updated | Maps Lite/Medium/High/Max to explicit PlanPolicy constraints and prompt instructions. |
+| `seelebridge/plan_policy.go` | Added | Validates Medium's four-node serial DAG and applies per-plan fork concurrency. |
+| `seelebridge/plan_tool_provider.go` | Updated | Applies the runtime policy before delegating to Seele's `plan_load` handler. |
+| `seelebridge/plan_preflight.go` | Added | Makes an isolated provider request that forces `plan_load`, then dispatches the validated plan before normal ReAct execution. |
+| `application/core/chat.go` | Updated | Runs the policy-selected preflight before forwarding a normal user request to the chat engine. |
+| `plugins/default/plan/SKILL.md` | Updated | Makes `#plan` the default Plugin's WorkPlan prompt, including valid JSON and effort rules. |
+| `plugins/plan/` | Removed | Removes the standalone Plan Plugin; Plan tools are registered during Runtime startup. |
+
+Policy: Lite leaves Plan optional; Medium allows at most four serial nodes with concurrency one; High allows DAG branches with concurrency three; Max permits every currently runnable node in a loaded plan to run concurrently.
+
+Manual live verification: `manual_smoke_test.go` is excluded unless built with
+the `manualsmoke` tag and an explicit `SEELEX_SMOKE_ACCOUNTS` path. It copies
+the configured account file into a test temporary directory and verifies that a
+real model request produces a successful forced `plan_load` call before normal
+ReAct execution.

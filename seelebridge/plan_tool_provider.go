@@ -1,6 +1,9 @@
 package seelebridge
 
 import (
+	"context"
+	"sync"
+
 	"github.com/RedHuang-0622/Seele/agent/core/tool/builtin"
 	"github.com/RedHuang-0622/Seele/agent/core/tool/interfaces"
 )
@@ -29,7 +32,8 @@ Valid complete example:
 // plan_load contract. Handlers remain framework-owned; only LLM-facing schema
 // and description are enriched.
 type planToolProvider struct {
-	tool *builtin.WorkPlanTool
+	tool   *builtin.WorkPlanTool
+	policy func() PlanPolicy
 }
 
 func (provider *planToolProvider) ProviderName() string { return "seelex-workplan" }
@@ -39,9 +43,37 @@ func (provider *planToolProvider) Tools() []interfaces.ToolEntry {
 	for index := range entries {
 		if entries[index].Definition.Function.Name == "plan_load" {
 			entries[index] = enrichPlanLoadEntry(entries[index])
+			entries[index].Handler = &planLoadPolicyHandler{
+				delegate: entries[index].Handler,
+				tool:     provider.tool,
+				policy:   provider.policy,
+			}
 		}
 	}
 	return entries
+}
+
+type planLoadPolicyHandler struct {
+	delegate interfaces.ToolHandler
+	tool     *builtin.WorkPlanTool
+	policy   func() PlanPolicy
+	mu       sync.Mutex
+}
+
+func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON string) (string, error) {
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+
+	policy := PlanPolicy{}
+	if handler.policy != nil {
+		policy = handler.policy()
+	}
+	nodeCount, err := policy.validateLoad(argsJSON)
+	if err != nil {
+		return "", err
+	}
+	handler.tool.SetMaxForkConcurrency(policy.concurrency(nodeCount))
+	return handler.delegate.Execute(ctx, argsJSON)
 }
 
 func enrichPlanLoadEntry(entry interfaces.ToolEntry) interfaces.ToolEntry {

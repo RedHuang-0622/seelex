@@ -21,6 +21,10 @@
 
 ## Review 指南
 
+## Plan policy
+
+`PlanningPolicy` maps effort to runtime-enforced WorkPlan constraints: Lite is optional; Medium permits at most four serial nodes with concurrency one; High permits DAG branches with concurrency three; Max runs every currently runnable node in the loaded plan concurrently. `core.Service` snapshots this policy when intercepting a normal user request: Medium, High, and Max make a mandatory `plan_load` preflight before the request enters the normal ReAct loop.
+
 - 不要让 map 迭代顺序影响 prompt；渲染顺序必须确定。
 - Effort 更新应同时刷新 max loops 和最终 system prompt。
 - Skill prompt 与 system layers 的边界不能混淆。

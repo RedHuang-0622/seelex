@@ -410,6 +410,60 @@ func TestSubmit_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestSubmitPlansBeforeSendingHighEffortRequest(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "inspect the repository"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+	if len(runtime.preflight) != 1 || runtime.preflight[0] != "inspect the repository" {
+		t.Fatalf("preflight inputs = %q", runtime.preflight)
+	}
+	if engine.lastInput != "inspect the repository" {
+		t.Fatalf("engine input = %q", engine.lastInput)
+	}
+}
+
+func TestSubmitSkipsPlanPreflightForLite(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+	defer service.Shutdown()
+	if err := service.SwitchEffort(context.Background(), "lite"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.Submit(context.Background(), "say hello"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+	if len(runtime.preflight) != 0 {
+		t.Fatalf("lite preflight inputs = %q, want none", runtime.preflight)
+	}
+}
+
+func TestPlanPreflightFailureBlocksEngine(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{preflightErr: errors.New("forced plan call failed")}
+	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+	defer service.Shutdown()
+
+	if err := service.Submit(context.Background(), "change a file"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+	if engine.lastInput != "" {
+		t.Fatalf("engine ran after failed preflight with input %q", engine.lastInput)
+	}
+	if got := service.Snapshot().Chat.Error; !strings.Contains(got, "plan preflight") {
+		t.Fatalf("chat error = %q", got)
+	}
+}
+
 func TestSkillLoadViaSubmit(t *testing.T) {
 	engine := &fakeEngine{}
 	svc := newTestService(engine)
@@ -699,14 +753,24 @@ func TestCancelChat_NotRunning(t *testing.T) {
 }
 
 func TestSwitchEffort(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	runtime := &fakeRuntime{}
+	svc := New(Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime,
+		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{},
+	})
 	defer svc.Shutdown()
+	if policy := runtime.planPolicy; policy.Effort != "high" || policy.MaxForkConcurrency != 3 {
+		t.Fatalf("initial plan policy = %+v, want high with concurrency 3", policy)
+	}
 	if err := svc.SwitchEffort(context.Background(), "max"); err != nil {
 		t.Fatal(err)
 	}
 	snap := svc.Snapshot()
 	if snap.Runtime.Effort != "max" {
 		t.Errorf("expected 'max', got %q", snap.Runtime.Effort)
+	}
+	if policy := runtime.planPolicy; policy.Effort != "max" || !policy.RequirePlan || policy.MaxForkConcurrency != 0 {
+		t.Fatalf("max plan policy = %+v", policy)
 	}
 }
 

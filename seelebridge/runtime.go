@@ -45,6 +45,8 @@ type Runtime struct {
 	planTool          *builtin.WorkPlanTool // plan 工具，用于设置进度回调
 	branchMu          sync.RWMutex
 	branchBinding     PlanBranchBinding
+	planPolicyMu      sync.RWMutex
+	planPolicy        PlanPolicy
 	selectedAccountID string
 	projectScope      *ProjectScope
 	toolCallTimeout   time.Duration
@@ -137,7 +139,7 @@ func (r *Runtime) RegisterBuiltins() {
 	r.scopedToolsReady = true
 	r.planTool = builtin.NewWorkPlanTool(builtin.NewChatAgentFactory(r.agent.LLM()))
 	r.planTool.SetBranchRuntimeResolver(r.resolvePlanBranchRuntime)
-	r.agent.Tools().Register(&planToolProvider{tool: r.planTool})
+	r.agent.Tools().Register(&planToolProvider{tool: r.planTool, policy: r.currentPlanPolicy})
 }
 
 // BindProjectRoot makes the supplied project the only root used by Seelex
@@ -188,6 +190,20 @@ func (r *Runtime) SetPlanBranchCallback(callback func(PlanBranchEvent)) {
 // next plan run. Branches receive private clients created from this binding.
 func (r *Runtime) SetPlanBranchBinding(binding PlanBranchBinding) {
 	r.setPlanBranchBinding(binding)
+}
+
+// SetPlanPolicy updates constraints applied to subsequent plan_load calls.
+// A loaded WorkPlan retains the concurrency selected when it was created.
+func (r *Runtime) SetPlanPolicy(policy PlanPolicy) {
+	r.planPolicyMu.Lock()
+	r.planPolicy = policy
+	r.planPolicyMu.Unlock()
+}
+
+func (r *Runtime) currentPlanPolicy() PlanPolicy {
+	r.planPolicyMu.RLock()
+	defer r.planPolicyMu.RUnlock()
+	return r.planPolicy
 }
 
 func (r *Runtime) RegisterTool(

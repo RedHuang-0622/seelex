@@ -17,6 +17,7 @@
 | `branch.go` | WorkPlan branch runtime、account 路由和 branch event。 |
 | `plan.go` | adjacency/edge、cycle detection、topological order。 |
 | `plan_tool_provider.go` | `plan_load` 严格 JSON schema/description 装饰器。 |
+| `plan_preflight.go` | 隔离的强制 `plan_load` 请求和 provider `tool_choice` 注入。 |
 | `storage.go` | Seele session store 与旧 nested workspace store 兼容。 |
 | `config.go` | 简化账号 YAML 与 role fallback。 |
 | `trace.go` | Seele tracer 类型别名和构造。 |
@@ -39,6 +40,10 @@ ProjectScope 先把用户路径解析为 canonical absolute target，再验证�
 scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝对路径，并强制 `-NoProfile -NonInteractive`，避免 PATH 命中 WSL shim、用户 profile 或交互启动导致工具超时。所有平台都把 `cmd.Dir` 固定为 ProjectScope 解析后的目录。
 
 ## Plan branch
+
+## Effort PlanPolicy
+
+`Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.
 
 每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。两条 fork 路径统一走 Seele ForkCoordinator，默认 fail-fast；best-effort 只有显式配置才可启用。账号选择按 role 与 seed 确定，避免并发分支共享不可控状态。
 

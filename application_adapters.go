@@ -114,6 +114,12 @@ func (port runtimePort) Model() string         { return port.runtime.Model() }
 func (port runtimePort) Provider() string      { return port.runtime.Provider() }
 func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugin() }
 func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
+func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
+	port.runtime.SetPlanPolicy(policy)
+}
+func (port runtimePort) PreparePlan(ctx context.Context, input string) (seelebridge.PlanPreflight, error) {
+	return port.runtime.PreparePlan(ctx, input)
+}
 func (port runtimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	port.runtime.SetPlanBranchBinding(binding)
 }

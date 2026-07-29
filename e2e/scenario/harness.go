@@ -94,13 +94,17 @@ type harnessRuntime struct {
 	plugin string
 }
 
-func (harnessRuntime) Model() string                                      { return "scripted-e2e" }
-func (harnessRuntime) Provider() string                                   { return "local" }
-func (harnessRuntime) Accounts() []application.AccountInfo                { return nil }
-func (harnessRuntime) SelectAccount(string) bool                          { return false }
-func (harnessRuntime) VisibleTools(context.Context) []application.Tool    { return nil }
-func (runtime harnessRuntime) ActivePlugin() string                       { return runtime.plugin }
-func (harnessRuntime) SetFullAccess(bool)                                 {}
+func (harnessRuntime) Model() string                                   { return "scripted-e2e" }
+func (harnessRuntime) Provider() string                                { return "local" }
+func (harnessRuntime) Accounts() []application.AccountInfo             { return nil }
+func (harnessRuntime) SelectAccount(string) bool                       { return false }
+func (harnessRuntime) VisibleTools(context.Context) []application.Tool { return nil }
+func (runtime harnessRuntime) ActivePlugin() string                    { return runtime.plugin }
+func (harnessRuntime) SetFullAccess(bool)                              {}
+func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)            {}
+func (harnessRuntime) PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error) {
+	return seelebridge.PlanPreflight{}, nil
+}
 func (harnessRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding) {}
 func (harnessRuntime) BindProjectRoot(string) error                       { return nil }
 func (harnessRuntime) UnbindProjectRoot()                                 {}

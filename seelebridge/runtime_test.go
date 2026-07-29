@@ -2,7 +2,10 @@ package seelebridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -129,6 +132,15 @@ func TestRuntimeBuiltinsAndMCPEmptyState(t *testing.T) {
 	if len(runtime.AllTools()) == 0 || runtime.Agent() == nil {
 		t.Fatal("builtins or Agent accessor missing")
 	}
+	registered := make(map[string]bool)
+	for _, tool := range runtime.AllTools() {
+		registered[tool.Name] = true
+	}
+	for _, name := range []string{"plan_load", "plan_run", "plan_status", "plan_export", "plan_clear"} {
+		if !registered[name] {
+			t.Errorf("initial builtin tools are missing %q", name)
+		}
+	}
 	if names := runtime.MCPServerNames(); len(names) != 0 {
 		t.Fatalf("unexpected MCP servers: %v", names)
 	}
@@ -203,6 +215,112 @@ func TestPlanLoadSmoke(t *testing.T) {
 		if !strings.Contains(result, required) {
 			t.Errorf("plan_load result %q is missing %s", result, required)
 		}
+	}
+}
+
+func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	serialFourNodes := `{"entry":"one","nodes":{"one":{"input":"one"},"two":{"input":"two"},"three":{"input":"three"},"four":{"input":"four"}},"edges":{"one":["two"],"two":["three"],"three":["four"]}}`
+	parallelFourNodes := `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"},"right":{"input":"right"},"finish":{"input":"finish"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
+	fiveNodes := `{"entry":"one","nodes":{"one":{"input":"one"},"two":{"input":"two"},"three":{"input":"three"},"four":{"input":"four"},"five":{"input":"five"}},"edges":{"one":["two"],"two":["three"],"three":["four"],"four":["five"]}}`
+
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1})
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", parallelFourNodes); err == nil || !strings.Contains(err.Error(), "serial chain") {
+		t.Fatalf("medium parallel plan error = %v, want serial-chain rejection", err)
+	}
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", fiveNodes); err == nil || !strings.Contains(err.Error(), "maximum is 4") {
+		t.Fatalf("medium five-node plan error = %v, want node-limit rejection", err)
+	}
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", serialFourNodes); err != nil {
+		t.Fatalf("medium serial plan error = %v", err)
+	}
+	if runtime.planTool.MaxForkConcurrency != 1 {
+		t.Fatalf("medium concurrency = %d, want 1", runtime.planTool.MaxForkConcurrency)
+	}
+
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3})
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", parallelFourNodes); err != nil {
+		t.Fatalf("high parallel plan error = %v", err)
+	}
+	if runtime.planTool.MaxForkConcurrency != 3 {
+		t.Fatalf("high concurrency = %d, want 3", runtime.planTool.MaxForkConcurrency)
+	}
+
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "max", RequirePlan: true})
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", fiveNodes); err != nil {
+		t.Fatalf("max plan error = %v", err)
+	}
+	if runtime.planTool.MaxForkConcurrency != 5 {
+		t.Fatalf("max concurrency = %d, want node count 5", runtime.planTool.MaxForkConcurrency)
+	}
+}
+
+func TestRuntimePreparePlanForcesPlanLoad(t *testing.T) {
+	plan := map[string]interface{}{
+		"entry": "inspect",
+		"nodes": map[string]interface{}{
+			"inspect": map[string]string{"input": "inspect request"},
+			"report":  map[string]string{"input": "report findings"},
+		},
+		"edges": map[string][]string{"inspect": {"report"}},
+	}
+	var choice struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		var payload struct {
+			ToolChoice json.RawMessage `json:"tool_choice"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Errorf("decode preflight request: %v", err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if err := json.Unmarshal(payload.ToolChoice, &choice); err != nil {
+			t.Errorf("decode tool choice: %v", err)
+		}
+		arguments, _ := json.Marshal(plan)
+		_ = json.NewEncoder(writer).Encode(map[string]interface{}{
+			"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{
+				"role": "assistant",
+				"tool_calls": []interface{}{map[string]interface{}{
+					"id": "preflight-plan", "type": "function",
+					"function": map[string]string{"name": "plan_load", "arguments": string(arguments)},
+				}},
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	accounts := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
+	if err := os.WriteFile(accounts, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: accounts, ToolCallTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1})
+
+	result, err := runtime.PreparePlan(context.Background(), "inspect the repository")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if choice.Type != "function" || choice.Function.Name != "plan_load" {
+		t.Fatalf("tool_choice = %+v, want forced plan_load", choice)
+	}
+	if result.Arguments == "" || !strings.Contains(result.Result, `"status":"loaded"`) {
+		t.Fatalf("preflight result = %+v", result)
 	}
 }
 

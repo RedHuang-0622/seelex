@@ -14,6 +14,7 @@ const (
 type chatRequest struct {
 	displayInput string
 	modelInput   string
+	requirePlan  bool
 }
 
 func chatRequestDisplays(requests []chatRequest) []string {
@@ -76,8 +77,10 @@ func combineChatRequests(requests []chatRequest) chatRequest {
 	displays := make([]string, 0, len(requests))
 	models := make([]string, 0, len(requests))
 	decorated := false
+	combined := chatRequest{}
 	for _, request := range requests {
 		displays = append(displays, request.displayInput)
+		combined.requirePlan = combined.requirePlan || request.requirePlan
 		_, bodyOffset, ok := parseModelEnvelope(request.modelInput)
 		if ok {
 			decorated = true
@@ -91,7 +94,9 @@ func combineChatRequests(requests []chatRequest) chatRequest {
 	if decorated {
 		model = wrapModelInput(display, model)
 	}
-	return chatRequest{displayInput: display, modelInput: model}
+	combined.displayInput = display
+	combined.modelInput = model
+	return combined
 }
 
 func parseModelEnvelope(input string) (string, int, bool) {

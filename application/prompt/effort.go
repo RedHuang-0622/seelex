@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 // EffortManager 管理 Effort 等级及对应行为。
@@ -25,15 +27,17 @@ var effortPrompts = map[string]string{
 
 	"medium": strings.TrimSpace(`
 You are in medium-effort mode.
-- For multi-step tasks, use plan_load to define a plan, then plan_run.
-- Plan node concurrency: maximum 2 nodes may run in parallel.
+- For every non-trivial task, your first action MUST be a plan_load tool call. Do not substitute a prose outline or a final answer for that call.
+- Load the plan before any execution tool. Call plan_run only when the task requires executing its nodes.
+- The plan must have at most 4 nodes and be one serial chain. These constraints are runtime-enforced.
 - Keep responses concise. Use tools only when necessary.
 - Retry once on tool failure.`),
 
 	"high": strings.TrimSpace(`
 You are in high-effort mode.
-- For multi-step tasks, use plan_load to define a plan, then plan_run.
-- Plan node concurrency: maximum 4 nodes may run in parallel.
+- For every non-trivial task, your first action MUST be a plan_load tool call. Do not substitute a prose outline or a final answer for that call.
+- Load the plan before any execution tool. Call plan_run only when the task requires executing its nodes.
+- Independent nodes may run in parallel, but the runtime limits plan concurrency to 3.
 - On tool failure, attempt auto-fix and retry up to 3 times.
 - Verify results after each change (compile/test).
 - Use ask_approve for destructive operations.
@@ -41,9 +45,10 @@ You are in high-effort mode.
 
 	"max": strings.TrimSpace(`
 You are in max-effort mode.
-- Always plan before acting. Use WorkPlan for complex tasks.
+- For every non-trivial task, your first action MUST be a plan_load tool call. Do not substitute a prose outline or a final answer for that call.
+- Load the WorkPlan before any execution tool. Call plan_run only when the task requires executing its nodes.
 - Use Fork for parallel sub-agents when tasks are independent.
-- Plan node concurrency: unlimited — all independent plan nodes may run in parallel.
+- All independent plan nodes may run in parallel; the runtime does not impose a per-plan concurrency cap.
 - On tool failure, retry with alternative approach up to 5 times.
 - Cross-verify results with multiple methods.
 - Use worktrees for isolated experiments.
@@ -60,6 +65,27 @@ var effortLoops = map[string]int{
 
 // MaxLoops returns the engine loop limit for an effort level.
 func MaxLoops(level string) int { return effortLoops[level] }
+
+// PlanningPolicy returns the hard runtime constraints for an effort level.
+// Lite leaves planning optional. Max uses the loaded plan's node count as its
+// concurrency cap so all currently runnable nodes can start together.
+func PlanningPolicy(level string) seelebridge.PlanPolicy {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "medium":
+		return seelebridge.PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1}
+	case "high":
+		return seelebridge.PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3}
+	case "max":
+		return seelebridge.PlanPolicy{Effort: "max", RequirePlan: true}
+	default:
+		return seelebridge.PlanPolicy{Effort: "lite"}
+	}
+}
+
+// PlanPolicy returns the constraints for the manager's current effort level.
+func (m *EffortManager) PlanPolicy() seelebridge.PlanPolicy {
+	return PlanningPolicy(m.Current())
+}
 
 // NewEffortManager 创建 Effort 管理器。
 func NewEffortManager(ps *PromptStack, eng interface {

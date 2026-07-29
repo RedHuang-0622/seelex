@@ -102,9 +102,12 @@ func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
 type fakeRuntime struct {
-	account     string
-	binding     seelebridge.PlanBranchBinding
-	projectRoot string
+	account      string
+	binding      seelebridge.PlanBranchBinding
+	planPolicy   seelebridge.PlanPolicy
+	preflight    []string
+	preflightErr error
+	projectRoot  string
 }
 
 func (*fakeRuntime) Model() string    { return "test-model" }
@@ -124,6 +127,13 @@ func (*fakeRuntime) VisibleTools(context.Context) []Tool {
 }
 func (*fakeRuntime) ActivePlugin() string { return "default" }
 func (*fakeRuntime) SetFullAccess(bool)   {}
+func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
+	runtime.planPolicy = policy
+}
+func (runtime *fakeRuntime) PreparePlan(_ context.Context, input string) (seelebridge.PlanPreflight, error) {
+	runtime.preflight = append(runtime.preflight, input)
+	return seelebridge.PlanPreflight{}, runtime.preflightErr
+}
 func (runtime *fakeRuntime) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	runtime.binding = binding
 }

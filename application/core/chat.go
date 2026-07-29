@@ -43,12 +43,15 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	service.mu.Unlock()
 	service.events.Publish(EventMessageAdded, revision, requestID, user)
 	service.events.Publish(EventMessageAdded, revision, requestID, assistant)
-	go service.runChat(chatContext, requestID, request.modelInput)
+	go service.runChat(chatContext, requestID, request)
 	return nil
 }
 
-func (service *Service) runChat(ctx context.Context, requestID, input string) {
-	_, err := service.deps.Engine.ChatStream(ctx, input, func(chunk string) { service.appendDelta(requestID, chunk) })
+func (service *Service) runChat(ctx context.Context, requestID string, request chatRequest) {
+	err := service.runPlanPreflight(ctx, requestID, request)
+	if err == nil {
+		_, err = service.deps.Engine.ChatStream(ctx, request.modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+	}
 	if err == nil {
 		if saveErr := service.deps.Sessions.SaveCurrent(service.deps.Engine.SessionID()); saveErr != nil {
 			err = fmt.Errorf("保存会话失败: %w", saveErr)
@@ -101,8 +104,24 @@ func (service *Service) runChat(ctx context.Context, requestID, input string) {
 	if processQueue {
 		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextUser)
 		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
-		go service.runChat(nextContext, nextRequestID, batchRequest.modelInput)
+		go service.runChat(nextContext, nextRequestID, batchRequest)
 	}
+}
+
+func (service *Service) runPlanPreflight(ctx context.Context, requestID string, request chatRequest) error {
+	if !request.requirePlan {
+		return nil
+	}
+	result, err := service.deps.Runtime.PreparePlan(ctx, request.displayInput)
+	if result.Arguments != "" {
+		toolID := requestID + ":plan-preflight"
+		service.handleToolStart("plan_load", toolID, result.Arguments)
+		service.handleToolComplete("plan_load", toolID, result.Result, err, 0)
+	}
+	if err != nil {
+		return fmt.Errorf("plan preflight: %w", err)
+	}
+	return nil
 }
 
 func closedSignal() chan struct{} {

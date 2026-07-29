@@ -11,7 +11,6 @@
 | `write` | 文件和代码修改 | [`write`](write/README.md) |
 | `git` | 版本控制工作流 | [`git`](git/README.md) |
 | `shell` | Shell/DevOps 执行 | [`shell`](shell/README.md) |
-| `plan` | WorkPlan 编排 | [`plan`](plan/README.md) |
 | `freecad` | CAD 垂直能力验证 | [`freecad`](freecad/README.md) |
 
 ## Plugin 契约

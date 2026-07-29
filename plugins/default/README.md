@@ -5,6 +5,7 @@
 ## 实现
 
 - `plugin.md` 的 include/exclude 均为空，交由 Seele Tool holder 暴露全部工具。
+- Plan 是启动即注册的基础工具；`plan/` 是默认 Plugin 提供的 `#plan` Skill，不再存在独立 Plan Plugin。
 - 子目录包含代码、规划、测试、review、goal 和 CLI 设计等通用 Skill。
 - 激活专用 Plugin 后，Registry 只展示该 Plugin 发布的 Skill；退出后恢复 default/global 集合。
 
