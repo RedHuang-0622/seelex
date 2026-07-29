@@ -164,7 +164,7 @@ cp config/accounts.example.yaml config/accounts.yaml
 go run .
 ```
 
-配置模板见 `config/accounts.example.yaml`。真实的 `config/accounts.yaml` 已被 `.gitignore` 排除，发布脚本也不会复制本机账户文件。
+配置模板见 `config/accounts.example.yaml`。真实的 `config/accounts.yaml` 已被 `.gitignore` 排除。`Publish` build 只复制 example；`Dev` build 会将 `LOCAL_CONFIG` 指向的文件不透明复制为包内 `config/accounts.yaml`，使本地 GUI 可以直接使用已配置的模型账号。Dev 产物含敏感配置，不应对外分发。
 
 配置示例：
 
@@ -513,11 +513,17 @@ go test ./... -race -count=1
 go test ./... -coverprofile=coverage.out ./...
 go tool cover -func=coverage.out | tail -1
 
-# 跨平台构建
-make build && make package
+# 跨平台发布（安全执行 clean -> build -> package）
+make release
 
-# Windows GUI
-.\scripts\build-gui.ps1 -Version v0.1.0-alpha.1
+# Windows 本地 GUI（要求 config/accounts.yaml 存在，并打入本地产物）
+make rebuild-gui VERSION=v0.1.0-alpha.1
+
+# 使用其他 ignored 本地配置
+make rebuild-gui VERSION=v0.1.0-alpha.1 LOCAL_CONFIG=config/account-claudecode.local.yaml
+
+# Windows 可发布 GUI（只包含 accounts.example.yaml）
+make publish-rebuild-gui VERSION=v0.1.0-alpha.1
 ```
 
 ### 当前测试覆盖率

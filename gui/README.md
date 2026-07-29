@@ -17,7 +17,7 @@
 
 ## Bridge 契约
 
-`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、Cancel、Interaction、Plugin/Account/Effort、history pagination、workspace、session storage settings 等方法，并把 Application Event 统一转发为 `seelex:event`。
+`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、Cancel、Interaction、Plugin/Account/Effort、history pagination、workspace、session storage settings 等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft，GUI 不通过 `/new` 字符串命令抢先创建 Session。
 
 Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等敏感配置必须由 backend redaction 后再返回 renderer。
 

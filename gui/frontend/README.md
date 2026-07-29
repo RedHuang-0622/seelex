@@ -25,11 +25,16 @@
 3. seq gap、协议不兼容或未知状态触发完整 Snapshot resync。
 4. render functions 根据 state 投影 DOM；所有 mutation 通过 Bridge 返回 Application。
 
+Plan DSL 常驻右侧项目栏；没有 Plan 时隐藏整个 section，加载、运行和完成状态都由 `runtime.plan` 驱动。Runtime 弹窗只保留运行时诊断信息。
+
+点击新建会话只调用 `BeginNewSession` 进入编辑草稿：允许选择项目和编辑输入框，但左侧列表不新增任何条目，也不生成临时 ID。第一次提交真实对话后，Application 返回真实 ID，左侧才新增正式 Session，并以首个问题作为列表标题。
+
 ## 安全和身份规则
 
 - 所有模型/工具/用户文本在进入 HTML 前 escape 或经过受控 Markdown renderer。
 - 禁止执行 raw HTML、危险 URL 或任意脚本。
 - session/project 名称只显示；按钮 `data-session`、`data-ws` 必须保存 ID。
+- draft session 没有 ID、没有左侧列表行，不允许触发 resume/delete/binding；物化后列表行为仍只使用真实 ID。
 - DSN、API key 等秘密不能进入 renderer state。
 
 ## Review 指南

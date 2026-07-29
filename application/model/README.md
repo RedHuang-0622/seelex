@@ -7,7 +7,7 @@
 ## 权威结构
 
 - `Snapshot`：session、conversation、chat、runtime、interaction、history window、workspace 和 binding 的完整视图。
-- `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题。
+- `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题；`SessionState.Draft` 表示尚未生成 ID、不得持久化的待发送会话。
 - `WorkspaceInfo`：`ID` 是唯一键，`Name` 默认来自 root basename。
 - `Message`/`ToolCall`：前端渲染的消息与工具卡片。
 - `RuntimeState`/`PlanState`：模型、Provider、Plugin、Effort、工具和 Plan DAG 的投影。
@@ -28,6 +28,7 @@ DTO 不执行 IO、不调用 Engine，也不持有锁。它可以引用稳定的
 ## Review 指南
 
 - 名称是否被误当作索引；恢复/删除/绑定必须继续使用 ID。
+- draft 是否保持空 ID，且只在首个真实对话请求到达时物化并用首问生成 Name。
 - Snapshot clone 是否仍真正隔离可变数据。
 - Plan 节点状态是否覆盖 queued/running/success/error/skipped/aborted 生命周期。
 - 零值是否对旧客户端安全。

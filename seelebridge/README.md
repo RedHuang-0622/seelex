@@ -36,6 +36,8 @@ ProjectScope 先把用户路径解析为 canonical absolute target，再验证�
 
 二者不能互相替代：scope 防越界，gate 表达策略。
 
+scoped shell 在 POSIX 使用 bash/sh；Windows 使用系统 PowerShell 的绝对路径，并强制 `-NoProfile -NonInteractive`，避免 PATH 命中 WSL shim、用户 profile 或交互启动导致工具超时。所有平台都把 `cmd.Dir` 固定为 ProjectScope 解析后的目录。
+
 ## Plan branch
 
 每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。两条 fork 路径统一走 Seele ForkCoordinator，默认 fail-fast；best-effort 只有显式配置才可启用。账号选择按 role 与 seed 确定，避免并发分支共享不可控状态。
@@ -49,6 +51,7 @@ ProjectScope 先把用户路径解析为 canonical absolute target，再验证�
 ## Review 指南
 
 - 是否存在未经过 ProjectScope 的文件/shell 工具。
+- Windows shell 是否继续使用显式系统路径和 non-interactive 参数，超时后是否能终止。
 - bind/unbind 是否对并发 tool call 有确定快照语义。
 - plan provider 是否只装饰 schema，不替换 framework handler。
 - branch runtime/账号是否按 binding 隔离，fail-fast 是否仍为默认。

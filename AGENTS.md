@@ -52,7 +52,7 @@ README 描述当前代码，不把规划写成既成事实。未来能力必须�
 - 先写结论和边界，再写实现细节；避免把源码逐行翻译成文档。
 - 使用相对链接；链接目标必须存在。不要使用本机绝对路径。
 - 示例必须可复制，但不得出现真实 API key、token、password、DSN 或个人目录。
-- 配置示例只引用 `config/accounts.example.yaml`。不要读取、复制或提交 `config/accounts.yaml` 和 `*.local.yaml` 的内容。
+- 配置示例只引用 `config/accounts.example.yaml`。不得读取、打印或提交 `config/accounts.yaml` 和 `*.local.yaml` 的内容；唯一允许的复制是本地 GUI 构建脚本按显式路径把配置作为不透明文件写入 ignored `dist/` 产物。公开 release、源码、日志和文档不得包含真实配置。
 - 变更接口、JSON 字段、Schema、环境变量、CLI flag 或持久化格式时，必须同步更新对应 README、示例和测试。
 - 删除或移动模块时，同时修正上级 README、文档索引和 contract tests。
 
@@ -76,6 +76,8 @@ node --test gui/frontend/dist/*.test.mjs
 ```
 
 Linux CI 另外运行 `-race -covermode=atomic -coverpkg=./...`。Windows 本地若 `CGO_ENABLED=0`，不得声称 race 已执行。
+
+可分发构建必须遵循 clean → build 顺序：跨平台公开发布使用 `make release`；Windows Dev GUI 使用 `make rebuild-gui VERSION=<tag>`，并且必须通过 `LOCAL_CONFIG` 把真实账号配置不透明复制进本地产物；Windows Publish GUI 使用 `make publish-rebuild-gui VERSION=<tag>`，只允许包含 example。clean 只能作用于仓库内 `dist/`，不得把未校验变量或仓库根作为递归删除目标。
 
 ## 6. Review 清单
 

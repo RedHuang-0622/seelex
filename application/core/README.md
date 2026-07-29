@@ -14,6 +14,7 @@
 | `chat.go` | 流式聊天、输入队列、工具事件、Plan 状态打点和 idle/draining。 |
 | `command.go` | 内置命令注册与执行。 |
 | `session_scope.go` | 跨项目 session catalog、真实存储位置定位、标题恢复和 scoped read。 |
+| `session_draft.go` | GUI 新会话草稿、首次请求物化和项目 binding。 |
 | `session_storage.go` | JSON/SQLite/PostgreSQL 存储设置用例。 |
 | `skill_context.go` | Skill 指令与用户可见输入的 envelope 编解码。 |
 | `completion.go` | `/`、`#`、`@` 输入建议。 |
@@ -36,6 +37,7 @@
 
 - project 只定义会话的文件读写范围，不共享 conversation history。
 - session ID 是唯一键；显示名来自首个用户问题，允许重复。
+- `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。
 - workspace ID 是 binding 与 storage shard 的键；显示名来自 root basename。
 - 恢复 session 时先定位真实 `workspaceID + sessionID`，再读取历史和绑定 Runtime。
 - 有历史的 session 切换 project 时先保存旧 scope，然后创建新 session，禁止把同一 ID 重新绑定后继续写。
@@ -60,6 +62,7 @@ Tool hooks 把 `plan_load` JSON 转为 Plan DAG，把 `plan_run` node/branch 回
 - queued input 是否冻结提交时的 Skill 上下文，而非执行时重新读取。
 - resume/load-more/delete 是否使用目标 session 的真实 workspace，而非当前 active scope。
 - project 切换、storage reconfigure、shutdown 与 running chat 的竞争是否有明确结果。
+- draft 期间切换项目是否只更新待继承 scope，是否避免空 Session ID binding；重复点击新建是否仍只保留一个 draft。
 - Tool/Plan callback 是否只更新所属 request/session。
 
 ## 测试
