@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
 )
@@ -49,6 +51,122 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 				t.Fatalf("state after delete error = %v, want not found", err)
 			}
 		})
+	}
+}
+
+func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
+	for _, config := range []Config{
+		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
+	} {
+		t.Run(string(config.Backend), func(t *testing.T) {
+			repository, err := Open(context.Background(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer repository.Close()
+			key := Key{ProjectID: "project", SessionID: "session"}
+			content := "stored raw result"
+			commit := Commit{
+				ProviderHistory: testMessages(2, "provider"),
+				Events: []Event{
+					{Seq: 1, Role: "user", Content: "inspect", TokenCount: 1},
+					{Seq: 2, Role: "assistant", ToolCalls: []EventToolCall{{ID: "a", Name: "read"}, {ID: "b", Name: "status"}}, TokenCount: 1},
+					{Seq: 3, Role: "tool", ToolCallID: "b", Name: "status", Content: "clean", TokenCount: 1},
+					{Seq: 4, Role: "tool", ToolCallID: "a", Name: "read", Content: "found", TokenCount: 1},
+					{Seq: 5, Role: "assistant", Content: "done", TokenCount: 1},
+				},
+				State: []byte(`{"version":3,"status":"interrupted"}`),
+				ToolResults: []ToolResult{{
+					Ref: "tr-result", Tool: "read", Content: content, Digest: "sha256:test",
+					Size: len(content), TokenCount: 4, CreatedAt: time.Unix(1, 0),
+				}},
+			}
+			if err := repository.WriteCommit(context.Background(), key, commit); err != nil {
+				t.Fatal(err)
+			}
+			history, err := repository.Read(context.Background(), key)
+			if err != nil || len(history) != 2 {
+				t.Fatalf("history=%#v err=%v", history, err)
+			}
+			state, err := repository.ReadState(context.Background(), key)
+			if err != nil || string(state) != string(commit.State) {
+				t.Fatalf("state=%s err=%v", state, err)
+			}
+			result, err := repository.ReadToolResult(context.Background(), key, "tr-result")
+			if err != nil || result.Content != content {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+			tail, err := repository.ReadEventTail(context.Background(), key, 100, 4)
+			if err != nil || !reflect.DeepEqual(tail, commit.Events) {
+				t.Fatalf("tail=%#v err=%v", tail, err)
+			}
+
+			failed := Commit{
+				ProviderHistory: testMessages(1, "replacement"),
+				State:           []byte(`{"version":3,"status":"completed"}`),
+				ToolResults:     []ToolResult{{Tool: "read", Content: "invalid"}},
+			}
+			if err := repository.WriteCommit(context.Background(), key, failed); err == nil {
+				t.Fatal("commit with an empty result ref succeeded")
+			}
+			history, _ = repository.Read(context.Background(), key)
+			state, _ = repository.ReadState(context.Background(), key)
+			if len(history) != 2 || string(state) != string(commit.State) {
+				t.Fatalf("failed commit became visible: history=%#v state=%s", history, state)
+			}
+		})
+	}
+}
+
+func TestWriteStateAfterCommitReturnsLatestState(t *testing.T) {
+	for _, config := range []Config{
+		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
+		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
+	} {
+		t.Run(string(config.Backend), func(t *testing.T) {
+			repository, err := Open(context.Background(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer repository.Close()
+			key := Key{ProjectID: "project", SessionID: "session"}
+			if err := repository.WriteCommit(context.Background(), key, Commit{ProviderHistory: testMessages(1, "first"), State: []byte("first")}); err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.WriteState(context.Background(), key, []byte("second")); err != nil {
+				t.Fatal(err)
+			}
+			state, err := repository.ReadState(context.Background(), key)
+			if err != nil || string(state) != "second" {
+				t.Fatalf("state=%q err=%v", state, err)
+			}
+		})
+	}
+}
+
+func TestEventTailKeepsCompleteUserAndParallelToolUnits(t *testing.T) {
+	events := []Event{
+		{Seq: 1, Role: "user", Content: "incomplete", TokenCount: 1},
+		{Seq: 2, Role: "assistant", ToolCalls: []EventToolCall{{ID: "a"}, {ID: "b"}}, TokenCount: 1},
+		{Seq: 3, Role: "tool", ToolCallID: "a", TokenCount: 1},
+		{Seq: 4, Role: "user", Content: "complete", TokenCount: 1},
+		{Seq: 5, Role: "assistant", ToolCalls: []EventToolCall{{ID: "c"}, {ID: "d"}}, TokenCount: 1},
+		{Seq: 6, Role: "tool", ToolCallID: "d", TokenCount: 1},
+		{Seq: 7, Role: "tool", ToolCallID: "c", TokenCount: 1},
+		{Seq: 8, Role: "assistant", Content: "finished", TokenCount: 1},
+		{Seq: 9, Role: "tool", ToolCallID: "orphan", TokenCount: 1},
+		{Seq: 10, Role: "user", Content: "plain", TokenCount: 1},
+		{Seq: 11, Role: "assistant", Content: "answer", TokenCount: 1},
+	}
+	tail := selectEventTail(events, 100, 4)
+	wantSeq := []uint64{4, 5, 6, 7, 8, 10, 11}
+	gotSeq := make([]uint64, len(tail))
+	for index := range tail {
+		gotSeq[index] = tail[index].Seq
+	}
+	if !reflect.DeepEqual(gotSeq, wantSeq) {
+		t.Fatalf("tail seq=%v, want %v", gotSeq, wantSeq)
 	}
 }
 

@@ -14,6 +14,7 @@ const (
 type chatRequest struct {
 	displayInput string
 	modelInput   string
+	skills       []PromptLayer
 	requirePlan  bool
 	budget       ReActBudget
 }
@@ -28,28 +29,22 @@ func chatRequestDisplays(requests []chatRequest) []string {
 
 func newChatRequest(input string, layers []PromptLayer) chatRequest {
 	display := strings.TrimSpace(input)
-	return chatRequest{displayInput: display, modelInput: formatSkillUserInput(layers, display)}
+	return chatRequest{displayInput: display, modelInput: display, skills: selectedSkillLayers(layers)}
+}
+
+func selectedSkillLayers(layers []PromptLayer) []PromptLayer {
+	skilled := make([]PromptLayer, 0, len(layers))
+	for _, layer := range layers {
+		if layer.Kind == "skill" {
+			skilled = append(skilled, layer)
+		}
+	}
+	return skilled
 }
 
 func formatSkillUserInput(layers []PromptLayer, input string) string {
-	skills := make([]PromptLayer, 0, len(layers))
-	for _, layer := range layers {
-		if layer.Kind == "skill" {
-			skills = append(skills, layer)
-		}
-	}
-	if len(skills) == 0 {
-		return input
-	}
-
-	var builder strings.Builder
-	builder.WriteString("## Selected Skills\n")
-	for _, skill := range skills {
-		writeSkillItem(&builder, skill)
-	}
-	builder.WriteString("\n## User Request\n")
-	builder.WriteString(input)
-	return wrapModelInput(input, builder.String())
+	_ = layers
+	return input
 }
 
 func writeSkillItem(builder *strings.Builder, skill PromptLayer) {
@@ -112,7 +107,27 @@ func combineChatRequests(requests []chatRequest) chatRequest {
 	}
 	combined.displayInput = display
 	combined.modelInput = model
+	for _, request := range requests {
+		combined.skills = mergeSkillLayers(combined.skills, request.skills)
+	}
 	return combined
+}
+
+func mergeSkillLayers(current, incoming []PromptLayer) []PromptLayer {
+	for _, layer := range incoming {
+		found := false
+		for index := range current {
+			if current[index].Name == layer.Name {
+				current[index] = layer
+				found = true
+				break
+			}
+		}
+		if !found {
+			current = append(current, layer)
+		}
+	}
+	return current
 }
 
 func parseModelEnvelope(input string) (string, int, bool) {

@@ -38,11 +38,12 @@ func (service *Service) BeginNewSession() error {
 
 	if len(service.deps.Engine.History()) > 0 {
 		service.deps.Sessions.SetWorkspace(currentWorkspaceID)
-		if err := service.persistCurrentSession(sessionID); err != nil {
+		if err := service.components.sessions.persistCurrentSession(sessionID); err != nil {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
 		}
 	}
 	service.deps.Engine.ClearHistory()
+	service.promptStack.ClearKind("skill")
 
 	service.mu.Lock()
 	service.snapshot.Session = SessionState{Name: draftSessionName, Draft: true}
@@ -58,6 +59,14 @@ func (service *Service) BeginNewSession() error {
 	service.activePlanID = ""
 	service.planSequence = 0
 	service.inputQueue = nil
+	service.taskExecution = nil
+	service.transcript = nil
+	service.transcriptSeq = 0
+	service.pendingProviderCalls = nil
+	service.pendingToolResults = nil
+	service.toolResultRefs = nil
+	service.resultRefsByToolCallID = make(map[string]string)
+	service.taskCheckpoints = nil
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)

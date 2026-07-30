@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,14 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	chatContext, cancel := context.WithCancel(parent)
 	service.cancelChat = cancel
 	service.startReActBudgetLocked(requestID, budget)
-	service.taskExecution = newTaskExecutionState(requestID, request.displayInput, service.effortManager.Current())
+	previousTask := service.taskExecution
+	previousCheckpoint := TaskCheckpoint{}
+	if previousTask != nil && isContinuableTaskStatus(previousTask.status) {
+		previousCheckpoint = service.components.tasks.buildTaskCheckpointLocked(previousTask)
+	}
+	service.taskExecution = continuationTaskExecutionState(requestID, request.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+	service.components.tasks.activateTaskSkillsLocked(service.taskExecution, request.skills)
+	service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
 	service.streamOutput = newVisibleOutputStream(requestID)
 	service.markBusyLocked()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
@@ -85,14 +93,19 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		}
 	}
 	if err == nil {
-		if historyErr := service.prepareProviderHistory(); historyErr != nil {
-			err = historyErr
-		}
+		service.components.prompts.applyActiveTaskSystemPrompt(requestID)
+	}
+	if err == nil {
+		modelInput, err = service.components.context.prepareExecutionContext(requestID, modelInput)
 	}
 	if err == nil {
 		modelInput = nonEmptyProviderInput(modelInput)
-		_, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
-		if contextErr := service.takeContextControlFailure(requestID); contextErr != nil {
+		var reply string
+		reply, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+		if reply != "" {
+			service.components.tasks.ensureFinalAssistantTranscript(requestID, reply)
+		}
+		if contextErr := service.components.context.takeContextControlFailure(requestID); contextErr != nil {
 			err = contextErr
 		}
 		var recoveryErr error
@@ -100,8 +113,12 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		if recoveryErr != nil {
 			err = fmt.Errorf("%w; context recovery failed: %v", err, recoveryErr)
 		}
-		if recovered && err != nil {
-			err = fmt.Errorf("%w; progress checkpoint saved; continue to resume safely", err)
+		if recovered && recoveryErr == nil && isProviderContextExhaustion(err) {
+			if retryErr := service.retryContextRecovery(ctx, requestID); retryErr != nil {
+				err = fmt.Errorf("%w; bounded context recovery turn failed: %v", err, retryErr)
+			} else {
+				err = nil
+			}
 		}
 		if err == nil {
 			err = service.finalizeReActBudget(ctx, requestID)
@@ -118,7 +135,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 			err = cleanupErr
 		}
 	}
-	if cleanupErr := service.removeTaskContextCheckpoints(); cleanupErr != nil && err == nil {
+	if cleanupErr := service.components.context.removeTaskContextCheckpoints(); cleanupErr != nil && err == nil {
 		err = cleanupErr
 	}
 	if err == nil {
@@ -126,9 +143,16 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 			err = cleanupErr
 		}
 	}
-	if err == nil || recovered {
-		if saveErr := service.persistCurrentSession(service.deps.Engine.SessionID()); saveErr != nil {
-			err = fmt.Errorf("保存会话失败: %w", saveErr)
+	if err != nil {
+		service.mu.Lock()
+		service.recordUnhandledTaskErrorLocked(requestID, err)
+		service.mu.Unlock()
+	}
+	if saveErr := service.components.sessions.persistCurrentSession(service.deps.Engine.SessionID()); saveErr != nil {
+		if err != nil {
+			err = fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr)
+		} else {
+			err = fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr)
 		}
 	}
 	service.mu.Lock()
@@ -139,7 +163,9 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	service.snapshot.Chat.Error = ""
 	visibleError := ""
 	if err != nil {
-		service.recordUnhandledTaskErrorLocked(requestID, err)
+		if isUnclassifiedRunChatError(err) {
+			log.Printf("[runChat] request_id=%s unclassified_error=%v", requestID, err)
+		}
 		visibleError = presentUserError(err)
 		service.snapshot.Chat.Error = visibleError
 		service.appendMessageLocked("error", visibleError, nil)
@@ -167,7 +193,14 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		}
 		nextContext, service.cancelChat = context.WithCancel(context.Background())
 		service.startReActBudgetLocked(nextRequestID, budget)
-		service.taskExecution = newTaskExecutionState(nextRequestID, batchRequest.displayInput, service.effortManager.Current())
+		previousTask := service.taskExecution
+		previousCheckpoint := TaskCheckpoint{}
+		if previousTask != nil && isContinuableTaskStatus(previousTask.status) {
+			previousCheckpoint = service.components.tasks.buildTaskCheckpointLocked(previousTask)
+		}
+		service.taskExecution = continuationTaskExecutionState(nextRequestID, batchRequest.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+		service.components.tasks.activateTaskSkillsLocked(service.taskExecution, batchRequest.skills)
+		service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
 		service.streamOutput = newVisibleOutputStream(nextRequestID)
 		service.snapshot.Chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
 		service.setTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
@@ -200,9 +233,22 @@ func (service *Service) recordUnhandledTaskErrorLocked(requestID string, err err
 	}
 	if errors.Is(err, context.Canceled) {
 		service.setTaskStateLocked(requestID, TaskInterrupted, "The task was canceled before completion.")
+		if state := service.taskExecution; state != nil && state.requestID == requestID {
+			state.status = taskStatusInterrupted
+		}
+		return
+	}
+	if kind := classifyProviderFailure(err); kind != providerFailureNone {
+		service.setTaskStateLocked(requestID, TaskInterrupted, "The provider interrupted the task before completion.")
+		if state := service.taskExecution; state != nil && state.requestID == requestID {
+			state.status = taskStatusInterrupted
+		}
 		return
 	}
 	service.setTaskStateLocked(requestID, TaskFailed, "The task stopped before a verified completion could be delivered.")
+	if state := service.taskExecution; state != nil && state.requestID == requestID {
+		state.status = taskStatusFailed
+	}
 }
 
 const reactBudgetFinalizationInput = "<!-- seelex:react-budget-finalize:v1 -->\n" +
@@ -217,7 +263,11 @@ func (service *Service) finalizeReActBudget(ctx context.Context, requestID strin
 	if budgetErr == nil {
 		return nil
 	}
-	result, err := service.deps.Engine.ChatStream(ctx, reactBudgetFinalizationInput, func(chunk string) {
+	finalizationInput, prepareErr := service.components.context.prepareExecutionContext(requestID, reactBudgetFinalizationInput)
+	if prepareErr != nil {
+		return fmt.Errorf("%w; prepare final delivery context: %v", budgetErr, prepareErr)
+	}
+	result, err := service.deps.Engine.ChatStream(ctx, finalizationInput, func(chunk string) {
 		service.appendDelta(requestID, chunk)
 	})
 	cleanupErr := service.removeReActBudgetFinalizationInput()
@@ -393,6 +443,7 @@ func (service *Service) appendHistoryLocked(history []EngineMessage) {
 
 func (service *Service) handleToolStart(name, id, arguments string) {
 	service.mu.Lock()
+	service.components.tasks.ensureToolCallTranscriptLocked(name, id, arguments)
 	tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}
 	message := *service.appendMessageLocked("tool", "", tool)
 
@@ -440,14 +491,22 @@ func (service *Service) planBranchBindingLocked() seelebridge.PlanBranchBinding 
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
 	service.mu.Lock()
+	toolArguments := ""
+	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
+		tool := service.snapshot.Conversation[index].Tool
+		if tool != nil && tool.ID == id {
+			toolArguments = tool.Arguments
+			break
+		}
+	}
+	providerResult, _ := service.components.tasks.recordToolTranscriptLocked(name, id, toolArguments, result, toolErr)
 	if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
-		state.recordTool(name, result, toolErr)
+		state.recordTool(name, providerResult, toolErr)
 	}
 	status, errorText := "success", ""
 	if toolErr != nil {
 		status, errorText = "error", presentToolError(name, toolErr)
 	}
-	toolArguments := ""
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
 		tool := service.snapshot.Conversation[index].Tool
 		if tool != nil && tool.ID == id {
@@ -457,10 +516,10 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 		}
 	}
 	if name == "read_file" && toolErr == nil {
-		service.recordReadFileLocked(toolArguments)
+		service.components.sessions.recordReadFileLocked(toolArguments)
 	}
 	if name == "plan_load" && toolErr == nil {
-		service.pushLoadedPlanLocked(toolArguments, time.Now())
+		service.components.sessions.pushLoadedPlanLocked(toolArguments, time.Now())
 	}
 	if name == "plan_clear" && toolErr == nil {
 		service.activePlanID = ""
@@ -1062,6 +1121,14 @@ func (bridge *ToolHookBridge) Bind(service *Service) {
 }
 func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 	return &engine.LoopHooks{
+		OnLLMComplete: func(_ context.Context, info engine.LLMInfo) {
+			bridge.mu.Lock()
+			svc := bridge.service
+			bridge.mu.Unlock()
+			if svc != nil {
+				svc.components.tasks.recordLLMComplete(info)
+			}
+		},
 		OnToolStart: func(_ context.Context, info engine.ToolCallInfo) {
 			info = normalizePlanToolCallInfo(info)
 			service, id := bridge.beginTool(info)
@@ -1091,14 +1158,14 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 			svc.mu.RLock()
 			activeRequestID := svc.snapshot.Chat.RequestID
 			svc.mu.RUnlock()
-			if err := svc.compactTaskContext(activeRequestID); err != nil {
-				svc.recordContextControlFailure(activeRequestID, err)
+			if err := svc.components.context.compactTaskContext(activeRequestID); err != nil {
+				svc.components.context.recordContextControlFailure(activeRequestID, err)
 				return false
 			}
 			// The engine adds assistant/tool records after the initial preflight.
 			// Repair them before its next provider request, not only before loop 0.
-			if err := svc.prepareProviderHistory(); err != nil {
-				svc.recordContextControlFailure(activeRequestID, err)
+			if err := svc.components.history.prepareProviderHistory(); err != nil {
+				svc.components.context.recordContextControlFailure(activeRequestID, err)
 				return false
 			}
 			// 每轮 ReAct 结束后检查输入队列：非空时清空并注入到引擎对话历史，
@@ -1115,6 +1182,7 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 
 			// 追加到引擎内部历史（同 goroutine，无需加锁）
 			batchInput := batch.modelInput
+			svc.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: activeRequestID, Role: "user", Content: batch.displayInput})
 			svc.mu.Unlock()
 			svc.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &batchInput})
 

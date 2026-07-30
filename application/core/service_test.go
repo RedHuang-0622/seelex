@@ -22,6 +22,8 @@ type fakeEngine struct {
 	chunks            []string
 	prompt            string
 	chatErr           error
+	chatErrors        []error
+	chatInputs        []string
 	appendChatHistory bool
 	cleared           bool
 	sessionID         string
@@ -72,12 +74,20 @@ func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 }
 
 func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
-	engine := &fakeEngine{}
+	rawResult := strings.Repeat("oversized-result", defaultToolResultLimit())
+	engine := &fakeEngine{history: []EngineMessage{
+		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-large", Name: "bash"}}},
+		{Role: "tool", ToolCallID: "call-large", Name: "bash", Content: rawResult, ContentSet: true},
+	}}
 	service := newTestService(engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.startReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
 	service.reactBudget.reason = "tool-round limit reached (1)"
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "budget-request"}
+	service.taskExecution = newTaskExecutionState("budget-request", "deliver result", "high")
+	stored := service.components.tasks.storeToolResultLocked("bash", rawResult)
+	service.resultRefsByToolCallID["call-large"] = stored.Ref
 	service.mu.Unlock()
 
 	if err := service.finalizeReActBudget(context.Background(), "budget-request"); err != nil {
@@ -86,6 +96,14 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	for _, message := range engine.History() {
 		if message.Content == reactBudgetFinalizationInput {
 			t.Fatal("internal budget-finalization input leaked into history")
+		}
+	}
+	engine.mu.Lock()
+	prepared := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	for _, message := range prepared {
+		if strings.Contains(message.Content, "oversized-result") {
+			t.Fatal("reserved final delivery turn received raw oversized tool output")
 		}
 	}
 }
@@ -104,12 +122,17 @@ func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk 
 	}
 	engine.mu.Lock()
 	engine.lastInput = input
+	engine.chatInputs = append(engine.chatInputs, input)
 	if engine.appendChatHistory {
 		engine.history = append(engine.history, EngineMessage{Role: "user", Content: input}, EngineMessage{Role: "assistant", Content: "answer"})
 	} else {
 		engine.history = []EngineMessage{{Role: "user", Content: input}, {Role: "assistant", Content: "answer"}}
 	}
 	err := engine.chatErr
+	if len(engine.chatErrors) > 0 {
+		err = engine.chatErrors[0]
+		engine.chatErrors = engine.chatErrors[1:]
+	}
 	engine.mu.Unlock()
 	return "answer", err
 }
@@ -906,8 +929,8 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	prompt := engine.prompt
 	modelInput := engine.lastInput
 	engine.mu.Unlock()
-	if strings.Contains(prompt, "review prompt") || strings.Contains(prompt, "strict") {
-		t.Fatalf("system prompt contains Skill/user request: %q", prompt)
+	if !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") || strings.Contains(prompt, "strict") {
+		t.Fatalf("trusted Skill system prompt = %q", prompt)
 	}
 	if !strings.Contains(prompt, "Seelex") {
 		t.Fatalf("prompt missing identity: %q", prompt)
@@ -915,22 +938,19 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if !strings.Contains(prompt, "## Effort: High") {
 		t.Fatalf("prompt missing effort: %q", prompt)
 	}
-	for _, expected := range []string{"- name: review", "review prompt", "## User Request\n/review strict"} {
-		if !strings.Contains(modelInput, expected) {
-			t.Fatalf("slash Skill model input missing %q: %q", expected, modelInput)
-		}
+	if modelInput != "/review strict" {
+		t.Fatalf("slash Skill model input = %q", modelInput)
 	}
 	if err := service.Submit(context.Background(), "#review focused"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
 	engine.mu.Lock()
+	prompt = engine.prompt
 	modelInput = engine.lastInput
 	engine.mu.Unlock()
-	for _, expected := range []string{"- name: review", "review prompt", "## User Request\n#review focused"} {
-		if !strings.Contains(modelInput, expected) {
-			t.Fatalf("hash Skill model input missing %q: %q", expected, modelInput)
-		}
+	if modelInput != "#review focused" || !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") {
+		t.Fatalf("hash Skill input=%q prompt=%q", modelInput, prompt)
 	}
 }
 

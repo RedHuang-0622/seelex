@@ -7,11 +7,21 @@ import (
 	"time"
 )
 
-func (service *Service) Snapshot() Snapshot {
+// viewCoordinator owns user-visible snapshots, messages, and event revisions.
+type viewCoordinator struct {
+	*serviceState
+	sessions *sessionCoordinator
+}
+
+func newViewCoordinator(state *serviceState, sessions *sessionCoordinator) *viewCoordinator {
+	return &viewCoordinator{serviceState: state, sessions: sessions}
+}
+
+func (service *viewCoordinator) snapshotView() Snapshot {
 	service.mu.RLock()
 	snapshot := cloneSnapshot(service.snapshot)
 	service.mu.RUnlock()
-	sessions, discoveredBindings := service.sessionCatalog()
+	sessions, discoveredBindings := service.sessions.sessionCatalog()
 	snapshot.Sessions = sessions
 	if snapshot.Session.Name == "" {
 		for _, session := range sessions {
@@ -32,9 +42,11 @@ func (service *Service) Snapshot() Snapshot {
 	return snapshot
 }
 
-func (service *Service) Subscribe(buffer int) Subscription { return service.events.Subscribe(buffer) }
+func (service *viewCoordinator) subscribe(buffer int) Subscription {
+	return service.events.Subscribe(buffer)
+}
 
-func (service *Service) refreshRuntimeLocked(ctx context.Context) {
+func (service *viewCoordinator) refreshRuntimeLocked(ctx context.Context) {
 	service.snapshot.Session.ID = service.deps.Engine.SessionID()
 	service.snapshot.Runtime.Model = service.deps.Runtime.Model()
 	service.snapshot.Runtime.Provider = service.deps.Runtime.Provider()
@@ -56,7 +68,7 @@ func (service *Service) refreshRuntimeLocked(ctx context.Context) {
 	service.snapshot.Runtime.Accounts = append([]AccountInfo(nil), service.deps.Runtime.Accounts()...)
 }
 
-func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {
+func (service *viewCoordinator) appendMessageLocked(role, content string, tool *ToolCall) *Message {
 	if role == "assistant" || role == "tool_result" {
 		content = stripThoughtBlocks(content)
 	}
@@ -66,12 +78,12 @@ func (service *Service) appendMessageLocked(role, content string, tool *ToolCall
 	return &service.snapshot.Conversation[len(service.snapshot.Conversation)-1]
 }
 
-func (service *Service) bumpLocked() uint64 {
+func (service *viewCoordinator) bumpLocked() uint64 {
 	service.snapshot.Revision++
 	return service.snapshot.Revision
 }
 
-func (service *Service) addNotice(notice string) {
+func (service *viewCoordinator) addNotice(notice string) {
 	if strings.TrimSpace(notice) == "" {
 		return
 	}
@@ -82,7 +94,7 @@ func (service *Service) addNotice(notice string) {
 	service.events.Publish(EventMessageAdded, revision, "", message)
 }
 
-func (service *Service) resetConversation(notice string) {
+func (service *viewCoordinator) resetConversation(notice string) {
 	service.mu.Lock()
 	service.snapshot.Conversation = nil
 	service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", service.deps.Runtime.Model()), nil)
@@ -92,4 +104,32 @@ func (service *Service) resetConversation(notice string) {
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+}
+
+func (service *Service) Snapshot() Snapshot {
+	return service.components.view.snapshotView()
+}
+
+func (service *Service) Subscribe(buffer int) Subscription {
+	return service.components.view.subscribe(buffer)
+}
+
+func (service *Service) refreshRuntimeLocked(ctx context.Context) {
+	service.components.view.refreshRuntimeLocked(ctx)
+}
+
+func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {
+	return service.components.view.appendMessageLocked(role, content, tool)
+}
+
+func (service *Service) bumpLocked() uint64 {
+	return service.components.view.bumpLocked()
+}
+
+func (service *Service) addNotice(notice string) {
+	service.components.view.addNotice(notice)
+}
+
+func (service *Service) resetConversation(notice string) {
+	service.components.view.resetConversation(notice)
 }

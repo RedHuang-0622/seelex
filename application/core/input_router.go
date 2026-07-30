@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// inputDispatcher is composed into Service so input syntax can gain a new
-// route without expanding the Service state machine.
+// inputDispatcher routes syntax through narrow use-case functions. It knows
+// nothing about Service or its shared state.
 type inputDispatcher interface {
 	Dispatch(context.Context, string) error
 }
@@ -20,12 +20,19 @@ type inputRouter struct {
 	routes []inputRoute
 }
 
-func newInputRouter(service *Service) *inputRouter {
+type inputRouteHandlers struct {
+	command      func(context.Context, string) error
+	skill        func(context.Context, string, []string, string) error
+	plugin       func(context.Context, string) error
+	conversation func(context.Context, string) error
+}
+
+func newInputRouter(handlers inputRouteHandlers) *inputRouter {
 	return &inputRouter{routes: []inputRoute{
-		commandInputRoute{service: service},
-		skillInputRoute{service: service},
-		pluginInputRoute{service: service},
-		conversationInputRoute{service: service},
+		commandInputRoute{dispatch: handlers.command},
+		skillInputRoute{dispatch: handlers.skill},
+		pluginInputRoute{dispatch: handlers.plugin},
+		conversationInputRoute{dispatch: handlers.conversation},
 	}}
 }
 
@@ -38,14 +45,18 @@ func (router *inputRouter) Dispatch(ctx context.Context, input string) error {
 	return nil
 }
 
-type commandInputRoute struct{ service *Service }
+type commandInputRoute struct {
+	dispatch func(context.Context, string) error
+}
 
 func (route commandInputRoute) Matches(input string) bool { return strings.HasPrefix(input, "/") }
 func (route commandInputRoute) Dispatch(ctx context.Context, input string) error {
-	return route.service.submitCommand(ctx, input)
+	return route.dispatch(ctx, input)
 }
 
-type skillInputRoute struct{ service *Service }
+type skillInputRoute struct {
+	dispatch func(context.Context, string, []string, string) error
+}
 
 func (route skillInputRoute) Matches(input string) bool { return strings.HasPrefix(input, "#") }
 func (route skillInputRoute) Dispatch(ctx context.Context, input string) error {
@@ -53,10 +64,12 @@ func (route skillInputRoute) Dispatch(ctx context.Context, input string) error {
 	if len(parts) == 0 {
 		return nil
 	}
-	return route.service.submitSkill(ctx, parts[0], parts[1:], input)
+	return route.dispatch(ctx, parts[0], parts[1:], input)
 }
 
-type pluginInputRoute struct{ service *Service }
+type pluginInputRoute struct {
+	dispatch func(context.Context, string) error
+}
 
 func (route pluginInputRoute) Matches(input string) bool { return strings.HasPrefix(input, "@") }
 func (route pluginInputRoute) Dispatch(ctx context.Context, input string) error {
@@ -64,12 +77,14 @@ func (route pluginInputRoute) Dispatch(ctx context.Context, input string) error 
 	if name == "" {
 		return nil
 	}
-	return route.service.SwitchPlugin(ctx, name)
+	return route.dispatch(ctx, name)
 }
 
-type conversationInputRoute struct{ service *Service }
+type conversationInputRoute struct {
+	dispatch func(context.Context, string) error
+}
 
 func (conversationInputRoute) Matches(string) bool { return true }
 func (route conversationInputRoute) Dispatch(ctx context.Context, input string) error {
-	return route.service.submitConversation(ctx, input)
+	return route.dispatch(ctx, input)
 }

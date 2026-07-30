@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -13,6 +14,11 @@ const contextRecoveryPrefix = "<!-- seelex:context-recovery:v1 -->"
 const providerRecoveryPrefix = "<!-- seelex:provider-recovery:v1 -->"
 const contextRecoveryRequestDelimiter = "\n## Original User Request\n"
 
+const contextRecoveryAgentInput = "<!-- seelex:context-recovery-agent:v1 -->\n" +
+	"The provider rejected the previous context as too large. The history now contains a bounded task checkpoint. " +
+	"Continue from that checkpoint without assuming omitted details. If more detail is required, use a narrower, paginated, or filtered tool call; do not request a full large result. " +
+	"Deliver the task if the checkpoint evidence is sufficient."
+
 // isProviderOnlyHistoryContent identifies repair text that exists solely to
 // satisfy providers requiring non-empty message content. It is never user
 // authored and must not be rendered as an assistant reply after resume.
@@ -23,7 +29,7 @@ func isProviderOnlyHistoryContent(content string) bool {
 // prepareProviderHistory makes every persisted message safe for providers that
 // reject an empty `content` field, including assistant messages with tool calls.
 // Tool calls are retained; only their absent explanatory text is restored.
-func (service *Service) prepareProviderHistory() error {
+func (service *historySafetyCoordinator) prepareProviderHistory() error {
 	history := service.deps.Engine.History()
 	prepared, repaired := repairEmptyHistoryContent(history)
 	if !repaired {
@@ -124,6 +130,37 @@ replayed safely.
 	return true, nil
 }
 
+// retryContextRecovery gives the same Agent one safe recovery turn after the
+// provider rejects the request before executing it for context length. This
+// is intentionally restricted to context exhaustion: timeouts and server
+// failures can leave tool side effects uncertain and must not be replayed.
+func (service *Service) retryContextRecovery(ctx context.Context, requestID string) error {
+	service.mu.Lock()
+	state := service.taskExecution
+	if state == nil || state.requestID != requestID {
+		service.mu.Unlock()
+		return fmt.Errorf("resume context recovery: task state is unavailable")
+	}
+	state.status = taskStatusRunning
+	state.progressEpoch++
+	service.setTaskStateLocked(requestID, TaskProgressing, "Context was reset to a bounded checkpoint; the Agent is continuing with targeted reads.")
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+
+	recoveryInput, prepareErr := service.components.context.prepareExecutionContext(requestID, contextRecoveryAgentInput)
+	if prepareErr != nil {
+		return prepareErr
+	}
+	_, err := service.deps.Engine.ChatStream(ctx, recoveryInput, func(chunk string) {
+		service.appendDelta(requestID, chunk)
+	})
+	if contextErr := service.components.context.takeContextControlFailure(requestID); contextErr != nil {
+		return contextErr
+	}
+	return err
+}
+
 type providerFailureKind string
 
 const (
@@ -160,13 +197,13 @@ func classifyProviderFailure(err error) providerFailureKind {
 func providerRecoveryDetails(kind providerFailureKind) (prefix, heading, summary string) {
 	switch kind {
 	case providerFailureContext:
-		return contextRecoveryPrefix, "Context Recovery", "The provider context window was exceeded; progress checkpoint saved."
+		return contextRecoveryPrefix, "Context Recovery", "The provider context window was exceeded; a bounded checkpoint was prepared."
 	case providerFailureHistory:
-		return providerRecoveryPrefix, "History Recovery", "The provider rejected an invalid conversation record; progress checkpoint saved."
+		return providerRecoveryPrefix, "History Recovery", "The provider rejected an invalid conversation record; a bounded checkpoint was prepared."
 	case providerFailureTimeout:
-		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service timed out; progress checkpoint saved. Continue to resume safely."
+		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service timed out; the task was marked interrupted and will be persisted before the UI reports completion."
 	case providerFailureServer:
-		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service was temporarily unavailable; progress checkpoint saved. Continue to resume safely."
+		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service was temporarily unavailable; the task was marked interrupted and will be persisted before the UI reports completion."
 	default:
 		return "", "", ""
 	}

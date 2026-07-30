@@ -18,7 +18,9 @@
 
 ## Session persistence
 
-`SessionRecord` is the backend session aggregate: `id`, stable `title`, `plan_stack`, and visible `conversation` are independent records. Provider history is a replaceable execution cache and must never overwrite the stored title or active Plan.
+`SessionRecord` version 3 is the backend session aggregate: `id`, stable `title`, `plan_stack`, visible `conversation`, `TaskContextProjection`, checkpoint revisions, and `ToolResultRef` metadata are independent records. Provider history is a replaceable execution cache and must never overwrite the stored title, active Plan, task status, or transcript.
+
+`TaskContextProjection` is the restart source for one task. It stores content-addressed active Skills, the canonical Plan reference and node projection, the latest structured `TaskCheckpoint`, and `TokenAudit`. `TranscriptEvent` preserves original user/assistant/tool roles and protocol IDs; oversized content is represented by `result_ref`, while `StoredToolResult.Content` is excluded from JSON and persisted separately.
 
 ## 边界
 

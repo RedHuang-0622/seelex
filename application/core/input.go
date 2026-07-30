@@ -76,11 +76,29 @@ func (service *Service) endSkill() error {
 }
 
 func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillInfo, args []string, input string) error {
+	service.prepareCompletedTaskBoundary()
 	service.applySkill(skill)
 	if len(args) == 0 {
 		return nil
 	}
 	return service.submitConversation(ctx, input)
+}
+
+func (service *Service) prepareCompletedTaskBoundary() {
+	service.mu.RLock()
+	terminal := false
+	if !service.snapshot.Chat.Running {
+		terminal = service.snapshot.Task != nil &&
+			(service.snapshot.Task.Status == TaskCompleted || service.snapshot.Task.Status == TaskFailed)
+		if state := service.taskExecution; state != nil {
+			terminal = terminal || state.status == taskStatusCompleted || state.status == taskStatusFailed
+		}
+	}
+	service.mu.RUnlock()
+	if terminal {
+		service.promptStack.ClearKind("skill")
+		service.deps.Engine.SetMaxLoops(maxLoopsFor(service.effortManager.Current()))
+	}
 }
 
 func (service *Service) applySkill(skill SkillInfo) {

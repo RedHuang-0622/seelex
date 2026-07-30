@@ -45,6 +45,16 @@ type (
 	SessionExecutionRecord = model.SessionExecutionRecord
 	SessionRecord          = model.SessionRecord
 	SessionArchive         = model.SessionArchive
+	ActiveSkill            = model.ActiveSkill
+	ActivePlanProjection   = model.ActivePlanProjection
+	EventRange             = model.EventRange
+	TaskCheckpoint         = model.TaskCheckpoint
+	TaskContextProjection  = model.TaskContextProjection
+	TokenAudit             = model.TokenAudit
+	TranscriptEvent        = model.TranscriptEvent
+	TranscriptToolCall     = model.TranscriptToolCall
+	ToolResultRef          = model.ToolResultRef
+	StoredToolResult       = model.StoredToolResult
 	RuntimeState           = model.RuntimeState
 	ReplanMonitor          = model.ReplanMonitor
 	PlanState              = model.PlanState

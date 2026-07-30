@@ -453,8 +453,8 @@ func TestSubmitHighEffortDoesNotInjectPlanAuthorityContext(t *testing.T) {
 	if len(runtime.preflight) != 0 || len(runtime.planScopeAcquired) != 0 || len(runtime.planScopePromoted) != 0 || len(runtime.planScopeReleased) != 0 {
 		t.Fatalf("PlanAct must stay inactive: preflight=%v acquire=%v promote=%v release=%v", runtime.preflight, runtime.planScopeAcquired, runtime.planScopePromoted, runtime.planScopeReleased)
 	}
-	if len(engine.historyBeforeChat) != 1 || engine.historyBeforeChat[0].Content != "prior answer" {
-		t.Fatalf("history before chat = %+v, want unchanged prior history", engine.historyBeforeChat)
+	if len(engine.historyBeforeChat) < 2 || !isTaskContextCheckpoint(engine.historyBeforeChat[0].Content) || engine.historyBeforeChat[len(engine.historyBeforeChat)-1].Content != "prior answer" {
+		t.Fatalf("history before chat = %+v, want checkpoint plus recent complete history", engine.historyBeforeChat)
 	}
 	for _, message := range engine.History() {
 		if strings.HasPrefix(message.Content, preflightPlanAuthorityPrefix) {
@@ -515,13 +515,11 @@ func TestSkillLoadViaSubmit(t *testing.T) {
 	prompt := engine.prompt
 	modelInput := engine.lastInput
 	engine.mu.Unlock()
-	if strings.Contains(prompt, "review prompt") || strings.Contains(prompt, "review code") || strings.Contains(prompt, "focused") || strings.Contains(prompt, "Available Skills") || strings.Contains(prompt, "#review") {
-		t.Errorf("system prompt contains Skill/user request: %q", prompt)
+	if !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") || strings.Contains(prompt, "focused") || strings.Contains(prompt, "#review") {
+		t.Errorf("trusted Skill system section = %q", prompt)
 	}
-	for _, expected := range []string{"- name: review", "review prompt", "## User Request\n#review focused"} {
-		if !strings.Contains(modelInput, expected) {
-			t.Errorf("model input missing %q: %q", expected, modelInput)
-		}
+	if modelInput != "#review focused" {
+		t.Errorf("model input = %q", modelInput)
 	}
 	conversation := svc.Snapshot().Conversation
 	if len(conversation) < 2 || conversation[len(conversation)-2].Content != "#review focused" {
@@ -547,10 +545,14 @@ func TestSkillWithoutRequirementAppliesToNextInput(t *testing.T) {
 	engine.mu.Lock()
 	modelInput := engine.lastInput
 	engine.mu.Unlock()
-	for _, expected := range []string{"- name: review", "review prompt", "## User Request\ncheck the change"} {
-		if !strings.Contains(modelInput, expected) {
-			t.Fatalf("active Skill model input missing %q: %q", expected, modelInput)
-		}
+	if modelInput != "check the change" {
+		t.Fatalf("active Skill model input = %q", modelInput)
+	}
+	engine.mu.Lock()
+	prompt := engine.prompt
+	engine.mu.Unlock()
+	if !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") {
+		t.Fatalf("active Skill missing from system prompt: %q", prompt)
 	}
 
 	if err := svc.Submit(context.Background(), "#end"); err != nil {
@@ -594,10 +596,8 @@ func TestQueuedSkillRequestFreezesDisplayAndModelInput(t *testing.T) {
 	if queued.displayInput != "#review queued requirement" {
 		t.Fatalf("queued display = %q", queued.displayInput)
 	}
-	for _, expected := range []string{"- name: review", "review prompt", "#review queued requirement"} {
-		if !strings.Contains(queued.modelInput, expected) {
-			t.Fatalf("queued model input missing %q: %q", expected, queued.modelInput)
-		}
+	if queued.modelInput != "#review queued requirement" || len(queued.skills) != 1 || queued.skills[0].Name != "review" || queued.skills[0].Text != "review prompt" {
+		t.Fatalf("queued request = %#v", queued)
 	}
 	if got := svc.Snapshot().Chat.InputQueue; len(got) != 1 || got[0] != queued.displayInput {
 		t.Fatalf("snapshot queue = %#v, want original display", got)
@@ -605,8 +605,8 @@ func TestQueuedSkillRequestFreezesDisplayAndModelInput(t *testing.T) {
 	if err := svc.Submit(context.Background(), "#end"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(queued.modelInput, "review prompt") {
-		t.Fatal("#end changed already queued model context")
+	if len(queued.skills) != 1 || queued.skills[0].Text != "review prompt" {
+		t.Fatal("#end changed already queued trusted Skill context")
 	}
 }
 

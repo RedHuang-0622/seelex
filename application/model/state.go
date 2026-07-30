@@ -163,6 +163,9 @@ type SessionRecord struct {
 	PlanStack    []SessionPlanFrame     `json:"plan_stack,omitempty"`
 	Conversation ConversationRecord     `json:"conversation"`
 	Execution    SessionExecutionRecord `json:"execution"`
+	Projection   *TaskContextProjection `json:"projection,omitempty"`
+	Checkpoints  []TaskCheckpoint       `json:"checkpoints,omitempty"`
+	ToolResults  []ToolResultRef        `json:"tool_results,omitempty"`
 	UpdatedAt    time.Time              `json:"updated_at,omitempty"`
 }
 

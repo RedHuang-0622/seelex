@@ -30,3 +30,7 @@ Application 关心“保存/恢复哪一个 session”，sessionstore 关心“�
 go test ./session -count=1
 go test ./application/core -run 'Session|History|Workspace' -count=1
 ```
+
+## Atomic recovery APIs
+
+`SaveCommit` adapts the Application snapshot to `sessionstore.Commit`. `LoadEventTailByWorkspace` performs token-bounded complete-unit recovery without changing the active workspace, and `LoadToolResultByWorkspace` supports scoped read-only result retrieval. These APIs require the configurable Router; legacy stores retain history-only compatibility.

@@ -149,6 +149,27 @@ func (m *Manager) LoadStateByWorkspace(workspaceID, sessionID string) ([]byte, e
 	return m.router.LoadStateWorkspace(workspaceID, sessionID)
 }
 
+func (m *Manager) SaveCommit(sessionID string, commit sessionstore.Commit) error {
+	if m.router == nil {
+		return fmt.Errorf("session: atomic commit requires the configurable router")
+	}
+	return m.router.SaveCommit(sessionID, commit)
+}
+
+func (m *Manager) LoadEventTailByWorkspace(workspaceID, sessionID string, tokenBudget, maxUnits int) ([]sessionstore.Event, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: event tail reads require the configurable router")
+	}
+	return m.router.LoadEventTailWorkspace(workspaceID, sessionID, tokenBudget, maxUnits)
+}
+
+func (m *Manager) LoadToolResultByWorkspace(workspaceID, sessionID, resultRef string) (sessionstore.ToolResult, error) {
+	if m.router == nil {
+		return sessionstore.ToolResult{}, fmt.Errorf("session: tool result reads require the configurable router")
+	}
+	return m.router.LoadToolResultWorkspace(workspaceID, sessionID, resultRef)
+}
+
 // DeleteByWorkspace deletes a session from an explicit workspace without
 // changing the active workspace used by subsequent writes.
 func (m *Manager) DeleteByWorkspace(workspaceID, sessionID string) error {

@@ -3,7 +3,7 @@ package core
 import "fmt"
 
 func (service *Service) DeleteSession(sessionID string) error {
-	location := service.locateSession(sessionID)
+	location := service.components.sessions.locateSession(sessionID)
 	if scoped, ok := service.deps.Sessions.(scopedSessionPort); ok {
 		if err := scoped.DeleteWorkspace(location.workspaceID, sessionID); err != nil {
 			return err
@@ -18,7 +18,7 @@ func (service *Service) DeleteSession(sessionID string) error {
 		service.bumpLocked()
 		service.mu.Unlock()
 	}
-	service.invalidateSessionName(sessionID)
+	service.components.sessions.invalidateSessionName(sessionID)
 	return nil
 }
 
@@ -84,7 +84,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	if startFreshSession {
 		writeWorkspaceID := currentWorkspaceID
 		if writeWorkspaceID == "" {
-			writeWorkspaceID = service.locateSession(currentSessionID).workspaceID
+			writeWorkspaceID = service.components.sessions.locateSession(currentSessionID).workspaceID
 		}
 		service.deps.Sessions.SetWorkspace(writeWorkspaceID)
 		if err := service.deps.Sessions.SaveCurrent(currentSessionID); err != nil {

@@ -1,12 +1,20 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
 	"strings"
 	"testing"
 	"time"
 )
+
+type failingSnapshotSessions struct{ fakeSessions }
+
+func (failingSnapshotSessions) SaveSessionSnapshot(string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error {
+	return errors.New("storage unavailable")
+}
 
 func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T) {
 	tests := []struct {
@@ -120,6 +128,47 @@ func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
 	tool := service.Snapshot().Conversation[len(service.Snapshot().Conversation)-2].Tool
 	if tool == nil || strings.Contains(tool.Error, "edges is required") || !strings.Contains(tool.Error, "模块：计划预检") {
 		t.Fatalf("tool error = %#v", tool)
+	}
+}
+
+func TestRunChatLogsRawUnclassifiedError(t *testing.T) {
+	engine := &fakeEngine{chatErr: errors.New("unrecognized internal failure request_id=req-diagnostic")}
+	service := newTestService(engine)
+	defer service.Shutdown()
+
+	var logs bytes.Buffer
+	previousOutput, previousFlags, previousPrefix := log.Writer(), log.Flags(), log.Prefix()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+		log.SetPrefix(previousPrefix)
+	}()
+
+	if err := service.Submit(t.Context(), "inspect project"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+	if got := logs.String(); !strings.Contains(got, "request_id=chat-") || !strings.Contains(got, "request_id=req-diagnostic") {
+		t.Fatalf("diagnostic log = %q", got)
+	}
+}
+
+func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.deps.Sessions = failingSnapshotSessions{}
+
+	if err := service.Submit(t.Context(), "inspect project"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+	got := service.Snapshot().Chat.Error
+	want := presentUserError(errors.New("persistence failed and recovery is not guaranteed"))
+	if got != want || !strings.Contains(got, "persistCurrentSession") {
+		t.Fatalf("persistence error = %q, want %q", got, want)
 	}
 }
 

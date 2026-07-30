@@ -1,5 +1,13 @@
 # Application Core
 
+## Service 装配结构
+
+`Service` 是稳定的应用门面与跨组件编排层，本身只保存 `serviceState` 和 `serviceComponents`。共享状态按基础设施、会话、计划、任务上下文、提示词、生命周期和前端快照分组，避免继续扩张成平铺字段集合。
+
+`service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换、workspace 切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现。
+
+`service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。
+
 ## 模块定位
 
 `core` 是 Seelex 的应用用例层和权威状态机。它不直接创建数据库、Wails 窗口或 Seele Agent，而是通过 `contract.Dependencies` 编排这些能力。
@@ -23,7 +31,7 @@
 | `task_execution.go` | 请求私有的 PlanAct checkpoint、终态 payload 校验和 `task_complete` / `task_needs_user_decision` / `task_failed` handler。 |
 | `history_safety.go` | Provider 空 content、上下文耗尽与 504 可恢复中断的历史安全处理。 |
 | `visible_output.go` | 前端可见输出过滤；剥离模型 `<think>` 块，不暴露内部推理。 |
-| `context_controller.go` | 基于 token 与 checkpoint 的工具结果裁剪；内部控制消息在持久化前清除。 |
+| `context_controller.go` | 基于 token 与 checkpoint 的上下文控制；超长工具结果以重取警告替代，内部控制消息在持久化前清除。 |
 | `command.go` | 内置命令注册与执行。 |
 | `session_scope.go` | 跨项目 session catalog、真实存储位置定位、标题恢复和 scoped read。 |
 | `session_draft.go` | GUI 新会话草稿、首次请求物化和项目 binding。 |
@@ -47,7 +55,7 @@
 
 `BeginGracefulShutdown` 拒绝新输入但允许已接受工作完成；`Shutdown` 才取消 active chat 并关闭 broker/events。
 
-每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`。当历史超过标准 context budget 或出现过大工具结果时，`ContextController` 保留 system prompt，并以一个私有 checkpoint 替换整段可变的 user/assistant/tool transcript；后续轮次需通过定向工具重新获取被裁剪的细节。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete`、`task_needs_user_decision` 或 `task_failed` 结束工具型任务；它们分别表示可交付完成、必须由用户选择的有效分歧，以及有界失败事实。若已加载的 authority Plan 尚未执行而模型自然收尾，运行时将其表示为 `needs_user_decision`，而不伪造完成或暴露内部错误。`Snapshot.Task` 公开 `progressing/completed/needs_user_decision/blocked/interrupted/failed`，而 checkpoint、装配的 system prompt 和 `<think>` 内容都不进入 frontend snapshot。Provider 返回 context overflow 或 504 时，Service 保存私有恢复 checkpoint；504 从不自动重放可能已有副作用的工具轮。
+每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`。超长工具结果在下一次 provider 调用前被替换为与原 tool-call 配对的短警告，原文不作为模型上下文；Agent 必须以文件路径、行范围、过滤条件、分页或摘要命令重新读取。历史超过标准 context budget 时，`ContextController` 保留 system prompt，并以一个私有 checkpoint 替换整段可变的 user/assistant/tool transcript；后续轮次需通过定向工具重新获取被省略的细节。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete`、`task_needs_user_decision` 或 `task_failed` 结束工具型任务；它们分别表示可交付完成、必须由用户选择的有效分歧，以及有界失败事实。若已加载的 authority Plan 尚未执行而模型自然收尾，运行时将其表示为 `needs_user_decision`，而不伪造完成或暴露内部错误。`Snapshot.Task` 公开 `progressing/completed/needs_user_decision/blocked/interrupted/failed`，而 checkpoint、装配的 system prompt 和 `<think>` 内容都不进入 frontend snapshot。Provider 明确返回 context overflow 时，Service 保存私有恢复 checkpoint 并给同一 Agent 一次受控的恢复回合；504 从不自动重放可能已有副作用的工具轮。
 
 ## Session 与 Project 语义
 
@@ -98,10 +106,16 @@ go test ./application/core -race -count=1
 
 ## Context compression visibility
 
-When `ContextController` replaces mutable provider history with its private checkpoint, it also publishes a separate `Snapshot.Task.ContextCompactions` record. The record contains only a version, public trigger reason, message count, estimated token count, and timestamp. It never contains checkpoint text, system prompts, tool arguments, tool results, or raw conversation history.
+`ContextController` rebuilds provider history from the active system policy, trusted task Skills, the active Plan slice, one structured checkpoint, and at most four recent complete protocol units. A unit is admitted only when every tool call has a matching result; orphan results and incomplete parallel calls remain in the durable transcript but never enter provider context.
+
+The token audit counts the separately configured system prompt, message/tool-call overhead, visible tool metadata, the current input, and an output plus safety reserve. Requests that still exceed the safe budget after dropping complete old units and minimizing the checkpoint are rejected before `ChatStream`.
+
+Oversized tool output and oversized current input are stored through immutable `result_ref` records. Provider history and `SessionRecord` contain only the reference warning; `read_tool_result` provides bounded, read-only pagination or filtering. `read_plan` retrieves omitted canonical Plan nodes without changing Plan state.
+
+When compaction creates a new checkpoint, Application also publishes a separate `Snapshot.Task.ContextCompactions` record. The record contains only a version, public trigger reason, message count, estimated token count, and timestamp. It never contains checkpoint text, system prompts, tool arguments, tool results, or raw conversation history.
 
 ## Session record and recovery
 
-Provider history is an execution cache, not the user-visible source of truth. `persistCurrentSession` stores a versioned `SessionRecord` beside framework history with four independent components: `id`, stable `title`, `plan_stack` (with one active Plan ID), and the visible `conversation`; execution checkpoint/task and read-file provenance are grouped separately. On resume the UI is rebuilt from this record, while the Engine receives only a bounded continuation summary. Legacy v1 `SessionArchive` payloads are read once through a compatibility migration and are overwritten as v2 records on the next save. This prevents compressed provider history, recovery envelopes, or a first historical message from becoming the source of the UI title or Plan.
+Provider history is an execution cache, not the user-visible source of truth. `persistCurrentSession` atomically stores version 3 `SessionRecord`, bounded provider history, append-only transcript events, and new tool-result objects. The record owns stable title, visible conversation, Plan revisions, `TaskContextProjection`, checkpoint history, and tool-result metadata. Resume reads only a token-bounded tail of complete transcript units for the Engine, restores content-addressed task Skills and the canonical Plan from the projection/store, and keeps the full archive untouched. Interrupted or blocked tasks carry their checkpoint into the next ordinary input; `/new` clears task-scoped Skill, Plan, checkpoint, and result state. Legacy v1/v2 records remain readable.
 
 重点测试：`service_test.go` 覆盖 session/project/storage 用例，`command_test.go` 覆盖输入协议，`race_test.go` 覆盖并发与关闭。

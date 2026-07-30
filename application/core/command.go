@@ -125,7 +125,7 @@ func (service *Service) registerBuiltinCommands() {
 		return CommandResult{}, service.resumeSession(strings.TrimSpace(args[0]))
 	})
 	register("sessions", "列出所有持久化会话", func(context.Context, []string) (CommandResult, error) {
-		sessions, _ := service.sessionCatalog()
+		sessions, _ := service.components.sessions.sessionCatalog()
 		if len(sessions) == 0 {
 			return CommandResult{Notice: "暂无持久化会话"}, nil
 		}

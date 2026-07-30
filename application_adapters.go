@@ -394,6 +394,93 @@ func (port sessionPort) SaveSessionRecord(id string, record application.SessionR
 	return port.manager.SaveState(id, payload)
 }
 
+func (port sessionPort) SaveSessionSnapshot(
+	id string,
+	providerHistory []application.EngineMessage,
+	record application.SessionRecord,
+	events []application.TranscriptEvent,
+	results []application.StoredToolResult,
+) error {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("encode session record: %w", err)
+	}
+	commit := sessionstore.Commit{
+		ProviderHistory: restoreMessages(providerHistory),
+		Events:          storeTranscriptEvents(events),
+		State:           payload,
+		ToolResults:     storeToolResults(results),
+	}
+	return port.manager.SaveCommit(id, commit)
+}
+
+func (port sessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, tokenBudget, maxUnits int) ([]application.TranscriptEvent, error) {
+	events, err := port.manager.LoadEventTailByWorkspace(workspaceID, id, tokenBudget, maxUnits)
+	if err != nil {
+		return nil, err
+	}
+	return adaptTranscriptEvents(events), nil
+}
+
+func (port sessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (application.StoredToolResult, error) {
+	result, err := port.manager.LoadToolResultByWorkspace(workspaceID, id, resultRef)
+	if err != nil {
+		return application.StoredToolResult{}, err
+	}
+	return application.StoredToolResult{
+		ToolResultRef: application.ToolResultRef{
+			Ref: result.Ref, Tool: result.Tool, Digest: result.Digest, Size: result.Size,
+			TokenCount: result.TokenCount, CreatedAt: result.CreatedAt,
+		},
+		Content: result.Content,
+	}, nil
+}
+
+func storeTranscriptEvents(events []application.TranscriptEvent) []sessionstore.Event {
+	stored := make([]sessionstore.Event, len(events))
+	for index, event := range events {
+		calls := make([]sessionstore.EventToolCall, len(event.ToolCalls))
+		for callIndex, call := range event.ToolCalls {
+			calls[callIndex] = sessionstore.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		stored[index] = sessionstore.Event{
+			Seq: event.Seq, TaskID: event.TaskID, Role: event.Role,
+			ReasoningContent: event.ReasoningContent, Content: event.Content,
+			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+		}
+	}
+	return stored
+}
+
+func adaptTranscriptEvents(events []sessionstore.Event) []application.TranscriptEvent {
+	adapted := make([]application.TranscriptEvent, len(events))
+	for index, event := range events {
+		calls := make([]application.TranscriptToolCall, len(event.ToolCalls))
+		for callIndex, call := range event.ToolCalls {
+			calls[callIndex] = application.TranscriptToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		adapted[index] = application.TranscriptEvent{
+			Seq: event.Seq, TaskID: event.TaskID, Role: event.Role,
+			ReasoningContent: event.ReasoningContent, Content: event.Content,
+			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+		}
+	}
+	return adapted
+}
+
+func storeToolResults(results []application.StoredToolResult) []sessionstore.ToolResult {
+	stored := make([]sessionstore.ToolResult, len(results))
+	for index, result := range results {
+		stored[index] = sessionstore.ToolResult{
+			Ref: result.Ref, Tool: result.Tool, Content: result.Content, Digest: result.Digest,
+			Size: result.Size, TokenCount: result.TokenCount, CreatedAt: result.CreatedAt,
+		}
+	}
+	return stored
+}
+
 func (port sessionPort) LoadSessionRecord(id string) (application.SessionRecord, error) {
 	payload, err := port.manager.LoadState(id)
 	if err != nil {
@@ -429,6 +516,9 @@ func decodeSessionRecord(payload []byte, sessionID string) (application.SessionR
 		return application.SessionRecord{}, fmt.Errorf("decode session record: %w", err)
 	}
 	if record.Version == 2 && record.ID == sessionID {
+		return record, nil
+	}
+	if record.Version == 3 && record.ID == sessionID {
 		return record, nil
 	}
 	return application.SessionRecord{}, fmt.Errorf("unsupported session state version %d", version.Version)

@@ -21,7 +21,7 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 	if input == "" {
 		return nil
 	}
-	return service.inputDispatcher.Dispatch(ctx, input)
+	return service.components.input.Dispatch(ctx, input)
 }
 
 func (service *Service) submitConversation(ctx context.Context, input string) error {

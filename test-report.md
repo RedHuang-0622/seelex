@@ -75,3 +75,24 @@ scripts/build-gui.ps1 -Version v0.1.0-alpha.1
 ## 综合判断
 
 - [x] ⚠️ 有条件通过：代码与本地构建测试通过；公开 tag 前必须确认 GitHub Linux race、三平台 CI 和 Windows GUI Release job 通过。
+
+## 真实 API 冒烟（2026-07-30）
+
+| 用例 | 结果 | 关键指标 |
+|---|:---:|---|
+| 真实账号基础 LLM 连通性 | 通过 | 有效回复，模型请求约 2.7 秒 |
+| 真实 `PrepareReplan` + 强制 `plan_load` | 通过 | 2 个节点、1 条串行边、2 次 provider 请求，约 15.7 秒 |
+| 完整 Application Plan 冒烟 | 失败 | 请求在本地上下文安全检查阶段被拒绝，尚未发送到 provider |
+
+### 完整 Application 失败详情
+
+当前真实配置下，完整 Application 请求估算为 9546 token，而 `application/core` 使用固定默认窗口 8192 计算出的安全预算只有 6144 token，因此在首次真实 API 调用前返回 `provider context exceeds the safe token budget`。
+
+真实账号、网络和模型本身已由另外两项用例验证可用。问题位于 Application 上下文预算与实际 Runtime/模型窗口的接线：简化账号加载器没有向 Application 暴露有效上下文窗口，而 Application 继续使用基础库默认值。
+
+### 冒烟判断
+
+- [x] 有条件通过——真实 API 和真实强制工具调用可用。
+- [ ] 完整通过——需先让 Application 使用当前模型的有效上下文窗口，再重新执行完整 Plan 冒烟。
+
+本节不包含账号路径、API Key、Token、Base URL 或模型私有配置。

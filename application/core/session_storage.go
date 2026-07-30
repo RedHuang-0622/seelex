@@ -13,7 +13,7 @@ type sessionStoragePort interface {
 	ConfigureStorage(context.Context, sessionstore.Config) error
 }
 
-func (service *Service) SessionStorageConfig() (sessionstore.Config, error) {
+func (service *sessionCoordinator) sessionStorageConfig() (sessionstore.Config, error) {
 	storage, ok := service.deps.Sessions.(sessionStoragePort)
 	if !ok {
 		return sessionstore.Config{}, fmt.Errorf("session storage settings are unavailable")
@@ -21,7 +21,7 @@ func (service *Service) SessionStorageConfig() (sessionstore.Config, error) {
 	return storage.StorageConfig()
 }
 
-func (service *Service) TestSessionStorage(ctx context.Context, config sessionstore.Config) error {
+func (service *sessionCoordinator) testSessionStorage(ctx context.Context, config sessionstore.Config) error {
 	storage, ok := service.deps.Sessions.(sessionStoragePort)
 	if !ok {
 		return fmt.Errorf("session storage settings are unavailable")
@@ -29,7 +29,7 @@ func (service *Service) TestSessionStorage(ctx context.Context, config sessionst
 	return storage.TestStorage(ctx, config)
 }
 
-func (service *Service) ConfigureSessionStorage(ctx context.Context, config sessionstore.Config) error {
+func (service *sessionCoordinator) configureSessionStorage(ctx context.Context, config sessionstore.Config) error {
 	storage, ok := service.deps.Sessions.(sessionStoragePort)
 	if !ok {
 		return fmt.Errorf("session storage settings are unavailable")
@@ -39,4 +39,16 @@ func (service *Service) ConfigureSessionStorage(ctx context.Context, config sess
 	}
 	service.clearSessionNames()
 	return nil
+}
+
+func (service *Service) SessionStorageConfig() (sessionstore.Config, error) {
+	return service.components.sessions.sessionStorageConfig()
+}
+
+func (service *Service) TestSessionStorage(ctx context.Context, config sessionstore.Config) error {
+	return service.components.sessions.testSessionStorage(ctx, config)
+}
+
+func (service *Service) ConfigureSessionStorage(ctx context.Context, config sessionstore.Config) error {
+	return service.components.sessions.configureSessionStorage(ctx, config)
 }

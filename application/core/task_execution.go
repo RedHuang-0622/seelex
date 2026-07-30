@@ -56,26 +56,83 @@ type taskTerminal struct {
 }
 
 type taskExecutionState struct {
-	requestID          string
-	objective          string
-	effort             string
-	planArguments      string
-	status             string
-	checkpoints        map[string]*NodeCheckpoint
-	toolSignatures     map[string]struct{}
-	toolOutcomes       []string
-	progressEpoch      uint64
-	terminal           *taskTerminal
-	contextVersion     uint64
-	compactedEpoch     uint64
-	contextCompactions []ContextCompaction
+	requestID           string
+	objective           string
+	effort              string
+	planArguments       string
+	status              string
+	checkpoints         map[string]*NodeCheckpoint
+	toolSignatures      map[string]struct{}
+	toolOutcomes        []string
+	progressEpoch       uint64
+	terminal            *taskTerminal
+	contextVersion      uint64
+	compactedEpoch      uint64
+	contextCompactions  []ContextCompaction
+	activeSkills        []ActiveSkill
+	trustedSkillLayers  []PromptLayer
+	tokenAudit          TokenAudit
+	inheritedCheckpoint *TaskCheckpoint
 }
 
 func newTaskExecutionState(requestID, objective, effort string) *taskExecutionState {
 	return &taskExecutionState{
 		requestID: requestID, objective: objective, effort: effort, status: taskStatusRunning,
-		checkpoints: make(map[string]*NodeCheckpoint), toolSignatures: make(map[string]struct{}),
+		checkpoints: make(map[string]*NodeCheckpoint), toolSignatures: make(map[string]struct{}), contextVersion: 1,
 	}
+}
+
+func continuationTaskExecutionState(requestID, objective, effort string, previous *taskExecutionState, checkpoint TaskCheckpoint) *taskExecutionState {
+	state := newTaskExecutionState(requestID, objective, effort)
+	if previous == nil || !isContinuableTaskStatus(previous.status) {
+		return state
+	}
+	if strings.TrimSpace(previous.objective) != "" {
+		state.objective = previous.objective
+	}
+	state.planArguments = previous.planArguments
+	state.checkpoints = cloneNodeCheckpoints(previous.checkpoints)
+	state.toolSignatures = make(map[string]struct{}, len(previous.toolSignatures))
+	for signature := range previous.toolSignatures {
+		state.toolSignatures[signature] = struct{}{}
+	}
+	state.toolOutcomes = append([]string(nil), previous.toolOutcomes...)
+	state.progressEpoch = previous.progressEpoch + 1
+	state.contextVersion = previous.contextVersion
+	if state.contextVersion == 0 {
+		state.contextVersion = 1
+	}
+	state.contextCompactions = append([]ContextCompaction(nil), previous.contextCompactions...)
+	state.tokenAudit = previous.tokenAudit
+	cloned := cloneTaskCheckpoint(checkpoint)
+	state.inheritedCheckpoint = &cloned
+	return state
+}
+
+func isContinuableTaskStatus(status string) bool {
+	switch status {
+	case taskStatusRunning, taskStatusInterrupted, taskStatusBlocked, taskStatusNeedsUserDecision:
+		return true
+	default:
+		return false
+	}
+}
+
+func cloneNodeCheckpoints(source map[string]*NodeCheckpoint) map[string]*NodeCheckpoint {
+	cloned := make(map[string]*NodeCheckpoint, len(source))
+	for key, checkpoint := range source {
+		if checkpoint == nil {
+			continue
+		}
+		copy := *checkpoint
+		copy.Facts = append([]string(nil), checkpoint.Facts...)
+		copy.Evidence = append([]string(nil), checkpoint.Evidence...)
+		copy.ChangedFiles = append([]string(nil), checkpoint.ChangedFiles...)
+		copy.Artifacts = append([]string(nil), checkpoint.Artifacts...)
+		copy.RemainingWork = append([]string(nil), checkpoint.RemainingWork...)
+		cloned[key] = &copy
+	}
+	return cloned
 }
 
 func (state *taskExecutionState) recordTool(name, result string, toolErr error) {
@@ -166,6 +223,9 @@ func (state *taskExecutionState) contextSummary() string {
 	if state.planArguments != "" {
 		appendContextSummary(&out, limit, "authoritative plan is loaded; do not replace it.\n")
 	}
+	if state.inheritedCheckpoint != nil {
+		appendContextSummary(&out, limit, checkpointSummary(*state.inheritedCheckpoint))
+	}
 	if evidence := state.evidenceText(); evidence != "" {
 		appendContextSummary(&out, limit, "checkpoint evidence:\n"+evidence)
 	}
@@ -181,6 +241,23 @@ func (state *taskExecutionState) contextSummary() string {
 	}
 	if state.terminal != nil {
 		appendContextSummary(&out, limit, fmt.Sprintf("terminal=%s summary=%q\n", state.terminal.Kind, state.terminal.Summary))
+	}
+	return out.String()
+}
+
+func checkpointSummary(checkpoint TaskCheckpoint) string {
+	var out strings.Builder
+	for _, item := range checkpoint.CompletedWork {
+		fmt.Fprintf(&out, "completed=%q\n", item)
+	}
+	for _, item := range checkpoint.PendingWork {
+		fmt.Fprintf(&out, "pending=%q\n", item)
+	}
+	for _, item := range checkpoint.Failures {
+		fmt.Fprintf(&out, "failure=%q\n", item)
+	}
+	for _, item := range checkpoint.Decisions {
+		fmt.Fprintf(&out, "decision=%q\n", item)
 	}
 	return out.String()
 }
@@ -341,7 +418,7 @@ func (service *Service) setTaskStateLocked(requestID string, status TaskStatus, 
 	}
 }
 
-func (service *Service) recordContextCompactionLocked(requestID string, compaction ContextCompaction) bool {
+func (service *taskContextCoordinator) recordContextCompactionLocked(requestID string, compaction ContextCompaction) bool {
 	state := service.taskExecution
 	if state == nil || state.requestID != requestID || state.status != taskStatusRunning {
 		return false

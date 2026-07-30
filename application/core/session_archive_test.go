@@ -13,6 +13,8 @@ type archiveSessions struct {
 	historyErr error
 	record     SessionRecord
 	saved      int
+	tailBudget int
+	tailUnits  int
 }
 
 func (sessions *archiveSessions) SaveCurrent(string) error {
@@ -37,6 +39,16 @@ func (sessions *archiveSessions) LoadSessionRecordWorkspace(string, string) (Ses
 	return sessions.record, nil
 }
 
+func (sessions *archiveSessions) LoadTranscriptTailWorkspace(_, _ string, tokenBudget, maxUnits int) ([]TranscriptEvent, error) {
+	sessions.tailBudget = tokenBudget
+	sessions.tailUnits = maxUnits
+	return nil, nil
+}
+
+func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string) (StoredToolResult, error) {
+	return StoredToolResult{}, errors.New("tool result unavailable")
+}
+
 func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
 	service := newTestService(engine)
@@ -55,10 +67,13 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	service.planStack = []SessionPlanFrame{{ID: "plan-a", Plan: service.snapshot.Runtime.Plan, Arguments: `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`}}
 	service.activePlanID = "plan-a"
 	service.taskExecution = newTaskExecutionState("task-a", "Inspect the repository", "high")
+	service.taskExecution.status = taskStatusInterrupted
+	service.taskExecution.checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
 	service.taskExecution.planArguments = `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
+	service.components.tasks.activateTaskSkillsLocked(service.taskExecution, []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	service.mu.Unlock()
 
-	if err := service.persistCurrentSession("session-a"); err != nil {
+	if err := service.components.sessions.persistCurrentSession("session-a"); err != nil {
 		t.Fatal(err)
 	}
 	if sessions.saved != 1 || sessions.record.Title.Value != "Keep this title" || len(sessions.record.Conversation.Messages) != 1 || len(sessions.record.PlanStack) != 1 || len(sessions.record.Execution.ReadFiles) != 1 {
@@ -79,9 +94,78 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	if snapshot.Runtime.Plan == nil || snapshot.Runtime.Plan.EntryNodeID != "inspect" || len(snapshot.ReadFiles) != 1 {
 		t.Fatalf("restored state = %#v", snapshot)
 	}
+	restored.mu.RLock()
+	continuation := restored.taskExecution
+	restoredPrompt := restored.components.prompts.systemPromptForActiveTaskLocked()
+	restored.mu.RUnlock()
+	if continuation == nil || continuation.status != taskStatusInterrupted || continuation.inheritedCheckpoint == nil ||
+		len(continuation.inheritedCheckpoint.CompletedWork) != 1 || !strings.Contains(restoredPrompt, "review prompt") {
+		t.Fatalf("restored projection = %#v prompt=%q", continuation, restoredPrompt)
+	}
 	history := restoredEngine.History()
 	if len(history) != 1 || !strings.HasPrefix(history[0].Content, sessionArchiveResumePrefix) {
 		t.Fatalf("engine history = %#v, want bounded archive resume context", history)
+	}
+	if sessions.tailBudget != defaultContextBudget().TargetAfterCompaction || sessions.tailUnits != 4 {
+		t.Fatalf("transcript tail request budget=%d units=%d", sessions.tailBudget, sessions.tailUnits)
+	}
+}
+
+func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
+	service := newTestService(&fakeEngine{sessionID: "session-large"})
+	defer service.Shutdown()
+	raw := strings.Repeat("raw-secret-output", defaultToolResultLimit())
+	service.mu.Lock()
+	service.snapshot.Session = SessionState{ID: "session-large"}
+	service.snapshot.Chat = ChatState{RequestID: "task-large"}
+	service.taskExecution = newTaskExecutionState("task-large", "inspect", "high")
+	stored := service.components.tasks.storeToolResultLocked("bash", raw)
+	service.resultRefsByToolCallID["call-large"] = stored.Ref
+	service.snapshot.Conversation = []Message{
+		{Role: "tool", Tool: &ToolCall{ID: "call-large", Name: "bash", Result: raw}},
+		{Role: "tool_result", Content: raw, Tool: &ToolCall{ID: "call-large", Name: "bash", Result: raw}},
+	}
+	record := service.components.sessions.sessionRecordLocked("session-large")
+	service.mu.Unlock()
+
+	for _, message := range record.Conversation.Messages {
+		if strings.Contains(message.Content, "raw-secret-output") || (message.Tool != nil && strings.Contains(message.Tool.Result, "raw-secret-output")) {
+			t.Fatalf("raw result leaked into SessionRecord: %#v", message)
+		}
+		if message.Tool != nil && !strings.Contains(message.Tool.Result, stored.Ref) {
+			t.Fatalf("result reference missing from archived tool: %#v", message.Tool)
+		}
+	}
+	page, err := service.ReadToolResultHandler(t.Context(), `{"result_ref":"`+stored.Ref+`","offset":0,"limit":32}`)
+	if err != nil || !strings.Contains(page, "raw-secret-output") {
+		t.Fatalf("read_tool_result page=%q err=%v", page, err)
+	}
+}
+
+func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
+	for _, status := range []TaskStatus{TaskCompleted, TaskFailed} {
+		service := newTestService(&fakeEngine{})
+		service.promptStack.Push("skill", "review", "review prompt")
+		service.mu.Lock()
+		service.snapshot.Task = &TaskState{Status: status}
+		service.mu.Unlock()
+		service.prepareCompletedTaskBoundary()
+		if skills := selectedSkillLayers(service.promptStack.Layers()); len(skills) != 0 {
+			service.Shutdown()
+			t.Fatalf("terminal task %s retained skills: %#v", status, skills)
+		}
+		service.Shutdown()
+	}
+}
+
+func TestToolResultPaginationMakesProgressAcrossUTF8Boundaries(t *testing.T) {
+	result := StoredToolResult{ToolResultRef: ToolResultRef{Ref: "tr-unicode", Tool: "read"}, Content: "中文"}
+	page, err := encodeToolResultPage(result, 0, 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(page, `"content":"中"`) || !strings.Contains(page, `"next_offset":3`) {
+		t.Fatalf("unicode page = %s", page)
 	}
 }
 

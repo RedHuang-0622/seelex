@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,7 @@ import (
 )
 
 const (
-	sessionRecordVersion       = 2
+	sessionRecordVersion       = 3
 	sessionArchiveVersion      = 1
 	sessionArchiveResumePrefix = "<!-- seelex:session-resume:v1 -->"
 )
@@ -26,18 +27,39 @@ type sessionRecordPort interface {
 	LoadSessionRecordWorkspace(string, string) (SessionRecord, error)
 }
 
+type sessionSnapshotPort interface {
+	SaveSessionSnapshot(string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error
+}
+
+type sessionTranscriptPort interface {
+	LoadTranscriptTailWorkspace(string, string, int, int) ([]TranscriptEvent, error)
+	LoadToolResultWorkspace(string, string, string) (StoredToolResult, error)
+}
+
 type persistedPlanRestorer interface {
 	RestorePlan(context.Context, string) error
 }
 
-func (service *Service) persistCurrentSession(sessionID string) error {
+func (service *sessionCoordinator) persistCurrentSession(sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
-	service.mu.RLock()
+	service.mu.Lock()
 	record := service.sessionRecordLocked(sessionID)
-	service.mu.RUnlock()
+	events := append([]TranscriptEvent(nil), service.transcript...)
+	pendingResults := append([]StoredToolResult(nil), service.pendingToolResults...)
+	service.mu.Unlock()
+
+	if store, ok := service.deps.Sessions.(sessionSnapshotPort); ok {
+		if err := store.SaveSessionSnapshot(sessionID, service.deps.Engine.History(), record, events, pendingResults); err != nil {
+			return fmt.Errorf("save atomic session snapshot: %w", err)
+		}
+		service.mu.Lock()
+		service.removeCommittedToolResultsLocked(pendingResults)
+		service.mu.Unlock()
+		return nil
+	}
 
 	if err := service.deps.Sessions.SaveCurrent(sessionID); err != nil {
 		return err
@@ -52,7 +74,7 @@ func (service *Service) persistCurrentSession(sessionID string) error {
 	return nil
 }
 
-func (service *Service) sessionRecordLocked(sessionID string) SessionRecord {
+func (service *sessionCoordinator) sessionRecordLocked(sessionID string) SessionRecord {
 	now := time.Now()
 	service.syncActivePlanFrameLocked(now)
 	title := service.sessionTitle
@@ -65,17 +87,16 @@ func (service *Service) sessionRecordLocked(sessionID string) SessionRecord {
 		PlanStack:    cloneSessionPlanStack(service.planStack),
 		Conversation: ConversationRecord{UpdatedAt: now},
 		Execution:    SessionExecutionRecord{ReadFiles: append([]ReadFileRef(nil), service.snapshot.ReadFiles...)},
+		Projection:   service.taskProjectionLocked(sessionID),
+		Checkpoints:  append([]TaskCheckpoint(nil), service.taskCheckpoints...),
+		ToolResults:  append([]ToolResultRef(nil), service.toolResultRefs...),
 		UpdatedAt:    now,
 	}
 	for _, message := range service.snapshot.Conversation {
 		if message.Role == "system" {
 			continue
 		}
-		copy := message
-		if message.Tool != nil {
-			tool := *message.Tool
-			copy.Tool = &tool
-		}
+		copy := service.archivedConversationMessageLocked(message)
 		record.Conversation.Messages = append(record.Conversation.Messages, copy)
 	}
 	if task := service.snapshot.Task; task != nil {
@@ -89,7 +110,55 @@ func (service *Service) sessionRecordLocked(sessionID string) SessionRecord {
 	return record
 }
 
-func (service *Service) loadSessionRecord(location sessionLocation, sessionID string) (SessionRecord, bool, error) {
+func (service *sessionCoordinator) archivedConversationMessageLocked(message Message) Message {
+	copy := message
+	if message.Tool != nil {
+		tool := *message.Tool
+		copy.Tool = &tool
+		if resultRef := service.resultRefsByToolCallID[tool.ID]; resultRef != "" {
+			warning := oversizedToolResultWarning(tool.Name, resultRef)
+			copy.Tool.Result = warning
+			if copy.Role == "tool_result" {
+				copy.Content = warning
+			}
+		}
+	}
+	if copy.Role == "user" {
+		if resultRef := service.userInputResultRefLocked(copy.Content); resultRef != "" {
+			copy.Content = contentReferenceWarning(resultRef)
+		}
+	}
+	return copy
+}
+
+func (service *sessionCoordinator) userInputResultRefLocked(content string) string {
+	digest := "sha256:" + fmt.Sprintf("%x", sha256.Sum256([]byte("user_input\x00"+content)))
+	for _, result := range service.toolResultRefs {
+		if result.Tool == "user_input" && result.Digest == digest {
+			return result.Ref
+		}
+	}
+	return ""
+}
+
+func (service *sessionCoordinator) removeCommittedToolResultsLocked(committed []StoredToolResult) {
+	if len(committed) == 0 || len(service.pendingToolResults) == 0 {
+		return
+	}
+	refs := make(map[string]struct{}, len(committed))
+	for _, result := range committed {
+		refs[result.Ref] = struct{}{}
+	}
+	pending := service.pendingToolResults[:0]
+	for _, result := range service.pendingToolResults {
+		if _, ok := refs[result.Ref]; !ok {
+			pending = append(pending, result)
+		}
+	}
+	service.pendingToolResults = pending
+}
+
+func (service *sessionCoordinator) loadSessionRecord(location sessionLocation, sessionID string) (SessionRecord, bool, error) {
 	store, ok := service.deps.Sessions.(sessionRecordPort)
 	if !ok {
 		return SessionRecord{}, false, nil
@@ -101,10 +170,23 @@ func (service *Service) loadSessionRecord(location sessionLocation, sessionID st
 	if err != nil {
 		return SessionRecord{}, false, err
 	}
+	if record.Version == 2 && record.ID == sessionID {
+		record.Version = sessionRecordVersion
+		return record, true, nil
+	}
 	if record.Version != sessionRecordVersion || record.ID != sessionID {
 		return SessionRecord{}, false, nil
 	}
 	return record, true, nil
+}
+
+func (service *sessionCoordinator) loadSessionTranscript(location sessionLocation, sessionID string) ([]TranscriptEvent, error) {
+	store, ok := service.deps.Sessions.(sessionTranscriptPort)
+	if !ok {
+		return nil, nil
+	}
+	budget := defaultContextBudget()
+	return store.LoadTranscriptTailWorkspace(location.workspaceID, sessionID, budget.TargetAfterCompaction, 4)
 }
 
 func recordResumeHistory(record SessionRecord) []EngineMessage {
@@ -140,7 +222,7 @@ func cloneSessionPlanStack(stack []SessionPlanFrame) []SessionPlanFrame {
 	return cloned
 }
 
-func (service *Service) syncActivePlanFrameLocked(now time.Time) {
+func (service *sessionCoordinator) syncActivePlanFrameLocked(now time.Time) {
 	if service.activePlanID == "" || len(service.planStack) == 0 {
 		return
 	}
@@ -155,7 +237,7 @@ func (service *Service) syncActivePlanFrameLocked(now time.Time) {
 	}
 }
 
-func (service *Service) pushLoadedPlanLocked(arguments string, now time.Time) {
+func (service *sessionCoordinator) pushLoadedPlanLocked(arguments string, now time.Time) {
 	arguments = strings.TrimSpace(arguments)
 	if arguments == "" || service.snapshot.Runtime.Plan == nil {
 		return
@@ -172,7 +254,7 @@ func (service *Service) pushLoadedPlanLocked(arguments string, now time.Time) {
 	service.activePlanID = planID
 }
 
-func (service *Service) recordReadFileLocked(arguments string) {
+func (service *sessionCoordinator) recordReadFileLocked(arguments string) {
 	var input struct {
 		Path string `json:"path"`
 	}

@@ -4,7 +4,7 @@ import "fmt"
 
 // recordContextControlFailure transfers a hook failure to runChat. LoopHooks
 // can stop the upstream ReAct loop but cannot return an error themselves.
-func (service *Service) recordContextControlFailure(requestID string, err error) {
+func (service *contextCoordinator) recordContextControlFailure(requestID string, err error) {
 	if err == nil {
 		return
 	}
@@ -17,7 +17,7 @@ func (service *Service) recordContextControlFailure(requestID string, err error)
 	service.contextControlRequestID = requestID
 }
 
-func (service *Service) takeContextControlFailure(requestID string) error {
+func (service *contextCoordinator) takeContextControlFailure(requestID string) error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.contextControlRequestID != requestID {

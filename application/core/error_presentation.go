@@ -12,10 +12,11 @@ import (
 // diagnostics, but never copied into a Snapshot, conversation message, or UI
 // event.
 type presentedError struct {
-	module  string
-	method  string
-	summary string
-	next    string
+	module       string
+	method       string
+	summary      string
+	next         string
+	unclassified bool
 }
 
 func (presentation presentedError) String() string {
@@ -27,7 +28,22 @@ func presentUserError(err error) string {
 	return classifyPresentedError(err).String()
 }
 
+func isUnclassifiedRunChatError(err error) bool {
+	return classifyPresentedError(err).unclassified
+}
+
 func classifyPresentedError(err error) presentedError {
+	message := ""
+	if err != nil {
+		message = strings.ToLower(err.Error())
+	}
+	if strings.Contains(message, "persistence failed and recovery is not guaranteed") || strings.Contains(message, "save atomic session snapshot") {
+		return presentedError{
+			module: "会话持久化", method: "persistCurrentSession",
+			summary: "任务状态未能可靠写入持久化存储。",
+			next:    "不要假定进度已经保存；请先检查存储连接或磁盘状态，再决定是否重试。",
+		}
+	}
 	if errors.Is(err, context.Canceled) {
 		return presentedError{
 			module: "任务执行", method: "runChat",
@@ -36,10 +52,6 @@ func classifyPresentedError(err error) presentedError {
 		}
 	}
 
-	message := ""
-	if err != nil {
-		message = strings.ToLower(err.Error())
-	}
 	switch {
 	case isProviderContextExhaustion(err):
 		return presentedError{
@@ -81,8 +93,9 @@ func classifyPresentedError(err error) presentedError {
 	default:
 		return presentedError{
 			module: "代理运行时", method: "runChat",
-			summary: "当前任务未能完成。",
-			next:    "已保留可用进度；请重试，或补充更明确的下一步。",
+			summary:      "当前任务未能完成。",
+			next:         "已保留可用进度；请重试，或补充更明确的下一步。",
+			unclassified: true,
 		}
 	}
 }

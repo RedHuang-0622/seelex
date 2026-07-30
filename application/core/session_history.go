@@ -25,12 +25,12 @@ func (service *Service) resumeSession(sessionID string) error {
 		return ErrChatRunning
 	}
 
-	location := service.locateSession(sessionID)
-	record, hasRecord, err := service.loadSessionRecord(location, sessionID)
+	location := service.components.sessions.locateSession(sessionID)
+	record, hasRecord, err := service.components.sessions.loadSessionRecord(location, sessionID)
 	if err != nil {
 		return fmt.Errorf("load session record %q: %w", sessionID, err)
 	}
-	history, historyErr := service.loadSessionHistory(location, sessionID)
+	history, historyErr := service.components.sessions.loadSessionHistory(location, sessionID)
 	if historyErr != nil && !hasRecord {
 		return fmt.Errorf("load session %q: %w", sessionID, historyErr)
 	}
@@ -40,9 +40,16 @@ func (service *Service) resumeSession(sessionID string) error {
 		// lost legacy cache must not make the saved session impossible to open.
 		history = nil
 	}
+	transcript, transcriptErr := service.components.sessions.loadSessionTranscript(location, sessionID)
+	if transcriptErr != nil && !hasRecord {
+		return fmt.Errorf("load session transcript %q: %w", sessionID, transcriptErr)
+	}
 	engineHistory := history
 	if hasRecord {
-		engineHistory = recordResumeHistory(record)
+		engineHistory = transcriptTailHistory(transcript, defaultContextBudget().TargetAfterCompaction, 4)
+		if len(engineHistory) == 0 {
+			engineHistory = recordResumeHistory(record)
+		}
 	}
 	if err := service.deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
 		return fmt.Errorf("replace engine history: %w", err)
@@ -93,10 +100,31 @@ func (service *Service) resumeSession(sessionID string) error {
 		service.planStack = cloneSessionPlanStack(record.PlanStack)
 		service.activePlanID = record.ActivePlanID
 		service.planSequence = uint64(len(service.planStack))
+		service.transcript = append([]TranscriptEvent(nil), transcript...)
+		if len(transcript) > 0 {
+			service.transcriptSeq = transcript[len(transcript)-1].Seq
+		}
+		if record.Projection != nil && record.Projection.Checkpoint.CoversEventRange.End > service.transcriptSeq {
+			service.transcriptSeq = record.Projection.Checkpoint.CoversEventRange.End
+		}
+		service.taskCheckpoints = append([]TaskCheckpoint(nil), record.Checkpoints...)
+		service.toolResultRefs = append([]ToolResultRef(nil), record.ToolResults...)
+		service.pendingProviderCalls = nil
+		service.pendingToolResults = nil
+		service.resultRefsByToolCallID = make(map[string]string)
+		service.components.tasks.restoreTaskProjectionLocked(record.Projection, latestUserContent(record.Conversation.Messages))
 	} else {
 		service.planStack = nil
 		service.activePlanID = ""
 		service.planSequence = 0
+		service.transcript = nil
+		service.transcriptSeq = 0
+		service.taskExecution = nil
+		service.taskCheckpoints = nil
+		service.toolResultRefs = nil
+		service.pendingToolResults = nil
+		service.pendingProviderCalls = nil
+		service.resultRefsByToolCallID = make(map[string]string)
 	}
 	service.snapshot.Conversation = nil
 	service.snapshot.Runtime.Plan = nil
@@ -119,6 +147,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	} else {
 		service.appendHistoryLocked(visibleHistory)
 	}
+	service.deps.Engine.SetSystemPrompt(service.components.prompts.systemPromptForActiveTaskLocked())
 	service.snapshot.HistoryOffset = offset
 	service.snapshot.TotalMessages = total
 	service.snapshot.HasMoreHistory = offset > 0
@@ -130,6 +159,15 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
+}
+
+func latestUserContent(messages []Message) string {
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role == "user" {
+			return messages[index].Content
+		}
+	}
+	return ""
 }
 
 // ResumeSession is the direct application boundary for GUI/TUI session
@@ -182,7 +220,7 @@ func (service *Service) LoadMoreHistory(limit int) error {
 		workspaceID = service.snapshot.CurrentWorkspace.ID
 	}
 	service.mu.RUnlock()
-	history, total, err := service.loadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
+	history, total, err := service.components.sessions.loadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
 	if err != nil {
 		return fmt.Errorf("load history range: %w", err)
 	}

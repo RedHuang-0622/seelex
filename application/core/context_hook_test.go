@@ -41,7 +41,7 @@ func TestIterationHookReportsContextControlFailure(t *testing.T) {
 	if bridge.Hooks().OnIterationComplete(context.Background(), 0) {
 		t.Fatal("iteration should stop after context-control failure")
 	}
-	if got := service.takeContextControlFailure("task-1"); !errors.Is(got, want) {
+	if got := service.components.context.takeContextControlFailure("task-1"); !errors.Is(got, want) {
 		t.Fatalf("failure = %v, want wrapped %v", got, want)
 	}
 }

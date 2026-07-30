@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,16 +108,19 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		forcePlanLoad := explicit || attempt > 0
 		requestContext := ctx
 		cancelDecision := func() {}
-		decisionStartedAt := time.Now()
 		if !explicit && attempt == 0 {
 			requestContext, cancelDecision = context.WithTimeout(ctx, r.planDecisionTimeout)
 		}
-		message, err := r.planPreflightClient(forcePlanLoad).Complete(requestContext, []types.Message{
-			{Role: "system", Content: stringPointer(prompt(policy))},
-			{Role: "user", Content: stringPointer(attemptInput)},
-		}, []types.Tool{tool})
-		decisionTimedOut := !explicit && attempt == 0 && ctx.Err() == nil &&
-			(errors.Is(requestContext.Err(), context.DeadlineExceeded) || time.Since(decisionStartedAt) >= r.planDecisionTimeout)
+		message, err, decisionTimedOut := r.completePlanPreflight(
+			ctx,
+			requestContext,
+			explicit,
+			attempt,
+			forcePlanLoad,
+			prompt(policy),
+			attemptInput,
+			tool,
+		)
 		cancelDecision()
 		if decisionTimedOut {
 			planningRequiredByTimeout = true
@@ -157,6 +159,53 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		return PlanPreflight{Arguments: arguments}, fmt.Errorf("%s: no valid plan_load after one idempotent retry: %w", stage, lastErr)
 	}
 	return PlanPreflight{}, fmt.Errorf("%s: no valid plan_load after one idempotent retry", stage)
+}
+
+// completePlanPreflight enforces the optional decision deadline independently
+// of provider behavior. A provider may return an invalid or empty response
+// after its request context has expired; that response must not bypass the
+// required forced plan_load fallback.
+func (r *Runtime) completePlanPreflight(
+	parentCtx, requestCtx context.Context,
+	explicit bool,
+	attempt int,
+	forcePlanLoad bool,
+	systemPrompt, input string,
+	tool types.Tool,
+) (types.Message, error, bool) {
+	complete := func() (types.Message, error) {
+		return r.planPreflightClient(forcePlanLoad).Complete(requestCtx, []types.Message{
+			{Role: "system", Content: stringPointer(systemPrompt)},
+			{Role: "user", Content: stringPointer(input)},
+		}, []types.Tool{tool})
+	}
+	if explicit || attempt != 0 {
+		message, err := complete()
+		return message, err, false
+	}
+
+	type completion struct {
+		message types.Message
+		err     error
+	}
+	completed := make(chan completion, 1)
+	go func() {
+		message, err := complete()
+		completed <- completion{message: message, err: err}
+	}()
+
+	select {
+	case result := <-completed:
+		if requestCtx.Err() != nil && parentCtx.Err() == nil {
+			return types.Message{}, requestCtx.Err(), true
+		}
+		return result.message, result.err, false
+	case <-requestCtx.Done():
+		if parentCtx.Err() != nil {
+			return types.Message{}, parentCtx.Err(), false
+		}
+		return types.Message{}, requestCtx.Err(), true
+	}
 }
 
 // retryablePlanLoadError accepts only failures emitted before the delegated

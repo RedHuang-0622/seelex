@@ -26,7 +26,7 @@ type sessionNameCacheEntry struct {
 	name      string
 }
 
-func (service *Service) sessionCatalog() ([]SessionInfo, map[string]string) {
+func (service *sessionCoordinator) sessionCatalog() ([]SessionInfo, map[string]string) {
 	scoped, ok := service.deps.Sessions.(scopedSessionPort)
 	if !ok {
 		return service.deps.Sessions.List(), nil
@@ -66,7 +66,7 @@ func (service *Service) sessionCatalog() ([]SessionInfo, map[string]string) {
 	return sessions, discovered
 }
 
-func (service *Service) sessionName(location sessionLocation, scoped scopedSessionPort) string {
+func (service *sessionCoordinator) sessionName(location sessionLocation, scoped scopedSessionPort) string {
 	key := location.workspaceID + "\x00" + location.meta.ID
 	service.sessionNameMu.Lock()
 	entry, ok := service.sessionNames[key]
@@ -94,7 +94,7 @@ func (service *Service) sessionName(location sessionLocation, scoped scopedSessi
 	return name
 }
 
-func (service *Service) invalidateSessionName(sessionID string) {
+func (service *sessionCoordinator) invalidateSessionName(sessionID string) {
 	suffix := "\x00" + strings.TrimSpace(sessionID)
 	service.sessionNameMu.Lock()
 	for key := range service.sessionNames {
@@ -105,7 +105,7 @@ func (service *Service) invalidateSessionName(sessionID string) {
 	service.sessionNameMu.Unlock()
 }
 
-func (service *Service) clearSessionNames() {
+func (service *sessionCoordinator) clearSessionNames() {
 	service.sessionNameMu.Lock()
 	clear(service.sessionNames)
 	service.sessionNameMu.Unlock()
@@ -146,7 +146,7 @@ func shortSessionID(id string) string {
 	return string(runes[:16])
 }
 
-func (service *Service) allSessionLocations(scoped scopedSessionPort) []sessionLocation {
+func (service *sessionCoordinator) allSessionLocations(scoped scopedSessionPort) []sessionLocation {
 	locations := make([]sessionLocation, 0)
 	for _, meta := range scoped.ListWorkspace("") {
 		locations = append(locations, sessionLocation{meta: meta})
@@ -163,7 +163,7 @@ func (service *Service) allSessionLocations(scoped scopedSessionPort) []sessionL
 	return locations
 }
 
-func (service *Service) locateSession(sessionID string) sessionLocation {
+func (service *sessionCoordinator) locateSession(sessionID string) sessionLocation {
 	sessionID = strings.TrimSpace(sessionID)
 	var boundWorkspace *WorkspaceInfo
 	if service.deps.Workspace != nil {
@@ -221,7 +221,7 @@ func workspaceID(workspace *WorkspaceInfo) string {
 	return workspace.ID
 }
 
-func (service *Service) loadSessionHistory(location sessionLocation, sessionID string) ([]EngineMessage, error) {
+func (service *sessionCoordinator) loadSessionHistory(location sessionLocation, sessionID string) ([]EngineMessage, error) {
 	if scoped, ok := service.deps.Sessions.(scopedSessionPort); ok {
 		return scoped.LoadHistoryWorkspace(location.workspaceID, sessionID)
 	}
@@ -234,7 +234,7 @@ func (service *Service) loadSessionHistory(location sessionLocation, sessionID s
 	return history, err
 }
 
-func (service *Service) loadSessionHistoryRange(workspaceID, sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+func (service *sessionCoordinator) loadSessionHistoryRange(workspaceID, sessionID string, offset, limit int) ([]EngineMessage, int, error) {
 	if scoped, ok := service.deps.Sessions.(scopedSessionPort); ok {
 		return scoped.LoadHistoryRangeWorkspace(workspaceID, sessionID, offset, limit)
 	}

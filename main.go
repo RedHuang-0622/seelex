@@ -96,11 +96,36 @@ func main() {
 	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	defer app.Shutdown()
 	registerTaskTerminalTools(runtime, app)
+	registerContextReadTools(runtime, app)
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
 	runtime.SetPlanBranchCallback(app.HandlePlanBranchEvent)
 	startFrontend(app)
 }
+
+func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service) {
+	readResultSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"result_ref": map[string]interface{}{"type": "string"},
+			"offset":     map[string]interface{}{"type": "integer", "minimum": 0},
+			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": maxReferenceToolPageSize},
+			"contains":   map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"result_ref"},
+	}
+	readPlanSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"plan_ref": map[string]interface{}{"type": "string"},
+			"node_ids": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+		},
+	}
+	runtime.RegisterTool("read_tool_result", "Read an immutable stored tool result by reference with bounded pagination or line filtering.", readResultSchema, app.ReadToolResultHandler)
+	runtime.RegisterTool("read_plan", "Read selected nodes from the durable canonical Plan without changing Plan state.", readPlanSchema, app.ReadPlanHandler)
+}
+
+const maxReferenceToolPageSize = 12000
 
 func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Service) {
 	completedSchema := map[string]interface{}{

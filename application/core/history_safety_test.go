@@ -43,7 +43,7 @@ func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "assistant", Content: ""}}}
 	service := newTestService(engine)
 	defer service.Shutdown()
-	if err := service.prepareProviderHistory(); err != nil {
+	if err := service.components.history.prepareProviderHistory(); err != nil {
 		t.Fatal(err)
 	}
 	history := engine.History()
@@ -131,7 +131,7 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 	}
 }
 
-func TestContextExhaustionLeavesNextTurnWithRecoverableHistory(t *testing.T) {
+func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t *testing.T) {
 	engine := &fakeEngine{
 		appendChatHistory: true,
 		chatErr:           errors.New("engine loop 15: context window exceeds limit"),
@@ -143,12 +143,49 @@ func TestContextExhaustionLeavesNextTurnWithRecoverableHistory(t *testing.T) {
 	}
 	waitForChatCompletion(t, service)
 
-	history := engine.History()
-	if len(history) == 0 || !strings.HasPrefix(history[len(history)-1].Content, contextRecoveryPrefix) {
-		t.Fatalf("context failure left no recovery history: %#v", history)
-	}
 	if service.Snapshot().Chat.Error == "" {
 		t.Fatal("provider failure must remain visible for the failed turn")
+	}
+	if task := service.Snapshot().Task; task == nil || task.Status != TaskInterrupted {
+		t.Fatalf("task state = %#v, want interrupted", task)
+	}
+	service.mu.RLock()
+	projection := service.components.tasks.taskProjectionLocked(service.snapshot.Session.ID)
+	service.mu.RUnlock()
+	if projection == nil || projection.Status != taskStatusInterrupted || projection.Checkpoint.CoversEventRange.End == 0 {
+		t.Fatalf("projection = %#v", projection)
+	}
+}
+
+func containsRecoveryHistory(history []EngineMessage, prefix string) bool {
+	for _, message := range history {
+		if strings.HasPrefix(message.Content, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T) {
+	engine := &fakeEngine{
+		appendChatHistory: true,
+		chatErrors:        []error{errors.New("engine loop 15: context window exceeds limit"), nil},
+	}
+	service := newTestService(engine)
+	defer service.Shutdown()
+	if err := service.Submit(context.Background(), "finish the repository audit"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+
+	engine.mu.Lock()
+	inputs := append([]string(nil), engine.chatInputs...)
+	engine.mu.Unlock()
+	if len(inputs) != 2 || inputs[1] != contextRecoveryAgentInput {
+		t.Fatalf("recovery inputs = %#v", inputs)
+	}
+	if got := service.Snapshot().Chat.Error; got != "" {
+		t.Fatalf("successful bounded recovery left an error: %q", got)
 	}
 }
 
@@ -206,8 +243,8 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 		t.Fatal("iteration should remain available")
 	}
 	history := engine.History()
-	if len(history) != 1 || history[0].Content != toolCallHistoryContent || !history[0].ContentSet {
-		t.Fatalf("iteration history repair = %#v", history)
+	if len(history) != 1 || !isTaskContextCheckpoint(history[0].Content) || len(history[0].ToolCalls) != 0 {
+		t.Fatalf("incomplete tool round must be excluded from provider context: %#v", history)
 	}
 }
 

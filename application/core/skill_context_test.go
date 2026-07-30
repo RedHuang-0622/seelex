@@ -12,7 +12,7 @@ func TestFormatSkillUserInputKeepsPlainInputUnchanged(t *testing.T) {
 	}
 }
 
-func TestFormatSkillUserInputCreatesItemizedContext(t *testing.T) {
+func TestSkillSelectionKeepsUserInputPlainAndFreezesTrustedLayers(t *testing.T) {
 	layers := []PromptLayer{
 		{Kind: "base", Name: "base", Text: "system"},
 		{Kind: "skill", Name: "review", Text: "Check correctness.\nReport evidence."},
@@ -20,19 +20,12 @@ func TestFormatSkillUserInputCreatesItemizedContext(t *testing.T) {
 	}
 	const input = "#review 检查这个实现"
 	modelInput := formatSkillUserInput(layers, input)
-
-	for _, expected := range []string{
-		"## Selected Skills",
-		"- name: review\n  instructions: |\n    Check correctness.\n    Report evidence.",
-		"- name: security",
-		"## User Request\n" + input,
-	} {
-		if !strings.Contains(modelInput, expected) {
-			t.Fatalf("model input missing %q:\n%s", expected, modelInput)
-		}
+	if modelInput != input {
+		t.Fatalf("trusted Skill text leaked into user input: %q", modelInput)
 	}
-	if got := displayUserInput(modelInput); got != input {
-		t.Fatalf("display input = %q, want %q", got, input)
+	selected := selectedSkillLayers(layers)
+	if len(selected) != 2 || selected[0].Name != "review" || selected[1].Name != "security" {
+		t.Fatalf("selected Skills = %#v", selected)
 	}
 }
 
@@ -66,7 +59,7 @@ func TestDisplayUserInputHidesPrivatePlanAndRecoveryEnvelopes(t *testing.T) {
 	}
 }
 
-func TestCombineChatRequestsPreservesDisplayAndSkillBodies(t *testing.T) {
+func TestCombineChatRequestsPreservesDisplayAndFrozenSkillLayers(t *testing.T) {
 	first := newChatRequest("plain", nil)
 	second := newChatRequest("#review focused", []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	combined := combineChatRequests([]chatRequest{first, second})
@@ -74,15 +67,12 @@ func TestCombineChatRequestsPreservesDisplayAndSkillBodies(t *testing.T) {
 	if got, want := combined.displayInput, "plain\n---\n#review focused"; got != want {
 		t.Fatalf("display = %q, want %q", got, want)
 	}
-	if got := displayUserInput(combined.modelInput); got != combined.displayInput {
-		t.Fatalf("decoded display = %q, want %q", got, combined.displayInput)
-	}
-	if strings.Count(combined.modelInput, skillContextEnvelopePrefix) != 1 {
-		t.Fatalf("combined input must have one outer envelope:\n%s", combined.modelInput)
-	}
-	for _, expected := range []string{"plain", "- name: review", "#review focused"} {
+	for _, expected := range []string{"plain", "#review focused"} {
 		if !strings.Contains(combined.modelInput, expected) {
 			t.Fatalf("combined model input missing %q:\n%s", expected, combined.modelInput)
 		}
+	}
+	if strings.Contains(combined.modelInput, "review prompt") || len(combined.skills) != 1 || combined.skills[0].Name != "review" {
+		t.Fatalf("combined trusted Skills = %#v, input=%q", combined.skills, combined.modelInput)
 	}
 }

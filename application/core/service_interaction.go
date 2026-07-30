@@ -194,7 +194,7 @@ func (service *Service) closeInteraction(id string) {
 }
 
 func (service *Service) sessionInteraction() *Interaction {
-	sessions, _ := service.sessionCatalog()
+	sessions, _ := service.components.sessions.sessionCatalog()
 	options := make([]InteractionOption, 0, len(sessions))
 	for _, session := range sessions {
 		label := session.Name

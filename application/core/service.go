@@ -2,9 +2,7 @@
 package core
 
 import (
-	"context"
 	"errors"
-	"sync"
 )
 
 const defaultHistoryWindow = 200
@@ -15,37 +13,12 @@ var (
 	ErrApplicationDraining = errors.New("application is finishing active work")
 )
 
-// Service owns the application state machine. Individual use cases live in
-// focused files; this file intentionally contains only shared state and setup.
+// Service is the public application facade. Stateful responsibilities are
+// assembled from focused components; the facade keeps their lifecycle and
+// cross-component workflows behind one stable API.
 type Service struct {
-	mu                      sync.RWMutex
-	sessionNameMu           sync.Mutex
-	sessionTransitionMu     sync.Mutex
-	deps                    Dependencies
-	events                  *EventHub
-	approval                *ApprovalBroker
-	commands                *CommandRegistry
-	snapshot                Snapshot
-	promptStack             *PromptStack
-	effortManager           *EffortManager
-	messageSeq              uint64
-	cancelChat              context.CancelFunc
-	idle                    chan struct{}
-	draining                bool
-	closed                  bool
-	sessionNames            map[string]sessionNameCacheEntry
-	sessionTitle            SessionTitle
-	planStack               []SessionPlanFrame
-	activePlanID            string
-	planSequence            uint64
-	replanInFlight          map[string]struct{}
-	inputQueue              []chatRequest
-	reactBudget             *activeReActBudget
-	taskExecution           *taskExecutionState
-	streamOutput            *visibleOutputStream
-	inputDispatcher         inputDispatcher
-	contextControlFailure   error
-	contextControlRequestID string
+	*serviceState
+	components serviceComponents
 }
 
 func New(deps Dependencies) *Service {

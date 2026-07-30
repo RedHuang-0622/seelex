@@ -36,7 +36,7 @@ func TestInputRouterDispatchesFirstMatchingStrategy(t *testing.T) {
 func TestNewAssemblesInputRouter(t *testing.T) {
 	service := newTestService(&fakeEngine{})
 	defer service.Shutdown()
-	if _, ok := service.inputDispatcher.(*inputRouter); !ok {
-		t.Fatalf("input dispatcher = %T, want *inputRouter", service.inputDispatcher)
+	if _, ok := service.components.input.(*inputRouter); !ok {
+		t.Fatalf("input dispatcher = %T, want *inputRouter", service.components.input)
 	}
 }
