@@ -71,16 +71,19 @@ func TestMissingAccountsUsesEnvironmentCredential(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	path := filepath.Join(t.TempDir(), "missing-accounts.yaml")
 
-	pool, roles, err := loadSimplifiedConfig(path)
+	loaded, err := loadSimplifiedConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	accounts := pool.All()
+	accounts := loaded.Pool.All()
 	if len(accounts) != 1 || accounts[0].APIKey != "test-key" {
 		t.Fatalf("fallback accounts = %+v", accounts)
 	}
-	if len(roles) != 1 || roles[0] != RoleAgent {
-		t.Fatalf("fallback roles = %v", roles)
+	if len(loaded.AvailableRoles) != 1 || loaded.AvailableRoles[0] != RoleAgent {
+		t.Fatalf("fallback roles = %v", loaded.AvailableRoles)
+	}
+	if limits := loaded.Limits[accounts[0].Name]; limits.ContextWindow != defaultContextWindow || limits.MaxOutputTokens != defaultMaxOutputTokens {
+		t.Fatalf("fallback limits = %+v", limits)
 	}
 }
 
@@ -99,16 +102,123 @@ func TestRuntimeLoadsGroupedAccountRoles(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pool, roles, err := loadSimplifiedConfig(path)
+	loaded, err := loadSimplifiedConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pool.All()) != 2 || len(roles) != 2 {
-		t.Fatalf("unexpected accounts=%d roles=%d", len(pool.All()), len(roles))
+	if len(loaded.Pool.All()) != 2 || len(loaded.AvailableRoles) != 2 {
+		t.Fatalf("unexpected accounts=%d roles=%d", len(loaded.Pool.All()), len(loaded.AvailableRoles))
 	}
-	account, err := ResolveAccount(pool, RoleSubAgent)
+	account, err := ResolveAccount(loaded.Pool, RoleSubAgent)
 	if err != nil || account.Name != "subagent-1" {
 		t.Fatalf("resolved account=%v err=%v", account, err)
+	}
+}
+
+func TestAccountLimitsHonorDefaultsAndAccountOverrides(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := `defaults:
+  provider: openai
+  context_window: 200000
+  max_tokens: 8192
+roles:
+  agent:
+    - model: main-model
+      base_url: http://localhost
+      api_key: test-key
+  subagent:
+    - model: child-model
+      base_url: http://localhost
+      api_key: test-key
+      context_window: 32768
+      max_tokens: 2048
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadSimplifiedConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Limits["agent-1"]; got != (accountLimits{ContextWindow: 200_000, MaxOutputTokens: 8_192}) {
+		t.Fatalf("agent limits = %+v", got)
+	}
+	if got := loaded.Limits["subagent-1"]; got != (accountLimits{ContextWindow: 32_768, MaxOutputTokens: 2_048}) {
+		t.Fatalf("subagent limits = %+v", got)
+	}
+	if account := accountByName(loaded.Pool, "agent-1"); account == nil || account.Provider != api.ProviderOpenAI || account.MaxTokens != 8_192 {
+		t.Fatalf("agent provider config = %+v", account)
+	}
+	if account := accountByName(loaded.Pool, "subagent-1"); account == nil || account.MaxTokens != 2_048 {
+		t.Fatalf("subagent provider config = %+v", account)
+	}
+}
+
+func TestAccountLimitsRejectUnsafeValues(t *testing.T) {
+	tests := []struct {
+		name          string
+		contextWindow int
+		maxTokens     int
+	}{
+		{name: "zero context", contextWindow: 0, maxTokens: 1_024},
+		{name: "zero output", contextWindow: 8_192, maxTokens: 0},
+		{name: "output consumes safe window", contextWindow: 8_192, maxTokens: 7_168},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "accounts.yaml")
+			content := fmt.Sprintf(`defaults:
+  context_window: %d
+  max_tokens: %d
+roles:
+  agent:
+    - model: test-model
+      base_url: http://localhost
+      api_key: test-key
+`, tt.contextWindow, tt.maxTokens)
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadSimplifiedConfig(path); err == nil {
+				t.Fatal("unsafe context limits should fail")
+			}
+		})
+	}
+}
+
+func TestRuntimeExposesSelectedAccountLimits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := `defaults:
+  context_window: 200000
+  max_tokens: 8192
+roles:
+  agent:
+    - model: main-model
+      base_url: http://localhost
+      api_key: test-key
+  subagent:
+    - model: child-model
+      base_url: http://localhost
+      api_key: test-key
+      context_window: 32768
+      max_tokens: 2048
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: path, ToolCallTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown()
+	if runtime.ContextWindow() != 200_000 || runtime.MaxOutputTokens() != 8_192 {
+		t.Fatalf("default runtime limits = %d/%d", runtime.ContextWindow(), runtime.MaxOutputTokens())
+	}
+	if !runtime.SelectAccount("subagent-1") {
+		t.Fatal("select subagent account")
+	}
+	if runtime.ContextWindow() != 32_768 || runtime.MaxOutputTokens() != 2_048 {
+		t.Fatalf("selected runtime limits = %d/%d", runtime.ContextWindow(), runtime.MaxOutputTokens())
 	}
 }
 

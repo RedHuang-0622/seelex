@@ -37,10 +37,12 @@ type RuntimeConfig struct {
 
 // Runtime owns one Seele Agent and exposes application-oriented facades.
 type Runtime struct {
-	agent  *agent.Agent
-	client *api.ChatClient
-	pool   *api.AccountPool
-	model  string
+	agent            *agent.Agent
+	client           *api.ChatClient
+	pool             *api.AccountPool
+	model            string
+	defaultAccountID string
+	accountLimits    map[string]accountLimits
 
 	// MCPStack 记录所有 MCP 调用的 trace（熔断事件 + 调用记录）。
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
@@ -82,10 +84,11 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if planDecisionTimeout <= 0 {
 		planDecisionTimeout = defaultPlanDecisionTimeout
 	}
-	pool, _, err := loadSimplifiedConfig(cfg.AccountsPath)
+	loaded, err := loadSimplifiedConfig(cfg.AccountsPath)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: load accounts: %w", err)
 	}
+	pool := loaded.Pool
 	accounts := pool.All()
 	if len(accounts) == 0 {
 		return nil, fmt.Errorf("seelebridge: accounts configuration is empty")
@@ -93,7 +96,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	first := accounts[0]
 	llmCfg := types.LLMConfig{
 		BaseURL: first.BaseURL, APIKey: first.APIKey, Model: first.Model,
-		MaxTokens: 200000, Timeout: 300,
+		MaxTokens: first.MaxTokens, Timeout: 300,
 		Temperature: 0.7,
 	}
 	agt, err := agent.New(agent.Options{
@@ -109,7 +112,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		return nil, fmt.Errorf("seelebridge: unsupported LLM client %T", agt.LLM())
 	}
 	client.WithAccountPool(pool)
-	client.SetProvider("openai")
+	client.SetProvider(first.Provider)
 	agt.Tools().WithPluginManager(holder.NewPluginManager())
 	// 把 main.go 配置的 ToolCallTimeout（120s）传给 holder，
 	// 否则 holder.New() 默认只有 30s，FreeCAD 复杂操作极易超时熔断。
@@ -128,6 +131,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		client:              client,
 		pool:                pool,
 		model:               first.Model,
+		defaultAccountID:    first.Name,
+		accountLimits:       loaded.Limits,
 		MCPStack:            mcpstack.New(mcpStackOpts...),
 		projectScope:        NewProjectScope(),
 		toolCallTimeout:     cfg.ToolCallTimeout,
@@ -148,6 +153,26 @@ func (r *Runtime) Shutdown() {
 }
 
 func (r *Runtime) Model() string { return r.model }
+
+// ContextWindow returns the total context available to the selected account.
+// It is distinct from MaxOutputTokens, which caps a single response.
+func (r *Runtime) ContextWindow() int { return r.currentAccountLimits().ContextWindow }
+
+// MaxOutputTokens returns the configured maximum output for one model call.
+func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOutputTokens }
+
+func (r *Runtime) currentAccountLimits() accountLimits {
+	r.branchMu.RLock()
+	accountID := r.selectedAccountID
+	r.branchMu.RUnlock()
+	if accountID == "" {
+		accountID = r.defaultAccountID
+	}
+	if limits, ok := r.accountLimits[accountID]; ok {
+		return limits
+	}
+	return accountLimits{ContextWindow: defaultContextWindow, MaxOutputTokens: defaultMaxOutputTokens}
+}
 
 func (r *Runtime) RegisterBuiltins() {
 	builtin.RegisterAll(r.agent.Tools())

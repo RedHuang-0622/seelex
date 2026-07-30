@@ -42,6 +42,30 @@ func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.deps.Runtime = runtimeWithContextLimits{
+		fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192,
+	}
+	legacyBudget := defaultContextBudget()
+	service.promptStack.Push("base", "large-system", strings.Repeat("s", legacyBudget.Budget*3))
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "inspect", "high")
+	service.mu.Unlock()
+
+	if _, err := service.components.context.prepareExecutionContext("task-1", "continue"); err != nil {
+		t.Fatalf("prepare with configured context window: %v", err)
+	}
+	service.mu.RLock()
+	audit := service.taskExecution.tokenAudit
+	service.mu.RUnlock()
+	if audit.Budget != 166_808 {
+		t.Fatalf("token audit budget = %d, want 166808", audit.Budget)
+	}
+}
+
 func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(engine)

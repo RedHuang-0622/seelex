@@ -185,7 +185,7 @@ func (service *sessionCoordinator) loadSessionTranscript(location sessionLocatio
 	if !ok {
 		return nil, nil
 	}
-	budget := defaultContextBudget()
+	budget := contextBudgetFor(service.deps.Runtime)
 	return store.LoadTranscriptTailWorkspace(location.workspaceID, sessionID, budget.TargetAfterCompaction, 4)
 }
 

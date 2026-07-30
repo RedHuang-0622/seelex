@@ -43,7 +43,7 @@ func (service *contextCoordinator) prepareExecutionContext(requestID, currentInp
 	if _, err := service.rejectOversizedToolResults(defaultToolResultLimit()); err != nil {
 		return "", err
 	}
-	budget := defaultContextBudget()
+	budget := contextBudgetFor(service.deps.Runtime)
 	tools := service.deps.Runtime.VisibleTools(context.Background())
 	existing := service.deps.Engine.History()
 	service.mu.RLock()

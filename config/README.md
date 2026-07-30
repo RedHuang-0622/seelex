@@ -1,5 +1,7 @@
 # Configuration
 
+`defaults.context_window` 表示模型的总上下文窗口，`defaults.max_tokens` 表示单次响应的最大输出 token。账号条目可以覆盖这两个值；Application 会从总窗口中扣除输出预留和 12.5% 安全余量后计算可用输入预算。
+
 ## 模块定位
 
 `config/` 存放运行时账号配置模板和本机私有配置。配置最终由 Seele ChatClient/AccountPool 读取，Seelex composition root 负责选择文件并注入 Runtime。

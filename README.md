@@ -20,7 +20,7 @@ Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
 ### 🧠 多模型 LLM 引擎
 - 支持 **OpenAI / Anthropic / DeepSeek** 等主流 API 和定制 Provider
 - 多账号 **Round-Robin 轮询**，自动故障切换
-- 可配置 `max_tokens`、`temperature`、`timeout` 等模型参数
+- 可分别配置总上下文窗口 `context_window` 与单次输出上限 `max_tokens`
 
 ### 🔌 Plugin 形态切换系统
 - 运行时通过 `switch_plugin` 或 `/plugin <name>` 切换 Agent 专业形态
@@ -171,7 +171,8 @@ go run .
 ```yaml
 defaults:
   provider: openai
-  max_tokens: 4096
+  context_window: 200000
+  max_tokens: 8192
   timeout: 60
   temperature: 0.7
 

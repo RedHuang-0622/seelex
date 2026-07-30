@@ -46,7 +46,8 @@ func (service *Service) resumeSession(sessionID string) error {
 	}
 	engineHistory := history
 	if hasRecord {
-		engineHistory = transcriptTailHistory(transcript, defaultContextBudget().TargetAfterCompaction, 4)
+		budget := contextBudgetFor(service.deps.Runtime)
+		engineHistory = transcriptTailHistory(transcript, budget.TargetAfterCompaction, 4)
 		if len(engineHistory) == 0 {
 			engineHistory = recordResumeHistory(record)
 		}

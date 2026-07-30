@@ -23,6 +23,11 @@ type requestTokenCounter interface {
 	CountRequest(string, []EngineMessage, string, []Tool) int
 }
 
+type contextLimitProvider interface {
+	ContextWindow() int
+	MaxOutputTokens() int
+}
+
 // conservativeTokenCounter is used when the active provider does not expose
 // its tokenizer. It counts protocol and tool-schema overhead in addition to a
 // conservative text estimate; callers may replace it with a model tokenizer
@@ -78,11 +83,25 @@ func defaultContextBudget() contextBudget {
 	if outputReserve < 512 {
 		outputReserve = 512
 	}
+	return newContextBudget(window, outputReserve)
+}
+
+func contextBudgetFor(runtime any) contextBudget {
+	limits, ok := runtime.(contextLimitProvider)
+	if !ok {
+		return defaultContextBudget()
+	}
+	window := limits.ContextWindow()
+	outputReserve := limits.MaxOutputTokens()
+	if window <= 0 || outputReserve <= 0 || outputReserve+window/8 >= window {
+		return defaultContextBudget()
+	}
+	return newContextBudget(window, outputReserve)
+}
+
+func newContextBudget(window, outputReserve int) contextBudget {
 	safetyReserve := window / 8
 	budget := window - outputReserve - safetyReserve
-	if budget < window/2 {
-		budget = window / 2
-	}
 	return contextBudget{
 		Window: window, OutputReserve: outputReserve, SafetyReserve: safetyReserve,
 		Budget: budget, SoftThreshold: budget * 75 / 100, HardThreshold: budget * 90 / 100,

@@ -214,6 +214,8 @@ type runtimePort struct{ runtime *seelebridge.Runtime }
 
 func (port runtimePort) Model() string         { return port.runtime.Model() }
 func (port runtimePort) Provider() string      { return port.runtime.Provider() }
+func (port runtimePort) ContextWindow() int    { return port.runtime.ContextWindow() }
+func (port runtimePort) MaxOutputTokens() int  { return port.runtime.MaxOutputTokens() }
 func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugin() }
 func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
 func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
