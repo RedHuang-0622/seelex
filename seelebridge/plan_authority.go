@@ -124,5 +124,5 @@ func (r *Runtime) authorizePlanMutation(ctx context.Context, toolName string) er
 		}
 		return fmt.Errorf("%s: plan preflight is reserved for request %q", toolName, scope.requestID)
 	}
-	return fmt.Errorf("%s: authoritative preflight plan is already loaded; use plan_run or explicit replan", toolName)
+	return fmt.Errorf("%s: authoritative preflight plan is already loaded; execute it with normal ReAct tools or use explicit replan after a factual failure", toolName)
 }

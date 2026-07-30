@@ -28,6 +28,7 @@ type RuntimeConfig struct {
 	MaxConcurrentReplans      int
 	MaxReplansPerWindow       int
 	ReplanWindow              time.Duration
+	PlanDecisionTimeout       time.Duration
 	AccountsPath              string        // LLM 账号配置路径
 	StorePath                 string        // 会话存储目录（空 = 不持久化）
 	ToolCallTimeout           time.Duration // 工具调用超时
@@ -45,20 +46,21 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	breaker           *breakerState         // 熔断器事件 channel 状态
-	planTool          *builtin.WorkPlanTool // plan 工具，用于设置进度回调
-	branchMu          sync.RWMutex
-	branchBinding     PlanBranchBinding
-	planPolicyMu      sync.RWMutex
-	planPolicy        PlanPolicy
-	planAuthorityMu   sync.RWMutex
-	planActScope      *planActScope
-	planProvider      *planToolProvider
-	replanGuard       *replanGuard
-	selectedAccountID string
-	projectScope      *ProjectScope
-	toolCallTimeout   time.Duration
-	scopedToolsReady  bool
+	breaker             *breakerState         // 熔断器事件 channel 状态
+	planTool            *builtin.WorkPlanTool // plan 工具，用于设置进度回调
+	branchMu            sync.RWMutex
+	branchBinding       PlanBranchBinding
+	planPolicyMu        sync.RWMutex
+	planPolicy          PlanPolicy
+	planAuthorityMu     sync.RWMutex
+	planActScope        *planActScope
+	planProvider        *planToolProvider
+	replanGuard         *replanGuard
+	selectedAccountID   string
+	projectScope        *ProjectScope
+	toolCallTimeout     time.Duration
+	planDecisionTimeout time.Duration
+	scopedToolsReady    bool
 }
 
 // Account is the non-secret account information exposed to Seelex UI.
@@ -76,6 +78,10 @@ type Tool struct {
 }
 
 func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
+	planDecisionTimeout := cfg.PlanDecisionTimeout
+	if planDecisionTimeout <= 0 {
+		planDecisionTimeout = defaultPlanDecisionTimeout
+	}
 	pool, _, err := loadSimplifiedConfig(cfg.AccountsPath)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: load accounts: %w", err)
@@ -118,14 +124,15 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 
 	r := &Runtime{
-		agent:           agt,
-		client:          client,
-		pool:            pool,
-		model:           first.Model,
-		MCPStack:        mcpstack.New(mcpStackOpts...),
-		projectScope:    NewProjectScope(),
-		toolCallTimeout: cfg.ToolCallTimeout,
-		replanGuard:     newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
+		agent:               agt,
+		client:              client,
+		pool:                pool,
+		model:               first.Model,
+		MCPStack:            mcpstack.New(mcpStackOpts...),
+		projectScope:        NewProjectScope(),
+		toolCallTimeout:     cfg.ToolCallTimeout,
+		planDecisionTimeout: planDecisionTimeout,
+		replanGuard:         newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
 	}
 
 	return r, nil

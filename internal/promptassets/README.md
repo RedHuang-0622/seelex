@@ -20,6 +20,10 @@ paired do/don't examples, fallback, and a self-check. Use `**MUST**` or
 variables are limited to `PlanData` policy fields; do not add user content,
 credentials, or hidden runtime state to assets.
 
+Plan preflight and replan assets lead with complete, copyable canonical JSON
+shapes. A model chooses one shape and changes only node `input` text; structural
+rules and the final schema checklist follow the positive examples.
+
 ## Terminal protocol
 
 System instructions require a tool-using request to converge through

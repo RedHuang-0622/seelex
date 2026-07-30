@@ -6,17 +6,19 @@ will load it but will not run it automatically.
 
 ### Positive Recovery
 
-- **Do:** use the supplied failure and completed-node evidence to preserve work
-  that already succeeded.
-- **Do:** add a diagnosis or a safe alternative before any user-approved retry.
-- **Do:** use a `kind:"manual"` decision node when no automatic recovery is
-  safe.
+Copy this complete recovery shape first, then replace only the `input` text:
 
-### Never
+```json
+{"entry":"diagnose","nodes":{"diagnose":{"input":"use the failure and completed-node evidence to identify the next safe action"},"decide":{"input":"present the safe recovery or the required user decision","kind":"manual"}},"edges":{"diagnose":["decide"]}}
+```
 
-- **Never** repeat a completed node merely because it appears in the old Plan.
-- **Never** retry the failed side effect automatically.
-- **Never** return an empty Plan or prose in place of `plan_load`.
+- Preserve completed work; do not repeat a completed node merely because it
+  appears in the old Plan.
+- Add a diagnosis or safe alternative before any user-approved retry.
+- Use `kind:"manual"` when no automatic recovery is safe.
+
+Do not retry a failed side effect automatically or return prose in place of
+the required `plan_load` call.
 
 ### Runtime Boundaries
 
@@ -26,7 +28,8 @@ will load it but will not run it automatically.
 - Execution concurrency: {{.Concurrency}}
 - Verification: {{.Verification}}
 
-If the evidence cannot distinguish a safe recovery from an unsafe retry,
-create one manual decision node. Before calling `plan_load`, self-check: does
-the Plan preserve completed work, name an observable next step, and stop before
-an unapproved side effect?
+If the evidence cannot distinguish a safe recovery from an unsafe retry, keep
+the `decide` manual node. Before calling `plan_load`, self-check: are `entry`,
+`nodes`, and `edges` the only top-level keys; does the Plan preserve completed
+work; does it name an observable next step; and does it stop before an
+unapproved side effect?

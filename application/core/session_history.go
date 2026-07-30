@@ -108,6 +108,9 @@ func (service *Service) LoadMoreHistory(limit int) error {
 
 	adapted := make([]Message, 0, len(history))
 	for _, msg := range history {
+		if !isVisibleHistoryMessage(msg) {
+			continue
+		}
 		adapted = append(adapted, adaptEngineMessage(msg))
 	}
 
@@ -130,6 +133,8 @@ func adaptEngineMessage(msg EngineMessage) Message {
 	content := msg.Content
 	if msg.Role == "user" {
 		content = displayUserInput(content)
+	} else if msg.Role == "assistant" || msg.Role == "tool" {
+		content = stripThoughtBlocks(content)
 	}
 	message := Message{Role: msg.Role, Content: content}
 	for _, toolCall := range msg.ToolCalls {
@@ -138,4 +143,14 @@ func adaptEngineMessage(msg EngineMessage) Message {
 		}
 	}
 	return message
+}
+
+func isVisibleHistoryMessage(message EngineMessage) bool {
+	if message.Role == "system" {
+		return false
+	}
+	if message.Role != "user" {
+		return true
+	}
+	return displayUserInput(message.Content) != ""
 }

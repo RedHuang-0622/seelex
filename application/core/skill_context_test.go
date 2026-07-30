@@ -52,6 +52,20 @@ func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T) {
 	}
 }
 
+func TestDisplayUserInputHidesPrivatePlanAndRecoveryEnvelopes(t *testing.T) {
+	planContext := preflightPlanAuthorityContext(`{"entry":"inspect"}`, "inspect the repository")
+	if got := displayUserInput(planContext); got != "inspect the repository" {
+		t.Fatalf("plan context display = %q", got)
+	}
+	recovery := providerRecoveryPrefix + "\nprivate checkpoint" + contextRecoveryRequestDelimiter + "continue audit"
+	if got := displayUserInput(recovery); got != "continue audit" {
+		t.Fatalf("recovery display = %q", got)
+	}
+	if isVisibleHistoryMessage(EngineMessage{Role: "system", Content: "assembled system prompt"}) {
+		t.Fatal("system history must never be visible in a frontend snapshot")
+	}
+}
+
 func TestCombineChatRequestsPreservesDisplayAndSkillBodies(t *testing.T) {
 	first := newChatRequest("plain", nil)
 	second := newChatRequest("#review focused", []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})

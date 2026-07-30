@@ -70,13 +70,15 @@ func (provider *planToolProvider) Tools() []interfaces.ToolEntry {
 	return entries
 }
 
-// withoutAuthoritativePlanMutationTools leaves execution and read-only Plan
-// tools visible, but omits operations that can replace or clear the loaded DAG.
+// withoutAuthoritativePlanMutationTools exposes the loaded DAG as a control
+// context, not as unscoped subagent work. plan_run creates framework child
+// chats without Seelex's project-scoped tool set or upstream evidence envelope,
+// so it remains unavailable until a real NodeExecutionEnvelope exists.
 func withoutAuthoritativePlanMutationTools(entries []interfaces.ToolEntry) []interfaces.ToolEntry {
 	filtered := make([]interfaces.ToolEntry, 0, len(entries))
 	for _, entry := range entries {
 		switch entry.Definition.Function.Name {
-		case "plan_load", "plan_clear":
+		case "plan_load", "plan_clear", "plan_run":
 			continue
 		default:
 			filtered = append(filtered, entry)

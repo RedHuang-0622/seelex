@@ -38,6 +38,7 @@ type Service struct {
 	inputQueue          []chatRequest
 	reactBudget         *activeReActBudget
 	taskExecution       *taskExecutionState
+	streamOutput        *visibleOutputStream
 	inputDispatcher     inputDispatcher
 }
 

@@ -47,6 +47,58 @@ func TestTaskFailedRequiresFailureType(t *testing.T) {
 	}
 }
 
+func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "choose migration", "high")
+	service.mu.Unlock()
+
+	_, err := service.TaskTerminalHandler(taskNeedsUserDecisionTool)(context.Background(), `{
+		"summary":"Two compatible migration paths remain.",
+		"decision_question":"Choose incremental or breaking migration.",
+		"decision_options":["incremental","breaking"]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.mu.RLock()
+	state := service.taskExecution
+	service.mu.RUnlock()
+	if state.status != taskStatusNeedsUserDecision {
+		t.Fatalf("terminal status = %q", state.status)
+	}
+	if visible := service.Snapshot().Task; visible == nil || visible.Status != TaskNeedsUserDecision {
+		t.Fatalf("visible task state = %#v", visible)
+	}
+}
+
+func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.snapshot.Runtime.Plan = &PlanState{Nodes: []PlanNode{{ID: "inspect"}, {ID: "verify"}}}
+	service.taskExecution = newTaskExecutionState("task-1", "audit", "high")
+	service.mu.Unlock()
+
+	_, err := service.TaskTerminalHandler(taskCompleteTool)(context.Background(), `{"summary":"done","completed_nodes":["inspect"]}`)
+	if err == nil || !strings.Contains(err.Error(), "verify") {
+		t.Fatalf("incomplete plan completion error = %v", err)
+	}
+	_, err = service.TaskTerminalHandler(taskCompleteTool)(context.Background(), `{"summary":"done","completed_nodes":["inspect","verify"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.mu.RLock()
+	plan := service.snapshot.Runtime.Plan
+	service.mu.RUnlock()
+	if plan.Status != PlanCompleted || plan.Progress != 1 || plan.Nodes[0].Status != NodeCompleted || plan.Nodes[1].Status != NodeCompleted {
+		t.Fatalf("completed plan = %#v", plan)
+	}
+}
+
 func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{
 		{Role: "user", Content: "inspect project"},

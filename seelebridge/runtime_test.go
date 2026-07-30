@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -301,7 +302,7 @@ func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
 		}
 	}
 	for _, tool := range runtime.Agent().VisibleTools(context.Background()) {
-		if tool.Function.Name == "plan_load" || tool.Function.Name == "plan_clear" {
+		if tool.Function.Name == "plan_load" || tool.Function.Name == "plan_clear" || tool.Function.Name == "plan_run" {
 			t.Fatalf("authoritative visible tools still expose %q", tool.Function.Name)
 		}
 	}
@@ -332,8 +333,9 @@ func TestPlanLoadRejectsReplacementWhilePreflightIsAuthoritative(t *testing.T) {
 func TestPlanPreflightPromptRendersPolicyAndEvidenceContract(t *testing.T) {
 	prompt := planPreflightPrompt(PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3})
 	for _, required := range []string{
-		"Prefer this canonical object shape", "Emit this complete canonical skeleton", "use arrays for `nodes` or `edges`", "encode arrows as an `edges` string", "put node IDs such as `inspect`",
-		"Effort: `high`", "at most 3 nodes concurrently", "exact node IDs `inspect`", "`verify`, and `report`", "planning document alone is not proof",
+		"Build the JSON by Copying a Complete Shape", "Reply-only task — correct complete call", "Audit or investigation — correct complete call", "Code change — correct complete call",
+		`"entry":"inspect","nodes":{"inspect"`, `"edges":{"inspect":["implement"],"implement":["verify"],"verify":["report"]}`, "The only top-level keys are `entry`, `nodes`, and `edges`.",
+		"Effort: `high`", "future candidates for at most 3 concurrent node runners", "do not claim they execute concurrently today", "objects, never arrays or nested inside a node",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("preflight prompt %q is missing %q", prompt, required)
@@ -344,9 +346,21 @@ func TestPlanPreflightPromptRendersPolicyAndEvidenceContract(t *testing.T) {
 	}
 }
 
+func TestPlanReplanPromptRendersCopyableManualRecovery(t *testing.T) {
+	prompt := replanPrompt(PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3})
+	for _, required := range []string{
+		"Copy this complete recovery shape first", `"entry":"diagnose"`, `"kind":"manual"`,
+		"only top-level keys", "Effort: `high`",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("replan prompt %q is missing %q", prompt, required)
+		}
+	}
+}
+
 func TestPlanPreflightPromptRendersMediumSerialConstraint(t *testing.T) {
 	prompt := planPreflightPrompt(PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1})
-	for _, required := range []string{"at most 4 nodes", "one serial chain from entry", "at most 1 nodes concurrently"} {
+	for _, required := range []string{"at most 4 nodes", "one serial chain from entry", "future candidates for at most 1 concurrent node runners", "do not claim they execute concurrently today"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("medium preflight prompt %q is missing %q", prompt, required)
 		}
@@ -443,7 +457,7 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 	}
 }
 
-func TestRuntimePreparePlanForcesPlanLoad(t *testing.T) {
+func TestRuntimePreparePlanLetsPlanningGateChoosePlanLoad(t *testing.T) {
 	plan := map[string]interface{}{
 		"entry": "inspect",
 		"nodes": map[string]interface{}{
@@ -468,8 +482,10 @@ func TestRuntimePreparePlanForcesPlanLoad(t *testing.T) {
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if err := json.Unmarshal(payload.ToolChoice, &choice); err != nil {
-			t.Errorf("decode tool choice: %v", err)
+		if len(payload.ToolChoice) != 0 {
+			if err := json.Unmarshal(payload.ToolChoice, &choice); err != nil {
+				t.Errorf("decode tool choice: %v", err)
+			}
 		}
 		arguments, _ := json.Marshal(plan)
 		_ = json.NewEncoder(writer).Encode(map[string]interface{}{
@@ -501,11 +517,112 @@ func TestRuntimePreparePlanForcesPlanLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if choice.Type != "function" || choice.Function.Name != "plan_load" {
-		t.Fatalf("tool_choice = %+v, want forced plan_load", choice)
+	if choice.Type != "" || choice.Function.Name != "" {
+		t.Fatalf("tool_choice = %+v, want planning-gate auto selection", choice)
 	}
 	if result.Arguments == "" || !strings.Contains(result.Result, `"status":"loaded"`) {
 		t.Fatalf("preflight result = %+v", result)
+	}
+}
+
+func TestRuntimePreparePlanAllowsNoPlanDecision(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		_ = json.NewEncoder(writer).Encode(map[string]interface{}{
+			"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{
+				"role": "assistant", "content": "NO_PLAN: casual conversation; direct response is sufficient.",
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	accounts := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
+	if err := os.WriteFile(accounts, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: accounts, ToolCallTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3})
+
+	result, err := runtime.PreparePlan(context.Background(), "hello")
+	if err != nil {
+		t.Fatalf("no-plan decision must not fail the chat: %v", err)
+	}
+	if result.Arguments != "" || result.Result != "" {
+		t.Fatalf("no-plan decision unexpectedly loaded a plan: %+v", result)
+	}
+}
+
+func TestRuntimePreparePlanTimeoutForcesPlanLoad(t *testing.T) {
+	plan := `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the request"}},"edges":{}}`
+	var calls atomic.Int32
+	var forcedChoice struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer request.Body.Close()
+		if calls.Add(1) == 1 {
+			// Deliberately ignore cancellation so the client-side planning gate
+			// must enforce its own deadline before the server replies.
+			time.Sleep(200 * time.Millisecond)
+			return
+		}
+		var payload struct {
+			ToolChoice json.RawMessage `json:"tool_choice"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Errorf("decode forced request: %v", err)
+			return
+		}
+		if err := json.Unmarshal(payload.ToolChoice, &forcedChoice); err != nil {
+			t.Errorf("decode forced tool choice: %v", err)
+			return
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]interface{}{
+			"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{
+				"role": "assistant",
+				"tool_calls": []interface{}{map[string]interface{}{
+					"id": "timeout-plan", "type": "function",
+					"function": map[string]string{"name": "plan_load", "arguments": plan},
+				}},
+			}}},
+		})
+	}))
+	defer server.Close()
+
+	accounts := filepath.Join(t.TempDir(), "accounts.yaml")
+	content := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
+	if err := os.WriteFile(accounts, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: accounts, ToolCallTimeout: time.Second, PlanDecisionTimeout: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3})
+
+	result, err := runtime.PreparePlan(context.Background(), "inspect the repository")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("planning requests = %d, want decision then forced plan", calls.Load())
+	}
+	if forcedChoice.Type != "function" || forcedChoice.Function.Name != "plan_load" {
+		t.Fatalf("forced choice = %+v", forcedChoice)
+	}
+	if result.Arguments == "" || !strings.Contains(result.Result, `"status":"loaded"`) {
+		t.Fatalf("timeout fallback did not load plan: %+v", result)
 	}
 }
 

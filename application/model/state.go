@@ -17,6 +17,7 @@ type Snapshot struct {
 	Sessions          []SessionInfo     `json:"sessions"`
 	Conversation      []Message         `json:"conversation"`
 	Chat              ChatState         `json:"chat"`
+	Task              *TaskState        `json:"task,omitempty"`
 	Runtime           RuntimeState      `json:"runtime"`
 	Interaction       *Interaction      `json:"interaction,omitempty"`
 	Capabilities      Capabilities      `json:"capabilities"`
@@ -27,6 +28,27 @@ type Snapshot struct {
 	CurrentWorkspace  *WorkspaceInfo    `json:"current_workspace,omitempty"`
 	SessionWorkspaces map[string]string `json:"session_workspaces,omitempty"`
 }
+
+// TaskState is the user-visible, evidence-oriented outcome of the latest
+// request. It intentionally describes execution state rather than model
+// internals or prompt content.
+type TaskState struct {
+	RequestID string     `json:"request_id,omitempty"`
+	Status    TaskStatus `json:"status"`
+	Summary   string     `json:"summary,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at,omitempty"`
+}
+
+type TaskStatus string
+
+const (
+	TaskProgressing       TaskStatus = "progressing"
+	TaskCompleted         TaskStatus = "completed"
+	TaskNeedsUserDecision TaskStatus = "needs_user_decision"
+	TaskBlocked           TaskStatus = "blocked"
+	TaskInterrupted       TaskStatus = "interrupted"
+	TaskFailed            TaskStatus = "failed"
+)
 
 type SessionState struct {
 	ID    string `json:"id"`
@@ -212,6 +234,10 @@ func CloneSnapshot(snapshot Snapshot) Snapshot {
 		copySnapshot.CurrentWorkspace = &workspace
 	}
 	copySnapshot.Conversation = append([]Message(nil), snapshot.Conversation...)
+	if snapshot.Task != nil {
+		task := *snapshot.Task
+		copySnapshot.Task = &task
+	}
 	if copySnapshot.Conversation == nil {
 		copySnapshot.Conversation = []Message{} // 确保 JSON 序列化为 [] 而非 null
 	}

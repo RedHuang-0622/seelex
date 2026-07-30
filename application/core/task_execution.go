@@ -11,12 +11,16 @@ import (
 )
 
 const (
-	taskStatusRunning   = "running"
-	taskStatusCompleted = "completed"
-	taskStatusFailed    = "failed"
+	taskStatusRunning           = "running"
+	taskStatusCompleted         = "completed"
+	taskStatusNeedsUserDecision = "needs_user_decision"
+	taskStatusBlocked           = "blocked"
+	taskStatusInterrupted       = "interrupted"
+	taskStatusFailed            = "failed"
 
-	taskCompleteTool = "task_complete"
-	taskFailedTool   = "task_failed"
+	taskCompleteTool          = "task_complete"
+	taskNeedsUserDecisionTool = "task_needs_user_decision"
+	taskFailedTool            = "task_failed"
 )
 
 // NodeCheckpoint is a bounded, evidence-first record for one Plan node. It
@@ -45,6 +49,8 @@ type taskTerminal struct {
 	FailedNode        string   `json:"failed_node,omitempty"`
 	PartialProgress   []string `json:"partial_progress,omitempty"`
 	ReplanRecommended bool     `json:"replan_recommended,omitempty"`
+	DecisionQuestion  string   `json:"decision_question,omitempty"`
+	DecisionOptions   []string `json:"decision_options,omitempty"`
 }
 
 type taskExecutionState struct {
@@ -169,6 +175,9 @@ func (service *Service) recordTaskTerminal(kind, argsJSON string) (string, error
 	if kind == taskFailedTool && strings.TrimSpace(input.FailureType) == "" {
 		return "", fmt.Errorf("%s: failure_type is required", kind)
 	}
+	if kind == taskNeedsUserDecisionTool && strings.TrimSpace(input.DecisionQuestion) == "" {
+		return "", fmt.Errorf("%s: decision_question is required", kind)
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	state := service.taskExecution
@@ -178,15 +187,56 @@ func (service *Service) recordTaskTerminal(kind, argsJSON string) (string, error
 	if state.terminal != nil {
 		return "", fmt.Errorf("%s: task already reached %s", kind, state.terminal.Kind)
 	}
-	state.terminal = &input
 	if kind == taskCompleteTool {
+		if err := service.completeAuthoritativePlanLocked(input.CompletedNodes); err != nil {
+			return "", err
+		}
+	}
+	state.terminal = &input
+	switch kind {
+	case taskCompleteTool:
 		state.status = taskStatusCompleted
-	} else {
-		state.status = taskStatusFailed
+		service.setTaskStateLocked(state.requestID, TaskCompleted, input.Summary)
+	case taskNeedsUserDecisionTool:
+		state.status = taskStatusNeedsUserDecision
+		service.setTaskStateLocked(state.requestID, TaskNeedsUserDecision, input.Summary)
+	case taskFailedTool:
+		if input.FailureType == "blocked" || input.FailureType == "external_dependency" {
+			state.status = taskStatusBlocked
+			service.setTaskStateLocked(state.requestID, TaskBlocked, input.Summary)
+		} else {
+			state.status = taskStatusFailed
+			service.setTaskStateLocked(state.requestID, TaskFailed, input.Summary)
+		}
+	default:
+		return "", fmt.Errorf("unsupported task terminal %q", kind)
 	}
 	state.progressEpoch++
 	encoded, _ := json.Marshal(map[string]string{"status": "accepted", "terminal": kind})
 	return string(encoded), nil
+}
+
+func (service *Service) completeAuthoritativePlanLocked(completedNodes []string) error {
+	plan := service.snapshot.Runtime.Plan
+	if plan == nil {
+		return nil
+	}
+	completed := make(map[string]struct{}, len(completedNodes))
+	for _, nodeID := range completedNodes {
+		completed[nodeID] = struct{}{}
+	}
+	for _, node := range plan.Nodes {
+		if _, ok := completed[node.ID]; !ok {
+			return fmt.Errorf("%s: completed_nodes must include authoritative plan node %q", taskCompleteTool, node.ID)
+		}
+	}
+	for index := range plan.Nodes {
+		node := &plan.Nodes[index]
+		node.Status = NodeCompleted
+	}
+	plan.Status = PlanCompleted
+	plan.Progress = 1
+	return nil
 }
 
 // finalizeTaskExecution converts a natural model stop into an auditable
@@ -206,6 +256,7 @@ func (service *Service) finalizeTaskExecution(requestID string) error {
 		case PlanFailed, PlanAborted:
 			state.status = taskStatusFailed
 			state.checkpoint("plan", "authoritative plan", string(plan.Status), "", "plan did not complete")
+			service.setTaskStateLocked(requestID, TaskFailed, "The authoritative plan did not reach completion.")
 			return nil
 		}
 	}
@@ -213,8 +264,18 @@ func (service *Service) finalizeTaskExecution(requestID string) error {
 	state.terminal = &taskTerminal{
 		Kind: taskCompleteTool, Summary: "Model returned a final response without an explicit terminal tool call.",
 	}
+	service.setTaskStateLocked(requestID, TaskCompleted, state.terminal.Summary)
 	state.progressEpoch++
 	return nil
+}
+
+func (service *Service) setTaskStateLocked(requestID string, status TaskStatus, summary string) {
+	service.snapshot.Task = &TaskState{
+		RequestID: requestID,
+		Status:    status,
+		Summary:   strings.TrimSpace(summary),
+		UpdatedAt: time.Now(),
+	}
 }
 
 func boundedEvidence(value string) string {

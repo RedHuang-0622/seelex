@@ -165,7 +165,11 @@ func (engine *fakeEngine) AppendHistory(msg types.Message) {
 	if msg.Content != nil {
 		content = *msg.Content
 	}
-	engine.history = append(engine.history, EngineMessage{Role: msg.Role, Content: content})
+	toolCalls := make([]EngineToolCall, 0, len(msg.ToolCalls))
+	for _, call := range msg.ToolCalls {
+		toolCalls = append(toolCalls, EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+	}
+	engine.history = append(engine.history, EngineMessage{Role: msg.Role, Content: content, ContentSet: msg.Content != nil, ReasoningContent: msg.ReasoningContent, ToolCalls: toolCalls, ToolCallID: msg.ToolCallID, Name: msg.Name})
 }
 func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }

@@ -45,8 +45,8 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Name:        "terminal-protocol-converges-after-bounded-check",
 			Effort:      "high",
 			UserRequest: "验证一次后给出最终结论。",
-			Expected:    "完成或失败必须具有显式终态，不得无限调查。",
-			Required:    []string{"call `task_complete`", "call `task_failed`", "rather than another open-ended\ninvestigation"},
+			Expected:    "完成、需要用户决策或失败必须具有显式终态，不得无限调查。",
+			Required:    []string{"call `task_complete`", "call `task_needs_user_decision`", "call `task_failed`", "rather than\nanother open-ended investigation"},
 		},
 	}
 }

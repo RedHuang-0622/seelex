@@ -6,7 +6,8 @@
 
 ## 权威结构
 
-- `Snapshot`：session、conversation、chat、runtime、interaction、history window、workspace 和 binding 的完整视图。
+- `Snapshot`：session、conversation、chat、task、runtime、interaction、history window、workspace 和 binding 的完整视图。
+- `TaskState`：最近一次请求的可观察结果，只能是 `progressing`、`completed`、`needs_user_decision`、`blocked`、`interrupted` 或 `failed`；不承载模型推理、系统提示词或原始工具日志。
 - `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题；`SessionState.Draft` 表示尚未生成 ID、不得持久化的待发送会话。
 - `WorkspaceInfo`：`ID` 是唯一键，`Name` 默认来自 root basename。
 - `Message`/`ToolCall`：前端渲染的消息与工具卡片。

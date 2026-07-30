@@ -124,7 +124,19 @@ func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Se
 		},
 		"required": []string{"summary", "failure_type"},
 	}
+	decisionSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"summary":           map[string]interface{}{"type": "string", "description": "Brief user-facing explanation of why a decision is required."},
+			"decision_question": map[string]interface{}{"type": "string", "description": "The specific choice only the user can make."},
+			"decision_options":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"evidence":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"partial_progress":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+		},
+		"required": []string{"summary", "decision_question"},
+	}
 	runtime.RegisterTool("task_complete", "End the current task after delivering the requested result and evidence.", completedSchema, app.TaskTerminalHandler("task_complete"))
+	runtime.RegisterTool("task_needs_user_decision", "Pause the current task only when a user choice is required; include the exact question and options.", decisionSchema, app.TaskTerminalHandler("task_needs_user_decision"))
 	runtime.RegisterTool("task_failed", "End the current task with bounded failure evidence; recommend replan only when facts require it.", failedSchema, app.TaskTerminalHandler("task_failed"))
 }
 

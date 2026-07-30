@@ -57,6 +57,9 @@ func (service *Service) refreshRuntimeLocked(ctx context.Context) {
 }
 
 func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {
+	if role == "assistant" || role == "tool_result" {
+		content = stripThoughtBlocks(content)
+	}
 	service.messageSeq++
 	message := Message{ID: fmt.Sprintf("message-%d", service.messageSeq), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
 	service.snapshot.Conversation = append(service.snapshot.Conversation, message)

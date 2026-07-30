@@ -110,6 +110,7 @@ function renderIncremental(snapshot, kind) {
 function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;
   const runtime = snapshot.runtime || {};
+  const task = snapshot.task || null;
   const running = Boolean(snapshot.chat?.running);
   const sources = collectReadFileSources(snapshot.conversation || []);
   elements["project-name"].textContent = workspace?.name || "No project selected";
@@ -118,6 +119,7 @@ function renderProject(snapshot) {
     ["状态", running ? "Agent 执行中" : "Ready"],
     ["会话", snapshot.session?.draft ? "待发送" : shortSessionID(snapshot.session?.id || "—")],
     ["消息", String(snapshot.conversation?.length || 0)],
+    ["任务", task ? task.status : "idle"],
     ["资料源", String(sources.length)]
   ].map(([label, value]) => `<div class="status-item"><span>${escapeHtml(label)}</span><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
   elements["project-overview"].textContent = workspace

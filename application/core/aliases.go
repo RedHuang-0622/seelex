@@ -24,6 +24,8 @@ type (
 	Message           = model.Message
 	ToolCall          = model.ToolCall
 	ChatState         = model.ChatState
+	TaskState         = model.TaskState
+	TaskStatus        = model.TaskStatus
 	RuntimeState      = model.RuntimeState
 	ReplanMonitor     = model.ReplanMonitor
 	PlanState         = model.PlanState
@@ -78,6 +80,12 @@ const (
 	NodeSkipped            = model.NodeSkipped
 	NodeCanceled           = model.NodeCanceled
 	NodePanicked           = model.NodePanicked
+	TaskProgressing        = model.TaskProgressing
+	TaskCompleted          = model.TaskCompleted
+	TaskNeedsUserDecision  = model.TaskNeedsUserDecision
+	TaskBlocked            = model.TaskBlocked
+	TaskInterrupted        = model.TaskInterrupted
+	TaskFailed             = model.TaskFailed
 )
 
 var (

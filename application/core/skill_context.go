@@ -67,6 +67,21 @@ func wrapModelInput(displayInput, body string) string {
 }
 
 func displayUserInput(modelInput string) string {
+	if strings.HasPrefix(modelInput, preflightPlanAuthorityPrefix) {
+		if _, original, ok := strings.Cut(modelInput, preflightPlanAuthorityRequestDelimiter); ok {
+			return displayUserInput(original)
+		}
+		return ""
+	}
+	if strings.HasPrefix(modelInput, contextRecoveryPrefix) || strings.HasPrefix(modelInput, providerRecoveryPrefix) {
+		if _, original, ok := strings.Cut(modelInput, contextRecoveryRequestDelimiter); ok {
+			return displayUserInput(original)
+		}
+		return ""
+	}
+	if isTaskContextCheckpoint(modelInput) || modelInput == reactBudgetFinalizationInput {
+		return ""
+	}
 	display, _, ok := parseModelEnvelope(modelInput)
 	if !ok {
 		return modelInput

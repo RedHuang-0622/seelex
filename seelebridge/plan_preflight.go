@@ -5,15 +5,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 )
+
+const defaultPlanDecisionTimeout = 10 * time.Second
 
 // PlanPreflight is the audited result of the mandatory planning turn that
 // runs before a normal ReAct request.
@@ -33,9 +37,10 @@ type ReplanRequest struct {
 	Evidence       string
 }
 
-// PreparePlan makes an isolated planning request which may only call
-// plan_load. The request transport forces that function at the provider API,
-// so a prose reply cannot bypass the effort policy.
+// PreparePlan runs an isolated planning-gate request before normal ReAct. The
+// gate may decide that a request is reply-only and return no tool call; in that
+// case normal ReAct proceeds without a WorkPlan. When it chooses plan_load,
+// runtime validates and loads the resulting DAG before execution starts.
 func (r *Runtime) PreparePlan(ctx context.Context, input string) (PlanPreflight, error) {
 	return r.preparePlan(ctx, planPreflightPrompt, input, "plan preflight", false, nil)
 }
@@ -80,10 +85,10 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 	if !ok {
 		return PlanPreflight{}, fmt.Errorf("plan preflight: plan_load is not registered")
 	}
-	client := r.planPreflightClient()
 	var (
-		arguments string
-		lastErr   error
+		arguments                 string
+		lastErr                   error
+		planningRequiredByTimeout bool
 	)
 	for attempt := 0; attempt < 2; attempt++ {
 		if onProviderRequest != nil {
@@ -93,13 +98,36 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		}
 		attemptInput := input
 		if lastErr != nil {
-			attemptInput += "\n\nThe previous plan_load was rejected before execution: " + lastErr.Error() +
-				". Correct the JSON and issue exactly one valid plan_load call now."
+			if planningRequiredByTimeout {
+				attemptInput += "\n\nThe planning gate exceeded its decision allowance. Planning is now required; issue exactly one valid plan_load call for this request."
+			} else {
+				attemptInput += "\n\nThe previous plan_load was rejected before execution: " + lastErr.Error() +
+					". Correct the JSON and issue exactly one valid plan_load call now."
+			}
 		}
-		message, err := client.Complete(ctx, []types.Message{
+		// The first ordinary preflight request is an isolated planning decision:
+		// it may reply without a tool for a conversational turn. A corrective
+		// retry, and every explicit replan, force plan_load because the model has
+		// already committed to planning and only its DAG needs correction.
+		forcePlanLoad := explicit || attempt > 0
+		requestContext := ctx
+		cancelDecision := func() {}
+		decisionStartedAt := time.Now()
+		if !explicit && attempt == 0 {
+			requestContext, cancelDecision = context.WithTimeout(ctx, r.planDecisionTimeout)
+		}
+		message, err := r.planPreflightClient(forcePlanLoad).Complete(requestContext, []types.Message{
 			{Role: "system", Content: stringPointer(prompt(policy))},
 			{Role: "user", Content: stringPointer(attemptInput)},
 		}, []types.Tool{tool})
+		decisionTimedOut := !explicit && attempt == 0 && ctx.Err() == nil &&
+			(errors.Is(requestContext.Err(), context.DeadlineExceeded) || time.Since(decisionStartedAt) >= r.planDecisionTimeout)
+		cancelDecision()
+		if decisionTimedOut {
+			planningRequiredByTimeout = true
+			lastErr = fmt.Errorf("planning decision exceeded %s", r.planDecisionTimeout)
+			continue
+		}
 		if err != nil {
 			return PlanPreflight{}, fmt.Errorf("%s request: %w", stage, err)
 		}
@@ -122,6 +150,9 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		}
 		if len(message.ToolCalls) != 0 {
 			return PlanPreflight{}, fmt.Errorf("%s: provider returned an unexpected tool call; refusing retry", stage)
+		}
+		if !explicit && attempt == 0 {
+			return PlanPreflight{}, nil
 		}
 		lastErr = fmt.Errorf("provider returned no tool call")
 	}
@@ -152,16 +183,25 @@ func (r *Runtime) planLoadDefinition() (types.Tool, bool) {
 	return types.Tool{}, false
 }
 
-func (r *Runtime) planPreflightClient() *api.ChatClient {
+func (r *Runtime) planPreflightClient(forcePlanLoad bool) *api.ChatClient {
 	client := api.NewChatClient(r.client.Cfg).WithAccountPool(r.pool)
-	client.SetProvider(r.client.Provider())
-	client.SetProviderFilter(r.client.ProviderFilter())
+	provider := r.client.Provider()
+	// Planning is an isolated subagent role when that role is configured. The
+	// resolver falls back to the primary agent account, so installations without
+	// a subagent remain fully functional.
+	if account, err := ResolveAccount(r.pool, RoleSubAgent); err == nil && client.SelectAccount(account.Name) {
+		provider = account.Provider
+	}
+	client.SetProvider(provider)
+	client.SetProviderFilter(provider)
 	httpClient := *r.client.Client
 	base := httpClient.Transport
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	httpClient.Transport = forcePlanLoadTransport{base: base, provider: r.client.Provider()}
+	if forcePlanLoad {
+		httpClient.Transport = forcePlanLoadTransport{base: base, provider: provider}
+	}
 	client.Client = &httpClient
 	return client
 }
@@ -183,9 +223,9 @@ func planPromptData(policy PlanPolicy) promptassets.PlanData {
 	if policy.RequireSerial {
 		topology = "one serial chain from entry; no fan-out or fan-in"
 	}
-	concurrency := "all currently runnable nodes may run concurrently"
+	concurrency := "DAG dependencies may be expressed, but the primary ReAct agent executes the authoritative checklist serially"
 	if policy.MaxForkConcurrency > 0 {
-		concurrency = fmt.Sprintf("at most %d nodes concurrently", policy.MaxForkConcurrency)
+		concurrency = fmt.Sprintf("DAG branches are future candidates for at most %d concurrent node runners; do not claim they execute concurrently today", policy.MaxForkConcurrency)
 	}
 	verification := "include verification for material claims and observable changes"
 	if policy.Effort == "lite" {

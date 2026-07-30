@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -38,8 +39,10 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	service.cancelChat = cancel
 	service.startReActBudgetLocked(requestID, budget)
 	service.taskExecution = newTaskExecutionState(requestID, request.displayInput, service.effortManager.Current())
+	service.streamOutput = newVisibleOutputStream(requestID)
 	service.markBusyLocked()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
+	service.setTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
 	if service.snapshot.Session.Name == "" {
 		service.snapshot.Session.Name = sessionTitle(request.displayInput)
 	}
@@ -57,6 +60,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	defer service.clearReActBudget(requestID)
 	var scope seelebridge.PlanActScope
 	var err error
+	recovered := false
 	if request.requirePlan {
 		scope, err = service.deps.Runtime.AcquirePlanActScope(requestID)
 	}
@@ -80,7 +84,21 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		}
 	}
 	if err == nil {
+		if historyErr := service.prepareProviderHistory(); historyErr != nil {
+			err = historyErr
+		}
+	}
+	if err == nil {
+		modelInput = nonEmptyProviderInput(modelInput)
 		_, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+		var recoveryErr error
+		recovered, recoveryErr = service.recoverProviderFailure(err, request.displayInput)
+		if recoveryErr != nil {
+			err = fmt.Errorf("%w; context recovery failed: %v", err, recoveryErr)
+		}
+		if recovered && err != nil {
+			err = fmt.Errorf("%w; progress checkpoint saved; continue to resume safely", err)
+		}
 		if err == nil {
 			err = service.finalizeReActBudget(ctx, requestID)
 		}
@@ -100,6 +118,11 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		err = cleanupErr
 	}
 	if err == nil {
+		if cleanupErr := service.removeProviderContextRecovery(); cleanupErr != nil {
+			err = cleanupErr
+		}
+	}
+	if err == nil || recovered {
 		if saveErr := service.deps.Sessions.SaveCurrent(service.deps.Engine.SessionID()); saveErr != nil {
 			err = fmt.Errorf("保存会话失败: %w", saveErr)
 		}
@@ -111,6 +134,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	}
 	service.snapshot.Chat.Error = ""
 	if err != nil {
+		service.recordUnhandledTaskErrorLocked(requestID, err)
 		service.snapshot.Chat.Error = err.Error()
 		service.appendMessageLocked("error", err.Error(), nil)
 	}
@@ -138,7 +162,9 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		nextContext, service.cancelChat = context.WithCancel(context.Background())
 		service.startReActBudgetLocked(nextRequestID, budget)
 		service.taskExecution = newTaskExecutionState(nextRequestID, batchRequest.displayInput, service.effortManager.Current())
+		service.streamOutput = newVisibleOutputStream(nextRequestID)
 		service.snapshot.Chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
+		service.setTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
 		nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
 		nextAssistant = service.appendMessageLocked("assistant", "", nil)
 	} else {
@@ -159,6 +185,18 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
 		go service.runChat(nextContext, nextRequestID, batchRequest)
 	}
+}
+
+func (service *Service) recordUnhandledTaskErrorLocked(requestID string, err error) {
+	task := service.snapshot.Task
+	if task == nil || task.RequestID != requestID || task.Status != TaskProgressing {
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		service.setTaskStateLocked(requestID, TaskInterrupted, "The task was canceled before completion.")
+		return
+	}
+	service.setTaskStateLocked(requestID, TaskFailed, "The task stopped before a verified completion could be delivered.")
 }
 
 const reactBudgetFinalizationInput = "<!-- seelex:react-budget-finalize:v1 -->\n" +
@@ -244,8 +282,9 @@ func preflightPlanAuthorityContext(arguments, input string) string {
 - source: runtime preflight
 - status: authoritative and already loaded
 - normal-turn rule: plan_load and plan_clear are forbidden
-- execution: use plan_run only when execution is required
-- recovery: do not self-replan; explicit replan remains available after a plan_run failure and user review
+- execution: treat this Plan as the authoritative checklist; execute it yourself with normal ReAct tools. plan_run is unavailable because its isolated child chats do not inherit the project tool scope or upstream evidence.
+- completion: for task_complete, list every completed Plan node and the evidence that supports delivery
+- recovery: do not self-replan; explicit replan remains available after a factual execution failure and user review
 
 Canonical Plan JSON:
 ` + arguments + preflightPlanAuthorityRequestDelimiter + input
@@ -304,6 +343,14 @@ func (service *Service) appendDelta(requestID, chunk string) {
 		service.mu.Unlock()
 		return
 	}
+	if service.streamOutput == nil || service.streamOutput.requestID != requestID {
+		service.streamOutput = newVisibleOutputStream(requestID)
+	}
+	chunk = service.streamOutput.Consume(chunk)
+	if chunk == "" {
+		service.mu.Unlock()
+		return
+	}
 	messageID := ""
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
 		if service.snapshot.Conversation[index].Role == "assistant" && service.snapshot.Conversation[index].Tool == nil {
@@ -319,7 +366,7 @@ func (service *Service) appendDelta(requestID, chunk string) {
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {
 	for _, historyMessage := range history {
-		if historyMessage.Role == "user" && isTaskContextCheckpoint(historyMessage.Content) {
+		if !isVisibleHistoryMessage(historyMessage) {
 			continue
 		}
 		if historyMessage.Role != "tool" && historyMessage.Content != "" {

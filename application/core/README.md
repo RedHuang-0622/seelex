@@ -20,7 +20,9 @@
 | `workspace_usecase.go` | session 删除和 workspace 的创建、绑定、解绑与 snapshot 同步。 |
 | `session_history.go` | session 恢复、历史分页加载和 EngineMessage 到 UI Message 的转换。 |
 | `chat.go` | 流式聊天、输入队列、工具事件、Plan 状态打点和 idle/draining。 |
-| `task_execution.go` | 请求私有的 PlanAct checkpoint、终态 payload 校验和 `task_complete` / `task_failed` handler。 |
+| `task_execution.go` | 请求私有的 PlanAct checkpoint、终态 payload 校验和 `task_complete` / `task_needs_user_decision` / `task_failed` handler。 |
+| `history_safety.go` | Provider 空 content、上下文耗尽与 504 可恢复中断的历史安全处理。 |
+| `visible_output.go` | 前端可见输出过滤；剥离模型 `<think>` 块，不暴露内部推理。 |
 | `context_controller.go` | 基于 token 与 checkpoint 的工具结果裁剪；内部控制消息在持久化前清除。 |
 | `command.go` | 内置命令注册与执行。 |
 | `session_scope.go` | 跨项目 session catalog、真实存储位置定位、标题恢复和 scoped read。 |
@@ -45,7 +47,7 @@
 
 `BeginGracefulShutdown` 拒绝新输入但允许已接受工作完成；`Shutdown` 才取消 active chat 并关闭 broker/events。
 
-每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`，当历史 token 或工具输出过大时 `ContextController` 以 checkpoint 摘要替换冗长工具结果。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete` 或 `task_failed` 结束工具型任务；前者记录交付与证据，后者记录有界失败事实并可供显式 replan 使用。内部 checkpoint marker 不进入 frontend snapshot 或持久化 history。
+每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`，当历史 token 或工具输出过大时 `ContextController` 以 checkpoint 摘要替换冗长工具结果。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete`、`task_needs_user_decision` 或 `task_failed` 结束工具型任务；它们分别表示可交付完成、必须由用户选择的有效分歧，以及有界失败事实。`Snapshot.Task` 公开 `progressing/completed/needs_user_decision/blocked/interrupted/failed`，而 checkpoint、装配的 system prompt 和 `<think>` 内容都不进入 frontend snapshot。Provider 返回 context overflow 或 504 时，Service 保存私有恢复 checkpoint；504 从不自动重放可能已有副作用的工具轮。
 
 ## Session 与 Project 语义
 
@@ -63,7 +65,7 @@
 
 ## Plan 集成
 
-Tool hooks 把 `plan_load` JSON 转为 Plan DAG，把 `plan_run` node/branch 回调映射为 `PlanState`。失败节点可以打开 retry/replan/skip/abort Interaction。`replan` 只基于失败原因、旧 Plan 和已完成节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。Plan branch binding 携带 session/workspace/account/trace/plan IDs，避免分支结果失去归属。
+Tool hooks 把 `plan_load` JSON 转为 Plan DAG。当前 authority 阶段把 DAG 作为主 Agent 的权威检查表：主 Agent 使用正常的 project-scoped ReAct tools 执行，而不调用缺少工具和上游产物注入的 `plan_run` 子聊天。`task_complete` 必须枚举所有完成的 Plan 节点才会把 Plan 标记完成。`replan` 只基于失败原因、旧 Plan 和已完成节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。
 
 Medium/High/Max 的成功 preflight 会先加载 canonical DAG，再由当前 request ID 获取独占的 `PlanAuthorityLease`。该 lease 存在期间，普通 ReAct 只可执行或读取已加载 Plan，不能替换或清空；同一 Runtime 的第二个 authority 请求会 fail closed。ChatStream 返回时释放 lease，随后用户显式选择的 replan 才可加载恢复计划。
 
