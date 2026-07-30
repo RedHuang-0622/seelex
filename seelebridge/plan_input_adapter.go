@@ -23,7 +23,7 @@ func NormalizePlanLoadArguments(argsJSON string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	edges, err := normalizePlanEdges(root["edges"])
+	edges, err := normalizePlanEdges(root["edges"], entry)
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +169,7 @@ func normalizePlanNodes(raw json.RawMessage) (map[string]json.RawMessage, error)
 	return nodes, nil
 }
 
-func normalizePlanEdges(raw json.RawMessage) (map[string][]string, error) {
+func normalizePlanEdges(raw json.RawMessage, entry string) (map[string][]string, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("edges is required")
 	}
@@ -191,6 +191,10 @@ func normalizePlanEdges(raw json.RawMessage) (map[string][]string, error) {
 			edges[from] = normalized
 		}
 		return edges, nil
+	}
+	var orderedTargets []string
+	if err := json.Unmarshal(raw, &orderedTargets); err == nil {
+		return normalizeOrderedEdgeTargets(entry, orderedTargets)
 	}
 	var items []struct {
 		From   string `json:"from"`
@@ -214,6 +218,33 @@ func normalizePlanEdges(raw json.RawMessage) (map[string][]string, error) {
 			return nil, fmt.Errorf("edges[%d] must include from (or source) and to (or target)", index)
 		}
 		edges[from] = append(edges[from], target)
+	}
+	return edges, nil
+}
+
+// normalizeOrderedEdgeTargets recovers a common LLM shorthand such as
+// "edges": ["implement", "verify"]. The entry supplies the omitted first
+// source, so the only accepted interpretation is the serial chain
+// entry -> implement -> verify. It intentionally does not infer a branching
+// graph from an array of names.
+func normalizeOrderedEdgeTargets(entry string, targets []string) (map[string][]string, error) {
+	edges := make(map[string][]string, len(targets))
+	seen := map[string]struct{}{entry: {}}
+	previous := entry
+	for index, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			return nil, fmt.Errorf("edges[%d] must be a non-empty node ID", index)
+		}
+		if target == entry && index == 0 {
+			continue
+		}
+		if _, exists := seen[target]; exists {
+			return nil, fmt.Errorf("edges ordered target %q is repeated", target)
+		}
+		seen[target] = struct{}{}
+		edges[previous] = append(edges[previous], target)
+		previous = target
 	}
 	return edges, nil
 }

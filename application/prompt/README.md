@@ -29,7 +29,12 @@
 
 ## Plan policy
 
-`PlanningPolicy` maps effort to runtime-enforced WorkPlan constraints: Lite is optional; Medium permits at most four serial nodes with concurrency one; High permits DAG branches with concurrency three; Max runs every currently runnable node in the loaded plan concurrently. `core.Service` snapshots this policy when intercepting a normal user request: Medium, High, and Max make a mandatory `plan_load` preflight before the request enters the normal ReAct loop.
+`PlanningPolicy` maps effort to runtime-enforced constraints for an optional
+`plan_load`: Medium permits at most four serial nodes with concurrency one;
+High permits DAG branches with concurrency three; Max runs every currently
+runnable node in a voluntarily loaded plan concurrently. `core.Service`
+snapshots this policy with the request budget, but every normal user request
+enters the ReAct loop directly; effort does not create a mandatory preflight.
 
 When a loaded Plan fails, an explicit replan interaction uses the same `plan_load` contract to replace only the remaining recovery workflow. It carries bounded node evidence and stops before `plan_run`, so a changed recovery path is reviewed before any new side effect.
 

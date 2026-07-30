@@ -24,6 +24,7 @@ type Application interface {
 	Subscribe(buffer int) application.Subscription
 	Submit(context.Context, string) error
 	BeginNewSession() error
+	ResumeSession(string) error
 	CancelChat(string) bool
 	ResolveInteraction(context.Context, string, string) error
 	SelectAccount(context.Context, string) error
@@ -192,6 +193,10 @@ func (bridge *Bridge) Submit(text string) error {
 
 func (bridge *Bridge) BeginNewSession() error {
 	return bridge.app.BeginNewSession()
+}
+
+func (bridge *Bridge) ResumeSession(sessionID string) error {
+	return bridge.app.ResumeSession(sessionID)
 }
 
 func (bridge *Bridge) CancelChat(requestID string) bool {

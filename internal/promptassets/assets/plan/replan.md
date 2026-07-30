@@ -4,6 +4,12 @@ The prior WorkPlan failed. Produce exactly one valid replacement `plan_load`
 call for remaining work only; return the function call and no prose. Runtime
 will load it but will not run it automatically.
 
+**Use this recovery path when:** a loaded Plan has factual failure evidence
+and the remaining work needs a new, safe checklist. **Do not use it when:**
+the original task was a direct reply, a small correction can proceed without a
+new DAG, or the failed action may have had an unobserved side effect. In the
+last case, ask the user for a decision instead of inventing a retry.
+
 ### Positive Recovery
 
 Copy this complete recovery shape first, then replace only the `input` text:

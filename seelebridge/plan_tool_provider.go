@@ -11,6 +11,19 @@ import (
 
 const planLoadContractDescription = `
 
+When to use plan_load:
+- The user explicitly asks for a plan or checklist.
+- A code/file change has real inspect -> implement -> verify dependencies.
+- Research or a multi-deliverable task needs visible evidence and reporting stages.
+
+When not to use plan_load:
+- Greetings, acknowledgements, simple clarifications, or a self-contained answer.
+- One obvious read-only check or a task whose next safe action is already clear.
+- After work is already complete merely to make the process appear structured.
+
+If uncertain, take the smallest safe direct step first. A Plan is optional;
+do not create a one-node reply plan for casual conversation.
+
 Strict JSON contract:
 - Emit exactly three top-level fields: entry, nodes, and edges. Do not use item.
 - Nodes MUST be an object keyed by node ID. Edges MUST be an object keyed by source node ID with arrays of target ID strings.

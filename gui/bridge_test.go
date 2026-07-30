@@ -31,6 +31,7 @@ type fakeApplication struct {
 	loadedHistory    int
 	suggestionsInput string
 	beganNewSession  bool
+	resumedSession   string
 }
 
 func newFakeApplication() *fakeApplication {
@@ -56,6 +57,10 @@ func (fake *fakeApplication) Submit(_ context.Context, text string) error {
 }
 func (fake *fakeApplication) BeginNewSession() error {
 	fake.beganNewSession = true
+	return nil
+}
+func (fake *fakeApplication) ResumeSession(sessionID string) error {
+	fake.resumedSession = sessionID
 	return nil
 }
 func (fake *fakeApplication) CancelChat(requestID string) bool {
@@ -155,6 +160,9 @@ func TestBridgeForwardsCommands(t *testing.T) {
 	if err := bridge.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
+	if err := bridge.ResumeSession("session-2"); err != nil {
+		t.Fatal(err)
+	}
 	if !bridge.CancelChat("request-1") {
 		t.Fatal("CancelChat returned false")
 	}
@@ -175,7 +183,7 @@ func TestBridgeForwardsCommands(t *testing.T) {
 	}
 	suggestions := bridge.Suggestions("/he")
 
-	if fake.submitted != "hello" || !fake.beganNewSession || fake.cancelled != "request-1" {
+	if fake.submitted != "hello" || !fake.beganNewSession || fake.resumedSession != "session-2" || fake.cancelled != "request-1" {
 		t.Fatalf("chat commands were not forwarded: %#v", fake)
 	}
 	if fake.resolvedID != "approval-1" || fake.resolvedOption != "allow" {
@@ -390,6 +398,12 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(string(script), `invoke("BeginNewSession")`) || strings.Contains(string(script), `invoke("Submit", "/new")`) {
 		t.Fatal("GUI new-session action must enter a lazy draft instead of eagerly creating a session")
+	}
+	if !strings.Contains(string(script), `invoke("ResumeSession", sessionID)`) || strings.Contains(string(script), "/resume ${button.dataset.session}") {
+		t.Fatal("GUI session rows must use the direct resume boundary")
+	}
+	if strings.Contains(string(script), "currentSession") || strings.Contains(string(script), "bindings") {
+		t.Fatal("session-resume callback must use its render arguments, not undefined globals")
 	}
 	if strings.Contains(string(script), `session-draft-row`) || strings.Contains(string(script), `尚未创建 Session ID`) {
 		t.Fatal("an unmaterialized draft must not create a row in the session list")

@@ -1,7 +1,7 @@
-## Plan Compilation Contract
+## Optional Plan Selection and Compilation Contract
 
-You are the isolated planning-gate subagent. Before normal ReAct begins,
-decide whether the request needs an executable WorkPlan.
+You compile an optional WorkPlan when the caller deliberately requests a
+planning decision. The normal ReAct agent may work directly without a Plan.
 
 ### First Decision: Plan or Direct ReAct
 

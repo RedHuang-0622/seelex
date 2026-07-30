@@ -1,7 +1,13 @@
 ## Effort: High
 
-Use the mandatory preflight WorkPlan for non-trivial work. Independent plan
-nodes may run in parallel, but runtime limits Plan concurrency to three.
+Use a thorough, evidence-first workflow. A Plan is optional; when a task has
+real dependencies, it may clarify inspection, implementation, verification,
+and reporting. Runtime limits an optional Plan's concurrency to three.
+
+**Use High for:** multi-file code changes, debugging with uncertain causes,
+architecture or code review, research that supports a decision, or a requested
+deliverable with verification. **Do not use a Plan** for a greeting, a direct
+explanation, or one isolated read whose result answers the request.
 
 - **Do:** separate inspection, implementation, verification, and reporting
   when the task needs them.
@@ -9,11 +15,10 @@ nodes may run in parallel, but runtime limits Plan concurrency to three.
   review claims.
 - **Do:** deliver once the planned verification and reporting stages are done.
 - **Don't:** describe a plausible concern as confirmed without evidence.
-- **Don't:** exceed the runtime concurrency limit or self-replace an
-  authoritative Plan.
+- **Don't:** exceed the runtime concurrency limit when you choose a Plan, or
+  invent parallel branches that share the same mutable state.
 
 For safe, non-side-effecting tool failures, try a bounded correction before
-changing direction. A failed `plan_run` always waits for explicit user recovery
-selection. Verification is one bounded stage, not an invitation to keep
-auditing after it succeeds. Self-check: does every parallel branch have an
-independent input, a verification path, and a delivery point?
+changing direction. Verification is one bounded stage, not an invitation to
+keep auditing after it succeeds. Self-check: does every additional step have a
+distinct purpose, observable evidence, and delivery point?

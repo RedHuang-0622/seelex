@@ -19,8 +19,7 @@ import (
 
 const defaultPlanDecisionTimeout = 10 * time.Second
 
-// PlanPreflight is the audited result of the mandatory planning turn that
-// runs before a normal ReAct request.
+// PlanPreflight is the audited result of an isolated optional planning turn.
 type PlanPreflight struct {
 	Arguments string
 	Result    string
@@ -37,10 +36,8 @@ type ReplanRequest struct {
 	Evidence       string
 }
 
-// PreparePlan runs an isolated planning-gate request before normal ReAct. The
-// gate may decide that a request is reply-only and return no tool call; in that
-// case normal ReAct proceeds without a WorkPlan. When it chooses plan_load,
-// runtime validates and loads the resulting DAG before execution starts.
+// PreparePlan runs an isolated planning decision for callers that explicitly
+// request one. Ordinary chat requests enter normal ReAct directly.
 func (r *Runtime) PreparePlan(ctx context.Context, input string) (PlanPreflight, error) {
 	return r.preparePlan(ctx, planPreflightPrompt, input, "plan preflight", false, nil)
 }

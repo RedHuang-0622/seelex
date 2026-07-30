@@ -24,6 +24,7 @@ type Snapshot struct {
 	HistoryOffset     int               `json:"history_offset"`
 	TotalMessages     int               `json:"total_messages"`
 	HasMoreHistory    bool              `json:"has_more_history"`
+	ReadFiles         []ReadFileRef     `json:"read_files,omitempty"`
 	Workspaces        []WorkspaceInfo   `json:"workspaces,omitempty"`
 	CurrentWorkspace  *WorkspaceInfo    `json:"current_workspace,omitempty"`
 	SessionWorkspaces map[string]string `json:"session_workspaces,omitempty"`
@@ -33,10 +34,22 @@ type Snapshot struct {
 // request. It intentionally describes execution state rather than model
 // internals or prompt content.
 type TaskState struct {
-	RequestID string     `json:"request_id,omitempty"`
-	Status    TaskStatus `json:"status"`
-	Summary   string     `json:"summary,omitempty"`
-	UpdatedAt time.Time  `json:"updated_at,omitempty"`
+	RequestID          string              `json:"request_id,omitempty"`
+	Status             TaskStatus          `json:"status"`
+	Summary            string              `json:"summary,omitempty"`
+	ContextCompactions []ContextCompaction `json:"context_compactions,omitempty"`
+	UpdatedAt          time.Time           `json:"updated_at,omitempty"`
+}
+
+// ContextCompaction is a user-visible record that the active provider context
+// was condensed. It intentionally contains no prompt text, checkpoint body,
+// tool argument, tool result, or conversation content.
+type ContextCompaction struct {
+	Version         uint64    `json:"version"`
+	Reason          string    `json:"reason"`
+	MessagesBefore  int       `json:"messages_before"`
+	EstimatedTokens int       `json:"estimated_tokens"`
+	CompactedAt     time.Time `json:"compacted_at"`
 }
 
 type TaskStatus string
@@ -96,6 +109,78 @@ type RuntimeState struct {
 
 // ReplanMonitor exposes bounded recovery-planning usage without exposing
 // request content or provider credentials.
+// ReadFileRef is the compact, persistent cache of files successfully read by
+// the agent in this session. It records provenance, not file content.
+type ReadFileRef struct {
+	Path   string    `json:"path"`
+	ReadAt time.Time `json:"read_at,omitempty"`
+}
+
+// SessionTitle is stable session metadata. It is stored under the session's
+// unique persistence key and is never reconstructed from mutable chat history.
+type SessionTitle struct {
+	Value        string    `json:"value"`
+	Source       string    `json:"source,omitempty"`
+	FinalizedAt  time.Time `json:"finalized_at,omitempty"`
+	UserEditedAt time.Time `json:"user_edited_at,omitempty"`
+}
+
+// ConversationRecord is the application-visible, append-only conversation
+// projection. It is intentionally distinct from provider history, which is an
+// execution cache and may be compacted or replaced.
+type ConversationRecord struct {
+	Messages  []Message `json:"messages,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
+// SessionPlanFrame preserves one loaded Plan revision. ActivePlanID identifies
+// the frame whose Plan is currently executable; older frames remain evidence
+// for recovery and workbench history.
+type SessionPlanFrame struct {
+	ID        string     `json:"id"`
+	Plan      *PlanState `json:"plan,omitempty"`
+	Arguments string     `json:"arguments,omitempty"`
+	LoadedAt  time.Time  `json:"loaded_at,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at,omitempty"`
+}
+
+// SessionExecutionRecord groups non-conversation execution data that survives
+// provider-history compaction.
+type SessionExecutionRecord struct {
+	Task         *TaskState    `json:"task,omitempty"`
+	ReadFiles    []ReadFileRef `json:"read_files,omitempty"`
+	Continuation string        `json:"continuation,omitempty"`
+}
+
+// SessionRecord is the durable backend record addressed by
+// (workspace_id, session_id). It is the source of truth for stable metadata,
+// Plan revisions, and visible conversation; framework history is not.
+type SessionRecord struct {
+	Version      int                    `json:"version"`
+	ID           string                 `json:"id"`
+	Title        SessionTitle           `json:"title"`
+	ActivePlanID string                 `json:"active_plan_id,omitempty"`
+	PlanStack    []SessionPlanFrame     `json:"plan_stack,omitempty"`
+	Conversation ConversationRecord     `json:"conversation"`
+	Execution    SessionExecutionRecord `json:"execution"`
+	UpdatedAt    time.Time              `json:"updated_at,omitempty"`
+}
+
+// SessionArchive is the v1 sidecar shape retained only for migration. New
+// writes use SessionRecord, whose title, Plan stack, and conversation record
+// are explicit independent components.
+type SessionArchive struct {
+	Version       int           `json:"version"`
+	Name          string        `json:"name,omitempty"`
+	Conversation  []Message     `json:"conversation,omitempty"`
+	Task          *TaskState    `json:"task,omitempty"`
+	Plan          *PlanState    `json:"plan,omitempty"`
+	PlanArguments string        `json:"plan_arguments,omitempty"`
+	ReadFiles     []ReadFileRef `json:"read_files,omitempty"`
+	Continuation  string        `json:"continuation,omitempty"`
+	UpdatedAt     time.Time     `json:"updated_at,omitempty"`
+}
+
 type ReplanMonitor struct {
 	InFlight               int       `json:"in_flight"`
 	ConcurrentLimit        int       `json:"concurrent_limit"`
@@ -234,8 +319,10 @@ func CloneSnapshot(snapshot Snapshot) Snapshot {
 		copySnapshot.CurrentWorkspace = &workspace
 	}
 	copySnapshot.Conversation = append([]Message(nil), snapshot.Conversation...)
+	copySnapshot.ReadFiles = append([]ReadFileRef(nil), snapshot.ReadFiles...)
 	if snapshot.Task != nil {
 		task := *snapshot.Task
+		task.ContextCompactions = append([]ContextCompaction(nil), snapshot.Task.ContextCompactions...)
 		copySnapshot.Task = &task
 	}
 	if copySnapshot.Conversation == nil {

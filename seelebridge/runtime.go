@@ -217,6 +217,20 @@ func (r *Runtime) SetPlanPolicy(policy PlanPolicy) {
 	r.planPolicyMu.Unlock()
 }
 
+// RestorePlan reloads a canonical persisted plan into the framework's
+// WorkPlan tool. The input was previously accepted by this runtime and is
+// still normalized defensively before it becomes executable again.
+func (r *Runtime) RestorePlan(ctx context.Context, arguments string) error {
+	canonical, err := NormalizePlanLoadArguments(arguments)
+	if err != nil {
+		return fmt.Errorf("restore plan: normalize persisted plan: %w", err)
+	}
+	if _, err := r.agent.DirectDispatch(ctx, "plan_load", canonical); err != nil {
+		return fmt.Errorf("restore plan: %w", err)
+	}
+	return nil
+}
+
 // refreshPlanToolVisibility rebuilds the tool snapshot after authority changes.
 // This hides only Plan-mutating tools during the normal ReAct turn. Application
 // releases authority before an explicit user-selected replan can be requested.

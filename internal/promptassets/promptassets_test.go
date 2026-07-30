@@ -7,7 +7,7 @@ import (
 
 func TestSystemAssetsContainEvidenceAndAuthorityRules(t *testing.T) {
 	instructions := SystemInstructions()
-	for _, required := range []string{"Evidence Before Conclusions", "Hypothesis", "authority=preflight-loaded", "truncated tool output as", "Task Terminal Protocol", "task_complete", "task_needs_user_decision", "task_failed"} {
+	for _, required := range []string{"Evidence Before Conclusions", "Hypothesis", "Visible Intent Before Tools", "Before the first tool call in a distinct phase", "Optional WorkPlan", "not a mandatory preflight gate", "Use a Plan when:", "Do not use a Plan when:", "truncated tool output as", "Task Terminal Protocol", "task_complete", "task_needs_user_decision", "task_failed"} {
 		if !strings.Contains(instructions, required) {
 			t.Fatalf("system instructions missing %q", required)
 		}
@@ -35,6 +35,7 @@ func TestPlanTemplatesRenderRuntimeFacts(t *testing.T) {
 func TestPlanPreflightTeachesCanonicalDAGCorrections(t *testing.T) {
 	preflight := PlanPreflight(PlanData{})
 	for _, expected := range []string{
+		"Optional Plan Selection and Compilation Contract",
 		"Common Invalid Shapes and Their Corrections",
 		"a bare edge list loses every edge source",
 		"name each edge source in the `edges` object",
@@ -48,7 +49,7 @@ func TestPlanPreflightTeachesCanonicalDAGCorrections(t *testing.T) {
 	}
 }
 
-func TestPlanActPromptHarness(t *testing.T) {
+func TestPromptCompletionHarness(t *testing.T) {
 	if err := ValidatePlanActHarness(); err != nil {
 		t.Fatal(err)
 	}

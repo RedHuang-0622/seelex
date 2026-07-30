@@ -152,6 +152,30 @@ func TestContextExhaustionLeavesNextTurnWithRecoverableHistory(t *testing.T) {
 	}
 }
 
+func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T) {
+	engine := &fakeEngine{
+		appendChatHistory: true,
+		chatErr:           errors.New("engine loop 0: ChatClient stream: invalid params, chat content is empty (2013)"),
+	}
+	service := newTestService(engine)
+	defer service.Shutdown()
+	if err := service.Submit(context.Background(), "continue the audit"); err != nil {
+		t.Fatal(err)
+	}
+	waitForChatCompletion(t, service)
+
+	history := engine.History()
+	if len(history) == 0 || !strings.HasPrefix(history[len(history)-1].Content, providerRecoveryPrefix) {
+		t.Fatalf("empty-content failure left no recovery history: %#v", history)
+	}
+	if state := service.Snapshot().Task; state == nil || state.Status != TaskInterrupted {
+		t.Fatalf("task state = %#v, want interrupted", state)
+	}
+	if visible := service.Snapshot().Chat.Error; !strings.Contains(visible, "模块：会话安全") || strings.Contains(visible, "2013") {
+		t.Fatalf("visible error = %q", visible)
+	}
+}
+
 func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New("HTTP 401 provider rejected request")}
 	service := newTestService(engine)
@@ -162,5 +186,33 @@ func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T) {
 	waitForChatCompletion(t, service)
 	if task := service.Snapshot().Task; task == nil || task.Status != TaskFailed {
 		t.Fatalf("task state = %#v, want failed", task)
+	}
+}
+
+func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
+	engine := &fakeEngine{history: []EngineMessage{{
+		Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "plan_load", Arguments: `{}`}},
+	}}}
+	service := newTestService(engine)
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "load a plan", "high")
+	service.mu.Unlock()
+
+	bridge := NewToolHookBridge()
+	bridge.Bind(service)
+	if !bridge.Hooks().OnIterationComplete(context.Background(), 0) {
+		t.Fatal("iteration should remain available")
+	}
+	history := engine.History()
+	if len(history) != 1 || history[0].Content != toolCallHistoryContent || !history[0].ContentSet {
+		t.Fatalf("iteration history repair = %#v", history)
+	}
+}
+
+func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T) {
+	if got := classifyProviderFailure(errors.New("engine loop 16: HTTP 500: server_error")); got != providerFailureServer {
+		t.Fatalf("provider failure = %q, want %q", got, providerFailureServer)
 	}
 }

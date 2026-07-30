@@ -13,6 +13,13 @@ const contextRecoveryPrefix = "<!-- seelex:context-recovery:v1 -->"
 const providerRecoveryPrefix = "<!-- seelex:provider-recovery:v1 -->"
 const contextRecoveryRequestDelimiter = "\n## Original User Request\n"
 
+// isProviderOnlyHistoryContent identifies repair text that exists solely to
+// satisfy providers requiring non-empty message content. It is never user
+// authored and must not be rendered as an assistant reply after resume.
+func isProviderOnlyHistoryContent(content string) bool {
+	return content == missingHistoryContent || content == toolCallHistoryContent
+}
+
 // prepareProviderHistory makes every persisted message safe for providers that
 // reject an empty `content` field, including assistant messages with tool calls.
 // Tool calls are retained; only their absent explanatory text is restored.
@@ -109,12 +116,7 @@ replayed safely.
 ` + checkpoint + contextRecoveryRequestDelimiter + nonEmptyProviderInput(originalRequest)
 
 	history := service.deps.Engine.History()
-	recovered := make([]EngineMessage, 0, 2)
-	for _, message := range history {
-		if message.Role == "system" {
-			recovered = append(recovered, message)
-		}
-	}
+	recovered := retainedSystemHistory(history)
 	recovered = append(recovered, EngineMessage{Role: "user", Content: recovery, ContentSet: true})
 	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), recovered); err != nil {
 		return false, fmt.Errorf("recover provider context: %w", err)
@@ -127,7 +129,9 @@ type providerFailureKind string
 const (
 	providerFailureNone    providerFailureKind = ""
 	providerFailureContext providerFailureKind = "context_exhausted"
+	providerFailureHistory providerFailureKind = "invalid_history"
 	providerFailureTimeout providerFailureKind = "timeout"
+	providerFailureServer  providerFailureKind = "server_unavailable"
 )
 
 func classifyProviderFailure(err error) providerFailureKind {
@@ -138,9 +142,17 @@ func classifyProviderFailure(err error) providerFailureKind {
 		return providerFailureNone
 	}
 	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "chat content is empty") {
+		return providerFailureHistory
+	}
 	if strings.Contains(message, "http 504") || strings.Contains(message, "timeout_error") ||
 		strings.Contains(message, "upstream timeout") || strings.Contains(message, "request timeout") {
 		return providerFailureTimeout
+	}
+	if strings.Contains(message, "http 500") || strings.Contains(message, "http 502") ||
+		strings.Contains(message, "http 503") || strings.Contains(message, "http 529") ||
+		strings.Contains(message, "server_error") || strings.Contains(message, "internal server error") {
+		return providerFailureServer
 	}
 	return providerFailureNone
 }
@@ -149,8 +161,12 @@ func providerRecoveryDetails(kind providerFailureKind) (prefix, heading, summary
 	switch kind {
 	case providerFailureContext:
 		return contextRecoveryPrefix, "Context Recovery", "The provider context window was exceeded; progress checkpoint saved."
+	case providerFailureHistory:
+		return providerRecoveryPrefix, "History Recovery", "The provider rejected an invalid conversation record; progress checkpoint saved."
 	case providerFailureTimeout:
 		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service timed out; progress checkpoint saved. Continue to resume safely."
+	case providerFailureServer:
+		return providerRecoveryPrefix, "Recoverable Provider Interruption", "The model service was temporarily unavailable; progress checkpoint saved. Continue to resume safely."
 	default:
 		return "", "", ""
 	}

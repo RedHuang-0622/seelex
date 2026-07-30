@@ -1,9 +1,15 @@
 // Collects the files that the agent actually read in the current conversation.
 // A read_file start alone is not evidence: only a successful matching result is
 // displayed, so failed paths and in-flight calls never appear as sources.
-export function collectReadFileSources(conversation = []) {
+export function collectReadFileSources(conversation = [], cachedFiles = []) {
   const pending = new Map();
   const sources = new Map();
+
+  for (const cached of cachedFiles) {
+    const path = typeof cached?.path === "string" ? cached.path.trim() : "";
+    if (!path || sources.has(path)) continue;
+    sources.set(path, { name: fileName(path), kind: "read", path });
+  }
 
   for (const message of conversation) {
     const tool = message?.tool;

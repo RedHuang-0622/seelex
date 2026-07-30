@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
-func TestConversationalTurnUsesPlanningDecisionWithoutBlockingReAct(t *testing.T) {
+func TestConversationalTurnBypassesPlanningDecision(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{}
 	service := newTestService(engine)
@@ -18,15 +18,15 @@ func TestConversationalTurnUsesPlanningDecisionWithoutBlockingReAct(t *testing.T
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	if len(runtime.preflight) != 1 || len(runtime.planScopeAcquired) != 1 {
-		t.Fatalf("greeting did not enter the planning decision: preflight=%v scopes=%v", runtime.preflight, runtime.planScopeAcquired)
+	if len(runtime.preflight) != 0 || len(runtime.planScopeAcquired) != 0 {
+		t.Fatalf("greeting entered a planning decision: preflight=%v scopes=%v", runtime.preflight, runtime.planScopeAcquired)
 	}
 	if got := engine.lastInput; got != "你好？" {
 		t.Fatalf("greeting model input = %q", got)
 	}
 }
 
-func TestWorkRequestStillUsesHighEffortPlanPreflight(t *testing.T) {
+func TestWorkRequestBypassesHighEffortPlanPreflight(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{preflightResult: seelebridge.PlanPreflight{
 		Arguments: `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the issue"}},"edges":{}}`,
@@ -40,7 +40,7 @@ func TestWorkRequestStillUsesHighEffortPlanPreflight(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	if len(runtime.preflight) != 1 || len(runtime.planScopeAcquired) != 1 {
-		t.Fatalf("work request skipped PlanAct: preflight=%v scopes=%v", runtime.preflight, runtime.planScopeAcquired)
+	if len(runtime.preflight) != 0 || len(runtime.planScopeAcquired) != 0 {
+		t.Fatalf("work request entered PlanAct: preflight=%v scopes=%v", runtime.preflight, runtime.planScopeAcquired)
 	}
 }

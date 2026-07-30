@@ -81,6 +81,7 @@
       <section>
         <div class="section-title">概要</div>
         <div id="project-overview" class="project-overview"></div>
+        <div id="context-compactions" class="context-compactions hidden"></div>
       </section>
       <section>
         <div class="section-title"><span>工作区</span><button id="new-workspace" class="icon-button subtle" type="button" title="新建工作区" data-icon="plus" style="width:16px;height:16px"></button></div>
@@ -119,10 +120,10 @@
       <div class="modal-header"><div><span class="eyebrow">Persistence</span><h2 id="settings-modal-title">会话存储</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <p class="settings-note">切换后，新写入会话使用新的存储；已有历史不会自动迁移。数据库密码不会回显。</p>
       <label class="settings-field">存储形式
-        <select id="storage-backend"><option value="json">JSON（分片序列化）</option><option value="sqlite">SQLite（本地数据库）</option><option value="postgres">PostgreSQL（外部数据库）</option></select>
+        <select id="storage-backend"><option value="json">JSON（分片序列化）</option><option value="sqlite">SQLite（本地数据库）</option><option value="postgres">PostgreSQL（外部数据库）</option><option value="redis">Redis（远程分片缓存/存储）</option></select>
       </label>
       <label id="storage-path-field" class="settings-field">本地路径<input id="storage-path" type="text" autocomplete="off"></label>
-      <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require" autocomplete="off"></label>
+      <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL / Redis）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require 或 redis://:password@host:6379/0" autocomplete="off"></label>
       <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
       <div id="storage-status" class="muted"></div>
     </div>

@@ -88,7 +88,9 @@ func main() {
 	frameworkEngine := initEngine(runtime, toolHooks)
 	registerProductTools(runtime, pluginManager, frameworkEngine, approval)
 	activateDefaultPlugin(pluginManager, frameworkEngine)
-	appEngine := newEnginePort(frameworkEngine)
+	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
+		return initEngine(runtime, toolHooks)
+	})
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo := initWorkspaceRepo()
 	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)

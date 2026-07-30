@@ -22,6 +22,7 @@ import (
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/Seele/types"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/redis/go-redis/v9"
 	_ "modernc.org/sqlite"
 )
 
@@ -31,6 +32,8 @@ const (
 	BackendJSON       Backend = "json"
 	BackendSQLite     Backend = "sqlite"
 	BackendPostgreSQL Backend = "postgres"
+	BackendRedis      Backend = "redis"
+	messageShardSize          = 100
 )
 
 type Config struct {
@@ -53,9 +56,9 @@ func (config Config) Normalize(defaultPath string) (Config, error) {
 		if strings.TrimSpace(config.Path) == "" {
 			config.Path = filepath.Join(defaultPath, "sessions.db")
 		}
-	case BackendPostgreSQL:
+	case BackendPostgreSQL, BackendRedis:
 		if strings.TrimSpace(config.DSN) == "" {
-			return Config{}, errors.New("session storage: PostgreSQL DSN is required")
+			return Config{}, fmt.Errorf("session storage: %s DSN is required", config.Backend)
 		}
 	default:
 		return Config{}, fmt.Errorf("session storage: unsupported backend %q", config.Backend)
@@ -93,6 +96,8 @@ type Repository interface {
 	WriteAtomic(context.Context, Key, []types.Message) error
 	Read(context.Context, Key) ([]types.Message, error)
 	ReadRange(context.Context, Key, int, int) ([]types.Message, int, error)
+	WriteState(context.Context, Key, []byte) error
+	ReadState(context.Context, Key) ([]byte, error)
 	List(context.Context, string) ([]frameworkStorage.SessionMeta, error)
 	Delete(context.Context, Key) error
 	Ping(context.Context) error
@@ -182,6 +187,33 @@ func (router *Router) LoadRangeWorkspace(projectID, sessionID string, offset, li
 	return messages, total, err
 }
 
+// SaveState stores application-owned session state next to the engine history.
+// The blob is opaque to sessionstore so JSON, SQLite, and PostgreSQL share the
+// same persistence contract without importing application packages.
+func (router *Router) SaveState(sessionID string, state []byte) error {
+	return router.SaveStateWorkspace(router.Workspace(), sessionID, state)
+}
+
+func (router *Router) SaveStateWorkspace(projectID, sessionID string, state []byte) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, state)
+	})
+}
+
+func (router *Router) LoadState(sessionID string) ([]byte, error) {
+	return router.LoadStateWorkspace(router.Workspace(), sessionID)
+}
+
+func (router *Router) LoadStateWorkspace(projectID, sessionID string) ([]byte, error) {
+	var state []byte
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		state, err = repository.ReadState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return state, err
+}
+
 func (router *Router) List() []frameworkStorage.SessionMeta {
 	return router.ListWorkspace(router.Workspace())
 }
@@ -226,7 +258,7 @@ func (router *Router) Test(ctx context.Context, config Config) error {
 	current := router.config
 	defaultPath := router.defaultPath
 	router.mu.RUnlock()
-	if config.Backend == BackendPostgreSQL && strings.TrimSpace(config.DSN) == "" && current.Backend == BackendPostgreSQL {
+	if requiresDSN(config.Backend) && strings.TrimSpace(config.DSN) == "" && current.Backend == config.Backend {
 		config.DSN = current.DSN
 	}
 	normalized, err := config.Normalize(defaultPath)
@@ -246,7 +278,7 @@ func (router *Router) Configure(ctx context.Context, config Config) error {
 	current := router.config
 	defaultPath := router.defaultPath
 	router.mu.RUnlock()
-	if config.Backend == BackendPostgreSQL && strings.TrimSpace(config.DSN) == "" && current.Backend == BackendPostgreSQL {
+	if requiresDSN(config.Backend) && strings.TrimSpace(config.DSN) == "" && current.Backend == config.Backend {
 		config.DSN = current.DSN
 	}
 	normalized, err := config.Normalize(defaultPath)
@@ -310,9 +342,15 @@ func Open(ctx context.Context, config Config) (Repository, error) {
 		return newSQLRepository(ctx, "sqlite", config.Path, "?")
 	case BackendPostgreSQL:
 		return newSQLRepository(ctx, "pgx", config.DSN, "$")
+	case BackendRedis:
+		return newRedisRepository(ctx, config.DSN)
 	default:
 		return nil, fmt.Errorf("session storage: unsupported backend %q", config.Backend)
 	}
+}
+
+func requiresDSN(backend Backend) bool {
+	return backend == BackendPostgreSQL || backend == BackendRedis
 }
 
 type jsonManifest struct {
@@ -399,6 +437,28 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 	return append([]types.Message(nil), messages[offset:end]...), len(messages), nil
 }
 
+func (repository *jsonRepository) WriteState(_ context.Context, key Key, state []byte) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	directory := repository.sessionDir(key)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	return writeAtomic(filepath.Join(directory, "state.json"), state, 0o600)
+}
+
+func (repository *jsonRepository) ReadState(_ context.Context, key Key) ([]byte, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	return os.ReadFile(filepath.Join(repository.sessionDir(key), "state.json"))
+}
+
 func (repository *jsonRepository) List(_ context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
@@ -478,6 +538,229 @@ func (repository *jsonRepository) sessionDir(key Key) string {
 	return filepath.Join(repository.projectDir(key.ProjectID), "session-"+hash(key.SessionID))
 }
 
+// redisRepository uses the same immutable generation + fixed-size shard
+// contract as the file and SQL implementations. All keys for a project share
+// one Redis hash tag, so MULTI/EXEC commits a session manifest and its shards
+// atomically even when Redis Cluster is enabled.
+type redisRepository struct {
+	client    *redis.Client
+	namespace string
+}
+
+type redisManifest struct {
+	SessionID  string `json:"session_id"`
+	Generation string `json:"generation"`
+	TokenCount int    `json:"token_count"`
+	ShardCount int    `json:"shard_count"`
+	CreatedAt  int64  `json:"created_at"`
+	UpdatedAt  int64  `json:"updated_at"`
+}
+
+func newRedisRepository(ctx context.Context, dsn string) (*redisRepository, error) {
+	options, err := redis.ParseURL(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("session storage: parse Redis DSN: %w", err)
+	}
+	client := redis.NewClient(options)
+	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	return &redisRepository{client: client, namespace: "seelex"}, nil
+}
+
+func (repository *redisRepository) WriteAtomic(ctx context.Context, key Key, messages []types.Message) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	shards := split(messages)
+	encoded := make([]string, len(shards))
+	for index, shard := range shards {
+		data, err := json.Marshal(shard)
+		if err != nil {
+			return fmt.Errorf("session storage: marshal shard: %w", err)
+		}
+		encoded[index] = string(data)
+	}
+	previous, err := repository.readManifest(ctx, key)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	now := time.Now().UTC().UnixNano()
+	manifest := redisManifest{SessionID: key.SessionID, Generation: "generation-" + randomID(), TokenCount: tokenCount(messages), ShardCount: len(encoded), CreatedAt: now, UpdatedAt: now}
+	if previous != nil {
+		manifest.CreatedAt = previous.CreatedAt
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	_, err = repository.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		if previous != nil {
+			for index := 0; index < previous.ShardCount; index++ {
+				pipe.Del(ctx, repository.shardKey(key, previous.Generation, index))
+			}
+		}
+		for index, shard := range encoded {
+			pipe.Set(ctx, repository.shardKey(key, manifest.Generation, index), shard, 0)
+		}
+		pipe.Set(ctx, repository.manifestKey(key), string(data), 0)
+		pipe.ZAdd(ctx, repository.projectIndexKey(key.ProjectID), redis.Z{Score: float64(now), Member: key.SessionID})
+		return nil
+	})
+	return err
+}
+
+func (repository *redisRepository) Read(ctx context.Context, key Key) ([]types.Message, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	manifest, err := repository.readManifest(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, manifest.ShardCount)
+	for index := range keys {
+		keys[index] = repository.shardKey(key, manifest.Generation, index)
+	}
+	values, err := repository.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]types.Message, 0, manifest.ShardCount*messageShardSize)
+	for index, value := range values {
+		data, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("session storage: missing shard %d", index)
+		}
+		var shard []types.Message
+		if err := json.Unmarshal([]byte(data), &shard); err != nil {
+			return nil, err
+		}
+		messages = append(messages, shard...)
+	}
+	return messages, nil
+}
+
+func (repository *redisRepository) ReadRange(ctx context.Context, key Key, offset, limit int) ([]types.Message, int, error) {
+	if limit <= 0 || offset < 0 {
+		return nil, 0, errors.New("session storage: invalid range")
+	}
+	messages, err := repository.Read(ctx, key)
+	if err != nil {
+		return nil, 0, err
+	}
+	if offset > len(messages) {
+		return nil, len(messages), errors.New("session storage: range offset exceeds history")
+	}
+	end := offset + limit
+	if end > len(messages) {
+		end = len(messages)
+	}
+	return append([]types.Message(nil), messages[offset:end]...), len(messages), nil
+}
+
+func (repository *redisRepository) WriteState(ctx context.Context, key Key, state []byte) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	return repository.client.Set(ctx, repository.stateKey(key), state, 0).Err()
+}
+
+func (repository *redisRepository) ReadState(ctx context.Context, key Key) ([]byte, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	value, err := repository.client.Get(ctx, repository.stateKey(key)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, fs.ErrNotExist
+	}
+	return value, err
+}
+
+func (repository *redisRepository) List(ctx context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
+	ids, err := repository.client.ZRevRange(ctx, repository.projectIndexKey(projectID), 0, -1).Result()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]frameworkStorage.SessionMeta, 0, len(ids))
+	for _, sessionID := range ids {
+		manifest, err := repository.readManifest(ctx, Key{ProjectID: projectID, SessionID: sessionID})
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, manifest.meta())
+	}
+	return result, nil
+}
+
+func (repository *redisRepository) Delete(ctx context.Context, key Key) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	manifest, err := repository.readManifest(ctx, key)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	_, err = repository.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(ctx, repository.manifestKey(key), repository.stateKey(key))
+		if manifest != nil {
+			for index := 0; index < manifest.ShardCount; index++ {
+				pipe.Del(ctx, repository.shardKey(key, manifest.Generation, index))
+			}
+		}
+		pipe.ZRem(ctx, repository.projectIndexKey(key.ProjectID), key.SessionID)
+		return nil
+	})
+	return err
+}
+
+func (repository *redisRepository) Ping(ctx context.Context) error {
+	return repository.client.Ping(ctx).Err()
+}
+func (repository *redisRepository) Close() error { return repository.client.Close() }
+
+func (repository *redisRepository) readManifest(ctx context.Context, key Key) (*redisManifest, error) {
+	data, err := repository.client.Get(ctx, repository.manifestKey(key)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, fs.ErrNotExist
+	}
+	if err != nil {
+		return nil, err
+	}
+	var manifest redisManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, err
+	}
+	return &manifest, nil
+}
+
+func (manifest redisManifest) meta() frameworkStorage.SessionMeta {
+	return frameworkStorage.SessionMeta{SessionID: manifest.SessionID, TokenCount: manifest.TokenCount, ShardCount: manifest.ShardCount, CreatedAt: time.Unix(0, manifest.CreatedAt).UTC(), UpdatedAt: time.Unix(0, manifest.UpdatedAt).UTC()}
+}
+
+func (repository *redisRepository) projectKey(projectID string) string {
+	return repository.namespace + ":project:{" + hash(projectID) + "}"
+}
+func (repository *redisRepository) projectIndexKey(projectID string) string {
+	return repository.projectKey(projectID) + ":sessions"
+}
+func (repository *redisRepository) sessionKey(key Key) string {
+	return repository.projectKey(key.ProjectID) + ":session:" + hash(key.SessionID)
+}
+func (repository *redisRepository) manifestKey(key Key) string {
+	return repository.sessionKey(key) + ":manifest"
+}
+func (repository *redisRepository) stateKey(key Key) string {
+	return repository.sessionKey(key) + ":state"
+}
+func (repository *redisRepository) shardKey(key Key, generation string, index int) string {
+	return fmt.Sprintf("%s:history:%s:%03d", repository.sessionKey(key), generation, index)
+}
+
 type sqlRepository struct {
 	db          *sql.DB
 	placeholder string
@@ -509,6 +792,31 @@ func (repository *sqlRepository) Ping(ctx context.Context) error {
 project_id TEXT NOT NULL, session_id TEXT NOT NULL, messages_json TEXT NOT NULL,
 token_count INTEGER NOT NULL, shard_count INTEGER NOT NULL, created_at BIGINT NOT NULL,
 updated_at BIGINT NOT NULL, PRIMARY KEY (project_id, session_id))`)
+	if err != nil {
+		return err
+	}
+	_, err = repository.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS seelex_session_manifest (
+project_id TEXT NOT NULL, session_id TEXT NOT NULL, generation TEXT NOT NULL,
+token_count INTEGER NOT NULL, shard_count INTEGER NOT NULL, created_at BIGINT NOT NULL,
+updated_at BIGINT NOT NULL, PRIMARY KEY (project_id, session_id))`)
+	if err != nil {
+		return err
+	}
+	_, err = repository.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS seelex_session_shard (
+project_id TEXT NOT NULL, session_id TEXT NOT NULL, generation TEXT NOT NULL,
+shard_index INTEGER NOT NULL, messages_json TEXT NOT NULL,
+PRIMARY KEY (project_id, session_id, generation, shard_index))`)
+	if err != nil {
+		return err
+	}
+	_, err = repository.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS seelex_session_manifest_project_updated
+ON seelex_session_manifest (project_id, updated_at)`)
+	if err != nil {
+		return err
+	}
+	_, err = repository.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS seelex_session_state (
+project_id TEXT NOT NULL, session_id TEXT NOT NULL, state_json TEXT NOT NULL,
+updated_at BIGINT NOT NULL, PRIMARY KEY (project_id, session_id))`)
 	return err
 }
 
@@ -516,9 +824,14 @@ func (repository *sqlRepository) WriteAtomic(ctx context.Context, key Key, messa
 	if err := key.validate(); err != nil {
 		return err
 	}
-	data, err := json.Marshal(messages)
-	if err != nil {
-		return err
+	shards := split(messages)
+	encoded := make([]string, len(shards))
+	for index, shard := range shards {
+		data, err := json.Marshal(shard)
+		if err != nil {
+			return fmt.Errorf("session storage: marshal shard: %w", err)
+		}
+		encoded[index] = string(data)
 	}
 	now := time.Now().UTC().UnixNano()
 	transaction, err := repository.db.BeginTx(ctx, nil)
@@ -526,10 +839,29 @@ func (repository *sqlRepository) WriteAtomic(ctx context.Context, key Key, messa
 		return err
 	}
 	defer transaction.Rollback()
-	args := []any{key.ProjectID, key.SessionID, string(data), tokenCount(messages), len(split(messages)), now, now}
-	query := `INSERT INTO seelex_sessions (project_id,session_id,messages_json,token_count,shard_count,created_at,updated_at) VALUES (` + repository.placeholders(7) + `)
-ON CONFLICT (project_id,session_id) DO UPDATE SET messages_json=excluded.messages_json, token_count=excluded.token_count, shard_count=excluded.shard_count, updated_at=excluded.updated_at`
-	if _, err := transaction.ExecContext(ctx, query, args...); err != nil {
+	createdAt := now
+	query := `SELECT created_at FROM seelex_session_manifest WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
+	if err := transaction.QueryRowContext(ctx, query, key.ProjectID, key.SessionID).Scan(&createdAt); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	generation := "generation-" + randomID()
+	insertShard := `INSERT INTO seelex_session_shard (project_id,session_id,generation,shard_index,messages_json) VALUES (` + repository.placeholders(5) + `)`
+	for index, shard := range encoded {
+		if _, err := transaction.ExecContext(ctx, insertShard, key.ProjectID, key.SessionID, generation, index, shard); err != nil {
+			return err
+		}
+	}
+	manifest := `INSERT INTO seelex_session_manifest (project_id,session_id,generation,token_count,shard_count,created_at,updated_at) VALUES (` + repository.placeholders(7) + `)
+ON CONFLICT (project_id,session_id) DO UPDATE SET generation=excluded.generation, token_count=excluded.token_count, shard_count=excluded.shard_count, updated_at=excluded.updated_at`
+	if _, err := transaction.ExecContext(ctx, manifest, key.ProjectID, key.SessionID, generation, tokenCount(messages), len(encoded), createdAt, now); err != nil {
+		return err
+	}
+	cleanup := `DELETE FROM seelex_session_shard WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2) + ` AND generation<>` + repository.arg(3)
+	if _, err := transaction.ExecContext(ctx, cleanup, key.ProjectID, key.SessionID, generation); err != nil {
+		return err
+	}
+	legacy := `DELETE FROM seelex_sessions WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
+	if _, err := transaction.ExecContext(ctx, legacy, key.ProjectID, key.SessionID); err != nil {
 		return err
 	}
 	return transaction.Commit()
@@ -539,16 +871,14 @@ func (repository *sqlRepository) Read(ctx context.Context, key Key) ([]types.Mes
 	if err := key.validate(); err != nil {
 		return nil, err
 	}
-	query := `SELECT messages_json FROM seelex_sessions WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
-	var data string
-	if err := repository.db.QueryRowContext(ctx, query, key.ProjectID, key.SessionID).Scan(&data); err != nil {
+	manifest, err := repository.readManifest(ctx, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return repository.readLegacy(ctx, key)
+	}
+	if err != nil {
 		return nil, err
 	}
-	var messages []types.Message
-	if err := json.Unmarshal([]byte(data), &messages); err != nil {
-		return nil, err
-	}
-	return messages, nil
+	return repository.readGeneration(ctx, key, manifest.generation, manifest.shardCount)
 }
 
 func (repository *sqlRepository) ReadRange(ctx context.Context, key Key, offset, limit int) ([]types.Message, int, error) {
@@ -569,8 +899,30 @@ func (repository *sqlRepository) ReadRange(ctx context.Context, key Key, offset,
 	return append([]types.Message(nil), messages[offset:end]...), len(messages), nil
 }
 
+func (repository *sqlRepository) WriteState(ctx context.Context, key Key, state []byte) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	query := `INSERT INTO seelex_session_state (project_id,session_id,state_json,updated_at) VALUES (` + repository.placeholders(4) + `)
+ON CONFLICT (project_id,session_id) DO UPDATE SET state_json=excluded.state_json, updated_at=excluded.updated_at`
+	_, err := repository.db.ExecContext(ctx, query, key.ProjectID, key.SessionID, string(state), time.Now().UTC().UnixNano())
+	return err
+}
+
+func (repository *sqlRepository) ReadState(ctx context.Context, key Key) ([]byte, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	query := `SELECT state_json FROM seelex_session_state WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
+	var state string
+	if err := repository.db.QueryRowContext(ctx, query, key.ProjectID, key.SessionID).Scan(&state); err != nil {
+		return nil, err
+	}
+	return []byte(state), nil
+}
+
 func (repository *sqlRepository) List(ctx context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
-	query := `SELECT session_id,token_count,shard_count,created_at,updated_at FROM seelex_sessions WHERE project_id=` + repository.arg(1) + ` ORDER BY updated_at DESC`
+	query := `SELECT session_id,token_count,shard_count,created_at,updated_at FROM seelex_session_manifest WHERE project_id=` + repository.arg(1) + ` ORDER BY updated_at DESC`
 	rows, err := repository.db.QueryContext(ctx, query, projectID)
 	if err != nil {
 		return nil, err
@@ -593,9 +945,77 @@ func (repository *sqlRepository) Delete(ctx context.Context, key Key) error {
 	if err := key.validate(); err != nil {
 		return err
 	}
-	query := `DELETE FROM seelex_sessions WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
-	_, err := repository.db.ExecContext(ctx, query, key.ProjectID, key.SessionID)
-	return err
+	transaction, err := repository.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer transaction.Rollback()
+	for _, table := range []string{"seelex_session_state", "seelex_session_shard", "seelex_session_manifest", "seelex_sessions"} {
+		query := `DELETE FROM ` + table + ` WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
+		if _, err := transaction.ExecContext(ctx, query, key.ProjectID, key.SessionID); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
+}
+
+type sqlManifest struct {
+	generation string
+	shardCount int
+}
+
+func (repository *sqlRepository) readManifest(ctx context.Context, key Key) (sqlManifest, error) {
+	query := `SELECT generation,shard_count FROM seelex_session_manifest WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
+	var manifest sqlManifest
+	err := repository.db.QueryRowContext(ctx, query, key.ProjectID, key.SessionID).Scan(&manifest.generation, &manifest.shardCount)
+	return manifest, err
+}
+
+func (repository *sqlRepository) readGeneration(ctx context.Context, key Key, generation string, shardCount int) ([]types.Message, error) {
+	query := `SELECT shard_index,messages_json FROM seelex_session_shard WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2) + ` AND generation=` + repository.arg(3) + ` ORDER BY shard_index ASC`
+	rows, err := repository.db.QueryContext(ctx, query, key.ProjectID, key.SessionID, generation)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	messages := make([]types.Message, 0, shardCount*100)
+	count := 0
+	for rows.Next() {
+		var index int
+		var data string
+		if err := rows.Scan(&index, &data); err != nil {
+			return nil, err
+		}
+		if index != count {
+			return nil, fmt.Errorf("session storage: missing shard %d", count)
+		}
+		var shard []types.Message
+		if err := json.Unmarshal([]byte(data), &shard); err != nil {
+			return nil, err
+		}
+		messages = append(messages, shard...)
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if count != shardCount {
+		return nil, fmt.Errorf("session storage: shard count = %d, want %d", count, shardCount)
+	}
+	return messages, nil
+}
+
+func (repository *sqlRepository) readLegacy(ctx context.Context, key Key) ([]types.Message, error) {
+	query := `SELECT messages_json FROM seelex_sessions WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
+	var data string
+	if err := repository.db.QueryRowContext(ctx, query, key.ProjectID, key.SessionID).Scan(&data); err != nil {
+		return nil, err
+	}
+	var messages []types.Message
+	if err := json.Unmarshal([]byte(data), &messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 func (repository *sqlRepository) Close() error { return repository.db.Close() }
 func (repository *sqlRepository) arg(index int) string {
@@ -616,9 +1036,9 @@ func split(messages []types.Message) [][]types.Message {
 	if len(messages) == 0 {
 		return [][]types.Message{{}}
 	}
-	result := make([][]types.Message, 0, (len(messages)+99)/100)
-	for start := 0; start < len(messages); start += 100 {
-		end := start + 100
+	result := make([][]types.Message, 0, (len(messages)+messageShardSize-1)/messageShardSize)
+	for start := 0; start < len(messages); start += messageShardSize {
+		end := start + messageShardSize
 		if end > len(messages) {
 			end = len(messages)
 		}

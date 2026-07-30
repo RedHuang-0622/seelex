@@ -3,8 +3,11 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
@@ -99,17 +102,44 @@ func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 	}
 }
 
+func TestNaturalStopWithPendingAuthoritativePlanNeedsUserDecision(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect"}}}
+	service.taskExecution = newTaskExecutionState("task-1", "prepare a plan", "high")
+	service.mu.Unlock()
+
+	if err := service.finalizeTaskExecution("task-1"); err != nil {
+		t.Fatal(err)
+	}
+	service.mu.RLock()
+	state := service.taskExecution
+	service.mu.RUnlock()
+	if state.status != taskStatusNeedsUserDecision || state.terminal == nil || state.terminal.Kind != taskNeedsUserDecisionTool {
+		t.Fatalf("task terminal = %#v, want needs-user-decision", state)
+	}
+	visible := service.Snapshot().Task
+	if visible == nil || visible.Status != TaskNeedsUserDecision || !strings.Contains(visible.Summary, "not executed") {
+		t.Fatalf("visible task state = %#v", visible)
+	}
+}
+
 func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{
+		{Role: "system", Content: "system instruction", ContentSet: true},
 		{Role: "user", Content: "inspect project"},
 		{Role: "assistant", Content: "I will inspect it."},
-		{Role: "tool", Name: "read_file", Content: strings.Repeat("important source detail ", taskContextToolResultChars)},
+		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "read_file", Arguments: strings.Repeat("verbose argument ", 1500)}}},
+		{Role: "tool", Name: "read_file", Content: strings.Repeat("important source detail ", 1500)},
 	}}
 	service := newTestService(engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.taskExecution = newTaskExecutionState("task-1", "inspect project", "high")
+	service.setTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
 	service.taskExecution.checkpoint("inspect", "inspect source", "completed", "found call path", "")
 	service.mu.Unlock()
 
@@ -117,11 +147,11 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	history := engine.History()
-	if !strings.HasPrefix(history[len(history)-1].Content, taskContextCheckpointPrefix) {
-		t.Fatalf("history does not end in checkpoint: %+v", history[len(history)-1])
+	if len(history) != 2 || history[0].Role != "system" || !strings.HasPrefix(history[1].Content, taskContextCheckpointPrefix) {
+		t.Fatalf("history = %+v, want system plus checkpoint", history)
 	}
-	if !strings.Contains(history[2].Content, "tool output compacted") {
-		t.Fatalf("tool output was not compacted: %q", history[2].Content)
+	if len(history[1].ToolCalls) != 0 || strings.Contains(history[1].Content, "important source detail") || strings.Contains(history[1].Content, "verbose argument") {
+		t.Fatalf("raw tool transcript survived compaction: %+v", history[1])
 	}
 	payload, err := json.Marshal(service.Snapshot())
 	if err != nil {
@@ -130,6 +160,10 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 	if strings.Contains(string(payload), taskContextCheckpointPrefix) {
 		t.Fatalf("frontend snapshot leaked internal checkpoint: %s", payload)
 	}
+	compactions := service.Snapshot().Task.ContextCompactions
+	if len(compactions) != 1 || compactions[0].Version != 1 || compactions[0].Reason != "context_budget" || compactions[0].MessagesBefore != 5 || compactions[0].EstimatedTokens == 0 {
+		t.Fatalf("visible compactions = %#v", compactions)
+	}
 	if err := service.removeTaskContextCheckpoints(); err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +171,105 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 		if isTaskContextCheckpoint(message.Content) {
 			t.Fatalf("internal checkpoint leaked into retained history: %+v", message)
 		}
+	}
+}
+
+func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *testing.T) {
+	engine := &fakeEngine{history: []EngineMessage{{Role: "system", Content: "system instruction", ContentSet: true}}}
+	service := newTestService(engine)
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "inspect project", "high")
+	service.setTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
+	service.taskExecution.checkpoint("inspect", "inspect source", "completed", "found call path", "")
+	service.mu.Unlock()
+
+	for round := 0; round < 2; round++ {
+		history := engine.History()
+		history = append(history,
+			EngineMessage{Role: "assistant", ToolCalls: []EngineToolCall{{ID: fmt.Sprintf("call-%d", round), Name: "bash", Arguments: strings.Repeat("argument ", 3000)}}},
+			EngineMessage{Role: "tool", Name: "bash", Content: strings.Repeat("tool output ", 3000)},
+		)
+		if err := engine.ReplaceHistory(engine.SessionID(), history); err != nil {
+			t.Fatal(err)
+		}
+		service.mu.Lock()
+		service.taskExecution.recordTool("bash", "observed repository state", nil)
+		service.mu.Unlock()
+		if err := service.compactTaskContext("task-1"); err != nil {
+			t.Fatal(err)
+		}
+		compacted := engine.History()
+		if len(compacted) != 2 || !strings.HasPrefix(compacted[1].Content, taskContextCheckpointPrefix) {
+			t.Fatalf("round %d compacted history = %+v, want only system plus one checkpoint", round, compacted)
+		}
+	}
+	compactions := service.Snapshot().Task.ContextCompactions
+	if len(compactions) != 2 || compactions[0].Version != 1 || compactions[1].Version != 2 {
+		t.Fatalf("visible compactions = %#v", compactions)
+	}
+}
+
+func TestTaskContextRecoveryHistoryKeepsOnlyProductSystemInstruction(t *testing.T) {
+	product, staleSummary := "product instruction", "[Context summary of stale execution]"
+	history := []EngineMessage{
+		{Role: "system", Content: product, ContentSet: true},
+		{Role: "system", Content: staleSummary, ContentSet: true},
+		{Role: "user", Content: "old request", ContentSet: true},
+	}
+	compacted := taskContextRecoveryHistory(history, "checkpoint")
+	if len(compacted) != 2 || compacted[0].Content != product || compacted[1].Content != "checkpoint" {
+		t.Fatalf("compacted history = %#v", compacted)
+	}
+}
+
+func TestContextControllerTruncatesLargeToolOutputBeforeGlobalCompaction(t *testing.T) {
+	policy := seelexctx.DefaultContextConfig()
+	engine := &fakeEngine{history: []EngineMessage{
+		{Role: "system", Content: "system instruction", ContentSet: true},
+		{Role: "user", Content: "inspect project"},
+		{Role: "tool", Name: "bash", Content: strings.Repeat("x", policy.MaxToolResultChars+1)},
+	}}
+	service := newTestService(engine)
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "inspect project", "high")
+	service.setTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
+	service.mu.Unlock()
+
+	if err := service.compactTaskContext("task-1"); err != nil {
+		t.Fatal(err)
+	}
+	history := engine.History()
+	if len(history) != 3 || history[2].Role != "tool" || len(history[2].Content) > policy.MaxToolResultChars ||
+		!strings.Contains(history[2].Content, toolOutputPreviewMarker) {
+		t.Fatalf("tool output was not reduced to a head-tail preview: %#v", history)
+	}
+	if compactions := service.Snapshot().Task.ContextCompactions; len(compactions) != 0 {
+		t.Fatalf("a single large tool result must not trigger global compaction: %#v", compactions)
+	}
+}
+
+func TestTaskContextSummaryRetainsCompletedToolEvidence(t *testing.T) {
+	state := newTaskExecutionState("task-1", "inspect source", "high")
+	state.recordTool("read_file", "found ResumeSession in application/core/session_history.go", nil)
+	state.recordTool("go_test", "application/core tests passed", nil)
+	summary := state.contextSummary()
+	if !strings.Contains(summary, "completed tool outcomes") || !strings.Contains(summary, "ResumeSession") || !strings.Contains(summary, "tests passed") {
+		t.Fatalf("continuation summary lost completed work: %q", summary)
+	}
+}
+
+func TestTaskContextSummaryStaysWithinProviderToolBudget(t *testing.T) {
+	policy := seelexctx.DefaultContextConfig()
+	state := newTaskExecutionState("task-1", "inspect source", "high")
+	for index := 0; index < 20; index++ {
+		state.recordTool(fmt.Sprintf("tool-%d", index), strings.Repeat("evidence ", 200), nil)
+	}
+	if summary := state.contextSummary(); len(summary) > policy.MaxToolResultChars {
+		t.Fatalf("context summary = %d chars, want at most %d", len(summary), policy.MaxToolResultChars)
 	}
 }
 

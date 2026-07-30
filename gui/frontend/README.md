@@ -54,3 +54,9 @@ Get-ChildItem gui/frontend/dist -Filter *.js | ForEach-Object { node --check $_.
 node --test gui/frontend/dist/*.test.mjs
 go test ./gui -count=1
 ```
+
+## Context compression summary
+
+The project overview renders `task.context_compactions` as a small timeline of successful context compressions. The frontend receives only public metadata (version, reason, counts, and time); it does not receive private checkpoint content, prompt text, tool payloads, or raw conversation history.
+
+The “Agent read files” panel also merges the live successful `read_file` calls with the persisted `read_files` cache. It therefore remains useful after context compression or session restoration without retaining file content in renderer state.

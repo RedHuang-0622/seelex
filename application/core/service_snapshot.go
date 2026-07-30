@@ -85,7 +85,6 @@ func (service *Service) addNotice(notice string) {
 func (service *Service) resetConversation(notice string) {
 	service.mu.Lock()
 	service.snapshot.Conversation = nil
-	service.snapshot.Session.Name = ""
 	service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", service.deps.Runtime.Model()), nil)
 	if notice != "" {
 		service.appendMessageLocked("system", notice, nil)

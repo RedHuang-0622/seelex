@@ -411,7 +411,7 @@ func TestSubmit_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestSubmitPlansBeforeSendingHighEffortRequest(t *testing.T) {
+func TestSubmitHighEffortBypassesPlanningPreflight(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{}
 	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
@@ -421,15 +421,15 @@ func TestSubmitPlansBeforeSendingHighEffortRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	if len(runtime.preflight) != 1 || runtime.preflight[0] != "inspect the repository" {
-		t.Fatalf("preflight inputs = %q", runtime.preflight)
+	if len(runtime.preflight) != 0 {
+		t.Fatalf("preflight inputs = %q, want none", runtime.preflight)
 	}
 	if engine.lastInput != "inspect the repository" {
 		t.Fatalf("engine input = %q", engine.lastInput)
 	}
 }
 
-func TestSubmitUsesAuthoritativePreflightPlanForHighEffort(t *testing.T) {
+func TestSubmitHighEffortDoesNotInjectPlanAuthorityContext(t *testing.T) {
 	const arguments = `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the repository"},"report":{"input":"report findings"}},"edges":{"inspect":["report"]}}`
 	engine := &fakeEngine{
 		history:           []EngineMessage{{Role: "assistant", Content: "prior answer"}},
@@ -447,11 +447,11 @@ func TestSubmitUsesAuthoritativePreflightPlanForHighEffort(t *testing.T) {
 	}
 	waitForChatCompletion(t, service)
 
-	if !strings.HasPrefix(engine.lastInput, preflightPlanAuthorityPrefix) || !strings.Contains(engine.lastInput, arguments) || !strings.HasSuffix(engine.lastInput, "inspect the repository") {
-		t.Fatalf("engine input = %q, want authoritative plan context plus original request", engine.lastInput)
+	if engine.lastInput != "inspect the repository" {
+		t.Fatalf("engine input = %q, want original direct request", engine.lastInput)
 	}
-	if len(runtime.planScopeAcquired) != 1 || len(runtime.planScopePromoted) != 1 || len(runtime.planScopeReleased) != 1 || runtime.planScopeAcquired[0] != runtime.planScopePromoted[0] || runtime.planScopeAcquired[0] != runtime.planScopeReleased[0] {
-		t.Fatalf("PlanAct scope lifecycle = acquired %v promoted %v released %v, want one matching request-scoped scope", runtime.planScopeAcquired, runtime.planScopePromoted, runtime.planScopeReleased)
+	if len(runtime.preflight) != 0 || len(runtime.planScopeAcquired) != 0 || len(runtime.planScopePromoted) != 0 || len(runtime.planScopeReleased) != 0 {
+		t.Fatalf("PlanAct must stay inactive: preflight=%v acquire=%v promote=%v release=%v", runtime.preflight, runtime.planScopeAcquired, runtime.planScopePromoted, runtime.planScopeReleased)
 	}
 	if len(engine.historyBeforeChat) != 1 || engine.historyBeforeChat[0].Content != "prior answer" {
 		t.Fatalf("history before chat = %+v, want unchanged prior history", engine.historyBeforeChat)
@@ -485,7 +485,7 @@ func TestSubmitSkipsPlanPreflightForLite(t *testing.T) {
 	}
 }
 
-func TestPlanPreflightFailureBlocksEngine(t *testing.T) {
+func TestDormantPlanPreflightFailureDoesNotBlockEngine(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{preflightErr: errors.New("forced plan call failed")}
 	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
@@ -495,11 +495,11 @@ func TestPlanPreflightFailureBlocksEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
-	if engine.lastInput != "" {
-		t.Fatalf("engine ran after failed preflight with input %q", engine.lastInput)
+	if engine.lastInput != "change a file" {
+		t.Fatalf("engine input = %q, want direct request", engine.lastInput)
 	}
-	if got := service.Snapshot().Chat.Error; !strings.Contains(got, "plan preflight") {
-		t.Fatalf("chat error = %q", got)
+	if got := service.Snapshot().Chat.Error; got != "" {
+		t.Fatalf("chat error = %q, want no preflight failure", got)
 	}
 }
 
@@ -808,7 +808,7 @@ func TestSwitchEffort(t *testing.T) {
 	if snap.Runtime.Effort != "max" {
 		t.Errorf("expected 'max', got %q", snap.Runtime.Effort)
 	}
-	if policy := runtime.planPolicy; policy.Effort != "max" || !policy.RequirePlan || policy.MaxForkConcurrency != 0 {
+	if policy := runtime.planPolicy; policy.Effort != "max" || policy.RequirePlan || policy.MaxForkConcurrency != 0 {
 		t.Fatalf("max plan policy = %+v", policy)
 	}
 }

@@ -52,19 +52,19 @@ var effortProfiles = map[string]effortProfile{
 	"medium": {
 		prompt:     promptassets.Effort("medium"),
 		maxLoops:   48,
-		planPolicy: seelebridge.PlanPolicy{Effort: "medium", RequirePlan: true, MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1},
+		planPolicy: seelebridge.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1},
 		budget:     ReActBudget{MaxToolRounds: 48, MaxToolCalls: 96, MaxNoProgressRounds: 10},
 	},
 	"high": {
 		prompt:     promptassets.Effort("high"),
 		maxLoops:   384,
-		planPolicy: seelebridge.PlanPolicy{Effort: "high", RequirePlan: true, MaxForkConcurrency: 3},
+		planPolicy: seelebridge.PlanPolicy{Effort: "high", MaxForkConcurrency: 3},
 		budget:     ReActBudget{MaxToolRounds: 384, MaxToolCalls: 768, MaxNoProgressRounds: 24},
 	},
 	"max": {
 		prompt:     promptassets.Effort("max"),
 		maxLoops:   768,
-		planPolicy: seelebridge.PlanPolicy{Effort: "max", RequirePlan: true},
+		planPolicy: seelebridge.PlanPolicy{Effort: "max"},
 		budget:     ReActBudget{MaxToolRounds: 768, MaxToolCalls: 1536, MaxNoProgressRounds: 48},
 	},
 }
@@ -92,9 +92,10 @@ func ReActBudgetFor(level string) ReActBudget {
 	return profile.budget
 }
 
-// PlanningPolicy returns the hard runtime constraints for an effort level.
-// Lite leaves planning optional. Max uses the loaded plan's node count as its
-// concurrency cap so all currently runnable nodes can start together.
+// PlanningPolicy returns the hard runtime constraints for an optional
+// plan_load at an effort level. It never makes planning a chat-entry gate.
+// Max uses the loaded plan's node count as its concurrency cap so all
+// currently runnable nodes can start together.
 func PlanningPolicy(level string) seelebridge.PlanPolicy {
 	profile, ok := effortProfileFor(level)
 	if !ok {

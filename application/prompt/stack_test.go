@@ -239,9 +239,9 @@ func TestPlanningPolicyByEffort(t *testing.T) {
 		concurrent int
 	}{
 		{level: "lite"},
-		{level: "medium", required: true, maxNodes: 4, serial: true, concurrent: 1},
-		{level: "high", required: true, concurrent: 3},
-		{level: "max", required: true},
+		{level: "medium", maxNodes: 4, serial: true, concurrent: 1},
+		{level: "high", concurrent: 3},
+		{level: "max"},
 	}
 	for _, test := range tests {
 		t.Run(test.level, func(t *testing.T) {

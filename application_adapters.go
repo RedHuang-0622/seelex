@@ -2,14 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
-	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/seelectx/tracer"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
@@ -23,17 +23,52 @@ import (
 )
 
 type enginePort struct {
-	engine    *engine.Engine
-	mu        sync.RWMutex
-	sessionID string
+	engine         reactorEngine
+	newEngine      reactorEngineFactory
+	mu             sync.RWMutex
+	sessionID      string
+	activeCalls    int
+	pendingHistory []seelebridge.Message
 }
 
-func newEnginePort(eng *engine.Engine) *enginePort {
-	return &enginePort{engine: eng, sessionID: eng.SessionID()}
+// reactorEngine is the small framework surface the application adapter
+// needs. Keeping construction behind a factory makes a new application session
+// a new ReAct loop, rather than a logical ID layered over an old loop.
+type reactorEngine interface {
+	ChatStream(context.Context, string, func(string)) (string, error)
+	History() []types.Message
+	ClearHistory()
+	SessionID() string
+	SetSystemPrompt(string)
+	SetMaxLoops(int)
+	ExportTrace() *tracer.Tree
+	AppendHistory(types.Message)
+}
+
+type reactorEngineFactory func() reactorEngine
+
+func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory) *enginePort {
+	return &enginePort{engine: eng, newEngine: newEngine, sessionID: eng.SessionID()}
 }
 
 func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
-	return port.engine.ChatStream(ctx, input, onChunk)
+	port.mu.Lock()
+	current := port.engine
+	port.activeCalls++
+	port.mu.Unlock()
+	if current == nil {
+		return "", fmt.Errorf("engine is unavailable")
+	}
+	result, err := current.ChatStream(ctx, input, onChunk)
+
+	port.mu.Lock()
+	port.activeCalls--
+	if port.activeCalls == 0 && len(port.pendingHistory) > 0 {
+		port.installFreshHistoryLocked(port.pendingHistory)
+		port.pendingHistory = nil
+	}
+	port.mu.Unlock()
+	return result, err
 }
 
 // AppendHistory 追加消息到引擎内部对话历史。
@@ -55,20 +90,87 @@ func (port *enginePort) ReplaceHistory(sessionID string, history []application.E
 	return port.replaceRawHistory(sessionID, restoreMessages(history))
 }
 func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridge.Message) error {
+	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
 	defer port.mu.Unlock()
-	port.engine.ClearHistory()
-	for _, message := range history {
-		port.engine.AppendHistory(message)
+	if port.engine == nil {
+		return fmt.Errorf("engine is unavailable")
+	}
+	if port.activeCalls > 0 {
+		// A running ReActLoop owns its in-memory slice. Keep it valid for the
+		// current turn, then install a genuinely clean reactor before the next
+		// request. ClearHistory deliberately retains system messages upstream,
+		// so appending them again here would duplicate the prompt on every
+		// compaction or recovery.
+		port.replaceActiveHistoryLocked(desired)
+		port.pendingHistory = append([]seelebridge.Message(nil), desired...)
+	} else {
+		port.installFreshHistoryLocked(desired)
 	}
 	port.sessionID = sessionID
 	return nil
 }
+
+func (port *enginePort) replaceActiveHistoryLocked(history []seelebridge.Message) {
+	port.engine.ClearHistory()
+	hasSystem := false
+	for _, message := range port.engine.History() {
+		hasSystem = hasSystem || message.Role == "system"
+	}
+	for _, message := range history {
+		if message.Role == "system" {
+			if !hasSystem {
+				port.engine.AppendHistory(message)
+				hasSystem = true
+			}
+			continue
+		}
+		port.engine.AppendHistory(message)
+	}
+}
+
+func (port *enginePort) installFreshHistoryLocked(history []seelebridge.Message) {
+	if port.newEngine == nil {
+		port.replaceActiveHistoryLocked(history)
+		return
+	}
+	fresh := port.newEngine()
+	if fresh == nil {
+		port.replaceActiveHistoryLocked(history)
+		return
+	}
+	for _, message := range history {
+		fresh.AppendHistory(message)
+	}
+	port.engine = fresh
+}
+
+func canonicalEngineHistory(history []seelebridge.Message) []seelebridge.Message {
+	canonical := make([]seelebridge.Message, 0, len(history))
+	hasSystem := false
+	for _, message := range history {
+		if message.Role == "system" {
+			if hasSystem {
+				continue
+			}
+			hasSystem = true
+		}
+		canonical = append(canonical, message)
+	}
+	return canonical
+}
 func (port *enginePort) StartSession() string {
 	port.mu.Lock()
 	defer port.mu.Unlock()
-	port.engine.ClearHistory()
-	port.sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	if port.newEngine == nil {
+		return ""
+	}
+	fresh := port.newEngine()
+	if fresh == nil {
+		return ""
+	}
+	port.engine = fresh
+	port.sessionID = fresh.SessionID()
 	return port.sessionID
 }
 func (port *enginePort) SessionID() string {
@@ -131,6 +233,9 @@ func (port runtimePort) ReplanMetrics() seelebridge.ReplanMetrics {
 }
 func (port runtimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	port.runtime.SetPlanBranchBinding(binding)
+}
+func (port runtimePort) RestorePlan(ctx context.Context, arguments string) error {
+	return port.runtime.RestorePlan(ctx, arguments)
 }
 func (port runtimePort) BindProjectRoot(rootPath string) error {
 	return port.runtime.BindProjectRoot(rootPath)
@@ -279,6 +384,87 @@ func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, err
 		return nil, err
 	}
 	return adaptMessages(messages), nil
+}
+
+func (port sessionPort) SaveSessionRecord(id string, record application.SessionRecord) error {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("encode session record: %w", err)
+	}
+	return port.manager.SaveState(id, payload)
+}
+
+func (port sessionPort) LoadSessionRecord(id string) (application.SessionRecord, error) {
+	payload, err := port.manager.LoadState(id)
+	if err != nil {
+		return application.SessionRecord{}, err
+	}
+	return decodeSessionRecord(payload, id)
+}
+
+func (port sessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (application.SessionRecord, error) {
+	payload, err := port.manager.LoadStateByWorkspace(workspaceID, id)
+	if err != nil {
+		return application.SessionRecord{}, err
+	}
+	return decodeSessionRecord(payload, id)
+}
+
+func decodeSessionRecord(payload []byte, sessionID string) (application.SessionRecord, error) {
+	var version struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(payload, &version); err != nil {
+		return application.SessionRecord{}, fmt.Errorf("decode session state header: %w", err)
+	}
+	if version.Version == 1 {
+		var archive application.SessionArchive
+		if err := json.Unmarshal(payload, &archive); err != nil {
+			return application.SessionRecord{}, fmt.Errorf("decode legacy session archive: %w", err)
+		}
+		return migrateSessionArchive(sessionID, archive), nil
+	}
+	var record application.SessionRecord
+	if err := json.Unmarshal(payload, &record); err != nil {
+		return application.SessionRecord{}, fmt.Errorf("decode session record: %w", err)
+	}
+	if record.Version == 2 && record.ID == sessionID {
+		return record, nil
+	}
+	return application.SessionRecord{}, fmt.Errorf("unsupported session state version %d", version.Version)
+}
+
+func migrateSessionArchive(sessionID string, archive application.SessionArchive) application.SessionRecord {
+	record := application.SessionRecord{
+		Version: 2,
+		ID:      sessionID,
+		Title: application.SessionTitle{
+			Value:       archive.Name,
+			Source:      "legacy_history",
+			FinalizedAt: archive.UpdatedAt,
+		},
+		Conversation: application.ConversationRecord{
+			Messages:  archive.Conversation,
+			UpdatedAt: archive.UpdatedAt,
+		},
+		Execution: application.SessionExecutionRecord{
+			Task:         archive.Task,
+			ReadFiles:    archive.ReadFiles,
+			Continuation: archive.Continuation,
+		},
+		UpdatedAt: archive.UpdatedAt,
+	}
+	if archive.Plan != nil || archive.PlanArguments != "" {
+		record.ActivePlanID = "legacy-plan"
+		record.PlanStack = []application.SessionPlanFrame{{
+			ID:        record.ActivePlanID,
+			Plan:      archive.Plan,
+			Arguments: archive.PlanArguments,
+			LoadedAt:  archive.UpdatedAt,
+			UpdatedAt: archive.UpdatedAt,
+		}}
+	}
+	return record
 }
 func (port sessionPort) LoadHistoryWorkspace(workspaceID, id string) ([]application.EngineMessage, error) {
 	messages, err := port.manager.LoadHistoryByWorkspace(workspaceID, id)

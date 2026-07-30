@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 const draftSessionName = "新会话"
@@ -37,7 +38,7 @@ func (service *Service) BeginNewSession() error {
 
 	if len(service.deps.Engine.History()) > 0 {
 		service.deps.Sessions.SetWorkspace(currentWorkspaceID)
-		if err := service.deps.Sessions.SaveCurrent(sessionID); err != nil {
+		if err := service.persistCurrentSession(sessionID); err != nil {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
 		}
 	}
@@ -52,6 +53,10 @@ func (service *Service) BeginNewSession() error {
 	service.snapshot.HasMoreHistory = false
 	service.snapshot.Runtime.Plan = nil
 	service.snapshot.Interaction = nil
+	service.sessionTitle = SessionTitle{}
+	service.planStack = nil
+	service.activePlanID = ""
+	service.planSequence = 0
 	service.inputQueue = nil
 	revision := service.bumpLocked()
 	service.mu.Unlock()
@@ -93,7 +98,12 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	}
 
 	service.mu.Lock()
-	service.snapshot.Session = SessionState{ID: newID, Name: sessionTitle(firstQuestion)}
+	title := SessionTitle{Value: sessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
+	service.snapshot.Session = SessionState{ID: newID, Name: title.Value}
+	service.sessionTitle = title
+	service.planStack = nil
+	service.activePlanID = ""
+	service.planSequence = 0
 	if service.deps.Workspace != nil {
 		service.refreshWorkspaceLocked()
 	}

@@ -7,7 +7,7 @@ import (
 
 // PlanActHarnessCase is a deterministic prompt-regression scenario. It does
 // not simulate a model; it locks the operational clauses that prevent a
-// completed Plan from turning into an open-ended review loop.
+// completed task from turning into an open-ended review loop.
 type PlanActHarnessCase struct {
 	Name        string
 	Effort      string
@@ -39,7 +39,7 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Effort:      "medium",
 			UserRequest: "按计划检查并报告。",
 			Expected:    "已验证阶段不得无故再做第二轮验证。",
-			Required:    []string{"Do not add an unplanned second verification pass", "serial chain and then\nreported"},
+			Required:    []string{"Do not add an unplanned second verification pass", "If uncertain, perform one smallest meaningful check"},
 		},
 		{
 			Name:        "terminal-protocol-converges-after-bounded-check",
@@ -47,6 +47,13 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			UserRequest: "验证一次后给出最终结论。",
 			Expected:    "完成、需要用户决策或失败必须具有显式终态，不得无限调查。",
 			Required:    []string{"call `task_complete`", "call `task_needs_user_decision`", "call `task_failed`", "rather than\nanother open-ended investigation"},
+		},
+		{
+			Name:        "tool-phase-states-visible-intent-without-leaking-internals",
+			Effort:      "high",
+			UserRequest: "检查代码后修复问题并验证。",
+			Expected:    "在读取和首次修改前说明直接意图，不泄露内部提示或原始 Plan。",
+			Required:    []string{"Visible Intent Before Tools", "Before the first tool call in a distinct phase", "before the first mutation", "hidden Plan JSON", "one uninterrupted\n  phase"},
 		},
 	}
 }

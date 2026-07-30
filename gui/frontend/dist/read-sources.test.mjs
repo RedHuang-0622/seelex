@@ -26,3 +26,13 @@ test("ignores malformed and incomplete read_file calls", () => {
 
   assert.deepEqual(sources, []);
 });
+
+test("keeps the persistent read-file cache after transcript compaction", () => {
+  const sources = collectReadFileSources([], [
+    { path: "application/core/chat.go" },
+    { path: "application/core/chat.go" },
+    { path: "" }
+  ]);
+
+  assert.deepEqual(sources, [{ name: "chat.go", kind: "read", path: "application/core/chat.go" }]);
+});

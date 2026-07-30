@@ -1,10 +1,13 @@
 package compactor
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -67,6 +70,9 @@ func TestCompact_Summary(t *testing.T) {
 	if len(r.Findings) != 1 {
 		t.Fatalf("expected 1 summary finding, got %d", len(r.Findings))
 	}
+	if r.Goal == "" {
+		t.Fatal("summary must retain the goal when the budget permits")
+	}
 }
 
 func TestCompact_Minimal(t *testing.T) {
@@ -84,12 +90,9 @@ func TestCompact_Minimal(t *testing.T) {
 }
 
 func TestCompact_NegativeBudget(t *testing.T) {
-	r, err := NewCompactor().Compact(&snapshot.ContextSnapshot{Goal: "t"}, -1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Goal != "t" {
-		t.Fatal("expected goal preserved")
+	_, err := NewCompactor().Compact(&snapshot.ContextSnapshot{Goal: "t"}, -1)
+	if !errors.Is(err, ErrBudgetTooSmall) {
+		t.Fatalf("error = %v, want ErrBudgetTooSmall", err)
 	}
 }
 
@@ -111,6 +114,34 @@ func TestTruncateForToken(t *testing.T) {
 	r := truncateForToken(strings.Repeat("a", 500), 5)
 	if len(r) >= 500 {
 		t.Fatal("expected truncation")
+	}
+}
+
+func TestTruncateForTokenKeepsUTF8AndBudget(t *testing.T) {
+	input := strings.Repeat("中文🙂", 100)
+	truncated := truncateForToken(input, 25)
+	if !utf8.ValidString(truncated) {
+		t.Fatalf("invalid UTF-8 result: %q", truncated)
+	}
+	if got := seelectx.EstimateTokens(truncated); got > 25 {
+		t.Fatalf("token estimate = %d, want <= 25", got)
+	}
+}
+
+func TestCompactNeverExceedsBudget(t *testing.T) {
+	snap := largeSnap()
+	snap.Goal = strings.Repeat("目标🙂", 200)
+	snap.Progress = strings.Repeat("进度🙂", 200)
+	snap.Escape = &snapshot.EscapeInfo{Reason: strings.Repeat("错误", 80), Message: strings.Repeat("详情", 80)}
+
+	for _, budget := range []int{500, 250, 100, 40} {
+		compacted, err := NewCompactor().Compact(snap, budget)
+		if err != nil {
+			t.Fatalf("budget %d: %v", budget, err)
+		}
+		if got := estimateTokens(compacted); got > budget {
+			t.Fatalf("budget %d: compacted token estimate = %d", budget, got)
+		}
 	}
 }
 

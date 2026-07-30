@@ -17,6 +17,7 @@
 | `branch.go` | WorkPlan branch runtime、account 路由和 branch event。 |
 | `plan.go` | adjacency/edge、cycle detection、topological order。 |
 | `plan_tool_provider.go` | `plan_load` 严格 JSON schema/description 装饰器。 |
+| `plan_input_adapter.go` | canonical object DAG 归一化，并兼容可唯一推断的旧式顺序边列表。 |
 | `plan_preflight.go` | 隔离的强制 `plan_load` 请求和 provider `tool_choice` 注入。 |
 | `plan_authority.go` | 原子 PlanAct scope、preflight 内部调用能力和 authority 生命周期。 |
 | `storage.go` | Seele session store 与旧 nested workspace store 兼容。 |
@@ -48,7 +49,7 @@ Windows GUI 构建还会以 `SysProcAttr.HideWindow` 启动 scoped shell，避�
 
 `Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge normalizes either the canonical object-keyed DAG or an LLM-friendly `nodes[]` / `edges[]` form into Seele's canonical JSON, then validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.
 
-The preflight tool schema exposes only the canonical object-keyed DAG: node specs belong under `nodes`, and edges are source-keyed target arrays. The adapter retains narrowly scoped recovery compatibility for legacy node entries with `id`/`key`, edge entries with `from`/`source` and `to`/`target`, explicit edge-chain strings, adjacency targets written as `{ "to": "id" }`, and referenced top-level node specs containing only `input` and optional `kind`. It never guesses a missing edge source or target, and rejects unrelated top-level fields such as `item`; invalid references return a pre-execution `plan_load` error and can use the bounded corrective retry path.
+The optional `plan_load` tool schema exposes only the canonical object-keyed DAG: node specs belong under `nodes`, and edges are source-keyed target arrays. The adapter retains narrowly scoped recovery compatibility for legacy node entries with `id`/`key`, edge entries with `from`/`source` and `to`/`target`, explicit edge-chain strings, adjacency targets written as `{ "to": "id" }`, and referenced top-level node specs containing only `input` and optional `kind`. It never guesses a missing edge source or target, and rejects unrelated top-level fields such as `item`; invalid references return a pre-execution `plan_load` error and can use the bounded corrective retry path.
 
 The preflight and recovery prompt templates live in [`internal/promptassets`](../internal/promptassets/README.md). Runtime supplies only the current `PlanPolicy` limits to those templates; prompt prose is not embedded in `seelebridge` Go code.
 
@@ -56,21 +57,12 @@ The preflight and recovery prompt templates live in [`internal/promptassets`](..
 
 Recovery planning is protected by a process-wide guard: by default at most two concurrent operations, six replan operations per minute, and six actual provider requests per minute. Its metrics are safe to expose in Application snapshots; a corrective retry is permitted only after a pre-execution `plan_load` validation failure.
 
-When a Medium, High, or Max preflight succeeds, Application wraps the
-canonical WorkPlan and original request in the current-turn
-`<!-- seelex:plan-context:v1 authority=preflight-loaded -->` envelope,
-parallel to Skill context. It is rewritten to the original input before
-session persistence. Application acquires a request-ID-bound `PlanActScope`
-before preflight. Its private context is the only caller allowed to load the
-Plan; after a successful load it promotes to authority. Runtime then removes
-`plan_load`, `plan_clear`, and `plan_run` from model-visible tools and retains
-guards for stale mutation handlers. The loaded DAG is currently an
-authoritative control context executed by the primary ReAct agent with normal
-project-scoped tools. This deliberately avoids framework child chats, which do
-not yet receive Seelex tool scope or upstream-node evidence. A second request
-cannot enter the scope until its owner releases it when ChatStream returns; the
-explicit, guarded `PrepareReplan` recovery path therefore has `plan_load`
-available after a factual execution failure.
+Medium, High, and Max no longer create a mandatory planning preflight. Their
+`PlanPolicy` only constrains a voluntarily loaded DAG. Normal requests enter
+the primary ReAct loop directly, so no Plan authority envelope is injected
+into user input and no request-scoped PlanAct lease is acquired. The optional
+Plan remains a visible checklist; normal project-scoped tools perform the
+actual work, while prompt policy keeps `plan_run` out of the main workflow.
 
 每条 branch 必须携带 `PlanBranchBinding`，包括 session/workspace/account/trace/plan/node IDs。两条 fork 路径统一走 Seele ForkCoordinator，默认 fail-fast；best-effort 只有显式配置才可启用。账号选择按 role 与 seed 确定，避免并发分支共享不可控状态。
 

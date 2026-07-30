@@ -75,10 +75,18 @@ func (service *Service) sessionName(location sessionLocation, scoped scopedSessi
 		return entry.name
 	}
 
-	history, err := scoped.LoadHistoryWorkspace(location.workspaceID, location.meta.ID)
 	name := ""
-	if err == nil {
-		name = sessionTitleFromHistory(history)
+	if store, ok := service.deps.Sessions.(sessionRecordPort); ok {
+		record, err := store.LoadSessionRecordWorkspace(location.workspaceID, location.meta.ID)
+		if err == nil {
+			name = strings.TrimSpace(record.Title.Value)
+		}
+	}
+	if name == "" {
+		history, err := scoped.LoadHistoryWorkspace(location.workspaceID, location.meta.ID)
+		if err == nil {
+			name = sessionTitleFromHistory(history)
+		}
 	}
 	service.sessionNameMu.Lock()
 	service.sessionNames[key] = sessionNameCacheEntry{updatedAt: location.meta.UpdatedAt, name: name}

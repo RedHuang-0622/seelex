@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 const (
@@ -54,17 +56,19 @@ type taskTerminal struct {
 }
 
 type taskExecutionState struct {
-	requestID      string
-	objective      string
-	effort         string
-	planArguments  string
-	status         string
-	checkpoints    map[string]*NodeCheckpoint
-	toolSignatures map[string]struct{}
-	progressEpoch  uint64
-	terminal       *taskTerminal
-	contextVersion uint64
-	compactedEpoch uint64
+	requestID          string
+	objective          string
+	effort             string
+	planArguments      string
+	status             string
+	checkpoints        map[string]*NodeCheckpoint
+	toolSignatures     map[string]struct{}
+	toolOutcomes       []string
+	progressEpoch      uint64
+	terminal           *taskTerminal
+	contextVersion     uint64
+	compactedEpoch     uint64
+	contextCompactions []ContextCompaction
 }
 
 func newTaskExecutionState(requestID, objective, effort string) *taskExecutionState {
@@ -88,7 +92,24 @@ func (state *taskExecutionState) recordTool(name, result string, toolErr error) 
 		return
 	}
 	state.toolSignatures[key] = struct{}{}
+	if outcome := taskToolOutcome(name, result, toolErr); outcome != "" {
+		state.toolOutcomes = append(state.toolOutcomes, outcome)
+	}
 	state.progressEpoch++
+}
+
+func taskToolOutcome(name, result string, toolErr error) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if toolErr != nil {
+		return fmt.Sprintf("tool=%s status=error detail=%q", name, boundedEvidence(toolErr.Error()))
+	}
+	if evidence := boundedEvidence(result); evidence != "" {
+		return fmt.Sprintf("tool=%s status=completed result=%q", name, evidence)
+	}
+	return fmt.Sprintf("tool=%s status=completed", name)
 }
 
 func (state *taskExecutionState) checkpoint(nodeKey, objective, status, output, failure string) {
@@ -139,19 +160,46 @@ func (state *taskExecutionState) contextSummary() string {
 	if state == nil {
 		return ""
 	}
+	limit := seelexctx.DefaultContextConfig().MaxToolResultChars
 	var out strings.Builder
-	fmt.Fprintf(&out, "objective: %s\nstatus: %s\neffort: %s\n", state.objective, state.status, state.effort)
+	appendContextSummary(&out, limit, fmt.Sprintf("objective: %s\nstatus: %s\neffort: %s\n", state.objective, state.status, state.effort))
 	if state.planArguments != "" {
-		out.WriteString("authoritative plan is loaded; do not replace it.\n")
+		appendContextSummary(&out, limit, "authoritative plan is loaded; do not replace it.\n")
 	}
 	if evidence := state.evidenceText(); evidence != "" {
-		out.WriteString("checkpoint evidence:\n")
-		out.WriteString(evidence)
+		appendContextSummary(&out, limit, "checkpoint evidence:\n"+evidence)
+	}
+	if len(state.toolOutcomes) > 0 {
+		if appendContextSummary(&out, limit, "completed tool outcomes (do not repeat unless more detail is needed):\n") {
+			// Most-recent observations are the most actionable after a recovery.
+			for index := len(state.toolOutcomes) - 1; index >= 0; index-- {
+				if !appendContextSummary(&out, limit, state.toolOutcomes[index]+"\n") {
+					break
+				}
+			}
+		}
 	}
 	if state.terminal != nil {
-		fmt.Fprintf(&out, "terminal=%s summary=%q\n", state.terminal.Kind, state.terminal.Summary)
+		appendContextSummary(&out, limit, fmt.Sprintf("terminal=%s summary=%q\n", state.terminal.Kind, state.terminal.Summary))
 	}
 	return out.String()
+}
+
+// appendContextSummary keeps checkpoints beneath the same provider-context
+// budget that bounds individual tool results. It admits complete structured
+// records only, so a recovery never receives a misleading half line.
+func appendContextSummary(out *strings.Builder, limit int, value string) bool {
+	if value == "" || limit <= out.Len() {
+		return false
+	}
+	if out.Len()+len(value) > limit {
+		if out.Len()+len("additional checkpoint detail remains in session storage; re-read it only if needed.\n") <= limit {
+			out.WriteString("additional checkpoint detail remains in session storage; re-read it only if needed.\n")
+		}
+		return false
+	}
+	out.WriteString(value)
+	return true
 }
 
 // TaskTerminalHandler returns a Runtime-facing handler while keeping request
@@ -240,8 +288,9 @@ func (service *Service) completeAuthoritativePlanLocked(completedNodes []string)
 }
 
 // finalizeTaskExecution converts a natural model stop into an auditable
-// implicit completion only when no WorkPlan remains active. An in-flight DAG
-// is never silently treated as a completed task.
+// completion or handoff. An in-flight authoritative Plan is not silently
+// completed; if the model stops before executing it, the visible result is a
+// user-decision handoff rather than an opaque runtime error.
 func (service *Service) finalizeTaskExecution(requestID string) error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -252,7 +301,16 @@ func (service *Service) finalizeTaskExecution(requestID string) error {
 	if plan := service.snapshot.Runtime.Plan; plan != nil {
 		switch plan.Status {
 		case PlanPending, PlanRunning:
-			return fmt.Errorf("task execution ended before authoritative plan reached a terminal state; call %s or %s", taskCompleteTool, taskFailedTool)
+			state.status = taskStatusNeedsUserDecision
+			state.terminal = &taskTerminal{
+				Kind:             taskNeedsUserDecisionTool,
+				Summary:          "The authoritative plan is ready but has not been executed.",
+				DecisionQuestion: "Should Seelex execute the loaded plan, revise it, or stop here?",
+				DecisionOptions:  []string{"execute", "revise", "stop"},
+			}
+			service.setTaskStateLocked(requestID, TaskNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here.")
+			state.progressEpoch++
+			return nil
 		case PlanFailed, PlanAborted:
 			state.status = taskStatusFailed
 			state.checkpoint("plan", "authoritative plan", string(plan.Status), "", "plan did not complete")
@@ -270,12 +328,30 @@ func (service *Service) finalizeTaskExecution(requestID string) error {
 }
 
 func (service *Service) setTaskStateLocked(requestID string, status TaskStatus, summary string) {
-	service.snapshot.Task = &TaskState{
-		RequestID: requestID,
-		Status:    status,
-		Summary:   strings.TrimSpace(summary),
-		UpdatedAt: time.Now(),
+	var compactions []ContextCompaction
+	if state := service.taskExecution; state != nil && state.requestID == requestID {
+		compactions = append([]ContextCompaction(nil), state.contextCompactions...)
 	}
+	service.snapshot.Task = &TaskState{
+		RequestID:          requestID,
+		Status:             status,
+		Summary:            strings.TrimSpace(summary),
+		ContextCompactions: compactions,
+		UpdatedAt:          time.Now(),
+	}
+}
+
+func (service *Service) recordContextCompactionLocked(requestID string, compaction ContextCompaction) bool {
+	state := service.taskExecution
+	if state == nil || state.requestID != requestID || state.status != taskStatusRunning {
+		return false
+	}
+	state.contextCompactions = append(state.contextCompactions, compaction)
+	if task := service.snapshot.Task; task != nil && task.RequestID == requestID {
+		task.ContextCompactions = append([]ContextCompaction(nil), state.contextCompactions...)
+		task.UpdatedAt = compaction.CompactedAt
+	}
+	return true
 }
 
 func boundedEvidence(value string) string {

@@ -44,7 +44,8 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	service.snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
 	service.setTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
 	if service.snapshot.Session.Name == "" {
-		service.snapshot.Session.Name = sessionTitle(request.displayInput)
+		service.sessionTitle = SessionTitle{Value: sessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()}
+		service.snapshot.Session.Name = service.sessionTitle.Value
 	}
 	user := *service.appendMessageLocked("user", request.displayInput, nil)
 	assistant := *service.appendMessageLocked("assistant", "", nil)
@@ -91,6 +92,9 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	if err == nil {
 		modelInput = nonEmptyProviderInput(modelInput)
 		_, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+		if contextErr := service.takeContextControlFailure(requestID); contextErr != nil {
+			err = contextErr
+		}
 		var recoveryErr error
 		recovered, recoveryErr = service.recoverProviderFailure(err, request.displayInput)
 		if recoveryErr != nil {
@@ -123,7 +127,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		}
 	}
 	if err == nil || recovered {
-		if saveErr := service.deps.Sessions.SaveCurrent(service.deps.Engine.SessionID()); saveErr != nil {
+		if saveErr := service.persistCurrentSession(service.deps.Engine.SessionID()); saveErr != nil {
 			err = fmt.Errorf("保存会话失败: %w", saveErr)
 		}
 	}
@@ -133,10 +137,12 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		return
 	}
 	service.snapshot.Chat.Error = ""
+	visibleError := ""
 	if err != nil {
 		service.recordUnhandledTaskErrorLocked(requestID, err)
-		service.snapshot.Chat.Error = err.Error()
-		service.appendMessageLocked("error", err.Error(), nil)
+		visibleError = presentUserError(err)
+		service.snapshot.Chat.Error = visibleError
+		service.appendMessageLocked("error", visibleError, nil)
 	}
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
 	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
@@ -175,7 +181,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	if err != nil {
-		service.events.Publish(EventError, revision, requestID, map[string]string{"message": err.Error()})
+		service.events.Publish(EventError, revision, requestID, map[string]string{"message": visibleError})
 	} else {
 		service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
 	}
@@ -369,7 +375,7 @@ func (service *Service) appendHistoryLocked(history []EngineMessage) {
 		if !isVisibleHistoryMessage(historyMessage) {
 			continue
 		}
-		if historyMessage.Role != "tool" && historyMessage.Content != "" {
+		if historyMessage.Role != "tool" && historyMessage.Content != "" && !isProviderOnlyHistoryContent(historyMessage.Content) {
 			content := historyMessage.Content
 			if historyMessage.Role == "user" {
 				content = displayUserInput(content)
@@ -393,10 +399,16 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 	// plan_load 启动时：解析 DAG 并初始化 PlanState
 	if name == "plan_load" {
 		service.updatePlanFromLoad(arguments)
+		if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
+			state.planArguments = arguments
+		}
 	}
 	// plan_clear 启动时：清空 PlanState
 	if name == "plan_clear" {
 		service.snapshot.Runtime.Plan = nil
+		if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
+			state.planArguments = ""
+		}
 	}
 	if name == "plan_run" {
 		service.deps.Runtime.SetPlanBranchBinding(service.planBranchBindingLocked())
@@ -433,14 +445,25 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 	}
 	status, errorText := "success", ""
 	if toolErr != nil {
-		status, errorText = "error", toolErr.Error()
+		status, errorText = "error", presentToolError(name, toolErr)
 	}
+	toolArguments := ""
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
 		tool := service.snapshot.Conversation[index].Tool
 		if tool != nil && tool.ID == id {
+			toolArguments = tool.Arguments
 			tool.Status, tool.Result, tool.Error, tool.Duration = status, result, errorText, duration
 			break
 		}
+	}
+	if name == "read_file" && toolErr == nil {
+		service.recordReadFileLocked(toolArguments)
+	}
+	if name == "plan_load" && toolErr == nil {
+		service.pushLoadedPlanLocked(toolArguments, time.Now())
+	}
+	if name == "plan_clear" && toolErr == nil {
+		service.activePlanID = ""
 	}
 	content := result
 	if toolErr != nil {
@@ -1068,7 +1091,16 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 			svc.mu.RLock()
 			activeRequestID := svc.snapshot.Chat.RequestID
 			svc.mu.RUnlock()
-			_ = svc.compactTaskContext(activeRequestID)
+			if err := svc.compactTaskContext(activeRequestID); err != nil {
+				svc.recordContextControlFailure(activeRequestID, err)
+				return false
+			}
+			// The engine adds assistant/tool records after the initial preflight.
+			// Repair them before its next provider request, not only before loop 0.
+			if err := svc.prepareProviderHistory(); err != nil {
+				svc.recordContextControlFailure(activeRequestID, err)
+				return false
+			}
 			// 每轮 ReAct 结束后检查输入队列：非空时清空并注入到引擎对话历史，
 			// 下一轮 LLM 调用将看到这些排队消息，无需停止 loop。
 			svc.mu.Lock()

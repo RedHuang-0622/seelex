@@ -125,6 +125,30 @@ func (m *Manager) LoadHistoryRangeByWorkspace(workspaceID, sessionID string, off
 	return m.store.LoadRange(sessionID, offset, limit)
 }
 
+// SaveState persists an application-owned session archive alongside the
+// framework history. It is available only for the configurable Router, whose
+// JSON, SQLite, PostgreSQL, and Redis implementations share the same contract.
+func (m *Manager) SaveState(sessionID string, state []byte) error {
+	if m.router == nil {
+		return fmt.Errorf("session: state persistence requires the configurable router")
+	}
+	return m.router.SaveState(sessionID, state)
+}
+
+func (m *Manager) LoadState(sessionID string) ([]byte, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: state persistence requires the configurable router")
+	}
+	return m.router.LoadState(sessionID)
+}
+
+func (m *Manager) LoadStateByWorkspace(workspaceID, sessionID string) ([]byte, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: state persistence requires the configurable router")
+	}
+	return m.router.LoadStateWorkspace(workspaceID, sessionID)
+}
+
 // DeleteByWorkspace deletes a session from an explicit workspace without
 // changing the active workspace used by subsequent writes.
 func (m *Manager) DeleteByWorkspace(workspaceID, sessionID string) error {

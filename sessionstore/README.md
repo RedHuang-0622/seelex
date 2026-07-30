@@ -1,8 +1,16 @@
 # Session Store
 
+## Application state sidecar
+
+Alongside framework message history, every backend can persist an opaque application-owned state blob keyed by `(project_id, session_id)`. `Router.SaveState` and `LoadState` use the same JSON, SQLite, PostgreSQL, or Redis selection as history. The store does not inspect the blob; application code uses it for the visible transcript, Plan projection, and provenance caches without putting those records into provider history.
+
+## Unified partition and shard contract
+
+Every backend partitions first by `project_id`, then isolates `session_id`, then stores immutable history generations in fixed-size message shards. A manifest atomically switches the active generation, so readers see either the old complete generation or the next one. JSON uses generation directories; SQLite and PostgreSQL use `seelex_session_manifest` plus `seelex_session_shard`; Redis uses a project hash-tagged manifest and shard keys in one cluster slot. This keeps range/recovery semantics independent of the chosen storage strategy.
+
 ## 模块定位
 
-`sessionstore` 提供统一、原子、项目作用域的会话持久化。当前 backend 为 JSON shards、SQLite 和 PostgreSQL；调用方只依赖 `Repository`/`Router`。
+`sessionstore` 提供统一、原子、项目作用域的会话持久化。当前 backend 为 JSON shards、SQLite、PostgreSQL 和 Redis；调用方只依赖 `Repository`/`Router`。
 
 ## 数据模型
 
@@ -22,7 +30,11 @@
 
 ### SQLite/PostgreSQL
 
-统一表 `seelex_sessions`，主键 `(project_id, session_id)`；事务内 upsert 完整 `messages_json` 与 metadata。SQLite 使用 modernc，无 CGO；PostgreSQL 使用 pgx stdlib。
+统一使用 `seelex_session_manifest` 与 `seelex_session_shard`：manifest 以 `(project_id, session_id)` 定位当前 immutable generation，shard 以 `(project_id, session_id, generation, shard_index)` 保存固定大小的消息片。事务先写新 generation，再原子切换 manifest。旧版单行 `seelex_sessions.messages_json` 仍可读取，下一次写入自动迁移到分片表。SQLite 使用 modernc，无 CGO；PostgreSQL 使用 pgx stdlib。
+
+### Redis
+
+Redis 使用 `redis://` 或 `rediss://` DSN。每个项目拥有一个 hash-tagged keyspace；同项目的 manifest、history shards、state 和 session index 位于同一 Cluster slot，因此一次 `MULTI/EXEC` 可以原子切换该 session 的 generation。DSN 仅写入本地配置，GUI 只显示 `configured`。
 
 ## Router
 
@@ -32,7 +44,7 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 ## 配置与安全
 
-- JSON/SQLite 使用本地 path；PostgreSQL 使用 DSN。
+- JSON/SQLite 使用本地 path；PostgreSQL/Redis 使用 DSN。
 - `Config.Safe` 不把 DSN 返回 GUI，只报告 configured。
 - 配置文件写入采用原子替换和私有权限。
 - project/session ID 进入路径前经过 hash/安全编码，不能直接形成逃逸路径。
@@ -41,7 +53,7 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 - 所有 backend 是否保持相同逻辑 snapshot 语义。
 - JSON manifest 是否最后提交；失败 generation 是否不会被读取。
-- SQL migration/upsert 是否兼容 SQLite 与 PostgreSQL placeholder。
+- SQL migration/upsert 是否兼容 SQLite 与 PostgreSQL placeholder，Redis key 是否保留同一 project hash tag。
 - Router 是否在任何错误路径关闭 replacement、保留 old repository。
 - range offset/limit 和 empty history 的语义是否一致。
 
@@ -51,4 +63,4 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 go test ./sessionstore -count=1
 ```
 
-测试覆盖 JSON generation 原子性、SQLite round-trip、backend 切换和显式 workspace read 不污染 active scope。
+测试覆盖 JSON/SQLite 的 generation 原子性与状态 sidecar、SQLite 分表分片、Redis 的配置和 key 分片策略、backend 切换和显式 workspace read 不污染 active scope。

@@ -3,6 +3,10 @@
 Use the smallest safe amount of work for the request. Planning is optional at
 this effort level.
 
+**Use Lite for:** a concise answer, a simple explanation, a single targeted
+read, or an acknowledged request with a clear next action. **Do not use Lite
+as an excuse** to skip a check that would materially change a technical claim.
+
 - **Do:** answer directly when no tool or structured workflow is needed.
 - **Do:** use a visible tool when it materially improves correctness.
 - **Don't:** invent a multi-node Plan merely to make a simple answer look

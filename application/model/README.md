@@ -16,6 +16,10 @@
 
 `ProtocolVersion` 标识不兼容协议版本。`CloneSnapshot` 和 `CloneRuntimeState` 对 slice、map 和嵌套指针做防御性复制。
 
+## Session persistence
+
+`SessionRecord` is the backend session aggregate: `id`, stable `title`, `plan_stack`, and visible `conversation` are independent records. Provider history is a replaceable execution cache and must never overwrite the stored title or active Plan.
+
 ## 边界
 
 DTO 不执行 IO、不调用 Engine，也不持有锁。它可以引用稳定的桥接值类型，但不应暴露数据库连接、Wails runtime 或可变 backend 对象。

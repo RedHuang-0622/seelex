@@ -65,6 +65,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .brand small { margin-top: 1px; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .runtime-summary { justify-content: flex-end; max-width: 32vw; overflow: hidden; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .runtime-summary > span:not(.status-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-compactions { margin-top: 12px; display: grid; gap: 7px; }
+.context-summary-title { color: var(--faint); font: 700 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.context-summary-item { padding: 8px 9px; border: 1px solid #293039; border-radius: 7px; background: #12171d; }
+.context-summary-item header { display: flex; align-items: baseline; gap: 7px; color: #d6dee8; font-size: 11px; }
+.context-summary-item header strong { color: #78b7ff; font: 700 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.context-summary-item small { display: block; margin-top: 3px; color: var(--faint); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.context-summary-item p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.35; }
 
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
 .status-dot.online { background: var(--success); }

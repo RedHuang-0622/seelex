@@ -47,12 +47,12 @@
 
 `BeginGracefulShutdown` 拒绝新输入但允许已接受工作完成；`Shutdown` 才取消 active chat 并关闭 broker/events。
 
-每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`，当历史 token 或工具输出过大时 `ContextController` 以 checkpoint 摘要替换冗长工具结果。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete`、`task_needs_user_decision` 或 `task_failed` 结束工具型任务；它们分别表示可交付完成、必须由用户选择的有效分歧，以及有界失败事实。`Snapshot.Task` 公开 `progressing/completed/needs_user_decision/blocked/interrupted/failed`，而 checkpoint、装配的 system prompt 和 `<think>` 内容都不进入 frontend snapshot。Provider 返回 context overflow 或 504 时，Service 保存私有恢复 checkpoint；504 从不自动重放可能已有副作用的工具轮。
+每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`。当历史超过标准 context budget 或出现过大工具结果时，`ContextController` 保留 system prompt，并以一个私有 checkpoint 替换整段可变的 user/assistant/tool transcript；后续轮次需通过定向工具重新获取被裁剪的细节。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete`、`task_needs_user_decision` 或 `task_failed` 结束工具型任务；它们分别表示可交付完成、必须由用户选择的有效分歧，以及有界失败事实。若已加载的 authority Plan 尚未执行而模型自然收尾，运行时将其表示为 `needs_user_decision`，而不伪造完成或暴露内部错误。`Snapshot.Task` 公开 `progressing/completed/needs_user_decision/blocked/interrupted/failed`，而 checkpoint、装配的 system prompt 和 `<think>` 内容都不进入 frontend snapshot。Provider 返回 context overflow 或 504 时，Service 保存私有恢复 checkpoint；504 从不自动重放可能已有副作用的工具轮。
 
 ## Session 与 Project 语义
 
 - project 只定义会话的文件读写范围，不共享 conversation history。
-- session ID 是唯一键；显示名来自首个用户问题，允许重复。
+- session ID 是唯一键；标题是按 `(workspaceID, sessionID)` 保存的稳定 KV 元数据。首次请求只初始化一次标题；除显式重命名外，恢复、压缩、历史分页和首条历史消息都不能改写它。
 - `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。
 - workspace ID 是 binding 与 storage shard 的键；显示名来自 root basename。
 - 恢复 session 时先定位真实 `workspaceID + sessionID`，再读取历史和绑定 Runtime。
@@ -65,15 +65,15 @@
 
 ## Plan 集成
 
-Tool hooks 把 `plan_load` JSON 转为 Plan DAG。当前 authority 阶段把 DAG 作为主 Agent 的权威检查表：主 Agent 使用正常的 project-scoped ReAct tools 执行，而不调用缺少工具和上游产物注入的 `plan_run` 子聊天。`task_complete` 必须枚举所有完成的 Plan 节点才会把 Plan 标记完成。`replan` 只基于失败原因、旧 Plan 和已完成节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。
+Tool hooks 把用户或 Agent 自主调用的 `plan_load` JSON 转为 Plan DAG。Plan 是可选的
+可视化检查表，不是聊天入口门禁；普通 ReAct 直接使用 project-scoped tools 工作。系统提示
+明确禁止使用缺少项目 scope 和上游证据的 `plan_run` 子聊天。`task_complete` 在存在已加载
+Plan 时必须枚举完成节点才会把 Plan 标记完成。`replan` 只基于失败原因、旧 Plan 和已完成
+节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。
 
-Medium/High/Max 的成功 preflight 会先加载 canonical DAG，再由当前 request ID 获取独占的 `PlanAuthorityLease`。该 lease 存在期间，普通 ReAct 只可执行或读取已加载 Plan，不能替换或清空；同一 Runtime 的第二个 authority 请求会 fail closed。ChatStream 返回时释放 lease，随后用户显式选择的 replan 才可加载恢复计划。
-
-For Medium/High/Max, `chat.go` acquires an exclusive request-ID-bound
-`PlanActScope` before preflight. Only its private context may load the Plan;
-after promotion, normal ReAct and stale `plan_load`/`plan_clear` handlers are
-both prevented from mutating it. The scope is released after ChatStream, before
-an explicit replan may load a recovery DAG.
+Effort 只为一次可选 `plan_load` 提供节点数、串行和并发约束；它不再创建 isolated preflight
+subagent、request-scoped authority lease 或向普通用户输入注入 hidden Plan envelope。这样聊天、
+问候和小任务始终直接进入 ReAct，同时复杂任务仍可在用户或 Agent 明确选择时使用 Plan。
 
 ## 依赖边界
 
@@ -95,5 +95,13 @@ an explicit replan may load a recovery DAG.
 go test ./application/core -count=1
 go test ./application/core -race -count=1
 ```
+
+## Context compression visibility
+
+When `ContextController` replaces mutable provider history with its private checkpoint, it also publishes a separate `Snapshot.Task.ContextCompactions` record. The record contains only a version, public trigger reason, message count, estimated token count, and timestamp. It never contains checkpoint text, system prompts, tool arguments, tool results, or raw conversation history.
+
+## Session record and recovery
+
+Provider history is an execution cache, not the user-visible source of truth. `persistCurrentSession` stores a versioned `SessionRecord` beside framework history with four independent components: `id`, stable `title`, `plan_stack` (with one active Plan ID), and the visible `conversation`; execution checkpoint/task and read-file provenance are grouped separately. On resume the UI is rebuilt from this record, while the Engine receives only a bounded continuation summary. Legacy v1 `SessionArchive` payloads are read once through a compatibility migration and are overwritten as v2 records on the next save. This prevents compressed provider history, recovery envelopes, or a first historical message from becoming the source of the UI title or Plan.
 
 重点测试：`service_test.go` 覆盖 session/project/storage 用例，`command_test.go` 覆盖输入协议，`race_test.go` 覆盖并发与关闭。

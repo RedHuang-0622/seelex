@@ -335,14 +335,14 @@ func TestPlanPreflightPromptRendersPolicyAndEvidenceContract(t *testing.T) {
 	for _, required := range []string{
 		"Build the JSON by Copying a Complete Shape", "Reply-only task — correct complete call", "Audit or investigation — correct complete call", "Code change — correct complete call",
 		`"entry":"inspect","nodes":{"inspect"`, `"edges":{"inspect":["implement"],"implement":["verify"],"verify":["report"]}`, "The only top-level keys are `entry`, `nodes`, and `edges`.",
-		"Effort: `high`", "future candidates for at most 3 concurrent node runners", "do not claim they execute concurrently today", "objects, never arrays or nested inside a node",
+		"Effort: `high`", "future candidates for at most 3 concurrent node runners", "do not claim they execute concurrently today", "Common Invalid Shapes and Their Corrections", "a bare edge list loses every edge source", "canonical objects shown above",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("preflight prompt %q is missing %q", prompt, required)
 		}
 	}
 	if strings.Contains(prompt, "Compatibility input may use") {
-		t.Fatalf("preflight prompt must not advertise runtime-only compatibility: %q", prompt)
+		t.Fatalf("preflight prompt must not advertise a compatibility shape: %q", prompt)
 	}
 }
 
@@ -379,6 +379,24 @@ func TestNormalizePlanLoadArgumentsNormalizesNestedTargetsAndRejectsAmbiguousEdg
 	ambiguous := `{"entry":"inspect","nodes":[{"id":"inspect","input":"inspect"},{"id":"report","input":"report"}],"edges":[{"to":"report"}]}`
 	if _, err := NormalizePlanLoadArguments(ambiguous); err == nil || !strings.Contains(err.Error(), "from") {
 		t.Fatalf("ambiguous edge error = %v, want missing source", err)
+	}
+}
+
+func TestNormalizePlanLoadArgumentsRecoversOrderedEdgeTargetList(t *testing.T) {
+	input := `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"implement":{"input":"implement"},"verify":{"input":"verify"}},"edges":["implement","verify"]}`
+	canonical, err := NormalizePlanLoadArguments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"inspect":["implement"]`, `"implement":["verify"]`} {
+		if !strings.Contains(canonical, expected) {
+			t.Fatalf("ordered target list canonical plan %s is missing %s", canonical, expected)
+		}
+	}
+
+	duplicate := `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"verify":{"input":"verify"}},"edges":["verify","verify"]}`
+	if _, err := NormalizePlanLoadArguments(duplicate); err == nil || !strings.Contains(err.Error(), "repeated") {
+		t.Fatalf("duplicate ordered edge target error = %v", err)
 	}
 }
 

@@ -55,7 +55,9 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
 	activateDefaultPlugin(plugins, frameworkEngine)
 
-	appEngine := newEnginePort(frameworkEngine)
+	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
+		return initEngine(runtime, hooks)
+	})
 	store := initStore()
 	defer store.Close()
 	app := initApplication(
@@ -81,7 +83,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	if err := app.Submit(mediumCtx, "#plan"); err != nil {
 		t.Fatalf("activate plan skill: %v", err)
 	}
-	if err := app.Submit(mediumCtx, "Use plan_load exactly once. Load a serial two-node plan with entry node inspect and a second node report; each node must have a short input. Do not run the plan and do not call any other tool. After a successful load, reply with PLAN_SMOKE_OK."); err != nil {
+	if err := app.Submit(mediumCtx, "Use plan_load exactly once. Load a serial two-node plan with entry node inspect and a second node report; each node must have a short input. Do not execute the plan. Then call task_needs_user_decision with a short question that asks whether the user wants the loaded plan executed, and reply with PLAN_SMOKE_OK. Do not call any other tool."); err != nil {
 		t.Fatalf("submit live plan request: %v", err)
 	}
 	if err := app.WaitForIdle(mediumCtx); err != nil {
@@ -130,7 +132,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		t.Fatalf("switch to high effort: %v", err)
 	}
 	highStart := len(app.Snapshot().Conversation)
-	if err := app.Submit(highCtx, "Create a three-node repository audit plan with nodes inspect, verify, and report. Do not run the plan. After planning, reply with HIGH_AUTHORITY_SMOKE_OK."); err != nil {
+	if err := app.Submit(highCtx, "Create a three-node repository audit plan with nodes inspect, verify, and report. Do not execute the plan. Then call task_needs_user_decision with a short question that asks whether the user wants the loaded plan executed, and reply with HIGH_AUTHORITY_SMOKE_OK. Do not call any other tool."); err != nil {
 		t.Fatalf("submit authoritative high plan request: %v", err)
 	}
 	if err := app.WaitForIdle(highCtx); err != nil {

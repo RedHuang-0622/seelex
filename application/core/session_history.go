@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,16 +26,33 @@ func (service *Service) resumeSession(sessionID string) error {
 	}
 
 	location := service.locateSession(sessionID)
-	history, err := service.loadSessionHistory(location, sessionID)
+	record, hasRecord, err := service.loadSessionRecord(location, sessionID)
 	if err != nil {
-		return fmt.Errorf("load session %q: %w", sessionID, err)
+		return fmt.Errorf("load session record %q: %w", sessionID, err)
 	}
-	if err := service.deps.Engine.ReplaceHistory(sessionID, history); err != nil {
+	history, historyErr := service.loadSessionHistory(location, sessionID)
+	if historyErr != nil && !hasRecord {
+		return fmt.Errorf("load session %q: %w", sessionID, historyErr)
+	}
+	if historyErr != nil {
+		// A v2 SessionRecord is authoritative for the visible transcript and
+		// recovery checkpoint. Framework history is only a provider cache, so a
+		// lost legacy cache must not make the saved session impossible to open.
+		history = nil
+	}
+	engineHistory := history
+	if hasRecord {
+		engineHistory = recordResumeHistory(record)
+	}
+	if err := service.deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
 		return fmt.Errorf("replace engine history: %w", err)
 	}
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 
 	total := len(history)
+	if hasRecord {
+		total = len(record.Conversation.Messages)
+	}
 	offset := total - defaultHistoryWindow
 	if offset < 0 {
 		offset = 0
@@ -55,13 +73,52 @@ func (service *Service) resumeSession(sessionID string) error {
 		}
 	}
 
+	activePlan := activePlanFrame(record.PlanStack, record.ActivePlanID)
+	var planRestoreErr error
+	if hasRecord && activePlan != nil && activePlan.Arguments != "" {
+		if restorer, ok := service.deps.Runtime.(persistedPlanRestorer); ok {
+			planRestoreErr = restorer.RestorePlan(context.Background(), activePlan.Arguments)
+		}
+	}
+
 	service.mu.Lock()
-	service.snapshot.Session = SessionState{ID: sessionID, Name: sessionTitleFromHistory(history)}
+	name := sessionTitleFromHistory(history)
+	if hasRecord && record.Title.Value != "" {
+		name = record.Title.Value
+	}
+	service.snapshot.Session = SessionState{ID: sessionID, Name: name}
+	service.sessionTitle = SessionTitle{Value: name, Source: "legacy_history"}
+	if hasRecord {
+		service.sessionTitle = record.Title
+		service.planStack = cloneSessionPlanStack(record.PlanStack)
+		service.activePlanID = record.ActivePlanID
+		service.planSequence = uint64(len(service.planStack))
+	} else {
+		service.planStack = nil
+		service.activePlanID = ""
+		service.planSequence = 0
+	}
 	service.snapshot.Conversation = nil
 	service.snapshot.Runtime.Plan = nil
+	service.snapshot.ReadFiles = nil
+	service.snapshot.Task = nil
 	service.snapshot.Interaction = nil
 	service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
-	service.appendHistoryLocked(visibleHistory)
+	if hasRecord {
+		service.snapshot.Conversation = append(service.snapshot.Conversation, recordConversation(record)...)
+		service.snapshot.Runtime.Plan = activePlanFromStack(record.PlanStack, record.ActivePlanID)
+		service.snapshot.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
+		if record.Execution.Task != nil {
+			task := *record.Execution.Task
+			task.ContextCompactions = append([]ContextCompaction(nil), record.Execution.Task.ContextCompactions...)
+			service.snapshot.Task = &task
+		}
+		if planRestoreErr != nil {
+			service.appendMessageLocked("system", "The stored Plan is visible for review but could not be reloaded for execution with the current settings.", nil)
+		}
+	} else {
+		service.appendHistoryLocked(visibleHistory)
+	}
 	service.snapshot.HistoryOffset = offset
 	service.snapshot.TotalMessages = total
 	service.snapshot.HasMoreHistory = offset > 0
@@ -73,6 +130,30 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
+}
+
+// ResumeSession is the direct application boundary for GUI/TUI session
+// selection. It deliberately bypasses command text parsing so a click has one
+// synchronous outcome: a restored snapshot or a returned error.
+func (service *Service) ResumeSession(sessionID string) error {
+	return service.resumeSession(sessionID)
+}
+
+func activePlanFrame(stack []SessionPlanFrame, activeID string) *SessionPlanFrame {
+	for index := range stack {
+		if stack[index].ID == activeID {
+			return &stack[index]
+		}
+	}
+	return nil
+}
+
+func activePlanFromStack(stack []SessionPlanFrame, activeID string) *PlanState {
+	frame := activePlanFrame(stack, activeID)
+	if frame == nil {
+		return nil
+	}
+	return cloneRuntimeState(RuntimeState{Plan: frame.Plan}).Plan
 }
 
 // LoadMoreHistory prepends an older history page to the visible conversation.
@@ -135,6 +216,9 @@ func adaptEngineMessage(msg EngineMessage) Message {
 		content = displayUserInput(content)
 	} else if msg.Role == "assistant" || msg.Role == "tool" {
 		content = stripThoughtBlocks(content)
+	}
+	if isProviderOnlyHistoryContent(content) {
+		content = ""
 	}
 	message := Message{Role: msg.Role, Content: content}
 	for _, toolCall := range msg.ToolCalls {

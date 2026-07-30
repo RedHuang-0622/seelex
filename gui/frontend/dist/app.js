@@ -5,6 +5,7 @@ import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
 import { planToDSL, reconcilePlanDSL } from "./plan-dsl.js";
 import { collectReadFileSources } from "./read-sources.js";
+import { renderContextCompactions } from "./context-summary.js";
 
 const state = {
   info: null,
@@ -13,7 +14,8 @@ const state = {
   commandSelected: 0,
   inlineSuggestions: [],
   inlineSelected: 0,
-  inlineRequest: 0
+  inlineRequest: 0,
+  resumingSessionID: ""
 };
 
 const elements = Object.fromEntries([
@@ -22,7 +24,7 @@ const elements = Object.fromEntries([
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "skill-list", "history-bar",
-  "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count",
+  "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "interaction-modal", "perm-toggle", "new-workspace", "workspace-info", "workspace-list", "interaction-risk", "interaction-title",
@@ -112,7 +114,8 @@ function renderProject(snapshot) {
   const runtime = snapshot.runtime || {};
   const task = snapshot.task || null;
   const running = Boolean(snapshot.chat?.running);
-  const sources = collectReadFileSources(snapshot.conversation || []);
+  const sources = collectReadFileSources(snapshot.conversation || [], snapshot.read_files || []);
+  const compactions = task?.context_compactions || [];
   elements["project-name"].textContent = workspace?.name || "No project selected";
   elements["project-root"].textContent = workspace?.root_path || "";
   elements["project-status"].innerHTML = [
@@ -127,6 +130,8 @@ function renderProject(snapshot) {
       ? `Current task is running with ${runtime.plugin || "default"} capabilities in this project scope.`
       : `This session can read and write only within ${workspace.name}.`)
     : "Select a project to define this session's read and write scope.";
+  elements["context-compactions"].innerHTML = renderContextCompactions(compactions);
+  elements["context-compactions"].classList.toggle("hidden", compactions.length === 0);
   elements["source-count"].textContent = String(sources.length);
   elements["project-sources"].innerHTML = renderSources(sources);
 }
@@ -144,6 +149,7 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
   elements["session-list"].innerHTML = items.length
     ? items.map(session => {
       const active = session.id === currentID;
+	  const resuming = session.id === state.resumingSessionID;
       const updated = session.updated_at
         ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
         : "当前会话";
@@ -151,8 +157,8 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       const scope = workspaceID ? `Project: ${workspaceNames.get(workspaceID) || workspaceID}` : "No project";
       const detail = session.token_count ? `${updated} · ${session.token_count} tokens · ${scope}` : `${updated} · ${scope}`;
       return `<div class="session-row">
-        <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}">
-          <span class="session-name">${icon("message", 13)} ${escapeHtml(session.name || shortSessionID(session.id))}</span><small>${escapeHtml(detail)}</small>
+        <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""}>
+          <span class="session-name">${icon("message", 13)} ${escapeHtml(resuming ? "恢复中…" : (session.name || shortSessionID(session.id)))}</span><small>${escapeHtml(detail)}</small>
         </button>
         <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
       </div>`;
@@ -166,8 +172,22 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
         showToast(capabilities.session_resume_reason || "当前版本暂不支持恢复历史会话");
         return;
       }
-      try { await invoke("Submit", `/resume ${button.dataset.session}`); await refresh({ scroll: "bottom" }); }
-      catch (error) { showToast(error); }
+      const sessionID = button.dataset.session;
+      state.resumingSessionID = sessionID;
+      elements["composer-status"].textContent = "正在恢复会话…";
+      renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces);
+      try {
+        await invoke("ResumeSession", sessionID);
+        await refresh({ scroll: "bottom" });
+        elements["composer-status"].textContent = "";
+      } catch (error) {
+        elements["composer-status"].textContent = `恢复会话失败：${error?.message || String(error)}`;
+        showToast(error);
+      } finally {
+        state.resumingSessionID = "";
+        const latest = client.current() || { sessions, session: current, capabilities, session_workspaces: sessionWorkspaces, workspaces };
+        renderSessions(latest.sessions || sessions, latest.session || current, latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces, latest.workspaces || workspaces);
+      }
     });
   });
   elements["session-list"].querySelectorAll(".session-del").forEach(button => {
@@ -283,7 +303,7 @@ async function openSettings() {
     elements["storage-backend"].value = config.backend || "json";
     elements["storage-path"].value = config.path || "";
     elements["storage-dsn"].value = "";
-    elements["storage-dsn"].placeholder = config.dsn === "configured" ? "已配置；留空则保持不变" : "postgres://user:password@host:5432/database?sslmode=require";
+    elements["storage-dsn"].placeholder = config.dsn === "configured" ? "已配置；留空则保持不变" : storageDSNPlaceholder();
     updateStorageFields();
   } catch (error) { showToast(error); }
 }
@@ -295,9 +315,16 @@ function storageConfig() {
 }
 
 function updateStorageFields() {
-  const postgres = elements["storage-backend"].value === "postgres";
-  elements["storage-path-field"].classList.toggle("hidden", postgres);
-  elements["storage-dsn-field"].classList.toggle("hidden", !postgres);
+  const remote = ["postgres", "redis"].includes(elements["storage-backend"].value);
+  elements["storage-path-field"].classList.toggle("hidden", remote);
+  elements["storage-dsn-field"].classList.toggle("hidden", !remote);
+  if (elements["storage-dsn"].value === "") elements["storage-dsn"].placeholder = storageDSNPlaceholder();
+}
+
+function storageDSNPlaceholder() {
+  return elements["storage-backend"].value === "redis"
+    ? "redis://:password@host:6379/0"
+    : "postgres://user:password@host:5432/database?sslmode=require";
 }
 
 async function testStorage() {
