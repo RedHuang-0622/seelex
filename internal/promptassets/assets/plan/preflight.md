@@ -44,6 +44,62 @@ IDs, the `nodes` object, and the `edges` object in their shown positions.
 {"entry":"inspect","nodes":{"inspect":{"input":"inspect the affected code and constraints"},"implement":{"input":"make the smallest safe implementation change"},"verify":{"input":"run targeted tests and inspect the result"},"report":{"input":"summarize the delivered change, verification, risks, and any user decision"}},"edges":{"inspect":["implement"],"implement":["verify"],"verify":["report"]}}
 ```
 
+### Common Invalid Shapes and Their Corrections
+
+Emit the object-keyed canonical form shown above. Runtime has limited
+compatibility for legacy array-shaped input, but do **not** use that
+compatibility when generating a new Plan: it is easier to omit a dependency
+or produce an ambiguous DAG.
+
+**Wrong — a bare edge list loses every edge source:**
+
+```json
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"implement":{"input":"implement"},"verify":{"input":"verify"}},"edges":["implement","verify"]}
+```
+
+Do not emit this shape. The strings `implement` and `verify` do not say which
+node points to them, so this is not an executable dependency graph.
+
+**Correct — name each edge source in the `edges` object:**
+
+```json
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"implement":{"input":"implement"},"verify":{"input":"verify"}},"edges":{"inspect":["implement"],"implement":["verify"]}}
+```
+
+**Wrong — a node outside `nodes` is an unexpected top-level field:**
+
+```json
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect"}},"verify":{"input":"verify"},"edges":{"inspect":["verify"]}}
+```
+
+**Correct — put every node, including `verify` and `report`, inside the one
+`nodes` object:**
+
+```json
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"verify":{"input":"verify"}},"edges":{"inspect":["verify"]}}
+```
+
+**Wrong — a planned report that is not connected cannot be reached:**
+
+```json
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"report":{"input":"report findings"}},"edges":{}}
+```
+
+**Correct — every planned node must be reachable from `entry`:**
+
+```json
+{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"report":{"input":"report findings"}},"edges":{"inspect":["report"]}}
+```
+
+**Wrong — do not fabricate a one-node reply Plan for a greeting:**
+
+```json
+{"entry":"reply","nodes":{"reply":{"input":"say hello"}},"edges":{}}
+```
+
+**Correct:** return `NO_PLAN: casual conversation; direct response is
+sufficient.` and make no tool call.
+
 ### Runtime Boundaries
 
 - Effort: `{{.Effort}}`
@@ -76,5 +132,6 @@ Before calling `plan_load`, verify this exact checklist:
 1. The only top-level keys are `entry`, `nodes`, and `edges`.
 2. `entry` is exactly one key in `nodes`.
 3. Every edge source and target is exactly a key in `nodes`.
-4. `nodes` and `edges` are objects, never arrays or nested inside a node.
+4. `nodes` and `edges` use the canonical objects shown above; do not put a
+   node inside another node or at the top level.
 5. Every node has a non-empty, observable `input`.

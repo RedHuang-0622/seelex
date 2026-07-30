@@ -32,6 +32,22 @@ func TestPlanTemplatesRenderRuntimeFacts(t *testing.T) {
 	}
 }
 
+func TestPlanPreflightTeachesCanonicalDAGCorrections(t *testing.T) {
+	preflight := PlanPreflight(PlanData{})
+	for _, expected := range []string{
+		"Common Invalid Shapes and Their Corrections",
+		"a bare edge list loses every edge source",
+		"name each edge source in the `edges` object",
+		"every planned node must be reachable from `entry`",
+		"do not fabricate a one-node reply Plan for a greeting",
+		"limited\ncompatibility for legacy array-shaped input",
+	} {
+		if !strings.Contains(preflight, expected) {
+			t.Fatalf("preflight prompt missing correction %q", expected)
+		}
+	}
+}
+
 func TestPlanActPromptHarness(t *testing.T) {
 	if err := ValidatePlanActHarness(); err != nil {
 		t.Fatal(err)
