@@ -2,24 +2,40 @@
 
 ## 模块定位
 
-`seelexctx` 是跨 Engine、父子 Agent 和 A2A 分支传递工程上下文的门面。它把原始 history/trace 提炼为稳定 `ContextSnapshot`，支持预算压缩和 child-to-parent merge-back。
+`seelexctx` 是 Seele v2 会话上下文契约（`seelectx`）的 Seelex 适配层与跨
+父子 Agent 的上下文承袭门面。它把原始 history/遥测事件提炼为稳定
+`ContextSnapshot`，支持预算压缩和 child-to-parent merge-back；同时把主会话
+的装配/压缩/控制决策实现为 `seelectx` 的原子策略（Assembler/Processor/
+Compressor/Controller），供 `session.ContextComponents` 注入。
 
 ## 子模块
 
 | 目录 | 职责 |
 |---|---|
 | [`snapshot/`](snapshot/README.md) | 上下文 DTO、builder、format 和 validate。 |
-| [`provider/`](provider/README.md) | 从 Engine history 或 trace 导出 Snapshot。 |
+| [`provider/`](provider/README.md) | 从会话（SessionSource/DurableHistory）或 telemetry 导出 Snapshot。 |
 | [`compactor/`](compactor/README.md) | 基于 token budget 的分级压缩。 |
 | [`merger/`](merger/README.md) | 子任务 findings/decisions/progress 合并回父上下文。 |
 
-`bridge.go`/`seele.go` 保留简单 Export/Import API，并复用 Seele `seelectx` 的 token 估算、NeedCompression、TrimHistory 与 context manager。
+根包文件：
+
+| 文件 | 职责 |
+|---|---|
+| `assembler.go` | `RequestAssembler`：system prompt（effort/skill）+ PromptBlocks + working history 拼装。 |
+| `processor.go` | `ToolResultProcessor`：超大工具结果 → result_ref/省略警告。 |
+| `compressor.go` | `Compressor` 适配：短历史免压缩 + QuickChat 隔离摘要。 |
+| `controller.go` | `ContextController`：软/硬阈值、窗口外压缩、checkpoint 决策。 |
+| `window.go` | 滑动窗口轮数策略（配置 + provider 推导）。 |
+| `history_safety.go` | Provider 历史安全配对规则（assistant/tool 配对、恢复信封）。 |
+| `bridge.go` | Export/ExportWithGoal/Import 兼容 API（委托子包）。 |
+| `seele.go` | re-export 仍被使用的 Seele `seelectx` token 估算/压缩函数。 |
 
 ## 数据流
 
 ```text
-Engine / Trace -> Provider -> ContextSnapshot -> Compactor -> child agent
-parent snapshot <- Merger <----------------------- child result
+Session history / DurableHistory -> Provider -> ContextSnapshot -> Compactor -> child agent
+parent snapshot <- Merger <------------------------------ child result
+ContextComponents（Assembler/Processor/Compressor/Controller）-> session.Session
 ```
 
 ## 设计原则

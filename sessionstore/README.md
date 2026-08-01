@@ -42,6 +42,20 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 显式 `LoadWorkspace` 等方法不修改 active write scope，避免恢复其他项目会话时读错 shard。
 
+## Seele v2 会话适配
+
+两个适配器把 Router 接到 Seele v0.0.8 的会话契约：
+
+- `durable_history.go` — `DurableHistory` 实现 `seelectx.DurableHistory`
+  （Load/Save/Clear）：Session 每次 Chat 前 Load、结束后 Save；`Reset`
+  显式清空。Save = ProviderHistory 原子写 + 会话状态 blob（SaveState
+  编排）；SessionRecord/TranscriptEvent/ToolResults 的持久化继续由
+  `SaveCommit` 负责。
+- `session_context.go` — `SessionContextStore` 读写会话级上下文记录
+  （state blob）：SystemPrompt + Plan/Task/Skill/Compact 四栈 + 聊天队列
+  （"now using X" = 栈顶）。Schema 版本校验失败显式拒绝加载（不静默重建），
+  走会话恢复错误路径。
+
 ## 配置与安全
 
 - JSON/SQLite 使用本地 path；PostgreSQL/Redis 使用 DSN。

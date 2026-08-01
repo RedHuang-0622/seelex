@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`plugin` 把 `plugins/<name>/plugin.md` 声明转换为可运行的专业能力形态，并协调 Seele Tool filter、MCP servers 与 Seelex Skill registry。
+`plugin` 把 `plugins/<name>/plugin.md` 声明转换为可运行的专业能力形态，并协调工具可见性（include/exclude 快照经 `ToolBackend` 交给 seelebridge 的可见性策略）、MCP servers 与 Seelex Skill registry。
 
 ## 文件结构
 

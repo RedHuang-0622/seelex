@@ -14,6 +14,11 @@
 
 主要调用方是 `application` facade；主要消费者是 TUI、GUI Bridge 和 E2E harness。
 
+> Seele v2 装配模型：`contract.ChatEngine` 端口由 seelebridge 创建的
+> `session.Session`（`session.NewSession` 主会话）经 `enginePort` 适配满足；
+> `RuntimePort` 转发 seelebridge.Runtime（账号池/Completer/可见性/Plan
+> preflight/策略）。本模块只消费窄端口，不直接接触 Seele 会话实现。
+
 ## 文件结构
 
 | 文件 | 职责 |
