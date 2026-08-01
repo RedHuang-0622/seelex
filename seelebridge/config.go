@@ -6,13 +6,15 @@ import (
 	"os"
 	"strings"
 
-	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"gopkg.in/yaml.v3"
 )
 
 const (
 	defaultContextWindow   = 200_000
 	defaultMaxOutputTokens = 8_192
+	// defaultMaxConcurrency 是每个账号默认的并发租约上限。
+	// 主会话串行（Session 单锁），默认 1 即可；后续切片为 Plan 子代理并行时按角色上调。
+	defaultMaxConcurrency = 1
 )
 
 type accountLimits struct {
@@ -20,8 +22,22 @@ type accountLimits struct {
 	MaxOutputTokens int
 }
 
+// accountSpec 是账号的非敏感配置（凭据在 APIKey 内，仅用于组装客户端）。
+type accountSpec struct {
+	Name            string
+	Provider        string
+	BaseURL         string
+	APIKey          string
+	Model           string
+	MaxTokens       int
+	ContextWindow   int
+	MaxOutputTokens int
+	MaxConcurrency  int
+	Role            AccountRole
+}
+
 type loadedAccountConfig struct {
-	Pool           *api.AccountPool
+	Specs          []accountSpec
 	AvailableRoles []AccountRole
 	Limits         map[string]accountLimits
 }
@@ -53,8 +69,8 @@ type simplifiedConfig struct {
 }
 
 // loadSimplifiedConfig reads the role-grouped format and builds the account
-// pool plus Seelex-owned context limits. Missing roles are resolved later by
-// ResolveAccount.
+// specs plus Seelex-owned context limits. Missing roles are resolved later by
+// ResolveAccountSpec.
 func loadSimplifiedConfig(path string) (loadedAccountConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -87,7 +103,7 @@ func loadSimplifiedConfig(path string) (loadedAccountConfig, error) {
 		return loadedAccountConfig{}, fmt.Errorf("seelebridge: no accounts configured in any role")
 	}
 
-	accounts := make([]*api.Account, 0)
+	specs := make([]accountSpec, 0)
 	limitsByAccount := make(map[string]accountLimits)
 	for _, role := range roleOrder {
 		for index, entry := range roleMap[role] {
@@ -96,21 +112,25 @@ func loadSimplifiedConfig(path string) (loadedAccountConfig, error) {
 			if err != nil {
 				return loadedAccountConfig{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
 			}
-			provider := firstNonEmpty(entry.Provider, cfg.Defaults.Provider, string(api.ProviderOpenAI))
-			accounts = append(accounts, &api.Account{
-				Name:      name,
-				Provider:  api.ProviderType(provider),
-				BaseURL:   entry.BaseURL,
-				APIKey:    entry.APIKey,
-				Model:     entry.Model,
-				MaxTokens: limits.MaxOutputTokens,
+			provider := firstNonEmpty(entry.Provider, cfg.Defaults.Provider, "openai")
+			specs = append(specs, accountSpec{
+				Name:            name,
+				Provider:        provider,
+				BaseURL:         entry.BaseURL,
+				APIKey:          entry.APIKey,
+				Model:           entry.Model,
+				MaxTokens:       limits.MaxOutputTokens,
+				ContextWindow:   limits.ContextWindow,
+				MaxOutputTokens: limits.MaxOutputTokens,
+				MaxConcurrency:  defaultMaxConcurrency,
+				Role:            role,
 			})
 			limitsByAccount[name] = limits
 		}
 	}
 
 	return loadedAccountConfig{
-		Pool:           api.NewAccountPool(accounts...),
+		Specs:          specs,
 		AvailableRoles: availableRoles,
 		Limits:         limitsByAccount,
 	}, nil
@@ -118,18 +138,22 @@ func loadSimplifiedConfig(path string) (loadedAccountConfig, error) {
 
 func fallbackAccountConfig() loadedAccountConfig {
 	limits := accountLimits{ContextWindow: defaultContextWindow, MaxOutputTokens: defaultMaxOutputTokens}
-	account := &api.Account{
-		Name:      "fallback",
-		Provider:  api.ProviderOpenAI,
-		Model:     "gpt-4o",
-		BaseURL:   "https://api.openai.com/v1",
-		APIKey:    os.Getenv("OPENAI_API_KEY"),
-		MaxTokens: limits.MaxOutputTokens,
+	spec := accountSpec{
+		Name:            "fallback",
+		Provider:        "openai",
+		Model:           "gpt-4o",
+		BaseURL:         "https://api.openai.com/v1",
+		APIKey:          os.Getenv("OPENAI_API_KEY"),
+		MaxTokens:       limits.MaxOutputTokens,
+		ContextWindow:   limits.ContextWindow,
+		MaxOutputTokens: limits.MaxOutputTokens,
+		MaxConcurrency:  defaultMaxConcurrency,
+		Role:            RoleAgent,
 	}
 	return loadedAccountConfig{
-		Pool:           api.NewAccountPool(account),
+		Specs:          []accountSpec{spec},
 		AvailableRoles: []AccountRole{RoleAgent},
-		Limits:         map[string]accountLimits{account.Name: limits},
+		Limits:         map[string]accountLimits{spec.Name: limits},
 	}
 }
 
@@ -180,9 +204,24 @@ const (
 	RoleGoalPlan AccountRole = "goalplan"
 )
 
-// ResolveAccount picks an account from the pool for the given role.
-func ResolveAccount(pool *api.AccountPool, role AccountRole) (*api.Account, error) {
-	return ResolveAccountForBranch(pool, role, "")
+// ResolveAccountSpec picks an account spec from the loaded config for the
+// given role. Roles fall back to the primary agent role when they are not
+// configured, preserving single-account installations.
+func ResolveAccountSpec(specs []accountSpec, role AccountRole) (accountSpec, error) {
+	roles := append([]AccountRole{role}, fallbackRoles(role)...)
+	for _, candidate := range roles {
+		for _, spec := range specs {
+			if spec.Role == candidate && spec.APIKey != "" {
+				return spec, nil
+			}
+		}
+	}
+	for _, spec := range specs {
+		if spec.APIKey != "" {
+			return spec, nil
+		}
+	}
+	return accountSpec{}, fmt.Errorf("seelebridge: no accounts available")
 }
 
 func accountRole(name string) AccountRole {

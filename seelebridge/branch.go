@@ -1,18 +1,45 @@
 package seelebridge
 
 import (
-	"context"
 	"fmt"
 	"hash/fnv"
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/agent/core/api"
-	"github.com/RedHuang-0622/Seele/agent/core/tool/builtin"
-	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/Seele/workplan/core/node"
-	"github.com/RedHuang-0622/Seele/workplan/runtime/forkexec"
+	"github.com/RedHuang-0622/Seele/session"
 )
+
+// nodeSessionComponents 构造 Plan 节点子代理会话的公共组件
+// （bridge.WithSessionComponents 输入，plan.md §3.1 步骤 5）。
+// Agent 由 bridge 强制覆盖为 runtime 的 agent；每节点新建独立 Session
+// （工作历史默认隔离）。节点级 PromptBlocks（目标/父证据/预算）由
+// SeelexAgentNode.Run 注入 ctx，装配器 nodeScopeAssembler 在每次请求时
+// 合并（agent_node.go），因此组件本身保持静态、可并发共享。
+func (r *Runtime) nodeSessionComponents() session.SessionComponents {
+	return session.SessionComponents{
+		Context:   r.nodeContextComponents(),
+		Config:    session.SessionConfig{MaxLoops: defaultNodeMaxLoops},
+		Telemetry: r.hook, // 节点会话与主会话共享遥测钩子（llm/tool intent-effect）
+		ModelName: r.model,
+	}
+}
+
+// nodeSessionID 派生节点会话 ID：以系统提示（节点目标）为种子做稳定 hash，
+// 同一节点跨 plan_run 可复现（供未来 checkpoints 定位）；空提示返回空串
+// 让 Session 自动生成不透明 ID。
+func (r *Runtime) nodeSessionID(systemPrompt string) string {
+	if systemPrompt == "" {
+		return ""
+	}
+	return fmt.Sprintf("node-%x", stableHash(systemPrompt))
+}
+
+// stableHash 返回 seed 的 FNV-1a 32 位稳定哈希（与 stableIndex 同族）。
+func stableHash(seed string) uint32 {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(seed))
+	return hash.Sum32()
+}
 
 // PlanBranchEvent is the Seelex-owned representation of a branch lifecycle
 // event. It intentionally contains no Seele runtime types.
@@ -63,36 +90,14 @@ func (r *Runtime) setSelectedAccount(name string) {
 	r.branchMu.Unlock()
 }
 
-func (r *Runtime) resolvePlanBranchRuntime(branchID string) forkexec.BranchRuntime {
-	binding := r.currentPlanBranchBinding()
-	if binding.SessionID == "" && binding.PlanID == "" && binding.AccountID == "" {
-		return forkexec.BranchRuntime{}
-	}
-	role := roleForPlanBranch(binding, branchID)
-	account, err := r.resolvePlanBranchAccount(binding, role, branchID)
-	runtime := forkexec.BranchRuntime{
-		SessionID:   binding.SessionID,
-		WorkspaceID: binding.WorkspaceID,
-		Role:        string(role),
-		TraceID:     branchTraceID(binding, branchID),
-	}
-	if err != nil {
-		runtime.AgentFactory = unavailableAgentFactory{err: err}
-		return runtime
-	}
-	runtime.AccountID = account.Name
-	runtime.Provider = string(account.Provider)
-	runtime.AgentFactory = newBranchAgentFactory(account, r.client.Cfg)
-	return runtime
-}
-
-func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role AccountRole, branchID string) (*api.Account, error) {
+// resolvePlanBranchAccount 按 binding 解析分支账号：显式 AccountID 直接 pin，
+// 否则按 role + seed 走确定性 hash 选择（不占用主链路租约）。
+func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role AccountRole, branchID string) (string, error) {
 	if binding.AccountID != "" {
-		account := accountByName(r.pool, binding.AccountID)
-		if account == nil {
-			return nil, fmt.Errorf("plan branch %q: selected account %q is unavailable", branchID, binding.AccountID)
+		if spec := accountByName(r.accountSpecList(), binding.AccountID); spec == nil {
+			return "", fmt.Errorf("plan branch %q: selected account %q is unavailable", branchID, binding.AccountID)
 		}
-		return account, nil
+		return binding.AccountID, nil
 	}
 	return ResolveAccountForBranch(r.pool, role, binding.PlanID+":"+branchID)
 }
@@ -112,85 +117,6 @@ func branchTraceID(binding PlanBranchBinding, branchID string) string {
 		return branchID
 	}
 	return binding.TraceID + ":" + branchID
-}
-
-func newBranchAgentFactory(account *api.Account, defaults types.LLMConfig) node.AgentFactory {
-	config := defaults
-	config.BaseURL = account.BaseURL
-	config.APIKey = account.APIKey
-	config.Model = account.Model
-	client := api.NewChatClient(config).
-		WithAccountPool(api.NewAccountPool(account)).
-		SetProvider(account.Provider)
-	return builtin.NewChatAgentFactory(client)
-}
-
-type unavailableAgentFactory struct{ err error }
-
-func (f unavailableAgentFactory) NewAgent(string) node.Agent {
-	return unavailableAgent{err: f.err}
-}
-
-type unavailableAgent struct{ err error }
-
-func (a unavailableAgent) Chat(context.Context, string) (string, error) {
-	return "", a.err
-}
-
-// ResolveAccountForBranch selects an account without mutating the shared pool
-// cursor. The same role and seed always resolve to the same configured account.
-func ResolveAccountForBranch(pool *api.AccountPool, role AccountRole, seed string) (*api.Account, error) {
-	accounts := accountsForRole(pool, role)
-	if len(accounts) == 0 {
-		return nil, fmt.Errorf("seelebridge: no accounts available")
-	}
-	return accounts[stableIndex(seed, len(accounts))], nil
-}
-
-func accountsForRole(pool *api.AccountPool, role AccountRole) []*api.Account {
-	if pool == nil {
-		return nil
-	}
-	all := pool.All()
-	roles := append([]AccountRole{role}, fallbackRoles(role)...)
-	for _, candidate := range roles {
-		matched := make([]*api.Account, 0)
-		for _, account := range all {
-			if !account.Disabled && accountRole(account.Name) == candidate {
-				matched = append(matched, account)
-			}
-		}
-		if len(matched) > 0 {
-			return matched
-		}
-	}
-	for _, account := range all {
-		if !account.Disabled {
-			return []*api.Account{account}
-		}
-	}
-	return nil
-}
-
-func fallbackRoles(role AccountRole) []AccountRole {
-	switch role {
-	case RoleGoalPlan, RoleSubAgent:
-		return []AccountRole{RoleAgent}
-	default:
-		return nil
-	}
-}
-
-func accountByName(pool *api.AccountPool, name string) *api.Account {
-	if pool == nil {
-		return nil
-	}
-	for _, account := range pool.All() {
-		if account.Name == name && !account.Disabled {
-			return account
-		}
-	}
-	return nil
 }
 
 func stableIndex(seed string, size int) int {

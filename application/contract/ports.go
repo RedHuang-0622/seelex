@@ -49,8 +49,6 @@ type RuntimePort interface {
 	ActivePlugin() string
 	SetFullAccess(bool)
 	SetPlanPolicy(seelebridge.PlanPolicy)
-	AcquirePlanActScope(string) (seelebridge.PlanActScope, error)
-	PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error)
 	PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error)
 	ReplanMetrics() seelebridge.ReplanMetrics
 	SetPlanBranchBinding(seelebridge.PlanBranchBinding)

@@ -121,6 +121,7 @@ func (service *Service) resumeSession(sessionID string) error {
 		service.transcript = nil
 		service.transcriptSeq = 0
 		service.taskExecution = nil
+		service.taskService = nil
 		service.taskCheckpoints = nil
 		service.toolResultRefs = nil
 		service.pendingToolResults = nil

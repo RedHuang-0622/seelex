@@ -6,8 +6,9 @@
 //   - Compactable  — 上下文压缩（Compact）
 //
 // 内置实现：
-//   - EngineProvider — 从 engine.Engine 导出
-//   - TraceProvider  — 从 tracer.Tree 自动提取结构信息
+//   - EngineProvider — 从会话（session.Session）导出
+//   - HistoryProvider — 从 seelectx.DurableHistory 导出（sessionstore 适配）
+//   - TraceProvider  — 从 telemetry 生命周期事件自动提取结构信息
 package provider
 
 import (
@@ -35,5 +36,6 @@ type Compactable interface {
 // Compile-time checks
 var (
 	_ Provider = (*EngineProvider)(nil)
+	_ Provider = (*HistoryProvider)(nil)
 	_ Provider = (*TraceProvider)(nil)
 )

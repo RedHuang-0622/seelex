@@ -57,7 +57,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 
 	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
 		return initEngine(runtime, hooks)
-	})
+	}, runtime.Tracer())
 	store := initStore()
 	defer store.Close()
 	app := initApplication(
@@ -73,7 +73,6 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	defer app.Shutdown()
 	hooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
-	runtime.SetPlanBranchCallback(app.HandlePlanBranchEvent)
 
 	mediumCtx, cancelMedium := smokePhaseContext()
 	defer cancelMedium()
@@ -124,19 +123,20 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	}
 	t.Logf("authoritative medium preflight_plan_loads=%d serial_nodes=%d serial_edges=%d plan_run=0", mediumPlanLoads, len(snapshot.Runtime.Plan.Nodes), len(snapshot.Runtime.Plan.Edges))
 
-	// High preflight is authoritative: normal ReAct must observe the loaded DAG
-	// instead of issuing a second replacement plan_load call.
+	// High effort planning is voluntary: the model must obey the explicit
+	// plan_load instruction through the normal ReAct path (强制规划 gate 已移除，
+	// 规划永远是模型的自愿决策；此处验证 high effort 下 plan_load 工具仍可用)。
 	highCtx, cancelHigh := smokePhaseContext()
 	defer cancelHigh()
 	if err := app.SwitchEffort(highCtx, "high"); err != nil {
 		t.Fatalf("switch to high effort: %v", err)
 	}
 	highStart := len(app.Snapshot().Conversation)
-	if err := app.Submit(highCtx, "Create a three-node repository audit plan with nodes inspect, verify, and report. Do not execute the plan. Then call task_needs_user_decision with a short question that asks whether the user wants the loaded plan executed, and reply with HIGH_AUTHORITY_SMOKE_OK. Do not call any other tool."); err != nil {
-		t.Fatalf("submit authoritative high plan request: %v", err)
+	if err := app.Submit(highCtx, "Use plan_load exactly once. Create a three-node repository audit plan with nodes inspect, verify, and report. Do not execute the plan. Then call task_needs_user_decision with a short question that asks whether the user wants the loaded plan executed, and reply with HIGH_PLAN_SMOKE_OK. Do not call any other tool."); err != nil {
+		t.Fatalf("submit voluntary high plan request: %v", err)
 	}
 	if err := app.WaitForIdle(highCtx); err != nil {
-		t.Fatalf("wait for authoritative high plan request: %v", err)
+		t.Fatalf("wait for voluntary high plan request: %v", err)
 	}
 	high := app.Snapshot()
 	highPlanLoads := 0
@@ -146,7 +146,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 			highPlanLoads++
 			highPlanEvents = append(highPlanEvents, message.Role+":"+message.Tool.Status+":"+truncateSmokeReply(message.Tool.Error, 300))
 			if message.Tool.Status != "success" {
-				t.Fatalf("authoritative high plan_load status = %q error=%q", message.Tool.Status, truncateSmokeReply(message.Tool.Error, 500))
+				t.Fatalf("voluntary high plan_load status = %q error=%q", message.Tool.Status, truncateSmokeReply(message.Tool.Error, 500))
 			}
 		}
 	}
@@ -155,9 +155,9 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		if high.Runtime.Plan != nil {
 			nodeCount, edgeCount = len(high.Runtime.Plan.Nodes), len(high.Runtime.Plan.Edges)
 		}
-		t.Fatalf("authoritative high result: plan_loads=%d nodes=%d edges=%d chat_error=%q events=%q, want one successful three-node DAG", highPlanLoads, nodeCount, edgeCount, high.Chat.Error, highPlanEvents)
+		t.Fatalf("voluntary high result: plan_loads=%d nodes=%d edges=%d chat_error=%q events=%q, want one successful three-node DAG", highPlanLoads, nodeCount, edgeCount, high.Chat.Error, highPlanEvents)
 	}
-	t.Logf("authoritative high preflight_plan_loads=%d nodes=%d edges=%d plan_run=0", highPlanLoads, len(high.Runtime.Plan.Nodes), len(high.Runtime.Plan.Edges))
+	t.Logf("voluntary high plan_loads=%d nodes=%d edges=%d plan_run=0", highPlanLoads, len(high.Runtime.Plan.Nodes), len(high.Runtime.Plan.Edges))
 
 	// B/treatment: this is the same recovery intent through the isolated,
 	// forced tool-choice path. It must succeed without executing plan_run.

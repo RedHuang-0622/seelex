@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
@@ -60,11 +60,11 @@ func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	hooks := bridge.Hooks()
-	hooks.OnToolStart(context.Background(), engine.ToolCallInfo{Turn: 0, Name: "write_file", Arguments: `{"path":"report.md","content":"done"}`})
+	hooks.OnToolStart(context.Background(), session.ToolCallInfo{Turn: 0, Name: "write_file", Arguments: `{"path":"report.md","content":"done"}`})
 	if !hooks.OnIterationComplete(context.Background(), 0) {
 		t.Fatal("first delivery tool should remain within budget")
 	}
-	hooks.OnToolStart(context.Background(), engine.ToolCallInfo{Turn: 1, Name: "read_file", Arguments: `{"path":"report.md"}`})
+	hooks.OnToolStart(context.Background(), session.ToolCallInfo{Turn: 1, Name: "read_file", Arguments: `{"path":"report.md"}`})
 	if hooks.OnIterationComplete(context.Background(), 1) {
 		t.Fatal("tool-call budget should stop the next ReAct iteration")
 	}
@@ -198,21 +198,14 @@ func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
 
 type fakeRuntime struct {
-	account           string
-	binding           seelebridge.PlanBranchBinding
-	planPolicy        seelebridge.PlanPolicy
-	planScopeAcquired []string
-	planScopePromoted []string
-	planScopeReleased []string
-	planScopeErr      error
-	preflight         []string
-	preflightResult   seelebridge.PlanPreflight
-	preflightErr      error
-	replans           []seelebridge.ReplanRequest
-	replanResult      seelebridge.PlanPreflight
-	replanErr         error
-	replanMetrics     seelebridge.ReplanMetrics
-	projectRoot       string
+	account       string
+	binding       seelebridge.PlanBranchBinding
+	planPolicy    seelebridge.PlanPolicy
+	replans       []seelebridge.ReplanRequest
+	replanResult  seelebridge.PlanPreflight
+	replanErr     error
+	replanMetrics seelebridge.ReplanMetrics
+	projectRoot   string
 }
 
 func (*fakeRuntime) Model() string    { return "test-model" }
@@ -234,32 +227,6 @@ func (*fakeRuntime) ActivePlugin() string { return "default" }
 func (*fakeRuntime) SetFullAccess(bool)   {}
 func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	runtime.planPolicy = policy
-}
-func (runtime *fakeRuntime) AcquirePlanActScope(requestID string) (seelebridge.PlanActScope, error) {
-	if runtime.planScopeErr != nil {
-		return nil, runtime.planScopeErr
-	}
-	runtime.planScopeAcquired = append(runtime.planScopeAcquired, requestID)
-	return &fakePlanActScope{runtime: runtime, requestID: requestID}, nil
-}
-
-type fakePlanActScope struct {
-	runtime   *fakeRuntime
-	requestID string
-	once      sync.Once
-}
-
-func (scope *fakePlanActScope) PreflightContext(ctx context.Context) context.Context { return ctx }
-func (scope *fakePlanActScope) Promote() error {
-	scope.runtime.planScopePromoted = append(scope.runtime.planScopePromoted, scope.requestID)
-	return nil
-}
-func (scope *fakePlanActScope) Release() {
-	scope.once.Do(func() { scope.runtime.planScopeReleased = append(scope.runtime.planScopeReleased, scope.requestID) })
-}
-func (runtime *fakeRuntime) PreparePlan(_ context.Context, input string) (seelebridge.PlanPreflight, error) {
-	runtime.preflight = append(runtime.preflight, input)
-	return runtime.preflightResult, runtime.preflightErr
 }
 func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	runtime.replans = append(runtime.replans, request)
@@ -1266,12 +1233,12 @@ func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T) {
 }
 
 func TestNormalizePlanToolCallInfoUsesCanonicalAdapterJSON(t *testing.T) {
-	info := engine.ToolCallInfo{Name: "plan_load", Arguments: `{"entry":"inspect","nodes":[{"id":"inspect","input":"inspect"},{"id":"report","input":"report"}],"edges":[{"from":"inspect","to":"report"}]}`}
+	info := session.ToolCallInfo{Name: "plan_load", Arguments: `{"entry":"inspect","nodes":[{"id":"inspect","input":"inspect"},{"id":"report","input":"report"}],"edges":[{"from":"inspect","to":"report"}]}`}
 	normalized := normalizePlanToolCallInfo(info)
 	if normalized.Arguments == info.Arguments || !strings.Contains(normalized.Arguments, `"nodes":{"inspect"`) || !strings.Contains(normalized.Arguments, `"edges":{"inspect":["report"]}`) {
 		t.Fatalf("normalized plan args = %q", normalized.Arguments)
 	}
-	invalid := engine.ToolCallInfo{Name: "plan_load", Arguments: `{"entry":"inspect","nodes":[],"edges":[]}`}
+	invalid := session.ToolCallInfo{Name: "plan_load", Arguments: `{"entry":"inspect","nodes":[],"edges":[]}`}
 	if got := normalizePlanToolCallInfo(invalid); got.Arguments != invalid.Arguments {
 		t.Fatalf("invalid plan arguments must remain visible: %q", got.Arguments)
 	}
@@ -1318,7 +1285,7 @@ func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T) {
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	hooks := bridge.Hooks()
-	info := engine.ToolCallInfo{Turn: 1, Name: "read", Arguments: `{"path":"a"}`}
+	info := session.ToolCallInfo{Turn: 1, Name: "read", Arguments: `{"path":"a"}`}
 
 	hooks.OnToolStart(context.Background(), info)
 	hooks.OnToolComplete(context.Background(), info)

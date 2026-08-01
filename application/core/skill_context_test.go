@@ -45,11 +45,7 @@ func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T) {
 	}
 }
 
-func TestDisplayUserInputHidesPrivatePlanAndRecoveryEnvelopes(t *testing.T) {
-	planContext := preflightPlanAuthorityContext(`{"entry":"inspect"}`, "inspect the repository")
-	if got := displayUserInput(planContext); got != "inspect the repository" {
-		t.Fatalf("plan context display = %q", got)
-	}
+func TestDisplayUserInputHidesPrivateRecoveryEnvelopes(t *testing.T) {
 	recovery := providerRecoveryPrefix + "\nprivate checkpoint" + contextRecoveryRequestDelimiter + "continue audit"
 	if got := displayUserInput(recovery); got != "continue audit" {
 		t.Fatalf("recovery display = %q", got)

@@ -233,7 +233,6 @@ func TestReActBudgetByEffort(t *testing.T) {
 func TestPlanningPolicyByEffort(t *testing.T) {
 	tests := []struct {
 		level      string
-		required   bool
 		maxNodes   int
 		serial     bool
 		concurrent int
@@ -246,7 +245,7 @@ func TestPlanningPolicyByEffort(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.level, func(t *testing.T) {
 			policy := PlanningPolicy(test.level)
-			if policy.Effort != test.level || policy.RequirePlan != test.required || policy.MaxNodes != test.maxNodes || policy.RequireSerial != test.serial || policy.MaxForkConcurrency != test.concurrent {
+			if policy.Effort != test.level || policy.MaxNodes != test.maxNodes || policy.RequireSerial != test.serial || policy.MaxForkConcurrency != test.concurrent {
 				t.Fatalf("PlanningPolicy(%q) = %+v", test.level, policy)
 			}
 		})

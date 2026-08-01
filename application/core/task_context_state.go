@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -78,7 +78,7 @@ func (service *taskContextCoordinator) countTranscriptEvent(event TranscriptEven
 	return service.tokenCounter.CountMessage(message)
 }
 
-func (service *taskContextCoordinator) recordLLMComplete(info engine.LLMInfo) {
+func (service *taskContextCoordinator) recordLLMComplete(info session.LLMInfo) {
 	if info.Response == "" && len(info.ToolCalls) == 0 && info.Usage == nil {
 		return
 	}
@@ -339,6 +339,7 @@ func (service *taskContextCoordinator) restoreTaskProjectionLocked(projection *T
 	service.promptStack.ClearKind("skill")
 	if projection == nil {
 		service.taskExecution = nil
+		service.taskService = nil
 		return
 	}
 	objective := service.resolveObjectiveRefLocked(projection.ObjectiveRef)
@@ -372,6 +373,7 @@ func (service *taskContextCoordinator) restoreTaskProjectionLocked(projection *T
 		service.promptStack.Push(layer.Kind, layer.Name, layer.Text)
 	}
 	service.taskExecution = state
+	service.taskService = newTaskService(service.serviceState, state)
 }
 
 func (service *taskContextCoordinator) resolveObjectiveRefLocked(objectiveRef string) string {

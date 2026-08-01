@@ -15,7 +15,6 @@ type chatRequest struct {
 	displayInput string
 	modelInput   string
 	skills       []PromptLayer
-	requirePlan  bool
 	budget       ReActBudget
 }
 
@@ -62,12 +61,6 @@ func wrapModelInput(displayInput, body string) string {
 }
 
 func displayUserInput(modelInput string) string {
-	if strings.HasPrefix(modelInput, preflightPlanAuthorityPrefix) {
-		if _, original, ok := strings.Cut(modelInput, preflightPlanAuthorityRequestDelimiter); ok {
-			return displayUserInput(original)
-		}
-		return ""
-	}
 	if strings.HasPrefix(modelInput, contextRecoveryPrefix) || strings.HasPrefix(modelInput, providerRecoveryPrefix) {
 		if _, original, ok := strings.Cut(modelInput, contextRecoveryRequestDelimiter); ok {
 			return displayUserInput(original)
@@ -91,7 +84,6 @@ func combineChatRequests(requests []chatRequest) chatRequest {
 	combined := chatRequest{}
 	for _, request := range requests {
 		displays = append(displays, request.displayInput)
-		combined.requirePlan = combined.requirePlan || request.requirePlan
 		_, bodyOffset, ok := parseModelEnvelope(request.modelInput)
 		if ok {
 			decorated = true

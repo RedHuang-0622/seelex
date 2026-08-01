@@ -37,12 +37,12 @@ func classifyPresentedError(err error) presentedError {
 	if err != nil {
 		message = strings.ToLower(err.Error())
 	}
+	// 会话持久化（slice 8：结构化 code 优先，字符串匹配回退；优先级与旧一致）
+	if structuredErrorCode(err) == errorCodePersistenceFailed {
+		return persistenceFailurePresentation()
+	}
 	if strings.Contains(message, "persistence failed and recovery is not guaranteed") || strings.Contains(message, "save atomic session snapshot") {
-		return presentedError{
-			module: "会话持久化", method: "persistCurrentSession",
-			summary: "任务状态未能可靠写入持久化存储。",
-			next:    "不要假定进度已经保存；请先检查存储连接或磁盘状态，再决定是否重试。",
-		}
+		return persistenceFailurePresentation()
 	}
 	if errors.Is(err, context.Canceled) {
 		return presentedError{
@@ -53,31 +53,21 @@ func classifyPresentedError(err error) presentedError {
 	}
 
 	switch {
-	case isProviderContextExhaustion(err):
-		return presentedError{
-			module: "上下文恢复", method: "recoverProviderFailure",
-			summary: "当前执行上下文超过了模型服务可接收的范围。",
-			next:    "当前进度已保存；请发送“继续”恢复任务，必要时可新建会话。",
-		}
+	case isProviderContextExhaustion(err) || structuredErrorCode(err) == errorCodeContextExceeded:
+		return contextExhaustedPresentation()
 	case strings.Contains(message, "chat content is empty"):
 		return presentedError{
 			module: "会话安全", method: "prepareProviderHistory",
 			summary: "会话记录中存在缺少可发送文本的条目，本次请求未能安全提交。",
 			next:    "当前进度已保存；请发送“继续”重试。",
 		}
-	case strings.Contains(message, "plan preflight") || strings.Contains(message, "plan_load:") ||
+	case structuredErrorCode(err) == errorCodePlanPreflight ||
+		strings.Contains(message, "plan preflight") || strings.Contains(message, "plan_load:") ||
 		strings.Contains(message, "plan policy "):
-		return presentedError{
-			module: "计划预检", method: "PreparePlan",
-			summary: "当前计划无法生成或通过校验。",
-			next:    "请简化目标后重新规划，或改为直接执行该任务。",
-		}
-	case errors.Is(err, ErrReActBudgetExceeded) || strings.Contains(message, "react execution budget"):
-		return presentedError{
-			module: "执行预算", method: "finalizeReActBudget",
-			summary: "本轮已达到执行预算，但未能形成可交付的收尾结果。",
-			next:    "请基于已收集的证据要求收尾，或明确下一步要继续调查的方向。",
-		}
+		return planPreflightPresentation()
+	case errors.Is(err, ErrReActBudgetExceeded) || structuredErrorCode(err) == errorCodeReActBudget ||
+		strings.Contains(message, "react execution budget"):
+		return reactBudgetPresentation()
 	case classifyProviderFailure(err) == providerFailureTimeout:
 		return presentedError{
 			module: "模型传输", method: "ChatStream",
@@ -91,12 +81,11 @@ func classifyPresentedError(err error) presentedError {
 			next:    "当前进度已保存；请稍后发送“继续”恢复任务。",
 		}
 	default:
-		return presentedError{
-			module: "代理运行时", method: "runChat",
-			summary:      "当前任务未能完成。",
-			next:         "已保留可用进度；请重试，或补充更明确的下一步。",
-			unclassified: true,
+		// 无字符串匹配时按结构化定位字段（Struct/Function/Step/Path）回退推断。
+		if presentation, ok := classifyStructuredError(err); ok {
+			return presentation
 		}
+		return unclassifiedPresentation()
 	}
 }
 

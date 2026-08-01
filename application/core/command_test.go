@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 var _ = types.Message{} // used via fakeEngine implementing ChatEngine
@@ -411,98 +410,6 @@ func TestSubmit_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestSubmitHighEffortBypassesPlanningPreflight(t *testing.T) {
-	engine := &fakeEngine{}
-	runtime := &fakeRuntime{}
-	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
-	defer service.Shutdown()
-
-	if err := service.Submit(context.Background(), "inspect the repository"); err != nil {
-		t.Fatal(err)
-	}
-	waitForChatCompletion(t, service)
-	if len(runtime.preflight) != 0 {
-		t.Fatalf("preflight inputs = %q, want none", runtime.preflight)
-	}
-	if engine.lastInput != "inspect the repository" {
-		t.Fatalf("engine input = %q", engine.lastInput)
-	}
-}
-
-func TestSubmitHighEffortDoesNotInjectPlanAuthorityContext(t *testing.T) {
-	const arguments = `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the repository"},"report":{"input":"report findings"}},"edges":{"inspect":["report"]}}`
-	engine := &fakeEngine{
-		history:           []EngineMessage{{Role: "assistant", Content: "prior answer"}},
-		appendChatHistory: true,
-	}
-	runtime := &fakeRuntime{preflightResult: seelebridge.PlanPreflight{
-		Arguments: arguments,
-		Result:    `{"status":"loaded","node_count":2}`,
-	}}
-	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
-	defer service.Shutdown()
-
-	if err := service.Submit(context.Background(), "inspect the repository"); err != nil {
-		t.Fatal(err)
-	}
-	waitForChatCompletion(t, service)
-
-	if engine.lastInput != "inspect the repository" {
-		t.Fatalf("engine input = %q, want original direct request", engine.lastInput)
-	}
-	if len(runtime.preflight) != 0 || len(runtime.planScopeAcquired) != 0 || len(runtime.planScopePromoted) != 0 || len(runtime.planScopeReleased) != 0 {
-		t.Fatalf("PlanAct must stay inactive: preflight=%v acquire=%v promote=%v release=%v", runtime.preflight, runtime.planScopeAcquired, runtime.planScopePromoted, runtime.planScopeReleased)
-	}
-	if len(engine.historyBeforeChat) < 2 || !isTaskContextCheckpoint(engine.historyBeforeChat[0].Content) || engine.historyBeforeChat[len(engine.historyBeforeChat)-1].Content != "prior answer" {
-		t.Fatalf("history before chat = %+v, want checkpoint plus recent complete history", engine.historyBeforeChat)
-	}
-	for _, message := range engine.History() {
-		if strings.HasPrefix(message.Content, preflightPlanAuthorityPrefix) {
-			t.Fatalf("authority context leaked into persisted history: %+v", engine.History())
-		}
-	}
-	history := engine.History()
-	if len(history) < 2 || history[len(history)-2].Content != "inspect the repository" {
-		t.Fatalf("persisted history did not restore original request: %+v", history)
-	}
-}
-
-func TestSubmitSkipsPlanPreflightForLite(t *testing.T) {
-	engine := &fakeEngine{}
-	runtime := &fakeRuntime{}
-	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
-	defer service.Shutdown()
-	if err := service.SwitchEffort(context.Background(), "lite"); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := service.Submit(context.Background(), "say hello"); err != nil {
-		t.Fatal(err)
-	}
-	waitForChatCompletion(t, service)
-	if len(runtime.preflight) != 0 {
-		t.Fatalf("lite preflight inputs = %q, want none", runtime.preflight)
-	}
-}
-
-func TestDormantPlanPreflightFailureDoesNotBlockEngine(t *testing.T) {
-	engine := &fakeEngine{}
-	runtime := &fakeRuntime{preflightErr: errors.New("forced plan call failed")}
-	service := New(Dependencies{Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
-	defer service.Shutdown()
-
-	if err := service.Submit(context.Background(), "change a file"); err != nil {
-		t.Fatal(err)
-	}
-	waitForChatCompletion(t, service)
-	if engine.lastInput != "change a file" {
-		t.Fatalf("engine input = %q, want direct request", engine.lastInput)
-	}
-	if got := service.Snapshot().Chat.Error; got != "" {
-		t.Fatalf("chat error = %q, want no preflight failure", got)
-	}
-}
-
 func TestSkillLoadViaSubmit(t *testing.T) {
 	engine := &fakeEngine{}
 	svc := newTestService(engine)
@@ -808,7 +715,7 @@ func TestSwitchEffort(t *testing.T) {
 	if snap.Runtime.Effort != "max" {
 		t.Errorf("expected 'max', got %q", snap.Runtime.Effort)
 	}
-	if policy := runtime.planPolicy; policy.Effort != "max" || policy.RequirePlan || policy.MaxForkConcurrency != 0 {
+	if policy := runtime.planPolicy; policy.Effort != "max" || policy.MaxForkConcurrency != 0 {
 		t.Fatalf("max plan policy = %+v", policy)
 	}
 }

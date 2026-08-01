@@ -83,7 +83,7 @@ func (service *contextCoordinator) prepareExecutionContext(requestID, currentInp
 		assembled, estimated = service.fitExecutionHistory(systemPrompt, systems, planMessage, checkpointMessage, nil, currentInput, tools, budget.Budget)
 	}
 	if estimated > budget.Budget {
-		return "", fmt.Errorf("%w: estimated=%d budget=%d", errProviderContextBudgetExceeded, estimated, budget.Budget)
+		return "", wrapError(fmt.Errorf("%w: estimated=%d budget=%d", errProviderContextBudgetExceeded, estimated, budget.Budget), errorCodeContextExceeded)
 	}
 	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), assembled); err != nil {
 		return "", fmt.Errorf("assemble provider context: %w", err)

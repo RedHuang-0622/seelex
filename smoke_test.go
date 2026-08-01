@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/engine"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -19,7 +18,7 @@ func TestSmokeLLM(t *testing.T) {
 	}
 	cfgPath := accountsPath()
 
-	// 1. 创建框架运行时
+	// 1. 创建框架运行时（新装配模型：账号池 + 注册表 + Agent + 主会话）
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath: cfgPath, ToolCallTimeout: 30 * time.Second,
 	})
@@ -28,24 +27,24 @@ func TestSmokeLLM(t *testing.T) {
 	}
 	defer runtime.Shutdown()
 
-	// 2. Engine
+	// 2. 主会话（session.NewSession）
 	tmpDir, _ := os.MkdirTemp("", "seelex-smoke")
 	defer os.RemoveAll(tmpDir)
 	store, err := seelebridge.NewSessionStore(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	eng := engine.New(runtime.Agent(),
-		engine.WithStore(store.FrameworkStore()),
-		engine.WithTracer(seelebridge.NewTracer()),
-	)
+	sess, err := runtime.NewMainSession(nil)
+	if err != nil {
+		t.Fatalf("创建主会话失败: %v", err)
+	}
 
 	// 3. 发送并计时
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
 	start := time.Now()
-	reply, err := eng.Chat(ctx, "你好，请用一句话回复我")
+	reply, err := sess.Chat(ctx, "你好，请用一句话回复我")
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -60,5 +59,8 @@ func TestSmokeLLM(t *testing.T) {
 
 	if elapsed > 3*time.Second {
 		t.Logf("⚠ 耗时 %.1fs > 3s，需要优化", elapsed.Seconds())
+	}
+	if store != nil {
+		_ = store.FrameworkStore()
 	}
 }

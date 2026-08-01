@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
-	"github.com/RedHuang-0622/Seele/seelectx/tracer"
+	frameworkSession "github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/Seele/telemetry"
+	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
@@ -25,10 +27,12 @@ import (
 type enginePort struct {
 	engine         reactorEngine
 	newEngine      reactorEngineFactory
+	tracer         *telemetry.MemoryTracer // trace 视图查询源（slice 8：telemetry）
 	mu             sync.RWMutex
 	sessionID      string
 	activeCalls    int
 	pendingHistory []seelebridge.Message
+	sessionBacked  bool
 }
 
 // reactorEngine is the small framework surface the application adapter
@@ -41,15 +45,23 @@ type reactorEngine interface {
 	SessionID() string
 	SetSystemPrompt(string)
 	SetMaxLoops(int)
-	ExportTrace() *tracer.Tree
 	AppendHistory(types.Message)
 }
 
 type reactorEngineFactory func() reactorEngine
 
-func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory) *enginePort {
-	return &enginePort{engine: eng, newEngine: newEngine, sessionID: eng.SessionID()}
+func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory, tracer *telemetry.MemoryTracer) *enginePort {
+	port := &enginePort{engine: eng, newEngine: newEngine, tracer: tracer, sessionID: eng.SessionID()}
+	if _, ok := eng.(*frameworkSession.Session); ok {
+		port.sessionBacked = true
+	}
+	return port
 }
+
+// SessionBacked 报告底层 reactor 是否为 session.Session。
+// 新 Session 装配下 OnIterationComplete 在 Session 锁内同步执行，
+// 应用层不得在回调中重入 Engine 历史操作（见 chat.go ToolHookBridge）。
+func (port *enginePort) SessionBacked() bool { return port.sessionBacked }
 
 func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	port.mu.Lock()
@@ -181,25 +193,89 @@ func (port *enginePort) SessionID() string {
 func (port *enginePort) SetSystemPrompt(prompt string) { port.engine.SetSystemPrompt(prompt) }
 func (port *enginePort) SetMaxLoops(n int)             { port.engine.SetMaxLoops(n) }
 func (port *enginePort) TraceText() string {
-	tree := port.engine.ExportTrace()
-	if tree == nil || tree.Root == nil {
+	if port.tracer == nil {
 		return ""
 	}
-	return tree.String()
-}
-func (port *enginePort) TokenCount() string {
-	tree := port.engine.ExportTrace()
-	if tree == nil || tree.Root == nil {
-		return "0"
+	view, err := port.tracer.Query(context.Background(), telemetry.Query{Limit: 200})
+	if err != nil {
+		return ""
 	}
-	for _, child := range tree.Root.Children {
-		if child.Kind == seelebridge.SpanLLMCall {
-			if tokens, ok := child.Attrs["total_tokens"]; ok {
-				return tokens
-			}
+	var builder strings.Builder
+	for _, trace := range view.Traces {
+		builder.WriteString(fmt.Sprintf("追踪 %s\n", trace.TraceID))
+		writeSpanSnapshot(&builder, trace.Root, 0)
+	}
+	if len(view.Events) > 0 {
+		builder.WriteString(fmt.Sprintf("\n生命周期事件 %d 条\n", len(view.Events)))
+		for _, event := range view.Events {
+			builder.WriteString(fmt.Sprintf("  %s %s %s\n", event.Timestamp.Format("15:04:05"), event.Type, event.Status))
 		}
 	}
-	return "0"
+	return builder.String()
+}
+func (port *enginePort) TokenCount() string {
+	if port.tracer == nil {
+		return "0"
+	}
+	view, err := port.tracer.Query(context.Background(), telemetry.Query{Limit: 200})
+	if err != nil {
+		return "0"
+	}
+	total := 0
+	for _, event := range view.Events {
+		if event.Type != telemetry.EventLLMAfter {
+			continue
+		}
+		total += attrTelemetryInt(event.Attributes, telemetry.AttributeGenAIUsageInput)
+		total += attrTelemetryInt(event.Attributes, telemetry.AttributeGenAIUsageOutput)
+	}
+	return strconv.Itoa(total)
+}
+
+// writeSpanSnapshot 递归渲染遥测 span 树（trace 视图文本）。
+func writeSpanSnapshot(builder *strings.Builder, span telemetry.SpanSnapshot, depth int) {
+	if span.Name == "" {
+		return
+	}
+	indent := strings.Repeat("  ", depth)
+	status := string(span.Status)
+	if status == "" {
+		status = "unset"
+	}
+	model := span.Attributes[telemetry.AttributeGenAIRequestModel]
+	if model == nil {
+		model = ""
+	}
+	builder.WriteString(fmt.Sprintf("%s%s %s [%s] %v\n", indent, span.Name, status, span.Kind, model))
+	for _, child := range span.Children {
+		writeSpanSnapshot(builder, child, depth+1)
+	}
+}
+
+func attrTelemetryInt(attributes telemetry.Attributes, key string) int {
+	if attributes == nil {
+		return 0
+	}
+	value, ok := attributes[key]
+	if !ok {
+		return 0
+	}
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		n, err := strconv.Atoi(typed)
+		if err != nil {
+			return 0
+		}
+		return n
+	default:
+		return 0
+	}
 }
 func (port *enginePort) History() []application.EngineMessage {
 	return adaptMessages(port.rawHistory())
@@ -220,12 +296,6 @@ func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugi
 func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
 func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	port.runtime.SetPlanPolicy(policy)
-}
-func (port runtimePort) AcquirePlanActScope(requestID string) (seelebridge.PlanActScope, error) {
-	return port.runtime.AcquirePlanActScope(requestID)
-}
-func (port runtimePort) PreparePlan(ctx context.Context, input string) (seelebridge.PlanPreflight, error) {
-	return port.runtime.PreparePlan(ctx, input)
 }
 func (port runtimePort) PrepareReplan(ctx context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	return port.runtime.PrepareReplan(ctx, request)
@@ -702,7 +772,7 @@ func (g *planApprovalGate) Ask(ctx context.Context, q approve.Question) (any, er
 }
 
 // convertPermissionOptions 将 permission.ApproveOption 转为 application.InteractionOption。
-func convertPermissionOptions(opts []permission.ApproveOption) []application.InteractionOption {
+func convertPermissionOptions(opts []toolspermission.ApproveOption) []application.InteractionOption {
 	out := make([]application.InteractionOption, len(opts))
 	for i, o := range opts {
 		out[i] = application.InteractionOption{

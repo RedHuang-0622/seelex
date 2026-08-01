@@ -63,6 +63,7 @@ type planRuntimeState struct {
 
 type taskRuntimeState struct {
 	taskExecution           *taskExecutionState
+	taskService             *TaskService // 当前任务的 TaskService（与 taskExecution 同生命周期）
 	contextControlFailure   error
 	contextControlRequestID string
 	tokenCounter            requestTokenCounter

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	frameworkmcp "github.com/RedHuang-0622/Seele/agent/core/tool/mcp"
+	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 )
 
 // ListenBreaker 消费熔断器事件 channel，将状态变更记录到 MCPStack trace 中。

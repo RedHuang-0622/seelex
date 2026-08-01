@@ -1,4 +1,4 @@
-package seelexctx
+package seelexctx_test
 
 import (
 	"fmt"
@@ -7,15 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/engine"
+	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
 	"github.com/RedHuang-0622/seelex/seelexctx/merger"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
-func createTestEngine(t *testing.T) (*engine.Engine, *seelebridge.Runtime) {
+func createTestSession(t *testing.T) (*frameworkSession.Session, *seelebridge.Runtime) {
 	t.Helper()
 	configPath := t.TempDir() + "/accounts.yaml"
 	config := []byte("roles:\n  agent:\n    - model: test-model\n      base_url: http://localhost\n      api_key: test-only\n")
@@ -28,14 +29,18 @@ func createTestEngine(t *testing.T) (*engine.Engine, *seelebridge.Runtime) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return engine.New(runtime.Agent(), engine.WithTracer(seelebridge.NewTracer())), runtime
+	sess, err := runtime.NewMainSession(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sess, runtime
 }
 
 func TestIntegration_ExportFull(t *testing.T) {
-	eng, agt := createTestEngine(t)
+	eng, agt := createTestSession(t)
 	defer agt.Shutdown()
 	eng.SetSystemPrompt("test prompt")
-	snap := Export(eng)
+	snap := seelexctx.Export(eng)
 	if snap == nil {
 		t.Fatal("Export returned nil")
 	}
@@ -45,24 +50,24 @@ func TestIntegration_ExportFull(t *testing.T) {
 }
 
 func TestIntegration_ExportWithGoal(t *testing.T) {
-	eng, agt := createTestEngine(t)
+	eng, agt := createTestSession(t)
 	defer agt.Shutdown()
-	snap := ExportWithGoal(eng, "集成测试")
+	snap := seelexctx.ExportWithGoal(eng, "集成测试")
 	if snap.Goal != "集成测试" {
 		t.Fatalf("got %q", snap.Goal)
 	}
 }
 
 func TestIntegration_ImportAppend(t *testing.T) {
-	eng1, agt1 := createTestEngine(t)
+	eng1, agt1 := createTestSession(t)
 	defer agt1.Shutdown()
-	eng2, agt2 := createTestEngine(t)
+	eng2, agt2 := createTestSession(t)
 	defer agt2.Shutdown()
 
 	eng1.SetSystemPrompt("父代理角色")
-	snap := ExportWithGoal(eng1, "测试继承")
+	snap := seelexctx.ExportWithGoal(eng1, "测试继承")
 	eng2.SetSystemPrompt("子代理角色")
-	Import(eng2, snap)
+	seelexctx.Import(eng2, snap)
 
 	prompt := getPrompt(t, eng2)
 	if !strings.Contains(prompt, "子代理角色") {
@@ -74,9 +79,9 @@ func TestIntegration_ImportAppend(t *testing.T) {
 }
 
 func TestIntegration_ProviderImportRoundTrip(t *testing.T) {
-	eng1, agt1 := createTestEngine(t)
+	eng1, agt1 := createTestSession(t)
 	defer agt1.Shutdown()
-	eng2, agt2 := createTestEngine(t)
+	eng2, agt2 := createTestSession(t)
 	defer agt2.Shutdown()
 
 	eng1.SetSystemPrompt("父代理")
@@ -90,7 +95,7 @@ func TestIntegration_ProviderImportRoundTrip(t *testing.T) {
 	}
 	snap.SetGoal("end-to-end").AddDecision("方案A", "性能更好").AddFinding("需要优化")
 
-	Import(eng2, snap)
+	seelexctx.Import(eng2, snap)
 	prompt := getPrompt(t, eng2)
 	for _, s := range []string{"end-to-end", "方案A", "需要优化"} {
 		if !strings.Contains(prompt, s) {
@@ -100,10 +105,10 @@ func TestIntegration_ProviderImportRoundTrip(t *testing.T) {
 }
 
 func TestIntegration_MergeBackChain(t *testing.T) {
-	eng, agt := createTestEngine(t)
+	eng, agt := createTestSession(t)
 	defer agt.Shutdown()
 
-	parent := ExportWithGoal(eng, "主任务")
+	parent := seelexctx.ExportWithGoal(eng, "主任务")
 	parent.AddFinding("发现1").AddDecision("决策1", "因为1")
 	child := &snapshot.ContextSnapshot{
 		SourceSessionID: "child", ExportedAt: time.Now(), Goal: "子任务",
@@ -125,10 +130,10 @@ func TestIntegration_MergeBackChain(t *testing.T) {
 }
 
 func TestIntegration_CompactorRealSnapshot(t *testing.T) {
-	eng, agt := createTestEngine(t)
+	eng, agt := createTestSession(t)
 	defer agt.Shutdown()
 
-	snap := Export(eng)
+	snap := seelexctx.Export(eng)
 	snap.SetGoal("压缩测试")
 	for i := 0; i < 25; i++ {
 		snap.AddFinding(fmt.Sprintf("测试发现 #%d", i))
@@ -144,26 +149,26 @@ func TestIntegration_CompactorRealSnapshot(t *testing.T) {
 }
 
 func TestIntegration_Validate(t *testing.T) {
-	eng, agt := createTestEngine(t)
+	eng, agt := createTestSession(t)
 	defer agt.Shutdown()
-	snap := ExportWithGoal(eng, "验证测试")
+	snap := seelexctx.ExportWithGoal(eng, "验证测试")
 	if err := snap.Validate(); err != nil {
 		t.Fatalf("expected valid: %v", err)
 	}
 }
 
 func TestIntegration_ImportNoExistingPrompt(t *testing.T) {
-	eng, agt := createTestEngine(t)
+	eng, agt := createTestSession(t)
 	defer agt.Shutdown()
 	snap := &snapshot.ContextSnapshot{SourceSessionID: "s", ExportedAt: time.Now(), Goal: "直注入"}
-	Import(eng, snap)
+	seelexctx.Import(eng, snap)
 	prompt := getPrompt(t, eng)
 	if !strings.Contains(prompt, "直注入") {
 		t.Fatal("expected goal in prompt")
 	}
 }
 
-func getPrompt(t *testing.T, eng *engine.Engine) string {
+func getPrompt(t *testing.T, eng *frameworkSession.Session) string {
 	t.Helper()
 	for _, m := range eng.History() {
 		if m.Role == "system" && m.Content != nil {

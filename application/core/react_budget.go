@@ -57,12 +57,13 @@ func (service *Service) allowNextReActIteration(turn int) bool {
 		return false
 	}
 	if budget.budget.MaxNoProgressRounds > 0 {
-		state := service.taskExecution
-		if state != nil && state.requestID == budget.requestID {
-			if state.progressEpoch == budget.lastProgressEpoch {
+		// 无进展预算的决策输入来自 TaskService 的语义进展计数（epoch，
+		// 由工具/checkpoint 观测累积），不再从工具输出 hash 推断。
+		if epoch, active := service.semanticProgressLocked(budget.requestID); active {
+			if epoch == budget.lastProgressEpoch {
 				budget.noProgressRounds++
 			} else {
-				budget.lastProgressEpoch = state.progressEpoch
+				budget.lastProgressEpoch = epoch
 				budget.noProgressRounds = 0
 			}
 			if budget.noProgressRounds >= budget.budget.MaxNoProgressRounds {
@@ -74,11 +75,25 @@ func (service *Service) allowNextReActIteration(turn int) bool {
 	return true
 }
 
+// semanticProgressLocked 返回当前任务的语义进展计数（TaskService epoch）；
+// 未装配 TaskService 时回退到直接状态读取（测试/恢复路径）。调用方持有 service.mu。
+func (service *Service) semanticProgressLocked(requestID string) (uint64, bool) {
+	ts := service.taskService
+	state := service.taskExecution
+	if ts != nil && ts.state == state {
+		return ts.SemanticProgress(requestID)
+	}
+	if state == nil || state.requestID != requestID {
+		return 0, false
+	}
+	return state.progressEpoch, true
+}
+
 func (service *Service) reactBudgetError(requestID string) error {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
 	if service.reactBudget == nil || service.reactBudget.requestID != requestID || service.reactBudget.reason == "" {
 		return nil
 	}
-	return fmt.Errorf("%w: %s", ErrReActBudgetExceeded, service.reactBudget.reason)
+	return wrapError(fmt.Errorf("%w: %s", ErrReActBudgetExceeded, service.reactBudget.reason), errorCodeReActBudget)
 }

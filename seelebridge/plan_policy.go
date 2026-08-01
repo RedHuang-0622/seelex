@@ -8,9 +8,10 @@ import (
 // PlanPolicy defines the runtime constraints applied to a plan_load request.
 // MaxForkConcurrency is resolved per loaded plan: zero means every node in the
 // plan may run concurrently, rather than Seele's default concurrency of three.
+// 规划始终是模型的自愿决策，不设置聊天入口强制门槛（RequirePlan 已于 2026-08-01
+// 移除：强制规划为失败设计，preflight 仅由显式 PrepareReplan 触发）。
 type PlanPolicy struct {
 	Effort             string
-	RequirePlan        bool
 	MaxNodes           int
 	RequireSerial      bool
 	MaxForkConcurrency int

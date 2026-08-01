@@ -1,9 +1,7 @@
 package core
 
 import (
-	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -279,137 +277,14 @@ func appendContextSummary(out *strings.Builder, limit int, value string) bool {
 	return true
 }
 
-// TaskTerminalHandler returns a Runtime-facing handler while keeping request
-// state owned by Application. The handler has no external side effects.
-func (service *Service) TaskTerminalHandler(kind string) func(context.Context, string) (string, error) {
-	return func(_ context.Context, argsJSON string) (string, error) {
-		return service.recordTaskTerminal(kind, argsJSON)
-	}
-}
-
-func (service *Service) recordTaskTerminal(kind, argsJSON string) (string, error) {
-	var input taskTerminal
-	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
-		return "", fmt.Errorf("%s: invalid JSON: %w", kind, err)
-	}
-	input.Kind = kind
-	input.Summary = strings.TrimSpace(input.Summary)
-	if input.Summary == "" {
-		return "", fmt.Errorf("%s: summary is required", kind)
-	}
-	if kind == taskFailedTool && strings.TrimSpace(input.FailureType) == "" {
-		return "", fmt.Errorf("%s: failure_type is required", kind)
-	}
-	if kind == taskNeedsUserDecisionTool && strings.TrimSpace(input.DecisionQuestion) == "" {
-		return "", fmt.Errorf("%s: decision_question is required", kind)
-	}
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	state := service.taskExecution
-	if state == nil || state.requestID != service.snapshot.Chat.RequestID || !service.snapshot.Chat.Running {
-		return "", fmt.Errorf("%s: no active task execution", kind)
-	}
-	if state.terminal != nil {
-		return "", fmt.Errorf("%s: task already reached %s", kind, state.terminal.Kind)
-	}
-	if kind == taskCompleteTool {
-		if err := service.completeAuthoritativePlanLocked(input.CompletedNodes); err != nil {
-			return "", err
-		}
-	}
-	state.terminal = &input
-	switch kind {
-	case taskCompleteTool:
-		state.status = taskStatusCompleted
-		service.setTaskStateLocked(state.requestID, TaskCompleted, input.Summary)
-	case taskNeedsUserDecisionTool:
-		state.status = taskStatusNeedsUserDecision
-		service.setTaskStateLocked(state.requestID, TaskNeedsUserDecision, input.Summary)
-	case taskFailedTool:
-		if input.FailureType == "blocked" || input.FailureType == "external_dependency" {
-			state.status = taskStatusBlocked
-			service.setTaskStateLocked(state.requestID, TaskBlocked, input.Summary)
-		} else {
-			state.status = taskStatusFailed
-			service.setTaskStateLocked(state.requestID, TaskFailed, input.Summary)
-		}
-	default:
-		return "", fmt.Errorf("unsupported task terminal %q", kind)
-	}
-	state.progressEpoch++
-	encoded, _ := json.Marshal(map[string]string{"status": "accepted", "terminal": kind})
-	return string(encoded), nil
-}
-
-func (service *Service) completeAuthoritativePlanLocked(completedNodes []string) error {
-	plan := service.snapshot.Runtime.Plan
-	if plan == nil {
-		return nil
-	}
-	completed := make(map[string]struct{}, len(completedNodes))
-	for _, nodeID := range completedNodes {
-		completed[nodeID] = struct{}{}
-	}
-	for _, node := range plan.Nodes {
-		if _, ok := completed[node.ID]; !ok {
-			return fmt.Errorf("%s: completed_nodes must include authoritative plan node %q", taskCompleteTool, node.ID)
-		}
-	}
-	for index := range plan.Nodes {
-		node := &plan.Nodes[index]
-		node.Status = NodeCompleted
-	}
-	plan.Status = PlanCompleted
-	plan.Progress = 1
-	return nil
-}
-
-// finalizeTaskExecution converts a natural model stop into an auditable
-// completion or handoff. An in-flight authoritative Plan is not silently
-// completed; if the model stops before executing it, the visible result is a
-// user-decision handoff rather than an opaque runtime error.
-func (service *Service) finalizeTaskExecution(requestID string) error {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	state := service.taskExecution
-	if state == nil || state.requestID != requestID || state.terminal != nil {
-		return nil
-	}
-	if plan := service.snapshot.Runtime.Plan; plan != nil {
-		switch plan.Status {
-		case PlanPending, PlanRunning:
-			state.status = taskStatusNeedsUserDecision
-			state.terminal = &taskTerminal{
-				Kind:             taskNeedsUserDecisionTool,
-				Summary:          "The authoritative plan is ready but has not been executed.",
-				DecisionQuestion: "Should Seelex execute the loaded plan, revise it, or stop here?",
-				DecisionOptions:  []string{"execute", "revise", "stop"},
-			}
-			service.setTaskStateLocked(requestID, TaskNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here.")
-			state.progressEpoch++
-			return nil
-		case PlanFailed, PlanAborted:
-			state.status = taskStatusFailed
-			state.checkpoint("plan", "authoritative plan", string(plan.Status), "", "plan did not complete")
-			service.setTaskStateLocked(requestID, TaskFailed, "The authoritative plan did not reach completion.")
-			return nil
-		}
-	}
-	state.status = taskStatusCompleted
-	state.terminal = &taskTerminal{
-		Kind: taskCompleteTool, Summary: "Model returned a final response without an explicit terminal tool call.",
-	}
-	service.setTaskStateLocked(requestID, TaskCompleted, state.terminal.Summary)
-	state.progressEpoch++
-	return nil
-}
-
-func (service *Service) setTaskStateLocked(requestID string, status TaskStatus, summary string) {
+// setTaskStateLocked 把任务可见状态写入快照（TaskState 由 TaskService 终态
+// 判定与错误路径共同维护；调用方持有 service.mu）。
+func (state *serviceState) setTaskStateLocked(requestID string, status TaskStatus, summary string) {
 	var compactions []ContextCompaction
-	if state := service.taskExecution; state != nil && state.requestID == requestID {
-		compactions = append([]ContextCompaction(nil), state.contextCompactions...)
+	if taskState := state.taskExecution; taskState != nil && taskState.requestID == requestID {
+		compactions = append([]ContextCompaction(nil), taskState.contextCompactions...)
 	}
-	service.snapshot.Task = &TaskState{
+	state.snapshot.Task = &TaskState{
 		RequestID:          requestID,
 		Status:             status,
 		Summary:            strings.TrimSpace(summary),

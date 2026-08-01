@@ -13,11 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
-	"github.com/RedHuang-0622/Seele/engine"
+	frameworkSession "github.com/RedHuang-0622/Seele/session"
+	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
@@ -81,6 +82,11 @@ func main() {
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
 	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
+	// 双轨事件（slice 8）：执行事实 → sessionstore 事件库（事实轨），
+	// EventHub 继续前端快照（快照轨）。Sink 失败经 ErrorHandler 隔离，
+	// 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
+	eventStore := sessionstore.NewEventStore(store)
+	runtime.SetEventPersister(eventStore.Append)
 	if err := setupPermissionGate(runtime, approval); err != nil {
 		fatalf("权限模式无效: %v", err)
 	}
@@ -90,16 +96,25 @@ func main() {
 	activateDefaultPlugin(pluginManager, frameworkEngine)
 	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
 		return initEngine(runtime, toolHooks)
-	})
+	}, runtime.Tracer())
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo := initWorkspaceRepo()
 	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	defer app.Shutdown()
 	registerTaskTerminalTools(runtime, app)
 	registerContextReadTools(runtime, app)
+	registerProjectRefreshTool(runtime, store)
+	// 项目级模块语义提供者：Assembler 会话前预读 project 块（内容 hash
+	// 版本化复用；重建失败保留上一版本）。
+	runtime.SetProjectKnowledgeProvider(func() *sessionstore.ProjectRecord {
+		record, readErr := store.LoadProjectRecord(store.Workspace())
+		if readErr != nil {
+			return nil
+		}
+		return &record
+	})
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
-	runtime.SetPlanBranchCallback(app.HandlePlanBranchEvent)
 	startFrontend(app)
 }
 
@@ -125,52 +140,64 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 	runtime.RegisterTool("read_plan", "Read selected nodes from the durable canonical Plan without changing Plan state.", readPlanSchema, app.ReadPlanHandler)
 }
 
+// registerProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
+// 模块元数据（module_dotting.json）+ 可选手工说明 seelex.project.md，构建
+// 项目级模块语义知识（ProjectKnowledge，plan.md §3.7.1）。来源 hash 未变时
+// 直接复用（内容版本化）；重建失败保留上一版本（可回退）。
+func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstore.Router) {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"project_root": map[string]interface{}{"type": "string", "description": "项目根目录（默认当前工作目录）"},
+			"force":        map[string]interface{}{"type": "boolean", "description": "强制重建，忽略来源 hash 复用"},
+		},
+	}
+	handler := func(ctx context.Context, argsJSON string) (string, error) {
+		var input struct {
+			ProjectRoot string `json:"project_root"`
+			Force       bool   `json:"force"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+			return "", fmt.Errorf("project_refresh: %w", err)
+		}
+		builder := sessionstore.NewProjectKnowledgeBuilder(sessionstore.ProjectKnowledgeSources{Root: input.ProjectRoot})
+		result, err := sessionstore.RefreshProjectKnowledge(ctx, store, builder, input.Force)
+		if err != nil {
+			return "", fmt.Errorf("project_refresh: %w", err)
+		}
+		payload := map[string]interface{}{
+			"version":  result.Record.Version,
+			"modules":  len(result.Record.Modules),
+			"reused":   result.Reused,
+			"fallback": result.Fallback,
+			"note":     result.Note,
+			"built_at": result.Record.BuiltAt.Format(time.RFC3339),
+		}
+		encoded, err := json.Marshal(payload)
+		return string(encoded), err
+	}
+	runtime.RegisterTool("project_refresh", "扫描项目模块文档与元数据，重建项目级模块语义知识；来源未变化时直接复用", schema, handler)
+}
+
 const maxReferenceToolPageSize = 12000
 
+// registerTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
+// 注册进 tools.Registry（taskTerminalProvider，见 seelebridge/task_terminal.go）；
+// handler 内调用 TaskService.VerifyAndApply（投影 flush + 终态校验）。
 func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Service) {
-	completedSchema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"summary":         map[string]interface{}{"type": "string", "description": "User-facing delivery summary."},
-			"completed_nodes": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"artifacts":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"evidence":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"remaining_risks": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-		},
-		"required": []string{"summary"},
-	}
-	failedSchema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"summary":            map[string]interface{}{"type": "string", "description": "User-facing failure summary."},
-			"failure_type":       map[string]interface{}{"type": "string", "enum": []string{"blocked", "verification_failed", "invalid_plan", "external_dependency"}},
-			"failed_node":        map[string]interface{}{"type": "string"},
-			"evidence":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"partial_progress":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"replan_recommended": map[string]interface{}{"type": "boolean"},
-		},
-		"required": []string{"summary", "failure_type"},
-	}
-	decisionSchema := map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"summary":           map[string]interface{}{"type": "string", "description": "Brief user-facing explanation of why a decision is required."},
-			"decision_question": map[string]interface{}{"type": "string", "description": "The specific choice only the user can make."},
-			"decision_options":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"evidence":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"partial_progress":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-		},
-		"required": []string{"summary", "decision_question"},
-	}
-	runtime.RegisterTool("task_complete", "End the current task after delivering the requested result and evidence.", completedSchema, app.TaskTerminalHandler("task_complete"))
-	runtime.RegisterTool("task_needs_user_decision", "Pause the current task only when a user choice is required; include the exact question and options.", decisionSchema, app.TaskTerminalHandler("task_needs_user_decision"))
-	runtime.RegisterTool("task_failed", "End the current task with bounded failure evidence; recommend replan only when facts require it.", failedSchema, app.TaskTerminalHandler("task_failed"))
+	runtime.RegisterTaskTerminalTools(app.TaskTerminalHandler)
 }
 
 func initRuntime() *seelebridge.Runtime {
+	// 滑动窗口配置段（seele.yaml；缺失 → 零值走默认，plan.md §3.7.3）。
+	windowConfig, err := core.LoadWindowConfig("seele.yaml")
+	if err != nil {
+		fatalf("加载 window 配置失败: %v", err)
+	}
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath: accountsPath(), StorePath: *storePath,
 		ToolCallTimeout: 120 * time.Second,
+		WindowConfig:    windowConfig,
 	})
 	if err != nil {
 		fatalf("初始化 Seele Runtime 失败: %v", err)
@@ -196,7 +223,7 @@ func initPluginSystem(
 	return manager
 }
 
-func activateDefaultPlugin(manager *plugin.Manager, eng *engine.Engine) {
+func activateDefaultPlugin(manager *plugin.Manager, eng *frameworkSession.Session) {
 	if _, err := pluginByName(manager.All(), "default"); err != nil {
 		return
 	}
@@ -204,11 +231,11 @@ func activateDefaultPlugin(manager *plugin.Manager, eng *engine.Engine) {
 		fatalf("激活 default Plugin 失败: %v", err)
 	}
 	// 系统提示词由 application.Service.buildSystemPrompt 在 initApplication 时组装，
-	// 不要在启动时直接覆盖 engine 的 system prompt。
+	// 不要在启动时直接覆盖 session 的 system prompt。
 	// applyPluginPrompt(eng, manager)
 }
 
-func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *engine.Engine, approval *application.ApprovalBroker) {
+func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *frameworkSession.Session, approval *application.ApprovalBroker) {
 	registerTimeTool(runtime)
 	registerWebSearchTool(runtime, accountsPath())
 	registerMCPServers(runtime, accountsPath()) // from mcpconfig.go — 与 websearch 同一生态位
@@ -230,7 +257,7 @@ func registerTimeTool(runtime *seelebridge.Runtime) {
 func registerPluginSwitchTools(
 	runtime *seelebridge.Runtime,
 	plugins *plugin.Manager,
-	eng *engine.Engine,
+	eng *frameworkSession.Session,
 ) {
 	names := make([]interface{}, 0, len(plugins.All())+1)
 	for _, p := range plugins.All() {
@@ -288,7 +315,7 @@ func registerPluginSwitchTools(
 	runtime.RegisterTool("switch_mode", "兼容工具：等价于 switch_plugin", legacySchema, handler)
 }
 
-func applyPluginPrompt(eng *engine.Engine, plugins *plugin.Manager) {
+func applyPluginPrompt(eng *frameworkSession.Session, plugins *plugin.Manager) {
 	current, ok := plugins.Current()
 	if !ok {
 		eng.SetSystemPrompt("")
@@ -359,12 +386,14 @@ func initWorkspaceRepo() *workspace.Repo {
 	return repo
 }
 
-func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge) *engine.Engine {
-	return engine.New(
-		runtime.Agent(),
-		engine.WithTracer(seelebridge.NewTracer()),
-		engine.WithHooks(hooks.Hooks()),
-	)
+// initEngine 按新装配模型创建主会话（session.NewSession）。
+// enginePort 的 reactorEngine 接口由 *session.Session 直接满足。
+func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge) *frameworkSession.Session {
+	sess, err := runtime.NewMainSession(hooks.Hooks())
+	if err != nil {
+		fatalf("初始化主会话失败: %v", err)
+	}
+	return sess
 }
 
 func initSessionManager(router *sessionstore.Router, eng *enginePort) *session.Manager {
@@ -436,40 +465,40 @@ func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.App
 		return err
 	}
 	switch mode {
-	case permission.ModeManual:
-		cfg := permission.PermissionConfig{
-			Mode: permission.ModeManual,
-			Rules: []permission.PermissionRule{
-				{ToolName: "grep_search", Action: permission.ActionAllow},
-				{ToolName: "read_file", Action: permission.ActionAllow},
-				{ToolName: "glob", Action: permission.ActionAllow},
-				{ToolName: "git_status", Action: permission.ActionAllow},
-				{ToolName: "git_log", Action: permission.ActionAllow},
-				{ToolName: "git_diff", Action: permission.ActionAllow},
-				{ToolName: "get_time", Action: permission.ActionAllow},
-				{ToolName: "switch_plugin", Action: permission.ActionAllow},
-				{ToolName: "switch_mode", Action: permission.ActionAllow},
-				{ToolName: "ask_approve", Action: permission.ActionAllow},
-				{ToolName: "plan_load", Action: permission.ActionAllow},
-				{ToolName: "plan_run", Action: permission.ActionAllow},
-				{ToolName: "plan_status", Action: permission.ActionAllow},
-				{ToolName: "plan_validate", Action: permission.ActionAllow},
-				{ToolName: "plan_export", Action: permission.ActionAllow},
-				{ToolName: "plan_clear", Action: permission.ActionAllow},
+	case toolspermission.ModeManual:
+		cfg := toolspermission.PermissionConfig{
+			Mode: toolspermission.ModeManual,
+			Rules: []toolspermission.PermissionRule{
+				{ToolName: "grep_search", Action: toolspermission.ActionAllow},
+				{ToolName: "read_file", Action: toolspermission.ActionAllow},
+				{ToolName: "glob", Action: toolspermission.ActionAllow},
+				{ToolName: "git_status", Action: toolspermission.ActionAllow},
+				{ToolName: "git_log", Action: toolspermission.ActionAllow},
+				{ToolName: "git_diff", Action: toolspermission.ActionAllow},
+				{ToolName: "get_time", Action: toolspermission.ActionAllow},
+				{ToolName: "switch_plugin", Action: toolspermission.ActionAllow},
+				{ToolName: "switch_mode", Action: toolspermission.ActionAllow},
+				{ToolName: "ask_approve", Action: toolspermission.ActionAllow},
+				{ToolName: "plan_load", Action: toolspermission.ActionAllow},
+				{ToolName: "plan_run", Action: toolspermission.ActionAllow},
+				{ToolName: "plan_status", Action: toolspermission.ActionAllow},
+				{ToolName: "plan_validate", Action: toolspermission.ActionAllow},
+				{ToolName: "plan_export", Action: toolspermission.ActionAllow},
+				{ToolName: "plan_clear", Action: toolspermission.ActionAllow},
 			},
 		}
 		runtime.SetPermissionConfig(cfg, newPermissionBridge(approval))
-	case permission.ModeFullAccess:
-		cfg := permission.PermissionConfig{Mode: permission.ModeFullAccess}
+	case toolspermission.ModeFullAccess:
+		cfg := toolspermission.PermissionConfig{Mode: toolspermission.ModeFullAccess}
 		runtime.SetPermissionConfig(cfg, nil)
 	}
 	return nil
 }
 
-func parsePermissionMode(value string) (permission.Mode, error) {
-	mode := permission.Mode(strings.ToLower(strings.TrimSpace(value)))
+func parsePermissionMode(value string) (toolspermission.Mode, error) {
+	mode := toolspermission.Mode(strings.ToLower(strings.TrimSpace(value)))
 	switch mode {
-	case permission.ModeManual, permission.ModeFullAccess:
+	case toolspermission.ModeManual, toolspermission.ModeFullAccess:
 		return mode, nil
 	default:
 		return "", fmt.Errorf("%q，允许值为 manual 或 full_access", value)
@@ -478,8 +507,8 @@ func parsePermissionMode(value string) (permission.Mode, error) {
 
 // newPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。
 // 每次工具触发审批时，阻塞等待用户在 TUI 交互面板中作出选择。
-func newPermissionBridge(broker *application.ApprovalBroker) permission.ApprovalHandler {
-	return func(ctx *permission.ApprovalContext) (*permission.ApprovalResponse, error) {
+func newPermissionBridge(broker *application.ApprovalBroker) toolspermission.ApprovalHandler {
+	return func(ctx *toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		req := ctx.Request
 		appReq := application.ApprovalRequest{
 			ID:       req.ID,
@@ -495,7 +524,7 @@ func newPermissionBridge(broker *application.ApprovalBroker) permission.Approval
 			return nil, err
 		}
 		remember := decision.OptionID == "always"
-		return &permission.ApprovalResponse{
+		return &toolspermission.ApprovalResponse{
 			RequestID: req.ID,
 			Choice:    decision.OptionID,
 			Remember:  remember,

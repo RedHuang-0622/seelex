@@ -1,13 +1,9 @@
 package seelebridge
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
@@ -33,12 +29,6 @@ type ReplanRequest struct {
 	PreviousPlan   string
 	Failure        string
 	Evidence       string
-}
-
-// PreparePlan runs an isolated planning decision for callers that explicitly
-// request one. Ordinary chat requests enter normal ReAct directly.
-func (r *Runtime) PreparePlan(ctx context.Context, input string) (PlanPreflight, error) {
-	return r.preparePlan(ctx, planPreflightPrompt, input, "plan preflight", false, nil)
 }
 
 // PrepareReplan atomically replaces a failed WorkPlan with a recovery plan.
@@ -74,7 +64,7 @@ func replanOperationKey(request ReplanRequest) string {
 
 func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) string, input, stage string, explicit bool, onProviderRequest func() error) (PlanPreflight, error) {
 	policy := r.currentPlanPolicy()
-	if !policy.RequirePlan && !explicit {
+	if !explicit {
 		return PlanPreflight{}, nil
 	}
 	tool, ok := r.planLoadDefinition()
@@ -101,11 +91,10 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 					". Correct the JSON and issue exactly one valid plan_load call now."
 			}
 		}
-		// The first ordinary preflight request is an isolated planning decision:
-		// it may reply without a tool for a conversational turn. A corrective
-		// retry, and every explicit replan, force plan_load because the model has
-		// already committed to planning and only its DAG needs correction.
-		forcePlanLoad := explicit || attempt > 0
+		// 规划永远靠 prompt 引导（replan/recovery 模板含 "exactly one valid
+		// plan_load" 强指令），不做 tool_choice 强制：OpenAI thinking 模型
+		// （o 系/GPT-5）平台拒绝 tool_choice 强制（"Thinking mode does not
+		// support this tool_choice"），强制 transport 已于 2026-08-01 移除。
 		requestContext := ctx
 		cancelDecision := func() {}
 		if !explicit && attempt == 0 {
@@ -116,7 +105,6 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 			requestContext,
 			explicit,
 			attempt,
-			forcePlanLoad,
 			prompt(policy),
 			attemptInput,
 			tool,
@@ -137,7 +125,7 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 				lastErr = fmt.Errorf("plan_load: normalize DAG input: %w", normalizeErr)
 				continue
 			}
-			result, dispatchErr := r.agent.DirectDispatch(ctx, "plan_load", canonicalArgs)
+			result, dispatchErr := r.agt.DirectDispatch(ctx, "plan_load", canonicalArgs)
 			if dispatchErr == nil {
 				return PlanPreflight{Arguments: canonicalArgs, Result: result}, nil
 			}
@@ -164,17 +152,16 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 // completePlanPreflight enforces the optional decision deadline independently
 // of provider behavior. A provider may return an invalid or empty response
 // after its request context has expired; that response must not bypass the
-// required forced plan_load fallback.
+// prompt-directed plan_load fallback.
 func (r *Runtime) completePlanPreflight(
 	parentCtx, requestCtx context.Context,
 	explicit bool,
 	attempt int,
-	forcePlanLoad bool,
 	systemPrompt, input string,
 	tool types.Tool,
 ) (types.Message, error, bool) {
 	complete := func() (types.Message, error) {
-		return r.planPreflightClient(forcePlanLoad).Complete(requestCtx, []types.Message{
+		return r.planPreflightClient().Complete(requestCtx, []types.Message{
 			{Role: "system", Content: stringPointer(systemPrompt)},
 			{Role: "user", Content: stringPointer(input)},
 		}, []types.Tool{tool})
@@ -221,7 +208,10 @@ func retryablePlanLoadError(err error) bool {
 }
 
 func (r *Runtime) planLoadDefinition() (types.Tool, bool) {
-	for _, tool := range r.agent.Tools().Tools() {
+	if r.registry == nil || r.registry.registry == nil {
+		return types.Tool{}, false
+	}
+	for _, tool := range r.registry.registry.Tools() {
 		if tool.Function.Name == "plan_load" {
 			return tool, true
 		}
@@ -229,31 +219,35 @@ func (r *Runtime) planLoadDefinition() (types.Tool, bool) {
 	return types.Tool{}, false
 }
 
-func (r *Runtime) planPreflightClient(forcePlanLoad bool) *api.ChatClient {
-	client := api.NewChatClient(r.client.Cfg).WithAccountPool(r.pool)
-	provider := r.client.Provider()
-	// Planning is an isolated subagent role when that role is configured. The
-	// resolver falls back to the primary agent account, so installations without
-	// a subagent remain fully functional.
-	if account, err := ResolveAccount(r.pool, RoleSubAgent); err == nil && client.SelectAccount(account.Name) {
-		provider = account.Provider
-	}
+// planPreflightClient 构造隔离的规划回合 Completer 实例（plan.md §3.6）：
+// 每次调用创建独立 api.ChatClient，不参与共享账号池与选择器（无账号选择
+// 副作用、不消耗主链路租约），规划会话不暴露任何工具（只传 plan_load 定义）。
+// 不做 tool_choice 强制（thinking 模型平台拒绝；强制 transport 已移除）。
+func (r *Runtime) planPreflightClient() *api.ChatClient {
+	spec := r.resolvePreflightAccountSpec()
+	client := api.NewChatClient(types.LLMConfig{
+		BaseURL: spec.BaseURL, APIKey: spec.APIKey, Model: spec.Model,
+		MaxTokens: spec.MaxTokens, Timeout: 300, Temperature: 0.7,
+	})
+	provider := api.ProviderType(spec.Provider)
 	client.SetProvider(provider)
-	client.SetProviderFilter(provider)
-	httpClient := *r.client.Client
-	base := httpClient.Transport
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	if forcePlanLoad {
-		httpClient.Transport = forcePlanLoadTransport{base: base, provider: provider}
-	}
-	client.Client = &httpClient
 	return client
 }
 
-func planPreflightPrompt(policy PlanPolicy) string {
-	return promptassets.PlanPreflight(planPromptData(policy))
+// resolvePreflightAccountSpec 选择规划回合的账号：优先 subagent 角色，
+// 未配置时回退主 agent 角色（与旧 ResolveAccount 的 fallbackRoles 一致）。
+func (r *Runtime) resolvePreflightAccountSpec() accountSpec {
+	specs := r.accountSpecList()
+	if len(specs) == 0 {
+		return accountSpec{}
+	}
+	if spec, err := ResolveAccountSpec(specs, RoleSubAgent); err == nil {
+		return spec
+	}
+	if spec, err := ResolveAccountSpec(specs, RoleAgent); err == nil {
+		return spec
+	}
+	return specs[0]
 }
 
 func replanPrompt(policy PlanPolicy) string {
@@ -287,37 +281,3 @@ func planPromptData(policy PlanPolicy) promptassets.PlanData {
 }
 
 func stringPointer(value string) *string { return &value }
-
-type forcePlanLoadTransport struct {
-	base     http.RoundTripper
-	provider api.ProviderType
-}
-
-func (transport forcePlanLoadTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	body, err := io.ReadAll(request.Body)
-	if err != nil {
-		return nil, err
-	}
-	if err := request.Body.Close(); err != nil {
-		return nil, err
-	}
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, err
-	}
-	choice := json.RawMessage(`{"type":"function","function":{"name":"plan_load"}}`)
-	if transport.provider == api.ProviderAnthropic {
-		choice = json.RawMessage(`{"type":"tool","name":"plan_load"}`)
-	}
-	payload["tool_choice"] = choice
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	clone := request.Clone(request.Context())
-	clone.Body = io.NopCloser(bytes.NewReader(encoded))
-	clone.ContentLength = int64(len(encoded))
-	clone.Header = request.Header.Clone()
-	clone.Header.Set("Content-Length", fmt.Sprint(len(encoded)))
-	return transport.base.RoundTrip(clone)
-}

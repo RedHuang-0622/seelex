@@ -10,9 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
@@ -45,6 +44,7 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 		previousCheckpoint = service.components.tasks.buildTaskCheckpointLocked(previousTask)
 	}
 	service.taskExecution = continuationTaskExecutionState(requestID, request.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+	service.taskService = newTaskService(service.serviceState, service.taskExecution)
 	service.components.tasks.activateTaskSkillsLocked(service.taskExecution, request.skills)
 	service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
 	service.streamOutput = newVisibleOutputStream(requestID)
@@ -67,31 +67,9 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 
 func (service *Service) runChat(ctx context.Context, requestID string, request chatRequest) {
 	defer service.clearReActBudget(requestID)
-	var scope seelebridge.PlanActScope
 	var err error
 	recovered := false
-	if request.requirePlan {
-		scope, err = service.deps.Runtime.AcquirePlanActScope(requestID)
-	}
-	preflight := seelebridge.PlanPreflight{}
-	if err == nil {
-		preflight, err = service.runPlanPreflight(planActPreflightContext(ctx, scope), requestID, request)
-	}
 	modelInput := request.modelInput
-	if err == nil && preflight.Arguments != "" {
-		if scope != nil {
-			err = scope.Promote()
-		}
-		if err == nil {
-			modelInput = preflightPlanAuthorityContext(preflight.Arguments, request.modelInput)
-			service.mu.Lock()
-			if state := service.taskExecution; state != nil && state.requestID == requestID {
-				state.planArguments = preflight.Arguments
-				state.progressEpoch++
-			}
-			service.mu.Unlock()
-		}
-	}
 	if err == nil {
 		service.components.prompts.applyActiveTaskSystemPrompt(requestID)
 	}
@@ -102,6 +80,8 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		modelInput = nonEmptyProviderInput(modelInput)
 		var reply string
 		reply, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+		// 模型输出观测（自然终态判定输入面）
+		service.currentTaskService().ObserveModelOutput(ctx, ModelOutput{RequestID: requestID, Reply: reply, Err: err})
 		if reply != "" {
 			service.components.tasks.ensureFinalAssistantTranscript(requestID, reply)
 		}
@@ -124,15 +104,10 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 			err = service.finalizeReActBudget(ctx, requestID)
 		}
 		if err == nil {
-			err = service.finalizeTaskExecution(requestID)
-		}
-	}
-	if scope != nil {
-		scope.Release()
-	}
-	if preflight.Arguments != "" {
-		if cleanupErr := service.removePreflightPlanAuthorityContext(); cleanupErr != nil && err == nil {
-			err = cleanupErr
+			// 自然停止 → 自动终态（finalizeTaskExecution 演进为 OnChatEnd）
+			var endErr error
+			_, endErr = service.currentTaskService().OnChatEnd(ctx, ChatEndSummary{RequestID: requestID, Reply: reply})
+			err = endErr
 		}
 	}
 	if cleanupErr := service.components.context.removeTaskContextCheckpoints(); cleanupErr != nil && err == nil {
@@ -150,9 +125,9 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	}
 	if saveErr := service.components.sessions.persistCurrentSession(service.deps.Engine.SessionID()); saveErr != nil {
 		if err != nil {
-			err = fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr)
+			err = wrapError(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), errorCodePersistenceFailed)
 		} else {
-			err = fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr)
+			err = wrapError(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), errorCodePersistenceFailed)
 		}
 	}
 	service.mu.Lock()
@@ -199,6 +174,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 			previousCheckpoint = service.components.tasks.buildTaskCheckpointLocked(previousTask)
 		}
 		service.taskExecution = continuationTaskExecutionState(nextRequestID, batchRequest.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+		service.taskService = newTaskService(service.serviceState, service.taskExecution)
 		service.components.tasks.activateTaskSkillsLocked(service.taskExecution, batchRequest.skills)
 		service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
 		service.streamOutput = newVisibleOutputStream(nextRequestID)
@@ -299,74 +275,6 @@ func (service *Service) removeReActBudgetFinalizationInput() error {
 	}
 	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), filtered); err != nil {
 		return fmt.Errorf("remove ReAct budget finalization input: %w", err)
-	}
-	return nil
-}
-
-func planActPreflightContext(ctx context.Context, scope seelebridge.PlanActScope) context.Context {
-	if scope == nil {
-		return ctx
-	}
-	return scope.PreflightContext(ctx)
-}
-
-func (service *Service) runPlanPreflight(ctx context.Context, requestID string, request chatRequest) (seelebridge.PlanPreflight, error) {
-	if !request.requirePlan {
-		return seelebridge.PlanPreflight{}, nil
-	}
-	result, err := service.deps.Runtime.PreparePlan(ctx, request.displayInput)
-	if result.Arguments != "" {
-		toolID := requestID + ":plan-preflight"
-		service.handleToolStart("plan_load", toolID, result.Arguments)
-		service.handleToolComplete("plan_load", toolID, result.Result, err, 0)
-	}
-	if err != nil {
-		return result, fmt.Errorf("plan preflight: %w", err)
-	}
-	return result, nil
-}
-
-// preflightPlanAuthorityPrefix is a dedicated, machine-readable envelope,
-// deliberately parallel to the Skill context envelope. It distinguishes a
-// runtime-loaded WorkPlan from a model-proposed plan in ordinary user text.
-const preflightPlanAuthorityPrefix = "<!-- seelex:plan-context:v1 authority=preflight-loaded -->"
-const preflightPlanAuthorityRequestDelimiter = "\n## Original User Request\n"
-
-func preflightPlanAuthorityContext(arguments, input string) string {
-	return preflightPlanAuthorityPrefix + `
-## Loaded WorkPlan
-- source: runtime preflight
-- status: authoritative and already loaded
-- normal-turn rule: plan_load and plan_clear are forbidden
-- execution: treat this Plan as the authoritative checklist; execute it yourself with normal ReAct tools. plan_run is unavailable because its isolated child chats do not inherit the project tool scope or upstream evidence.
-- completion: for task_complete, list every completed Plan node and the evidence that supports delivery
-- recovery: do not self-replan; explicit replan remains available after a factual execution failure and user review
-
-Canonical Plan JSON:
-` + arguments + preflightPlanAuthorityRequestDelimiter + input
-}
-
-func (service *Service) removePreflightPlanAuthorityContext() error {
-	history := service.deps.Engine.History()
-	filtered := make([]EngineMessage, 0, len(history))
-	removed := false
-	for _, message := range history {
-		if message.Role == "user" && strings.HasPrefix(message.Content, preflightPlanAuthorityPrefix) {
-			_, original, found := strings.Cut(message.Content, preflightPlanAuthorityRequestDelimiter)
-			if found {
-				message.Content = original
-				filtered = append(filtered, message)
-			}
-			removed = true
-			continue
-		}
-		filtered = append(filtered, message)
-	}
-	if !removed {
-		return nil
-	}
-	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), filtered); err != nil {
-		return fmt.Errorf("remove preflight plan context: %w", err)
 	}
 	return nil
 }
@@ -500,9 +408,9 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 		}
 	}
 	providerResult, _ := service.components.tasks.recordToolTranscriptLocked(name, id, toolArguments, result, toolErr)
-	if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
-		state.recordTool(name, providerResult, toolErr)
-	}
+	service.currentTaskServiceLocked().ObserveTool(ToolObservation{
+		RequestID: service.snapshot.Chat.RequestID, Name: name, Result: providerResult, Err: toolErr,
+	})
 	status, errorText := "success", ""
 	if toolErr != nil {
 		status, errorText = "error", presentToolError(name, toolErr)
@@ -745,39 +653,58 @@ func resolveNodeStatus(nodes []struct {
 	return NodePending
 }
 
-// HandlePlanNodeComplete 由 plan_run 的 ProgressCallback 调用，
-// 实时更新单节点状态并通知 TUI/GUI 重绘。
-// 直接接收框架原生 *types.NodeResult，零适配开销。
-func (service *Service) HandlePlanNodeComplete(nr *workplanTypes.NodeResult) {
+// HandlePlanNodeComplete 是 plan 执行事实的投影订阅（由 Runtime 经
+// SetPlanNodeCallback 注册）：planEventSink 把 workplan 事件投影为
+// PlanNodeEvent 后回调本方法，实时更新节点/计划状态并通知 TUI/GUI 重绘。
+// NodeID 为空表示计划级投影（PlanStatus），否则为节点级投影（NodeStatus）。
+func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) {
 	service.mu.Lock()
 	plan := service.snapshot.Runtime.Plan
 	if plan == nil {
 		service.mu.Unlock()
 		return
 	}
-	for i := range plan.Nodes {
-		if plan.Nodes[i].ID == nr.NodeID {
-			plan.Nodes[i].Status = PlanNodeStatus(nr.Status)
-			plan.Nodes[i].Elapsed = nr.Elapsed().String()
-			plan.Nodes[i].Kind = mapKindForDisplay(nr.Kind)
-			if nr.Output != "" {
-				plan.Nodes[i].Output = nr.Output
+	if event.NodeID == "" {
+		// 计划级投影（PlanStatus）：终态最终仍以 plan_run 结果 JSON 为准，
+		// 此处提前反映运行期状态。
+		switch event.Status {
+		case "running":
+			if plan.Status == PlanPending {
+				plan.Status = PlanRunning
 			}
-			if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
-				state.checkpoint(nr.NodeID, plan.Nodes[i].Label, nr.Status, nr.Output, "")
+		case "completed":
+			plan.Status = PlanCompleted
+			plan.Progress = 1.0
+		case "failed":
+			plan.Status = PlanFailed
+		case "canceled", "aborted":
+			plan.Status = PlanAborted
+		}
+	} else {
+		for i := range plan.Nodes {
+			if plan.Nodes[i].ID != event.NodeID {
+				continue
+			}
+			plan.Nodes[i].Status = PlanNodeStatus(event.Status)
+			if event.Kind != "" {
+				plan.Nodes[i].Kind = mapKindForDisplay(event.Kind)
+			}
+			if event.Elapsed != "" {
+				plan.Nodes[i].Elapsed = event.Elapsed
+			}
+			if event.Output != "" {
+				plan.Nodes[i].Output = event.Output
+			}
+			// checkpoint 只对终态生效（旧 HandlePlanNodeComplete 只在节点完成时调用）；
+			// 观测经 TaskService.ObservePlanEvent 写入功能打点快照
+			if isTerminalNodeStatus(event.Status) {
+				service.currentTaskServiceLocked().ObservePlanEvent(PlanEvent{
+					NodeID: event.NodeID, Status: event.Status, Output: event.Output, Objective: plan.Nodes[i].Label,
+				})
 			}
 			break
 		}
-	}
-	// 重新计算进度
-	done := 0
-	for _, n := range plan.Nodes {
-		if n.Status == NodeCompleted || n.Status == NodeSkipped {
-			done++
-		}
-	}
-	if len(plan.Nodes) > 0 {
-		plan.Progress = float64(done) / float64(len(plan.Nodes))
+		recalculatePlanProgress(plan)
 	}
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
@@ -829,6 +756,16 @@ func mapKindForDisplay(kind string) string {
 	return kind
 }
 
+// isTerminalNodeStatus 判定节点状态是否为终态（checkpoint 只对终态生效）。
+func isTerminalNodeStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "aborted", "skipped", "canceled", "panicked":
+		return true
+	default:
+		return false
+	}
+}
+
 // PlanNodeStatus 将字符串转为 NodeStatus。
 func PlanNodeStatus(s string) NodeStatus {
 	switch s {
@@ -875,9 +812,10 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 
 	// 更新计划整体状态
 	plan.Status = PlanFailed
-	if state := service.taskExecution; state != nil && state.requestID == service.snapshot.Chat.RequestID {
-		state.checkpoint(extractFailedNodeID(errMsg), "authoritative plan node", "failed", resultJSON, errMsg)
-	}
+	service.currentTaskServiceLocked().ObservePlanEvent(PlanEvent{
+		NodeID: extractFailedNodeID(errMsg), Status: "failed", Output: resultJSON,
+		Failure: errMsg, Objective: "authoritative plan node",
+	})
 
 	// 尝试解析 resultJSON 中的部分节点结果（framework 返回失败点之前的节点）
 	if resultJSON != "" {
@@ -1119,9 +1057,9 @@ func (bridge *ToolHookBridge) Bind(service *Service) {
 	bridge.service = service
 	bridge.mu.Unlock()
 }
-func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
-	return &engine.LoopHooks{
-		OnLLMComplete: func(_ context.Context, info engine.LLMInfo) {
+func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
+	return &session.LoopHooks{
+		OnLLMComplete: func(_ context.Context, info session.LLMInfo) {
 			bridge.mu.Lock()
 			svc := bridge.service
 			bridge.mu.Unlock()
@@ -1129,7 +1067,7 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 				svc.components.tasks.recordLLMComplete(info)
 			}
 		},
-		OnToolStart: func(_ context.Context, info engine.ToolCallInfo) {
+		OnToolStart: func(_ context.Context, info session.ToolCallInfo) {
 			info = normalizePlanToolCallInfo(info)
 			service, id := bridge.beginTool(info)
 			if service != nil {
@@ -1137,7 +1075,7 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 				service.handleToolStart(info.Name, id, info.Arguments)
 			}
 		},
-		OnToolComplete: func(_ context.Context, info engine.ToolCallInfo) {
+		OnToolComplete: func(_ context.Context, info session.ToolCallInfo) {
 			info = normalizePlanToolCallInfo(info)
 			service, id := bridge.completeTool(info)
 			if service != nil {
@@ -1154,14 +1092,19 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 			if !svc.allowNextReActIteration(turn) {
 				return false
 			}
-			// Context control is token- and checkpoint-based, not wall-clock based.
+			// 新 Session 装配（session.NewSession + Session.ChatStream）下，
+			// OnIterationComplete 在 Session 锁内同步执行：回调不得重入 Session
+			// 的历史操作（History/ReplaceHistory/AppendHistory），否则死锁。
+			// 压缩决策移交 ContextController（seelectx.ContextController，
+			// plan.md §3.5：OnIterationComplete 不再触发 compactTaskContext）；
+			// 配对修复与队列注入由 chat 边界（prepareProviderHistory /
+			// 批处理路径）承担，进度回调与事件流保持不变。
+			if reentrant, ok := svc.deps.Engine.(interface{ SessionBacked() bool }); ok && reentrant.SessionBacked() {
+				return true
+			}
 			svc.mu.RLock()
 			activeRequestID := svc.snapshot.Chat.RequestID
 			svc.mu.RUnlock()
-			if err := svc.components.context.compactTaskContext(activeRequestID); err != nil {
-				svc.components.context.recordContextControlFailure(activeRequestID, err)
-				return false
-			}
 			// The engine adds assistant/tool records after the initial preflight.
 			// Repair them before its next provider request, not only before loop 0.
 			if err := svc.components.history.prepareProviderHistory(); err != nil {
@@ -1202,7 +1145,7 @@ func (bridge *ToolHookBridge) Hooks() *engine.LoopHooks {
 // normalizePlanToolCallInfo keeps application snapshots in the same canonical
 // DAG representation that Seele executes. Invalid adapter input is left intact
 // so the tool error remains visible to the user.
-func normalizePlanToolCallInfo(info engine.ToolCallInfo) engine.ToolCallInfo {
+func normalizePlanToolCallInfo(info session.ToolCallInfo) session.ToolCallInfo {
 	if info.Name != "plan_load" {
 		return info
 	}
@@ -1213,7 +1156,7 @@ func normalizePlanToolCallInfo(info engine.ToolCallInfo) engine.ToolCallInfo {
 	return info
 }
 
-func (bridge *ToolHookBridge) beginTool(info engine.ToolCallInfo) (*Service, string) {
+func (bridge *ToolHookBridge) beginTool(info session.ToolCallInfo) (*Service, string) {
 	bridge.mu.Lock()
 	defer bridge.mu.Unlock()
 	id := bridge.nextToolIDLocked()
@@ -1225,7 +1168,7 @@ func (bridge *ToolHookBridge) beginTool(info engine.ToolCallInfo) (*Service, str
 	return bridge.service, id
 }
 
-func (bridge *ToolHookBridge) completeTool(info engine.ToolCallInfo) (*Service, string) {
+func (bridge *ToolHookBridge) completeTool(info session.ToolCallInfo) (*Service, string) {
 	bridge.mu.Lock()
 	defer bridge.mu.Unlock()
 	key := toolHookKey(info)
@@ -1247,6 +1190,6 @@ func (bridge *ToolHookBridge) nextToolIDLocked() string {
 	return fmt.Sprintf("tool-%d", bridge.toolSeq)
 }
 
-func toolHookKey(info engine.ToolCallInfo) string {
+func toolHookKey(info session.ToolCallInfo) string {
 	return fmt.Sprintf("%d\x00%s\x00%s", info.Turn, info.Name, info.Arguments)
 }

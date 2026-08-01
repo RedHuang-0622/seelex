@@ -60,6 +60,7 @@ func (service *Service) BeginNewSession() error {
 	service.planSequence = 0
 	service.inputQueue = nil
 	service.taskExecution = nil
+	service.taskService = nil
 	service.transcript = nil
 	service.transcriptSeq = 0
 	service.pendingProviderCalls = nil

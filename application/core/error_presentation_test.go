@@ -2,12 +2,16 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"testing"
 	"time"
+
+	seeleerrors "github.com/RedHuang-0622/Seele/errors"
 )
 
 type failingSnapshotSessions struct{ fakeSessions }
@@ -76,6 +80,65 @@ func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestClassifyStructuredErrorsByCode 验证 slice 8 的结构化错误分类
+// （seeleerrors.From 按 Code/Function 结构性读取，替代字符串匹配）：
+// 结构化错误与字符串匹配产生相同分类；预算错误保持 errors.Is 语义。
+func TestClassifyStructuredErrorsByCode(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		module string
+		method string
+	}{
+		{
+			name:   "persistence code",
+			err:    wrapError(errors.New("storage unavailable"), errorCodePersistenceFailed),
+			module: "会话持久化", method: "persistCurrentSession",
+		},
+		{
+			name:   "plan preflight code",
+			err:    wrapError(fmt.Errorf("plan preflight: %w", errors.New("no plan_load")), errorCodePlanPreflight),
+			module: "计划预检", method: "PreparePlan",
+		},
+		{
+			name:   "react budget code",
+			err:    wrapError(fmt.Errorf("%w: no progress", ErrReActBudgetExceeded), errorCodeReActBudget),
+			module: "执行预算", method: "finalizeReActBudget",
+		},
+		{
+			name:   "context exceeded code",
+			err:    wrapError(fmt.Errorf("estimated=1 budget=1"), errorCodeContextExceeded),
+			module: "上下文恢复", method: "recoverProviderFailure",
+		},
+		{
+			name:   "function field inference",
+			err:    seeleerrors.Wrap(errors.New("boom"), seeleerrors.Context{Function: "persistCurrentSession"}),
+			module: "会话持久化", method: "persistCurrentSession",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := presentUserError(test.err)
+			for _, expected := range []string{"模块：" + test.module, "方法：" + test.method} {
+				if !strings.Contains(got, expected) {
+					t.Fatalf("presentation %q does not contain %q", got, expected)
+				}
+			}
+		})
+	}
+
+	// 结构化包装不破坏预算错误的 errors.Is 语义。
+	budgetErr := wrapError(fmt.Errorf("%w: no progress", ErrReActBudgetExceeded), errorCodeReActBudget)
+	if !errors.Is(budgetErr, ErrReActBudgetExceeded) {
+		t.Fatal("errors.Is(ErrReActBudgetExceeded) broken through structured envelope")
+	}
+	// 取消语义优先于结构化分类（与旧分类顺序一致）。
+	canceled := wrapError(fmt.Errorf("plan preflight: %w", context.Canceled), errorCodePlanPreflight)
+	if got := presentUserError(canceled); !strings.Contains(got, "任务已停止") {
+		t.Fatalf("canceled plan preflight should present as 任务已停止, got %q", got)
 	}
 }
 

@@ -4,13 +4,17 @@ package seelebridge
 import (
 	"fmt"
 	"sort"
-
-	"github.com/RedHuang-0622/Seele/workplan/runtime/serialize"
 )
 
-// PlanEdge directly reuses the framework's serializable edge type.
-// JSON format: {"from","to","label","condition"}.
-type PlanEdge = serialize.PlanEdgeSpec
+// PlanEdge is the Seelex-owned serializable edge type.
+// JSON format: {"from","to","label","condition"} — 与旧 serialize.PlanEdgeSpec
+// 保持同形，PlanState.Edges 的 DTO 契约不变。
+type PlanEdge struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Label     string `json:"label,omitempty"`
+	Condition string `json:"condition,omitempty"`
+}
 
 // AdjacencyToEdges converts an adjacency list (plan_load input format) to a
 // PlanEdge slice suitable for PlanState.Edges.

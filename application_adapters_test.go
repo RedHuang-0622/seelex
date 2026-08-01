@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/seelectx/tracer"
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application"
@@ -44,10 +43,9 @@ func (fake *fakeReactorEngine) ClearHistory() {
 	fake.history = retained
 }
 
-func (fake *fakeReactorEngine) SessionID() string    { return fake.sessionID }
-func (*fakeReactorEngine) SetSystemPrompt(string)    {}
-func (*fakeReactorEngine) SetMaxLoops(int)           {}
-func (*fakeReactorEngine) ExportTrace() *tracer.Tree { return nil }
+func (fake *fakeReactorEngine) SessionID() string { return fake.sessionID }
+func (*fakeReactorEngine) SetSystemPrompt(string) {}
+func (*fakeReactorEngine) SetMaxLoops(int)        {}
 func (fake *fakeReactorEngine) AppendHistory(message types.Message) {
 	fake.history = append(fake.history, message)
 }
@@ -63,7 +61,7 @@ func TestEnginePortStartSessionCreatesAnIndependentReactor(t *testing.T) {
 	port := newEnginePort(old, func() reactorEngine {
 		factoryCalls++
 		return fresh
-	})
+	}, nil)
 
 	if got := port.StartSession(); got != "session-new" {
 		t.Fatalf("new session ID = %q, want session-new", got)
@@ -108,7 +106,7 @@ func TestEnginePortReplaceHistoryUsesFreshReactorAndCollapsesSystemMessages(t *t
 		{Role: "user", Content: &userInput},
 	}}
 	fresh := &fakeReactorEngine{sessionID: "engine-fresh"}
-	port := newEnginePort(old, func() reactorEngine { return fresh })
+	port := newEnginePort(old, func() reactorEngine { return fresh }, nil)
 	resume := "resume from checkpoint"
 	if err := port.replaceRawHistory("logical-session", []seelebridge.Message{
 		{Role: "system", Content: &oldPrompt},
@@ -129,7 +127,7 @@ func TestEnginePortDefersCleanReactorUntilActiveCallReturns(t *testing.T) {
 	prompt, checkpoint := "product prompt", "checkpoint"
 	old := &fakeReactorEngine{sessionID: "engine-old"}
 	fresh := &fakeReactorEngine{sessionID: "engine-fresh"}
-	port := newEnginePort(old, func() reactorEngine { return fresh })
+	port := newEnginePort(old, func() reactorEngine { return fresh }, nil)
 	old.onChat = func() {
 		if err := port.replaceRawHistory("logical-session", []seelebridge.Message{
 			{Role: "system", Content: &prompt},

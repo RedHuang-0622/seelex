@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	seeleengine "github.com/RedHuang-0622/Seele/engine"
+	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
@@ -68,14 +68,14 @@ func initialSessionID(value Scenario) string {
 }
 
 type applicationToolLifecycle struct {
-	hooks *seeleengine.LoopHooks
+	hooks *frameworkSession.LoopHooks
 }
 
 func (lifecycle *applicationToolLifecycle) Started(ctx context.Context, execution ToolExecution) {
 	if lifecycle.hooks == nil || lifecycle.hooks.OnToolStart == nil {
 		return
 	}
-	lifecycle.hooks.OnToolStart(ctx, seeleengine.ToolCallInfo{
+	lifecycle.hooks.OnToolStart(ctx, frameworkSession.ToolCallInfo{
 		Turn: execution.Turn, Name: execution.Name, Arguments: execution.Arguments,
 	})
 }
@@ -84,7 +84,7 @@ func (lifecycle *applicationToolLifecycle) Completed(ctx context.Context, execut
 	if lifecycle.hooks == nil || lifecycle.hooks.OnToolComplete == nil {
 		return
 	}
-	lifecycle.hooks.OnToolComplete(ctx, seeleengine.ToolCallInfo{
+	lifecycle.hooks.OnToolComplete(ctx, frameworkSession.ToolCallInfo{
 		Turn: execution.Turn, Name: execution.Name, Arguments: execution.Arguments,
 		Result: execution.Result, Error: execution.Err, Duration: execution.Duration,
 	})
@@ -94,12 +94,6 @@ type harnessRuntime struct {
 	plugin string
 }
 
-type noopPlanActScope struct{}
-
-func (noopPlanActScope) PreflightContext(ctx context.Context) context.Context { return ctx }
-func (noopPlanActScope) Promote() error                                       { return nil }
-func (noopPlanActScope) Release()                                             {}
-
 func (harnessRuntime) Model() string                                   { return "scripted-e2e" }
 func (harnessRuntime) Provider() string                                { return "local" }
 func (harnessRuntime) Accounts() []application.AccountInfo             { return nil }
@@ -108,12 +102,6 @@ func (harnessRuntime) VisibleTools(context.Context) []application.Tool { return 
 func (runtime harnessRuntime) ActivePlugin() string                    { return runtime.plugin }
 func (harnessRuntime) SetFullAccess(bool)                              {}
 func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)            {}
-func (harnessRuntime) AcquirePlanActScope(string) (seelebridge.PlanActScope, error) {
-	return noopPlanActScope{}, nil
-}
-func (harnessRuntime) PreparePlan(context.Context, string) (seelebridge.PlanPreflight, error) {
-	return seelebridge.PlanPreflight{}, nil
-}
 func (harnessRuntime) PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	return seelebridge.PlanPreflight{}, nil
 }

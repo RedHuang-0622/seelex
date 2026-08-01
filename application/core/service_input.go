@@ -27,7 +27,6 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 func (service *Service) submitConversation(ctx context.Context, input string) error {
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortManager.Current()
-	request.requirePlan = service.effortManager.PlanPolicy().RequirePlan
 	request.budget = reactBudgetFor(effort)
 	service.sessionTransitionMu.Lock()
 	defer service.sessionTransitionMu.Unlock()

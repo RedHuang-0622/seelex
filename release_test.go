@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
+	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 )
 
 func TestParseFrontendMode(t *testing.T) {
@@ -35,10 +35,10 @@ func TestParsePermissionMode(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		input string
-		want  permission.Mode
+		want  toolspermission.Mode
 	}{
-		{input: "manual", want: permission.ModeManual},
-		{input: " FULL_ACCESS ", want: permission.ModeFullAccess},
+		{input: "manual", want: toolspermission.ModeManual},
+		{input: " FULL_ACCESS ", want: toolspermission.ModeFullAccess},
 	} {
 		got, err := parsePermissionMode(test.input)
 		if err != nil {

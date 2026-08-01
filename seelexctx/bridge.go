@@ -15,15 +15,22 @@ import (
 	"log"
 	"time"
 
-	"github.com/RedHuang-0622/Seele/engine"
+	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
+// SessionState 是 Import 需要的会话可变面（*session.Session 满足）。
+type SessionState interface {
+	History() []types.Message
+	ClearHistory()
+	SetSystemPrompt(string)
+}
+
 // ── 向后兼容导出 ──────────────────────────────────────────────
 
-// Export 从 Engine 导出上下文快照（兼容旧 API）。
-func Export(eng *engine.Engine) *snapshot.ContextSnapshot {
+// Export 从会话导出上下文快照（兼容旧 API，eng 可以是 *session.Session）。
+func Export(eng provider.SessionSource) *snapshot.ContextSnapshot {
 	snap, _ := provider.NewEngineProvider(eng).Export(context.TODO())
 	if snap == nil {
 		return &snapshot.ContextSnapshot{
@@ -35,7 +42,7 @@ func Export(eng *engine.Engine) *snapshot.ContextSnapshot {
 }
 
 // ExportWithGoal 导出并显式设置目标（兼容旧 API）。
-func ExportWithGoal(eng *engine.Engine, goal string) *snapshot.ContextSnapshot {
+func ExportWithGoal(eng provider.SessionSource, goal string) *snapshot.ContextSnapshot {
 	snap, _ := provider.NewEngineProviderWithGoal(eng, goal).Export(context.TODO())
 	if snap == nil {
 		return &snapshot.ContextSnapshot{
@@ -49,9 +56,9 @@ func ExportWithGoal(eng *engine.Engine, goal string) *snapshot.ContextSnapshot {
 
 // ── 向后兼容导入 ──────────────────────────────────────────────
 
-// Import 将上下文快照注入到目标 Engine 的 system prompt 中。
+// Import 将上下文快照注入到目标会话的 system prompt 中。
 // 注入前自动做预算检查：历史超阈值则用 TrimHistory 截断。
-func Import(eng *engine.Engine, snap *snapshot.ContextSnapshot) {
+func Import(eng SessionState, snap *snapshot.ContextSnapshot) {
 	cfg := DefaultContextConfig()
 	hist := eng.History()
 	if NeedCompression(hist, cfg.CompressThreshold) {
@@ -78,7 +85,7 @@ func Import(eng *engine.Engine, snap *snapshot.ContextSnapshot) {
 	eng.SetSystemPrompt(newPrompt)
 }
 
-func getCurrentSystemPrompt(eng *engine.Engine) string {
+func getCurrentSystemPrompt(eng SessionState) string {
 	for _, m := range eng.History() {
 		if m.Role == "system" && m.Content != nil {
 			return *m.Content

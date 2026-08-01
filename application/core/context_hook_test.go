@@ -2,28 +2,17 @@ package core
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 )
 
-type failingContextEngine struct {
-	*fakeEngine
-	err error
-}
-
-func (engine *failingContextEngine) ReplaceHistory(string, []EngineMessage) error {
-	return engine.err
-}
-
-func TestIterationHookReportsContextControlFailure(t *testing.T) {
-	want := errors.New("history replacement failed")
-	engine := &failingContextEngine{
-		fakeEngine: &fakeEngine{history: []EngineMessage{{
-			Role: "tool", Content: strings.Repeat("output ", 4000), ContentSet: true,
-		}}},
-		err: want,
-	}
+func TestIterationHookDoesNotTriggerContextControl(t *testing.T) {
+	// OnIterationComplete 不再触发 compactTaskContext（压缩决策移交
+	// seelectx.ContextController，plan.md §3.5）：上下文控制失败不会在
+	// 迭代钩子中产生，迭代保持可用。
+	engine := &fakeEngine{history: []EngineMessage{{
+		Role: "tool", Content: strings.Repeat("output ", 4000), ContentSet: true,
+	}}}
 	service := New(Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
@@ -38,10 +27,10 @@ func TestIterationHookReportsContextControlFailure(t *testing.T) {
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
-	if bridge.Hooks().OnIterationComplete(context.Background(), 0) {
-		t.Fatal("iteration should stop after context-control failure")
+	if !bridge.Hooks().OnIterationComplete(context.Background(), 0) {
+		t.Fatal("iteration must remain available (context control moved to Controller)")
 	}
-	if got := service.components.context.takeContextControlFailure("task-1"); !errors.Is(got, want) {
-		t.Fatalf("failure = %v, want wrapped %v", got, want)
+	if got := service.components.context.takeContextControlFailure("task-1"); got != nil {
+		t.Fatalf("no context-control failure expected in iteration hook, got %v", got)
 	}
 }

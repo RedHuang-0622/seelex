@@ -131,6 +131,15 @@ func (key Key) validate() error {
 	return nil
 }
 
+// validateProjectID 校验项目级记录（WriteProjectRecord/ReadProjectRecord）的
+// 项目作用域；项目记录不挂会话，只按 projectID 独立存储。
+func validateProjectID(projectID string) error {
+	if strings.TrimSpace(projectID) == "" {
+		return errors.New("session storage: project ID is required")
+	}
+	return nil
+}
+
 // Repository is the single persistence contract used by session.Manager.
 // WriteAtomic replaces one complete logical history. Reads therefore observe
 // either the preceding committed history or the next committed history, never
@@ -144,6 +153,16 @@ type Repository interface {
 	ReadToolResult(context.Context, Key, string) (ToolResult, error)
 	WriteState(context.Context, Key, []byte) error
 	ReadState(context.Context, Key) ([]byte, error)
+	// WriteProjectRecord/ReadProjectRecord 是项目级模块语义记录（plan.md §3.7.1）。
+	// 与会话记录不同，它按 projectID 独立存储、跨会话共享；会话只读（read-only
+	// contract），只有 project_refresh 工具调用写入。
+	WriteProjectRecord(context.Context, string, ProjectRecord) error
+	ReadProjectRecord(context.Context, string) (ProjectRecord, error)
+	// AppendFrameworkEvent/ReadFrameworkEvents 是会话级执行事实事件库
+	// （双轨事件的事实轨，slice 8；event.Sink → sessionstore 事件库）。
+	// 追加顺序 = 落库顺序；读取按 Seq 排序。
+	AppendFrameworkEvent(context.Context, Key, EventLogEntry) error
+	ReadFrameworkEvents(context.Context, Key) ([]EventLogEntry, error)
 	List(context.Context, string) ([]frameworkStorage.SessionMeta, error)
 	Delete(context.Context, Key) error
 	Ping(context.Context) error
@@ -299,6 +318,55 @@ func (router *Router) LoadStateWorkspace(projectID, sessionID string) ([]byte, e
 		return err
 	})
 	return state, err
+}
+
+// SaveProjectRecord 写入项目级模块语义记录（project_refresh 工具的落盘路径）。
+// 只读契约：会话不写项目记录；本方法只被 project_refresh 工具调用（plan.md §3.7.1）。
+func (router *Router) SaveProjectRecord(projectID string, record ProjectRecord) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteProjectRecord(context.Background(), projectID, record)
+	})
+}
+
+// AppendFrameworkEvent 追加执行事实事件到会话级事件库
+// （双轨事件的事实轨：event.Sink → sessionstore 事件库；slice 8）。
+func (router *Router) AppendFrameworkEvent(ctx context.Context, sessionID string, entry EventLogEntry) error {
+	return router.AppendFrameworkEventWorkspace(ctx, router.Workspace(), sessionID, entry)
+}
+
+// AppendFrameworkEventWorkspace 在显式项目作用域下追加执行事实事件。
+func (router *Router) AppendFrameworkEventWorkspace(ctx context.Context, projectID, sessionID string, entry EventLogEntry) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.AppendFrameworkEvent(ctx, Key{ProjectID: projectID, SessionID: sessionID}, entry)
+	})
+}
+
+// ReadFrameworkEvents 读取会话级执行事实事件库（按 Seq 排序）。
+func (router *Router) ReadFrameworkEvents(ctx context.Context, sessionID string) ([]EventLogEntry, error) {
+	return router.ReadFrameworkEventsWorkspace(ctx, router.Workspace(), sessionID)
+}
+
+// ReadFrameworkEventsWorkspace 在显式项目作用域下读取执行事实事件库。
+func (router *Router) ReadFrameworkEventsWorkspace(ctx context.Context, projectID, sessionID string) ([]EventLogEntry, error) {
+	var entries []EventLogEntry
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		entries, err = repository.ReadFrameworkEvents(ctx, Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return entries, err
+}
+
+// LoadProjectRecord 读取项目级模块语义记录（会话开始前即可读）。
+// 记录尚未构建时返回 fs.ErrNotExist / sql.ErrNoRows，由调用方按「未构建」处理。
+func (router *Router) LoadProjectRecord(projectID string) (ProjectRecord, error) {
+	var record ProjectRecord
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		record, err = repository.ReadProjectRecord(context.Background(), projectID)
+		return err
+	})
+	return record, err
 }
 
 func (router *Router) List() []frameworkStorage.SessionMeta {
@@ -664,6 +732,100 @@ func (repository *jsonRepository) ReadState(_ context.Context, key Key) ([]byte,
 		}
 	}
 	return os.ReadFile(filepath.Join(directory, "state.json"))
+}
+
+func (repository *jsonRepository) WriteProjectRecord(_ context.Context, projectID string, record ProjectRecord) error {
+	if err := validateProjectID(projectID); err != nil {
+		return err
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	directory := repository.projectDir(projectID)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal project record: %w", err)
+	}
+	return writeAtomic(filepath.Join(directory, "project-record.json"), data, 0o600)
+}
+
+func (repository *jsonRepository) AppendFrameworkEvent(_ context.Context, key Key, entry EventLogEntry) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	directory := repository.sessionDir(key)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(directory, "events.json")
+	if manifest, err := repository.readManifest(directory); err == nil {
+		path = filepath.Join(directory, manifest.Generation, "events.json")
+	}
+	entries, err := repository.readEventLogLocked(path)
+	if err != nil {
+		return err
+	}
+	entries = append(entries, entry)
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal event log: %w", err)
+	}
+	return writeAtomic(path, data, 0o600)
+}
+
+func (repository *jsonRepository) ReadFrameworkEvents(_ context.Context, key Key) ([]EventLogEntry, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	directory := repository.sessionDir(key)
+	path := filepath.Join(directory, "events.json")
+	if manifest, err := repository.readManifest(directory); err == nil {
+		if _, statErr := os.Stat(filepath.Join(directory, manifest.Generation, "events.json")); statErr == nil {
+			path = filepath.Join(directory, manifest.Generation, "events.json")
+		}
+	}
+	return repository.readEventLogLocked(path)
+}
+
+// readEventLogLocked 读取事件库 JSON（不存在 → 空库；损坏 → 显式错误）。
+// 调用方必须持有 jsonRepository.mu（读锁或写锁）。
+func (repository *jsonRepository) readEventLogLocked(path string) ([]EventLogEntry, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []EventLogEntry{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var entries []EventLogEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("session storage: decode event log: %w", err)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Seq < entries[j].Seq })
+	return entries, nil
+}
+
+func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID string) (ProjectRecord, error) {
+	if err := validateProjectID(projectID); err != nil {
+		return ProjectRecord{}, err
+	}
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	data, err := os.ReadFile(filepath.Join(repository.projectDir(projectID), "project-record.json"))
+	if err != nil {
+		return ProjectRecord{}, err
+	}
+	var record ProjectRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return ProjectRecord{}, err
+	}
+	return record, nil
 }
 
 func (repository *jsonRepository) List(_ context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
@@ -1043,6 +1205,69 @@ func (repository *redisRepository) ReadState(ctx context.Context, key Key) ([]by
 	return value, err
 }
 
+func (repository *redisRepository) WriteProjectRecord(ctx context.Context, projectID string, record ProjectRecord) error {
+	if err := validateProjectID(projectID); err != nil {
+		return err
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal project record: %w", err)
+	}
+	return repository.client.Set(ctx, repository.projectRecordKey(projectID), data, 0).Err()
+}
+
+func (repository *redisRepository) AppendFrameworkEvent(ctx context.Context, key Key, entry EventLogEntry) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal event log entry: %w", err)
+	}
+	return repository.client.RPush(ctx, repository.eventLogKey(key), data).Err()
+}
+
+func (repository *redisRepository) ReadFrameworkEvents(ctx context.Context, key Key) ([]EventLogEntry, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	values, err := repository.client.LRange(ctx, repository.eventLogKey(key), 0, -1).Result()
+	if errors.Is(err, redis.Nil) {
+		return []EventLogEntry{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]EventLogEntry, 0, len(values))
+	for _, value := range values {
+		var entry EventLogEntry
+		if err := json.Unmarshal([]byte(value), &entry); err != nil {
+			return nil, fmt.Errorf("session storage: decode event log entry: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Seq < entries[j].Seq })
+	return entries, nil
+}
+
+func (repository *redisRepository) ReadProjectRecord(ctx context.Context, projectID string) (ProjectRecord, error) {
+	if err := validateProjectID(projectID); err != nil {
+		return ProjectRecord{}, err
+	}
+	data, err := repository.client.Get(ctx, repository.projectRecordKey(projectID)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return ProjectRecord{}, fs.ErrNotExist
+	}
+	if err != nil {
+		return ProjectRecord{}, err
+	}
+	var record ProjectRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return ProjectRecord{}, err
+	}
+	return record, nil
+}
+
 func (repository *redisRepository) List(ctx context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
 	ids, err := repository.client.ZRevRange(ctx, repository.projectIndexKey(projectID), 0, -1).Result()
 	if err != nil {
@@ -1075,7 +1300,7 @@ func (repository *redisRepository) Delete(ctx context.Context, key Key) error {
 		return refsErr
 	}
 	_, err = repository.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-		pipe.Del(ctx, repository.manifestKey(key), repository.stateKey(key), repository.toolResultIndexKey(key))
+		pipe.Del(ctx, repository.manifestKey(key), repository.stateKey(key), repository.eventLogKey(key), repository.toolResultIndexKey(key))
 		if manifest != nil {
 			for index := 0; index < manifest.ShardCount; index++ {
 				pipe.Del(ctx, repository.shardKey(key, manifest.Generation, index))
@@ -1123,6 +1348,9 @@ func (repository *redisRepository) projectKey(projectID string) string {
 func (repository *redisRepository) projectIndexKey(projectID string) string {
 	return repository.projectKey(projectID) + ":sessions"
 }
+func (repository *redisRepository) projectRecordKey(projectID string) string {
+	return repository.projectKey(projectID) + ":project-record"
+}
 func (repository *redisRepository) sessionKey(key Key) string {
 	return repository.projectKey(key.ProjectID) + ":session:" + hash(key.SessionID)
 }
@@ -1131,6 +1359,9 @@ func (repository *redisRepository) manifestKey(key Key) string {
 }
 func (repository *redisRepository) stateKey(key Key) string {
 	return repository.sessionKey(key) + ":state"
+}
+func (repository *redisRepository) eventLogKey(key Key) string {
+	return repository.sessionKey(key) + ":framework-events"
 }
 func (repository *redisRepository) shardKey(key Key, generation string, index int) string {
 	return fmt.Sprintf("%s:history:%s:%03d", repository.sessionKey(key), generation, index)
@@ -1216,6 +1447,19 @@ project_id TEXT NOT NULL, session_id TEXT NOT NULL, result_ref TEXT NOT NULL,
 tool_name TEXT NOT NULL, content TEXT NOT NULL, digest TEXT NOT NULL,
 size_bytes INTEGER NOT NULL, token_count INTEGER NOT NULL, created_at BIGINT NOT NULL,
 PRIMARY KEY (project_id, session_id, result_ref))`)
+	if err != nil {
+		return err
+	}
+	_, err = repository.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS seelex_project_record (
+project_id TEXT NOT NULL, record_json TEXT NOT NULL, updated_at BIGINT NOT NULL,
+PRIMARY KEY (project_id))`)
+	if err != nil {
+		return err
+	}
+	_, err = repository.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS seelex_framework_event (
+project_id TEXT NOT NULL, session_id TEXT NOT NULL, seq BIGINT NOT NULL,
+event_json TEXT NOT NULL, created_at BIGINT NOT NULL,
+PRIMARY KEY (project_id, session_id, seq))`)
 	return err
 }
 
@@ -1417,6 +1661,42 @@ ON CONFLICT (project_id,session_id) DO UPDATE SET state_json=excluded.state_json
 	return err
 }
 
+func (repository *sqlRepository) AppendFrameworkEvent(ctx context.Context, key Key, entry EventLogEntry) error {
+	if err := key.validate(); err != nil {
+		return err
+	}
+	query := `INSERT INTO seelex_framework_event (project_id,session_id,seq,event_json,created_at) VALUES (` + repository.placeholders(5) + `)
+ON CONFLICT (project_id,session_id,seq) DO UPDATE SET event_json=excluded.event_json, created_at=excluded.created_at`
+	_, err := repository.db.ExecContext(ctx, query, key.ProjectID, key.SessionID, int64(entry.Seq), string(entry.Payload), time.Now().UTC().UnixNano())
+	return err
+}
+
+func (repository *sqlRepository) ReadFrameworkEvents(ctx context.Context, key Key) ([]EventLogEntry, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	query := `SELECT seq,event_json FROM seelex_framework_event WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2) + ` ORDER BY seq`
+	rows, err := repository.db.QueryContext(ctx, query, key.ProjectID, key.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := make([]EventLogEntry, 0)
+	for rows.Next() {
+		var entry EventLogEntry
+		var payload string
+		if err := rows.Scan(&entry.Seq, &payload); err != nil {
+			return nil, err
+		}
+		entry.Payload = json.RawMessage(payload)
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
 func (repository *sqlRepository) ReadState(ctx context.Context, key Key) ([]byte, error) {
 	if err := key.validate(); err != nil {
 		return nil, err
@@ -1427,6 +1707,36 @@ func (repository *sqlRepository) ReadState(ctx context.Context, key Key) ([]byte
 		return nil, err
 	}
 	return []byte(state), nil
+}
+
+func (repository *sqlRepository) WriteProjectRecord(ctx context.Context, projectID string, record ProjectRecord) error {
+	if err := validateProjectID(projectID); err != nil {
+		return err
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("session storage: marshal project record: %w", err)
+	}
+	query := `INSERT INTO seelex_project_record (project_id,record_json,updated_at) VALUES (` + repository.placeholders(3) + `)
+ON CONFLICT (project_id) DO UPDATE SET record_json=excluded.record_json, updated_at=excluded.updated_at`
+	_, err = repository.db.ExecContext(ctx, query, projectID, string(data), time.Now().UTC().UnixNano())
+	return err
+}
+
+func (repository *sqlRepository) ReadProjectRecord(ctx context.Context, projectID string) (ProjectRecord, error) {
+	if err := validateProjectID(projectID); err != nil {
+		return ProjectRecord{}, err
+	}
+	query := `SELECT record_json FROM seelex_project_record WHERE project_id=` + repository.arg(1)
+	var data string
+	if err := repository.db.QueryRowContext(ctx, query, projectID).Scan(&data); err != nil {
+		return ProjectRecord{}, err
+	}
+	var record ProjectRecord
+	if err := json.Unmarshal([]byte(data), &record); err != nil {
+		return ProjectRecord{}, err
+	}
+	return record, nil
 }
 
 func (repository *sqlRepository) List(ctx context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
@@ -1458,7 +1768,7 @@ func (repository *sqlRepository) Delete(ctx context.Context, key Key) error {
 		return err
 	}
 	defer transaction.Rollback()
-	for _, table := range []string{"seelex_tool_result", "seelex_session_state", "seelex_session_event_shard", "seelex_session_shard", "seelex_session_manifest", "seelex_sessions"} {
+	for _, table := range []string{"seelex_tool_result", "seelex_session_state", "seelex_session_event_shard", "seelex_session_shard", "seelex_session_manifest", "seelex_sessions", "seelex_framework_event"} {
 		query := `DELETE FROM ` + table + ` WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
 		if _, err := transaction.ExecContext(ctx, query, key.ProjectID, key.SessionID); err != nil {
 			return err

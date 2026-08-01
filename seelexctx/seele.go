@@ -17,12 +17,6 @@ import (
 // 委托给 seelectx.EstimateTokens。
 var EstimateTokens = seelectx.EstimateTokens
 
-// EstimateHistoryTokens 估算全部历史消息的总 token 数。
-var EstimateHistoryTokens = seelectx.EstimateHistoryTokens
-
-// EstimateMessageTokens 估算单条 Message 的 token 开销。
-var EstimateMessageTokens = seelectx.EstimateMessageTokens
-
 // ── 历史管理 ────────────────────────────────────────────────────
 
 // NeedCompression 判断历史消息是否需要压缩。
@@ -31,16 +25,7 @@ var NeedCompression = seelectx.NeedCompression
 // TrimHistory 硬截断消息历史以适应 maxTokens 限制。
 var TrimHistory = seelectx.TrimHistory
 
-// CompressHistory 用 LLM 将早期 tool 执行记录压缩为简短摘要。
-var CompressHistory = seelectx.CompressHistory
-
-// TruncateToolResult 将 tool 返回内容截断到安全长度。
-var TruncateToolResult = seelectx.TruncateToolResult
-
 // ── 类型别名 ────────────────────────────────────────────────────
-
-// ContextConfig 会话上下文预算配置。
-type ContextConfig = seelectx.ContextConfig
 
 // DefaultContextConfig 返回推荐的上下文配置。
 var DefaultContextConfig = seelectx.DefaultContextConfig
@@ -50,7 +35,6 @@ var DefaultContextConfig = seelectx.DefaultContextConfig
 // 上下文预算的默认阈值。
 var (
 	DefaultMaxTokens          = ctx_manager.DefaultConfig().MaxTokens
-	DefaultCompressThreshold  = ctx_manager.DefaultConfig().CompressThreshold
 	DefaultMaxToolResultChars = ctx_manager.DefaultConfig().MaxToolResultChars
 )
 

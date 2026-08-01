@@ -60,3 +60,13 @@ permission:
     - tool: "bash"
       patterns: ["rm *", "mv *", "chmod *", "chown *"]
       action: ask
+
+# ── 上下文滑动窗口（window）─────────────────────────────
+# 会话请求保留的最新完整轮数 N：N = clamp((上下文窗口 × ratio − 预留) ÷ 每轮 token,
+# min_rounds, max_rounds)。零值 = 未配置，使用默认值（ratio 0.7 / min_rounds 4 /
+# max_rounds 40）；rounds 显式配置时直接覆盖推导结果。
+# window:
+#   rounds: 0        # 显式覆盖窗口轮数（0 = 使用 provider 推导）
+#   ratio: 0.7       # 上下文窗口可用比例
+#   min_rounds: 4    # 窗口下限
+#   max_rounds: 40   # 窗口上限

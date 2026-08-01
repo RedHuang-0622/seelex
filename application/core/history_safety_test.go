@@ -242,9 +242,14 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 	if !bridge.Hooks().OnIterationComplete(context.Background(), 0) {
 		t.Fatal("iteration should remain available")
 	}
+	// 配对修复仍由 prepareProviderHistory 承担：assistant+tool_calls 缺正文
+	// → 工具调用配对文本（工具调用保留，不被压缩/替换）。
 	history := engine.History()
-	if len(history) != 1 || !isTaskContextCheckpoint(history[0].Content) || len(history[0].ToolCalls) != 0 {
-		t.Fatalf("incomplete tool round must be excluded from provider context: %#v", history)
+	if len(history) != 1 || len(history[0].ToolCalls) != 1 {
+		t.Fatalf("tool round must be retained for pairing repair: %#v", history)
+	}
+	if history[0].Content != toolCallHistoryContent {
+		t.Fatalf("empty assistant tool-call content = %q, want pairing repair text", history[0].Content)
 	}
 }
 
