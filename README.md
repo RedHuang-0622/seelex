@@ -2,571 +2,151 @@
 
 > 当前发布通道：`v0.1.0-alpha.1` Developer Alpha。TUI 为默认入口，桌面 GUI 为显式启用的 Alpha 功能。
 
-**Seelex** 是一个面向工程研发、设计与交付全过程的全栈 Agent。它以 [Seele](https://github.com/RedHuang-0622/Seele) 作为 Agent 引擎，通过可声明、可组合、可运行时切换的 Plugin，让同一个 Agent 像切换"形态"一样进入不同专业工作域。
+**Seelex** 是面向工程研发、设计与交付全过程的全栈 Agent。它以本地重构后的 [Seele](https://github.com/RedHuang-0622/Seele)（无产品语义的 Agent runtime）作为执行内核，在其上实现产品语义层：任务/计划编排、上下文成本治理、账号池、存储模型与双前端。
 
-Seelex 的目标不是只做一个 TUI，也不是只做 CAD：
+**能力边界（与 Seele 的分工）：**
 
-- **Seele** 提供 LLM、工具调度、MCP、存储和运行时基础能力；
-- **Seelex Application Core** 负责任务状态、命令、Plugin、Skill、会话、审批和事件编排；
-- **Plugin** 定义 Agent 当前的专业形态，例如基础读写、CAD、软件开发和后续工程领域；
-- **CAD** 是首个重点专业增幅方向，用于验证复杂工程工具链，而不是产品边界；
-- **TUI** 是高效率 CLI 工作入口；
-- **GUI** 基于 Wails/WebView，面向毕业设计、课程项目、成果展示和更完整的可视化交付体验。
+> Seele 提供执行能力（agent/session/tools/workplan/seelectx/accountpool/event/telemetry）；Seelex 决定何时调用、调用什么、上下文放什么、费用如何归集。
 
-> 当前阶段重点是稳定 Agent 内核、Plugin 切换机制和 TUI/GUI 双前端主链路。CAD 与 Dev 将作为建立在同一内核上的专业形态逐步落地。
+| 能力 | 所有者 |
+|---|---|
+| LLM 装配、会话 ReAct 循环、WorkPlan DAG 内核、账号租约、工具分发、事件/遥测原语 | Seele |
+| Task 生命周期、Plan 产品 DSL（`plan_load`/`plan_run`）、节点 kind 解释、工具实现、插件可见性、上下文压缩策略、Token 账本、EventStore | Seelex |
 
 ## 功能特性
 
-### 🧠 多模型 LLM 引擎
-- 支持 **OpenAI / Anthropic / DeepSeek** 等主流 API 和定制 Provider
-- 多账号 **Round-Robin 轮询**，自动故障切换
-- 可分别配置总上下文窗口 `context_window` 与单次输出上限 `max_tokens`
+### 🧠 多模型账号池
+- 支持 **OpenAI / Anthropic ** 等主流 API 与定制 Provider（`base_url`）
+- **P2C 账号池 + 租约**：多账号按角色（`agent`/`subagent`/`goalplan`）注册，按需获取、防超售；流式响应 lease-until-EOF
+- 计划 DAG 分支按账号**确定性 hash 分配**，可多账号并行执行
+- 运行时 `/account` 切换选中账号/provider，provider 过滤经 selector 闭包生效
+
+### 📋 Plan 编排（WorkPlan 产品 DSL）
+- `plan_load`/`plan_run`/`plan_clear` 是普通产品工具：`codec.Import` 导入 `nodes+edges` 规范 JSON，拓扑校验 + 策略校验后加载
+- **Plan→subagent**：`plan_run` 用 WorkPlan 内核执行 DAG，agent 节点是独立 Session（`SeelexAgentNode` 注入节点作用域、父证据与预算），可真并行
+- 节点事件经 `event.Sink` 投影到 sessionstore 事件库，GUI/TUI 的 PlanState/SubAgentTree 由投影驱动
+- 规划/重规划走**隔离规划会话**（独立 Completer、强制 `tool_choice=plan_load`、不消耗主账号租约）
+
+### ✅ Task 生命周期（与 Plan 分离）
+- `TaskService` 只消费会话结果、工具事件与 **WorkPlan 事件投影**，不直连执行器
+- 终态工具 `task_complete`/`task_failed`/`task_needs_user_decision` 校验投影收敛后接受
+- `taskExecutionState` 是功能打点快照（`docs/feature-instrumentation.md`），终态即亡不持久化；恢复只依赖 TaskFrame 与事件投影
+
+### 🧠 上下文成本治理（核心设计）
+- **两级存储作用域**：项目粒度只有 ProjectKnowledge（跨会话共享的模块语义，hash 版本化，会话前预读）；会话粒度完全独立
+- 会话上下文 = **SystemPrompt（永不压缩）+ 4 个使用栈（plan/task/skill/compact，now using = 栈顶）+ ChatQueue（append-only）**
+- **滑动窗口**：最新 N 轮原样进入请求（`ReadEventTail` 按轮/预算读）；**只压缩窗口外轮次**，产物 push CompactStack（合并式摘要，栈顶自足，`From/To` 可审计）
+- 窗口 N 由 `WindowPolicy` 推导（配置 `window.rounds/ratio/min_rounds/max_rounds` 显式覆盖，默认 ratio=0.7/4/40），代码无魔法数字
+- 超大工具输出先归档 `result_ref`（`read_tool_result` 按需读回），SystemPrompt 与栈帧永不进 ProviderHistory
+- seelectx 五件套（DurableHistory/Assembler/ToolResultProcessor/Compressor/ContextController）注入主会话与节点会话
 
 ### 🔌 Plugin 形态切换系统
 - 运行时通过 `switch_plugin` 或 `/plugin <name>` 切换 Agent 专业形态
 - 每个 Plugin 限定 **工具集 + Skill + System Prompt + MCP Server**
-- 内置 6 个基础 Plugin：`default` / `read` / `write` / `git` / `shell` / `freecad`；Plan 是默认 Skill 与启动即注册的基础工具。
+- 插件 Manager 维护 include/exclude 快照；`VisibilityPolicy` 每请求过滤可见工具集，隐藏工具 Dispatch 拒绝（`ErrToolNotVisible`）
 - 事务式激活/停用，失败自动回滚
 
 ### 📜 Skill 技能系统
-- 目录化加载，Skill 位于对应 Plugin 目录下（`plugins/<name>/<skill>/SKILL.md`）
-- **PromptStack** 保存活动 Skill 栈，但 system prompt 只渲染 identity → plugin → effort → instructions
-- 运行时通过 `#skillname 需求` 激活并立即发送，`#skillname` 仅激活，`#end` 退栈
-- 每轮把活动 Skill 名称、指令和原始问题作为条目化用户上下文发送，不把 Skill 写入 system prompt
-- 支持全局 Skill 和 Plugin 专属 Skill
+- 目录化加载（`plugins/<name>/<skill>/SKILL.md`），`#skillname 需求` 激活并发送，`#end` 退栈
+- 活动 Skill 以条目化用户上下文发送，不写入 system prompt
 
 ### ⚡ Effort 等级控制
-- **4 档思考深度**：`lite`(只读速答) / `medium`(标准工具) / `high`(完整ReAct) / `max`(深度多Agent)
-- 控制 MaxLoops（20/64/512/1024）和 PromptStack 行为指令注入
+- 4 档思考深度：`lite` / `medium` / `high` / `max`，控制 MaxLoops 与 PlanPolicy 约束
 - 状态栏实时显示 `E:high`，`Alt+E` 快捷循环切换
 
 ### 🖥️ TUI 交互终端
-- 基于 **Bubble Tea** 构建，流式聊天、命令补全、工具事件面板
-- 命令系统：`/help`、`/model`、`/plugins`、`/effort`、`/sessions`、`/new`
-- 历史、追踪、账号池管理和 Plugin 列表查看
+- 基于 **Bubble Tea**，流式聊天、命令补全、工具事件面板
+- 命令系统：`/help`、`/model`、`/plugins`、`/effort`、`/sessions`、`/new`、`/account`
 
 ### 🪟 桌面 GUI（Alpha）
-- 与 `tui/` 同级的 `gui/`，直接复用 `application.Service`
-- 支持聊天流、工具卡片、审批、Plugin、Account、Effort、Plan、Skill 和分页历史
-- 使用 `-tags "gui,desktop,production"` 构建，避免默认 TUI 构建依赖桌面 WebView
+- 与 `tui/` 同级的 `gui/`，复用同一 `application.Service`
+- 使用 `-tags "gui,desktop,production"` 构建（`make rebuild-gui VERSION=<tag>`），默认 TUI 构建不依赖 WebView
 
 ### 🔧 跨平台可执行
-- 预编译 Windows amd64、Linux amd64、macOS amd64/arm64 CLI 二进制
-- 静态编译（CGO_ENABLED=0），**零运行时依赖**，即下即用
-- Windows GUI 单独构建，依赖系统 WebView2 Runtime
-
-## 产品模型
-
-```text
-                         ┌─────────────────────────────┐
-                         │        Seelex Agent         │
-                         │  reasoning / state / event  │
-                         └──────────────┬──────────────┘
-                                        │ switch_plugin
-                ┌───────────────────────┼───────────────────────┐
-                ▼                       ▼                       ▼
-        ┌──────────────┐        ┌──────────────┐        ┌──────────────┐
-        │ Base Plugins │        │  CAD Plugin  │        │  Dev Plugin  │
-        │ read/write…  │        │ design/CAM…  │        │ code/test…   │
-        └──────┬───────┘        └──────┬───────┘        └──────┬───────┘
-               └───────────────────────┼───────────────────────┘
-                                       ▼
-                         Seele Tools / MCP / Skills
-
- Bubble Tea TUI ── AppController ──┐
-                                    ├── application.Service
- Wails GUI ─────── gui.Bridge ─────┘
-```
-
-Plugin 不是皮肤或提示词别名，而是一套专业能力边界：
-
-- 可见工具集合；
-- 专属 Skill；
-- System Prompt；
-- MCP Server；
-- 后续可扩展的权限、产物类型和生命周期策略。
-
-## 当前状态
-
-| 能力 | 状态 | 说明 |
-|------|:---:|------|
-| Headless Application Core | ✅ | TUI 已与业务状态、副作用和异步生命周期分离 |
-| TUI 客户端 | ✅ | 支持流式聊天、命令、补全、工具事件、交互面板、Alt+E effort 循环 |
-| Wails GUI | 🟡 | 已具备完整主界面和 Application Bridge；Alpha 阶段继续补充平台 E2E |
-| 文件化 Plugin | ✅ | `plugin.md` 定义工具过滤、Prompt、Skill 和 MCP |
-| Plugin 运行时切换 | ✅ | 支持激活、停用、失败回滚和并发串行化 |
-| Skill 系统 | ✅ | 支持目录加载、注册、Plugin Skill 和多层 PromptStack 叠加 |
-| Effort 等级 | ✅ | lite/medium/high/max 四档，控制 MaxLoops、提示词深度和工具可见性 |
-| PromptStack 分层 | ✅ | system prompt 按 identity → plugin → effort → instructions 组装；Skill 独立进入用户上下文 |
-| 审批交互 Broker | ✅ | `ask_approve` 和前端决议、TUI 交互面板完整实现；基础 permission gate 已接线 |
-| Plan/WorkPlan 可视化 | ✅ | TUI 四级 Effort Plan 面板（单行/打点表/节点树/全框表）+ 进度回调实时更新 |
-| 系统诊断 /diag | ✅ | Go 运行时、内存、Plugin、Account、Skill 完整列出 |
-| 会话保存与列表 | ✅ | 支持 `/new` 保存和 `/sessions` 查询 |
-| 会话恢复 | ✅ | `/resume <id>` 原子替换 Engine 历史，后续对话按选中会话 ID 继续保存 |
-| MCP 调用追溯 | ✅ | 含熔断事件通道的完整调用链记录 |
-| Plan/WorkPlan 工作流 | ✅ | 支持 plan_load/plan_run/plan_status/plan_export/plan_clear |
-| Web 搜索 | ✅ | 支持 Tavily 等搜索 Provider，账号池 YAML 可配置 api_key |
-| 多前端远程协议 | ⬜ | 当前 GUI 进程内复用 application core；远程/IDE 客户端仍需版本化协议 |
-| CAD Plugin 垂直闭环 | ⬜ | FreeCAD/MCP/命令栈的最小垂直闭环 |
-| Dev Plugin | ⬜ | 规划代码、测试、审查和交付能力形态 |
-
-完整进度、度量指标和完成标准见 [`docs/feature-instrumentation.md`](docs/feature-instrumentation.md)。
-
-## 架构
-
-`application` 是无界面的应用核心，持有业务状态、副作用和异步生命周期；`tui` 负责终端交互，`gui` 负责桌面 WebView 适配。两个前端只消费 Snapshot、Event 和 Interaction DTO，不复制业务状态机。
-
-### 装配顺序
-
-| 层 | 职责 | 对应函数 |
-|----|------|---------|
-| L1 | Runtime、Skill、Plugin、Store | `initRuntime()`, `initSkillSystem()`, `initPluginSystem()` |
-| L2 | 事件与审批基础设施 | `application.NewEventHub()`, `application.NewApprovalBroker()` |
-| L3 | Engine 与 Tool Hooks | `initEngine()` |
-| L4 | 产品工具与 Session | `registerProductTools()`, `initSessionManager()` |
-| L5 | Headless Application Core | `initApplication()` |
-| L6 | Frontend Adapter | `initTUI()` / `gui.NewBridge()` |
-| L7 | Frontend Program | `startFrontend()` |
-
-### 依赖原则
-
-1. interface 定义在使用方，不定义在实现方；
-2. TUI 不直接依赖 Engine、Plugin、Skill、Session 或 Seele 深层类型；
-3. Seele 已有能力优先通过薄适配器复用，不在 Seelex 重造引擎；
-4. Plugin 负责专业能力组合，不把领域逻辑硬编码进 TUI；
-5. TUI 与 GUI 使用同一个 application core，不复制业务状态机。
-
-### 架构文档
-
-- [`docs/arch/architecture-and-flaws.md`](docs/arch/architecture-and-flaws.md) — 架构说明书与已知硬伤清单
-- [`docs/arch/design-decisions-mcp-storage.md`](docs/arch/design-decisions-mcp-storage.md) — MCP 中间件设计与存储解耦推演
-- [`docs/arch/mcp-call-chain-flowchart.md`](docs/arch/mcp-call-chain-flowchart.md) — Agent 调用 MCP 全链路函数流
-- [`docs/arch/effort-system-design.md`](docs/arch/effort-system-design.md) — Effort 等级系统完整设计
-- [`docs/arch/skill-effort-architecture.md`](docs/arch/skill-effort-architecture.md) — Skill 系统与 PromptStack 实现方案
+- 预编译 Windows amd64、Linux amd64、macOS amd64/arm64 CLI 二进制（`make release`）
+- 静态编译（CGO_ENABLED=0），零运行时依赖
 
 ## 快速开始
 
-### 前提
+### 前置
 
-- Go ≥ 1.25
-- LLM API Key（OpenAI / Anthropic / DeepSeek 等）
+- Go 1.25+；本仓库通过 `go.work` 引用本地 `../Seele`（重构后的执行内核），`go.mod` 带 `replace github.com/RedHuang-0622/Seele => ../Seele`
 
-### 安装与运行
+### 配置账号
 
-```bash
-git clone https://github.com/RedHuang-0622/seelex.git
-cd seelex
-
-# 1. 从公开模板创建本地配置，再填写 API Key
-cp config/accounts.example.yaml config/accounts.yaml
-
-# 2. 运行
-go run .
-```
-
-配置模板见 `config/accounts.example.yaml`。真实的 `config/accounts.yaml` 已被 `.gitignore` 排除。`Publish` build 只复制 example；`Dev` build 会将 `LOCAL_CONFIG` 指向的文件不透明复制为包内 `config/accounts.yaml`，使本地 GUI 可以直接使用已配置的模型账号。Dev 产物含敏感配置，不应对外分发。
-
-配置示例：
+按 [`config/accounts.example.yaml`](config/accounts.example.yaml) 的 `roles` 分组格式创建 `config/accounts.yaml`（已 gitignore，**切勿提交**）：
 
 ```yaml
-defaults:
-  provider: openai
-  context_window: 200000
-  max_tokens: 8192
-  timeout: 60
-  temperature: 0.7
-
 roles:
-  subagent:
-    - model: fast-model
+  agent:     # 默认交互助理
+    - model: your-agent-model
       base_url: https://api.openai.com/v1
-      api_key: replace-with-your-api-key
-  agent:
-    - model: gpt-4o
+      api_key: your-api-key
+  subagent:  # 计划子代理（可选，快任务）
+    - model: your-subagent-model
       base_url: https://api.openai.com/v1
-      api_key: replace-with-your-api-key
-  goalplan:
-    - model: deep-reasoning-model
-      base_url: https://api.openai.com/v1
-      api_key: replace-with-your-api-key
+      api_key: your-api-key
 ```
 
-账号按任务角色分组：`subagent` 用于快速隔离任务，`agent` 用于默认对话，`goalplan` 用于深度规划。缺少专属角色时会按 Agent 回退策略选取账号。
+未配置时回退到 `OPENAI_API_KEY` 环境变量（agent 角色）。
 
-脚本读取 `$HOME/.claude/settings.json` 中的 `ANTHROPIC_AUTH_TOKEN`，生成本地 OpenAI 兼容账号配置。`config/*.local.yaml` 已被 gitignore，不会进入版本库。
-
-### CLI 标志
-
-| 标志 | 默认值 | 说明 |
-|------|--------|------|
-| `-store` | `.seelex/sessions` | 持久化存储路径 |
-| `-plugins` | `plugins` | Plugin 加载路径（逗号分隔） |
-| `-permission` | `manual` | 权限模式：`manual`(白名单外需审批) / `full_access`(显式全部放行) |
-| `-frontend` | `tui` | 前端模式：`tui` / `gui` |
-| `-version` | `false` | 显示版本号并退出 |
-
-### 启动桌面 GUI
+### 运行 TUI
 
 ```bash
-# GUI 依赖 Wails，必须同时启用项目和 Wails 生产标签
-go run -tags "gui,desktop,production" . -frontend gui
+go build -o seelex.exe .
+./seelex.exe
 ```
 
-默认 `go run .` 和普通发布包仍启动 TUI。
+### 构建 GUI（Windows Dev）
 
-## 使用方式
+```bash
+make rebuild-gui VERSION=<tag>    # 需 LOCAL_CONFIG 指向本地真实配置
+```
 
-### Plugin 形态切换
+## 模块导航
 
-当前仓库包含 7 个 Plugin（1 个通用 + 5 个基础形态 + 1 个专业 Plugin）：
+| 模块 | 职责 |
+|---|---|
+| [`application/`](application/) | 服务层：Chat、TaskService、Effort/PlanPolicy、审批、事件编排；前端唯一消费入口（`application/model` DTO 稳定） |
+| [`seelebridge/`](seelebridge/) | Seele 适配层：Runtime composition root（账号池/工具注册表/主会话/事件 Sink）、Plan 产品工具与节点作用域、插件可见性、MCP provider |
+| [`seelexctx/`](seelexctx/) | seelectx 契约适配：Assembler/ToolResultProcessor/Compressor/ContextController、跨会话承袭子包（snapshot/provider/compactor/merger） |
+| [`sessionstore/`](sessionstore/) | 原子、项目作用域的持久化（JSON/SQLite/PG/Redis 四后端）：DurableHistory、SessionContextRecord（5 栈）、ProjectRecord、事件库 |
+| [`session/`](session/) | 会话用例适配器 |
+| [`workspace/`](workspace/) | 项目与 session binding、路径沙盒（ProjectScope/PathGate） |
+| [`plugin/`](plugin/) + [`plugins/`](plugins/) | Plugin 生命周期与声明式能力包 |
+| [`skill/`](skill/) | Skill 加载与可见性 |
+| [`tui/`](tui/) | Bubble Tea 终端前端 |
+| [`gui/`](gui/) | Wails 桌面前端（Alpha），权威设计见 `docs/gui/` |
+| [`internal/promptassets/`](internal/promptassets/) | 产品 prompt 模板（plan preflight/replan 等） |
 
-| Plugin | 能力范围 |
-|--------|----------|
-| `default` | 全部已注册工具和全局 Skill |
-| `read` | 阅读、搜索和只读 Git 分析 |
-| `write` | 文件编辑、代码修改和必要的 Shell |
-| `git` | Git 操作与变更审查 |
-| `shell` | Shell 与 DevOps 操作 |
-| `freecad` | CAD 设计、建模与工程分析（规划中） |
-
-用户可使用 `/plugin <name>`，Agent 也可调用 `switch_plugin` 或兼容别名 `switch_mode`。
-
-### 命令与补全
-
-| 输入 | 行为 |
-|------|------|
-| `/` | 展示命令、当前 Plugin 可见工具和 Skill |
-| `#` | 展示已加载 Skill |
-| `@` | 展示已注册 Plugin |
-| `Ctrl+C` | 复制最后一条 AI 回复到系统剪贴板 |
-| `Ctrl+V` | 从剪贴板粘贴到输入框 |
-| `Alt+E` | 循环切换 Effort 等级（lite→medium→high→max） |
-| `Ctrl+Q` | 退出程序 |
-| `左键拖选` | 选中对话文本，然后 Ctrl+C 复制 |
-| `Tab` | 接受当前建议 |
-| `↑` / `↓` | 切换建议或交互选项 |
-| `#end` | 退栈最近加载的 Skill |
-
-主要命令：
-
-| 命令 | 说明 |
-|------|------|
-| `/help` | 显示帮助 |
-| `/clear` | 清空对话历史 |
-| `/model` | 显示模型和 Provider |
-| `/pool` | 查看并切换账号 |
-| `/plugins` | 列出 Plugin |
-| `/plugin <name>` | 切换 Plugin |
-| `/effort` | 查看当前 Effort 等级 |
-| `/effort <level>` | 切换 Effort 等级（lite/medium/high/max） |
-| `/history` | 显示历史统计 |
-| `/trace` | 显示调用追踪 |
-| `/diag` | 系统诊断信息（Go运行时、内存、插件、Skill、账号） |
-| `/new` | 保存当前会话并清空历史 |
-| `/sessions` | 列出持久化会话 |
-| `/resume <id>` | 恢复指定历史会话并继续对话 |
-| `/exit` | 退出程序 |
-
-### Effort 等级说明
-
-Effort 控制 Agent 的思考深度和工具使用强度，通过多层 PromptStack 注入行为指令：
-
-| 等级 | MaxLoops | 工具可见性 | 行为特征 |
-|------|----------|-----------|---------|
-| lite | 20 | 有限只读 | 直接快速回答，不主动规划，不做 loop 限制 |
-| medium | 64 | 标准工具集 | 请求进入 ReAct 前强制加载最多 4 步的串行 Plan，失败重试 1 次 |
-| high | 512 | 全部工具（默认） | 请求进入 ReAct 前强制加载 WorkPlan；允许并行但最多 3 节点，失败重试 3 次 |
-| max | 1024 | 全部工具 + Fork | 请求进入 ReAct 前强制加载 WorkPlan；当前可运行节点不设并发上限，失败重试 5 次，交叉验证 |
-
-当前 effort 等级显示在状态栏：`E:lite`(灰) / `E:medium`(金) / `E:high`(蓝) / `E:max`(紫红)。Skill 加载栈也同步显示：如 `E:high  goal|code`。
-
-### 审批与权限现状
-
-当前已经实现：
-
-- 无界面的 `ApprovalBroker`；
-- TUI 卡片式交互与 Resolve；
-- `ask_approve` 工具；
-- 超时、取消和关闭唤醒机制。
-
-当前尚未实现：
-
-- 对所有工具调用进行强制拦截的 Permission Gate；
-- 自动执行 `seele.yaml` 中的 `allow / ask / deny` 规则；
-- "始终允许"等持久化授权策略。
-
-因此 `seele.yaml` 目前是目标权限策略草案，不能视为已经生效的安全边界。在强制门控接通前，运行高风险工具仍需依赖宿主环境和人工控制。
-
-## 专业形态路线
-
-### CAD Plugin
-
-CAD 是 Seelex 的首个复杂工程增幅场景，计划组合：
-
-- FreeCAD 执行底座；
-- MCP 工具桥接；
-- 可验证、可重放的 JSON 命令栈；
-- 模型、图纸和 STEP 等工程产物；
-- 几何约束、事务、撤销和检查点。
-
-CAD 用于证明 Plugin 可以承载真正的工程工作流，但不会把 Seelex 限定为 CAD Agent。
-
-### Dev Plugin
-
-Dev Plugin 将面向软件工程全过程：
-
-- 仓库理解与方案设计；
-- 代码实现和重构；
-- 单元、集成、性能与安全测试；
-- Review、变更报告和交付；
-- 与 Git、CI、Issue/Task 系统集成。
-
-### Desktop GUI
-
-GUI 不替代 CLI，而是提供另一种产品入口：
-
-- 面向毕业设计和课程项目的可视化操作；
-- 工程任务、产物、Plugin 和执行历史展示；
-- Markdown 消息、折叠思考过程、运行状态动效和可见的后续输入队列；
-- CAD 模型、报告和演示内容集成；
-- 通过 `gui.Bridge` 进程内调用与 TUI 相同的 application core。
-
-## 项目结构
+## 存储模型
 
 ```text
-seelex/
-├── main.go                 # 生命周期与依赖装配（L1-L7 层）
-├── main_unix.go            # Unix 信号处理
-├── main_windows.go         # Windows 信号处理
-├── application_adapters.go # application ports → Seele 适配
-├── websearch.go            # Web 搜索工具注册
-├── mcpconfig.go            # MCP Server 配置加载与注册
-├── version.go              # 版本号
-├── seele.yaml              # 目标权限规则草案，当前尚未强制执行
-├── application/            # 无界面的应用核心
-│   ├── app.go              #   Service（状态持有、生命周期、命令注册、PromptStack）
-│   ├── chat.go             #   流式聊天、delta 累积、输入队列
-│   ├── command.go          #   Command 接口、CommandRegistry、内置命令
-│   ├── completion.go       #   建议补全（Plugin / Skill / 命令 / 历史）
-│   ├── diag.go             #   /diag 诊断面板渲染
-│   ├── effort.go           #   EffortManager（四档切换、PromptStack 注入、MaxLoops）
-│   ├── event.go            #   EventHub（发布/订阅、反压处理）
-│   ├── approval.go         #   ApprovalBroker（审批请求/决议/超时/取消）
-│   ├── input.go            #   用户输入处理（命令 / Skill / 普通消息）
-│   ├── prompt_stack.go     #   system prompt 分层 + 活动 Skill 栈（Skill 不参与 Render）
-│   ├── skill_context.go    #   Skill 条目化用户上下文、队列合并与历史显示解包
-│   ├── ports.go            #   Dependencies 接口（ChatEngine / RuntimePort / PluginPort / SkillPort / SessionPort）
-├── gui/                    # Wails GUI Adapter + 嵌入式 Web 前端（与 tui/ 同级）
-│   ├── state.go            #   Snapshot DTO（Session / Message / Chat / Runtime / Plan / Capabilities）
-│   └── websearch.go        #   Web 搜索配置加载
-├── plugin/                 # Plugin Loader 与事务型 Manager
-│   ├── plugin.go           #   Plugin 结构体 + MCPServer 定义
-│   ├── loader.go           #   文件系统 Loader（plugin.md 解析）
-│   └── manager.go          #   事务式激活/停用/回滚 + 工具过滤
-├── plugins/                # 文件化 Plugin 定义（含 Skill）
-│   ├── default/            #   通用 Plugin + 9 个全局 Skill
-│   │   ├── plugin.md
-│   │   ├── cli-design/     #     CLI/TUI 交互设计规范
-│   │   ├── code/           #     代码实现
-│   │   ├── goal/           #     GOAL 方法论 + A2A 子代理调度
-│   │   ├── plan/           #     方案设计入口
-│   │   ├── plan-design/    #     启发式方案设计
-│   │   ├── plan-efficiency/#     规划式效率方案
-│   │   ├── plan-norm/      #     约束式规范方案
-│   │   ├── review/         #     代码审查
-│   │   └── test/           #     测试编写
-│   ├── freecad/            #   CAD Plugin（7 个 Skill）
-│   │   ├── cad-batch/      #     批量操作
-│   │   ├── cad-boolean/    #     布尔运算
-│   │   ├── cad-core/       #     核心建模
-│   │   ├── cad-fillet/     #     倒角/倒圆
-│   │   ├── cad-inspect/    #     测量/检查
-│   │   ├── cad-repair/     #     几何修复
-│   │   └── cad-template/   #     模板设计
-│   ├── read/               #   只读 Plugin
-│   ├── write/              #   写操作 Plugin
-│   ├── git/                #   Git Plugin
-│   ├── shell/              #   Shell Plugin
-├── skill/                  # Skill Loader 与 Registry
-│   ├── skill.go            #   Skill 结构体
-│   ├── loader.go           #   目录加载器（按 Plugin 路径加载 SKILL.md）
-│   └── registry_test.go    #   Registry 测试
-├── seelebridge/            # Seele 薄适配层（Anti-Corruption Layer）
-│   ├── runtime.go          #   Runtime（Agent 创建、账号池、MCPStack 绑定、Plan 回调）
-│   ├── storage.go          #   存储适配（会话持久化/加载/分页）
-│   ├── mcp.go              #   MCP Server 注册与管理
-│   ├── plugins.go          #   工具可见性切换适配
-│   └── trace.go            #   调用追踪导出
-├── seelexctx/              # 上下文管理与压缩
-│   ├── seele.go            #   Seele ctx 能力 re-export
-│   ├── bridge.go           #   桥接层
-│   ├── compactor/          #   历史压缩器（LLM 摘要）
-│   ├── merger/             #   历史合并器
-│   ├── provider/           #   Engine/Trace Provider 导出
-│   │   ├── engine.go       #     EngineProvider
-│   │   ├── trace.go        #     TraceProvider
-│   │   └── provider.go     #     Provider 接口
-│   └── snapshot/           #   快照管理
-├── mcpstack/               # MCP 调用追溯中间件（双栈架构）
-│   ├── stack.go            #   MCPCall 记录 + MCPStack 核心 + Undo/Redo 指针
-│   ├── breaker.go          #   熔断事件监听
-│   ├── interceptor.go      #   拦截器（wrap MCP 调用）
-│   ├── persist.go          #   原子 JSON 持久化
-│   ├── prompt.go           #   MCP 历史注入 LLM Prompt
-│   ├── provider.go         #   Provider 集成
-│   └── snapshot.go         #   快照导出
-├── session/                # 会话管理（薄包装 Seele storage.Store）
-│   └── manager.go          #   SaveCurrent / Resume / List / LoadHistory / LoadHistoryRange
-├── internal/               # 内部工具
-│   └── frontmatter/        #   YAML frontmatter 解析
-├── tui/                    # Bubble Tea 前端
-│   ├── tui.go              #   Model / Update / View
-│   ├── view.go             #   视图渲染
-│   ├── dialog.go           #   交互卡片（审批等）
-│   ├── plan.go             #   Plan 可视化面板
-│   ├── stream.go           #   流式输出处理
-│   ├── state.go            #   TUI 本地状态
-│   ├── styles.go           #   配色方案（初号机配色）
-│   ├── suggest_view.go     #   建议补全视图
-│   ├── types.go            #   TUI 类型定义
-│   └── splash/             #   启动画面
-├── config/                 # 账号池配置模板
-│   └── accounts.example.yaml
-├── scripts/                # 构建与同步脚本
-│   ├── build.sh
-│   ├── build.ps1
-│   └── sync-claudecode-account.ps1
-├── Makefile                # Unix/CI 跨平台构建入口
-├── docs/                   # 文档
-│   ├── arch/               #   架构设计文档
-│   ├── devlog/             #   研发过程记录
-│   └── research/           #   调研报告
-└── dist/                   # 跨平台构建产物（make build）
+项目粒度（跨会话共享，只读）
+└── ProjectKnowledge：项目通用模块语义（hash 版本化，变更才重建）
+
+会话粒度（互相独立）
+└── SessionContextRecord
+      ├── SystemPrompt   —— 永不压缩，始终完整进入请求
+      ├── PlanStack      —— now using plan
+      ├── TaskStack      —— now using task
+      ├── SkillStack     —— now using skill
+      ├── CompactStack   —— now using compact context（窗口外压缩摘要）
+      └── ChatQueue      —— append-only 轮次队列
+            ├── 滑动窗口：最新 N 轮原样保留
+            └── 窗口外：唯一可压缩部分
 ```
 
-## 已知问题与局限
+## 文档索引
 
-当前版本（`v0.1.0-alpha.1`）仍有以下已知限制：
+- 架构与设计：[`docs/README.md`](docs/README.md)（含 Seele v0.0.8 迁移架构、上下文改进、MCP 存储解耦、功能打点）
+- 底层重构详设：[`docs/2026-08-01-seele-v2-underlying-refactor/plan.md`](docs/2026-08-01-seele-v2-underlying-refactor/plan.md)
 
-| 类别 | 问题 | 影响 | 当前状态 |
-|------|------|------|:---:|
-| 代码质量 | `application/command.go` 注册内置命令时仍使用 `log.Fatalf` | 仅编程错误触发，但不利于嵌入 | 待改为返回 error |
-| 并发安全 | `EventHub.Publish` 持锁向 channel 发送 | 低概率阻塞 | 🟡 已有反压+resync，channel 发送优化待改 |
-| 依赖装配 | `main.go` 超 400 行手工 DI | 可维护性 | 待重构 |
-| 安全 | `seele.yaml` 声明规则尚未自动加载 | 文件声明与硬编码白名单可能漂移 | 🟡 默认已改为 manual，规则加载待完成 |
-| 测试覆盖 | TUI 包仅 6.2% | TUI 回归保护不足 | 待补充 |
-| GUI | 系统 WebView 平台差异尚未完成全平台 E2E | Alpha 体验可能存在差异 | Windows 作为首发 GUI 平台 |
-
-> CI 配置三平台 build/vet/test，并在 Linux 执行 race 与覆盖率；发布前仍应以对应 tag 的实际 CI 结果为准。
-
-## 路线图
-
-### 已完成
-
-- TUI 与 application core 分离（无界面核心 67.4% 覆盖率）；
-- Chat、命令、补全、工具事件和审批迁入无界面核心；
-- 输入队列：多消息排队合并为一条批量发送；
-- Plugin/Skill 文件化与运行时切换（7 个 Plugin、16 个 Skill）；
-- Plugin MCP 生命周期和失败回滚；
-- 多账号 Runtime、会话保存和基础追踪；
-- Effort 等级系统（lite/medium/high/max）：PromptStack 分层 + 行为指令注入 + MaxLoops 控制；
-- Skill 多层叠加与退栈（`#goal` → `#code` 压栈，`#end` 退栈）；
-- Alt+E 循环切换 Effort + 状态栏实时显示；
-- system prompt 四层组装：identity → plugin → effort → instructions；活动 Skill 作为条目化用户上下文发送；
-- Plan/WorkPlan 工作流系统（plan_load/plan_run/plan_status/plan_export/plan_clear）；
-- MCP 调用追溯中间件（mcpstack）+ 熔断事件通道 + 拦截器；
-- Web 搜索集成（Tavily，账号池 YAML 可配置 api_key）；
-- /diag 系统诊断面板（Go 运行时、内存、插件、Skill、账号）；
-- Plan 可视化（TUI 面板 + 进度回调）；
-- 与 TUI 同级的 Wails GUI、Application Bridge 和桌面主界面；
-- 默认 manual 权限、公开配置模板和安全发布白名单；
-- tag 驱动的 CLI/Windows GUI 预发行流程和 SHA-256 校验和。
-
-### 下一阶段
-
-1. Effort 注入 API 参数（Anthropic thinking / OpenAI reasoning_effort）；
-2. Effort → 模型选型（flash/pro 自动切换）；
-3. Effort → Planning 策略（brief/structured/dag）；
-4. 让 `seele.yaml` 权限规则进入强制门控，消除文件声明与运行行为差异；
-5. 为多进程/远程前端补充协议版本和稳定错误码；
-6. 补齐 GUI Windows E2E、键盘可访问性和长会话虚拟列表；
-7. 打通 CAD Plugin 最小垂直闭环；
-8. 建立 Dev Plugin 的代码—测试—Review 闭环。
-
-## 开发
+## 构建与发布
 
 ```bash
-# 构建
-go build ./...
-
-# 代码检查
-go vet ./...
-
-# 运行测试
-go test ./... -v -count=1 -timeout=120s
-
-# 可选的真实账号 Plan 冒烟测试（使用临时副本，会发起付费网络请求）
-$env:SEELEX_SMOKE_ACCOUNTS = (Resolve-Path config/accounts.yaml)
-go test -tags manualsmoke . -run TestManualSmokeRealAccountPlan -count=1 -timeout=2m
-
-# 竞态检测
-go test ./... -race -count=1
-
-# 覆盖率报告
-go test ./... -coverprofile=coverage.out ./...
-go tool cover -func=coverage.out | tail -1
-
-# 跨平台发布（安全执行 clean -> build -> package）
-make release
-
-# Windows 本地 GUI（要求 config/accounts.yaml 存在，并打入本地产物）
-make rebuild-gui VERSION=v0.1.0-alpha.1
-
-# 使用其他 ignored 本地配置
-make rebuild-gui VERSION=v0.1.0-alpha.1 LOCAL_CONFIG=config/account-claudecode.local.yaml
-
-# Windows 可发布 GUI（只包含 accounts.example.yaml）
-make publish-rebuild-gui VERSION=v0.1.0-alpha.1
+make build              # 仅构建跨平台二进制
+make release            # clean -> build -> package（tar.gz + 配置 + 插件）
+make rebuild-gui        # Windows Dev GUI（需 LOCAL_CONFIG）
+make publish-rebuild-gui  # Windows Publish GUI（仅 example 配置）
 ```
-
-### 当前测试覆盖率
-
-| 包 | 覆盖率 |
-|---|:---:|
-| `session` | 100.0% |
-| `internal/frontmatter` | 100.0% |
-| `seelexctx/merger` | 100.0% |
-| `seelexctx/compactor` | 98.1% |
-| `plugin` | 87.6% |
-| `seelexctx/snapshot` | 86.6% |
-| `skill` | 82.6% |
-| `mcpstack` | 70.4% |
-| `seelexctx` | 69.0% |
-| `application` | 67.4% |
-| `seelebridge` | 58.3% |
-| `seelexctx/provider` | 53.3% |
-| `(root)` | 11.5% |
-| `tui` | 6.2% |
-| `tui/splash` | 0.0% |
-
-## 模块审查入口
-
-仓库协作与文档放置规则见 [`AGENTS.md`](AGENTS.md)。每个代码/运行模块的 README 记录当前实现、依赖边界、生态位、review 风险和验证命令：
-
-| 模块 | 说明 |
-|---|---|
-| [`application`](application/README.md) | 前端共享的应用用例与权威状态。 |
-| [`seelebridge`](seelebridge/README.md) | Seele v0.0.8 防腐层、项目作用域、工具、MCP 与 WorkPlan。 |
-| [`plugin`](plugin/README.md) / [`plugins`](plugins/README.md) | Plugin 运行时与内置能力包。 |
-| [`skill`](skill/README.md) | Skill 加载、资源边界和可见性。 |
-| [`session`](session/README.md) / [`sessionstore`](sessionstore/README.md) | 会话用例适配与原子多后端持久化。 |
-| [`workspace`](workspace/README.md) | 项目定义和 session binding。 |
-| [`gui`](gui/README.md) / [`tui`](tui/README.md) | 桌面与终端前端。 |
-| [`mcpstack`](mcpstack/README.md) | MCP 调用栈和上下文追踪。 |
-| [`seelexctx`](seelexctx/README.md) | 跨 Agent 上下文导出、压缩和合并。 |
-| [`e2e`](e2e/README.md) | 确定性 scenario 验收框架。 |
-| [`config`](config/README.md) / [`scripts`](scripts/README.md) / [`.github`](.github/README.md) | 配置、构建与 CI 运维模块。 |
-
-## 许可证
-
-MIT

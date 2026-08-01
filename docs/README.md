@@ -10,6 +10,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [`seele-v2-runtime-architecture.md`](arch/seele-v2-runtime-architecture.md) | Seelex 底层向 Seele v0.0.8 新边界迁移的架构设计（已实施；详设见 [`2026-08-01-seele-v2-underlying-refactor`](2026-08-01-seele-v2-underlying-refactor/plan.md)） |
 | [`architecture-and-flaws.md`](arch/architecture-and-flaws.md) | 架构说明书与已知硬伤清单（初稿） |
 | [`design-decisions-mcp-storage.md`](arch/design-decisions-mcp-storage.md) | MCP 中间件从 CAD 专属→通用→存储解耦的设计推演 |
 | [`mcp-call-chain-flowchart.md`](arch/mcp-call-chain-flowchart.md) | Agent 调用 MCP 全链路函数流 + 熔断事件通道 |
