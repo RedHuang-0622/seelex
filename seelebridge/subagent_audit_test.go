@@ -141,8 +141,8 @@ func mustRegisterAccount(t *testing.T, runtime *Runtime, id string, value agent.
 // TestSubAgentMergeBackToParent 验证"父证据注入 → 执行 → 合并回传"闭环：
 // 子代理执行后其结构化上下文（Goal/Findings/Decisions）经 merger.MergeBack
 // 合并，Format 结果经 sink 回传（application 侧排队，ChatStream 外注入）。
-// 生产接线 = main.go SetNodeParentEvidence（父证据提供者，无锁数据面）+
-// SetSubagentContextSink（回传接收器）+ SeelexAgentNode.mergeBack。
+// 生产接线 = main.go SetContextExchanger（ContextExchanger 实现，无锁数据面）
+// + SeelexAgentNode.mergeBack。
 func TestSubAgentMergeBackToParent(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()

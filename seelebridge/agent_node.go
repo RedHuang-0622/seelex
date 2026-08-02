@@ -49,7 +49,7 @@ func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) 
 	}
 }
 
-// parentSnapshot 返回父证据快照（SetNodeParentEvidence 注入的提供者）。
+// parentSnapshot 返回父证据快照（ContextExchanger.ParentEvidence 消息进）。
 func (n *SeelexAgentNode) parentSnapshot() *snapshot.ContextSnapshot {
 	if n == nil || n.runtime == nil {
 		return nil
@@ -98,7 +98,7 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 // 重要：不得直接调用父会话的 AppendHistory/History——plan_run 作为主代理的
 // 工具调用在 Session.ChatStream 内同步执行，主会话锁被全程持有，任何子代理
 // goroutine 对主会话的访问都会死锁（冒烟测试实测 19 分钟死锁）。回传必须
-// 走无锁 sink（SetSubagentContextSink）。
+// 走 ContextExchanger.MergeBack 消息出（mailbox 投递）。
 func (n *SeelexAgentNode) mergeBack(ctx context.Context, agent node.Agent, goal string) {
 	childSession, ok := agent.(*frameworkSession.Session)
 	if !ok {
@@ -162,7 +162,7 @@ func (nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.Assembl
 }
 
 // nodePromptBlocks 构建节点级 PromptBlock：目标 + 父证据 + 预算。
-// 父证据经 SetNodeParentEvidence 注入（seelexctx snapshot 承袭，缺省无）。
+// 父证据经 ContextExchanger.ParentEvidence 注入（actor.go，缺省无）。
 func (r *Runtime) nodePromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 3)
 	blocks = append(blocks, seelectx.PromptBlock{

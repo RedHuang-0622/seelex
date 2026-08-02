@@ -42,8 +42,18 @@ func NewTraceProviderWithGoal(src TraceSource, sessionID, goal string) *TracePro
 func (p *TraceProvider) Name() string { return "trace" }
 
 // Export 从 telemetry 生命周期事件（llm/tool intent-effect）提取结构信息。
+// 事件按 gen_ai.agent.id（会话 ID）过滤：llm/tool 事件由会话循环写入时
+// 携带 AttributeGenAIAgentID = sessionID（Seele session/loop.go）。不过滤
+// 会取到进程级全局遥测（并行子代理/其他会话事件串扰——父证据与 merge-back
+// 的 Findings/Decisions 互相累积，审查 #3）。
 func (p *TraceProvider) Export(ctx context.Context) (*snapshot.ContextSnapshot, error) {
-	view, err := p.src.Query(ctx, telemetry.Query{Limit: 200})
+	query := telemetry.Query{
+		Limit: 200,
+		Attributes: map[string]string{
+			telemetry.AttributeGenAIAgentID: p.sessionID,
+		},
+	}
+	view, err := p.src.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("provider: query telemetry: %w", err)
 	}

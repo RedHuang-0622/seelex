@@ -93,6 +93,10 @@ func (service *Service) resumeSession(sessionID string) error {
 	if offset < 0 {
 		offset = 0
 	}
+	// 标题说明（审查 #5）：hasRecord 时标题取 record.Title（权威）；无 record
+	// 的旧格式会话标题由 sessionTitleFromHistory 取窗口内首条 user 消息——
+	// 会话总条数 > HistoryWindow 且真实首条 user 落在窗口外时，标题从"真实
+	// 首条消息"变为"窗口内首条消息"（行为变化，已接受：旧格式迁移场景）。
 	visibleHistory := history
 	currentWorkspace := location.workspace
 	if service.deps.Workspace != nil {
@@ -194,6 +198,8 @@ func (service *Service) resumeSession(sessionID string) error {
 // loadHistoryTailWindow 尾部窗口读：先探总数（limit=0 只读 manifest），
 // 再读尾部 window 条（只解析覆盖窗口的 shard）。返回窗口消息与真实总数，
 // resumeSession 的 visibleHistory/TotalMessages 直接消费。
+// 注（审查 #8）：探测与窗口读是两次独立加锁操作，非原子——两读之间会话
+// 并发增长时 total 与窗口可能错位；恢复场景通常无并发写，影响极小（观察项）。
 func (service *sessionCoordinator) loadHistoryTailWindow(location sessionLocation) ([]EngineMessage, int, error) {
 	window := Limits().HistoryWindow
 	_, total, err := service.loadSessionHistoryRange(location.workspaceID, location.meta.ID, 0, 0)

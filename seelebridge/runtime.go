@@ -92,6 +92,7 @@ type Runtime struct {
 	selectedAccountID   string
 	providerFilter      string
 	projectScope        *ProjectScope
+	filesystem          FileSystem // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	toolCallTimeout     time.Duration
 	planDecisionTimeout time.Duration
 	approvalTimeout     time.Duration
@@ -196,6 +197,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		accountSpecs:        specsByName,
 		MCPStack:            mcpstack.New(mcpStackOpts...),
 		projectScope:        NewProjectScope(),
+		filesystem:          NewFileSystemActor(),
 		toolCallTimeout:     cfg.ToolCallTimeout,
 		planDecisionTimeout: planDecisionTimeout,
 		approvalTimeout:     approvalTimeout,

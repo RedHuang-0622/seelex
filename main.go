@@ -157,13 +157,15 @@ func (ex *contextExchanger) MergeBack(content string) {
 }
 
 // truncateSnapshotGoal 截断父证据目标（与 snapshot.Truncate 同语义的本地
-// 实现，避免引入额外依赖）。
+// 实现，避免引入额外依赖）。按 rune 截断：字节截断会在多字节 UTF-8
+// （中文）第 200 字节处切断，产生无效 UTF-8 后缀导致快照渲染乱码。
 func truncateSnapshotGoal(content string) string {
-	const maxGoalChars = 200
-	if len(content) <= maxGoalChars {
+	const maxGoalRunes = 200
+	runes := []rune(content)
+	if len(runes) <= maxGoalRunes {
 		return content
 	}
-	return content[:maxGoalChars] + "…"
+	return string(runes[:maxGoalRunes]) + "…"
 }
 
 func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service, sessionManager *session.Manager) {

@@ -1059,13 +1059,14 @@ type redisRepository struct {
 }
 
 type redisManifest struct {
-	SessionID       string `json:"session_id"`
-	Generation      string `json:"generation"`
-	TokenCount      int    `json:"token_count"`
-	ShardCount      int    `json:"shard_count"`
-	EventShardCount int    `json:"event_shard_count,omitempty"`
-	CreatedAt       int64  `json:"created_at"`
-	UpdatedAt       int64  `json:"updated_at"`
+	SessionID          string `json:"session_id"`
+	Generation         string `json:"generation"`
+	TokenCount         int    `json:"token_count"`
+	ShardCount         int    `json:"shard_count"`
+	EventShardCount    int    `json:"event_shard_count,omitempty"`
+	HistoryShardCounts []int  `json:"history_shard_counts,omitempty"` // 每 shard 消息条数（total-only 探测免全量读）
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
 }
 
 func newRedisRepository(ctx context.Context, dsn string) (*redisRepository, error) {
@@ -1103,12 +1104,14 @@ func (repository *redisRepository) WriteCommit(ctx context.Context, key Key, com
 	}
 	shards := split(commit.ProviderHistory, defaultMessageShardSize)
 	encoded := make([]string, len(shards))
+	shardCounts := make([]int, len(shards))
 	for index, shard := range shards {
 		data, err := json.Marshal(shard)
 		if err != nil {
 			return fmt.Errorf("session storage: marshal shard: %w", err)
 		}
 		encoded[index] = string(data)
+		shardCounts[index] = len(shard)
 	}
 	eventShards := splitEvents(events, defaultMessageShardSize)
 	encodedEvents := make([]string, len(eventShards))
@@ -1124,7 +1127,7 @@ func (repository *redisRepository) WriteCommit(ctx context.Context, key Key, com
 	if len(events) == 0 {
 		count = tokenCount(commit.ProviderHistory)
 	}
-	manifest := redisManifest{SessionID: key.SessionID, Generation: "generation-" + randomID(), TokenCount: count, ShardCount: len(encoded), EventShardCount: len(encodedEvents), CreatedAt: now, UpdatedAt: now}
+	manifest := redisManifest{SessionID: key.SessionID, Generation: "generation-" + randomID(), TokenCount: count, ShardCount: len(encoded), EventShardCount: len(encodedEvents), HistoryShardCounts: shardCounts, CreatedAt: now, UpdatedAt: now}
 	if previous != nil {
 		manifest.CreatedAt = previous.CreatedAt
 	}
@@ -1201,10 +1204,19 @@ func (repository *redisRepository) Read(ctx context.Context, key Key) ([]types.M
 
 func (repository *redisRepository) ReadRange(ctx context.Context, key Key, offset, limit int) ([]types.Message, int, error) {
 	// limit <= 0 = 只取总数（与 jsonRepository 语义一致）。
+	// total-only 从 manifest 的 HistoryShardCounts 求和（只读 manifest，
+	// 不解析任何 shard）；旧 manifest 无计数时回退全量读。
 	if offset < 0 {
 		return nil, 0, errors.New("session storage: invalid range")
 	}
 	if limit <= 0 {
+		manifest, err := repository.readManifest(ctx, key)
+		if err != nil {
+			return nil, 0, err
+		}
+		if total := sumShardCounts(manifest.HistoryShardCounts); total >= 0 {
+			return nil, total, nil
+		}
 		messages, err := repository.Read(ctx, key)
 		if err != nil {
 			return nil, 0, err
@@ -1675,8 +1687,16 @@ func (repository *sqlRepository) Read(ctx context.Context, key Key) ([]types.Mes
 }
 
 func (repository *sqlRepository) ReadRange(ctx context.Context, key Key, offset, limit int) ([]types.Message, int, error) {
-	if limit <= 0 || offset < 0 {
+	// limit <= 0 = 只取总数（三后端契约统一；会话切换先探 total 再尾部窗口读）。
+	if offset < 0 {
 		return nil, 0, errors.New("session storage: invalid range")
+	}
+	if limit <= 0 {
+		total, err := repository.messageCount(ctx, key)
+		if err != nil {
+			return nil, 0, err
+		}
+		return nil, total, nil
 	}
 	messages, err := repository.Read(ctx, key)
 	if err != nil {
@@ -1690,6 +1710,28 @@ func (repository *sqlRepository) ReadRange(ctx context.Context, key Key, offset,
 		end = len(messages)
 	}
 	return append([]types.Message(nil), messages[offset:end]...), len(messages), nil
+}
+
+// messageCount 返回会话消息总数：manifest 存在时按 shard 的 JSON 数组长度
+// 求和（SQL 计数查询，不解析消息体）；legacy 无 manifest 时回退全量读。
+func (repository *sqlRepository) messageCount(ctx context.Context, key Key) (int, error) {
+	manifest, err := repository.readManifest(ctx, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		messages, legacyErr := repository.readLegacy(ctx, key)
+		if legacyErr != nil {
+			return 0, legacyErr
+		}
+		return len(messages), nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var total int
+	query := `SELECT COALESCE(SUM(json_array_length(messages_json)), 0) FROM seelex_session_shard WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2) + ` AND generation=` + repository.arg(3)
+	if err := repository.db.QueryRowContext(ctx, query, key.ProjectID, key.SessionID, manifest.generation).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 func (repository *sqlRepository) ReadEventTail(ctx context.Context, key Key, tokenBudget, maxUnits int) ([]Event, error) {
@@ -2210,4 +2252,16 @@ func saveConfig(path string, config Config) error {
 		return err
 	}
 	return writeAtomic(path, data, 0o600)
+}
+
+// sumShardCounts 对 manifest 分片计数求和；无计数（旧 manifest）返回 -1。
+func sumShardCounts(counts []int) int {
+	if len(counts) == 0 {
+		return -1
+	}
+	total := 0
+	for _, count := range counts {
+		total += count
+	}
+	return total
 }

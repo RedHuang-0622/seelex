@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -202,10 +203,9 @@ func (r *Runtime) scopedWriteFile(_ context.Context, argsJSON string) (string, e
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("write_file: create parent: %w", err)
-	}
-	if err := os.WriteFile(path, []byte(input.Content), 0o644); err != nil {
+	// 写路径经文件系统 actor（per-path 串行化——并行子代理写同一文件互斥，
+	// 见 docs/plan/file-operations-actorization.md P0）。
+	if err := r.filesystem.Write(path, []byte(input.Content)); err != nil {
 		return "", fmt.Errorf("write_file: write %q: %w", input.Path, err)
 	}
 	return fmt.Sprintf(`{"status":"ok","path":%q,"size":%d}`, input.Path, len(input.Content)), nil
@@ -229,17 +229,13 @@ func (r *Runtime) scopedEditFile(_ context.Context, argsJSON string) (string, er
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(path)
+	// 读-改-写经文件系统 actor 原子化（锁内 read-modify-write，同路径串行）。
+	count, err := r.filesystem.Edit(path, input.OldString, input.NewString)
 	if err != nil {
-		return "", fmt.Errorf("edit_file: read %q: %w", input.Path, err)
-	}
-	content := string(data)
-	if !strings.Contains(content, input.OldString) {
-		return "", fmt.Errorf("edit_file: old_string not found in %q", input.Path)
-	}
-	count := strings.Count(content, input.OldString)
-	if err := os.WriteFile(path, []byte(strings.ReplaceAll(content, input.OldString, input.NewString)), 0o644); err != nil {
-		return "", fmt.Errorf("edit_file: write %q: %w", input.Path, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("edit_file: old_string not found in %q", input.Path)
+		}
+		return "", fmt.Errorf("edit_file: %q: %w", input.Path, err)
 	}
 	return fmt.Sprintf(`{"status":"ok","path":%q,"replacements":%d}`, input.Path, count), nil
 }

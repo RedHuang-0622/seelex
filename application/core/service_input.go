@@ -21,15 +21,32 @@ func (service *Service) AppendSubagentContext(content string) {
 	service.mu.Unlock()
 }
 
-// injectPendingSubagentContexts 把排队中的子代理上下文注入 engine history。
+// subagentContextMarker 标记子代理产出块（模型不误读为普通用户轮次）。
+const subagentContextMarker = "[子代理产出] "
+
+// injectPendingSubagentContexts 把排队中的子代理上下文注入 engine history，
+// 并同步写入快照镜像（GUI 可见——审查 #4：此前只进 engine history，
+// 前端显示与模型实际所见不一致）。
 // 必须在 ChatStream 之外调用（startChat 提交时，主会话锁未被持有）。
 func (service *Service) injectPendingSubagentContexts() {
 	service.mu.Lock()
 	pending := service.pendingSubagentContexts
 	service.pendingSubagentContexts = nil
-	service.mu.Unlock()
+	visible := make([]Message, 0, len(pending))
 	for _, content := range pending {
-		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &content})
+		marked := subagentContextMarker + content
+		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &marked})
+		message := service.appendMessageLocked("user", marked, nil)
+		visible = append(visible, *message)
+	}
+	if len(visible) == 0 {
+		service.mu.Unlock()
+		return
+	}
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	for _, message := range visible {
+		service.events.Publish(EventMessageAdded, revision, "", message)
 	}
 }
 
