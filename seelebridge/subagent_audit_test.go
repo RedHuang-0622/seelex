@@ -8,6 +8,9 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
+
+	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // TestSubAgentStartupEndToEnd 验证子代理完整启动路径：
@@ -132,4 +135,66 @@ func mustRegisterAccount(t *testing.T, runtime *Runtime, id string, value agent.
 		t.Fatal(err)
 	}
 	return acc
+}
+
+// TestSubAgentMergeBackToParent 验证"父证据注入 → 执行 → 合并回传"闭环：
+// 子代理执行后其结构化上下文（Goal/Findings/Decisions）经 merger.MergeBack
+// 合并回父会话历史，父代理后续轮次可读到子代理产出。
+// 生产接线 = main.go SetNodeParentEvidence（父证据提供者）+
+// SeelexAgentNode.mergeBack（执行后回传）。
+func TestSubAgentMergeBackToParent(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	runtime.RegisterTool("task_complete", "complete task", nil, func(ctx context.Context, args string) (string, error) {
+		return `{"status":"completed"}`, nil
+	})
+	// 建主会话（plan_run 的父侧；NewRuntime 不自动创建）。
+	if _, err := runtime.NewMainSession(nil); err != nil {
+		t.Fatalf("create main session: %v", err)
+	}
+	// 父证据提供者（与 main.go 同款：主会话快照 + 遥测）。
+	runtime.SetNodeParentEvidence(func() *snapshot.ContextSnapshot {
+		current := runtime.CurrentSession()
+		if current == nil {
+			return nil
+		}
+		return seelexctx.ExportSnapshot(current, runtime.Tracer(), "")
+	})
+
+	scripted := newScriptedNodeCompleter("子代理结论：模块审计完成。")
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{"agent-1": scripted})
+
+	planJSON := `{"entry":"do","nodes":{"do":{"input":"audit the module and return findings","kind":"agent"}},"edges":{}}`
+	if result, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", planJSON); err != nil || !strings.Contains(result, `"status":"loaded"`) {
+		t.Fatalf("plan_load: %v %s", err, result)
+	}
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
+		t.Fatalf("plan_run failed: %v", err)
+	}
+
+	// 父会话历史必须包含 merge-back 块（merger.MergeBack → Format 注入），
+	// 且携带子代理目标（节点输入）。
+	parent := runtime.CurrentSession()
+	if parent == nil {
+		t.Fatal("runtime has no main session")
+	}
+	var mergedFound, childGoalFound bool
+	for _, msg := range parent.History() {
+		if msg.Content == nil {
+			continue
+		}
+		if strings.Contains(*msg.Content, "继承上下文 (Inherited Context)") {
+			mergedFound = true
+			if strings.Contains(*msg.Content, "audit the module") {
+				childGoalFound = true
+			}
+		}
+	}
+	if !mergedFound {
+		t.Fatal("parent session history must contain the merged child context block (merge-back closed loop)")
+	}
+	if !childGoalFound {
+		t.Error("merged block should carry the child goal from node input")
+	}
 }

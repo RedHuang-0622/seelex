@@ -43,6 +43,11 @@ func (m *Merger) MergeBack(parent, child *snapshot.ContextSnapshot) error {
 	parent.Findings = append(parent.Findings, child.Findings...)
 	parent.Decisions = append(parent.Decisions, child.Decisions...)
 
+	// goal: 父目标主导；父为空时继承子目标（子代理目标并入父语境）
+	if parent.Goal == "" && child.Goal != "" {
+		parent.Goal = child.Goal
+	}
+
 	// replace
 	if child.Progress != "" {
 		parent.Progress = child.Progress

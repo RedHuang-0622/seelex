@@ -33,6 +33,7 @@ export function planToDSL(plan) {
         depth: Math.max(0, Math.min(explicitDepth ?? inheritedDepth, 12)),
         elapsed: textValue(rawNode.elapsed),
         output: textValue(rawNode.output),
+        events: normalizeNodeEvents(rawNode.events),
         incoming: [],
         outgoing: []
       };
@@ -204,6 +205,7 @@ function renderNode(node) {
   const status = statusToken(node.status);
   const output = outputSummary(node.output);
   const branchCount = node.outgoing.length;
+  const hasDetail = node.events.length > 0 || Boolean(node.output) || node.elapsed;
   return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-status="${status}" style="--plan-indent:${node.depth * 9}px">
     <div class="plan-node-connector" aria-hidden="true"><i></i><span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span></div>
     <div class="plan-node-card">
@@ -212,6 +214,7 @@ function renderNode(node) {
         <span class="plan-kind" data-plan-node-field="kind">${escapeHTML(node.kind)}</span>
         <span class="plan-branch${branchCount > 1 ? "" : " hidden"}" data-plan-node-field="branch">fork ×${branchCount}</span>
         <span class="plan-dur${node.elapsed ? "" : " hidden"}" data-plan-node-field="elapsed">${escapeHTML(node.elapsed)}</span>
+        ${hasDetail ? `<button type="button" class="plan-detail-btn${node.events.length ? " has-events" : ""}" data-plan-node-detail="${escapeHTML(node.key)}" title="${escapeHTML(node.events.length ? `${node.events.length} 个事件；点击查看详情` : "查看节点详情")}" aria-label="节点详情">…</button>` : ""}
       </header>
       <div class="plan-node-deps${node.incoming.length ? "" : " hidden"}" data-plan-node-field="deps">${renderDependencies(node)}</div>
       <div class="plan-node-output${output ? "" : " hidden"}" data-plan-node-field="output" title="${escapeHTML(node.output)}">${escapeHTML(output)}</div>
@@ -321,6 +324,24 @@ function outputSummary(value) {
   return normalized.length > 180 ? `${normalized.slice(0, 177)}…` : normalized;
 }
 
+// normalizeNodeEvents 归一化节点事件时间线（详情页数据源）：
+// 保序、字段清洗；时间戳保留原始 ISO 串，状态经 NODE_STATUSES 校验。
+function normalizeNodeEvents(rawEvents) {
+  if (!Array.isArray(rawEvents)) return [];
+  const events = [];
+  for (const raw of rawEvents) {
+    if (!isRecord(raw)) continue;
+    const status = normalizeStatus(raw.status, NODE_STATUSES);
+    if (status === "unknown") continue;
+    events.push({
+      status,
+      at: textValue(raw.at),
+      output: textValue(raw.output)
+    });
+  }
+  return events;
+}
+
 function setText(root, field, value) {
   const element = root.querySelector(`[data-plan-field="${field}"]`);
   if (element) element.textContent = value;
@@ -381,4 +402,46 @@ export function escapeHTML(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+// renderNodeDetail 渲染节点详情页（弹窗内容）：身份信息 + 事件时间线。
+// 时间线是权威 JSON（node.events），运行中节点经心跳事件刷新"最后活跃"。
+export function renderNodeDetail(node) {
+  const status = statusToken(node.status);
+  const timeline = (node.events || []).map(event => {
+    const time = formatEventTime(event.at);
+    const output = outputSummary(event.output);
+    return `<li class="node-event is-${statusToken(event.status)}" data-node-event-status="${statusToken(event.status)}">
+      <span class="node-event-dot" aria-hidden="true">${escapeHTML(statusSymbol(event.status))}</span>
+      <time class="node-event-time" datetime="${escapeHTML(event.at)}">${escapeHTML(time)}</time>
+      <span class="node-event-status">${escapeHTML(statusLabel(event.status))}</span>
+      ${output ? `<span class="node-event-output" title="${escapeHTML(event.output)}">${escapeHTML(output)}</span>` : ""}
+    </li>`;
+  }).join("");
+  return `<div class="node-detail" data-node-detail>
+    <div class="node-detail-head">
+      <h2 class="node-detail-title">${escapeHTML(node.label || node.id || "节点详情")}</h2>
+      <span class="plan-status is-${status}">${escapeHTML(statusLabel(node.status))}</span>
+      <span class="plan-mode is-${statusToken(node.mode)}">${escapeHTML(modeLabel(node.mode))}</span>
+    </div>
+    <dl class="node-detail-meta">
+      <div><dt>ID</dt><dd>${escapeHTML(node.id || "—")}</dd></div>
+      <div><dt>Kind</dt><dd>${escapeHTML(node.kind || "auto")}</dd></div>
+      <div><dt>耗时</dt><dd>${escapeHTML(node.elapsed || "—")}</dd></div>
+      <div><dt>事件</dt><dd>${node.events ? node.events.length : 0}</dd></div>
+    </dl>
+    ${node.output ? `<div class="node-detail-output"><strong>最终输出</strong><pre>${escapeHTML(node.output)}</pre></div>` : ""}
+    <div class="node-detail-timeline">
+      <div class="node-timeline-title">时间线</div>
+      ${timeline ? `<ol class="node-timeline">${timeline}</ol>` : '<div class="node-timeline-empty">暂无事件；任务清单模式下由 task_check_node 打点驱动</div>'}
+    </div>
+  </div>`;
+}
+
+// formatEventTime 把 ISO 时间戳格式化为本地 HH:MM:SS（非法/空 → "—"）。
+function formatEventTime(iso) {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString([], { hour12: false });
 }

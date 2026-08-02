@@ -311,6 +311,14 @@ func (r *Runtime) Model() string { return r.model }
 // （llm/tool intent-effect）由会话级 hook 写入。
 func (r *Runtime) Tracer() *telemetry.MemoryTracer { return r.tracer }
 
+// CurrentSession 返回当前主会话（会话切换重建后依然是最新实例）。
+// 父证据注入与子代理 merge-back 经它读取/回写父上下文。
+func (r *Runtime) CurrentSession() *session.Session {
+	r.sessionMu.Lock()
+	defer r.sessionMu.Unlock()
+	return r.session
+}
+
 // ContextWindow returns the total context available to the selected account.
 // It is distinct from MaxOutputTokens, which caps a single response.
 func (r *Runtime) ContextWindow() int { return r.currentAccountLimits().ContextWindow }

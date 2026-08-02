@@ -56,7 +56,7 @@ package:
 		mkdir -p "$$outdir/config"; \
 		cp config/accounts.example.yaml "$$outdir/config/"; \
 		cp -r plugins "$$outdir/"; \
-		cp seele.yaml "$$outdir/"; \
+		cp seele.yaml seelex.yaml "$$outdir/"; \
 		cp LICENSE CHANGELOG.md README.md "$$outdir/"; \
 		dirname="seelex-v$(ARCHIVE_VERSION)-$$os-$$arch"; \
 		cp -r "$$outdir" "$(DIST)/$$dirname"; \

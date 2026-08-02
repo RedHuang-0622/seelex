@@ -54,6 +54,37 @@ func ExportWithGoal(eng provider.SessionSource, goal string) *snapshot.ContextSn
 	return snap
 }
 
+// ExportSnapshot 导出完整上下文快照：EngineProvider（Goal / MessageCount）
+// + TraceProvider（Findings / Decisions / TokenEstimate）组合。
+// trace 可为 nil（无遥测时退化为 Engine 导出）。
+// 父证据注入与子代理 merge-back 均使用本导出（闭环的公共数据面）。
+func ExportSnapshot(eng provider.SessionSource, trace provider.TraceSource, goal string) *snapshot.ContextSnapshot {
+	combined := &snapshot.ContextSnapshot{
+		SourceSessionID: eng.SessionID(),
+		ExportedAt:      time.Now(),
+		Goal:            goal,
+	}
+	engineSnap, err := provider.NewEngineProviderWithGoal(eng, goal).Export(context.TODO())
+	if err == nil && engineSnap != nil {
+		combined.MessageCount = engineSnap.MessageCount
+		if goal == "" {
+			combined.Goal = engineSnap.Goal
+		}
+	}
+	if trace == nil {
+		return combined
+	}
+	traceSnap, err := provider.NewTraceProviderWithGoal(trace, eng.SessionID(), goal).Export(context.TODO())
+	if err != nil || traceSnap == nil {
+		return combined
+	}
+	combined.Findings = traceSnap.Findings
+	combined.Decisions = traceSnap.Decisions
+	combined.TokenEstimate = traceSnap.TokenEstimate
+	combined.Escape = traceSnap.Escape
+	return combined
+}
+
 // ── 向后兼容导入 ──────────────────────────────────────────────
 
 // Import 将上下文快照注入到目标会话的 system prompt 中。

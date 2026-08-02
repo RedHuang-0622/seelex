@@ -61,8 +61,9 @@ foreach ($t in $Targets) {
     # plugins/
     Copy-Item -Recurse (Join-Path $Root "plugins") $outDir -Force
 
-    # seele.yaml
+    # seele.yaml（权限）+ seelex.yaml（运行参数）
     Copy-Item (Join-Path $Root "seele.yaml") $outDir -Force
+    Copy-Item (Join-Path $Root "seelex.yaml") $outDir -Force
     Copy-Item (Join-Path $Root "LICENSE") $outDir -Force
     Copy-Item (Join-Path $Root "CHANGELOG.md") $outDir -Force
     Copy-Item (Join-Path $Root "README.md") $outDir -Force

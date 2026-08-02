@@ -16,6 +16,7 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	tea "github.com/charmbracelet/bubbletea"
+	"gopkg.in/yaml.v3"
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
@@ -24,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	seelexctxsnapshot "github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -118,6 +120,16 @@ func main() {
 	})
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
+	// 子代理上下文闭环注入端：主会话快照（Goal/MessageCount + 遥测
+	// Findings/Decisions/TokenEstimate）作为节点执行前的父证据；节点执行后
+	// 经 merge-back 把子代理产出合并回本会话（seelebridge/agent_node.go）。
+	runtime.SetNodeParentEvidence(func() *seelexctxsnapshot.ContextSnapshot {
+		current := runtime.CurrentSession()
+		if current == nil {
+			return nil
+		}
+		return seelexctx.ExportSnapshot(current, runtime.Tracer(), "")
+	})
 	startFrontend(app)
 }
 
@@ -207,14 +219,13 @@ func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Se
 }
 
 func initRuntime() *seelebridge.Runtime {
-	// 滑动窗口配置段（seele.yaml；缺失 → 零值走默认，plan.md §3.7.3）。
-	windowConfig, err := core.LoadWindowConfig("seele.yaml")
+	// 运行参数在 seelex.yaml（配置参数文件；权限在 seele.yaml）：
+	// 滑动窗口段缺失 → 零值走默认；limits 缺失字段 → 默认值。
+	windowConfig, err := core.LoadWindowConfig("seelex.yaml")
 	if err != nil {
 		fatalf("加载 window 配置失败: %v", err)
 	}
-	// 运行时上限（seele.yaml limits 段）：全部行为魔法数字收编为可调参数。
-	// 缺失字段 → 默认值（DefaultLimits）；0 = 无限制（仅 tool_call_timeout）。
-	limits, err := seelexctx.LoadLimits("seele.yaml")
+	limits, err := seelexctx.LoadLimits("seelex.yaml")
 	if err != nil {
 		fatalf("加载 limits 配置失败: %v", err)
 	}
@@ -503,26 +514,13 @@ func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.App
 	}
 	switch mode {
 	case toolspermission.ModeManual:
-		cfg := toolspermission.PermissionConfig{
-			Mode: toolspermission.ModeManual,
-			Rules: []toolspermission.PermissionRule{
-				{ToolName: "grep_search", Action: toolspermission.ActionAllow},
-				{ToolName: "read_file", Action: toolspermission.ActionAllow},
-				{ToolName: "glob", Action: toolspermission.ActionAllow},
-				{ToolName: "git_status", Action: toolspermission.ActionAllow},
-				{ToolName: "git_log", Action: toolspermission.ActionAllow},
-				{ToolName: "git_diff", Action: toolspermission.ActionAllow},
-				{ToolName: "get_time", Action: toolspermission.ActionAllow},
-				{ToolName: "switch_plugin", Action: toolspermission.ActionAllow},
-				{ToolName: "switch_mode", Action: toolspermission.ActionAllow},
-				{ToolName: "ask_approve", Action: toolspermission.ActionAllow},
-				{ToolName: "plan_load", Action: toolspermission.ActionAllow},
-				{ToolName: "plan_run", Action: toolspermission.ActionAllow},
-				{ToolName: "plan_status", Action: toolspermission.ActionAllow},
-				{ToolName: "plan_validate", Action: toolspermission.ActionAllow},
-				{ToolName: "plan_export", Action: toolspermission.ActionAllow},
-				{ToolName: "plan_clear", Action: toolspermission.ActionAllow},
-			},
+		cfg := toolspermission.PermissionConfig{Mode: toolspermission.ModeManual, Rules: defaultManualRules()}
+		// seele.yaml 的 permission 段（权限专用文件）：存在有效规则时覆盖
+		// 内置白名单；缺失/为空回退默认白名单。
+		if fileRules, loadErr := loadPermissionRules("seele.yaml"); loadErr != nil {
+			return loadErr
+		} else if len(fileRules) > 0 {
+			cfg.Rules = fileRules
 		}
 		runtime.SetPermissionConfig(cfg, newPermissionBridge(approval))
 	case toolspermission.ModeFullAccess:
@@ -530,6 +528,49 @@ func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.App
 		runtime.SetPermissionConfig(cfg, nil)
 	}
 	return nil
+}
+
+// defaultManualRules 是 manual 模式的默认白名单（seele.yaml 未配置规则时回退）。
+func defaultManualRules() []toolspermission.PermissionRule {
+	return []toolspermission.PermissionRule{
+		{ToolName: "grep_search", Action: toolspermission.ActionAllow},
+		{ToolName: "read_file", Action: toolspermission.ActionAllow},
+		{ToolName: "glob", Action: toolspermission.ActionAllow},
+		{ToolName: "git_status", Action: toolspermission.ActionAllow},
+		{ToolName: "git_log", Action: toolspermission.ActionAllow},
+		{ToolName: "git_diff", Action: toolspermission.ActionAllow},
+		{ToolName: "get_time", Action: toolspermission.ActionAllow},
+		{ToolName: "switch_plugin", Action: toolspermission.ActionAllow},
+		{ToolName: "switch_mode", Action: toolspermission.ActionAllow},
+		{ToolName: "ask_approve", Action: toolspermission.ActionAllow},
+		{ToolName: "plan_load", Action: toolspermission.ActionAllow},
+		{ToolName: "plan_run", Action: toolspermission.ActionAllow},
+		{ToolName: "plan_status", Action: toolspermission.ActionAllow},
+		{ToolName: "plan_validate", Action: toolspermission.ActionAllow},
+		{ToolName: "plan_export", Action: toolspermission.ActionAllow},
+		{ToolName: "plan_clear", Action: toolspermission.ActionAllow},
+	}
+}
+
+// loadPermissionRules 读取 seele.yaml 的 permission.rules（权限专用文件）。
+// 文件缺失或 permission 段缺失 → nil（回退默认白名单）；解析失败显式报错。
+func loadPermissionRules(path string) ([]toolspermission.PermissionRule, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("permission: read config: %w", err)
+	}
+	var file struct {
+		Permission struct {
+			Rules []toolspermission.PermissionRule `yaml:"rules"`
+		} `yaml:"permission"`
+	}
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("permission: parse config: %w", err)
+	}
+	return file.Permission.Rules, nil
 }
 
 func parsePermissionMode(value string) (toolspermission.Mode, error) {

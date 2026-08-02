@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
-const { planToDSL, renderPlanDSL } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { planToDSL, renderPlanDSL, renderNodeDetail } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -115,6 +115,64 @@ test("returns null for missing Plan JSON", () => {
   assert.equal(planToDSL(null), null);
   assert.equal(planToDSL([]), null);
   assert.equal(renderPlanDSL(null), "");
+});
+
+test("extracts node event timeline for the detail page", () => {
+  const plan = {
+    name: "with events",
+    status: "running",
+    nodes: [{
+      id: "agent-1", label: "Audit module", kind: "agent", status: "running",
+      events: [
+        { status: "queued", at: "2026-08-02T10:00:00Z" },
+        { status: "running", at: "2026-08-02T10:00:05Z", output: "started" },
+        { status: "running", at: "2026-08-02T10:00:20Z" },
+        { status: "completed", at: "2026-08-02T10:01:00Z", output: "done reading module" }
+      ]
+    }]
+  };
+  const dsl = planToDSL(plan);
+  const node = dsl.nodes[0];
+  assert.equal(node.events.length, 4);
+  assert.deepEqual(node.events.map(event => event.status), ["queued", "running", "running", "completed"]);
+  assert.equal(node.events[3].output, "done reading module");
+  assert.equal(node.events[0].at, "2026-08-02T10:00:00Z");
+
+  const html = renderPlanDSL(dsl);
+  assert.match(html, /data-plan-node-detail="agent-1"/);
+  assert.match(html, /has-events/);
+});
+
+test("renders node detail timeline with escaped content", () => {
+  const plan = {
+    name: "detail",
+    status: "completed",
+    nodes: [{
+      id: "n1", label: "<script>alert(1)</script>", kind: "agent", status: "completed", elapsed: "12s",
+      output: "ok <b>not markup</b>",
+      events: [
+        { status: "queued", at: "2026-08-02T10:00:00Z" },
+        { status: "completed", at: "2026-08-02T10:00:12Z", output: "done" }
+      ]
+    }]
+  };
+  const dsl = planToDSL(plan);
+  const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
+
+  assert.match(detail, /data-node-detail/);
+  assert.match(detail, /node-event is-completed/);
+  assert.match(detail, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(detail, /<script>/);
+  assert.match(detail, /ok &lt;b&gt;not markup&lt;\/b&gt;/);
+  assert.doesNotMatch(detail, /<b>not markup<\/b>/);
+  assert.match(detail, /data-node-event-status="completed"/);
+  assert.match(detail, />TASKLIST</); // 模式徽标（completed 状态 → tasklist）
+});
+
+test("renders empty timeline hint for a node without events", () => {
+  const dsl = planToDSL({ name: "quiet", status: "pending", nodes: [{ id: "n1", status: "pending" }] });
+  const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
+  assert.match(detail, /暂无事件/);
 });
 
 test("labels tasklist gate vs plan-run mode from authoritative status", () => {

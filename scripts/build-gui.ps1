@@ -51,7 +51,8 @@ if ($BuildKind -eq "Dev") {
     Copy-Item -LiteralPath $configSource -Destination (Join-Path $PackageRoot "config/accounts.yaml")
 }
 Copy-Item -Recurse (Join-Path $Root "plugins") (Join-Path $PackageRoot "plugins")
-Copy-Item (Join-Path $Root "seele.yaml") $PackageRoot
+Copy-Item (Join-Path $Root "seele.yaml") $PackageRoot  # 权限
+Copy-Item (Join-Path $Root "seelex.yaml") $PackageRoot  # 运行参数
 Copy-Item (Join-Path $Root "LICENSE") $PackageRoot
 Copy-Item (Join-Path $Root "CHANGELOG.md") $PackageRoot
 Copy-Item (Join-Path $Root "README.md") $PackageRoot

@@ -3,7 +3,7 @@ import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
-import { planToDSL, reconcilePlanDSL } from "./plan-dsl.js";
+import { planToDSL, reconcilePlanDSL, renderNodeDetail } from "./plan-dsl.js";
 import { collectReadFileSources } from "./read-sources.js";
 import { renderContextCompactions } from "./context-summary.js";
 
@@ -28,7 +28,8 @@ const elements = Object.fromEntries([
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "interaction-modal", "perm-toggle", "new-workspace", "workspace-info", "workspace-list", "interaction-risk", "interaction-title",
-  "interaction-question", "interaction-preview", "interaction-options", "toast"
+  "interaction-question", "interaction-preview", "interaction-options",
+  "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast"
 ].map(id => [id, document.getElementById(id)]));
 
 const conversationView = createConversationView(elements.conversation, {
@@ -259,9 +260,30 @@ function renderSkills(skills) {
     : '<span class="muted">当前 Plugin 无 Skill</span>';
 }
 
+// lastPlanDsl 保存最近一次渲染的 Plan DSL（节点详情弹窗的数据源；
+// 权威 JSON 来自 snapshot.runtime.plan，弹窗只读展示）。
+let lastPlanDsl = null;
+
 function renderPlan(plan) {
   elements["plan-section"].classList.toggle("hidden", !plan);
-  reconcilePlanDSL(elements["plan-view"], planToDSL(plan));
+  lastPlanDsl = planToDSL(plan);
+  reconcilePlanDSL(elements["plan-view"], lastPlanDsl);
+}
+
+// openNodeDetail 渲染并打开节点详情弹窗（子代理详情页）：
+// 事件时间线 + 状态/耗时/输出；运行中节点经心跳事件刷新"最后活跃"。
+function openNodeDetail(nodeKey) {
+  const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === nodeKey);
+  if (!node) return;
+  const dsl = lastPlanDsl;
+  const rendered = renderNodeDetail({ ...node, mode: dsl.mode });
+  elements["node-detail-content"].innerHTML = rendered;
+  elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
+  setModal("node-detail-modal", true);
+}
+
+function closeNodeDetail() {
+  setModal("node-detail-modal", false);
 }
 
 function renderInteraction(interaction) {
@@ -534,11 +556,21 @@ elements["command-search"].addEventListener("keydown", event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["node-detail-modal", closeNodeDetail]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
 }
+
+elements["node-detail-close"].addEventListener("click", closeNodeDetail);
+
+// Plan 面板节点详情入口：点击节点卡片上的 … 按钮打开子代理详情页。
+document.addEventListener("click", event => {
+  const button = event.target.closest?.("[data-plan-node-detail]");
+  if (!button) return;
+  event.stopPropagation();
+  openNodeDetail(button.dataset.planNodeDetail);
+});
 
 document.addEventListener("keydown", event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -549,6 +581,7 @@ document.addEventListener("keydown", event => {
     closeRuntime();
     closeCommandPalette();
     closeSettings();
+    closeNodeDetail();
   }
 });
 

@@ -4,13 +4,18 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
+	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
+	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/merger"
+	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -27,6 +32,7 @@ type SeelexAgentNode struct {
 	factory func() node.AgentFactory      // bridge.NewAgentFactory 产物
 	scope   func() NodeScope              // 惰性解析：plan_run 时 binding 已冻结
 	blocks  func() []seelectx.PromptBlock // 节点级 PromptBlocks（目标/证据/预算）
+	runtime *Runtime                      // merge-back 回传面（父会话/父证据/遥测）
 }
 
 // newSeelexAgentNode 构造 agent 节点包装。scope/blocks 经闭包延迟解析，
@@ -39,11 +45,40 @@ func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) 
 		factory:  runtime.currentAgentFactory,
 		scope:    func() NodeScope { return nodeScopeFor(runtime, spec.ID) },
 		blocks:   func() []seelectx.PromptBlock { return runtime.nodePromptBlocks(spec.Input) },
+		runtime:  runtime,
 	}
 }
 
+// parentSession 返回当前主会话（merge-back 的合并目标；nil = 未装配）。
+func (n *SeelexAgentNode) parentSession() *frameworkSession.Session {
+	if n == nil || n.runtime == nil {
+		return nil
+	}
+	return n.runtime.CurrentSession()
+}
+
+// parentSnapshot 返回父证据快照（SetNodeParentEvidence 注入的提供者）。
+func (n *SeelexAgentNode) parentSnapshot() *snapshot.ContextSnapshot {
+	if n == nil || n.runtime == nil {
+		return nil
+	}
+	return n.runtime.nodeParentEvidence()
+}
+
+// traceSource 返回遥测追踪源（子代理 Findings/Decisions 提取）。
+func (n *SeelexAgentNode) traceSource() provider.TraceSource {
+	if n == nil || n.runtime == nil {
+		return nil
+	}
+	return n.runtime.Tracer()
+}
+
+// now 是时间戳提供者（测试可覆盖；Date.now 语义保持确定）。
+var now = time.Now
+
 // Run 注入节点作用域与节点级 PromptBlocks 后委托节点 Session 执行
 // （目标作为会话 system prompt，节点输入作为本轮请求）。
+// 执行成功后把子代理会话的结构化上下文合并回父会话（merge-back）。
 func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error) {
 	// 1) 节点身份：可见性策略 / 账号选择器 / 装配器从 ctx 读取。
 	ctx = WithNodeScope(ctx, n.scope())
@@ -56,7 +91,37 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 		return "", fmt.Errorf("agent node %q: agent factory is not configured", n.ID())
 	}
 	agent := factory.NewAgent(n.input.Input)
-	return agent.Chat(ctx, n.input.Input)
+	result, err := agent.Chat(ctx, n.input.Input)
+	if err == nil {
+		n.mergeBack(ctx, agent, n.input.Input)
+	}
+	return result, err
+}
+
+// mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/
+// TokenEstimate）合并回父会话：子快照 + 父快照 → merger.MergeBack →
+// Format() 文本追加到父会话历史。父证据注入（SetNodeParentEvidence）与
+// 本回传构成"注入 → 执行 → 合并"闭环；节点并发执行时父会话的
+// AppendHistory 由 session 内部锁串行化。
+func (n *SeelexAgentNode) mergeBack(ctx context.Context, agent node.Agent, goal string) {
+	childSession, ok := agent.(*frameworkSession.Session)
+	if !ok {
+		return
+	}
+	parentSession := n.parentSession()
+	if parentSession == nil {
+		return
+	}
+	child := seelexctx.ExportSnapshot(childSession, n.traceSource(), goal)
+	parent := n.parentSnapshot()
+	if parent == nil {
+		parent = &snapshot.ContextSnapshot{SourceSessionID: parentSession.SessionID(), ExportedAt: now()}
+	}
+	if err := merger.NewMerger().MergeBack(parent, child); err != nil {
+		return
+	}
+	content := parent.Format()
+	parentSession.AppendHistory(types.Message{Role: "user", Content: &content})
 }
 
 // nodeScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），

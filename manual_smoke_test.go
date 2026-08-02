@@ -4,15 +4,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx"
+	seelexctxsnapshot "github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // TestManualSmokeRealAccountPlan verifies the real account path without
@@ -73,6 +78,14 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	defer app.Shutdown()
 	hooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
+	// 子代理上下文闭环（与 main.go 同款）：父证据注入 + 执行后 merge-back。
+	runtime.SetNodeParentEvidence(func() *seelexctxsnapshot.ContextSnapshot {
+		current := runtime.CurrentSession()
+		if current == nil {
+			return nil
+		}
+		return seelexctx.ExportSnapshot(current, runtime.Tracer(), "")
+	})
 
 	mediumCtx, cancelMedium := smokePhaseContext()
 	defer cancelMedium()
@@ -82,12 +95,16 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	if err := app.Submit(mediumCtx, "#plan"); err != nil {
 		t.Fatalf("activate plan skill: %v", err)
 	}
+	mediumObserver := newSmokeObserver(events)
 	if err := app.Submit(mediumCtx, "Use plan_load exactly once. Load a serial two-node plan with entry node inspect and a second node report; each node must have a short input. Do not execute the plan. Then call task_needs_user_decision with a short question that asks whether the user wants the loaded plan executed, and reply with PLAN_SMOKE_OK. Do not call any other tool."); err != nil {
 		t.Fatalf("submit live plan request: %v", err)
 	}
 	if err := app.WaitForIdle(mediumCtx); err != nil {
+		mediumObserver.Dump(t, "medium")
 		t.Fatalf("wait for live plan request: %v", err)
 	}
+	mediumObserver.Dump(t, "medium")
+	mediumObserver.Close()
 
 	snapshot := app.Snapshot()
 	if snapshot.Chat.Error != "" {
@@ -132,12 +149,16 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		t.Fatalf("switch to high effort: %v", err)
 	}
 	highStart := len(app.Snapshot().Conversation)
+	highObserver := newSmokeObserver(events)
 	if err := app.Submit(highCtx, "Use plan_load exactly once. Create a three-node repository audit plan with nodes inspect, verify, and report. Do not execute the plan. Then call task_needs_user_decision with a short question that asks whether the user wants the loaded plan executed, and reply with HIGH_PLAN_SMOKE_OK. Do not call any other tool."); err != nil {
 		t.Fatalf("submit voluntary high plan request: %v", err)
 	}
 	if err := app.WaitForIdle(highCtx); err != nil {
+		highObserver.Dump(t, "high")
 		t.Fatalf("wait for voluntary high plan request: %v", err)
 	}
+	highObserver.Dump(t, "high")
+	highObserver.Close()
 	high := app.Snapshot()
 	highPlanLoads := 0
 	highPlanEvents := make([]string, 0)
@@ -189,13 +210,17 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		t.Fatalf("switch to lite control: %v", err)
 	}
 	controlStart := len(app.Snapshot().Conversation)
+	controlObserver := newSmokeObserver(events)
 	if err := app.Submit(controlCtx, "A loaded plan failed at node inspect because evidence was incomplete. Create a replacement recovery plan with plan_load only. Do not call plan_run or any other tool."); err != nil {
 		t.Fatalf("submit voluntary replan control: %v", err)
 	}
 	if err := app.WaitForIdle(controlCtx); err != nil {
+		controlObserver.Dump(t, "control")
 		t.Logf("replan A/control voluntary_plan_load=unknown wait_error=%q", err)
 		return
 	}
+	controlObserver.Dump(t, "control")
+	controlObserver.Close()
 	control := app.Snapshot()
 	controlLoaded := false
 	for _, message := range control.Conversation[controlStart:] {
@@ -205,6 +230,88 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		}
 	}
 	t.Logf("replan A/control voluntary_plan_load=%t chat_error=%q", controlLoaded, control.Chat.Error)
+}
+
+// ── 过程监听（smokeObserver）────────────────────────────────
+// 订阅 EventHub 事件流，把请求过程（工具调用/流式输出/错误）记录为日志行。
+// 旧手段 Submit→WaitForIdle→最终快照 让过程不可见；事件订阅使"过程中发生了什么"
+// 可见：失败时 Dump 输出完整过程轨迹，断言可引用工具调用序列。
+
+type smokeObserver struct {
+	sub         application.Subscription
+	mu          sync.Mutex
+	lines       []string
+	streamChars int // 流式输出总字符（delta 合并统计，避免逐条刷屏）
+	done        chan struct{}
+}
+
+func newSmokeObserver(hub *application.EventHub) *smokeObserver {
+	observer := &smokeObserver{sub: hub.Subscribe(256), done: make(chan struct{})}
+	go observer.consume()
+	return observer
+}
+
+func (o *smokeObserver) consume() {
+	defer close(o.done)
+	for event := range o.sub.Events {
+		switch event.Kind {
+		case application.EventToolStarted:
+			var message application.Message
+			if json.Unmarshal(event.Payload, &message) == nil && message.Tool != nil {
+				o.record("tool.started %s args=%s", message.Tool.Name, truncateSmokeReply(message.Tool.Arguments, 200))
+			}
+		case application.EventToolCompleted:
+			var message application.Message
+			if json.Unmarshal(event.Payload, &message) == nil && message.Tool != nil {
+				errorText := ""
+				if message.Tool.Error != "" {
+					errorText = " error=" + truncateSmokeReply(message.Tool.Error, 200)
+				}
+				o.record("tool.completed %s status=%s%s duration=%v", message.Tool.Name, message.Tool.Status, errorText, message.Tool.Duration)
+			}
+		case application.EventMessageDelta:
+			var delta application.MessageDelta
+			if json.Unmarshal(event.Payload, &delta) == nil && delta.Delta != "" {
+				o.mu.Lock()
+				o.streamChars += len(delta.Delta)
+				o.mu.Unlock()
+			}
+		case application.EventError:
+			o.record("error %s", truncateSmokeReply(string(event.Payload), 300))
+		case application.EventResyncRequired:
+			o.record("resync.required (订阅缓冲溢出，事件被丢弃)")
+		}
+	}
+}
+
+func (o *smokeObserver) record(format string, args ...interface{}) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.lines = append(o.lines, fmt.Sprintf(format, args...))
+}
+
+// Close 停止订阅并等待消费者退出（阶段结束时调用）。
+func (o *smokeObserver) Close() {
+	if o == nil {
+		return
+	}
+	o.sub.Close()
+	<-o.done
+}
+
+// Dump 输出本阶段的过程日志（失败诊断与断言引用）。
+func (o *smokeObserver) Dump(t *testing.T, phase string) {
+	t.Helper()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.lines) == 0 && o.streamChars == 0 {
+		t.Logf("[%s] process: (no events observed)", phase)
+		return
+	}
+	t.Logf("[%s] process: %d events, assistant.stream total=%d chars", phase, len(o.lines), o.streamChars)
+	for _, line := range o.lines {
+		t.Logf("[%s]   %s", phase, line)
+	}
 }
 
 func smokePhaseContext() (context.Context, context.CancelFunc) {
