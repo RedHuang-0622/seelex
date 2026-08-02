@@ -147,7 +147,20 @@ func (s *planEventSink) publish(projected PlanNodeEvent) {
 // planEventProjection 把框架生命周期事件投影为 PlanNodeEvent：
 // 计划级（无 NodeID）→ PlanStatus 投影；节点级（有 NodeID，Resume 路径）
 // → NodeStatus 投影（kind/elapsed 未知，由 AppendNodeResult 路径补齐）。
+// heartbeat 投影为 running（子代理详情页的"最后活跃"时间线刷新源）。
 func planEventProjection(ev frameworkevent.Event) *PlanNodeEvent {
+	if ev.Type == frameworkevent.TypeHeartbeat {
+		if ev.Scope.NodeID == "" {
+			return nil
+		}
+		return &PlanNodeEvent{
+			PlanID: ev.Scope.PlanID,
+			RunID:  ev.Scope.RunID,
+			NodeID: ev.Scope.NodeID,
+			Status: string(frameworkevent.StatusRunning),
+			At:     ev.OccurredAt,
+		}
+	}
 	if ev.Type != frameworkevent.TypeLifecycle {
 		return nil
 	}

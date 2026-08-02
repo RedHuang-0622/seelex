@@ -158,6 +158,174 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	}
 }
 
+// ── task_check_node 在途打点（tasklist 门禁）──────────────────────
+
+func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "audit", "high")
+	service.taskService = newTaskService(service.serviceState, service.taskExecution)
+	service.snapshot.Runtime.Plan = &PlanState{
+		Status: PlanPending,
+		Nodes:  []PlanNode{{ID: "inspect", Label: "inspect the call path", Status: NodePending}, {ID: "verify", Label: "verify the claim", Status: NodePending}},
+	}
+	service.mu.Unlock()
+
+	result, err := service.TaskTerminalHandler(taskCheckNodeTool)(context.Background(), `{"node_id":"inspect","output":"read controller.go"}`)
+	if err != nil {
+		t.Fatalf("task_check_node error = %v", err)
+	}
+	if !strings.Contains(result, `"accepted"`) || !strings.Contains(result, `"node_status":"completed"`) {
+		t.Fatalf("check result = %q, want accepted completed", result)
+	}
+	service.mu.RLock()
+	plan := service.snapshot.Runtime.Plan
+	state := service.taskExecution
+	service.mu.RUnlock()
+	if plan.Nodes[0].Status != NodeCompleted || plan.Nodes[1].Status != NodePending {
+		t.Fatalf("node statuses = %+v, want inspect completed / verify pending", plan.Nodes)
+	}
+	if plan.Progress != 0.5 {
+		t.Fatalf("progress = %v, want 0.5", plan.Progress)
+	}
+	// 非终态：任务仍 running、无 terminal，可在途继续
+	if state.status != taskStatusRunning || state.terminal != nil {
+		t.Fatalf("task must stay running after in-progress check: %+v", state)
+	}
+	// checkpoint 打点写入（供恢复/上下文摘要消费）
+	if checkpoint := state.checkpoints["inspect"]; checkpoint == nil || checkpoint.Status != "completed" || checkpoint.Facts[0] != "read controller.go" {
+		t.Fatalf("checkpoint = %+v, want completed with output fact", checkpoint)
+	}
+}
+
+func TestCheckNodeRejectsUnknownNode(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "audit", "high")
+	service.taskService = newTaskService(service.serviceState, service.taskExecution)
+	service.snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
+	service.mu.Unlock()
+
+	_, err := service.TaskTerminalHandler(taskCheckNodeTool)(context.Background(), `{"node_id":"missing"}`)
+	if err == nil || !strings.Contains(err.Error(), `unknown node "missing"`) {
+		t.Fatalf("error = %v, want unknown-node rejection", err)
+	}
+}
+
+func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "audit", "high")
+	service.taskService = newTaskService(service.serviceState, service.taskExecution)
+	service.mu.Unlock()
+
+	if _, err := service.TaskTerminalHandler(taskCheckNodeTool)(context.Background(), `{"node_id":"inspect"}`); err == nil || !strings.Contains(err.Error(), "no task structure is loaded") {
+		t.Fatalf("without plan error = %v, want no-task-structure rejection", err)
+	}
+	if _, err := service.TaskTerminalHandler(taskCheckNodeTool)(context.Background(), `{}`); err == nil || !strings.Contains(err.Error(), "node_id is required") {
+		t.Fatalf("without node_id error = %v, want required rejection", err)
+	}
+}
+
+func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "audit", "high")
+	service.taskService = newTaskService(service.serviceState, service.taskExecution)
+	service.snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
+	service.mu.Unlock()
+
+	handler := service.TaskTerminalHandler(taskCheckNodeTool)
+	if _, err := handler(context.Background(), `{"node_id":"inspect"}`); err != nil {
+		t.Fatal(err)
+	}
+	firstEpoch := func() uint64 {
+		service.mu.RLock()
+		defer service.mu.RUnlock()
+		return service.taskExecution.progressEpoch
+	}()
+	if _, err := handler(context.Background(), `{"node_id":"inspect"}`); err != nil {
+		t.Fatalf("re-check must be idempotent, got: %v", err)
+	}
+	service.mu.RLock()
+	epoch := service.taskExecution.progressEpoch
+	service.mu.RUnlock()
+	if epoch != firstEpoch {
+		t.Fatalf("re-check must not advance progress epoch: %d → %d", firstEpoch, epoch)
+	}
+}
+
+// TestTaskCompleteCoversAlreadyCheckedNodes 验证歧义消除：在途打点已完成的节点
+// 计入 task_complete 的覆盖，终态不必重复枚举 completed_nodes。
+func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "audit", "high")
+	service.taskService = newTaskService(service.serviceState, service.taskExecution)
+	service.snapshot.Runtime.Plan = &PlanState{
+		Status: PlanPending,
+		Nodes:  []PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
+	}
+	service.mu.Unlock()
+
+	// 节点 1 在途中已打点，节点 2 完成
+	if _, err := service.TaskTerminalHandler(taskCheckNodeTool)(context.Background(), `{"node_id":"inspect"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.TaskTerminalHandler(taskCheckNodeTool)(context.Background(), `{"node_id":"verify"}`); err != nil {
+		t.Fatal(err)
+	}
+	// 终态只收尾：completed_nodes 可以不重复已打点节点
+	_, err := service.TaskTerminalHandler(taskCompleteTool)(context.Background(), `{"summary":"audit done"}`)
+	if err != nil {
+		t.Fatalf("task_complete should accept already-checked nodes, got: %v", err)
+	}
+	service.mu.RLock()
+	plan := service.snapshot.Runtime.Plan
+	state := service.taskExecution
+	service.mu.RUnlock()
+	if state.status != taskStatusCompleted || state.terminal == nil || state.terminal.Kind != taskCompleteTool {
+		t.Fatalf("terminal state = %+v", state)
+	}
+	if plan.Status != PlanCompleted || plan.Progress != 1 || plan.Nodes[0].Status != NodeCompleted || plan.Nodes[1].Status != NodeCompleted {
+		t.Fatalf("completed plan = %#v", plan)
+	}
+}
+
+// TestTaskCompleteStillRejectsUncheckedNodes 打点流下缺节点仍拒绝：
+// 未打点、未枚举的节点必须出现在 completed_nodes。
+func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.mu.Lock()
+	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.taskExecution = newTaskExecutionState("task-1", "audit", "high")
+	service.taskService = newTaskService(service.serviceState, service.taskExecution)
+	service.snapshot.Runtime.Plan = &PlanState{
+		Status: PlanPending,
+		Nodes:  []PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
+	}
+	service.mu.Unlock()
+
+	if _, err := service.TaskTerminalHandler(taskCheckNodeTool)(context.Background(), `{"node_id":"inspect"}`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.TaskTerminalHandler(taskCompleteTool)(context.Background(), `{"summary":"half done"}`)
+	if err == nil || !strings.Contains(err.Error(), `authoritative plan node "verify"`) {
+		t.Fatalf("task_complete error = %v, want uncovered-node rejection", err)
+	}
+}
+
 func TestNoProgressBudgetReadsTaskServiceSemanticProgress(t *testing.T) {
 	service := newTestService(&fakeEngine{})
 	defer service.Shutdown()

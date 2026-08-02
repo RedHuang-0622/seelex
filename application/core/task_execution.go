@@ -19,6 +19,7 @@ const (
 	taskStatusFailed            = "failed"
 
 	taskCompleteTool          = "task_complete"
+	taskCheckNodeTool         = "task_check_node"
 	taskNeedsUserDecisionTool = "task_needs_user_decision"
 	taskFailedTool            = "task_failed"
 )
@@ -41,6 +42,8 @@ type NodeCheckpoint struct {
 type taskTerminal struct {
 	Kind              string   `json:"kind"`
 	Summary           string   `json:"summary"`
+	NodeID            string   `json:"node_id,omitempty"` // task_check_node 的在途打点目标
+	Output            string   `json:"output,omitempty"`  // task_check_node 的节点交付摘要
 	CompletedNodes    []string `json:"completed_nodes,omitempty"`
 	Artifacts         []string `json:"artifacts,omitempty"`
 	Evidence          []string `json:"evidence,omitempty"`
@@ -311,9 +314,9 @@ func boundedEvidence(value string) string {
 	if value == "" {
 		return ""
 	}
-	const maxEvidenceChars = 800
-	if len(value) > maxEvidenceChars {
-		return value[:maxEvidenceChars] + "…"
+	maxChars := Limits().EvidenceChars // limits.evidence_chars（默认 800）
+	if len(value) > maxChars {
+		return value[:maxChars] + "…"
 	}
 	return value
 }

@@ -695,6 +695,7 @@ func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) 
 			if event.Output != "" {
 				plan.Nodes[i].Output = event.Output
 			}
+			appendPlanNodeEvent(&plan.Nodes[i], event)
 			// checkpoint 只对终态生效（旧 HandlePlanNodeComplete 只在节点完成时调用）；
 			// 观测经 TaskService.ObservePlanEvent 写入功能打点快照
 			if isTerminalNodeStatus(event.Status) {
@@ -710,6 +711,36 @@ func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) 
 	requestID := service.snapshot.Chat.RequestID
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+}
+
+// appendPlanNodeEvent 把一次节点事件追加到节点时间线（详情页数据源）。
+// 上限由 seele.yaml limits 段 plan_node_events 配置（默认 30，防心跳刷屏）。
+// 同状态合并：running 心跳只刷新最后一条的时间戳与输出，不追加新条目，
+// 时间线保持状态变迁序列（queued → running → completed/...）。
+// 输出快照截断到 200 字符。
+func appendPlanNodeEvent(node *PlanNode, event seelebridge.PlanNodeEvent) {
+	if node.Events == nil {
+		node.Events = make([]PlanNodeEventInfo, 0, 8)
+	}
+	status := PlanNodeStatus(event.Status)
+	output := event.Output
+	if len(output) > 200 {
+		output = output[:200] + "…"
+	}
+	if last := len(node.Events) - 1; last >= 0 {
+		previous := &node.Events[last]
+		if previous.Status == status {
+			previous.At = event.At
+			if output != "" {
+				previous.Output = output
+			}
+			return
+		}
+	}
+	node.Events = append(node.Events, PlanNodeEventInfo{Status: status, At: event.At, Output: output})
+	if limit := Limits().PlanNodeEvents; limit > 0 && len(node.Events) > limit {
+		node.Events = node.Events[len(node.Events)-limit:]
+	}
 }
 
 // HandlePlanBranchEvent applies a branch lifecycle transition received from
@@ -913,8 +944,6 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 	return interaction
 }
 
-const maxReplanEvidenceBytes = 12 * 1024
-
 // replanRequestLocked extracts the smallest useful recovery context from the
 // authoritative snapshot. It must be called with service.mu held.
 func (service *Service) replanRequestLocked(failure, idempotencyKey string) seelebridge.ReplanRequest {
@@ -953,8 +982,8 @@ func (service *Service) replanRequestLocked(failure, idempotencyKey string) seel
 			request.Evidence += "checkpoint evidence:\n" + checkpointEvidence
 		}
 	}
-	if len(request.Evidence) > maxReplanEvidenceBytes {
-		request.Evidence = request.Evidence[:maxReplanEvidenceBytes] + "\n[evidence truncated]"
+	if limit := Limits().ReplanEvidenceBytes; limit > 0 && len(request.Evidence) > limit {
+		request.Evidence = request.Evidence[:limit] + "\n[evidence truncated]"
 	}
 	return request
 }
@@ -970,9 +999,9 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 	planAttempts := 0
 	if plan := service.snapshot.Runtime.Plan; plan != nil {
 		planAttempts = plan.ReplanCount
-		if planAttempts >= maxReplansPerPlanChain {
+		if planAttempts >= Limits().MaxReplansPerPlanChain {
 			service.mu.Unlock()
-			return fmt.Errorf("replan: plan recovery limit of %d reached", maxReplansPerPlanChain)
+			return fmt.Errorf("replan: plan recovery limit of %d reached", Limits().MaxReplansPerPlanChain)
 		}
 	}
 	service.replanInFlight[interactionID] = struct{}{}

@@ -47,9 +47,29 @@ the next operation is happening without seeing private agent state?
 
 ### Optional WorkPlan
 
-`plan_load` is an optional checklist tool, not a mandatory preflight gate.
-Use it to make a genuinely multi-step task inspectable; do not create a Plan
-just because an effort level is high.
+`plan_load` is an optional tool, not a mandatory preflight gate. It loads an
+executable DAG (nodes + edges). Use it to make a genuinely multi-step task
+inspectable; do not create a Plan just because an effort level is high.
+
+A loaded DAG has two distinct execution modes. Choosing between them is a
+task-level (tasklist) decision, not a Plan policy: the primary Agent decides
+per task whether a step needs a subagent and marks the node
+`kind:"agent"` accordingly. The Plan mechanism can carry the choice out, but
+the two concepts stay separate.
+
+**Tasklist mode (default):** the primary Agent executes the DAG serially with
+its own project-scoped tools. As each node's work finishes, call
+`task_check_node` with its `node_id` before moving on to the next node; the
+checkmark appears in the frontend tasklist immediately. After the final node,
+defer a single `task_complete`. No subagents, no parallelism. Use it for
+bounded tasks the primary Agent can finish alone.
+
+**Plan mode (subagents):** after `plan_load`, call `plan_run` to execute the
+DAG with the workplan kernel. Nodes with `kind:"agent"` spawn subagents that
+inherit project scope and parent evidence and may run in parallel (the runtime
+enforces the effort concurrency limit); node completion is projected in real
+time through plan events. After `plan_run` finishes, defer a single
+`task_complete` in the same turn, enumerating every completed node.
 
 **Use a Plan when:** the user explicitly asks for one; a code or file change
 has dependent inspect/implement/verify stages; a research task needs a named
@@ -60,10 +80,18 @@ coordination.
 a self-contained question; performing one small read-only check; or the next
 safe action is already obvious and has no material dependency.
 
-- **Do:** after a voluntary `plan_load`, treat the DAG as a checklist and use
-  normal project-scoped tools to carry out the work.
-- **Don't:** call `plan_run`; its isolated child chats do not carry the active
-  project scope or the evidence gathered in this conversation.
+- **Do:** choose the mode deliberately. For a bounded task, execute the DAG as
+  a tasklist serially; for steps that benefit from a subagent, mark the node
+  `kind:"agent"` and call `plan_run`.
+- **Do:** in tasklist mode, call `task_check_node` the moment a node's work is
+  finished and before starting the next node; it checks the item off in the
+  frontend without ending the task. Node checkmarks in plan mode come from
+  `plan_run` events in real time instead.
+- **Do:** defer `task_complete` until after the final node completes; it only
+  closes the task, and nodes already checked off with `task_check_node` (or
+  completed by `plan_run`) do not need to be repeated in `completed_nodes`.
+- **Don't:** treat `plan_status` as a completion check; it reports only the
+  loaded DAG metadata, not node status.
 - **Don't:** reload or clear a Plan merely to change wording; use a factual
   failure and the recovery interaction when the work genuinely needs a new
   path.
@@ -96,10 +124,12 @@ produced the requested deliverable, rather than only more process?
 End every tool-using task with one explicit terminal state once the requested
 deliverable is ready or a factual blocker remains.
 
-- **Do:** call `task_complete` after the requested result, artifact, and
-  available verification evidence are ready. When an authoritative Plan is
-  loaded, include every completed Plan node in `completed_nodes`; then give the
-  concise user-facing result in the same turn.
+- **Do:** defer a single `task_complete` until after the final node completes;
+  call `task_complete` once the requested result, artifact, and available
+  verification evidence are ready. When an authoritative Plan is loaded,
+  include in `completed_nodes` any node not already checked off through
+  `task_check_node` or `plan_run` events; then give the concise user-facing
+  result in the same turn.
 - **Do:** call `task_failed` when further progress needs unavailable authority,
   a failed verification has actionable evidence, or an external dependency is
   blocked; include the failed node and bounded evidence.

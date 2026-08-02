@@ -109,7 +109,7 @@ func (provider *planToolProvider) planLoadEntry() tools.ToolEntry {
 			Type: "function",
 			Function: types.ToolFunction{
 				Name:        "plan_load",
-				Description: "Load a validated DAG plan as the authoritative checklist for the current task." + planLoadContractDescription,
+				Description: "Load a validated DAG plan as the authoritative task structure for the current task." + planLoadContractDescription,
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -346,7 +346,7 @@ func (r *Runtime) runPlan(ctx context.Context, loaded *loadedPlanDoc) (string, e
 	wp := workplan.NewFromPlan(loaded.Plan, r.agentFactory,
 		workplan.WithEventSink(sink, planID),
 		workplan.WithEventRunID(runID),
-		workplan.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: 15 * time.Second}),
+		workplan.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: r.heartbeatInterval}),
 		workplan.WithEventErrorHandler(r.eventErrorHandler),
 		workplan.WithMaxForkConcurrency(loaded.MaxForkConc),
 		workplan.WithEventLocators(

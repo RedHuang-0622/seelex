@@ -75,13 +75,19 @@ export function planToDSL(plan) {
   const progress = clamp(finiteNumber(plan.progress) ?? 0, 0, 1);
   const entryNodeID = textValue(plan.entry_node_id);
   const name = textValue(plan.name, entryNodeID || "Plan");
+  const status = normalizeStatus(plan.status, PLAN_STATUSES);
+  // 门禁模式：plan_run 在途（status=running）时节点打勾来自执行事件投影，徽标
+  // 显示 PLAN RUN；其余状态是 tasklist 门禁——主代理串行执行，节点打勾来自
+  // task_check_node，徽标显示 TASKLIST。
+  const mode = status === "running" ? "plan" : "tasklist";
   return {
     schema: "seelex.plan/v1",
     type: "plan",
     key: entryNodeID || name || "plan",
     name,
     entryNodeID,
-    status: normalizeStatus(plan.status, PLAN_STATUSES),
+    mode,
+    status,
     progress,
     progressPercent: Math.round(progress * 100),
     elapsed: textValue(plan.elapsed),
@@ -97,6 +103,7 @@ export function renderPlanDSL(dsl) {
     <header class="plan-board-header">
       <span class="plan-board-icon" aria-hidden="true">◇</span>
       <strong data-plan-field="name">${escapeHTML(dsl.name)}</strong>
+      <span class="plan-mode is-${statusToken(dsl.mode)}" data-plan-field="mode" title="${modeTitle(dsl.mode)}">${escapeHTML(modeLabel(dsl.mode))}</span>
       <span class="plan-status is-${status}" data-plan-field="status">${escapeHTML(statusLabel(dsl.status))}</span>
       <span class="plan-board-meta" data-plan-field="progress-label">${dsl.progressPercent}%</span>
       <span class="plan-board-elapsed${dsl.elapsed ? "" : " hidden"}" data-plan-field="elapsed">${escapeHTML(dsl.elapsed)}</span>
@@ -139,6 +146,7 @@ function updateBoard(board, dsl) {
   board.className = `plan-board is-${status}`;
   board.dataset.planStatus = status;
   setText(board, "name", dsl.name);
+  setMode(board, dsl.mode);
   setText(board, "status", statusLabel(dsl.status));
   const statusElement = board.querySelector('[data-plan-field="status"]');
   if (statusElement) statusElement.className = `plan-status is-${status}`;
@@ -284,6 +292,24 @@ function statusToken(status) {
 
 function statusLabel(status) {
   return ({ pending: "PENDING", queued: "QUEUED", running: "RUNNING", completed: "DONE", failed: "FAILED", aborted: "ABORTED", skipped: "SKIPPED", canceled: "CANCELED", panicked: "PANICKED", active: "ACTIVE" })[status] || "UNKNOWN";
+}
+
+function modeLabel(mode) {
+  return mode === "plan" ? "PLAN RUN" : "TASKLIST";
+}
+
+function modeTitle(mode) {
+  return mode === "plan"
+    ? "plan_run 执行中：节点打勾来自执行事件投影"
+    : "tasklist 门禁：主代理串行执行，节点打勾来自 task_check_node";
+}
+
+function setMode(root, mode) {
+  const element = root.querySelector('[data-plan-field="mode"]');
+  if (!element) return;
+  element.textContent = modeLabel(mode);
+  element.title = modeTitle(mode);
+  element.className = `plan-mode is-${statusToken(mode)}`;
 }
 
 function statusSymbol(status) {

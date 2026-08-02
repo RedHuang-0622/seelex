@@ -369,14 +369,24 @@ func (b *ProjectKnowledgeBuilder) markdownFiles(dir string) ([]string, error) {
 
 // ── 辅助 ──────────────────────────────────────────────────────────────
 
-const maxSummaryLength = 800
+// summaryLimit 是项目记录摘要截断字符数（seele.yaml limits 段 summary_chars
+// 经 ApplyLimits 注入；默认 800）。
+var summaryLimit = 800
+
+// ApplyLimits 注入 seele.yaml limits 段中 sessionstore 相关的配置
+// （message_shard_size 已由 Config 支持，这里注入 summary_chars）。
+func ApplyLimits(summaryChars int) {
+	if summaryChars > 0 {
+		summaryLimit = summaryChars
+	}
+}
 
 func truncateSummary(content string) string {
 	content = strings.TrimSpace(content)
-	if len(content) <= maxSummaryLength {
+	if len(content) <= summaryLimit {
 		return content
 	}
-	return content[:maxSummaryLength] + "…"
+	return content[:summaryLimit] + "…"
 }
 
 // firstMeaningfulLine 取首个非空内容行作摘要（跳过 frontmatter 与标题标记）。

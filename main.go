@@ -19,9 +19,11 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/core"
+	"github.com/RedHuang-0622/seelex/application/search"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -35,6 +37,7 @@ var (
 	permissionMode = flag.String("permission", "manual", "权限模式: manual(白名单外需审批) | full_access(全部放行)")
 	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui")
 	showVersion    = flag.Bool("version", false, "显示版本号并退出")
+	runtimeLimits  seelexctx.Limits // initRuntime 加载的 limits（后续初始化消费）
 )
 
 // accountsPath 返回 accounts.yaml 的路径。
@@ -124,7 +127,7 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 		"properties": map[string]interface{}{
 			"result_ref": map[string]interface{}{"type": "string"},
 			"offset":     map[string]interface{}{"type": "integer", "minimum": 0},
-			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": maxReferenceToolPageSize},
+			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": core.Limits().MaxReferencePageSize},
 			"contains":   map[string]interface{}{"type": "string"},
 		},
 		"required": []string{"result_ref"},
@@ -143,7 +146,7 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 		"properties": map[string]interface{}{
 			"segment_id": map[string]interface{}{"type": "string"},
 			"offset":     map[string]interface{}{"type": "integer", "minimum": 0},
-			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": maxReferenceToolPageSize},
+			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": core.Limits().MaxReferencePageSize},
 			"contains":   map[string]interface{}{"type": "string"},
 		},
 		"required": []string{"segment_id"},
@@ -196,8 +199,6 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 	runtime.RegisterTool("project_refresh", "扫描项目模块文档与元数据，重建项目级模块语义知识；来源未变化时直接复用", schema, handler)
 }
 
-const maxReferenceToolPageSize = 12000
-
 // registerTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision
 // 注册进 tools.Registry（taskTerminalProvider，见 seelebridge/task_terminal.go）；
 // handler 内调用 TaskService.VerifyAndApply（投影 flush + 终态校验）。
@@ -211,10 +212,28 @@ func initRuntime() *seelebridge.Runtime {
 	if err != nil {
 		fatalf("加载 window 配置失败: %v", err)
 	}
+	// 运行时上限（seele.yaml limits 段）：全部行为魔法数字收编为可调参数。
+	// 缺失字段 → 默认值（DefaultLimits）；0 = 无限制（仅 tool_call_timeout）。
+	limits, err := seelexctx.LoadLimits("seele.yaml")
+	if err != nil {
+		fatalf("加载 limits 配置失败: %v", err)
+	}
+	limits = limits.WithDefaults()
+	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
+	toolCallTimeout, _, planDecision, heartbeat, replanWindow, tavily := limits.Durations()
+	core.ApplyLimits(limits)
+	search.ApplyLimits(int(tavily / time.Second))
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath: accountsPath(), StorePath: *storePath,
-		ToolCallTimeout: 120 * time.Second,
-		WindowConfig:    windowConfig,
+		ToolCallTimeout:           toolCallTimeout,
+		PlanDecisionTimeout:       planDecision,
+		HeartbeatInterval:         heartbeat,
+		ReplanWindow:              replanWindow,
+		MaxConcurrentReplans:      limits.MaxConcurrentReplans,
+		MaxReplansPerWindow:       limits.MaxReplansPerWindow,
+		MaxReplanProviderRequests: limits.MaxReplanProviderReqs,
+		WindowConfig:              windowConfig,
+		Limits:                    limits,
 	})
 	if err != nil {
 		fatalf("初始化 Seele Runtime 失败: %v", err)
@@ -387,6 +406,7 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 func initStore() *sessionstore.Router {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(*storePath)
+	sessionstore.ApplyLimits(runtimeLimits.SummaryChars)
 	router, err := sessionstore.NewRouter(filepath.Join(baseDir, "session-storage.json"), baseDir)
 	if err != nil {
 		fatalf("初始化嵌套存储失败: %v", err)

@@ -24,6 +24,14 @@ Plan selection and replan assets lead with complete, copyable canonical JSON
 shapes. A model chooses one shape and changes only node `input` text; structural
 rules and the final schema checklist follow the positive examples.
 
+System instructions distinguish **tasklist** from **plan**: tasklist mode runs
+the loaded DAG serially with the primary Agent's own project-scoped tools and
+defers one `task_complete` (checkmarks apply when it is accepted); plan mode
+calls `plan_run`, where `kind:"agent"` nodes spawn subagents that inherit
+project scope and parent evidence and may run in parallel, with node
+completion projected in real time. The mode choice is a task-level decision;
+assets must not present either mode as mandatory.
+
 ## Terminal protocol
 
 System instructions require a tool-using request to converge through

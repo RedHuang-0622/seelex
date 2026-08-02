@@ -117,3 +117,21 @@ test("returns null for missing Plan JSON", () => {
   assert.equal(renderPlanDSL(null), "");
 });
 
+test("labels tasklist gate vs plan-run mode from authoritative status", () => {
+  const running = planToDSL(parallelPlan("running", 0.5));
+  assert.equal(running.mode, "plan");
+  assert.match(renderPlanDSL(running), /plan-mode is-plan/);
+  assert.match(renderPlanDSL(running), />PLAN RUN</);
+
+  const pending = planToDSL({ ...parallelPlan("pending", 0), status: "pending" });
+  assert.equal(pending.mode, "tasklist");
+  const html = renderPlanDSL(pending);
+  assert.match(html, /plan-mode is-tasklist/);
+  assert.match(html, />TASKLIST</);
+  assert.match(html, /task_check_node/);
+
+  const completed = planToDSL({ ...parallelPlan("completed", 1), status: "completed" });
+  assert.equal(completed.mode, "tasklist");
+  assert.match(renderPlanDSL(completed), />TASKLIST</);
+});
+

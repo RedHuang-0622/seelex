@@ -64,6 +64,16 @@ func planStatusIcon(status application.PlanStatus) string {
 	return "○"
 }
 
+// planModeLabel 区分 tasklist 门禁与 plan_run 执行：PlanRunning 时是 plan 模式
+// （节点打勾来自执行事件投影），其余状态是 tasklist 模式（节点打勾来自
+// task_check_node 在途打点）。
+func planModeLabel(plan *application.PlanState) string {
+	if plan.Status == application.PlanRunning {
+		return "Plan"
+	}
+	return "Tasklist"
+}
+
 // progressBar 渲染一个水平进度条 [████░░░░]。
 func progressBar(fraction float64, width int) string {
 	if width < 2 {
@@ -156,7 +166,7 @@ func renderPlanMedium(p *application.PlanState, width int) string {
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
 	icon := planStatusIcon(p.Status)
-	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s Plan: %s (%d/%d)", icon, p.Name, done, total)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s %s: %s (%d/%d)", icon, planModeLabel(p), p.Name, done, total)))
 	if p.Elapsed != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Render("  " + p.Elapsed))
 	}
@@ -195,7 +205,7 @@ func renderPlanHigh(p *application.PlanState, width int) string {
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
 	icon := planStatusIcon(p.Status)
-	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s Plan: %s (%d/%d)", icon, p.Name, done, total)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s %s: %s (%d/%d)", icon, planModeLabel(p), p.Name, done, total)))
 	if p.Elapsed != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Render("  " + p.Elapsed))
 	}
@@ -259,8 +269,8 @@ func renderPlanMax(p *application.PlanState, width int) string {
 	border := lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
 
-	b.WriteString(border.Render(fmt.Sprintf(" ╔═ %s Plan: %s ═══════════════════════════╗",
-		planStatusIcon(p.Status), p.Name)))
+	b.WriteString(border.Render(fmt.Sprintf(" ╔═ %s %s: %s ═══════════════════════════╗",
+		planStatusIcon(p.Status), planModeLabel(p), p.Name)))
 	b.WriteString("\n")
 	b.WriteString(titleStyle.Render(fmt.Sprintf(" ║  %d/%d nodes completed", done, total)))
 	if p.Elapsed != "" {

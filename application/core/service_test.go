@@ -1188,7 +1188,7 @@ func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
 
 	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
-	for attempt := 0; attempt < maxReplansPerPlanChain; attempt++ {
+	for attempt := 0; attempt < Limits().MaxReplansPerPlanChain; attempt++ {
 		service.handleToolStart("plan_run", fmt.Sprintf("run-%d", attempt), `{}`)
 		service.handleToolComplete("plan_run", fmt.Sprintf("run-%d", attempt), `{"status":"failed","error":"node \"recover\": failed"}`, nil, 0)
 		interaction := service.Snapshot().Interaction
@@ -1208,10 +1208,10 @@ func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
 	if err := service.ResolveInteraction(context.Background(), interaction.ID, "replan"); err == nil || !strings.Contains(err.Error(), "recovery limit") {
 		t.Fatalf("limit error = %v", err)
 	}
-	if len(runtime.replans) != maxReplansPerPlanChain {
-		t.Fatalf("replan calls = %d, want %d", len(runtime.replans), maxReplansPerPlanChain)
+	if len(runtime.replans) != Limits().MaxReplansPerPlanChain {
+		t.Fatalf("replan calls = %d, want %d", len(runtime.replans), Limits().MaxReplansPerPlanChain)
 	}
-	if plan := service.Snapshot().Runtime.Plan; plan == nil || plan.ReplanCount != maxReplansPerPlanChain {
+	if plan := service.Snapshot().Runtime.Plan; plan == nil || plan.ReplanCount != Limits().MaxReplansPerPlanChain {
 		t.Fatalf("plan replan count = %+v", plan)
 	}
 }

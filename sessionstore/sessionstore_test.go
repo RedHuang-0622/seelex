@@ -20,7 +20,7 @@ func messages(count int, marker string) []types.Message {
 }
 
 func TestJSONRepositoryCommitsShardGenerationsAtomically(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir())
+	repository, err := newJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T) {
 // 存在时 ReadRange 只解析覆盖目标范围的 shard（尾部窗口读），结果与全量
 // 读一致。3 个 shard（250 条消息）尾部 5 条窗口。
 func TestJSONRepositoryReadRangeWindowed(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir())
+	repository, err := newJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

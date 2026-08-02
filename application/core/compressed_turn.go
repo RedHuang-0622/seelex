@@ -79,10 +79,10 @@ func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON st
 		return "", errors.New("read_compressed_turn: segment_id is required and offset must be non-negative")
 	}
 	if input.Limit <= 0 {
-		input.Limit = defaultReferencePageSize
+		input.Limit = Limits().ReferencePageSize
 	}
-	if input.Limit > maxReferencePageSize {
-		input.Limit = maxReferencePageSize
+	if max := Limits().MaxReferencePageSize; max > 0 && input.Limit > max {
+		input.Limit = max
 	}
 
 	store, ok := service.deps.Sessions.(sessionTranscriptPort)

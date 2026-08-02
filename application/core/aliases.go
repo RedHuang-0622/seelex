@@ -49,6 +49,7 @@ type (
 	PlanState              = model.PlanState
 	PlanStatus             = model.PlanStatus
 	PlanNode               = model.PlanNode
+	PlanNodeEventInfo      = model.PlanNodeEventInfo
 	NodeStatus             = model.NodeStatus
 	Tool                   = model.Tool
 	SkillInfo              = model.SkillInfo

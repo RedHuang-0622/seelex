@@ -161,6 +161,7 @@ func newTaskService(state *serviceState, taskState *taskExecutionState) *TaskSer
 	}
 	service.terminals = terminalToolHandlers{
 		taskCompleteTool:          service.applyCompleteLocked,
+		taskCheckNodeTool:         service.applyCheckNodeLocked,
 		taskFailedTool:            service.applyFailedLocked,
 		taskNeedsUserDecisionTool: service.applyDecisionLocked,
 	}
@@ -263,14 +264,34 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (Ta
 	return *s.snapshot.Task, nil
 }
 
-// VerifyAndApply 是终态工具的 Registry handler 入口：解析/校验入参 →
-// 同步 flush 投影 → 校验完成度与收敛性 → 应用终态。
+// VerifyAndApply 是终态/打点工具的 Registry handler 入口：解析/校验入参 →
+// 同步 flush 投影 → 校验完成度与收敛性 → 应用状态。task_check_node 是非终态
+// 的在途打点（不设置 terminal、不结束任务），其余 kind 是终态工具。
 func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error) {
 	var input taskTerminal
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("%s: invalid JSON: %w", kind, err)
 	}
 	input.Kind = kind
+	if kind == taskCheckNodeTool {
+		if strings.TrimSpace(input.NodeID) == "" {
+			return "", fmt.Errorf("%s: node_id is required", kind)
+		}
+		// 打点同样先 flush 事件投影，避免与 in-flight plan_run 事件交错误判。
+		if err := s.projection.Flush(ctx); err != nil {
+			return "", fmt.Errorf("%s: plan projection flush failed: %w", kind, err)
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		state := s.state
+		if state == nil || state.requestID != s.snapshot.Chat.RequestID || !s.snapshot.Chat.Running {
+			return "", fmt.Errorf("%s: no active task execution", kind)
+		}
+		if state.terminal != nil {
+			return "", fmt.Errorf("%s: task already reached %s", kind, state.terminal.Kind)
+		}
+		return s.applyCheckNodeLocked(ctx, input)
+	}
 	input.Summary = strings.TrimSpace(input.Summary)
 	if input.Summary == "" {
 		return "", fmt.Errorf("%s: summary is required", kind)
@@ -300,6 +321,40 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 		return "", fmt.Errorf("unsupported task terminal %q", kind)
 	}
 	return handler(ctx, input)
+}
+
+// applyCheckNodeLocked 接受 task_check_node：把已加载任务结构中的单个节点
+// 打点为 completed（在途进度，不结束任务）。调用方持有 service.mu。
+// 与 plan 模式的节点打点（plan_run 事件投影 → HandlePlanNodeComplete）走同一条
+// 投影；tasklist 模式下由模型逐节点调用本工具驱动前端打勾。
+func (s *TaskService) applyCheckNodeLocked(ctx context.Context, input taskTerminal) (string, error) {
+	plan := s.snapshot.Runtime.Plan
+	if plan == nil {
+		return "", fmt.Errorf("%s: no task structure is loaded; load one with plan_load first", taskCheckNodeTool)
+	}
+	var node *PlanNode
+	for index := range plan.Nodes {
+		if plan.Nodes[index].ID == input.NodeID {
+			node = &plan.Nodes[index]
+			break
+		}
+	}
+	if node == nil {
+		return "", fmt.Errorf("%s: unknown node %q", taskCheckNodeTool, input.NodeID)
+	}
+	if node.Status != NodeCompleted {
+		node.Status = NodeCompleted
+		if input.Output != "" {
+			node.Output = input.Output
+		}
+		recalculatePlanProgress(plan)
+		s.state.checkpoint(input.NodeID, node.Label, "completed", input.Output, "")
+		s.state.progressEpoch++
+	}
+	encoded, _ := json.Marshal(map[string]string{
+		"status": "accepted", "node_id": input.NodeID, "node_status": string(node.Status),
+	})
+	return string(encoded), nil
 }
 
 // applyCompleteLocked 接受 task_complete：先经投影校验（verifyCompletionLocked），
@@ -348,9 +403,11 @@ func (s *TaskService) applyDecisionLocked(ctx context.Context, input taskTermina
 // verifyCompletionLocked 校验 task_complete 的完成声明：completed_nodes 必须覆盖
 // 投影中的全部 Plan 节点（事件投影累积，非执行器内部状态），且投影已收敛
 // （计划不在运行中——执行仍持有 DAG 时拒绝，防事件滞后造成的误判）。
+// 已在途打点（task_check_node 或 plan_run 事件）为 completed/skipped 的节点
+// 自动计入覆盖，终态不必重复枚举——task_complete 只收尾，不做二次打点。
 func (s *TaskService) verifyCompletionLocked(terminal taskTerminal) error {
 	nodes := s.projection.AllNodes()
-	missing := nodesNotIn(nodes, terminal.CompletedNodes)
+	missing := nodesNotCovered(nodes, terminal.CompletedNodes, s.projection)
 	if len(missing) > 0 {
 		return fmt.Errorf("%s: completed_nodes must include authoritative plan node %q", taskCompleteTool, missing[0])
 	}
@@ -384,17 +441,24 @@ func (s *TaskService) rememberResumeLocked(summary ChatEndSummary) {
 	}
 }
 
-// nodesNotIn 返回 projected 中不在 completed 里的节点 ID（保持 projected 顺序）。
-func nodesNotIn(projected, completed []string) []string {
+// nodesNotCovered 返回 projected 中既不在 completed 列表、投影状态也非
+// completed/skipped 的节点 ID（保持 projected 顺序）。在途打点已覆盖的节点
+// 不要求终态重复枚举。
+func nodesNotCovered(projected, completed []string, projection PlanProjectionReader) []string {
 	covered := make(map[string]struct{}, len(completed))
 	for _, nodeID := range completed {
 		covered[nodeID] = struct{}{}
 	}
 	missing := make([]string, 0)
 	for _, nodeID := range projected {
-		if _, ok := covered[nodeID]; !ok {
-			missing = append(missing, nodeID)
+		if _, ok := covered[nodeID]; ok {
+			continue
 		}
+		switch projection.NodeStatus(nodeID) {
+		case NodeCompleted, NodeSkipped:
+			continue
+		}
+		missing = append(missing, nodeID)
 	}
 	return missing
 }

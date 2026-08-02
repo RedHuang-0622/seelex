@@ -18,7 +18,7 @@ import (
 func (r *Runtime) nodeSessionComponents() session.SessionComponents {
 	return session.SessionComponents{
 		Context:   r.nodeContextComponents(),
-		Config:    session.SessionConfig{MaxLoops: defaultNodeMaxLoops},
+		Config:    session.SessionConfig{MaxLoops: r.limits.PlanNodeMaxLoops},
 		Telemetry: r.hook, // 节点会话与主会话共享遥测钩子（llm/tool intent-effect）
 		ModelName: r.model,
 	}

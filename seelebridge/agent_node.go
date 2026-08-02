@@ -128,13 +128,11 @@ type nodeBudgetInfo struct {
 	MaxOutputTokens int
 }
 
-// defaultNodeMaxLoops 是节点子代理的默认迭代轮数预算（比主会话的 25 更
-// 收敛，节点只做片段工作）。
-const defaultNodeMaxLoops = 15
-
+// nodeBudget 返回节点子代理的迭代轮数预算：优先 seele.yaml limits 的
+// plan_node_max_loops（调参入口），默认 15（比主会话更收敛，节点只做片段工作）。
 func (r *Runtime) nodeBudget() nodeBudgetInfo {
 	limits := r.currentAccountLimits()
-	return nodeBudgetInfo{MaxLoops: defaultNodeMaxLoops, MaxOutputTokens: limits.MaxOutputTokens}
+	return nodeBudgetInfo{MaxLoops: r.limits.PlanNodeMaxLoops, MaxOutputTokens: limits.MaxOutputTokens}
 }
 
 // parentEvidenceMu 保护父证据提供者（并发 plan_run 时读）。

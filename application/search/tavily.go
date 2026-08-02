@@ -20,6 +20,17 @@ type WebSearchConfig struct {
 	SearchDepth   string `yaml:"search_depth"`
 }
 
+// TavilyTimeout 是 tavily HTTP 超时（seele.yaml limits 段 tavily_timeout 经
+// ApplyLimits 注入；默认 15 秒）。
+var TavilyTimeout = 15 * time.Second
+
+// ApplyLimits 注入 seele.yaml limits 段中 search 相关的配置。
+func ApplyLimits(tavilyTimeoutSec int) {
+	if tavilyTimeoutSec > 0 {
+		TavilyTimeout = time.Duration(tavilyTimeoutSec) * time.Second
+	}
+}
+
 // WebSearch 调用 Tavily Search API 搜索互联网。
 // 返回格式化的 Markdown 搜索结果。
 func WebSearch(ctx context.Context, cfg WebSearchConfig, query string, maxResults int) (string, error) {
@@ -48,7 +59,7 @@ func WebSearch(ctx context.Context, cfg WebSearchConfig, query string, maxResult
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: TavilyTimeout}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("web_search: request failed: %w", err)

@@ -447,7 +447,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-view { min-width: 0; font-size: 11px; }
 .muted { color: var(--muted); }
 
-.modal { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .68); backdrop-filter: blur(7px); }
+.modal { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .68); -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
 .modal-card { width: min(620px, 100%); padding: 20px; border: 1px solid var(--border-strong); border-radius: 12px; background: #151515; box-shadow: var(--shadow); }
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .modal-header h2, .modal-card h2 { margin: 2px 0 0; color: #ddd; font-size: 17px; font-weight: 560; }
@@ -515,6 +515,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-board-icon { color: var(--warning); font-size: 14px; }
 .plan-board-header strong { min-width: 0; overflow: hidden; color: #d0d0d0; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .plan-status { padding: 2px 5px; border: 1px solid #343434; border-radius: 4px; color: var(--faint); font: 750 8px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .05em; }
+.plan-mode { flex: none; padding: 2px 5px; border: 1px solid #34443c; border-radius: 4px; color: #6ea37b; background: #101a14; font: 750 8px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .05em; }
+.plan-mode.is-plan { border-color: #4d4420; color: #e8b730; background: #211d11; }
 .plan-status.is-running, .plan-status.is-queued { border-color: #5d4d20; color: #e8b730; background: #211d11; }
 .plan-status.is-completed { border-color: #35583f; color: #83c393; background: #132018; }
 .plan-status.is-failed, .plan-status.is-aborted { border-color: #633636; color: #df8585; background: #251515; }

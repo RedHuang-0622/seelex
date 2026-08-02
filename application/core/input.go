@@ -66,7 +66,7 @@ func (service *Service) endSkill() error {
 	loopLimit := maxLoopsFor(service.effortManager.Current())
 	for _, layer := range service.promptStack.Layers() {
 		if layer.Kind == "skill" && layer.Name == "goal" {
-			loopLimit = 9999
+			loopLimit = Limits().InputLoopLimit // limits.input_loop_limit（默认 9999 ≈ 无上限）
 			break
 		}
 	}

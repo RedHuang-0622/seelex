@@ -108,10 +108,22 @@ sufficient.` and make no tool call.
 - Execution concurrency: {{.Concurrency}}
 - Verification: {{.Verification}}
 
-The loaded DAG is an authoritative checklist for the primary Agent. Express
-real dependencies, but do not claim that independent nodes will run in
-parallel: current execution uses the primary Agent's normal project-scoped
-tools and progresses the checklist serially.
+The loaded DAG is the authoritative task structure. Execution mode is a
+task-level (tasklist) decision, not a Plan policy:
+
+- **Tasklist (serial, one-shot):** the primary Agent executes the nodes with
+  its own project-scoped tools in dependency order. As each node finishes, call
+  `task_check_node` with its `node_id` before starting the next node; the
+  frontend checks the item off immediately. After the final node, defer one
+  `task_complete`. No subagents, no parallelism.
+- **Plan (subagents):** run `plan_run` after loading. Nodes with
+  `kind:"agent"` spawn subagents that inherit project scope and parent
+  evidence and may run in parallel; node completion is projected in real time.
+  After `plan_run` completes, defer one `task_complete`; nodes already
+  completed by `plan_run` events need not be repeated in `completed_nodes`.
+
+Mark a node `kind:"agent"` only when the step genuinely benefits from a
+subagent (isolation, a bounded sub-task, or independent parallel work).
 
 ### How to Adapt a Shape
 

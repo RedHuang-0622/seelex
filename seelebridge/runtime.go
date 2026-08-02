@@ -37,8 +37,11 @@ type RuntimeConfig struct {
 	AccountsPath              string                 // LLM 账号配置路径
 	StorePath                 string                 // 会话存储目录（空 = 不持久化）
 	ToolCallTimeout           time.Duration          // 工具调用超时
+	ApprovalTimeout           time.Duration          // 审批等待超时
+	HeartbeatInterval         time.Duration          // workplan 心跳间隔
 	HubStartupDelay           time.Duration          // Hub 启动等待时间
 	WindowConfig              seelexctx.WindowConfig // 滑动窗口配置段（seele.yaml；零值 = 默认，plan.md §3.7.3）
+	Limits                    seelexctx.Limits       // 运行时上限（seele.yaml limits 段；零值 = 默认）
 }
 
 // Runtime is the Seelex composition root: it owns the account pool, tool
@@ -90,6 +93,9 @@ type Runtime struct {
 	projectScope        *ProjectScope
 	toolCallTimeout     time.Duration
 	planDecisionTimeout time.Duration
+	approvalTimeout     time.Duration
+	heartbeatInterval   time.Duration
+	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
 	scopedToolsReady    bool
 
 	pluginMu     sync.RWMutex
@@ -137,7 +143,7 @@ type Tool struct {
 func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	planDecisionTimeout := cfg.PlanDecisionTimeout
 	if planDecisionTimeout <= 0 {
-		planDecisionTimeout = defaultPlanDecisionTimeout
+		planDecisionTimeout = time.Duration(cfg.Limits.WithDefaults().PlanDecisionTimeoutSec) * time.Second
 	}
 	loaded, err := loadSimplifiedConfig(cfg.AccountsPath)
 	if err != nil {
@@ -173,6 +179,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			mcpstack.WithAutoSave(filepath.Join(cfg.StorePath, "mcp-traces.json")))
 	}
 
+	approvalTimeout := cfg.ApprovalTimeout
+	if approvalTimeout <= 0 {
+		approvalTimeout = time.Duration(cfg.Limits.WithDefaults().ApprovalTimeoutSec) * time.Second
+	}
+	heartbeatInterval := cfg.HeartbeatInterval
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = time.Duration(cfg.Limits.WithDefaults().HeartbeatIntervalSec) * time.Second
+	}
 	r := &Runtime{
 		pool:                pool,
 		model:               first.Model,
@@ -183,6 +197,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		projectScope:        NewProjectScope(),
 		toolCallTimeout:     cfg.ToolCallTimeout,
 		planDecisionTimeout: planDecisionTimeout,
+		approvalTimeout:     approvalTimeout,
+		heartbeatInterval:   heartbeatInterval,
+		limits:              cfg.Limits.WithDefaults(),
 		replanGuard:         newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
 		pluginDefs:          make(map[string]pluginDef),
 		permission:          &permissionGateState{},
@@ -195,7 +212,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission)}
+	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout)}
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
 	if err := r.assembleCompleters(); err != nil {

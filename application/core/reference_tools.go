@@ -9,11 +9,8 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	defaultReferencePageSize = 4000
-	maxReferencePageSize     = 12000
-)
-
+// 引用工具分页默认值收编进 seele.yaml limits 段
+// （reference_page_size / max_reference_page_size，默认 4000 / 12000）。
 func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string) (string, error) {
 	var input struct {
 		ResultRef string `json:"result_ref"`
@@ -29,10 +26,10 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 		return "", errors.New("read_tool_result: result_ref is required and offset must be non-negative")
 	}
 	if input.Limit <= 0 {
-		input.Limit = defaultReferencePageSize
+		input.Limit = Limits().ReferencePageSize
 	}
-	if input.Limit > maxReferencePageSize {
-		input.Limit = maxReferencePageSize
+	if max := Limits().MaxReferencePageSize; max > 0 && input.Limit > max {
+		input.Limit = max
 	}
 
 	service.mu.RLock()

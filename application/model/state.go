@@ -225,14 +225,23 @@ const (
 )
 
 type PlanNode struct {
-	ID       string     `json:"id"`
-	Label    string     `json:"label"`
-	Kind     string     `json:"kind"`
-	Status   NodeStatus `json:"status"`
-	Depth    int        `json:"depth,omitempty"`  // 缩进层级（0 = 根）
-	Output   string     `json:"output,omitempty"` // 节点输出内容
-	Elapsed  string     `json:"elapsed,omitempty"`
-	Children []PlanNode `json:"children,omitempty"` // Fork 子节点
+	ID       string              `json:"id"`
+	Label    string              `json:"label"`
+	Kind     string              `json:"kind"`
+	Status   NodeStatus          `json:"status"`
+	Depth    int                 `json:"depth,omitempty"`  // 缩进层级（0 = 根）
+	Output   string              `json:"output,omitempty"` // 节点输出内容
+	Elapsed  string              `json:"elapsed,omitempty"`
+	Events   []PlanNodeEventInfo `json:"events,omitempty"`   // 节点事件时间线（详情页）
+	Children []PlanNode          `json:"children,omitempty"` // Fork 子节点
+}
+
+// PlanNodeEventInfo 是节点事件时间线的一条记录（子代理详情页数据源）：
+// queued → running（可含心跳刷新）→ 终态，含时间戳与输出快照。
+type PlanNodeEventInfo struct {
+	Status NodeStatus `json:"status"`
+	At     time.Time  `json:"at"`
+	Output string     `json:"output,omitempty"`
 }
 
 type NodeStatus string
@@ -370,6 +379,9 @@ func clonePlanNodes(nodes []PlanNode) []PlanNode {
 	cloned := append([]PlanNode(nil), nodes...)
 	for index := range cloned {
 		cloned[index].Children = clonePlanNodes(nodes[index].Children)
+		if nodes[index].Events != nil {
+			cloned[index].Events = append([]PlanNodeEventInfo(nil), nodes[index].Events...)
+		}
 	}
 	return cloned
 }

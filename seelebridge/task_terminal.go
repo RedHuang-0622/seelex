@@ -8,13 +8,15 @@ import (
 )
 
 // 本文件实现 plan.md §3.1 的 taskTerminalProvider：把 task_complete /
-// task_failed / task_needs_user_decision 三个终态工具注册为 tools.Registry
-// 产品工具。handler 由 application 侧提供（TaskService.TerminalHandler 产物，
-// 内部完成"投影同步 flush → 完成度/收敛性校验 → 应用终态"，见
-// application/core/task_service.go），本包只负责工具定义与注册。
+// task_check_node / task_failed / task_needs_user_decision 工具注册为
+// tools.Registry 产品工具。handler 由 application 侧提供
+// （TaskService.TerminalHandler 产物，内部完成"投影同步 flush → 校验 →
+// 应用状态"，见 application/core/task_service.go），本包只负责工具定义与注册。
+// task_check_node 是非终态的在途打点（tasklist 模式下逐节点完成 → 前端打勾），
+// 其余三个是终态工具。
 
-// TaskTerminalHandler 是终态工具 handler 工厂：kind 固定三值
-// （task_complete / task_failed / task_needs_user_decision）。
+// TaskTerminalHandler 是工具 handler 工厂：kind 为 task_complete /
+// task_check_node / task_failed / task_needs_user_decision 四值。
 type TaskTerminalHandler func(kind string) func(context.Context, string) (string, error)
 
 const taskTerminalProviderName = "seelex-task-terminal"
@@ -55,6 +57,25 @@ func (p *taskTerminalProvider) Tools() []tools.ToolEntry {
 				},
 			},
 			Handler: tools.HandlerFunc(p.handler("task_complete")),
+		},
+		{
+			Definition: types.Tool{
+				Type: "function",
+				Function: types.ToolFunction{
+					Name:        "task_check_node",
+					Description: "Check off one node of the loaded task structure while working through the tasklist. Call it as soon as a node's work is finished, before moving on to the next node; it marks that node done in the frontend checklist and does not end the task.",
+					Parameters: map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"node_id":  map[string]interface{}{"type": "string", "description": "ID of the node whose work is now finished."},
+							"output":   map[string]interface{}{"type": "string", "description": "Brief summary of what this node delivered."},
+							"evidence": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+						},
+						"required": []string{"node_id"},
+					},
+				},
+			},
+			Handler: tools.HandlerFunc(p.handler("task_check_node")),
 		},
 		{
 			Definition: types.Tool{

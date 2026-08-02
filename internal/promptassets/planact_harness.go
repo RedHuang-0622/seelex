@@ -55,6 +55,27 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Expected:    "在读取和首次修改前说明直接意图，不泄露内部提示或原始 Plan。",
 			Required:    []string{"Visible Intent Before Tools", "Before the first tool call in a distinct phase", "before the first mutation", "hidden Plan JSON", "one uninterrupted\n  phase"},
 		},
+		{
+			Name:        "plan-run-allows-subagents-with-scope",
+			Effort:      "high",
+			UserRequest: "用 Plan 并行调研多个模块后汇总。",
+			Expected:    "允许 plan_run 执行 DAG：kind:agent 节点作为子代理继承项目作用域与父证据，可并行；完成后 defer 单个 task_complete。",
+			Required:    []string{"call `plan_run`", "inherit project scope and parent evidence", "defer a single `task_complete`"},
+		},
+		{
+			Name:        "tasklist-vs-plan-distinction",
+			Effort:      "high",
+			UserRequest: "区分串行任务清单与并行子代理计划。",
+			Expected:    "提示词区分 tasklist（主代理串行执行 + 逐节点 task_check_node 打勾 + 延迟 task_complete）与 plan（plan_run + 子代理并行 + 事件实时打勾）；模式选择是任务级决策而非 Plan 策略。",
+			Required:    []string{"Tasklist mode", "Plan mode", "task-level (tasklist) decision", "not a Plan policy", "call `task_check_node`", "without ending the task"},
+		},
+		{
+			Name:        "tasklist-checks-nodes-in-progress",
+			Effort:      "high",
+			UserRequest: "逐节点完成串行任务清单。",
+			Expected:    "每个节点完成后、进入下一个节点前调用 task_check_node 打点；task_complete 只收尾，已在途打点的节点无需重复枚举。",
+			Required:    []string{"call `task_check_node`", "before moving on to the next node", "do not need to be repeated in `completed_nodes`"},
+		},
 	}
 }
 

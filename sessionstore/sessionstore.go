@@ -33,13 +33,16 @@ const (
 	BackendSQLite     Backend = "sqlite"
 	BackendPostgreSQL Backend = "postgres"
 	BackendRedis      Backend = "redis"
-	messageShardSize          = 100
+	// defaultMessageShardSize 是 JSON 存储分片条数的默认值
+	// （seele.yaml limits 段 message_shard_size 可调，0 = 默认）。
+	defaultMessageShardSize = 100
 )
 
 type Config struct {
-	Backend Backend `json:"backend"`
-	Path    string  `json:"path,omitempty"`
-	DSN     string  `json:"dsn,omitempty"`
+	Backend          Backend `json:"backend"`
+	Path             string  `json:"path,omitempty"`
+	DSN              string  `json:"dsn,omitempty"`
+	MessageShardSize int     `json:"message_shard_size,omitempty"` // 分片条数（0 = 默认 100）
 }
 
 func (config Config) Normalize(defaultPath string) (Config, error) {
@@ -492,7 +495,7 @@ func (router *Router) withRepositoryAt(projectID string, fn func(Repository, str
 func Open(ctx context.Context, config Config) (Repository, error) {
 	switch config.Backend {
 	case BackendJSON:
-		return newJSONRepository(config.Path)
+		return newJSONRepository(config.Path, config.MessageShardSize)
 	case BackendSQLite:
 		return newSQLRepository(ctx, "sqlite", config.Path, "?")
 	case BackendPostgreSQL:
@@ -519,15 +522,19 @@ type jsonManifest struct {
 }
 
 type jsonRepository struct {
-	root string
-	mu   sync.RWMutex
+	root      string
+	shardSize int
+	mu        sync.RWMutex
 }
 
-func newJSONRepository(root string) (*jsonRepository, error) {
+func newJSONRepository(root string, shardSize int) (*jsonRepository, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("session storage: create JSON root: %w", err)
 	}
-	return &jsonRepository{root: filepath.Clean(root)}, nil
+	if shardSize <= 0 {
+		shardSize = defaultMessageShardSize
+	}
+	return &jsonRepository{root: filepath.Clean(root), shardSize: shardSize}, nil
 }
 
 func (repository *jsonRepository) WriteAtomic(_ context.Context, key Key, messages []types.Message) error {
@@ -566,7 +573,7 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 	if err := os.MkdirAll(generationDir, 0o700); err != nil {
 		return err
 	}
-	shards := split(commit.ProviderHistory)
+	shards := split(commit.ProviderHistory, repository.shardSize)
 	for index, shard := range shards {
 		data, err := json.Marshal(shard)
 		if err != nil {
@@ -576,7 +583,7 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 			return err
 		}
 	}
-	eventShards := splitEvents(events)
+	eventShards := splitEvents(events, repository.shardSize)
 	for index, shard := range eventShards {
 		data, err := json.Marshal(shard)
 		if err != nil {
@@ -974,7 +981,7 @@ func (repository *jsonRepository) readEventShards(key Key, manifest jsonManifest
 		return []Event{}, nil
 	}
 	directory := repository.sessionDir(key)
-	events := make([]Event, 0, manifest.EventShardCount*messageShardSize)
+	events := make([]Event, 0, manifest.EventShardCount*repository.shardSize)
 	for index := 0; index < manifest.EventShardCount; index++ {
 		data, err := os.ReadFile(filepath.Join(directory, manifest.Generation, fmt.Sprintf("events.%03d.json", index)))
 		if err != nil {
@@ -1089,7 +1096,7 @@ func (repository *redisRepository) WriteCommit(ctx context.Context, key Key, com
 		}
 		events = mergeEvents(existing, commit.Events)
 	}
-	shards := split(commit.ProviderHistory)
+	shards := split(commit.ProviderHistory, defaultMessageShardSize)
 	encoded := make([]string, len(shards))
 	for index, shard := range shards {
 		data, err := json.Marshal(shard)
@@ -1098,7 +1105,7 @@ func (repository *redisRepository) WriteCommit(ctx context.Context, key Key, com
 		}
 		encoded[index] = string(data)
 	}
-	eventShards := splitEvents(events)
+	eventShards := splitEvents(events, defaultMessageShardSize)
 	encodedEvents := make([]string, len(eventShards))
 	for index, shard := range eventShards {
 		data, err := json.Marshal(shard)
@@ -1172,7 +1179,7 @@ func (repository *redisRepository) Read(ctx context.Context, key Key) ([]types.M
 	if err != nil {
 		return nil, err
 	}
-	messages := make([]types.Message, 0, manifest.ShardCount*messageShardSize)
+	messages := make([]types.Message, 0, manifest.ShardCount*defaultMessageShardSize)
 	for index, value := range values {
 		data, ok := value.(string)
 		if !ok {
@@ -1232,7 +1239,7 @@ func (repository *redisRepository) readEvents(ctx context.Context, key Key, mani
 	if err != nil {
 		return nil, err
 	}
-	events := make([]Event, 0, manifest.EventShardCount*messageShardSize)
+	events := make([]Event, 0, manifest.EventShardCount*defaultMessageShardSize)
 	for index, value := range values {
 		data, ok := value.(string)
 		if !ok {
@@ -1557,7 +1564,7 @@ func (repository *sqlRepository) WriteCommit(ctx context.Context, key Key, commi
 		return existingErr
 	}
 	events := mergeEvents(existingEvents, commit.Events)
-	shards := split(commit.ProviderHistory)
+	shards := split(commit.ProviderHistory, defaultMessageShardSize)
 	encoded := make([]string, len(shards))
 	for index, shard := range shards {
 		data, err := json.Marshal(shard)
@@ -1566,7 +1573,7 @@ func (repository *sqlRepository) WriteCommit(ctx context.Context, key Key, commi
 		}
 		encoded[index] = string(data)
 	}
-	eventShards := splitEvents(events)
+	eventShards := splitEvents(events, defaultMessageShardSize)
 	encodedEvents := make([]string, len(eventShards))
 	for index, shard := range eventShards {
 		data, err := json.Marshal(shard)
@@ -1931,13 +1938,13 @@ func (repository *sqlRepository) placeholders(count int) string {
 	return strings.Join(values, ",")
 }
 
-func split(messages []types.Message) [][]types.Message {
+func split(messages []types.Message, shardSize int) [][]types.Message {
 	if len(messages) == 0 {
 		return [][]types.Message{{}}
 	}
-	result := make([][]types.Message, 0, (len(messages)+messageShardSize-1)/messageShardSize)
-	for start := 0; start < len(messages); start += messageShardSize {
-		end := start + messageShardSize
+	result := make([][]types.Message, 0, (len(messages)+shardSize-1)/shardSize)
+	for start := 0; start < len(messages); start += shardSize {
+		end := start + shardSize
 		if end > len(messages) {
 			end = len(messages)
 		}
@@ -1955,13 +1962,13 @@ func shardCounts(shards [][]types.Message) []int {
 	return counts
 }
 
-func splitEvents(events []Event) [][]Event {
+func splitEvents(events []Event, shardSize int) [][]Event {
 	if len(events) == 0 {
 		return nil
 	}
-	result := make([][]Event, 0, (len(events)+messageShardSize-1)/messageShardSize)
-	for start := 0; start < len(events); start += messageShardSize {
-		end := start + messageShardSize
+	result := make([][]Event, 0, (len(events)+shardSize-1)/shardSize)
+	for start := 0; start < len(events); start += shardSize {
+		end := start + shardSize
 		if end > len(events) {
 			end = len(events)
 		}

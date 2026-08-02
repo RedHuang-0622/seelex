@@ -86,7 +86,7 @@ func (r *Runtime) scopedGrep(ctx context.Context, argsJSON string) (string, erro
 		return "", err
 	}
 	if input.MaxResults <= 0 {
-		input.MaxResults = 20
+		input.MaxResults = r.limits.GrepMaxResults // limits.grep_max_results（默认 20）
 	}
 	results := make([]scopedGrepResult, 0)
 	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
@@ -307,10 +307,16 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// scopedToolTimeout 解析 bash 类工具的默认超时：优先显式 tool_call_timeout
+// 配置（limits.tool_call_timeout；0 = 无限制）；未配置时兜底 30 分钟
+// （旧 30s 兜底会掐断子代理的长命令）。
 func (r *Runtime) scopedToolTimeout(requestedSeconds int) time.Duration {
 	timeout := r.toolCallTimeout
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = time.Duration(r.limits.ToolCallTimeoutSec) * time.Second
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
 	}
 	if requestedSeconds > 0 {
 		timeout = time.Duration(requestedSeconds) * time.Second

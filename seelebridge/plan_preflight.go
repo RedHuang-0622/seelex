@@ -5,14 +5,11 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 )
-
-const defaultPlanDecisionTimeout = 10 * time.Second
 
 // PlanPreflight is the audited result of an isolated optional planning turn.
 type PlanPreflight struct {
@@ -76,7 +73,7 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		lastErr                   error
 		planningRequiredByTimeout bool
 	)
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < r.limits.PreflightRetry; attempt++ {
 		if onProviderRequest != nil {
 			if err := onProviderRequest(); err != nil {
 				return PlanPreflight{}, fmt.Errorf("%s request: %w", stage, err)
@@ -263,9 +260,9 @@ func planPromptData(policy PlanPolicy) promptassets.PlanData {
 	if policy.RequireSerial {
 		topology = "one serial chain from entry; no fan-out or fan-in"
 	}
-	concurrency := "DAG dependencies may be expressed, but the primary ReAct agent executes the authoritative checklist serially"
+	concurrency := "plan_run executes every currently runnable node concurrently (agent nodes as subagents); without plan_run the primary Agent executes the DAG serially as a tasklist"
 	if policy.MaxForkConcurrency > 0 {
-		concurrency = fmt.Sprintf("DAG branches are future candidates for at most %d concurrent node runners; do not claim they execute concurrently today", policy.MaxForkConcurrency)
+		concurrency = fmt.Sprintf("plan_run executes at most %d independent nodes concurrently (agent nodes as subagents); without plan_run the primary Agent executes the DAG serially as a tasklist", policy.MaxForkConcurrency)
 	}
 	verification := "include verification for material claims and observable changes"
 	if policy.Effort == "lite" {

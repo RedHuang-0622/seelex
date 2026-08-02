@@ -36,11 +36,11 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 			if string(got) != string(want) {
 				t.Fatalf("state = %s, want %s", got, want)
 			}
-			history := testMessages(messageShardSize+5, string(config.Backend))
+			history := testMessages(defaultMessageShardSize+5, string(config.Backend))
 			if err := repository.WriteAtomic(context.Background(), key, history); err != nil {
 				t.Fatal(err)
 			}
-			window, total, err := repository.ReadRange(context.Background(), key, messageShardSize-2, 4)
+			window, total, err := repository.ReadRange(context.Background(), key, defaultMessageShardSize-2, 4)
 			if err != nil || total != len(history) || len(window) != 4 || window[0].Content == nil {
 				t.Fatalf("range=%#v total=%d err=%v", window, total, err)
 			}
@@ -177,7 +177,7 @@ func TestSQLitePersistsHistoryAsShards(t *testing.T) {
 	}
 	defer repository.Close()
 	key := Key{ProjectID: "project", SessionID: "session"}
-	if err := repository.WriteAtomic(context.Background(), key, testMessages(messageShardSize+1, "sqlite")); err != nil {
+	if err := repository.WriteAtomic(context.Background(), key, testMessages(defaultMessageShardSize+1, "sqlite")); err != nil {
 		t.Fatal(err)
 	}
 	sqlRepo, ok := repository.(*sqlRepository)

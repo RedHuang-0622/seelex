@@ -2,6 +2,37 @@
 
 All notable changes to Seelex are documented in this file.
 
+## [v0.1.0-alpha.2] - 2026-08-02
+
+### Added
+
+- Added tasklist gate: a loaded Plan renders as a frontend checklist, with
+  `task_check_node` for in-progress per-node checkmarks as the agent moves
+  between nodes (distinct from plan-run event-driven node checkmarks).
+- Added `read_compressed_turn` read-back handle for compressed turn originals.
+- Added windowed session-history reads (manifest shard counts) and parallel
+  resume loading for faster large-session opens.
+- Added TUI paste handling that submits the real pasted content.
+
+### Changed
+
+- Migrated the underlying kernel to Seele v0.0.8 (agent/session/tools/workplan
+  components); local source reference via `replace` directive.
+- Removed mandatory-plan gating; Plan is an optional tool with tasklist/plan
+  execution modes chosen per task.
+- Rewrote README for the new kernel; documented module navigation and storage
+  model.
+- Restructured context package into snapshot/provider/compactor/merger
+  sub-packages with a sliding-window compaction model.
+- Updated accounts configuration to role-based layout with flash-tier agents.
+
+### Fixed
+
+- Fixed context-compaction audit findings: cumulative compact boundaries,
+  orphan retention, window rounds wiring, frame summarization, range checks.
+- Fixed GUI copy/paste so pasted content is submitted instead of swallowed.
+- Compressed-turn loss is now reversible through persisted originals.
+
 ## [v0.1.0-alpha.1] - 2026-07-23
 
 ### Added

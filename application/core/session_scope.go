@@ -140,10 +140,11 @@ func sessionTitle(input string) string {
 
 func shortSessionID(id string) string {
 	runes := []rune(strings.TrimSpace(id))
-	if len(runes) <= 16 {
+	maxRunes := Limits().SessionNameRunes // limits.session_name_runes（默认 16）
+	if len(runes) <= maxRunes {
 		return string(runes)
 	}
-	return string(runes[:16])
+	return string(runes[:maxRunes])
 }
 
 func (service *sessionCoordinator) allSessionLocations(scoped scopedSessionPort) []sessionLocation {

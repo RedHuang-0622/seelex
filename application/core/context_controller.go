@@ -130,7 +130,7 @@ func (service *contextCoordinator) fitExecutionHistory(
 	tools []Tool,
 	target int,
 ) ([]EngineMessage, int) {
-	for maxUnits := 4; maxUnits >= 0; maxUnits-- {
+	for maxUnits := Limits().ContextMaxUnits; maxUnits >= 0; maxUnits-- { // limits.context_max_units（默认 4）
 		history := append([]EngineMessage(nil), systems...)
 		if planMessage != "" {
 			history = append(history, EngineMessage{Role: "user", Content: planMessage, ContentSet: true})

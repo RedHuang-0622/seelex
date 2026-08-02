@@ -79,8 +79,10 @@
 ## Plan 集成
 
 Tool hooks 把用户或 Agent 自主调用的 `plan_load` JSON 转为 Plan DAG。Plan 是可选的
-可视化检查表，不是聊天入口门禁；普通 ReAct 直接使用 project-scoped tools 工作。系统提示
-明确禁止使用缺少项目 scope 和上游证据的 `plan_run` 子聊天。`task_complete` 在存在已加载
+可视化任务结构，不是聊天入口门禁；普通 ReAct 直接使用 project-scoped tools 工作。系统提示
+区分 tasklist 与 plan：`plan_run` 可执行含 `kind:agent` 节点的 DAG，子代理继承项目作用域
+与父证据、可真并行；tasklist 模式由主代理串行执行并在节点完成后 defer 单个
+`task_complete`。`task_complete` 在存在已加载
 Plan 时必须枚举完成节点才会把 Plan 标记完成。`replan` 只基于失败原因、旧 Plan 和已完成
 节点证据加载一个原子替换的恢复 Plan；它不自动调用 `plan_run`，保留用户复核副作用的边界。
 

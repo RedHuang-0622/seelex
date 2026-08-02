@@ -85,7 +85,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	if hasRecord {
 		total = len(record.Conversation.Messages)
 	}
-	offset := total - defaultHistoryWindow
+	offset := total - Limits().HistoryWindow
 	if offset < 0 {
 		offset = 0
 	}
@@ -223,7 +223,7 @@ func activePlanFromStack(stack []SessionPlanFrame, activeID string) *PlanState {
 // LoadMoreHistory prepends an older history page to the visible conversation.
 func (service *Service) LoadMoreHistory(limit int) error {
 	if limit <= 0 {
-		limit = defaultHistoryWindow
+		limit = Limits().HistoryWindow
 	}
 
 	service.mu.RLock()

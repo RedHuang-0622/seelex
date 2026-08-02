@@ -72,7 +72,7 @@ func (counter conservativeTokenCounter) CountRequest(systemPrompt string, histor
 		// Runtime exposes the stable name and description, while provider
 		// adapters add a function-schema envelope. Reserve enough protocol
 		// space for that schema even when its exact tokenizer is unavailable.
-		tokens += 64 + counter.CountText(tool.Name) + counter.CountText(tool.Description)
+		tokens += Limits().ToolTokenOverhead + counter.CountText(tool.Name) + counter.CountText(tool.Description) // limits.tool_token_overhead（默认 64）
 	}
 	return tokens
 }
@@ -80,8 +80,8 @@ func (counter conservativeTokenCounter) CountRequest(systemPrompt string, histor
 func defaultContextBudget() contextBudget {
 	window := seelexctx.DefaultContextConfig().MaxTokens
 	outputReserve := window / 8
-	if outputReserve < 512 {
-		outputReserve = 512
+	if outputReserve < Limits().OutputReserveTokens { // limits.output_reserve_tokens（默认 512）
+		outputReserve = Limits().OutputReserveTokens
 	}
 	return newContextBudget(window, outputReserve)
 }

@@ -19,10 +19,10 @@ type toolsRegistryState struct {
 	inline   *inlineToolProvider
 }
 
-func newToolsRegistry(timeout time.Duration, permission *permissionGateState) *tools.Registry {
+func newToolsRegistry(timeout time.Duration, permission *permissionGateState, approvalTimeout time.Duration) *tools.Registry {
 	return tools.NewRegistry(
 		tools.WithCallTimeout(timeout),
-		tools.WithMiddleware(permission.middleware()),
+		tools.WithMiddleware(permission.middleware(approvalTimeout)),
 	)
 }
 
@@ -190,7 +190,7 @@ func (state *permissionGateState) setFullAccess(on bool) {
 
 // middleware 把 tools/permission 检查结果接入 tools.Registry 调度链。
 // allow → 放行；deny → 拒绝；ask → 走 ApprovalHandler（human-in-the-loop）。
-func (state *permissionGateState) middleware() tools.Middleware {
+func (state *permissionGateState) middleware(approvalTimeout time.Duration) tools.Middleware {
 	return func(name string, next tools.ToolHandler) tools.ToolHandler {
 		return tools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
 			state.mu.RLock()
@@ -215,7 +215,7 @@ func (state *permissionGateState) middleware() tools.Middleware {
 					Arguments: argsJSON,
 					Preview:   previewArguments(argsJSON),
 					Options:   toolspermission.DefaultApproveOptions(),
-					Timeout:   2 * time.Minute,
+					Timeout:   approvalTimeout, // limits.approval_timeout（默认 10 分钟，等待用户审批）
 				}
 				response, err := handler(&toolspermission.ApprovalContext{Request: request})
 				if err != nil {
