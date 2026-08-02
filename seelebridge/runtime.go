@@ -107,6 +107,17 @@ type Runtime struct {
 	ctxStore         *sessionstore.SessionContextStore
 	projectMu        sync.RWMutex
 	projectKnowledge func() *sessionstore.ProjectRecord
+	turnArchiverMu   sync.RWMutex
+	turnArchiver     seelexctx.TurnArchiver // 压缩轮次原文归档（main 装配注入）
+}
+
+// SetTurnArchiver 注入压缩轮次原文归档实现（application 层持久化通道）。
+// 注入后窗口外压缩会把溢出轮次原文持久化，帧 Evidence 携带读回句柄，
+// 模型可经 read_compressed_turn 工具读回（压缩丢失可逆）。
+func (r *Runtime) SetTurnArchiver(archiver seelexctx.TurnArchiver) {
+	r.turnArchiverMu.Lock()
+	defer r.turnArchiverMu.Unlock()
+	r.turnArchiver = archiver
 }
 
 // Account is the non-secret account information exposed to Seelex UI.

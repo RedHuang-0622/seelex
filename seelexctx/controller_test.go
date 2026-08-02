@@ -76,6 +76,7 @@ func newController(window int, stacks CompactStackStore) *seelexContextControlle
 			Stacks:    stacks,
 			SessionID: "sess-test",
 		},
+		lastCompactedTo: -1, // 与 NewContextController 初值一致（首帧 To=0 不被去重误杀）
 	}
 }
 
@@ -323,9 +324,19 @@ func TestControllerPreviousFrameMergedStackTopSelfSufficient(t *testing.T) {
 	}
 	firstSummary := frames[0].Summary
 
-	// 第二次压缩：12 轮 → 溢出 9 轮（相对上次 7 轮有新溢出）。
+	// 第二次压缩：真实流程输入 = 首次压缩的投影历史（窗口 3 轮）
+	// + 2 新轮 = 5 单元 / 窗口 3 → 新溢出 2 轮；累计 To = 6 + 2 = 8
+	// （ChatQueue 稳定索引，审计 R1 修正：不再传完整 12 轮——那是旧
+	// 坐标空间模型）。消息加长以跨过软阈值（heavy 计数 len×100）。
+	secondHistory := make([]types.Message, 0, 10)
+	for i := 0; i < 5; i++ {
+		pad := strings.Repeat("x", 40)
+		secondHistory = append(secondHistory,
+			textMessage("user", fmt.Sprintf("round-%d-user-input-%s", i, pad)),
+			textMessage("assistant", fmt.Sprintf("round-%d-assistant-reply-%s", i, pad)))
+	}
 	second, err := controller.Handle(context.Background(), seelectx.ContextEvent{
-		Kind: seelectx.ContextAfterAssistant, Turn: 2, Query: "继续", History: roundHistory(12),
+		Kind: seelectx.ContextAfterAssistant, Turn: 2, Query: "继续", History: secondHistory,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -426,3 +437,179 @@ func TestControllerToolChainUnits(t *testing.T) {
 }
 
 func stringPtr(value string) *string { return &value }
+
+// TestControllerEqualSizedOverflowBatchesBothCompress 审计 R2 回归：
+// 两次溢出批次尺寸相同（各 2 轮）但内容不同（新溢出轮次），第二次
+// 必须压缩——去重基准是"是否有新溢出内容"（累计 To 边界），
+// 而非溢出批次尺寸。
+func TestControllerEqualSizedOverflowBatchesBothCompress(t *testing.T) {
+	stacks := NewMemoryCompactStack()
+	controller := newController(3, stacks)
+
+	// 第一次：5 轮长消息（跨软阈值），窗口 3 → 溢出 2 → 首帧 To=1。
+	firstHistory := make([]types.Message, 0, 10)
+	for i := 0; i < 5; i++ {
+		pad := strings.Repeat("x", 40)
+		firstHistory = append(firstHistory,
+			textMessage("user", fmt.Sprintf("round-%d-user-input-%s", i, pad)),
+			textMessage("assistant", fmt.Sprintf("round-%d-assistant-reply-%s", i, pad)))
+	}
+	first, err := controller.Handle(context.Background(), seelectx.ContextEvent{
+		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: "继续", History: firstHistory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.ReplaceHistory {
+		t.Fatal("first compaction must replace history")
+	}
+	firstTo := stacks.Snapshot().CompactStack[0].To // 5 轮/窗口 3 → 溢出 2 → To=1
+
+	// 第二次：投影窗口 3 轮 + 2 新轮（同样溢出 2 轮 = 同尺寸批次）。
+	secondHistory := make([]types.Message, 0, 10)
+	for i := 0; i < 5; i++ {
+		pad := strings.Repeat("y", 40)
+		secondHistory = append(secondHistory,
+			textMessage("user", fmt.Sprintf("round-%d-user-input-%s", i, pad)),
+			textMessage("assistant", fmt.Sprintf("round-%d-assistant-reply-%s", i, pad)))
+	}
+	second, err := controller.Handle(context.Background(), seelectx.ContextEvent{
+		Kind: seelectx.ContextAfterAssistant, Turn: 2, Query: "继续", History: secondHistory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.ReplaceHistory {
+		t.Fatal("equal-sized overflow batch with new content must compress (R2)")
+	}
+	frames := stacks.Snapshot().CompactStack
+	if len(frames) != 2 {
+		t.Fatalf("compact stack frames = %d, want 2", len(frames))
+	}
+	// 累计 To：首帧 To=1，合并帧 To = 1 + 2 = 3（ChatQueue 稳定索引）。
+	if merged := frames[1]; merged.From != 0 || merged.To != firstTo+2 {
+		t.Fatalf("merged frame range = [%d,%d], want [0,%d]", merged.From, merged.To, firstTo+2)
+	}
+}
+
+// TestControllerOrphanMessagesBetweenOverflowAndWindow 审计 R3 回归：
+// 溢出区与窗口起点之间的非单元消息（未闭合工具链，tool 结果缺失）
+// 必须随窗口保留，不静默丢弃。
+func TestControllerOrphanMessagesBetweenOverflowAndWindow(t *testing.T) {
+	controller := newController(2, NewMemoryCompactStack())
+	big := strings.Repeat("数据内容", 50)
+	// 单元：轮0（user+assistant）、轮1（user+assistant）、轮2（user+assistant）
+	// 孤儿 = assistant(c0)（工具调用无 tool 结果配对 → 不构成单元），
+	// 位于溢出区（轮0）与窗口（轮1 起）之间。
+	history := []types.Message{
+		textMessage("user", "轮0-用户"+big),
+		textMessage("assistant", "轮0-回复"+big),
+		{Role: "assistant", ToolCalls: []types.ToolCall{{ID: "c0", Function: types.ToolCallFunction{Name: "read_file"}}}},
+		textMessage("user", "轮1-用户"+big),
+		textMessage("assistant", "轮1-回复"+big),
+		textMessage("user", "轮2-用户"+big),
+		textMessage("assistant", "轮2-回复"+big),
+	}
+	decision, err := controller.Handle(context.Background(), seelectx.ContextEvent{
+		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: "", History: history,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.ReplaceHistory {
+		t.Fatal("window overflow must compress")
+	}
+	// 投影 = 帧块 + 孤儿（assistant c0）+ 窗口 2 轮（轮1、轮2）。
+	if len(decision.History) != 1+1+4 {
+		t.Fatalf("projected length = %d, want 6 (frame + orphan + 2 window rounds)", len(decision.History))
+	}
+	foundOrphan := false
+	for _, message := range decision.History {
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 && message.ToolCalls[0].ID == "c0" {
+			foundOrphan = true
+			break
+		}
+	}
+	if !foundOrphan {
+		t.Fatal("orphan assistant message between overflow and window must be preserved (R3)")
+	}
+}
+
+// recordingTurnArchiver 是 TurnArchiver 测试替身：记录归档调用。
+type recordingTurnArchiver struct {
+	segmentIDs []string
+	messageN   []int
+}
+
+func (a *recordingTurnArchiver) StoreTurn(_ context.Context, segmentID string, messages []types.Message) (string, error) {
+	a.segmentIDs = append(a.segmentIDs, segmentID)
+	a.messageN = append(a.messageN, len(messages))
+	return "compressed:" + segmentID, nil
+}
+
+// TestControllerCompressionArchivesTurnOriginal 审计修复验证：压缩时
+// 溢出轮次原文经 TurnArchiver 持久化，帧 Evidence 携带读回句柄，
+// Summary 提示 read_compressed_turn——压缩丢失可逆。
+func TestControllerCompressionArchivesTurnOriginal(t *testing.T) {
+	stacks := NewMemoryCompactStack()
+	archiver := &recordingTurnArchiver{}
+	controller := &seelexContextController{
+		opts: ControllerOptions{
+			Policy:    NewContextWindowPolicy(100_000, 8_192),
+			Window:    fixedWindowPolicy{rounds: 3},
+			Tokens:    heavyTokenCounter{},
+			Stacks:    stacks,
+			SessionID: "sess-archive",
+			Turns:     archiver,
+		},
+		lastCompactedTo: -1,
+	}
+	decision, err := controller.Handle(context.Background(), seelectx.ContextEvent{
+		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: "继续", History: roundHistory(10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.ReplaceHistory {
+		t.Fatal("window overflow must compress")
+	}
+	// 归档被调用：1 段，7 个溢出单元的消息（10 轮 - 窗口 3 轮）。
+	if len(archiver.segmentIDs) != 1 || archiver.messageN[0] != 14 {
+		t.Fatalf("archive calls = %d (messages %v), want 1 segment with 14 messages", len(archiver.segmentIDs), archiver.messageN)
+	}
+	frames := stacks.Snapshot().CompactStack
+	if len(frames) != 1 {
+		t.Fatalf("compact stack frames = %d, want 1", len(frames))
+	}
+	frame := frames[0]
+	// Evidence 携带读回句柄（ref = compressed:<segment_id>）。
+	foundHandle := false
+	for _, evidence := range frame.Evidence {
+		if evidence.Ref == "compressed:"+frame.SegmentID {
+			foundHandle = true
+			break
+		}
+	}
+	if !foundHandle {
+		t.Fatalf("frame evidence = %+v, want read-back handle ref", frame.Evidence)
+	}
+	// Summary 提示模型可读回原文。
+	if !strings.Contains(frame.Summary, "read_compressed_turn") {
+		t.Fatalf("frame summary must advertise read_compressed_turn, got: %s", frame.Summary)
+	}
+}
+
+// TestControllerCompressionSkipsArchiveWithoutArchiver 无 TurnArchiver 注入
+// 时压缩照常进行（不持久化原文，仅摘要）。
+func TestControllerCompressionSkipsArchiveWithoutArchiver(t *testing.T) {
+	controller := newController(3, NewMemoryCompactStack())
+	decision, err := controller.Handle(context.Background(), seelectx.ContextEvent{
+		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: "继续", History: roundHistory(10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.ReplaceHistory {
+		t.Fatal("window overflow must compress without archiver")
+	}
+}

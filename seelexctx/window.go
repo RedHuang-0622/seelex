@@ -53,7 +53,13 @@ func NewDefaultWindowPolicy(config WindowConfig) DefaultWindowPolicy {
 func (policy DefaultWindowPolicy) WindowRounds(_ context.Context, info ProviderContextInfo) (int, error) {
 	defaults := DefaultWindowConfig()
 
-	// 1. 显式配置 rounds 直接覆盖。
+	// 1. 显式配置 rounds 直接覆盖（审计 R4 修正：配置段 window.rounds
+	// 此前未被消费——WindowRounds 只读 info.ConfigRounds，而运行时
+	// ProviderContextInfo.ConfigRounds 恒 0，配置对象 Rounds 是死接线）。
+	if policy.Config.Rounds > 0 {
+		return policy.Config.Rounds, nil
+	}
+	// info.ConfigRounds 兼容其他提供方通道（ContextWindowPolicy 等）。
 	if info.ConfigRounds > 0 {
 		return info.ConfigRounds, nil
 	}

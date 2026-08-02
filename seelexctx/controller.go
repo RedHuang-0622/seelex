@@ -15,7 +15,6 @@ package seelexctx
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -189,6 +188,11 @@ type ControllerOptions struct {
 	// Archive 超大工具结果归档（nil → 内存归档）。
 	Archive ToolResultArchiver
 
+	// Turns 压缩轮次原文归档（nil → 不持久化原文，压缩不可读回）。
+	// 归档后帧 Evidence 携带读回句柄（ref），模型可经 read_compressed_turn
+	// 工具读回原文——压缩丢失可逆。
+	Turns TurnArchiver
+
 	// Stacks 会话级压缩栈（nil → 内存态）。
 	Stacks CompactStackStore
 
@@ -203,8 +207,10 @@ type ControllerOptions struct {
 type seelexContextController struct {
 	opts ControllerOptions
 	mu   sync.Mutex
-	// lastCompactedLen 上次压缩时窗口外单元数：相对上次无新溢出时不重复压缩。
-	lastCompactedLen int
+	// lastCompactedTo 上次压缩帧的累计 To（ChatQueue 单元索引）：
+	// 本次帧 To 不大于它时说明无新溢出（去重基准是"是否有新溢出内容"，
+	// 而非溢出批次尺寸——同尺寸连续批次会跳过真实新溢出，见审计 R2）。
+	lastCompactedTo int
 }
 
 // NewContextController 构造 seelex 上下文控制器。
@@ -218,7 +224,9 @@ func NewContextController(opts ControllerOptions) seelectx.ContextController {
 	if opts.Stacks == nil {
 		opts.Stacks = &memoryCompactStack{}
 	}
-	return &seelexContextController{opts: opts}
+	// lastCompactedTo 初值 -1：首帧 To 可能为 0（溢出 1 单元），
+	// 不能与"从未压缩"的 0 初值混淆而被去重误杀。
+	return &seelexContextController{opts: opts, lastCompactedTo: -1}
 }
 
 // Handle 实现 seelectx.ContextController。
@@ -371,16 +379,30 @@ func (c *seelexContextController) compressWindowOutsideWith(ctx context.Context,
 		return seelectx.ContextDecision{}, nil
 	}
 	overflow := units[:len(units)-n]
-	c.mu.Lock()
-	lastCompacted := c.lastCompactedLen
-	c.mu.Unlock()
-	if len(overflow) == lastCompacted {
-		return seelectx.ContextDecision{}, nil // 相对上次压缩无新溢出
-	}
-
 	frame, err := c.buildCompactFrame(overflow)
 	if err != nil {
 		return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: build compact frame: %w", err)
+	}
+	c.mu.Lock()
+	lastCompactedTo := c.lastCompactedTo
+	c.mu.Unlock()
+	// 去重基准 = 累计边界（帧 To 单调递增的 ChatQueue 单元索引）：
+	// 本次帧没有覆盖到上次压缩点之后的任何新单元 → 无新溢出。
+	if frame.To <= lastCompactedTo {
+		return seelectx.ContextDecision{}, nil
+	}
+	// 原文归档（可选注入）：溢出轮次原文持久化，帧 Evidence 携带读回
+	// 句柄，Summary 提示 read_compressed_turn —— 压缩丢失可逆。
+	if c.opts.Turns != nil {
+		ref, err := c.opts.Turns.StoreTurn(ctx, frame.SegmentID, overflowMessages(overflow))
+		if err != nil {
+			return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: archive compressed turns: %w", err)
+		}
+		frame.Evidence = append(frame.Evidence, sessionstore.EvidenceRef{
+			Ref:     ref,
+			Summary: "compressed turns original (read_compressed_turn)",
+		})
+		frame.Summary += fmt.Sprintf("\n已压缩轮次原文可经 read_compressed_turn(segment_id=%s) 读回", frame.SegmentID)
 	}
 	if err := c.opts.Stacks.PushCompact(frame); err != nil {
 		return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: push compact frame: %w", err)
@@ -393,14 +415,20 @@ func (c *seelexContextController) compressWindowOutsideWith(ctx context.Context,
 	projected = append([]types.Message{compactFrameMessage(frame)}, projected...)
 
 	c.mu.Lock()
-	c.lastCompactedLen = len(overflow)
+	c.lastCompactedTo = frame.To
 	c.mu.Unlock()
 	return seelectx.ContextDecision{ReplaceHistory: true, History: projected}, nil
 }
 
 // buildCompactFrame 构造压缩帧：Summary 合并上一栈顶帧与当前溢出内容
-// （栈顶自足 = 该时刻窗口外全部轮次的综合摘要）；From/To 为单元索引
-// （可审计"窗口外才被压缩"不变量）。
+// （栈顶自足 = 该时刻窗口外全部轮次的综合摘要）。
+//
+// From/To 语义（审计 R1 修正）：To 是 ChatQueue 单元**累计索引**——
+// 首帧 To = len(overflow)-1；合并帧 To = prevTop.To + len(overflow)
+// （ChatQueue append-only，每次压缩的溢出单元在队列中连续追加，累计
+// To 恰为其最后一个单元的稳定索引）。From 保持合并起点（综合摘要覆盖
+// 从 From 到 To 的连续段）。消费方因此可把帧映射回持久化 ChatQueue，
+// 不再受"压缩替换工作历史导致坐标空间平移"影响。
 func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (sessionstore.CompactFrame, error) {
 	record := c.opts.Stacks.Snapshot()
 	var prevTop *sessionstore.CompactFrame
@@ -413,10 +441,14 @@ func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (ses
 	if c.opts.SessionID != "" {
 		segmentID = fmt.Sprintf("compact-%s-%d", c.opts.SessionID, time.Now().UnixMilli())
 	}
+	to := len(overflow) - 1
+	if prevTop != nil {
+		to = prevTop.To + len(overflow)
+	}
 	frame := sessionstore.CompactFrame{
 		SegmentID:    segmentID,
 		From:         0,
-		To:           len(overflow) - 1,
+		To:           to,
 		Summary:      summary,
 		Evidence:     overflowEvidence(overflow, record),
 		CompressedAt: time.Now(),
@@ -505,24 +537,26 @@ func overflowEvidence(overflow []historyUnit, record sessionstore.SessionContext
 	return evidence
 }
 
-// projectHistory 投影历史：保留窗口内完整单元及其后的未闭合尾部
-// （按原始消息顺序保留，当前输入不因压缩丢失）。压缩帧块由调用方前置。
+// projectHistory 投影历史：从最后一个溢出单元的结束处起保留
+// （= 溢出区与窗口之间的非单元消息（不完整工具链/孤儿）随窗口保留，
+// 不再静默丢弃，见审计 R3）+ 窗口内完整单元及其后的未闭合尾部。
+// 压缩帧块由调用方前置。
 func projectHistory(history []types.Message, units []historyUnit, n int) []types.Message {
 	projected := make([]types.Message, 0, len(history))
 	if len(units) > n {
-		windowStart := units[len(units)-n].start
-		projected = append(projected, history[windowStart:]...)
+		overflowLastEnd := units[len(units)-n-1].end
+		projected = append(projected, history[overflowLastEnd:]...)
 	}
 	return projected
 }
 
 // compactFrameMessage 把压缩帧渲染为 working history 中的块消息。
+// 只携带 marker + 帧定位（segment/From/To）——摘要正文由 Assembler 的
+// 栈顶 compact 块渲染（RenderStackBlocks），避免同一摘要双重投喂
+// （审计 R5）；帧块消息本身可被下次压缩的 removeContextMarkers 清理。
 func compactFrameMessage(frame sessionstore.CompactFrame) types.Message {
-	encoded, err := json.Marshal(frame)
-	if err != nil {
-		encoded = []byte("{}")
-	}
-	content := compactContextMarker + "\n" + string(encoded)
+	location := fmt.Sprintf("segment=%s from=%d to=%d", frame.SegmentID, frame.From, frame.To)
+	content := compactContextMarker + " " + location
 	return types.Message{Role: "user", Content: &content}
 }
 
@@ -633,4 +667,17 @@ func nextUserIndex(history []types.Message, start int) int {
 		start++
 	}
 	return start
+}
+
+// overflowMessages 展平溢出单元的消息（保留原始顺序；单元内消息不重复）。
+func overflowMessages(overflow []historyUnit) []types.Message {
+	total := 0
+	for _, unit := range overflow {
+		total += len(unit.messages)
+	}
+	messages := make([]types.Message, 0, total)
+	for _, unit := range overflow {
+		messages = append(messages, unit.messages...)
+	}
+	return messages
 }

@@ -509,10 +509,13 @@ func requiresDSN(backend Backend) bool {
 }
 
 type jsonManifest struct {
-	Generation      string                       `json:"generation"`
-	EventShardCount int                          `json:"event_shard_count,omitempty"`
-	ToolResultRefs  []string                     `json:"tool_result_refs,omitempty"`
-	Meta            frameworkStorage.SessionMeta `json:"meta"`
+	Generation string `json:"generation"`
+	// HistoryShardCounts 每 history shard 的消息条数（窗口读优化：
+	// ReadRange 据此只解析需要的尾部 shard；旧数据缺失时回退全量读）。
+	HistoryShardCounts []int                        `json:"history_shard_counts,omitempty"`
+	EventShardCount    int                          `json:"event_shard_count,omitempty"`
+	ToolResultRefs     []string                     `json:"tool_result_refs,omitempty"`
+	Meta               frameworkStorage.SessionMeta `json:"meta"`
 }
 
 type jsonRepository struct {
@@ -616,7 +619,13 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 	if meta.CreatedAt.IsZero() {
 		meta.CreatedAt = now
 	}
-	data, err := json.Marshal(jsonManifest{Generation: generation, EventShardCount: len(eventShards), ToolResultRefs: toolResultRefs, Meta: meta})
+	data, err := json.Marshal(jsonManifest{
+		Generation:         generation,
+		HistoryShardCounts: shardCounts(shards),
+		EventShardCount:    len(eventShards),
+		ToolResultRefs:     toolResultRefs,
+		Meta:               meta,
+	})
 	if err != nil {
 		return err
 	}
@@ -636,7 +645,25 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 	if limit <= 0 || offset < 0 {
 		return nil, 0, errors.New("session storage: invalid range")
 	}
-	messages, err := repository.Read(ctx, key)
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	// 窗口读优化：manifest 记录每 shard 条数时，只解析覆盖 [offset, end)
+	// 的 shard（尾部窗口通常只需最后 1-2 个 shard 文件），避免全量解析
+	// 大会话（8MB+ 会话的 LoadHistoryRange 恢复路径）。旧数据无计数时
+	// 回退全量读。
+	directory := repository.sessionDir(key)
+	manifest, err := repository.readManifest(directory)
+	if err == nil && len(manifest.HistoryShardCounts) > 0 {
+		messages, total, err := repository.readRangeWindowed(directory, manifest, offset, limit)
+		if err != nil {
+			return nil, 0, err
+		}
+		if offset > total {
+			return nil, total, errors.New("session storage: range offset exceeds history")
+		}
+		return messages, total, nil
+	}
+	messages, err := repository.readAll(key)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -648,6 +675,60 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 		end = len(messages)
 	}
 	return append([]types.Message(nil), messages[offset:end]...), len(messages), nil
+}
+
+// readRangeWindowed 按 manifest shard 计数只解析覆盖目标范围的 shard。
+func (repository *jsonRepository) readRangeWindowed(directory string, manifest jsonManifest, offset, limit int) ([]types.Message, int, error) {
+	counts := manifest.HistoryShardCounts
+	total := 0
+	for _, count := range counts {
+		total += count
+	}
+	if offset > total {
+		return nil, total, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	// 定位第一个需要解析的 shard（累计条数越过 offset）。
+	startShard, seen := 0, 0
+	for index, count := range counts {
+		if offset < seen+count {
+			startShard = index
+			break
+		}
+		seen += count
+	}
+	// 从 startShard 读起，直到累计条数 >= end。
+	var messages []types.Message
+	accumulated := seen
+	for index := startShard; index < len(counts); index++ {
+		data, err := os.ReadFile(filepath.Join(directory, manifest.Generation, fmt.Sprintf("history.%03d.json", index)))
+		if err != nil {
+			return nil, 0, err
+		}
+		var shard []types.Message
+		if err := json.Unmarshal(data, &shard); err != nil {
+			return nil, 0, err
+		}
+		accumulated += counts[index]
+		if accumulated > offset {
+			start := offset - (accumulated - counts[index])
+			if start < 0 {
+				start = 0
+			}
+			stop := end - (accumulated - counts[index])
+			if stop > counts[index] {
+				stop = counts[index]
+			}
+			messages = append(messages, shard[start:stop]...)
+		}
+		if accumulated >= end {
+			break
+		}
+	}
+	return messages, total, nil
 }
 
 func (repository *jsonRepository) ReadEventTail(_ context.Context, key Key, tokenBudget, maxUnits int) ([]Event, error) {
@@ -1863,6 +1944,15 @@ func split(messages []types.Message) [][]types.Message {
 		result = append(result, messages[start:end])
 	}
 	return result
+}
+
+// shardCounts 返回每 shard 的消息条数（manifest 窗口读索引）。
+func shardCounts(shards [][]types.Message) []int {
+	counts := make([]int, len(shards))
+	for index, shard := range shards {
+		counts[index] = len(shard)
+	}
+	return counts
 }
 
 func splitEvents(events []Event) [][]Event {

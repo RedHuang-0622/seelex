@@ -274,6 +274,11 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 		if frame.SegmentID == "" {
 			return fmt.Errorf("session context: compact frame requires segment_id")
 		}
+		// From/To 语义校验（审计 R6）：累计 ChatQueue 单元索引，合并帧
+		// From 恒为合并起点（0），To 单调递增 —— 负区间/倒置拒绝。
+		if frame.From < 0 || frame.To < frame.From {
+			return fmt.Errorf("session context: compact frame invalid range [%d,%d]", frame.From, frame.To)
+		}
 		record.CompactStack = append(record.CompactStack, frame)
 		return nil
 	})

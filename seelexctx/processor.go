@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
+	"github.com/RedHuang-0622/Seele/types"
 )
 
 // ToolResultOmittedPrefix 是超大工具结果省略块的起始标记。
@@ -35,6 +36,22 @@ type ToolResultArchiverFunc func(context.Context, string, string, string) (strin
 // Store 实现 ToolResultArchiver。
 func (f ToolResultArchiverFunc) Store(ctx context.Context, callID, tool, raw string) (string, error) {
 	return f(ctx, callID, tool, raw)
+}
+
+// TurnArchiver 持久化压缩轮次的原文消息，返回读回句柄（ref）。
+// 压缩把窗口外轮次折叠为 Summary 后，原文经此归档到持久存储，
+// 模型可经 read_compressed_turn 工具读回——压缩丢失可逆，减少幻觉。
+// 同一 segmentID 重复归档应返回同一引用（幂等），由实现保证。
+type TurnArchiver interface {
+	StoreTurn(ctx context.Context, segmentID string, messages []types.Message) (string, error)
+}
+
+// TurnArchiverFunc 适配函数到 TurnArchiver。
+type TurnArchiverFunc func(context.Context, string, []types.Message) (string, error)
+
+// StoreTurn 实现 TurnArchiver。
+func (f TurnArchiverFunc) StoreTurn(ctx context.Context, segmentID string, messages []types.Message) (string, error) {
+	return f(ctx, segmentID, messages)
 }
 
 // InMemoryToolResultArchiver 是内存态归档（无持久后端时的兜底）：

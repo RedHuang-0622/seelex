@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // resumeSession replaces the active engine history and restores the session's
@@ -26,11 +27,35 @@ func (service *Service) resumeSession(sessionID string) error {
 	}
 
 	location := service.components.sessions.locateSession(sessionID)
-	record, hasRecord, err := service.components.sessions.loadSessionRecord(location, sessionID)
-	if err != nil {
-		return fmt.Errorf("load session record %q: %w", sessionID, err)
+	// 会话恢复三读（record/history/transcript）相互独立，并行加载：
+	// 大会话（数 MB）下全量解析总耗时从串行求和变为三路取最大值。
+	var (
+		record        SessionRecord
+		hasRecord     bool
+		history       []EngineMessage
+		historyErr    error
+		transcript    []TranscriptEvent
+		transcriptErr error
+		recordErr     error
+	)
+	var loadGroup sync.WaitGroup
+	loadGroup.Add(3)
+	go func() {
+		defer loadGroup.Done()
+		record, hasRecord, recordErr = service.components.sessions.loadSessionRecord(location, sessionID)
+	}()
+	go func() {
+		defer loadGroup.Done()
+		history, historyErr = service.components.sessions.loadSessionHistory(location, sessionID)
+	}()
+	go func() {
+		defer loadGroup.Done()
+		transcript, transcriptErr = service.components.sessions.loadSessionTranscript(location, sessionID)
+	}()
+	loadGroup.Wait()
+	if recordErr != nil {
+		return fmt.Errorf("load session record %q: %w", sessionID, recordErr)
 	}
-	history, historyErr := service.components.sessions.loadSessionHistory(location, sessionID)
 	if historyErr != nil && !hasRecord {
 		return fmt.Errorf("load session %q: %w", sessionID, historyErr)
 	}
@@ -40,7 +65,6 @@ func (service *Service) resumeSession(sessionID string) error {
 		// lost legacy cache must not make the saved session impossible to open.
 		history = nil
 	}
-	transcript, transcriptErr := service.components.sessions.loadSessionTranscript(location, sessionID)
 	if transcriptErr != nil && !hasRecord {
 		return fmt.Errorf("load session transcript %q: %w", sessionID, transcriptErr)
 	}

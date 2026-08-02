@@ -13,11 +13,11 @@ import (
 
 // WebSearchConfig holds web search tool configuration.
 type WebSearchConfig struct {
-	Provider      string
-	APIKey        string
-	MaxResults    int
-	IncludeAnswer bool
-	SearchDepth   string
+	Provider      string `yaml:"provider"`
+	APIKey        string `yaml:"api_key"`
+	MaxResults    int    `yaml:"max_results"`
+	IncludeAnswer bool   `yaml:"include_answer"`
+	SearchDepth   string `yaml:"search_depth"`
 }
 
 // WebSearch 调用 Tavily Search API 搜索互联网。

@@ -102,7 +102,7 @@ func main() {
 	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	defer app.Shutdown()
 	registerTaskTerminalTools(runtime, app)
-	registerContextReadTools(runtime, app)
+	registerContextReadTools(runtime, app, sessionManager)
 	registerProjectRefreshTool(runtime, store)
 	// 项目级模块语义提供者：Assembler 会话前预读 project 块（内容 hash
 	// 版本化复用；重建失败保留上一版本）。
@@ -118,7 +118,7 @@ func main() {
 	startFrontend(app)
 }
 
-func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service) {
+func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service, sessionManager *session.Manager) {
 	readResultSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -138,6 +138,23 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 	}
 	runtime.RegisterTool("read_tool_result", "Read an immutable stored tool result by reference with bounded pagination or line filtering.", readResultSchema, app.ReadToolResultHandler)
 	runtime.RegisterTool("read_plan", "Read selected nodes from the durable canonical Plan without changing Plan state.", readPlanSchema, app.ReadPlanHandler)
+	readCompressedTurnSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"segment_id": map[string]interface{}{"type": "string"},
+			"offset":     map[string]interface{}{"type": "integer", "minimum": 0},
+			"limit":      map[string]interface{}{"type": "integer", "minimum": 1, "maximum": maxReferenceToolPageSize},
+			"contains":   map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"segment_id"},
+	}
+	runtime.RegisterTool("read_compressed_turn", "Read the original messages of a compressed turn segment by segment_id (from a compact frame Summary/Evidence) with bounded pagination or line filtering. Use it when the compressed summary lacks detail — the original content is durably stored and loss is reversible.", readCompressedTurnSchema, app.ReadCompressedTurnHandler)
+	// 压缩轮次原文归档装配：溢出轮次原文经 session 管理器持久化
+	// （ref = compressed:<segment_id>），read_compressed_turn 读回。
+	runtime.SetTurnArchiver(&core.CompressedTurnArchiver{
+		Sessions:          sessionManager,
+		SessionIDProvider: func() string { return app.Snapshot().Session.ID },
+	})
 }
 
 // registerProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +

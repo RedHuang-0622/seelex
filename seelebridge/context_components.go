@@ -112,6 +112,7 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 		Window: r.windowPolicy(),
 		Budget: runtimeBudgetProvider{runtime: r},
 		Stacks: runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
+		Turns:  r.turnArchiver,
 	})
 }
 
