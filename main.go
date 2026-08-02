@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	seelexctxsnapshot "github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -120,17 +121,49 @@ func main() {
 	})
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
-	// 子代理上下文闭环注入端：主会话快照（Goal/MessageCount + 遥测
-	// Findings/Decisions/TokenEstimate）作为节点执行前的父证据；节点执行后
-	// 经 merge-back 把子代理产出合并回本会话（seelebridge/agent_node.go）。
-	runtime.SetNodeParentEvidence(func() *seelexctxsnapshot.ContextSnapshot {
-		current := runtime.CurrentSession()
-		if current == nil {
-			return nil
-		}
-		return seelexctx.ExportSnapshot(current, runtime.Tracer(), "")
-	})
+	// 子代理上下文闭环（Actor 消息边界，seelebridge/actor.go）：
+	// - 消息进（ParentEvidence）：plan_run 期间主会话被 ChatStream 全程持锁，
+	//   父证据必须从 application 镜像（service.mu）+ 遥测 trace 构造，
+	//   绝不访问主会话（死锁教训见 actor.go 注释）；
+	// - 消息出（MergeBack）：merge-back 结果投递 mailbox，下次 ChatStream
+	//   开始前注入。
+	runtime.SetContextExchanger(&contextExchanger{app: app, tracer: runtime.Tracer()})
 	startFrontend(app)
+}
+
+// contextExchanger 是父子 actor 上下文消息通道实现（Actor 消息边界）：
+// 状态私有、消息进出。ParentEvidence 从 application 镜像构造新快照值对象；
+// MergeBack 无锁投递 mailbox（application 排队，ChatStream 外注入）。
+type contextExchanger struct {
+	app    *application.Service
+	tracer provider.TraceSource
+}
+
+func (ex *contextExchanger) ParentEvidence() *seelexctxsnapshot.ContextSnapshot {
+	snap := ex.app.Snapshot()
+	goal := ""
+	for index := len(snap.Conversation) - 1; index >= 0; index-- {
+		message := snap.Conversation[index]
+		if message.Role == "user" && strings.TrimSpace(message.Content) != "" {
+			goal = truncateSnapshotGoal(message.Content)
+			break
+		}
+	}
+	return seelexctx.ExportSnapshotFromData(snap.Session.ID, goal, len(snap.Conversation), ex.tracer)
+}
+
+func (ex *contextExchanger) MergeBack(content string) {
+	ex.app.AppendSubagentContext(content)
+}
+
+// truncateSnapshotGoal 截断父证据目标（与 snapshot.Truncate 同语义的本地
+// 实现，避免引入额外依赖）。
+func truncateSnapshotGoal(content string) string {
+	const maxGoalChars = 200
+	if len(content) <= maxGoalChars {
+		return content
+	}
+	return content[:maxGoalChars] + "…"
 }
 
 func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service, sessionManager *session.Manager) {

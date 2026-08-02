@@ -649,7 +649,8 @@ func (repository *jsonRepository) Read(_ context.Context, key Key) ([]types.Mess
 }
 
 func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset, limit int) ([]types.Message, int, error) {
-	if limit <= 0 || offset < 0 {
+	// limit <= 0 是"只取总数"语义（会话切换先探 total 再尾部窗口读）。
+	if offset < 0 {
 		return nil, 0, errors.New("session storage: invalid range")
 	}
 	repository.mu.RLock()
@@ -692,6 +693,10 @@ func (repository *jsonRepository) readRangeWindowed(directory string, manifest j
 		total += count
 	}
 	if offset > total {
+		return nil, total, nil
+	}
+	// limit <= 0 = 只取总数（会话切换先探 total 再尾部窗口读，不解析任何 shard）。
+	if limit <= 0 {
 		return nil, total, nil
 	}
 	end := offset + limit
@@ -1195,8 +1200,16 @@ func (repository *redisRepository) Read(ctx context.Context, key Key) ([]types.M
 }
 
 func (repository *redisRepository) ReadRange(ctx context.Context, key Key, offset, limit int) ([]types.Message, int, error) {
-	if limit <= 0 || offset < 0 {
+	// limit <= 0 = 只取总数（与 jsonRepository 语义一致）。
+	if offset < 0 {
 		return nil, 0, errors.New("session storage: invalid range")
+	}
+	if limit <= 0 {
+		messages, err := repository.Read(ctx, key)
+		if err != nil {
+			return nil, 0, err
+		}
+		return nil, len(messages), nil
 	}
 	messages, err := repository.Read(ctx, key)
 	if err != nil {

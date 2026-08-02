@@ -202,3 +202,24 @@ func firstContent(messages []types.Message) string {
 	}
 	return *messages[0].Content
 }
+
+// TestJSONRepositoryReadRangeTotalOnly 验证 limit<=0 语义：只读 manifest 拿
+// 总数、不解析任何 shard（会话切换"先探 total 再尾部窗口读"的依赖）。
+func TestJSONRepositoryReadRangeTotalOnly(t *testing.T) {
+	repository, err := newJSONRepository(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := Key{ProjectID: "project", SessionID: "session"}
+	history := messages(250, "round") // 3 shards（100/100/50）
+	if err := repository.WriteAtomic(context.Background(), key, history); err != nil {
+		t.Fatal(err)
+	}
+	got, total, err := repository.ReadRange(context.Background(), key, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 250 || len(got) != 0 {
+		t.Fatalf("total-only read = %d msgs total=%d, want 0 msgs total=250", len(got), total)
+	}
+}

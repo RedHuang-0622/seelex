@@ -2,6 +2,42 @@
 
 All notable changes to Seelex are documented in this file.
 
+## [v0.1.0-alpha.3] - 2026-08-02
+
+### Added
+
+- Added subagent node detail page: click the `…` button on a plan node card to
+  open a detail modal with event timeline (queued → running → completed with
+  heartbeats), status, elapsed, and output.
+- Added Dify-style graph semantics to the plan DSL: nodes embed downstream
+  branch rows (target, condition labels, parallel-fork markers) instead of a
+  flat nodelist + edgelist summary.
+- Wired the subagent context loop into production: parent evidence injection
+  (`SetNodeParentEvidence`) and post-execution merge-back
+  (`SeelexAgentNode.mergeBack` → `merger.MergeBack` → parent session history);
+  `seelexctx.ExportSnapshot` combines engine + trace providers.
+- Split configuration: `seele.yaml` is permission-only (now actually loaded
+  by `setupPermissionGate`, fallback to the built-in allowlist) and
+  `seelex.yaml` carries window + limits runtime parameters.
+- Added event-based process observation to the live smoke test
+  (`smokeObserver` subscribes to the EventHub stream: tool start/complete,
+  streamed output totals, errors).
+
+### Changed
+
+- Session resume loads only the tail history window (probe total via
+  `ReadRange(limit<=0)` = manifest-only, then parse the covering shards)
+  instead of full history; large-session switches parse 1-2 shards instead
+  of all.
+- `merger.MergeBack` now inherits the child Goal when the parent Goal is
+  empty.
+
+### Fixed
+
+- Subagent merge-back loop was disconnected in production (parent evidence
+  never injected, results never merged back); closed with end-to-end test
+  `TestSubAgentMergeBackToParent`.
+
 ## [v0.1.0-alpha.2] - 2026-08-02
 
 ### Added

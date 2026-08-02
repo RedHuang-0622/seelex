@@ -64,11 +64,14 @@ export function planToDSL(plan) {
         to,
         label,
         condition,
+        targetLabel: target?.label || "", // 节点内嵌分支的目标名（Dify 树语义）
         status: edgeDisplayStatus(source?.status, target?.status),
         dangling: !source || !target
       };
       edges.push(edge);
-      if (source) source.outgoing.push(edge.key);
+      // Dify 式图语义：节点持有完整上下游边对象（非 key 摘要）——
+      // 渲染时节点内嵌分支（outgoing 目标/条件/并行）与依赖（incoming）。
+      if (source) source.outgoing.push(edge);
       if (target) target.incoming.push(edge);
     });
   }
@@ -204,22 +207,39 @@ function reconcileKeyedList(list, items, datasetKey, renderItem, updateItem) {
 function renderNode(node) {
   const status = statusToken(node.status);
   const output = outputSummary(node.output);
-  const branchCount = node.outgoing.length;
   const hasDetail = node.events.length > 0 || Boolean(node.output) || node.elapsed;
+  const branches = renderOutgoing(node);
   return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-status="${status}" style="--plan-indent:${node.depth * 9}px">
     <div class="plan-node-connector" aria-hidden="true"><i></i><span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span></div>
     <div class="plan-node-card">
       <header class="plan-node-head">
         <strong data-plan-node-field="label" title="${escapeHTML(node.label)}">${escapeHTML(node.label)}</strong>
         <span class="plan-kind" data-plan-node-field="kind">${escapeHTML(node.kind)}</span>
-        <span class="plan-branch${branchCount > 1 ? "" : " hidden"}" data-plan-node-field="branch">fork ×${branchCount}</span>
+        <span class="plan-branch${node.outgoing.length > 1 ? "" : " hidden"}" data-plan-node-field="branch">fork ×${node.outgoing.length}</span>
         <span class="plan-dur${node.elapsed ? "" : " hidden"}" data-plan-node-field="elapsed">${escapeHTML(node.elapsed)}</span>
         ${hasDetail ? `<button type="button" class="plan-detail-btn${node.events.length ? " has-events" : ""}" data-plan-node-detail="${escapeHTML(node.key)}" title="${escapeHTML(node.events.length ? `${node.events.length} 个事件；点击查看详情` : "查看节点详情")}" aria-label="节点详情">…</button>` : ""}
       </header>
       <div class="plan-node-deps${node.incoming.length ? "" : " hidden"}" data-plan-node-field="deps">${renderDependencies(node)}</div>
+      ${branches ? `<div class="plan-node-branches" data-plan-node-field="branches">${branches}</div>` : ""}
       <div class="plan-node-output${output ? "" : " hidden"}" data-plan-node-field="output" title="${escapeHTML(node.output)}">${escapeHTML(output)}</div>
     </div>
   </article>`;
+}
+
+// renderOutgoing 渲染节点下游分支（Dify 树语义核心）：每个 outgoing 边一行
+// 箭头 + 目标节点名 + 条件标签；并行分支（同层多出边）标 ⚡，条件边显示条件。
+function renderOutgoing(node) {
+  if (!node.outgoing?.length) return "";
+  return node.outgoing.map(edge => {
+    const targetLabel = edge.targetLabel || edge.to || "?";
+    const parallel = node.outgoing.length > 1;
+    const condition = edge.condition || edge.label;
+    return `<div class="plan-branch-row is-${statusToken(edge.status)}" data-plan-edge-key="${escapeHTML(edge.key)}" title="${escapeHTML(condition || `流向 ${targetLabel}`)}">
+      <span class="branch-arrow" aria-hidden="true">${parallel ? "⚡→" : "→"}</span>
+      <span class="branch-target" data-branch-target="${escapeHTML(edge.to || "")}">${escapeHTML(targetLabel)}</span>
+      ${condition ? `<span class="branch-condition">${escapeHTML(condition)}</span>` : ""}
+    </div>`;
+  }).join("");
 }
 
 function updateNode(element, node) {
@@ -250,6 +270,12 @@ function updateNode(element, node) {
     output.textContent = summary;
     output.title = node.output;
     output.classList.toggle("hidden", !summary);
+  }
+  const branches = element.querySelector('[data-plan-node-field="branches"]');
+  if (branches) {
+    const markup = renderOutgoing(node);
+    if (branches.innerHTML !== markup) branches.innerHTML = markup;
+    branches.classList.toggle("hidden", !markup);
   }
 }
 

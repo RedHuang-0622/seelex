@@ -57,7 +57,8 @@ func ExportWithGoal(eng provider.SessionSource, goal string) *snapshot.ContextSn
 // ExportSnapshot 导出完整上下文快照：EngineProvider（Goal / MessageCount）
 // + TraceProvider（Findings / Decisions / TokenEstimate）组合。
 // trace 可为 nil（无遥测时退化为 Engine 导出）。
-// 父证据注入与子代理 merge-back 均使用本导出（闭环的公共数据面）。
+// 注意：EngineProvider 读取会话 History（需会话锁）——只在 ChatStream 之外
+// 使用（会话切换等）；运行中的子代理上下文读取走 ExportSnapshotFromData。
 func ExportSnapshot(eng provider.SessionSource, trace provider.TraceSource, goal string) *snapshot.ContextSnapshot {
 	combined := &snapshot.ContextSnapshot{
 		SourceSessionID: eng.SessionID(),
@@ -75,6 +76,32 @@ func ExportSnapshot(eng provider.SessionSource, trace provider.TraceSource, goal
 		return combined
 	}
 	traceSnap, err := provider.NewTraceProviderWithGoal(trace, eng.SessionID(), goal).Export(context.TODO())
+	if err != nil || traceSnap == nil {
+		return combined
+	}
+	combined.Findings = traceSnap.Findings
+	combined.Decisions = traceSnap.Decisions
+	combined.TokenEstimate = traceSnap.TokenEstimate
+	combined.Escape = traceSnap.Escape
+	return combined
+}
+
+// ExportSnapshotFromData 从无锁数据面构造完整快照：调用方提供
+// sessionID / goal / messageCount（application 镜像等不依赖会话锁的源），
+// Findings / Decisions / TokenEstimate 仍从遥测 trace 提取。
+// 父证据注入在 plan_run 执行期间发生——此时主会话被 ChatStream 全程持锁，
+// 任何 History() 访问都会死锁，因此必须走本导出而非 ExportSnapshot。
+func ExportSnapshotFromData(sessionID, goal string, messageCount int, trace provider.TraceSource) *snapshot.ContextSnapshot {
+	combined := &snapshot.ContextSnapshot{
+		SourceSessionID: sessionID,
+		ExportedAt:      time.Now(),
+		Goal:            goal,
+		MessageCount:    messageCount,
+	}
+	if trace == nil {
+		return combined
+	}
+	traceSnap, err := provider.NewTraceProviderWithGoal(trace, sessionID, goal).Export(context.TODO())
 	if err != nil || traceSnap == nil {
 		return combined
 	}

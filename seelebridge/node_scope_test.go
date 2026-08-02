@@ -127,13 +127,11 @@ func TestNodeScopeHiddenToolDispatchRejected(t *testing.T) {
 func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
-	runtime.SetNodeParentEvidence(func() *snapshot.ContextSnapshot {
-		return &snapshot.ContextSnapshot{
-			SourceSessionID: "src-1",
-			Goal:            "parent-goal",
-			Findings:        []string{"finding-one"},
-		}
-	})
+	runtime.SetContextExchanger(staticExchanger(&snapshot.ContextSnapshot{
+		SourceSessionID: "src-1",
+		Goal:            "parent-goal",
+		Findings:        []string{"finding-one"},
+	}))
 
 	node := newSeelexAgentNode(codec.NodeSpec[SeelexNodeInput]{
 		ID:    "left",
@@ -161,7 +159,7 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	}
 
 	// 未注入父证据：节点请求不含证据块。
-	runtime.SetNodeParentEvidence(nil)
+	runtime.SetContextExchanger(nil)
 	ctxNoEvidence := withNodePromptBlocks(context.Background(), runtime.nodePromptBlocks(node.input))
 	assembledNoEvidence, err := (nodeScopeAssembler{}).Assemble(ctxNoEvidence, seelectx.AssemblyRequest{})
 	if err != nil {
@@ -185,13 +183,11 @@ func TestPlanRunParallelAgentBranches(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	runtime.SetNodeParentEvidence(func() *snapshot.ContextSnapshot {
-		return &snapshot.ContextSnapshot{
-			SourceSessionID: "src-1",
-			Goal:            "parent-goal",
-			Findings:        []string{"finding-one"},
-		}
-	})
+	runtime.SetContextExchanger(staticExchanger(&snapshot.ContextSnapshot{
+		SourceSessionID: "src-1",
+		Goal:            "parent-goal",
+		Findings:        []string{"finding-one"},
+	}))
 
 	// hash 路由断言：left/right 必须落到不同子代理账号（否则无法证明并行）。
 	leftAccount, err := ResolveAccountForBranch(runtime.pool, RoleSubAgent, "plan-1:left")
@@ -471,3 +467,19 @@ func containsName(names []string, want string) bool {
 	}
 	return false
 }
+
+// staticExchanger 构造固定快照的 ContextExchanger 测试桩（Actor 消息边界
+// 的确定性实现：ParentEvidence 返回固定值，MergeBack 丢弃）。
+func staticExchanger(parent *snapshot.ContextSnapshot) ContextExchanger {
+	return &staticContextExchanger{parent: parent}
+}
+
+type staticContextExchanger struct {
+	parent *snapshot.ContextSnapshot
+}
+
+func (ex *staticContextExchanger) ParentEvidence() *snapshot.ContextSnapshot {
+	return ex.parent
+}
+
+func (ex *staticContextExchanger) MergeBack(string) {}

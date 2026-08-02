@@ -10,6 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -139,9 +140,9 @@ func mustRegisterAccount(t *testing.T, runtime *Runtime, id string, value agent.
 
 // TestSubAgentMergeBackToParent 验证"父证据注入 → 执行 → 合并回传"闭环：
 // 子代理执行后其结构化上下文（Goal/Findings/Decisions）经 merger.MergeBack
-// 合并回父会话历史，父代理后续轮次可读到子代理产出。
-// 生产接线 = main.go SetNodeParentEvidence（父证据提供者）+
-// SeelexAgentNode.mergeBack（执行后回传）。
+// 合并，Format 结果经 sink 回传（application 侧排队，ChatStream 外注入）。
+// 生产接线 = main.go SetNodeParentEvidence（父证据提供者，无锁数据面）+
+// SetSubagentContextSink（回传接收器）+ SeelexAgentNode.mergeBack。
 func TestSubAgentMergeBackToParent(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
@@ -153,13 +154,13 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 	if _, err := runtime.NewMainSession(nil); err != nil {
 		t.Fatalf("create main session: %v", err)
 	}
-	// 父证据提供者（与 main.go 同款：主会话快照 + 遥测）。
-	runtime.SetNodeParentEvidence(func() *snapshot.ContextSnapshot {
-		current := runtime.CurrentSession()
-		if current == nil {
-			return nil
-		}
-		return seelexctx.ExportSnapshot(current, runtime.Tracer(), "")
+	// 父子上下文消息通道（Actor 边界，与 main.go 同款：无锁数据面）：
+	// ParentEvidence 从遥测构造快照；MergeBack 捕获 merge-back 结果
+	// （生产 = app.AppendSubagentContext 排队 mailbox）。
+	var received []string
+	runtime.SetContextExchanger(&testContextExchanger{
+		trace:       runtime.Tracer(),
+		onMergeBack: func(content string) { received = append(received, content) },
 	})
 
 	scripted := newScriptedNodeCompleter("子代理结论：模块审计完成。")
@@ -173,28 +174,41 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 
-	// 父会话历史必须包含 merge-back 块（merger.MergeBack → Format 注入），
-	// 且携带子代理目标（节点输入）。
-	parent := runtime.CurrentSession()
-	if parent == nil {
-		t.Fatal("runtime has no main session")
+	// sink 必须收到 merge-back 块（merger.MergeBack → Format），且携带子代理
+	// 目标（节点输入）。不得直接读主会话 History（ChatStream 锁内会死锁）。
+	if len(received) == 0 {
+		t.Fatal("merge-back sink must receive the merged child context block (closed loop)")
 	}
 	var mergedFound, childGoalFound bool
-	for _, msg := range parent.History() {
-		if msg.Content == nil {
-			continue
-		}
-		if strings.Contains(*msg.Content, "继承上下文 (Inherited Context)") {
+	for _, content := range received {
+		if strings.Contains(content, "继承上下文 (Inherited Context)") {
 			mergedFound = true
-			if strings.Contains(*msg.Content, "audit the module") {
+			if strings.Contains(content, "audit the module") {
 				childGoalFound = true
 			}
 		}
 	}
 	if !mergedFound {
-		t.Fatal("parent session history must contain the merged child context block (merge-back closed loop)")
+		t.Fatal("merged block must carry the inherited-context header")
 	}
 	if !childGoalFound {
 		t.Error("merged block should carry the child goal from node input")
+	}
+}
+
+// testContextExchanger 是 ContextExchanger 测试实现：ParentEvidence 从
+// 遥测构造快照（与 main.go 同款无锁数据面），MergeBack 走回调捕获。
+type testContextExchanger struct {
+	trace       provider.TraceSource
+	onMergeBack func(string)
+}
+
+func (ex *testContextExchanger) ParentEvidence() *snapshot.ContextSnapshot {
+	return seelexctx.ExportSnapshotFromData("main", "audit the module", 0, ex.trace)
+}
+
+func (ex *testContextExchanger) MergeBack(content string) {
+	if ex.onMergeBack != nil {
+		ex.onMergeBack(content)
 	}
 }

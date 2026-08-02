@@ -29,10 +29,14 @@ func (service *Service) resumeSession(sessionID string) error {
 	location := service.components.sessions.locateSession(sessionID)
 	// 会话恢复三读（record/history/transcript）相互独立，并行加载：
 	// 大会话（数 MB）下全量解析总耗时从串行求和变为三路取最大值。
+	// history 路径为尾部窗口读：先 (0,0) 取总数（只读 manifest，不解析 shard），
+	// 再 (total-window, window) 只解析覆盖尾部窗口的 1-2 个 shard——
+	// 8.4MB/6 shard 的会话从全量解析降为单 shard 解析。
 	var (
 		record        SessionRecord
 		hasRecord     bool
 		history       []EngineMessage
+		historyTotal  int
 		historyErr    error
 		transcript    []TranscriptEvent
 		transcriptErr error
@@ -46,7 +50,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	}()
 	go func() {
 		defer loadGroup.Done()
-		history, historyErr = service.components.sessions.loadSessionHistory(location, sessionID)
+		history, historyTotal, historyErr = service.components.sessions.loadHistoryTailWindow(location)
 	}()
 	go func() {
 		defer loadGroup.Done()
@@ -81,7 +85,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	}
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 
-	total := len(history)
+	total := historyTotal // 尾部窗口读返回的真实总数（无 record 的旧格式会话）
 	if hasRecord {
 		total = len(record.Conversation.Messages)
 	}
@@ -89,7 +93,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	if offset < 0 {
 		offset = 0
 	}
-	visibleHistory := history[offset:]
+	visibleHistory := history
 	currentWorkspace := location.workspace
 	if service.deps.Workspace != nil {
 		if currentWorkspace != nil {
@@ -185,6 +189,23 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
+}
+
+// loadHistoryTailWindow 尾部窗口读：先探总数（limit=0 只读 manifest），
+// 再读尾部 window 条（只解析覆盖窗口的 shard）。返回窗口消息与真实总数，
+// resumeSession 的 visibleHistory/TotalMessages 直接消费。
+func (service *sessionCoordinator) loadHistoryTailWindow(location sessionLocation) ([]EngineMessage, int, error) {
+	window := Limits().HistoryWindow
+	_, total, err := service.loadSessionHistoryRange(location.workspaceID, location.meta.ID, 0, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	offset := total - window
+	if offset < 0 {
+		offset = 0
+	}
+	history, _, err := service.loadSessionHistoryRange(location.workspaceID, location.meta.ID, offset, window)
+	return history, total, err
 }
 
 func latestUserContent(messages []Message) string {

@@ -198,6 +198,10 @@ func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 	if checkpoint := state.checkpoints["inspect"]; checkpoint == nil || checkpoint.Status != "completed" || checkpoint.Facts[0] != "read controller.go" {
 		t.Fatalf("checkpoint = %+v, want completed with output fact", checkpoint)
 	}
+	// 打点事件写入节点时间线（详情页入口：`…` 按钮的 events 数据源）
+	if len(plan.Nodes[0].Events) != 1 || plan.Nodes[0].Events[0].Status != NodeCompleted || plan.Nodes[0].Events[0].Output != "read controller.go" {
+		t.Fatalf("node events = %+v, want one completed event with output", plan.Nodes[0].Events)
+	}
 }
 
 func TestCheckNodeRejectsUnknownNode(t *testing.T) {

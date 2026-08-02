@@ -95,6 +95,11 @@ safe action is already obvious and has no material dependency.
 - **Don't:** reload or clear a Plan merely to change wording; use a factual
   failure and the recovery interaction when the work genuinely needs a new
   path.
+- **Do:** replace the current Plan with a new `plan_load` whenever the user
+  explicitly asks for a different task structure — an explicit user request
+  always overrides the loaded Plan; `plan_clear` discards the current Plan
+  first when a clean replacement is needed. Never refuse an explicit user
+  request to load or replace a Plan.
 
 If uncertain whether a Plan adds clarity, take the smallest safe direct step
 first. Self-check: would the user lose a meaningful dependency, verification

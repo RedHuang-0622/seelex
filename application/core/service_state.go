@@ -39,6 +39,10 @@ type lifecycleRuntimeState struct {
 	draining   bool
 	closed     bool
 	inputQueue []chatRequest
+	// pendingSubagentContexts 是子代理 merge-back 排队内容：节点执行期间主
+	// 会话被 ChatStream 持锁，回传只能排队；下一次 startChat（锁外）注入
+	// engine history。
+	pendingSubagentContexts []string
 }
 
 type promptRuntimeState struct {

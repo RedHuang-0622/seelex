@@ -3,7 +3,7 @@ package seelebridge
 import (
 	"context"
 	"fmt"
-	"sync"
+
 	"time"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
@@ -49,14 +49,6 @@ func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) 
 	}
 }
 
-// parentSession 返回当前主会话（merge-back 的合并目标；nil = 未装配）。
-func (n *SeelexAgentNode) parentSession() *frameworkSession.Session {
-	if n == nil || n.runtime == nil {
-		return nil
-	}
-	return n.runtime.CurrentSession()
-}
-
 // parentSnapshot 返回父证据快照（SetNodeParentEvidence 注入的提供者）。
 func (n *SeelexAgentNode) parentSnapshot() *snapshot.ContextSnapshot {
 	if n == nil || n.runtime == nil {
@@ -100,28 +92,44 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 
 // mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/
 // TokenEstimate）合并回父会话：子快照 + 父快照 → merger.MergeBack →
-// Format() 文本追加到父会话历史。父证据注入（SetNodeParentEvidence）与
-// 本回传构成"注入 → 执行 → 合并"闭环；节点并发执行时父会话的
-// AppendHistory 由 session 内部锁串行化。
+// Format() 文本经 sink 回传（application 侧排队，下一次 ChatStream 开始前
+// 注入父会话）。
+//
+// 重要：不得直接调用父会话的 AppendHistory/History——plan_run 作为主代理的
+// 工具调用在 Session.ChatStream 内同步执行，主会话锁被全程持有，任何子代理
+// goroutine 对主会话的访问都会死锁（冒烟测试实测 19 分钟死锁）。回传必须
+// 走无锁 sink（SetSubagentContextSink）。
 func (n *SeelexAgentNode) mergeBack(ctx context.Context, agent node.Agent, goal string) {
 	childSession, ok := agent.(*frameworkSession.Session)
 	if !ok {
 		return
 	}
-	parentSession := n.parentSession()
-	if parentSession == nil {
-		return
-	}
 	child := seelexctx.ExportSnapshot(childSession, n.traceSource(), goal)
 	parent := n.parentSnapshot()
 	if parent == nil {
-		parent = &snapshot.ContextSnapshot{SourceSessionID: parentSession.SessionID(), ExportedAt: now()}
+		parent = &snapshot.ContextSnapshot{SourceSessionID: childSession.SessionID(), ExportedAt: now()}
 	}
 	if err := merger.NewMerger().MergeBack(parent, child); err != nil {
 		return
 	}
 	content := parent.Format()
-	parentSession.AppendHistory(types.Message{Role: "user", Content: &content})
+	if sink := n.mergeBackSink(); sink != nil {
+		sink(content)
+	}
+}
+
+// mergeBackSink 返回子代理上下文回传接收器（Actor 消息出：投递到主 actor
+// 的 mailbox；经 ContextExchanger 接口，nil = 未接线，回传跳过——绝不
+// 直接访问父会话，避免锁死锁）。
+func (n *SeelexAgentNode) mergeBackSink() func(string) {
+	if n == nil || n.runtime == nil {
+		return nil
+	}
+	exchanger := n.runtime.contextExchanger()
+	if exchanger == nil {
+		return nil
+	}
+	return exchanger.MergeBack
 }
 
 // nodeScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），
@@ -200,35 +208,15 @@ func (r *Runtime) nodeBudget() nodeBudgetInfo {
 	return nodeBudgetInfo{MaxLoops: r.limits.PlanNodeMaxLoops, MaxOutputTokens: limits.MaxOutputTokens}
 }
 
-// parentEvidenceMu 保护父证据提供者（并发 plan_run 时读）。
-type parentEvidenceState struct {
-	mu       sync.RWMutex
-	provider func() *snapshot.ContextSnapshot
-}
-
-// nodeParentEvidence 返回当前父级上下文快照（nil 表示不注入证据块）。
+// nodeParentEvidence 返回当前父级上下文快照（Actor 消息进：主 actor 对外
+// 投影；nil = 未装配交换器，不注入证据块）。经 ContextExchanger 接口读取，
+// 实现不得访问 ChatStream 中的主会话（死锁教训见 actor.go）。
 func (r *Runtime) nodeParentEvidence() *snapshot.ContextSnapshot {
-	if r == nil || r.parentEvidence == nil {
+	exchanger := r.contextExchanger()
+	if exchanger == nil {
 		return nil
 	}
-	r.parentEvidence.mu.RLock()
-	provider := r.parentEvidence.provider
-	r.parentEvidence.mu.RUnlock()
-	if provider == nil {
-		return nil
-	}
-	return provider()
-}
-
-// SetNodeParentEvidence 注入父级上下文快照提供者：节点执行时把快照格式化为
-// 父证据 PromptBlock（seelexctx snapshot 承袭）。传入 nil 关闭证据注入。
-func (r *Runtime) SetNodeParentEvidence(provider func() *snapshot.ContextSnapshot) {
-	if r == nil {
-		return
-	}
-	r.parentEvidence.mu.Lock()
-	r.parentEvidence.provider = provider
-	r.parentEvidence.mu.Unlock()
+	return exchanger.ParentEvidence()
 }
 
 func stringPtr(value string) *string { return &value }

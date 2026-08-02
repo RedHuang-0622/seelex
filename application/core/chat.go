@@ -59,6 +59,9 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	assistant := *service.appendMessageLocked("assistant", "", nil)
 	revision := service.bumpLocked()
 	service.mu.Unlock()
+	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
+	// 期间主会话被持锁无法回写，只能在此时补注入。
+	service.injectPendingSubagentContexts()
 	service.events.Publish(EventMessageAdded, revision, requestID, user)
 	service.events.Publish(EventMessageAdded, revision, requestID, assistant)
 	go service.runChat(chatContext, requestID, request)

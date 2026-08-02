@@ -1,8 +1,15 @@
-# Seelex — 可切换专业形态的工科全栈 Agent
+# Seelex — 开源 Coding Agent Harness
 
-> 当前发布通道：`v0.1.0-alpha.1` Developer Alpha。TUI 为默认入口，桌面 GUI 为显式启用的 Alpha 功能。
+[![CI](https://img.shields.io/github/actions/workflow/status/RedHuang-0622/seelex/ci.yml?style=flat-square&label=CI&logo=github&logoColor=white&color=2088FF)](https://github.com/RedHuang-0622/seelex/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/RedHuang-0622/seelex?style=flat-square&label=Release&color=blue)](https://github.com/RedHuang-0622/seelex/releases)
+[![Go Version](https://img.shields.io/badge/Go-1.25.8-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/dl/)
+[![License: MIT](https://img.shields.io/github/license/RedHuang-0622/seelex?style=flat-square&label=License&color=green)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-0078D6?style=flat-square)](https://github.com/RedHuang-0622/seelex/releases)
+[![Repo](https://img.shields.io/badge/GitHub-RedHuang--0622%2Fseelex-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/RedHuang-0622/seelex)
 
-**Seelex** 是面向工程研发、设计与交付全过程的全栈 Agent。它以本地重构后的 [Seele](https://github.com/RedHuang-0622/Seele)（无产品语义的 Agent runtime）作为执行内核，在其上实现产品语义层：任务/计划编排、上下文成本治理、账号池、存储模型与双前端。
+> 当前发布通道：`v0.1.0-alpha.2` Developer Alpha。TUI 为默认入口，桌面 GUI 为显式启用的 Alpha 功能。
+
+**Seelex** 是一个开源的 **Coding Agent Harness**：一个可装配、可切换专业形态的工程研发 Agent 运行时与产品层。它以本地重构后的 [Seele](https://github.com/RedHuang-0622/Seele)（无产品语义的 Agent runtime）作为执行内核，在其上实现产品语义层——任务/计划编排、上下文成本治理、账号池、存储模型与双前端（TUI + GUI），让开发者把 LLM 能力组装成面向编码、设计、评审与交付闭环的专用 Agent。
 
 **能力边界（与 Seele 的分工）：**
 
@@ -13,10 +20,34 @@
 | LLM 装配、会话 ReAct 循环、WorkPlan DAG 内核、账号租约、工具分发、事件/遥测原语 | Seele |
 | Task 生命周期、Plan 产品 DSL（`plan_load`/`plan_run`）、节点 kind 解释、工具实现、插件可见性、上下文压缩策略、Token 账本、EventStore | Seelex |
 
+## 架构总览
+
+```text
+┌─ 前端 ──────────────────────────────────────────────┐
+│  tui/（Bubble Tea 终端）    gui/（Wails 桌面，Alpha） │
+└───────────────┬─────────────────────────────┬───────┘
+                │ 仅消费 Application DTO / Event
+┌───────────────▼─────────────────────────────▼───────┐
+│  application/  服务层：Chat、TaskService、Effort/     │
+│                PlanPolicy、审批、事件编排              │
+├──────────────────────────────────────────────────────┤
+│  seelebridge/  Seele 适配层：Runtime composition root │
+│  seelexctx/    seelectx 契约：Assembler/Compressor/   │
+│                ToolResultProcessor/ContextController  │
+├──────────────────────────────────────────────────────┤
+│  sessionstore/ 原子、项目作用域持久化（JSON/SQLite/PG/ │
+│                Redis）：DurableHistory、5 栈、事件库    │
+│  workspace/    项目与 session binding、路径沙盒        │
+│  plugin/ + plugins/  Plugin 生命周期与能力包           │
+│  skill/        Skill 加载与可见性                     │
+└──────────────────────────────────────────────────────┘
+        ▲ Seele v0.0.8 执行内核（agent/session/workplan/…）
+```
+
 ## 功能特性
 
 ### 🧠 多模型账号池
-- 支持 **OpenAI / Anthropic ** 等主流 API 与定制 Provider（`base_url`）
+- 支持 **OpenAI / Anthropic** 等主流 API 与定制 Provider（`base_url`）
 - **P2C 账号池 + 租约**：多账号按角色（`agent`/`subagent`/`goalplan`）注册，按需获取、防超售；流式响应 lease-until-EOF
 - 计划 DAG 分支按账号**确定性 hash 分配**，可多账号并行执行
 - 运行时 `/account` 切换选中账号/provider，provider 过滤经 selector 闭包生效
@@ -141,6 +172,7 @@ make rebuild-gui VERSION=<tag>    # 需 LOCAL_CONFIG 指向本地真实配置
 
 - 架构与设计：[`docs/README.md`](docs/README.md)（含 Seele v0.0.8 迁移架构、上下文改进、MCP 存储解耦、功能打点）
 - 底层重构详设：[`docs/2026-08-01-seele-v2-underlying-refactor/plan.md`](docs/2026-08-01-seele-v2-underlying-refactor/plan.md)
+- 功能打点与北极星指标：[`docs/feature-instrumentation.md`](docs/feature-instrumentation.md)
 
 ## 构建与发布
 

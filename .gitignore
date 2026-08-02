@@ -97,3 +97,12 @@ FreeCAD_Export/
 coverage/
 coverage.*
 *.coverprofile
+
+# ── 无扩展名覆盖率产物（误提交绕过 *.out，已清理） ─────────
+/cov
+/coverage
+/coverage-local
+/full_cov
+
+# ── 本地个人工具目录（勿提交） ─────────────────────────────
+local/

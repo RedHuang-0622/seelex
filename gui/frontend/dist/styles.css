@@ -577,6 +577,15 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-dependency.is-active { color: #d5ae3c; }
 .plan-dependency.is-completed { color: #6ea37b; }
 .plan-dependency.is-failed { color: #c36f6f; }
+.plan-node-branches { display: grid; gap: 3px; margin-top: 6px; }
+.plan-branch-row { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 6px; border: 1px solid #262626; border-radius: 5px; background: #121212; }
+.plan-branch-row.is-active { border-color: #51451f; }
+.plan-branch-row.is-completed { border-color: #2d4935; }
+.plan-branch-row.is-failed { border-color: #583232; }
+.branch-arrow { flex: none; color: #6f8f78; font: 750 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.plan-branch-row.is-active .branch-arrow { color: #e8b730; }
+.branch-target { overflow: hidden; color: #9db8a3; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.branch-condition { margin-left: auto; flex: none; max-width: 45%; overflow: hidden; padding: 1px 4px; border: 1px solid #303b46; border-radius: 4px; color: #79a9d1; background: #131a21; font: 700 7px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .plan-node-output { margin-top: 6px; overflow: hidden; color: #888; font: 8px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .plan-edge-section { padding: 0 10px 10px; }
 .plan-edge-title { margin: 1px 2px 5px; color: var(--faint); font: 750 7px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }

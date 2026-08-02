@@ -87,7 +87,8 @@ type Runtime struct {
 	agentFactory        node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
 	approvalGateMu      sync.RWMutex
 	approvalGate        approve.ApprovalGate
-	parentEvidence      *parentEvidenceState // 节点子代理父证据（seelexctx snapshot 承袭）
+	exchangerMu         sync.RWMutex     // 上下文消息通道锁（actor 边界指针保护）
+	exchanger           ContextExchanger // 父子 actor 上下文消息通道（actor.go）
 	selectedAccountID   string
 	providerFilter      string
 	projectScope        *ProjectScope
@@ -204,11 +205,11 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		pluginDefs:          make(map[string]pluginDef),
 		permission:          &permissionGateState{},
 		planEvents:          newPlanEventSink(),
-		parentEvidence:      &parentEvidenceState{},
-		window:              seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
-		tracer:              tracer,
-		hook:                hook,
-		eventErrorHandler:   func(_ context.Context, err error) { log.Printf("seelebridge: event sink: %v", err) },
+
+		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
+		tracer:            tracer,
+		hook:              hook,
+		eventErrorHandler: func(_ context.Context, err error) { log.Printf("seelebridge: event sink: %v", err) },
 	}
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
@@ -312,7 +313,8 @@ func (r *Runtime) Model() string { return r.model }
 func (r *Runtime) Tracer() *telemetry.MemoryTracer { return r.tracer }
 
 // CurrentSession 返回当前主会话（会话切换重建后依然是最新实例）。
-// 父证据注入与子代理 merge-back 经它读取/回写父上下文。
+// 注意：仅在 ChatStream 之外读取（会话切换/装配）；运行中的子代理上下文
+// 访问会与主会话锁死锁，父证据/回传均走无锁旁路。
 func (r *Runtime) CurrentSession() *session.Session {
 	r.sessionMu.Lock()
 	defer r.sessionMu.Unlock()

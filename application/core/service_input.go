@@ -4,7 +4,34 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/RedHuang-0622/Seele/types"
 )
+
+// AppendSubagentContext 排队子代理 merge-back 内容（无锁旁路回传端）：
+// 节点执行期间主会话锁被 ChatStream 持有，不能直接注入 engine history；
+// 内容排队后由下一次 startChat（ChatStream 开始前，锁外）注入。
+func (service *Service) AppendSubagentContext(content string) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
+	service.mu.Lock()
+	service.pendingSubagentContexts = append(service.pendingSubagentContexts, content)
+	service.mu.Unlock()
+}
+
+// injectPendingSubagentContexts 把排队中的子代理上下文注入 engine history。
+// 必须在 ChatStream 之外调用（startChat 提交时，主会话锁未被持有）。
+func (service *Service) injectPendingSubagentContexts() {
+	service.mu.Lock()
+	pending := service.pendingSubagentContexts
+	service.pendingSubagentContexts = nil
+	service.mu.Unlock()
+	for _, content := range pending {
+		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &content})
+	}
+}
 
 func (service *Service) Submit(ctx context.Context, text string) error {
 	service.mu.RLock()
