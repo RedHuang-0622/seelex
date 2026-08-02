@@ -3,7 +3,7 @@ module github.com/RedHuang-0622/seelex
 go 1.25.8
 
 require (
-	github.com/RedHuang-0622/Seele v0.0.8
+	github.com/RedHuang-0622/Seele v0.1.1
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -96,5 +96,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/RedHuang-0622/Seele => ../Seele
