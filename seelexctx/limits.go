@@ -44,6 +44,7 @@ type Limits struct {
 	MessageShardSize       int `yaml:"message_shard_size"`           // 会话存储分片条数
 	SummaryChars           int `yaml:"summary_chars"`                // 摘要截断字符数
 	TodoMaxItems           int `yaml:"todo_max_items"`               // todolist 清单项上限
+	WalkTimeoutSec         int `yaml:"walk_timeout"`                 // glob/grep 目录遍历超时（秒）
 }
 
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
@@ -76,6 +77,7 @@ func DefaultLimits() Limits {
 		MessageShardSize:       100,
 		SummaryChars:           800,
 		TodoMaxItems:           20,
+		WalkTimeoutSec:          30,
 	}
 }
 
@@ -161,6 +163,9 @@ func (l Limits) WithDefaults() Limits {
 	if l.TodoMaxItems == 0 {
 		l.TodoMaxItems = def.TodoMaxItems
 	}
+	if l.WalkTimeoutSec == 0 {
+		l.WalkTimeoutSec = def.WalkTimeoutSec
+	}
 	return l
 }
 
@@ -207,7 +212,7 @@ func LoadLimits(path string) (Limits, error) {
 		check.EvidenceChars < 0 || check.ReplanEvidenceBytes < 0 || check.InputLoopLimit < 0 ||
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
-		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 {
+		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WalkTimeoutSec < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
 	return check, nil

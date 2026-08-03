@@ -106,13 +106,15 @@ func (r *Runtime) scopedGrep(ctx context.Context, argsJSON string) (string, erro
 	if input.MaxResults <= 0 {
 		input.MaxResults = r.limits.GrepMaxResults // limits.grep_max_results（默认 20）
 	}
+	walkCtx, cancelWalk := walkContext(ctx, r.walkTimeout())
+	defer cancelWalk()
 	results := make([]scopedGrepResult, 0)
 	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
 		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") && path != root {
+			if (strings.HasPrefix(info.Name(), ".") || heavyDirNames[info.Name()]) && path != root {
 				return filepath.SkipDir
 			}
 			return nil
@@ -124,8 +126,8 @@ func (r *Runtime) scopedGrep(ctx context.Context, argsJSON string) (string, erro
 			}
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-walkCtx.Done():
+			return filepath.SkipAll // 超时 = 另一种截断，返回已收集结果
 		default:
 		}
 		data, readErr := os.ReadFile(path)
@@ -146,6 +148,8 @@ func (r *Runtime) scopedGrep(ctx context.Context, argsJSON string) (string, erro
 	if err != nil && len(results) == 0 {
 		return "", fmt.Errorf("grep_search: walk: %w", err)
 	}
+	// 遍历超时：与 MaxResults 同语义的另一种截断——返回已收集的部分
+	// 结果（契约保持数组；模型可从数量感知不完整）。
 	output, err := json.Marshal(results)
 	if err != nil {
 		return "", fmt.Errorf("grep_search: marshal: %w", err)
@@ -170,30 +174,33 @@ func (r *Runtime) scopedGlob(ctx context.Context, argsJSON string) (string, erro
 	if err != nil {
 		return "", err
 	}
+	walkCtx, cancelWalk := walkContext(ctx, r.walkTimeout())
+	defer cancelWalk()
 	results := make([]string, 0)
 	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		matched, matchErr := filepath.Match(input.Pattern, path)
-		if matchErr == nil && matched {
-			display, _ := r.projectScope.Relative(path)
-			results = append(results, display)
+		if info.IsDir() {
+			// 跳过隐藏目录与重目录（构建产物/依赖/版本控制），避免
+			// **/* 全树遍历卡顿（对齐 ripgrep 默认忽略语义）。
+			if (strings.HasPrefix(info.Name(), ".") || heavyDirNames[info.Name()]) && path != root {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		matched, matchErr = filepath.Match(input.Pattern, info.Name())
-		if matchErr == nil && matched {
+		select {
+		case <-walkCtx.Done():
+			return filepath.SkipAll // 超时 = 另一种截断，返回已收集结果
+		default:
+		}
+		if matchGlobPattern(input.Pattern, path) || matchGlobPattern(input.Pattern, info.Name()) {
 			display, _ := r.projectScope.Relative(path)
 			results = append(results, display)
 		}
 		return nil
 	})
-	if err != nil {
+	if err != nil && len(results) == 0 {
 		return "", fmt.Errorf("glob: walk: %w", err)
 	}
 	output, err := json.Marshal(results)
@@ -201,6 +208,108 @@ func (r *Runtime) scopedGlob(ctx context.Context, argsJSON string) (string, erro
 		return "", fmt.Errorf("glob: marshal: %w", err)
 	}
 	return string(output), nil
+}
+
+// walkTimeout 返回 glob/grep 目录遍历超时（limits.walk_timeout，默认 30s；
+// 0 = 不限制）。遍历是 IO 密集操作，慢盘/大仓库下必须有界。
+func (r *Runtime) walkTimeout() time.Duration {
+	if r.limits.WalkTimeoutSec <= 0 {
+		return 0
+	}
+	return time.Duration(r.limits.WalkTimeoutSec) * time.Second
+}
+
+// walkContext 构造遍历上下文：超时 >0 时包 WithTimeout；0 = 不限制
+// （直接返回原 ctx——WithTimeout(ctx, 0) 会立即过期，语义错误）。
+func walkContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// heavyDirNames 是遍历时跳过的重目录（构建产物/依赖/版本控制；对齐
+// ripgrep 默认忽略，避免全树遍历在慢盘上卡顿）。
+var heavyDirNames = map[string]bool{
+	"node_modules": true, "build": true, "out": true, "vendor": true,
+	"__pycache__": true, ".venv": true, "venv": true, "target": true,
+	"obj": true, "bin": true, "coverage": true, "dist": true,
+}
+
+// matchGlobPattern 是 glob 模式匹配（正斜杠语义，路径统一 ToSlash 后
+// 匹配；支持 ** 递归通配——filepath.Match 不支持 ** 且 Windows 上模式
+// 正斜杠与路径反斜杠不匹配，导致 **/* 恒空）。
+func matchGlobPattern(pattern, path string) bool {
+	return globMatch(filepath.ToSlash(pattern), filepath.ToSlash(path))
+}
+
+// globMatch 递归匹配按 "/" 切分的 glob 模式与路径：
+//   - ** 匹配任意段（0+）；**/ 匹配 0+ 段前缀；
+//   - * 匹配单段内任意字符；? 匹配单字符；
+//   - 其余字符字面匹配。
+func globMatch(pattern, path string) bool {
+	if pattern == "" {
+		return path == ""
+	}
+	if path == "" {
+		return pattern == "**"
+	}
+	if pattern == "**" {
+		return true
+	}
+	if strings.HasPrefix(pattern, "**/") {
+		// **/ 匹配 0 段（跳过）或 1 段（消费路径首段后继续）。
+		return globMatch(pattern[3:], path) || globMatch(pattern, afterFirstSegment(path))
+	}
+	if !globSegmentMatch(beforeFirstSegment(pattern), beforeFirstSegment(path)) {
+		return false
+	}
+	return globMatch(afterFirstSegment(pattern), afterFirstSegment(path))
+}
+
+// globSegmentMatch 匹配单段（无分隔符；* 任意、? 单字符、字面）。
+func globSegmentMatch(pattern, segment string) bool {
+	if pattern == "" {
+		return segment == ""
+	}
+	if segment == "" {
+		return allStars(pattern)
+	}
+	switch pattern[0] {
+	case '*':
+		// 贪心：* 匹配 0+ 字符，剩余模式继续。
+		return globSegmentMatch(pattern[1:], segment) || globSegmentMatch(pattern, segment[1:])
+	case '?':
+		return globSegmentMatch(pattern[1:], segment[1:])
+	default:
+		if pattern[0] != segment[0] {
+			return false
+		}
+		return globSegmentMatch(pattern[1:], segment[1:])
+	}
+}
+
+func beforeFirstSegment(value string) string {
+	if index := strings.IndexByte(value, '/'); index >= 0 {
+		return value[:index]
+	}
+	return value
+}
+
+func afterFirstSegment(value string) string {
+	if index := strings.IndexByte(value, '/'); index >= 0 {
+		return value[index+1:]
+	}
+	return ""
+}
+
+func allStars(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] != '*' {
+			return false
+		}
+	}
+	return len(value) > 0
 }
 
 type scopedWriteFileInput struct {
