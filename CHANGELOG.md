@@ -2,7 +2,7 @@
 
 All notable changes to Seelex are documented in this file.
 
-## [v0.1.0-alpha.3] - 2026-08-02
+## [v0.1.0-alpha.1] - 2026-08-03
 
 ### Added
 
