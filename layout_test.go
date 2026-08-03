@@ -23,6 +23,18 @@ var repositoryModules = []string{
 	"tui", "tui/splash", "workspace",
 }
 
+var repositoryModuleDocumentation = map[string]string{
+	".github": "AUTOMATION.md",
+}
+
+func repositoryModuleDocumentationPath(module string) string {
+	name := "README.md"
+	if configured, ok := repositoryModuleDocumentation[module]; ok {
+		name = configured
+	}
+	return filepath.Join(module, name)
+}
+
 func TestApprovalAccepted(t *testing.T) {
 	tests := map[string]bool{
 		"Yes":        true,
@@ -54,14 +66,14 @@ func TestRepositoryAgentDocumentationRules(t *testing.T) {
 
 func TestRepositoryModulesHaveReadmes(t *testing.T) {
 	for _, module := range repositoryModules {
-		path := filepath.Join(module, "README.md")
+		path := repositoryModuleDocumentationPath(module)
 		info, err := os.Stat(path)
 		if err != nil {
-			t.Errorf("module %q README: %v", module, err)
+			t.Errorf("module %q documentation %q: %v", module, path, err)
 			continue
 		}
 		if info.Size() == 0 {
-			t.Errorf("module %q README is empty", module)
+			t.Errorf("module %q documentation %q is empty", module, path)
 		}
 	}
 }
@@ -69,7 +81,7 @@ func TestRepositoryModulesHaveReadmes(t *testing.T) {
 func TestRepositoryModuleReadmeLinks(t *testing.T) {
 	pattern := regexp.MustCompile(`\]\(([^)]+)\)`)
 	for _, module := range repositoryModules {
-		path := filepath.Join(module, "README.md")
+		path := repositoryModuleDocumentationPath(module)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -85,6 +97,17 @@ func TestRepositoryModuleReadmeLinks(t *testing.T) {
 				t.Errorf("%s links to %q: %v", path, match[1], err)
 			}
 		}
+	}
+}
+
+func TestGitHubAutomationDocumentationDoesNotOverrideRepositoryReadme(t *testing.T) {
+	if path := repositoryModuleDocumentationPath(".github"); path != filepath.Join(".github", "AUTOMATION.md") {
+		t.Fatalf(".github documentation path = %q, want .github/AUTOMATION.md", path)
+	}
+	if _, err := os.Stat(filepath.Join(".github", "README.md")); err == nil {
+		t.Fatal(".github/README.md overrides the repository README on the GitHub home page")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("inspect .github/README.md: %v", err)
 	}
 }
 

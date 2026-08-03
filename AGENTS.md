@@ -17,6 +17,7 @@
 |---|---|---|
 | 模块说明 | `<module>/README.md` | 与代码同目录，描述当前实现和生态位；代码行为变化时同步更新。 |
 | 仓库入口 | `/README.md` | 产品定位、快速开始和模块导航，不堆叠模块内部实现。 |
+| GitHub 自动化 | `.github/AUTOMATION.md` | `.github` 的模块说明例外使用该文件名；禁止创建 `.github/README.md`，避免覆盖仓库首页的根 README。 |
 | 稳定架构 | `docs/arch/` | 跨模块边界、长期设计原则、已接受架构决策。 |
 | GUI 权威设计 | `docs/gui/` | GUI 协议、Schema、模块登记、API、recipes 和 ADR。 |
 | 产品规格 | `docs/product/` | PRD、里程碑、验收指标；必须标识实现状态。 |
@@ -32,6 +33,8 @@
 ## 3. 模块 README 必备内容
 
 每个 Go package 和可独立维护的运行模块都必须有 `README.md`，至少覆盖以下信息；简单声明模块可以合并章节，但不得省略定位、边界、Review 和验证：
+
+`.github` 是唯一命名例外，其模块文档为 `AUTOMATION.md`，因为 GitHub 会优先把 `.github/README.md` 渲染为仓库首页。
 
 1. 模块定位：它在 Seelex 生态中的位置，以及主要调用方。
 2. 职责与非职责：明确做什么、刻意不做什么。
