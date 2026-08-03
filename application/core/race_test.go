@@ -229,7 +229,7 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"slow..."}}
 	// 使用自定义 engine 让它阻塞以模拟长时间 chat
 	blockEngine := &blockingEngine{fakeEngine: engine}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine:   blockEngine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -302,7 +302,7 @@ func (e *blockingEngine) ChatStream(ctx context.Context, input string, onChunk f
 // TestChat_RaceSnapshotDuringChat 验证 Chat 运行期间并发读取 Snapshot 无 data race。
 func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -396,7 +396,7 @@ func TestService_RaceShutdownSubmit(t *testing.T) {
 // TestService_RaceShutdownChat 验证 Shutdown 与 Chat 并发安全。
 func TestService_RaceShutdownChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -582,7 +582,7 @@ func TestPromptStack_RaceClearKind(t *testing.T) {
 // TestInputQueue_RaceEnqueueDuringChat 验证 Chat 运行中并发入队安全。
 func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -667,7 +667,7 @@ func TestSnapshot_RaceReadWrite(t *testing.T) {
 // TestCancelChat_Race 验证并发 CancelChat 安全。
 func TestCancelChat_Race(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},

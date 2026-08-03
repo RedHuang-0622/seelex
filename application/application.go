@@ -120,7 +120,7 @@ var (
 	ErrInteractionResolved = approval.ErrInteractionResolved
 )
 
-func New(deps Dependencies) *Service { return core.New(deps) }
+func New(deps Dependencies) (*Service, error) { return core.New(deps) }
 
 func NewEventHub() *EventHub { return event.NewEventHub() }
 

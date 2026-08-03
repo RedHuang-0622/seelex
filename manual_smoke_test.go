@@ -53,29 +53,51 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	defer func() { *storePath = originalStorePath }()
 
 	skills := initSkillSystem()
-	plugins := initPluginSystem(runtime, skills)
+	plugins, err := initPluginSystem(runtime, skills)
+	if err != nil {
+		t.Fatal(err)
+	}
 	hooks := application.NewToolHookBridge()
-	frameworkEngine := initEngine(runtime, hooks)
+	frameworkEngine, err := initEngine(runtime, hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
 	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
-	activateDefaultPlugin(plugins, frameworkEngine)
+	if err := activateDefaultPlugin(plugins, frameworkEngine); err != nil {
+		t.Fatal(err)
+	}
 
 	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
-		return initEngine(runtime, hooks)
+		fresh, createErr := initEngine(runtime, hooks)
+		if createErr != nil {
+			return nil
+		}
+		return fresh
 	}, runtime.Tracer())
-	store := initStore()
+	store, err := initStore()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer store.Close()
-	app := initApplication(
+	workspaces, err := initWorkspaceRepo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := initApplication(
 		appEngine,
 		runtime,
 		plugins,
 		initSessionManager(store, appEngine),
 		skills,
-		initWorkspaceRepo(),
+		workspaces,
 		events,
 		approval,
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer app.Shutdown()
 	hooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)

@@ -13,7 +13,7 @@ func TestIterationHookDoesNotTriggerContextControl(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{
 		Role: "tool", Content: strings.Repeat("output ", 4000), ContentSet: true,
 	}}}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})

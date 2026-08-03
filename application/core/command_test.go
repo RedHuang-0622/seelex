@@ -212,7 +212,7 @@ func TestBuiltinNew(t *testing.T) {
 
 func TestBuiltinNew_SaveFails(t *testing.T) {
 	eng := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "unsaved"}}}
-	svc := New(Dependencies{
+	svc := mustNew(Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
@@ -288,7 +288,7 @@ func TestBuiltinSessions_NonEmpty(t *testing.T) {
 
 func TestBuiltinSessions_Empty(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := New(Dependencies{
+	svc := mustNew(Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
@@ -332,7 +332,7 @@ func TestBuiltinPlugin_NoArg(t *testing.T) {
 
 func TestBuiltinPlugin_NoCurrent(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := New(Dependencies{
+	svc := mustNew(Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
 		Plugins:  &noCurrentPlugins{},
 		Skills:   fakeSkills{},
@@ -479,7 +479,7 @@ func TestSkillWithoutRequirementAppliesToNextInput(t *testing.T) {
 
 func TestQueuedSkillRequestFreezesDisplayAndModelInput(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	svc := New(Dependencies{
+	svc := mustNew(Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
@@ -619,7 +619,7 @@ func TestNew_DefaultState(t *testing.T) {
 
 func TestNew_DefaultEventHub(t *testing.T) {
 	// If deps.Events is nil, New should create defaults
-	svc := New(Dependencies{
+	svc := mustNew(Dependencies{
 		Engine:   &fakeEngine{},
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -700,7 +700,7 @@ func TestCancelChat_NotRunning(t *testing.T) {
 
 func TestSwitchEffort(t *testing.T) {
 	runtime := &fakeRuntime{}
-	svc := New(Dependencies{
+	svc := mustNew(Dependencies{
 		Engine: &fakeEngine{}, Runtime: runtime,
 		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})

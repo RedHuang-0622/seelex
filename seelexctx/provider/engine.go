@@ -24,16 +24,10 @@ type EngineProvider struct {
 }
 
 func NewEngineProvider(eng SessionSource) *EngineProvider {
-	if eng == nil {
-		panic("provider: EngineProvider requires non-nil session source")
-	}
 	return &EngineProvider{eng: eng}
 }
 
 func NewEngineProviderWithGoal(eng SessionSource, goal string) *EngineProvider {
-	if eng == nil {
-		panic("provider: EngineProvider requires non-nil session source")
-	}
 	return &EngineProvider{eng: eng, goal: goal}
 }
 
@@ -41,6 +35,9 @@ func (p *EngineProvider) Name() string { return "engine" }
 
 // Export 从会话导出上下文。
 func (p *EngineProvider) Export(_ context.Context) (*snapshot.ContextSnapshot, error) {
+	if p == nil || p.eng == nil {
+		return nil, fmt.Errorf("provider: engine provider requires session source")
+	}
 	hist := p.eng.History()
 	snap := &snapshot.ContextSnapshot{
 		SourceSessionID: p.eng.SessionID(),

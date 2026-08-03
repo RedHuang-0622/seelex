@@ -1,6 +1,11 @@
 package core
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	"github.com/RedHuang-0622/seelex/internal/promptassets"
+)
 
 // serviceAssembler is the composition root for the application service. It
 // supplies infrastructure defaults before wiring stateful collaborators.
@@ -8,7 +13,13 @@ type serviceAssembler struct {
 	deps Dependencies
 }
 
-func (assembler serviceAssembler) assemble() *Service {
+func (assembler serviceAssembler) assemble() (*Service, error) {
+	if err := validateDependencies(assembler.deps); err != nil {
+		return nil, err
+	}
+	if err := promptassets.Validate(); err != nil {
+		return nil, fmt.Errorf("application prompts: %w", err)
+	}
 	assembler.applyInfrastructureDefaults()
 
 	promptStack := NewPromptStack()
@@ -61,13 +72,34 @@ func (assembler serviceAssembler) assemble() *Service {
 		Capabilities:    Capabilities{SessionResume: true},
 	}
 	service.components.tasks.importEngineHistoryAsTranscriptLocked(service.deps.Engine.History())
-	service.registerBuiltinCommands()
+	if err := service.registerBuiltinCommands(); err != nil {
+		return nil, err
+	}
 	service.refreshRuntimeLocked(context.Background())
 	service.restoreInitialWorkspace()
 	service.components.prompts.buildSystemPrompt()
 	service.snapshot.Revision = 1
 	service.approval.SetObserver(service.observeInteraction)
-	return service
+	return service, nil
+}
+
+func validateDependencies(deps Dependencies) error {
+	checks := []struct {
+		name       string
+		dependency any
+	}{
+		{name: "engine", dependency: deps.Engine},
+		{name: "runtime", dependency: deps.Runtime},
+		{name: "plugins", dependency: deps.Plugins},
+		{name: "skills", dependency: deps.Skills},
+		{name: "sessions", dependency: deps.Sessions},
+	}
+	for _, check := range checks {
+		if check.dependency == nil {
+			return fmt.Errorf("application dependency %s is required", check.name)
+		}
+	}
+	return nil
 }
 
 func (assembler *serviceAssembler) applyInfrastructureDefaults() {

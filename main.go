@@ -57,33 +57,49 @@ func accountsPath() string {
 }
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "✖ %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(Version)
-		return
+		return nil
 	}
 	frontend, err := parseFrontendMode(*frontendMode)
 	if err != nil {
-		fatalf("前端模式无效: %v", err)
+		return fmt.Errorf("前端模式无效: %w", err)
 	}
 	*frontendMode = frontend
 	if frontend == "gui" && !gui.Available() {
-		fatalf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`)
+		return fmt.Errorf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`)
 	}
 	mode, err := parsePermissionMode(*permissionMode)
 	if err != nil {
-		fatalf("权限模式无效: %v", err)
+		return fmt.Errorf("权限模式无效: %w", err)
 	}
 	*permissionMode = string(mode)
 	*storePath = resolveStorePath(*storePath)
 
-	runtime := initRuntime()
+	runtime, err := initRuntime()
+	if err != nil {
+		return err
+	}
 	defer runtime.Shutdown()
 
 	runtime.RegisterBuiltins()
 	skillRegistry := initSkillSystem()
-	pluginManager := initPluginSystem(runtime, skillRegistry)
-	store := initStore()
+	pluginManager, err := initPluginSystem(runtime, skillRegistry)
+	if err != nil {
+		return err
+	}
+	store, err := initStore()
+	if err != nil {
+		return err
+	}
 	defer store.Close()
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
@@ -94,18 +110,33 @@ func main() {
 	eventStore := sessionstore.NewEventStore(store)
 	runtime.SetEventPersister(eventStore.Append)
 	if err := setupPermissionGate(runtime, approval); err != nil {
-		fatalf("权限模式无效: %v", err)
+		return fmt.Errorf("权限模式无效: %w", err)
 	}
 	toolHooks := application.NewToolHookBridge()
-	frameworkEngine := initEngine(runtime, toolHooks)
+	frameworkEngine, err := initEngine(runtime, toolHooks)
+	if err != nil {
+		return err
+	}
 	registerProductTools(runtime, pluginManager, frameworkEngine, approval)
-	activateDefaultPlugin(pluginManager, frameworkEngine)
+	if err := activateDefaultPlugin(pluginManager, frameworkEngine); err != nil {
+		return err
+	}
 	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
-		return initEngine(runtime, toolHooks)
+		fresh, createErr := initEngine(runtime, toolHooks)
+		if createErr != nil {
+			return nil
+		}
+		return fresh
 	}, runtime.Tracer())
 	sessionManager := initSessionManager(store, appEngine)
-	wsRepo := initWorkspaceRepo()
-	app := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
+	wsRepo, err := initWorkspaceRepo()
+	if err != nil {
+		return err
+	}
+	app, err := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
+	if err != nil {
+		return err
+	}
 	defer app.Shutdown()
 	registerTaskTerminalTools(runtime, app)
 	registerContextReadTools(runtime, app, sessionManager)
@@ -128,7 +159,7 @@ func main() {
 	// - 消息出（MergeBack）：merge-back 结果投递 mailbox，下次 ChatStream
 	//   开始前注入。
 	runtime.SetContextExchanger(&contextExchanger{app: app, tracer: runtime.Tracer()})
-	startFrontend(app)
+	return startFrontend(app)
 }
 
 // contextExchanger 是父子 actor 上下文消息通道实现（Actor 消息边界）：
@@ -253,16 +284,16 @@ func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Se
 	runtime.RegisterTaskTerminalTools(app.TaskTerminalHandler)
 }
 
-func initRuntime() *seelebridge.Runtime {
+func initRuntime() (*seelebridge.Runtime, error) {
 	// 运行参数在 seelex.yaml（配置参数文件；权限在 seele.yaml）：
 	// 滑动窗口段缺失 → 零值走默认；limits 缺失字段 → 默认值。
 	windowConfig, err := core.LoadWindowConfig("seelex.yaml")
 	if err != nil {
-		fatalf("加载 window 配置失败: %v", err)
+		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
 	}
 	limits, err := seelexctx.LoadLimits("seelex.yaml")
 	if err != nil {
-		fatalf("加载 limits 配置失败: %v", err)
+		return nil, fmt.Errorf("加载 limits 配置失败: %w", err)
 	}
 	limits = limits.WithDefaults()
 	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
@@ -282,9 +313,9 @@ func initRuntime() *seelebridge.Runtime {
 		Limits:                    limits,
 	})
 	if err != nil {
-		fatalf("初始化 Seele Runtime 失败: %v", err)
+		return nil, fmt.Errorf("初始化 Seele Runtime 失败: %w", err)
 	}
-	return runtime
+	return runtime, nil
 }
 
 func initSkillSystem() *skill.Registry {
@@ -296,25 +327,26 @@ func initSkillSystem() *skill.Registry {
 func initPluginSystem(
 	runtime *seelebridge.Runtime,
 	skills *skill.Registry,
-) *plugin.Manager {
+) (*plugin.Manager, error) {
 	loader := plugin.NewLoader(splitPaths(*pluginsPaths)...)
 	manager := plugin.NewManager(loader, runtime, runtime, skills)
 	if err := manager.Load(); err != nil {
-		fatalf("加载 Plugin 失败: %v", err)
+		return nil, fmt.Errorf("加载 Plugin 失败: %w", err)
 	}
-	return manager
+	return manager, nil
 }
 
-func activateDefaultPlugin(manager *plugin.Manager, eng *frameworkSession.Session) {
+func activateDefaultPlugin(manager *plugin.Manager, eng *frameworkSession.Session) error {
 	if _, err := pluginByName(manager.All(), "default"); err != nil {
-		return
+		return nil
 	}
 	if err := manager.Activate(context.Background(), "default"); err != nil {
-		fatalf("激活 default Plugin 失败: %v", err)
+		return fmt.Errorf("激活 default Plugin 失败: %w", err)
 	}
 	// 系统提示词由 application.Service.buildSystemPrompt 在 initApplication 时组装，
 	// 不要在启动时直接覆盖 session 的 system prompt。
 	// applyPluginPrompt(eng, manager)
+	return nil
 }
 
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *frameworkSession.Session, approval *application.ApprovalBroker) {
@@ -449,34 +481,34 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 	)
 }
 
-func initStore() *sessionstore.Router {
+func initStore() (*sessionstore.Router, error) {
 	// NestedSessionStore 的 baseDir 与 workspace_index.json 同级
 	baseDir := filepath.Dir(*storePath)
 	sessionstore.ApplyLimits(runtimeLimits.SummaryChars)
 	router, err := sessionstore.NewRouter(filepath.Join(baseDir, "session-storage.json"), baseDir)
 	if err != nil {
-		fatalf("初始化嵌套存储失败: %v", err)
+		return nil, fmt.Errorf("初始化嵌套存储失败: %w", err)
 	}
-	return router
+	return router, nil
 }
 
-func initWorkspaceRepo() *workspace.Repo {
+func initWorkspaceRepo() (*workspace.Repo, error) {
 	baseDir := filepath.Dir(*storePath)
 	repo, err := workspace.NewRepoWithStore(baseDir)
 	if err != nil {
-		fatalf("初始化工作区存储失败: %v", err)
+		return nil, fmt.Errorf("初始化工作区存储失败: %w", err)
 	}
-	return repo
+	return repo, nil
 }
 
 // initEngine 按新装配模型创建主会话（session.NewSession）。
 // enginePort 的 reactorEngine 接口由 *session.Session 直接满足。
-func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge) *frameworkSession.Session {
+func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge) (*frameworkSession.Session, error) {
 	sess, err := runtime.NewMainSession(hooks.Hooks())
 	if err != nil {
-		fatalf("初始化主会话失败: %v", err)
+		return nil, fmt.Errorf("初始化主会话失败: %w", err)
 	}
-	return sess
+	return sess, nil
 }
 
 func initSessionManager(router *sessionstore.Router, eng *enginePort) *session.Manager {
@@ -500,7 +532,7 @@ func initApplication(
 	sessions *session.Manager, skills *skill.Registry,
 	workspaces *workspace.Repo,
 	events *application.EventHub, approval *application.ApprovalBroker,
-) *application.Service {
+) (*application.Service, error) {
 	return application.New(application.Dependencies{
 		Engine: eng, Runtime: runtimePort{runtime: runtime},
 		Plugins: pluginPort{manager: plugins}, Skills: skillPort{registry: skills},
@@ -511,21 +543,23 @@ func initApplication(
 
 func initTUI(app *application.Service) tui.Model { return tui.NewModel(app) }
 
-func startTUI(model tui.Model) {
+func startTUI(model tui.Model) error {
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
-		fatalf("TUI 错误: %v", err)
+		return fmt.Errorf("TUI 错误: %w", err)
 	}
+	return nil
 }
 
-func startFrontend(app *application.Service) {
+func startFrontend(app *application.Service) error {
 	switch *frontendMode {
 	case "gui":
 		if err := gui.Run(app, gui.Options{Title: "Seelex", Version: Version}); err != nil {
-			fatalf("GUI 错误: %v", err)
+			return fmt.Errorf("GUI 错误: %w", err)
 		}
+		return nil
 	default:
-		startTUI(initTUI(app))
+		return startTUI(initTUI(app))
 	}
 }
 
@@ -704,8 +738,3 @@ func tryAcquireLock(lockFile string) bool {
 }
 
 // processExists 检查指定 PID 的进程是否存在（平台实现见 main_unix.go / main_windows.go）。
-
-func fatalf(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "✖ "+format+"\n", args...)
-	os.Exit(1)
-}

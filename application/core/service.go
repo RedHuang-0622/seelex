@@ -22,6 +22,6 @@ type Service struct {
 	components serviceComponents
 }
 
-func New(deps Dependencies) *Service {
+func New(deps Dependencies) (*Service, error) {
 	return serviceAssembler{deps: deps}.assemble()
 }

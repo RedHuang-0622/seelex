@@ -17,24 +17,24 @@ func TestEngineProvider_Name(t *testing.T) {
 	}
 }
 
-func TestEngineProvider_NilPanic(t *testing.T) {
-	defer func() { recover() }()
-	NewEngineProvider(nil)
-	t.Fatal("expected panic")
+func TestEngineProvider_NilExportError(t *testing.T) {
+	if _, err := NewEngineProvider(nil).Export(context.Background()); err == nil {
+		t.Fatal("expected nil source error")
+	}
 }
 
-func TestEngineProvider_NilPanicWithGoal(t *testing.T) {
-	defer func() { recover() }()
-	NewEngineProviderWithGoal(nil, "test")
-	t.Fatal("expected panic")
+func TestEngineProvider_NilExportErrorWithGoal(t *testing.T) {
+	if _, err := NewEngineProviderWithGoal(nil, "test").Export(context.Background()); err == nil {
+		t.Fatal("expected nil source error")
+	}
 }
 
 // ── TraceProvider ─────────────────────────────────────────────
 
-func TestTraceProvider_NilPanic(t *testing.T) {
-	defer func() { recover() }()
-	NewTraceProvider(nil, "sess-1")
-	t.Fatal("expected panic")
+func TestTraceProvider_NilExportError(t *testing.T) {
+	if _, err := NewTraceProvider(nil, "sess-1").Export(context.Background()); err == nil {
+		t.Fatal("expected nil source error")
+	}
 }
 
 func TestTraceProvider_ExportReadsTelemetryLifecycleEvents(t *testing.T) {

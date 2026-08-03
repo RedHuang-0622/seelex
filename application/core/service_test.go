@@ -396,7 +396,7 @@ func (repo *fakeWorkspace) AllBindings() map[string]string {
 func (*fakeWorkspace) DetectGitRemote(string) string { return "" }
 
 func newTestService(engine *fakeEngine) *Service {
-	return New(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+	return mustNew(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
 }
 
 func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
@@ -417,7 +417,7 @@ func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 	}
 	workspaces := newFakeWorkspace()
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: t.TempDir()}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -466,7 +466,7 @@ func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
 func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "old question"}}}
 	sessions := &trackingSessions{}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
@@ -521,7 +521,7 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -562,7 +562,7 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 			"": {"saved": {{Role: "user", Content: "saved question"}, {Role: "assistant", Content: "saved answer"}}},
 		},
 	}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
@@ -591,7 +591,7 @@ func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -640,7 +640,7 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 	root := t.TempDir()
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: root}
 	workspaces.BindSession("saved", "project-1")
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -666,7 +666,7 @@ func TestNewHydratesPersistedWorkspaceSessions(t *testing.T) {
 	workspaces.BindSession("saved-1", "project-1")
 	workspaces.BindSession("saved-2", "project-2")
 
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -697,7 +697,7 @@ func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-1")
 
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -725,7 +725,7 @@ func TestResumeRepairsBindingWhenHistoryLivesInAnotherWorkspace(t *testing.T) {
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-2")
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -754,7 +754,7 @@ func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-1")
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -780,7 +780,7 @@ func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("session-1", "project-1")
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -818,7 +818,7 @@ func TestSnapshotIncludesPersistedSessions(t *testing.T) {
 func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 	engine := &fakeEngine{}
 	sessions := &trackingSessions{}
-	service := New(Dependencies{
+	service := mustNew(Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{},
 		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills:  fakeSkills{}, Sessions: sessions,
@@ -839,6 +839,20 @@ func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 	defer sessions.mu.Unlock()
 	if len(sessions.savedIDs) != 1 || sessions.savedIDs[0] != "saved" {
 		t.Fatalf("saved session IDs = %v, want [saved]", sessions.savedIDs)
+	}
+}
+
+func mustNew(deps Dependencies) *Service {
+	service, err := New(deps)
+	if err != nil {
+		panic(err)
+	}
+	return service
+}
+
+func TestNewRejectsMissingDependencies(t *testing.T) {
+	if _, err := New(Dependencies{}); err == nil {
+		t.Fatal("expected missing dependency error")
 	}
 }
 

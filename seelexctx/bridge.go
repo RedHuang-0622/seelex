@@ -31,6 +31,9 @@ type SessionState interface {
 
 // Export 从会话导出上下文快照（兼容旧 API，eng 可以是 *session.Session）。
 func Export(eng provider.SessionSource) *snapshot.ContextSnapshot {
+	if eng == nil {
+		return &snapshot.ContextSnapshot{ExportedAt: time.Now()}
+	}
 	snap, _ := provider.NewEngineProvider(eng).Export(context.TODO())
 	if snap == nil {
 		return &snapshot.ContextSnapshot{
@@ -43,6 +46,9 @@ func Export(eng provider.SessionSource) *snapshot.ContextSnapshot {
 
 // ExportWithGoal 导出并显式设置目标（兼容旧 API）。
 func ExportWithGoal(eng provider.SessionSource, goal string) *snapshot.ContextSnapshot {
+	if eng == nil {
+		return &snapshot.ContextSnapshot{ExportedAt: time.Now(), Goal: goal}
+	}
 	snap, _ := provider.NewEngineProviderWithGoal(eng, goal).Export(context.TODO())
 	if snap == nil {
 		return &snapshot.ContextSnapshot{
@@ -60,6 +66,9 @@ func ExportWithGoal(eng provider.SessionSource, goal string) *snapshot.ContextSn
 // 注意：EngineProvider 读取会话 History（需会话锁）——只在 ChatStream 之外
 // 使用（会话切换等）；运行中的子代理上下文读取走 ExportSnapshotFromData。
 func ExportSnapshot(eng provider.SessionSource, trace provider.TraceSource, goal string) *snapshot.ContextSnapshot {
+	if eng == nil {
+		return &snapshot.ContextSnapshot{ExportedAt: time.Now(), Goal: goal}
+	}
 	combined := &snapshot.ContextSnapshot{
 		SourceSessionID: eng.SessionID(),
 		ExportedAt:      time.Now(),

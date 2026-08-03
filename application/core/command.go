@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
 )
@@ -59,10 +58,14 @@ func (registry *CommandRegistry) All() []Command {
 	return commands
 }
 
-func (service *Service) registerBuiltinCommands() {
+func (service *Service) registerBuiltinCommands() error {
+	var registrationErr error
 	register := func(name, description string, execute func(context.Context, []string) (CommandResult, error)) {
+		if registrationErr != nil {
+			return
+		}
 		if err := service.commands.Register(commandFunc{name: name, description: description, execute: execute}); err != nil {
-			log.Fatalf("register command %q: %v", name, err)
+			registrationErr = fmt.Errorf("register command %q: %w", name, err)
 		}
 	}
 	register("help", "显示帮助信息", func(context.Context, []string) (CommandResult, error) {
@@ -195,4 +198,5 @@ func (service *Service) registerBuiltinCommands() {
 		service.events.Publish(EventSnapshotChanged, revision, "", nil)
 		return CommandResult{Notice: "Effort 已切换为: " + level}, nil
 	})
+	return registrationErr
 }

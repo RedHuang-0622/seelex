@@ -31,12 +31,15 @@ func newHarnessRunner(value Scenario, factory ToolExecutorFactory) (*Runner, err
 	scriptedEngine := NewScriptedEngine(value.EngineScript, tools, approvals)
 	scriptedEngine.SetSessionID(initialSessionID(value))
 	plugin := initialPlugin(value)
-	service := application.New(application.Dependencies{
+	service, err := application.New(application.Dependencies{
 		Engine: scriptedEngine, Runtime: harnessRuntime{plugin: plugin},
 		Plugins: &harnessPlugins{current: application.PluginInfo{Name: plugin}},
 		Skills:  harnessSkills{}, Sessions: &harnessSessions{},
 		Events: events, Approval: approvals,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize application harness: %w", err)
+	}
 	hookBridge.Bind(service)
 	if factory != nil {
 		scriptedEngine.SetToolExecutor(factory(approvals, service.HandlePlanBranchEvent))

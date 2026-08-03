@@ -25,17 +25,11 @@ type TraceProvider struct {
 
 // NewTraceProvider 构造基于 telemetry 追踪的导出器。
 func NewTraceProvider(src TraceSource, sessionID string) *TraceProvider {
-	if src == nil {
-		panic("provider: TraceProvider requires non-nil trace source")
-	}
 	return &TraceProvider{src: src, sessionID: sessionID}
 }
 
 // NewTraceProviderWithGoal 构造并显式设置目标。
 func NewTraceProviderWithGoal(src TraceSource, sessionID, goal string) *TraceProvider {
-	if src == nil {
-		panic("provider: TraceProvider requires non-nil trace source")
-	}
 	return &TraceProvider{src: src, goal: goal, sessionID: sessionID}
 }
 
@@ -47,6 +41,9 @@ func (p *TraceProvider) Name() string { return "trace" }
 // 会取到进程级全局遥测（并行子代理/其他会话事件串扰——父证据与 merge-back
 // 的 Findings/Decisions 互相累积，审查 #3）。
 func (p *TraceProvider) Export(ctx context.Context) (*snapshot.ContextSnapshot, error) {
+	if p == nil || p.src == nil {
+		return nil, fmt.Errorf("provider: trace provider requires trace source")
+	}
 	query := telemetry.Query{
 		Limit: 200,
 		Attributes: map[string]string{
