@@ -430,8 +430,10 @@ export function escapeHTML(value) {
     .replaceAll("'", "&#39;");
 }
 
-// renderNodeDetail 渲染节点详情页（弹窗内容）：身份信息 + 事件时间线。
-// 时间线是权威 JSON（node.events），运行中节点经心跳事件刷新"最后活跃"。
+// renderNodeDetail 渲染节点详情页（弹窗内容）：身份信息 + 会话记录
+// （子代理对话流，detail.conversation）+ 事件时间线 + 最终输出。
+// 会话记录由 app.js 经 invoke("SubagentSessionDetail") 异步拉取后
+// 调用 setNodeDetailConversation 注入（运行中 2s 轮询刷新）。
 export function renderNodeDetail(node) {
   const status = statusToken(node.status);
   const timeline = (node.events || []).map(event => {
@@ -456,12 +458,53 @@ export function renderNodeDetail(node) {
       <div><dt>耗时</dt><dd>${escapeHTML(node.elapsed || "—")}</dd></div>
       <div><dt>事件</dt><dd>${node.events ? node.events.length : 0}</dd></div>
     </dl>
-    ${node.output ? `<div class="node-detail-output"><strong>最终输出</strong><pre>${escapeHTML(node.output)}</pre></div>` : ""}
-    <div class="node-detail-timeline">
-      <div class="node-timeline-title">时间线</div>
+    <div class="node-detail-tabs">
+      <button class="node-tab is-active" data-node-tab="conversation" type="button">会话记录</button>
+      <button class="node-tab" data-node-tab="timeline" type="button">事件时间线</button>
+      ${node.output ? `<button class="node-tab" data-node-tab="output" type="button">最终输出</button>` : ""}
+    </div>
+    <div class="node-tab-panel is-active" data-node-panel="conversation">
+      <div class="node-conversation" data-node-conversation>
+        <div class="node-timeline-empty">加载会话记录…</div>
+      </div>
+    </div>
+    <div class="node-tab-panel" data-node-panel="timeline">
       ${timeline ? `<ol class="node-timeline">${timeline}</ol>` : '<div class="node-timeline-empty">暂无事件；任务清单模式下由 task_check_node 打点驱动</div>'}
     </div>
+    ${node.output ? `<div class="node-tab-panel" data-node-panel="output"><div class="node-detail-output"><pre>${escapeHTML(node.output)}</pre></div></div>` : ""}
   </div>`;
+}
+
+// setNodeDetailConversation 渲染子代理会话记录（详情弹窗会话记录标签）。
+export function setNodeDetailConversation(detail) {
+  const container = document.querySelector("[data-node-detail] [data-node-conversation]");
+  if (!container) return;
+  const messages = (detail?.conversation || []);
+  if (messages.length === 0) {
+    container.innerHTML = '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
+    return;
+  }
+  container.innerHTML = messages.map(msg => {
+    const role = msg.role === "user" ? "user" : (msg.role === "assistant" ? "assistant" : "tool");
+    const body = msg.tool && msg.tool.name
+      ? `<span class="node-msg-tool">🛠 ${escapeHTML(msg.tool.name)}</span>${msg.content ? `<div>${escapeHTML(msg.content)}</div>` : ""}`
+      : `<div>${escapeHTML(msg.content || "")}</div>`;
+    return `<div class="node-msg is-${role}"><span class="node-msg-role">${role}</span>${body}</div>`;
+  }).join("");
+  if (detail?.running) {
+    container.insertAdjacentHTML("beforeend", '<div class="node-timeline-empty">执行中，每 2 秒刷新…</div>');
+  }
+}
+
+// bindNodeDetailTabs 切换详情弹窗标签（会话记录 / 事件时间线 / 输出）。
+export function bindNodeDetailTabs(root) {
+  root.querySelectorAll("[data-node-tab]").forEach(button => {
+    button.addEventListener("click", () => {
+      root.querySelectorAll("[data-node-tab]").forEach(b => b.classList.toggle("is-active", b === button));
+      root.querySelectorAll("[data-node-panel]").forEach(panel =>
+        panel.classList.toggle("is-active", panel.dataset.nodePanel === button.dataset.nodeTab));
+    });
+  });
 }
 
 // formatEventTime 把 ISO 时间戳格式化为本地 HH:MM:SS（非法/空 → "—"）。

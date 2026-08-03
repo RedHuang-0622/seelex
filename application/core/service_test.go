@@ -196,6 +196,7 @@ func (engine *fakeEngine) AppendHistory(msg types.Message) {
 }
 func (*fakeEngine) TraceText() string  { return "trace" }
 func (*fakeEngine) TokenCount() string { return "12" }
+func (*fakeEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
 
 type fakeRuntime struct {
 	account       string

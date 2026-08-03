@@ -47,6 +47,9 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	}
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
+	// 冒烟场景 = goal 流程（plan 全链路）：plan 工具面归位后（plan.md §6）
+	// plan 工具仅在 goal skill 激活时对主代理可见，冒烟模拟 goal 场景。
+	runtime.SetGoalSkillProvider(func() bool { return true })
 
 	originalStorePath := *storePath
 	*storePath = filepath.Join(tempDir, "sessions")

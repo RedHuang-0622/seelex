@@ -33,6 +33,9 @@ type enginePort struct {
 	activeCalls    int
 	pendingHistory []seelebridge.Message
 	sessionBacked  bool
+	// nodeConversations 是子代理会话记录查询（节点详情数据面；Runtime 注入，
+	// 只读子代理 actor，安全——不经过主会话锁）。
+	nodeConversations func(string) ([]types.Message, bool)
 }
 
 // reactorEngine is the small framework surface the application adapter
@@ -81,6 +84,22 @@ func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk fu
 	}
 	port.mu.Unlock()
 	return result, err
+}
+
+// NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
+// 查询源经 SetNodeConversationsProvider 注入，只读子代理 actor，安全）。
+func (port *enginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
+	if port == nil || port.nodeConversations == nil {
+		return nil, false
+	}
+	return port.nodeConversations(nodeID)
+}
+
+// SetNodeConversationsProvider 注入子代理会话记录查询源（Runtime 接线）。
+func (port *enginePort) SetNodeConversationsProvider(fn func(string) ([]types.Message, bool)) {
+	if port != nil {
+		port.nodeConversations = fn
+	}
 }
 
 // AppendHistory 追加消息到引擎内部对话历史。

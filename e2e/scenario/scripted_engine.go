@@ -204,6 +204,7 @@ func (engine *ScriptedEngine) AppendHistory(msg types.Message) {
 
 func (*ScriptedEngine) TraceText() string  { return "scripted scenario" }
 func (*ScriptedEngine) TokenCount() string { return "0" }
+func (*ScriptedEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
 
 func (engine *ScriptedEngine) Remaining() int {
 	engine.mu.Lock()

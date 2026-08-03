@@ -51,6 +51,37 @@ func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) 
 	}
 }
 
+// registerNodeSession 注册运行中的子代理会话（详情查看数据面）。
+// 子代理会话是独立 actor（自己的锁），运行中读取安全——与主会话无关。
+func (r *Runtime) registerNodeSession(nodeID string, sess *frameworkSession.Session) {
+	r.nodeSessionsMu.Lock()
+	r.nodeSessions[nodeID] = sess
+	r.nodeSessionsMu.Unlock()
+}
+
+// unregisterNodeSession 结束注册并保留最后快照（节点结束后详情仍可看）。
+func (r *Runtime) unregisterNodeSession(nodeID string) {
+	r.nodeSessionsMu.Lock()
+	defer r.nodeSessionsMu.Unlock()
+	if sess := r.nodeSessions[nodeID]; sess != nil {
+		r.nodeSnapshots[nodeID] = sess.History()
+	}
+	delete(r.nodeSessions, nodeID)
+}
+
+// NodeSessionConversation 返回节点子代理的会话记录：
+// 运行中 → 子会话 History（实时）；已结束 → 最后快照。
+// 只读子代理 actor，绝不触碰主会话（死锁教训，见 actor.go）。
+func (r *Runtime) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
+	r.nodeSessionsMu.Lock()
+	defer r.nodeSessionsMu.Unlock()
+	if sess := r.nodeSessions[nodeID]; sess != nil {
+		return sess.History(), true
+	}
+	snap, ok := r.nodeSnapshots[nodeID]
+	return snap, ok
+}
+
 // parentSnapshot 返回父证据快照（ContextExchanger.ParentEvidence 消息进）。
 func (n *SeelexAgentNode) parentSnapshot() *snapshot.ContextSnapshot {
 	if n == nil || n.runtime == nil {
@@ -72,11 +103,21 @@ var now = time.Now
 
 // Run 注入节点作用域与节点级 PromptBlocks 后委托节点 Session 执行
 // （目标作为会话 system prompt，节点输入作为本轮请求）。
-// 执行成功后把子代理会话的结构化上下文合并回父会话（merge-back）。
+// worktree 生命周期（plan.md §3）：RoleSubAgent 节点先开 worktree 并把
+// NodeScope.WorkspaceID 指向它（scoped_tools 按节点分根），执行结束后
+// 变基兜底 + 合并审批 + merge + 清理。执行成功后把子代理会话的结构化
+// 上下文合并回父会话（merge-back）。
 func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error) {
 	// 1) 节点身份：可见性策略 / 账号选择器 / 装配器从 ctx 读取。
-	ctx = WithNodeScope(ctx, n.scope())
-	// 2) 节点上下文（PromptBlocks）：目标 + 父证据 + 预算。
+	scope := n.scope()
+	// 2) worktree 生命周期（开）：RoleSubAgent 节点创建独立 worktree，
+	//    WorkspaceID 指向 worktree 根（降级：非 git / 失败 → 共享工作区）。
+	wt := n.runtime.beginNodeWorktree(scope, n.ID())
+	if wt != nil {
+		scope.WorkspaceID = wt.Path
+	}
+	ctx = WithNodeScope(ctx, scope)
+	// 3) 节点上下文（PromptBlocks）：目标 + 父证据 + 预算 + skill + 收尾契约。
 	if n.blocks != nil {
 		ctx = withNodePromptBlocks(ctx, n.blocks())
 	}
@@ -89,10 +130,23 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 	// ReAct 循环上限（session.SetMaxLoops，chat.go 动态方法）。
 	if sess, ok := agent.(*frameworkSession.Session); ok {
 		sess.SetMaxLoops(n.runtime.nodeBudget(n.input).MaxLoops)
+		// 详情查看数据面：注册子会话（结束后快照留底）。
+		n.runtime.registerNodeSession(n.ID(), sess)
+		defer n.runtime.unregisterNodeSession(n.ID())
 	}
 	result, err := agent.Chat(ctx, n.input.Input)
 	if err == nil {
 		n.mergeBack(ctx, agent, n.input.Input)
+	}
+	// 4) worktree 生命周期（收尾）：变基兜底 → 合并审批 → merge → 清理。
+	//    成功路径清理；失败路径保留现场（节点 failed 时主代理可查）。
+	if wt != nil {
+		if err == nil {
+			err = n.runtime.finishNodeWorktree(ctx, n.ID(), wt)
+		}
+		if err == nil {
+			n.runtime.releaseNodeWorktree(n.ID())
+		}
 	}
 	return result, err
 }
@@ -235,6 +289,22 @@ type nodeBudgetInfo struct {
 // 与 filesystem actor 同构，无需外层锁。传入 nil 关闭 skill 块（降级）。
 func (r *Runtime) SetSkillRegistry(registry *skill.Registry) {
 	r.skills = registry
+}
+
+// SetGoalSkillProvider 装配 goal skill 激活判定（main 注入
+// app.Snapshot().ActiveSkills 检查；nil = plan 工具默认隐藏）。
+func (r *Runtime) SetGoalSkillProvider(fn func() bool) {
+	r.goalMu.Lock()
+	r.goalSkillActiveFn = fn
+	r.goalMu.Unlock()
+}
+
+// goalSkillActive 返回 goal skill 是否激活（可见性策略读取；未装配 → false）。
+func (r *Runtime) goalSkillActive() bool {
+	r.goalMu.RLock()
+	fn := r.goalSkillActiveFn
+	r.goalMu.RUnlock()
+	return fn != nil && fn()
 }
 
 // nodeSkillBlocks 构建子代理 skill 块：

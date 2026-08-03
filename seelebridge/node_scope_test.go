@@ -62,14 +62,20 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 	registerNamedTool(t, runtime, "task_complete")
 	registerNamedTool(t, runtime, "web_search")
 
-	// 主代理（无 NodeScope）：全部工具可见。
+	// 主代理（无 NodeScope）：默认面 = 完整工具面减去 plan 工具族
+	// （goal skill 未激活时 plan 隐藏，plan.md §6；显式关闭测试基座的默认激活）。
+	runtime.SetGoalSkillProvider(nil)
 	all := toolNames(runtime.VisibleTools(context.Background()))
-	for _, want := range []string{"read_file", "plan_run", "plan_load", "task_complete", "web_search"} {
+	for _, want := range []string{"read_file", "task_complete", "web_search", "todolist_init", "fork_subagents"} {
 		if !containsName(all, want) {
 			t.Fatalf("main agent tools = %v, missing %q", all, want)
 		}
 	}
-
+	for _, hidden := range []string{"plan_run", "plan_load", "plan_clear", "plan_status", "plan_export", "plan_validate"} {
+		if containsName(all, hidden) {
+			t.Fatalf("main agent tools = %v, plan family must be hidden without goal skill", all)
+		}
+	}
 	// 子代理（RoleSubAgent）：与主代理能力一致（完整工具面），仅排除
 	// 操作全局状态的工具（plan 工具族 / task 终态工具）。
 	subCtx := WithNodeScope(context.Background(), NodeScope{
@@ -89,12 +95,26 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 		}
 	}
 
-	// entry 节点（RoleAgent）：与主代理一致的全量可见。
+	// entry 节点（RoleAgent）：与主代理一致的全量可见（goal 未激活时
+	// plan 同样隐藏，避免 DAG 内递归 plan）。
 	entryCtx := WithNodeScope(context.Background(), NodeScope{
 		NodeID: "start", Role: RoleAgent, BranchID: "start",
 	})
 	if got := toolNames(runtime.VisibleTools(entryCtx)); len(got) != len(all) {
 		t.Fatalf("entry node tools = %v, want all %v", got, all)
+	}
+
+	// goal skill 激活 → 主代理与 entry 节点可见 plan 工具。
+	runtime.SetGoalSkillProvider(func() bool { return true })
+	for _, ctx := range []context.Context{context.Background(), WithNodeScope(context.Background(), NodeScope{
+		NodeID: "start", Role: RoleAgent, BranchID: "start",
+	})} {
+		got := toolNames(runtime.VisibleTools(ctx))
+		for _, want := range []string{"plan_run", "plan_load"} {
+			if !containsName(got, want) {
+				t.Fatalf("goal-active tools = %v, missing plan tool %q", got, want)
+			}
+		}
 	}
 }
 
@@ -406,6 +426,7 @@ func newTestRuntimeWithSubagents(t testing.TB) *Runtime {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtime.SetGoalSkillProvider(func() bool { return true })
 	return runtime
 }
 

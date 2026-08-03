@@ -97,7 +97,18 @@ type Runtime struct {
 	selectedAccountID   string
 	providerFilter      string
 	projectScope        *ProjectScope
-	filesystem          FileSystem // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	filesystem          FileSystem     // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	sandbox             CommandSandbox // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
+	wt                  *worktreeState // 子代理 worktree 注册表（worktree.go）
+	todo                *todoState     // todolist 清单 actor（todo_tool.go）
+	goalMu              sync.RWMutex
+	goalSkillActiveFn   func() bool // goal skill 激活判定（main 注入 app.Snapshot().ActiveSkills）
+
+	// 子代理会话注册表（切片 8 详情查看数据面，docs/plan/subagent-detail-architecture.md）：
+	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照。
+	nodeSessionsMu sync.Mutex
+	nodeSessions   map[string]*session.Session
+	nodeSnapshots  map[string][]types.Message
 	toolCallTimeout     time.Duration
 	planDecisionTimeout time.Duration
 	approvalTimeout     time.Duration
@@ -203,6 +214,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		MCPStack:            mcpstack.New(mcpStackOpts...),
 		projectScope:        NewProjectScope(),
 		filesystem:          NewFileSystemActor(),
+		sandbox:             newNativeProjectCWD(),
+		wt:                  newWorktreeState(),
+		todo:                newTodoState(),
 		toolCallTimeout:     cfg.ToolCallTimeout,
 		planDecisionTimeout: planDecisionTimeout,
 		approvalTimeout:     approvalTimeout,
@@ -212,6 +226,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		pluginDefs:          make(map[string]pluginDef),
 		permission:          &permissionGateState{},
 		planEvents:          newPlanEventSink(),
+		nodeSessions:        make(map[string]*session.Session),
+		nodeSnapshots:       make(map[string][]types.Message),
 
 		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
 		tracer:            tracer,
@@ -288,14 +304,26 @@ func (r *Runtime) NewMainSession(hooks *session.LoopHooks) (*session.Session, er
 }
 
 func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
-	sess, err := session.NewSession(session.SessionComponents{
+	components := session.SessionComponents{
 		Agent:     r.agt,
 		Context:   r.mainContextComponents(),
 		Hooks:     hooks,
 		Telemetry: r.hook,
 		SessionID: sessionID,
 		ModelName: r.model,
-	})
+	}
+	// 滑动窗口加载区间（D1，plan.md §9）：装配 DurableHistory 并经
+	// SetTailBudget 注入窗口读尾预算——Session 每次 Chat 前 Load 只装载
+	// 窗口区间（token + 轮数），窗口外由 CompactStack 摘要承接。
+	// ctxStore 未装配（恢复流程未接线）→ 不装配 History，保持现状。
+	if store := r.sessionContextStore(); store != nil {
+		if router := store.Router(); router != nil {
+			history := sessionstore.NewDurableHistory(router, sessionID)
+			history.SetTailBudget(r.windowTailBudget())
+			components.History = history
+		}
+	}
+	sess, err := session.NewSession(components)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: create main session: %w", err)
 	}
@@ -350,6 +378,8 @@ func (r *Runtime) currentAccountLimits() accountLimits {
 
 func (r *Runtime) RegisterBuiltins() {
 	r.registerProjectScopedTools()
+	r.registerForkTool()
+	r.registerTodoTools()
 	r.scopedToolsReady = true
 	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
 	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。

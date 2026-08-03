@@ -94,6 +94,15 @@ func NewSessionContextStore(router *Router, sessionID string) *SessionContextSto
 	}
 }
 
+// Router 返回绑定的事件/历史路由（DurableHistory 装配接缝：滑动窗口加载
+// 与 state blob 共享同一后端）。
+func (s *SessionContextStore) Router() *Router {
+	if s == nil {
+		return nil
+	}
+	return s.router
+}
+
 // Load 从 state blob 读取记录到内存缓存。损坏/版本不兼容显式失败。
 func (s *SessionContextStore) Load(ctx context.Context) error {
 	if s == nil || s.router == nil || s.sessionID == "" {

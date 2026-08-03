@@ -123,6 +123,19 @@ func (r *Runtime) windowPolicy() seelexctx.WindowPolicy {
 	return r.window
 }
 
+// windowTailBudget 从窗口策略推导 Load 的读尾预算（D1，plan.md §9）：
+// maxUnits = 窗口轮数（策略推导；输入不足时保守回退 min_rounds）；
+// tokenBudget = 账号上下文窗口（上限保护，LoadEventTail 双上限取先到者）。
+func (r *Runtime) windowTailBudget() (tokenBudget, maxUnits int) {
+	tokenBudget = r.ContextWindow()
+	info := seelexctx.ProviderContextInfo{ContextTokens: tokenBudget}
+	rounds, _ := r.windowPolicy().WindowRounds(context.Background(), info)
+	if rounds <= 0 {
+		rounds = 4 // DefaultWindowPolicy 的 min_rounds（输入不足时同样回退）
+	}
+	return tokenBudget, rounds
+}
+
 // stackBlocks 渲染会话级使用栈块（now using = 栈顶；未绑定存储 → 无块）。
 func (r *Runtime) stackBlocks() []seelectx.PromptBlock {
 	store := r.sessionContextStore()

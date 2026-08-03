@@ -25,3 +25,19 @@ type Service struct {
 func New(deps Dependencies) (*Service, error) {
 	return serviceAssembler{deps: deps}.assemble()
 }
+
+// ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
+// 见 main.go SetGoalSkillProvider；锁内快照，无锁外访问）。
+func (service *Service) ActiveSkillIDs() []string {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	state := service.components.tasks.taskExecution
+	if state == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(state.activeSkills))
+	for _, active := range state.activeSkills {
+		ids = append(ids, active.SkillID)
+	}
+	return ids
+}

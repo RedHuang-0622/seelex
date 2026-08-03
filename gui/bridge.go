@@ -40,6 +40,7 @@ type Application interface {
 	SessionStorageConfig() (sessionstore.Config, error)
 	TestSessionStorage(context.Context, sessionstore.Config) error
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
+	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
 }
 
 type emitter func(context.Context, string, any)
@@ -186,6 +187,11 @@ func (bridge *Bridge) requestContext() context.Context {
 func (bridge *Bridge) Info() AppInfo { return bridge.info }
 
 func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.app.Snapshot() }
+
+// SubagentSessionDetail 返回子代理节点详情（会话记录 + 状态/耗时/输出）。
+func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error) {
+	return bridge.app.SubagentSessionDetail(nodeID)
+}
 
 func (bridge *Bridge) Submit(text string) error {
 	return bridge.app.Submit(bridge.requestContext(), text)

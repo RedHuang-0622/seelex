@@ -3,7 +3,7 @@ import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
-import { planToDSL, reconcilePlanDSL, renderNodeDetail } from "./plan-dsl.js";
+import { planToDSL, reconcilePlanDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs } from "./plan-dsl.js";
 import { collectReadFileSources } from "./read-sources.js";
 import { renderContextCompactions } from "./context-summary.js";
 
@@ -271,15 +271,45 @@ function renderPlan(plan) {
 }
 
 // openNodeDetail 渲染并打开节点详情弹窗（子代理详情页）：
-// 事件时间线 + 状态/耗时/输出；运行中节点经心跳事件刷新"最后活跃"。
-function openNodeDetail(nodeKey) {
+// 会话记录（invoke SubagentSessionDetail，运行中 2s 轮询）+ 事件时间线 +
+// 状态/耗时/输出。
+let nodeDetailPollTimer = null;
+
+async function openNodeDetail(nodeKey) {
   const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === nodeKey);
   if (!node) return;
   const dsl = lastPlanDsl;
   const rendered = renderNodeDetail({ ...node, mode: dsl.mode });
   elements["node-detail-content"].innerHTML = rendered;
   elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
+  bindNodeDetailTabs(elements["node-detail-content"]);
   setModal("node-detail-modal", true);
+  await refreshNodeDetail(node.id);
+}
+
+// refreshNodeDetail 拉取子代理详情（会话记录）并渲染；运行中每 2s 轮询。
+async function refreshNodeDetail(nodeID) {
+  if (nodeDetailPollTimer) {
+    clearTimeout(nodeDetailPollTimer);
+    nodeDetailPollTimer = null;
+  }
+  let detail = null;
+  try {
+    detail = await invoke("SubagentSessionDetail", nodeID);
+  } catch { /* 节点无会话记录或非 agent 节点 → 面板保持占位 */ }
+  if (!document.querySelector("[data-node-detail]")) return; // 弹窗已关
+  setNodeDetailConversation(detail || null);
+  if (detail?.running) {
+    nodeDetailPollTimer = setTimeout(() => refreshNodeDetail(nodeID), 2000);
+  }
+}
+
+function closeNodeDetail() {
+  if (nodeDetailPollTimer) {
+    clearTimeout(nodeDetailPollTimer);
+    nodeDetailPollTimer = null;
+  }
+  setModal("node-detail-modal", false);
 }
 
 function closeNodeDetail() {

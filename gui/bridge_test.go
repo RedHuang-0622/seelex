@@ -111,6 +111,9 @@ func (fake *fakeApplication) TestSessionStorage(context.Context, sessionstore.Co
 func (fake *fakeApplication) ConfigureSessionStorage(context.Context, sessionstore.Config) error {
 	return nil
 }
+func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {
+	return nil, nil
+}
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
 	t.Parallel()

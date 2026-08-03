@@ -128,6 +128,8 @@ func run() error {
 		}
 		return fresh
 	}, runtime.Tracer())
+	// 子代理详情数据面：节点会话记录查询（只读子代理 actor，安全）。
+	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo, err := initWorkspaceRepo()
 	if err != nil {
@@ -162,6 +164,16 @@ func run() error {
 	// 子代理 skill 能力（与主代理一致读取 skill 目录）：装配 skill 目录
 	// actor（Registry 自带锁，读写经其方法进出；nodeSkillBlocks 消费）。
 	runtime.SetSkillRegistry(skillRegistry)
+	// plan 工具面归位（plan.md §6）：goal skill 激活时主代理才可见 plan 工具
+	// （模型自由层默认面 = todolist + fork）。激活判定从 application 快照读。
+	runtime.SetGoalSkillProvider(func() bool {
+		for _, id := range app.ActiveSkillIDs() {
+			if id == "goal" {
+				return true
+			}
+		}
+		return false
+	})
 	return startFrontend(app)
 }
 

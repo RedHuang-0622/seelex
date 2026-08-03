@@ -244,6 +244,16 @@ type PlanNodeEventInfo struct {
 	Output string     `json:"output,omitempty"`
 }
 
+// SubagentDetail 是子代理详情弹窗的数据载荷（会话记录 + 状态/耗时/输出）。
+// Conversation 经应用层适配截断（单条 ≤ evidence_chars、总 ≤ 50 条）。
+type SubagentDetail struct {
+	Conversation []Message  `json:"conversation,omitempty"`
+	Running      bool       `json:"running"`
+	Status       NodeStatus `json:"status"`
+	Elapsed      string     `json:"elapsed,omitempty"`
+	Output       string     `json:"output,omitempty"`
+}
+
 type NodeStatus string
 
 const (

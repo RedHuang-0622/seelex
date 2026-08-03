@@ -61,6 +61,7 @@ type (
 	PlanStatus             = model.PlanStatus
 	PlanNode               = model.PlanNode
 	NodeStatus             = model.NodeStatus
+	SubagentDetail         = model.SubagentDetail
 	Tool                   = model.Tool
 	SkillInfo              = model.SkillInfo
 	PluginInfo             = model.PluginInfo

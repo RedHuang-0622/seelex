@@ -98,6 +98,12 @@ func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool
 		if scope.NodeID != "" && scope.Role == RoleSubAgent && nodeScopeExcludedTool(name) {
 			continue
 		}
+		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族
+		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
+		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
+		if scope.Role != RoleSubAgent && isPlanTool(name) && !r.goalSkillActive() {
+			continue
+		}
 		filtered = append(filtered, tool)
 	}
 	r.pluginMu.RLock()
@@ -121,6 +127,16 @@ func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool
 	return pluginFiltered
 }
 
+// isPlanTool 判断 plan 工具族（goal skill 激活时对主代理可见）。
+func isPlanTool(name string) bool {
+	switch name {
+	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate":
+		return true
+	default:
+		return false
+	}
+}
+
 // nodeScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
 // runtime/会话级单例状态（planToolProvider.loaded、TaskStack 终态），
 // 并行子代理调用会造成语义冲突（子代理 plan_run 递归嵌套 DAG、
@@ -128,7 +144,8 @@ func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool
 func nodeScopeExcludedTool(name string) bool {
 	switch name {
 	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate",
-		"task_complete", "task_failed", "task_needs_user_decision":
+		"task_complete", "task_failed", "task_needs_user_decision",
+		"fork_subagents": // fork 会递归派生子代理（无深度控制），同 plan 工具族理由
 		return true
 	default:
 		return false

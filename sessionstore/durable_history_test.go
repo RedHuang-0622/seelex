@@ -130,6 +130,68 @@ func TestDurableHistoryLoadEventTailKeepsWindowUnits(t *testing.T) {
 	}
 }
 
+// TestDurableHistoryLoadUsesWindowTailBudget 验证滑动窗口加载区间（D1）：
+// SetTailBudget 后 Load 只装载窗口轮数（不再全量），未配置时保持全量。
+func TestDurableHistoryLoadUsesWindowTailBudget(t *testing.T) {
+	router := newTestRouter(t)
+	events := []Event{
+		{Seq: 1, Role: "user", Content: "q1", TokenCount: 1},
+		{Seq: 2, Role: "assistant", Content: "a1", TokenCount: 1},
+		{Seq: 3, Role: "user", Content: "q2", TokenCount: 1},
+		{Seq: 4, Role: "assistant", Content: "a2", TokenCount: 1},
+		{Seq: 5, Role: "user", Content: "q3", TokenCount: 1},
+		{Seq: 6, Role: "assistant", Content: "a3", TokenCount: 1},
+	}
+	if err := router.SaveCommit("session-windowed-load", Commit{Events: events}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 未配置预算 → 全量路径（Router.Load；此处事件未转消息 blob → 空，
+	// 语义与旧行为一致——全量读由消息 blob 承载）。
+	history := NewDurableHistory(router, "session-windowed-load")
+	if all, err := history.Load(context.Background()); err != nil || len(all) != 0 {
+		t.Fatalf("unconfigured load = %d err=%v, want legacy Read semantics", len(all), err)
+	}
+
+	// 配置窗口预算（maxUnits=2 轮）→ Load 只返回最后 2 轮（4 条消息，
+	// 事件库窗口读）。
+	windowed := NewDurableHistory(router, "session-windowed-load")
+	windowed.SetTailBudget(100, 2)
+	window, err := windowed.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(window) != 4 {
+		t.Fatalf("windowed load = %d messages, want 4 (last 2 rounds)", len(window))
+	}
+	if window[0].Content == nil || *window[0].Content != "q2" {
+		t.Fatalf("windowed load must start at round 2 (last 2 rounds), got %+v", window[0])
+	}
+	// 工具调用字段跨事件流转保留（ToolCalls 映射）。
+	if err := router.SaveCommit("session-windowed-load", Commit{Events: []Event{
+		{Seq: 7, Role: "user", Content: "q4", TokenCount: 1},
+		{Seq: 8, Role: "assistant", ToolCalls: []EventToolCall{{ID: "t1", Name: "read_file", Arguments: `{"path":"a"}`}}, TokenCount: 1},
+		{Seq: 9, Role: "tool", ToolCallID: "t1", Content: "file", TokenCount: 1},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	toolWindow, err := windowed.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundCall := false
+	for _, msg := range toolWindow {
+		for _, call := range msg.ToolCalls {
+			if call.Function.Name == "read_file" {
+				foundCall = true
+			}
+		}
+	}
+	if !foundCall {
+		t.Fatalf("windowed load must preserve tool calls: %+v", toolWindow)
+	}
+}
+
 func TestDurableHistoryNilRouterIsInMemory(t *testing.T) {
 	history := NewDurableHistory(nil, "memory")
 	if err := history.Save(context.Background(), messages(1, "mem")); err != nil {

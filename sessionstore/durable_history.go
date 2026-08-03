@@ -30,6 +30,13 @@ type DurableHistory struct {
 	router     *Router
 	sessionID  string
 	stateStore *SessionContextStore
+	tail       *historyTailBudget // 滑动窗口读尾预算（nil = 全量加载，旧语义）
+}
+
+// historyTailBudget 是 Load 的滑动窗口读尾预算（token + 轮数；0 = 不限）。
+type historyTailBudget struct {
+	tokenBudget int
+	maxUnits    int
 }
 
 // NewDurableHistory 创建绑定到指定会话的持久化适配器。
@@ -38,14 +45,30 @@ func NewDurableHistory(router *Router, sessionID string) *DurableHistory {
 	return &DurableHistory{router: router, sessionID: sessionID}
 }
 
+// SetTailBudget 注入滑动窗口读尾预算（plan.md §3.7.2：Load 只装载窗口
+// 区间——token + 轮数双上限；窗口外轮次由 CompactStack 摘要承接）。
+// 未调用（nil）→ Load 保持全量（旧语义，兼容未接线的调用方）。
+func (d *DurableHistory) SetTailBudget(tokenBudget, maxUnits int) {
+	d.tail = &historyTailBudget{tokenBudget: tokenBudget, maxUnits: maxUnits}
+}
+
 // SessionID 返回绑定的会话 ID。
 func (d *DurableHistory) SessionID() string { return d.sessionID }
 
-// Load 读取 ProviderHistory 全量消息。新会话（尚无存储）返回空历史而非
-// 错误，保证 Session 每次 Chat 前的 Load 可以正常开始。
-func (d *DurableHistory) Load(_ context.Context) ([]types.Message, error) {
+// Load 读取 ProviderHistory 消息。配置了窗口预算（SetTailBudget）时按
+// token + 轮数读尾（滑动窗口加载区间，D1：只装载窗口，不拉全量）；
+// 未配置 → 全量（旧语义）。新会话（尚无存储）返回空历史而非错误，
+// 保证 Session 每次 Chat 前的 Load 可以正常开始。
+func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 	if d == nil || d.router == nil || d.sessionID == "" {
 		return []types.Message{}, nil
+	}
+	if d.tail != nil && (d.tail.tokenBudget > 0 || d.tail.maxUnits > 0) {
+		events, err := d.LoadEventTail(ctx, d.tail.tokenBudget, d.tail.maxUnits)
+		if err != nil {
+			return nil, err
+		}
+		return eventsToMessages(events), nil
 	}
 	messages, err := d.router.Load(d.sessionID)
 	if err != nil {
@@ -55,6 +78,40 @@ func (d *DurableHistory) Load(_ context.Context) ([]types.Message, error) {
 		return nil, fmt.Errorf("durable history: load %q: %w", d.sessionID, err)
 	}
 	return messages, nil
+}
+
+// eventsToMessages 把完整协议单元事件流转为 types.Message（窗口读尾的
+// 载荷转换；事件已保证轮次完整性，直接映射字段）。
+func eventsToMessages(events []Event) []types.Message {
+	if len(events) == 0 {
+		return []types.Message{}
+	}
+	messages := make([]types.Message, 0, len(events))
+	for _, event := range events {
+		message := types.Message{
+			Role:             event.Role,
+			ReasoningContent: event.ReasoningContent,
+			Content:          strPtrOrNil(event.Content),
+			ToolCallID:       event.ToolCallID,
+			Name:             event.Name,
+		}
+		for _, call := range event.ToolCalls {
+			message.ToolCalls = append(message.ToolCalls, types.ToolCall{
+				ID: call.ID, Type: "function", Function: types.ToolCallFunction{
+					Name: call.Name, Arguments: call.Arguments,
+				},
+			})
+		}
+		messages = append(messages, message)
+	}
+	return messages
+}
+
+func strPtrOrNil(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // Save 编排 ProviderHistory 原子写；若存在会话上下文存储则同步持久化

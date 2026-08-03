@@ -39,6 +39,9 @@ type ChatEngine interface {
 	// AppendHistory 追加消息到引擎内部对话历史。
 	// 仅在 OnIterationComplete 回调（ChatStream 同 goroutine）中调用，不加锁。
 	AppendHistory(msg types.Message)
+	// NodeSessionConversation 返回节点子代理的会话记录（运行中实时 /
+	// 结束后快照；只读子代理 actor，安全）。
+	NodeSessionConversation(nodeID string) ([]types.Message, bool)
 }
 type RuntimePort interface {
 	Model() string

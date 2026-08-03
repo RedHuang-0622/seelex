@@ -556,6 +556,8 @@ func TestRuntimePrepareReplanLoadsRecoveryPlanWithBoundedRetry(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 	runtime.SetPlanPolicy(PlanPolicy{Effort: "lite"})
+	// replan 恢复路径经 plan_load（plan 工具面归位后需 goal 激活可见）。
+	runtime.SetGoalSkillProvider(func() bool { return true })
 
 	result, err := runtime.PrepareReplan(context.Background(), ReplanRequest{
 		Objective:    "build the release",
@@ -771,5 +773,8 @@ func newTestRuntime(t testing.TB) *Runtime {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 测试基座默认 goal skill 激活（plan 工具可见——多数 plan 测试需要）；
+	// 测"默认隐藏"的用例显式 SetGoalSkillProvider(nil)。
+	runtime.SetGoalSkillProvider(func() bool { return true })
 	return runtime
 }

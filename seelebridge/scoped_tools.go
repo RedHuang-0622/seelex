@@ -13,6 +13,23 @@ import (
 	"time"
 )
 
+// resolveNodePath 解析工具路径的根：worktree 节点（NodeScope.WorkspaceID
+// 指向 worktree 根）→ 节点根；否则 ProjectScope 单根。worktree 目录由
+// git 创建（真实目录），resolveInside 内含 withinRoot 校验（越界拒绝）。
+func (r *Runtime) resolveNodePath(ctx context.Context, path string, forWrite bool) (string, error) {
+	if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.WorkspaceID != "" {
+		candidate, err := resolveInside(scope.WorkspaceID, path)
+		if err != nil {
+			return "", err
+		}
+		return candidate, nil
+	}
+	if forWrite {
+		return r.projectScope.ResolveWrite(path)
+	}
+	return r.projectScope.ResolveRead(path)
+}
+
 // registerProjectScopedTools overrides the Seele builtin filesystem tools.
 // Holder inline providers take precedence over builtin providers with the same
 // name, keeping this policy local to Seelex.
@@ -31,7 +48,7 @@ type scopedReadFileInput struct {
 	EndLine   int    `json:"end_line,omitempty"`
 }
 
-func (r *Runtime) scopedReadFile(_ context.Context, argsJSON string) (string, error) {
+func (r *Runtime) scopedReadFile(ctx context.Context, argsJSON string) (string, error) {
 	var input scopedReadFileInput
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("read_file: invalid args: %w", err)
@@ -39,7 +56,7 @@ func (r *Runtime) scopedReadFile(_ context.Context, argsJSON string) (string, er
 	if input.Path == "" {
 		return "", fmt.Errorf("read_file: path is required")
 	}
-	path, err := r.projectScope.ResolveRead(input.Path)
+	path, err := r.resolveNodePath(ctx, input.Path, false)
 	if err != nil {
 		return "", err
 	}
@@ -82,7 +99,7 @@ func (r *Runtime) scopedGrep(ctx context.Context, argsJSON string) (string, erro
 	if input.Pattern == "" {
 		return "[]", nil
 	}
-	root, err := r.projectScope.ResolveRead(input.Path)
+	root, err := r.resolveNodePath(ctx, input.Path, false)
 	if err != nil {
 		return "", err
 	}
@@ -149,7 +166,7 @@ func (r *Runtime) scopedGlob(ctx context.Context, argsJSON string) (string, erro
 	if input.Pattern == "" {
 		return "[]", nil
 	}
-	root, err := r.projectScope.ResolveRead(input.Path)
+	root, err := r.resolveNodePath(ctx, input.Path, false)
 	if err != nil {
 		return "", err
 	}
@@ -191,7 +208,7 @@ type scopedWriteFileInput struct {
 	Content string `json:"content"`
 }
 
-func (r *Runtime) scopedWriteFile(_ context.Context, argsJSON string) (string, error) {
+func (r *Runtime) scopedWriteFile(ctx context.Context, argsJSON string) (string, error) {
 	var input scopedWriteFileInput
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("write_file: invalid args: %w", err)
@@ -199,7 +216,7 @@ func (r *Runtime) scopedWriteFile(_ context.Context, argsJSON string) (string, e
 	if input.Path == "" {
 		return "", fmt.Errorf("write_file: path is required")
 	}
-	path, err := r.projectScope.ResolveWrite(input.Path)
+	path, err := r.resolveNodePath(ctx, input.Path, true)
 	if err != nil {
 		return "", err
 	}
@@ -217,7 +234,7 @@ type scopedEditFileInput struct {
 	NewString string `json:"new_string"`
 }
 
-func (r *Runtime) scopedEditFile(_ context.Context, argsJSON string) (string, error) {
+func (r *Runtime) scopedEditFile(ctx context.Context, argsJSON string) (string, error) {
 	var input scopedEditFileInput
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("edit_file: invalid args: %w", err)
@@ -225,7 +242,7 @@ func (r *Runtime) scopedEditFile(_ context.Context, argsJSON string) (string, er
 	if input.Path == "" || input.OldString == "" {
 		return "", fmt.Errorf("edit_file: path and old_string are required")
 	}
-	path, err := r.projectScope.ResolveWrite(input.Path)
+	path, err := r.resolveNodePath(ctx, input.Path, true)
 	if err != nil {
 		return "", err
 	}
@@ -259,27 +276,19 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	if input.Command == "" {
 		return `{"stdout":"","stderr":"","exit_code":0}`, nil
 	}
-	workdir, err := r.projectScope.ResolveWorkdir(input.Workdir)
+	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
 	if err != nil {
 		return "", err
-	}
-	shell := "sh"
-	shellArgs := []string{"-c", input.Command}
-	if _, err := os.Stat("/bin/bash"); err == nil {
-		shell = "bash"
-	} else if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; fileExists(powershell) {
-		shell = powershell
-		shellArgs = []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", input.Command}
-	} else if commandPrompt := `C:\Windows\System32\cmd.exe`; fileExists(commandPrompt) {
-		shell = commandPrompt
-		shellArgs = []string{"/d", "/s", "/c", input.Command}
 	}
 	timeout := r.scopedToolTimeout(input.Timeout)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
-	cmd.Dir = workdir
-	configureHiddenCommand(cmd)
+	// 经 CommandSandbox 端口执行（sandbox.go）：项目 cwd 门禁 + 凭据环境
+	// 变量清洗 + 能力报告；fail-fast——Prepare 失败即拒绝，不降级。
+	cmd, _, err := r.sandbox.Prepare(runCtx, workdir, input.Command, int(timeout.Seconds()))
+	if err != nil {
+		return "", fmt.Errorf("bash: sandbox unavailable: %w", err)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()

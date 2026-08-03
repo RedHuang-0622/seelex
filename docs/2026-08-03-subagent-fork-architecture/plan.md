@@ -1,6 +1,6 @@
 # 子代理架构调整详细设计 — 模型自由层（todolist + fork）与固化层（goal + plan）分层
 
-> 状态：切片 1-3 已实施（2026-08-03，v1 版本：A1 工具面 / A2 skill / A3 预算 / C3 收尾契约；`go build/vet/test ./...` 与 GUI 构建全绿）。切片 4-10 待实施。
+> 状态：**全部切片已实施**（2026-08-03，v2 版本：切片 1-3 = A1 工具面 / A2 skill / A3 预算 / C3 收尾契约；切片 4-10 = C1 worktree / C2 fork / A5 todolist / A6 plan 归位 / B1 详情 / D1 窗口加载 / C4 沙箱端口。`go build/vet/test ./...`、GUI 构建、真实 LLM 冒烟、真实账号 plan 冒烟全绿）。切片 4-10 的实施差异见 §12。
 > 适用范围：子代理入口分层（plan DAG / fork / todolist）、worktree 生命周期工作流、子代理与主代理能力对齐（工具集/skill/预算）、前端子代理详情查看、主代理滑动窗口加载、沙箱
 > 关联架构：[`docs/arch/seele-v2-runtime-architecture.md`](../arch/seele-v2-runtime-architecture.md)（§4.4 Plan→subagent）、[`docs/research/coding-agent-harness-comparison.md`](../research/coding-agent-harness-comparison.md)（差距矩阵 §3.7）、[`docs/plan/subagent-detail-architecture.md`](../plan/subagent-detail-architecture.md)（前端详设，本设计 §8 实施）
 > 已确认决策（2026-08-03 用户）：① worktree 合并回主工作区前必须用户审批；② 变基由子代理自己执行，框架检测失败兜底；③ 非 git 项目/只读节点跳过 worktree，共享工作区；④ plan 工具从主工具面移出，随 goal skill 激活注入
@@ -259,18 +259,18 @@ todo 全 done 与 plan 全节点完成都走同一 `task_complete` 投影校验�
 
 每个切片保持 `go build ./...`、`go vet ./...`、测试通过。
 
-| 切片 | 内容 | 依赖 |
+| 切片 | 内容 | 状态 |
 |---|---|---|
-| 1 | A1 移除硬编码工具白名单 + 插件策略统一 + 收尾提示词契约（§7.1/§7.5） | — ✅ 已实施 |
-| 2 | A2 skill 接入节点会话（§7.2） | 1 ✅ 已实施 |
-| 3 | A3 预算参数注入（§7.3）；A4 节点窗口按账号推导（§7.4，未实施） | 1 ✅ A3 已实施 |
-| 4 | C1 worktree 生命周期：开/切/变基兜底/合并审批/降级/冲突（§3） | 1 |
-| 5 | C2 fork 工具：程序化 DAG + 汇总节点（§4） | 4 |
-| 6 | A5 todolist 工具族 + 投影 + task 终态衔接（§5） | 1 |
-| 7 | A6 plan 工具面随 goal skill 注入（§6） | 6 |
-| 8 | B1 前端子代理详情（§8） | —（独立） |
-| 9 | D1 滑动窗口加载区间（§9） | —（独立） |
-| 10 | C4 沙箱（§10） | —（独立，可并行） |
+| 1 | A1 移除硬编码工具白名单 + 插件策略统一 + 收尾提示词契约（§7.1/§7.5） | ✅ 已实施（v1） |
+| 2 | A2 skill 接入节点会话（§7.2，actor 化：直接持有 Registry，无外层锁） | ✅ 已实施（v1） |
+| 3 | A3 预算参数注入（§7.3，含 SetMaxLoops 动态覆盖）；**A4 节点窗口按账号推导未实施**（nodeBudget.MaxOutputTokens 已按账号，窗口策略仍 runtime 级） | ✅ A3（v1）；A4 遗留 |
+| 4 | C1 worktree 生命周期（§3）：开/切/变基兜底/合并审批/降级/冲突（worktree.go）；降级 = 非 git/创建失败共享工作区；合并审批复用 approvalGate（diff stat 摘要）；失败保留现场 | ✅ 已实施 |
+| 5 | C2 fork 工具（§4）：fork_tool.go；程序化 DAG start→N×agent→summary（forkSummaryNode 拼接 PrevResults）；fork_subagents 对子代理不可见（递归护栏） | ✅ 已实施 |
+| 6 | A5 todolist 工具族（§5）：todo_tool.go；actor 状态（todoState）+ limits.todo_max_items；全 done 提示 task_complete；会话级持久化未接（留 SessionContextRecord 后续） | ✅ 已实施 |
+| 7 | A6 plan 工具面随 goal skill 注入（§6）：seelexVisibilityPolicy 按 SetGoalSkillProvider 判定（main 从 app.ActiveSkillIDs 注入）；默认面 = todolist + fork；replan 恢复路径测试需 goal 激活 | ✅ 已实施 |
+| 8 | B1 前端子代理详情（§8）：节点会话注册表（NodeSessionConversation 实时/快照）+ application SubagentSessionDetail（截断）+ GUI 弹窗三标签（会话记录/时间线/输出）+ 运行中 2s 轮询；遥测活动投影（SubagentActivity）未做（会话记录已覆盖主要诉求） | ✅ 已实施 |
+| 9 | D1 滑动窗口加载区间（§9）：DurableHistory.SetTailBudget + Load 窗口读尾（eventsToMessages）+ runtime 主会话装配（ctxStore 接线后生效）；会话恢复流程本身未完全接线（架构文档 slice 6+ 遗留） | ✅ 已实施 |
+| 10 | C4 沙箱（§10）：CommandSandbox 端口 + native 实现（cwd 门禁 + 凭据环境变量清洗 + 能力报告 + fail-fast）；isobox/agentbox 适配留接口，OS 级隔离待成熟后接入 | ✅ 已实施（端口版） |
 
 ## 13. 风险与缓解
 
