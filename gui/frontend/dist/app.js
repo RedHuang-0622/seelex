@@ -315,6 +315,8 @@ function closeNodeDetail() {
 function renderInteraction(interaction) {
   elements["interaction-modal"].classList.toggle("hidden", !interaction);
   if (!interaction) return;
+  // 诊断日志（权限弹窗排查用；正常运行时无副作用）。
+  console.log("[interaction] opened:", interaction.id, interaction.tool_name || interaction.kind);
   elements["interaction-risk"].textContent = interaction.risk || interaction.kind || "approval";
   elements["interaction-title"].textContent = interaction.title || "需要确认";
   elements["interaction-question"].textContent = interaction.question || interaction.tool_name || "是否继续？";
@@ -329,6 +331,9 @@ function renderInteraction(interaction) {
       catch (error) { showToast(error); }
     });
   });
+  // 弹窗打开时聚焦首个选项按钮（审批等待中强制可见交互入口）。
+  const firstOption = elements["interaction-options"].querySelector("button");
+  if (firstOption) setTimeout(() => firstOption.focus(), 0);
 }
 
 function setModal(id, open) {

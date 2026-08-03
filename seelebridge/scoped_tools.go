@@ -280,15 +280,26 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	if err != nil {
 		return "", err
 	}
+	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
+	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
+	// 待定位挂起根因后再接入（接入时需 fail-fast，不得悄悄降级）。
+	shell := "sh"
+	shellArgs := []string{"-c", input.Command}
+	if _, err := os.Stat("/bin/bash"); err == nil {
+		shell = "bash"
+	} else if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; fileExists(powershell) {
+		shell = powershell
+		shellArgs = []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", input.Command}
+	} else if commandPrompt := `C:\Windows\System32\cmd.exe`; fileExists(commandPrompt) {
+		shell = commandPrompt
+		shellArgs = []string{"/d", "/s", "/c", input.Command}
+	}
 	timeout := r.scopedToolTimeout(input.Timeout)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	// 经 CommandSandbox 端口执行（sandbox.go）：项目 cwd 门禁 + 凭据环境
-	// 变量清洗 + 能力报告；fail-fast——Prepare 失败即拒绝，不降级。
-	cmd, _, err := r.sandbox.Prepare(runCtx, workdir, input.Command, int(timeout.Seconds()))
-	if err != nil {
-		return "", fmt.Errorf("bash: sandbox unavailable: %w", err)
-	}
+	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
+	cmd.Dir = workdir
+	configureHiddenCommand(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()

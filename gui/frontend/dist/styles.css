@@ -447,7 +447,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-view { min-width: 0; font-size: 11px; }
 .muted { color: var(--muted); }
 
-.modal { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .68); -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
+.modal { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, .68); -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
 .modal-card { width: min(620px, 100%); padding: 20px; border: 1px solid var(--border-strong); border-radius: 12px; background: #151515; box-shadow: var(--shadow); }
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .modal-header h2, .modal-card h2 { margin: 2px 0 0; color: #ddd; font-size: 17px; font-weight: 560; }
