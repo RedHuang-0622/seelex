@@ -45,12 +45,12 @@ func (d *DurableHistory) SessionID() string { return d.sessionID }
 // 错误，保证 Session 每次 Chat 前的 Load 可以正常开始。
 func (d *DurableHistory) Load(_ context.Context) ([]types.Message, error) {
 	if d == nil || d.router == nil || d.sessionID == "" {
-		return nil, nil
+		return []types.Message{}, nil
 	}
 	messages, err := d.router.Load(d.sessionID)
 	if err != nil {
 		if isSessionNotFound(err) {
-			return nil, nil
+			return []types.Message{}, nil
 		}
 		return nil, fmt.Errorf("durable history: load %q: %w", d.sessionID, err)
 	}
@@ -79,12 +79,12 @@ func (d *DurableHistory) Save(ctx context.Context, messages []types.Message) err
 // provider 请求，窗口外轮次才允许被 Controller 压缩（§3.7.4）。
 func (d *DurableHistory) LoadEventTail(_ context.Context, tokenBudget, maxUnits int) ([]Event, error) {
 	if d == nil || d.router == nil || d.sessionID == "" {
-		return nil, nil
+		return []Event{}, nil
 	}
 	events, err := d.router.LoadEventTail(d.sessionID, tokenBudget, maxUnits)
 	if err != nil {
 		if isSessionNotFound(err) {
-			return nil, nil
+			return []Event{}, nil
 		}
 		return nil, fmt.Errorf("durable history: load event tail %q: %w", d.sessionID, err)
 	}

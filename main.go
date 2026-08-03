@@ -588,12 +588,12 @@ func defaultManualRules() []toolspermission.PermissionRule {
 }
 
 // loadPermissionRules 读取 seele.yaml 的 permission.rules（权限专用文件）。
-// 文件缺失或 permission 段缺失 → nil（回退默认白名单）；解析失败显式报错。
+// 文件缺失或 permission 段缺失 → 空规则列表（回退默认白名单）；解析失败显式报错。
 func loadPermissionRules(path string) ([]toolspermission.PermissionRule, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return []toolspermission.PermissionRule{}, nil
 		}
 		return nil, fmt.Errorf("permission: read config: %w", err)
 	}

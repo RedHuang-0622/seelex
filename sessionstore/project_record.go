@@ -250,7 +250,7 @@ func (b *ProjectKnowledgeBuilder) readMetadataModules() ([]ModuleSemantics, erro
 	data, err := os.ReadFile(b.metadataPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return []ModuleSemantics{}, nil
 		}
 		return nil, fmt.Errorf("project knowledge: read metadata %q: %w", b.metadataPath, err)
 	}
@@ -290,7 +290,7 @@ func (b *ProjectKnowledgeBuilder) scanDocDirModules() ([]ModuleSemantics, error)
 	entries, err := os.ReadDir(b.modulesDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return []ModuleSemantics{}, nil
 		}
 		return nil, fmt.Errorf("project knowledge: scan modules dir %q: %w", b.modulesDir, err)
 	}
@@ -328,7 +328,7 @@ func (b *ProjectKnowledgeBuilder) moduleDocFiles() ([]string, error) {
 	entries, err := os.ReadDir(b.modulesDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return []string{}, nil
 		}
 		return nil, fmt.Errorf("project knowledge: scan modules dir %q: %w", b.modulesDir, err)
 	}

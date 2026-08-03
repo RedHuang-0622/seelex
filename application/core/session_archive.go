@@ -183,7 +183,7 @@ func (service *sessionCoordinator) loadSessionRecord(location sessionLocation, s
 func (service *sessionCoordinator) loadSessionTranscript(location sessionLocation, sessionID string) ([]TranscriptEvent, error) {
 	store, ok := service.deps.Sessions.(sessionTranscriptPort)
 	if !ok {
-		return nil, nil
+		return []TranscriptEvent{}, nil
 	}
 	budget := contextBudgetFor(service.deps.Runtime)
 	return store.LoadTranscriptTailWorkspace(location.workspaceID, sessionID, budget.TargetAfterCompaction, 4)
