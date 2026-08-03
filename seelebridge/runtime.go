@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
+	"github.com/RedHuang-0622/seelex/skill"
 )
 
 // RuntimeConfig contains the Seelex-facing subset of Agent configuration.
@@ -89,6 +90,10 @@ type Runtime struct {
 	approvalGate        approve.ApprovalGate
 	exchangerMu         sync.RWMutex     // 上下文消息通道锁（actor 边界指针保护）
 	exchanger           ContextExchanger // 父子 actor 上下文消息通道（actor.go）
+	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
+	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
+	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
+	skills *skill.Registry
 	selectedAccountID   string
 	providerFilter      string
 	projectScope        *ProjectScope

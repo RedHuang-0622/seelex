@@ -159,6 +159,9 @@ func run() error {
 	// - 消息出（MergeBack）：merge-back 结果投递 mailbox，下次 ChatStream
 	//   开始前注入。
 	runtime.SetContextExchanger(&contextExchanger{app: app, tracer: runtime.Tracer()})
+	// 子代理 skill 能力（与主代理一致读取 skill 目录）：装配 skill 目录
+	// actor（Registry 自带锁，读写经其方法进出；nodeSkillBlocks 消费）。
+	runtime.SetSkillRegistry(skillRegistry)
 	return startFrontend(app)
 }
 

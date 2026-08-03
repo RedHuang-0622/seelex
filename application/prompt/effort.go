@@ -58,13 +58,13 @@ var effortProfiles = map[string]effortProfile{
 	"high": {
 		prompt:     promptassets.Effort("high"),
 		maxLoops:   384,
-		planPolicy: seelebridge.PlanPolicy{Effort: "high", MaxForkConcurrency: 3},
+		planPolicy: seelebridge.PlanPolicy{Effort: "high", MaxForkConcurrency: 3, MaxNodeLoops: 48},
 		budget:     ReActBudget{MaxToolRounds: 384, MaxToolCalls: 768, MaxNoProgressRounds: 24},
 	},
 	"max": {
 		prompt:     promptassets.Effort("max"),
 		maxLoops:   768,
-		planPolicy: seelebridge.PlanPolicy{Effort: "max"},
+		planPolicy: seelebridge.PlanPolicy{Effort: "max", MaxNodeLoops: 96},
 		budget:     ReActBudget{MaxToolRounds: 768, MaxToolCalls: 1536, MaxNoProgressRounds: 48},
 	},
 }

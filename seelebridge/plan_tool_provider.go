@@ -122,6 +122,14 @@ func (provider *planToolProvider) planLoadEntry() tools.ToolEntry {
 								"properties": map[string]interface{}{
 									"input": map[string]interface{}{"type": "string"},
 									"kind":  map[string]interface{}{"type": "string", "enum": []string{"auto", "manual", "agent", "function", "approve", "verify", "deliver"}},
+									"budget": map[string]interface{}{
+										"type":        "object",
+										"description": "Node-level execution budget (optional; falls back to seele.yaml limits).",
+										"properties": map[string]interface{}{
+											"max_loops":         map[string]interface{}{"type": "integer", "minimum": 1},
+											"max_output_tokens": map[string]interface{}{"type": "integer", "minimum": 1},
+										},
+									},
 								},
 								"required": []string{"input"},
 							},

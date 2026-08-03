@@ -70,19 +70,22 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 		}
 	}
 
-	// 子代理（RoleSubAgent）：只可见项目作用域工具。
+	// 子代理（RoleSubAgent）：与主代理能力一致（完整工具面），仅排除
+	// 操作全局状态的工具（plan 工具族 / task 终态工具）。
 	subCtx := WithNodeScope(context.Background(), NodeScope{
 		NodeID: "left", Role: RoleSubAgent, BranchID: "left", WorkspaceID: "w1",
 	})
 	scoped := toolNames(runtime.VisibleTools(subCtx))
-	for _, want := range []string{"read_file", "grep_search", "glob", "write_file", "edit_file", "bash"} {
+	// 完整工具面：项目工具 + 注册的普通工具（web_search）均可见。
+	for _, want := range []string{"read_file", "grep_search", "glob", "write_file", "edit_file", "bash", "web_search"} {
 		if !containsName(scoped, want) {
-			t.Errorf("subagent tools = %v, missing scoped tool %q", scoped, want)
+			t.Errorf("subagent tools = %v, missing tool %q", scoped, want)
 		}
 	}
-	for _, hidden := range []string{"plan_run", "plan_load", "plan_clear", "task_complete", "web_search"} {
+	// 仅排除操作全局状态的工具（plan 工具族 / task 终态工具）。
+	for _, hidden := range []string{"plan_run", "plan_load", "plan_clear", "plan_status", "plan_export", "plan_validate", "task_complete", "task_failed", "task_needs_user_decision"} {
 		if containsName(scoped, hidden) {
-			t.Errorf("subagent tools = %v, must not contain %q", scoped, hidden)
+			t.Errorf("subagent tools = %v, must not contain global-state tool %q", scoped, hidden)
 		}
 	}
 

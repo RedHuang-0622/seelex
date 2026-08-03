@@ -82,34 +82,33 @@ func (r *Runtime) addInlineTool(
 }
 
 // seelexVisibilityPolicy 是 bridge.WithVisibilityPolicy 要求的函数类型策略。
-// 它读取请求 ctx 中的节点作用域（NodeScope）与 Runtime 插件状态
-// （include/exclude 快照），对每次请求过滤可见工具集：
-//   - 子代理（Plan kind:agent 节点）：只可见项目作用域工具 + 交付工具
-//     （主代理 = 全部工具）；
-//   - 插件过滤：include/exclude 快照（与旧 holder 插件语义一致）。
+// 子代理（Plan kind:agent 节点）与主代理能力一致：完整工具面 + 插件
+// include/exclude 过滤同等生效。唯一例外是操作全局状态的工具（plan 工具族、
+// task 终态工具）——并发子代理调用会污染主代理的计划状态 / 错误终结任务，
+// 见 nodeScopeExcludedTool。
 //
 // 并发共享时策略闭包只读 Runtime 的加锁字段，安全。
 // Dispatch 侧由 agent/bridge.RegistryRuntime 复核同一策略，隐藏工具返回
 // ErrToolNotVisible。
 func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool) []types.Tool {
-	if scope := nodeScopeFromContextOrEmpty(ctx); scope.NodeID != "" && scope.Role == RoleSubAgent {
-		filtered := make([]types.Tool, 0, len(tools))
-		for _, tool := range tools {
-			if nodeScopeToolVisible(tool.Function.Name) {
-				filtered = append(filtered, tool)
-			}
+	scope := nodeScopeFromContextOrEmpty(ctx)
+	filtered := make([]types.Tool, 0, len(tools))
+	for _, tool := range tools {
+		name := tool.Function.Name
+		if scope.NodeID != "" && scope.Role == RoleSubAgent && nodeScopeExcludedTool(name) {
+			continue
 		}
-		return filtered
+		filtered = append(filtered, tool)
 	}
 	r.pluginMu.RLock()
 	active := r.activePlugin
 	def, ok := r.pluginDefs[active]
 	r.pluginMu.RUnlock()
 	if !ok || active == "" {
-		return tools
+		return filtered
 	}
-	filtered := make([]types.Tool, 0, len(tools))
-	for _, tool := range tools {
+	pluginFiltered := make([]types.Tool, 0, len(filtered))
+	for _, tool := range filtered {
 		name := tool.Function.Name
 		if len(def.Include) > 0 && !matchesAnyPattern(name, def.Include) {
 			continue
@@ -117,18 +116,19 @@ func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool
 		if matchesAnyPattern(name, def.Exclude) {
 			continue
 		}
-		filtered = append(filtered, tool)
+		pluginFiltered = append(pluginFiltered, tool)
 	}
-	return filtered
+	return pluginFiltered
 }
 
-// nodeScopeToolVisible 判断子代理可见工具：项目作用域工具（scoped_tools.go
-// 注册集，全部经 ProjectScope 路径校验）+ 交付工具（deliver 语义）。
-// deliver 在节点 DSL 中是节点 kind 而非独立工具，故清单为空；产品新增
-// 交付工具（如 task 终态类）时在此登记。
-func nodeScopeToolVisible(name string) bool {
+// nodeScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
+// runtime/会话级单例状态（planToolProvider.loaded、TaskStack 终态），
+// 并行子代理调用会造成语义冲突（子代理 plan_run 递归嵌套 DAG、
+// task_complete 错误终结主任务）。其余工具与主代理一致可见。
+func nodeScopeExcludedTool(name string) bool {
 	switch name {
-	case "read_file", "grep_search", "glob", "write_file", "edit_file", "bash":
+	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate",
+		"task_complete", "task_failed", "task_needs_user_decision":
 		return true
 	default:
 		return false

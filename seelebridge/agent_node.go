@@ -3,8 +3,9 @@ package seelebridge
 import (
 	"context"
 	"fmt"
-
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
@@ -17,6 +18,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx/merger"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/skill"
 )
 
 // SeelexAgentNode 是 plan kind:agent 节点的子代理执行包装（plan.md §3.3.1）。
@@ -83,6 +85,11 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 		return "", fmt.Errorf("agent node %q: agent factory is not configured", n.ID())
 	}
 	agent := factory.NewAgent(n.input.Input)
+	// 节点级预算（input.budget 优先，回退 limits）：动态覆盖节点会话的
+	// ReAct 循环上限（session.SetMaxLoops，chat.go 动态方法）。
+	if sess, ok := agent.(*frameworkSession.Session); ok {
+		sess.SetMaxLoops(n.runtime.nodeBudget(n.input).MaxLoops)
+	}
 	result, err := agent.Chat(ctx, n.input.Input)
 	if err == nil {
 		n.mergeBack(ctx, agent, n.input.Input)
@@ -161,10 +168,10 @@ func (nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.Assembl
 	return seelectx.DefaultRequestAssembler{}.Assemble(ctx, request)
 }
 
-// nodePromptBlocks 构建节点级 PromptBlock：目标 + 父证据 + 预算。
+// nodePromptBlocks 构建节点级 PromptBlock：目标 + 父证据 + 预算 + 收尾契约。
 // 父证据经 ContextExchanger.ParentEvidence 注入（actor.go，缺省无）。
 func (r *Runtime) nodePromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
-	blocks := make([]seelectx.PromptBlock, 0, 3)
+	blocks := make([]seelectx.PromptBlock, 0, 4)
 	blocks = append(blocks, seelectx.PromptBlock{
 		Name: "node-goal",
 		Messages: []types.Message{{
@@ -181,7 +188,7 @@ func (r *Runtime) nodePromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock
 			}},
 		})
 	}
-	budget := r.nodeBudget()
+	budget := r.nodeBudget(input)
 	blocks = append(blocks, seelectx.PromptBlock{
 		Name: "node-budget",
 		Messages: []types.Message{{
@@ -189,6 +196,27 @@ func (r *Runtime) nodePromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock
 			Content: stringPtr(fmt.Sprintf(
 				"## 节点预算 (Node Budget)\n- 最大迭代轮数: %d\n- 最大输出 tokens: %d",
 				budget.MaxLoops, budget.MaxOutputTokens)),
+		}},
+	})
+	// skill 能力（docs/2026-08-03-subagent-fork-architecture/plan.md §7.2）：
+	// 子代理与主代理一样读取 skill 目录——目录块（名称+描述）始终注入，
+	// 与节点目标匹配的 skill 注入完整指令（未装配 provider → 无块，降级）。
+	blocks = append(blocks, r.nodeSkillBlocks(input)...)
+	// 收尾契约（docs/2026-08-03-subagent-fork-architecture/plan.md §7.5）：
+	// 子代理必须明确任务结束流程——commit、变基、禁止 merge、结构化 findings。
+	blocks = append(blocks, seelectx.PromptBlock{
+		Name: "node-finish-protocol",
+		Messages: []types.Message{{
+			Role: "user",
+			Content: stringPtr(fmt.Sprintf(
+				"## 任务结束流程 (Finish Protocol)\n"+
+					"1. 完成标准：任务可验证（检查项/测试通过）才算完成。\n"+
+					"2. 收尾序列（按序执行）：\n"+
+					"   a. 若有文件改动：git add -A && git commit -m \"seelex/%s: <摘要>\"\n"+
+					"   b. 变基：git rebase <主分支>（合并最新变更，冲突自行解决）\n"+
+					"3. 明确禁止：不 merge、不 checkout 主分支、不触碰主工作区（合并是框架的事）。\n"+
+					"4. 最终回复：给出结构化 findings（结论/改动文件/验证结果），供 merge-back。",
+				input.ID)),
 		}},
 	})
 	return blocks
@@ -201,11 +229,100 @@ type nodeBudgetInfo struct {
 	MaxOutputTokens int
 }
 
-// nodeBudget 返回节点子代理的迭代轮数预算：优先 seele.yaml limits 的
-// plan_node_max_loops（调参入口），默认 15（比主会话更收敛，节点只做片段工作）。
-func (r *Runtime) nodeBudget() nodeBudgetInfo {
+
+// SetSkillRegistry 装配子代理 skill 目录 actor（skill.Registry 自带锁，
+// 读写经其方法进出；见 skill/skill.go）。装配一次性写入、运行期只读，
+// 与 filesystem actor 同构，无需外层锁。传入 nil 关闭 skill 块（降级）。
+func (r *Runtime) SetSkillRegistry(registry *skill.Registry) {
+	r.skills = registry
+}
+
+// nodeSkillBlocks 构建子代理 skill 块：
+//   - node-skill-catalog：全部可见 skill 的名称 + 描述（目录，模型可感知
+//     可用技能；与主代理"读取 skill 目录"对齐）；
+//   - node-skill-active：与节点目标匹配的 skill 完整指令（名称分词/描述
+//     词出现在节点 input 中即激活；未匹配 → 不注入，目录块仍在）。
+// registry 未装配（nil）→ 无块，行为降级为当前实现。
+func (r *Runtime) nodeSkillBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
+	if r.skills == nil {
+		return nil
+	}
+	skills := r.skills.All() // actor 消息：Registry 内部锁，见 skill/skill.go
+	if len(skills) == 0 {
+		return nil
+	}
+	blocks := make([]seelectx.PromptBlock, 0, 2)
+	// 目录块：每 skill 一行（名称 —— 描述）。
+	var catalog strings.Builder
+	catalog.WriteString("## 可用技能 (Skill Catalog)\n")
+	for _, s := range skills {
+		catalog.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
+	}
+	blocks = append(blocks, seelectx.PromptBlock{
+		Name: "node-skill-catalog",
+		Messages: []types.Message{{Role: "user", Content: stringPtr(catalog.String())}},
+	})
+	// 激活块：与节点目标匹配的 skill 完整指令。
+	if matched := matchNodeSkills(input.Input, skills); len(matched) > 0 {
+		var active strings.Builder
+		active.WriteString("## 激活技能 (Active Skills)\n")
+		for _, s := range matched {
+			active.WriteString(fmt.Sprintf("### %s\n%s\n", s.Name, s.Prompt))
+		}
+		blocks = append(blocks, seelectx.PromptBlock{
+			Name: "node-skill-active",
+			Messages: []types.Message{{Role: "user", Content: stringPtr(active.String())}},
+		})
+	}
+	return blocks
+}
+
+// matchNodeSkills 按节点目标匹配 skill：skill 名称（含分词：code-impl →
+// code/impl）或描述中的英文词出现在目标文本中即匹配。
+func matchNodeSkills(input string, skills []skill.Skill) []skill.Skill {
+	haystack := strings.ToLower(input)
+	matched := make([]skill.Skill, 0, len(skills))
+	for _, s := range skills {
+		needle := strings.ToLower(s.Name)
+		if strings.Contains(haystack, needle) {
+			matched = append(matched, s)
+			continue
+		}
+		for _, part := range strings.FieldsFunc(needle, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		}) {
+			if len(part) >= 3 && strings.Contains(haystack, part) {
+				matched = append(matched, s)
+				goto next
+			}
+		}
+		for _, word := range strings.Fields(s.Description) {
+			w := strings.Trim(strings.ToLower(word), "，。！？、,.!?:;()（）\"'")
+			if len(w) >= 3 && strings.Contains(haystack, w) {
+				matched = append(matched, s)
+				break
+			}
+		}
+	next:
+	}
+	return matched
+}
+
+// nodeBudget 返回节点子代理的迭代轮数预算：优先节点输入参数
+// （plan_load 节点 budget 字段，plan.md §7.3），缺省回退 seele.yaml
+// limits 的 plan_node_max_loops（默认 15）。上限由 PlanPolicy 校验。
+func (r *Runtime) nodeBudget(input SeelexNodeInput) nodeBudgetInfo {
 	limits := r.currentAccountLimits()
-	return nodeBudgetInfo{MaxLoops: r.limits.PlanNodeMaxLoops, MaxOutputTokens: limits.MaxOutputTokens}
+	budget := nodeBudgetInfo{MaxLoops: r.limits.PlanNodeMaxLoops, MaxOutputTokens: limits.MaxOutputTokens}
+	if input.Budget != nil {
+		if input.Budget.MaxLoops > 0 {
+			budget.MaxLoops = input.Budget.MaxLoops
+		}
+		if input.Budget.MaxOutputTokens > 0 {
+			budget.MaxOutputTokens = input.Budget.MaxOutputTokens
+		}
+	}
+	return budget
 }
 
 // nodeParentEvidence 返回当前父级上下文快照（Actor 消息进：主 actor 对外

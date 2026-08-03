@@ -10,11 +10,15 @@ import (
 // plan may run concurrently, rather than Seele's default concurrency of three.
 // 规划始终是模型的自愿决策，不设置聊天入口强制门槛（RequirePlan 已于 2026-08-01
 // 移除：强制规划为失败设计，preflight 仅由显式 PrepareReplan 触发）。
+// 节点预算上限（MaxNodeLoops/MaxNodeOutputTokens，0 = 不限）：防止节点级
+// budget 参数滥用（见 nodeBudget，agent_node.go）。
 type PlanPolicy struct {
 	Effort             string
 	MaxNodes           int
 	RequireSerial      bool
 	MaxForkConcurrency int
+	MaxNodeLoops       int
+	MaxNodeOutputTokens int
 }
 
 type planLoadSpec struct {
@@ -33,6 +37,25 @@ func (policy PlanPolicy) validateLoad(argsJSON string) (int, error) {
 	}
 	if policy.RequireSerial && !isSerialPlan(input) {
 		return 0, fmt.Errorf("plan policy %q: plan must be one serial chain from entry", policy.Effort)
+	}
+	if policy.MaxNodeLoops > 0 || policy.MaxNodeOutputTokens > 0 {
+		for id, raw := range input.Nodes {
+			var payload struct {
+				Budget *NodeBudgetInput `json:"budget"`
+			}
+			if err := json.Unmarshal(raw, &payload); err != nil {
+				return 0, fmt.Errorf("plan policy %q: node %q: %w", policy.Effort, id, err)
+			}
+			if payload.Budget == nil {
+				continue
+			}
+			if policy.MaxNodeLoops > 0 && payload.Budget.MaxLoops > policy.MaxNodeLoops {
+				return 0, fmt.Errorf("plan policy %q: node %q budget max_loops=%d exceeds limit %d", policy.Effort, id, payload.Budget.MaxLoops, policy.MaxNodeLoops)
+			}
+			if policy.MaxNodeOutputTokens > 0 && payload.Budget.MaxOutputTokens > policy.MaxNodeOutputTokens {
+				return 0, fmt.Errorf("plan policy %q: node %q budget max_output_tokens=%d exceeds limit %d", policy.Effort, id, payload.Budget.MaxOutputTokens, policy.MaxNodeOutputTokens)
+			}
+		}
 	}
 	return len(input.Nodes), nil
 }
