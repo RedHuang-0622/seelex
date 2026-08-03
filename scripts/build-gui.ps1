@@ -1,0 +1,78 @@
+# Seelex Windows GUI build and package script.
+# Usage: .\scripts\build-gui.ps1 [-Version "v0.1.0-alpha.1"] [-BuildKind Publish|Dev] [-LocalConfigPath "config/accounts.yaml"]
+param(
+    [string]$Version = "dev",
+    [ValidateSet("Publish", "Dev")]
+    [string]$BuildKind = "Publish",
+    [string]$LocalConfigPath = ""
+)
+
+$ErrorActionPreference = "Stop"
+$Root = Split-Path -Parent $PSScriptRoot
+$DistRoot = Join-Path $Root "dist"
+$ArchiveVersion = $Version.TrimStart("v")
+$PackageName = "seelex-v$ArchiveVersion-windows-amd64-gui"
+$PackageRoot = Join-Path $DistRoot $PackageName
+$ArchivePath = Join-Path $DistRoot "$PackageName.zip"
+
+$configSource = $null
+if ($BuildKind -eq "Dev") {
+    if (-not $LocalConfigPath) {
+        throw "dev GUI build requires a local account configuration"
+    }
+    $configSource = $LocalConfigPath
+    if (-not [System.IO.Path]::IsPathRooted($configSource)) {
+        $configSource = Join-Path $Root $configSource
+    }
+    if (-not (Test-Path -LiteralPath $configSource -PathType Leaf)) {
+        throw "local GUI account configuration is not a regular file"
+    }
+}
+elseif ($LocalConfigPath) {
+    throw "publish GUI build must not receive a local account configuration"
+}
+
+New-Item -ItemType Directory -Force -Path $DistRoot | Out-Null
+if (Test-Path $PackageRoot) {
+    Remove-Item -Recurse -Force -LiteralPath $PackageRoot
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot "config") | Out-Null
+
+$binary = Join-Path $PackageRoot "seelex-gui.exe"
+go build -C $Root -tags "gui,desktop,production" -trimpath `
+    -ldflags "-s -w -H windowsgui -X main.Version=$Version -X main.DefaultFrontend=gui" `
+    -o $binary .
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+Copy-Item (Join-Path $Root "config/accounts.example.yaml") (Join-Path $PackageRoot "config/")
+if ($BuildKind -eq "Dev") {
+    Copy-Item -LiteralPath $configSource -Destination (Join-Path $PackageRoot "config/accounts.yaml")
+}
+Copy-Item -Recurse (Join-Path $Root "plugins") (Join-Path $PackageRoot "plugins")
+Copy-Item (Join-Path $Root "seele.yaml") $PackageRoot  # 权限
+Copy-Item (Join-Path $Root "seelex.yaml") $PackageRoot  # 运行参数
+Copy-Item (Join-Path $Root "LICENSE") $PackageRoot
+Copy-Item (Join-Path $Root "CHANGELOG.md") $PackageRoot
+Copy-Item (Join-Path $Root "README.md") $PackageRoot
+
+$compressed = $false
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+    try {
+        Compress-Archive -Path $PackageRoot -DestinationPath $ArchivePath -Force
+        $compressed = $true
+        break
+    }
+    catch {
+        if ($attempt -eq 5) { throw }
+        Start-Sleep -Seconds 1
+    }
+}
+if (-not $compressed) {
+    throw "failed to create GUI archive"
+}
+$hash = (Get-FileHash $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+"$hash  $PackageName.zip" | Set-Content "$ArchivePath.sha256"
+
+Write-Host "[ok] GUI package: $ArchivePath"

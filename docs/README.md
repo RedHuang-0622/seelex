@@ -1,17 +1,47 @@
 # Seelex 文档索引
 
-> 文档按类型分为 5 类。设计/架构文档保留原始内容，其余文档已更新至 v0.0.2。
+> 文档按长期维护设计、研发过程和研究资料组织。GUI 的当前事实以 `gui/` 目录为准。
 
 ---
+
+文档创建与放置规则以根目录 [`AGENTS.md`](../AGENTS.md) 为准；分类目录的维护约定见 [`arch/README.md`](arch/README.md)、[`product/README.md`](product/README.md)、[`research/README.md`](research/README.md)、[`test/README.md`](test/README.md) 和 [`devlog/README.md`](devlog/README.md)。
 
 ## 📐 arch/ — 架构与设计
 
 | 文档 | 说明 |
 |------|------|
+| [`seele-v2-runtime-architecture.md`](arch/seele-v2-runtime-architecture.md) | Seelex 底层向 Seele v0.0.8 新边界迁移的架构设计（已实施；详设见 [`2026-08-01-seele-v2-underlying-refactor`](2026-08-01-seele-v2-underlying-refactor/plan.md)） |
 | [`architecture-and-flaws.md`](arch/architecture-and-flaws.md) | 架构说明书与已知硬伤清单（初稿） |
 | [`design-decisions-mcp-storage.md`](arch/design-decisions-mcp-storage.md) | MCP 中间件从 CAD 专属→通用→存储解耦的设计推演 |
 | [`mcp-call-chain-flowchart.md`](arch/mcp-call-chain-flowchart.md) | Agent 调用 MCP 全链路函数流 + 熔断事件通道 |
 | [`context-improvement-plan.md`](arch/context-improvement-plan.md) | Context 包拆分为 snapshot/provider/compactor/merger 方案 |
+| [`skill-effort-architecture.md`](arch/skill-effort-architecture.md) | Effort system prompt 与 Skill 用户上下文的当前实现设计 |
+| [`agent-workbench-architecture.md`](arch/agent-workbench-architecture.md) | DSL 对话卡片、Agent E2E、Workspace 沙盒与多会话并行总体架构 |
+
+## 🧭 product/ — 产品规划
+
+| 文档 | 说明 |
+|------|------|
+| [`agent-workbench/prd.json`](product/agent-workbench/prd.json) | Agent Workbench 机器可读 PRD、里程碑、验收标准与指标 |
+
+## GUI — Wails 客户端设计与审查
+
+| 文档 | 说明 |
+|------|------|
+| [`gui/README.md`](gui/README.md) | GUI 架构总览、模块边界和维护规则 |
+| [`gui/architecture.md`](gui/architecture.md) | Agent Workbench 权威总体架构、并发与 generation 发布模型 |
+| [`gui/module_dotting.json`](gui/module_dotting.json) | 模块职责、状态、接口、输入输出和依赖 DAG |
+| [`gui/schemas/`](gui/schemas/) | 对外及跨模块 JSON Schema 契约与维护规则 |
+| [`gui/api/`](gui/api/) | 规划 HTTP API、安全、分页、错误和快照语义 |
+| [`gui/recipes/`](gui/recipes/) | generation 提交、回滚、重建与故障恢复 |
+| [`gui/architecture-review.md`](gui/architecture-review.md) | 并发、循环依赖、模块边界与解耦审查 |
+| [`gui/decisions.md`](gui/decisions.md) | Wails、协议、reducer、keyed DOM、Markdown 和 CI 决策记录 |
+| [`gui/ci-and-testing.md`](gui/ci-and-testing.md) | GUI 分支 CI、测试分层和本地等价命令 |
+| [`gui/code-review.md`](gui/code-review.md) | 功能打点到详设、源码位置、测试证据的审查追溯矩阵 |
+| [`gui/modules/dsl-card-runtime.md`](gui/modules/dsl-card-runtime.md) | JSON DSL 卡片在 Conversation 中的协议、渲染与安全设计 |
+| [`gui/modules/agent-e2e-interaction.md`](gui/modules/agent-e2e-interaction.md) | 确定性 Core scenario、Playwright 与 Wails smoke 设计 |
+| [`gui/modules/workspace-sandbox.md`](gui/modules/workspace-sandbox.md) | 右栏 Files/Changes/Artifacts 与后端路径沙盒设计 |
+| [`gui/modules/multi-session-pages.md`](gui/modules/multi-session-pages.md) | 多会话页签、独立 SessionActor、有界并发与后台状态设计 |
 
 ## 📓 devlog/ — 研发过程
 

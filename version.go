@@ -1,5 +1,9 @@
 package main
 
 // Version is the current Seelex release version.
-// Updated by git tag — run `git tag v0.0.2 && git push --tags` to release.
-const Version = "v0.0.2"
+// Release builds override it with: -ldflags "-X main.Version=<tag>".
+var Version = "v0.1.0-alpha.1"
+
+// DefaultFrontend remains tui for normal builds. Desktop release builds
+// override it with: -ldflags "-X main.DefaultFrontend=gui".
+var DefaultFrontend = "tui"

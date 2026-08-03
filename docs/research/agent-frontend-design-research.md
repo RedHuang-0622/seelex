@@ -4,6 +4,8 @@
 > 调研范围：Codex CLI、Claude Code、Cursor、Windsurf 等主流 AI Agent 前端
 > 附加专题：DSL 卡片渲染设计方案（含讲解/图表/跳转扩展）
 > 设计风格：新拟物设计 (Neumorphism) × 低饱和度色彩体系
+>
+> 实施说明：本文保留跨技术栈调研结论；当前仓库的落地方案不采用文中的 React/Tauri 重写，而是在现有 Wails + 原生 ES Modules 上实现。最新产品与架构以 [`../product/agent-workbench/prd.json`](../product/agent-workbench/prd.json) 和 [`../arch/agent-workbench-architecture.md`](../arch/agent-workbench-architecture.md) 为准；DSL 卡片主承载面为 Conversation，Workspace 使用专用右栏视图。
 
 ---
 

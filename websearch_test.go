@@ -38,12 +38,10 @@ func TestLoadWebSearchConfig_InvalidYAML(t *testing.T) {
 
 func TestLoadWebSearchConfig_PartialOverride(t *testing.T) {
 	tmpFile := t.TempDir() + "/partial_ws.yaml"
-	// 注意：WebSearchConfig 没有 yaml tag，所以 Go yaml 使用字段名的小写形式
-	// APIKey → apikey, MaxResults → maxresults, IncludeAnswer → includeanswer
 	content := `
 websearch:
-  apikey: "sk-test-key"
-  maxresults: 10
+  api_key: "sk-test-key"
+  max_results: 10
 `
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -74,10 +72,10 @@ func TestLoadWebSearchConfig_FullOverride(t *testing.T) {
 	content := `
 websearch:
   provider: "tavily"
-  apikey: "sk-test-key"
-  maxresults: 3
-  includeanswer: false
-  searchdepth: "basic"
+  api_key: "sk-test-key"
+  max_results: 3
+  include_answer: false
+  search_depth: "basic"
 `
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -104,8 +102,8 @@ func TestLoadWebSearchConfig_EmptyAPIKeyOverride(t *testing.T) {
 	tmpFile := t.TempDir() + "/empty_key_ws.yaml"
 	content := `
 websearch:
-  apikey: ""
-  maxresults: 8
+  api_key: ""
+  max_results: 8
 `
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -124,7 +122,7 @@ func TestLoadWebSearchConfig_ZeroMaxResultsKeepsDefault(t *testing.T) {
 	tmpFile := t.TempDir() + "/zero_max_ws.yaml"
 	content := `
 websearch:
-  maxresults: 0
+  max_results: 0
 `
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)

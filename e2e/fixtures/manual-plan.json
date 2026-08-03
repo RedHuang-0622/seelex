@@ -1,0 +1,55 @@
+{
+  "schema_version": "seelex.scenario/v1",
+  "id": "manual-plan",
+  "initial": {
+    "plugin": "default",
+    "effort": "medium",
+    "active_session_id": "session-e2e-1"
+  },
+  "engine_script": [
+    {
+      "on_user": "执行人工确认计划",
+      "emit": [
+        {
+          "type": "tool.call",
+          "name": "plan_load",
+          "arguments": "{\"entry\":\"review\",\"nodes\":{\"review\":{\"input\":\"review the change\",\"kind\":\"manual\"}},\"edges\":{}}"
+        },
+        {
+          "type": "tool.call",
+          "name": "plan_run",
+          "arguments": "{}"
+        }
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "action": "submit",
+      "session_id": "session-e2e-1",
+      "text": "执行人工确认计划"
+    },
+    {
+      "expect": "interaction",
+      "id": "review"
+    },
+    {
+      "action": "resolve_interaction",
+      "id": "review",
+      "option": "execute"
+    },
+    {
+      "expect": "tool_status",
+      "tool": "plan_run",
+      "status": "success"
+    },
+    {
+      "expect": "chat_running",
+      "running": false
+    },
+    {
+      "expect": "event_set",
+      "kinds": ["tool.started", "interaction.opened", "interaction.closed", "tool.completed"]
+    }
+  ]
+}

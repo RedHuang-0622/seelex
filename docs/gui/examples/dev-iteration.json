@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "iteration_id": "devloop-generation-001",
+  "iteration_number": 2,
+  "max_iterations": 8,
+  "status": "verifying",
+  "baselines": {
+    "source_generation_id": "gen-source-0004",
+    "requirement_generation_id": "gen-requirement-0007",
+    "architecture_generation_id": "gen-architecture-0003",
+    "detailed_design_generation_id": "gen-design-0002",
+    "implementation_revision": "commit-example-8f31"
+  },
+  "gate_snapshots": [
+    {
+      "stage": "requirement",
+      "decision": "eligible",
+      "assessment_ids": ["evassess-req-001-v3"],
+      "decided_at": "2026-07-24T10:00:00Z",
+      "reason_codes": []
+    },
+    {
+      "stage": "architecture",
+      "decision": "human_accepted",
+      "assessment_ids": ["archassess-generation-001"],
+      "decided_at": "2026-07-24T10:20:00Z",
+      "approved_by": "reviewer-architecture",
+      "reason_codes": ["project_specific_extension"]
+    }
+  ],
+  "work_items": [
+    {
+      "work_item_id": "dev-generation-repository",
+      "kind": "implementation",
+      "source_object_ids": ["req-v-001", "arch-generation-store", "design-generation-writer"],
+      "status": "passed"
+    },
+    {
+      "work_item_id": "test-generation-crash-points",
+      "kind": "test",
+      "source_object_ids": ["design-generation-writer"],
+      "status": "in_progress"
+    }
+  ],
+  "verification": [
+    {
+      "verification_id": "verify-schema-contracts",
+      "kind": "schema",
+      "result": "passed",
+      "evidence_ids": ["test-report-schema-001"]
+    },
+    {
+      "verification_id": "verify-generation-e2e",
+      "kind": "e2e",
+      "result": "not_run",
+      "evidence_ids": []
+    }
+  ],
+  "feedback": [
+    {
+      "feedback_id": "feedback-crash-test-gap",
+      "classification": "test_defect",
+      "target_object_id": "test-generation-crash-points",
+      "action": "create_test_work_item",
+      "status": "accepted"
+    }
+  ],
+  "audit": {
+    "created_by": "devloop-orchestrator",
+    "created_at": "2026-07-24T09:00:00Z",
+    "updated_at": "2026-07-24T11:00:00Z"
+  }
+}

@@ -13,20 +13,26 @@ import (
 
 var planNodeIcons = map[application.NodeStatus]string{
 	application.NodePending:   "○",
+	application.NodeQueued:    "◌",
 	application.NodeRunning:   "▶",
 	application.NodeCompleted: "✓",
 	application.NodeFailed:    "✗",
 	application.NodeAborted:   "⊘",
 	application.NodeSkipped:   "–",
+	application.NodeCanceled:  "⊘",
+	application.NodePanicked:  "⚠",
 }
 
 var planNodeColors = map[application.NodeStatus]lipgloss.Color{
-	application.NodePending:   lipgloss.Color("240"),  // 灰
-	application.NodeRunning:   lipgloss.Color("220"),  // 金
-	application.NodeCompleted: lipgloss.Color("76"),   // 绿
-	application.NodeFailed:    lipgloss.Color("196"),  // 红
-	application.NodeAborted:   lipgloss.Color("124"),  // 暗红
-	application.NodeSkipped:   lipgloss.Color("242"),  // 浅灰
+	application.NodePending:   lipgloss.Color("240"), // 灰
+	application.NodeQueued:    lipgloss.Color("69"),  // 蓝
+	application.NodeRunning:   lipgloss.Color("220"), // 金
+	application.NodeCompleted: lipgloss.Color("76"),  // 绿
+	application.NodeFailed:    lipgloss.Color("196"), // 红
+	application.NodeAborted:   lipgloss.Color("124"), // 暗红
+	application.NodeSkipped:   lipgloss.Color("242"), // 浅灰
+	application.NodeCanceled:  lipgloss.Color("124"), // 暗红
+	application.NodePanicked:  lipgloss.Color("201"), // 紫红
 }
 
 var planStatusIcons = map[application.PlanStatus]string{
@@ -56,6 +62,16 @@ func planStatusIcon(status application.PlanStatus) string {
 		return icon
 	}
 	return "○"
+}
+
+// planModeLabel 区分 tasklist 门禁与 plan_run 执行：PlanRunning 时是 plan 模式
+// （节点打勾来自执行事件投影），其余状态是 tasklist 模式（节点打勾来自
+// task_check_node 在途打点）。
+func planModeLabel(plan *application.PlanState) string {
+	if plan.Status == application.PlanRunning {
+		return "Plan"
+	}
+	return "Tasklist"
 }
 
 // progressBar 渲染一个水平进度条 [████░░░░]。
@@ -150,7 +166,7 @@ func renderPlanMedium(p *application.PlanState, width int) string {
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
 	icon := planStatusIcon(p.Status)
-	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s Plan: %s (%d/%d)", icon, p.Name, done, total)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s %s: %s (%d/%d)", icon, planModeLabel(p), p.Name, done, total)))
 	if p.Elapsed != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Render("  " + p.Elapsed))
 	}
@@ -189,7 +205,7 @@ func renderPlanHigh(p *application.PlanState, width int) string {
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
 	icon := planStatusIcon(p.Status)
-	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s Plan: %s (%d/%d)", icon, p.Name, done, total)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf(" %s %s: %s (%d/%d)", icon, planModeLabel(p), p.Name, done, total)))
 	if p.Elapsed != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("242")).Render("  " + p.Elapsed))
 	}
@@ -253,8 +269,8 @@ func renderPlanMax(p *application.PlanState, width int) string {
 	border := lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
 
-	b.WriteString(border.Render(fmt.Sprintf(" ╔═ %s Plan: %s ═══════════════════════════╗",
-		planStatusIcon(p.Status), p.Name)))
+	b.WriteString(border.Render(fmt.Sprintf(" ╔═ %s %s: %s ═══════════════════════════╗",
+		planStatusIcon(p.Status), planModeLabel(p), p.Name)))
 	b.WriteString("\n")
 	b.WriteString(titleStyle.Render(fmt.Sprintf(" ║  %d/%d nodes completed", done, total)))
 	if p.Elapsed != "" {
@@ -316,6 +332,10 @@ func styleStatusText(s string) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("76"))
 	case "failed":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	case "panicked":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("201"))
+	case "canceled":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("124"))
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	}

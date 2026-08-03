@@ -2,10 +2,12 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 type Store interface {
@@ -18,14 +20,166 @@ type Store interface {
 
 // Manager 薄包装 Seele 的 storage.Store，提供 /new 和 /resume 能力
 type Manager struct {
-	store  Store
-	mu     sync.Mutex
-	saveFn func(sessionID string) error // 注入：保存当前会话到 store
-	loadFn func(sessionID string) error // 注入：从 store 加载到 engine
+	store       Store
+	nestedStore *seelebridge.NestedSessionStore // optional workspace-aware store
+	router      *sessionstore.Router
+	mu          sync.Mutex
+	saveFn      func(sessionID string) error // 注入：保存当前会话到 store
+	loadFn      func(sessionID string) error // 注入：从 store 加载到 engine
 }
 
 func NewManager(store Store) *Manager {
 	return &Manager{store: store}
+}
+
+// WithNestedStore attaches a workspace-aware nested store for routing.
+func (m *Manager) WithNestedStore(ns *seelebridge.NestedSessionStore) {
+	m.nestedStore = ns
+}
+
+// WithRouter installs the atomic, configurable repository used by production.
+// The legacy nested store remains supported for compatibility with old callers.
+func (m *Manager) WithRouter(router *sessionstore.Router) {
+	m.router = router
+	m.store = router
+}
+
+// SetWorkspace sets the active workspace for session routing.
+func (m *Manager) SetWorkspace(workspaceID string) {
+	if m.router != nil {
+		m.router.SetWorkspace(workspaceID)
+		return
+	}
+	if m.nestedStore != nil {
+		m.nestedStore.SetWorkspace(workspaceID)
+	}
+}
+
+// Workspace returns the currently active workspace ID.
+func (m *Manager) Workspace() string {
+	if m.router != nil {
+		return m.router.Workspace()
+	}
+	if m.nestedStore != nil {
+		return m.nestedStore.Workspace()
+	}
+	return ""
+}
+
+func (m *Manager) StorageConfig() (sessionstore.Config, error) {
+	if m.router == nil {
+		return sessionstore.Config{}, fmt.Errorf("session: configurable storage is unavailable")
+	}
+	return m.router.Config(), nil
+}
+
+func (m *Manager) TestStorage(ctx context.Context, config sessionstore.Config) error {
+	if m.router == nil {
+		return fmt.Errorf("session: configurable storage is unavailable")
+	}
+	return m.router.Test(ctx, config)
+}
+
+func (m *Manager) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
+	if m.router == nil {
+		return fmt.Errorf("session: configurable storage is unavailable")
+	}
+	return m.router.Configure(ctx, config)
+}
+
+// ListByWorkspace lists sessions stored under a specific workspace.
+func (m *Manager) ListByWorkspace(workspaceID string) []seelebridge.SessionMeta {
+	if m.router != nil {
+		return m.router.ListWorkspace(workspaceID)
+	}
+	if m.nestedStore != nil {
+		return m.nestedStore.ListByWorkspace(workspaceID)
+	}
+	if workspaceID == m.Workspace() {
+		return m.store.List()
+	}
+	return []seelebridge.SessionMeta{}
+}
+
+// LoadHistoryByWorkspace reads a session from an explicit workspace without
+// changing the active workspace used by subsequent writes.
+func (m *Manager) LoadHistoryByWorkspace(workspaceID, sessionID string) ([]seelebridge.Message, error) {
+	if m.router != nil {
+		return m.router.LoadWorkspace(workspaceID, sessionID)
+	}
+	if workspaceID != m.Workspace() {
+		return nil, fmt.Errorf("session: explicit workspace reads require the configurable router")
+	}
+	return m.store.Load(sessionID)
+}
+
+// LoadHistoryRangeByWorkspace reads a history window from an explicit
+// workspace without changing the active workspace used by subsequent writes.
+func (m *Manager) LoadHistoryRangeByWorkspace(workspaceID, sessionID string, offset, limit int) ([]seelebridge.Message, int, error) {
+	if m.router != nil {
+		return m.router.LoadRangeWorkspace(workspaceID, sessionID, offset, limit)
+	}
+	if workspaceID != m.Workspace() {
+		return nil, 0, fmt.Errorf("session: explicit workspace reads require the configurable router")
+	}
+	return m.store.LoadRange(sessionID, offset, limit)
+}
+
+// SaveState persists an application-owned session archive alongside the
+// framework history. It is available only for the configurable Router, whose
+// JSON, SQLite, PostgreSQL, and Redis implementations share the same contract.
+func (m *Manager) SaveState(sessionID string, state []byte) error {
+	if m.router == nil {
+		return fmt.Errorf("session: state persistence requires the configurable router")
+	}
+	return m.router.SaveState(sessionID, state)
+}
+
+func (m *Manager) LoadState(sessionID string) ([]byte, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: state persistence requires the configurable router")
+	}
+	return m.router.LoadState(sessionID)
+}
+
+func (m *Manager) LoadStateByWorkspace(workspaceID, sessionID string) ([]byte, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: state persistence requires the configurable router")
+	}
+	return m.router.LoadStateWorkspace(workspaceID, sessionID)
+}
+
+func (m *Manager) SaveCommit(sessionID string, commit sessionstore.Commit) error {
+	if m.router == nil {
+		return fmt.Errorf("session: atomic commit requires the configurable router")
+	}
+	return m.router.SaveCommit(sessionID, commit)
+}
+
+func (m *Manager) LoadEventTailByWorkspace(workspaceID, sessionID string, tokenBudget, maxUnits int) ([]sessionstore.Event, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: event tail reads require the configurable router")
+	}
+	return m.router.LoadEventTailWorkspace(workspaceID, sessionID, tokenBudget, maxUnits)
+}
+
+func (m *Manager) LoadToolResultByWorkspace(workspaceID, sessionID, resultRef string) (sessionstore.ToolResult, error) {
+	if m.router == nil {
+		return sessionstore.ToolResult{}, fmt.Errorf("session: tool result reads require the configurable router")
+	}
+	return m.router.LoadToolResultWorkspace(workspaceID, sessionID, resultRef)
+}
+
+// DeleteByWorkspace deletes a session from an explicit workspace without
+// changing the active workspace used by subsequent writes.
+func (m *Manager) DeleteByWorkspace(workspaceID, sessionID string) error {
+	if m.router != nil {
+		return m.router.DeleteWorkspace(workspaceID, sessionID)
+	}
+	if workspaceID != m.Workspace() {
+		return fmt.Errorf("session: explicit workspace deletes require the configurable router")
+	}
+	return m.store.Delete(sessionID)
 }
 
 // InjectSaveLoad 注入保存/加载回调（由 main.go 装配时传入）

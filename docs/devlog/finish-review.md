@@ -1,3 +1,69 @@
+# Plan 改动与 E2E 整体链路审查
+
+> 审查日期：2026-07-27
+> 范围：WorkPlan 的活动图、节点回调、`kind:manual` 审批与失败恢复改动；以及 `e2e/scenario` 最小黄金旅程。
+
+## 审查结论
+
+| 维度 | 状态 | 评分 | 备注 |
+|------|:---:|:---:|------|
+| 正确性 | 🚫 | C | `plan_run` 的正常失败无法进入恢复交互，错误路径还存在自锁死。 |
+| 架构 | ⚠️ | B- | L1 harness 使用真实 Application，但未驱动 WorkPlan runtime。 |
+| 测试 / E2E | 🚫 | C | E2E 未覆盖任何 plan 生命周期，且缺少 Plan 针对性回归。 |
+| 安全性 | ✅ | B | loader 严格拒绝未知字段；未发现新增密钥或命令注入路径。 |
+| 性能 | ✅ | B | 无明显新增热路径；图输出非确定顺序会造成不必要的展示差异。 |
+
+## 发现的问题
+
+### 🚫 严重
+
+1. `plan_run` 的实际节点失败不会打开 retry / skip / abort 交互。
+
+   Seele v0.0.5 的 `planRunHandler.Execute` 将 `WorkPlan.Run` 失败编码为 `{"status":"failed"}` 并返回 `nil` error。`application.handleToolComplete` 因此只调用 `updatePlanFromRunResult`，不会调用 `handlePlanRunFailure`。P4 的恢复主链路不可达。
+
+2. `plan_run` 返回非空工具错误时会自锁死。
+
+   `application/chat.go` 的 `handleToolComplete` 持有 `service.mu` 后调用 `handlePlanRunFailure`；后者再次获取同一把非重入 mutex。该分支会阻塞聊天、事件与恢复交互。
+
+### ⚠️ 警告
+
+1. `e2e/scenario` 不覆盖 `plan_load`、`plan_run`、PlanState、ProgressCallback 或 manual node。`ScriptedEngine` 只模拟通用 ToolHook 生命周期；因此 E2E-J01/J02 不能证明计划加载、执行、打点、manual 审批或失败恢复。
+
+2. `seelebridge.TopoSort` 实际是 BFS，不保证交叉依赖的拓扑顺序；`AdjacencyToEdges` 遍历 Go map，边输出顺序不稳定。
+
+3. 未找到 `updatePlanFromLoad`、`updatePlanFromRunResult`、`HandlePlanNodeComplete`、`handlePlanRunFailure`、`TopoSort` 或 `DetectCycle` 的针对性测试。应覆盖成功 DAG、交叉依赖、manual allow/skip/abort、JSON failed 和非空 tool error。
+
+## 验证证据
+
+| 命令 | 结果 |
+|------|------|
+| `go vet ./...` | ✅ 通过 |
+| `go build ./...` | ✅ 通过 |
+| `go test ./... -count=1 -timeout=180s` | ✅ 通过 |
+| `go test ./e2e/scenario -run '^TestGoldenJourneyChatToolApproval$' -count=100` | ✅ 通过 |
+| `go test . -run '^TestGUIDocumentContracts$' -count=1` | ✅ 通过 |
+| `node --test gui/frontend/dist/*.test.mjs` | ⚠️ 26 项中 1 项失败（Effort 映射断言与实现不一致） |
+| `go test -race ./...` | ⚠️ 本机缺少 GCC，未执行 |
+
+## 最终判断
+
+- [ ] ✅ 通过，可合并
+- [ ] ⚠️ 有条件通过
+- [x] 🚫 不通过：先修复 Plan 失败分支与锁边界，并补齐真实 WorkPlan 的 E2E 后复审。
+
+## 审查后修复（2026-07-27）
+
+- 已识别框架的 JSON `status:"failed"` 语义，并在持锁调用方完成失败状态与恢复交互更新；非空 tool error 路径不再二次加锁。
+- 已将图顺序改为稳定拓扑排序，并为交叉依赖、cycle 与稳定边输出增加测试。
+- 已新增真实 `WorkPlanTool` 的 manual plan scenario，覆盖 plan load、run、审批和 PlanState 收敛；两个黄金旅程各连续运行 100 次通过。
+- 全量 Go build/vet/test 和前端 Node 26/26 测试通过；Windows 本地仍因缺少 GCC 未运行 race。
+
+修复后结论：除 race 环境限制外，本审查列出的可修复阻塞项已关闭。
+
+---
+
+## 历史审查
+
 # Seelex 机械设计方向与代码最终审查
 
 > 审查日期：2026-07-17

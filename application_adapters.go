@@ -2,57 +2,317 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 
-	"github.com/RedHuang-0622/Seele/agent/core/tool/permission"
-	"github.com/RedHuang-0622/Seele/engine"
+	frameworkSession "github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/Seele/telemetry"
+	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
+	"github.com/RedHuang-0622/seelex/workspace"
 )
 
-type enginePort struct{ engine *engine.Engine }
-
-func (port enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
-	return port.engine.ChatStream(ctx, input, onChunk)
+type enginePort struct {
+	engine         reactorEngine
+	newEngine      reactorEngineFactory
+	tracer         *telemetry.MemoryTracer // trace 视图查询源（slice 8：telemetry）
+	mu             sync.RWMutex
+	sessionID      string
+	activeCalls    int
+	pendingHistory []seelebridge.Message
+	sessionBacked  bool
 }
-func (port enginePort) ClearHistory()                 { port.engine.ClearHistory() }
-func (port enginePort) SessionID() string             { return port.engine.SessionID() }
-func (port enginePort) SetSystemPrompt(prompt string) { port.engine.SetSystemPrompt(prompt) }
-func (port enginePort) SetMaxLoops(n int)            { port.engine.SetMaxLoops(n) }
-func (port enginePort) TraceText() string {
-	tree := port.engine.ExportTrace()
-	if tree == nil || tree.Root == nil {
+
+// reactorEngine is the small framework surface the application adapter
+// needs. Keeping construction behind a factory makes a new application session
+// a new ReAct loop, rather than a logical ID layered over an old loop.
+type reactorEngine interface {
+	ChatStream(context.Context, string, func(string)) (string, error)
+	History() []types.Message
+	ClearHistory()
+	SessionID() string
+	SetSystemPrompt(string)
+	SetMaxLoops(int)
+	AppendHistory(types.Message)
+}
+
+type reactorEngineFactory func() reactorEngine
+
+func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory, tracer *telemetry.MemoryTracer) *enginePort {
+	port := &enginePort{engine: eng, newEngine: newEngine, tracer: tracer, sessionID: eng.SessionID()}
+	if _, ok := eng.(*frameworkSession.Session); ok {
+		port.sessionBacked = true
+	}
+	return port
+}
+
+// SessionBacked 报告底层 reactor 是否为 session.Session。
+// 新 Session 装配下 OnIterationComplete 在 Session 锁内同步执行，
+// 应用层不得在回调中重入 Engine 历史操作（见 chat.go ToolHookBridge）。
+func (port *enginePort) SessionBacked() bool { return port.sessionBacked }
+
+func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
+	port.mu.Lock()
+	current := port.engine
+	port.activeCalls++
+	port.mu.Unlock()
+	if current == nil {
+		return "", fmt.Errorf("engine is unavailable")
+	}
+	result, err := current.ChatStream(ctx, input, onChunk)
+
+	port.mu.Lock()
+	port.activeCalls--
+	if port.activeCalls == 0 && len(port.pendingHistory) > 0 {
+		port.installFreshHistoryLocked(port.pendingHistory)
+		port.pendingHistory = nil
+	}
+	port.mu.Unlock()
+	return result, err
+}
+
+// AppendHistory 追加消息到引擎内部对话历史。
+// 由 OnIterationComplete 在 ChatStream 同 goroutine 中调用，无需加锁。
+func (port *enginePort) AppendHistory(msg types.Message) {
+	port.engine.AppendHistory(msg)
+}
+
+func (port *enginePort) ClearHistory() {
+	port.mu.Lock()
+	port.engine.ClearHistory()
+	port.mu.Unlock()
+}
+func (port *enginePort) ReplaceHistory(sessionID string, history []application.EngineMessage) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("engine: session ID is required")
+	}
+	return port.replaceRawHistory(sessionID, restoreMessages(history))
+}
+func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridge.Message) error {
+	desired := canonicalEngineHistory(history)
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	if port.engine == nil {
+		return fmt.Errorf("engine is unavailable")
+	}
+	if port.activeCalls > 0 {
+		// A running ReActLoop owns its in-memory slice. Keep it valid for the
+		// current turn, then install a genuinely clean reactor before the next
+		// request. ClearHistory deliberately retains system messages upstream,
+		// so appending them again here would duplicate the prompt on every
+		// compaction or recovery.
+		port.replaceActiveHistoryLocked(desired)
+		port.pendingHistory = append([]seelebridge.Message(nil), desired...)
+	} else {
+		port.installFreshHistoryLocked(desired)
+	}
+	port.sessionID = sessionID
+	return nil
+}
+
+func (port *enginePort) replaceActiveHistoryLocked(history []seelebridge.Message) {
+	port.engine.ClearHistory()
+	hasSystem := false
+	for _, message := range port.engine.History() {
+		hasSystem = hasSystem || message.Role == "system"
+	}
+	for _, message := range history {
+		if message.Role == "system" {
+			if !hasSystem {
+				port.engine.AppendHistory(message)
+				hasSystem = true
+			}
+			continue
+		}
+		port.engine.AppendHistory(message)
+	}
+}
+
+func (port *enginePort) installFreshHistoryLocked(history []seelebridge.Message) {
+	if port.newEngine == nil {
+		port.replaceActiveHistoryLocked(history)
+		return
+	}
+	fresh := port.newEngine()
+	if fresh == nil {
+		port.replaceActiveHistoryLocked(history)
+		return
+	}
+	for _, message := range history {
+		fresh.AppendHistory(message)
+	}
+	port.engine = fresh
+}
+
+func canonicalEngineHistory(history []seelebridge.Message) []seelebridge.Message {
+	canonical := make([]seelebridge.Message, 0, len(history))
+	hasSystem := false
+	for _, message := range history {
+		if message.Role == "system" {
+			if hasSystem {
+				continue
+			}
+			hasSystem = true
+		}
+		canonical = append(canonical, message)
+	}
+	return canonical
+}
+func (port *enginePort) StartSession() string {
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	if port.newEngine == nil {
 		return ""
 	}
-	return tree.String()
-}
-func (port enginePort) TokenCount() string {
-	tree := port.engine.ExportTrace()
-	if tree == nil || tree.Root == nil {
-		return "0"
+	fresh := port.newEngine()
+	if fresh == nil {
+		return ""
 	}
-	for _, child := range tree.Root.Children {
-		if child.Kind == seelebridge.SpanLLMCall {
-			if tokens, ok := child.Attrs["total_tokens"]; ok {
-				return tokens
-			}
+	port.engine = fresh
+	port.sessionID = fresh.SessionID()
+	return port.sessionID
+}
+func (port *enginePort) SessionID() string {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	return port.sessionID
+}
+func (port *enginePort) SetSystemPrompt(prompt string) { port.engine.SetSystemPrompt(prompt) }
+func (port *enginePort) SetMaxLoops(n int)             { port.engine.SetMaxLoops(n) }
+func (port *enginePort) TraceText() string {
+	if port.tracer == nil {
+		return ""
+	}
+	view, err := port.tracer.Query(context.Background(), telemetry.Query{Limit: 200})
+	if err != nil {
+		return ""
+	}
+	var builder strings.Builder
+	for _, trace := range view.Traces {
+		builder.WriteString(fmt.Sprintf("追踪 %s\n", trace.TraceID))
+		writeSpanSnapshot(&builder, trace.Root, 0)
+	}
+	if len(view.Events) > 0 {
+		builder.WriteString(fmt.Sprintf("\n生命周期事件 %d 条\n", len(view.Events)))
+		for _, event := range view.Events {
+			builder.WriteString(fmt.Sprintf("  %s %s %s\n", event.Timestamp.Format("15:04:05"), event.Type, event.Status))
 		}
 	}
-	return "0"
+	return builder.String()
 }
-func (port enginePort) History() []application.EngineMessage {
-	return adaptMessages(port.engine.History())
+func (port *enginePort) TokenCount() string {
+	if port.tracer == nil {
+		return "0"
+	}
+	view, err := port.tracer.Query(context.Background(), telemetry.Query{Limit: 200})
+	if err != nil {
+		return "0"
+	}
+	total := 0
+	for _, event := range view.Events {
+		if event.Type != telemetry.EventLLMAfter {
+			continue
+		}
+		total += attrTelemetryInt(event.Attributes, telemetry.AttributeGenAIUsageInput)
+		total += attrTelemetryInt(event.Attributes, telemetry.AttributeGenAIUsageOutput)
+	}
+	return strconv.Itoa(total)
+}
+
+// writeSpanSnapshot 递归渲染遥测 span 树（trace 视图文本）。
+func writeSpanSnapshot(builder *strings.Builder, span telemetry.SpanSnapshot, depth int) {
+	if span.Name == "" {
+		return
+	}
+	indent := strings.Repeat("  ", depth)
+	status := string(span.Status)
+	if status == "" {
+		status = "unset"
+	}
+	model := span.Attributes[telemetry.AttributeGenAIRequestModel]
+	if model == nil {
+		model = ""
+	}
+	builder.WriteString(fmt.Sprintf("%s%s %s [%s] %v\n", indent, span.Name, status, span.Kind, model))
+	for _, child := range span.Children {
+		writeSpanSnapshot(builder, child, depth+1)
+	}
+}
+
+func attrTelemetryInt(attributes telemetry.Attributes, key string) int {
+	if attributes == nil {
+		return 0
+	}
+	value, ok := attributes[key]
+	if !ok {
+		return 0
+	}
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		n, err := strconv.Atoi(typed)
+		if err != nil {
+			return 0
+		}
+		return n
+	default:
+		return 0
+	}
+}
+func (port *enginePort) History() []application.EngineMessage {
+	return adaptMessages(port.rawHistory())
+}
+func (port *enginePort) rawHistory() []seelebridge.Message {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	return append([]seelebridge.Message(nil), port.engine.History()...)
 }
 
 type runtimePort struct{ runtime *seelebridge.Runtime }
 
-func (port runtimePort) Model() string                  { return port.runtime.Model() }
-func (port runtimePort) Provider() string               { return port.runtime.Provider() }
-func (port runtimePort) ActivePlugin() string           { return port.runtime.ActivePlugin() }
+func (port runtimePort) Model() string         { return port.runtime.Model() }
+func (port runtimePort) Provider() string      { return port.runtime.Provider() }
+func (port runtimePort) ContextWindow() int    { return port.runtime.ContextWindow() }
+func (port runtimePort) MaxOutputTokens() int  { return port.runtime.MaxOutputTokens() }
+func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugin() }
+func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
+func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
+	port.runtime.SetPlanPolicy(policy)
+}
+func (port runtimePort) PrepareReplan(ctx context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
+	return port.runtime.PrepareReplan(ctx, request)
+}
+func (port runtimePort) ReplanMetrics() seelebridge.ReplanMetrics {
+	return port.runtime.ReplanMetrics()
+}
+func (port runtimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
+	port.runtime.SetPlanBranchBinding(binding)
+}
+func (port runtimePort) RestorePlan(ctx context.Context, arguments string) error {
+	return port.runtime.RestorePlan(ctx, arguments)
+}
+func (port runtimePort) BindProjectRoot(rootPath string) error {
+	return port.runtime.BindProjectRoot(rootPath)
+}
+func (port runtimePort) UnbindProjectRoot()             { port.runtime.UnbindProjectRoot() }
 func (port runtimePort) SelectAccount(name string) bool { return port.runtime.SelectAccount(name) }
 func (port runtimePort) VisibleTools(ctx context.Context) []application.Tool {
 	tools := port.runtime.VisibleTools(ctx)
@@ -93,6 +353,69 @@ func (port pluginPort) All() []application.PluginInfo {
 	return result
 }
 
+type workspacePort struct{ repo *workspace.Repo }
+
+func (port workspacePort) Create(name, rootPath, gitRemote string) (application.WorkspaceInfo, error) {
+	w, err := port.repo.Create(name, rootPath, gitRemote)
+	if err != nil {
+		return application.WorkspaceInfo{}, err
+	}
+	return adaptWorkspace(w), nil
+}
+func (port workspacePort) Get(id string) (application.WorkspaceInfo, error) {
+	w, err := port.repo.Get(id)
+	if err != nil {
+		return application.WorkspaceInfo{}, err
+	}
+	return adaptWorkspace(w), nil
+}
+func (port workspacePort) List() []application.WorkspaceInfo {
+	list := port.repo.List()
+	out := make([]application.WorkspaceInfo, len(list))
+	for i, w := range list {
+		out[i] = adaptWorkspace(w)
+	}
+	return out
+}
+func (port workspacePort) Delete(id string) error { return port.repo.Delete(id) }
+func (port workspacePort) BindSession(sessionID, workspaceID string) {
+	port.repo.BindSession(sessionID, workspaceID)
+}
+func (port workspacePort) UnbindSession(sessionID string) {
+	port.repo.UnbindSession(sessionID)
+}
+func (port workspacePort) SessionWorkspace(sessionID string) (application.WorkspaceInfo, bool) {
+	w, ok := port.repo.SessionWorkspace(sessionID)
+	if !ok {
+		return application.WorkspaceInfo{}, false
+	}
+	return adaptWorkspace(w), true
+}
+func (port workspacePort) AllBindings() map[string]string {
+	return port.repo.AllBindings()
+}
+func (port workspacePort) DetectGitRemote(rootPath string) string {
+	return workspace.DetectGitRemote(rootPath)
+}
+
+func adaptWorkspace(item workspace.Info) application.WorkspaceInfo {
+	return application.WorkspaceInfo{
+		ID:        item.ID,
+		Name:      workspaceDisplayName(item.RootPath, item.Name),
+		RootPath:  item.RootPath,
+		GitRemote: item.GitRemote,
+	}
+}
+
+func workspaceDisplayName(rootPath, fallback string) string {
+	cleaned := filepath.Clean(strings.TrimSpace(rootPath))
+	name := strings.TrimSpace(filepath.Base(cleaned))
+	if name == "" || name == "." || name == string(filepath.Separator) || name == "/" || name == `\` {
+		return strings.TrimSpace(fallback)
+	}
+	return name
+}
+
 type skillPort struct{ registry *skill.Registry }
 
 func (port skillPort) Get(name string) (application.SkillInfo, bool) {
@@ -113,10 +436,200 @@ func (port skillPort) All() []application.SkillInfo {
 
 type sessionPort struct{ manager *session.Manager }
 
-func (port sessionPort) SaveCurrent(id string) error { return port.manager.SaveCurrent(id) }
-func (port sessionPort) Resume(id string) error      { return port.manager.Resume(id) }
+func (port sessionPort) SaveCurrent(id string) error     { return port.manager.SaveCurrent(id) }
+func (port sessionPort) Delete(id string) error          { return port.manager.Delete(id) }
+func (port sessionPort) Resume(id string) error          { return port.manager.Resume(id) }
+func (port sessionPort) SetWorkspace(workspaceID string) { port.manager.SetWorkspace(workspaceID) }
+func (port sessionPort) Workspace() string               { return port.manager.Workspace() }
+func (port sessionPort) StorageConfig() (sessionstore.Config, error) {
+	return port.manager.StorageConfig()
+}
+func (port sessionPort) TestStorage(ctx context.Context, config sessionstore.Config) error {
+	return port.manager.TestStorage(ctx, config)
+}
+func (port sessionPort) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
+	return port.manager.ConfigureStorage(ctx, config)
+}
 func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, error) {
 	messages, err := port.manager.LoadHistory(id)
+	if err != nil {
+		return nil, err
+	}
+	return adaptMessages(messages), nil
+}
+
+func (port sessionPort) SaveSessionRecord(id string, record application.SessionRecord) error {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("encode session record: %w", err)
+	}
+	return port.manager.SaveState(id, payload)
+}
+
+func (port sessionPort) SaveSessionSnapshot(
+	id string,
+	providerHistory []application.EngineMessage,
+	record application.SessionRecord,
+	events []application.TranscriptEvent,
+	results []application.StoredToolResult,
+) error {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("encode session record: %w", err)
+	}
+	commit := sessionstore.Commit{
+		ProviderHistory: restoreMessages(providerHistory),
+		Events:          storeTranscriptEvents(events),
+		State:           payload,
+		ToolResults:     storeToolResults(results),
+	}
+	return port.manager.SaveCommit(id, commit)
+}
+
+func (port sessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, tokenBudget, maxUnits int) ([]application.TranscriptEvent, error) {
+	events, err := port.manager.LoadEventTailByWorkspace(workspaceID, id, tokenBudget, maxUnits)
+	if err != nil {
+		return nil, err
+	}
+	return adaptTranscriptEvents(events), nil
+}
+
+func (port sessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (application.StoredToolResult, error) {
+	result, err := port.manager.LoadToolResultByWorkspace(workspaceID, id, resultRef)
+	if err != nil {
+		return application.StoredToolResult{}, err
+	}
+	return application.StoredToolResult{
+		ToolResultRef: application.ToolResultRef{
+			Ref: result.Ref, Tool: result.Tool, Digest: result.Digest, Size: result.Size,
+			TokenCount: result.TokenCount, CreatedAt: result.CreatedAt,
+		},
+		Content: result.Content,
+	}, nil
+}
+
+func storeTranscriptEvents(events []application.TranscriptEvent) []sessionstore.Event {
+	stored := make([]sessionstore.Event, len(events))
+	for index, event := range events {
+		calls := make([]sessionstore.EventToolCall, len(event.ToolCalls))
+		for callIndex, call := range event.ToolCalls {
+			calls[callIndex] = sessionstore.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		stored[index] = sessionstore.Event{
+			Seq: event.Seq, TaskID: event.TaskID, Role: event.Role,
+			ReasoningContent: event.ReasoningContent, Content: event.Content,
+			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+		}
+	}
+	return stored
+}
+
+func adaptTranscriptEvents(events []sessionstore.Event) []application.TranscriptEvent {
+	adapted := make([]application.TranscriptEvent, len(events))
+	for index, event := range events {
+		calls := make([]application.TranscriptToolCall, len(event.ToolCalls))
+		for callIndex, call := range event.ToolCalls {
+			calls[callIndex] = application.TranscriptToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		adapted[index] = application.TranscriptEvent{
+			Seq: event.Seq, TaskID: event.TaskID, Role: event.Role,
+			ReasoningContent: event.ReasoningContent, Content: event.Content,
+			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+		}
+	}
+	return adapted
+}
+
+func storeToolResults(results []application.StoredToolResult) []sessionstore.ToolResult {
+	stored := make([]sessionstore.ToolResult, len(results))
+	for index, result := range results {
+		stored[index] = sessionstore.ToolResult{
+			Ref: result.Ref, Tool: result.Tool, Content: result.Content, Digest: result.Digest,
+			Size: result.Size, TokenCount: result.TokenCount, CreatedAt: result.CreatedAt,
+		}
+	}
+	return stored
+}
+
+func (port sessionPort) LoadSessionRecord(id string) (application.SessionRecord, error) {
+	payload, err := port.manager.LoadState(id)
+	if err != nil {
+		return application.SessionRecord{}, err
+	}
+	return decodeSessionRecord(payload, id)
+}
+
+func (port sessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (application.SessionRecord, error) {
+	payload, err := port.manager.LoadStateByWorkspace(workspaceID, id)
+	if err != nil {
+		return application.SessionRecord{}, err
+	}
+	return decodeSessionRecord(payload, id)
+}
+
+func decodeSessionRecord(payload []byte, sessionID string) (application.SessionRecord, error) {
+	var version struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(payload, &version); err != nil {
+		return application.SessionRecord{}, fmt.Errorf("decode session state header: %w", err)
+	}
+	if version.Version == 1 {
+		var archive application.SessionArchive
+		if err := json.Unmarshal(payload, &archive); err != nil {
+			return application.SessionRecord{}, fmt.Errorf("decode legacy session archive: %w", err)
+		}
+		return migrateSessionArchive(sessionID, archive), nil
+	}
+	var record application.SessionRecord
+	if err := json.Unmarshal(payload, &record); err != nil {
+		return application.SessionRecord{}, fmt.Errorf("decode session record: %w", err)
+	}
+	if record.Version == 2 && record.ID == sessionID {
+		return record, nil
+	}
+	if record.Version == 3 && record.ID == sessionID {
+		return record, nil
+	}
+	return application.SessionRecord{}, fmt.Errorf("unsupported session state version %d", version.Version)
+}
+
+func migrateSessionArchive(sessionID string, archive application.SessionArchive) application.SessionRecord {
+	record := application.SessionRecord{
+		Version: 2,
+		ID:      sessionID,
+		Title: application.SessionTitle{
+			Value:       archive.Name,
+			Source:      "legacy_history",
+			FinalizedAt: archive.UpdatedAt,
+		},
+		Conversation: application.ConversationRecord{
+			Messages:  archive.Conversation,
+			UpdatedAt: archive.UpdatedAt,
+		},
+		Execution: application.SessionExecutionRecord{
+			Task:         archive.Task,
+			ReadFiles:    archive.ReadFiles,
+			Continuation: archive.Continuation,
+		},
+		UpdatedAt: archive.UpdatedAt,
+	}
+	if archive.Plan != nil || archive.PlanArguments != "" {
+		record.ActivePlanID = "legacy-plan"
+		record.PlanStack = []application.SessionPlanFrame{{
+			ID:        record.ActivePlanID,
+			Plan:      archive.Plan,
+			Arguments: archive.PlanArguments,
+			LoadedAt:  archive.UpdatedAt,
+			UpdatedAt: archive.UpdatedAt,
+		}}
+	}
+	return record
+}
+func (port sessionPort) LoadHistoryWorkspace(workspaceID, id string) ([]application.EngineMessage, error) {
+	messages, err := port.manager.LoadHistoryByWorkspace(workspaceID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -129,11 +642,27 @@ func (port sessionPort) LoadHistoryRange(id string, offset, limit int) ([]applic
 	}
 	return adaptMessages(messages), total, nil
 }
+func (port sessionPort) LoadHistoryRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.EngineMessage, int, error) {
+	messages, total, err := port.manager.LoadHistoryRangeByWorkspace(workspaceID, id, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return adaptMessages(messages), total, nil
+}
 func (port sessionPort) MessageCount(id string) (int, error) {
 	return port.manager.MessageCount(id)
 }
 func (port sessionPort) List() []application.SessionInfo {
-	sessions := port.manager.List()
+	return adaptSessionMeta(port.manager.List())
+}
+func (port sessionPort) ListWorkspace(workspaceID string) []application.SessionInfo {
+	return adaptSessionMeta(port.manager.ListByWorkspace(workspaceID))
+}
+func (port sessionPort) DeleteWorkspace(workspaceID, id string) error {
+	return port.manager.DeleteByWorkspace(workspaceID, id)
+}
+
+func adaptSessionMeta(sessions []seelebridge.SessionMeta) []application.SessionInfo {
 	result := make([]application.SessionInfo, 0, len(sessions))
 	for _, item := range sessions {
 		result = append(result, application.SessionInfo{ID: item.SessionID, UpdatedAt: item.UpdatedAt, TokenCount: item.TokenCount})
@@ -150,13 +679,39 @@ func adaptSkill(item skill.Skill) application.SkillInfo {
 func adaptMessages(messages []seelebridge.Message) []application.EngineMessage {
 	result := make([]application.EngineMessage, 0, len(messages))
 	for _, message := range messages {
-		adapted := application.EngineMessage{Role: message.Role, Name: message.Name}
+		adapted := application.EngineMessage{
+			Role: message.Role, ReasoningContent: message.ReasoningContent,
+			ToolCallID: message.ToolCallID, Name: message.Name,
+		}
 		if message.Content != nil {
 			adapted.Content = *message.Content
+			adapted.ContentSet = true
 		}
 		adapted.ToolCalls = make([]application.EngineToolCall, 0, len(message.ToolCalls))
 		for _, call := range message.ToolCalls {
 			adapted.ToolCalls = append(adapted.ToolCalls, application.EngineToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+		}
+		result = append(result, adapted)
+	}
+	return result
+}
+
+func restoreMessages(messages []application.EngineMessage) []seelebridge.Message {
+	result := make([]seelebridge.Message, 0, len(messages))
+	for _, message := range messages {
+		adapted := seelebridge.Message{
+			Role: message.Role, ReasoningContent: message.ReasoningContent,
+			ToolCallID: message.ToolCallID, Name: message.Name,
+		}
+		if message.ContentSet || message.Content != "" {
+			content := message.Content
+			adapted.Content = &content
+		}
+		for _, call := range message.ToolCalls {
+			adapted.ToolCalls = append(adapted.ToolCalls, types.ToolCall{
+				ID: call.ID, Type: "function",
+				Function: types.ToolCallFunction{Name: call.Name, Arguments: call.Arguments},
+			})
 		}
 		result = append(result, adapted)
 	}
@@ -186,8 +741,38 @@ func approvalAccepted(optionID string) bool {
 	}
 }
 
+// planApprovalGate 适配框架 approve.ApprovalGate → application.ApprovalBroker。
+// plan_run 执行到 kind:manual 节点时，框架调用 Ask 阻塞等待用户在 UI 中选择。
+type planApprovalGate struct {
+	broker *application.ApprovalBroker
+}
+
+// Ask 将框架审批请求转换为 ApprovalBroker.Request，阻塞等待用户选择后返回。
+func (g *planApprovalGate) Ask(ctx context.Context, q approve.Question) (any, error) {
+	options := make([]application.InteractionOption, len(q.Options))
+	for i, opt := range q.Options {
+		options[i] = application.InteractionOption{
+			ID: opt.Key, Label: opt.Label,
+			Description: opt.Description, Style: opt.Style,
+		}
+	}
+
+	req := application.ApprovalRequest{
+		ID:       q.ID,
+		Question: q.Content,
+		Options:  options,
+		Timeout:  q.Timeout,
+	}
+
+	decision, err := g.broker.Request(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return decision.OptionID, nil
+}
+
 // convertPermissionOptions 将 permission.ApproveOption 转为 application.InteractionOption。
-func convertPermissionOptions(opts []permission.ApproveOption) []application.InteractionOption {
+func convertPermissionOptions(opts []toolspermission.ApproveOption) []application.InteractionOption {
 	out := make([]application.InteractionOption, len(opts))
 	for i, o := range opts {
 		out[i] = application.InteractionOption{

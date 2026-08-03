@@ -1,9 +1,11 @@
 # ── 密钥与配置 ──────────────────────────────────────────────
 # 账号池配置包含 API Key，永远不进版本库
 config/accounts.yaml
+config/accounts.yaml.bak*
 config/account-pool.yaml
 config/*.local.yaml
 config/*.secret.yaml
+!config/accounts.example.yaml
 
 # ── 运行时数据 ──────────────────────────────────────────────
 # 会话存储、MCP trace、命令栈快照等运行时产生的数据
@@ -95,3 +97,12 @@ FreeCAD_Export/
 coverage/
 coverage.*
 *.coverprofile
+
+# ── 无扩展名覆盖率产物（误提交绕过 *.out，已清理） ─────────
+/cov
+/coverage
+/coverage-local
+/full_cov
+
+# ── 本地个人工具目录（勿提交） ─────────────────────────────
+local/

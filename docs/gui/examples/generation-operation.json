@@ -1,0 +1,6 @@
+{
+  "operation": "rollback",
+  "expected_generation_id": "gen-20260724-0007",
+  "target_generation_id": "gen-20260724-0006",
+  "reason": "Recover the last verified checkpoint"
+}

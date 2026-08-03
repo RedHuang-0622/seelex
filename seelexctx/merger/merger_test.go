@@ -139,3 +139,25 @@ func TestMergeBack_Alternatives(t *testing.T) {
 		t.Fatal("child alternatives not copied")
 	}
 }
+
+func TestMergeBack_GoalInheritedWhenParentEmpty(t *testing.T) {
+	parent := &snapshot.ContextSnapshot{}
+	child := &snapshot.ContextSnapshot{Goal: "child-goal"}
+	if err := NewMerger().MergeBack(parent, child); err != nil {
+		t.Fatal(err)
+	}
+	if parent.Goal != "child-goal" {
+		t.Fatalf("goal = %q, want child-goal inherited", parent.Goal)
+	}
+}
+
+func TestMergeBack_GoalKeptWhenParentSet(t *testing.T) {
+	parent := &snapshot.ContextSnapshot{Goal: "parent-goal"}
+	child := &snapshot.ContextSnapshot{Goal: "child-goal"}
+	if err := NewMerger().MergeBack(parent, child); err != nil {
+		t.Fatal(err)
+	}
+	if parent.Goal != "parent-goal" {
+		t.Fatalf("goal = %q, want parent-goal kept", parent.Goal)
+	}
+}

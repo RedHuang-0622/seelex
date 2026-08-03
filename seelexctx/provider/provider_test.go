@@ -1,9 +1,10 @@
 package provider
 
 import (
+	"context"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/seelectx/tracer"
+	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -32,98 +33,99 @@ func TestEngineProvider_NilPanicWithGoal(t *testing.T) {
 
 func TestTraceProvider_NilPanic(t *testing.T) {
 	defer func() { recover() }()
-	NewTraceProvider(nil)
+	NewTraceProvider(nil, "sess-1")
 	t.Fatal("expected panic")
 }
 
-func TestWalkTree(t *testing.T) {
-	count := 0
-	walkTree(nil, func(_ *tracer.Node) { count++ })
-	if count != 0 {
-		t.Fatal("expected 0")
-	}
-
-	root := &tracer.Node{
-		ID: "1",
-		Children: []*tracer.Node{
-			{ID: "2", Children: []*tracer.Node{{ID: "3"}}},
-			{ID: "4"},
+func TestTraceProvider_ExportReadsTelemetryLifecycleEvents(t *testing.T) {
+	src := fakeTraceSource{view: telemetry.ViewModel{
+		Events: []telemetry.Event{
+			{
+				Type: telemetry.EventLLMAfter, Status: telemetry.StatusOK,
+				Name: "completion", TraceID: "t1", SpanID: "s1",
+				Attributes: telemetry.Attributes{
+					telemetry.AttributeGenAIRequestModel: "gpt-4",
+					telemetry.AttributeGenAIUsageInput:   100,
+					telemetry.AttributeGenAIUsageOutput:  50,
+				},
+			},
+			{
+				Type: telemetry.EventToolAfter, Status: telemetry.StatusOK,
+				Name: "read_file", TraceID: "t1", SpanID: "s2",
+				Attributes: telemetry.Attributes{
+					telemetry.AttributeGenAIToolName: "read_file",
+				},
+			},
 		},
+	}}
+	p := NewTraceProviderWithGoal(src, "sess-1", "测试目标")
+	snap, err := p.Export(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	var ids []string
-	walkTree(root, func(n *tracer.Node) { ids = append(ids, n.ID) })
-	if len(ids) != 4 {
-		t.Fatalf("expected 4, got %v", ids)
+	if snap.SourceSessionID != "sess-1" || snap.Goal != "测试目标" {
+		t.Fatalf("snap = %#v", snap)
 	}
-}
-
-func TestExtractLLMInfo_Text(t *testing.T) {
-	snap := &snapshot.ContextSnapshot{}
-	extractLLMInfo(&tracer.Node{
-		Name: "call1",
-		Kind: tracer.SpanLLMCall,
-		Attrs: map[string]string{"response_type": "text", "model": "gpt-4", "total_tokens": "150"},
-	}, snap, "t1")
 	if snap.TokenEstimate != 150 {
-		t.Fatalf("got %d", snap.TokenEstimate)
+		t.Fatalf("token estimate = %d, want 150", snap.TokenEstimate)
 	}
-	if len(snap.Findings) == 0 {
-		t.Fatal("expected findings")
+	if len(snap.Findings) == 0 || !contains(snap.Findings[0], "gpt-4") {
+		t.Fatalf("findings = %v", snap.Findings)
+	}
+	if len(snap.Decisions) != 1 || snap.Decisions[0].What != "调用工具 read_file" {
+		t.Fatalf("decisions = %#v", snap.Decisions)
 	}
 }
 
-func TestExtractLLMInfo_ToolCalls(t *testing.T) {
+func TestTraceProvider_ExportEmptyEvents(t *testing.T) {
+	p := NewTraceProvider(fakeTraceSource{view: telemetry.ViewModel{}}, "sess-1")
+	snap, err := p.Export(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Decisions != nil || snap.Findings != nil {
+		t.Fatalf("expected nil projections, got %#v", snap)
+	}
+}
+
+func TestExtractLLMInfo_Tokens(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
-	extractLLMInfo(&tracer.Node{
-		Name: "call2",
-		Kind: tracer.SpanLLMCall,
-		Attrs: map[string]string{"response_type": "tool_calls", "tool_count": "3", "total_tokens": "500"},
-	}, snap, "t2")
-	if snap.TokenEstimate != 500 {
+	extractLLMInfo(telemetry.Event{
+		Type: telemetry.EventLLMAfter, Name: "completion",
+		Attributes: telemetry.Attributes{
+			telemetry.AttributeGenAIUsageInput:  100,
+			telemetry.AttributeGenAIUsageOutput: 50,
+		},
+	}, snap)
+	if snap.TokenEstimate != 150 {
 		t.Fatalf("got %d", snap.TokenEstimate)
 	}
 }
 
 func TestExtractLLMInfo_NoAttrs(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{TokenEstimate: 100}
-	extractLLMInfo(&tracer.Node{Name: "call3", Kind: tracer.SpanLLMCall}, snap, "t3")
+	extractLLMInfo(telemetry.Event{Type: telemetry.EventLLMAfter, Name: "completion"}, snap)
 	if snap.TokenEstimate != 100 {
 		t.Fatalf("got %d", snap.TokenEstimate)
 	}
 }
 
-func TestExtractLLMInfo_InvalidToken(t *testing.T) {
-	snap := &snapshot.ContextSnapshot{TokenEstimate: 0}
-	extractLLMInfo(&tracer.Node{
-		Name: "call4",
-		Kind: tracer.SpanLLMCall,
-		Attrs: map[string]string{"total_tokens": "not-a-number"},
-	}, snap, "t4")
-	// Invalid number should not change TokenEstimate
-	if snap.TokenEstimate != 0 {
-		t.Fatalf("expected 0, got %d", snap.TokenEstimate)
-	}
-}
-
-func TestExtractLLMInfo_UnknownResponseType(t *testing.T) {
+func TestExtractLLMInfo_ModelFinding(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
-	extractLLMInfo(&tracer.Node{
-		Name: "call5",
-		Kind: tracer.SpanLLMCall,
-		Attrs: map[string]string{"response_type": "unknown", "model": "gpt-4"},
-	}, snap, "t5")
-	// Unknown response type should not add findings
-	if len(snap.Findings) != 1 {
-		t.Fatalf("expected 1 finding (model), got %d: %+v", len(snap.Findings), snap.Findings)
+	extractLLMInfo(telemetry.Event{
+		Type: telemetry.EventLLMAfter, Name: "completion", TraceID: "t1",
+		Attributes: telemetry.Attributes{telemetry.AttributeGenAIRequestModel: "gpt-4"},
+	}, snap)
+	if len(snap.Findings) != 1 || !contains(snap.Findings[0], "gpt-4") {
+		t.Fatalf("findings = %v", snap.Findings)
 	}
 }
 
 func TestExtractToolDecision_Normal(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
-	extractToolDecision(&tracer.Node{
-		Name: "read_file",
-		Kind: tracer.SpanToolDispatch,
-		Attrs: map[string]string{"tool": "read_file", "arguments": `{"path":"/x"}`},
+	extractToolDecision(telemetry.Event{
+		Type: telemetry.EventToolAfter, Name: "read_file",
+		Attributes: telemetry.Attributes{telemetry.AttributeGenAIToolName: "read_file"},
 	}, snap)
 	if len(snap.Decisions) != 1 {
 		t.Fatal("expected 1 decision")
@@ -131,14 +133,11 @@ func TestExtractToolDecision_Normal(t *testing.T) {
 	if snap.Decisions[0].What != "调用工具 read_file" {
 		t.Errorf("expected '调用工具 read_file', got %q", snap.Decisions[0].What)
 	}
-	if len(snap.Decisions[0].Alternatives) == 0 || snap.Decisions[0].Alternatives[0] == "" {
-		t.Error("expected arguments in alternatives")
-	}
 }
 
 func TestExtractToolDecision_NoTool(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
-	extractToolDecision(&tracer.Node{Kind: tracer.SpanToolDispatch}, snap)
+	extractToolDecision(telemetry.Event{Type: telemetry.EventToolAfter, Name: ""}, snap)
 	if len(snap.Decisions) != 0 {
 		t.Fatal("expected 0")
 	}
@@ -146,11 +145,10 @@ func TestExtractToolDecision_NoTool(t *testing.T) {
 
 func TestExtractToolDecision_Error(t *testing.T) {
 	snap := &snapshot.ContextSnapshot{}
-	extractToolDecision(&tracer.Node{
-		Name:   "rf",
-		Kind:   tracer.SpanToolDispatch,
-		Status: tracer.StatusError,
-		Attrs:  map[string]string{"tool": "read_file", "error": "not found"},
+	extractToolDecision(telemetry.Event{
+		Type: telemetry.EventToolAfter, Name: "rf", Status: telemetry.StatusError,
+		Attributes: telemetry.Attributes{telemetry.AttributeGenAIToolName: "read_file"},
+		Error:      &telemetry.ErrorInfo{Message: "not found"},
 	}, snap)
 	if len(snap.Decisions) != 1 {
 		t.Fatal("expected 1 decision")
@@ -163,19 +161,13 @@ func TestExtractToolDecision_Error(t *testing.T) {
 	}
 }
 
-func TestExtractToolDecision_NoArgs(t *testing.T) {
-	snap := &snapshot.ContextSnapshot{}
-	extractToolDecision(&tracer.Node{
-		Name: "search",
-		Kind: tracer.SpanToolDispatch,
-		Attrs: map[string]string{"tool": "search"},
-	}, snap)
-	if len(snap.Decisions) != 1 {
-		t.Fatal("expected 1 decision")
-	}
-	if len(snap.Decisions[0].Alternatives) != 0 {
-		t.Errorf("expected no alternatives when no args, got %v", snap.Decisions[0].Alternatives)
-	}
+// fakeTraceSource 是 TraceSource 的测试替身（telemetry.ViewModel 静态投影）。
+type fakeTraceSource struct {
+	view telemetry.ViewModel
+}
+
+func (f fakeTraceSource) Query(context.Context, telemetry.Query) (telemetry.ViewModel, error) {
+	return f.view, nil
 }
 
 // ── Helpers ──────────────────────────────────────────────────

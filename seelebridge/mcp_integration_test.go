@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	frameworkmcp "github.com/RedHuang-0622/Seele/agent/core/tool/mcp"
+	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
 )

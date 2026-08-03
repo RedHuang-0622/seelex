@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/Seele/types"
@@ -146,3 +147,152 @@ func (s *SessionStore) listShardFiles(sessionID string) ([]string, error) {
 }
 
 func sha256Sum(s string) [32]byte { return sha256.Sum256([]byte(s)) }
+
+// ── NestedSessionStore ─────────────────────────────────────────────────────
+
+// NestedSessionStore routes session operations to workspace-specific
+// subdirectories. It implements the session.Store interface by delegating
+// to whichever workspace is currently active.
+//
+// Directory layout:
+//
+//	.sessions/                    ← default (no workspace)
+//	sessions/workspace_<id>/      ← per-workspace
+type NestedSessionStore struct {
+	baseDir         string
+	mu              sync.Mutex
+	stores          map[string]*SessionStore
+	activeWorkspace string
+}
+
+// NewNestedSessionStore creates a nested store rooted at baseDir.
+// The baseDir should be the .seelex directory (not the sessions subdir).
+func NewNestedSessionStore(baseDir string) (*NestedSessionStore, error) {
+	defaultDir := filepath.Join(baseDir, "sessions")
+	if err := os.MkdirAll(defaultDir, 0755); err != nil {
+		return nil, fmt.Errorf("nested store: create default dir: %w", err)
+	}
+	defaultStore, err := NewSessionStore(defaultDir)
+	if err != nil {
+		return nil, fmt.Errorf("nested store: create default: %w", err)
+	}
+	return &NestedSessionStore{
+		baseDir: baseDir,
+		stores:  map[string]*SessionStore{"_default": defaultStore},
+	}, nil
+}
+
+// SetWorkspace sets the active workspace for subsequent operations.
+// Pass "" to revert to the default (no-workspace) store.
+func (ns *NestedSessionStore) SetWorkspace(workspaceID string) {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	ns.activeWorkspace = workspaceID
+}
+
+// Workspace returns the currently active workspace ID ("" = default).
+func (ns *NestedSessionStore) Workspace() string {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	return ns.activeWorkspace
+}
+
+// activeStore returns the SessionStore for the current workspace,
+// creating it on first access.
+func (ns *NestedSessionStore) activeStore() *SessionStore {
+	ns.mu.Lock()
+	key := ns.activeWorkspace
+	if key == "" {
+		key = "_default"
+	}
+	if s, ok := ns.stores[key]; ok {
+		ns.mu.Unlock()
+		return s
+	}
+	workspaceID := ns.activeWorkspace
+	ns.mu.Unlock()
+
+	// Create store outside lock (NewSessionStore may do I/O)
+	var dir string
+	if workspaceID == "" {
+		dir = filepath.Join(ns.baseDir, "sessions")
+	} else {
+		dir = filepath.Join(ns.baseDir, "workspace_"+workspaceID, "sessions")
+	}
+	s, err := NewSessionStore(dir)
+	if err != nil {
+		ns.mu.Lock()
+		def := ns.stores["_default"]
+		ns.mu.Unlock()
+		return def
+	}
+
+	ns.mu.Lock()
+	if existing, ok := ns.stores[key]; ok {
+		ns.mu.Unlock()
+		return existing
+	}
+	ns.stores[key] = s
+	ns.mu.Unlock()
+	return s
+}
+
+// ListByWorkspace lists sessions stored under a specific workspace directory.
+func (ns *NestedSessionStore) ListByWorkspace(workspaceID string) []SessionMeta {
+	var dir string
+	if workspaceID == "" {
+		dir = filepath.Join(ns.baseDir, "sessions")
+	} else {
+		dir = filepath.Join(ns.baseDir, "workspace_"+workspaceID, "sessions")
+	}
+	s, err := NewSessionStore(dir)
+	if err != nil {
+		return nil
+	}
+	return s.List()
+}
+
+// Save delegates to the active workspace's SessionStore.
+func (ns *NestedSessionStore) Save(sessionID string, messages []Message) error {
+	if s := ns.activeStore(); s != nil {
+		return s.Save(sessionID, messages)
+	}
+	return nil
+}
+
+// ── session.Store implementation (delegates to active workspace) ──────────
+
+func (ns *NestedSessionStore) List() []SessionMeta {
+	if s := ns.activeStore(); s != nil {
+		return s.List()
+	}
+	return nil
+}
+
+func (ns *NestedSessionStore) Delete(sessionID string) error {
+	if s := ns.activeStore(); s != nil {
+		return s.Delete(sessionID)
+	}
+	return nil
+}
+
+func (ns *NestedSessionStore) Load(sessionID string) ([]Message, error) {
+	if s := ns.activeStore(); s != nil {
+		return s.Load(sessionID)
+	}
+	return nil, fmt.Errorf("seelebridge: no storage configured")
+}
+
+func (ns *NestedSessionStore) LoadRange(sessionID string, offset, limit int) ([]Message, int, error) {
+	if s := ns.activeStore(); s != nil {
+		return s.LoadRange(sessionID, offset, limit)
+	}
+	return nil, 0, fmt.Errorf("seelebridge: no storage configured")
+}
+
+func (ns *NestedSessionStore) MessageCount(sessionID string) (int, error) {
+	if s := ns.activeStore(); s != nil {
+		return s.MessageCount(sessionID)
+	}
+	return 0, fmt.Errorf("seelebridge: no storage configured")
+}

@@ -1,0 +1,24 @@
+{
+  "items": [
+    {
+      "resource_id": "res-src",
+      "name": "application",
+      "kind": "directory",
+      "revision": 42,
+      "modified_at": "2026-07-24T09:20:00Z"
+    },
+    {
+      "resource_id": "res-app-go",
+      "name": "app.go",
+      "kind": "file",
+      "revision": 42,
+      "size": 15142,
+      "media_type": "text/x-go",
+      "modified_at": "2026-07-24T09:20:00Z"
+    }
+  ],
+  "next_cursor": "eyJ2IjoyLCJyZXYiOjQyfQ",
+  "has_more": true,
+  "snapshot_revision": 42,
+  "generation_id": "gen-20260724-0007"
+}

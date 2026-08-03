@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Seelex</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
+      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
+    </header>
+
+    <aside class="left-panel panel">
+      <section class="sessions-section">
+        <div class="section-title">
+          <span>Sessions</span>
+          <span class="section-actions"><span id="session-count" class="badge">0</span><button id="new-session" class="icon-button" type="button" title="新建会话" aria-label="新建会话" data-icon="plus"></button></span>
+        </div>
+        <div id="session-list" class="stack-list"></div>
+      </section>
+      <section>
+        <div class="section-title"><span>Accounts</span><span id="account-count" class="badge">0</span></div>
+        <div id="account-list" class="stack-list"></div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <div id="history-bar" class="history-bar hidden"><button id="load-history" class="icon-button history-button" type="button" title="加载更早消息" aria-label="加载更早消息" data-icon="message"></button></div>
+      <div id="conversation" class="conversation" aria-live="polite"></div>
+      <div id="empty-state" class="empty-state">
+        <div class="orb">S</div>
+        <h1>从一个工程目标开始</h1>
+        <p>Seelex 会在同一个应用核心中协调 Plugin、Skill、工具调用和审批。</p>
+      </div>
+      <form id="composer" class="composer">
+        <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
+        <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，输入 # 加载 Skill"></textarea>
+        <div class="composer-actions">
+          <div class="composer-tools">
+            <button id="command-button" class="icon-button composer-icon" type="button" title="指令面板 (Ctrl+K)" aria-label="指令面板" data-icon="command"></button>
+            <button id="runtime-button" class="icon-button composer-icon" type="button" title="Agent Runtime" aria-label="Agent Runtime" data-icon="runtime"></button>
+            <button id="perm-toggle" class="perm-chip" type="button" title="Full Access 模式">FA</button>
+          </div>
+          <span id="composer-status">Ready</span>
+          <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
+          <div id="effort-control" class="effort-control" data-effort="lite" role="group">
+            <span class="effort-end effort-end--min">Lite</span>
+            <div class="effort-syringe">
+              <div class="syringe-barrel">
+                <div id="syringe-piston" class="syringe-piston"></div>
+              </div>
+              <div class="syringe-ticks" aria-hidden="true"><i></i><i></i><i></i></div>
+              <input id="effort-range" class="syringe-input" type="range" min="0" max="3" step="1" value="0" aria-label="Effort 级别" aria-valuetext="Lite">
+            </div>
+            <span class="effort-end effort-end--max">Max</span>
+            <span class="effort-max-aura" aria-hidden="true"></span>
+          </div>
+          <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
+        </div>
+      </form>
+    </main>
+
+    <aside class="right-panel panel">
+      <section class="project-heading">
+        <div class="section-title">Project</div>
+        <h2 id="project-name">当前工作区</h2>
+        <div id="project-root" class="project-root"></div>
+      </section>
+      <section>
+        <div class="section-title">状态</div>
+        <div id="project-status" class="status-grid"></div>
+      </section>
+      <section id="plan-section" class="hidden">
+        <div class="section-title">Plan</div>
+        <div id="plan-view" class="plan-view muted">暂无执行计划</div>
+      </section>
+      <section>
+        <div class="section-title">概要</div>
+        <div id="project-overview" class="project-overview"></div>
+        <div id="context-compactions" class="context-compactions hidden"></div>
+      </section>
+      <section>
+        <div class="section-title"><span>工作区</span><button id="new-workspace" class="icon-button subtle" type="button" title="新建工作区" data-icon="plus" style="width:16px;height:16px"></button></div>
+        <div id="workspace-info" class="workspace-info"></div>
+        <div id="workspace-list" class="source-list"></div>
+      </section>
+      <section>
+        <div class="section-title"><span>Agent 已读文件</span><span id="source-count" class="badge">0</span></div>
+        <div id="project-sources" class="source-list"></div>
+      </section>
+    </aside>
+  </div>
+
+  <div id="runtime-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="runtime-modal-title">
+    <div class="modal-card runtime-card">
+      <div class="modal-header"><div><span class="eyebrow">Agent</span><h2 id="runtime-modal-title">Runtime</h2></div><button id="runtime-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="runtime-grid">
+        <section>
+          <div class="section-title">Runtime</div>
+          <dl id="runtime-details" class="details-grid"></dl>
+        </section>
+        <section>
+          <div class="section-title"><span>Plugins</span><span id="plugin-count" class="badge">0</span></div>
+          <div id="plugin-list" class="stack-list"></div>
+        </section>
+        <section class="runtime-skills">
+          <div class="section-title">Skills</div>
+          <div id="skill-list" class="chip-list"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="modal-card settings-card">
+      <div class="modal-header"><div><span class="eyebrow">Persistence</span><h2 id="settings-modal-title">会话存储</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p class="settings-note">切换后，新写入会话使用新的存储；已有历史不会自动迁移。数据库密码不会回显。</p>
+      <label class="settings-field">存储形式
+        <select id="storage-backend"><option value="json">JSON（分片序列化）</option><option value="sqlite">SQLite（本地数据库）</option><option value="postgres">PostgreSQL（外部数据库）</option><option value="redis">Redis（远程分片缓存/存储）</option></select>
+      </label>
+      <label id="storage-path-field" class="settings-field">本地路径<input id="storage-path" type="text" autocomplete="off"></label>
+      <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL / Redis）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require 或 redis://:password@host:6379/0" autocomplete="off"></label>
+      <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
+      <div id="storage-status" class="muted"></div>
+    </div>
+  </div>
+
+  <div id="command-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="command-modal-title">
+    <div class="modal-card command-card">
+      <div class="modal-header"><div><span class="eyebrow">Command mode</span><h2 id="command-modal-title">指令面板</h2></div><button id="command-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div id="command-triggers" class="command-triggers">
+        <button class="active" type="button" data-trigger="/">/ 命令与工具</button>
+        <button type="button" data-trigger="#"># Skills</button>
+        <button type="button" data-trigger="@">@ Plugins</button>
+      </div>
+      <input id="command-search" class="command-search" value="/" autocomplete="off" spellcheck="false" aria-label="搜索指令">
+      <div id="command-results" class="command-results"></div>
+      <div class="command-hint">↑↓ 选择 · Enter/Tab 写入输入框 · Esc 关闭</div>
+    </div>
+  </div>
+
+  <div id="interaction-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="risk-label" id="interaction-risk">approval</div>
+      <h2 id="interaction-title">需要确认</h2>
+      <p id="interaction-question"></p>
+      <pre id="interaction-preview" class="preview hidden"></pre>
+      <div id="interaction-options" class="interaction-options"></div>
+    </div>
+  </div>
+
+  <div id="node-detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="node-detail-title">
+    <div class="modal-card node-detail-card">
+      <div class="modal-header"><div class="node-detail-title-slot" id="node-detail-title"></div><button id="node-detail-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div id="node-detail-content"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

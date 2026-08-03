@@ -1,12 +1,13 @@
 # Seelex CI — GitHub Actions
-# 每次 push / PR 到 main 时运行
+# 每次 push / PR 到 main 或 gui 时运行
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, gui]
   pull_request:
-    branches: [main]
+    branches: [main, gui]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,27 +19,28 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
-
-      - name: 缓存 Go 模块
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          cache: true
 
       - name: 下载依赖
         run: go mod download
 
+      - name: 格式检查
+        run: |
+          files="$(gofmt -l .)"
+          test -z "$files" || { echo "$files"; exit 1; }
+        shell: bash
+
       - name: 编译检查
         run: go build ./...
+
+      - name: 编译 Windows GUI
+        if: runner.os == 'Windows'
+        run: go build -tags "gui,desktop,production" ./...
 
       - name: 代码检查
         run: go vet ./...
@@ -55,17 +57,59 @@ jobs:
 
       - name: 检查 return nil, nil
         run: |
-          ! grep -rn "return nil, nil" --include="*.go" . \
+          ! grep -rnE 'return[[:space:]]+nil,[[:space:]]+nil([[:space:]]*(//.*)?$|[[:space:]]*})' --include="*.go" . \
             | grep -v '_test\.go'
         shell: bash
+
+      - name: 检查发布配置白名单
+        run: |
+          tracked="$(git ls-files 'config/*')"
+          expected="$(printf '%s\n' \
+            'config/README.md' \
+            'config/accounts.example.yaml')"
+          test "$tracked" = "$expected" || {
+            echo "Unexpected tracked config files:"
+            echo "$tracked"
+            exit 1
+          }
+        shell: bash
+
+  gui-tests:
+    name: GUI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: 下载 Go 依赖
+        run: go mod download
+
+      - name: 检查 GUI JavaScript 语法
+        run: find gui/frontend/dist -maxdepth 1 -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: 运行 GUI 前端测试
+        run: node --test gui/frontend/dist/*.test.mjs
+
+      - name: 运行 Application 和 GUI Bridge 契约测试
+        run: go test ./application ./gui -v -count=1
 
   race-and-coverage:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           cache: true
@@ -83,10 +127,38 @@ jobs:
         run: go tool cover -func=coverage.out | tee coverage-summary.txt
 
       - name: 上传覆盖率产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-coverage
           path: |
             coverage.out
             coverage-summary.txt
           if-no-files-found: error
+
+  release-safety:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: 构建候选发布包
+        run: bash scripts/build.sh ci
+
+      - name: 检查发布包不含本地账户文件
+        run: |
+          unexpected="$(find dist -type f -path '*/config/*' ! -name 'accounts.example.yaml' -print)"
+          test -z "$unexpected" || {
+            echo "Unexpected account files in release bundle:"
+            echo "$unexpected"
+            exit 1
+          }
+
+      - name: Go 漏洞扫描
+        uses: golang/govulncheck-action@v1
+        with:
+          go-package: ./...

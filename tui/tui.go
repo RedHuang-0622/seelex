@@ -287,6 +287,12 @@ func (model Model) handleEnter() (tea.Model, tea.Cmd) {
 		return model, nil
 	}
 	input := strings.TrimSpace(model.textarea.Value())
+	// 粘贴已折叠为占位符时，Enter 提交真实粘贴内容（而不是吞掉按键）：
+	// 折叠只做 UI 显示（防长文本刷屏），提交语义保持直觉 —— 粘贴 → 回车 → 发送。
+	if model.pasteBuffer != "" {
+		input = strings.TrimSpace(model.pasteBuffer)
+		model.pasteBuffer = ""
+	}
 	model.suggMode = false
 	if model.showLogo {
 		model.showLogo = false
@@ -306,11 +312,12 @@ func (model Model) handleEnter() (tea.Model, tea.Cmd) {
 	return model, submitInput(model.app, input)
 }
 
-// checkPaste 检测 textarea 是否包含多行粘贴内容，是则折叠为占位符并返回 true。
-// 每次 Enter 提交前调用，防止粘贴中的换行符触发误提交。
+// checkPaste 检测 textarea 是否包含多行粘贴内容，是则折叠为占位符。
+// 返回 false 让提交继续：已折叠时 handleEnter 会用 pasteBuffer 的真实内容
+// 提交（粘贴 → 回车 → 发送），不再吞掉 Enter。
 func (model *Model) checkPaste() bool {
 	if model.pasteBuffer != "" {
-		return true // 已折叠
+		return false // 已折叠，提交逻辑用 pasteBuffer
 	}
 	val := model.textarea.Value()
 	if val == "" {

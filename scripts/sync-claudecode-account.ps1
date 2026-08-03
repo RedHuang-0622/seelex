@@ -1,6 +1,6 @@
 param(
     [string]$ClaudeSettingsPath = "$HOME\.claude\settings.json",
-    [string]$OutputPath = "config\account-claudecode.local.yaml",
+    [string]$OutputPath = "config\accounts.yaml",
     [string]$AccountName = "claudecode-minimax"
 )
 
@@ -45,12 +45,11 @@ defaults:
   timeout: 120s
   temperature: 0
 
-accounts:
-  - name: $(ConvertTo-YamlSingleQuoted $AccountName)
-    provider: openai
-    model: $(ConvertTo-YamlSingleQuoted $openAIModel)
-    base_url: $(ConvertTo-YamlSingleQuoted $openAIBaseUrl)
-    api_key: $(ConvertTo-YamlSingleQuoted $token)
+roles:
+  agent:
+    - model: $(ConvertTo-YamlSingleQuoted $openAIModel)
+      base_url: $(ConvertTo-YamlSingleQuoted $openAIBaseUrl)
+      api_key: $(ConvertTo-YamlSingleQuoted $token)
 "@
 
 $resolvedOutput = [IO.Path]::GetFullPath((Join-Path (Get-Location) $OutputPath))

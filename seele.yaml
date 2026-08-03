@@ -60,3 +60,6 @@ permission:
     - tool: "bash"
       patterns: ["rm *", "mv *", "chmod *", "chown *"]
       action: ask
+
+# 权限规则按顺序评估，最后匹配的规则胜出（LMRW）。
+# 运行参数（window / limits）在 seelex.yaml；本文件只放权限。

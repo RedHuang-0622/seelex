@@ -1,0 +1,101 @@
+{
+  "schema_version": "seelex.scenario/v1",
+  "id": "approval-chat",
+  "initial": {
+    "plugin": "default",
+    "effort": "medium",
+    "active_session_id": "session-e2e-1"
+  },
+  "engine_script": [
+    {
+      "on_user": "检查实现并读取文件",
+      "emit": [
+        {
+          "type": "assistant.delta",
+          "value": "我先检查实现。"
+        },
+        {
+          "type": "tool.call",
+          "name": "read_file",
+          "arguments": "{\"path\":\"application/app.go\"}",
+          "result": "package application",
+          "approval": {
+            "id": "approval-e2e-1",
+            "question": "允许读取 application/app.go 吗？",
+            "risk": "low",
+            "preview": "application/app.go",
+            "allow_option": "allow",
+            "options": [
+              {
+                "id": "allow",
+                "label": "允许"
+              },
+              {
+                "id": "reject",
+                "label": "拒绝"
+              }
+            ]
+          }
+        },
+        {
+          "type": "assistant.delta",
+          "value": "读取完成。"
+        }
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "action": "submit",
+      "session_id": "session-e2e-1",
+      "text": "检查实现并读取文件"
+    },
+    {
+      "expect": "chat_running",
+      "running": true
+    },
+    {
+      "expect": "message_delta",
+      "value": "我先检查实现。"
+    },
+    {
+      "expect": "tool_status",
+      "tool": "read_file",
+      "status": "running"
+    },
+    {
+      "expect": "interaction",
+      "id": "approval-e2e-1"
+    },
+    {
+      "action": "resolve_interaction",
+      "id": "approval-e2e-1",
+      "option": "allow"
+    },
+    {
+      "expect": "tool_status",
+      "tool": "read_file",
+      "status": "success"
+    },
+    {
+      "expect": "chat_running",
+      "running": false
+    },
+    {
+      "expect": "event_sequence",
+      "kinds": [
+        "message.delta",
+        "tool.started",
+        "interaction.opened"
+      ]
+    },
+    {
+      "expect": "event_set",
+      "kinds": [
+        "interaction.closed",
+        "tool.completed",
+        "snapshot.changed"
+      ]
+    }
+  ]
+}

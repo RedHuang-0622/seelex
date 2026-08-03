@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	frameworkmcp "github.com/RedHuang-0622/Seele/agent/core/tool/mcp"
+	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	"github.com/RedHuang-0622/seelex/mcpstack"
 )
 
@@ -27,6 +27,14 @@ type breakerState struct {
 	once sync.Once
 }
 
+// mcp 返回 MCP 工具提供者（tools/mcp，实现 tools.ToolProvider）。
+func (r *Runtime) mcp() *frameworkmcp.Provider {
+	if r.mcpProvider == nil {
+		r.mcpProvider = frameworkmcp.NewProvider()
+	}
+	return r.mcpProvider
+}
+
 // BreakerEvents returns a read-only channel of breaker events.
 // The consumer (mcpstack.ListenBreaker) runs automatically when AttachMCP is called.
 func (r *Runtime) BreakerEvents() <-chan frameworkmcp.BreakerEvent {
@@ -35,7 +43,7 @@ func (r *Runtime) BreakerEvents() <-chan frameworkmcp.BreakerEvent {
 	}
 	r.breaker.once.Do(func() {
 		r.breaker.ch = make(chan frameworkmcp.BreakerEvent, 64)
-		r.agent.MCP().SetBreakerEventsChannel(r.breaker.ch)
+		r.mcp().SetBreakerEventsChannel(r.breaker.ch)
 	})
 	return r.breaker.ch
 }
@@ -46,10 +54,7 @@ func (r *Runtime) BreakerEvents() <-chan frameworkmcp.BreakerEvent {
 //  2. Starts mcpstack.ListenBreaker to record breaker events into MCPStack
 //  3. Refreshes tool list so new tools are visible
 func (r *Runtime) AttachMCP(ctx context.Context, cfg MCPServer) error {
-	provider := r.agent.MCP()
-	if provider == nil {
-		return fmt.Errorf("seelebridge: MCP provider is unavailable")
-	}
+	provider := r.mcp()
 	frameworkCfg, err := toFrameworkMCP(cfg)
 	if err != nil {
 		return err
@@ -79,20 +84,14 @@ func (r *Runtime) AttachMCPServer(
 }
 
 func (r *Runtime) DetachMCP(name string) error {
-	provider := r.agent.MCP()
-	if provider == nil {
-		return fmt.Errorf("seelebridge: MCP provider is unavailable")
-	}
+	provider := r.mcp()
 	provider.Detach(name)
 	r.refreshMCPTools(provider)
 	return nil
 }
 
 func (r *Runtime) RefreshMCP(ctx context.Context, name string) error {
-	provider := r.agent.MCP()
-	if provider == nil {
-		return fmt.Errorf("seelebridge: MCP provider is unavailable")
-	}
+	provider := r.mcp()
 	if err := provider.RefreshTools(ctx, name); err != nil {
 		return fmt.Errorf("seelebridge: refresh MCP %q: %w", name, err)
 	}
@@ -101,37 +100,28 @@ func (r *Runtime) RefreshMCP(ctx context.Context, name string) error {
 }
 
 func (r *Runtime) MCPServerNames() []string {
-	provider := r.agent.MCP()
-	if provider == nil {
-		return nil
-	}
-	names := provider.ServerNames()
+	names := r.mcp().ServerNames()
 	sort.Strings(names)
 	return names
 }
 
 // IsMCPAlive 轻量 ping 检查 MCP 服务器是否存活（2s 超时）。
 func (r *Runtime) IsMCPAlive(name string) bool {
-	provider := r.agent.MCP()
-	if provider == nil {
-		return false
-	}
-	return provider.IsAlive(name)
+	return r.mcp().IsAlive(name)
 }
 
 // MCPServerStatus 返回 MCP 服务器健康状态（alive + tool count + error）。
 func (r *Runtime) MCPServerStatus(name string) (alive bool, tools int, err error) {
-	provider := r.agent.MCP()
-	if provider == nil {
-		return false, 0, fmt.Errorf("seelebridge: MCP provider is unavailable")
-	}
-	return provider.ServerStatus(name)
+	return r.mcp().ServerStatus(name)
 }
 
+// refreshMCPTools 重新挂载 MCP provider 到注册表，重建可见工具快照。
 func (r *Runtime) refreshMCPTools(provider *frameworkmcp.Provider) {
-	tools := r.agent.Tools()
-	tools.Unregister(provider.ProviderName())
-	tools.Register(provider)
+	if r.registry == nil || r.registry.registry == nil {
+		return
+	}
+	_ = r.registry.registry.Unregister(provider.ProviderName())
+	_ = r.registry.registry.Register(provider)
 }
 
 func toFrameworkMCP(cfg MCPServer) (frameworkmcp.ServerConfig, error) {

@@ -135,9 +135,9 @@ func FormatSummary(s *MCPStack) string {
 
 	serverGroups := make(map[string]int)
 	statusCounts := map[CallStatus]int{
-		StatusSuccess:   0,
-		StatusFailed:    0,
-		StatusPending:   0,
+		StatusSuccess:    0,
+		StatusFailed:     0,
+		StatusPending:    0,
 		StatusRolledBack: 0,
 	}
 

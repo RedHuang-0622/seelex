@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/agent-scenario-v1.schema.json",
+  "title": "Seelex deterministic Agent scenario v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "initial", "engine_script", "steps"],
+  "properties": {
+    "schema_version": { "const": "seelex.scenario/v1" },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "initial": { "$ref": "#/$defs/initial" },
+    "engine_script": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/engineTurn" }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "$defs": {
+    "initial": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plugin": { "type": "string" },
+        "effort": { "type": "string" },
+        "open_session_ids": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "active_session_id": { "type": "string" }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "style": { "type": "string" }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "options"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "question": { "type": "string", "minLength": 1 },
+        "risk": { "type": "string" },
+        "preview": { "type": "string" },
+        "allow_option": { "type": "string" },
+        "options": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/option" } }
+      }
+    },
+    "emission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["assistant.delta", "tool.call", "approval.request", "engine.error"] },
+        "value": { "type": "string" },
+        "name": { "type": "string" },
+        "arguments": { "type": "string" },
+        "result": { "type": "string" },
+        "error": { "type": "string" },
+        "approval": { "$ref": "#/$defs/approval" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "assistant.delta" } } },
+          "then": { "required": ["value"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "tool.call" } } },
+          "then": { "required": ["name"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "approval.request" } } },
+          "then": { "required": ["approval"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "engine.error" } } },
+          "then": { "required": ["error"] }
+        }
+      ]
+    },
+    "engineTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["on_user", "emit"],
+      "properties": {
+        "on_user": { "type": "string", "minLength": 1 },
+        "emit": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/emission" } }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": { "enum": ["submit", "resolve_interaction"] },
+        "expect": { "enum": ["chat_running", "message_delta", "tool_status", "interaction", "event_sequence", "event_set"] },
+        "session_id": { "type": "string" },
+        "text": { "type": "string" },
+        "id": { "type": "string" },
+        "option": { "type": "string" },
+        "value": { "type": "string" },
+        "running": { "type": "boolean" },
+        "tool": { "type": "string" },
+        "status": { "enum": ["running", "success", "error"] },
+        "kinds": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      },
+      "oneOf": [
+        { "required": ["action"], "not": { "required": ["expect"] } },
+        { "required": ["expect"], "not": { "required": ["action"] } }
+      ]
+    }
+  }
+}

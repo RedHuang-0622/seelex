@@ -12,8 +12,9 @@
 // pass through this same middleware layer.
 //
 // Architecture (双栈):
-//   Stack 1 — MCPCallLog: append-only record of every call (immutable history)
-//   Stack 2 — Interceptor: wraps MCP calls, hooks before/after (middleware)
+//
+//	Stack 1 — MCPCallLog: append-only record of every call (immutable history)
+//	Stack 2 — Interceptor: wraps MCP calls, hooks before/after (middleware)
 package mcpstack
 
 import (
@@ -37,10 +38,10 @@ var (
 type CallStatus int
 
 const (
-	StatusPending   CallStatus = iota // Submitted but not yet responded
-	StatusSuccess                     // Completed successfully
-	StatusFailed                      // Execution error
-	StatusRolledBack                  // Reverted (conceptual, domain-specific)
+	StatusPending    CallStatus = iota // Submitted but not yet responded
+	StatusSuccess                      // Completed successfully
+	StatusFailed                       // Execution error
+	StatusRolledBack                   // Reverted (conceptual, domain-specific)
 )
 
 func (s CallStatus) String() string {
@@ -63,15 +64,15 @@ func (s CallStatus) String() string {
 // MCPCall records a single MCP tool invocation — the atomic unit of the trace.
 // It is domain-agnostic: "Op" is just the MCP tool name, "Params" is arbitrary JSON.
 type MCPCall struct {
-	ID         string          `json:"id"`                   // UUID v4, globally unique
-	Seq        int             `json:"seq"`                  // Sequence number (1-based)
-	Timestamp  time.Time       `json:"timestamp"`            // Call creation time
-	ServerName string          `json:"server_name"`          // Target MCP server (e.g. "freecad", "chem-sim")
-	ToolName   string          `json:"tool_name"`            // MCP tool name (e.g. "sketch_rectangle", "simulate_binding")
-	Args       json.RawMessage `json:"args"`                 // Call arguments as JSON
-	Result     json.RawMessage `json:"result,omitempty"`     // Call result (set after completion)
+	ID         string          `json:"id"`                    // UUID v4, globally unique
+	Seq        int             `json:"seq"`                   // Sequence number (1-based)
+	Timestamp  time.Time       `json:"timestamp"`             // Call creation time
+	ServerName string          `json:"server_name"`           // Target MCP server (e.g. "freecad", "chem-sim")
+	ToolName   string          `json:"tool_name"`             // MCP tool name (e.g. "sketch_rectangle", "simulate_binding")
+	Args       json.RawMessage `json:"args"`                  // Call arguments as JSON
+	Result     json.RawMessage `json:"result,omitempty"`      // Call result (set after completion)
 	ErrorMsg   string          `json:"error_msg,omitempty"`   // Error message if failed
-	Status     CallStatus      `json:"status"`               // Current status
+	Status     CallStatus      `json:"status"`                // Current status
 	AIBacklink string          `json:"ai_backlink,omitempty"` // AI message ID that triggered this call
 	TokenCount int             `json:"token_count,omitempty"` // Token estimate for the recorded data
 }
@@ -93,13 +94,13 @@ type StackMetadata struct {
 type MCPStack struct {
 	mu sync.RWMutex `json:"-"`
 
-	SessionID  string            `json:"session_id"`            // Session identifier
-	CreatedAt  time.Time         `json:"created_at"`            // Creation timestamp
-	UpdatedAt  time.Time         `json:"updated_at"`            // Last modification timestamp
-	Calls      []MCPCall         `json:"calls"`                 // Append-only call history
-	CurrentIdx int               `json:"current_idx"`           // Current state pointer (-1 = empty)
-	Metadata   StackMetadata     `json:"metadata"`              // Session metadata
-	Tags       map[string]string `json:"tags,omitempty"`        // Arbitrary tags
+	SessionID  string            `json:"session_id"`     // Session identifier
+	CreatedAt  time.Time         `json:"created_at"`     // Creation timestamp
+	UpdatedAt  time.Time         `json:"updated_at"`     // Last modification timestamp
+	Calls      []MCPCall         `json:"calls"`          // Append-only call history
+	CurrentIdx int               `json:"current_idx"`    // Current state pointer (-1 = empty)
+	Metadata   StackMetadata     `json:"metadata"`       // Session metadata
+	Tags       map[string]string `json:"tags,omitempty"` // Arbitrary tags
 
 	autoSavePath string `json:"-"` // Path for automatic persistence
 }
@@ -305,4 +306,3 @@ func (s *MCPStack) autoSave() error {
 	}
 	return s.save(s.autoSavePath)
 }
-

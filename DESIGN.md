@@ -1,5 +1,14 @@
 # Seelex — Seele TUI 客户端设计文档
 
+> **迁移状态（2026-08-01，seele-v2 重构）**：本文描述的是基于旧 Seele API
+> （`engine.Engine`、`agent/core/*`、`workplan/runtime/*`）的装配与运行时设计。
+> 底层已整体迁移到 Seele v0.0.8+ 新装配模型（`agent.NewWithComponents` +
+> `session.NewSession` + `accountpool`/`bridge` + `workplan/codec` + 事件投影），
+> 见 [`docs/arch/seele-v2-runtime-architecture.md`](docs/arch/seele-v2-runtime-architecture.md)
+> 与 [`docs/2026-08-01-seele-v2-underlying-refactor/plan.md`](docs/2026-08-01-seele-v2-underlying-refactor/plan.md)。
+> 本文保留作为历史设计记录；其中关于 `engine`/`agent/core` 的代码示例不再反映当前实现，
+> 当前装配以 `main.go` 与 `seelebridge/README.md` 为准。
+
 ## 概述
 
 Seelex 是 Seele 引擎的独立 TUI 客户端，使用 bubbletea 框架构建。

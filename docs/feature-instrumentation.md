@@ -1,8 +1,8 @@
 # Seelex 功能打点表
 
-> 更新日期：2026-07-22
-> 产品版本：v0.0.4
-> 产品目标：构建可切换专业 Plugin 形态的工科全栈 Agent；CLI/TUI 面向高效工作，Electron 面向毕设、课程项目和成果交付。
+> 更新日期：2026-07-24
+> 产品版本：v0.1.0-alpha.1
+> 产品目标：构建可切换专业 Plugin 形态的工科全栈 Agent；TUI 面向高效工作，Wails GUI 面向毕设、课程项目和成果交付。
 
 ## 状态定义
 
@@ -19,12 +19,12 @@
 |------|----------|----------|----------|
 | Plugin 切换成功率 | 单元测试覆盖成功与回滚 | fake backend 100%，真实 MCP ≥ 99% | 激活结果、回滚结果、最终一致性 |
 | Plugin 切换延迟 | 未持续记录 | 无 MCP P95 < 100ms；含 MCP 按 server 单列 | `plugin.activate.duration` |
-| 工具强制门控覆盖率 | 部分（manual 模式 + 白名单） | 高风险工具 100%，全工具 100% 有决策记录 | tool call 与 permission decision 对账 |
+| 工具强制门控覆盖率 | 默认 manual 模式 + 白名单 | 高风险工具 100%，全工具 100% 有决策记录 | tool call 与 permission decision 对账 |
 | Chat 事件可恢复率 | EventHub 支持 resync | 断线/背压场景 100% 可由 Snapshot 恢复 | Seq 跳号与 Snapshot 对账测试 |
 | Application 覆盖率 | 67.4% | ≥ 75%，关键错误路径 ≥ 90% | `go test -cover` |
 | TUI 适配覆盖率 | 6.2% | ≥ 40%，输入/交互/resize 主路径全覆盖 | `go test -cover` |
 | 专业 Plugin 垂直闭环 | FreeCAD 技能 + 插件 manifest 存在 | CAD 1 个、Dev 1 个 | 真实任务从输入到产物的 E2E |
-| 多前端协议兼容 | 尚无 sidecar | TUI 与 Electron 共用同一核心和协议版本 | JSON-RPC contract tests |
+| 多前端协议兼容 | TUI/GUI 共用 Core，Snapshot/Event protocol v1 | 远程前端复用 v1 并建立兼容矩阵 | Bridge contract tests + reducer tests + 后续 JSON-RPC contract tests |
 
 ## 功能打点表
 
@@ -42,7 +42,7 @@
 | 内核 | 系统诊断命令 | /diag 命令 | Go 运行时、内存、Plugin 列表、Account 池、Skill 清单 | 已完成 | `application/diag.go`、Snapshot | 诊断信息完整性 | /diag 返回完整系统状态快照（≤ 1ms 收集） | ✅ 已接入 `/diag` |
 | 内核 | TUI 周期性刷新 | tea.Tick 3s | Chat.Running 期间自动重绘时间显示 | 已完成 | Bubble Tea tickEvery | CPU 开销 | streaming 无新 chunk 时 elapsed 时间仍实时刷新 | ✅ `tui/stream.go` + `tui/tui.go` |
 | 内核 | 粘贴折叠 | 多行/高频粘贴 | `[Pasted text #N +M lines]` 占位 | 已完成 | Bubble Tea textarea | 大文本不误发 | 3 行以上粘贴折叠为占位符，确认后展开 | ✅ `tui/tui.go` |
-| 内核 | 技能注入系统提示词 | Skill 注册表 | instructions 层底部注入 `### Available Skills` 列表 | 已完成 | Skill Registry、buildSystemPrompt | 技能可见性 | LLM 在 prompt 中感知所有可用技能，可建议用户 `#skillname` | ✅ `application/app.go` |
+| 内核 | Skill 用户上下文 | `#skillname 需求`、活动 Skill 栈 | 条目化 Skill 名称/指令 + 完整原始问题 | 已完成 | Skill Registry、PromptStack、Chat queue | Skill 发送完整率、system prompt 隔离率、UI 还原率 | 有需求立即发送；空需求只激活；每轮携带活动 Skill；system prompt 不含 Skill 清单/指令；UI 只显示原文 | ✅ `application/input.go`、`application/skill_context.go`、`application/chat.go`；单元/集成/队列/历史测试 |
 | 内核 | 配置路径固定化 | 无 | `<binary-dir>/config/accounts.yaml` 绝对路径 | 已完成 | os.Executable | 配置确定性 | 不移用工作目录，始终读二进制同目录 config/accounts.yaml | ✅ `main.go accountsPath()` |
 | 内核 | Goal Skill 无限制 | #goal skill 加载 | SetMaxLoops(9999)，退栈恢复 effort 值 | 已完成 | EffortManager | Goal 任务不因 loop 限制中断 | Goal 复杂编排不受 MaxLoops 约束 | ✅ `application/input.go` |
 | 形态系统 | Plugin Manifest | `plugins/*/plugin.md` | Plugin、工具过滤、Prompt、Skill、MCP 配置 | 已完成 | frontmatter loader | 加载成功率、schema 拒绝率 | 非法 schema/名称/路径被拒绝，合法定义可发现 | ✅ 7 个 Plugin 全部可用 |
@@ -52,15 +52,20 @@
 | 形态系统 | Dev Plugin 最小闭环 | Issue/需求、代码仓库 | 方案、代码、测试、Review 报告 | 7—12 人日 | Plugin/Skill、Shell/Git tools | 一次通过率、测试通过率、人工返工次数 | 完成一个真实仓库需求并生成可审查变更 | ⬜ 尚无专用 Plugin |
 | Skill | 全局与 Plugin Skill | `SKILL.md`、Plugin 私有 Skill | 可查询、可补全、可激活的 Prompt | 已完成 | Skill Loader/Registry | 加载数、冲突数、激活耗时 | 全局与当前 Plugin Skill 集合一致且可测试 | ✅ 16 个 Skill（9 global + 7 CAD），覆盖率 82.6% |
 | 安全 | ApprovalBroker + Interaction 面板 | ApprovalRequest、用户选项 | 同步决议、TUI 交互面板（箭头/数字选择） | 已完成 | EventHub、TUI dialog | 超时率、取消率、重复 resolve | 超时/取消/关闭均唤醒等待者；TUI 面板完整交互 | ✅ Broker 和 TUI resolve 已实现 |
-| 安全 | 强制 Permission Gate | Tool call、-permission flag | full_access（全放行）/ manual（白名单 + 审批） | 🟡 基础完成 | Seele permission middleware | 门控覆盖率、误放行数、决策延迟 | manual 模式白名单工具自动放行，其他弹审批框 | 🟡 代码已接线，`seele.yaml` 规则文件尚未强制执行 |
+| 安全 | 强制 Permission Gate | Tool call、-permission flag | manual（默认，白名单 + 审批）/ full_access（显式开启） | 🟡 基础完成 | Seele permission middleware | 门控覆盖率、误放行数、决策延迟 | manual 模式白名单工具自动放行，其他弹审批框 | 🟡 默认已收紧；`seele.yaml` 规则文件尚未强制执行 |
 | 会话 | 保存与列表 | Engine History、Session ID | 持久化会话、元数据列表 | 已完成 | Seele Store | 保存成功率、存储耗时 | `/new` 保存当前历史，`/sessions` 可查询 | ✅ 已进入主链路 |
-| 会话 | 恢复会话 | Session ID、持久化 History | Engine 与 Snapshot 同步恢复 | 上游 2—4 人日 | Engine history replacement API | 恢复成功率、历史一致率 | 恢复后下一轮 Chat 使用被恢复上下文 | ⛔ 当前明确禁用（Engine 不支持历史替换） |
+| 会话 | 恢复会话 | Session ID、持久化 History | Engine 与 Snapshot 同步恢复 | 已完成 | EnginePort.ReplaceHistory、SessionPort | 恢复成功率、历史一致率 | 恢复后下一轮 Chat 使用被恢复上下文 | ✅ `application/app.go resumeSession` + command/application tests |
 | 上下文 | 压缩、合并与快照 | 长对话、上下文片段 | 受控 Token 上下文、快照 | 已有基础，集成 4—7 人日 | `seelexctx`、Engine | Token 节省率、关键信息保留率 | 长任务不超窗，关键约束在压缩后可回归验证 | 🟡 工具包测试较好，产品链路不足 |
 | 前端 | TUI 工作入口 | 键盘、终端尺寸、application Event | CLI/TUI 交互界面 | 已完成，补测 3—5 人日 | Bubble Tea、Application | 输入延迟、渲染错误率、覆盖率 | Chat、补全、审批、Plugin 切换和 resize 有回归测试 | 🟡 主功能可用，覆盖率 6.2% |
-| 协议 | Snapshot 分页与版本 | 历史游标、客户端能力 | 分页消息、`protocol_version` | 3—5 人日 | Application DTO | Snapshot 大小、分页延迟、兼容测试数 | 长会话不传全量历史；旧客户端收到可识别错误 | ⬜ Electron 前置条件 |
-| 协议 | JSON-RPC/stdio sidecar | RPC request、订阅连接 | response、event notification | 5—8 人日 | 稳定 DTO、协议版本 | RPC 成功率、事件延迟、异常退出率 | Node 测试进程可完成 snapshot→chat→approval→cancel | ⬜ 尚无 `transport/` |
-| 前端 | Electron 毕设/交付界面 | sidecar API、工程产物 | 可视化任务、历史、报告和专业视图 | 15—30 人日 | JSON-RPC、至少一个专业 Plugin | 核心任务完成率、演示稳定性 | 不复制业务逻辑；可完整演示 CAD 或 Dev 项目闭环 | ⬜ 后续产品阶段 |
-| 质量 | 测试与发布门禁 | 源码、测试、依赖 | build/vet/test/race/coverage 报告 | 2—4 人日 | CI、C toolchain | 覆盖率、race、构建平台数 | 三平台通过；Linux race 通过；报告与 HEAD 同步 | 🟡 build/vet/test 已通过，race 环境未就绪 |
+| 协议 | Snapshot 分页与版本 | 历史游标、客户端能力 | 分页消息、`protocol_version=1` | 已完成（Core/GUI） | Application DTO | Snapshot 大小、分页延迟、兼容测试数 | 长会话分页加载；不兼容客户端收到可识别错误 | ✅ Core/GUI 已实现版本、seq、revision floor 与分页；远程 sidecar 另立功能点 |
+| 协议 | JSON-RPC/stdio sidecar | RPC request、订阅连接 | response、event notification | 5—8 人日 | 稳定 DTO、协议版本 | RPC 成功率、事件延迟、异常退出率 | Node 测试进程可完成 snapshot→chat→approval→cancel | ⬜ 仅远程/IDE 客户端需要 |
+| 前端 | Wails GUI Alpha | Application Bridge、工程产物 | 可视化任务、历史、Plan、审批和专业视图 | 基础与逻辑测试完成，E2E 待补 | Application DTO、系统 WebView | 核心任务完成率、演示稳定性 | 不复制业务逻辑；完整演示 chat/tool/approval/plugin 主链路 | 🟡 `gui/` + 26 个 Node tests + Bridge tests；Windows WebView E2E 待完成 |
+| 前端 | Effort 常驻强度滑杆 | Runtime Effort、用户拖动 | 四档预览/提交、失败回滚、Max 紫色动效 | 已完成 | `EffortManager`、GUI Bridge | 切换成功率、失败回滚率 | 无需打开弹窗；拖动只预览；Max 动效支持 reduced-motion | ✅ `effort-control.js` + 4 个 Node tests + Bridge/Core contracts |
+| 前端 | JSON DSL 对话卡片 | `render_card` JSON mutation | Conversation 中的安全 Card item、增量 patch、恢复 | M0—M1 | protocol v2、PresentationPort、Session transcript | 合法渲染率、fallback 率、render P95 | 只在对话区渲染；Core/前端双校验；无任意代码；可恢复 | ⬜ PRD + `docs/gui/modules/dsl-card-runtime.md` 已完成 |
+| 前端 | 右栏 Workspace 沙盒 | ProjectRoot、资源查询、Card FileLink | Overview/Files/Changes/Artifacts 与安全预览 | M0、M3、M5 | WorkspacePort、PathGuard、Permission Gate | path escape、query P95、产物追溯率 | 后端零越界；树/预览分页；写动作不绕过审批；Card 只做资源导航 | ⬜ PRD + `docs/gui/modules/workspace-sandbox.md` 已完成 |
+| 质量 | Agent E2E 交互 | scenario JSON、scripted Engine、真实前端 | Core/DOM/Wails 分层旅程与失败 trace | M0、M2、M5 | Application、Playwright、CI | 30-run 稳定率、旅程覆盖、flake | submit→tool→approval→Card→Workspace→artifact→resume 全链路可复现 | ⬜ PRD + `docs/gui/modules/agent-e2e-interaction.md` 已完成 |
+| 前端 | 多会话页面并行 | 多个 session、显式页面动作 | 独立 SessionActor、页签、后台运行/审批/恢复 | M0、M4—M5 | EngineFactory、scheduler、scoped Event、Session store | 串线数、切页 P95、permit 泄漏、恢复一致性 | 8 open/3 running；切页不停任务；审批/配置/事件不跨 session；关闭有保护 | ⬜ PRD + `docs/gui/modules/multi-session-pages.md` 已完成 |
+| 质量 | 测试与发布门禁 | 源码、测试、依赖 | format/build/vet/test/race/coverage/GUI/release-safety | 持续 | CI、C toolchain、Node 22 | 覆盖率、race、GUI tests、构建平台数 | main/gui 均触发；三平台 build；Linux race；GUI Node/contract；发布包安全 | ✅ `gui` push run 30028712017：Skill 上下文提交六个 job 全绿 |
 | 文档 | 状态与事实同步 | HEAD、测试结果、路线决策 | README、打点表、测试报告 | 持续，每迭代 0.5 人日 | CI/人工 Review | 过时陈述数、更新时间 | README 不宣传未接线能力；报告注明提交和日期 | 🟡 本次已更新 |
 
 ## 本轮变更 v0.0.2 → v0.0.4
@@ -73,7 +78,7 @@
 | ✅ Plan 可视化 | `tui/plan.go` 四级 Effort Plan 面板（lite 单行 / medium 打点表 / high 节点树 / max 全框表） |
 | ✅ Plan 进度回调 | Seele v0.0.4 `OnNodeDone` — 每节点完成后实时回调到 Service → 更新 PlanState → 发布事件 → TUI 重绘 |
 | ✅ Plan per-node 结果 | `plan_run` 返回 JSON 含 `nodes[]` 字段（node_id/kind/status/elapsed） |
-| ✅ 技能注入提示词 | `buildSystemPrompt` 的 instructions 层底部动态注入 `### Available Skills` 列表 |
+| ✅ Skill 用户上下文 | `#skillname 需求` 将 Skill 名称、指令和原始问题作为条目化用户消息发送；不再注入 system prompt |
 | ✅ 系统诊断 | `/diag` 命令 — Go 运行时、Plugin、Account、Skill 全部列出 |
 | ✅ 配置路径固定 | `<binary-dir>/config/accounts.yaml`，移除 `-c` flag |
 | ✅ TUI 周期性刷新 | streaming 期间每 3s 自动重绘 `● receiving N.Ns` |
@@ -83,22 +88,22 @@
 ## 活动图
 
 ```text
-[稳定 Application Core]    ← v0.0.4 已达成
+[稳定 Application Core + GUI protocol v1]
           │
           ├──→ [强制 Permission Gate] ──→ [seele.yaml 规则生效]  ← manual 模式已接线
           │
-          ├──→ [Snapshot 分页/协议版本] ──→ [JSON-RPC Sidecar] ──→ [Electron]
+          ├──→ [Snapshot 分页/协议版本：已完成] ──→ [JSON-RPC Sidecar] ──→ [远程/IDE 客户端]
           │
           ├──→ [Plugin 可观测状态] ──────┬→ [CAD Plugin 垂直闭环]
           │                              └→ [Dev Plugin 垂直闭环]
           │
-          └──→ [Engine History Replace] ──→ [Session Resume]
+          └──→ [Session Resume：已完成] ──→ [跨版本历史兼容/E2E]
 ```
 
 ## 执行顺序建议
 
 1. **P0：事实与安全一致**：Permission Gate seele.yaml 规则强制执行、审批 E2E。
-2. **P0：协议地基**：Snapshot 分页、协议版本、稳定错误码。
+2. **P0：协议地基后续**：冻结 v1 字段兼容规则、补稳定错误码和 sidecar contract。
 3. **P1：可并行专业闭环**：CAD Plugin 与 Dev Plugin 可在 Plugin 契约稳定后并行推进。
 4. **P1：多前端**：sidecar 完成后启动 Electron，不在 Electron 内复制业务编排。
 5. **P2：体验和效率**：Plugin 切换可观测性、TUI 覆盖率、上下文效果度量。
@@ -116,7 +121,7 @@
 | Dev Plugin | 与基础 read/write/git Plugin 重叠 | Dev Plugin 只组合工作流、Skill 和质量门禁，不复制底层工具 |
 | JSON-RPC | DTO 在开发期频繁变化 | sidecar 上线前冻结 v1；之后只做向后兼容扩展 |
 | Electron | UI 先行导致业务重复实现 | Electron 仅消费 sidecar；缺少 API 时先补 core/协议，不在 TS 临时实现业务状态 |
-| Session Resume | Engine 历史无法替换 | 保持 capability=false 和明确提示，仅允许历史查看，不伪装恢复 |
+| Session Resume | 历史格式跨版本不兼容或 ReplaceHistory 失败 | 原子保持当前会话，显示恢复失败，不提交半恢复 Snapshot |
 
 ## 更新规则
 
