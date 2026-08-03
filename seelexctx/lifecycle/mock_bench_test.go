@@ -224,12 +224,19 @@ func TestActorCancelAfterClose(t *testing.T) {
 
 // ── 内存对比基准（mock 策略验证核心）──────────────────────────────────
 
-// measureHeap 返回 GC 后的堆分配（稳定基线）。
+// measureHeap 返回 GC 后的堆分配（稳定基线：多次 GC + 取最小值，
+// 消除测量 flake——GC 回收时机/goroutine 调度噪声）。
 func measureHeap() uint64 {
-	runtime.GC()
-	var stats runtime.MemStats
-	runtime.ReadMemStats(&stats)
-	return stats.HeapAlloc
+	best := uint64(0)
+	for attempt := 0; attempt < 3; attempt++ {
+		runtime.GC()
+		var stats runtime.MemStats
+		runtime.ReadMemStats(&stats)
+		if attempt == 0 || stats.HeapAlloc < best {
+			best = stats.HeapAlloc
+		}
+	}
+	return best
 }
 
 // TestPolicyMemoryComparison 四策略内存对比（非 happy path 核心交付）：
