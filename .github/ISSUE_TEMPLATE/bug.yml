@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible Seelex runtime, frontend, persistence, or tooling defect.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include API keys, account files, DSNs, private endpoints, session data, or unredacted logs.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What failed, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide deterministic steps, a small public fixture, or an offline test when possible.
+      placeholder: |
+        1. Run ...
+        2. Submit ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit/tag, OS, Go version, frontend, storage backend, and provider type. Redact secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Relevant sanitized logs, screenshots, test output, or stack traces.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed credentials, private configuration, session content, and personal paths.
+          required: true
+        - label: This is not an undisclosed security vulnerability; if it is, I will use the private security advisory flow.
+          required: true

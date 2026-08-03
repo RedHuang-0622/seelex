@@ -1,0 +1,35 @@
+name: Harness reproduction case
+description: Contribute a deterministic scenario that exposes an agent/runtime failure mode.
+title: "[Repro]: "
+labels: ["reproduction", "harness"]
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Failure mode
+      description: Describe the harness behavior being tested, such as tool routing, context loss, plan projection, approval, merge-back, or recovery.
+    validations:
+      required: true
+  - type: textarea
+    id: fixture
+    attributes:
+      label: Synthetic fixture and steps
+      description: Prefer a network-free fixture and scripted provider/engine behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: oracle
+    attributes:
+      label: Expected observable result
+      description: State the Snapshot, Event, task terminal state, persisted record, or artifact that should be asserted.
+    validations:
+      required: true
+  - type: checkboxes
+    id: reproducibility
+    attributes:
+      label: Reproducibility
+      options:
+        - label: The case does not require real credentials or private data.
+          required: true
+        - label: The expected result is machine-checkable or precisely described.
+          required: true
