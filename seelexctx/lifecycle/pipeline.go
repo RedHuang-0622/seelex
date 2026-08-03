@@ -88,6 +88,9 @@ func (p *BatchPipeline[T]) run() {
 	for {
 		select {
 		case <-p.closeCh:
+			// 关闭协议：closeCh 已先关（无新 Push）→ 排空已投递 items
+			// 再 flush（保证零丢失收尾）。
+			p.drainItems(&buffer)
 			p.flushBuffer(&buffer)
 			return
 		case <-ticker.C:
@@ -102,8 +105,26 @@ func (p *BatchPipeline[T]) run() {
 				p.flushBuffer(&buffer)
 			}
 		case ack := <-p.flush:
+			// 显式 flush 请求：排空已投递 items 后 flush（Close 确认语义）。
+			p.drainItems(&buffer)
 			p.flushBuffer(&buffer)
 			close(ack)
+		}
+	}
+}
+
+// drainItems 排空 items channel 中已投递的条目到缓冲（run goroutine 内；
+// closeCh 已关时无新 Push，排空即完整）。
+func (p *BatchPipeline[T]) drainItems(buffer *[]T) {
+	for {
+		select {
+		case item := <-p.items:
+			*buffer = append(*buffer, item)
+			if len(*buffer) >= p.flushSize {
+				p.flushBuffer(buffer)
+			}
+		default:
+			return
 		}
 	}
 }
@@ -139,15 +160,17 @@ func (p *BatchPipeline[T]) Push(item T) error {
 }
 
 // Close 停止管道并 flush 剩余缓冲（流式结束收尾；阻塞等待确认；幂等）。
+// 关闭协议（修复零丢失）：① 先关 closeCh（禁止新 Push）② flush 请求
+// （run 排空已投递 items + flush，确认后返回）③ 等 run 退出。
 func (p *BatchPipeline[T]) Close() error {
 	p.closeOnce.Do(func() {
+		close(p.closeCh)
 		ack := make(chan struct{})
 		select {
 		case p.flush <- ack:
 			<-ack
 		case <-p.done:
 		}
-		close(p.closeCh)
 		<-p.done
 	})
 	return nil
