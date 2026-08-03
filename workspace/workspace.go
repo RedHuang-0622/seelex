@@ -96,8 +96,8 @@ func (r *Repo) Save() error {
 	if err != nil {
 		return fmt.Errorf("workspace: marshal index: %w", err)
 	}
-	if err := os.WriteFile(r.savePath, b, 0644); err != nil {
-		return fmt.Errorf("workspace: write index: %w", err)
+	if err := writeFileAtomic(r.savePath, b, 0644); err != nil {
+		return fmt.Errorf("workspace: write index atomically: %w", err)
 	}
 	return nil
 }
@@ -176,8 +176,10 @@ func (r *Repo) Create(name, rootPath, gitRemote string) (Info, error) {
 	}
 	r.workspaces[id] = w
 
-	// auto-persist (fire-and-forget; error logged but not surfaced)
-	_ = r.saveLocked()
+	if err := r.saveLocked(); err != nil {
+		delete(r.workspaces, id)
+		return Info{}, err
+	}
 	return w, nil
 }
 
@@ -208,14 +210,23 @@ func (r *Repo) Delete(id string) error {
 	if _, ok := r.workspaces[id]; !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
+	workspace := r.workspaces[id]
+	removedBindings := make(map[string]string)
 	delete(r.workspaces, id)
 	// remove all bindings to this workspace
 	for sid, wid := range r.bindings {
 		if wid == id {
+			removedBindings[sid] = wid
 			delete(r.bindings, sid)
 		}
 	}
-	_ = r.saveLocked()
+	if err := r.saveLocked(); err != nil {
+		r.workspaces[id] = workspace
+		for sid, wid := range removedBindings {
+			r.bindings[sid] = wid
+		}
+		return err
+	}
 	return nil
 }
 
@@ -226,8 +237,14 @@ func (r *Repo) UpdateGitRemote(id, remote string) error {
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
+	previousRemote := w.GitRemote
 	w.GitRemote = strings.TrimSpace(remote)
 	r.workspaces[id] = w
+	if err := r.saveLocked(); err != nil {
+		w.GitRemote = previousRemote
+		r.workspaces[id] = w
+		return err
+	}
 	return nil
 }
 
@@ -309,10 +326,40 @@ func (r *Repo) saveLocked() error {
 	if err != nil {
 		return fmt.Errorf("workspace: marshal index: %w", err)
 	}
-	if err := os.WriteFile(r.savePath, b, 0644); err != nil {
-		return fmt.Errorf("workspace: write index: %w", err)
+	if err := writeFileAtomic(r.savePath, b, 0644); err != nil {
+		return fmt.Errorf("workspace: write index atomically: %w", err)
 	}
 	return nil
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+
+	if err := temporary.Chmod(mode); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 // ── helpers ─────────────────────────────────────────────────
