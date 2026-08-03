@@ -5,7 +5,10 @@
 // 显式配置 rounds > provider 推导（clamp）> 出错时保守回退 MinRounds。
 package seelexctx
 
-import "context"
+import (
+	"context"
+	"math"
+)
 
 // WindowPolicy 决定滑动窗口轮数 N。
 type WindowPolicy interface {
@@ -85,7 +88,12 @@ func (policy DefaultWindowPolicy) WindowRounds(_ context.Context, info ProviderC
 	if available <= 0 {
 		return minRounds, nil
 	}
-	rounds := int(available / float64(info.AvgRoundTokens))
+	rawRounds := available / float64(info.AvgRoundTokens)
+	nearestRound := math.Round(rawRounds)
+	if math.Abs(rawRounds-nearestRound) < 1e-9 {
+		rawRounds = nearestRound
+	}
+	rounds := int(rawRounds)
 	if rounds < minRounds {
 		rounds = minRounds
 	}

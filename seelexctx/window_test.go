@@ -2,6 +2,7 @@ package seelexctx
 
 import (
 	"context"
+	"math"
 	"testing"
 )
 
@@ -26,6 +27,17 @@ func TestDefaultWindowPolicyFormulaClamps(t *testing.T) {
 	}
 	if rounds != 4 {
 		t.Fatalf("rounds = %d, want clamped min 4", rounds)
+	}
+	// 模拟 0.7 的相邻低浮点值：数学意图仍是 26，不能被截断为 25。
+	boundaryPolicy := NewDefaultWindowPolicy(WindowConfig{Ratio: math.Nextafter(0.7, 0)})
+	rounds, err = boundaryPolicy.WindowRounds(context.Background(), ProviderContextInfo{
+		ContextTokens: 200000, AvgRoundTokens: 5000, ReservedTokens: 10000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rounds != 26 {
+		t.Fatalf("rounds = %d, want 26", rounds)
 	}
 }
 
