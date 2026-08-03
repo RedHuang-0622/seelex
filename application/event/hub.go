@@ -51,12 +51,21 @@ func (subscription Subscription) Close() {
 
 type EventHub struct {
 	mu          sync.Mutex
+	publishMu   sync.Mutex
 	seq         uint64
 	nextID      uint64
-	subscribers map[uint64]chan Event
+	subscribers map[uint64]*eventSubscriber
 }
 
-func NewEventHub() *EventHub { return &EventHub{subscribers: make(map[uint64]chan Event)} }
+type eventSubscriber struct {
+	mu     sync.Mutex
+	events chan Event
+	closed bool
+}
+
+func NewEventHub() *EventHub {
+	return &EventHub{subscribers: make(map[uint64]*eventSubscriber)}
+}
 
 func (hub *EventHub) Subscribe(buffer int) Subscription {
 	if buffer < 1 {
@@ -65,18 +74,18 @@ func (hub *EventHub) Subscribe(buffer int) Subscription {
 	hub.mu.Lock()
 	hub.nextID++
 	id := hub.nextID
-	channel := make(chan Event, buffer)
-	hub.subscribers[id] = channel
+	subscriber := &eventSubscriber{events: make(chan Event, buffer)}
+	hub.subscribers[id] = subscriber
 	hub.mu.Unlock()
 	var once sync.Once
-	return Subscription{Events: channel, close: func() {
+	return Subscription{Events: subscriber.events, close: func() {
 		once.Do(func() {
 			hub.mu.Lock()
-			if current, ok := hub.subscribers[id]; ok {
+			if current, ok := hub.subscribers[id]; ok && current == subscriber {
 				delete(hub.subscribers, id)
-				close(current)
 			}
 			hub.mu.Unlock()
+			subscriber.close()
 		})
 	}}
 }
@@ -86,22 +95,52 @@ func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, 
 	if payload != nil {
 		encoded, _ = json.Marshal(payload)
 	}
+	// Preserve global event order without holding the subscriber-registry lock
+	// during delivery. Subscribe and Close therefore remain independent from a
+	// slow subscriber, while concurrent publishers still observe monotonic seq.
+	hub.publishMu.Lock()
+	defer hub.publishMu.Unlock()
+
 	hub.mu.Lock()
 	hub.seq++
 	event := Event{ProtocolVersion: model.ProtocolVersion, Seq: hub.seq, Revision: revision, RequestID: requestID, Kind: kind, Payload: encoded}
+	subscribers := make([]*eventSubscriber, 0, len(hub.subscribers))
 	for _, subscriber := range hub.subscribers {
-		select {
-		case subscriber <- event:
-		default:
-			for len(subscriber) > 0 {
-				<-subscriber
-			}
-			resync := event
-			resync.Kind = EventResyncRequired
-			resync.Payload = nil
-			subscriber <- resync
-		}
+		subscribers = append(subscribers, subscriber)
 	}
 	hub.mu.Unlock()
+
+	for _, subscriber := range subscribers {
+		subscriber.deliver(event)
+	}
 	return event
+}
+
+func (subscriber *eventSubscriber) deliver(event Event) {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	if subscriber.closed {
+		return
+	}
+	select {
+	case subscriber.events <- event:
+	default:
+		for len(subscriber.events) > 0 {
+			<-subscriber.events
+		}
+		resync := event
+		resync.Kind = EventResyncRequired
+		resync.Payload = nil
+		subscriber.events <- resync
+	}
+}
+
+func (subscriber *eventSubscriber) close() {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	if subscriber.closed {
+		return
+	}
+	subscriber.closed = true
+	close(subscriber.events)
 }
