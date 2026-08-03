@@ -1,9 +1,9 @@
 # 上下文内存生命周期管理 — 设计文档与现状摸底
 
-> 状态：设计（2026-08-04）
+> 状态：D（泛型模板 + mock 策略验证）已实施（2026-08-04，`seelexctx/lifecycle/`）；A/B/C 待实施。
 > 目标：长上下文不再导致整体程序卡顿——内存中的上下文只存在于必要时刻（冷加载 + 按需加载），前端滑动窗口渲染，流式管道批量落库。
 > 用户原则（2026-08-04）：上下文是冷加载且只加载需要的地方；存在时刻 = ① 前端 select（读）② 后端写操作 ③ 后端 select 出结果递给 LLM 的那一下；其他时候内存中不得存在。
-> 工作顺序：先做泛型模板 + mock 策略验证（D），再实施 A/B/C。
+> 工作顺序：先做泛型模板 + mock 策略验证（D，已实施），再实施 A/B/C。
 
 ## 1. 现状摸底（代码证据）
 
@@ -64,7 +64,22 @@ type ContextProvider[T any] interface {
 }
 ```
 
-mock 基准（D2）：合成 10k 轮会话 → 对比 全量常驻 / 冷加载 / 窗口加载 / 管道批量 的内存峰值、GC 压力、select 延迟、落库吞吐 → 选默认策略。
+mock 基准（D2，已实施）：合成 10k 轮会话 → 对比 全量常驻 / 冷加载 / 窗口加载 / 管道批量 的内存峰值。**实测结果（2026-08-04，10k items × 64B，磁盘冷存储 mock，堆分配峰值增量）**：
+
+| 策略 | 峰值 | 占比 |
+|---|---|---|
+| full-retain | 785,712 B | 100% |
+| **cold-load** | **16 B** | **0.0%** |
+| **windowed**（512 条窗口） | **42,352 B** | **5.4%** |
+| **pipelined** | **16 B** | **0.0%** |
+
+结论：冷加载/管道策略下上下文内容基本不驻留内存（验证了"落库即释放"原则）；窗口化只驻留窗口条数。**默认策略 = cold-load（读路径窗口装载）+ pipelined（写路径批量落库）组合**。
+
+实现要点（`seelexctx/lifecycle/`，全部 actor 无锁化）：
+- `ContextActor[T]`：mailbox（有界 channel）+ 唯一 actor goroutine 持有状态（零 mutex）；Append/LoadWindow/Snapshot 消息进出；Close 幂等 + closedFlag 显式拒绝（避免 select 竞态）；
+- `BatchPipeline[T]`：Push 经 channel 投递，flush goroutine 持有缓冲（修复初版 ticker 与 Push 的 buffer 数据竞争）；累计 N 条或间隔 X ms 批量落库；背压 = ErrPipelineFull（调用方聚合重试，不丢数据）；Close 幂等；
+- `discardStorage[T]`：磁盘冷存储 mock（落库即不驻留）——初版 memoryStorage 内容仍驻留，导致冷加载策略"假冷"（峰值与全量相同），已用 discard 修正测量；
+- 非 happy path 测试 9 个（-race 全绿）：并发 100 goroutines 保序、空/越界/limit=0 边界、窗口溢出落库、mailbox 背压、管道批量落库次数（10k chunks → ≤157 次 flush）、间隔 flush、Close 后拒绝、四策略内存对比、全量常驻增长基准有效性。
 
 ### 2.3 流式管道批量落库（C）
 
