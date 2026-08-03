@@ -4,13 +4,8 @@ import (
 	"errors"
 	"sync"
 	"time"
-)
 
-const (
-	defaultMaxConcurrentReplans = 2
-	defaultMaxReplansPerWindow  = 6
-	defaultMaxProviderRequests  = 6
-	defaultReplanWindow         = time.Minute
+	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 var (
@@ -53,17 +48,18 @@ type replanGuard struct {
 }
 
 func newReplanGuard(maxConcurrent, maxWindowAttempts, maxProviderRequests int, window time.Duration) *replanGuard {
+	defaults := seelexctx.DefaultLimits()
 	if maxConcurrent <= 0 {
-		maxConcurrent = defaultMaxConcurrentReplans
+		maxConcurrent = defaults.MaxConcurrentReplans
 	}
 	if maxWindowAttempts <= 0 {
-		maxWindowAttempts = defaultMaxReplansPerWindow
+		maxWindowAttempts = defaults.MaxReplansPerWindow
 	}
 	if maxProviderRequests <= 0 {
-		maxProviderRequests = defaultMaxProviderRequests
+		maxProviderRequests = defaults.MaxReplanProviderReqs
 	}
 	if window <= 0 {
-		window = defaultReplanWindow
+		window = time.Duration(defaults.ReplanWindowSec) * time.Second
 	}
 	return &replanGuard{
 		now:                 time.Now,
