@@ -366,10 +366,6 @@ func (model *Model) afterInput() {
 	if model.pasteBuffer != "" && !strings.HasPrefix(value, "[Pasted text #") {
 		model.pasteBuffer = ""
 	}
-	// 如果用户编辑了折叠占位符，清除 pasteBuffer
-	if model.pasteBuffer != "" && !strings.HasPrefix(value, "[Pasted text #") {
-		model.pasteBuffer = ""
-	}
 	model.histIdx = -1
 }
 
