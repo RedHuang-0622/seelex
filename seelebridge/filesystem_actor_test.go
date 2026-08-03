@@ -25,7 +25,7 @@ func TestFileSystemActorSerializesSamePathWrites(t *testing.T) {
 			if _, err := fs.Edit(path, "seed", "seed"+tag); err != nil {
 				t.Errorf("edit %s: %v", tag, err)
 			}
-		}(string(rune('a'+index)))
+		}(string(rune('a' + index)))
 	}
 	group.Wait()
 	data, err := fs.Read(path)
