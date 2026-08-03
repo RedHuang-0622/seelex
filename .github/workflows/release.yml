@@ -9,7 +9,21 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 校验 SemVer 标签
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "release tag must be SemVer, got: ${tag}"
+            exit 1
+          fi
+
   cli:
+    needs: validate
     strategy:
       matrix:
         include:
@@ -53,7 +67,22 @@ jobs:
             -o "stage/${name}/seelex${{ matrix.extension }}" .
           cp config/accounts.example.yaml "stage/${name}/config/"
           cp -r plugins "stage/${name}/"
-          cp seele.yaml LICENSE CHANGELOG.md README.md "stage/${name}/"
+          cp seele.yaml seelex.yaml LICENSE CHANGELOG.md README.md "stage/${name}/"
+          if [ -f README_EN.md ]; then
+            cp README_EN.md "stage/${name}/"
+          fi
+          unexpected="$(find "stage/${name}" \( \
+            -path '*/.seelex' -o \
+            -path '*/config/accounts.yaml' -o \
+            -path '*/.seelex/*' -o \
+            -name '*.local.yaml' -o \
+            -name '*.secret.yaml' \
+          \) -print)"
+          if [ -n "${unexpected}" ]; then
+            echo "unsafe files found in release stage:"
+            echo "${unexpected}"
+            exit 1
+          fi
           if [ "${{ matrix.archive }}" = "zip" ]; then
             (cd stage && zip -qr "${name}.zip" "${name}")
             sha256sum "stage/${name}.zip" > "stage/${name}.zip.sha256"
@@ -72,6 +101,7 @@ jobs:
           if-no-files-found: error
 
   gui-windows:
+    needs: validate
     runs-on: windows-latest
 
     steps:
@@ -86,6 +116,25 @@ jobs:
         shell: pwsh
         run: |
           & .\scripts\build-gui.ps1 -Version $env:GITHUB_REF_NAME -BuildKind Publish
+
+      - name: 审计 GUI 发布包
+        shell: pwsh
+        run: |
+          $auditRoot = Join-Path $env:RUNNER_TEMP "seelex-gui-audit"
+          New-Item -ItemType Directory -Force -Path $auditRoot | Out-Null
+          foreach ($archive in Get-ChildItem dist -Filter "*-gui.zip") {
+            $target = Join-Path $auditRoot $archive.BaseName
+            Expand-Archive -LiteralPath $archive.FullName -DestinationPath $target -Force
+            $unsafe = Get-ChildItem $target -Recurse -Force | Where-Object {
+              $_.FullName -match '[\\/]\.seelex([\\/]|$)' -or
+              $_.FullName -match '[\\/]config[\\/]accounts\.yaml$' -or
+              $_.Name -match '\.(local|secret)\.yaml$'
+            }
+            if ($unsafe) {
+              $unsafe.FullName | Write-Error
+              throw "unsafe files found in GUI release archive"
+            }
+          }
 
       - uses: actions/upload-artifact@v7
         with:
@@ -108,7 +157,7 @@ jobs:
       - name: 发布 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
             artifacts/*.zip

@@ -58,6 +58,7 @@ package:
 		cp -r plugins "$$outdir/"; \
 		cp seele.yaml seelex.yaml "$$outdir/"; \
 		cp LICENSE CHANGELOG.md README.md "$$outdir/"; \
+		[ ! -f README_EN.md ] || cp README_EN.md "$$outdir/"; \
 		dirname="seelex-v$(ARCHIVE_VERSION)-$$os-$$arch"; \
 		cp -r "$$outdir" "$(DIST)/$$dirname"; \
 		tar -czf "$(DIST)/$$dirname.tar.gz" -C "$(DIST)" "$$dirname"; \

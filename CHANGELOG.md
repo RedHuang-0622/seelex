@@ -2,100 +2,93 @@
 
 All notable changes to Seelex are documented in this file.
 
-## [v0.1.0-alpha.1] - 2026-08-03
+The repository is in Developer Alpha. Source builds report <code>dev</code>;
+release builds receive their version from the Git tag through ldflags.
 
-### Added
+The next planned release is <code>v0.0.2</code>. The <code>v0.1.0</code>
+line is reserved for the later breaking architectural rewrite and is not used
+for this stabilization batch.
 
-- Added subagent node detail page: click the `…` button on a plan node card to
-  open a detail modal with event timeline (queued → running → completed with
-  heartbeats), status, elapsed, and output.
-- Added Dify-style graph semantics to the plan DSL: nodes embed downstream
-  branch rows (target, condition labels, parallel-fork markers) instead of a
-  flat nodelist + edgelist summary.
-- Wired the subagent context loop into production: parent evidence injection
-  (`SetNodeParentEvidence`) and post-execution merge-back
-  (`SeelexAgentNode.mergeBack` → `merger.MergeBack` → parent session history);
-  `seelexctx.ExportSnapshot` combines engine + trace providers.
-- Split configuration: `seele.yaml` is permission-only (now actually loaded
-  by `setupPermissionGate`, fallback to the built-in allowlist) and
-  `seelex.yaml` carries window + limits runtime parameters.
-- Added event-based process observation to the live smoke test
-  (`smokeObserver` subscribes to the EventHub stream: tool start/complete,
-  streamed output totals, errors).
+## [Unreleased]
 
 ### Changed
 
-- Session resume loads only the tail history window (probe total via
-  `ReadRange(limit<=0)` = manifest-only, then parse the covering shards)
-  instead of full history; large-session switches parse 1-2 shards instead
-  of all.
-- `merger.MergeBack` now inherits the child Goal when the parent Goal is
-  empty.
+- Reworked the repository entry documentation around verifiable Harness
+  behavior, technical decisions, current limitations, and DeepSeek-compatible
+  configuration.
+- Started the engineering-trust remediation covering release consistency,
+  error boundaries, concurrency, testing, and open-source governance.
 
 ### Fixed
 
-- Subagent merge-back loop was disconnected in production (parent evidence
-  never injected, results never merged back); closed with end-to-end test
-  `TestSubAgentMergeBackToParent`.
+- Removed stale README claims about a local <code>go.work</code> and a
+  <code>replace</code> directive. Seelex currently resolves Seele v0.1.1 from
+  the Go module graph.
+- Replaced the stale source release identifier with the neutral
+  <code>dev</code> version. Tagged builds remain authoritative.
 
-## [v0.1.0-alpha.2] - 2026-08-02
+## [v0.0.1_release] - 2026-08-03
+
+This historical pre-release tag repackaged the v0.0.1 source state and added
+the Windows GUI archive. Its name predates the SemVer validation now used for
+new releases.
 
 ### Added
 
-- Added tasklist gate: a loaded Plan renders as a frontend checklist, with
-  `task_check_node` for in-progress per-node checkmarks as the agent moves
-  between nodes (distinct from plan-run event-driven node checkmarks).
-- Added `read_compressed_turn` read-back handle for compressed turn originals.
-- Added windowed session-history reads (manifest shard counts) and parallel
-  resume loading for faster large-session opens.
-- Added TUI paste handling that submits the real pasted content.
+- Windows GUI package in addition to the cross-platform CLI archives.
+- Subagent node detail view with queued/running/terminal event timeline.
+- Dify-style Plan branch visualization.
+
+## [v0.0.1] - 2026-08-03
+
+First public Developer Alpha release.
+
+### Added
+
+- Bubble Tea TUI and opt-in Wails desktop GUI.
+- Streaming Chat, Tool Calling, approval interactions, task terminal tools,
+  Plugin/Skill/MCP switching, account selection, Effort levels, Plan state,
+  paged history, and session resume.
+- Optional WorkPlan DAG execution with isolated Subagent sessions, parallel
+  branches, deterministic account routing, parent evidence injection, and
+  child-to-parent merge-back.
+- Context pipeline with Prompt Stack, sliding history window, compression,
+  reversible compressed-turn archives, and immutable Tool Result references.
+- Project-scoped file and shell tools, PathGate permission rules, and
+  <code>manual</code> as the default permission mode.
+- JSON, SQLite, PostgreSQL, and Redis session storage contracts.
+- Tag-driven cross-platform release automation, SHA-256 checksums, CI, race
+  tests, coverage artifacts, GUI protocol tests, and release safety checks.
+- MIT License and a public account configuration template.
 
 ### Changed
 
-- Migrated the underlying kernel to Seele v0.0.8 (agent/session/tools/workplan
-  components); local source reference via `replace` directive.
-- Removed mandatory-plan gating; Plan is an optional tool with tasklist/plan
-  execution modes chosen per task.
-- Rewrote README for the new kernel; documented module navigation and storage
-  model.
-- Restructured context package into snapshot/provider/compactor/merger
-  sub-packages with a sliding-window compaction model.
-- Updated accounts configuration to role-based layout with flash-tier agents.
+- Migrated to the refactored Seele runtime modules and then pinned the public
+  <code>github.com/RedHuang-0622/Seele v0.1.1</code> dependency.
+- Made Plan optional: ordinary requests enter the main ReAct loop directly,
+  while complex tasks may load a validated DAG.
+- Split permission rules into <code>seele.yaml</code> and runtime window/limit
+  parameters into <code>seelex.yaml</code>.
+- Changed session resume to load only the required tail shards instead of the
+  complete history.
+- Changed release packaging to include only
+  <code>config/accounts.example.yaml</code>; private account configuration is
+  never part of a public build.
 
 ### Fixed
 
-- Fixed context-compaction audit findings: cumulative compact boundaries,
-  orphan retention, window rounds wiring, frame summarization, range checks.
-- Fixed GUI copy/paste so pasted content is submitted instead of swallowed.
-- Compressed-turn loss is now reversible through persisted originals.
-
-## [v0.1.0-alpha.1] - 2026-07-23
-
-### Added
-
-- Added an opt-in Wails desktop GUI alongside the existing Bubble Tea TUI.
-- Added structured GUI support for chat streaming, tool calls, approvals,
-  plugins, accounts, effort levels, plans, skills, and paged history.
-- Added a tracked `config/accounts.example.yaml` for clean installations.
-- Added tag-driven release automation and SHA-256 checksums.
-- Added the MIT license.
-- Added safe session resume with full history replacement and selected-session
-  persistence routing.
-- Added safe GUI Markdown rendering, collapsible `<think>` reasoning blocks,
-  runtime activity animation, and visible queued follow-up messages.
-
-### Changed
-
-- Changed the default permission mode from `full_access` to `manual`.
-- Added `-frontend tui|gui` and `-version` command-line flags.
-- Unified source and linker-injected version information.
-- Release packages now copy only the public account example and never copy the
-  developer's local `config` directory.
-- External LLM smoke tests now require `SEELEX_RUN_LLM_SMOKE=1` explicitly.
+- Connected the production Subagent context loop: parent evidence is injected
+  before execution and child findings/decisions/progress merge back afterward.
+- Repaired context compaction boundaries, orphan retention, frame
+  summarization, range checks, and reversible compressed-turn recovery.
+- Fixed GUI and TUI paste handling, safe Markdown rendering, and streaming
+  state synchronization.
 
 ### Known limitations
 
-- The GUI is an Alpha and currently uses the platform WebView; the TUI remains
-  the default frontend.
-- CAD and Dev professional-plugin end-to-end workflows are not yet release
-  acceptance gates.
+- The project is a Developer Alpha; CLI, configuration, and persistence
+  contracts may still evolve.
+- The GUI depends on the platform WebView and remains Alpha.
+- Plan/Subagent orchestration is in-process and is not an A2A protocol
+  implementation.
+- Standardized coding benchmark results are not yet published.

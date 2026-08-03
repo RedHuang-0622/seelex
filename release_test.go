@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -55,8 +56,8 @@ func TestParsePermissionMode(t *testing.T) {
 
 func TestReleaseVersionIsNotStale(t *testing.T) {
 	t.Parallel()
-	if Version == "" || Version == "v0.0.2" {
-		t.Fatalf("unexpected release version %q", Version)
+	if Version != "dev" {
+		t.Fatalf("source version = %q, want dev; releases must inject their tag with ldflags", Version)
 	}
 }
 
@@ -116,6 +117,9 @@ func TestGUIBuildKeepsLocalAndPublicConfigurationSeparate(t *testing.T) {
 		`publish GUI build must not receive a local account configuration`,
 		`Test-Path -LiteralPath $configSource -PathType Leaf`,
 		`Join-Path $PackageRoot "config/accounts.yaml"`,
+		`if ($BuildKind -eq "Publish")`,
+		`publish GUI package contains private or runtime-local files`,
+		`README_EN.md`,
 	} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("GUI build script missing local configuration contract %q", required)
@@ -132,5 +136,30 @@ func TestGUIBuildKeepsLocalAndPublicConfigurationSeparate(t *testing.T) {
 	}
 	if !strings.Contains(workflow, `build-gui.ps1 -Version $env:GITHUB_REF_NAME -BuildKind Publish`) {
 		t.Fatal("public release workflow must explicitly select the publish GUI build")
+	}
+	for _, required := range []string{
+		`release tag must be SemVer`,
+		`-path '*/config/accounts.yaml'`,
+		`-path '*/.seelex/*'`,
+		`-name '*.local.yaml'`,
+		`contains(github.ref_name, '-')`,
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("release workflow missing safety contract %q", required)
+		}
+	}
+}
+
+func TestReleaseTagSemVerContract(t *testing.T) {
+	pattern := regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
+	for _, tag := range []string{"v0.0.2", "v1.2.3-alpha.1", "v1.2.3+build.7", "v1.2.3-rc.1+sha.abc"} {
+		if !pattern.MatchString(tag) {
+			t.Fatalf("valid release tag rejected: %s", tag)
+		}
+	}
+	for _, tag := range []string{"v1", "v1.2", "v01.2.3", "1.2.3", "v1.2.3_release"} {
+		if pattern.MatchString(tag) {
+			t.Fatalf("invalid release tag accepted: %s", tag)
+		}
 	}
 }

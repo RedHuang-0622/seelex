@@ -1,5 +1,5 @@
 # Seelex Windows GUI build and package script.
-# Usage: .\scripts\build-gui.ps1 [-Version "v0.1.0-alpha.1"] [-BuildKind Publish|Dev] [-LocalConfigPath "config/accounts.yaml"]
+# Usage: .\scripts\build-gui.ps1 [-Version "v0.0.2"] [-BuildKind Publish|Dev] [-LocalConfigPath "config/accounts.yaml"]
 param(
     [string]$Version = "dev",
     [ValidateSet("Publish", "Dev")]
@@ -56,6 +56,21 @@ Copy-Item (Join-Path $Root "seelex.yaml") $PackageRoot  # 运行参数
 Copy-Item (Join-Path $Root "LICENSE") $PackageRoot
 Copy-Item (Join-Path $Root "CHANGELOG.md") $PackageRoot
 Copy-Item (Join-Path $Root "README.md") $PackageRoot
+if (Test-Path -LiteralPath (Join-Path $Root "README_EN.md") -PathType Leaf) {
+    Copy-Item (Join-Path $Root "README_EN.md") $PackageRoot
+}
+
+if ($BuildKind -eq "Publish") {
+    $unsafe = Get-ChildItem -LiteralPath $PackageRoot -Recurse -Force | Where-Object {
+        $_.FullName -match '[\\/]\.seelex([\\/]|$)' -or
+        $_.FullName -match '[\\/]config[\\/]accounts\.yaml$' -or
+        $_.Name -match '\.(local|secret)\.yaml$'
+    }
+    if ($unsafe) {
+        $unsafe.FullName | Write-Error
+        throw "publish GUI package contains private or runtime-local files"
+    }
+}
 
 $compressed = $false
 for ($attempt = 1; $attempt -le 5; $attempt++) {
