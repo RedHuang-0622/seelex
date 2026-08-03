@@ -361,8 +361,8 @@ func TestPlanEventSinkAppendAndProjection(t *testing.T) {
 	}
 
 	// 节点完成（NodeHook 路径）→ 含 kind/elapsed
-	started := time.Now().Add(-3 * time.Second)
-	ended := time.Now()
+	started := time.Date(2026, time.August, 3, 0, 0, 0, 0, time.UTC)
+	ended := started.Add(3 * time.Second)
 	nr := &workplanTypes.NodeResult{NodeBase: workplanTypes.NodeBase{
 		NodeID: "n1", Kind: "auto", Status: "completed", Output: "output-1",
 		StartedAt: started, EndedAt: ended,
