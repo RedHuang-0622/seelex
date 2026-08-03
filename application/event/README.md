@@ -8,10 +8,10 @@
 
 - `EventKind`：消息新增/增量、工具、Runtime、Interaction、Snapshot 和 Error 等事件类型。
 - `Event`：包含 `ProtocolVersion`、全局 `Seq`、Snapshot `Revision`、request ID 和 JSON payload。
-- `EventHub`：为每个 subscriber 分配 channel，负责 fan-out 和关闭。
+- `EventHub`：为每个 subscriber 分配局部锁和 channel，负责 fan-out、顺序与关闭。
 - `Subscription`：暴露只读事件 channel 与幂等 `Close`。
 
-发布时 Hub 递增 seq；慢订阅者不得阻塞业务线程，因此 buffer 大小和丢失后的 resync 语义由消费者共同承担。
+发布时 Hub 按全局顺序递增 seq，并在复制 subscriber 列表后立即释放 registry 锁；实际投递只持有目标 subscriber 的局部锁。慢订阅者不会阻塞 Subscribe/Close 或其他 subscriber 的状态管理，buffer 溢出时该 subscriber 只保留一个 `resync.required`，由消费者重新获取 Snapshot。
 
 ## 依赖和边界
 

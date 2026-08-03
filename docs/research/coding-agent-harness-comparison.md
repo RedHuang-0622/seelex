@@ -1,6 +1,7 @@
 # 主流 Coding Agent Harness 对比与 Seelex 差距分析
 
 > 调研日期：2026-08-02
+> Seelex 实现核对：2026-08-03。外部产品描述按调研日期冻结；Seelex 状态以当前代码与测试为准。
 > 范围：以**产品形态的 coding agent**（Claude Code / OpenAI Codex / Gemini CLI / Cursor / Aider / OpenHands / Cline / GitHub Copilot coding agent / Windsurf / Devin）为主，聚焦 **harness**（LLM 之外的运行时基础设施：agent 循环、上下文、权限、沙箱、计划、子代理、持久化、记忆、MCP、遥测），并与 Seelex 的 harness 逐项对照。
 > 关联文档：`docs/research/agent-harness-research-report.md`（已覆盖 LangGraph / OpenAI Agents SDK / AutoGen / CrewAI / smolagents / A2A 等**框架/协议**侧；本文档补充**产品侧**）。
 > 结论速览见「六、差距矩阵」「七、差距分级与路线图」。
@@ -139,9 +140,9 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 | Codex | 后台并行 agent（worktree/云端） | PR/结果合并 |
 | Cursor | background agents（worktree + VM） | PR 合并 |
 | OpenHands | agent delegation + microagents（注册表） | 事件回传 |
-| **Seelex** | **Plan DAG agent 节点**：`SeelexAgentNode` 独立 Session + NodeScope 注入 + 父 `ContextSnapshot`（goal/decisions/findings/constraints/progress/pending）经 compactor 压缩注入 + 节点预算；`forkexec` 并发（信号量默认 3，fail-fast/best-effort、ParentSnapshot 克隆隔离、生命周期事件）；账号按 role+branch 确定性 FNV hash 路由 | **merger 存在但未接入生产**：`seelexctx/merger` 语义完整（findings/decisions append、progress 替换、constraints 去重），仅测试使用；生产回传只有 `BranchResult.Output` 字符串（`docs/research/agent-harness-research-report.md` P0-1） |
+| **Seelex** | **Plan DAG agent 节点**：`SeelexAgentNode` 独立 Session + NodeScope 注入 + 父 `ContextSnapshot`（goal/decisions/findings/constraints/progress/pending）经 compactor 压缩注入 + 节点预算；`forkexec` 并发（信号量默认 3，fail-fast/best-effort、ParentSnapshot 克隆隔离、生命周期事件）；账号按 role+branch 确定性 FNV hash 路由 | 子会话完成后导出结构化快照，经 `merger.MergeBack` 合并并格式化，通过 `ContextExchanger.MergeBack` 投递到主会话 mailbox；主会话在安全边界注入该上下文，避免在 `plan_run` 持有 Engine 锁时反向写历史 |
 
-**差距**：子代理隔离/预算/并发对齐主流；**「父证据注入 → 子执行 → 结果 merge-back」闭环未接通**（主流 Claude/Gemini 均做结果合并回父），以及**子代理树可见性未上线**（SubAgentTree 规划未完成，`docs/arch/subagent-visibility-design.md`）。
+**差距**：父证据注入、子执行和结果 merge-back 已形成生产闭环；当前主要缺口是 **merge-back 对用户的可见性与同轮语义仍需继续验证**，以及**子代理树可见性未上线**（SubAgentTree 规划未完成，`docs/arch/subagent-visibility-design.md`）。
 
 ### 3.8 会话持久化与检查点
 
@@ -226,7 +227,7 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 
 ## 五、与既有框架调研的衔接
 
-`docs/research/agent-harness-research-report.md` 已从**框架/协议**侧给出差距（merger 未接线、无 A2A、无跨会话长期记忆、压缩预算闭环、子代理可见性等）。本文档从**产品**侧补充后，交叉结论一致，并新增两个框架侧未强调的维度：
+`docs/research/agent-harness-research-report.md` 已从**框架/协议**侧给出差距（merge-back 展示/时序、无 A2A、无跨会话长期记忆、压缩预算闭环、子代理可见性等）。本文档从**产品**侧补充后，交叉结论一致，并新增两个框架侧未强调的维度：
 
 1. **执行隔离是产品侧最大共性差距**（Codex/OpenHands/Claude/Cursor 全部强隔离，Seelex 仅路径门禁）；
 2. **检查点/回滚是产品侧普遍标配**（Claude /rewind、Cline git checkpoint、Aider /undo），Seelex 无文件系统级 undo。
@@ -244,7 +245,7 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 | 5 | 权限规则 | ✅ LMRW + patterns + 路径分区 | allow/deny/ask + hooks | 小（补 hooks） |
 | 6 | 执行沙箱 | ❌ 仅路径门禁 | 容器/OS sandbox/VM | **大（最高优先）** |
 | 7 | 计划编排 | ✅ DAG + 节点类型 + 隔离规划 | plan mode（权限档位） | 小（Seelex 更产品化） |
-| 8 | 子代理 + merge-back | 部分（merger 未接线） | 结果合并回父 | **中-大（P0）** |
+| 8 | 子代理 + merge-back | ✅ 结构化合并 + mailbox | 结果合并回父 | 小-中（补可见性与同轮语义测试） |
 | 9 | 检查点/回滚 | ❌ 无文件系统级 undo | /rewind、git checkpoint、/undo | **中-大** |
 | 10 | 会话持久化 | ✅ 四后端 + 事件库 | 单文件 JSON | —（Seelex 更强） |
 | 11 | MCP | ✅ 带 breaker/插件作用域 | 全部支持 | — |
@@ -259,7 +260,7 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 
 ### P0 —— 与主流产品对齐的正确性/可靠性项
 1. **执行沙箱落地**（`CommandSandbox` 端口 + isobox/agentbox 适配，至少 Linux/macOS；Windows AppContainer）：当前 `bash` 无 OS 隔离是主流产品中最弱的一环，也是安全评审最可能在意的点。
-2. **merger 接入生产 plan_run 闭环**：父证据注入 → 子执行 → 结果 merge-back（既有 `docs/research/agent-harness-research-report.md` P0-1）。
+2. **merge-back 可见性与语义收口**：验证主会话注入时序、模型所见历史与 GUI/TUI 展示一致性，并为并行子代理补去重和溯源测试。
 3. **检查点/回滚**：封装 git 级 undo（Cline 式 checkpoint / Aider 式 /undo 语义），或至少在 plan 节点执行前后提供快照-回滚工具。
 
 ### P1 —— 对齐主流

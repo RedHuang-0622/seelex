@@ -28,7 +28,7 @@ Wails `BeforeClose` 首次触发时调用 `BeginGracefulShutdown`，后台等待
 ## Build tags
 
 - 普通构建：GUI stub，默认 TUI 不依赖 WebView。
-- 生产 GUI：`-tags "gui,desktop,production"`，Wails runtime 可用。
+- Wails GUI：`-tags "gui,desktop,production"`，启用 Wails runtime。这里的 `production` 是 Wails 构建约定的一部分，只区分真实桌面实现与 stub，不表示 Seelex 已达到 production-ready；项目成熟度以根 README 的 Developer Alpha 声明为准。
 - 前端文件编译时嵌入，修改 `frontend/dist` 后必须重建二进制。
 
 ## Review 指南

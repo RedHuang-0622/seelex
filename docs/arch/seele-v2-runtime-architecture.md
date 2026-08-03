@@ -1,4 +1,6 @@
-# Seelex 底层向 Seele v0.0.8 新边界迁移的架构设计
+# Seelex 与 Seele v0.1.1 Runtime 边界
+
+> 当前状态：迁移已经完成。Seelex 通过 `go.mod` 固定远程模块 `github.com/RedHuang-0622/Seele v0.1.1`；仓库不依赖本地 `go.work`、`replace` 或 `../Seele` 才能构建。本文保留迁移决策，同时以当前模块边界为事实来源。
 
 > 状态：已实施（2026-08-01）
 > 适用范围：seelex 主会话装配、Plan→subagent 执行、Task 生命周期、上下文控制、存储模型（项目级知识 + 会话级堆栈/队列/滑动窗口）、插件/可见性与遥测
@@ -9,7 +11,7 @@
 
 ## 1. 背景
 
-Seele 仓库（`../Seele`，go.work 本地工作区，go.mod 声明 v0.0.8）已完成一次重大重构：从旧 `agent.Options`/`engine.Engine`/`agent/core/*` 单体，迁移为平行根能力 `agent`、`session`、`tools`、`workplan`、`seelectx`、`accountpool`、`event`、`errors`、`telemetry`。`engine`、`agent/core/api`、`agent/core/tool/*`（builtin/holder/permission/mcp/interfaces）已被删除；官方装配路径为 `agent.NewWithComponents` + `session.NewSession` + `tools.Registry` + `agent/bridge` 适配器 + `workplan/codec`。API 用法以 [`example_Implement/`](../../../Seele/example_Implement/) 01–10 为例（尤其 08_composable_agent、09_context_pipeline、10_workplan_codec）。
+Seele 的新边界把旧单体拆为平行根能力 `agent`、`session`、`tools`、`workplan`、`seelectx`、`accountpool`、`event`、`errors` 与 `telemetry`。Seelex 当前通过 `agent.NewWithComponents`、`session.NewSession`、`tools.Registry`、`agent/bridge` 和 `workplan/codec` 完成装配，并由 `seelebridge/` 隔离上游 API 演进。上游示例与源码应按 `go.mod` 固定版本在 Go module cache 或 Seele 仓库对应 tag 中查阅。
 
 seelex 仍引用已删除包，**当前 `go build ./...` 处于构建阻断状态**：
 

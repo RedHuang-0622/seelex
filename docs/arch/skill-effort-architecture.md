@@ -129,14 +129,14 @@ Engine 和 Session 需要保存真实模型输入，才能保证会话上下文�
 
 ## 8. Effort 与 Goal Skill
 
-Effort 继续通过 `application/effort.go` 管理 system prompt 行为层和 Engine MaxLoops：
+Effort 继续通过 `application/prompt/effort.go` 管理 system prompt 行为层和 Engine MaxLoops：
 
 | 等级 | MaxLoops | system prompt 行为层 |
 |------|---------:|:--------------------:|
-| lite | 20 | 无 |
-| medium | 64 | 有 |
-| high | 512 | 有 |
-| max | 1024 | 有 |
+| lite | 15 | 有 |
+| medium | 48 | 有 |
+| high | 384 | 有 |
+| max | 768 | 有 |
 
 `goal` Skill 激活时临时设置 `MaxLoops=9999`。`#end` 会重新应用当前 Effort，从而恢复其 MaxLoops。Skill 指令仍走用户消息，Goal 的循环上限特例与提示词传输位置相互独立。
 

@@ -15,7 +15,7 @@
 | `SessionPort` | 会话保存、读取、分页、删除和 active workspace | `session.Manager` 适配器 |
 | `WorkspacePort` | 项目 CRUD、session binding、Git remote | `workspace.Repo` 适配器 |
 
-`Dependencies` 是 `core.New` 的装配输入。`EngineMessage`/`EngineToolCall` 是防止 Seele types 穿透应用层的传输模型。
+`Dependencies` 是 `core.New` 的装配输入；Engine、Runtime、Plugin、Skill 与 Session 端口为必需依赖，构造器缺失时返回 error。`EngineMessage`/`EngineToolCall` 是防止 Seele types 穿透应用层的传输模型。
 
 ## 扩展规则
 

@@ -17,7 +17,7 @@
 - `NewRepo`：内存模式。
 - `NewRepoWithStore`：加载 `<store>/workspace_index.json`。
 - Create 校验目录、转 absolute path、按 root 去重并生成唯一 ID。
-- mutation 自动保存 index；Delete 同时清理指向该 workspace 的 bindings。
+- mutation 自动保存 index；持久化使用同目录临时文件、flush 和 rename 原子发布。Create/Delete/UpdateGitRemote 在保存失败时回滚内存状态；Delete 同时清理指向该 workspace 的 bindings。
 - `DetectGitRemote` 只读取 `git remote -v` 的 origin。
 
 ## 生态位与边界
@@ -28,8 +28,7 @@ Repo 保存项目目录和关系，但不执行 PathGate、文件工具或 sessi
 
 - 不以显示名称查找或覆盖项目。
 - root dedup 应处理 clean/absolute/case/volume 语义，跨平台时特别注意 Windows 大小写。
-- index 写入目前是直接文件写；若提升可靠性，应改为原子 temp+rename 并补崩溃测试。
-- binding mutation 与持久化错误当前部分为 best-effort，调用方可见性需明确。
+- binding mutation 的公开接口目前没有 error 返回值，因此 Bind/Unbind 的持久化失败仍是 best-effort；如果这条契约升级，必须同步修改 Application port。
 - Git remote 命令必须只读且有退出边界。
 
 ## 测试

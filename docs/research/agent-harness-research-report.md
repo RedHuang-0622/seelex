@@ -1,6 +1,7 @@
 # Agent Harness 调研报告：主流上下文策略 / A2A / Subagent 派发，与 Seelex 现状分析
 
 > 日期：2026-08-02
+> Seelex 实现核对：2026-08-03。原调研中的“merger 未接线”和本地 `go.work` 描述已经过时，以下现状已按当前远程 Seele 依赖与 production merge-back 链路修订。
 > 范围：① 主流 agent harness（LangGraph / OpenAI Agents SDK / Claude Code·Claude Agent SDK / AutoGen / CrewAI / smolagents 系 / A2A 协议）的上下文策略、A2A、subagent 派发机制调研；
 > ② Seelex 项目（`seelebridge` + `seelexctx` + `session/sessionstore` + Seele `workplan`/`seelectx`）agent harness 的实现剖析与可优化空间。
 > 结论速览见文末「四、Seelex 优化空间（分级）」与「五、建议路线图」。
@@ -67,7 +68,7 @@
 │                store / 4 栈状态 blob（plan/task/skill/compact）│
 │ skill/ plugin/ mcpstack/ tui/ gui/                           │
 └───────────────────────────────────────────────────────────────┘
-┌─ Seele（框架，go.work 多模块 ../Seele）───────────────────────┐
+┌─ Seele（框架，Go module 远程版本依赖）────────────────────────┐
 │ agent/ session/ seelectx(react/ctx_manager/compressor/       │
 │   storage/tracer)  workplan(codec/core/runtime{scheduler,    │
 │   executor, runner, forkexec, checkpoint}/sugar)             │
@@ -95,10 +96,10 @@
    - `seelebridge/plan_factory.go`、`plan.go`
 2. **子代理执行 = SeelexAgentNode**：包装 `bridge.NewAgentFactory` 产物；`Run()` 时把 **NodeScope**（NodeID/Role/BranchID/WorkspaceID）与**节点级 PromptBlocks**（node-goal / parent-evidence / node-budget）注入 ctx，再 `NewAgent` 起**独立 Session**（历史隔离）执行。
    - `seelebridge/agent_node.go`、`node_scope.go`
-3. **父证据承袭**：父上下文经 provider 导出为结构化 `ContextSnapshot`（goal/parent goal/decisions/findings/progress/constraints/pending/escape），经 compactor 按预算压缩后作为 evidence 块注入；子结果按 merger 语义（findings/decisions append、progress 替换、constraints 去重、token 累加）**理论上**可 merge 回父。
+3. **父证据承袭与回传**：父上下文经 provider 导出为结构化 `ContextSnapshot`（goal/parent goal/decisions/findings/progress/constraints/pending/escape），经 compactor 按预算压缩后作为 evidence 块注入；子结果按 merger 语义（findings/decisions append、progress 替换、constraints 去重、token 累加）合并后，通过 `ContextExchanger` 投递到主会话 mailbox。
    - `seelexctx/provider/engine.go`、`compactor/compactor.go`、`merger/merger.go`
 4. **并发/隔离**：Seele `forkexec.ForkCoordinator`——信号量限流（`SetMaxForkConcurrency` 默认 3，≤0 时兜底 3）、fail-fast/best-effort 策略、join require_all/successful、panic 恢复、确定性排序、冻结 ParentSnapshot 克隆隔离分支上下文、生命周期事件（queued/started/completed/failed/canceled/panicked）。
-   - `../Seele/workplan/runtime/forkexec/forkexec.go`、`scheduler/scheduler.go`
+   - Seele v0.1.1 `workplan/runtime/forkexec/forkexec.go`、`scheduler/scheduler.go`
 5. **角色/账号路由**：entry 节点 → PrimaryRole，`_` 前缀 → goal-plan 角色，其余 → sub-agent 角色；账号按 role+branch 确定性 FNV hash 选择（可显式 pin），不占用主链路租约；节点会话 ID 由 system prompt 稳定 hash 派生（跨 plan_run 可复现）。
    - `seelebridge/branch.go`
 6. **预算**：节点子代理 MaxLoops 15（主会话 25）、MaxOutputTokens 取账号限额；渲染为 node-budget 块并写入节点 SessionConfig。
@@ -115,7 +116,7 @@
 | 工具结果外化 | ✅ | ✅ result_ref | — |
 | 子代理独立上下文 | ✅ | ✅ 节点独立 Session | — |
 | 父证据注入 | ✅ | ✅ 结构化 snapshot + 预算压缩 | — |
-| 子结果 merge-back | ✅ 已接线 | **merger 存在但未接入生产链路**（仅测试使用） | **大** |
+| 子结果 merge-back | ✅ 已接线 | ✅ 结构化合并后经 mailbox 回传 | 小（补展示与时序验证） |
 | 并发派发 | ✅ | ✅ forkexec（上限默认 3） | 上限硬编码在框架 |
 | 可见性/生命周期事件 | Claude Code Agent View / workflows | forkexec 事件已有，TUI/GUI 子代理树未接通 | 中 |
 | 跨进程协议化 A2A | A2A Protocol / MCP 生态 | **未实现**（项目自评"主 Agent 编排多个模型节点"） | **大** |
@@ -126,8 +127,8 @@
 
 ### P0 —— 正确性 / 可靠性
 
-1. **把 `merger` 接入生产 plan_run 闭环**
-   现状：`seelexctx/merger` 语义完整、测试齐备，但 `MergeBack` 只在测试中出现；生产路径中子代理结果仅以 `BranchResult.Output` 字符串经 WorkflowContext 回传，父证据是单向注入。建议：节点 Session 结束时导出子 `ContextSnapshot`（provider），经 merger 合并回父 snapshot，再按 compactor 预算渲染为父上下文块——把"承袭-压缩-合并"闭环真正跑通。
+1. **验证 merge-back 的展示一致性与注入时序**
+   现状：`SeelexAgentNode` 已在生产路径导出子快照、执行 `merger.MergeBack`，并通过 `ContextExchanger` mailbox 回传，避免 `plan_run` 锁内反向写 Engine。下一步应验证：合并块在同轮/下一轮的模型可见性、TUI/GUI 可追溯性，以及多个并行子代理的去重与来源标识。
 
 2. **并行分支的上下文隔离做一次并发评审**
    2026-07-27 审查指出"共享上下文存在并发写风险、分支失败可能被吞掉"；forkexec 已用 ParentSnapshot 克隆 + NodeScope ctx 注入缓解，但需验证：并行子代理对同一 `SessionContextStore`（4 栈）/ProjectKnowledge/账号池租约的读写是否真正互不串台；建议补并发 plan_run 的 race 测试（已有 `race_test.go`/`subagent_audit_test.go` 可扩展）。
@@ -170,7 +171,7 @@
 
 ## 四、建议路线图
 
-1. **短期（1-2 周）**：P0-1 merger 接线 + P0-2 并发评审与 race 测试 + P0-3 子代理事件/树形可见性。
+1. **短期（1-2 周）**：merge-back 展示/时序测试 + 并发评审与 race 测试 + 子代理事件/树形可见性。
 2. **中期（1 月内）**：P1-4 内部 A2A 形状 API + P1-5 跨会话记忆 + P1-6 压缩预算闭环/完成缓冲。
 3. **长期**：P1-4b A2A 协议传输层（跨进程互操作）、P1-7 语义检索、P2 工程收敛（双轨删除、参数配置化、token 估算、稳定 ID）。
 
@@ -182,6 +183,6 @@
 - 快照/压缩/合并：`seelexctx/snapshot/snapshot.go`、`provider/{provider,engine,trace}.go`、`compactor/compactor.go`、`merger/merger.go`
 - Harness 接线：`seelebridge/{runtime,context_components,agent_node,node_scope,branch,plan,plan_factory}.go`
 - 持久化：`sessionstore/{durable_history,event_store,session_context,sessionstore}.go`
-- 框架：`../Seele/workplan/runtime/{scheduler,scheduler.go,forkexec/forkexec.go}`、`../Seele/workplan/core/node/agent_node.go`、`../Seele/seelectx/{react/strategy.go,ctx_manager/config.go}`
+- 框架：Seele v0.1.1 `workplan/runtime/{scheduler,scheduler.go,forkexec/forkexec.go}`、`workplan/core/node/agent_node.go`、`seelectx/{react/strategy.go,ctx_manager/config.go}`
 - 项目自评：`docs/2026-07-27-workplan-e2e-a2a-review/finish-review.md`（并行 Plan 与完整 A2A 不通过生产审查）、`docs/arch/subagent-visibility-design.md`、`docs/arch/context-improvement-plan.md`
 - 外部：A2A Protocol（Linux Foundation 2025.1，150+ 组织；Semgrep 安全指南）、LangGraph memory/supervisor 文档、OpenAI Agents SDK sessions 文档、Claude Code 上下文管理分析（auto-compact 提前、CLAUDE.md、子代理隔离）、CrewAI vs AutoGen 对比。

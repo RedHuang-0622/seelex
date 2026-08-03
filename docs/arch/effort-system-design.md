@@ -2,6 +2,7 @@
 
 > **状态**: 历史设计稿（Effort Provider 扩展尚未实现；Skill 传输以 [`skill-effort-architecture.md`](skill-effort-architecture.md) 为准）
 > **日期**: 2026-07-20
+> **状态**: 历史设计稿，不是当前实现契约。当前 Effort profile 与执行预算以 `application/prompt/effort.go` 和 `docs/feature-instrumentation.md` 为准；本文中的示例数值仅保留设计演进背景。
 > **领域**: 配置层 / Provider 策略层 / 应用层 / 提示词组装
 > **涉及改动**: `types/model.go` → `api/strategy.go` → `api/client.go` → `application/` → `seelebridge/`
 

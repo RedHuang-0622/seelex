@@ -39,7 +39,7 @@ TUI / GUI / root adapters
 
 ## 核心运行流
 
-1. `application.New` 接收 `Dependencies`，创建 `core.Service`。
+1. `application.New` 接收 `Dependencies`，校验必需端口与 embedded prompt assets，并返回 `(*core.Service, error)`；构造失败不会终止进程。
 2. 前端调用 `Submit`、`ResolveInteraction`、`BindWorkspace` 等用例。
 3. Service 更新权威 Snapshot，并通过 EventHub 发布增量事件。
 4. TUI/GUI 先读取 Snapshot，再应用连续 Event；出现序列缺口时重新同步 Snapshot。
