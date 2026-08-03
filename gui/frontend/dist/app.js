@@ -312,10 +312,6 @@ function closeNodeDetail() {
   setModal("node-detail-modal", false);
 }
 
-function closeNodeDetail() {
-  setModal("node-detail-modal", false);
-}
-
 function renderInteraction(interaction) {
   elements["interaction-modal"].classList.toggle("hidden", !interaction);
   if (!interaction) return;
