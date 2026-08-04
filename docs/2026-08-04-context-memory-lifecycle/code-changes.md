@@ -12,7 +12,8 @@
 | `seelebridge` | 新增/修改 | DurableHistory Router、指定 Session ID、子代理工具 middleware、worktree phase 事实和回调。 | Adapter、Middleware、Event projection |
 | `application/core` / `model` / `event` | 新增/修改 | 有界 Conversation、完整 SessionRecord 合并、批次 delta、子代理节点/工具 upsert 与事件 DTO。 | Durable owner、Snapshot projection、EventHub |
 | `main.go` / `application_adapters.go` | 修改 | 在首个 Session 前装配 Router，持久化成功后释放 working history，注册子代理工具回调。 | Composition root、DI |
-| `gui` / `gui/frontend` | 新增/修改 | Bridge relay、递归 Plan reducer、worktree 状态、工具详情、变高 DOM + history sentinel。 | Thin bridge、copy-on-write reducer、keyed DOM |
+| `gui` / `gui/frontend` | 新增/修改 | Bridge relay、递归 Plan reducer、worktree 状态、工具详情、变高 DOM + history sentinel；Wails runtime 事件监听改为就绪后幂等绑定，避免静默进入无事件模式。 | Thin bridge、copy-on-write reducer、keyed DOM、Binder |
+| `tool_full_chain*_test.go` / frontend event tests | 新增/修改 | mock 与真实账号覆盖 `full_access bash → Application event → provider follow-up`；前端覆盖 `seelex:event → reducer → tool card` 和 runtime 延迟就绪。 | Production composition harness、event-chain mock |
 | `docs` / module README | 修改/新增 | 更新两份设计工作包、模块边界、验证命令和事件链事实。 | 文档即当前实现事实 |
 
 ## API 与协议变更
@@ -26,6 +27,7 @@
 | `PlanNode.tool_events` | 有界子代理工具活动。 | optional JSON 字段。 |
 | Event kinds | `subagent.changed`、`subagent.tool.started`、`subagent.tool.completed`。 | 协议版本保持 v1，前端已同步 reducer。 |
 | Node status | `worktree_creating`、`rebasing`、`merging`。 | 前端 label/symbol/style 已同步。 |
+| `createRuntimeEventBinder` | 新增 renderer 内部 binder；runtime 未就绪返回 false，绑定成功后保持幂等。 | 内部模块，无 Bridge/API 协议变化。 |
 
 ## 接口抽象
 

@@ -8,17 +8,18 @@
 | Durable session | 真相源/工作缓存分离 | Repository、Adapter、DI |
 | Subagent event chain | Runtime 到 frontend 全链路 | Middleware、Event projection、copy-on-write reducer |
 | Frontend window | 有界数据和变高 DOM | Keyed reconciliation、sentinel pagination |
+| GUI event startup | runtime 就绪后幂等订阅 | Binder、retry、error boundary |
 
 ## 审查结论
 
 | 维度 | 状态 | 评分 | 备注 |
 |---|:---:|:---:|---|
-| 正确性 | ✅ | A | 已接收请求关闭前排空；Durable/Projection/Event 职责清晰；整体事件 mock 可见最终状态。 |
+| 正确性 | ✅ | A | 已接收请求关闭前排空；Durable/Projection/Event 职责清晰；真实账号 bash 与整体事件 mock 可见最终状态；runtime 未就绪不再静默漏绑。 |
 | 可读性 | ✅ | A | 新 helper 按 reducer、投影、存储职责拆分；状态和 payload 命名与协议一致。 |
 | 架构 | ✅ | A | Application/frontend 不依赖 Seele 内部类型；Router、callback、Bridge 均通过窄接口装配。 |
 | 安全性 | ✅ | A | 工具证据后端截断、前端 escape；无新增秘密、DSN 或原始系统提示词暴露。 |
 | 性能 | ✅ | A | Conversation、tool events、DOM、pipeline buffer 均有上限；streaming 从逐 chunk 降为批次事件。 |
-| Go/JS 专项 | ✅ | A | build/vet/full test/race×3/JS syntax/Node tests 全通过。 |
+| Go/JS 专项 | ✅ | A | build/vet/full test、既有关键包 race×3、JS syntax/57 个 Node tests 全通过；本机缺少 GCC，新增链路本轮未重复执行 race。 |
 
 ## 发现的问题
 

@@ -379,7 +379,7 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	for _, name := range []string{
 		"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js",
 		"frontend/dist/protocol.js", "frontend/dist/client-state.js", "frontend/dist/conversation-view.js",
-		"frontend/dist/chat-view.js", "frontend/dist/effort-control.js", "frontend/dist/plan-dsl.js", "frontend/dist/styles.css",
+		"frontend/dist/chat-view.js", "frontend/dist/runtime-events.js", "frontend/dist/effort-control.js", "frontend/dist/plan-dsl.js", "frontend/dist/styles.css",
 	} {
 		if _, err := embeddedFrontend.ReadFile(name); err != nil {
 			t.Fatalf("embedded frontend %q: %v", name, err)

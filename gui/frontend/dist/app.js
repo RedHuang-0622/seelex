@@ -6,6 +6,7 @@ import { createEffortControl } from "./effort-control.js";
 import { planToDSL, reconcilePlanDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs } from "./plan-dsl.js";
 import { collectReadFileSources } from "./read-sources.js";
 import { renderContextCompactions } from "./context-summary.js";
+import { createRuntimeEventBinder } from "./runtime-events.js";
 
 const state = {
   info: null,
@@ -44,6 +45,7 @@ const client = createGUIClient({
   onIncremental: renderIncremental,
   onError: showToast
 });
+const bindRuntimeEvents = createRuntimeEventBinder({ client, onError: showToast });
 const effortControl = createEffortControl({
   root: elements["effort-control"],
   input: elements["effort-range"],
@@ -701,18 +703,14 @@ function resizePrompt() {
 async function initialise() {
   try {
     hydrateIcons();
+    if (!bindRuntimeEvents(window.runtime)) {
+      throw new Error("GUI event runtime 尚未就绪");
+    }
     const info = await invoke("Info");
     state.info = info;
     elements["app-title"].textContent = info.title || "Seelex";
     elements["app-version"].textContent = info.version || "dev";
     await refresh({ scroll: "bottom" });
-    if (window.runtime?.EventsOn) {
-      window.runtime.EventsOn("seelex:event", event => client.handleEvent(event));
-      window.runtime.EventsOn("seelex:ready", snapshot => {
-        try { client.acceptSnapshot(snapshot, "bottom"); }
-        catch (error) { showToast(error); }
-      });
-    }
   } catch (error) {
     showToast(error);
     window.setTimeout(initialise, 600);

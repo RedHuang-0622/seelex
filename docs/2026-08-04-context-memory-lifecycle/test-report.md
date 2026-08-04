@@ -6,7 +6,7 @@
 |---|:---:|---|
 | Go 全量构建/静态/测试 | ✅ | 普通 build、GUI production-tag build、`go vet ./...`、`go test ./...` 全通过 |
 | Windows race | ✅ | 4 个关键包，`-race -count=3` 全通过 |
-| Frontend Node tests | ✅ | 54/54 通过 |
+| Frontend Node tests | ✅ | 57/57 通过 |
 | 覆盖率 | ⚠️ | 受影响四包整体 74.6%；lifecycle 83.3%、core 75.7%、bridge 71.9%、gui 79.8% |
 | Plan benchmark | ✅ | median 153090 ns/op，约 69902 B/op、597 allocs/op；无历史基线可比较 |
 
@@ -40,6 +40,26 @@ git diff --check
 - 通用 `test-suite` 建议标准层包覆盖率 ≥85%，但当前数字是整个历史包的 statement coverage，不是本次 diff coverage；新增关键边界均有直接测试，因此不作为功能阻塞项。
 - `gofmt -l .` 仍列出 5 个本次变更前已存在、且不在当前 diff 中的文件；所有本次修改 Go 文件均已 gofmt。
 - `govulncheck` 当前环境未安装；本次未引入新第三方依赖。
+- 2026-08-04 的 `full_access` 复验环境为 Windows/amd64 且 `CGO_ENABLED=0`，机器未安装 `gcc`，因此新增全链路用例本轮无法再次执行 `-race`；原关键包 race 结果保留有效，本轮用 `-count=20` 重复全链路和 `-count=10` 重复 Bridge/工具定向测试补充验证。
+- 首次把全量 test、vet 和两种 build 同时并行时，Windows linker 因系统提交限制触发 `VirtualAlloc errno=1455`；改为 `GOMAXPROCS=2`、`-p 1` 串行后，全量测试与 GUI production-tag build 均通过，确认不是代码或断言失败。
+
+## full_access 工具事件全链路复验
+
+| 链路 | 结果 | 证据 |
+|---|:---:|---|
+| 真实 `Runtime → Session → bash → ToolHookBridge → Application` | ✅ | 本地 mock provider 在第二次模型请求阻塞期间已经收到 `tool.completed`；工具结果进入下一次 provider 请求，最终回复进入 Conversation |
+| 真实账号流式请求 | ✅ | opt-in `TestManualSmokeRealAccountBashFullChain`，`bash(pwd)`、完成事件、最终 idle 全通过，耗时 2.83s |
+| Application EventHub → GUI Bridge | ✅ | 主事件与子代理事件 relay 定向测试各重复 10 次通过 |
+| `seelex:event → reducer → tool card` | ✅ | 新增主代理工具事件 mock；OUT 渲染真实 JSON、状态为 success，明确断言不再出现 `Waiting for output…` |
+| Wails runtime 延迟就绪 | ✅ | 未就绪时不静默跳过；就绪后只绑定一次，ready snapshot 异常进入前端错误边界 |
+
+```text
+go test . -run '^TestFullAccessBashToolCompletionReachesApplication$' -count=20 -timeout=60s
+$env:SEELEX_SMOKE_ACCOUNTS=(Resolve-Path config/accounts.yaml).Path
+go test -tags manualsmoke . -run '^TestManualSmokeRealAccountBashFullChain$' -count=1 -timeout=3m -v
+go test ./gui -run 'TestBridgeRelays(ApplicationEvents|SubagentToolEventsToSeelexEvent)$' -count=10 -timeout=60s
+node --test gui/frontend/dist/*.test.mjs
+```
 
 ## 综合判断
 

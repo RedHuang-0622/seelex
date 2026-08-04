@@ -10,6 +10,7 @@
 |---|---|
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
 | `dist/client-state.js` | Snapshot/Event reducer、seq gap 和 resync。 |
+| `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化和卡片渲染。 |
@@ -21,7 +22,7 @@
 
 ## 状态流
 
-1. 初始化通过 Bridge `Snapshot` 获取权威状态。
+1. 初始化先等待并幂等绑定 Wails `EventsOn`，再通过 Bridge `Snapshot` 获取权威状态；runtime 尚未就绪时整个初始化按既有重试机制继续，不能静默进入无事件模式。
 2. `client-state` 应用连续 `seelex:event` 增量。
 3. seq gap、协议不兼容或未知状态触发完整 Snapshot resync。
 4. render functions 根据 state 投影 DOM；所有 mutation 通过 Bridge 返回 Application。
@@ -59,7 +60,7 @@ node --test gui/frontend/dist/*.test.mjs
 go test ./gui -count=1
 ```
 
-`event-chain.test.mjs` mock Wails `seelex:event` 并验证子代理生命周期和工具完成状态通过 `createGUIClient`/`protocol.js` 后在前端节点可见，且连续事件不会退化为 Snapshot reload。
+`runtime-events.test.mjs` 验证 Wails runtime 延迟就绪时不会漏绑或重复绑定。`event-chain.test.mjs` mock Wails `seelex:event` 并验证主代理/子代理工具完成状态通过 `createGUIClient`/`protocol.js` 后可见，且连续事件不会退化为 Snapshot reload；主代理工具卡明确断言完成后不再显示 `Waiting for output…`。
 
 ## Context compression summary
 
