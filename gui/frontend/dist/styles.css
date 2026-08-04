@@ -530,7 +530,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-dsl-summary { display: flex; flex-wrap: wrap; gap: 5px 12px; padding: 7px 12px; border-bottom: 1px solid #1e1e1e; color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .plan-dsl-nodes { display: grid; gap: 5px; padding: 9px 10px 10px; }
 .plan-dsl-empty { padding: 10px 2px; color: var(--faint); text-align: center; }
-.plan-dsl-node { --plan-indent: 0px; display: grid; grid-template-columns: calc(14px + var(--plan-indent)) minmax(0, 1fr); align-items: stretch; min-width: 0; }
+.plan-dsl-node { --plan-indent: 0px; display: grid; grid-template-columns: calc(14px + var(--plan-indent)) minmax(0, 1fr); align-items: stretch; min-width: 0; cursor: pointer; }
+.plan-dsl-node:focus-visible .plan-node-card { outline: 2px solid #6d8eb1; outline-offset: 2px; }
 .plan-node-connector { position: relative; display: flex; justify-content: flex-end; padding-top: 9px; }
 .plan-node-connector i { position: absolute; top: 0; right: 7px; bottom: -6px; width: calc(var(--plan-indent) + 1px); border-left: 1px solid #292929; border-bottom: 1px solid #292929; pointer-events: none; }
 .plan-dsl-node:last-child .plan-node-connector i { bottom: 50%; }
@@ -547,9 +548,25 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-kind, .plan-branch { flex: none; padding: 1px 4px; border: 1px solid #303030; border-radius: 4px; color: var(--faint); font: 700 7px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
 .plan-branch { border-color: #35485b; color: #79a9d1; background: #131a21; }
 .plan-dur { margin-left: auto; color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; flex: none; }
-.plan-detail-btn { flex: none; padding: 0 5px; border: 1px solid #303030; border-radius: 5px; color: var(--faint); background: #181818; font: 750 9px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; cursor: pointer; }
+.plan-detail-btn { flex: none; padding: 1px 5px; border: 1px solid #303030; border-radius: 5px; color: var(--faint); background: #181818; font: 750 8px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; cursor: pointer; }
 .plan-detail-btn:hover { border-color: #4a4a4a; color: #ccc; background: #202020; }
 .plan-detail-btn.has-events { border-color: #3d6648; color: #83c393; }
+.plan-instrumentation { margin: 0 10px 10px; border: 1px solid #252525; border-radius: 7px; overflow: hidden; background: #111; }
+.instrumentation-head { display: flex; align-items: baseline; gap: 6px; padding: 7px 9px; border-bottom: 1px solid #252525; }
+.instrumentation-head strong { color: #b9cbbd; font: 750 8px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.instrumentation-head small { overflow: hidden; color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.instrumentation-count { display: grid; place-items: center; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; color: #93c4a0; background: #18301f; font: 750 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.instrumentation-table { display: grid; max-height: 230px; overflow: auto; }
+.instrumentation-row { display: grid; grid-template-columns: minmax(66px, .9fr) minmax(90px, 1.1fr) 60px 64px minmax(100px, 2fr); gap: 7px; align-items: center; min-width: 0; padding: 6px 9px; border-bottom: 1px solid #202020; color: #8b8b8b; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.instrumentation-row:last-child { border-bottom: 0; }
+.instrumentation-row > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.instrumentation-row strong { color: #c5c5c5; font: inherit; font-weight: 700; }
+.instrumentation-row small { color: #727272; font: inherit; }
+.instrumentation-row.is-head { position: sticky; top: 0; z-index: 1; color: var(--faint); background: #151515; font-size: 7px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.instrumentation-row.is-completed, .instrumentation-row.is-success { background: #121a14; }
+.instrumentation-row.is-running, .instrumentation-row.is-queued { background: #1b1911; }
+.instrumentation-row.is-failed, .instrumentation-row.is-error { background: #201414; }
+.instrumentation-empty { padding: 10px 9px; color: var(--faint); font-size: 9px; }
 
 /* ── Node Detail（子代理详情页）────────────────────── */
 .node-detail-card { width: min(640px, 100%); max-height: min(70vh, 560px); overflow: auto; }

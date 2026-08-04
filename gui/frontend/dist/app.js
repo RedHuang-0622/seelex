@@ -297,6 +297,7 @@ function renderPlan(plan) {
 let nodeDetailPollTimer = null;
 let activeNodeDetailKey = "";
 let activeNodeDetailID = "";
+let nodeDetailGeneration = 0;
 
 async function openNodeDetail(nodeKey) {
   const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === nodeKey);
@@ -304,12 +305,13 @@ async function openNodeDetail(nodeKey) {
   const dsl = lastPlanDsl;
   activeNodeDetailKey = nodeKey;
   activeNodeDetailID = node.id;
+  const generation = nodeDetailGeneration += 1;
   const rendered = renderNodeDetail({ ...node, mode: dsl.mode });
   elements["node-detail-content"].innerHTML = rendered;
   elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
   bindNodeDetailTabs(elements["node-detail-content"]);
   setModal("node-detail-modal", true);
-  await refreshNodeDetail(node.id);
+  await refreshNodeDetail(node.id, generation);
 }
 
 function refreshOpenNodeDetail() {
@@ -320,12 +322,12 @@ function refreshOpenNodeDetail() {
   bindNodeDetailTabs(elements["node-detail-content"]);
   const selected = elements["node-detail-content"].querySelector(`[data-node-tab="${selectedTab}"]`);
   selected?.click();
-  void refreshNodeDetail(activeNodeDetailID);
+  void refreshNodeDetail(activeNodeDetailID, nodeDetailGeneration);
 }
 
 // refreshNodeDetail 拉取子代理详情（会话记录）并渲染；运行中每 2s 轮询。
-async function refreshNodeDetail(nodeID) {
-  if (nodeDetailPollTimer) {
+async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
+  if (generation === nodeDetailGeneration && nodeID === activeNodeDetailID && nodeDetailPollTimer) {
     clearTimeout(nodeDetailPollTimer);
     nodeDetailPollTimer = null;
   }
@@ -333,14 +335,15 @@ async function refreshNodeDetail(nodeID) {
   try {
     detail = await invoke("SubagentSessionDetail", nodeID);
   } catch { /* 节点无会话记录或非 agent 节点 → 面板保持占位 */ }
-  if (!document.querySelector("[data-node-detail]")) return; // 弹窗已关
+  if (generation !== nodeDetailGeneration || nodeID !== activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
   setNodeDetailConversation(detail || null);
   if (detail?.running) {
-    nodeDetailPollTimer = setTimeout(() => refreshNodeDetail(nodeID), 2000);
+    nodeDetailPollTimer = setTimeout(() => refreshNodeDetail(nodeID, generation), 2000);
   }
 }
 
 function closeNodeDetail() {
+  nodeDetailGeneration += 1;
   if (nodeDetailPollTimer) {
     clearTimeout(nodeDetailPollTimer);
     nodeDetailPollTimer = null;
@@ -635,12 +638,18 @@ for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal
 
 elements["node-detail-close"].addEventListener("click", closeNodeDetail);
 
-// Plan 面板节点详情入口：点击节点卡片上的 … 按钮打开子代理详情页。
+// Plan 面板节点详情入口：整卡、详情按钮均可打开；运行中子代理也可查看。
 document.addEventListener("click", event => {
-  const button = event.target.closest?.("[data-plan-node-detail]");
-  if (!button) return;
-  event.stopPropagation();
-  openNodeDetail(button.dataset.planNodeDetail);
+  const node = event.target.closest?.("[data-plan-node-open]");
+  if (node) openNodeDetail(node.dataset.planNodeOpen);
+});
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const node = event.target.closest?.("[data-plan-node-open]");
+  if (!node) return;
+  event.preventDefault();
+  openNodeDetail(node.dataset.planNodeOpen);
 });
 
 document.addEventListener("keydown", event => {

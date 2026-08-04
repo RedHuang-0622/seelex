@@ -139,7 +139,7 @@ test("extracts node event timeline for the detail page", () => {
   assert.equal(node.events[0].at, "2026-08-02T10:00:00Z");
 
   const html = renderPlanDSL(dsl);
-  assert.match(html, /data-plan-node-detail="agent-1"/);
+  assert.match(html, /data-plan-node-open="agent-1"/);
   assert.match(html, /has-events/);
 });
 
@@ -212,6 +212,31 @@ test("labels tasklist gate vs plan-run mode from authoritative status", () => {
   const completed = planToDSL({ ...parallelPlan("completed", 1), status: "completed" });
   assert.equal(completed.mode, "tasklist");
   assert.match(renderPlanDSL(completed), />TASKLIST</);
+});
+
+test("renders tasklist checkpoints and subagent tool events in the function instrumentation table", () => {
+  const plan = {
+    name: "instrumented", status: "pending", progress: 0.5,
+    nodes: [
+      {
+        id: "check", label: "Check source", kind: "auto", status: "completed",
+        events: [{ status: "completed", at: "2026-08-04T08:00:00Z", output: "read <main>" }]
+      },
+      {
+        id: "worker", label: "Worker", kind: "agent", status: "running",
+        tool_events: [{ id: "tool-1", node_id: "worker", name: "read_file", status: "running", arguments: "main.go", started_at: "2026-08-04T08:01:00Z" }]
+      }
+    ]
+  };
+  const dsl = planToDSL(plan);
+  const board = renderPlanDSL(dsl);
+  assert.match(board, /功能打点/);
+  assert.match(board, /task_check_node/);
+  assert.match(board, /read_file/);
+  assert.match(board, /read &lt;main&gt;/);
+  const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
+  assert.match(detail, /data-node-tab="instrumentation"/);
+  assert.match(detail, /task_check_node/);
 });
 
 test("renders worktree lifecycle states and bounded subagent tool activity", () => {

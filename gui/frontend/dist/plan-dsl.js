@@ -119,6 +119,7 @@ export function renderPlanDSL(dsl) {
     </div>
     <div class="plan-dsl-summary"><span>${dsl.nodes.length} nodes</span><span>${dsl.edges.length} edges</span><span data-plan-field="entry">entry: ${escapeHTML(dsl.entryNodeID || "—")}</span></div>
     <div class="plan-dsl-nodes" data-plan-nodes>${dsl.nodes.map(renderNode).join("") || '<div class="plan-dsl-empty">No plan nodes</div>'}</div>
+    ${renderPlanInstrumentation(dsl)}
     <section class="plan-edge-section${dsl.edges.length ? "" : " hidden"}" data-plan-edge-section>
       <div class="plan-edge-title">Dependencies</div>
       <div class="plan-edge-list" data-plan-edges>${dsl.edges.map(renderEdge).join("")}</div>
@@ -176,6 +177,8 @@ function updateBoard(board, dsl) {
 
   const nodeList = board.querySelector("[data-plan-nodes]");
   if (nodeList) reconcileKeyedList(nodeList, dsl.nodes, "planNodeKey", renderNode, updateNode);
+  const instrumentation = board.querySelector("[data-plan-instrumentation]");
+  if (instrumentation) instrumentation.outerHTML = renderPlanInstrumentation(dsl);
   const edgeSection = board.querySelector("[data-plan-edge-section]");
   edgeSection?.classList.toggle("hidden", dsl.edges.length === 0);
   const edgeList = board.querySelector("[data-plan-edges]");
@@ -210,7 +213,7 @@ function renderNode(node) {
   const status = statusToken(node.status);
   const output = outputSummary(node.output);
   const branches = renderOutgoing(node);
-  return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-status="${status}" style="--plan-indent:${node.depth * 9}px">
+  return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-node-open="${escapeHTML(node.key)}" data-plan-status="${status}" style="--plan-indent:${node.depth * 9}px" tabindex="0" role="button" aria-label="查看节点 ${escapeHTML(node.label)} 的详情">
     <div class="plan-node-connector" aria-hidden="true"><i></i><span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span></div>
     <div class="plan-node-card">
       <header class="plan-node-head">
@@ -247,6 +250,8 @@ function updateNode(element, node) {
   const status = statusToken(node.status);
   element.className = `plan-dsl-node is-${status}`;
   element.dataset.planStatus = status;
+  element.dataset.planNodeOpen = node.key;
+  element.setAttribute("aria-label", `查看节点 ${node.label} 的详情`);
   element.style.setProperty("--plan-indent", `${node.depth * 9}px`);
   const dot = element.querySelector(".plan-dot");
   if (dot) dot.textContent = statusSymbol(node.status);
@@ -350,10 +355,72 @@ function statusSymbol(status) {
 
 function renderDetailButton(node) {
   const eventCount = (node.events?.length || 0) + (node.toolEvents?.length || 0);
-  const hasDetail = eventCount > 0 || Boolean(node.output) || Boolean(node.elapsed) || node.kind === "agent";
-  if (!hasDetail) return "";
   const title = eventCount > 0 ? `${eventCount} 个活动；点击查看详情` : "查看节点详情";
-  return `<button type="button" class="plan-detail-btn${eventCount ? " has-events" : ""}" data-plan-node-detail="${escapeHTML(node.key)}" title="${escapeHTML(title)}" aria-label="节点详情">…</button>`;
+  return `<span class="plan-detail-btn${eventCount ? " has-events" : ""}" title="${escapeHTML(title)}" aria-hidden="true">详情</span>`;
+}
+
+function renderPlanInstrumentation(dsl) {
+  const rows = instrumentationRows(dsl.nodes, dsl.mode);
+  const source = dsl.mode === "tasklist" ? "task_check_node 与节点完成事件" : "子代理生命周期与工具事件";
+  return `<section class="plan-instrumentation" data-plan-instrumentation>
+    <header class="instrumentation-head">
+      <strong>功能打点</strong><span class="instrumentation-count">${rows.length}</span>
+      <small>${escapeHTML(source)}</small>
+    </header>
+    ${renderInstrumentationTable(rows, "暂无打点；任务清单完成节点或子代理开始调用工具后会显示在这里。")}
+  </section>`;
+}
+
+function nodeInstrumentationRows(node, mode) {
+  return instrumentationRows([node], mode);
+}
+
+function instrumentationRows(nodes, mode) {
+  const rows = [];
+  let order = 0;
+  for (const node of nodes || []) {
+    const source = node.label || node.id || "node";
+    for (const event of node.events || []) {
+      const status = event.status || "unknown";
+      rows.push({
+        source,
+        operation: mode === "tasklist" && status === "completed" ? "task_check_node" : "node.lifecycle",
+        status,
+        at: event.at,
+        detail: event.output || "",
+        order: order += 1
+      });
+    }
+    for (const event of node.toolEvents || []) {
+      rows.push({
+        source,
+        operation: event.name || "tool",
+        status: event.status || "unknown",
+        at: event.startedAt,
+        detail: event.error || event.result || event.arguments || "",
+        order: order += 1
+      });
+    }
+  }
+  return rows.sort((left, right) => {
+    const delta = Date.parse(right.at || "") - Date.parse(left.at || "");
+    return Number.isFinite(delta) && delta !== 0 ? delta : right.order - left.order;
+  });
+}
+
+function renderInstrumentationTable(rows, emptyText) {
+  if (!rows.length) return `<div class="instrumentation-empty">${escapeHTML(emptyText)}</div>`;
+  const visible = rows.slice(0, 24);
+  return `<div class="instrumentation-table" role="table" aria-label="功能打点表">
+    <div class="instrumentation-row is-head" role="row"><span>节点</span><span>函数 / 阶段</span><span>状态</span><span>时间</span><span>证据</span></div>
+    ${visible.map(row => `<div class="instrumentation-row is-${statusToken(row.status)}" role="row">
+      <span title="${escapeHTML(row.source)}">${escapeHTML(row.source)}</span>
+      <strong>${escapeHTML(row.operation)}</strong>
+      <span>${escapeHTML(statusLabel(row.status))}</span>
+      <time datetime="${escapeHTML(row.at || "")}">${escapeHTML(formatEventTime(row.at))}</time>
+      <small title="${escapeHTML(row.detail)}">${escapeHTML(outputSummary(row.detail) || "—")}</small>
+    </div>`).join("")}
+  </div>`;
 }
 
 function outputSummary(value) {
@@ -473,6 +540,10 @@ export function renderNodeDetail(node) {
     </li>`;
   }).join("");
   const toolEvents = renderToolEvents(node.toolEvents || []);
+  const instrumentation = renderInstrumentationTable(
+    nodeInstrumentationRows(node, node.mode),
+    "暂无节点打点；子代理运行或任务清单勾选后会显示在这里。"
+  );
   return `<div class="node-detail" data-node-detail>
     <div class="node-detail-head">
       <h2 class="node-detail-title">${escapeHTML(node.label || node.id || "节点详情")}</h2>
@@ -488,6 +559,7 @@ export function renderNodeDetail(node) {
     </dl>
     <div class="node-detail-tabs">
       <button class="node-tab is-active" data-node-tab="conversation" type="button">会话记录</button>
+      <button class="node-tab" data-node-tab="instrumentation" type="button">功能打点</button>
       <button class="node-tab" data-node-tab="timeline" type="button">事件时间线</button>
       <button class="node-tab" data-node-tab="tools" type="button">工具活动</button>
       ${node.output ? `<button class="node-tab" data-node-tab="output" type="button">最终输出</button>` : ""}
@@ -496,6 +568,9 @@ export function renderNodeDetail(node) {
       <div class="node-conversation" data-node-conversation>
         <div class="node-timeline-empty">加载会话记录…</div>
       </div>
+    </div>
+    <div class="node-tab-panel" data-node-panel="instrumentation" data-node-instrumentation>
+      ${instrumentation}
     </div>
     <div class="node-tab-panel" data-node-panel="timeline">
       ${timeline ? `<ol class="node-timeline">${timeline}</ol>` : '<div class="node-timeline-empty">暂无事件；任务清单模式下由 task_check_node 打点驱动</div>'}
