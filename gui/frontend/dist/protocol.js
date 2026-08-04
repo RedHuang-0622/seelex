@@ -2,8 +2,11 @@ export const SUPPORTED_PROTOCOL_VERSION = 1;
 
 const INCREMENTAL_KINDS = new Set([
   "message.added", "message.delta", "tool.started", "tool.completed",
+  "subagent.changed", "subagent.tool.started", "subagent.tool.completed",
   "runtime.changed", "interaction.opened", "interaction.closed"
 ]);
+
+const MAX_FRONTEND_NODE_TOOL_EVENTS = 100;
 
 export function validateSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") throw new Error("GUI snapshot 无效");
@@ -42,11 +45,23 @@ function applyIncremental(snapshot, event, payload) {
   case "tool.started":
   case "tool.completed":
     if (!payload?.id) return false;
-    snapshot.conversation = upsertMessage(snapshot.conversation, payload);
+    {
+      const result = upsertMessage(snapshot.conversation, payload);
+      snapshot.conversation = result.messages;
+      if (result.inserted && payload.role !== "system") {
+        snapshot.total_messages = Math.max(Number(snapshot.total_messages || 0), countDurableMessages(snapshot.conversation) - 1) + 1;
+      }
+      boundConversation(snapshot);
+    }
     markRunning(snapshot, event.request_id);
     return true;
   case "message.delta":
     return appendMessageDelta(snapshot, payload);
+  case "subagent.changed":
+    return applySubagentChanged(snapshot, payload);
+  case "subagent.tool.started":
+  case "subagent.tool.completed":
+    return applySubagentToolEvent(snapshot, payload);
   case "runtime.changed":
     if (!payload || typeof payload !== "object") return false;
     snapshot.runtime = payload;
@@ -78,7 +93,58 @@ function upsertMessage(messages, message) {
   const index = next.findIndex(current => current.id === message.id);
   if (index < 0) next.push(message);
   else next[index] = message;
-  return next;
+  return { messages: next, inserted: index < 0 };
+}
+
+function applySubagentChanged(snapshot, payload) {
+  if (!payload?.node_id || !payload.node || !snapshot.runtime?.plan) return false;
+  const replaced = replacePlanNode(snapshot.runtime.plan.nodes || [], payload.node_id, payload.node);
+  if (!replaced.changed) return false;
+  snapshot.runtime.plan.nodes = replaced.nodes;
+  if (typeof payload.plan_status === "string" && payload.plan_status) {
+    snapshot.runtime.plan.status = payload.plan_status;
+  }
+  const progress = Number(payload.progress);
+  if (Number.isFinite(progress)) snapshot.runtime.plan.progress = Math.min(Math.max(progress, 0), 1);
+  return true;
+}
+
+function applySubagentToolEvent(snapshot, payload) {
+  if (!payload?.id || !payload.node_id || !snapshot.runtime?.plan) return false;
+  let found = false;
+  snapshot.runtime.plan.nodes = mapPlanNodes(snapshot.runtime.plan.nodes || [], node => {
+    if (node.id !== payload.node_id) return node;
+    found = true;
+    const toolEvents = [...(node.tool_events || [])];
+    const index = toolEvents.findIndex(current => current.id === payload.id);
+    if (index < 0) toolEvents.push(payload);
+    else toolEvents[index] = payload;
+    return { ...node, tool_events: toolEvents.slice(-MAX_FRONTEND_NODE_TOOL_EVENTS) };
+  });
+  return found;
+}
+
+function replacePlanNode(nodes, nodeID, replacement) {
+  let changed = false;
+  const next = (nodes || []).map(node => {
+    if (node.id === nodeID) {
+      changed = true;
+      return clonePlanNode(replacement);
+    }
+    const nested = replacePlanNode(node.children || [], nodeID, replacement);
+    if (!nested.changed) return node;
+    changed = true;
+    return { ...node, children: nested.nodes };
+  });
+  return { nodes: next, changed };
+}
+
+function mapPlanNodes(nodes, update) {
+  return (nodes || []).map(node => {
+    const children = mapPlanNodes(node.children || [], update);
+    const cloned = { ...node, children };
+    return update(cloned);
+  });
 }
 
 function markRunning(snapshot, requestID) {
@@ -87,13 +153,60 @@ function markRunning(snapshot, requestID) {
 }
 
 function cloneSnapshot(snapshot, revision) {
+  const runtime = { ...(snapshot.runtime || {}) };
+  if (runtime.plan) runtime.plan = clonePlan(runtime.plan);
   return {
     ...snapshot,
     revision: Math.max(Number(snapshot.revision || 0), Number(revision || 0)),
     conversation: [...snapshot.conversation],
     chat: { ...(snapshot.chat || {}) },
-    runtime: { ...(snapshot.runtime || {}) }
+    runtime
   };
+}
+
+function clonePlan(plan) {
+  return {
+    ...plan,
+    nodes: (plan.nodes || []).map(clonePlanNode),
+    edges: Array.isArray(plan.edges) ? plan.edges.map(edge => ({ ...edge })) : []
+  };
+}
+
+function clonePlanNode(node) {
+  return {
+    ...node,
+    events: Array.isArray(node.events) ? node.events.map(event => ({ ...event })) : [],
+    tool_events: Array.isArray(node.tool_events) ? node.tool_events.map(event => ({ ...event })) : [],
+    children: Array.isArray(node.children) ? node.children.map(clonePlanNode) : []
+  };
+}
+
+function boundConversation(snapshot) {
+  const window = Math.trunc(Number(snapshot.conversation_window || 0));
+  if (window <= 0 || snapshot.conversation.length === 0) return;
+  const keep = new Array(snapshot.conversation.length).fill(false);
+  let durable = 0;
+  let system = 0;
+  for (let index = snapshot.conversation.length - 1; index >= 0; index -= 1) {
+    if (snapshot.conversation[index]?.role === "system") {
+      if (system < window) {
+        keep[index] = true;
+        system += 1;
+      }
+    } else if (durable < window) {
+      keep[index] = true;
+      durable += 1;
+    }
+  }
+  snapshot.conversation = snapshot.conversation.filter((_message, index) => keep[index]);
+  const total = Math.max(Number(snapshot.total_messages || 0), countDurableMessages(snapshot.conversation));
+  snapshot.total_messages = total;
+  snapshot.history_offset = Math.max(total - countDurableMessages(snapshot.conversation), 0);
+  snapshot.has_more_history = snapshot.history_offset > 0;
+}
+
+function countDurableMessages(messages) {
+  return (messages || []).reduce((count, message) => count + (message?.role === "system" ? 0 : 1), 0);
 }
 
 function decodePayload(payload) {

@@ -74,41 +74,44 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	mcpProvider         *frameworkmcp.Provider
-	breaker             *breakerState // 熔断器事件 channel 状态
-	branchMu            sync.RWMutex
-	branchBinding       PlanBranchBinding
-	planPolicyMu        sync.RWMutex
-	planPolicy          PlanPolicy
-	planProvider        *planToolProvider
-	planEvents          *planEventSink              // plan 执行事实 → 事件库 + 投影订阅
-	eventErrorHandler   frameworkevent.ErrorHandler // Sink 失败隔离（不破坏 WorkPlan 控制流）
-	replanGuard         *replanGuard
-	agentFactoryMu      sync.RWMutex
-	agentFactory        node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
-	approvalGateMu      sync.RWMutex
-	approvalGate        approve.ApprovalGate
-	exchangerMu         sync.RWMutex     // 上下文消息通道锁（actor 边界指针保护）
-	exchanger           ContextExchanger // 父子 actor 上下文消息通道（actor.go）
+	mcpProvider       *frameworkmcp.Provider
+	breaker           *breakerState // 熔断器事件 channel 状态
+	branchMu          sync.RWMutex
+	branchBinding     PlanBranchBinding
+	planPolicyMu      sync.RWMutex
+	planPolicy        PlanPolicy
+	planRunMu         sync.RWMutex
+	currentPlanRunID  string
+	planProvider      *planToolProvider
+	planEvents        *planEventSink              // plan 执行事实 → 事件库 + 投影订阅
+	eventErrorHandler frameworkevent.ErrorHandler // Sink 失败隔离（不破坏 WorkPlan 控制流）
+	replanGuard       *replanGuard
+	agentFactoryMu    sync.RWMutex
+	agentFactory      node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
+	approvalGateMu    sync.RWMutex
+	approvalGate      approve.ApprovalGate
+	exchangerMu       sync.RWMutex     // 上下文消息通道锁（actor 边界指针保护）
+	exchanger         ContextExchanger // 父子 actor 上下文消息通道（actor.go）
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
 	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
-	skills *skill.Registry
-	selectedAccountID   string
-	providerFilter      string
-	projectScope        *ProjectScope
-	filesystem          FileSystem     // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
-	sandbox             CommandSandbox // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
-	wt                  *worktreeState // 子代理 worktree 注册表（worktree.go）
-	todo                *todoState     // todolist 清单 actor（todo_tool.go）
-	goalMu              sync.RWMutex
-	goalSkillActiveFn   func() bool // goal skill 激活判定（main 注入 app.Snapshot().ActiveSkills）
+	skills            *skill.Registry
+	selectedAccountID string
+	providerFilter    string
+	projectScope      *ProjectScope
+	filesystem        FileSystem     // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	sandbox           CommandSandbox // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
+	wt                *worktreeState // 子代理 worktree 注册表（worktree.go）
+	todo              *todoState     // todolist 清单 actor（todo_tool.go）
+	toolEvents        *subagentToolEventState
+	goalMu            sync.RWMutex
+	goalSkillActiveFn func() bool // goal skill 激活判定（main 注入 app.Snapshot().ActiveSkills）
 
 	// 子代理会话注册表（切片 8 详情查看数据面，docs/plan/subagent-detail-architecture.md）：
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照。
-	nodeSessionsMu sync.Mutex
-	nodeSessions   map[string]*session.Session
-	nodeSnapshots  map[string][]types.Message
+	nodeSessionsMu      sync.Mutex
+	nodeSessions        map[string]*session.Session
+	nodeSnapshots       map[string][]types.Message
 	toolCallTimeout     time.Duration
 	planDecisionTimeout time.Duration
 	approvalTimeout     time.Duration
@@ -129,6 +132,8 @@ type Runtime struct {
 	window           seelexctx.WindowPolicy
 	ctxStoreMu       sync.RWMutex
 	ctxStore         *sessionstore.SessionContextStore
+	historyRouterMu  sync.RWMutex
+	historyRouter    *sessionstore.Router
 	projectMu        sync.RWMutex
 	projectKnowledge func() *sessionstore.ProjectRecord
 	turnArchiverMu   sync.RWMutex
@@ -217,6 +222,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		sandbox:             newNativeProjectCWD(),
 		wt:                  newWorktreeState(),
 		todo:                newTodoState(),
+		toolEvents:          newSubagentToolEventState(),
 		toolCallTimeout:     cfg.ToolCallTimeout,
 		planDecisionTimeout: planDecisionTimeout,
 		approvalTimeout:     approvalTimeout,
@@ -236,7 +242,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout)}
+	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.subagentToolMiddleware())}
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
 	if err := r.assembleCompleters(); err != nil {
@@ -297,13 +303,37 @@ func (r *Runtime) Session() *session.Session {
 
 // NewMainSession 按新装配模型（session.NewSession）构造主会话。
 // 每个逻辑会话（StartSession / resume）重建一个 Session，SessionID 为空时
-// 由框架自动生成。History 为空时会话持久化继续由 application 层（Router
-// SaveCommit）负责；DurableHistory 接线在后续切片随会话恢复流程对齐。
+// 由 Seelex 生成。AttachHistoryRouter 已装配时，框架 working history 使用
+// 同一 SessionID 的 DurableHistory；完整 SessionRecord 仍由 Application
+// 的 Router SaveCommit 负责。
 func (r *Runtime) NewMainSession(hooks *session.LoopHooks) (*session.Session, error) {
 	return r.newMainSession("", hooks)
 }
 
+// NewMainSessionWithID keeps the framework Session identity aligned with the
+// application session key used by resume and durable storage.
+func (r *Runtime) NewMainSessionWithID(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
+	return r.newMainSession(sessionID, hooks)
+}
+
+// AttachHistoryRouter installs the provider-history plane independently from
+// SessionContextStore, whose state blob has a different owner.
+func (r *Runtime) AttachHistoryRouter(router *sessionstore.Router) {
+	r.historyRouterMu.Lock()
+	r.historyRouter = router
+	r.historyRouterMu.Unlock()
+}
+
+func (r *Runtime) durableHistoryRouter() *sessionstore.Router {
+	r.historyRouterMu.RLock()
+	defer r.historyRouterMu.RUnlock()
+	return r.historyRouter
+}
+
 func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	}
 	components := session.SessionComponents{
 		Agent:     r.agt,
 		Context:   r.mainContextComponents(),
@@ -315,13 +345,11 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	// 滑动窗口加载区间（D1，plan.md §9）：装配 DurableHistory 并经
 	// SetTailBudget 注入窗口读尾预算——Session 每次 Chat 前 Load 只装载
 	// 窗口区间（token + 轮数），窗口外由 CompactStack 摘要承接。
-	// ctxStore 未装配（恢复流程未接线）→ 不装配 History，保持现状。
-	if store := r.sessionContextStore(); store != nil {
-		if router := store.Router(); router != nil {
-			history := sessionstore.NewDurableHistory(router, sessionID)
-			history.SetTailBudget(r.windowTailBudget())
-			components.History = history
-		}
+	// 未装配 Router 时保持框架内存 history，供测试和兼容调用方使用。
+	if router := r.durableHistoryRouter(); router != nil {
+		history := sessionstore.NewDurableHistory(router, sessionID)
+		history.SetTailBudget(r.windowTailBudget())
+		components.History = history
 	}
 	sess, err := session.NewSession(components)
 	if err != nil {

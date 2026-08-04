@@ -36,6 +36,10 @@ type sessionTranscriptPort interface {
 	LoadToolResultWorkspace(string, string, string) (StoredToolResult, error)
 }
 
+type sessionConversationRangePort interface {
+	LoadConversationRangeWorkspace(string, string, int, int) ([]Message, int, error)
+}
+
 type persistedPlanRestorer interface {
 	RestorePlan(context.Context, string) error
 }
@@ -50,6 +54,15 @@ func (service *sessionCoordinator) persistCurrentSession(sessionID string) error
 	events := append([]TranscriptEvent(nil), service.transcript...)
 	pendingResults := append([]StoredToolResult(nil), service.pendingToolResults...)
 	service.mu.Unlock()
+
+	if store, ok := service.deps.Sessions.(sessionRecordPort); ok {
+		existing, err := store.LoadSessionRecord(sessionID)
+		if err == nil {
+			record.Conversation.Messages = mergeConversationMessages(existing.Conversation.Messages, record.Conversation.Messages)
+		} else if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("load existing session record before merge: %w", err)
+		}
+	}
 
 	if store, ok := service.deps.Sessions.(sessionSnapshotPort); ok {
 		if err := store.SaveSessionSnapshot(sessionID, service.deps.Engine.History(), record, events, pendingResults); err != nil {
@@ -72,6 +85,31 @@ func (service *sessionCoordinator) persistCurrentSession(sessionID string) error
 		return fmt.Errorf("save session record: %w", err)
 	}
 	return nil
+}
+
+func mergeConversationMessages(existing, projected []Message) []Message {
+	if len(existing) == 0 {
+		return recordConversation(SessionRecord{Conversation: ConversationRecord{Messages: projected}})
+	}
+	merged := recordConversation(SessionRecord{Conversation: ConversationRecord{Messages: existing}})
+	indices := make(map[string]int, len(merged))
+	for index := range merged {
+		if merged[index].ID != "" {
+			indices[merged[index].ID] = index
+		}
+	}
+	for _, message := range projected {
+		copy := recordConversation(SessionRecord{Conversation: ConversationRecord{Messages: []Message{message}}})[0]
+		if copy.ID != "" {
+			if index, ok := indices[copy.ID]; ok {
+				merged[index] = copy
+				continue
+			}
+			indices[copy.ID] = len(merged)
+		}
+		merged = append(merged, copy)
+	}
+	return merged
 }
 
 func (service *sessionCoordinator) sessionRecordLocked(sessionID string) SessionRecord {
@@ -211,6 +249,14 @@ func recordConversation(record SessionRecord) []Message {
 		conversation = append(conversation, copy)
 	}
 	return conversation
+}
+
+func recordConversationTail(record SessionRecord, window int) []Message {
+	messages := record.Conversation.Messages
+	if window > 0 && len(messages) > window {
+		messages = messages[len(messages)-window:]
+	}
+	return recordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}})
 }
 
 func cloneSessionPlanStack(stack []SessionPlanFrame) []SessionPlanFrame {

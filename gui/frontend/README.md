@@ -10,13 +10,13 @@
 |---|---|
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
 | `dist/client-state.js` | Snapshot/Event reducer、seq gap 和 resync。 |
-| `dist/conversation-view.js` / `chat-view.js` | keyed conversation 与 chat activity 渲染。 |
+| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化和卡片渲染。 |
 | `dist/read-sources.js` | 从会话工具事件中收集成功完成的 `read_file` 路径，供右侧栏显示。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
-| `dist/protocol.js` | protocol version 校验。 |
+| `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer。 |
 | `dist/*.test.mjs` | Node 内置 test runner 契约测试。 |
 
 ## 状态流
@@ -27,6 +27,10 @@
 4. render functions 根据 state 投影 DOM；所有 mutation 通过 Bridge 返回 Application。
 
 Plan DSL 常驻右侧项目栏；没有 Plan 时隐藏整个 section，加载、运行和完成状态都由 `runtime.plan` 驱动。Runtime 弹窗只保留运行时诊断信息。
+
+`Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
+
+子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持 `worktree_creating`、`rebasing`、`merging`，详情弹窗显示会话、节点时间线和工具输入/结果/错误。所有更新都先深拷贝 Plan 树，避免修改旧 Snapshot。
 
 点击新建会话只调用 `BeginNewSession` 进入编辑草稿：允许选择项目和编辑输入框，但左侧列表不新增任何条目，也不生成临时 ID。第一次提交真实对话后，Application 返回真实 ID，左侧才新增正式 Session，并以首个问题作为列表标题。
 
@@ -54,6 +58,8 @@ Get-ChildItem gui/frontend/dist -Filter *.js | ForEach-Object { node --check $_.
 node --test gui/frontend/dist/*.test.mjs
 go test ./gui -count=1
 ```
+
+`event-chain.test.mjs` mock Wails `seelex:event` 并验证子代理生命周期和工具完成状态通过 `createGUIClient`/`protocol.js` 后在前端节点可见，且连续事件不会退化为 Snapshot reload。
 
 ## Context compression summary
 

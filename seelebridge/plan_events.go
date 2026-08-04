@@ -3,6 +3,7 @@ package seelebridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -102,6 +103,35 @@ func (s *planEventSink) AppendNodeResult(ctx context.Context, planID, runID stri
 		Elapsed: nr.Elapsed().String(),
 		At:      nr.EndedAt,
 	})
+}
+
+// AppendPhase records a Seelex-owned subagent phase while preserving the same
+// plan/run/session correlation contract as framework runner events.
+func (s *planEventSink) AppendPhase(ctx context.Context, binding PlanBranchBinding, runID, nodeID, status string) {
+	if s == nil || nodeID == "" || status == "" {
+		return
+	}
+	at := time.Now()
+	ev := frameworkevent.Event{
+		ID:         fmt.Sprintf("subagent-phase-%s-%d", nodeID, at.UnixNano()),
+		Sequence:   uint64(at.UnixNano()),
+		OccurredAt: at,
+		Source:     "seelex.subagent",
+		Type:       frameworkevent.TypeLifecycle,
+		Status:     frameworkevent.Status(status),
+		Scope: frameworkevent.Scope{
+			PlanID: binding.PlanID, RunID: runID, NodeID: nodeID, BranchID: nodeID,
+		},
+	}
+	if binding.SessionID != "" {
+		ev.Locations = []frameworkevent.Location{{
+			Kind: "agent.runtime",
+			IDs: map[string]string{
+				"agent_id": mainAgentID, "session_id": binding.SessionID,
+			},
+		}}
+	}
+	_ = s.Append(ctx, ev)
 }
 
 // Subscribe 注册投影订阅者（唯一；后注册者覆盖先注册者）。

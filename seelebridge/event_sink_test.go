@@ -151,3 +151,34 @@ func TestEventStoreRoutesByAgentRuntimeLocation(t *testing.T) {
 		t.Fatalf("expected empty log, got %#v", other)
 	}
 }
+
+func TestWorktreePhasesProjectAndPersistWithSessionLocation(t *testing.T) {
+	sink := newPlanEventSink()
+	var persisted []frameworkevent.Event
+	var projected []PlanNodeEvent
+	sink.SetPersister(func(_ context.Context, event frameworkevent.Event) error {
+		persisted = append(persisted, event)
+		return nil
+	})
+	sink.Subscribe(func(event PlanNodeEvent) { projected = append(projected, event) })
+	binding := PlanBranchBinding{SessionID: "session-worktree", PlanID: "plan-1"}
+	for _, status := range []string{"worktree_creating", "rebasing", "merging"} {
+		sink.AppendPhase(context.Background(), binding, "run-1", "worker", status)
+	}
+
+	if len(persisted) != 3 || len(projected) != 3 {
+		t.Fatalf("persisted=%d projected=%d, want three worktree phases", len(persisted), len(projected))
+	}
+	for index, status := range []string{"worktree_creating", "rebasing", "merging"} {
+		event := persisted[index]
+		if string(event.Status) != status || event.Scope.NodeID != "worker" || event.Scope.RunID != "run-1" {
+			t.Fatalf("phase %d event = %#v", index, event)
+		}
+		if len(event.Locations) != 1 || event.Locations[0].Kind != "agent.runtime" || event.Locations[0].IDs["session_id"] != "session-worktree" {
+			t.Fatalf("phase %d location = %#v", index, event.Locations)
+		}
+		if projected[index].Status != status || projected[index].NodeID != "worker" {
+			t.Fatalf("phase %d projection = %#v", index, projected[index])
+		}
+	}
+}

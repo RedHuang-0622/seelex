@@ -30,6 +30,7 @@ type fakeEngine struct {
 	starts            int
 	lastInput         string
 	maxLoops          int
+	releaseCalls      int
 }
 
 func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
@@ -194,9 +195,14 @@ func (engine *fakeEngine) AppendHistory(msg types.Message) {
 	}
 	engine.history = append(engine.history, EngineMessage{Role: msg.Role, Content: content, ContentSet: msg.Content != nil, ReasoningContent: msg.ReasoningContent, ToolCalls: toolCalls, ToolCallID: msg.ToolCallID, Name: msg.Name})
 }
-func (*fakeEngine) TraceText() string  { return "trace" }
-func (*fakeEngine) TokenCount() string { return "12" }
+func (*fakeEngine) TraceText() string                                      { return "trace" }
+func (*fakeEngine) TokenCount() string                                     { return "12" }
 func (*fakeEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
+func (engine *fakeEngine) ReleaseWorkingHistory() {
+	engine.mu.Lock()
+	engine.releaseCalls++
+	engine.mu.Unlock()
+}
 
 type fakeRuntime struct {
 	account       string
@@ -292,6 +298,12 @@ func (fakeSessions) Delete(string) error              { return nil }
 func (fakeSessions) MessageCount(string) (int, error) { return 1, nil }
 func (fakeSessions) SetWorkspace(string)              {}
 func (fakeSessions) Workspace() string                { return "" }
+
+type persistenceFailingSessions struct{ fakeSessions }
+
+func (persistenceFailingSessions) SaveCurrent(string) error {
+	return errors.New("session store unavailable")
+}
 
 type trackingSessions struct {
 	fakeSessions
@@ -461,6 +473,39 @@ func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
+	tests := []struct {
+		name         string
+		sessions     SessionPort
+		wantReleases int
+	}{
+		{name: "success", sessions: fakeSessions{}, wantReleases: 1},
+		{name: "failure", sessions: persistenceFailingSessions{}, wantReleases: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			engine := &fakeEngine{}
+			service := mustNew(Dependencies{
+				Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+				Skills: fakeSkills{}, Sessions: test.sessions,
+			})
+			defer service.Shutdown()
+			if err := service.Submit(context.Background(), "persist before release"); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.WaitForIdle(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			engine.mu.Lock()
+			releases := engine.releaseCalls
+			engine.mu.Unlock()
+			if releases != test.wantReleases {
+				t.Fatalf("working history releases = %d, want %d", releases, test.wantReleases)
+			}
+		})
 	}
 }
 
@@ -1282,8 +1327,15 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 	}
 	for index := 0; index < 3; index++ {
 		event := <-subscription.Events
-		if event.Kind != EventRuntimeChanged {
-			t.Fatalf("event %d kind = %q, want runtime.changed", index, event.Kind)
+		if event.Kind != EventSubagentChanged {
+			t.Fatalf("event %d kind = %q, want subagent.changed", index, event.Kind)
+		}
+		var payload SubagentEvent
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.NodeID != "left" || payload.Node.ID != "left" {
+			t.Fatalf("event %d payload = %#v", index, payload)
 		}
 	}
 
@@ -1291,6 +1343,48 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 	snapshot = service.Snapshot()
 	if snapshot.Runtime.Plan.Status != PlanFailed || snapshot.Runtime.Plan.Nodes[0].Status != NodePanicked {
 		t.Fatalf("panic state = %+v", snapshot.Runtime.Plan)
+	}
+}
+
+func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	service.handleToolStart("plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"worker":{"input":"worker"}},"edges":{"start":["worker"]}}`)
+
+	subscription := service.Subscribe(4)
+	defer subscription.Close()
+	long := strings.Repeat("x", Limits().EvidenceChars+20)
+	started := seelebridge.SubagentToolEvent{
+		ID: "subtool-1", NodeID: "worker", Name: "read_file", Arguments: long,
+		Status: "running", StartedAt: time.Now(),
+	}
+	service.HandleSubagentToolEvent(started)
+	completed := started
+	completed.Status = "success"
+	completed.Result = long
+	completed.Duration = time.Second
+	service.HandleSubagentToolEvent(completed)
+
+	snapshot := service.Snapshot()
+	node := findPlanNodeByID(snapshot.Runtime.Plan.Nodes, "worker")
+	if node == nil || len(node.ToolEvents) != 1 {
+		t.Fatalf("worker tool events = %#v", node)
+	}
+	if node.ToolEvents[0].Status != "success" || len(node.ToolEvents[0].Arguments) > Limits().EvidenceChars+3 || len(node.ToolEvents[0].Result) > Limits().EvidenceChars+3 {
+		t.Fatalf("projected tool event = %#v", node.ToolEvents[0])
+	}
+
+	first := <-subscription.Events
+	second := <-subscription.Events
+	if first.Kind != EventSubagentToolStarted || second.Kind != EventSubagentToolCompleted {
+		t.Fatalf("event kinds = %q, %q", first.Kind, second.Kind)
+	}
+	var payload SubagentToolEvent
+	if err := json.Unmarshal(second.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ID != "subtool-1" || payload.NodeID != "worker" || payload.Status != "success" {
+		t.Fatalf("completed payload = %#v", payload)
 	}
 }
 

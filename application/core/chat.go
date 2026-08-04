@@ -73,6 +73,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	var err error
 	recovered := false
 	modelInput := request.modelInput
+	batcher, onChunk := service.newBatchedDeltaSink(requestID)
 	if err == nil {
 		service.components.prompts.applyActiveTaskSystemPrompt(requestID)
 	}
@@ -82,7 +83,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	if err == nil {
 		modelInput = nonEmptyProviderInput(modelInput)
 		var reply string
-		reply, err = service.deps.Engine.ChatStream(ctx, modelInput, func(chunk string) { service.appendDelta(requestID, chunk) })
+		reply, err = service.deps.Engine.ChatStream(ctx, modelInput, onChunk)
 		// 模型输出观测（自然终态判定输入面）
 		service.currentTaskService().ObserveModelOutput(ctx, ModelOutput{RequestID: requestID, Reply: reply, Err: err})
 		if reply != "" {
@@ -97,14 +98,14 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 			err = fmt.Errorf("%w; context recovery failed: %v", err, recoveryErr)
 		}
 		if recovered && recoveryErr == nil && isProviderContextExhaustion(err) {
-			if retryErr := service.retryContextRecovery(ctx, requestID); retryErr != nil {
+			if retryErr := service.retryContextRecovery(ctx, requestID, onChunk); retryErr != nil {
 				err = fmt.Errorf("%w; bounded context recovery turn failed: %v", err, retryErr)
 			} else {
 				err = nil
 			}
 		}
 		if err == nil {
-			err = service.finalizeReActBudget(ctx, requestID)
+			err = service.finalizeReActBudgetWithSink(ctx, requestID, onChunk)
 		}
 		if err == nil {
 			// 自然停止 → 自动终态（finalizeTaskExecution 演进为 OnChatEnd）
@@ -113,6 +114,14 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 			err = endErr
 		}
 	}
+	if flushErr := batcher.Flush(); flushErr != nil && err == nil {
+		err = fmt.Errorf("flush streamed response: %w", flushErr)
+	}
+	service.mu.Lock()
+	if service.streamBatcher == batcher {
+		service.streamBatcher = nil
+	}
+	service.mu.Unlock()
 	if cleanupErr := service.components.context.removeTaskContextCheckpoints(); cleanupErr != nil && err == nil {
 		err = cleanupErr
 	}
@@ -126,12 +135,15 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		service.recordUnhandledTaskErrorLocked(requestID, err)
 		service.mu.Unlock()
 	}
-	if saveErr := service.components.sessions.persistCurrentSession(service.deps.Engine.SessionID()); saveErr != nil {
+	saveErr := service.components.sessions.persistCurrentSession(service.deps.Engine.SessionID())
+	if saveErr != nil {
 		if err != nil {
 			err = wrapError(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), errorCodePersistenceFailed)
 		} else {
 			err = wrapError(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), errorCodePersistenceFailed)
 		}
+	} else if releaser, ok := service.deps.Engine.(interface{ ReleaseWorkingHistory() }); ok {
+		releaser.ReleaseWorkingHistory()
 	}
 	service.mu.Lock()
 	if service.snapshot.Chat.RequestID != requestID {
@@ -238,6 +250,12 @@ const reactBudgetFinalizationInput = "<!-- seelex:react-budget-finalize:v1 -->\n
 // is reached. The normal loop has already stopped before this point; this turn
 // exists so the user receives the result rather than a bare budget error.
 func (service *Service) finalizeReActBudget(ctx context.Context, requestID string) error {
+	return service.finalizeReActBudgetWithSink(ctx, requestID, func(chunk string) {
+		service.appendDelta(requestID, chunk)
+	})
+}
+
+func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, requestID string, onChunk func(string)) error {
 	budgetErr := service.reactBudgetError(requestID)
 	if budgetErr == nil {
 		return nil
@@ -246,9 +264,7 @@ func (service *Service) finalizeReActBudget(ctx context.Context, requestID strin
 	if prepareErr != nil {
 		return fmt.Errorf("%w; prepare final delivery context: %v", budgetErr, prepareErr)
 	}
-	result, err := service.deps.Engine.ChatStream(ctx, finalizationInput, func(chunk string) {
-		service.appendDelta(requestID, chunk)
-	})
+	result, err := service.deps.Engine.ChatStream(ctx, finalizationInput, onChunk)
 	cleanupErr := service.removeReActBudgetFinalizationInput()
 	if err != nil {
 		return fmt.Errorf("%w; final delivery failed: %v", budgetErr, err)
@@ -305,16 +321,56 @@ func (service *Service) markIdleLocked() {
 }
 
 func (service *Service) appendDelta(requestID, chunk string) {
+	visible := service.consumeVisibleChunk(requestID, chunk)
+	if visible != "" {
+		service.appendVisibleDelta(requestID, visible)
+	}
+}
+
+func (service *Service) newBatchedDeltaSink(requestID string) (*StreamBatcher, func(string)) {
+	batcher := NewStreamBatcher(func(batch []string) {
+		service.appendVisibleDelta(requestID, strings.Join(batch, ""))
+	}, StreamBatcherOptions{FlushSize: 32, BufferSize: 128, Interval: 40 * time.Millisecond})
 	service.mu.Lock()
+	if service.snapshot.Chat.RequestID == requestID {
+		service.streamBatcher = batcher
+	}
+	service.mu.Unlock()
+	return batcher, func(chunk string) {
+		if visible := service.consumeVisibleChunk(requestID, chunk); visible != "" {
+			batcher.OnChunk(visible)
+		}
+	}
+}
+
+func (service *Service) flushStreamBatcher(requestID string) {
+	service.mu.RLock()
+	batcher := service.streamBatcher
+	active := service.snapshot.Chat.RequestID == requestID
+	service.mu.RUnlock()
+	if active && batcher != nil {
+		_ = batcher.FlushPending()
+	}
+}
+
+func (service *Service) consumeVisibleChunk(requestID, chunk string) string {
+	service.mu.Lock()
+	defer service.mu.Unlock()
 	if !service.snapshot.Chat.Running || service.snapshot.Chat.RequestID != requestID {
-		service.mu.Unlock()
-		return
+		return ""
 	}
 	if service.streamOutput == nil || service.streamOutput.requestID != requestID {
 		service.streamOutput = newVisibleOutputStream(requestID)
 	}
-	chunk = service.streamOutput.Consume(chunk)
+	return service.streamOutput.Consume(chunk)
+}
+
+func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	if chunk == "" {
+		return
+	}
+	service.mu.Lock()
+	if !service.snapshot.Chat.Running || service.snapshot.Chat.RequestID != requestID {
 		service.mu.Unlock()
 		return
 	}
@@ -353,6 +409,10 @@ func (service *Service) appendHistoryLocked(history []EngineMessage) {
 }
 
 func (service *Service) handleToolStart(name, id, arguments string) {
+	service.mu.RLock()
+	activeRequestID := service.snapshot.Chat.RequestID
+	service.mu.RUnlock()
+	service.flushStreamBatcher(activeRequestID)
 	service.mu.Lock()
 	service.components.tasks.ensureToolCallTranscriptLocked(name, id, arguments)
 	tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}
@@ -401,6 +461,10 @@ func (service *Service) planBranchBindingLocked() seelebridge.PlanBranchBinding 
 }
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
+	service.mu.RLock()
+	activeRequestID := service.snapshot.Chat.RequestID
+	service.mu.RUnlock()
+	service.flushStreamBatcher(activeRequestID)
 	service.mu.Lock()
 	toolArguments := ""
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
@@ -683,36 +747,43 @@ func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) 
 		case "canceled", "aborted":
 			plan.Status = PlanAborted
 		}
-	} else {
-		for i := range plan.Nodes {
-			if plan.Nodes[i].ID != event.NodeID {
-				continue
-			}
-			plan.Nodes[i].Status = PlanNodeStatus(event.Status)
+	}
+	var changedNode *PlanNode
+	if event.NodeID != "" {
+		if node := findPlanNodeByID(plan.Nodes, event.NodeID); node != nil {
+			node.Status = PlanNodeStatus(event.Status)
 			if event.Kind != "" {
-				plan.Nodes[i].Kind = mapKindForDisplay(event.Kind)
+				node.Kind = mapKindForDisplay(event.Kind)
 			}
 			if event.Elapsed != "" {
-				plan.Nodes[i].Elapsed = event.Elapsed
+				node.Elapsed = event.Elapsed
 			}
 			if event.Output != "" {
-				plan.Nodes[i].Output = event.Output
+				node.Output = event.Output
 			}
-			appendPlanNodeEvent(&plan.Nodes[i], event)
+			appendPlanNodeEvent(node, event)
 			// checkpoint 只对终态生效（旧 HandlePlanNodeComplete 只在节点完成时调用）；
 			// 观测经 TaskService.ObservePlanEvent 写入功能打点快照
 			if isTerminalNodeStatus(event.Status) {
 				service.currentTaskServiceLocked().ObservePlanEvent(PlanEvent{
-					NodeID: event.NodeID, Status: event.Status, Output: event.Output, Objective: plan.Nodes[i].Label,
+					NodeID: event.NodeID, Status: event.Status, Output: event.Output, Objective: node.Label,
 				})
 			}
-			break
+			changedNode = node
 		}
 		recalculatePlanProgress(plan)
 	}
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
+	var changed SubagentEvent
+	if changedNode != nil {
+		changed = subagentChangedPayload(plan, event.PlanID, event.RunID, *changedNode)
+	}
 	service.mu.Unlock()
+	if changedNode != nil {
+		service.events.Publish(EventSubagentChanged, revision, requestID, changed)
+		return
+	}
 	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
 }
 
@@ -755,12 +826,10 @@ func (service *Service) HandlePlanBranchEvent(event seelebridge.PlanBranchEvent)
 		service.mu.Unlock()
 		return
 	}
-	for index := range plan.Nodes {
-		if plan.Nodes[index].ID != event.NodeID {
-			continue
-		}
-		plan.Nodes[index].Status = PlanNodeStatus(event.Type)
-		break
+	node := findPlanNodeByID(plan.Nodes, event.NodeID)
+	if node != nil {
+		node.Status = PlanNodeStatus(event.Type)
+		appendPlanNodeEvent(node, seelebridge.PlanNodeEvent{NodeID: event.NodeID, Status: event.Type, Output: event.Error, At: event.At})
 	}
 	switch event.Type {
 	case "queued", "started":
@@ -773,9 +842,16 @@ func (service *Service) HandlePlanBranchEvent(event seelebridge.PlanBranchEvent)
 	recalculatePlanProgress(plan)
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
-	runtime := cloneRuntimeState(service.snapshot.Runtime)
+	var changed SubagentEvent
+	if node != nil {
+		changed = subagentChangedPayload(plan, "", "", *node)
+	}
 	service.mu.Unlock()
-	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+	if node != nil {
+		service.events.Publish(EventSubagentChanged, revision, requestID, changed)
+		return
+	}
+	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
 }
 
 // mapKindForDisplay 将框架节点 kind 映射为 seelex PlanNode 展示值。
@@ -807,6 +883,12 @@ func PlanNodeStatus(s string) NodeStatus {
 		return NodeQueued
 	case "running", "started":
 		return NodeRunning
+	case "worktree_creating":
+		return NodeWorktreeCreating
+	case "rebasing":
+		return NodeRebasing
+	case "merging":
+		return NodeMerging
 	case "completed":
 		return NodeCompleted
 	case "failed":

@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -328,6 +329,48 @@ func TestBridgeRelaysApplicationEvents(t *testing.T) {
 	}
 	if event.ProtocolVersion != application.ProtocolVersion || event.Seq != published.Seq || event.Kind != published.Kind {
 		t.Fatalf("relayed event = %#v, want %#v", event, published)
+	}
+}
+
+func TestBridgeRelaysSubagentToolEventsToSeelexEvent(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emitted := make(chan emittedEvent, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bridge.start(ctx, func(_ context.Context, name string, payload any) {
+		emitted <- emittedEvent{name: name, payload: payload}
+	})
+	defer bridge.stop()
+	_ = waitEmitted(t, emitted)
+
+	payload := application.SubagentToolEvent{
+		ID: "subtool-1", NodeID: "worker", Name: "read_file",
+		Status: "success", Result: "done",
+	}
+	published := fake.hub.Publish(application.EventSubagentToolCompleted, 3, "request-1", payload)
+	relayed := waitEmitted(t, emitted)
+	if relayed.name != eventName {
+		t.Fatalf("relayed event name = %q, want %q", relayed.name, eventName)
+	}
+	event, ok := relayed.payload.(application.Event)
+	if !ok {
+		t.Fatalf("relayed payload type = %T", relayed.payload)
+	}
+	if event.Kind != application.EventSubagentToolCompleted || event.Seq != published.Seq || event.RequestID != "request-1" {
+		t.Fatalf("relayed event = %#v, want subagent completion %#v", event, published)
+	}
+	var decoded application.SubagentToolEvent
+	if err := json.Unmarshal(event.Payload, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ID != payload.ID || decoded.NodeID != payload.NodeID || decoded.Result != "done" {
+		t.Fatalf("relayed subagent payload = %#v", decoded)
 	}
 }
 

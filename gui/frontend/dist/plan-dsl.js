@@ -1,11 +1,12 @@
 const NODE_STATUSES = new Set([
-  "pending", "queued", "running", "completed", "failed", "aborted",
+  "pending", "queued", "running", "worktree_creating", "rebasing", "merging", "completed", "failed", "aborted",
   "skipped", "canceled", "panicked"
 ]);
 
 const PLAN_STATUSES = new Set(["pending", "running", "completed", "failed", "aborted"]);
 const FAILURE_STATUSES = new Set(["failed", "aborted", "canceled", "panicked"]);
 const DONE_STATUSES = new Set(["completed", "skipped"]);
+const ACTIVE_STATUSES = new Set(["queued", "running", "worktree_creating", "rebasing", "merging"]);
 
 export function planToDSL(plan) {
   if (!isRecord(plan)) return null;
@@ -34,6 +35,7 @@ export function planToDSL(plan) {
         elapsed: textValue(rawNode.elapsed),
         output: textValue(rawNode.output),
         events: normalizeNodeEvents(rawNode.events),
+        toolEvents: normalizeToolEvents(rawNode.tool_events),
         incoming: [],
         outgoing: []
       };
@@ -207,7 +209,6 @@ function reconcileKeyedList(list, items, datasetKey, renderItem, updateItem) {
 function renderNode(node) {
   const status = statusToken(node.status);
   const output = outputSummary(node.output);
-  const hasDetail = node.events.length > 0 || Boolean(node.output) || node.elapsed;
   const branches = renderOutgoing(node);
   return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-status="${status}" style="--plan-indent:${node.depth * 9}px">
     <div class="plan-node-connector" aria-hidden="true"><i></i><span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span></div>
@@ -217,7 +218,7 @@ function renderNode(node) {
         <span class="plan-kind" data-plan-node-field="kind">${escapeHTML(node.kind)}</span>
         <span class="plan-branch${node.outgoing.length > 1 ? "" : " hidden"}" data-plan-node-field="branch">fork ×${node.outgoing.length}</span>
         <span class="plan-dur${node.elapsed ? "" : " hidden"}" data-plan-node-field="elapsed">${escapeHTML(node.elapsed)}</span>
-        ${hasDetail ? `<button type="button" class="plan-detail-btn${node.events.length ? " has-events" : ""}" data-plan-node-detail="${escapeHTML(node.key)}" title="${escapeHTML(node.events.length ? `${node.events.length} 个事件；点击查看详情` : "查看节点详情")}" aria-label="节点详情">…</button>` : ""}
+        <span data-plan-node-detail-slot>${renderDetailButton(node)}</span>
       </header>
       <div class="plan-node-deps${node.incoming.length ? "" : " hidden"}" data-plan-node-field="deps">${renderDependencies(node)}</div>
       ${branches ? `<div class="plan-node-branches" data-plan-node-field="branches">${branches}</div>` : ""}
@@ -257,6 +258,8 @@ function updateNode(element, node) {
   element.querySelector('[data-plan-node-field="branch"]')?.classList.toggle("hidden", node.outgoing.length <= 1);
   setNodeText(element, "elapsed", node.elapsed);
   element.querySelector('[data-plan-node-field="elapsed"]')?.classList.toggle("hidden", !node.elapsed);
+  const detailSlot = element.querySelector("[data-plan-node-detail-slot]");
+  if (detailSlot) detailSlot.innerHTML = renderDetailButton(node);
 
   const deps = element.querySelector('[data-plan-node-field="deps"]');
   if (deps) {
@@ -306,7 +309,7 @@ function updateEdge(element, edge) {
 function edgeDisplayStatus(sourceStatus, targetStatus) {
   if (FAILURE_STATUSES.has(sourceStatus) || FAILURE_STATUSES.has(targetStatus)) return "failed";
   if (DONE_STATUSES.has(targetStatus)) return "completed";
-  if (targetStatus === "running" || targetStatus === "queued" || sourceStatus === "running") return "active";
+  if (ACTIVE_STATUSES.has(targetStatus) || ACTIVE_STATUSES.has(sourceStatus)) return "active";
   return "pending";
 }
 
@@ -316,11 +319,11 @@ function normalizeStatus(value, allowed) {
 }
 
 function statusToken(status) {
-  return /^[a-z][a-z0-9-]*$/.test(status || "") ? status : "unknown";
+  return /^[a-z][a-z0-9_-]*$/.test(status || "") ? status : "unknown";
 }
 
 function statusLabel(status) {
-  return ({ pending: "PENDING", queued: "QUEUED", running: "RUNNING", completed: "DONE", failed: "FAILED", aborted: "ABORTED", skipped: "SKIPPED", canceled: "CANCELED", panicked: "PANICKED", active: "ACTIVE" })[status] || "UNKNOWN";
+  return ({ pending: "PENDING", queued: "QUEUED", running: "RUNNING", worktree_creating: "WORKTREE", rebasing: "REBASING", merging: "MERGING", completed: "DONE", failed: "FAILED", aborted: "ABORTED", skipped: "SKIPPED", canceled: "CANCELED", panicked: "PANICKED", active: "ACTIVE", success: "SUCCESS", error: "ERROR" })[status] || "UNKNOWN";
 }
 
 function modeLabel(mode) {
@@ -342,7 +345,15 @@ function setMode(root, mode) {
 }
 
 function statusSymbol(status) {
-  return ({ pending: "·", queued: "○", running: "●", completed: "✓", skipped: "↷", failed: "!", aborted: "×", canceled: "×", panicked: "!" })[status] || "?";
+  return ({ pending: "·", queued: "○", running: "●", worktree_creating: "◇", rebasing: "↻", merging: "⋈", completed: "✓", skipped: "↷", failed: "!", aborted: "×", canceled: "×", panicked: "!", success: "✓", error: "!" })[status] || "?";
+}
+
+function renderDetailButton(node) {
+  const eventCount = (node.events?.length || 0) + (node.toolEvents?.length || 0);
+  const hasDetail = eventCount > 0 || Boolean(node.output) || Boolean(node.elapsed) || node.kind === "agent";
+  if (!hasDetail) return "";
+  const title = eventCount > 0 ? `${eventCount} 个活动；点击查看详情` : "查看节点详情";
+  return `<button type="button" class="plan-detail-btn${eventCount ? " has-events" : ""}" data-plan-node-detail="${escapeHTML(node.key)}" title="${escapeHTML(title)}" aria-label="节点详情">…</button>`;
 }
 
 function outputSummary(value) {
@@ -366,6 +377,21 @@ function normalizeNodeEvents(rawEvents) {
     });
   }
   return events;
+}
+
+function normalizeToolEvents(rawEvents) {
+  if (!Array.isArray(rawEvents)) return [];
+  return rawEvents.filter(isRecord).map(raw => ({
+    id: textValue(raw.id),
+    nodeID: textValue(raw.node_id),
+    name: textValue(raw.name, "tool"),
+    arguments: textValue(raw.arguments),
+    result: textValue(raw.result),
+    error: textValue(raw.error),
+    status: textValue(raw.status, "unknown").toLowerCase(),
+    startedAt: textValue(raw.started_at),
+    duration: finiteNumber(raw.duration) ?? 0
+  }));
 }
 
 function setText(root, field, value) {
@@ -446,6 +472,7 @@ export function renderNodeDetail(node) {
       ${output ? `<span class="node-event-output" title="${escapeHTML(event.output)}">${escapeHTML(output)}</span>` : ""}
     </li>`;
   }).join("");
+  const toolEvents = renderToolEvents(node.toolEvents || []);
   return `<div class="node-detail" data-node-detail>
     <div class="node-detail-head">
       <h2 class="node-detail-title">${escapeHTML(node.label || node.id || "节点详情")}</h2>
@@ -457,10 +484,12 @@ export function renderNodeDetail(node) {
       <div><dt>Kind</dt><dd>${escapeHTML(node.kind || "auto")}</dd></div>
       <div><dt>耗时</dt><dd>${escapeHTML(node.elapsed || "—")}</dd></div>
       <div><dt>事件</dt><dd>${node.events ? node.events.length : 0}</dd></div>
+      <div><dt>工具</dt><dd data-node-tool-count>${node.toolEvents ? node.toolEvents.length : 0}</dd></div>
     </dl>
     <div class="node-detail-tabs">
       <button class="node-tab is-active" data-node-tab="conversation" type="button">会话记录</button>
       <button class="node-tab" data-node-tab="timeline" type="button">事件时间线</button>
+      <button class="node-tab" data-node-tab="tools" type="button">工具活动</button>
       ${node.output ? `<button class="node-tab" data-node-tab="output" type="button">最终输出</button>` : ""}
     </div>
     <div class="node-tab-panel is-active" data-node-panel="conversation">
@@ -471,6 +500,9 @@ export function renderNodeDetail(node) {
     <div class="node-tab-panel" data-node-panel="timeline">
       ${timeline ? `<ol class="node-timeline">${timeline}</ol>` : '<div class="node-timeline-empty">暂无事件；任务清单模式下由 task_check_node 打点驱动</div>'}
     </div>
+    <div class="node-tab-panel" data-node-panel="tools" data-node-tool-events>
+      ${toolEvents || '<div class="node-timeline-empty">暂无子代理工具活动</div>'}
+    </div>
     ${node.output ? `<div class="node-tab-panel" data-node-panel="output"><div class="node-detail-output"><pre>${escapeHTML(node.output)}</pre></div></div>` : ""}
   </div>`;
 }
@@ -478,22 +510,55 @@ export function renderNodeDetail(node) {
 // setNodeDetailConversation 渲染子代理会话记录（详情弹窗会话记录标签）。
 export function setNodeDetailConversation(detail) {
   const container = document.querySelector("[data-node-detail] [data-node-conversation]");
-  if (!container) return;
+  const toolContainer = document.querySelector("[data-node-detail] [data-node-tool-events]");
+  if (!container && !toolContainer) return;
   const messages = (detail?.conversation || []);
-  if (messages.length === 0) {
+  if (container && messages.length === 0) {
     container.innerHTML = '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
-    return;
+  } else if (container) {
+    container.innerHTML = messages.map(msg => {
+      const role = msg.role === "user" ? "user" : (msg.role === "assistant" ? "assistant" : "tool");
+      const body = msg.tool && msg.tool.name
+        ? `<span class="node-msg-tool">🛠 ${escapeHTML(msg.tool.name)}</span>${msg.content ? `<div>${escapeHTML(msg.content)}</div>` : ""}`
+        : `<div>${escapeHTML(msg.content || "")}</div>`;
+      return `<div class="node-msg is-${role}"><span class="node-msg-role">${role}</span>${body}</div>`;
+    }).join("");
   }
-  container.innerHTML = messages.map(msg => {
-    const role = msg.role === "user" ? "user" : (msg.role === "assistant" ? "assistant" : "tool");
-    const body = msg.tool && msg.tool.name
-      ? `<span class="node-msg-tool">🛠 ${escapeHTML(msg.tool.name)}</span>${msg.content ? `<div>${escapeHTML(msg.content)}</div>` : ""}`
-      : `<div>${escapeHTML(msg.content || "")}</div>`;
-    return `<div class="node-msg is-${role}"><span class="node-msg-role">${role}</span>${body}</div>`;
-  }).join("");
-  if (detail?.running) {
+  if (container && detail?.running) {
     container.insertAdjacentHTML("beforeend", '<div class="node-timeline-empty">执行中，每 2 秒刷新…</div>');
   }
+  if (toolContainer) {
+    const toolEvents = normalizeToolEvents(detail?.tool_events);
+    toolContainer.innerHTML = renderToolEvents(toolEvents) || '<div class="node-timeline-empty">暂无子代理工具活动</div>';
+    const count = document.querySelector("[data-node-detail] [data-node-tool-count]");
+    if (count) count.textContent = String(toolEvents.length);
+  }
+}
+
+function renderToolEvents(events) {
+  if (!events.length) return "";
+  return `<ol class="node-tool-list">${events.map(event => {
+    const evidence = event.error || event.result || event.arguments;
+    const evidenceKind = event.error ? "ERROR" : (event.result ? "RESULT" : "INPUT");
+    return `<li class="node-tool-event is-${statusToken(event.status)}" data-node-tool-id="${escapeHTML(event.id)}">
+      <div class="node-tool-head">
+        <span class="node-event-dot" aria-hidden="true">${escapeHTML(statusSymbol(event.status))}</span>
+        <strong>${escapeHTML(event.name)}</strong>
+        <span>${escapeHTML(statusLabel(event.status))}</span>
+        <time datetime="${escapeHTML(event.startedAt)}">${escapeHTML(formatEventTime(event.startedAt))}</time>
+        <small>${escapeHTML(formatDuration(event.duration))}</small>
+      </div>
+      ${evidence ? `<div class="node-tool-evidence"><span>${evidenceKind}</span><pre>${escapeHTML(evidence)}</pre></div>` : ""}
+    </li>`;
+  }).join("")}</ol>`;
+}
+
+function formatDuration(value) {
+  const nanoseconds = Number(value || 0);
+  if (!Number.isFinite(nanoseconds) || nanoseconds <= 0) return "";
+  const milliseconds = nanoseconds / 1e6;
+  if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
+  return `${(milliseconds / 1000).toFixed(2)}s`;
 }
 
 // bindNodeDetailTabs 切换详情弹窗标签（会话记录 / 事件时间线 / 输出）。

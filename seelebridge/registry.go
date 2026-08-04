@@ -19,10 +19,10 @@ type toolsRegistryState struct {
 	inline   *inlineToolProvider
 }
 
-func newToolsRegistry(timeout time.Duration, permission *permissionGateState, approvalTimeout time.Duration) *tools.Registry {
+func newToolsRegistry(timeout time.Duration, permission *permissionGateState, approvalTimeout time.Duration, eventMiddleware tools.Middleware) *tools.Registry {
 	return tools.NewRegistry(
 		tools.WithCallTimeout(timeout),
-		tools.WithMiddleware(permission.middleware(approvalTimeout)),
+		tools.WithMiddleware(eventMiddleware, permission.middleware(approvalTimeout)),
 	)
 }
 

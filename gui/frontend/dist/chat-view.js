@@ -1,10 +1,10 @@
 import { renderConversationModel } from "./components.js";
 
 export function createChatView(elements, conversationView) {
-  function renderConversation(messages, chat, scrollMode = "auto") {
+  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false) {
     const active = messages.length > 0 || chat.running || (chat.input_queue || []).length > 0;
     elements["empty-state"].classList.toggle("hidden", active);
-    conversationView.render(renderConversationModel(messages, chat), { scrollMode });
+    conversationView.render(renderConversationModel(messages, chat), { scrollMode, hasMoreHistory });
   }
 
   function renderControls(snapshot) {
@@ -23,7 +23,7 @@ export function createChatView(elements, conversationView) {
 
   return {
     render(snapshot, scrollMode) {
-      renderConversation(snapshot.conversation || [], snapshot.chat || {}, scrollMode);
+      renderConversation(snapshot.conversation || [], snapshot.chat || {}, scrollMode, snapshot.has_more_history);
       renderControls(snapshot);
     },
     renderConversation,

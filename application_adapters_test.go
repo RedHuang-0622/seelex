@@ -58,7 +58,7 @@ func TestEnginePortStartSessionCreatesAnIndependentReactor(t *testing.T) {
 	}
 	fresh := &fakeReactorEngine{sessionID: "session-new"}
 	factoryCalls := 0
-	port := newEnginePort(old, func() reactorEngine {
+	port := newEnginePort(old, func(string) reactorEngine {
 		factoryCalls++
 		return fresh
 	}, nil)
@@ -106,7 +106,11 @@ func TestEnginePortReplaceHistoryUsesFreshReactorAndCollapsesSystemMessages(t *t
 		{Role: "user", Content: &userInput},
 	}}
 	fresh := &fakeReactorEngine{sessionID: "engine-fresh"}
-	port := newEnginePort(old, func() reactorEngine { return fresh }, nil)
+	requestedSessionID := ""
+	port := newEnginePort(old, func(sessionID string) reactorEngine {
+		requestedSessionID = sessionID
+		return fresh
+	}, nil)
 	resume := "resume from checkpoint"
 	if err := port.replaceRawHistory("logical-session", []seelebridge.Message{
 		{Role: "system", Content: &oldPrompt},
@@ -121,13 +125,16 @@ func TestEnginePortReplaceHistoryUsesFreshReactorAndCollapsesSystemMessages(t *t
 	if got := port.SessionID(); got != "logical-session" {
 		t.Fatalf("logical session ID = %q", got)
 	}
+	if requestedSessionID != "logical-session" {
+		t.Fatalf("fresh reactor requested session ID = %q", requestedSessionID)
+	}
 }
 
 func TestEnginePortDefersCleanReactorUntilActiveCallReturns(t *testing.T) {
 	prompt, checkpoint := "product prompt", "checkpoint"
 	old := &fakeReactorEngine{sessionID: "engine-old"}
 	fresh := &fakeReactorEngine{sessionID: "engine-fresh"}
-	port := newEnginePort(old, func() reactorEngine { return fresh }, nil)
+	port := newEnginePort(old, func(string) reactorEngine { return fresh }, nil)
 	old.onChat = func() {
 		if err := port.replaceRawHistory("logical-session", []seelebridge.Message{
 			{Role: "system", Content: &prompt},

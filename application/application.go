@@ -62,6 +62,8 @@ type (
 	PlanNode               = model.PlanNode
 	NodeStatus             = model.NodeStatus
 	SubagentDetail         = model.SubagentDetail
+	SubagentEvent          = model.SubagentEvent
+	SubagentToolEvent      = model.SubagentToolEvent
 	Tool                   = model.Tool
 	SkillInfo              = model.SkillInfo
 	PluginInfo             = model.PluginInfo
@@ -86,32 +88,38 @@ type (
 )
 
 const (
-	ProtocolVersion        = model.ProtocolVersion
-	EventSnapshotChanged   = event.EventSnapshotChanged
-	EventMessageAdded      = event.EventMessageAdded
-	EventMessageDelta      = event.EventMessageDelta
-	EventToolStarted       = event.EventToolStarted
-	EventToolCompleted     = event.EventToolCompleted
-	EventRuntimeChanged    = event.EventRuntimeChanged
-	EventInteractionOpened = event.EventInteractionOpened
-	EventInteractionClosed = event.EventInteractionClosed
-	EventError             = event.EventError
-	EventResyncRequired    = event.EventResyncRequired
-	EventExitRequested     = event.EventExitRequested
-	PlanPending            = model.PlanPending
-	PlanRunning            = model.PlanRunning
-	PlanCompleted          = model.PlanCompleted
-	PlanFailed             = model.PlanFailed
-	PlanAborted            = model.PlanAborted
-	NodePending            = model.NodePending
-	NodeQueued             = model.NodeQueued
-	NodeRunning            = model.NodeRunning
-	NodeCompleted          = model.NodeCompleted
-	NodeFailed             = model.NodeFailed
-	NodeAborted            = model.NodeAborted
-	NodeSkipped            = model.NodeSkipped
-	NodeCanceled           = model.NodeCanceled
-	NodePanicked           = model.NodePanicked
+	ProtocolVersion            = model.ProtocolVersion
+	EventSnapshotChanged       = event.EventSnapshotChanged
+	EventMessageAdded          = event.EventMessageAdded
+	EventMessageDelta          = event.EventMessageDelta
+	EventToolStarted           = event.EventToolStarted
+	EventToolCompleted         = event.EventToolCompleted
+	EventSubagentChanged       = event.EventSubagentChanged
+	EventSubagentToolStarted   = event.EventSubagentToolStarted
+	EventSubagentToolCompleted = event.EventSubagentToolCompleted
+	EventRuntimeChanged        = event.EventRuntimeChanged
+	EventInteractionOpened     = event.EventInteractionOpened
+	EventInteractionClosed     = event.EventInteractionClosed
+	EventError                 = event.EventError
+	EventResyncRequired        = event.EventResyncRequired
+	EventExitRequested         = event.EventExitRequested
+	PlanPending                = model.PlanPending
+	PlanRunning                = model.PlanRunning
+	PlanCompleted              = model.PlanCompleted
+	PlanFailed                 = model.PlanFailed
+	PlanAborted                = model.PlanAborted
+	NodePending                = model.NodePending
+	NodeQueued                 = model.NodeQueued
+	NodeRunning                = model.NodeRunning
+	NodeWorktreeCreating       = model.NodeWorktreeCreating
+	NodeRebasing               = model.NodeRebasing
+	NodeMerging                = model.NodeMerging
+	NodeCompleted              = model.NodeCompleted
+	NodeFailed                 = model.NodeFailed
+	NodeAborted                = model.NodeAborted
+	NodeSkipped                = model.NodeSkipped
+	NodeCanceled               = model.NodeCanceled
+	NodePanicked               = model.NodePanicked
 )
 
 var (

@@ -74,8 +74,96 @@ func (service *viewCoordinator) appendMessageLocked(role, content string, tool *
 	}
 	service.messageSeq++
 	message := Message{ID: fmt.Sprintf("message-%d", service.messageSeq), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
+	visibleBefore := durableConversationCount(service.snapshot.Conversation)
 	service.snapshot.Conversation = append(service.snapshot.Conversation, message)
-	return &service.snapshot.Conversation[len(service.snapshot.Conversation)-1]
+	if role != "system" {
+		if service.snapshot.TotalMessages < visibleBefore {
+			service.snapshot.TotalMessages = visibleBefore
+		}
+		service.snapshot.TotalMessages++
+	}
+	service.boundConversationTailLocked()
+	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
+		if service.snapshot.Conversation[index].ID == message.ID {
+			return &service.snapshot.Conversation[index]
+		}
+	}
+	return &message
+}
+
+func (service *viewCoordinator) boundConversationTailLocked() {
+	window := Limits().HistoryWindow
+	if window <= 0 {
+		window = 1
+	}
+	service.snapshot.ConversationWindow = window
+	service.snapshot.Conversation = boundConversationTail(service.snapshot.Conversation, window)
+	visible := durableConversationCount(service.snapshot.Conversation)
+	service.snapshot.HistoryOffset = service.snapshot.TotalMessages - visible
+	if service.snapshot.HistoryOffset < 0 {
+		service.snapshot.HistoryOffset = 0
+	}
+	service.snapshot.HasMoreHistory = service.snapshot.HistoryOffset > 0
+}
+
+func durableConversationCount(messages []Message) int {
+	count := 0
+	for _, message := range messages {
+		if message.Role != "system" {
+			count++
+		}
+	}
+	return count
+}
+
+func boundConversationTail(messages []Message, window int) []Message {
+	if window <= 0 {
+		return nil
+	}
+	keep := make([]bool, len(messages))
+	nonSystem, system := 0, 0
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role == "system" {
+			if system < window {
+				keep[index] = true
+				system++
+			}
+			continue
+		}
+		if nonSystem < window {
+			keep[index] = true
+			nonSystem++
+		}
+	}
+	bounded := make([]Message, 0, nonSystem+system)
+	for index, message := range messages {
+		if keep[index] {
+			bounded = append(bounded, message)
+		}
+	}
+	return bounded
+}
+
+func boundConversationHead(messages []Message, window int) []Message {
+	if window <= 0 {
+		return nil
+	}
+	bounded := make([]Message, 0, min(len(messages), window*2))
+	nonSystem, system := 0, 0
+	for _, message := range messages {
+		if message.Role == "system" {
+			if system < window {
+				bounded = append(bounded, message)
+				system++
+			}
+			continue
+		}
+		if nonSystem < window {
+			bounded = append(bounded, message)
+			nonSystem++
+		}
+	}
+	return bounded
 }
 
 func (service *viewCoordinator) bumpLocked() uint64 {

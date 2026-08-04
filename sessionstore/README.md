@@ -56,6 +56,8 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
   （"now using X" = 栈顶）。Schema 版本校验失败显式拒绝加载（不静默重建），
   走会话恢复错误路径。
 
+主 Runtime 通过 `seelebridge.Runtime.AttachHistoryRouter` 独立装配 `DurableHistory`，不复用 `SessionContextStore` 的 application-owned state blob。恢复会话时 DurableHistory 与框架 Session 使用同一个 session ID；Application 成功提交完整 `SessionRecord` 后才释放 provider working history，下一轮再从 durable tail 冷加载。
+
 ## 配置与安全
 
 - JSON/SQLite 使用本地 path；PostgreSQL/Redis 使用 DSN。

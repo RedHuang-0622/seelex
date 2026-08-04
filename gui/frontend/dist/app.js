@@ -34,7 +34,8 @@ const elements = Object.fromEntries([
 
 const conversationView = createConversationView(elements.conversation, {
   copyText: value => navigator.clipboard.writeText(value),
-  notify: showToast
+  notify: showToast,
+  loadMore: loadOlderHistory
 });
 const chatView = createChatView(elements, conversationView);
 const client = createGUIClient({
@@ -93,7 +94,7 @@ function render(snapshot, options = {}) {
 function renderIncremental(snapshot, kind) {
   if (!snapshot) return;
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
-    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto");
+    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history);
     chatView.renderControls(snapshot);
     if (kind !== "message.delta") renderProject(snapshot);
     return;
@@ -105,6 +106,11 @@ function renderIncremental(snapshot, kind) {
     renderPlan(snapshot.runtime?.plan);
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
+    return;
+  }
+  if (["subagent.changed", "subagent.tool.started", "subagent.tool.completed"].includes(kind)) {
+    renderPlan(snapshot.runtime?.plan);
+    if (activeNodeDetailKey) refreshOpenNodeDetail();
     return;
   }
   if (kind === "interaction.opened" || kind === "interaction.closed") renderInteraction(snapshot.interaction);
@@ -274,17 +280,32 @@ function renderPlan(plan) {
 // 会话记录（invoke SubagentSessionDetail，运行中 2s 轮询）+ 事件时间线 +
 // 状态/耗时/输出。
 let nodeDetailPollTimer = null;
+let activeNodeDetailKey = "";
+let activeNodeDetailID = "";
 
 async function openNodeDetail(nodeKey) {
   const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === nodeKey);
   if (!node) return;
   const dsl = lastPlanDsl;
+  activeNodeDetailKey = nodeKey;
+  activeNodeDetailID = node.id;
   const rendered = renderNodeDetail({ ...node, mode: dsl.mode });
   elements["node-detail-content"].innerHTML = rendered;
   elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
   bindNodeDetailTabs(elements["node-detail-content"]);
   setModal("node-detail-modal", true);
   await refreshNodeDetail(node.id);
+}
+
+function refreshOpenNodeDetail() {
+  const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === activeNodeDetailKey);
+  if (!node) return;
+  const selectedTab = elements["node-detail-content"].querySelector("[data-node-tab].is-active")?.dataset.nodeTab || "conversation";
+  elements["node-detail-content"].innerHTML = renderNodeDetail({ ...node, mode: lastPlanDsl.mode });
+  bindNodeDetailTabs(elements["node-detail-content"]);
+  const selected = elements["node-detail-content"].querySelector(`[data-node-tab="${selectedTab}"]`);
+  selected?.click();
+  void refreshNodeDetail(activeNodeDetailID);
 }
 
 // refreshNodeDetail 拉取子代理详情（会话记录）并渲染；运行中每 2s 轮询。
@@ -309,6 +330,8 @@ function closeNodeDetail() {
     clearTimeout(nodeDetailPollTimer);
     nodeDetailPollTimer = null;
   }
+  activeNodeDetailKey = "";
+  activeNodeDetailID = "";
   setModal("node-detail-modal", false);
 }
 
@@ -537,10 +560,12 @@ elements["stop-button"].addEventListener("click", async () => {
   catch (error) { showToast(error); }
 });
 
-elements["load-history"].addEventListener("click", async () => {
+async function loadOlderHistory() {
   try { await invoke("LoadMoreHistory", 50); await refresh({ scroll: "anchor" }); }
   catch (error) { showToast(error); }
-});
+}
+
+elements["load-history"].addEventListener("click", loadOlderHistory);
 
 elements["new-session"].addEventListener("click", async () => {
   try { await invoke("BeginNewSession"); await refresh({ scroll: "bottom" }); }

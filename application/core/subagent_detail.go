@@ -29,15 +29,14 @@ func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDet
 	service.mu.RLock()
 	var status model.NodeStatus
 	var elapsed, output string
+	var toolEvents []model.SubagentToolEvent
 	plan := service.snapshot.Runtime.Plan
 	if plan != nil {
-		for i := range plan.Nodes {
-			if plan.Nodes[i].ID == nodeID {
-				status = plan.Nodes[i].Status
-				elapsed = plan.Nodes[i].Elapsed
-				output = plan.Nodes[i].Output
-				break
-			}
+		if node := findPlanNodeByID(plan.Nodes, nodeID); node != nil {
+			status = node.Status
+			elapsed = node.Elapsed
+			output = node.Output
+			toolEvents = append([]model.SubagentToolEvent(nil), node.ToolEvents...)
 		}
 	}
 	service.mu.RUnlock()
@@ -47,13 +46,23 @@ func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDet
 		return nil, fmt.Errorf("subagent detail: node %q has no conversation", nodeID)
 	}
 	detail := &model.SubagentDetail{
-		Running:      status == model.NodeRunning,
+		Running:      isRunningSubagentStatus(status),
 		Status:       status,
 		Elapsed:      elapsed,
 		Output:       output,
 		Conversation: adaptSubagentConversation(conversation),
+		ToolEvents:   toolEvents,
 	}
 	return detail, nil
+}
+
+func isRunningSubagentStatus(status model.NodeStatus) bool {
+	switch status {
+	case model.NodeRunning, model.NodeWorktreeCreating, model.NodeRebasing, model.NodeMerging:
+		return true
+	default:
+		return false
+	}
 }
 
 // adaptSubagentConversation 适配子代理会话记录：单条内容截断到

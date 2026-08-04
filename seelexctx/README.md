@@ -16,6 +16,7 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 | [`provider/`](provider/README.md) | 从会话（SessionSource/DurableHistory）或 telemetry 导出 Snapshot。 |
 | [`compactor/`](compactor/README.md) | 基于 token budget 的分级压缩。 |
 | [`merger/`](merger/README.md) | 子任务 findings/decisions/progress 合并回父上下文。 |
+| [`lifecycle/`](lifecycle/) | 泛型 Context actor 与有界批处理管道；提供 cold-load/windowed/pipelined 策略和关闭竞态测试。 |
 
 根包文件：
 
@@ -56,4 +57,5 @@ ContextComponents（Assembler/Processor/Compressor/Controller）-> session.Sessi
 
 ```text
 go test ./seelexctx/... -count=1
+go test -race ./seelexctx/lifecycle -count=1
 ```

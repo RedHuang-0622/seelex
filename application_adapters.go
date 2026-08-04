@@ -32,7 +32,9 @@ type enginePort struct {
 	sessionID      string
 	activeCalls    int
 	pendingHistory []seelebridge.Message
+	pendingSession string
 	sessionBacked  bool
+	releaseWorking bool
 	// nodeConversations 是子代理会话记录查询（节点详情数据面；Runtime 注入，
 	// 只读子代理 actor，安全——不经过主会话锁）。
 	nodeConversations func(string) ([]types.Message, bool)
@@ -51,7 +53,7 @@ type reactorEngine interface {
 	AppendHistory(types.Message)
 }
 
-type reactorEngineFactory func() reactorEngine
+type reactorEngineFactory func(sessionID string) reactorEngine
 
 func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory, tracer *telemetry.MemoryTracer) *enginePort {
 	port := &enginePort{engine: eng, newEngine: newEngine, tracer: tracer, sessionID: eng.SessionID()}
@@ -79,8 +81,9 @@ func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk fu
 	port.mu.Lock()
 	port.activeCalls--
 	if port.activeCalls == 0 && len(port.pendingHistory) > 0 {
-		port.installFreshHistoryLocked(port.pendingHistory)
+		port.installFreshHistoryLocked(port.pendingHistory, port.pendingSession)
 		port.pendingHistory = nil
+		port.pendingSession = ""
 	}
 	port.mu.Unlock()
 	return result, err
@@ -135,8 +138,9 @@ func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridg
 		// compaction or recovery.
 		port.replaceActiveHistoryLocked(desired)
 		port.pendingHistory = append([]seelebridge.Message(nil), desired...)
+		port.pendingSession = sessionID
 	} else {
-		port.installFreshHistoryLocked(desired)
+		port.installFreshHistoryLocked(desired, sessionID)
 	}
 	port.sessionID = sessionID
 	return nil
@@ -160,12 +164,12 @@ func (port *enginePort) replaceActiveHistoryLocked(history []seelebridge.Message
 	}
 }
 
-func (port *enginePort) installFreshHistoryLocked(history []seelebridge.Message) {
+func (port *enginePort) installFreshHistoryLocked(history []seelebridge.Message, sessionID string) {
 	if port.newEngine == nil {
 		port.replaceActiveHistoryLocked(history)
 		return
 	}
-	fresh := port.newEngine()
+	fresh := port.newEngine(sessionID)
 	if fresh == nil {
 		port.replaceActiveHistoryLocked(history)
 		return
@@ -196,13 +200,31 @@ func (port *enginePort) StartSession() string {
 	if port.newEngine == nil {
 		return ""
 	}
-	fresh := port.newEngine()
+	fresh := port.newEngine("")
 	if fresh == nil {
 		return ""
 	}
 	port.engine = fresh
 	port.sessionID = fresh.SessionID()
 	return port.sessionID
+}
+
+// EnableWorkingHistoryRelease marks this adapter as backed by DurableHistory.
+func (port *enginePort) EnableWorkingHistoryRelease() {
+	port.mu.Lock()
+	port.releaseWorking = true
+	port.mu.Unlock()
+}
+
+// ReleaseWorkingHistory clears only the provider working view. The next turn
+// cold-loads a bounded tail from the durable owner.
+func (port *enginePort) ReleaseWorkingHistory() {
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	if !port.releaseWorking || port.engine == nil || port.activeCalls > 0 {
+		return
+	}
+	port.engine.ClearHistory()
 }
 func (port *enginePort) SessionID() string {
 	port.mu.RLock()
@@ -586,6 +608,32 @@ func (port sessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (appl
 		return application.SessionRecord{}, err
 	}
 	return decodeSessionRecord(payload, id)
+}
+
+func (port sessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.Message, int, error) {
+	record, err := port.LoadSessionRecordWorkspace(workspaceID, id)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := len(record.Conversation.Messages)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if limit <= 0 || end > total {
+		end = total
+	}
+	messages := append([]application.Message(nil), record.Conversation.Messages[offset:end]...)
+	for index := range messages {
+		if messages[index].Tool != nil {
+			tool := *messages[index].Tool
+			messages[index].Tool = &tool
+		}
+	}
+	return messages, total, nil
 }
 
 func decodeSessionRecord(payload []byte, sessionID string) (application.SessionRecord, error) {

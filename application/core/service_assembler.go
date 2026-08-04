@@ -66,10 +66,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
 	service.idle = closedSignal()
 	service.snapshot = Snapshot{
-		ProtocolVersion: ProtocolVersion,
-		Session:         SessionState{ID: service.deps.Engine.SessionID()},
-		Runtime:         RuntimeState{Model: service.deps.Runtime.Model(), Effort: service.effortManager.Current()},
-		Capabilities:    Capabilities{SessionResume: true},
+		ProtocolVersion:    ProtocolVersion,
+		Session:            SessionState{ID: service.deps.Engine.SessionID()},
+		Runtime:            RuntimeState{Model: service.deps.Runtime.Model(), Effort: service.effortManager.Current()},
+		Capabilities:       Capabilities{SessionResume: true},
+		ConversationWindow: Limits().HistoryWindow,
 	}
 	service.components.tasks.importEngineHistoryAsTranscriptLocked(service.deps.Engine.History())
 	if err := service.registerBuiltinCommands(); err != nil {

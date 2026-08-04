@@ -11,17 +11,20 @@ import (
 type EventKind string
 
 const (
-	EventSnapshotChanged   EventKind = "snapshot.changed"
-	EventMessageAdded      EventKind = "message.added"
-	EventMessageDelta      EventKind = "message.delta"
-	EventToolStarted       EventKind = "tool.started"
-	EventToolCompleted     EventKind = "tool.completed"
-	EventRuntimeChanged    EventKind = "runtime.changed"
-	EventInteractionOpened EventKind = "interaction.opened"
-	EventInteractionClosed EventKind = "interaction.closed"
-	EventError             EventKind = "error"
-	EventResyncRequired    EventKind = "resync.required"
-	EventExitRequested     EventKind = "app.exit_requested"
+	EventSnapshotChanged       EventKind = "snapshot.changed"
+	EventMessageAdded          EventKind = "message.added"
+	EventMessageDelta          EventKind = "message.delta"
+	EventToolStarted           EventKind = "tool.started"
+	EventToolCompleted         EventKind = "tool.completed"
+	EventSubagentChanged       EventKind = "subagent.changed"
+	EventSubagentToolStarted   EventKind = "subagent.tool.started"
+	EventSubagentToolCompleted EventKind = "subagent.tool.completed"
+	EventRuntimeChanged        EventKind = "runtime.changed"
+	EventInteractionOpened     EventKind = "interaction.opened"
+	EventInteractionClosed     EventKind = "interaction.closed"
+	EventError                 EventKind = "error"
+	EventResyncRequired        EventKind = "resync.required"
+	EventExitRequested         EventKind = "app.exit_requested"
 )
 
 type Event struct {

@@ -28,9 +28,10 @@ type infrastructureState struct {
 }
 
 type conversationRuntimeState struct {
-	snapshot     Snapshot
-	messageSeq   uint64
-	streamOutput *visibleOutputStream
+	snapshot      Snapshot
+	messageSeq    uint64
+	streamOutput  *visibleOutputStream
+	streamBatcher *StreamBatcher
 }
 
 type lifecycleRuntimeState struct {

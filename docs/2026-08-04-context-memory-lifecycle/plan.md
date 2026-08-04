@@ -1,9 +1,9 @@
 # 上下文内存生命周期管理 — 设计文档与现状摸底
 
-> 状态：D（泛型模板 + mock 策略验证）已实施（2026-08-04，`seelexctx/lifecycle/`）；A/B/C 待实施。
+> 状态：A/B/C/D 已实施并接入实际应用（2026-08-04）：DurableHistory 冷加载、有界 Snapshot、流式批处理、前端变高窗口与泛型生命周期模板均已落地；Windows `go test -race` 已通过关键链路。
 > 目标：长上下文不再导致整体程序卡顿——内存中的上下文只存在于必要时刻（冷加载 + 按需加载），前端滑动窗口渲染，流式管道批量落库。
 > 用户原则（2026-08-04）：上下文是冷加载且只加载需要的地方；存在时刻 = ① 前端 select（读）② 后端写操作 ③ 后端 select 出结果递给 LLM 的那一下；其他时候内存中不得存在。
-> 工作顺序：先做泛型模板 + mock 策略验证（D，已实施），再实施 A/B/C。
+> 工作顺序：D 泛型模板先行，随后完成 A DurableHistory/Snapshot、C 流式管道和 B 前端窗口；实施结果见 §8。
 
 ## 1. 现状摸底（代码证据）
 
@@ -154,3 +154,12 @@ onChunk ──► 有界缓冲管道（聚合 N chunk 或 X ms）
 - 长会话（500+ 轮）GUI 冒烟：无卡顿（帧率稳定），滚动历史可用；
 - 流式：10k chunks 落库批量 ≤ 100 次写入，渲染帧率 ≥ 30fps；
 - `go build/vet/test ./...` 全绿。
+
+## 8. 2026-08-04 实施结果
+
+- 主 Session 通过独立 `AttachHistoryRouter` 装配 `DurableHistory`，恢复时框架 Session ID 与 Application session key 一致；Application 持久化成功后才释放 provider working history，失败时保留现场。
+- `Snapshot.Conversation` 仅保留 `conversation_window`，并同步 `history_offset`、`total_messages`、`has_more_history`；写回 `SessionRecord` 前按稳定 message ID 与完整持久记录合并，不会用尾部窗口覆盖旧历史。
+- 流式输出通过 `BatchPipeline` 按条数或时间聚合，一个批次只发布一个 `message.delta`；工具/Interaction 事件前强制 flush，保持可观察顺序。
+- `ContextActor` 和 `BatchPipeline` 使用关闭生命周期门，已接收请求在关闭前排空；Pipeline 以自身 committed 计数确认 flush，不依赖存储原有条数。
+- 前端 reducer 按 `conversation_window` 约束增量消息；DOM 使用变高 keyed reconciliation 与顶部 sentinel 加载旧页，不使用固定行高虚拟列表。
+- 验证：`go build ./...`、GUI production-tag build、`go vet ./...`、`go test ./...`、54 个 Node tests，以及 Windows `go test -race ./seelexctx/lifecycle ./application/core ./seelebridge ./gui` 全部通过。

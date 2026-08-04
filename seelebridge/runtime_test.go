@@ -14,6 +14,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 func TestRuntimeAccountsToolsAndPlugins(t *testing.T) {
@@ -53,6 +54,26 @@ func TestRuntimeAccountsToolsAndPlugins(t *testing.T) {
 	runtime.UndefinePlugin("cad")
 	if runtime.ActivePlugin() != "" {
 		t.Fatal("plugin was not deactivated")
+	}
+}
+
+func TestRuntimeNewMainSessionWithIDKeepsDurableResumeIdentity(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	root := t.TempDir()
+	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer router.Close()
+	runtime.AttachHistoryRouter(router)
+
+	session, err := runtime.NewMainSessionWithID("resume-session-42", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.SessionID() != "resume-session-42" {
+		t.Fatalf("framework session ID = %q, want durable resume key", session.SessionID())
 	}
 }
 

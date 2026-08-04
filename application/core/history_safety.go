@@ -134,7 +134,7 @@ replayed safely.
 // provider rejects the request before executing it for context length. This
 // is intentionally restricted to context exhaustion: timeouts and server
 // failures can leave tool side effects uncertain and must not be replayed.
-func (service *Service) retryContextRecovery(ctx context.Context, requestID string) error {
+func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error {
 	service.mu.Lock()
 	state := service.taskExecution
 	if state == nil || state.requestID != requestID {
@@ -152,9 +152,7 @@ func (service *Service) retryContextRecovery(ctx context.Context, requestID stri
 	if prepareErr != nil {
 		return prepareErr
 	}
-	_, err := service.deps.Engine.ChatStream(ctx, recoveryInput, func(chunk string) {
-		service.appendDelta(requestID, chunk)
-	})
+	_, err := service.deps.Engine.ChatStream(ctx, recoveryInput, onChunk)
 	if contextErr := service.components.context.takeContextControlFailure(requestID); contextErr != nil {
 		return contextErr
 	}

@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,19 +23,22 @@ func fmtError(message string) error { return errors.New(message) }
 // 背压语义：缓冲满时 Push 不阻塞（返回 ErrPipelineFull 计数），数据由
 // 调用方决定重试/聚合——流式上下文不可丢失，调用方应聚合重试。
 type BatchPipeline[T any] struct {
-	store   Storage[T]
-	items   chan T // 有界投递通道（缓冲上限 = 聚合窗口）
-	flush   chan chan struct{} // 显式 flush 请求（Close 收尾；应答确认）
-	closeCh chan struct{}
-	done    chan struct{}
+	store Storage[T]
+	items chan T // 有界投递通道（缓冲上限 = 聚合窗口）
+	done  chan struct{}
+	flush chan chan error
 
 	flushSize int
 	interval  time.Duration
 	closeOnce sync.Once
+	gate      sync.RWMutex // Push 与 close(items) 的生命周期门
+	closed    bool
+	closeErr  error
 
 	// 统计（原子，跨 goroutine 审计）。
 	flushes   atomic.Int64 // 落库次数
 	chunks    atomic.Int64 // 接收 chunk 总数
+	committed atomic.Int64 // 本管道成功落库的 chunk 总数
 	syncFlush atomic.Int64 // 背压同步 flush 次数
 }
 
@@ -69,9 +73,8 @@ func NewBatchPipeline[T any](store Storage[T], options PipelineOptions) *BatchPi
 	pipe := &BatchPipeline[T]{
 		store:     store,
 		items:     make(chan T, bufferSize),
-		flush:     make(chan chan struct{}),
-		closeCh:   make(chan struct{}),
 		done:      make(chan struct{}),
+		flush:     make(chan chan error),
 		flushSize: flushSize,
 		interval:  interval,
 	}
@@ -87,69 +90,71 @@ func (p *BatchPipeline[T]) run() {
 	buffer := make([]T, 0, p.flushSize)
 	for {
 		select {
-		case <-p.closeCh:
-			// 关闭协议：closeCh 已先关（无新 Push）→ 排空已投递 items
-			// 再 flush（保证零丢失收尾）。
-			p.drainItems(&buffer)
-			p.flushBuffer(&buffer)
-			return
 		case <-ticker.C:
-			p.flushBuffer(&buffer)
+			_ = p.flushBuffer(&buffer)
+		case reply := <-p.flush:
+			reply <- p.flushBuffer(&buffer)
 		case item, ok := <-p.items:
 			if !ok {
-				p.flushBuffer(&buffer)
+				p.closeErr = p.flushBuffer(&buffer)
 				return
 			}
 			buffer = append(buffer, item)
 			if len(buffer) >= p.flushSize {
-				p.flushBuffer(&buffer)
+				_ = p.flushBuffer(&buffer)
 			}
-		case ack := <-p.flush:
-			// 显式 flush 请求：排空已投递 items 后 flush（Close 确认语义）。
-			p.drainItems(&buffer)
-			p.flushBuffer(&buffer)
-			close(ack)
-		}
-	}
-}
-
-// drainItems 排空 items channel 中已投递的条目到缓冲（run goroutine 内；
-// closeCh 已关时无新 Push，排空即完整）。
-func (p *BatchPipeline[T]) drainItems(buffer *[]T) {
-	for {
-		select {
-		case item := <-p.items:
-			*buffer = append(*buffer, item)
-			if len(*buffer) >= p.flushSize {
-				p.flushBuffer(buffer)
-			}
-		default:
-			return
 		}
 	}
 }
 
 // flushBuffer 批量落库（run goroutine 内；buffer 状态私有，无锁）。
-func (p *BatchPipeline[T]) flushBuffer(buffer *[]T) {
+// Flush persists every item accepted before the call returns while keeping
+// the pipeline open for subsequent chunks.
+func (p *BatchPipeline[T]) Flush() error {
+	p.gate.RLock()
+	defer p.gate.RUnlock()
+	if p.closed {
+		return ErrPipelineClosed
+	}
+	target := p.chunks.Load()
+	for {
+		reply := make(chan error, 1)
+		p.flush <- reply
+		if err := <-reply; err != nil {
+			return err
+		}
+		if p.committed.Load() >= target {
+			return nil
+		}
+		runtime.Gosched()
+	}
+}
+
+func (p *BatchPipeline[T]) flushBuffer(buffer *[]T) error {
 	if len(*buffer) == 0 {
-		return
+		return nil
 	}
 	batch := *buffer
 	*buffer = make([]T, 0, p.flushSize)
 	if err := p.store.Append(context.Background(), batch); err != nil {
 		// 落库失败：数据回灌缓冲（不丢）——下次 flush 重试。
 		*buffer = append(batch, *buffer...)
-		return
+		return err
 	}
 	p.flushes.Add(1)
+	p.committed.Add(int64(len(batch)))
+	return nil
 }
 
 // Push 写入一个 chunk（流式 onChunk 调用面；并发安全——channel 投递）。
 // 缓冲满时返回 ErrPipelineFull（调用方聚合重试，不阻塞流）。
 func (p *BatchPipeline[T]) Push(item T) error {
-	select {
-	case <-p.closeCh:
+	p.gate.RLock()
+	defer p.gate.RUnlock()
+	if p.closed {
 		return ErrPipelineClosed
+	}
+	select {
 	case p.items <- item:
 		p.chunks.Add(1) // 投递成功才计数（背压重试的失败调用不计）
 		return nil
@@ -164,16 +169,13 @@ func (p *BatchPipeline[T]) Push(item T) error {
 // （run 排空已投递 items + flush，确认后返回）③ 等 run 退出。
 func (p *BatchPipeline[T]) Close() error {
 	p.closeOnce.Do(func() {
-		close(p.closeCh)
-		ack := make(chan struct{})
-		select {
-		case p.flush <- ack:
-			<-ack
-		case <-p.done:
-		}
+		p.gate.Lock()
+		p.closed = true
+		close(p.items)
+		p.gate.Unlock()
 		<-p.done
 	})
-	return nil
+	return p.closeErr
 }
 
 // ErrPipelineFull 是背压信号：缓冲已满，chunk 未被接收（调用方聚合重试）。

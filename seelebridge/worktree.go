@@ -126,6 +126,7 @@ func (r *Runtime) beginNodeWorktree(scope NodeScope, nodeID string) *nodeWorktre
 // 返回错误时节点 failed 且 worktree 保留现场。
 func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *nodeWorktree) error {
 	root := r.projectScope.Root()
+	r.appendNodePhase(ctx, nodeID, "rebasing")
 	// 1) 变基兜底：子代理未 rebase 且分支落后主分支 → 框架执行（冲突 → 报错保留）。
 	behind, err := branchBehindBase(wt)
 	if err != nil {
@@ -153,6 +154,7 @@ func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *nod
 		return err // 拒绝：节点 failed，现场保留
 	}
 	// 4) merge 回主工作区 + 清理。
+	r.appendNodePhase(ctx, nodeID, "merging")
 	if out, mergeErr := gitRunner(root, "merge", "--no-edit", wt.Branch); mergeErr != nil {
 		return fmt.Errorf("worktree %q: merge %s into %s failed (conflicts preserved):\n%s", nodeID, wt.Branch, wt.MainBranch, out)
 	}

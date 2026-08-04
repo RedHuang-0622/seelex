@@ -11,23 +11,24 @@ import (
 const ProtocolVersion = 1
 
 type Snapshot struct {
-	ProtocolVersion   int               `json:"protocol_version"`
-	Revision          uint64            `json:"revision"`
-	Session           SessionState      `json:"session"`
-	Sessions          []SessionInfo     `json:"sessions"`
-	Conversation      []Message         `json:"conversation"`
-	Chat              ChatState         `json:"chat"`
-	Task              *TaskState        `json:"task,omitempty"`
-	Runtime           RuntimeState      `json:"runtime"`
-	Interaction       *Interaction      `json:"interaction,omitempty"`
-	Capabilities      Capabilities      `json:"capabilities"`
-	HistoryOffset     int               `json:"history_offset"`
-	TotalMessages     int               `json:"total_messages"`
-	HasMoreHistory    bool              `json:"has_more_history"`
-	ReadFiles         []ReadFileRef     `json:"read_files,omitempty"`
-	Workspaces        []WorkspaceInfo   `json:"workspaces,omitempty"`
-	CurrentWorkspace  *WorkspaceInfo    `json:"current_workspace,omitempty"`
-	SessionWorkspaces map[string]string `json:"session_workspaces,omitempty"`
+	ProtocolVersion    int               `json:"protocol_version"`
+	Revision           uint64            `json:"revision"`
+	Session            SessionState      `json:"session"`
+	Sessions           []SessionInfo     `json:"sessions"`
+	Conversation       []Message         `json:"conversation"`
+	Chat               ChatState         `json:"chat"`
+	Task               *TaskState        `json:"task,omitempty"`
+	Runtime            RuntimeState      `json:"runtime"`
+	Interaction        *Interaction      `json:"interaction,omitempty"`
+	Capabilities       Capabilities      `json:"capabilities"`
+	HistoryOffset      int               `json:"history_offset"`
+	TotalMessages      int               `json:"total_messages"`
+	HasMoreHistory     bool              `json:"has_more_history"`
+	ConversationWindow int               `json:"conversation_window"`
+	ReadFiles          []ReadFileRef     `json:"read_files,omitempty"`
+	Workspaces         []WorkspaceInfo   `json:"workspaces,omitempty"`
+	CurrentWorkspace   *WorkspaceInfo    `json:"current_workspace,omitempty"`
+	SessionWorkspaces  map[string]string `json:"session_workspaces,omitempty"`
 }
 
 // TaskState is the user-visible, evidence-oriented outcome of the latest
@@ -225,15 +226,16 @@ const (
 )
 
 type PlanNode struct {
-	ID       string              `json:"id"`
-	Label    string              `json:"label"`
-	Kind     string              `json:"kind"`
-	Status   NodeStatus          `json:"status"`
-	Depth    int                 `json:"depth,omitempty"`  // 缩进层级（0 = 根）
-	Output   string              `json:"output,omitempty"` // 节点输出内容
-	Elapsed  string              `json:"elapsed,omitempty"`
-	Events   []PlanNodeEventInfo `json:"events,omitempty"`   // 节点事件时间线（详情页）
-	Children []PlanNode          `json:"children,omitempty"` // Fork 子节点
+	ID         string              `json:"id"`
+	Label      string              `json:"label"`
+	Kind       string              `json:"kind"`
+	Status     NodeStatus          `json:"status"`
+	Depth      int                 `json:"depth,omitempty"`  // 缩进层级（0 = 根）
+	Output     string              `json:"output,omitempty"` // 节点输出内容
+	Elapsed    string              `json:"elapsed,omitempty"`
+	Events     []PlanNodeEventInfo `json:"events,omitempty"`      // 节点事件时间线（详情页）
+	ToolEvents []SubagentToolEvent `json:"tool_events,omitempty"` // 子代理工具活动（有界）
+	Children   []PlanNode          `json:"children,omitempty"`    // Fork 子节点
 }
 
 // PlanNodeEventInfo 是节点事件时间线的一条记录（子代理详情页数据源）：
@@ -247,25 +249,53 @@ type PlanNodeEventInfo struct {
 // SubagentDetail 是子代理详情弹窗的数据载荷（会话记录 + 状态/耗时/输出）。
 // Conversation 经应用层适配截断（单条 ≤ evidence_chars、总 ≤ 50 条）。
 type SubagentDetail struct {
-	Conversation []Message  `json:"conversation,omitempty"`
-	Running      bool       `json:"running"`
-	Status       NodeStatus `json:"status"`
-	Elapsed      string     `json:"elapsed,omitempty"`
-	Output       string     `json:"output,omitempty"`
+	Conversation []Message           `json:"conversation,omitempty"`
+	ToolEvents   []SubagentToolEvent `json:"tool_events,omitempty"`
+	Running      bool                `json:"running"`
+	Status       NodeStatus          `json:"status"`
+	Elapsed      string              `json:"elapsed,omitempty"`
+	Output       string              `json:"output,omitempty"`
+}
+
+// SubagentEvent 是节点生命周期的前端增量载荷。Node 是权威 Snapshot
+// 中该节点的完整有界投影；PlanStatus/Progress 让 reducer 无需整份重载。
+type SubagentEvent struct {
+	PlanID     string     `json:"plan_id,omitempty"`
+	RunID      string     `json:"run_id,omitempty"`
+	NodeID     string     `json:"node_id"`
+	Node       PlanNode   `json:"node"`
+	PlanStatus PlanStatus `json:"plan_status"`
+	Progress   float64    `json:"progress"`
+}
+
+// SubagentToolEvent 是子代理内部工具调用的有界活动投影。
+type SubagentToolEvent struct {
+	ID        string        `json:"id"`
+	NodeID    string        `json:"node_id"`
+	Name      string        `json:"name"`
+	Arguments string        `json:"arguments,omitempty"`
+	Result    string        `json:"result,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	Status    string        `json:"status"`
+	StartedAt time.Time     `json:"started_at,omitempty"`
+	Duration  time.Duration `json:"duration,omitempty"`
 }
 
 type NodeStatus string
 
 const (
-	NodePending   NodeStatus = "pending"
-	NodeQueued    NodeStatus = "queued"
-	NodeRunning   NodeStatus = "running"
-	NodeCompleted NodeStatus = "completed"
-	NodeFailed    NodeStatus = "failed"
-	NodeAborted   NodeStatus = "aborted"
-	NodeSkipped   NodeStatus = "skipped"
-	NodeCanceled  NodeStatus = "canceled"
-	NodePanicked  NodeStatus = "panicked"
+	NodePending          NodeStatus = "pending"
+	NodeQueued           NodeStatus = "queued"
+	NodeRunning          NodeStatus = "running"
+	NodeWorktreeCreating NodeStatus = "worktree_creating"
+	NodeRebasing         NodeStatus = "rebasing"
+	NodeMerging          NodeStatus = "merging"
+	NodeCompleted        NodeStatus = "completed"
+	NodeFailed           NodeStatus = "failed"
+	NodeAborted          NodeStatus = "aborted"
+	NodeSkipped          NodeStatus = "skipped"
+	NodeCanceled         NodeStatus = "canceled"
+	NodePanicked         NodeStatus = "panicked"
 )
 
 type Tool struct {
@@ -391,6 +421,9 @@ func clonePlanNodes(nodes []PlanNode) []PlanNode {
 		cloned[index].Children = clonePlanNodes(nodes[index].Children)
 		if nodes[index].Events != nil {
 			cloned[index].Events = append([]PlanNodeEventInfo(nil), nodes[index].Events...)
+		}
+		if nodes[index].ToolEvents != nil {
+			cloned[index].ToolEvents = append([]SubagentToolEvent(nil), nodes[index].ToolEvents...)
 		}
 	}
 	return cloned

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -165,9 +166,12 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.snapshot.ReadFiles = nil
 	service.snapshot.Task = nil
 	service.snapshot.Interaction = nil
+	if hasRecord {
+		service.advanceMessageSeqLocked(record.Conversation.Messages)
+	}
 	service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
 	if hasRecord {
-		service.snapshot.Conversation = append(service.snapshot.Conversation, recordConversation(record)...)
+		service.snapshot.Conversation = append(service.snapshot.Conversation, recordConversationTail(record, Limits().HistoryWindow)...)
 		service.snapshot.Runtime.Plan = activePlanFromStack(record.PlanStack, record.ActivePlanID)
 		service.snapshot.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
 		if record.Execution.Task != nil {
@@ -185,6 +189,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.snapshot.HistoryOffset = offset
 	service.snapshot.TotalMessages = total
 	service.snapshot.HasMoreHistory = offset > 0
+	service.snapshot.ConversationWindow = Limits().HistoryWindow
 	if service.deps.Workspace != nil {
 		service.snapshot.CurrentWorkspace = currentWorkspace
 		service.refreshWorkspaceLocked()
@@ -273,32 +278,59 @@ func (service *Service) LoadMoreHistory(limit int) error {
 		workspaceID = service.snapshot.CurrentWorkspace.ID
 	}
 	service.mu.RUnlock()
-	history, total, err := service.components.sessions.loadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
-	if err != nil {
-		return fmt.Errorf("load history range: %w", err)
-	}
-
-	adapted := make([]Message, 0, len(history))
-	for _, msg := range history {
-		if !isVisibleHistoryMessage(msg) {
-			continue
+	var adapted []Message
+	total := 0
+	if store, ok := service.deps.Sessions.(sessionConversationRangePort); ok {
+		messages, count, err := store.LoadConversationRangeWorkspace(workspaceID, sessionID, loadOffset, loadLimit)
+		if err != nil {
+			return fmt.Errorf("load conversation range: %w", err)
 		}
-		adapted = append(adapted, adaptEngineMessage(msg))
+		adapted = recordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}})
+		total = count
+	} else {
+		history, count, err := service.components.sessions.loadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
+		if err != nil {
+			return fmt.Errorf("load history range: %w", err)
+		}
+		total = count
+		adapted = make([]Message, 0, len(history))
+		for _, msg := range history {
+			if !isVisibleHistoryMessage(msg) {
+				continue
+			}
+			adapted = append(adapted, adaptEngineMessage(msg))
+		}
 	}
 
 	service.mu.Lock()
 	for index := range adapted {
-		service.messageSeq++
-		adapted[index].ID = fmt.Sprintf("message-%d", service.messageSeq)
+		if adapted[index].ID == "" {
+			service.messageSeq++
+			adapted[index].ID = fmt.Sprintf("message-%d", service.messageSeq)
+		}
 	}
 	service.snapshot.Conversation = append(adapted, service.snapshot.Conversation...)
+	service.snapshot.Conversation = boundConversationHead(service.snapshot.Conversation, Limits().HistoryWindow)
 	service.snapshot.HistoryOffset = loadOffset
 	service.snapshot.TotalMessages = total
 	service.snapshot.HasMoreHistory = loadOffset > 0
+	service.snapshot.ConversationWindow = Limits().HistoryWindow
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
+}
+
+func (service *Service) advanceMessageSeqLocked(messages []Message) {
+	for _, message := range messages {
+		if !strings.HasPrefix(message.ID, "message-") {
+			continue
+		}
+		sequence, err := strconv.ParseUint(strings.TrimPrefix(message.ID, "message-"), 10, 64)
+		if err == nil && sequence > service.messageSeq {
+			service.messageSeq = sequence
+		}
+	}
 }
 
 func adaptEngineMessage(msg EngineMessage) Message {

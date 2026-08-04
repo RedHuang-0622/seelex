@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -219,6 +220,137 @@ func TestActorCancelAfterClose(t *testing.T) {
 	actor.Close()
 	if err := actor.Append([]string{"x"}); err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("append after close must error, got %v", err)
+	}
+}
+
+func TestActorSnapshotAfterCloseReturnsFinalState(t *testing.T) {
+	actor := NewContextActor[string](PolicyFullRetain, nil, Options{})
+	if err := actor.Append([]string{"one", "two"}); err != nil {
+		t.Fatal(err)
+	}
+	actor.Close()
+	items, total := actor.Snapshot()
+	if total != 2 || len(items) != 2 {
+		t.Fatalf("snapshot after close = %v total=%d, want two retained items", items, total)
+	}
+}
+
+func TestPipelineFlushTracksOnlyPipelineCommits(t *testing.T) {
+	store := newMemoryStorage[int]()
+	seed := make([]int, 2000)
+	if err := store.Append(context.Background(), seed); err != nil {
+		t.Fatal(err)
+	}
+	pipe := NewBatchPipeline[int](store, PipelineOptions{
+		FlushSize:  2001,
+		BufferSize: 1000,
+		Interval:   time.Hour,
+	})
+	defer pipe.Close()
+	for index := 0; index < 1000; index++ {
+		if err := pipe.Push(index); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pipe.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Count(); got != 3000 {
+		t.Fatalf("store count after flush = %d, want seeded 2000 + pipeline 1000", got)
+	}
+}
+
+// TestActorConcurrentUseAndClose verifies that every request accepted before
+// Close is drained, while callers racing with Close return instead of waiting
+// forever on a reply that can no longer be produced.
+func TestActorConcurrentUseAndClose(t *testing.T) {
+	store := newMemoryStorage[int]()
+	actor := NewContextActor[int](PolicyColdLoad, store, Options{MailboxSize: 64})
+
+	const workers = 32
+	start := make(chan struct{})
+	var accepted atomic.Int64
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func(value int) {
+			defer wg.Done()
+			<-start
+			for attempt := 0; attempt < 200; attempt++ {
+				err := actor.Append([]int{value})
+				switch err {
+				case nil:
+					accepted.Add(1)
+				case ErrMailboxFull:
+					runtime.Gosched()
+				default:
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				_, _, loadErr := actor.LoadWindow(ctx, 0, 1)
+				cancel()
+				if loadErr != nil && !strings.Contains(loadErr.Error(), "closed") {
+					t.Errorf("load window: %v", loadErr)
+					return
+				}
+			}
+		}(worker)
+	}
+	close(start)
+	time.Sleep(time.Millisecond)
+	actor.Close()
+	wg.Wait()
+
+	if got, want := store.Count(), int(accepted.Load()); got != want {
+		t.Fatalf("stored accepted appends = %d, want %d", got, want)
+	}
+}
+
+// TestPipelineConcurrentPushAndClose verifies the Push/Close lifecycle gate:
+// a successful Push is an ownership transfer and must be flushed exactly once.
+func TestPipelineConcurrentPushAndClose(t *testing.T) {
+	store := newMemoryStorage[int]()
+	pipe := NewBatchPipeline[int](store, PipelineOptions{
+		FlushSize:  8,
+		BufferSize: 16,
+		Interval:   time.Hour,
+	})
+
+	const workers = 64
+	start := make(chan struct{})
+	var accepted atomic.Int64
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func(value int) {
+			defer wg.Done()
+			<-start
+			for {
+				err := pipe.Push(value)
+				switch err {
+				case nil:
+					accepted.Add(1)
+					return
+				case ErrPipelineFull:
+					runtime.Gosched()
+				case ErrPipelineClosed:
+					return
+				default:
+					t.Errorf("push: %v", err)
+					return
+				}
+			}
+		}(worker)
+	}
+	close(start)
+	time.Sleep(time.Millisecond)
+	if err := pipe.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+
+	if got, want := store.Count(), int(accepted.Load()); got != want {
+		t.Fatalf("stored accepted pushes = %d, want %d", got, want)
 	}
 }
 

@@ -111,6 +111,54 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	}
 }
 
+func TestBoundConversationTailKeepsOnlyConfiguredVariableHeightWindow(t *testing.T) {
+	messages := []Message{
+		{ID: "system-1", Role: "system"},
+		{ID: "message-1", Role: "user"},
+		{ID: "message-2", Role: "assistant"},
+		{ID: "system-2", Role: "system"},
+		{ID: "message-3", Role: "assistant"},
+	}
+	bounded := boundConversationTail(messages, 2)
+	got := make([]string, 0, len(bounded))
+	for _, message := range bounded {
+		got = append(got, message.ID)
+	}
+	want := []string{"system-1", "message-2", "system-2", "message-3"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("bounded conversation IDs = %v, want %v", got, want)
+	}
+}
+
+func TestPersistSessionRecordMergesBoundedProjectionWithFullHistory(t *testing.T) {
+	sessions := &archiveSessions{record: SessionRecord{
+		Version: sessionRecordVersion,
+		ID:      "session-window",
+		Conversation: ConversationRecord{Messages: []Message{
+			{ID: "message-1", Role: "user", Content: "old question"},
+			{ID: "message-2", Role: "assistant", Content: "stale answer"},
+		}},
+	}}
+	service := newTestService(&fakeEngine{sessionID: "session-window"})
+	defer service.Shutdown()
+	service.deps.Sessions = sessions
+	service.mu.Lock()
+	service.snapshot.Session = SessionState{ID: "session-window"}
+	service.snapshot.Conversation = []Message{
+		{ID: "message-2", Role: "assistant", Content: "updated answer"},
+		{ID: "message-3", Role: "user", Content: "new question"},
+	}
+	service.mu.Unlock()
+
+	if err := service.components.sessions.persistCurrentSession("session-window"); err != nil {
+		t.Fatal(err)
+	}
+	got := sessions.record.Conversation.Messages
+	if len(got) != 3 || got[0].ID != "message-1" || got[1].Content != "updated answer" || got[2].ID != "message-3" {
+		t.Fatalf("merged durable conversation = %#v", got)
+	}
+}
+
 func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 	service := newTestService(&fakeEngine{sessionID: "session-large"})
 	defer service.Shutdown()

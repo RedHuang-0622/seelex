@@ -1,116 +1,78 @@
 package core
 
 import (
+	"context"
 	"runtime"
-	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/seelexctx/lifecycle"
 )
 
-// ── 基建-C：流式批次渲染骨架（docs/2026-08-04-context-memory-lifecycle/plan.md §2.3）──
-// StreamBatcher 把流式 onChunk 接入 BatchPipeline 的接缝：
-//   - 批量落库：chunk 经管道聚合（累计 N 条/间隔 X ms）落库（冷存储面）；
-//   - 节流渲染：chunk 聚合为渲染批次，每批次只调用一次 render（替代
-//     逐 chunk 事件——渲染频率 O(chunks/batchSize)）；
-//   - 背压：管道满返回 ErrPipelineFull → 聚合到当前渲染批次重投（不丢）。
-//
-// 生产接线（后续切片）：chat.go appendDelta 的 onChunk 改走 StreamBatcher，
-// render 回调 = 前端增量事件（批量 Publish），落库 = RouterStorage。
-
-// StreamBatcher 是流式输出管道的批次骨架（并发安全：Push 可多 goroutine）。
+// StreamBatcher serializes chunk delivery through BatchPipeline. The storage
+// adapter renders each flushed batch and optionally mirrors it to a test or
+// audit store; production does not retain raw chunks.
 type StreamBatcher struct {
-	pipe      *lifecycle.BatchPipeline[string]
-	render    func(batch []string) // 每渲染批次调用一次（节流）
-	batchSize int                  // 渲染批次目标大小（重置时保持）
-
-	mu          sync.Mutex
-	pending     []string // 当前渲染批次（背压重投聚合）
-	renderCalls atomic.Int64 // 渲染调用次数（emit 跨 goroutine 原子）
-	batches     int
+	pipe  *lifecycle.BatchPipeline[string]
+	store *streamBatchStorage
 }
 
-// StreamBatcherOptions 是构造参数（0 字段 = 默认）。
 type StreamBatcherOptions struct {
-	// FlushSize 落库聚合条数（透传 BatchPipeline；默认 64）。
-	FlushSize int
-	// BatchSize 渲染批次大小（默认 32；render 调用频率 = chunks/BatchSize）。
+	FlushSize  int
+	Interval   time.Duration
+	BufferSize int
+	// BatchSize remains a compatibility alias for FlushSize.
 	BatchSize int
-	// Store 冷存储（nil = 内存 mock；生产注入 RouterStorage）。
-	Store lifecycle.Storage[string]
+	Store     lifecycle.Storage[string]
 }
 
-// NewStreamBatcher 构造流式批次骨架（启动管道）。
 func NewStreamBatcher(render func([]string), options StreamBatcherOptions) *StreamBatcher {
-	batchSize := options.BatchSize
-	if batchSize <= 0 {
-		batchSize = 32
+	flushSize := options.FlushSize
+	if flushSize <= 0 {
+		flushSize = options.BatchSize
 	}
-	pipe := lifecycle.NewBatchPipeline[string](options.Store, lifecycle.PipelineOptions{
-		FlushSize: options.FlushSize,
-	})
+	store := &streamBatchStorage{render: render, mirror: options.Store}
 	return &StreamBatcher{
-		pipe:      pipe,
-		render:    render,
-		batchSize: batchSize,
-		pending:   make([]string, 0, batchSize),
+		store: store,
+		pipe: lifecycle.NewBatchPipeline[string](store, lifecycle.PipelineOptions{
+			FlushSize:  flushSize,
+			Interval:   options.Interval,
+			BufferSize: options.BufferSize,
+		}),
 	}
 }
 
-// OnChunk 流式入口（chat.go onChunk 接缝）：chunk 聚合为渲染批次；
-// 背压（管道满）时合并到当前批次重投（不丢数据）。
 func (b *StreamBatcher) OnChunk(chunk string) {
-	b.mu.Lock()
-	b.pending = append(b.pending, chunk)
-	if len(b.pending) < b.batchSize {
-		b.mu.Unlock()
+	if b == nil || chunk == "" {
 		return
 	}
-	batch := b.pending
-	b.pending = make([]string, 0, b.batchSize)
-	b.batches++
-	b.mu.Unlock()
-	b.emit(batch)
-}
-
-// emit 渲染批次 + 逐条落库（管道聚合）。
-func (b *StreamBatcher) emit(batch []string) {
-	if b.render != nil {
-		b.renderCalls.Add(1)
-		b.render(batch)
-	}
-	for _, chunk := range batch {
-		for {
-			err := b.pipe.Push(chunk)
-			if err == nil {
-				break
-			}
-			if err == lifecycle.ErrPipelineFull {
-				// 背压：聚合重投（不丢；退避避免忙等）。
-				runtime.Gosched()
-				continue
-			}
-			return // 管道已关闭：放弃（流式收尾后不应再投递）
+	for {
+		err := b.pipe.Push(chunk)
+		switch err {
+		case nil:
+			return
+		case lifecycle.ErrPipelineFull:
+			runtime.Gosched()
+		default:
+			return
 		}
 	}
 }
 
-// Flush 强制落库剩余缓冲（流式结束收尾）。
 func (b *StreamBatcher) Flush() error {
-	b.mu.Lock()
-	if len(b.pending) > 0 {
-		batch := b.pending
-		b.pending = nil
-		b.batches++
-		b.mu.Unlock()
-		b.emit(batch)
-	} else {
-		b.mu.Unlock()
+	if b == nil || b.pipe == nil {
+		return nil
 	}
 	return b.pipe.Close()
 }
 
-// Stats 返回批次统计（审计：渲染调用次数/渲染批次/落库次数）。
+func (b *StreamBatcher) FlushPending() error {
+	if b == nil || b.pipe == nil {
+		return nil
+	}
+	return b.pipe.Flush()
+}
+
 type StreamBatcherStats struct {
 	RenderCalls int
 	Batches     int
@@ -118,11 +80,39 @@ type StreamBatcherStats struct {
 }
 
 func (b *StreamBatcher) Stats() StreamBatcherStats {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return StreamBatcherStats{
-		RenderCalls: int(b.renderCalls.Load()),
-		Batches:     b.batches,
-		Pipe:        b.pipe.Stats(),
+	if b == nil {
+		return StreamBatcherStats{}
 	}
+	renders := int(b.store.renderCalls.Load())
+	return StreamBatcherStats{RenderCalls: renders, Batches: renders, Pipe: b.pipe.Stats()}
 }
+
+type streamBatchStorage struct {
+	render      func([]string)
+	mirror      lifecycle.Storage[string]
+	count       atomic.Int64
+	renderCalls atomic.Int64
+}
+
+func (s *streamBatchStorage) Append(ctx context.Context, items []string) error {
+	batch := append([]string(nil), items...)
+	if s.mirror != nil {
+		if err := s.mirror.Append(ctx, batch); err != nil {
+			return err
+		}
+	}
+	s.count.Add(int64(len(batch)))
+	if s.render != nil {
+		s.renderCalls.Add(1)
+		s.render(batch)
+	}
+	return nil
+}
+
+func (s *streamBatchStorage) ReadRange(context.Context, int, int) ([]string, int, error) {
+	return []string{}, int(s.count.Load()), nil
+}
+
+func (s *streamBatchStorage) Count() int { return int(s.count.Load()) }
+
+var _ lifecycle.Storage[string] = (*streamBatchStorage)(nil)

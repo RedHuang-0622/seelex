@@ -214,3 +214,25 @@ test("labels tasklist gate vs plan-run mode from authoritative status", () => {
   assert.match(renderPlanDSL(completed), />TASKLIST</);
 });
 
+test("renders worktree lifecycle states and bounded subagent tool activity", () => {
+  const plan = {
+    name: "worktree flow", status: "running", progress: 0.5,
+    nodes: [{
+      id: "worker", label: "Worker", kind: "agent", status: "rebasing",
+      tool_events: [{
+        id: "subtool-1", node_id: "worker", name: "bash", status: "error",
+        arguments: "<unsafe>", error: "conflict <main>", started_at: "2026-08-04T08:00:00Z", duration: 250000000
+      }]
+    }]
+  };
+  const dsl = planToDSL(plan);
+  assert.equal(dsl.nodes[0].status, "rebasing");
+  assert.equal(dsl.nodes[0].toolEvents[0].name, "bash");
+  assert.match(renderPlanDSL(dsl), /plan-dsl-node is-rebasing/);
+  const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
+  assert.match(detail, />REBASING</);
+  assert.match(detail, /data-node-tool-id="subtool-1"/);
+  assert.match(detail, /conflict &lt;main&gt;/);
+  assert.doesNotMatch(detail, /<unsafe>/);
+  assert.match(detail, /250ms/);
+});

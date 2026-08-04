@@ -61,7 +61,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	hooks := application.NewToolHookBridge()
-	frameworkEngine, err := initEngine(runtime, hooks)
+	frameworkEngine, err := initEngine(runtime, hooks, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,8 +72,8 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
-		fresh, createErr := initEngine(runtime, hooks)
+	appEngine := newEnginePort(frameworkEngine, func(sessionID string) reactorEngine {
+		fresh, createErr := initEngine(runtime, hooks, sessionID)
 		if createErr != nil {
 			return nil
 		}

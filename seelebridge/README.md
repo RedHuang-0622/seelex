@@ -13,6 +13,7 @@ Runtime，同时隔离上游 API 变化。
 | 文件 | 职责 |
 |---|---|
 | `runtime.go` | Runtime 创建（composition root）、账号/Provider、回调入口。 |
+| `subagent_events.go` | 子代理工具 middleware 与稳定 started/completed 投影。 |
 | `accounts.go` | 账号池注册（`accountpool.P2CPool[agent.Completer]`）、同步/节点账号选择器与 `ResolveAccountForBranch`。 |
 | `registry.go` | `tools.Registry` 装配与 `bridge.NewRegistryRuntime` 适配。 |
 | `stream_completer.go` | 流式账号 Completer（lease-until-EOF，覆盖整条流直到 EOF/错误/Close）。 |
@@ -50,6 +51,10 @@ Runtime，同时隔离上游 API 变化。
 5. Tool/Plan 执行事实经 `planEventSink`（`event.Sink`）投影为
    `PlanNodeEvent`，订阅者（Application）实时更新 Plan 状态与前端快照。
 6. `Shutdown` 关闭 MCP、账号池和后台资源。
+
+主 Session 可通过 `AttachHistoryRouter` 独立装配 `sessionstore.DurableHistory`；指定恢复 ID 时 `NewMainSessionWithID` 同时用它作为框架 Session identity 和 durable key。该路径不读取或覆盖 `SessionContextStore` 的 application state blob。
+
+子代理节点通过 `NodeScope.Role == RoleSubAgent` 识别。工具 middleware 发布 `running/success/error`，worktree 编排发布 `worktree_creating/rebasing/merging`；阶段事实沿用 Plan binding，并在存在 session ID 时写入 `agent.runtime` Location。
 
 ## ProjectScope 与 PathGate
 
@@ -116,6 +121,7 @@ actual work, while prompt policy keeps `plan_run` out of the main workflow.
 ```text
 go test ./seelebridge -count=1 -timeout=120s
 go vet ./seelebridge
+go test -race ./seelebridge -count=1
 ```
 
 项目边界重点在 `project_scope_test.go`/`runtime_test.go`，Plan 内核在

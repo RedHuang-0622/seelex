@@ -16,6 +16,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 )
@@ -89,19 +90,21 @@ type request[T any] struct {
 // ContextActor 是上下文生命周期 actor（泛型，无锁闭包状态）。
 // 外部只能经 Enqueue/Append/LoadWindow/Snapshot 发消息，绝不直接访问内部。
 type ContextActor[T any] struct {
-	mailbox chan request[T]
-	ctx     context.Context
-	cancel  context.CancelFunc
-	closed  chan struct{}
-	closedFlag atomic.Bool // Close 完成后置位（Enqueue 显式拒绝，避免 select 竞态）
+	mailbox    chan request[T]
+	ctx        context.Context
+	cancel     context.CancelFunc
+	closed     chan struct{}
+	closedFlag atomic.Bool // Close 开始时置位（Enqueue 显式拒绝）
+	closeOnce  sync.Once
+	gate       sync.RWMutex // 关闭 mailbox 与并发投递之间的生命周期门
 
 	// 以下字段仅 actor goroutine 访问（闭包状态，无锁）。
-	store  Storage[T]
-	policy LifecyclePolicy
-	window int           // PolicyWindowed 的驻留窗口条数
-	resident []T         // 常驻区（FullRetain 全量 / Windowed 窗口 / ColdLoad 空）
-	seq    int           // 已接收消息序号（保序审计）
-	drop   atomic.Int64  // 背压丢弃计数（非阻塞投递满时；跨 goroutine 原子）
+	store    Storage[T]
+	policy   LifecyclePolicy
+	window   int          // PolicyWindowed 的驻留窗口条数
+	resident []T          // 常驻区（FullRetain 全量 / Windowed 窗口 / ColdLoad 空）
+	seq      int          // 已接收消息序号（保序审计）
+	drop     atomic.Int64 // 背压丢弃计数（非阻塞投递满时；跨 goroutine 原子）
 }
 
 // Options 是 actor 构造参数。
@@ -143,16 +146,8 @@ func NewContextActor[T any](policy LifecyclePolicy, store Storage[T], options Op
 // run 是唯一状态持有者：串行消费 mailbox（无锁闭包状态）。
 func (a *ContextActor[T]) run() {
 	defer close(a.closed)
-	for {
-		select {
-		case <-a.ctx.Done():
-			return
-		case req, ok := <-a.mailbox:
-			if !ok {
-				return
-			}
-			a.handle(req)
-		}
+	for req := range a.mailbox {
+		a.handle(req)
 	}
 }
 
@@ -298,20 +293,33 @@ func (a *ContextActor[T]) LoadWindow(ctx context.Context, offset, limit int) ([]
 // Snapshot 返回常驻区拷贝与总数（测试/审计；非生产热路径）。
 func (a *ContextActor[T]) Snapshot() ([]T, int) {
 	replyCh := make(chan reply[T], 1)
-	_ = a.Enqueue(request[T]{op: opSnapshot, reply: replyCh})
-	resp := <-replyCh
-	return resp.items, resp.total
+	request := request[T]{op: opSnapshot, reply: replyCh}
+	for {
+		err := a.Enqueue(request)
+		switch err {
+		case nil:
+			resp := <-replyCh
+			return resp.items, resp.total
+		case ErrMailboxFull:
+			runtime.Gosched()
+		default:
+			// Close marks the actor closed before draining its mailbox. Wait for
+			// the drain to finish before reading the now-immutable actor state.
+			<-a.closed
+			return append([]T(nil), a.resident...), len(a.resident) + a.store.Count()
+		}
+	}
 }
 
 // Enqueue 投递消息（非阻塞；满则返回 ErrMailboxFull 并计入丢弃计数；
 // Close 完成后显式拒绝——避免 ctx.Done 与 mailbox 同时 ready 的 select 竞态）。
 func (a *ContextActor[T]) Enqueue(req request[T]) error {
+	a.gate.RLock()
+	defer a.gate.RUnlock()
 	if a.closedFlag.Load() {
 		return fmt.Errorf("lifecycle: actor is closed")
 	}
 	select {
-	case <-a.ctx.Done():
-		return fmt.Errorf("lifecycle: actor is closed")
 	case a.mailbox <- req:
 		return nil
 	default:
@@ -326,13 +334,15 @@ var ErrMailboxFull = fmt.Errorf("lifecycle: actor mailbox full")
 
 // Close 停止 actor（等待消息循环退出；幂等）。
 func (a *ContextActor[T]) Close() {
-	a.cancel()
-	<-a.closed
-	a.closedFlag.Store(true)
+	a.closeOnce.Do(func() {
+		a.gate.Lock()
+		a.closedFlag.Store(true)
+		close(a.mailbox)
+		a.gate.Unlock()
+		<-a.closed
+		a.cancel()
+	})
 }
 
 // Dropped 返回背压丢弃计数（审计）。
 func (a *ContextActor[T]) Dropped() int { return int(a.drop.Load()) }
-
-// syncOnce 保证 store.Count 并发读安全（mock 存储自锁；此处仅为审计）。
-var _ = sync.Once{}

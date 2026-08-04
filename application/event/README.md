@@ -6,7 +6,7 @@
 
 ## 核心实现
 
-- `EventKind`：消息新增/增量、工具、Runtime、Interaction、Snapshot 和 Error 等事件类型。
+- `EventKind`：消息新增/增量、主代理工具、子代理生命周期/工具、Runtime、Interaction、Snapshot 和 Error 等事件类型。
 - `Event`：包含 `ProtocolVersion`、全局 `Seq`、Snapshot `Revision`、request ID 和 JSON payload。
 - `EventHub`：为每个 subscriber 分配局部锁和 channel，负责 fan-out、顺序与关闭。
 - `Subscription`：暴露只读事件 channel 与幂等 `Close`。
@@ -23,10 +23,12 @@
 - 修改 seq/revision 含义时同步更新 `gui/frontend/dist/client-state.js` 及协议测试。
 - Publish/Close/Subscribe 的竞态必须用 race test 验证。
 - payload 应是稳定 DTO，避免传递可被后续修改的共享 slice/map。
+- `subagent.changed` payload 携带完整有界节点投影；`subagent.tool.started/completed` 携带单条工具活动，前端必须递归更新 Plan，不能原地修改旧 Snapshot。
 
 ## 测试
 
 ```text
 go test ./application/core -run EventHub -count=1
 node --test gui/frontend/dist/client-state.test.mjs
+node --test gui/frontend/dist/event-chain.test.mjs
 ```

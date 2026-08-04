@@ -4,13 +4,43 @@ export function createConversationView(container, options = {}) {
   const htmlByKey = new Map();
   let payloads = new Map();
   let followsTail = true;
-  container.addEventListener("scroll", () => { followsTail = isNearBottom(container); }, { passive: true });
+  let canLoadMore = false;
+  let loadingOlder = false;
+  let sentinelArmed = true;
+  const sentinel = document.createElement("div");
+  sentinel.className = "conversation-sentinel";
+  sentinel.dataset.conversationSentinel = "top";
+  sentinel.setAttribute("aria-hidden", "true");
+  container.prepend(sentinel);
+
+  async function loadOlder() {
+    if (!canLoadMore || loadingOlder || !sentinelArmed || typeof options.loadMore !== "function") return;
+    sentinelArmed = false;
+    loadingOlder = true;
+    try { await options.loadMore(); }
+    finally { loadingOlder = false; }
+  }
+
+  if (typeof IntersectionObserver === "function") {
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.some(entry => entry.isIntersecting);
+      if (!visible) sentinelArmed = true;
+      else void loadOlder();
+    }, { root: container, rootMargin: "160px 0px 0px" });
+    observer.observe(sentinel);
+  }
+  container.addEventListener("scroll", () => {
+    followsTail = isNearBottom(container);
+    if (container.scrollTop > 240) sentinelArmed = true;
+    else if (typeof IntersectionObserver !== "function") void loadOlder();
+  }, { passive: true });
   container.addEventListener("click", event => handleAction(event, () => payloads, options));
 
   return {
     render(model, options = {}) {
       const before = scrollState(container, followsTail);
       payloads = model.payloads;
+      canLoadMore = Boolean(options.hasMoreHistory);
       reconcile(container, model.items, htmlByKey, payloads);
       restoreScroll(container, before, options.scrollMode || "auto");
       followsTail = isNearBottom(container);
@@ -39,9 +69,12 @@ async function handleAction(event, getPayloads, options) {
 }
 
 function reconcile(container, items, htmlByKey, payloads) {
-  const existing = new Map([...container.children].map(node => [node.dataset.conversationKey, node]));
+  const existing = new Map([...container.children]
+    .filter(node => node.dataset.conversationKey)
+    .map(node => [node.dataset.conversationKey, node]));
   const desired = new Set();
-  let cursor = container.firstElementChild;
+  const sentinel = container.querySelector("[data-conversation-sentinel]");
+  let cursor = sentinel ? sentinel.nextElementSibling : container.firstElementChild;
   for (const item of items) {
     desired.add(item.key);
     let node = existing.get(item.key);

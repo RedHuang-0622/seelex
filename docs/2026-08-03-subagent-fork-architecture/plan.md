@@ -4,6 +4,7 @@
 > 适用范围：子代理入口分层（plan DAG / fork / todolist）、worktree 生命周期工作流、子代理与主代理能力对齐（工具集/skill/预算）、前端子代理详情查看、主代理滑动窗口加载、沙箱
 > 关联架构：[`docs/arch/seele-v2-runtime-architecture.md`](../arch/seele-v2-runtime-architecture.md)（§4.4 Plan→subagent）、[`docs/research/coding-agent-harness-comparison.md`](../research/coding-agent-harness-comparison.md)（差距矩阵 §3.7）、[`docs/plan/subagent-detail-architecture.md`](../plan/subagent-detail-architecture.md)（前端详设，本设计 §8 实施）
 > 已确认决策（2026-08-03 用户）：① worktree 合并回主工作区前必须用户审批；② 变基由子代理自己执行，框架检测失败兜底；③ 非 git 项目/只读节点跳过 worktree，共享工作区；④ plan 工具从主工具面移出，随 goal skill 激活注入
+> 2026-08-04 增量：子代理节点生命周期和内部工具活动已形成 Runtime → Application/EventHub → GUI Bridge → frontend reducer 的实时事件链，并由整体 mock 覆盖。
 
 ## 1. 背景与动机
 
@@ -290,3 +291,11 @@ todo 全 done 与 plan 全节点完成都走同一 `task_complete` 投影校验�
 - 集成验收（确定性 completer）：`fork_subagents → 并行 worktree 子代理 → 合并审批 → 汇总回传` 全链路；`goal skill 激活 → plan 工具可见` 投影验证；
 - 弱模型（minimax）实测：能完成"todolist 建清单 → fork 派活 → 收尾回传"闭环；不再乱写 txt（沙箱 + worktree 兜底）；
 - GUI 构建（`-tags gui` + ldflags）通过；子代理详情弹窗显示会话记录与实时活动。
+
+## 15. 2026-08-04 事件链补强
+
+- Runtime middleware 只识别 `RoleSubAgent`，发布工具 `running/success/error`；主代理工具继续走原 ToolHook，避免重复事件。
+- worktree 创建、rebase、merge 分别投影为 `worktree_creating`、`rebasing`、`merging`，持久事件携带 `agent.runtime/session_id` Location。
+- Application 递归定位嵌套 Plan 节点，按工具调用 ID upsert 有界 `tool_events`，发布 `subagent.changed`、`subagent.tool.started`、`subagent.tool.completed`。
+- GUI Bridge 原样 relay 到 `seelex:event`；前端 reducer 深拷贝 Plan 树并递归更新，详情页展示会话、生命周期时间线和工具输入/结果/错误。
+- `gui/frontend/dist/event-chain.test.mjs` mock Wails `seelex:event`，验证事件不触发 Snapshot reload 且最终工具状态在前端节点可见；Go bridge relay 和 Runtime/Application 分层测试共同覆盖整条链路。

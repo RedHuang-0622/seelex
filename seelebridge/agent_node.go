@@ -110,6 +110,9 @@ var now = time.Now
 func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error) {
 	// 1) 节点身份：可见性策略 / 账号选择器 / 装配器从 ctx 读取。
 	scope := n.scope()
+	if scope.Role == RoleSubAgent {
+		n.runtime.appendNodePhase(ctx, n.ID(), "worktree_creating")
+	}
 	// 2) worktree 生命周期（开）：RoleSubAgent 节点创建独立 worktree，
 	//    WorkspaceID 指向 worktree 根（降级：非 git / 失败 → 共享工作区）。
 	wt := n.runtime.beginNodeWorktree(scope, n.ID())
@@ -117,6 +120,9 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 		scope.WorkspaceID = wt.Path
 	}
 	ctx = WithNodeScope(ctx, scope)
+	if scope.Role == RoleSubAgent {
+		n.runtime.appendNodePhase(ctx, n.ID(), "running")
+	}
 	// 3) 节点上下文（PromptBlocks）：目标 + 父证据 + 预算 + skill + 收尾契约。
 	if n.blocks != nil {
 		ctx = withNodePromptBlocks(ctx, n.blocks())
@@ -149,6 +155,16 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 		}
 	}
 	return result, err
+}
+
+func (r *Runtime) appendNodePhase(ctx context.Context, nodeID, status string) {
+	if r == nil || r.planEvents == nil {
+		return
+	}
+	r.planRunMu.RLock()
+	runID := r.currentPlanRunID
+	r.planRunMu.RUnlock()
+	r.planEvents.AppendPhase(ctx, r.currentPlanBranchBinding(), runID, nodeID, status)
 }
 
 // mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/
@@ -283,7 +299,6 @@ type nodeBudgetInfo struct {
 	MaxOutputTokens int
 }
 
-
 // SetSkillRegistry 装配子代理 skill 目录 actor（skill.Registry 自带锁，
 // 读写经其方法进出；见 skill/skill.go）。装配一次性写入、运行期只读，
 // 与 filesystem actor 同构，无需外层锁。传入 nil 关闭 skill 块（降级）。
@@ -312,6 +327,7 @@ func (r *Runtime) goalSkillActive() bool {
 //     可用技能；与主代理"读取 skill 目录"对齐）；
 //   - node-skill-active：与节点目标匹配的 skill 完整指令（名称分词/描述
 //     词出现在节点 input 中即激活；未匹配 → 不注入，目录块仍在）。
+//
 // registry 未装配（nil）→ 无块，行为降级为当前实现。
 func (r *Runtime) nodeSkillBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
 	if r.skills == nil {
@@ -329,7 +345,7 @@ func (r *Runtime) nodeSkillBlocks(input SeelexNodeInput) []seelectx.PromptBlock 
 		catalog.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
 	}
 	blocks = append(blocks, seelectx.PromptBlock{
-		Name: "node-skill-catalog",
+		Name:     "node-skill-catalog",
 		Messages: []types.Message{{Role: "user", Content: stringPtr(catalog.String())}},
 	})
 	// 激活块：与节点目标匹配的 skill 完整指令。
@@ -340,7 +356,7 @@ func (r *Runtime) nodeSkillBlocks(input SeelexNodeInput) []seelectx.PromptBlock 
 			active.WriteString(fmt.Sprintf("### %s\n%s\n", s.Name, s.Prompt))
 		}
 		blocks = append(blocks, seelectx.PromptBlock{
-			Name: "node-skill-active",
+			Name:     "node-skill-active",
 			Messages: []types.Message{{Role: "user", Content: stringPtr(active.String())}},
 		})
 	}

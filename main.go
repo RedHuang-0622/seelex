@@ -101,6 +101,7 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	runtime.AttachHistoryRouter(store)
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
 	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
@@ -113,7 +114,7 @@ func run() error {
 		return fmt.Errorf("权限模式无效: %w", err)
 	}
 	toolHooks := application.NewToolHookBridge()
-	frameworkEngine, err := initEngine(runtime, toolHooks)
+	frameworkEngine, err := initEngine(runtime, toolHooks, "")
 	if err != nil {
 		return err
 	}
@@ -121,13 +122,14 @@ func run() error {
 	if err := activateDefaultPlugin(pluginManager, frameworkEngine); err != nil {
 		return err
 	}
-	appEngine := newEnginePort(frameworkEngine, func() reactorEngine {
-		fresh, createErr := initEngine(runtime, toolHooks)
+	appEngine := newEnginePort(frameworkEngine, func(sessionID string) reactorEngine {
+		fresh, createErr := initEngine(runtime, toolHooks, sessionID)
 		if createErr != nil {
 			return nil
 		}
 		return fresh
 	}, runtime.Tracer())
+	appEngine.EnableWorkingHistoryRelease()
 	// 子代理详情数据面：节点会话记录查询（只读子代理 actor，安全）。
 	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
 	sessionManager := initSessionManager(store, appEngine)
@@ -154,6 +156,7 @@ func run() error {
 	})
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
+	runtime.SetSubagentToolCallback(app.HandleSubagentToolEvent)
 	// 子代理上下文闭环（Actor 消息边界，seelebridge/actor.go）：
 	// - 消息进（ParentEvidence）：plan_run 期间主会话被 ChatStream 全程持锁，
 	//   父证据必须从 application 镜像（service.mu）+ 遥测 trace 构造，
@@ -518,8 +521,8 @@ func initWorkspaceRepo() (*workspace.Repo, error) {
 
 // initEngine 按新装配模型创建主会话（session.NewSession）。
 // enginePort 的 reactorEngine 接口由 *session.Session 直接满足。
-func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge) (*frameworkSession.Session, error) {
-	sess, err := runtime.NewMainSession(hooks.Hooks())
+func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error) {
+	sess, err := runtime.NewMainSessionWithID(sessionID, hooks.Hooks())
 	if err != nil {
 		return nil, fmt.Errorf("初始化主会话失败: %w", err)
 	}

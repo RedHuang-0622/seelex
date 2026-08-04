@@ -11,7 +11,11 @@ function snapshot() {
     revision: 1,
     conversation: [{ id: "assistant-1", role: "assistant", content: "A" }],
     chat: { running: false },
-    runtime: { model: "test" }
+    runtime: { model: "test" },
+    conversation_window: 50,
+    total_messages: 1,
+    history_offset: 0,
+    has_more_history: false
   };
 }
 
@@ -101,4 +105,62 @@ test("applies runtime and interaction events", () => {
     protocol_version: 1, seq: 3, revision: 4, kind: "interaction.closed"
   }, opened.lastSeq);
   assert.equal(closed.snapshot.interaction, null);
+});
+
+test("applies recursive subagent lifecycle and tool events without mutating the previous snapshot", () => {
+  const current = {
+    ...snapshot(),
+    runtime: {
+      plan: {
+        status: "running", progress: 0,
+        nodes: [{ id: "root", status: "running", children: [{ id: "worker", status: "queued", tool_events: [] }] }],
+        edges: []
+      }
+    }
+  };
+  const lifecycle = applyEvent(current, {
+    protocol_version: 1, seq: 1, revision: 2, kind: "subagent.changed",
+    payload: {
+      node_id: "worker", plan_status: "running", progress: 0.5,
+      node: { id: "worker", label: "Worker", status: "worktree_creating", tool_events: [], children: [] }
+    }
+  });
+  const started = applyEvent(lifecycle.snapshot, {
+    protocol_version: 1, seq: 2, revision: 3, kind: "subagent.tool.started",
+    payload: { id: "subtool-1", node_id: "worker", name: "read_file", status: "running" }
+  }, lifecycle.lastSeq);
+  const completed = applyEvent(started.snapshot, {
+    protocol_version: 1, seq: 3, revision: 4, kind: "subagent.tool.completed",
+    payload: { id: "subtool-1", node_id: "worker", name: "read_file", status: "success", result: "done" }
+  }, started.lastSeq);
+
+  const worker = completed.snapshot.runtime.plan.nodes[0].children[0];
+  assert.equal(worker.status, "worktree_creating");
+  assert.equal(worker.tool_events.length, 1);
+  assert.equal(worker.tool_events[0].status, "success");
+  assert.equal(completed.snapshot.runtime.plan.progress, 0.5);
+  assert.equal(current.runtime.plan.nodes[0].children[0].status, "queued");
+  assert.deepEqual(current.runtime.plan.nodes[0].children[0].tool_events, []);
+});
+
+test("bounds incrementally added conversation messages to the advertised window", () => {
+  let result = {
+    snapshot: {
+      ...snapshot(),
+      conversation_window: 2,
+      total_messages: 1,
+      conversation: [{ id: "m1", role: "assistant", content: "one" }]
+    },
+    lastSeq: 0
+  };
+  for (const [index, id] of ["m2", "m3"].entries()) {
+    result = applyEvent(result.snapshot, {
+      protocol_version: 1, seq: index + 1, revision: index + 2, kind: "message.added",
+      payload: { id, role: "assistant", content: id }
+    }, result.lastSeq);
+  }
+  assert.deepEqual(result.snapshot.conversation.map(message => message.id), ["m2", "m3"]);
+  assert.equal(result.snapshot.total_messages, 3);
+  assert.equal(result.snapshot.history_offset, 1);
+  assert.equal(result.snapshot.has_more_history, true);
 });

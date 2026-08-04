@@ -345,6 +345,16 @@ func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, e
 // NodeHook 投影（NodeStatus，含 kind/elapsed）。
 func (r *Runtime) runPlan(ctx context.Context, loaded *loadedPlanDoc) (string, error) {
 	runID := newPlanRunID()
+	r.planRunMu.Lock()
+	r.currentPlanRunID = runID
+	r.planRunMu.Unlock()
+	defer func() {
+		r.planRunMu.Lock()
+		if r.currentPlanRunID == runID {
+			r.currentPlanRunID = ""
+		}
+		r.planRunMu.Unlock()
+	}()
 	binding := r.currentPlanBranchBinding()
 	planID := binding.PlanID
 	if planID == "" {
