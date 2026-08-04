@@ -142,6 +142,12 @@ Plan 在执行前完成：
 
 这个设计属于 **Multi-Agent Orchestration / Subagent Orchestration**，但当前仍是单进程内编排，不宣称已经实现跨组织 A2A Protocol。
 
+#### 子代理的进度与结果
+
+`fork_subagents` 会在运行时构造 `start → subagent(s) → summary` 的 DAG，并同步等待该 DAG 到达终态。因此，外层工具在子代理仍运行时显示 `Waiting for output…` 是预期行为，不能仅据此判定为死锁。执行中的权威状态来自 Plan 事件：在 GUI 右侧 Plan 中点击子代理节点，即可查看会话记录、功能打点、事件时间线、工具活动和最终输出。
+
+当前 summary 节点会拼接各子代理输出；长审查或大量工具输出可能使外层工具结果超过单条 provider context 的预算。出现“结果过大、无法读取完整内容”时，不能据此转述或推断审查结论，应以节点详情中的会话与工具证据为准。完整结果的可靠交付需要有界摘要和可分页的结果引用；在该交付契约落地前，不应把外层 `final_output` 当作大结果的唯一读取通道。
+
 ### 4. 上下文不是无限聊天记录，而是一条有预算的 Context Pipeline
 
 Seelex 把 **Context Engineering** 实现为可组合的 Session Components：

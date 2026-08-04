@@ -78,6 +78,12 @@ role + branchID 走确定性 hash（`ResolveAccountForBranch`），显式 bindin
 AccountID 直接 pin，不占用主链路租约。节点执行事实经 `event.Sink` 投影为
 `PlanNodeEvent`（queued/running/终态），不再使用框架分支运行时回调。
 
+### `fork_subagents` 的结果边界
+
+`fork_subagents` 是上述 Plan 的轻量入口：它程序化构造 `start → N 个 agent → summary`，随后在工具调用内同步执行 `runPlan`。因此外层工具在整个子代理 DAG 和 summary 节点结束前不会返回；诊断运行状态时应读取 Plan 的节点事件、工具活动和子会话快照，而不是只看外层工具卡的等待文案。
+
+summary 当前按节点 ID 拼接前驱输出并写入 `final_output`。它适合小型、结构化交付，不是无界 transcript 传输通道：大结果可能超过 provider 的单条上下文预算。调用方必须将“结果被省略/过大”视为未读取的证据，并通过可分页的结果引用或节点详情读取原文；在可靠的有界摘要与引用映射完成前，不能凭外层结果声称已审查完整子代理产出。
+
 ## Effort PlanPolicy
 
 `Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge normalizes either the canonical object-keyed DAG or an LLM-friendly `nodes[]` / `edges[]` form into Seele's canonical JSON, then validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.

@@ -35,7 +35,9 @@ Plan DSL 常驻右侧项目栏；没有 Plan 时隐藏整个 section，加载、
 
 `Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
 
-子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持 `worktree_creating`、`rebasing`、`merging`，详情弹窗显示会话、节点时间线和工具输入/结果/错误。所有更新都先深拷贝 Plan 树，避免修改旧 Snapshot。
+子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持 `worktree_creating`、`rebasing`、`merging`；节点整卡可打开详情，详情弹窗显示会话、节点时间线和工具输入/结果/错误。Plan 面板与详情页都渲染功能打点表：tasklist 的 `task_check_node` 检查点和子代理工具活动均由同一事件投影驱动。所有更新都先深拷贝 Plan 树，避免修改旧 Snapshot。
+
+`fork_subagents` 的外层工具在 summary 完成前保持运行态；这时应点击 Plan 节点查看真实进度，不能仅以 `Waiting for output…` 判定卡死。若外层工具报告子代理结果过大，详情中的会话、功能打点和工具活动才是可核验的证据面；renderer 不把过大的 `final_output` 当作完整审查结果的替代品。
 
 点击新建会话只调用 `BeginNewSession` 进入编辑草稿：允许选择项目和编辑输入框，但左侧列表不新增任何条目，也不生成临时 ID。第一次提交真实对话后，Application 返回真实 ID，左侧才新增正式 Session，并以首个问题作为列表标题。
 
