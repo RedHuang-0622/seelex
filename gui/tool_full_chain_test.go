@@ -152,10 +152,10 @@ func TestGUIBackendPortRelaysToolCompletion(t *testing.T) {
 	emitted := make(chan emittedEvent, 16)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	bridge.start(ctx, func(_ context.Context, name string, payload any) {
+	bridge.Start(ctx, func(_ context.Context, name string, payload any) {
 		emitted <- emittedEvent{name: name, payload: payload}
 	})
-	t.Cleanup(bridge.stop)
+	t.Cleanup(bridge.Stop)
 	if ready := waitEmitted(t, emitted); ready.name != "seelex:ready" {
 		t.Fatalf("first GUI event = %q, want seelex:ready", ready.name)
 	}
@@ -210,10 +210,10 @@ func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T) {
 	emitted := make(chan emittedEvent, 16)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	bridge.start(ctx, func(_ context.Context, name string, payload any) {
+	bridge.Start(ctx, func(_ context.Context, name string, payload any) {
 		emitted <- emittedEvent{name: name, payload: payload}
 	})
-	t.Cleanup(bridge.stop)
+	t.Cleanup(bridge.Stop)
 	if ready := waitEmitted(t, emitted); ready.name != "seelex:ready" {
 		t.Fatalf("first GUI event = %q, want seelex:ready", ready.name)
 	}

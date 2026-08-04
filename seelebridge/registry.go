@@ -19,11 +19,33 @@ type toolsRegistryState struct {
 	inline   *inlineToolProvider
 }
 
-func newToolsRegistry(timeout time.Duration, permission *permissionGateState, approvalTimeout time.Duration, eventMiddleware tools.Middleware) *tools.Registry {
+func newToolsRegistry(timeout time.Duration, permission *permissionGateState, approvalTimeout time.Duration, eventMiddleware, diagnosticMiddleware tools.Middleware) *tools.Registry {
 	return tools.NewRegistry(
 		tools.WithCallTimeout(timeout),
-		tools.WithMiddleware(eventMiddleware, permission.middleware(approvalTimeout)),
+		tools.WithMiddleware(eventMiddleware, permission.middleware(approvalTimeout), diagnosticMiddleware),
 	)
+}
+
+// bashDiagnosticMiddleware marks entry to and exit from the framework tool
+// registry. Together with scopedBash's process stages, it distinguishes a
+// stalled handler from a stall in the registry/framework after the handler
+// has already returned. It is no-op unless a diagnostic observer is installed.
+func (r *Runtime) bashDiagnosticMiddleware() tools.Middleware {
+	return func(name string, next tools.ToolHandler) tools.ToolHandler {
+		if name != "bash" {
+			return next
+		}
+		return tools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.start"})
+			result, err := next.Execute(ctx, argsJSON)
+			if err != nil {
+				r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.error", Err: err})
+				return result, err
+			}
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.done"})
+			return result, nil
+		})
+	}
 }
 
 // inlineToolProvider 累积 RegisterTool 注册的普通产品工具。

@@ -155,6 +155,7 @@ func (service *Service) resumeSession(sessionID string) error {
 		service.transcriptSeq = 0
 		service.taskExecution = nil
 		service.taskService = nil
+		service.components.tasks.syncGoalSkillActiveLocked()
 		service.taskCheckpoints = nil
 		service.toolResultRefs = nil
 		service.pendingToolResults = nil

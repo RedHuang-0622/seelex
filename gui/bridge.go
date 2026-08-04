@@ -43,7 +43,10 @@ type Application interface {
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
 }
 
-type emitter func(context.Context, string, any)
+// EventEmitter receives Application events after the Bridge has adapted them
+// to the stable desktop event names. Desktop hosts pass the function that
+// forwards events into their renderer runtime.
+type EventEmitter func(context.Context, string, any)
 
 type Options struct {
 	Title       string
@@ -120,7 +123,9 @@ func discoverProject(root string) ProjectInfo {
 	return project
 }
 
-func (bridge *Bridge) start(ctx context.Context, emit emitter) {
+// Start begins relaying the initial snapshot and subsequent Application events
+// to the desktop renderer. It is idempotent.
+func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 	bridge.mu.Lock()
 	if bridge.running {
 		bridge.mu.Unlock()
@@ -155,7 +160,9 @@ func (bridge *Bridge) start(ctx context.Context, emit emitter) {
 	}()
 }
 
-func (bridge *Bridge) stop() {
+// Stop cancels the event relay and waits until its goroutine has exited. It is
+// safe to call more than once.
+func (bridge *Bridge) Stop() {
 	bridge.mu.Lock()
 	if !bridge.running {
 		bridge.mu.Unlock()

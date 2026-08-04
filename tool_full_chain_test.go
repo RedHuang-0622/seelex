@@ -94,12 +94,64 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 	}
 }
 
+// TestFullAccessUnboundBashFailureReachesApplication keeps project scope
+// fail-closed while guaranteeing the user sees a terminal tool event instead
+// of an indefinitely running tool card.
+func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
+	server := newBashToolChainServer(t)
+	defer server.Close()
+	server.expectedToolResult = "project scope"
+
+	tempDir := t.TempDir()
+	accountsPath := filepath.Join(tempDir, "accounts.yaml")
+	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", server.URL)
+	if err := os.WriteFile(accountsPath, []byte(accounts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	harness := newUnboundFullChainHarness(t, accountsPath, tempDir, 5*time.Second)
+	subscription := harness.events.Subscribe(256)
+	defer subscription.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	if err := harness.app.Submit(ctx, "Call the bash tool exactly once with command pwd and then report the result."); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-server.secondRequestStarted:
+	case <-ctx.Done():
+		t.Fatalf("second provider request did not start: %v\n%s", ctx.Err(), allGoroutineStacks())
+	}
+
+	completed := waitForToolStatus(t, ctx, subscription.Events, "bash", "error")
+	var completedMessage application.Message
+	if err := json.Unmarshal(completed.Payload, &completedMessage); err != nil {
+		t.Fatalf("decode tool.completed payload: %v", err)
+	}
+	if completedMessage.Tool == nil || completedMessage.Tool.Status != "error" || completedMessage.Content == "" {
+		t.Fatalf("unbound bash completion = %#v, want visible terminal error", completedMessage)
+	}
+
+	close(server.releaseSecondRequest)
+	if err := harness.app.WaitForIdle(ctx); err != nil {
+		t.Fatalf("chat did not become idle: %v\n%s", err, allGoroutineStacks())
+	}
+}
+
 type fullChainHarness struct {
 	app    *application.Service
 	events *application.EventHub
 }
 
 func newFullChainHarness(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
+	return newFullChainHarnessWithProjectBinding(t, accountsPath, projectRoot, toolTimeout, true)
+}
+
+func newUnboundFullChainHarness(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
+	return newFullChainHarnessWithProjectBinding(t, accountsPath, projectRoot, toolTimeout, false)
+}
+
+func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration, bindProject bool) fullChainHarness {
 	t.Helper()
 	runtimeBridge, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath:    accountsPath,
@@ -112,8 +164,10 @@ func newFullChainHarness(t *testing.T, accountsPath, projectRoot string, toolTim
 	t.Cleanup(runtimeBridge.Shutdown)
 	runtimeBridge.RegisterBuiltins()
 	runtimeBridge.SetPermissionConfig(toolspermission.PermissionConfig{Mode: toolspermission.ModeFullAccess}, nil)
-	if err := runtimeBridge.BindProjectRoot(projectRoot); err != nil {
-		t.Fatal(err)
+	if bindProject {
+		if err := runtimeBridge.BindProjectRoot(projectRoot); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	originalStorePath := *storePath
@@ -178,6 +232,7 @@ type bashToolChainServer struct {
 	requests             int
 	secondRequestStarted chan struct{}
 	releaseSecondRequest chan struct{}
+	expectedToolResult   string
 }
 
 func newBashToolChainServer(t *testing.T) *bashToolChainServer {
@@ -185,6 +240,7 @@ func newBashToolChainServer(t *testing.T) *bashToolChainServer {
 	server := &bashToolChainServer{
 		secondRequestStarted: make(chan struct{}),
 		releaseSecondRequest: make(chan struct{}),
+		expectedToolResult:   "exit_code",
 	}
 	server.Server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		server.serve(t, writer, request)
@@ -254,7 +310,7 @@ func (server *bashToolChainServer) serve(t *testing.T, writer http.ResponseWrite
 	}
 
 	if requestNumber == 2 {
-		if !providerMessagesContainToolResult(payload.Messages, "call-bash-1", "exit_code") {
+		if !providerMessagesContainToolResult(payload.Messages, "call-bash-1", server.expectedToolResult) {
 			http.Error(writer, "second provider request did not contain the bash tool result", http.StatusBadRequest)
 			return
 		}
@@ -291,6 +347,10 @@ func writeSSE(t *testing.T, writer http.ResponseWriter, flusher http.Flusher, pa
 }
 
 func waitForToolCompleted(t *testing.T, ctx context.Context, events <-chan application.Event, name string) application.Event {
+	return waitForToolStatus(t, ctx, events, name, "success")
+}
+
+func waitForToolStatus(t *testing.T, ctx context.Context, events <-chan application.Event, name, status string) application.Event {
 	t.Helper()
 	for {
 		select {
@@ -305,7 +365,7 @@ func waitForToolCompleted(t *testing.T, ctx context.Context, events <-chan appli
 			if err := json.Unmarshal(event.Payload, &message); err != nil {
 				t.Fatalf("decode tool.completed message: %v", err)
 			}
-			if message.Tool != nil && message.Tool.Name == name && message.Tool.Status == "success" {
+			if message.Tool != nil && message.Tool.Name == name && message.Tool.Status == status {
 				return event
 			}
 		case <-ctx.Done():

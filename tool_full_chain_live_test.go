@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/gui"
 )
 
 // TestManualSmokeRealAccountBashFullChain is an opt-in paid-provider smoke
@@ -32,7 +33,7 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	defer subscription.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := harness.app.Submit(ctx, "Call the bash tool exactly once with command pwd. After it completes, report the working directory in one short sentence. Do not call any other tool."); err != nil {
+	if err := harness.app.Submit(ctx, "Call the bash tool exactly once with command pwd && ls -la. After it completes, report the working directory in one short sentence. Do not call any other tool."); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,14 +53,79 @@ func TestManualSmokeRealAccountBashFullChain(t *testing.T) {
 	if err := json.Unmarshal([]byte(completedMessage.Tool.Result), &result); err != nil {
 		t.Fatalf("decode live bash result: %v", err)
 	}
-	if result.ExitCode != 0 || !strings.Contains(strings.ToLower(result.Stdout), strings.ToLower(projectRoot)) {
-		t.Fatalf("live bash result = %+v, want project cwd %q", result, projectRoot)
+	projectDir := filepath.Base(projectRoot)
+	if result.ExitCode != 0 || !strings.Contains(strings.ToLower(result.Stdout), strings.ToLower(projectDir)) {
+		t.Fatalf("live bash result = %+v, want project directory %q", result, projectDir)
 	}
 	if err := harness.app.WaitForIdle(ctx); err != nil {
 		t.Fatalf("live chat did not become idle: %v\n%s", err, allGoroutineStacks())
 	}
 	if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
 		t.Fatalf("live final chat state = %+v", snapshot.Chat)
+	}
+}
+
+// TestManualSmokeRealAccountGUIBridgeBashFullChain is the opt-in real API
+// smoke for the complete GUI backend boundary: Bridge.Submit enters the
+// production runtime and tool.completed is relayed back through seelex:event.
+func TestManualSmokeRealAccountGUIBridgeBashFullChain(t *testing.T) {
+	accountsSource := strings.TrimSpace(os.Getenv("SEELEX_SMOKE_ACCOUNTS"))
+	if accountsSource == "" {
+		t.Skip("set SEELEX_SMOKE_ACCOUNTS to an accounts.yaml path to run the live smoke test")
+	}
+
+	projectRoot := t.TempDir()
+	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	copyOpaqueFile(t, accountsSource, accountsPath)
+	harness := newFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	bridge, err := gui.NewBridge(harness.app, gui.Options{Title: "Seelex live smoke"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	events := make(chan application.Event, 256)
+	bridge.Start(ctx, func(_ context.Context, name string, payload any) {
+		if name != "seelex:event" {
+			return
+		}
+		event, ok := payload.(application.Event)
+		if ok {
+			events <- event
+		}
+	})
+	defer bridge.Stop()
+
+	if err := bridge.Submit("Call the bash tool exactly once with command pwd && ls -la. After it completes, report the working directory in one short sentence. Do not call any other tool."); err != nil {
+		t.Fatal(err)
+	}
+
+	completed := waitForToolCompleted(t, ctx, events, "bash")
+	var completedMessage application.Message
+	if err := json.Unmarshal(completed.Payload, &completedMessage); err != nil {
+		t.Fatalf("decode GUI Bridge live tool.completed payload: %v", err)
+	}
+	if completedMessage.Tool == nil || completedMessage.Tool.Status != "success" {
+		t.Fatalf("GUI Bridge live bash completion = %#v", completedMessage.Tool)
+	}
+	var result struct {
+		Stdout   string `json:"stdout"`
+		Stderr   string `json:"stderr"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal([]byte(completedMessage.Tool.Result), &result); err != nil {
+		t.Fatalf("decode GUI Bridge live bash result: %v", err)
+	}
+	projectDir := filepath.Base(projectRoot)
+	if result.ExitCode != 0 || !strings.Contains(strings.ToLower(result.Stdout), strings.ToLower(projectDir)) {
+		t.Fatalf("GUI Bridge live bash result = %+v, want project directory %q", result, projectDir)
+	}
+	if err := harness.app.WaitForIdle(ctx); err != nil {
+		t.Fatalf("GUI Bridge live chat did not become idle: %v\n%s", err, allGoroutineStacks())
+	}
+	if snapshot := bridge.Snapshot(); snapshot.Chat.Error != "" || snapshot.Chat.Running {
+		t.Fatalf("GUI Bridge live final chat state = %+v", snapshot.Chat)
 	}
 }
 

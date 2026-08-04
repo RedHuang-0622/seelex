@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,7 +39,11 @@ var (
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
 	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
 	permissionMode = flag.String("permission", "manual", "权限模式: manual(白名单外需审批) | full_access(全部放行)")
-	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui")
+	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui | backend")
+	backendPrompt  = flag.String("backend-prompt", "", "后端诊断请求（仅 -frontend backend；为空时从标准输入逐行读取）")
+	backendTimeout = flag.Duration("backend-timeout", 2*time.Minute, "后端单次诊断请求的最大等待时间")
+	backendLogPath = flag.String("backend-log", "", "后端诊断日志文件（仅 -frontend backend；仍同步输出到标准输出）")
+	backendProject = flag.String("backend-project", "", "后端诊断绑定的项目根目录（仅 -frontend backend；显式提供才会绑定）")
 	showVersion    = flag.Bool("version", false, "显示版本号并退出")
 	runtimeLimits  seelexctx.Limits // initRuntime 加载的 limits（后续初始化消费）
 )
@@ -74,6 +79,18 @@ func run() error {
 		return fmt.Errorf("前端模式无效: %w", err)
 	}
 	*frontendMode = frontend
+	var backendOutput io.Writer
+	var backendTrace *backendEventLogger
+	if frontend == "backend" {
+		output, closeOutput, outputErr := openBackendOutput(*backendLogPath)
+		if outputErr != nil {
+			return outputErr
+		}
+		defer func() { _ = closeOutput() }()
+		backendOutput = output
+		backendTrace = newBackendEventLogger(output, time.Now)
+		backendTrace.LogStage("startup.flags.parsed")
+	}
 	if frontend == "gui" && !gui.Available() {
 		return fmt.Errorf(`当前二进制未包含 GUI；请使用 go run -tags "gui,desktop,production" . -frontend gui`)
 	}
@@ -84,23 +101,32 @@ func run() error {
 	*permissionMode = string(mode)
 	*storePath = resolveStorePath(*storePath)
 
+	logBackendStartup(backendTrace, "startup.runtime.begin")
 	runtime, err := initRuntime()
 	if err != nil {
 		return err
 	}
 	defer runtime.Shutdown()
+	if backendTrace != nil {
+		runtime.SetBashDiagnosticObserver(backendTrace.LogBashEvent)
+	}
+	logBackendStartup(backendTrace, "startup.runtime.ready")
 
 	runtime.RegisterBuiltins()
+	logBackendStartup(backendTrace, "startup.builtins.ready")
 	skillRegistry := initSkillSystem()
+	logBackendStartup(backendTrace, "startup.skills.ready")
 	pluginManager, err := initPluginSystem(runtime, skillRegistry)
 	if err != nil {
 		return err
 	}
+	logBackendStartup(backendTrace, "startup.plugins.ready")
 	store, err := initStore()
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+	logBackendStartup(backendTrace, "startup.store.ready")
 	runtime.AttachHistoryRouter(store)
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
@@ -113,11 +139,16 @@ func run() error {
 	if err := setupPermissionGate(runtime, approval); err != nil {
 		return fmt.Errorf("权限模式无效: %w", err)
 	}
+	logBackendStartup(backendTrace, "startup.permissions.ready")
 	toolHooks := application.NewToolHookBridge()
+	if backendTrace != nil {
+		toolHooks.SetDiagnosticObserver(backendTrace.LogToolHookEvent)
+	}
 	frameworkEngine, err := initEngine(runtime, toolHooks, "")
 	if err != nil {
 		return err
 	}
+	logBackendStartup(backendTrace, "startup.engine.ready")
 	registerProductTools(runtime, pluginManager, frameworkEngine, approval)
 	if err := activateDefaultPlugin(pluginManager, frameworkEngine); err != nil {
 		return err
@@ -142,6 +173,7 @@ func run() error {
 		return err
 	}
 	defer app.Shutdown()
+	logBackendStartup(backendTrace, "startup.application.ready")
 	registerTaskTerminalTools(runtime, app)
 	registerContextReadTools(runtime, app, sessionManager)
 	registerProjectRefreshTool(runtime, store)
@@ -169,15 +201,15 @@ func run() error {
 	runtime.SetSkillRegistry(skillRegistry)
 	// plan 工具面归位（plan.md §6）：goal skill 激活时主代理才可见 plan 工具
 	// （模型自由层默认面 = todolist + fork）。激活判定从 application 快照读。
-	runtime.SetGoalSkillProvider(func() bool {
-		for _, id := range app.ActiveSkillIDs() {
-			if id == "goal" {
-				return true
-			}
+	runtime.SetGoalSkillProvider(app.GoalSkillActive)
+	if frontend == "backend" && strings.TrimSpace(*backendProject) != "" {
+		if err := bindBackendProject(app, *backendProject); err != nil {
+			return err
 		}
-		return false
-	})
-	return startFrontend(app)
+		logBackendStartup(backendTrace, "startup.workspace.ready")
+	}
+	logBackendStartup(backendTrace, "startup.frontend.ready")
+	return startFrontend(app, backendOutput)
 }
 
 // contextExchanger 是父子 actor 上下文消息通道实现（Actor 消息边界）：
@@ -569,13 +601,15 @@ func startTUI(model tui.Model) error {
 	return nil
 }
 
-func startFrontend(app *application.Service) error {
+func startFrontend(app *application.Service, backendOutput io.Writer) error {
 	switch *frontendMode {
 	case "gui":
 		if err := gui.Run(app, gui.Options{Title: "Seelex", Version: Version}); err != nil {
 			return fmt.Errorf("GUI 错误: %w", err)
 		}
 		return nil
+	case "backend":
+		return startBackendConsole(app, *backendPrompt, *backendTimeout, backendOutput)
 	default:
 		return startTUI(initTUI(app))
 	}
@@ -584,10 +618,10 @@ func startFrontend(app *application.Service) error {
 func parseFrontendMode(value string) (string, error) {
 	mode := strings.ToLower(strings.TrimSpace(value))
 	switch mode {
-	case "tui", "gui":
+	case "tui", "gui", "backend":
 		return mode, nil
 	default:
-		return "", fmt.Errorf("%q，允许值为 tui 或 gui", value)
+		return "", fmt.Errorf("%q，允许值为 tui、gui 或 backend", value)
 	}
 }
 

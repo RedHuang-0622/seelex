@@ -79,3 +79,5 @@ node --test gui/frontend/dist/*.test.mjs
 最终复验结果：GUI `Bridge` 工具完成与 FA 解锁用例 `-count=10` 通过；Approval/permission 定向竞争用例 `-count=10` 通过；前端 Node 57/57 通过；`go test ./... -p 1 -count=1 -timeout=120s`、`go vet -p 1 ./...`、普通 `go build -p 1 ./...` 和 `go build -p 1 -tags "gui,desktop,production" ./...` 均通过。Windows 本机 `CGO_ENABLED=0` 且未安装 GCC，新增路径本轮未声明为 `-race` 验证；以重复定向并发用例补充覆盖。
 
 后续运行期复现补强：完整套件首次正确捕获 Git Bash 的 POSIX 路径显示与原 Windows 绝对路径断言不一致，已把断言收敛为 project basename；这证明命令已经成功执行而非卡住。修正后 `go test ./... -p 1 -count=1 -timeout=120s` 全绿；新增 `PermissionAutoApproval` 和 GUI Bridge 测试重复 10 次全绿，Windows scoped `bash` 的 `pwd && ls -la` 重复 5 次全绿。
+
+真实账号复验（不输出配置）：强制 `bash(pwd && ls -la)` 在 3.37 秒内收到 `tool.completed` 并进入 idle，确认工具/Runtime/Application 已完成；新增前端 active chat Snapshot 对账测试覆盖 WebView terminal event 遗失后的收敛。

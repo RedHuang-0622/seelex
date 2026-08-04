@@ -29,6 +29,23 @@ func (service *taskContextCoordinator) activateTaskSkillsLocked(state *taskExecu
 			ActivatedAt: time.Now(), SourceEvent: service.transcriptSeq + 1,
 		})
 	}
+	service.syncGoalSkillActiveLocked()
+}
+
+// syncGoalSkillActiveLocked projects the task-owned skill set into the
+// lock-free visibility value consumed by Runtime.VisibleTools. The caller must
+// hold service.mu.
+func (service *taskContextCoordinator) syncGoalSkillActiveLocked() {
+	active := false
+	if state := service.taskExecution; state != nil {
+		for _, skill := range state.activeSkills {
+			if skill.SkillID == "goal" {
+				active = true
+				break
+			}
+		}
+	}
+	service.goalSkillActive.Store(active)
 }
 
 func (service *taskContextCoordinator) appendTranscriptEventLocked(event TranscriptEvent) TranscriptEvent {
@@ -340,6 +357,7 @@ func (service *taskContextCoordinator) restoreTaskProjectionLocked(projection *T
 	if projection == nil {
 		service.taskExecution = nil
 		service.taskService = nil
+		service.syncGoalSkillActiveLocked()
 		return
 	}
 	objective := service.resolveObjectiveRefLocked(projection.ObjectiveRef)
@@ -374,6 +392,7 @@ func (service *taskContextCoordinator) restoreTaskProjectionLocked(projection *T
 	}
 	service.taskExecution = state
 	service.taskService = newTaskService(service.serviceState, state)
+	service.syncGoalSkillActiveLocked()
 }
 
 func (service *taskContextCoordinator) resolveObjectiveRefLocked(objectiveRef string) string {

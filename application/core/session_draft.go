@@ -61,6 +61,7 @@ func (service *Service) BeginNewSession() error {
 	service.inputQueue = nil
 	service.taskExecution = nil
 	service.taskService = nil
+	service.components.tasks.syncGoalSkillActiveLocked()
 	service.transcript = nil
 	service.transcriptSeq = 0
 	service.pendingProviderCalls = nil

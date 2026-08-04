@@ -461,11 +461,27 @@ func (service *Service) planBranchBindingLocked() seelebridge.PlanBranchBinding 
 }
 
 func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration) {
+	service.handleToolCompleteObserved(name, id, result, toolErr, duration, nil)
+}
+
+// handleToolCompleteObserved keeps the production completion projection in one
+// place while allowing ToolHookBridge to bracket the few blocking boundaries
+// during an explicitly enabled backend diagnostic run.
+func (service *Service) handleToolCompleteObserved(name, id, result string, toolErr error, duration time.Duration, observe func(string)) {
+	emit := func(stage string) {
+		if observe != nil {
+			observe(stage)
+		}
+	}
+	emit("toolhook.complete.flush.start")
 	service.mu.RLock()
 	activeRequestID := service.snapshot.Chat.RequestID
 	service.mu.RUnlock()
 	service.flushStreamBatcher(activeRequestID)
+	emit("toolhook.complete.flush.done")
+	emit("toolhook.complete.lock.start")
 	service.mu.Lock()
+	emit("toolhook.complete.lock.done")
 	toolArguments := ""
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
 		tool := service.snapshot.Conversation[index].Tool
@@ -474,10 +490,14 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 			break
 		}
 	}
+	emit("toolhook.complete.transcript.start")
 	providerResult, _ := service.components.tasks.recordToolTranscriptLocked(name, id, toolArguments, result, toolErr)
+	emit("toolhook.complete.transcript.done")
+	emit("toolhook.complete.task.start")
 	service.currentTaskServiceLocked().ObserveTool(ToolObservation{
 		RequestID: service.snapshot.Chat.RequestID, Name: name, Result: providerResult, Err: toolErr,
 	})
+	emit("toolhook.complete.task.done")
 	status, errorText := "success", ""
 	if toolErr != nil {
 		status, errorText = "error", presentToolError(name, toolErr)
@@ -525,11 +545,15 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 		appended := *service.appendMessageLocked("assistant", "", nil)
 		assistant = &appended
 	}
+	emit("toolhook.complete.runtime.start")
 	service.refreshRuntimeLocked(context.Background())
+	emit("toolhook.complete.runtime.done")
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
 	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
+	emit("toolhook.complete.unlock.done")
+	emit("toolhook.complete.event.start")
 	service.events.Publish(EventToolCompleted, revision, requestID, message)
 	if planFailure != nil {
 		service.events.Publish(EventInteractionOpened, revision, planFailure.ID, planFailure)
@@ -538,6 +562,7 @@ func (service *Service) handleToolComplete(name, id, result string, toolErr erro
 		service.events.Publish(EventMessageAdded, revision, requestID, *assistant)
 	}
 	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+	emit("toolhook.complete.event.done")
 }
 
 // updatePlanFromLoad 从 plan_load 的参数 JSON 初始化 PlanState。
@@ -1159,17 +1184,49 @@ func extractFailedNodeID(errMsg string) string {
 }
 
 type ToolHookBridge struct {
-	mu      sync.Mutex
-	service *Service
-	toolSeq uint64
-	pending map[string][]string
+	mu         sync.Mutex
+	service    *Service
+	toolSeq    uint64
+	pending    map[string][]string
+	diagnostic ToolHookDiagnosticObserver
 }
+
+// ToolHookDiagnosticEvent is metadata-only instrumentation for the boundary
+// between the framework session loop and application event projection.
+// Arguments and tool output are intentionally excluded.
+type ToolHookDiagnosticEvent struct {
+	Stage string
+	Name  string
+	Err   error
+}
+
+// ToolHookDiagnosticObserver receives best-effort ToolHookBridge stages.
+type ToolHookDiagnosticObserver func(ToolHookDiagnosticEvent)
 
 func NewToolHookBridge() *ToolHookBridge { return &ToolHookBridge{} }
 func (bridge *ToolHookBridge) Bind(service *Service) {
 	bridge.mu.Lock()
 	bridge.service = service
 	bridge.mu.Unlock()
+}
+
+// SetDiagnosticObserver installs optional, best-effort lifecycle diagnostics.
+// Passing nil disables them.
+func (bridge *ToolHookBridge) SetDiagnosticObserver(observer ToolHookDiagnosticObserver) {
+	bridge.mu.Lock()
+	bridge.diagnostic = observer
+	bridge.mu.Unlock()
+}
+
+func (bridge *ToolHookBridge) observeDiagnostic(event ToolHookDiagnosticEvent) {
+	bridge.mu.Lock()
+	observer := bridge.diagnostic
+	bridge.mu.Unlock()
+	if observer == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	observer(event)
 }
 func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 	return &session.LoopHooks{
@@ -1183,17 +1240,27 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 		},
 		OnToolStart: func(_ context.Context, info session.ToolCallInfo) {
 			info = normalizePlanToolCallInfo(info)
+			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.enter", Name: info.Name})
 			service, id := bridge.beginTool(info)
+			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.matched", Name: info.Name})
 			if service != nil {
+				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.project.start", Name: info.Name})
 				service.recordReActToolCall()
 				service.handleToolStart(info.Name, id, info.Arguments)
+				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.start.project.done", Name: info.Name})
 			}
 		},
 		OnToolComplete: func(_ context.Context, info session.ToolCallInfo) {
 			info = normalizePlanToolCallInfo(info)
+			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.enter", Name: info.Name, Err: info.Error})
 			service, id := bridge.completeTool(info)
+			bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.matched", Name: info.Name, Err: info.Error})
 			if service != nil {
-				service.handleToolComplete(info.Name, id, info.Result, info.Error, info.Duration)
+				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.project.start", Name: info.Name, Err: info.Error})
+				service.handleToolCompleteObserved(info.Name, id, info.Result, info.Error, info.Duration, func(stage string) {
+					bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: stage, Name: info.Name, Err: info.Error})
+				})
+				bridge.observeDiagnostic(ToolHookDiagnosticEvent{Stage: "toolhook.complete.project.done", Name: info.Name, Err: info.Error})
 			}
 		},
 		OnIterationComplete: func(_ context.Context, turn int) bool {

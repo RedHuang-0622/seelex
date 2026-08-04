@@ -50,3 +50,7 @@ node --test gui/frontend/dist/*.test.mjs
 ```
 
 权威设计文档位于 [`docs/gui`](../docs/gui/README.md)。
+
+## 事件与关闭生命周期
+
+桌面宿主在启动时调用 `Bridge.Start`，在关闭时调用 `Bridge.Stop`；前者先发送 `seelex:ready` 快照，再将 Application Event 原样转发为 `seelex:event`。关闭运行中的会话会先进入 graceful drain，最长等待 5 秒；超时表示工具、审批或 Provider 未收敛，Bridge 会取消当前聊天并继续退出，避免窗口无限处于拒绝关闭状态。

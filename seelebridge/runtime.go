@@ -113,6 +113,8 @@ type Runtime struct {
 	nodeSessions        map[string]*session.Session
 	nodeSnapshots       map[string][]types.Message
 	toolCallTimeout     time.Duration
+	bashObserverMu      sync.RWMutex
+	bashObserver        BashDiagnosticObserver
 	planDecisionTimeout time.Duration
 	approvalTimeout     time.Duration
 	heartbeatInterval   time.Duration
@@ -240,9 +242,13 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		hook:              hook,
 		eventErrorHandler: func(_ context.Context, err error) { log.Printf("seelebridge: event sink: %v", err) },
 	}
+	// The wrapper is inert until the backend diagnostic observer is enabled.
+	// It brackets telemetry.After, the only framework boundary between a tool
+	// registry return and the application ToolHookBridge completion callback.
+	r.hook = newDiagnosticTelemetryHook(r.hook, r)
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.subagentToolMiddleware())}
+	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.subagentToolMiddleware(), r.bashDiagnosticMiddleware())}
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
 	if err := r.assembleCompleters(); err != nil {
@@ -366,6 +372,20 @@ func (r *Runtime) Shutdown() {
 	if r != nil && r.agt != nil {
 		r.agt.Shutdown()
 	}
+}
+
+// SetBashDiagnosticObserver installs an optional, best-effort diagnostic
+// observer for the project-scoped bash tool. Events contain no command text,
+// arguments, workdir, output, or account data, so a console logger can be
+// enabled while investigating a stalled tool call without exposing payloads.
+// Passing nil disables the observer.
+func (r *Runtime) SetBashDiagnosticObserver(observer BashDiagnosticObserver) {
+	if r == nil {
+		return
+	}
+	r.bashObserverMu.Lock()
+	r.bashObserver = observer
+	r.bashObserverMu.Unlock()
 }
 
 func (r *Runtime) Model() string { return r.model }

@@ -7,6 +7,7 @@ import { planToDSL, reconcilePlanDSL, renderNodeDetail, setNodeDetailConversatio
 import { collectReadFileSources } from "./read-sources.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
+import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
 
 const state = {
   info: null,
@@ -46,6 +47,10 @@ const client = createGUIClient({
   onError: showToast
 });
 const bindRuntimeEvents = createRuntimeEventBinder({ client, onError: showToast });
+const activeChatSync = createActiveChatSnapshotSync({
+  refresh: () => refresh({ scroll: false }),
+  onError: showToast
+});
 const effortControl = createEffortControl({
   root: elements["effort-control"],
   input: elements["effort-range"],
@@ -91,10 +96,12 @@ function render(snapshot, options = {}) {
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
   renderWorkspace(snapshot);
+  activeChatSync.observe(snapshot);
 }
 
 function renderIncremental(snapshot, kind) {
   if (!snapshot) return;
+  activeChatSync.observe(snapshot);
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
     chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history);
     chatView.renderControls(snapshot);
@@ -117,6 +124,8 @@ function renderIncremental(snapshot, kind) {
   }
   if (kind === "interaction.opened" || kind === "interaction.closed") renderInteraction(snapshot.interaction);
 }
+
+window.addEventListener("beforeunload", () => activeChatSync.stop());
 
 function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;

@@ -251,6 +251,21 @@ func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
 }
 func (runtime *fakeRuntime) UnbindProjectRoot() { runtime.projectRoot = "" }
 
+// goalVisibilityRuntime models the production visibility policy: completing a
+// tool refreshes the runtime while service.mu is held, and VisibleTools asks
+// whether the goal skill is active. The predicate must therefore be lock-free.
+type goalVisibilityRuntime struct {
+	*fakeRuntime
+	goalActive func() bool
+}
+
+func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool {
+	if runtime.goalActive != nil && runtime.goalActive() {
+		return []Tool{{Name: "plan_load", Description: "load plan"}}
+	}
+	return []Tool{{Name: "read", Description: "read files"}}
+}
+
 type fakePlugins struct{ current PluginInfo }
 
 func (*fakePlugins) All() []PluginInfo {
@@ -1123,6 +1138,36 @@ func TestToolEventsUpdateSnapshot(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("completed tool call not found: %#v", snapshot.Conversation)
+	}
+}
+
+func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testing.T) {
+	service := newTestService(&fakeEngine{})
+	defer service.Shutdown()
+	runtime := &goalVisibilityRuntime{fakeRuntime: &fakeRuntime{}, goalActive: service.GoalSkillActive}
+	service.deps.Runtime = runtime
+
+	service.mu.Lock()
+	service.taskExecution = newTaskExecutionState("task-goal", "plan work", "high")
+	service.components.tasks.activateTaskSkillsLocked(service.taskExecution, []PromptLayer{{Kind: "skill", Name: "goal", Text: "goal prompt"}})
+	service.mu.Unlock()
+	if !service.GoalSkillActive() {
+		t.Fatal("goal skill state was not projected")
+	}
+
+	service.handleToolStart("bash", "bash-goal", `{"command":"echo ok"}`)
+	done := make(chan struct{})
+	go func() {
+		service.handleToolComplete("bash", "bash-goal", "ok", nil, time.Millisecond)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("tool completion deadlocked while refreshing goal-skill visibility")
+	}
+	if visible := service.Snapshot().Runtime.VisibleTools; len(visible) != 1 || visible[0].Name != "plan_load" {
+		t.Fatalf("visible tools = %#v, want goal-skill policy result", visible)
 	}
 }
 

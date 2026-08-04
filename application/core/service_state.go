@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 )
 
 // serviceState is assembled from cohesive state groups. Components share the
@@ -69,6 +70,7 @@ type planRuntimeState struct {
 type taskRuntimeState struct {
 	taskExecution           *taskExecutionState
 	taskService             *TaskService // 当前任务的 TaskService（与 taskExecution 同生命周期）
+	goalSkillActive         atomic.Bool
 	contextControlFailure   error
 	contextControlRequestID string
 	tokenCounter            requestTokenCounter

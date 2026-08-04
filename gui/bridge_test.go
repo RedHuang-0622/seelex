@@ -150,7 +150,7 @@ func TestBridgeDoesNotTreatLaunchDirectoryAsProject(t *testing.T) {
 	}
 }
 
-func TestBridgeForwardsCommands(t *testing.T) {
+func TestBridgeSubmitForwardsFrontendRequestToApplication(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
 	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
@@ -161,6 +161,19 @@ func TestBridgeForwardsCommands(t *testing.T) {
 	if err := bridge.Submit("hello"); err != nil {
 		t.Fatal(err)
 	}
+	if fake.submitted != "hello" {
+		t.Fatalf("frontend Submit text = %q, want hello", fake.submitted)
+	}
+}
+
+func TestBridgeForwardsOtherCommands(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if err := bridge.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +200,7 @@ func TestBridgeForwardsCommands(t *testing.T) {
 	}
 	suggestions := bridge.Suggestions("/he")
 
-	if fake.submitted != "hello" || !fake.beganNewSession || fake.resumedSession != "session-2" || fake.cancelled != "request-1" {
+	if !fake.beganNewSession || fake.resumedSession != "session-2" || fake.cancelled != "request-1" {
 		t.Fatalf("chat commands were not forwarded: %#v", fake)
 	}
 	if fake.resolvedID != "approval-1" || fake.resolvedOption != "allow" {
@@ -212,7 +225,16 @@ type closeFakeApplication struct {
 	mu            sync.Mutex
 	beginCalls    int
 	waitCalls     int
+	cancelCalls   int
 	waitStartOnce sync.Once
+}
+
+func (fake *closeFakeApplication) CancelChat(requestID string) bool {
+	fake.mu.Lock()
+	fake.cancelled = requestID
+	fake.cancelCalls++
+	fake.mu.Unlock()
+	return true
 }
 
 func newCloseFakeApplication(running bool) *closeFakeApplication {
@@ -297,6 +319,35 @@ func TestCloseCoordinatorAllowsIdleClose(t *testing.T) {
 	}
 }
 
+func TestCloseCoordinatorCancelsStalledChatAndQuits(t *testing.T) {
+	t.Parallel()
+	fake := newCloseFakeApplication(true)
+	quit := make(chan struct{}, 1)
+	coordinator := newCloseCoordinatorWithTimeout(fake, func() { quit <- struct{}{} }, 10*time.Millisecond)
+
+	if !coordinator.BeforeClose() {
+		t.Fatal("running chat must initially prevent native window close")
+	}
+	select {
+	case <-fake.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("idle wait did not start")
+	}
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("stalled chat did not force the native quit path")
+	}
+	if coordinator.BeforeClose() {
+		t.Fatal("forced quit must permit the programmatic close")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.beginCalls != 1 || fake.waitCalls != 1 || fake.cancelCalls != 1 || fake.cancelled != "" {
+		t.Fatalf("stalled close calls = begin:%d wait:%d cancel:%d request:%q", fake.beginCalls, fake.waitCalls, fake.cancelCalls, fake.cancelled)
+	}
+}
+
 func TestBridgeRelaysApplicationEvents(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
@@ -308,10 +359,10 @@ func TestBridgeRelaysApplicationEvents(t *testing.T) {
 	emitted := make(chan emittedEvent, 4)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	bridge.start(ctx, func(_ context.Context, name string, payload any) {
+	bridge.Start(ctx, func(_ context.Context, name string, payload any) {
 		emitted <- emittedEvent{name: name, payload: payload}
 	})
-	defer bridge.stop()
+	defer bridge.Stop()
 
 	ready := waitEmitted(t, emitted)
 	if ready.name != "seelex:ready" {
@@ -332,6 +383,48 @@ func TestBridgeRelaysApplicationEvents(t *testing.T) {
 	}
 }
 
+func TestBridgeRelaysToolCompletedEventToFrontend(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emitted := make(chan emittedEvent, 4)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bridge.Start(ctx, func(_ context.Context, name string, payload any) {
+		emitted <- emittedEvent{name: name, payload: payload}
+	})
+	defer bridge.Stop()
+	_ = waitEmitted(t, emitted)
+
+	want := application.Message{
+		ID: "tool-result-1", Role: "tool_result", Content: `{"stdout":"ok"}`,
+		Tool: &application.ToolCall{ID: "tool-1", Name: "bash", Status: "success", Result: `{"stdout":"ok"}`},
+	}
+	published := fake.hub.Publish(application.EventToolCompleted, 2, "request-1", want)
+	relayed := waitEmitted(t, emitted)
+	if relayed.name != eventName {
+		t.Fatalf("relayed event name = %q, want %q", relayed.name, eventName)
+	}
+	event, ok := relayed.payload.(application.Event)
+	if !ok {
+		t.Fatalf("relayed payload type = %T", relayed.payload)
+	}
+	if event.Kind != application.EventToolCompleted || event.Seq != published.Seq || event.RequestID != "request-1" {
+		t.Fatalf("relayed tool completion = %#v, want %#v", event, published)
+	}
+	var got application.Message
+	if err := json.Unmarshal(event.Payload, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Tool == nil || got.Tool.Name != "bash" || got.Tool.Status != "success" || got.Tool.Result != want.Tool.Result {
+		t.Fatalf("frontend tool completion payload = %#v", got)
+	}
+}
+
 func TestBridgeRelaysSubagentToolEventsToSeelexEvent(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
@@ -343,10 +436,10 @@ func TestBridgeRelaysSubagentToolEventsToSeelexEvent(t *testing.T) {
 	emitted := make(chan emittedEvent, 4)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	bridge.start(ctx, func(_ context.Context, name string, payload any) {
+	bridge.Start(ctx, func(_ context.Context, name string, payload any) {
 		emitted <- emittedEvent{name: name, payload: payload}
 	})
-	defer bridge.stop()
+	defer bridge.Stop()
 	_ = waitEmitted(t, emitted)
 
 	payload := application.SubagentToolEvent{
@@ -402,6 +495,9 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(string(script), `from "./plan-dsl.js"`) {
 		t.Fatal("embedded frontend does not load the Plan JSON DSL renderer")
+	}
+	if !strings.Contains(string(script), `from "./active-chat-sync.js"`) {
+		t.Fatal("embedded frontend does not reconcile a running chat from the authoritative Bridge Snapshot")
 	}
 	if strings.Contains(string(script), "let fullAccessOn") ||
 		!strings.Contains(string(script), `client.current()?.runtime?.full_access`) ||

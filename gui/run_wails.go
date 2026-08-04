@@ -44,12 +44,12 @@ func Run(app Application, config Options) error {
 		},
 		BackgroundColour: &wailsoptions.RGBA{R: 19, G: 22, B: 31, A: 1},
 		OnStartup: func(ctx context.Context) {
-			bridge.start(ctx, func(ctx context.Context, name string, payload any) {
+			bridge.Start(ctx, func(ctx context.Context, name string, payload any) {
 				runtime.EventsEmit(ctx, name, payload)
 			})
 		},
 		OnBeforeClose: func(context.Context) bool { return closer.BeforeClose() },
-		OnShutdown:    func(context.Context) { bridge.stop() },
+		OnShutdown:    func(context.Context) { bridge.Stop() },
 		Bind:          []interface{}{bridge},
 	})
 }

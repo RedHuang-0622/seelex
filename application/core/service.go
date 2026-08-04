@@ -41,3 +41,12 @@ func (service *Service) ActiveSkillIDs() []string {
 	}
 	return ids
 }
+
+// GoalSkillActive reports whether the current task has activated the goal
+// skill. The value is maintained with the task projection while service.mu is
+// held, then read atomically by the runtime visibility policy. Keeping this
+// query lock-free prevents Runtime.VisibleTools from re-entering service.mu
+// during a tool-completion projection.
+func (service *Service) GoalSkillActive() bool {
+	return service.goalSkillActive.Load()
+}

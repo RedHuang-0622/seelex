@@ -64,3 +64,8 @@
 - 正确性：`bash` 的公开契约以 Bash 语义为准；Windows 检测到 Git for Windows 后显式执行 `bash.exe -c`，避免 PowerShell 5.1 对 `&&` 的 parser error。
 - 并发：开启 FA 的 broker 自动决议覆盖入队前窗口，且只匹配 `PermissionRequest`，不会扩大到 Plan/manual 等用户审批。
 - 回归：完整 ToolHook/Application 测试接受 Bash 的 `/tmp/...` 目录表示，同时仍断言其为当前 project；不把显示路径格式误判为执行失败。
+
+## GUI 事件遗漏恢复审查（2026-08-04）
+
+- 事件链仍是低延迟路径；Snapshot 对账只在 chat 活跃时运行，且在 idle 后取消 timer，不把轮询扩散为常驻前端负担。
+- 对账只消费既有 Bridge Snapshot DTO，不增加敏感数据或绕过 Application 状态机。

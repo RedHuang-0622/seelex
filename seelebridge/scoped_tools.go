@@ -378,7 +378,29 @@ type scopedBashResult struct {
 	ExitCode int    `json:"exit_code"`
 }
 
-func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, error) {
+// BashDiagnosticEvent describes a boundary crossed by scopedBash. It is
+// deliberately metadata-only: command text, arguments, working directories,
+// output, and account data must never enter diagnostic logs.
+type BashDiagnosticEvent struct {
+	Stage    string
+	Shell    string
+	ExitCode int
+	Err      error
+}
+
+// BashDiagnosticObserver receives best-effort scoped bash stage events.
+// Implementations should return promptly; observer failures are isolated from
+// the tool call itself.
+type BashDiagnosticObserver func(BashDiagnosticEvent)
+
+func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (output string, returnedErr error) {
+	defer func() {
+		if returnedErr != nil {
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.handler.return.error", Err: returnedErr})
+			return
+		}
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.handler.return"})
+	}()
 	var input scopedBashInput
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("bash: invalid args: %w", err)
@@ -386,14 +408,18 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	if input.Command == "" {
 		return `{"stdout":"","stderr":"","exit_code":0}`, nil
 	}
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.start"})
 	workdir, err := r.resolveNodePath(ctx, input.Workdir, false)
 	if err != nil {
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.error", Err: err})
 		return "", err
 	}
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.resolve.done"})
 	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
 	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
 	// 待定位挂起根因后再接入（接入时需 fail-fast，不得悄悄降级）。
 	shell, shellArgs := scopedBashCommand(input.Command)
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.command.prepared", Shell: filepath.Base(shell)})
 	timeout := r.scopedToolTimeout(input.Timeout)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -402,20 +428,49 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	configureHiddenCommand(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err = cmd.Run()
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell)})
+	if err = cmd.Start(); err != nil {
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.process.start.error", Shell: filepath.Base(shell), Err: err})
+		return "", fmt.Errorf("bash: %w", err)
+	}
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.started", Shell: filepath.Base(shell)})
+	err = cmd.Wait()
 	if runCtx.Err() == context.DeadlineExceeded {
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.timeout", Shell: filepath.Base(shell), Err: runCtx.Err()})
 		return "", fmt.Errorf("bash: timeout after %v", timeout)
+	}
+	if runCtx.Err() != nil {
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.canceled", Shell: filepath.Base(shell), Err: runCtx.Err()})
+		return "", fmt.Errorf("bash: %w", runCtx.Err())
 	}
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else {
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.process.wait.error", Shell: filepath.Base(shell), Err: err})
 			return "", fmt.Errorf("bash: %w", err)
 		}
 	}
-	output, _ := json.Marshal(scopedBashResult{Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), ExitCode: exitCode})
-	return string(output), nil
+	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.exited", Shell: filepath.Base(shell), ExitCode: exitCode})
+	encoded, _ := json.Marshal(scopedBashResult{Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), ExitCode: exitCode})
+	return string(encoded), nil
+}
+
+func (r *Runtime) observeBash(event BashDiagnosticEvent) {
+	if r == nil {
+		return
+	}
+	r.bashObserverMu.RLock()
+	observer := r.bashObserver
+	r.bashObserverMu.RUnlock()
+	if observer == nil {
+		return
+	}
+	// Diagnostics cannot alter a production tool call, even when a consumer
+	// accidentally panics.
+	defer func() { _ = recover() }()
+	observer(event)
 }
 
 // scopedBashCommand chooses a shell that honors the public bash tool's syntax.
