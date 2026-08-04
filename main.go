@@ -685,13 +685,14 @@ func newPermissionBridge(broker *application.ApprovalBroker) toolspermission.App
 	return func(ctx *toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		req := ctx.Request
 		appReq := application.ApprovalRequest{
-			ID:       req.ID,
-			Question: req.Preview,
-			Options:  convertPermissionOptions(req.Options),
-			Risk:     req.Risk,
-			ToolName: req.ToolName,
-			Preview:  req.Preview,
-			Timeout:  req.Timeout,
+			ID:                req.ID,
+			Question:          req.Preview,
+			Options:           convertPermissionOptions(req.Options),
+			Risk:              req.Risk,
+			ToolName:          req.ToolName,
+			Preview:           req.Preview,
+			Timeout:           req.Timeout,
+			PermissionRequest: true,
 		}
 		decision, err := broker.Request(context.Background(), appReq)
 		if err != nil {

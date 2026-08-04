@@ -58,3 +58,9 @@
 - 并发：`Resolve` 与 `ResolveAll` 通过同一 pending map 原子争胜，测试覆盖 100 轮竞争且无双重完成。
 - 可逆性：CLI full-access 启动仍保留 manual 规则和 ApprovalHandler，关闭 FA 后不会退化成不可恢复的 full-access checker。
 - 前端：按钮读取 `snapshot.runtime.full_access`，`runtime.changed` 使用完整 Runtime payload，避免局部 payload 覆盖丢失其他 runtime 字段。
+
+## Windows runtime 复现审查（2026-08-04）
+
+- 正确性：`bash` 的公开契约以 Bash 语义为准；Windows 检测到 Git for Windows 后显式执行 `bash.exe -c`，避免 PowerShell 5.1 对 `&&` 的 parser error。
+- 并发：开启 FA 的 broker 自动决议覆盖入队前窗口，且只匹配 `PermissionRequest`，不会扩大到 Plan/manual 等用户审批。
+- 回归：完整 ToolHook/Application 测试接受 Bash 的 `/tmp/...` 目录表示，同时仍断言其为当前 project；不把显示路径格式误判为执行失败。

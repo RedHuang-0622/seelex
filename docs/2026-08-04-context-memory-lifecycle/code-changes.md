@@ -56,3 +56,9 @@
 - 默认 manual 白名单加入 `todolist_*` 和 task 终态控制工具，避免正常 Agent 编排被无意义审批阻塞。
 - 启动配置始终先安装 manual 基线，再按 CLI/GUI 开启 Full Access 覆盖层，确保能够切回 manual。
 - `gui/tool_full_chain_test.go` 以 GUI `Bridge` 为入口和出口，覆盖工具完成事件、FA 解锁审批、Snapshot 与 `seelex:event` relay。
+
+## Windows Bash 与 FA 切换竞态修复（2026-08-04）
+
+- `ApprovalRequest.PermissionRequest` 区分 permission gate 与 Plan/manual 人工审批；`ApprovalBroker.SetPermissionAutoApproval` 只为前者提供 Full Access 自动决议。
+- Application 在开启 FA 后同时设置自动决议和释放既有 pending request，覆盖权限 checker 已给出 `ask`、但 Request 尚未进入 pending map 的竞争窗口；关闭 FA 会先撤销自动决议。
+- Windows `bash` 工具优先使用 Git for Windows 的 `bash.exe`，不再把 Bash 命令直接交给 PowerShell 5.1。`pwd && ls -la` 已通过 project-scoped tool 和完整 ToolHook/Application 链路测试。

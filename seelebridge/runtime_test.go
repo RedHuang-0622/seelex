@@ -656,7 +656,7 @@ func TestRuntimeProjectScopedToolsUseBoundProject(t *testing.T) {
 	if err != nil || result != "project-b" {
 		t.Fatalf("project B read = %q, err=%v", result, err)
 	}
-	result, err = runtime.Agent().DirectDispatch(context.Background(), "bash", `{"command":"pwd","timeout":10}`)
+	result, err = runtime.Agent().DirectDispatch(context.Background(), "bash", `{"command":"pwd && ls -la","timeout":10}`)
 	if err != nil || !strings.Contains(result, filepath.Base(projectB)) {
 		t.Fatalf("bash did not use project root: result=%q err=%v", result, err)
 	}

@@ -28,13 +28,14 @@ const (
 )
 
 type ApprovalRequest struct {
-	ID       string
-	Question string
-	Options  []model.InteractionOption
-	Risk     string
-	ToolName string
-	Preview  string
-	Timeout  time.Duration
+	ID                string
+	Question          string
+	Options           []model.InteractionOption
+	Risk              string
+	ToolName          string
+	Preview           string
+	Timeout           time.Duration
+	PermissionRequest bool
 }
 type ApprovalDecision struct {
 	OptionID string `json:"option_id"`
@@ -45,10 +46,11 @@ type approvalPending struct {
 }
 
 type ApprovalBroker struct {
-	mu       sync.Mutex
-	pending  map[string]*approvalPending
-	events   *event.EventHub
-	observer func(*model.Interaction)
+	mu                    sync.Mutex
+	pending               map[string]*approvalPending
+	events                *event.EventHub
+	observer              func(*model.Interaction)
+	autoApprovePermission bool
 }
 
 func NewApprovalBroker(events *event.EventHub) *ApprovalBroker {
@@ -62,6 +64,15 @@ func (broker *ApprovalBroker) SetObserver(observer func(*model.Interaction)) {
 	broker.mu.Unlock()
 }
 
+// SetPermissionAutoApproval makes future permission-gate requests resolve
+// without opening an interaction. It deliberately excludes non-permission
+// approvals such as Plan/manual gates, which must always retain user control.
+func (broker *ApprovalBroker) SetPermissionAutoApproval(on bool) {
+	broker.mu.Lock()
+	broker.autoApprovePermission = on
+	broker.mu.Unlock()
+}
+
 func (broker *ApprovalBroker) Request(ctx context.Context, request ApprovalRequest) (ApprovalDecision, error) {
 	if request.ID == "" {
 		request.ID = fmt.Sprintf("approval-%d", time.Now().UnixNano())
@@ -69,6 +80,10 @@ func (broker *ApprovalBroker) Request(ctx context.Context, request ApprovalReque
 	interaction := Interaction{ID: request.ID, Kind: "approval", Title: "操作审批", Question: request.Question, Risk: request.Risk, ToolName: request.ToolName, Preview: request.Preview, Options: append([]InteractionOption(nil), request.Options...), OpenedAt: time.Now(), Timeout: request.Timeout}
 	pending := &approvalPending{interaction: interaction, result: make(chan ApprovalDecision, 1)}
 	broker.mu.Lock()
+	if request.PermissionRequest && broker.autoApprovePermission {
+		broker.mu.Unlock()
+		return ApprovalDecision{OptionID: "always"}, nil
+	}
 	if _, exists := broker.pending[request.ID]; exists {
 		broker.mu.Unlock()
 		return ApprovalDecision{}, fmt.Errorf("approval %q already pending", request.ID)

@@ -243,6 +243,12 @@ func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Bridge.SetFullAccess did not release pending approval")
 	}
+	autoDecision, autoErr := approval.Request(context.Background(), application.ApprovalRequest{
+		ID: "approval-after-full-access", PermissionRequest: true,
+	})
+	if autoErr != nil || autoDecision.OptionID != "always" {
+		t.Fatalf("post-toggle permission decision = %#v, err=%v", autoDecision, autoErr)
+	}
 	foundRuntimeChanged := false
 	eventDeadline := time.After(time.Second)
 	for !foundRuntimeChanged {

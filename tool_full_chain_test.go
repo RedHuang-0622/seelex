@@ -67,8 +67,9 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 	if err := json.Unmarshal([]byte(completedMessage.Tool.Result), &bashResult); err != nil {
 		t.Fatalf("decode bash result: %v", err)
 	}
-	if bashResult.ExitCode != 0 || !strings.Contains(strings.ToLower(bashResult.Stdout), strings.ToLower(tempDir)) {
-		t.Fatalf("bash completion = %+v, want project cwd %q", bashResult, tempDir)
+	projectDir := filepath.Base(tempDir)
+	if bashResult.ExitCode != 0 || !strings.Contains(strings.ToLower(bashResult.Stdout), strings.ToLower(projectDir)) {
+		t.Fatalf("bash completion = %+v, want project directory %q", bashResult, projectDir)
 	}
 
 	var toolResult string

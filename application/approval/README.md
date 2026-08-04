@@ -11,7 +11,7 @@
 - `ApprovalBroker`：维护待决请求表，以 request ID 关联等待方和 UI 决议。
 - `SetObserver`：把当前 Interaction 投影给 Application Snapshot。
 
-`Request` 注册 pending request、发布打开事件并等待 context、timeout、Resolve 或 Shutdown；`Resolve` 保证请求只完成一次；`ResolveAll` 用同一显式决议原子摘取并释放全部当前 pending request，供用户在工具等待期间开启 Full Access；`Shutdown` 唤醒全部等待者。
+`Request` 注册 pending request、发布打开事件并等待 context、timeout、Resolve 或 Shutdown；`Resolve` 保证请求只完成一次；`ResolveAll` 用同一显式决议原子摘取并释放全部当前 pending request。Full Access 还通过 `PermissionRequest` + `SetPermissionAutoApproval` 覆盖“切换发生在权限检查与入队之间”的窄竞态；非 permission 的 Plan/manual 审批不会被自动放行。
 
 ## 生态位与边界
 

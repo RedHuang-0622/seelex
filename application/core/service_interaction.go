@@ -148,12 +148,17 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 }
 
 func (service *Service) SetFullAccess(on bool) {
+	if !on && service.approval != nil {
+		service.approval.SetPermissionAutoApproval(false)
+	}
 	service.deps.Runtime.SetFullAccess(on)
-	if on && service.approval != nil {
+	fullAccess := service.deps.Runtime.FullAccess()
+	if fullAccess && service.approval != nil {
+		service.approval.SetPermissionAutoApproval(true)
 		service.approval.ResolveAll(ApprovalDecision{OptionID: "always"})
 	}
 	service.mu.Lock()
-	service.snapshot.Runtime.FullAccess = service.deps.Runtime.FullAccess()
+	service.snapshot.Runtime.FullAccess = fullAccess
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()

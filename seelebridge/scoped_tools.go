@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -392,17 +393,7 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	// 执行路径（2026-08-04 回滚）：沙箱接入被怀疑导致工具挂起，恢复 v1
 	// 直连 exec（cwd 门禁语义不变）；CommandSandbox 接口保留在 sandbox.go，
 	// 待定位挂起根因后再接入（接入时需 fail-fast，不得悄悄降级）。
-	shell := "sh"
-	shellArgs := []string{"-c", input.Command}
-	if _, err := os.Stat("/bin/bash"); err == nil {
-		shell = "bash"
-	} else if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; fileExists(powershell) {
-		shell = powershell
-		shellArgs = []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", input.Command}
-	} else if commandPrompt := `C:\Windows\System32\cmd.exe`; fileExists(commandPrompt) {
-		shell = commandPrompt
-		shellArgs = []string{"/d", "/s", "/c", input.Command}
-	}
+	shell, shellArgs := scopedBashCommand(input.Command)
 	timeout := r.scopedToolTimeout(input.Timeout)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -425,6 +416,33 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, erro
 	}
 	output, _ := json.Marshal(scopedBashResult{Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), ExitCode: exitCode})
 	return string(output), nil
+}
+
+// scopedBashCommand chooses a shell that honors the public bash tool's syntax.
+// Git for Windows supplies Bash on supported Windows development hosts; using
+// PowerShell first would reject ordinary model commands such as "pwd && ls -la".
+func scopedBashCommand(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		for _, bash := range []string{
+			`C:\Program Files\Git\bin\bash.exe`,
+			`C:\Program Files\Git\usr\bin\bash.exe`,
+			`C:\Program Files (x86)\Git\bin\bash.exe`,
+		} {
+			if fileExists(bash) {
+				return bash, []string{"-c", command}
+			}
+		}
+	}
+	if _, err := os.Stat("/bin/bash"); err == nil {
+		return "bash", []string{"-c", command}
+	}
+	if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; fileExists(powershell) {
+		return powershell, []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
+	}
+	if commandPrompt := `C:\Windows\System32\cmd.exe`; fileExists(commandPrompt) {
+		return commandPrompt, []string{"/d", "/s", "/c", command}
+	}
+	return "sh", []string{"-c", command}
 }
 
 func fileExists(path string) bool {

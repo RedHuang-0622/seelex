@@ -113,3 +113,47 @@ func TestResolveAllRacesSingleResolveWithoutDoubleCompletion(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionAutoApprovalClosesFullAccessEnqueueRace(t *testing.T) {
+	broker := NewApprovalBroker(nil)
+	broker.SetPermissionAutoApproval(true)
+	decision, err := broker.Request(context.Background(), ApprovalRequest{
+		ID: "permission-auto", PermissionRequest: true,
+	})
+	if err != nil || decision.OptionID != "always" {
+		t.Fatalf("automatic permission decision = %#v, err=%v", decision, err)
+	}
+
+	opened := make(chan struct{}, 1)
+	broker.SetObserver(func(interaction *Interaction) {
+		if interaction != nil {
+			opened <- struct{}{}
+		}
+	})
+	broker.SetPermissionAutoApproval(false)
+	result := make(chan ApprovalDecision, 1)
+	go func() {
+		value, requestErr := broker.Request(context.Background(), ApprovalRequest{
+			ID: "permission-manual", PermissionRequest: true,
+		})
+		if requestErr == nil {
+			result <- value
+		}
+	}()
+	select {
+	case <-opened:
+	case <-time.After(time.Second):
+		t.Fatal("manual permission request was not enqueued after Full Access turned off")
+	}
+	if err := broker.Resolve("permission-manual", ApprovalDecision{OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case value := <-result:
+		if value.OptionID != "allow" {
+			t.Fatalf("manual permission decision = %#v", value)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("manual permission request did not wait for explicit resolution")
+	}
+}
