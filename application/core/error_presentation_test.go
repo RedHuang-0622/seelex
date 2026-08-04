@@ -144,7 +144,7 @@ func TestClassifyStructuredErrorsByCode(t *testing.T) {
 
 func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New(`ChatClient stream: HTTP 500: server_error request_id=req-secret`)}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	subscription := service.events.Subscribe(16)
 	defer subscription.Close()
@@ -196,7 +196,7 @@ func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
 
 func TestRunChatLogsRawUnclassifiedError(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New("unrecognized internal failure request_id=req-diagnostic")}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 
 	var logs bytes.Buffer
@@ -220,9 +220,7 @@ func TestRunChatLogsRawUnclassifiedError(t *testing.T) {
 }
 
 func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T) {
-	service := newTestService(&fakeEngine{})
-	defer service.Shutdown()
-	service.deps.Sessions = failingSnapshotSessions{}
+	service := newTestService(t, &fakeEngine{}, withTestSessions(failingSnapshotSessions{}))
 
 	if err := service.Submit(t.Context(), "inspect project"); err != nil {
 		t.Fatal(err)

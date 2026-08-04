@@ -11,7 +11,7 @@ import (
 )
 
 func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -38,7 +38,7 @@ func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 }
 
 func TestTaskFailedRequiresFailureType(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -51,7 +51,7 @@ func TestTaskFailedRequiresFailureType(t *testing.T) {
 }
 
 func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -78,7 +78,7 @@ func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 }
 
 func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -103,7 +103,7 @@ func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 }
 
 func TestNaturalStopWithPendingAuthoritativePlanNeedsUserDecision(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -135,7 +135,7 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"source.go"}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: "found the current call path"},
 	}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -183,7 +183,7 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 
 func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "system", Content: "system instruction", ContentSet: true}}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -247,7 +247,7 @@ func TestContextControllerRejectsLargeToolOutputBeforeGlobalCompaction(t *testin
 		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "bash", Arguments: `{"summary":false}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: strings.Repeat("x", policy.MaxToolResultChars+1)},
 	}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -280,7 +280,7 @@ func TestTaskContextSummaryRetainsCompletedToolEvidence(t *testing.T) {
 
 func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	engine := &fakeEngine{}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.promptStack.Push("skill", "review", "review prompt")
 	service.mu.Lock()
@@ -323,7 +323,7 @@ func TestTaskContextSummaryStaysWithinProviderToolBudget(t *testing.T) {
 }
 
 func TestNoProgressBudgetStopsRepeatedToolRounds(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}

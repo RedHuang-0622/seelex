@@ -35,7 +35,7 @@ type fakeEngine struct {
 }
 
 func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	const privateInstruction = "private-system-instruction-must-not-reach-frontend"
 	service.promptStack.Push("base", "private", privateInstruction)
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
@@ -54,7 +54,7 @@ func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 }
 
 func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.startReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
@@ -82,7 +82,7 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-large", Name: "bash"}}},
 		{Role: "tool", ToolCallID: "call-large", Name: "bash", Content: rawResult, ContentSet: true},
 	}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.startReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
@@ -477,8 +477,55 @@ func (repo *fakeWorkspace) AllBindings() map[string]string {
 }
 func (*fakeWorkspace) DetectGitRemote(string) string { return "" }
 
-func newTestService(engine *fakeEngine) *Service {
-	return mustNew(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+type testServiceOption func(*Dependencies)
+
+func withTestSessions(sessions SessionPort) testServiceOption {
+	return func(deps *Dependencies) { deps.Sessions = sessions }
+}
+
+func withTestRuntime(runtime RuntimePort) testServiceOption {
+	return func(deps *Dependencies) { deps.Runtime = runtime }
+}
+
+// newTestService injects every dependency before New starts the asynchronous
+// session catalog worker and always drains it when the test finishes.
+func newTestService(t testing.TB, engine ChatEngine, options ...testServiceOption) *Service {
+	t.Helper()
+	deps := Dependencies{
+		Engine:   engine,
+		Runtime:  &fakeRuntime{},
+		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills:   fakeSkills{},
+		Sessions: fakeSessions{},
+	}
+	for _, apply := range options {
+		apply(&deps)
+	}
+	return mustNew(t, deps)
+}
+
+// mustNew gives bespoke dependency fixtures the same worker cleanup guarantee
+// as newTestService.
+func mustNew(t testing.TB, deps Dependencies) *Service {
+	t.Helper()
+	service, err := New(deps)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(service.Shutdown)
+	return service
+}
+
+func TestNewTestServiceCleansUpCatalogWorker(t *testing.T) {
+	var service *Service
+	t.Run("fixture", func(t *testing.T) {
+		service = newTestService(t, &fakeEngine{})
+	})
+	select {
+	case <-service.sessionCatalogDone:
+	case <-time.After(time.Second):
+		t.Fatal("test fixture did not stop the session catalog worker")
+	}
 }
 
 func waitForSnapshot(t *testing.T, service *Service, ready func(Snapshot) bool) Snapshot {
@@ -514,7 +561,7 @@ func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 	}
 	workspaces := newFakeWorkspace()
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: t.TempDir()}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -549,7 +596,7 @@ func TestSessionTitleUsesFirstUserQuestion(t *testing.T) {
 }
 
 func TestCurrentSessionNameUsesFirstQuestion(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	if err := service.Submit(context.Background(), "  first live question  "); err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +620,7 @@ func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			engine := &fakeEngine{}
-			service := mustNew(Dependencies{
+			service := mustNew(t, Dependencies{
 				Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 				Skills: fakeSkills{}, Sessions: test.sessions,
 			})
@@ -597,7 +644,7 @@ func TestWorkingHistoryReleasesOnlyAfterSuccessfulPersistence(t *testing.T) {
 func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "old question"}}}
 	sessions := &trackingSessions{}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
@@ -652,7 +699,7 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -693,7 +740,7 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 			"": {"saved": {{Role: "user", Content: "saved question"}, {Role: "assistant", Content: "saved answer"}}},
 		},
 	}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
@@ -722,7 +769,7 @@ func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
 	workspaces := newFakeWorkspace()
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -771,7 +818,7 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 	root := t.TempDir()
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "project", RootPath: root}
 	workspaces.BindSession("saved", "project-1")
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -797,7 +844,7 @@ func TestNewHydratesPersistedWorkspaceSessions(t *testing.T) {
 	workspaces.BindSession("saved-1", "project-1")
 	workspaces.BindSession("saved-2", "project-2")
 
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -828,7 +875,7 @@ func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-1")
 
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -856,7 +903,7 @@ func TestResumeRepairsBindingWhenHistoryLivesInAnotherWorkspace(t *testing.T) {
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-2")
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -885,7 +932,7 @@ func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("saved", "project-1")
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -911,7 +958,7 @@ func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
 	workspaces.items["project-1"] = WorkspaceInfo{ID: "project-1", Name: "one", RootPath: t.TempDir()}
 	workspaces.items["project-2"] = WorkspaceInfo{ID: "project-2", Name: "two", RootPath: t.TempDir()}
 	workspaces.BindSession("session-1", "project-1")
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
@@ -934,7 +981,7 @@ func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
 
 func TestSnapshotIncludesPersistedSessions(t *testing.T) {
 	t.Parallel()
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 
 	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
@@ -948,7 +995,7 @@ func TestSnapshotIncludesPersistedSessions(t *testing.T) {
 
 func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T) {
 	sessions := &blockingCatalogSessions{entered: make(chan struct{}), release: make(chan struct{})}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
@@ -970,7 +1017,7 @@ func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T) {
 
 func TestShutdownDoesNotWaitForBlockedSessionCatalog(t *testing.T) {
 	sessions := &blockingCatalogSessions{entered: make(chan struct{}), release: make(chan struct{})}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions,
 	})
@@ -990,7 +1037,7 @@ func TestShutdownDoesNotWaitForBlockedSessionCatalog(t *testing.T) {
 func TestRuntimeMailboxDrainsIntoHistoryOutsideServiceLock(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{mailbox: []string{"child conclusion"}}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
@@ -1013,7 +1060,7 @@ func TestRuntimeMailboxDrainsIntoHistoryOutsideServiceLock(t *testing.T) {
 func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 	engine := &fakeEngine{}
 	sessions := &trackingSessions{}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{},
 		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills:  fakeSkills{}, Sessions: sessions,
@@ -1035,14 +1082,6 @@ func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 	if len(sessions.savedIDs) != 1 || sessions.savedIDs[0] != "saved" {
 		t.Fatalf("saved session IDs = %v, want [saved]", sessions.savedIDs)
 	}
-}
-
-func mustNew(deps Dependencies) *Service {
-	service, err := New(deps)
-	if err != nil {
-		panic(err)
-	}
-	return service
 }
 
 func TestNewRejectsMissingDependencies(t *testing.T) {
@@ -1067,7 +1106,7 @@ func TestEventHubOrdersAndResyncs(t *testing.T) {
 }
 
 func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	subscription := service.Subscribe(8)
 	defer subscription.Close()
@@ -1099,7 +1138,7 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 
 func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine := &fakeEngine{}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	suggestions := service.Suggestions("/R")
 	if len(suggestions) != 3 || suggestions[0].Kind != "command" || suggestions[1].Kind != "tool" || suggestions[2].Kind != "skill" {
@@ -1140,7 +1179,7 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 
 func TestChatPublishesSnapshotWithoutUI(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"an", "swer"}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
@@ -1205,9 +1244,7 @@ func (engine *gracefulShutdownEngine) ChatStream(ctx context.Context, input stri
 
 func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
 	engine := newGracefulShutdownEngine()
-	service := newTestService(engine.fakeEngine)
-	service.deps.Engine = engine
-	defer service.Shutdown()
+	service := newTestService(t, engine)
 
 	if err := service.Submit(context.Background(), "first"); err != nil {
 		t.Fatal(err)
@@ -1265,7 +1302,7 @@ func waitForChatCompletion(t *testing.T, service *Service) {
 }
 
 func TestToolEventsUpdateSnapshot(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.handleToolStart("read", "read-1", `{"path":"a"}`)
 	service.handleToolComplete("read", "read-1", "ok", nil, time.Second)
@@ -1282,10 +1319,8 @@ func TestToolEventsUpdateSnapshot(t *testing.T) {
 }
 
 func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testing.T) {
-	service := newTestService(&fakeEngine{})
-	defer service.Shutdown()
 	runtime := &goalVisibilityRuntime{fakeRuntime: &fakeRuntime{}}
-	service.deps.Runtime = runtime
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
 	service.mu.Lock()
 	service.taskExecution = newTaskExecutionState("task-goal", "plan work", "high")
@@ -1313,7 +1348,7 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 }
 
 func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
@@ -1334,7 +1369,7 @@ func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T) {
 }
 
 func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
@@ -1361,9 +1396,7 @@ func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T) {
 		Arguments: `{"entry":"recover","nodes":{"recover":{"input":"diagnose the failed build"}},"edges":{}}`,
 		Result:    `{"status":"loaded","node_count":1}`,
 	}}
-	service := newTestService(engine)
-	service.deps.Runtime = runtime
-	defer service.Shutdown()
+	service := newTestService(t, engine, withTestRuntime(runtime))
 
 	service.mu.Lock()
 	service.appendMessageLocked("user", "build and verify the release", nil)
@@ -1404,9 +1437,7 @@ func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T) {
 
 func TestResolvePlanFailureKeepsInteractionWhenReplanFails(t *testing.T) {
 	runtime := &fakeRuntime{replanErr: errors.New("planner unavailable")}
-	service := newTestService(&fakeEngine{})
-	service.deps.Runtime = runtime
-	defer service.Shutdown()
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
 	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
@@ -1430,9 +1461,7 @@ func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
 		Arguments: `{"entry":"recover","nodes":{"recover":{"input":"diagnose"}},"edges":{}}`,
 		Result:    `{"status":"loaded","node_count":1}`,
 	}}
-	service := newTestService(&fakeEngine{})
-	service.deps.Runtime = runtime
-	defer service.Shutdown()
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
 	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
@@ -1469,8 +1498,7 @@ func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T) {
 		InFlight: 1, ConcurrentLimit: 2, WindowAttempts: 3, WindowLimit: 6,
 		Accepted: 3, Succeeded: 2, Failed: 1, Rejected: 4, DuplicateRejected: 1, ProviderRequests: 5,
 	}}
-	service := newTestService(&fakeEngine{})
-	service.deps.Runtime = runtime
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	projection := service.collectRuntimeProjection(context.Background())
 	service.mu.Lock()
 	service.applyRuntimeProjectionLocked(projection)
@@ -1494,7 +1522,7 @@ func TestNormalizePlanToolCallInfoUsesCanonicalAdapterJSON(t *testing.T) {
 }
 
 func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.handleToolStart("plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"}},"edges":{"start":["left"]}}`)
 
@@ -1544,7 +1572,7 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 }
 
 func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.handleToolStart("plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"worker":{"input":"worker"}},"edges":{"start":["worker"]}}`)
 
@@ -1596,7 +1624,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 }
 
 func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
@@ -1620,7 +1648,7 @@ func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T) {
 }
 
 func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.HistoryOffset = 1
@@ -1669,7 +1697,7 @@ func TestApprovalBrokerResolve(t *testing.T) {
 }
 
 func TestResumeCommandOpensSessionInteraction(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 

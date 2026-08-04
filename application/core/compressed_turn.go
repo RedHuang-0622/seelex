@@ -85,13 +85,18 @@ func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON st
 		input.Limit = max
 	}
 
+	service.mu.RLock()
+	sessionID := service.snapshot.Session.ID
+	currentWorkspaceID := workspaceID(service.snapshot.CurrentWorkspace)
+	service.mu.RUnlock()
+
 	store, ok := service.deps.Sessions.(sessionTranscriptPort)
 	if !ok {
 		return "", errors.New("read_compressed_turn: durable storage is unavailable")
 	}
 	result, err := store.LoadToolResultWorkspace(
-		workspaceID(service.snapshot.CurrentWorkspace),
-		service.snapshot.Session.ID,
+		currentWorkspaceID,
+		sessionID,
 		compressedTurnRefPrefix+input.SegmentID,
 	)
 	if err != nil {

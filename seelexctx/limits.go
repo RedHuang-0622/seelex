@@ -77,7 +77,7 @@ func DefaultLimits() Limits {
 		MessageShardSize:       100,
 		SummaryChars:           800,
 		TodoMaxItems:           20,
-		WalkTimeoutSec:          30,
+		WalkTimeoutSec:         30,
 	}
 }
 

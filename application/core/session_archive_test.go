@@ -51,10 +51,8 @@ func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string)
 
 func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
-	service := newTestService(engine)
-	defer service.Shutdown()
 	sessions := &archiveSessions{history: engine.History()}
-	service.deps.Sessions = sessions
+	service := newTestService(t, engine, withTestSessions(sessions))
 
 	service.mu.Lock()
 	service.snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
@@ -81,9 +79,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	}
 
 	restoredEngine := &fakeEngine{}
-	restored := newTestService(restoredEngine)
-	defer restored.Shutdown()
-	restored.deps.Sessions = sessions
+	restored := newTestService(t, restoredEngine, withTestSessions(sessions))
 	if err := restored.resumeSession("session-a"); err != nil {
 		t.Fatal(err)
 	}
@@ -139,9 +135,7 @@ func TestPersistSessionRecordMergesBoundedProjectionWithFullHistory(t *testing.T
 			{ID: "message-2", Role: "assistant", Content: "stale answer"},
 		}},
 	}}
-	service := newTestService(&fakeEngine{sessionID: "session-window"})
-	defer service.Shutdown()
-	service.deps.Sessions = sessions
+	service := newTestService(t, &fakeEngine{sessionID: "session-window"}, withTestSessions(sessions))
 	service.mu.Lock()
 	service.snapshot.Session = SessionState{ID: "session-window"}
 	service.snapshot.Conversation = []Message{
@@ -160,7 +154,7 @@ func TestPersistSessionRecordMergesBoundedProjectionWithFullHistory(t *testing.T
 }
 
 func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
-	service := newTestService(&fakeEngine{sessionID: "session-large"})
+	service := newTestService(t, &fakeEngine{sessionID: "session-large"})
 	defer service.Shutdown()
 	raw := strings.Repeat("raw-secret-output", defaultToolResultLimit())
 	service.mu.Lock()
@@ -192,7 +186,7 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 
 func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
 	for _, status := range []TaskStatus{TaskCompleted, TaskFailed} {
-		service := newTestService(&fakeEngine{})
+		service := newTestService(t, &fakeEngine{})
 		service.promptStack.Push("skill", "review", "review prompt")
 		service.mu.Lock()
 		service.snapshot.Task = &TaskState{Status: status}
@@ -219,7 +213,7 @@ func TestToolResultPaginationMakesProgressAcrossUTF8Boundaries(t *testing.T) {
 
 func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T) {
 	engine := &fakeEngine{sessionID: "session-plan"}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	arguments := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
 
@@ -249,9 +243,7 @@ func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 			}}},
 		},
 	}
-	service := newTestService(&fakeEngine{})
-	defer service.Shutdown()
-	service.deps.Sessions = sessions
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
 	if err := service.ResumeSession("session-record-only"); err != nil {
 		t.Fatal(err)
@@ -263,7 +255,7 @@ func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 }
 
 func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.appendHistoryLocked([]EngineMessage{{

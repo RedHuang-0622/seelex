@@ -229,7 +229,7 @@ func TestChat_RaceConcurrentSubmitChatRunning(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"slow..."}}
 	// 使用自定义 engine 让它阻塞以模拟长时间 chat
 	blockEngine := &blockingEngine{fakeEngine: engine}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine:   blockEngine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -302,7 +302,7 @@ func (e *blockingEngine) ChatStream(ctx context.Context, input string, onChunk f
 // TestChat_RaceSnapshotDuringChat 验证 Chat 运行期间并发读取 Snapshot 无 data race。
 func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -346,7 +346,7 @@ func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 
 // TestChat_RaceToolHandling 验证 handleToolStart/Complete 与 Snapshot 并发安全。
 func TestChat_RaceToolHandling(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 
 	var wg sync.WaitGroup
@@ -377,7 +377,7 @@ func TestService_RaceShutdownSubmit(t *testing.T) {
 	var wg sync.WaitGroup
 	const goroutines = 20
 
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 
 	for i := 0; i < goroutines; i++ {
 		wg.Add(2)
@@ -396,7 +396,7 @@ func TestService_RaceShutdownSubmit(t *testing.T) {
 // TestService_RaceShutdownChat 验证 Shutdown 与 Chat 并发安全。
 func TestService_RaceShutdownChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -423,7 +423,7 @@ func TestService_RaceShutdownChat(t *testing.T) {
 
 // TestService_ShutdownThenSubmit 验证 Shutdown 后 Submit 返回错误。
 func TestService_ShutdownThenSubmit(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	service.Shutdown()
 
 	err := service.Submit(context.Background(), "hello after shutdown")
@@ -437,7 +437,7 @@ func TestService_ShutdownThenSubmit(t *testing.T) {
 
 // TestService_ShutdownThenStartChat 验证 Shutdown 后 startChat 返回错误。
 func TestService_ShutdownThenStartChat(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	service.Shutdown()
 
 	err := service.startChat(context.Background(), newChatRequest("hello", nil))
@@ -582,7 +582,7 @@ func TestPromptStack_RaceClearKind(t *testing.T) {
 // TestInputQueue_RaceEnqueueDuringChat 验证 Chat 运行中并发入队安全。
 func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -628,7 +628,7 @@ func TestInputQueue_RaceEnqueueDuringChat(t *testing.T) {
 
 // TestSnapshot_RaceReadWrite 验证 Snapshot 读写并发安全。
 func TestSnapshot_RaceReadWrite(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 
 	var wg sync.WaitGroup
@@ -667,7 +667,7 @@ func TestSnapshot_RaceReadWrite(t *testing.T) {
 // TestCancelChat_Race 验证并发 CancelChat 安全。
 func TestCancelChat_Race(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	service := mustNew(Dependencies{
+	service := mustNew(t, Dependencies{
 		Engine:   engine,
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -696,7 +696,7 @@ func TestCancelChat_Race(t *testing.T) {
 
 // TestObserveInteraction_Race 验证 observeInteraction 并发安全。
 func TestObserveInteraction_Race(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 
 	var wg sync.WaitGroup

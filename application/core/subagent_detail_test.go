@@ -33,7 +33,7 @@ func TestAdaptSubagentConversation(t *testing.T) {
 
 // TestSubagentSessionDetailMissingNode 验证无节点/无会话时的错误路径。
 func TestSubagentSessionDetailMissingNode(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	if _, err := svc.SubagentSessionDetail(""); err == nil {
 		t.Fatal("empty node id must be rejected")
 	}

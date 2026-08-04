@@ -35,6 +35,12 @@ jobs:
           test -z "$files" || { echo "$files"; exit 1; }
         shell: bash
 
+      - name: 检查测试夹具不替换已启动 Service 的依赖
+        run: |
+          ! grep -rnE '\.deps\.(Engine|Runtime|Plugins|Skills|Sessions|Workspace)[[:space:]]*=' \
+            --include='*_test.go' application/core
+        shell: bash
+
       - name: 编译检查
         run: go build ./...
 

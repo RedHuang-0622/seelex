@@ -16,7 +16,7 @@ func TestVisibleOutputStreamSuppressesSplitThoughtBlock(t *testing.T) {
 }
 
 func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}

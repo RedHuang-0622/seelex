@@ -43,8 +43,8 @@ Contract:
 
 // forkSubagentsInput 是 fork_subagents 的参数契约。
 type forkSubagentsInput struct {
-	Subagents       []forkSubagentSpec `json:"subagents"`
-	MaxConcurrency  int                `json:"max_concurrency,omitempty"`
+	Subagents      []forkSubagentSpec `json:"subagents"`
+	MaxConcurrency int                `json:"max_concurrency,omitempty"`
 }
 
 type forkSubagentSpec struct {
@@ -154,12 +154,12 @@ func (r *Runtime) buildForkPlan(input forkSubagentsInput) (*loadedPlanDoc, error
 		return nil, fmt.Errorf("fork_subagents: build DAG: %w", err)
 	}
 	return &loadedPlanDoc{
-		Canonical:       forkPlanCanonical(input),
-		Entry:           "start",
-		NodeCount:       nodeCount,
-		EdgeCount:       len(document.Edges),
-		MaxForkConc:     maxFork,
-		Plan:            plan,
+		Canonical:   forkPlanCanonical(input),
+		Entry:       "start",
+		NodeCount:   nodeCount,
+		EdgeCount:   len(document.Edges),
+		MaxForkConc: maxFork,
+		Plan:        plan,
 	}, nil
 }
 

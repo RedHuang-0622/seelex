@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewAssemblesFocusedServiceComponents(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 
 	if service.serviceState == nil {

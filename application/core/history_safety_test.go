@@ -41,7 +41,7 @@ func TestNonEmptyProviderInputExplainsEmptySubmission(t *testing.T) {
 
 func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "assistant", Content: ""}}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.components.history.prepareProviderHistory(); err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "bash", Arguments: `{"command":"Get-ChildItem"}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: "raw command output that must not survive", ContentSet: true},
 	}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.taskExecution = newTaskExecutionState("task-1", "audit the repository", "high")
@@ -91,7 +91,7 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 
 func TestRecoverProviderContextIgnoresOtherProviderErrors(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "keep me", ContentSet: true}}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.recoverProviderContext(errors.New("HTTP 504 upstream timeout"), "new request"); err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 		{Role: "user", Content: "audit source", ContentSet: true},
 		{Role: "tool", Name: "bash", Content: "raw output that must not survive", ContentSet: true},
 	}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -136,7 +136,7 @@ func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t 
 		appendChatHistory: true,
 		chatErr:           errors.New("engine loop 15: context window exceeds limit"),
 	}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.Submit(context.Background(), "finish the repository audit"); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestContextExhaustionReturnsBoundedRecoveryInstructionToAgent(t *testing.T)
 		appendChatHistory: true,
 		chatErrors:        []error{errors.New("engine loop 15: context window exceeds limit"), nil},
 	}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.Submit(context.Background(), "finish the repository audit"); err != nil {
 		t.Fatal(err)
@@ -194,7 +194,7 @@ func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T) 
 		appendChatHistory: true,
 		chatErr:           errors.New("engine loop 0: ChatClient stream: invalid params, chat content is empty (2013)"),
 	}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.Submit(context.Background(), "continue the audit"); err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T) 
 
 func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New("HTTP 401 provider rejected request")}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	if err := service.Submit(context.Background(), "inspect repository"); err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{
 		Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "plan_load", Arguments: `{}`}},
 	}}}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}

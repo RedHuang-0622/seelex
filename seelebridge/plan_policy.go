@@ -13,11 +13,11 @@ import (
 // 节点预算上限（MaxNodeLoops/MaxNodeOutputTokens，0 = 不限）：防止节点级
 // budget 参数滥用（见 nodeBudget，agent_node.go）。
 type PlanPolicy struct {
-	Effort             string
-	MaxNodes           int
-	RequireSerial      bool
-	MaxForkConcurrency int
-	MaxNodeLoops       int
+	Effort              string
+	MaxNodes            int
+	RequireSerial       bool
+	MaxForkConcurrency  int
+	MaxNodeLoops        int
 	MaxNodeOutputTokens int
 }
 

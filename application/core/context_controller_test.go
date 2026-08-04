@@ -28,7 +28,7 @@ func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 }
 
 func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	budget := defaultContextBudget()
 	service.promptStack.Push("base", "oversized-system", strings.Repeat("s", budget.Budget*3))
@@ -43,11 +43,10 @@ func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 }
 
 func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
-	service := newTestService(&fakeEngine{})
-	defer service.Shutdown()
-	service.deps.Runtime = runtimeWithContextLimits{
+	runtime := runtimeWithContextLimits{
 		fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192,
 	}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	legacyBudget := defaultContextBudget()
 	service.promptStack.Push("base", "large-system", strings.Repeat("s", legacyBudget.Budget*3))
 	service.mu.Lock()
@@ -68,7 +67,7 @@ func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
 
 func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	engine := &fakeEngine{}
-	service := newTestService(engine)
+	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}

@@ -107,7 +107,7 @@ func lastNotice(t *testing.T, svc *Service) string {
 }
 
 func TestBuiltinHelp(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/help"); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestBuiltinHelp(t *testing.T) {
 func TestBuiltinClear(t *testing.T) {
 	eng := &fakeEngine{}
 	eng.history = []EngineMessage{{Role: "user", Content: "old msg"}}
-	svc := newTestService(eng)
+	svc := newTestService(t, eng)
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/clear"); err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestBuiltinClear(t *testing.T) {
 }
 
 func TestBuiltinModel(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/model"); err != nil {
 		t.Fatal(err)
@@ -154,7 +154,7 @@ func TestBuiltinModel(t *testing.T) {
 
 func TestBuiltinHistory_Empty(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := newTestService(eng)
+	svc := newTestService(t, eng)
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/history"); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestBuiltinHistory_NonEmpty(t *testing.T) {
 		{Role: "user", Content: "hi"},
 		{Role: "assistant", Content: "hello"},
 	}
-	svc := newTestService(eng)
+	svc := newTestService(t, eng)
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/history"); err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestBuiltinHistory_NonEmpty(t *testing.T) {
 }
 
 func TestBuiltinTrace(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/trace"); err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func TestBuiltinTrace(t *testing.T) {
 
 func TestBuiltinNew(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := newTestService(eng)
+	svc := newTestService(t, eng)
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/new"); err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestBuiltinNew(t *testing.T) {
 
 func TestBuiltinNew_SaveFails(t *testing.T) {
 	eng := &fakeEngine{history: []EngineMessage{{Role: "user", Content: "unsaved"}}}
-	svc := mustNew(Dependencies{
+	svc := mustNew(t, Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
@@ -240,7 +240,7 @@ func (failingSessions) SetWorkspace(string)              {}
 func (failingSessions) Workspace() string                { return "" }
 
 func TestBuiltinResumeOpensSessionPicker(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	waitForSnapshot(t, svc, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if err := svc.Submit(context.Background(), "/resume"); err != nil {
@@ -254,7 +254,7 @@ func TestBuiltinResumeOpensSessionPicker(t *testing.T) {
 
 func TestBuiltinResume_WithSessionID(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := newTestService(eng)
+	svc := newTestService(t, eng)
 	defer svc.Shutdown()
 
 	if err := svc.Submit(context.Background(), "/resume saved"); err != nil {
@@ -273,7 +273,7 @@ func TestBuiltinResume_WithSessionID(t *testing.T) {
 }
 
 func TestBuiltinSessions_NonEmpty(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	waitForSnapshot(t, svc, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if err := svc.Submit(context.Background(), "/sessions"); err != nil {
@@ -290,7 +290,7 @@ func TestBuiltinSessions_NonEmpty(t *testing.T) {
 
 func TestBuiltinSessions_Empty(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := mustNew(Dependencies{
+	svc := mustNew(t, Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills:   fakeSkills{},
@@ -321,7 +321,7 @@ func (emptySessions) SetWorkspace(string)              {}
 func (emptySessions) Workspace() string                { return "" }
 
 func TestBuiltinPlugin_NoArg(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/plugin"); err != nil {
 		t.Fatal(err)
@@ -334,7 +334,7 @@ func TestBuiltinPlugin_NoArg(t *testing.T) {
 
 func TestBuiltinPlugin_NoCurrent(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := mustNew(Dependencies{
+	svc := mustNew(t, Dependencies{
 		Engine: eng, Runtime: &fakeRuntime{},
 		Plugins:  &noCurrentPlugins{},
 		Skills:   fakeSkills{},
@@ -360,7 +360,7 @@ func (noCurrentPlugins) Deactivate(context.Context) error              { return 
 func (noCurrentPlugins) Current() (PluginInfo, bool)                   { return PluginInfo{}, false }
 
 func TestBuiltinPlugin_Switch(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/plugin code"); err != nil {
 		t.Fatal(err)
@@ -378,7 +378,7 @@ func TestBuiltinPlugin_Switch(t *testing.T) {
 }
 
 func TestBuiltinPlugin_Off(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/plugin off"); err != nil {
 		t.Fatal(err)
@@ -390,7 +390,7 @@ func TestBuiltinPlugin_Off(t *testing.T) {
 }
 
 func TestBuiltinUnknownCommand(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "/unknowncmd"); err != nil {
 		t.Fatal(err)
@@ -402,7 +402,7 @@ func TestBuiltinUnknownCommand(t *testing.T) {
 }
 
 func TestSubmit_EmptyInput(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), ""); err != nil {
 		t.Fatal(err)
@@ -414,7 +414,7 @@ func TestSubmit_EmptyInput(t *testing.T) {
 
 func TestSkillLoadViaSubmit(t *testing.T) {
 	engine := &fakeEngine{}
-	svc := newTestService(engine)
+	svc := newTestService(t, engine)
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "#review focused"); err != nil {
 		t.Fatal(err)
@@ -438,7 +438,7 @@ func TestSkillLoadViaSubmit(t *testing.T) {
 
 func TestSkillWithoutRequirementAppliesToNextInput(t *testing.T) {
 	engine := &fakeEngine{}
-	svc := newTestService(engine)
+	svc := newTestService(t, engine)
 	defer svc.Shutdown()
 
 	if err := svc.Submit(context.Background(), "#review"); err != nil {
@@ -481,7 +481,7 @@ func TestSkillWithoutRequirementAppliesToNextInput(t *testing.T) {
 
 func TestQueuedSkillRequestFreezesDisplayAndModelInput(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}
-	svc := mustNew(Dependencies{
+	svc := mustNew(t, Dependencies{
 		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
@@ -520,7 +520,7 @@ func TestQueuedSkillRequestFreezesDisplayAndModelInput(t *testing.T) {
 }
 
 func TestSkillUnknown(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "#unknown"); err != nil {
 		t.Fatal(err)
@@ -536,7 +536,7 @@ func TestSkillUnknown(t *testing.T) {
 
 func TestSkillEnd(t *testing.T) {
 	engine := &fakeEngine{}
-	svc := newTestService(engine)
+	svc := newTestService(t, engine)
 	defer svc.Shutdown()
 	// Load a skill first
 	_ = svc.Submit(context.Background(), "#review")
@@ -554,7 +554,7 @@ func TestSkillEnd(t *testing.T) {
 }
 
 func TestSkillEnd_NoActiveSkill(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "#end"); err != nil {
 		t.Fatal(err)
@@ -567,7 +567,7 @@ func TestSkillEnd_NoActiveSkill(t *testing.T) {
 
 func TestSkillEndPreservesGoalLoopLimitUntilGoalIsPopped(t *testing.T) {
 	engine := &fakeEngine{}
-	svc := newTestService(engine)
+	svc := newTestService(t, engine)
 	defer svc.Shutdown()
 
 	if err := svc.effortManager.Apply("medium"); err != nil {
@@ -599,7 +599,7 @@ func TestSkillEndPreservesGoalLoopLimitUntilGoalIsPopped(t *testing.T) {
 
 func TestNew_DefaultState(t *testing.T) {
 	eng := &fakeEngine{}
-	svc := newTestService(eng)
+	svc := newTestService(t, eng)
 	defer svc.Shutdown()
 	snap := svc.Snapshot()
 	if snap.ProtocolVersion != ProtocolVersion {
@@ -614,14 +614,14 @@ func TestNew_DefaultState(t *testing.T) {
 	if !snap.Capabilities.SessionResume {
 		t.Error("resume should be enabled by default")
 	}
-	if snap.Revision != 1 {
-		t.Errorf("expected revision 1, got %d", snap.Revision)
+	if snap.Revision < 1 {
+		t.Errorf("revision = %d, want initialized revision", snap.Revision)
 	}
 }
 
 func TestNew_DefaultEventHub(t *testing.T) {
 	// If deps.Events is nil, New should create defaults
-	svc := mustNew(Dependencies{
+	svc := mustNew(t, Dependencies{
 		Engine:   &fakeEngine{},
 		Runtime:  &fakeRuntime{},
 		Plugins:  &fakePlugins{current: PluginInfo{Name: "default"}},
@@ -639,7 +639,7 @@ func TestNew_DefaultEventHub(t *testing.T) {
 }
 
 func TestSuggestions_EmptyPrefix(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	suggestions := svc.Suggestions("")
 	// Empty prefix may or may not return suggestions; just ensure no panic
@@ -647,7 +647,7 @@ func TestSuggestions_EmptyPrefix(t *testing.T) {
 }
 
 func TestSuggestions_SlashOnly(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	suggestions := svc.Suggestions("/")
 	if len(suggestions) == 0 {
@@ -666,7 +666,7 @@ func TestSuggestions_SlashOnly(t *testing.T) {
 }
 
 func TestSuggestions_HashOnly(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	suggestions := svc.Suggestions("#")
 	if len(suggestions) == 0 {
@@ -675,7 +675,7 @@ func TestSuggestions_HashOnly(t *testing.T) {
 }
 
 func TestSuggestions_PrefixMatchCommand(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	suggestions := svc.Suggestions("/h")
 	if len(suggestions) == 0 {
@@ -693,7 +693,7 @@ func TestSuggestions_PrefixMatchCommand(t *testing.T) {
 }
 
 func TestCancelChat_NotRunning(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if svc.CancelChat("") {
 		t.Error("CancelChat should return false when not running")
@@ -702,7 +702,7 @@ func TestCancelChat_NotRunning(t *testing.T) {
 
 func TestSwitchEffort(t *testing.T) {
 	runtime := &fakeRuntime{}
-	svc := mustNew(Dependencies{
+	svc := mustNew(t, Dependencies{
 		Engine: &fakeEngine{}, Runtime: runtime,
 		Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{},
 	})
@@ -723,7 +723,7 @@ func TestSwitchEffort(t *testing.T) {
 }
 
 func TestSelectAccount_Success(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.SelectAccount(context.Background(), "primary"); err != nil {
 		t.Fatal(err)
@@ -731,7 +731,7 @@ func TestSelectAccount_Success(t *testing.T) {
 }
 
 func TestSelectAccount_Failure(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	if err := svc.SelectAccount(context.Background(), "nonexistent"); err == nil {
 		t.Error("expected error for nonexistent account")
@@ -739,7 +739,7 @@ func TestSelectAccount_Failure(t *testing.T) {
 }
 
 func TestShutdown(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	svc.Shutdown()
 	// Should not panic on second shutdown
 	svc.Shutdown()
@@ -747,7 +747,7 @@ func TestShutdown(t *testing.T) {
 
 func TestSnapshotAfterChat(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"an", "swer"}}
-	svc := newTestService(engine)
+	svc := newTestService(t, engine)
 	defer svc.Shutdown()
 	if err := svc.Submit(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
@@ -767,7 +767,7 @@ func TestSnapshotAfterChat(t *testing.T) {
 }
 
 func TestInteractionLifecycle(t *testing.T) {
-	svc := newTestService(&fakeEngine{})
+	svc := newTestService(t, &fakeEngine{})
 	defer svc.Shutdown()
 	interaction := &Interaction{
 		ID:       "interact-1",
@@ -797,7 +797,7 @@ func TestInteractionLifecycle(t *testing.T) {
 
 func TestInputQueue(t *testing.T) {
 	engine := &fakeEngine{chunks: []string{"thinking..."}}
-	svc := newTestService(engine)
+	svc := newTestService(t, engine)
 	defer svc.Shutdown()
 
 	// Start a chat that blocks

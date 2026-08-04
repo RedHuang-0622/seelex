@@ -14,7 +14,7 @@ import (
 // - 任务终态保留最小恢复记录（objective + 排队输入引用），快照不持久化。
 
 func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -40,7 +40,7 @@ func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 }
 
 func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -84,7 +84,7 @@ func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 }
 
 func TestTaskCompleteRejectedWhenProjectionFlushFails(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -105,7 +105,7 @@ func TestTaskCompleteRejectedWhenProjectionFlushFails(t *testing.T) {
 }
 
 func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -134,7 +134,7 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 }
 
 func TestOnChatEndKeepsResumeRecord(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -161,7 +161,7 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 // ── task_check_node 在途打点（tasklist 门禁）──────────────────────
 
 func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -205,7 +205,7 @@ func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 }
 
 func TestCheckNodeRejectsUnknownNode(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -221,7 +221,7 @@ func TestCheckNodeRejectsUnknownNode(t *testing.T) {
 }
 
 func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -238,7 +238,7 @@ func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
 }
 
 func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -270,7 +270,7 @@ func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
 // TestTaskCompleteCoversAlreadyCheckedNodes 验证歧义消除：在途打点已完成的节点
 // 计入 task_complete 的覆盖，终态不必重复枚举 completed_nodes。
 func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -309,7 +309,7 @@ func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 // TestTaskCompleteStillRejectsUncheckedNodes 打点流下缺节点仍拒绝：
 // 未打点、未枚举的节点必须出现在 completed_nodes。
 func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
@@ -331,7 +331,7 @@ func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
 }
 
 func TestNoProgressBudgetReadsTaskServiceSemanticProgress(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	service.mu.Lock()
 	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}

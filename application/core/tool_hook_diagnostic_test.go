@@ -9,7 +9,7 @@ import (
 )
 
 func TestToolHookDiagnosticObserverMarksCompletionProjection(t *testing.T) {
-	service := newTestService(&fakeEngine{})
+	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)

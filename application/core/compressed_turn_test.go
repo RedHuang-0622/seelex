@@ -95,9 +95,7 @@ func TestReadCompressedTurnHandlerReadsOriginal(t *testing.T) {
 	store := &fakeTranscriptSession{results: map[string]StoredToolResult{
 		"compressed:compact-sess-9": {ToolResultRef: model.ToolResultRef{Ref: "compressed:compact-sess-9"}, Content: string(encoded)},
 	}}
-	service := newTestService(&fakeEngine{})
-	service.deps.Sessions = store
-	service.snapshot.Session.ID = "session-1"
+	service := newTestService(t, &fakeEngine{sessionID: "session-1"}, withTestSessions(store))
 
 	args, _ := json.Marshal(map[string]interface{}{"segment_id": "compact-sess-9"})
 	page, err := service.ReadCompressedTurnHandler(context.Background(), string(args))

@@ -237,3 +237,15 @@ or tool call.
 The Plan templates require code-review plans to use `inspect -> verify -> report`
 with evidence-backed findings, distinguish confirmed facts from hypotheses, and
 use explicit node-ID anti-examples to prevent entry/node mismatches.
+
+## CI formatting and session-catalog race fix (2026-08-05)
+
+| File | Change | Purpose |
+|---|---|---|
+| `application/core/service_test.go` | Replaces test constructors with `testing.TB`-aware fixtures and adds a catalog-worker cleanup regression. | Makes dependencies immutable after construction and guarantees `Shutdown` through `t.Cleanup`. |
+| `application/core/*_test.go` | Moves Session/Runtime/Engine customizations into construction-time options; wraps bespoke `Dependencies` fixtures too. | Removes all post-construction Service dependency writes. |
+| `application/core/compressed_turn.go` | Copies session/workspace IDs under `service.mu.RLock`, then performs storage I/O after unlock. | Protects Application snapshot reads without extending the lock around external I/O. |
+| Five Go files listed by CI | Applied `gofmt`. | Restores formatting gate compliance. |
+| `.github/workflows/ci.yml` | Rejects test writes to `service.deps.*`. | Prevents this race pattern from being reintroduced. |
+
+Verification: `go test ./application/core -run '^(TestPersistenceFailureDoesNotClaimProgressWasSaved|TestReadCompressedTurnHandlerReadsOriginal|TestSessionArchivePreservesVisibleHistoryPlanAndReadCache|TestPersistSessionRecordMergesBoundedProjectionWithFullHistory|TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable)$' -count=20`, `go test ./... -count=1 -timeout=120s`, `go build ./...`, GUI-tagged build, `go vet ./...`, and `gofmt -l .` all pass. Windows local `-race` cannot run with `CGO_ENABLED=0`; Linux CI remains the race-validation authority.

@@ -24,11 +24,11 @@ func TestGlobSkipsHeavyDirs(t *testing.T) {
 		}
 	}
 	files := map[string]string{
-		"src/main.go":            "package main",
-		"node_modules/pkg/x.js":  "x",
-		"dist/app.js":            "app",
-		".git/config":            "config",
-		"docs/README.md":         "docs",
+		"src/main.go":           "package main",
+		"node_modules/pkg/x.js": "x",
+		"dist/app.js":           "app",
+		".git/config":           "config",
+		"docs/README.md":        "docs",
 	}
 	for path, content := range files {
 		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
