@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,8 +39,9 @@ func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	const privateInstruction = "private-system-instruction-must-not-reach-frontend"
 	service.promptStack.Push("base", "private", privateInstruction)
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	projection := service.collectRuntimeProjection(context.Background())
 	service.mu.Lock()
-	service.refreshRuntimeLocked(context.Background())
+	service.applyRuntimeProjectionLocked(projection)
 	service.mu.Unlock()
 
 	payload, err := json.Marshal(service.Snapshot())
@@ -209,6 +211,9 @@ type fakeRuntime struct {
 	fullAccess    bool
 	binding       seelebridge.PlanBranchBinding
 	planPolicy    seelebridge.PlanPolicy
+	visibility    seelebridge.RuntimeVisibilityProjection
+	evidence      seelebridge.ParentEvidenceProjection
+	mailbox       []string
 	replans       []seelebridge.ReplanRequest
 	replanResult  seelebridge.PlanPreflight
 	replanErr     error
@@ -234,6 +239,17 @@ func (*fakeRuntime) VisibleTools(context.Context) []Tool {
 func (*fakeRuntime) ActivePlugin() string          { return "default" }
 func (runtime *fakeRuntime) FullAccess() bool      { return runtime.fullAccess }
 func (runtime *fakeRuntime) SetFullAccess(on bool) { runtime.fullAccess = on }
+func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
+	runtime.visibility = projection
+}
+func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection) {
+	runtime.evidence = projection
+}
+func (runtime *fakeRuntime) DrainSubagentContexts() []string {
+	items := append([]string(nil), runtime.mailbox...)
+	runtime.mailbox = nil
+	return items
+}
 func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	runtime.planPolicy = policy
 }
@@ -251,16 +267,15 @@ func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
 }
 func (runtime *fakeRuntime) UnbindProjectRoot() { runtime.projectRoot = "" }
 
-// goalVisibilityRuntime models the production visibility policy: completing a
-// tool refreshes the runtime while service.mu is held, and VisibleTools asks
-// whether the goal skill is active. The predicate must therefore be lock-free.
+// goalVisibilityRuntime models Runtime's one-way visibility projection. Its
+// VisibleTools implementation reads only Runtime-owned state; it cannot call
+// back into Service while a tool hook is holding a framework session lock.
 type goalVisibilityRuntime struct {
 	*fakeRuntime
-	goalActive func() bool
 }
 
 func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool {
-	if runtime.goalActive != nil && runtime.goalActive() {
+	if runtime.visibility.GoalSkillActive {
 		return []Tool{{Name: "plan_load", Description: "load plan"}}
 	}
 	return []Tool{{Name: "read", Description: "read files"}}
@@ -315,6 +330,21 @@ func (fakeSessions) Delete(string) error              { return nil }
 func (fakeSessions) MessageCount(string) (int, error) { return 1, nil }
 func (fakeSessions) SetWorkspace(string)              {}
 func (fakeSessions) Workspace() string                { return "" }
+
+type blockingCatalogSessions struct {
+	fakeSessions
+	entered     chan struct{}
+	release     chan struct{}
+	enteredOnce sync.Once
+	calls       atomic.Int64
+}
+
+func (sessions *blockingCatalogSessions) List() []SessionInfo {
+	sessions.calls.Add(1)
+	sessions.enteredOnce.Do(func() { close(sessions.entered) })
+	<-sessions.release
+	return sessions.fakeSessions.List()
+}
 
 type persistenceFailingSessions struct{ fakeSessions }
 
@@ -377,6 +407,7 @@ func (sessions *scopedSessions) DeleteWorkspace(workspaceID, sessionID string) e
 }
 
 type fakeWorkspace struct {
+	mu       sync.Mutex
 	items    map[string]WorkspaceInfo
 	bindings map[string]string
 }
@@ -385,11 +416,15 @@ func newFakeWorkspace() *fakeWorkspace {
 	return &fakeWorkspace{items: make(map[string]WorkspaceInfo), bindings: make(map[string]string)}
 }
 func (repo *fakeWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 	item := WorkspaceInfo{ID: "project-1", Name: name, RootPath: rootPath, GitRemote: gitRemote}
 	repo.items[item.ID] = item
 	return item, nil
 }
 func (repo *fakeWorkspace) Get(id string) (WorkspaceInfo, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 	item, ok := repo.items[id]
 	if !ok {
 		return WorkspaceInfo{}, errors.New("workspace missing")
@@ -397,18 +432,33 @@ func (repo *fakeWorkspace) Get(id string) (WorkspaceInfo, error) {
 	return item, nil
 }
 func (repo *fakeWorkspace) List() []WorkspaceInfo {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 	items := make([]WorkspaceInfo, 0, len(repo.items))
 	for _, item := range repo.items {
 		items = append(items, item)
 	}
 	return items
 }
-func (repo *fakeWorkspace) Delete(id string) error { delete(repo.items, id); return nil }
+func (repo *fakeWorkspace) Delete(id string) error {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	delete(repo.items, id)
+	return nil
+}
 func (repo *fakeWorkspace) BindSession(sessionID, workspaceID string) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 	repo.bindings[sessionID] = workspaceID
 }
-func (repo *fakeWorkspace) UnbindSession(sessionID string) { delete(repo.bindings, sessionID) }
+func (repo *fakeWorkspace) UnbindSession(sessionID string) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	delete(repo.bindings, sessionID)
+}
 func (repo *fakeWorkspace) SessionWorkspace(sessionID string) (WorkspaceInfo, bool) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 	workspaceID, ok := repo.bindings[sessionID]
 	if !ok {
 		return WorkspaceInfo{}, false
@@ -417,6 +467,8 @@ func (repo *fakeWorkspace) SessionWorkspace(sessionID string) (WorkspaceInfo, bo
 	return item, ok
 }
 func (repo *fakeWorkspace) AllBindings() map[string]string {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
 	bindings := make(map[string]string, len(repo.bindings))
 	for sessionID, workspaceID := range repo.bindings {
 		bindings[sessionID] = workspaceID
@@ -427,6 +479,21 @@ func (*fakeWorkspace) DetectGitRemote(string) string { return "" }
 
 func newTestService(engine *fakeEngine) *Service {
 	return mustNew(Dependencies{Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}}, Skills: fakeSkills{}, Sessions: fakeSessions{}})
+}
+
+func waitForSnapshot(t *testing.T, service *Service, ready func(Snapshot) bool) Snapshot {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		snapshot := service.Snapshot()
+		if ready(snapshot) {
+			return snapshot
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for asynchronous snapshot projection: %+v", snapshot)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
@@ -451,8 +518,9 @@ func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
 		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
 	})
+	defer service.Shutdown()
 
-	catalog := service.Snapshot().Sessions
+	catalog := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 2 }).Sessions
 	if len(catalog) != 2 {
 		t.Fatalf("session count = %d, want 2", len(catalog))
 	}
@@ -637,7 +705,7 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := service.Snapshot()
+	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if snapshot.Session.Draft || snapshot.Session.ID != "saved" || snapshot.Session.Name != "saved question" {
 		t.Fatalf("resumed session = %+v", snapshot.Session)
 	}
@@ -735,7 +803,7 @@ func TestNewHydratesPersistedWorkspaceSessions(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	snapshot := service.Snapshot()
+	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 2 })
 	if len(snapshot.Workspaces) != 2 || len(snapshot.Sessions) != 2 {
 		t.Fatalf("hydrated snapshot workspaces=%v sessions=%v", snapshot.Workspaces, snapshot.Sessions)
 	}
@@ -869,12 +937,76 @@ func TestSnapshotIncludesPersistedSessions(t *testing.T) {
 	service := newTestService(&fakeEngine{})
 	defer service.Shutdown()
 
-	snapshot := service.Snapshot()
+	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if len(snapshot.Sessions) != 1 {
 		t.Fatalf("sessions = %d, want 1", len(snapshot.Sessions))
 	}
 	if snapshot.Sessions[0].ID != "saved" || snapshot.Sessions[0].TokenCount != 4 {
 		t.Fatalf("unexpected session metadata: %+v", snapshot.Sessions[0])
+	}
+}
+
+func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T) {
+	sessions := &blockingCatalogSessions{entered: make(chan struct{}), release: make(chan struct{})}
+	service := mustNew(Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions,
+	})
+	defer service.Shutdown()
+	defer close(sessions.release)
+
+	select {
+	case <-sessions.entered:
+	case <-time.After(time.Second):
+		t.Fatal("catalog worker did not start")
+	}
+	for index := 0; index < 10; index++ {
+		_ = service.Snapshot()
+	}
+	if calls := sessions.calls.Load(); calls != 1 {
+		t.Fatalf("Snapshot invoked SessionPort.List %d times while catalog was blocked", calls)
+	}
+}
+
+func TestShutdownDoesNotWaitForBlockedSessionCatalog(t *testing.T) {
+	sessions := &blockingCatalogSessions{entered: make(chan struct{}), release: make(chan struct{})}
+	service := mustNew(Dependencies{
+		Engine: &fakeEngine{}, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions,
+	})
+	defer close(sessions.release)
+	select {
+	case <-sessions.entered:
+	case <-time.After(time.Second):
+		t.Fatal("catalog worker did not start")
+	}
+	started := time.Now()
+	service.Shutdown()
+	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+		t.Fatalf("shutdown waited for blocked catalog I/O: %s", elapsed)
+	}
+}
+
+func TestRuntimeMailboxDrainsIntoHistoryOutsideServiceLock(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{mailbox: []string{"child conclusion"}}
+	service := mustNew(Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: fakeSessions{},
+	})
+	defer service.Shutdown()
+
+	service.injectPendingSubagentContexts()
+	history := engine.History()
+	if len(history) != 1 || !strings.Contains(history[0].Content, "child conclusion") {
+		t.Fatalf("merge-back was not injected into Engine history: %#v", history)
+	}
+	snapshot := service.Snapshot()
+	if len(snapshot.Conversation) != 1 || !strings.Contains(snapshot.Conversation[0].Content, "child conclusion") {
+		t.Fatalf("merge-back was not projected to the frontend snapshot: %#v", snapshot.Conversation)
+	}
+	if pending := runtime.DrainSubagentContexts(); len(pending) != 0 {
+		t.Fatalf("runtime mailbox was not drained: %#v", pending)
 	}
 }
 
@@ -937,7 +1069,7 @@ func TestEventHubOrdersAndResyncs(t *testing.T) {
 func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 	service := newTestService(&fakeEngine{})
 	defer service.Shutdown()
-	subscription := service.Subscribe(1)
+	subscription := service.Subscribe(8)
 	defer subscription.Close()
 
 	service.mu.Lock()
@@ -947,7 +1079,15 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 	service.mu.Unlock()
 
 	service.appendDelta("request-1", "next")
-	event := <-subscription.Events
+	var event Event
+	deadline := time.After(time.Second)
+	for event.Kind != EventMessageDelta {
+		select {
+		case event = <-subscription.Events:
+		case <-deadline:
+			t.Fatal("did not receive message.delta event")
+		}
+	}
 	var delta MessageDelta
 	if err := json.Unmarshal(event.Payload, &delta); err != nil {
 		t.Fatal(err)
@@ -1144,7 +1284,7 @@ func TestToolEventsUpdateSnapshot(t *testing.T) {
 func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testing.T) {
 	service := newTestService(&fakeEngine{})
 	defer service.Shutdown()
-	runtime := &goalVisibilityRuntime{fakeRuntime: &fakeRuntime{}, goalActive: service.GoalSkillActive}
+	runtime := &goalVisibilityRuntime{fakeRuntime: &fakeRuntime{}}
 	service.deps.Runtime = runtime
 
 	service.mu.Lock()
@@ -1154,6 +1294,7 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 	if !service.GoalSkillActive() {
 		t.Fatal("goal skill state was not projected")
 	}
+	service.publishRuntimeProjections()
 
 	service.handleToolStart("bash", "bash-goal", `{"command":"echo ok"}`)
 	done := make(chan struct{})
@@ -1330,8 +1471,9 @@ func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T) {
 	}}
 	service := newTestService(&fakeEngine{})
 	service.deps.Runtime = runtime
+	projection := service.collectRuntimeProjection(context.Background())
 	service.mu.Lock()
-	service.refreshRuntimeLocked(context.Background())
+	service.applyRuntimeProjectionLocked(projection)
 	service.mu.Unlock()
 	monitor := service.Snapshot().Runtime.Replan
 	if monitor.InFlight != 1 || monitor.WindowAttempts != 3 || monitor.Rejected != 4 || monitor.ProviderRequests != 5 {
@@ -1372,18 +1514,26 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 	if snapshot.Runtime.Plan.Progress != 0.5 {
 		t.Fatalf("progress = %v, want 0.5", snapshot.Runtime.Plan.Progress)
 	}
-	for index := 0; index < 3; index++ {
-		event := <-subscription.Events
+	seen := 0
+	deadline := time.After(time.Second)
+	for seen < 3 {
+		var event Event
+		select {
+		case event = <-subscription.Events:
+		case <-deadline:
+			t.Fatalf("received %d subagent.changed events, want 3", seen)
+		}
 		if event.Kind != EventSubagentChanged {
-			t.Fatalf("event %d kind = %q, want subagent.changed", index, event.Kind)
+			continue
 		}
 		var payload SubagentEvent
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			t.Fatal(err)
 		}
 		if payload.NodeID != "left" || payload.Node.ID != "left" {
-			t.Fatalf("event %d payload = %#v", index, payload)
+			t.Fatalf("event %d payload = %#v", seen, payload)
 		}
+		seen++
 	}
 
 	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "panicked", BranchID: "start", NodeID: "start"})
@@ -1421,10 +1571,20 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 		t.Fatalf("projected tool event = %#v", node.ToolEvents[0])
 	}
 
-	first := <-subscription.Events
-	second := <-subscription.Events
-	if first.Kind != EventSubagentToolStarted || second.Kind != EventSubagentToolCompleted {
-		t.Fatalf("event kinds = %q, %q", first.Kind, second.Kind)
+	var first, second Event
+	deadline := time.After(time.Second)
+	for first.Kind == "" || second.Kind == "" {
+		select {
+		case received := <-subscription.Events:
+			switch received.Kind {
+			case EventSubagentToolStarted:
+				first = received
+			case EventSubagentToolCompleted:
+				second = received
+			}
+		case <-deadline:
+			t.Fatalf("did not receive subagent tool events; started=%q completed=%q", first.Kind, second.Kind)
+		}
 	}
 	var payload SubagentToolEvent
 	if err := json.Unmarshal(second.Payload, &payload); err != nil {
@@ -1511,6 +1671,7 @@ func TestApprovalBrokerResolve(t *testing.T) {
 func TestResumeCommandOpensSessionInteraction(t *testing.T) {
 	service := newTestService(&fakeEngine{})
 	defer service.Shutdown()
+	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 
 	if err := service.Submit(context.Background(), "/resume"); err != nil {
 		t.Fatal(err)

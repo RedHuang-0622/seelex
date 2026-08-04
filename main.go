@@ -26,8 +26,6 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	seelexctxsnapshot "github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -189,19 +187,13 @@ func run() error {
 	toolHooks.Bind(app)
 	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
 	runtime.SetSubagentToolCallback(app.HandleSubagentToolEvent)
-	// 子代理上下文闭环（Actor 消息边界，seelebridge/actor.go）：
-	// - 消息进（ParentEvidence）：plan_run 期间主会话被 ChatStream 全程持锁，
-	//   父证据必须从 application 镜像（service.mu）+ 遥测 trace 构造，
-	//   绝不访问主会话（死锁教训见 actor.go 注释）；
-	// - 消息出（MergeBack）：merge-back 结果投递 mailbox，下次 ChatStream
-	//   开始前注入。
-	runtime.SetContextExchanger(&contextExchanger{app: app, tracer: runtime.Tracer()})
+	// Application 在状态迁移后向 Runtime 发布不可变可见性和父证据投影；
+	// Runtime 只读自己的缓存，子代理 merge-back 写 Runtime 有界 mailbox，
+	// 由主会话在下一次 ChatStream 前锁外消费。
+	app.PublishRuntimeProjections()
 	// 子代理 skill 能力（与主代理一致读取 skill 目录）：装配 skill 目录
 	// actor（Registry 自带锁，读写经其方法进出；nodeSkillBlocks 消费）。
 	runtime.SetSkillRegistry(skillRegistry)
-	// plan 工具面归位（plan.md §6）：goal skill 激活时主代理才可见 plan 工具
-	// （模型自由层默认面 = todolist + fork）。激活判定从 application 快照读。
-	runtime.SetGoalSkillProvider(app.GoalSkillActive)
 	if frontend == "backend" && strings.TrimSpace(*backendProject) != "" {
 		if err := bindBackendProject(app, *backendProject); err != nil {
 			return err
@@ -210,43 +202,6 @@ func run() error {
 	}
 	logBackendStartup(backendTrace, "startup.frontend.ready")
 	return startFrontend(app, backendOutput)
-}
-
-// contextExchanger 是父子 actor 上下文消息通道实现（Actor 消息边界）：
-// 状态私有、消息进出。ParentEvidence 从 application 镜像构造新快照值对象；
-// MergeBack 无锁投递 mailbox（application 排队，ChatStream 外注入）。
-type contextExchanger struct {
-	app    *application.Service
-	tracer provider.TraceSource
-}
-
-func (ex *contextExchanger) ParentEvidence() *seelexctxsnapshot.ContextSnapshot {
-	snap := ex.app.Snapshot()
-	goal := ""
-	for index := len(snap.Conversation) - 1; index >= 0; index-- {
-		message := snap.Conversation[index]
-		if message.Role == "user" && strings.TrimSpace(message.Content) != "" {
-			goal = truncateSnapshotGoal(message.Content)
-			break
-		}
-	}
-	return seelexctx.ExportSnapshotFromData(snap.Session.ID, goal, len(snap.Conversation), ex.tracer)
-}
-
-func (ex *contextExchanger) MergeBack(content string) {
-	ex.app.AppendSubagentContext(content)
-}
-
-// truncateSnapshotGoal 截断父证据目标（与 snapshot.Truncate 同语义的本地
-// 实现，避免引入额外依赖）。按 rune 截断：字节截断会在多字节 UTF-8
-// （中文）第 200 字节处切断，产生无效 UTF-8 后缀导致快照渲染乱码。
-func truncateSnapshotGoal(content string) string {
-	const maxGoalRunes = 200
-	runes := []rune(content)
-	if len(runes) <= maxGoalRunes {
-		return content
-	}
-	return string(runes[:maxGoalRunes]) + "…"
 }
 
 func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service, sessionManager *session.Manager) {

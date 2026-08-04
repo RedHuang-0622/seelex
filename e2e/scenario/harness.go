@@ -97,15 +97,18 @@ type harnessRuntime struct {
 	plugin string
 }
 
-func (harnessRuntime) Model() string                                   { return "scripted-e2e" }
-func (harnessRuntime) Provider() string                                { return "local" }
-func (harnessRuntime) Accounts() []application.AccountInfo             { return nil }
-func (harnessRuntime) SelectAccount(string) bool                       { return false }
-func (harnessRuntime) VisibleTools(context.Context) []application.Tool { return nil }
-func (runtime harnessRuntime) ActivePlugin() string                    { return runtime.plugin }
-func (harnessRuntime) FullAccess() bool                                { return false }
-func (harnessRuntime) SetFullAccess(bool)                              {}
-func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)            {}
+func (harnessRuntime) Model() string                                                          { return "scripted-e2e" }
+func (harnessRuntime) Provider() string                                                       { return "local" }
+func (harnessRuntime) Accounts() []application.AccountInfo                                    { return nil }
+func (harnessRuntime) SelectAccount(string) bool                                              { return false }
+func (harnessRuntime) VisibleTools(context.Context) []application.Tool                        { return nil }
+func (runtime harnessRuntime) ActivePlugin() string                                           { return runtime.plugin }
+func (harnessRuntime) FullAccess() bool                                                       { return false }
+func (harnessRuntime) SetFullAccess(bool)                                                     {}
+func (harnessRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
+func (harnessRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
+func (harnessRuntime) DrainSubagentContexts() []string                                        { return nil }
+func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)                                   {}
 func (harnessRuntime) PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	return seelebridge.PlanPreflight{}, nil
 }

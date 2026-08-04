@@ -52,6 +52,7 @@ func (service *contextCoordinator) prepareExecutionContext(requestID, currentInp
 	service.deps.Engine.SetSystemPrompt(systemPrompt)
 	rawTokens := service.tokenCounter.CountRequest(systemPrompt, existing, currentInput, tools)
 
+	runtimeModel := service.deps.Runtime.Model()
 	service.mu.Lock()
 	state := service.taskExecution
 	if state == nil || state.requestID != requestID {
@@ -98,7 +99,7 @@ func (service *contextCoordinator) prepareExecutionContext(requestID, currentInp
 	var revision uint64
 	if state != nil && state.requestID == requestID {
 		state.tokenAudit = TokenAudit{
-			Model: service.deps.Runtime.Model(), Counter: service.tokenCounter.Name(),
+			Model: runtimeModel, Counter: service.tokenCounter.Name(),
 			Budget: budget.Budget, SoftThreshold: budget.SoftThreshold, HardThreshold: budget.HardThreshold,
 			TargetAfterCompaction: budget.TargetAfterCompaction, EstimatedPromptTokens: estimated,
 			ActualPromptTokens: state.tokenAudit.ActualPromptTokens, UpdatedAt: time.Now(),

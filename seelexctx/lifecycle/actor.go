@@ -1,7 +1,7 @@
 // Package lifecycle 提供上下文生命周期管理的泛型 actor 模板
 // （docs/2026-08-04-context-memory-lifecycle/plan.md §2.2）。
 //
-// Actor 语义（与 seelebridge/filesystem_actor、ContextExchanger 同构）：
+// Actor 语义（与 filesystem actor 和 Runtime mailbox 同构）：
 // 状态私有——唯一 actor goroutine 持有全部上下文状态，业务代码零 mutex；
 // 消息进出——外部经有界 mailbox（channel）投递操作，回复经 reply channel。
 // 并发友好：多 goroutine 可同时 Append/LoadWindow，actor 串行消费保序。
@@ -16,9 +16,9 @@ package lifecycle
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Storage 是上下文的冷存储面（唯一持久面）。
@@ -99,12 +99,14 @@ type ContextActor[T any] struct {
 	gate       sync.RWMutex // 关闭 mailbox 与并发投递之间的生命周期门
 
 	// 以下字段仅 actor goroutine 访问（闭包状态，无锁）。
-	store    Storage[T]
-	policy   LifecyclePolicy
-	window   int          // PolicyWindowed 的驻留窗口条数
-	resident []T          // 常驻区（FullRetain 全量 / Windowed 窗口 / ColdLoad 空）
-	seq      int          // 已接收消息序号（保序审计）
-	drop     atomic.Int64 // 背压丢弃计数（非阻塞投递满时；跨 goroutine 原子）
+	store     Storage[T]
+	policy    LifecyclePolicy
+	window    int // PolicyWindowed 的驻留窗口条数
+	resident  []T // 常驻区（FullRetain 全量 / Windowed 窗口 / ColdLoad 空）
+	stored    int
+	seq       int          // 已接收消息序号（保序审计）
+	drop      atomic.Int64 // 背压丢弃计数（非阻塞投递满时；跨 goroutine 原子）
+	opTimeout time.Duration
 }
 
 // Options 是 actor 构造参数。
@@ -112,7 +114,8 @@ type Options struct {
 	// MailboxSize 是消息队列容量（默认 256；0 = 默认）。
 	MailboxSize int
 	// Window 是 PolicyWindowed 的驻留条数（0 = 默认 512）。
-	Window int
+	Window           int
+	OperationTimeout time.Duration
 }
 
 // NewContextActor 构造上下文 actor：启动消息循环（actor goroutine）。
@@ -126,18 +129,23 @@ func NewContextActor[T any](policy LifecyclePolicy, store Storage[T], options Op
 	if window <= 0 {
 		window = 512
 	}
+	opTimeout := options.OperationTimeout
+	if opTimeout <= 0 {
+		opTimeout = 5 * time.Second
+	}
 	if store == nil {
 		store = newMemoryStorage[T]()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	actor := &ContextActor[T]{
-		mailbox: make(chan request[T], mailboxSize),
-		ctx:     ctx,
-		cancel:  cancel,
-		closed:  make(chan struct{}),
-		store:   store,
-		policy:  policy,
-		window:  window,
+		mailbox:   make(chan request[T], mailboxSize),
+		ctx:       ctx,
+		cancel:    cancel,
+		closed:    make(chan struct{}),
+		store:     store,
+		policy:    policy,
+		window:    window,
+		opTimeout: opTimeout,
 	}
 	go actor.run()
 	return actor
@@ -176,7 +184,7 @@ func (a *ContextActor[T]) handleAppend(req request[T]) {
 		a.resident = append(a.resident, req.items...)
 	case PolicyColdLoad:
 		// 冷加载：立即落库，不驻留（写路径内存只短暂持有消息副本）。
-		if err := a.store.Append(a.ctx, req.items); err != nil {
+		if err := a.appendToStore(req.items); err != nil {
 			a.replyErr(req, err)
 			return
 		}
@@ -186,7 +194,7 @@ func (a *ContextActor[T]) handleAppend(req request[T]) {
 			// 窗口外落库释放（只保留最近 window 条）。截断用精确 cap
 			// 复制（append 到 nil 的 cap 有增长策略，会保留多余容量）。
 			overflow := a.resident[:len(a.resident)-a.window]
-			if err := a.store.Append(a.ctx, overflow); err != nil {
+			if err := a.appendToStore(overflow); err != nil {
 				a.replyErr(req, err)
 				return
 			}
@@ -198,20 +206,20 @@ func (a *ContextActor[T]) handleAppend(req request[T]) {
 	case PolicyPipelined:
 		// 管道批量由外部 BatchPipeline 聚合后调用 Append（此处等同落库，
 		// 不驻留；聚合在管道层完成）。
-		if err := a.store.Append(a.ctx, req.items); err != nil {
+		if err := a.appendToStore(req.items); err != nil {
 			a.replyErr(req, err)
 			return
 		}
 	}
 	if req.reply != nil {
-		req.reply <- reply[T]{total: len(a.resident) + a.store.Count()}
+		req.reply <- reply[T]{total: len(a.resident) + a.stored}
 	}
 }
 
 // handleLoadWindow 读路径（① 前端 select / ③ 递 LLM）：
 // 窗口读优先常驻区，窗口外从 Storage 冷加载。
 func (a *ContextActor[T]) handleLoadWindow(req request[T]) {
-	total := len(a.resident) + a.store.Count()
+	total := len(a.resident) + a.stored
 	// 空存储 + offset 0 → 空区间（合法，不报错）；负 offset / 越界才报错。
 	if req.offset < 0 || (total > 0 && req.offset >= total) {
 		if req.reply != nil {
@@ -235,7 +243,9 @@ func (a *ContextActor[T]) handleLoadWindow(req request[T]) {
 		items = append([]T(nil), a.resident[start:end]...)
 	} else {
 		// 冷存储段 + 常驻段拼接。
-		fromStore, storeTotal, err := a.store.ReadRange(a.ctx, req.offset, req.limit)
+		ctx, cancel := a.operationContext()
+		fromStore, _, err := a.store.ReadRange(ctx, req.offset, req.limit)
+		cancel()
 		if err != nil {
 			a.replyErr(req, err)
 			return
@@ -246,7 +256,6 @@ func (a *ContextActor[T]) handleLoadWindow(req request[T]) {
 			end := min(req.limit-len(items), len(a.resident))
 			items = append(items, a.resident[start:end]...)
 		}
-		_ = storeTotal
 	}
 	if req.reply != nil {
 		req.reply <- reply[T]{items: items, total: total}
@@ -256,7 +265,7 @@ func (a *ContextActor[T]) handleLoadWindow(req request[T]) {
 // handleSnapshot 返回当前常驻区与总数（审计/测试）。
 func (a *ContextActor[T]) handleSnapshot(req request[T]) {
 	if req.reply != nil {
-		req.reply <- reply[T]{items: append([]T(nil), a.resident...), total: len(a.resident) + a.store.Count()}
+		req.reply <- reply[T]{items: append([]T(nil), a.resident...), total: len(a.resident) + a.stored}
 	}
 }
 
@@ -265,6 +274,20 @@ func (a *ContextActor[T]) replyErr(req request[T], err error) {
 	if req.reply != nil {
 		req.reply <- reply[T]{err: err}
 	}
+}
+
+func (a *ContextActor[T]) operationContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(a.ctx, a.opTimeout)
+}
+
+func (a *ContextActor[T]) appendToStore(items []T) error {
+	ctx, cancel := a.operationContext()
+	err := a.store.Append(ctx, items)
+	cancel()
+	if err == nil {
+		a.stored += len(items)
+	}
+	return err
 }
 
 // ── 外部消息面（无锁，仅 channel 进出）──────────────────────────────
@@ -292,22 +315,36 @@ func (a *ContextActor[T]) LoadWindow(ctx context.Context, offset, limit int) ([]
 
 // Snapshot 返回常驻区拷贝与总数（测试/审计；非生产热路径）。
 func (a *ContextActor[T]) Snapshot() ([]T, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), a.opTimeout)
+	defer cancel()
+	items, total, err := a.SnapshotContext(ctx)
+	if err != nil {
+		return nil, 0
+	}
+	return items, total
+}
+
+// SnapshotContext is a bounded snapshot request. It never spins when the
+// mailbox is full and it observes the caller's cancellation while waiting for
+// a reply or concurrent Close drain.
+func (a *ContextActor[T]) SnapshotContext(ctx context.Context) ([]T, int, error) {
 	replyCh := make(chan reply[T], 1)
-	request := request[T]{op: opSnapshot, reply: replyCh}
-	for {
-		err := a.Enqueue(request)
-		switch err {
-		case nil:
-			resp := <-replyCh
-			return resp.items, resp.total
-		case ErrMailboxFull:
-			runtime.Gosched()
-		default:
-			// Close marks the actor closed before draining its mailbox. Wait for
-			// the drain to finish before reading the now-immutable actor state.
-			<-a.closed
-			return append([]T(nil), a.resident...), len(a.resident) + a.store.Count()
+	if err := a.Enqueue(request[T]{op: opSnapshot, reply: replyCh}); err != nil {
+		if !a.closedFlag.Load() {
+			return nil, 0, err
 		}
+		select {
+		case <-a.closed:
+			return append([]T(nil), a.resident...), len(a.resident) + a.stored, nil
+		case <-ctx.Done():
+			return nil, 0, ctx.Err()
+		}
+	}
+	select {
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	case resp := <-replyCh:
+		return resp.items, resp.total, resp.err
 	}
 }
 
@@ -332,16 +369,29 @@ func (a *ContextActor[T]) Enqueue(req request[T]) error {
 // 或同步路径）。流式场景由 BatchPipeline 处理（聚合 flush）。
 var ErrMailboxFull = fmt.Errorf("lifecycle: actor mailbox full")
 
-// Close 停止 actor（等待消息循环退出；幂等）。
-func (a *ContextActor[T]) Close() {
+// CloseContext first cancels in-flight Storage work, then closes admission and
+// drains every accepted request. A caller may bound its own wait without
+// re-opening the actor or leaving a send-on-closed race.
+func (a *ContextActor[T]) CloseContext(ctx context.Context) error {
 	a.closeOnce.Do(func() {
 		a.gate.Lock()
 		a.closedFlag.Store(true)
+		a.cancel()
 		close(a.mailbox)
 		a.gate.Unlock()
-		<-a.closed
-		a.cancel()
 	})
+	select {
+	case <-a.closed:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Close is the compatibility shutdown API. Use CloseContext when the caller
+// is on a UI shutdown path and needs a bounded wait.
+func (a *ContextActor[T]) Close() {
+	_ = a.CloseContext(context.Background())
 }
 
 // Dropped 返回背压丢弃计数（审计）。

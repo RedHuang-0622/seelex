@@ -88,7 +88,10 @@ func (runtime *guiChainRuntime) SetFullAccess(on bool) {
 	runtime.fullAccess = on
 	runtime.mu.Unlock()
 }
-func (*guiChainRuntime) SetPlanPolicy(seelebridge.PlanPolicy) {}
+func (*guiChainRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
+func (*guiChainRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
+func (*guiChainRuntime) DrainSubagentContexts() []string                                        { return nil }
+func (*guiChainRuntime) SetPlanPolicy(seelebridge.PlanPolicy)                                   {}
 func (*guiChainRuntime) PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	return seelebridge.PlanPreflight{}, nil
 }

@@ -121,6 +121,7 @@ func (service *Service) resumeSession(sessionID string) error {
 			planRestoreErr = restorer.RestorePlan(context.Background(), activePlan.Arguments)
 		}
 	}
+	workspaceProjection := service.collectWorkspaceProjection()
 
 	service.mu.Lock()
 	name := sessionTitleFromHistory(history)
@@ -186,18 +187,21 @@ func (service *Service) resumeSession(sessionID string) error {
 	} else {
 		service.appendHistoryLocked(visibleHistory)
 	}
-	service.deps.Engine.SetSystemPrompt(service.components.prompts.systemPromptForActiveTaskLocked())
+	systemPrompt := service.components.prompts.systemPromptForActiveTaskLocked()
 	service.snapshot.HistoryOffset = offset
 	service.snapshot.TotalMessages = total
 	service.snapshot.HasMoreHistory = offset > 0
 	service.snapshot.ConversationWindow = Limits().HistoryWindow
 	if service.deps.Workspace != nil {
 		service.snapshot.CurrentWorkspace = currentWorkspace
-		service.refreshWorkspaceLocked()
+		service.applyWorkspaceProjectionLocked(workspaceProjection)
 	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()
+	service.deps.Engine.SetSystemPrompt(systemPrompt)
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishRuntimeProjections()
+	service.requestSessionCatalogRefresh()
 	return nil
 }
 

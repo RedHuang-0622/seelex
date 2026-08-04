@@ -16,9 +16,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	seelexctxsnapshot "github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // TestManualSmokeRealAccountPlan verifies the real account path without
@@ -49,7 +46,6 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	runtime.RegisterBuiltins()
 	// 冒烟场景 = goal 流程（plan 全链路）：plan 工具面归位后（plan.md §6）
 	// plan 工具仅在 goal skill 激活时对主代理可见，冒烟模拟 goal 场景。
-	runtime.SetGoalSkillProvider(func() bool { return true })
 
 	originalStorePath := *storePath
 	*storePath = filepath.Join(tempDir, "sessions")
@@ -112,9 +108,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	// 子代理上下文闭环（与 main.go 同款，Actor 消息边界）：父证据注入走
 	// application 镜像 + 遥测（绝不访问主会话——plan_run 期间主会话被
 	// ChatStream 持锁，直接访问会死锁）；merge-back 经 mailbox 排队注入。
-	runtime.SetContextExchanger(&smokeContextExchanger{
-		app: app, tracer: runtime.Tracer(),
-	})
+	app.PublishRuntimeProjections()
 	// 项目作用域：冒烟测试未走 GUI 的 workspace 选择流程，显式绑定当前
 	// 目录——scoped 工具（glob/read_file/grep）依赖 project root，未绑定
 	// 时全部失败，模型探测受挫后行为漂移（plan_run 阶段 glob 失败的根因）。
@@ -514,29 +508,4 @@ func workspaceSmokeRoot() string {
 		return cwd
 	}
 	return "."
-}
-
-// smokeContextExchanger 是冒烟测试的 ContextExchanger 实现（与 main.go
-// contextExchanger 同构）：ParentEvidence 从 application 镜像构造快照，
-// MergeBack 排队注入（AppendSubagentContext）。
-type smokeContextExchanger struct {
-	app    *application.Service
-	tracer provider.TraceSource
-}
-
-func (ex *smokeContextExchanger) ParentEvidence() *seelexctxsnapshot.ContextSnapshot {
-	snap := ex.app.Snapshot()
-	goal := ""
-	for index := len(snap.Conversation) - 1; index >= 0; index-- {
-		message := snap.Conversation[index]
-		if message.Role == "user" && strings.TrimSpace(message.Content) != "" {
-			goal = truncateSnapshotGoal(message.Content)
-			break
-		}
-	}
-	return seelexctx.ExportSnapshotFromData(snap.Session.ID, goal, len(snap.Conversation), ex.tracer)
-}
-
-func (ex *smokeContextExchanger) MergeBack(content string) {
-	ex.app.AppendSubagentContext(content)
 }

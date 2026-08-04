@@ -52,6 +52,9 @@ type RuntimePort interface {
 	ActivePlugin() string
 	FullAccess() bool
 	SetFullAccess(bool)
+	SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection)
+	SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)
+	DrainSubagentContexts() []string
 	SetPlanPolicy(seelebridge.PlanPolicy)
 	PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error)
 	ReplanMetrics() seelebridge.ReplanMetrics

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
 )
@@ -41,6 +43,7 @@ type RuntimeConfig struct {
 	ApprovalTimeout           time.Duration          // 审批等待超时
 	HeartbeatInterval         time.Duration          // workplan 心跳间隔
 	HubStartupDelay           time.Duration          // Hub 启动等待时间
+	SubagentMailboxSize       int                    // 子代理 merge-back 有界邮箱容量
 	WindowConfig              seelexctx.WindowConfig // 滑动窗口配置段（seele.yaml；零值 = 默认，plan.md §3.7.3）
 	Limits                    seelexctx.Limits       // 运行时上限（seele.yaml limits 段；零值 = 默认）
 }
@@ -74,24 +77,26 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	mcpProvider       *frameworkmcp.Provider
-	breaker           *breakerState // 熔断器事件 channel 状态
-	branchMu          sync.RWMutex
-	branchBinding     PlanBranchBinding
-	planPolicyMu      sync.RWMutex
-	planPolicy        PlanPolicy
-	planRunMu         sync.RWMutex
-	currentPlanRunID  string
-	planProvider      *planToolProvider
-	planEvents        *planEventSink              // plan 执行事实 → 事件库 + 投影订阅
-	eventErrorHandler frameworkevent.ErrorHandler // Sink 失败隔离（不破坏 WorkPlan 控制流）
-	replanGuard       *replanGuard
-	agentFactoryMu    sync.RWMutex
-	agentFactory      node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
-	approvalGateMu    sync.RWMutex
-	approvalGate      approve.ApprovalGate
-	exchangerMu       sync.RWMutex     // 上下文消息通道锁（actor 边界指针保护）
-	exchanger         ContextExchanger // 父子 actor 上下文消息通道（actor.go）
+	mcpProvider          *frameworkmcp.Provider
+	breaker              *breakerState // 熔断器事件 channel 状态
+	branchMu             sync.RWMutex
+	branchBinding        PlanBranchBinding
+	planPolicyMu         sync.RWMutex
+	planPolicy           PlanPolicy
+	planRunMu            sync.RWMutex
+	currentPlanRunID     string
+	planProvider         *planToolProvider
+	planEvents           *planEventSink              // plan 执行事实 → 事件库 + 投影订阅
+	eventErrorHandler    frameworkevent.ErrorHandler // Sink 失败隔离（不破坏 WorkPlan 控制流）
+	replanGuard          *replanGuard
+	agentFactoryMu       sync.RWMutex
+	agentFactory         node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
+	approvalGateMu       sync.RWMutex
+	approvalGate         approve.ApprovalGate
+	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
+	parentEvidence       atomic.Pointer[snapshot.ContextSnapshot]
+	subagentMailbox      chan string
+	subagentDropped      atomic.Int64
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
 	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
@@ -104,8 +109,6 @@ type Runtime struct {
 	wt                *worktreeState // 子代理 worktree 注册表（worktree.go）
 	todo              *todoState     // todolist 清单 actor（todo_tool.go）
 	toolEvents        *subagentToolEventState
-	goalMu            sync.RWMutex
-	goalSkillActiveFn func() bool // goal skill 激活判定（main 注入 app.Snapshot().ActiveSkills）
 
 	// 子代理会话注册表（切片 8 详情查看数据面，docs/plan/subagent-detail-architecture.md）：
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照。
@@ -166,6 +169,10 @@ type Tool struct {
 }
 
 func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
+	mailboxSize := cfg.SubagentMailboxSize
+	if mailboxSize <= 0 {
+		mailboxSize = 64
+	}
 	planDecisionTimeout := cfg.PlanDecisionTimeout
 	if planDecisionTimeout <= 0 {
 		planDecisionTimeout = time.Duration(cfg.Limits.WithDefaults().PlanDecisionTimeoutSec) * time.Second
@@ -236,6 +243,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		planEvents:          newPlanEventSink(),
 		nodeSessions:        make(map[string]*session.Session),
 		nodeSnapshots:       make(map[string][]types.Message),
+		subagentMailbox:     make(chan string, mailboxSize),
 
 		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
 		tracer:            tracer,

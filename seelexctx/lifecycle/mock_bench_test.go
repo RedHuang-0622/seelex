@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -10,6 +11,30 @@ import (
 	"testing"
 	"time"
 )
+
+type cancellableBlockingStorage[T any] struct {
+	started      chan struct{}
+	canceled     chan struct{}
+	startedOnce  sync.Once
+	canceledOnce sync.Once
+}
+
+func newCancellableBlockingStorage[T any]() *cancellableBlockingStorage[T] {
+	return &cancellableBlockingStorage[T]{started: make(chan struct{}), canceled: make(chan struct{})}
+}
+
+func (store *cancellableBlockingStorage[T]) Append(ctx context.Context, _ []T) error {
+	store.startedOnce.Do(func() { close(store.started) })
+	<-ctx.Done()
+	store.canceledOnce.Do(func() { close(store.canceled) })
+	return ctx.Err()
+}
+
+func (*cancellableBlockingStorage[T]) ReadRange(context.Context, int, int) ([]T, int, error) {
+	return nil, 0, nil
+}
+
+func (*cancellableBlockingStorage[T]) Count() int { return 0 }
 
 // ── 非 happy path 测试集：并发 / 背压 / 边界 / 取消 / 内存对比 ─────────
 
@@ -220,6 +245,61 @@ func TestActorCancelAfterClose(t *testing.T) {
 	actor.Close()
 	if err := actor.Append([]string{"x"}); err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("append after close must error, got %v", err)
+	}
+}
+
+func TestActorCloseCancelsBlockingStoreAndBoundsSnapshot(t *testing.T) {
+	store := newCancellableBlockingStorage[string]()
+	actor := NewContextActor[string](PolicyColdLoad, store, Options{MailboxSize: 1, OperationTimeout: time.Second})
+	if err := actor.Append([]string{"first"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-store.started:
+	case <-time.After(time.Second):
+		t.Fatal("actor never started the blocking store operation")
+	}
+	if err := actor.Append([]string{"queued"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshotCtx, cancelSnapshot := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelSnapshot()
+	if _, _, err := actor.SnapshotContext(snapshotCtx); !errors.Is(err, ErrMailboxFull) {
+		t.Fatalf("full mailbox snapshot error = %v, want ErrMailboxFull", err)
+	}
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), time.Second)
+	defer cancelClose()
+	if err := actor.CloseContext(closeCtx); err != nil {
+		t.Fatalf("actor close did not drain after cancellation: %v", err)
+	}
+	select {
+	case <-store.canceled:
+	default:
+		t.Fatal("actor close did not cancel the blocking store operation")
+	}
+}
+
+func TestPipelineCloseCancelsBlockingStore(t *testing.T) {
+	store := newCancellableBlockingStorage[string]()
+	pipeline := NewBatchPipeline[string](store, PipelineOptions{FlushSize: 1, OperationTimeout: time.Second})
+	if err := pipeline.Push("first"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-store.started:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline never started the blocking store operation")
+	}
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), time.Second)
+	defer cancelClose()
+	err := pipeline.CloseContext(closeCtx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("pipeline close error = %v, want context.Canceled", err)
+	}
+	select {
+	case <-store.canceled:
+	default:
+		t.Fatal("pipeline close did not cancel the blocking store operation")
 	}
 }
 

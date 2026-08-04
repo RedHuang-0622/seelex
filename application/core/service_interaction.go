@@ -84,9 +84,10 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 	if !service.deps.Runtime.SelectAccount(name) {
 		return fmt.Errorf("账号不可用: %s", name)
 	}
+	runtimeProjection := service.collectRuntimeProjection(context.Background())
 	service.mu.Lock()
 	service.snapshot.Runtime.Account = name
-	service.refreshRuntimeLocked(context.Background())
+	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
@@ -138,12 +139,14 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 		service.resetConversation("已切换到 " + name + " 插件")
 	}
+	runtimeProjection := service.collectRuntimeProjection(ctx)
 	service.mu.Lock()
-	service.refreshRuntimeLocked(ctx)
+	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
 	service.events.Publish(EventRuntimeChanged, revision, "", runtime)
+	service.publishRuntimeProjections()
 	return nil
 }
 
@@ -210,7 +213,7 @@ func (service *Service) closeInteraction(id string) {
 }
 
 func (service *Service) sessionInteraction() *Interaction {
-	sessions, _ := service.components.sessions.sessionCatalog()
+	sessions := service.Snapshot().Sessions
 	options := make([]InteractionOption, 0, len(sessions))
 	for _, session := range sessions {
 		label := session.Name

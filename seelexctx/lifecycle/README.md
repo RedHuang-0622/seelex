@@ -38,3 +38,11 @@ Review 重点：Push/Close、Enqueue/Close、Flush/Close 是否可并发终止�
 go test ./seelexctx/lifecycle -count=1
 go test -race ./seelexctx/lifecycle -count=1
 ```
+
+## Cancellation and drain
+
+`ContextActor.CloseContext` and `BatchPipeline.CloseContext` cancel active
+storage work before closing admission and draining accepted messages. Every
+`Storage.Append` and `Storage.ReadRange` call receives a bounded context.
+`SnapshotContext` also observes caller cancellation, so a full mailbox cannot
+cause an unbounded spin.

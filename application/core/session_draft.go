@@ -71,6 +71,7 @@ func (service *Service) BeginNewSession() error {
 	service.taskCheckpoints = nil
 	revision := service.bumpLocked()
 	service.mu.Unlock()
+	service.publishRuntimeProjections()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
 }
@@ -107,6 +108,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	if workspace != nil && service.deps.Workspace != nil {
 		service.deps.Workspace.BindSession(newID, workspace.ID)
 	}
+	workspaceProjection := service.collectWorkspaceProjection()
 
 	service.mu.Lock()
 	title := SessionTitle{Value: sessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
@@ -115,11 +117,11 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.planStack = nil
 	service.activePlanID = ""
 	service.planSequence = 0
-	if service.deps.Workspace != nil {
-		service.refreshWorkspaceLocked()
-	}
+	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
 	service.mu.Unlock()
+	service.publishRuntimeProjections()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.requestSessionCatalogRefresh()
 	return nil
 }

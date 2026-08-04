@@ -62,11 +62,16 @@ func (r *Runtime) registerNodeSession(nodeID string, sess *frameworkSession.Sess
 // unregisterNodeSession 结束注册并保留最后快照（节点结束后详情仍可看）。
 func (r *Runtime) unregisterNodeSession(nodeID string) {
 	r.nodeSessionsMu.Lock()
-	defer r.nodeSessionsMu.Unlock()
-	if sess := r.nodeSessions[nodeID]; sess != nil {
-		r.nodeSnapshots[nodeID] = sess.History()
-	}
+	sess := r.nodeSessions[nodeID]
 	delete(r.nodeSessions, nodeID)
+	r.nodeSessionsMu.Unlock()
+	if sess == nil {
+		return
+	}
+	history := sess.History()
+	r.nodeSessionsMu.Lock()
+	r.nodeSnapshots[nodeID] = history
+	r.nodeSessionsMu.Unlock()
 }
 
 // NodeSessionConversation 返回节点子代理的会话记录：
@@ -74,15 +79,16 @@ func (r *Runtime) unregisterNodeSession(nodeID string) {
 // 只读子代理 actor，绝不触碰主会话（死锁教训，见 actor.go）。
 func (r *Runtime) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
 	r.nodeSessionsMu.Lock()
-	defer r.nodeSessionsMu.Unlock()
-	if sess := r.nodeSessions[nodeID]; sess != nil {
+	sess := r.nodeSessions[nodeID]
+	snap, ok := r.nodeSnapshots[nodeID]
+	r.nodeSessionsMu.Unlock()
+	if sess != nil {
 		return sess.History(), true
 	}
-	snap, ok := r.nodeSnapshots[nodeID]
 	return snap, ok
 }
 
-// parentSnapshot 返回父证据快照（ContextExchanger.ParentEvidence 消息进）。
+// parentSnapshot 返回 Runtime 自有父证据快照。
 func (n *SeelexAgentNode) parentSnapshot() *snapshot.ContextSnapshot {
 	if n == nil || n.runtime == nil {
 		return nil
@@ -175,7 +181,7 @@ func (r *Runtime) appendNodePhase(ctx context.Context, nodeID, status string) {
 // 重要：不得直接调用父会话的 AppendHistory/History——plan_run 作为主代理的
 // 工具调用在 Session.ChatStream 内同步执行，主会话锁被全程持有，任何子代理
 // goroutine 对主会话的访问都会死锁（冒烟测试实测 19 分钟死锁）。回传必须
-// 走 ContextExchanger.MergeBack 消息出（mailbox 投递）。
+// 写入 Runtime 自有 mailbox（消息出）。
 func (n *SeelexAgentNode) mergeBack(ctx context.Context, agent node.Agent, goal string) {
 	childSession, ok := agent.(*frameworkSession.Session)
 	if !ok {
@@ -195,18 +201,13 @@ func (n *SeelexAgentNode) mergeBack(ctx context.Context, agent node.Agent, goal 
 	}
 }
 
-// mergeBackSink 返回子代理上下文回传接收器（Actor 消息出：投递到主 actor
-// 的 mailbox；经 ContextExchanger 接口，nil = 未接线，回传跳过——绝不
-// 直接访问父会话，避免锁死锁）。
+// mergeBackSink returns the Runtime-owned bounded mailbox writer. It never
+// calls Application or the main session while a subagent is completing.
 func (n *SeelexAgentNode) mergeBackSink() func(string) {
 	if n == nil || n.runtime == nil {
 		return nil
 	}
-	exchanger := n.runtime.contextExchanger()
-	if exchanger == nil {
-		return nil
-	}
-	return exchanger.MergeBack
+	return n.runtime.enqueueSubagentContext
 }
 
 // nodeScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），
@@ -239,7 +240,7 @@ func (nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.Assembl
 }
 
 // nodePromptBlocks 构建节点级 PromptBlock：目标 + 父证据 + 预算 + 收尾契约。
-// 父证据经 ContextExchanger.ParentEvidence 注入（actor.go，缺省无）。
+// 父证据来自 Runtime 本地不可变投影（缺省无）。
 func (r *Runtime) nodePromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 4)
 	blocks = append(blocks, seelectx.PromptBlock{
@@ -306,20 +307,13 @@ func (r *Runtime) SetSkillRegistry(registry *skill.Registry) {
 	r.skills = registry
 }
 
-// SetGoalSkillProvider 装配 goal skill 激活判定（main 注入
-// app.Snapshot().ActiveSkills 检查；nil = plan 工具默认隐藏）。
-func (r *Runtime) SetGoalSkillProvider(fn func() bool) {
-	r.goalMu.Lock()
-	r.goalSkillActiveFn = fn
-	r.goalMu.Unlock()
-}
-
-// goalSkillActive 返回 goal skill 是否激活（可见性策略读取；未装配 → false）。
+// goalSkillActive reads the Runtime-owned immutable visibility projection.
 func (r *Runtime) goalSkillActive() bool {
-	r.goalMu.RLock()
-	fn := r.goalSkillActiveFn
-	r.goalMu.RUnlock()
-	return fn != nil && fn()
+	if r == nil {
+		return false
+	}
+	projection := r.visibilityProjection.Load()
+	return projection != nil && projection.GoalSkillActive
 }
 
 // nodeSkillBlocks 构建子代理 skill 块：
@@ -411,15 +405,14 @@ func (r *Runtime) nodeBudget(input SeelexNodeInput) nodeBudgetInfo {
 	return budget
 }
 
-// nodeParentEvidence 返回当前父级上下文快照（Actor 消息进：主 actor 对外
-// 投影；nil = 未装配交换器，不注入证据块）。经 ContextExchanger 接口读取，
-// 实现不得访问 ChatStream 中的主会话（死锁教训见 actor.go）。
+// nodeParentEvidence returns a copy of Runtime's cached parent evidence. It
+// never crosses back into Application or the main session while ChatStream is
+// holding the framework session lock.
 func (r *Runtime) nodeParentEvidence() *snapshot.ContextSnapshot {
-	exchanger := r.contextExchanger()
-	if exchanger == nil {
+	if r == nil {
 		return nil
 	}
-	return exchanger.ParentEvidence()
+	return cloneContextSnapshot(r.parentEvidence.Load())
 }
 
 func stringPtr(value string) *string { return &value }

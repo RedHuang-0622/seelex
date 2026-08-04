@@ -336,6 +336,13 @@ func (port runtimePort) MaxOutputTokens() int  { return port.runtime.MaxOutputTo
 func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugin() }
 func (port runtimePort) FullAccess() bool      { return port.runtime.FullAccess() }
 func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
+func (port runtimePort) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
+	port.runtime.SetRuntimeVisibilityProjection(projection)
+}
+func (port runtimePort) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection) {
+	port.runtime.SetParentEvidenceProjection(projection)
+}
+func (port runtimePort) DrainSubagentContexts() []string { return port.runtime.DrainSubagentContexts() }
 func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	port.runtime.SetPlanPolicy(policy)
 }

@@ -242,6 +242,7 @@ func (failingSessions) Workspace() string                { return "" }
 func TestBuiltinResumeOpensSessionPicker(t *testing.T) {
 	svc := newTestService(&fakeEngine{})
 	defer svc.Shutdown()
+	waitForSnapshot(t, svc, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if err := svc.Submit(context.Background(), "/resume"); err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +275,7 @@ func TestBuiltinResume_WithSessionID(t *testing.T) {
 func TestBuiltinSessions_NonEmpty(t *testing.T) {
 	svc := newTestService(&fakeEngine{})
 	defer svc.Shutdown()
+	waitForSnapshot(t, svc, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
 	if err := svc.Submit(context.Background(), "/sessions"); err != nil {
 		t.Fatal(err)
 	}

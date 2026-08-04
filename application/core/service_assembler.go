@@ -30,7 +30,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		promptRuntimeState: promptRuntimeState{promptStack: promptStack},
 		sessionRuntimeState: sessionRuntimeState{
-			sessionNames: make(map[string]sessionNameCacheEntry),
+			sessionNames:       make(map[string]sessionNameCacheEntry),
+			sessionCatalogWake: make(chan struct{}, 1),
+			sessionCatalogStop: make(chan struct{}),
+			sessionCatalogDone: make(chan struct{}),
 		},
 		planRuntimeState: planRuntimeState{
 			replanInFlight: make(map[string]struct{}),
@@ -76,11 +79,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err
 	}
-	service.refreshRuntimeLocked(context.Background())
+	service.applyRuntimeProjectionLocked(service.collectRuntimeProjection(context.Background()))
 	service.restoreInitialWorkspace()
 	service.components.prompts.buildSystemPrompt()
 	service.snapshot.Revision = 1
 	service.approval.SetObserver(service.observeInteraction)
+	service.startSessionCatalogRefresh()
+	service.publishRuntimeProjections()
 	return service, nil
 }
 
@@ -116,7 +121,8 @@ func (service *Service) restoreInitialWorkspace() {
 	if service.deps.Workspace == nil {
 		return
 	}
-	service.refreshWorkspaceLocked()
+	workspaceProjection := service.collectWorkspaceProjection()
+	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	workspace, ok := service.deps.Workspace.SessionWorkspace(service.snapshot.Session.ID)
 	if !ok {
 		return

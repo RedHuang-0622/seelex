@@ -27,7 +27,7 @@ func New(deps Dependencies) (*Service, error) {
 }
 
 // ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
-// 见 main.go SetGoalSkillProvider；锁内快照，无锁外访问）。
+// 见 Runtime 单向可见性投影；锁内快照，无锁外访问）。
 func (service *Service) ActiveSkillIDs() []string {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
@@ -42,11 +42,16 @@ func (service *Service) ActiveSkillIDs() []string {
 	return ids
 }
 
-// GoalSkillActive reports whether the current task has activated the goal
-// skill. The value is maintained with the task projection while service.mu is
-// held, then read atomically by the runtime visibility policy. Keeping this
-// query lock-free prevents Runtime.VisibleTools from re-entering service.mu
-// during a tool-completion projection.
+// GoalSkillActive returns the latest local projection for diagnostics and
+// tests. Runtime receives the same value through PublishRuntimeProjections;
+// it does not call this method.
 func (service *Service) GoalSkillActive() bool {
 	return service.goalSkillActive.Load()
+}
+
+// PublishRuntimeProjections refreshes Runtime's immutable state copies. It is
+// exposed for composition roots that complete their Runtime wiring after
+// Application.New returns.
+func (service *Service) PublishRuntimeProjections() {
+	service.publishRuntimeProjections()
 }

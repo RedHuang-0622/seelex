@@ -21,24 +21,6 @@ func (service *viewCoordinator) snapshotView() Snapshot {
 	service.mu.RLock()
 	snapshot := cloneSnapshot(service.snapshot)
 	service.mu.RUnlock()
-	sessions, discoveredBindings := service.sessions.sessionCatalog()
-	snapshot.Sessions = sessions
-	if snapshot.Session.Name == "" {
-		for _, session := range sessions {
-			if session.ID == snapshot.Session.ID {
-				snapshot.Session.Name = session.Name
-				break
-			}
-		}
-	}
-	if len(discoveredBindings) > 0 {
-		if snapshot.SessionWorkspaces == nil {
-			snapshot.SessionWorkspaces = make(map[string]string, len(discoveredBindings))
-		}
-		for sessionID, workspaceID := range discoveredBindings {
-			snapshot.SessionWorkspaces[sessionID] = workspaceID
-		}
-	}
 	return snapshot
 }
 
@@ -46,18 +28,31 @@ func (service *viewCoordinator) subscribe(buffer int) Subscription {
 	return service.events.Subscribe(buffer)
 }
 
-func (service *viewCoordinator) refreshRuntimeLocked(ctx context.Context) {
-	service.snapshot.Session.ID = service.deps.Engine.SessionID()
-	service.snapshot.Runtime.Model = service.deps.Runtime.Model()
-	service.snapshot.Runtime.Provider = service.deps.Runtime.Provider()
-	service.snapshot.Runtime.Plugin = service.deps.Runtime.ActivePlugin()
-	service.snapshot.Runtime.Effort = service.effortManager.Current()
-	service.snapshot.Runtime.FullAccess = service.deps.Runtime.FullAccess()
-	service.snapshot.Runtime.VisibleTools = append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...)
-	service.snapshot.Runtime.Skills = append([]SkillInfo(nil), service.deps.Skills.All()...)
-	service.snapshot.Runtime.Tokens = service.deps.Engine.TokenCount()
+type runtimeStateProjection struct {
+	sessionID string
+	runtime   RuntimeState
+}
+
+// collectRuntimeProjection calls external ports without service.mu. Applying
+// the returned immutable value is a separate in-memory state transition.
+func (service *viewCoordinator) collectRuntimeProjection(ctx context.Context) runtimeStateProjection {
+	projection := runtimeStateProjection{
+		sessionID: service.deps.Engine.SessionID(),
+		runtime: RuntimeState{
+			Model:        service.deps.Runtime.Model(),
+			Provider:     service.deps.Runtime.Provider(),
+			Plugin:       service.deps.Runtime.ActivePlugin(),
+			Effort:       service.effortManager.Current(),
+			FullAccess:   service.deps.Runtime.FullAccess(),
+			VisibleTools: append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...),
+			Skills:       append([]SkillInfo(nil), service.deps.Skills.All()...),
+			Tokens:       service.deps.Engine.TokenCount(),
+			Plugins:      append([]PluginInfo(nil), service.deps.Plugins.All()...),
+			Accounts:     append([]AccountInfo(nil), service.deps.Runtime.Accounts()...),
+		},
+	}
 	metrics := service.deps.Runtime.ReplanMetrics()
-	service.snapshot.Runtime.Replan = ReplanMonitor{
+	projection.runtime.Replan = ReplanMonitor{
 		InFlight: metrics.InFlight, ConcurrentLimit: metrics.ConcurrentLimit,
 		WindowAttempts: metrics.WindowAttempts, WindowLimit: metrics.WindowLimit,
 		WindowStartedAt: metrics.WindowStartedAt, Accepted: metrics.Accepted,
@@ -65,8 +60,16 @@ func (service *viewCoordinator) refreshRuntimeLocked(ctx context.Context) {
 		DuplicateRejected: metrics.DuplicateRejected, ProviderRequests: metrics.ProviderRequests,
 		ProviderWindowRequests: metrics.ProviderWindowRequests, ProviderWindowLimit: metrics.ProviderWindowLimit,
 	}
-	service.snapshot.Runtime.Plugins = append([]PluginInfo(nil), service.deps.Plugins.All()...)
-	service.snapshot.Runtime.Accounts = append([]AccountInfo(nil), service.deps.Runtime.Accounts()...)
+	return projection
+}
+
+func (service *viewCoordinator) applyRuntimeProjectionLocked(projection runtimeStateProjection) {
+	plan := service.snapshot.Runtime.Plan
+	account := service.snapshot.Runtime.Account
+	service.snapshot.Session.ID = projection.sessionID
+	service.snapshot.Runtime = projection.runtime
+	service.snapshot.Runtime.Plan = plan
+	service.snapshot.Runtime.Account = account
 }
 
 func (service *viewCoordinator) appendMessageLocked(role, content string, tool *ToolCall) *Message {
@@ -184,9 +187,10 @@ func (service *viewCoordinator) addNotice(notice string) {
 }
 
 func (service *viewCoordinator) resetConversation(notice string) {
+	model := service.deps.Runtime.Model()
 	service.mu.Lock()
 	service.snapshot.Conversation = nil
-	service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", service.deps.Runtime.Model()), nil)
+	service.appendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", model), nil)
 	if notice != "" {
 		service.appendMessageLocked("system", notice, nil)
 	}
@@ -203,8 +207,12 @@ func (service *Service) Subscribe(buffer int) Subscription {
 	return service.components.view.subscribe(buffer)
 }
 
-func (service *Service) refreshRuntimeLocked(ctx context.Context) {
-	service.components.view.refreshRuntimeLocked(ctx)
+func (service *Service) collectRuntimeProjection(ctx context.Context) runtimeStateProjection {
+	return service.components.view.collectRuntimeProjection(ctx)
+}
+
+func (service *Service) applyRuntimeProjectionLocked(projection runtimeStateProjection) {
+	service.components.view.applyRuntimeProjectionLocked(projection)
 }
 
 func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {

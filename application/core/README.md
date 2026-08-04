@@ -111,6 +111,19 @@ go test ./application/core -count=1
 go test ./application/core -race -count=1
 ```
 
+## Runtime projections and catalog cache
+
+`Snapshot()` only clones the in-memory `Service.snapshot` under `Service.mu`.
+It never reads Engine, Runtime, Workspace, or session storage. A background
+worker refreshes the session catalog cache and stops without blocking GUI
+shutdown on a legacy non-context-aware catalog call.
+
+Application publishes immutable `RuntimeVisibilityProjection` and
+`ParentEvidenceProjection` values to Runtime after relevant state changes.
+Runtime never calls Application back. Subagent merge-back enters a bounded
+Runtime mailbox and is drained outside `Service.mu` before the next main
+`ChatStream` starts.
+
 ## Context compression visibility
 
 `ContextController` rebuilds provider history from the active system policy, trusted task Skills, the active Plan slice, one structured checkpoint, and at most four recent complete protocol units. A unit is admitted only when every tool call has a matching result; orphan results and incomplete parallel calls remain in the durable transcript but never enter provider context.

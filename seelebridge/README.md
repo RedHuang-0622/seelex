@@ -127,6 +127,14 @@ go vet ./seelebridge
 go test -race ./seelebridge -count=1
 ```
 
+## Runtime-owned projections
+
+Runtime accepts value copies of Application visibility and parent-evidence
+projections. Tool visibility and subagent prompt assembly read those local
+copies only; neither path calls Application or the main session. Merge-back
+uses a fixed-capacity Runtime mailbox. A full mailbox increments a diagnostic
+drop count and never blocks a child agent.
+
 项目边界重点在 `project_scope_test.go`/`runtime_test.go`，Plan 内核在
 `plan_kernel_test.go`，账号池/流式租约在 `runtime_test.go`/
 `stream_completer_test.go`，存储兼容在 `storage_test.go`。

@@ -8,11 +8,28 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
-
-	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/provider"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
+
+func TestSubagentMailboxIsBoundedAndNeverBlocksProducer(t *testing.T) {
+	runtime := &Runtime{subagentMailbox: make(chan string, 1)}
+	runtime.enqueueSubagentContext("first")
+	done := make(chan struct{})
+	go func() {
+		runtime.enqueueSubagentContext("dropped")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("full subagent mailbox blocked the producer")
+	}
+	if got := runtime.subagentContextDropped(); got != 1 {
+		t.Fatalf("dropped merge-backs = %d, want 1", got)
+	}
+	if items := runtime.DrainSubagentContexts(); len(items) != 1 || items[0] != "first" {
+		t.Fatalf("mailbox contents = %#v", items)
+	}
+}
 
 // TestSubAgentStartupEndToEnd 验证子代理完整启动路径：
 // plan_load → plan_run → workplan 核 → SeelexAgentNode.Run → nodeSession.Chat。
@@ -141,8 +158,7 @@ func mustRegisterAccount(t *testing.T, runtime *Runtime, id string, value agent.
 // TestSubAgentMergeBackToParent 验证"父证据注入 → 执行 → 合并回传"闭环：
 // 子代理执行后其结构化上下文（Goal/Findings/Decisions）经 merger.MergeBack
 // 合并，Format 结果经 sink 回传（application 侧排队，ChatStream 外注入）。
-// 生产接线 = main.go SetContextExchanger（ContextExchanger 实现，无锁数据面）
-// + SeelexAgentNode.mergeBack。
+// 生产接线 = Application 单向发布父证据投影 + Runtime mailbox。
 func TestSubAgentMergeBackToParent(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
@@ -157,10 +173,8 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 	// 父子上下文消息通道（Actor 边界，与 main.go 同款：无锁数据面）：
 	// ParentEvidence 从遥测构造快照；MergeBack 捕获 merge-back 结果
 	// （生产 = app.AppendSubagentContext 排队 mailbox）。
-	var received []string
-	runtime.SetContextExchanger(&testContextExchanger{
-		trace:       runtime.Tracer(),
-		onMergeBack: func(content string) { received = append(received, content) },
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
+		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
 	})
 
 	scripted := newScriptedNodeCompleter("子代理结论：模块审计完成。")
@@ -176,8 +190,9 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 
 	// sink 必须收到 merge-back 块（merger.MergeBack → Format），且携带子代理
 	// 目标（节点输入）。不得直接读主会话 History（ChatStream 锁内会死锁）。
+	received := runtime.DrainSubagentContexts()
 	if len(received) == 0 {
-		t.Fatal("merge-back sink must receive the merged child context block (closed loop)")
+		t.Fatal("runtime mailbox must receive the merged child context block (closed loop)")
 	}
 	var mergedFound, childGoalFound bool
 	for _, content := range received {
@@ -193,22 +208,5 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 	}
 	if !childGoalFound {
 		t.Error("merged block should carry the child goal from node input")
-	}
-}
-
-// testContextExchanger 是 ContextExchanger 测试实现：ParentEvidence 从
-// 遥测构造快照（与 main.go 同款无锁数据面），MergeBack 走回调捕获。
-type testContextExchanger struct {
-	trace       provider.TraceSource
-	onMergeBack func(string)
-}
-
-func (ex *testContextExchanger) ParentEvidence() *snapshot.ContextSnapshot {
-	return seelexctx.ExportSnapshotFromData("main", "audit the module", 0, ex.trace)
-}
-
-func (ex *testContextExchanger) MergeBack(content string) {
-	if ex.onMergeBack != nil {
-		ex.onMergeBack(content)
 	}
 }

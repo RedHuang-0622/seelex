@@ -13,10 +13,12 @@ func (service *Service) DeleteSession(sessionID string) error {
 	}
 	if service.deps.Workspace != nil {
 		service.deps.Workspace.UnbindSession(sessionID)
+		workspaceProjection := service.collectWorkspaceProjection()
 		service.mu.Lock()
-		service.refreshWorkspaceLocked()
+		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		service.bumpLocked()
 		service.mu.Unlock()
+		service.requestSessionCatalogRefresh()
 	}
 	service.components.sessions.invalidateSessionName(sessionID)
 	return nil
@@ -68,14 +70,16 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 			return err
 		}
 		service.deps.Sessions.SetWorkspace(workspace.ID)
+		workspaceProjection := service.collectWorkspaceProjection()
 		service.mu.Lock()
 		service.snapshot.CurrentWorkspace = &WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 		}
-		service.refreshWorkspaceLocked()
+		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		revision := service.bumpLocked()
 		service.mu.Unlock()
 		service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		service.requestSessionCatalogRefresh()
 		return nil
 	}
 
@@ -100,6 +104,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	}
 	service.deps.Workspace.BindSession(currentSessionID, workspace.ID)
 	service.deps.Sessions.SetWorkspace(workspace.ID)
+	workspaceProjection := service.collectWorkspaceProjection()
 	service.mu.Lock()
 	if startFreshSession {
 		service.snapshot.Session.ID = currentSessionID
@@ -115,10 +120,11 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	service.snapshot.CurrentWorkspace = &WorkspaceInfo{
 		ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 	}
-	service.refreshWorkspaceLocked()
+	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.requestSessionCatalogRefresh()
 	return nil
 }
 
@@ -135,21 +141,42 @@ func (service *Service) UnbindWorkspace() {
 		service.deps.Workspace.UnbindSession(sessionID)
 	}
 	service.deps.Sessions.SetWorkspace("")
+	workspaceProjection := service.collectWorkspaceProjection()
 	service.mu.Lock()
 	service.snapshot.CurrentWorkspace = nil
-	service.refreshWorkspaceLocked()
+	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.requestSessionCatalogRefresh()
 }
 
-func (service *Service) refreshWorkspaceLocked() {
+type workspaceStateProjection struct {
+	workspaces []WorkspaceInfo
+	bindings   map[string]string
+}
+
+// collectWorkspaceProjection performs WorkspacePort I/O before service.mu is
+// acquired. Applying it only copies already-owned values into the snapshot.
+func (service *Service) collectWorkspaceProjection() workspaceStateProjection {
+	if service.deps.Workspace == nil {
+		return workspaceStateProjection{}
+	}
 	all := service.deps.Workspace.List()
-	service.snapshot.Workspaces = make([]WorkspaceInfo, len(all))
+	projection := workspaceStateProjection{workspaces: make([]WorkspaceInfo, len(all))}
 	for index, workspace := range all {
-		service.snapshot.Workspaces[index] = WorkspaceInfo{
+		projection.workspaces[index] = WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 		}
 	}
-	service.snapshot.SessionWorkspaces = service.deps.Workspace.AllBindings()
+	projection.bindings = service.deps.Workspace.AllBindings()
+	return projection
+}
+
+func (service *Service) applyWorkspaceProjectionLocked(projection workspaceStateProjection) {
+	service.snapshot.Workspaces = append([]WorkspaceInfo(nil), projection.workspaces...)
+	service.snapshot.SessionWorkspaces = make(map[string]string, len(projection.bindings))
+	for sessionID, workspaceID := range projection.bindings {
+		service.snapshot.SessionWorkspaces[sessionID] = workspaceID
+	}
 }

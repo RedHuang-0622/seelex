@@ -59,6 +59,7 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	assistant := *service.appendMessageLocked("assistant", "", nil)
 	revision := service.bumpLocked()
 	service.mu.Unlock()
+	service.publishRuntimeProjections()
 	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
 	// 期间主会话被持锁无法回写，只能在此时补注入。
 	service.injectPendingSubagentContexts()
@@ -117,6 +118,11 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	if flushErr := batcher.Flush(); flushErr != nil && err == nil {
 		err = fmt.Errorf("flush streamed response: %w", flushErr)
 	}
+	// plan_run may have completed child agents while the main framework session
+	// was locked. Drain their Runtime-owned mailbox only after ChatStream has
+	// returned, so every subsequently queued turn sees the merge-back history.
+	service.injectPendingSubagentContexts()
+	runtimeProjection := service.collectRuntimeProjection(context.Background())
 	service.mu.Lock()
 	if service.streamBatcher == batcher {
 		service.streamBatcher = nil
@@ -163,7 +169,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
 	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
 	// 全量重建可能带入跨会话的残留消息。
-	service.refreshRuntimeLocked(context.Background())
+	service.applyRuntimeProjectionLocked(runtimeProjection)
 	// 处理输入队列：取所有排队输入合并为一条，批量发送
 	processQueue := len(service.inputQueue) > 0
 	var batchRequest chatRequest
@@ -213,6 +219,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	if processQueue {
 		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextUser)
 		service.events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
+		service.publishRuntimeProjections()
 		go service.runChat(nextContext, nextRequestID, batchRequest)
 	}
 }
@@ -414,6 +421,7 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 	service.mu.RUnlock()
 	service.flushStreamBatcher(activeRequestID)
 	service.mu.Lock()
+	var planBinding *seelebridge.PlanBranchBinding
 	service.components.tasks.ensureToolCallTranscriptLocked(name, id, arguments)
 	tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}
 	message := *service.appendMessageLocked("tool", "", tool)
@@ -433,13 +441,17 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 		}
 	}
 	if name == "plan_run" {
-		service.deps.Runtime.SetPlanBranchBinding(service.planBranchBindingLocked())
+		binding := service.planBranchBindingLocked()
+		planBinding = &binding
 	}
 
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
 	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
+	if planBinding != nil {
+		service.deps.Runtime.SetPlanBranchBinding(*planBinding)
+	}
 	service.events.Publish(EventToolStarted, revision, requestID, message)
 	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
 }
@@ -479,6 +491,7 @@ func (service *Service) handleToolCompleteObserved(name, id, result string, tool
 	service.mu.RUnlock()
 	service.flushStreamBatcher(activeRequestID)
 	emit("toolhook.complete.flush.done")
+	runtimeProjection := service.collectRuntimeProjection(context.Background())
 	emit("toolhook.complete.lock.start")
 	service.mu.Lock()
 	emit("toolhook.complete.lock.done")
@@ -546,7 +559,7 @@ func (service *Service) handleToolCompleteObserved(name, id, result string, tool
 		assistant = &appended
 	}
 	emit("toolhook.complete.runtime.start")
-	service.refreshRuntimeLocked(context.Background())
+	service.applyRuntimeProjectionLocked(runtimeProjection)
 	emit("toolhook.complete.runtime.done")
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
@@ -1123,9 +1136,10 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 		if succeeded {
 			return
 		}
+		runtimeProjection := service.collectRuntimeProjection(context.Background())
 		service.mu.Lock()
 		delete(service.replanInFlight, interactionID)
-		service.refreshRuntimeLocked(context.Background())
+		service.applyRuntimeProjectionLocked(runtimeProjection)
 		revision := service.bumpLocked()
 		runtime := cloneRuntimeState(service.snapshot.Runtime)
 		service.mu.Unlock()
@@ -1142,11 +1156,12 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 	toolID := fmt.Sprintf("%s:plan-replan-%d", requestID, time.Now().UnixNano())
 	service.handleToolStart("plan_load", toolID, result.Arguments)
 	service.handleToolComplete("plan_load", toolID, result.Result, nil, 0)
+	runtimeProjection := service.collectRuntimeProjection(context.Background())
 	service.mu.Lock()
 	if plan := service.snapshot.Runtime.Plan; plan != nil {
 		plan.ReplanCount = planAttempts + 1
 	}
-	service.refreshRuntimeLocked(context.Background())
+	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()

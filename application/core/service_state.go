@@ -57,6 +57,12 @@ type sessionRuntimeState struct {
 	sessionTransitionMu sync.Mutex
 	sessionNames        map[string]sessionNameCacheEntry
 	sessionTitle        SessionTitle
+	// session catalog I/O is owned by a dedicated refresh worker. Snapshot
+	// reads only snapshot.Sessions, never SessionPort/WorkspacePort.
+	sessionCatalogWake chan struct{}
+	sessionCatalogStop chan struct{}
+	sessionCatalogDone chan struct{}
+	sessionCatalogOnce sync.Once
 }
 
 type planRuntimeState struct {

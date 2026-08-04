@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const sessionCatalogShutdownWait = 100 * time.Millisecond
+
 // scopedSessionPort is implemented by production session adapters that can
 // read an explicit project key without mutating the active write scope.
 type scopedSessionPort interface {
@@ -24,6 +26,74 @@ type sessionLocation struct {
 type sessionNameCacheEntry struct {
 	updatedAt time.Time
 	name      string
+}
+
+// startSessionCatalogRefresh moves catalog discovery and title restoration off
+// the Snapshot hot path. The worker owns external SessionPort/WorkspacePort
+// calls; it publishes only a copied in-memory projection.
+func (service *Service) startSessionCatalogRefresh() {
+	go func() {
+		defer close(service.sessionCatalogDone)
+		for {
+			select {
+			case <-service.sessionCatalogWake:
+				service.refreshSessionCatalogCache()
+			case <-service.sessionCatalogStop:
+				return
+			}
+		}
+	}()
+	service.requestSessionCatalogRefresh()
+}
+
+func (service *Service) requestSessionCatalogRefresh() {
+	select {
+	case service.sessionCatalogWake <- struct{}{}:
+	default:
+	}
+}
+
+func (service *Service) refreshSessionCatalogCache() {
+	sessions, discoveredBindings := service.components.sessions.sessionCatalog()
+	service.mu.Lock()
+	if service.closed {
+		service.mu.Unlock()
+		return
+	}
+	service.snapshot.Sessions = append([]SessionInfo(nil), sessions...)
+	bindings := make(map[string]string, len(service.snapshot.SessionWorkspaces)+len(discoveredBindings))
+	for sessionID, workspaceID := range service.snapshot.SessionWorkspaces {
+		bindings[sessionID] = workspaceID
+	}
+	for sessionID, workspaceID := range discoveredBindings {
+		bindings[sessionID] = workspaceID
+	}
+	service.snapshot.SessionWorkspaces = bindings
+	if service.snapshot.Session.Name == "" {
+		for _, session := range sessions {
+			if session.ID == service.snapshot.Session.ID {
+				service.snapshot.Session.Name = session.Name
+				break
+			}
+		}
+	}
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+}
+
+func (service *Service) stopSessionCatalogRefresh() {
+	service.sessionCatalogOnce.Do(func() {
+		close(service.sessionCatalogStop)
+		// SessionPort deliberately predates context-aware catalog reads. Do not
+		// turn a slow external catalog operation into a GUI shutdown hang; the
+		// worker checks service.closed before publishing and exits once the port
+		// returns. Normal workers are still drained eagerly.
+		select {
+		case <-service.sessionCatalogDone:
+		case <-time.After(sessionCatalogShutdownWait):
+		}
+	})
 }
 
 func (service *sessionCoordinator) sessionCatalog() ([]SessionInfo, map[string]string) {

@@ -16,8 +16,6 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
-
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // ── NodeScope 上下文助手 ─────────────────────────────────────────────
@@ -64,7 +62,7 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 
 	// 主代理（无 NodeScope）：默认面 = 完整工具面减去 plan 工具族
 	// （goal skill 未激活时 plan 隐藏，plan.md §6；显式关闭测试基座的默认激活）。
-	runtime.SetGoalSkillProvider(nil)
+	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{})
 	all := toolNames(runtime.VisibleTools(context.Background()))
 	for _, want := range []string{"read_file", "task_complete", "web_search", "todolist_init", "fork_subagents"} {
 		if !containsName(all, want) {
@@ -105,7 +103,7 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 	}
 
 	// goal skill 激活 → 主代理与 entry 节点可见 plan 工具。
-	runtime.SetGoalSkillProvider(func() bool { return true })
+	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 	for _, ctx := range []context.Context{context.Background(), WithNodeScope(context.Background(), NodeScope{
 		NodeID: "start", Role: RoleAgent, BranchID: "start",
 	})} {
@@ -150,11 +148,7 @@ func TestNodeScopeHiddenToolDispatchRejected(t *testing.T) {
 func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
-	runtime.SetContextExchanger(staticExchanger(&snapshot.ContextSnapshot{
-		SourceSessionID: "src-1",
-		Goal:            "parent-goal",
-		Findings:        []string{"finding-one"},
-	}))
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
 
 	node := newSeelexAgentNode(codec.NodeSpec[SeelexNodeInput]{
 		ID:    "left",
@@ -175,14 +169,14 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := joinMessageContents(assembled.Messages)
-	for _, want := range []string{"节点目标", "do left", "## 继承上下文", "parent-goal", "finding-one", "节点预算", "最大迭代轮数"} {
+	for _, want := range []string{"节点目标", "do left", "## 继承上下文", "parent-goal", "节点预算", "最大迭代轮数"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("node request missing %q:\n%s", want, text)
 		}
 	}
 
 	// 未注入父证据：节点请求不含证据块。
-	runtime.SetContextExchanger(nil)
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{})
 	ctxNoEvidence := withNodePromptBlocks(context.Background(), runtime.nodePromptBlocks(node.input))
 	assembledNoEvidence, err := (nodeScopeAssembler{}).Assemble(ctxNoEvidence, seelectx.AssemblyRequest{})
 	if err != nil {
@@ -206,11 +200,7 @@ func TestPlanRunParallelAgentBranches(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	runtime.SetContextExchanger(staticExchanger(&snapshot.ContextSnapshot{
-		SourceSessionID: "src-1",
-		Goal:            "parent-goal",
-		Findings:        []string{"finding-one"},
-	}))
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
 
 	// hash 路由断言：left/right 必须落到不同子代理账号（否则无法证明并行）。
 	leftAccount, err := ResolveAccountForBranch(runtime.pool, RoleSubAgent, "plan-1:left")
@@ -291,7 +281,7 @@ func TestPlanRunParallelAgentBranches(t *testing.T) {
 			t.Fatalf("%s branch never produced an LLM request", branch.name)
 		}
 		requestText := joinMessageContents(requests[0])
-		for _, want := range []string{branch.goal, "## 继承上下文", "parent-goal", "finding-one"} {
+		for _, want := range []string{branch.goal, "## 继承上下文", "parent-goal"} {
 			if !strings.Contains(requestText, want) {
 				t.Errorf("%s branch request missing %q:\n%s", branch.name, want, requestText)
 			}
@@ -426,7 +416,7 @@ func newTestRuntimeWithSubagents(t testing.TB) *Runtime {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.SetGoalSkillProvider(func() bool { return true })
+	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 	return runtime
 }
 
@@ -491,19 +481,3 @@ func containsName(names []string, want string) bool {
 	}
 	return false
 }
-
-// staticExchanger 构造固定快照的 ContextExchanger 测试桩（Actor 消息边界
-// 的确定性实现：ParentEvidence 返回固定值，MergeBack 丢弃）。
-func staticExchanger(parent *snapshot.ContextSnapshot) ContextExchanger {
-	return &staticContextExchanger{parent: parent}
-}
-
-type staticContextExchanger struct {
-	parent *snapshot.ContextSnapshot
-}
-
-func (ex *staticContextExchanger) ParentEvidence() *snapshot.ContextSnapshot {
-	return ex.parent
-}
-
-func (ex *staticContextExchanger) MergeBack(string) {}

@@ -8,9 +8,9 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-// AppendSubagentContext 排队子代理 merge-back 内容（无锁旁路回传端）：
-// 节点执行期间主会话锁被 ChatStream 持有，不能直接注入 engine history；
-// 内容排队后由下一次 startChat（ChatStream 开始前，锁外）注入。
+// AppendSubagentContext preserves the public compatibility path for callers
+// that already hold a merge-back result. Production subagents write to the
+// Runtime-owned mailbox instead; both queues are consumed outside service.mu.
 func (service *Service) AppendSubagentContext(content string) {
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -24,24 +24,33 @@ func (service *Service) AppendSubagentContext(content string) {
 // subagentContextMarker 标记子代理产出块（模型不误读为普通用户轮次）。
 const subagentContextMarker = "[子代理产出] "
 
-// injectPendingSubagentContexts 把排队中的子代理上下文注入 engine history，
-// 并同步写入快照镜像（GUI 可见——审查 #4：此前只进 engine history，
-// 前端显示与模型实际所见不一致）。
-// 必须在 ChatStream 之外调用（startChat 提交时，主会话锁未被持有）。
+// injectPendingSubagentContexts drains the Runtime-owned bounded mailbox and
+// legacy local queue, then injects messages into Engine outside service.mu.
+// Snapshot mutation is a separate short critical section, so Engine cannot
+// form a reverse wait cycle with Application.
 func (service *Service) injectPendingSubagentContexts() {
+	runtimePending := service.deps.Runtime.DrainSubagentContexts()
 	service.mu.Lock()
 	pending := service.pendingSubagentContexts
 	service.pendingSubagentContexts = nil
-	visible := make([]Message, 0, len(pending))
-	for _, content := range pending {
-		marked := subagentContextMarker + content
-		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &marked})
-		message := service.appendMessageLocked("user", marked, nil)
-		visible = append(visible, *message)
-	}
-	if len(visible) == 0 {
-		service.mu.Unlock()
+	service.mu.Unlock()
+	pending = append(pending, runtimePending...)
+	if len(pending) == 0 {
 		return
+	}
+
+	marked := make([]string, 0, len(pending))
+	for _, content := range pending {
+		value := subagentContextMarker + content
+		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &value})
+		marked = append(marked, value)
+	}
+
+	service.mu.Lock()
+	visible := make([]Message, 0, len(marked))
+	for _, content := range marked {
+		message := service.appendMessageLocked("user", content, nil)
+		visible = append(visible, *message)
 	}
 	revision := service.bumpLocked()
 	service.mu.Unlock()
@@ -144,5 +153,6 @@ func (service *Service) Shutdown() {
 		service.cancelChat()
 	}
 	service.mu.Unlock()
+	service.stopSessionCatalogRefresh()
 	service.approval.Shutdown()
 }
