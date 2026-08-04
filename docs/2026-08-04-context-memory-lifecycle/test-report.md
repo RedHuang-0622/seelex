@@ -65,3 +65,15 @@ node --test gui/frontend/dist/*.test.mjs
 
 - [x] ✅ 功能、集成和并发验证通过
 - [x] ⚠️ 记录包级覆盖率与既有格式化债务，不阻塞本次交付
+
+## GUI Bridge permission 增量验收（2026-08-04）
+
+本轮最终命令结果以提交前重新执行的数据为准；验收边界固定为 GUI 后端端口，不以 Application/EventHub 单层测试替代：
+
+```text
+go test ./gui -run 'TestGUIBackend(PortRelaysToolCompletion|FullAccessReleasesPendingApproval)' -count=10
+go test ./application/approval ./seelebridge -run 'ResolveAll|PermissionGateReportsFullAccessState' -count=10
+node --test gui/frontend/dist/*.test.mjs
+```
+
+最终复验结果：GUI `Bridge` 工具完成与 FA 解锁用例 `-count=10` 通过；Approval/permission 定向竞争用例 `-count=10` 通过；前端 Node 57/57 通过；`go test ./... -p 1 -count=1 -timeout=120s`、`go vet -p 1 ./...`、普通 `go build -p 1 ./...` 和 `go build -p 1 -tags "gui,desktop,production" ./...` 均通过。Windows 本机 `CGO_ENABLED=0` 且未安装 GCC，新增路径本轮未声明为 `-race` 验证；以重复定向并发用例补充覆盖。

@@ -334,6 +334,7 @@ func (port runtimePort) Provider() string      { return port.runtime.Provider() 
 func (port runtimePort) ContextWindow() int    { return port.runtime.ContextWindow() }
 func (port runtimePort) MaxOutputTokens() int  { return port.runtime.MaxOutputTokens() }
 func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugin() }
+func (port runtimePort) FullAccess() bool      { return port.runtime.FullAccess() }
 func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
 func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	port.runtime.SetPlanPolicy(policy)

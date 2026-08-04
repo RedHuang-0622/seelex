@@ -147,7 +147,18 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	return nil
 }
 
-func (service *Service) SetFullAccess(on bool) { service.deps.Runtime.SetFullAccess(on) }
+func (service *Service) SetFullAccess(on bool) {
+	service.deps.Runtime.SetFullAccess(on)
+	if on && service.approval != nil {
+		service.approval.ResolveAll(ApprovalDecision{OptionID: "always"})
+	}
+	service.mu.Lock()
+	service.snapshot.Runtime.FullAccess = service.deps.Runtime.FullAccess()
+	revision := service.bumpLocked()
+	runtime := cloneRuntimeState(service.snapshot.Runtime)
+	service.mu.Unlock()
+	service.events.Publish(EventRuntimeChanged, revision, "", runtime)
+}
 
 func (service *Service) observeInteraction(interaction *Interaction) {
 	service.mu.Lock()

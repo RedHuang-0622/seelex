@@ -403,6 +403,11 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(string(script), `from "./plan-dsl.js"`) {
 		t.Fatal("embedded frontend does not load the Plan JSON DSL renderer")
 	}
+	if strings.Contains(string(script), "let fullAccessOn") ||
+		!strings.Contains(string(script), `client.current()?.runtime?.full_access`) ||
+		!strings.Contains(string(script), `Boolean(runtime.full_access)`) {
+		t.Fatal("Full Access control must use the authoritative GUI backend snapshot")
+	}
 	components, err := embeddedFrontend.ReadFile("frontend/dist/components.js")
 	if err != nil {
 		t.Fatal(err)

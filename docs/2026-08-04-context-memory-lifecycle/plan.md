@@ -134,11 +134,11 @@ onChunk ──► 有界缓冲管道（聚合 N chunk 或 X ms）
 | # | 问题 | 状态 | 处置 |
 |---|---|---|---|
 | B1 | **glob/grep 卡顿**：`**/*` 全树遍历（Windows 反斜杠导致 filepath.Match 恒不匹配 → 遍历但结果空；慢盘上分钟级卡顿） | ✅ 已修复（提交中） | 重目录跳过 + walk 超时（limits.walk_timeout=30s）+ ** 递归匹配器（matchGlobPattern）；测试覆盖 |
-| B2 | **前端审批弹窗不显示**（权限 ask 卡住工具执行） | 🔧 已加固待验证 | z-index 100 + 聚焦首个选项 + [interaction] 诊断日志；代码链路（broker→EventHub→bridge→前端）验证全通，若仍不弹需运行时日志 |
+| B2 | **工具停在审批等待**（表现为 `Waiting for output…`） | ✅ 已定位并修复 | 根因是默认 manual 未放行 `todolist_*`/task 终态工具，且旧 FA 仅维护前端本地状态、不会释放已经 pending 的审批；现已补白名单、权威 `runtime.full_access`、`ResolveAll` 和 GUI Bridge 链路测试。 |
 | B3 | **沙箱接入疑似导致工具挂起** | ↩️ 已回滚 | scopedBash 恢复 v1 直连 exec；CommandSandbox 接口保留，根因定位后再接入（fail-fast） |
 | B4 | **前端 ES module 解析失败（closeNodeDetail 重复声明）** | ✅ 已修复 | `681dfe9`；验证方法升级：module 加载（node --input-type=module）而非 node --check |
 | B5 | **GUI 构建缺 desktop tag** | ✅ 已修复 | 构建必须 `-tags "gui,desktop,production"`（scripts/build-gui.ps1 为准） |
-| B6 | 沙箱回滚后工具仍卡？ | ⏳ 待用户冒烟确认 | 若仍卡需提供：具体工具 + 卡顿时长 + 阶段（主代理/子代理） |
+| B6 | 沙箱回滚后工具仍卡？ | ✅ 排除 sandbox 根因 | full access 与 manual 均复现于 permission gate；GUI Bridge 端口的 tool.completed/runtime.changed mock 和真实账号 `todolist_init` 已通过，最终由新 GUI 包冒烟确认桌面运行时。 |
 
 ## 6. 实施顺序
 

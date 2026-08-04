@@ -27,6 +27,8 @@
 3. seq gap、协议不兼容或未知状态触发完整 Snapshot resync。
 4. render functions 根据 state 投影 DOM；所有 mutation 通过 Bridge 返回 Application。
 
+Full Access 按钮不维护本地布尔状态：显示与下一次 toggle 都读取 `snapshot.runtime.full_access`，调用 `Bridge.SetFullAccess` 后重新拉取 Snapshot；后端同时发布完整 `runtime.changed` 供连续事件链更新。
+
 Plan DSL 常驻右侧项目栏；没有 Plan 时隐藏整个 section，加载、运行和完成状态都由 `runtime.plan` 驱动。Runtime 弹窗只保留运行时诊断信息。
 
 `Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
@@ -60,7 +62,7 @@ node --test gui/frontend/dist/*.test.mjs
 go test ./gui -count=1
 ```
 
-`runtime-events.test.mjs` 验证 Wails runtime 延迟就绪时不会漏绑或重复绑定。`event-chain.test.mjs` mock Wails `seelex:event` 并验证主代理/子代理工具完成状态通过 `createGUIClient`/`protocol.js` 后可见，且连续事件不会退化为 Snapshot reload；主代理工具卡明确断言完成后不再显示 `Waiting for output…`。
+`runtime-events.test.mjs` 验证 Wails runtime 延迟就绪时不会漏绑或重复绑定。`event-chain.test.mjs` mock Wails `seelex:event` 并验证主代理/子代理工具完成状态和权威 `runtime.full_access` 通过 `createGUIClient`/`protocol.js` 后可见，且连续事件不会退化为 Snapshot reload；主代理工具卡明确断言完成后不再显示 `Waiting for output…`。
 
 ## Context compression summary
 

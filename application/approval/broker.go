@@ -120,6 +120,31 @@ func (broker *ApprovalBroker) Resolve(id string, decision ApprovalDecision) erro
 	return nil
 }
 
+// ResolveAll completes every currently pending approval with the same
+// explicit decision. It is used when the user enables full access while a
+// tool is already waiting at the permission gate.
+func (broker *ApprovalBroker) ResolveAll(decision ApprovalDecision) int {
+	broker.mu.Lock()
+	pending := broker.pending
+	broker.pending = make(map[string]*approvalPending)
+	observer := broker.observer
+	broker.mu.Unlock()
+	for id, request := range pending {
+		select {
+		case request.result <- decision:
+		default:
+			continue
+		}
+		if observer == nil && broker.events != nil {
+			broker.events.Publish(EventInteractionClosed, 0, id, decision)
+		}
+	}
+	if len(pending) > 0 && observer != nil {
+		observer(nil)
+	}
+	return len(pending)
+}
+
 func (broker *ApprovalBroker) Shutdown() {
 	broker.mu.Lock()
 	pending := broker.pending

@@ -205,6 +205,13 @@ func (state *permissionGateState) setFullAccess(on bool) {
 	state.mu.Unlock()
 }
 
+func (state *permissionGateState) fullAccess() bool {
+	state.mu.RLock()
+	checker := state.checker
+	state.mu.RUnlock()
+	return checker != nil && checker.Mode() == toolspermission.ModeFullAccess
+}
+
 // middleware 把 tools/permission 检查结果接入 tools.Registry 调度链。
 // allow → 放行；deny → 拒绝；ask → 走 ApprovalHandler（human-in-the-loop）。
 func (state *permissionGateState) middleware(approvalTimeout time.Duration) tools.Middleware {

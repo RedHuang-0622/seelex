@@ -54,12 +54,17 @@ test("relays a completed main-agent tool result through the GUI reducer and rend
       tool: { id: "tool-1", name: "bash", result, status: "success", duration: 12000000 }
     }
   });
+  await runtime.emit("seelex:event", {
+    protocol_version: 1, seq: 3, revision: 4, request_id: "request-1", kind: "runtime.changed",
+    payload: { ...client.current().runtime, full_access: true }
+  });
 
   const current = client.current();
   const rendered = renderConversationModel(current.conversation, current.chat);
   const tool = rendered.items.find(item => item.key === "tool:tool-1");
   assert.equal(loads, 1, "main tool events must not fall back to Snapshot reloads");
-  assert.deepEqual(incrementals, ["tool.started", "tool.completed"]);
+  assert.deepEqual(incrementals, ["tool.started", "tool.completed", "runtime.changed"]);
+  assert.equal(current.runtime.full_access, true, "authoritative full-access state must reach the frontend");
   assert.ok(tool, "completed tool card must retain the started tool key");
   assert.deepEqual(JSON.parse(rendered.payloads.get("tool:tool-1-out")), JSON.parse(result));
   assert.doesNotMatch(tool.html, /Waiting for output/);

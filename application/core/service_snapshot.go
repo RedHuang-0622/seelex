@@ -52,6 +52,7 @@ func (service *viewCoordinator) refreshRuntimeLocked(ctx context.Context) {
 	service.snapshot.Runtime.Provider = service.deps.Runtime.Provider()
 	service.snapshot.Runtime.Plugin = service.deps.Runtime.ActivePlugin()
 	service.snapshot.Runtime.Effort = service.effortManager.Current()
+	service.snapshot.Runtime.FullAccess = service.deps.Runtime.FullAccess()
 	service.snapshot.Runtime.VisibleTools = append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...)
 	service.snapshot.Runtime.Skills = append([]SkillInfo(nil), service.deps.Skills.All()...)
 	service.snapshot.Runtime.Tokens = service.deps.Engine.TokenCount()

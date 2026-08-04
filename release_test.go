@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	"github.com/RedHuang-0622/seelex/application"
 )
 
 func TestParseFrontendMode(t *testing.T) {
@@ -68,6 +69,61 @@ func TestSafeFlagDefaults(t *testing.T) {
 	}
 	if got := flag.Lookup("frontend").DefValue; got != "tui" {
 		t.Fatalf("frontend default = %q, want tui", got)
+	}
+}
+
+func TestDefaultManualRulesAllowSafeControlPlaneTools(t *testing.T) {
+	checker := toolspermission.NewPermissionChecker(toolspermission.PermissionConfig{
+		Mode: toolspermission.ModeManual, Rules: defaultManualRules(),
+	})
+	for _, name := range []string{
+		"todolist_init", "todolist_add", "todolist_done", "todolist_status",
+		"task_complete", "task_failed", "task_needs_user_decision",
+	} {
+		if result := checker.Check(name, `{}`); result != toolspermission.ResultAllow {
+			t.Fatalf("safe control-plane tool %q permission = %v, want allow", name, result)
+		}
+	}
+	if result := checker.Check("bash", `{"command":"pwd"}`); result != toolspermission.ResultAsk {
+		t.Fatalf("bash permission = %v, want ask in manual mode", result)
+	}
+}
+
+type permissionRuntimeRecorder struct {
+	config     toolspermission.PermissionConfig
+	handler    toolspermission.ApprovalHandler
+	fullAccess []bool
+}
+
+func (runtime *permissionRuntimeRecorder) SetPermissionConfig(
+	config toolspermission.PermissionConfig,
+	handler toolspermission.ApprovalHandler,
+) {
+	runtime.config = config
+	runtime.handler = handler
+}
+
+func (runtime *permissionRuntimeRecorder) SetFullAccess(on bool) {
+	runtime.fullAccess = append(runtime.fullAccess, on)
+}
+
+func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
+	originalMode := *permissionMode
+	*permissionMode = string(toolspermission.ModeFullAccess)
+	t.Cleanup(func() { *permissionMode = originalMode })
+
+	runtime := &permissionRuntimeRecorder{}
+	if err := setupPermissionGate(runtime, application.NewApprovalBroker(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.config.Mode != toolspermission.ModeManual {
+		t.Fatalf("baseline permission mode = %q, want manual", runtime.config.Mode)
+	}
+	if runtime.handler == nil {
+		t.Fatal("full-access startup discarded the manual approval bridge")
+	}
+	if len(runtime.fullAccess) != 1 || !runtime.fullAccess[0] {
+		t.Fatalf("full-access startup toggles = %#v, want [true]", runtime.fullAccess)
 	}
 }
 

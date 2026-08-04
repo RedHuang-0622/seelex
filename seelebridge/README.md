@@ -52,6 +52,8 @@ Runtime，同时隔离上游 API 变化。
    `PlanNodeEvent`，订阅者（Application）实时更新 Plan 状态与前端快照。
 6. `Shutdown` 关闭 MCP、账号池和后台资源。
 
+权限门始终保存一份 manual 基线配置。`Runtime.SetFullAccess(true)` 只把当前 checker 切到 `full_access`，`SetFullAccess(false)` 重新构造 manual checker；`Runtime.FullAccess()` 是 Application Snapshot 的权威状态来源。即使 CLI 以 `-permission full_access` 启动，composition root 也先装配 manual 规则和审批桥，再打开覆盖层，因此 GUI 可以安全切回 manual。
+
 主 Session 可通过 `AttachHistoryRouter` 独立装配 `sessionstore.DurableHistory`；指定恢复 ID 时 `NewMainSessionWithID` 同时用它作为框架 Session identity 和 durable key。该路径不读取或覆盖 `SessionContextStore` 的 application state blob。
 
 子代理节点通过 `NodeScope.Role == RoleSubAgent` 识别。工具 middleware 发布 `running/success/error`，worktree 编排发布 `worktree_creating/rebasing/merging`；阶段事实沿用 Plan binding，并在存在 session ID 时写入 `agent.runtime` Location。
@@ -115,6 +117,7 @@ actual work, while prompt policy keeps `plan_run` out of the main workflow.
 - 节点账号/作用域是否按 binding 隔离，确定性 hash 是否稳定。
 - MCP attach/detach 失败是否留下半连接状态或 goroutine。
 - 配置 fallback 是否可能选择 disabled/错误 role 账号。
+- Full Access 是否仍是 manual 基线上的可逆覆盖，且开启时 Application 会释放已经等待的审批请求。
 
 ## 测试
 

@@ -17,9 +17,9 @@
 
 ## Bridge 契约
 
-`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、Cancel、Interaction、Plugin/Account/Effort、history pagination、workspace、session storage settings 等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft，GUI 不通过 `/new` 字符串命令抢先创建 Session。
+`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings 等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft，GUI 不通过 `/new` 字符串命令抢先创建 Session。
 
-子代理 `subagent.changed`、`subagent.tool.started`、`subagent.tool.completed` 与其他 Application Event 使用同一 relay，不在 Bridge 内改写 payload。`bridge_test.go` 验证工具完成事件的 kind、request ID 和有界 DTO 能到达 `seelex:event`。
+子代理 `subagent.changed`、`subagent.tool.started`、`subagent.tool.completed` 与其他 Application Event 使用同一 relay，不在 Bridge 内改写 payload。`tool_full_chain_test.go` 从 `Bridge.Submit` 进入，覆盖 ToolHookBridge → Application/EventHub → Bridge emitter → `seelex:event`，并验证 `Bridge.SetFullAccess(true)` 会释放既有审批、投影 Snapshot、relay `runtime.changed`。
 
 Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等敏感配置必须由 backend redaction 后再返回 renderer。
 

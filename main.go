@@ -591,28 +591,30 @@ func parseFrontendMode(value string) (string, error) {
 	}
 }
 
+type permissionRuntime interface {
+	SetPermissionConfig(toolspermission.PermissionConfig, toolspermission.ApprovalHandler)
+	SetFullAccess(bool)
+}
+
 // setupPermissionGate 根据 -permission 标志安装权限门控。
-// manual：白名单内自动放行，白名单外弹审批框（默认）。
-// full_access：所有工具直接放行，仅在用户显式选择时启用。
-func setupPermissionGate(runtime *seelebridge.Runtime, approval *application.ApprovalBroker) error {
+// 始终先安装 manual 基线，保证从 full_access 切回时能够恢复白名单与审批桥；
+// full_access 仅作为运行时覆盖层启用。
+func setupPermissionGate(runtime permissionRuntime, approval *application.ApprovalBroker) error {
 	mode, err := parsePermissionMode(*permissionMode)
 	if err != nil {
 		return err
 	}
-	switch mode {
-	case toolspermission.ModeManual:
-		cfg := toolspermission.PermissionConfig{Mode: toolspermission.ModeManual, Rules: defaultManualRules()}
-		// seele.yaml 的 permission 段（权限专用文件）：存在有效规则时覆盖
-		// 内置白名单；缺失/为空回退默认白名单。
-		if fileRules, loadErr := loadPermissionRules("seele.yaml"); loadErr != nil {
-			return loadErr
-		} else if len(fileRules) > 0 {
-			cfg.Rules = fileRules
-		}
-		runtime.SetPermissionConfig(cfg, newPermissionBridge(approval))
-	case toolspermission.ModeFullAccess:
-		cfg := toolspermission.PermissionConfig{Mode: toolspermission.ModeFullAccess}
-		runtime.SetPermissionConfig(cfg, nil)
+	cfg := toolspermission.PermissionConfig{Mode: toolspermission.ModeManual, Rules: defaultManualRules()}
+	// seele.yaml 的 permission 段（权限专用文件）：存在有效规则时覆盖
+	// 内置白名单；缺失/为空回退默认白名单。
+	if fileRules, loadErr := loadPermissionRules("seele.yaml"); loadErr != nil {
+		return loadErr
+	} else if len(fileRules) > 0 {
+		cfg.Rules = fileRules
+	}
+	runtime.SetPermissionConfig(cfg, newPermissionBridge(approval))
+	if mode == toolspermission.ModeFullAccess {
+		runtime.SetFullAccess(true)
 	}
 	return nil
 }
@@ -630,6 +632,13 @@ func defaultManualRules() []toolspermission.PermissionRule {
 		{ToolName: "switch_plugin", Action: toolspermission.ActionAllow},
 		{ToolName: "switch_mode", Action: toolspermission.ActionAllow},
 		{ToolName: "ask_approve", Action: toolspermission.ActionAllow},
+		{ToolName: "todolist_init", Action: toolspermission.ActionAllow},
+		{ToolName: "todolist_add", Action: toolspermission.ActionAllow},
+		{ToolName: "todolist_done", Action: toolspermission.ActionAllow},
+		{ToolName: "todolist_status", Action: toolspermission.ActionAllow},
+		{ToolName: "task_complete", Action: toolspermission.ActionAllow},
+		{ToolName: "task_failed", Action: toolspermission.ActionAllow},
+		{ToolName: "task_needs_user_decision", Action: toolspermission.ActionAllow},
 		{ToolName: "plan_load", Action: toolspermission.ActionAllow},
 		{ToolName: "plan_run", Action: toolspermission.ActionAllow},
 		{ToolName: "plan_status", Action: toolspermission.ActionAllow},

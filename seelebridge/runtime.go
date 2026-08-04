@@ -614,6 +614,10 @@ func (r *Runtime) SetFullAccess(on bool) {
 	}
 }
 
+func (r *Runtime) FullAccess() bool {
+	return r.permission != nil && r.permission.fullAccess()
+}
+
 func summarizeTools(tools []types.Tool) []Tool {
 	result := make([]Tool, 0, len(tools))
 	for _, tool := range tools {

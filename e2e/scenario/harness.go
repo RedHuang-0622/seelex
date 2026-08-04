@@ -103,6 +103,7 @@ func (harnessRuntime) Accounts() []application.AccountInfo             { return 
 func (harnessRuntime) SelectAccount(string) bool                       { return false }
 func (harnessRuntime) VisibleTools(context.Context) []application.Tool { return nil }
 func (runtime harnessRuntime) ActivePlugin() string                    { return runtime.plugin }
+func (harnessRuntime) FullAccess() bool                                { return false }
 func (harnessRuntime) SetFullAccess(bool)                              {}
 func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)            {}
 func (harnessRuntime) PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {

@@ -206,6 +206,7 @@ func (engine *fakeEngine) ReleaseWorkingHistory() {
 
 type fakeRuntime struct {
 	account       string
+	fullAccess    bool
 	binding       seelebridge.PlanBranchBinding
 	planPolicy    seelebridge.PlanPolicy
 	replans       []seelebridge.ReplanRequest
@@ -230,8 +231,9 @@ func (runtime *fakeRuntime) SelectAccount(name string) bool {
 func (*fakeRuntime) VisibleTools(context.Context) []Tool {
 	return []Tool{{Name: "read", Description: "read files"}}
 }
-func (*fakeRuntime) ActivePlugin() string { return "default" }
-func (*fakeRuntime) SetFullAccess(bool)   {}
+func (*fakeRuntime) ActivePlugin() string          { return "default" }
+func (runtime *fakeRuntime) FullAccess() bool      { return runtime.fullAccess }
+func (runtime *fakeRuntime) SetFullAccess(on bool) { runtime.fullAccess = on }
 func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
 	runtime.planPolicy = policy
 }

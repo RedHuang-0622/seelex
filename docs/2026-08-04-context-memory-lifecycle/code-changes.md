@@ -48,3 +48,11 @@
 本工作包经用户明确授权提交，实际 commit 标识以 Git 历史为准。
 
 `feat(runtime): wire durable context and subagent events`
+
+## GUI permission/event 链补强（2026-08-04）
+
+- `RuntimePort`/`RuntimeState` 新增权威 `FullAccess/full_access`，GUI 不再维护本地 FA 镜像。
+- `ApprovalBroker.ResolveAll` 在开启 Full Access 时释放所有已经等待的 permission request；Application 发布完整 `runtime.changed`。
+- 默认 manual 白名单加入 `todolist_*` 和 task 终态控制工具，避免正常 Agent 编排被无意义审批阻塞。
+- 启动配置始终先安装 manual 基线，再按 CLI/GUI 开启 Full Access 覆盖层，确保能够切回 manual。
+- `gui/tool_full_chain_test.go` 以 GUI `Bridge` 为入口和出口，覆盖工具完成事件、FA 解锁审批、Snapshot 与 `seelex:event` relay。

@@ -299,3 +299,4 @@ todo 全 done 与 plan 全节点完成都走同一 `task_complete` 投影校验�
 - Application 递归定位嵌套 Plan 节点，按工具调用 ID upsert 有界 `tool_events`，发布 `subagent.changed`、`subagent.tool.started`、`subagent.tool.completed`。
 - GUI Bridge 原样 relay 到 `seelex:event`；前端 reducer 深拷贝 Plan 树并递归更新，详情页展示会话、生命周期时间线和工具输入/结果/错误。
 - `gui/frontend/dist/event-chain.test.mjs` mock Wails `seelex:event`，验证事件不触发 Snapshot reload 且最终工具状态在前端节点可见；Go bridge relay 和 Runtime/Application 分层测试共同覆盖整条链路。
+- GUI permission 增量从 `Bridge` 端口验收：`Bridge.Submit → ToolHookBridge → Application/EventHub → Bridge emitter → seelex:event` 断言 `tool.completed`；`Bridge.SetFullAccess(true)` 同时释放 pending approval、更新 `Snapshot.runtime.full_access` 并 relay 完整 `runtime.changed`。默认 manual 白名单纳入 `todolist_*` 与 task 终态工具，避免模型自由层在执行第一步控制工具时被非业务审批阻塞。

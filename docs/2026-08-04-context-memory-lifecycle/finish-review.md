@@ -50,3 +50,11 @@
 - [ ] 🚨 不通过
 
 经用户明确授权后提交；未 push。
+
+## GUI permission 增量审查（2026-08-04）
+
+- 正确性：FA 状态由 Runtime 单一来源投影；打开 FA 先切换 checker，再释放 pending approvals，等待中的工具可以继续执行。
+- 架构：审批批量决议在 `application/approval`，权限模式在 `seelebridge`，Bridge/frontend 只传输与消费 Application DTO/Event。
+- 并发：`Resolve` 与 `ResolveAll` 通过同一 pending map 原子争胜，测试覆盖 100 轮竞争且无双重完成。
+- 可逆性：CLI full-access 启动仍保留 manual 规则和 ApprovalHandler，关闭 FA 后不会退化成不可恢复的 full-access checker。
+- 前端：按钮读取 `snapshot.runtime.full_access`，`runtime.changed` 使用完整 Runtime payload，避免局部 payload 覆盖丢失其他 runtime 字段。

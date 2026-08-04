@@ -229,6 +229,10 @@ function renderRuntime(runtime) {
     ["Tools", String(runtime.visible_tools?.length || 0)]
   ].map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
 
+  const fullAccess = Boolean(runtime.full_access);
+  elements["perm-toggle"].classList.toggle("is-on", fullAccess);
+  elements["perm-toggle"].textContent = fullAccess ? "FA ✓" : "FA";
+
   effortControl.setLevel(runtime.effort);
 }
 
@@ -674,14 +678,10 @@ function renderWorkspace(snapshot) {
 }
 
 // FA toggle
-let fullAccessOn = false;
 elements["perm-toggle"].addEventListener("click", async function() {
-  fullAccessOn = !fullAccessOn;
-  var btn = elements["perm-toggle"];
-  btn.classList.toggle("is-on", fullAccessOn);
-  btn.textContent = fullAccessOn ? "FA ✓" : "FA";
-  try { await invoke("SetFullAccess", fullAccessOn); }
-  catch (error) { showToast(error); fullAccessOn = !fullAccessOn; btn.classList.toggle("is-on", fullAccessOn); }
+  const next = !Boolean(client.current()?.runtime?.full_access);
+  try { await invoke("SetFullAccess", next); await refresh({ scroll: false }); }
+  catch (error) { showToast(error); }
 });
 
 // New workspace

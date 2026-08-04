@@ -50,6 +50,7 @@ type RuntimePort interface {
 	SelectAccount(string) bool
 	VisibleTools(context.Context) []model.Tool
 	ActivePlugin() string
+	FullAccess() bool
 	SetFullAccess(bool)
 	SetPlanPolicy(seelebridge.PlanPolicy)
 	PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error)

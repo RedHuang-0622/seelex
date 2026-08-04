@@ -11,7 +11,7 @@
 - `ApprovalBroker`：维护待决请求表，以 request ID 关联等待方和 UI 决议。
 - `SetObserver`：把当前 Interaction 投影给 Application Snapshot。
 
-`Request` 注册 pending request、发布打开事件并等待 context、timeout、Resolve 或 Shutdown；`Resolve` 保证请求只完成一次；`Shutdown` 唤醒全部等待者。
+`Request` 注册 pending request、发布打开事件并等待 context、timeout、Resolve 或 Shutdown；`Resolve` 保证请求只完成一次；`ResolveAll` 用同一显式决议原子摘取并释放全部当前 pending request，供用户在工具等待期间开启 Full Access；`Shutdown` 唤醒全部等待者。
 
 ## 生态位与边界
 
@@ -20,14 +20,15 @@
 ## 并发与 Review
 
 - pending map 必须在锁内修改，向等待 channel 发送时避免重复完成。
-- context cancel、timeout、Resolve、Shutdown 可能竞争，任何路径都必须清理 pending。
+- context cancel、timeout、Resolve、ResolveAll、Shutdown 可能竞争，任何路径都必须清理 pending，且不能重复完成等待方。
 - Observer 不应在持锁状态执行不可控逻辑。
 - 新增决议类型时同步更新 `model.Interaction` 和两个前端。
 
 ## 测试
 
-审批行为由 `application/core/service_test.go` 和 `race_test.go` 覆盖：
+审批行为由 `broker_test.go`、`application/core/service_test.go` 和 `race_test.go` 覆盖：
 
 ```text
+go test ./application/approval -count=10
 go test ./application/core -run Approval -count=1
 ```

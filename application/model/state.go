@@ -99,6 +99,7 @@ type RuntimeState struct {
 	Account      string        `json:"account,omitempty"`
 	Plugin       string        `json:"plugin,omitempty"`
 	Effort       string        `json:"effort"`
+	FullAccess   bool          `json:"full_access"`
 	VisibleTools []Tool        `json:"visible_tools"`
 	Skills       []SkillInfo   `json:"skills"`
 	Tokens       string        `json:"tokens"`
