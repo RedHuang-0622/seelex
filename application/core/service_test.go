@@ -367,6 +367,7 @@ func (sessions *trackingSessions) SaveCurrent(sessionID string) error {
 
 type scopedSessions struct {
 	fakeSessions
+	mu              sync.RWMutex
 	workspace       string
 	catalog         map[string][]SessionInfo
 	histories       map[string]map[string][]EngineMessage
@@ -374,20 +375,54 @@ type scopedSessions struct {
 	savedIDs        []string
 }
 
-func (sessions *scopedSessions) SetWorkspace(workspaceID string) { sessions.workspace = workspaceID }
-func (sessions *scopedSessions) Workspace() string               { return sessions.workspace }
+func (sessions *scopedSessions) SetWorkspace(workspaceID string) {
+	sessions.mu.Lock()
+	sessions.workspace = workspaceID
+	sessions.mu.Unlock()
+}
+func (sessions *scopedSessions) Workspace() string {
+	sessions.mu.RLock()
+	defer sessions.mu.RUnlock()
+	return sessions.workspace
+}
 func (sessions *scopedSessions) SaveCurrent(sessionID string) error {
+	sessions.mu.Lock()
 	sessions.savedIDs = append(sessions.savedIDs, sessionID)
+	sessions.mu.Unlock()
 	return nil
 }
+func (sessions *scopedSessions) SavedIDs() []string {
+	sessions.mu.RLock()
+	defer sessions.mu.RUnlock()
+	return append([]string(nil), sessions.savedIDs...)
+}
 func (sessions *scopedSessions) ListWorkspace(workspaceID string) []SessionInfo {
+	sessions.mu.RLock()
+	defer sessions.mu.RUnlock()
 	return append([]SessionInfo(nil), sessions.catalog[workspaceID]...)
 }
+func (sessions *scopedSessions) LoadedWorkspace() string {
+	sessions.mu.RLock()
+	defer sessions.mu.RUnlock()
+	return sessions.loadedWorkspace
+}
 func (sessions *scopedSessions) LoadHistoryWorkspace(workspaceID, sessionID string) ([]EngineMessage, error) {
+	sessions.mu.Lock()
 	sessions.loadedWorkspace = workspaceID
+	var (
+		history  []EngineMessage
+		found    bool
+		hasScope bool
+	)
 	if bySession := sessions.histories[workspaceID]; bySession != nil {
-		if history, ok := bySession[sessionID]; ok {
-			return append([]EngineMessage(nil), history...), nil
+		hasScope = true
+		history, found = bySession[sessionID]
+		history = append([]EngineMessage(nil), history...)
+	}
+	sessions.mu.Unlock()
+	if hasScope {
+		if found {
+			return history, nil
 		}
 		return nil, errors.New("session missing from workspace")
 	}
@@ -402,6 +437,8 @@ func (sessions *scopedSessions) LoadHistoryRangeWorkspace(workspaceID, sessionID
 	return append([]EngineMessage(nil), history[offset:end]...), len(history), nil
 }
 func (sessions *scopedSessions) DeleteWorkspace(workspaceID, sessionID string) error {
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
 	delete(sessions.histories[workspaceID], sessionID)
 	return nil
 }
@@ -724,8 +761,8 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	if got := workspaces.bindings["session-new"]; got != "project-1" {
 		t.Fatalf("materialized session workspace = %q, want project-1; bindings=%v", got, workspaces.bindings)
 	}
-	if sessions.workspace != "project-1" || runtime.projectRoot != root {
-		t.Fatalf("materialized project scope: workspace=%q root=%q", sessions.workspace, runtime.projectRoot)
+	if sessions.Workspace() != "project-1" || runtime.projectRoot != root {
+		t.Fatalf("materialized project scope: workspace=%q root=%q", sessions.Workspace(), runtime.projectRoot)
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
@@ -779,8 +816,8 @@ func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 	if err := service.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if runtime.projectRoot != root || sessions.workspace != "project-1" || workspaces.bindings["session-1"] != "project-1" {
-		t.Fatalf("create project did not bind all scope state: root=%q sessionStore=%q bindings=%v", runtime.projectRoot, sessions.workspace, workspaces.bindings)
+	if runtime.projectRoot != root || sessions.Workspace() != "project-1" || workspaces.bindings["session-1"] != "project-1" {
+		t.Fatalf("create project did not bind all scope state: root=%q sessionStore=%q bindings=%v", runtime.projectRoot, sessions.Workspace(), workspaces.bindings)
 	}
 	if err := service.Submit(context.Background(), "/new"); err != nil {
 		t.Fatal(err)
@@ -799,8 +836,8 @@ func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot = service.Snapshot()
-	if workspaces.bindings["session-new"] != "project-1" || sessions.workspace != "project-1" {
-		t.Fatalf("materialized session did not inherit project: bindings=%v sessionStore=%q", workspaces.bindings, sessions.workspace)
+	if workspaces.bindings["session-new"] != "project-1" || sessions.Workspace() != "project-1" {
+		t.Fatalf("materialized session did not inherit project: bindings=%v sessionStore=%q", workspaces.bindings, sessions.Workspace())
 	}
 	if snapshot.SessionWorkspaces["session-new"] != "project-1" || snapshot.Session.Name != "first project question" {
 		t.Fatalf("materialized snapshot = %+v", snapshot)
@@ -826,8 +863,8 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
-	if runtime.projectRoot != root || sessions.workspace != "project-1" {
-		t.Fatalf("resume did not restore project scope: root=%q store=%q", runtime.projectRoot, sessions.workspace)
+	if runtime.projectRoot != root || sessions.Workspace() != "project-1" {
+		t.Fatalf("resume did not restore project scope: root=%q store=%q", runtime.projectRoot, sessions.Workspace())
 	}
 }
 
@@ -884,8 +921,8 @@ func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
 	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
-	if sessions.loadedWorkspace != "project-1" || sessions.workspace != "project-1" {
-		t.Fatalf("resume read workspace=%q active=%q", sessions.loadedWorkspace, sessions.workspace)
+	if sessions.LoadedWorkspace() != "project-1" || sessions.Workspace() != "project-1" {
+		t.Fatalf("resume read workspace=%q active=%q", sessions.LoadedWorkspace(), sessions.Workspace())
 	}
 	if runtime.projectRoot != root || engine.History()[0].Content != "project one history" {
 		t.Fatalf("resume root=%q history=%v", runtime.projectRoot, engine.History())
@@ -945,8 +982,8 @@ func TestLoadMoreHistoryUsesResumedSessionWorkspace(t *testing.T) {
 	if err := service.LoadMoreHistory(50); err != nil {
 		t.Fatal(err)
 	}
-	if sessions.loadedWorkspace != "project-1" || service.Snapshot().HistoryOffset != 0 {
-		t.Fatalf("history range workspace=%q offset=%d", sessions.loadedWorkspace, service.Snapshot().HistoryOffset)
+	if sessions.LoadedWorkspace() != "project-1" || service.Snapshot().HistoryOffset != 0 {
+		t.Fatalf("history range workspace=%q offset=%d", sessions.LoadedWorkspace(), service.Snapshot().HistoryOffset)
 	}
 }
 
@@ -974,8 +1011,8 @@ func TestSwitchProjectStartsIndependentSessionWhenHistoryExists(t *testing.T) {
 	if workspaces.bindings["session-1"] != "project-1" || workspaces.bindings["session-new"] != "project-2" {
 		t.Fatalf("project bindings=%v", workspaces.bindings)
 	}
-	if len(sessions.savedIDs) != 1 || sessions.savedIDs[0] != "session-1" {
-		t.Fatalf("saved sessions=%v", sessions.savedIDs)
+	if savedIDs := sessions.SavedIDs(); len(savedIDs) != 1 || savedIDs[0] != "session-1" {
+		t.Fatalf("saved sessions=%v", savedIDs)
 	}
 }
 
