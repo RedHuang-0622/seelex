@@ -139,6 +139,8 @@ type Runtime struct {
 	ctxStore         *sessionstore.SessionContextStore
 	historyRouterMu  sync.RWMutex
 	historyRouter    *sessionstore.Router
+	mainHistoryMu    sync.RWMutex
+	mainHistory      *sessionstore.DurableHistory
 	projectMu        sync.RWMutex
 	projectKnowledge func() *sessionstore.ProjectRecord
 	turnArchiverMu   sync.RWMutex
@@ -344,6 +346,23 @@ func (r *Runtime) durableHistoryRouter() *sessionstore.Router {
 	return r.historyRouter
 }
 
+// PrepareMainSessionHistory arms the Runtime-owned DurableHistory to hand the
+// application-assembled provider history to the next framework ChatStream.
+// Runtime owns only this cache; it never calls back into Application.
+func (r *Runtime) PrepareMainSessionHistory(sessionID string, messages []types.Message) bool {
+	if r == nil {
+		return false
+	}
+	r.mainHistoryMu.RLock()
+	history := r.mainHistory
+	r.mainHistoryMu.RUnlock()
+	if history == nil || history.SessionID() != sessionID {
+		return false
+	}
+	history.PrepareNextLoad(messages)
+	return true
+}
+
 func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
@@ -364,6 +383,9 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 		history := sessionstore.NewDurableHistory(router, sessionID)
 		history.SetTailBudget(r.windowTailBudget())
 		components.History = history
+		r.mainHistoryMu.Lock()
+		r.mainHistory = history
+		r.mainHistoryMu.Unlock()
 	}
 	sess, err := session.NewSession(components)
 	if err != nil {

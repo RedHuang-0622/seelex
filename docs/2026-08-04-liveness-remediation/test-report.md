@@ -16,12 +16,11 @@
 
 ```text
 go vet -p 1 ./...
-go test -p 1 ./... -count=1 -timeout=120s
+go test -p 1 ./... -count=1 -timeout=300s
 go build -p 1 ./...
 go build -p 1 -tags "gui,desktop,production" ./...
-node --test gui/frontend/dist/*.test.mjs  # 59 passed
 ```
 
-Windows 本机的 `go test -race` 返回 `-race requires cgo`；`go env CGO_ENABLED`
-为 `0`，且 PATH 中没有 `gcc`、`clang` 或 `cl`。真实付费 API 冒烟测试保持
-opt-in，未读取账号配置。
+Windows 本机 `go env CGO_ENABLED` 为 `0`，且 PATH 中没有 `gcc`、`clang` 或
+`cl`，因此 `go test -race` 无法执行，需由 Linux CI 补齐。真实付费 API 冒烟
+测试保持 opt-in，未读取账号配置。

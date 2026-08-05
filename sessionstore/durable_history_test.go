@@ -205,3 +205,28 @@ func TestDurableHistoryNilRouterIsInMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDurableHistoryPreparedLoadWinsOnce(t *testing.T) {
+	router := newTestRouter(t)
+	history := NewDurableHistory(router, "session-prepared")
+	stored := messages(1, "durable")
+	if err := history.Save(context.Background(), stored); err != nil {
+		t.Fatal(err)
+	}
+	prepared := messages(2, "assembled")
+	history.PrepareNextLoad(prepared)
+	loaded, err := history.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != len(prepared) || loaded[0].Content == nil || *loaded[0].Content != "assembled-0" {
+		t.Fatalf("prepared load = %#v, want application-assembled history", loaded)
+	}
+	loaded, err = history.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != len(stored) || loaded[0].Content == nil || *loaded[0].Content != "durable-0" {
+		t.Fatalf("prepared history was not one-shot: %#v", loaded)
+	}
+}

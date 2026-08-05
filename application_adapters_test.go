@@ -16,12 +16,16 @@ import (
 )
 
 type fakeReactorEngine struct {
-	sessionID string
-	history   []types.Message
-	onChat    func()
+	sessionID  string
+	history    []types.Message
+	beforeChat func()
+	onChat     func()
 }
 
 func (fake *fakeReactorEngine) ChatStream(_ context.Context, input string, _ func(string)) (string, error) {
+	if fake.beforeChat != nil {
+		fake.beforeChat()
+	}
 	fake.history = append(fake.history, types.Message{Role: "user", Content: &input})
 	if fake.onChat != nil {
 		fake.onChat()
@@ -148,6 +152,33 @@ func TestEnginePortDefersCleanReactorUntilActiveCallReturns(t *testing.T) {
 	}
 	if got := port.History(); len(got) != 2 || got[0].Role != "system" || got[1].Content != checkpoint {
 		t.Fatalf("deferred fresh history = %#v", got)
+	}
+}
+
+func TestEnginePortPreparesDurableLoadWithApplicationHistory(t *testing.T) {
+	old := &fakeReactorEngine{sessionID: "engine-old"}
+	var durableHistory []types.Message
+	var fresh *fakeReactorEngine
+	port := newEnginePort(old, func(sessionID string) reactorEngine {
+		fresh = &fakeReactorEngine{sessionID: sessionID}
+		fresh.beforeChat = func() {
+			fresh.history = append([]types.Message(nil), durableHistory...)
+		}
+		return fresh
+	}, nil)
+	port.SetHistoryPreparer(func(_ string, history []seelebridge.Message) {
+		durableHistory = append([]types.Message(nil), history...)
+	})
+	assembled := "restored checkpoint"
+	if err := port.replaceRawHistory("logical-session", []seelebridge.Message{{Role: "system", Content: &assembled}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := port.ChatStream(context.Background(), "continue", nil); err != nil {
+		t.Fatal(err)
+	}
+	history := fresh.History()
+	if len(history) != 2 || history[0].Role != "system" || history[0].Content == nil || *history[0].Content != assembled {
+		t.Fatalf("framework restore discarded assembled application history: %#v", history)
 	}
 }
 

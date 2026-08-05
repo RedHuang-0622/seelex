@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ type archiveSessions struct {
 	history    []EngineMessage
 	historyErr error
 	record     SessionRecord
+	transcript []TranscriptEvent
 	saved      int
 	tailBudget int
 	tailUnits  int
@@ -42,7 +44,7 @@ func (sessions *archiveSessions) LoadSessionRecordWorkspace(string, string) (Ses
 func (sessions *archiveSessions) LoadTranscriptTailWorkspace(_, _ string, tokenBudget, maxUnits int) ([]TranscriptEvent, error) {
 	sessions.tailBudget = tokenBudget
 	sessions.tailUnits = maxUnits
-	return nil, nil
+	return append([]TranscriptEvent(nil), sessions.transcript...), nil
 }
 
 func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string) (StoredToolResult, error) {
@@ -251,6 +253,54 @@ func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T) {
 	snapshot := service.Snapshot()
 	if snapshot.Session.ID != "session-record-only" || snapshot.Session.Name != "Saved title" || len(snapshot.Conversation) != 2 || snapshot.Conversation[1].Content != "Saved response" {
 		t.Fatalf("resumed snapshot = %#v", snapshot)
+	}
+}
+
+func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
+	const sessionID = "session-transcript"
+	sessions := &archiveSessions{
+		record: SessionRecord{
+			Version: sessionRecordVersion,
+			ID:      sessionID,
+			Title:   SessionTitle{Value: "Transcript session", Source: "user"},
+		},
+		transcript: []TranscriptEvent{
+			{Seq: 1, TaskID: "task-1", Role: "user", Content: "original question", TokenCount: 4},
+			{Seq: 2, TaskID: "task-1", Role: "assistant", Content: "original answer", TokenCount: 4},
+		},
+	}
+	engine := &fakeEngine{sessionID: sessionID}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	if err := service.ResumeSession(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Submit(context.Background(), "continue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	engine.mu.Lock()
+	history := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	seenQuestion, seenAnswer := false, false
+	for _, message := range history {
+		if message.Role == "user" && message.Content == "original question" {
+			seenQuestion = true
+		}
+		if message.Role == "assistant" && message.Content == "original answer" {
+			seenAnswer = true
+		}
+	}
+	if !seenQuestion || !seenAnswer {
+		t.Fatalf("continuation history lost restored transcript: %#v", history)
+	}
+	for _, message := range history {
+		if strings.HasPrefix(message.Content, sessionArchiveResumePrefix) {
+			t.Fatalf("continuation fell back to generic resume marker instead of transcript: %#v", history)
+		}
 	}
 }
 

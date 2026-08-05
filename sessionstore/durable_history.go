@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sync"
 
 	"github.com/RedHuang-0622/Seele/types"
 )
@@ -27,10 +28,13 @@ func isSessionNotFound(err error) bool {
 // SessionRecord/TranscriptEvent/ToolResults 的持久化继续由 Router 的
 // SaveCommit 负责；本适配器只编排 provider 消息与 state blob。
 type DurableHistory struct {
-	router     *Router
-	sessionID  string
-	stateStore *SessionContextStore
-	tail       *historyTailBudget // 滑动窗口读尾预算（nil = 全量加载，旧语义）
+	router      *Router
+	sessionID   string
+	stateStore  *SessionContextStore
+	mu          sync.Mutex
+	prepared    []types.Message
+	preparedSet bool
+	tail        *historyTailBudget // 滑动窗口读尾预算（nil = 全量加载，旧语义）
 }
 
 // historyTailBudget 是 Load 的滑动窗口读尾预算（token + 轮数；0 = 不限）。
@@ -55,12 +59,37 @@ func (d *DurableHistory) SetTailBudget(tokenBudget, maxUnits int) {
 // SessionID 返回绑定的会话 ID。
 func (d *DurableHistory) SessionID() string { return d.sessionID }
 
+// PrepareNextLoad hands the application-assembled bounded history to the
+// framework's next ChatStream restore. It is consumed exactly once so a
+// subsequent request cold-loads the durable owner normally.
+func (d *DurableHistory) PrepareNextLoad(messages []types.Message) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.prepared = append([]types.Message(nil), messages...)
+	d.preparedSet = true
+	d.mu.Unlock()
+}
+
 // Load 读取 ProviderHistory 消息。配置了窗口预算（SetTailBudget）时按
 // token + 轮数读尾（滑动窗口加载区间，D1：只装载窗口，不拉全量）；
 // 未配置 → 全量（旧语义）。新会话（尚无存储）返回空历史而非错误，
 // 保证 Session 每次 Chat 前的 Load 可以正常开始。
 func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
-	if d == nil || d.router == nil || d.sessionID == "" {
+	if d == nil {
+		return []types.Message{}, nil
+	}
+	d.mu.Lock()
+	if d.preparedSet {
+		prepared := append([]types.Message(nil), d.prepared...)
+		d.prepared = nil
+		d.preparedSet = false
+		d.mu.Unlock()
+		return prepared, nil
+	}
+	d.mu.Unlock()
+	if d.router == nil || d.sessionID == "" {
 		return []types.Message{}, nil
 	}
 	if d.tail != nil && (d.tail.tokenBudget > 0 || d.tail.maxUnits > 0) {
@@ -150,7 +179,14 @@ func (d *DurableHistory) LoadEventTail(_ context.Context, tokenBudget, maxUnits 
 
 // Clear 是 Reset 语义：删除会话的 ProviderHistory 与状态 blob。
 func (d *DurableHistory) Clear(_ context.Context) error {
-	if d == nil || d.router == nil || d.sessionID == "" {
+	if d == nil {
+		return nil
+	}
+	d.mu.Lock()
+	d.prepared = nil
+	d.preparedSet = false
+	d.mu.Unlock()
+	if d.router == nil || d.sessionID == "" {
 		return nil
 	}
 	if err := d.router.Delete(d.sessionID); err != nil {

@@ -522,9 +522,11 @@ type jsonManifest struct {
 }
 
 type jsonRepository struct {
-	root      string
-	shardSize int
-	mu        sync.RWMutex
+	root         string
+	shardSize    int
+	mu           sync.RWMutex
+	legacyMu     sync.Mutex
+	legacyCounts map[string][]int
 }
 
 func newJSONRepository(root string, shardSize int) (*jsonRepository, error) {
@@ -534,7 +536,7 @@ func newJSONRepository(root string, shardSize int) (*jsonRepository, error) {
 	if shardSize <= 0 {
 		shardSize = defaultMessageShardSize
 	}
-	return &jsonRepository{root: filepath.Clean(root), shardSize: shardSize}, nil
+	return &jsonRepository{root: filepath.Clean(root), shardSize: shardSize, legacyCounts: make(map[string][]int)}, nil
 }
 
 func (repository *jsonRepository) WriteAtomic(_ context.Context, key Key, messages []types.Message) error {
@@ -661,6 +663,13 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 	// 回退全量读。
 	directory := repository.sessionDir(key)
 	manifest, err := repository.readManifest(directory)
+	if err == nil && len(manifest.HistoryShardCounts) == 0 && manifest.Meta.ShardCount > 0 {
+		counts, countErr := repository.legacyHistoryShardCounts(directory, manifest)
+		if countErr != nil {
+			return nil, 0, countErr
+		}
+		manifest.HistoryShardCounts = counts
+	}
 	if err == nil && len(manifest.HistoryShardCounts) > 0 {
 		messages, total, err := repository.readRangeWindowed(directory, manifest, offset, limit)
 		if err != nil {
@@ -686,6 +695,66 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 }
 
 // readRangeWindowed 按 manifest shard 计数只解析覆盖目标范围的 shard。
+// legacyHistoryShardCounts derives per-shard message counts for manifests
+// written before history_shard_counts existed. Counting each JSON array with a
+// decoder keeps the total-only probe bounded; the generation-keyed cache lets
+// the immediately following tail read avoid parsing every shard again.
+func (repository *jsonRepository) legacyHistoryShardCounts(directory string, manifest jsonManifest) ([]int, error) {
+	key := filepath.Join(directory, manifest.Generation)
+	repository.legacyMu.Lock()
+	if counts, ok := repository.legacyCounts[key]; ok {
+		copyCounts := append([]int(nil), counts...)
+		repository.legacyMu.Unlock()
+		return copyCounts, nil
+	}
+	repository.legacyMu.Unlock()
+
+	counts := make([]int, manifest.Meta.ShardCount)
+	for index := range counts {
+		path := filepath.Join(directory, manifest.Generation, fmt.Sprintf("history.%03d.json", index))
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		decoder := json.NewDecoder(file)
+		token, err := decoder.Token()
+		if err == nil {
+			if delimiter, ok := token.(json.Delim); !ok || delimiter != '[' {
+				err = fmt.Errorf("session storage: history shard %d is not an array", index)
+			}
+		}
+		for err == nil && decoder.More() {
+			var raw json.RawMessage
+			if decodeErr := decoder.Decode(&raw); decodeErr != nil {
+				err = decodeErr
+				break
+			}
+			counts[index]++
+		}
+		if err == nil {
+			_, err = decoder.Token()
+		}
+		closeErr := file.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return nil, fmt.Errorf("session storage: count legacy history shard %d: %w", index, err)
+		}
+	}
+
+	repository.legacyMu.Lock()
+	if len(repository.legacyCounts) >= 128 {
+		for cachedKey := range repository.legacyCounts {
+			delete(repository.legacyCounts, cachedKey)
+			break
+		}
+	}
+	repository.legacyCounts[key] = append([]int(nil), counts...)
+	repository.legacyMu.Unlock()
+	return counts, nil
+}
+
 func (repository *jsonRepository) readRangeWindowed(directory string, manifest jsonManifest, offset, limit int) ([]types.Message, int, error) {
 	counts := manifest.HistoryShardCounts
 	total := 0

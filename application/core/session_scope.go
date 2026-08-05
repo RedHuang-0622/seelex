@@ -153,15 +153,29 @@ func (service *sessionCoordinator) sessionName(location sessionLocation, scoped 
 		}
 	}
 	if name == "" {
-		history, err := scoped.LoadHistoryWorkspace(location.workspaceID, location.meta.ID)
-		if err == nil {
-			name = sessionTitleFromHistory(history)
-		}
+		name = service.sessionNameFromTail(location, scoped)
 	}
 	service.sessionNameMu.Lock()
 	service.sessionNames[key] = sessionNameCacheEntry{updatedAt: location.meta.UpdatedAt, name: name}
 	service.sessionNameMu.Unlock()
 	return name
+}
+
+func (service *sessionCoordinator) sessionNameFromTail(location sessionLocation, scoped scopedSessionPort) string {
+	window := Limits().HistoryWindow
+	_, total, err := scoped.LoadHistoryRangeWorkspace(location.workspaceID, location.meta.ID, 0, 0)
+	if err != nil {
+		return ""
+	}
+	offset := total - window
+	if offset < 0 {
+		offset = 0
+	}
+	history, _, err := scoped.LoadHistoryRangeWorkspace(location.workspaceID, location.meta.ID, offset, window)
+	if err != nil {
+		return ""
+	}
+	return sessionTitleFromHistory(history)
 }
 
 func (service *sessionCoordinator) invalidateSessionName(sessionID string) {

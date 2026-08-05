@@ -33,6 +33,7 @@ type enginePort struct {
 	activeCalls    int
 	pendingHistory []seelebridge.Message
 	pendingSession string
+	prepareHistory func(string, []seelebridge.Message)
 	sessionBacked  bool
 	releaseWorking bool
 	// nodeConversations 是子代理会话记录查询（节点详情数据面；Runtime 注入，
@@ -123,6 +124,15 @@ func (port *enginePort) ReplaceHistory(sessionID string, history []application.E
 	}
 	return port.replaceRawHistory(sessionID, restoreMessages(history))
 }
+
+// SetHistoryPreparer installs the Runtime-owned one-shot handoff used by the
+// framework Session's DurableHistory.Load. It is configured during startup,
+// before concurrent application work begins.
+func (port *enginePort) SetHistoryPreparer(preparer func(string, []seelebridge.Message)) {
+	port.mu.Lock()
+	port.prepareHistory = preparer
+	port.mu.Unlock()
+}
 func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridge.Message) error {
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
@@ -167,17 +177,26 @@ func (port *enginePort) replaceActiveHistoryLocked(history []seelebridge.Message
 func (port *enginePort) installFreshHistoryLocked(history []seelebridge.Message, sessionID string) {
 	if port.newEngine == nil {
 		port.replaceActiveHistoryLocked(history)
+		if port.prepareHistory != nil {
+			port.prepareHistory(sessionID, history)
+		}
 		return
 	}
 	fresh := port.newEngine(sessionID)
 	if fresh == nil {
 		port.replaceActiveHistoryLocked(history)
+		if port.prepareHistory != nil {
+			port.prepareHistory(sessionID, history)
+		}
 		return
 	}
 	for _, message := range history {
 		fresh.AppendHistory(message)
 	}
 	port.engine = fresh
+	if port.prepareHistory != nil {
+		port.prepareHistory(sessionID, history)
+	}
 }
 
 func canonicalEngineHistory(history []seelebridge.Message) []seelebridge.Message {

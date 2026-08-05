@@ -159,6 +159,9 @@ func run() error {
 		return fresh
 	}, runtime.Tracer())
 	appEngine.EnableWorkingHistoryRelease()
+	appEngine.SetHistoryPreparer(func(sessionID string, messages []seelebridge.Message) {
+		runtime.PrepareMainSessionHistory(sessionID, messages)
+	})
 	// 子代理详情数据面：节点会话记录查询（只读子代理 actor，安全）。
 	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
 	sessionManager := initSessionManager(store, appEngine)
