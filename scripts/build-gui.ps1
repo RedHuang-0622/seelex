@@ -47,6 +47,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Copy-Item (Join-Path $Root "config/accounts.example.yaml") (Join-Path $PackageRoot "config/")
+Copy-Item (Join-Path $Root "config/README.md") (Join-Path $PackageRoot "config/")
 if ($BuildKind -eq "Dev") {
     Copy-Item -LiteralPath $configSource -Destination (Join-Path $PackageRoot "config/accounts.yaml")
 }
@@ -58,6 +59,9 @@ Copy-Item (Join-Path $Root "CHANGELOG.md") $PackageRoot
 Copy-Item (Join-Path $Root "README.md") $PackageRoot
 if (Test-Path -LiteralPath (Join-Path $Root "README_EN.md") -PathType Leaf) {
     Copy-Item (Join-Path $Root "README_EN.md") $PackageRoot
+}
+if ($BuildKind -eq "Dev" -and (Test-Path -LiteralPath (Join-Path $Root "README-dev.md") -PathType Leaf)) {
+    Copy-Item (Join-Path $Root "README-dev.md") $PackageRoot
 }
 
 if ($BuildKind -eq "Publish") {

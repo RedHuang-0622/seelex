@@ -37,6 +37,10 @@
 
 ## Follow-up liveness fixes
 
+- `main.go` now wires a lazy `enginePort` without calling `initEngine` during
+  startup. The initial application snapshot has no Session ID; first submit
+  materializes via `StartSession`, while resume materializes only the requested
+  session through `ReplaceHistory`.
 - `application/core/chat.go` acknowledges queued inputs immediately after a
   framework-backed `ChatStream` returns. Persistence and the next turn remain
   outside the application lock, so the UI no longer shows a stale queue while

@@ -142,16 +142,7 @@ func run() error {
 	if backendTrace != nil {
 		toolHooks.SetDiagnosticObserver(backendTrace.LogToolHookEvent)
 	}
-	frameworkEngine, err := initEngine(runtime, toolHooks, "")
-	if err != nil {
-		return err
-	}
-	logBackendStartup(backendTrace, "startup.engine.ready")
-	registerProductTools(runtime, pluginManager, frameworkEngine, approval)
-	if err := activateDefaultPlugin(pluginManager, frameworkEngine); err != nil {
-		return err
-	}
-	appEngine := newEnginePort(frameworkEngine, func(sessionID string) reactorEngine {
+	appEngine := newEnginePort(nil, func(sessionID string) reactorEngine {
 		fresh, createErr := initEngine(runtime, toolHooks, sessionID)
 		if createErr != nil {
 			return nil
@@ -162,6 +153,13 @@ func run() error {
 	appEngine.SetHistoryPreparer(func(sessionID string, messages []seelebridge.Message) {
 		runtime.PrepareMainSessionHistory(sessionID, messages)
 	})
+	// The framework Session is intentionally created only by StartSession or
+	// ReplaceHistory during resume; startup itself remains a cold draft.
+	registerProductTools(runtime, pluginManager, appEngine, approval)
+	if err := activateDefaultPlugin(pluginManager, nil); err != nil {
+		return err
+	}
+	logBackendStartup(backendTrace, "startup.engine.lazy-ready")
 	// 子代理详情数据面：节点会话记录查询（只读子代理 actor，安全）。
 	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
 	sessionManager := initSessionManager(store, appEngine)
@@ -357,7 +355,11 @@ func activateDefaultPlugin(manager *plugin.Manager, eng *frameworkSession.Sessio
 	return nil
 }
 
-func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng *frameworkSession.Session, approval *application.ApprovalBroker) {
+type pluginPromptEngine interface {
+	SetSystemPrompt(string)
+}
+
+func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker) {
 	registerTimeTool(runtime)
 	registerWebSearchTool(runtime, accountsPath())
 	registerMCPServers(runtime, accountsPath()) // from mcpconfig.go — 与 websearch 同一生态位
@@ -379,7 +381,7 @@ func registerTimeTool(runtime *seelebridge.Runtime) {
 func registerPluginSwitchTools(
 	runtime *seelebridge.Runtime,
 	plugins *plugin.Manager,
-	eng *frameworkSession.Session,
+	eng pluginPromptEngine,
 ) {
 	names := make([]interface{}, 0, len(plugins.All())+1)
 	for _, p := range plugins.All() {
@@ -437,7 +439,10 @@ func registerPluginSwitchTools(
 	runtime.RegisterTool("switch_mode", "兼容工具：等价于 switch_plugin", legacySchema, handler)
 }
 
-func applyPluginPrompt(eng *frameworkSession.Session, plugins *plugin.Manager) {
+func applyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager) {
+	if eng == nil {
+		return
+	}
 	current, ok := plugins.Current()
 	if !ok {
 		eng.SetSystemPrompt("")

@@ -81,6 +81,40 @@ func TestEnginePortStartSessionCreatesAnIndependentReactor(t *testing.T) {
 	}
 }
 
+func TestEnginePortLazyStartupDoesNotCreateSession(t *testing.T) {
+	created := 0
+	port := newEnginePort(nil, func(sessionID string) reactorEngine {
+		created++
+		if sessionID == "" {
+			sessionID = "session-lazy"
+		}
+		return &fakeReactorEngine{sessionID: sessionID}
+	}, nil)
+	if created != 0 || port.SessionID() != "" {
+		t.Fatalf("lazy engine created during adapter construction: created=%d session=%q", created, port.SessionID())
+	}
+	if history := port.History(); len(history) != 0 {
+		t.Fatalf("lazy engine exposed startup history: %#v", history)
+	}
+	if got := port.StartSession(); got == "" || created != 1 {
+		t.Fatalf("first materialization = session %q, factory calls=%d", got, created)
+	}
+}
+
+func TestEnginePortLazyResumeCreatesOnlyRequestedSession(t *testing.T) {
+	created := 0
+	port := newEnginePort(nil, func(sessionID string) reactorEngine {
+		created++
+		return &fakeReactorEngine{sessionID: sessionID}
+	}, nil)
+	if err := port.ReplaceHistory("session-resume", []application.EngineMessage{{Role: "user", Content: "restored", ContentSet: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if created != 1 || port.SessionID() != "session-resume" {
+		t.Fatalf("resume materialization: factory calls=%d session=%q", created, port.SessionID())
+	}
+}
+
 func TestEngineMessageRoundTripPreservesResumeContext(t *testing.T) {
 	t.Parallel()
 	empty := ""

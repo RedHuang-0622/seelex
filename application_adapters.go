@@ -34,6 +34,8 @@ type enginePort struct {
 	pendingHistory []seelebridge.Message
 	pendingSession string
 	prepareHistory func(string, []seelebridge.Message)
+	systemPrompt   string
+	maxLoops       int
 	sessionBacked  bool
 	releaseWorking bool
 	// nodeConversations 是子代理会话记录查询（节点详情数据面；Runtime 注入，
@@ -57,7 +59,11 @@ type reactorEngine interface {
 type reactorEngineFactory func(sessionID string) reactorEngine
 
 func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory, tracer *telemetry.MemoryTracer) *enginePort {
-	port := &enginePort{engine: eng, newEngine: newEngine, tracer: tracer, sessionID: eng.SessionID()}
+	port := &enginePort{engine: eng, newEngine: newEngine, tracer: tracer}
+	if eng == nil {
+		return port
+	}
+	port.sessionID = eng.SessionID()
 	if _, ok := eng.(*frameworkSession.Session); ok {
 		port.sessionBacked = true
 	}
@@ -75,6 +81,9 @@ func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk fu
 	port.activeCalls++
 	port.mu.Unlock()
 	if current == nil {
+		port.mu.Lock()
+		port.activeCalls--
+		port.mu.Unlock()
 		return "", fmt.Errorf("engine is unavailable")
 	}
 	result, err := current.ChatStream(ctx, input, onChunk)
@@ -109,12 +118,19 @@ func (port *enginePort) SetNodeConversationsProvider(fn func(string) ([]types.Me
 // AppendHistory 追加消息到引擎内部对话历史。
 // 由 OnIterationComplete 在 ChatStream 同 goroutine 中调用，无需加锁。
 func (port *enginePort) AppendHistory(msg types.Message) {
-	port.engine.AppendHistory(msg)
+	port.mu.RLock()
+	engine := port.engine
+	port.mu.RUnlock()
+	if engine != nil {
+		engine.AppendHistory(msg)
+	}
 }
 
 func (port *enginePort) ClearHistory() {
 	port.mu.Lock()
-	port.engine.ClearHistory()
+	if port.engine != nil {
+		port.engine.ClearHistory()
+	}
 	port.mu.Unlock()
 }
 func (port *enginePort) ReplaceHistory(sessionID string, history []application.EngineMessage) error {
@@ -137,7 +153,7 @@ func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridg
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
 	defer port.mu.Unlock()
-	if port.engine == nil {
+	if port.engine == nil && port.newEngine == nil {
 		return fmt.Errorf("engine is unavailable")
 	}
 	if port.activeCalls > 0 {
@@ -194,6 +210,13 @@ func (port *enginePort) installFreshHistoryLocked(history []seelebridge.Message,
 		fresh.AppendHistory(message)
 	}
 	port.engine = fresh
+	_, port.sessionBacked = fresh.(*frameworkSession.Session)
+	if port.systemPrompt != "" {
+		fresh.SetSystemPrompt(port.systemPrompt)
+	}
+	if port.maxLoops > 0 {
+		fresh.SetMaxLoops(port.maxLoops)
+	}
 	if port.prepareHistory != nil {
 		port.prepareHistory(sessionID, history)
 	}
@@ -225,6 +248,13 @@ func (port *enginePort) StartSession() string {
 	}
 	port.engine = fresh
 	port.sessionID = fresh.SessionID()
+	_, port.sessionBacked = fresh.(*frameworkSession.Session)
+	if port.systemPrompt != "" {
+		fresh.SetSystemPrompt(port.systemPrompt)
+	}
+	if port.maxLoops > 0 {
+		fresh.SetMaxLoops(port.maxLoops)
+	}
 	return port.sessionID
 }
 
@@ -250,8 +280,24 @@ func (port *enginePort) SessionID() string {
 	defer port.mu.RUnlock()
 	return port.sessionID
 }
-func (port *enginePort) SetSystemPrompt(prompt string) { port.engine.SetSystemPrompt(prompt) }
-func (port *enginePort) SetMaxLoops(n int)             { port.engine.SetMaxLoops(n) }
+func (port *enginePort) SetSystemPrompt(prompt string) {
+	port.mu.Lock()
+	port.systemPrompt = prompt
+	engine := port.engine
+	port.mu.Unlock()
+	if engine != nil {
+		engine.SetSystemPrompt(prompt)
+	}
+}
+func (port *enginePort) SetMaxLoops(n int) {
+	port.mu.Lock()
+	port.maxLoops = n
+	engine := port.engine
+	port.mu.Unlock()
+	if engine != nil {
+		engine.SetMaxLoops(n)
+	}
+}
 func (port *enginePort) TraceText() string {
 	if port.tracer == nil {
 		return ""
@@ -343,6 +389,9 @@ func (port *enginePort) History() []application.EngineMessage {
 func (port *enginePort) rawHistory() []seelebridge.Message {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
+	if port.engine == nil {
+		return nil
+	}
 	return append([]seelebridge.Message(nil), port.engine.History()...)
 }
 
