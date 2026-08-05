@@ -208,6 +208,28 @@ The authority guard is scoped to the normal ChatStream only. It prevents
 untrusted ReAct output from replacing the validated plan, then unlocks before
 the user can choose the existing bounded explicit replan interaction.
 
+## Durable context rehydration (2026-08-05)
+
+| File | Type | Description | Design |
+|---|---|---|---|
+| `sessionstore/sessionstore.go` | Modified | The event-tail loader keeps a final unanswered user request as a valid standalone unit. | Durable tail / bounded protocol recovery |
+| `application/core/task_context_state.go` | Modified | Application-side transcript reconstruction mirrors the durable-tail rule. | Single reconstruction contract |
+| `sessionstore/state_test.go` | Added | Verifies the storage tail does not drop the final user request. | Storage contract test |
+| `application/core/context_controller_test.go` | Added | Verifies provider history reconstruction retains the final user request. | Context unit test |
+| `application/core/session_archive_test.go` | Added | Verifies resume then submit passes the trailing durable request into the provider history. | Resume integration test |
+
+The fix keeps framework working history disposable while ensuring the durable
+conversation rendered by the UI and the next cold-loaded provider context do
+not diverge at an interrupted/cancelled turn boundary.
+
+The follow-up recovery guard treats a checkpoint containing only version,
+event-range, and timestamp metadata as non-context. Resume filters internal
+checkpoint/control messages from both the visible conversation and transcript
+tail, and falls back to a bounded protocol tail reconstructed from the durable
+`SessionRecord.Conversation` when the transcript is empty or misses the latest
+visible user turn. This prevents an empty checkpoint from replacing the actual
+conversation after working history has been released from memory.
+
 The authoritative context uses the dedicated
 seelex:plan-context:v1 authority=preflight-loaded envelope, parallel to the
 Skill context envelope. Live verification completed in 49.06 s: High issued

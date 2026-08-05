@@ -77,6 +77,11 @@ func (service *Service) resumeSession(sessionID string) error {
 	if hasRecord {
 		budget := contextBudgetFor(service.deps.Runtime)
 		engineHistory = transcriptTailHistory(transcript, budget.TargetAfterCompaction, 4)
+		recordHistory := recordConversationResumeHistory(record, budget.TargetAfterCompaction, 4)
+		latestUser := latestUserContent(record.Conversation.Messages)
+		if len(engineHistory) == 0 || (latestUser != "" && !historyContainsUser(engineHistory, latestUser)) {
+			engineHistory = recordHistory
+		}
 		if len(engineHistory) == 0 {
 			engineHistory = recordResumeHistory(record)
 		}
@@ -88,7 +93,7 @@ func (service *Service) resumeSession(sessionID string) error {
 
 	total := historyTotal // 尾部窗口读返回的真实总数（无 record 的旧格式会话）
 	if hasRecord {
-		total = len(record.Conversation.Messages)
+		total = len(recordConversation(record))
 	}
 	offset := total - Limits().HistoryWindow
 	if offset < 0 {
@@ -226,11 +231,24 @@ func (service *sessionCoordinator) loadHistoryTailWindow(location sessionLocatio
 
 func latestUserContent(messages []Message) string {
 	for index := len(messages) - 1; index >= 0; index-- {
-		if messages[index].Role == "user" {
+		if messages[index].Role == "user" && !isInternalConversationMessage(messages[index]) {
 			return messages[index].Content
 		}
 	}
 	return ""
+}
+
+func historyContainsUser(history []EngineMessage, content string) bool {
+	content = strings.TrimSpace(displayUserInput(content))
+	if content == "" {
+		return true
+	}
+	for _, message := range history {
+		if message.Role == "user" && strings.TrimSpace(displayUserInput(message.Content)) == content {
+			return true
+		}
+	}
+	return false
 }
 
 // ResumeSession is the direct application boundary for GUI/TUI session

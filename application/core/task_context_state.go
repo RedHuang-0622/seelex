@@ -371,7 +371,9 @@ func (service *taskContextCoordinator) restoreTaskProjectionLocked(projection *T
 		state.contextVersion = 1
 	}
 	checkpoint := cloneTaskCheckpoint(projection.Checkpoint)
-	state.inheritedCheckpoint = &checkpoint
+	if hasSubstantiveCheckpoint(checkpoint) {
+		state.inheritedCheckpoint = &checkpoint
+	}
 	state.activeSkills = append([]ActiveSkill(nil), projection.ActiveSkills...)
 	state.tokenAudit = projection.TokenAudit
 	if frame := activePlanFrame(service.planStack, service.activePlanID); frame != nil {
@@ -499,6 +501,12 @@ func transcriptUserUnit(events []TranscriptEvent, start int) ([]TranscriptEvent,
 		}
 		unit = append(unit, toolUnit...)
 		index = next
+	}
+	// Preserve an unanswered final user request. It has no incomplete tool
+	// protocol to repair, and it must survive the durable-tail cold-load path
+	// so the model receives the same last request the UI renders after resume.
+	if index == len(events) && !hasAssistant {
+		return unit, index, true
 	}
 	return unit, index, hasAssistant
 }

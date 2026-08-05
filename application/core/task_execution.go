@@ -218,6 +218,17 @@ func (state *taskExecutionState) contextSummary() string {
 	if state == nil {
 		return ""
 	}
+	checkpoint := TaskCheckpoint{}
+	if state.inheritedCheckpoint != nil {
+		checkpoint = *state.inheritedCheckpoint
+	}
+	evidence := state.evidenceText()
+	meaningful := strings.TrimSpace(state.objective) != "" || state.planArguments != "" ||
+		hasSubstantiveCheckpoint(checkpoint) || evidence != "" || len(state.toolOutcomes) > 0 ||
+		(state.terminal != nil && strings.TrimSpace(state.terminal.Summary) != "")
+	if !meaningful {
+		return ""
+	}
 	limit := seelexctx.DefaultContextConfig().MaxToolResultChars
 	var out strings.Builder
 	appendContextSummary(&out, limit, fmt.Sprintf("objective: %s\nstatus: %s\neffort: %s\n", state.objective, state.status, state.effort))
@@ -227,7 +238,7 @@ func (state *taskExecutionState) contextSummary() string {
 	if state.inheritedCheckpoint != nil {
 		appendContextSummary(&out, limit, checkpointSummary(*state.inheritedCheckpoint))
 	}
-	if evidence := state.evidenceText(); evidence != "" {
+	if evidence != "" {
 		appendContextSummary(&out, limit, "checkpoint evidence:\n"+evidence)
 	}
 	if len(state.toolOutcomes) > 0 {
@@ -247,6 +258,9 @@ func (state *taskExecutionState) contextSummary() string {
 }
 
 func checkpointSummary(checkpoint TaskCheckpoint) string {
+	if !hasSubstantiveCheckpoint(checkpoint) {
+		return ""
+	}
 	var out strings.Builder
 	for _, item := range checkpoint.CompletedWork {
 		fmt.Fprintf(&out, "completed=%q\n", item)
@@ -261,6 +275,18 @@ func checkpointSummary(checkpoint TaskCheckpoint) string {
 		fmt.Fprintf(&out, "decision=%q\n", item)
 	}
 	return out.String()
+}
+
+// hasSubstantiveCheckpoint distinguishes recoverable task facts from the
+// metadata-only marker emitted during a context transition. Version, event
+// range, and UpdatedAt identify a checkpoint but do not tell the model what to
+// continue; treating them as context would produce an apparently non-empty
+// prompt with no usable task information.
+func hasSubstantiveCheckpoint(checkpoint TaskCheckpoint) bool {
+	return len(checkpoint.CompletedWork) > 0 || len(checkpoint.PendingWork) > 0 ||
+		len(checkpoint.Decisions) > 0 || len(checkpoint.Failures) > 0 ||
+		len(checkpoint.ChangedFiles) > 0 || len(checkpoint.Artifacts) > 0 ||
+		len(checkpoint.ToolResultRefs) > 0
 }
 
 // appendContextSummary keeps checkpoints beneath the same provider-context

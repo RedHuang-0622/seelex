@@ -118,6 +118,22 @@ func TestTranscriptTailDropsIncompleteAndOrphanToolProtocols(t *testing.T) {
 	}
 }
 
+func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T) {
+	events := []TranscriptEvent{
+		{Seq: 1, Role: "user", Content: "first", TokenCount: 1},
+		{Seq: 2, Role: "assistant", Content: "answer", TokenCount: 1},
+		{Seq: 3, Role: "user", Content: "please continue from the report", TokenCount: 1},
+	}
+	history := transcriptTailHistory(events, 100, 2)
+	got := make([]string, len(history))
+	for index, message := range history {
+		got[index] = message.Content
+	}
+	if want := []string{"first", "answer", "please continue from the report"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tail content=%v, want %v", got, want)
+	}
+}
+
 func TestRejectToolResultsRecognizesFrameworkTruncationMarker(t *testing.T) {
 	history := []EngineMessage{{
 		Role: "tool", ToolCallID: "call-1", Name: "bash",

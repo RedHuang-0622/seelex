@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 const (
@@ -224,7 +226,18 @@ func (service *sessionCoordinator) loadSessionTranscript(location sessionLocatio
 		return []TranscriptEvent{}, nil
 	}
 	budget := contextBudgetFor(service.deps.Runtime)
-	return store.LoadTranscriptTailWorkspace(location.workspaceID, sessionID, budget.TargetAfterCompaction, 4)
+	events, err := store.LoadTranscriptTailWorkspace(location.workspaceID, sessionID, budget.TargetAfterCompaction, 4)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]TranscriptEvent, 0, len(events))
+	for _, event := range events {
+		if event.Role == "system" || isTaskContextCheckpoint(event.Content) || isProviderOnlyHistoryContent(event.Content) {
+			continue
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered, nil
 }
 
 func recordResumeHistory(record SessionRecord) []EngineMessage {
@@ -241,6 +254,9 @@ func recordResumeHistory(record SessionRecord) []EngineMessage {
 func recordConversation(record SessionRecord) []Message {
 	conversation := make([]Message, 0, len(record.Conversation.Messages))
 	for _, message := range record.Conversation.Messages {
+		if isInternalConversationMessage(message) {
+			continue
+		}
 		copy := message
 		if message.Tool != nil {
 			tool := *message.Tool
@@ -251,8 +267,53 @@ func recordConversation(record SessionRecord) []Message {
 	return conversation
 }
 
+func isInternalConversationMessage(message Message) bool {
+	if message.Role == "system" {
+		return true
+	}
+	if message.Role != "user" {
+		return false
+	}
+	return isTaskContextCheckpoint(message.Content) ||
+		strings.HasPrefix(message.Content, sessionArchiveResumePrefix) ||
+		isProviderOnlyHistoryContent(message.Content)
+}
+
+// recordConversationResumeHistory is the durable-record fallback for a cold
+// load whose Transcript tail is missing, stale, or contains only an internal
+// checkpoint marker. It uses the same bounded protocol-unit selector as the
+// append-only transcript path, so the model sees the last visible user turn
+// rendered by the UI without loading the full archive.
+func recordConversationResumeHistory(record SessionRecord, tokenBudget, maxUnits int) []EngineMessage {
+	events := make([]TranscriptEvent, 0, len(record.Conversation.Messages))
+	for _, message := range record.Conversation.Messages {
+		if isInternalConversationMessage(message) {
+			continue
+		}
+		event := TranscriptEvent{Role: message.Role, Content: message.Content, TokenCount: seelexctx.EstimateTokens(message.Content)}
+		switch message.Role {
+		case "tool":
+			if message.Tool != nil && message.Tool.ID != "" {
+				event.Role = "assistant"
+				event.ToolCalls = []TranscriptToolCall{{ID: message.Tool.ID, Name: message.Tool.Name, Arguments: message.Tool.Arguments}}
+			}
+		case "tool_result":
+			event.Role = "tool"
+			if message.Tool != nil {
+				event.ToolCallID = message.Tool.ID
+				event.Name = message.Tool.Name
+			}
+		}
+		for _, call := range event.ToolCalls {
+			event.TokenCount += seelexctx.EstimateTokens(call.Name) + seelexctx.EstimateTokens(call.Arguments)
+		}
+		events = append(events, event)
+	}
+	return transcriptTailHistory(events, tokenBudget, maxUnits)
+}
+
 func recordConversationTail(record SessionRecord, window int) []Message {
-	messages := record.Conversation.Messages
+	messages := recordConversation(record)
 	if window > 0 && len(messages) > window {
 		messages = messages[len(messages)-window:]
 	}

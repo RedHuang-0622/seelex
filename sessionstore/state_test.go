@@ -170,6 +170,22 @@ func TestEventTailKeepsCompleteUserAndParallelToolUnits(t *testing.T) {
 	}
 }
 
+func TestEventTailKeepsTrailingUnansweredUserInput(t *testing.T) {
+	events := []Event{
+		{Seq: 1, Role: "user", Content: "first", TokenCount: 1},
+		{Seq: 2, Role: "assistant", Content: "answer", TokenCount: 1},
+		{Seq: 3, Role: "user", Content: "please continue from the report", TokenCount: 1},
+	}
+	tail := selectEventTail(events, 100, 2)
+	gotSeq := make([]uint64, len(tail))
+	for index := range tail {
+		gotSeq[index] = tail[index].Seq
+	}
+	if want := []uint64{1, 2, 3}; !reflect.DeepEqual(gotSeq, want) {
+		t.Fatalf("tail seq=%v, want %v", gotSeq, want)
+	}
+}
+
 func TestSQLitePersistsHistoryAsShards(t *testing.T) {
 	repository, err := Open(context.Background(), Config{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")})
 	if err != nil {

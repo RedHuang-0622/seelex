@@ -101,11 +101,59 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 		t.Fatalf("restored projection = %#v prompt=%q", continuation, restoredPrompt)
 	}
 	history := restoredEngine.History()
-	if len(history) != 1 || !strings.HasPrefix(history[0].Content, sessionArchiveResumePrefix) {
-		t.Fatalf("engine history = %#v, want bounded archive resume context", history)
+	if len(history) != 1 || history[0].Role != "user" || history[0].Content != "Inspect the repository" {
+		t.Fatalf("engine history = %#v, want bounded durable conversation context", history)
 	}
 	if sessions.tailBudget != defaultContextBudget().TargetAfterCompaction || sessions.tailUnits != 4 {
 		t.Fatalf("transcript tail request budget=%d units=%d", sessions.tailBudget, sessions.tailUnits)
+	}
+}
+
+func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *testing.T) {
+	const sessionID = "session-empty-checkpoint"
+	checkpointMarker := taskContextCheckpointPrefix + `{"version":7,"covers_event_range":{"start":632,"end":632},"updated_at":"2026-08-05T00:00:00Z"}`
+	sessions := &archiveSessions{
+		record: SessionRecord{
+			Version: sessionRecordVersion,
+			ID:      sessionID,
+			Title:   SessionTitle{Value: "Review session", Source: "user"},
+			Conversation: ConversationRecord{Messages: []Message{
+				{ID: "message-checkpoint", Role: "user", Content: checkpointMarker},
+				{ID: "message-question", Role: "user", Content: "所以你的评价是？"},
+				{ID: "message-report", Role: "assistant", Content: "评审报告摘要"},
+			}},
+			Projection: &TaskContextProjection{
+				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-review", Status: taskStatusInterrupted,
+				ObjectiveRef: "event:632",
+				Checkpoint:   TaskCheckpoint{Version: 7, CoversEventRange: EventRange{Start: 632, End: 632}, UpdatedAt: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)},
+			},
+		},
+		transcript: []TranscriptEvent{{Seq: 632, TaskID: "task-review", Role: "user", Content: checkpointMarker, TokenCount: 8}},
+	}
+	engine := &fakeEngine{sessionID: sessionID}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	if err := service.ResumeSession(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := service.Snapshot()
+	for _, message := range snapshot.Conversation {
+		if strings.HasPrefix(message.Content, taskContextCheckpointPrefix) {
+			t.Fatalf("internal checkpoint leaked into visible conversation: %#v", snapshot.Conversation)
+		}
+	}
+	if len(snapshot.Conversation) != 3 || snapshot.Conversation[1].Content != "所以你的评价是？" || snapshot.Conversation[2].Content != "评审报告摘要" {
+		t.Fatalf("restored conversation = %#v", snapshot.Conversation)
+	}
+	history := engine.History()
+	if len(history) != 2 || history[0].Content != "所以你的评价是？" || history[1].Content != "评审报告摘要" {
+		t.Fatalf("provider history = %#v, want durable conversation fallback", history)
+	}
+	service.mu.RLock()
+	state := service.taskExecution
+	service.mu.RUnlock()
+	if state == nil || state.inheritedCheckpoint != nil {
+		t.Fatalf("metadata-only checkpoint was restored as task context: %#v", state)
 	}
 }
 
@@ -302,6 +350,42 @@ func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
 			t.Fatalf("continuation fell back to generic resume marker instead of transcript: %#v", history)
 		}
 	}
+}
+
+func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T) {
+	const sessionID = "session-trailing-user"
+	sessions := &archiveSessions{
+		record: SessionRecord{
+			Version: sessionRecordVersion,
+			ID:      sessionID,
+			Title:   SessionTitle{Value: "Interrupted session", Source: "user"},
+		},
+		transcript: []TranscriptEvent{{
+			Seq: 1, TaskID: "task-1", Role: "user", Content: "evaluate the architecture review", TokenCount: 4,
+		}},
+	}
+	engine := &fakeEngine{sessionID: sessionID}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	if err := service.ResumeSession(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Submit(context.Background(), "continue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	engine.mu.Lock()
+	history := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	for _, message := range history {
+		if message.Role == "user" && message.Content == "evaluate the architecture review" {
+			return
+		}
+	}
+	t.Fatalf("continuation history lost trailing user input: %#v", history)
 }
 
 func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {

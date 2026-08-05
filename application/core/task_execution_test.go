@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
@@ -275,6 +276,19 @@ func TestTaskContextSummaryRetainsCompletedToolEvidence(t *testing.T) {
 	summary := state.contextSummary()
 	if !strings.Contains(summary, "completed tool outcomes") || !strings.Contains(summary, "ResumeSession") || !strings.Contains(summary, "tests passed") {
 		t.Fatalf("continuation summary lost completed work: %q", summary)
+	}
+}
+
+func TestTaskContextSummaryIgnoresMetadataOnlyCheckpoint(t *testing.T) {
+	state := newTaskExecutionState("task-empty", "", "high")
+	state.status = taskStatusInterrupted
+	state.inheritedCheckpoint = &TaskCheckpoint{
+		Version:          7,
+		CoversEventRange: EventRange{Start: 632, End: 632},
+		UpdatedAt:        time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC),
+	}
+	if summary := state.contextSummary(); summary != "" {
+		t.Fatalf("metadata-only checkpoint produced recoverable context: %q", summary)
 	}
 }
 

@@ -2219,6 +2219,14 @@ func userEventUnit(events []Event, start int) ([]Event, int, bool) {
 		unit = append(unit, toolUnit...)
 		index = next
 	}
+	// A final user request without a provider response is still a valid
+	// standalone context unit. It commonly occurs when a session is closed,
+	// cancelled, or the process exits between acceptance and the first model
+	// response. Dropping it would make the persisted conversation visible in
+	// the UI but absent from the next cold-loaded provider request.
+	if index == len(events) && !hasAssistant {
+		return unit, index, true
+	}
 	return unit, index, hasAssistant
 }
 
