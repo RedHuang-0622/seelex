@@ -1,5 +1,90 @@
 # 代码变更摘要
 
+## Session 存储层模块化（阶段 1-2，2026-08-05）
+
+依据 `docs/2026-08-05-session-storage-modularization/`（plan.md 阶段 1-2）
+对会话存储层实施改动；不改变既有数据布局的写入语义。
+
+### 新增/修改/删除文件
+
+| 文件 | 类型 | 说明 | 设计模式 |
+|------|------|------|---------|
+| `sessionstore/event_range.go` | 新增 | EventSeq 范围读取（selectEventRange 过滤器 + JSON/SQLite/Redis 实现） | 共享过滤 helper |
+| `sessionstore/conversation.go` | 新增 | Conversation 模块 DTO + 部分解码（只解析 conversation 子树）+ 三后端实现 | 模块冷读 |
+| `sessionstore/sessionstore.go` | 修改 | framework events 独立 append-only 模块（P0）；Repository 新增 ReadEventRange/ReadConversationRange；Event.MessageID | 模块化 manifest 过渡 |
+| `sessionstore/session_context.go` | 修改 | CompactFrame 增加 round/event/message 范围与 revision 字段；PushCompact 范围校验 | DDD 值对象扩展 |
+| `session/manager.go` | 修改 | 透传 LoadConversationRangeByWorkspace / LoadEventRangeByWorkspace | 薄包装 |
+| `application_adapters.go` | 修改 | LoadConversationRangeWorkspace 改走模块冷读；MessageID 适配透传 | 适配器 |
+| `application/model/context.go` | 修改 | TranscriptEvent.MessageID | 契约 DTO |
+| `application/core/session_archive.go` | 修改 | enrichTranscriptMessageIDs（persist 时 event-to-message 关联）；recordConversationTranscript 携带 MessageID | 内容寻址配对 |
+| `sessionstore/event_store_test.go` | 修改 | framework events rollover/迁移契约测试 | 契约测试 |
+| `sessionstore/conversation_test.go` | 新增 | conversation 模块跨后端契约测试 | 契约测试 |
+| `sessionstore/event_range_test.go` | 新增 | event range 跨后端契约测试 | 契约测试 |
+| `sessionstore/session_context_test.go` | 修改 | CompactFrame 范围字段往返 + 校验测试 | 单元测试 |
+| `sessionstore/state_test.go` | 修改 | Event.MessageID 持久化往返断言 | 单元测试 |
+| `application/core/session_archive_test.go` | 修改 | enrichTranscriptMessageIDs 配对测试 | 单元测试 |
+
+### 关键变更
+
+1. **P0 修复（generation rollover 后 framework facts 丢失）**：JSON 后端
+   执行事实事件库从 generation 内 `events.json` 迁到 session 根目录
+   `framework-events.json`（独立 append-only 模块）；首次追加时扫描全部旧
+   generation 按 Seq 幂等合并迁移；读取保留 v1 回退。契约测试覆盖连续两次
+   Commit 后旧 facts 仍可读、重复 Seq 不重复落库。
+2. **Conversation 模块冷读**：`Repository.ReadConversationRange` 只解析
+   state blob 的 conversation 子树（不反序列化 Plan/Execution/Projection），
+   兼容 v1 archive 与 v2/v3 record；`LoadConversationRangeWorkspace` 改走
+   模块读，长会话向上翻页不再解析完整执行状态。损坏/版本不兼容显式报错。
+3. **Event 模块范围读取**：`ReadEventRange` 按 EventSeq 含端点读取，跨 shard
+   连续，倒置范围显式报错，缺失会话返回 not-found（不静默为空）。
+4. **Event.MessageID 稳定定位键**：TranscriptEvent/Event 增加 `message_id`；
+   persist 时按 CallID（tool/tool_result 分表）+ 角色内容建立 event-to-message
+   关联，不按数组位置推导；resume 回退路径直接携带 message ID。
+5. **CompactFrame 正式定位字段**：新增 RoundFrom/RoundTo、EventFrom/EventTo、
+   MessageFrom/MessageTo、EventRevision/ConversationRevision（architecture.md
+   §3.3），保留 From/To 兼容；半填充/倒置范围拒绝。
+
+### API 变更
+
+| API | 变更 | 兼容性 |
+|-----|------|--------|
+| `Repository.ReadEventRange(ctx, key, fromSeq, toSeq)` | 新增 | 向后兼容（三后端实现补齐） |
+| `Repository.ReadConversationRange(ctx, key, offset, limit)` | 新增 | 同上 |
+| `Router.LoadEventRangeWorkspace` / `LoadConversationRangeWorkspace` | 新增 | 新增方法 |
+| `Manager.LoadEventRangeByWorkspace` / `LoadConversationRangeByWorkspace` | 新增 | 新增方法 |
+| `sessionstore.Event.MessageID` / `application.TranscriptEvent.MessageID` | 新增字段 | 旧数据缺省为空，读兼容 |
+| `sessionstore.CompactFrame` | 新增 8 字段 | From/To 保留，旧 JSON 兼容 |
+| JSON framework events 存储位置 | generation 内 → 根 `framework-events.json` | 首次追加自动迁移；读回退旧布局 |
+
+### 循环依赖检查
+
+- [x] 确认无新增（sessionstore 不依赖 application；DTO 在存储层定义）
+
+### 验证
+
+- `go build ./...` ✅ / `go vet ./...` ✅ / `gofmt` ✅
+- 新增契约测试 10+ 用例全部通过；sessionstore / application/core / session 全量通过
+- `seelebridge` 存在 1 个既有环境性失败（`TestRuntimeProjectScopedToolsUseBoundProject`，
+  Windows 下 bash/PowerShell `&&` 语法不兼容；git stash 后复现，与本次改动无关）
+- code-impl Go 专项 grep（`return nil, nil` / 包级可变 / 硬编码密钥）✅
+
+### Commit 建议（待确认）
+
+1. `fix(storage): keep framework facts across generation rollover`（G1）
+2. `feat(storage): modular session readers and stable event keys`（G2-G5）
+
+## Windows bash 工具 shell 探测修复（2026-08-05）
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `seelebridge/scoped_tools.go` | 修改 | `scopedBashCommand` 在固定 Git 路径探测失败后回退 `exec.LookPath("bash")`，覆盖自定义安装路径（scoop/chocolatey/便携版），避免直接跳到 PowerShell 拒绝 `&&` 等 bash 语法 |
+| `seelebridge/sandbox.go` | 修改 | `commandShell` 同步补充固定 Git 路径 + PATH 探测；`commandShellArgs` 按 basename 识别完整路径形式的 `bash.exe`（否则会误走 cmd 参数） |
+
+根因：本机 Git Bash 装在非标准路径（`G:\Tools\Git\Git\usr\bin\bash.exe`），
+`scopedBashCommand` 只探测三个标准路径，回退 PowerShell 5.1 → `pwd && ls -la`
+报 ParserError，导致 `TestRuntimeProjectScopedToolsUseBoundProject` 失败。
+修复后该测试通过，`go test ./seelebridge/` 全量通过。
+
 ## 本次账号池与测试增量（2026-07-27）
 
 | 文件 | 类型 | 说明 | 设计模式 |
