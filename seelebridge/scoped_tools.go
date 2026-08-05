@@ -476,6 +476,8 @@ func (r *Runtime) observeBash(event BashDiagnosticEvent) {
 // scopedBashCommand chooses a shell that honors the public bash tool's syntax.
 // Git for Windows supplies Bash on supported Windows development hosts; using
 // PowerShell first would reject ordinary model commands such as "pwd && ls -la".
+// Fixed install paths are probed first, then PATH (custom installs such as
+// scoop/chocolatey/portable), then PowerShell/cmd as last resort.
 func scopedBashCommand(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
 		for _, bash := range []string{
@@ -486,6 +488,9 @@ func scopedBashCommand(command string) (string, []string) {
 			if fileExists(bash) {
 				return bash, []string{"-c", command}
 			}
+		}
+		if bash, err := exec.LookPath("bash"); err == nil {
+			return bash, []string{"-c", command}
 		}
 	}
 	if _, err := os.Stat("/bin/bash"); err == nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -78,8 +79,23 @@ func isSensitiveEnvName(name string) bool {
 }
 
 // commandShell 返回平台 shell（与 scopedBash 的探测逻辑一致：
-// bash → PowerShell → cmd）。
+// bash → PowerShell → cmd）。Windows 固定 Git 路径探测后回退 PATH 中的
+// bash（自定义安装路径），避免直接跳到 PowerShell 拒绝 bash 语法。
 func commandShell() string {
+	if runtime.GOOS == "windows" {
+		for _, bash := range []string{
+			`C:\Program Files\Git\bin\bash.exe`,
+			`C:\Program Files\Git\usr\bin\bash.exe`,
+			`C:\Program Files (x86)\Git\bin\bash.exe`,
+		} {
+			if fileExists(bash) {
+				return bash
+			}
+		}
+		if bash, err := exec.LookPath("bash"); err == nil {
+			return bash
+		}
+	}
 	if _, err := os.Stat("/bin/bash"); err == nil {
 		return "bash"
 	}
@@ -93,12 +109,13 @@ func commandShell() string {
 }
 
 // commandShellArgs 返回对应 shell 的参数前缀（与 scopedBash 一致）。
+// LookPath 可能返回完整路径形式的 bash.exe，按 basename 识别。
 func commandShellArgs(command string) []string {
 	shell := commandShell()
-	switch shell {
-	case "bash", "sh":
+	switch {
+	case shell == "bash", shell == "sh", strings.HasSuffix(strings.ToLower(shell), "bash.exe"):
 		return []string{"-c", command}
-	case `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`:
+	case shell == `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`:
 		return []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
 	default:
 		return []string{"/d", "/s", "/c", command}
