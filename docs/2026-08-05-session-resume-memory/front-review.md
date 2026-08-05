@@ -40,7 +40,8 @@
 - `application/core/chat.go` acknowledges queued inputs immediately after a
   framework-backed `ChatStream` returns. Persistence and the next turn remain
   outside the application lock, so the UI no longer shows a stale queue while
-  the previous turn is being persisted.
+  the previous turn is being persisted. The acknowledged inputs remain in an
+  internal deferred queue until that persistence boundary has completed.
 - `gui/frontend/dist/app.js` asks the backend to cancel the current active
   request instead of trusting a possibly stale renderer request ID.
 - `gui/bridge.go` retries cancellation with an empty request ID when a stale

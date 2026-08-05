@@ -1388,6 +1388,12 @@ func TestSessionBackedQueueIsAcknowledgedWhenLoopReturns(t *testing.T) {
 	if got := service.Snapshot().Chat.QueuedCount; got != 0 {
 		t.Fatalf("queued count while persistence is draining = %d, want 0", got)
 	}
+	service.mu.RLock()
+	resume := service.taskService.ResumeRecord()
+	service.mu.RUnlock()
+	if len(resume.QueuedRefs) != 1 || resume.QueuedRefs[0] != "queued" {
+		t.Fatalf("persistence resume refs = %#v, want queued input", resume.QueuedRefs)
+	}
 	close(sessions.release)
 	if err := service.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
