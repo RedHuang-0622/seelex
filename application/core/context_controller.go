@@ -210,6 +210,9 @@ func currentPlanSlice(arguments, currentNode string) any {
 }
 
 func checkpointContextMessage(checkpoint TaskCheckpoint, minimal bool) string {
+	if !hasSubstantiveCheckpoint(checkpoint) {
+		return ""
+	}
 	if minimal {
 		checkpoint.Decisions = nil
 		checkpoint.ChangedFiles = nil

@@ -285,12 +285,21 @@ func isInternalConversationMessage(message Message) bool {
 // append-only transcript path, so the model sees the last visible user turn
 // rendered by the UI without loading the full archive.
 func recordConversationResumeHistory(record SessionRecord, tokenBudget, maxUnits int) []EngineMessage {
+	return transcriptTailHistory(recordConversationTranscript(record), tokenBudget, maxUnits)
+}
+
+func recordConversationTranscript(record SessionRecord) []TranscriptEvent {
 	events := make([]TranscriptEvent, 0, len(record.Conversation.Messages))
 	for _, message := range record.Conversation.Messages {
 		if isInternalConversationMessage(message) {
 			continue
 		}
-		event := TranscriptEvent{Role: message.Role, Content: message.Content, TokenCount: seelexctx.EstimateTokens(message.Content)}
+		event := TranscriptEvent{
+			Seq:        uint64(len(events) + 1),
+			Role:       message.Role,
+			Content:    message.Content,
+			TokenCount: seelexctx.EstimateTokens(message.Content),
+		}
 		switch message.Role {
 		case "tool":
 			if message.Tool != nil && message.Tool.ID != "" {
@@ -309,7 +318,7 @@ func recordConversationResumeHistory(record SessionRecord, tokenBudget, maxUnits
 		}
 		events = append(events, event)
 	}
-	return transcriptTailHistory(events, tokenBudget, maxUnits)
+	return events
 }
 
 func recordConversationTail(record SessionRecord, window int) []Message {

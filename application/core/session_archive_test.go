@@ -149,12 +149,99 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 	if len(history) != 2 || history[0].Content != "所以你的评价是？" || history[1].Content != "评审报告摘要" {
 		t.Fatalf("provider history = %#v, want durable conversation fallback", history)
 	}
+	if err := service.Submit(context.Background(), "继续"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	engine.mu.Lock()
+	prepared := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	if !historyContainsUser(prepared, "所以你的评价是？") || !historyContainsAssistant(prepared, "评审报告摘要") {
+		t.Fatalf("next-turn provider history lost durable conversation: %#v", prepared)
+	}
+	for _, message := range prepared {
+		if strings.HasPrefix(message.Content, taskContextCheckpointPrefix) {
+			t.Fatalf("empty checkpoint leaked into next-turn provider history: %#v", prepared)
+		}
+	}
 	service.mu.RLock()
 	state := service.taskExecution
 	service.mu.RUnlock()
 	if state == nil || state.inheritedCheckpoint != nil {
 		t.Fatalf("metadata-only checkpoint was restored as task context: %#v", state)
 	}
+}
+
+func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
+	const sessionID = "session-long-context"
+	conversation := []Message{
+		{Role: "user", Content: "你好，我是hzr"},
+		{Role: "assistant", Content: "你好 hzr"},
+	}
+	for index := 0; index < 12; index++ {
+		conversation = append(conversation,
+			Message{Role: "user", Content: strings.Repeat("这是长上下文中的审查事实，不能覆盖开头身份信息。", 320)},
+			Message{Role: "assistant", Content: strings.Repeat("已记录该轮审查事实和证据。", 320)},
+		)
+	}
+	conversation = append(conversation, Message{Role: "user", Content: "我的名字是什么？"})
+	sessions := &archiveSessions{
+		record: SessionRecord{
+			Version:      sessionRecordVersion,
+			ID:           sessionID,
+			Conversation: ConversationRecord{Messages: conversation},
+			Projection: &TaskContextProjection{
+				SchemaVersion: 1, SessionID: sessionID, TaskID: "task-long", Status: taskStatusInterrupted,
+				Checkpoint: TaskCheckpoint{
+					Version:       8,
+					CompletedWork: []string{"user_name=hzr"},
+					UpdatedAt:     time.Now(),
+				},
+			},
+		},
+		transcript: []TranscriptEvent{{Seq: 632, TaskID: "task-long", Role: "user", Content: taskContextCheckpointPrefix + `{"version":8}`, TokenCount: 2}},
+	}
+	engine := &fakeEngine{sessionID: sessionID}
+	service := newTestService(t, engine, withTestSessions(sessions))
+	if err := service.ResumeSession(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Submit(context.Background(), "请回答开头的简单问题"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	engine.mu.Lock()
+	prepared := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	if !historyContainsUser(prepared, "我的名字是什么？") {
+		t.Fatalf("long-context smoke lost opening question: %#v", prepared)
+	}
+	foundIdentityCheckpoint := false
+	for _, message := range prepared {
+		if isTaskContextCheckpoint(message.Content) && strings.Contains(message.Content, "user_name=hzr") {
+			foundIdentityCheckpoint = true
+		}
+		if strings.Contains(message.Content, `"covers_event_range"`) && !strings.Contains(message.Content, "user_name=hzr") {
+			t.Fatalf("metadata-only checkpoint entered long-context request: %#v", prepared)
+		}
+	}
+	if !foundIdentityCheckpoint {
+		t.Fatalf("long-context smoke lost durable identity checkpoint: %#v", prepared)
+	}
+}
+
+func historyContainsAssistant(history []EngineMessage, content string) bool {
+	for _, message := range history {
+		if message.Role == "assistant" && message.Content == content {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBoundConversationTailKeepsOnlyConfiguredVariableHeightWindow(t *testing.T) {

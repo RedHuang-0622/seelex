@@ -76,9 +76,16 @@ func (service *Service) resumeSession(sessionID string) error {
 	engineHistory := history
 	if hasRecord {
 		budget := contextBudgetFor(service.deps.Runtime)
+		latestUser := latestUserContent(record.Conversation.Messages)
+		if len(transcript) == 0 || (latestUser != "" && !transcriptContainsUser(transcript, latestUser)) {
+			// The durable Conversation is the source of truth. Rehydrate it into
+			// the application transcript when the append-only tail is empty or
+			// stale, otherwise the next prepareExecutionContext call would drop
+			// the fallback history again.
+			transcript = recordConversationTranscript(record)
+		}
 		engineHistory = transcriptTailHistory(transcript, budget.TargetAfterCompaction, 4)
 		recordHistory := recordConversationResumeHistory(record, budget.TargetAfterCompaction, 4)
-		latestUser := latestUserContent(record.Conversation.Messages)
 		if len(engineHistory) == 0 || (latestUser != "" && !historyContainsUser(engineHistory, latestUser)) {
 			engineHistory = recordHistory
 		}
@@ -245,6 +252,19 @@ func historyContainsUser(history []EngineMessage, content string) bool {
 	}
 	for _, message := range history {
 		if message.Role == "user" && strings.TrimSpace(displayUserInput(message.Content)) == content {
+			return true
+		}
+	}
+	return false
+}
+
+func transcriptContainsUser(events []TranscriptEvent, content string) bool {
+	content = strings.TrimSpace(displayUserInput(content))
+	if content == "" {
+		return true
+	}
+	for _, event := range events {
+		if event.Role == "user" && strings.TrimSpace(displayUserInput(event.Content)) == content {
 			return true
 		}
 	}

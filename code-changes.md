@@ -230,6 +230,14 @@ tail, and falls back to a bounded protocol tail reconstructed from the durable
 visible user turn. This prevents an empty checkpoint from replacing the actual
 conversation after working history has been released from memory.
 
+The rehydrated record tail is also copied back into Application transcript
+state. Subsequent `prepareExecutionContext` calls therefore keep the same
+durable user/assistant history instead of rebuilding from an empty in-memory
+tail. Metadata-only checkpoints are no longer emitted into provider history.
+The long-context smoke test re-asks `我的名字是什么？` after twelve large
+turns and verifies that the durable `user_name=hzr` checkpoint and opening
+question reach the next provider request.
+
 The authoritative context uses the dedicated
 seelex:plan-context:v1 authority=preflight-loaded envelope, parallel to the
 Skill context envelope. Live verification completed in 49.06 s: High issued

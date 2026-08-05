@@ -105,8 +105,10 @@ func continuationTaskExecutionState(requestID, objective, effort string, previou
 	}
 	state.contextCompactions = append([]ContextCompaction(nil), previous.contextCompactions...)
 	state.tokenAudit = previous.tokenAudit
-	cloned := cloneTaskCheckpoint(checkpoint)
-	state.inheritedCheckpoint = &cloned
+	if hasSubstantiveCheckpoint(checkpoint) {
+		cloned := cloneTaskCheckpoint(checkpoint)
+		state.inheritedCheckpoint = &cloned
+	}
 	return state
 }
 
