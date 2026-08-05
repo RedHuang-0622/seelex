@@ -36,6 +36,12 @@ const (
 	// defaultMessageShardSize 是 JSON 存储分片条数的默认值
 	// （seele.yaml limits 段 message_shard_size 可调，0 = 默认）。
 	defaultMessageShardSize = 100
+	// frameworkEventLogFile 是执行事实事件库的独立 append-only 文件
+	// （v2 模块布局：不随 generation rollover 失效；见 plan.md §阶段1 P0）。
+	frameworkEventLogFile = "framework-events.json"
+	// frameworkEventLegacyFile 是 v1 布局下 generation 内的事件库文件名，
+	// 首次写入 v2 模块时迁移合并，之后只读回退。
+	frameworkEventLegacyFile = "events.json"
 )
 
 type Config struct {
@@ -94,8 +100,11 @@ type EventToolCall struct {
 // backend. TokenCount is recorded at event creation time so reverse reads do
 // not need to retokenize the complete archive.
 type Event struct {
-	Seq              uint64          `json:"seq"`
-	TaskID           string          `json:"task_id,omitempty"`
+	Seq    uint64 `json:"seq"`
+	TaskID string `json:"task_id,omitempty"`
+	// MessageID 是同一逻辑单元的 UI 会话消息定位键（event-to-message 索引；
+	// 模块化方案 §3.2：禁止按数组位置临时推导）。无法稳定配对时为空。
+	MessageID        string          `json:"message_id,omitempty"`
 	Role             string          `json:"role"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
 	Content          string          `json:"content,omitempty"`
@@ -153,6 +162,12 @@ type Repository interface {
 	Read(context.Context, Key) ([]types.Message, error)
 	ReadRange(context.Context, Key, int, int) ([]types.Message, int, error)
 	ReadEventTail(context.Context, Key, int, int) ([]Event, error)
+	// ReadEventRange 按 EventSeq 范围（含端点）读取事件流，保持 Seq 连续性。
+	ReadEventRange(context.Context, Key, uint64, uint64) ([]Event, error)
+	// ReadConversationRange 只解析 state blob 的 conversation 模块（不解析
+	// Plan/Execution/Projection 等非 conversation 子树），offset/limit 语义
+	// 与 ReadRange 一致（limit <= 0 返回窗口尾段；总数为完整消息数）。
+	ReadConversationRange(context.Context, Key, int, int) ([]ConversationMessage, int, error)
 	ReadToolResult(context.Context, Key, string) (ToolResult, error)
 	WriteState(context.Context, Key, []byte) error
 	ReadState(context.Context, Key) ([]byte, error)
@@ -277,6 +292,31 @@ func (router *Router) LoadEventTailWorkspace(projectID, sessionID string, tokenB
 	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		var err error
 		events, err = repository.ReadEventTail(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, tokenBudget, maxUnits)
+		return err
+	})
+	return events, err
+}
+
+// LoadConversationRangeWorkspace 读取会话 conversation 模块的指定窗口
+// （只解析 state blob 的 conversation 子树，不解析执行/计划模块）。
+func (router *Router) LoadConversationRangeWorkspace(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error) {
+	var messages []ConversationMessage
+	var total int
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		messages, total, err = repository.ReadConversationRange(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, offset, limit)
+		return err
+	})
+	return messages, total, err
+}
+
+// LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
+// （诊断/流式重放的有界范围读取）。
+func (router *Router) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error) {
+	var events []Event
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		events, err = repository.ReadEventRange(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, fromSeq, toSeq)
 		return err
 	})
 	return events, err
@@ -923,15 +963,27 @@ func (repository *jsonRepository) AppendFrameworkEvent(_ context.Context, key Ke
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return err
 	}
-	path := filepath.Join(directory, "events.json")
-	if manifest, err := repository.readManifest(directory); err == nil {
-		path = filepath.Join(directory, manifest.Generation, "events.json")
-	}
-	entries, err := repository.readEventLogLocked(path)
-	if err != nil {
+	path := filepath.Join(directory, frameworkEventLogFile)
+	var entries []EventLogEntry
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		// 首次写入：迁移 v1 布局遗留的 events.json（所有 generation），
+		// 独立 append-only 事实轨不随 generation rollover 失效。
+		legacy, legacyErr := repository.legacyFrameworkEventEntriesLocked(directory)
+		if legacyErr != nil {
+			return legacyErr
+		}
+		entries = legacy
+	} else if err != nil {
 		return err
+	} else {
+		existing, readErr := repository.readEventLogLocked(path)
+		if readErr != nil {
+			return readErr
+		}
+		entries = existing
 	}
-	entries = append(entries, entry)
+	// merge 而非直接 append：同 Seq 重试幂等，乱序追加也保持 Seq 排序。
+	entries = mergeEventLogEntries(entries, []EventLogEntry{entry})
 	data, err := json.Marshal(entries)
 	if err != nil {
 		return fmt.Errorf("session storage: marshal event log: %w", err)
@@ -946,13 +998,75 @@ func (repository *jsonRepository) ReadFrameworkEvents(_ context.Context, key Key
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 	directory := repository.sessionDir(key)
-	path := filepath.Join(directory, "events.json")
-	if manifest, err := repository.readManifest(directory); err == nil {
-		if _, statErr := os.Stat(filepath.Join(directory, manifest.Generation, "events.json")); statErr == nil {
-			path = filepath.Join(directory, manifest.Generation, "events.json")
-		}
+	path := filepath.Join(directory, frameworkEventLogFile)
+	if _, err := os.Stat(path); err == nil {
+		return repository.readEventLogLocked(path)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
 	}
-	return repository.readEventLogLocked(path)
+	// v1 回退：旧布局未迁移的会话按 generation 扫描读取。
+	return repository.legacyFrameworkEventEntriesLocked(directory)
+}
+
+// legacyFrameworkEventEntriesLocked 扫描 v1 布局遗留的 events.json（所有
+// generation 目录及 session 根目录），按 Seq 去重合并。调用方必须持有
+// jsonRepository.mu（读锁或写锁）。
+func (repository *jsonRepository) legacyFrameworkEventEntriesLocked(directory string) ([]EventLogEntry, error) {
+	var merged []EventLogEntry
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []EventLogEntry{}, nil
+		}
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "generation-") {
+			continue
+		}
+		legacy, readErr := repository.readEventLogLocked(filepath.Join(directory, entry.Name(), frameworkEventLegacyFile))
+		if readErr != nil {
+			return nil, readErr
+		}
+		merged = mergeEventLogEntries(merged, legacy)
+	}
+	legacy, err := repository.readEventLogLocked(filepath.Join(directory, frameworkEventLegacyFile))
+	if err != nil {
+		return nil, err
+	}
+	return mergeEventLogEntries(merged, legacy), nil
+}
+
+// mergeEventLogEntries 合并两个按 Seq 升序的事件库切片，同 Seq 保留先出现的
+// 条目（幂等：迁移与追加的重复落库不会产生重复事实）。
+func mergeEventLogEntries(primary, extra []EventLogEntry) []EventLogEntry {
+	if len(extra) == 0 {
+		return primary
+	}
+	if len(primary) == 0 {
+		return append([]EventLogEntry(nil), extra...)
+	}
+	merged := make([]EventLogEntry, 0, len(primary)+len(extra))
+	seen := make(map[uint64]struct{}, len(primary)+len(extra))
+	appendUnique := func(entry EventLogEntry) {
+		if _, ok := seen[entry.Seq]; ok {
+			return
+		}
+		seen[entry.Seq] = struct{}{}
+		merged = append(merged, entry)
+	}
+	index := 0
+	for _, entry := range extra {
+		for index < len(primary) && primary[index].Seq < entry.Seq {
+			appendUnique(primary[index])
+			index++
+		}
+		appendUnique(entry)
+	}
+	for ; index < len(primary); index++ {
+		appendUnique(primary[index])
+	}
+	return merged
 }
 
 // readEventLogLocked 读取事件库 JSON（不存在 → 空库；损坏 → 显式错误）。

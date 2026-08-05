@@ -633,7 +633,7 @@ func storeTranscriptEvents(events []application.TranscriptEvent) []sessionstore.
 			calls[callIndex] = sessionstore.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 		}
 		stored[index] = sessionstore.Event{
-			Seq: event.Seq, TaskID: event.TaskID, Role: event.Role,
+			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
 			ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
 			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
@@ -650,7 +650,7 @@ func adaptTranscriptEvents(events []sessionstore.Event) []application.Transcript
 			calls[callIndex] = application.TranscriptToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 		}
 		adapted[index] = application.TranscriptEvent{
-			Seq: event.Seq, TaskID: event.TaskID, Role: event.Role,
+			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
 			ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
 			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
@@ -687,29 +687,32 @@ func (port sessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (appl
 }
 
 func (port sessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.Message, int, error) {
-	record, err := port.LoadSessionRecordWorkspace(workspaceID, id)
+	// conversation 模块冷读：只解析 state blob 的 conversation 子树，
+	// 不反序列化 Plan/Execution/Projection 等非 conversation 模块
+	// （模块化方案 plan.md §阶段1：长会话翻页不加载完整 state blob）。
+	messages, total, err := port.manager.LoadConversationRangeByWorkspace(workspaceID, id, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
-	total := len(record.Conversation.Messages)
-	if offset < 0 {
-		offset = 0
+	adapted := make([]application.Message, 0, len(messages))
+	for _, message := range messages {
+		adapted = append(adapted, adaptStoredConversationMessage(message))
 	}
-	if offset > total {
-		offset = total
-	}
-	end := offset + limit
-	if limit <= 0 || end > total {
-		end = total
-	}
-	messages := append([]application.Message(nil), record.Conversation.Messages[offset:end]...)
-	for index := range messages {
-		if messages[index].Tool != nil {
-			tool := *messages[index].Tool
-			messages[index].Tool = &tool
+	return adapted, total, nil
+}
+
+// adaptStoredConversationMessage 把存储层 conversation DTO 转为 UI 消息
+// （Tool 指针独立拷贝，避免共享内部状态）。
+func adaptStoredConversationMessage(message sessionstore.ConversationMessage) application.Message {
+	adapted := application.Message{ID: message.ID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt}
+	if message.Tool != nil {
+		tool := *message.Tool
+		adapted.Tool = &application.ToolCall{
+			ID: tool.ID, Name: tool.Name, Arguments: tool.Arguments,
+			Result: tool.Result, Error: tool.Error, Status: tool.Status, Duration: tool.Duration,
 		}
 	}
-	return messages, total, nil
+	return adapted
 }
 
 func decodeSessionRecord(payload []byte, sessionID string) (application.SessionRecord, error) {

@@ -80,8 +80,11 @@ type TaskContextProjection struct {
 // TranscriptEvent is an append-only protocol event. Oversized tool content is
 // represented by ResultRef; the raw value lives in ToolResultStore.
 type TranscriptEvent struct {
-	Seq              uint64               `json:"seq"`
-	TaskID           string               `json:"task_id,omitempty"`
+	Seq    uint64 `json:"seq"`
+	TaskID string `json:"task_id,omitempty"`
+	// MessageID 是同一逻辑单元的 UI 会话消息定位键（event-to-message 索引，
+	// 模块化方案 §3.2）；无法稳定配对时为空。
+	MessageID        string               `json:"message_id,omitempty"`
 	Role             string               `json:"role"`
 	ReasoningContent string               `json:"reasoning_content,omitempty"`
 	Content          string               `json:"content,omitempty"`

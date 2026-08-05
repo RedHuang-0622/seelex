@@ -49,16 +49,37 @@ type SkillFrame struct {
 	Name    string `json:"name"`
 }
 
+// Revision 标识一次提交版本（CommitID + 单调序号）；root manifest 发布后
+// 才可作为恢复引用（模块化方案 interfaces.md §基础类型）。
+type Revision struct {
+	CommitID string `json:"commit_id,omitempty"`
+	Number   uint64 `json:"number"`
+}
+
 // CompactFrame 是 CompactStack 的一帧（now using compact context = 栈顶）。
-// From/To 对应 ChatQueue（ProviderHistory）中被压缩轮次的单元索引，
-// 可审计「窗口外才被压缩」不变量（plan.md §3.7.4）。
+// From/To 保留 ChatQueue（ProviderHistory）中被压缩轮次的单元索引（兼容
+// 审计不变量 plan.md §3.7.4）；RoundFrom/RoundTo、EventFrom/EventTo、
+// MessageFrom/MessageTo 与 EventRevision/ConversationRevision 是模块化方案
+// 的正式恢复定位（architecture.md §3.3），随机 segment_id 不得承担截断语义。
 type CompactFrame struct {
-	SegmentID    string        `json:"segment_id"`
-	From         int           `json:"from"`
-	To           int           `json:"to"`
-	Summary      string        `json:"summary"`
-	Evidence     []EvidenceRef `json:"evidence,omitempty"`
-	CompressedAt time.Time     `json:"compressed_at"`
+	SegmentID string `json:"segment_id"`
+	From      int    `json:"from"`
+	To        int    `json:"to"`
+	// RoundFrom/RoundTo 是会话轮次范围（RoundNo 体系启用前为 0）。
+	RoundFrom uint64 `json:"round_from,omitempty"`
+	RoundTo   uint64 `json:"round_to,omitempty"`
+	// EventFrom/EventTo 是 Transcript EventSeq 范围（含端点）。
+	EventFrom uint64 `json:"event_from,omitempty"`
+	EventTo   uint64 `json:"event_to,omitempty"`
+	// MessageFrom/MessageTo 是 UI 消息定位键范围。
+	MessageFrom string `json:"message_from,omitempty"`
+	MessageTo   string `json:"message_to,omitempty"`
+	// EventRevision/ConversationRevision 标识该范围所属的提交版本。
+	EventRevision        Revision      `json:"event_revision"`
+	ConversationRevision Revision      `json:"conversation_revision"`
+	Summary              string        `json:"summary"`
+	Evidence             []EvidenceRef `json:"evidence,omitempty"`
+	CompressedAt         time.Time     `json:"compressed_at"`
 }
 
 // SessionContextRecord 是会话级上下文状态（state blob）：
@@ -287,6 +308,14 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 		// From 恒为合并起点（0），To 单调递增 —— 负区间/倒置拒绝。
 		if frame.From < 0 || frame.To < frame.From {
 			return fmt.Errorf("session context: compact frame invalid range [%d,%d]", frame.From, frame.To)
+		}
+		// 正式定位范围校验（architecture.md §3.3）：RoundNo/EventSeq 范围
+		// 要么都为零（未启用），要么成对给出且 From <= To；半填充拒绝。
+		if (frame.RoundFrom == 0) != (frame.RoundTo == 0) || frame.RoundFrom > frame.RoundTo {
+			return fmt.Errorf("session context: compact frame invalid round range [%d,%d]", frame.RoundFrom, frame.RoundTo)
+		}
+		if (frame.EventFrom == 0) != (frame.EventTo == 0) || frame.EventFrom > frame.EventTo {
+			return fmt.Errorf("session context: compact frame invalid event range [%d,%d]", frame.EventFrom, frame.EventTo)
 		}
 		record.CompactStack = append(record.CompactStack, frame)
 		return nil

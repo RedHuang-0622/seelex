@@ -56,6 +56,7 @@ func (service *sessionCoordinator) persistCurrentSession(sessionID string) error
 	events := append([]TranscriptEvent(nil), service.transcript...)
 	pendingResults := append([]StoredToolResult(nil), service.pendingToolResults...)
 	service.mu.Unlock()
+	enrichTranscriptMessageIDs(events, record)
 
 	if store, ok := service.deps.Sessions.(sessionRecordPort); ok {
 		existing, err := store.LoadSessionRecord(sessionID)
@@ -87,6 +88,63 @@ func (service *sessionCoordinator) persistCurrentSession(sessionID string) error
 		return fmt.Errorf("save session record: %w", err)
 	}
 	return nil
+}
+
+// enrichTranscriptMessageIDs 建立 event-to-message 关联（模块化方案 §3.2）：
+// tool call/result 按 CallID 配对，user/assistant 按角色+内容配对；
+// 不按数组位置临时推导。无法稳定配对的 event 保持 MessageID 为空，
+// 由事件 shard 的 Seq 继续承担顺序语义。
+func enrichTranscriptMessageIDs(events []TranscriptEvent, record SessionRecord) {
+	if len(events) == 0 || len(record.Conversation.Messages) == 0 {
+		return
+	}
+	// tool 角色消息承载 call 宣告（chat.go 417/434），tool_result 消息承载
+	// 结果（chat.go 561）；两类消息对同一 CallID 分别索引，避免互相串配。
+	byCallMessage := make(map[string]string, len(record.Conversation.Messages))
+	byResultMessage := make(map[string]string)
+	byUserContent := make(map[string]string)
+	byAssistantContent := make(map[string]string)
+	for _, message := range record.Conversation.Messages {
+		if message.Tool != nil && message.Tool.ID != "" {
+			switch message.Role {
+			case "tool":
+				byCallMessage[message.Tool.ID] = message.ID
+			case "tool_result":
+				byResultMessage[message.Tool.ID] = message.ID
+			}
+		}
+		switch message.Role {
+		case "user":
+			if message.Content != "" {
+				byUserContent[message.Content] = message.ID
+			}
+		case "assistant":
+			if message.Content != "" {
+				byAssistantContent[message.Content] = message.ID
+			}
+		}
+	}
+	for index := range events {
+		if events[index].MessageID != "" {
+			continue
+		}
+		if events[index].Role == "tool" && events[index].ToolCallID != "" {
+			events[index].MessageID = byResultMessage[events[index].ToolCallID]
+			continue
+		}
+		if len(events[index].ToolCalls) == 1 {
+			events[index].MessageID = byCallMessage[events[index].ToolCalls[0].ID]
+			if events[index].MessageID != "" {
+				continue
+			}
+		}
+		switch events[index].Role {
+		case "user":
+			events[index].MessageID = byUserContent[events[index].Content]
+		case "assistant":
+			events[index].MessageID = byAssistantContent[events[index].Content]
+		}
+	}
 }
 
 func mergeConversationMessages(existing, projected []Message) []Message {
@@ -298,6 +356,7 @@ func recordConversationTranscript(record SessionRecord) []TranscriptEvent {
 			Seq:        uint64(len(events) + 1),
 			Role:       message.Role,
 			Content:    message.Content,
+			MessageID:  message.ID,
 			TokenCount: seelexctx.EstimateTokens(message.Content),
 		}
 		switch message.Role {

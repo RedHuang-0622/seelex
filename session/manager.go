@@ -170,6 +170,24 @@ func (m *Manager) LoadToolResultByWorkspace(workspaceID, sessionID, resultRef st
 	return m.router.LoadToolResultWorkspace(workspaceID, sessionID, resultRef)
 }
 
+// LoadEventRangeByWorkspace 按 EventSeq 范围读取事件流（显式 workspace
+// 作用域，不改变当前写作用域）。
+func (m *Manager) LoadEventRangeByWorkspace(workspaceID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: event range reads require the configurable router")
+	}
+	return m.router.LoadEventRangeWorkspace(workspaceID, sessionID, fromSeq, toSeq)
+}
+
+// LoadConversationRangeByWorkspace 读取会话 conversation 模块窗口（显式
+// workspace 作用域，不改变当前写作用域；只解析 conversation 子树）。
+func (m *Manager) LoadConversationRangeByWorkspace(workspaceID, sessionID string, offset, limit int) ([]sessionstore.ConversationMessage, int, error) {
+	if m.router == nil {
+		return nil, 0, fmt.Errorf("session: conversation module reads require the configurable router")
+	}
+	return m.router.LoadConversationRangeWorkspace(workspaceID, sessionID, offset, limit)
+}
+
 // DeleteByWorkspace deletes a session from an explicit workspace without
 // changing the active workspace used by subsequent writes.
 func (m *Manager) DeleteByWorkspace(workspaceID, sessionID string) error {

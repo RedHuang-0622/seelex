@@ -70,7 +70,7 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 			commit := Commit{
 				ProviderHistory: testMessages(2, "provider"),
 				Events: []Event{
-					{Seq: 1, Role: "user", Content: "inspect", TokenCount: 1},
+					{Seq: 1, Role: "user", Content: "inspect", MessageID: "message-1", TokenCount: 1},
 					{Seq: 2, Role: "assistant", ToolCalls: []EventToolCall{{ID: "a", Name: "read"}, {ID: "b", Name: "status"}}, TokenCount: 1},
 					{Seq: 3, Role: "tool", ToolCallID: "b", Name: "status", Content: "clean", TokenCount: 1},
 					{Seq: 4, Role: "tool", ToolCallID: "a", Name: "read", Content: "found", TokenCount: 1},

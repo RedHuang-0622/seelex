@@ -117,6 +117,19 @@ func TestSessionContextStoreValidation(t *testing.T) {
 	if err := store.PushCompact(CompactFrame{From: 0, To: 1}); err == nil {
 		t.Fatal("compact frame without segment_id must fail")
 	}
+	// 正式定位范围校验（architecture.md §3.3）：半填充/倒置拒绝。
+	if err := store.PushCompact(CompactFrame{SegmentID: "seg-x", RoundFrom: 3, RoundTo: 0}); err == nil {
+		t.Fatal("half-filled round range must fail")
+	}
+	if err := store.PushCompact(CompactFrame{SegmentID: "seg-x", RoundFrom: 8, RoundTo: 3}); err == nil {
+		t.Fatal("inverted round range must fail")
+	}
+	if err := store.PushCompact(CompactFrame{SegmentID: "seg-x", EventFrom: 5, EventTo: 0}); err == nil {
+		t.Fatal("half-filled event range must fail")
+	}
+	if err := store.PushCompact(CompactFrame{SegmentID: "seg-x", EventFrom: 50, EventTo: 21}); err == nil {
+		t.Fatal("inverted event range must fail")
+	}
 	if err := store.CloseTopPlan("missing"); err == nil {
 		t.Fatal("closing an absent plan must fail")
 	}
@@ -180,5 +193,48 @@ func TestSessionContextRecordJSONShape(t *testing.T) {
 	}
 	if decoded.SystemPrompt != "system prompt" || len(decoded.PlanStack) != 1 || decoded.PlanStack[0].Nodes[0].ID != "n1" {
 		t.Fatalf("decoded record = %+v", decoded)
+	}
+}
+
+// TestCompactFrameRangeFieldsPersist 验证 CompactFrame 正式定位字段
+// （round/event/message 范围 + revision）持久化往返完整。
+func TestCompactFrameRangeFieldsPersist(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionContextStore(router, "session-compact-range")
+	frame := CompactFrame{
+		SegmentID: "compact-r00000003-r00000008-v0002",
+		From:      0, To: 7,
+		RoundFrom: 3, RoundTo: 8,
+		EventFrom: 21, EventTo: 49,
+		MessageFrom: "message-31", MessageTo: "message-76",
+		EventRevision:        Revision{CommitID: "commit-12", Number: 12},
+		ConversationRevision: Revision{CommitID: "commit-12", Number: 12},
+		Summary:              "先期摘要",
+		CompressedAt:         time.Now(),
+	}
+	if err := store.PushCompact(frame); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewSessionContextStore(router, "session-compact-range")
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	record := reloaded.Snapshot()
+	if len(record.CompactStack) != 1 {
+		t.Fatalf("compact stack = %+v", record.CompactStack)
+	}
+	got := record.CompactStack[0]
+	if got.RoundFrom != 3 || got.RoundTo != 8 || got.EventFrom != 21 || got.EventTo != 49 {
+		t.Fatalf("range fields = %+v", got)
+	}
+	if got.MessageFrom != "message-31" || got.MessageTo != "message-76" {
+		t.Fatalf("message range = %q..%q", got.MessageFrom, got.MessageTo)
+	}
+	if got.EventRevision.Number != 12 || got.ConversationRevision.Number != 12 || got.EventRevision.CommitID != "commit-12" {
+		t.Fatalf("revisions = %+v", got)
+	}
+	// 兼容字段保留（审计 R6：ChatQueue 单元索引）。
+	if got.From != 0 || got.To != 7 {
+		t.Fatalf("legacy unit range = [%d,%d]", got.From, got.To)
 	}
 }
