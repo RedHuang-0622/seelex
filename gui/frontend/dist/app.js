@@ -573,9 +573,17 @@ elements.prompt.addEventListener("input", () => {
 });
 
 elements["stop-button"].addEventListener("click", async () => {
-  const requestID = client.current()?.chat?.request_id || "";
-  try { await invoke("CancelChat", requestID); await refresh({ scroll: false }); }
+  elements["stop-button"].disabled = true;
+  try {
+    // The backend owns the active request ID. Passing an empty ID avoids a
+    // stale renderer snapshot preventing cancellation after a queued turn
+    // has rotated the request ID.
+    const cancelled = await invoke("CancelChat", "");
+    if (!cancelled) showToast("当前任务已结束或取消请求未生效");
+    await refresh({ scroll: false });
+  }
   catch (error) { showToast(error); }
+  finally { elements["stop-button"].disabled = false; }
 });
 
 async function loadOlderHistory() {

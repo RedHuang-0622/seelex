@@ -34,6 +34,39 @@ type fakeEngine struct {
 	releaseCalls      int
 }
 
+type sessionBackedBlockingEngine struct {
+	*fakeEngine
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (engine *sessionBackedBlockingEngine) SessionBacked() bool { return true }
+
+func (engine *sessionBackedBlockingEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
+	engine.once.Do(func() {
+		close(engine.started)
+		select {
+		case <-engine.release:
+		case <-ctx.Done():
+		}
+	})
+	return engine.fakeEngine.ChatStream(ctx, input, onChunk)
+}
+
+type blockingSaveSessions struct {
+	fakeSessions
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (sessions *blockingSaveSessions) SaveCurrent(string) error {
+	sessions.once.Do(func() { close(sessions.entered) })
+	<-sessions.release
+	return nil
+}
+
 func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	const privateInstruction = "private-system-instruction-must-not-reach-frontend"
@@ -1323,6 +1356,66 @@ func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("WaitForIdle did not return after queued chat completed")
+	}
+}
+
+func TestSessionBackedQueueIsAcknowledgedWhenLoopReturns(t *testing.T) {
+	engine := &sessionBackedBlockingEngine{
+		fakeEngine: &fakeEngine{},
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	sessions := &blockingSaveSessions{entered: make(chan struct{}), release: make(chan struct{})}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	if err := service.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-engine.started:
+	case <-time.After(time.Second):
+		t.Fatal("first chat did not start")
+	}
+	if err := service.Submit(context.Background(), "queued"); err != nil {
+		t.Fatal(err)
+	}
+	close(engine.release)
+	select {
+	case <-sessions.entered:
+	case <-time.After(time.Second):
+		t.Fatal("current turn did not reach persistence")
+	}
+	if got := service.Snapshot().Chat.QueuedCount; got != 0 {
+		t.Fatalf("queued count while persistence is draining = %d, want 0", got)
+	}
+	close(sessions.release)
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCancelChatInterruptsContextAwareEngine(t *testing.T) {
+	service := newTestService(t, &blockingEngine{fakeEngine: &fakeEngine{}})
+	if err := service.Submit(context.Background(), "interrupt me"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !service.Snapshot().Chat.Running {
+		time.Sleep(time.Millisecond)
+	}
+	if !service.Snapshot().Chat.Running {
+		t.Fatal("chat did not start")
+	}
+	if !service.CancelChat("") {
+		t.Fatal("CancelChat returned false for the active request")
+	}
+	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := service.WaitForIdle(waitContext); err != nil {
+		t.Fatal(err)
+	}
+	if task := service.Snapshot().Task; task == nil || task.Status != TaskInterrupted {
+		t.Fatalf("cancelled task = %#v, want interrupted", task)
 	}
 }
 

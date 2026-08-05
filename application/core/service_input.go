@@ -59,6 +59,27 @@ func (service *Service) injectPendingSubagentContexts() {
 	}
 }
 
+// drainQueuedInputsAfterLoop removes inputs accepted behind the active turn as
+// soon as the framework ReAct loop returns. The next turn is still started
+// only after the current turn's persistence/finalization completes, but the
+// frontend no longer reports stale queued work during that boundary.
+func (service *Service) drainQueuedInputsAfterLoop() []chatRequest {
+	service.mu.Lock()
+	if len(service.inputQueue) == 0 {
+		service.mu.Unlock()
+		return nil
+	}
+	queued := append([]chatRequest(nil), service.inputQueue...)
+	service.inputQueue = nil
+	service.snapshot.Chat.QueuedCount = 0
+	service.snapshot.Chat.InputQueue = nil
+	requestID := service.snapshot.Chat.RequestID
+	revision := service.bumpLocked()
+	service.mu.Unlock()
+	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+	return queued
+}
+
 func (service *Service) Submit(ctx context.Context, text string) error {
 	service.mu.RLock()
 	draining := service.draining

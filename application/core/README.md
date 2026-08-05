@@ -99,6 +99,12 @@ subagent、request-scoped authority lease 或向普通用户输入注入 hidden 
 - 不在持有 `Service.mu` 时调用 LLM、网络、数据库、文件系统或外部 callback。
 - Snapshot 改动是否 bump revision 并发布正确事件。
 - queued input 是否冻结提交时的 Skill 上下文，而非执行时重新读取。
+
+Queue liveness note: for framework-backed sessions, queued inputs are removed
+from the visible queue immediately after `ChatStream` returns and the session
+lock is released. The current turn is persisted before the merged next turn is
+started, so queue acknowledgement does not require re-entering the framework
+session from an iteration callback.
 - resume/load-more/delete 是否使用目标 session 的真实 workspace，而非当前 active scope。
 - project 切换、storage reconfigure、shutdown 与 running chat 的竞争是否有明确结果。
 - draft 期间切换项目是否只更新待继承 scope，是否避免空 Session ID binding；重复点击新建是否仍只保留一个 draft。

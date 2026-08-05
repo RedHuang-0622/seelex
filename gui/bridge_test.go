@@ -35,6 +35,16 @@ type fakeApplication struct {
 	resumedSession   string
 }
 
+type staleCancelApplication struct {
+	*fakeApplication
+	calls []string
+}
+
+func (fake *staleCancelApplication) CancelChat(requestID string) bool {
+	fake.calls = append(fake.calls, requestID)
+	return len(fake.calls) > 1
+}
+
 func newFakeApplication() *fakeApplication {
 	return &fakeApplication{
 		hub: application.NewEventHub(),
@@ -214,6 +224,20 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	}
 	if bridge.Info().Title != "Seelex Test" || bridge.Snapshot().Runtime.Model != "test-model" {
 		t.Fatal("bridge metadata or snapshot mismatch")
+	}
+}
+
+func TestBridgeCancelChatRetriesAgainstActiveRequestWhenRendererIDIsStale(t *testing.T) {
+	fake := &staleCancelApplication{fakeApplication: newFakeApplication()}
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bridge.CancelChat("old-request") {
+		t.Fatal("CancelChat did not retry against the active request")
+	}
+	if len(fake.calls) != 2 || fake.calls[1] != "" {
+		t.Fatalf("cancel calls = %#v, want stale ID followed by active-request cancellation", fake.calls)
 	}
 }
 

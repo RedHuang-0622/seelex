@@ -213,7 +213,16 @@ func (bridge *Bridge) ResumeSession(sessionID string) error {
 }
 
 func (bridge *Bridge) CancelChat(requestID string) bool {
-	return bridge.app.CancelChat(requestID)
+	if bridge.app.CancelChat(requestID) {
+		return true
+	}
+	// A renderer can hold the previous request ID for one event tick while a
+	// queued turn is promoted. Retry against the application's current active
+	// request instead of silently turning the stop button into a no-op.
+	if strings.TrimSpace(requestID) != "" {
+		return bridge.app.CancelChat("")
+	}
+	return false
 }
 
 func (bridge *Bridge) ResolveInteraction(id, optionID string) error {

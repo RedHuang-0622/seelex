@@ -73,6 +73,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	defer service.clearReActBudget(requestID)
 	var err error
 	recovered := false
+	var queuedAtLoopEnd []chatRequest
 	modelInput := request.modelInput
 	batcher, onChunk := service.newBatchedDeltaSink(requestID)
 	if err == nil {
@@ -85,6 +86,10 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		modelInput = nonEmptyProviderInput(modelInput)
 		var reply string
 		reply, err = service.deps.Engine.ChatStream(ctx, modelInput, onChunk)
+		// Session-backed engines cannot be re-entered from an iteration hook.
+		// Once ChatStream returns its loop lock is released, so acknowledge queued
+		// inputs immediately; the next turn still starts after persistence.
+		queuedAtLoopEnd = service.drainQueuedInputsAfterLoop()
 		// 模型输出观测（自然终态判定输入面）
 		service.currentTaskService().ObserveModelOutput(ctx, ModelOutput{RequestID: requestID, Reply: reply, Err: err})
 		if reply != "" {
@@ -171,14 +176,16 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	// 全量重建可能带入跨会话的残留消息。
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	// 处理输入队列：取所有排队输入合并为一条，批量发送
-	processQueue := len(service.inputQueue) > 0
+	pendingQueue := append([]chatRequest(nil), queuedAtLoopEnd...)
+	pendingQueue = append(pendingQueue, service.inputQueue...)
+	processQueue := len(pendingQueue) > 0
 	var batchRequest chatRequest
 	var nextContext context.Context
 	nextRequestID := ""
 	var nextUser, nextAssistant *Message
 	if processQueue {
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
-		batchRequest = combineChatRequests(service.inputQueue)
+		batchRequest = combineChatRequests(pendingQueue)
 		service.inputQueue = nil
 		service.snapshot.Chat.QueuedCount = 0
 		service.snapshot.Chat.InputQueue = nil

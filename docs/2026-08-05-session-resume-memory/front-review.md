@@ -34,3 +34,15 @@
 - 点击恢复后下一次 ChatStream 看到应用装配的 system/checkpoint/历史尾窗。
 - 重复 Resume 同一大历史会话时，catalog 与尾窗读取不再每次全量解析。
 - 定向测试、`go test ./...` 和可用环境下的 race 测试通过。
+
+## Follow-up liveness fixes
+
+- `application/core/chat.go` acknowledges queued inputs immediately after a
+  framework-backed `ChatStream` returns. Persistence and the next turn remain
+  outside the application lock, so the UI no longer shows a stale queue while
+  the previous turn is being persisted.
+- `gui/frontend/dist/app.js` asks the backend to cancel the current active
+  request instead of trusting a possibly stale renderer request ID.
+- `gui/bridge.go` retries cancellation with an empty request ID when a stale
+  renderer ID is rejected. This keeps the stop button effective across queued
+  turn promotion while remaining scoped to the current application session.
