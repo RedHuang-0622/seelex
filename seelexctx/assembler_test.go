@@ -125,6 +125,64 @@ func TestAssemblerEmptySystemAndBlocks(t *testing.T) {
 	assertContent(t, assembled.Messages[0], "只有历史")
 }
 
+func TestAssemblerMemoriesInjectedWithLastUserQuery(t *testing.T) {
+	var gotQuery string
+	assembler := NewAssembler(AssemblerOptions{
+		StackBlocks: func() []seelectx.PromptBlock {
+			return []seelectx.PromptBlock{{Name: "stack", Messages: []types.Message{textMessage("user", "栈块")}}}
+		},
+		Memories: func(_ context.Context, query string) []seelectx.PromptBlock {
+			gotQuery = query
+			return []seelectx.PromptBlock{{Name: "memory", Messages: []types.Message{textMessage("user", "相关记忆块")}}}
+		},
+	})
+	assembled, err := assembler.Assemble(context.Background(), seelectx.AssemblyRequest{
+		WorkingHistory: []types.Message{
+			textMessage("user", "旧问题"),
+			textMessage("assistant", "旧回答"),
+			textMessage("user", "当前查询：权限 gate"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotQuery != "当前查询：权限 gate" {
+		t.Fatalf("memory provider must receive last user query, got %q", gotQuery)
+	}
+	// 投影顺序：栈块 → 记忆块 → WorkingHistory。
+	if len(assembled.Messages) != 5 {
+		t.Fatalf("message count = %d, want 5", len(assembled.Messages))
+	}
+	assertContent(t, assembled.Messages[1], "相关记忆块")
+	assertContent(t, assembled.Messages[4], "当前查询：权限 gate")
+}
+
+func TestAssemblerMemoriesSkipControlBlocksAndNil(t *testing.T) {
+	marker := compactContextMarker + " segment=compact-1 from=0 to=2"
+	var called bool
+	assembler := NewAssembler(AssemblerOptions{
+		Memories: func(_ context.Context, query string) []seelectx.PromptBlock {
+			called = true
+			return nil // nil → 不注入
+		},
+	})
+	assembled, err := assembler.Assemble(context.Background(), seelectx.AssemblyRequest{
+		WorkingHistory: []types.Message{
+			textMessage("user", marker), // 控制块不作为查询
+			textMessage("user", "真实问题"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("memory provider must be invoked")
+	}
+	if len(assembled.Messages) != 2 {
+		t.Fatalf("nil memory blocks must not add messages, got %d", len(assembled.Messages))
+	}
+}
+
 func TestRenderStackBlocksTopOnly(t *testing.T) {
 	record := sessionstore.SessionContextRecord{
 		PlanStack: []sessionstore.PlanFrame{

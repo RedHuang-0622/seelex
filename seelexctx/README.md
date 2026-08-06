@@ -16,6 +16,7 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 | [`provider/`](provider/README.md) | 从会话（SessionSource/DurableHistory）或 telemetry 导出 Snapshot。 |
 | [`compactor/`](compactor/README.md) | 基于 token budget 的分级压缩。 |
 | [`merger/`](merger/README.md) | 子任务 findings/decisions/progress 合并回父上下文。 |
+| [`memory/`](memory/README.md) | 超长上下文的历史记忆选取：按当前查询从压缩帧选 top-K，渲染有界「相关记忆」块。 |
 | [`lifecycle/`](lifecycle/) | 泛型 Context actor 与有界批处理管道；提供 cold-load/windowed/pipelined 策略和关闭竞态测试。 |
 
 根包文件：
@@ -27,6 +28,7 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 | `compressor.go` | `Compressor` 适配：短历史免压缩 + QuickChat 隔离摘要。 |
 | `controller.go` | `ContextController`：软/硬阈值、窗口外压缩、checkpoint 决策。 |
 | `window.go` | 滑动窗口轮数策略（配置 + provider 推导）。 |
+| `gap.go` | 真空区覆盖：滑动窗口与压缩内容之间的未压缩轮次，Load 时检测并压入合并帧。 |
 | `history_safety.go` | Provider 历史安全配对规则（assistant/tool 配对、恢复信封）。 |
 | `bridge.go` | Export/ExportWithGoal/Import 兼容 API（委托子包）。 |
 | `seele.go` | re-export 仍被使用的 Seele `seelectx` token 估算/压缩函数。 |
@@ -37,6 +39,8 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 Session history / DurableHistory -> Provider -> ContextSnapshot -> Compactor -> child agent
 parent snapshot <- Merger <------------------------------ child result
 ContextComponents（Assembler/Processor/Compressor/Controller）-> session.Session
+Load（尾窗）─ 真空区 GapCoverer → CoverHistoryGap → CompactStack 合并帧
+Assembler ─ 查询 → memory.Select（压缩帧 top-K）→ 相关记忆块
 ```
 
 ## 设计原则

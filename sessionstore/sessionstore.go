@@ -2302,8 +2302,12 @@ func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
 	if tokenBudget <= 0 || maxUnits <= 0 {
 		return []Event{}
 	}
-	units := completeEventUnits(events)
-	selected := make([][]Event, 0, maxUnits)
+	units := CompleteEventUnits(events)
+	capacity := maxUnits
+	if capacity > len(units) {
+		capacity = len(units) // MaxInt 全量读等大上限不得触发 makeslice panic
+	}
+	selected := make([][]Event, 0, capacity)
 	tokens := 0
 	for index := len(units) - 1; index >= 0 && len(selected) < maxUnits; index-- {
 		unitTokens := eventTokenCount(units[index])
@@ -2320,7 +2324,11 @@ func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
 	return result
 }
 
-func completeEventUnits(events []Event) [][]Event {
+// CompleteEventUnits 把事件流切分为完整协议单元（轮）：user 轮、assistant
+// 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。孤儿 tool 事件、
+// 未知角色与控制块不构成单元；流末未回复的 user 事件仍构成独立单元
+// （会话关闭/取消时保留可见性）。
+func CompleteEventUnits(events []Event) [][]Event {
 	units := make([][]Event, 0, len(events))
 	for index := 0; index < len(events); {
 		event := events[index]

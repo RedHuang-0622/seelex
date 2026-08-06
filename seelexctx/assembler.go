@@ -3,8 +3,9 @@
 // 每次模型请求的投影顺序：
 //
 //	system prompt（effort/skill 动态生成）→ project 块（会话前预读）→
-//	栈块（plan/task/skill/compact，now using = 栈顶）→ 调用方静态块
-//	（plan authority / task checkpoint / evidence）→ WorkingHistory（窗口轮次）
+//	栈块（plan/task/skill/compact，now using = 栈顶）→ 记忆块（按当前查询
+//	从历史压缩段选取的相关记忆，可选）→ 调用方静态块（plan authority /
+//	task checkpoint / evidence）→ WorkingHistory（窗口轮次）
 //
 // 系统提示与 PromptBlocks 只进入模型请求，不写入 durable history（新不变量）。
 // 占位符（{{plan}}/{{skill}}）经 PlaceholderRequestAssembler 解析，只作用于块内消息。
@@ -38,6 +39,11 @@ type AssemblerOptions struct {
 	// WorkingHistory）。读取失败保守回退调用方历史，不让请求失败。
 	Window func(ctx context.Context) ([]types.Message, error)
 
+	// Memories 可选：按当前请求从历史压缩段选取相关记忆块（nil 不注入）。
+	// query 取 WorkingHistory 中最后一条非控制块 user 消息；返回 nil/空 →
+	// 不渲染记忆块。见 seelexctx/memory 的 Select/RenderMemoryBlock。
+	Memories func(ctx context.Context, query string) []seelectx.PromptBlock
+
 	// Resolver 解析 {{name}} 占位符；nil 时 PlaceholderRequestAssembler 报错。
 	Resolver seelectx.PlaceholderResolver
 }
@@ -69,7 +75,13 @@ func (a seelexAssembler) Assemble(ctx context.Context, request seelectx.Assembly
 	}
 	// 3. 栈块（now using = 栈顶）。
 	blocks = append(blocks, a.stackBlocks()...)
-	// 4. 调用方静态块（plan authority / task checkpoint / evidence）。
+
+	// 4. 记忆块（按当前查询从历史压缩段选取；超长会话的相关记忆注入）。
+	if a.options.Memories != nil {
+		blocks = append(blocks, a.options.Memories(ctx, lastUserQuery(request.WorkingHistory))...)
+	}
+
+	// 5. 调用方静态块（plan authority / task checkpoint / evidence）。
 	blocks = append(blocks, request.Blocks...)
 
 	// 5. WorkingHistory = 滑动窗口轮次。
@@ -117,6 +129,22 @@ func (a seelexAssembler) stackBlocks() []seelectx.PromptBlock {
 		return nil
 	}
 	return a.options.StackBlocks()
+}
+
+// lastUserQuery 提取 WorkingHistory 中最后一条非控制块 user 消息作为
+// 记忆选取查询（窗口外记忆按它判断相关性；无 → 空串不选取）。
+func lastUserQuery(history []types.Message) string {
+	for index := len(history) - 1; index >= 0; index-- {
+		message := history[index]
+		if message.Role != "user" || message.Content == nil {
+			continue
+		}
+		if isStackContextMarker(message) {
+			continue
+		}
+		return *message.Content
+	}
+	return ""
 }
 
 // ── 栈块渲染（now using = 栈顶，plan.md §3.7.2）────────────────────────

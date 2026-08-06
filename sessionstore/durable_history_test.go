@@ -2,6 +2,7 @@ package sessionstore
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -191,6 +192,73 @@ func TestDurableHistoryLoadUsesWindowTailBudget(t *testing.T) {
 		t.Fatalf("windowed load must preserve tool calls: %+v", toolWindow)
 	}
 }
+
+// TestDurableHistoryLoadInvokesGapCoverer 验证真空区覆盖钩子：尾窗 Load 时
+// 携带完整事件流 + 实际装载的窗口事件调用 GapCoverer；无覆盖器时行为不变。
+func TestDurableHistoryLoadInvokesGapCoverer(t *testing.T) {
+	router := newTestRouter(t)
+	events := []Event{
+		{Seq: 1, Role: "user", Content: "q1", TokenCount: 1},
+		{Seq: 2, Role: "assistant", Content: "a1", TokenCount: 1},
+		{Seq: 3, Role: "user", Content: "q2", TokenCount: 1},
+		{Seq: 4, Role: "assistant", Content: "a2", TokenCount: 1},
+		{Seq: 5, Role: "user", Content: "q3", TokenCount: 1},
+		{Seq: 6, Role: "assistant", Content: "a3", TokenCount: 1},
+	}
+	if err := router.SaveCommit("session-gap-cover", Commit{Events: events}); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotAll, gotTail []Event
+	history := NewDurableHistory(router, "session-gap-cover")
+	history.SetTailBudget(100, 2)
+	history.SetGapCoverer(func(_ context.Context, allEvents, tailEvents []Event) error {
+		gotAll = append([]Event(nil), allEvents...)
+		gotTail = append([]Event(nil), tailEvents...)
+		return nil
+	})
+	window, err := history.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 窗口仍是最后 2 轮（覆盖钩子不改写 Load 返回）。
+	if len(window) != 4 || window[0].Content == nil || *window[0].Content != "q2" {
+		t.Fatalf("windowed load = %d messages, want last 2 rounds", len(window))
+	}
+	// 完整事件流 = 全部 6 条事件；tail = 窗口的 4 条事件。
+	if len(gotAll) != 6 {
+		t.Fatalf("coverer must receive full event stream (%d), got %d", 6, len(gotAll))
+	}
+	if len(gotTail) != 4 || gotTail[0].Seq != 3 {
+		t.Fatalf("coverer must receive loaded tail events, got %+v", gotTail)
+	}
+}
+
+// TestDurableHistoryGapCovererErrorIsIgnored 覆盖失败不阻断 Load（保守回退）。
+func TestDurableHistoryGapCovererErrorIsIgnored(t *testing.T) {
+	router := newTestRouter(t)
+	events := []Event{
+		{Seq: 1, Role: "user", Content: "q1", TokenCount: 1},
+		{Seq: 2, Role: "assistant", Content: "a1", TokenCount: 1},
+	}
+	if err := router.SaveCommit("session-gap-fail", Commit{Events: events}); err != nil {
+		t.Fatal(err)
+	}
+	history := NewDurableHistory(router, "session-gap-fail")
+	history.SetTailBudget(100, 2)
+	history.SetGapCoverer(func(_ context.Context, _, _ []Event) error {
+		return errGapCovererTest
+	})
+	window, err := history.Load(context.Background())
+	if err != nil {
+		t.Fatalf("coverer error must not fail Load: %v", err)
+	}
+	if len(window) != 2 {
+		t.Fatalf("window load must still return tail, got %d", len(window))
+	}
+}
+
+var errGapCovererTest = errors.New("test: gap coverer unavailable")
 
 func TestDurableHistoryNilRouterIsInMemory(t *testing.T) {
 	history := NewDurableHistory(nil, "memory")

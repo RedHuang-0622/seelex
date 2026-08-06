@@ -16,6 +16,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
+	"github.com/RedHuang-0622/seelex/seelexctx/memory"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -75,16 +76,68 @@ func (r *Runtime) nodeContextComponents() session.ContextComponents {
 
 // seelexAssembler 构造 seelex 装配器：栈块（now using = 栈顶）来自
 // SessionContextStore（未注入 → 无块）；project 块来自 ProjectKnowledge
-// 提供者（未注入 → 无块）；占位符解析委托 seelexctx。
+// 提供者（未注入 → 无块）；记忆块按当前查询从历史压缩段选取（无存储 →
+// 无块）；占位符解析委托 seelexctx。
 func (r *Runtime) seelexAssembler() seelectx.RequestAssembler {
 	return seelexctx.NewAssembler(seelexctx.AssemblerOptions{
 		SystemPrompt: nil, // 会话级提示由 application 侧注入（迁移后经此渲染）
 		ProjectBlock: r.projectBlock,
 		StackBlocks:  r.stackBlocks,
+		Memories:     r.relatedMemoryBlocks,
 		Resolver: seelectx.PlaceholderResolverFunc(func(_ context.Context, name string) (string, error) {
 			return r.resolvePlaceholder(name)
 		}),
 	})
+}
+
+// relatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
+// （不止栈顶：超长会话的久远相关段经 seelexctx/memory 词法选取器召回）。
+// 无绑定存储 / 空查询 / 无命中 → 不注入（请求内容不变）。
+func (r *Runtime) relatedMemoryBlocks(_ context.Context, query string) []seelectx.PromptBlock {
+	store := r.sessionContextStore()
+	if store == nil {
+		return nil
+	}
+	record := store.Snapshot()
+	if len(record.CompactStack) == 0 {
+		return nil
+	}
+	candidates := make([]memory.Candidate, 0, len(record.CompactStack))
+	for _, frame := range record.CompactStack {
+		candidates = append(candidates, memory.Candidate{
+			SegmentID: frame.SegmentID, Summary: frame.Summary,
+			Evidence: frame.Evidence, From: frame.From, To: frame.To,
+		})
+	}
+	opts := memory.DefaultOptions()
+	selected := memory.Select(query, candidates, opts)
+	if len(selected) == 0 {
+		return nil
+	}
+	if block := memory.RenderMemoryBlock(selected, opts.MaxTokens); block != nil {
+		return []seelectx.PromptBlock{*block}
+	}
+	return nil
+}
+
+// coverHistoryGap 把滑动窗口与压缩内容之间的真空区轮次压缩为合并帧
+// （seelexctx.CoverHistoryGap）：完整事件流 vs 压缩栈顶 To vs 尾窗装载量
+// 三者对齐，未覆盖区间压入会话压缩栈（state blob / 内存兜底），原文经
+// TurnArchiver 归档（read_compressed_turn 可读回）。无真空区 → 无副作用。
+func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents, tailEvents []sessionstore.Event) error {
+	if len(allEvents) == 0 {
+		return nil
+	}
+	stacks := runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()}
+	_, err := seelexctx.CoverHistoryGap(ctx, seelexctx.GapCoverageOptions{
+		AllEvents:  allEvents,
+		TailEvents: tailEvents,
+		Record:     stacks.Snapshot(),
+		Stacks:     stacks,
+		Turns:      r.turnArchiver,
+		SessionID:  r.MainSessionID(),
+	})
+	return err
 }
 
 // seelexCompressor 构造压缩器：短历史快速路径 + QuickChat 结构化 checkpoint
