@@ -2,6 +2,7 @@ package sessionstore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,10 +11,10 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-// isSessionNotFound 判断后端「会话不存在」错误（JSON 后端的 manifest 缺失）。
-// 会话恢复的语义是空历史，而不是失败。
+// isSessionNotFound 判断后端「会话不存在」错误（JSON 后端 fs.ErrNotExist，
+// SQL 后端 sql.ErrNoRows）。会话恢复的语义是空历史/空记录，而不是失败。
 func isSessionNotFound(err error) bool {
-	return errors.Is(err, fs.ErrNotExist)
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows)
 }
 
 // DurableHistory 实现 seelectx.DurableHistory 契约，把 sessionstore.Router

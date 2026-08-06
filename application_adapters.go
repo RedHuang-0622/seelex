@@ -551,7 +551,29 @@ func (port skillPort) All() []application.SkillInfo {
 	return result
 }
 
-type sessionPort struct{ manager *session.Manager }
+type sessionPort struct {
+	manager *session.Manager
+	runtime *seelebridge.Runtime
+}
+
+// AttachSessionContext 装配会话 context 模块（system prompt + 四栈）：
+// 创建按 sessionID 的 SessionContextStore，加载持久化记录并挂接到 Runtime，
+// 使下一轮 prompt 组装（stackBlocks）能使用持久化的 Plan/Task/Skill/Compact
+// 栈。损坏/不兼容的 context 显式失败（不静默降级成内存栈）。
+func (port sessionPort) AttachSessionContext(workspaceID, sessionID string) error {
+	store := sessionstore.NewSessionContextStore(port.manager.Router(), sessionID)
+	if err := store.Load(context.Background()); err != nil {
+		return fmt.Errorf("load session context %q: %w", sessionID, err)
+	}
+	port.runtime.AttachSessionContextStore(store)
+	return nil
+}
+
+// DetachSessionContext 解绑当前会话的 context 模块（离开会话时调用，
+// Runtime 退回内存态，防止四栈串到下一个会话）。
+func (port sessionPort) DetachSessionContext() {
+	port.runtime.AttachSessionContextStore(nil)
+}
 
 func (port sessionPort) SaveCurrent(id string) error     { return port.manager.SaveCurrent(id) }
 func (port sessionPort) Delete(id string) error          { return port.manager.Delete(id) }

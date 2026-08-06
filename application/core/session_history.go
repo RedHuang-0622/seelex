@@ -211,6 +211,13 @@ func (service *Service) resumeSession(sessionID string) error {
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.deps.Engine.SetSystemPrompt(systemPrompt)
+	// context 模块挂接：resume 恢复后加载会话四栈到 Runtime（下一轮 prompt
+	// 组装前就绪）。损坏的 context 显式失败，不静默降级成内存栈。
+	if store, ok := service.deps.Sessions.(sessionContextPort); ok {
+		if err := store.AttachSessionContext(location.workspaceID, sessionID); err != nil {
+			return fmt.Errorf("attach session context %q: %w", sessionID, err)
+		}
+	}
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	service.publishRuntimeProjections()
 	service.requestSessionCatalogRefresh()

@@ -171,6 +171,11 @@ type Repository interface {
 	ReadToolResult(context.Context, Key, string) (ToolResult, error)
 	WriteState(context.Context, Key, []byte) error
 	ReadState(context.Context, Key) ([]byte, error)
+	// WriteContextState/ReadContextState 是会话 context 模块的独立存储通道
+	// （system prompt + Plan/Task/Skill/Compact 四栈；模块化方案 architecture.md
+	// §4）。与 state.json（SessionRecord）物理隔离，避免不同 schema 互相覆盖。
+	WriteContextState(context.Context, Key, []byte) error
+	ReadContextState(context.Context, Key) ([]byte, error)
 	// WriteProjectRecord/ReadProjectRecord 是项目级模块语义记录（plan.md §3.7.1）。
 	// 与会话记录不同，它按 projectID 独立存储、跨会话共享；会话只读（read-only
 	// contract），只有 project_refresh 工具调用写入。
@@ -347,6 +352,33 @@ func (router *Router) SaveStateWorkspace(projectID, sessionID string, state []by
 	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
 		return repository.WriteState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, state)
 	})
+}
+
+// SaveContextState 保存会话 context 模块（system prompt + 四栈）到独立
+// 存储通道，与 SessionRecord 的 state blob 物理隔离。
+func (router *Router) SaveContextState(sessionID string, state []byte) error {
+	return router.SaveContextStateWorkspace(router.Workspace(), sessionID, state)
+}
+
+func (router *Router) SaveContextStateWorkspace(projectID, sessionID string, state []byte) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteContextState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, state)
+	})
+}
+
+// LoadContextState 读取会话 context 模块；不存在时返回 fs.ErrNotExist。
+func (router *Router) LoadContextState(sessionID string) ([]byte, error) {
+	return router.LoadContextStateWorkspace(router.Workspace(), sessionID)
+}
+
+func (router *Router) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error) {
+	var state []byte
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		state, err = repository.ReadContextState(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return state, err
 }
 
 func (router *Router) LoadState(sessionID string) ([]byte, error) {
@@ -1731,6 +1763,13 @@ updated_at BIGINT NOT NULL, PRIMARY KEY (project_id, session_id))`)
 	if err != nil {
 		return err
 	}
+	// seelex_session_context 是 context 模块独立通道（与 state 物理隔离）。
+	_, err = repository.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS seelex_session_context (
+project_id TEXT NOT NULL, session_id TEXT NOT NULL, context_json TEXT NOT NULL,
+updated_at BIGINT NOT NULL, PRIMARY KEY (project_id, session_id))`)
+	if err != nil {
+		return err
+	}
 	_, err = repository.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS seelex_session_event_shard (
 project_id TEXT NOT NULL, session_id TEXT NOT NULL, generation TEXT NOT NULL,
 shard_index INTEGER NOT NULL, events_json TEXT NOT NULL,
@@ -2094,7 +2133,7 @@ func (repository *sqlRepository) Delete(ctx context.Context, key Key) error {
 		return err
 	}
 	defer transaction.Rollback()
-	for _, table := range []string{"seelex_tool_result", "seelex_session_state", "seelex_session_event_shard", "seelex_session_shard", "seelex_session_manifest", "seelex_sessions", "seelex_framework_event"} {
+	for _, table := range []string{"seelex_tool_result", "seelex_session_state", "seelex_session_context", "seelex_session_event_shard", "seelex_session_shard", "seelex_session_manifest", "seelex_sessions", "seelex_framework_event"} {
 		query := `DELETE FROM ` + table + ` WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
 		if _, err := transaction.ExecContext(ctx, query, key.ProjectID, key.SessionID); err != nil {
 			return err

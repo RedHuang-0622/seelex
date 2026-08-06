@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -54,6 +55,100 @@ func (sessions *archiveSessions) LoadToolResultWorkspace(string, string, string)
 // TestEnrichTranscriptMessageIDsPairsEventsToMessages 验证 event-to-message
 // 关联：tool call/result 按 CallID 配对，user/assistant 按角色+内容配对，
 // 不按数组位置推导；无法稳定配对的保持空。
+// contextAwareSessions 是 sessionContextPort 的测试桩：记录 attach/detach
+// 调用，可注入 attach 失败。
+type contextAwareSessions struct {
+	archiveSessions
+	mu        sync.Mutex
+	attached  []string // workspaceID:sessionID
+	detached  int
+	attachErr error
+}
+
+func (sessions *contextAwareSessions) AttachSessionContext(workspaceID, sessionID string) error {
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
+	sessions.attached = append(sessions.attached, workspaceID+":"+sessionID)
+	return sessions.attachErr
+}
+
+func (sessions *contextAwareSessions) DetachSessionContext() {
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
+	sessions.detached++
+}
+
+// TestResumeSessionAttachesSessionContext 验证恢复会话后 context 模块被
+// 挂接（AttachSessionContext 携带 workspace/session 定位），下一轮 prompt
+// 组装前四栈已就绪。
+func TestResumeSessionAttachesSessionContext(t *testing.T) {
+	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
+	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	service.mu.Lock()
+	service.snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
+	service.snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
+	service.sessionTitle = SessionTitle{Value: "Keep this title", Source: "first_request"}
+	service.mu.Unlock()
+
+	if err := service.components.sessions.persistCurrentSession("session-a"); err != nil {
+		t.Fatal(err)
+	}
+	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+	if err := restored.resumeSession("session-a"); err != nil {
+		t.Fatal(err)
+	}
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
+	if len(sessions.attached) != 1 || !strings.HasSuffix(sessions.attached[0], ":session-a") {
+		t.Fatalf("attach calls = %v, want one attach for session-a", sessions.attached)
+	}
+}
+
+// TestResumeSessionFailsWhenContextCorrupt 验证损坏/不可用的 context 模块
+// 使恢复显式失败（不静默降级成内存栈；模块化方案降级矩阵）。
+func TestResumeSessionFailsWhenContextCorrupt(t *testing.T) {
+	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
+	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
+	sessions.attachErr = errors.New("context store unavailable")
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	service.mu.Lock()
+	service.snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
+	service.snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
+	service.sessionTitle = SessionTitle{Value: "Keep this title", Source: "first_request"}
+	service.mu.Unlock()
+	if err := service.components.sessions.persistCurrentSession("session-a"); err != nil {
+		t.Fatal(err)
+	}
+	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+	if err := restored.resumeSession("session-a"); err == nil || !strings.Contains(err.Error(), "attach session context") {
+		t.Fatalf("resume err = %v, want attach session context failure", err)
+	}
+}
+
+// TestBeginNewSessionDetachesSessionContext 验证进入 draft/新建会话时解绑
+// context 模块，防止四栈串到下一个会话。
+func TestBeginNewSessionDetachesSessionContext(t *testing.T) {
+	engine := &fakeEngine{sessionID: "session-a", history: []EngineMessage{{Role: "system", Content: "private prompt", ContentSet: true}}}
+	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	service.mu.Lock()
+	service.snapshot.Session = SessionState{ID: "session-a", Name: "old session"}
+	service.snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "previous turn", CreatedAt: time.Now()}}
+	service.mu.Unlock()
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	sessions.mu.Lock()
+	defer sessions.mu.Unlock()
+	if sessions.detached != 1 {
+		t.Fatalf("detach calls = %d, want 1", sessions.detached)
+	}
+}
+
 func TestEnrichTranscriptMessageIDsPairsEventsToMessages(t *testing.T) {
 	record := SessionRecord{Conversation: ConversationRecord{Messages: []Message{
 		{ID: "message-1", Role: "user", Content: "inspect the repo"},

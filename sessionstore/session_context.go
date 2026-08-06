@@ -93,8 +93,9 @@ type SessionContextRecord struct {
 	CompactStack  []CompactFrame `json:"compact_stack"`
 }
 
-// SessionContextStore 读写 Router state blob（WriteState/ReadState），
-// 带内存缓存：首次 Load 后栈操作只改内存，Persist 时才落盘。
+// SessionContextStore 读写 Router 的独立 context 通道（WriteContextState/
+// ReadContextState，与 SessionRecord 的 state blob 物理隔离），带内存缓存：
+// 首次 Load 后栈操作只改内存，Persist 时才落盘。
 type SessionContextStore struct {
 	router    *Router
 	sessionID string
@@ -134,7 +135,7 @@ func (s *SessionContextStore) Load(ctx context.Context) error {
 	if s.loaded {
 		return nil
 	}
-	payload, err := s.router.LoadState(s.sessionID)
+	payload, err := s.router.LoadContextState(s.sessionID)
 	if err != nil {
 		if isSessionNotFound(err) {
 			s.loaded = true
@@ -172,7 +173,7 @@ func (s *SessionContextStore) Persist(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("session context: encode state %q: %w", s.sessionID, err)
 	}
-	if err := s.router.SaveState(s.sessionID, payload); err != nil {
+	if err := s.router.SaveContextState(s.sessionID, payload); err != nil {
 		return fmt.Errorf("session context: save state %q: %w", s.sessionID, err)
 	}
 	return nil

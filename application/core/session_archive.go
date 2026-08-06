@@ -42,6 +42,14 @@ type sessionConversationRangePort interface {
 	LoadConversationRangeWorkspace(string, string, int, int) ([]Message, int, error)
 }
 
+// sessionContextPort 是会话 context 模块（system prompt + Plan/Task/Skill/
+// Compact 四栈）的装配端口：resume 时加载并挂接 Runtime，离开会话时解绑，
+// 防止跨会话串栈（模块化方案 architecture.md §9）。
+type sessionContextPort interface {
+	AttachSessionContext(workspaceID, sessionID string) error
+	DetachSessionContext()
+}
+
 type persistedPlanRestorer interface {
 	RestorePlan(context.Context, string) error
 }

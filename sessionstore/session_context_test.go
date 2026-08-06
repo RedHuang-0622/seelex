@@ -77,7 +77,7 @@ func TestSessionContextStorePersistsAcrossInstances(t *testing.T) {
 
 func TestSessionContextStoreRejectsUnsupportedSchemaVersion(t *testing.T) {
 	router := newTestRouter(t)
-	if err := router.SaveState("session-corrupt", []byte(`{"schema_version":99,"plan_stack":[]}`)); err != nil {
+	if err := router.SaveContextState("session-corrupt", []byte(`{"schema_version":99,"plan_stack":[]}`)); err != nil {
 		t.Fatal(err)
 	}
 	store := NewSessionContextStore(router, "session-corrupt")
@@ -93,7 +93,7 @@ func TestSessionContextStoreRejectsUnsupportedSchemaVersion(t *testing.T) {
 
 func TestSessionContextStoreRejectsCorruptState(t *testing.T) {
 	router := newTestRouter(t)
-	if err := router.SaveState("session-garbage", []byte(`not-json`)); err != nil {
+	if err := router.SaveContextState("session-garbage", []byte(`not-json`)); err != nil {
 		t.Fatal(err)
 	}
 	store := NewSessionContextStore(router, "session-garbage")

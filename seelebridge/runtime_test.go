@@ -775,6 +775,33 @@ func TestFrameworkMCPValidation(t *testing.T) {
 	}
 }
 
+// TestRuntimeMainSessionIDTracksCurrentSession 验证 MainSessionID 跟踪
+// 当前主会话（新建/恢复都会重建 Session），会话切换后返回新 ID——
+// 压缩帧 SegmentID 溯源随会话切换更新。
+func TestRuntimeMainSessionIDTracksCurrentSession(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	if got := runtime.MainSessionID(); got != "" {
+		t.Fatalf("initial MainSessionID = %q, want empty", got)
+	}
+	first, err := runtime.NewMainSessionWithID("session-a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = first
+	if got := runtime.MainSessionID(); got != "session-a" {
+		t.Fatalf("MainSessionID after create = %q, want session-a", got)
+	}
+	second, err := runtime.NewMainSessionWithID("session-b", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = second
+	if got := runtime.MainSessionID(); got != "session-b" {
+		t.Fatalf("MainSessionID after switch = %q, want session-b", got)
+	}
+}
+
 func newTestRuntime(t testing.TB) *Runtime {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "accounts.yaml")

@@ -549,7 +549,7 @@ func initApplication(
 	return application.New(application.Dependencies{
 		Engine: eng, Runtime: runtimePort{runtime: runtime},
 		Plugins: pluginPort{manager: plugins}, Skills: skillPort{registry: skills},
-		Sessions: sessionPort{manager: sessions}, Workspace: workspacePort{repo: workspaces},
+		Sessions: sessionPort{manager: sessions, runtime: runtime}, Workspace: workspacePort{repo: workspaces},
 		Events: events, Approval: approval,
 	})
 }

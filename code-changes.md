@@ -73,6 +73,54 @@
 1. `fix(storage): keep framework facts across generation rollover`（G1）
 2. `feat(storage): modular session readers and stable event keys`（G2-G5）
 
+## Session 存储层模块化阶段 3：context 四栈独立持久化并接入 Resume（2026-08-06）
+
+依据 `docs/2026-08-05-session-storage-modularization/`（plan.md 阶段 3）。
+
+### 关键变更
+
+1. **context 独立存储通道（S1）**：`Repository` 新增 `WriteContextState/ReadContextState`
+   （JSON: `context.json` 独立文件；SQL: `seelex_session_context` 表；Redis: 独立
+   `:context` key），与 SessionRecord 的 state blob 物理隔离。`SessionContextStore`
+   改走独立通道——此前它与 SessionRecord 共用 `state.json`，两者 schema 完全不同
+   （`schema_version=1` vs `version=3`），生产 attach 会互相破坏。契约测试覆盖
+   JSON/SQLite 双后端共存、互不覆盖、删除级联。
+2. **生产接线（S2）**：`sessionPort` 实现 `AttachSessionContext/DetachSessionContext`
+   （创建按 sessionID 的 SessionContextStore + Load + `runtime.AttachSessionContextStore`）；
+   `resumeSession` 恢复后挂接四栈（损坏显式失败），`BeginNewSession`/draft 实体化时
+   解绑（防跨会话串栈）；`session.Manager` 暴露 `Router()`。
+3. **SessionID 注入（S3）**：`seelexctx.ControllerOptions.SessionID` 改为动态
+   `SessionIDProvider`；Runtime 跟踪当前主会话 ID（`MainSessionID`，newMainSession
+   时更新），压缩帧 `SegmentID` 溯源为 `compact-<sessionID>-<ms>`，会话切换后
+   不再漂移。
+4. `isSessionNotFound` 统一识别 `sql.ErrNoRows`（SQL 后端"会话不存在"语义）。
+
+### 文件
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `sessionstore/context_state.go` | 新增 | context 独立通道三后端实现 |
+| `sessionstore/context_state_test.go` | 新增 | 通道隔离/共存/删除级联契约测试 |
+| `sessionstore/sessionstore.go` | 修改 | Repository 接口 + SQL 建表 + Delete 级联 |
+| `sessionstore/session_context.go` | 修改 | SessionContextStore 改走独立通道 |
+| `sessionstore/durable_history.go` | 修改 | isSessionNotFound 识别 sql.ErrNoRows |
+| `session/manager.go` | 修改 | Router() 暴露 + context 透传 |
+| `application/core/session_archive.go` | 修改 | sessionContextPort 端口定义 |
+| `application/core/session_history.go` | 修改 | resume 后挂接 context |
+| `application/core/session_draft.go` | 修改 | 新建/实体化时解绑 |
+| `application_adapters.go` | 修改 | sessionPort 实现 attach/detach |
+| `main.go` | 修改 | sessionPort 注入 runtime |
+| `seelebridge/runtime.go` | 修改 | MainSessionID 跟踪 |
+| `seelebridge/context_components.go` | 修改 | SessionIDProvider 注入 |
+| `seelexctx/controller.go` | 修改 | ControllerOptions.SessionIDProvider |
+
+### 验证
+
+- `go build ./...` / `go vet ./...` / `gofmt` 全绿
+- 新增测试：context 通道契约（JSON/SQLite）、resume attach/detach 行为、
+  损坏 context 显式失败、MainSessionID 跟踪、segmentID 前缀断言
+- sessionstore / session / application / seelexctx / seelebridge 全量通过
+
 ## Windows bash 工具 shell 探测修复（2026-08-05）
 
 | 文件 | 类型 | 说明 |

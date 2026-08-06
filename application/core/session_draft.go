@@ -44,6 +44,10 @@ func (service *Service) BeginNewSession() error {
 	}
 	service.deps.Engine.ClearHistory()
 	service.promptStack.ClearKind("skill")
+	// 离开当前会话：解绑 context 模块，防止四栈串到新会话。
+	if store, ok := service.deps.Sessions.(sessionContextPort); ok {
+		store.DetachSessionContext()
+	}
 
 	service.mu.Lock()
 	service.snapshot.Session = SessionState{Name: draftSessionName, Draft: true}
@@ -104,6 +108,10 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	newID := strings.TrimSpace(service.deps.Engine.StartSession())
 	if newID == "" {
 		return errors.New("engine returned an empty session ID")
+	}
+	// 新会话无既有 context：保持解绑（Runtime 退回内存态，与 draft 一致）。
+	if store, ok := service.deps.Sessions.(sessionContextPort); ok {
+		store.DetachSessionContext()
 	}
 	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	if workspace != nil && service.deps.Workspace != nil {

@@ -196,8 +196,9 @@ type ControllerOptions struct {
 	// Stacks 会话级压缩栈（nil → 内存态）。
 	Stacks CompactStackStore
 
-	// SessionID 用于压缩帧 SegmentID 溯源。
-	SessionID string
+	// SessionIDProvider 提供当前会话 ID 用于压缩帧 SegmentID 溯源
+	// （每次压缩时动态取值，会话切换后仍溯源到正确会话；nil → 无前缀）。
+	SessionIDProvider func() string
 
 	// MaxToolResultChars 超大工具结果判定（≤0 → 框架默认）。
 	MaxToolResultChars int
@@ -438,8 +439,10 @@ func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (ses
 	}
 	summary := c.summarizeOverflow(overflow, prevTop, record)
 	segmentID := fmt.Sprintf("compact-%d", time.Now().UnixMilli())
-	if c.opts.SessionID != "" {
-		segmentID = fmt.Sprintf("compact-%s-%d", c.opts.SessionID, time.Now().UnixMilli())
+	if c.opts.SessionIDProvider != nil {
+		if sessionID := c.opts.SessionIDProvider(); sessionID != "" {
+			segmentID = fmt.Sprintf("compact-%s-%d", sessionID, time.Now().UnixMilli())
+		}
 	}
 	to := len(overflow) - 1
 	if prevTop != nil {

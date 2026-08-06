@@ -44,6 +44,11 @@ func (m *Manager) WithRouter(router *sessionstore.Router) {
 	m.store = router
 }
 
+// Router 返回底层存储路由（context 模块装配等用途；未装配时 nil）。
+func (m *Manager) Router() *sessionstore.Router {
+	return m.router
+}
+
 // SetWorkspace sets the active workspace for session routing.
 func (m *Manager) SetWorkspace(workspaceID string) {
 	if m.router != nil {
@@ -147,6 +152,22 @@ func (m *Manager) LoadStateByWorkspace(workspaceID, sessionID string) ([]byte, e
 		return nil, fmt.Errorf("session: state persistence requires the configurable router")
 	}
 	return m.router.LoadStateWorkspace(workspaceID, sessionID)
+}
+
+// SaveContextState 保存会话 context 模块到独立通道。
+func (m *Manager) SaveContextState(sessionID string, state []byte) error {
+	if m.router == nil {
+		return fmt.Errorf("session: context persistence requires the configurable router")
+	}
+	return m.router.SaveContextState(sessionID, state)
+}
+
+// LoadContextStateByWorkspace 读取会话 context 模块（显式 workspace 作用域）。
+func (m *Manager) LoadContextStateByWorkspace(workspaceID, sessionID string) ([]byte, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: context reads require the configurable router")
+	}
+	return m.router.LoadContextStateWorkspace(workspaceID, sessionID)
 }
 
 func (m *Manager) SaveCommit(sessionID string, commit sessionstore.Commit) error {

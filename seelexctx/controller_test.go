@@ -70,11 +70,11 @@ func roundHistory(rounds int) []types.Message {
 func newController(window int, stacks CompactStackStore) *seelexContextController {
 	return &seelexContextController{
 		opts: ControllerOptions{
-			Policy:    NewContextWindowPolicy(100_000, 8_192),
-			Window:    fixedWindowPolicy{rounds: window},
-			Tokens:    heavyTokenCounter{},
-			Stacks:    stacks,
-			SessionID: "sess-test",
+			Policy:            NewContextWindowPolicy(100_000, 8_192),
+			Window:            fixedWindowPolicy{rounds: window},
+			Tokens:            heavyTokenCounter{},
+			Stacks:            stacks,
+			SessionIDProvider: func() string { return "sess-test" },
 		},
 		lastCompactedTo: -1, // 与 NewContextController 初值一致（首帧 To=0 不被去重误杀）
 	}
@@ -138,6 +138,10 @@ func TestControllerWindowOutsideCompression(t *testing.T) {
 	}
 	if frame.SegmentID == "" {
 		t.Fatal("frame requires segment_id")
+	}
+	// SegmentID 溯源到 provider 给出的会话 ID（compact-<sessionID>-<ms>）。
+	if !strings.HasPrefix(frame.SegmentID, "compact-sess-test-") {
+		t.Fatalf("frame segment_id = %q, want compact-sess-test- prefix", frame.SegmentID)
 	}
 }
 
@@ -211,11 +215,11 @@ func TestControllerSegmentClosePreservesGoalPlanEvidence(t *testing.T) {
 	}}
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy:    NewContextWindowPolicy(100_000, 8_192),
-			Window:    fixedWindowPolicy{rounds: 3},
-			Tokens:    heavyTokenCounter{},
-			Stacks:    store,
-			SessionID: "sess-goal",
+			Policy:            NewContextWindowPolicy(100_000, 8_192),
+			Window:            fixedWindowPolicy{rounds: 3},
+			Tokens:            heavyTokenCounter{},
+			Stacks:            store,
+			SessionIDProvider: func() string { return "sess-goal" },
 		},
 	}
 	history := roundHistory(10)
@@ -555,12 +559,12 @@ func TestControllerCompressionArchivesTurnOriginal(t *testing.T) {
 	archiver := &recordingTurnArchiver{}
 	controller := &seelexContextController{
 		opts: ControllerOptions{
-			Policy:    NewContextWindowPolicy(100_000, 8_192),
-			Window:    fixedWindowPolicy{rounds: 3},
-			Tokens:    heavyTokenCounter{},
-			Stacks:    stacks,
-			SessionID: "sess-archive",
-			Turns:     archiver,
+			Policy:            NewContextWindowPolicy(100_000, 8_192),
+			Window:            fixedWindowPolicy{rounds: 3},
+			Tokens:            heavyTokenCounter{},
+			Stacks:            stacks,
+			SessionIDProvider: func() string { return "sess-archive" },
+			Turns:             archiver,
 		},
 		lastCompactedTo: -1,
 	}

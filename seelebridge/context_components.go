@@ -113,6 +113,9 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 		Budget: runtimeBudgetProvider{runtime: r},
 		Stacks: runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
 		Turns:  r.turnArchiver,
+		// 压缩帧 SegmentID 溯源到当前会话：每次压缩动态取值，会话切换后
+		// 仍指向正确会话（compact-<sessionID>-<ms>）。
+		SessionIDProvider: r.MainSessionID,
 	})
 }
 

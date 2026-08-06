@@ -145,6 +145,18 @@ type Runtime struct {
 	projectKnowledge func() *sessionstore.ProjectRecord
 	turnArchiverMu   sync.RWMutex
 	turnArchiver     seelexctx.TurnArchiver // 压缩轮次原文归档（main 装配注入）
+	mainSessionMu    sync.RWMutex
+	mainSessionID    string // 当前主会话 ID（压缩帧 SegmentID 溯源）
+}
+
+// MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
+func (r *Runtime) MainSessionID() string {
+	if r == nil {
+		return ""
+	}
+	r.mainSessionMu.RLock()
+	defer r.mainSessionMu.RUnlock()
+	return r.mainSessionID
 }
 
 // SetTurnArchiver 注入压缩轮次原文归档实现（application 层持久化通道）。
@@ -367,6 +379,9 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	}
+	r.mainSessionMu.Lock()
+	r.mainSessionID = sessionID
+	r.mainSessionMu.Unlock()
 	components := session.SessionComponents{
 		Agent:     r.agt,
 		Context:   r.mainContextComponents(),
