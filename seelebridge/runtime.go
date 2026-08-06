@@ -104,25 +104,30 @@ type Runtime struct {
 	selectedAccountID string
 	providerFilter    string
 	projectScope      *ProjectScope
-	filesystem        FileSystem     // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
-	sandbox           CommandSandbox // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
-	wt                *worktreeState // 子代理 worktree 注册表（worktree.go）
-	todo              *todoState     // todolist 清单 actor（todo_tool.go）
+	filesystem        FileSystem      // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	sandbox           CommandSandbox  // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
+	wt                *worktreeState  // 子代理 worktree 注册表（worktree.go）
+	todo              *todoState      // todolist 清单 actor（todo_tool.go）
+	scheduler         *schedulerState // 定时周期任务 actor（scheduler.go）
 	toolEvents        *subagentToolEventState
 
 	// 子代理会话注册表（切片 8 详情查看数据面，docs/plan/subagent-detail-architecture.md）：
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照。
-	nodeSessionsMu      sync.Mutex
-	nodeSessions        map[string]*session.Session
-	nodeSnapshots       map[string][]types.Message
-	toolCallTimeout     time.Duration
-	bashObserverMu      sync.RWMutex
-	bashObserver        BashDiagnosticObserver
-	planDecisionTimeout time.Duration
-	approvalTimeout     time.Duration
-	heartbeatInterval   time.Duration
-	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
-	scopedToolsReady    bool
+	// nodeGoals/nodeContextSnapshots 支撑 NodeContextSnapshot（运行中实时导出 /
+	// 结束时快照，详情弹窗"上下文"标签数据面）。
+	nodeSessionsMu       sync.Mutex
+	nodeSessions         map[string]*session.Session
+	nodeSnapshots        map[string][]types.Message
+	nodeGoals            map[string]string
+	nodeContextSnapshots map[string]*snapshot.ContextSnapshot
+	toolCallTimeout      time.Duration
+	bashObserverMu       sync.RWMutex
+	bashObserver         BashDiagnosticObserver
+	planDecisionTimeout  time.Duration
+	approvalTimeout      time.Duration
+	heartbeatInterval    time.Duration
+	limits               seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
+	scopedToolsReady     bool
 
 	pluginMu     sync.RWMutex
 	pluginDefs   map[string]pluginDef
@@ -236,30 +241,33 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		heartbeatInterval = time.Duration(cfg.Limits.WithDefaults().HeartbeatIntervalSec) * time.Second
 	}
 	r := &Runtime{
-		pool:                pool,
-		model:               first.Model,
-		defaultAccountID:    first.Name,
-		accountLimits:       loaded.Limits,
-		accountSpecs:        specsByName,
-		MCPStack:            mcpstack.New(mcpStackOpts...),
-		projectScope:        NewProjectScope(),
-		filesystem:          NewFileSystemActor(),
-		sandbox:             newNativeProjectCWD(),
-		wt:                  newWorktreeState(),
-		todo:                newTodoState(),
-		toolEvents:          newSubagentToolEventState(),
-		toolCallTimeout:     cfg.ToolCallTimeout,
-		planDecisionTimeout: planDecisionTimeout,
-		approvalTimeout:     approvalTimeout,
-		heartbeatInterval:   heartbeatInterval,
-		limits:              cfg.Limits.WithDefaults(),
-		replanGuard:         newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
-		pluginDefs:          make(map[string]pluginDef),
-		permission:          &permissionGateState{},
-		planEvents:          newPlanEventSink(),
-		nodeSessions:        make(map[string]*session.Session),
-		nodeSnapshots:       make(map[string][]types.Message),
-		subagentMailbox:     make(chan string, mailboxSize),
+		pool:                 pool,
+		model:                first.Model,
+		defaultAccountID:     first.Name,
+		accountLimits:        loaded.Limits,
+		accountSpecs:         specsByName,
+		MCPStack:             mcpstack.New(mcpStackOpts...),
+		projectScope:         NewProjectScope(),
+		filesystem:           NewFileSystemActor(),
+		sandbox:              newNativeProjectCWD(),
+		wt:                   newWorktreeState(),
+		todo:                 newTodoState(),
+		scheduler:            newSchedulerState(),
+		toolEvents:           newSubagentToolEventState(),
+		toolCallTimeout:      cfg.ToolCallTimeout,
+		planDecisionTimeout:  planDecisionTimeout,
+		approvalTimeout:      approvalTimeout,
+		heartbeatInterval:    heartbeatInterval,
+		limits:               cfg.Limits.WithDefaults(),
+		replanGuard:          newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
+		pluginDefs:           make(map[string]pluginDef),
+		permission:           &permissionGateState{},
+		planEvents:           newPlanEventSink(),
+		nodeSessions:         make(map[string]*session.Session),
+		nodeSnapshots:        make(map[string][]types.Message),
+		nodeGoals:            make(map[string]string),
+		nodeContextSnapshots: make(map[string]*snapshot.ContextSnapshot),
+		subagentMailbox:      make(chan string, mailboxSize),
 
 		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
 		tracer:            tracer,
@@ -422,7 +430,14 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 }
 
 func (r *Runtime) Shutdown() {
-	if r != nil && r.agt != nil {
+	if r == nil {
+		return
+	}
+	// 定时周期任务优雅停机：停 ticker + 取消运行中任务并等待退出。
+	if r.scheduler != nil {
+		r.scheduler.stop()
+	}
+	if r.agt != nil {
 		r.agt.Shutdown()
 	}
 }

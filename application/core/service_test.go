@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 type fakeEngine struct {
@@ -33,6 +34,7 @@ type fakeEngine struct {
 	lastInput         string
 	maxLoops          int
 	releaseCalls      int
+	nodeContext       *snapshot.ContextSnapshot
 }
 
 type sessionBackedBlockingEngine struct {
@@ -237,6 +239,12 @@ func (engine *fakeEngine) AppendHistory(msg types.Message) {
 func (*fakeEngine) TraceText() string                                      { return "trace" }
 func (*fakeEngine) TokenCount() string                                     { return "12" }
 func (*fakeEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
+func (engine *fakeEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
+	if engine.nodeContext == nil {
+		return nil, false
+	}
+	return engine.nodeContext, true
+}
 func (engine *fakeEngine) ReleaseWorkingHistory() {
 	engine.mu.Lock()
 	engine.releaseCalls++
@@ -244,18 +252,23 @@ func (engine *fakeEngine) ReleaseWorkingHistory() {
 }
 
 type fakeRuntime struct {
-	account       string
-	fullAccess    bool
-	binding       seelebridge.PlanBranchBinding
-	planPolicy    seelebridge.PlanPolicy
-	visibility    seelebridge.RuntimeVisibilityProjection
-	evidence      seelebridge.ParentEvidenceProjection
-	mailbox       []string
-	replans       []seelebridge.ReplanRequest
-	replanResult  seelebridge.PlanPreflight
-	replanErr     error
-	replanMetrics seelebridge.ReplanMetrics
-	projectRoot   string
+	account        string
+	fullAccess     bool
+	binding        seelebridge.PlanBranchBinding
+	planPolicy     seelebridge.PlanPolicy
+	visibility     seelebridge.RuntimeVisibilityProjection
+	evidence       seelebridge.ParentEvidenceProjection
+	mailbox        []string
+	replans        []seelebridge.ReplanRequest
+	replanResult   seelebridge.PlanPreflight
+	replanErr      error
+	replanMetrics  seelebridge.ReplanMetrics
+	projectRoot    string
+	todoItems      []seelebridge.TodoItem
+	scheduledTasks []seelebridge.ScheduledTaskStatus
+	scheduledSpecs []seelebridge.ScheduledTaskSpec
+	cancelledTasks []string
+	scheduleErr    error
 }
 
 func (*fakeRuntime) Model() string    { return "test-model" }
@@ -297,6 +310,37 @@ func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request seelebridge
 func (runtime *fakeRuntime) ReplanMetrics() seelebridge.ReplanMetrics { return runtime.replanMetrics }
 func (runtime *fakeRuntime) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
 	runtime.binding = binding
+}
+func (runtime *fakeRuntime) TodoSnapshot() []seelebridge.TodoItem {
+	return append([]seelebridge.TodoItem(nil), runtime.todoItems...)
+}
+func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+	return []seelebridge.ScheduledCommandInfo{{Key: "auto_get_jobs", Label: "BOSS直聘自动投简历"}}
+}
+func (runtime *fakeRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
+	return append([]seelebridge.ScheduledTaskStatus(nil), runtime.scheduledTasks...)
+}
+func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	if runtime.scheduleErr != nil {
+		return nil, runtime.scheduleErr
+	}
+	runtime.scheduledSpecs = append(runtime.scheduledSpecs, spec)
+	created := seelebridge.ScheduledTaskStatus{
+		ID: "sched_test", Name: spec.Name, Kind: string(spec.Kind),
+		IntervalSec: int64(spec.Interval.Seconds()), Enabled: spec.Enabled,
+	}
+	runtime.scheduledTasks = append(runtime.scheduledTasks, created)
+	return &created, nil
+}
+func (runtime *fakeRuntime) CancelScheduledTask(id string) error {
+	runtime.cancelledTasks = append(runtime.cancelledTasks, id)
+	for index, task := range runtime.scheduledTasks {
+		if task.ID == id {
+			runtime.scheduledTasks = append(runtime.scheduledTasks[:index], runtime.scheduledTasks[index+1:]...)
+			break
+		}
+	}
+	return nil
 }
 func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
 	runtime.projectRoot = rootPath

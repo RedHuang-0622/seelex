@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -33,6 +34,8 @@ type fakeApplication struct {
 	suggestionsInput string
 	beganNewSession  bool
 	resumedSession   string
+	scheduledSpec    seelebridge.ScheduledTaskSpec
+	cancelledTaskID  string
 }
 
 type staleCancelApplication struct {
@@ -124,6 +127,14 @@ func (fake *fakeApplication) ConfigureSessionStorage(context.Context, sessionsto
 }
 func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {
 	return nil, nil
+}
+func (fake *fakeApplication) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	fake.scheduledSpec = spec
+	return &seelebridge.ScheduledTaskStatus{ID: "sched_1", Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
+}
+func (fake *fakeApplication) CancelScheduledTask(id string) error {
+	fake.cancelledTaskID = id
+	return nil
 }
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
@@ -224,6 +235,36 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	}
 	if bridge.Info().Title != "Seelex Test" || bridge.Snapshot().Runtime.Model != "test-model" {
 		t.Fatal("bridge metadata or snapshot mismatch")
+	}
+}
+
+func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := bridge.ScheduleTask(seelebridge.ScheduledTaskSpec{
+		Name: "抓职位", Kind: seelebridge.ScheduledTaskCommand,
+		Command: "auto_get_jobs", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ID != "sched_1" || created.Name != "抓职位" {
+		t.Fatalf("created = %+v", created)
+	}
+	if fake.scheduledSpec.Name != "抓职位" || fake.scheduledSpec.Command != "auto_get_jobs" {
+		t.Fatalf("schedule not forwarded: %+v", fake.scheduledSpec)
+	}
+
+	if err := bridge.CancelScheduledTask("sched_1"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.cancelledTaskID != "sched_1" {
+		t.Fatalf("cancel not forwarded: %q", fake.cancelledTaskID)
 	}
 }
 

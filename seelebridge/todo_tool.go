@@ -38,6 +38,15 @@ func (s *todoState) Snapshot() []TodoItem {
 	return append([]TodoItem(nil), s.items...)
 }
 
+// TodoSnapshot 返回当前清单只读拷贝（application 快照投影数据源；
+// 主代理每次 todolist_* 工具完成经 runtime.changed 增量带到 GUI）。
+func (r *Runtime) TodoSnapshot() []TodoItem {
+	if r == nil || r.todo == nil {
+		return nil
+	}
+	return r.todo.Snapshot()
+}
+
 // registerTodoTools 注册 todolist 工具族（RegisterBuiltins 内调用）。
 func (r *Runtime) registerTodoTools() {
 	r.RegisterTool("todolist_init",

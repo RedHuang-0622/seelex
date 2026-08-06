@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 type ScriptedEngine struct {
@@ -205,6 +206,9 @@ func (engine *ScriptedEngine) AppendHistory(msg types.Message) {
 func (*ScriptedEngine) TraceText() string                                      { return "scripted scenario" }
 func (*ScriptedEngine) TokenCount() string                                     { return "0" }
 func (*ScriptedEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
+func (*ScriptedEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
+	return nil, false
+}
 
 func (engine *ScriptedEngine) Remaining() int {
 	engine.mu.Lock()

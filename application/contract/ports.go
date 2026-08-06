@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 type EngineMessage struct {
@@ -42,6 +43,10 @@ type ChatEngine interface {
 	// NodeSessionConversation 返回节点子代理的会话记录（运行中实时 /
 	// 结束后快照；只读子代理 actor，安全）。
 	NodeSessionConversation(nodeID string) ([]types.Message, bool)
+	// NodeContextSnapshot 返回节点子代理的结构化上下文快照（Goal/
+	// Findings/Decisions/TokenEstimate 等；运行中实时导出、结束后快照；
+	// 只读子代理 actor，安全）。
+	NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)
 }
 type RuntimePort interface {
 	Model() string
@@ -61,6 +66,16 @@ type RuntimePort interface {
 	SetPlanBranchBinding(seelebridge.PlanBranchBinding)
 	BindProjectRoot(rootPath string) error
 	UnbindProjectRoot()
+	// TodoSnapshot 返回当前 todolist 清单只读拷贝（GUI 待办面板数据源）。
+	TodoSnapshot() []seelebridge.TodoItem
+	// ScheduledCommands 返回定时周期任务白名单命令展示信息（GUI 新建弹窗数据源）。
+	ScheduledCommands() []seelebridge.ScheduledCommandInfo
+	// ScheduledTasksSnapshot 返回周期任务只读快照（GUI 定时任务面板数据源）。
+	ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus
+	// ScheduleTask 创建并启动一个周期任务（变更入口；Runtime 调度器执行）。
+	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	// CancelScheduledTask 取消并移除周期任务。
+	CancelScheduledTask(string) error
 }
 type PluginPort interface {
 	All() []model.PluginInfo

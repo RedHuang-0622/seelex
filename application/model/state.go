@@ -94,19 +94,22 @@ type ChatState struct {
 	InputQueue  []string  `json:"input_queue,omitempty"` // 排队消息内容（TUI 显示用）
 }
 type RuntimeState struct {
-	Model        string        `json:"model"`
-	Provider     string        `json:"provider"`
-	Account      string        `json:"account,omitempty"`
-	Plugin       string        `json:"plugin,omitempty"`
-	Effort       string        `json:"effort"`
-	FullAccess   bool          `json:"full_access"`
-	VisibleTools []Tool        `json:"visible_tools"`
-	Skills       []SkillInfo   `json:"skills"`
-	Tokens       string        `json:"tokens"`
-	Replan       ReplanMonitor `json:"replan"`
-	Plan         *PlanState    `json:"plan,omitempty"`
-	Plugins      []PluginInfo  `json:"plugins,omitempty"`  // 完整插件列表（含描述）
-	Accounts     []AccountInfo `json:"accounts,omitempty"` // 账号池
+	Model             string                             `json:"model"`
+	Provider          string                             `json:"provider"`
+	Account           string                             `json:"account,omitempty"`
+	Plugin            string                             `json:"plugin,omitempty"`
+	Effort            string                             `json:"effort"`
+	FullAccess        bool                               `json:"full_access"`
+	VisibleTools      []Tool                             `json:"visible_tools"`
+	Skills            []SkillInfo                        `json:"skills"`
+	Tokens            string                             `json:"tokens"`
+	Replan            ReplanMonitor                      `json:"replan"`
+	Plan              *PlanState                         `json:"plan,omitempty"`
+	Plugins           []PluginInfo                       `json:"plugins,omitempty"`            // 完整插件列表（含描述）
+	Accounts          []AccountInfo                      `json:"accounts,omitempty"`           // 账号池
+	TodoItems         []seelebridge.TodoItem             `json:"todo_items,omitempty"`         // todolist 清单（GUI 待办面板）
+	ScheduledTasks    []seelebridge.ScheduledTaskStatus  `json:"scheduled_tasks,omitempty"`    // 定时周期任务（GUI 定时任务面板）
+	ScheduledCommands []seelebridge.ScheduledCommandInfo `json:"scheduled_commands,omitempty"` // 白名单命令（新建弹窗下拉）
 }
 
 // ReplanMonitor exposes bounded recovery-planning usage without exposing
@@ -252,10 +255,31 @@ type PlanNodeEventInfo struct {
 type SubagentDetail struct {
 	Conversation []Message           `json:"conversation,omitempty"`
 	ToolEvents   []SubagentToolEvent `json:"tool_events,omitempty"`
+	Context      *SubagentContext    `json:"context,omitempty"`
 	Running      bool                `json:"running"`
 	Status       NodeStatus          `json:"status"`
 	Elapsed      string              `json:"elapsed,omitempty"`
 	Output       string              `json:"output,omitempty"`
+}
+
+// SubagentContext 是子代理运行过程的结构化上下文快照（详情弹窗"上下文"
+// 标签数据源）。只暴露可公开的证据面：目标/进度/发现/决策/约束/待办/
+// 消息数/token 估算；不含 prompt 原文、工具参数或秘密。
+type SubagentContext struct {
+	Goal          string                    `json:"goal,omitempty"`
+	Progress      string                    `json:"progress,omitempty"`
+	MessageCount  int                       `json:"message_count"`
+	TokenEstimate int                       `json:"token_estimate,omitempty"`
+	Findings      []string                  `json:"findings,omitempty"`
+	Decisions     []SubagentContextDecision `json:"decisions,omitempty"`
+	Constraints   []string                  `json:"constraints,omitempty"`
+	PendingWork   []string                  `json:"pending_work,omitempty"`
+}
+
+// SubagentContextDecision 是子代理关键决策（What/Why）。
+type SubagentContextDecision struct {
+	What string `json:"what"`
+	Why  string `json:"why,omitempty"`
 }
 
 // SubagentEvent 是节点生命周期的前端增量载荷。Node 是权威 Snapshot
@@ -404,6 +428,9 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.Skills = append([]SkillInfo(nil), runtime.Skills...)
 	copyRuntime.Plugins = append([]PluginInfo(nil), runtime.Plugins...)
 	copyRuntime.Accounts = append([]AccountInfo(nil), runtime.Accounts...)
+	copyRuntime.TodoItems = append([]seelebridge.TodoItem(nil), runtime.TodoItems...)
+	copyRuntime.ScheduledTasks = append([]seelebridge.ScheduledTaskStatus(nil), runtime.ScheduledTasks...)
+	copyRuntime.ScheduledCommands = append([]seelebridge.ScheduledCommandInfo(nil), runtime.ScheduledCommands...)
 	if runtime.Plan != nil {
 		planCopy := *runtime.Plan
 		planCopy.Nodes = clonePlanNodes(runtime.Plan.Nodes)

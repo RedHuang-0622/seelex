@@ -18,6 +18,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -41,6 +42,9 @@ type enginePort struct {
 	// nodeConversations 是子代理会话记录查询（节点详情数据面；Runtime 注入，
 	// 只读子代理 actor，安全——不经过主会话锁）。
 	nodeConversations func(string) ([]types.Message, bool)
+	// nodeContextSnapshot 是子代理结构化上下文查询（详情弹窗"上下文"标签；
+	// Runtime 注入，只读子代理 actor，安全）。
+	nodeContextSnapshot func(string) (*snapshot.ContextSnapshot, bool)
 }
 
 // reactorEngine is the small framework surface the application adapter
@@ -112,6 +116,22 @@ func (port *enginePort) NodeSessionConversation(nodeID string) ([]types.Message,
 func (port *enginePort) SetNodeConversationsProvider(fn func(string) ([]types.Message, bool)) {
 	if port != nil {
 		port.nodeConversations = fn
+	}
+}
+
+// NodeContextSnapshot 转发子代理结构化上下文查询（详情弹窗"上下文"标签；
+// 查询源经 SetNodeContextProvider 注入，只读子代理 actor，安全）。
+func (port *enginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
+	if port == nil || port.nodeContextSnapshot == nil {
+		return nil, false
+	}
+	return port.nodeContextSnapshot(nodeID)
+}
+
+// SetNodeContextProvider 注入子代理上下文快照查询源（Runtime 接线）。
+func (port *enginePort) SetNodeContextProvider(fn func(string) (*snapshot.ContextSnapshot, bool)) {
+	if port != nil {
+		port.nodeContextSnapshot = fn
 	}
 }
 
@@ -429,7 +449,22 @@ func (port runtimePort) RestorePlan(ctx context.Context, arguments string) error
 func (port runtimePort) BindProjectRoot(rootPath string) error {
 	return port.runtime.BindProjectRoot(rootPath)
 }
-func (port runtimePort) UnbindProjectRoot()             { port.runtime.UnbindProjectRoot() }
+func (port runtimePort) UnbindProjectRoot() { port.runtime.UnbindProjectRoot() }
+func (port runtimePort) TodoSnapshot() []seelebridge.TodoItem {
+	return port.runtime.TodoSnapshot()
+}
+func (port runtimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+	return port.runtime.ScheduledCommands()
+}
+func (port runtimePort) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
+	return port.runtime.ScheduledTasksSnapshot()
+}
+func (port runtimePort) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	return port.runtime.ScheduleTask(ctx, spec)
+}
+func (port runtimePort) CancelScheduledTask(id string) error {
+	return port.runtime.CancelScheduledTask(id)
+}
 func (port runtimePort) SelectAccount(name string) bool { return port.runtime.SelectAccount(name) }
 func (port runtimePort) VisibleTools(ctx context.Context) []application.Tool {
 	tools := port.runtime.VisibleTools(ctx)

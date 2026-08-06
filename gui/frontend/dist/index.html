@@ -78,6 +78,14 @@
         <div class="section-title">Plan</div>
         <div id="plan-view" class="plan-view muted">暂无执行计划</div>
       </section>
+      <section id="todo-section" class="hidden">
+        <div class="section-title"><span>待办清单</span><span id="todo-count" class="badge">0</span></div>
+        <div id="todo-view" class="todo-view"></div>
+      </section>
+      <section id="scheduled-task-section">
+        <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建周期任务" data-icon="plus" style="width:16px;height:16px"></button></div>
+        <div id="scheduled-task-view" class="sched-view muted">暂无周期任务</div>
+      </section>
       <section>
         <div class="section-title">概要</div>
         <div id="project-overview" class="project-overview"></div>
@@ -126,6 +134,22 @@
       <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL / Redis）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require 或 redis://:password@host:6379/0" autocomplete="off"></label>
       <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
       <div id="storage-status" class="muted"></div>
+    </div>
+  </div>
+
+  <div id="scheduled-task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-task-modal-title">
+    <div class="modal-card settings-card">
+      <div class="modal-header"><div><span class="eyebrow">Scheduled tasks</span><h2 id="scheduled-task-modal-title">新建周期任务</h2></div><button id="scheduled-task-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <p class="settings-note">命令任务只执行后端白名单脚本（不可任意输入命令）；提示词任务复用当前主会话执行，会话切换后自动跳过。</p>
+      <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每周抓取职位" autocomplete="off"></label>
+      <label class="settings-field">任务类型
+        <select id="sched-kind"><option value="command">命令（白名单脚本）</option><option value="prompt">提示词（agent 会话）</option></select>
+      </label>
+      <label class="settings-field">周期（分钟）<input id="sched-interval" type="number" min="1" value="60"></label>
+      <label id="sched-command-field" class="settings-field">命令<select id="sched-command"></select></label>
+      <label id="sched-prompt-field" class="settings-field hidden">提示词内容<textarea id="sched-prompt" rows="3" placeholder="定时让 agent 执行的内容"></textarea></label>
+      <label class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> 创建后立即启用</label>
+      <div class="settings-actions"><button id="sched-submit" type="button" class="primary">创建任务</button></div>
     </div>
   </div>
 

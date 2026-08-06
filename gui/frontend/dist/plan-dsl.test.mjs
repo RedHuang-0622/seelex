@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
-const { planToDSL, renderPlanDSL, renderNodeDetail } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -260,4 +260,42 @@ test("renders worktree lifecycle states and bounded subagent tool activity", () 
   assert.match(detail, /conflict &lt;main&gt;/);
   assert.doesNotMatch(detail, /<unsafe>/);
   assert.match(detail, /250ms/);
+});
+
+test("renders the context tab placeholder in the node detail modal", () => {
+  const dsl = planToDSL({ name: "ctx", status: "running", nodes: [{ id: "agent-1", kind: "agent", status: "running" }] });
+  const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
+  assert.match(detail, /data-node-tab="context"/);
+  assert.match(detail, /data-node-panel="context"/);
+  assert.match(detail, /data-node-context/);
+  assert.match(detail, /加载上下文快照/);
+});
+
+test("renders subagent context snapshot with escaped content", () => {
+  const html = renderNodeContext({
+    goal: "<script>alert(1)</script>",
+    progress: "60%",
+    message_count: 12,
+    token_estimate: 1234,
+    findings: ["found <b>race</b>"],
+    decisions: [{ what: "use mutex", why: "because <i>reason</i>" }],
+    constraints: ["no merge"],
+    pending_work: ["run tests"]
+  });
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /found &lt;b&gt;race&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /<b>race<\/b>/);
+  assert.match(html, /use mutex — because &lt;i&gt;reason&lt;\/i&gt;/);
+  assert.match(html, /60%/);
+  assert.match(html, /12/);
+  assert.match(html, /1,234/);
+  assert.match(html, /no merge/);
+  assert.match(html, /run tests/);
+});
+
+test("renders empty context placeholder for missing or empty snapshots", () => {
+  assert.match(renderNodeContext(null), /无上下文快照/);
+  assert.match(renderNodeContext(undefined), /无上下文快照/);
+  assert.match(renderNodeContext({}), /上下文快照为空/);
 });

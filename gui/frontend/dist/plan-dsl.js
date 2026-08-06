@@ -559,6 +559,7 @@ export function renderNodeDetail(node) {
     </dl>
     <div class="node-detail-tabs">
       <button class="node-tab is-active" data-node-tab="conversation" type="button">会话记录</button>
+      <button class="node-tab" data-node-tab="context" type="button">上下文</button>
       <button class="node-tab" data-node-tab="instrumentation" type="button">功能打点</button>
       <button class="node-tab" data-node-tab="timeline" type="button">事件时间线</button>
       <button class="node-tab" data-node-tab="tools" type="button">工具活动</button>
@@ -567,6 +568,11 @@ export function renderNodeDetail(node) {
     <div class="node-tab-panel is-active" data-node-panel="conversation">
       <div class="node-conversation" data-node-conversation>
         <div class="node-timeline-empty">加载会话记录…</div>
+      </div>
+    </div>
+    <div class="node-tab-panel" data-node-panel="context">
+      <div class="node-context" data-node-context>
+        <div class="node-timeline-empty">加载上下文快照…</div>
       </div>
     </div>
     <div class="node-tab-panel" data-node-panel="instrumentation" data-node-instrumentation>
@@ -582,11 +588,13 @@ export function renderNodeDetail(node) {
   </div>`;
 }
 
-// setNodeDetailConversation 渲染子代理会话记录（详情弹窗会话记录标签）。
+// setNodeDetailConversation 渲染子代理会话记录 + 结构化上下文快照
+// （详情弹窗会话记录 / 上下文标签；数据来自 invoke SubagentSessionDetail）。
 export function setNodeDetailConversation(detail) {
   const container = document.querySelector("[data-node-detail] [data-node-conversation]");
   const toolContainer = document.querySelector("[data-node-detail] [data-node-tool-events]");
-  if (!container && !toolContainer) return;
+  const contextContainer = document.querySelector("[data-node-detail] [data-node-context]");
+  if (!container && !toolContainer && !contextContainer) return;
   const messages = (detail?.conversation || []);
   if (container && messages.length === 0) {
     container.innerHTML = '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
@@ -602,12 +610,49 @@ export function setNodeDetailConversation(detail) {
   if (container && detail?.running) {
     container.insertAdjacentHTML("beforeend", '<div class="node-timeline-empty">执行中，每 2 秒刷新…</div>');
   }
+  if (contextContainer) {
+    contextContainer.innerHTML = renderNodeContext(detail?.context);
+  }
   if (toolContainer) {
     const toolEvents = normalizeToolEvents(detail?.tool_events);
     toolContainer.innerHTML = renderToolEvents(toolEvents) || '<div class="node-timeline-empty">暂无子代理工具活动</div>';
     const count = document.querySelector("[data-node-detail] [data-node-tool-count]");
     if (count) count.textContent = String(toolEvents.length);
   }
+}
+
+// renderNodeContext 渲染子代理结构化上下文快照（详情弹窗"上下文"标签）。
+// 数据来自后端 SubagentSessionDetail.context（权威导出：Goal/Progress/
+// Findings/Decisions/Constraints/PendingWork/MessageCount/TokenEstimate）；
+// 全部文本 escape，缺字段显示占位。
+export function renderNodeContext(context) {
+  if (!context || typeof context !== "object") {
+    return '<div class="node-timeline-empty">该节点无上下文快照（非 agent 节点或会话尚未导出）</div>';
+  }
+  const meta = [
+    ["消息数", context.message_count != null ? String(context.message_count) : "—"],
+    ["token 估算", context.token_estimate ? formatNumber(context.token_estimate) : "—"]
+  ].filter(pair => pair[1] !== "—").map(([label, value]) => `<span><strong>${escapeHTML(label)}</strong>${escapeHTML(value)}</span>`).join("");
+  const sections = [
+    ["目标 Goal", context.goal],
+    ["进度 Progress", context.progress],
+    ["重要发现 Findings", context.findings],
+    ["关键决策 Decisions", Array.isArray(context.decisions) ? context.decisions.map(decision => `${decision.what || ""}${decision.why ? ` — ${decision.why}` : ""}`) : null],
+    ["约束 Constraints", context.constraints],
+    ["待办 Pending", context.pending_work]
+  ].filter(([, value]) => value && (Array.isArray(value) ? value.length : String(value).trim()));
+  return `<div class="node-context-meta">${meta}</div>${sections.map(([title, value]) => `
+    <section class="node-context-section">
+      <h3>${escapeHTML(title)}</h3>
+      ${Array.isArray(value)
+        ? `<ul class="node-context-list">${value.map(entry => `<li title="${escapeHTML(entry)}">${escapeHTML(entry)}</li>`).join("")}</ul>`
+        : `<p class="node-context-text">${escapeHTML(value)}</p>`}
+    </section>`).join("") || '<div class="node-timeline-empty">上下文快照为空</div>'}
+  </div>`;
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
 }
 
 function renderToolEvents(events) {

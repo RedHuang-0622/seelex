@@ -53,22 +53,32 @@ func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) 
 
 // registerNodeSession 注册运行中的子代理会话（详情查看数据面）。
 // 子代理会话是独立 actor（自己的锁），运行中读取安全——与主会话无关。
-func (r *Runtime) registerNodeSession(nodeID string, sess *frameworkSession.Session) {
+// goal 是节点目标（节点输入），NodeContextSnapshot 导出时复用。
+func (r *Runtime) registerNodeSession(nodeID string, sess *frameworkSession.Session, goal string) {
 	r.nodeSessionsMu.Lock()
 	r.nodeSessions[nodeID] = sess
+	r.nodeGoals[nodeID] = goal
 	r.nodeSessionsMu.Unlock()
 }
 
 // unregisterNodeSession 结束注册并保留最后快照（节点结束后详情仍可看）。
+// 同时导出结束时的结构化上下文快照（Findings/Decisions/TokenEstimate，
+// 与 mergeBack 同一导出面；运行中的实时导出见 NodeContextSnapshot）。
 func (r *Runtime) unregisterNodeSession(nodeID string) {
 	r.nodeSessionsMu.Lock()
 	sess := r.nodeSessions[nodeID]
 	delete(r.nodeSessions, nodeID)
+	goal := r.nodeGoals[nodeID]
 	r.nodeSessionsMu.Unlock()
 	if sess == nil {
 		return
 	}
 	history := sess.History()
+	if snap := seelexctx.ExportSnapshot(sess, r.Tracer(), goal); snap != nil {
+		r.nodeSessionsMu.Lock()
+		r.nodeContextSnapshots[nodeID] = snap
+		r.nodeSessionsMu.Unlock()
+	}
 	r.nodeSessionsMu.Lock()
 	r.nodeSnapshots[nodeID] = history
 	r.nodeSessionsMu.Unlock()
@@ -86,6 +96,25 @@ func (r *Runtime) NodeSessionConversation(nodeID string) ([]types.Message, bool)
 		return sess.History(), true
 	}
 	return snap, ok
+}
+
+// NodeContextSnapshot 返回节点子代理的结构化上下文快照（详情弹窗
+// "上下文"标签数据面）：运行中实时导出（Goal/Findings/Decisions/
+// TokenEstimate，同 mergeBack 导出面）；已结束返回结束时快照。
+// 只读子代理 actor，安全。
+func (r *Runtime) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
+	if r == nil {
+		return nil, false
+	}
+	r.nodeSessionsMu.Lock()
+	sess := r.nodeSessions[nodeID]
+	snap := r.nodeContextSnapshots[nodeID]
+	goal := r.nodeGoals[nodeID]
+	r.nodeSessionsMu.Unlock()
+	if sess != nil {
+		return seelexctx.ExportSnapshot(sess, r.Tracer(), goal), true
+	}
+	return snap, snap != nil
 }
 
 // parentSnapshot 返回 Runtime 自有父证据快照。
@@ -142,8 +171,8 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 	// ReAct 循环上限（session.SetMaxLoops，chat.go 动态方法）。
 	if sess, ok := agent.(*frameworkSession.Session); ok {
 		sess.SetMaxLoops(n.runtime.nodeBudget(n.input).MaxLoops)
-		// 详情查看数据面：注册子会话（结束后快照留底）。
-		n.runtime.registerNodeSession(n.ID(), sess)
+		// 详情查看数据面：注册子会话（结束后快照留底；goal 供上下文导出）。
+		n.runtime.registerNodeSession(n.ID(), sess, n.input.Input)
 		defer n.runtime.unregisterNodeSession(n.ID())
 	}
 	result, err := agent.Chat(ctx, n.input.Input)

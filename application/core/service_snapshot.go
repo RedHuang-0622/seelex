@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 // viewCoordinator owns user-visible snapshots, messages, and event revisions.
@@ -39,16 +41,19 @@ func (service *viewCoordinator) collectRuntimeProjection(ctx context.Context) ru
 	projection := runtimeStateProjection{
 		sessionID: service.deps.Engine.SessionID(),
 		runtime: RuntimeState{
-			Model:        service.deps.Runtime.Model(),
-			Provider:     service.deps.Runtime.Provider(),
-			Plugin:       service.deps.Runtime.ActivePlugin(),
-			Effort:       service.effortManager.Current(),
-			FullAccess:   service.deps.Runtime.FullAccess(),
-			VisibleTools: append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...),
-			Skills:       append([]SkillInfo(nil), service.deps.Skills.All()...),
-			Tokens:       service.deps.Engine.TokenCount(),
-			Plugins:      append([]PluginInfo(nil), service.deps.Plugins.All()...),
-			Accounts:     append([]AccountInfo(nil), service.deps.Runtime.Accounts()...),
+			Model:             service.deps.Runtime.Model(),
+			Provider:          service.deps.Runtime.Provider(),
+			Plugin:            service.deps.Runtime.ActivePlugin(),
+			Effort:            service.effortManager.Current(),
+			FullAccess:        service.deps.Runtime.FullAccess(),
+			VisibleTools:      append([]Tool(nil), service.deps.Runtime.VisibleTools(ctx)...),
+			Skills:            append([]SkillInfo(nil), service.deps.Skills.All()...),
+			Tokens:            service.deps.Engine.TokenCount(),
+			Plugins:           append([]PluginInfo(nil), service.deps.Plugins.All()...),
+			Accounts:          append([]AccountInfo(nil), service.deps.Runtime.Accounts()...),
+			TodoItems:         append([]seelebridge.TodoItem(nil), service.deps.Runtime.TodoSnapshot()...),
+			ScheduledTasks:    append([]seelebridge.ScheduledTaskStatus(nil), service.deps.Runtime.ScheduledTasksSnapshot()...),
+			ScheduledCommands: append([]seelebridge.ScheduledCommandInfo(nil), service.deps.Runtime.ScheduledCommands()...),
 		},
 	}
 	metrics := service.deps.Runtime.ReplanMetrics()

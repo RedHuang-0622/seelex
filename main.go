@@ -8,7 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -160,8 +162,10 @@ func run() error {
 		return err
 	}
 	logBackendStartup(backendTrace, "startup.engine.lazy-ready")
-	// 子代理详情数据面：节点会话记录查询（只读子代理 actor，安全）。
+	// 子代理详情数据面：节点会话记录 + 结构化上下文查询（只读子代理
+	// actor，安全——运行中实时导出、结束后快照）。
 	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
+	appEngine.SetNodeContextProvider(runtime.NodeContextSnapshot)
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo, err := initWorkspaceRepo()
 	if err != nil {
@@ -176,6 +180,7 @@ func run() error {
 	registerTaskTerminalTools(runtime, app)
 	registerContextReadTools(runtime, app, sessionManager)
 	registerProjectRefreshTool(runtime, store)
+	registerScheduledTaskCapability(runtime, app)
 	// 项目级模块语义提供者：Assembler 会话前预读 project 块（内容 hash
 	// 版本化复用；重建失败保留上一版本）。
 	runtime.SetProjectKnowledgeProvider(func() *sessionstore.ProjectRecord {
@@ -281,6 +286,74 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 		return string(encoded), err
 	}
 	runtime.RegisterTool("project_refresh", "扫描项目模块文档与元数据，重建项目级模块语义知识；来源未变化时直接复用", schema, handler)
+}
+
+// registerScheduledTaskCapability 装配定时周期任务（seelebridge/scheduler.go）：
+//   - 登记 auto_get_jobs 白名单命令（脚本目录或 python 不可用时跳过并告警）；
+//   - 注入 prompt 任务执行器：复用当前主会话 Submit（带会话绑定校验，切换
+//     后跳过而不是打到错误的会话）；
+//   - 注入状态变化 observer：调度器开始/完成/失败 → 快照投影 →
+//     runtime.changed 增量（GUI 定时任务面板实时更新）。
+func registerScheduledTaskCapability(runtime *seelebridge.Runtime, app *application.Service) {
+	if scriptDir, ok := resolveAutoGetJobsDir(); ok {
+		if python := resolvePythonCommand(); python != "" {
+			if err := runtime.RegisterScheduledCommand(seelebridge.ScheduledCommand{
+				Key:         "auto_get_jobs",
+				Label:       "BOSS直聘自动投简历",
+				Description: "周期抓取招聘职位并自动筛选投递（local/tools/auto_get_jobs/main.py；需先按脚本 README 配置 .env 与 user_requirements.txt）",
+				WorkingDir:  scriptDir,
+				Argv:        []string{python, "main.py"},
+				TimeoutSec:  30 * 60,
+			}); err != nil {
+				log.Printf("scheduled tasks: register auto_get_jobs: %v", err)
+			}
+		}
+	}
+	runtime.SetScheduledPromptExecutor(func(ctx context.Context, prompt, sessionID string) (string, error) {
+		// 会话绑定：显式 sessionID 必须匹配当前主会话（切换后跳过，不误投递）；
+		// 空 = 执行时当前 main session。
+		current := app.Snapshot().Session.ID
+		if sessionID != "" && sessionID != current {
+			return "", fmt.Errorf("任务绑定会话 %s，当前会话 %s（已切换），本次跳过", sessionID, current)
+		}
+		if err := app.Submit(ctx, prompt); err != nil {
+			return "", err
+		}
+		return "已提交到当前会话执行（异步输出见会话记录）", nil
+	})
+	runtime.SetSchedulerObserver(app.RefreshRuntimeSnapshot)
+}
+
+// resolveAutoGetJobsDir 定位 auto_get_jobs 脚本目录：优先相对当前工作目录
+// （go run / 开发场景），回退二进制所在目录（正式部署）；目录内必须存在 main.py。
+func resolveAutoGetJobsDir() (string, bool) {
+	relative := filepath.Join("local", "tools", "auto_get_jobs")
+	candidates := []string{relative}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), relative))
+	}
+	for _, dir := range candidates {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		if info, statErr := os.Stat(filepath.Join(abs, "main.py")); statErr == nil && !info.IsDir() {
+			return abs, true
+		}
+	}
+	log.Printf("scheduled tasks: auto_get_jobs 脚本目录未找到（期望 %s），跳过该白名单命令登记", relative)
+	return "", false
+}
+
+// resolvePythonCommand 探测可用的 python 解释器（python → py；找不到时返回空）。
+func resolvePythonCommand() string {
+	for _, candidate := range []string{"python", "py"} {
+		if path, err := exec.LookPath(candidate); err == nil {
+			return path
+		}
+	}
+	log.Printf("scheduled tasks: 未找到 python 解释器，跳过 auto_get_jobs 白名单命令登记")
+	return ""
 }
 
 // registerTaskTerminalTools 把 task_complete/task_failed/task_needs_user_decision

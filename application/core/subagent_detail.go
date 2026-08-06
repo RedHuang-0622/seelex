@@ -6,6 +6,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 // ── 子代理详情查看（切片 8，docs/plan/subagent-detail-architecture.md）──
@@ -18,8 +19,14 @@ import (
 // （防超长节点会话撑爆详情响应；可经 limits 扩展）。
 const maxSubagentConversationMessages = 50
 
+// maxSubagentContextItems 上下文快照单类条目上限（发现/决策/约束/待办）。
+const maxSubagentContextItems = 20
+
 // SubagentSessionDetail 返回节点子代理的详情数据：
 //   - Conversation：子代理会话记录（截断：单条 ≤ evidence_chars、总 ≤ 50 条）；
+//   - Context：结构化上下文快照（Goal/Findings/Decisions/Constraints/
+//     PendingWork/TokenEstimate，运行中实时导出、结束后快照；只读子代理
+//     actor，安全）；
 //   - Running：是否执行中（实时读 vs 结束后快照）；
 //   - Status/Elapsed/Output：复用 PlanNode 投影。
 func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error) {
@@ -45,6 +52,7 @@ func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDet
 	if !ok && status == "" {
 		return nil, fmt.Errorf("subagent detail: node %q has no conversation", nodeID)
 	}
+	contextSnap, _ := service.deps.Engine.NodeContextSnapshot(nodeID)
 	detail := &model.SubagentDetail{
 		Running:      isRunningSubagentStatus(status),
 		Status:       status,
@@ -52,8 +60,63 @@ func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDet
 		Output:       output,
 		Conversation: adaptSubagentConversation(conversation),
 		ToolEvents:   toolEvents,
+		Context:      adaptSubagentContext(contextSnap),
 	}
 	return detail, nil
+}
+
+// adaptSubagentContext 适配子代理上下文快照为只读 DTO：
+// 单条文本截断到 evidence_chars，单类条目 ≤ maxSubagentContextItems。
+func adaptSubagentContext(snap *snapshot.ContextSnapshot) *model.SubagentContext {
+	if snap == nil {
+		return nil
+	}
+	limit := Limits().EvidenceChars
+	truncate := func(value string) string {
+		if limit > 0 && len(value) > limit {
+			return value[:limit] + "…"
+		}
+		return value
+	}
+	context := &model.SubagentContext{
+		Goal:          truncate(snap.Goal),
+		Progress:      truncate(snap.Progress),
+		MessageCount:  snap.MessageCount,
+		TokenEstimate: snap.TokenEstimate,
+	}
+	for _, finding := range snap.Findings {
+		if len(context.Findings) >= maxSubagentContextItems {
+			break
+		}
+		if finding = truncate(finding); finding != "" {
+			context.Findings = append(context.Findings, finding)
+		}
+	}
+	for _, decision := range snap.Decisions {
+		if len(context.Decisions) >= maxSubagentContextItems {
+			break
+		}
+		context.Decisions = append(context.Decisions, model.SubagentContextDecision{
+			What: truncate(decision.What), Why: truncate(decision.Why),
+		})
+	}
+	for _, constraint := range snap.Constraints {
+		if len(context.Constraints) >= maxSubagentContextItems {
+			break
+		}
+		if constraint = truncate(constraint); constraint != "" {
+			context.Constraints = append(context.Constraints, constraint)
+		}
+	}
+	for _, work := range snap.PendingWork {
+		if len(context.PendingWork) >= maxSubagentContextItems {
+			break
+		}
+		if work = truncate(work); work != "" {
+			context.PendingWork = append(context.PendingWork, work)
+		}
+	}
+	return context
 }
 
 func isRunningSubagentStatus(status model.NodeStatus) bool {

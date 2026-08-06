@@ -38,6 +38,17 @@ func TestForkSubagentsEndToEnd(t *testing.T) {
 			t.Errorf("fork result missing %q:\n%s", want, result)
 		}
 	}
+	// 结束后详情数据面：结构化上下文快照（Goal/MessageCount；只读子代理 actor）。
+	snap, ok := runtime.NodeContextSnapshot("s1")
+	if !ok || snap == nil {
+		t.Fatalf("node context snapshot missing after fork")
+	}
+	if snap.Goal != "audit module A" || snap.MessageCount == 0 {
+		t.Fatalf("node context snapshot = %+v", snap)
+	}
+	if _, ok := runtime.NodeContextSnapshot("missing-node"); ok {
+		t.Fatal("unknown node must not have a context snapshot")
+	}
 }
 
 // TestForkSubagentsValidation 验证护栏：空列表 / 重复 id / 缺 goal / 超数量上限。

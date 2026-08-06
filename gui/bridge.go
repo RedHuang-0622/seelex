@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -41,6 +42,8 @@ type Application interface {
 	TestSessionStorage(context.Context, sessionstore.Config) error
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
+	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	CancelScheduledTask(string) error
 }
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -279,4 +282,14 @@ func (bridge *Bridge) TestSessionStorage(config sessionstore.Config) error {
 
 func (bridge *Bridge) ConfigureSessionStorage(config sessionstore.Config) error {
 	return bridge.app.ConfigureSessionStorage(bridge.requestContext(), config)
+}
+
+// ScheduleTask 创建并启动一个周期任务（后端调度器校验白名单/周期）。
+func (bridge *Bridge) ScheduleTask(spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	return bridge.app.ScheduleTask(bridge.requestContext(), spec)
+}
+
+// CancelScheduledTask 取消并移除周期任务。
+func (bridge *Bridge) CancelScheduledTask(id string) error {
+	return bridge.app.CancelScheduledTask(id)
 }

@@ -116,6 +116,15 @@ func (harnessRuntime) ReplanMetrics() seelebridge.ReplanMetrics           { retu
 func (harnessRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding) {}
 func (harnessRuntime) BindProjectRoot(string) error                       { return nil }
 func (harnessRuntime) UnbindProjectRoot()                                 {}
+func (harnessRuntime) TodoSnapshot() []seelebridge.TodoItem               { return nil }
+func (harnessRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+	return nil
+}
+func (harnessRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus { return nil }
+func (harnessRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	return nil, nil
+}
+func (harnessRuntime) CancelScheduledTask(string) error { return nil }
 
 type harnessPlugins struct {
 	mu      sync.Mutex

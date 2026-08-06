@@ -78,3 +78,30 @@ func TestTodoListValidation(t *testing.T) {
 		t.Errorf("out-of-range index must be rejected, got %v", err)
 	}
 }
+
+// TestTodoSnapshot 验证快照投影（GUI 待办面板数据源）：
+// 只读拷贝、反映 done 状态、nil 安全。
+func TestTodoSnapshot(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	if items := runtime.TodoSnapshot(); len(items) != 0 {
+		t.Fatalf("empty runtime must project empty list, got %+v", items)
+	}
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "todolist_init", `{"items":["inspect","fix"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "todolist_done", `{"index":0}`); err != nil {
+		t.Fatal(err)
+	}
+	items := runtime.TodoSnapshot()
+	if len(items) != 2 || !items[0].Done || items[1].Done || items[0].Text != "inspect" {
+		t.Fatalf("todo snapshot = %+v", items)
+	}
+	// 只读拷贝：外部修改不得污染 actor 状态。
+	items[0].Done = false
+	if runtime.TodoSnapshot()[0].Done != true {
+		t.Fatal("TodoSnapshot must return a defensive copy")
+	}
+}

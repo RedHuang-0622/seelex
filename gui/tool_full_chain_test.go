@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 type guiChainEngine struct {
@@ -64,6 +65,9 @@ func (*guiChainEngine) TraceText() string                                      {
 func (*guiChainEngine) TokenCount() string                                     { return "0" }
 func (*guiChainEngine) AppendHistory(types.Message)                            {}
 func (*guiChainEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
+func (*guiChainEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
+	return nil, false
+}
 
 type guiChainRuntime struct {
 	mu         sync.Mutex
@@ -99,6 +103,17 @@ func (*guiChainRuntime) ReplanMetrics() seelebridge.ReplanMetrics           { re
 func (*guiChainRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding) {}
 func (*guiChainRuntime) BindProjectRoot(string) error                       { return nil }
 func (*guiChainRuntime) UnbindProjectRoot()                                 {}
+func (*guiChainRuntime) TodoSnapshot() []seelebridge.TodoItem               { return nil }
+func (*guiChainRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+	return nil
+}
+func (*guiChainRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
+	return nil
+}
+func (*guiChainRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	return nil, nil
+}
+func (*guiChainRuntime) CancelScheduledTask(string) error { return nil }
 
 type guiChainPlugins struct{}
 

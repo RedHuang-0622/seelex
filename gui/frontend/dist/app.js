@@ -8,6 +8,8 @@ import { collectReadFileSources } from "./read-sources.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
+import { renderTodoList } from "./todo-view.js";
+import { renderScheduledTasks } from "./scheduled-tasks-view.js";
 
 const state = {
   info: null,
@@ -25,7 +27,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -93,6 +95,8 @@ function render(snapshot, options = {}) {
   renderAccounts(snapshot.runtime || {});
   chatView.render(snapshot, options.scrollMode);
   renderPlan(snapshot.runtime?.plan);
+  renderTodo(snapshot.runtime?.todo_items);
+  renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
   renderWorkspace(snapshot);
@@ -113,6 +117,8 @@ function renderIncremental(snapshot, kind) {
     renderPlugins(snapshot.runtime || {});
     renderAccounts(snapshot.runtime || {});
     renderPlan(snapshot.runtime?.plan);
+    renderTodo(snapshot.runtime?.todo_items);
+    renderScheduledTaskPanel(snapshot.runtime || {});
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
     return;
@@ -289,6 +295,24 @@ function renderPlan(plan) {
   elements["plan-section"].classList.toggle("hidden", !plan);
   lastPlanDsl = planToDSL(plan);
   reconcilePlanDSL(elements["plan-view"], lastPlanDsl);
+}
+
+// renderTodo 渲染 todolist 待办面板：数据来自 snapshot.runtime.todo_items
+// （权威投影），无清单时隐藏整个 section。
+function renderTodo(items) {
+  const list = Array.isArray(items) ? items : [];
+  elements["todo-section"].classList.toggle("hidden", list.length === 0);
+  elements["todo-count"].textContent = String(list.length);
+  elements["todo-view"].innerHTML = renderTodoList(list);
+}
+
+// renderScheduledTaskPanel 渲染定时周期任务面板：数据来自 snapshot.runtime
+// （权威投影，调度器状态变化经 runtime.changed 增量带到）；任务只读展示，
+// 新建按钮常驻（命令白名单来自 runtime.scheduled_commands）。
+function renderScheduledTaskPanel(runtime) {
+  const tasks = Array.isArray(runtime.scheduled_tasks) ? runtime.scheduled_tasks : [];
+  elements["scheduled-task-count"].textContent = String(tasks.length);
+  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, runtime.scheduled_commands || []);
 }
 
 // openNodeDetail 渲染并打开节点详情弹窗（子代理详情页）：
@@ -638,7 +662,87 @@ elements["command-search"].addEventListener("keydown", event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["node-detail-modal", closeNodeDetail]]) {
+// ── 定时周期任务 ───────────────────────────────────────────
+
+// openScheduledTaskDialog 打开新建弹窗：白名单命令来自权威 snapshot
+// （runtime.scheduled_commands），无可用命令时下拉为空并禁用提交；
+// 类型切换联动命令/提示词字段。
+function openScheduledTaskDialog() {
+  const runtime = client.current()?.runtime || {};
+  const commands = Array.isArray(runtime.scheduled_commands) ? runtime.scheduled_commands : [];
+  elements["sched-command"].innerHTML = commands.length
+    ? commands.map(command => `<option value="${escapeHtml(command.key)}">${escapeHtml(command.label || command.key)}</option>`).join("")
+    : '<option value="">（无可用白名单命令）</option>';
+  syncScheduledTaskFields();
+  setModal("scheduled-task-modal", true);
+  elements["sched-name"].focus();
+}
+
+function closeScheduledTaskDialog() {
+  setModal("scheduled-task-modal", false);
+}
+
+function syncScheduledTaskFields() {
+  const promptKind = elements["sched-kind"].value === "prompt";
+  elements["sched-prompt-field"].classList.toggle("hidden", !promptKind);
+  elements["sched-command-field"].classList.toggle("hidden", promptKind);
+}
+
+// submitScheduledTask 组装任务入参并提交 Bridge ScheduleTask
+// （间隔为分钟 → Go time.Duration 纳秒；sessionId 留空 = 绑定当前主会话）。
+async function submitScheduledTask() {
+  const name = elements["sched-name"].value.trim();
+  const kind = elements["sched-kind"].value;
+  const minutes = Number(elements["sched-interval"].value);
+  if (!name) {
+    showToast("请填写任务名称");
+    return;
+  }
+  if (!Number.isFinite(minutes) || minutes < 1) {
+    showToast("周期至少 1 分钟");
+    return;
+  }
+  if (kind === "command" && !elements["sched-command"].value) {
+    showToast("当前没有可用的白名单命令");
+    return;
+  }
+  const spec = {
+    name,
+    kind,
+    interval: Math.round(minutes) * 60 * 1e9,
+    command: kind === "command" ? elements["sched-command"].value : "",
+    prompt: kind === "prompt" ? elements["sched-prompt"].value.trim() : "",
+    sessionId: "",
+    enabled: elements["sched-enabled"].checked
+  };
+  try {
+    await invoke("ScheduleTask", spec);
+    closeScheduledTaskDialog();
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  }
+}
+
+elements["new-scheduled-task"].addEventListener("click", openScheduledTaskDialog);
+elements["scheduled-task-close"].addEventListener("click", closeScheduledTaskDialog);
+elements["sched-kind"].addEventListener("change", syncScheduledTaskFields);
+elements["sched-submit"].addEventListener("click", submitScheduledTask);
+
+// 取消按钮事件委托（任务列表渲染全量刷新，事件挂容器层；ID 是操作键）。
+elements["scheduled-task-view"].addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-sched-cancel]");
+  if (!button?.dataset.schedCancel) return;
+  if (!confirm("确认取消该周期任务？")) return;
+  try {
+    await invoke("CancelScheduledTask", button.dataset.schedCancel);
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  }
+});
+
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -669,6 +773,7 @@ document.addEventListener("keydown", event => {
     closeRuntime();
     closeCommandPalette();
     closeSettings();
+    closeScheduledTaskDialog();
     closeNodeDetail();
   }
 });

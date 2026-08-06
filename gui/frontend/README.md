@@ -14,6 +14,8 @@
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化和卡片渲染。 |
+| `dist/todo-view.js` | todolist 待办面板渲染（数据源 `runtime.todo_items` 权威投影）。 |
+| `dist/scheduled-tasks-view.js` | 定时周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | 从会话工具事件中收集成功完成的 `read_file` 路径，供右侧栏显示。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
@@ -33,9 +35,24 @@ Full Access 按钮不维护本地布尔状态：显示与下一次 toggle 都读
 
 Plan DSL 常驻右侧项目栏；没有 Plan 时隐藏整个 section，加载、运行和完成状态都由 `runtime.plan` 驱动。Runtime 弹窗只保留运行时诊断信息。
 
+todolist 待办面板同样常驻右侧栏：数据来自 `snapshot.runtime.todo_items`（application 经 `runtime.changed` 增量携带），清单为空时隐藏整个 section；条目勾选状态只读权威 JSON 的 `done` 标志，渲染不做本地猜测。
+
+## 定时周期任务
+
+右侧栏「定时任务」section 常驻（含「新建周期任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `seelebridge/scheduler.go` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
+
+新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：类型分「命令」与「提示词」两种。
+
+- **命令任务（主路径）**：下拉选项来自 `snapshot.runtime.scheduled_commands`（后端编译期白名单，`main.go` 登记 `auto_get_jobs`，指向 `local/tools/auto_get_jobs/main.py`）。白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
+- **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话（main 装配为 application Submit，排队语义：会话忙时任务排队，不与进行中的对话冲突）。任务绑定当前 main session（`session_id` 留空 = 执行时当前会话；显式绑定会在会话切换后跳过而非误投）。结果回传为「已提交」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。
+
+周期以分钟为单位（前端下限 1 分钟，后端另设最小周期校验）。任务状态、白名单命令均为公开元数据，不含 secret；渲染文本全部 escape。
+
 `Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
 
 子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持 `worktree_creating`、`rebasing`、`merging`；节点整卡可打开详情，详情弹窗显示会话、节点时间线和工具输入/结果/错误。Plan 面板与详情页都渲染功能打点表：tasklist 的 `task_check_node` 检查点和子代理工具活动均由同一事件投影驱动。所有更新都先深拷贝 Plan 树，避免修改旧 Snapshot。
+
+详情弹窗另有「上下文」标签：展示 `SubagentSessionDetail` 返回的子代理结构化上下文快照（Goal/Progress/Findings/Decisions/Constraints/PendingWork/MessageCount/TokenEstimate，运行中实时导出、结束后快照），与会话记录、工具活动共同构成运行过程的可核验证据面；快照只含公开证据，不含 prompt 原文或秘密。
 
 `fork_subagents` 的外层工具在 summary 完成前保持运行态；这时应点击 Plan 节点查看真实进度，不能仅以 `Waiting for output…` 判定卡死。若外层工具报告子代理结果过大，详情中的会话、功能打点和工具活动才是可核验的证据面；renderer 不把过大的 `final_output` 当作完整审查结果的替代品。
 
