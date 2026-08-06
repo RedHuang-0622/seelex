@@ -106,6 +106,13 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 	if err != nil {
 		return "", err
 	}
+	// 子代理树（内存态，不落盘）：记录 parent/child 链——父节点是发起 fork
+	// 的子代理（NodeScope 携带节点 ID；嵌套 fork）或主代理（main 合成根）。
+	parentID := mainAgentNodeID
+	if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == RoleSubAgent {
+		parentID = scope.NodeID
+	}
+	r.subagentTree.registerFork(parentID, input.Subagents)
 	return r.runPlan(ctx, loaded)
 }
 

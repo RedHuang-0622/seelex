@@ -45,6 +45,9 @@ type enginePort struct {
 	// nodeContextSnapshot 是子代理结构化上下文查询（详情弹窗"上下文"标签；
 	// Runtime 注入，只读子代理 actor，安全）。
 	nodeContextSnapshot func(string) (*snapshot.ContextSnapshot, bool)
+	// subAgentTree 是 fork 子代理树投影查询（GUI 树视图数据源；Runtime
+	// 注入，内存态只读 actor，安全）。
+	subAgentTree func() []seelebridge.SubAgentTreeNode
 }
 
 // reactorEngine is the small framework surface the application adapter
@@ -132,6 +135,22 @@ func (port *enginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSna
 func (port *enginePort) SetNodeContextProvider(fn func(string) (*snapshot.ContextSnapshot, bool)) {
 	if port != nil {
 		port.nodeContextSnapshot = fn
+	}
+}
+
+// SubAgentTree 转发 fork 子代理树投影查询（GUI 树视图数据源；内存态
+// 只读 actor，安全——不触碰主会话锁）。
+func (port *enginePort) SubAgentTree() []seelebridge.SubAgentTreeNode {
+	if port == nil || port.subAgentTree == nil {
+		return nil
+	}
+	return port.subAgentTree()
+}
+
+// SetSubAgentTreeProvider 注入子代理树投影查询源（Runtime 接线，main.go）。
+func (port *enginePort) SetSubAgentTreeProvider(fn func() []seelebridge.SubAgentTreeNode) {
+	if port != nil {
+		port.subAgentTree = fn
 	}
 }
 

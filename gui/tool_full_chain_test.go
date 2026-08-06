@@ -68,6 +68,7 @@ func (*guiChainEngine) NodeSessionConversation(string) ([]types.Message, bool) {
 func (*guiChainEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
 	return nil, false
 }
+func (*guiChainEngine) SubAgentTree() []seelebridge.SubAgentTreeNode { return nil }
 
 type guiChainRuntime struct {
 	mu         sync.Mutex

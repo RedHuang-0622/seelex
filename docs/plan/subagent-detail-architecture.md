@@ -119,14 +119,37 @@ GUI Bridge: invoke("SubagentSessionDetail", nodeID)
 - 详情返回经 application 适配（截断：单条工具结果 ≤ evidence_chars、
   总对话 ≤ 50 条/节点——limits 配置）。
 
-## 7. 实施步骤
+## 7. 子代理树（fork 内存态可视化，2026-08-07）
 
-1. Runtime：节点会话注册表 + NodeSessionConversation（运行中/快照）
-2. 遥测活动投影：按 nodeSessionID 过滤 llm/tool 事件 → SubagentActivity
-3. application：SubagentSessionDetail（对话适配 + 活动 + 截断）
-4. GUI：详情弹窗标签页 + 会话记录渲染 + 运行中轮询
-5. 测试：scripted 子代理 → 断言对话流内容（确定性）+ 运行中读取
-6. 冒烟：plan_run 阶段运行中点节点看实时会话记录
+在会话注册表之上新增**子代理树**数据面（seelebridge/subagent_tree.go）：
+
+```
+fork_subagents 调用 → registerFork(parentID, specs)
+  ├─ parentID = NodeScope.NodeID（子代理嵌套 fork）或 "main"（主代理合成根）
+  └─ 每个子代理一条记录：{id, parentID, goal, status, sessionID, summary, …}
+
+状态写入：
+  registerNodeSession → noteSession（挂载运行中子会话，status=running）
+  SeelexAgentNode.Run 结束 → completeSubagentNode(summary, err)
+    ├─ err == nil → done + 会话摘要（最终输出）
+    └─ err != nil → failed + 错误
+  unregisterNodeSession → noteSnapshot（结束快照挂到树节点）
+
+读取：Runtime.SubAgentTree() []SubAgentTreeNode
+  - 每次调用重建只读投影（深拷贝语义），根 = "main" 合成节点
+  - 节点携带紧凑 ContextSnapshot（结束节点复用导出快照零额外成本；
+    运行中节点实时导出，单条截断 120 字符、findings ≤ 3）
+  - 孤儿节点（父已不在注册表）归到主代理下，树保持完整
+  - 纯内存态，明确不落盘（与 nodeSessions 同构）
+
+事件路径（权威 Snapshot 增量）：
+  plan 节点事件（HandlePlanNodeComplete / HandlePlanBranchEvent）在锁内
+  重新投影 service.snapshot.Runtime.SubAgentTree = Engine.SubAgentTree()；
+  collectRuntimeProjection 同样携带——GUI 经 subagent.changed / runtime.changed
+  增量收到整棵树，无需独立轮询。
+```
+
+## 8. 实施步骤
 
 ## 8. 一句话
 

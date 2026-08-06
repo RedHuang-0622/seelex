@@ -13,7 +13,7 @@
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
-| `dist/plan-dsl.js` | Plan JSON DSL 归一化和卡片渲染。 |
+| `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局渲染、子代理树视图、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 待办面板渲染（数据源 `runtime.todo_items` 权威投影）。 |
 | `dist/scheduled-tasks-view.js` | 定时周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | 从会话工具事件中收集成功完成的 `read_file` 路径，供右侧栏显示。 |
@@ -53,6 +53,10 @@ todolist 待办面板同样常驻右侧栏：数据来自 `snapshot.runtime.todo
 子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持 `worktree_creating`、`rebasing`、`merging`；节点整卡可打开详情，详情弹窗显示会话、节点时间线和工具输入/结果/错误。Plan 面板与详情页都渲染功能打点表：tasklist 的 `task_check_node` 检查点和子代理工具活动均由同一事件投影驱动。所有更新都先深拷贝 Plan 树，避免修改旧 Snapshot。
 
 详情弹窗另有「上下文」标签：展示 `SubagentSessionDetail` 返回的子代理结构化上下文快照（Goal/Progress/Findings/Decisions/Constraints/PendingWork/MessageCount/TokenEstimate，运行中实时导出、结束后快照），与会话记录、工具活动共同构成运行过程的可核验证据面；快照只含公开证据，不含 prompt 原文或秘密。
+
+Plan 渲染是树状布局（不是扁平 DAG）：`plan-dsl.js` 的 `layoutPlanTree` 从无入边根节点做 Kahn 拓扑分层（level = 到根最长路径），节点按层级缩进 + 引导字符连线（`├─`/`└─`/`│`）呈现父子关系；多入边节点（菱形 join）采用「主路径树 + 旁路标记」策略——树父节点取入边源中层最深者，其余入边渲染为「旁路」chip 引用，节点只出现一次、不死循环。无 edges 的 Plan（纯 children 嵌套）保留旧缩进契约；Kahn 未访问的环内节点按根扁平处理（环防御，深度有界）。节点卡片能力（打点表、详情弹窗、工具活动）原样保留。
+
+右侧栏 Plan section 下另有「子代理树」视图：`fork_subagents` 创建的子代理以 parent/child 链组织（数据源 `snapshot.runtime.subagent_tree`，权威 Snapshot 增量携带；后端内存态，不落盘）。树节点行显示状态着色（running/done/failed）、goal、紧凑上下文（消息数/token 估算/发现，有界截断）、会话摘要与子会话 ID，整行可点开详情弹窗；fork 子代理不在活跃 Plan 里时（计划已清除）详情弹窗回退到子代理树投影数据，会话记录/上下文仍由 `SubagentSessionDetail` 承载。
 
 `fork_subagents` 的外层工具在 summary 完成前保持运行态；这时应点击 Plan 节点查看真实进度，不能仅以 `Waiting for output…` 判定卡死。若外层工具报告子代理结果过大，详情中的会话、功能打点和工具活动才是可核验的证据面；renderer 不把过大的 `final_output` 当作完整审查结果的替代品。
 

@@ -54,11 +54,22 @@ func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) 
 // registerNodeSession 注册运行中的子代理会话（详情查看数据面）。
 // 子代理会话是独立 actor（自己的锁），运行中读取安全——与主会话无关。
 // goal 是节点目标（节点输入），NodeContextSnapshot 导出时复用。
+// 同步把会话挂到子代理树记录上（fork 节点；非 fork 节点无记录则忽略）。
 func (r *Runtime) registerNodeSession(nodeID string, sess *frameworkSession.Session, goal string) {
 	r.nodeSessionsMu.Lock()
 	r.nodeSessions[nodeID] = sess
 	r.nodeGoals[nodeID] = goal
 	r.nodeSessionsMu.Unlock()
+	r.subagentTree.noteSession(nodeID, sess)
+}
+
+// completeSubagentNode 写入 fork 子代理树的节点终态（子代理树可视化；
+// 幂等：非 fork 节点 no-op）。summary 是节点最终输出（会话摘要）。
+func (r *Runtime) completeSubagentNode(nodeID, summary string, err error) {
+	if r == nil || r.subagentTree == nil {
+		return
+	}
+	r.subagentTree.completeSubagentNode(nodeID, summary, err)
 }
 
 // unregisterNodeSession 结束注册并保留最后快照（节点结束后详情仍可看）。
@@ -78,6 +89,8 @@ func (r *Runtime) unregisterNodeSession(nodeID string) {
 		r.nodeSessionsMu.Lock()
 		r.nodeContextSnapshots[nodeID] = snap
 		r.nodeSessionsMu.Unlock()
+		// 子代理树：结束后快照挂到树节点（投影零额外导出）。
+		r.subagentTree.noteSnapshot(nodeID, snap)
 	}
 	r.nodeSessionsMu.Lock()
 	r.nodeSnapshots[nodeID] = history
@@ -176,6 +189,9 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 		defer n.runtime.unregisterNodeSession(n.ID())
 	}
 	result, err := agent.Chat(ctx, n.input.Input)
+	// 子代理树终态投影：成功 → done + 会话摘要；失败 → failed + 错误。
+	// 非 fork 节点无树记录，no-op。
+	n.runtime.completeSubagentNode(n.ID(), result, err)
 	if err == nil {
 		n.mergeBack(ctx, agent, n.input.Input)
 	}

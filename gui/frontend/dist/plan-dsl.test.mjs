@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
-const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderSubagentTree, subagentTreeNodeToDSL } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -298,4 +298,149 @@ test("renders empty context placeholder for missing or empty snapshots", () => {
   assert.match(renderNodeContext(null), /无上下文快照/);
   assert.match(renderNodeContext(undefined), /无上下文快照/);
   assert.match(renderNodeContext({}), /上下文快照为空/);
+});
+
+// ── Plan 树状布局（W2：DAG → 树）──────────────────────────────────
+
+test("lays out a parallel DAG as a tree: topological levels, main path, side refs", () => {
+  const dsl = planToDSL(parallelPlan("pending", 0));
+  const byID = Object.fromEntries(dsl.nodes.map(node => [node.id, node]));
+  assert.equal(byID.start.depth, 0);
+  assert.equal(byID.left.depth, 1);
+  assert.equal(byID.right.depth, 1);
+  assert.equal(byID.join.depth, 2); // 主路径 start → left → join（左分支层更深/边序优先）
+  assert.equal(byID.join.treeParentID, "left");
+  assert.deepEqual(byID.join.sideRefs.map(ref => ref.from), ["right"]);
+  assert.equal(byID.start.treeParentID, "");
+  assert.equal(byID.left.sideRefs.length, 0);
+  // 树序渲染顺序稳定：按 (depth, 原序) 排序。
+  assert.deepEqual(dsl.nodes.map(node => node.id), ["start", "left", "right", "join"]);
+  // 树序与状态更新正交：同图不同状态产出相同 key 序列（reconcile 稳定）。
+  const running = planToDSL(parallelPlan("running", 0.5));
+  assert.deepEqual(running.nodes.map(node => node.key), dsl.nodes.map(node => node.key));
+});
+
+test("renders tree guide characters and side-ref chips for diamond joins", () => {
+  const dsl = planToDSL(parallelPlan("pending", 0));
+  const byID = Object.fromEntries(dsl.nodes.map(node => [node.id, node]));
+  assert.equal(byID.left.treeGuide, "├─ ");
+  assert.equal(byID.right.treeGuide, "└─ ");
+  assert.equal(byID.join.treeGuide, "│  └─ ");
+  const html = renderPlanDSL(dsl);
+  assert.match(html, /data-plan-tree-guide/);
+  assert.match(html, />├─ </);
+  assert.match(html, />│\s+└─ </); // 引导字符白空格原样保留
+  assert.match(html, /data-plan-side-ref="right"/);
+  assert.match(html, />旁路 right · {&quot;when&quot;:&quot;approved&quot;}/); // chip 文本（来源 + 条件标签）
+  assert.match(html, /data-plan-tree-depth="2"/);
+});
+
+test("keeps children-nesting depth and no tree guide when a plan has no edges", () => {
+  const dsl = planToDSL({ name: "nested", status: "pending", nodes: [{ id: "fork", status: "pending", children: [{ id: "child", status: "queued" }] }] });
+  assert.deepEqual(dsl.nodes.map(node => node.depth), [0, 1]);
+  assert.equal(dsl.nodes[1].treeGuide ?? "", "");
+  assert.equal(dsl.nodes[1].treeParentID ?? "", "");
+  const html = renderPlanDSL(dsl);
+  assert.doesNotMatch(html, /data-plan-tree-guide/);
+});
+
+test("breaks DAG cycles without infinite loops and renders every node once", () => {
+  const dsl = planToDSL({
+    name: "cycle", status: "running",
+    nodes: [{ id: "a", status: "pending" }, { id: "b", status: "pending" }],
+    edges: [{ from: "a", to: "b" }, { from: "b", to: "a" }]
+  });
+  assert.equal(dsl.nodes.length, 2);
+  // 环内节点按根处理（level 0），深度有界、无 treeParent 死循环。
+  assert.deepEqual(dsl.nodes.map(node => node.depth), [0, 0]);
+  assert.ok(dsl.nodes.every(node => node.treeParentID === "" && node.treeGuide === ""));
+  const html = renderPlanDSL(dsl);
+  assert.match(html, /data-plan-node-open="a"/);
+  assert.match(html, /data-plan-node-open="b"/);
+});
+
+test("supports multiple roots and dangling edges without breaking the tree", () => {
+  const dsl = planToDSL({
+    name: "multi", status: "running",
+    nodes: [{ id: "r1", status: "pending" }, { id: "r2", status: "pending" }, { id: "x", status: "pending" }],
+    edges: [{ from: "r1", to: "x" }, { from: "ghost", to: "r2" }]
+  });
+  assert.equal(dsl.nodes.find(node => node.id === "r1").depth, 0);
+  assert.equal(dsl.nodes.find(node => node.id === "r2").depth, 0); // 悬垂入边不算层级
+  assert.equal(dsl.nodes.find(node => node.id === "x").depth, 1);
+  assert.equal(dsl.nodes.find(node => node.id === "x").treeParentID, "r1");
+  assert.doesNotThrow(() => renderPlanDSL(dsl));
+});
+
+// ── 子代理树（fork 内存态可视化）──────────────────────────────────
+
+test("renders the subagent tree with nesting guides, status colors, and escaped content", () => {
+  const html = renderSubagentTree([
+    {
+      id: "main", status: "running", children: [
+        { id: "s1", status: "running", goal: "audit <main>", children: [
+          { id: "s1a", status: "failed", goal: "deep", summary: "boom <b>", error: "oops",
+            context: { goal: "deep", progress: "60%", message_count: 12, token_estimate: 4321, findings: ["found <b>race</b>"] } }
+        ] },
+        { id: "s2", status: "done", goal: "safe", summary: "ok", session_id: "sess_0123456789abcdef" }
+      ]
+    }
+  ]);
+  assert.match(html, /data-subagent-tree/);
+  assert.match(html, /data-subagent-status="running"/);
+  assert.match(html, /data-subagent-status="done"/);
+  assert.match(html, /data-subagent-status="failed"/);
+  assert.match(html, /data-plan-node-open="s1a"/);
+  assert.match(html, /audit &lt;main&gt;/);
+  assert.doesNotMatch(html, /<main>/);
+  assert.match(html, /boom &lt;b&gt;/);
+  assert.doesNotMatch(html, /<b>boom<\/b>/);
+  assert.match(html, />├─ </); // s1 引导字符
+  assert.match(html, />│\s+└─ </); // s1a 深层引导（│ + └─）
+  assert.match(html, />└─ </); // s2 引导字符
+  assert.match(html, /主代理/);
+  assert.match(html, /sess_012…abcdef/);
+  assert.match(html, />DONE</);
+  // 紧凑上下文（消息数/token/进度/findings）挂在节点上且全部 escape。
+  assert.match(html, /12 消息/);
+  assert.match(html, /4,321 tok/);
+  assert.match(html, /60%/);
+  assert.match(html, /found &lt;b&gt;race&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /<b>race<\/b>/);
+  assert.match(html, /data-subagent-tree-context|subagent-tree-context/);
+  assert.equal(renderSubagentTree(null), "");
+  assert.equal(renderSubagentTree([]), "");
+  assert.equal(renderSubagentTree(undefined), "");
+});
+
+test("renders compact tree context only when present and escapes all text", () => {
+  const html = renderSubagentTree([{
+    id: "main", status: "running", children: [
+      { id: "plain", status: "done", goal: "g" },
+      { id: "ctx", status: "running", goal: "g2",
+        context: { progress: "<script>alert(1)</script>", findings: ["<img src=x>"] } }
+    ]
+  }]);
+  // 无 context 的节点行内不渲染上下文块（行边界内断言）。
+  const plainRow = html.slice(html.indexOf('data-plan-node-open="plain"'), html.indexOf('data-plan-node-open="ctx"'));
+  assert.doesNotMatch(plainRow, /subagent-tree-context/);
+  // 有 context 的节点渲染且 escape。
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;img src=x&gt;/);
+  assert.doesNotMatch(html, /<img src=x>/);
+});
+
+test("converts a subagent tree node into a detail DSL node", () => {
+  const done = subagentTreeNodeToDSL({ id: "s1", status: "done", goal: "goal <text>", summary: "sum", parent_id: "main" });
+  assert.equal(done.key, "s1");
+  assert.equal(done.id, "s1");
+  assert.equal(done.status, "completed");
+  assert.equal(done.label, "goal <text>");
+  assert.equal(done.output, "sum");
+  assert.equal(done.parentKey, "main");
+  assert.equal(subagentTreeNodeToDSL({ id: "x", status: "failed" }).status, "failed");
+  assert.equal(subagentTreeNodeToDSL({ id: "y", status: "running" }).status, "running");
+  assert.equal(subagentTreeNodeToDSL({ id: "z" }).status, "unknown"); // 未知状态 → unknown 徽标
+  assert.equal(subagentTreeNodeToDSL({ status: "done" }).key, ""); // 缺 id → 空 key
 });

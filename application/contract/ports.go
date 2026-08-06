@@ -47,6 +47,9 @@ type ChatEngine interface {
 	// Findings/Decisions/TokenEstimate 等；运行中实时导出、结束后快照；
 	// 只读子代理 actor，安全）。
 	NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)
+	// SubAgentTree 返回 fork 子代理树的只读投影（内存态，不落盘；
+	// GUI 树视图数据源，经权威 Snapshot 增量携带）。
+	SubAgentTree() []seelebridge.SubAgentTreeNode
 }
 type RuntimePort interface {
 	Model() string

@@ -78,6 +78,9 @@ export function planToDSL(plan) {
     });
   }
 
+  // 树状布局（W2）：DAG 归一化为树——拓扑分层 + 主路径树 + 旁路标记。
+  layoutPlanTree(nodes, edges);
+
   const progress = clamp(finiteNumber(plan.progress) ?? 0, 0, 1);
   const entryNodeID = textValue(plan.entry_node_id);
   const name = textValue(plan.name, entryNodeID || "Plan");
@@ -100,6 +103,139 @@ export function planToDSL(plan) {
     nodes,
     edges
   };
+}
+
+// layoutPlanTree 把 Plan DAG 归一化为树状布局（层级缩进 + 连线渲染）：
+//
+//  1. 分层：从无入边根节点做 Kahn 拓扑遍历，level = 到根的最长路径层数；
+//  2. 主路径：多入边节点（菱形 join）的树父节点取"入边源中层最深者"（并列
+//     取边序第一个），其余入边记为旁路（sideRefs → 渲染"旁路"chip）——节点
+//     只渲染一次（主路径树 + 旁路引用），不死循环；
+//  3. 深度沿主路径递推（visited 防环；Kahn 未访问的环内节点按根处理）；
+//  4. 引导字符：父级 "│  " + 自身 "├─ "/"└─ "（层级连线文本）。
+//
+// 无 edges 时保留 children 嵌套深度（旧契约：嵌套 children 即层级）。
+// 副作用：改写每个 node 的 depth/treeParentID/sideRefs/treeGuide，并按
+// (depth, 原序) 稳定排序 nodes（树序渲染；reconcile key 不受影响）。
+function layoutPlanTree(nodes, edges) {
+  const byID = new Map();
+  nodes.forEach(node => byID.set(node.id, node));
+  // 没有"可用边"（全悬垂）时回退 children 嵌套深度（旧契约）。
+  if (!edges.some(edge => byID.has(edge.from) && byID.has(edge.to))) return;
+  const indegree = new Map(nodes.map(node => [node.id, 0]));
+  const out = new Map(nodes.map(node => [node.id, []]));
+  edges.forEach(edge => {
+    if (!byID.has(edge.from) || !byID.has(edge.to)) return;
+    indegree.set(edge.to, indegree.get(edge.to) + 1);
+    out.get(edge.from).push(edge);
+  });
+
+  // 1) 拓扑分层（Kahn；level = 到根的最长路径）。
+  const level = new Map(nodes.map(node => [node.id, 0]));
+  const queue = nodes.filter(node => !indegree.get(node.id)).map(node => node.id);
+  const visited = new Set();
+  while (queue.length) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    out.get(id).forEach(edge => {
+      const remaining = indegree.get(edge.to) - 1;
+      indegree.set(edge.to, remaining);
+      level.set(edge.to, Math.max(level.get(edge.to), level.get(id) + 1));
+      if (remaining === 0) queue.push(edge.to);
+    });
+  }
+
+  // 2) 主路径父节点 + 旁路入边。
+  const treeParentOf = new Map(); // id → 树父节点 id
+  const sideRefsOf = new Map();   // id → [旁路边]
+  nodes.forEach(node => {
+    const incoming = edges.filter(edge => edge.to === node.id && byID.has(edge.from));
+    if (!incoming.length) return;
+    let best = incoming[0];
+    let bestLevel = -1;
+    const rest = [];
+    incoming.forEach(edge => {
+      const fromLevel = level.get(edge.from) ?? -1;
+      if (fromLevel > bestLevel) {
+        if (bestLevel >= 0) rest.push(best);
+        best = edge;
+        bestLevel = fromLevel;
+      } else {
+        rest.push(edge);
+      }
+    });
+    treeParentOf.set(node.id, best.from);
+    sideRefsOf.set(node.id, rest);
+  });
+
+  // 3) 深度沿主路径递推（visited 防环 → 环内节点按根处理）。
+  const depth = new Map();
+  const computeDepth = (id, path) => {
+    if (depth.has(id)) return depth.get(id);
+    if (path.has(id)) return 0;
+    path.add(id);
+    const parent = treeParentOf.get(id);
+    const value = parent ? computeDepth(parent, path) + 1 : 0;
+    depth.set(id, value);
+    path.delete(id);
+    return value;
+  };
+  nodes.forEach(node => computeDepth(node.id, new Set()));
+
+  // 4) 引导字符（层级连线）：父级 "│  "（父有后继兄弟）/ "   "，自身
+  //    "├─ "（非最后子节点）/ "└─ "（最后子节点）。
+  const childrenOf = new Map();
+  treeParentOf.forEach((parent, id) => {
+    if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+    childrenOf.get(parent).push(id);
+  });
+  const guide = new Map();
+  nodes.forEach(node => {
+    if (!visited.has(node.id)) return; // 环内/不可达：扁平处理（无引导字符）
+    const stack = [];
+    let id = node.id;
+    let parent = treeParentOf.get(id);
+    const seen = new Set(); // 防环：主路径链进入环时截断
+    while (parent && !seen.has(id)) {
+      seen.add(id);
+      const siblings = childrenOf.get(parent) || [];
+      const isLast = siblings[siblings.length - 1] === id;
+      const hasNext = siblings.some(sibling => sibling !== id);
+      stack.push({ isLast, hasNext });
+      id = parent;
+      parent = treeParentOf.get(id);
+    }
+    const chars = [];
+    for (let index = stack.length - 1; index >= 0; index--) {
+      const step = stack[index];
+      if (index === 0) chars.push(step.isLast ? "└─ " : "├─ ");
+      else chars.push(step.hasNext ? "│  " : "   ");
+    }
+    guide.set(node.id, chars.join(""));
+  });
+
+  nodes.forEach(node => {
+    if (!visited.has(node.id)) {
+      // 环内/不可达节点：按根扁平处理（不参与主路径树，避免死循环）。
+      node.depth = 0;
+      node.treeParentID = "";
+      node.sideRefs = [];
+      node.treeGuide = "";
+      return;
+    }
+    node.depth = Math.min(depth.get(node.id) ?? 0, 12);
+    node.treeParentID = treeParentOf.get(node.id) || "";
+    node.sideRefs = (sideRefsOf.get(node.id) || []).map(edge => ({
+      key: edge.key,
+      from: edge.from,
+      label: edge.label || edge.condition || ""
+    }));
+    node.treeGuide = guide.get(node.id) || "";
+  });
+  // 树序渲染：按 (depth, 原序) 稳定排序（reconcile key 不变，仅移动 DOM）。
+  const order = new Map(nodes.map((node, index) => [node.key, index]));
+  nodes.sort((left, right) => (left.depth - right.depth) || (order.get(left.key) - order.get(right.key)));
 }
 
 export function renderPlanDSL(dsl) {
@@ -213,8 +349,10 @@ function renderNode(node) {
   const status = statusToken(node.status);
   const output = outputSummary(node.output);
   const branches = renderOutgoing(node);
-  return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-node-open="${escapeHTML(node.key)}" data-plan-status="${status}" style="--plan-indent:${node.depth * 9}px" tabindex="0" role="button" aria-label="查看节点 ${escapeHTML(node.label)} 的详情">
-    <div class="plan-node-connector" aria-hidden="true"><i></i><span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span></div>
+  const sideRefs = renderSideRefs(node);
+  const guide = node.treeGuide ? `<span class="plan-tree-guide" data-plan-tree-guide>${escapeHTML(node.treeGuide)}</span>` : "";
+  return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-node-open="${escapeHTML(node.key)}" data-plan-status="${status}" data-plan-tree-depth="${node.depth}" style="--plan-indent:${node.depth * 9}px" tabindex="0" role="button" aria-label="查看节点 ${escapeHTML(node.label)} 的详情">
+    <div class="plan-node-connector" aria-hidden="true">${guide}<i></i><span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span></div>
     <div class="plan-node-card">
       <header class="plan-node-head">
         <strong data-plan-node-field="label" title="${escapeHTML(node.label)}">${escapeHTML(node.label)}</strong>
@@ -225,9 +363,21 @@ function renderNode(node) {
       </header>
       <div class="plan-node-deps${node.incoming.length ? "" : " hidden"}" data-plan-node-field="deps">${renderDependencies(node)}</div>
       ${branches ? `<div class="plan-node-branches" data-plan-node-field="branches">${branches}</div>` : ""}
+      <div class="plan-node-side${sideRefs ? "" : " hidden"}" data-plan-node-field="side">${sideRefs}</div>
       <div class="plan-node-output${output ? "" : " hidden"}" data-plan-node-field="output" title="${escapeHTML(node.output)}">${escapeHTML(output)}</div>
     </div>
   </article>`;
+}
+
+// renderSideRefs 渲染多入边节点的旁路标记（树主路径之外的其他入边来源）。
+// DAG 菱形 join 只出现在主路径树中一次，旁路入边以 chip 引用呈现，不复制节点。
+// label 来自边条件/标签（未信任输入），必须 escape。
+function renderSideRefs(node) {
+  if (!node.sideRefs?.length) return "";
+  return node.sideRefs.map(ref => {
+    const detail = ref.label ? ` · ${escapeHTML(ref.label)}` : "";
+    return `<span class="plan-side-ref" data-plan-side-ref="${escapeHTML(ref.from)}" title="旁路来源 ${escapeHTML(ref.from)}${detail}">旁路 ${escapeHTML(ref.from)}${detail}</span>`;
+  }).join("");
 }
 
 // renderOutgoing 渲染节点下游分支（Dify 树语义核心）：每个 outgoing 边一行
@@ -251,8 +401,17 @@ function updateNode(element, node) {
   element.className = `plan-dsl-node is-${status}`;
   element.dataset.planStatus = status;
   element.dataset.planNodeOpen = node.key;
+  element.dataset.planTreeDepth = String(node.depth);
   element.setAttribute("aria-label", `查看节点 ${node.label} 的详情`);
   element.style.setProperty("--plan-indent", `${node.depth * 9}px`);
+  const connector = element.querySelector(".plan-node-connector");
+  const guide = connector?.querySelector("[data-plan-tree-guide]");
+  if (node.treeGuide) {
+    if (!guide && connector) connector.insertAdjacentHTML("afterbegin", `<span class="plan-tree-guide" data-plan-tree-guide>${escapeHTML(node.treeGuide)}</span>`);
+    else if (guide) guide.textContent = node.treeGuide;
+  } else {
+    guide?.remove();
+  }
   const dot = element.querySelector(".plan-dot");
   if (dot) dot.textContent = statusSymbol(node.status);
   setNodeText(element, "label", node.label);
@@ -284,6 +443,12 @@ function updateNode(element, node) {
     const markup = renderOutgoing(node);
     if (branches.innerHTML !== markup) branches.innerHTML = markup;
     branches.classList.toggle("hidden", !markup);
+  }
+  const side = element.querySelector('[data-plan-node-field="side"]');
+  if (side) {
+    const markup = renderSideRefs(node);
+    if (side.innerHTML !== markup) side.innerHTML = markup;
+    side.classList.toggle("hidden", !markup);
   }
 }
 
@@ -698,4 +863,121 @@ function formatEventTime(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleTimeString([], { hour12: false });
+}
+
+// ── 子代理树（fork 内存态可视化；数据源 snapshot.runtime.subagent_tree）──
+
+// renderSubagentTree 渲染 fork 子代理树：层级缩进 + 连线字符 + 状态着色 +
+// goal/会话摘要；树节点行整行可点开详情弹窗（data-plan-node-open 复用
+// 既有节点详情入口；会话记录/上下文经 SubagentSessionDetail 拉取）。
+// 全部文本 escape；空树返回 ""（外层隐藏 section）。
+export function renderSubagentTree(nodes) {
+  if (!Array.isArray(nodes) || !nodes.length) return "";
+  const rows = [];
+  const walk = (items, depth, bars) => {
+    items.forEach((item, index) => {
+      if (!isRecord(item)) return;
+      const isLast = index === items.length - 1;
+      const children = Array.isArray(item.children) ? item.children : [];
+      const prefix = depth === 0 ? "" : `${bars}${isLast ? "└─ " : "├─ "}`;
+      const nextBars = depth === 0 ? "" : `${bars}${isLast ? "   " : "│  "}`;
+      rows.push(renderSubagentTreeRow(item, prefix));
+      walk(children, depth + 1, nextBars);
+    });
+  };
+  walk(nodes, 0, "");
+  return `<section class="subagent-tree" data-subagent-tree>
+    <header class="subagent-tree-head">
+      <strong>子代理树</strong>
+      <span class="subagent-tree-count">${rows.length} 节点</span>
+      <small>fork 子代理 · 内存态实时投影</small>
+    </header>
+    <div class="subagent-tree-rows" data-subagent-tree-rows>${rows.join("")}</div>
+  </section>`;
+}
+
+// renderSubagentTreeRow 渲染一个树节点行（id + 状态 + goal/摘要/错误 +
+// 紧凑上下文）。
+function renderSubagentTreeRow(item, guide) {
+  const status = normalizeSubagentStatus(item.status);
+  const goal = outputSummary(item.goal);
+  const summary = outputSummary(item.summary);
+  const error = outputSummary(item.error);
+  const label = item.id === "main" ? "主代理" : item.id;
+  return `<div class="subagent-tree-row is-${status}" data-subagent-row data-plan-node-open="${escapeHTML(item.id)}" data-subagent-status="${status}">
+    <span class="subagent-tree-guide" aria-hidden="true">${escapeHTML(guide)}</span>
+    <span class="plan-dot" aria-hidden="true">${escapeHTML(statusSymbol(subagentStatusToken(status)))}</span>
+    <div class="subagent-tree-card">
+      <header class="subagent-tree-headline">
+        <strong title="${escapeHTML(item.id)}">${escapeHTML(label)}</strong>
+        <span class="plan-kind">${escapeHTML(statusLabel(subagentStatusToken(status)))}</span>
+        ${item.session_id ? `<span class="subagent-session" title="${escapeHTML(item.session_id)}">${escapeHTML(shortSessionID(item.session_id))}</span>` : ""}
+      </header>
+      ${goal ? `<div class="subagent-tree-goal" title="${escapeHTML(item.goal)}">${escapeHTML(goal)}</div>` : ""}
+      ${renderSubagentTreeContext(item.context)}
+      ${summary ? `<div class="subagent-tree-summary" title="${escapeHTML(item.summary)}">${escapeHTML(summary)}</div>` : ""}
+      ${error ? `<div class="subagent-tree-error" title="${escapeHTML(item.error)}">${escapeHTML(error)}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+// renderSubagentTreeContext 渲染节点的紧凑上下文（ContextSnapshot 有界投影：
+// 消息数/token 估算/发现；全部 escape）。
+function renderSubagentTreeContext(context) {
+  if (!isRecord(context)) return "";
+  const meta = [
+    context.message_count != null ? `${context.message_count} 消息` : "",
+    context.token_estimate ? `${formatNumber(context.token_estimate)} tok` : ""
+  ].filter(Boolean);
+  const findings = Array.isArray(context.findings) ? context.findings.map(outputSummary).filter(Boolean) : [];
+  if (!meta.length && !findings.length && !context.progress) return "";
+  return `<div class="subagent-tree-context">
+    ${meta.length ? `<span class="subagent-tree-meta">${escapeHTML(meta.join(" · "))}</span>` : ""}
+    ${context.progress ? `<span class="subagent-tree-meta">${escapeHTML(outputSummary(context.progress))}</span>` : ""}
+    ${findings.length ? `<ul class="subagent-tree-findings">${findings.map(finding => `<li title="${escapeHTML(finding)}">${escapeHTML(finding)}</li>`).join("")}</ul>` : ""}
+  </div>`;
+}
+
+// subagentTreeNodeToDSL 把子代理树投影节点转换为详情弹窗可渲染的 DSL 节点
+// （fork 节点不在 Plan 快照里时（计划已清除）详情弹窗仍可打开：会话记录/
+// 上下文由 SubagentSessionDetail 数据面承载）。
+export function subagentTreeNodeToDSL(treeNode) {
+  const id = textValue(treeNode?.id);
+  const status = normalizeSubagentStatus(treeNode?.status);
+  return {
+    type: "node",
+    key: id,
+    id,
+    parentKey: textValue(treeNode?.parent_id),
+    label: outputSummary(treeNode?.goal) || id || "子代理",
+    kind: "agent",
+    status: subagentStatusToken(status),
+    depth: 0,
+    elapsed: "",
+    output: textValue(treeNode?.summary),
+    events: [],
+    toolEvents: [],
+    incoming: [],
+    outgoing: [],
+    mode: "plan"
+  };
+}
+
+// normalizeSubagentStatus 校验子代理树状态（running/done/failed；非法 → unknown）。
+function normalizeSubagentStatus(value) {
+  const status = textValue(value).toLowerCase();
+  return status === "running" || status === "done" || status === "failed" ? status : "unknown";
+}
+
+// subagentStatusToken 把子代理树状态映射到既有节点状态 token（状态徽标/
+// 符号复用 plan-dsl 的状态表）。
+function subagentStatusToken(status) {
+  return ({ running: "running", done: "completed", failed: "failed" })[status] || "unknown";
+}
+
+// shortSessionID 截断会话 ID（显示用；完整 ID 在 title 提示里）。
+function shortSessionID(sessionID) {
+  const value = String(sessionID || "");
+  if (value.length <= 16) return value;
+  return `${value.slice(0, 8)}…${value.slice(-6)}`;
 }

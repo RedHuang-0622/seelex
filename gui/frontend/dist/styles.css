@@ -572,6 +572,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-dsl-node.is-queued .plan-dot, .plan-dsl-node.is-running .plan-dot, .plan-dsl-node.is-worktree_creating .plan-dot, .plan-dsl-node.is-rebasing .plan-dot, .plan-dsl-node.is-merging .plan-dot { border-color: #6d5920; color: #efc347; background: #211d11; }
 .plan-dsl-node.is-completed .plan-dot, .plan-dsl-node.is-skipped .plan-dot { border-color: #3d6648; color: #83c393; background: #132018; }
 .plan-dsl-node.is-failed .plan-dot, .plan-dsl-node.is-aborted .plan-dot, .plan-dsl-node.is-canceled .plan-dot, .plan-dsl-node.is-panicked .plan-dot { border-color: #6c3a3a; color: #df8585; background: #251515; }
+.plan-tree-guide { position: relative; z-index: 1; flex: none; padding: 1px 0 0 4px; color: #4a4a4a; font: 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
+.plan-node-side { display: flex; flex-wrap: wrap; gap: 3px; padding-top: 4px; }
+.plan-side-ref { padding: 1px 5px; border: 1px solid #2d3f4d; border-radius: 4px; color: #79a9d1; background: #131a21; font: 700 7px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
 .plan-node-card { min-width: 0; padding: 7px 8px; border: 1px solid #282828; border-radius: 7px; background: #151515; transition: border-color .16s ease, background .16s ease; }
 .plan-dsl-node.is-running .plan-node-card, .plan-dsl-node.is-worktree_creating .plan-node-card, .plan-dsl-node.is-rebasing .plan-node-card, .plan-dsl-node.is-merging .plan-node-card { border-color: #5b4b1d; background: #1c1a12; }
 .plan-dsl-node.is-completed .plan-node-card { border-color: #2d4634; }
@@ -666,6 +669,33 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .plan-edge.is-completed { border-color: #2d4935; color: #72a87f; }
 .plan-edge.is-failed, .plan-edge.is-dangling { border-color: #563131; color: #c36f6f; }
 .plan-edge small { max-width: 120px; overflow: hidden; color: var(--faint); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
+/* ── 子代理树（fork 内存态；数据源 runtime.subagent_tree）────────── */
+.subagent-tree-view { padding: 0 10px 10px; }
+.subagent-tree { border: 1px solid #262626; border-radius: 7px; overflow: hidden; background: #101010; }
+.subagent-tree-head { display: flex; align-items: baseline; gap: 7px; padding: 7px 9px; border-bottom: 1px solid #222; }
+.subagent-tree-head strong { color: #b9cbbd; font: 750 8px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.subagent-tree-head small { overflow: hidden; color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-tree-count { display: grid; place-items: center; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; color: #93c4a0; background: #18301f; font: 750 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.subagent-tree-rows { display: grid; gap: 2px; padding: 6px 7px 7px; }
+.subagent-tree-row { display: grid; grid-template-columns: minmax(10px, 26px) 15px minmax(0, 1fr); gap: 5px; align-items: start; min-width: 0; padding: 4px 5px; border-radius: 6px; cursor: pointer; }
+.subagent-tree-row:hover { background: #181818; }
+.subagent-tree-guide { padding-top: 5px; color: #454545; font: 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-align: right; white-space: pre; }
+.subagent-tree-row .plan-dot { border-color: #3a3a3a; color: var(--faint); background: #151515; }
+.subagent-tree-row.is-running .plan-dot { border-color: #6d5920; color: #efc347; background: #211d11; }
+.subagent-tree-row.is-done .plan-dot { border-color: #3d6648; color: #83c393; background: #132018; }
+.subagent-tree-row.is-failed .plan-dot { border-color: #6c3a3a; color: #df8585; background: #251515; }
+.subagent-tree-card { min-width: 0; }
+.subagent-tree-headline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.subagent-tree-headline strong { min-width: 0; overflow: hidden; color: #c9c9c9; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-session { margin-left: auto; flex: none; max-width: 90px; overflow: hidden; color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-tree-goal, .subagent-tree-summary, .subagent-tree-error { margin-top: 3px; overflow: hidden; color: #888; font: 8px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-tree-context { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 3px; }
+.subagent-tree-meta { color: #6b8ea6; font: 700 7px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
+.subagent-tree-findings { display: flex; flex-wrap: wrap; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.subagent-tree-findings li { max-width: 100%; overflow: hidden; padding: 1px 5px; border: 1px solid #2d3f4d; border-radius: 4px; color: #79a9d1; background: #131a21; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-tree-error { color: #c36f6f; }
+.subagent-tree-row.is-running .subagent-tree-goal { color: #d5ae3c; }
+
 .plan-tree { padding: 8px 12px 10px; }
 .plan-tree-node { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px; border-radius: 4px; font-size: 11px; }
 .plan-tree-line { display: flex; align-items: center; flex: none; }

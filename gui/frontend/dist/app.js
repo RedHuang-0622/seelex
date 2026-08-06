@@ -3,7 +3,7 @@ import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
-import { planToDSL, reconcilePlanDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs } from "./plan-dsl.js";
+import { planToDSL, reconcilePlanDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, renderSubagentTree, subagentTreeNodeToDSL } from "./plan-dsl.js";
 import { collectReadFileSources } from "./read-sources.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
@@ -27,7 +27,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -94,7 +94,7 @@ function render(snapshot, options = {}) {
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
   chatView.render(snapshot, options.scrollMode);
-  renderPlan(snapshot.runtime?.plan);
+  renderPlan(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
   renderTodo(snapshot.runtime?.todo_items);
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
@@ -116,7 +116,7 @@ function renderIncremental(snapshot, kind) {
     renderRuntime(snapshot.runtime || {});
     renderPlugins(snapshot.runtime || {});
     renderAccounts(snapshot.runtime || {});
-    renderPlan(snapshot.runtime?.plan);
+    renderPlan(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     renderTodo(snapshot.runtime?.todo_items);
     renderScheduledTaskPanel(snapshot.runtime || {});
     renderSkills(snapshot.runtime?.skills || []);
@@ -124,7 +124,7 @@ function renderIncremental(snapshot, kind) {
     return;
   }
   if (["subagent.changed", "subagent.tool.started", "subagent.tool.completed"].includes(kind)) {
-    renderPlan(snapshot.runtime?.plan);
+    renderPlan(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     if (activeNodeDetailKey) refreshOpenNodeDetail();
     return;
   }
@@ -289,12 +289,34 @@ function renderSkills(skills) {
 
 // lastPlanDsl 保存最近一次渲染的 Plan DSL（节点详情弹窗的数据源；
 // 权威 JSON 来自 snapshot.runtime.plan，弹窗只读展示）。
+// lastSubagentTree 保存子代理树投影（snapshot.runtime.subagent_tree；
+// fork 节点不在 Plan 快照里时详情弹窗的兜底数据源）。
 let lastPlanDsl = null;
+let lastSubagentTree = [];
 
-function renderPlan(plan) {
+function renderPlan(plan, subagentTree = null) {
   elements["plan-section"].classList.toggle("hidden", !plan);
   lastPlanDsl = planToDSL(plan);
   reconcilePlanDSL(elements["plan-view"], lastPlanDsl);
+  lastSubagentTree = Array.isArray(subagentTree) ? subagentTree : [];
+  const container = elements["subagent-tree-view"];
+  if (!container) return;
+  container.innerHTML = renderSubagentTree(lastSubagentTree);
+  container.classList.toggle("hidden", !lastSubagentTree.length);
+}
+
+// findSubagentTreeNode 在子代理树投影里按 id 找节点（含嵌套 children）。
+function findSubagentTreeNode(nodeID) {
+  const walk = items => {
+    for (const item of items || []) {
+      if (!item || typeof item !== "object") continue;
+      if (item.id === nodeID) return item;
+      const found = walk(item.children);
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(lastSubagentTree);
 }
 
 // renderTodo 渲染 todolist 待办面板：数据来自 snapshot.runtime.todo_items
@@ -323,14 +345,24 @@ let activeNodeDetailKey = "";
 let activeNodeDetailID = "";
 let nodeDetailGeneration = 0;
 
-async function openNodeDetail(nodeKey) {
+// resolveNodeForDetail 解析详情弹窗的节点数据：优先 Plan DSL（活跃 Plan 的
+// 权威投影）；fork 子代理节点在 Plan 已清除时回退到子代理树投影（会话记录/
+// 上下文仍由 SubagentSessionDetail 数据面承载）。
+function resolveNodeForDetail(nodeKey) {
   const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === nodeKey);
+  if (node) return node;
+  const treeNode = findSubagentTreeNode(nodeKey);
+  return treeNode ? subagentTreeNodeToDSL(treeNode) : null;
+}
+
+async function openNodeDetail(nodeKey) {
+  const node = resolveNodeForDetail(nodeKey);
   if (!node) return;
-  const dsl = lastPlanDsl;
   activeNodeDetailKey = nodeKey;
   activeNodeDetailID = node.id;
   const generation = nodeDetailGeneration += 1;
-  const rendered = renderNodeDetail({ ...node, mode: dsl.mode });
+  // Plan DSL 节点带 plan/tasklist 模式徽标；子代理树投影节点固定 plan 模式。
+  const rendered = renderNodeDetail({ ...node, mode: node.mode || lastPlanDsl?.mode || "plan" });
   elements["node-detail-content"].innerHTML = rendered;
   elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
   bindNodeDetailTabs(elements["node-detail-content"]);
@@ -339,10 +371,10 @@ async function openNodeDetail(nodeKey) {
 }
 
 function refreshOpenNodeDetail() {
-  const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === activeNodeDetailKey);
+  const node = resolveNodeForDetail(activeNodeDetailKey);
   if (!node) return;
   const selectedTab = elements["node-detail-content"].querySelector("[data-node-tab].is-active")?.dataset.nodeTab || "conversation";
-  elements["node-detail-content"].innerHTML = renderNodeDetail({ ...node, mode: lastPlanDsl.mode });
+  elements["node-detail-content"].innerHTML = renderNodeDetail({ ...node, mode: node.mode || lastPlanDsl?.mode || "plan" });
   bindNodeDetailTabs(elements["node-detail-content"]);
   const selected = elements["node-detail-content"].querySelector(`[data-node-tab="${selectedTab}"]`);
   selected?.click();

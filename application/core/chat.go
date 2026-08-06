@@ -818,6 +818,9 @@ func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) 
 		}
 		recalculatePlanProgress(plan)
 	}
+	// 子代理树投影：fork 子代理生命周期与 plan 节点事件同源（queued/running/
+	// completed），树状态随权威 Snapshot 增量刷新（内存态，不落盘）。
+	service.snapshot.Runtime.SubAgentTree = service.deps.Engine.SubAgentTree()
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
 	var changed SubagentEvent
@@ -885,6 +888,8 @@ func (service *Service) HandlePlanBranchEvent(event seelebridge.PlanBranchEvent)
 		plan.Status = PlanFailed
 	}
 	recalculatePlanProgress(plan)
+	// 子代理树投影：分支生命周期（queued/started/failed）同样刷新树状态。
+	service.snapshot.Runtime.SubAgentTree = service.deps.Engine.SubAgentTree()
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
 	var changed SubagentEvent

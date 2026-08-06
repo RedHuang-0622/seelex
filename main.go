@@ -166,6 +166,8 @@ func run() error {
 	// actor，安全——运行中实时导出、结束后快照）。
 	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
 	appEngine.SetNodeContextProvider(runtime.NodeContextSnapshot)
+	// 子代理树投影（fork 内存态，GUI 树视图数据源；权威 Snapshot 增量携带）。
+	appEngine.SetSubAgentTreeProvider(runtime.SubAgentTree)
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo, err := initWorkspaceRepo()
 	if err != nil {

@@ -120,14 +120,18 @@ type Runtime struct {
 	nodeSnapshots        map[string][]types.Message
 	nodeGoals            map[string]string
 	nodeContextSnapshots map[string]*snapshot.ContextSnapshot
-	toolCallTimeout      time.Duration
-	bashObserverMu       sync.RWMutex
-	bashObserver         BashDiagnosticObserver
-	planDecisionTimeout  time.Duration
-	approvalTimeout      time.Duration
-	heartbeatInterval    time.Duration
-	limits               seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
-	scopedToolsReady     bool
+	// subagentTree 是 fork 子代理树注册表（内存态，不落盘）：fork 创建子代理
+	// 时记录 parent/child 链与节点状态/goal/会话摘要，GUI 树视图经
+	// Runtime.SubAgentTree() 读取（subagent_tree.go）。
+	subagentTree        *subagentTreeState
+	toolCallTimeout     time.Duration
+	bashObserverMu      sync.RWMutex
+	bashObserver        BashDiagnosticObserver
+	planDecisionTimeout time.Duration
+	approvalTimeout     time.Duration
+	heartbeatInterval   time.Duration
+	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
+	scopedToolsReady    bool
 
 	pluginMu     sync.RWMutex
 	pluginDefs   map[string]pluginDef
@@ -267,6 +271,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		nodeSnapshots:        make(map[string][]types.Message),
 		nodeGoals:            make(map[string]string),
 		nodeContextSnapshots: make(map[string]*snapshot.ContextSnapshot),
+		subagentTree:         newSubagentTreeState(),
 		subagentMailbox:      make(chan string, mailboxSize),
 
 		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),

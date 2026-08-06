@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -209,6 +210,7 @@ func (*ScriptedEngine) NodeSessionConversation(string) ([]types.Message, bool) {
 func (*ScriptedEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
 	return nil, false
 }
+func (*ScriptedEngine) SubAgentTree() []seelebridge.SubAgentTreeNode { return nil }
 
 func (engine *ScriptedEngine) Remaining() int {
 	engine.mu.Lock()

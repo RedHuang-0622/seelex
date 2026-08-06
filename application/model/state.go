@@ -110,6 +110,9 @@ type RuntimeState struct {
 	TodoItems         []seelebridge.TodoItem             `json:"todo_items,omitempty"`         // todolist 清单（GUI 待办面板）
 	ScheduledTasks    []seelebridge.ScheduledTaskStatus  `json:"scheduled_tasks,omitempty"`    // 定时周期任务（GUI 定时任务面板）
 	ScheduledCommands []seelebridge.ScheduledCommandInfo `json:"scheduled_commands,omitempty"` // 白名单命令（新建弹窗下拉）
+	// SubAgentTree 是 fork 子代理树的权威投影（内存态，不落盘；GUI 树视图
+	// 数据源）。节点状态由 fork 子代理会话生命周期投影，随节点事件增量刷新。
+	SubAgentTree []seelebridge.SubAgentTreeNode `json:"subagent_tree,omitempty"`
 }
 
 // ReplanMonitor exposes bounded recovery-planning usage without exposing
@@ -437,7 +440,20 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 		planCopy.Edges = append([]seelebridge.PlanEdge(nil), runtime.Plan.Edges...)
 		copyRuntime.Plan = &planCopy
 	}
+	copyRuntime.SubAgentTree = cloneSubAgentTree(runtime.SubAgentTree)
 	return copyRuntime
+}
+
+// cloneSubAgentTree 深拷贝子代理树投影（快照克隆不改旧快照的契约）。
+func cloneSubAgentTree(nodes []seelebridge.SubAgentTreeNode) []seelebridge.SubAgentTreeNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	cloned := append([]seelebridge.SubAgentTreeNode(nil), nodes...)
+	for index := range cloned {
+		cloned[index].Children = cloneSubAgentTree(nodes[index].Children)
+	}
+	return cloned
 }
 
 func clonePlanNodes(nodes []PlanNode) []PlanNode {

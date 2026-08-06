@@ -35,6 +35,7 @@ type fakeEngine struct {
 	maxLoops          int
 	releaseCalls      int
 	nodeContext       *snapshot.ContextSnapshot
+	subAgentTree      []seelebridge.SubAgentTreeNode
 }
 
 type sessionBackedBlockingEngine struct {
@@ -244,6 +245,11 @@ func (engine *fakeEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot
 		return nil, false
 	}
 	return engine.nodeContext, true
+}
+func (engine *fakeEngine) SubAgentTree() []seelebridge.SubAgentTreeNode {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	return append([]seelebridge.SubAgentTreeNode(nil), engine.subAgentTree...)
 }
 func (engine *fakeEngine) ReleaseWorkingHistory() {
 	engine.mu.Lock()

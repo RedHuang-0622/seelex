@@ -54,6 +54,7 @@ func (service *viewCoordinator) collectRuntimeProjection(ctx context.Context) ru
 			TodoItems:         append([]seelebridge.TodoItem(nil), service.deps.Runtime.TodoSnapshot()...),
 			ScheduledTasks:    append([]seelebridge.ScheduledTaskStatus(nil), service.deps.Runtime.ScheduledTasksSnapshot()...),
 			ScheduledCommands: append([]seelebridge.ScheduledCommandInfo(nil), service.deps.Runtime.ScheduledCommands()...),
+			SubAgentTree:      service.deps.Engine.SubAgentTree(),
 		},
 	}
 	metrics := service.deps.Runtime.ReplanMetrics()
