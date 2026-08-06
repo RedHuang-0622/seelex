@@ -8,6 +8,7 @@ import (
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 )
 
 func NewHarnessRunner(value Scenario) (*Runner, error) {
@@ -125,6 +126,9 @@ func (harnessRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpe
 	return nil, nil
 }
 func (harnessRuntime) CancelScheduledTask(string) error { return nil }
+func (harnessRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
+	return seelexctxsearch.Result{}, nil
+}
 
 type harnessPlugins struct {
 	mu      sync.Mutex

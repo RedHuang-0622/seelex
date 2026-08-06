@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -275,6 +276,8 @@ type fakeRuntime struct {
 	scheduledSpecs []seelebridge.ScheduledTaskSpec
 	cancelledTasks []string
 	scheduleErr    error
+	searchResult   seelexctxsearch.Result
+	searchErr      error
 }
 
 func (*fakeRuntime) Model() string    { return "test-model" }
@@ -347,6 +350,9 @@ func (runtime *fakeRuntime) CancelScheduledTask(id string) error {
 		}
 	}
 	return nil
+}
+func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error) {
+	return runtime.searchResult, runtime.searchErr
 }
 func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
 	runtime.projectRoot = rootPath

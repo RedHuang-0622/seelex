@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -115,6 +116,9 @@ func (*guiChainRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskS
 	return nil, nil
 }
 func (*guiChainRuntime) CancelScheduledTask(string) error { return nil }
+func (*guiChainRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
+	return seelexctxsearch.Result{}, nil
+}
 
 type guiChainPlugins struct{}
 

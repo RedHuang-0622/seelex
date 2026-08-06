@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -36,6 +37,9 @@ type fakeApplication struct {
 	resumedSession   string
 	scheduledSpec    seelebridge.ScheduledTaskSpec
 	cancelledTaskID  string
+	searchQuery      string
+	searchLimit      int
+	searchResult     seelexctxsearch.Result
 }
 
 type staleCancelApplication struct {
@@ -135,6 +139,11 @@ func (fake *fakeApplication) ScheduleTask(_ context.Context, spec seelebridge.Sc
 func (fake *fakeApplication) CancelScheduledTask(id string) error {
 	fake.cancelledTaskID = id
 	return nil
+}
+func (fake *fakeApplication) SearchHistory(_ context.Context, query string, limit int) (seelexctxsearch.Result, error) {
+	fake.searchQuery = query
+	fake.searchLimit = limit
+	return fake.searchResult, nil
 }
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
@@ -265,6 +274,31 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 	}
 	if fake.cancelledTaskID != "sched_1" {
 		t.Fatalf("cancel not forwarded: %q", fake.cancelledTaskID)
+	}
+}
+
+func TestBridgeSearchHistoryForwardsQueryAndReturnsAuthoritativeResult(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.searchResult = seelexctxsearch.Result{
+		Query: "数据库优化", TotalUnits: 3, IndexedFrames: 2,
+		Hits: []seelexctxsearch.Hit{{SegmentID: "compact-a", From: 0, To: 1, Score: 2.5,
+			Records: []seelexctxsearch.ChatRecord{{Role: "user", Content: "聊聊数据库索引"}}}},
+	}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := bridge.SearchHistory("数据库优化", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.searchQuery != "数据库优化" || fake.searchLimit != 5 {
+		t.Fatalf("search not forwarded: query=%q limit=%d", fake.searchQuery, fake.searchLimit)
+	}
+	if len(result.Hits) != 1 || result.Hits[0].SegmentID != "compact-a" {
+		t.Fatalf("result not relayed as authoritative: %+v", result)
 	}
 }
 
