@@ -15,13 +15,19 @@ import (
 //
 // fail-fast 语义：接口返回实际实施的能力（SandboxCapabilities）；当配置要求
 // 的能力不可实施时调用方必须拒绝，而不是悄悄降级成普通 exec.Command。
+//
+// 环境透传契约（EnvPassthrough）：沙盒必须继承本地环境——PATH、HOME、
+// SystemRoot 等基础变量与本地工具链（go/git/node/python/gcc 等）原样可用，
+// 只清洗凭据类变量（API key/secret/token/password）。沙盒不是"空环境"；
+// 剥夺本地工具链的沙盒视为能力降级，必须显式报告。
 
 // SandboxCapabilities 报告实际实施的隔离能力（bash 工具返回给审计/UI）。
 type SandboxCapabilities struct {
-	Isolation     string // "cwd-gate"（仅项目 cwd，非 OS 级）| "os"（OS 级沙箱）
-	EnvScrubbed   bool   // 凭据环境变量已清洗
-	NetworkPolicy string // "allowed"（未限制）
-	TimeoutSec    int    // 命令超时（0 = 无限制）
+	Isolation      string // "cwd-gate"（仅项目 cwd，非 OS 级）| "os"（OS 级沙箱）
+	EnvScrubbed    bool   // 凭据环境变量已清洗
+	EnvPassthrough bool   // 本地环境透传：PATH 等基础变量与本地工具链原样可用
+	NetworkPolicy  string // "allowed"（未限制）
+	TimeoutSec     int    // 命令超时（0 = 无限制）
 }
 
 // CommandSandbox 是 shell 执行的隔离接口。
@@ -45,9 +51,12 @@ func (s *nativeProjectCWD) Prepare(ctx context.Context, root string, command str
 	cmd := exec.CommandContext(ctx, commandShell(), commandShellArgs(command)...)
 	cmd.Dir = root
 	configureHiddenCommand(cmd)
+	// 环境透传契约：仅清洗凭据变量，PATH/SystemRoot 等基础变量与本地
+	// 工具链（go/git/node/python/gcc）原样继承——沙盒不是空环境。
 	cmd.Env = scrubEnvironment(os.Environ())
 	return cmd, SandboxCapabilities{
-		Isolation: "cwd-gate", EnvScrubbed: true, NetworkPolicy: "allowed", TimeoutSec: timeoutSec,
+		Isolation: "cwd-gate", EnvScrubbed: true, EnvPassthrough: true,
+		NetworkPolicy: "allowed", TimeoutSec: timeoutSec,
 	}, nil
 }
 

@@ -40,6 +40,17 @@ CommandSandbox (Seelex-owned interface)
 
 接口应返回实际实施的能力与 caveat；当用户要求的能力在当前 OS/backend 不可实施时，生产模式必须 fail-fast，而不是悄悄降级成普通 `exec.Command`。
 
+### 环境透传契约（2026-08-06 正式化）
+
+沙盒必须继承本地环境，而不是"空环境"：
+
+- `SandboxCapabilities.EnvPassthrough` 报告是否透传本地环境；
+- PATH、HOME、SystemRoot 等基础变量与本地工具链（go/git/node/python/gcc 等）
+  原样继承，`go test -race`、`node`、`git` 等本地命令必须可用；
+- 只清洗凭据类变量（API key/secret/token/password，`scrubEnvironment`）；
+- 剥夺本地工具链的沙盒视为能力降级，必须显式报告（`EnvPassthrough=false`），
+  不得静默提供空环境。
+
 ## POC 验收标准
 
 1. Windows、Linux、macOS 各执行一组同样的测试：读取项目文件成功，读取用户 home/Seelex 目录失败；项目内写入成功，项目外写入失败。

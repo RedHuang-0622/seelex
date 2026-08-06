@@ -46,7 +46,8 @@ func TestScrubEnvironmentRemovesCredentials(t *testing.T) {
 }
 
 // TestSandboxPrepareScrubsEnvAndSetsRoot 验证 native sandbox Prepare：
-// cwd = 项目根、env 已清洗、能力报告正确（cwd-gate 非 OS 级）。
+// cwd = 项目根、env 清洗凭据但透传本地环境（PATH 等基础变量保留）、
+// 能力报告正确（cwd-gate 非 OS 级 + 环境透传契约）。
 func TestSandboxPrepareScrubsEnvAndSetsRoot(t *testing.T) {
 	// 注入凭据变量验证子进程看不到。
 	_ = os.Setenv("SEELEX_TEST_API_KEY", "leak-check")
@@ -60,13 +61,21 @@ func TestSandboxPrepareScrubsEnvAndSetsRoot(t *testing.T) {
 	if cmd.Dir != "C:\\project" {
 		t.Fatalf("cmd.Dir = %q, want project root", cmd.Dir)
 	}
+	// 环境透传契约：PATH 等基础变量原样保留（本地工具链可用），凭据已清洗。
+	pathFound := false
 	for _, entry := range cmd.Env {
 		if strings.HasPrefix(entry, "SEELEX_TEST_API_KEY=") {
 			t.Fatalf("credential env leaked into command: %v", cmd.Env)
 		}
+		if strings.HasPrefix(entry, "PATH=") {
+			pathFound = true
+		}
 	}
-	if caps.Isolation != "cwd-gate" || !caps.EnvScrubbed {
-		t.Fatalf("capabilities = %+v, want cwd-gate + env scrubbed", caps)
+	if !pathFound {
+		t.Fatalf("PATH must be passed through (local toolchain availability), env = %v", cmd.Env)
+	}
+	if caps.Isolation != "cwd-gate" || !caps.EnvScrubbed || !caps.EnvPassthrough {
+		t.Fatalf("capabilities = %+v, want cwd-gate + scrubbed + env passthrough", caps)
 	}
 }
 
