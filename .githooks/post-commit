@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Rebuild dev binaries after every commit so dist/ always matches HEAD.
+# Skip: SKIP_BUILD=1  (CLI only: SKIP_BUILD_GUI=1)
+# Enabled via: git config core.hooksPath .githooks
+set -euo pipefail
+
+if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+if [[ -z "$ROOT" ]]; then
+  exit 0
+fi
+
+echo "[post-commit] rebuilding dev binaries (SKIP_BUILD=1 to skip)..."
+"$ROOT/scripts/build-dev.sh" || {
+  echo "[post-commit] build failed (commit itself succeeded; fix and rebuild manually)" >&2
+  exit 0
+}
