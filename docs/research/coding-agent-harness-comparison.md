@@ -72,7 +72,7 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 | OpenHands | Condenser：超 `max_context_length` 触发，**保留 `keep_first`** 初始事件 | LLMSummarizingCondenser（滚动摘要） | 截断 | provider 计数 |
 | Cursor | **代码库索引 + embedding 检索**（主动召回，非纯窗口） | — | — | provider 计数 |
 | Aider | **repo map**（tree-sitter 层级符号图，压缩后固定注入） | 无窗口压缩 | — | 估算 |
-| **Seelex** | 滑动窗口 `N=clamp((ctx×0.7−reserved)/avg, 4, 40)`（`seelexctx/window.go`）；**软阈值 75% / 硬 90% / 目标 60%** | 三级压缩：短历史直通 → 跨会话快照按 token 预算压缩 → QuickChat 递归；**压缩帧可逆**（`read_compressed_turn` + TurnArchiver） | **result_ref 归档**（>4000 字符，模型只见省略标记 + 按需读取） | **len/3 保守估算**（`ConservativeTokenCounter`） |
+| **Seelex** | 滑动窗口 `N=clamp((ctx×0.7−reserved)/avg, 4, 40)`（`seelexctx/window.go`）；**软阈值 75% / 硬 90% / 目标 60%** | 三级压缩：短历史直通 → 跨会话快照按 token 预算压缩 → QuickChat 递归；**压缩帧可逆**（`read_compressed_turn` + TurnArchiver） | **result_ref 归档**（>20000 字符，seelex 默认，可配置；模型只见省略标记 + 按需读取） | **len/3 保守估算**（`ConservativeTokenCounter`） |
 
 **差距**：
 - **压缩可逆性是 Seelex 的差异化强项**（主流基本不可逆）；阈值 75%/90% 已对齐 Claude Code 的「提前触发」，但**缺 completion buffer**（压缩时无「当前任务收尾」预留）。
@@ -210,7 +210,7 @@ Harness = 模型之外、支撑「模型能够自主完成编码任务」的运�
 | ReAct + Effort MaxLoops | `application/prompt/effort.go`（15/48/384/768）、`application/core/input.go` |
 | 滑动窗口/阈值 | `seelexctx/window.go`（ratio=0.7, min=4, max=40）、`controller.go`（75%/90%/60%） |
 | 可逆压缩 | `seelexctx/compressor.go`、`compactor/compactor.go`、`processor.go`、`read_compressed_turn` |
-| 工具结果外化 | `seelexctx/processor.go`（>4000 字符 → result_ref） |
+| 工具结果外化 | `seelexctx/processor.go`（>20000 字符 → result_ref，`limits.max_tool_result_chars` 可调） |
 | 权限规则 | `seele.yaml`（LMRW + tool/patterns）、`seelebridge/pathgate.go`、`docs/arch/permission-path-gating.md` |
 | 审批 | `application/approval/broker.go`（异步 Interaction） |
 | Plan DAG | `seelebridge/plan_factory.go`、`plan.go`、`plan_preflight.go`、`plan_tool_provider.go` |

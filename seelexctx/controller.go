@@ -200,7 +200,8 @@ type ControllerOptions struct {
 	// （每次压缩时动态取值，会话切换后仍溯源到正确会话；nil → 无前缀）。
 	SessionIDProvider func() string
 
-	// MaxToolResultChars 超大工具结果判定（≤0 → 框架默认）。
+	// MaxToolResultChars 超大工具结果判定（≤0 → seelex 生效默认
+	// DefaultToolResultLimit()，与 processor / application.core 同源）。
 	MaxToolResultChars int
 }
 
@@ -269,7 +270,7 @@ func (c *seelexContextController) maxToolResultChars() int {
 	if c.opts.MaxToolResultChars > 0 {
 		return c.opts.MaxToolResultChars
 	}
-	return DefaultMaxToolResultChars
+	return DefaultToolResultLimit()
 }
 
 // policy 返回生效的阈值策略（Budget 提供时用其窗口/输出推导）。

@@ -64,6 +64,21 @@ func TestLoadLimitsParsesAndOverrides(t *testing.T) {
 	if partial.ToolCallTimeoutSec != 0 || partial.ApprovalTimeoutSec != 300 {
 		t.Fatalf("partial section = %+v", partial)
 	}
+	// max_tool_result_chars：未配置 → 默认 20000；显式配置 → 覆盖生效。
+	if merged := partial.WithDefaults(); merged.MaxToolResultChars != DefaultLimits().MaxToolResultChars {
+		t.Fatalf("default tool result chars = %d, want %d", merged.MaxToolResultChars, DefaultLimits().MaxToolResultChars)
+	}
+	overridePath := filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(overridePath, []byte("limits:\n  max_tool_result_chars: 30000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overridden, err := LoadLimits(overridePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := overridden.WithDefaults().MaxToolResultChars; got != 30000 {
+		t.Fatalf("override tool result chars = %d, want 30000", got)
+	}
 }
 
 // TestLoadLimitsRejectsNegative 验证负值显式报错（避免静默吞掉错误配置）。
@@ -74,6 +89,14 @@ func TestLoadLimitsRejectsNegative(t *testing.T) {
 	}
 	if _, err := LoadLimits(path); err == nil {
 		t.Fatal("negative value must be rejected")
+	}
+	// max_tool_result_chars 负值同样显式报错。
+	path = filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(path, []byte("limits:\n  max_tool_result_chars: -1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLimits(path); err == nil {
+		t.Fatal("negative max_tool_result_chars must be rejected")
 	}
 }
 

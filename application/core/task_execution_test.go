@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
@@ -241,12 +239,11 @@ func TestTaskContextRecoveryHistoryKeepsOnlyProductSystemInstruction(t *testing.
 }
 
 func TestContextControllerRejectsLargeToolOutputBeforeGlobalCompaction(t *testing.T) {
-	policy := seelexctx.DefaultContextConfig()
 	engine := &fakeEngine{history: []EngineMessage{
 		{Role: "system", Content: "system instruction", ContentSet: true},
 		{Role: "user", Content: "inspect project"},
 		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "bash", Arguments: `{"summary":false}`}}},
-		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: strings.Repeat("x", policy.MaxToolResultChars+1)},
+		{Role: "tool", ToolCallID: "call-1", Name: "bash", Content: strings.Repeat("x", Limits().MaxToolResultChars+1)},
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
@@ -326,13 +323,13 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 }
 
 func TestTaskContextSummaryStaysWithinProviderToolBudget(t *testing.T) {
-	policy := seelexctx.DefaultContextConfig()
 	state := newTaskExecutionState("task-1", "inspect source", "high")
 	for index := 0; index < 20; index++ {
 		state.recordTool(fmt.Sprintf("tool-%d", index), strings.Repeat("evidence ", 200), nil)
 	}
-	if summary := state.contextSummary(); len(summary) > policy.MaxToolResultChars {
-		t.Fatalf("context summary = %d chars, want at most %d", len(summary), policy.MaxToolResultChars)
+	limit := Limits().MaxToolResultChars // 与 contextSummary 同源（max_tool_result_chars）
+	if summary := state.contextSummary(); len(summary) > limit {
+		t.Fatalf("context summary = %d chars, want at most %d", len(summary), limit)
 	}
 }
 

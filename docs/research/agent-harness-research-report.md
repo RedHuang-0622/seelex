@@ -84,7 +84,7 @@
 | 滑动窗口 | `N = clamp((ContextTokens×ratio − Reserved) ÷ AvgRoundTokens, 4, 40)`；决策序：显式 rounds > provider 推导 > 保守回退 | `window.go`，默认 ratio 0.7（seele.yaml 注释 + DefaultWindowConfig） |
 | 阈值/预算 | budget = context − outputReserve − safety(context/8)；软阈值 75%、硬阈值 90%、压缩目标 60%；**只压缩窗口外轮次**，窗口内永不压缩 | `controller.go` |
 | 压缩 | 三级：① 短历史(<6 条)免 LLM 直通；② 跨会话快照经 compactor 按 token 预算压缩（全量 ≥500 / 摘要 200-499 / 极简 <200，保留最小安全快照，预算不足报错回退）；③ QuickChat 无工具隔离递归摘要；压缩帧 push CompactStack，原文经 TurnArchiver 归档 → `read_compressed_turn` 可逆读回 | `compressor.go` / `compactor/compactor.go` / `processor.go` |
-| 工具结果外化 | 超大结果（> MaxToolResultChars，默认 4000 字符）→ 归档为 result_ref → 模型只见省略警告 + `read_tool_result`；错误结果原样透传 | `processor.go` / Seele `ctx_manager.DefaultConfig` |
+| 工具结果外化 | 超大结果（> 工具结果字符预算，seelex 默认 20000 字符，可经 seelex.yaml `limits.max_tool_result_chars` 覆盖）→ 归档为 result_ref → 模型只见省略警告 + `read_tool_result`；错误结果原样透传 | `processor.go` / `limits.go`（`DefaultToolResultLimit`；框架 `ctx_manager` 默认约 4000 不再兜底） |
 | 历史安全 | ReplaceHistory 前清理 checkpoint/压缩帧控制标记 + 空正文配对修复（assistant+tool_calls / 纯 reasoning / 中断恢复） | `history_safety.go` |
 | 持久化 | `DurableHistory`（Chat 前 Load / 后 Save）；`EventStore` 追加式执行事实日志；`SessionContextStore` 状态 blob（SystemPrompt 永不压缩 + 4 栈） | `sessionstore/durable_history.go` / `event_store.go` / `session_context.go` |
 

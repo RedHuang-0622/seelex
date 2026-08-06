@@ -34,7 +34,11 @@ var DefaultContextConfig = seelectx.DefaultContextConfig
 
 // 上下文预算的默认阈值。
 var (
-	DefaultMaxTokens          = ctx_manager.DefaultConfig().MaxTokens
+	DefaultMaxTokens = ctx_manager.DefaultConfig().MaxTokens
+	// DefaultMaxToolResultChars 是框架 ctx_manager 的默认（约 4000），仅保留
+	// re-export 语义。seelex 生产路径的生效默认以 DefaultToolResultLimit()
+	//（limits.go，20000，可经 seelex.yaml limits 段覆盖）为准——所有消费方
+	// 必须读后者，避免「改一处另一处还是旧值」。
 	DefaultMaxToolResultChars = ctx_manager.DefaultConfig().MaxToolResultChars
 )
 

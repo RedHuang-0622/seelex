@@ -338,7 +338,7 @@ func oversizedToolResultWarning(name, resultRef string) string {
 }
 
 func providerSafeToolResult(name, result string, toolErr error) string {
-	if toolErr != nil || !isOversizedToolResult(result, seelexctx.DefaultContextConfig().MaxToolResultChars) {
+	if toolErr != nil || !isOversizedToolResult(result, Limits().MaxToolResultChars) {
 		return result
 	}
 	return oversizedToolResultWarning(name, "")

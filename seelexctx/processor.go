@@ -104,11 +104,12 @@ type seelexToolResultProcessor struct {
 	archive ToolResultArchiver
 }
 
-// NewToolResultProcessor 构造结果处理器。limit ≤ 0 时使用框架默认
-// MaxToolResultChars；archive 为 nil 时使用内存归档器（会话内可读）。
+// NewToolResultProcessor 构造结果处理器。limit ≤ 0 时使用 seelex 生效默认
+// DefaultToolResultLimit()（limits.go，20000，可配置）；archive 为 nil 时
+// 使用内存归档器（会话内可读）。
 func NewToolResultProcessor(limit int, archive ToolResultArchiver) seelectx.ToolResultProcessor {
 	if limit <= 0 {
-		limit = DefaultMaxToolResultChars
+		limit = DefaultToolResultLimit()
 	}
 	if archive == nil {
 		archive = NewInMemoryToolResultArchiver()

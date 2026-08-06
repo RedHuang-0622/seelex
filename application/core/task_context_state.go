@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 const activeSkillVersion = "installed-v1"
@@ -158,8 +157,11 @@ func (service *taskContextCoordinator) recordToolTranscriptLocked(name, fallback
 	return content, resultRef
 }
 
+// defaultToolResultLimit 返回工具结果字符预算：经 ApplyLimits 注入的
+// seelex.yaml limits 段 max_tool_result_chars（未注入 → DefaultLimits 的
+// 默认 20000），与 seelexctx processor / controller 同源。
 func defaultToolResultLimit() int {
-	return seelexctx.DefaultContextConfig().MaxToolResultChars
+	return Limits().MaxToolResultChars
 }
 
 func (service *taskContextCoordinator) storeToolResultLocked(name, content string) StoredToolResult {

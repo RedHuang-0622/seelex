@@ -45,6 +45,7 @@ type Limits struct {
 	SummaryChars           int `yaml:"summary_chars"`                // 摘要截断字符数
 	TodoMaxItems           int `yaml:"todo_max_items"`               // todolist 清单项上限
 	WalkTimeoutSec         int `yaml:"walk_timeout"`                 // glob/grep 目录遍历超时（秒）
+	MaxToolResultChars     int `yaml:"max_tool_result_chars"`        // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
 }
 
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
@@ -78,8 +79,16 @@ func DefaultLimits() Limits {
 		SummaryChars:           800,
 		TodoMaxItems:           20,
 		WalkTimeoutSec:         30,
+		MaxToolResultChars:     20000,
 	}
 }
+
+// DefaultToolResultLimit 返回工具结果字符预算的 seelex 生效默认值。
+// 所有消费方（processor / controller / application.core）以此为兜底，
+// 与 seelex.yaml limits 段 max_tool_result_chars 的覆盖合并后保持一致；
+// 未配置 → 本默认（20000）。框架 ctx_manager 默认（约 4000，见 seele.go
+// re-export）不再作为兜底，仅保留 re-export 语义。
+func DefaultToolResultLimit() int { return DefaultLimits().MaxToolResultChars }
 
 // WithDefaults 把零值字段替换为默认值，返回完整配置。
 // ToolCallTimeoutSec 特殊：0 是显式"无限制"语义（limits 段存在时），不补默认。
@@ -166,6 +175,9 @@ func (l Limits) WithDefaults() Limits {
 	if l.WalkTimeoutSec == 0 {
 		l.WalkTimeoutSec = def.WalkTimeoutSec
 	}
+	if l.MaxToolResultChars == 0 {
+		l.MaxToolResultChars = def.MaxToolResultChars
+	}
 	return l
 }
 
@@ -212,7 +224,8 @@ func LoadLimits(path string) (Limits, error) {
 		check.EvidenceChars < 0 || check.ReplanEvidenceBytes < 0 || check.InputLoopLimit < 0 ||
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
-		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WalkTimeoutSec < 0 {
+		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WalkTimeoutSec < 0 ||
+		check.MaxToolResultChars < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
 	return check, nil

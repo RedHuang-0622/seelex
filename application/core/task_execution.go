@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
 const (
@@ -231,7 +229,7 @@ func (state *taskExecutionState) contextSummary() string {
 	if !meaningful {
 		return ""
 	}
-	limit := seelexctx.DefaultContextConfig().MaxToolResultChars
+	limit := Limits().MaxToolResultChars
 	var out strings.Builder
 	appendContextSummary(&out, limit, fmt.Sprintf("objective: %s\nstatus: %s\neffort: %s\n", state.objective, state.status, state.effort))
 	if state.planArguments != "" {
