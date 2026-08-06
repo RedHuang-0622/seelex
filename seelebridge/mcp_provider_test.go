@@ -124,6 +124,59 @@ func TestMCPRuntimeLifecycleState(t *testing.T) {
 	}
 }
 
+// TestMCPLazyRegistrationDoesNotConnect 验证冷启动契约：登记配置不连接、
+// 不注册工具（启动路径零 MCP 进程）；按名加载失败不破坏登记（可重试）；
+// 未知 server / 无效配置显式报错。
+func TestMCPLazyRegistrationDoesNotConnect(t *testing.T) {
+	r := newTestRuntime(t)
+	defer r.Shutdown()
+
+	cfg := MCPServer{Name: "playwright", Transport: "stdio", Command: "seelex-nonexistent-cmd", Args: []string{"-v"}}
+	if err := r.RegisterLazyMCP("playwright", cfg); err != nil {
+		t.Fatal(err)
+	}
+	// 登记 ≠ 连接：无已附加服务器、无可见工具、未存活。
+	if names := r.MCPServerNames(); len(names) != 0 {
+		t.Fatalf("registered-but-cold servers = %v", names)
+	}
+	if got := r.AllTools(); len(got) != 0 {
+		t.Fatalf("cold registry tools = %v", got)
+	}
+	if got := r.LazyMCPServerNames(); len(got) != 1 || got[0] != "playwright" {
+		t.Fatalf("lazy names = %v", got)
+	}
+	// 按名加载：命令不存在 → 显式失败，且不破坏登记。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := r.LoadMCP(ctx, "playwright"); err == nil {
+		t.Fatal("load with nonexistent command should fail")
+	}
+	if names := r.MCPServerNames(); len(names) != 0 {
+		t.Fatalf("servers after failed load = %v", names)
+	}
+	if got := r.LazyMCPServerNames(); len(got) != 1 {
+		t.Fatalf("failed load dropped registration: %v", got)
+	}
+	// 未知 server 显式报错。
+	if _, err := r.LoadMCP(ctx, "missing"); err == nil {
+		t.Fatal("load unknown server must fail")
+	}
+	// 配置校验：空名 / 无效 transport 拒绝登记。
+	if err := r.RegisterLazyMCP("", MCPServer{Transport: "stdio", Command: "x"}); err == nil {
+		t.Fatal("register empty name must fail")
+	}
+	if err := r.RegisterLazyMCP("bad", MCPServer{Transport: "bogus"}); err == nil {
+		t.Fatal("register invalid transport must fail")
+	}
+	// 重复登记覆盖配置（幂等语义）。
+	if err := r.RegisterLazyMCP("playwright", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.LazyMCPServerNames(); len(got) != 1 {
+		t.Fatalf("re-register duplicated entry: %v", got)
+	}
+}
+
 // TestMCPProviderNameRegistered 验证 MCP provider 以固定名称 "mcp" 实现
 // tools.ToolProvider（tools/mcp ProviderName），可注册进注册表且重注册幂等。
 func TestMCPProviderNameRegistered(t *testing.T) {

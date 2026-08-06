@@ -23,6 +23,8 @@ permission:
       action: allow
     - tool: "get_time"
       action: allow
+    - tool: "mcp_load"
+      action: allow
     - tool: "git_status"
       action: allow
     - tool: "git_log"

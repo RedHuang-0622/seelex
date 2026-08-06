@@ -147,6 +147,8 @@ type Runtime struct {
 	turnArchiver     seelexctx.TurnArchiver // 压缩轮次原文归档（main 装配注入）
 	mainSessionMu    sync.RWMutex
 	mainSessionID    string // 当前主会话 ID（压缩帧 SegmentID 溯源）
+	lazyMCPServerMu  sync.RWMutex
+	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。

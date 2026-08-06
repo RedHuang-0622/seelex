@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -52,12 +51,10 @@ func loadMCPServersConfig(accountsPath string) []MCPServerConfig {
 
 // ── 注册函数 ──────────────────────────────────────────────────
 
-// registerMCPServers 将 account-openai.yaml 中配置的 MCP 服务器
-// 全部附加到 Runtime。跟在 plugin.md 中声明 mcp_servers 等效，
-// 但这种方式不需要创建插件目录，适合快速配置通用 MCP 服务。
-//
-// 注册后的 MCP 工具自动通过 mcpstack 中间件记录调用 trace。
-// 如需 CAD 级别的参数预验证，另配 freecad.PreValidate()。
+// registerMCPServers 将 account-openai.yaml 中配置的 MCP 服务器全部
+// 登记到 Runtime（冷启动：只存配置不连接，启动路径零 MCP 进程）。
+// 首次需要时经内置 mcp_load 工具按名加载（spawn + initialize + tools/list），
+// 加载后的 MCP 工具自动通过 mcpstack 中间件记录调用 trace。
 func registerMCPServers(runtime *seelebridge.Runtime, accountsPath string) {
 	servers := loadMCPServersConfig(accountsPath)
 	if len(servers) == 0 {
@@ -65,7 +62,6 @@ func registerMCPServers(runtime *seelebridge.Runtime, accountsPath string) {
 	}
 
 	for _, s := range servers {
-		ctx := context.Background()
 		transport := s.Transport
 		if transport == "" {
 			if s.Command != "" {
@@ -78,12 +74,14 @@ func registerMCPServers(runtime *seelebridge.Runtime, accountsPath string) {
 			}
 		}
 
-		if err := runtime.AttachMCPServer(ctx, s.Name, transport, s.Command, s.Args, s.Env, s.URL); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠ 附加 MCP 服务器 %q 失败: %v\n", s.Name, err)
+		cfg := seelebridge.MCPServer{
+			Name: s.Name, Transport: transport, Command: s.Command,
+			Args: s.Args, Env: s.Env, URL: s.URL,
+		}
+		if err := runtime.RegisterLazyMCP(s.Name, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠ MCP 服务器 %q 配置无效: %v\n", s.Name, err)
 			continue
 		}
-		// 确保自动注册 mcpstack trace
-		// （注：mcpstack 的集成需在 seelebridge.AttachMCP 中自动完成）
-		fmt.Fprintf(os.Stderr, "✓ MCP 服务器 %q 已附加\n", s.Name)
+		fmt.Fprintf(os.Stderr, "✓ MCP 服务器 %q 已登记（冷启动；需要时调用 mcp_load 连接）\n", s.Name)
 	}
 }

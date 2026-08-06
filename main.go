@@ -363,8 +363,45 @@ func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager,
 	registerTimeTool(runtime)
 	registerWebSearchTool(runtime, accountsPath())
 	registerMCPServers(runtime, accountsPath()) // from mcpconfig.go — 与 websearch 同一生态位
+	registerMCPLoadTool(runtime)
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerAskApprove(runtime, approval)
+}
+
+// registerMCPLoadTool 注册按需加载工具：连接已登记但未连接的 MCP 服务器
+// （冷启动加载点），加载后其工具立即可用（下一轮调用）。
+func registerMCPLoadTool(runtime *seelebridge.Runtime) {
+	schema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"server_name": map[string]interface{}{
+				"type": "string", "description": "要加载的 MCP 服务器名（accounts.yaml mcp_servers 段）",
+			},
+		},
+		"required": []string{"server_name"},
+	}
+	runtime.RegisterTool(
+		"mcp_load",
+		"Load a registered but disconnected MCP server (cold start): connect, initialize and register its tools. Call this once before using tools from that server; loaded servers stay connected for the session. Loaded tool names become available from the next turn.",
+		schema,
+		func(ctx context.Context, argsJSON string) (string, error) {
+			var args struct {
+				ServerName string `json:"server_name"`
+			}
+			if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+				return "", fmt.Errorf("mcp_load: invalid arguments: %w", err)
+			}
+			// 冷启动握手有固定开销（spawn + initialize + tools/list），带超时保护。
+			loadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			tools, err := runtime.LoadMCP(loadCtx, strings.TrimSpace(args.ServerName))
+			if err != nil {
+				return "", fmt.Errorf("mcp_load: %w", err)
+			}
+			return fmt.Sprintf("MCP 服务器 %q 已加载，工具 %d 个。可用 MCP 服务器：%v。请重新发起需要这些工具的任务。",
+				args.ServerName, tools, runtime.MCPServerNames()), nil
+		},
+	)
 }
 
 func registerTimeTool(runtime *seelebridge.Runtime) {
@@ -626,6 +663,7 @@ func defaultManualRules() []toolspermission.PermissionRule {
 		{ToolName: "git_log", Action: toolspermission.ActionAllow},
 		{ToolName: "git_diff", Action: toolspermission.ActionAllow},
 		{ToolName: "get_time", Action: toolspermission.ActionAllow},
+		{ToolName: "mcp_load", Action: toolspermission.ActionAllow},
 		{ToolName: "switch_plugin", Action: toolspermission.ActionAllow},
 		{ToolName: "switch_mode", Action: toolspermission.ActionAllow},
 		{ToolName: "ask_approve", Action: toolspermission.ActionAllow},

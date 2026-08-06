@@ -83,6 +83,60 @@ func (r *Runtime) AttachMCPServer(
 	})
 }
 
+// RegisterLazyMCP 登记 MCP 服务器配置但不连接（冷启动：启动路径零 MCP 进程）。
+// 配置校验与 AttachMCP 一致（name/transport/command 契约）；首次需要时经
+// LoadMCP 幂等连接并注册工具。重复登记同名 server 覆盖配置。
+func (r *Runtime) RegisterLazyMCP(name string, cfg MCPServer) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("seelebridge: MCP name is empty")
+	}
+	cfg.Name = name
+	if _, err := toFrameworkMCP(cfg); err != nil {
+		return err
+	}
+	r.lazyMCPServerMu.Lock()
+	defer r.lazyMCPServerMu.Unlock()
+	if r.lazyMCPServers == nil {
+		r.lazyMCPServers = make(map[string]MCPServer)
+	}
+	r.lazyMCPServers[name] = cfg
+	return nil
+}
+
+// LazyMCPServerNames 返回已登记但尚未连接的 MCP 服务器名（按字典序）。
+func (r *Runtime) LazyMCPServerNames() []string {
+	r.lazyMCPServerMu.RLock()
+	defer r.lazyMCPServerMu.RUnlock()
+	names := make([]string, 0, len(r.lazyMCPServers))
+	for name := range r.lazyMCPServers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// LoadMCP 按需连接已登记的 MCP 服务器（冷启动加载点）：
+// 已附加 → 返回现有工具数（幂等）；未附加 → attach + tools/list 注册工具。
+// 未知 server 返回显式错误；失败不破坏登记（可重试）。
+func (r *Runtime) LoadMCP(ctx context.Context, name string) (int, error) {
+	name = strings.TrimSpace(name)
+	r.lazyMCPServerMu.RLock()
+	cfg, ok := r.lazyMCPServers[name]
+	r.lazyMCPServerMu.RUnlock()
+	if !ok {
+		return 0, fmt.Errorf("seelebridge: unknown MCP server %q (registered: %v)", name, r.LazyMCPServerNames())
+	}
+	if alive, tools, _ := r.MCPServerStatus(name); alive {
+		return tools, nil
+	}
+	if err := r.AttachMCP(ctx, cfg); err != nil {
+		return 0, err
+	}
+	_, tools, _ := r.MCPServerStatus(name)
+	return tools, nil
+}
+
 func (r *Runtime) DetachMCP(name string) error {
 	provider := r.mcp()
 	provider.Detach(name)

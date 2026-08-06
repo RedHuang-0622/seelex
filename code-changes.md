@@ -121,6 +121,46 @@
   损坏 context 显式失败、MainSessionID 跟踪、segmentID 前缀断言
 - sessionstore / session / application / seelexctx / seelebridge 全量通过
 
+## MCP 工具冷启动（懒加载）改造（2026-08-06）
+
+### 诊断补充（端到端验证发现，最终根因）
+
+冷启动改造后 mcp_load 首次加载仍 30-90s 超时，逐层诊断（排除法）：
+
+| 层级 | 实测 | 结论 |
+|---|---|---|
+| 启动路径（含 MCP 登记） | 46ms（原 3.5s） | 冷启动改造生效 |
+| 裸 npx 冷启动（bash pipe） | 3.3s | npx 层有固定开销 |
+| 直接 node + cli.js 握手 | **0.56s** | server 本身极快 |
+| 测试内直接 LoadMCP（不经 ChatStream） | **483ms 成功 24 工具** | LoadMCP/AttachMCP 本身无问题 |
+| backend ChatStream 工具调用 | 60s+ 超时，**从未 spawn 进程** | 工具调用在审批层挂起 |
+| `--permission full_access` 对照 | **3.9s 成功** | 实锤：manual 审批挂起 |
+
+最终根因（三层叠加）：
+1. **seele.yaml 的 permission.rules 覆盖内置白名单**（兜底 `*: ask`），mcp_load
+   不在其中 → manual 模式每次调用触发审批；backend 无审批人 → 挂起到超时。
+   修复：seele.yaml 加 `mcp_load: allow` + 内置白名单同步补充。
+2. **npx 层 stdio 代理不透明**（`@latest` 每次解析 registry ~5.4s + 握手延迟
+   3s~90s+ 不稳定）：accounts.yaml 改为 node + 全局安装 cli.js 直连（0.56s），
+   并全局安装 `@playwright/mcp@0.0.79`（与 npx 缓存版本一致）。
+3. 冷启动改造本身（RegisterLazyMCP 只登记不连接）有效：启动 46ms。
+
+修复后 manual 模式 mcp_load **2.9s** 加载 playwright 24 工具，启动 46ms。
+
+## MCP 工具冷启动（懒加载）改造（2026-08-06）
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `seelebridge/mcp.go` | 修改 | 新增 `RegisterLazyMCP`（只存配置不连接）/ `LoadMCP`（幂等按名 attach）/ `LazyMCPServerNames` |
+| `seelebridge/runtime.go` | 修改 | Runtime 增加 lazy MCP 注册表字段 |
+| `mcpconfig.go` | 修改 | `registerMCPServers` 从启动时同步 attach 改为登记（冷启动） |
+| `main.go` | 修改 | 新增内置 `mcp_load` 工具（按名加载，30s 超时保护） |
+| `seelebridge/mcp_provider_test.go` | 修改 | 冷启动契约测试（登记不连接 / 失败不破坏登记 / 校验） |
+
+背景：accounts.yaml 配置了 Playwright MCP（npx stdio），启动路径同步
+spawn + initialize + tools/list 实测阻塞 3.4s（无 MCP 对照仅 31ms），且
+GUI 子系统 spawn 控制台子进程弹终端窗口。改为冷启动后启动回到 46ms。
+
 ## Windows bash 工具 shell 探测修复（2026-08-05）
 
 | 文件 | 类型 | 说明 |
