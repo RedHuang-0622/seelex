@@ -19,7 +19,7 @@ var repositoryModules = []string{
 	"mcpstack", "plugin", "plugins", "plugins/default", "plugins/freecad", "plugins/git",
 	"plugins/read", "plugins/shell", "plugins/write", "scripts",
 	"seelebridge", "seelexctx", "seelexctx/compactor", "seelexctx/merger",
-	"seelexctx/provider", "seelexctx/snapshot", "session", "sessionstore", "skill",
+	"seelexctx/provider", "seelexctx/search", "seelexctx/snapshot", "session", "sessionstore", "skill",
 	"tui", "tui/splash", "workspace",
 }
 

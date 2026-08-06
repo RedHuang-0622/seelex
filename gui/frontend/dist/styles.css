@@ -755,3 +755,26 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .session-del { display: none; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: 4px; color: var(--faint); background: transparent; font-size: 12px; cursor: pointer; flex: none; }
 .session-row:hover .session-del { display: flex; }
 .session-del:hover { border-color: #5a2a2a; color: var(--danger); }
+
+/* ── 历史检索面板（长上下文历史记录检索）────────────────────── */
+.history-search-form { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+.history-search-form input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; outline: 0; color: var(--text); background: #101010; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.history-search-form input:focus { border-color: var(--border-strong); }
+.history-search-view { display: grid; gap: 6px; font-size: 11px; }
+.history-search-empty { padding: 8px 2px; color: var(--faint); font-size: 10px; line-height: 1.55; }
+.history-search-meta { color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.history-search-hit { padding: 6px 8px; border: 1px solid #242424; border-radius: 6px; background: #131313; }
+.history-search-hit summary { display: grid; gap: 3px; cursor: pointer; list-style: none; }
+.history-search-hit summary::-webkit-details-marker { display: none; }
+.history-search-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.history-search-head strong { overflow: hidden; color: #ddd; font: 700 9px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.history-search-head small { flex: none; color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.history-search-summary { overflow: hidden; color: #b9b9b9; font-size: 10px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.history-search-records { display: grid; gap: 2px; max-height: 260px; margin: 6px 0 0; padding: 0; list-style: none; overflow: auto; }
+.history-search-record { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; padding: 3px 0; color: #b9b9b9; font-size: 10px; line-height: 1.45; }
+.history-search-record.is-empty { color: var(--faint); font-size: 9px; }
+.history-search-role { flex: none; padding: 1px 4px; border-radius: 3px; color: #9db8a3; background: #14201a; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.history-search-tool { flex: none; color: #d8b26a; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.history-search-content { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
+.history-search-ref { flex: none; color: #6ba8d9; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.history-search-cut { flex: none; color: #d8b26a; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; }

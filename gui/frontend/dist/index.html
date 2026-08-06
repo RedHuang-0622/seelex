@@ -87,6 +87,14 @@
         <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建周期任务" data-icon="plus" style="width:16px;height:16px"></button></div>
         <div id="scheduled-task-view" class="sched-view muted">暂无周期任务</div>
       </section>
+      <section id="history-search-section">
+        <div class="section-title"><span>历史检索</span><span id="history-search-count" class="badge">0</span></div>
+        <form id="history-search-form" class="history-search-form">
+          <input id="history-search-input" type="text" placeholder="检索历史聊天记录…" autocomplete="off" aria-label="检索历史聊天记录">
+          <button id="history-search-submit" class="icon-button subtle" type="submit" title="检索" aria-label="检索" data-icon="search"></button>
+        </form>
+        <div id="history-search-view" class="history-search-view muted">输入关键词检索历史记录</div>
+      </section>
       <section>
         <div class="section-title">概要</div>
         <div id="project-overview" class="project-overview"></div>

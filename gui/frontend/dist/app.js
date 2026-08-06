@@ -10,6 +10,7 @@ import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
 import { renderTodoList } from "./todo-view.js";
 import { renderScheduledTasks } from "./scheduled-tasks-view.js";
+import { renderHistorySearchResults } from "./history-search.js";
 
 const state = {
   info: null,
@@ -27,7 +28,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -692,6 +693,32 @@ elements["command-search"].addEventListener("keydown", event => {
     event.preventDefault();
     acceptSuggestion(state.commandSuggestions[state.commandSelected], state.commandTrigger);
   }
+});
+
+// ── 历史检索 ───────────────────────────────────────────
+
+// runHistorySearch 提交检索：查询非空校验（空查询后端也拒绝），结果来自
+// Bridge SearchHistory 的权威返回（压缩栈索引命中 → 真实聊天记录）。
+// limit 固定 5 条命中；token 预算由后端 search 包硬上限约束。
+async function runHistorySearch() {
+  const query = elements["history-search-input"].value.trim();
+  if (!query) {
+    showToast("请输入检索关键词");
+    return;
+  }
+  try {
+    const result = await invoke("SearchHistory", query, 5);
+    elements["history-search-count"].textContent = String((result?.hits || []).length);
+    elements["history-search-view"].classList.remove("muted");
+    elements["history-search-view"].innerHTML = renderHistorySearchResults(result);
+  } catch (error) {
+    showToast(error);
+  }
+}
+
+elements["history-search-form"].addEventListener("submit", event => {
+  event.preventDefault();
+  runHistorySearch();
 });
 
 // ── 定时周期任务 ───────────────────────────────────────────

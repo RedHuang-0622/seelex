@@ -99,6 +99,16 @@ func (o *Options) applyDefaults() {
 	}
 }
 
+// Score 返回候选记忆对查询的词法相关性分数（与 Select 同款打分规则；
+// 0 = 无命中）。供检索结果排序展示/调试——分数只用于排序，不作为事实。
+func Score(query string, candidate Candidate) float64 {
+	terms := tokenize(query)
+	if len(terms) == 0 {
+		return 0
+	}
+	return candidate.score(terms)
+}
+
 type scoredCandidate struct {
 	candidate Candidate
 	score     float64

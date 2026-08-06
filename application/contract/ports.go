@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -79,6 +80,9 @@ type RuntimePort interface {
 	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
 	// CancelScheduledTask 取消并移除周期任务。
 	CancelScheduledTask(string) error
+	// SearchHistory 在会话压缩栈（语义索引）上检索历史聊天记录
+	// （GUI 历史检索面板数据源；无压缩栈时尾部扫描兜底）。
+	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)
 }
 type PluginPort interface {
 	All() []model.PluginInfo

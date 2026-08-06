@@ -28,6 +28,7 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -243,6 +244,18 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 		"required": []string{"segment_id"},
 	}
 	runtime.RegisterTool("read_compressed_turn", "Read the original messages of a compressed turn segment by segment_id (from a compact frame Summary/Evidence) with bounded pagination or line filtering. Use it when the compressed summary lacks detail — the original content is durably stored and loss is reversible.", readCompressedTurnSchema, app.ReadCompressedTurnHandler)
+	// search_history：压缩栈帧是语义索引，检索在其范围内查真实聊天记录
+	// （seelexctx/search：memory.Select 选相关帧 → 帧 [From..To] 单元范围
+	// 从事件库读回记录 → token 预算内内联返回）。
+	searchHistorySchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"query": map[string]interface{}{"type": "string", "description": "检索关键词（与压缩段摘要词法匹配，可中英文）"},
+			"limit": map[string]interface{}{"type": "integer", "minimum": 1, "maximum": seelexctxsearch.MaxLimit},
+		},
+		"required": []string{"query"},
+	}
+	runtime.RegisterTool("search_history", "Search the session's long-term history: select relevant compressed segments (compact stack index) and read back the real chat records in their unit ranges, bounded by a token budget. Use it when the current context lacks relevant history the user mentioned earlier (past decisions, requirements, tool outputs).", searchHistorySchema, app.SearchHistoryHandler)
 	// 压缩轮次原文归档装配：溢出轮次原文经 session 管理器持久化
 	// （ref = compressed:<segment_id>），read_compressed_turn 读回。
 	runtime.SetTurnArchiver(&core.CompressedTurnArchiver{

@@ -10,6 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -44,6 +45,9 @@ type Application interface {
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
 	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
 	CancelScheduledTask(string) error
+	// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
+	// GUI 历史检索面板数据源）。
+	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)
 }
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -292,4 +296,10 @@ func (bridge *Bridge) ScheduleTask(spec seelebridge.ScheduledTaskSpec) (*seelebr
 // CancelScheduledTask 取消并移除周期任务。
 func (bridge *Bridge) CancelScheduledTask(id string) error {
 	return bridge.app.CancelScheduledTask(id)
+}
+
+// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
+// Wails 前端历史检索面板数据源，返回权威 seelexctx/search.Result）。
+func (bridge *Bridge) SearchHistory(query string, limit int) (seelexctxsearch.Result, error) {
+	return bridge.app.SearchHistory(bridge.requestContext(), query, limit)
 }

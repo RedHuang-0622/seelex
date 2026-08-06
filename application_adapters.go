@@ -18,6 +18,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -483,6 +484,9 @@ func (port runtimePort) ScheduleTask(ctx context.Context, spec seelebridge.Sched
 }
 func (port runtimePort) CancelScheduledTask(id string) error {
 	return port.runtime.CancelScheduledTask(id)
+}
+func (port runtimePort) SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error) {
+	return port.runtime.SearchHistory(ctx, query, limit)
 }
 func (port runtimePort) SelectAccount(name string) bool { return port.runtime.SelectAccount(name) }
 func (port runtimePort) VisibleTools(ctx context.Context) []application.Tool {

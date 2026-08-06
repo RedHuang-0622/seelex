@@ -12,6 +12,8 @@ import (
 var (
 	ErrChatRunning         = errors.New("chat is already running")
 	ErrApplicationDraining = errors.New("application is finishing active work")
+	// ErrEmptySearchQuery 是历史检索空查询拒绝（检索必须有关键词）。
+	ErrEmptySearchQuery = errors.New("search_history: query is required")
 )
 
 // Service is the public application facade. Stateful responsibilities are
