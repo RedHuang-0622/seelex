@@ -68,9 +68,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	})
 	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
 	service.idle = closedSignal()
+	initialSessionID := service.deps.Engine.SessionID()
 	service.snapshot = Snapshot{
 		ProtocolVersion:    ProtocolVersion,
-		Session:            SessionState{ID: service.deps.Engine.SessionID()},
+		Session:            SessionState{ID: initialSessionID, Draft: initialSessionID == ""},
 		Runtime:            RuntimeState{Model: service.deps.Runtime.Model(), Effort: service.effortManager.Current()},
 		Capabilities:       Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,

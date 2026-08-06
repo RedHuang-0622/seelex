@@ -27,6 +27,7 @@ type fakeEngine struct {
 	chatInputs        []string
 	appendChatHistory bool
 	cleared           bool
+	lazyStart         bool
 	sessionID         string
 	starts            int
 	lastInput         string
@@ -186,6 +187,9 @@ func (engine *fakeEngine) ClearHistory() {
 func (engine *fakeEngine) SessionID() string {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
+	if engine.lazyStart && engine.sessionID == "" {
+		return ""
+	}
 	if engine.sessionID == "" {
 		return "session-1"
 	}
@@ -799,6 +803,37 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T) {
+	engine := &fakeEngine{lazyStart: true}
+	sessions := &trackingSessions{}
+	service := mustNew(t, Dependencies{
+		Engine: engine, Runtime: &fakeRuntime{}, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions,
+	})
+	defer service.Shutdown()
+
+	// Startup with a lazy engine must present an unmaterialized draft so the
+	// first submission creates a real session instead of persisting an empty ID.
+	initial := service.Snapshot()
+	if !initial.Session.Draft || initial.Session.ID != "" {
+		t.Fatalf("initial lazy session = %+v, want Draft=true with empty ID", initial.Session)
+	}
+
+	if err := service.Submit(context.Background(), "first question"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := service.Snapshot()
+	if snapshot.Session.Draft || snapshot.Session.ID != "session-new" {
+		t.Fatalf("materialized session = %+v", snapshot.Session)
+	}
+	engine.mu.Lock()
+	starts := engine.starts
+	engine.mu.Unlock()
+	if starts != 1 {
+		t.Fatalf("StartSession calls after first submit = %d, want 1", starts)
 	}
 }
 
