@@ -86,9 +86,8 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 		Input: SeelexNodeInput{ID: "summary", Input: "summarize"}}
 	n := newForkSummaryNode(spec)
 	wc := workplanTypes.NewWorkflowContext()
-	// 多行输出：紧凑摘要只保留首行（内核 RawString 会 JSON 编码，单行内容
-	// 会被整行保留，用多行才能验证"不灌完整输出"）。
-	wc.SetResultRaw("z", "z-line-1\nz-line-2\nz-line-3")
+	// 多行输出：紧凑摘要保留前 N 行（*N 语义），超出部分截断。
+	wc.SetResultRaw("z", "z-line-1\nz-line-2\nz-line-3\nz-line-4\nz-line-5\nz-line-6")
 	wc.SetResultRaw("a", "a-line-1\na-line-2")
 
 	out, err := n.Run(context.Background(), wc)
@@ -100,32 +99,33 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 	if ai < 0 || zi < 0 || ai > zi {
 		t.Fatalf("summary must be sorted by node id, got:\n%s", out)
 	}
-	// 紧凑：只带首行摘要，不带完整输出（完整内容在工作区子代理树/详情）。
-	if !strings.Contains(out, "- a: a-line-1") || !strings.Contains(out, "- z: z-line-1") {
-		t.Fatalf("summary must carry first-line summaries, got:\n%s", out)
+	// *N 语义：前 N 行都在（N = forkSummaryMaxLines），超出 N 的行截断。
+	if !strings.Contains(out, "- a: a-line-1\n  a-line-2") || !strings.Contains(out, "- z: z-line-1\n  z-line-2") {
+		t.Fatalf("summary must carry first %d lines, got:\n%s", forkSummaryMaxLines, out)
 	}
-	if strings.Contains(out, "a-line-2") || strings.Contains(out, "z-line-2") || strings.Contains(out, "z-line-3") {
-		t.Fatalf("compact summary must not embed full outputs:\n%s", out)
+	if strings.Contains(out, "z-line-6") {
+		t.Fatalf("summary must drop lines beyond %d, got:\n%s", forkSummaryMaxLines, out)
 	}
 	if !strings.Contains(out, "子代理完成情况") {
 		t.Fatalf("summary must carry the compact header:\n%s", out)
 	}
 }
 
-func TestForkSummaryLineCompact(t *testing.T) {
+func TestForkSummaryLinesCompact(t *testing.T) {
 	cases := []struct {
 		output string
 		want   string
 	}{
-		{"", "(无输出)"},
-		{"   \n", "(无输出)"},
-		{"第一行\n第二行\n", "第一行"},
+		{"", ""},
+		{"   \n", ""},
+		{"第一行\n第二行\n", "第一行\n第二行"},
+		{"a\n\nb\nc\nd\ne\nf\ng\n", "a\nb\nc\nd\ne"}, // 空行跳过 + 前 N 行
 		{strings.Repeat("x", 200), strings.Repeat("x", forkSummaryLineLimit) + "…"},
 	}
 	for _, tc := range cases {
-		got := forkResultSummaryLine(tc.output)
+		got := forkResultSummaryLines(tc.output)
 		if got != tc.want {
-			t.Fatalf("forkResultSummaryLine(%q) = %q, want %q", tc.output, got, tc.want)
+			t.Fatalf("forkResultSummaryLines(%q) = %q, want %q", tc.output, got, tc.want)
 		}
 	}
 }

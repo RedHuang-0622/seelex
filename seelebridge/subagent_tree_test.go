@@ -91,8 +91,9 @@ func TestSubAgentTreeContextProjection(t *testing.T) {
 	}
 }
 
-// TestSubAgentTreeLifecycleTransitions 验证节点终态写入：成功 → done +
-// 会话摘要；失败 → failed + 错误；noteSession 挂载会话 ID。
+// TestSubAgentTreeLifecycleTransitions 验证节点终态："跑完就清走"——
+// 成功 → done 后立即从树中移除（不占位；详情数据面在 nodeSessions 注册表，
+// 独立保留）；失败 → failed + 错误（保留现场供排查）；noteSession 挂载会话 ID。
 func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
@@ -110,12 +111,9 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 	runtime.completeSubagentNode("ok", "audit done", nil)
 	runtime.completeSubagentNode("bad", "partial", errors.New("boom"))
 
-	ok := treeNode(t, runtime, "ok")
-	if ok.Status != SubAgentDone || ok.Summary != "audit done" || ok.Error != "" {
-		t.Fatalf("done node = %+v", ok)
-	}
-	if ok.EndedAt.IsZero() {
-		t.Fatal("done node must record ended_at")
+	// done 节点已从树中清走（完成即清走，不占位）。
+	if got := treeNode(t, runtime, "ok"); got.ID != "" {
+		t.Fatalf("done node must be pruned from the tree, got %+v", got)
 	}
 	bad := treeNode(t, runtime, "bad")
 	if bad.Status != SubAgentFailed || bad.Summary != "partial" || !strings.Contains(bad.Error, "boom") {
@@ -127,21 +125,44 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 	if treeNode(t, runtime, "not-a-fork-node").ID != "" {
 		t.Fatal("unknown node must not appear in the tree")
 	}
-	// 全部结束后主代理合成根状态：一子失败 → failed。
+	// 仅剩失败子代理 → 主代理合成根状态 failed。
 	if root := runtime.SubAgentTree()[0]; root.Status != SubAgentFailed {
 		t.Fatalf("main status with failed child = %+v", root.Status)
+	}
+	// 失败节点可手动清空（清空入口：ClearSubagentTree）。
+	if err := runtime.subagentTree.clear(); err != nil {
+		t.Fatalf("clear tree: %v", err)
+	}
+	if tree := runtime.SubAgentTree(); tree != nil {
+		t.Fatalf("tree must be empty after clear, got %+v", tree)
+	}
+}
+
+// TestSubAgentTreeClearRemovesEverything 清空入口：整树（含失败节点与
+// 嵌套层级）一次移除。
+func TestSubAgentTreeClearRemovesEverything(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.subagentTree.registerFork(mainAgentNodeID, []forkSubagentSpec{{ID: "a", Goal: "top"}})
+	runtime.subagentTree.registerFork("a", []forkSubagentSpec{{ID: "a1", Goal: "nested"}})
+	runtime.completeSubagentNode("a1", "nested done", errors.New("boom"))
+	if err := runtime.subagentTree.clear(); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if tree := runtime.SubAgentTree(); tree != nil {
+		t.Fatalf("tree must be empty after clear, got %+v", tree)
 	}
 }
 
 // TestSubAgentTreeNestedFork 验证嵌套 fork：子代理再 fork → 三层树，
-// 中间层父节点挂接正确。
+// 中间层父节点挂接正确；嵌套子代理完成后即清走（不占位）。
 func TestSubAgentTreeNestedFork(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.subagentTree.registerFork(mainAgentNodeID, []forkSubagentSpec{{ID: "a", Goal: "top"}})
 	runtime.subagentTree.registerFork("a", []forkSubagentSpec{{ID: "a1", Goal: "nested"}})
-	runtime.completeSubagentNode("a1", "nested done", nil)
 
+	// 嵌套子代理运行中 → 挂在父节点 a 下。
 	root := runtime.SubAgentTree()[0]
 	if len(root.Children) != 1 || root.Children[0].ID != "a" {
 		t.Fatalf("root children = %+v", root.Children)
@@ -150,12 +171,22 @@ func TestSubAgentTreeNestedFork(t *testing.T) {
 	if len(child.Children) != 1 || child.Children[0].ID != "a1" || child.Children[0].ParentID != "a" {
 		t.Fatalf("nested child = %+v", child.Children)
 	}
-	if child.Children[0].Status != SubAgentDone {
-		t.Fatalf("nested child status = %+v", child.Children[0].Status)
+	if child.Children[0].Status != SubAgentRunning {
+		t.Fatalf("nested child status = %+v, want running", child.Children[0].Status)
 	}
 	// 父运行中子代理未完成 → 主代理根保持 running。
 	if root.Status != SubAgentRunning {
 		t.Fatalf("main status = %+v, want running", root.Status)
+	}
+
+	// 嵌套子代理完成 → 立即清走，父节点不再有 children 挂载。
+	runtime.completeSubagentNode("a1", "nested done", nil)
+	root = runtime.SubAgentTree()[0]
+	if len(root.Children) != 1 || root.Children[0].ID != "a" {
+		t.Fatalf("root children after nested done = %+v", root.Children)
+	}
+	if len(root.Children[0].Children) != 0 {
+		t.Fatalf("nested done child must be pruned, got %+v", root.Children[0].Children)
 	}
 }
 
@@ -184,9 +215,9 @@ func TestSubAgentTreeEmptyAndOrphan(t *testing.T) {
 	}
 }
 
-// TestForkSubagentsRecordsTree 验证 fork 全链路后子代理树挂接完整：
-// 两个并行子代理 → 树含 main → s1/s2（done + 会话摘要），且与既有
-// 详情数据面（上下文快照）共存。
+// TestForkSubagentsRecordsTree 验证 fork 全链路："跑完就清走"——两个并行
+// 子代理完成后树即清空（不占位），详情数据面（上下文快照/会话记录）仍在
+// nodeSessions 注册表独立保留。
 func TestForkSubagentsRecordsTree(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
@@ -204,34 +235,11 @@ func TestForkSubagentsRecordsTree(t *testing.T) {
 	if !strings.Contains(result, `"status":"completed"`) {
 		t.Fatalf("fork result must be completed, got: %s", result)
 	}
-	root := runtime.SubAgentTree()[0]
-	if root.ID != mainAgentNodeID || len(root.Children) != 2 {
-		t.Fatalf("tree root = %+v", root)
+	// 两个子代理都完成后树已清空（不占位）。
+	if tree := runtime.SubAgentTree(); tree != nil {
+		t.Fatalf("tree must be empty after all forks complete, got %+v", tree)
 	}
-	s1 := treeNode(t, runtime, "s1")
-	s2 := treeNode(t, runtime, "s2")
-	if s1.Status != SubAgentDone || s2.Status != SubAgentDone {
-		t.Fatalf("fork children must be done: s1=%+v s2=%+v", s1, s2)
-	}
-	if s1.Goal != "audit module A" || s2.Goal != "audit module B" {
-		t.Fatalf("child goals = %q/%q", s1.Goal, s2.Goal)
-	}
-	// 节点 → 账号按 branchID 哈希路由（确定性但映射不固定）：两个子代理的
-	// 会话摘要合计覆盖两个确定性输出即可。
-	summaries := s1.Summary + "|" + s2.Summary
-	for _, want := range []string{"fork-left: audit module A done", "fork-right: audit module B done"} {
-		if !strings.Contains(summaries, want) {
-			t.Fatalf("summaries missing %q: %s", want, summaries)
-		}
-	}
-	if s1.SessionID == "" || s2.SessionID == "" {
-		t.Fatal("fork children must carry their sub-session ids")
-	}
-	// 紧凑上下文挂在树节点上（结束快照零额外导出）；完整快照仍经既有
-	// 数据面读取（详情弹窗"上下文"标签）。
-	if s1.Context == nil || s1.Context.Goal != "audit module A" || s1.Context.MessageCount == 0 {
-		t.Fatalf("s1 compact context = %+v", s1.Context)
-	}
+	// 详情数据面独立保留：完整快照/会话记录仍可经 nodeSessions 注册表读取。
 	snap, ok := runtime.NodeContextSnapshot("s1")
 	if !ok || snap == nil || snap.Goal != "audit module A" {
 		t.Fatalf("node context snapshot missing after fork: %+v", snap)

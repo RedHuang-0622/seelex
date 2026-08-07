@@ -66,6 +66,16 @@ func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDet
 	return detail, nil
 }
 
+// ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
+// 完成后刷新快照投影，前端经 runtime.changed 增量收到空树 → 分区隐藏）。
+func (service *Service) ClearSubagentTree() error {
+	if err := service.deps.Runtime.ClearSubagentTree(); err != nil {
+		return err
+	}
+	service.RefreshRuntimeSnapshot()
+	return nil
+}
+
 // nodeWorktreeInfo 查询节点 worktree 现场（失败/被拒现场保留 → 恢复入口；
 // 成功路径已清理 → nil）。
 func (service *Service) nodeWorktreeInfo(nodeID string) *model.SubagentWorktreeInfo {

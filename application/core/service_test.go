@@ -365,6 +365,8 @@ func (runtime *fakeRuntime) CancelScheduledTask(id string) error {
 	}
 	return nil
 }
+func (runtime *fakeRuntime) ClearSubagentTree() error { return nil }
+
 func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error) {
 	return runtime.searchResult, runtime.searchErr
 }

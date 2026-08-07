@@ -522,6 +522,9 @@ func (port runtimePort) ScheduleTask(ctx context.Context, spec seelebridge.Sched
 func (port runtimePort) CancelScheduledTask(id string) error {
 	return port.runtime.CancelScheduledTask(id)
 }
+func (port runtimePort) ClearSubagentTree() error {
+	return port.runtime.ClearSubagentTree()
+}
 func (port runtimePort) SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error) {
 	return port.runtime.SearchHistory(ctx, query, limit)
 }

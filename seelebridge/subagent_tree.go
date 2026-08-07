@@ -15,6 +15,11 @@ import (
 // 节点状态（running/done/failed）、goal、紧凑 ContextSnapshot、会话摘要挂在
 // 节点上；整棵树经 Runtime.SubAgentTree() 投影为只读 DTO 供 GUI 树视图渲染。
 //
+// 完成即清走（2026-08-07 用户约定）：done 节点在 completeSubagentNode 成功
+// 路径立即从树中移除——工作区树只保留运行中/失败的节点，完成的子代理不
+// 占位。详情数据面（nodeSessions 注册表：会话记录/上下文快照/工具结果）
+// 独立保留，Plan 节点与详情弹窗仍可查历史。
+//
 // 明确不落盘：树随进程生命周期存在，会话恢复/重启后为空（与 nodeSessions
 // 注册表同构，见 agent_node.go）。ContextSnapshot 以紧凑投影挂在节点上
 // （运行中实时导出、结束后快照，截断有界）；完整快照仍经既有
@@ -155,7 +160,9 @@ func (s *subagentTreeState) noteSnapshot(nodeID string, snap *snapshot.ContextSn
 }
 
 // completeSubagentNode 写入节点终态（SeelexAgentNode.Run 结束路径调用）：
-// 成功 → done + 会话摘要（最终输出）；失败 → failed + 错误。非 fork 节点 no-op。
+// 成功 → 记录摘要/结束时间后**立即从树中移除**（"跑完就清走"——完成的
+// 子代理不占位；详情数据面保留在 nodeSessions 注册表，Plan/详情弹窗仍可
+// 查历史）；失败 → failed + 错误（保留现场供排查）。非 fork 节点 no-op。
 func (s *subagentTreeState) completeSubagentNode(nodeID, summary string, runErr error) {
 	if s == nil || nodeID == "" {
 		return
@@ -173,7 +180,51 @@ func (s *subagentTreeState) completeSubagentNode(nodeID, summary string, runErr 
 		record.errorMsg = runErr.Error()
 		return
 	}
-	record.status = SubAgentDone
+	s.removeNodeLocked(nodeID)
+}
+
+// removeNodeLocked 从注册表移除节点（调用方持锁）：删除节点记录与其子
+// 节点列表，并从父节点 children 列表摘除。done 节点完成即清走。
+func (s *subagentTreeState) removeNodeLocked(nodeID string) {
+	record := s.nodes[nodeID]
+	if record == nil {
+		return
+	}
+	parent := record.parentID
+	delete(s.nodes, nodeID)
+	delete(s.children, nodeID)
+	if parent == "" {
+		return
+	}
+	list := s.children[parent]
+	for index, childID := range list {
+		if childID == nodeID {
+			s.children[parent] = append(list[:index], list[index+1:]...)
+			return
+		}
+	}
+}
+
+// clear 清空整棵树（GUI「清空」入口：一次移除全部节点，含失败节点与
+// 嵌套层级；详情数据面在 nodeSessions 注册表，不受影响）。
+func (s *subagentTreeState) clear() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nodes = make(map[string]*subagentNodeRecord)
+	s.children = make(map[string][]string)
+	return nil
+}
+
+// ClearSubagentTree 清空子代理树（GUI「清空」按钮入口）。失败节点（树里
+// 唯一会长期驻留的节点）由用户显式清走；详情数据面不受影响。
+func (r *Runtime) ClearSubagentTree() error {
+	if r == nil || r.subagentTree == nil {
+		return nil
+	}
+	return r.subagentTree.clear()
 }
 
 // SubAgentTree 返回子代理树的只读投影（根 = 主代理；含全部层级子节点）。

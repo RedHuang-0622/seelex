@@ -43,6 +43,7 @@ type Application interface {
 	TestSessionStorage(context.Context, sessionstore.Config) error
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
+	ClearSubagentTree() error
 	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
 	CancelScheduledTask(string) error
 	// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
@@ -205,6 +206,11 @@ func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.app.Snapsh
 // SubagentSessionDetail 返回子代理节点详情（会话记录 + 状态/耗时/输出）。
 func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error) {
 	return bridge.app.SubagentSessionDetail(nodeID)
+}
+
+// ClearSubagentTree 清空子代理树（工作区「子代理」分区清空按钮）。
+func (bridge *Bridge) ClearSubagentTree() error {
+	return bridge.app.ClearSubagentTree()
 }
 
 func (bridge *Bridge) Submit(text string) error {

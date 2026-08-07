@@ -120,6 +120,8 @@ func (*guiChainRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskS
 	return nil, nil
 }
 func (*guiChainRuntime) CancelScheduledTask(string) error { return nil }
+func (*guiChainRuntime) ClearSubagentTree() error { return nil }
+
 func (*guiChainRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
 	return seelexctxsearch.Result{}, nil
 }

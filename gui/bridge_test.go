@@ -140,6 +140,8 @@ func (fake *fakeApplication) CancelScheduledTask(id string) error {
 	fake.cancelledTaskID = id
 	return nil
 }
+func (fake *fakeApplication) ClearSubagentTree() error { return nil }
+
 func (fake *fakeApplication) SearchHistory(_ context.Context, query string, limit int) (seelexctxsearch.Result, error) {
 	fake.searchQuery = query
 	fake.searchLimit = limit

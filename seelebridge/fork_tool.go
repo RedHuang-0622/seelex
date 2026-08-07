@@ -194,8 +194,13 @@ func newForkSummaryNode(spec codec.NodeSpec[SeelexNodeInput]) *forkSummaryNode {
 	}
 }
 
-// forkSummaryLineLimit 是单子代理摘要行上限（保持工具结果紧凑）。
-const forkSummaryLineLimit = 160
+// forkSummaryLineLimit 是单行摘要长度上限；forkSummaryMaxLines 是每子代理
+// 保留的行数（*N 而非 *1：子代理返回携带前 N 行，既信息充分又不灌满对话）。
+// 每子代理总上限 = lineLimit × maxLines。
+const (
+	forkSummaryLineLimit = 160
+	forkSummaryMaxLines  = 5
+)
 
 func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowContext) (string, error) {
 	if wc == nil || len(wc.PrevResults) == 0 {
@@ -211,35 +216,45 @@ func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowConte
 	for _, id := range keys {
 		b.WriteString("- ")
 		b.WriteString(id)
-		b.WriteString(": ")
-		b.WriteString(forkResultSummaryLine(wc.PrevResults[id]))
+		b.WriteByte(':')
+		summary := forkResultSummaryLines(wc.PrevResults[id])
+		if summary == "" {
+			b.WriteString(" (无输出)\n")
+			continue
+		}
+		b.WriteByte(' ')
+		// 多行用 \n + 缩进续行展示（保持每行可读、整体有界）。
+		b.WriteString(strings.ReplaceAll(summary, "\n", "\n  "))
 		b.WriteByte('\n')
 	}
 	b.WriteString("（完整会话/上下文/工具活动见工作区子代理树，点击节点查看详情）")
 	return b.String(), nil
 }
 
-// forkResultSummaryLine 提取子代理输出的单行摘要：内核把结果编码为 JSON
-// （RawString 带引号/转义）→ 先解码回纯文本，再取首个非空行截断到
-// forkSummaryLineLimit；无输出 → "(无输出)"。
-func forkResultSummaryLine(output string) string {
+// forkResultSummaryLines 提取子代理输出的有界摘要：内核把结果编码为 JSON
+// （RawString 带引号/转义）→ 先解码回纯文本，再保留前 forkSummaryMaxLines
+// 个非空行（每行截断到 forkSummaryLineLimit）；无输出 → 空串。
+func forkResultSummaryLines(output string) string {
 	if decoded := ""; json.Unmarshal([]byte(output), &decoded) == nil {
 		output = decoded
 	}
 	output = strings.TrimSpace(output)
 	if output == "" {
-		return "(无输出)"
+		return ""
 	}
-	line := output
-	if index := strings.IndexByte(line, '\n'); index >= 0 {
-		line = line[:index]
+	var lines []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if len(line) > forkSummaryLineLimit {
+			line = line[:forkSummaryLineLimit] + "…"
+		}
+		lines = append(lines, line)
+		if len(lines) >= forkSummaryMaxLines {
+			break
+		}
 	}
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return "(无输出)"
-	}
-	if len(line) > forkSummaryLineLimit {
-		return line[:forkSummaryLineLimit] + "…"
-	}
-	return line
+	return strings.Join(lines, "\n")
 }

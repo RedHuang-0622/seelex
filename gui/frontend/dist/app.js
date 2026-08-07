@@ -28,7 +28,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-section", "subagent-count", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-section", "subagent-count", "clear-subagent-tree", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -330,6 +330,16 @@ function countSubagentNodes(nodes) {
   walk(nodes);
   return count;
 }
+
+// 清空子代理树：done 节点完成即自动清走；失败节点经此入口显式清掉
+// （后端 ClearSubagentTree → 快照刷新 → runtime.changed 增量 → 分区隐藏）。
+elements["clear-subagent-tree"]?.addEventListener("click", async () => {
+  try {
+    await invoke("ClearSubagentTree");
+  } catch (err) {
+    showToast(`清空子代理树失败: ${err}`);
+  }
+});
 
 // findSubagentTreeNode 在子代理树投影里按 id 找节点（含嵌套 children）。
 function findSubagentTreeNode(nodeID) {
