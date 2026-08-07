@@ -51,6 +51,11 @@ type Limits struct {
 	// 但 daemon 未启动是常见状态，沙箱应帮模型把环境"修好"而不是报错）。
 	DisableDockerAutoStart bool `yaml:"disable_docker_auto_start"` // true = 关闭自动拉起（默认开启）
 	DockerStartTimeoutSec  int  `yaml:"docker_start_timeout"`      // 启动等待上限（秒；0 → 60）
+	// fork 子代理长任务宽松预算（2026-08-08）：fork_subagents 是同步编排
+	// 工具，总时长 = 全部子代理工作量之和，不能被通用工具超时（30 分钟）
+	// 掐死；fork 用独立大预算，子代理节点循环数也独立放大。
+	ForkTimeoutSec    int `yaml:"fork_timeout"`          // fork 工具总超时（秒；0 → 7200 = 2 小时）
+	ForkNodeMaxLoops  int `yaml:"fork_node_max_loops"`   // fork 子代理节点循环预算（0 → 60）
 }
 
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
@@ -86,6 +91,8 @@ func DefaultLimits() Limits {
 		WalkTimeoutSec:         30,
 		MaxToolResultChars:     20000,
 		DockerStartTimeoutSec:  60,
+		ForkTimeoutSec:         7200,
+		ForkNodeMaxLoops:       60,
 	}
 }
 
@@ -187,6 +194,12 @@ func (l Limits) WithDefaults() Limits {
 	if l.DockerStartTimeoutSec == 0 {
 		l.DockerStartTimeoutSec = def.DockerStartTimeoutSec
 	}
+	if l.ForkTimeoutSec == 0 {
+		l.ForkTimeoutSec = def.ForkTimeoutSec
+	}
+	if l.ForkNodeMaxLoops == 0 {
+		l.ForkNodeMaxLoops = def.ForkNodeMaxLoops
+	}
 	return l
 }
 
@@ -234,7 +247,8 @@ func LoadLimits(path string) (Limits, error) {
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
 		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WalkTimeoutSec < 0 ||
-		check.MaxToolResultChars < 0 || check.DockerStartTimeoutSec < 0 {
+		check.MaxToolResultChars < 0 || check.DockerStartTimeoutSec < 0 ||
+		check.ForkTimeoutSec < 0 || check.ForkNodeMaxLoops < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
 	return check, nil

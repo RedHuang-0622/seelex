@@ -2,6 +2,7 @@ package seelebridge
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -87,7 +88,12 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 	n := newForkSummaryNode(spec)
 	wc := workplanTypes.NewWorkflowContext()
 	// 多行输出：紧凑摘要保留前 N 行（*N 语义），超出部分截断。
-	wc.SetResultRaw("z", "z-line-1\nz-line-2\nz-line-3\nz-line-4\nz-line-5\nz-line-6")
+	// 30 行上限（forkSummaryMaxLines）可容纳一批 20+ 实例的逐条汇报。
+	var zLines []string
+	for i := 1; i <= forkSummaryMaxLines+3; i++ {
+		zLines = append(zLines, fmt.Sprintf("z-line-%d", i))
+	}
+	wc.SetResultRaw("z", strings.Join(zLines, "\n"))
 	wc.SetResultRaw("a", "a-line-1\na-line-2")
 
 	out, err := n.Run(context.Background(), wc)
@@ -103,11 +109,46 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 	if !strings.Contains(out, "- a: a-line-1\n  a-line-2") || !strings.Contains(out, "- z: z-line-1\n  z-line-2") {
 		t.Fatalf("summary must carry first %d lines, got:\n%s", forkSummaryMaxLines, out)
 	}
-	if strings.Contains(out, "z-line-6") {
+	lastKept := fmt.Sprintf("z-line-%d", forkSummaryMaxLines)
+	if !strings.Contains(out, lastKept) {
+		t.Fatalf("summary must keep line %d, got:\n%s", forkSummaryMaxLines, out)
+	}
+	dropped := fmt.Sprintf("z-line-%d", forkSummaryMaxLines+1)
+	if strings.Contains(out, dropped) {
 		t.Fatalf("summary must drop lines beyond %d, got:\n%s", forkSummaryMaxLines, out)
 	}
 	if !strings.Contains(out, "子代理完成情况") {
 		t.Fatalf("summary must carry the compact header:\n%s", out)
+	}
+}
+
+// TestForkPlanNodesCarryLenientLoopBudget 验证 fork 子代理节点预算使用
+// 独立的宽松默认（limits.fork_node_max_loops，默认 60）而非通用 15 轮——
+// 长任务（多实例串行）不会被循环预算掐死。
+func TestForkPlanNodesCarryLenientLoopBudget(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	loaded, err := runtime.buildForkPlan(forkSubagentsInput{
+		Subagents: []forkSubagentSpec{{ID: "s1", Goal: "fix"}, {ID: "s2", Goal: "fix"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, id := range loaded.Plan.AllNodes() {
+		agentNode, ok := loaded.Plan.GetNode(id).(*SeelexAgentNode)
+		if !ok {
+			continue
+		}
+		input := agentNode.input
+		if input.Budget == nil || input.Budget.MaxLoops != runtime.limits.ForkNodeMaxLoops {
+			t.Fatalf("fork node %q budget = %+v, want max_loops=%d",
+				input.ID, input.Budget, runtime.limits.ForkNodeMaxLoops)
+		}
+		found++
+	}
+	if found != 2 {
+		t.Fatalf("fork agent nodes = %d, want 2", found)
 	}
 }
 
@@ -119,8 +160,9 @@ func TestForkSummaryLinesCompact(t *testing.T) {
 		{"", ""},
 		{"   \n", ""},
 		{"第一行\n第二行\n", "第一行\n第二行"},
-		{"a\n\nb\nc\nd\ne\nf\ng\n", "a\nb\nc\nd\ne"}, // 空行跳过 + 前 N 行
+		{"a\n\nb\nc\nd\ne\nf\ng\n", "a\nb\nc\nd\ne\nf\ng"}, // 空行跳过；30 行上限内全保留
 		{strings.Repeat("x", 200), strings.Repeat("x", forkSummaryLineLimit) + "…"},
+		{multiLine(forkSummaryMaxLines + 3), multiLine(forkSummaryMaxLines)}, // 超出 30 行截断
 	}
 	for _, tc := range cases {
 		got := forkResultSummaryLines(tc.output)
@@ -128,4 +170,13 @@ func TestForkSummaryLinesCompact(t *testing.T) {
 			t.Fatalf("forkResultSummaryLines(%q) = %q, want %q", tc.output, got, tc.want)
 		}
 	}
+}
+
+// multiLine 生成 n 行 l1..ln 文本。
+func multiLine(n int) string {
+	lines := make([]string, n)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("l%d", i+1)
+	}
+	return strings.Join(lines, "\n")
 }

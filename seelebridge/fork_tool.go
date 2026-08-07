@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
@@ -113,7 +114,18 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 		parentID = scope.NodeID
 	}
 	r.subagentTree.registerFork(parentID, input.Subagents)
-	return r.runPlan(ctx, loaded)
+	// fork 宽松超时（2026-08-08）：fork 是同步编排工具，总时长 = 全部子代理
+	// 工作量之和，通用工具超时（tool_call_timeout 默认 30 分钟）会掐死长任务。
+	// 剥离外层截止时间（保留用户取消传播），改用 limits.fork_timeout（默认 2h）。
+	forkTimeout := time.Duration(r.limits.ForkTimeoutSec) * time.Second
+	if forkTimeout <= 0 {
+		forkTimeout = 2 * time.Hour
+	}
+	forkCtx, forkCancel := context.WithTimeout(context.Background(), forkTimeout)
+	stop := context.AfterFunc(ctx, forkCancel) // 原 ctx 取消（用户停止）→ 同步取消 fork
+	defer stop()
+	defer forkCancel()
+	return r.runPlan(forkCtx, loaded)
 }
 
 // buildForkPlan 程序化构造 fork DAG：
@@ -141,7 +153,13 @@ func (r *Runtime) buildForkPlan(input forkSubagentsInput) (*loadedPlanDoc, error
 	for _, spec := range input.Subagents {
 		document.Nodes = append(document.Nodes, codec.NodeSpec[SeelexNodeInput]{
 			ID: spec.ID, Kind: "agent",
-			Input: SeelexNodeInput{ID: spec.ID, Input: spec.Goal, Kind: "agent"},
+			Input: SeelexNodeInput{
+				ID: spec.ID, Input: spec.Goal, Kind: "agent",
+				// fork 子代理节点循环预算用独立宽松默认（limits.fork_node_max_loops，
+				// 默认 60）：一个子代理常要串行处理多个实例/多步调研，15 轮默认
+				// 预算（PlanNodeMaxLoops）对长任务不够。
+				Budget: &NodeBudgetInput{MaxLoops: forkNodeLoops(r)},
+			},
 		})
 	}
 	document.Nodes = append(document.Nodes, codec.NodeSpec[SeelexNodeInput]{
@@ -196,11 +214,21 @@ func newForkSummaryNode(spec codec.NodeSpec[SeelexNodeInput]) *forkSummaryNode {
 
 // forkSummaryLineLimit 是单行摘要长度上限；forkSummaryMaxLines 是每子代理
 // 保留的行数（*N 而非 *1：子代理返回携带前 N 行，既信息充分又不灌满对话）。
-// 每子代理总上限 = lineLimit × maxLines。
+// 每子代理总上限 = lineLimit × maxLines。长任务（多实例串行）的汇报常
+// 一行一个实例，30 行可容纳一批 20+ 实例的逐条结论。
 const (
 	forkSummaryLineLimit = 160
-	forkSummaryMaxLines  = 5
+	forkSummaryMaxLines  = 30
 )
+
+// forkNodeLoops 返回 fork 子代理节点的循环预算（limits.fork_node_max_loops；
+// 0 → 默认 60）。
+func forkNodeLoops(r *Runtime) int {
+	if r != nil && r.limits.ForkNodeMaxLoops > 0 {
+		return r.limits.ForkNodeMaxLoops
+	}
+	return 60
+}
 
 func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowContext) (string, error) {
 	if wc == nil || len(wc.PrevResults) == 0 {
