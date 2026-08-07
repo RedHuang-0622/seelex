@@ -126,7 +126,7 @@ func (harnessRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpe
 	return nil, nil
 }
 func (harnessRuntime) CancelScheduledTask(string) error { return nil }
-func (harnessRuntime) ClearSubagentTree() error { return nil }
+func (harnessRuntime) ClearSubagentTree() error         { return nil }
 
 func (harnessRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
 	return seelexctxsearch.Result{}, nil

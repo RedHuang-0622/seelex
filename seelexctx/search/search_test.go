@@ -12,7 +12,9 @@ import (
 )
 
 // fakeStack 是 StackSource 测试替身：返回固定压缩栈。
-type fakeStack struct{ record sessionstore.SessionContextRecord }
+type fakeStack struct {
+	record sessionstore.SessionContextRecord
+}
 
 func (s *fakeStack) Snapshot() sessionstore.SessionContextRecord { return s.record }
 
