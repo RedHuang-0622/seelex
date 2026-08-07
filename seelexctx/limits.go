@@ -46,6 +46,11 @@ type Limits struct {
 	TodoMaxItems           int `yaml:"todo_max_items"`               // todolist 清单项上限
 	WalkTimeoutSec         int `yaml:"walk_timeout"`                 // glob/grep 目录遍历超时（秒）
 	MaxToolResultChars     int `yaml:"max_tool_result_chars"`        // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
+	// docker 守护进程自动恢复（2026-08-07）：bash 命令因 Docker Desktop
+	// 未运行失败时，自动启动守护进程并重跑一次命令（真实环境有 docker CLI
+	// 但 daemon 未启动是常见状态，沙箱应帮模型把环境"修好"而不是报错）。
+	DisableDockerAutoStart bool `yaml:"disable_docker_auto_start"` // true = 关闭自动拉起（默认开启）
+	DockerStartTimeoutSec  int  `yaml:"docker_start_timeout"`      // 启动等待上限（秒；0 → 60）
 }
 
 // DefaultLimits 返回全部默认值（与重构前的硬编码常量一一对应，行为不变）。
@@ -80,6 +85,7 @@ func DefaultLimits() Limits {
 		TodoMaxItems:           20,
 		WalkTimeoutSec:         30,
 		MaxToolResultChars:     20000,
+		DockerStartTimeoutSec:  60,
 	}
 }
 
@@ -178,6 +184,9 @@ func (l Limits) WithDefaults() Limits {
 	if l.MaxToolResultChars == 0 {
 		l.MaxToolResultChars = def.MaxToolResultChars
 	}
+	if l.DockerStartTimeoutSec == 0 {
+		l.DockerStartTimeoutSec = def.DockerStartTimeoutSec
+	}
 	return l
 }
 
@@ -225,7 +234,7 @@ func LoadLimits(path string) (Limits, error) {
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
 		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WalkTimeoutSec < 0 ||
-		check.MaxToolResultChars < 0 {
+		check.MaxToolResultChars < 0 || check.DockerStartTimeoutSec < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
 	return check, nil

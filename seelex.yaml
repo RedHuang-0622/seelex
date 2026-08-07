@@ -43,6 +43,10 @@ limits:
   message_shard_size: 100        # 会话存储分片条数（默认 100）
   summary_chars: 800             # 项目记录摘要截断（默认 800）
   max_tool_result_chars: 20000   # 工具结果最大字符数（默认 20000；超大结果归档为 result_ref 经 read_tool_result 分页读取）
+  # docker 守护进程自动恢复：bash 命令因 Docker Desktop 未运行失败时自动
+  # 启动守护进程并重跑一次（默认开启；关闭需显式 disable_docker_auto_start: true）
+  # disable_docker_auto_start: false
+  # docker_start_timeout: 60     # 启动等待上限（秒；默认 60）
 #
 # 子代理超时速查：子代理执行长命令被掐，先调 tool_call_timeout；
 # 审批弹窗超时调 approval_timeout；子代理循环上限调 plan_node_max_loops。

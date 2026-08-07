@@ -19,6 +19,10 @@ func TestLoadLimitsDefaults(t *testing.T) {
 	if limits.ToolCallTimeoutSec != 1800 || limits.ApprovalTimeoutSec != 600 || limits.PlanNodeMaxLoops != 15 {
 		t.Fatalf("defaults = %+v", limits)
 	}
+	// docker 自动恢复默认：开启 + 60s 启动等待。
+	if limits.DisableDockerAutoStart || limits.DockerStartTimeoutSec != 60 {
+		t.Fatalf("docker defaults = %+v", limits)
+	}
 	// 文件存在但没有 limits 段 → 同样走完整默认。
 	path := filepath.Join(t.TempDir(), "seele.yaml")
 	if err := os.WriteFile(path, []byte("window:\n  rounds: 0\n"), 0o600); err != nil {
@@ -97,6 +101,14 @@ func TestLoadLimitsRejectsNegative(t *testing.T) {
 	}
 	if _, err := LoadLimits(path); err == nil {
 		t.Fatal("negative max_tool_result_chars must be rejected")
+	}
+	// docker_start_timeout 负值显式报错。
+	path = filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(path, []byte("limits:\n  docker_start_timeout: -1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLimits(path); err == nil {
+		t.Fatal("negative docker_start_timeout must be rejected")
 	}
 }
 

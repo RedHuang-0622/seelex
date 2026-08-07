@@ -106,6 +106,7 @@ type Runtime struct {
 	projectScope      *ProjectScope
 	filesystem        FileSystem      // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	sandbox           CommandSandbox  // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
+	dockerProbe       dockerProber     // docker 守护进程探测/启动（nil → 真实实现；测试注入）
 	wt                *worktreeState  // 子代理 worktree 注册表（worktree.go）
 	todo              *todoState      // todolist 清单 actor（todo_tool.go）
 	scheduler         *schedulerState // 定时周期任务 actor（scheduler.go）

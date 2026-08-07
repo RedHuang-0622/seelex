@@ -453,7 +453,43 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (output strin
 		}
 	}
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.exited", Shell: filepath.Base(shell), ExitCode: exitCode})
-	encoded, _ := json.Marshal(scopedBashResult{Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), ExitCode: exitCode})
+	result := scopedBashResult{Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), ExitCode: exitCode}
+	// docker 自动恢复（根治，2026-08-07）：真实环境有 docker CLI 但 Docker
+	// Desktop 守护进程未运行时，命令失败并匹配 daemon-down 模式 → 自动启动
+	// 守护进程（limits.disable_docker_auto_start 可关）→ 就绪后重跑一次。
+	if result.ExitCode != 0 && !r.limits.DisableDockerAutoStart &&
+		isDockerDaemonDown(result.Stdout, result.Stderr) && dockerCLIPath() != "" {
+		r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.recovery", Shell: filepath.Base(shell)})
+		startErr := r.ensureDockerForRuntime(ctx)
+		if startErr == nil {
+			// 重跑（新超时上下文；原 runCtx 可能已耗尽）。
+			retryCtx, retryCancel := context.WithTimeout(ctx, timeout)
+			retryCmd := exec.CommandContext(retryCtx, shell, shellArgs...)
+			retryCmd.Dir = workdir
+			configureHiddenCommand(retryCmd)
+			var retryOut, retryErrBuf bytes.Buffer
+			retryCmd.Stdout, retryCmd.Stderr = &retryOut, &retryErrBuf
+			if runErr := retryCmd.Run(); runErr == nil {
+				retryCancel()
+				r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.retry.ok", Shell: filepath.Base(shell)})
+				encoded, _ := json.Marshal(scopedBashResult{
+					Stdout: strings.TrimSpace(retryOut.String()), Stderr: strings.TrimSpace(retryErrBuf.String()), ExitCode: 0,
+				})
+				return string(encoded), nil
+			}
+			retryCancel()
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.docker.retry.failed", Shell: filepath.Base(shell)})
+			result.Stderr = strings.TrimSpace(retryErrBuf.String()) + dockerHint(nil)
+			if retryOut.Len() > 0 {
+				result.Stdout = strings.TrimSpace(retryOut.String())
+			}
+			result.ExitCode = 1
+		} else {
+			result.Stderr = strings.TrimSpace(result.Stderr) + dockerHint(startErr)
+			result.ExitCode = 1
+		}
+	}
+	encoded, _ := json.Marshal(result)
 	return string(encoded), nil
 }
 
