@@ -406,8 +406,8 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 性能测试采用 **tmux 驱动真实 TUI 全链路**（输入 → 引擎 → DeepSeek API 在线调用 → 流式渲染完成），Effort=high，同沙箱、同模型（`deepseek-v4-flash` @ api.deepseek.com）同口径。两份完整报表均作为数据支撑：
 
-- **当前结论（权威）**：`.seelex/perf/REPORT-latest.md` —— 最新代码 `v0.1.0-dev-latest`（HEAD `87666f7`），2026-08-05 23:04–23:16 实测
-- **历史基线**：`.seelex/perf/REPORT.md` —— 旧构建 `v0.1.0-alpha.1`，2026-08-05 21:00–22:10 实测；顶部有数据取舍声明，被最新代码取代的指标已标注，仅保留其独有的工具子链路/并发失败率/冷启动拆解作为历史参考
+- **当前结论（权威）**：[`docs/test/REPORT-perf-latest.md`](docs/test/REPORT-perf-latest.md) —— 最新代码 `v0.1.0-dev-latest`（HEAD `87666f7`），2026-08-05 23:04–23:16 实测（原始产物：`.seelex/perf/REPORT-latest.md`，运行时生成、不入库）
+- **历史基线**：[`docs/test/REPORT-perf-baseline.md`](docs/test/REPORT-perf-baseline.md) —— 旧构建 `v0.1.0-alpha.1`，2026-08-05 21:00–22:10 实测；顶部有数据取舍声明，被最新代码取代的指标已标注，仅保留其独有的工具子链路/并发失败率/冷启动拆解作为历史参考
 
 ### 最新代码 vs 旧构建（关键数字，均 100% 成功率）
 
@@ -461,8 +461,8 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - [功能打点与指标](docs/feature-instrumentation.md)
 - [内置 Plugin](plugins/README.md)
 - [GUI 设计与协议](docs/gui/README.md)
-- [性能测试报表（最新代码，权威）](.seelex/perf/REPORT-latest.md)
-- [性能测试报表（旧构建基线）](.seelex/perf/REPORT.md)
+- [性能测试报表（最新代码，权威）](docs/test/REPORT-perf-latest.md)
+- [性能测试报表（旧构建基线）](docs/test/REPORT-perf-baseline.md)
 
 模块 README 描述当前实现；<code>docs/YYYY-MM-DD-topic/</code> 下的文件主要是阶段性方案与研发记录，不应被视为所有功能均已完成的证明。
 
