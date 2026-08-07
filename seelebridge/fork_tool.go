@@ -178,8 +178,10 @@ func forkPlanCanonical(input forkSubagentsInput) string {
 
 // ── summary 节点 ──────────────────────────────────────────────────────
 
-// forkSummaryNode 是 fork 的汇总节点：拼接全部前驱节点输出
-// （WorkflowContext.PrevResults，内核收集），作为 fork 最终输出。
+// forkSummaryNode 是 fork 的汇总节点：把全部前驱节点输出压缩为每子代理
+// 一行的紧凑摘要（WorkflowContext.PrevResults，内核收集），作为 fork 最终
+// 输出。完整输出不进入对话/历史（避免对话区被子代理大段内容灌满）——
+// 子代理树（工作区）与节点详情弹窗承载完整会话/上下文/工具活动。
 type forkSummaryNode struct {
 	node.BaseNode
 	input SeelexNodeInput
@@ -192,6 +194,9 @@ func newForkSummaryNode(spec codec.NodeSpec[SeelexNodeInput]) *forkSummaryNode {
 	}
 }
 
+// forkSummaryLineLimit 是单子代理摘要行上限（保持工具结果紧凑）。
+const forkSummaryLineLimit = 160
+
 func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowContext) (string, error) {
 	if wc == nil || len(wc.PrevResults) == 0 {
 		return "", nil
@@ -202,12 +207,39 @@ func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowConte
 	}
 	sort.Strings(keys)
 	var b strings.Builder
+	b.WriteString("子代理完成情况:\n")
 	for _, id := range keys {
-		b.WriteString("## ")
+		b.WriteString("- ")
 		b.WriteString(id)
-		b.WriteString("\n")
-		b.WriteString(wc.PrevResults[id])
-		b.WriteString("\n\n")
+		b.WriteString(": ")
+		b.WriteString(forkResultSummaryLine(wc.PrevResults[id]))
+		b.WriteByte('\n')
 	}
+	b.WriteString("（完整会话/上下文/工具活动见工作区子代理树，点击节点查看详情）")
 	return b.String(), nil
+}
+
+// forkResultSummaryLine 提取子代理输出的单行摘要：内核把结果编码为 JSON
+// （RawString 带引号/转义）→ 先解码回纯文本，再取首个非空行截断到
+// forkSummaryLineLimit；无输出 → "(无输出)"。
+func forkResultSummaryLine(output string) string {
+	if decoded := ""; json.Unmarshal([]byte(output), &decoded) == nil {
+		output = decoded
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return "(无输出)"
+	}
+	line := output
+	if index := strings.IndexByte(line, '\n'); index >= 0 {
+		line = line[:index]
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "(无输出)"
+	}
+	if len(line) > forkSummaryLineLimit {
+		return line[:forkSummaryLineLimit] + "…"
+	}
+	return line
 }

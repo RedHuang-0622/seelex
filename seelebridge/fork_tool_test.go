@@ -32,11 +32,15 @@ func TestForkSubagentsEndToEnd(t *testing.T) {
 	if !strings.Contains(result, `"status":"completed"`) {
 		t.Fatalf("fork result must be completed, got: %s", result)
 	}
-	// 两个子代理输出都在结果里（nodes 数组 + summary 拼接）。
-	for _, want := range []string{"fork-left: audit module A done", "fork-right: audit module B done", "## s1", "## s2"} {
+	// 两个子代理输出都在结果里（nodes 数组 + summary 紧凑行；T1：对话区
+	// 只带单行摘要，完整输出在工作区子代理树/详情弹窗）。
+	for _, want := range []string{"fork-left: audit module A done", "fork-right: audit module B done", "- s1:", "- s2:"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("fork result missing %q:\n%s", want, result)
 		}
+	}
+	if strings.Contains(result, `"## `) {
+		t.Errorf("fork summary must not use old full-output format (##):\n%s", result)
 	}
 	// 结束后详情数据面：结构化上下文快照（Goal/MessageCount；只读子代理 actor）。
 	snap, ok := runtime.NodeContextSnapshot("s1")
@@ -82,19 +86,46 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 		Input: SeelexNodeInput{ID: "summary", Input: "summarize"}}
 	n := newForkSummaryNode(spec)
 	wc := workplanTypes.NewWorkflowContext()
-	wc.SetResultRaw("z", "z-output")
-	wc.SetResultRaw("a", "a-output")
+	// 多行输出：紧凑摘要只保留首行（内核 RawString 会 JSON 编码，单行内容
+	// 会被整行保留，用多行才能验证"不灌完整输出"）。
+	wc.SetResultRaw("z", "z-line-1\nz-line-2\nz-line-3")
+	wc.SetResultRaw("a", "a-line-1\na-line-2")
 
 	out, err := n.Run(context.Background(), wc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 排序：a 在 z 前。
-	ai, zi := strings.Index(out, "## a"), strings.Index(out, "## z")
+	// 排序：a 在 z 前（T1 紧凑摘要仍保序）。
+	ai, zi := strings.Index(out, "- a:"), strings.Index(out, "- z:")
 	if ai < 0 || zi < 0 || ai > zi {
 		t.Fatalf("summary must be sorted by node id, got:\n%s", out)
 	}
-	if !strings.Contains(out, "a-output") || !strings.Contains(out, "z-output") {
-		t.Fatalf("summary must carry all predecessor outputs:\n%s", out)
+	// 紧凑：只带首行摘要，不带完整输出（完整内容在工作区子代理树/详情）。
+	if !strings.Contains(out, "- a: a-line-1") || !strings.Contains(out, "- z: z-line-1") {
+		t.Fatalf("summary must carry first-line summaries, got:\n%s", out)
+	}
+	if strings.Contains(out, "a-line-2") || strings.Contains(out, "z-line-2") || strings.Contains(out, "z-line-3") {
+		t.Fatalf("compact summary must not embed full outputs:\n%s", out)
+	}
+	if !strings.Contains(out, "子代理完成情况") {
+		t.Fatalf("summary must carry the compact header:\n%s", out)
+	}
+}
+
+func TestForkSummaryLineCompact(t *testing.T) {
+	cases := []struct {
+		output string
+		want   string
+	}{
+		{"", "(无输出)"},
+		{"   \n", "(无输出)"},
+		{"第一行\n第二行\n", "第一行"},
+		{strings.Repeat("x", 200), strings.Repeat("x", forkSummaryLineLimit) + "…"},
+	}
+	for _, tc := range cases {
+		got := forkResultSummaryLine(tc.output)
+		if got != tc.want {
+			t.Fatalf("forkResultSummaryLine(%q) = %q, want %q", tc.output, got, tc.want)
+		}
 	}
 }

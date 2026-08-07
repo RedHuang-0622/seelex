@@ -933,6 +933,7 @@ function renderSubagentTreeRow(item, guide) {
         <strong title="${escapeHTML(item.id)}">${escapeHTML(label)}</strong>
         <span class="plan-kind">${escapeHTML(statusLabel(subagentStatusToken(status)))}</span>
         ${item.session_id ? `<span class="subagent-session" title="${escapeHTML(item.session_id)}">${escapeHTML(shortSessionID(item.session_id))}</span>` : ""}
+        <button class="subagent-tree-detail" type="button" data-plan-node-open="${escapeHTML(item.id)}" title="查看会话记录 / 运行时上下文 / 工具活动">详情</button>
       </header>
       ${goal ? `<div class="subagent-tree-goal" title="${escapeHTML(item.goal)}">${escapeHTML(goal)}</div>` : ""}
       ${renderSubagentTreeContext(item.context)}

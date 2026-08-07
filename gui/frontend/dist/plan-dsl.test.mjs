@@ -419,6 +419,10 @@ test("renders the subagent tree with nesting guides, status colors, and escaped 
   assert.match(html, /data-subagent-status="done"/);
   assert.match(html, /data-subagent-status="failed"/);
   assert.match(html, /data-plan-node-open="s1a"/);
+  // 每个树节点行都有显式「详情」入口（T3：运行时上下文查看的可发现性）。
+  assert.match(html, /data-plan-node-open="s1"/);
+  assert.match(html, /data-plan-node-open="s2"/);
+  assert.match(html, />详情<\/button>/);
   assert.match(html, /audit &lt;main&gt;/);
   assert.doesNotMatch(html, /<main>/);
   assert.match(html, /boom &lt;b&gt;/);

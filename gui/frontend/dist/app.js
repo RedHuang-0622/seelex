@@ -28,7 +28,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-section", "subagent-count", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -299,11 +299,36 @@ function renderPlan(plan, subagentTree = null) {
   elements["plan-section"].classList.toggle("hidden", !plan);
   lastPlanDsl = planToDSL(plan);
   reconcilePlanDSL(elements["plan-view"], lastPlanDsl);
+  renderSubagentPanel(subagentTree);
+}
+
+// renderSubagentPanel 渲染子代理树独立 section（工作区右栏「子代理」分区；
+// fork 子代理产出完整会话/上下文/工具活动都在这里，不进对话区）。空树隐藏
+// 整个 section；count 徽标显示节点数（含嵌套子代理）。
+function renderSubagentPanel(subagentTree) {
   lastSubagentTree = Array.isArray(subagentTree) ? subagentTree : [];
+  const section = elements["subagent-section"];
   const container = elements["subagent-tree-view"];
-  if (!container) return;
+  if (!section || !container) return;
   container.innerHTML = renderSubagentTree(lastSubagentTree);
-  container.classList.toggle("hidden", !lastSubagentTree.length);
+  section.classList.toggle("hidden", !lastSubagentTree.length);
+  if (elements["subagent-count"]) {
+    elements["subagent-count"].textContent = String(countSubagentNodes(lastSubagentTree));
+  }
+}
+
+// countSubagentNodes 统计树节点数（递归含嵌套子代理；不含合成根 main）。
+function countSubagentNodes(nodes) {
+  let count = 0;
+  const walk = items => {
+    for (const item of items || []) {
+      if (!item || typeof item !== "object") continue;
+      if (item.id !== "main") count += 1;
+      walk(item.children);
+    }
+  };
+  walk(nodes);
+  return count;
 }
 
 // findSubagentTreeNode 在子代理树投影里按 id 找节点（含嵌套 children）。
@@ -359,6 +384,7 @@ function resolveNodeForDetail(nodeKey) {
 async function openNodeDetail(nodeKey) {
   const node = resolveNodeForDetail(nodeKey);
   if (!node) return;
+  const fromTree = Boolean(findSubagentTreeNode(nodeKey));
   activeNodeDetailKey = nodeKey;
   activeNodeDetailID = node.id;
   const generation = nodeDetailGeneration += 1;
@@ -367,6 +393,11 @@ async function openNodeDetail(nodeKey) {
   elements["node-detail-content"].innerHTML = rendered;
   elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
   bindNodeDetailTabs(elements["node-detail-content"]);
+  // 子代理树节点（fork 不在 Plan 快照里）默认打开「上下文」标签：运行时
+  // 上下文查看是它的主诉求（会话记录/上下文/工具活动，2s 轮询实时刷新）。
+  if (fromTree) {
+    elements["node-detail-content"].querySelector('[data-node-tab="context"]')?.click();
+  }
   setModal("node-detail-modal", true);
   await refreshNodeDetail(node.id, generation);
 }
