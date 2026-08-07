@@ -69,6 +69,10 @@ func (*guiChainEngine) NodeSessionConversation(string) ([]types.Message, bool) {
 func (*guiChainEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
 	return nil, false
 }
+func (*guiChainEngine) NodeToolResult(string, string) (string, bool) { return "", false }
+func (*guiChainEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool) {
+	return seelebridge.NodeWorktreeInfo{}, false
+}
 func (*guiChainEngine) SubAgentTree() []seelebridge.SubAgentTreeNode { return nil }
 
 type guiChainRuntime struct {

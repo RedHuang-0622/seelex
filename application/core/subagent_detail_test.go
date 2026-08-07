@@ -115,6 +115,36 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 	}
 }
 
+// TestSubagentSessionDetailCarriesWorktree 验证失败现场恢复入口：节点
+// worktree 现场（路径/分支）随详情载荷返回（P2a 修复——合并失败后用户
+// 能知道产出在哪、如何手动恢复）。
+func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
+	engine := &fakeEngine{
+		nodeContext: &snapshot.ContextSnapshot{Goal: "audit module", MessageCount: 3},
+		nodeWorktreeInfoFn: func(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+			if nodeID != "worker" {
+				return seelebridge.NodeWorktreeInfo{}, false
+			}
+			return seelebridge.NodeWorktreeInfo{
+				Path: "G:/tmp/seelex-seelex-worker", Branch: "seelex/worker", MainBranch: "main",
+			}, true
+		},
+	}
+	svc := newTestService(t, engine)
+	defer svc.Shutdown()
+	svc.handleToolStart("plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
+	svc.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
+
+	detail, err := svc.SubagentSessionDetail("worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Worktree == nil || detail.Worktree.Path != "G:/tmp/seelex-seelex-worker" ||
+		detail.Worktree.Branch != "seelex/worker" || detail.Worktree.MainBranch != "main" {
+		t.Fatalf("worktree info = %+v", detail.Worktree)
+	}
+}
+
 // TestScheduledTasksProjectIntoRuntimeSnapshot 验证周期任务与白名单命令经
 // 运行时投影进入 GUI 快照（runtime.changed 增量数据源），且 ScheduleTask /
 // CancelScheduledTask 变更入口转发到 Runtime 并刷新投影。

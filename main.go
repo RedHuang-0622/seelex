@@ -163,10 +163,12 @@ func run() error {
 		return err
 	}
 	logBackendStartup(backendTrace, "startup.engine.lazy-ready")
-	// 子代理详情数据面：节点会话记录 + 结构化上下文查询（只读子代理
-	// actor，安全——运行中实时导出、结束后快照）。
+	// 子代理详情数据面：节点会话记录 + 结构化上下文查询 + 工具结果读回
+	// （只读子代理 actor，安全——运行中实时导出、结束后快照）。
 	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
 	appEngine.SetNodeContextProvider(runtime.NodeContextSnapshot)
+	appEngine.SetNodeToolResultProvider(runtime.NodeToolResult)
+	appEngine.SetNodeWorktreeProvider(runtime.NodeWorktreeInfoFor)
 	// 子代理树投影（fork 内存态，GUI 树视图数据源；权威 Snapshot 增量携带）。
 	appEngine.SetSubAgentTreeProvider(runtime.SubAgentTree)
 	sessionManager := initSessionManager(store, appEngine)

@@ -181,6 +181,102 @@ func TestWorktreeMergeRejected(t *testing.T) {
 	}
 }
 
+// TestWorktreeDirtyUncommittedPreserved 验证设计 §风险表的承诺：子代理在
+// worktree 里写了文件但没 commit（无提交 + 工作区脏）→ finish 报错、现场
+// 保留——绝不静默删除产出（P0 修复，2026-08-07）。
+func TestWorktreeDirtyUncommittedPreserved(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	repo := setupGitRepo(t)
+	if err := runtime.BindProjectRoot(repo); err != nil {
+		t.Fatal(err)
+	}
+	scope := NodeScope{NodeID: "impl", Role: RoleSubAgent, BranchID: "impl"}
+	wt := runtime.beginNodeWorktree(scope, "impl")
+	if wt == nil {
+		t.Fatal("worktree creation must succeed")
+	}
+	// 模拟子代理写了文件但没 commit（未跟踪 + 未暂存）。
+	if err := os.WriteFile(filepath.Join(wt.Path, "produced.txt"), []byte("output\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runtime.finishNodeWorktree(context.Background(), "impl", wt)
+	if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("dirty worktree must error, got %v", err)
+	}
+	// 现场保留：worktree 目录与产出文件都在，主工作区无改动。
+	if _, statErr := os.Stat(wt.Path); statErr != nil {
+		t.Fatalf("dirty worktree must be preserved: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(wt.Path, "produced.txt")); statErr != nil {
+		t.Fatalf("produced file must be preserved in worktree: %v", statErr)
+	}
+	if _, readErr := os.Stat(filepath.Join(repo, "produced.txt")); readErr == nil {
+		t.Fatal("main workspace must not contain uncommitted worktree changes")
+	}
+	// 清理现场（测试收尾）。
+	if err := cleanupWorktree(repo, wt); err != nil {
+		t.Fatalf("test cleanup: %v", err)
+	}
+}
+
+// TestWorktreeCleanWithNoChanges 无提交且工作区干净 → 仍走原清理路径。
+func TestWorktreeCleanWithNoChanges(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	repo := setupGitRepo(t)
+	if err := runtime.BindProjectRoot(repo); err != nil {
+		t.Fatal(err)
+	}
+	scope := NodeScope{NodeID: "noop", Role: RoleSubAgent, BranchID: "noop"}
+	wt := runtime.beginNodeWorktree(scope, "noop")
+	if wt == nil {
+		t.Fatal("worktree creation must succeed")
+	}
+	if err := runtime.finishNodeWorktree(context.Background(), "noop", wt); err != nil {
+		t.Fatalf("clean no-commit worktree must clean up without error: %v", err)
+	}
+	if _, err := os.Stat(wt.Path); err == nil {
+		t.Fatalf("clean worktree must be removed: %s", wt.Path)
+	}
+}
+
+// TestWorktreeConflictFilesListsUnmerged 冲突后能列出冲突文件（诊断面）。
+func TestWorktreeConflictFilesListsUnmerged(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	repo := setupGitRepo(t)
+	if err := runtime.BindProjectRoot(repo); err != nil {
+		t.Fatal(err)
+	}
+	scope := NodeScope{NodeID: "impl", Role: RoleSubAgent, BranchID: "impl"}
+	wt := runtime.beginNodeWorktree(scope, "impl")
+	if wt == nil {
+		t.Fatal("worktree creation must succeed")
+	}
+	// 制造一个未合并的冲突（手动 merge 触发冲突状态）。
+	if err := os.WriteFile(filepath.Join(wt.Path, "conflict.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitRunner(wt.Path, "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitRunner(wt.Path, "commit", "-m", "base conflict file"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitRunner(wt.Path, "merge", "main", "--no-edit"); err != nil {
+		// merge 失败（冲突）→ diff-filter=U 应列出文件。
+		files, err := conflictFilesIn(wt.Path)
+		if err != nil {
+			t.Fatalf("conflict files: %v", err)
+		}
+		if len(files) != 1 || files[0] != "conflict.txt" {
+			t.Fatalf("conflict files = %v, want [conflict.txt]", files)
+		}
+	}
+}
+
 // TestWorktreeDegradeOutsideGit 验证非 git 仓库降级共享工作区。
 func TestWorktreeDegradeOutsideGit(t *testing.T) {
 	runtime := newTestRuntime(t)

@@ -48,6 +48,12 @@ type ChatEngine interface {
 	// Findings/Decisions/TokenEstimate 等；运行中实时导出、结束后快照；
 	// 只读子代理 actor，安全）。
 	NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)
+	// NodeToolResult 读回节点子代理的工具结果原始内容（ref 带
+	// node:<nodeID>: 前缀；内存态，运行中/结束后可读；只读子代理归档器）。
+	NodeToolResult(nodeID, ref string) (string, bool)
+	// NodeWorktreeInfoFor 返回节点 worktree 现场信息（失败/被拒路径现场
+	// 保留，Path 即人工恢复入口；成功路径已清理 → false）。
+	NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool)
 	// SubAgentTree 返回 fork 子代理树的只读投影（内存态，不落盘；
 	// GUI 树视图数据源，经权威 Snapshot 增量携带）。
 	SubAgentTree() []seelebridge.SubAgentTreeNode

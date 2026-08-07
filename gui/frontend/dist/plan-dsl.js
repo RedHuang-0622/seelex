@@ -776,7 +776,8 @@ export function setNodeDetailConversation(detail) {
     container.insertAdjacentHTML("beforeend", '<div class="node-timeline-empty">执行中，每 2 秒刷新…</div>');
   }
   if (contextContainer) {
-    contextContainer.innerHTML = renderNodeContext(detail?.context);
+    // 工作区现场（失败/合并被拒时的恢复入口）前置在上下文快照之前。
+    contextContainer.innerHTML = renderNodeWorktree(detail?.worktree) + renderNodeContext(detail?.context);
   }
   if (toolContainer) {
     const toolEvents = normalizeToolEvents(detail?.tool_events);
@@ -784,6 +785,26 @@ export function setNodeDetailConversation(detail) {
     const count = document.querySelector("[data-node-detail] [data-node-tool-count]");
     if (count) count.textContent = String(toolEvents.length);
   }
+}
+
+// renderNodeWorktree 渲染节点 worktree 现场（详情弹窗"上下文"标签前置
+// section）：节点失败/合并被拒时产出文件保留在独立 worktree（未进主仓库
+// 但仍在磁盘），Path 是人工恢复入口；分支改动已提交时可 git merge 恢复。
+// 全部文本 escape；无现场 → 空串（不渲染）。
+export function renderNodeWorktree(worktree) {
+  if (!worktree || !worktree.path) return "";
+  const branch = worktree.branch || "";
+  const recoveryHint = branch
+    ? `改动已提交时可 git merge ${escapeHTML(branch)} 合并回 ${escapeHTML(worktree.main_branch || "main")}`
+    : `改动未提交时先在 ${escapeHTML(worktree.path)} 内 git add -A && git commit`;
+  return `<section class="node-context-section node-worktree-section">
+    <h3>工作区现场 (Worktree)</h3>
+    <p class="node-context-text">节点失败或合并被拒：子代理产出保留在独立 worktree，未进入主仓库但仍在磁盘，可手动恢复。</p>
+    <ul class="node-context-list">
+      <li><strong>路径</strong> ${escapeHTML(worktree.path)}</li>
+      <li><strong>分支</strong> ${escapeHTML(branch || "—")} — ${recoveryHint}</li>
+    </ul>
+  </section>`;
 }
 
 // renderNodeContext 渲染子代理结构化上下文快照（详情弹窗"上下文"标签）。

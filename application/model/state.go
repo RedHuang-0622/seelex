@@ -259,10 +259,21 @@ type SubagentDetail struct {
 	Conversation []Message           `json:"conversation,omitempty"`
 	ToolEvents   []SubagentToolEvent `json:"tool_events,omitempty"`
 	Context      *SubagentContext    `json:"context,omitempty"`
-	Running      bool                `json:"running"`
-	Status       NodeStatus          `json:"status"`
-	Elapsed      string              `json:"elapsed,omitempty"`
-	Output       string              `json:"output,omitempty"`
+	// Worktree 是节点 worktree 现场（失败/合并被拒时保留，Path 即人工恢复
+	// 入口；成功路径已清理 → nil）。
+	Worktree *SubagentWorktreeInfo `json:"worktree,omitempty"`
+	Running  bool                  `json:"running"`
+	Status   NodeStatus            `json:"status"`
+	Elapsed  string                `json:"elapsed,omitempty"`
+	Output   string                `json:"output,omitempty"`
+}
+
+// SubagentWorktreeInfo 是节点 worktree 现场的只读摘要（详情弹窗"工作区"
+// 数据源）。节点失败/被拒时文件保留在 Path，分支改动仍可 git merge 恢复。
+type SubagentWorktreeInfo struct {
+	Path       string `json:"path,omitempty"`
+	Branch     string `json:"branch,omitempty"`
+	MainBranch string `json:"main_branch,omitempty"`
 }
 
 // SubagentContext 是子代理运行过程的结构化上下文快照（详情弹窗"上下文"

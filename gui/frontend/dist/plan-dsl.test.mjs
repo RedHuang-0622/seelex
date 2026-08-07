@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
-const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderSubagentTree, subagentTreeNodeToDSL } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderNodeWorktree, renderSubagentTree, subagentTreeNodeToDSL } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -298,6 +298,34 @@ test("renders empty context placeholder for missing or empty snapshots", () => {
   assert.match(renderNodeContext(null), /无上下文快照/);
   assert.match(renderNodeContext(undefined), /无上下文快照/);
   assert.match(renderNodeContext({}), /上下文快照为空/);
+});
+
+// ── 工作区现场（P2a：失败/合并被拒恢复入口）────────────────────────
+
+test("renders worktree recovery info with escaped content", () => {
+  const html = renderNodeWorktree({
+    path: "G:/tmp/seelex-seelex-worker",
+    branch: "seelex/worker",
+    main_branch: "main"
+  });
+  assert.match(html, /工作区现场/);
+  assert.match(html, /G:\/tmp\/seelex-seelex-worker/);
+  assert.match(html, /seelex\/worker/);
+  assert.match(html, /git merge/);
+  assert.match(html, /合并回/);
+});
+
+test("renders uncommitted recovery hint when branch missing", () => {
+  const html = renderNodeWorktree({ path: "<script>x</script>" });
+  assert.match(html, /git add -A && git commit/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;x&lt;\/script&gt;/);
+});
+
+test("renders no worktree section when absent", () => {
+  assert.equal(renderNodeWorktree(null), "");
+  assert.equal(renderNodeWorktree({}), "");
+  assert.equal(renderNodeWorktree({ path: "" }), "");
 });
 
 // ── Plan 树状布局（W2：DAG → 树）──────────────────────────────────

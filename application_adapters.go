@@ -46,6 +46,11 @@ type enginePort struct {
 	// nodeContextSnapshot 是子代理结构化上下文查询（详情弹窗"上下文"标签；
 	// Runtime 注入，只读子代理 actor，安全）。
 	nodeContextSnapshot func(string) (*snapshot.ContextSnapshot, bool)
+	// nodeToolResult 是子代理工具结果读回（ref 带 node:<nodeID>: 前缀；
+	// Runtime 注入，只读子代理归档器，安全）。
+	nodeToolResult func(string, string) (string, bool)
+	// nodeWorktree 是节点 worktree 现场查询（失败现场恢复入口；Runtime 注入）。
+	nodeWorktree func(string) (seelebridge.NodeWorktreeInfo, bool)
 	// subAgentTree 是 fork 子代理树投影查询（GUI 树视图数据源；Runtime
 	// 注入，内存态只读 actor，安全）。
 	subAgentTree func() []seelebridge.SubAgentTreeNode
@@ -132,10 +137,42 @@ func (port *enginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSna
 	return port.nodeContextSnapshot(nodeID)
 }
 
+// NodeToolResult 转发子代理工具结果读回（ref 带 node:<nodeID>: 前缀；
+// 查询源经 SetNodeToolResultProvider 注入，只读子代理归档器，安全）。
+func (port *enginePort) NodeToolResult(nodeID, ref string) (string, bool) {
+	if port == nil || port.nodeToolResult == nil {
+		return "", false
+	}
+	return port.nodeToolResult(nodeID, ref)
+}
+
 // SetNodeContextProvider 注入子代理上下文快照查询源（Runtime 接线）。
 func (port *enginePort) SetNodeContextProvider(fn func(string) (*snapshot.ContextSnapshot, bool)) {
 	if port != nil {
 		port.nodeContextSnapshot = fn
+	}
+}
+
+// NodeWorktreeInfoFor 转发节点 worktree 现场查询（失败现场恢复入口；
+// 查询源经 SetNodeWorktreeProvider 注入，只读注册表，安全）。
+func (port *enginePort) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+	if port == nil || port.nodeWorktree == nil {
+		return seelebridge.NodeWorktreeInfo{}, false
+	}
+	return port.nodeWorktree(nodeID)
+}
+
+// SetNodeWorktreeProvider 注入节点 worktree 现场查询源（Runtime 接线）。
+func (port *enginePort) SetNodeWorktreeProvider(fn func(string) (seelebridge.NodeWorktreeInfo, bool)) {
+	if port != nil {
+		port.nodeWorktree = fn
+	}
+}
+
+// SetNodeToolResultProvider 注入子代理工具结果查询源（Runtime 接线）。
+func (port *enginePort) SetNodeToolResultProvider(fn func(string, string) (string, bool)) {
+	if port != nil {
+		port.nodeToolResult = fn
 	}
 }
 

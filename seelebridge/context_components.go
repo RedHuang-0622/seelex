@@ -65,12 +65,18 @@ func (r *Runtime) mainContextComponents() session.ContextComponents {
 // （bridge.WithSessionComponents 输入）。节点级 PromptBlocks 由
 // SeelexAgentNode.Run 注入 ctx（nodeScopeAssembler 合并），本组件与
 // 主会话共享同一套适配器依赖（预算按节点账号限额推导）。
+// 工具结果处理器使用节点归档器（nodeToolResultArchiver）：节点会话的
+// result_ref 带 node:<nodeID>: 前缀落节点专属归档，运行中/结束后可经
+// Runtime.NodeToolResult 读回（P1 修复 result_ref 读回断链）。
 func (r *Runtime) nodeContextComponents() session.ContextComponents {
 	return session.ContextComponents{
-		Assembler:           nodeScopeAssembler{},
-		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, nil),
-		Compressor:          r.seelexCompressor(),
-		Controller:          r.seelexController(),
+		Assembler: nodeScopeAssembler{},
+		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, nodeToolResultArchiver{
+			runtime: r,
+			shared:  seelexctx.NewInMemoryToolResultArchiver(),
+		}),
+		Compressor: r.seelexCompressor(),
+		Controller: r.seelexController(),
 	}
 }
 

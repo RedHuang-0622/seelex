@@ -19,24 +19,26 @@ import (
 )
 
 type fakeEngine struct {
-	mu                sync.Mutex
-	history           []EngineMessage
-	historyBeforeChat []EngineMessage
-	chunks            []string
-	prompt            string
-	chatErr           error
-	chatErrors        []error
-	chatInputs        []string
-	appendChatHistory bool
-	cleared           bool
-	lazyStart         bool
-	sessionID         string
-	starts            int
-	lastInput         string
-	maxLoops          int
-	releaseCalls      int
-	nodeContext       *snapshot.ContextSnapshot
-	subAgentTree      []seelebridge.SubAgentTreeNode
+	mu                 sync.Mutex
+	history            []EngineMessage
+	historyBeforeChat  []EngineMessage
+	chunks             []string
+	prompt             string
+	chatErr            error
+	chatErrors         []error
+	chatInputs         []string
+	appendChatHistory  bool
+	cleared            bool
+	lazyStart          bool
+	sessionID          string
+	starts             int
+	lastInput          string
+	maxLoops           int
+	releaseCalls       int
+	nodeContext        *snapshot.ContextSnapshot
+	nodeToolResultFn   func(string, string) (string, bool)
+	nodeWorktreeInfoFn func(string) (seelebridge.NodeWorktreeInfo, bool)
+	subAgentTree       []seelebridge.SubAgentTreeNode
 }
 
 type sessionBackedBlockingEngine struct {
@@ -246,6 +248,18 @@ func (engine *fakeEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot
 		return nil, false
 	}
 	return engine.nodeContext, true
+}
+func (engine *fakeEngine) NodeToolResult(nodeID, ref string) (string, bool) {
+	if engine.nodeToolResultFn == nil {
+		return "", false
+	}
+	return engine.nodeToolResultFn(nodeID, ref)
+}
+func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+	if engine.nodeWorktreeInfoFn == nil {
+		return seelebridge.NodeWorktreeInfo{}, false
+	}
+	return engine.nodeWorktreeInfoFn(nodeID)
 }
 func (engine *fakeEngine) SubAgentTree() []seelebridge.SubAgentTreeNode {
 	engine.mu.Lock()

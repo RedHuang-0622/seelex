@@ -210,6 +210,10 @@ func (*ScriptedEngine) NodeSessionConversation(string) ([]types.Message, bool) {
 func (*ScriptedEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
 	return nil, false
 }
+func (*ScriptedEngine) NodeToolResult(string, string) (string, bool) { return "", false }
+func (*ScriptedEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool) {
+	return seelebridge.NodeWorktreeInfo{}, false
+}
 func (*ScriptedEngine) SubAgentTree() []seelebridge.SubAgentTreeNode { return nil }
 
 func (engine *ScriptedEngine) Remaining() int {

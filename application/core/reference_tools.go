@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/RedHuang-0622/seelex/application/model"
 )
 
 // 引用工具分页默认值收编进 seele.yaml limits 段
@@ -30,6 +32,19 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 	}
 	if max := Limits().MaxReferencePageSize; max > 0 && input.Limit > max {
 		input.Limit = max
+	}
+
+	// node:<nodeID>: 前缀 = 子代理工具结果：经引擎桥读回节点专属归档
+	// （P1 修复——子代理 ref 主会话原本读不到；ref 前缀由节点归档器写入）。
+	if nodeID, ok := nodeResultRef(input.ResultRef); ok {
+		service.mu.RLock()
+		raw, found := service.nodeToolResult(nodeID, input.ResultRef)
+		service.mu.RUnlock()
+		if !found {
+			return "", errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
+		}
+		result := StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: input.ResultRef}, Content: raw}
+		return encodeToolResultPage(result, input.Offset, input.Limit, input.Contains)
 	}
 
 	service.mu.RLock()
@@ -56,6 +71,28 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 		return "", fmt.Errorf("read_tool_result: %w", err)
 	}
 	return encodeToolResultPage(result, input.Offset, input.Limit, input.Contains)
+}
+
+// nodeResultRef 解析 node:<nodeID>: 前缀的子代理结果引用；非节点引用 → false。
+func nodeResultRef(ref string) (string, bool) {
+	const prefix = "node:"
+	if !strings.HasPrefix(ref, prefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(ref, prefix)
+	sep := strings.IndexByte(rest, ':')
+	if sep <= 0 {
+		return "", false
+	}
+	return rest[:sep], true
+}
+
+// nodeToolResult 读回子代理工具结果（引擎桥；Engine 未装配 → 不可用）。
+func (service *Service) nodeToolResult(nodeID, ref string) (string, bool) {
+	if service == nil || service.deps.Engine == nil {
+		return "", false
+	}
+	return service.deps.Engine.NodeToolResult(nodeID, ref)
 }
 
 func (service *Service) hasToolResultRefLocked(resultRef string) bool {

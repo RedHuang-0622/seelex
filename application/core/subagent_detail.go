@@ -61,8 +61,24 @@ func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDet
 		Conversation: adaptSubagentConversation(conversation),
 		ToolEvents:   toolEvents,
 		Context:      adaptSubagentContext(contextSnap),
+		Worktree:     service.nodeWorktreeInfo(nodeID),
 	}
 	return detail, nil
+}
+
+// nodeWorktreeInfo 查询节点 worktree 现场（失败/被拒现场保留 → 恢复入口；
+// 成功路径已清理 → nil）。
+func (service *Service) nodeWorktreeInfo(nodeID string) *model.SubagentWorktreeInfo {
+	if service.deps.Engine == nil {
+		return nil
+	}
+	info, ok := service.deps.Engine.NodeWorktreeInfoFor(nodeID)
+	if !ok || info.Path == "" {
+		return nil
+	}
+	return &model.SubagentWorktreeInfo{
+		Path: info.Path, Branch: info.Branch, MainBranch: info.MainBranch,
+	}
 }
 
 // adaptSubagentContext 适配子代理上下文快照为只读 DTO：

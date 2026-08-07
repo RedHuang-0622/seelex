@@ -134,15 +134,27 @@ func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *nod
 	}
 	if behind {
 		if out, rebaseErr := gitRunner(wt.Path, "rebase", wt.MainBranch); rebaseErr != nil {
-			return fmt.Errorf("worktree %q: rebase onto %s failed (resolve conflicts in the worktree): %v\n%s", nodeID, wt.MainBranch, rebaseErr, out)
+			// 冲突诊断：列出未合并文件，指导子代理/主代理在 worktree 现场解决。
+			conflicts, _ := conflictFilesIn(wt.Path)
+			return fmt.Errorf("worktree %q: rebase onto %s failed (resolve conflicts in %s): %v\n%s\n冲突文件: %v", nodeID, wt.MainBranch, wt.Path, rebaseErr, out, conflicts)
 		}
 	}
-	// 2) 提交判定：相对创建时基线无提交 → 无需合并，直接清理。
+	// 2) 提交判定：相对创建时基线无提交 → 无需合并；但若 worktree 内仍有
+	//    未提交/未跟踪改动（子代理没按收尾协议 commit——设计 §风险表要求
+	//    "框架检测'worktree 脏且未 commit'报错"），直接清理会静默删除产出，
+	//    必须报错保留现场，禁止静默数据丢失。
 	commits, err := commitCountSince(wt)
 	if err != nil {
 		return err
 	}
 	if commits == 0 {
+		dirty, err := worktreeDirty(wt)
+		if err != nil {
+			return fmt.Errorf("worktree %q: check dirty state: %w", nodeID, err)
+		}
+		if dirty {
+			return fmt.Errorf("worktree %q: subagent left uncommitted changes (finish protocol git add -A && git commit 未执行); files preserved in %s", nodeID, wt.Path)
+		}
 		return cleanupWorktree(root, wt)
 	}
 	// 3) 合并审批（用户确认 diff 摘要进主工作区）。
@@ -156,7 +168,10 @@ func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *nod
 	// 4) merge 回主工作区 + 清理。
 	r.appendNodePhase(ctx, nodeID, "merging")
 	if out, mergeErr := gitRunner(root, "merge", "--no-edit", wt.Branch); mergeErr != nil {
-		return fmt.Errorf("worktree %q: merge %s into %s failed (conflicts preserved):\n%s", nodeID, wt.Branch, wt.MainBranch, out)
+		// 冲突发生在主工作区：列出冲突文件，指导用户解决或回退
+		// （git merge --abort 后现场仍保留在 worktree）。
+		conflicts, _ := conflictFilesIn(root)
+		return fmt.Errorf("worktree %q: merge %s into %s failed (resolve conflicts in the main workspace, or git merge --abort): %v\n%s\n冲突文件: %v", nodeID, wt.Branch, wt.MainBranch, mergeErr, out, conflicts)
 	}
 	return cleanupWorktree(root, wt)
 }
@@ -207,6 +222,32 @@ func commitCountSince(wt *nodeWorktree) (int, error) {
 		return 0, convErr
 	}
 	return count, nil
+}
+
+// worktreeDirty 判断 worktree 工作区是否有未提交/未跟踪改动
+// （git status --porcelain 非空；含 untracked，防止只查已跟踪改动的漏网）。
+func worktreeDirty(wt *nodeWorktree) (bool, error) {
+	out, err := gitRunner(wt.Path, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// conflictFilesIn 列出目录（worktree 或主工作区）中的冲突文件
+// （rebase/merge 失败后诊断用；rebase 冲突在 worktree，merge 冲突在主工作区）。
+func conflictFilesIn(dir string) ([]string, error) {
+	out, err := gitRunner(dir, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
 }
 
 // diffStat 生成节点改动摘要（合并审批展示）。

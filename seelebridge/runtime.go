@@ -115,11 +115,15 @@ type Runtime struct {
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照。
 	// nodeGoals/nodeContextSnapshots 支撑 NodeContextSnapshot（运行中实时导出 /
 	// 结束时快照，详情弹窗"上下文"标签数据面）。
+	// nodeToolArchivers 是节点专属工具结果归档器（P1 修读回断链：节点会话的
+	// result_ref 带 node:<nodeID>: 前缀，运行中/结束后均可经 NodeToolResult 读回；
+	// 内存态，与子代理树/上下文快照同生命周期）。
 	nodeSessionsMu       sync.Mutex
 	nodeSessions         map[string]*session.Session
 	nodeSnapshots        map[string][]types.Message
 	nodeGoals            map[string]string
 	nodeContextSnapshots map[string]*snapshot.ContextSnapshot
+	nodeToolArchivers    map[string]*seelexctx.InMemoryToolResultArchiver
 	// subagentTree 是 fork 子代理树注册表（内存态，不落盘）：fork 创建子代理
 	// 时记录 parent/child 链与节点状态/goal/会话摘要，GUI 树视图经
 	// Runtime.SubAgentTree() 读取（subagent_tree.go）。
@@ -271,6 +275,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		nodeSnapshots:        make(map[string][]types.Message),
 		nodeGoals:            make(map[string]string),
 		nodeContextSnapshots: make(map[string]*snapshot.ContextSnapshot),
+		nodeToolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
 		subagentTree:         newSubagentTreeState(),
 		subagentMailbox:      make(chan string, mailboxSize),
 
