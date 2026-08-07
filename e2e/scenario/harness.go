@@ -122,8 +122,10 @@ func (harnessRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return nil
 }
 func (harnessRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus { return nil }
+// ScheduleTask 显式报错（诚实桩）：e2e 场景不使用定时任务，静默返回
+// nil,nil 会让下游 NPE；fail-fast 暴露误用。
 func (harnessRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
-	return nil, nil
+	return nil, fmt.Errorf("harness: scheduled tasks are not supported in e2e scenarios")
 }
 func (harnessRuntime) CancelScheduledTask(string) error { return nil }
 func (harnessRuntime) ClearSubagentTree() error         { return nil }
