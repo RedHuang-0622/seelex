@@ -96,6 +96,7 @@ FreeCAD_Export/
 # ── 覆盖产物（CI 生成） ─────────────────────────────────────
 coverage/
 coverage.*
+coverage-*
 *.coverprofile
 
 # ── 无扩展名覆盖率产物（误提交绕过 *.out，已清理） ─────────
@@ -103,6 +104,12 @@ coverage.*
 /coverage
 /coverage-local
 /full_cov
+
+# ── SWE-bench 评测现场（实例数据/gold patch/快照，勿提交） ──
+# 实例 JSON 含 gold_patch.diff（标准答案）与 test_patch，任何情况不得入库；
+# 报告/脚本是工作区产物，需要时手动选择性提交。
+docs/swebench/
+verify_snaps.py
 
 # ── 本地个人工具目录（勿提交） ─────────────────────────────
 local/
