@@ -82,12 +82,11 @@ func TestNodeSkillBlocksInjected(t *testing.T) {
 	registry.Register(skill.Skill{Name: "readme-skill", Description: "generate README docs", Prompt: "## readme instructions\nwrite the docs"})
 	runtime.SetSkillRegistry(registry)
 
-	// 未装配：无 skill 块（降级）。
+	// registry 已装配、输入 "audit" 无激活匹配 → 章程 + 目录块 = 2 块。
 	noBlocks := runtime.nodePromptBlocks(SeelexNodeInput{ID: "a", Input: "audit"})
-	if len(noBlocks) != 4 {
-		t.Fatalf("without registry blocks = %d, want 4 (goal/evidence-absent/budget/finish)", len(noBlocks))
+	if len(noBlocks) != 2 {
+		t.Fatalf("blocks = %d, want 2 (node-charter + skill catalog)", len(noBlocks))
 	}
-	// 注：evidence 未装配时无证据块；4 = goal + budget + finish + 无 skill。
 
 	// 装配后：目录块含全部技能名；激活块含匹配技能的完整指令。
 	// （输入命中 code-impl 描述的 "code changes" 词。）
@@ -120,26 +119,33 @@ func TestNodeSkillBlocksInjected(t *testing.T) {
 	}
 }
 
-// ── 收尾契约（C3，plan.md §7.5）──────────────────────────────────────
+// ── 子代理章程（Claude Code 风格，plan.md §7.5 升级）─────────────────
 
-// TestNodeFinishProtocolBlock 验证节点 PromptBlocks 携带任务结束流程契约。
-func TestNodeFinishProtocolBlock(t *testing.T) {
+// TestNodeCharterBlock 验证子代理章程结构化提示词：Role/Context/Task/
+// Investigation/Constraints/Verification 六段齐全，含收尾协议与工作强度
+// 预判（强度过大可再开子代理）。
+func TestNodeCharterBlock(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
 	blocks := runtime.nodePromptBlocks(SeelexNodeInput{ID: "inspect", Input: "audit"})
 	var found string
 	for _, b := range blocks {
-		if b.Name == "node-finish-protocol" && b.Messages[0].Content != nil {
+		if b.Name == "node-charter" && b.Messages[0].Content != nil {
 			found = *b.Messages[0].Content
 		}
 	}
 	if found == "" {
-		t.Fatal("node-finish-protocol block must be present")
+		t.Fatal("node-charter block must be present")
 	}
-	for _, want := range []string{"任务结束流程", "git add -A && git commit", "git rebase", "不 merge", "seelex/inspect"} {
+	for _, want := range []string{
+		"# Role", "# Context", "# Task", "# Investigation", "# Constraints", "# Verification",
+		"git add -A && git commit", "git rebase", "禁止 merge", "seelex/inspect",
+		"工作强度评估", "fork_subagents", // 强度预判 → 可再开子代理
+		"不修改/新增任何测试文件",
+	} {
 		if !strings.Contains(found, want) {
-			t.Errorf("finish protocol missing %q:\n%s", want, found)
+			t.Errorf("charter missing %q:\n%s", want, found)
 		}
 	}
 }

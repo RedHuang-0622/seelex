@@ -1,8 +1,11 @@
 # Prompt Assets
 
 `internal/promptassets/assets/` is the source of truth for Seelex-owned
-system, effort, and optional Plan prompts. Assets are embedded at build time so a
-release binary has no mutable prompt-file dependency.
+system, effort, optional Plan prompts, and the subagent charter. Assets are
+**embedded at build time** (`//go:embed`) so a release binary has no mutable
+prompt-file dependency: 单二进制可部署、提示词与代码同版本、不被运行时
+文件系统改写。需要"不重新编译改提示词"的场景走外部覆盖层（后续扩展点），
+默认规范是内置 + 启动 `Validate()` 校验。
 
 ## Structure
 
@@ -11,6 +14,7 @@ release binary has no mutable prompt-file dependency.
 | `assets/system/` | Identity and cross-cutting engineering/evidence rules. |
 | `assets/effort/` | One user-selected effort policy per level. |
 | `assets/plan/` | Optional Plan selection and explicit recovery-plan templates. |
+| `assets/subagent/` | Subagent charter (Claude Code 风格结构化提示词：Role/Context/Task/Investigation/Constraints/Verification；含工作强度预判 → 可再开子代理)。 |
 
 ## Authoring rules
 

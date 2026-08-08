@@ -169,7 +169,7 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := joinMessageContents(assembled.Messages)
-	for _, want := range []string{"节点目标", "do left", "## 继承上下文", "parent-goal", "节点预算", "最大迭代轮数"} {
+	for _, want := range []string{"# Task", "do left", "## 继承上下文", "parent-goal", "# Context", "最大迭代轮数", "# Role"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("node request missing %q:\n%s", want, text)
 		}

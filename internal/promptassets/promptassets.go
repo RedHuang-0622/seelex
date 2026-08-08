@@ -10,7 +10,7 @@ import (
 	"text/template"
 )
 
-//go:embed assets/system/*.md assets/effort/*.md assets/plan/*.md
+//go:embed assets/system/*.md assets/effort/*.md assets/plan/*.md assets/subagent/*.md
 var files embed.FS
 
 // PlanData is the runtime policy projection available to a planning template.
@@ -23,6 +23,16 @@ type PlanData struct {
 	Verification string
 }
 
+// SubagentData 是子代理章程模板的运行时事实（goal/预算/节点 ID 来自节点
+// 输入与 effort 调节；Evidence 为父代理证据的预渲染文本，空 = 无证据段）。
+type SubagentData struct {
+	Goal            string
+	NodeID          string
+	MaxLoops        int
+	MaxOutputTokens int
+	Evidence        string
+}
+
 func SystemIdentity() string { return read("assets/system/identity.md") }
 
 func SystemInstructions() string { return read("assets/system/instructions.md") }
@@ -32,6 +42,13 @@ func Effort(level string) string { return read("assets/effort/" + level + ".md")
 func PlanPreflight(data PlanData) string { return render("assets/plan/preflight.md", data) }
 
 func PlanReplan(data PlanData) string { return render("assets/plan/replan.md", data) }
+
+// SubagentCharter 渲染子代理章程（Claude Code 风格结构化提示词：
+// Role/Context/Task/Investigation/Constraints/Verification）。提示词正文
+// 在 assets/subagent/charter.md，Go 侧只提供运行时事实。
+func SubagentCharter(data SubagentData) string {
+	return render("assets/subagent/charter.md", data)
+}
 
 // Validate loads every production prompt and executes each template once.
 // Application construction calls this before any prompt is consumed, turning
@@ -55,6 +72,9 @@ func Validate() error {
 			return err
 		}
 	}
+	if _, err := renderAsset("assets/subagent/charter.md", SubagentData{}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -63,7 +83,7 @@ func read(name string) string {
 	return content
 }
 
-func render(name string, data PlanData) string {
+func render(name string, data any) string {
 	output, _ := renderAsset(name, data)
 	return output
 }
@@ -76,7 +96,7 @@ func readAsset(name string) (string, error) {
 	return strings.TrimSpace(string(content)), nil
 }
 
-func renderAsset(name string, data PlanData) (string, error) {
+func renderAsset(name string, data any) (string, error) {
 	content, err := readAsset(name)
 	if err != nil {
 		return "", err

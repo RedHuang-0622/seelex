@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 
+	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/merger"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
@@ -284,58 +285,42 @@ func (nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.Assembl
 	return seelectx.DefaultRequestAssembler{}.Assemble(ctx, request)
 }
 
-// nodePromptBlocks 构建节点级 PromptBlock：目标 + 父证据 + 预算 + 收尾契约。
-// 父证据来自 Runtime 本地不可变投影（缺省无）。
+// nodePromptBlocks 构建节点级 PromptBlock：子代理章程（Claude Code 风格
+// 结构化提示词：Role/Context/Task/Investigation/Constraints/Verification，
+// 2026-08-08 从命令式收尾协议升级）+ skill 目录/激活。父证据、预算、
+// 收尾协议全部并入章程（单一权威契约，不再拆碎块）。父证据来自 Runtime
+// 本地不可变投影（缺省无）。
 func (r *Runtime) nodePromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
-	blocks := make([]seelectx.PromptBlock, 0, 4)
+	blocks := make([]seelectx.PromptBlock, 0, 3)
 	blocks = append(blocks, seelectx.PromptBlock{
-		Name: "node-goal",
+		Name: "node-charter",
 		Messages: []types.Message{{
 			Role:    "user",
-			Content: stringPtr("## 节点目标 (Node Goal)\n" + input.Input),
-		}},
-	})
-	if evidence := r.nodeParentEvidence(); evidence != nil {
-		blocks = append(blocks, seelectx.PromptBlock{
-			Name: "parent-evidence",
-			Messages: []types.Message{{
-				Role:    "user",
-				Content: stringPtr(evidence.Format()),
-			}},
-		})
-	}
-	budget := r.nodeBudget(input)
-	blocks = append(blocks, seelectx.PromptBlock{
-		Name: "node-budget",
-		Messages: []types.Message{{
-			Role: "user",
-			Content: stringPtr(fmt.Sprintf(
-				"## 节点预算 (Node Budget)\n- 最大迭代轮数: %d\n- 最大输出 tokens: %d",
-				budget.MaxLoops, budget.MaxOutputTokens)),
+			Content: stringPtr(nodeSubagentCharter(input, r.nodeBudget(input), r.nodeParentEvidence())),
 		}},
 	})
 	// skill 能力（docs/2026-08-03-subagent-fork-architecture/plan.md §7.2）：
 	// 子代理与主代理一样读取 skill 目录——目录块（名称+描述）始终注入，
 	// 与节点目标匹配的 skill 注入完整指令（未装配 provider → 无块，降级）。
 	blocks = append(blocks, r.nodeSkillBlocks(input)...)
-	// 收尾契约（docs/2026-08-03-subagent-fork-architecture/plan.md §7.5）：
-	// 子代理必须明确任务结束流程——commit、变基、禁止 merge、结构化 findings。
-	blocks = append(blocks, seelectx.PromptBlock{
-		Name: "node-finish-protocol",
-		Messages: []types.Message{{
-			Role: "user",
-			Content: stringPtr(fmt.Sprintf(
-				"## 任务结束流程 (Finish Protocol)\n"+
-					"1. 完成标准：任务可验证（检查项/测试通过）才算完成。\n"+
-					"2. 收尾序列（按序执行）：\n"+
-					"   a. 若有文件改动：git add -A && git commit -m \"seelex/%s: <摘要>\"\n"+
-					"   b. 变基：git rebase <主分支>（合并最新变更，冲突自行解决）\n"+
-					"3. 明确禁止：不 merge、不 checkout 主分支、不触碰主工作区（合并是框架的事）。\n"+
-					"4. 最终回复：给出结构化 findings（结论/改动文件/验证结果），供 merge-back。",
-				input.ID)),
-		}},
-	})
 	return blocks
+}
+
+// nodeSubagentCharter 渲染子代理章程（Claude Code 风格结构化提示词：
+// Role/Context/Task/Investigation/Constraints/Verification）。提示词正文
+// 收录在 internal/promptassets/assets/subagent/charter.md（不硬编码），
+// Go 侧只提供运行时事实（goal/预算/节点 ID/父证据）。
+func nodeSubagentCharter(input SeelexNodeInput, budget nodeBudgetInfo, evidence *snapshot.ContextSnapshot) string {
+	data := promptassets.SubagentData{
+		Goal:            input.Input,
+		NodeID:          input.ID,
+		MaxLoops:        budget.MaxLoops,
+		MaxOutputTokens: budget.MaxOutputTokens,
+	}
+	if evidence != nil {
+		data.Evidence = evidence.Format()
+	}
+	return promptassets.SubagentCharter(data)
 }
 
 // nodeBudgetInfo 是节点子代理的执行预算（渲染为 PromptBlock，并作为
