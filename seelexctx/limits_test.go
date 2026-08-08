@@ -23,8 +23,8 @@ func TestLoadLimitsDefaults(t *testing.T) {
 	if limits.DisableDockerAutoStart || limits.DockerStartTimeoutSec != 60 {
 		t.Fatalf("docker defaults = %+v", limits)
 	}
-	// fork 宽松预算默认：2h 超时 + 60 轮循环。
-	if limits.ForkTimeoutSec != 7200 || limits.ForkNodeMaxLoops != 60 {
+	// fork 宽松预算默认：2h 超时（循环数复用 effort，无独立字段）。
+	if limits.ForkTimeoutSec != 7200 {
 		t.Fatalf("fork defaults = %+v", limits)
 	}
 	// 文件存在但没有 limits 段 → 同样走完整默认。

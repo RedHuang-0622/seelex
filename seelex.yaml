@@ -48,9 +48,9 @@ limits:
   # disable_docker_auto_start: false
   # docker_start_timeout: 60     # 启动等待上限（秒；默认 60）
   # fork 子代理长任务宽松预算：fork_subagents 总时长 = 子代理工作量之和，
-  # 不受通用工具超时（tool_call_timeout）限制，用独立预算（默认 2 小时）
+  # 不受通用工具超时（tool_call_timeout）限制，用独立预算（默认 2 小时）。
+  # 子代理循环数复用 effort 调节值（high=48 / max=96），无需单独配置。
   # fork_timeout: 7200           # fork 工具总超时（秒；默认 7200 = 2h）
-  # fork_node_max_loops: 60      # fork 子代理节点循环预算（默认 60；通用默认 15）
 #
 # 子代理超时速查：子代理执行长命令被掐，先调 tool_call_timeout；
 # 审批弹窗超时调 approval_timeout；子代理循环上限调 plan_node_max_loops。

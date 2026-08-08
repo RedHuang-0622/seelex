@@ -155,9 +155,10 @@ func (r *Runtime) buildForkPlan(input forkSubagentsInput) (*loadedPlanDoc, error
 			ID: spec.ID, Kind: "agent",
 			Input: SeelexNodeInput{
 				ID: spec.ID, Input: spec.Goal, Kind: "agent",
-				// fork 子代理节点循环预算用独立宽松默认（limits.fork_node_max_loops，
-				// 默认 60）：一个子代理常要串行处理多个实例/多步调研，15 轮默认
-				// 预算（PlanNodeMaxLoops）对长任务不够。
+				// fork 子代理节点循环预算复用 effort 调节的节点循环数
+				// （PlanPolicy.MaxNodeLoops：high=48 / max=96；未设置 → 回退
+				// 通用 PlanNodeMaxLoops）——子代理循环数与主代理/plan 节点
+				// 同一套 effort 语义，不做独立常量。
 				Budget: &NodeBudgetInput{MaxLoops: forkNodeLoops(r)},
 			},
 		})
@@ -221,13 +222,17 @@ const (
 	forkSummaryMaxLines  = 30
 )
 
-// forkNodeLoops 返回 fork 子代理节点的循环预算（limits.fork_node_max_loops；
-// 0 → 默认 60）。
+// forkNodeLoops 返回 fork 子代理节点的循环预算：复用 effort 调节的节点
+// 循环数（currentPlanPolicy().MaxNodeLoops，high=48 / max=96）；未设置
+// （lite/medium 或未切换 effort）→ 回退通用 PlanNodeMaxLoops。
 func forkNodeLoops(r *Runtime) int {
-	if r != nil && r.limits.ForkNodeMaxLoops > 0 {
-		return r.limits.ForkNodeMaxLoops
+	if r == nil {
+		return 0
 	}
-	return 60
+	if policy := r.currentPlanPolicy(); policy.MaxNodeLoops > 0 {
+		return policy.MaxNodeLoops
+	}
+	return r.limits.PlanNodeMaxLoops
 }
 
 func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowContext) (string, error) {

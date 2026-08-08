@@ -122,33 +122,50 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 	}
 }
 
-// TestForkPlanNodesCarryLenientLoopBudget 验证 fork 子代理节点预算使用
-// 独立的宽松默认（limits.fork_node_max_loops，默认 60）而非通用 15 轮——
-// 长任务（多实例串行）不会被循环预算掐死。
-func TestForkPlanNodesCarryLenientLoopBudget(t *testing.T) {
+// TestForkPlanNodesCarryEffortLoopBudget 验证 fork 子代理节点循环预算复用
+// effort 调节值（PlanPolicy.MaxNodeLoops）：high=48 → 节点 48 轮；未设置
+// （lite/medium）→ 回退通用 PlanNodeMaxLoops。
+func TestForkPlanNodesCarryEffortLoopBudget(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
+
+	// effort=high：PlanPolicy.MaxNodeLoops=48（prompt.PlanningPolicy 同源）。
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", MaxNodeLoops: 48})
 	loaded, err := runtime.buildForkPlan(forkSubagentsInput{
 		Subagents: []forkSubagentSpec{{ID: "s1", Goal: "fix"}, {ID: "s2", Goal: "fix"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := 0
-	for _, id := range loaded.Plan.AllNodes() {
-		agentNode, ok := loaded.Plan.GetNode(id).(*SeelexAgentNode)
-		if !ok {
-			continue
+	collect := func() []int {
+		var loops []int
+		for _, id := range loaded.Plan.AllNodes() {
+			agentNode, ok := loaded.Plan.GetNode(id).(*SeelexAgentNode)
+			if !ok {
+				continue
+			}
+			if agentNode.input.Budget == nil {
+				t.Fatalf("fork node %q must carry a budget", id)
+			}
+			loops = append(loops, agentNode.input.Budget.MaxLoops)
 		}
-		input := agentNode.input
-		if input.Budget == nil || input.Budget.MaxLoops != runtime.limits.ForkNodeMaxLoops {
-			t.Fatalf("fork node %q budget = %+v, want max_loops=%d",
-				input.ID, input.Budget, runtime.limits.ForkNodeMaxLoops)
-		}
-		found++
+		return loops
 	}
-	if found != 2 {
-		t.Fatalf("fork agent nodes = %d, want 2", found)
+	if got := collect(); len(got) != 2 || got[0] != 48 || got[1] != 48 {
+		t.Fatalf("high-effort fork node loops = %v, want [48 48]", got)
+	}
+
+	// 未设置 MaxNodeLoops（lite/medium 语义）→ 回退通用 PlanNodeMaxLoops。
+	runtime.SetPlanPolicy(PlanPolicy{Effort: "lite"})
+	loaded, err = runtime.buildForkPlan(forkSubagentsInput{
+		Subagents: []forkSubagentSpec{{ID: "s1", Goal: "fix"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := collect(); len(got) != 1 || got[0] != runtime.limits.PlanNodeMaxLoops {
+		t.Fatalf("lite-effort fork node loops = %v, want [%d]",
+			got, runtime.limits.PlanNodeMaxLoops)
 	}
 }
 
