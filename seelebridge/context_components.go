@@ -70,7 +70,7 @@ func (r *Runtime) mainContextComponents() session.ContextComponents {
 // Runtime.NodeToolResult 读回（P1 修复 result_ref 读回断链）。
 func (r *Runtime) nodeContextComponents() session.ContextComponents {
 	return session.ContextComponents{
-		Assembler: nodeScopeAssembler{},
+		Assembler: nodeScopeAssembler{runtime: r},
 		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, nodeToolResultArchiver{
 			runtime: r,
 			shared:  seelexctx.NewInMemoryToolResultArchiver(),

@@ -336,14 +336,17 @@ func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, e
 	if loaded == nil || loaded.Plan == nil {
 		return "", fmt.Errorf("plan_run: no plan is loaded")
 	}
-	return provider.runtime.runPlan(ctx, loaded)
+	return provider.runtime.runPlan(ctx, loaded, true)
 }
 
 // runPlan 以 workplan.NewFromPlan 执行已加载的 Plan（api-map §8
 // workplanRunEntry：必须经 WorkPlan.Run 入口，runner 事件配置才会生效）。
 // 事件经 planEventSink 落库并投影（PlanStatus）；节点完成经 runner
 // NodeHook 投影（NodeStatus，含 kind/elapsed）。
-func (r *Runtime) runPlan(ctx context.Context, loaded *loadedPlanDoc) (string, error) {
+// runPlan 执行已加载的 Plan。withNodeOutputs=false（fork 路径）时结果 JSON
+// 只保留节点元数据、不内嵌完整节点输出——最终内容由 final_output（按子代理
+// 数 ×n 放大的汇总窗口）承载，避免结果超限被归档后模型看不到内容而重跑。
+func (r *Runtime) runPlan(ctx context.Context, loaded *loadedPlanDoc, withNodeOutputs bool) (string, error) {
 	runID := newPlanRunID()
 	r.planRunMu.Lock()
 	r.currentPlanRunID = runID
@@ -376,7 +379,7 @@ func (r *Runtime) runPlan(ctx context.Context, loaded *loadedPlanDoc) (string, e
 		sink.AppendNodeResult(ctx, planID, runID, nr)
 	}
 	result, err := wp.Run(ctx)
-	return planRunResultJSON(result, err)
+	return planRunResultJSON(result, err, withNodeOutputs)
 }
 
 // newPlanRunID 生成一次 plan_run 的执行标识（事件相关性 run_id）。
@@ -388,7 +391,7 @@ func newPlanRunID() string {
 // （NodeBase snake_case 平铺 JSON），供 application/core 的
 // updatePlanFromRunResult / planRunFailure 解析。执行错误同时以返回值和
 // "status":"failed" + "error" 字段表达，双通道均可观察。
-func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error) (string, error) {
+func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error, withNodeOutputs bool) (string, error) {
 	status := "completed"
 	if err != nil {
 		status = "failed"
@@ -414,7 +417,11 @@ func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error) (string,
 			if nr == nil {
 				continue
 			}
-			nodes = append(nodes, nr.NodeBase)
+			nodeBase := nr.NodeBase
+			if !withNodeOutputs {
+				nodeBase.Output = "" // fork：结果瘦身，完整输出在子代理树/详情
+			}
+			nodes = append(nodes, nodeBase)
 		}
 		out.NodeCount = len(nodes)
 		out.FinalOutput = result.FinalOutputString()

@@ -42,13 +42,18 @@ type SeelexAgentNode struct {
 // 使 plan_load（buildNode）到 plan_run 之间冻结的 PlanBranchBinding
 // 与父证据都能被观察到。
 func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) *SeelexAgentNode {
+	taskID := spec.Input.TaskID
 	return &SeelexAgentNode{
 		BaseNode: node.NewBaseNode(spec.ID, node.KindAgent),
 		input:    spec.Input,
 		factory:  runtime.currentAgentFactory,
-		scope:    func() NodeScope { return nodeScopeFor(runtime, spec.ID) },
-		blocks:   func() []seelectx.PromptBlock { return runtime.nodePromptBlocks(spec.Input) },
-		runtime:  runtime,
+		scope: func() NodeScope {
+			scope := nodeScopeFor(runtime, spec.ID)
+			scope.TaskID = taskID
+			return scope
+		},
+		blocks:  func() []seelectx.PromptBlock { return runtime.nodePromptBlocks(spec.Input) },
+		runtime: runtime,
 	}
 }
 
@@ -71,6 +76,15 @@ func (r *Runtime) completeSubagentNode(nodeID, summary string, err error) {
 		return
 	}
 	r.subagentTree.completeSubagentNode(nodeID, summary, err)
+	// task 注册表同步终态（B5：生命周期即打点源；application 侧同步因状态
+	// 一致而跳过，不重复打点）。非 fork 节点注册表无记录 → 忽略。
+	if r.tasks != nil {
+		status := TaskCompleted
+		if err != nil {
+			status = TaskFailed
+		}
+		_, _ = r.tasks.SetStatus("subagent:"+nodeID, status, summary)
+	}
 }
 
 // unregisterNodeSession 结束注册并保留最后快照（节点结束后详情仍可看）。
@@ -272,10 +286,18 @@ func nodeScopeFor(runtime *Runtime, nodeID string) NodeScope {
 
 // nodeScopeAssembler 是节点子代理会话的 RequestAssembler：把 SeelexAgentNode
 // 注入 ctx 的节点级 PromptBlocks 合并进每次请求（保序：静态块在前，节点块在后，
-// 再跟 working history），委托默认装配器完成拼装。
-type nodeScopeAssembler struct{}
+// 再跟 working history），委托默认装配器完成拼装。首次组装 = 节点真正开始
+// 执行（SSE 流开启）→ 通知 runtime 把 queued 置 running。
+type nodeScopeAssembler struct {
+	runtime *Runtime
+}
 
-func (nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyRequest) (seelectx.AssembledRequest, error) {
+func (assembler nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyRequest) (seelectx.AssembledRequest, error) {
+	if assembler.runtime != nil {
+		if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == RoleSubAgent {
+			assembler.runtime.markNodeStarted(scope.NodeID)
+		}
+	}
 	if blocks := nodePromptBlocksFromContext(ctx); len(blocks) > 0 {
 		merged := make([]seelectx.PromptBlock, 0, len(request.Blocks)+len(blocks))
 		merged = append(merged, request.Blocks...)
@@ -283,6 +305,23 @@ func (nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.Assembl
 		request.Blocks = merged
 	}
 	return seelectx.DefaultRequestAssembler{}.Assemble(ctx, request)
+}
+
+// markNodeStarted 节点首次组装请求（真正开始执行/SSE 流开启）→ queued 转
+// running（B5 状态准确性：会话挂载不等于执行，running 必须是“在工作”）。
+func (r *Runtime) markNodeStarted(nodeID string) {
+	if r == nil || r.subagentTree == nil || r.tasks == nil {
+		return
+	}
+	r.nodeStartedMu.Lock()
+	if _, started := r.nodeStarted[nodeID]; started {
+		r.nodeStartedMu.Unlock()
+		return
+	}
+	r.nodeStarted[nodeID] = struct{}{}
+	r.nodeStartedMu.Unlock()
+	r.subagentTree.markRunning(nodeID)
+	_, _ = r.tasks.SetStatus("subagent:"+nodeID, TaskRunning, "stream started")
 }
 
 // nodePromptBlocks 构建节点级 PromptBlock：子代理章程（Claude Code 风格

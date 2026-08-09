@@ -21,6 +21,9 @@ type SeelexNodeInput struct {
 	// Budget 是节点级执行预算（plan.md §7.3）：可选覆盖 limits 默认值；
 	// 缺省（nil/0）回退 seele.yaml limits，上限由 PlanPolicy 校验。
 	Budget *NodeBudgetInput `json:"budget,omitempty"`
+	// TaskID 是装配件模式绑定的现成 task（B6）：只绑 task_id，不注入 task
+	// 内容到 prompt（保持子代理 prompt 格式纯净）；空 = 子代理自行开 task。
+	TaskID string `json:"task_id,omitempty"`
 }
 
 // NodeBudgetInput 是节点子代理的预算参数（JSON 契约：max_loops /

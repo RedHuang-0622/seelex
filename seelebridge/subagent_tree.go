@@ -1,6 +1,7 @@
 package seelebridge
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -15,10 +16,12 @@ import (
 // 节点状态（running/done/failed）、goal、紧凑 ContextSnapshot、会话摘要挂在
 // 节点上；整棵树经 Runtime.SubAgentTree() 投影为只读 DTO 供 GUI 树视图渲染。
 //
-// 完成即清走（2026-08-07 用户约定）：done 节点在 completeSubagentNode 成功
-// 路径立即从树中移除——工作区树只保留运行中/失败的节点，完成的子代理不
-// 占位。详情数据面（nodeSessions 注册表：会话记录/上下文快照/工具结果）
-// 独立保留，Plan 节点与详情弹窗仍可查历史。
+// done 节点有界保留（工作表格被动证据）：completeSubagentNode 成功路径写
+// 入 done 终态并保留节点，超 subagentTreeRetainDone 上限时清理最旧 done；
+// 失败节点保留现场；ClearSubagentTree 显式清空。注册/完成/清空均触发
+// observer（application 装配后自动刷新工作表格——被动技能，不依赖模型
+// 主观意愿）。详情数据面（nodeSessions 注册表：会话记录/上下文快照/工具
+// 结果）独立保留，Plan 节点与详情弹窗仍可查历史。
 //
 // 明确不落盘：树随进程生命周期存在，会话恢复/重启后为空（与 nodeSessions
 // 注册表同构，见 agent_node.go）。ContextSnapshot 以紧凑投影挂在节点上
@@ -30,6 +33,7 @@ import (
 type SubAgentNodeStatus string
 
 const (
+	SubAgentQueued  SubAgentNodeStatus = "queued" // fork 派工但会话尚未启动
 	SubAgentRunning SubAgentNodeStatus = "running"
 	SubAgentDone    SubAgentNodeStatus = "done"
 	SubAgentFailed  SubAgentNodeStatus = "failed"
@@ -95,12 +99,23 @@ type subagentTreeState struct {
 	mu       sync.Mutex
 	nodes    map[string]*subagentNodeRecord
 	children map[string][]string // parentID → 有序子节点列表
+	events   chan struct{}
 }
+
+// subagentLifecycleEventBuffer 是生命周期事件 channel 容量（有界；
+// 消费者慢时丢信号——RefreshWorkTableSnapshot 总是读权威状态，丢信号只
+// 延迟刷新，不丢数据）。
+const subagentLifecycleEventBuffer = 64
+
+// subagentTreeRetainDone 是树中保留的 done 节点上限（工作表格证据有界；
+// 超限清理最旧 done，running/failed 不受影响）。
+const subagentTreeRetainDone = 50
 
 func newSubagentTreeState() *subagentTreeState {
 	return &subagentTreeState{
 		nodes:    make(map[string]*subagentNodeRecord),
 		children: make(map[string][]string),
+		events:   make(chan struct{}, subagentLifecycleEventBuffer),
 	}
 }
 
@@ -114,14 +129,35 @@ func (s *subagentTreeState) registerFork(parentID string, specs []forkSubagentSp
 		parentID = mainAgentNodeID
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, spec := range specs {
 		s.nodes[spec.ID] = &subagentNodeRecord{
 			id: spec.ID, parentID: parentID, goal: spec.Goal,
-			status: SubAgentRunning, startedAt: time.Now(),
+			status: SubAgentQueued, startedAt: time.Now(),
 		}
 		s.children[parentID] = append(s.children[parentID], spec.ID)
 	}
+	s.mu.Unlock()
+	s.notify()
+}
+
+// notify 在锁外投递生命周期信号到 channel（CSP：application 消费者刷新
+// 工作表格；非阻塞，满则丢信号——权威状态仍由消费者重读）。
+func (s *subagentTreeState) notify() {
+	if s == nil {
+		return
+	}
+	select {
+	case s.events <- struct{}{}:
+	default:
+	}
+}
+
+// Events 返回生命周期信号 channel（CSP 消费者；幂等刷新）。
+func (s *subagentTreeState) Events() <-chan struct{} {
+	if s == nil {
+		return nil
+	}
+	return s.events
 }
 
 // noteSession 挂载运行中子会话（registerNodeSession 调用；幂等）。
@@ -144,6 +180,19 @@ func (s *subagentTreeState) noteSession(nodeID string, sess *session.Session) {
 	}
 }
 
+// markRunning 节点首次组装请求（真正开始执行/SSE 流开启）→ queued 转
+// running。会话挂载不改变状态（B5：running 必须表示“在工作”）。
+func (s *subagentTreeState) markRunning(nodeID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record, ok := s.nodes[nodeID]; ok && record.status == SubAgentQueued {
+		record.status = SubAgentRunning
+	}
+}
+
 // noteSnapshot 挂载结束时导出的上下文快照（unregisterNodeSession 调用；
 // 幂等，之后投影直接复用，无需再次导出）。
 func (s *subagentTreeState) noteSnapshot(nodeID string, snap *snapshot.ContextSnapshot) {
@@ -160,17 +209,18 @@ func (s *subagentTreeState) noteSnapshot(nodeID string, snap *snapshot.ContextSn
 }
 
 // completeSubagentNode 写入节点终态（SeelexAgentNode.Run 结束路径调用）：
-// 成功 → 记录摘要/结束时间后**立即从树中移除**（"跑完就清走"——完成的
-// 子代理不占位；详情数据面保留在 nodeSessions 注册表，Plan/详情弹窗仍可
-// 查历史）；失败 → failed + 错误（保留现场供排查）。非 fork 节点 no-op。
+// 成功 → done + 摘要/结束时间（有界保留，作为工作表格被动证据，直到
+// ClearSubagentTree 显式清空）；失败 → failed + 错误（保留现场供排查）。
+// 终态写入后通知 observer（application 自动刷新工作表格）。非 fork 节点
+// no-op。
 func (s *subagentTreeState) completeSubagentNode(nodeID, summary string, runErr error) {
 	if s == nil || nodeID == "" {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	record := s.nodes[nodeID]
 	if record == nil {
+		s.mu.Unlock()
 		return
 	}
 	record.summary = summary
@@ -178,9 +228,37 @@ func (s *subagentTreeState) completeSubagentNode(nodeID, summary string, runErr 
 	if runErr != nil {
 		record.status = SubAgentFailed
 		record.errorMsg = runErr.Error()
+		s.mu.Unlock()
+		s.notify()
 		return
 	}
-	s.removeNodeLocked(nodeID)
+	record.status = SubAgentDone
+	s.pruneDoneBeyondCapLocked()
+	s.mu.Unlock()
+	s.notify()
+}
+
+// pruneDoneBeyondCapLocked 保留最近 subagentTreeRetainDone 个 done 节点
+// （调用方持锁）；超限清理 endedAt 最旧的 done。
+func (s *subagentTreeState) pruneDoneBeyondCapLocked() {
+	var done []*subagentNodeRecord
+	for _, record := range s.nodes {
+		if record.status == SubAgentDone {
+			done = append(done, record)
+		}
+	}
+	if len(done) <= subagentTreeRetainDone {
+		return
+	}
+	sort.Slice(done, func(left, right int) bool {
+		if done[left].endedAt.Equal(done[right].endedAt) {
+			return done[left].id < done[right].id
+		}
+		return done[left].endedAt.Before(done[right].endedAt)
+	})
+	for _, record := range done[:len(done)-subagentTreeRetainDone] {
+		s.removeNodeLocked(record.id)
+	}
 }
 
 // removeNodeLocked 从注册表移除节点（调用方持锁）：删除节点记录与其子
@@ -225,6 +303,15 @@ func (r *Runtime) ClearSubagentTree() error {
 		return nil
 	}
 	return r.subagentTree.clear()
+}
+
+// SubagentTreeEvents 返回子代理树生命周期信号 channel（CSP：fork 注册/节点
+// 完成时投递信号，application 消费者刷新工作表格，无需模型手动打点）。
+func (r *Runtime) SubagentTreeEvents() <-chan struct{} {
+	if r == nil || r.subagentTree == nil {
+		return nil
+	}
+	return r.subagentTree.Events()
 }
 
 // SubAgentTree 返回子代理树的只读投影（根 = 主代理；含全部层级子节点）。
@@ -341,7 +428,7 @@ func subagentMainStatus(children []SubAgentTreeNode) SubAgentNodeStatus {
 	walk = func(items []SubAgentTreeNode) {
 		for _, item := range items {
 			switch item.Status {
-			case SubAgentRunning:
+			case SubAgentRunning, SubAgentQueued:
 				status = SubAgentRunning
 			case SubAgentFailed:
 				if status != SubAgentRunning {

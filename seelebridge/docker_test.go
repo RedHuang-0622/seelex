@@ -37,6 +37,16 @@ func TestIsDockerDaemonDown(t *testing.T) {
 	}
 }
 
+// requireDockerRecoveryEnv 跳过依赖 daemon 状态的恢复测试：测试前提是
+// “daemon 未启动”，而真实环境 Docker 可能在运行（前提不成立会误报）；
+// 显式设 SEELEX_DOCKER_RECOVERY_TESTS=1 才运行。
+func requireDockerRecoveryEnv(t *testing.T) {
+	t.Helper()
+	if os.Getenv("SEELEX_DOCKER_RECOVERY_TESTS") == "" {
+		t.Skip("set SEELEX_DOCKER_RECOVERY_TESTS=1 to run docker-recovery tests (daemon-state dependent)")
+	}
+}
+
 func TestDockerCLIPathFallbacks(t *testing.T) {
 	originalLookup, originalFixed := dockerCLILookup, dockerFixedPaths
 	defer func() { dockerCLILookup, dockerFixedPaths = originalLookup, originalFixed }()
@@ -155,6 +165,7 @@ exit 0
 // TestScopedBashDockerRecoveryRetries 端到端：bash 命令失败且匹配
 // daemon-down → 自动启动（注入探针）→ 重跑成功返回真实结果。
 func TestScopedBashDockerRecoveryRetries(t *testing.T) {
+	requireDockerRecoveryEnv(t)
 	original := dockerCLILookup
 	defer func() { dockerCLILookup = original }()
 	bin := t.TempDir()
@@ -207,6 +218,7 @@ func TestScopedBashDockerRecoveryRetries(t *testing.T) {
 // TestScopedBashDockerRecoveryFailsWithHint 恢复后重跑仍失败 → 附带恢复
 // 提示（模型可据此行动），不静默吞错。
 func TestScopedBashDockerRecoveryFailsWithHint(t *testing.T) {
+	requireDockerRecoveryEnv(t)
 	original := dockerCLILookup
 	defer func() { dockerCLILookup = original }()
 	bin := t.TempDir()
@@ -246,6 +258,7 @@ exit 1
 
 // TestScopedBashDockerRecoveryDisabled 配置关闭自动恢复 → 原样返回失败。
 func TestScopedBashDockerRecoveryDisabled(t *testing.T) {
+	requireDockerRecoveryEnv(t)
 	original := dockerCLILookup
 	defer func() { dockerCLILookup = original }()
 	bin := t.TempDir()

@@ -87,6 +87,7 @@ type Runtime struct {
 	currentPlanRunID     string
 	planProvider         *planToolProvider
 	planEvents           *planEventSink              // plan 执行事实 → 事件库 + 投影订阅
+	planNodeEvents       chan PlanNodeEvent          // plan 节点事件 channel（CSP：application 消费者处理）
 	eventErrorHandler    frameworkevent.ErrorHandler // Sink 失败隔离（不破坏 WorkPlan 控制流）
 	replanGuard          *replanGuard
 	agentFactoryMu       sync.RWMutex
@@ -97,6 +98,8 @@ type Runtime struct {
 	parentEvidence       atomic.Pointer[snapshot.ContextSnapshot]
 	subagentMailbox      chan string
 	subagentDropped      atomic.Int64
+	nodeStartedMu        sync.Mutex
+	nodeStarted          map[string]struct{}
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
 	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
@@ -106,9 +109,9 @@ type Runtime struct {
 	projectScope      *ProjectScope
 	filesystem        FileSystem      // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	sandbox           CommandSandbox  // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
-	dockerProbe       dockerProber     // docker 守护进程探测/启动（nil → 真实实现；测试注入）
+	dockerProbe       dockerProber    // docker 守护进程探测/启动（nil → 真实实现；测试注入）
 	wt                *worktreeState  // 子代理 worktree 注册表（worktree.go）
-	todo              *todoState      // todolist 清单 actor（todo_tool.go）
+	tasks             *taskRegistry   // task 注册表 actor（task_registry.go；todolist 融合为 kind=todo 的 task）
 	scheduler         *schedulerState // 定时周期任务 actor（scheduler.go）
 	toolEvents        *subagentToolEventState
 
@@ -260,7 +263,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		filesystem:           NewFileSystemActor(),
 		sandbox:              newNativeProjectCWD(),
 		wt:                   newWorktreeState(),
-		todo:                 newTodoState(),
+		tasks:                newTaskRegistry(),
 		scheduler:            newSchedulerState(),
 		toolEvents:           newSubagentToolEventState(),
 		toolCallTimeout:      cfg.ToolCallTimeout,
@@ -272,6 +275,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		pluginDefs:           make(map[string]pluginDef),
 		permission:           &permissionGateState{},
 		planEvents:           newPlanEventSink(),
+		planNodeEvents:       make(chan PlanNodeEvent, 256),
 		nodeSessions:         make(map[string]*session.Session),
 		nodeSnapshots:        make(map[string][]types.Message),
 		nodeGoals:            make(map[string]string),
@@ -279,6 +283,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		nodeToolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
 		subagentTree:         newSubagentTreeState(),
 		subagentMailbox:      make(chan string, mailboxSize),
+		nodeStarted:          make(map[string]struct{}),
 
 		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
 		tracer:            tracer,
@@ -289,6 +294,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// It brackets telemetry.After, the only framework boundary between a tool
 	// registry return and the application ToolHookBridge completion callback.
 	r.hook = newDiagnosticTelemetryHook(r.hook, r)
+	// plan 节点事件走 CSP channel（非阻塞投递；消费者慢时丢事件——前端经
+	// Snapshot resync 兜底），application 侧不再同步回调嵌套。
+	r.planEvents.Subscribe(func(event PlanNodeEvent) {
+		select {
+		case r.planNodeEvents <- event:
+		default:
+		}
+	})
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
 	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.subagentToolMiddleware(), r.bashDiagnosticMiddleware())}
@@ -444,6 +457,10 @@ func (r *Runtime) Shutdown() {
 	if r == nil {
 		return
 	}
+	// todolist mailbox actor 优雅停机（Stop 消费者 goroutine，避免泄漏）。
+	if r.tasks != nil {
+		r.tasks.Close()
+	}
 	// 定时周期任务优雅停机：停 ticker + 取消运行中任务并等待退出。
 	if r.scheduler != nil {
 		r.scheduler.stop()
@@ -507,6 +524,7 @@ func (r *Runtime) RegisterBuiltins() {
 	r.registerProjectScopedTools()
 	r.registerForkTool()
 	r.registerTodoTools()
+	r.registerTaskTools()
 	r.scopedToolsReady = true
 	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
 	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。
@@ -528,6 +546,15 @@ func (r *Runtime) UnbindProjectRoot() { r.projectScope.Unbind() }
 // 语义与旧框架 NodeResult 回调等价（plan_gate_test 不变）。
 func (r *Runtime) SetPlanNodeCallback(cb func(PlanNodeEvent)) {
 	r.planEvents.Subscribe(cb)
+}
+
+// PlanNodeEventChannel 返回 plan 节点事件 channel（CSP：application 消费者
+// 串行处理，保序；非阻塞投递，满则丢事件由 Snapshot resync 兜底）。
+func (r *Runtime) PlanNodeEventChannel() <-chan PlanNodeEvent {
+	if r == nil || r.planNodeEvents == nil {
+		return nil
+	}
+	return r.planNodeEvents
 }
 
 // SetEventPersister 安装执行事实持久化钩子（双轨事件的事实轨：

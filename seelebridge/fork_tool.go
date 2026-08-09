@@ -103,7 +103,17 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 		return "", fmt.Errorf("fork_subagents: %d subagents exceeds policy limit %d", len(input.Subagents), policy.MaxNodes)
 	}
 
-	loaded, err := r.buildForkPlan(input)
+	// B6 装配件：fork 派工前做 task 幂等校验——按归一化 goal 查注册表，
+	// 命中 → 绑既有 task_id；未命中 → 子代理自己开一个 task。只绑 task_id，
+	// 不注入 task 内容（保持子代理 prompt 格式纯净）。
+	taskBindings := make(map[string]string, len(input.Subagents))
+	for _, spec := range input.Subagents {
+		if taskID := r.bindSubagentTask(spec); taskID != "" {
+			taskBindings[spec.ID] = taskID
+		}
+	}
+
+	loaded, err := r.buildForkPlan(input, taskBindings)
 	if err != nil {
 		return "", err
 	}
@@ -125,7 +135,7 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 	stop := context.AfterFunc(ctx, forkCancel) // 原 ctx 取消（用户停止）→ 同步取消 fork
 	defer stop()
 	defer forkCancel()
-	return r.runPlan(forkCtx, loaded)
+	return r.runPlan(forkCtx, loaded, false)
 }
 
 // buildForkPlan 程序化构造 fork DAG：
@@ -136,7 +146,30 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 //
 // summary 节点读取 WorkflowContext.PrevResults 拼接各子代理输出，
 // 作为 fork 的最终输出（FinalOutput）。
-func (r *Runtime) buildForkPlan(input forkSubagentsInput) (*loadedPlanDoc, error) {
+// bindSubagentTask 解析/创建子代理 task 并返回 task_id（幂等：相同 goal
+// 命中同一 task；新开时以 subagent:<id> 作为 ID，随后参与者合并）。
+func (r *Runtime) bindSubagentTask(spec forkSubagentSpec) string {
+	key := taskKeyForGoal(spec.Goal)
+	if existing, found, _ := r.ResolveTaskByKey(key); found {
+		_, _ = r.TaskAttachParticipant(existing.ID, spec.ID)
+		// 既有 task 被该子代理接手：先排队（B5 生命周期打点；节点真正
+		// 启动时才置 running——避免还没执行的子代理提前显示 running）。
+		_, _ = r.TaskSetStatus(existing.ID, TaskQueued, "fork scheduled")
+		return existing.ID
+	}
+	created, _, err := r.TaskAdd(TaskSpec{
+		ID: "subagent:" + spec.ID, Key: key, Phase: TaskPhaseSubagent, Task: spec.Goal,
+		Kind: "subagent", Assignee: spec.ID, SourceID: spec.ID,
+	})
+	if err != nil {
+		return ""
+	}
+	_, _ = r.TaskAttachParticipant(created.ID, spec.ID)
+	_, _ = r.TaskSetStatus(created.ID, TaskQueued, "fork scheduled")
+	return created.ID
+}
+
+func (r *Runtime) buildForkPlan(input forkSubagentsInput, taskBindings map[string]string) (*loadedPlanDoc, error) {
 	nodeCount := len(input.Subagents) + 2 // start + subagents + summary
 	policy := r.currentPlanPolicy()
 	maxFork := input.MaxConcurrency
@@ -160,6 +193,8 @@ func (r *Runtime) buildForkPlan(input forkSubagentsInput) (*loadedPlanDoc, error
 				// 通用 PlanNodeMaxLoops）——子代理循环数与主代理/plan 节点
 				// 同一套 effort 语义，不做独立常量。
 				Budget: &NodeBudgetInput{MaxLoops: forkNodeLoops(r)},
+				// B6：装配现成 task_id（无内容，不污染 prompt）。
+				TaskID: taskBindings[spec.ID],
 			},
 		})
 	}
@@ -213,10 +248,10 @@ func newForkSummaryNode(spec codec.NodeSpec[SeelexNodeInput]) *forkSummaryNode {
 	}
 }
 
-// forkSummaryLineLimit 是单行摘要长度上限；forkSummaryMaxLines 是每子代理
-// 保留的行数（*N 而非 *1：子代理返回携带前 N 行，既信息充分又不灌满对话）。
-// 每子代理总上限 = lineLimit × maxLines。长任务（多实例串行）的汇报常
-// 一行一个实例，30 行可容纳一批 20+ 实例的逐条结论。
+// forkSummaryLineLimit 是单行摘要长度上限（按 rune/“字”计数，中文不因
+// UTF-8 3 字节/字被压缩）；forkSummaryMaxLines 是每子代理保留的行数。
+// 汇总窗口随子代理数 ×n 自然放大（每个子代理独立块），整体是容灾上限
+// 而非截断线——完整输出在子代理树/详情，模型如需更多可 read_tool_result。
 const (
 	forkSummaryLineLimit = 160
 	forkSummaryMaxLines  = 30
@@ -250,7 +285,7 @@ func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowConte
 		b.WriteString("- ")
 		b.WriteString(id)
 		b.WriteByte(':')
-		summary := forkResultSummaryLines(wc.PrevResults[id])
+		summary, fullRunes, truncated := forkResultSummaryLines(wc.PrevResults[id])
 		if summary == "" {
 			b.WriteString(" (无输出)\n")
 			continue
@@ -259,6 +294,9 @@ func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowConte
 		// 多行用 \n + 缩进续行展示（保持每行可读、整体有界）。
 		b.WriteString(strings.ReplaceAll(summary, "\n", "\n  "))
 		b.WriteByte('\n')
+		if truncated {
+			b.WriteString(fmt.Sprintf("  （完整输出 %d 字，超出汇总窗口已截断；完整内容见子代理树，或 read_tool_result 读回）\n", fullRunes))
+		}
 	}
 	b.WriteString("（完整会话/上下文/工具活动见工作区子代理树，点击节点查看详情）")
 	return b.String(), nil
@@ -267,27 +305,34 @@ func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowConte
 // forkResultSummaryLines 提取子代理输出的有界摘要：内核把结果编码为 JSON
 // （RawString 带引号/转义）→ 先解码回纯文本，再保留前 forkSummaryMaxLines
 // 个非空行（每行截断到 forkSummaryLineLimit）；无输出 → 空串。
-func forkResultSummaryLines(output string) string {
+// forkResultSummaryLines 提取子代理输出的有界摘要（rune 计数）；返回摘要、
+// 完整输出字数与是否截断——截断时由 summary 节点附注“完整输出大小”，
+// 模型据此决定是否需要 read_tool_result 读回，而不是凭空重跑。
+func forkResultSummaryLines(output string) (summary string, fullRunes int, truncated bool) {
 	if decoded := ""; json.Unmarshal([]byte(output), &decoded) == nil {
 		output = decoded
 	}
 	output = strings.TrimSpace(output)
 	if output == "" {
-		return ""
+		return "", 0, false
 	}
+	fullRunes = len([]rune(output))
 	var lines []string
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if len(line) > forkSummaryLineLimit {
-			line = line[:forkSummaryLineLimit] + "…"
+		if runes := []rune(line); len(runes) > forkSummaryLineLimit {
+			// 按“字”（rune）截断，中文不再被 3 字节/字白白浪费额度。
+			line = string(runes[:forkSummaryLineLimit]) + "…"
+			truncated = true
 		}
 		lines = append(lines, line)
 		if len(lines) >= forkSummaryMaxLines {
+			truncated = true
 			break
 		}
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), fullRunes, truncated
 }

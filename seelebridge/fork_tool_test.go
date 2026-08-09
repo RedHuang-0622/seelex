@@ -133,7 +133,7 @@ func TestForkPlanNodesCarryEffortLoopBudget(t *testing.T) {
 	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", MaxNodeLoops: 48})
 	loaded, err := runtime.buildForkPlan(forkSubagentsInput{
 		Subagents: []forkSubagentSpec{{ID: "s1", Goal: "fix"}, {ID: "s2", Goal: "fix"}},
-	})
+	}, map[string]string{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestForkPlanNodesCarryEffortLoopBudget(t *testing.T) {
 	runtime.SetPlanPolicy(PlanPolicy{Effort: "lite"})
 	loaded, err = runtime.buildForkPlan(forkSubagentsInput{
 		Subagents: []forkSubagentSpec{{ID: "s1", Goal: "fix"}},
-	})
+	}, map[string]string{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,20 +171,23 @@ func TestForkPlanNodesCarryEffortLoopBudget(t *testing.T) {
 
 func TestForkSummaryLinesCompact(t *testing.T) {
 	cases := []struct {
-		output string
-		want   string
+		output    string
+		want      string
+		wantTrunc bool
 	}{
-		{"", ""},
-		{"   \n", ""},
-		{"第一行\n第二行\n", "第一行\n第二行"},
-		{"a\n\nb\nc\nd\ne\nf\ng\n", "a\nb\nc\nd\ne\nf\ng"}, // 空行跳过；30 行上限内全保留
-		{strings.Repeat("x", 200), strings.Repeat("x", forkSummaryLineLimit) + "…"},
-		{multiLine(forkSummaryMaxLines + 3), multiLine(forkSummaryMaxLines)}, // 超出 30 行截断
+		{"", "", false},
+		{"   \n", "", false},
+		{"第一行\n第二行\n", "第一行\n第二行", false},
+		{"a\n\nb\nc\nd\ne\nf\ng\n", "a\nb\nc\nd\ne\nf\ng", false}, // 空行跳过；30 行上限内全保留
+		{strings.Repeat("x", 200), strings.Repeat("x", forkSummaryLineLimit) + "…", true},
+		{multiLine(forkSummaryMaxLines + 3), multiLine(forkSummaryMaxLines), true}, // 超出 30 行截断
 	}
 	for _, tc := range cases {
-		got := forkResultSummaryLines(tc.output)
-		if got != tc.want {
-			t.Fatalf("forkResultSummaryLines(%q) = %q, want %q", tc.output, got, tc.want)
+		got, full, truncated := forkResultSummaryLines(tc.output)
+		wantFull := len([]rune(strings.TrimSpace(tc.output)))
+		if got != tc.want || full != wantFull || truncated != tc.wantTrunc {
+			t.Fatalf("forkResultSummaryLines(%q) = (%q,%d,%v), want (%q,%d,%v)",
+				tc.output, got, full, truncated, tc.want, wantFull, tc.wantTrunc)
 		}
 	}
 }

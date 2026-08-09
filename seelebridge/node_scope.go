@@ -18,6 +18,9 @@ type NodeScope struct {
 	Role        AccountRole
 	BranchID    string
 	WorkspaceID string
+	// TaskID 是装配件模式绑定的现成 task（B6）：只作为绑定元数据，不进
+	// 任何 prompt 块——避免外部 task 内容污染子代理 prompt 格式与处理。
+	TaskID string
 }
 
 type nodeScopeContextKey struct{}
