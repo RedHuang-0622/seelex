@@ -41,6 +41,7 @@ func TestGUIDocumentContracts(t *testing.T) {
 		"https://seelex.dev/schemas/generation-operation.schema.json":   "examples/generation-operation.json",
 		"https://seelex.dev/schemas/evidence-assessment.schema.json":    "examples/evidence-assessment.json",
 		"https://seelex.dev/schemas/dev-iteration.schema.json":          "examples/dev-iteration.json",
+		"https://seelex.dev/schemas/work-table.schema.json":             "examples/work-table.json",
 	}
 	validated := make(map[string]bool, len(cases))
 	for schemaID, example := range cases {

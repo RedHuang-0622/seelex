@@ -53,6 +53,7 @@ docs/gui/
 | Conversation rendering | 已实现 | [`conversation-rendering.md`](modules/conversation-rendering.md) |
 | Effort control | 已实现 | [`effort-control.md`](modules/effort-control.md) |
 | Shell/interactions | 已实现 | [`shell-and-interactions.md`](modules/shell-and-interactions.md) |
+| Work table | 已实现 | [`work-table.md`](modules/work-table.md) |
 | JSON DSL Card | 规划 | [`dsl-card-runtime.md`](modules/dsl-card-runtime.md) |
 | Workspace sandbox | 规划 | [`workspace-sandbox.md`](modules/workspace-sandbox.md) |
 | Generation repository | 规划 | [`generation-store.md`](modules/generation-store.md) |
@@ -78,6 +79,7 @@ docs/gui/
 | [`interaction resolution`](schemas/interaction-resolution.schema.json) | [`interaction-resolution.json`](examples/interaction-resolution.json) | session-scoped 审批决议 |
 | [`evidence assessment`](schemas/evidence-assessment.schema.json) | [`evidence-assessment.json`](examples/evidence-assessment.json) | 原子主张、证据绑定与门禁结果 |
 | [`dev iteration`](schemas/dev-iteration.schema.json) | [`dev-iteration.json`](examples/dev-iteration.json) | 需求到 Dev/E2E 自迭代运行状态 |
+| [`work table`](schemas/work-table.schema.json) | [`work-table.json`](examples/work-table.json) | `worktable.changed` 增量 payload（工作表格行 + 任务打点） |
 | [`module registry`](schemas/module-dotting.schema.json) | [`module_dotting.json`](module_dotting.json) | 模块登记与依赖 |
 
 `common.schema.json` 只提供共享 `$defs`，不对应独立 payload。

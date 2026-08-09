@@ -76,6 +76,18 @@
       "depends_on": ["desktop-bridge", "client-state", "conversation-rendering", "effort-control"]
     },
     {
+      "id": "work-table",
+      "name": "Work table workbench",
+      "status": "implemented",
+      "responsibility": "Project plan nodes, todo items and fork subagents into one bounded multi-column work table with task trace, and publish lightweight worktable.changed deltas.",
+      "document": "modules/work-table.md",
+      "interfaces": ["Service.UpdateWorkItemStatus", "Bridge.UpdateWorkItemStatus", "createWorkTableView"],
+      "planned_paths": ["application/core/work_table.go", "application/core/worktable_publisher.go", "gui/frontend/dist/work-table.js"],
+      "inputs": ["snapshot runtime plan/todo/subagent", "subagent tool event", "todo status update"],
+      "outputs": ["schemas/work-table.schema.json", "worktable.changed", "bounded work table rows"],
+      "depends_on": ["application-protocol", "desktop-bridge", "client-state", "shell-interactions"]
+    },
+    {
       "id": "dsl-card-runtime",
       "name": "JSON DSL card runtime",
       "status": "planned",
