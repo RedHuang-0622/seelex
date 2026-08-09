@@ -3,12 +3,12 @@ import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
-import { planToDSL, reconcilePlanDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, renderSubagentTree, subagentTreeNodeToDSL } from "./plan-dsl.js";
+import { planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL } from "./plan-dsl.js";
+import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
 import { collectReadFileSources } from "./read-sources.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
-import { renderTodoList } from "./todo-view.js";
 import { renderScheduledTasks } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 
@@ -28,7 +28,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "plan-section", "plan-view", "subagent-section", "subagent-count", "clear-subagent-tree", "subagent-tree-view", "todo-section", "todo-view", "todo-count", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -54,6 +54,11 @@ const activeChatSync = createActiveChatSnapshotSync({
   refresh: () => refresh({ scroll: false }),
   onError: showToast
 });
+const workTableView = createWorkTableView(elements["work-table-modal-view"]);
+// workTableSeen 是“已读”快照（status|retry_count 签名）；workTableOpen
+// 控制弹窗打开期间不显示未读角标。
+let workTableSeen = new Map();
+let workTableOpen = false;
 const effortControl = createEffortControl({
   root: elements["effort-control"],
   input: elements["effort-range"],
@@ -95,8 +100,8 @@ function render(snapshot, options = {}) {
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
   chatView.render(snapshot, options.scrollMode);
-  renderPlan(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
-  renderTodo(snapshot.runtime?.todo_items);
+  refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
+  renderWorkTable(snapshot.runtime?.work_table);
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
@@ -117,15 +122,25 @@ function renderIncremental(snapshot, kind) {
     renderRuntime(snapshot.runtime || {});
     renderPlugins(snapshot.runtime || {});
     renderAccounts(snapshot.runtime || {});
-    renderPlan(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
-    renderTodo(snapshot.runtime?.todo_items);
+    refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
+    renderWorkTable(snapshot.runtime?.work_table);
     renderScheduledTaskPanel(snapshot.runtime || {});
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
     return;
   }
+  if (kind === "worktable.changed") {
+    refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
+    renderWorkTable(snapshot.runtime?.work_table);
+    return;
+  }
+  if (kind === "task.changed") {
+    refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
+    renderWorkTable(snapshot.runtime?.work_table);
+    return;
+  }
   if (["subagent.changed", "subagent.tool.started", "subagent.tool.completed"].includes(kind)) {
-    renderPlan(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
+    refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     if (activeNodeDetailKey) refreshOpenNodeDetail();
     return;
   }
@@ -295,51 +310,54 @@ function renderSkills(skills) {
 let lastPlanDsl = null;
 let lastSubagentTree = [];
 
-function renderPlan(plan, subagentTree = null) {
-  elements["plan-section"].classList.toggle("hidden", !plan);
+// refreshPlanDetailData 只刷新详情弹窗的数据面（Plan DSL + 子代理树投影），
+// 不做任何面板 DOM 渲染：右侧工作台统一由工作表格（renderWorkTable）呈现，
+// 详情弹窗数据源保持 Plan/子代理树权威投影（planToDSL 只算不改 DOM）。
+function refreshPlanDetailData(plan, subagentTree = null) {
   lastPlanDsl = planToDSL(plan);
-  reconcilePlanDSL(elements["plan-view"], lastPlanDsl);
-  renderSubagentPanel(subagentTree);
-}
-
-// renderSubagentPanel 渲染子代理树独立 section（工作区右栏「子代理」分区；
-// fork 子代理产出完整会话/上下文/工具活动都在这里，不进对话区）。空树隐藏
-// 整个 section；count 徽标显示节点数（含嵌套子代理）。
-function renderSubagentPanel(subagentTree) {
   lastSubagentTree = Array.isArray(subagentTree) ? subagentTree : [];
-  const section = elements["subagent-section"];
-  const container = elements["subagent-tree-view"];
-  if (!section || !container) return;
-  container.innerHTML = renderSubagentTree(lastSubagentTree);
-  section.classList.toggle("hidden", !lastSubagentTree.length);
-  if (elements["subagent-count"]) {
-    elements["subagent-count"].textContent = String(countSubagentNodes(lastSubagentTree));
-  }
 }
 
-// countSubagentNodes 统计树节点数（递归含嵌套子代理；不含合成根 main）。
-function countSubagentNodes(nodes) {
-  let count = 0;
-  const walk = items => {
-    for (const item of items || []) {
-      if (!item || typeof item !== "object") continue;
-      if (item.id !== "main") count += 1;
-      walk(item.children);
+// renderWorkTable 渲染工作表格详情（弹窗内 keyed reconciliation）并同步
+// 右侧按钮摘要与未读角标（未读 = 新增或状态/retry 变化的条目）。
+function renderWorkTable(rows) {
+  workTableView.render(rows);
+  const normalized = workTableView.current();
+  elements["work-count"].textContent = String(normalized.length);
+  elements["work-table-summary"].textContent = `${normalized.length} 项任务`;
+  elements["work-section"]?.classList.toggle("hidden", normalized.length === 0);
+  const unread = workTableOpen ? 0 : countUnread(normalized, workTableSeen);
+  elements["work-unread"]?.classList.toggle("hidden", unread === 0);
+  if (elements["work-unread"]) elements["work-unread"].textContent = `${unread} 未读`;
+}
+
+// openWorkTable 打开完整表格详情：记录当前已读快照并清角标。
+function openWorkTable() {
+  workTableOpen = true;
+  workTableSeen = workTableSignatures(workTableView.current());
+  elements["work-unread"]?.classList.add("hidden");
+  setModal("work-table-modal", true);
+}
+
+function closeWorkTable() {
+  workTableOpen = false;
+  setModal("work-table-modal", false);
+}
+
+// 工作表格行内交互（todo 状态更新、条目展开、筛选、打点展开）走委托。
+workTableView.bind({
+  onStatus: async (id, status) => {
+    try {
+      await invoke("UpdateWorkItemStatus", id, status);
+      await refresh({ scroll: false });
+    } catch (error) {
+      showToast(error);
     }
-  };
-  walk(nodes);
-  return count;
-}
-
-// 清空子代理树：done 节点完成即自动清走；失败节点经此入口显式清掉
-// （后端 ClearSubagentTree → 快照刷新 → runtime.changed 增量 → 分区隐藏）。
-elements["clear-subagent-tree"]?.addEventListener("click", async () => {
-  try {
-    await invoke("ClearSubagentTree");
-  } catch (err) {
-    showToast(`清空子代理树失败: ${err}`);
   }
 });
+
+elements["work-table-open"]?.addEventListener("click", openWorkTable);
+elements["work-table-modal-close"]?.addEventListener("click", closeWorkTable);
 
 // findSubagentTreeNode 在子代理树投影里按 id 找节点（含嵌套 children）。
 function findSubagentTreeNode(nodeID) {
@@ -353,15 +371,6 @@ function findSubagentTreeNode(nodeID) {
     return null;
   };
   return walk(lastSubagentTree);
-}
-
-// renderTodo 渲染 todolist 待办面板：数据来自 snapshot.runtime.todo_items
-// （权威投影），无清单时隐藏整个 section。
-function renderTodo(items) {
-  const list = Array.isArray(items) ? items : [];
-  elements["todo-section"].classList.toggle("hidden", list.length === 0);
-  elements["todo-count"].textContent = String(list.length);
-  elements["todo-view"].innerHTML = renderTodoList(list);
 }
 
 // renderScheduledTaskPanel 渲染定时周期任务面板：数据来自 snapshot.runtime
@@ -431,7 +440,12 @@ async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
   }
   let detail = null;
   try {
-    detail = await invoke("SubagentSessionDetail", nodeID);
+    // 兜底超时：详情接口异常/挂起时不再让“加载会话记录…”永久占位，
+    // 超时按空详情渲染（确定性节点/会话未落盘的既有空态文案）。
+    const timeout = new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error("subagent detail timeout")), 10000);
+    });
+    detail = await Promise.race([invoke("SubagentSessionDetail", nodeID), timeout]);
   } catch { /* 节点无会话记录或非 agent 节点 → 面板保持占位 */ }
   if (generation !== nodeDetailGeneration || nodeID !== activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
   setNodeDetailConversation(detail || null);
@@ -842,7 +856,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -875,6 +889,7 @@ document.addEventListener("keydown", event => {
     closeSettings();
     closeScheduledTaskDialog();
     closeNodeDetail();
+    closeWorkTable();
   }
 });
 

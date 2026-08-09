@@ -780,3 +780,67 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .history-search-content { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
 .history-search-ref { flex: none; color: #6ba8d9; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .history-search-cut { flex: none; color: #d8b26a; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+/* ── 工作表格（Work Table）────────────────────────────── */
+.work-table { border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: #121212; }
+.work-table-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: #161616; }
+.work-entry-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; color: #d0d0d0; background: none; border: 0; cursor: pointer; font: 600 11px/1.4 inherit; }
+.work-entry-toggle:hover { color: #fff; }
+.work-chevron { color: var(--warning); font-size: 10px; }
+.work-total, .work-trace-total { color: var(--faint); font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-total { color: #b9b9b9; }
+.work-filters { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.work-filter { padding: 2px 7px; border: 1px solid #2b2b2b; border-radius: 999px; color: var(--muted); background: transparent; cursor: pointer; font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-filter:hover { color: #ddd; border-color: #444; }
+.work-filter.is-active { color: #e8b730; border-color: #5d4d20; background: #211d11; }
+.work-filter span { opacity: .8; }
+.work-entry-body.is-collapsed { display: none; }
+.work-grid { display: grid; grid-template-columns: 56px minmax(90px, 1.4fr) minmax(90px, 1.6fr) 66px 72px minmax(70px, .9fr) minmax(60px, .8fr) auto; gap: 6px 8px; align-items: center; }
+.work-grid-head { padding: 6px 10px; color: var(--faint); background: #141414; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; }
+.work-rows { display: grid; gap: 3px; padding: 6px 8px 8px; }
+.work-row { border: 1px solid #222; border-radius: 6px; background: #101010; }
+.work-row.is-running, .work-row.is-queued, .work-row.is-doing { border-color: #3f3616; }
+.work-row.is-completed, .work-row.is-done { border-color: #1f3a27; }
+.work-row.is-failed, .work-row.is-aborted, .work-row.is-panicked { border-color: #482626; }
+.work-row-grid { padding: 5px 9px; }
+.work-cell { min-width: 0; overflow: hidden; color: #bdbdbd; font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.work-cell-task { color: #d0d0d0; font-weight: 600; }
+.work-cell-desc { color: #9f9f9f; }
+.work-phase-chip { display: inline-block; max-width: 100%; padding: 1px 5px; border-radius: 3px; color: #8fb7d9; background: #101d29; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
+.work-phase-chip.is-tasklist { color: #c3a35c; background: #241f12; }
+.work-phase-chip.is-subagent { color: #a98fd6; background: #1d1729; }
+.work-phase-chip.is-task { color: #7fb8a0; background: #12241d; }
+.work-status { display: inline-block; max-width: 100%; padding: 1px 5px; border: 1px solid #333; border-radius: 3px; color: #9a9a9a; background: #161616; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
+.work-status.is-running, .work-status.is-queued, .work-status.is-doing { border-color: #5d4d20; color: #e8b730; background: #211d11; }
+.work-status.is-completed, .work-status.is-done { border-color: #35583f; color: #83c393; background: #132018; }
+.work-status.is-failed, .work-status.is-aborted, .work-status.is-panicked { border-color: #633636; color: #df8585; background: #251515; }
+.work-status.is-retry { border-color: #6b5b2e; color: #e8c766; background: #251f12; }
+.work-dep, .work-attachment { display: inline-block; max-width: 100%; margin: 1px 2px 1px 0; padding: 0 4px; border-radius: 3px; color: #8aa0b5; background: #151d24; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
+.work-attachment { color: #9db8a3; background: #14201a; }
+.work-cell-actions { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.work-row-detail-btn, .work-trace-toggle { padding: 2px 6px; border: 1px solid #333; border-radius: 4px; color: #bdbdbd; background: #161616; cursor: pointer; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-row-detail-btn:hover, .work-trace-toggle:hover { color: #fff; border-color: #5a7899; }
+.work-todo-status { display: inline-flex; gap: 2px; }
+.work-status-btn { padding: 2px 6px; border: 1px solid #333; border-radius: 4px; color: #9a9a9a; background: #141414; cursor: pointer; font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-status-btn:hover { color: #ddd; border-color: #555; }
+.work-status-btn.is-active { color: #111; background: #e8b730; border-color: #e8b730; font-weight: 700; }
+.work-trace-panel { padding: 6px 9px 8px; border-top: 1px dashed #242424; }
+.work-trace { display: grid; gap: 2px; }
+.work-trace-row { display: grid; grid-template-columns: 58px 86px 58px minmax(0, 1fr) 46px; gap: 6px; align-items: center; color: #9f9f9f; font-size: 9px; }
+.work-trace-row.is-head { color: var(--faint); font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-trace-row time { font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-trace-row strong { min-width: 0; overflow: hidden; color: #d8b26a; font: 700 9px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.work-trace-row small { min-width: 0; overflow: hidden; color: #9f9f9f; text-overflow: ellipsis; white-space: nowrap; }
+.work-trace-row.is-running span, .work-trace-row.is-doing span { color: #e8b730; }
+.work-trace-row.is-completed span, .work-trace-row.is-done span { color: #83c393; }
+.work-trace-row.is-failed span { color: #df8585; }
+.work-empty { padding: 10px; color: var(--faint); font-size: 10px; text-align: center; }
+
+/* ── 工作表格入口按钮 + 未读角标 + 详情弹窗 ────────────── */
+.work-table-button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 1px solid #2f4b3a; border-radius: 8px; color: #cfe6d7; background: linear-gradient(180deg, #16241c, #101a14); cursor: pointer; font: 600 11px/1.4 inherit; text-align: left; }
+.work-table-button:hover { border-color: #3f6b50; background: linear-gradient(180deg, #18281f, #111d16); }
+.work-table-button-icon { color: #7fb8a0; font-size: 14px; }
+.work-table-button-hint { margin-left: auto; color: var(--faint); font: 8px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.badge.is-unread { border-color: #8a5a20; color: #ffd28a; background: #2b1d0d; }
+.work-table-modal-card { width: min(1120px, 94vw); max-height: 86vh; }
+.work-table-modal-view { overflow: auto; padding: 10px; }

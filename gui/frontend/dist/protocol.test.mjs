@@ -107,6 +107,86 @@ test("applies runtime and interaction events", () => {
   assert.equal(closed.snapshot.interaction, null);
 });
 
+test("applies worktable.changed without deep-cloning the plan", () => {
+  const current = {
+    ...snapshot(),
+    runtime: {
+      model: "test",
+      plan: { status: "running", progress: 0, nodes: [{ id: "n1", status: "running" }], edges: [] },
+      work_table: [{ id: "plan:n1", phase: "plan", task: "旧", status: "pending" }]
+    }
+  };
+  const result = applyEvent(current, {
+    protocol_version: 1, seq: 1, revision: 2, kind: "worktable.changed",
+    payload: { items: [
+      { id: "plan:n1", phase: "plan", task: "新", status: "running", trace: [{ status: "running", operation: "node.lifecycle" }] },
+      { id: "todo:0", phase: "tasklist", task: "a", status: "doing" }
+    ] }
+  });
+  assert.equal(result.needsRefresh, false);
+  assert.equal(result.changed, "worktable.changed");
+  assert.equal(result.snapshot.runtime.work_table.length, 2);
+  assert.equal(result.snapshot.runtime.work_table[0].task, "新");
+  // 结构共享：worktable.changed 只替换 work_table，plan 对象引用不变（无深拷贝）。
+  assert.equal(result.snapshot.runtime.plan, current.runtime.plan);
+  assert.equal(current.runtime.work_table[0].task, "旧");
+});
+
+test("applies task.changed as a single-row upsert", () => {
+  const current = {
+    ...snapshot(),
+    runtime: {
+      work_table: [
+        { id: "plan:n1", phase: "plan", task: "旧", status: "pending" },
+        { id: "todo:0", phase: "tasklist", task: "a", status: "doing" }
+      ]
+    }
+  };
+  const result = applyEvent(current, {
+    protocol_version: 1, seq: 1, revision: 2, kind: "task.changed",
+    payload: { task_id: "plan:n1", task: { id: "plan:n1", phase: "plan", task: "新", status: "retry", retry_count: 2 } }
+  });
+  assert.equal(result.needsRefresh, false);
+  assert.equal(result.changed, "task.changed");
+  assert.equal(result.snapshot.runtime.work_table.length, 2);
+  assert.equal(result.snapshot.runtime.work_table[0].status, "retry");
+  assert.equal(result.snapshot.runtime.work_table[0].retry_count, 2);
+  assert.equal(result.snapshot.runtime.work_table[1].task, "a");
+  assert.equal(current.runtime.work_table[0].status, "pending"); // 旧快照不变
+
+  // 未知 task_id → 插入新行（add 语义）。
+  const added = applyEvent(result.snapshot, {
+    protocol_version: 1, seq: 2, revision: 3, kind: "task.changed",
+    payload: { task_id: "task:9", task: { id: "task:9", phase: "task", task: "新任务", status: "pending" } }
+  }, result.lastSeq);
+  assert.equal(added.snapshot.runtime.work_table.length, 3);
+  assert.equal(added.snapshot.runtime.work_table[2].id, "task:9");
+});
+
+test("subagent updates share unchanged sibling nodes instead of cloning the whole plan", () => {
+  const sibling = { id: "sibling", status: "pending", tool_events: [] };
+  const current = {
+    ...snapshot(),
+    runtime: {
+      plan: {
+        status: "running", progress: 0,
+        nodes: [{ id: "root", status: "running", children: [{ id: "worker", status: "queued", tool_events: [] }, sibling] }],
+        edges: []
+      }
+    }
+  };
+  const result = applyEvent(current, {
+    protocol_version: 1, seq: 1, revision: 2, kind: "subagent.changed",
+    payload: {
+      node_id: "worker", plan_status: "running", progress: 0.5,
+      node: { id: "worker", label: "Worker", status: "running", tool_events: [], children: [] }
+    }
+  });
+  // 未命中的兄弟节点保持同一对象引用（路径级结构共享，非整树克隆）。
+  assert.equal(result.snapshot.runtime.plan.nodes[0].children[1], sibling);
+  assert.equal(current.runtime.plan.nodes[0].children[0].status, "queued");
+});
+
 test("applies recursive subagent lifecycle and tool events without mutating the previous snapshot", () => {
   const current = {
     ...snapshot(),

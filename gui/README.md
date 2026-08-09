@@ -17,9 +17,16 @@
 
 ## Bridge 契约
 
-`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings 等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft，GUI 不通过 `/new` 字符串命令抢先创建 Session。
+`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft，GUI 不通过 `/new` 字符串命令抢先创建 Session。
 
 子代理 `subagent.changed`、`subagent.tool.started`、`subagent.tool.completed` 与其他 Application Event 使用同一 relay，不在 Bridge 内改写 payload。`tool_full_chain_test.go` 从 `Bridge.Submit` 进入，覆盖 ToolHookBridge → Application/EventHub → Bridge emitter → `seelex:event`，并验证 `Bridge.SetFullAccess(true)` 会释放既有审批、投影 Snapshot、relay `runtime.changed`。
+
+工作表格增量 `worktable.changed` 使用同一 relay（payload 只带表格投影，不整份
+runtime）；`Bridge.UpdateWorkItemStatus(id, status)` 只做参数透传，业务校验在
+application 层（v1 仅支持 `todo:<index>` 的 pending/doing/done）。
+
+task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 relay；主动
+`taskadd` 是模型可调用的 harness 工具（注册表幂等去重），不经 Bridge。
 
 Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等敏感配置必须由 backend redaction 后再返回 renderer。
 

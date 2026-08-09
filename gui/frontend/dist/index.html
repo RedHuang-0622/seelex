@@ -74,17 +74,13 @@
         <div class="section-title">状态</div>
         <div id="project-status" class="status-grid"></div>
       </section>
-      <section id="plan-section" class="hidden">
-        <div class="section-title">Plan</div>
-        <div id="plan-view" class="plan-view muted">暂无执行计划</div>
-      </section>
-      <section id="subagent-section" class="hidden">
-        <div class="section-title"><span>子代理</span><span id="subagent-count" class="badge">0</span><button id="clear-subagent-tree" class="icon-button subtle" type="button" title="清空子代理树（完成的自动清走，失败的可手动清掉）" aria-label="清空子代理树">✕</button></div>
-        <div id="subagent-tree-view" class="subagent-tree-view"></div>
-      </section>
-      <section id="todo-section" class="hidden">
-        <div class="section-title"><span>待办清单</span><span id="todo-count" class="badge">0</span></div>
-        <div id="todo-view" class="todo-view"></div>
+      <section id="work-section" class="hidden">
+        <div class="section-title"><span>工作表格</span><span id="work-count" class="badge">0</span><span id="work-unread" class="badge is-unread hidden">0 未读</span></div>
+        <button id="work-table-open" class="work-table-button" type="button" title="打开工作表格详情">
+          <span class="work-table-button-icon" aria-hidden="true">▦</span>
+          <span id="work-table-summary">0 项任务</span>
+          <span class="work-table-button-hint">点开查看完整表格</span>
+        </button>
       </section>
       <section id="scheduled-task-section">
         <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建周期任务" data-icon="plus" style="width:16px;height:16px"></button></div>
@@ -193,6 +189,13 @@
     <div class="modal-card node-detail-card">
       <div class="modal-header"><div class="node-detail-title-slot" id="node-detail-title"></div><button id="node-detail-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="node-detail-content"></div>
+    </div>
+  </div>
+
+  <div id="work-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="work-table-modal-title">
+    <div class="modal-card work-table-modal-card">
+      <div class="modal-header"><div><span class="eyebrow">Work Table</span><h2 id="work-table-modal-title">工作表格</h2></div><button id="work-table-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div id="work-table-modal-view" class="work-table-modal-view muted">暂无工作任务</div>
     </div>
   </div>
 

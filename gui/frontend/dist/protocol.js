@@ -3,7 +3,7 @@ export const SUPPORTED_PROTOCOL_VERSION = 1;
 const INCREMENTAL_KINDS = new Set([
   "message.added", "message.delta", "tool.started", "tool.completed",
   "subagent.changed", "subagent.tool.started", "subagent.tool.completed",
-  "runtime.changed", "interaction.opened", "interaction.closed"
+  "runtime.changed", "worktable.changed", "task.changed", "interaction.opened", "interaction.closed"
 ]);
 
 const MAX_FRONTEND_NODE_TOOL_EVENTS = 100;
@@ -66,6 +66,20 @@ function applyIncremental(snapshot, event, payload) {
     if (!payload || typeof payload !== "object") return false;
     snapshot.runtime = payload;
     return true;
+  case "worktable.changed":
+    if (!payload || !Array.isArray(payload.items)) return false;
+    snapshot.runtime.work_table = payload.items;
+    return true;
+  case "task.changed":
+    if (!payload?.task || !payload.task_id || typeof payload.task !== "object") return false;
+    {
+      const tasks = Array.isArray(snapshot.runtime.work_table) ? [...snapshot.runtime.work_table] : [];
+      const index = tasks.findIndex(item => item?.id === payload.task_id);
+      if (index < 0) tasks.push(payload.task);
+      else tasks[index] = payload.task;
+      snapshot.runtime.work_table = tasks;
+    }
+    return true;
   case "interaction.opened":
     snapshot.interaction = payload || null;
     return true;
@@ -98,53 +112,47 @@ function upsertMessage(messages, message) {
 
 function applySubagentChanged(snapshot, payload) {
   if (!payload?.node_id || !payload.node || !snapshot.runtime?.plan) return false;
-  const replaced = replacePlanNode(snapshot.runtime.plan.nodes || [], payload.node_id, payload.node);
+  const replaced = mapPlanNodePath(snapshot.runtime.plan.nodes || [], payload.node_id, () => clonePlanNode(payload.node));
   if (!replaced.changed) return false;
-  snapshot.runtime.plan.nodes = replaced.nodes;
+  const next = { ...snapshot.runtime.plan, nodes: replaced.nodes };
   if (typeof payload.plan_status === "string" && payload.plan_status) {
-    snapshot.runtime.plan.status = payload.plan_status;
+    next.status = payload.plan_status;
   }
   const progress = Number(payload.progress);
-  if (Number.isFinite(progress)) snapshot.runtime.plan.progress = Math.min(Math.max(progress, 0), 1);
+  if (Number.isFinite(progress)) next.progress = Math.min(Math.max(progress, 0), 1);
+  snapshot.runtime.plan = next;
   return true;
 }
 
 function applySubagentToolEvent(snapshot, payload) {
   if (!payload?.id || !payload.node_id || !snapshot.runtime?.plan) return false;
-  let found = false;
-  snapshot.runtime.plan.nodes = mapPlanNodes(snapshot.runtime.plan.nodes || [], node => {
-    if (node.id !== payload.node_id) return node;
-    found = true;
+  const replaced = mapPlanNodePath(snapshot.runtime.plan.nodes || [], payload.node_id, node => {
     const toolEvents = [...(node.tool_events || [])];
     const index = toolEvents.findIndex(current => current.id === payload.id);
     if (index < 0) toolEvents.push(payload);
     else toolEvents[index] = payload;
     return { ...node, tool_events: toolEvents.slice(-MAX_FRONTEND_NODE_TOOL_EVENTS) };
   });
-  return found;
+  if (!replaced.changed) return false;
+  snapshot.runtime.plan = { ...snapshot.runtime.plan, nodes: replaced.nodes };
+  return true;
 }
 
-function replacePlanNode(nodes, nodeID, replacement) {
+// mapPlanNodePath 沿命中节点路径复制（结构共享）：未命中分支原样复用，
+// 只重建命中节点所在链，避免每次事件深拷贝整棵 plan（内存 P1 优化）。
+function mapPlanNodePath(nodes, nodeID, update) {
   let changed = false;
   const next = (nodes || []).map(node => {
     if (node.id === nodeID) {
       changed = true;
-      return clonePlanNode(replacement);
+      return update(node);
     }
-    const nested = replacePlanNode(node.children || [], nodeID, replacement);
+    const nested = mapPlanNodePath(node.children || [], nodeID, update);
     if (!nested.changed) return node;
     changed = true;
     return { ...node, children: nested.nodes };
   });
   return { nodes: next, changed };
-}
-
-function mapPlanNodes(nodes, update) {
-  return (nodes || []).map(node => {
-    const children = mapPlanNodes(node.children || [], update);
-    const cloned = { ...node, children };
-    return update(cloned);
-  });
 }
 
 function markRunning(snapshot, requestID) {
@@ -153,22 +161,12 @@ function markRunning(snapshot, requestID) {
 }
 
 function cloneSnapshot(snapshot, revision) {
-  const runtime = { ...(snapshot.runtime || {}) };
-  if (runtime.plan) runtime.plan = clonePlan(runtime.plan);
   return {
     ...snapshot,
     revision: Math.max(Number(snapshot.revision || 0), Number(revision || 0)),
     conversation: [...snapshot.conversation],
     chat: { ...(snapshot.chat || {}) },
-    runtime
-  };
-}
-
-function clonePlan(plan) {
-  return {
-    ...plan,
-    nodes: (plan.nodes || []).map(clonePlanNode),
-    edges: Array.isArray(plan.edges) ? plan.edges.map(edge => ({ ...edge })) : []
+    runtime: { ...(snapshot.runtime || {}) }
   };
 }
 

@@ -13,8 +13,9 @@
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
-| `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局渲染、子代理树视图、节点详情弹窗。 |
-| `dist/todo-view.js` | todolist 待办面板渲染（数据源 `runtime.todo_items` 权威投影）。 |
+| `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
+| `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
+| `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、筛选（全部/Plan/Task/Tasklist/Subagent）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/scheduled-tasks-view.js` | 定时周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | 从会话工具事件中收集成功完成的 `read_file` 路径，供右侧栏显示。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
@@ -33,9 +34,23 @@ Full Access 按钮不维护本地布尔状态：显示与下一次 toggle 都读
 
 事件是状态更新的快速路径；在 `chat.running=true` 期间，`active-chat-sync.js` 每秒从 Bridge 拉取一次权威 Snapshot 作为有限对账。它只用于纠正桌面 WebView 丢失某个 terminal event 后遗留的 `RUN`/`Waiting for output…`，Snapshot 显示 idle 后立即停止。
 
-Plan DSL 常驻右侧项目栏；没有 Plan 时隐藏整个 section，加载、运行和完成状态都由 `runtime.plan` 驱动。Runtime 弹窗只保留运行时诊断信息。
+右侧工作台由「工作表格」入口按钮统一接管：数据源 `snapshot.runtime.work_table`
+（权威投影）与 `worktable.changed`/`task.changed` 增量。按钮常驻，带未读
+角标（未读 = 新增或状态/retry 变化的条目，打开详情后清零）；点开按钮弹出
+完整多维表格弹窗（工作台窄，详情在弹窗内看全）。Plan 节点 / todolist 项 /
+fork 子代理归一为 WorkItem 行，按阶段筛选；行内可展开打点、todo 三态更新、
+plan/subagent 详情入口。无任务时隐藏整个 section。
 
-todolist 待办面板同样常驻右侧栏：数据来自 `snapshot.runtime.todo_items`（application 经 `runtime.changed` 增量携带），清单为空时隐藏整个 section；条目勾选状态只读权威 JSON 的 `done` 标志，渲染不做本地猜测。
+todolist 项进入工作表格的 `tasklist` 阶段；三态（pending/doing/done）只读
+权威 `work_table` 状态，行内按钮经 `Bridge.UpdateWorkItemStatus` 回写后端
+（成功路径发布 `runtime.changed` + `worktable.changed`），渲染不做本地猜测。
+Plan DSL（`plan-dsl.js`）保留为节点详情弹窗的数据面：`refreshPlanDetailData`
+只算 DSL 不改面板 DOM。
+
+task 即 worktable 条目（单一注册表 actor，保护粒度=task）：主动 `taskadd`
+工具、被动 plan/subagent 生命周期同步都落到同一数据面；增量事件
+`task.changed` 按 task_id 单行 upsert，`worktable.changed` 保持整表替换；
+retry 状态展示 `RETRY n`（retry_count）。
 
 ## 定时周期任务
 
@@ -50,13 +65,26 @@ todolist 待办面板同样常驻右侧栏：数据来自 `snapshot.runtime.todo
 
 `Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
 
-子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持 `worktree_creating`、`rebasing`、`merging`；节点整卡可打开详情，详情弹窗显示会话、节点时间线和工具输入/结果/错误。Plan 面板与详情页都渲染功能打点表：tasklist 的 `task_check_node` 检查点和子代理工具活动均由同一事件投影驱动。所有更新都先深拷贝 Plan 树，避免修改旧 Snapshot。
+子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，
+工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持
+`worktree_creating`、`rebasing`、`merging`；工作表格子代理行经「详情」打开
+节点详情弹窗（会话、上下文快照、节点时间线、工具输入/结果/错误与功能打点
+表——tasklist 的 `task_check_node` 检查点和子代理工具活动由同一事件投影
+驱动）。reducer 采用路径级结构共享（`mapPlanNodePath`）：未命中分支复用原
+对象，不整树深拷贝；`worktable.changed` 只替换 `runtime.work_table`。
 
 详情弹窗另有「上下文」标签：展示 `SubagentSessionDetail` 返回的子代理结构化上下文快照（Goal/Progress/Findings/Decisions/Constraints/PendingWork/MessageCount/TokenEstimate，运行中实时导出、结束后快照），与会话记录、工具活动共同构成运行过程的可核验证据面；快照只含公开证据，不含 prompt 原文或秘密。
 
 Plan 渲染是树状布局（不是扁平 DAG）：`plan-dsl.js` 的 `layoutPlanTree` 从无入边根节点做 Kahn 拓扑分层（level = 到根最长路径），节点按层级缩进 + 引导字符连线（`├─`/`└─`/`│`）呈现父子关系；多入边节点（菱形 join）采用「主路径树 + 旁路标记」策略——树父节点取入边源中层最深者，其余入边渲染为「旁路」chip 引用，节点只出现一次、不死循环。无 edges 的 Plan（纯 children 嵌套）保留旧缩进契约；Kahn 未访问的环内节点按根扁平处理（环防御，深度有界）。节点卡片能力（打点表、详情弹窗、工具活动）原样保留。
 
-右侧栏 Plan section 下另有「子代理树」视图：`fork_subagents` 创建的子代理以 parent/child 链组织（数据源 `snapshot.runtime.subagent_tree`，权威 Snapshot 增量携带；后端内存态，不落盘）。树节点行显示状态着色（running/done/failed）、goal、紧凑上下文（消息数/token 估算/发现，有界截断）、会话摘要与子会话 ID，整行可点开详情弹窗；fork 子代理不在活跃 Plan 里时（计划已清除）详情弹窗回退到子代理树投影数据，会话记录/上下文仍由 `SubagentSessionDetail` 承载。
+工作表格的 `subagent` 阶段来自 `snapshot.runtime.subagent_tree` 投影（后端
+内存态，不落盘；权威 Snapshot 增量携带）。行显示状态着色（running/done/
+failed）、goal、Assignee 与 parent dependency；行「详情」打开节点详情弹窗。
+子代理生命周期是被动数据源：fork 注册/完成由后端 observer 自动发布
+`worktable.changed`，不依赖模型调用任何工具；完成的子代理有界保留（
+`subagentTreeRetainDone`，超限清最旧），直到 `ClearSubagentTree` 显式清空。
+fork 子代理不在活跃 Plan 里时（计划已清除）详情弹窗回退到子代理树投影
+数据，会话记录/上下文仍由 `SubagentSessionDetail` 承载。
 
 `fork_subagents` 的外层工具在 summary 完成前保持运行态；这时应点击 Plan 节点查看真实进度，不能仅以 `Waiting for output…` 判定卡死。若外层工具报告子代理结果过大，详情中的会话、功能打点和工具活动才是可核验的证据面；renderer 不把过大的 `final_output` 当作完整审查结果的替代品。
 
@@ -88,6 +116,10 @@ go test ./gui -count=1
 ```
 
 `runtime-events.test.mjs` 验证 Wails runtime 延迟就绪时不会漏绑或重复绑定。`event-chain.test.mjs` mock Wails `seelex:event` 并验证主代理/子代理工具完成状态和权威 `runtime.full_access` 通过 `createGUIClient`/`protocol.js` 后可见，且连续事件不会退化为 Snapshot reload；主代理工具卡明确断言完成后不再显示 `Waiting for output…`。
+`work-table.test.mjs` 覆盖工作表格归一化、多维表格渲染（含转义）、todo 三态
+控件与打点表；`protocol.test.mjs` 断言 `worktable.changed` 只替换
+`runtime.work_table`（plan 对象引用不变）且子代理事件复用未命中分支节点
+（结构共享，无整树深拷贝）。
 
 ## Context compression summary
 

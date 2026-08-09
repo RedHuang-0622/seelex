@@ -105,11 +105,31 @@ func (*guiChainRuntime) SetPlanPolicy(seelebridge.PlanPolicy)                   
 func (*guiChainRuntime) PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
 	return seelebridge.PlanPreflight{}, nil
 }
-func (*guiChainRuntime) ReplanMetrics() seelebridge.ReplanMetrics           { return seelebridge.ReplanMetrics{} }
-func (*guiChainRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding) {}
-func (*guiChainRuntime) BindProjectRoot(string) error                       { return nil }
-func (*guiChainRuntime) UnbindProjectRoot()                                 {}
-func (*guiChainRuntime) TodoSnapshot() []seelebridge.TodoItem               { return nil }
+func (*guiChainRuntime) ReplanMetrics() seelebridge.ReplanMetrics            { return seelebridge.ReplanMetrics{} }
+func (*guiChainRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding)  {}
+func (*guiChainRuntime) BindProjectRoot(string) error                        { return nil }
+func (*guiChainRuntime) UnbindProjectRoot()                                  {}
+func (*guiChainRuntime) TodoSnapshot() []seelebridge.TodoItem                { return nil }
+func (*guiChainRuntime) SetTodoStatus(int, seelebridge.TodoItemStatus) error { return nil }
+func (*guiChainRuntime) TaskSnapshot() []seelebridge.TaskRecord              { return nil }
+func (*guiChainRuntime) TaskAdd(seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
+	return seelebridge.TaskRecord{}, false, nil
+}
+func (*guiChainRuntime) ResolveTaskByKey(string) (seelebridge.TaskRecord, bool, error) {
+	return seelebridge.TaskRecord{}, false, nil
+}
+func (*guiChainRuntime) TaskSetStatus(string, seelebridge.TaskStatus, string) (seelebridge.TaskRecord, error) {
+	return seelebridge.TaskRecord{}, nil
+}
+func (*guiChainRuntime) TaskAttachParticipant(string, string) (seelebridge.TaskRecord, error) {
+	return seelebridge.TaskRecord{}, nil
+}
+func (*guiChainRuntime) TaskChangedChannel() <-chan seelebridge.TaskRecord { return nil }
+func (*guiChainRuntime) SubagentTreeEvents() <-chan struct{}               { return nil }
+func (*guiChainRuntime) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
+	return nil
+}
+func (*guiChainRuntime) SwitchSessionTasks([]seelebridge.TaskRecord) {}
 func (*guiChainRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return nil
 }

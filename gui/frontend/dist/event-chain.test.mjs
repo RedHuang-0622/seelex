@@ -131,3 +131,47 @@ test("relays mocked seelex:event subagent activity through the GUI client reduce
   assert.match(renderedPlan, /bash/);
   assert.match(renderedPlan, /SUCCESS/);
 });
+
+test("relays worktable.changed without falling back to a snapshot reload", async () => {
+  const listeners = new Map();
+  const runtime = {
+    EventsOn(name, listener) { listeners.set(name, listener); },
+    async emit(name, payload) { await listeners.get(name)?.(payload); }
+  };
+  let loads = 0;
+  const incrementals = [];
+  const initial = {
+    protocol_version: 1,
+    revision: 1,
+    conversation: [],
+    conversation_window: 50,
+    total_messages: 0,
+    chat: {},
+    runtime: { work_table: [] }
+  };
+  const client = createGUIClient({
+    loadSnapshot: async () => { loads += 1; return initial; },
+    onSnapshot() {},
+    onIncremental: (_snapshot, kind) => incrementals.push(kind),
+    onError: error => { throw error; }
+  });
+  runtime.EventsOn("seelex:event", event => client.handleEvent(event));
+  await client.refresh();
+
+  await runtime.emit("seelex:event", {
+    protocol_version: 1, seq: 1, revision: 2, kind: "worktable.changed",
+    payload: {
+      items: [
+        { id: "plan:n1", phase: "plan", task: "调研", status: "running", kind: "plan" },
+        { id: "todo:0", phase: "tasklist", task: "写测试", status: "doing", kind: "todo" },
+        { id: "subagent:s1", phase: "subagent", task: "g", status: "running", kind: "subagent" }
+      ]
+    }
+  });
+
+  const current = client.current();
+  assert.equal(loads, 1, "worktable.changed must not trigger a Snapshot reload");
+  assert.deepEqual(incrementals, ["worktable.changed"]);
+  assert.equal(current.runtime.work_table.length, 3);
+  assert.equal(current.runtime.work_table[1].status, "doing");
+});

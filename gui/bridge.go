@@ -44,6 +44,9 @@ type Application interface {
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
 	ClearSubagentTree() error
+	// UpdateWorkItemStatus 更新工作表格任务状态（v1：仅 todo 的
+	// pending/doing/done；plan/subagent 由执行器管理）。
+	UpdateWorkItemStatus(id, status string) error
 	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
 	CancelScheduledTask(string) error
 	// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
@@ -211,6 +214,12 @@ func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.Subagen
 // ClearSubagentTree 清空子代理树（工作区「子代理」分区清空按钮）。
 func (bridge *Bridge) ClearSubagentTree() error {
 	return bridge.app.ClearSubagentTree()
+}
+
+// UpdateWorkItemStatus 更新工作表格任务状态（参数透传；业务校验在
+// application 层，Bridge 不维护状态）。
+func (bridge *Bridge) UpdateWorkItemStatus(id, status string) error {
+	return bridge.app.UpdateWorkItemStatus(id, status)
 }
 
 func (bridge *Bridge) Submit(text string) error {

@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,9 @@ type fakeApplication struct {
 	searchQuery      string
 	searchLimit      int
 	searchResult     seelexctxsearch.Result
+	workItemID       string
+	workItemStatus   string
+	workItemErr      error
 }
 
 type staleCancelApplication struct {
@@ -141,6 +145,10 @@ func (fake *fakeApplication) CancelScheduledTask(id string) error {
 	return nil
 }
 func (fake *fakeApplication) ClearSubagentTree() error { return nil }
+func (fake *fakeApplication) UpdateWorkItemStatus(id, status string) error {
+	fake.workItemID, fake.workItemStatus = id, status
+	return fake.workItemErr
+}
 
 func (fake *fakeApplication) SearchHistory(_ context.Context, query string, limit int) (seelexctxsearch.Result, error) {
 	fake.searchQuery = query
@@ -641,8 +649,11 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="project-sources"`) {
 		t.Fatal("right sidebar must render project status and sources")
 	}
-	if !strings.Contains(rightPanel, `id="plan-view"`) || strings.Contains(runtimeModal, `id="plan-view"`) {
-		t.Fatal("Plan DSL must be mounted in the persistent right sidebar")
+	if !strings.Contains(rightPanel, `id="work-table-open"`) || strings.Contains(runtimeModal, `id="work-table-open"`) {
+		t.Fatal("工作表格入口按钮必须常驻右侧栏")
+	}
+	if !strings.Contains(html, `id="work-table-modal-view"`) || !strings.Contains(runtimeModal, `id="work-table-modal-view"`) {
+		t.Fatal("完整工作表格必须挂载在详情弹窗中（工作台窄，详情弹窗看全）")
 	}
 	if !strings.Contains(string(script), `invoke("BeginNewSession")`) || strings.Contains(string(script), `invoke("Submit", "/new")`) {
 		t.Fatal("GUI new-session action must enter a lazy draft instead of eagerly creating a session")
@@ -672,5 +683,24 @@ func waitEmitted(t *testing.T, events <-chan emittedEvent) emittedEvent {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for GUI event")
 		return emittedEvent{}
+	}
+}
+
+func TestBridgeUpdateWorkItemStatusForwardsAndReturnsErrors(t *testing.T) {
+	app := newFakeApplication()
+	bridge, err := NewBridge(app, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.UpdateWorkItemStatus("todo:0", "doing"); err != nil {
+		t.Fatal(err)
+	}
+	if app.workItemID != "todo:0" || app.workItemStatus != "doing" {
+		t.Fatalf("forwarded (%q, %q)", app.workItemID, app.workItemStatus)
+	}
+
+	app.workItemErr = errors.New("todolist: index out of range")
+	if err := bridge.UpdateWorkItemStatus("todo:99", "done"); err == nil || err.Error() != "todolist: index out of range" {
+		t.Fatalf("error must be transparent, got %v", err)
 	}
 }
