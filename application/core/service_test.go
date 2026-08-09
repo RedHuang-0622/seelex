@@ -285,7 +285,9 @@ type fakeRuntime struct {
 	replanErr      error
 	replanMetrics  seelebridge.ReplanMetrics
 	projectRoot    string
+	todoMu         sync.Mutex
 	todoItems      []seelebridge.TodoItem
+	tasks          map[string]seelebridge.TaskRecord
 	scheduledTasks []seelebridge.ScheduledTaskStatus
 	scheduledSpecs []seelebridge.ScheduledTaskSpec
 	cancelledTasks []string
@@ -335,7 +337,120 @@ func (runtime *fakeRuntime) SetPlanBranchBinding(binding seelebridge.PlanBranchB
 	runtime.binding = binding
 }
 func (runtime *fakeRuntime) TodoSnapshot() []seelebridge.TodoItem {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
 	return append([]seelebridge.TodoItem(nil), runtime.todoItems...)
+}
+func (runtime *fakeRuntime) SetTodoStatus(index int, status seelebridge.TodoItemStatus) error {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if index < 0 || index >= len(runtime.todoItems) {
+		return fmt.Errorf("fake todo index %d out of range", index)
+	}
+	runtime.todoItems[index].Status = status
+	runtime.todoItems[index].Done = status == seelebridge.TodoItemDone
+	return nil
+}
+func (runtime *fakeRuntime) TaskSnapshot() []seelebridge.TaskRecord {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	records := make([]seelebridge.TaskRecord, 0, len(runtime.todoItems)+len(runtime.tasks))
+	for index, item := range runtime.todoItems {
+		status := seelebridge.TaskPending
+		switch item.Status {
+		case seelebridge.TodoItemDoing:
+			status = seelebridge.TaskDoing
+		case seelebridge.TodoItemDone:
+			status = seelebridge.TaskCompleted
+		}
+		records = append(records, seelebridge.TaskRecord{
+			ID: fmt.Sprintf("todo:%d", index), Key: "todo:" + item.Text, Phase: seelebridge.TaskPhaseTasklist,
+			Task: item.Text, Status: status, Kind: "todo",
+		})
+	}
+	for _, record := range runtime.tasks {
+		records = append(records, record)
+	}
+	return records
+}
+func (runtime *fakeRuntime) TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if runtime.tasks == nil {
+		runtime.tasks = make(map[string]seelebridge.TaskRecord)
+	}
+	if spec.Key != "" {
+		for _, record := range runtime.tasks {
+			if record.Key == spec.Key {
+				return record, false, nil
+			}
+		}
+	}
+	id := spec.ID
+	if id == "" {
+		id = fmt.Sprintf("task:%d", len(runtime.tasks)+1)
+	}
+	record := seelebridge.TaskRecord{
+		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
+		Status: seelebridge.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
+		Dependencies: append([]string(nil), spec.Dependencies...),
+		Attachments:  append([]string(nil), spec.Attachments...),
+	}
+	runtime.tasks[id] = record
+	return record, true, nil
+}
+func (runtime *fakeRuntime) ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	for _, record := range runtime.tasks {
+		if record.Key == key {
+			return record, true, nil
+		}
+	}
+	return seelebridge.TaskRecord{}, false, nil
+}
+func (runtime *fakeRuntime) TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	record, ok := runtime.tasks[id]
+	if !ok {
+		return seelebridge.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
+	}
+	record.Status = status
+	if status == seelebridge.TaskRetry {
+		record.RetryCount++
+	}
+	runtime.tasks[id] = record
+	return record, nil
+}
+func (runtime *fakeRuntime) TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	record, ok := runtime.tasks[id]
+	if !ok {
+		return seelebridge.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
+	}
+	record.Participants = append(record.Participants, participant)
+	runtime.tasks[id] = record
+	return record, nil
+}
+func (*fakeRuntime) TaskChangedChannel() <-chan seelebridge.TaskRecord { return nil }
+func (*fakeRuntime) SubagentTreeEvents() <-chan struct{}               { return nil }
+func (*fakeRuntime) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
+	return nil
+}
+func (runtime *fakeRuntime) SwitchSessionTasks(records []seelebridge.TaskRecord) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if runtime.tasks == nil {
+		runtime.tasks = make(map[string]seelebridge.TaskRecord)
+	}
+	for id := range runtime.tasks {
+		delete(runtime.tasks, id)
+	}
+	for _, record := range records {
+		runtime.tasks[record.ID] = record
+	}
 }
 func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return []seelebridge.ScheduledCommandInfo{{Key: "auto_get_jobs", Label: "BOSS直聘自动投简历"}}
@@ -1226,11 +1341,164 @@ func TestRuntimeMailboxDrainsIntoHistoryOutsideServiceLock(t *testing.T) {
 		t.Fatalf("merge-back was not injected into Engine history: %#v", history)
 	}
 	snapshot := service.Snapshot()
-	if len(snapshot.Conversation) != 1 || !strings.Contains(snapshot.Conversation[0].Content, "child conclusion") {
-		t.Fatalf("merge-back was not projected to the frontend snapshot: %#v", snapshot.Conversation)
+	for _, message := range snapshot.Conversation {
+		if strings.Contains(message.Content, "child conclusion") {
+			t.Fatalf("merge-back must stay out of the visible conversation: %#v", snapshot.Conversation)
+		}
 	}
 	if pending := runtime.DrainSubagentContexts(); len(pending) != 0 {
 		t.Fatalf("runtime mailbox was not drained: %#v", pending)
+	}
+}
+
+// sessionBackedEngine 模拟生产 session-backed 引擎（OnIterationComplete 在
+// Session 锁内执行，不可重入历史操作）。
+type sessionBackedEngine struct {
+	*fakeEngine
+}
+
+func (*sessionBackedEngine) SessionBacked() bool { return true }
+
+// TestSessionBackedIterationInterruptsOnQueuedInput 验证每轮 ReAct 结束的
+// 队列消费：session-backed 引擎下队列非空 → OnIterationComplete 返回 false
+// 中断本轮（由 runChat 结尾自动提升下一轮）；队列空 → true 继续。
+func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
+	service := newTestService(t, &sessionBackedEngine{fakeEngine: &fakeEngine{}})
+	bridge := NewToolHookBridge()
+	bridge.Bind(service)
+	hooks := bridge.Hooks()
+	ctx := context.Background()
+
+	// 队列为空 → 继续。
+	if !hooks.OnIterationComplete(ctx, 1) {
+		t.Fatal("empty input queue must not interrupt the loop")
+	}
+
+	// 运行中入队一条 → 本轮结束中断（一轮一消费，队列随后清空提升）。
+	service.mu.Lock()
+	service.inputQueue = append(service.inputQueue, chatRequest{displayInput: "临时补充需求", modelInput: "临时补充需求"})
+	service.mu.Unlock()
+	if hooks.OnIterationComplete(ctx, 2) {
+		t.Fatal("queued input must interrupt the loop at the round boundary")
+	}
+
+	// 中断后 runChat 结尾提升并清空队列（drainQueuedInputsAfterLoop 语义）。
+	service.drainQueuedInputsAfterLoop()
+	service.mu.RLock()
+	queued := len(service.deferredInputQueue)
+	inputQueueLen := len(service.inputQueue)
+	service.mu.RUnlock()
+	if queued != 1 || inputQueueLen != 0 {
+		t.Fatalf("after interrupt: deferred=%d inputQueue=%d, want 1/0", queued, inputQueueLen)
+	}
+}
+
+// TestSystemPromptStableAcrossPlanNodeChanges 缓存前缀稳定性回归：
+// system prompt 不得嵌入随节点变化的 current_node（节点状态由请求尾部的
+// plan 上下文消息/read_plan 提供），否则每次节点推进都会使整段前缀缓存
+// 失效（对照 codex-cli 的 ~99.8% 命中率）。
+func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
+	service := newTestService(t, &fakeEngine{})
+	service.mu.Lock()
+	service.activePlanID = "plan-x"
+	service.snapshot.Runtime.Plan = &PlanState{
+		Status: PlanRunning,
+		Nodes:  []PlanNode{{ID: "n1", Label: "第一步", Status: NodeRunning}},
+	}
+	service.taskExecution = &taskExecutionState{requestID: "chat-x"}
+	first := service.components.prompts.systemPromptForActiveTaskLocked()
+	service.snapshot.Runtime.Plan.Nodes[0].Status = NodeCompleted
+	second := service.components.prompts.systemPromptForActiveTaskLocked()
+	service.mu.Unlock()
+	if first != second {
+		t.Fatalf("system prompt must be byte-stable across node transitions:\nfirst=%q\nsecond=%q", first, second)
+	}
+	if strings.Contains(first, "current_node=") {
+		t.Fatal("system prompt must not embed current_node")
+	}
+	if !strings.Contains(first, "plan_ref=plan-x") {
+		t.Fatalf("system prompt should keep the stable plan_ref: %q", first)
+	}
+}
+
+// TestWorkTableTraceBlock 打点表标记块：只含未终态任务（终态即删）、
+// 带标记围栏、retry 计数、无活动任务返回空。
+func TestWorkTableTraceBlock(t *testing.T) {
+	runtime := &fakeRuntime{}
+	runtime.tasks = map[string]seelebridge.TaskRecord{
+		"task:1": {ID: "task:1", Phase: "task", Task: "分析模块", Status: seelebridge.TaskRunning, RetryCount: 2},
+		"todo:0": {ID: "todo:0", Phase: "tasklist", Task: "写测试", Status: seelebridge.TaskDoing},
+		"plan:x": {ID: "plan:x", Phase: "plan", Task: "已结束", Status: seelebridge.TaskCompleted},
+	}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
+
+	block := service.workTableTraceBlock()
+	if !strings.HasPrefix(block, workTableTraceMarkerOpen) || !strings.HasSuffix(block, workTableTraceMarkerClose) {
+		t.Fatalf("trace block must be wrapped in markers: %q", block)
+	}
+	if !strings.Contains(block, "task:1 running retry=2") || !strings.Contains(block, "todo:0 doing") {
+		t.Fatalf("trace block must carry active tasks: %q", block)
+	}
+	if strings.Contains(block, "plan:x") {
+		t.Fatalf("terminal task must be deleted from the trace block: %q", block)
+	}
+
+	// 全部终态 → 块为空（打点完即删除）。
+	runtime.tasks = map[string]seelebridge.TaskRecord{
+		"plan:x": {ID: "plan:x", Phase: "plan", Task: "已结束", Status: seelebridge.TaskCompleted},
+	}
+	if got := service.workTableTraceBlock(); got != "" {
+		t.Fatalf("trace block must be empty when no active tasks: %q", got)
+	}
+}
+
+// TestPrepareExecutionContextCarriesWorkTableTraceBlock 请求尾部注入打点表：
+// 有活动任务时输入带标记块；无活动任务时不带（块随任务完成删除）。
+func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
+	runtime := &fakeRuntime{}
+	runtime.tasks = map[string]seelebridge.TaskRecord{
+		"task:1": {ID: "task:1", Phase: "task", Task: "分析模块", Status: seelebridge.TaskRunning},
+	}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
+
+	out, err := service.components.context.prepareExecutionContext("task-1", "继续")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, workTableTraceMarkerOpen) || !strings.Contains(out, "继续") {
+		t.Fatalf("request input must carry the trace block before the input: %q", out)
+	}
+
+	runtime.tasks = map[string]seelebridge.TaskRecord{}
+	out, err = service.components.context.prepareExecutionContext("task-1", "继续")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, workTableTraceMarkerOpen) {
+		t.Fatalf("trace block must be removed when no active tasks: %q", out)
+	}
+}
+
+// TestBeginNewSessionClearsWorkTable 会话级工作台隔离：新建会话清空 task
+// 注册表与工作表格，旧会话数据不污染新会话。
+func TestBeginNewSessionClearsWorkTable(t *testing.T) {
+	runtime := &fakeRuntime{}
+	runtime.tasks = map[string]seelebridge.TaskRecord{
+		"task:a": {ID: "task:a", Phase: seelebridge.TaskPhaseTask, Task: "a", Status: seelebridge.TaskRunning},
+	}
+	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
+	service.mu.Lock()
+	service.snapshot.Runtime.WorkTable = buildWorkTable(nil, runtime.TaskSnapshot(), nil)
+	service.mu.Unlock()
+
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	if got := runtime.TaskSnapshot(); len(got) != 0 {
+		t.Fatalf("task registry must be cleared on new session: %+v", got)
+	}
+	if got := service.Snapshot().Runtime.WorkTable; len(got) != 0 {
+		t.Fatalf("worktable must be empty on new session: %+v", got)
 	}
 }
 
@@ -1819,7 +2087,9 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	defer service.Shutdown()
 	service.handleToolStart("plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"worker":{"input":"worker"}},"edges":{"start":["worker"]}}`)
 
-	subscription := service.Subscribe(4)
+	// 事件流现包含 worktable.changed（CSP 汇聚，异步到达）：订阅缓冲调大，
+	// 避免杂散生命周期事件触发 deliver 排空丢弃本测试关注的工具事件。
+	subscription := service.Subscribe(16)
 	defer subscription.Close()
 	long := strings.Repeat("x", Limits().EvidenceChars+20)
 	started := seelebridge.SubagentToolEvent{

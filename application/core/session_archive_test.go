@@ -449,7 +449,7 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 		{Role: "tool", Tool: &ToolCall{ID: "call-large", Name: "bash", Result: raw}},
 		{Role: "tool_result", Content: raw, Tool: &ToolCall{ID: "call-large", Name: "bash", Result: raw}},
 	}
-	record := service.components.sessions.sessionRecordLocked("session-large")
+	record := service.components.sessions.sessionRecordLocked("session-large", nil)
 	service.mu.Unlock()
 
 	for _, message := range record.Conversation.Messages {

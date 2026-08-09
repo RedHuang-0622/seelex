@@ -42,6 +42,7 @@ func (service *Service) RefreshRuntimeSnapshot() {
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
+	service.publishTaskDeltas()
 }
 
 // ScheduledTaskSpec 是周期任务创建入参的类型别名（GUI Bridge 直接使用）。

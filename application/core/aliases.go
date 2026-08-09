@@ -52,6 +52,10 @@ type (
 	PlanNodeEventInfo      = model.PlanNodeEventInfo
 	SubagentEvent          = model.SubagentEvent
 	SubagentToolEvent      = model.SubagentToolEvent
+	WorkItem               = model.WorkItem
+	WorkTracePoint         = model.WorkTracePoint
+	WorkTableEvent         = model.WorkTableEvent
+	TaskChangedEvent       = model.TaskChangedEvent
 	NodeStatus             = model.NodeStatus
 	Tool                   = model.Tool
 	SkillInfo              = model.SkillInfo
@@ -85,6 +89,8 @@ const (
 	EventSubagentToolStarted   = event.EventSubagentToolStarted
 	EventSubagentToolCompleted = event.EventSubagentToolCompleted
 	EventRuntimeChanged        = event.EventRuntimeChanged
+	EventWorkTableChanged      = event.EventWorkTableChanged
+	EventTaskChanged           = event.EventTaskChanged
 	EventInteractionOpened     = event.EventInteractionOpened
 	EventInteractionClosed     = event.EventInteractionClosed
 	EventError                 = event.EventError
@@ -118,6 +124,7 @@ const (
 var (
 	ErrInteractionNotFound = approval.ErrInteractionNotFound
 	ErrInteractionResolved = approval.ErrInteractionResolved
+	CloneWorkItems         = model.CloneWorkItems
 )
 
 func NewEventHub() *EventHub { return event.NewEventHub() }

@@ -43,6 +43,15 @@ func (service *contextCoordinator) prepareExecutionContext(requestID, currentInp
 	if _, err := service.rejectOversizedToolResults(defaultToolResultLimit()); err != nil {
 		return "", err
 	}
+	// 工作打点表：请求尾部的只读标记块（system 前缀保持不变 → 缓存友好；
+	// 无活动任务时块为空 → 自动删除；不落历史 → 不参与压缩）。
+	if block := service.workTableTraceBlock(); block != "" {
+		if currentInput == "" {
+			currentInput = block
+		} else {
+			currentInput = block + "\n\n" + currentInput
+		}
+	}
 	budget := contextBudgetFor(service.deps.Runtime)
 	tools := service.deps.Runtime.VisibleTools(context.Background())
 	existing := service.deps.Engine.History()

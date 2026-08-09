@@ -33,6 +33,8 @@
 | `workspace_usecase.go` | session 删除和 workspace 的创建、绑定、解绑与 snapshot 同步。 |
 | `session_history.go` | session 恢复、历史分页加载和 EngineMessage 到 UI Message 的转换。 |
 | `chat.go` | 流式聊天、输入队列、工具事件、Plan 状态打点和 idle/draining。 |
+| `work_table.go` | 工作表格（Work Table）读模型投影：plan/todo/subagent → 有界 WorkItem 行（含任务打点）；`UpdateWorkItemStatus`（todo 三态）。 |
+| `worktable_publisher.go` | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态）。 |
 | `task_execution.go` | 请求私有的 PlanAct checkpoint、终态 payload 校验和 `task_complete` / `task_needs_user_decision` / `task_failed` handler。 |
 | `history_safety.go` | Provider 空 content、上下文耗尽与 504 可恢复中断的历史安全处理。 |
 | `visible_output.go` | 前端可见输出过滤；剥离模型 `<think>` 块，不暴露内部推理。 |
@@ -147,5 +149,30 @@ Provider history is an execution cache, not the user-visible source of truth. `p
 `Snapshot.Conversation` 是 `limits.history_window` 控制的有界投影；`HistoryOffset`、`TotalMessages`、`HasMoreHistory` 和 `ConversationWindow` 描述当前窗口。持久化前按稳定 message ID 与已有完整 `SessionRecord` 合并，因此尾部窗口不会覆盖旧历史。流式 chunk 经 `StreamBatcher`/`BatchPipeline` 按条数或时间聚合，批次 flush 后才更新 Snapshot 并发布一个 `message.delta`；工具和 Interaction 事件前会先 flush，以保持事件顺序。
 
 子代理事件由 `HandlePlanNodeComplete` 和 `HandleSubagentToolEvent` 投影到嵌套 `PlanNode`。节点生命周期发布 `subagent.changed`，内部工具活动按 ID upsert 到有界 `tool_events` 并发布 started/completed 增量；Snapshot 始终可以重建相同状态。
+
+## 工作表格（Work Table）
+
+工作表格是右侧工作台的统一读模型：`buildWorkTable`（纯函数，锁内构建）把
+`Runtime.Plan` / `Runtime.TodoItems` / `Engine.SubAgentTree()` 归一为扁平
+`WorkItem` 行（phase/task/status/assignee/dependencies/attachments + trace），
+行数与 trace 有界（`work_table_rows` / `plan_node_events` / `evidence_chars`）。
+增量经 `worktable.changed` 发布，payload 只带表格（CSP 汇聚发布器
+latest-wins，避免整份 runtime 深拷贝与 JSON）。`UpdateWorkItemStatus` v1 仅
+支持 todo 三态（pending/doing/done），经 `RuntimePort.SetTodoStatus` 落到
+todoState mailbox actor（Actor + Mailbox 并发安全）；plan/subagent 状态由
+执行器权威管理，手动更新返回明确错误。
+
+子代理生命周期是被动数据源：`fork_subagents` 注册/节点完成时，
+`seelebridge` 树 observer 触发 `Service.RefreshWorkTableSnapshot`
+（锁外取树 → 锁内重建 → 发布 `worktable.changed`），无需模型调用任何工具；
+done 节点有界保留（`subagentTreeRetainDone`），工作表格持续展示已完成
+任务，直到显式清空。
+
+task 体系：`seelebridge/task_registry.go` 是唯一权威源（Actor + Mailbox，
+保护粒度=task），todolist 融合为 kind=todo 的 task；主动 `taskadd` 与被动
+plan/subagent 生命周期同步都落到注册表；`syncTasksFromSources`（锁外外部
+端口）做幂等同步，`publishTaskDeltas` 发布 `task.changed`（逐任务）与
+`worktable.changed`（结构）；retry 计数、B6 子代理装配 task_id、SessionRecord
+快照复用 stack 存储均在此体系内。
 
 重点测试：`service_test.go` 覆盖 session/project/storage 用例，`command_test.go` 覆盖输入协议，`race_test.go` 覆盖并发与关闭。

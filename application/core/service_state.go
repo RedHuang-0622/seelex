@@ -15,6 +15,7 @@ type serviceState struct {
 	infrastructureState
 	conversationRuntimeState
 	lifecycleRuntimeState
+	workTableRuntimeState
 	promptRuntimeState
 	sessionRuntimeState
 	planRuntimeState
@@ -35,12 +36,22 @@ type conversationRuntimeState struct {
 	streamBatcher *StreamBatcher
 }
 
+// workTableRuntimeState 持有工作表格增量发布器（CSP 汇聚；见
+// worktable_publisher.go）。
+type workTableRuntimeState struct {
+	workTablePublisher *workTablePublisher
+}
+
 type lifecycleRuntimeState struct {
 	cancelChat context.CancelFunc
 	idle       chan struct{}
 	draining   bool
 	closed     bool
-	inputQueue []chatRequest
+	// CSP 生命周期消费者（子代理树信号 / plan 节点事件 / task 变更）停止
+	// 控制：取代同步回调嵌套，数据经 channel 流转。
+	lifecycleStop chan struct{}
+	lifecycleOnce sync.Once
+	inputQueue    []chatRequest
 	// deferredInputQueue has been acknowledged to the UI after a framework
 	// loop returns, but remains available to the current turn's persistence
 	// and is promoted into the next turn only after that persistence boundary.

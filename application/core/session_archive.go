@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -59,8 +60,10 @@ func (service *sessionCoordinator) persistCurrentSession(sessionID string) error
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
+	// task 快照随会话落盘：外部端口（actor/CSP）在锁外调用，避免持锁阻塞。
+	tasks := service.deps.Runtime.TaskSnapshot()
 	service.mu.Lock()
-	record := service.sessionRecordLocked(sessionID)
+	record := service.sessionRecordLocked(sessionID, tasks)
 	events := append([]TranscriptEvent(nil), service.transcript...)
 	pendingResults := append([]StoredToolResult(nil), service.pendingToolResults...)
 	service.mu.Unlock()
@@ -180,7 +183,7 @@ func mergeConversationMessages(existing, projected []Message) []Message {
 	return merged
 }
 
-func (service *sessionCoordinator) sessionRecordLocked(sessionID string) SessionRecord {
+func (service *sessionCoordinator) sessionRecordLocked(sessionID string, tasks []seelebridge.TaskRecord) SessionRecord {
 	now := time.Now()
 	service.syncActivePlanFrameLocked(now)
 	title := service.sessionTitle
@@ -191,6 +194,8 @@ func (service *sessionCoordinator) sessionRecordLocked(sessionID string) Session
 		Version: sessionRecordVersion, ID: sessionID, Title: title,
 		ActivePlanID: service.activePlanID,
 		PlanStack:    cloneSessionPlanStack(service.planStack),
+		// task 注册表快照随会话落盘（复用 stack 存储通道；锁外收集）。
+		Tasks:        append([]seelebridge.TaskRecord(nil), tasks...),
 		Conversation: ConversationRecord{UpdatedAt: now},
 		Execution:    SessionExecutionRecord{ReadFiles: append([]ReadFileRef(nil), service.snapshot.ReadFiles...)},
 		Projection:   service.taskProjectionLocked(sessionID),

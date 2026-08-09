@@ -33,6 +33,7 @@ func (service *viewCoordinator) subscribe(buffer int) Subscription {
 type runtimeStateProjection struct {
 	sessionID string
 	runtime   RuntimeState
+	tasks     []seelebridge.TaskRecord
 }
 
 // collectRuntimeProjection calls external ports without service.mu. Applying
@@ -66,6 +67,7 @@ func (service *viewCoordinator) collectRuntimeProjection(ctx context.Context) ru
 		DuplicateRejected: metrics.DuplicateRejected, ProviderRequests: metrics.ProviderRequests,
 		ProviderWindowRequests: metrics.ProviderWindowRequests, ProviderWindowLimit: metrics.ProviderWindowLimit,
 	}
+	projection.tasks = service.deps.Runtime.TaskSnapshot()
 	return projection
 }
 
@@ -76,9 +78,17 @@ func (service *viewCoordinator) applyRuntimeProjectionLocked(projection runtimeS
 	service.snapshot.Runtime = projection.runtime
 	service.snapshot.Runtime.Plan = plan
 	service.snapshot.Runtime.Account = account
+	// 工作表格在锁内重建（plan/todo/subagent 均为快照视图，纯函数）。
+	service.refreshWorkTableLocked(projection.tasks)
 }
 
 func (service *viewCoordinator) appendMessageLocked(role, content string, tool *ToolCall) *Message {
+	// 子代理继承上下文（subagentContextMarker 前缀）只注入 provider history
+	// 供模型消费，不进入可见会话区（GUI/TUI 均不展示；先例见
+	// runtime_projection.go 对该前缀的过滤）。
+	if role == "user" && strings.HasPrefix(content, subagentContextMarker) {
+		return nil
+	}
 	if role == "assistant" || role == "tool_result" {
 		content = stripThoughtBlocks(content)
 	}

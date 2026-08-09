@@ -510,6 +510,36 @@ func (port runtimePort) UnbindProjectRoot() { port.runtime.UnbindProjectRoot() }
 func (port runtimePort) TodoSnapshot() []seelebridge.TodoItem {
 	return port.runtime.TodoSnapshot()
 }
+func (port runtimePort) SetTodoStatus(index int, status seelebridge.TodoItemStatus) error {
+	return port.runtime.SetTodoStatus(index, status)
+}
+func (port runtimePort) TaskSnapshot() []seelebridge.TaskRecord {
+	return port.runtime.TaskSnapshot()
+}
+func (port runtimePort) TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
+	return port.runtime.TaskAdd(spec)
+}
+func (port runtimePort) ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error) {
+	return port.runtime.ResolveTaskByKey(key)
+}
+func (port runtimePort) TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error) {
+	return port.runtime.TaskSetStatus(id, status, evidence)
+}
+func (port runtimePort) TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error) {
+	return port.runtime.TaskAttachParticipant(id, participant)
+}
+func (port runtimePort) TaskChangedChannel() <-chan seelebridge.TaskRecord {
+	return port.runtime.TaskChangedChannel()
+}
+func (port runtimePort) SubagentTreeEvents() <-chan struct{} {
+	return port.runtime.SubagentTreeEvents()
+}
+func (port runtimePort) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
+	return port.runtime.PlanNodeEventChannel()
+}
+func (port runtimePort) SwitchSessionTasks(records []seelebridge.TaskRecord) {
+	port.runtime.SwitchSessionTasks(records)
+}
 func (port runtimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return port.runtime.ScheduledCommands()
 }

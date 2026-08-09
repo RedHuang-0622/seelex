@@ -113,6 +113,10 @@ type RuntimeState struct {
 	// SubAgentTree 是 fork 子代理树的权威投影（内存态，不落盘；GUI 树视图
 	// 数据源）。节点状态由 fork 子代理会话生命周期投影，随节点事件增量刷新。
 	SubAgentTree []seelebridge.SubAgentTreeNode `json:"subagent_tree,omitempty"`
+	// WorkTable 是工作台统一工作表格的权威投影（plan 节点 / todolist 项 /
+	// fork 子代理 → 扁平 WorkItem 行，含任务打点 trace）。有界（行数上限
+	// limits.work_table_rows，trace 上限 limits.plan_node_events）。
+	WorkTable []WorkItem `json:"work_table,omitempty"`
 }
 
 // ReplanMonitor exposes bounded recovery-planning usage without exposing
@@ -164,17 +168,20 @@ type SessionExecutionRecord struct {
 // (workspace_id, session_id). It is the source of truth for stable metadata,
 // Plan revisions, and visible conversation; framework history is not.
 type SessionRecord struct {
-	Version      int                    `json:"version"`
-	ID           string                 `json:"id"`
-	Title        SessionTitle           `json:"title"`
-	ActivePlanID string                 `json:"active_plan_id,omitempty"`
-	PlanStack    []SessionPlanFrame     `json:"plan_stack,omitempty"`
-	Conversation ConversationRecord     `json:"conversation"`
-	Execution    SessionExecutionRecord `json:"execution"`
-	Projection   *TaskContextProjection `json:"projection,omitempty"`
-	Checkpoints  []TaskCheckpoint       `json:"checkpoints,omitempty"`
-	ToolResults  []ToolResultRef        `json:"tool_results,omitempty"`
-	UpdatedAt    time.Time              `json:"updated_at,omitempty"`
+	Version      int                `json:"version"`
+	ID           string             `json:"id"`
+	Title        SessionTitle       `json:"title"`
+	ActivePlanID string             `json:"active_plan_id,omitempty"`
+	PlanStack    []SessionPlanFrame `json:"plan_stack,omitempty"`
+	// Tasks 是 task 注册表快照（worktable 条目；复用 session stack 持久化，
+	// 与 PlanStack 同一 immutable 存储通道，T4）。
+	Tasks        []seelebridge.TaskRecord `json:"tasks,omitempty"`
+	Conversation ConversationRecord       `json:"conversation"`
+	Execution    SessionExecutionRecord   `json:"execution"`
+	Projection   *TaskContextProjection   `json:"projection,omitempty"`
+	Checkpoints  []TaskCheckpoint         `json:"checkpoints,omitempty"`
+	ToolResults  []ToolResultRef          `json:"tool_results,omitempty"`
+	UpdatedAt    time.Time                `json:"updated_at,omitempty"`
 }
 
 // SessionArchive is the v1 sidecar shape retained only for migration. New
@@ -288,6 +295,65 @@ type SubagentContext struct {
 	Decisions     []SubagentContextDecision `json:"decisions,omitempty"`
 	Constraints   []string                  `json:"constraints,omitempty"`
 	PendingWork   []string                  `json:"pending_work,omitempty"`
+}
+
+// ── 工作表格（Work Table）─────────────────────────────────
+
+// WorkItem 是工作台工作表格的统一只读投影行：把 plan 节点、todolist 项与
+// fork 子代理归一为同一张多维表格；Trace 是任务打点（有界，按时间倒序）。
+type WorkItem struct {
+	ID           string           `json:"id"`                     // 稳定键：plan:<id> | todo:<index> | subagent:<id>
+	Phase        string           `json:"phase"`                  // plan | tasklist | subagent
+	Task         string           `json:"task"`                   // 任务名/节点 label/goal
+	Description  string           `json:"description,omitempty"`  // 描述/output 摘要
+	Status       string           `json:"status"`                 // 权威状态（来源状态机）
+	RetryCount   int              `json:"retry_count,omitempty"`  // 重试数字（RETRY n）
+	Assignee     string           `json:"assignee,omitempty"`     // main | 子代理 id | 执行节点
+	Dependencies []string         `json:"dependencies,omitempty"` // 前置任务（WorkItem ID 引用）
+	Attachments  []string         `json:"attachments,omitempty"`  // 可选：worktree/read_file 路径
+	Kind         string           `json:"kind"`                   // plan | todo | subagent
+	SourceID     string           `json:"source_id,omitempty"`    // 原数据面 ID（详情溯源）
+	Participants []string         `json:"participants,omitempty"` // 同一 task 的多个子代理（幂等去重后合并）
+	StartedAt    time.Time        `json:"started_at,omitempty"`
+	EndedAt      time.Time        `json:"ended_at,omitempty"`
+	Elapsed      string           `json:"elapsed,omitempty"`
+	Trace        []WorkTracePoint `json:"trace,omitempty"`
+}
+
+// WorkTracePoint 是任务打点（操作/状态/时间/证据；evidence 已截断）。
+type WorkTracePoint struct {
+	At        time.Time `json:"at,omitempty"`
+	Status    string    `json:"status"`
+	Operation string    `json:"operation,omitempty"` // node.lifecycle | task_check_node | tool 名 | subagent.lifecycle
+	Evidence  string    `json:"evidence,omitempty"`
+	Duration  string    `json:"duration,omitempty"`
+}
+
+// WorkTableEvent 是 worktable.changed 增量的 payload（只含表格，不整份 runtime）。
+type WorkTableEvent struct {
+	Items []WorkItem `json:"items"`
+}
+
+// TaskChangedEvent 是 task.changed 增量的 payload：单个 task 的内部变更
+// （状态/打点/retry），Task 是 WorkItem 同构快照。
+type TaskChangedEvent struct {
+	TaskID string   `json:"task_id"`
+	Task   WorkItem `json:"task"`
+}
+
+// CloneWorkItems 返回工作表格行的深拷贝（并发读者安全；供快照克隆与事件发布）。
+func CloneWorkItems(items []WorkItem) []WorkItem {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := append([]WorkItem(nil), items...)
+	for index := range cloned {
+		cloned[index].Dependencies = append([]string(nil), items[index].Dependencies...)
+		cloned[index].Attachments = append([]string(nil), items[index].Attachments...)
+		cloned[index].Participants = append([]string(nil), items[index].Participants...)
+		cloned[index].Trace = append([]WorkTracePoint(nil), items[index].Trace...)
+	}
+	return cloned
 }
 
 // SubagentContextDecision 是子代理关键决策（What/Why）。
@@ -452,6 +518,7 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 		copyRuntime.Plan = &planCopy
 	}
 	copyRuntime.SubAgentTree = cloneSubAgentTree(runtime.SubAgentTree)
+	copyRuntime.WorkTable = CloneWorkItems(runtime.WorkTable)
 	return copyRuntime
 }
 

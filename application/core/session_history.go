@@ -133,6 +133,10 @@ func (service *Service) resumeSession(sessionID string) error {
 			planRestoreErr = restorer.RestorePlan(context.Background(), activePlan.Arguments)
 		}
 	}
+	// 会话级 task 隔离：切换会话时整体替换注册表（清空旧会话、恢复目标
+	// 会话 task）并清空子代理树，避免旧数据污染新会话工作台。
+	service.deps.Runtime.SwitchSessionTasks(record.Tasks)
+	_ = service.deps.Runtime.ClearSubagentTree()
 	workspaceProjection := service.collectWorkspaceProjection()
 
 	service.mu.Lock()

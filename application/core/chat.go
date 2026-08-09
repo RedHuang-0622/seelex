@@ -454,13 +454,15 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
-	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
 	if planBinding != nil {
 		service.deps.Runtime.SetPlanBranchBinding(*planBinding)
 	}
 	service.events.Publish(EventToolStarted, revision, requestID, message)
-	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+	// plan_load/plan_clear/plan_run 已改 PlanState：被动同步 plan → task
+	// 注册表并发布 worktable/task 增量，再发最新 runtime.changed。
+	service.refreshWorkTableFromSources()
+	service.events.Publish(EventRuntimeChanged, service.Snapshot().Revision, requestID, service.Snapshot().Runtime)
 }
 
 func (service *Service) planBranchBindingLocked() seelebridge.PlanBranchBinding {
@@ -570,7 +572,6 @@ func (service *Service) handleToolCompleteObserved(name, id, result string, tool
 	emit("toolhook.complete.runtime.done")
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
-	runtime := cloneRuntimeState(service.snapshot.Runtime)
 	service.mu.Unlock()
 	emit("toolhook.complete.unlock.done")
 	emit("toolhook.complete.event.start")
@@ -581,7 +582,10 @@ func (service *Service) handleToolCompleteObserved(name, id, result string, tool
 	if assistant != nil {
 		service.events.Publish(EventMessageAdded, revision, requestID, *assistant)
 	}
-	service.events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+	// 工具完成：todo/taskadd 已写注册表，plan/subagent 状态已更新——
+	// 统一走被动同步 + 增量发布，再发最新 runtime.changed。
+	service.refreshWorkTableFromSources()
+	service.events.Publish(EventRuntimeChanged, service.Snapshot().Revision, requestID, service.Snapshot().Runtime)
 	emit("toolhook.complete.event.done")
 }
 
@@ -830,9 +834,11 @@ func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) 
 	service.mu.Unlock()
 	if changedNode != nil {
 		service.events.Publish(EventSubagentChanged, revision, requestID, changed)
+		service.refreshWorkTableFromSources()
 		return
 	}
 	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+	service.refreshWorkTableFromSources()
 }
 
 // appendPlanNodeEvent 把一次节点事件追加到节点时间线（详情页数据源）。
@@ -899,9 +905,11 @@ func (service *Service) HandlePlanBranchEvent(event seelebridge.PlanBranchEvent)
 	service.mu.Unlock()
 	if node != nil {
 		service.events.Publish(EventSubagentChanged, revision, requestID, changed)
+		service.refreshWorkTableFromSources()
 		return
 	}
 	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+	service.refreshWorkTableFromSources()
 }
 
 // mapKindForDisplay 将框架节点 kind 映射为 seelex PlanNode 展示值。
@@ -1308,7 +1316,14 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			// 配对修复与队列注入由 chat 边界（prepareProviderHistory /
 			// 批处理路径）承担，进度回调与事件流保持不变。
 			if reentrant, ok := svc.deps.Engine.(interface{ SessionBacked() bool }); ok && reentrant.SessionBacked() {
-				return true
+				// Session 锁内不可重入 AppendHistory（死锁）；每轮 ReAct
+				// 迭代结束检查输入队列：非空 → 返回 false 中断本轮（本轮
+				// 工具已全部完成，是安全边界），由 runChat 结尾的队列提升
+				// 自动开启下一轮并清空队列——一轮一消费，无需等整条 loop。
+				svc.mu.RLock()
+				queued := len(svc.inputQueue) > 0
+				svc.mu.RUnlock()
+				return !queued
 			}
 			svc.mu.RLock()
 			activeRequestID := svc.snapshot.Chat.RequestID

@@ -77,6 +77,11 @@ func (service *Service) BeginNewSession() error {
 	revision := service.bumpLocked()
 	service.mu.Unlock()
 	service.publishRuntimeProjections()
+	// 会话级工作台隔离：新会话清空 task 注册表与子代理树，避免旧会话
+	// 数据污染新会话工作台，并发布空工作表格。
+	service.deps.Runtime.SwitchSessionTasks(nil)
+	_ = service.deps.Runtime.ClearSubagentTree()
+	service.refreshWorkTableFromSources()
 	service.events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
 }

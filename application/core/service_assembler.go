@@ -66,6 +66,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.submitConversation(ctx, input)
 		},
 	})
+	// worktable.changed 汇聚发布器：与事件 hub 解耦，突发时 latest-wins。
+	service.workTablePublisher = newWorkTablePublisher(func(update worktableUpdate) {
+		service.events.Publish(EventWorkTableChanged, update.revision, update.requestID, WorkTableEvent{Items: update.items})
+	})
+	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
+	// channel 流转（取代同步回调嵌套，避免锁序事故）。
+	service.startLifecycleConsumers()
 	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
 	service.idle = closedSignal()
 	initialSessionID := service.deps.Engine.SessionID()

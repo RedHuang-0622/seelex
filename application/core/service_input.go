@@ -39,23 +39,9 @@ func (service *Service) injectPendingSubagentContexts() {
 		return
 	}
 
-	marked := make([]string, 0, len(pending))
 	for _, content := range pending {
 		value := subagentContextMarker + content
 		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &value})
-		marked = append(marked, value)
-	}
-
-	service.mu.Lock()
-	visible := make([]Message, 0, len(marked))
-	for _, content := range marked {
-		message := service.appendMessageLocked("user", content, nil)
-		visible = append(visible, *message)
-	}
-	revision := service.bumpLocked()
-	service.mu.Unlock()
-	for _, message := range visible {
-		service.events.Publish(EventMessageAdded, revision, "", message)
 	}
 }
 
@@ -175,5 +161,9 @@ func (service *Service) Shutdown() {
 	}
 	service.mu.Unlock()
 	service.stopSessionCatalogRefresh()
+	service.stopLifecycleConsumers()
+	if service.workTablePublisher != nil {
+		service.workTablePublisher.Close()
+	}
 	service.approval.Shutdown()
 }

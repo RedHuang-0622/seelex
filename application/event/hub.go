@@ -20,6 +20,8 @@ const (
 	EventSubagentToolStarted   EventKind = "subagent.tool.started"
 	EventSubagentToolCompleted EventKind = "subagent.tool.completed"
 	EventRuntimeChanged        EventKind = "runtime.changed"
+	EventWorkTableChanged      EventKind = "worktable.changed"
+	EventTaskChanged           EventKind = "task.changed"
 	EventInteractionOpened     EventKind = "interaction.opened"
 	EventInteractionClosed     EventKind = "interaction.closed"
 	EventError                 EventKind = "error"

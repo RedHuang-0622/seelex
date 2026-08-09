@@ -196,8 +196,10 @@ func run() error {
 		return &record
 	})
 	toolHooks.Bind(app)
-	runtime.SetPlanNodeCallback(app.HandlePlanNodeComplete)
 	runtime.SetSubagentToolCallback(app.HandleSubagentToolEvent)
+	// plan 节点事件 / 子代理树生命周期 / task 变更均由 application 内的
+	// CSP 消费者经 channel 处理（service_assembler 启动），无需模型调用
+	// 任何工具，worktable/task 增量自动发布（被动技能）。
 	// Application 在状态迁移后向 Runtime 发布不可变可见性和父证据投影；
 	// Runtime 只读自己的缓存，子代理 merge-back 写 Runtime 有界 mailbox，
 	// 由主会话在下一次 ChatStream 前锁外消费。

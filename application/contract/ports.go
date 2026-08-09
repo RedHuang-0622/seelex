@@ -78,6 +78,31 @@ type RuntimePort interface {
 	UnbindProjectRoot()
 	// TodoSnapshot 返回当前 todolist 清单只读拷贝（GUI 待办面板数据源）。
 	TodoSnapshot() []seelebridge.TodoItem
+	// SetTodoStatus 设置待办项三态（pending/doing/done；GUI 工作表格状态
+	// 更新入口；越界/非法状态返回错误）。
+	SetTodoStatus(index int, status seelebridge.TodoItemStatus) error
+	// TaskSnapshot 返回 task 注册表只读快照（worktable 投影数据源）。
+	TaskSnapshot() []seelebridge.TaskRecord
+	// TaskAdd 主动登记 task（幂等：Key 命中返回既有记录）。
+	TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error)
+	// ResolveTaskByKey 按幂等键查 task（子代理装配现成 task_id 用）。
+	ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error)
+	// TaskSetStatus 更新 task 状态（retry 自增计数）。
+	TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error)
+	// TaskAttachParticipant 把子代理挂为 task 参与者（幂等）。
+	TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error)
+	// TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递，
+	// application 消费者直发增量，不拉脏）。
+	TaskChangedChannel() <-chan seelebridge.TaskRecord
+	// SubagentTreeEvents 返回子代理树生命周期信号 channel（CSP 消费者刷新
+	// 工作表格；取代同步回调 observer）。
+	SubagentTreeEvents() <-chan struct{}
+	// PlanNodeEventChannel 返回 plan 节点事件 channel（CSP 消费者串行处理；
+	// 取代同步回调）。
+	PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent
+	// SwitchSessionTasks 会话级 task 隔离：切换会话时整体替换注册表
+	// （清空当前会话 task，恢复目标会话 task；复用 session stack 存储）。
+	SwitchSessionTasks(records []seelebridge.TaskRecord)
 	// ScheduledCommands 返回定时周期任务白名单命令展示信息（GUI 新建弹窗数据源）。
 	ScheduledCommands() []seelebridge.ScheduledCommandInfo
 	// ScheduledTasksSnapshot 返回周期任务只读快照（GUI 定时任务面板数据源）。
