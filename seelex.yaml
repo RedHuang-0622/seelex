@@ -30,6 +30,7 @@ limits:
   plan_node_events: 30           # 节点详情时间线上限（默认 30）
   plan_node_max_loops: 15        # 子代理节点循环上限（默认 15）
   evidence_chars: 800            # 证据/输出截断（默认 800）
+  work_table_rows: 200           # 工作表格最大行数（默认 200；概览打点 ≤10/行）
   replan_evidence_bytes: 12288   # replan 证据字节上限（默认 12 KB）
   input_loop_limit: 9999         # 输入循环上限（默认 9999 ≈ 无上限）
   reference_page_size: 4000      # read_tool_result/read_compressed_turn 默认分页（默认 4000）
@@ -42,7 +43,7 @@ limits:
   context_max_units: 4           # 上下文压缩扫描单元上限（默认 4）
   message_shard_size: 100        # 会话存储分片条数（默认 100）
   summary_chars: 800             # 项目记录摘要截断（默认 800）
-  max_tool_result_chars: 20000   # 工具结果最大字符数（默认 20000；超大结果归档为 result_ref 经 read_tool_result 分页读取）
+  max_tool_result_chars: 60000   # 工具结果最大字符数（默认 60000；fork 汇总按子代理数 ×n 放大，超大结果归档为 result_ref）
   # docker 守护进程自动恢复：bash 命令因 Docker Desktop 未运行失败时自动
   # 启动守护进程并重跑一次（默认开启；关闭需显式 disable_docker_auto_start: true）
   # disable_docker_auto_start: false

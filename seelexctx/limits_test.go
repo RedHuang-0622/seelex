@@ -60,6 +60,9 @@ func TestLoadLimitsParsesAndOverrides(t *testing.T) {
 	if full.ApprovalTimeoutSec != 900 || full.HeartbeatIntervalSec != 15 || full.HistoryWindow != 200 {
 		t.Fatalf("merged = %+v", full)
 	}
+	if full.WorkTableRows != DefaultLimits().WorkTableRows || DefaultLimits().WorkTableRows != 200 {
+		t.Fatalf("work table rows default = %d, want 200", DefaultLimits().WorkTableRows)
+	}
 	// limits 段存在但未写 tool_call_timeout → 0 = 无限制（文档语义）。
 	partialPath := filepath.Join(t.TempDir(), "seele.yaml")
 	if err := os.WriteFile(partialPath, []byte("limits:\n  approval_timeout: 300\n"), 0o600); err != nil {
@@ -72,7 +75,7 @@ func TestLoadLimitsParsesAndOverrides(t *testing.T) {
 	if partial.ToolCallTimeoutSec != 0 || partial.ApprovalTimeoutSec != 300 {
 		t.Fatalf("partial section = %+v", partial)
 	}
-	// max_tool_result_chars：未配置 → 默认 20000；显式配置 → 覆盖生效。
+	// max_tool_result_chars：未配置 → 默认 60000；显式配置 → 覆盖生效。
 	if merged := partial.WithDefaults(); merged.MaxToolResultChars != DefaultLimits().MaxToolResultChars {
 		t.Fatalf("default tool result chars = %d, want %d", merged.MaxToolResultChars, DefaultLimits().MaxToolResultChars)
 	}
@@ -113,6 +116,14 @@ func TestLoadLimitsRejectsNegative(t *testing.T) {
 	}
 	if _, err := LoadLimits(path); err == nil {
 		t.Fatal("negative docker_start_timeout must be rejected")
+	}
+	// work_table_rows 负值显式报错。
+	path = filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(path, []byte("limits:\n  work_table_rows: -1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLimits(path); err == nil {
+		t.Fatal("negative work_table_rows must be rejected")
 	}
 }
 

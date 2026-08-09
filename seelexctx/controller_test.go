@@ -275,7 +275,7 @@ func TestControllerHardThresholdArchivesAndShrinksWindow(t *testing.T) {
 		History: history,
 		Tool: &seelectx.ToolResult{
 			CallID: "call-oversized", Name: "bash",
-			Raw: strings.Repeat("x", 30_000), // 超过 seelex 默认 20000 字符预算
+			Raw: strings.Repeat("x", 70_000), // 超过 seelex 默认 60000 字符预算
 		},
 	})
 	if err != nil {
@@ -283,7 +283,7 @@ func TestControllerHardThresholdArchivesAndShrinksWindow(t *testing.T) {
 	}
 	// 硬阈值路径：超大工具输出先归档为 result_ref（processor 路径）。
 	raw, ok := archiver.Read("result:call-oversized")
-	if !ok || len(raw) != 30_000 {
+	if !ok || len(raw) != 70_000 {
 		t.Fatal("oversized tool result must be archived with result_ref")
 	}
 	if !decision.ReplaceHistory {

@@ -108,16 +108,16 @@ func TestIsOversizedToolResult(t *testing.T) {
 }
 
 func TestProcessorDefaultLimitUsesSeelexDefault(t *testing.T) {
-	// limit=0 → seelex 生效默认 DefaultToolResultLimit()（20000）。
+	// limit=0 → seelex 生效默认 DefaultToolResultLimit()（60000）。
 	processor := NewToolResultProcessor(0, nil)
 	view, err := processor.Process(context.Background(), seelectx.ToolResult{
-		CallID: "call-6", Name: "bash", Raw: strings.Repeat("x", 25_000),
+		CallID: "call-6", Name: "bash", Raw: strings.Repeat("x", 70_000),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(view.Content, ToolResultOmittedPrefix) {
-		t.Fatal("25000 chars must exceed the seelex default limit")
+		t.Fatal("70000 chars must exceed the seelex default limit")
 	}
 	// 低于默认（如 10000）的结果原样透传——默认已从框架 4000 提高。
 	view, err = processor.Process(context.Background(), seelectx.ToolResult{
