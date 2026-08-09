@@ -157,3 +157,29 @@
 - 决策：LLM 只生成候选需求/架构/详设；混合 RAG 为 atomic claim 获取可定位证据，独立 assessor 判定 supports/contradicts/related/insufficient，版本化 policy 依据 evidence readiness 决定自动生成资格。
 - 理由：向量相关性不等于工程支持关系；在线无法知道完整证据全集，不能把相似度或伪 Recall 当门禁。
 - 后果：低证据/冲突条目保留并进入人工队列；项目新增可由人工确认进入 capability gap；需求、架构、详设、代码和测试继承 evidence ID 与审计链；E2E 反馈按责任层重开后继 generation。
+
+## ADR-GUI-020：工作表格使用轻量 worktable.changed + 资源级 Actor/CSP 并发
+
+- 状态：已接受（当前实现）。
+- 决策：右侧工作台统一为工作表格（plan 节点 / todolist / fork 子代理 →
+  WorkItem 行，含任务打点），数据由后端权威投影；新增 `worktable.changed`
+  增量只携带有界表格，不整份 runtime。资源级数据竞争保护用 Actor + Mailbox
+  （todoState 单消费者串行 + 请求/应答 channel），跨资源高并发事件流转用
+  CSP 汇聚发布器（channel cap=1，drain latest-wins，生产者阻塞背压）。
+- 替代方案：继续复用整份 `runtime.changed`（改动小但每个工具事件深拷贝
+  plan + 全量 JSON）；todo 继续用 mutex（无法表达顺序语义与关闭生命周期）。
+- 理由：整份 runtime 每次事件深拷贝与 JSON 是长任务内存/CPU 主要热点；
+  actor 让资源并发安全且顺序明确，CSP 发布器把子代理工具事件洪峰合并为
+  latest-wins，前端 keyed reconcile 只重建变化行。
+- 后果：手动状态更新 v1 仅开放 todo 三态；plan/subagent 状态由执行器管理；
+  `worktable.changed` 缺失时由既有 seq gap → Snapshot resync 兜底。
+  子代理生命周期是被动数据源：`SetSubagentTreeObserver` 在 fork 注册/完成
+  时自动刷新工作表格（不依赖模型主观意愿打点）；done 节点有界保留
+  （`subagentTreeRetainDone`），`ClearSubagentTree` 显式清空。
+  task 体系落地：task 即 worktable 条目，单一注册表 actor（保护粒度=task）；
+  todolist 融合为 kind=todo 的 task（打点表）；主动 `taskadd` + 被动
+  plan/subagent 生命周期经 CSP 同步；幂等去重 = 归一化 goal 精确键 +
+  提示词约束 + 可注入审判钩子；B6 装配件只把 task_id 绑进子代理 NodeScope
+  （不注入内容，保护子代理 prompt 格式）；`task.changed` 逐任务增量 +
+  `worktable.changed` 结构增量（责任链）；task 快照复用 SessionRecord stack。
+- 详设：`modules/work-table.md`、`schemas/work-table.schema.json`。

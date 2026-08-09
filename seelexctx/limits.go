@@ -93,9 +93,9 @@ func DefaultLimits() Limits {
 		WalkTimeoutSec:         30,
 		// fork 汇总窗口按子代理数 ×n 放大：4×2000 字结论 ≈ 24KB，默认
 		// 60000 字节（约 2 万汉字）给足余量——窗口是容灾上限不是截断线。
-		MaxToolResultChars:     60000,
-		DockerStartTimeoutSec:  60,
-		ForkTimeoutSec:         7200,
+		MaxToolResultChars:    60000,
+		DockerStartTimeoutSec: 60,
+		ForkTimeoutSec:        7200,
 	}
 }
 

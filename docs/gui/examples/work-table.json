@@ -1,0 +1,51 @@
+{
+  "items": [
+    {
+      "id": "plan:research",
+      "phase": "plan",
+      "task": "research",
+      "description": "调研外部方案",
+      "status": "completed",
+      "dependencies": [],
+      "kind": "plan",
+      "source_id": "research",
+      "trace": [
+        {
+          "at": "2026-08-09T09:30:00Z",
+          "status": "completed",
+          "operation": "node.lifecycle",
+          "evidence": "调研完成",
+          "duration": "3.2s"
+        }
+      ]
+    },
+    {
+      "id": "todo:0",
+      "phase": "tasklist",
+      "task": "写测试",
+      "status": "doing",
+      "assignee": "main",
+      "kind": "todo",
+      "source_id": "0"
+    },
+    {
+      "id": "subagent:s1",
+      "phase": "subagent",
+      "task": "实现后端投影",
+      "description": "子代理摘要",
+      "status": "running",
+      "assignee": "s1",
+      "kind": "subagent",
+      "source_id": "s1",
+      "dependencies": [],
+      "started_at": "2026-08-09T09:20:00Z",
+      "trace": [
+        {
+          "at": "2026-08-09T09:20:00Z",
+          "status": "running",
+          "operation": "subagent.lifecycle"
+        }
+      ]
+    }
+  ]
+}

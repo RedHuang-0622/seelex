@@ -1,5 +1,9 @@
 # Plan DAG 可视化渲染规范
 
+> 状态说明：右侧工作台已由「工作表格」（[`modules/work-table.md`](modules/work-table.md)）
+> 统一接管；本文仍是 Plan 树状布局渲染与节点详情弹窗的数据/布局规范
+> （`plan-dsl.js` 保留为详情数据面），不再描述右侧栏独立 Plan section。
+
 ## JSON 数据源
 
 Plan 状态来自 Snapshot `runtime.plan`：

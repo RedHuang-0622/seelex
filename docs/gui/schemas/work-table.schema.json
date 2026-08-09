@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seelex.dev/schemas/work-table.schema.json",
+  "title": "Work table event payload",
+  "description": "worktable.changed 增量的 payload：工作台统一工作表格（plan 节点 / todolist 项 / fork 子代理 → WorkItem 行，含任务打点 trace）。只含表格，不整份 runtime。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/workItem" }
+    }
+  },
+  "$defs": {
+    "workItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "phase", "task", "status", "kind"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^(plan|todo|subagent):" },
+        "phase": { "enum": ["plan", "tasklist", "subagent"] },
+        "task": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+        "assignee": { "type": "string" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "attachments": { "type": "array", "items": { "type": "string" } },
+        "kind": { "enum": ["plan", "todo", "subagent"] },
+        "source_id": { "type": "string" },
+        "started_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "ended_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "elapsed": { "type": "string" },
+        "trace": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tracePoint" }
+        }
+      }
+    },
+    "tracePoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "status": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+        "operation": { "type": "string" },
+        "evidence": { "type": "string" },
+        "duration": { "type": "string" }
+      }
+    }
+  }
+}
