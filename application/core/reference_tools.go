@@ -47,6 +47,13 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 		return encodeToolResultPage(result, input.Offset, input.Limit, input.Contains)
 	}
 
+	// result:call_<callID> 别名：模型在省略占位提示后常自行拼接
+	// result:call_...，而系统归档的真实 ref 是 tr-<digest>。按工具调用 ID
+	// 映射回真实 ref 再读取，避免「result_ref is not available」假阴性
+	// （2026-08-10：GUI 会话记录实证——fork 结果过大被省略后模型用
+	// result:call_... 读回失败）。
+	input.ResultRef = service.resolveToolResultRefAlias(input.ResultRef)
+
 	service.mu.RLock()
 	if !service.hasToolResultRefLocked(input.ResultRef) {
 		service.mu.RUnlock()
@@ -71,6 +78,28 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 		return "", fmt.Errorf("read_tool_result: %w", err)
 	}
 	return encodeToolResultPage(result, input.Offset, input.Limit, input.Contains)
+}
+
+// resolveToolResultRefAlias 把模型常见的 result:call_<callID> 引用映射为
+// 归档的真实 ref（tr-<digest>）。resultRefsByToolCallID 在工具结果过大被
+// 省略时记录 callID → resultRef；模型若不使用占位里给出的 result_ref 而
+// 自造 result:call_...，此映射保证仍能读回。非别名格式原样返回。
+func (service *Service) resolveToolResultRefAlias(ref string) string {
+	const prefix = "result:"
+	if !strings.HasPrefix(ref, prefix) {
+		return ref
+	}
+	callID := strings.TrimPrefix(ref, prefix)
+	if callID == "" {
+		return ref
+	}
+	service.mu.RLock()
+	realRef := service.resultRefsByToolCallID[callID]
+	service.mu.RUnlock()
+	if realRef == "" {
+		return ref
+	}
+	return realRef
 }
 
 // nodeResultRef 解析 node:<nodeID>: 前缀的子代理结果引用；非节点引用 → false。

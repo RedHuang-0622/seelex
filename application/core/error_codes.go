@@ -74,6 +74,17 @@ func reactBudgetPresentation() presentedError {
 	}
 }
 
+// resultRefUnavailablePresentation 是 read_tool_result 结果引用不可读的
+// 用户友好分类（否则落入 unclassified 兜底，模型/用户看不到真实原因）。
+func resultRefUnavailablePresentation() presentedError {
+	return presentedError{
+		module:  "工具执行",
+		method:  "read_tool_result",
+		summary: "结果引用不可读：指定的 result_ref 在当前会话或节点现场不存在。",
+		next:    "请使用省略占位中给出的 result_ref（或 node:<nodeID>: 前缀）原样读取，不要自行拼接；必要时重新执行产生该结果的工具。",
+	}
+}
+
 func contextExhaustedPresentation() presentedError {
 	return presentedError{
 		module: "上下文恢复", method: "recoverProviderFailure",

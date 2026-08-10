@@ -59,6 +59,18 @@ func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T) {
 			forbid: []string{"edges is required", "normalize DAG"},
 		},
 		{
+			name:   "result ref unavailable",
+			err:    errors.New(`read_tool_result: result_ref is not available in the current session`),
+			module: "工具执行", method: "read_tool_result",
+			forbid: []string{"result_ref is not available"},
+		},
+		{
+			name:   "result ref required",
+			err:    errors.New(`read_tool_result: result_ref is required and offset must be non-negative`),
+			module: "工具执行", method: "read_tool_result",
+			forbid: []string{"result_ref is required"},
+		},
+		{
 			name:   "unknown failure",
 			err:    errors.New(`unrecognized internal failure request_id=req-secret`),
 			module: "代理运行时", method: "runChat",

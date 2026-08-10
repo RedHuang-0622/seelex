@@ -140,6 +140,13 @@ The token audit counts the separately configured system prompt, message/tool-cal
 
 Oversized tool output and oversized current input are stored through immutable `result_ref` records. Provider history and `SessionRecord` contain only the reference warning; `read_tool_result` provides bounded, read-only pagination or filtering. `read_plan` retrieves omitted canonical Plan nodes without changing Plan state.
 
+`read_tool_result` 兼容 `result:call_<callID>` 别名：模型在省略占位后自行
+拼接的 `result:call_...` 引用会按工具调用 ID 映射回归档的真实 `tr-` ref
+（`resolveToolResultRefAlias`），避免「result_ref is not available」假阴性。
+引用不可读/参数缺失不再落入 unclassified 兜底文案，而是分类为
+「工具执行｜read_tool_result」（`resultRefUnavailablePresentation`），
+给模型/用户可行动的指引。
+
 When compaction creates a new checkpoint, Application also publishes a separate `Snapshot.Task.ContextCompactions` record. The record contains only a version, public trigger reason, message count, estimated token count, and timestamp. It never contains checkpoint text, system prompts, tool arguments, tool results, or raw conversation history.
 
 ## Session record and recovery

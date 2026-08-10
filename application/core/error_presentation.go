@@ -68,6 +68,11 @@ func classifyPresentedError(err error) presentedError {
 	case errors.Is(err, ErrReActBudgetExceeded) || structuredErrorCode(err) == errorCodeReActBudget ||
 		strings.Contains(message, "react execution budget"):
 		return reactBudgetPresentation()
+	case strings.Contains(message, "result_ref is not available") ||
+		strings.Contains(message, "result_ref is required"):
+		// read_tool_result 引用问题：不落 unclassified 兜底，给模型/用户
+		// 可行动的指引（省略占位中的 result_ref 原样使用）。
+		return resultRefUnavailablePresentation()
 	case classifyProviderFailure(err) == providerFailureTimeout:
 		return presentedError{
 			module: "模型传输", method: "ChatStream",

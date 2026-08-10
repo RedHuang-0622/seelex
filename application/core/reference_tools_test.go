@@ -57,6 +57,34 @@ func TestReadToolResultResolvesNodeRef(t *testing.T) {
 	}
 }
 
+// TestReadToolResultResolvesCallAlias 验证 result:call_<callID> 别名映射：
+// 工具结果过大被省略归档后，模型自造 result:call_... 引用（而非占位中
+// 的 tr- ref）仍能经 resultRefsByToolCallID 映射回真实 ref 读回。
+func TestReadToolResultResolvesCallAlias(t *testing.T) {
+	service := newTestService(t, &fakeEngine{})
+	raw := strings.Repeat("x", 4000) + "alias-target-content"
+	stored := service.components.tasks.storeToolResultLocked("fork_subagents", raw)
+	service.resultRefsByToolCallID["call_00_Ohu6emGEZr0gV4m2JU4t0987"] = stored.Ref
+
+	page, err := service.ReadToolResultHandler(t.Context(),
+		`{"result_ref":"result:call_00_Ohu6emGEZr0gV4m2JU4t0987","offset":4000,"limit":64}`)
+	if err != nil {
+		t.Fatalf("read alias ref: %v", err)
+	}
+	if !strings.Contains(page, `"result_ref":"`+stored.Ref+`"`) {
+		t.Fatalf("page must echo the real tr- ref, got: %s", page)
+	}
+	if !strings.Contains(page, "alias-target-content") {
+		t.Fatalf("page must contain archived content, got: %s", page)
+	}
+
+	// 未知 callID：别名保留原值 → 仍返回明确错误（不静默）。
+	if _, err := service.ReadToolResultHandler(t.Context(),
+		`{"result_ref":"result:call_ghost","limit":32}`); err == nil {
+		t.Fatal("unknown call alias must error")
+	}
+}
+
 func TestEncodeToolResultPageNodeContent(t *testing.T) {
 	result := StoredToolResult{
 		ToolResultRef: model.ToolResultRef{Ref: "node:a:result:b", Tool: "read_file"},
