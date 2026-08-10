@@ -795,8 +795,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .work-filter.is-active { color: #e8b730; border-color: #5d4d20; background: #211d11; }
 .work-filter span { opacity: .8; }
 .work-entry-body.is-collapsed { display: none; }
+.work-table-scroll { max-height: min(56vh, 560px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .work-grid { display: grid; grid-template-columns: 56px minmax(90px, 1.4fr) minmax(90px, 1.6fr) 66px 72px minmax(70px, .9fr) minmax(60px, .8fr) auto; gap: 6px 8px; align-items: center; }
 .work-grid-head { padding: 6px 10px; color: var(--faint); background: #141414; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; }
+.work-grid-head { position: sticky; top: 0; z-index: 1; }
 .work-rows { display: grid; gap: 3px; padding: 6px 8px 8px; }
 .work-row { border: 1px solid #222; border-radius: 6px; background: #101010; }
 .work-row.is-running, .work-row.is-queued, .work-row.is-doing { border-color: #3f3616; }
@@ -835,6 +837,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 1px
 .work-trace-row.is-completed span, .work-trace-row.is-done span { color: #83c393; }
 .work-trace-row.is-failed span { color: #df8585; }
 .work-empty { padding: 10px; color: var(--faint); font-size: 10px; text-align: center; }
+.work-pager { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 8px 10px 4px; border-top: 1px solid #202020; color: var(--faint); font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-page-btn { padding: 3px 9px; border: 1px solid #333; border-radius: 5px; color: #bdbdbd; background: #161616; cursor: pointer; font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.work-page-btn:hover:not(:disabled) { color: #fff; border-color: #5a7899; }
+.work-page-btn:disabled { opacity: .45; cursor: default; }
+.work-page-info { color: #9f9f9f; }
+.work-page-size-label { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.work-page-size { padding: 2px 4px; border: 1px solid #333; border-radius: 4px; color: #bdbdbd; background: #141414; font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; }
 
 /* ── 工作表格入口按钮 + 未读角标 + 详情弹窗 ────────────── */
 .work-table-button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 1px solid #2f4b3a; border-radius: 8px; color: #cfe6d7; background: linear-gradient(180deg, #16241c, #101a14); cursor: pointer; font: 600 11px/1.4 inherit; text-align: left; }

@@ -18,6 +18,8 @@ import { escapeHtml } from "./components.js";
 
 const PHASE_LABELS = { plan: "Plan", task: "Task", tasklist: "Tasklist", subagent: "Subagent" };
 const FILTERS = [["all", "全部"], ["plan", "Plan"], ["task", "Task"], ["tasklist", "Tasklist"], ["subagent", "Subagent"]];
+const PAGE_SIZES = [10, 20, 50];
+const DEFAULT_PAGE_SIZE = 20;
 const STATUS_LABELS = {
   pending: "PENDING", queued: "QUEUED", running: "RUNNING",
   worktree_creating: "WORKTREE", rebasing: "REBASING", merging: "MERGING",
@@ -56,12 +58,20 @@ export function workTableView(items) {
 
 // createWorkTableView 创建视图实例：持有展开/筛选/trace 展开的纯 UI 态。
 export function createWorkTableView(container, options = {}) {
-  const state = { expanded: true, filter: "all", traces: new Set() };
+  const state = {
+    expanded: true,
+    filter: "all",
+    traces: new Set(),
+    page: 1,
+    pageSize: normalizePageSize(options.pageSize)
+  };
   const htmlCache = new Map();
   let items = [];
 
   function render(nextItems = items) {
     items = workTableView(nextItems);
+    const filtered = visibleRows(items, state);
+    const paged = pagedRows(filtered, state); // 先钳制页码，再渲染壳与行
     if (!container.querySelector("[data-work-table]")) {
       container.classList.remove("muted");
       container.classList.add("work-table-view");
@@ -70,7 +80,7 @@ export function createWorkTableView(container, options = {}) {
       updateShell(container, items, state);
     }
     const rowsContainer = container.querySelector("[data-work-rows]");
-    reconcileRows(rowsContainer, visibleRows(items, state), state, htmlCache);
+    reconcileRows(rowsContainer, paged, state, htmlCache);
     if (options.onCount) options.onCount(items.length);
   }
 
@@ -85,6 +95,19 @@ export function createWorkTableView(container, options = {}) {
       const filter = event.target.closest?.("[data-work-filter]");
       if (filter?.dataset.workFilter) {
         state.filter = filter.dataset.workFilter;
+        state.page = 1;
+        render();
+        return;
+      }
+      const pagePrev = event.target.closest?.("[data-work-page-prev]");
+      if (pagePrev) {
+        state.page = Math.max(1, state.page - 1);
+        render();
+        return;
+      }
+      const pageNext = event.target.closest?.("[data-work-page-next]");
+      if (pageNext) {
+        state.page += 1;
         render();
         return;
       }
@@ -99,6 +122,16 @@ export function createWorkTableView(container, options = {}) {
       const status = event.target.closest?.("[data-work-status]");
       if (status?.dataset.workStatus && status.dataset.status) {
         handlers.onStatus?.(status.dataset.workStatus, status.dataset.status);
+      }
+    });
+    container.addEventListener("change", event => {
+      const pageSize = event.target.closest?.("[data-work-page-size]");
+      if (!pageSize) return;
+      const next = Number.parseInt(pageSize.value, 10);
+      if (Number.isFinite(next) && next > 0 && next !== state.pageSize) {
+        state.pageSize = next;
+        state.page = 1;
+        render();
       }
     });
   }
@@ -132,6 +165,28 @@ function visibleRows(items, state) {
   return items.filter(row => row.phase === state.filter);
 }
 
+// pageCount 计算分页总数（空列表也至少 1 页）。
+export function pageCount(count, pageSize) {
+  const size = normalizePageSize(pageSize);
+  if (count == null || count <= 0) return 1;
+  return Math.max(1, Math.ceil(Number(count) / size));
+}
+
+// pagedRows 按当前页截取行并钳制页码（数据收缩后不越界）。
+export function pagedRows(rows, state) {
+  const list = Array.isArray(rows) ? rows : [];
+  const size = normalizePageSize(state?.pageSize);
+  const pages = pageCount(list.length, size);
+  state.page = Math.min(Math.max(1, state.page || 1), pages);
+  const start = (state.page - 1) * size;
+  return list.slice(start, start + size);
+}
+
+function normalizePageSize(value) {
+  const size = Number.parseInt(value, 10);
+  return Number.isFinite(size) && size > 0 ? size : DEFAULT_PAGE_SIZE;
+}
+
 function updateShell(container, items, state) {
   container.dataset.workCount = String(items.length);
   const toggle = container.querySelector("[data-work-entry-toggle]");
@@ -152,14 +207,31 @@ function updateShell(container, items, state) {
     const span = button.querySelector("span");
     if (span) span.textContent = String(counts[key] ?? 0);
   });
+  const filtered = visibleRows(items, state);
+  const pages = pageCount(filtered.length, state.pageSize);
+  const page = clampPage(state.page, pages);
+  const pageInfo = container.querySelector("[data-work-page-info]");
+  if (pageInfo) pageInfo.textContent = `${page} / ${pages} 页 · ${filtered.length} 项`;
+  const prev = container.querySelector("[data-work-page-prev]");
+  if (prev) prev.disabled = page <= 1;
+  const next = container.querySelector("[data-work-page-next]");
+  if (next) next.disabled = page >= pages;
+  const size = container.querySelector("[data-work-page-size]");
+  if (size) size.value = String(state.pageSize);
 }
 
 export function renderShellHTML(items, state) {
   const counts = phaseCounts(items);
+  const filtered = visibleRows(items, state);
+  const pages = pageCount(filtered.length, state.pageSize);
+  const page = clampPage(state.page, pages);
   const filters = FILTERS.map(([key, label]) => {
     const active = state.filter === key;
     return `<button type="button" class="work-filter${active ? " is-active" : ""}" data-work-filter="${key}" data-work-count="${counts[key] ?? 0}">${escapeHtml(label)} <span>${counts[key] ?? 0}</span></button>`;
   }).join("");
+  const pageSizes = PAGE_SIZES.map(size =>
+    `<option value="${size}"${state.pageSize === size ? " selected" : ""}>${size} / 页</option>`
+  ).join("");
   return `<div class="work-table" data-work-table>
     <header class="work-table-head">
       <button type="button" class="work-entry-toggle" data-work-entry-toggle aria-expanded="${state.expanded}" title="展开/折叠工作表格">
@@ -171,11 +243,21 @@ export function renderShellHTML(items, state) {
       <div class="work-filters" data-work-filters>${filters}</div>
     </header>
     <div class="work-entry-body${state.expanded ? "" : " is-collapsed"}" data-work-entry-body>
-      <div class="work-grid work-grid-head" aria-hidden="true">
-        <span>阶段</span><span>任务</span><span>描述</span><span>状态</span>
-        <span>Assignee</span><span>Dependency</span><span>附件</span><span>操作</span>
+      <div class="work-table-scroll" data-work-table-scroll>
+        <div class="work-grid work-grid-head" aria-hidden="true">
+          <span>阶段</span><span>任务</span><span>描述</span><span>状态</span>
+          <span>Assignee</span><span>Dependency</span><span>附件</span><span>操作</span>
+        </div>
+        <div class="work-rows" data-work-rows></div>
       </div>
-      <div class="work-rows" data-work-rows></div>
+      <div class="work-pager" data-work-pager>
+        <button type="button" class="work-page-btn" data-work-page-prev${page <= 1 ? " disabled" : ""}>‹ 上一页</button>
+        <span class="work-page-info" data-work-page-info>${page} / ${pages} 页 · ${filtered.length} 项</span>
+        <button type="button" class="work-page-btn" data-work-page-next${page >= pages ? " disabled" : ""}>下一页 ›</button>
+        <label class="work-page-size-label">每页
+          <select class="work-page-size" data-work-page-size aria-label="每页条数">${pageSizes}</select>
+        </label>
+      </div>
     </div>
   </div>`;
 }
@@ -186,6 +268,13 @@ function phaseCounts(items) {
     if (counts[row.phase] !== undefined) counts[row.phase] += 1;
   }
   return counts;
+}
+
+// clampPage 将页码钳制到 [1, pages]；非法输入按第 1 页处理。
+function clampPage(page, pages) {
+  const value = Number.parseInt(page, 10);
+  const p = Number.isFinite(value) && value > 0 ? value : 1;
+  return Math.min(p, Math.max(1, pages));
 }
 
 function reconcileRows(rowsContainer, visible, state, htmlCache) {

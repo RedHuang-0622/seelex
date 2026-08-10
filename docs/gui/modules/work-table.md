@@ -21,7 +21,8 @@ Dependency/附件），并把任务打点（trace）带进同一数据面。右�
   `SubAgentTree` 投影为扁平 `WorkItem` 行（CQRS 读模型，纯函数、有界）。
 - 后端以 `worktable.changed` 轻量增量发布表格（只含表格，不整份 runtime）。
 - 前端 `gui/frontend/dist/work-table.js` 渲染表格、筛选、展开与行内交互；
-  todo 行三态更新经 `Bridge.UpdateWorkItemStatus` 回写后端权威状态。
+  todo 行三态更新经 `Bridge.UpdateWorkItemStatus` 回写后端权威状态；行区
+  独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）。
 
 非职责：
 
@@ -46,7 +47,9 @@ Dependency/附件），并把任务打点（trace）带进同一数据面。右�
 4. 前端 reducer（`protocol.js`）：`task.changed` 按 task_id 单行 upsert
    （结构共享）；`worktable.changed` 整表替换；不克隆 plan。
 5. `work-table.js` keyed reconcile：只重建变化行；行详情复用
-   `SubagentSessionDetail`（上下文/会话/工具活动）。
+   `SubagentSessionDetail`（上下文/会话/工具活动）。分页与滚动是纯 UI 态：
+   筛选/每页条数变化时页码重置，数据收缩时页码钳制，行数据永远来自后端
+   权威 JSON。
 
 ### 幂等去重（B1）与子代理装配（B6）
 
@@ -101,6 +104,7 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
   注册表快照），当前默认精确键兜底。
 - 调整行/trace 上限：`seele.yaml` `limits` 段
   （`work_table_rows` / `plan_node_events` / `evidence_chars`）。
+- 调整默认分页大小：`createWorkTableView({ pageSize })`（默认 20）。
 - 支持 plan/subagent 手动状态：需要执行器状态机语义，另行设计，不在本
   模块默认开启。
 

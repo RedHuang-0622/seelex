@@ -15,7 +15,9 @@ const {
   renderWorkItemRow,
   renderWorkTraceHTML,
   workTableSignatures,
-  countUnread
+  countUnread,
+  pageCount,
+  pagedRows
 } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const uiState = () => ({ expanded: true, filter: "all", traces: new Set() });
@@ -54,6 +56,63 @@ test("renders shell with filter chips and totals", () => {
   assert.match(html, />Assignee</);
   assert.match(html, />Dependency</);
   assert.match(html, />附件</);
+});
+
+test("paginates rows and clamps out-of-range page", () => {
+  const rows = Array.from({ length: 45 }, (_, i) => ({
+    id: `task:${i}`, phase: "task", task: `t${i}`, status: "pending", kind: "task"
+  }));
+  const state = { filter: "all", page: 3, pageSize: 20 };
+  const paged = pagedRows(rows, state);
+  assert.equal(paged.length, 5);
+  assert.equal(paged[0].id, "task:40");
+  assert.equal(state.page, 3);
+
+  // 数据收缩后页码越界 → 钳制到最后一页。
+  state.page = 99;
+  const clamped = pagedRows(rows, state);
+  assert.equal(state.page, 3);
+  assert.equal(clamped.length, 5);
+
+  // 非法页码 → 第 1 页。
+  state.page = 0;
+  pagedRows(rows, state);
+  assert.equal(state.page, 1);
+});
+
+test("pageCount computes total pages with minimum 1", () => {
+  assert.equal(pageCount(0, 20), 1);
+  assert.equal(pageCount(20, 20), 1);
+  assert.equal(pageCount(21, 20), 2);
+  assert.equal(pageCount(45, 10), 5);
+});
+
+test("renders pager with page info and page-size options", () => {
+  const rows = Array.from({ length: 25 }, (_, i) => ({
+    id: `task:${i}`, phase: "task", task: `t${i}`, status: "pending", kind: "task"
+  }));
+  const html = renderShellHTML(rows, { ...uiState(), page: 2, pageSize: 10 });
+  assert.match(html, /data-work-page-prev/);
+  assert.match(html, /data-work-page-next/);
+  assert.match(html, /data-work-page-info/);
+  assert.match(html, /2 \/ 3 页 · 25 项/);
+  assert.match(html, /data-work-page-size/);
+  assert.match(html, /10 \/ 页/);
+  assert.match(html, /20 \/ 页/);
+  assert.match(html, /50 \/ 页/);
+});
+
+test("pager marks first/last page buttons as disabled", () => {
+  const rows = Array.from({ length: 5 }, (_, i) => ({
+    id: `task:${i}`, phase: "task", task: `t${i}`, status: "pending", kind: "task"
+  }));
+  const first = renderShellHTML(rows, { ...uiState(), page: 1, pageSize: 3 });
+  assert.match(first, /data-work-page-prev disabled/);
+  assert.doesNotMatch(first, /data-work-page-next disabled/);
+
+  const last = renderShellHTML(rows, { ...uiState(), page: 2, pageSize: 3 });
+  assert.doesNotMatch(last, /data-work-page-prev disabled/);
+  assert.match(last, /data-work-page-next disabled/);
 });
 
 test("renders plan row with detail action and escaped content", () => {
