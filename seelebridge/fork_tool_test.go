@@ -56,6 +56,118 @@ func TestForkSubagentsEndToEnd(t *testing.T) {
 	}
 }
 
+// TestForkSubagentsReuseStoredOutputSavesTokens 验证结果复用短路：既有 task
+// 已完成且子代理树保留完整输出（结果返回失败需要 retry 的典型场景）→
+// fork 直接返回已保存输出，不重新执行（省 token）；task 状态经 retry
+// 计数后回到 completed。
+func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+
+	// 预置：两个 goal 命中既有已完成 task + 子代理树已保存输出。
+	seed := []struct {
+		id, goal, summary string
+	}{
+		{"s1", "audit module A", "SEEDED-OUTPUT-A: module A verified"},
+		{"s2", "audit module B", "SEEDED-OUTPUT-B: module B verified"},
+	}
+	for _, item := range seed {
+		task, created, err := runtime.TaskAdd(TaskSpec{
+			ID: "subagent:" + item.id, Key: taskKeyForGoal(item.goal),
+			Phase: TaskPhaseSubagent, Task: item.goal, Kind: "subagent",
+		})
+		if err != nil || !created {
+			t.Fatalf("seed task %s: created=%v err=%v", item.id, created, err)
+		}
+		if _, err := runtime.TaskSetStatus(task.ID, TaskCompleted, "previous done"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime.subagentTree.registerFork(mainAgentNodeID, []forkSubagentSpec{
+		{ID: "s1", Goal: "audit module A"},
+		{ID: "s2", Goal: "audit module B"},
+	})
+	runtime.subagentTree.completeSubagentNode("s1", seed[0].summary, nil)
+	runtime.subagentTree.completeSubagentNode("s2", seed[1].summary, nil)
+
+	// 若误执行，scripted completer 会返回与 SEEDED 不同的输出——断言结果
+	// 只含已保存摘要即可证明未重跑。
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
+		"s1": newScriptedNodeCompleter("FRESH-RUN-A"),
+		"s2": newScriptedNodeCompleter("FRESH-RUN-B"),
+	})
+
+	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
+		`{"subagents":[{"id":"s1","goal":"audit module A"},{"id":"s2","goal":"audit module B"}]}`)
+	if err != nil {
+		t.Fatalf("fork_subagents failed: %v", err)
+	}
+	for _, want := range []string{`"status":"completed"`, `"reused":true`, seed[0].summary, seed[1].summary, "复用上次已保存输出"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("reuse result missing %q:\n%s", want, result)
+		}
+	}
+	for _, fresh := range []string{"FRESH-RUN-A", "FRESH-RUN-B"} {
+		if strings.Contains(result, fresh) {
+			t.Errorf("reuse result must not re-run subagent (leaked %q):\n%s", fresh, result)
+		}
+	}
+	// task 状态：completed（复用成功），retry_count=1（重试计数保留）。
+	for _, item := range seed {
+		record, found, err := runtime.ResolveTaskByKey(taskKeyForGoal(item.goal))
+		if err != nil || !found {
+			t.Fatalf("resolve %s: found=%v err=%v", item.goal, found, err)
+		}
+		if record.Status != TaskCompleted || record.RetryCount != 1 {
+			t.Errorf("task %s after reuse = status=%s retry=%d, want completed/1", item.goal, record.Status, record.RetryCount)
+		}
+	}
+}
+
+// TestForkSubagentsRetryRunsWhenNoStoredOutput 验证无已保存输出时的重试路径：
+// 既有 completed task 被重新 fork（结果返回失败后重试）→ bindSubagentTask
+// 置 retry（计数自增），子代理树无输出 → 正常重跑 → 完成后状态回到
+// completed、retry_count 保留。
+func TestForkSubagentsRetryRunsWhenNoStoredOutput(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.RegisterBuiltins()
+	injectScriptedCompleters(t, runtime, map[string]agent.Completer{
+		"s1": newScriptedNodeCompleter("retry-run: audit module A done"),
+	})
+
+	// 第一次执行：正常完成，task 落 completed。
+	if _, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
+		`{"subagents":[{"id":"s1","goal":"audit module A"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	before, found, err := runtime.ResolveTaskByKey(taskKeyForGoal("audit module A"))
+	if err != nil || !found || before.Status != TaskCompleted || before.RetryCount != 0 {
+		t.Fatalf("after first run = %+v found=%v", before, found)
+	}
+
+	// 清除子代理树（模拟结果返回失败且无已保存文档）→ 重试必须真正重跑。
+	if err := runtime.ClearSubagentTree(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.Agent().DirectDispatch(context.Background(), "fork_subagents",
+		`{"subagents":[{"id":"s1","goal":"audit module A"}]}`)
+	if err != nil {
+		t.Fatalf("fork retry failed: %v", err)
+	}
+	if !strings.Contains(result, "retry-run: audit module A done") {
+		t.Fatalf("retry must actually re-run subagent, got:\n%s", result)
+	}
+	after, found, err := runtime.ResolveTaskByKey(taskKeyForGoal("audit module A"))
+	if err != nil || !found {
+		t.Fatalf("resolve after retry: found=%v err=%v", found, err)
+	}
+	if after.Status != TaskCompleted || after.RetryCount != 1 {
+		t.Errorf("task after retry = status=%s retry=%d, want completed/1", after.Status, after.RetryCount)
+	}
+}
+
 // TestForkSubagentsValidation 验证护栏：空列表 / 重复 id / 缺 goal / 超数量上限。
 func TestForkSubagentsValidation(t *testing.T) {
 	runtime := newTestRuntime(t)

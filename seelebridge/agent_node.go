@@ -286,7 +286,8 @@ func nodeScopeFor(runtime *Runtime, nodeID string) NodeScope {
 
 // nodeScopeAssembler 是节点子代理会话的 RequestAssembler：把 SeelexAgentNode
 // 注入 ctx 的节点级 PromptBlocks 合并进每次请求（保序：静态块在前，节点块在后，
-// 再跟 working history），委托默认装配器完成拼装。首次组装 = 节点真正开始
+// 再跟 working history），并继承主代理的稳定上下文块（project/stack/memory，
+// 缓存前缀友好），委托默认装配器完成拼装。首次组装 = 节点真正开始
 // 执行（SSE 流开启）→ 通知 runtime 把 queued 置 running。
 type nodeScopeAssembler struct {
 	runtime *Runtime
@@ -298,13 +299,57 @@ func (assembler nodeScopeAssembler) Assemble(ctx context.Context, request seelec
 			assembler.runtime.markNodeStarted(scope.NodeID)
 		}
 	}
-	if blocks := nodePromptBlocksFromContext(ctx); len(blocks) > 0 {
-		merged := make([]seelectx.PromptBlock, 0, len(request.Blocks)+len(blocks))
-		merged = append(merged, request.Blocks...)
-		merged = append(merged, blocks...)
-		request.Blocks = merged
+	nodeBlocks := nodePromptBlocksFromContext(ctx)
+	// 装配顺序（前缀稳定优先）：
+	//   system（会话自身，必须最前）
+	//   → 继承块：project（项目语义）+ stack（now using 栈顶）——会话内稳定
+	//   → 会话其余块 → 节点块（charter/skills，Run 时冻结、会话内稳定）
+	//   → memory（按当前查询召回，动态）→ working history
+	// 稳定块尽量前置，动态 memory 放最后，让请求前缀尽量可缓存。
+	systemBlocks, rest := splitSystemBlocks(request.Blocks)
+	merged := make([]seelectx.PromptBlock, 0, len(request.Blocks)+len(nodeBlocks)+3)
+	merged = append(merged, systemBlocks...)
+	if assembler.runtime != nil {
+		merged = append(merged, assembler.runtime.inheritedSubagentBlocks()...)
 	}
+	merged = append(merged, rest...)
+	merged = append(merged, nodeBlocks...)
+	if assembler.runtime != nil && assembler.runtime.sessionContextStore() != nil {
+		if memory := assembler.runtime.relatedMemoryBlocks(ctx, seelexctx.LastUserQuery(request.WorkingHistory)); len(memory) > 0 {
+			merged = append(merged, memory...)
+		}
+	}
+	request.Blocks = merged
 	return seelectx.DefaultRequestAssembler{}.Assemble(ctx, request)
+}
+
+// splitSystemBlocks 把 system 块拆到最前（provider/缓存前缀约定），其余
+// 保持原序；无 system 块时两部分均为空/原序。
+func splitSystemBlocks(blocks []seelectx.PromptBlock) (systemBlocks, rest []seelectx.PromptBlock) {
+	for _, block := range blocks {
+		if block.Name == "system" {
+			systemBlocks = append(systemBlocks, block)
+		} else {
+			rest = append(rest, block)
+		}
+	}
+	return systemBlocks, rest
+}
+
+// inheritedSubagentBlocks 返回子代理会话继承的主代理稳定上下文块：
+// project（项目语义）→ stack（now using 栈顶）。这些块内容与主代理
+// 装配器同源（同一 provider），会话内稳定，插在节点块之前构成可缓存前缀。
+// 动态 memory 块由装配器单独放到最后，不在此列。
+func (r *Runtime) inheritedSubagentBlocks() []seelectx.PromptBlock {
+	if r == nil {
+		return nil
+	}
+	blocks := make([]seelectx.PromptBlock, 0, 2)
+	if project := r.projectBlock(); project != nil {
+		blocks = append(blocks, *project)
+	}
+	blocks = append(blocks, r.stackBlocks()...)
+	return blocks
 }
 
 // markNodeStarted 节点首次组装请求（真正开始执行/SSE 流开启）→ queued 转

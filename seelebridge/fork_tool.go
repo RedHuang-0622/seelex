@@ -113,6 +113,23 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 		}
 	}
 
+	// 结果复用（省 token）：若所有子代理都命中「既有已完成 task + 子代理树
+	// 保留完整输出」（典型场景：结果返回失败——final_output 被截断或
+	// read_tool_result 失败——需要 retry），直接读回已保存输出并返回，
+	// 不再重新执行。只有全部命中才短路；部分命中仍整体重跑，避免 DAG
+	// 出现混合状态（保守策略，README 注明）。
+	if summaries, ok := r.reusableForkSummaries(input.Subagents); ok {
+		for _, spec := range input.Subagents {
+			if taskID := taskBindings[spec.ID]; taskID != "" {
+				// bindSubagentTask 已把终态 task 置 retry（RetryCount 自增）；
+				// 复用成功 → 置回 completed，计数保留（worktable 显示
+				// DONE，retry_count 保留，未读签名变化）。
+				_, _ = r.TaskSetStatus(taskID, TaskCompleted, "fork reused stored output")
+			}
+		}
+		return r.forkReuseResultJSON(input.Subagents, summaries)
+	}
+
 	loaded, err := r.buildForkPlan(input, taskBindings)
 	if err != nil {
 		return "", err
@@ -138,6 +155,55 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 	return r.runPlan(forkCtx, loaded, false)
 }
 
+// reusableForkSummaries 检查每个 spec 是否可复用已保存输出：goal 命中的
+// 既有 task 已完成，且子代理树仍保留该节点的完整输出。全部命中才返回
+// (摘要表, true)；任一缺失返回 (nil, false)。
+func (r *Runtime) reusableForkSummaries(specs []forkSubagentSpec) (map[string]string, bool) {
+	if r == nil || len(specs) == 0 {
+		return nil, false
+	}
+	summaries := make(map[string]string, len(specs))
+	for _, spec := range specs {
+		if _, found, _ := r.ResolveTaskByKey(taskKeyForGoal(spec.Goal)); !found {
+			return nil, false
+		}
+		if summary := r.subagentTree.summaryFor(spec.ID); summary == "" {
+			return nil, false
+		} else {
+			summaries[spec.ID] = summary
+		}
+	}
+	return summaries, true
+}
+
+// forkReuseResultJSON 构造复用结果的 JSON（与 planRunResultJSON 外形一致：
+// status/node_count/final_output；标记 reused=true 供审计，不计入重跑）。
+func (r *Runtime) forkReuseResultJSON(specs []forkSubagentSpec, summaries map[string]string) (string, error) {
+	var builder strings.Builder
+	builder.WriteString("子代理完成情况（复用上次已保存输出，未重新执行）:\n")
+	for _, spec := range specs {
+		builder.WriteString("- ")
+		builder.WriteString(spec.ID)
+		builder.WriteString(": ")
+		summary := strings.TrimSpace(summaries[spec.ID])
+		if summary == "" {
+			builder.WriteString("(无输出)\n")
+			continue
+		}
+		builder.WriteString(strings.ReplaceAll(summary, "\n", "\n  "))
+		builder.WriteByte('\n')
+	}
+	builder.WriteString("（输出来自子代理树已保存证据；如需更早版本请清理子代理树后重跑）")
+	payload := map[string]any{
+		"status":       "completed",
+		"node_count":   len(specs),
+		"final_output": builder.String(),
+		"reused":       true,
+	}
+	encoded, err := json.Marshal(payload)
+	return string(encoded), err
+}
+
 // buildForkPlan 程序化构造 fork DAG：
 //
 //	start(auto) ──→ s1(agent) ──┐
@@ -152,9 +218,19 @@ func (r *Runtime) bindSubagentTask(spec forkSubagentSpec) string {
 	key := taskKeyForGoal(spec.Goal)
 	if existing, found, _ := r.ResolveTaskByKey(key); found {
 		_, _ = r.TaskAttachParticipant(existing.ID, spec.ID)
-		// 既有 task 被该子代理接手：先排队（B5 生命周期打点；节点真正
-		// 启动时才置 running——避免还没执行的子代理提前显示 running）。
-		_, _ = r.TaskSetStatus(existing.ID, TaskQueued, "fork scheduled")
+		// 既有 task 被该子代理重新接手：
+		//   - 终态（completed/failed）→ 重试语义：置 retry（RetryCount
+		//     自增，worktable 显示 RETRY n），节点真正启动时再转 running；
+		//   - 已在 retry/running/doing → 保持现状（不降级）；
+		//   - 其余（pending/queued）→ 排队（B5 生命周期打点）。
+		switch existing.Status {
+		case TaskCompleted, TaskFailed:
+			_, _ = r.TaskSetStatus(existing.ID, TaskRetry, "fork retried")
+		case TaskRetry, TaskRunning, TaskDoing:
+			// 保持当前状态（retry 保留计数；running 不允许回退）。
+		default:
+			_, _ = r.TaskSetStatus(existing.ID, TaskQueued, "fork scheduled")
+		}
 		return existing.ID
 	}
 	created, _, err := r.TaskAdd(TaskSpec{

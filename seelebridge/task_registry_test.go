@@ -183,6 +183,82 @@ func TestTaskRegistryRetryIncrementsCount(t *testing.T) {
 	}
 }
 
+// TestTaskRegistryTerminalReopensToRetry 验证终态（completed/failed）可重开为
+// retry（RetryCount 自增），但不可回退到其他状态；retry 不可回退 queued。
+func TestTaskRegistryTerminalReopensToRetry(t *testing.T) {
+	registry := newTaskRegistry()
+	defer registry.Close()
+	task, created, err := registry.Add(TaskSpec{Key: "k1", Phase: "plan", Task: "t", Kind: "plan"})
+	if err != nil || !created {
+		t.Fatal(err)
+	}
+
+	// completed → retry 允许（重试语义）。
+	if _, err := registry.SetStatus(task.ID, TaskCompleted, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.SetStatus(task.ID, TaskRetry, "retried after done"); err != nil {
+		t.Fatalf("completed -> retry must be allowed: %v", err)
+	}
+	// retry → running 允许（真正重跑），计数保留。
+	if _, err := registry.SetStatus(task.ID, TaskRunning, "retry run"); err != nil {
+		t.Fatal(err)
+	}
+	// running 中失败 → retry（计数自增）→ running。
+	if _, err := registry.SetStatus(task.ID, TaskRetry, "second failure"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.SetStatus(task.ID, TaskRunning, "second run"); err != nil {
+		t.Fatal(err)
+	}
+	// running → queued 必须拒绝（回归保护）。
+	if _, err := registry.SetStatus(task.ID, TaskQueued, "regress"); err == nil {
+		t.Fatal("running -> queued must be rejected")
+	}
+	// retry → queued 必须拒绝（避免 re-fork 覆盖重试计数）。
+	if _, err := registry.SetStatus(task.ID, TaskRetry, "retry again"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.SetStatus(task.ID, TaskQueued, "regress from retry"); err == nil {
+		t.Fatal("retry -> queued must be rejected")
+	}
+
+	records := registry.Snapshot()
+	var record TaskRecord
+	for _, candidate := range records {
+		if candidate.ID == task.ID {
+			record = candidate
+		}
+	}
+	if record.RetryCount != 3 || record.Status != TaskRetry {
+		t.Fatalf("retry record = %+v, want retry_count=3 retry", record)
+	}
+}
+
+// TestTaskRegistryFailedReopensToRetry 验证 failed → retry 允许、failed →
+// 其他状态仍拒绝。
+func TestTaskRegistryFailedReopensToRetry(t *testing.T) {
+	registry := newTaskRegistry()
+	defer registry.Close()
+	task, created, err := registry.Add(TaskSpec{Key: "k2", Phase: "plan", Task: "t", Kind: "plan"})
+	if err != nil || !created {
+		t.Fatal(err)
+	}
+	if _, err := registry.SetStatus(task.ID, TaskFailed, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.SetStatus(task.ID, TaskQueued, "regress"); err == nil {
+		t.Fatal("failed -> queued must be rejected")
+	}
+	if _, err := registry.SetStatus(task.ID, TaskRetry, "retry"); err != nil {
+		t.Fatalf("failed -> retry must be allowed: %v", err)
+	}
+	record, ok, resolveErr := registry.ResolveByKey("k2")
+	if resolveErr != nil || !ok || record.Status != TaskRetry || record.RetryCount != 1 {
+		t.Fatalf("retry record = %+v", record)
+	}
+}
+
 // TestTaskRegistryEmitChangeNeverBlocksActor 死锁回归：changes channel 被
 // 消费者停摆占满时，注册表 actor 不得阻塞（非阻塞丢弃 + 计数）——否则会
 // 形成“service.mu → 子代理会话锁 → actor → channel”环路死锁，子代理全部

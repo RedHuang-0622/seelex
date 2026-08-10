@@ -65,7 +65,15 @@ Dependency/附件），并把任务打点（trace）带进同一数据面。右�
 ### retry（B3）
 
 `status=retry` 时 `RetryCount` 自增，重跑 `running` 保留计数；前端展示
-`RETRY n`；`task.changed` 携带最新 retry_count。
+`RETRY n`；`task.changed` 携带最新 retry_count。重试状态由
+`seelebridge` 生命周期写入：`fork_subagents` 重新命中既有 task（同 goal）
+时，终态（completed/failed）重开为 `retry`，节点真正启动时转 `running`
+（计数保留）；转换约束允许终态 → retry、禁止 retry 回退 queued/pending。
+
+结果返回失败需要重试时（`final_output` 被截断 / `read_tool_result` 失败），
+`fork_subagents` 先检查子代理树是否保留完整输出：全部命中则直接读回已保存
+输出返回（`reused:true`，task 经 retry 计数后回到 completed），不再重新
+执行——省 token；未命中才真正重跑。
 
 ### 持久化（T4）
 

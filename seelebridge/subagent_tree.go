@@ -296,6 +296,23 @@ func (s *subagentTreeState) clear() error {
 	return nil
 }
 
+// summaryFor 返回节点最后一次完成的输出摘要（复用判据：子代理跑完但外层
+// 结果返回失败（final_output 被截断 / read_tool_result 失败）时，retry
+// 可以直接读回已保存输出，避免重跑消耗 token）。仅 done 节点且摘要非空
+// 才算可复用；failed/queued/running 无完整输出 → 空串。
+func (s *subagentTreeState) summaryFor(nodeID string) string {
+	if s == nil || nodeID == "" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record := s.nodes[nodeID]
+	if record == nil || record.status != SubAgentDone || record.summary == "" {
+		return ""
+	}
+	return record.summary
+}
+
 // ClearSubagentTree 清空子代理树（GUI「清空」按钮入口）。失败节点（树里
 // 唯一会长期驻留的节点）由用户显式清走；详情数据面不受影响。
 func (r *Runtime) ClearSubagentTree() error {

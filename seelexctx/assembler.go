@@ -78,7 +78,7 @@ func (a seelexAssembler) Assemble(ctx context.Context, request seelectx.Assembly
 
 	// 4. 记忆块（按当前查询从历史压缩段选取；超长会话的相关记忆注入）。
 	if a.options.Memories != nil {
-		blocks = append(blocks, a.options.Memories(ctx, lastUserQuery(request.WorkingHistory))...)
+		blocks = append(blocks, a.options.Memories(ctx, LastUserQuery(request.WorkingHistory))...)
 	}
 
 	// 5. 调用方静态块（plan authority / task checkpoint / evidence）。
@@ -131,9 +131,9 @@ func (a seelexAssembler) stackBlocks() []seelectx.PromptBlock {
 	return a.options.StackBlocks()
 }
 
-// lastUserQuery 提取 WorkingHistory 中最后一条非控制块 user 消息作为
+// LastUserQuery 提取 WorkingHistory 中最后一条非控制块 user 消息作为
 // 记忆选取查询（窗口外记忆按它判断相关性；无 → 空串不选取）。
-func lastUserQuery(history []types.Message) string {
+func LastUserQuery(history []types.Message) string {
 	for index := len(history) - 1; index >= 0; index-- {
 		message := history[index]
 		if message.Role != "user" || message.Content == nil {

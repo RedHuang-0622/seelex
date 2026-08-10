@@ -84,6 +84,26 @@ AccountID 直接 pin，不占用主链路租约。节点执行事实经 `event.S
 
 summary 当前按节点 ID 拼接前驱输出并写入 `final_output`。它适合小型、结构化交付，不是无界 transcript 传输通道：大结果可能超过 provider 的单条上下文预算。调用方必须将“结果被省略/过大”视为未读取的证据，并通过可分页的结果引用或节点详情读取原文；在可靠的有界摘要与引用映射完成前，不能凭外层结果声称已审查完整子代理产出。
 
+### 子代理上下文继承与重试复用
+
+**上下文继承（缓存友好）**：节点子代理会话经 `nodeScopeAssembler` 合并节点
+块（charter/skills）外，还继承主代理的稳定上下文块——project（项目语义）、
+stack（now using 栈顶）与按当前查询召回的 memory——插在节点块之前。这些
+块在同一会话内内容稳定，模型请求前缀可命中 DeepSeek 硬盘缓存；同时子代理
+能读到主代理的项目知识/任务栈/相关记忆，不再只有 goal + 父证据。
+
+**重试状态（B3 生产者）**：`bindSubagentTask` 重新命中既有 task 时，终态
+（completed/failed）重开为 `retry`（`RetryCount` 自增，worktable 显示
+`RETRY n`），节点真正启动时再转 `running`（计数保留）。`validateTaskTransition`
+允许终态 → retry，禁止 retry → queued/pending（避免 re-fork 注册树节点时
+覆盖重试计数）。
+
+**结果复用（省 token）**：若结果返回失败需要重试（`final_output` 被截断或
+`read_tool_result` 失败），且全部子代理都命中“既有已完成 task + 子代理树
+保留完整输出”（`subagentTree.summaryFor`），`fork_subagents` 直接读回已保存
+输出返回（`reused:true`），不再重新执行；task 经 retry 计数后回到 completed。
+只有全部命中才短路；部分命中仍整体重跑（保守策略，避免 DAG 混合状态）。
+
 ## Effort PlanPolicy
 
 `Runtime.RegisterBuiltins` makes `plan_*` available at startup; Plan is not a standalone Plugin. For Medium, High, and Max, `PreparePlan` performs an isolated preflight request that forces `tool_choice=plan_load` before Application forwards the original request to ReAct. Before delegating `plan_load` to Seele, the bridge normalizes either the canonical object-keyed DAG or an LLM-friendly `nodes[]` / `edges[]` form into Seele's canonical JSON, then validates the current effort policy: Medium is a maximum four-node serial chain, High is capped at three concurrent branches, and Max permits every currently runnable node in the loaded plan to run concurrently.

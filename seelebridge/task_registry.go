@@ -384,16 +384,28 @@ func appendTaskTraceLocked(id string, point TaskTracePoint, state *taskRegistryS
 	return record.record, nil
 }
 
-// validateTaskTransition 状态单调迁移：终态（completed/failed）不可回退，
-// running/doing 不可退回 queued/pending；其余前向迁移允许。
+// validateTaskTransition 状态迁移：终态（completed/failed）只能重开为
+// retry（重试语义，RetryCount 自增），不允许退回其他状态；running/doing
+// 不可退回 queued/pending；retry 可前向回 running（保留计数）。其余
+// 前向迁移允许。
 func validateTaskTransition(current, next TaskStatus) error {
 	if current == next {
+		return nil
+	}
+	if (current == TaskCompleted || current == TaskFailed) && next == TaskRetry {
+		// 终态任务被重试：重开为 retry（RetryCount 自增），由调用方在
+		// 重跑开始时再置 running。
 		return nil
 	}
 	if current == TaskCompleted || current == TaskFailed {
 		return fmt.Errorf("task: %s is terminal and cannot transition to %s", current, next)
 	}
 	if (current == TaskRunning || current == TaskDoing) && (next == TaskPending || next == TaskQueued) {
+		return fmt.Errorf("task: cannot regress %s -> %s", current, next)
+	}
+	if current == TaskRetry && (next == TaskPending || next == TaskQueued) {
+		// retry 只能前进（running/completed/failed），不可回退排队——否则
+		// re-fork 注册树节点（queued）会把重试计数覆盖掉。
 		return fmt.Errorf("task: cannot regress %s -> %s", current, next)
 	}
 	return nil

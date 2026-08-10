@@ -16,6 +16,8 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
+
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // ── NodeScope 上下文助手 ─────────────────────────────────────────────
@@ -184,6 +186,59 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	}
 	if text := joinMessageContents(assembledNoEvidence.Messages); strings.Contains(text, "## 继承上下文") {
 		t.Errorf("evidence block must be absent without parent evidence:\n%s", text)
+	}
+}
+
+// TestNodeScopeAssemblerInheritsStableContextBlocks 验证子代理会话继承主代理
+// 的稳定上下文块：project 块（项目语义）插在节点 charter 之前，内容一致
+// 且可被同会话后续请求复用（缓存前缀稳定）；未装配提供者时不注入空块。
+func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
+	runtime.SetProjectKnowledgeProvider(func() *sessionstore.ProjectRecord {
+		return &sessionstore.ProjectRecord{
+			Version: "v1",
+			Modules: []sessionstore.ModuleSemantics{
+				{Name: "billing", Summary: "payment subsystem", Path: "internal/billing"},
+			},
+		}
+	})
+
+	node := newSeelexAgentNode(codec.NodeSpec[SeelexNodeInput]{
+		ID:    "left",
+		Input: SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
+	}, runtime)
+	ctx := WithNodeScope(context.Background(), node.scope())
+	ctx = withNodePromptBlocks(ctx, node.blocks())
+
+	assembled, err := (nodeScopeAssembler{runtime: runtime}).Assemble(ctx, seelectx.AssemblyRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := assembled.Messages
+	text := joinMessageContents(messages)
+	for _, want := range []string{"## 项目模块语义", "billing", "payment subsystem", "# Role", "# Task"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("inherited request missing %q:\n%s", want, text)
+		}
+	}
+	// project 块必须位于节点 charter（# Role）之前：稳定前缀在前，动态
+	// 节点块在后，同一会话内前缀稳定可命中缓存。
+	projectAt := strings.Index(text, "## 项目模块语义")
+	roleAt := strings.Index(text, "# Role")
+	if projectAt < 0 || roleAt < 0 || projectAt > roleAt {
+		t.Errorf("project block must precede node charter (project=%d role=%d):\n%s", projectAt, roleAt, text)
+	}
+
+	// 未装配 project 提供者 → 不注入空块，请求仍正常。
+	runtime.SetProjectKnowledgeProvider(nil)
+	assembledNone, err := (nodeScopeAssembler{runtime: runtime}).Assemble(ctx, seelectx.AssemblyRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := joinMessageContents(assembledNone.Messages); strings.Contains(text, "## 项目模块语义") {
+		t.Errorf("project block must be absent without provider:\n%s", text)
 	}
 }
 
