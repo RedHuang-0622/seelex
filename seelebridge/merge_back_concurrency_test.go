@@ -110,22 +110,23 @@ func TestMergeBackIntoParentAccumulates(t *testing.T) {
 // TestMergeBackMailboxOverflowPreserved 验证 A 修复：channel 满时 merge-back
 // 转入 overflow 队列，Drain 后全部回收（内容不丢，计数仅作诊断）。
 func TestMergeBackMailboxOverflowPreserved(t *testing.T) {
-	runtime := &Runtime{subagentMailbox: make(chan string, 2)}
+	actor := newSubagentContextActor(nil, 2) // 小 soft cap：触发 overflow 计数但内容保留
+	defer actor.Close()
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			runtime.enqueueSubagentContext(strings.Repeat("finding-", 20) + string(rune('a'+index)))
+			actor.Enqueue(strings.Repeat("finding-", 20) + string(rune('a'+index)))
 		}(i)
 	}
 	wg.Wait()
 
-	overflowed := runtime.subagentContextDropped()
+	overflowed := actor.Overflow()
 	if overflowed == 0 {
 		t.Fatal("expected overflow counter to observe the full mailbox")
 	}
-	kept := runtime.DrainSubagentContexts()
+	kept := actor.Drain()
 	if len(kept) != 8 {
 		t.Fatalf("mailbox must preserve all 8 merge-back messages (channel + overflow), got %d", len(kept))
 	}
@@ -144,9 +145,6 @@ func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
 		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
 	})
-	// 缩容 mailbox 模拟高并发 fork（cap=2，5 个子代理并发完成）。
-	runtime.subagentMailbox = make(chan string, 2)
-
 	const subagents = 5
 	for i := 0; i < subagents; i++ {
 		mustRegisterAccount(t, runtime, "agent-"+string(rune('a'+i)),
@@ -189,17 +187,22 @@ func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
 
 // 确保 mailbox 满时生产者不会阻塞（原有保证），供并发回归基线。
 func TestMergeBackMailboxNeverBlocksProducerRetained(t *testing.T) {
-	runtime := &Runtime{subagentMailbox: make(chan string, 1)}
-	runtime.enqueueSubagentContext("first")
+	actor := newSubagentContextActor(nil, 1)
+	defer actor.Close()
+	actor.Enqueue("first")
 	done := make(chan struct{})
 	go func() {
-		runtime.enqueueSubagentContext("dropped")
+		actor.Enqueue("overflowed")
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("full subagent mailbox blocked the producer")
+	}
+	items := actor.Drain()
+	if len(items) != 2 {
+		t.Fatalf("mailbox must preserve both messages, got %d: %#v", len(items), items)
 	}
 }
 

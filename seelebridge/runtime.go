@@ -95,12 +95,10 @@ type Runtime struct {
 	approvalGateMu       sync.RWMutex
 	approvalGate         approve.ApprovalGate
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
-	parentEvidence       atomic.Pointer[snapshot.ContextSnapshot]
-	parentEvidenceMu     sync.Mutex // 串行化「读-合并-写回」，避免并发子代理互相覆盖
-	subagentMailbox      chan string
-	subagentOverflowMu   sync.Mutex
-	subagentOverflow     []string // channel 满时兜底队列（不丢，Drain 时合并回收）
-	subagentDropped      atomic.Int64
+	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
+	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
+	// 串行处理），替代原来的 parentEvidenceMu / subagentOverflowMu 两把锁。
+	subagentContext *subagentContextActor
 	nodeStartedMu        sync.Mutex
 	nodeStarted          map[string]struct{}
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
@@ -205,10 +203,6 @@ type Tool struct {
 }
 
 func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
-	mailboxSize := cfg.SubagentMailboxSize
-	if mailboxSize <= 0 {
-		mailboxSize = 64
-	}
 	planDecisionTimeout := cfg.PlanDecisionTimeout
 	if planDecisionTimeout <= 0 {
 		planDecisionTimeout = time.Duration(cfg.Limits.WithDefaults().PlanDecisionTimeoutSec) * time.Second
@@ -285,7 +279,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		nodeContextSnapshots: make(map[string]*snapshot.ContextSnapshot),
 		nodeToolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
 		subagentTree:         newSubagentTreeState(),
-		subagentMailbox:      make(chan string, mailboxSize),
+		subagentContext:      newSubagentContextActor(tracer),
 		nodeStarted:          make(map[string]struct{}),
 
 		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
@@ -463,6 +457,10 @@ func (r *Runtime) Shutdown() {
 	// todolist mailbox actor 优雅停机（Stop 消费者 goroutine，避免泄漏）。
 	if r.tasks != nil {
 		r.tasks.Close()
+	}
+	// 子代理上下文 actor 优雅停机（父证据/merge-back 队列；幂等）。
+	if r.subagentContext != nil {
+		r.subagentContext.Close()
 	}
 	// 定时周期任务优雅停机：停 ticker + 取消运行中任务并等待退出。
 	if r.scheduler != nil {

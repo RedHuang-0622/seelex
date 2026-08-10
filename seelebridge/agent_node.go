@@ -518,14 +518,15 @@ func (r *Runtime) nodeBudget(input SeelexNodeInput) nodeBudgetInfo {
 	return budget
 }
 
-// nodeParentEvidence returns a copy of Runtime's cached parent evidence. It
-// never crosses back into Application or the main session while ChatStream is
-// holding the framework session lock.
+// nodeParentEvidence returns a copy of Runtime's cached parent evidence from
+// the subagentContext actor's lock-free read surface. It never crosses back
+// into Application or the main session while ChatStream is holding the
+// framework session lock.
 func (r *Runtime) nodeParentEvidence() *snapshot.ContextSnapshot {
 	if r == nil {
 		return nil
 	}
-	return cloneContextSnapshot(r.parentEvidence.Load())
+	return r.subagentContext.nodeParentEvidence()
 }
 
 func stringPtr(value string) *string { return &value }

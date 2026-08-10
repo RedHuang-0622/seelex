@@ -10,15 +10,18 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 )
 
-// TestSubAgentMailboxOverflowPreservesMessages 验证 A 修复：channel 满时
-// merge-back 转入 overflow 队列，Drain 全部回收，不静默丢弃（修复前直接
+// TestSubAgentMailboxOverflowPreservesMessages 验证 A 修复：merge-back 队列
+// 永不静默丢弃——连续写入多条后 Drain 全部回收（修复前 channel 满直接
 // drop + 计数，导致子代理合并结果丢失）。
 func TestSubAgentMailboxOverflowPreservesMessages(t *testing.T) {
-	runtime := &Runtime{subagentMailbox: make(chan string, 1)}
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
 	runtime.enqueueSubagentContext("first")
+	runtime.enqueueSubagentContext("second")
+	runtime.enqueueSubagentContext("third")
 	done := make(chan struct{})
 	go func() {
-		runtime.enqueueSubagentContext("overflowed")
+		runtime.enqueueSubagentContext("fourth")
 		close(done)
 	}()
 	select {
@@ -26,13 +29,9 @@ func TestSubAgentMailboxOverflowPreservesMessages(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("full subagent mailbox blocked the producer")
 	}
-	// overflow 计数可观测（诊断），但内容不能丢。
-	if got := runtime.subagentContextDropped(); got != 1 {
-		t.Fatalf("overflow merge-backs = %d, want 1", got)
-	}
 	items := runtime.DrainSubagentContexts()
-	if len(items) != 2 || items[0] != "first" || items[1] != "overflowed" {
-		t.Fatalf("mailbox must preserve both messages (channel + overflow), got %#v", items)
+	if len(items) != 4 {
+		t.Fatalf("mailbox must preserve all merge-back messages, got %d: %#v", len(items), items)
 	}
 }
 
