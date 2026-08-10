@@ -2,8 +2,10 @@ package seelebridge
 
 import (
 	"strings"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/merger"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -65,22 +67,29 @@ func (r *Runtime) SetParentEvidenceProjection(projection ParentEvidenceProjectio
 }
 
 // enqueueSubagentContext is the subagent-to-main nonblocking mailbox write.
-// A full mailbox never blocks a subagent; the bounded drop count is observable
-// for diagnostics and prevents a stalled main session from exhausting memory.
+// A full channel never blocks or drops a subagent: the message falls back to
+// the mutex-protected overflow queue and is recovered on Drain. The overflow
+// count is observable for diagnostics; merge-back results are never silently
+// lost (2026-08-10: mailbox overflow previously dropped child context, which
+// produced "subagent merged but parent received nothing" symptoms).
 func (r *Runtime) enqueueSubagentContext(content string) {
 	if r == nil || strings.TrimSpace(content) == "" {
 		return
 	}
 	select {
 	case r.subagentMailbox <- content:
+		return
 	default:
-		r.subagentDropped.Add(1)
 	}
+	r.subagentOverflowMu.Lock()
+	r.subagentOverflow = append(r.subagentOverflow, content)
+	r.subagentOverflowMu.Unlock()
+	r.subagentDropped.Add(1)
 }
 
-// DrainSubagentContexts returns all currently queued merge-back messages. It
-// never waits for a producer or Application lock and is called before a main
-// ChatStream starts.
+// DrainSubagentContexts returns all currently queued merge-back messages
+// (channel first, then overflow queue). It never waits for a producer or
+// Application lock and is called before a main ChatStream starts.
 func (r *Runtime) DrainSubagentContexts() []string {
 	if r == nil {
 		return nil
@@ -91,9 +100,22 @@ func (r *Runtime) DrainSubagentContexts() []string {
 		case content := <-r.subagentMailbox:
 			items = append(items, content)
 		default:
+			items = append(items, r.drainSubagentOverflow()...)
 			return items
 		}
 	}
+}
+
+// drainSubagentOverflow atomically drains the fallback queue.
+func (r *Runtime) drainSubagentOverflow() []string {
+	if r == nil {
+		return nil
+	}
+	r.subagentOverflowMu.Lock()
+	defer r.subagentOverflowMu.Unlock()
+	items := r.subagentOverflow
+	r.subagentOverflow = nil
+	return items
 }
 
 func (r *Runtime) subagentContextDropped() int64 {
@@ -101,6 +123,31 @@ func (r *Runtime) subagentContextDropped() int64 {
 		return 0
 	}
 	return r.subagentDropped.Load()
+}
+
+// mergeBackIntoParent 把子代理快照合并进 Runtime 持有的父证据，并把合并
+// 结果原子写回 parentEvidence（后续子代理/嵌套 fork 因此能看到先前子代理
+// 的 Findings/Decisions——合并累积）。parentEvidenceMu 串行化「读-合并-写回」，
+// 防止并发子代理各自基于旧快照合并后互相覆盖（2026-08-10 B 修复）。
+// 返回合并后的快照（调用方可 Format 后入 mailbox 供主会话注入）。
+func (r *Runtime) mergeBackIntoParent(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot {
+	if r == nil || child == nil {
+		return nil
+	}
+	r.parentEvidenceMu.Lock()
+	defer r.parentEvidenceMu.Unlock()
+	parent := r.nodeParentEvidence()
+	if parent == nil {
+		parent = &snapshot.ContextSnapshot{
+			SourceSessionID: child.SourceSessionID,
+			ExportedAt:      time.Now(),
+		}
+	}
+	if err := merger.NewMerger().MergeBack(parent, child); err != nil {
+		return parent
+	}
+	r.parentEvidence.Store(parent)
+	return parent
 }
 
 func cloneContextSnapshot(source *snapshot.ContextSnapshot) *snapshot.ContextSnapshot {

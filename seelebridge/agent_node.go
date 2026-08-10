@@ -16,7 +16,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/merger"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -207,9 +206,11 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 	// 子代理树终态投影：成功 → done + 会话摘要；失败 → failed + 错误。
 	// 非 fork 节点无树记录，no-op。
 	n.runtime.completeSubagentNode(n.ID(), result, err)
-	if err == nil {
-		n.mergeBack(ctx, agent, n.input.Input)
-	}
+	// merge-back 不因 Chat 失败/超时而跳过：子代理在超时前可能已积累
+	// Findings/Decisions（长时间静置场景），整块丢弃会造成「子代理跑完
+	// 但父侧无产出」。合并本身幂等——失败时快照可能为空，merger 只保留
+	// 父证据，无害（2026-08-10 C 修复）。
+	n.mergeBack(ctx, agent, n.input.Input)
 	// 4) worktree 生命周期（收尾）：变基兜底 → 合并审批 → merge → 清理。
 	//    成功路径清理；失败路径保留现场（节点 failed 时主代理可查）。
 	if wt != nil {
@@ -235,6 +236,7 @@ func (r *Runtime) appendNodePhase(ctx context.Context, nodeID, status string) {
 
 // mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/
 // TokenEstimate）合并回父会话：子快照 + 父快照 → merger.MergeBack →
+// 合并结果写回 parentEvidence（后续子代理/嵌套 fork 可累积看到）→
 // Format() 文本经 sink 回传（application 侧排队，下一次 ChatStream 开始前
 // 注入父会话）。
 //
@@ -248,14 +250,11 @@ func (n *SeelexAgentNode) mergeBack(ctx context.Context, agent node.Agent, goal 
 		return
 	}
 	child := seelexctx.ExportSnapshot(childSession, n.traceSource(), goal)
-	parent := n.parentSnapshot()
-	if parent == nil {
-		parent = &snapshot.ContextSnapshot{SourceSessionID: childSession.SessionID(), ExportedAt: now()}
-	}
-	if err := merger.NewMerger().MergeBack(parent, child); err != nil {
+	merged := n.runtime.mergeBackIntoParent(child)
+	if merged == nil {
 		return
 	}
-	content := parent.Format()
+	content := merged.Format()
 	if sink := n.mergeBackSink(); sink != nil {
 		sink(content)
 	}

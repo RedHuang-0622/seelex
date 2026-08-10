@@ -96,7 +96,10 @@ type Runtime struct {
 	approvalGate         approve.ApprovalGate
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
 	parentEvidence       atomic.Pointer[snapshot.ContextSnapshot]
+	parentEvidenceMu     sync.Mutex // 串行化「读-合并-写回」，避免并发子代理互相覆盖
 	subagentMailbox      chan string
+	subagentOverflowMu   sync.Mutex
+	subagentOverflow     []string // channel 满时兜底队列（不丢，Drain 时合并回收）
 	subagentDropped      atomic.Int64
 	nodeStartedMu        sync.Mutex
 	nodeStarted          map[string]struct{}
