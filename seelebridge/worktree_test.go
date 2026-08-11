@@ -61,9 +61,9 @@ func TestWorktreeLifecycleCreateAndClean(t *testing.T) {
 	}
 
 	// 节点结束后注册表清空、无残留 worktree 目录。
-	runtime.wt.mu.Lock()
-	left := len(runtime.wt.worktrees)
-	runtime.wt.mu.Unlock()
+	runtime.worktreeMgr.mu.Lock()
+	left := len(runtime.worktreeMgr.worktrees)
+	runtime.worktreeMgr.mu.Unlock()
 	if left != 0 {
 		t.Fatalf("worktree registry not cleaned: %d entries", left)
 	}

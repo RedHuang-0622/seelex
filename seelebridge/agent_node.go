@@ -61,10 +61,7 @@ func newSeelexAgentNode(spec codec.NodeSpec[SeelexNodeInput], runtime *Runtime) 
 // goal 是节点目标（节点输入），NodeContextSnapshot 导出时复用。
 // 同步把会话挂到子代理树记录上（fork 节点；非 fork 节点无记录则忽略）。
 func (r *Runtime) registerNodeSession(nodeID string, sess *frameworkSession.Session, goal string) {
-	r.nodeSessionsMu.Lock()
-	r.nodeSessions[nodeID] = sess
-	r.nodeGoals[nodeID] = goal
-	r.nodeSessionsMu.Unlock()
+	r.subagentSessions.Register(nodeID, sess, goal)
 	r.subagentTree.noteSession(nodeID, sess)
 }
 
@@ -90,39 +87,20 @@ func (r *Runtime) completeSubagentNode(nodeID, summary string, err error) {
 // 同时导出结束时的结构化上下文快照（Findings/Decisions/TokenEstimate，
 // 与 mergeBack 同一导出面；运行中的实时导出见 NodeContextSnapshot）。
 func (r *Runtime) unregisterNodeSession(nodeID string) {
-	r.nodeSessionsMu.Lock()
-	sess := r.nodeSessions[nodeID]
-	delete(r.nodeSessions, nodeID)
-	goal := r.nodeGoals[nodeID]
-	r.nodeSessionsMu.Unlock()
-	if sess == nil {
-		return
-	}
-	history := sess.History()
-	if snap := seelexctx.ExportSnapshot(sess, r.Tracer(), goal); snap != nil {
-		r.nodeSessionsMu.Lock()
-		r.nodeContextSnapshots[nodeID] = snap
-		r.nodeSessionsMu.Unlock()
+	if snap := r.subagentSessions.Unregister(nodeID); snap != nil {
 		// 子代理树：结束后快照挂到树节点（投影零额外导出）。
 		r.subagentTree.noteSnapshot(nodeID, snap)
 	}
-	r.nodeSessionsMu.Lock()
-	r.nodeSnapshots[nodeID] = history
-	r.nodeSessionsMu.Unlock()
 }
 
 // NodeSessionConversation 返回节点子代理的会话记录：
 // 运行中 → 子会话 History（实时）；已结束 → 最后快照。
 // 只读子代理 actor，绝不触碰主会话（死锁教训，见 actor.go）。
 func (r *Runtime) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
-	r.nodeSessionsMu.Lock()
-	sess := r.nodeSessions[nodeID]
-	snap, ok := r.nodeSnapshots[nodeID]
-	r.nodeSessionsMu.Unlock()
-	if sess != nil {
-		return sess.History(), true
+	if r == nil || r.subagentSessions == nil {
+		return nil, false
 	}
-	return snap, ok
+	return r.subagentSessions.Conversation(nodeID)
 }
 
 // NodeContextSnapshot 返回节点子代理的结构化上下文快照（详情弹窗
@@ -130,18 +108,10 @@ func (r *Runtime) NodeSessionConversation(nodeID string) ([]types.Message, bool)
 // TokenEstimate，同 mergeBack 导出面）；已结束返回结束时快照。
 // 只读子代理 actor，安全。
 func (r *Runtime) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
-	if r == nil {
+	if r == nil || r.subagentSessions == nil {
 		return nil, false
 	}
-	r.nodeSessionsMu.Lock()
-	sess := r.nodeSessions[nodeID]
-	snap := r.nodeContextSnapshots[nodeID]
-	goal := r.nodeGoals[nodeID]
-	r.nodeSessionsMu.Unlock()
-	if sess != nil {
-		return seelexctx.ExportSnapshot(sess, r.Tracer(), goal), true
-	}
-	return snap, snap != nil
+	return r.subagentSessions.ContextSnapshot(nodeID)
 }
 
 // parentSnapshot 返回 Runtime 自有父证据快照。

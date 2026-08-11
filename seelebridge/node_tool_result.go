@@ -10,7 +10,6 @@ package seelebridge
 
 import (
 	"context"
-	"strings"
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
@@ -42,29 +41,19 @@ func (a nodeToolResultArchiver) Store(ctx context.Context, callID, tool, raw str
 // nodeToolResultArchiverFor 返回节点专属归档器（惰性创建；同一节点跨
 // plan_run 复用，直到被下一次 fork 覆盖——与 nodeContextSnapshots 同生命周期）。
 func (r *Runtime) nodeToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver {
-	r.nodeSessionsMu.Lock()
-	defer r.nodeSessionsMu.Unlock()
-	arch := r.nodeToolArchivers[nodeID]
-	if arch == nil {
-		arch = seelexctx.NewInMemoryToolResultArchiver()
-		r.nodeToolArchivers[nodeID] = arch
+	if r == nil || r.subagentSessions == nil {
+		return nil
 	}
-	return arch
+	return r.subagentSessions.ToolResultArchiverFor(nodeID)
 }
 
 // NodeToolResult 读回节点子代理的工具结果原始内容（ref 必须带
 // node:<nodeID>: 前缀）。返回 (内容, 是否存在)。只读节点归档器，安全。
 func (r *Runtime) NodeToolResult(nodeID, ref string) (string, bool) {
-	if r == nil || nodeID == "" || ref == "" {
+	if r == nil || r.subagentSessions == nil || nodeID == "" || ref == "" {
 		return "", false
 	}
-	r.nodeSessionsMu.Lock()
-	arch := r.nodeToolArchivers[nodeID]
-	r.nodeSessionsMu.Unlock()
-	if arch == nil {
-		return "", false
-	}
-	return arch.Read(strings.TrimPrefix(ref, nodeResultRefPrefix+nodeID+":"))
+	return r.subagentSessions.ToolResult(nodeID, ref)
 }
 
 // NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面）：
@@ -79,12 +68,8 @@ type NodeWorktreeInfo struct {
 // 运行中返回当前 worktree；结束后成功路径已清理（false）；失败/被拒路径
 // 现场保留（true，Path 即恢复入口）。
 func (r *Runtime) NodeWorktreeInfoFor(nodeID string) (NodeWorktreeInfo, bool) {
-	if r == nil || nodeID == "" {
+	if r == nil || r.worktreeMgr == nil || nodeID == "" {
 		return NodeWorktreeInfo{}, false
 	}
-	wt := r.nodeWorktreeFor(nodeID)
-	if wt == nil {
-		return NodeWorktreeInfo{}, false
-	}
-	return NodeWorktreeInfo{Path: wt.Path, Branch: wt.Branch, MainBranch: wt.MainBranch}, true
+	return r.worktreeMgr.Info(nodeID)
 }

@@ -25,7 +25,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelexctx"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
 )
@@ -99,8 +98,8 @@ type Runtime struct {
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
 	// 串行处理），替代原来的 parentEvidenceMu / subagentOverflowMu 两把锁。
 	subagentContext *subagentContextActor
-	nodeStartedMu        sync.Mutex
-	nodeStarted          map[string]struct{}
+	nodeStartedMu   sync.Mutex
+	nodeStarted     map[string]struct{}
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
 	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
@@ -108,27 +107,18 @@ type Runtime struct {
 	selectedAccountID string
 	providerFilter    string
 	projectScope      *ProjectScope
-	filesystem        FileSystem      // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
-	sandbox           CommandSandbox  // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
-	dockerProbe       dockerProber    // docker 守护进程探测/启动（nil → 真实实现；测试注入）
-	wt                *worktreeState  // 子代理 worktree 注册表（worktree.go）
-	tasks             *taskRegistry   // task 注册表 actor（task_registry.go；todolist 融合为 kind=todo 的 task）
-	scheduler         *schedulerState // 定时周期任务 actor（scheduler.go）
+	filesystem        FileSystem       // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	sandbox           CommandSandbox   // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
+	dockerProbe       dockerProber     // docker 守护进程探测/启动（nil → 真实实现；测试注入）
+	worktreeMgr       *worktreeManager // 子代理 worktree 生命周期组件（worktree_manager.go）
+	tasks             *taskRegistry    // task 注册表 actor（task_registry.go；todolist 融合为 kind=todo 的 task）
+	scheduler         *schedulerState  // 定时周期任务 actor（scheduler.go）
 	toolEvents        *subagentToolEventState
 
-	// 子代理会话注册表（切片 8 详情查看数据面，docs/plan/subagent-detail-architecture.md）：
-	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照。
-	// nodeGoals/nodeContextSnapshots 支撑 NodeContextSnapshot（运行中实时导出 /
-	// 结束时快照，详情弹窗"上下文"标签数据面）。
-	// nodeToolArchivers 是节点专属工具结果归档器（P1 修读回断链：节点会话的
-	// result_ref 带 node:<nodeID>: 前缀，运行中/结束后均可经 NodeToolResult 读回；
-	// 内存态，与子代理树/上下文快照同生命周期）。
-	nodeSessionsMu       sync.Mutex
-	nodeSessions         map[string]*session.Session
-	nodeSnapshots        map[string][]types.Message
-	nodeGoals            map[string]string
-	nodeContextSnapshots map[string]*snapshot.ContextSnapshot
-	nodeToolArchivers    map[string]*seelexctx.InMemoryToolResultArchiver
+	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
+	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
+	// node:<nodeID>: 前缀工具结果归档器由组件托管，运行中/结束后均可读回。
+	subagentSessions *subagentSessions
 	// subagentTree 是 fork 子代理树注册表（内存态，不落盘）：fork 创建子代理
 	// 时记录 parent/child 链与节点状态/goal/会话摘要，GUI 树视图经
 	// Runtime.SubAgentTree() 读取（subagent_tree.go）。
@@ -250,43 +240,45 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		heartbeatInterval = time.Duration(cfg.Limits.WithDefaults().HeartbeatIntervalSec) * time.Second
 	}
 	r := &Runtime{
-		pool:                 pool,
-		model:                first.Model,
-		defaultAccountID:     first.Name,
-		accountLimits:        loaded.Limits,
-		accountSpecs:         specsByName,
-		MCPStack:             mcpstack.New(mcpStackOpts...),
-		projectScope:         NewProjectScope(),
-		filesystem:           NewFileSystemActor(),
-		sandbox:              newNativeProjectCWD(),
-		wt:                   newWorktreeState(),
-		tasks:                newTaskRegistry(),
-		scheduler:            newSchedulerState(),
-		toolEvents:           newSubagentToolEventState(),
-		toolCallTimeout:      cfg.ToolCallTimeout,
-		planDecisionTimeout:  planDecisionTimeout,
-		approvalTimeout:      approvalTimeout,
-		heartbeatInterval:    heartbeatInterval,
-		limits:               cfg.Limits.WithDefaults(),
-		replanGuard:          newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
-		pluginDefs:           make(map[string]pluginDef),
-		permission:           &permissionGateState{},
-		planEvents:           newPlanEventSink(),
-		planNodeEvents:       make(chan PlanNodeEvent, 256),
-		nodeSessions:         make(map[string]*session.Session),
-		nodeSnapshots:        make(map[string][]types.Message),
-		nodeGoals:            make(map[string]string),
-		nodeContextSnapshots: make(map[string]*snapshot.ContextSnapshot),
-		nodeToolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
-		subagentTree:         newSubagentTreeState(),
-		subagentContext:      newSubagentContextActor(tracer),
-		nodeStarted:          make(map[string]struct{}),
+		pool:                pool,
+		model:               first.Model,
+		defaultAccountID:    first.Name,
+		accountLimits:       loaded.Limits,
+		accountSpecs:        specsByName,
+		MCPStack:            mcpstack.New(mcpStackOpts...),
+		projectScope:        NewProjectScope(),
+		filesystem:          NewFileSystemActor(),
+		sandbox:             newNativeProjectCWD(),
+		tasks:               newTaskRegistry(),
+		scheduler:           newSchedulerState(),
+		toolEvents:          newSubagentToolEventState(),
+		toolCallTimeout:     cfg.ToolCallTimeout,
+		planDecisionTimeout: planDecisionTimeout,
+		approvalTimeout:     approvalTimeout,
+		heartbeatInterval:   heartbeatInterval,
+		limits:              cfg.Limits.WithDefaults(),
+		replanGuard:         newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
+		pluginDefs:          make(map[string]pluginDef),
+		permission:          &permissionGateState{},
+		planEvents:          newPlanEventSink(),
+		planNodeEvents:      make(chan PlanNodeEvent, 256),
+		subagentSessions:    newSubagentSessions(tracer),
+		subagentTree:        newSubagentTreeState(),
+		subagentContext:     newSubagentContextActor(tracer),
+		nodeStarted:         make(map[string]struct{}),
 
 		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
 		tracer:            tracer,
 		hook:              hook,
 		eventErrorHandler: func(_ context.Context, err error) { log.Printf("seelebridge: event sink: %v", err) },
 	}
+	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
+	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
+	r.worktreeMgr = newWorktreeManager(worktreeManagerDeps{
+		Root:  r.projectScope.Root,
+		Phase: r.appendNodePhase,
+		Gate:  r.currentApprovalGate,
+	})
 	// The wrapper is inert until the backend diagnostic observer is enabled.
 	// It brackets telemetry.After, the only framework boundary between a tool
 	// registry return and the application ToolHookBridge completion callback.
@@ -461,6 +453,12 @@ func (r *Runtime) Shutdown() {
 	// 子代理上下文 actor 优雅停机（父证据/merge-back 队列；幂等）。
 	if r.subagentContext != nil {
 		r.subagentContext.Close()
+	}
+	if r.subagentSessions != nil {
+		r.subagentSessions.Close()
+	}
+	if r.worktreeMgr != nil {
+		r.worktreeMgr.Close()
 	}
 	// 定时周期任务优雅停机：停 ticker + 取消运行中任务并等待退出。
 	if r.scheduler != nil {

@@ -28,16 +28,16 @@ import (
 type subagentContextActor struct {
 	cmd   chan subagentContextCmd
 	state atomic.Pointer[snapshot.ContextSnapshot] // 读取面（actor 写，外部无锁读）
-	trace provider.TraceSource                    // 投影时提取 Findings/Decisions（nil 降级）
+	trace provider.TraceSource                     // 投影时提取 Findings/Decisions（nil 降级）
 	// queueCap 是 merge-back 队列的 soft cap：超过后仅计数 overflow，
 	// 内容仍保留（不丢）；测试可注入小值触发溢出路径。
 	queueCap int
-	done  chan struct{}
-	once  sync.Once
-	wg    sync.WaitGroup
+	done     chan struct{}
+	once     sync.Once
+	wg       sync.WaitGroup
 
 	// 以下字段只在 actor goroutine 内访问。
-	queue    []string    // merge-back 文本队列（channel 语义；Drain 全量回收）
+	queue    []string     // merge-back 文本队列（channel 语义；Drain 全量回收）
 	overflow atomic.Int64 // 队列超容量的累计（诊断；内容仍保留在 queue）
 }
 
@@ -69,8 +69,8 @@ type subagentContextReply struct {
 }
 
 const (
-	subagentContextCmdCap    = 256
-	subagentContextQueueCap  = 4096
+	subagentContextCmdCap     = 256
+	subagentContextQueueCap   = 4096
 	subagentContextCmdTimeout = 10 * time.Second
 )
 
@@ -80,10 +80,10 @@ func newSubagentContextActor(trace provider.TraceSource, queueCap ...int) *subag
 		cap = queueCap[0]
 	}
 	actor := &subagentContextActor{
-		cmd:        make(chan subagentContextCmd, subagentContextCmdCap),
-		trace:      trace,
-		queueCap:   cap,
-		done:       make(chan struct{}),
+		cmd:      make(chan subagentContextCmd, subagentContextCmdCap),
+		trace:    trace,
+		queueCap: cap,
+		done:     make(chan struct{}),
 	}
 	actor.wg.Add(1)
 	go actor.run()
