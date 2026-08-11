@@ -195,13 +195,10 @@ func (n *SeelexAgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowCont
 }
 
 func (r *Runtime) appendNodePhase(ctx context.Context, nodeID, status string) {
-	if r == nil || r.planEvents == nil {
+	if r == nil || r.planExecutor == nil {
 		return
 	}
-	r.planRunMu.RLock()
-	runID := r.currentPlanRunID
-	r.planRunMu.RUnlock()
-	r.planEvents.AppendPhase(ctx, r.currentPlanBranchBinding(), runID, nodeID, status)
+	r.planExecutor.AppendPhase(ctx, nodeID, status)
 }
 
 // mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/

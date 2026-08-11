@@ -32,6 +32,13 @@ type ReplanRequest struct {
 // It only plans; it never invokes plan_run or retries side effects. The
 // existing plan_load handler still applies the current effort policy.
 func (r *Runtime) PrepareReplan(ctx context.Context, request ReplanRequest) (PlanPreflight, error) {
+	if r == nil || r.planExecutor == nil {
+		return PlanPreflight{}, fmt.Errorf("plan replan: plan executor is unavailable")
+	}
+	return r.planExecutor.PrepareReplan(ctx, request)
+}
+
+func (executor *planExecutor) PrepareReplan(ctx context.Context, request ReplanRequest) (PlanPreflight, error) {
 	if request.Objective == "" {
 		return PlanPreflight{}, fmt.Errorf("plan replan: objective is required")
 	}
@@ -44,11 +51,11 @@ func (r *Runtime) PrepareReplan(ctx context.Context, request ReplanRequest) (Pla
 	if idempotencyKey == "" {
 		idempotencyKey = replanOperationKey(request)
 	}
-	finish, err := r.replanGuard.acquire(idempotencyKey)
+	finish, err := executor.replan.acquire(idempotencyKey)
 	if err != nil {
 		return PlanPreflight{}, err
 	}
-	result, err := r.preparePlan(ctx, replanPrompt, context, "plan replan", true, r.replanGuard.acquireProviderRequest)
+	result, err := executor.preparePlan(ctx, replanPrompt, context, "plan replan", true, executor.replan.acquireProviderRequest)
 	finish(err)
 	return result, err
 }
@@ -59,12 +66,12 @@ func replanOperationKey(request ReplanRequest) string {
 	return fmt.Sprintf("replan-%x", sum[:])
 }
 
-func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) string, input, stage string, explicit bool, onProviderRequest func() error) (PlanPreflight, error) {
-	policy := r.currentPlanPolicy()
+func (executor *planExecutor) preparePlan(ctx context.Context, prompt func(PlanPolicy) string, input, stage string, explicit bool, onProviderRequest func() error) (PlanPreflight, error) {
+	policy := executor.Policy()
 	if !explicit {
 		return PlanPreflight{}, nil
 	}
-	tool, ok := r.planLoadDefinition()
+	tool, ok := executor.deps.loadPlanDefinition()
 	if !ok {
 		return PlanPreflight{}, fmt.Errorf("plan preflight: plan_load is not registered")
 	}
@@ -73,7 +80,7 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		lastErr                   error
 		planningRequiredByTimeout bool
 	)
-	for attempt := 0; attempt < r.limits.PreflightRetry; attempt++ {
+	for attempt := 0; attempt < executor.deps.limits.PreflightRetry; attempt++ {
 		if onProviderRequest != nil {
 			if err := onProviderRequest(); err != nil {
 				return PlanPreflight{}, fmt.Errorf("%s request: %w", stage, err)
@@ -95,9 +102,9 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		requestContext := ctx
 		cancelDecision := func() {}
 		if !explicit && attempt == 0 {
-			requestContext, cancelDecision = context.WithTimeout(ctx, r.planDecisionTimeout)
+			requestContext, cancelDecision = context.WithTimeout(ctx, executor.deps.planDecisionTimeout)
 		}
-		message, err, decisionTimedOut := r.completePlanPreflight(
+		message, err, decisionTimedOut := executor.completePlanPreflight(
 			ctx,
 			requestContext,
 			explicit,
@@ -109,7 +116,7 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 		cancelDecision()
 		if decisionTimedOut {
 			planningRequiredByTimeout = true
-			lastErr = fmt.Errorf("planning decision exceeded %s", r.planDecisionTimeout)
+			lastErr = fmt.Errorf("planning decision exceeded %s", executor.deps.planDecisionTimeout)
 			continue
 		}
 		if err != nil {
@@ -122,7 +129,7 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 				lastErr = fmt.Errorf("plan_load: normalize DAG input: %w", normalizeErr)
 				continue
 			}
-			result, dispatchErr := r.agt.DirectDispatch(ctx, "plan_load", canonicalArgs)
+			result, dispatchErr := executor.deps.dispatch(ctx, "plan_load", canonicalArgs)
 			if dispatchErr == nil {
 				return PlanPreflight{Arguments: canonicalArgs, Result: result}, nil
 			}
@@ -150,7 +157,7 @@ func (r *Runtime) preparePlan(ctx context.Context, prompt func(PlanPolicy) strin
 // of provider behavior. A provider may return an invalid or empty response
 // after its request context has expired; that response must not bypass the
 // prompt-directed plan_load fallback.
-func (r *Runtime) completePlanPreflight(
+func (executor *planExecutor) completePlanPreflight(
 	parentCtx, requestCtx context.Context,
 	explicit bool,
 	attempt int,
@@ -158,7 +165,7 @@ func (r *Runtime) completePlanPreflight(
 	tool types.Tool,
 ) (types.Message, error, bool) {
 	complete := func() (types.Message, error) {
-		return r.planPreflightClient().Complete(requestCtx, []types.Message{
+		return executor.planPreflightClient().Complete(requestCtx, []types.Message{
 			{Role: "system", Content: stringPointer(systemPrompt)},
 			{Role: "user", Content: stringPointer(input)},
 		}, []types.Tool{tool})
@@ -204,24 +211,16 @@ func retryablePlanLoadError(err error) bool {
 	return strings.HasPrefix(message, "plan_load:") || strings.HasPrefix(message, "plan policy ")
 }
 
-func (r *Runtime) planLoadDefinition() (types.Tool, bool) {
-	if r.registry == nil || r.registry.registry == nil {
-		return types.Tool{}, false
-	}
-	for _, tool := range r.registry.registry.Tools() {
-		if tool.Function.Name == "plan_load" {
-			return tool, true
-		}
-	}
-	return types.Tool{}, false
+func (executor *planExecutor) planLoadDefinition() (types.Tool, bool) {
+	return executor.deps.loadPlanDefinition()
 }
 
 // planPreflightClient 构造隔离的规划回合 Completer 实例（plan.md §3.6）：
 // 每次调用创建独立 api.ChatClient，不参与共享账号池与选择器（无账号选择
 // 副作用、不消耗主链路租约），规划会话不暴露任何工具（只传 plan_load 定义）。
 // 不做 tool_choice 强制（thinking 模型平台拒绝；强制 transport 已移除）。
-func (r *Runtime) planPreflightClient() *api.ChatClient {
-	spec := r.resolvePreflightAccountSpec()
+func (executor *planExecutor) planPreflightClient() *api.ChatClient {
+	spec := executor.resolvePreflightAccountSpec()
 	client := api.NewChatClient(types.LLMConfig{
 		BaseURL: spec.BaseURL, APIKey: spec.APIKey, Model: spec.Model,
 		MaxTokens: spec.MaxTokens, Timeout: 300, Temperature: 0.7,
@@ -233,8 +232,8 @@ func (r *Runtime) planPreflightClient() *api.ChatClient {
 
 // resolvePreflightAccountSpec 选择规划回合的账号：优先 subagent 角色，
 // 未配置时回退主 agent 角色（与旧 ResolveAccount 的 fallbackRoles 一致）。
-func (r *Runtime) resolvePreflightAccountSpec() accountSpec {
-	specs := r.accountSpecList()
+func (executor *planExecutor) resolvePreflightAccountSpec() accountSpec {
+	specs := executor.deps.accounts()
 	if len(specs) == 0 {
 		return accountSpec{}
 	}

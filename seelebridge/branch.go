@@ -63,25 +63,11 @@ type PlanBranchBinding struct {
 	TraceID     string
 }
 
-func (r *Runtime) setPlanBranchBinding(binding PlanBranchBinding) {
-	r.branchMu.Lock()
-	defer r.branchMu.Unlock()
-	if binding.AccountID == "" {
-		binding.AccountID = r.selectedAccountID
-	}
-	if binding.PrimaryRole == "" {
-		binding.PrimaryRole = RoleAgent
-	}
-	if binding.PlanID == "" {
-		binding.PlanID = binding.EntryNodeID
-	}
-	r.branchBinding = binding
-}
-
 func (r *Runtime) currentPlanBranchBinding() PlanBranchBinding {
-	r.branchMu.RLock()
-	defer r.branchMu.RUnlock()
-	return r.branchBinding
+	if r == nil || r.planExecutor == nil {
+		return PlanBranchBinding{}
+	}
+	return r.planExecutor.Binding()
 }
 
 func (r *Runtime) setSelectedAccount(name string) {

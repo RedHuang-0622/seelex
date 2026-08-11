@@ -486,24 +486,24 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", serialFourNodes); err != nil {
 		t.Fatalf("medium serial plan error = %v", err)
 	}
-	if runtime.planProvider.maxForkConcurrency != 1 {
-		t.Fatalf("medium concurrency = %d, want 1", runtime.planProvider.maxForkConcurrency)
+	if runtime.planExecutor.provider.maxForkConcurrency != 1 {
+		t.Fatalf("medium concurrency = %d, want 1", runtime.planExecutor.provider.maxForkConcurrency)
 	}
 
 	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", MaxForkConcurrency: 3})
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", parallelFourNodes); err != nil {
 		t.Fatalf("high parallel plan error = %v", err)
 	}
-	if runtime.planProvider.maxForkConcurrency != 3 {
-		t.Fatalf("high concurrency = %d, want 3", runtime.planProvider.maxForkConcurrency)
+	if runtime.planExecutor.provider.maxForkConcurrency != 3 {
+		t.Fatalf("high concurrency = %d, want 3", runtime.planExecutor.provider.maxForkConcurrency)
 	}
 
 	runtime.SetPlanPolicy(PlanPolicy{Effort: "max"})
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", fiveNodes); err != nil {
 		t.Fatalf("max plan error = %v", err)
 	}
-	if runtime.planProvider.maxForkConcurrency != 5 {
-		t.Fatalf("max concurrency = %d, want node count 5", runtime.planProvider.maxForkConcurrency)
+	if runtime.planExecutor.provider.maxForkConcurrency != 5 {
+		t.Fatalf("max concurrency = %d, want node count 5", runtime.planExecutor.provider.maxForkConcurrency)
 	}
 }
 

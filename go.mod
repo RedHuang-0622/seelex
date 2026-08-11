@@ -2,6 +2,10 @@ module github.com/RedHuang-0622/seelex
 
 go 1.25.8
 
+// 本地 Seele 开发依赖：排序稳定性等引擎侧修复先在本地验证，
+// 发布前切回 v0.1.1 tag（go.work 亦 use ../Seele，两者一致）。
+replace github.com/RedHuang-0622/Seele => ../Seele
+
 require (
 	github.com/RedHuang-0622/Seele v0.1.1
 	github.com/atotto/clipboard v0.1.4

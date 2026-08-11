@@ -68,7 +68,7 @@ type loadedPlanDoc struct {
 // plan_load contract. 新装配模型下它实现 tools.ToolProvider，直接注册进
 // tools.Registry；plan 状态保存在 Runtime 内存中（slice 4 之前）。
 type planToolProvider struct {
-	runtime   *Runtime
+	executor  *planExecutor
 	policy    func() PlanPolicy
 	authorize func(context.Context, string) error
 
@@ -77,11 +77,11 @@ type planToolProvider struct {
 	maxForkConcurrency int
 }
 
-func newPlanToolProvider(runtime *Runtime) *planToolProvider {
+func newPlanToolProvider(executor *planExecutor) *planToolProvider {
 	return &planToolProvider{
-		runtime:   runtime,
-		policy:    runtime.currentPlanPolicy,
-		authorize: runtime.authorizePlanMutation,
+		executor:  executor,
+		policy:    executor.Policy,
+		authorize: executor.authorizePlanMutation,
 	}
 }
 
@@ -282,7 +282,7 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 	if err != nil {
 		return "", err
 	}
-	plan, err := codec.Render(document, provider.runtime.nodeFactory())
+	plan, err := codec.Render(document, provider.executor.deps.nodeFactory())
 	if err != nil {
 		return "", fmt.Errorf("plan_load: import DAG: %w", err)
 	}
@@ -336,7 +336,7 @@ func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, e
 	if loaded == nil || loaded.Plan == nil {
 		return "", fmt.Errorf("plan_run: no plan is loaded")
 	}
-	return provider.runtime.runPlan(ctx, loaded, true)
+	return provider.executor.runPlan(ctx, loaded, true)
 }
 
 // runPlan 以 workplan.NewFromPlan 执行已加载的 Plan（api-map §8
@@ -346,32 +346,32 @@ func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, e
 // runPlan 执行已加载的 Plan。withNodeOutputs=false（fork 路径）时结果 JSON
 // 只保留节点元数据、不内嵌完整节点输出——最终内容由 final_output（按子代理
 // 数 ×n 放大的汇总窗口）承载，避免结果超限被归档后模型看不到内容而重跑。
-func (r *Runtime) runPlan(ctx context.Context, loaded *loadedPlanDoc, withNodeOutputs bool) (string, error) {
+func (executor *planExecutor) runPlan(ctx context.Context, loaded *loadedPlanDoc, withNodeOutputs bool) (string, error) {
 	runID := newPlanRunID()
-	r.planRunMu.Lock()
-	r.currentPlanRunID = runID
-	r.planRunMu.Unlock()
+	executor.runMu.Lock()
+	executor.currentRunID = runID
+	executor.runMu.Unlock()
 	defer func() {
-		r.planRunMu.Lock()
-		if r.currentPlanRunID == runID {
-			r.currentPlanRunID = ""
+		executor.runMu.Lock()
+		if executor.currentRunID == runID {
+			executor.currentRunID = ""
 		}
-		r.planRunMu.Unlock()
+		executor.runMu.Unlock()
 	}()
-	binding := r.currentPlanBranchBinding()
+	binding := executor.Binding()
 	planID := binding.PlanID
 	if planID == "" {
 		planID = loaded.Entry
 	}
-	sink := r.planEvents
-	wp := workplan.NewFromPlan(loaded.Plan, r.agentFactory,
+	sink := executor.events
+	wp := workplan.NewFromPlan(loaded.Plan, executor.currentAgentFactory(),
 		workplan.WithEventSink(sink, planID),
 		workplan.WithEventRunID(runID),
-		workplan.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: r.heartbeatInterval}),
-		workplan.WithEventErrorHandler(r.eventErrorHandler),
+		workplan.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: executor.deps.heartbeat}),
+		workplan.WithEventErrorHandler(executor.currentEventError()),
 		workplan.WithMaxForkConcurrency(loaded.MaxForkConc),
 		workplan.WithEventLocators(
-			agent.EventLocator{AgentID: mainAgentID, SessionID: binding.SessionID, AccountID: binding.AccountID, Model: r.model},
+			agent.EventLocator{AgentID: mainAgentID, SessionID: binding.SessionID, AccountID: binding.AccountID, Model: executor.deps.model},
 			workplan.EventLocator{PlanID: planID, RunID: runID},
 		),
 	)

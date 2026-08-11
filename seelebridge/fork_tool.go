@@ -152,7 +152,7 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 	stop := context.AfterFunc(ctx, forkCancel) // 原 ctx 取消（用户停止）→ 同步取消 fork
 	defer stop()
 	defer forkCancel()
-	return r.runPlan(forkCtx, loaded, false)
+	return r.planExecutor.runPlan(forkCtx, loaded, false)
 }
 
 // reusableForkSummaries 检查每个 spec 是否可复用已保存输出：goal 命中的

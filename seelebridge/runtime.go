@@ -4,7 +4,6 @@ package seelebridge
 import (
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -79,20 +78,7 @@ type Runtime struct {
 	mcpProvider          *frameworkmcp.Provider
 	breaker              *breakerState // 熔断器事件 channel 状态
 	branchMu             sync.RWMutex
-	branchBinding        PlanBranchBinding
-	planPolicyMu         sync.RWMutex
-	planPolicy           PlanPolicy
-	planRunMu            sync.RWMutex
-	currentPlanRunID     string
-	planProvider         *planToolProvider
-	planEvents           *planEventSink              // plan 执行事实 → 事件库 + 投影订阅
-	planNodeEvents       chan PlanNodeEvent          // plan 节点事件 channel（CSP：application 消费者处理）
-	eventErrorHandler    frameworkevent.ErrorHandler // Sink 失败隔离（不破坏 WorkPlan 控制流）
-	replanGuard          *replanGuard
-	agentFactoryMu       sync.RWMutex
-	agentFactory         node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
-	approvalGateMu       sync.RWMutex
-	approvalGate         approve.ApprovalGate
+	planExecutor         *planExecutor // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
 	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
@@ -257,40 +243,51 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		approvalTimeout:     approvalTimeout,
 		heartbeatInterval:   heartbeatInterval,
 		limits:              cfg.Limits.WithDefaults(),
-		replanGuard:         newReplanGuard(cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow),
 		pluginDefs:          make(map[string]pluginDef),
 		permission:          &permissionGateState{},
-		planEvents:          newPlanEventSink(),
-		planNodeEvents:      make(chan PlanNodeEvent, 256),
 		subagentSessions:    newSubagentSessions(tracer),
 		subagentTree:        newSubagentTreeState(),
 		subagentContext:     newSubagentContextActor(tracer),
 		nodeStarted:         make(map[string]struct{}),
 
-		window:            seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
-		tracer:            tracer,
-		hook:              hook,
-		eventErrorHandler: func(_ context.Context, err error) { log.Printf("seelebridge: event sink: %v", err) },
+		window: seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
+		tracer: tracer,
+		hook:   hook,
 	}
+	// plan 执行域组件：策略 / 绑定 / runID / 事件通道 / replan 护拦 / 子代理工厂
+	// 收进 planExecutor；deps 闭包引用 r 的能力面（账号、注册表、分发、节点工厂），
+	// 组件不反向依赖 Runtime（构造放在 r 就绪后，与 worktreeManager 同模式）。
+	r.planExecutor = newPlanExecutor(planExecutorDeps{
+		model:               r.model,
+		heartbeat:           heartbeatInterval,
+		limits:              r.limits,
+		planDecisionTimeout: planDecisionTimeout,
+		accounts:            r.accountSpecList,
+		loadPlanDefinition: func() (types.Tool, bool) {
+			if r.registry == nil || r.registry.registry == nil {
+				return types.Tool{}, false
+			}
+			for _, tool := range r.registry.registry.Tools() {
+				if tool.Function.Name == "plan_load" {
+					return tool, true
+				}
+			}
+			return types.Tool{}, false
+		},
+		dispatch:    r.agentDispatch,
+		nodeFactory: r.nodeFactory,
+	}, cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow)
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = newWorktreeManager(worktreeManagerDeps{
 		Root:  r.projectScope.Root,
 		Phase: r.appendNodePhase,
-		Gate:  r.currentApprovalGate,
+		Gate:  r.planExecutor.currentApprovalGate,
 	})
 	// The wrapper is inert until the backend diagnostic observer is enabled.
 	// It brackets telemetry.After, the only framework boundary between a tool
 	// registry return and the application ToolHookBridge completion callback.
 	r.hook = newDiagnosticTelemetryHook(r.hook, r)
-	// plan 节点事件走 CSP channel（非阻塞投递；消费者慢时丢事件——前端经
-	// Snapshot resync 兜底），application 侧不再同步回调嵌套。
-	r.planEvents.Subscribe(func(event PlanNodeEvent) {
-		select {
-		case r.planNodeEvents <- event:
-		default:
-		}
-	})
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
 	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.subagentToolMiddleware(), r.bashDiagnosticMiddleware())}
@@ -316,7 +313,6 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		return nil, fmt.Errorf("seelebridge: create agent: %w", err)
 	}
 	r.agt = agt
-	r.planProvider = newPlanToolProvider(r)
 
 	// 5. Plan 子代理工厂：bridge.NewAgentFactory（每节点独立 Session，
 	//    工作历史隔离；节点会话组件见 branch.go nodeSessionComponents）。
@@ -327,7 +323,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: create plan agent factory: %w", err)
 	}
-	r.agentFactory = planAgentFactory
+	r.planExecutor.SetAgentFactory(planAgentFactory)
 	return r, nil
 }
 
@@ -527,8 +523,10 @@ func (r *Runtime) RegisterBuiltins() {
 	r.scopedToolsReady = true
 	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
 	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。
-	if err := r.registry.registry.Register(r.planProvider); err != nil {
-		return
+	if r.planExecutor != nil {
+		if err := r.registry.registry.Register(r.planExecutor.Provider()); err != nil {
+			return
+		}
 	}
 }
 
@@ -544,66 +542,73 @@ func (r *Runtime) UnbindProjectRoot() { r.projectScope.Unbind() }
 // 经 planEventSink 投影为 PlanNodeEvent（NodeStatus/PlanStatus）后回调。
 // 语义与旧框架 NodeResult 回调等价（plan_gate_test 不变）。
 func (r *Runtime) SetPlanNodeCallback(cb func(PlanNodeEvent)) {
-	r.planEvents.Subscribe(cb)
+	r.planExecutor.SetPlanNodeCallback(cb)
 }
 
 // PlanNodeEventChannel 返回 plan 节点事件 channel（CSP：application 消费者
 // 串行处理，保序；非阻塞投递，满则丢事件由 Snapshot resync 兜底）。
 func (r *Runtime) PlanNodeEventChannel() <-chan PlanNodeEvent {
-	if r == nil || r.planNodeEvents == nil {
+	if r == nil || r.planExecutor == nil {
 		return nil
 	}
-	return r.planNodeEvents
+	return r.planExecutor.PlanNodeEventChannel()
 }
 
 // SetEventPersister 安装执行事实持久化钩子（双轨事件的事实轨：
 // event.Sink → sessionstore 事件库）。钩子失败经 ErrorHandler 隔离，
 // 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
 func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Event) error) {
-	r.planEvents.SetPersister(fn)
+	r.planExecutor.SetEventPersister(fn)
 }
 
 // SetEventErrorHandler 覆盖 Sink 失败处理器（默认 log.Printf 兜底）。
 func (r *Runtime) SetEventErrorHandler(handler frameworkevent.ErrorHandler) {
-	if handler == nil {
-		return
-	}
-	r.eventErrorHandler = handler
+	r.planExecutor.SetEventErrorHandler(handler)
 }
 
 // SetPlanApprovalGate 设置 plan kind:approve/manual 节点的审批门控；
 // approvalGateNode 在 Run 时读取当前门（延迟读取，可在 plan_load 之后设置）。
 func (r *Runtime) SetPlanApprovalGate(gate approve.ApprovalGate) {
-	r.approvalGateMu.Lock()
-	r.approvalGate = gate
-	r.approvalGateMu.Unlock()
+	r.planExecutor.SetApprovalGate(gate)
 }
 
 // currentApprovalGate 返回当前审批门（approvalGateNode 的读取器）。
 func (r *Runtime) currentApprovalGate() approve.ApprovalGate {
-	r.approvalGateMu.RLock()
-	defer r.approvalGateMu.RUnlock()
-	return r.approvalGate
+	if r == nil || r.planExecutor == nil {
+		return nil
+	}
+	return r.planExecutor.currentApprovalGate()
 }
 
 // currentAgentFactory 返回当前 plan 子代理工厂（SeelexAgentNode 的读取器）。
 func (r *Runtime) currentAgentFactory() node.AgentFactory {
-	r.agentFactoryMu.RLock()
-	defer r.agentFactoryMu.RUnlock()
-	return r.agentFactory
+	if r == nil || r.planExecutor == nil {
+		return nil
+	}
+	return r.planExecutor.currentAgentFactory()
 }
 
 // SetPlanBranchBinding freezes context and account-selection inputs for the
 // next plan run.
 func (r *Runtime) SetPlanBranchBinding(binding PlanBranchBinding) {
-	r.setPlanBranchBinding(binding)
+	r.branchMu.RLock()
+	selectedAccountID := r.selectedAccountID
+	r.branchMu.RUnlock()
+	if binding.AccountID == "" {
+		binding.AccountID = selectedAccountID
+	}
+	if binding.PrimaryRole == "" {
+		binding.PrimaryRole = RoleAgent
+	}
+	if binding.PlanID == "" {
+		binding.PlanID = binding.EntryNodeID
+	}
+	r.planExecutor.SetBinding(binding)
 }
 
 // SetPlanPolicy updates constraints applied to subsequent plan_load calls.
 func (r *Runtime) SetPlanPolicy(policy PlanPolicy) {
-	r.planPolicyMu.Lock()
-	r.planPolicy = policy
-	r.planPolicyMu.Unlock()
+	r.planExecutor.SetPolicy(policy)
 }
 
 // RestorePlan reloads a canonical persisted plan into the runtime plan store.
@@ -627,17 +632,18 @@ func (r *Runtime) agentDispatch(ctx context.Context, name, argsJSON string) (str
 }
 
 func (r *Runtime) currentPlanPolicy() PlanPolicy {
-	r.planPolicyMu.RLock()
-	defer r.planPolicyMu.RUnlock()
-	return r.planPolicy
+	if r == nil || r.planExecutor == nil {
+		return PlanPolicy{}
+	}
+	return r.planExecutor.Policy()
 }
 
 // ReplanMetrics returns process-wide replan cost and rejection accounting.
 func (r *Runtime) ReplanMetrics() ReplanMetrics {
-	if r == nil || r.replanGuard == nil {
+	if r == nil || r.planExecutor == nil {
 		return ReplanMetrics{}
 	}
-	return r.replanGuard.snapshot()
+	return r.planExecutor.ReplanMetrics()
 }
 
 func (r *Runtime) RegisterTool(
