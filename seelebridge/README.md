@@ -22,14 +22,15 @@ Runtime，同时隔离上游 API 变化。
 | `pathgate.go` | `seele.yaml` path zone allow/ask/deny 规则。 |
 | `plugins.go` | 插件 include/exclude 可见性快照（`WithVisibilityPolicy` 输入）。 |
 | `mcp.go` | MCP attach/detach/refresh/status 和 breaker channel。 |
-| `branch.go` | 节点会话组件、branch/account 路由与 branch binding。 |
+| `branch.go` | 节点会话组件、branch/account 路由与 `PlanBranchBinding` 类型（binding 状态由 `planExecutor` 持有）。 |
 | `plan.go` | adjacency/edge、cycle detection、topological order。 |
 | `plan_factory.go` | 产品 DSL → `codec.NodeSpec` → `node.Node`（agent/approve/function 等 kind）。 |
+| `plan_executor.go` | Plan 执行域组件（`planExecutor`）：policy/binding/runID/事件通道/replan/审批门/agentFactory 状态与生命周期编排；Runtime 只留委托。 |
 | `plan_events.go` | `event.Sink` 实现：执行事实入库 + 投影为 `PlanNodeEvent`。 |
-| `plan_tool_provider.go` | `plan_load` 严格 JSON schema/description 装饰器。 |
+| `plan_tool_provider.go` | `plan_load`/`plan_run` 工具 provider（归属 `planExecutor`，经 deps 闭包访问节点工厂与工具分发）。 |
 | `plan_input_adapter.go` | canonical object DAG 归一化，并兼容可唯一推断的旧式顺序边列表。 |
-| `plan_preflight.go` | 隔离的规划/重规划回合（独立 Completer 实例、无工具、HTTP 层强制 `tool_choice=plan_load`）。 |
-| `plan_authority.go` | 原子 PlanAct scope、preflight 内部调用能力和 authority 生命周期。 |
+| `plan_preflight.go` | 隔离的规划/重规划回合（独立 Completer 实例、无工具；归属 `planExecutor`，`Runtime.PrepareReplan` 保留公开委托）。 |
+| `plan_authority.go` | `authorizePlanMutation`（归属 `planExecutor`，当前为放行钩子）。 |
 | `agent_node.go` | `kind:agent` 节点子代理包装（注入 NodeScope + 节点级 PromptBlocks）。 |
 | `node_scope.go` | 节点作用域 ctx 注入与读取（可见性/账号/装配器共享）。 |
 | `context_components.go` | 节点会话 `SessionComponents` 上下文组件（Assembler/Processor 等）。 |
@@ -77,6 +78,19 @@ Plan 分支执行走 Seele v2 装配模型：`plan_run` 经 `codec.Import` 导�
 role + branchID 走确定性 hash（`ResolveAccountForBranch`），显式 binding
 AccountID 直接 pin，不占用主链路租约。节点执行事实经 `event.Sink` 投影为
 `PlanNodeEvent`（queued/running/终态），不再使用框架分支运行时回调。
+
+### Plan 执行域组件（`planExecutor`）
+
+Plan 策略、分支绑定、run ID、事件通道、重规划护栏、审批门与子代理工厂的
+状态收进 `planExecutor`（`plan_executor.go`），`Runtime` 保留公开方法委托
+（`SetPlanPolicy`/`SetPlanBranchBinding`/`SetPlanApprovalGate`/
+`SetPlanNodeCallback`/`PlanNodeEventChannel`/`SetEventPersister`/
+`SetEventErrorHandler`/`ReplanMetrics`/`PrepareReplan`），
+`application/contract/ports.go` 不变。组件不持有 `*Runtime`：
+`accounts`/`loadPlanDefinition`/`dispatch`/`nodeFactory` 以 deps 闭包注入，
+`planToolProvider` 持有 `*planExecutor` 引用；节点工厂（`buildNode`/
+`nodeFactory`）仍留在 Runtime，因为 `SeelexAgentNode` 依赖 Runtime 的
+节点作用域与子代理上下文服务。
 
 ### `fork_subagents` 的结果边界
 
