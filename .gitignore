@@ -113,3 +113,7 @@ verify_snaps.py
 
 # ── 本地个人工具目录（勿提交） ─────────────────────────────
 local/
+
+# Interview prep materials (personal, do not commit)
+docs/devlog/2026-08-11-subagent-interview-questions.md
+docs/devlog/2026-08-11-subagent-interview-answers.md
