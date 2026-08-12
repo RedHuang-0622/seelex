@@ -1,4 +1,4 @@
-package seelebridge
+package plan
 
 import (
 	"context"
@@ -34,21 +34,21 @@ type PlanNodeEvent struct {
 // 从框架回调改为投影订阅）。持久化（sessionstore 事件库）经 persister
 // 钩子接入：slice 4 保持内存事件库 + 投影订阅，会话级事件落库随
 // 会话恢复流程（slice 6+）接线。
-type planEventSink struct {
+type EventSink struct {
 	mu         sync.Mutex
 	store      []frameworkevent.Event
 	persister  func(context.Context, frameworkevent.Event) error
 	subscriber func(PlanNodeEvent)
 }
 
-func newPlanEventSink() *planEventSink {
-	return &planEventSink{store: make([]frameworkevent.Event, 0)}
+func NewEventSink() *EventSink {
+	return &EventSink{store: make([]frameworkevent.Event, 0)}
 }
 
 // Append 实现 event.Sink：入库（可选持久化钩子同步写）后投影给订阅者。
 // 框架事件本身不携带 kind/elapsed，节点级投影的完整字段由
 // AppendNodeResult（runner NodeHook 路径）补充。
-func (s *planEventSink) Append(ctx context.Context, ev frameworkevent.Event) error {
+func (s *EventSink) Append(ctx context.Context, ev frameworkevent.Event) error {
 	if s == nil {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (s *planEventSink) Append(ctx context.Context, ev frameworkevent.Event) err
 }
 
 // storeEvent 把事件追加到事件库并执行可选持久化钩子（不投影）。
-func (s *planEventSink) storeEvent(ctx context.Context, ev frameworkevent.Event) error {
+func (s *EventSink) storeEvent(ctx context.Context, ev frameworkevent.Event) error {
 	s.mu.Lock()
 	s.store = append(s.store, ev)
 	persister := s.persister
@@ -76,7 +76,7 @@ func (s *planEventSink) storeEvent(ctx context.Context, ev frameworkevent.Event)
 // AppendNodeResult 记录 runner NodeHook 的节点完成结果：合成框架形态事件
 // 入库（保持事件库完整），并向订阅者投影一次含 kind/elapsed 的节点级事件
 // （避免与入库事件的自动投影重复）。
-func (s *planEventSink) AppendNodeResult(ctx context.Context, planID, runID string, nr *workplanTypes.NodeResult) {
+func (s *EventSink) AppendNodeResult(ctx context.Context, planID, runID string, nr *workplanTypes.NodeResult) {
 	if s == nil || nr == nil {
 		return
 	}
@@ -107,7 +107,7 @@ func (s *planEventSink) AppendNodeResult(ctx context.Context, planID, runID stri
 
 // AppendPhase records a Seelex-owned subagent phase while preserving the same
 // plan/run/session correlation contract as framework runner events.
-func (s *planEventSink) AppendPhase(ctx context.Context, binding PlanBranchBinding, runID, nodeID, status string) {
+func (s *EventSink) AppendPhase(ctx context.Context, binding PlanBranchBinding, runID, nodeID, status string) {
 	if s == nil || nodeID == "" || status == "" {
 		return
 	}
@@ -135,7 +135,7 @@ func (s *planEventSink) AppendPhase(ctx context.Context, binding PlanBranchBindi
 }
 
 // Subscribe 注册投影订阅者（唯一；后注册者覆盖先注册者）。
-func (s *planEventSink) Subscribe(fn func(PlanNodeEvent)) {
+func (s *EventSink) Subscribe(fn func(PlanNodeEvent)) {
 	if s == nil {
 		return
 	}
@@ -145,7 +145,7 @@ func (s *planEventSink) Subscribe(fn func(PlanNodeEvent)) {
 }
 
 // SetPersister 安装事件持久化钩子（sessionstore 事件库接线点）。
-func (s *planEventSink) SetPersister(fn func(context.Context, frameworkevent.Event) error) {
+func (s *EventSink) SetPersister(fn func(context.Context, frameworkevent.Event) error) {
 	if s == nil {
 		return
 	}
@@ -155,7 +155,7 @@ func (s *planEventSink) SetPersister(fn func(context.Context, frameworkevent.Eve
 }
 
 // Events 返回事件库的只读拷贝（审计/测试）。
-func (s *planEventSink) Events() []frameworkevent.Event {
+func (s *EventSink) Events() []frameworkevent.Event {
 	if s == nil {
 		return nil
 	}
@@ -165,7 +165,7 @@ func (s *planEventSink) Events() []frameworkevent.Event {
 }
 
 // publish 把投影事件转发给订阅者（并发安全）。
-func (s *planEventSink) publish(projected PlanNodeEvent) {
+func (s *EventSink) publish(projected PlanNodeEvent) {
 	s.mu.Lock()
 	subscriber := s.subscriber
 	s.mu.Unlock()

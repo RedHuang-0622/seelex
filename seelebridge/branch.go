@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strings"
-	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
 )
@@ -41,27 +40,8 @@ func stableHash(seed string) uint32 {
 	return hash.Sum32()
 }
 
-// PlanBranchEvent is the Seelex-owned representation of a branch lifecycle
-// event. It intentionally contains no Seele runtime types.
-type PlanBranchEvent struct {
-	Type     string
-	BranchID string
-	NodeID   string
-	Error    string
-	At       time.Time
-}
-
-// PlanBranchBinding freezes the request-scoped values used to construct
-// branch runtimes. Empty AccountID delegates selection to the role router.
-type PlanBranchBinding struct {
-	SessionID   string
-	WorkspaceID string
-	PlanID      string
-	EntryNodeID string
-	AccountID   string
-	PrimaryRole AccountRole
-	TraceID     string
-}
+// PlanBranchEvent / PlanBranchBinding 类型定义见 seelebridge/plan（根包
+// plan_aliases.go 重导出）；本文件保留 Runtime 方法（绑定读取/账号解析）。
 
 func (r *Runtime) currentPlanBranchBinding() PlanBranchBinding {
 	if r == nil || r.planExecutor == nil {

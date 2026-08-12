@@ -1,4 +1,4 @@
-package seelebridge
+package plan
 
 import "context"
 
@@ -7,6 +7,6 @@ import "context"
 // 规划是模型的自愿决策，preflight 仅由显式 PrepareReplan 触发，因此这里
 // 不再有"预检保留/权威拒绝"的阶段约束——计划变更由普通并发与产品工具
 // 语义约束（每个请求独立 WorkPlan 装载）。
-func (executor *planExecutor) authorizePlanMutation(ctx context.Context, toolName string) error {
+func AuthorizePlanMutation(_ context.Context, _ string) error {
 	return nil
 }

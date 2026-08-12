@@ -71,9 +71,7 @@ func TestPlanExecutorRunLifecycle(t *testing.T) {
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_run", `{}`); err != nil {
 		t.Fatalf("plan_run failed: %v", err)
 	}
-	executor.runMu.RLock()
-	runID := executor.currentRunID
-	executor.runMu.RUnlock()
+	runID := executor.CurrentRunID()
 	if runID != "" {
 		t.Fatalf("run ID after plan_run = %q, want cleared", runID)
 	}
@@ -119,9 +117,7 @@ func TestPlanExecutorRunIDVisibleDuringRun(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("approval gate was not asked")
 	}
-	executor.runMu.RLock()
-	runID := executor.currentRunID
-	executor.runMu.RUnlock()
+	runID := executor.CurrentRunID()
 	if runID == "" {
 		t.Fatal("run ID is empty while plan_run is in progress")
 	}
@@ -132,9 +128,7 @@ func TestPlanExecutorRunIDVisibleDuringRun(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("plan_run did not finish after approval")
 	}
-	executor.runMu.RLock()
-	runID = executor.currentRunID
-	executor.runMu.RUnlock()
+	runID = executor.CurrentRunID()
 	if runID != "" {
 		t.Fatalf("run ID after plan_run = %q, want cleared", runID)
 	}
@@ -158,14 +152,14 @@ func TestPlanExecutorConcurrentEventProjection(t *testing.T) {
 					NodeID: nodeID, Kind: "auto", Status: "completed", Output: nodeID,
 					StartedAt: time.Now().Add(-time.Second), EndedAt: time.Now(),
 				}}
-				executor.events.AppendNodeResult(context.Background(), "p", "r", nr)
-				executor.events.AppendPhase(context.Background(), executor.Binding(), "r", nodeID, "running")
+				executor.EventSink().AppendNodeResult(context.Background(), "p", "r", nr)
+				executor.EventSink().AppendPhase(context.Background(), executor.Binding(), "r", nodeID, "running")
 			}
 		}(i)
 	}
 	wg.Wait()
 
-	got := executor.events.Events()
+	got := executor.EventSink().Events()
 	want := goroutines * eventsPer * 2
 	if len(got) != want {
 		t.Fatalf("event store length = %d, want %d", len(got), want)
@@ -185,7 +179,7 @@ func TestPlanExecutorPersisterAndErrorHandler(t *testing.T) {
 		persistedMu.Unlock()
 		return nil
 	})
-	if err := executor.events.Append(context.Background(), frameworkevent.Event{
+	if err := executor.EventSink().Append(context.Background(), frameworkevent.Event{
 		Type: frameworkevent.TypeLifecycle, Status: frameworkevent.StatusRunning,
 	}); err != nil {
 		t.Fatal(err)
@@ -200,7 +194,7 @@ func TestPlanExecutorPersisterAndErrorHandler(t *testing.T) {
 	executor.SetEventPersister(func(_ context.Context, _ frameworkevent.Event) error {
 		return errors.New("persist: boom")
 	})
-	if err := executor.events.Append(context.Background(), frameworkevent.Event{
+	if err := executor.EventSink().Append(context.Background(), frameworkevent.Event{
 		Type: frameworkevent.TypeLifecycle, Status: frameworkevent.StatusCompleted,
 	}); err == nil {
 		t.Fatal("persister failure was swallowed")
@@ -213,7 +207,7 @@ func TestPlanExecutorPersisterAndErrorHandler(t *testing.T) {
 		default:
 		}
 	})
-	handler := executor.currentEventError()
+	handler := executor.CurrentEventError()
 	if handler == nil {
 		t.Fatal("event error handler was not stored")
 	}

@@ -134,14 +134,7 @@ func accountsForRole(pool *accountpool.P2CPool[agent.Completer], role AccountRol
 	return nil
 }
 
-func fallbackRoles(role AccountRole) []AccountRole {
-	switch role {
-	case RoleGoalPlan, RoleSubAgent:
-		return []AccountRole{RoleAgent}
-	default:
-		return nil
-	}
-}
+// fallbackRoles 定义见 seelebridge/internal/model（根包 model_aliases.go 重导出）。
 
 func accountByName(specs []accountSpec, name string) *accountSpec {
 	for index := range specs {

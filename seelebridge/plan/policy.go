@@ -1,4 +1,4 @@
-package seelebridge
+package plan
 
 import (
 	"encoding/json"
@@ -21,14 +21,14 @@ type PlanPolicy struct {
 	MaxNodeOutputTokens int
 }
 
-type planLoadSpec struct {
+type PlanLoadSpec struct {
 	Entry string                     `json:"entry"`
 	Nodes map[string]json.RawMessage `json:"nodes"`
 	Edges map[string][]string        `json:"edges"`
 }
 
-func (policy PlanPolicy) validateLoad(argsJSON string) (int, error) {
-	var input planLoadSpec
+func (policy PlanPolicy) ValidateLoad(argsJSON string) (int, error) {
+	var input PlanLoadSpec
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return 0, fmt.Errorf("plan policy %q: invalid plan_load JSON: %w", policy.Effort, err)
 	}
@@ -60,7 +60,7 @@ func (policy PlanPolicy) validateLoad(argsJSON string) (int, error) {
 	return len(input.Nodes), nil
 }
 
-func (policy PlanPolicy) concurrency(nodeCount int) int {
+func (policy PlanPolicy) Concurrency(nodeCount int) int {
 	if policy.MaxForkConcurrency > 0 {
 		return policy.MaxForkConcurrency
 	}
@@ -70,7 +70,7 @@ func (policy PlanPolicy) concurrency(nodeCount int) int {
 	return 1
 }
 
-func isSerialPlan(input planLoadSpec) bool {
+func isSerialPlan(input PlanLoadSpec) bool {
 	if len(input.Nodes) == 0 || input.Entry == "" {
 		return false
 	}

@@ -1,4 +1,4 @@
-package seelebridge
+package plan
 
 import (
 	"bytes"

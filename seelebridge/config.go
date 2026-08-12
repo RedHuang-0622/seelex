@@ -22,20 +22,6 @@ type accountLimits struct {
 	MaxOutputTokens int
 }
 
-// accountSpec 是账号的非敏感配置（凭据在 APIKey 内，仅用于组装客户端）。
-type accountSpec struct {
-	Name            string
-	Provider        string
-	BaseURL         string
-	APIKey          string
-	Model           string
-	MaxTokens       int
-	ContextWindow   int
-	MaxOutputTokens int
-	MaxConcurrency  int
-	Role            AccountRole
-}
-
 type loadedAccountConfig struct {
 	Specs          []accountSpec
 	AvailableRoles []AccountRole
@@ -195,35 +181,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// AccountRole represents the task category an account is used for.
-type AccountRole string
-
-const (
-	RoleAgent    AccountRole = "agent"
-	RoleSubAgent AccountRole = "subagent"
-	RoleGoalPlan AccountRole = "goalplan"
-)
-
-// ResolveAccountSpec picks an account spec from the loaded config for the
-// given role. Roles fall back to the primary agent role when they are not
-// configured, preserving single-account installations.
-func ResolveAccountSpec(specs []accountSpec, role AccountRole) (accountSpec, error) {
-	roles := append([]AccountRole{role}, fallbackRoles(role)...)
-	for _, candidate := range roles {
-		for _, spec := range specs {
-			if spec.Role == candidate && spec.APIKey != "" {
-				return spec, nil
-			}
-		}
-	}
-	for _, spec := range specs {
-		if spec.APIKey != "" {
-			return spec, nil
-		}
-	}
-	return accountSpec{}, fmt.Errorf("seelebridge: no accounts available")
-}
-
+// AccountRole 定义见 seelebridge/internal/model（根包 model_aliases.go 重导出）。
+// accountRole 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
 func accountRole(name string) AccountRole {
 	for _, role := range []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan} {
 		if len(name) > len(role) && name[:len(role)] == string(role) {

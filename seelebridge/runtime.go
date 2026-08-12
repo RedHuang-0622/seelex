@@ -261,12 +261,12 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// 收进 planExecutor；deps 闭包引用 r 的能力面（账号、注册表、分发、节点工厂），
 	// 组件不反向依赖 Runtime（构造放在 r 就绪后，与 worktreeManager 同模式）。
 	r.planExecutor = newPlanExecutor(planExecutorDeps{
-		model:               r.model,
-		heartbeat:           heartbeatInterval,
-		limits:              r.limits,
-		planDecisionTimeout: planDecisionTimeout,
-		accounts:            r.accountSpecList,
-		loadPlanDefinition: func() (types.Tool, bool) {
+		Model:               r.model,
+		Heartbeat:           heartbeatInterval,
+		Limits:              r.limits,
+		PlanDecisionTimeout: planDecisionTimeout,
+		Accounts:            r.accountSpecList,
+		LoadPlanDefinition: func() (types.Tool, bool) {
 			if r.registry == nil || r.registry.registry == nil {
 				return types.Tool{}, false
 			}
@@ -277,15 +277,15 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			}
 			return types.Tool{}, false
 		},
-		dispatch:    r.agentDispatch,
-		nodeFactory: r.nodeFactory,
+		Dispatch:    r.agentDispatch,
+		NodeFactory: r.nodeFactory,
 	}, cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow)
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = newWorktreeManager(worktreeManagerDeps{
 		Root:  r.projectScope.Root,
 		Phase: r.appendNodePhase,
-		Gate:  r.planExecutor.currentApprovalGate,
+		Gate:  r.planExecutor.CurrentApprovalGate,
 	})
 	// The wrapper is inert until the backend diagnostic observer is enabled.
 	// It brackets telemetry.After, the only framework boundary between a tool
@@ -580,7 +580,7 @@ func (r *Runtime) currentApprovalGate() approve.ApprovalGate {
 	if r == nil || r.planExecutor == nil {
 		return nil
 	}
-	return r.planExecutor.currentApprovalGate()
+	return r.planExecutor.CurrentApprovalGate()
 }
 
 // currentAgentFactory 返回当前 plan 子代理工厂（SeelexAgentNode 的读取器）。
@@ -588,7 +588,7 @@ func (r *Runtime) currentAgentFactory() node.AgentFactory {
 	if r == nil || r.planExecutor == nil {
 		return nil
 	}
-	return r.planExecutor.currentAgentFactory()
+	return r.planExecutor.CurrentAgentFactory()
 }
 
 // SetPlanBranchBinding freezes context and account-selection inputs for the

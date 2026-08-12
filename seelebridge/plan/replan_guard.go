@@ -1,4 +1,4 @@
-package seelebridge
+package plan
 
 import (
 	"errors"
@@ -34,7 +34,7 @@ type ReplanMetrics struct {
 	ProviderWindowLimit    int       `json:"provider_window_limit"`
 }
 
-type replanGuard struct {
+type ReplanGuard struct {
 	mu                  sync.Mutex
 	now                 func() time.Time
 	maxConcurrent       int
@@ -47,7 +47,7 @@ type replanGuard struct {
 	metrics             ReplanMetrics
 }
 
-func newReplanGuard(maxConcurrent, maxWindowAttempts, maxProviderRequests int, window time.Duration) *replanGuard {
+func NewReplanGuard(maxConcurrent, maxWindowAttempts, maxProviderRequests int, window time.Duration) *ReplanGuard {
 	defaults := seelexctx.DefaultLimits()
 	if maxConcurrent <= 0 {
 		maxConcurrent = defaults.MaxConcurrentReplans
@@ -61,7 +61,7 @@ func newReplanGuard(maxConcurrent, maxWindowAttempts, maxProviderRequests int, w
 	if window <= 0 {
 		window = time.Duration(defaults.ReplanWindowSec) * time.Second
 	}
-	return &replanGuard{
+	return &ReplanGuard{
 		now:                 time.Now,
 		maxConcurrent:       maxConcurrent,
 		maxWindowAttempts:   maxWindowAttempts,
@@ -76,7 +76,7 @@ func newReplanGuard(maxConcurrent, maxWindowAttempts, maxProviderRequests int, w
 	}
 }
 
-func (guard *replanGuard) acquire(idempotencyKey string) (func(error), error) {
+func (guard *ReplanGuard) acquire(idempotencyKey string) (func(error), error) {
 	guard.mu.Lock()
 	now := guard.now()
 	guard.pruneLocked(now)
@@ -128,7 +128,7 @@ func (guard *replanGuard) acquire(idempotencyKey string) (func(error), error) {
 	}, nil
 }
 
-func (guard *replanGuard) acquireProviderRequest() error {
+func (guard *ReplanGuard) acquireProviderRequest() error {
 	guard.mu.Lock()
 	guard.pruneLocked(guard.now())
 	if len(guard.providerStarts) >= guard.maxProviderRequests {
@@ -143,7 +143,7 @@ func (guard *replanGuard) acquireProviderRequest() error {
 	return nil
 }
 
-func (guard *replanGuard) snapshot() ReplanMetrics {
+func (guard *ReplanGuard) snapshot() ReplanMetrics {
 	guard.mu.Lock()
 	guard.pruneLocked(guard.now())
 	metrics := guard.metrics
@@ -151,7 +151,7 @@ func (guard *replanGuard) snapshot() ReplanMetrics {
 	return metrics
 }
 
-func (guard *replanGuard) pruneLocked(now time.Time) {
+func (guard *ReplanGuard) pruneLocked(now time.Time) {
 	cutoff := now.Add(-guard.window)
 	first := 0
 	for first < len(guard.starts) && guard.starts[first].Before(cutoff) {
@@ -170,7 +170,7 @@ func (guard *replanGuard) pruneLocked(now time.Time) {
 	guard.updateWindowLocked()
 }
 
-func (guard *replanGuard) updateWindowLocked() {
+func (guard *ReplanGuard) updateWindowLocked() {
 	guard.metrics.WindowAttempts = len(guard.starts)
 	guard.metrics.ProviderWindowRequests = len(guard.providerStarts)
 	guard.metrics.WindowStartedAt = time.Time{}

@@ -147,9 +147,7 @@ func TestPlanLoadImportsCodecPlan(t *testing.T) {
 			t.Errorf("plan_load result %q is missing %s", result, required)
 		}
 	}
-	runtime.planExecutor.provider.mu.Lock()
-	loaded := runtime.planExecutor.provider.loaded
-	runtime.planExecutor.provider.mu.Unlock()
+	loaded, _ := runtime.planExecutor.LoadedPlan()
 	if loaded == nil || loaded.Plan == nil {
 		t.Fatal("plan_load did not materialize a codec plan")
 	}

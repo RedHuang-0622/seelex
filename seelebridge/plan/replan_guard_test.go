@@ -1,4 +1,4 @@
-package seelebridge
+package plan
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 
 func TestReplanGuardLimitsDuplicateConcurrencyAndRate(t *testing.T) {
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
-	guard := newReplanGuard(1, 2, 2, time.Minute)
+	guard := NewReplanGuard(1, 2, 2, time.Minute)
 	guard.now = func() time.Time { return now }
 
 	finish, err := guard.acquire("replan-a")
@@ -49,7 +49,7 @@ func TestReplanGuardLimitsDuplicateConcurrencyAndRate(t *testing.T) {
 }
 
 func TestReplanGuardCapsProviderRequestsBeforeRetry(t *testing.T) {
-	guard := newReplanGuard(2, 4, 1, time.Minute)
+	guard := NewReplanGuard(2, 4, 1, time.Minute)
 	finish, err := guard.acquire("replan-a")
 	if err != nil {
 		t.Fatal(err)

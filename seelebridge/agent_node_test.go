@@ -56,15 +56,15 @@ func TestPlanLoadParsesNodeBudget(t *testing.T) {
 func TestPlanPolicyRejectsExcessNodeBudget(t *testing.T) {
 	policy := PlanPolicy{Effort: "high", MaxNodeLoops: 48, MaxNodeOutputTokens: 8000}
 	ok := `{"entry":"do","nodes":{"do":{"input":"x","budget":{"max_loops":10}}},"edges":{}}`
-	if _, err := policy.validateLoad(ok); err != nil {
+	if _, err := policy.ValidateLoad(ok); err != nil {
 		t.Fatalf("within-limit budget rejected: %v", err)
 	}
 	excess := `{"entry":"do","nodes":{"do":{"input":"x","budget":{"max_loops":100}}},"edges":{}}`
-	if _, err := policy.validateLoad(excess); err == nil || !strings.Contains(err.Error(), "max_loops=100 exceeds limit") {
+	if _, err := policy.ValidateLoad(excess); err == nil || !strings.Contains(err.Error(), "max_loops=100 exceeds limit") {
 		t.Fatalf("excess budget must be rejected, got %v", err)
 	}
 	excessTokens := `{"entry":"do","nodes":{"do":{"input":"x","budget":{"max_output_tokens":9000}}},"edges":{}}`
-	if _, err := policy.validateLoad(excessTokens); err == nil || !strings.Contains(err.Error(), "max_output_tokens=9000 exceeds limit") {
+	if _, err := policy.ValidateLoad(excessTokens); err == nil || !strings.Contains(err.Error(), "max_output_tokens=9000 exceeds limit") {
 		t.Fatalf("excess output budget must be rejected, got %v", err)
 	}
 }

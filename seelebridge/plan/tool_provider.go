@@ -1,4 +1,4 @@
-package seelebridge
+package plan
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	coreplan "github.com/RedHuang-0622/Seele/workplan/core/plan"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 const planLoadContractDescription = `
@@ -54,9 +53,9 @@ Invalid unrelated top-level field example (do not use):
 {"entry":"inspect","nodes":{"inspect":{"input":"inspect"}},"item":{"input":"metadata"},"edges":{}}
 `
 
-// loadedPlanDoc 是当前加载的权威 Plan 的规范化存储：Canonical 供
+// LoadedPlanDoc 是当前加载的权威 Plan 的规范化存储：Canonical 供
 // plan_export 原样输出，Plan 是 codec.Import 产物（可执行内核）。
-type loadedPlanDoc struct {
+type LoadedPlanDoc struct {
 	Canonical   string
 	Entry       string
 	NodeCount   int
@@ -65,33 +64,33 @@ type loadedPlanDoc struct {
 	Plan        *coreplan.Plan
 }
 
-// planToolProvider decorates Seele's WorkPlan handlers with Seelex's explicit
+// ToolProvider decorates Seele's WorkPlan handlers with Seelex's explicit
 // plan_load contract. 新装配模型下它实现 tools.ToolProvider，直接注册进
 // tools.Registry；plan 状态保存在 Runtime 内存中（slice 4 之前）。
-type planToolProvider struct {
-	executor  *planExecutor
+type ToolProvider struct {
+	executor  *Executor
 	policy    func() PlanPolicy
 	authorize func(context.Context, string) error
 
 	mu                 sync.Mutex
-	loaded             *loadedPlanDoc
+	loaded             *LoadedPlanDoc
 	maxForkConcurrency int
 }
 
-func newPlanToolProvider(executor *planExecutor) *planToolProvider {
-	return &planToolProvider{
+func NewToolProvider(executor *Executor) *ToolProvider {
+	return &ToolProvider{
 		executor:  executor,
 		policy:    executor.Policy,
-		authorize: executor.authorizePlanMutation,
+		authorize: AuthorizePlanMutation,
 	}
 }
 
-func (provider *planToolProvider) ProviderName() string { return "seelex-workplan" }
+func (provider *ToolProvider) ProviderName() string { return "seelex-workplan" }
 
 // Tools 恒返回全部 plan 工具：plan_run 在 authoritative 模式恢复可见
 // （子代理继承项目作用域工具与父证据，DAG 可真并行，不再需要隐藏；
 // plan_load/plan_clear 的权威期准入由 authorizePlanMutation 拦截）。
-func (provider *planToolProvider) Tools() []tools.ToolEntry {
+func (provider *ToolProvider) Tools() []tools.ToolEntry {
 	return []tools.ToolEntry{
 		provider.planLoadEntry(),
 		provider.planClearEntry(),
@@ -104,7 +103,7 @@ func (provider *planToolProvider) Tools() []tools.ToolEntry {
 
 // ── 工具定义 ─────────────────────────────────────────────────────────
 
-func (provider *planToolProvider) planLoadEntry() tools.ToolEntry {
+func (provider *ToolProvider) planLoadEntry() tools.ToolEntry {
 	entry := tools.ToolEntry{
 		Definition: types.Tool{
 			Type: "function",
@@ -156,7 +155,7 @@ func (provider *planToolProvider) planLoadEntry() tools.ToolEntry {
 	return entry
 }
 
-func (provider *planToolProvider) planClearEntry() tools.ToolEntry {
+func (provider *ToolProvider) planClearEntry() tools.ToolEntry {
 	return tools.ToolEntry{
 		Definition: types.Tool{
 			Type: "function",
@@ -174,7 +173,7 @@ func (provider *planToolProvider) planClearEntry() tools.ToolEntry {
 	}
 }
 
-func (provider *planToolProvider) planRunEntry() tools.ToolEntry {
+func (provider *ToolProvider) planRunEntry() tools.ToolEntry {
 	return tools.ToolEntry{
 		Definition: types.Tool{
 			Type: "function",
@@ -192,7 +191,7 @@ func (provider *planToolProvider) planRunEntry() tools.ToolEntry {
 	}
 }
 
-func (provider *planToolProvider) planStatusEntry() tools.ToolEntry {
+func (provider *ToolProvider) planStatusEntry() tools.ToolEntry {
 	return tools.ToolEntry{
 		Definition: types.Tool{
 			Type: "function",
@@ -206,7 +205,7 @@ func (provider *planToolProvider) planStatusEntry() tools.ToolEntry {
 	}
 }
 
-func (provider *planToolProvider) planExportEntry() tools.ToolEntry {
+func (provider *ToolProvider) planExportEntry() tools.ToolEntry {
 	return tools.ToolEntry{
 		Definition: types.Tool{
 			Type: "function",
@@ -220,7 +219,7 @@ func (provider *planToolProvider) planExportEntry() tools.ToolEntry {
 	}
 }
 
-func (provider *planToolProvider) planValidateEntry() tools.ToolEntry {
+func (provider *ToolProvider) planValidateEntry() tools.ToolEntry {
 	return tools.ToolEntry{
 		Definition: types.Tool{
 			Type: "function",
@@ -243,7 +242,7 @@ func (provider *planToolProvider) planValidateEntry() tools.ToolEntry {
 // ── 处理器实现 ───────────────────────────────────────────────────────
 
 type planLoadPolicyHandler struct {
-	provider *planToolProvider
+	provider *ToolProvider
 	mu       sync.Mutex
 }
 
@@ -265,25 +264,25 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 	if provider.policy != nil {
 		policy = provider.policy()
 	}
-	nodeCount, err := policy.validateLoad(canonicalArgs)
+	nodeCount, err := policy.ValidateLoad(canonicalArgs)
 	if err != nil {
 		return "", err
 	}
-	maxFork := policy.concurrency(nodeCount)
+	maxFork := policy.Concurrency(nodeCount)
 
 	// 环检测 + codec 导入（校验节点/边引用、重复边、DAG 可达性并 Seal）
-	var spec planLoadSpec
+	var spec PlanLoadSpec
 	if err := json.Unmarshal([]byte(canonicalArgs), &spec); err != nil {
 		return "", fmt.Errorf("plan_load: parse canonical plan: %w", err)
 	}
-	if err := plan.DetectCycle(spec.Edges); err != nil {
+	if err := DetectCycle(spec.Edges); err != nil {
 		return "", fmt.Errorf("plan_load: %w", err)
 	}
-	document, err := canonicalPlanDocument(canonicalArgs)
+	document, err := CanonicalPlanDocument(canonicalArgs)
 	if err != nil {
 		return "", err
 	}
-	plan, err := codec.Render(document, provider.executor.deps.nodeFactory())
+	renderedPlan, err := codec.Render(document, provider.executor.deps.NodeFactory())
 	if err != nil {
 		return "", fmt.Errorf("plan_load: import DAG: %w", err)
 	}
@@ -293,9 +292,9 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 	}
 
 	provider.mu.Lock()
-	provider.loaded = &loadedPlanDoc{
+	provider.loaded = &LoadedPlanDoc{
 		Canonical: canonicalArgs, Entry: entry, NodeCount: nodes, EdgeCount: edgeCount,
-		MaxForkConc: maxFork, Plan: plan,
+		MaxForkConc: maxFork, Plan: renderedPlan,
 	}
 	provider.maxForkConcurrency = maxFork
 	provider.mu.Unlock()
@@ -307,7 +306,7 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 }
 
 type planMutationGuardHandler struct {
-	provider *planToolProvider
+	provider *ToolProvider
 	toolName string
 	delegate tools.ToolHandler
 }
@@ -326,7 +325,7 @@ func (handler *planMutationGuardHandler) Execute(ctx context.Context, argsJSON s
 
 // planRunHandler 执行当前加载的 Plan DAG（workplan.NewFromPlan 入口）。
 type planRunHandler struct {
-	provider *planToolProvider
+	provider *ToolProvider
 }
 
 func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, error) {
@@ -337,17 +336,17 @@ func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, e
 	if loaded == nil || loaded.Plan == nil {
 		return "", fmt.Errorf("plan_run: no plan is loaded")
 	}
-	return provider.executor.runPlan(ctx, loaded, true)
+	return provider.executor.RunPlan(ctx, loaded, true)
 }
 
 // runPlan 以 workplan.NewFromPlan 执行已加载的 Plan（api-map §8
 // workplanRunEntry：必须经 WorkPlan.Run 入口，runner 事件配置才会生效）。
-// 事件经 planEventSink 落库并投影（PlanStatus）；节点完成经 runner
+// 事件经 EventSink 落库并投影（PlanStatus）；节点完成经 runner
 // NodeHook 投影（NodeStatus，含 kind/elapsed）。
 // runPlan 执行已加载的 Plan。withNodeOutputs=false（fork 路径）时结果 JSON
 // 只保留节点元数据、不内嵌完整节点输出——最终内容由 final_output（按子代理
 // 数 ×n 放大的汇总窗口）承载，避免结果超限被归档后模型看不到内容而重跑。
-func (executor *planExecutor) runPlan(ctx context.Context, loaded *loadedPlanDoc, withNodeOutputs bool) (string, error) {
+func (executor *Executor) RunPlan(ctx context.Context, loaded *LoadedPlanDoc, withNodeOutputs bool) (string, error) {
 	runID := newPlanRunID()
 	executor.runMu.Lock()
 	executor.currentRunID = runID
@@ -365,14 +364,14 @@ func (executor *planExecutor) runPlan(ctx context.Context, loaded *loadedPlanDoc
 		planID = loaded.Entry
 	}
 	sink := executor.events
-	wp := workplan.NewFromPlan(loaded.Plan, executor.currentAgentFactory(),
+	wp := workplan.NewFromPlan(loaded.Plan, executor.CurrentAgentFactory(),
 		workplan.WithEventSink(sink, planID),
 		workplan.WithEventRunID(runID),
-		workplan.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: executor.deps.heartbeat}),
-		workplan.WithEventErrorHandler(executor.currentEventError()),
+		workplan.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: executor.deps.Heartbeat}),
+		workplan.WithEventErrorHandler(executor.CurrentEventError()),
 		workplan.WithMaxForkConcurrency(loaded.MaxForkConc),
 		workplan.WithEventLocators(
-			agent.EventLocator{AgentID: mainAgentID, SessionID: binding.SessionID, AccountID: binding.AccountID, Model: executor.deps.model},
+			agent.EventLocator{AgentID: mainAgentID, SessionID: binding.SessionID, AccountID: binding.AccountID, Model: executor.deps.Model},
 			workplan.EventLocator{PlanID: planID, RunID: runID},
 		),
 	)
@@ -436,14 +435,14 @@ func planRunResultJSON(result *workplanTypes.WorkPlanResult, err error, withNode
 	return string(encoded), err
 }
 
-func (provider *planToolProvider) clearPlan(_ context.Context, _ string) (string, error) {
+func (provider *ToolProvider) clearPlan(_ context.Context, _ string) (string, error) {
 	provider.mu.Lock()
 	provider.loaded = nil
 	provider.mu.Unlock()
 	return `{"status":"cleared"}`, nil
 }
 
-func (provider *planToolProvider) planStatus(_ context.Context, _ string) (string, error) {
+func (provider *ToolProvider) planStatus(_ context.Context, _ string) (string, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	if provider.loaded == nil {
@@ -456,7 +455,7 @@ func (provider *planToolProvider) planStatus(_ context.Context, _ string) (strin
 	return string(result), nil
 }
 
-func (provider *planToolProvider) planExport(_ context.Context, _ string) (string, error) {
+func (provider *ToolProvider) planExport(_ context.Context, _ string) (string, error) {
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	if provider.loaded == nil {
@@ -465,7 +464,7 @@ func (provider *planToolProvider) planExport(_ context.Context, _ string) (strin
 	return provider.loaded.Canonical, nil
 }
 
-func (provider *planToolProvider) planValidate(_ context.Context, argsJSON string) (string, error) {
+func (provider *ToolProvider) planValidate(_ context.Context, argsJSON string) (string, error) {
 	var input struct {
 		Plan string `json:"plan"`
 	}
@@ -480,7 +479,7 @@ func (provider *planToolProvider) planValidate(_ context.Context, argsJSON strin
 	if provider.policy != nil {
 		policy = provider.policy()
 	}
-	nodeCount, err := policy.validateLoad(canonical)
+	nodeCount, err := policy.ValidateLoad(canonical)
 	if err != nil {
 		return "", err
 	}
