@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
-	"github.com/RedHuang-0622/Seele/workplan/core/node"
-	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 )
 
 // ── fork_subagents 工具（docs/2026-08-03-subagent-fork-architecture/plan.md §4）──
@@ -21,37 +18,6 @@ import (
 // 与 plan_load/plan_run 的关系：fork 是无依赖 DAG 的编程生成特例，两者共用
 // 同一执行内核；fork 不要求模型产出规范 JSON（弱模型可用）。
 
-const forkSubagentsContractDescription = `
-When to use fork_subagents:
-- A task has multiple independent pieces of work that can run in parallel.
-- You want delegated subagents to investigate/implement separate concerns
-  and report structured findings back.
-- Use instead of doing everything serially yourself when the work is isolated.
-
-When not to use fork_subagents:
-- Work with dependencies between steps (use a Plan instead, or do it yourself).
-- A single simple task you can finish directly.
-- Forking more than a handful of subagents (each subagent is a full agent
-  session; keep the fork small and focused).
-
-Contract:
-- subagents: array of {id, goal}. Each id must be unique; each goal is a
-  natural-language task for one isolated subagent (worktree-isolated when the
-  project is a git repository).
-- max_concurrency: optional cap on parallel subagents (default: policy limit).
-- Returns a summary JSON with each subagent's output.
-`
-
-// forkSubagentsInput 是 fork_subagents 的参数契约。
-type forkSubagentsInput struct {
-	Subagents      []forkSubagentSpec `json:"subagents"`
-	MaxConcurrency int                `json:"max_concurrency,omitempty"`
-}
-
-type forkSubagentSpec struct {
-	ID   string `json:"id"`
-	Goal string `json:"goal"`
-}
 
 // registerForkTool 注册 fork_subagents（RegisterBuiltins 内调用）。
 func (r *Runtime) registerForkTool() {
@@ -300,38 +266,10 @@ func (r *Runtime) buildForkPlan(input forkSubagentsInput, taskBindings map[strin
 	}, nil
 }
 
-// forkPlanCanonical 生成 fork DAG 的规范 JSON（审计/展示；非模型输入）。
-func forkPlanCanonical(input forkSubagentsInput) string {
-	encoded, _ := json.Marshal(input)
-	return string(encoded)
-}
 
-// ── summary 节点 ──────────────────────────────────────────────────────
 
-// forkSummaryNode 是 fork 的汇总节点：把全部前驱节点输出压缩为每子代理
-// 一行的紧凑摘要（WorkflowContext.PrevResults，内核收集），作为 fork 最终
-// 输出。完整输出不进入对话/历史（避免对话区被子代理大段内容灌满）——
-// 子代理树（工作区）与节点详情弹窗承载完整会话/上下文/工具活动。
-type forkSummaryNode struct {
-	node.BaseNode
-	input SeelexNodeInput
-}
 
-func newForkSummaryNode(spec codec.NodeSpec[SeelexNodeInput]) *forkSummaryNode {
-	return &forkSummaryNode{
-		BaseNode: node.NewBaseNode(spec.ID, node.KindMethod),
-		input:    spec.Input,
-	}
-}
 
-// forkSummaryLineLimit 是单行摘要长度上限（按 rune/“字”计数，中文不因
-// UTF-8 3 字节/字被压缩）；forkSummaryMaxLines 是每子代理保留的行数。
-// 汇总窗口随子代理数 ×n 自然放大（每个子代理独立块），整体是容灾上限
-// 而非截断线——完整输出在子代理树/详情，模型如需更多可 read_tool_result。
-const (
-	forkSummaryLineLimit = 160
-	forkSummaryMaxLines  = 30
-)
 
 // forkNodeLoops 返回 fork 子代理节点的循环预算：复用 effort 调节的节点
 // 循环数（currentPlanPolicy().MaxNodeLoops，high=48 / max=96）；未设置
@@ -346,69 +284,6 @@ func forkNodeLoops(r *Runtime) int {
 	return r.limits.PlanNodeMaxLoops
 }
 
-func (n *forkSummaryNode) Run(_ context.Context, wc *workplanTypes.WorkflowContext) (string, error) {
-	if wc == nil || len(wc.PrevResults) == 0 {
-		return "", nil
-	}
-	keys := make([]string, 0, len(wc.PrevResults))
-	for id := range wc.PrevResults {
-		keys = append(keys, id)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	b.WriteString("子代理完成情况:\n")
-	for _, id := range keys {
-		b.WriteString("- ")
-		b.WriteString(id)
-		b.WriteByte(':')
-		summary, fullRunes, truncated := forkResultSummaryLines(wc.PrevResults[id])
-		if summary == "" {
-			b.WriteString(" (无输出)\n")
-			continue
-		}
-		b.WriteByte(' ')
-		// 多行用 \n + 缩进续行展示（保持每行可读、整体有界）。
-		b.WriteString(strings.ReplaceAll(summary, "\n", "\n  "))
-		b.WriteByte('\n')
-		if truncated {
-			b.WriteString(fmt.Sprintf("  （完整输出 %d 字，超出汇总窗口已截断；完整内容见子代理树，或 read_tool_result 读回）\n", fullRunes))
-		}
-	}
-	b.WriteString("（完整会话/上下文/工具活动见工作区子代理树，点击节点查看详情）")
-	return b.String(), nil
-}
 
-// forkResultSummaryLines 提取子代理输出的有界摘要：内核把结果编码为 JSON
-// （RawString 带引号/转义）→ 先解码回纯文本，再保留前 forkSummaryMaxLines
-// 个非空行（每行截断到 forkSummaryLineLimit）；无输出 → 空串。
-// forkResultSummaryLines 提取子代理输出的有界摘要（rune 计数）；返回摘要、
-// 完整输出字数与是否截断——截断时由 summary 节点附注“完整输出大小”，
-// 模型据此决定是否需要 read_tool_result 读回，而不是凭空重跑。
-func forkResultSummaryLines(output string) (summary string, fullRunes int, truncated bool) {
-	if decoded := ""; json.Unmarshal([]byte(output), &decoded) == nil {
-		output = decoded
-	}
-	output = strings.TrimSpace(output)
-	if output == "" {
-		return "", 0, false
-	}
-	fullRunes = len([]rune(output))
-	var lines []string
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if runes := []rune(line); len(runes) > forkSummaryLineLimit {
-			// 按“字”（rune）截断，中文不再被 3 字节/字白白浪费额度。
-			line = string(runes[:forkSummaryLineLimit]) + "…"
-			truncated = true
-		}
-		lines = append(lines, line)
-		if len(lines) >= forkSummaryMaxLines {
-			truncated = true
-			break
-		}
-	}
-	return strings.Join(lines, "\n"), fullRunes, truncated
-}
+
+
