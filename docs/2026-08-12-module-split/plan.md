@@ -179,11 +179,21 @@ seelebridge/
 - ✅ `task/`（2026-08-12 第二轮）：`task_registry.go`/`task_terminal.go`（+ 测试）迁入；
   `TaskRegistry` actor、`TaskRecord`/`TaskSpec`/`TaskStatus`/`TaskTracePoint`、`TodoItem` 兼容契约、
   `TaskTerminalProvider` 随包；Runtime task 门面拆到根包 `task_facade.go`；根包 `task_aliases.go` 重导出。
-- ✅ `internal/model/`：各域共享纯类型层（占位；TaskRecord 等已下沉 task/，NodeScope/PlanBranchBinding 待 node/ 域下沉）。
+- ✅ `plan/`（2026-08-12 第三轮）：plan 域整体迁入——`executor`（Executor/ExecutorDeps）、
+  `tool_provider`（ToolProvider/LoadedPlanDoc/RunPlan）、`preflight`（PlanPreflight/ReplanRequest）、
+  `policy`（PlanPolicy）、`events`（PlanNodeEvent/EventSink）、`replan_guard`（ReplanGuard/ReplanMetrics）、
+  `input_adapter`（NormalizePlanLoadArguments）、`factory_types`（SeelexNodeInput/NodeBudgetInput/
+  CanonicalPlanDocument/product/approval 节点）、`branch_types`（PlanBranchBinding/PlanBranchEvent）、
+  `authority`；根包 plan_aliases.go 全量重导出 + 构造薄壳；Executor 增加 CurrentRunID/EventSink/
+  LoadedPlan/MaxForkConcurrency 读取面供根包测试；replan_guard_test 迁 plan/。
+- ✅ `fork/`（2026-08-12 第三轮）：fork_subagents 纯类型与 summary 节点迁入
+  （Input/SubagentSpec/PlanCanonical/SummaryNode/ResultSummaryLines）；fork_tool.go 保留
+  Runtime 编排门面；根包 fork_aliases.go 重导出。
+- ✅ `internal/model/`：`account.go`（AccountSpec/AccountRole/Role*/ResolveAccountSpec/FallbackRoles）
+  下沉；根包 model_aliases.go 重导出；task/plan 直接 import。
 - ⏳ 高耦合文件（subagent_sessions/subagent_context/subagent_tree/subagent_events、worktree_manager、
-  plan_executor/plan_policy/plan_preflight/plan_input_adapter/plan_tool_provider/plan_events/plan_authority/replan_guard、
-  agent_node、mcp、scoped_tools、todo_tool、fork_tool、scheduler、branch/node_scope/node_tool_result 等）
-  依赖根包类型（NodeScope/Runtime/TaskRecord/forkSubagentSpec/ParentEvidenceProjection），
+  agent_node、mcp、scoped_tools、todo_tool、scheduler、node_scope/node_tool_result 等）
+  依赖根包类型（NodeScope/forkSubagentSpec/ParentEvidenceProjection/Runtime 装配面），
   物理搬移前必须先组件化（P3），本轮未做。
 
 ### P3 组件化 / P4 facade 瘦身 —— 待后续 ⏳
