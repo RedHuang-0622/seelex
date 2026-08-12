@@ -34,10 +34,14 @@ Runtime，同时隔离上游 API 变化。
 | `agent_node.go` | `kind:agent` 节点子代理包装（注入 NodeScope + 节点级 PromptBlocks）。 |
 | `node_scope.go` | 节点作用域 ctx 注入与读取（可见性/账号/装配器共享）。 |
 | `context_components.go` | 节点会话 `SessionComponents` 上下文组件（Assembler/Processor 等）。 |
-| `task_terminal.go` | task_complete/task_failed/task_needs_user_decision 工具注册。 |
+| `task_facade.go` | `*Runtime` task 门面（`TaskSnapshot`/`TaskAdd`/`TaskSetStatus`/`RegisterTaskTerminalTools` 等，委托 `task/` 子包）。 |
 | `storage.go` | Seele session store 与旧 nested workspace store 兼容。 |
 | `config.go` | 简化账号 YAML 与 role fallback。 |
 | `trace.go` | `telemetry.NewMemoryTracer` / `NewLifecycleHook` 构造。 |
+
+根包 alias 文件：`plan_aliases.go`（plan 图符号）、`task_aliases.go`（task/todo
+类型与辅助函数）、`security_aliases.go`（sandbox 类型）重导出子包符号，
+保证公共 API 兼容。
 
 ## 子包结构
 
@@ -45,13 +49,16 @@ Runtime，同时隔离上游 API 变化。
 
 | 子包 | 内容 |
 |---|---|
-| `security/` | `ProjectScope` 项目根 containment + `PathGate` allow/ask/deny（见 `security/README.md`） |
+| `security/` | `ProjectScope` 项目根 containment + `PathGate` allow/ask/deny + `CommandSandbox` shell 隔离（见 `security/README.md`） |
 | `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
 | `plan/` | `PlanEdge` / `AdjacencyToEdges` / `DetectCycle` / `TopoSort` 图逻辑（见 `plan/README.md`） |
+| `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`（见 `task/README.md`） |
 | `tools/websearch/` | `web_search` 工具注册与账号池配置加载（见 `tools/websearch/README.md`） |
 | `internal/model/` | 各域共享的纯类型层（无运行时依赖） |
 
-根包经 `plan_aliases.go` 重导出子包符号（`seelebridge.PlanEdge` 等）保持公共 API 兼容。
+根包经 `plan_aliases.go`/`task_aliases.go`/`security_aliases.go` 重导出子包符号
+（`seelebridge.PlanEdge`、`seelebridge.TaskRecord`、`seelebridge.CommandSandbox`
+等）保持公共 API 兼容。
 子包遵循"域组件禁止 import seelebridge 根包"的依赖规则，根包→子包单向依赖。
 
 ## Runtime 生命周期

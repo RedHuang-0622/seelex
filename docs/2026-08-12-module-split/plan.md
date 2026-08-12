@@ -163,17 +163,28 @@ seelebridge/
 
 - 文档搬移：`ARCHITECTURE_REVIEW.md` → `docs/arch/`（标注历史待刷新）、`CODE_EVALUATION_REPORT.md` → `docs/devlog/`、`finish-review.md` → `docs/devlog/2026-07-28-finish-review.md`、`code-changes.md` → `docs/devlog/2026-08-05-code-changes.md`、`plan.md` → `docs/arch/plan.md`、`test-report.md` → `docs/test/2026-07-27-test-report.md`、`README-dev.md` → `docs/devlog/`。
 - 配置迁移：`seele.yaml`/`seelex.yaml` → `config/`；`main.go` 增加 `firstExisting`（优先 config/ 回退根目录）；Makefile 与 release.yml 打包路径同步。
-- 测试迁移：`bootstrap_test.go`/`governance_test.go`/`layout_test.go`/`docs_contract_test.go` → `e2e/`（package e2e + repoRoot 相对路径修正）。
+- 测试迁移：`bootstrap_test.go`/`governance_test.go`/`layout_test.go`/`docs_contract_test.go` → `e2e/`（package e2e + repoRoot 相对路径修正）；后续（2026-08-12 第二轮）`release_test.go` 中不依赖 main 符号的发布/构建契约测试 → `e2e/release_contract_test.go`。
 - 源码抽包：`version.go` → `internal/buildinfo/`；`websearch.go` → `seelebridge/tools/websearch/`（窄接口 `ToolRegistrar`）；`mcpconfig.go` → `mcpstack/config/`（只留加载，注册留 main）；`backend_console.go` → `application/console/`；`application_adapters.go` → `application/adapters/`（类型导出 EnginePort/RuntimePort 等）。
 - 新增模块 README：adapters、console、buildinfo、mcpstack/config、websearch。
 
 ### P2 seelebridge 零耦合子包 —— 部分完成 ✅/⏳
 
 - ✅ `security/`：`project_scope.go`、`pathgate.go`（+ 测试）；`ProjectScope.Relative`/`ResolveInside` 随包导出。
+- ✅ `security/`（2026-08-12 第二轮）：`sandbox.go` + `command_{windows,other}.go`（+ 测试）迁入；
+  `CommandSandbox`/`SandboxCapabilities` 保留，`ScrubEnvironment`/`FileExists`/`ConfigureHiddenCommand`/
+  `NewNativeProjectCWD` 导出；根包 runtime/scoped_tools/scheduler/docker/worktree_manager 改经 security 引用；
+  根包 `security_aliases.go` 重导出。
 - ✅ `fs/`：`filesystem_actor.go`（+ 测试）。
 - ✅ `plan/`：`graph.go`（PlanEdge/AdjacencyToEdges/DetectCycle/TopoSort）；根包 `plan_aliases.go` alias 重导出保持 API 兼容。
-- ✅ `internal/model/`：各域共享纯类型层。
-- ⏳ 高耦合文件（worktree_manager/task_registry/plan_executor/agent_node/mcp/scoped_tools/todo_tool/fork_tool/scheduler 等）依赖根包类型（NodeScope/Runtime/TaskRecord），物理搬移前必须先组件化（P3），本轮未做。
+- ✅ `task/`（2026-08-12 第二轮）：`task_registry.go`/`task_terminal.go`（+ 测试）迁入；
+  `TaskRegistry` actor、`TaskRecord`/`TaskSpec`/`TaskStatus`/`TaskTracePoint`、`TodoItem` 兼容契约、
+  `TaskTerminalProvider` 随包；Runtime task 门面拆到根包 `task_facade.go`；根包 `task_aliases.go` 重导出。
+- ✅ `internal/model/`：各域共享纯类型层（占位；TaskRecord 等已下沉 task/，NodeScope/PlanBranchBinding 待 node/ 域下沉）。
+- ⏳ 高耦合文件（subagent_sessions/subagent_context/subagent_tree/subagent_events、worktree_manager、
+  plan_executor/plan_policy/plan_preflight/plan_input_adapter/plan_tool_provider/plan_events/plan_authority/replan_guard、
+  agent_node、mcp、scoped_tools、todo_tool、fork_tool、scheduler、branch/node_scope/node_tool_result 等）
+  依赖根包类型（NodeScope/Runtime/TaskRecord/forkSubagentSpec/ParentEvidenceProjection），
+  物理搬移前必须先组件化（P3），本轮未做。
 
 ### P3 组件化 / P4 facade 瘦身 —— 待后续 ⏳
 
