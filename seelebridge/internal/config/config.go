@@ -1,4 +1,7 @@
-package seelebridge
+// Package config 加载简化账号 YAML（accounts*.yaml 角色分组格式），
+// 产出账号规格与 Seelex 侧上下文预算。属于根 facade 的装配细节
+// （仅 runtime.go 使用），因此置于 internal/，不对外暴露。
+package config
 
 import (
 	"fmt"
@@ -7,25 +10,31 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 const (
-	defaultContextWindow   = 200_000
-	defaultMaxOutputTokens = 8_192
+	// DefaultContextWindow 是未配置时的默认上下文窗口。
+	DefaultContextWindow = 200_000
+	// DefaultMaxOutputTokens 是未配置时的默认输出 token 上限。
+	DefaultMaxOutputTokens = 8_192
 	// defaultMaxConcurrency 是每个账号默认的并发租约上限。
 	// 主会话串行（Session 单锁），默认 1 即可；后续切片为 Plan 子代理并行时按角色上调。
 	defaultMaxConcurrency = 1
 )
 
-type accountLimits struct {
+// AccountLimits 是账号的上下文/输出预算。
+type AccountLimits struct {
 	ContextWindow   int
 	MaxOutputTokens int
 }
 
-type loadedAccountConfig struct {
-	Specs          []accountSpec
-	AvailableRoles []AccountRole
-	Limits         map[string]accountLimits
+// Config 是账号配置加载结果：规格、可用角色与按账号的预算表。
+type Config struct {
+	Specs          []model.AccountSpec
+	AvailableRoles []model.AccountRole
+	Limits         map[string]AccountLimits
 }
 
 type simplifiedDefaults struct {
@@ -54,52 +63,52 @@ type simplifiedConfig struct {
 	} `yaml:"roles"`
 }
 
-// loadSimplifiedConfig reads the role-grouped format and builds the account
+// Load reads the role-grouped accounts.yaml format and builds the account
 // specs plus Seelex-owned context limits. Missing roles are resolved later by
-// ResolveAccountSpec.
-func loadSimplifiedConfig(path string) (loadedAccountConfig, error) {
+// model.ResolveAccountSpec.
+func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fallbackAccountConfig(), nil
+			return fallbackConfig(), nil
 		}
-		return loadedAccountConfig{}, err
+		return Config{}, err
 	}
 
 	var cfg simplifiedConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return loadedAccountConfig{}, fmt.Errorf("seelebridge: parse accounts: %w", err)
+		return Config{}, fmt.Errorf("seelebridge: parse accounts: %w", err)
 	}
 	log.Printf("[config] parsed: agent=%d subagent=%d goalplan=%d",
 		len(cfg.Roles.Agent), len(cfg.Roles.SubAgent), len(cfg.Roles.GoalPlan))
 
-	roleMap := map[AccountRole][]simplifiedAccount{
-		RoleAgent:    cfg.Roles.Agent,
-		RoleSubAgent: cfg.Roles.SubAgent,
-		RoleGoalPlan: cfg.Roles.GoalPlan,
+	roleMap := map[model.AccountRole][]simplifiedAccount{
+		model.RoleAgent:    cfg.Roles.Agent,
+		model.RoleSubAgent: cfg.Roles.SubAgent,
+		model.RoleGoalPlan: cfg.Roles.GoalPlan,
 	}
-	roleOrder := []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan}
-	availableRoles := make([]AccountRole, 0, len(roleOrder))
+	roleOrder := []model.AccountRole{model.RoleAgent, model.RoleSubAgent, model.RoleGoalPlan}
+	availableRoles := make([]model.AccountRole, 0, len(roleOrder))
 	for _, role := range roleOrder {
 		if len(roleMap[role]) > 0 {
 			availableRoles = append(availableRoles, role)
 		}
 	}
 	if len(availableRoles) == 0 {
-		return loadedAccountConfig{}, fmt.Errorf("seelebridge: no accounts configured in any role")
+		return Config{}, fmt.Errorf("seelebridge: no accounts configured in any role")
 	}
 
-	specs := make([]accountSpec, 0)
-	limitsByAccount := make(map[string]accountLimits)
+	specs := make([]model.AccountSpec, 0)
+	limitsByAccount := make(map[string]AccountLimits)
 	for _, role := range roleOrder {
 		for index, entry := range roleMap[role] {
 			name := fmt.Sprintf("%s-%d", role, index+1)
 			limits, err := resolveAccountLimits(cfg.Defaults, entry)
 			if err != nil {
-				return loadedAccountConfig{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
+				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
 			}
 			provider := firstNonEmpty(entry.Provider, cfg.Defaults.Provider, "openai")
-			specs = append(specs, accountSpec{
+			specs = append(specs, model.AccountSpec{
 				Name:            name,
 				Provider:        provider,
 				BaseURL:         entry.BaseURL,
@@ -115,16 +124,16 @@ func loadSimplifiedConfig(path string) (loadedAccountConfig, error) {
 		}
 	}
 
-	return loadedAccountConfig{
+	return Config{
 		Specs:          specs,
 		AvailableRoles: availableRoles,
 		Limits:         limitsByAccount,
 	}, nil
 }
 
-func fallbackAccountConfig() loadedAccountConfig {
-	limits := accountLimits{ContextWindow: defaultContextWindow, MaxOutputTokens: defaultMaxOutputTokens}
-	spec := accountSpec{
+func fallbackConfig() Config {
+	limits := AccountLimits{ContextWindow: DefaultContextWindow, MaxOutputTokens: DefaultMaxOutputTokens}
+	spec := model.AccountSpec{
 		Name:            "fallback",
 		Provider:        "openai",
 		Model:           "gpt-4o",
@@ -134,17 +143,17 @@ func fallbackAccountConfig() loadedAccountConfig {
 		ContextWindow:   limits.ContextWindow,
 		MaxOutputTokens: limits.MaxOutputTokens,
 		MaxConcurrency:  defaultMaxConcurrency,
-		Role:            RoleAgent,
+		Role:            model.RoleAgent,
 	}
-	return loadedAccountConfig{
-		Specs:          []accountSpec{spec},
-		AvailableRoles: []AccountRole{RoleAgent},
-		Limits:         map[string]accountLimits{spec.Name: limits},
+	return Config{
+		Specs:          []model.AccountSpec{spec},
+		AvailableRoles: []model.AccountRole{model.RoleAgent},
+		Limits:         map[string]AccountLimits{spec.Name: limits},
 	}
 }
 
-func resolveAccountLimits(defaults simplifiedDefaults, account simplifiedAccount) (accountLimits, error) {
-	limits := accountLimits{ContextWindow: defaultContextWindow, MaxOutputTokens: defaultMaxOutputTokens}
+func resolveAccountLimits(defaults simplifiedDefaults, account simplifiedAccount) (AccountLimits, error) {
+	limits := AccountLimits{ContextWindow: DefaultContextWindow, MaxOutputTokens: DefaultMaxOutputTokens}
 	if defaults.ContextWindow != nil {
 		limits.ContextWindow = *defaults.ContextWindow
 	}
@@ -158,13 +167,13 @@ func resolveAccountLimits(defaults simplifiedDefaults, account simplifiedAccount
 		limits.MaxOutputTokens = *account.MaxTokens
 	}
 	if limits.ContextWindow <= 0 {
-		return accountLimits{}, fmt.Errorf("context_window must be greater than zero")
+		return AccountLimits{}, fmt.Errorf("context_window must be greater than zero")
 	}
 	if limits.MaxOutputTokens <= 0 {
-		return accountLimits{}, fmt.Errorf("max_tokens must be greater than zero")
+		return AccountLimits{}, fmt.Errorf("max_tokens must be greater than zero")
 	}
 	if limits.MaxOutputTokens+limits.ContextWindow/8 >= limits.ContextWindow {
-		return accountLimits{}, fmt.Errorf(
+		return AccountLimits{}, fmt.Errorf(
 			"max_tokens (%d) plus safety reserve must be smaller than context_window (%d)",
 			limits.MaxOutputTokens, limits.ContextWindow,
 		)
@@ -179,15 +188,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// AccountRole 定义见 seelebridge/internal/model（根包 model_aliases.go 重导出）。
-// accountRole 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
-func accountRole(name string) AccountRole {
-	for _, role := range []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan} {
-		if len(name) > len(role) && name[:len(role)] == string(role) {
-			return role
-		}
-	}
-	return RoleAgent
 }

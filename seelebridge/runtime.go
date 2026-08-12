@@ -24,6 +24,8 @@ import (
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
 	"github.com/RedHuang-0622/seelex/seelexctx"
@@ -186,7 +188,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if planDecisionTimeout <= 0 {
 		planDecisionTimeout = time.Duration(cfg.Limits.WithDefaults().PlanDecisionTimeoutSec) * time.Second
 	}
-	loaded, err := loadSimplifiedConfig(cfg.AccountsPath)
+	loaded, err := config.Load(cfg.AccountsPath)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: load accounts: %w", err)
 	}
@@ -337,7 +339,7 @@ func (r *Runtime) assembleCompleters() error {
 		return err
 	}
 	r.completer = completer
-	r.streamer = &streamingAccountCompleter{pool: r.pool, selector: r.accountSelector}
+	r.streamer = stream.NewStreamingCompleter(r.pool, r.accountSelector)
 	return nil
 }
 

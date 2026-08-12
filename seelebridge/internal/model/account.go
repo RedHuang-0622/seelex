@@ -38,6 +38,16 @@ func FallbackRoles(role AccountRole) []AccountRole {
 	}
 }
 
+// AccountRoleFromName 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
+func AccountRoleFromName(name string) AccountRole {
+	for _, role := range []AccountRole{RoleAgent, RoleSubAgent, RoleGoalPlan} {
+		if len(name) > len(role) && name[:len(role)] == string(role) {
+			return role
+		}
+	}
+	return RoleAgent
+}
+
 // ResolveAccountSpec picks an account spec from the loaded config for the
 // given role. Roles fall back to the primary agent role when they are not
 // configured, preserving single-account installations.

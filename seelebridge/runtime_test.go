@@ -14,6 +14,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -91,7 +92,7 @@ func TestMissingAccountsUsesEnvironmentCredential(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	path := filepath.Join(t.TempDir(), "missing-accounts.yaml")
 
-	loaded, err := loadSimplifiedConfig(path)
+	loaded, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestRuntimeLoadsGroupedAccountRoles(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadSimplifiedConfig(path)
+	loaded, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +157,7 @@ roles:
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadSimplifiedConfig(path)
+	loaded, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ roles:
 			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := loadSimplifiedConfig(path); err == nil {
+			if _, err := config.Load(path); err == nil {
 				t.Fatal("unsafe context limits should fail")
 			}
 		})

@@ -1,4 +1,8 @@
-package seelebridge
+// Package telemetry 承载内存遥测追踪器与生命周期钩子的构造
+// （telemetry.NewMemoryTracer / telemetry.NewLifecycleHook 的薄封装）。
+// 属于根 facade 的装配细节，置于 internal/；根包经 telemetry_aliases.go
+// 重导出 NewTracer/NewLifecycleHook 保持公共 API。
+package telemetry
 
 import "github.com/RedHuang-0622/Seele/telemetry"
 

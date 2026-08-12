@@ -1,4 +1,7 @@
-package seelebridge
+// Package stream 承载流式账号 Completer 适配器：把账号池的同步 Completer
+// 适配为流式 agent.StreamCompleter。属于根 facade 的装配细节（仅
+// runtime.go 装配使用），置于 internal/。
+package stream
 
 import (
 	"context"
@@ -17,6 +20,11 @@ import (
 type streamingAccountCompleter struct {
 	pool     *accountpool.P2CPool[agent.Completer]
 	selector bridge.AccountRequestSelector
+}
+
+// NewStreamingCompleter 构造流式 Completer（pool 与可选账号选择器）。
+func NewStreamingCompleter(pool *accountpool.P2CPool[agent.Completer], selector bridge.AccountRequestSelector) agent.StreamCompleter {
+	return &streamingAccountCompleter{pool: pool, selector: selector}
 }
 
 // CompleteStream 获取租约 → 委托流式调用 → defer Release（幂等，覆盖整个流生命周期）。

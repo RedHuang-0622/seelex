@@ -27,3 +27,7 @@ func ResolveAccountSpec(specs []accountSpec, role AccountRole) (accountSpec, err
 
 // fallbackRoles 返回 role 的回退角色（未配置时回退主 agent 角色）。
 func fallbackRoles(role AccountRole) []AccountRole { return model.FallbackRoles(role) }
+
+// accountRole 从账号 ID 推断角色（按角色前缀匹配，回退 agent）。
+// 原定义随 config.go 迁 internal/config 后移至 model 域（模型层纯逻辑）。
+func accountRole(name string) AccountRole { return model.AccountRoleFromName(name) }
