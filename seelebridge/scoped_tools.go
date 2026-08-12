@@ -426,7 +426,7 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (output strin
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
 	cmd.Dir = workdir
-	configureHiddenCommand(cmd)
+	security.ConfigureHiddenCommand(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	r.observeBash(BashDiagnosticEvent{Stage: "bash.process.starting", Shell: filepath.Base(shell)})
@@ -467,7 +467,7 @@ func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (output strin
 			retryCtx, retryCancel := context.WithTimeout(ctx, timeout)
 			retryCmd := exec.CommandContext(retryCtx, shell, shellArgs...)
 			retryCmd.Dir = workdir
-			configureHiddenCommand(retryCmd)
+			security.ConfigureHiddenCommand(retryCmd)
 			var retryOut, retryErrBuf bytes.Buffer
 			retryCmd.Stdout, retryCmd.Stderr = &retryOut, &retryErrBuf
 			if runErr := retryCmd.Run(); runErr == nil {
@@ -522,7 +522,7 @@ func scopedBashCommand(command string) (string, []string) {
 			`C:\Program Files\Git\usr\bin\bash.exe`,
 			`C:\Program Files (x86)\Git\bin\bash.exe`,
 		} {
-			if fileExists(bash) {
+			if security.FileExists(bash) {
 				return bash, []string{"-c", command}
 			}
 		}
@@ -533,18 +533,13 @@ func scopedBashCommand(command string) (string, []string) {
 	if _, err := os.Stat("/bin/bash"); err == nil {
 		return "bash", []string{"-c", command}
 	}
-	if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; fileExists(powershell) {
+	if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; security.FileExists(powershell) {
 		return powershell, []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
 	}
-	if commandPrompt := `C:\Windows\System32\cmd.exe`; fileExists(commandPrompt) {
+	if commandPrompt := `C:\Windows\System32\cmd.exe`; security.FileExists(commandPrompt) {
 		return commandPrompt, []string{"/d", "/s", "/c", command}
 	}
 	return "sh", []string{"-c", command}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // scopedToolTimeout 解析 bash 类工具的默认超时：优先显式 tool_call_timeout

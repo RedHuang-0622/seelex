@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 // ── 定时周期任务（scheduler）────────────────────────────────────────────
@@ -243,7 +245,7 @@ func (s *schedulerState) executeTask(task *scheduledTask) {
 }
 
 // runCommand 执行白名单命令：argv 直传（不经 shell），cwd 固定，
-// 环境变量清洗（复用 sandbox 的 scrubEnvironment），带超时。
+// 环境变量清洗（复用 security 的 ScrubEnvironment），带超时。
 func (s *schedulerState) runCommand(task *scheduledTask) (string, error) {
 	s.mu.Lock()
 	command, ok := s.commands[task.spec.Command]
@@ -262,8 +264,8 @@ func (s *schedulerState) runCommand(task *scheduledTask) (string, error) {
 	defer cancel()
 	execCmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
 	execCmd.Dir = command.WorkingDir
-	execCmd.Env = scrubEnvironment(os.Environ())
-	configureHiddenCommand(execCmd)
+	execCmd.Env = security.ScrubEnvironment(os.Environ())
+	security.ConfigureHiddenCommand(execCmd)
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
 		message := fmt.Sprintf("命令 %q 退出失败: %v", command.Key, err)

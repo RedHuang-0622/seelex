@@ -1,4 +1,4 @@
-package seelebridge
+package security
 
 import (
 	"context"
@@ -43,27 +43,28 @@ type CommandSandbox interface {
 // 生产可切换 IsoboxAdapter，接口不变。
 type nativeProjectCWD struct{}
 
-func newNativeProjectCWD() CommandSandbox { return &nativeProjectCWD{} }
+// NewNativeProjectCWD 构造默认 CommandSandbox 实现（项目 cwd 门禁 + 凭据清洗）。
+func NewNativeProjectCWD() CommandSandbox { return &nativeProjectCWD{} }
 
 // Prepare 构造命令：cwd = 项目根（调用方已解析 worktree/项目根）、
 // 环境变量清洗（凭据类不传给子进程）、超时由调用方 ctx 控制。
 func (s *nativeProjectCWD) Prepare(ctx context.Context, root string, command string, timeoutSec int) (*exec.Cmd, SandboxCapabilities, error) {
 	cmd := exec.CommandContext(ctx, commandShell(), commandShellArgs(command)...)
 	cmd.Dir = root
-	configureHiddenCommand(cmd)
+	ConfigureHiddenCommand(cmd)
 	// 环境透传契约：仅清洗凭据变量，PATH/SystemRoot 等基础变量与本地
 	// 工具链（go/git/node/python/gcc）原样继承——沙盒不是空环境。
-	cmd.Env = scrubEnvironment(os.Environ())
+	cmd.Env = ScrubEnvironment(os.Environ())
 	return cmd, SandboxCapabilities{
 		Isolation: "cwd-gate", EnvScrubbed: true, EnvPassthrough: true,
 		NetworkPolicy: "allowed", TimeoutSec: timeoutSec,
 	}, nil
 }
 
-// scrubEnvironment 清洗凭据类环境变量（子代理/主代理 bash 不得读取
+// ScrubEnvironment 清洗凭据类环境变量（子代理/主代理 bash 不得读取
 // API key/secret/token）：名字包含敏感模式（大小写不敏感）的变量剔除，
 // 其余保留（PATH/SystemRoot 等基础变量不变，Windows 兼容）。
-func scrubEnvironment(environ []string) []string {
+func ScrubEnvironment(environ []string) []string {
 	scrubbed := make([]string, 0, len(environ))
 	for _, entry := range environ {
 		name, _, _ := strings.Cut(entry, "=")
@@ -97,7 +98,7 @@ func commandShell() string {
 			`C:\Program Files\Git\usr\bin\bash.exe`,
 			`C:\Program Files (x86)\Git\bin\bash.exe`,
 		} {
-			if fileExists(bash) {
+			if FileExists(bash) {
 				return bash
 			}
 		}
@@ -108,10 +109,10 @@ func commandShell() string {
 	if _, err := os.Stat("/bin/bash"); err == nil {
 		return "bash"
 	}
-	if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; fileExists(powershell) {
+	if powershell := `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`; FileExists(powershell) {
 		return powershell
 	}
-	if commandPrompt := `C:\Windows\System32\cmd.exe`; fileExists(commandPrompt) {
+	if commandPrompt := `C:\Windows\System32\cmd.exe`; FileExists(commandPrompt) {
 		return commandPrompt
 	}
 	return "sh"
@@ -129,4 +130,10 @@ func commandShellArgs(command string) []string {
 	default:
 		return []string{"/d", "/s", "/c", command}
 	}
+}
+
+// FileExists 报告路径是否存在（供 shell 探测/工具链查找复用）。
+func FileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

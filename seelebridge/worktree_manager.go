@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 // ─── 子代理 worktree 生命周期管理器（Runtime 装配件拆分 Step 1）───
@@ -247,14 +248,14 @@ func (w *worktreeManager) cleanup(root string, wt *nodeWorktree) error {
 	return nil
 }
 
-// gitRunner 执行 git 命令（worktree 测试可用真实 git；命令经 configureHiddenCommand
+// gitRunner 执行 git 命令（worktree 测试可用真实 git；命令经 ConfigureHiddenCommand
 // 隐藏窗口，Windows 兼容）。60s 超时防挂起。
 func gitRunner(root string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = root
-	configureHiddenCommand(cmd)
+	security.ConfigureHiddenCommand(cmd)
 	var out, errOut strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errOut

@@ -15,6 +15,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 // dockerDesktopExe 是 Docker Desktop 的固定安装路径（回退启动路径）。
@@ -62,7 +64,7 @@ func dockerCLIPath() string {
 		return path
 	}
 	for _, candidate := range dockerFixedPaths {
-		if fileExists(candidate) {
+		if security.FileExists(candidate) {
 			return candidate
 		}
 	}
@@ -87,7 +89,7 @@ func realDockerProber() dockerProber {
 			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(probeCtx, dockerCLIPath(), "info", "--format", "{{.ServerVersion}}")
-			configureHiddenCommand(cmd)
+			security.ConfigureHiddenCommand(cmd)
 			return cmd.Run() == nil
 		},
 		Start: func(ctx context.Context) error {
@@ -101,11 +103,11 @@ func realDockerProber() dockerProber {
 					return nil
 				}
 			}
-			if !fileExists(dockerDesktopExe) {
+			if !security.FileExists(dockerDesktopExe) {
 				return fmt.Errorf("docker: Docker Desktop is not installed at %s", dockerDesktopExe)
 			}
 			cmd := exec.CommandContext(ctx, dockerDesktopExe)
-			configureHiddenCommand(cmd)
+			security.ConfigureHiddenCommand(cmd)
 			return cmd.Start()
 		},
 	}

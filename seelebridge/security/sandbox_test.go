@@ -1,4 +1,4 @@
-package seelebridge
+package security
 
 import (
 	"context"
@@ -23,7 +23,7 @@ func TestScrubEnvironmentRemovesCredentials(t *testing.T) {
 		"HOME=/home/user",
 		"CREDENTIAL_STORE=x",
 	}
-	scrubbed := scrubEnvironment(environ)
+	scrubbed := ScrubEnvironment(environ)
 	for _, want := range []string{"PATH", "SystemRoot", "HOME"} {
 		found := false
 		for _, entry := range scrubbed {
@@ -53,7 +53,7 @@ func TestSandboxPrepareScrubsEnvAndSetsRoot(t *testing.T) {
 	_ = os.Setenv("SEELEX_TEST_API_KEY", "leak-check")
 	defer os.Unsetenv("SEELEX_TEST_API_KEY")
 
-	sandbox := newNativeProjectCWD()
+	sandbox := NewNativeProjectCWD()
 	cmd, caps, err := sandbox.Prepare(context.Background(), "C:\\project", "echo hi", 30)
 	if err != nil {
 		t.Fatal(err)

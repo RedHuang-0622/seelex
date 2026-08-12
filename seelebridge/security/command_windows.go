@@ -1,14 +1,14 @@
 //go:build windows
 
-package seelebridge
+package security
 
 import (
 	"os/exec"
 	"syscall"
 )
 
-// configureHiddenCommand prevents a GUI build from flashing a console window
+// ConfigureHiddenCommand prevents a GUI build from flashing a console window
 // for each scoped bash invocation.
-func configureHiddenCommand(cmd *exec.Cmd) {
+func ConfigureHiddenCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 }

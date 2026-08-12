@@ -96,7 +96,7 @@ type Runtime struct {
 	providerFilter    string
 	projectScope      *security.ProjectScope
 	filesystem        fs.FileSystem    // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
-	sandbox           CommandSandbox   // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
+	sandbox           security.CommandSandbox // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
 	dockerProbe       dockerProber     // docker 守护进程探测/启动（nil → 真实实现；测试注入）
 	worktreeMgr       *worktreeManager // 子代理 worktree 生命周期组件（worktree_manager.go）
 	tasks             *taskRegistry    // task 注册表 actor（task_registry.go；todolist 融合为 kind=todo 的 task）
@@ -236,7 +236,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		MCPStack:            mcpstack.New(mcpStackOpts...),
 		projectScope:        security.NewProjectScope(),
 		filesystem:          fs.NewFileSystemActor(),
-		sandbox:             newNativeProjectCWD(),
+		sandbox:             security.NewNativeProjectCWD(),
 		tasks:               newTaskRegistry(),
 		scheduler:           newSchedulerState(),
 		toolEvents:          newSubagentToolEventState(),
