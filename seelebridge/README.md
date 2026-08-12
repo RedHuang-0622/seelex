@@ -60,10 +60,15 @@ Runtime，同时隔离上游 API 变化。
 | `fork/` | `fork_subagents` 纯类型与 summary 节点（见 `fork/README.md`） |
 | `tools/websearch/` | `web_search` 工具注册与账号池配置加载（见 `tools/websearch/README.md`） |
 | `internal/model/` | 账号等各域共享的纯类型层（`AccountSpec`/`AccountRole`，无运行时依赖） |
+| `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`；根 facade 装配细节） |
+| `internal/storage/` | legacy shard 会话存储（`SessionStore`/`NestedSessionStore`） |
+| `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
+| `internal/telemetry/` | 内存遥测追踪器/生命周期钩子构造（`NewTracer`/`NewLifecycleHook`） |
 
 根包经 `plan_aliases.go`/`task_aliases.go`/`fork_aliases.go`/`security_aliases.go`/
-`model_aliases.go` 重导出子包符号（`seelebridge.PlanEdge`、`seelebridge.TaskRecord`、
-`seelebridge.CommandSandbox` 等）保持公共 API 兼容。
+`model_aliases.go`/`config_aliases.go`/`storage_aliases.go`/`telemetry_aliases.go`
+重导出子包符号（`seelebridge.PlanEdge`、`seelebridge.TaskRecord`、
+`seelebridge.CommandSandbox`、`seelebridge.Message` 等）保持公共 API 兼容。
 子包遵循"域组件禁止 import seelebridge 根包"的依赖规则，根包→子包单向依赖。
 
 ## Runtime 生命周期

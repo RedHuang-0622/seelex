@@ -189,8 +189,13 @@ seelebridge/
 - ✅ `fork/`（2026-08-12 第三轮）：fork_subagents 纯类型与 summary 节点迁入
   （Input/SubagentSpec/PlanCanonical/SummaryNode/ResultSummaryLines）；fork_tool.go 保留
   Runtime 编排门面；根包 fork_aliases.go 重导出。
-- ✅ `internal/model/`：`account.go`（AccountSpec/AccountRole/Role*/ResolveAccountSpec/FallbackRoles）
-  下沉；根包 model_aliases.go 重导出；task/plan 直接 import。
+- ✅ `internal/model/`：`account.go`（AccountSpec/AccountRole/Role*/ResolveAccountSpec/FallbackRoles/
+  AccountRoleFromName）下沉；根包 model_aliases.go 重导出；task/plan 直接 import。
+- ✅ `internal/config|storage|stream|telemetry/`（2026-08-12 第四轮）：补齐 §3.1 遗漏的 4 个
+  纯零耦合文件——`config.go`→internal/config（Config/AccountLimits/Load，accountRole 移 model 域）、
+  `storage.go`→internal/storage（SessionStore/NestedSessionStore）、
+  `stream_completer.go`→internal/stream（NewStreamingCompleter，测试随包，runtime 集成测试留根包）、
+  `trace.go`→internal/telemetry；根包 config_aliases/storage_aliases/telemetry_aliases 重导出保持 API 兼容。
 - ⏳ 高耦合文件（subagent_sessions/subagent_context/subagent_tree/subagent_events、worktree_manager、
   agent_node、mcp、scoped_tools、todo_tool、scheduler、node_scope/node_tool_result 等）
   依赖根包类型（NodeScope/forkSubagentSpec/ParentEvidenceProjection/Runtime 装配面），
