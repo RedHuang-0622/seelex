@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	"github.com/RedHuang-0622/seelex/seelebridge/task"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -99,7 +100,7 @@ type Runtime struct {
 	sandbox           security.CommandSandbox // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
 	dockerProbe       dockerProber     // docker 守护进程探测/启动（nil → 真实实现；测试注入）
 	worktreeMgr       *worktreeManager // 子代理 worktree 生命周期组件（worktree_manager.go）
-	tasks             *taskRegistry    // task 注册表 actor（task_registry.go；todolist 融合为 kind=todo 的 task）
+	tasks             *task.TaskRegistry // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
 	scheduler         *schedulerState  // 定时周期任务 actor（scheduler.go）
 	toolEvents        *subagentToolEventState
 
@@ -237,7 +238,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		projectScope:        security.NewProjectScope(),
 		filesystem:          fs.NewFileSystemActor(),
 		sandbox:             security.NewNativeProjectCWD(),
-		tasks:               newTaskRegistry(),
+		tasks:               task.NewTaskRegistry(),
 		scheduler:           newSchedulerState(),
 		toolEvents:          newSubagentToolEventState(),
 		toolCallTimeout:     cfg.ToolCallTimeout,

@@ -1,4 +1,4 @@
-package seelebridge
+package task
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-// 本文件实现 plan.md §3.1 的 taskTerminalProvider：把 task_complete /
+// 本文件实现 plan.md §3.1 的 TaskTerminalProvider：把 task_complete /
 // task_check_node / task_failed / task_needs_user_decision 工具注册为
 // tools.Registry 产品工具。handler 由 application 侧提供
 // （TaskService.TerminalHandler 产物，内部完成"投影同步 flush → 校验 →
@@ -19,20 +19,20 @@ import (
 // task_check_node / task_failed / task_needs_user_decision 四值。
 type TaskTerminalHandler func(kind string) func(context.Context, string) (string, error)
 
-const taskTerminalProviderName = "seelex-task-terminal"
+const TaskTerminalProviderName = "seelex-task-terminal"
 
-// taskTerminalProvider 实现 tools.ToolProvider：三个终态工具 + 产品 schema。
-type taskTerminalProvider struct {
+// TaskTerminalProvider 实现 tools.ToolProvider：三个终态工具 + 产品 schema。
+type TaskTerminalProvider struct {
 	handler TaskTerminalHandler
 }
 
-func newTaskTerminalProvider(handler TaskTerminalHandler) *taskTerminalProvider {
-	return &taskTerminalProvider{handler: handler}
+func NewTaskTerminalProvider(handler TaskTerminalHandler) *TaskTerminalProvider {
+	return &TaskTerminalProvider{handler: handler}
 }
 
-func (p *taskTerminalProvider) ProviderName() string { return taskTerminalProviderName }
+func (p *TaskTerminalProvider) ProviderName() string { return TaskTerminalProviderName }
 
-func (p *taskTerminalProvider) Tools() []tools.ToolEntry {
+func (p *TaskTerminalProvider) Tools() []tools.ToolEntry {
 	if p == nil || p.handler == nil {
 		return nil
 	}
@@ -120,18 +120,5 @@ func (p *taskTerminalProvider) Tools() []tools.ToolEntry {
 			},
 			Handler: tools.HandlerFunc(p.handler("task_failed")),
 		},
-	}
-}
-
-// RegisterTaskTerminalTools 把终态工具 provider 注册进 Runtime 的工具注册表
-// （幂等：同 provider 重注册先注销再注册，保持快照一致）。
-func (r *Runtime) RegisterTaskTerminalTools(handler TaskTerminalHandler) {
-	state := r.registry
-	if state == nil || state.registry == nil {
-		return
-	}
-	_ = state.registry.Unregister(taskTerminalProviderName)
-	if err := state.registry.Register(newTaskTerminalProvider(handler)); err != nil {
-		return
 	}
 }

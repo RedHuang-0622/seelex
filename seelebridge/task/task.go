@@ -1,4 +1,7 @@
-package seelebridge
+// Package task 承载 worktable/task 注册表域：TaskRecord 等共享 DTO、
+// TodoItem 兼容契约与 task 终态工具 provider。依赖方向为根 facade →
+// task；task 不反向依赖 seelebridge 根包。
+package task
 
 import (
 	"errors"
@@ -90,6 +93,52 @@ type TaskSpec struct {
 	Attachments  []string `json:"attachments,omitempty"`
 }
 
+// TodoItemStatus 是清单项三态（兼容 TUI/旧契约；权威状态在 TaskRecord.Status）。
+type TodoItemStatus string
+
+const (
+	TodoItemPending TodoItemStatus = "pending"
+	TodoItemDoing   TodoItemStatus = "doing"
+	TodoItemDone    TodoItemStatus = "done"
+)
+
+// TodoItem 是清单项（快照 DTO，兼容 TUI/旧契约）。
+// Status 是权威三态；Done 是派生布尔（Status == done），两者始终一致。
+type TodoItem struct {
+	Text   string         `json:"text"`
+	Status TodoItemStatus `json:"status"`
+	Done   bool           `json:"done"`
+}
+
+func (item TodoItem) withDerivedDone() TodoItem {
+	item.Done = item.Status == TodoItemDone
+	return item
+}
+
+// TaskToTodoItem 把 kind=todo 的 task 还原为 TodoItem（兼容 TUI/旧契约）。
+func TaskToTodoItem(record TaskRecord) TodoItem {
+	status := TodoItemPending
+	switch record.Status {
+	case TaskDoing:
+		status = TodoItemDoing
+	case TaskCompleted:
+		status = TodoItemDone
+	}
+	return TodoItem{Text: record.Task, Status: status}.withDerivedDone()
+}
+
+// TodoToTaskStatus 把 TodoItemStatus 映射为 TaskStatus（todolist 状态更新入口）。
+func TodoToTaskStatus(status TodoItemStatus) TaskStatus {
+	switch status {
+	case TodoItemDoing:
+		return TaskDoing
+	case TodoItemDone:
+		return TaskCompleted
+	default:
+		return TaskPending
+	}
+}
+
 var errTaskClosed = errors.New("task registry: actor closed")
 
 type taskOp int
@@ -139,9 +188,9 @@ type taskRecord struct {
 	record TaskRecord
 }
 
-// taskRegistry 是 task 注册表 actor：单消费者串行处理命令（CSP 阻塞请求/
+// TaskRegistry 是 task 注册表 actor：单消费者串行处理命令（CSP 阻塞请求/
 // 应答），外部读写只经门面方法，杜绝数据竞争。
-type taskRegistry struct {
+type TaskRegistry struct {
 	mailbox        chan taskCommand
 	changes        chan TaskRecord
 	done           chan struct{}
@@ -149,8 +198,8 @@ type taskRegistry struct {
 	droppedChanges atomic.Int64
 }
 
-func newTaskRegistry() *taskRegistry {
-	registry := &taskRegistry{
+func NewTaskRegistry() *TaskRegistry {
+	registry := &TaskRegistry{
 		mailbox: make(chan taskCommand),
 		changes: make(chan TaskRecord, 256),
 		done:    make(chan struct{}),
@@ -159,7 +208,7 @@ func newTaskRegistry() *taskRegistry {
 	return registry
 }
 
-func (registry *taskRegistry) send(command taskCommand) (taskReply, error) {
+func (registry *TaskRegistry) send(command taskCommand) (taskReply, error) {
 	select {
 	case registry.mailbox <- command:
 		select {
@@ -173,8 +222,8 @@ func (registry *taskRegistry) send(command taskCommand) (taskReply, error) {
 	}
 }
 
-func (registry *taskRegistry) loop() {
-	state := &taskRegistryState{
+func (registry *TaskRegistry) loop() {
+	state := &TaskRegistryState{
 		tasks:  make(map[string]*taskRecord),
 		byKey:  make(map[string]string),
 		todo:   make([]string, 0),
@@ -190,15 +239,15 @@ func (registry *taskRegistry) loop() {
 	}
 }
 
-// taskRegistryState 是 actor 持有的状态（按 task 键隔离；todo 有序列表）。
-type taskRegistryState struct {
+// TaskRegistryState 是 actor 持有的状态（按 task 键隔离；todo 有序列表）。
+type TaskRegistryState struct {
 	tasks  map[string]*taskRecord
 	byKey  map[string]string
 	todo   []string // kind=todo 的有序 ID 列表（todolist 索引语义）
 	nextID uint64
 }
 
-func (registry *taskRegistry) apply(command taskCommand, state *taskRegistryState) {
+func (registry *TaskRegistry) apply(command taskCommand, state *TaskRegistryState) {
 	var reply taskReply
 	switch command.op {
 	case taskOpAdd:
@@ -241,7 +290,7 @@ func (registry *taskRegistry) apply(command taskCommand, state *taskRegistryStat
 // emitChange 把变更后的 task 投递到输出 channel（CSP）：非阻塞；满则丢弃
 // 并计数——task.changed 只是增量，worktable.changed 整表安全网兜底；绝不
 // 让 actor 因消费者慢而阻塞（避免服务路径/子代理会话锁环路死锁）。
-func (registry *taskRegistry) emitChange(record TaskRecord) {
+func (registry *TaskRegistry) emitChange(record TaskRecord) {
 	copyRecord := record
 	copyRecord.Dependencies = append([]string(nil), record.Dependencies...)
 	copyRecord.Attachments = append([]string(nil), record.Attachments...)
@@ -255,14 +304,14 @@ func (registry *taskRegistry) emitChange(record TaskRecord) {
 }
 
 // DroppedChanges 返回因 channel 满而丢弃的变更数（诊断/测试）。
-func (registry *taskRegistry) DroppedChanges() int64 {
+func (registry *TaskRegistry) DroppedChanges() int64 {
 	if registry == nil {
 		return 0
 	}
 	return registry.droppedChanges.Load()
 }
 
-func addTaskLocked(spec TaskSpec, state *taskRegistryState) (TaskRecord, bool) {
+func addTaskLocked(spec TaskSpec, state *TaskRegistryState) (TaskRecord, bool) {
 	key := spec.Key
 	if key == "" {
 		key = spec.ID
@@ -314,7 +363,7 @@ func taskAddOperation(kind string) string {
 	}
 }
 
-func resolveTaskLocked(key string, state *taskRegistryState) (TaskRecord, bool) {
+func resolveTaskLocked(key string, state *TaskRegistryState) (TaskRecord, bool) {
 	if key == "" {
 		return TaskRecord{}, false
 	}
@@ -329,7 +378,7 @@ func resolveTaskLocked(key string, state *taskRegistryState) (TaskRecord, bool) 
 	return record.record, true
 }
 
-func setTaskStatusLocked(id string, status TaskStatus, evidence string, state *taskRegistryState) (TaskRecord, error) {
+func setTaskStatusLocked(id string, status TaskStatus, evidence string, state *TaskRegistryState) (TaskRecord, error) {
 	record, ok := state.tasks[id]
 	if !ok {
 		return TaskRecord{}, fmt.Errorf("task: %s not found", id)
@@ -358,7 +407,7 @@ func setTaskStatusLocked(id string, status TaskStatus, evidence string, state *t
 	return record.record, nil
 }
 
-func attachParticipantLocked(id, participant string, state *taskRegistryState) (TaskRecord, error) {
+func attachParticipantLocked(id, participant string, state *TaskRegistryState) (TaskRecord, error) {
 	record, ok := state.tasks[id]
 	if !ok {
 		return TaskRecord{}, fmt.Errorf("task: %s not found", id)
@@ -372,7 +421,7 @@ func attachParticipantLocked(id, participant string, state *taskRegistryState) (
 	return record.record, nil
 }
 
-func appendTaskTraceLocked(id string, point TaskTracePoint, state *taskRegistryState) (TaskRecord, error) {
+func appendTaskTraceLocked(id string, point TaskTracePoint, state *TaskRegistryState) (TaskRecord, error) {
 	record, ok := state.tasks[id]
 	if !ok {
 		return TaskRecord{}, fmt.Errorf("task: %s not found", id)
@@ -414,7 +463,7 @@ func validateTaskTransition(current, next TaskStatus) error {
 // taskTraceLimit 是单 task 打点上限（概览有界；详情弹窗另有完整时间线）。
 const taskTraceLimit = 10
 
-func snapshotTasksLocked(state *taskRegistryState) []TaskRecord {
+func snapshotTasksLocked(state *TaskRegistryState) []TaskRecord {
 	records := make([]TaskRecord, 0, len(state.tasks))
 	for _, record := range state.tasks {
 		copyRecord := record.record
@@ -430,7 +479,7 @@ func snapshotTasksLocked(state *taskRegistryState) []TaskRecord {
 	return records
 }
 
-func removeTaskLocked(id string, state *taskRegistryState) {
+func removeTaskLocked(id string, state *TaskRegistryState) {
 	record, ok := state.tasks[id]
 	if !ok {
 		return
@@ -449,7 +498,7 @@ func removeTaskLocked(id string, state *taskRegistryState) {
 	delete(state.tasks, id)
 }
 
-func replaceTodoLocked(items []TodoItem, state *taskRegistryState) {
+func replaceTodoLocked(items []TodoItem, state *TaskRegistryState) {
 	for _, id := range state.todo {
 		removeTaskLocked(id, state)
 	}
@@ -467,12 +516,12 @@ func replaceTodoLocked(items []TodoItem, state *taskRegistryState) {
 	}
 }
 
-func appendTodoLocked(item TodoItem, state *taskRegistryState) {
+func appendTodoLocked(item TodoItem, state *TaskRegistryState) {
 	spec := TaskSpec{Key: "todo:" + item.Text, Phase: TaskPhaseTasklist, Task: item.Text, Kind: "todo"}
 	_, _ = addTaskLocked(spec, state)
 }
 
-func todoByIndexLocked(index int, state *taskRegistryState) (TaskRecord, error) {
+func todoByIndexLocked(index int, state *TaskRegistryState) (TaskRecord, error) {
 	if index < 0 || index >= len(state.todo) {
 		return TaskRecord{}, fmt.Errorf("todolist: index %d out of range (0..%d)", index, len(state.todo)-1)
 	}
@@ -485,7 +534,7 @@ func todoByIndexLocked(index int, state *taskRegistryState) (TaskRecord, error) 
 }
 
 // restoreTaskLocked 按原记录回填（幂等键冲突时保留既有，不覆盖）。
-func restoreTaskLocked(id string, record TaskRecord, state *taskRegistryState) (TaskRecord, error) {
+func restoreTaskLocked(id string, record TaskRecord, state *TaskRegistryState) (TaskRecord, error) {
 	if id == "" {
 		return TaskRecord{}, fmt.Errorf("task: restore requires id")
 	}
@@ -515,7 +564,7 @@ func restoreTaskLocked(id string, record TaskRecord, state *taskRegistryState) (
 
 // replaceAllTasksLocked 整体替换注册表（会话级隔离：切换会话时清空并恢复
 // 目标会话的 task；不发增量——前端走整表 resync）。
-func replaceAllTasksLocked(records []TaskRecord, state *taskRegistryState) {
+func replaceAllTasksLocked(records []TaskRecord, state *TaskRegistryState) {
 	state.tasks = make(map[string]*taskRecord, len(records))
 	state.byKey = make(map[string]string, len(records))
 	state.todo = make([]string, 0, len(records))
@@ -524,7 +573,7 @@ func replaceAllTasksLocked(records []TaskRecord, state *taskRegistryState) {
 	}
 }
 
-func todoSnapshotLocked(state *taskRegistryState) []TaskRecord {
+func todoSnapshotLocked(state *TaskRegistryState) []TaskRecord {
 	records := make([]TaskRecord, 0, len(state.todo))
 	for _, id := range state.todo {
 		if record, ok := state.tasks[id]; ok {
@@ -539,19 +588,19 @@ func todoSnapshotLocked(state *taskRegistryState) []TaskRecord {
 // ── 门面方法（CSP 阻塞请求/应答；actor 关闭后快速失败）────────────
 
 // Add 创建 task（幂等：Key 命中返回既有记录）。
-func (registry *taskRegistry) Add(spec TaskSpec) (TaskRecord, bool, error) {
+func (registry *TaskRegistry) Add(spec TaskSpec) (TaskRecord, bool, error) {
 	reply, err := registry.send(taskCommand{op: taskOpAdd, spec: spec, reply: make(chan taskReply, 1)})
 	return reply.task, reply.created, err
 }
 
 // ResolveByKey 按幂等键查 task。
-func (registry *taskRegistry) ResolveByKey(key string) (TaskRecord, bool, error) {
+func (registry *TaskRegistry) ResolveByKey(key string) (TaskRecord, bool, error) {
 	reply, err := registry.send(taskCommand{op: taskOpResolveByKey, key: key, reply: make(chan taskReply, 1)})
 	return reply.task, reply.task.ID != "", err
 }
 
 // SetStatus 更新 task 状态（retry 自增计数；running 保留计数）。
-func (registry *taskRegistry) SetStatus(id string, status TaskStatus, evidence string) (TaskRecord, error) {
+func (registry *TaskRegistry) SetStatus(id string, status TaskStatus, evidence string) (TaskRecord, error) {
 	reply, err := registry.send(taskCommand{op: taskOpSetStatus, id: id, status: status, evidence: evidence, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return TaskRecord{}, err
@@ -560,7 +609,7 @@ func (registry *taskRegistry) SetStatus(id string, status TaskStatus, evidence s
 }
 
 // AttachParticipant 把子代理挂为 task 参与者（幂等）。
-func (registry *taskRegistry) AttachParticipant(id, participant string) (TaskRecord, error) {
+func (registry *TaskRegistry) AttachParticipant(id, participant string) (TaskRecord, error) {
 	reply, err := registry.send(taskCommand{op: taskOpAttachParticipant, id: id, participant: participant, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return TaskRecord{}, err
@@ -569,7 +618,7 @@ func (registry *taskRegistry) AttachParticipant(id, participant string) (TaskRec
 }
 
 // AppendTrace 追加打点。
-func (registry *taskRegistry) AppendTrace(id string, point TaskTracePoint) (TaskRecord, error) {
+func (registry *TaskRegistry) AppendTrace(id string, point TaskTracePoint) (TaskRecord, error) {
 	reply, err := registry.send(taskCommand{op: taskOpAppendTrace, id: id, point: point, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return TaskRecord{}, err
@@ -578,7 +627,7 @@ func (registry *taskRegistry) AppendTrace(id string, point TaskTracePoint) (Task
 }
 
 // Snapshot 返回只读拷贝。
-func (registry *taskRegistry) Snapshot() []TaskRecord {
+func (registry *TaskRegistry) Snapshot() []TaskRecord {
 	reply, err := registry.send(taskCommand{op: taskOpSnapshot, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return nil
@@ -587,7 +636,7 @@ func (registry *taskRegistry) Snapshot() []TaskRecord {
 }
 
 // ReplaceTodo 整体替换 todolist（todolist_init；融合进 task 注册表）。
-func (registry *taskRegistry) ReplaceTodo(items []TodoItem) error {
+func (registry *TaskRegistry) ReplaceTodo(items []TodoItem) error {
 	reply, err := registry.send(taskCommand{op: taskOpReplaceTodo, items: items, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return err
@@ -596,7 +645,7 @@ func (registry *taskRegistry) ReplaceTodo(items []TodoItem) error {
 }
 
 // TodoSnapshot 返回 todolist 有序只读快照（kind=todo 的 task 按列表序）。
-func (registry *taskRegistry) TodoSnapshot() []TaskRecord {
+func (registry *TaskRegistry) TodoSnapshot() []TaskRecord {
 	reply, err := registry.send(taskCommand{op: taskOpTodoSnapshot, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return nil
@@ -605,7 +654,7 @@ func (registry *taskRegistry) TodoSnapshot() []TaskRecord {
 }
 
 // AppendTodo 追加一项（actor 内上限校验，防并发 check-then-act）。
-func (registry *taskRegistry) AppendTodo(item TodoItem, limit int) error {
+func (registry *TaskRegistry) AppendTodo(item TodoItem, limit int) error {
 	reply, err := registry.send(taskCommand{op: taskOpAppendTodo, items: []TodoItem{item}, limit: limit, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return err
@@ -614,7 +663,7 @@ func (registry *taskRegistry) AppendTodo(item TodoItem, limit int) error {
 }
 
 // SetTodoStatusByIndex 按 todolist 索引设置状态（GUI 工作表格状态更新入口）。
-func (registry *taskRegistry) SetTodoStatusByIndex(index int, status TaskStatus) (TaskRecord, error) {
+func (registry *TaskRegistry) SetTodoStatusByIndex(index int, status TaskStatus) (TaskRecord, error) {
 	reply, err := registry.send(taskCommand{op: taskOpTodoByIndex, index: index, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return TaskRecord{}, err
@@ -626,7 +675,7 @@ func (registry *taskRegistry) SetTodoStatusByIndex(index int, status TaskStatus)
 }
 
 // Close 优雅关闭 actor。
-func (registry *taskRegistry) Close() {
+func (registry *TaskRegistry) Close() {
 	if registry != nil {
 		registry.closeOnce.Do(func() { close(registry.done) })
 	}
@@ -634,7 +683,7 @@ func (registry *taskRegistry) Close() {
 
 // TaskChanged 返回 task.changed 输出 channel（CSP：变更即投递，application
 // 消费者直发增量，不拉脏、不丢事件）。
-func (registry *taskRegistry) TaskChanged() <-chan TaskRecord {
+func (registry *TaskRegistry) TaskChanged() <-chan TaskRecord {
 	if registry == nil {
 		return nil
 	}
@@ -642,7 +691,7 @@ func (registry *taskRegistry) TaskChanged() <-chan TaskRecord {
 }
 
 // Restore 会话恢复：按原记录原样回填（不追加打点、不校验迁移、不发增量）。
-func (registry *taskRegistry) Restore(id string, record TaskRecord) error {
+func (registry *TaskRegistry) Restore(id string, record TaskRecord) error {
 	reply, err := registry.send(taskCommand{op: taskOpRestore, id: id, record: record, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return err
@@ -652,7 +701,7 @@ func (registry *taskRegistry) Restore(id string, record TaskRecord) error {
 
 // ReplaceAll 整体替换注册表（会话级隔离：切换会话时清空并恢复目标会话
 // 的 task；不发增量，前端走整表 resync）。
-func (registry *taskRegistry) ReplaceAll(records []TaskRecord) error {
+func (registry *TaskRegistry) ReplaceAll(records []TaskRecord) error {
 	reply, err := registry.send(taskCommand{op: taskOpReplaceAll, taskRecords: records, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return err
@@ -660,76 +709,7 @@ func (registry *taskRegistry) ReplaceAll(records []TaskRecord) error {
 	return reply.err
 }
 
-// ── Runtime 门面（application 经端口消费；被动生命周期也经此处落库）────
-
-// TaskSnapshot 返回 task 注册表只读快照（worktable 投影数据源）。
-func (r *Runtime) TaskSnapshot() []TaskRecord {
-	if r == nil || r.tasks == nil {
-		return nil
-	}
-	return r.tasks.Snapshot()
-}
-
-// TaskAdd 主动登记 task（幂等：Key 命中返回既有记录，不重复建条目）。
-func (r *Runtime) TaskAdd(spec TaskSpec) (TaskRecord, bool, error) {
-	if r == nil || r.tasks == nil {
-		return TaskRecord{}, false, errors.New("task: registry unavailable")
-	}
-	return r.tasks.Add(spec)
-}
-
-// ResolveTaskByKey 按幂等键查 task（B6 子代理装配：查重命中 → 绑定既有 id）。
-func (r *Runtime) ResolveTaskByKey(key string) (TaskRecord, bool, error) {
-	if r == nil || r.tasks == nil {
-		return TaskRecord{}, false, errors.New("task: registry unavailable")
-	}
-	return r.tasks.ResolveByKey(key)
-}
-
-// TaskSetStatus 更新 task 状态（retry 自增计数；运行中保留计数）。
-func (r *Runtime) TaskSetStatus(id string, status TaskStatus, evidence string) (TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return TaskRecord{}, errors.New("task: registry unavailable")
-	}
-	return r.tasks.SetStatus(id, status, evidence)
-}
-
-// TaskAttachParticipant 把子代理挂为 task 参与者（幂等）。
-func (r *Runtime) TaskAttachParticipant(id, participant string) (TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return TaskRecord{}, errors.New("task: registry unavailable")
-	}
-	return r.tasks.AttachParticipant(id, participant)
-}
-
-// TaskAppendTrace 追加 task 打点。
-func (r *Runtime) TaskAppendTrace(id string, point TaskTracePoint) (TaskRecord, error) {
-	if r == nil || r.tasks == nil {
-		return TaskRecord{}, errors.New("task: registry unavailable")
-	}
-	return r.tasks.AppendTrace(id, point)
-}
-
-// SwitchSessionTasks 会话级 task 隔离：切换会话时整体替换注册表
-// （清空当前会话 task，恢复目标会话 task；T4 复用 session stack 存储）。
-func (r *Runtime) SwitchSessionTasks(records []TaskRecord) {
-	if r == nil || r.tasks == nil {
-		return
-	}
-	_ = r.tasks.ReplaceAll(records)
-}
-
-// TaskChangedChannel 返回 task.changed 输出 channel（CSP：application 消费者
-// 直发增量，不拉脏）。
-func (r *Runtime) TaskChangedChannel() <-chan TaskRecord {
-	if r == nil || r.tasks == nil {
-		return nil
-	}
-	return r.tasks.TaskChanged()
-}
-
-// taskKeyForGoal 生成 task 的幂等键（归一化 goal 的 FNV-1a 哈希）。
-func taskKeyForGoal(goal string) string {
+func TaskKeyForGoal(goal string) string {
 	// 归一化：去全部空白并小写（中文分词空格不改变语义）。
 	normalized := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(goal)), ""))
 	hasher := fnv.New64a()

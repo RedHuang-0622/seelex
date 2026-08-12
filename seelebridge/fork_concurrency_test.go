@@ -10,6 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/task"
 )
 
 // blockingNodeCompleter 阻塞到 release 才返回（模拟真实子代理执行时长，
@@ -122,7 +123,7 @@ func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
 // TestTaskRegistryHighConcurrencyBurst 注册表 mailbox 高并发突发：
 // 32 个 goroutine 并发 Add/SetStatus，全部落库、无丢失、无死锁。
 func TestTaskRegistryHighConcurrencyBurst(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := task.NewTaskRegistry()
 	defer registry.Close()
 	const workers = 32
 	var wg sync.WaitGroup

@@ -16,54 +16,9 @@ import (
 //
 // 全部 done → 响应提示模型调用 task_complete 提交任务（收尾契约衔接）。
 
-// TodoItemStatus 是待办项的三态（pending → doing → done；用户可回退）。
-type TodoItemStatus string
-
-const (
-	TodoItemPending TodoItemStatus = "pending"
-	TodoItemDoing   TodoItemStatus = "doing"
-	TodoItemDone    TodoItemStatus = "done"
-)
-
-// TodoItem 是清单项（快照 DTO，兼容 TUI/旧契约）。
-// Status 是权威三态；Done 是派生布尔（Status == done），两者始终一致。
-type TodoItem struct {
-	Text   string         `json:"text"`
-	Status TodoItemStatus `json:"status"`
-	Done   bool           `json:"done"`
-}
-
-func (item TodoItem) withDerivedDone() TodoItem {
-	item.Done = item.Status == TodoItemDone
-	return item
-}
-
+// TodoItem 是清单项（快照 DTO，兼容 TUI/旧契约）；定义见 seelebridge/task。
 func validTodoStatus(status TodoItemStatus) bool {
 	return status == TodoItemPending || status == TodoItemDoing || status == TodoItemDone
-}
-
-// todoToTaskStatus 把 todolist 三态映射为 task 状态（doing → doing）。
-func todoToTaskStatus(status TodoItemStatus) TaskStatus {
-	switch status {
-	case TodoItemDoing:
-		return TaskDoing
-	case TodoItemDone:
-		return TaskCompleted
-	default:
-		return TaskPending
-	}
-}
-
-// taskToTodoItem 把 kind=todo 的 task 还原为 TodoItem（兼容 TUI/旧契约）。
-func taskToTodoItem(record TaskRecord) TodoItem {
-	status := TodoItemPending
-	switch record.Status {
-	case TaskDoing:
-		status = TodoItemDoing
-	case TaskCompleted:
-		status = TodoItemDone
-	}
-	return TodoItem{Text: record.Task, Status: status}.withDerivedDone()
 }
 
 // TodoSnapshot 返回当前清单只读拷贝（application 快照投影数据源；

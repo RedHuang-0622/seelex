@@ -1,4 +1,4 @@
-package seelebridge
+package task
 
 import (
 	"errors"
@@ -12,7 +12,7 @@ import (
 // ── task 注册表 actor（Actor + Mailbox 白盒测试；todolist 融合验证）──
 
 func TestTaskRegistryTodoThreeStateLifecycle(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 
 	if err := registry.ReplaceTodo([]TodoItem{
@@ -31,17 +31,17 @@ func TestTaskRegistryTodoThreeStateLifecycle(t *testing.T) {
 	if len(items) != 2 {
 		t.Fatalf("items = %+v", items)
 	}
-	todo := taskToTodoItem(items[0])
+	todo := TaskToTodoItem(items[0])
 	if todo.Status != TodoItemDone || !todo.Done {
 		t.Fatalf("item0 = %+v, want done", todo)
 	}
-	if second := taskToTodoItem(items[1]); second.Status != TodoItemPending || second.Done {
+	if second := TaskToTodoItem(items[1]); second.Status != TodoItemPending || second.Done {
 		t.Fatalf("item1 = %+v, want pending", second)
 	}
 }
 
 func TestTaskRegistryRejectsInvalidOperations(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 
 	if _, err := registry.SetTodoStatusByIndex(0, TaskCompleted); err == nil || !strings.Contains(err.Error(), "out of range") {
@@ -56,7 +56,7 @@ func TestTaskRegistryRejectsInvalidOperations(t *testing.T) {
 }
 
 func TestTaskRegistryAppendEnforcesLimitInsideActor(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	if err := registry.ReplaceTodo([]TodoItem{{Text: "a"}}); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestTaskRegistryAppendEnforcesLimitInsideActor(t *testing.T) {
 }
 
 func TestTaskRegistryTodoSnapshotIsDefensiveCopy(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	if err := registry.ReplaceTodo([]TodoItem{{Text: "a", Status: TodoItemDone}}); err != nil {
 		t.Fatal(err)
@@ -81,13 +81,13 @@ func TestTaskRegistryTodoSnapshotIsDefensiveCopy(t *testing.T) {
 	items := registry.TodoSnapshot()
 	items[0] = TaskRecord{Task: "mutated"}
 	clean := registry.TodoSnapshot()
-	if taskToTodoItem(clean[0]).Text != "a" {
+	if TaskToTodoItem(clean[0]).Text != "a" {
 		t.Fatalf("snapshot must be a defensive copy: %+v", clean)
 	}
 }
 
 func TestTaskRegistryConcurrentStatusAndSnapshot(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	const count = 50
 	items := make([]TodoItem, count)
@@ -121,14 +121,14 @@ func TestTaskRegistryConcurrentStatusAndSnapshot(t *testing.T) {
 	wg.Wait()
 
 	for index, item := range registry.TodoSnapshot() {
-		if taskToTodoItem(item).Status != TodoItemDone {
-			t.Fatalf("item[%d] = %+v, want done", index, taskToTodoItem(item))
+		if TaskToTodoItem(item).Status != TodoItemDone {
+			t.Fatalf("item[%d] = %+v, want done", index, TaskToTodoItem(item))
 		}
 	}
 }
 
 func TestTaskRegistryCloseFailsSends(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	registry.Close()
 	if _, _, err := registry.Add(TaskSpec{Key: "k", Task: "x", Kind: "task"}); !errors.Is(err, errTaskClosed) {
 		t.Fatalf("send after close = %v, want errTaskClosed", err)
@@ -137,9 +137,9 @@ func TestTaskRegistryCloseFailsSends(t *testing.T) {
 }
 
 func TestTaskRegistryIdempotentAddByKey(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
-	key := taskKeyForGoal("审查代码结构")
+	key := TaskKeyForGoal("审查代码结构")
 	first, created, err := registry.Add(TaskSpec{Key: key, Phase: "task", Task: "审查代码结构", Kind: "task"})
 	if err != nil || !created {
 		t.Fatalf("first add: created=%v err=%v", created, err)
@@ -149,14 +149,14 @@ func TestTaskRegistryIdempotentAddByKey(t *testing.T) {
 		t.Fatalf("duplicate add must return existing task: created=%v second=%+v first=%+v", created, second, first)
 	}
 	// 归一化：空白/大小写不同仍命中同一幂等键。
-	again, created, err := registry.Add(TaskSpec{Key: taskKeyForGoal("  审查  代码结构 "), Phase: "task", Task: "审查代码结构", Kind: "task"})
+	again, created, err := registry.Add(TaskSpec{Key: TaskKeyForGoal("  审查  代码结构 "), Phase: "task", Task: "审查代码结构", Kind: "task"})
 	if err != nil || created || again.ID != first.ID {
 		t.Fatalf("normalized key must dedupe: created=%v again=%+v", created, again)
 	}
 }
 
 func TestTaskRegistryRetryIncrementsCount(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	task, created, err := registry.Add(TaskSpec{Key: "k1", Phase: "plan", Task: "t", Kind: "plan"})
 	if err != nil || !created {
@@ -186,7 +186,7 @@ func TestTaskRegistryRetryIncrementsCount(t *testing.T) {
 // TestTaskRegistryTerminalReopensToRetry 验证终态（completed/failed）可重开为
 // retry（RetryCount 自增），但不可回退到其他状态；retry 不可回退 queued。
 func TestTaskRegistryTerminalReopensToRetry(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	task, created, err := registry.Add(TaskSpec{Key: "k1", Phase: "plan", Task: "t", Kind: "plan"})
 	if err != nil || !created {
@@ -238,7 +238,7 @@ func TestTaskRegistryTerminalReopensToRetry(t *testing.T) {
 // TestTaskRegistryFailedReopensToRetry 验证 failed → retry 允许、failed →
 // 其他状态仍拒绝。
 func TestTaskRegistryFailedReopensToRetry(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	task, created, err := registry.Add(TaskSpec{Key: "k2", Phase: "plan", Task: "t", Kind: "plan"})
 	if err != nil || !created {
@@ -264,7 +264,7 @@ func TestTaskRegistryFailedReopensToRetry(t *testing.T) {
 // 形成“service.mu → 子代理会话锁 → actor → channel”环路死锁，子代理全部
 // 卡 queued。
 func TestTaskRegistryEmitChangeNeverBlocksActor(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	for index := 0; index < cap(registry.changes); index++ {
 		registry.changes <- TaskRecord{ID: fmt.Sprintf("fill-%d", index)}
@@ -289,7 +289,7 @@ func TestTaskRegistryEmitChangeNeverBlocksActor(t *testing.T) {
 }
 
 func TestTaskRegistryChangesChannel(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	task, created, err := registry.Add(TaskSpec{Key: "k1", Phase: "task", Task: "t", Kind: "task"})
 	if err != nil || !created {
@@ -315,7 +315,7 @@ func TestTaskRegistryChangesChannel(t *testing.T) {
 // TestTaskRegistryReplaceAllSwitchesSession 会话级隔离：整体替换注册表
 // （清空旧会话 task/todo，恢复目标会话），旧数据不残留。
 func TestTaskRegistryReplaceAllSwitchesSession(t *testing.T) {
-	registry := newTaskRegistry()
+	registry := NewTaskRegistry()
 	defer registry.Close()
 	_, _, _ = registry.Add(TaskSpec{ID: "task:a", Key: "k:a", Phase: TaskPhaseTask, Task: "a", Kind: "task"})
 	_, _, _ = registry.Add(TaskSpec{ID: "todo:0", Phase: TaskPhaseTasklist, Task: "旧", Kind: "todo"})
@@ -330,28 +330,5 @@ func TestTaskRegistryReplaceAllSwitchesSession(t *testing.T) {
 	}
 	if todo := registry.TodoSnapshot(); len(todo) != 0 {
 		t.Fatalf("todo must be cleared on session switch: %+v", todo)
-	}
-}
-
-// TestBindSubagentTaskIdempotent 验证 B6 装配件：相同 goal 的子代理绑定同一
-// task（幂等），第二个子代理作为参与者挂到同一 task。
-func TestBindSubagentTaskIdempotent(t *testing.T) {
-	runtime := newTestRuntime(t)
-	defer runtime.Shutdown()
-	first := runtime.bindSubagentTask(forkSubagentSpec{ID: "s1", Goal: "分析作者画像"})
-	second := runtime.bindSubagentTask(forkSubagentSpec{ID: "s2", Goal: "分析作者画像"})
-	if first == "" || first != second {
-		t.Fatalf("same goal must bind same task: first=%q second=%q", first, second)
-	}
-	records := runtime.TaskSnapshot()
-	if len(records) != 1 {
-		t.Fatalf("tasks = %+v, want 1（同一 task 不重复建条目）", records)
-	}
-	record := records[0]
-	if record.Status != TaskQueued {
-		t.Fatalf("task status after bind = %v, want queued（会话未启动前不显示 running）", record.Status)
-	}
-	if len(record.Participants) != 2 || record.Participants[0] != "s1" || record.Participants[1] != "s2" {
-		t.Fatalf("participants = %v, want [s1 s2]", record.Participants)
 	}
 }
