@@ -1,4 +1,4 @@
-package main
+package console
 
 import (
 	"bufio"
@@ -34,7 +34,7 @@ type backendWorkspaceApplication interface {
 	BindWorkspace(workspaceID string) error
 }
 
-func bindBackendProject(app backendWorkspaceApplication, rootPath string) error {
+func BindProject(app backendWorkspaceApplication, rootPath string) error {
 	rootPath = strings.TrimSpace(rootPath)
 	if rootPath == "" {
 		return nil
@@ -68,14 +68,14 @@ func bindBackendProject(app backendWorkspaceApplication, rootPath string) error 
 	return nil
 }
 
-func startBackendConsole(app *application.Service, prompt string, timeout time.Duration, output io.Writer) error {
+func Start(app *application.Service, prompt string, timeout time.Duration, output io.Writer) error {
 	if output == nil {
 		output = os.Stdout
 	}
-	return runBackendConsole(context.Background(), app, prompt, timeout, os.Stdin, output)
+	return Run(context.Background(), app, prompt, timeout, os.Stdin, output)
 }
 
-func openBackendOutput(logPath string) (io.Writer, func() error, error) {
+func OpenOutput(logPath string) (io.Writer, func() error, error) {
 	if strings.TrimSpace(logPath) == "" {
 		return os.Stdout, func() error { return nil }, nil
 	}
@@ -86,8 +86,8 @@ func openBackendOutput(logPath string) (io.Writer, func() error, error) {
 	return io.MultiWriter(os.Stdout, file), file.Close, nil
 }
 
-func runBackendConsole(ctx context.Context, app backendApplication, prompt string, timeout time.Duration, input io.Reader, output io.Writer) error {
-	logger := newBackendEventLogger(output, time.Now)
+func Run(ctx context.Context, app backendApplication, prompt string, timeout time.Duration, input io.Reader, output io.Writer) error {
+	logger := NewEventLogger(output, time.Now)
 	stopEvents := observeBackendEvents(ctx, app, logger)
 	defer stopEvents()
 
@@ -113,7 +113,7 @@ func runBackendConsole(ctx context.Context, app backendApplication, prompt strin
 	return scanner.Err()
 }
 
-func submitBackendPrompt(ctx context.Context, app backendApplication, logger *backendEventLogger, prompt string, timeout time.Duration) error {
+func submitBackendPrompt(ctx context.Context, app backendApplication, logger *EventLogger, prompt string, timeout time.Duration) error {
 	logger.LogSubmit(prompt)
 	if err := app.Submit(ctx, prompt); err != nil {
 		logger.LogSubmitError(err)
@@ -129,7 +129,7 @@ func submitBackendPrompt(ctx context.Context, app backendApplication, logger *ba
 	return err
 }
 
-func observeBackendEvents(ctx context.Context, app backendApplication, logger *backendEventLogger) func() {
+func observeBackendEvents(ctx context.Context, app backendApplication, logger *EventLogger) func() {
 	subscription := app.Subscribe(256)
 	done := make(chan struct{})
 	go func() {
@@ -152,7 +152,7 @@ func observeBackendEvents(ctx context.Context, app backendApplication, logger *b
 	}
 }
 
-type backendEventLogger struct {
+type EventLogger struct {
 	mu             sync.Mutex
 	output         io.Writer
 	now            func() time.Time
@@ -161,21 +161,21 @@ type backendEventLogger struct {
 	requests       map[string]time.Time
 }
 
-func newBackendEventLogger(output io.Writer, now func() time.Time) *backendEventLogger {
+func NewEventLogger(output io.Writer, now func() time.Time) *EventLogger {
 	if now == nil {
 		now = time.Now
 	}
 	startedAt := now()
-	return &backendEventLogger{output: output, now: now, startedAt: startedAt, requests: make(map[string]time.Time)}
+	return &EventLogger{output: output, now: now, startedAt: startedAt, requests: make(map[string]time.Time)}
 }
 
-func logBackendStartup(logger *backendEventLogger, stage string) {
+func LogStageIf(logger *EventLogger, stage string) {
 	if logger != nil {
 		logger.LogStage(stage)
 	}
 }
 
-func (logger *backendEventLogger) LogStage(stage string) {
+func (logger *EventLogger) LogStage(stage string) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	fmt.Fprintf(logger.output, "[backend] +%s stage=%s\n", logger.now().Sub(logger.startedAt).Round(time.Millisecond), stage)
@@ -184,7 +184,7 @@ func (logger *backendEventLogger) LogStage(stage string) {
 // LogBashEvent records the process-boundary diagnostics emitted by scopedBash.
 // Like the application event logger, it intentionally excludes user command
 // text, paths, arguments, and command output.
-func (logger *backendEventLogger) LogBashEvent(event seelebridge.BashDiagnosticEvent) {
+func (logger *EventLogger) LogBashEvent(event seelebridge.BashDiagnosticEvent) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	if event.Err != nil {
@@ -200,7 +200,7 @@ func (logger *backendEventLogger) LogBashEvent(event seelebridge.BashDiagnosticE
 
 // LogToolHookEvent records the framework-to-application projection boundary.
 // It does not include tool arguments, output, or error text.
-func (logger *backendEventLogger) LogToolHookEvent(event application.ToolHookDiagnosticEvent) {
+func (logger *EventLogger) LogToolHookEvent(event application.ToolHookDiagnosticEvent) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	if event.Err != nil {
@@ -210,20 +210,20 @@ func (logger *backendEventLogger) LogToolHookEvent(event application.ToolHookDia
 	fmt.Fprintf(logger.output, "[backend] +%s stage=%s tool=%s\n", logger.now().Sub(logger.startedAt).Round(time.Millisecond), event.Stage, event.Name)
 }
 
-func (logger *backendEventLogger) LogSubmit(text string) {
+func (logger *EventLogger) LogSubmit(text string) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	logger.lastSubmission = logger.now()
 	fmt.Fprintf(logger.output, "[backend] +0s stage=submit input_chars=%d\n", len([]rune(text)))
 }
 
-func (logger *backendEventLogger) LogSubmitError(err error) {
+func (logger *EventLogger) LogSubmitError(err error) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	fmt.Fprintf(logger.output, "[backend] +0s stage=submit.error error=%q\n", err.Error())
 }
 
-func (logger *backendEventLogger) LogIdle(err error) {
+func (logger *EventLogger) LogIdle(err error) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	if err != nil {
@@ -233,7 +233,7 @@ func (logger *backendEventLogger) LogIdle(err error) {
 	fmt.Fprintf(logger.output, "[backend] +%s stage=chat.idle\n", logger.elapsedLocked(""))
 }
 
-func (logger *backendEventLogger) LogEvent(event application.Event) {
+func (logger *EventLogger) LogEvent(event application.Event) {
 	logger.mu.Lock()
 	defer logger.mu.Unlock()
 	if event.RequestID != "" {
@@ -259,7 +259,7 @@ func (logger *backendEventLogger) LogEvent(event application.Event) {
 	}
 }
 
-func (logger *backendEventLogger) logToolEventLocked(event application.Event) {
+func (logger *EventLogger) logToolEventLocked(event application.Event) {
 	var message application.Message
 	if err := json.Unmarshal(event.Payload, &message); err != nil || message.Tool == nil {
 		fmt.Fprintf(logger.output, "[backend] +%s request=%s stage=%s payload_bytes=%d\n", logger.elapsedLocked(event.RequestID), event.RequestID, event.Kind, len(event.Payload))
@@ -273,7 +273,7 @@ func (logger *backendEventLogger) logToolEventLocked(event application.Event) {
 	fmt.Fprintf(logger.output, "[backend] +%s request=%s stage=tool.completed tool=%s status=%s tool_duration=%s result_bytes=%d error_bytes=%d\n", logger.elapsedLocked(event.RequestID), event.RequestID, tool.Name, tool.Status, tool.Duration, len(tool.Result), len(tool.Error))
 }
 
-func (logger *backendEventLogger) requestStartLocked(requestID string) time.Time {
+func (logger *EventLogger) requestStartLocked(requestID string) time.Time {
 	if started, ok := logger.requests[requestID]; ok {
 		return started
 	}
@@ -283,6 +283,6 @@ func (logger *backendEventLogger) requestStartLocked(requestID string) time.Time
 	return logger.now()
 }
 
-func (logger *backendEventLogger) elapsedLocked(requestID string) time.Duration {
+func (logger *EventLogger) elapsedLocked(requestID string) time.Duration {
 	return logger.now().Sub(logger.requestStartLocked(requestID)).Round(time.Millisecond)
 }

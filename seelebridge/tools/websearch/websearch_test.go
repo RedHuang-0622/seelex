@@ -1,4 +1,4 @@
-package main
+package websearch
 
 import (
 	"os"
@@ -138,7 +138,7 @@ func TestRegisterWebSearch_NoAPIKey(t *testing.T) {
 	// We can't easily test this without a runtime, but verify no panic
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("registerWebSearchTool panicked: %v", r)
+			t.Fatalf("Register panicked: %v", r)
 		}
 	}()
 

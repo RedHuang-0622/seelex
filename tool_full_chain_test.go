@@ -16,6 +16,7 @@ import (
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -194,7 +195,7 @@ func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRo
 	if err := activateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)
 	}
-	appEngine := newEnginePort(frameworkEngine, func(sessionID string) reactorEngine {
+	appEngine := adapters.NewEnginePort(frameworkEngine, func(sessionID string) adapters.ReactorEngine {
 		fresh, createErr := initEngine(runtimeBridge, hooks, sessionID)
 		if createErr != nil {
 			return nil

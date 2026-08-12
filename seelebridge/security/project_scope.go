@@ -1,4 +1,4 @@
-package seelebridge
+package security
 
 import (
 	"fmt"
@@ -162,4 +162,22 @@ func withinRoot(root, candidate string) bool {
 		return strings.EqualFold(filepath.Clean(root), filepath.Clean(candidate)) || !strings.HasPrefix(strings.ToLower(rel), ".."+string(filepath.Separator))
 	}
 	return true
+}
+
+// Relative 返回 path 相对项目根的显示路径；path 在根内时返回相对形式。
+func (scope *ProjectScope) Relative(path string) (string, error) {
+	root, _, err := scope.roots()
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return filepath.Clean(path), err
+	}
+	return rel, nil
+}
+
+// ResolveInside 解析任意路径到根内绝对路径（供根包 scoped_tools 复用）。
+func ResolveInside(root, rawPath string) (string, error) {
+	return resolveInside(root, rawPath)
 }

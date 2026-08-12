@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -63,12 +64,12 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	}
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
-	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
+	runtime.SetPlanApprovalGate(&adapters.PlanApprovalGate{Broker: approval})
 	if err := activateDefaultPlugin(plugins, frameworkEngine); err != nil {
 		t.Fatal(err)
 	}
 
-	appEngine := newEnginePort(frameworkEngine, func(sessionID string) reactorEngine {
+	appEngine := adapters.NewEnginePort(frameworkEngine, func(sessionID string) adapters.ReactorEngine {
 		fresh, createErr := initEngine(runtime, hooks, sessionID)
 		if createErr != nil {
 			return nil

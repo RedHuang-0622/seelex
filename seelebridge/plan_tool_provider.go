@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	coreplan "github.com/RedHuang-0622/Seele/workplan/core/plan"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 const planLoadContractDescription = `
@@ -275,7 +276,7 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 	if err := json.Unmarshal([]byte(canonicalArgs), &spec); err != nil {
 		return "", fmt.Errorf("plan_load: parse canonical plan: %w", err)
 	}
-	if err := DetectCycle(spec.Edges); err != nil {
+	if err := plan.DetectCycle(spec.Edges); err != nil {
 		return "", fmt.Errorf("plan_load: %w", err)
 	}
 	document, err := canonicalPlanDocument(canonicalArgs)

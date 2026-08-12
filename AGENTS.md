@@ -2,6 +2,10 @@
 
 本文件是仓库内 Agent、维护者和自动化工具的文档与代码协作规范。它作用于整个仓库；若子目录以后增加更具体的 `AGENTS.md`，子目录规则优先，但不得降低这里的安全、测试和文档要求。
 
+## 0. 危险操作铁律（必读）
+
+执行任何可能删除、覆盖或移动用户数据的操作前（`make clean/release`、`rebuild-gui`、`rm`、`Remove-Item`、`git clean/reset`、目录移动等），必须先阅读根目录 `MEMORY.md`，并用中文向用户预警：将删除什么、影响哪些用户数据（会话记录 `.seelex`、配置 `config/accounts.yaml`/`*.local.yaml`/`seele.yaml`/`seelex.yaml`、dist 内副本）、是否可恢复；检查运行中的 seelex 进程并先备份，获得用户确认后再执行。本规则优先于其它流程性说明。
+
 ## 1. 事实来源与依赖边界
 
 - `application/` 是前端共享的应用层；`tui/` 和 `gui/` 只能通过 Application API 消费状态与提交操作，不复制业务状态机。

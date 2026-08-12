@@ -1,4 +1,4 @@
-package main
+package console
 
 import (
 	"bytes"
@@ -57,7 +57,7 @@ func TestBackendEventLoggerLogsToolStagesWithoutPayloadContent(t *testing.T) {
 	t.Parallel()
 	var output bytes.Buffer
 	now := time.Unix(0, 0)
-	logger := newBackendEventLogger(&output, func() time.Time { return now })
+	logger := NewEventLogger(&output, func() time.Time { return now })
 	logger.LogSubmit("do not print this input")
 
 	started, err := json.Marshal(application.Message{ID: "tool-1", Role: "tool", Tool: &application.ToolCall{ID: "bash-1", Name: "bash", Status: "running", Arguments: `{"command":"secret-command"}`}})
@@ -87,7 +87,7 @@ func TestBackendConsolePromptSubmitsAndWaitsForIdle(t *testing.T) {
 	t.Parallel()
 	fake := newBackendConsoleFakeApplication()
 	var output bytes.Buffer
-	if err := runBackendConsole(context.Background(), fake, "inspect", time.Second, strings.NewReader(""), &output); err != nil {
+	if err := Run(context.Background(), fake, "inspect", time.Second, strings.NewReader(""), &output); err != nil {
 		t.Fatal(err)
 	}
 	if fake.submitted != "inspect" || !fake.waited {
@@ -100,7 +100,7 @@ func TestBackendConsolePromptSubmitsAndWaitsForIdle(t *testing.T) {
 
 func TestOpenBackendOutputUsesStdoutWithoutLogPath(t *testing.T) {
 	t.Parallel()
-	output, closeOutput, err := openBackendOutput("")
+	output, closeOutput, err := OpenOutput("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestBackendEventLoggerLogsBashStagesWithoutCommandContent(t *testing.T) {
 	t.Parallel()
 	var output bytes.Buffer
 	now := time.Unix(0, 0)
-	logger := newBackendEventLogger(&output, func() time.Time { return now })
+	logger := NewEventLogger(&output, func() time.Time { return now })
 	logger.LogBashEvent(seelebridge.BashDiagnosticEvent{Stage: "bash.process.started", Shell: "bash.exe"})
 	now = now.Add(15 * time.Millisecond)
 	logger.LogBashEvent(seelebridge.BashDiagnosticEvent{Stage: "bash.process.exited", Shell: "bash.exe", ExitCode: 1})
@@ -133,7 +133,7 @@ func TestBackendEventLoggerLogsBashStagesWithoutCommandContent(t *testing.T) {
 func TestBackendEventLoggerLogsToolHookStagesWithoutPayloadContent(t *testing.T) {
 	t.Parallel()
 	var output bytes.Buffer
-	logger := newBackendEventLogger(&output, func() time.Time { return time.Unix(0, 0) })
+	logger := NewEventLogger(&output, func() time.Time { return time.Unix(0, 0) })
 	logger.LogToolHookEvent(application.ToolHookDiagnosticEvent{Stage: "toolhook.complete.project.done", Name: "bash"})
 	if got := output.String(); !strings.Contains(got, "stage=toolhook.complete.project.done tool=bash") || strings.Contains(got, "secret-command") {
 		t.Fatalf("tool hook diagnostic log = %q", got)
@@ -145,7 +145,7 @@ func TestBindBackendProjectUsesExistingWorkspaceOrCreatesOne(t *testing.T) {
 	root := t.TempDir()
 
 	existing := &backendWorkspaceFakeApplication{snapshot: application.Snapshot{Workspaces: []application.WorkspaceInfo{{ID: "workspace-1", RootPath: root}}}}
-	if err := bindBackendProject(existing, root); err != nil {
+	if err := BindProject(existing, root); err != nil {
 		t.Fatal(err)
 	}
 	if existing.boundID != "workspace-1" || existing.created.root != "" {
@@ -153,7 +153,7 @@ func TestBindBackendProjectUsesExistingWorkspaceOrCreatesOne(t *testing.T) {
 	}
 
 	created := &backendWorkspaceFakeApplication{}
-	if err := bindBackendProject(created, root); err != nil {
+	if err := BindProject(created, root); err != nil {
 		t.Fatal(err)
 	}
 	if created.created.root == "" || created.created.name == "" || created.boundID != "" {

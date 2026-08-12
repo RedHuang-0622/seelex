@@ -1,7 +1,8 @@
-package main
+package e2e
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 )
 
 func TestOfflineApplicationBootstrapComposition(t *testing.T) {
-	value, err := scenario.LoadFile("e2e/fixtures/approval-chat.json")
+	value, err := scenario.LoadFile(filepath.Join(repoRoot(), "e2e/fixtures/approval-chat.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

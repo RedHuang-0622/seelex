@@ -1,4 +1,4 @@
-package seelebridge
+package fs
 
 import (
 	"os"

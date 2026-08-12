@@ -4,13 +4,15 @@
 
 ## 模块定位
 
-`config/` 存放运行时账号配置模板和本机私有配置。配置最终由 Seele ChatClient/AccountPool 读取，Seelex composition root 负责选择文件并注入 Runtime。
+`config/` 存放运行时账号配置模板、本机私有配置以及运行参数文件（`seele.yaml` 权限规则、`seelex.yaml` 窗口/limits 参数）。配置最终由 Seele ChatClient/AccountPool 读取，Seelex composition root 负责选择文件并注入 Runtime。
 
 ## 文件约定
 
 - `accounts.example.yaml`：唯一可公开复制、文档引用和发行打包的账号模板。
 - `accounts.yaml`：本机实际账号文件，可能含秘密，不应提交或出现在文档输出。
 - `*.local.yaml`：机器或开发者专用覆盖文件，同样不得发布。
+- `seele.yaml`：权限规则文件（permission.rules），`main.go` 优先读 `config/seele.yaml`，根目录版本回退兼容。
+- `seelex.yaml`：运行参数文件（window / limits），加载逻辑同上。
 
 账号按 `subagent`、`agent`、`goalplan` 等 role 分组；缺少专用 role 时由 bridge 的 fallback 规则选择账号。
 

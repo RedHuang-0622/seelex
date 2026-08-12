@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"os"
@@ -7,20 +7,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/application/adapters"
 	"github.com/RedHuang-0622/seelex/plugin"
 )
 
 var repositoryModules = []string{
 	".", ".claude", ".github", "application", "application/approval", "application/contract",
 	"application/core", "application/event", "application/model", "application/prompt",
-	"application/search", "config", "docs", "docs/arch", "docs/devlog", "docs/gui",
-	"docs/gui/schemas", "docs/product", "docs/research", "docs/test", "e2e",
-	"e2e/scenario", "gui", "gui/frontend", "internal", "internal/frontmatter",
-	"mcpstack", "plugin", "plugins", "plugins/default", "plugins/freecad", "plugins/git",
-	"plugins/read", "plugins/shell", "plugins/write", "scripts",
-	"seelebridge", "seelexctx", "seelexctx/compactor", "seelexctx/merger",
-	"seelexctx/provider", "seelexctx/search", "seelexctx/snapshot", "session", "sessionstore", "skill",
-	"tui", "tui/splash", "workspace",
+	"application/search", "application/adapters", "application/console", "config", "docs",
+	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
+	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/buildinfo",
+	"internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
+	"plugins/freecad", "plugins/git", "plugins/read", "plugins/shell", "plugins/write", "scripts",
+	"seelebridge", "seelebridge/fs", "seelebridge/internal/model", "seelebridge/plan",
+	"seelebridge/security", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
+	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
+	"session", "sessionstore", "skill", "tui", "tui/splash", "workspace",
 }
 
 var repositoryModuleDocumentation = map[string]string{
@@ -32,7 +34,7 @@ func repositoryModuleDocumentationPath(module string) string {
 	if configured, ok := repositoryModuleDocumentation[module]; ok {
 		name = configured
 	}
-	return filepath.Join(module, name)
+	return filepath.Join(repoRoot(), module, name)
 }
 
 func TestApprovalAccepted(t *testing.T) {
@@ -45,14 +47,14 @@ func TestApprovalAccepted(t *testing.T) {
 		"__CANCEL__": false,
 	}
 	for optionID, expected := range tests {
-		if actual := approvalAccepted(optionID); actual != expected {
-			t.Fatalf("approvalAccepted(%q) = %v, want %v", optionID, actual, expected)
+		if actual := adapters.ApprovalAccepted(optionID); actual != expected {
+			t.Fatalf("adapters.ApprovalAccepted(%q) = %v, want %v", optionID, actual, expected)
 		}
 	}
 }
 
 func TestRepositoryAgentDocumentationRules(t *testing.T) {
-	data, err := os.ReadFile("AGENTS.md")
+	data, err := os.ReadFile(filepath.Join(repoRoot(), "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,10 +103,11 @@ func TestRepositoryModuleReadmeLinks(t *testing.T) {
 }
 
 func TestGitHubAutomationDocumentationDoesNotOverrideRepositoryReadme(t *testing.T) {
-	if path := repositoryModuleDocumentationPath(".github"); path != filepath.Join(".github", "AUTOMATION.md") {
-		t.Fatalf(".github documentation path = %q, want .github/AUTOMATION.md", path)
+	root := repoRoot()
+	if path := repositoryModuleDocumentationPath(".github"); path != filepath.Join(root, ".github", "AUTOMATION.md") {
+		t.Fatalf(".github documentation path = %q, want %q", path, filepath.Join(root, ".github", "AUTOMATION.md"))
 	}
-	if _, err := os.Stat(filepath.Join(".github", "README.md")); err == nil {
+	if _, err := os.Stat(filepath.Join(root, ".github", "README.md")); err == nil {
 		t.Fatal(".github/README.md overrides the repository README on the GitHub home page")
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("inspect .github/README.md: %v", err)
@@ -112,7 +115,8 @@ func TestGitHubAutomationDocumentationDoesNotOverrideRepositoryReadme(t *testing
 }
 
 func TestRepositorySkillAndPluginLayouts(t *testing.T) {
-	plugins, err := plugin.NewLoader("plugins").LoadAll()
+	root := repoRoot()
+	plugins, err := plugin.NewLoader(filepath.Join(root, "plugins")).LoadAll()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +126,7 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	for _, p := range plugins {
 		t.Logf("  plugin=%q skills=%d", p.Name, len(p.Skills))
 	}
-	if _, err := plugin.NewLoader("plugins").Load("plan"); err == nil {
+	if _, err := plugin.NewLoader(filepath.Join(root, "plugins")).Load("plan"); err == nil {
 		t.Fatal("plan must be a default skill, not an independently loadable plugin")
 	}
 	for _, p := range plugins {

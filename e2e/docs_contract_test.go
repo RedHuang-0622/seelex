@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"encoding/json"
@@ -13,7 +13,16 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-const guiDocsRoot = "docs/gui"
+var guiDocsRoot = filepath.Join(repoRoot(), "docs/gui")
+
+// resolveExamplePath 处理 cases 表中的相对/绝对混合路径：
+// 绝对路径（e2e fixtures）直接用；相对路径拼到 guiDocsRoot。
+func resolveExamplePath(example string) string {
+	if filepath.IsAbs(example) {
+		return example
+	}
+	return filepath.Join(guiDocsRoot, example)
+}
 
 type moduleRegistry struct {
 	Modules []struct {
@@ -26,8 +35,8 @@ type moduleRegistry struct {
 func TestGUIDocumentContracts(t *testing.T) {
 	compiler := loadGUISchemas(t)
 	cases := map[string]string{
-		"https://seelex.dev/schemas/agent-scenario-v1.schema.json":      "../../e2e/fixtures/approval-chat.json",
-		"https://seelex.dev/schemas/module-dotting.schema.json":         "module_dotting.json",
+		"https://seelex.dev/schemas/agent-scenario-v1.schema.json":      filepath.Join(repoRoot(), "e2e/fixtures/approval-chat.json"),
+		"https://seelex.dev/schemas/module-dotting.schema.json":         filepath.Join(guiDocsRoot, "module_dotting.json"),
 		"https://seelex.dev/schemas/error.schema.json":                  "examples/error.json",
 		"https://seelex.dev/schemas/event.schema.json":                  "examples/event.json",
 		"https://seelex.dev/schemas/snapshot.schema.json":               "examples/snapshot.json",
@@ -49,7 +58,7 @@ func TestGUIDocumentContracts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compile %s: %v", schemaID, err)
 		}
-		if err := schema.Validate(readJSON(t, filepath.Join(guiDocsRoot, example))); err != nil {
+		if err := schema.Validate(readJSON(t, resolveExamplePath(example))); err != nil {
 			t.Errorf("validate %s with %s: %v", example, schemaID, err)
 		}
 		validated[filepath.Base(example)] = true
@@ -58,8 +67,8 @@ func TestGUIDocumentContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manualPlan := "../../e2e/fixtures/manual-plan.json"
-	if err := scenarioSchema.Validate(readJSON(t, filepath.Join(guiDocsRoot, manualPlan))); err != nil {
+	manualPlan := filepath.Join(repoRoot(), "e2e/fixtures/manual-plan.json")
+	if err := scenarioSchema.Validate(readJSON(t, manualPlan)); err != nil {
 		t.Errorf("validate %s with agent scenario schema: %v", manualPlan, err)
 	}
 	validated[filepath.Base(manualPlan)] = true

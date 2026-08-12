@@ -1,5 +1,5 @@
 // Package seelebridge — Plan graph bridge types reused from the Seele framework.
-package seelebridge
+package plan
 
 import (
 	"fmt"

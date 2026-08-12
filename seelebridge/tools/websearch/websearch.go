@@ -1,4 +1,6 @@
-package main
+// Package websearch 提供 web_search 工具注册与账号池配置加载。
+// 通过窄接口 ToolRegistrar 与运行时解耦，避免反向依赖 seelebridge 根包。
+package websearch
 
 import (
 	"context"
@@ -9,8 +11,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 )
+
+// ToolRegistrar 是 websearch 注册所需的运行时窄接口。
+type ToolRegistrar interface {
+	RegisterTool(name, description string, inputSchema map[string]interface{}, handler func(context.Context, string) (string, error))
+}
 
 // loadWebSearchConfig 从账号池配置文件中加载 websearch 段。
 func loadWebSearchConfig(accountsPath string) application.WebSearchConfig {
@@ -46,9 +52,9 @@ func loadWebSearchConfig(accountsPath string) application.WebSearchConfig {
 	return cfg
 }
 
-// registerWebSearchTool 注册 web_search 工具到 Runtime。
+// Register 注册 web_search 工具到 registrar。
 // 配置从账号池 YAML 的 websearch 段加载。
-func registerWebSearchTool(runtime *seelebridge.Runtime, accountsPath string) {
+func Register(registrar ToolRegistrar, accountsPath string) {
 	cfg := loadWebSearchConfig(accountsPath)
 
 	toolDesc := "搜索互联网获取最新信息。用于查找技术文档、论文、开源项目、最新资讯等。支持中英文搜索。"
@@ -71,7 +77,7 @@ func registerWebSearchTool(runtime *seelebridge.Runtime, accountsPath string) {
 		}
 	}
 
-	runtime.RegisterTool(
+	registrar.RegisterTool(
 		"web_search",
 		toolDesc,
 		map[string]any{

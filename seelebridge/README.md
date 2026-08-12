@@ -18,12 +18,12 @@ Runtime，同时隔离上游 API 变化。
 | `registry.go` | `tools.Registry` 装配与 `bridge.NewRegistryRuntime` 适配。 |
 | `stream_completer.go` | 流式账号 Completer（lease-until-EOF，覆盖整条流直到 EOF/错误/Close）。 |
 | `scoped_tools.go` | 受项目根限制的 read/grep/glob/write/edit/bash 工具。 |
-| `project_scope.go` | 根路径 canonicalization、read/write/workdir resolve。 |
-| `pathgate.go` | `seele.yaml` path zone allow/ask/deny 规则。 |
+| `security/project_scope.go` | 根路径 canonicalization、read/write/workdir resolve（security 子包）。 |
+| `security/pathgate.go` | `seele.yaml` path zone allow/ask/deny 规则（security 子包）。 |
 | `plugins.go` | 插件 include/exclude 可见性快照（`WithVisibilityPolicy` 输入）。 |
 | `mcp.go` | MCP attach/detach/refresh/status 和 breaker channel。 |
 | `branch.go` | 节点会话组件、branch/account 路由与 `PlanBranchBinding` 类型（binding 状态由 `planExecutor` 持有）。 |
-| `plan.go` | adjacency/edge、cycle detection、topological order。 |
+| `plan/graph.go` | adjacency/edge、cycle detection、topological order（plan 子包；根包 alias 重导出）。 |
 | `plan_factory.go` | 产品 DSL → `codec.NodeSpec` → `node.Node`（agent/approve/function 等 kind）。 |
 | `plan_executor.go` | Plan 执行域组件（`planExecutor`）：policy/binding/runID/事件通道/replan/审批门/agentFactory 状态与生命周期编排；Runtime 只留委托。 |
 | `plan_events.go` | `event.Sink` 实现：执行事实入库 + 投影为 `PlanNodeEvent`。 |
@@ -38,6 +38,21 @@ Runtime，同时隔离上游 API 变化。
 | `storage.go` | Seele session store 与旧 nested workspace store 兼容。 |
 | `config.go` | 简化账号 YAML 与 role fallback。 |
 | `trace.go` | `telemetry.NewMemoryTracer` / `NewLifecycleHook` 构造。 |
+
+## 子包结构
+
+`seelebridge` 根包是组合根 + 公共 facade；领域实现按模块下沉到子包：
+
+| 子包 | 内容 |
+|---|---|
+| `security/` | `ProjectScope` 项目根 containment + `PathGate` allow/ask/deny（见 `security/README.md`） |
+| `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
+| `plan/` | `PlanEdge` / `AdjacencyToEdges` / `DetectCycle` / `TopoSort` 图逻辑（见 `plan/README.md`） |
+| `tools/websearch/` | `web_search` 工具注册与账号池配置加载（见 `tools/websearch/README.md`） |
+| `internal/model/` | 各域共享的纯类型层（无运行时依赖） |
+
+根包经 `plan_aliases.go` 重导出子包符号（`seelebridge.PlanEdge` 等）保持公共 API 兼容。
+子包遵循"域组件禁止 import seelebridge 根包"的依赖规则，根包→子包单向依赖。
 
 ## Runtime 生命周期
 

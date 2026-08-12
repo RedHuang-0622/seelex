@@ -1,4 +1,4 @@
-package main
+package adapters
 
 import (
 	"context"
@@ -26,9 +26,9 @@ import (
 	"github.com/RedHuang-0622/seelex/workspace"
 )
 
-type enginePort struct {
-	engine         reactorEngine
-	newEngine      reactorEngineFactory
+type EnginePort struct {
+	engine         ReactorEngine
+	newEngine      ReactorEngineFactory
 	tracer         *telemetry.MemoryTracer // trace 视图查询源（slice 8：telemetry）
 	mu             sync.RWMutex
 	sessionID      string
@@ -56,10 +56,10 @@ type enginePort struct {
 	subAgentTree func() []seelebridge.SubAgentTreeNode
 }
 
-// reactorEngine is the small framework surface the application adapter
+// ReactorEngine is the small framework surface the application adapter
 // needs. Keeping construction behind a factory makes a new application session
 // a new ReAct loop, rather than a logical ID layered over an old loop.
-type reactorEngine interface {
+type ReactorEngine interface {
 	ChatStream(context.Context, string, func(string)) (string, error)
 	History() []types.Message
 	ClearHistory()
@@ -69,10 +69,10 @@ type reactorEngine interface {
 	AppendHistory(types.Message)
 }
 
-type reactorEngineFactory func(sessionID string) reactorEngine
+type ReactorEngineFactory func(sessionID string) ReactorEngine
 
-func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory, tracer *telemetry.MemoryTracer) *enginePort {
-	port := &enginePort{engine: eng, newEngine: newEngine, tracer: tracer}
+func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort {
+	port := &EnginePort{engine: eng, newEngine: newEngine, tracer: tracer}
 	if eng == nil {
 		return port
 	}
@@ -86,9 +86,9 @@ func newEnginePort(eng reactorEngine, newEngine reactorEngineFactory, tracer *te
 // SessionBacked 报告底层 reactor 是否为 session.Session。
 // 新 Session 装配下 OnIterationComplete 在 Session 锁内同步执行，
 // 应用层不得在回调中重入 Engine 历史操作（见 chat.go ToolHookBridge）。
-func (port *enginePort) SessionBacked() bool { return port.sessionBacked }
+func (port *EnginePort) SessionBacked() bool { return port.sessionBacked }
 
-func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
+func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	port.mu.Lock()
 	current := port.engine
 	port.activeCalls++
@@ -114,7 +114,7 @@ func (port *enginePort) ChatStream(ctx context.Context, input string, onChunk fu
 
 // NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
 // 查询源经 SetNodeConversationsProvider 注入，只读子代理 actor，安全）。
-func (port *enginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
+func (port *EnginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
 	if port == nil || port.nodeConversations == nil {
 		return nil, false
 	}
@@ -122,7 +122,7 @@ func (port *enginePort) NodeSessionConversation(nodeID string) ([]types.Message,
 }
 
 // SetNodeConversationsProvider 注入子代理会话记录查询源（Runtime 接线）。
-func (port *enginePort) SetNodeConversationsProvider(fn func(string) ([]types.Message, bool)) {
+func (port *EnginePort) SetNodeConversationsProvider(fn func(string) ([]types.Message, bool)) {
 	if port != nil {
 		port.nodeConversations = fn
 	}
@@ -130,7 +130,7 @@ func (port *enginePort) SetNodeConversationsProvider(fn func(string) ([]types.Me
 
 // NodeContextSnapshot 转发子代理结构化上下文查询（详情弹窗"上下文"标签；
 // 查询源经 SetNodeContextProvider 注入，只读子代理 actor，安全）。
-func (port *enginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
+func (port *EnginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
 	if port == nil || port.nodeContextSnapshot == nil {
 		return nil, false
 	}
@@ -139,7 +139,7 @@ func (port *enginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSna
 
 // NodeToolResult 转发子代理工具结果读回（ref 带 node:<nodeID>: 前缀；
 // 查询源经 SetNodeToolResultProvider 注入，只读子代理归档器，安全）。
-func (port *enginePort) NodeToolResult(nodeID, ref string) (string, bool) {
+func (port *EnginePort) NodeToolResult(nodeID, ref string) (string, bool) {
 	if port == nil || port.nodeToolResult == nil {
 		return "", false
 	}
@@ -147,7 +147,7 @@ func (port *enginePort) NodeToolResult(nodeID, ref string) (string, bool) {
 }
 
 // SetNodeContextProvider 注入子代理上下文快照查询源（Runtime 接线）。
-func (port *enginePort) SetNodeContextProvider(fn func(string) (*snapshot.ContextSnapshot, bool)) {
+func (port *EnginePort) SetNodeContextProvider(fn func(string) (*snapshot.ContextSnapshot, bool)) {
 	if port != nil {
 		port.nodeContextSnapshot = fn
 	}
@@ -155,7 +155,7 @@ func (port *enginePort) SetNodeContextProvider(fn func(string) (*snapshot.Contex
 
 // NodeWorktreeInfoFor 转发节点 worktree 现场查询（失败现场恢复入口；
 // 查询源经 SetNodeWorktreeProvider 注入，只读注册表，安全）。
-func (port *enginePort) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
+func (port *EnginePort) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
 	if port == nil || port.nodeWorktree == nil {
 		return seelebridge.NodeWorktreeInfo{}, false
 	}
@@ -163,14 +163,14 @@ func (port *enginePort) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWork
 }
 
 // SetNodeWorktreeProvider 注入节点 worktree 现场查询源（Runtime 接线）。
-func (port *enginePort) SetNodeWorktreeProvider(fn func(string) (seelebridge.NodeWorktreeInfo, bool)) {
+func (port *EnginePort) SetNodeWorktreeProvider(fn func(string) (seelebridge.NodeWorktreeInfo, bool)) {
 	if port != nil {
 		port.nodeWorktree = fn
 	}
 }
 
 // SetNodeToolResultProvider 注入子代理工具结果查询源（Runtime 接线）。
-func (port *enginePort) SetNodeToolResultProvider(fn func(string, string) (string, bool)) {
+func (port *EnginePort) SetNodeToolResultProvider(fn func(string, string) (string, bool)) {
 	if port != nil {
 		port.nodeToolResult = fn
 	}
@@ -178,7 +178,7 @@ func (port *enginePort) SetNodeToolResultProvider(fn func(string, string) (strin
 
 // SubAgentTree 转发 fork 子代理树投影查询（GUI 树视图数据源；内存态
 // 只读 actor，安全——不触碰主会话锁）。
-func (port *enginePort) SubAgentTree() []seelebridge.SubAgentTreeNode {
+func (port *EnginePort) SubAgentTree() []seelebridge.SubAgentTreeNode {
 	if port == nil || port.subAgentTree == nil {
 		return nil
 	}
@@ -186,7 +186,7 @@ func (port *enginePort) SubAgentTree() []seelebridge.SubAgentTreeNode {
 }
 
 // SetSubAgentTreeProvider 注入子代理树投影查询源（Runtime 接线，main.go）。
-func (port *enginePort) SetSubAgentTreeProvider(fn func() []seelebridge.SubAgentTreeNode) {
+func (port *EnginePort) SetSubAgentTreeProvider(fn func() []seelebridge.SubAgentTreeNode) {
 	if port != nil {
 		port.subAgentTree = fn
 	}
@@ -194,7 +194,7 @@ func (port *enginePort) SetSubAgentTreeProvider(fn func() []seelebridge.SubAgent
 
 // AppendHistory 追加消息到引擎内部对话历史。
 // 由 OnIterationComplete 在 ChatStream 同 goroutine 中调用，无需加锁。
-func (port *enginePort) AppendHistory(msg types.Message) {
+func (port *EnginePort) AppendHistory(msg types.Message) {
 	port.mu.RLock()
 	engine := port.engine
 	port.mu.RUnlock()
@@ -203,30 +203,30 @@ func (port *enginePort) AppendHistory(msg types.Message) {
 	}
 }
 
-func (port *enginePort) ClearHistory() {
+func (port *EnginePort) ClearHistory() {
 	port.mu.Lock()
 	if port.engine != nil {
 		port.engine.ClearHistory()
 	}
 	port.mu.Unlock()
 }
-func (port *enginePort) ReplaceHistory(sessionID string, history []application.EngineMessage) error {
+func (port *EnginePort) ReplaceHistory(sessionID string, history []application.EngineMessage) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return fmt.Errorf("engine: session ID is required")
 	}
-	return port.replaceRawHistory(sessionID, restoreMessages(history))
+	return port.ReplaceRawHistory(sessionID, restoreMessages(history))
 }
 
 // SetHistoryPreparer installs the Runtime-owned one-shot handoff used by the
 // framework Session's DurableHistory.Load. It is configured during startup,
 // before concurrent application work begins.
-func (port *enginePort) SetHistoryPreparer(preparer func(string, []seelebridge.Message)) {
+func (port *EnginePort) SetHistoryPreparer(preparer func(string, []seelebridge.Message)) {
 	port.mu.Lock()
 	port.prepareHistory = preparer
 	port.mu.Unlock()
 }
-func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridge.Message) error {
+func (port *EnginePort) ReplaceRawHistory(sessionID string, history []seelebridge.Message) error {
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
 	defer port.mu.Unlock()
@@ -249,7 +249,7 @@ func (port *enginePort) replaceRawHistory(sessionID string, history []seelebridg
 	return nil
 }
 
-func (port *enginePort) replaceActiveHistoryLocked(history []seelebridge.Message) {
+func (port *EnginePort) replaceActiveHistoryLocked(history []seelebridge.Message) {
 	port.engine.ClearHistory()
 	hasSystem := false
 	for _, message := range port.engine.History() {
@@ -267,7 +267,7 @@ func (port *enginePort) replaceActiveHistoryLocked(history []seelebridge.Message
 	}
 }
 
-func (port *enginePort) installFreshHistoryLocked(history []seelebridge.Message, sessionID string) {
+func (port *EnginePort) installFreshHistoryLocked(history []seelebridge.Message, sessionID string) {
 	if port.newEngine == nil {
 		port.replaceActiveHistoryLocked(history)
 		if port.prepareHistory != nil {
@@ -313,7 +313,7 @@ func canonicalEngineHistory(history []seelebridge.Message) []seelebridge.Message
 	}
 	return canonical
 }
-func (port *enginePort) StartSession() string {
+func (port *EnginePort) StartSession() string {
 	port.mu.Lock()
 	defer port.mu.Unlock()
 	if port.newEngine == nil {
@@ -336,7 +336,7 @@ func (port *enginePort) StartSession() string {
 }
 
 // EnableWorkingHistoryRelease marks this adapter as backed by DurableHistory.
-func (port *enginePort) EnableWorkingHistoryRelease() {
+func (port *EnginePort) EnableWorkingHistoryRelease() {
 	port.mu.Lock()
 	port.releaseWorking = true
 	port.mu.Unlock()
@@ -344,7 +344,7 @@ func (port *enginePort) EnableWorkingHistoryRelease() {
 
 // ReleaseWorkingHistory clears only the provider working view. The next turn
 // cold-loads a bounded tail from the durable owner.
-func (port *enginePort) ReleaseWorkingHistory() {
+func (port *EnginePort) ReleaseWorkingHistory() {
 	port.mu.Lock()
 	defer port.mu.Unlock()
 	if !port.releaseWorking || port.engine == nil || port.activeCalls > 0 {
@@ -352,12 +352,12 @@ func (port *enginePort) ReleaseWorkingHistory() {
 	}
 	port.engine.ClearHistory()
 }
-func (port *enginePort) SessionID() string {
+func (port *EnginePort) SessionID() string {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	return port.sessionID
 }
-func (port *enginePort) SetSystemPrompt(prompt string) {
+func (port *EnginePort) SetSystemPrompt(prompt string) {
 	port.mu.Lock()
 	port.systemPrompt = prompt
 	engine := port.engine
@@ -366,7 +366,7 @@ func (port *enginePort) SetSystemPrompt(prompt string) {
 		engine.SetSystemPrompt(prompt)
 	}
 }
-func (port *enginePort) SetMaxLoops(n int) {
+func (port *EnginePort) SetMaxLoops(n int) {
 	port.mu.Lock()
 	port.maxLoops = n
 	engine := port.engine
@@ -375,7 +375,7 @@ func (port *enginePort) SetMaxLoops(n int) {
 		engine.SetMaxLoops(n)
 	}
 }
-func (port *enginePort) TraceText() string {
+func (port *EnginePort) TraceText() string {
 	if port.tracer == nil {
 		return ""
 	}
@@ -396,7 +396,7 @@ func (port *enginePort) TraceText() string {
 	}
 	return builder.String()
 }
-func (port *enginePort) TokenCount() string {
+func (port *EnginePort) TokenCount() string {
 	if port.tracer == nil {
 		return "0"
 	}
@@ -460,10 +460,10 @@ func attrTelemetryInt(attributes telemetry.Attributes, key string) int {
 		return 0
 	}
 }
-func (port *enginePort) History() []application.EngineMessage {
-	return adaptMessages(port.rawHistory())
+func (port *EnginePort) History() []application.EngineMessage {
+	return adaptMessages(port.RawHistory())
 }
-func (port *enginePort) rawHistory() []seelebridge.Message {
+func (port *EnginePort) RawHistory() []seelebridge.Message {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	if port.engine == nil {
@@ -472,103 +472,103 @@ func (port *enginePort) rawHistory() []seelebridge.Message {
 	return append([]seelebridge.Message(nil), port.engine.History()...)
 }
 
-type runtimePort struct{ runtime *seelebridge.Runtime }
+type RuntimePort struct{ Runtime *seelebridge.Runtime }
 
-func (port runtimePort) Model() string         { return port.runtime.Model() }
-func (port runtimePort) Provider() string      { return port.runtime.Provider() }
-func (port runtimePort) ContextWindow() int    { return port.runtime.ContextWindow() }
-func (port runtimePort) MaxOutputTokens() int  { return port.runtime.MaxOutputTokens() }
-func (port runtimePort) ActivePlugin() string  { return port.runtime.ActivePlugin() }
-func (port runtimePort) FullAccess() bool      { return port.runtime.FullAccess() }
-func (port runtimePort) SetFullAccess(on bool) { port.runtime.SetFullAccess(on) }
-func (port runtimePort) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
-	port.runtime.SetRuntimeVisibilityProjection(projection)
+func (port RuntimePort) Model() string         { return port.Runtime.Model() }
+func (port RuntimePort) Provider() string      { return port.Runtime.Provider() }
+func (port RuntimePort) ContextWindow() int    { return port.Runtime.ContextWindow() }
+func (port RuntimePort) MaxOutputTokens() int  { return port.Runtime.MaxOutputTokens() }
+func (port RuntimePort) ActivePlugin() string  { return port.Runtime.ActivePlugin() }
+func (port RuntimePort) FullAccess() bool      { return port.Runtime.FullAccess() }
+func (port RuntimePort) SetFullAccess(on bool) { port.Runtime.SetFullAccess(on) }
+func (port RuntimePort) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
+	port.Runtime.SetRuntimeVisibilityProjection(projection)
 }
-func (port runtimePort) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection) {
-	port.runtime.SetParentEvidenceProjection(projection)
+func (port RuntimePort) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection) {
+	port.Runtime.SetParentEvidenceProjection(projection)
 }
-func (port runtimePort) DrainSubagentContexts() []string { return port.runtime.DrainSubagentContexts() }
-func (port runtimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
-	port.runtime.SetPlanPolicy(policy)
+func (port RuntimePort) DrainSubagentContexts() []string { return port.Runtime.DrainSubagentContexts() }
+func (port RuntimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
+	port.Runtime.SetPlanPolicy(policy)
 }
-func (port runtimePort) PrepareReplan(ctx context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
-	return port.runtime.PrepareReplan(ctx, request)
+func (port RuntimePort) PrepareReplan(ctx context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
+	return port.Runtime.PrepareReplan(ctx, request)
 }
-func (port runtimePort) ReplanMetrics() seelebridge.ReplanMetrics {
-	return port.runtime.ReplanMetrics()
+func (port RuntimePort) ReplanMetrics() seelebridge.ReplanMetrics {
+	return port.Runtime.ReplanMetrics()
 }
-func (port runtimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
-	port.runtime.SetPlanBranchBinding(binding)
+func (port RuntimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
+	port.Runtime.SetPlanBranchBinding(binding)
 }
-func (port runtimePort) RestorePlan(ctx context.Context, arguments string) error {
-	return port.runtime.RestorePlan(ctx, arguments)
+func (port RuntimePort) RestorePlan(ctx context.Context, arguments string) error {
+	return port.Runtime.RestorePlan(ctx, arguments)
 }
-func (port runtimePort) BindProjectRoot(rootPath string) error {
-	return port.runtime.BindProjectRoot(rootPath)
+func (port RuntimePort) BindProjectRoot(rootPath string) error {
+	return port.Runtime.BindProjectRoot(rootPath)
 }
-func (port runtimePort) UnbindProjectRoot() { port.runtime.UnbindProjectRoot() }
-func (port runtimePort) TodoSnapshot() []seelebridge.TodoItem {
-	return port.runtime.TodoSnapshot()
+func (port RuntimePort) UnbindProjectRoot() { port.Runtime.UnbindProjectRoot() }
+func (port RuntimePort) TodoSnapshot() []seelebridge.TodoItem {
+	return port.Runtime.TodoSnapshot()
 }
-func (port runtimePort) SetTodoStatus(index int, status seelebridge.TodoItemStatus) error {
-	return port.runtime.SetTodoStatus(index, status)
+func (port RuntimePort) SetTodoStatus(index int, status seelebridge.TodoItemStatus) error {
+	return port.Runtime.SetTodoStatus(index, status)
 }
-func (port runtimePort) TaskSnapshot() []seelebridge.TaskRecord {
-	return port.runtime.TaskSnapshot()
+func (port RuntimePort) TaskSnapshot() []seelebridge.TaskRecord {
+	return port.Runtime.TaskSnapshot()
 }
-func (port runtimePort) TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
-	return port.runtime.TaskAdd(spec)
+func (port RuntimePort) TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
+	return port.Runtime.TaskAdd(spec)
 }
-func (port runtimePort) ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error) {
-	return port.runtime.ResolveTaskByKey(key)
+func (port RuntimePort) ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error) {
+	return port.Runtime.ResolveTaskByKey(key)
 }
-func (port runtimePort) TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error) {
-	return port.runtime.TaskSetStatus(id, status, evidence)
+func (port RuntimePort) TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error) {
+	return port.Runtime.TaskSetStatus(id, status, evidence)
 }
-func (port runtimePort) TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error) {
-	return port.runtime.TaskAttachParticipant(id, participant)
+func (port RuntimePort) TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error) {
+	return port.Runtime.TaskAttachParticipant(id, participant)
 }
-func (port runtimePort) TaskChangedChannel() <-chan seelebridge.TaskRecord {
-	return port.runtime.TaskChangedChannel()
+func (port RuntimePort) TaskChangedChannel() <-chan seelebridge.TaskRecord {
+	return port.Runtime.TaskChangedChannel()
 }
-func (port runtimePort) SubagentTreeEvents() <-chan struct{} {
-	return port.runtime.SubagentTreeEvents()
+func (port RuntimePort) SubagentTreeEvents() <-chan struct{} {
+	return port.Runtime.SubagentTreeEvents()
 }
-func (port runtimePort) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
-	return port.runtime.PlanNodeEventChannel()
+func (port RuntimePort) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
+	return port.Runtime.PlanNodeEventChannel()
 }
-func (port runtimePort) SwitchSessionTasks(records []seelebridge.TaskRecord) {
-	port.runtime.SwitchSessionTasks(records)
+func (port RuntimePort) SwitchSessionTasks(records []seelebridge.TaskRecord) {
+	port.Runtime.SwitchSessionTasks(records)
 }
-func (port runtimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
-	return port.runtime.ScheduledCommands()
+func (port RuntimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
+	return port.Runtime.ScheduledCommands()
 }
-func (port runtimePort) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
-	return port.runtime.ScheduledTasksSnapshot()
+func (port RuntimePort) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus {
+	return port.Runtime.ScheduledTasksSnapshot()
 }
-func (port runtimePort) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
-	return port.runtime.ScheduleTask(ctx, spec)
+func (port RuntimePort) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
+	return port.Runtime.ScheduleTask(ctx, spec)
 }
-func (port runtimePort) CancelScheduledTask(id string) error {
-	return port.runtime.CancelScheduledTask(id)
+func (port RuntimePort) CancelScheduledTask(id string) error {
+	return port.Runtime.CancelScheduledTask(id)
 }
-func (port runtimePort) ClearSubagentTree() error {
-	return port.runtime.ClearSubagentTree()
+func (port RuntimePort) ClearSubagentTree() error {
+	return port.Runtime.ClearSubagentTree()
 }
-func (port runtimePort) SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error) {
-	return port.runtime.SearchHistory(ctx, query, limit)
+func (port RuntimePort) SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error) {
+	return port.Runtime.SearchHistory(ctx, query, limit)
 }
-func (port runtimePort) SelectAccount(name string) bool { return port.runtime.SelectAccount(name) }
-func (port runtimePort) VisibleTools(ctx context.Context) []application.Tool {
-	tools := port.runtime.VisibleTools(ctx)
+func (port RuntimePort) SelectAccount(name string) bool { return port.Runtime.SelectAccount(name) }
+func (port RuntimePort) VisibleTools(ctx context.Context) []application.Tool {
+	tools := port.Runtime.VisibleTools(ctx)
 	result := make([]application.Tool, 0, len(tools))
 	for _, tool := range tools {
 		result = append(result, application.Tool{Name: tool.Name, Description: tool.Description})
 	}
 	return result
 }
-func (port runtimePort) Accounts() []application.AccountInfo {
-	accounts := port.runtime.Accounts()
+func (port RuntimePort) Accounts() []application.AccountInfo {
+	accounts := port.Runtime.Accounts()
 	result := make([]application.AccountInfo, 0, len(accounts))
 	for _, account := range accounts {
 		result = append(result, application.AccountInfo{Name: account.Name, Provider: account.Provider, Model: account.Model, Disabled: account.Disabled})
@@ -576,21 +576,21 @@ func (port runtimePort) Accounts() []application.AccountInfo {
 	return result
 }
 
-type pluginPort struct{ manager *plugin.Manager }
+type PluginPort struct{ Manager *plugin.Manager }
 
-func (port pluginPort) Activate(ctx context.Context, name string) error {
-	return port.manager.Activate(ctx, name)
+func (port PluginPort) Activate(ctx context.Context, name string) error {
+	return port.Manager.Activate(ctx, name)
 }
-func (port pluginPort) Deactivate(ctx context.Context) error { return port.manager.Deactivate(ctx) }
-func (port pluginPort) Current() (application.PluginInfo, bool) {
-	current, ok := port.manager.Current()
+func (port PluginPort) Deactivate(ctx context.Context) error { return port.Manager.Deactivate(ctx) }
+func (port PluginPort) Current() (application.PluginInfo, bool) {
+	current, ok := port.Manager.Current()
 	if !ok {
 		return application.PluginInfo{}, false
 	}
 	return adaptPlugin(current), true
 }
-func (port pluginPort) All() []application.PluginInfo {
-	plugins := port.manager.All()
+func (port PluginPort) All() []application.PluginInfo {
+	plugins := port.Manager.All()
 	result := make([]application.PluginInfo, 0, len(plugins))
 	for _, item := range plugins {
 		result = append(result, adaptPlugin(item))
@@ -598,48 +598,48 @@ func (port pluginPort) All() []application.PluginInfo {
 	return result
 }
 
-type workspacePort struct{ repo *workspace.Repo }
+type WorkspacePort struct{ Repo *workspace.Repo }
 
-func (port workspacePort) Create(name, rootPath, gitRemote string) (application.WorkspaceInfo, error) {
-	w, err := port.repo.Create(name, rootPath, gitRemote)
+func (port WorkspacePort) Create(name, rootPath, gitRemote string) (application.WorkspaceInfo, error) {
+	w, err := port.Repo.Create(name, rootPath, gitRemote)
 	if err != nil {
 		return application.WorkspaceInfo{}, err
 	}
 	return adaptWorkspace(w), nil
 }
-func (port workspacePort) Get(id string) (application.WorkspaceInfo, error) {
-	w, err := port.repo.Get(id)
+func (port WorkspacePort) Get(id string) (application.WorkspaceInfo, error) {
+	w, err := port.Repo.Get(id)
 	if err != nil {
 		return application.WorkspaceInfo{}, err
 	}
 	return adaptWorkspace(w), nil
 }
-func (port workspacePort) List() []application.WorkspaceInfo {
-	list := port.repo.List()
+func (port WorkspacePort) List() []application.WorkspaceInfo {
+	list := port.Repo.List()
 	out := make([]application.WorkspaceInfo, len(list))
 	for i, w := range list {
 		out[i] = adaptWorkspace(w)
 	}
 	return out
 }
-func (port workspacePort) Delete(id string) error { return port.repo.Delete(id) }
-func (port workspacePort) BindSession(sessionID, workspaceID string) {
-	port.repo.BindSession(sessionID, workspaceID)
+func (port WorkspacePort) Delete(id string) error { return port.Repo.Delete(id) }
+func (port WorkspacePort) BindSession(sessionID, workspaceID string) {
+	port.Repo.BindSession(sessionID, workspaceID)
 }
-func (port workspacePort) UnbindSession(sessionID string) {
-	port.repo.UnbindSession(sessionID)
+func (port WorkspacePort) UnbindSession(sessionID string) {
+	port.Repo.UnbindSession(sessionID)
 }
-func (port workspacePort) SessionWorkspace(sessionID string) (application.WorkspaceInfo, bool) {
-	w, ok := port.repo.SessionWorkspace(sessionID)
+func (port WorkspacePort) SessionWorkspace(sessionID string) (application.WorkspaceInfo, bool) {
+	w, ok := port.Repo.SessionWorkspace(sessionID)
 	if !ok {
 		return application.WorkspaceInfo{}, false
 	}
 	return adaptWorkspace(w), true
 }
-func (port workspacePort) AllBindings() map[string]string {
-	return port.repo.AllBindings()
+func (port WorkspacePort) AllBindings() map[string]string {
+	return port.Repo.AllBindings()
 }
-func (port workspacePort) DetectGitRemote(rootPath string) string {
+func (port WorkspacePort) DetectGitRemote(rootPath string) string {
 	return workspace.DetectGitRemote(rootPath)
 }
 
@@ -661,17 +661,17 @@ func workspaceDisplayName(rootPath, fallback string) string {
 	return name
 }
 
-type skillPort struct{ registry *skill.Registry }
+type SkillPort struct{ Registry *skill.Registry }
 
-func (port skillPort) Get(name string) (application.SkillInfo, bool) {
-	item, ok := port.registry.Get(name)
+func (port SkillPort) Get(name string) (application.SkillInfo, bool) {
+	item, ok := port.Registry.Get(name)
 	if !ok {
 		return application.SkillInfo{}, false
 	}
 	return adaptSkill(item), true
 }
-func (port skillPort) All() []application.SkillInfo {
-	skills := port.registry.All()
+func (port SkillPort) All() []application.SkillInfo {
+	skills := port.Registry.All()
 	result := make([]application.SkillInfo, 0, len(skills))
 	for _, item := range skills {
 		result = append(result, adaptSkill(item))
@@ -679,61 +679,61 @@ func (port skillPort) All() []application.SkillInfo {
 	return result
 }
 
-type sessionPort struct {
-	manager *session.Manager
-	runtime *seelebridge.Runtime
+type SessionPort struct {
+	Manager *session.Manager
+	Runtime *seelebridge.Runtime
 }
 
 // AttachSessionContext 装配会话 context 模块（system prompt + 四栈）：
 // 创建按 sessionID 的 SessionContextStore，加载持久化记录并挂接到 Runtime，
 // 使下一轮 prompt 组装（stackBlocks）能使用持久化的 Plan/Task/Skill/Compact
 // 栈。损坏/不兼容的 context 显式失败（不静默降级成内存栈）。
-func (port sessionPort) AttachSessionContext(workspaceID, sessionID string) error {
-	store := sessionstore.NewSessionContextStore(port.manager.Router(), sessionID)
+func (port SessionPort) AttachSessionContext(workspaceID, sessionID string) error {
+	store := sessionstore.NewSessionContextStore(port.Manager.Router(), sessionID)
 	if err := store.Load(context.Background()); err != nil {
 		return fmt.Errorf("load session context %q: %w", sessionID, err)
 	}
-	port.runtime.AttachSessionContextStore(store)
+	port.Runtime.AttachSessionContextStore(store)
 	return nil
 }
 
 // DetachSessionContext 解绑当前会话的 context 模块（离开会话时调用，
 // Runtime 退回内存态，防止四栈串到下一个会话）。
-func (port sessionPort) DetachSessionContext() {
-	port.runtime.AttachSessionContextStore(nil)
+func (port SessionPort) DetachSessionContext() {
+	port.Runtime.AttachSessionContextStore(nil)
 }
 
-func (port sessionPort) SaveCurrent(id string) error     { return port.manager.SaveCurrent(id) }
-func (port sessionPort) Delete(id string) error          { return port.manager.Delete(id) }
-func (port sessionPort) Resume(id string) error          { return port.manager.Resume(id) }
-func (port sessionPort) SetWorkspace(workspaceID string) { port.manager.SetWorkspace(workspaceID) }
-func (port sessionPort) Workspace() string               { return port.manager.Workspace() }
-func (port sessionPort) StorageConfig() (sessionstore.Config, error) {
-	return port.manager.StorageConfig()
+func (port SessionPort) SaveCurrent(id string) error     { return port.Manager.SaveCurrent(id) }
+func (port SessionPort) Delete(id string) error          { return port.Manager.Delete(id) }
+func (port SessionPort) Resume(id string) error          { return port.Manager.Resume(id) }
+func (port SessionPort) SetWorkspace(workspaceID string) { port.Manager.SetWorkspace(workspaceID) }
+func (port SessionPort) Workspace() string               { return port.Manager.Workspace() }
+func (port SessionPort) StorageConfig() (sessionstore.Config, error) {
+	return port.Manager.StorageConfig()
 }
-func (port sessionPort) TestStorage(ctx context.Context, config sessionstore.Config) error {
-	return port.manager.TestStorage(ctx, config)
+func (port SessionPort) TestStorage(ctx context.Context, config sessionstore.Config) error {
+	return port.Manager.TestStorage(ctx, config)
 }
-func (port sessionPort) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
-	return port.manager.ConfigureStorage(ctx, config)
+func (port SessionPort) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
+	return port.Manager.ConfigureStorage(ctx, config)
 }
-func (port sessionPort) LoadHistory(id string) ([]application.EngineMessage, error) {
-	messages, err := port.manager.LoadHistory(id)
+func (port SessionPort) LoadHistory(id string) ([]application.EngineMessage, error) {
+	messages, err := port.Manager.LoadHistory(id)
 	if err != nil {
 		return nil, err
 	}
 	return adaptMessages(messages), nil
 }
 
-func (port sessionPort) SaveSessionRecord(id string, record application.SessionRecord) error {
+func (port SessionPort) SaveSessionRecord(id string, record application.SessionRecord) error {
 	payload, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("encode session record: %w", err)
 	}
-	return port.manager.SaveState(id, payload)
+	return port.Manager.SaveState(id, payload)
 }
 
-func (port sessionPort) SaveSessionSnapshot(
+func (port SessionPort) SaveSessionSnapshot(
 	id string,
 	providerHistory []application.EngineMessage,
 	record application.SessionRecord,
@@ -750,19 +750,19 @@ func (port sessionPort) SaveSessionSnapshot(
 		State:           payload,
 		ToolResults:     storeToolResults(results),
 	}
-	return port.manager.SaveCommit(id, commit)
+	return port.Manager.SaveCommit(id, commit)
 }
 
-func (port sessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, tokenBudget, maxUnits int) ([]application.TranscriptEvent, error) {
-	events, err := port.manager.LoadEventTailByWorkspace(workspaceID, id, tokenBudget, maxUnits)
+func (port SessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, tokenBudget, maxUnits int) ([]application.TranscriptEvent, error) {
+	events, err := port.Manager.LoadEventTailByWorkspace(workspaceID, id, tokenBudget, maxUnits)
 	if err != nil {
 		return nil, err
 	}
 	return adaptTranscriptEvents(events), nil
 }
 
-func (port sessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (application.StoredToolResult, error) {
-	result, err := port.manager.LoadToolResultByWorkspace(workspaceID, id, resultRef)
+func (port SessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (application.StoredToolResult, error) {
+	result, err := port.Manager.LoadToolResultByWorkspace(workspaceID, id, resultRef)
 	if err != nil {
 		return application.StoredToolResult{}, err
 	}
@@ -820,27 +820,27 @@ func storeToolResults(results []application.StoredToolResult) []sessionstore.Too
 	return stored
 }
 
-func (port sessionPort) LoadSessionRecord(id string) (application.SessionRecord, error) {
-	payload, err := port.manager.LoadState(id)
+func (port SessionPort) LoadSessionRecord(id string) (application.SessionRecord, error) {
+	payload, err := port.Manager.LoadState(id)
 	if err != nil {
 		return application.SessionRecord{}, err
 	}
 	return decodeSessionRecord(payload, id)
 }
 
-func (port sessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (application.SessionRecord, error) {
-	payload, err := port.manager.LoadStateByWorkspace(workspaceID, id)
+func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (application.SessionRecord, error) {
+	payload, err := port.Manager.LoadStateByWorkspace(workspaceID, id)
 	if err != nil {
 		return application.SessionRecord{}, err
 	}
 	return decodeSessionRecord(payload, id)
 }
 
-func (port sessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.Message, int, error) {
+func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.Message, int, error) {
 	// conversation 模块冷读：只解析 state blob 的 conversation 子树，
 	// 不反序列化 Plan/Execution/Projection 等非 conversation 模块
 	// （模块化方案 plan.md §阶段1：长会话翻页不加载完整 state blob）。
-	messages, total, err := port.manager.LoadConversationRangeByWorkspace(workspaceID, id, offset, limit)
+	messages, total, err := port.Manager.LoadConversationRangeByWorkspace(workspaceID, id, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -924,38 +924,38 @@ func migrateSessionArchive(sessionID string, archive application.SessionArchive)
 	}
 	return record
 }
-func (port sessionPort) LoadHistoryWorkspace(workspaceID, id string) ([]application.EngineMessage, error) {
-	messages, err := port.manager.LoadHistoryByWorkspace(workspaceID, id)
+func (port SessionPort) LoadHistoryWorkspace(workspaceID, id string) ([]application.EngineMessage, error) {
+	messages, err := port.Manager.LoadHistoryByWorkspace(workspaceID, id)
 	if err != nil {
 		return nil, err
 	}
 	return adaptMessages(messages), nil
 }
-func (port sessionPort) LoadHistoryRange(id string, offset, limit int) ([]application.EngineMessage, int, error) {
-	messages, total, err := port.manager.LoadHistoryRange(id, offset, limit)
+func (port SessionPort) LoadHistoryRange(id string, offset, limit int) ([]application.EngineMessage, int, error) {
+	messages, total, err := port.Manager.LoadHistoryRange(id, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
 	return adaptMessages(messages), total, nil
 }
-func (port sessionPort) LoadHistoryRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.EngineMessage, int, error) {
-	messages, total, err := port.manager.LoadHistoryRangeByWorkspace(workspaceID, id, offset, limit)
+func (port SessionPort) LoadHistoryRangeWorkspace(workspaceID, id string, offset, limit int) ([]application.EngineMessage, int, error) {
+	messages, total, err := port.Manager.LoadHistoryRangeByWorkspace(workspaceID, id, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
 	return adaptMessages(messages), total, nil
 }
-func (port sessionPort) MessageCount(id string) (int, error) {
-	return port.manager.MessageCount(id)
+func (port SessionPort) MessageCount(id string) (int, error) {
+	return port.Manager.MessageCount(id)
 }
-func (port sessionPort) List() []application.SessionInfo {
-	return adaptSessionMeta(port.manager.List())
+func (port SessionPort) List() []application.SessionInfo {
+	return adaptSessionMeta(port.Manager.List())
 }
-func (port sessionPort) ListWorkspace(workspaceID string) []application.SessionInfo {
-	return adaptSessionMeta(port.manager.ListByWorkspace(workspaceID))
+func (port SessionPort) ListWorkspace(workspaceID string) []application.SessionInfo {
+	return adaptSessionMeta(port.Manager.ListByWorkspace(workspaceID))
 }
-func (port sessionPort) DeleteWorkspace(workspaceID, id string) error {
-	return port.manager.DeleteByWorkspace(workspaceID, id)
+func (port SessionPort) DeleteWorkspace(workspaceID, id string) error {
+	return port.Manager.DeleteByWorkspace(workspaceID, id)
 }
 
 func adaptSessionMeta(sessions []seelebridge.SessionMeta) []application.SessionInfo {
@@ -1014,7 +1014,7 @@ func restoreMessages(messages []application.EngineMessage) []seelebridge.Message
 	return result
 }
 
-func approvalOption(choice string) application.InteractionOption {
+func ApprovalOption(choice string) application.InteractionOption {
 	options := map[string]application.InteractionOption{
 		"execute": {ID: "execute", Label: "执行", Description: "按计划执行", Style: "primary"},
 		"skip":    {ID: "skip", Label: "跳过", Description: "跳过当前节点", Style: "secondary"},
@@ -1028,7 +1028,7 @@ func approvalOption(choice string) application.InteractionOption {
 	return application.InteractionOption{ID: choice, Label: choice}
 }
 
-func approvalAccepted(optionID string) bool {
+func ApprovalAccepted(optionID string) bool {
 	switch strings.ToLower(strings.TrimSpace(optionID)) {
 	case "", "__cancel__", "__timeout__", "no", "deny", "reject", "refuse", "cancel", "abort", "skip", "false", "否", "拒绝", "取消", "终止", "跳过":
 		return false
@@ -1039,12 +1039,12 @@ func approvalAccepted(optionID string) bool {
 
 // planApprovalGate 适配框架 approve.ApprovalGate → application.ApprovalBroker。
 // plan_run 执行到 kind:manual 节点时，框架调用 Ask 阻塞等待用户在 UI 中选择。
-type planApprovalGate struct {
-	broker *application.ApprovalBroker
+type PlanApprovalGate struct {
+	Broker *application.ApprovalBroker
 }
 
 // Ask 将框架审批请求转换为 ApprovalBroker.Request，阻塞等待用户选择后返回。
-func (g *planApprovalGate) Ask(ctx context.Context, q approve.Question) (any, error) {
+func (g *PlanApprovalGate) Ask(ctx context.Context, q approve.Question) (any, error) {
 	options := make([]application.InteractionOption, len(q.Options))
 	for i, opt := range q.Options {
 		options[i] = application.InteractionOption{
@@ -1060,7 +1060,7 @@ func (g *planApprovalGate) Ask(ctx context.Context, q approve.Question) (any, er
 		Timeout:  q.Timeout,
 	}
 
-	decision, err := g.broker.Request(ctx, req)
+	decision, err := g.Broker.Request(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -1068,7 +1068,7 @@ func (g *planApprovalGate) Ask(ctx context.Context, q approve.Question) (any, er
 }
 
 // convertPermissionOptions 将 permission.ApproveOption 转为 application.InteractionOption。
-func convertPermissionOptions(opts []toolspermission.ApproveOption) []application.InteractionOption {
+func ConvertPermissionOptions(opts []toolspermission.ApproveOption) []application.InteractionOption {
 	out := make([]application.InteractionOption, len(opts))
 	for i, o := range opts {
 		out[i] = application.InteractionOption{

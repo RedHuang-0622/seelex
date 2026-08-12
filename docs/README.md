@@ -23,6 +23,7 @@
 | 文档 | 说明 |
 |------|------|
 | [`agent-workbench/prd.json`](product/agent-workbench/prd.json) | Agent Workbench 机器可读 PRD、里程碑、验收标准与指标 |
+| [`pmstory.md`](product/pmstory.md) | 基于历史文档的决策叙事：各阶段产品/工程决策的权衡、代价与复盘 |
 
 ## GUI — Wails 客户端设计与审查
 
@@ -50,6 +51,10 @@
 | [`test-report.md`](devlog/test-report.md) | 测试报告（已更新至 7ed72fb） |
 | [`finish-review.md`](devlog/finish-review.md) | 机械设计方向最终审查 + 后续重构更新 |
 | [`code-changes.md`](devlog/code-changes.md) | 代码变更摘要（2026-07-17） |
+| [`CODE_EVALUATION_REPORT.md`](devlog/CODE_EVALUATION_REPORT.md) | 一次性代码评估报告 |
+| [`2026-07-28-finish-review.md`](devlog/2026-07-28-finish-review.md) | 整体项目审查报告（不通过生产发布；Alpha 内测前置条件） |
+| [`2026-08-05-code-changes.md`](devlog/2026-08-05-code-changes.md) | Session 存储层模块化变更摘要 |
+| [`README-dev.md`](devlog/README-dev.md) | 开发态 GUI 包说明 |
 | [`2026-07-17-seelex-runtime-plugin-refactor-front-review.md`](devlog/2026-07-17-seelex-runtime-plugin-refactor-front-review.md) | Plugin 重构前置审查 |
 | [`2026-07-17-tui-application-core-separation-front-review.md`](devlog/2026-07-17-tui-application-core-separation-front-review.md) | TUI/Application 分离前置审查 |
 | [`2026-07-17-tui-application-core-separation-plan.md`](devlog/2026-07-17-tui-application-core-separation-plan.md) | TUI 分离实施方案 |

@@ -1,4 +1,4 @@
-package main
+package adapters
 
 import (
 	"context"
@@ -62,7 +62,7 @@ func TestEnginePortStartSessionCreatesAnIndependentReactor(t *testing.T) {
 	}
 	fresh := &fakeReactorEngine{sessionID: "session-new"}
 	factoryCalls := 0
-	port := newEnginePort(old, func(string) reactorEngine {
+	port := NewEnginePort(old, func(string) ReactorEngine {
 		factoryCalls++
 		return fresh
 	}, nil)
@@ -83,7 +83,7 @@ func TestEnginePortStartSessionCreatesAnIndependentReactor(t *testing.T) {
 
 func TestEnginePortLazyStartupDoesNotCreateSession(t *testing.T) {
 	created := 0
-	port := newEnginePort(nil, func(sessionID string) reactorEngine {
+	port := NewEnginePort(nil, func(sessionID string) ReactorEngine {
 		created++
 		if sessionID == "" {
 			sessionID = "session-lazy"
@@ -103,7 +103,7 @@ func TestEnginePortLazyStartupDoesNotCreateSession(t *testing.T) {
 
 func TestEnginePortLazyResumeCreatesOnlyRequestedSession(t *testing.T) {
 	created := 0
-	port := newEnginePort(nil, func(sessionID string) reactorEngine {
+	port := NewEnginePort(nil, func(sessionID string) ReactorEngine {
 		created++
 		return &fakeReactorEngine{sessionID: sessionID}
 	}, nil)
@@ -145,12 +145,12 @@ func TestEnginePortReplaceHistoryUsesFreshReactorAndCollapsesSystemMessages(t *t
 	}}
 	fresh := &fakeReactorEngine{sessionID: "engine-fresh"}
 	requestedSessionID := ""
-	port := newEnginePort(old, func(sessionID string) reactorEngine {
+	port := NewEnginePort(old, func(sessionID string) ReactorEngine {
 		requestedSessionID = sessionID
 		return fresh
 	}, nil)
 	resume := "resume from checkpoint"
-	if err := port.replaceRawHistory("logical-session", []seelebridge.Message{
+	if err := port.ReplaceRawHistory("logical-session", []seelebridge.Message{
 		{Role: "system", Content: &oldPrompt},
 		{Role: "system", Content: &duplicatePrompt},
 		{Role: "user", Content: &resume},
@@ -172,9 +172,9 @@ func TestEnginePortDefersCleanReactorUntilActiveCallReturns(t *testing.T) {
 	prompt, checkpoint := "product prompt", "checkpoint"
 	old := &fakeReactorEngine{sessionID: "engine-old"}
 	fresh := &fakeReactorEngine{sessionID: "engine-fresh"}
-	port := newEnginePort(old, func(string) reactorEngine { return fresh }, nil)
+	port := NewEnginePort(old, func(string) ReactorEngine { return fresh }, nil)
 	old.onChat = func() {
-		if err := port.replaceRawHistory("logical-session", []seelebridge.Message{
+		if err := port.ReplaceRawHistory("logical-session", []seelebridge.Message{
 			{Role: "system", Content: &prompt},
 			{Role: "user", Content: &checkpoint},
 		}); err != nil {
@@ -193,7 +193,7 @@ func TestEnginePortPreparesDurableLoadWithApplicationHistory(t *testing.T) {
 	old := &fakeReactorEngine{sessionID: "engine-old"}
 	var durableHistory []types.Message
 	var fresh *fakeReactorEngine
-	port := newEnginePort(old, func(sessionID string) reactorEngine {
+	port := NewEnginePort(old, func(sessionID string) ReactorEngine {
 		fresh = &fakeReactorEngine{sessionID: sessionID}
 		fresh.beforeChat = func() {
 			fresh.history = append([]types.Message(nil), durableHistory...)
@@ -204,7 +204,7 @@ func TestEnginePortPreparesDurableLoadWithApplicationHistory(t *testing.T) {
 		durableHistory = append([]types.Message(nil), history...)
 	})
 	assembled := "restored checkpoint"
-	if err := port.replaceRawHistory("logical-session", []seelebridge.Message{{Role: "system", Content: &assembled}}); err != nil {
+	if err := port.ReplaceRawHistory("logical-session", []seelebridge.Message{{Role: "system", Content: &assembled}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := port.ChatStream(context.Background(), "continue", nil); err != nil {
@@ -253,7 +253,7 @@ func TestWorkspacePortUsesRootBasenameAndUniqueIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	port := workspacePort{repo: workspace.NewRepo()}
+	port := WorkspacePort{Repo: workspace.NewRepo()}
 	first, err := port.Create("custom label", rootA, "")
 	if err != nil {
 		t.Fatal(err)

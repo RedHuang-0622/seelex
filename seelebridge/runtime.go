@@ -23,6 +23,8 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
+	"github.com/RedHuang-0622/seelex/seelebridge/fs"
+	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -92,8 +94,8 @@ type Runtime struct {
 	skills            *skill.Registry
 	selectedAccountID string
 	providerFilter    string
-	projectScope      *ProjectScope
-	filesystem        FileSystem       // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	projectScope      *security.ProjectScope
+	filesystem        fs.FileSystem    // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	sandbox           CommandSandbox   // shell 执行隔离端口（sandbox.go；默认 native cwd-gate）
 	dockerProbe       dockerProber     // docker 守护进程探测/启动（nil → 真实实现；测试注入）
 	worktreeMgr       *worktreeManager // 子代理 worktree 生命周期组件（worktree_manager.go）
@@ -232,8 +234,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		accountLimits:       loaded.Limits,
 		accountSpecs:        specsByName,
 		MCPStack:            mcpstack.New(mcpStackOpts...),
-		projectScope:        NewProjectScope(),
-		filesystem:          NewFileSystemActor(),
+		projectScope:        security.NewProjectScope(),
+		filesystem:          fs.NewFileSystemActor(),
 		sandbox:             newNativeProjectCWD(),
 		tasks:               newTaskRegistry(),
 		scheduler:           newSchedulerState(),

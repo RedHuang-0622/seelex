@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 )
 
 func TestLoadMCPServersConfig_NoFile(t *testing.T) {
-	cfg := loadMCPServersConfig("nonexistent_file.yaml")
+	cfg := Load("nonexistent_file.yaml")
 	if cfg != nil {
 		t.Fatalf("expected nil for missing file, got %v", cfg)
 	}
@@ -17,7 +17,7 @@ func TestLoadMCPServersConfig_InvalidYAML(t *testing.T) {
 	if err := os.WriteFile(tmpFile, []byte("not valid yaml: {{{"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadMCPServersConfig(tmpFile)
+	cfg := Load(tmpFile)
 	if cfg != nil {
 		t.Fatalf("expected nil for invalid YAML, got %v", cfg)
 	}
@@ -28,7 +28,7 @@ func TestLoadMCPServersConfig_EmptyServers(t *testing.T) {
 	if err := os.WriteFile(tmpFile, []byte("mcp_servers: []"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadMCPServersConfig(tmpFile)
+	cfg := Load(tmpFile)
 	if cfg == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -53,7 +53,7 @@ mcp_servers:
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadMCPServersConfig(tmpFile)
+	cfg := Load(tmpFile)
 	if len(cfg) != 1 {
 		t.Fatalf("expected 1 valid server, got %d", len(cfg))
 	}
@@ -87,7 +87,7 @@ mcp_servers:
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadMCPServersConfig(tmpFile)
+	cfg := Load(tmpFile)
 	if len(cfg) != 2 {
 		t.Fatalf("expected 2 servers, got %d", len(cfg))
 	}
@@ -115,7 +115,7 @@ accounts:
 	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadMCPServersConfig(tmpFile)
+	cfg := Load(tmpFile)
 	if cfg == nil {
 		t.Fatal("expected non-nil (empty slice)")
 	}
@@ -135,10 +135,10 @@ func TestRegisterMCPServers_EmptyServers(t *testing.T) {
 	// We'll just test that empty config doesn't cause issues.
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("registerMCPServers panicked: %v", r)
+			t.Fatalf("Load panicked: %v", r)
 		}
 	}()
 	// We can't call with nil runtime, so skip the runtime call for now
 	// and just test the config loading part
-	_ = loadMCPServersConfig(tmpFile)
+	_ = Load(tmpFile)
 }

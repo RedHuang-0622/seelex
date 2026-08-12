@@ -1,5 +1,8 @@
 # Seelex 上下文控制 / 数据流架构评审
 
+> **状态：历史评审（2026-07 前后），待与当前代码同步刷新。** 本文件由根目录迁入 `docs/arch/` 存档；
+> 其中的 H1-H28 假设清单与结论可能与当前实现不一致，引用时以代码与模块 README 为准。
+
 > 范围：仓库根目录的 Go 源码（`application/`, `seelexctx/`, `sessionstore/`, `session/`, `seelebridge/`, `mcpstack/`, `plugins/`, `internal/`, `main.go`）。侧重**上下文控制**与**数据流**的端到端形态，不对每个工具逐个复核。
 >
 > 证据等级：Confirmed = 引用了具体文件/符号；Hypothesis = 推断但需进一步验证。

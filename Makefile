@@ -1,7 +1,7 @@
 # Seelex Makefile
 # 跨平台构建与打包
 
-DEFAULT_VERSION := $(shell sed -n 's/^var Version = "\([^"]*\)"/\1/p' version.go)
+DEFAULT_VERSION := $(shell sed -n 's/^var Version = "\([^"]*\)"/\1/p' internal/buildinfo/version.go)
 VERSION ?= $(if $(DEFAULT_VERSION),$(DEFAULT_VERSION),dev)
 ARCHIVE_VERSION := $(patsubst v%,%,$(VERSION))
 DIST ?= dist
@@ -55,8 +55,8 @@ package:
 		echo "[copy] $$outdir"; \
 		mkdir -p "$$outdir/config"; \
 		cp config/accounts.example.yaml "$$outdir/config/"; \
+		cp config/seele.yaml config/seelex.yaml "$$outdir/config/"; \
 		cp -r plugins "$$outdir/"; \
-		cp seele.yaml seelex.yaml "$$outdir/"; \
 		cp LICENSE CHANGELOG.md README.md "$$outdir/"; \
 		[ ! -f README_EN.md ] || cp README_EN.md "$$outdir/"; \
 		dirname="seelex-v$(ARCHIVE_VERSION)-$$os-$$arch"; \

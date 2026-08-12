@@ -66,8 +66,9 @@ jobs:
           go build -trimpath -ldflags="-s -w -X main.Version=${version}" \
             -o "stage/${name}/seelex${{ matrix.extension }}" .
           cp config/accounts.example.yaml "stage/${name}/config/"
+          cp config/seele.yaml config/seelex.yaml "stage/${name}/config/"
           cp -r plugins "stage/${name}/"
-          cp seele.yaml seelex.yaml LICENSE CHANGELOG.md README.md "stage/${name}/"
+          cp LICENSE CHANGELOG.md README.md "stage/${name}/"
           if [ -f README_EN.md ]; then
             cp README_EN.md "stage/${name}/"
           fi

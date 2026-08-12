@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 // git 创建（真实目录），resolveInside 内含 withinRoot 校验（越界拒绝）。
 func (r *Runtime) resolveNodePath(ctx context.Context, path string, forWrite bool) (string, error) {
 	if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.WorkspaceID != "" {
-		candidate, err := resolveInside(scope.WorkspaceID, path)
+		candidate, err := security.ResolveInside(scope.WorkspaceID, path)
 		if err != nil {
 			return "", err
 		}
@@ -561,18 +562,6 @@ func (r *Runtime) scopedToolTimeout(requestedSeconds int) time.Duration {
 		timeout = time.Duration(requestedSeconds) * time.Second
 	}
 	return timeout
-}
-
-func (scope *ProjectScope) Relative(path string) (string, error) {
-	root, _, err := scope.roots()
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == "." {
-		return filepath.Clean(path), err
-	}
-	return rel, nil
 }
 
 func readFileSchema() map[string]interface{} {

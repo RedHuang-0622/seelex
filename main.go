@@ -22,11 +22,16 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/adapters"
+	"github.com/RedHuang-0622/seelex/application/console"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/search"
 	"github.com/RedHuang-0622/seelex/gui"
+	"github.com/RedHuang-0622/seelex/internal/buildinfo"
+	mcpconfig "github.com/RedHuang-0622/seelex/mcpstack/config"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelebridge/tools/websearch"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/session"
@@ -37,6 +42,11 @@ import (
 )
 
 var (
+	// Version / DefaultFrontend 是构建期注入点：默认值来自 internal/buildinfo，
+	// 发布构建通过 ldflags "-X main.Version=<tag>" / "-X main.DefaultFrontend=gui" 覆盖。
+	Version         = buildinfo.Version
+	DefaultFrontend = buildinfo.DefaultFrontend
+
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
 	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
 	permissionMode = flag.String("permission", "manual", "权限模式: manual(白名单外需审批) | full_access(全部放行)")
@@ -62,6 +72,19 @@ func accountsPath() string {
 	return filepath.Join("config", "accounts.yaml")
 }
 
+// firstExisting 返回第一个存在的路径（配置兼容：优先 config/，回退根目录）。
+func firstExisting(paths ...string) string {
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if len(paths) > 0 {
+		return paths[0]
+	}
+	return ""
+}
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "✖ %v\n", err)
@@ -81,15 +104,15 @@ func run() error {
 	}
 	*frontendMode = frontend
 	var backendOutput io.Writer
-	var backendTrace *backendEventLogger
+	var backendTrace *console.EventLogger
 	if frontend == "backend" {
-		output, closeOutput, outputErr := openBackendOutput(*backendLogPath)
+		output, closeOutput, outputErr := console.OpenOutput(*backendLogPath)
 		if outputErr != nil {
 			return outputErr
 		}
 		defer func() { _ = closeOutput() }()
 		backendOutput = output
-		backendTrace = newBackendEventLogger(output, time.Now)
+		backendTrace = console.NewEventLogger(output, time.Now)
 		backendTrace.LogStage("startup.flags.parsed")
 	}
 	if frontend == "gui" && !gui.Available() {
@@ -102,7 +125,7 @@ func run() error {
 	*permissionMode = string(mode)
 	*storePath = resolveStorePath(*storePath)
 
-	logBackendStartup(backendTrace, "startup.runtime.begin")
+	console.LogStageIf(backendTrace, "startup.runtime.begin")
 	runtime, err := initRuntime()
 	if err != nil {
 		return err
@@ -111,27 +134,27 @@ func run() error {
 	if backendTrace != nil {
 		runtime.SetBashDiagnosticObserver(backendTrace.LogBashEvent)
 	}
-	logBackendStartup(backendTrace, "startup.runtime.ready")
+	console.LogStageIf(backendTrace, "startup.runtime.ready")
 
 	runtime.RegisterBuiltins()
-	logBackendStartup(backendTrace, "startup.builtins.ready")
+	console.LogStageIf(backendTrace, "startup.builtins.ready")
 	skillRegistry := initSkillSystem()
-	logBackendStartup(backendTrace, "startup.skills.ready")
+	console.LogStageIf(backendTrace, "startup.skills.ready")
 	pluginManager, err := initPluginSystem(runtime, skillRegistry)
 	if err != nil {
 		return err
 	}
-	logBackendStartup(backendTrace, "startup.plugins.ready")
+	console.LogStageIf(backendTrace, "startup.plugins.ready")
 	store, err := initStore()
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	logBackendStartup(backendTrace, "startup.store.ready")
+	console.LogStageIf(backendTrace, "startup.store.ready")
 	runtime.AttachHistoryRouter(store)
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
-	runtime.SetPlanApprovalGate(&planApprovalGate{broker: approval})
+	runtime.SetPlanApprovalGate(&adapters.PlanApprovalGate{Broker: approval})
 	// 双轨事件（slice 8）：执行事实 → sessionstore 事件库（事实轨），
 	// EventHub 继续前端快照（快照轨）。Sink 失败经 ErrorHandler 隔离，
 	// 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
@@ -140,12 +163,12 @@ func run() error {
 	if err := setupPermissionGate(runtime, approval); err != nil {
 		return fmt.Errorf("权限模式无效: %w", err)
 	}
-	logBackendStartup(backendTrace, "startup.permissions.ready")
+	console.LogStageIf(backendTrace, "startup.permissions.ready")
 	toolHooks := application.NewToolHookBridge()
 	if backendTrace != nil {
 		toolHooks.SetDiagnosticObserver(backendTrace.LogToolHookEvent)
 	}
-	appEngine := newEnginePort(nil, func(sessionID string) reactorEngine {
+	appEngine := adapters.NewEnginePort(nil, func(sessionID string) adapters.ReactorEngine {
 		fresh, createErr := initEngine(runtime, toolHooks, sessionID)
 		if createErr != nil {
 			return nil
@@ -162,7 +185,7 @@ func run() error {
 	if err := activateDefaultPlugin(pluginManager, nil); err != nil {
 		return err
 	}
-	logBackendStartup(backendTrace, "startup.engine.lazy-ready")
+	console.LogStageIf(backendTrace, "startup.engine.lazy-ready")
 	// 子代理详情数据面：节点会话记录 + 结构化上下文查询 + 工具结果读回
 	// （只读子代理 actor，安全——运行中实时导出、结束后快照）。
 	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
@@ -181,7 +204,7 @@ func run() error {
 		return err
 	}
 	defer app.Shutdown()
-	logBackendStartup(backendTrace, "startup.application.ready")
+	console.LogStageIf(backendTrace, "startup.application.ready")
 	registerTaskTerminalTools(runtime, app)
 	registerContextReadTools(runtime, app, sessionManager)
 	registerProjectRefreshTool(runtime, store)
@@ -208,12 +231,12 @@ func run() error {
 	// actor（Registry 自带锁，读写经其方法进出；nodeSkillBlocks 消费）。
 	runtime.SetSkillRegistry(skillRegistry)
 	if frontend == "backend" && strings.TrimSpace(*backendProject) != "" {
-		if err := bindBackendProject(app, *backendProject); err != nil {
+		if err := console.BindProject(app, *backendProject); err != nil {
 			return err
 		}
-		logBackendStartup(backendTrace, "startup.workspace.ready")
+		console.LogStageIf(backendTrace, "startup.workspace.ready")
 	}
-	logBackendStartup(backendTrace, "startup.frontend.ready")
+	console.LogStageIf(backendTrace, "startup.frontend.ready")
 	return startFrontend(app, backendOutput)
 }
 
@@ -383,13 +406,14 @@ func registerTaskTerminalTools(runtime *seelebridge.Runtime, app *application.Se
 }
 
 func initRuntime() (*seelebridge.Runtime, error) {
-	// 运行参数在 seelex.yaml（配置参数文件；权限在 seele.yaml）：
-	// 滑动窗口段缺失 → 零值走默认；limits 缺失字段 → 默认值。
-	windowConfig, err := core.LoadWindowConfig("seelex.yaml")
+	// 运行参数在 config/seelex.yaml（配置参数文件；权限在 config/seele.yaml）：
+	// 优先 config/，回退根目录（开发习惯兼容）；滑动窗口段缺失 → 零值走默认；limits 缺失字段 → 默认值。
+	runtimeConfigPath := firstExisting("config/seelex.yaml", "seelex.yaml")
+	windowConfig, err := core.LoadWindowConfig(runtimeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
 	}
-	limits, err := seelexctx.LoadLimits("seelex.yaml")
+	limits, err := seelexctx.LoadLimits(runtimeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("加载 limits 配置失败: %w", err)
 	}
@@ -453,11 +477,46 @@ type pluginPromptEngine interface {
 
 func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker) {
 	registerTimeTool(runtime)
-	registerWebSearchTool(runtime, accountsPath())
-	registerMCPServers(runtime, accountsPath()) // from mcpconfig.go — 与 websearch 同一生态位
+	websearch.Register(runtime, accountsPath())
+	registerMCPServers(runtime, accountsPath()) // mcpstack/config 加载 + Runtime 冷启动登记
 	registerMCPLoadTool(runtime)
 	registerPluginSwitchTools(runtime, plugins, eng)
 	registerAskApprove(runtime, approval)
+}
+
+// registerMCPServers 将账号池配置中配置的 MCP 服务器全部登记到 Runtime
+// （冷启动：只存配置不连接，启动路径零 MCP 进程）。配置加载在 mcpstack/config。
+// 首次需要时经内置 mcp_load 工具按名加载（spawn + initialize + tools/list），
+// 加载后的 MCP 工具自动通过 mcpstack 中间件记录调用 trace。
+func registerMCPServers(runtime *seelebridge.Runtime, accountsPath string) {
+	servers := mcpconfig.Load(accountsPath)
+	if len(servers) == 0 {
+		return
+	}
+
+	for _, s := range servers {
+		transport := s.Transport
+		if transport == "" {
+			if s.Command != "" {
+				transport = "stdio"
+			} else if s.URL != "" {
+				transport = "sse"
+			} else {
+				fmt.Fprintf(os.Stderr, "⚠ MCP 服务器 %q：transport 未知（command 和 URL 均为空），跳过\n", s.Name)
+				continue
+			}
+		}
+
+		cfg := seelebridge.MCPServer{
+			Name: s.Name, Transport: transport, Command: s.Command,
+			Args: s.Args, Env: s.Env, URL: s.URL,
+		}
+		if err := runtime.RegisterLazyMCP(s.Name, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠ MCP 服务器 %q 配置无效: %v\n", s.Name, err)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "✓ MCP 服务器 %q 已登记（冷启动；需要时调用 mcp_load 连接）\n", s.Name)
+	}
 }
 
 // registerMCPLoadTool 注册按需加载工具：连接已登记但未连接的 MCP 服务器
@@ -608,13 +667,13 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 			}
 			options := make([]application.InteractionOption, len(choices))
 			for i, choice := range choices {
-				options[i] = approvalOption(choice)
+				options[i] = adapters.ApprovalOption(choice)
 			}
 			decision, err := approval.Request(ctx, application.ApprovalRequest{
 				ID: fmt.Sprintf("ask_%d", time.Now().UnixNano()), Question: input.Question,
 				Options: options, Risk: "low", ToolName: "ask_approve",
 			})
-			if err != nil || !approvalAccepted(decision.OptionID) {
+			if err != nil || !adapters.ApprovalAccepted(decision.OptionID) {
 				return `{"approved":false,"reason":"cancelled"}`, nil
 			}
 			encoded, err := json.Marshal(map[string]interface{}{"approved": true, "choice": decision.OptionID})
@@ -644,7 +703,7 @@ func initWorkspaceRepo() (*workspace.Repo, error) {
 }
 
 // initEngine 按新装配模型创建主会话（session.NewSession）。
-// enginePort 的 reactorEngine 接口由 *session.Session 直接满足。
+// EnginePort 的 ReactorEngine 接口由 *session.Session 直接满足。
 func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge, sessionID string) (*frameworkSession.Session, error) {
 	sess, err := runtime.NewMainSessionWithID(sessionID, hooks.Hooks())
 	if err != nil {
@@ -653,32 +712,32 @@ func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge,
 	return sess, nil
 }
 
-func initSessionManager(router *sessionstore.Router, eng *enginePort) *session.Manager {
+func initSessionManager(router *sessionstore.Router, eng *adapters.EnginePort) *session.Manager {
 	manager := session.NewManager(router)
 	manager.WithRouter(router)
 	manager.InjectSaveLoad(
-		func(sessionID string) error { return router.Save(sessionID, eng.rawHistory()) },
+		func(sessionID string) error { return router.Save(sessionID, eng.RawHistory()) },
 		func(sessionID string) error {
 			history, err := router.Load(sessionID)
 			if err != nil {
 				return err
 			}
-			return eng.replaceRawHistory(sessionID, history)
+			return eng.ReplaceRawHistory(sessionID, history)
 		},
 	)
 	return manager
 }
 
 func initApplication(
-	eng *enginePort, runtime *seelebridge.Runtime, plugins *plugin.Manager,
+	eng *adapters.EnginePort, runtime *seelebridge.Runtime, plugins *plugin.Manager,
 	sessions *session.Manager, skills *skill.Registry,
 	workspaces *workspace.Repo,
 	events *application.EventHub, approval *application.ApprovalBroker,
 ) (*application.Service, error) {
 	return application.New(application.Dependencies{
-		Engine: eng, Runtime: runtimePort{runtime: runtime},
-		Plugins: pluginPort{manager: plugins}, Skills: skillPort{registry: skills},
-		Sessions: sessionPort{manager: sessions, runtime: runtime}, Workspace: workspacePort{repo: workspaces},
+		Engine: eng, Runtime: adapters.RuntimePort{Runtime: runtime},
+		Plugins: adapters.PluginPort{Manager: plugins}, Skills: adapters.SkillPort{Registry: skills},
+		Sessions: adapters.SessionPort{Manager: sessions, Runtime: runtime}, Workspace: adapters.WorkspacePort{Repo: workspaces},
 		Events: events, Approval: approval,
 	})
 }
@@ -701,7 +760,7 @@ func startFrontend(app *application.Service, backendOutput io.Writer) error {
 		}
 		return nil
 	case "backend":
-		return startBackendConsole(app, *backendPrompt, *backendTimeout, backendOutput)
+		return console.Start(app, *backendPrompt, *backendTimeout, backendOutput)
 	default:
 		return startTUI(initTUI(app))
 	}
@@ -731,9 +790,9 @@ func setupPermissionGate(runtime permissionRuntime, approval *application.Approv
 		return err
 	}
 	cfg := toolspermission.PermissionConfig{Mode: toolspermission.ModeManual, Rules: defaultManualRules()}
-	// seele.yaml 的 permission 段（权限专用文件）：存在有效规则时覆盖
+	// config/seele.yaml 的 permission 段（权限专用文件）：存在有效规则时覆盖
 	// 内置白名单；缺失/为空回退默认白名单。
-	if fileRules, loadErr := loadPermissionRules("seele.yaml"); loadErr != nil {
+	if fileRules, loadErr := loadPermissionRules(firstExisting("config/seele.yaml", "seele.yaml")); loadErr != nil {
 		return loadErr
 	} else if len(fileRules) > 0 {
 		cfg.Rules = fileRules
@@ -814,7 +873,7 @@ func newPermissionBridge(broker *application.ApprovalBroker) toolspermission.App
 		appReq := application.ApprovalRequest{
 			ID:                req.ID,
 			Question:          req.Preview,
-			Options:           convertPermissionOptions(req.Options),
+			Options:           adapters.ConvertPermissionOptions(req.Options),
 			Risk:              req.Risk,
 			ToolName:          req.ToolName,
 			Preview:           req.Preview,
