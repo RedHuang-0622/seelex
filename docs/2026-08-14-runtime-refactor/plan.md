@@ -85,14 +85,20 @@ node、forkTool、pool、telemetry。R3.4 补齐。
 
 1. 按 §2 归属表把方法搬入 7 个 `runtime_*.go`（import 各自收敛）；`runtime.go`
    保留骨架 + `NewRuntime` + `Shutdown`。
-2. `NewRuntime` 内联块提取为 stage 函数（放对应 runtime_*.go）：
+2. **本阶段只做方法搬移，不重写 NewRuntime**：`NewRuntime` 内联块的 stage 函数
+   提取（`assembleTelemetry/assembleMCP/assemblePlanExecutor/assembleNode/
+   assembleWorktree/assembleFork/assembleRegistry/assembleAgent/
+   assemblePlanAgentFactory`）统一放到 R3.5，与拓扑序重排一次完成，避免把
+   NewRuntime 重写两遍。stage 函数的定义与签名见 R3.5。
+3. 验证门全绿；一个 commit（`refactor(runtime): R1 按层物理拆分`）。
+
+（保留备查：原 R1 内联块提取方案——
    - `assembleTelemetry(cfg)`（L228 块）、`assembleMCP(r, cfg)`（L279-280）、
      `assemblePlanExecutor(r, cfg, …)`（L281-303）、`assembleNode(r)`（L304-329）、
      `assembleWorktree(r)`（L330-336）、`assembleFork(r)`（L337）、
      `assembleRegistry(r, cfg, …)`（L343-345）、`assembleAgent(r)`（L346-366）、
      `assemblePlanAgentFactory(r)`（L368-379）。
-   - `NewRuntime` 按拓扑序显式调用（此时允许保留 forward closure，R3.5 消除）。
-3. 验证门全绿；一个 commit（`refactor(runtime): R1 按层物理拆分`）。
+   - `NewRuntime` 按拓扑序显式调用（此时允许保留 forward closure，R3.5 消除）。）
 
 ### R2 ports.go 纯化
 
