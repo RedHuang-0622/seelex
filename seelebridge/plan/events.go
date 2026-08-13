@@ -9,6 +9,7 @@ import (
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // mainAgentID 是主会话在 agent.EventLocator 中的稳定标识（事件定位用）。
@@ -18,16 +19,8 @@ const mainAgentID = "seelex-main"
 // NodeID 为空表示计划级状态（PlanStatus 投影），否则为节点级状态
 // （NodeStatus 投影）。Status 取值与 PlanNodeStatus 对齐：
 // queued | running | completed | failed | aborted | skipped | canceled | panicked。
-type PlanNodeEvent struct {
-	PlanID  string
-	RunID   string
-	NodeID  string
-	Kind    string // 展示用 kind（approve 由前端映射为 manual）
-	Status  string
-	Output  string
-	Elapsed string
-	At      time.Time
-}
+// PlanNodeEvent ? plan ????????????????? application/contract/dto??
+type PlanNodeEvent = dto.PlanNodeEvent
 
 // planEventSink 实现 event.Sink：追加到内存事件库（append-only），
 // 并把事件投影为 PlanNodeEvent 转发给订阅者（HandlePlanNodeComplete

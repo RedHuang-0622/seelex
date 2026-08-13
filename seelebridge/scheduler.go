@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
@@ -57,60 +58,25 @@ const (
 )
 
 // ScheduledTaskKind 周期任务类型。
-type ScheduledTaskKind string
+// ScheduledTaskKind ????????????? application/contract/dto??
+type ScheduledTaskKind = dto.ScheduledTaskKind
 
 const (
-	ScheduledTaskCommand ScheduledTaskKind = "command"
-	ScheduledTaskPrompt  ScheduledTaskKind = "prompt"
+	ScheduledTaskCommand = dto.ScheduledTaskCommand
+	ScheduledTaskPrompt  = dto.ScheduledTaskPrompt
 )
 
 // ScheduledCommand 白名单命令描述（登记即信任；argv 固定直传，不解析用户文本）。
-type ScheduledCommand struct {
-	Key         string   // 白名单键（任务引用，如 "auto_get_jobs"）
-	Label       string   // 展示名
-	Description string   // 说明（GUI 弹窗展示）
-	WorkingDir  string   // 固定工作目录（脚本相对文件所在）
-	Argv        []string // 固定参数（argv[0] 为可执行文件）
-	TimeoutSec  int      // 单次运行超时（0 = 默认 10 分钟）
-}
+type ScheduledCommand = dto.ScheduledCommand
 
 // ScheduledCommandInfo 白名单命令展示信息（GUI 新建弹窗下拉数据源）。
-type ScheduledCommandInfo struct {
-	Key         string `json:"key"`
-	Label       string `json:"label"`
-	Description string `json:"description"`
-}
+type ScheduledCommandInfo = dto.ScheduledCommandInfo
 
 // ScheduledTaskSpec 创建任务入参（GUI Bridge 输入）。
-type ScheduledTaskSpec struct {
-	Name      string
-	Kind      ScheduledTaskKind
-	Interval  time.Duration
-	Command   string // kind=command：白名单键
-	Prompt    string // kind=prompt：提示词内容（非 secret，可进快照展示）
-	SessionID string // 绑定会话（空 = 执行时当前 main session）
-	Enabled   bool
-}
+type ScheduledTaskSpec = dto.ScheduledTaskSpec
 
 // ScheduledTaskStatus 任务快照 DTO（GUI 定时任务面板消费）。
-type ScheduledTaskStatus struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Kind        string    `json:"kind"`
-	IntervalSec int64     `json:"interval_seconds"`
-	Command     string    `json:"command,omitempty"`
-	Prompt      string    `json:"prompt,omitempty"`
-	SessionID   string    `json:"session_id,omitempty"`
-	Enabled     bool      `json:"enabled"`
-	Running     bool      `json:"running"`
-	NextRunAt   time.Time `json:"next_run_at,omitempty"`
-	LastRunAt   time.Time `json:"last_run_at,omitempty"`
-	LastStatus  string    `json:"last_status,omitempty"`
-	LastResult  string    `json:"last_result,omitempty"`
-	LastError   string    `json:"last_error,omitempty"`
-	LogTail     []string  `json:"log_tail,omitempty"`
-	RunCount    int64     `json:"run_count"`
-}
+type ScheduledTaskStatus = dto.ScheduledTaskStatus
 
 // ScheduledPromptExecutor 周期提示词任务执行器（main 装配注入：application
 // Submit 复用当前主会话；nil = prompt 任务不可创建）。

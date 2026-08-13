@@ -8,26 +8,20 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // PlanPreflight is the audited result of an isolated optional planning turn.
-type PlanPreflight struct {
-	Arguments string
-	Result    string
-}
+// PlanPreflight ?????????????????? application/contract/dto??
+type PlanPreflight = dto.PlanPreflight
 
 // ReplanRequest is the bounded, auditable context supplied to an isolated
 // recovery-planning turn. It deliberately contains execution facts rather
 // than an unbounded chat transcript.
-type ReplanRequest struct {
-	IdempotencyKey string
-	Objective      string
-	PreviousPlan   string
-	Failure        string
-	Evidence       string
-}
+// ReplanRequest ????????????????????? application/contract/dto??
+type ReplanRequest = dto.ReplanRequest
 
 // PrepareReplan atomically replaces a failed WorkPlan with a recovery plan.
 // It only plans; it never invokes plan_run or retries side effects. The

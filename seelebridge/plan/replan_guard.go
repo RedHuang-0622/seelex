@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -18,21 +19,8 @@ var (
 // ReplanMetrics is a non-secret, process-wide accounting snapshot. Provider
 // calls are an intentional cost proxy when a provider does not expose token
 // usage for tool-only responses.
-type ReplanMetrics struct {
-	InFlight               int       `json:"in_flight"`
-	ConcurrentLimit        int       `json:"concurrent_limit"`
-	WindowAttempts         int       `json:"window_attempts"`
-	WindowLimit            int       `json:"window_limit"`
-	WindowStartedAt        time.Time `json:"window_started_at,omitempty"`
-	Accepted               uint64    `json:"accepted"`
-	Succeeded              uint64    `json:"succeeded"`
-	Failed                 uint64    `json:"failed"`
-	Rejected               uint64    `json:"rejected"`
-	DuplicateRejected      uint64    `json:"duplicate_rejected"`
-	ProviderRequests       uint64    `json:"provider_requests"`
-	ProviderWindowRequests int       `json:"provider_window_requests"`
-	ProviderWindowLimit    int       `json:"provider_window_limit"`
-}
+// ReplanMetrics ?????????????????? application/contract/dto??
+type ReplanMetrics = dto.ReplanMetrics
 
 type ReplanGuard struct {
 	mu                  sync.Mutex

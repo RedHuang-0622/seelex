@@ -264,11 +264,11 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 	if provider.policy != nil {
 		policy = provider.policy()
 	}
-	nodeCount, err := policy.ValidateLoad(canonicalArgs)
+	nodeCount, err := ValidatePolicyLoad(policy, canonicalArgs)
 	if err != nil {
 		return "", err
 	}
-	maxFork := policy.Concurrency(nodeCount)
+	maxFork := PolicyConcurrency(policy, nodeCount)
 
 	// 环检测 + codec 导入（校验节点/边引用、重复边、DAG 可达性并 Seal）
 	var spec PlanLoadSpec
@@ -479,7 +479,7 @@ func (provider *ToolProvider) planValidate(_ context.Context, argsJSON string) (
 	if provider.policy != nil {
 		policy = provider.policy()
 	}
-	nodeCount, err := policy.ValidateLoad(canonical)
+	nodeCount, err := ValidatePolicyLoad(policy, canonical)
 	if err != nil {
 		return "", err
 	}

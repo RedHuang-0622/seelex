@@ -6,9 +6,10 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/approval"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/seelebridge"
+
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
@@ -53,10 +54,10 @@ type ChatEngine interface {
 	NodeToolResult(nodeID, ref string) (string, bool)
 	// NodeWorktreeInfoFor 返回节点 worktree 现场信息（失败/被拒路径现场
 	// 保留，Path 即人工恢复入口；成功路径已清理 → false）。
-	NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool)
+	NodeWorktreeInfoFor(nodeID string) (dto.NodeWorktreeInfo, bool)
 	// SubAgentTree 返回 fork 子代理树的只读投影（内存态，不落盘；
 	// GUI 树视图数据源，经权威 Snapshot 增量携带）。
-	SubAgentTree() []seelebridge.SubAgentTreeNode
+	SubAgentTree() []dto.SubAgentTreeNode
 }
 type RuntimePort interface {
 	Model() string
@@ -67,48 +68,48 @@ type RuntimePort interface {
 	ActivePlugin() string
 	FullAccess() bool
 	SetFullAccess(bool)
-	SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection)
-	SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)
+	SetRuntimeVisibilityProjection(dto.RuntimeVisibilityProjection)
+	SetParentEvidenceProjection(dto.ParentEvidenceProjection)
 	DrainSubagentContexts() []string
-	SetPlanPolicy(seelebridge.PlanPolicy)
-	PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error)
-	ReplanMetrics() seelebridge.ReplanMetrics
-	SetPlanBranchBinding(seelebridge.PlanBranchBinding)
+	SetPlanPolicy(dto.PlanPolicy)
+	PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error)
+	ReplanMetrics() dto.ReplanMetrics
+	SetPlanBranchBinding(dto.PlanBranchBinding)
 	BindProjectRoot(rootPath string) error
 	UnbindProjectRoot()
 	// TodoSnapshot 返回当前 todolist 清单只读拷贝（GUI 待办面板数据源）。
-	TodoSnapshot() []seelebridge.TodoItem
+	TodoSnapshot() []dto.TodoItem
 	// SetTodoStatus 设置待办项三态（pending/doing/done；GUI 工作表格状态
 	// 更新入口；越界/非法状态返回错误）。
-	SetTodoStatus(index int, status seelebridge.TodoItemStatus) error
+	SetTodoStatus(index int, status dto.TodoItemStatus) error
 	// TaskSnapshot 返回 task 注册表只读快照（worktable 投影数据源）。
-	TaskSnapshot() []seelebridge.TaskRecord
+	TaskSnapshot() []dto.TaskRecord
 	// TaskAdd 主动登记 task（幂等：Key 命中返回既有记录）。
-	TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error)
+	TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)
 	// ResolveTaskByKey 按幂等键查 task（子代理装配现成 task_id 用）。
-	ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error)
+	ResolveTaskByKey(key string) (dto.TaskRecord, bool, error)
 	// TaskSetStatus 更新 task 状态（retry 自增计数）。
-	TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error)
+	TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)
 	// TaskAttachParticipant 把子代理挂为 task 参与者（幂等）。
-	TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error)
+	TaskAttachParticipant(id, participant string) (dto.TaskRecord, error)
 	// TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递，
 	// application 消费者直发增量，不拉脏）。
-	TaskChangedChannel() <-chan seelebridge.TaskRecord
+	TaskChangedChannel() <-chan dto.TaskRecord
 	// SubagentTreeEvents 返回子代理树生命周期信号 channel（CSP 消费者刷新
 	// 工作表格；取代同步回调 observer）。
 	SubagentTreeEvents() <-chan struct{}
 	// PlanNodeEventChannel 返回 plan 节点事件 channel（CSP 消费者串行处理；
 	// 取代同步回调）。
-	PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent
+	PlanNodeEventChannel() <-chan dto.PlanNodeEvent
 	// SwitchSessionTasks 会话级 task 隔离：切换会话时整体替换注册表
 	// （清空当前会话 task，恢复目标会话 task；复用 session stack 存储）。
-	SwitchSessionTasks(records []seelebridge.TaskRecord)
+	SwitchSessionTasks(records []dto.TaskRecord)
 	// ScheduledCommands 返回定时周期任务白名单命令展示信息（GUI 新建弹窗数据源）。
-	ScheduledCommands() []seelebridge.ScheduledCommandInfo
+	ScheduledCommands() []dto.ScheduledCommandInfo
 	// ScheduledTasksSnapshot 返回周期任务只读快照（GUI 定时任务面板数据源）。
-	ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus
+	ScheduledTasksSnapshot() []dto.ScheduledTaskStatus
 	// ScheduleTask 创建并启动一个周期任务（变更入口；Runtime 调度器执行）。
-	ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)
+	ScheduleTask(context.Context, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
 	// CancelScheduledTask 取消并移除周期任务。
 	CancelScheduledTask(string) error
 	// ClearSubagentTree 清空子代理树（GUI「清空」入口；失败节点显式清走，

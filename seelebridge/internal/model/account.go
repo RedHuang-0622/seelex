@@ -2,15 +2,20 @@
 // 供根包 facade 与 plan/worktree/task/session 等子包共同引用。
 package model
 
-import "fmt"
+import (
+	"fmt"
 
-// AccountRole represents the task category an account is used for.
-type AccountRole string
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+)
+
+// AccountRole represents the task category an account is used for
+// （类型本体下沉 application/contract/dto）。
+type AccountRole = dto.AccountRole
 
 const (
-	RoleAgent    AccountRole = "agent"
-	RoleSubAgent AccountRole = "subagent"
-	RoleGoalPlan AccountRole = "goalplan"
+	RoleAgent    = dto.RoleAgent
+	RoleSubAgent = dto.RoleSubAgent
+	RoleGoalPlan = dto.RoleGoalPlan
 )
 
 // AccountSpec 是账号的非敏感配置（凭据在 APIKey 内，仅用于组装客户端）。

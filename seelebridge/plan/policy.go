@@ -3,6 +3,8 @@ package plan
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // PlanPolicy defines the runtime constraints applied to a plan_load request.
@@ -12,14 +14,8 @@ import (
 // 移除：强制规划为失败设计，preflight 仅由显式 PrepareReplan 触发）。
 // 节点预算上限（MaxNodeLoops/MaxNodeOutputTokens，0 = 不限）：防止节点级
 // budget 参数滥用（见 nodeBudget，agent_node.go）。
-type PlanPolicy struct {
-	Effort              string
-	MaxNodes            int
-	RequireSerial       bool
-	MaxForkConcurrency  int
-	MaxNodeLoops        int
-	MaxNodeOutputTokens int
-}
+// 类型本体已下沉 application/contract/dto；行为经本包自由函数提供。
+type PlanPolicy = dto.PlanPolicy
 
 type PlanLoadSpec struct {
 	Entry string                     `json:"entry"`
@@ -27,7 +23,8 @@ type PlanLoadSpec struct {
 	Edges map[string][]string        `json:"edges"`
 }
 
-func (policy PlanPolicy) ValidateLoad(argsJSON string) (int, error) {
+// ValidatePolicyLoad 校验 plan_load 参数并返回节点数。
+func ValidatePolicyLoad(policy PlanPolicy, argsJSON string) (int, error) {
 	var input PlanLoadSpec
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return 0, fmt.Errorf("plan policy %q: invalid plan_load JSON: %w", policy.Effort, err)
@@ -60,7 +57,8 @@ func (policy PlanPolicy) ValidateLoad(argsJSON string) (int, error) {
 	return len(input.Nodes), nil
 }
 
-func (policy PlanPolicy) Concurrency(nodeCount int) int {
+// PolicyConcurrency 返回 plan 并行上限（显式配置优先；否则随节点数增长）。
+func PolicyConcurrency(policy PlanPolicy, nodeCount int) int {
 	if policy.MaxForkConcurrency > 0 {
 		return policy.MaxForkConcurrency
 	}

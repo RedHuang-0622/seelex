@@ -207,7 +207,7 @@ func (t *Tool) buildForkPlan(input Input, taskBindings map[string]string) (*plan
 	policy := t.deps.CurrentPlanPolicy()
 	maxFork := input.MaxConcurrency
 	if maxFork <= 0 {
-		maxFork = policy.Concurrency(nodeCount)
+		maxFork = plan.PolicyConcurrency(policy, nodeCount)
 	}
 	document := codec.Document[plan.SeelexNodeInput]{
 		Version: codec.Version,

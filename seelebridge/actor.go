@@ -3,6 +3,7 @@ package seelebridge
 import (
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
@@ -14,9 +15,7 @@ import (
 // RuntimeVisibilityProjection is an immutable application-to-runtime message.
 // Runtime owns the received value and never calls back into Application to read
 // visibility state while a tool hook is executing.
-type RuntimeVisibilityProjection struct {
-	GoalSkillActive bool
-}
+type RuntimeVisibilityProjection = dto.RuntimeVisibilityProjection
 
 // ParentEvidenceProjection is the minimal application-owned data needed for a
 // Runtime-local parent evidence snapshot. Runtime adds its own telemetry and
