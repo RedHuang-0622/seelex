@@ -2,8 +2,6 @@ package seelebridge
 
 import (
 	"context"
-	"fmt"
-	"sort"
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
@@ -11,35 +9,20 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
-	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 )
 
-// accountSelector 是主链路共享的账号选择器闭包：读取 Runtime 当前的
-// provider 过滤与选中账号（不持有任何 api.ChatClient 引用），把请求条件
-// 转换为 accountpool.AcquireRequest。P2C 池负责实际选择与租赁。
-// Plan 子代理请求（ctx 含 NodeScope）优先走节点账号解析：显式 pin 优先，
-// 否则按角色 + branchID 走确定性 hash（account.ResolveForBranch 逻辑）。
+// 账号路由状态已收敛为 account.Manager（选中账号/provider 过滤/限额/选择器）。
+// 本文件只保留 Runtime 侧委托与 completer 装配接线。
+
+// accountSelector 是主链路共享的账号选择器闭包（委托 account.Manager.Selector；
+// plan 分支绑定经闭包注入）。
 func (r *Runtime) accountSelector(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
-	if scope := model.NodeScopeFromContextOrEmpty(ctx); scope.NodeID != "" {
-		return r.nodeAccountRequest(scope)
-	}
-	r.branchMu.RLock()
-	selected := r.selectedAccountID
-	provider := r.providerFilter
-	r.branchMu.RUnlock()
-	request := accountpool.AcquireRequest{}
-	if selected != "" {
-		request.AccountID = selected
-	}
-	if provider != "" {
-		if request.Metadata == nil {
-			request.Metadata = make(map[string]string)
-		}
-		request.Metadata["provider"] = provider
-	}
-	return request
+	return r.accounts.Selector(account.SelectorDeps{
+		BranchBinding: r.currentPlanBranchBinding,
+	})(ctx, messages, tools)
 }
 
 // assembleCompleters 构造同步与流式 completer，两者共享同一个账号选择器闭包。
@@ -59,86 +42,42 @@ func (r *Runtime) bridgeAccountCompleter() (agent.Completer, error) {
 		bridge.WithAccountRequestSelector(r.accountSelector),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("seelebridge: assemble account completer: %w", err)
+		return nil, err
 	}
 	return completer, nil
 }
 
-// nodeAccountRequest 按节点作用域解析账号租赁请求：binding 显式 AccountID
-// 直接 pin；否则按 role + planID:branchID 确定性 hash 选择。
-func (r *Runtime) nodeAccountRequest(scope seenode.NodeScope) accountpool.AcquireRequest {
-	request := accountpool.AcquireRequest{}
-	binding := r.currentPlanBranchBinding()
-	if binding.AccountID != "" {
-		request.AccountID = binding.AccountID
-		return request
-	}
-	seed := scope.BranchID
-	if seed == "" {
-		seed = scope.NodeID
-	}
-	accountID, err := account.ResolveForBranch(r.pool, scope.Role, binding.PlanID+":"+seed)
-	if err == nil {
-		request.AccountID = accountID
-	}
-	return request
+// Accounts 返回账号池条目的路由摘要（按名称排序）。
+func (r *Runtime) Accounts() []Account {
+	return r.accounts.Accounts()
 }
 
-// setSelectedAccount 切换主链路选中账号（provider 过滤跟随账号规格）。
-func (r *Runtime) setSelectedAccount(name string) {
-	r.branchMu.Lock()
-	r.selectedAccountID = name
-	r.branchMu.Unlock()
-}
-func (r *Runtime) Accounts() []Account {
-	entries := r.pool.Entries()
-	result := make([]Account, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, Account{
-			Name:     entry.Snapshot.ID,
-			Provider: entry.Snapshot.Metadata["provider"],
-			Model:    entry.Snapshot.Metadata["model"],
-			Disabled: entry.Snapshot.Disabled,
-		})
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-	return result
-}
+// Provider 返回当前 provider 过滤；未过滤时回退默认账号。
 func (r *Runtime) Provider() string {
-	r.branchMu.RLock()
-	provider := r.providerFilter
-	r.branchMu.RUnlock()
-	if provider == "" {
-		if spec := account.ByName(r.accountSpecList(), r.defaultAccountID); spec != nil {
-			provider = spec.Provider
-		}
-	}
-	return provider
+	return r.accounts.Provider()
 }
+
+// SelectAccount 切换主链路选中账号；未知账号返回 false。
 func (r *Runtime) SelectAccount(name string) bool {
-	spec := account.ByName(r.accountSpecList(), name)
-	if spec == nil {
-		return false
-	}
-	r.branchMu.Lock()
-	r.selectedAccountID = spec.Name
-	r.providerFilter = spec.Provider
-	r.branchMu.Unlock()
-	return true
+	return r.accounts.Select(name)
 }
+
+// SetProvider 切换 provider 过滤（非空时清除固定账号）。
 func (r *Runtime) SetProvider(provider string) {
-	r.branchMu.Lock()
-	r.providerFilter = provider
-	if provider != "" {
-		// 切换 provider 时清除固定账号，让 P2C 在过滤集内选择。
-		r.selectedAccountID = ""
-	}
-	r.branchMu.Unlock()
+	r.accounts.SetProvider(provider)
 }
+
+// setSelectedAccount 设置选中账号（plan 分支冻结路径用）。
+func (r *Runtime) setSelectedAccount(name string) {
+	r.accounts.SetSelected(name)
+}
+
+// accountSpecList 返回账号规格列表（委托 account.Manager）。
 func (r *Runtime) accountSpecList() []model.AccountSpec {
-	specs := make([]model.AccountSpec, 0, len(r.accountSpecs))
-	for _, spec := range r.accountSpecs {
-		specs = append(specs, spec)
-	}
-	return specs
+	return r.accounts.Specs()
+}
+
+// currentAccountLimits 返回当前账号限额（委托 account.Manager）。
+func (r *Runtime) currentAccountLimits() config.AccountLimits {
+	return r.accounts.Limits()
 }

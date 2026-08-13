@@ -63,9 +63,7 @@ func (r *Runtime) SetPlanApprovalGate(gate approve.ApprovalGate) {
 // SetPlanBranchBinding freezes context and account-selection inputs for the
 // next plan run.
 func (r *Runtime) SetPlanBranchBinding(binding dto.PlanBranchBinding) {
-	r.branchMu.RLock()
-	selectedAccountID := r.selectedAccountID
-	r.branchMu.RUnlock()
+	selectedAccountID := r.accounts.Selected()
 	if binding.AccountID == "" {
 		binding.AccountID = selectedAccountID
 	}

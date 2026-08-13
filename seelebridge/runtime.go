@@ -24,7 +24,6 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/docker"
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
@@ -74,18 +73,15 @@ type Runtime struct {
 	tracer *telemetry.MemoryTracer
 	hook   telemetry.Hook
 
-	model            string
-	defaultAccountID string
-	accountLimits    map[string]config.AccountLimits
-	accountSpecs     map[string]model.AccountSpec
+	model string
 
 	// MCPStack 记录所有 MCP 调用的 trace（熔断事件 + 调用记录）。
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	mcpManager           *mcp.Manager // MCP 服务器生命周期（mcp/ 域）
-	branchMu             sync.RWMutex
-	planExecutor         *plan.Executor // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
+	mcpManager           *mcp.Manager     // MCP 服务器生命周期（mcp/ 域）
+	planExecutor         *plan.Executor   // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
+	accounts             *account.Manager // 账号路由状态（account/ 域）：选中账号/provider/限额
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
 	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
@@ -94,19 +90,17 @@ type Runtime struct {
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
 	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
-	skills            *skill.Registry
-	selectedAccountID string
-	providerFilter    string
-	projectScope      *security.ProjectScope
-	filesystem        fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
-	sandbox           security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
-	dockerProbe       docker.Prober             // docker 守护进程探测/启动（零值 → 真实实现；测试注入）
-	node              *seenode.Coordinator      // 节点协调器（node/ 域）：会话注册/fork 树/task 打点/plan 阶段/Blocks
-	worktreeMgr       *worktree.WorktreeManager // 子代理 worktree 生命周期组件（worktree/ 域）
-	forkTool          *fork.Tool                // fork_subagents 执行编排（fork/ 域）
-	tasks             *task.TaskRegistry        // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
-	scheduler         *scheduler.State          // 定时周期任务 actor（scheduler/ 域）
-	toolEvents        *subagentsession.ToolEventState
+	skills       *skill.Registry
+	projectScope *security.ProjectScope
+	filesystem   fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	sandbox      security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
+	dockerProbe  docker.Prober             // docker 守护进程探测/启动（零值 → 真实实现；测试注入）
+	node         *seenode.Coordinator      // 节点协调器（node/ 域）：会话注册/fork 树/task 打点/plan 阶段/Blocks
+	worktreeMgr  *worktree.WorktreeManager // 子代理 worktree 生命周期组件（worktree/ 域）
+	forkTool     *fork.Tool                // fork_subagents 执行编排（fork/ 域）
+	tasks        *task.TaskRegistry        // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
+	scheduler    *scheduler.State          // 定时周期任务 actor（scheduler/ 域）
+	toolEvents   *subagentsession.ToolEventState
 
 	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
@@ -169,12 +163,8 @@ func (r *Runtime) SetTurnArchiver(archiver seelexctx.TurnArchiver) {
 	r.turnArchiver = archiver
 }
 
-type Account struct {
-	Name     string
-	Provider string
-	Model    string
-	Disabled bool
-}
+// Account 账号路由摘要（域本体在 account/）。
+type Account = account.Account
 type Tool struct {
 	Name        string
 	Description string
@@ -197,10 +187,6 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	pool := accountpool.New[agent.Completer]()
 	if err := account.RegisterAccounts(pool, loaded.Specs); err != nil {
 		return nil, err
-	}
-	specsByName := make(map[string]model.AccountSpec, len(loaded.Specs))
-	for _, spec := range loaded.Specs {
-		specsByName[spec.Name] = spec
 	}
 	first := loaded.Specs[0]
 
@@ -230,9 +216,6 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	r := &Runtime{
 		pool:                pool,
 		model:               first.Model,
-		defaultAccountID:    first.Name,
-		accountLimits:       loaded.Limits,
-		accountSpecs:        specsByName,
 		MCPStack:            mcpstack.New(mcpStackOpts...),
 		projectScope:        security.NewProjectScope(),
 		filesystem:          fs.NewFileSystemActor(),
@@ -255,6 +238,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		tracer: tracer,
 		hook:   hook,
 	}
+	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
+	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
 	// MCP 管理器：MCPStack 承接熔断事件 trace，工具注册表经懒解析适配器注入。
 	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
 	// plan 执行域组件：策略 / 绑定 / runID / 事件通道 / replan 护拦 / 子代理工厂
@@ -516,18 +501,6 @@ func (r *Runtime) ContextWindow() int { return r.currentAccountLimits().ContextW
 
 // MaxOutputTokens returns the configured maximum output for one model call.
 func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOutputTokens }
-func (r *Runtime) currentAccountLimits() config.AccountLimits {
-	r.branchMu.RLock()
-	accountID := r.selectedAccountID
-	r.branchMu.RUnlock()
-	if accountID == "" {
-		accountID = r.defaultAccountID
-	}
-	if limits, ok := r.accountLimits[accountID]; ok {
-		return limits
-	}
-	return config.AccountLimits{ContextWindow: config.DefaultContextWindow, MaxOutputTokens: config.DefaultMaxOutputTokens}
-}
 
 // BindProjectRoot makes the supplied project the only root used by Seelex
 // filesystem tools for the active session.
