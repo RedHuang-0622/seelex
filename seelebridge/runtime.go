@@ -127,22 +127,11 @@ type Runtime struct {
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
 	// ProjectKnowledge 提供者为可选注入（会话恢复流程就绪后 Attach）。
-	windowMu         sync.RWMutex
-	window           seelexctx.WindowPolicy
-	ctxStoreMu       sync.RWMutex
-	ctxStore         *sessionstore.SessionContextStore
-	historyRouterMu  sync.RWMutex
-	historyRouter    *sessionstore.Router
-	mainHistoryMu    sync.RWMutex
-	mainHistory      *sessionstore.DurableHistory
-	projectMu        sync.RWMutex
-	projectKnowledge func() *sessionstore.ProjectRecord
-	turnArchiverMu   sync.RWMutex
-	turnArchiver     seelexctx.TurnArchiver // 压缩轮次原文归档（main 装配注入）
-	mainSessionMu    sync.RWMutex
-	mainSessionID    string // 当前主会话 ID（压缩帧 SegmentID 溯源）
-	lazyMCPServerMu  sync.RWMutex
-	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
+	windowMu        sync.RWMutex
+	window          seelexctx.WindowPolicy
+	bindings        sessionBindings // 会话绑定状态归组（runtime_session.go）
+	lazyMCPServerMu sync.RWMutex
+	lazyMCPServers  map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
@@ -150,18 +139,14 @@ func (r *Runtime) MainSessionID() string {
 	if r == nil {
 		return ""
 	}
-	r.mainSessionMu.RLock()
-	defer r.mainSessionMu.RUnlock()
-	return r.mainSessionID
+	return r.bindings.sessionID()
 }
 
 // SetTurnArchiver 注入压缩轮次原文归档实现（application 层持久化通道）。
 // 注入后窗口外压缩会把溢出轮次原文持久化，帧 Evidence 携带读回句柄，
 // 模型可经 read_compressed_turn 工具读回（压缩丢失可逆）。
 func (r *Runtime) SetTurnArchiver(archiver seelexctx.TurnArchiver) {
-	r.turnArchiverMu.Lock()
-	defer r.turnArchiverMu.Unlock()
-	r.turnArchiver = archiver
+	r.bindings.setTurnArchiver(archiver)
 }
 
 // Account 账号路由摘要（域本体在 account/）。
@@ -376,14 +361,10 @@ func (r *Runtime) NewMainSessionWithID(sessionID string, hooks *session.LoopHook
 // AttachHistoryRouter installs the provider-history plane independently from
 // SessionContextStore, whose state blob has a different owner.
 func (r *Runtime) AttachHistoryRouter(router *sessionstore.Router) {
-	r.historyRouterMu.Lock()
-	r.historyRouter = router
-	r.historyRouterMu.Unlock()
+	r.bindings.attachHistoryRouter(router)
 }
 func (r *Runtime) durableHistoryRouter() *sessionstore.Router {
-	r.historyRouterMu.RLock()
-	defer r.historyRouterMu.RUnlock()
-	return r.historyRouter
+	return r.bindings.getHistoryRouter()
 }
 
 // PrepareMainSessionHistory arms the Runtime-owned DurableHistory to hand the
@@ -393,22 +374,13 @@ func (r *Runtime) PrepareMainSessionHistory(sessionID string, messages []types.M
 	if r == nil {
 		return false
 	}
-	r.mainHistoryMu.RLock()
-	history := r.mainHistory
-	r.mainHistoryMu.RUnlock()
-	if history == nil || history.SessionID() != sessionID {
-		return false
-	}
-	history.PrepareNextLoad(messages)
-	return true
+	return r.bindings.prepareMainSessionHistory(sessionID, messages)
 }
 func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	}
-	r.mainSessionMu.Lock()
-	r.mainSessionID = sessionID
-	r.mainSessionMu.Unlock()
+	r.bindings.setSessionID(sessionID)
 	components := session.SessionComponents{
 		Agent:     r.agt,
 		Context:   r.mainContextComponents(),
@@ -431,9 +403,7 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 			return r.coverHistoryGap(ctx, allEvents, tailEvents)
 		})
 		components.History = history
-		r.mainHistoryMu.Lock()
-		r.mainHistory = history
-		r.mainHistoryMu.Unlock()
+		r.bindings.setMainHistory(history)
 	}
 	sess, err := session.NewSession(components)
 	if err != nil {
