@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 )
 
 // ── DSL → codec 文档 ─────────────────────────────────────────────────
@@ -117,7 +118,7 @@ func TestBuildNodeKindMapping(t *testing.T) {
 	if described, ok := agentNode.(node.Kinded); !ok || described.Kind() != node.KindAgent {
 		t.Fatalf("agent node kind = %v, want %v", described.Kind(), node.KindAgent)
 	}
-	if _, ok := agentNode.(*SeelexAgentNode); !ok {
+	if _, ok := agentNode.(*seenode.AgentNode); !ok {
 		t.Fatalf("agent kind must map to SeelexAgentNode, got %T", agentNode)
 	}
 

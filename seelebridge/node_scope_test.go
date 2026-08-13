@@ -16,6 +16,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -152,10 +153,10 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
 
-	node := newSeelexAgentNode(codec.NodeSpec[SeelexNodeInput]{
+	node := seenode.NewAgentNode(codec.NodeSpec[SeelexNodeInput]{
 		ID:    "left",
 		Input: SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
-	}, runtime)
+	}, runtime.nodeDeps())
 
 	// 作用域：分支即节点；角色按 binding 判定（未设 binding 时 entry 为空，
 	// 非 entry 节点 → subagent）。
@@ -205,10 +206,10 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 		}
 	})
 
-	node := newSeelexAgentNode(codec.NodeSpec[SeelexNodeInput]{
+	node := seenode.NewAgentNode(codec.NodeSpec[SeelexNodeInput]{
 		ID:    "left",
 		Input: SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
-	}, runtime)
+	}, runtime.nodeDeps())
 	ctx := WithNodeScope(context.Background(), node.Scope()())
 	ctx = withNodePromptBlocks(ctx, node.Blocks()())
 

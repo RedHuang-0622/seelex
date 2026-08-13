@@ -62,16 +62,6 @@ func (r *Router) resolveNodePath(ctx context.Context, path string, forWrite bool
 	return r.deps.ProjectScope.ResolveRead(path)
 }
 
-// ResolveNodePath 是 resolveNodePath 的导出面（根包门面/测试使用）。
-func (r *Router) ResolveNodePath(ctx context.Context, path string, forWrite bool) (string, error) {
-	return r.resolveNodePath(ctx, path, forWrite)
-}
-
-// ScopedBash 是 scopedBash 的导出面（根包门面/测试使用）。
-func (r *Router) ScopedBash(ctx context.Context, argsJSON string) (string, error) {
-	return r.scopedBash(ctx, argsJSON)
-}
-
 // registerProjectScopedTools overrides the Seele builtin filesystem tools.
 // Holder inline providers take precedence over builtin providers with the same
 // name, keeping this policy local to Seelex.

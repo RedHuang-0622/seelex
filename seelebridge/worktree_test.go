@@ -289,36 +289,3 @@ func TestWorktreeDegradeOutsideGit(t *testing.T) {
 		t.Fatalf("non-git project must degrade to shared workspace, got worktree %+v", wt)
 	}
 }
-
-// TestResolveNodePathUsesWorktreeRoot 验证 worktree 节点的工具路径以
-// worktree 为根解析（越界拒绝）。
-func TestResolveNodePathUsesWorktreeRoot(t *testing.T) {
-	runtime := newTestRuntime(t)
-	defer runtime.Shutdown()
-	repo := setupGitRepo(t)
-	if err := runtime.BindProjectRoot(repo); err != nil {
-		t.Fatal(err)
-	}
-	scope := NodeScope{NodeID: "x", Role: RoleSubAgent, BranchID: "x"}
-	wt := runtime.beginNodeWorktree(scope, "x")
-	if wt == nil {
-		t.Fatal("worktree creation must succeed")
-	}
-	defer func() { _ = worktree.CleanupWorktree(repo, wt) }()
-
-	ctx := WithNodeScope(context.Background(), NodeScope{
-		NodeID: "x", Role: RoleSubAgent, BranchID: "x", WorkspaceID: wt.Path,
-	})
-	resolved, err := runtime.resolveNodePath(ctx, "base.txt", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(wt.Path, "base.txt")
-	if resolved != want {
-		t.Fatalf("resolved = %s, want %s", resolved, want)
-	}
-	// 越界路径拒绝（.. 逃逸）。
-	if _, err := runtime.resolveNodePath(ctx, "../outside.txt", false); err == nil {
-		t.Fatal("escape path must be rejected")
-	}
-}

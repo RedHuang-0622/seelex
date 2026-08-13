@@ -1,8 +1,6 @@
 package seelebridge
 
 import (
-	"context"
-
 	"github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
@@ -19,16 +17,6 @@ type (
 // （委托 tools.Router；RegisterBuiltins 内调用）。
 func (r *Runtime) registerProjectScopedTools() {
 	tools.NewRouter(r.scopedToolsDeps()).Register()
-}
-
-// resolveNodePath 解析工具路径的根（委托 tools.Router；测试/门面使用）。
-func (r *Runtime) resolveNodePath(ctx context.Context, path string, forWrite bool) (string, error) {
-	return tools.NewRouter(r.scopedToolsDeps()).ResolveNodePath(ctx, path, forWrite)
-}
-
-// scopedBash 是 bash 工具的委托入口（测试/门面使用）。
-func (r *Runtime) scopedBash(ctx context.Context, argsJSON string) (string, error) {
-	return tools.NewRouter(r.scopedToolsDeps()).ScopedBash(ctx, argsJSON)
 }
 
 // observeBash 投递 scoped bash 诊断事件（工具调用不可被诊断改变；观察者
