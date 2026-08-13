@@ -4,6 +4,17 @@
 
 承载子代理会话注册表与父证据/merge-back 两个 actor。主要调用方：根包 `runtime.go` 装配、`agent_node.go` 会话门面、`actor.go` 的 merge-back facade。
 
+## 与其它域的关系
+
+```text
+node（producer）──► session（子代理会话/树/merge-back）──► fork/plan（消费者）
+                        │
+                        └──► worktree（节点会话的独立工作区）
+```
+
+session 承载子代理会话注册、fork 子代理树与 merge-back 队列；node 是
+producer，fork/plan 是消费者；节点工具结果归档（result_ref）也在本域托管。
+
 ## 职责与非职责
 
 职责：

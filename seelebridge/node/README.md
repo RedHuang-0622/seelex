@@ -8,6 +8,19 @@
 - `fork/` 域 `buildForkPlan` 经 `Deps.NodeFactory` 复用同一构造，生成 fork DAG 的 agent 节点；
 - 根包 `agent_node.go` 门面与 `node_deps.go`（Deps 注入）。
 
+## 与其它域的关系
+
+```text
+plan ──►(agent 节点)──► node ──► session（子代理会话/上下文）
+  │                        │
+  │                        ├──► worktree（独立工作区生命周期）
+  │                        └──► task（task 注册表终态打点）
+  └──► fork（构造 DAG 复用 node；subagent = node 产生的子会话执行体）
+```
+
+subagent 是 node 域产生的子代理执行体；fork 编排其并行；plan 描述 DAG；
+node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
+
 ## 职责与非职责
 
 职责：

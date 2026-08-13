@@ -23,6 +23,19 @@
 （`PrepareReplan`/`currentPlanPolicy`/`SetPlanPolicy`/...）+ `buildNode`/
 `nodeFactory`（SeelexAgentNode 依赖 Runtime 节点作用域服务）。
 
+## 与其它域的关系
+
+```text
+plan ──►(agent 节点)──► node（执行内核）
+  │                        │
+  │                        ├──► worktree（独立工作区）
+  │                        └──► task（终态打点）
+  └──► fork（编程式 DAG 特例，复用 NodeFactory）
+```
+
+plan 是 DAG 描述与调度；agent 节点委托 node 执行；fork 是 plan 的编程式
+特例；事件经 EventSink 投影为 dto.PlanNodeEvent 供前端消费。
+
 ## 验证
 
 ```text

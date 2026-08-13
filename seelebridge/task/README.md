@@ -14,6 +14,17 @@
 根包 `task_aliases.go` 重导出全部公开类型/常量/辅助函数保持 API 兼容，
 `task_facade.go` 保留 *Runtime 门面方法（委托本包实现）。
 
+## 与其它域的关系
+
+```text
+node（完成/失败打点）──► task ──► application（worktable 投影）
+fork（幂等登记）────────►  │
+                            └──► tools（终态工具 provider 注册）
+```
+
+task 是 worktable 状态面：node 完成/失败、fork 幂等登记均写 task；todolist
+融合为 kind=todo 的 task；终态工具 provider 经 tools 注册表暴露给模型。
+
 ## 验证
 
 ```text

@@ -10,42 +10,41 @@ Runtime，同时隔离上游 API 变化。
 
 ## 文件结构
 
+根目录只保留两个非测试文件（薄桥化终极形态）：
+
 | 文件 | 职责 |
 |---|---|
-| `runtime.go` | Runtime 创建（composition root）、账号/Provider、回调入口。 |
-| `subagent_events.go` | 子代理工具 middleware 与稳定 started/completed 投影。 |
-| `accounts.go` | 账号池注册（`accountpool.P2CPool[agent.Completer]`）、同步/节点账号选择器与 `ResolveAccountForBranch`。 |
-| `registry.go` | `tools.Registry` 装配与 `bridge.NewRegistryRuntime` 适配。 |
-| `stream_completer.go` | 流式账号 Completer（lease-until-EOF，覆盖整条流直到 EOF/错误/Close）。 |
-| `scoped_tools.go` | 受项目根限制的 read/grep/glob/write/edit/bash 工具。 |
-| `security/project_scope.go` | 根路径 canonicalization、read/write/workdir resolve（security 子包）。 |
-| `security/pathgate.go` | `seele.yaml` path zone allow/ask/deny 规则（security 子包）。 |
-| `plugins.go` | 插件 include/exclude 可见性快照（`WithVisibilityPolicy` 输入）。 |
-| `mcp.go` | MCP attach/detach/refresh/status 和 breaker channel。 |
-| `branch.go` | 节点会话组件、branch/account 路由与 `PlanBranchBinding` 类型（binding 状态由 `planExecutor` 持有）。 |
-| `plan/graph.go` | adjacency/edge、cycle detection、topological order（plan 子包；根包 alias 重导出）。 |
-| `plan_factory.go` | 产品 DSL → `codec.NodeSpec` → `node.Node`（agent/approve/function 等 kind）。 |
-| `plan_executor.go` | Plan 执行域组件（`planExecutor`）：policy/binding/runID/事件通道/replan/审批门/agentFactory 状态与生命周期编排；Runtime 只留委托。 |
-| `plan_events.go` | `event.Sink` 实现：执行事实入库 + 投影为 `PlanNodeEvent`。 |
-| `plan_tool_provider.go` | `plan_load`/`plan_run` 工具 provider（归属 `planExecutor`，经 deps 闭包访问节点工厂与工具分发）。 |
-| `plan_input_adapter.go` | canonical object DAG 归一化，并兼容可唯一推断的旧式顺序边列表。 |
-| `plan_preflight.go` | 隔离的规划/重规划回合（独立 Completer 实例、无工具；归属 `planExecutor`，`Runtime.PrepareReplan` 保留公开委托）。 |
-| `plan_authority.go` | `authorizePlanMutation`（归属 `planExecutor`，当前为放行钩子）。 |
-| `agent_node.go` | 节点域 Runtime 门面：会话注册/终态、节点会话装配器、skill/预算（执行实现下沉 `node/`）。 |
-| `node_scope.go` | 节点作用域 ctx 注入与读取（可见性/账号/装配器共享）。 |
-| `plan_factory.go` | `buildNode`/`nodeFactory`（Runtime 绑定；节点实现类型在 plan/）。 |
-| `plan_preflight_facade.go` | `Runtime.PrepareReplan` 公开委托（实现归属 plan/Executor）。 |
-| `context_components.go` | 节点会话 `SessionComponents` 上下文组件（Assembler/Processor 等）。 |
-| `task_facade.go` | `*Runtime` task 门面（`TaskSnapshot`/`TaskAdd`/`TaskSetStatus`/`RegisterTaskTerminalTools` 等，委托 `task/` 子包）。 |
-| `fork_tool.go` | `fork_subagents` 注册与委托门面（执行编排在 `fork.Tool`，经 `fork_deps.go` 注入）。 |
-| `storage.go` | Seele session store 与旧 nested workspace store 兼容。 |
-| `config.go` | 简化账号 YAML 与 role fallback。 |
-| `trace.go` | `telemetry.NewMemoryTracer` / `NewLifecycleHook` 构造。 |
+| `runtime.go` | Runtime 组合根：NewRuntime 装配全部 Manager、RegisterBuiltins、上下文接线（Assembler/Controller/Compressor）、账号路由、可见性策略、Deps 闭包注入 |
+| `ports.go` | application/contract 端口实现：task/plan/子代理树/节点/MCP/plugin/调度器/历史检索/todolist/actor 消息边界的逐行委托与类型别名 |
 
-根包 alias 文件：`plan_aliases.go`（plan 域全量符号 + 构造薄壳）、`task_aliases.go`
-（task/todo 类型与辅助函数）、`fork_aliases.go`（fork 纯类型）、`security_aliases.go`
-（sandbox 类型）、`model_aliases.go`（accountSpec/AccountRole/ResolveAccountSpec）
-重导出子包符号，保证公共 API 兼容。
+## 子包结构
+
+`seelebridge` 根包是组合根 + 端口文件；领域实现按模块下沉到子包：
+
+| 子包 | 内容 |
+|---|---|
+| `security/` | `ProjectScope` 项目根 containment + `PathGate` allow/ask/deny + `CommandSandbox` shell 隔离（见 `security/README.md`） |
+| `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
+| `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding`/`BuildNode` 等（见 `plan/README.md`） |
+| `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`/`Tools`（见 `task/README.md`） |
+| `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `fork/README.md`） |
+| `node/` | `kind:agent` 节点执行域：`AgentNode`/`Coordinator`/`ScopeAssembler`/预算/charter/skill 匹配/工具结果归档（见 `node/README.md`） |
+| `session/` | 子代理会话注册表、fork 子代理树与父证据/merge-back actor（见 `session/README.md`） |
+| `worktree/` | 子代理 worktree 生命周期管理器（见 `worktree/README.md`） |
+| `account/` | 账号装配与选择：ClientFor/RegisterAccounts/ResolveForBranch/ForRole/ByName（见 `account/README.md`） |
+| `mcp/` | MCP 服务器生命周期 Manager：provider 懒创建/breaker/lazy 登记/工具重挂载（见 `mcp/README.md`） |
+| `plugin/` | 插件 include/exclude 可见性过滤 Manager（见 `plugin/README.md`） |
+| `scheduler/` | 定时周期任务 actor：白名单命令/prompt 任务/状态快照（见 `scheduler/README.md`） |
+| `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch（见 `tools/README.md`） |
+| `internal/model/` | 各域共享的纯类型层（`AccountSpec`/`AccountRole`/`NodeScope`，无运行时依赖） |
+| `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`） |
+| `internal/docker/` | Docker 守护进程自动恢复（探针/daemon-down 判定/恢复提示，见 `internal/docker/README.md`） |
+| `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
+| `internal/telemetry/` | 内存遥测追踪器/生命周期钩子/诊断钩子构造（见 `internal/telemetry/README.md`） |
+
+根包对子包保持单向依赖；子包禁止 import seelebridge 根包，跨域协作一律走
+Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Router`、
+`mcp.Manager` 均为先例）。公开 DTO 统一走 `application/contract/dto`。
 
 ## 子包结构
 
