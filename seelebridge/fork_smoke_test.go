@@ -173,7 +173,7 @@ func TestSubagentTaskDeliveryCallbackInput(t *testing.T) {
 		if message.Content != nil {
 			content = *message.Content
 		}
-		full.WriteString("[" + message.Role + "] " + content + "\n")
+		fmt.Fprintf(&full, "[%s] %s\n", message.Role, content)
 	}
 	t.Logf("=== 子代理实际收到的输入（回调注入）===\n%s", full.String())
 

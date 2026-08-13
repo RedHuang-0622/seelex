@@ -2,6 +2,7 @@ package seelebridge
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -157,7 +158,7 @@ func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
 	sb.WriteString(`{"entry":"start","nodes":{"start":{"input":"start","kind":"auto"}`)
 	for i := 0; i < subagents; i++ {
 		id := string(rune('a' + i))
-		sb.WriteString(`,"` + id + `":{"input":"audit ` + id + `","kind":"agent"}`)
+		fmt.Fprintf(&sb, `,"%s":{"input":"audit %s","kind":"agent"}`, id, id)
 	}
 	sb.WriteString(`,"finish":{"input":"finish","kind":"auto"}},"edges":{"start":[`)
 	for i := 0; i < subagents; i++ {
