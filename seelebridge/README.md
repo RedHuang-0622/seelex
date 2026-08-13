@@ -10,12 +10,17 @@ Runtime，同时隔离上游 API 变化。
 
 ## 文件结构
 
-根目录只保留两个非测试文件（薄桥化终极形态）：
+根目录保留组合根骨架 + 端口文件 + 按层装配文件（薄桥形态，装配域物理拆分）：
 
 | 文件 | 职责 |
 |---|---|
-| `runtime.go` | Runtime 组合根：NewRuntime 装配全部 Manager、RegisterBuiltins、上下文接线（Assembler/Controller/Compressor）、账号路由、可见性策略、Deps 闭包注入 |
-| `ports.go` | application/contract 端口实现：task/plan/子代理树/节点/MCP/plugin/调度器/历史检索/todolist/actor 消息边界的逐行委托与类型别名 |
+| `runtime.go` | 组合根骨架：RuntimeConfig/Runtime 结构体 + NewRuntime（拓扑序装配链）+ Shutdown（生命周期逆序关停）+ 主会话装配 |
+| `ports.go` | application/contract 端口实现：task/plan/子代理树/节点/MCP/plugin/调度器/历史检索/todolist 的逐行委托与兼容别名 |
+| `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
+| `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
+| `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器） |
+| `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
+| `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 
 ## 子包结构
 

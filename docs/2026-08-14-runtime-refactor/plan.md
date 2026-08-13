@@ -1,7 +1,7 @@
 # Runtime 整体重构详细执行设计（R1–R5）
 
 日期：2026-08-14
-状态：**已批准，按此执行**（本文档为跨会话执行依据，上下文压缩后先读本文档再动手）
+状态：**已实施**（R1–R4 全部落地，R5 验收中；本文档为跨会话执行依据）
 目标：把 `seelebridge` 根包从"巨型组合根单文件"重构为
 "骨架组合根 + 纯端口 + 按层装配文件 + 状态下沉 + 生命周期链"的整体形态。
 行为约束：公开 API（`application/contract`）零变更；每阶段全绿后提交；全程顺序执行，
@@ -277,3 +277,25 @@ refactor(runtime): R3.5 NewRuntime 拓扑序 + 消除 forward closure
 refactor(runtime): R4 测试按域归位 + 新增单测
 docs(runtime): R5 验收与 README 同步
 ```
+
+## 7. 实施记录（2026-08-14）
+
+| 阶段 | 提交 | 说明 |
+|---|---|---|
+| R1 | `80ecf72` | runtime.go 57KB→24KB；新增 runtime_plan/context/account/tools |
+| R2 | `c9e13db` | ports.go 纯化；编译期断言落 adapters |
+| R3.1 | `851bf15` | account.Manager 收拢账号路由状态（-6 裸字段） |
+| R3.2 | `7b368e7` | tools.Policy 收拢可见性策略 |
+| R3.3 | `6d51502` | sessionBindings 归组（-12 字段/-6 锁） |
+| R3.4 | `a94b2eb` | mcp/node Close + lifecycle 登记 + Shutdown 逆序 |
+| R3.5 | `d8f7289` | NewRuntime 拓扑序；plan↔node 经 SetNodeFactory 解环；LoadPlanDefinition 改 FindTool |
+| R4 | `91e4eba` | runtime_test.go 按域拆分 + helpers 归位（后改名 `runtime_test_helpers_test.go`） |
+
+### 验收偏差（如实记录）
+
+- `runtime.go` 最终 23.5KB（目标 <15KB）：物理拆分已消除"巨型单文件"，剩余为组合骨架 +
+  NewRuntime 拓扑链 + 主会话装配；进一步瘦身需把 NewRuntime 拆 stage 函数（可后续做）。
+- Runtime 结构体字段 61→47（目标 ≤25）：Manager/只读快照为主，剩余为会话/窗口等
+  装配快照；已无裸可变路由状态（branchMu 系清零）。继续收敛需配置快照分组（可后续做）。
+- 已知时序 flake：`TestMergeBackMailboxOverflowPreserved`（并发 Enqueue vs 单消费者
+  竞速，隔离运行稳定通过），与本次重构无关，属既有测试脆弱点。
