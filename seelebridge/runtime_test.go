@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	seelaccount "github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
@@ -171,10 +172,10 @@ roles:
 	if got := loaded.Limits["subagent-1"]; got != (config.AccountLimits{ContextWindow: 32_768, MaxOutputTokens: 2_048}) {
 		t.Fatalf("subagent limits = %+v", got)
 	}
-	if account := accountByName(loaded.Specs, "agent-1"); account == nil || account.Provider != "openai" || account.MaxTokens != 8_192 {
+	if account := seelaccount.ByName(loaded.Specs, "agent-1"); account == nil || account.Provider != "openai" || account.MaxTokens != 8_192 {
 		t.Fatalf("agent provider config = %+v", account)
 	}
-	if account := accountByName(loaded.Specs, "subagent-1"); account == nil || account.MaxTokens != 2_048 {
+	if account := seelaccount.ByName(loaded.Specs, "subagent-1"); account == nil || account.MaxTokens != 2_048 {
 		t.Fatalf("subagent provider config = %+v", account)
 	}
 }
@@ -293,7 +294,7 @@ func TestRuntimePlanLoadToolPublishesStrictJSONContract(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	for _, tool := range runtime.registry.registry.Tools() {
+	for _, tool := range runtime.registry.Registry.Tools() {
 		if tool.Function.Name != "plan_load" {
 			continue
 		}
@@ -672,23 +673,23 @@ func TestResolveAccountForBranchIsStableAndRoleScoped(t *testing.T) {
 	for _, name := range []string{"subagent-1", "subagent-2", "agent-1"} {
 		spec := model.AccountSpec{Name: name, Provider: "openai", Model: "test-model", MaxTokens: 8192}
 		if err := pool.Register(accountpool.Account[agent.Completer]{
-			ID: name, Value: clientFor(spec), MaxConcurrency: 1,
+			ID: name, Value: seelaccount.ClientFor(spec), MaxConcurrency: 1,
 			Metadata: map[string]string{"provider": "openai", "model": "test-model"},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	first, err := ResolveAccountForBranch(pool, model.RoleSubAgent, "plan:left")
+	first, err := seelaccount.ResolveForBranch(pool, model.RoleSubAgent, "plan:left")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := ResolveAccountForBranch(pool, model.RoleSubAgent, "plan:left")
+	again, err := seelaccount.ResolveForBranch(pool, model.RoleSubAgent, "plan:left")
 	if err != nil || first != again {
 		t.Fatalf("unstable account selection: first=%q again=%q err=%v", first, again, err)
 	}
 	seen := map[string]bool{}
 	for index := 0; index < 64; index++ {
-		account, err := ResolveAccountForBranch(pool, model.RoleSubAgent, fmt.Sprintf("plan:branch-%d", index))
+		account, err := seelaccount.ResolveForBranch(pool, model.RoleSubAgent, fmt.Sprintf("plan:branch-%d", index))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/node"
 )
@@ -62,12 +63,12 @@ func (r *Runtime) setSelectedAccount(name string) {
 // 否则按 role + seed 走确定性 hash 选择（不占用主链路租约）。
 func (r *Runtime) resolvePlanBranchAccount(binding dto.PlanBranchBinding, role model.AccountRole, branchID string) (string, error) {
 	if binding.AccountID != "" {
-		if spec := accountByName(r.accountSpecList(), binding.AccountID); spec == nil {
+		if spec := account.ByName(r.accountSpecList(), binding.AccountID); spec == nil {
 			return "", fmt.Errorf("plan branch %q: selected account %q is unavailable", branchID, binding.AccountID)
 		}
 		return binding.AccountID, nil
 	}
-	return ResolveAccountForBranch(r.pool, role, binding.PlanID+":"+branchID)
+	return account.ResolveForBranch(r.pool, role, binding.PlanID+":"+branchID)
 }
 
 // roleForPlanBranch 判定分支角色（实现下沉 seelebridge/node，本包装供根包账号路由复用）。
@@ -80,13 +81,4 @@ func branchTraceID(binding dto.PlanBranchBinding, branchID string) string {
 		return branchID
 	}
 	return binding.TraceID + ":" + branchID
-}
-
-func stableIndex(seed string, size int) int {
-	if size <= 1 {
-		return 0
-	}
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(seed))
-	return int(hash.Sum32() % uint32(size))
 }

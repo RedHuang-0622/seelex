@@ -26,6 +26,8 @@ type SessionPort interface {
 	Unregister(nodeID string) *snapshot.ContextSnapshot
 	Conversation(nodeID string) ([]types.Message, bool)
 	ContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)
+	ToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver
+	ToolResult(nodeID, ref string) (string, bool)
 }
 
 // TreePort 是 Coordinator 需要的 fork 子代理树表面。
@@ -126,6 +128,24 @@ func (c *Coordinator) ContextSnapshot(nodeID string) (*snapshot.ContextSnapshot,
 		return nil, false
 	}
 	return c.deps.Sessions.ContextSnapshot(nodeID)
+}
+
+// ToolResultArchiverFor 返回节点专属工具结果归档器（惰性创建；同一节点跨
+// plan_run 复用，直到被下一次 fork 覆盖——与 nodeContextSnapshots 同生命周期）。
+func (c *Coordinator) ToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver {
+	if c == nil || c.deps.Sessions == nil {
+		return nil
+	}
+	return c.deps.Sessions.ToolResultArchiverFor(nodeID)
+}
+
+// ToolResult 读回节点子代理的工具结果原始内容（ref 必须带 node:<nodeID>: 前缀）。
+// 只读节点归档器，安全。返回 (内容, 是否存在)。
+func (c *Coordinator) ToolResult(nodeID, ref string) (string, bool) {
+	if c == nil || c.deps.Sessions == nil || nodeID == "" || ref == "" {
+		return "", false
+	}
+	return c.deps.Sessions.ToolResult(nodeID, ref)
 }
 
 // AppendPhase 把节点生命周期阶段事件写入 plan 执行器（worktree/running 等）。

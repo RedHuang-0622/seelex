@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	session "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"testing"
 )
@@ -30,7 +31,7 @@ func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T) {
 		t.Fatalf("main-agent dispatch emitted subagent events: %#v", events)
 	}
 
-	ctx := WithNodeScope(context.Background(), NodeScope{NodeID: "node-a", Role: model.RoleSubAgent})
+	ctx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{NodeID: "node-a", Role: model.RoleSubAgent})
 	result, err := runtime.Agent().DirectDispatch(ctx, "event_probe", `{"value":1}`)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T) 
 	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
 		events = append(events, event)
 	})
-	ctx := WithNodeScope(context.Background(), NodeScope{NodeID: "node-f", Role: model.RoleSubAgent})
+	ctx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{NodeID: "node-f", Role: model.RoleSubAgent})
 	if _, err := runtime.Agent().DirectDispatch(ctx, "event_failure", `{}`); err == nil {
 		t.Fatal("handler failure was not returned")
 	}

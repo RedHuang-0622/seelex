@@ -24,6 +24,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/mcpstack"
+	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
@@ -39,6 +40,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
+	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -67,7 +69,7 @@ type RuntimeConfig struct {
 // registry, assembled Agent and the main Session, and exposes
 // application-oriented facades.
 type Runtime struct {
-	registry  *toolsRegistryState
+	registry  *seeltools.RegistryState
 	pool      *accountpool.P2CPool[agent.Completer]
 	completer agent.Completer
 	streamer  agent.StreamCompleter
@@ -136,7 +138,7 @@ type Runtime struct {
 
 	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
 
-	permission *permissionGateState
+	permission *seeltools.PermissionGate
 
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
@@ -207,7 +209,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 
 	// 1. 账号池：accountpool.P2CPool[agent.Completer]（P2C 租约）
 	pool := accountpool.New[agent.Completer]()
-	if err := registerAccounts(pool, loaded.Specs); err != nil {
+	if err := account.RegisterAccounts(pool, loaded.Specs); err != nil {
 		return nil, err
 	}
 	specsByName := make(map[string]model.AccountSpec, len(loaded.Specs))
@@ -258,7 +260,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		heartbeatInterval:   heartbeatInterval,
 		limits:              cfg.Limits.WithDefaults(),
 		plugins:             plugin.NewManager(),
-		permission:          &permissionGateState{},
+		permission:          &seeltools.PermissionGate{},
 		subagentSessions:    subagentsession.NewSubagentSessions(tracer),
 		subagentTree:        subagentsession.NewSubagentTree(tracer),
 		subagentContext:     subagentsession.NewSubagentContextActor(tracer),
@@ -279,10 +281,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		PlanDecisionTimeout: planDecisionTimeout,
 		Accounts:            r.accountSpecList,
 		LoadPlanDefinition: func() (types.Tool, bool) {
-			if r.registry == nil || r.registry.registry == nil {
+			if r.registry == nil || r.registry.Registry == nil {
 				return types.Tool{}, false
 			}
-			for _, tool := range r.registry.registry.Tools() {
+			for _, tool := range r.registry.Registry.Tools() {
 				if tool.Function.Name == "plan_load" {
 					return tool, true
 				}
@@ -329,10 +331,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// The wrapper is inert until the backend diagnostic observer is enabled.
 	// It brackets telemetry.After, the only framework boundary between a tool
 	// registry return and the application ToolHookBridge completion callback.
-	r.hook = newDiagnosticTelemetryHook(r.hook, r)
+	r.hook = seeletelemetry.NewDiagnosticHook(r.hook, r.observeBash)
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())}
+	r.registry = seeltools.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
 	if err := r.assembleCompleters(); err != nil {
@@ -340,7 +342,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 
 	// 4. Agent 装配：agent.NewWithComponents（不启动 Hub / 账号池 / 网关）
-	runtimeAdapter, err := bridge.NewRegistryRuntime(r.registry.registry,
+	runtimeAdapter, err := bridge.NewRegistryRuntime(r.registry.Registry,
 		bridge.WithVisibilityPolicy(r.seelexVisibilityPolicy),
 	)
 	if err != nil {
@@ -566,7 +568,7 @@ func (r *Runtime) RegisterBuiltins() {
 	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
 	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。
 	if r.planExecutor != nil {
-		if err := r.registry.registry.Register(r.planExecutor.Provider()); err != nil {
+		if err := r.registry.Registry.Register(r.planExecutor.Provider()); err != nil {
 			return
 		}
 	}
@@ -696,7 +698,7 @@ func (r *Runtime) RegisterTool(
 	if r.scopedToolsReady && isProjectScopedTool(name) {
 		return
 	}
-	r.addInlineTool(name, description, inputSchema, handler)
+	r.registry.AddInline(name, description, inputSchema, handler)
 }
 
 func isProjectScopedTool(name string) bool {
@@ -709,7 +711,7 @@ func isProjectScopedTool(name string) bool {
 }
 
 func (r *Runtime) AllTools() []Tool {
-	return summarizeTools(r.registry.registry.Tools())
+	return summarizeTools(r.registry.Registry.Tools())
 }
 
 func (r *Runtime) VisibleTools(ctx context.Context) []Tool {
@@ -732,7 +734,7 @@ func (r *Runtime) Accounts() []Account {
 }
 
 func (r *Runtime) SelectAccount(name string) bool {
-	spec := accountByName(r.accountSpecList(), name)
+	spec := account.ByName(r.accountSpecList(), name)
 	if spec == nil {
 		return false
 	}
@@ -756,7 +758,7 @@ func (r *Runtime) Provider() string {
 	provider := r.providerFilter
 	r.branchMu.RUnlock()
 	if provider == "" {
-		if spec := accountByName(r.accountSpecList(), r.defaultAccountID); spec != nil {
+		if spec := account.ByName(r.accountSpecList(), r.defaultAccountID); spec != nil {
 			provider = spec.Provider
 		}
 	}
@@ -777,18 +779,18 @@ func (r *Runtime) SetProvider(provider string) {
 // 门控作为 tools.Registry middleware 在每次工具调度前生效。
 func (r *Runtime) SetPermissionConfig(cfg toolspermission.PermissionConfig, handler toolspermission.ApprovalHandler) {
 	if r.permission != nil {
-		r.permission.set(cfg, handler)
+		r.permission.Set(cfg, handler)
 	}
 }
 
 func (r *Runtime) SetFullAccess(on bool) {
 	if r.permission != nil {
-		r.permission.setFullAccess(on)
+		r.permission.SetFullAccess(on)
 	}
 }
 
 func (r *Runtime) FullAccess() bool {
-	return r.permission != nil && r.permission.fullAccess()
+	return r.permission != nil && r.permission.FullAccess()
 }
 
 func summarizeTools(tools []types.Tool) []Tool {

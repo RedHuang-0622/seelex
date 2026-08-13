@@ -3,6 +3,7 @@ package seelebridge
 import (
 	"context"
 
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 )
 
@@ -11,7 +12,7 @@ import (
 type NodeWorktree = worktree.NodeWorktree
 
 // beginNodeWorktree 为节点创建 worktree（降级返回 nil；语义见 worktree.WorktreeManager.Begin）。
-func (r *Runtime) beginNodeWorktree(scope NodeScope, nodeID string) *worktree.NodeWorktree {
+func (r *Runtime) beginNodeWorktree(scope seenode.NodeScope, nodeID string) *worktree.NodeWorktree {
 	if r == nil || r.worktreeMgr == nil {
 		return nil
 	}

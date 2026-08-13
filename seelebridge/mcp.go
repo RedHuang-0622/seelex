@@ -20,17 +20,17 @@ type MCPServer = mcp.Server
 type mcpRegistryAdapter struct{ runtime *Runtime }
 
 func (a mcpRegistryAdapter) Unregister(name string) error {
-	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.registry == nil {
+	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.Registry == nil {
 		return nil
 	}
-	return a.runtime.registry.registry.Unregister(name)
+	return a.runtime.registry.Registry.Unregister(name)
 }
 
 func (a mcpRegistryAdapter) Register(provider tools.ToolProvider) error {
-	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.registry == nil {
+	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.Registry == nil {
 		return nil
 	}
-	return a.runtime.registry.registry.Register(provider)
+	return a.runtime.registry.Registry.Register(provider)
 }
 
 // BreakerEvents returns a read-only channel of breaker events.

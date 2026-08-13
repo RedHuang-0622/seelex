@@ -31,16 +31,11 @@ func (r *Runtime) SetTodoStatus(index int, status dto.TodoItemStatus) error {
 	if r == nil || r.tasks == nil {
 		return errors.New("todolist: unavailable")
 	}
-	if !validTodoStatus(status) {
+	if !task.ValidTodoStatus(status) {
 		return fmt.Errorf("todolist: invalid status %q (want pending|doing|done)", status)
 	}
 	_, err := r.tasks.SetTodoStatusByIndex(index, task.TodoToTaskStatus(status))
 	return err
-}
-
-// validTodoStatus 校验清单项状态（todo 三态）。
-func validTodoStatus(status dto.TodoItemStatus) bool {
-	return status == dto.TodoItemPending || status == dto.TodoItemDoing || status == dto.TodoItemDone
 }
 
 // registerTodoTools 注册 todolist 工具族（委托 task.Tools；RegisterBuiltins 内调用）。

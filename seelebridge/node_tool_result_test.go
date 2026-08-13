@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -16,8 +17,8 @@ func TestNodeToolResultArchiverPrefixAndReadback(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	arch := nodeToolResultArchiver{runtime: runtime, shared: seelexctx.NewInMemoryToolResultArchiver()}
-	nodeCtx := WithNodeScope(context.Background(), NodeScope{
+	arch := seenode.ToolResultArchiver{ArchiverFor: runtime.node.ToolResultArchiverFor, Shared: seelexctx.NewInMemoryToolResultArchiver()}
+	nodeCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
 		NodeID: "agent-1", Role: model.RoleSubAgent, BranchID: "agent-1",
 	})
 

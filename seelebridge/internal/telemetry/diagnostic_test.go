@@ -1,4 +1,4 @@
-package seelebridge
+package telemetry
 
 import (
 	"context"
@@ -6,20 +6,18 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/telemetry"
-	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
-func TestDiagnosticTelemetryHookMarksBashBeforeAndAfter(t *testing.T) {
-	runtime := &Runtime{}
+func TestDiagnosticHookMarksBashBeforeAndAfter(t *testing.T) {
 	var stages []string
-	runtime.SetBashDiagnosticObserver(func(event BashDiagnosticEvent) {
-		stages = append(stages, event.Stage)
-	})
-	base, err := seeletelemetry.NewLifecycleHook(seeletelemetry.NewTracer())
+	base, err := NewLifecycleHook(NewTracer())
 	if err != nil {
 		t.Fatal(err)
 	}
-	hook := newDiagnosticTelemetryHook(base, runtime)
+	hook := NewDiagnosticHook(base, func(event tools.BashDiagnosticEvent) {
+		stages = append(stages, event.Stage)
+	})
 	ctx, invocation, err := hook.Before(context.Background(), telemetry.Action{Type: telemetry.EventToolBefore, Name: "bash"})
 	if err != nil {
 		t.Fatal(err)

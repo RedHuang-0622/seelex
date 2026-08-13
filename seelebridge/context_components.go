@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"
@@ -71,9 +72,9 @@ func (r *Runtime) mainContextComponents() session.ContextComponents {
 func (r *Runtime) nodeContextComponents() session.ContextComponents {
 	return session.ContextComponents{
 		Assembler: r.node.Assembler(),
-		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, nodeToolResultArchiver{
-			runtime: r,
-			shared:  seelexctx.NewInMemoryToolResultArchiver(),
+		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, seenode.ToolResultArchiver{
+			ArchiverFor: r.node.ToolResultArchiverFor,
+			Shared:      seelexctx.NewInMemoryToolResultArchiver(),
 		}),
 		Compressor: r.seelexCompressor(),
 		Controller: r.seelexController(),

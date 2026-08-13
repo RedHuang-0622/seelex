@@ -1,4 +1,4 @@
-package seelebridge
+package tools
 
 import (
 	"testing"
@@ -7,17 +7,17 @@ import (
 )
 
 func TestPermissionGateReportsFullAccessState(t *testing.T) {
-	state := &permissionGateState{}
-	state.set(toolspermission.PermissionConfig{Mode: toolspermission.ModeManual}, nil)
-	if state.fullAccess() {
+	state := &PermissionGate{}
+	state.Set(toolspermission.PermissionConfig{Mode: toolspermission.ModeManual}, nil)
+	if state.FullAccess() {
 		t.Fatal("manual permission gate reported full access")
 	}
-	state.setFullAccess(true)
-	if !state.fullAccess() {
+	state.SetFullAccess(true)
+	if !state.FullAccess() {
 		t.Fatal("permission gate did not report enabled full access")
 	}
-	state.setFullAccess(false)
-	if state.fullAccess() {
+	state.SetFullAccess(false)
+	if state.FullAccess() {
 		t.Fatal("permission gate did not restore manual mode")
 	}
 }

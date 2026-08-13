@@ -71,11 +71,11 @@ func TestBuildNodeKindMapping(t *testing.T) {
 		"deliver":  node.KindMethod,
 	}
 	for kind, wantKind := range cases {
-		built, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
+		built, err := plan.BuildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 			ID:    "n-" + kind,
 			Kind:  kind,
 			Input: plan.SeelexNodeInput{ID: "n-" + kind, Input: "work", Kind: kind},
-		})
+		}, runtime.nodeFactoryDeps())
 		if err != nil {
 			t.Fatalf("kind %q: %v", kind, err)
 		}
@@ -90,11 +90,11 @@ func TestBuildNodeKindMapping(t *testing.T) {
 	}
 
 	// approve：经门控执行
-	approveNode, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
+	approveNode, err := plan.BuildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "n-approve",
 		Kind:  "approve",
 		Input: plan.SeelexNodeInput{ID: "n-approve", Input: "approve me", Kind: "approve"},
-	})
+	}, runtime.nodeFactoryDeps())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,11 +109,11 @@ func TestBuildNodeKindMapping(t *testing.T) {
 	}
 
 	// agent：SeelexAgentNode（bridge.NewAgentFactory 子代理包装）
-	agentNode, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
+	agentNode, err := plan.BuildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "n-agent",
 		Kind:  "agent",
 		Input: plan.SeelexNodeInput{ID: "n-agent", Input: "think", Kind: "agent"},
-	})
+	}, runtime.nodeFactoryDeps())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +125,11 @@ func TestBuildNodeKindMapping(t *testing.T) {
 	}
 
 	// 未知 kind 拒绝
-	if _, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
+	if _, err := plan.BuildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "n-bad",
 		Kind:  "magic",
 		Input: plan.SeelexNodeInput{ID: "n-bad", Input: "x", Kind: "magic"},
-	}); err == nil {
+	}, runtime.nodeFactoryDeps()); err == nil {
 		t.Fatal("unsupported kind must be rejected")
 	}
 }

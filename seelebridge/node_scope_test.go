@@ -19,6 +19,7 @@ import (
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	seelaccount "github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -28,31 +29,31 @@ import (
 
 func TestNodeScopeContextRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	if scope, ok := NodeScopeFromContext(ctx); ok {
+	if scope, ok := seenode.NodeScopeFromContext(ctx); ok {
 		t.Fatalf("empty ctx must not carry a scope: %+v", scope)
 	}
-	scope := NodeScope{NodeID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1"}
-	child := WithNodeScope(ctx, scope)
-	got, ok := NodeScopeFromContext(child)
+	scope := seenode.NodeScope{NodeID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1"}
+	child := seenode.WithNodeScope(ctx, scope)
+	got, ok := seenode.NodeScopeFromContext(child)
 	if !ok || got != scope {
 		t.Fatalf("scope round-trip = %+v ok=%v, want %+v", got, ok, scope)
 	}
-	if empty := nodeScopeFromContextOrEmpty(ctx); empty.NodeID != "" {
+	if empty := seenode.NodeScopeFromContextOrEmpty(ctx); empty.NodeID != "" {
 		t.Fatalf("empty ctx scope = %+v, want empty", empty)
 	}
-	if filled := nodeScopeFromContextOrEmpty(child); filled != scope {
+	if filled := seenode.NodeScopeFromContextOrEmpty(child); filled != scope {
 		t.Fatalf("or-empty scope = %+v, want %+v", filled, scope)
 	}
 
 	// 节点 PromptBlocks 注入/读取（拷贝隔离）。
 	blocks := []seelectx.PromptBlock{{Name: "node-goal"}}
-	withBlocks := withNodePromptBlocks(child, blocks)
+	withBlocks := seenode.WithNodePromptBlocks(child, blocks)
 	blocks[0].Name = "mutated"
-	gotBlocks := nodePromptBlocksFromContext(withBlocks)
+	gotBlocks := seenode.NodePromptBlocksFromContext(withBlocks)
 	if len(gotBlocks) != 1 || gotBlocks[0].Name != "node-goal" {
 		t.Fatalf("block round-trip = %+v", gotBlocks)
 	}
-	if got := nodePromptBlocksFromContext(child); len(got) != 0 {
+	if got := seenode.NodePromptBlocksFromContext(child); len(got) != 0 {
 		t.Fatalf("ctx without blocks = %+v", got)
 	}
 }
@@ -82,7 +83,7 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 	}
 	// 子代理（model.RoleSubAgent）：与主代理能力一致（完整工具面），仅排除
 	// 操作全局状态的工具（plan 工具族 / task 终态工具）。
-	subCtx := WithNodeScope(context.Background(), NodeScope{
+	subCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
 		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1",
 	})
 	scoped := toolNames(runtime.VisibleTools(subCtx))
@@ -101,7 +102,7 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 
 	// entry 节点（model.RoleAgent）：与主代理一致的全量可见（goal 未激活时
 	// plan 同样隐藏，避免 DAG 内递归 plan）。
-	entryCtx := WithNodeScope(context.Background(), NodeScope{
+	entryCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
 		NodeID: "start", Role: model.RoleAgent, BranchID: "start",
 	})
 	if got := toolNames(runtime.VisibleTools(entryCtx)); len(got) != len(all) {
@@ -110,7 +111,7 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 
 	// goal skill 激活 → 主代理与 entry 节点可见 plan 工具。
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
-	for _, ctx := range []context.Context{context.Background(), WithNodeScope(context.Background(), NodeScope{
+	for _, ctx := range []context.Context{context.Background(), seenode.WithNodeScope(context.Background(), seenode.NodeScope{
 		NodeID: "start", Role: model.RoleAgent, BranchID: "start",
 	})} {
 		got := toolNames(runtime.VisibleTools(ctx))
@@ -129,7 +130,7 @@ func TestNodeScopeHiddenToolDispatchRejected(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	subCtx := WithNodeScope(context.Background(), NodeScope{
+	subCtx := seenode.WithNodeScope(context.Background(), seenode.NodeScope{
 		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left",
 	})
 	// 隐藏工具（已注册但不在节点可见集）：ErrToolNotVisible。
@@ -167,8 +168,8 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	if scope.NodeID != "left" || scope.BranchID != "left" || scope.Role != model.RoleSubAgent {
 		t.Fatalf("node scope = %+v", scope)
 	}
-	ctx := WithNodeScope(context.Background(), scope)
-	ctx = withNodePromptBlocks(ctx, node.Blocks()())
+	ctx := seenode.WithNodeScope(context.Background(), scope)
+	ctx = seenode.WithNodePromptBlocks(ctx, node.Blocks()())
 
 	assembled, err := (seenode.ScopeAssembler{}).Assemble(ctx, seelectx.AssemblyRequest{})
 	if err != nil {
@@ -183,7 +184,7 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 
 	// 未注入父证据：节点请求不含证据块。
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{})
-	ctxNoEvidence := withNodePromptBlocks(context.Background(), runtime.node.PromptBlocks(node.Input()))
+	ctxNoEvidence := seenode.WithNodePromptBlocks(context.Background(), runtime.node.PromptBlocks(node.Input()))
 	assembledNoEvidence, err := (seenode.ScopeAssembler{}).Assemble(ctxNoEvidence, seelectx.AssemblyRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -213,8 +214,8 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 		ID:    "left",
 		Input: plan.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
 	}, runtime.nodeDeps())
-	ctx := WithNodeScope(context.Background(), node.Scope()())
-	ctx = withNodePromptBlocks(ctx, node.Blocks()())
+	ctx := seenode.WithNodeScope(context.Background(), node.Scope()())
+	ctx = seenode.WithNodePromptBlocks(ctx, node.Blocks()())
 
 	assembled, err := (seenode.ScopeAssembler{Coordinator: runtime.node}).Assemble(ctx, seelectx.AssemblyRequest{})
 	if err != nil {
@@ -262,11 +263,11 @@ func TestPlanRunParallelAgentBranches(t *testing.T) {
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
 
 	// hash 路由断言：left/right 必须落到不同子代理账号（否则无法证明并行）。
-	leftAccount, err := ResolveAccountForBranch(runtime.pool, model.RoleSubAgent, "plan-1:left")
+	leftAccount, err := seelaccount.ResolveForBranch(runtime.pool, model.RoleSubAgent, "plan-1:left")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightAccount, err := ResolveAccountForBranch(runtime.pool, model.RoleSubAgent, "plan-1:right")
+	rightAccount, err := seelaccount.ResolveForBranch(runtime.pool, model.RoleSubAgent, "plan-1:right")
 	if err != nil {
 		t.Fatal(err)
 	}

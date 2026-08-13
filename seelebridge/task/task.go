@@ -89,6 +89,11 @@ func TodoToTaskStatus(status TodoItemStatus) TaskStatus {
 	}
 }
 
+// ValidTodoStatus 校验清单项状态（todo 三态）。
+func ValidTodoStatus(status TodoItemStatus) bool {
+	return status == TodoItemPending || status == TodoItemDoing || status == TodoItemDone
+}
+
 var errTaskClosed = errors.New("task registry: actor closed")
 
 type taskOp int

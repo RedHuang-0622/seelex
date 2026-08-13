@@ -12,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 )
 
 // scopeRecordingCompleter 记录每次请求的 NodeScope.TaskID（验证 B6 装配件
@@ -23,7 +24,7 @@ type scopeRecordingCompleter struct {
 }
 
 func (c *scopeRecordingCompleter) Complete(ctx context.Context, _ []types.Message, _ []types.Tool) (types.Message, error) {
-	scope, _ := NodeScopeFromContext(ctx)
+	scope, _ := seenode.NodeScopeFromContext(ctx)
 	c.mu.Lock()
 	c.taskIDs = append(c.taskIDs, scope.TaskID)
 	c.mu.Unlock()
@@ -119,7 +120,7 @@ type capturingCompleter struct {
 }
 
 func (c *capturingCompleter) Complete(ctx context.Context, messages []types.Message, _ []types.Tool) (types.Message, error) {
-	scope, _ := NodeScopeFromContext(ctx)
+	scope, _ := seenode.NodeScopeFromContext(ctx)
 	c.mu.Lock()
 	c.messages = append([]types.Message(nil), messages...)
 	c.taskID = scope.TaskID

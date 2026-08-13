@@ -1,67 +1,25 @@
-// 子代理工具结果读回桥（P1 修复，2026-08-07）：节点会话的 result_ref
-// 此前经共享内存归档器落点不明、主会话读不到（"result_ref 不可读"）。
-// 现在节点会话的工具结果落到节点专属归档器，ref 带 node:<nodeID>: 前缀，
-// 运行中/结束后均可经 Runtime.NodeToolResult 读回；主代理的 read_tool_result
-// 解析 node: 前缀转交本桥（application/core/reference_tools.go）。
-//
-// 生命周期语义：内存态，与子代理树/节点上下文快照同生命周期（进程存活
-// 期间可读；不落盘，与"子代理仅内存态存储"约定一致）。
 package seelebridge
 
 import (
-	"context"
-
-	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
-	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
-// nodeResultRefPrefix 是节点工具结果引用的前缀（ref = node:<nodeID>:result:<callID>），
-// 常量本体下沉 internal/model（NodeResultRefPrefix），与 session 域共享。
-const nodeResultRefPrefix = model.NodeResultRefPrefix
+// 节点工具结果归档与 worktree 现场域已迁入 seelebridge/node（ToolResultArchiver）
+// 与 seelebridge/worktree（NodeWorktreeInfo）。本文件只保留 Runtime 公开端口
+// 委托与兼容别名。
 
-// nodeToolResultArchiver 是节点会话的 ToolResultArchiver 适配：
-// 从 ctx 的 NodeScope 解析节点 ID，工具结果落到节点专属内存归档器并带
-// node: 前缀；非节点上下文回退共享归档（行为与旧实现一致）。
-type nodeToolResultArchiver struct {
-	runtime *Runtime
-	shared  seelexctx.ToolResultArchiver
-}
-
-// Store 实现 seelexctx.ToolResultArchiver（幂等由底层归档器保证）。
-func (a nodeToolResultArchiver) Store(ctx context.Context, callID, tool, raw string) (string, error) {
-	if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == model.RoleSubAgent {
-		arch := a.runtime.nodeToolResultArchiverFor(scope.NodeID)
-		ref, err := arch.Store(ctx, callID, tool, raw)
-		if err != nil {
-			return "", err
-		}
-		return nodeResultRefPrefix + scope.NodeID + ":" + ref, nil
-	}
-	return a.shared.Store(ctx, callID, tool, raw)
-}
-
-// nodeToolResultArchiverFor 返回节点专属归档器（惰性创建；同一节点跨
-// plan_run 复用，直到被下一次 fork 覆盖——与 nodeContextSnapshots 同生命周期）。
-func (r *Runtime) nodeToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver {
-	if r == nil || r.subagentSessions == nil {
-		return nil
-	}
-	return r.subagentSessions.ToolResultArchiverFor(nodeID)
-}
+// NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面）；
+// 类型本体在 seelebridge/worktree 域。
+type NodeWorktreeInfo = worktree.NodeWorktreeInfo
 
 // NodeToolResult 读回节点子代理的工具结果原始内容（ref 必须带
-// node:<nodeID>: 前缀）。返回 (内容, 是否存在)。只读节点归档器，安全。
+// node:<nodeID>: 前缀）。只读节点归档器，安全。返回 (内容, 是否存在)。
 func (r *Runtime) NodeToolResult(nodeID, ref string) (string, bool) {
-	if r == nil || r.subagentSessions == nil || nodeID == "" || ref == "" {
+	if r == nil || r.node == nil {
 		return "", false
 	}
-	return r.subagentSessions.ToolResult(nodeID, ref)
+	return r.node.ToolResult(nodeID, ref)
 }
-
-// NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面），
-// 类型本体已下沉 seelebridge/worktree 域，根包保留兼容别名。
-type NodeWorktreeInfo = worktree.NodeWorktreeInfo
 
 // NodeWorktreeInfoFor 返回节点 worktree 现场信息（无现场 → false）。
 // 运行中返回当前 worktree；结束后成功路径已清理（false）；失败/被拒路径

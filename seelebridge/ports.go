@@ -86,11 +86,11 @@ func (r *Runtime) TaskChangedChannel() <-chan dto.TaskRecord {
 // RegisterTaskTerminalTools 把终态工具 provider 注册进工具注册表（幂等）。
 func (r *Runtime) RegisterTaskTerminalTools(handler task.TaskTerminalHandler) {
 	state := r.registry
-	if state == nil || state.registry == nil {
+	if state == nil || state.Registry == nil {
 		return
 	}
-	_ = state.registry.Unregister("seelex-task-terminal")
-	if err := state.registry.Register(task.NewTaskTerminalProvider(handler)); err != nil {
+	_ = state.Registry.Unregister("seelex-task-terminal")
+	if err := state.Registry.Register(task.NewTaskTerminalProvider(handler)); err != nil {
 		return
 	}
 }
