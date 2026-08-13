@@ -79,9 +79,10 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	mcpManager           *mcp.Manager     // MCP 服务器生命周期（mcp/ 域）
-	planExecutor         *plan.Executor   // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
-	accounts             *account.Manager // 账号路由状态（account/ 域）：选中账号/provider/限额
+	mcpManager           *mcp.Manager      // MCP 服务器生命周期（mcp/ 域）
+	planExecutor         *plan.Executor    // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
+	accounts             *account.Manager  // 账号路由状态（account/ 域）：选中账号/provider/限额
+	visibilityPolicy     *seeltools.Policy // 可见性策略（tools/ 域）：节点作用域 + 插件过滤
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
 	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
@@ -291,6 +292,11 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		},
 		RelatedMemory: r.relatedMemoryBlocks,
 	})
+	// 可见性策略：goal skill 激活判定 + 插件过滤，经闭包注入 tools.Policy。
+	r.visibilityPolicy = seeltools.NewPolicy(seeltools.PolicyDeps{
+		GoalSkillActive: r.node.GoalSkillActive,
+		PluginFilter:    r.plugins.Filter,
+	})
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
@@ -314,7 +320,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 
 	// 4. Agent 装配：agent.NewWithComponents（不启动 Hub / 账号池 / 网关）
 	runtimeAdapter, err := bridge.NewRegistryRuntime(r.registry.Registry,
-		bridge.WithVisibilityPolicy(r.seelexVisibilityPolicy),
+		bridge.WithVisibilityPolicy(r.visibilityPolicy.Filter),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: assemble tool runtime: %w", err)
