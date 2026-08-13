@@ -3,7 +3,6 @@ package seelebridge
 import (
 	"context"
 	"fmt"
-	"path"
 	"sync"
 	"time"
 
@@ -129,25 +128,7 @@ func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool
 		}
 		filtered = append(filtered, tool)
 	}
-	r.pluginMu.RLock()
-	active := r.activePlugin
-	def, ok := r.pluginDefs[active]
-	r.pluginMu.RUnlock()
-	if !ok || active == "" {
-		return filtered
-	}
-	pluginFiltered := make([]types.Tool, 0, len(filtered))
-	for _, tool := range filtered {
-		name := tool.Function.Name
-		if len(def.Include) > 0 && !matchesAnyPattern(name, def.Include) {
-			continue
-		}
-		if matchesAnyPattern(name, def.Exclude) {
-			continue
-		}
-		pluginFiltered = append(pluginFiltered, tool)
-	}
-	return pluginFiltered
+	return r.plugins.Filter(filtered)
 }
 
 // isPlanTool 判断 plan 工具族（goal skill 激活时对主代理可见）。
@@ -173,27 +154,6 @@ func nodeScopeExcludedTool(name string) bool {
 	default:
 		return false
 	}
-}
-
-func matchesAnyPattern(name string, patterns []string) bool {
-	for _, pattern := range patterns {
-		if matchToolPattern(pattern, name) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchToolPattern 支持 "*" 通配的简单模式匹配（与旧 holder 插件过滤语义一致）。
-func matchToolPattern(pattern, name string) bool {
-	if pattern == "" {
-		return name == ""
-	}
-	ok, err := path.Match(pattern, name)
-	if err != nil {
-		return pattern == name
-	}
-	return ok
 }
 
 // permissionGateState 是权限门控的可变状态：middleware 在注册表构造时

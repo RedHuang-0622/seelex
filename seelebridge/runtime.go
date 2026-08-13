@@ -17,7 +17,6 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
-	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
@@ -28,11 +27,15 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/docker"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
+	"github.com/RedHuang-0622/seelex/seelebridge/plugin"
+	"github.com/RedHuang-0622/seelex/seelebridge/scheduler"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
@@ -89,8 +92,7 @@ type Runtime struct {
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
 	MCPStack *mcpstack.MCPStack
 
-	mcpProvider          *frameworkmcp.Provider
-	breaker              *breakerState // 熔断器事件 channel 状态
+	mcpManager           *mcp.Manager // MCP 服务器生命周期（mcp/ 域）
 	branchMu             sync.RWMutex
 	planExecutor         *plan.Executor // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
@@ -107,12 +109,12 @@ type Runtime struct {
 	projectScope      *security.ProjectScope
 	filesystem        fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	sandbox           security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
-	dockerProbe       dockerProber              // docker 守护进程探测/启动（nil → 真实实现；测试注入）
+	dockerProbe       docker.Prober             // docker 守护进程探测/启动（零值 → 真实实现；测试注入）
 	node              *seenode.Coordinator      // 节点协调器（node/ 域）：会话注册/fork 树/task 打点/plan 阶段/Blocks
 	worktreeMgr       *worktree.WorktreeManager // 子代理 worktree 生命周期组件（worktree/ 域）
 	forkTool          *fork.Tool                // fork_subagents 执行编排（fork/ 域）
 	tasks             *task.TaskRegistry        // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
-	scheduler         *schedulerState           // 定时周期任务 actor（scheduler.go）
+	scheduler         *scheduler.State          // 定时周期任务 actor（scheduler/ 域）
 	toolEvents        *subagentsession.ToolEventState
 
 	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
@@ -132,9 +134,7 @@ type Runtime struct {
 	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
 	scopedToolsReady    bool
 
-	pluginMu     sync.RWMutex
-	pluginDefs   map[string]pluginDef
-	activePlugin string
+	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
 
 	permission *permissionGateState
 
@@ -250,14 +250,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		filesystem:          fs.NewFileSystemActor(),
 		sandbox:             security.NewNativeProjectCWD(),
 		tasks:               task.NewTaskRegistry(),
-		scheduler:           newSchedulerState(),
+		scheduler:           scheduler.NewState(),
 		toolEvents:          subagentsession.NewToolEventState(),
 		toolCallTimeout:     cfg.ToolCallTimeout,
 		planDecisionTimeout: planDecisionTimeout,
 		approvalTimeout:     approvalTimeout,
 		heartbeatInterval:   heartbeatInterval,
 		limits:              cfg.Limits.WithDefaults(),
-		pluginDefs:          make(map[string]pluginDef),
+		plugins:             plugin.NewManager(),
 		permission:          &permissionGateState{},
 		subagentSessions:    subagentsession.NewSubagentSessions(tracer),
 		subagentTree:        subagentsession.NewSubagentTree(tracer),
@@ -267,6 +267,8 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		tracer: tracer,
 		hook:   hook,
 	}
+	// MCP 管理器：MCPStack 承接熔断事件 trace，工具注册表经懒解析适配器注入。
+	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
 	// plan 执行域组件：策略 / 绑定 / runID / 事件通道 / replan 护拦 / 子代理工厂
 	// 收进 planExecutor；deps 闭包引用 r 的能力面（账号、注册表、分发、节点工厂），
 	// 组件不反向依赖 Runtime（构造放在 r 就绪后，与 worktreeManager 同模式）。
@@ -498,7 +500,7 @@ func (r *Runtime) Shutdown() {
 	}
 	// 定时周期任务优雅停机：停 ticker + 取消运行中任务并等待退出。
 	if r.scheduler != nil {
-		r.scheduler.stop()
+		r.scheduler.Stop()
 	}
 	if r.agt != nil {
 		r.agt.Shutdown()

@@ -183,16 +183,13 @@ func TestMCPProviderNameRegistered(t *testing.T) {
 	r := newTestRuntime(t)
 	defer r.Shutdown()
 
-	if r.mcpProvider != nil {
-		t.Fatal("mcp provider should be lazy until first use")
-	}
-	provider := r.mcp()
+	provider := r.mcpManager.Provider()
 	if got := provider.ProviderName(); got != "mcp" {
 		t.Fatalf("MCP provider name = %q, want mcp", got)
 	}
-	// refreshMCPTools 的注册/注销重挂载幂等。
-	r.refreshMCPTools(provider)
-	r.refreshMCPTools(provider)
+	// RefreshTools 的注册/注销重挂载幂等。
+	r.mcpManager.RefreshTools()
+	r.mcpManager.RefreshTools()
 	if got := r.AllTools(); len(got) != 0 {
 		t.Fatalf("registry tools after re-register = %v", got)
 	}

@@ -1,4 +1,4 @@
-package seelebridge
+package scheduler
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func TestScheduledCommandHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-func newSchedulerTestState(t *testing.T) *schedulerState {
+func newSchedulerTestState(t *testing.T) *State {
 	t.Helper()
 	oldTick, oldMin := schedulerTick, minScheduledInterval
 	schedulerTick = 15 * time.Millisecond
@@ -44,7 +44,7 @@ func newSchedulerTestState(t *testing.T) *schedulerState {
 		schedulerTick = oldTick
 		minScheduledInterval = oldMin
 	})
-	return newSchedulerState()
+	return NewState()
 }
 
 // helperCommand 构造指向测试二进制的白名单命令（子进程入口见
@@ -59,11 +59,11 @@ func helperCommand(t *testing.T, dir string) ScheduledCommand {
 	}
 }
 
-func waitForStatus(t *testing.T, state *schedulerState, id string, want func(ScheduledTaskStatus) bool) ScheduledTaskStatus {
+func waitForStatus(t *testing.T, state *State, id string, want func(ScheduledTaskStatus) bool) ScheduledTaskStatus {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, status := range state.snapshot() {
+		for _, status := range state.Snapshot() {
 			if status.ID == id && want(status) {
 				return status
 			}
@@ -76,42 +76,42 @@ func waitForStatus(t *testing.T, state *schedulerState, id string, want func(Sch
 
 func TestScheduledTaskValidation(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
-	if err := state.registerCommand(helperCommand(t, t.TempDir())); err != nil {
+	defer state.Stop()
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
 
 	base := ScheduledTaskSpec{Name: "任务", Kind: ScheduledTaskCommand, Command: "helper", Interval: time.Second, Enabled: true}
-	if _, err := state.schedule(context.Background(), base); err != nil {
+	if _, err := state.Schedule(context.Background(), base); err != nil {
 		t.Fatalf("valid schedule rejected: %v", err)
 	}
 
 	emptyName := base
 	emptyName.Name = "   "
-	if _, err := state.schedule(context.Background(), emptyName); err == nil {
+	if _, err := state.Schedule(context.Background(), emptyName); err == nil {
 		t.Fatal("empty name must be rejected")
 	}
 
 	shortInterval := base
 	shortInterval.Interval = time.Millisecond
-	if _, err := state.schedule(context.Background(), shortInterval); err == nil {
+	if _, err := state.Schedule(context.Background(), shortInterval); err == nil {
 		t.Fatal("interval below minimum must be rejected")
 	}
 
 	unknownKind := base
 	unknownKind.Kind = "cron"
-	if _, err := state.schedule(context.Background(), unknownKind); err == nil {
+	if _, err := state.Schedule(context.Background(), unknownKind); err == nil {
 		t.Fatal("unknown kind must be rejected")
 	}
 
 	unknownCommand := base
 	unknownCommand.Command = "rm -rf"
-	if _, err := state.schedule(context.Background(), unknownCommand); err == nil {
+	if _, err := state.Schedule(context.Background(), unknownCommand); err == nil {
 		t.Fatal("command not in allowlist must be rejected")
 	}
 
 	prompt := ScheduledTaskSpec{Name: "P", Kind: ScheduledTaskPrompt, Prompt: "定时检查", Interval: time.Second, Enabled: true}
-	if _, err := state.schedule(context.Background(), prompt); err == nil {
+	if _, err := state.Schedule(context.Background(), prompt); err == nil {
 		t.Fatal("prompt task without executor must be rejected")
 	}
 
@@ -120,22 +120,22 @@ func TestScheduledTaskValidation(t *testing.T) {
 	state.mu.Lock()
 	state.executor = func(context.Context, string, string) (string, error) { return "ok", nil }
 	state.mu.Unlock()
-	if _, err := state.schedule(context.Background(), promptEmpty); err == nil {
+	if _, err := state.Schedule(context.Background(), promptEmpty); err == nil {
 		t.Fatal("empty prompt must be rejected")
 	}
-	if _, err := state.schedule(context.Background(), prompt); err != nil {
+	if _, err := state.Schedule(context.Background(), prompt); err != nil {
 		t.Fatalf("valid prompt schedule rejected: %v", err)
 	}
 }
 
 func TestScheduledCommandTaskRunsAndRecordsResult(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
+	defer state.Stop()
 	dir := t.TempDir()
-	if err := state.registerCommand(helperCommand(t, dir)); err != nil {
+	if err := state.RegisterCommand(helperCommand(t, dir)); err != nil {
 		t.Fatal(err)
 	}
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "抓职位", Kind: ScheduledTaskCommand, Command: "helper",
 		Interval: 100 * time.Millisecond, Enabled: true,
 	})
@@ -162,23 +162,23 @@ func TestScheduledCommandTaskRunsAndRecordsResult(t *testing.T) {
 		t.Fatal("log tail must record run events")
 	}
 	// 快照拷贝隔离：外部改动不得影响调度器内部状态。
-	snapshot := state.snapshot()
+	snapshot := state.Snapshot()
 	snapshot[0].RunCount = 999
-	if fresh := state.snapshot(); fresh[0].RunCount != status.RunCount {
+	if fresh := state.Snapshot(); fresh[0].RunCount != status.RunCount {
 		t.Fatalf("snapshot copy is not isolated: %d vs %d", fresh[0].RunCount, status.RunCount)
 	}
 }
 
 func TestScheduledCommandFailureExit(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
+	defer state.Stop()
 	t.Setenv("SEELEX_SCHED_FAIL", "1")
 	command := helperCommand(t, t.TempDir())
 	command.Key = "failing"
-	if err := state.registerCommand(command); err != nil {
+	if err := state.RegisterCommand(command); err != nil {
 		t.Fatal(err)
 	}
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "失败任务", Kind: ScheduledTaskCommand, Command: "failing",
 		Interval: 100 * time.Millisecond, Enabled: true,
 	})
@@ -195,14 +195,14 @@ func TestScheduledCommandFailureExit(t *testing.T) {
 
 func TestScheduledTaskSkipsWhileRunning(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
+	defer state.Stop()
 	t.Setenv("SEELEX_SCHED_SLEEP_MS", "600")
 	command := helperCommand(t, t.TempDir())
 	command.Key = "slow"
-	if err := state.registerCommand(command); err != nil {
+	if err := state.RegisterCommand(command); err != nil {
 		t.Fatal(err)
 	}
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "慢任务", Kind: ScheduledTaskCommand, Command: "slow",
 		Interval: 50 * time.Millisecond, Enabled: true,
 	})
@@ -227,7 +227,7 @@ func TestScheduledTaskSkipsWhileRunning(t *testing.T) {
 
 func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
+	defer state.Stop()
 	var gotPrompt, gotSession string
 	state.mu.Lock()
 	state.executor = func(_ context.Context, prompt, sessionID string) (string, error) {
@@ -235,7 +235,7 @@ func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 		return "submitted", nil
 	}
 	state.mu.Unlock()
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "周期提醒", Kind: ScheduledTaskPrompt, Prompt: "每隔一小时检查发布状态",
 		Interval: 100 * time.Millisecond, SessionID: "sess_main", Enabled: true,
 	})
@@ -258,13 +258,13 @@ func TestScheduledPromptTaskDelegatesToExecutor(t *testing.T) {
 
 func TestScheduledPromptTaskErrorPropagates(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
+	defer state.Stop()
 	state.mu.Lock()
 	state.executor = func(context.Context, string, string) (string, error) {
 		return "", errors.New("会话已切换")
 	}
 	state.mu.Unlock()
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "绑定任务", Kind: ScheduledTaskPrompt, Prompt: "P",
 		Interval: 100 * time.Millisecond, Enabled: true,
 	})
@@ -281,38 +281,38 @@ func TestScheduledPromptTaskErrorPropagates(t *testing.T) {
 
 func TestScheduledTaskCancelRemovesTask(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
-	if err := state.registerCommand(helperCommand(t, t.TempDir())); err != nil {
+	defer state.Stop()
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "待取消", Kind: ScheduledTaskCommand, Command: "helper",
 		Interval: time.Hour, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.snapshot()) != 1 {
-		t.Fatalf("snapshot = %+v", state.snapshot())
+	if len(state.Snapshot()) != 1 {
+		t.Fatalf("snapshot = %+v", state.Snapshot())
 	}
-	if err := state.cancelTask(created.ID); err != nil {
+	if err := state.CancelTask(created.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(state.snapshot()) != 0 {
+	if len(state.Snapshot()) != 0 {
 		t.Fatal("cancelled task must disappear from snapshot")
 	}
-	if err := state.cancelTask(created.ID); err == nil {
+	if err := state.CancelTask(created.ID); err == nil {
 		t.Fatal("double cancel must fail")
 	}
 }
 
 func TestScheduledTaskDisabledDoesNotRun(t *testing.T) {
 	state := newSchedulerTestState(t)
-	defer state.stop()
-	if err := state.registerCommand(helperCommand(t, t.TempDir())); err != nil {
+	defer state.Stop()
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "停用任务", Kind: ScheduledTaskCommand, Command: "helper",
 		Interval: 30 * time.Millisecond, Enabled: false,
 	})
@@ -320,7 +320,7 @@ func TestScheduledTaskDisabledDoesNotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(150 * time.Millisecond)
-	for _, status := range state.snapshot() {
+	for _, status := range state.Snapshot() {
 		if status.ID == created.ID && status.RunCount != 0 {
 			t.Fatalf("disabled task ran: %+v", status)
 		}
@@ -329,10 +329,10 @@ func TestScheduledTaskDisabledDoesNotRun(t *testing.T) {
 
 func TestSchedulerShutdownStopsExecution(t *testing.T) {
 	state := newSchedulerTestState(t)
-	if err := state.registerCommand(helperCommand(t, t.TempDir())); err != nil {
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
 		t.Fatal(err)
 	}
-	created, err := state.schedule(context.Background(), ScheduledTaskSpec{
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
 		Name: "停机任务", Kind: ScheduledTaskCommand, Command: "helper",
 		Interval: 30 * time.Millisecond, Enabled: true,
 	})
@@ -342,9 +342,9 @@ func TestSchedulerShutdownStopsExecution(t *testing.T) {
 	waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
 		return status.RunCount >= 1
 	})
-	state.stop()
+	state.Stop()
 	time.Sleep(150 * time.Millisecond)
-	for _, status := range state.snapshot() {
+	for _, status := range state.Snapshot() {
 		if status.ID == created.ID && status.RunCount > 1 {
 			t.Fatalf("task kept running after shutdown: %+v", status)
 		}

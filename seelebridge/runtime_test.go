@@ -17,6 +17,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -771,7 +772,7 @@ func TestFrameworkMCPValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := toFrameworkMCP(tt.cfg)
+			_, err := mcp.ToFramework(tt.cfg)
 			if (err == nil) != tt.ok {
 				t.Fatalf("err=%v ok=%v", err, tt.ok)
 			}
