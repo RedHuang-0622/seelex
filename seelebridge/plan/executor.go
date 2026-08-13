@@ -54,6 +54,9 @@ type Executor struct {
 	agentFactoryMu sync.RWMutex
 	agentFactory   node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
 
+	nodeFactoryMu sync.RWMutex
+	nodeFactory   func() codec.NodeFactory[SeelexNodeInput] // 后置注入（plan→node 构造环）
+
 	approvalMu   sync.RWMutex
 	approvalGate approve.ApprovalGate
 
@@ -178,6 +181,31 @@ func (executor *Executor) CurrentAgentFactory() node.AgentFactory {
 	executor.agentFactoryMu.RLock()
 	defer executor.agentFactoryMu.RUnlock()
 	return executor.agentFactory
+}
+
+// SetNodeFactory 后置注入节点工厂（plan→node 构造环解耦：node.Coordinator
+// 需要 plan.Executor，而 nodeFactory 闭包需要 node；先建 plan 再建 node 后
+// 回填工厂，与 SetAgentFactory 同模式）。
+func (executor *Executor) SetNodeFactory(factory func() codec.NodeFactory[SeelexNodeInput]) {
+	if executor == nil {
+		return
+	}
+	executor.nodeFactoryMu.Lock()
+	executor.nodeFactory = factory
+	executor.nodeFactoryMu.Unlock()
+}
+
+// currentNodeFactory 返回当前节点工厂（后置注入优先，回退构造期 deps）。
+func (executor *Executor) currentNodeFactory() func() codec.NodeFactory[SeelexNodeInput] {
+	if executor == nil {
+		return nil
+	}
+	executor.nodeFactoryMu.RLock()
+	defer executor.nodeFactoryMu.RUnlock()
+	if executor.nodeFactory != nil {
+		return executor.nodeFactory
+	}
+	return executor.deps.NodeFactory
 }
 
 // PlanNodeEventChannel 返回 plan 节点事件 channel（CSP：application 消费者串行处理）。

@@ -282,7 +282,7 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 	if err != nil {
 		return "", err
 	}
-	renderedPlan, err := codec.Render(document, provider.executor.deps.NodeFactory())
+	renderedPlan, err := codec.Render(document, provider.executor.currentNodeFactory()())
 	if err != nil {
 		return "", fmt.Errorf("plan_load: import DAG: %w", err)
 	}

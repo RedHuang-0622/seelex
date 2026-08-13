@@ -227,33 +227,59 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
-	// MCP 管理器：MCPStack 承接熔断事件 trace，工具注册表经懒解析适配器注入。
-	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
-	// plan 执行域组件：策略 / 绑定 / runID / 事件通道 / replan 护拦 / 子代理工厂
-	// 收进 planExecutor；deps 闭包引用 r 的能力面（账号、注册表、分发、节点工厂），
-	// 组件不反向依赖 Runtime（构造放在 r 就绪后，与 worktreeManager 同模式）。
+	// ── 拓扑序装配链（config→account→registry→completer→agent→plan→node→…）──
+	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
+	r.registry = seeltools.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
+
+	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
+	if err := r.assembleCompleters(); err != nil {
+		return nil, err
+	}
+
+	// 4. 可见性策略：goal skill 激活判定 + 插件过滤，经闭包注入 tools.Policy。
+	// （GoalSkillActive 是运行期状态，闭包在 Dispatch 期求值；node 可能尚未
+	// 装配，nil 防护回退 false。）
+	r.visibilityPolicy = seeltools.NewPolicy(seeltools.PolicyDeps{
+		GoalSkillActive: func() bool {
+			if r.node == nil {
+				return false
+			}
+			return r.node.GoalSkillActive()
+		},
+		PluginFilter: r.plugins.Filter,
+	})
+
+	// 5. Agent 装配：agent.NewWithComponents（不启动 Hub / 账号池 / 网关）
+	runtimeAdapter, err := bridge.NewRegistryRuntime(r.registry.Registry,
+		bridge.WithVisibilityPolicy(r.visibilityPolicy.Filter),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("seelebridge: assemble tool runtime: %w", err)
+	}
+	agt, err := agent.NewWithComponents(agent.Components{
+		Completer:       r.completer,
+		StreamCompleter: r.streamer,
+		Tools:           runtimeAdapter,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("seelebridge: create agent: %w", err)
+	}
+	r.agt = agt
+
+	// 6. plan 执行域组件：策略 / 绑定 / runID / 事件通道 / replan 护拦 / 子代理工厂。
+	//    依赖面此时已全部就绪（registry/accounts/agt），无前向闭包；
+	//    NodeFactory 经 SetNodeFactory 后置注入（plan→node 构造环）。
 	r.planExecutor = plan.NewExecutor(plan.ExecutorDeps{
 		Model:               r.model,
 		Heartbeat:           heartbeatInterval,
 		Limits:              r.limits,
 		PlanDecisionTimeout: planDecisionTimeout,
 		Accounts:            r.accountSpecList,
-		LoadPlanDefinition: func() (types.Tool, bool) {
-			if r.registry == nil || r.registry.Registry == nil {
-				return types.Tool{}, false
-			}
-			for _, tool := range r.registry.Registry.Tools() {
-				if tool.Function.Name == "plan_load" {
-					return tool, true
-				}
-			}
-			return types.Tool{}, false
-		},
-		Dispatch:    r.agentDispatch,
-		NodeFactory: r.nodeFactory,
+		LoadPlanDefinition:  func() (types.Tool, bool) { return r.registry.FindTool("plan_load") },
+		Dispatch:            r.agentDispatch,
 	}, cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow)
-	// 节点协调器：session/fork/task/plan 经接口与闭包注入，域内不反向依赖
-	// Runtime；面向 AgentNode.Deps 与 RuntimePort 互相承接。
+
+	// 7. 节点协调器：session/fork/task/plan 经接口与闭包注入，域内不反向依赖 Runtime。
 	r.node = seenode.NewCoordinator(seenode.CoordinatorDeps{
 		Sessions: r.subagentSessions,
 		Tree:     r.subagentTree,
@@ -278,11 +304,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		},
 		RelatedMemory: r.relatedMemoryBlocks,
 	})
-	// 可见性策略：goal skill 激活判定 + 插件过滤，经闭包注入 tools.Policy。
-	r.visibilityPolicy = seeltools.NewPolicy(seeltools.PolicyDeps{
-		GoalSkillActive: r.node.GoalSkillActive,
-		PluginFilter:    r.plugins.Filter,
-	})
+	// 8. 回填节点工厂（node 已就绪；plan_load 在运行期才消费）。
+	r.planExecutor.SetNodeFactory(r.nodeFactory)
+
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
@@ -296,32 +320,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// registry return and the application ToolHookBridge completion callback.
 	r.hook = seeletelemetry.NewDiagnosticHook(r.hook, r.observeBash)
 
-	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = seeltools.NewRegistryState(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())
+	// 9. MCP 管理器：MCPStack 承接熔断事件 trace，注册表此时已装配。
+	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
 
-	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
-	if err := r.assembleCompleters(); err != nil {
-		return nil, err
-	}
-
-	// 4. Agent 装配：agent.NewWithComponents（不启动 Hub / 账号池 / 网关）
-	runtimeAdapter, err := bridge.NewRegistryRuntime(r.registry.Registry,
-		bridge.WithVisibilityPolicy(r.visibilityPolicy.Filter),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("seelebridge: assemble tool runtime: %w", err)
-	}
-	agt, err := agent.NewWithComponents(agent.Components{
-		Completer:       r.completer,
-		StreamCompleter: r.streamer,
-		Tools:           runtimeAdapter,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("seelebridge: create agent: %w", err)
-	}
-	r.agt = agt
-
-	// 5. Plan 子代理工厂：bridge.NewAgentFactory（每节点独立 Session，
+	// 10. Plan 子代理工厂：bridge.NewAgentFactory（每节点独立 Session，
 	//    工作历史隔离；节点会话组件见 branch.go nodeSessionComponents）。
 	planAgentFactory, err := bridge.NewAgentFactory(agt,
 		bridge.WithSessionComponents(r.nodeSessionComponents()),

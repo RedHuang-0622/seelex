@@ -53,6 +53,19 @@ func (s *RegistryState) AddInline(
 	_ = s.Registry.Register(s.inline)
 }
 
+// FindTool 按名称在注册表中查找工具（plan 工具面读取）。
+func (s *RegistryState) FindTool(name string) (types.Tool, bool) {
+	if s == nil || s.Registry == nil {
+		return types.Tool{}, false
+	}
+	for _, tool := range s.Registry.Tools() {
+		if tool.Function.Name == name {
+			return tool, true
+		}
+	}
+	return types.Tool{}, false
+}
+
 // InlineProvider 累积 RegisterTool 注册的普通产品工具。
 // framework tools.Registry 不允许同名工具重复，AddInline 在添加前按名称去重。
 type InlineProvider struct {
