@@ -4,7 +4,7 @@
 
 ## 0. 危险操作铁律（必读）
 
-执行任何可能删除、覆盖或移动用户数据的操作前（`make clean/release`、`rebuild-gui`、`rm`、`Remove-Item`、`git clean/reset`、目录移动等），必须先阅读根目录 `MEMORY.md`，并用中文向用户预警：将删除什么、影响哪些用户数据（会话记录 `.seelex`、配置 `config/accounts.yaml`/`*.local.yaml`/`seele.yaml`/`seelex.yaml`、dist 内副本）、是否可恢复；检查运行中的 seelex 进程并先备份，获得用户确认后再执行。本规则优先于其它流程性说明。
+执行任何可能删除、覆盖或移动用户数据的操作前（`make clean/release`、`rebuild-gui`、`rm`、`Remove-Item`、`git clean/reset`、目录移动等），必须先阅读根目录 `MEMORY.md`，并用中文向用户预警：将删除什么、影响哪些用户数据（会话记录 `.seelex`、配置 `config/accounts.yaml`/`*.local.yaml`/`seele.yaml`/`seelex.yaml`、dist 内副本）、是否可恢复；检查运行中的 seelex 进程并先备份，获得用户确认后再执行。新增代码前同样先读 `MEMORY.md` 的「新功能归属决策」，避免产生上帝类/上帝模块/上帝包。本规则优先于其它流程性说明。
 
 ## 1. 事实来源与依赖边界
 

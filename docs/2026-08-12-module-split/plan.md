@@ -129,6 +129,13 @@ seelebridge/
 - 高耦合 `*Runtime` 方法一律转成组件方法（deps 闭包/接口注入），复用 planExecutor/worktreeManager 的既有模式；
 - 外部调用面（main.go、application）只依赖根 facade，拆包期间用 `type Alias = internal.X` 保持兼容。
 
+### 4.4 测试归属约定（2026-08-13 补充）
+
+- **单元测试**（只测单个域内部、需访问非导出成员）→ 跟随源码入子包（如 `worktree/`、`session/` 已执行）；
+- **联调/跨域测试**（真实 Runtime 串联 fork→node→worktree→merge-back，依赖 mock completer 注入与临时账号配置等包内设施）→ 统一保留在根测试包 `package seelebridge`（一个测试包），不随源码拆散；
+- **纯黑盒测试**（仅使用公共 API）→ 可另放 `package seelebridge_test` 外部测试包，同时验证门面够用；
+- 约束：mock completer 注入依赖 `runtime.pool`（非导出），黑盒外部包无法做到；如需外部包联调，须先加测试缝（如导出 `RegisterTestCompleter`），当前不实施。
+
 ## 5. 执行阶段
 
 | 阶段 | 内容 | 风险 | 验证 |
