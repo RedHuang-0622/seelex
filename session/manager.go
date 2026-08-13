@@ -6,22 +6,21 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 type Store interface {
-	List() []seelebridge.SessionMeta
+	List() []sessionstore.SessionMeta
 	Delete(sessionID string) error
-	Load(sessionID string) ([]seelebridge.Message, error)
-	LoadRange(sessionID string, offset, limit int) ([]seelebridge.Message, int, error)
+	Load(sessionID string) ([]sessionstore.Message, error)
+	LoadRange(sessionID string, offset, limit int) ([]sessionstore.Message, int, error)
 	MessageCount(sessionID string) (int, error)
 }
 
 // Manager 薄包装 Seele 的 storage.Store，提供 /new 和 /resume 能力
 type Manager struct {
 	store       Store
-	nestedStore *seelebridge.NestedSessionStore // optional workspace-aware store
+	nestedStore *sessionstore.NestedSessionStore // optional workspace-aware store
 	router      *sessionstore.Router
 	mu          sync.Mutex
 	saveFn      func(sessionID string) error // 注入：保存当前会话到 store
@@ -33,7 +32,7 @@ func NewManager(store Store) *Manager {
 }
 
 // WithNestedStore attaches a workspace-aware nested store for routing.
-func (m *Manager) WithNestedStore(ns *seelebridge.NestedSessionStore) {
+func (m *Manager) WithNestedStore(ns *sessionstore.NestedSessionStore) {
 	m.nestedStore = ns
 }
 
@@ -93,7 +92,7 @@ func (m *Manager) ConfigureStorage(ctx context.Context, config sessionstore.Conf
 }
 
 // ListByWorkspace lists sessions stored under a specific workspace.
-func (m *Manager) ListByWorkspace(workspaceID string) []seelebridge.SessionMeta {
+func (m *Manager) ListByWorkspace(workspaceID string) []sessionstore.SessionMeta {
 	if m.router != nil {
 		return m.router.ListWorkspace(workspaceID)
 	}
@@ -103,12 +102,12 @@ func (m *Manager) ListByWorkspace(workspaceID string) []seelebridge.SessionMeta 
 	if workspaceID == m.Workspace() {
 		return m.store.List()
 	}
-	return []seelebridge.SessionMeta{}
+	return []sessionstore.SessionMeta{}
 }
 
 // LoadHistoryByWorkspace reads a session from an explicit workspace without
 // changing the active workspace used by subsequent writes.
-func (m *Manager) LoadHistoryByWorkspace(workspaceID, sessionID string) ([]seelebridge.Message, error) {
+func (m *Manager) LoadHistoryByWorkspace(workspaceID, sessionID string) ([]sessionstore.Message, error) {
 	if m.router != nil {
 		return m.router.LoadWorkspace(workspaceID, sessionID)
 	}
@@ -120,7 +119,7 @@ func (m *Manager) LoadHistoryByWorkspace(workspaceID, sessionID string) ([]seele
 
 // LoadHistoryRangeByWorkspace reads a history window from an explicit
 // workspace without changing the active workspace used by subsequent writes.
-func (m *Manager) LoadHistoryRangeByWorkspace(workspaceID, sessionID string, offset, limit int) ([]seelebridge.Message, int, error) {
+func (m *Manager) LoadHistoryRangeByWorkspace(workspaceID, sessionID string, offset, limit int) ([]sessionstore.Message, int, error) {
 	if m.router != nil {
 		return m.router.LoadRangeWorkspace(workspaceID, sessionID, offset, limit)
 	}
@@ -250,7 +249,7 @@ func (m *Manager) Resume(sessionID string) error {
 }
 
 // List 列出所有持久化会话
-func (m *Manager) List() []seelebridge.SessionMeta {
+func (m *Manager) List() []sessionstore.SessionMeta {
 	return m.store.List()
 }
 
@@ -260,12 +259,12 @@ func (m *Manager) Delete(sessionID string) error {
 }
 
 // LoadHistory 获取会话的全部历史消息（全量，用于 /resume 首次加载）。
-func (m *Manager) LoadHistory(sessionID string) ([]seelebridge.Message, error) {
+func (m *Manager) LoadHistory(sessionID string) ([]sessionstore.Message, error) {
 	return m.store.Load(sessionID)
 }
 
 // LoadHistoryRange 按偏移量窗口加载会话消息，返回 [offset, offset+limit) 范围内的消息和总数。
-func (m *Manager) LoadHistoryRange(sessionID string, offset, limit int) ([]seelebridge.Message, int, error) {
+func (m *Manager) LoadHistoryRange(sessionID string, offset, limit int) ([]sessionstore.Message, int, error) {
 	return m.store.LoadRange(sessionID, offset, limit)
 }
 

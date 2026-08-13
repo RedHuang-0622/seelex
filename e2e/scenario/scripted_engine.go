@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
@@ -214,7 +215,7 @@ func (*ScriptedEngine) NodeToolResult(string, string) (string, bool) { return ""
 func (*ScriptedEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool) {
 	return seelebridge.NodeWorktreeInfo{}, false
 }
-func (*ScriptedEngine) SubAgentTree() []seelebridge.SubAgentTreeNode { return nil }
+func (*ScriptedEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 func (engine *ScriptedEngine) Remaining() int {
 	engine.mu.Lock()

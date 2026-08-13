@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // ── A/B 对比：worktable.changed（B）vs 整份 runtime.changed（A）──
@@ -14,11 +14,11 @@ import (
 
 func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T) {
 	plan := heavyTestPlan(20)
-	tasks := make([]seelebridge.TaskRecord, 20)
+	tasks := make([]dto.TaskRecord, 20)
 	for index := range tasks {
-		tasks[index] = seelebridge.TaskRecord{
+		tasks[index] = dto.TaskRecord{
 			ID: "todo:" + string(rune('a'+index)), Phase: "tasklist", Task: "todo item",
-			Status: seelebridge.TaskDoing, Kind: "todo",
+			Status: dto.TaskDoing, Kind: "todo",
 		}
 	}
 	tree := heavySubagentTree(10)
@@ -69,13 +69,13 @@ func heavyTestPlan(nodes int) *PlanState {
 	return plan
 }
 
-func heavySubagentTree(rows int) []seelebridge.SubAgentTreeNode {
-	nodes := make([]seelebridge.SubAgentTreeNode, 0, rows)
+func heavySubagentTree(rows int) []dto.SubAgentTreeNode {
+	nodes := make([]dto.SubAgentTreeNode, 0, rows)
 	for index := 0; index < rows; index++ {
-		nodes = append(nodes, seelebridge.SubAgentTreeNode{
-			ID: "sub", Goal: "子代理目标", Status: seelebridge.SubAgentRunning, Summary: "子代理摘要",
+		nodes = append(nodes, dto.SubAgentTreeNode{
+			ID: "sub", Goal: "子代理目标", Status: dto.SubAgentRunning, Summary: "子代理摘要",
 			StartedAt: time.Now(),
-			Context: &seelebridge.SubAgentNodeContext{
+			Context: &dto.SubAgentNodeContext{
 				Goal: "子代理目标", Progress: "进行中", MessageCount: 12, TokenEstimate: 3456,
 				Findings: []string{"发现一", "发现二", "发现三"},
 			},

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // ── 工作表格（Work Table）投影 ──────────────────────────────
@@ -25,7 +25,7 @@ import (
 // buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
 // 节点事件/工具活动打点（详情数据面仍直接读 plan 节点）。有界：行数 ≤
 // limits.work_table_rows，trace ≤ workTableTraceLimit。
-func buildWorkTable(plan *PlanState, tasks []seelebridge.TaskRecord, subagentTree []seelebridge.SubAgentTreeNode) []WorkItem {
+func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode) []WorkItem {
 	nodeByID := make(map[string]PlanNode)
 	if plan != nil {
 		var walk func(nodes []PlanNode)
@@ -63,7 +63,7 @@ func buildWorkTable(plan *PlanState, tasks []seelebridge.TaskRecord, subagentTre
 }
 
 // taskRecordToWorkItem 把注册表 task 快照映射为 WorkItem（含 retry 计数）。
-func taskRecordToWorkItem(record seelebridge.TaskRecord) WorkItem {
+func taskRecordToWorkItem(record dto.TaskRecord) WorkItem {
 	trace := make([]WorkTracePoint, 0, len(record.Trace))
 	for _, point := range record.Trace {
 		trace = append(trace, WorkTracePoint{
@@ -73,11 +73,11 @@ func taskRecordToWorkItem(record seelebridge.TaskRecord) WorkItem {
 	}
 	trace = boundWorkTrace(trace)
 	status := string(record.Status)
-	if record.Kind == "todo" && record.Status == seelebridge.TaskCompleted {
+	if record.Kind == "todo" && record.Status == dto.TaskCompleted {
 		// todo 三态契约：done（前端状态按钮 active 判定兼容）。
 		status = "done"
 	}
-	if record.Kind == "subagent" && record.Status == seelebridge.TaskCompleted {
+	if record.Kind == "subagent" && record.Status == dto.TaskCompleted {
 		// 子代理阶段沿用 running/done/failed 语义。
 		status = "done"
 	}
@@ -162,7 +162,7 @@ func formatWorkDuration(duration time.Duration) string {
 }
 
 // refreshWorkTableLocked 在 service.mu 持锁时重建工作表格投影。
-func (state *serviceState) refreshWorkTableLocked(tasks []seelebridge.TaskRecord) {
+func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord) {
 	state.snapshot.Runtime.WorkTable = buildWorkTable(
 		state.snapshot.Runtime.Plan,
 		tasks,
@@ -181,7 +181,7 @@ func (state *serviceState) publishWorkTable(revision uint64, requestID string, i
 
 // publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 // payload 小，逐任务保证不丢）。
-func (state *serviceState) publishTaskChanged(record seelebridge.TaskRecord, revision uint64, requestID string) {
+func (state *serviceState) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID string) {
 	if state.events == nil {
 		return
 	}
@@ -220,8 +220,8 @@ func (service *Service) syncTasksFromSources() {
 		}
 		walk(plan.Nodes, "")
 	}
-	var walkTree func(items []seelebridge.SubAgentTreeNode, parentID string)
-	walkTree = func(items []seelebridge.SubAgentTreeNode, parentID string) {
+	var walkTree func(items []dto.SubAgentTreeNode, parentID string)
+	walkTree = func(items []dto.SubAgentTreeNode, parentID string) {
 		for _, node := range items {
 			if node.ID == "" || node.ID == "main" {
 				walkTree(node.Children, parentID)
@@ -242,8 +242,8 @@ func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
 		return
 	}
 	if !found {
-		spec := seelebridge.TaskSpec{
-			ID: key, Key: key, Phase: seelebridge.TaskPhasePlan, Task: node.Label, Kind: "plan",
+		spec := dto.TaskSpec{
+			ID: key, Key: key, Phase: dto.TaskPhasePlan, Task: node.Label, Kind: "plan",
 			SourceID: node.ID,
 		}
 		if parentID != "" {
@@ -257,7 +257,7 @@ func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
 	}
 }
 
-func (service *Service) syncSubagentTask(node seelebridge.SubAgentTreeNode, parentID string) {
+func (service *Service) syncSubagentTask(node dto.SubAgentTreeNode, parentID string) {
 	key := "subagent:" + node.ID
 	status := taskStatusForSubagent(node.Status)
 	existing, found, err := service.deps.Runtime.ResolveTaskByKey(key)
@@ -265,8 +265,8 @@ func (service *Service) syncSubagentTask(node seelebridge.SubAgentTreeNode, pare
 		return
 	}
 	if !found {
-		spec := seelebridge.TaskSpec{
-			ID: key, Key: key, Phase: seelebridge.TaskPhaseSubagent, Task: node.Goal, Kind: "subagent",
+		spec := dto.TaskSpec{
+			ID: key, Key: key, Phase: dto.TaskPhaseSubagent, Task: node.Goal, Kind: "subagent",
 			Assignee: node.ID, SourceID: node.ID,
 		}
 		if parentID != "" {
@@ -283,31 +283,31 @@ func (service *Service) syncSubagentTask(node seelebridge.SubAgentTreeNode, pare
 	_, _ = service.deps.Runtime.TaskAttachParticipant(existing.ID, node.ID)
 }
 
-func taskStatusForNode(status NodeStatus) seelebridge.TaskStatus {
+func taskStatusForNode(status NodeStatus) dto.TaskStatus {
 	switch status {
 	case NodeRunning, NodeWorktreeCreating, NodeRebasing, NodeMerging, NodeQueued:
-		return seelebridge.TaskRunning
+		return dto.TaskRunning
 	case NodeCompleted, NodeSkipped:
-		return seelebridge.TaskCompleted
+		return dto.TaskCompleted
 	case NodeFailed, NodePanicked:
-		return seelebridge.TaskFailed
+		return dto.TaskFailed
 	case NodeAborted, NodeCanceled:
-		return seelebridge.TaskFailed
+		return dto.TaskFailed
 	default:
-		return seelebridge.TaskPending
+		return dto.TaskPending
 	}
 }
 
-func taskStatusForSubagent(status seelebridge.SubAgentNodeStatus) seelebridge.TaskStatus {
+func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus {
 	switch status {
-	case seelebridge.SubAgentQueued:
-		return seelebridge.TaskQueued
-	case seelebridge.SubAgentDone:
-		return seelebridge.TaskCompleted
-	case seelebridge.SubAgentFailed:
-		return seelebridge.TaskFailed
+	case dto.SubAgentQueued:
+		return dto.TaskQueued
+	case dto.SubAgentDone:
+		return dto.TaskCompleted
+	case dto.SubAgentFailed:
+		return dto.TaskFailed
 	default:
-		return seelebridge.TaskRunning
+		return dto.TaskRunning
 	}
 }
 
@@ -330,9 +330,9 @@ func (state *serviceState) workTableTraceBlock() string {
 		return ""
 	}
 	records := state.deps.Runtime.TaskSnapshot()
-	active := make([]seelebridge.TaskRecord, 0, len(records))
+	active := make([]dto.TaskRecord, 0, len(records))
 	for _, record := range records {
-		if record.Status != seelebridge.TaskCompleted && record.Status != seelebridge.TaskFailed {
+		if record.Status != dto.TaskCompleted && record.Status != dto.TaskFailed {
 			active = append(active, record)
 		}
 	}
@@ -369,11 +369,11 @@ func clonePlanForSync(plan *PlanState) *PlanState {
 	return cloneRuntimeState(RuntimeState{Plan: plan}).Plan
 }
 
-func cloneSubAgentTreeForSync(nodes []seelebridge.SubAgentTreeNode) []seelebridge.SubAgentTreeNode {
+func cloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode {
 	if len(nodes) == 0 {
 		return nil
 	}
-	cloned := append([]seelebridge.SubAgentTreeNode(nil), nodes...)
+	cloned := append([]dto.SubAgentTreeNode(nil), nodes...)
 	for index := range cloned {
 		cloned[index].Children = cloneSubAgentTreeForSync(nodes[index].Children)
 	}
@@ -501,7 +501,7 @@ func (service *Service) UpdateWorkItemStatus(id, status string) error {
 	}
 	switch kind {
 	case "todo":
-		if err := service.deps.Runtime.SetTodoStatus(index, seelebridge.TodoItemStatus(strings.ToLower(strings.TrimSpace(status)))); err != nil {
+		if err := service.deps.Runtime.SetTodoStatus(index, dto.TodoItemStatus(strings.ToLower(strings.TrimSpace(status)))); err != nil {
 			return err
 		}
 		service.refreshRuntimeAfterTodoChange()

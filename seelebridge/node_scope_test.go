@@ -18,7 +18,9 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -154,9 +156,9 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
 
-	node := seenode.NewAgentNode(codec.NodeSpec[SeelexNodeInput]{
+	node := seenode.NewAgentNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "left",
-		Input: SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
+		Input: plan.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
 	}, runtime.nodeDeps())
 
 	// 作用域：分支即节点；角色按 binding 判定（未设 binding 时 entry 为空，
@@ -207,9 +209,9 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 		}
 	})
 
-	node := seenode.NewAgentNode(codec.NodeSpec[SeelexNodeInput]{
+	node := seenode.NewAgentNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "left",
-		Input: SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
+		Input: plan.SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
 	}, runtime.nodeDeps())
 	ctx := WithNodeScope(context.Background(), node.Scope()())
 	ctx = withNodePromptBlocks(ctx, node.Blocks()())
@@ -251,7 +253,7 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 //   - 左分支阻塞期间右分支已完成（并行而非串行）；
 //   - 子代理请求携带父证据块与节点目标；
 //   - 子代理只看到项目作用域工具（read_file 在、plan_run 不在）；
-//   - 节点完成事件流入投影（PlanNodeEvent）。
+//   - 节点完成事件流入投影（dto.PlanNodeEvent）。
 func TestPlanRunParallelAgentBranches(t *testing.T) {
 	runtime := newTestRuntimeWithSubagents(t)
 	defer runtime.Shutdown()
@@ -286,12 +288,12 @@ func TestPlanRunParallelAgentBranches(t *testing.T) {
 		rightAccount: blockingRight,
 	})
 
-	runtime.SetPlanBranchBinding(PlanBranchBinding{
+	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{
 		SessionID: "session-1", WorkspaceID: "workspace-1", PlanID: "plan-1", EntryNodeID: "start",
 	})
 
-	projected := make(chan PlanNodeEvent, 64)
-	runtime.SetPlanNodeCallback(func(ev PlanNodeEvent) { projected <- ev })
+	projected := make(chan dto.PlanNodeEvent, 64)
+	runtime.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) { projected <- ev })
 
 	plan := `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"do left","kind":"agent"},"right":{"input":"do right","kind":"agent"},"finish":{"input":"finish"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", plan); err != nil {

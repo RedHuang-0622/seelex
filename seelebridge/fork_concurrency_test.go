@@ -10,6 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
 )
 
@@ -77,7 +78,7 @@ func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
 	for {
 		running = 0
 		for _, record := range runtime.TaskSnapshot() {
-			if record.Kind == "subagent" && record.Status == TaskRunning {
+			if record.Kind == "subagent" && record.Status == dto.TaskRunning {
 				running++
 			}
 		}
@@ -104,7 +105,7 @@ func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
 		t.Fatalf("result must complete: %s", result)
 	}
 	// 终态：全部 completed，参与者挂好。
-	byID := make(map[string]TaskRecord)
+	byID := make(map[string]dto.TaskRecord)
 	for _, record := range runtime.TaskSnapshot() {
 		if record.Kind == "subagent" {
 			byID[record.ID] = record
@@ -114,7 +115,7 @@ func TestForkSubagentsExceedsConcurrencyLimitQueued(t *testing.T) {
 		t.Fatalf("subagent tasks = %d, want %d", len(byID), subagents)
 	}
 	for id, record := range byID {
-		if record.Status != TaskCompleted {
+		if record.Status != dto.TaskCompleted {
 			t.Fatalf("%s status = %v, want completed", id, record.Status)
 		}
 	}
@@ -132,12 +133,12 @@ func TestTaskRegistryHighConcurrencyBurst(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			key := fmt.Sprintf("goal:%d", index)
-			task, _, err := registry.Add(TaskSpec{Key: key, Phase: TaskPhaseTask, Task: fmt.Sprintf("t%d", index), Kind: "task"})
+			task, _, err := registry.Add(dto.TaskSpec{Key: key, Phase: dto.TaskPhaseTask, Task: fmt.Sprintf("t%d", index), Kind: "task"})
 			if err != nil {
 				return
 			}
 			if task.ID != "" {
-				_, _ = registry.SetStatus(task.ID, TaskRunning, "started")
+				_, _ = registry.SetStatus(task.ID, dto.TaskRunning, "started")
 			}
 		}(index)
 	}

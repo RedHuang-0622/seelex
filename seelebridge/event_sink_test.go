@@ -9,6 +9,8 @@ import (
 	"time"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -35,9 +37,9 @@ func TestPlanRunExecutionFactsPersistToEventStore(t *testing.T) {
 	eventStore := sessionstore.NewEventStore(newTestRouter(t))
 	runtime.SetEventPersister(eventStore.Append)
 
-	projected := make(chan PlanNodeEvent, 16)
-	runtime.SetPlanNodeCallback(func(ev PlanNodeEvent) { projected <- ev })
-	runtime.SetPlanBranchBinding(PlanBranchBinding{
+	projected := make(chan dto.PlanNodeEvent, 16)
+	runtime.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) { projected <- ev })
+	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{
 		SessionID: "session-1", WorkspaceID: "workspace-1", PlanID: "plan-1", EntryNodeID: "start",
 	})
 
@@ -95,7 +97,7 @@ func TestEventSinkFailureDoesNotBreakWorkPlanControlFlow(t *testing.T) {
 		sinkErrors = append(sinkErrors, err)
 	})
 
-	runtime.SetPlanBranchBinding(PlanBranchBinding{
+	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{
 		SessionID: "session-2", WorkspaceID: "workspace-1", PlanID: "plan-2", EntryNodeID: "start",
 	})
 
@@ -153,15 +155,15 @@ func TestEventStoreRoutesByAgentRuntimeLocation(t *testing.T) {
 }
 
 func TestWorktreePhasesProjectAndPersistWithSessionLocation(t *testing.T) {
-	sink := newPlanEventSink()
+	sink := plan.NewEventSink()
 	var persisted []frameworkevent.Event
-	var projected []PlanNodeEvent
+	var projected []dto.PlanNodeEvent
 	sink.SetPersister(func(_ context.Context, event frameworkevent.Event) error {
 		persisted = append(persisted, event)
 		return nil
 	})
-	sink.Subscribe(func(event PlanNodeEvent) { projected = append(projected, event) })
-	binding := PlanBranchBinding{SessionID: "session-worktree", PlanID: "plan-1"}
+	sink.Subscribe(func(event dto.PlanNodeEvent) { projected = append(projected, event) })
+	binding := dto.PlanBranchBinding{SessionID: "session-worktree", PlanID: "plan-1"}
 	for _, status := range []string{"worktree_creating", "rebasing", "merging"} {
 		sink.AppendPhase(context.Background(), binding, "run-1", "worker", status)
 	}

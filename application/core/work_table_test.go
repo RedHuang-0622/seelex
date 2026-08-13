@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // ── 工作表格投影（白盒功能测试；注册表为唯一 task 源）────────
@@ -34,12 +35,12 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 				Children: []PlanNode{{ID: "n2a", Label: "子任务", Status: NodePending}},
 			},
 		},
-		Edges: []seelebridge.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n2a"}},
+		Edges: []seelplan.PlanEdge{{From: "n1", To: "n2"}, {From: "n2", To: "n2a"}},
 	}
-	tasks := []seelebridge.TaskRecord{
-		{ID: "plan:n1", Key: "plan:n1", Phase: "plan", Task: "调研", Status: seelebridge.TaskCompleted, Kind: "plan", SourceID: "n1", Elapsed: "2m"},
-		{ID: "plan:n2", Key: "plan:n2", Phase: "plan", Task: "实现", Status: seelebridge.TaskRunning, Kind: "plan", SourceID: "n2", Dependencies: []string{"plan:n1"}},
-		{ID: "plan:n2a", Key: "plan:n2a", Phase: "plan", Task: "子任务", Status: seelebridge.TaskPending, Kind: "plan", SourceID: "n2a", Dependencies: []string{"plan:n2"}},
+	tasks := []dto.TaskRecord{
+		{ID: "plan:n1", Key: "plan:n1", Phase: "plan", Task: "调研", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1", Elapsed: "2m"},
+		{ID: "plan:n2", Key: "plan:n2", Phase: "plan", Task: "实现", Status: dto.TaskRunning, Kind: "plan", SourceID: "n2", Dependencies: []string{"plan:n1"}},
+		{ID: "plan:n2a", Key: "plan:n2a", Phase: "plan", Task: "子任务", Status: dto.TaskPending, Kind: "plan", SourceID: "n2a", Dependencies: []string{"plan:n2"}},
 	}
 
 	rows := buildWorkTable(plan, tasks, nil)
@@ -78,7 +79,7 @@ func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 			Events: []PlanNodeEventInfo{{Status: NodeCompleted, At: at, Output: "ok"}},
 		}},
 	}
-	tasks := []seelebridge.TaskRecord{{ID: "plan:n1", Phase: "plan", Task: "步骤", Status: seelebridge.TaskCompleted, Kind: "plan", SourceID: "n1"}}
+	tasks := []dto.TaskRecord{{ID: "plan:n1", Phase: "plan", Task: "步骤", Status: dto.TaskCompleted, Kind: "plan", SourceID: "n1"}}
 	rows := buildWorkTable(plan, tasks, nil)
 	ops := make([]string, 0, len(rows[0].Trace))
 	for _, point := range rows[0].Trace {
@@ -90,11 +91,11 @@ func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 }
 
 func TestBuildWorkTableMapsTodoItems(t *testing.T) {
-	tasks := []seelebridge.TaskRecord{
-		{ID: "todo:0", Phase: "tasklist", Task: "a", Status: seelebridge.TaskPending, Kind: "todo"},
-		{ID: "todo:1", Phase: "tasklist", Task: "b", Status: seelebridge.TaskDoing, Kind: "todo"},
-		{ID: "todo:2", Phase: "tasklist", Task: "c", Status: seelebridge.TaskCompleted, Kind: "todo"},
-		{ID: "todo:3", Phase: "tasklist", Task: "d", Status: seelebridge.TaskCompleted, Kind: "todo"},
+	tasks := []dto.TaskRecord{
+		{ID: "todo:0", Phase: "tasklist", Task: "a", Status: dto.TaskPending, Kind: "todo"},
+		{ID: "todo:1", Phase: "tasklist", Task: "b", Status: dto.TaskDoing, Kind: "todo"},
+		{ID: "todo:2", Phase: "tasklist", Task: "c", Status: dto.TaskCompleted, Kind: "todo"},
+		{ID: "todo:3", Phase: "tasklist", Task: "d", Status: dto.TaskCompleted, Kind: "todo"},
 	}
 	rows := buildWorkTable(nil, tasks, nil)
 	if len(rows) != 4 {
@@ -114,17 +115,17 @@ func TestBuildWorkTableMapsTodoItems(t *testing.T) {
 func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 	startedAt := time.Now().Add(-10 * time.Minute)
 	endedAt := time.Now().Add(-5 * time.Minute)
-	tasks := []seelebridge.TaskRecord{
+	tasks := []dto.TaskRecord{
 		{
-			ID: "subagent:s1", Phase: "subagent", Task: "g1", Status: seelebridge.TaskRunning,
+			ID: "subagent:s1", Phase: "subagent", Task: "g1", Status: dto.TaskRunning,
 			Assignee: "s1", Kind: "subagent", SourceID: "s1", StartedAt: startedAt,
-			Trace: []seelebridge.TaskTracePoint{{At: startedAt, Status: "running", Operation: "subagent.lifecycle"}},
+			Trace: []dto.TaskTracePoint{{At: startedAt, Status: "running", Operation: "subagent.lifecycle"}},
 		},
 		{
-			ID: "subagent:s1a", Phase: "subagent", Task: "g1a", Description: "完成", Status: seelebridge.TaskCompleted,
+			ID: "subagent:s1a", Phase: "subagent", Task: "g1a", Description: "完成", Status: dto.TaskCompleted,
 			Assignee: "s1a", Kind: "subagent", SourceID: "s1a", Dependencies: []string{"subagent:s1"},
 			StartedAt: startedAt, EndedAt: endedAt,
-			Trace: []seelebridge.TaskTracePoint{
+			Trace: []dto.TaskTracePoint{
 				{At: startedAt, Status: "running", Operation: "subagent.lifecycle"},
 				{At: endedAt, Status: "done", Operation: "subagent.lifecycle"},
 			},
@@ -150,11 +151,11 @@ func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 }
 
 func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
-	tasks := make([]seelebridge.TaskRecord, 0, Limits().WorkTableRows+10)
+	tasks := make([]dto.TaskRecord, 0, Limits().WorkTableRows+10)
 	for index := 0; index < Limits().WorkTableRows+10; index++ {
-		tasks = append(tasks, seelebridge.TaskRecord{
+		tasks = append(tasks, dto.TaskRecord{
 			ID: "todo:" + string(rune('a'+index%26)) + string(rune('0'+index/26)), Phase: "tasklist",
-			Task: "t", Status: seelebridge.TaskPending, Kind: "todo",
+			Task: "t", Status: dto.TaskPending, Kind: "todo",
 		})
 	}
 	rows := buildWorkTable(nil, tasks, nil)
@@ -163,9 +164,9 @@ func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
 	}
 
 	long := strings.Repeat("x", Limits().EvidenceChars*2)
-	row := buildWorkTable(nil, []seelebridge.TaskRecord{{
+	row := buildWorkTable(nil, []dto.TaskRecord{{
 		ID: "task:1", Phase: "task", Task: long, Description: long, Kind: "task",
-		Trace: []seelebridge.TaskTracePoint{{Status: "pending", Operation: "task.add", Evidence: long}},
+		Trace: []dto.TaskTracePoint{{Status: "pending", Operation: "task.add", Evidence: long}},
 	}}, nil)[0]
 	if !strings.HasSuffix(row.Description, "…") || len([]rune(row.Description)) != Limits().EvidenceChars+1 {
 		t.Fatalf("description truncation = %d runes", len([]rune(row.Description)))
@@ -178,9 +179,9 @@ func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T) {
 // TestUpdateWorkItemStatusTodoThreeStates 走完整 Service 路径：
 // 状态更新 → runtime.changed + worktable.changed 增量 → 快照反映三态。
 func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T) {
-	runtime := &fakeRuntime{todoItems: []seelebridge.TodoItem{
-		{Text: "a", Status: seelebridge.TodoItemPending},
-		{Text: "b", Status: seelebridge.TodoItemPending},
+	runtime := &fakeRuntime{todoItems: []dto.TodoItem{
+		{Text: "a", Status: dto.TodoItemPending},
+		{Text: "b", Status: dto.TodoItemPending},
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	subscription := service.Subscribe(16)
@@ -194,7 +195,7 @@ func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T) {
 		t.Fatalf("worktable.changed items = %+v", workEvent.Items)
 	}
 	snapshot := service.Snapshot()
-	if snapshot.Runtime.WorkTable[0].Status != "doing" || snapshot.Runtime.TodoItems[0].Status != seelebridge.TodoItemDoing {
+	if snapshot.Runtime.WorkTable[0].Status != "doing" || snapshot.Runtime.TodoItems[0].Status != dto.TodoItemDoing {
 		t.Fatalf("snapshot work table = %+v todo = %+v", snapshot.Runtime.WorkTable, snapshot.Runtime.TodoItems)
 	}
 
@@ -242,10 +243,10 @@ func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T) {
 func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 	engine := &fakeEngine{}
 	engine.mu.Lock()
-	engine.subAgentTree = []seelebridge.SubAgentTreeNode{{
+	engine.subAgentTree = []dto.SubAgentTreeNode{{
 		ID: "main",
-		Children: []seelebridge.SubAgentTreeNode{{
-			ID: "s1", Goal: "分析作者", Status: seelebridge.SubAgentRunning, StartedAt: time.Now(),
+		Children: []dto.SubAgentTreeNode{{
+			ID: "s1", Goal: "分析作者", Status: dto.SubAgentRunning, StartedAt: time.Now(),
 		}},
 	}}
 	engine.mu.Unlock()

@@ -22,6 +22,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
@@ -29,6 +30,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
@@ -88,7 +90,7 @@ type Runtime struct {
 	mcpProvider          *frameworkmcp.Provider
 	breaker              *breakerState // 熔断器事件 channel 状态
 	branchMu             sync.RWMutex
-	planExecutor         *planExecutor // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
+	planExecutor         *plan.Executor // Plan 执行域组件（plan_executor.go）：策略/绑定/runID/事件/replan/工厂
 	visibilityProjection atomic.Pointer[RuntimeVisibilityProjection]
 	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
@@ -268,7 +270,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// plan 执行域组件：策略 / 绑定 / runID / 事件通道 / replan 护拦 / 子代理工厂
 	// 收进 planExecutor；deps 闭包引用 r 的能力面（账号、注册表、分发、节点工厂），
 	// 组件不反向依赖 Runtime（构造放在 r 就绪后，与 worktreeManager 同模式）。
-	r.planExecutor = newPlanExecutor(planExecutorDeps{
+	r.planExecutor = plan.NewExecutor(plan.ExecutorDeps{
 		Model:               r.model,
 		Heartbeat:           heartbeatInterval,
 		Limits:              r.limits,
@@ -551,15 +553,15 @@ func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope
 func (r *Runtime) UnbindProjectRoot() { r.projectScope.Unbind() }
 
 // SetPlanNodeCallback 注册节点/计划状态投影订阅：workplan 执行事实
-// 经 planEventSink 投影为 PlanNodeEvent（NodeStatus/PlanStatus）后回调。
+// 经 plan.planEventSink 投影为 dto.PlanNodeEvent（NodeStatus/PlanStatus）后回调。
 // 语义与旧框架 NodeResult 回调等价（plan_gate_test 不变）。
-func (r *Runtime) SetPlanNodeCallback(cb func(PlanNodeEvent)) {
+func (r *Runtime) SetPlanNodeCallback(cb func(dto.PlanNodeEvent)) {
 	r.planExecutor.SetPlanNodeCallback(cb)
 }
 
 // PlanNodeEventChannel 返回 plan 节点事件 channel（CSP：application 消费者
 // 串行处理，保序；非阻塞投递，满则丢事件由 Snapshot resync 兜底）。
-func (r *Runtime) PlanNodeEventChannel() <-chan PlanNodeEvent {
+func (r *Runtime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	if r == nil || r.planExecutor == nil {
 		return nil
 	}
@@ -602,7 +604,7 @@ func (r *Runtime) currentAgentFactory() node.AgentFactory {
 
 // SetPlanBranchBinding freezes context and account-selection inputs for the
 // next plan run.
-func (r *Runtime) SetPlanBranchBinding(binding PlanBranchBinding) {
+func (r *Runtime) SetPlanBranchBinding(binding dto.PlanBranchBinding) {
 	r.branchMu.RLock()
 	selectedAccountID := r.selectedAccountID
 	r.branchMu.RUnlock()
@@ -619,13 +621,13 @@ func (r *Runtime) SetPlanBranchBinding(binding PlanBranchBinding) {
 }
 
 // SetPlanPolicy updates constraints applied to subsequent plan_load calls.
-func (r *Runtime) SetPlanPolicy(policy PlanPolicy) {
+func (r *Runtime) SetPlanPolicy(policy dto.PlanPolicy) {
 	r.planExecutor.SetPolicy(policy)
 }
 
 // RestorePlan reloads a canonical persisted plan into the runtime plan store.
 func (r *Runtime) RestorePlan(ctx context.Context, arguments string) error {
-	canonical, err := NormalizePlanLoadArguments(arguments)
+	canonical, err := plan.NormalizePlanLoadArguments(arguments)
 	if err != nil {
 		return fmt.Errorf("restore plan: normalize persisted plan: %w", err)
 	}
@@ -643,17 +645,17 @@ func (r *Runtime) agentDispatch(ctx context.Context, name, argsJSON string) (str
 	return r.agt.DirectDispatch(ctx, name, argsJSON)
 }
 
-func (r *Runtime) currentPlanPolicy() PlanPolicy {
+func (r *Runtime) currentPlanPolicy() dto.PlanPolicy {
 	if r == nil || r.planExecutor == nil {
-		return PlanPolicy{}
+		return dto.PlanPolicy{}
 	}
 	return r.planExecutor.Policy()
 }
 
-// ReplanMetrics returns process-wide replan cost and rejection accounting.
-func (r *Runtime) ReplanMetrics() ReplanMetrics {
+// dto.ReplanMetrics returns process-wide replan cost and rejection accounting.
+func (r *Runtime) ReplanMetrics() dto.ReplanMetrics {
 	if r == nil || r.planExecutor == nil {
-		return ReplanMetrics{}
+		return dto.ReplanMetrics{}
 	}
 	return r.planExecutor.ReplanMetrics()
 }

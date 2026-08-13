@@ -13,7 +13,8 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 func (service *Service) startChat(parent context.Context, request chatRequest) error {
@@ -428,7 +429,7 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 	service.mu.RUnlock()
 	service.flushStreamBatcher(activeRequestID)
 	service.mu.Lock()
-	var planBinding *seelebridge.PlanBranchBinding
+	var planBinding *dto.PlanBranchBinding
 	service.components.tasks.ensureToolCallTranscriptLocked(name, id, arguments)
 	tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}
 	message := *service.appendMessageLocked("tool", "", tool)
@@ -465,8 +466,8 @@ func (service *Service) handleToolStart(name, id, arguments string) {
 	service.events.Publish(EventRuntimeChanged, service.Snapshot().Revision, requestID, service.Snapshot().Runtime)
 }
 
-func (service *Service) planBranchBindingLocked() seelebridge.PlanBranchBinding {
-	binding := seelebridge.PlanBranchBinding{
+func (service *Service) planBranchBindingLocked() dto.PlanBranchBinding {
+	binding := dto.PlanBranchBinding{
 		SessionID: service.snapshot.Session.ID,
 		AccountID: service.snapshot.Runtime.Account,
 		TraceID:   service.snapshot.Chat.RequestID,
@@ -603,7 +604,7 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil || len(input.Nodes) == 0 {
 		return
 	}
-	if _, ok := input.Nodes[input.Entry]; !ok || seelebridge.DetectCycle(input.Edges) != nil {
+	if _, ok := input.Nodes[input.Entry]; !ok || seelplan.DetectCycle(input.Edges) != nil {
 		return
 	}
 
@@ -614,7 +615,7 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 	}
 
 	// 拓扑排序 → 稳定节点顺序
-	order := seelebridge.TopoSort(input.Entry, input.Edges, allNodes)
+	order := seelplan.TopoSort(input.Entry, input.Edges, allNodes)
 
 	nodes := make([]PlanNode, 0, len(input.Nodes))
 	for _, id := range order {
@@ -630,7 +631,7 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 	}
 
 	// 邻接表 → []PlanEdge
-	planEdges := seelebridge.AdjacencyToEdges(input.Edges)
+	planEdges := seelplan.AdjacencyToEdges(input.Edges)
 
 	service.snapshot.Runtime.Plan = &PlanState{
 		Name:        input.Entry,
@@ -773,7 +774,7 @@ func resolveNodeStatus(nodes []struct {
 // SetPlanNodeCallback 注册）：planEventSink 把 workplan 事件投影为
 // PlanNodeEvent 后回调本方法，实时更新节点/计划状态并通知 TUI/GUI 重绘。
 // NodeID 为空表示计划级投影（PlanStatus），否则为节点级投影（NodeStatus）。
-func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) {
+func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.mu.Lock()
 	plan := service.snapshot.Runtime.Plan
 	if plan == nil {
@@ -846,7 +847,7 @@ func (service *Service) HandlePlanNodeComplete(event seelebridge.PlanNodeEvent) 
 // 同状态合并：running 心跳只刷新最后一条的时间戳与输出，不追加新条目，
 // 时间线保持状态变迁序列（queued → running → completed/...）。
 // 输出快照截断到 200 字符。
-func appendPlanNodeEvent(node *PlanNode, event seelebridge.PlanNodeEvent) {
+func appendPlanNodeEvent(node *PlanNode, event dto.PlanNodeEvent) {
 	if node.Events == nil {
 		node.Events = make([]PlanNodeEventInfo, 0, 8)
 	}
@@ -873,7 +874,7 @@ func appendPlanNodeEvent(node *PlanNode, event seelebridge.PlanNodeEvent) {
 
 // HandlePlanBranchEvent applies a branch lifecycle transition received from
 // the bridge and publishes the updated runtime snapshot for both frontends.
-func (service *Service) HandlePlanBranchEvent(event seelebridge.PlanBranchEvent) {
+func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
 	service.mu.Lock()
 	plan := service.snapshot.Runtime.Plan
 	if plan == nil {
@@ -883,7 +884,7 @@ func (service *Service) HandlePlanBranchEvent(event seelebridge.PlanBranchEvent)
 	node := findPlanNodeByID(plan.Nodes, event.NodeID)
 	if node != nil {
 		node.Status = PlanNodeStatus(event.Type)
-		appendPlanNodeEvent(node, seelebridge.PlanNodeEvent{NodeID: event.NodeID, Status: event.Type, Output: event.Error, At: event.At})
+		appendPlanNodeEvent(node, dto.PlanNodeEvent{NodeID: event.NodeID, Status: event.Type, Output: event.Error, At: event.At})
 	}
 	switch event.Type {
 	case "queued", "started":
@@ -1089,8 +1090,8 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 
 // replanRequestLocked extracts the smallest useful recovery context from the
 // authoritative snapshot. It must be called with service.mu held.
-func (service *Service) replanRequestLocked(failure, idempotencyKey string) seelebridge.ReplanRequest {
-	request := seelebridge.ReplanRequest{Failure: failure, IdempotencyKey: idempotencyKey}
+func (service *Service) replanRequestLocked(failure, idempotencyKey string) dto.ReplanRequest {
+	request := dto.ReplanRequest{Failure: failure, IdempotencyKey: idempotencyKey}
 	for index := len(service.snapshot.Conversation) - 1; index >= 0; index-- {
 		message := service.snapshot.Conversation[index]
 		if request.Objective == "" && message.Role == "user" {
@@ -1372,7 +1373,7 @@ func normalizePlanToolCallInfo(info session.ToolCallInfo) session.ToolCallInfo {
 	if info.Name != "plan_load" {
 		return info
 	}
-	canonical, err := seelebridge.NormalizePlanLoadArguments(info.Arguments)
+	canonical, err := seelplan.NormalizePlanLoadArguments(info.Arguments)
 	if err == nil {
 		info.Arguments = canonical
 	}

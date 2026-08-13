@@ -11,6 +11,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // scopeRecordingCompleter 记录每次请求的 NodeScope.TaskID（验证 B6 装配件
@@ -85,16 +86,16 @@ func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
 	if len(tasks) != 2 {
 		t.Fatalf("tasks = %+v, want 2", tasks)
 	}
-	byID := make(map[string]TaskRecord, len(tasks))
+	byID := make(map[string]dto.TaskRecord, len(tasks))
 	for _, task := range tasks {
 		byID[task.ID] = task
 	}
 	timeTask := byID["subagent:time_agent"]
 	fileTask := byID["subagent:file_agent"]
-	if timeTask.Status != TaskCompleted || !containsParticipant(timeTask.Participants, "time_agent") {
+	if timeTask.Status != dto.TaskCompleted || !containsParticipant(timeTask.Participants, "time_agent") {
 		t.Fatalf("time task = %+v", timeTask)
 	}
-	if fileTask.Status != TaskCompleted || !containsParticipant(fileTask.Participants, "file_agent") {
+	if fileTask.Status != dto.TaskCompleted || !containsParticipant(fileTask.Participants, "file_agent") {
 		t.Fatalf("file task = %+v", fileTask)
 	}
 }
@@ -230,7 +231,7 @@ func TestForkSubagentsFailurePropagationSmoke(t *testing.T) {
 	for _, record := range records {
 		if record.ID == "subagent:bad_agent" {
 			found = true
-			if record.Status != TaskFailed {
+			if record.Status != dto.TaskFailed {
 				t.Fatalf("subagent task status = %v, want failed", record.Status)
 			}
 		}

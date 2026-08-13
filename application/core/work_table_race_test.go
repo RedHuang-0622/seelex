@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
@@ -14,10 +15,10 @@ import (
 // 节点 trace）、Snapshot（读路径）。配合 -race 验证 service.mu 与 actor
 // mailbox 的并发安全（CI 运行 -race -covermode=atomic）。
 func TestWorkTableRaceConcurrentMutations(t *testing.T) {
-	runtime := &fakeRuntime{todoItems: []seelebridge.TodoItem{
-		{Text: "a", Status: seelebridge.TodoItemPending},
-		{Text: "b", Status: seelebridge.TodoItemPending},
-		{Text: "c", Status: seelebridge.TodoItemPending},
+	runtime := &fakeRuntime{todoItems: []dto.TodoItem{
+		{Text: "a", Status: dto.TodoItemPending},
+		{Text: "b", Status: dto.TodoItemPending},
+		{Text: "c", Status: dto.TodoItemPending},
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
@@ -45,7 +46,7 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			<-start
-			service.HandleSubagentToolEvent(seelebridge.SubagentToolEvent{
+			service.HandleSubagentToolEvent(seelsession.SubagentToolEvent{
 				ID: fmt.Sprintf("tool-%d", index), NodeID: "n1", Name: "read_file",
 				Status: "success", StartedAt: time.Now(),
 			})

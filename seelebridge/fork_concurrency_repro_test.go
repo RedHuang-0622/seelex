@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // countingBlockingCompleter counts how many Complete calls are actually
@@ -113,7 +114,7 @@ func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
 
 	// Assertion 3: all subagent tasks reached completed.
 	tasks := runtime.TaskSnapshot()
-	byID := make(map[string]TaskRecord, len(tasks))
+	byID := make(map[string]dto.TaskRecord, len(tasks))
 	for _, task := range tasks {
 		if task.Kind == "subagent" {
 			byID[task.ID] = task
@@ -125,7 +126,7 @@ func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
 		if !ok {
 			t.Fatalf("task registry missing %s (has %d subagent tasks)", id, len(byID))
 		}
-		if record.Status != TaskCompleted {
+		if record.Status != dto.TaskCompleted {
 			t.Fatalf("%s status = %v, want completed", id, record.Status)
 		}
 	}
@@ -198,7 +199,7 @@ func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
 	if len(kept) != subagents {
 		t.Fatalf("merge-back lost results: mailbox kept %d of %d blocks", len(kept), subagents)
 	}
-	byID := make(map[string]TaskRecord)
+	byID := make(map[string]dto.TaskRecord)
 	for _, record := range runtime.TaskSnapshot() {
 		if record.Kind == "subagent" {
 			byID[record.ID] = record
@@ -208,7 +209,7 @@ func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
 		t.Fatalf("subagent tasks = %d, want %d", len(byID), subagents)
 	}
 	for id, record := range byID {
-		if record.Status != TaskCompleted {
+		if record.Status != dto.TaskCompleted {
 			t.Fatalf("%s status = %v, want completed", id, record.Status)
 		}
 	}

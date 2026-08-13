@@ -11,7 +11,6 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/workspace"
 )
 
@@ -119,7 +118,7 @@ func TestEngineMessageRoundTripPreservesResumeContext(t *testing.T) {
 	t.Parallel()
 	empty := ""
 	toolResult := "done"
-	original := []seelebridge.Message{
+	original := []types.Message{
 		{
 			Role: "assistant", ReasoningContent: "reasoning", Content: &empty,
 			ToolCalls: []types.ToolCall{{
@@ -150,7 +149,7 @@ func TestEnginePortReplaceHistoryUsesFreshReactorAndCollapsesSystemMessages(t *t
 		return fresh
 	}, nil)
 	resume := "resume from checkpoint"
-	if err := port.ReplaceRawHistory("logical-session", []seelebridge.Message{
+	if err := port.ReplaceRawHistory("logical-session", []types.Message{
 		{Role: "system", Content: &oldPrompt},
 		{Role: "system", Content: &duplicatePrompt},
 		{Role: "user", Content: &resume},
@@ -174,7 +173,7 @@ func TestEnginePortDefersCleanReactorUntilActiveCallReturns(t *testing.T) {
 	fresh := &fakeReactorEngine{sessionID: "engine-fresh"}
 	port := NewEnginePort(old, func(string) ReactorEngine { return fresh }, nil)
 	old.onChat = func() {
-		if err := port.ReplaceRawHistory("logical-session", []seelebridge.Message{
+		if err := port.ReplaceRawHistory("logical-session", []types.Message{
 			{Role: "system", Content: &prompt},
 			{Role: "user", Content: &checkpoint},
 		}); err != nil {
@@ -200,11 +199,11 @@ func TestEnginePortPreparesDurableLoadWithApplicationHistory(t *testing.T) {
 		}
 		return fresh
 	}, nil)
-	port.SetHistoryPreparer(func(_ string, history []seelebridge.Message) {
+	port.SetHistoryPreparer(func(_ string, history []types.Message) {
 		durableHistory = append([]types.Message(nil), history...)
 	})
 	assembled := "restored checkpoint"
-	if err := port.ReplaceRawHistory("logical-session", []seelebridge.Message{{Role: "system", Content: &assembled}}); err != nil {
+	if err := port.ReplaceRawHistory("logical-session", []types.Message{{Role: "system", Content: &assembled}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := port.ChatStream(context.Background(), "continue", nil); err != nil {

@@ -20,7 +20,7 @@ var repositoryModules = []string{
 	"internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
 	"plugins/freecad", "plugins/git", "plugins/read", "plugins/shell", "plugins/write", "scripts",
 	"seelebridge", "seelebridge/fork", "seelebridge/fs", "seelebridge/internal/config",
-	"seelebridge/internal/model", "seelebridge/internal/storage", "seelebridge/internal/stream",
+	"seelebridge/internal/model", "seelebridge/internal/stream",
 	"seelebridge/internal/telemetry", "seelebridge/plan",
 	"seelebridge/security", "seelebridge/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",

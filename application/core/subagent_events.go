@@ -3,12 +3,12 @@ package core
 import (
 	"strings"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // HandleSubagentToolEvent projects a Runtime tool dispatch into the bounded
 // authoritative Plan node snapshot and publishes one frontend incremental.
-func (service *Service) HandleSubagentToolEvent(event seelebridge.SubagentToolEvent) {
+func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent) {
 	if strings.TrimSpace(event.NodeID) == "" || strings.TrimSpace(event.ID) == "" {
 		return
 	}

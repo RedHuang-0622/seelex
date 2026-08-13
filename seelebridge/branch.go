@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 
 	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/node"
 )
@@ -41,12 +42,12 @@ func stableHash(seed string) uint32 {
 	return hash.Sum32()
 }
 
-// PlanBranchEvent / PlanBranchBinding 类型定义见 seelebridge/plan（根包
+// plan.PlanBranchEvent / dto.PlanBranchBinding 类型定义见 seelebridge/plan（根包
 // plan_aliases.go 重导出）；本文件保留 Runtime 方法（绑定读取/账号解析）。
 
-func (r *Runtime) currentPlanBranchBinding() PlanBranchBinding {
+func (r *Runtime) currentPlanBranchBinding() dto.PlanBranchBinding {
 	if r == nil || r.planExecutor == nil {
-		return PlanBranchBinding{}
+		return dto.PlanBranchBinding{}
 	}
 	return r.planExecutor.Binding()
 }
@@ -59,7 +60,7 @@ func (r *Runtime) setSelectedAccount(name string) {
 
 // resolvePlanBranchAccount 按 binding 解析分支账号：显式 AccountID 直接 pin，
 // 否则按 role + seed 走确定性 hash 选择（不占用主链路租约）。
-func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role model.AccountRole, branchID string) (string, error) {
+func (r *Runtime) resolvePlanBranchAccount(binding dto.PlanBranchBinding, role model.AccountRole, branchID string) (string, error) {
 	if binding.AccountID != "" {
 		if spec := accountByName(r.accountSpecList(), binding.AccountID); spec == nil {
 			return "", fmt.Errorf("plan branch %q: selected account %q is unavailable", branchID, binding.AccountID)
@@ -70,11 +71,11 @@ func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role model
 }
 
 // roleForPlanBranch 判定分支角色（实现下沉 seelebridge/node，本包装供根包账号路由复用）。
-func roleForPlanBranch(binding PlanBranchBinding, branchID string) model.AccountRole {
+func roleForPlanBranch(binding dto.PlanBranchBinding, branchID string) model.AccountRole {
 	return node.RoleForPlanBranch(binding, branchID)
 }
 
-func branchTraceID(binding PlanBranchBinding, branchID string) string {
+func branchTraceID(binding dto.PlanBranchBinding, branchID string) string {
 	if binding.TraceID == "" {
 		return branchID
 	}

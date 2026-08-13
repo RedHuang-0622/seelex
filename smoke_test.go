@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 func TestSmokeLLM(t *testing.T) {
@@ -30,7 +31,7 @@ func TestSmokeLLM(t *testing.T) {
 	// 2. 主会话（session.NewSession）
 	tmpDir, _ := os.MkdirTemp("", "seelex-smoke")
 	defer os.RemoveAll(tmpDir)
-	store, err := seelebridge.NewSessionStore(tmpDir)
+	store, err := sessionstore.NewSessionStore(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}

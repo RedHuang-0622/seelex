@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/seelebridge/session"
+	session "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 

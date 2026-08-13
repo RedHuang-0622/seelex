@@ -11,6 +11,7 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
@@ -27,13 +28,13 @@ func TestPlanExecutorPolicyAndBinding(t *testing.T) {
 		t.Fatal("plan executor is not constructed")
 	}
 
-	executor.SetPolicy(PlanPolicy{Effort: "test", MaxNodes: 3, MaxForkConcurrency: 2})
+	executor.SetPolicy(dto.PlanPolicy{Effort: "test", MaxNodes: 3, MaxForkConcurrency: 2})
 	policy := executor.Policy()
 	if policy.Effort != "test" || policy.MaxNodes != 3 || policy.MaxForkConcurrency != 2 {
 		t.Fatalf("policy = %+v, want test/max-nodes-3/fork-2", policy)
 	}
 
-	binding := PlanBranchBinding{
+	binding := dto.PlanBranchBinding{
 		SessionID: "s1", WorkspaceID: "w1", PlanID: "p1", EntryNodeID: "gate",
 		AccountID: "a1", PrimaryRole: model.RoleAgent, TraceID: "t1",
 	}
@@ -49,10 +50,10 @@ func TestPlanExecutorRunLifecycle(t *testing.T) {
 	runtime.RegisterBuiltins()
 	executor := runtime.planExecutor
 
-	projected := make(chan PlanNodeEvent, 16)
-	executor.SetPlanNodeCallback(func(ev PlanNodeEvent) { projected <- ev })
+	projected := make(chan dto.PlanNodeEvent, 16)
+	executor.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) { projected <- ev })
 
-	runtime.SetPlanBranchBinding(PlanBranchBinding{SessionID: "session-1", PlanID: "p-life", WorkspaceID: "w1"})
+	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{SessionID: "session-1", PlanID: "p-life", WorkspaceID: "w1"})
 	runtime.appendNodePhase(context.Background(), "start", "running")
 	select {
 	case ev := <-projected:

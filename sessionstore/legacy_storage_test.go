@@ -1,4 +1,4 @@
-package seelebridge
+package sessionstore
 
 import "testing"
 

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
-	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
 // EffortManager 管理 Effort 等级及对应行为。
@@ -35,7 +35,7 @@ type ReActBudget struct {
 type effortProfile struct {
 	prompt     string
 	maxLoops   int
-	planPolicy seelebridge.PlanPolicy
+	planPolicy dto.PlanPolicy
 	budget     ReActBudget
 }
 
@@ -46,25 +46,25 @@ var effortProfiles = map[string]effortProfile{
 	"lite": {
 		prompt:     promptassets.Effort("lite"),
 		maxLoops:   15,
-		planPolicy: seelebridge.PlanPolicy{Effort: "lite"},
+		planPolicy: dto.PlanPolicy{Effort: "lite"},
 		budget:     ReActBudget{MaxToolRounds: 15, MaxToolCalls: 30, MaxNoProgressRounds: 6},
 	},
 	"medium": {
 		prompt:     promptassets.Effort("medium"),
 		maxLoops:   48,
-		planPolicy: seelebridge.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1},
+		planPolicy: dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1},
 		budget:     ReActBudget{MaxToolRounds: 48, MaxToolCalls: 96, MaxNoProgressRounds: 10},
 	},
 	"high": {
 		prompt:     promptassets.Effort("high"),
 		maxLoops:   384,
-		planPolicy: seelebridge.PlanPolicy{Effort: "high", MaxForkConcurrency: 3, MaxNodeLoops: 48},
+		planPolicy: dto.PlanPolicy{Effort: "high", MaxForkConcurrency: 3, MaxNodeLoops: 48},
 		budget:     ReActBudget{MaxToolRounds: 384, MaxToolCalls: 768, MaxNoProgressRounds: 24},
 	},
 	"max": {
 		prompt:     promptassets.Effort("max"),
 		maxLoops:   768,
-		planPolicy: seelebridge.PlanPolicy{Effort: "max", MaxNodeLoops: 96},
+		planPolicy: dto.PlanPolicy{Effort: "max", MaxNodeLoops: 96},
 		budget:     ReActBudget{MaxToolRounds: 768, MaxToolCalls: 1536, MaxNoProgressRounds: 48},
 	},
 }
@@ -96,7 +96,7 @@ func ReActBudgetFor(level string) ReActBudget {
 // plan_load at an effort level. It never makes planning a chat-entry gate.
 // Max uses the loaded plan's node count as its concurrency cap so all
 // currently runnable nodes can start together.
-func PlanningPolicy(level string) seelebridge.PlanPolicy {
+func PlanningPolicy(level string) dto.PlanPolicy {
 	profile, ok := effortProfileFor(level)
 	if !ok {
 		profile = effortProfiles["lite"]
@@ -105,7 +105,7 @@ func PlanningPolicy(level string) seelebridge.PlanPolicy {
 }
 
 // PlanPolicy returns the constraints for the manager's current effort level.
-func (m *EffortManager) PlanPolicy() seelebridge.PlanPolicy {
+func (m *EffortManager) PlanPolicy() dto.PlanPolicy {
 	return PlanningPolicy(m.Current())
 }
 

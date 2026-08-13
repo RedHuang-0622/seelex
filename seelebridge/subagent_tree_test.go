@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
@@ -39,10 +40,10 @@ func TestSubAgentTreeRegisterForkProjection(t *testing.T) {
 	if root.Children[0].ID != "s1" || root.Children[0].ParentID != mainAgentNodeID {
 		t.Fatalf("child s1 = %+v", root.Children[0])
 	}
-	if root.Children[0].Goal != "audit module A" || root.Children[0].Status != SubAgentQueued {
+	if root.Children[0].Goal != "audit module A" || root.Children[0].Status != dto.SubAgentQueued {
 		t.Fatalf("child s1 goal/status = %+v", root.Children[0])
 	}
-	if root.Children[1].ID != "s2" || root.Status != SubAgentRunning {
+	if root.Children[1].ID != "s2" || root.Status != dto.SubAgentRunning {
 		t.Fatalf("root status must be running while any child runs: %+v", root)
 	}
 }
@@ -107,7 +108,7 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 
 	// 运行中挂载会话（registerNodeSession 路径）。
 	runtime.subagentTree.NoteSession("ok", nil) // nil 会话 no-op，不 panic
-	if got := treeNode(t, runtime, "ok"); got.Status != SubAgentQueued {
+	if got := treeNode(t, runtime, "ok"); got.Status != dto.SubAgentQueued {
 		t.Fatalf("spawned node must stay queued before its session starts, got %+v", got)
 	}
 	// 真实会话挂载仍保持 queued（挂载 ≠ 执行）。
@@ -116,12 +117,12 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.subagentTree.NoteSession("ok", liveSession)
-	if got := treeNode(t, runtime, "ok"); got.Status != SubAgentQueued {
+	if got := treeNode(t, runtime, "ok"); got.Status != dto.SubAgentQueued {
 		t.Fatalf("noteSession must keep queued (not executing yet), got %+v", got)
 	}
 	// 首次请求组装（SSE 流开启）→ queued 转 running。
 	runtime.markNodeStarted("ok")
-	if got := treeNode(t, runtime, "ok"); got.Status != SubAgentRunning {
+	if got := treeNode(t, runtime, "ok"); got.Status != dto.SubAgentRunning {
 		t.Fatalf("markNodeStarted must transition queued -> running, got %+v", got)
 	}
 
@@ -130,11 +131,11 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 
 	// done 节点有界保留：状态 done + 摘要，供工作表格被动展示。
 	okNode := treeNode(t, runtime, "ok")
-	if okNode.Status != SubAgentDone || okNode.Summary != "audit done" {
+	if okNode.Status != dto.SubAgentDone || okNode.Summary != "audit done" {
 		t.Fatalf("done node must be retained with done status, got %+v", okNode)
 	}
 	bad := treeNode(t, runtime, "bad")
-	if bad.Status != SubAgentFailed || bad.Summary != "partial" || !strings.Contains(bad.Error, "boom") {
+	if bad.Status != dto.SubAgentFailed || bad.Summary != "partial" || !strings.Contains(bad.Error, "boom") {
 		t.Fatalf("failed node = %+v", bad)
 	}
 
@@ -144,7 +145,7 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 		t.Fatal("unknown node must not appear in the tree")
 	}
 	// 仅剩失败子代理 → 主代理合成根状态 failed。
-	if root := runtime.SubAgentTree()[0]; root.Status != SubAgentFailed {
+	if root := runtime.SubAgentTree()[0]; root.Status != dto.SubAgentFailed {
 		t.Fatalf("main status with failed child = %+v", root.Status)
 	}
 	// 失败节点可手动清空（清空入口：ClearSubagentTree）。
@@ -189,11 +190,11 @@ func TestSubAgentTreeNestedFork(t *testing.T) {
 	if len(child.Children) != 1 || child.Children[0].ID != "a1" || child.Children[0].ParentID != "a" {
 		t.Fatalf("nested child = %+v", child.Children)
 	}
-	if child.Children[0].Status != SubAgentQueued {
+	if child.Children[0].Status != dto.SubAgentQueued {
 		t.Fatalf("nested child status = %+v, want queued (session not started yet)", child.Children[0].Status)
 	}
 	// 父运行中子代理未完成 → 主代理根保持 running。
-	if root.Status != SubAgentRunning {
+	if root.Status != dto.SubAgentRunning {
 		t.Fatalf("main status = %+v, want running", root.Status)
 	}
 
@@ -203,7 +204,7 @@ func TestSubAgentTreeNestedFork(t *testing.T) {
 	if len(root.Children) != 1 || root.Children[0].ID != "a" {
 		t.Fatalf("root children after nested done = %+v", root.Children)
 	}
-	if len(root.Children[0].Children) != 1 || root.Children[0].Children[0].Status != SubAgentDone {
+	if len(root.Children[0].Children) != 1 || root.Children[0].Children[0].Status != dto.SubAgentDone {
 		t.Fatalf("nested done child must be retained as done, got %+v", root.Children[0].Children)
 	}
 }
@@ -256,7 +257,7 @@ func TestForkSubagentsRecordsTree(t *testing.T) {
 		t.Fatalf("tree must retain done fork nodes, got %+v", tree)
 	}
 	for _, child := range tree[0].Children {
-		if child.Status != SubAgentDone || !strings.Contains(child.Summary, "done") {
+		if child.Status != dto.SubAgentDone || !strings.Contains(child.Summary, "done") {
 			t.Fatalf("fork node must be done with summary, got %+v", child)
 		}
 	}
@@ -325,7 +326,7 @@ func TestSubAgentTreeRetainsBoundedDoneNodes(t *testing.T) {
 	// failed 节点不受 done 上限影响。
 	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "f1", Goal: "g"}})
 	runtime.completeSubagentNode("f1", "x", errors.New("boom"))
-	if got := treeNode(t, runtime, "f1"); got.Status != SubAgentFailed {
+	if got := treeNode(t, runtime, "f1"); got.Status != dto.SubAgentFailed {
 		t.Fatalf("failed node = %+v, want failed", got)
 	}
 }
@@ -337,8 +338,8 @@ func countSubagentTreeNodes(t *testing.T, runtime *Runtime) int {
 		return 0
 	}
 	count := 0
-	var walk func(items []SubAgentTreeNode)
-	walk = func(items []SubAgentTreeNode) {
+	var walk func(items []dto.SubAgentTreeNode)
+	walk = func(items []dto.SubAgentTreeNode) {
 		for _, item := range items {
 			if item.ID != mainAgentNodeID {
 				count++
@@ -351,10 +352,10 @@ func countSubagentTreeNodes(t *testing.T, runtime *Runtime) int {
 }
 
 // treeNode 从投影树中按 id 查找节点；未找到返回零值节点。
-func treeNode(t *testing.T, runtime *Runtime, id string) SubAgentTreeNode {
+func treeNode(t *testing.T, runtime *Runtime, id string) dto.SubAgentTreeNode {
 	t.Helper()
-	var find func(items []SubAgentTreeNode) SubAgentTreeNode
-	find = func(items []SubAgentTreeNode) SubAgentTreeNode {
+	var find func(items []dto.SubAgentTreeNode) dto.SubAgentTreeNode
+	find = func(items []dto.SubAgentTreeNode) dto.SubAgentTreeNode {
 		for _, item := range items {
 			if item.ID == id {
 				return item
@@ -363,11 +364,11 @@ func treeNode(t *testing.T, runtime *Runtime, id string) SubAgentTreeNode {
 				return found
 			}
 		}
-		return SubAgentTreeNode{}
+		return dto.SubAgentTreeNode{}
 	}
 	tree := runtime.SubAgentTree()
 	if len(tree) == 0 {
-		return SubAgentTreeNode{}
+		return dto.SubAgentTreeNode{}
 	}
 	return find(tree)
 }

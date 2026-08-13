@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	session "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"testing"
 )
 
@@ -17,8 +18,8 @@ func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T) {
 		return "result:" + arguments, nil
 	})
 
-	var events []SubagentToolEvent
-	runtime.SetSubagentToolCallback(func(event SubagentToolEvent) {
+	var events []session.SubagentToolEvent
+	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
 		events = append(events, event)
 	})
 
@@ -59,8 +60,8 @@ func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T) 
 		return "", errors.New("probe failed")
 	})
 
-	var events []SubagentToolEvent
-	runtime.SetSubagentToolCallback(func(event SubagentToolEvent) {
+	var events []session.SubagentToolEvent
+	runtime.SetSubagentToolCallback(func(event session.SubagentToolEvent) {
 		events = append(events, event)
 	})
 	ctx := WithNodeScope(context.Background(), NodeScope{NodeID: "node-f", Role: model.RoleSubAgent})

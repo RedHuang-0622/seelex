@@ -161,7 +161,7 @@ func isPlanTool(name string) bool {
 }
 
 // nodeScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
-// runtime/会话级单例状态（planToolProvider.loaded、TaskStack 终态），
+// runtime/会话级单例状态（plan.planToolProvider.loaded、TaskStack 终态），
 // 并行子代理调用会造成语义冲突（子代理 plan_run 递归嵌套 DAG、
 // task_complete 错误终结主任务）。其余工具与主代理一致可见。
 func nodeScopeExcludedTool(name string) bool {

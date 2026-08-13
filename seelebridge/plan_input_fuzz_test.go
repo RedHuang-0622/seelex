@@ -2,6 +2,7 @@ package seelebridge
 
 import (
 	"encoding/json"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"testing"
 )
 
@@ -19,14 +20,14 @@ func FuzzNormalizePlanLoadArguments(f *testing.F) {
 		if len(input) > 1<<20 {
 			t.Skip()
 		}
-		canonical, err := NormalizePlanLoadArguments(input)
+		canonical, err := plan.NormalizePlanLoadArguments(input)
 		if err != nil {
 			return
 		}
 		if !json.Valid([]byte(canonical)) {
 			t.Fatalf("normalizer returned invalid JSON: %q", canonical)
 		}
-		second, err := NormalizePlanLoadArguments(canonical)
+		second, err := plan.NormalizePlanLoadArguments(canonical)
 		if err != nil {
 			t.Fatalf("canonical output is not accepted: %v", err)
 		}

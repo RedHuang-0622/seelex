@@ -7,6 +7,7 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 )
@@ -109,35 +110,35 @@ func (harnessRuntime) SetFullAccess(bool)                                       
 func (harnessRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
 func (harnessRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
 func (harnessRuntime) DrainSubagentContexts() []string                                        { return nil }
-func (harnessRuntime) SetPlanPolicy(seelebridge.PlanPolicy)                                   {}
-func (harnessRuntime) PrepareReplan(context.Context, seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
-	return seelebridge.PlanPreflight{}, nil
+func (harnessRuntime) SetPlanPolicy(dto.PlanPolicy)                                           {}
+func (harnessRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
+	return dto.PlanPreflight{}, nil
 }
-func (harnessRuntime) ReplanMetrics() seelebridge.ReplanMetrics            { return seelebridge.ReplanMetrics{} }
-func (harnessRuntime) SetPlanBranchBinding(seelebridge.PlanBranchBinding)  {}
-func (harnessRuntime) BindProjectRoot(string) error                        { return nil }
-func (harnessRuntime) UnbindProjectRoot()                                  {}
-func (harnessRuntime) TodoSnapshot() []seelebridge.TodoItem                { return nil }
-func (harnessRuntime) SetTodoStatus(int, seelebridge.TodoItemStatus) error { return nil }
-func (harnessRuntime) TaskSnapshot() []seelebridge.TaskRecord              { return nil }
-func (harnessRuntime) TaskAdd(seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
-	return seelebridge.TaskRecord{}, false, nil
+func (harnessRuntime) ReplanMetrics() dto.ReplanMetrics            { return dto.ReplanMetrics{} }
+func (harnessRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)  {}
+func (harnessRuntime) BindProjectRoot(string) error                { return nil }
+func (harnessRuntime) UnbindProjectRoot()                          {}
+func (harnessRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
+func (harnessRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
+func (harnessRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
+func (harnessRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
+	return dto.TaskRecord{}, false, nil
 }
-func (harnessRuntime) ResolveTaskByKey(string) (seelebridge.TaskRecord, bool, error) {
-	return seelebridge.TaskRecord{}, false, nil
+func (harnessRuntime) ResolveTaskByKey(string) (dto.TaskRecord, bool, error) {
+	return dto.TaskRecord{}, false, nil
 }
-func (harnessRuntime) TaskSetStatus(string, seelebridge.TaskStatus, string) (seelebridge.TaskRecord, error) {
-	return seelebridge.TaskRecord{}, nil
+func (harnessRuntime) TaskSetStatus(string, dto.TaskStatus, string) (dto.TaskRecord, error) {
+	return dto.TaskRecord{}, nil
 }
-func (harnessRuntime) TaskAttachParticipant(string, string) (seelebridge.TaskRecord, error) {
-	return seelebridge.TaskRecord{}, nil
+func (harnessRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, error) {
+	return dto.TaskRecord{}, nil
 }
-func (harnessRuntime) TaskChangedChannel() <-chan seelebridge.TaskRecord { return nil }
-func (harnessRuntime) SubagentTreeEvents() <-chan struct{}               { return nil }
-func (harnessRuntime) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
+func (harnessRuntime) TaskChangedChannel() <-chan dto.TaskRecord { return nil }
+func (harnessRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
+func (harnessRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
-func (harnessRuntime) SwitchSessionTasks([]seelebridge.TaskRecord) {}
+func (harnessRuntime) SwitchSessionTasks([]dto.TaskRecord) {}
 func (harnessRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return nil
 }

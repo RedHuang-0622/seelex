@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // 本文件是 plan.md §3.4 的 TaskService：Task 与 Plan 分离。
@@ -352,7 +352,7 @@ func (s *TaskService) applyCheckNodeLocked(ctx context.Context, input taskTermin
 		}
 		// 打点同样写入节点事件时间线（详情页数据源）：tasklist 模式的节点
 		// 事件与 plan_run 的 queued/running/... 同构，`…` 详情按钮始终可用。
-		appendPlanNodeEvent(node, seelebridge.PlanNodeEvent{
+		appendPlanNodeEvent(node, dto.PlanNodeEvent{
 			NodeID: input.NodeID, Status: "completed", Output: input.Output, At: time.Now(),
 		})
 		recalculatePlanProgress(plan)

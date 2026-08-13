@@ -124,9 +124,3 @@ func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
 		t.Fatalf("full-access startup toggles = %#v, want [true]", runtime.fullAccess)
 	}
 }
-
-
-
-
-
-

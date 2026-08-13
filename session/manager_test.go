@@ -5,19 +5,19 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // ── fakeStore ──────────────────────────────────────────────────
 
 type fakeStore struct {
 	mu   sync.Mutex
-	meta []seelebridge.SessionMeta
-	msgs map[string][]seelebridge.Message
+	meta []sessionstore.SessionMeta
+	msgs map[string][]sessionstore.Message
 	err  error // 通用错误，设为非 nil 时可模拟错误
 }
 
-func (s *fakeStore) List() []seelebridge.SessionMeta {
+func (s *fakeStore) List() []sessionstore.SessionMeta {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.meta
@@ -39,7 +39,7 @@ func (s *fakeStore) Delete(sessionID string) error {
 	return nil
 }
 
-func (s *fakeStore) Load(sessionID string) ([]seelebridge.Message, error) {
+func (s *fakeStore) Load(sessionID string) ([]sessionstore.Message, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
@@ -48,7 +48,7 @@ func (s *fakeStore) Load(sessionID string) ([]seelebridge.Message, error) {
 	return s.msgs[sessionID], nil
 }
 
-func (s *fakeStore) LoadRange(sessionID string, offset, limit int) ([]seelebridge.Message, int, error) {
+func (s *fakeStore) LoadRange(sessionID string, offset, limit int) ([]sessionstore.Message, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
@@ -77,7 +77,7 @@ func (s *fakeStore) MessageCount(sessionID string) (int, error) {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		msgs: make(map[string][]seelebridge.Message),
+		msgs: make(map[string][]sessionstore.Message),
 	}
 }
 
@@ -158,7 +158,7 @@ func TestResume_LoadFnError(t *testing.T) {
 
 func TestList(t *testing.T) {
 	store := newFakeStore()
-	store.meta = []seelebridge.SessionMeta{
+	store.meta = []sessionstore.SessionMeta{
 		{SessionID: "s1"},
 		{SessionID: "s2"},
 	}
@@ -185,8 +185,8 @@ func TestList_Empty(t *testing.T) {
 func TestDelete(t *testing.T) {
 	content := "hello"
 	store := newFakeStore()
-	store.msgs["s1"] = []seelebridge.Message{{Role: "user", Content: &content}}
-	store.meta = []seelebridge.SessionMeta{{SessionID: "s1"}}
+	store.msgs["s1"] = []sessionstore.Message{{Role: "user", Content: &content}}
+	store.meta = []sessionstore.SessionMeta{{SessionID: "s1"}}
 	m := NewManager(store)
 
 	if err := m.Delete("s1"); err != nil {
@@ -214,7 +214,7 @@ func TestLoadHistory(t *testing.T) {
 	content1 := "hi"
 	content2 := "hello"
 	store := newFakeStore()
-	store.msgs["s1"] = []seelebridge.Message{
+	store.msgs["s1"] = []sessionstore.Message{
 		{Role: "user", Content: &content1},
 		{Role: "assistant", Content: &content2},
 	}
@@ -259,7 +259,7 @@ func TestLoadHistoryRange(t *testing.T) {
 	contentB := "b"
 	contentC := "c"
 	store := newFakeStore()
-	store.msgs["s1"] = []seelebridge.Message{
+	store.msgs["s1"] = []sessionstore.Message{
 		{Role: "user", Content: &contentA},
 		{Role: "assistant", Content: &contentB},
 		{Role: "user", Content: &contentC},
@@ -284,7 +284,7 @@ func TestLoadHistoryRange(t *testing.T) {
 func TestLoadHistoryRange_OutOfRange(t *testing.T) {
 	contentA := "a"
 	store := newFakeStore()
-	store.msgs["s1"] = []seelebridge.Message{{Role: "user", Content: &contentA}}
+	store.msgs["s1"] = []sessionstore.Message{{Role: "user", Content: &contentA}}
 	m := NewManager(store)
 
 	msgs, total, err := m.LoadHistoryRange("s1", 10, 5)
@@ -313,7 +313,7 @@ func TestMessageCount(t *testing.T) {
 	contentA := "a"
 	contentB := "b"
 	store := newFakeStore()
-	store.msgs["s1"] = []seelebridge.Message{
+	store.msgs["s1"] = []sessionstore.Message{
 		{Role: "user", Content: &contentA},
 		{Role: "assistant", Content: &contentB},
 	}
@@ -352,8 +352,8 @@ func TestMessageCount_StoreError(t *testing.T) {
 func TestConcurrentAccess(t *testing.T) {
 	store := newFakeStore()
 	content := "test"
-	store.msgs["s1"] = []seelebridge.Message{{Role: "user", Content: &content}}
-	store.meta = []seelebridge.SessionMeta{{SessionID: "s1"}}
+	store.msgs["s1"] = []sessionstore.Message{{Role: "user", Content: &content}}
+	store.meta = []sessionstore.SessionMeta{{SessionID: "s1"}}
 	m := NewManager(store)
 	m.InjectSaveLoad(
 		func(id string) error { return nil },

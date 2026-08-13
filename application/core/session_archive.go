@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -183,7 +183,7 @@ func mergeConversationMessages(existing, projected []Message) []Message {
 	return merged
 }
 
-func (service *sessionCoordinator) sessionRecordLocked(sessionID string, tasks []seelebridge.TaskRecord) SessionRecord {
+func (service *sessionCoordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskRecord) SessionRecord {
 	now := time.Now()
 	service.syncActivePlanFrameLocked(now)
 	title := service.sessionTitle
@@ -195,7 +195,7 @@ func (service *sessionCoordinator) sessionRecordLocked(sessionID string, tasks [
 		ActivePlanID: service.activePlanID,
 		PlanStack:    cloneSessionPlanStack(service.planStack),
 		// task 注册表快照随会话落盘（复用 stack 存储通道；锁外收集）。
-		Tasks:        append([]seelebridge.TaskRecord(nil), tasks...),
+		Tasks:        append([]dto.TaskRecord(nil), tasks...),
 		Conversation: ConversationRecord{UpdatedAt: now},
 		Execution:    SessionExecutionRecord{ReadFiles: append([]ReadFileRef(nil), service.snapshot.ReadFiles...)},
 		Projection:   service.taskProjectionLocked(sessionID),

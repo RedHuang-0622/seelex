@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -33,7 +34,7 @@ func (service *viewCoordinator) subscribe(buffer int) Subscription {
 type runtimeStateProjection struct {
 	sessionID string
 	runtime   RuntimeState
-	tasks     []seelebridge.TaskRecord
+	tasks     []dto.TaskRecord
 }
 
 // collectRuntimeProjection calls external ports without service.mu. Applying
@@ -52,7 +53,7 @@ func (service *viewCoordinator) collectRuntimeProjection(ctx context.Context) ru
 			Tokens:            service.deps.Engine.TokenCount(),
 			Plugins:           append([]PluginInfo(nil), service.deps.Plugins.All()...),
 			Accounts:          append([]AccountInfo(nil), service.deps.Runtime.Accounts()...),
-			TodoItems:         append([]seelebridge.TodoItem(nil), service.deps.Runtime.TodoSnapshot()...),
+			TodoItems:         append([]dto.TodoItem(nil), service.deps.Runtime.TodoSnapshot()...),
 			ScheduledTasks:    append([]seelebridge.ScheduledTaskStatus(nil), service.deps.Runtime.ScheduledTasksSnapshot()...),
 			ScheduledCommands: append([]seelebridge.ScheduledCommandInfo(nil), service.deps.Runtime.ScheduledCommands()...),
 			SubAgentTree:      service.deps.Engine.SubAgentTree(),

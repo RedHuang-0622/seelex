@@ -21,6 +21,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"gopkg.in/yaml.v3"
 
+	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/adapters"
 	"github.com/RedHuang-0622/seelex/application/console"
@@ -176,7 +177,7 @@ func run() error {
 		return fresh
 	}, runtime.Tracer())
 	appEngine.EnableWorkingHistoryRelease()
-	appEngine.SetHistoryPreparer(func(sessionID string, messages []seelebridge.Message) {
+	appEngine.SetHistoryPreparer(func(sessionID string, messages []types.Message) {
 		runtime.PrepareMainSessionHistory(sessionID, messages)
 	})
 	// The framework Session is intentionally created only by StartSession or

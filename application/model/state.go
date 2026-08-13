@@ -4,7 +4,9 @@ package model
 import (
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // ProtocolVersion identifies the Snapshot/Event contract consumed by frontends.
@@ -107,12 +109,12 @@ type RuntimeState struct {
 	Plan              *PlanState                         `json:"plan,omitempty"`
 	Plugins           []PluginInfo                       `json:"plugins,omitempty"`            // 完整插件列表（含描述）
 	Accounts          []AccountInfo                      `json:"accounts,omitempty"`           // 账号池
-	TodoItems         []seelebridge.TodoItem             `json:"todo_items,omitempty"`         // todolist 清单（GUI 待办面板）
+	TodoItems         []dto.TodoItem                     `json:"todo_items,omitempty"`         // todolist 清单（GUI 待办面板）
 	ScheduledTasks    []seelebridge.ScheduledTaskStatus  `json:"scheduled_tasks,omitempty"`    // 定时周期任务（GUI 定时任务面板）
 	ScheduledCommands []seelebridge.ScheduledCommandInfo `json:"scheduled_commands,omitempty"` // 白名单命令（新建弹窗下拉）
 	// SubAgentTree 是 fork 子代理树的权威投影（内存态，不落盘；GUI 树视图
 	// 数据源）。节点状态由 fork 子代理会话生命周期投影，随节点事件增量刷新。
-	SubAgentTree []seelebridge.SubAgentTreeNode `json:"subagent_tree,omitempty"`
+	SubAgentTree []dto.SubAgentTreeNode `json:"subagent_tree,omitempty"`
 	// WorkTable 是工作台统一工作表格的权威投影（plan 节点 / todolist 项 /
 	// fork 子代理 → 扁平 WorkItem 行，含任务打点 trace）。有界（行数上限
 	// limits.work_table_rows，trace 上限 limits.plan_node_events）。
@@ -175,13 +177,13 @@ type SessionRecord struct {
 	PlanStack    []SessionPlanFrame `json:"plan_stack,omitempty"`
 	// Tasks 是 task 注册表快照（worktable 条目；复用 session stack 持久化，
 	// 与 PlanStack 同一 immutable 存储通道，T4）。
-	Tasks        []seelebridge.TaskRecord `json:"tasks,omitempty"`
-	Conversation ConversationRecord       `json:"conversation"`
-	Execution    SessionExecutionRecord   `json:"execution"`
-	Projection   *TaskContextProjection   `json:"projection,omitempty"`
-	Checkpoints  []TaskCheckpoint         `json:"checkpoints,omitempty"`
-	ToolResults  []ToolResultRef          `json:"tool_results,omitempty"`
-	UpdatedAt    time.Time                `json:"updated_at,omitempty"`
+	Tasks        []dto.TaskRecord       `json:"tasks,omitempty"`
+	Conversation ConversationRecord     `json:"conversation"`
+	Execution    SessionExecutionRecord `json:"execution"`
+	Projection   *TaskContextProjection `json:"projection,omitempty"`
+	Checkpoints  []TaskCheckpoint       `json:"checkpoints,omitempty"`
+	ToolResults  []ToolResultRef        `json:"tool_results,omitempty"`
+	UpdatedAt    time.Time              `json:"updated_at,omitempty"`
 }
 
 // SessionArchive is the v1 sidecar shape retained only for migration. New
@@ -219,14 +221,14 @@ type ReplanMonitor struct {
 
 // PlanState 描述当前 WorkPlan 的执行状态（nil = 无活跃 Plan）。
 type PlanState struct {
-	Name        string                 `json:"name"`
-	EntryNodeID string                 `json:"entry_node_id"`
-	Status      PlanStatus             `json:"status"`
-	Nodes       []PlanNode             `json:"nodes,omitempty"`
-	Edges       []seelebridge.PlanEdge `json:"edges,omitempty"`
-	Progress    float64                `json:"progress"`
-	Elapsed     string                 `json:"elapsed,omitempty"`
-	ReplanCount int                    `json:"replan_count,omitempty"`
+	Name        string              `json:"name"`
+	EntryNodeID string              `json:"entry_node_id"`
+	Status      PlanStatus          `json:"status"`
+	Nodes       []PlanNode          `json:"nodes,omitempty"`
+	Edges       []seelplan.PlanEdge `json:"edges,omitempty"`
+	Progress    float64             `json:"progress"`
+	Elapsed     string              `json:"elapsed,omitempty"`
+	ReplanCount int                 `json:"replan_count,omitempty"`
 }
 
 type PlanStatus string
@@ -508,13 +510,13 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.Skills = append([]SkillInfo(nil), runtime.Skills...)
 	copyRuntime.Plugins = append([]PluginInfo(nil), runtime.Plugins...)
 	copyRuntime.Accounts = append([]AccountInfo(nil), runtime.Accounts...)
-	copyRuntime.TodoItems = append([]seelebridge.TodoItem(nil), runtime.TodoItems...)
+	copyRuntime.TodoItems = append([]dto.TodoItem(nil), runtime.TodoItems...)
 	copyRuntime.ScheduledTasks = append([]seelebridge.ScheduledTaskStatus(nil), runtime.ScheduledTasks...)
 	copyRuntime.ScheduledCommands = append([]seelebridge.ScheduledCommandInfo(nil), runtime.ScheduledCommands...)
 	if runtime.Plan != nil {
 		planCopy := *runtime.Plan
 		planCopy.Nodes = clonePlanNodes(runtime.Plan.Nodes)
-		planCopy.Edges = append([]seelebridge.PlanEdge(nil), runtime.Plan.Edges...)
+		planCopy.Edges = append([]seelplan.PlanEdge(nil), runtime.Plan.Edges...)
 		copyRuntime.Plan = &planCopy
 	}
 	copyRuntime.SubAgentTree = cloneSubAgentTree(runtime.SubAgentTree)
@@ -523,11 +525,11 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 }
 
 // cloneSubAgentTree 深拷贝子代理树投影（快照克隆不改旧快照的契约）。
-func cloneSubAgentTree(nodes []seelebridge.SubAgentTreeNode) []seelebridge.SubAgentTreeNode {
+func cloneSubAgentTree(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode {
 	if len(nodes) == 0 {
 		return nil
 	}
-	cloned := append([]seelebridge.SubAgentTreeNode(nil), nodes...)
+	cloned := append([]dto.SubAgentTreeNode(nil), nodes...)
 	for index := range cloned {
 		cloned[index].Children = cloneSubAgentTree(nodes[index].Children)
 	}

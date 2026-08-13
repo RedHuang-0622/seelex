@@ -9,7 +9,10 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
+	"github.com/RedHuang-0622/seelex/seelebridge/task"
 )
 
 // ── fork_subagents（切片 5，docs/2026-08-03-subagent-fork-architecture/plan.md §4）──
@@ -74,14 +77,14 @@ func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
 		{"s2", "audit module B", "SEEDED-OUTPUT-B: module B verified"},
 	}
 	for _, item := range seed {
-		task, created, err := runtime.TaskAdd(TaskSpec{
-			ID: "subagent:" + item.id, Key: taskKeyForGoal(item.goal),
-			Phase: TaskPhaseSubagent, Task: item.goal, Kind: "subagent",
+		task, created, err := runtime.TaskAdd(dto.TaskSpec{
+			ID: "subagent:" + item.id, Key: task.TaskKeyForGoal(item.goal),
+			Phase: dto.TaskPhaseSubagent, Task: item.goal, Kind: "subagent",
 		})
 		if err != nil || !created {
 			t.Fatalf("seed task %s: created=%v err=%v", item.id, created, err)
 		}
-		if _, err := runtime.TaskSetStatus(task.ID, TaskCompleted, "previous done"); err != nil {
+		if _, err := runtime.TaskSetStatus(task.ID, dto.TaskCompleted, "previous done"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -116,11 +119,11 @@ func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
 	}
 	// task 状态：completed（复用成功），retry_count=1（重试计数保留）。
 	for _, item := range seed {
-		record, found, err := runtime.ResolveTaskByKey(taskKeyForGoal(item.goal))
+		record, found, err := runtime.ResolveTaskByKey(task.TaskKeyForGoal(item.goal))
 		if err != nil || !found {
 			t.Fatalf("resolve %s: found=%v err=%v", item.goal, found, err)
 		}
-		if record.Status != TaskCompleted || record.RetryCount != 1 {
+		if record.Status != dto.TaskCompleted || record.RetryCount != 1 {
 			t.Errorf("task %s after reuse = status=%s retry=%d, want completed/1", item.goal, record.Status, record.RetryCount)
 		}
 	}
@@ -143,8 +146,8 @@ func TestForkSubagentsRetryRunsWhenNoStoredOutput(t *testing.T) {
 		`{"subagents":[{"id":"s1","goal":"audit module A"}]}`); err != nil {
 		t.Fatal(err)
 	}
-	before, found, err := runtime.ResolveTaskByKey(taskKeyForGoal("audit module A"))
-	if err != nil || !found || before.Status != TaskCompleted || before.RetryCount != 0 {
+	before, found, err := runtime.ResolveTaskByKey(task.TaskKeyForGoal("audit module A"))
+	if err != nil || !found || before.Status != dto.TaskCompleted || before.RetryCount != 0 {
 		t.Fatalf("after first run = %+v found=%v", before, found)
 	}
 
@@ -160,11 +163,11 @@ func TestForkSubagentsRetryRunsWhenNoStoredOutput(t *testing.T) {
 	if !strings.Contains(result, "retry-run: audit module A done") {
 		t.Fatalf("retry must actually re-run subagent, got:\n%s", result)
 	}
-	after, found, err := runtime.ResolveTaskByKey(taskKeyForGoal("audit module A"))
+	after, found, err := runtime.ResolveTaskByKey(task.TaskKeyForGoal("audit module A"))
 	if err != nil || !found {
 		t.Fatalf("resolve after retry: found=%v err=%v", found, err)
 	}
-	if after.Status != TaskCompleted || after.RetryCount != 1 {
+	if after.Status != dto.TaskCompleted || after.RetryCount != 1 {
 		t.Errorf("task after retry = status=%s retry=%d, want completed/1", after.Status, after.RetryCount)
 	}
 }
@@ -174,7 +177,7 @@ func TestForkSubagentsValidation(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
-	runtime.SetPlanPolicy(PlanPolicy{Effort: "test", MaxNodes: 2})
+	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "test", MaxNodes: 2})
 
 	cases := []struct {
 		name string
@@ -196,8 +199,8 @@ func TestForkSubagentsValidation(t *testing.T) {
 // TestForkSummaryNodeConcatenatesPredecessors 验证 summary 节点拼接
 // WorkflowContext.PrevResults（含排序确定性）。
 func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
-	spec := codec.NodeSpec[SeelexNodeInput]{ID: "summary", Kind: "summary",
-		Input: SeelexNodeInput{ID: "summary", Input: "summarize"}}
+	spec := codec.NodeSpec[plan.SeelexNodeInput]{ID: "summary", Kind: "summary",
+		Input: plan.SeelexNodeInput{ID: "summary", Input: "summarize"}}
 	n := fork.NewSummaryNode(spec)
 	wc := workplanTypes.NewWorkflowContext()
 	// 多行输出：紧凑摘要保留前 N 行（*N 语义），超出部分截断。
@@ -236,7 +239,7 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 }
 
 // TestForkPlanNodesCarryEffortLoopBudget 验证 fork 子代理节点循环预算复用
-// effort 调节值（PlanPolicy.MaxNodeLoops）：high=48 → 节点 48 轮；未设置
+// effort 调节值（dto.PlanPolicy.MaxNodeLoops）：high=48 → 节点 48 轮；未设置
 // （lite/medium）→ 回退通用 PlanNodeMaxLoops。
 func TestForkSummaryLinesCompact(t *testing.T) {
 	cases := []struct {

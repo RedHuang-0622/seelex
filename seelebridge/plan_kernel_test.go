@@ -13,14 +13,16 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // ── DSL → codec 文档 ─────────────────────────────────────────────────
 
 func TestCanonicalPlanDocumentConvertsDSL(t *testing.T) {
 	canonical := `{"entry":"inspect","nodes":{"inspect":{"input":"read source"},"verify":{"input":"verify claims","kind":"function"},"report":{"input":"report findings","kind":"deliver"}},"edges":{"inspect":["verify"],"verify":["report"]}}`
-	document, err := canonicalPlanDocument(canonical)
+	document, err := plan.CanonicalPlanDocument(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +32,7 @@ func TestCanonicalPlanDocumentConvertsDSL(t *testing.T) {
 	if len(document.Nodes) != 3 || len(document.Edges) != 2 {
 		t.Fatalf("document nodes=%d edges=%d, want 3/2", len(document.Nodes), len(document.Edges))
 	}
-	byID := map[string]codec.NodeSpec[SeelexNodeInput]{}
+	byID := map[string]codec.NodeSpec[plan.SeelexNodeInput]{}
 	for _, spec := range document.Nodes {
 		byID[spec.ID] = spec
 	}
@@ -48,7 +50,7 @@ func TestCanonicalPlanDocumentConvertsDSL(t *testing.T) {
 
 func TestCanonicalPlanDocumentRejectsMalformedNode(t *testing.T) {
 	canonical := `{"entry":"a","nodes":{"a":123},"edges":{}}`
-	if _, err := canonicalPlanDocument(canonical); err == nil {
+	if _, err := plan.CanonicalPlanDocument(canonical); err == nil {
 		t.Fatal("non-object node payload must be rejected")
 	}
 }
@@ -69,10 +71,10 @@ func TestBuildNodeKindMapping(t *testing.T) {
 		"deliver":  node.KindMethod,
 	}
 	for kind, wantKind := range cases {
-		built, err := runtime.buildNode(codec.NodeSpec[SeelexNodeInput]{
+		built, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 			ID:    "n-" + kind,
 			Kind:  kind,
-			Input: SeelexNodeInput{ID: "n-" + kind, Input: "work", Kind: kind},
+			Input: plan.SeelexNodeInput{ID: "n-" + kind, Input: "work", Kind: kind},
 		})
 		if err != nil {
 			t.Fatalf("kind %q: %v", kind, err)
@@ -88,10 +90,10 @@ func TestBuildNodeKindMapping(t *testing.T) {
 	}
 
 	// approve：经门控执行
-	approveNode, err := runtime.buildNode(codec.NodeSpec[SeelexNodeInput]{
+	approveNode, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "n-approve",
 		Kind:  "approve",
-		Input: SeelexNodeInput{ID: "n-approve", Input: "approve me", Kind: "approve"},
+		Input: plan.SeelexNodeInput{ID: "n-approve", Input: "approve me", Kind: "approve"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -107,10 +109,10 @@ func TestBuildNodeKindMapping(t *testing.T) {
 	}
 
 	// agent：SeelexAgentNode（bridge.NewAgentFactory 子代理包装）
-	agentNode, err := runtime.buildNode(codec.NodeSpec[SeelexNodeInput]{
+	agentNode, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "n-agent",
 		Kind:  "agent",
-		Input: SeelexNodeInput{ID: "n-agent", Input: "think", Kind: "agent"},
+		Input: plan.SeelexNodeInput{ID: "n-agent", Input: "think", Kind: "agent"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -123,10 +125,10 @@ func TestBuildNodeKindMapping(t *testing.T) {
 	}
 
 	// 未知 kind 拒绝
-	if _, err := runtime.buildNode(codec.NodeSpec[SeelexNodeInput]{
+	if _, err := runtime.buildNode(codec.NodeSpec[plan.SeelexNodeInput]{
 		ID:    "n-bad",
 		Kind:  "magic",
-		Input: SeelexNodeInput{ID: "n-bad", Input: "x", Kind: "magic"},
+		Input: plan.SeelexNodeInput{ID: "n-bad", Input: "x", Kind: "magic"},
 	}); err == nil {
 		t.Fatal("unsupported kind must be rejected")
 	}
@@ -232,8 +234,8 @@ func TestPlanRunProjectsNodeAndPlanStatus(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	projected := make(chan PlanNodeEvent, 32)
-	runtime.SetPlanNodeCallback(func(ev PlanNodeEvent) {
+	projected := make(chan dto.PlanNodeEvent, 32)
+	runtime.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) {
 		projected <- ev
 	})
 
@@ -331,13 +333,13 @@ func TestPlanRunRejectsWhenNoPlanLoaded(t *testing.T) {
 	}
 }
 
-// ── planEventSink 单元 ───────────────────────────────────────────────
+// ── plan.planEventSink 单元 ───────────────────────────────────────────────
 
 func TestPlanEventSinkAppendAndProjection(t *testing.T) {
-	sink := newPlanEventSink()
+	sink := plan.NewEventSink()
 
-	var projected []PlanNodeEvent
-	sink.Subscribe(func(ev PlanNodeEvent) { projected = append(projected, ev) })
+	var projected []dto.PlanNodeEvent
+	sink.Subscribe(func(ev dto.PlanNodeEvent) { projected = append(projected, ev) })
 
 	// 计划级事件 → NodeID 为空
 	if err := sink.Append(context.Background(), frameworkevent.Event{
@@ -383,7 +385,7 @@ func TestPlanEventSinkAppendAndProjection(t *testing.T) {
 }
 
 func TestPlanEventSinkPersisterReceivesEveryEvent(t *testing.T) {
-	sink := newPlanEventSink()
+	sink := plan.NewEventSink()
 	var persisted []frameworkevent.Event
 	sink.SetPersister(func(_ context.Context, ev frameworkevent.Event) error {
 		persisted = append(persisted, ev)

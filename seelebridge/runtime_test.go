@@ -14,8 +14,10 @@ import (
 
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -369,7 +371,7 @@ func TestPlanLoadAdapterNormalizesLLMFriendlyDAG(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
 
-	canonical, err := NormalizePlanLoadArguments(planLoadAdapterInput)
+	canonical, err := plan.NormalizePlanLoadArguments(planLoadAdapterInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +392,7 @@ func TestPlanLoadAdapterNormalizesLLMFriendlyDAG(t *testing.T) {
 }
 
 func TestPlanReplanPromptRendersCopyableManualRecovery(t *testing.T) {
-	prompt := replanPrompt(PlanPolicy{Effort: "high", MaxForkConcurrency: 3})
+	prompt := plan.ReplanPrompt(dto.PlanPolicy{Effort: "high", MaxForkConcurrency: 3})
 	for _, required := range []string{
 		"Copy this complete recovery shape first", `"entry":"diagnose"`, `"kind":"manual"`,
 		"only top-level keys", "Effort: `high`",
@@ -403,7 +405,7 @@ func TestPlanReplanPromptRendersCopyableManualRecovery(t *testing.T) {
 
 func TestNormalizePlanLoadArgumentsNormalizesNestedTargetsAndRejectsAmbiguousEdges(t *testing.T) {
 	nested := `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"report":{"input":"report"}},"edges":{"inspect":[{"to":"report"}]}}`
-	canonical, err := NormalizePlanLoadArguments(nested)
+	canonical, err := plan.NormalizePlanLoadArguments(nested)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,14 +413,14 @@ func TestNormalizePlanLoadArgumentsNormalizesNestedTargetsAndRejectsAmbiguousEdg
 		t.Fatalf("nested target canonical form = %s", canonical)
 	}
 	ambiguous := `{"entry":"inspect","nodes":[{"id":"inspect","input":"inspect"},{"id":"report","input":"report"}],"edges":[{"to":"report"}]}`
-	if _, err := NormalizePlanLoadArguments(ambiguous); err == nil || !strings.Contains(err.Error(), "from") {
+	if _, err := plan.NormalizePlanLoadArguments(ambiguous); err == nil || !strings.Contains(err.Error(), "from") {
 		t.Fatalf("ambiguous edge error = %v, want missing source", err)
 	}
 }
 
 func TestNormalizePlanLoadArgumentsRecoversOrderedEdgeTargetList(t *testing.T) {
 	input := `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"implement":{"input":"implement"},"verify":{"input":"verify"}},"edges":["implement","verify"]}`
-	canonical, err := NormalizePlanLoadArguments(input)
+	canonical, err := plan.NormalizePlanLoadArguments(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,14 +431,14 @@ func TestNormalizePlanLoadArgumentsRecoversOrderedEdgeTargetList(t *testing.T) {
 	}
 
 	duplicate := `{"entry":"inspect","nodes":{"inspect":{"input":"inspect"},"verify":{"input":"verify"}},"edges":["verify","verify"]}`
-	if _, err := NormalizePlanLoadArguments(duplicate); err == nil || !strings.Contains(err.Error(), "repeated") {
+	if _, err := plan.NormalizePlanLoadArguments(duplicate); err == nil || !strings.Contains(err.Error(), "repeated") {
 		t.Fatalf("duplicate ordered edge target error = %v", err)
 	}
 }
 
 func TestNormalizePlanLoadArgumentsMergesReferencedTopLevelNodeSpecs(t *testing.T) {
 	legacy := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"verify":{"input":"check"},"report":{"input":"summarize"},"edges":{"inspect":["verify"],"verify":["report"]}}`
-	canonical, err := NormalizePlanLoadArguments(legacy)
+	canonical, err := plan.NormalizePlanLoadArguments(legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,14 +449,14 @@ func TestNormalizePlanLoadArgumentsMergesReferencedTopLevelNodeSpecs(t *testing.
 	}
 
 	unsafe := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"item":{"input":"metadata"},"edges":{}}`
-	if _, err := NormalizePlanLoadArguments(unsafe); err == nil || !strings.Contains(err.Error(), "unexpected top-level field") {
+	if _, err := plan.NormalizePlanLoadArguments(unsafe); err == nil || !strings.Contains(err.Error(), "unexpected top-level field") {
 		t.Fatalf("unreferenced top-level field error = %v", err)
 	}
 }
 
 func TestNormalizePlanLoadArgumentsNormalizesExplicitEdgeChain(t *testing.T) {
 	input := `{"entry":"inspect","nodes":{"inspect":{"input":"read"},"verify":{"input":"check"},"report":{"input":"summarize"}},"edges":"inspect -> verify -> report"}`
-	canonical, err := NormalizePlanLoadArguments(input)
+	canonical, err := plan.NormalizePlanLoadArguments(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +466,7 @@ func TestNormalizePlanLoadArgumentsNormalizesExplicitEdgeChain(t *testing.T) {
 		}
 	}
 
-	if _, err := NormalizePlanLoadArguments(`{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":"inspect"}`); err == nil || !strings.Contains(err.Error(), "explicit chain") {
+	if _, err := plan.NormalizePlanLoadArguments(`{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":"inspect"}`); err == nil || !strings.Contains(err.Error(), "explicit chain") {
 		t.Fatalf("ambiguous edge string error = %v", err)
 	}
 }
@@ -478,7 +480,7 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 	parallelFourNodes := `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"},"right":{"input":"right"},"finish":{"input":"finish"}},"edges":{"start":["left","right"],"left":["finish"],"right":["finish"]}}`
 	fiveNodes := `{"entry":"one","nodes":{"one":{"input":"one"},"two":{"input":"two"},"three":{"input":"three"},"four":{"input":"four"},"five":{"input":"five"}},"edges":{"one":["two"],"two":["three"],"three":["four"],"four":["five"]}}`
 
-	runtime.SetPlanPolicy(PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1})
+	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1})
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", parallelFourNodes); err == nil || !strings.Contains(err.Error(), "serial chain") {
 		t.Fatalf("medium parallel plan error = %v, want serial-chain rejection", err)
 	}
@@ -492,7 +494,7 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 		t.Fatalf("medium concurrency = %d, want 1", runtime.planExecutor.MaxForkConcurrency())
 	}
 
-	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", MaxForkConcurrency: 3})
+	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "high", MaxForkConcurrency: 3})
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", parallelFourNodes); err != nil {
 		t.Fatalf("high parallel plan error = %v", err)
 	}
@@ -500,7 +502,7 @@ func TestPlanLoadEnforcesEffortPolicy(t *testing.T) {
 		t.Fatalf("high concurrency = %d, want 3", runtime.planExecutor.MaxForkConcurrency())
 	}
 
-	runtime.SetPlanPolicy(PlanPolicy{Effort: "max"})
+	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "max"})
 	if _, err := runtime.Agent().DirectDispatch(context.Background(), "plan_load", fiveNodes); err != nil {
 		t.Fatalf("max plan error = %v", err)
 	}
@@ -578,11 +580,11 @@ func TestRuntimePrepareReplanLoadsRecoveryPlanWithBoundedRetry(t *testing.T) {
 	}
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
-	runtime.SetPlanPolicy(PlanPolicy{Effort: "lite"})
+	runtime.SetPlanPolicy(dto.PlanPolicy{Effort: "lite"})
 	// replan 恢复路径经 plan_load（plan 工具面归位后需 goal 激活可见）。
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 
-	result, err := runtime.PrepareReplan(context.Background(), ReplanRequest{
+	result, err := runtime.PrepareReplan(context.Background(), dto.ReplanRequest{
 		Objective:    "build the release",
 		PreviousPlan: `{"entry":"build"}`,
 		Failure:      `node "build": compiler failed`,
@@ -719,7 +721,7 @@ func TestRuntimePlanBranchBindingResolvesAccountsByRoleAndPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Shutdown()
-	runtime.SetPlanBranchBinding(PlanBranchBinding{
+	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{
 		SessionID: "session-1", WorkspaceID: "workspace-1", PlanID: "plan-1", EntryNodeID: "start", TraceID: "trace-1",
 	})
 	binding := runtime.currentPlanBranchBinding()
@@ -741,14 +743,14 @@ func TestRuntimePlanBranchBindingResolvesAccountsByRoleAndPin(t *testing.T) {
 		t.Fatalf("left account = %q err=%v", leftAccount, err)
 	}
 
-	runtime.SetPlanBranchBinding(PlanBranchBinding{SessionID: "session-1", AccountID: "subagent-2"})
+	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{SessionID: "session-1", AccountID: "subagent-2"})
 	pinned := runtime.currentPlanBranchBinding()
 	override, err := runtime.resolvePlanBranchAccount(pinned, model.RoleSubAgent, "left")
 	if err != nil || override != "subagent-2" {
 		t.Fatalf("explicit account override = %q err=%v", override, err)
 	}
 
-	runtime.SetPlanBranchBinding(PlanBranchBinding{SessionID: "session-1", AccountID: "missing-account"})
+	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{SessionID: "session-1", AccountID: "missing-account"})
 	missing := runtime.currentPlanBranchBinding()
 	if _, err := runtime.resolvePlanBranchAccount(missing, model.RoleSubAgent, "left"); err == nil {
 		t.Fatal("unavailable pinned account must fail")

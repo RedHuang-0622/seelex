@@ -13,7 +13,10 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
+	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
@@ -38,7 +41,7 @@ type fakeEngine struct {
 	nodeContext        *snapshot.ContextSnapshot
 	nodeToolResultFn   func(string, string) (string, bool)
 	nodeWorktreeInfoFn func(string) (seelebridge.NodeWorktreeInfo, bool)
-	subAgentTree       []seelebridge.SubAgentTreeNode
+	subAgentTree       []dto.SubAgentTreeNode
 }
 
 type sessionBackedBlockingEngine struct {
@@ -261,10 +264,10 @@ func (engine *fakeEngine) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWo
 	}
 	return engine.nodeWorktreeInfoFn(nodeID)
 }
-func (engine *fakeEngine) SubAgentTree() []seelebridge.SubAgentTreeNode {
+func (engine *fakeEngine) SubAgentTree() []dto.SubAgentTreeNode {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	return append([]seelebridge.SubAgentTreeNode(nil), engine.subAgentTree...)
+	return append([]dto.SubAgentTreeNode(nil), engine.subAgentTree...)
 }
 func (engine *fakeEngine) ReleaseWorkingHistory() {
 	engine.mu.Lock()
@@ -275,19 +278,19 @@ func (engine *fakeEngine) ReleaseWorkingHistory() {
 type fakeRuntime struct {
 	account        string
 	fullAccess     bool
-	binding        seelebridge.PlanBranchBinding
-	planPolicy     seelebridge.PlanPolicy
+	binding        dto.PlanBranchBinding
+	planPolicy     dto.PlanPolicy
 	visibility     seelebridge.RuntimeVisibilityProjection
 	evidence       seelebridge.ParentEvidenceProjection
 	mailbox        []string
-	replans        []seelebridge.ReplanRequest
-	replanResult   seelebridge.PlanPreflight
+	replans        []dto.ReplanRequest
+	replanResult   dto.PlanPreflight
 	replanErr      error
-	replanMetrics  seelebridge.ReplanMetrics
+	replanMetrics  dto.ReplanMetrics
 	projectRoot    string
 	todoMu         sync.Mutex
-	todoItems      []seelebridge.TodoItem
-	tasks          map[string]seelebridge.TaskRecord
+	todoItems      []dto.TodoItem
+	tasks          map[string]dto.TaskRecord
 	scheduledTasks []seelebridge.ScheduledTaskStatus
 	scheduledSpecs []seelebridge.ScheduledTaskSpec
 	cancelledTasks []string
@@ -325,46 +328,46 @@ func (runtime *fakeRuntime) DrainSubagentContexts() []string {
 	runtime.mailbox = nil
 	return items
 }
-func (runtime *fakeRuntime) SetPlanPolicy(policy seelebridge.PlanPolicy) {
+func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy) {
 	runtime.planPolicy = policy
 }
-func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
+func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error) {
 	runtime.replans = append(runtime.replans, request)
 	return runtime.replanResult, runtime.replanErr
 }
-func (runtime *fakeRuntime) ReplanMetrics() seelebridge.ReplanMetrics { return runtime.replanMetrics }
-func (runtime *fakeRuntime) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
+func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics { return runtime.replanMetrics }
+func (runtime *fakeRuntime) SetPlanBranchBinding(binding dto.PlanBranchBinding) {
 	runtime.binding = binding
 }
-func (runtime *fakeRuntime) TodoSnapshot() []seelebridge.TodoItem {
+func (runtime *fakeRuntime) TodoSnapshot() []dto.TodoItem {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
-	return append([]seelebridge.TodoItem(nil), runtime.todoItems...)
+	return append([]dto.TodoItem(nil), runtime.todoItems...)
 }
-func (runtime *fakeRuntime) SetTodoStatus(index int, status seelebridge.TodoItemStatus) error {
+func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) error {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
 	if index < 0 || index >= len(runtime.todoItems) {
 		return fmt.Errorf("fake todo index %d out of range", index)
 	}
 	runtime.todoItems[index].Status = status
-	runtime.todoItems[index].Done = status == seelebridge.TodoItemDone
+	runtime.todoItems[index].Done = status == dto.TodoItemDone
 	return nil
 }
-func (runtime *fakeRuntime) TaskSnapshot() []seelebridge.TaskRecord {
+func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
-	records := make([]seelebridge.TaskRecord, 0, len(runtime.todoItems)+len(runtime.tasks))
+	records := make([]dto.TaskRecord, 0, len(runtime.todoItems)+len(runtime.tasks))
 	for index, item := range runtime.todoItems {
-		status := seelebridge.TaskPending
+		status := dto.TaskPending
 		switch item.Status {
-		case seelebridge.TodoItemDoing:
-			status = seelebridge.TaskDoing
-		case seelebridge.TodoItemDone:
-			status = seelebridge.TaskCompleted
+		case dto.TodoItemDoing:
+			status = dto.TaskDoing
+		case dto.TodoItemDone:
+			status = dto.TaskCompleted
 		}
-		records = append(records, seelebridge.TaskRecord{
-			ID: fmt.Sprintf("todo:%d", index), Key: "todo:" + item.Text, Phase: seelebridge.TaskPhaseTasklist,
+		records = append(records, dto.TaskRecord{
+			ID: fmt.Sprintf("todo:%d", index), Key: "todo:" + item.Text, Phase: dto.TaskPhaseTasklist,
 			Task: item.Text, Status: status, Kind: "todo",
 		})
 	}
@@ -373,11 +376,11 @@ func (runtime *fakeRuntime) TaskSnapshot() []seelebridge.TaskRecord {
 	}
 	return records
 }
-func (runtime *fakeRuntime) TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
+func (runtime *fakeRuntime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
 	if runtime.tasks == nil {
-		runtime.tasks = make(map[string]seelebridge.TaskRecord)
+		runtime.tasks = make(map[string]dto.TaskRecord)
 	}
 	if spec.Key != "" {
 		for _, record := range runtime.tasks {
@@ -390,16 +393,16 @@ func (runtime *fakeRuntime) TaskAdd(spec seelebridge.TaskSpec) (seelebridge.Task
 	if id == "" {
 		id = fmt.Sprintf("task:%d", len(runtime.tasks)+1)
 	}
-	record := seelebridge.TaskRecord{
+	record := dto.TaskRecord{
 		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
-		Status: seelebridge.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
+		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
 		Dependencies: append([]string(nil), spec.Dependencies...),
 		Attachments:  append([]string(nil), spec.Attachments...),
 	}
 	runtime.tasks[id] = record
 	return record, true, nil
 }
-func (runtime *fakeRuntime) ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error) {
+func (runtime *fakeRuntime) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
 	for _, record := range runtime.tasks {
@@ -407,43 +410,43 @@ func (runtime *fakeRuntime) ResolveTaskByKey(key string) (seelebridge.TaskRecord
 			return record, true, nil
 		}
 	}
-	return seelebridge.TaskRecord{}, false, nil
+	return dto.TaskRecord{}, false, nil
 }
-func (runtime *fakeRuntime) TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error) {
+func (runtime *fakeRuntime) TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
 	record, ok := runtime.tasks[id]
 	if !ok {
-		return seelebridge.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
+		return dto.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
 	}
 	record.Status = status
-	if status == seelebridge.TaskRetry {
+	if status == dto.TaskRetry {
 		record.RetryCount++
 	}
 	runtime.tasks[id] = record
 	return record, nil
 }
-func (runtime *fakeRuntime) TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error) {
+func (runtime *fakeRuntime) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
 	record, ok := runtime.tasks[id]
 	if !ok {
-		return seelebridge.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
+		return dto.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
 	}
 	record.Participants = append(record.Participants, participant)
 	runtime.tasks[id] = record
 	return record, nil
 }
-func (*fakeRuntime) TaskChangedChannel() <-chan seelebridge.TaskRecord { return nil }
-func (*fakeRuntime) SubagentTreeEvents() <-chan struct{}               { return nil }
-func (*fakeRuntime) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
+func (*fakeRuntime) TaskChangedChannel() <-chan dto.TaskRecord { return nil }
+func (*fakeRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
+func (*fakeRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
-func (runtime *fakeRuntime) SwitchSessionTasks(records []seelebridge.TaskRecord) {
+func (runtime *fakeRuntime) SwitchSessionTasks(records []dto.TaskRecord) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
 	if runtime.tasks == nil {
-		runtime.tasks = make(map[string]seelebridge.TaskRecord)
+		runtime.tasks = make(map[string]dto.TaskRecord)
 	}
 	for id := range runtime.tasks {
 		delete(runtime.tasks, id)
@@ -1425,10 +1428,10 @@ func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
 // 带标记围栏、retry 计数、无活动任务返回空。
 func TestWorkTableTraceBlock(t *testing.T) {
 	runtime := &fakeRuntime{}
-	runtime.tasks = map[string]seelebridge.TaskRecord{
-		"task:1": {ID: "task:1", Phase: "task", Task: "分析模块", Status: seelebridge.TaskRunning, RetryCount: 2},
-		"todo:0": {ID: "todo:0", Phase: "tasklist", Task: "写测试", Status: seelebridge.TaskDoing},
-		"plan:x": {ID: "plan:x", Phase: "plan", Task: "已结束", Status: seelebridge.TaskCompleted},
+	runtime.tasks = map[string]dto.TaskRecord{
+		"task:1": {ID: "task:1", Phase: "task", Task: "分析模块", Status: dto.TaskRunning, RetryCount: 2},
+		"todo:0": {ID: "todo:0", Phase: "tasklist", Task: "写测试", Status: dto.TaskDoing},
+		"plan:x": {ID: "plan:x", Phase: "plan", Task: "已结束", Status: dto.TaskCompleted},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
@@ -1444,8 +1447,8 @@ func TestWorkTableTraceBlock(t *testing.T) {
 	}
 
 	// 全部终态 → 块为空（打点完即删除）。
-	runtime.tasks = map[string]seelebridge.TaskRecord{
-		"plan:x": {ID: "plan:x", Phase: "plan", Task: "已结束", Status: seelebridge.TaskCompleted},
+	runtime.tasks = map[string]dto.TaskRecord{
+		"plan:x": {ID: "plan:x", Phase: "plan", Task: "已结束", Status: dto.TaskCompleted},
 	}
 	if got := service.workTableTraceBlock(); got != "" {
 		t.Fatalf("trace block must be empty when no active tasks: %q", got)
@@ -1456,8 +1459,8 @@ func TestWorkTableTraceBlock(t *testing.T) {
 // 有活动任务时输入带标记块；无活动任务时不带（块随任务完成删除）。
 func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 	runtime := &fakeRuntime{}
-	runtime.tasks = map[string]seelebridge.TaskRecord{
-		"task:1": {ID: "task:1", Phase: "task", Task: "分析模块", Status: seelebridge.TaskRunning},
+	runtime.tasks = map[string]dto.TaskRecord{
+		"task:1": {ID: "task:1", Phase: "task", Task: "分析模块", Status: dto.TaskRunning},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
@@ -1469,7 +1472,7 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 		t.Fatalf("request input must carry the trace block before the input: %q", out)
 	}
 
-	runtime.tasks = map[string]seelebridge.TaskRecord{}
+	runtime.tasks = map[string]dto.TaskRecord{}
 	out, err = service.components.context.prepareExecutionContext("task-1", "继续")
 	if err != nil {
 		t.Fatal(err)
@@ -1483,8 +1486,8 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 // 注册表与工作表格，旧会话数据不污染新会话。
 func TestBeginNewSessionClearsWorkTable(t *testing.T) {
 	runtime := &fakeRuntime{}
-	runtime.tasks = map[string]seelebridge.TaskRecord{
-		"task:a": {ID: "task:a", Phase: seelebridge.TaskPhaseTask, Task: "a", Status: seelebridge.TaskRunning},
+	runtime.tasks = map[string]dto.TaskRecord{
+		"task:a": {ID: "task:a", Phase: dto.TaskPhaseTask, Task: "a", Status: dto.TaskRunning},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	service.mu.Lock()
@@ -1903,7 +1906,7 @@ func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T) {
 
 func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T) {
 	engine := &fakeEngine{}
-	runtime := &fakeRuntime{replanResult: seelebridge.PlanPreflight{
+	runtime := &fakeRuntime{replanResult: dto.PlanPreflight{
 		Arguments: `{"entry":"recover","nodes":{"recover":{"input":"diagnose the failed build"}},"edges":{}}`,
 		Result:    `{"status":"loaded","node_count":1}`,
 	}}
@@ -1968,7 +1971,7 @@ func TestResolvePlanFailureKeepsInteractionWhenReplanFails(t *testing.T) {
 }
 
 func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
-	runtime := &fakeRuntime{replanResult: seelebridge.PlanPreflight{
+	runtime := &fakeRuntime{replanResult: dto.PlanPreflight{
 		Arguments: `{"entry":"recover","nodes":{"recover":{"input":"diagnose"}},"edges":{}}`,
 		Result:    `{"status":"loaded","node_count":1}`,
 	}}
@@ -2005,7 +2008,7 @@ func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
 }
 
 func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T) {
-	runtime := &fakeRuntime{replanMetrics: seelebridge.ReplanMetrics{
+	runtime := &fakeRuntime{replanMetrics: dto.ReplanMetrics{
 		InFlight: 1, ConcurrentLimit: 2, WindowAttempts: 3, WindowLimit: 6,
 		Accepted: 3, Succeeded: 2, Failed: 1, Rejected: 4, DuplicateRejected: 1, ProviderRequests: 5,
 	}}
@@ -2039,9 +2042,9 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 
 	subscription := service.Subscribe(8)
 	defer subscription.Close()
-	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "queued", BranchID: "left", NodeID: "left"})
-	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "started", BranchID: "left", NodeID: "left"})
-	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "completed", BranchID: "left", NodeID: "left"})
+	service.HandlePlanBranchEvent(seelplan.PlanBranchEvent{Type: "queued", BranchID: "left", NodeID: "left"})
+	service.HandlePlanBranchEvent(seelplan.PlanBranchEvent{Type: "started", BranchID: "left", NodeID: "left"})
+	service.HandlePlanBranchEvent(seelplan.PlanBranchEvent{Type: "completed", BranchID: "left", NodeID: "left"})
 
 	snapshot := service.Snapshot()
 	if snapshot.Runtime.Plan == nil || snapshot.Runtime.Plan.Status != PlanRunning {
@@ -2075,7 +2078,7 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 		seen++
 	}
 
-	service.HandlePlanBranchEvent(seelebridge.PlanBranchEvent{Type: "panicked", BranchID: "start", NodeID: "start"})
+	service.HandlePlanBranchEvent(seelplan.PlanBranchEvent{Type: "panicked", BranchID: "start", NodeID: "start"})
 	snapshot = service.Snapshot()
 	if snapshot.Runtime.Plan.Status != PlanFailed || snapshot.Runtime.Plan.Nodes[0].Status != NodePanicked {
 		t.Fatalf("panic state = %+v", snapshot.Runtime.Plan)
@@ -2092,7 +2095,7 @@ func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	subscription := service.Subscribe(16)
 	defer subscription.Close()
 	long := strings.Repeat("x", Limits().EvidenceChars+20)
-	started := seelebridge.SubagentToolEvent{
+	started := seelsession.SubagentToolEvent{
 		ID: "subtool-1", NodeID: "worker", Name: "read_file", Arguments: long,
 		Status: "running", StartedAt: time.Now(),
 	}

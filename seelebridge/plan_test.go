@@ -1,23 +1,24 @@
 package seelebridge
 
 import (
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"reflect"
 	"testing"
 )
 
 func TestAdjacencyToEdgesStableOrder(t *testing.T) {
-	edges := AdjacencyToEdges(map[string][]string{
+	edges := plan.AdjacencyToEdges(map[string][]string{
 		"build": {"test", "lint"},
 		"start": {"build"},
 	})
-	want := []PlanEdge{{From: "build", To: "test"}, {From: "build", To: "lint"}, {From: "start", To: "build"}}
+	want := []plan.PlanEdge{{From: "build", To: "test"}, {From: "build", To: "lint"}, {From: "start", To: "build"}}
 	if !reflect.DeepEqual(edges, want) {
 		t.Fatalf("edges = %#v, want %#v", edges, want)
 	}
 }
 
 func TestTopoSortRespectsCrossDependency(t *testing.T) {
-	order := TopoSort("entry", map[string][]string{
+	order := plan.TopoSort("entry", map[string][]string{
 		"entry": {"build", "test"},
 		"test":  {"build"},
 	}, map[string]struct{}{"entry": {}, "build": {}, "test": {}})
@@ -28,7 +29,7 @@ func TestTopoSortRespectsCrossDependency(t *testing.T) {
 }
 
 func TestDetectCycle(t *testing.T) {
-	if err := DetectCycle(map[string][]string{"a": {"b"}, "b": {"a"}}); err == nil {
-		t.Fatal("DetectCycle returned nil for a cycle")
+	if err := plan.DetectCycle(map[string][]string{"a": {"b"}, "b": {"a"}}); err == nil {
+		t.Fatal("plan.DetectCycle returned nil for a cycle")
 	}
 }

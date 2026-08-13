@@ -15,7 +15,9 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
+	seelectxstorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
@@ -33,9 +35,9 @@ type EnginePort struct {
 	mu             sync.RWMutex
 	sessionID      string
 	activeCalls    int
-	pendingHistory []seelebridge.Message
+	pendingHistory []types.Message
 	pendingSession string
-	prepareHistory func(string, []seelebridge.Message)
+	prepareHistory func(string, []types.Message)
 	systemPrompt   string
 	maxLoops       int
 	sessionBacked  bool
@@ -53,7 +55,7 @@ type EnginePort struct {
 	nodeWorktree func(string) (seelebridge.NodeWorktreeInfo, bool)
 	// subAgentTree 是 fork 子代理树投影查询（GUI 树视图数据源；Runtime
 	// 注入，内存态只读 actor，安全）。
-	subAgentTree func() []seelebridge.SubAgentTreeNode
+	subAgentTree func() []dto.SubAgentTreeNode
 }
 
 // ReactorEngine is the small framework surface the application adapter
@@ -178,7 +180,7 @@ func (port *EnginePort) SetNodeToolResultProvider(fn func(string, string) (strin
 
 // SubAgentTree 转发 fork 子代理树投影查询（GUI 树视图数据源；内存态
 // 只读 actor，安全——不触碰主会话锁）。
-func (port *EnginePort) SubAgentTree() []seelebridge.SubAgentTreeNode {
+func (port *EnginePort) SubAgentTree() []dto.SubAgentTreeNode {
 	if port == nil || port.subAgentTree == nil {
 		return nil
 	}
@@ -186,7 +188,7 @@ func (port *EnginePort) SubAgentTree() []seelebridge.SubAgentTreeNode {
 }
 
 // SetSubAgentTreeProvider 注入子代理树投影查询源（Runtime 接线，main.go）。
-func (port *EnginePort) SetSubAgentTreeProvider(fn func() []seelebridge.SubAgentTreeNode) {
+func (port *EnginePort) SetSubAgentTreeProvider(fn func() []dto.SubAgentTreeNode) {
 	if port != nil {
 		port.subAgentTree = fn
 	}
@@ -221,12 +223,12 @@ func (port *EnginePort) ReplaceHistory(sessionID string, history []application.E
 // SetHistoryPreparer installs the Runtime-owned one-shot handoff used by the
 // framework Session's DurableHistory.Load. It is configured during startup,
 // before concurrent application work begins.
-func (port *EnginePort) SetHistoryPreparer(preparer func(string, []seelebridge.Message)) {
+func (port *EnginePort) SetHistoryPreparer(preparer func(string, []types.Message)) {
 	port.mu.Lock()
 	port.prepareHistory = preparer
 	port.mu.Unlock()
 }
-func (port *EnginePort) ReplaceRawHistory(sessionID string, history []seelebridge.Message) error {
+func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Message) error {
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()
 	defer port.mu.Unlock()
@@ -240,7 +242,7 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []seelebridg
 		// so appending them again here would duplicate the prompt on every
 		// compaction or recovery.
 		port.replaceActiveHistoryLocked(desired)
-		port.pendingHistory = append([]seelebridge.Message(nil), desired...)
+		port.pendingHistory = append([]types.Message(nil), desired...)
 		port.pendingSession = sessionID
 	} else {
 		port.installFreshHistoryLocked(desired, sessionID)
@@ -249,7 +251,7 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []seelebridg
 	return nil
 }
 
-func (port *EnginePort) replaceActiveHistoryLocked(history []seelebridge.Message) {
+func (port *EnginePort) replaceActiveHistoryLocked(history []types.Message) {
 	port.engine.ClearHistory()
 	hasSystem := false
 	for _, message := range port.engine.History() {
@@ -267,7 +269,7 @@ func (port *EnginePort) replaceActiveHistoryLocked(history []seelebridge.Message
 	}
 }
 
-func (port *EnginePort) installFreshHistoryLocked(history []seelebridge.Message, sessionID string) {
+func (port *EnginePort) installFreshHistoryLocked(history []types.Message, sessionID string) {
 	if port.newEngine == nil {
 		port.replaceActiveHistoryLocked(history)
 		if port.prepareHistory != nil {
@@ -299,8 +301,8 @@ func (port *EnginePort) installFreshHistoryLocked(history []seelebridge.Message,
 	}
 }
 
-func canonicalEngineHistory(history []seelebridge.Message) []seelebridge.Message {
-	canonical := make([]seelebridge.Message, 0, len(history))
+func canonicalEngineHistory(history []types.Message) []types.Message {
+	canonical := make([]types.Message, 0, len(history))
 	hasSystem := false
 	for _, message := range history {
 		if message.Role == "system" {
@@ -463,13 +465,13 @@ func attrTelemetryInt(attributes telemetry.Attributes, key string) int {
 func (port *EnginePort) History() []application.EngineMessage {
 	return adaptMessages(port.RawHistory())
 }
-func (port *EnginePort) RawHistory() []seelebridge.Message {
+func (port *EnginePort) RawHistory() []types.Message {
 	port.mu.RLock()
 	defer port.mu.RUnlock()
 	if port.engine == nil {
 		return nil
 	}
-	return append([]seelebridge.Message(nil), port.engine.History()...)
+	return append([]types.Message(nil), port.engine.History()...)
 }
 
 type RuntimePort struct{ Runtime *seelebridge.Runtime }
@@ -488,16 +490,16 @@ func (port RuntimePort) SetParentEvidenceProjection(projection seelebridge.Paren
 	port.Runtime.SetParentEvidenceProjection(projection)
 }
 func (port RuntimePort) DrainSubagentContexts() []string { return port.Runtime.DrainSubagentContexts() }
-func (port RuntimePort) SetPlanPolicy(policy seelebridge.PlanPolicy) {
+func (port RuntimePort) SetPlanPolicy(policy dto.PlanPolicy) {
 	port.Runtime.SetPlanPolicy(policy)
 }
-func (port RuntimePort) PrepareReplan(ctx context.Context, request seelebridge.ReplanRequest) (seelebridge.PlanPreflight, error) {
+func (port RuntimePort) PrepareReplan(ctx context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error) {
 	return port.Runtime.PrepareReplan(ctx, request)
 }
-func (port RuntimePort) ReplanMetrics() seelebridge.ReplanMetrics {
+func (port RuntimePort) ReplanMetrics() dto.ReplanMetrics {
 	return port.Runtime.ReplanMetrics()
 }
-func (port RuntimePort) SetPlanBranchBinding(binding seelebridge.PlanBranchBinding) {
+func (port RuntimePort) SetPlanBranchBinding(binding dto.PlanBranchBinding) {
 	port.Runtime.SetPlanBranchBinding(binding)
 }
 func (port RuntimePort) RestorePlan(ctx context.Context, arguments string) error {
@@ -507,37 +509,37 @@ func (port RuntimePort) BindProjectRoot(rootPath string) error {
 	return port.Runtime.BindProjectRoot(rootPath)
 }
 func (port RuntimePort) UnbindProjectRoot() { port.Runtime.UnbindProjectRoot() }
-func (port RuntimePort) TodoSnapshot() []seelebridge.TodoItem {
+func (port RuntimePort) TodoSnapshot() []dto.TodoItem {
 	return port.Runtime.TodoSnapshot()
 }
-func (port RuntimePort) SetTodoStatus(index int, status seelebridge.TodoItemStatus) error {
+func (port RuntimePort) SetTodoStatus(index int, status dto.TodoItemStatus) error {
 	return port.Runtime.SetTodoStatus(index, status)
 }
-func (port RuntimePort) TaskSnapshot() []seelebridge.TaskRecord {
+func (port RuntimePort) TaskSnapshot() []dto.TaskRecord {
 	return port.Runtime.TaskSnapshot()
 }
-func (port RuntimePort) TaskAdd(spec seelebridge.TaskSpec) (seelebridge.TaskRecord, bool, error) {
+func (port RuntimePort) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return port.Runtime.TaskAdd(spec)
 }
-func (port RuntimePort) ResolveTaskByKey(key string) (seelebridge.TaskRecord, bool, error) {
+func (port RuntimePort) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error) {
 	return port.Runtime.ResolveTaskByKey(key)
 }
-func (port RuntimePort) TaskSetStatus(id string, status seelebridge.TaskStatus, evidence string) (seelebridge.TaskRecord, error) {
+func (port RuntimePort) TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
 	return port.Runtime.TaskSetStatus(id, status, evidence)
 }
-func (port RuntimePort) TaskAttachParticipant(id, participant string) (seelebridge.TaskRecord, error) {
+func (port RuntimePort) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error) {
 	return port.Runtime.TaskAttachParticipant(id, participant)
 }
-func (port RuntimePort) TaskChangedChannel() <-chan seelebridge.TaskRecord {
+func (port RuntimePort) TaskChangedChannel() <-chan dto.TaskRecord {
 	return port.Runtime.TaskChangedChannel()
 }
 func (port RuntimePort) SubagentTreeEvents() <-chan struct{} {
 	return port.Runtime.SubagentTreeEvents()
 }
-func (port RuntimePort) PlanNodeEventChannel() <-chan seelebridge.PlanNodeEvent {
+func (port RuntimePort) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return port.Runtime.PlanNodeEventChannel()
 }
-func (port RuntimePort) SwitchSessionTasks(records []seelebridge.TaskRecord) {
+func (port RuntimePort) SwitchSessionTasks(records []dto.TaskRecord) {
 	port.Runtime.SwitchSessionTasks(records)
 }
 func (port RuntimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
@@ -958,7 +960,7 @@ func (port SessionPort) DeleteWorkspace(workspaceID, id string) error {
 	return port.Manager.DeleteByWorkspace(workspaceID, id)
 }
 
-func adaptSessionMeta(sessions []seelebridge.SessionMeta) []application.SessionInfo {
+func adaptSessionMeta(sessions []seelectxstorage.SessionMeta) []application.SessionInfo {
 	result := make([]application.SessionInfo, 0, len(sessions))
 	for _, item := range sessions {
 		result = append(result, application.SessionInfo{ID: item.SessionID, UpdatedAt: item.UpdatedAt, TokenCount: item.TokenCount})
@@ -972,7 +974,7 @@ func adaptPlugin(item plugin.Plugin) application.PluginInfo {
 func adaptSkill(item skill.Skill) application.SkillInfo {
 	return application.SkillInfo{Name: item.Name, Description: item.Description, Prompt: item.Prompt}
 }
-func adaptMessages(messages []seelebridge.Message) []application.EngineMessage {
+func adaptMessages(messages []types.Message) []application.EngineMessage {
 	result := make([]application.EngineMessage, 0, len(messages))
 	for _, message := range messages {
 		adapted := application.EngineMessage{
@@ -992,10 +994,10 @@ func adaptMessages(messages []seelebridge.Message) []application.EngineMessage {
 	return result
 }
 
-func restoreMessages(messages []application.EngineMessage) []seelebridge.Message {
-	result := make([]seelebridge.Message, 0, len(messages))
+func restoreMessages(messages []application.EngineMessage) []types.Message {
+	result := make([]types.Message, 0, len(messages))
 	for _, message := range messages {
-		adapted := seelebridge.Message{
+		adapted := types.Message{
 			Role: message.Role, ReasoningContent: message.ReasoningContent,
 			ToolCallID: message.ToolCallID, Name: message.Name,
 		}

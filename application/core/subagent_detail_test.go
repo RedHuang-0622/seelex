@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
@@ -196,7 +197,7 @@ func TestScheduledTasksProjectIntoRuntimeSnapshot(t *testing.T) {
 // TestTodoItemsProjectIntoRuntimeSnapshot 验证 todolist 清单经运行时投影
 // 进入 GUI 快照（runtime.changed 增量数据源）。
 func TestTodoItemsProjectIntoRuntimeSnapshot(t *testing.T) {
-	runtime := &fakeRuntime{todoItems: []seelebridge.TodoItem{{Text: "inspect module", Done: true}, {Text: "fix"}}}
+	runtime := &fakeRuntime{todoItems: []dto.TodoItem{{Text: "inspect module", Done: true}, {Text: "fix"}}}
 	svc := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	defer svc.Shutdown()
 	// 装配时已应用运行时投影；工具完成路径再次投影并发布 runtime.changed。

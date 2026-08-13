@@ -8,8 +8,10 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/node"
+	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -36,9 +38,9 @@ func (r *Runtime) completeSubagentNode(nodeID, summary string, err error) {
 	// task 注册表同步终态（B5：生命周期即打点源；application 侧同步因状态
 	// 一致而跳过，不重复打点）。非 fork 节点注册表无记录 → 忽略。
 	if r.tasks != nil {
-		status := TaskCompleted
+		status := dto.TaskCompleted
 		if err != nil {
-			status = TaskFailed
+			status = dto.TaskFailed
 		}
 		_, _ = r.tasks.SetStatus("subagent:"+nodeID, status, summary)
 	}
@@ -165,13 +167,13 @@ func (r *Runtime) markNodeStarted(nodeID string) {
 	r.nodeStarted[nodeID] = struct{}{}
 	r.nodeStartedMu.Unlock()
 	r.subagentTree.MarkRunning(nodeID)
-	_, _ = r.tasks.SetStatus("subagent:"+nodeID, TaskRunning, "stream started")
+	_, _ = r.tasks.SetStatus("subagent:"+nodeID, dto.TaskRunning, "stream started")
 }
 
 // nodePromptBlocks 构建节点级 PromptBlock：子代理章程（Claude Code 风格
 // 结构化提示词：Role/Context/Task/Investigation/Constraints/Verification）。
 // 父证据、预算、收尾契约全部并入章程（单一权威契约，不再拆碎块）。
-func (r *Runtime) nodePromptBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
+func (r *Runtime) nodePromptBlocks(input plan.SeelexNodeInput) []seelectx.PromptBlock {
 	blocks := make([]seelectx.PromptBlock, 0, 3)
 	blocks = append(blocks, seelectx.PromptBlock{
 		Name: "node-charter",
@@ -205,7 +207,7 @@ func (r *Runtime) goalSkillActive() bool {
 //     可用技能；与主代理"读取 skill 目录"对齐）；
 //   - node-skill-active：与节点目标匹配的 skill 完整指令（名称分词/描述词
 //     出现在节点 input 中即激活；未匹配 → 不注入，目录块仍在）。
-func (r *Runtime) nodeSkillBlocks(input SeelexNodeInput) []seelectx.PromptBlock {
+func (r *Runtime) nodeSkillBlocks(input plan.SeelexNodeInput) []seelectx.PromptBlock {
 	if r.skills == nil {
 		return nil
 	}
@@ -239,8 +241,8 @@ func (r *Runtime) nodeSkillBlocks(input SeelexNodeInput) []seelectx.PromptBlock 
 
 // nodeBudget 返回节点子代理的迭代轮数预算：优先节点输入参数（plan_load
 // 节点 budget 字段，plan.md §7.3），缺省回退 seele.yaml limits 的
-// plan_node_max_loops（默认 15）。上限由 PlanPolicy 校验。
-func (r *Runtime) nodeBudget(input SeelexNodeInput) node.NodeBudgetInfo {
+// plan_node_max_loops（默认 15）。上限由 dto.PlanPolicy 校验。
+func (r *Runtime) nodeBudget(input plan.SeelexNodeInput) node.NodeBudgetInfo {
 	limits := r.currentAccountLimits()
 	budget := node.NodeBudgetInfo{MaxLoops: r.limits.PlanNodeMaxLoops, MaxOutputTokens: limits.MaxOutputTokens}
 	if input.Budget != nil {
