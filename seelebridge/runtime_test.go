@@ -831,3 +831,14 @@ func newTestRuntime(t testing.TB) *Runtime {
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 	return runtime
 }
+
+// TestRuntimeShutdownIdempotentAndRegistered 验证生命周期链：NewRuntime 已登记
+// 资源持有者（逆序关停），重复 Shutdown 幂等不 panic。
+func TestRuntimeShutdownIdempotentAndRegistered(t *testing.T) {
+	runtime := newTestRuntime(t)
+	if len(runtime.lifecycle) == 0 {
+		t.Fatal("lifecycle must be registered by NewRuntime")
+	}
+	runtime.Shutdown()
+	runtime.Shutdown()
+}

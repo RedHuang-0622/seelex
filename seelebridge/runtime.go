@@ -119,6 +119,7 @@ type Runtime struct {
 	heartbeatInterval   time.Duration
 	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
 	scopedToolsReady    bool
+	lifecycle           []func() // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
 
 	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
 
@@ -330,6 +331,33 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		return nil, fmt.Errorf("seelebridge: create plan agent factory: %w", err)
 	}
 	r.planExecutor.SetAgentFactory(planAgentFactory)
+	// 生命周期登记（装配序；Shutdown 逆序关停）。只登记真实资源持有者；
+	// planExecutor/forkTool 无自有 goroutine，不登记。
+	r.lifecycle = nil
+	if r.tasks != nil {
+		r.lifecycle = append(r.lifecycle, r.tasks.Close)
+	}
+	if r.subagentContext != nil {
+		r.lifecycle = append(r.lifecycle, r.subagentContext.Close)
+	}
+	if r.subagentSessions != nil {
+		r.lifecycle = append(r.lifecycle, r.subagentSessions.Close)
+	}
+	if r.scheduler != nil {
+		r.lifecycle = append(r.lifecycle, r.scheduler.Stop)
+	}
+	if r.worktreeMgr != nil {
+		r.lifecycle = append(r.lifecycle, r.worktreeMgr.Close)
+	}
+	if r.node != nil {
+		r.lifecycle = append(r.lifecycle, r.node.Close)
+	}
+	if r.mcpManager != nil {
+		r.lifecycle = append(r.lifecycle, r.mcpManager.Close)
+	}
+	if r.agt != nil {
+		r.lifecycle = append(r.lifecycle, r.agt.Shutdown)
+	}
 	return r, nil
 }
 
@@ -419,26 +447,11 @@ func (r *Runtime) Shutdown() {
 	if r == nil {
 		return
 	}
-	// todolist mailbox actor 优雅停机（Stop 消费者 goroutine，避免泄漏）。
-	if r.tasks != nil {
-		r.tasks.Close()
-	}
-	// 子代理上下文 actor 优雅停机（父证据/merge-back 队列；幂等）。
-	if r.subagentContext != nil {
-		r.subagentContext.Close()
-	}
-	if r.subagentSessions != nil {
-		r.subagentSessions.Close()
-	}
-	if r.worktreeMgr != nil {
-		r.worktreeMgr.Close()
-	}
-	// 定时周期任务优雅停机：停 ticker + 取消运行中任务并等待退出。
-	if r.scheduler != nil {
-		r.scheduler.Stop()
-	}
-	if r.agt != nil {
-		r.agt.Shutdown()
+	// 逆装配序统一关停（NewRuntime 登记）；幂等由各实现保证。
+	for index := len(r.lifecycle) - 1; index >= 0; index-- {
+		if r.lifecycle[index] != nil {
+			r.lifecycle[index]()
+		}
 	}
 }
 

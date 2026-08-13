@@ -40,6 +40,10 @@ type Manager struct {
 
 	lazyMu sync.RWMutex
 	lazy   map[string]Server
+
+	closeMu sync.Mutex
+	closed  bool
+	wg      sync.WaitGroup // 熔断事件监听 goroutine
 }
 
 // breakerState 是 breaker 事件通道（instance-level）。
@@ -80,6 +84,9 @@ func (m *Manager) BreakerEvents() <-chan frameworkmcp.BreakerEvent {
 //  2. Starts mcpstack.ListenBreaker to record breaker events into MCPStack
 //  3. Refreshes tool list so new tools are visible
 func (m *Manager) Attach(ctx context.Context, cfg Server) error {
+	if m.isClosed() {
+		return fmt.Errorf("seelebridge: MCP manager is closed")
+	}
 	provider := m.Provider()
 	frameworkCfg, err := ToFramework(cfg)
 	if err != nil {
@@ -88,13 +95,45 @@ func (m *Manager) Attach(ctx context.Context, cfg Server) error {
 
 	// Ensure breaker events channel + listener are active
 	ch := m.BreakerEvents()
-	go mcpstack.ListenBreaker(m.stack, ch)
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		mcpstack.ListenBreaker(m.stack, ch)
+	}()
 
 	if err := provider.Attach(ctx, frameworkCfg); err != nil {
 		return fmt.Errorf("seelebridge: attach MCP %q: %w", cfg.Name, err)
 	}
 	m.refreshTools(provider)
 	return nil
+}
+
+func (m *Manager) isClosed() bool {
+	m.closeMu.Lock()
+	defer m.closeMu.Unlock()
+	return m.closed
+}
+
+// Close 关闭 MCP 管理器：停掉熔断事件监听（close(ch) 使 ListenBreaker
+// range 退出）并等待 goroutine 结束。幂等。注意：Close 后 Attach 返回错误；
+// breaker 通道关闭后 provider 若再有熔断事件发送会 panic——Close 只应在
+// Runtime Shutdown 终局路径调用。
+func (m *Manager) Close() {
+	m.closeMu.Lock()
+	if m.closed {
+		m.closeMu.Unlock()
+		return
+	}
+	m.closed = true
+	ch := (*chan frameworkmcp.BreakerEvent)(nil)
+	if m.breaker != nil {
+		ch = &m.breaker.ch
+	}
+	m.closeMu.Unlock()
+	if ch != nil && *ch != nil {
+		close(*ch)
+	}
+	m.wg.Wait()
 }
 
 // AttachServer 是 plugin 域使用的展开入参版 Attach。

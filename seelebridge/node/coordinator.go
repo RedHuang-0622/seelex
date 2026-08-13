@@ -78,6 +78,17 @@ func NewCoordinator(deps CoordinatorDeps) *Coordinator {
 	}
 }
 
+// Close 清理节点协调器状态（started 去重表），幂等；节点本身无 goroutine，
+// 会话/树/上下文 actor 由各自域关闭。
+func (c *Coordinator) Close() {
+	if c == nil {
+		return
+	}
+	c.startedMu.Lock()
+	c.started = make(map[string]struct{})
+	c.startedMu.Unlock()
+}
+
 // RegisterSession 注册运行中的子代理会话（详情查询数据面）。
 func (c *Coordinator) RegisterSession(nodeID string, sess *frameworkSession.Session, goal string) {
 	if c == nil || c.deps.Sessions == nil || c.deps.Tree == nil {
