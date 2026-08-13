@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
+	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
@@ -30,6 +31,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
@@ -96,8 +98,6 @@ type Runtime struct {
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
 	// 串行处理），替代原来的 parentEvidenceMu / subagentOverflowMu 两把锁。
 	subagentContext *subagentsession.SubagentContextActor
-	nodeStartedMu   sync.Mutex
-	nodeStarted     map[string]struct{}
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
 	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
@@ -108,6 +108,7 @@ type Runtime struct {
 	filesystem        fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	sandbox           security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
 	dockerProbe       dockerProber              // docker 守护进程探测/启动（nil → 真实实现；测试注入）
+	node              *seenode.Coordinator      // 节点协调器（node/ 域）：会话注册/fork 树/task 打点/plan 阶段/Blocks
 	worktreeMgr       *worktree.WorktreeManager // 子代理 worktree 生命周期组件（worktree/ 域）
 	forkTool          *fork.Tool                // fork_subagents 执行编排（fork/ 域）
 	tasks             *task.TaskRegistry        // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
@@ -261,7 +262,6 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		subagentSessions:    subagentsession.NewSubagentSessions(tracer),
 		subagentTree:        subagentsession.NewSubagentTree(tracer),
 		subagentContext:     subagentsession.NewSubagentContextActor(tracer),
-		nodeStarted:         make(map[string]struct{}),
 
 		window: seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
 		tracer: tracer,
@@ -290,11 +290,37 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		Dispatch:    r.agentDispatch,
 		NodeFactory: r.nodeFactory,
 	}, cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow)
+	// 节点协调器：session/fork/task/plan 经接口与闭包注入，域内不反向依赖
+	// Runtime；面向 AgentNode.Deps 与 RuntimePort 互相承接。
+	r.node = seenode.NewCoordinator(seenode.CoordinatorDeps{
+		Sessions: r.subagentSessions,
+		Tree:     r.subagentTree,
+		Tasks:    r.tasks,
+		Plan:     r.planExecutor,
+		Evidence: r.subagentContext.NodeParentEvidence,
+		Limits:   r.limits,
+		GoalSkillActive: func() bool {
+			if projection := r.visibilityProjection.Load(); projection != nil {
+				return projection.GoalSkillActive
+			}
+			return false
+		},
+		AccountLimits: r.currentAccountLimits,
+		InheritedBlocks: func() []seelectx.PromptBlock {
+			blocks := make([]seelectx.PromptBlock, 0, 2)
+			if project := r.projectBlock(); project != nil {
+				blocks = append(blocks, *project)
+			}
+			blocks = append(blocks, r.stackBlocks()...)
+			return blocks
+		},
+		RelatedMemory: r.relatedMemoryBlocks,
+	})
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
 	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
 		Root:  r.projectScope.Root,
-		Phase: r.appendNodePhase,
+		Phase: r.node.AppendPhase,
 		Gate:  r.planExecutor.CurrentApprovalGate,
 	})
 	r.forkTool = fork.NewTool(r.forkDeps())

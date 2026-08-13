@@ -20,13 +20,13 @@ func TestNodeBudgetPrefersNodeInput(t *testing.T) {
 	defer runtime.Shutdown()
 
 	// 缺省（无 budget）：回退 limits（默认 15）。
-	if b := runtime.nodeBudget(plan.SeelexNodeInput{ID: "a", Input: "x"}); b.MaxLoops != 15 {
+	if b := runtime.node.Budget(plan.SeelexNodeInput{ID: "a", Input: "x"}); b.MaxLoops != 15 {
 		t.Fatalf("default max_loops = %d, want 15", b.MaxLoops)
 	}
 
 	// 部分覆盖：只指定 max_loops，max_output_tokens 保持 limits。
 	in := plan.SeelexNodeInput{ID: "a", Input: "x", Budget: &plan.NodeBudgetInput{MaxLoops: 8}}
-	b := runtime.nodeBudget(in)
+	b := runtime.node.Budget(in)
 	if b.MaxLoops != 8 {
 		t.Fatalf("budget max_loops = %d, want 8", b.MaxLoops)
 	}
@@ -86,14 +86,14 @@ func TestNodeSkillBlocksInjected(t *testing.T) {
 	runtime.SetSkillRegistry(registry)
 
 	// registry 已装配、输入 "audit" 无激活匹配 → 章程 + 目录块 = 2 块。
-	noBlocks := runtime.nodePromptBlocks(plan.SeelexNodeInput{ID: "a", Input: "audit"})
+	noBlocks := runtime.node.PromptBlocks(plan.SeelexNodeInput{ID: "a", Input: "audit"})
 	if len(noBlocks) != 2 {
 		t.Fatalf("blocks = %d, want 2 (node-charter + skill catalog)", len(noBlocks))
 	}
 
 	// 装配后：目录块含全部技能名；激活块含匹配技能的完整指令。
 	// （输入命中 code-impl 描述的 "code changes" 词。）
-	blocks := runtime.nodePromptBlocks(plan.SeelexNodeInput{ID: "a", Input: "execute code changes and verify"})
+	blocks := runtime.node.PromptBlocks(plan.SeelexNodeInput{ID: "a", Input: "execute code changes and verify"})
 	var catalog, active bool
 	for _, b := range blocks {
 		switch b.Name {
@@ -131,7 +131,7 @@ func TestNodeCharterBlock(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
-	blocks := runtime.nodePromptBlocks(plan.SeelexNodeInput{ID: "inspect", Input: "audit"})
+	blocks := runtime.node.PromptBlocks(plan.SeelexNodeInput{ID: "inspect", Input: "audit"})
 	var found string
 	for _, b := range blocks {
 		if b.Name == "node-charter" && b.Messages[0].Content != nil {

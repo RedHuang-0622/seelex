@@ -70,7 +70,7 @@ func (r *Runtime) mainContextComponents() session.ContextComponents {
 // Runtime.NodeToolResult 读回（P1 修复 result_ref 读回断链）。
 func (r *Runtime) nodeContextComponents() session.ContextComponents {
 	return session.ContextComponents{
-		Assembler: nodeScopeAssembler{runtime: r},
+		Assembler: r.node.Assembler(),
 		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, nodeToolResultArchiver{
 			runtime: r,
 			shared:  seelexctx.NewInMemoryToolResultArchiver(),
@@ -255,7 +255,7 @@ func (r *Runtime) SetProjectKnowledgeProvider(provider func() *sessionstore.Proj
 // compressionSnapshot 跨会话快照压缩输入：当前节点/会话的父证据快照
 // （compactor 路径；无 → 走 QuickChat 路径）。
 func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot {
-	return r.nodeParentEvidence()
+	return r.node.ParentEvidence()
 }
 
 // ── 编译期检查 ────────────────────────────────────────────────────

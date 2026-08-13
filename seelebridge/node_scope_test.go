@@ -170,7 +170,7 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	ctx := WithNodeScope(context.Background(), scope)
 	ctx = withNodePromptBlocks(ctx, node.Blocks()())
 
-	assembled, err := (nodeScopeAssembler{}).Assemble(ctx, seelectx.AssemblyRequest{})
+	assembled, err := (seenode.ScopeAssembler{}).Assemble(ctx, seelectx.AssemblyRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,8 +183,8 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 
 	// 未注入父证据：节点请求不含证据块。
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{})
-	ctxNoEvidence := withNodePromptBlocks(context.Background(), runtime.nodePromptBlocks(node.Input()))
-	assembledNoEvidence, err := (nodeScopeAssembler{}).Assemble(ctxNoEvidence, seelectx.AssemblyRequest{})
+	ctxNoEvidence := withNodePromptBlocks(context.Background(), runtime.node.PromptBlocks(node.Input()))
+	assembledNoEvidence, err := (seenode.ScopeAssembler{}).Assemble(ctxNoEvidence, seelectx.AssemblyRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 	ctx := WithNodeScope(context.Background(), node.Scope()())
 	ctx = withNodePromptBlocks(ctx, node.Blocks()())
 
-	assembled, err := (nodeScopeAssembler{runtime: runtime}).Assemble(ctx, seelectx.AssemblyRequest{})
+	assembled, err := (seenode.ScopeAssembler{Coordinator: runtime.node}).Assemble(ctx, seelectx.AssemblyRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 
 	// 未装配 project 提供者 → 不注入空块，请求仍正常。
 	runtime.SetProjectKnowledgeProvider(nil)
-	assembledNone, err := (nodeScopeAssembler{runtime: runtime}).Assemble(ctx, seelectx.AssemblyRequest{})
+	assembledNone, err := (seenode.ScopeAssembler{Coordinator: runtime.node}).Assemble(ctx, seelectx.AssemblyRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}

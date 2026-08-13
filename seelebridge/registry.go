@@ -124,7 +124,7 @@ func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool
 		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族
 		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
 		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
-		if scope.Role != model.RoleSubAgent && isPlanTool(name) && !r.goalSkillActive() {
+		if scope.Role != model.RoleSubAgent && isPlanTool(name) && !r.node.GoalSkillActive() {
 			continue
 		}
 		filtered = append(filtered, tool)

@@ -121,13 +121,13 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 		t.Fatalf("noteSession must keep queued (not executing yet), got %+v", got)
 	}
 	// 首次请求组装（SSE 流开启）→ queued 转 running。
-	runtime.markNodeStarted("ok")
+	runtime.node.MarkStarted("ok")
 	if got := treeNode(t, runtime, "ok"); got.Status != dto.SubAgentRunning {
 		t.Fatalf("markNodeStarted must transition queued -> running, got %+v", got)
 	}
 
-	runtime.completeSubagentNode("ok", "audit done", nil)
-	runtime.completeSubagentNode("bad", "partial", errors.New("boom"))
+	runtime.node.CompleteSubagentNode("ok", "audit done", nil)
+	runtime.node.CompleteSubagentNode("bad", "partial", errors.New("boom"))
 
 	// done 节点有界保留：状态 done + 摘要，供工作表格被动展示。
 	okNode := treeNode(t, runtime, "ok")
@@ -140,7 +140,7 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 	}
 
 	// 非 fork 节点（plan_run 的 agent 节点未入树）→ no-op。
-	runtime.completeSubagentNode("not-a-fork-node", "x", nil)
+	runtime.node.CompleteSubagentNode("not-a-fork-node", "x", nil)
 	if treeNode(t, runtime, "not-a-fork-node").ID != "" {
 		t.Fatal("unknown node must not appear in the tree")
 	}
@@ -164,7 +164,7 @@ func TestSubAgentTreeClearRemovesEverything(t *testing.T) {
 	defer runtime.Shutdown()
 	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "a", Goal: "top"}})
 	runtime.subagentTree.RegisterFork("a", []fork.SubagentSpec{{ID: "a1", Goal: "nested"}})
-	runtime.completeSubagentNode("a1", "nested done", errors.New("boom"))
+	runtime.node.CompleteSubagentNode("a1", "nested done", errors.New("boom"))
 	if err := runtime.subagentTree.Clear(); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestSubAgentTreeNestedFork(t *testing.T) {
 	}
 
 	// 嵌套子代理完成 → 保留为 done（有界；工作表格证据）。
-	runtime.completeSubagentNode("a1", "nested done", nil)
+	runtime.node.CompleteSubagentNode("a1", "nested done", nil)
 	root = runtime.SubAgentTree()[0]
 	if len(root.Children) != 1 || root.Children[0].ID != "a" {
 		t.Fatalf("root children after nested done = %+v", root.Children)
@@ -293,7 +293,7 @@ func TestSubAgentTreeEventsChannelNotifiesOnForkLifecycle(t *testing.T) {
 	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "s1", Goal: "g"}})
 	waitSignal(1) // fork 注册
 
-	runtime.completeSubagentNode("s1", "done", nil)
+	runtime.node.CompleteSubagentNode("s1", "done", nil)
 	waitSignal(2) // 节点完成
 
 	// nil Runtime 安全。
@@ -315,7 +315,7 @@ func TestSubAgentTreeRetainsBoundedDoneNodes(t *testing.T) {
 	}
 	runtime.subagentTree.RegisterFork(mainAgentNodeID, specs)
 	for index := 0; index < 55; index++ {
-		runtime.completeSubagentNode(fmt.Sprintf("s%d", index), "done", nil)
+		runtime.node.CompleteSubagentNode(fmt.Sprintf("s%d", index), "done", nil)
 	}
 
 	count := countSubagentTreeNodes(t, runtime)
@@ -325,7 +325,7 @@ func TestSubAgentTreeRetainsBoundedDoneNodes(t *testing.T) {
 
 	// failed 节点不受 done 上限影响。
 	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "f1", Goal: "g"}})
-	runtime.completeSubagentNode("f1", "x", errors.New("boom"))
+	runtime.node.CompleteSubagentNode("f1", "x", errors.New("boom"))
 	if got := treeNode(t, runtime, "f1"); got.Status != dto.SubAgentFailed {
 		t.Fatalf("failed node = %+v, want failed", got)
 	}

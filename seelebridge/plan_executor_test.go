@@ -54,7 +54,7 @@ func TestPlanExecutorRunLifecycle(t *testing.T) {
 	executor.SetPlanNodeCallback(func(ev dto.PlanNodeEvent) { projected <- ev })
 
 	runtime.SetPlanBranchBinding(dto.PlanBranchBinding{SessionID: "session-1", PlanID: "p-life", WorkspaceID: "w1"})
-	runtime.appendNodePhase(context.Background(), "start", "running")
+	runtime.node.AppendPhase(context.Background(), "start", "running")
 	select {
 	case ev := <-projected:
 		if ev.NodeID != "start" || ev.Status != "running" || ev.PlanID != "p-life" {
