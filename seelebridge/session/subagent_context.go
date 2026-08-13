@@ -1,4 +1,4 @@
-package seelebridge
+package session
 
 import (
 	"strings"
@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/merger"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
@@ -25,7 +26,7 @@ import (
 // 生命周期：NewRuntime 时创建，Runtime.Shutdown 关闭命令通道并等待退出。
 // 命令通道有界；actor 停摆（极端：被外部泄漏的 reply 阻塞）时投递带超时，
 // 超时返回 nil 而非永久阻塞子代理。
-type subagentContextActor struct {
+type SubagentContextActor struct {
 	cmd   chan subagentContextCmd
 	state atomic.Pointer[snapshot.ContextSnapshot] // 读取面（actor 写，外部无锁读）
 	trace provider.TraceSource                     // 投影时提取 Findings/Decisions（nil 降级）
@@ -49,7 +50,7 @@ type subagentContextCmd struct {
 	// enqueue
 	content string
 	// projection
-	projection *ParentEvidenceProjection
+	projection *model.ParentEvidenceProjection
 }
 
 type subagentContextCmdKind int
@@ -74,12 +75,12 @@ const (
 	subagentContextCmdTimeout = 10 * time.Second
 )
 
-func newSubagentContextActor(trace provider.TraceSource, queueCap ...int) *subagentContextActor {
+func NewSubagentContextActor(trace provider.TraceSource, queueCap ...int) *SubagentContextActor {
 	cap := subagentContextQueueCap
 	if len(queueCap) > 0 && queueCap[0] > 0 {
 		cap = queueCap[0]
 	}
-	actor := &subagentContextActor{
+	actor := &SubagentContextActor{
 		cmd:      make(chan subagentContextCmd, subagentContextCmdCap),
 		trace:    trace,
 		queueCap: cap,
@@ -90,7 +91,7 @@ func newSubagentContextActor(trace provider.TraceSource, queueCap ...int) *subag
 	return actor
 }
 
-func (a *subagentContextActor) run() {
+func (a *SubagentContextActor) run() {
 	defer a.wg.Done()
 	for {
 		select {
@@ -105,7 +106,7 @@ func (a *subagentContextActor) run() {
 	}
 }
 
-func (a *subagentContextActor) handle(cmd subagentContextCmd) {
+func (a *SubagentContextActor) handle(cmd subagentContextCmd) {
 	switch cmd.kind {
 	case subagentCmdMerge:
 		a.handleMerge(cmd)
@@ -126,8 +127,8 @@ func (a *subagentContextActor) handle(cmd subagentContextCmd) {
 // handleMerge 串行执行「读当前父证据 → 合并子代理快照 → 写回」并发布
 // 读取面快照。合并文本入队由调用方负责（agent_node.mergeBack 在拿到合并
 // 快照后 Format + Enqueue），避免双重入队。
-func (a *subagentContextActor) handleMerge(cmd subagentContextCmd) {
-	parent := a.nodeParentEvidence()
+func (a *SubagentContextActor) handleMerge(cmd subagentContextCmd) {
+	parent := a.NodeParentEvidence()
 	if parent == nil {
 		parent = &snapshot.ContextSnapshot{
 			SourceSessionID: cmd.child.SourceSessionID,
@@ -144,7 +145,7 @@ func (a *subagentContextActor) handleMerge(cmd subagentContextCmd) {
 	}
 }
 
-func (a *subagentContextActor) handleEnqueue(content string) {
+func (a *SubagentContextActor) handleEnqueue(content string) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return
@@ -157,7 +158,7 @@ func (a *subagentContextActor) handleEnqueue(content string) {
 	a.queue = append(a.queue, content)
 }
 
-func (a *subagentContextActor) handleSetProjection(projection *ParentEvidenceProjection) {
+func (a *SubagentContextActor) handleSetProjection(projection *model.ParentEvidenceProjection) {
 	if projection == nil || strings.TrimSpace(projection.SessionID) == "" {
 		a.state.Store(nil)
 		return
@@ -171,7 +172,7 @@ func (a *subagentContextActor) handleSetProjection(projection *ParentEvidencePro
 	a.state.Store(evidence)
 }
 
-func (a *subagentContextActor) drainLocked() []string {
+func (a *SubagentContextActor) drainLocked() []string {
 	items := a.queue
 	a.queue = nil
 	a.overflow.Store(0)
@@ -179,7 +180,7 @@ func (a *subagentContextActor) drainLocked() []string {
 }
 
 // send 投递命令（带超时；actor 关闭后快速返回 false）。
-func (a *subagentContextActor) send(cmd subagentContextCmd) bool {
+func (a *SubagentContextActor) send(cmd subagentContextCmd) bool {
 	if a == nil {
 		return false
 	}
@@ -196,7 +197,7 @@ func (a *subagentContextActor) send(cmd subagentContextCmd) bool {
 // SetParentEvidenceProjection 应用侧发布父证据投影。命令投递后等待 actor
 // 处理完成再返回——保持与旧同步 Store 相同的可见性（后续读取面立即读到
 // 新投影）；空白 session 清空旧证据。
-func (a *subagentContextActor) SetParentEvidenceProjection(projection ParentEvidenceProjection) {
+func (a *SubagentContextActor) SetParentEvidenceProjection(projection model.ParentEvidenceProjection) {
 	if a == nil {
 		return
 	}
@@ -213,7 +214,7 @@ func (a *subagentContextActor) SetParentEvidenceProjection(projection ParentEvid
 
 // MergeBackIntoParent 投递合并命令并等待 actor 串行完成，返回合并后的
 // 快照（供调用方 Format 注入；nil 表示投递超时/actor 关闭）。
-func (a *subagentContextActor) MergeBackIntoParent(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot {
+func (a *SubagentContextActor) MergeBackIntoParent(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot {
 	if a == nil || child == nil {
 		return nil
 	}
@@ -231,7 +232,7 @@ func (a *subagentContextActor) MergeBackIntoParent(child *snapshot.ContextSnapsh
 }
 
 // Enqueue 投递 merge-back 文本（mergeBackSink 使用；actor 内入队不丢）。
-func (a *subagentContextActor) Enqueue(content string) {
+func (a *SubagentContextActor) Enqueue(content string) {
 	if a == nil {
 		return
 	}
@@ -239,7 +240,7 @@ func (a *subagentContextActor) Enqueue(content string) {
 }
 
 // Drain 投递并等待全量 merge-back 文本（channel + overflow 合并回收）。
-func (a *subagentContextActor) Drain() []string {
+func (a *SubagentContextActor) Drain() []string {
 	if a == nil {
 		return nil
 	}
@@ -257,15 +258,16 @@ func (a *subagentContextActor) Drain() []string {
 }
 
 // Overflow 返回队列超容量累计（诊断；内容不丢）。
-func (a *subagentContextActor) Overflow() int64 {
+func (a *SubagentContextActor) Overflow() int64 {
 	if a == nil {
 		return 0
 	}
 	return a.overflow.Load()
 }
 
-// nodeParentEvidence 返回当前父证据快照的无锁拷贝（读取面；nil = 无证据）。
-func (a *subagentContextActor) nodeParentEvidence() *snapshot.ContextSnapshot {
+// NodeParentEvidence 返回当前父证据快照的无锁拷贝（读取面；nil = 无证据）。
+// 供根包 nodeParentEvidence 门面与 actor 内部 handleMerge 共用。
+func (a *SubagentContextActor) NodeParentEvidence() *snapshot.ContextSnapshot {
 	if a == nil {
 		return nil
 	}
@@ -273,7 +275,7 @@ func (a *subagentContextActor) nodeParentEvidence() *snapshot.ContextSnapshot {
 }
 
 // Close 关闭命令通道并等待 actor 退出（幂等）。
-func (a *subagentContextActor) Close() {
+func (a *SubagentContextActor) Close() {
 	if a == nil {
 		return
 	}

@@ -1,4 +1,4 @@
-package seelebridge
+package session
 
 import (
 	"strings"
@@ -7,6 +7,7 @@ import (
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
@@ -21,7 +22,7 @@ import (
 //
 // 边界：组件只管理“会话注册表”数据面。subagentTree 的挂载副作用（noteSession/
 // noteSnapshot）仍由 Runtime 委托方法在组件调用后完成，避免组件反向依赖树。
-type subagentSessions struct {
+type SubagentSessions struct {
 	cmd   chan subagentSessionCmd
 	trace provider.TraceSource // 结束快照导出时提取 Findings/Decisions（nil 降级）
 	done  chan struct{}
@@ -69,8 +70,8 @@ const (
 	subagentSessionCmdTimeout = 10 * time.Second
 )
 
-func newSubagentSessions(trace provider.TraceSource) *subagentSessions {
-	s := &subagentSessions{
+func NewSubagentSessions(trace provider.TraceSource) *SubagentSessions {
+	s := &SubagentSessions{
 		cmd:              make(chan subagentSessionCmd, subagentSessionCmdCap),
 		trace:            trace,
 		done:             make(chan struct{}),
@@ -85,7 +86,7 @@ func newSubagentSessions(trace provider.TraceSource) *subagentSessions {
 	return s
 }
 
-func (s *subagentSessions) run() {
+func (s *SubagentSessions) run() {
 	defer s.wg.Done()
 	for {
 		select {
@@ -100,7 +101,7 @@ func (s *subagentSessions) run() {
 	}
 }
 
-func (s *subagentSessions) handle(cmd subagentSessionCmd) {
+func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 	switch cmd.kind {
 	case subagentSessionRegister:
 		s.sessions[cmd.nodeID] = cmd.sess
@@ -149,19 +150,19 @@ func (s *subagentSessions) handle(cmd subagentSessionCmd) {
 			s.reply(cmd, subagentSessionReply{})
 			return
 		}
-		raw, ok := arch.Read(strings.TrimPrefix(cmd.ref, nodeResultRefPrefix+cmd.nodeID+":"))
+		raw, ok := arch.Read(strings.TrimPrefix(cmd.ref, model.NodeResultRefPrefix+cmd.nodeID+":"))
 		s.reply(cmd, subagentSessionReply{raw: raw, ok: ok})
 	}
 }
 
-func (s *subagentSessions) reply(cmd subagentSessionCmd, reply subagentSessionReply) {
+func (s *SubagentSessions) reply(cmd subagentSessionCmd, reply subagentSessionReply) {
 	if cmd.reply != nil {
 		cmd.reply <- reply
 	}
 }
 
 // send 投递命令并等待 actor 处理（带超时；actor 关闭后快速返回 false）。
-func (s *subagentSessions) send(cmd subagentSessionCmd) bool {
+func (s *SubagentSessions) send(cmd subagentSessionCmd) bool {
 	if s == nil {
 		return false
 	}
@@ -178,7 +179,7 @@ func (s *subagentSessions) send(cmd subagentSessionCmd) bool {
 }
 
 // Register 注册运行中的子代理会话与节点目标（goal 供 ContextSnapshot 导出复用）。
-func (s *subagentSessions) Register(nodeID string, sess *frameworkSession.Session, goal string) {
+func (s *SubagentSessions) Register(nodeID string, sess *frameworkSession.Session, goal string) {
 	if s == nil || nodeID == "" || sess == nil {
 		return
 	}
@@ -187,7 +188,7 @@ func (s *subagentSessions) Register(nodeID string, sess *frameworkSession.Sessio
 
 // Unregister 结束注册：移除会话，导出并留存结束快照与最后 History；
 // 返回导出的结束快照（无会话返回 nil），供 Runtime 挂载到 subagentTree。
-func (s *subagentSessions) Unregister(nodeID string) *snapshot.ContextSnapshot {
+func (s *SubagentSessions) Unregister(nodeID string) *snapshot.ContextSnapshot {
 	if s == nil || nodeID == "" {
 		return nil
 	}
@@ -206,7 +207,7 @@ func (s *subagentSessions) Unregister(nodeID string) *snapshot.ContextSnapshot {
 }
 
 // Conversation 返回节点子代理会话记录：运行中实时 History；已结束返回留存快照。
-func (s *subagentSessions) Conversation(nodeID string) ([]types.Message, bool) {
+func (s *SubagentSessions) Conversation(nodeID string) ([]types.Message, bool) {
 	if s == nil || nodeID == "" {
 		return nil, false
 	}
@@ -225,7 +226,7 @@ func (s *subagentSessions) Conversation(nodeID string) ([]types.Message, bool) {
 }
 
 // ContextSnapshot 返回节点子代理结构化上下文快照：运行中实时导出；已结束返回留存快照。
-func (s *subagentSessions) ContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
+func (s *SubagentSessions) ContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
 	if s == nil || nodeID == "" {
 		return nil, false
 	}
@@ -244,7 +245,7 @@ func (s *subagentSessions) ContextSnapshot(nodeID string) (*snapshot.ContextSnap
 }
 
 // ToolResultArchiverFor 返回节点专属工具结果归档器（惰性创建并复用）。
-func (s *subagentSessions) ToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver {
+func (s *SubagentSessions) ToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver {
 	if s == nil || nodeID == "" {
 		return nil
 	}
@@ -263,7 +264,7 @@ func (s *subagentSessions) ToolResultArchiverFor(nodeID string) *seelexctx.InMem
 }
 
 // ToolResult 读回节点子代理的工具结果原始内容（ref 可带 node:<nodeID>: 前缀）。
-func (s *subagentSessions) ToolResult(nodeID, ref string) (string, bool) {
+func (s *SubagentSessions) ToolResult(nodeID, ref string) (string, bool) {
 	if s == nil || nodeID == "" || ref == "" {
 		return "", false
 	}
@@ -282,7 +283,7 @@ func (s *subagentSessions) ToolResult(nodeID, ref string) (string, bool) {
 }
 
 // Close 关闭命令通道并等待 actor 退出（幂等）。
-func (s *subagentSessions) Close() {
+func (s *SubagentSessions) Close() {
 	if s == nil {
 		return
 	}

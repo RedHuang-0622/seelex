@@ -23,11 +23,14 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/mcpstack"
+	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
+	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
@@ -88,7 +91,7 @@ type Runtime struct {
 	// subagentContext 是子代理上下文 actor（装配件拆分第一步）：父证据
 	// 的读-合并-写回与 merge-back 队列收进单一 goroutine（channel 命令 +
 	// 串行处理），替代原来的 parentEvidenceMu / subagentOverflowMu 两把锁。
-	subagentContext *subagentContextActor
+	subagentContext *subagentsession.SubagentContextActor
 	nodeStartedMu   sync.Mutex
 	nodeStarted     map[string]struct{}
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
@@ -98,22 +101,23 @@ type Runtime struct {
 	selectedAccountID string
 	providerFilter    string
 	projectScope      *security.ProjectScope
-	filesystem        fs.FileSystem    // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
-	sandbox           security.CommandSandbox // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
-	dockerProbe       dockerProber     // docker 守护进程探测/启动（nil → 真实实现；测试注入）
-	worktreeMgr       *worktreeManager // 子代理 worktree 生命周期组件（worktree_manager.go）
-	tasks             *task.TaskRegistry // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
-	scheduler         *schedulerState  // 定时周期任务 actor（scheduler.go）
-	toolEvents        *subagentToolEventState
+	filesystem        fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
+	sandbox           security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）
+	dockerProbe       dockerProber              // docker 守护进程探测/启动（nil → 真实实现；测试注入）
+	worktreeMgr       *worktree.WorktreeManager // 子代理 worktree 生命周期组件（worktree/ 域）
+	forkTool          *fork.Tool                // fork_subagents 执行编排（fork/ 域）
+	tasks             *task.TaskRegistry        // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
+	scheduler         *schedulerState           // 定时周期任务 actor（scheduler.go）
+	toolEvents        *subagentsession.ToolEventState
 
 	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
 	// node:<nodeID>: 前缀工具结果归档器由组件托管，运行中/结束后均可读回。
-	subagentSessions *subagentSessions
+	subagentSessions *subagentsession.SubagentSessions
 	// subagentTree 是 fork 子代理树注册表（内存态，不落盘）：fork 创建子代理
 	// 时记录 parent/child 链与节点状态/goal/会话摘要，GUI 树视图经
 	// Runtime.SubAgentTree() 读取（subagent_tree.go）。
-	subagentTree        *subagentTreeState
+	subagentTree        *subagentsession.SubagentTree
 	toolCallTimeout     time.Duration
 	bashObserverMu      sync.RWMutex
 	bashObserver        BashDiagnosticObserver
@@ -242,7 +246,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		sandbox:             security.NewNativeProjectCWD(),
 		tasks:               task.NewTaskRegistry(),
 		scheduler:           newSchedulerState(),
-		toolEvents:          newSubagentToolEventState(),
+		toolEvents:          subagentsession.NewToolEventState(),
 		toolCallTimeout:     cfg.ToolCallTimeout,
 		planDecisionTimeout: planDecisionTimeout,
 		approvalTimeout:     approvalTimeout,
@@ -250,9 +254,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		limits:              cfg.Limits.WithDefaults(),
 		pluginDefs:          make(map[string]pluginDef),
 		permission:          &permissionGateState{},
-		subagentSessions:    newSubagentSessions(tracer),
-		subagentTree:        newSubagentTreeState(),
-		subagentContext:     newSubagentContextActor(tracer),
+		subagentSessions:    subagentsession.NewSubagentSessions(tracer),
+		subagentTree:        subagentsession.NewSubagentTree(tracer),
+		subagentContext:     subagentsession.NewSubagentContextActor(tracer),
 		nodeStarted:         make(map[string]struct{}),
 
 		window: seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
@@ -284,18 +288,19 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}, cfg.MaxConcurrentReplans, cfg.MaxReplansPerWindow, cfg.MaxReplanProviderRequests, cfg.ReplanWindow)
 	// worktree 生命周期组件：项目根 / 阶段事件 / 审批门经 deps 注入，组件不反向
 	// 依赖 Runtime（构造放在 r 就绪后，因为 deps 引用 r 的方法值）。
-	r.worktreeMgr = newWorktreeManager(worktreeManagerDeps{
+	r.worktreeMgr = worktree.NewWorktreeManager(worktree.WorktreeManagerDeps{
 		Root:  r.projectScope.Root,
 		Phase: r.appendNodePhase,
 		Gate:  r.planExecutor.CurrentApprovalGate,
 	})
+	r.forkTool = fork.NewTool(r.forkDeps())
 	// The wrapper is inert until the backend diagnostic observer is enabled.
 	// It brackets telemetry.After, the only framework boundary between a tool
 	// registry return and the application ToolHookBridge completion callback.
 	r.hook = newDiagnosticTelemetryHook(r.hook, r)
 
 	// 2. 工具注册表：WithCallTimeout 保留工具超时语义；权限门控作为 middleware。
-	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.subagentToolMiddleware(), r.bashDiagnosticMiddleware())}
+	r.registry = &toolsRegistryState{registry: newToolsRegistry(cfg.ToolCallTimeout, r.permission, approvalTimeout, r.toolEvents.Middleware(), r.bashDiagnosticMiddleware())}
 
 	// 3. Completer / StreamCompleter（共享账号选择器，无 api.ChatClient 强转）
 	if err := r.assembleCompleters(); err != nil {

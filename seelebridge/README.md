@@ -31,13 +31,13 @@ Runtime，同时隔离上游 API 变化。
 | `plan_input_adapter.go` | canonical object DAG 归一化，并兼容可唯一推断的旧式顺序边列表。 |
 | `plan_preflight.go` | 隔离的规划/重规划回合（独立 Completer 实例、无工具；归属 `planExecutor`，`Runtime.PrepareReplan` 保留公开委托）。 |
 | `plan_authority.go` | `authorizePlanMutation`（归属 `planExecutor`，当前为放行钩子）。 |
-| `agent_node.go` | `kind:agent` 节点子代理包装（注入 NodeScope + 节点级 PromptBlocks）。 |
+| `agent_node.go` | 节点域 Runtime 门面：会话注册/终态、节点会话装配器、skill/预算（执行实现下沉 `node/`）。 |
 | `node_scope.go` | 节点作用域 ctx 注入与读取（可见性/账号/装配器共享）。 |
 | `plan_factory.go` | `buildNode`/`nodeFactory`（Runtime 绑定；节点实现类型在 plan/）。 |
 | `plan_preflight_facade.go` | `Runtime.PrepareReplan` 公开委托（实现归属 plan/Executor）。 |
 | `context_components.go` | 节点会话 `SessionComponents` 上下文组件（Assembler/Processor 等）。 |
 | `task_facade.go` | `*Runtime` task 门面（`TaskSnapshot`/`TaskAdd`/`TaskSetStatus`/`RegisterTaskTerminalTools` 等，委托 `task/` 子包）。 |
-| `fork_tool.go` | `fork_subagents` Runtime 编排门面（注册/校验/任务绑定/结果复用/DAG 构建；纯类型在 `fork/`）。 |
+| `fork_tool.go` | `fork_subagents` 注册与委托门面（执行编排在 `fork.Tool`，经 `fork_deps.go` 注入）。 |
 | `storage.go` | Seele session store 与旧 nested workspace store 兼容。 |
 | `config.go` | 简化账号 YAML 与 role fallback。 |
 | `trace.go` | `telemetry.NewMemoryTracer` / `NewLifecycleHook` 构造。 |
@@ -57,7 +57,10 @@ Runtime，同时隔离上游 API 变化。
 | `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
 | `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding` 等（见 `plan/README.md`） |
 | `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`（见 `task/README.md`） |
-| `fork/` | `fork_subagents` 纯类型与 summary 节点（见 `fork/README.md`） |
+| `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `fork/README.md`） |
+| `node/` | `kind:agent` 节点子代理执行域：`AgentNode`/`Deps`/预算/charter/skill 匹配（见 `node/README.md`） |
+| `session/` | 子代理会话注册表与父证据/merge-back 两个 actor（见 `session/README.md`） |
+| `worktree/` | 子代理 worktree 生命周期管理器（见 `worktree/README.md`） |
 | `tools/websearch/` | `web_search` 工具注册与账号池配置加载（见 `tools/websearch/README.md`） |
 | `internal/model/` | 账号等各域共享的纯类型层（`AccountSpec`/`AccountRole`，无运行时依赖） |
 | `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`；根 facade 装配细节） |
@@ -65,7 +68,7 @@ Runtime，同时隔离上游 API 变化。
 | `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
 | `internal/telemetry/` | 内存遥测追踪器/生命周期钩子构造（`NewTracer`/`NewLifecycleHook`） |
 
-根包经 `plan_aliases.go`/`task_aliases.go`/`fork_aliases.go`/`security_aliases.go`/
+根包经 `plan_aliases.go`/`task_aliases.go`/`fork_aliases.go`/`node_aliases.go`/`security_aliases.go`/
 `model_aliases.go`/`config_aliases.go`/`storage_aliases.go`/`telemetry_aliases.go`
 重导出子包符号（`seelebridge.PlanEdge`、`seelebridge.TaskRecord`、
 `seelebridge.CommandSandbox`、`seelebridge.Message` 等）保持公共 API 兼容。

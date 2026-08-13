@@ -1,4 +1,4 @@
-package seelebridge
+package session
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/tools"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // SubagentToolEvent 是 Runtime 对子代理工具调用的稳定投影，不暴露 Seele
@@ -24,51 +25,55 @@ type SubagentToolEvent struct {
 	Duration  time.Duration
 }
 
-type subagentToolEventState struct {
+// ToolEventState 是子代理工具事件的分发器（回调 + 序号），由根包注入
+// 工具注册表 middleware。
+type ToolEventState struct {
 	mu       sync.RWMutex
 	callback func(SubagentToolEvent)
 	seq      atomic.Uint64
 }
 
-func newSubagentToolEventState() *subagentToolEventState {
-	return &subagentToolEventState{}
+// NewToolEventState 构造子代理工具事件分发器。
+func NewToolEventState() *ToolEventState {
+	return &ToolEventState{}
 }
 
-// SetSubagentToolCallback 注入子代理工具活动订阅者。主代理工具仍由
-// ToolHookBridge 投影，避免同一次调用重复上报。
-func (r *Runtime) SetSubagentToolCallback(callback func(SubagentToolEvent)) {
-	if r == nil || r.toolEvents == nil {
+// SetCallback 注入子代理工具活动观察者。主代理工具仍由 ToolHookBridge
+// 投影，避免同一次调用重复上报。
+func (s *ToolEventState) SetCallback(callback func(SubagentToolEvent)) {
+	if s == nil {
 		return
 	}
-	r.toolEvents.mu.Lock()
-	r.toolEvents.callback = callback
-	r.toolEvents.mu.Unlock()
+	s.mu.Lock()
+	s.callback = callback
+	s.mu.Unlock()
 }
 
-func (r *Runtime) publishSubagentToolEvent(event SubagentToolEvent) {
-	if r == nil || r.toolEvents == nil {
+// Publish 派发一条子代理工具事件（无观察者则丢弃）。
+func (s *ToolEventState) Publish(event SubagentToolEvent) {
+	if s == nil {
 		return
 	}
-	r.toolEvents.mu.RLock()
-	callback := r.toolEvents.callback
-	r.toolEvents.mu.RUnlock()
+	s.mu.RLock()
+	callback := s.callback
+	s.mu.RUnlock()
 	if callback != nil {
 		callback(event)
 	}
 }
 
-// subagentToolMiddleware 从 NodeScope 识别子代理调用并投影 started/completed。
+// Middleware 从 NodeScope 识别子代理调用并投影 started/completed。
 // 中间件包在权限门外层，因此权限拒绝也会以 completed/error 返回前端。
-func (r *Runtime) subagentToolMiddleware() tools.Middleware {
+func (s *ToolEventState) Middleware() tools.Middleware {
 	return func(name string, next tools.ToolHandler) tools.ToolHandler {
 		return tools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
-			scope, ok := NodeScopeFromContext(ctx)
-			if !ok || scope.NodeID == "" || scope.Role != RoleSubAgent {
+			scope, ok := model.NodeScopeFromContext(ctx)
+			if !ok || scope.NodeID == "" || scope.Role != model.RoleSubAgent {
 				return next.Execute(ctx, argsJSON)
 			}
 			startedAt := time.Now()
-			id := fmt.Sprintf("subtool-%d", r.toolEvents.seq.Add(1))
-			r.publishSubagentToolEvent(SubagentToolEvent{
+			id := fmt.Sprintf("subtool-%d", s.seq.Add(1))
+			s.Publish(SubagentToolEvent{
 				ID: id, NodeID: scope.NodeID, Name: name, Arguments: argsJSON,
 				Status: "running", StartedAt: startedAt,
 			})
@@ -82,7 +87,7 @@ func (r *Runtime) subagentToolMiddleware() tools.Middleware {
 				completed.Status = "error"
 				completed.Error = err.Error()
 			}
-			r.publishSubagentToolEvent(completed)
+			s.Publish(completed)
 			return result, err
 		})
 	}

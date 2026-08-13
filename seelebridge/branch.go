@@ -3,9 +3,9 @@ package seelebridge
 import (
 	"fmt"
 	"hash/fnv"
-	"strings"
 
 	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/seelebridge/node"
 )
 
 // nodeSessionComponents 构造 Plan 节点子代理会话的公共组件
@@ -68,14 +68,9 @@ func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role Accou
 	return ResolveAccountForBranch(r.pool, role, binding.PlanID+":"+branchID)
 }
 
+// roleForPlanBranch 判定分支角色（实现下沉 seelebridge/node，本包装供根包账号路由复用）。
 func roleForPlanBranch(binding PlanBranchBinding, branchID string) AccountRole {
-	if branchID == binding.EntryNodeID {
-		return binding.PrimaryRole
-	}
-	if strings.HasPrefix(branchID, "_") {
-		return RoleGoalPlan
-	}
-	return RoleSubAgent
+	return node.RoleForPlanBranch(binding, branchID)
 }
 
 func branchTraceID(binding PlanBranchBinding, branchID string) string {

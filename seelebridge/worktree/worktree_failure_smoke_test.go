@@ -1,10 +1,12 @@
-package seelebridge
+package worktree
 
 import (
 	"context"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // ── 工作区现场触发路径冒烟 ────────────────────────────────────────
@@ -20,20 +22,20 @@ func TestWorktreeScenePreservedOnAllFinishFailures(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 
 	// B1: rebase 冲突（branchBehindBase=true 且 rebase 失败）。
-	rebaseConflict := func(mgr *worktreeManager, fake *fakeGit) {
+	rebaseConflict := func(mgr *WorktreeManager, fake *fakeGit) {
 		fake.reply["rev-list --count HEAD..main"] = "1"
 		fake.err["rebase main"] = &gitTestErr{}
 		fake.reply["diff --name-only --diff-filter=U"] = "conflict.py"
 	}
 	// B2: worktree 脏且未提交。
-	dirtyUncommitted := func(mgr *worktreeManager, fake *fakeGit) {
+	dirtyUncommitted := func(mgr *WorktreeManager, fake *fakeGit) {
 		fake.reply["rev-list --count abc123..HEAD"] = "0"
 		fake.reply["rev-list --count"] = "0"
 		fake.reply["status --porcelain"] = " M produced.txt"
 	}
 	cases := []struct {
 		name        string
-		configure   func(*worktreeManager, *fakeGit)
+		configure   func(*WorktreeManager, *fakeGit)
 		wantErrPart string
 	}{
 		{"B1 rebase 冲突", rebaseConflict, "rebase onto"},
@@ -44,7 +46,7 @@ func TestWorktreeScenePreservedOnAllFinishFailures(t *testing.T) {
 			mgr, fake, gate := newTestWorktreeManager(root)
 			gate.choice = "approve"
 			tc.configure(mgr, fake)
-			wt := mgr.Begin(NodeScope{NodeID: "n1", Role: RoleSubAgent, BranchID: "n1"}, "n1")
+			wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 			if wt == nil {
 				t.Fatal("begin must succeed with fake git")
 			}
@@ -67,7 +69,7 @@ func TestWorktreeScenePreservedOnMergeConflict(t *testing.T) {
 	fake.err["merge --no-edit seelex/n1"] = &gitTestErr{}
 	fake.reply["diff --name-only --diff-filter=U"] = "conflict.py"
 
-	wt := mgr.Begin(NodeScope{NodeID: "n1", Role: RoleSubAgent, BranchID: "n1"}, "n1")
+	wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}
@@ -87,7 +89,7 @@ func TestWorktreeSceneReleasedOnSuccess(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 	mgr, fake, gate := newTestWorktreeManager(root)
 	gate.choice = "approve"
-	wt := mgr.Begin(NodeScope{NodeID: "n1", Role: RoleSubAgent, BranchID: "n1"}, "n1")
+	wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}
@@ -112,7 +114,7 @@ func TestWorktreeSceneSurvivesRelease(t *testing.T) {
 	fake.reply["status --porcelain"] = " M produced.txt"
 	fake.reply["rev-list --count abc123..HEAD"] = "0"
 	fake.reply["rev-list --count"] = "0"
-	wt := mgr.Begin(NodeScope{NodeID: "n1", Role: RoleSubAgent, BranchID: "n1"}, "n1")
+	wt := mgr.Begin(model.NodeScope{NodeID: "n1", Role: model.RoleSubAgent, BranchID: "n1"}, "n1")
 	if wt == nil {
 		t.Fatal("begin must succeed")
 	}

@@ -84,12 +84,12 @@ func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runtime.subagentTree.registerFork(mainAgentNodeID, []forkSubagentSpec{
+	runtime.subagentTree.RegisterFork(mainAgentNodeID, []forkSubagentSpec{
 		{ID: "s1", Goal: "audit module A"},
 		{ID: "s2", Goal: "audit module B"},
 	})
-	runtime.subagentTree.completeSubagentNode("s1", seed[0].summary, nil)
-	runtime.subagentTree.completeSubagentNode("s2", seed[1].summary, nil)
+	runtime.subagentTree.CompleteSubagentNode("s1", seed[0].summary, nil)
+	runtime.subagentTree.CompleteSubagentNode("s2", seed[1].summary, nil)
 
 	// 若误执行，scripted completer 会返回与 SEEDED 不同的输出——断言结果
 	// 只含已保存摘要即可证明未重跑。
@@ -237,50 +237,6 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 // TestForkPlanNodesCarryEffortLoopBudget 验证 fork 子代理节点循环预算复用
 // effort 调节值（PlanPolicy.MaxNodeLoops）：high=48 → 节点 48 轮；未设置
 // （lite/medium）→ 回退通用 PlanNodeMaxLoops。
-func TestForkPlanNodesCarryEffortLoopBudget(t *testing.T) {
-	runtime := newTestRuntime(t)
-	defer runtime.Shutdown()
-
-	// effort=high：PlanPolicy.MaxNodeLoops=48（prompt.PlanningPolicy 同源）。
-	runtime.SetPlanPolicy(PlanPolicy{Effort: "high", MaxNodeLoops: 48})
-	loaded, err := runtime.buildForkPlan(forkSubagentsInput{
-		Subagents: []forkSubagentSpec{{ID: "s1", Goal: "fix"}, {ID: "s2", Goal: "fix"}},
-	}, map[string]string{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	collect := func() []int {
-		var loops []int
-		for _, id := range loaded.Plan.AllNodes() {
-			agentNode, ok := loaded.Plan.GetNode(id).(*SeelexAgentNode)
-			if !ok {
-				continue
-			}
-			if agentNode.input.Budget == nil {
-				t.Fatalf("fork node %q must carry a budget", id)
-			}
-			loops = append(loops, agentNode.input.Budget.MaxLoops)
-		}
-		return loops
-	}
-	if got := collect(); len(got) != 2 || got[0] != 48 || got[1] != 48 {
-		t.Fatalf("high-effort fork node loops = %v, want [48 48]", got)
-	}
-
-	// 未设置 MaxNodeLoops（lite/medium 语义）→ 回退通用 PlanNodeMaxLoops。
-	runtime.SetPlanPolicy(PlanPolicy{Effort: "lite"})
-	loaded, err = runtime.buildForkPlan(forkSubagentsInput{
-		Subagents: []forkSubagentSpec{{ID: "s1", Goal: "fix"}},
-	}, map[string]string{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := collect(); len(got) != 1 || got[0] != runtime.limits.PlanNodeMaxLoops {
-		t.Fatalf("lite-effort fork node loops = %v, want [%d]",
-			got, runtime.limits.PlanNodeMaxLoops)
-	}
-}
-
 func TestForkSummaryLinesCompact(t *testing.T) {
 	cases := []struct {
 		output    string

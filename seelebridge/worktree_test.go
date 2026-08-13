@@ -10,6 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 )
 
 // ── worktree 生命周期（切片 4，docs/2026-08-03-subagent-fork-architecture/plan.md §3）──
@@ -23,17 +24,17 @@ func setupGitRepo(t *testing.T) string {
 		{"config", "user.email", "test@seelex.local"},
 		{"config", "user.name", "seelex test"},
 	} {
-		if _, err := gitRunner(root, cmd...); err != nil {
+		if _, err := worktree.GitRunner(root, cmd...); err != nil {
 			t.Fatalf("git %v: %v", cmd, err)
 		}
 	}
 	if err := os.WriteFile(filepath.Join(root, "base.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(root, "add", "."); err != nil {
+	if _, err := worktree.GitRunner(root, "add", "."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(root, "commit", "-m", "base"); err != nil {
+	if _, err := worktree.GitRunner(root, "commit", "-m", "base"); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -61,9 +62,7 @@ func TestWorktreeLifecycleCreateAndClean(t *testing.T) {
 	}
 
 	// 节点结束后注册表清空、无残留 worktree 目录。
-	runtime.worktreeMgr.mu.Lock()
-	left := len(runtime.worktreeMgr.worktrees)
-	runtime.worktreeMgr.mu.Unlock()
+	left := runtime.worktreeMgr.RegisteredCount()
 	if left != 0 {
 		t.Fatalf("worktree registry not cleaned: %d entries", left)
 	}
@@ -72,7 +71,7 @@ func TestWorktreeLifecycleCreateAndClean(t *testing.T) {
 		t.Fatalf("worktree dir still exists: %s", wtPath)
 	}
 	// 主工作区无新提交（无改动不 merge）。
-	out, err := gitRunner(repo, "log", "--oneline")
+	out, err := worktree.GitRunner(repo, "log", "--oneline")
 	if err != nil || strings.Contains(out, "seelex/") {
 		t.Fatalf("main branch must stay clean, log=%q err=%v", out, err)
 	}
@@ -116,10 +115,10 @@ func TestWorktreeMergeApproved(t *testing.T) {
 	if err := os.WriteFile(change, []byte("feature\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(wt.Path, "add", "."); err != nil {
+	if _, err := worktree.GitRunner(wt.Path, "add", "."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(wt.Path, "commit", "-m", "seelex/impl: add feature"); err != nil {
+	if _, err := worktree.GitRunner(wt.Path, "commit", "-m", "seelex/impl: add feature"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,10 +160,10 @@ func TestWorktreeMergeRejected(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wt.Path, "feature.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(wt.Path, "add", "."); err != nil {
+	if _, err := worktree.GitRunner(wt.Path, "add", "."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(wt.Path, "commit", "-m", "seelex/impl: work"); err != nil {
+	if _, err := worktree.GitRunner(wt.Path, "commit", "-m", "seelex/impl: work"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -216,7 +215,7 @@ func TestWorktreeDirtyUncommittedPreserved(t *testing.T) {
 		t.Fatal("main workspace must not contain uncommitted worktree changes")
 	}
 	// 清理现场（测试收尾）。
-	if err := cleanupWorktree(repo, wt); err != nil {
+	if err := worktree.CleanupWorktree(repo, wt); err != nil {
 		t.Fatalf("test cleanup: %v", err)
 	}
 }
@@ -259,15 +258,15 @@ func TestWorktreeConflictFilesListsUnmerged(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wt.Path, "conflict.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(wt.Path, "add", "."); err != nil {
+	if _, err := worktree.GitRunner(wt.Path, "add", "."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(wt.Path, "commit", "-m", "base conflict file"); err != nil {
+	if _, err := worktree.GitRunner(wt.Path, "commit", "-m", "base conflict file"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitRunner(wt.Path, "merge", "main", "--no-edit"); err != nil {
+	if _, err := worktree.GitRunner(wt.Path, "merge", "main", "--no-edit"); err != nil {
 		// merge 失败（冲突）→ diff-filter=U 应列出文件。
-		files, err := conflictFilesIn(wt.Path)
+		files, err := worktree.ConflictFilesIn(wt.Path)
 		if err != nil {
 			t.Fatalf("conflict files: %v", err)
 		}
@@ -305,7 +304,7 @@ func TestResolveNodePathUsesWorktreeRoot(t *testing.T) {
 	if wt == nil {
 		t.Fatal("worktree creation must succeed")
 	}
-	defer func() { _ = cleanupWorktree(repo, wt) }()
+	defer func() { _ = worktree.CleanupWorktree(repo, wt) }()
 
 	ctx := WithNodeScope(context.Background(), NodeScope{
 		NodeID: "x", Role: RoleSubAgent, BranchID: "x", WorkspaceID: wt.Path,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -110,7 +111,7 @@ func TestMergeBackIntoParentAccumulates(t *testing.T) {
 // TestMergeBackMailboxOverflowPreserved 验证 A 修复：channel 满时 merge-back
 // 转入 overflow 队列，Drain 后全部回收（内容不丢，计数仅作诊断）。
 func TestMergeBackMailboxOverflowPreserved(t *testing.T) {
-	actor := newSubagentContextActor(nil, 2) // 小 soft cap：触发 overflow 计数但内容保留
+	actor := session.NewSubagentContextActor(nil, 2) // 小 soft cap：触发 overflow 计数但内容保留
 	defer actor.Close()
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -187,7 +188,7 @@ func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
 
 // 确保 mailbox 满时生产者不会阻塞（原有保证），供并发回归基线。
 func TestMergeBackMailboxNeverBlocksProducerRetained(t *testing.T) {
-	actor := newSubagentContextActor(nil, 1)
+	actor := session.NewSubagentContextActor(nil, 1)
 	defer actor.Close()
 	actor.Enqueue("first")
 	done := make(chan struct{})

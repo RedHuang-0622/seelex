@@ -1,4 +1,4 @@
-package seelebridge
+package worktree
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
@@ -25,44 +26,67 @@ import (
 //
 // 失败现场语义保留：Release 仅在成功路径由调用方触发；任何 Finish 错误返回后
 // worktree 保留在磁盘，供前端“工作区现场”展示与手动恢复。
-type worktreeManagerDeps struct {
+// NodeWorktree 是单个节点的 worktree 现场（plan_run 生命周期内有效）。
+type NodeWorktree struct {
+	Path       string // worktree 工作目录（NodeScope.WorkspaceID 指向）
+	Branch     string // seelex/<nodeID>
+	BaseCommit string // 创建时 HEAD（合并提交判定基线）
+	MainBranch string // 主工作区当前分支（rebase/merge 目标）
+}
+
+// NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面）：
+// 节点失败/合并被拒时现场保留且注册表不释放——路径就是人工恢复入口。
+type NodeWorktreeInfo struct {
+	Path       string // worktree 工作目录（文件现场）
+	Branch     string // seelex/<nodeID> 分支（改动提交后仍可 git merge 恢复）
+	MainBranch string // 主工作区分支（merge 目标）
+}
+
+type WorktreeManagerDeps struct {
 	Root  func() string                                    // 项目根（原 r.projectScope.Root）
 	Phase func(ctx context.Context, nodeID, status string) // 阶段事件（原 r.appendNodePhase）
 	Gate  func() approve.ApprovalGate                      // 合并审批门（原 r.currentApprovalGate）
 }
 
-type worktreeManager struct {
+type WorktreeManager struct {
 	mu        sync.Mutex
-	worktrees map[string]*nodeWorktree // nodeID → worktree（仅 RoleSubAgent 节点）
+	worktrees map[string]*NodeWorktree // nodeID → worktree（仅 RoleSubAgent 节点）
 	git       func(root string, args ...string) (string, error)
-	deps      worktreeManagerDeps
+	deps      WorktreeManagerDeps
 }
 
-func newWorktreeManager(deps worktreeManagerDeps) *worktreeManager {
-	return &worktreeManager{
-		worktrees: make(map[string]*nodeWorktree),
-		git:       gitRunner,
+func NewWorktreeManager(deps WorktreeManagerDeps) *WorktreeManager {
+	return &WorktreeManager{
+		worktrees: make(map[string]*NodeWorktree),
+		git:       GitRunner,
 		deps:      deps,
 	}
 }
 
 // Close 幂等关闭：组件无后台 goroutine（git 子进程由调用方串行），空实现满足
 // Shutdown 关闭契约，便于后续演进为 actor。
-func (w *worktreeManager) Close() {}
+func (w *WorktreeManager) Close() {}
 
 // worktreeFor 返回节点的 worktree（无 → nil）。
-func (w *worktreeManager) worktreeFor(nodeID string) *nodeWorktree {
+func (w *WorktreeManager) worktreeFor(nodeID string) *NodeWorktree {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.worktrees[nodeID]
+}
+
+// RegisteredCount 返回当前注册的 worktree 数（测试/诊断读取面）。
+func (w *WorktreeManager) RegisteredCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.worktrees)
 }
 
 // Begin 为节点创建 worktree（降级返回 nil）：
 //   - entry 节点（RoleAgent）共享主工作区；
 //   - 非 git 仓库 → 降级共享工作区；
 //   - 创建成功 → 注册并返回；创建失败 → 降级（不阻断执行）。
-func (w *worktreeManager) Begin(scope NodeScope, nodeID string) *nodeWorktree {
-	if scope.Role != RoleSubAgent {
+func (w *WorktreeManager) Begin(scope model.NodeScope, nodeID string) *NodeWorktree {
+	if scope.Role != model.RoleSubAgent {
 		return nil
 	}
 	root := w.deps.Root()
@@ -89,7 +113,7 @@ func (w *worktreeManager) Begin(scope NodeScope, nodeID string) *nodeWorktree {
 			return nil
 		}
 	}
-	wt := &nodeWorktree{Path: wtPath, Branch: branch, BaseCommit: baseCommit, MainBranch: mainBranch}
+	wt := &NodeWorktree{Path: wtPath, Branch: branch, BaseCommit: baseCommit, MainBranch: mainBranch}
 	w.mu.Lock()
 	w.worktrees[nodeID] = wt
 	w.mu.Unlock()
@@ -98,7 +122,7 @@ func (w *worktreeManager) Begin(scope NodeScope, nodeID string) *nodeWorktree {
 
 // Finish 收尾：变基兜底 → 提交判定 → 合并审批 → merge → 清理。
 // 返回错误时节点 failed 且 worktree 保留现场。
-func (w *worktreeManager) Finish(ctx context.Context, nodeID string, wt *nodeWorktree) error {
+func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWorktree) error {
 	root := w.deps.Root()
 	w.deps.Phase(ctx, nodeID, "rebasing")
 	behind, err := w.branchBehindBase(wt)
@@ -142,14 +166,14 @@ func (w *worktreeManager) Finish(ctx context.Context, nodeID string, wt *nodeWor
 
 // Release 在节点结束时从注册表移除（成功路径已清理；失败路径保留现场但解除注册，
 // 避免后续节点引用已失效路径）。
-func (w *worktreeManager) Release(nodeID string) {
+func (w *WorktreeManager) Release(nodeID string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	delete(w.worktrees, nodeID)
 }
 
 // Info 返回节点 worktree 现场信息（无现场 → false）。
-func (w *worktreeManager) Info(nodeID string) (NodeWorktreeInfo, bool) {
+func (w *WorktreeManager) Info(nodeID string) (NodeWorktreeInfo, bool) {
 	wt := w.worktreeFor(nodeID)
 	if wt == nil {
 		return NodeWorktreeInfo{}, false
@@ -158,7 +182,7 @@ func (w *worktreeManager) Info(nodeID string) (NodeWorktreeInfo, bool) {
 }
 
 // approve 合并前审批：复用 SetPlanApprovalGate 注入的审批门；gate 未注入 → 放行。
-func (w *worktreeManager) approve(ctx context.Context, nodeID string, wt *nodeWorktree, summary string) error {
+func (w *WorktreeManager) approve(ctx context.Context, nodeID string, wt *NodeWorktree, summary string) error {
 	gate := w.deps.Gate()
 	if gate == nil {
 		return nil
@@ -178,7 +202,7 @@ func (w *worktreeManager) approve(ctx context.Context, nodeID string, wt *nodeWo
 	return nil
 }
 
-func (w *worktreeManager) isGitRepository(root string) bool {
+func (w *WorktreeManager) isGitRepository(root string) bool {
 	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
 		return true
 	}
@@ -186,7 +210,7 @@ func (w *worktreeManager) isGitRepository(root string) bool {
 	return err == nil
 }
 
-func (w *worktreeManager) branchBehindBase(wt *nodeWorktree) (bool, error) {
+func (w *WorktreeManager) branchBehindBase(wt *NodeWorktree) (bool, error) {
 	out, err := w.git(wt.Path, "rev-list", "--count", "HEAD.."+wt.MainBranch)
 	if err != nil {
 		return false, err
@@ -198,7 +222,7 @@ func (w *worktreeManager) branchBehindBase(wt *nodeWorktree) (bool, error) {
 	return count > 0, nil
 }
 
-func (w *worktreeManager) commitCountSince(wt *nodeWorktree) (int, error) {
+func (w *WorktreeManager) commitCountSince(wt *NodeWorktree) (int, error) {
 	out, err := w.git(wt.Path, "rev-list", "--count", wt.BaseCommit+"..HEAD")
 	if err != nil {
 		return 0, err
@@ -210,7 +234,7 @@ func (w *worktreeManager) commitCountSince(wt *nodeWorktree) (int, error) {
 	return count, nil
 }
 
-func (w *worktreeManager) worktreeDirty(wt *nodeWorktree) (bool, error) {
+func (w *WorktreeManager) worktreeDirty(wt *NodeWorktree) (bool, error) {
 	out, err := w.git(wt.Path, "status", "--porcelain")
 	if err != nil {
 		return false, err
@@ -218,7 +242,7 @@ func (w *worktreeManager) worktreeDirty(wt *nodeWorktree) (bool, error) {
 	return strings.TrimSpace(out) != "", nil
 }
 
-func (w *worktreeManager) conflictFilesIn(dir string) ([]string, error) {
+func (w *WorktreeManager) conflictFilesIn(dir string) ([]string, error) {
 	out, err := w.git(dir, "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil, err
@@ -232,7 +256,7 @@ func (w *worktreeManager) conflictFilesIn(dir string) ([]string, error) {
 	return files, nil
 }
 
-func (w *worktreeManager) diffStat(wt *nodeWorktree) (string, error) {
+func (w *WorktreeManager) diffStat(wt *NodeWorktree) (string, error) {
 	out, err := w.git(wt.Path, "diff", "--stat", wt.BaseCommit+"..HEAD")
 	if err != nil {
 		return "", err
@@ -240,7 +264,7 @@ func (w *worktreeManager) diffStat(wt *nodeWorktree) (string, error) {
 	return out, nil
 }
 
-func (w *worktreeManager) cleanup(root string, wt *nodeWorktree) error {
+func (w *WorktreeManager) cleanup(root string, wt *NodeWorktree) error {
 	if _, err := w.git(root, "worktree", "remove", "--force", wt.Path); err != nil {
 		return err
 	}
@@ -250,7 +274,7 @@ func (w *worktreeManager) cleanup(root string, wt *nodeWorktree) error {
 
 // gitRunner 执行 git 命令（worktree 测试可用真实 git；命令经 ConfigureHiddenCommand
 // 隐藏窗口，Windows 兼容）。60s 超时防挂起。
-func gitRunner(root string, args ...string) (string, error) {
+func GitRunner(root string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -271,19 +295,19 @@ func gitRunner(root string, args ...string) (string, error) {
 
 // cleanupWorktree 删除 worktree 及其分支（合并完成后或无可合并提交时）。
 // 包级薄包装：worktree_test.go 直接调用；组件内部走 w.cleanup 以支持 fake git 注入。
-func cleanupWorktree(root string, wt *nodeWorktree) error {
-	if _, err := gitRunner(root, "worktree", "remove", "--force", wt.Path); err != nil {
+func CleanupWorktree(root string, wt *NodeWorktree) error {
+	if _, err := GitRunner(root, "worktree", "remove", "--force", wt.Path); err != nil {
 		return err
 	}
-	_, _ = gitRunner(root, "branch", "-D", wt.Branch)
+	_, _ = GitRunner(root, "branch", "-D", wt.Branch)
 	return nil
 }
 
-// conflictFilesIn 列出目录（worktree 或主工作区）中的冲突文件
+// ConflictFilesIn 列出目录（worktree 或主工作区）中的冲突文件
 // （rebase/merge 失败后诊断用；rebase 冲突在 worktree，merge 冲突在主工作区）。
 // 包级薄包装：worktree_test.go 直接调用；组件内部走 w.conflictFilesIn。
-func conflictFilesIn(dir string) ([]string, error) {
-	out, err := gitRunner(dir, "diff", "--name-only", "--diff-filter=U")
+func ConflictFilesIn(dir string) ([]string, error) {
+	out, err := GitRunner(dir, "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil, err
 	}

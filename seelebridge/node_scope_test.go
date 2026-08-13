@@ -159,12 +159,12 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 
 	// 作用域：分支即节点；角色按 binding 判定（未设 binding 时 entry 为空，
 	// 非 entry 节点 → subagent）。
-	scope := node.scope()
+	scope := node.Scope()()
 	if scope.NodeID != "left" || scope.BranchID != "left" || scope.Role != RoleSubAgent {
 		t.Fatalf("node scope = %+v", scope)
 	}
 	ctx := WithNodeScope(context.Background(), scope)
-	ctx = withNodePromptBlocks(ctx, node.blocks())
+	ctx = withNodePromptBlocks(ctx, node.Blocks()())
 
 	assembled, err := (nodeScopeAssembler{}).Assemble(ctx, seelectx.AssemblyRequest{})
 	if err != nil {
@@ -179,7 +179,7 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 
 	// 未注入父证据：节点请求不含证据块。
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{})
-	ctxNoEvidence := withNodePromptBlocks(context.Background(), runtime.nodePromptBlocks(node.input))
+	ctxNoEvidence := withNodePromptBlocks(context.Background(), runtime.nodePromptBlocks(node.Input()))
 	assembledNoEvidence, err := (nodeScopeAssembler{}).Assemble(ctxNoEvidence, seelectx.AssemblyRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -209,8 +209,8 @@ func TestNodeScopeAssemblerInheritsStableContextBlocks(t *testing.T) {
 		ID:    "left",
 		Input: SeelexNodeInput{ID: "left", Input: "do left", Kind: "agent"},
 	}, runtime)
-	ctx := WithNodeScope(context.Background(), node.scope())
-	ctx = withNodePromptBlocks(ctx, node.blocks())
+	ctx := WithNodeScope(context.Background(), node.Scope()())
+	ctx = withNodePromptBlocks(ctx, node.Blocks()())
 
 	assembled, err := (nodeScopeAssembler{runtime: runtime}).Assemble(ctx, seelectx.AssemblyRequest{})
 	if err != nil {

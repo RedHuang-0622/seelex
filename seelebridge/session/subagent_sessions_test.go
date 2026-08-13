@@ -1,11 +1,11 @@
-package seelebridge
+package session
 
 import (
 	"context"
 	"sync"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/session"
+	frameworksession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 )
 
@@ -35,9 +35,9 @@ func (a stubSessionAgent) Dispatch(context.Context, string, string) (string, err
 }
 func (a stubSessionAgent) LLM() types.ChatCompleter { return a.llm }
 
-func newTestSubagentSession(t *testing.T, sessionID string) *session.Session {
+func newTestSubagentSession(t *testing.T, sessionID string) *frameworksession.Session {
 	t.Helper()
-	sess, err := session.NewSession(session.SessionComponents{
+	sess, err := frameworksession.NewSession(frameworksession.SessionComponents{
 		Agent:     stubSessionAgent{llm: stubCompleter{}},
 		SessionID: sessionID,
 	})
@@ -48,7 +48,7 @@ func newTestSubagentSession(t *testing.T, sessionID string) *session.Session {
 }
 
 func TestSubagentSessionsRegisterConversationUnregister(t *testing.T) {
-	store := newSubagentSessions(NewTracer())
+	store := NewSubagentSessions(nil)
 	defer store.Close()
 
 	sess := newTestSubagentSession(t, "s1")
@@ -80,7 +80,7 @@ func TestSubagentSessionsRegisterConversationUnregister(t *testing.T) {
 }
 
 func TestSubagentSessionsUnregisterWithoutSessionIsNoop(t *testing.T) {
-	store := newSubagentSessions(NewTracer())
+	store := NewSubagentSessions(nil)
 	defer store.Close()
 
 	if snap := store.Unregister("missing"); snap != nil {
@@ -92,7 +92,7 @@ func TestSubagentSessionsUnregisterWithoutSessionIsNoop(t *testing.T) {
 }
 
 func TestSubagentSessionsToolResultArchiverLazyAndReuse(t *testing.T) {
-	store := newSubagentSessions(NewTracer())
+	store := NewSubagentSessions(nil)
 	defer store.Close()
 
 	arch := store.ToolResultArchiverFor("n1")
@@ -122,7 +122,7 @@ func TestSubagentSessionsToolResultArchiverLazyAndReuse(t *testing.T) {
 }
 
 func TestSubagentSessionsConcurrentRace(t *testing.T) {
-	store := newSubagentSessions(NewTracer())
+	store := NewSubagentSessions(nil)
 	defer store.Close()
 
 	var wg sync.WaitGroup

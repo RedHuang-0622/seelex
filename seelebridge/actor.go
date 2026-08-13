@@ -3,6 +3,7 @@ package seelebridge
 import (
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
@@ -20,11 +21,7 @@ type RuntimeVisibilityProjection struct {
 // ParentEvidenceProjection is the minimal application-owned data needed for a
 // Runtime-local parent evidence snapshot. Runtime adds its own telemetry and
 // stores the resulting immutable snapshot for subagents to read.
-type ParentEvidenceProjection struct {
-	SessionID         string
-	Goal              string
-	ConversationCount int
-}
+type ParentEvidenceProjection = model.ParentEvidenceProjection
 
 // The parent/child boundary is intentionally one-way in both directions:
 // Application publishes immutable parent evidence to Runtime; Runtime owns a
@@ -91,24 +88,4 @@ func (r *Runtime) mergeBackIntoParent(child *snapshot.ContextSnapshot) *snapshot
 		return nil
 	}
 	return r.subagentContext.MergeBackIntoParent(child)
-}
-
-func cloneContextSnapshot(source *snapshot.ContextSnapshot) *snapshot.ContextSnapshot {
-	if source == nil {
-		return nil
-	}
-	copy := *source
-	copy.Findings = append([]string(nil), source.Findings...)
-	copy.Constraints = append([]string(nil), source.Constraints...)
-	copy.PendingWork = append([]string(nil), source.PendingWork...)
-	copy.Decisions = make([]snapshot.Decision, len(source.Decisions))
-	for index, decision := range source.Decisions {
-		copy.Decisions[index] = decision
-		copy.Decisions[index].Alternatives = append([]string(nil), decision.Alternatives...)
-	}
-	if source.Escape != nil {
-		escape := *source.Escape
-		copy.Escape = &escape
-	}
-	return &copy
 }

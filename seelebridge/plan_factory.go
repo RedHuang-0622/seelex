@@ -5,6 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
+	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 )
 
 // buildNode 把 codec 节点规格实例化为可执行 node.Node（plan.md §3.3）：
@@ -28,7 +29,7 @@ func (r *Runtime) buildNode(spec codec.NodeSpec[SeelexNodeInput]) (node.Node, er
 	case "agent":
 		// 子代理节点：SeelexAgentNode 包装 bridge.NewAgentFactory 产物，
 		// Run 时注入节点作用域 + 节点级 PromptBlocks（agent_node.go）。
-		return newSeelexAgentNode(spec, r), nil
+		return seenode.NewAgentNode(spec, r.nodeDeps()), nil
 	case "approve", "manual":
 		return newApprovalGateNode(spec, r.currentApprovalGate), nil
 	case "auto", "function", "verify", "deliver":

@@ -27,4 +27,3 @@ type PlanBranchBinding struct {
 	PrimaryRole model.AccountRole
 	TraceID     string
 }
-

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // ── task 注册表（worktable task 状态体系，Actor + Mailbox）────────────
@@ -28,92 +30,40 @@ import (
 // 本注册表（kind=todo 的任务保持有序列表与索引语义），每次操作写入 trace。
 // retry：status=retry 时 RetryCount 自增，重跑 running 保留计数。
 
-// TaskStatus 是 task 的生命周期状态。
-type TaskStatus string
+// TaskStatus/todo DTO 类型本体已下沉 application/contract/dto；本包以别名
+// 保持实现与调用面兼容（JSON 契约不变）。
+type TaskStatus = dto.TaskStatus
 
 const (
-	TaskPending   TaskStatus = "pending"
-	TaskQueued    TaskStatus = "queued"
-	TaskRunning   TaskStatus = "running"
-	TaskDoing     TaskStatus = "doing"
-	TaskCompleted TaskStatus = "completed"
-	TaskFailed    TaskStatus = "failed"
-	TaskRetry     TaskStatus = "retry"
+	TaskPending   = dto.TaskPending
+	TaskQueued    = dto.TaskQueued
+	TaskRunning   = dto.TaskRunning
+	TaskDoing     = dto.TaskDoing
+	TaskCompleted = dto.TaskCompleted
+	TaskFailed    = dto.TaskFailed
+	TaskRetry     = dto.TaskRetry
 )
-
-// TaskPhase* 是 worktable 条目阶段常量（前端筛选/渲染依赖这些字符串）。
-const (
-	TaskPhasePlan     = "plan"
-	TaskPhaseTask     = "task"
-	TaskPhaseTasklist = "tasklist"
-	TaskPhaseSubagent = "subagent"
-)
-
-// TaskTracePoint 是 task 打点（与 worktable trace 同形；evidence 有界）。
-type TaskTracePoint struct {
-	At        time.Time `json:"at,omitempty"`
-	Status    string    `json:"status"`
-	Operation string    `json:"operation,omitempty"`
-	Evidence  string    `json:"evidence,omitempty"`
-	Duration  string    `json:"duration,omitempty"`
-}
-
-// TaskRecord 是 task 的只读快照 DTO（字段与 worktable WorkItem 同构）。
-type TaskRecord struct {
-	ID           string           `json:"id"`                     // plan:<node_id> | subagent:<id> | todo:<n> | task:<n>
-	Key          string           `json:"key,omitempty"`          // 幂等键（归一化 goal hash / source id）
-	Phase        string           `json:"phase"`                  // plan | tasklist | subagent | task
-	Task         string           `json:"task"`                   // goal / label / todo text
-	Description  string           `json:"description,omitempty"`  //
-	Status       TaskStatus       `json:"status"`                 // pending/running/completed/failed/retry
-	RetryCount   int              `json:"retry_count,omitempty"`  // 重试数字
-	Assignee     string           `json:"assignee,omitempty"`     // main | 子代理 id | 执行节点
-	Dependencies []string         `json:"dependencies,omitempty"` // 前置任务（WorkItem ID 引用）
-	Attachments  []string         `json:"attachments,omitempty"`  // 可选附件路径
-	Kind         string           `json:"kind"`                   // plan | todo | subagent | task
-	SourceID     string           `json:"source_id,omitempty"`    // 原数据面 ID（详情溯源）
-	Participants []string         `json:"participants,omitempty"` // 同一 task 的多个子代理
-	StartedAt    time.Time        `json:"started_at,omitempty"`
-	EndedAt      time.Time        `json:"ended_at,omitempty"`
-	Elapsed      string           `json:"elapsed,omitempty"`
-	Trace        []TaskTracePoint `json:"trace,omitempty"`
-}
-
-// TaskSpec 是 task 创建入参（主动 taskadd 或被动生命周期装配）。
-type TaskSpec struct {
-	ID           string   `json:"id,omitempty"` // 主动留空 → 后端生成 task:<n>
-	Key          string   `json:"key,omitempty"`
-	Phase        string   `json:"phase"`
-	Task         string   `json:"task"`
-	Description  string   `json:"description,omitempty"`
-	Assignee     string   `json:"assignee,omitempty"`
-	Kind         string   `json:"kind"`
-	SourceID     string   `json:"source_id,omitempty"`
-	Dependencies []string `json:"dependencies,omitempty"`
-	Attachments  []string `json:"attachments,omitempty"`
-}
-
-// TodoItemStatus 是清单项三态（兼容 TUI/旧契约；权威状态在 TaskRecord.Status）。
-type TodoItemStatus string
 
 const (
-	TodoItemPending TodoItemStatus = "pending"
-	TodoItemDoing   TodoItemStatus = "doing"
-	TodoItemDone    TodoItemStatus = "done"
+	TaskPhasePlan     = dto.TaskPhasePlan
+	TaskPhaseTask     = dto.TaskPhaseTask
+	TaskPhaseTasklist = dto.TaskPhaseTasklist
+	TaskPhaseSubagent = dto.TaskPhaseSubagent
 )
 
-// TodoItem 是清单项（快照 DTO，兼容 TUI/旧契约）。
-// Status 是权威三态；Done 是派生布尔（Status == done），两者始终一致。
-type TodoItem struct {
-	Text   string         `json:"text"`
-	Status TodoItemStatus `json:"status"`
-	Done   bool           `json:"done"`
-}
+type TaskTracePoint = dto.TaskTracePoint
+type TaskRecord = dto.TaskRecord
+type TaskSpec = dto.TaskSpec
 
-func (item TodoItem) withDerivedDone() TodoItem {
-	item.Done = item.Status == TodoItemDone
-	return item
-}
+type TodoItemStatus = dto.TodoItemStatus
+
+const (
+	TodoItemPending = dto.TodoItemPending
+	TodoItemDoing   = dto.TodoItemDoing
+	TodoItemDone    = dto.TodoItemDone
+)
+
+type TodoItem = dto.TodoItem
 
 // TaskToTodoItem 把 kind=todo 的 task 还原为 TodoItem（兼容 TUI/旧契约）。
 func TaskToTodoItem(record TaskRecord) TodoItem {
@@ -124,7 +74,7 @@ func TaskToTodoItem(record TaskRecord) TodoItem {
 	case TaskCompleted:
 		status = TodoItemDone
 	}
-	return TodoItem{Text: record.Task, Status: status}.withDerivedDone()
+	return TodoItem{Text: record.Task, Status: status}.WithDerivedDone()
 }
 
 // TodoToTaskStatus 把 TodoItemStatus 映射为 TaskStatus（todolist 状态更新入口）。

@@ -112,7 +112,9 @@ func newPlanToolProvider(executor *plan.Executor) *plan.ToolProvider {
 }
 
 // authorizePlanMutation 是 plan 变更授权钩子（当前为放行钩子；归属 plan 域）。
-func authorizePlanMutation(ctx context.Context, toolName string) error { return plan.AuthorizePlanMutation(ctx, toolName) }
+func authorizePlanMutation(ctx context.Context, toolName string) error {
+	return plan.AuthorizePlanMutation(ctx, toolName)
+}
 
 // planEventSink 类型别名（事件 sink；根包测试/装配沿用旧名）。
 type planEventSink = plan.EventSink

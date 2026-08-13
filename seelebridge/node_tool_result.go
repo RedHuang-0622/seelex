@@ -11,11 +11,14 @@ package seelebridge
 import (
 	"context"
 
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
-// nodeResultRefPrefix 是节点工具结果引用的前缀（ref = node:<nodeID>:result:<callID>）。
-const nodeResultRefPrefix = "node:"
+// nodeResultRefPrefix 是节点工具结果引用的前缀（ref = node:<nodeID>:result:<callID>），
+// 常量本体下沉 internal/model（NodeResultRefPrefix），与 session 域共享。
+const nodeResultRefPrefix = model.NodeResultRefPrefix
 
 // nodeToolResultArchiver 是节点会话的 ToolResultArchiver 适配：
 // 从 ctx 的 NodeScope 解析节点 ID，工具结果落到节点专属内存归档器并带
@@ -56,13 +59,9 @@ func (r *Runtime) NodeToolResult(nodeID, ref string) (string, bool) {
 	return r.subagentSessions.ToolResult(nodeID, ref)
 }
 
-// NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面）：
-// 节点失败/合并被拒时现场保留且注册表不释放——路径就是人工恢复入口。
-type NodeWorktreeInfo struct {
-	Path       string // worktree 工作目录（文件现场）
-	Branch     string // seelex/<nodeID> 分支（改动提交后仍可 git merge 恢复）
-	MainBranch string // 主工作区分支（merge 目标）
-}
+// NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面），
+// 类型本体已下沉 seelebridge/worktree 域，根包保留兼容别名。
+type NodeWorktreeInfo = worktree.NodeWorktreeInfo
 
 // NodeWorktreeInfoFor 返回节点 worktree 现场信息（无现场 → false）。
 // 运行中返回当前 worktree；结束后成功路径已清理（false）；失败/被拒路径

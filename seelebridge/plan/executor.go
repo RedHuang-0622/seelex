@@ -47,7 +47,7 @@ type Executor struct {
 	currentRunID string
 
 	provider   *ToolProvider
-	events     *EventSink     // plan 执行事实 → 事件库 + 投影订阅
+	events     *EventSink         // plan 执行事实 → 事件库 + 投影订阅
 	nodeEvents chan PlanNodeEvent // plan 节点事件 channel（CSP：application 消费者处理）
 	replan     *ReplanGuard
 
