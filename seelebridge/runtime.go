@@ -4,6 +4,7 @@ package seelebridge
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -17,8 +18,10 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
+	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
@@ -43,6 +46,10 @@ import (
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/seelexctx/compactor"
+	"github.com/RedHuang-0622/seelex/seelexctx/memory"
+	"github.com/RedHuang-0622/seelex/seelexctx/provider"
+	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 	"github.com/RedHuang-0622/seelex/skill"
 )
@@ -574,6 +581,16 @@ func (r *Runtime) RegisterBuiltins() {
 	}
 }
 
+// registerTodoTools 注册 todolist 工具族（委托 task.Tools；RegisterBuiltins 内调用）。
+func (r *Runtime) registerTodoTools() {
+	task.NewTools(r.taskToolsDeps()).RegisterTodoTools()
+}
+
+// registerTaskTools 注册主动任务工具 taskadd（同上委托）。
+func (r *Runtime) registerTaskTools() {
+	task.NewTools(r.taskToolsDeps()).RegisterTaskTools()
+}
+
 // BindProjectRoot makes the supplied project the only root used by Seelex
 // filesystem tools for the active session.
 func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope.Bind(rootPath) }
@@ -802,4 +819,641 @@ func summarizeTools(tools []types.Tool) []Tool {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
+}
+
+// runtimeBudgetProvider 把 Runtime 账号限额适配为 seelexctx.BudgetProvider
+// （Controller 软/硬阈值输入）。
+type runtimeBudgetProvider struct{ runtime *Runtime }
+
+func (p runtimeBudgetProvider) ContextTokens() int   { return p.runtime.ContextWindow() }
+func (p runtimeBudgetProvider) MaxOutputTokens() int { return p.runtime.MaxOutputTokens() }
+
+// runtimeCompactStacks 把可选 SessionContextStore 适配为 CompactStackStore：
+// 已绑定存储 → 栈操作落盘（state blob）；未绑定 → 内存态（会话内可审计）。
+type runtimeCompactStacks struct {
+	runtime *Runtime
+	memory  seelexctx.CompactStackStore
+}
+
+func (s runtimeCompactStacks) Snapshot() sessionstore.SessionContextRecord {
+	if store := s.runtime.sessionContextStore(); store != nil {
+		return store.Snapshot()
+	}
+	return s.memory.Snapshot()
+}
+
+func (s runtimeCompactStacks) PushCompact(frame sessionstore.CompactFrame) error {
+	if store := s.runtime.sessionContextStore(); store != nil {
+		return store.PushCompact(frame)
+	}
+	return s.memory.PushCompact(frame)
+}
+
+// mainContextComponents 构造主会话的 ContextComponents（plan.md §3.1 步骤 4）。
+// SystemPrompt 置空：会话级提示由 application 经 SetSystemPrompt 注入，
+// 保持既有行为；Assembler 的 system provider 在应用层迁移后接管。
+func (r *Runtime) mainContextComponents() session.ContextComponents {
+	return session.ContextComponents{
+		Assembler:           r.seelexAssembler(),
+		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, nil),
+		Compressor:          r.seelexCompressor(),
+		Controller:          r.seelexController(),
+	}
+}
+
+// nodeContextComponents 构造节点子代理会话的 ContextComponents
+// （bridge.WithSessionComponents 输入）。节点级 PromptBlocks 由
+// SeelexAgentNode.Run 注入 ctx（ScopeAssembler 合并），本组件与
+// 主会话共享同一套适配器依赖（预算按节点账号限额推导）。
+func (r *Runtime) nodeContextComponents() session.ContextComponents {
+	return session.ContextComponents{
+		Assembler: r.node.Assembler(),
+		ToolResultProcessor: seelexctx.NewToolResultProcessor(0, seenode.ToolResultArchiver{
+			ArchiverFor: r.node.ToolResultArchiverFor,
+			Shared:      seelexctx.NewInMemoryToolResultArchiver(),
+		}),
+		Compressor: r.seelexCompressor(),
+		Controller: r.seelexController(),
+	}
+}
+
+// seelexAssembler 构造 seelex 装配器：栈块（now using = 栈顶）来自
+// SessionContextStore（未注入 → 无块）；project 块来自 ProjectKnowledge
+// 提供者（未注入 → 无块）；记忆块按当前查询从历史压缩段选取（无存储 →
+// 无块）；占位符解析委托 seelexctx。
+func (r *Runtime) seelexAssembler() seelectx.RequestAssembler {
+	return seelexctx.NewAssembler(seelexctx.AssemblerOptions{
+		SystemPrompt: nil, // 会话级提示由 application 侧注入（迁移后经此渲染）
+		ProjectBlock: r.projectBlock,
+		StackBlocks:  r.stackBlocks,
+		Memories:     r.relatedMemoryBlocks,
+		Resolver: seelectx.PlaceholderResolverFunc(func(_ context.Context, name string) (string, error) {
+			return r.resolvePlaceholder(name)
+		}),
+	})
+}
+
+// relatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
+// （不止栈顶：超长会话的久远相关段经 seelexctx/memory 词法选取器召回）。
+// 无绑定存储 / 空查询 / 无命中 → 不注入（请求内容不变）。
+func (r *Runtime) relatedMemoryBlocks(_ context.Context, query string) []seelectx.PromptBlock {
+	store := r.sessionContextStore()
+	if store == nil {
+		return nil
+	}
+	record := store.Snapshot()
+	if len(record.CompactStack) == 0 {
+		return nil
+	}
+	candidates := make([]memory.Candidate, 0, len(record.CompactStack))
+	for _, frame := range record.CompactStack {
+		candidates = append(candidates, memory.Candidate{
+			SegmentID: frame.SegmentID, Summary: frame.Summary,
+			Evidence: frame.Evidence, From: frame.From, To: frame.To,
+		})
+	}
+	opts := memory.DefaultOptions()
+	selected := memory.Select(query, candidates, opts)
+	if len(selected) == 0 {
+		return nil
+	}
+	if block := memory.RenderMemoryBlock(selected, opts.MaxTokens); block != nil {
+		return []seelectx.PromptBlock{*block}
+	}
+	return nil
+}
+
+// coverHistoryGap 把滑动窗口与压缩内容之间的真空区轮次压缩为合并帧
+// （seelexctx.CoverHistoryGap）：完整事件流 vs 压缩栈顶 To vs 尾窗装载量
+// 三者对齐，未覆盖区间压入会话压缩栈（state blob / 内存兜底），原文经
+// TurnArchiver 归档（read_compressed_turn 可读回）。无真空区 → 无副作用。
+func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents, tailEvents []sessionstore.Event) error {
+	if len(allEvents) == 0 {
+		return nil
+	}
+	stacks := runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()}
+	_, err := seelexctx.CoverHistoryGap(ctx, seelexctx.GapCoverageOptions{
+		AllEvents:  allEvents,
+		TailEvents: tailEvents,
+		Record:     stacks.Snapshot(),
+		Stacks:     stacks,
+		Turns:      r.turnArchiver,
+		SessionID:  r.MainSessionID(),
+	})
+	return err
+}
+
+// seelexCompressor 构造压缩器：短历史快速路径 + QuickChat 结构化 checkpoint
+// （共享账号 completer 的隔离调用，无工具、独立 history）。
+func (r *Runtime) seelexCompressor() seelectx.Compressor {
+	quickChat, err := seelectx.NewQuickChat(r.completer)
+	if err != nil {
+		quickChat = nil // 装配失败 → 仅短历史/快照路径可用
+	}
+	return seelexctx.NewCompressor(seelexctx.CompressorOptions{
+		QuickChat: quickChat,
+		Compactor: r.compactorInstance(),
+		SnapshotFor: func(_ context.Context, request seelectx.CompressionRequest) *snapshot.ContextSnapshot {
+			return r.compressionSnapshot(request.SessionID)
+		},
+	})
+}
+
+// seelexController 构造控制器：窗口策略来自 RuntimeConfig.WindowConfig
+// （DefaultWindowPolicy，plan.md §3.7.3），阈值预算来自账号限额。
+func (r *Runtime) seelexController() seelectx.ContextController {
+	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens())
+	return seelexctx.NewContextController(seelexctx.ControllerOptions{
+		Policy: policy,
+		Window: r.windowPolicy(),
+		Budget: runtimeBudgetProvider{runtime: r},
+		Stacks: runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
+		Turns:  r.turnArchiver,
+		// 压缩帧 SegmentID 溯源到当前会话：每次压缩动态取值，会话切换后
+		// 仍指向正确会话（compact-<sessionID>-<ms>）。
+		SessionIDProvider: r.MainSessionID,
+	})
+}
+
+// windowPolicy 返回当前窗口策略（NewRuntime 时按配置构造）。
+func (r *Runtime) windowPolicy() seelexctx.WindowPolicy {
+	r.windowMu.RLock()
+	defer r.windowMu.RUnlock()
+	return r.window
+}
+
+// windowTailBudget 从窗口策略推导 Load 的读尾预算（D1，plan.md §9）：
+// maxUnits = 窗口轮数（策略推导；输入不足时保守回退 min_rounds）；
+// tokenBudget = 账号上下文窗口（上限保护，LoadEventTail 双上限取先到者）。
+func (r *Runtime) windowTailBudget() (tokenBudget, maxUnits int) {
+	tokenBudget = r.ContextWindow()
+	info := seelexctx.ProviderContextInfo{ContextTokens: tokenBudget}
+	rounds, _ := r.windowPolicy().WindowRounds(context.Background(), info)
+	if rounds <= 0 {
+		rounds = 4 // DefaultWindowPolicy 的 min_rounds（输入不足时同样回退）
+	}
+	return tokenBudget, rounds
+}
+
+// stackBlocks 渲染会话级使用栈块（now using = 栈顶；未绑定存储 → 无块）。
+func (r *Runtime) stackBlocks() []seelectx.PromptBlock {
+	store := r.sessionContextStore()
+	if store == nil {
+		return nil
+	}
+	return seelexctx.RenderStackBlocks(store.Snapshot())
+}
+
+// projectBlock 渲染项目级模块语义块（ProjectKnowledge，会话前预读缓存；
+// 提供者未注入 → 无块）。
+func (r *Runtime) projectBlock() *seelectx.PromptBlock {
+	r.projectMu.RLock()
+	provider := r.projectKnowledge
+	r.projectMu.RUnlock()
+	if provider == nil {
+		return nil
+	}
+	record := provider()
+	if record == nil {
+		return nil
+	}
+	return seelexctx.RenderProjectBlock(*record)
+}
+
+// resolvePlaceholder 解析 {{name}} 占位符（当前无内置变量，未知占位符
+// 原样保留）。
+func (r *Runtime) resolvePlaceholder(name string) (string, error) {
+	return "", nil
+}
+
+// sessionContextStore 返回绑定的会话上下文存储（nil = 未绑定）。
+func (r *Runtime) sessionContextStore() *sessionstore.SessionContextStore {
+	r.ctxStoreMu.RLock()
+	defer r.ctxStoreMu.RUnlock()
+	return r.ctxStore
+}
+
+// AttachSessionContextStore 绑定会话上下文存储（state blob，plan.md §3.7.2）。
+// 会话恢复流程接线时由调用方注入（router + sessionID 就绪后）。
+func (r *Runtime) AttachSessionContextStore(store *sessionstore.SessionContextStore) {
+	r.ctxStoreMu.Lock()
+	r.ctxStore = store
+	r.ctxStoreMu.Unlock()
+}
+
+// SetProjectKnowledgeProvider 注入项目级模块语义提供者（ProjectKnowledge
+// 会话前预读；nil 关闭 project 块）。
+func (r *Runtime) SetProjectKnowledgeProvider(provider func() *sessionstore.ProjectRecord) {
+	r.projectMu.Lock()
+	r.projectKnowledge = provider
+	r.projectMu.Unlock()
+}
+
+// compressionSnapshot 跨会话快照压缩输入：当前节点/会话的父证据快照
+// （compactor 路径；无 → 走 QuickChat 路径）。
+func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot {
+	return r.node.ParentEvidence()
+}
+
+// ── 编译期检查 ────────────────────────────────────────────────────
+
+var (
+	_ seelexctx.BudgetProvider  = runtimeBudgetProvider{}
+	_ session.ContextComponents = session.ContextComponents{}
+)
+
+// compactorInstance 返回跨会话快照压缩器（构造一次，会话间复用）。
+func (r *Runtime) compactorInstance() *compactor.Compactor {
+	return compactor.NewCompactor()
+}
+
+// accountSelector 是主链路共享的账号选择器闭包：读取 Runtime 当前的
+// provider 过滤与选中账号（不持有任何 api.ChatClient 引用），把请求条件
+// 转换为 accountpool.AcquireRequest。P2C 池负责实际选择与租赁。
+// Plan 子代理请求（ctx 含 NodeScope）优先走节点账号解析：显式 pin 优先，
+// 否则按角色 + branchID 走确定性 hash（account.ResolveForBranch 逻辑）。
+func (r *Runtime) accountSelector(ctx context.Context, messages []types.Message, tools []types.Tool) accountpool.AcquireRequest {
+	if scope := model.NodeScopeFromContextOrEmpty(ctx); scope.NodeID != "" {
+		return r.nodeAccountRequest(scope)
+	}
+	r.branchMu.RLock()
+	selected := r.selectedAccountID
+	provider := r.providerFilter
+	r.branchMu.RUnlock()
+	request := accountpool.AcquireRequest{}
+	if selected != "" {
+		request.AccountID = selected
+	}
+	if provider != "" {
+		if request.Metadata == nil {
+			request.Metadata = make(map[string]string)
+		}
+		request.Metadata["provider"] = provider
+	}
+	return request
+}
+
+// nodeAccountRequest 按节点作用域解析账号租赁请求：binding 显式 AccountID
+// 直接 pin；否则按 role + planID:branchID 确定性 hash 选择。
+func (r *Runtime) nodeAccountRequest(scope seenode.NodeScope) accountpool.AcquireRequest {
+	request := accountpool.AcquireRequest{}
+	binding := r.currentPlanBranchBinding()
+	if binding.AccountID != "" {
+		request.AccountID = binding.AccountID
+		return request
+	}
+	seed := scope.BranchID
+	if seed == "" {
+		seed = scope.NodeID
+	}
+	accountID, err := account.ResolveForBranch(r.pool, scope.Role, binding.PlanID+":"+seed)
+	if err == nil {
+		request.AccountID = accountID
+	}
+	return request
+}
+
+// bridgeAccountCompleter 构造同步 Completer（每次 Complete 恰好一次租赁）。
+func (r *Runtime) bridgeAccountCompleter() (agent.Completer, error) {
+	completer, err := bridge.NewAccountCompleter(r.pool,
+		bridge.WithAccountRequestSelector(r.accountSelector),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("seelebridge: assemble account completer: %w", err)
+	}
+	return completer, nil
+}
+
+// ensureDockerForRuntime 是 tools 域的接线面：按 limits 配置执行自动恢复
+// （disable_docker_auto_start 关闭时返回 nil 表示"不处理"）。
+func (r *Runtime) ensureDockerForRuntime(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	return docker.EnsureForRuntime(ctx, r.limits.DisableDockerAutoStart, r.limits.DockerStartTimeoutSec, r.dockerProbe)
+}
+
+// dockerProbe 保留兼容名（测试注入点；内部使用 docker.Prober）。
+type dockerProbe = docker.Prober
+
+// forkDeps 把 Runtime 能力面注入 fork 域（Deps 全部为闭包，域内不依赖根包）。
+func (r *Runtime) forkDeps() fork.Deps {
+	return fork.Deps{
+		CurrentPlanPolicy:        r.currentPlanPolicy,
+		NodeFactory:              r.nodeFactory,
+		TaskResolveByKey:         r.ResolveTaskByKey,
+		TaskAdd:                  r.TaskAdd,
+		TaskSetStatus:            r.TaskSetStatus,
+		TaskAttachParticipant:    r.TaskAttachParticipant,
+		SubagentTreeRegisterFork: r.subagentTree.RegisterFork,
+		SubagentTreeSummaryFor:   r.subagentTree.SummaryFor,
+		RunPlan:                  r.planExecutor.RunPlan,
+		ForkTimeoutSec:           r.limits.ForkTimeoutSec,
+		PlanNodeMaxLoops:         r.limits.PlanNodeMaxLoops,
+	}
+}
+
+// registerForkTool 注册 fork_subagents（RegisterBuiltins 内调用）。
+func (r *Runtime) registerForkTool() {
+	r.RegisterTool("fork_subagents",
+		"Fork N isolated subagents in parallel (worktree-isolated) and return their structured outputs."+fork.SubagentsContractDescription,
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"subagents": map[string]interface{}{
+					"type":        "array",
+					"description": "Subagent specs: unique id + natural-language goal.",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"id":   map[string]interface{}{"type": "string"},
+							"goal": map[string]interface{}{"type": "string"},
+						},
+						"required": []string{"id", "goal"},
+					},
+				},
+				"max_concurrency": map[string]interface{}{"type": "integer", "minimum": 1},
+			},
+			"required": []string{"subagents"},
+		},
+		r.forkSubagentsHandler)
+}
+
+// forkSubagentsHandler 是 fork_subagents 的执行入口（委托 fork.Tool.Handle）。
+func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (string, error) {
+	if r == nil || r.forkTool == nil {
+		return "", fmt.Errorf("fork_subagents: fork tool is not configured")
+	}
+	return r.forkTool.Handle(ctx, argsJSON)
+}
+
+// nodeDeps 把 Runtime 能力面注入 node 域（Deps 全部为闭包，域内不依赖根包）。
+func (r *Runtime) nodeDeps() seenode.Deps {
+	return seenode.Deps{
+		CurrentAgentFactory:      r.currentAgentFactory,
+		CurrentPlanBranchBinding: r.currentPlanBranchBinding,
+		AppendNodePhase:          r.node.AppendPhase,
+		BeginNodeWorktree:        r.beginNodeWorktree,
+		FinishNodeWorktree:       r.finishNodeWorktree,
+		ReleaseNodeWorktree:      r.releaseNodeWorktree,
+		RegisterNodeSession:      r.node.RegisterSession,
+		UnregisterNodeSession:    r.node.UnregisterSession,
+		CompleteSubagentNode:     r.node.CompleteSubagentNode,
+		NodeParentEvidence:       r.node.ParentEvidence,
+		MergeBackIntoParent:      r.mergeBackIntoParent,
+		EnqueueSubagentContext:   r.enqueueSubagentContext,
+		NodeBudget:               r.node.Budget,
+		NodePromptBlocks:         r.node.PromptBlocks,
+		Tracer: func() provider.TraceSource {
+			return r.Tracer()
+		},
+	}
+}
+
+// nodeSessionComponents 构造 Plan 节点子代理会话的公共组件
+// （bridge.WithSessionComponents 输入，plan.md §3.1 步骤 5）。
+// Agent 由 bridge 强制覆盖为 runtime 的 agent；每节点新建独立 Session
+// （工作历史默认隔离）。节点级 PromptBlocks 由 SeelexAgentNode.Run 注入
+// ctx，装配器 ScopeAssembler 在每次请求时合并。
+func (r *Runtime) nodeSessionComponents() session.SessionComponents {
+	return session.SessionComponents{
+		Context:   r.nodeContextComponents(),
+		Config:    session.SessionConfig{MaxLoops: r.limits.PlanNodeMaxLoops},
+		Telemetry: r.hook,
+		ModelName: r.model,
+	}
+}
+
+// nodeSessionID 派生节点会话 ID：以系统提示（节点目标）为种子做稳定 hash；
+// 同一节点路径 plan_run 可复现（供未来 checkpoints 定位）；空提示返回空串，
+// 让 Session 自动生成不透明 ID。
+func (r *Runtime) nodeSessionID(systemPrompt string) string {
+	if systemPrompt == "" {
+		return ""
+	}
+	return fmt.Sprintf("node-%x", stableHash(systemPrompt))
+}
+
+// stableHash 返回 seed 的 FNV-1a 32 位稳定哈希。
+func stableHash(seed string) uint32 {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(seed))
+	return hash.Sum32()
+}
+
+// currentPlanBranchBinding 返回当前 plan 执行分支绑定（planExecutor 持有）。
+func (r *Runtime) currentPlanBranchBinding() dto.PlanBranchBinding {
+	if r == nil || r.planExecutor == nil {
+		return dto.PlanBranchBinding{}
+	}
+	return r.planExecutor.Binding()
+}
+
+// setSelectedAccount 切换主链路选中账号（provider 过滤跟随账号规格）。
+func (r *Runtime) setSelectedAccount(name string) {
+	r.branchMu.Lock()
+	r.selectedAccountID = name
+	r.branchMu.Unlock()
+}
+
+// resolvePlanBranchAccount 按 role + planID:branchID 稳定解析分支账号。
+func (r *Runtime) resolvePlanBranchAccount(binding dto.PlanBranchBinding, role model.AccountRole, branchID string) (string, error) {
+	if binding.AccountID != "" {
+		if spec := account.ByName(r.accountSpecList(), binding.AccountID); spec == nil {
+			return "", fmt.Errorf("branch %q pins unknown account %q", branchID, binding.AccountID)
+		}
+		return binding.AccountID, nil
+	}
+	return account.ResolveForBranch(r.pool, role, binding.PlanID+":"+branchID)
+}
+
+// roleForPlanBranch 解析分支账号角色（main/entry → 主账号，其余 → 子代理）。
+func roleForPlanBranch(binding dto.PlanBranchBinding, branchID string) model.AccountRole {
+	return seenode.RoleForPlanBranch(binding, branchID)
+}
+
+// branchTraceID 返回分支追踪 ID（planID:branchID 或 traceID:branchID）。
+func branchTraceID(binding dto.PlanBranchBinding, branchID string) string {
+	if binding.TraceID == "" {
+		return branchID
+	}
+	return binding.TraceID + ":" + branchID
+}
+
+// nodeFactoryDeps 返回绑定到 Runtime 的跨域构造回调（测试与装配共用）。
+func (r *Runtime) nodeFactoryDeps() plan.NodeFactoryDeps {
+	return plan.NodeFactoryDeps{
+		NewAgentNode: func(spec codec.NodeSpec[plan.SeelexNodeInput]) (node.Node, error) {
+			return seenode.NewAgentNode(spec, r.nodeDeps()), nil
+		},
+		CurrentApprovalGate: r.currentApprovalGate,
+		NewSummaryNode: func(spec codec.NodeSpec[plan.SeelexNodeInput]) (node.Node, error) {
+			return fork.NewSummaryNode(spec), nil
+		},
+	}
+}
+
+// nodeFactory 返回绑定到 Runtime 的 codec.NodeFactory，供 codec.Import/Render 使用。
+func (r *Runtime) nodeFactory() codec.NodeFactory[plan.SeelexNodeInput] {
+	return plan.NodeFactory(r.nodeFactoryDeps())
+}
+
+// bashDiagnosticMiddleware marks entry to and exit from the framework tool
+// registry. Together with scopedBash's process stages, it distinguishes a
+// stalled handler from a stall in the registry/framework after the handler
+// has already returned. It is no-op unless a diagnostic observer is installed.
+func (r *Runtime) bashDiagnosticMiddleware() frameworktools.Middleware {
+	return func(name string, next frameworktools.ToolHandler) frameworktools.ToolHandler {
+		if name != "bash" {
+			return next
+		}
+		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.start"})
+			result, err := next.Execute(ctx, argsJSON)
+			if err != nil {
+				r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.error", Err: err})
+				return result, err
+			}
+			r.observeBash(BashDiagnosticEvent{Stage: "bash.registry.dispatch.done"})
+			return result, nil
+		})
+	}
+}
+
+// seelexVisibilityPolicy 是 bridge.WithVisibilityPolicy 要求的函数类型策略。
+// 子代理（Plan kind:agent 节点）与主代理能力一致：完整工具面 + 插件
+// include/exclude 过滤同等生效。唯一例外是操作全局状态的工具（plan 工具族、
+// task 终态工具）——并发子代理调用会污染主代理的计划状态 / 错误终结任务。
+// Dispatch 侧由 agent/bridge.RegistryRuntime 复核同一策略，隐藏工具返回
+// ErrToolNotVisible。
+func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool) []types.Tool {
+	scope := model.NodeScopeFromContextOrEmpty(ctx)
+	filtered := make([]types.Tool, 0, len(tools))
+	for _, tool := range tools {
+		name := tool.Function.Name
+		if scope.NodeID != "" && scope.Role == model.RoleSubAgent && nodeScopeExcludedTool(name) {
+			continue
+		}
+		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族
+		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
+		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
+		if scope.Role != model.RoleSubAgent && isPlanTool(name) && !r.node.GoalSkillActive() {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	return r.plugins.Filter(filtered)
+}
+
+// isPlanTool 判断 plan 工具族（goal skill 激活时对主代理可见）。
+func isPlanTool(name string) bool {
+	switch name {
+	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate":
+		return true
+	default:
+		return false
+	}
+}
+
+// nodeScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
+// runtime/会话级单例状态，并行子代理调用会造成语义冲突。其余工具与主代理
+// 一致可见。
+func nodeScopeExcludedTool(name string) bool {
+	switch name {
+	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate",
+		"task_complete", "task_failed", "task_needs_user_decision",
+		"fork_subagents": // fork 会递归派生子代理（无深度控制），同 plan 工具族理由
+		return true
+	default:
+		return false
+	}
+}
+
+// BashDiagnosticEvent / BashDiagnosticObserver 兼容别名（实现下沉 tools/ 域）。
+type (
+	BashDiagnosticEvent    = seeltools.BashDiagnosticEvent
+	BashDiagnosticObserver = seeltools.BashDiagnosticObserver
+)
+
+// registerProjectScopedTools overrides the Seele builtin filesystem tools
+// （委托 tools.Router；RegisterBuiltins 内调用）。
+func (r *Runtime) registerProjectScopedTools() {
+	seeltools.NewRouter(r.scopedToolsDeps()).Register()
+}
+
+// observeBash 投递 scoped bash 诊断事件（工具调用不可被诊断改变；观察者
+// 意外 panic 也不影响工具调用）。
+func (r *Runtime) observeBash(event BashDiagnosticEvent) {
+	if r == nil {
+		return
+	}
+	r.bashObserverMu.RLock()
+	observer := r.bashObserver
+	r.bashObserverMu.RUnlock()
+	if observer == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	observer(event)
+}
+
+// taskToolsDeps 把 Runtime 能力面注入 task 工具族（Deps 全部为闭包）。
+func (r *Runtime) taskToolsDeps() task.Deps {
+	return task.Deps{
+		RegisterTool:         r.RegisterTool,
+		ReplaceTodo:          r.tasks.ReplaceTodo,
+		AppendTodo:           r.tasks.AppendTodo,
+		SetTodoStatusByIndex: r.tasks.SetTodoStatusByIndex,
+		TodoSnapshot:         r.TodoSnapshot,
+		TaskAdd:              r.TaskAdd,
+		TodoMaxItems:         r.limits.TodoMaxItems,
+	}
+}
+
+// scopedToolsDeps 把 Runtime 能力面注入 tools 域（Deps 全部为闭包）。
+func (r *Runtime) scopedToolsDeps() seeltools.Deps {
+	return seeltools.Deps{
+		RegisterTool:           r.RegisterTool,
+		ProjectScope:           r.projectScope,
+		FileSystem:             r.filesystem,
+		GrepMaxResults:         r.limits.GrepMaxResults,
+		WalkTimeoutSec:         r.limits.WalkTimeoutSec,
+		ToolCallTimeout:        r.toolCallTimeout,
+		ToolCallTimeoutSec:     r.limits.ToolCallTimeoutSec,
+		DisableDockerAutoStart: r.limits.DisableDockerAutoStart,
+		ObserveBash:            r.observeBash,
+		EnsureDocker:           r.ensureDockerForRuntime,
+		DockerDaemonDown:       docker.IsDaemonDown,
+		DockerCLIPath:          docker.CLIPath,
+		DockerHint:             docker.Hint,
+	}
+}
+
+// NodeWorktree 是单个节点的 worktree 现场（plan_run 生命周期内有效）。
+type NodeWorktree = worktree.NodeWorktree
+
+// beginNodeWorktree 为节点创建 worktree（降级返回 nil；语义见
+// worktree.WorktreeManager.Begin）。
+func (r *Runtime) beginNodeWorktree(scope seenode.NodeScope, nodeID string) *worktree.NodeWorktree {
+	if r == nil || r.worktreeMgr == nil {
+		return nil
+	}
+	return r.worktreeMgr.Begin(scope, nodeID)
+}
+
+// finishNodeWorktree 收尾：变基仓库 → 提交判定 → 合并审批 → merge → 清理。
+func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *worktree.NodeWorktree) error {
+	if r == nil || r.worktreeMgr == nil {
+		return nil
+	}
+	return r.worktreeMgr.Finish(ctx, nodeID, wt)
+}
+
+// releaseNodeWorktree 在节点结束时从注册表移除（成功路径已清理；失败路径
+// 保留现场）。
+func (r *Runtime) releaseNodeWorktree(nodeID string) {
+	if r == nil || r.worktreeMgr == nil {
+		return
+	}
+	r.worktreeMgr.Release(nodeID)
 }
