@@ -3,6 +3,8 @@ package seelebridge
 import (
 	"context"
 	"fmt"
+
+	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 )
 
 // fork_tool.go 只保留 Runtime 门面：fork_subagents 工具注册与委托。
@@ -12,7 +14,7 @@ import (
 // registerForkTool 注册 fork_subagents（RegisterBuiltins 内调用）。
 func (r *Runtime) registerForkTool() {
 	r.RegisterTool("fork_subagents",
-		"Fork N isolated subagents in parallel (worktree-isolated) and return their structured outputs."+forkSubagentsContractDescription,
+		"Fork N isolated subagents in parallel (worktree-isolated) and return their structured outputs."+fork.SubagentsContractDescription,
 		map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

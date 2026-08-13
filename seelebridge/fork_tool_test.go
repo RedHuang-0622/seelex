@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 )
 
 // ── fork_subagents（切片 5，docs/2026-08-03-subagent-fork-architecture/plan.md §4）──
@@ -84,7 +85,7 @@ func TestForkSubagentsReuseStoredOutputSavesTokens(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runtime.subagentTree.RegisterFork(mainAgentNodeID, []forkSubagentSpec{
+	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{
 		{ID: "s1", Goal: "audit module A"},
 		{ID: "s2", Goal: "audit module B"},
 	})
@@ -197,12 +198,12 @@ func TestForkSubagentsValidation(t *testing.T) {
 func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 	spec := codec.NodeSpec[SeelexNodeInput]{ID: "summary", Kind: "summary",
 		Input: SeelexNodeInput{ID: "summary", Input: "summarize"}}
-	n := newForkSummaryNode(spec)
+	n := fork.NewSummaryNode(spec)
 	wc := workplanTypes.NewWorkflowContext()
 	// 多行输出：紧凑摘要保留前 N 行（*N 语义），超出部分截断。
-	// 30 行上限（forkSummaryMaxLines）可容纳一批 20+ 实例的逐条汇报。
+	// 30 行上限（fork.SummaryMaxLines）可容纳一批 20+ 实例的逐条汇报。
 	var zLines []string
-	for i := 1; i <= forkSummaryMaxLines+3; i++ {
+	for i := 1; i <= fork.SummaryMaxLines+3; i++ {
 		zLines = append(zLines, fmt.Sprintf("z-line-%d", i))
 	}
 	wc.SetResultRaw("z", strings.Join(zLines, "\n"))
@@ -217,17 +218,17 @@ func TestForkSummaryNodeConcatenatesPredecessors(t *testing.T) {
 	if ai < 0 || zi < 0 || ai > zi {
 		t.Fatalf("summary must be sorted by node id, got:\n%s", out)
 	}
-	// *N 语义：前 N 行都在（N = forkSummaryMaxLines），超出 N 的行截断。
+	// *N 语义：前 N 行都在（N = fork.SummaryMaxLines），超出 N 的行截断。
 	if !strings.Contains(out, "- a: a-line-1\n  a-line-2") || !strings.Contains(out, "- z: z-line-1\n  z-line-2") {
-		t.Fatalf("summary must carry first %d lines, got:\n%s", forkSummaryMaxLines, out)
+		t.Fatalf("summary must carry first %d lines, got:\n%s", fork.SummaryMaxLines, out)
 	}
-	lastKept := fmt.Sprintf("z-line-%d", forkSummaryMaxLines)
+	lastKept := fmt.Sprintf("z-line-%d", fork.SummaryMaxLines)
 	if !strings.Contains(out, lastKept) {
-		t.Fatalf("summary must keep line %d, got:\n%s", forkSummaryMaxLines, out)
+		t.Fatalf("summary must keep line %d, got:\n%s", fork.SummaryMaxLines, out)
 	}
-	dropped := fmt.Sprintf("z-line-%d", forkSummaryMaxLines+1)
+	dropped := fmt.Sprintf("z-line-%d", fork.SummaryMaxLines+1)
 	if strings.Contains(out, dropped) {
-		t.Fatalf("summary must drop lines beyond %d, got:\n%s", forkSummaryMaxLines, out)
+		t.Fatalf("summary must drop lines beyond %d, got:\n%s", fork.SummaryMaxLines, out)
 	}
 	if !strings.Contains(out, "子代理完成情况") {
 		t.Fatalf("summary must carry the compact header:\n%s", out)
@@ -247,14 +248,14 @@ func TestForkSummaryLinesCompact(t *testing.T) {
 		{"   \n", "", false},
 		{"第一行\n第二行\n", "第一行\n第二行", false},
 		{"a\n\nb\nc\nd\ne\nf\ng\n", "a\nb\nc\nd\ne\nf\ng", false}, // 空行跳过；30 行上限内全保留
-		{strings.Repeat("x", 200), strings.Repeat("x", forkSummaryLineLimit) + "…", true},
-		{multiLine(forkSummaryMaxLines + 3), multiLine(forkSummaryMaxLines), true}, // 超出 30 行截断
+		{strings.Repeat("x", 200), strings.Repeat("x", fork.SummaryLineLimit) + "…", true},
+		{multiLine(fork.SummaryMaxLines + 3), multiLine(fork.SummaryMaxLines), true}, // 超出 30 行截断
 	}
 	for _, tc := range cases {
-		got, full, truncated := forkResultSummaryLines(tc.output)
+		got, full, truncated := fork.ResultSummaryLines(tc.output)
 		wantFull := len([]rune(strings.TrimSpace(tc.output)))
 		if got != tc.want || full != wantFull || truncated != tc.wantTrunc {
-			t.Fatalf("forkResultSummaryLines(%q) = (%q,%d,%v), want (%q,%d,%v)",
+			t.Fatalf("fork.ResultSummaryLines(%q) = (%q,%d,%v), want (%q,%d,%v)",
 				tc.output, got, full, truncated, tc.want, wantFull, tc.wantTrunc)
 		}
 	}

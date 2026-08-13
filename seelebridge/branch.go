@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 
 	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/node"
 )
 
@@ -58,7 +59,7 @@ func (r *Runtime) setSelectedAccount(name string) {
 
 // resolvePlanBranchAccount 按 binding 解析分支账号：显式 AccountID 直接 pin，
 // 否则按 role + seed 走确定性 hash 选择（不占用主链路租约）。
-func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role AccountRole, branchID string) (string, error) {
+func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role model.AccountRole, branchID string) (string, error) {
 	if binding.AccountID != "" {
 		if spec := accountByName(r.accountSpecList(), binding.AccountID); spec == nil {
 			return "", fmt.Errorf("plan branch %q: selected account %q is unavailable", branchID, binding.AccountID)
@@ -69,7 +70,7 @@ func (r *Runtime) resolvePlanBranchAccount(binding PlanBranchBinding, role Accou
 }
 
 // roleForPlanBranch 判定分支角色（实现下沉 seelebridge/node，本包装供根包账号路由复用）。
-func roleForPlanBranch(binding PlanBranchBinding, branchID string) AccountRole {
+func roleForPlanBranch(binding PlanBranchBinding, branchID string) model.AccountRole {
 	return node.RoleForPlanBranch(binding, branchID)
 }
 

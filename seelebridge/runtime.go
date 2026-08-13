@@ -26,7 +26,9 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/stream"
+	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
@@ -76,8 +78,8 @@ type Runtime struct {
 
 	model            string
 	defaultAccountID string
-	accountLimits    map[string]accountLimits
-	accountSpecs     map[string]accountSpec
+	accountLimits    map[string]config.AccountLimits
+	accountSpecs     map[string]model.AccountSpec
 
 	// MCPStack 记录所有 MCP 调用的 trace（熔断事件 + 调用记录）。
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
@@ -205,15 +207,15 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if err := registerAccounts(pool, loaded.Specs); err != nil {
 		return nil, err
 	}
-	specsByName := make(map[string]accountSpec, len(loaded.Specs))
+	specsByName := make(map[string]model.AccountSpec, len(loaded.Specs))
 	for _, spec := range loaded.Specs {
 		specsByName[spec.Name] = spec
 	}
 	first := loaded.Specs[0]
 
 	// 遥测装配：内存追踪器 + 生命周期钩子（llm/tool intent-effect 事件）。
-	tracer := NewTracer()
-	hook, err := NewLifecycleHook(tracer)
+	tracer := seeletelemetry.NewTracer()
+	hook, err := seeletelemetry.NewLifecycleHook(tracer)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: create lifecycle hook: %w", err)
 	}
@@ -512,7 +514,7 @@ func (r *Runtime) ContextWindow() int { return r.currentAccountLimits().ContextW
 // MaxOutputTokens returns the configured maximum output for one model call.
 func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOutputTokens }
 
-func (r *Runtime) currentAccountLimits() accountLimits {
+func (r *Runtime) currentAccountLimits() config.AccountLimits {
 	r.branchMu.RLock()
 	accountID := r.selectedAccountID
 	r.branchMu.RUnlock()
@@ -522,7 +524,7 @@ func (r *Runtime) currentAccountLimits() accountLimits {
 	if limits, ok := r.accountLimits[accountID]; ok {
 		return limits
 	}
-	return accountLimits{ContextWindow: defaultContextWindow, MaxOutputTokens: defaultMaxOutputTokens}
+	return config.AccountLimits{ContextWindow: config.DefaultContextWindow, MaxOutputTokens: config.DefaultMaxOutputTokens}
 }
 
 func (r *Runtime) RegisterBuiltins() {
@@ -608,7 +610,7 @@ func (r *Runtime) SetPlanBranchBinding(binding PlanBranchBinding) {
 		binding.AccountID = selectedAccountID
 	}
 	if binding.PrimaryRole == "" {
-		binding.PrimaryRole = RoleAgent
+		binding.PrimaryRole = model.RoleAgent
 	}
 	if binding.PlanID == "" {
 		binding.PlanID = binding.EntryNodeID
@@ -711,8 +713,8 @@ func (r *Runtime) SelectAccount(name string) bool {
 	return true
 }
 
-func (r *Runtime) accountSpecList() []accountSpec {
-	specs := make([]accountSpec, 0, len(r.accountSpecs))
+func (r *Runtime) accountSpecList() []model.AccountSpec {
+	specs := make([]model.AccountSpec, 0, len(r.accountSpecs))
 	for _, spec := range r.accountSpecs {
 		specs = append(specs, spec)
 	}

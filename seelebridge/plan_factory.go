@@ -5,6 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
+	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 )
 
@@ -36,7 +37,7 @@ func (r *Runtime) buildNode(spec codec.NodeSpec[SeelexNodeInput]) (node.Node, er
 		return newProductNode(spec, kind), nil
 	case "summary":
 		// fork 汇总节点：拼接全部前驱输出（fork_tool.go；仅 fork DAG 使用）。
-		return newForkSummaryNode(spec), nil
+		return fork.NewSummaryNode(spec), nil
 	default:
 		return nil, fmt.Errorf("plan_load: node %q has unsupported kind %q (want agent|auto|function|approve|verify|deliver|summary)", spec.ID, kind)
 	}

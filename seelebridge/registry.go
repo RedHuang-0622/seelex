@@ -10,6 +10,7 @@ import (
 	"github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // toolsRegistryState 包装 tools.Registry：内联工具 provider 由 RegisterTool
@@ -117,13 +118,13 @@ func (r *Runtime) seelexVisibilityPolicy(ctx context.Context, tools []types.Tool
 	filtered := make([]types.Tool, 0, len(tools))
 	for _, tool := range tools {
 		name := tool.Function.Name
-		if scope.NodeID != "" && scope.Role == RoleSubAgent && nodeScopeExcludedTool(name) {
+		if scope.NodeID != "" && scope.Role == model.RoleSubAgent && nodeScopeExcludedTool(name) {
 			continue
 		}
 		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族
 		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
 		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
-		if scope.Role != RoleSubAgent && isPlanTool(name) && !r.goalSkillActive() {
+		if scope.Role != model.RoleSubAgent && isPlanTool(name) && !r.goalSkillActive() {
 			continue
 		}
 		filtered = append(filtered, tool)

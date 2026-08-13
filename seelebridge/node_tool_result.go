@@ -30,7 +30,7 @@ type nodeToolResultArchiver struct {
 
 // Store 实现 seelexctx.ToolResultArchiver（幂等由底层归档器保证）。
 func (a nodeToolResultArchiver) Store(ctx context.Context, callID, tool, raw string) (string, error) {
-	if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == RoleSubAgent {
+	if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == model.RoleSubAgent {
 		arch := a.runtime.nodeToolResultArchiverFor(scope.NodeID)
 		ref, err := arch.Store(ctx, callID, tool, raw)
 		if err != nil {

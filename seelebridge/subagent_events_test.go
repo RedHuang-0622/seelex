@@ -3,6 +3,7 @@ package seelebridge
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"testing"
 )
 
@@ -28,7 +29,7 @@ func TestSubagentToolMiddlewareProjectsStartedAndCompleted(t *testing.T) {
 		t.Fatalf("main-agent dispatch emitted subagent events: %#v", events)
 	}
 
-	ctx := WithNodeScope(context.Background(), NodeScope{NodeID: "node-a", Role: RoleSubAgent})
+	ctx := WithNodeScope(context.Background(), NodeScope{NodeID: "node-a", Role: model.RoleSubAgent})
 	result, err := runtime.Agent().DirectDispatch(ctx, "event_probe", `{"value":1}`)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +63,7 @@ func TestSubagentToolMiddlewareProjectsPermissionOrHandlerFailure(t *testing.T) 
 	runtime.SetSubagentToolCallback(func(event SubagentToolEvent) {
 		events = append(events, event)
 	})
-	ctx := WithNodeScope(context.Background(), NodeScope{NodeID: "node-f", Role: RoleSubAgent})
+	ctx := WithNodeScope(context.Background(), NodeScope{NodeID: "node-f", Role: model.RoleSubAgent})
 	if _, err := runtime.Agent().DirectDispatch(ctx, "event_failure", `{}`); err == nil {
 		t.Fatal("handler failure was not returned")
 	}

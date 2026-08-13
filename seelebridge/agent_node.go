@@ -8,6 +8,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
@@ -97,7 +98,7 @@ type nodeScopeAssembler struct {
 
 func (assembler nodeScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyRequest) (seelectx.AssembledRequest, error) {
 	if assembler.runtime != nil {
-		if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == RoleSubAgent {
+		if scope, ok := NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == model.RoleSubAgent {
 			assembler.runtime.markNodeStarted(scope.NodeID)
 		}
 	}

@@ -211,7 +211,7 @@ func (s *schedulerState) executeTask(task *scheduledTask) {
 }
 
 // runCommand 执行白名单命令：argv 直传（不经 shell），cwd 固定，
-// 环境变量清洗（复用 security 的 ScrubEnvironment），带超时。
+// 环境变量清洗（复用 security 的 security.ScrubEnvironment），带超时。
 func (s *schedulerState) runCommand(task *scheduledTask) (string, error) {
 	s.mu.Lock()
 	command, ok := s.commands[task.spec.Command]

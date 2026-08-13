@@ -11,6 +11,7 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 const (
@@ -34,7 +35,7 @@ func TestPlanExecutorPolicyAndBinding(t *testing.T) {
 
 	binding := PlanBranchBinding{
 		SessionID: "s1", WorkspaceID: "w1", PlanID: "p1", EntryNodeID: "gate",
-		AccountID: "a1", PrimaryRole: RoleAgent, TraceID: "t1",
+		AccountID: "a1", PrimaryRole: model.RoleAgent, TraceID: "t1",
 	}
 	executor.SetBinding(binding)
 	if got := executor.Binding(); got != binding {

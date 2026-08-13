@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -100,10 +101,10 @@ func TestMissingAccountsUsesEnvironmentCredential(t *testing.T) {
 	if len(specs) != 1 || specs[0].APIKey != "test-key" {
 		t.Fatalf("fallback accounts = %+v", specs)
 	}
-	if len(loaded.AvailableRoles) != 1 || loaded.AvailableRoles[0] != RoleAgent {
+	if len(loaded.AvailableRoles) != 1 || loaded.AvailableRoles[0] != model.RoleAgent {
 		t.Fatalf("fallback roles = %v", loaded.AvailableRoles)
 	}
-	if limits := loaded.Limits[specs[0].Name]; limits.ContextWindow != defaultContextWindow || limits.MaxOutputTokens != defaultMaxOutputTokens {
+	if limits := loaded.Limits[specs[0].Name]; limits.ContextWindow != config.DefaultContextWindow || limits.MaxOutputTokens != config.DefaultMaxOutputTokens {
 		t.Fatalf("fallback limits = %+v", limits)
 	}
 }
@@ -130,7 +131,7 @@ func TestRuntimeLoadsGroupedAccountRoles(t *testing.T) {
 	if len(loaded.Specs) != 2 || len(loaded.AvailableRoles) != 2 {
 		t.Fatalf("unexpected accounts=%d roles=%d", len(loaded.Specs), len(loaded.AvailableRoles))
 	}
-	spec, err := ResolveAccountSpec(loaded.Specs, RoleSubAgent)
+	spec, err := model.ResolveAccountSpec(loaded.Specs, model.RoleSubAgent)
 	if err != nil || spec.Name != "subagent-1" {
 		t.Fatalf("resolved account=%v err=%v", spec, err)
 	}
@@ -161,10 +162,10 @@ roles:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := loaded.Limits["agent-1"]; got != (accountLimits{ContextWindow: 200_000, MaxOutputTokens: 8_192}) {
+	if got := loaded.Limits["agent-1"]; got != (config.AccountLimits{ContextWindow: 200_000, MaxOutputTokens: 8_192}) {
 		t.Fatalf("agent limits = %+v", got)
 	}
-	if got := loaded.Limits["subagent-1"]; got != (accountLimits{ContextWindow: 32_768, MaxOutputTokens: 2_048}) {
+	if got := loaded.Limits["subagent-1"]; got != (config.AccountLimits{ContextWindow: 32_768, MaxOutputTokens: 2_048}) {
 		t.Fatalf("subagent limits = %+v", got)
 	}
 	if account := accountByName(loaded.Specs, "agent-1"); account == nil || account.Provider != "openai" || account.MaxTokens != 8_192 {
@@ -666,7 +667,7 @@ func TestRuntimeProjectScopedToolsUseBoundProject(t *testing.T) {
 func TestResolveAccountForBranchIsStableAndRoleScoped(t *testing.T) {
 	pool := accountpool.New[agent.Completer]()
 	for _, name := range []string{"subagent-1", "subagent-2", "agent-1"} {
-		spec := accountSpec{Name: name, Provider: "openai", Model: "test-model", MaxTokens: 8192}
+		spec := model.AccountSpec{Name: name, Provider: "openai", Model: "test-model", MaxTokens: 8192}
 		if err := pool.Register(accountpool.Account[agent.Completer]{
 			ID: name, Value: clientFor(spec), MaxConcurrency: 1,
 			Metadata: map[string]string{"provider": "openai", "model": "test-model"},
@@ -674,17 +675,17 @@ func TestResolveAccountForBranchIsStableAndRoleScoped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first, err := ResolveAccountForBranch(pool, RoleSubAgent, "plan:left")
+	first, err := ResolveAccountForBranch(pool, model.RoleSubAgent, "plan:left")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := ResolveAccountForBranch(pool, RoleSubAgent, "plan:left")
+	again, err := ResolveAccountForBranch(pool, model.RoleSubAgent, "plan:left")
 	if err != nil || first != again {
 		t.Fatalf("unstable account selection: first=%q again=%q err=%v", first, again, err)
 	}
 	seen := map[string]bool{}
 	for index := 0; index < 64; index++ {
-		account, err := ResolveAccountForBranch(pool, RoleSubAgent, fmt.Sprintf("plan:branch-%d", index))
+		account, err := ResolveAccountForBranch(pool, model.RoleSubAgent, fmt.Sprintf("plan:branch-%d", index))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -722,34 +723,34 @@ func TestRuntimePlanBranchBindingResolvesAccountsByRoleAndPin(t *testing.T) {
 		SessionID: "session-1", WorkspaceID: "workspace-1", PlanID: "plan-1", EntryNodeID: "start", TraceID: "trace-1",
 	})
 	binding := runtime.currentPlanBranchBinding()
-	if role := roleForPlanBranch(binding, "start"); role != RoleAgent {
+	if role := roleForPlanBranch(binding, "start"); role != model.RoleAgent {
 		t.Fatalf("entry role = %q, want agent", role)
 	}
-	if role := roleForPlanBranch(binding, "left"); role != RoleSubAgent {
+	if role := roleForPlanBranch(binding, "left"); role != model.RoleSubAgent {
 		t.Fatalf("left role = %q, want subagent", role)
 	}
 	if traceID := branchTraceID(binding, "left"); traceID != "trace-1:left" {
 		t.Fatalf("branch trace ID = %q", traceID)
 	}
-	entryAccount, err := runtime.resolvePlanBranchAccount(binding, RoleAgent, "start")
+	entryAccount, err := runtime.resolvePlanBranchAccount(binding, model.RoleAgent, "start")
 	if err != nil || entryAccount != "agent-1" {
 		t.Fatalf("entry account = %q err=%v", entryAccount, err)
 	}
-	leftAccount, err := runtime.resolvePlanBranchAccount(binding, RoleSubAgent, "left")
+	leftAccount, err := runtime.resolvePlanBranchAccount(binding, model.RoleSubAgent, "left")
 	if err != nil || (leftAccount != "subagent-1" && leftAccount != "subagent-2") {
 		t.Fatalf("left account = %q err=%v", leftAccount, err)
 	}
 
 	runtime.SetPlanBranchBinding(PlanBranchBinding{SessionID: "session-1", AccountID: "subagent-2"})
 	pinned := runtime.currentPlanBranchBinding()
-	override, err := runtime.resolvePlanBranchAccount(pinned, RoleSubAgent, "left")
+	override, err := runtime.resolvePlanBranchAccount(pinned, model.RoleSubAgent, "left")
 	if err != nil || override != "subagent-2" {
 		t.Fatalf("explicit account override = %q err=%v", override, err)
 	}
 
 	runtime.SetPlanBranchBinding(PlanBranchBinding{SessionID: "session-1", AccountID: "missing-account"})
 	missing := runtime.currentPlanBranchBinding()
-	if _, err := runtime.resolvePlanBranchAccount(missing, RoleSubAgent, "left"); err == nil {
+	if _, err := runtime.resolvePlanBranchAccount(missing, model.RoleSubAgent, "left"); err == nil {
 		t.Fatal("unavailable pinned account must fail")
 	}
 }

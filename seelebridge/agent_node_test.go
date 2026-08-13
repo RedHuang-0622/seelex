@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/skill"
 )
@@ -162,7 +163,7 @@ func TestSubAgentSeesFullToolSurface(t *testing.T) {
 	registerNamedTool(t, runtime, "mcp_demo_tool")
 
 	subCtx := WithNodeScope(context.Background(), NodeScope{
-		NodeID: "left", Role: RoleSubAgent, BranchID: "left",
+		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left",
 	})
 	visible := toolNames(runtime.VisibleTools(subCtx))
 	if !containsName(visible, "mcp_demo_tool") {

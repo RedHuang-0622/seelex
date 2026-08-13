@@ -7,21 +7,22 @@ import (
 
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/telemetry"
+	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 )
 
 // ── 遥测装配（slice 8：seelectx/tracer → telemetry） ────────────
 
 func TestNewTracerAndLifecycleHookWireLLMIntentEffect(t *testing.T) {
-	tracer := NewTracer()
+	tracer := seeletelemetry.NewTracer()
 	if tracer == nil {
-		t.Fatal("NewTracer returned nil")
+		t.Fatal("seeletelemetry.NewTracer returned nil")
 	}
-	hook, err := NewLifecycleHook(tracer)
+	hook, err := seeletelemetry.NewLifecycleHook(tracer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if hook == nil {
-		t.Fatal("NewLifecycleHook returned nil hook")
+		t.Fatal("seeletelemetry.NewLifecycleHook returned nil hook")
 	}
 
 	// llm intent-effect：Before（意图）→ After（效果），correlation 配对。

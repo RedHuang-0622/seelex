@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/telemetry"
+	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 )
 
 func TestDiagnosticTelemetryHookMarksBashBeforeAndAfter(t *testing.T) {
@@ -14,7 +15,7 @@ func TestDiagnosticTelemetryHookMarksBashBeforeAndAfter(t *testing.T) {
 	runtime.SetBashDiagnosticObserver(func(event BashDiagnosticEvent) {
 		stages = append(stages, event.Stage)
 	})
-	base, err := NewLifecycleHook(NewTracer())
+	base, err := seeletelemetry.NewLifecycleHook(seeletelemetry.NewTracer())
 	if err != nil {
 		t.Fatal(err)
 	}

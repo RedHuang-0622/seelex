@@ -18,6 +18,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -28,7 +29,7 @@ func TestNodeScopeContextRoundTrip(t *testing.T) {
 	if scope, ok := NodeScopeFromContext(ctx); ok {
 		t.Fatalf("empty ctx must not carry a scope: %+v", scope)
 	}
-	scope := NodeScope{NodeID: "left", Role: RoleSubAgent, BranchID: "left", WorkspaceID: "w1"}
+	scope := NodeScope{NodeID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1"}
 	child := WithNodeScope(ctx, scope)
 	got, ok := NodeScopeFromContext(child)
 	if !ok || got != scope {
@@ -77,10 +78,10 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 			t.Fatalf("main agent tools = %v, plan family must be hidden without goal skill", all)
 		}
 	}
-	// 子代理（RoleSubAgent）：与主代理能力一致（完整工具面），仅排除
+	// 子代理（model.RoleSubAgent）：与主代理能力一致（完整工具面），仅排除
 	// 操作全局状态的工具（plan 工具族 / task 终态工具）。
 	subCtx := WithNodeScope(context.Background(), NodeScope{
-		NodeID: "left", Role: RoleSubAgent, BranchID: "left", WorkspaceID: "w1",
+		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left", WorkspaceID: "w1",
 	})
 	scoped := toolNames(runtime.VisibleTools(subCtx))
 	// 完整工具面：项目工具 + 注册的普通工具（web_search）均可见。
@@ -96,10 +97,10 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 		}
 	}
 
-	// entry 节点（RoleAgent）：与主代理一致的全量可见（goal 未激活时
+	// entry 节点（model.RoleAgent）：与主代理一致的全量可见（goal 未激活时
 	// plan 同样隐藏，避免 DAG 内递归 plan）。
 	entryCtx := WithNodeScope(context.Background(), NodeScope{
-		NodeID: "start", Role: RoleAgent, BranchID: "start",
+		NodeID: "start", Role: model.RoleAgent, BranchID: "start",
 	})
 	if got := toolNames(runtime.VisibleTools(entryCtx)); len(got) != len(all) {
 		t.Fatalf("entry node tools = %v, want all %v", got, all)
@@ -108,7 +109,7 @@ func TestNodeScopeVisibilityFiltersSubagentTools(t *testing.T) {
 	// goal skill 激活 → 主代理与 entry 节点可见 plan 工具。
 	runtime.SetRuntimeVisibilityProjection(RuntimeVisibilityProjection{GoalSkillActive: true})
 	for _, ctx := range []context.Context{context.Background(), WithNodeScope(context.Background(), NodeScope{
-		NodeID: "start", Role: RoleAgent, BranchID: "start",
+		NodeID: "start", Role: model.RoleAgent, BranchID: "start",
 	})} {
 		got := toolNames(runtime.VisibleTools(ctx))
 		for _, want := range []string{"plan_run", "plan_load"} {
@@ -127,7 +128,7 @@ func TestNodeScopeHiddenToolDispatchRejected(t *testing.T) {
 	runtime.RegisterBuiltins()
 
 	subCtx := WithNodeScope(context.Background(), NodeScope{
-		NodeID: "left", Role: RoleSubAgent, BranchID: "left",
+		NodeID: "left", Role: model.RoleSubAgent, BranchID: "left",
 	})
 	// 隐藏工具（已注册但不在节点可见集）：ErrToolNotVisible。
 	_, err := runtime.agentDispatch(subCtx, "plan_run", `{}`)
@@ -161,7 +162,7 @@ func TestSeelexAgentNodeBlocksCarryEvidenceAndBudget(t *testing.T) {
 	// 作用域：分支即节点；角色按 binding 判定（未设 binding 时 entry 为空，
 	// 非 entry 节点 → subagent）。
 	scope := node.Scope()()
-	if scope.NodeID != "left" || scope.BranchID != "left" || scope.Role != RoleSubAgent {
+	if scope.NodeID != "left" || scope.BranchID != "left" || scope.Role != model.RoleSubAgent {
 		t.Fatalf("node scope = %+v", scope)
 	}
 	ctx := WithNodeScope(context.Background(), scope)
@@ -259,11 +260,11 @@ func TestPlanRunParallelAgentBranches(t *testing.T) {
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{SessionID: "src-1", Goal: "parent-goal", ConversationCount: 1})
 
 	// hash 路由断言：left/right 必须落到不同子代理账号（否则无法证明并行）。
-	leftAccount, err := ResolveAccountForBranch(runtime.pool, RoleSubAgent, "plan-1:left")
+	leftAccount, err := ResolveAccountForBranch(runtime.pool, model.RoleSubAgent, "plan-1:left")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightAccount, err := ResolveAccountForBranch(runtime.pool, RoleSubAgent, "plan-1:right")
+	rightAccount, err := ResolveAccountForBranch(runtime.pool, model.RoleSubAgent, "plan-1:right")
 	if err != nil {
 		t.Fatal(err)
 	}

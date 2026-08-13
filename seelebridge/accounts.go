@@ -9,11 +9,12 @@ import (
 	"github.com/RedHuang-0622/Seele/agent/bridge"
 	"github.com/RedHuang-0622/Seele/agent/core/api"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // clientFor 从账号配置构造一个同步 Completer（agent.Completer）。
 // 每个账号一个独立 client，账号选择统一走 accountpool 租约，不做类型断言。
-func clientFor(spec accountSpec) agent.Completer {
+func clientFor(spec model.AccountSpec) agent.Completer {
 	client := api.NewChatClient(types.LLMConfig{
 		BaseURL: spec.BaseURL, APIKey: spec.APIKey, Model: spec.Model,
 		MaxTokens: spec.MaxTokens, Timeout: 300, Temperature: 0.7,
@@ -24,7 +25,7 @@ func clientFor(spec accountSpec) agent.Completer {
 
 // registerAccounts 把加载的账号配置注册进 P2C 账号池。
 // Metadata 只放非敏感路由属性（provider/model），凭据留在 Value 内部。
-func registerAccounts(pool *accountpool.P2CPool[agent.Completer], specs []accountSpec) error {
+func registerAccounts(pool *accountpool.P2CPool[agent.Completer], specs []model.AccountSpec) error {
 	for _, spec := range specs {
 		if err := pool.Register(accountpool.Account[agent.Completer]{
 			ID:             spec.Name,
@@ -101,7 +102,7 @@ func (r *Runtime) bridgeAccountCompleter() (agent.Completer, error) {
 
 // ResolveAccountForBranch selects an account without mutating the shared pool
 // cursor. The same role and seed always resolve to the same configured account.
-func ResolveAccountForBranch(pool *accountpool.P2CPool[agent.Completer], role AccountRole, seed string) (string, error) {
+func ResolveAccountForBranch(pool *accountpool.P2CPool[agent.Completer], role model.AccountRole, seed string) (string, error) {
 	entries := accountsForRole(pool, role)
 	if len(entries) == 0 {
 		return "", fmt.Errorf("seelebridge: no accounts available")
@@ -109,16 +110,16 @@ func ResolveAccountForBranch(pool *accountpool.P2CPool[agent.Completer], role Ac
 	return entries[stableIndex(seed, len(entries))].Snapshot.ID, nil
 }
 
-func accountsForRole(pool *accountpool.P2CPool[agent.Completer], role AccountRole) []accountpool.Entry[agent.Completer] {
+func accountsForRole(pool *accountpool.P2CPool[agent.Completer], role model.AccountRole) []accountpool.Entry[agent.Completer] {
 	if pool == nil {
 		return nil
 	}
 	all := pool.Entries()
-	roles := append([]AccountRole{role}, fallbackRoles(role)...)
+	roles := append([]model.AccountRole{role}, model.FallbackRoles(role)...)
 	for _, candidate := range roles {
 		matched := make([]accountpool.Entry[agent.Completer], 0)
 		for _, entry := range all {
-			if !entry.Snapshot.Disabled && accountRole(entry.Snapshot.ID) == candidate {
+			if !entry.Snapshot.Disabled && model.AccountRoleFromName(entry.Snapshot.ID) == candidate {
 				matched = append(matched, entry)
 			}
 		}
@@ -136,7 +137,7 @@ func accountsForRole(pool *accountpool.P2CPool[agent.Completer], role AccountRol
 
 // fallbackRoles 定义见 seelebridge/internal/model（根包 model_aliases.go 重导出）。
 
-func accountByName(specs []accountSpec, name string) *accountSpec {
+func accountByName(specs []model.AccountSpec, name string) *model.AccountSpec {
 	for index := range specs {
 		if specs[index].Name == name {
 			return &specs[index]

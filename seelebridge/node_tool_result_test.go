@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -17,7 +18,7 @@ func TestNodeToolResultArchiverPrefixAndReadback(t *testing.T) {
 
 	arch := nodeToolResultArchiver{runtime: runtime, shared: seelexctx.NewInMemoryToolResultArchiver()}
 	nodeCtx := WithNodeScope(context.Background(), NodeScope{
-		NodeID: "agent-1", Role: RoleSubAgent, BranchID: "agent-1",
+		NodeID: "agent-1", Role: model.RoleSubAgent, BranchID: "agent-1",
 	})
 
 	// 节点上下文：ref 带前缀，可读回原始内容。
