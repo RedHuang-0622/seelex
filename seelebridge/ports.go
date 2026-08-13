@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/RedHuang-0622/Seele/tools"
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	"github.com/RedHuang-0622/Seele/types"
 
@@ -203,24 +201,6 @@ func (r *Runtime) NodeWorktreeInfoFor(nodeID string) (NodeWorktreeInfo, bool) {
 
 // MCPServer is the transport-neutral MCP configuration consumed by Seelex.
 type MCPServer = mcp.Server
-
-// mcpRegistryAdapter 把 Runtime 工具注册表适配为 mcp.RegistryPort
-// （懒解析：注册表在 NewRuntime 中稍后才装配，调用时判空）。
-type mcpRegistryAdapter struct{ runtime *Runtime }
-
-func (a mcpRegistryAdapter) Unregister(name string) error {
-	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.Registry == nil {
-		return nil
-	}
-	return a.runtime.registry.Registry.Unregister(name)
-}
-
-func (a mcpRegistryAdapter) Register(provider tools.ToolProvider) error {
-	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.Registry == nil {
-		return nil
-	}
-	return a.runtime.registry.Registry.Register(provider)
-}
 
 // BreakerEvents returns a read-only channel of breaker events.
 // The consumer (mcpstack.ListenBreaker) runs automatically when AttachMCP is called.
@@ -519,44 +499,4 @@ func (r *Runtime) SetParentEvidenceProjection(projection ParentEvidenceProjectio
 		return
 	}
 	r.subagentContext.SetParentEvidenceProjection(projection)
-}
-
-// enqueueSubagentContext is the subagent-to-main merge-back write. It is
-// delegated to the subagentContext actor: the command channel is bounded and
-// never blocks the producer for long, and the actor queue preserves every
-// message until Drain（2026-08-10 A/B 修复：mailbox 满不再静默丢弃）。
-func (r *Runtime) enqueueSubagentContext(content string) {
-	if r == nil || strings.TrimSpace(content) == "" {
-		return
-	}
-	r.subagentContext.Enqueue(content)
-}
-
-// DrainSubagentContexts returns all currently queued merge-back messages. It
-// never waits for a producer or Application lock and is called before a main
-// ChatStream starts.
-func (r *Runtime) DrainSubagentContexts() []string {
-	if r == nil {
-		return nil
-	}
-	return r.subagentContext.Drain()
-}
-
-// subagentContextDropped 返回 merge-back 队列溢出计数（诊断面）。
-func (r *Runtime) subagentContextDropped() int64 {
-	if r == nil {
-		return 0
-	}
-	return r.subagentContext.Overflow()
-}
-
-// mergeBackIntoParent 把子代理快照合并进 Runtime 持有的父证据，并把合并
-// 结果原子写回 parentEvidence（后续子代理/嵌套 fork 因此能看到先前子代理
-// 的 Findings/Decisions——合并累积）。合并由 subagentContext actor 串行执行，
-// 防止并行子代理各自基于旧快照合并后互相覆盖（2026-08-10 B 修复）。
-func (r *Runtime) mergeBackIntoParent(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot {
-	if r == nil || child == nil {
-		return nil
-	}
-	return r.subagentContext.MergeBackIntoParent(child)
 }

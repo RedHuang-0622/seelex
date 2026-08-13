@@ -17,6 +17,7 @@ import (
 
 	seelectxstorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
@@ -27,6 +28,10 @@ import (
 	"github.com/RedHuang-0622/seelex/skill"
 	"github.com/RedHuang-0622/seelex/workspace"
 )
+
+// 编译期断言：adapters.RuntimePort 完整实现 application/contract 的 RuntimePort
+// （类型转换在适配层完成，seelebridge.Runtime 不直接实现该端口）。
+var _ contract.RuntimePort = RuntimePort{}
 
 type EnginePort struct {
 	engine         ReactorEngine

@@ -13,6 +13,24 @@ import (
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
 
+// mcpRegistryAdapter 把 Runtime 工具注册表适配为 mcp.RegistryPort
+// （懒解析：注册表在 NewRuntime 中稍后才装配，调用时判空）。
+type mcpRegistryAdapter struct{ runtime *Runtime }
+
+func (a mcpRegistryAdapter) Unregister(name string) error {
+	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.Registry == nil {
+		return nil
+	}
+	return a.runtime.registry.Registry.Unregister(name)
+}
+
+func (a mcpRegistryAdapter) Register(provider frameworktools.ToolProvider) error {
+	if a.runtime == nil || a.runtime.registry == nil || a.runtime.registry.Registry == nil {
+		return nil
+	}
+	return a.runtime.registry.Registry.Register(provider)
+}
+
 // SetPermissionConfig 安装权限门控：Mode + Rules + ApprovalHandler。
 // 门控作为 tools.Registry middleware 在每次工具调度前生效。
 func (r *Runtime) SetPermissionConfig(cfg toolspermission.PermissionConfig, handler toolspermission.ApprovalHandler) {
