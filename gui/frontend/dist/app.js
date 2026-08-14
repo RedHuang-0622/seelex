@@ -389,6 +389,8 @@ let nodeDetailPollTimer = null;
 let activeNodeDetailKey = "";
 let activeNodeDetailID = "";
 let nodeDetailGeneration = 0;
+let subagentLiveBound = false;
+let nodeLiveBuffer = [];
 
 // resolveNodeForDetail 解析详情弹窗的节点数据：优先 Plan DSL（活跃 Plan 的
 // 权威投影）；fork 子代理节点在 Plan 已清除时回退到子代理树投影（会话记录/
@@ -418,6 +420,14 @@ async function openNodeDetail(nodeKey) {
     elements["node-detail-content"].querySelector('[data-node-tab="context"]')?.click();
   }
   setModal("node-detail-modal", true);
+  // node 第一视角实时流：订阅 seelex:subagent_live（阶段/工具事件到达即显示）。
+  nodeLiveBuffer = [];
+  if (window.runtime && !subagentLiveBound) {
+    subagentLiveBound = true;
+    window.runtime.EventsOn("seelex:subagent_live", handleSubagentLive);
+  }
+  invoke("SubagentDetailStreamStart", node.id).catch(() => {});
+  renderLiveFeed();
   await refreshNodeDetail(node.id, generation);
 }
 
@@ -429,6 +439,7 @@ function refreshOpenNodeDetail() {
   bindNodeDetailTabs(elements["node-detail-content"]);
   const selected = elements["node-detail-content"].querySelector(`[data-node-tab="${selectedTab}"]`);
   selected?.click();
+  renderLiveFeed();
   void refreshNodeDetail(activeNodeDetailID, nodeDetailGeneration);
 }
 
@@ -455,6 +466,7 @@ async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
 }
 
 function closeNodeDetail() {
+  const nodeID = activeNodeDetailID;
   nodeDetailGeneration += 1;
   if (nodeDetailPollTimer) {
     clearTimeout(nodeDetailPollTimer);
@@ -462,7 +474,52 @@ function closeNodeDetail() {
   }
   activeNodeDetailKey = "";
   activeNodeDetailID = "";
+  nodeLiveBuffer = [];
+  if (nodeID) invoke("SubagentDetailStreamStop", nodeID).catch(() => {});
   setModal("node-detail-modal", false);
+}
+
+// ── node 第一视角实时流（即时输出：阶段/工具事件到达即渲染）──
+
+function renderLiveFeed() {
+  const feed = document.querySelector("[data-node-detail] [data-node-live-feed]");
+  if (!feed) return;
+  feed.innerHTML = nodeLiveBuffer.length === 0
+    ? '<div class="node-timeline-empty">等待实时事件（打开即订阅；阶段/工具事件到达即显示）…</div>'
+    : nodeLiveBuffer.map(liveRowHTML).join("");
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function handleSubagentLive(event) {
+  if (!event || event.node_id !== activeNodeDetailID) return;
+  nodeLiveBuffer.push(event);
+  if (nodeLiveBuffer.length > 500) nodeLiveBuffer.shift();
+  renderLiveFeed();
+}
+
+function liveRowHTML(event) {
+  const at = liveTime(event.at);
+  if (event.kind === "tool") {
+    const tool = event.tool || {};
+    const result = tool.result ? ` <code>${escapeHtml(livePreview(tool.result))}</code>` : "";
+    return `<div class="node-live-row"><span class="node-live-time">${escapeHtml(at)}</span><span class="node-live-kind is-tool">工具</span><strong>${escapeHtml(tool.name || "")}</strong><span class="node-live-status is-${escapeHtml(tool.status || "")}">${escapeHtml(tool.status || "")}</span>${result}</div>`;
+  }
+  const stage = event.stage || {};
+  const turn = stage.turn ? ` <em>#${stage.turn}</em>` : "";
+  const preview = stage.preview ? ` <code>${escapeHtml(livePreview(stage.preview))}</code>` : "";
+  return `<div class="node-live-row"><span class="node-live-time">${escapeHtml(at)}</span><span class="node-live-kind is-stage">阶段</span><strong>${escapeHtml(stage.stage || "")}</strong>${turn}${preview}</div>`;
+}
+
+function liveTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toTimeString().slice(0, 12) + "." + String(date.getMilliseconds()).padStart(3, "0");
+}
+
+function livePreview(value) {
+  const compact = String(value).replace(/\s+/g, " ").trim();
+  return compact.length > 140 ? compact.slice(0, 140) + "…" : compact;
 }
 
 function renderInteraction(interaction) {

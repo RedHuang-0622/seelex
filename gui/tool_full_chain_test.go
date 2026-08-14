@@ -74,6 +74,9 @@ func (*guiChainEngine) NodeToolResult(string, string) (string, bool) { return ""
 func (*guiChainEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool) {
 	return seelebridge.NodeWorktreeInfo{}, false
 }
+func (*guiChainEngine) SubscribeSubagentLive(string) (<-chan dto.SubagentLiveEvent, func(), error) {
+	return nil, func() {}, nil
+}
 func (*guiChainEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 type guiChainRuntime struct {

@@ -28,6 +28,12 @@ type SessionPort interface {
 	ContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)
 	ToolResultArchiverFor(nodeID string) *seelexctx.InMemoryToolResultArchiver
 	ToolResult(nodeID, ref string) (string, bool)
+	RecordStage(nodeID string, log model.NodeStageLog)
+	StageLogs(nodeID string) []model.NodeStageLog
+	RecordResult(nodeID string, result *model.NodeSemanticResult)
+	Result(nodeID string) *model.NodeSemanticResult
+	DrainResults() []*model.NodeSemanticResult
+	StageEvents() <-chan model.NodeStageLog
 }
 
 // TreePort 是 Coordinator 需要的 fork 子代理树表面。
@@ -157,6 +163,54 @@ func (c *Coordinator) ToolResult(nodeID, ref string) (string, bool) {
 		return "", false
 	}
 	return c.deps.Sessions.ToolResult(nodeID, ref)
+}
+
+// RecordStage 记录 node 第一视角阶段日志（见 session.SubagentSessions.RecordStage）。
+func (c *Coordinator) RecordStage(nodeID string, log model.NodeStageLog) {
+	if c == nil || c.deps.Sessions == nil || nodeID == "" {
+		return
+	}
+	c.deps.Sessions.RecordStage(nodeID, log)
+}
+
+// StageLogs 返回 node 第一视角阶段日志（同一 subagent 的多阶段认证面）。
+func (c *Coordinator) StageLogs(nodeID string) []model.NodeStageLog {
+	if c == nil || c.deps.Sessions == nil || nodeID == "" {
+		return nil
+	}
+	return c.deps.Sessions.StageLogs(nodeID)
+}
+
+// StageEvents 返回第一视角阶段日志实时推送通道（即时输出面）。
+func (c *Coordinator) StageEvents() <-chan model.NodeStageLog {
+	if c == nil || c.deps.Sessions == nil {
+		return nil
+	}
+	return c.deps.Sessions.StageEvents()
+}
+
+// RecordResult 登记 node 预定义语义结果并投入语义结果队列。
+func (c *Coordinator) RecordResult(nodeID string, result *model.NodeSemanticResult) {
+	if c == nil || c.deps.Sessions == nil || nodeID == "" || result == nil {
+		return
+	}
+	c.deps.Sessions.RecordResult(nodeID, result)
+}
+
+// SemanticResult 返回 node 最近一次语义结果。
+func (c *Coordinator) SemanticResult(nodeID string) *model.NodeSemanticResult {
+	if c == nil || c.deps.Sessions == nil || nodeID == "" {
+		return nil
+	}
+	return c.deps.Sessions.Result(nodeID)
+}
+
+// DrainSemanticResults 取空语义结果队列（消息队列消费面）。
+func (c *Coordinator) DrainSemanticResults() []*model.NodeSemanticResult {
+	if c == nil || c.deps.Sessions == nil {
+		return nil
+	}
+	return c.deps.Sessions.DrainResults()
 }
 
 // AppendPhase 把节点生命周期阶段事件写入 plan 执行器（worktree/running 等）。

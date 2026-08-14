@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
 	"github.com/RedHuang-0622/Seele/types"
@@ -195,6 +196,56 @@ func (r *Runtime) NodeWorktreeInfoFor(nodeID string) (NodeWorktreeInfo, bool) {
 		return NodeWorktreeInfo{}, false
 	}
 	return r.worktreeMgr.Info(nodeID)
+}
+
+// NodeStageLogs 返回 node 第一视角分阶段上下文日志（同一 subagent 会话的
+// 认证面：全部阶段日志共享 SessionID）。
+func (r *Runtime) NodeStageLogs(nodeID string) []model.NodeStageLog {
+	if r == nil || r.node == nil || nodeID == "" {
+		return nil
+	}
+	return r.node.StageLogs(nodeID)
+}
+
+// NodeStageEvents 返回第一视角阶段日志的实时推送通道（即时输出面）：
+// 每个阶段（spawn/turn/tool/result）被记录后立即投递，消费方按 NodeID 过滤。
+func (r *Runtime) NodeStageEvents() <-chan model.NodeStageLog {
+	if r == nil || r.node == nil {
+		return nil
+	}
+	return r.node.StageEvents()
+}
+
+// NodeFirstPersonView 返回 node 第一视角完整载荷：查看时间（ProbedAt）+
+// 逐步产出的分阶段日志 + 语义结果。日志按记录序单调递增且早于 ProbedAt。
+func (r *Runtime) NodeFirstPersonView(nodeID string) *model.NodeFirstPersonView {
+	if r == nil || r.node == nil || nodeID == "" {
+		return nil
+	}
+	return &model.NodeFirstPersonView{
+		NodeID:   nodeID,
+		ProbedAt: time.Now(),
+		Stages:   r.node.StageLogs(nodeID),
+		Result:   r.node.SemanticResult(nodeID),
+	}
+}
+
+// NodeSemanticResult 返回 node 的预定义语义结果（只读；对象结构由 seelex
+// 制定，非 subagent 自拟）。
+func (r *Runtime) NodeSemanticResult(nodeID string) *model.NodeSemanticResult {
+	if r == nil || r.node == nil || nodeID == "" {
+		return nil
+	}
+	return r.node.SemanticResult(nodeID)
+}
+
+// DrainSubagentSemanticResults 取空子代理语义结果队列（消息队列消费面：
+// mainagent / plan 下游 node 读取）。
+func (r *Runtime) DrainSubagentSemanticResults() []*model.NodeSemanticResult {
+	if r == nil || r.node == nil {
+		return nil
+	}
+	return r.node.DrainSemanticResults()
 }
 
 // ── MCP 端口 ──────────────────────────────────────────────────────

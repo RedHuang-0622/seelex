@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -135,6 +136,10 @@ func (fake *fakeApplication) ConfigureSessionStorage(context.Context, sessionsto
 }
 func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {
 	return nil, nil
+}
+func (fake *fakeApplication) SubscribeSubagentLive(string) (<-chan dto.SubagentLiveEvent, func(), error) {
+	ch := make(chan dto.SubagentLiveEvent, 16)
+	return ch, func() {}, nil
 }
 func (fake *fakeApplication) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	fake.scheduledSpec = spec

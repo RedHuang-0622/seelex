@@ -26,6 +26,10 @@ node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
 职责：
 
 - `AgentNode.Run`：节点作用域注入 → worktree 开启 → 节点级 PromptBlocks 注入 → 节点 Session 执行 → 终态打点 → merge-back → worktree 收尾；
+- 第一视角与语义结果（`Deps.RecordNodeStage`/`RecordNodeResult`）：spawn 阶段在
+  `Run` 内记录（goal/会话 ID），turn/tool 阶段经 telemetry StageHook 记录，result
+  阶段与预定义语义结果（`NodeSemanticResult`，对象结构由 seelex 制定、非 subagent
+  自拟）在 `mergeBack` 内记录并投入语义结果队列；
 - 节点级 PromptBlocks 的 ctx 注入/读取（`WithNodePromptBlocks` / `NodePromptBlocksFromContext`）；
 - 执行预算（`NodeBudgetInfo`）、子代理章程渲染（`NodeSubagentCharter`）、skill 匹配（`MatchNodeSkills`）、分支角色判定（`RoleForPlanBranch`）。
 
@@ -40,6 +44,7 @@ node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
 | 文件 | 职责 |
 |---|---|
 | `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`NodeScopeFor`、`RoleForPlanBranch`、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
+| `coordinator.go` | `SessionPort`/`TreePort`/`TaskPort` 接口、`Coordinator`（含阶段日志与语义结果委托） |
 
 ## 核心实现
 

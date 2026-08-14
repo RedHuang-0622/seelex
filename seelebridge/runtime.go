@@ -18,6 +18,7 @@ import (
 	"github.com/RedHuang-0622/Seele/telemetry"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/mcpstack"
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
@@ -102,6 +103,14 @@ type Runtime struct {
 	tasks        *task.TaskRegistry        // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
 	scheduler    *scheduler.State          // 定时周期任务 actor（scheduler/ 域）
 	toolEvents   *subagentsession.ToolEventState
+	// live* 是 node 第一视角实时流分发器（runtime_live.go）：阶段+工具事件
+	// 统一通道按 nodeID 广播；liveStarted/liveStop 保护启动与停机。
+	liveMu         sync.Mutex
+	liveStarted    bool
+	liveStop       chan struct{}
+	liveCh         chan dto.SubagentLiveEvent
+	liveSubs       map[string][]chan dto.SubagentLiveEvent
+	liveToolCancel func()
 
 	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
@@ -319,6 +328,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	// It brackets telemetry.After, the only framework boundary between a tool
 	// registry return and the application ToolHookBridge completion callback.
 	r.hook = seeletelemetry.NewDiagnosticHook(r.hook, r.observeBash)
+	// node 第一视角：把 node 会话的 llm/tool telemetry 边界投影为同节点
+	// 分阶段日志（NodeScope 已在 AgentNode.Run 注入 ctx；主会话无 NodeScope
+	// 被过滤）。best-effort，绝不改变执行路径。
+	r.hook = seeletelemetry.NewStageHook(r.hook, r.node)
 
 	// 9. MCP 管理器：MCPStack 承接熔断事件 trace，注册表此时已装配。
 	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
@@ -449,6 +462,7 @@ func (r *Runtime) Shutdown() {
 	if r == nil {
 		return
 	}
+	r.stopLiveDispatcher()
 	// 逆装配序统一关停（NewRuntime 登记）；幂等由各实现保证。
 	for index := len(r.lifecycle) - 1; index >= 0; index-- {
 		if r.lifecycle[index] != nil {

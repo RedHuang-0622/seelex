@@ -215,6 +215,9 @@ func (*ScriptedEngine) NodeToolResult(string, string) (string, bool) { return ""
 func (*ScriptedEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool) {
 	return seelebridge.NodeWorktreeInfo{}, false
 }
+func (*ScriptedEngine) SubscribeSubagentLive(string) (<-chan dto.SubagentLiveEvent, func(), error) {
+	return nil, func() {}, nil
+}
 func (*ScriptedEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 func (engine *ScriptedEngine) Remaining() int {

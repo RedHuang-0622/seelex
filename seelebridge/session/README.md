@@ -20,6 +20,14 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
 职责：
 
 - `SubagentSessions`：运行中子会话 History 实时读取、结束快照保留、节点工具结果归档（`ToolResultArchiverFor`/`ToolResult`）；
+- `SubagentSessions`（第一视角数据面）：node 分阶段上下文日志（`RecordStage`/`StageLogs`，
+  同一 node 会话自动补全 SessionID——多阶段同一 subagent 的认证面）与预定义语义
+  结果返回（`RecordResult`/`Result`/`DrainResults`，结果经语义结果队列按消息队列
+  路径返回给 mainagent / 下游 node）；`StageEvents` 提供阶段日志**实时推送通道**
+  （即时输出面：每条阶段记录后立即投递，非轮询/缓存；通道有界，满时丢弃并计数，
+  best-effort 不阻塞执行路径）；
+- `ToolEventState`：子代理工具事件分发器支持多观察者（`SetCallback` 供 main 路径，
+  `Subscribe` 供 Runtime 实时流等并行订阅），node 第一视角统一实时流的工具面；
 - `SubagentContextActor`：父证据读-合并-写回（`MergeBackIntoParent`）、merge-back 有界 mailbox（`Enqueue`/`Drain`）、父证据无锁读取（`NodeParentEvidence`）。
 
 非职责：
@@ -33,6 +41,7 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
 | 文件 | 职责 |
 |---|---|
 | `subagent_sessions.go` | 会话注册表 actor |
+| `subagent_stage_test.go` | 第一视角阶段日志与语义结果队列单元测试 |
 | `subagent_context.go` | 父证据合并 + merge-back mailbox actor |
 | `context_clone.go` | `ContextSnapshot` 深拷贝辅助 |
 | `subagent_sessions_test.go` | 会话注册表单元测试 |
@@ -43,6 +52,10 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
 
 - `SubagentContextActor`：`handleMerge` 串行执行"读当前父证据 → `merger.MergeBack`（copy-on-write 累积）→ 写回 `atomic.Pointer`"；`handleEnqueue` 在队列达 soft cap 时仅计数 `Overflow`，内容全部保留；`Drain` 一次性全量回收。
 - `SubagentSessions`：注册/注销导出结束快照（`seelexctx.ExportSnapshot`，trace 可为 nil 降级）；工具结果走节点专属 `InMemoryToolResultArchiver`，ref 前缀由 `internal/model.NodeResultRefPrefix` 统一。
+- 第一视角阶段日志（`model.NodeStageLog`）：`AgentNode`/telemetry 钩子写入，actor 按
+  nodeID 追加并补全 SessionID 与 turn 编号；语义结果（`model.NodeSemanticResult`）
+  登记时自动附带该节点全部阶段日志，并投入语义结果队列（`DrainResults` 一次性取空）；
+  每条阶段日志写入后同时推入 `StageEvents` 通道（即时输出）。
 
 ## 数据流或生命周期
 

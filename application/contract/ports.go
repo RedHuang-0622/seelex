@@ -55,6 +55,9 @@ type ChatEngine interface {
 	// NodeWorktreeInfoFor 返回节点 worktree 现场信息（失败/被拒路径现场
 	// 保留，Path 即人工恢复入口；成功路径已清理 → false）。
 	NodeWorktreeInfoFor(nodeID string) (dto.NodeWorktreeInfo, bool)
+	// SubscribeSubagentLive 订阅 node 第一视角实时流（阶段+工具事件即时
+	// 投递）；返回只读事件通道与取消函数。
+	SubscribeSubagentLive(nodeID string) (<-chan dto.SubagentLiveEvent, func(), error)
 	// SubAgentTree 返回 fork 子代理树的只读投影（内存态，不落盘；
 	// GUI 树视图数据源，经权威 Snapshot 增量携带）。
 	SubAgentTree() []dto.SubAgentTreeNode

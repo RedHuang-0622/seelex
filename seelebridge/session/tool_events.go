@@ -28,14 +28,16 @@ type SubagentToolEvent struct {
 // ToolEventState 是子代理工具事件的分发器（回调 + 序号），由根包注入
 // 工具注册表 middleware。
 type ToolEventState struct {
-	mu       sync.RWMutex
-	callback func(SubagentToolEvent)
-	seq      atomic.Uint64
+	mu          sync.RWMutex
+	callback    func(SubagentToolEvent)
+	seq         atomic.Uint64
+	observerSeq int64
+	observers   map[int64]func(SubagentToolEvent)
 }
 
 // NewToolEventState 构造子代理工具事件分发器。
 func NewToolEventState() *ToolEventState {
-	return &ToolEventState{}
+	return &ToolEventState{observers: make(map[int64]func(SubagentToolEvent))}
 }
 
 // SetCallback 注入子代理工具活动观察者。主代理工具仍由 ToolHookBridge
@@ -49,6 +51,27 @@ func (s *ToolEventState) SetCallback(callback func(SubagentToolEvent)) {
 	s.mu.Unlock()
 }
 
+// Subscribe 注册额外的工具事件观察者（多消费者：main 的 SetCallback 之外，
+// Runtime 实时流等可并行订阅）。返回取消函数（幂等）。
+func (s *ToolEventState) Subscribe(fn func(SubagentToolEvent)) func() {
+	if s == nil || fn == nil {
+		return func() {}
+	}
+	s.mu.Lock()
+	s.observerSeq++
+	id := s.observerSeq
+	s.observers[id] = fn
+	s.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.mu.Lock()
+			delete(s.observers, id)
+			s.mu.Unlock()
+		})
+	}
+}
+
 // Publish 派发一条子代理工具事件（无观察者则丢弃）。
 func (s *ToolEventState) Publish(event SubagentToolEvent) {
 	if s == nil {
@@ -56,9 +79,16 @@ func (s *ToolEventState) Publish(event SubagentToolEvent) {
 	}
 	s.mu.RLock()
 	callback := s.callback
+	observers := make([]func(SubagentToolEvent), 0, len(s.observers))
+	for _, observer := range s.observers {
+		observers = append(observers, observer)
+	}
 	s.mu.RUnlock()
 	if callback != nil {
 		callback(event)
+	}
+	for _, observer := range observers {
+		observer(event)
 	}
 }
 

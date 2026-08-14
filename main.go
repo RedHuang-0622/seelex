@@ -195,6 +195,8 @@ func run() error {
 	appEngine.SetNodeWorktreeProvider(runtime.NodeWorktreeInfoFor)
 	// 子代理树投影（fork 内存态，GUI 树视图数据源；权威 Snapshot 增量携带）。
 	appEngine.SetSubAgentTreeProvider(runtime.SubAgentTree)
+	// node 第一视角实时流（阶段+工具事件即时投递，子代理详情视图数据源）。
+	appEngine.SetSubagentLiveProvider(runtime.SubscribeSubagentLive)
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo, err := initWorkspaceRepo()
 	if err != nil {

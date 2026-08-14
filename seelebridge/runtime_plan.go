@@ -193,6 +193,8 @@ func (r *Runtime) nodeDeps() seenode.Deps {
 		NodeParentEvidence:       r.node.ParentEvidence,
 		MergeBackIntoParent:      r.mergeBackIntoParent,
 		EnqueueSubagentContext:   r.enqueueSubagentContext,
+		RecordNodeStage:          r.node.RecordStage,
+		RecordNodeResult:         r.node.RecordResult,
 		NodeBudget:               r.node.Budget,
 		NodePromptBlocks:         r.node.PromptBlocks,
 		Tracer: func() provider.TraceSource {

@@ -3,6 +3,7 @@ package session
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
@@ -31,10 +32,16 @@ type SubagentSessions struct {
 
 	// 以下字段仅在 actor goroutine 内访问。
 	sessions         map[string]*frameworkSession.Session
+	sessionIDs       map[string]string
 	snapshots        map[string][]types.Message
 	goals            map[string]string
 	contextSnapshots map[string]*snapshot.ContextSnapshot
 	toolArchivers    map[string]*seelexctx.InMemoryToolResultArchiver
+	stages           map[string][]model.NodeStageLog
+	results          map[string]*model.NodeSemanticResult
+	resultQueue      []*model.NodeSemanticResult
+	events           chan model.NodeStageLog
+	droppedEvents    atomic.Int64
 }
 
 type subagentSessionCmdKind int
@@ -46,6 +53,11 @@ const (
 	subagentSessionContextSnapshot
 	subagentSessionToolArchiver
 	subagentSessionToolResult
+	subagentSessionRecordStage
+	subagentSessionStageLogs
+	subagentSessionRecordResult
+	subagentSessionResult
+	subagentSessionDrainResults
 )
 
 type subagentSessionCmd struct {
@@ -54,6 +66,8 @@ type subagentSessionCmd struct {
 	sess   *frameworkSession.Session
 	goal   string
 	ref    string
+	stage  model.NodeStageLog
+	res    *model.NodeSemanticResult
 	reply  chan subagentSessionReply
 }
 
@@ -63,11 +77,15 @@ type subagentSessionReply struct {
 	ok   bool
 	arch *seelexctx.InMemoryToolResultArchiver
 	raw  string
+	logs []model.NodeStageLog
+	res  *model.NodeSemanticResult
+	resq []*model.NodeSemanticResult
 }
 
 const (
 	subagentSessionCmdCap     = 256
 	subagentSessionCmdTimeout = 10 * time.Second
+	subagentStageEventCap     = 512
 )
 
 func NewSubagentSessions(trace provider.TraceSource) *SubagentSessions {
@@ -76,10 +94,14 @@ func NewSubagentSessions(trace provider.TraceSource) *SubagentSessions {
 		trace:            trace,
 		done:             make(chan struct{}),
 		sessions:         make(map[string]*frameworkSession.Session),
+		sessionIDs:       make(map[string]string),
 		snapshots:        make(map[string][]types.Message),
 		goals:            make(map[string]string),
 		contextSnapshots: make(map[string]*snapshot.ContextSnapshot),
 		toolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
+		stages:           make(map[string][]model.NodeStageLog),
+		results:          make(map[string]*model.NodeSemanticResult),
+		events:           make(chan model.NodeStageLog, subagentStageEventCap),
 	}
 	s.wg.Add(1)
 	go s.run()
@@ -106,6 +128,9 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 	case subagentSessionRegister:
 		s.sessions[cmd.nodeID] = cmd.sess
 		s.goals[cmd.nodeID] = cmd.goal
+		if cmd.sess != nil {
+			s.sessionIDs[cmd.nodeID] = cmd.sess.SessionID()
+		}
 	case subagentSessionUnregister:
 		sess := s.sessions[cmd.nodeID]
 		delete(s.sessions, cmd.nodeID)
@@ -152,6 +177,54 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		}
 		raw, ok := arch.Read(strings.TrimPrefix(cmd.ref, model.NodeResultRefPrefix+cmd.nodeID+":"))
 		s.reply(cmd, subagentSessionReply{raw: raw, ok: ok})
+	case subagentSessionRecordStage:
+		if cmd.nodeID != "" {
+			log := cmd.stage
+			log.NodeID = cmd.nodeID
+			if log.SessionID == "" {
+				log.SessionID = s.sessionIDs[cmd.nodeID]
+			}
+			if log.Stage == model.NodeStageTurn {
+				turn := 0
+				for _, existing := range s.stages[cmd.nodeID] {
+					if existing.Stage == model.NodeStageTurn {
+						turn++
+					}
+				}
+				log.Turn = turn + 1
+			}
+			log.At = time.Now()
+			s.stages[cmd.nodeID] = append(s.stages[cmd.nodeID], log)
+			select {
+			case s.events <- log:
+			default:
+				s.droppedEvents.Add(1)
+			}
+		}
+		s.reply(cmd, subagentSessionReply{ok: true})
+	case subagentSessionStageLogs:
+		s.reply(cmd, subagentSessionReply{
+			logs: append([]model.NodeStageLog(nil), s.stages[cmd.nodeID]...), ok: true,
+		})
+	case subagentSessionRecordResult:
+		if cmd.res != nil && cmd.nodeID != "" {
+			result := cmd.res
+			result.NodeID = cmd.nodeID
+			if result.SessionID == "" {
+				result.SessionID = s.sessionIDs[cmd.nodeID]
+			}
+			result.Stages = append([]model.NodeStageLog(nil), s.stages[cmd.nodeID]...)
+			s.results[cmd.nodeID] = result
+			s.resultQueue = append(s.resultQueue, result)
+		}
+		s.reply(cmd, subagentSessionReply{ok: true})
+	case subagentSessionResult:
+		res := s.results[cmd.nodeID]
+		s.reply(cmd, subagentSessionReply{res: res, ok: res != nil})
+	case subagentSessionDrainResults:
+		queue := s.resultQueue
+		s.resultQueue = nil
+		s.reply(cmd, subagentSessionReply{resq: queue, ok: len(queue) > 0})
 	}
 }
 
@@ -279,6 +352,99 @@ func (s *SubagentSessions) ToolResult(nodeID, ref string) (string, bool) {
 		return "", false
 	case <-s.done:
 		return "", false
+	}
+}
+
+// RecordStage 记录 node 第一视角分阶段日志（同一 node 会话的认证面：
+// SessionID 由 actor 从注册表补全，保证同节点多阶段同会话）。
+func (s *SubagentSessions) RecordStage(nodeID string, log model.NodeStageLog) {
+	if s == nil || nodeID == "" {
+		return
+	}
+	s.send(subagentSessionCmd{kind: subagentSessionRecordStage, nodeID: nodeID, stage: log})
+}
+
+// StageLogs 返回 node 的全部第一视角阶段日志（拷贝，按记录序）。
+func (s *SubagentSessions) StageLogs(nodeID string) []model.NodeStageLog {
+	if s == nil || nodeID == "" {
+		return nil
+	}
+	reply := make(chan subagentSessionReply, 1)
+	if !s.send(subagentSessionCmd{kind: subagentSessionStageLogs, nodeID: nodeID, reply: reply}) {
+		return nil
+	}
+	select {
+	case result := <-reply:
+		return result.logs
+	case <-time.After(subagentSessionCmdTimeout):
+		return nil
+	case <-s.done:
+		return nil
+	}
+}
+
+// StageEvents 返回第一视角阶段日志的实时推送通道：每个阶段被记录后立即投递
+// （即时输出，非轮询/缓存）；消费方按 NodeID 过滤。通道有界，满时丢弃并
+// 计数（best-effort，绝不阻塞执行路径）。
+func (s *SubagentSessions) StageEvents() <-chan model.NodeStageLog {
+	if s == nil {
+		return nil
+	}
+	return s.events
+}
+
+// DroppedEvents 返回因通道满被丢弃的实时事件数（诊断计数）。
+func (s *SubagentSessions) DroppedEvents() int64 {
+	if s == nil {
+		return 0
+	}
+	return s.droppedEvents.Load()
+}
+
+// RecordResult 登记 node 的预定义语义结果并投入语义结果队列（消息队列路径）；
+// actor 会补全 SessionID 与阶段日志。
+func (s *SubagentSessions) RecordResult(nodeID string, result *model.NodeSemanticResult) {
+	if s == nil || nodeID == "" || result == nil {
+		return
+	}
+	s.send(subagentSessionCmd{kind: subagentSessionRecordResult, nodeID: nodeID, res: result})
+}
+
+// Result 返回 node 最近一次语义结果（只读）。
+func (s *SubagentSessions) Result(nodeID string) *model.NodeSemanticResult {
+	if s == nil || nodeID == "" {
+		return nil
+	}
+	reply := make(chan subagentSessionReply, 1)
+	if !s.send(subagentSessionCmd{kind: subagentSessionResult, nodeID: nodeID, reply: reply}) {
+		return nil
+	}
+	select {
+	case result := <-reply:
+		return result.res
+	case <-time.After(subagentSessionCmdTimeout):
+		return nil
+	case <-s.done:
+		return nil
+	}
+}
+
+// DrainResults 取空语义结果队列（消息队列消费面：mainagent / 下游 node 读取）。
+func (s *SubagentSessions) DrainResults() []*model.NodeSemanticResult {
+	if s == nil {
+		return nil
+	}
+	reply := make(chan subagentSessionReply, 1)
+	if !s.send(subagentSessionCmd{kind: subagentSessionDrainResults, reply: reply}) {
+		return nil
+	}
+	select {
+	case result := <-reply:
+		return result.resq
+	case <-time.After(subagentSessionCmdTimeout):
+		return nil
+	case <-s.done:
+		return nil
 	}
 }
 

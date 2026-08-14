@@ -724,6 +724,7 @@ export function renderNodeDetail(node) {
     </dl>
     <div class="node-detail-tabs">
       <button class="node-tab is-active" data-node-tab="conversation" type="button">会话记录</button>
+      <button class="node-tab" data-node-tab="live" type="button">第一视角</button>
       <button class="node-tab" data-node-tab="context" type="button">上下文</button>
       <button class="node-tab" data-node-tab="instrumentation" type="button">功能打点</button>
       <button class="node-tab" data-node-tab="timeline" type="button">事件时间线</button>
@@ -733,6 +734,11 @@ export function renderNodeDetail(node) {
     <div class="node-tab-panel is-active" data-node-panel="conversation">
       <div class="node-conversation" data-node-conversation>
         <div class="node-timeline-empty">加载会话记录…</div>
+      </div>
+    </div>
+    <div class="node-tab-panel" data-node-panel="live">
+      <div class="node-live-feed" data-node-live-feed>
+        <div class="node-timeline-empty">等待实时事件（打开即订阅；阶段/工具事件到达即显示）…</div>
       </div>
     </div>
     <div class="node-tab-panel" data-node-panel="context">

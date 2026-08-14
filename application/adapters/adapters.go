@@ -61,6 +61,8 @@ type EnginePort struct {
 	// subAgentTree 是 fork 子代理树投影查询（GUI 树视图数据源；Runtime
 	// 注入，内存态只读 actor，安全）。
 	subAgentTree func() []dto.SubAgentTreeNode
+	// subagentLive 是 node 第一视角实时流订阅源（Runtime 注入，即时输出面）。
+	subagentLive func(nodeID string) (<-chan dto.SubagentLiveEvent, func(), error)
 }
 
 // ReactorEngine is the small framework surface the application adapter
@@ -197,6 +199,21 @@ func (port *EnginePort) SetSubAgentTreeProvider(fn func() []dto.SubAgentTreeNode
 	if port != nil {
 		port.subAgentTree = fn
 	}
+}
+
+// SetSubagentLiveProvider 注入 node 第一视角实时流订阅源（Runtime 接线）。
+func (port *EnginePort) SetSubagentLiveProvider(fn func(nodeID string) (<-chan dto.SubagentLiveEvent, func(), error)) {
+	if port != nil {
+		port.subagentLive = fn
+	}
+}
+
+// SubscribeSubagentLive 订阅 node 第一视角实时流（即时输出面）。
+func (port *EnginePort) SubscribeSubagentLive(nodeID string) (<-chan dto.SubagentLiveEvent, func(), error) {
+	if port == nil || port.subagentLive == nil {
+		return nil, func() {}, fmt.Errorf("subagent live stream is not configured")
+	}
+	return port.subagentLive(nodeID)
 }
 
 // AppendHistory 追加消息到引擎内部对话历史。

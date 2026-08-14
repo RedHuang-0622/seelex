@@ -40,6 +40,8 @@ type Deps struct {
 	NodeParentEvidence       func() *snapshot.ContextSnapshot
 	MergeBackIntoParent      func(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot
 	EnqueueSubagentContext   func(content string)
+	RecordNodeStage          func(nodeID string, log model.NodeStageLog)
+	RecordNodeResult         func(nodeID string, result *model.NodeSemanticResult)
 	NodeBudget               func(input plan.SeelexNodeInput) NodeBudgetInfo
 	NodePromptBlocks         func(input plan.SeelexNodeInput) []seelectx.PromptBlock
 	Tracer                   func() provider.TraceSource
@@ -131,6 +133,12 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 		sess.SetMaxLoops(n.deps.NodeBudget(n.input).MaxLoops)
 		n.deps.RegisterNodeSession(n.ID(), sess, n.input.Input)
 		defer n.deps.UnregisterNodeSession(n.ID())
+		if n.deps.RecordNodeStage != nil {
+			n.deps.RecordNodeStage(n.ID(), model.NodeStageLog{
+				Stage: model.NodeStageSpawn, NodeID: n.ID(), SessionID: sess.SessionID(),
+				Preview: truncateNodePreview(n.input.Input, nodePreviewMax),
+			})
+		}
 	}
 	result, err := agent.Chat(ctx, n.input.Input)
 	n.deps.CompleteSubagentNode(n.ID(), result, err)
@@ -138,7 +146,7 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 	// Findings/Decisions（长时间静置场景），整块丢弃会造成"子代理跑完
 	// 但父侧无产出"。合并本身幂等——失败时快照可能为空，merger 只保留
 	// 父证据，无害（2026-08-10 C 修复）。
-	n.mergeBack(ctx, agent, n.input.Input)
+	n.mergeBack(ctx, agent, n.input.Input, nodeStatusForErr(err), result)
 	if wt != nil {
 		if err == nil {
 			err = n.deps.FinishNodeWorktree(ctx, n.ID(), wt)
@@ -155,7 +163,7 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 // 合并结果写回 parentEvidence（后续子代理/嵌套 fork 可累积看到）→
 // Format() 文本经 sink 回传（application 侧排队，下一次 ChatStream 开始
 // 前注入父会话）。
-func (n *AgentNode) mergeBack(ctx context.Context, agent frameworknode.Agent, goal string) {
+func (n *AgentNode) mergeBack(ctx context.Context, agent frameworknode.Agent, goal, status, output string) {
 	childSession, ok := agent.(*frameworkSession.Session)
 	if !ok {
 		return
@@ -166,9 +174,55 @@ func (n *AgentNode) mergeBack(ctx context.Context, agent frameworknode.Agent, go
 		return
 	}
 	content := merged.Format()
+	if n.deps.RecordNodeStage != nil {
+		n.deps.RecordNodeStage(n.ID(), model.NodeStageLog{
+			Stage: model.NodeStageResult, NodeID: n.ID(), SessionID: child.SourceSessionID,
+			Preview: truncateNodePreview(content, nodePreviewMax), TokenEstimate: child.TokenEstimate,
+		})
+	}
+	if n.deps.RecordNodeResult != nil {
+		result := &model.NodeSemanticResult{
+			SchemaVersion: model.NodeSemanticSchemaVersion,
+			NodeID:        n.ID(),
+			SessionID:     child.SourceSessionID,
+			Status:        status,
+			Goal:          goal,
+			Summary:       truncateNodePreview(output, nodePreviewMax),
+			Output:        truncateNodePreview(output, nodeOutputMax),
+			Findings:      child.Findings,
+			Constraints:   child.Constraints,
+			PendingWork:   child.PendingWork,
+			TokenEstimate: child.TokenEstimate,
+		}
+		for _, decision := range child.Decisions {
+			result.Decisions = append(result.Decisions, model.SemanticDecision{
+				What: decision.What, Why: decision.Why,
+			})
+		}
+		n.deps.RecordNodeResult(n.ID(), result)
+	}
 	if sink := n.deps.EnqueueSubagentContext; sink != nil {
 		sink(content)
 	}
+}
+
+const (
+	nodePreviewMax = 200
+	nodeOutputMax  = 2000
+)
+
+func truncateNodePreview(value string, max int) string {
+	if len(value) <= max {
+		return value
+	}
+	return value[:max] + "…"
+}
+
+func nodeStatusForErr(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "completed"
 }
 
 // NodeScopeFor 解析节点作用域：新执行模型下分支即节点（BranchID = NodeID），
