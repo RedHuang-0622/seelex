@@ -43,7 +43,7 @@ foreach ($t in $Targets) {
     $env:GOARCH = $arch
     $env:CGO_ENABLED = "0"
 
-    go build -trimpath -ldflags "-s -w -X main.Version=$Version" -o $binPath .
+    go build -trimpath -ldflags "-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$Version" -o $binPath .
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[error] 构建 $os/$arch 失败" -ForegroundColor Red

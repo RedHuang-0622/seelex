@@ -63,7 +63,7 @@ jobs:
           version="${GITHUB_REF_NAME}"
           name="seelex-${version}-${GOOS}-${GOARCH}"
           mkdir -p "stage/${name}/config"
-          go build -trimpath -ldflags="-s -w -X main.Version=${version}" \
+          go build -trimpath -ldflags="-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=${version}" \
             -o "stage/${name}/seelex${{ matrix.extension }}" .
           cp config/accounts.example.yaml "stage/${name}/config/"
           cp config/seele.yaml config/seelex.yaml "stage/${name}/config/"

@@ -40,7 +40,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot "config") | Ou
 
 $binary = Join-Path $PackageRoot "seelex-gui.exe"
 go build -C $Root -tags "gui,desktop,production" -trimpath `
-    -ldflags "-s -w -H windowsgui -X main.Version=$Version -X main.DefaultFrontend=gui" `
+    -ldflags "-s -w -H windowsgui -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$Version -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" `
     -o $binary .
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

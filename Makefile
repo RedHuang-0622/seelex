@@ -42,7 +42,7 @@ build:
 		mkdir -p "$$outdir"; \
 		echo "  GOOS=$$os GOARCH=$$arch -> $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-			go build -trimpath -ldflags="-s -w -X main.Version=$(VERSION)" -o "$$out" . || exit 1; \
+			go build -trimpath -ldflags="-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$(VERSION)" -o "$$out" . || exit 1; \
 	done
 	@echo "[build] 完成"
 

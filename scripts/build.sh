@@ -46,7 +46,7 @@ for platform in "${!TARGETS[@]}"; do
     mkdir -p "$outdir"
 
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-        go build -trimpath -ldflags="-s -w -X main.Version=$VERSION" -o "$binpath" .
+        go build -trimpath -ldflags="-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$VERSION" -o "$binpath" .
 
     # ─── 复制运行时文件 ───────────────────────────────
     echo -e "  [copy] 运行时文件 -> $outdir"

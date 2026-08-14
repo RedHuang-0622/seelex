@@ -23,13 +23,13 @@ fi
 mkdir -p dist
 
 echo "[build-dev] CLI -> dist/seelex-dev.exe"
-go build -trimpath -ldflags "-s -w -X main.Version=$VERSION" -o dist/seelex-dev.exe .
+go build -trimpath -ldflags "-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$VERSION" -o dist/seelex-dev.exe .
 
 if [[ "${SKIP_BUILD_GUI:-0}" != "1" ]]; then
   echo "[build-dev] GUI -> dist/seelex-gui-dev/seelex-gui.exe"
   mkdir -p dist/seelex-gui-dev
   go build -tags "gui,desktop,production" -trimpath \
-    -ldflags "-s -w -H windowsgui -X main.Version=$VERSION -X main.DefaultFrontend=gui" \
+    -ldflags "-s -w -H windowsgui -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$VERSION -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" \
     -o dist/seelex-gui-dev/seelex-gui.exe .
 fi
 
