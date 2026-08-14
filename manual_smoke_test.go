@@ -48,7 +48,9 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	runtime.RegisterBuiltins()
 	// 冒烟场景 = goal 流程（plan 全链路）：plan 工具面归位后（plan.md §6）
 	// plan 工具仅在 goal skill 激活时对主代理可见，冒烟模拟 goal 场景。
-	runtime.SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection{GoalSkillActive: true})
+	// 注意：goal 激活必须走应用任务路径（#goal 推入 prompt 栈 skill 层，
+	// chat 时 activateTaskSkillsLocked 投影到任务 activeSkills），直接写
+	// Runtime 投影会被 publishRuntimeProjections 按任务状态覆盖。
 
 	originalStorePath := *storePath
 	*storePath = filepath.Join(tempDir, "sessions")
@@ -123,6 +125,9 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	defer cancelMedium()
 	if err := app.SwitchEffort(mediumCtx, "medium"); err != nil {
 		t.Fatalf("switch to medium effort: %v", err)
+	}
+	if err := app.Submit(mediumCtx, "#goal"); err != nil {
+		t.Fatalf("activate goal skill: %v", err)
 	}
 	if err := app.Submit(mediumCtx, "#plan"); err != nil {
 		t.Fatalf("activate plan skill: %v", err)
