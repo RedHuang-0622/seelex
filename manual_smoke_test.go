@@ -16,6 +16,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/adapters"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
@@ -47,6 +48,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	runtime.RegisterBuiltins()
 	// 冒烟场景 = goal 流程（plan 全链路）：plan 工具面归位后（plan.md §6）
 	// plan 工具仅在 goal skill 激活时对主代理可见，冒烟模拟 goal 场景。
+	runtime.SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection{GoalSkillActive: true})
 
 	originalStorePath := *storePath
 	*storePath = filepath.Join(tempDir, "sessions")
@@ -221,7 +223,7 @@ func TestManualSmokeRealAccountPlan(t *testing.T) {
 	beforeTreatment := runtime.ReplanMetrics()
 	replanCtx, cancelReplan := smokePhaseContext()
 	defer cancelReplan()
-	replan, err := runtime.PrepareReplan(replanCtx, seelebridge.ReplanRequest{
+	replan, err := runtime.PrepareReplan(replanCtx, dto.ReplanRequest{
 		Objective:    "Recover a failed repository inspection: create a diagnose node followed by a report node. Do not execute either node.",
 		PreviousPlan: `{"entry":"inspect","nodes":{"inspect":{"input":"inspect the repository"},"report":{"input":"report findings"}},"edges":{"inspect":["report"]}}`,
 		Failure:      `node "inspect": evidence was incomplete`,
