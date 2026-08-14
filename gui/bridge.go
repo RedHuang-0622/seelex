@@ -44,7 +44,7 @@ type Application interface {
 	TestSessionStorage(context.Context, sessionstore.Config) error
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
-	SubscribeSubagentLive(nodeID string) (<-chan dto.SubagentLiveEvent, func(), error)
+	SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
 	ClearSubagentTree() error
 	// UpdateWorkItemStatus 更新工作表格任务状态（v1：仅 todo 的
 	// pending/doing/done；plan/subagent 由执行器管理）。
@@ -226,21 +226,22 @@ func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.Subagen
 }
 
 // SubagentDetailStreamStart 订阅 node 第一视角实时流并把事件推送到前端
-// （seelex:subagent_live；阶段/工具事件到达即发，即时输出面）。重复启动
-// 同 node 时先停旧流（幂等）。
-func (bridge *Bridge) SubagentDetailStreamStart(nodeID string) error {
+// （seelex:subagent_live；阶段/工具事件到达即发，即时输出面）。返回
+// **历史回放**（subagent start 以来的有界事件缓冲），前端打开即渲染滚动
+// 上下文，之后实时事件继续追加。重复启动同 node 时先停旧流（幂等）。
+func (bridge *Bridge) SubagentDetailStreamStart(nodeID string) ([]dto.SubagentLiveEvent, error) {
 	if nodeID == "" {
-		return errors.New("gui: node id required")
+		return nil, errors.New("gui: node id required")
 	}
-	ch, cancel, err := bridge.app.SubscribeSubagentLive(nodeID)
+	history, ch, cancel, err := bridge.app.SubscribeSubagentLive(nodeID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	bridge.mu.Lock()
 	if bridge.emitFn == nil {
 		bridge.mu.Unlock()
 		cancel()
-		return errors.New("gui: bridge is not started")
+		return nil, errors.New("gui: bridge is not started")
 	}
 	if existing := bridge.streams[nodeID]; existing != nil {
 		existing()
@@ -265,7 +266,7 @@ func (bridge *Bridge) SubagentDetailStreamStart(nodeID string) error {
 			}
 		}
 	}()
-	return nil
+	return history, nil
 }
 
 // SubagentDetailStreamStop 停止 node 第一视角实时流（幂等）。

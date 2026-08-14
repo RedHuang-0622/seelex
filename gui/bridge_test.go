@@ -137,9 +137,9 @@ func (fake *fakeApplication) ConfigureSessionStorage(context.Context, sessionsto
 func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {
 	return nil, nil
 }
-func (fake *fakeApplication) SubscribeSubagentLive(string) (<-chan dto.SubagentLiveEvent, func(), error) {
+func (fake *fakeApplication) SubscribeSubagentLive(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
 	ch := make(chan dto.SubagentLiveEvent, 16)
-	return ch, func() {}, nil
+	return nil, ch, func() {}, nil
 }
 func (fake *fakeApplication) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	fake.scheduledSpec = spec

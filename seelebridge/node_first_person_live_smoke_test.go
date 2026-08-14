@@ -58,11 +58,14 @@ func TestNodeFirstPersonLiveSmoke(t *testing.T) {
 	defer cancel()
 
 	// 订阅统一实时流（产品路径；必须先于 fork 启动，避免漏事件）。
-	liveEvents, cancelLive, err := runtime.SubscribeSubagentLive(nodeID)
+	historyBefore, liveEvents, cancelLive, err := runtime.SubscribeSubagentLive(nodeID)
 	if err != nil {
 		t.Fatalf("SubscribeSubagentLive: %v", err)
 	}
 	defer cancelLive()
+	if len(historyBefore) != 0 {
+		t.Fatalf("history before fork = %d, want 0", len(historyBefore))
+	}
 
 	// fork 在后台运行，主测试 goroutine 即时消费实时流。
 	forkDone := make(chan struct{})
@@ -197,6 +200,28 @@ forkFinished:
 	if !found {
 		t.Fatalf("semantic result queue has no entry for %q", nodeID)
 	}
+
+	// 认证 E：历史回放缓存——fork 结束后再订阅，仍能看到从 subagent start
+	// 到最新的完整事件流（阶段 + 工具），而非只从打开时刻开始。
+	history, _, cancelHistory, err := runtime.SubscribeSubagentLive(nodeID)
+	if err != nil {
+		t.Fatalf("re-subscribe for history: %v", err)
+	}
+	defer cancelHistory()
+	if len(history) < len(liveStages) {
+		t.Fatalf("history replay = %d events, want >= %d stage events", len(history), len(liveStages))
+	}
+	historyTools := 0
+	for _, event := range history {
+		if event.Kind == "tool" {
+			historyTools++
+		}
+	}
+	if historyTools < successTools {
+		t.Fatalf("history replay tools = %d, want >= %d", historyTools, successTools)
+	}
+	t.Logf("=== 历史回放验证：重新订阅仍可见 %d 条事件（stage %d + tool %d）===",
+		len(history), len(history)-historyTools, historyTools)
 }
 
 // livePreview 文本的有界单行预览（换行折叠，≤120 字符）。

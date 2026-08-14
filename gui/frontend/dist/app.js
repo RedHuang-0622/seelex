@@ -426,7 +426,15 @@ async function openNodeDetail(nodeKey) {
     subagentLiveBound = true;
     window.runtime.EventsOn("seelex:subagent_live", handleSubagentLive);
   }
-  invoke("SubagentDetailStreamStart", node.id).catch(() => {});
+  invoke("SubagentDetailStreamStart", node.id)
+    .then(history => {
+      if (node.id !== activeNodeDetailID) return;
+      // 历史回放：subagent start 以来的完整事件流 + 打开瞬间已到的实时事件。
+      nodeLiveBuffer = (history || []).concat(nodeLiveBuffer);
+      if (nodeLiveBuffer.length > 500) nodeLiveBuffer = nodeLiveBuffer.slice(-500);
+      renderLiveFeed();
+    })
+    .catch(() => {});
   renderLiveFeed();
   await refreshNodeDetail(node.id, generation);
 }

@@ -161,9 +161,14 @@ func (s *SubagentTree) MarkRunning(nodeID string) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	changed := false
 	if record, ok := s.nodes[nodeID]; ok && record.status == SubAgentQueued {
 		record.status = SubAgentRunning
+		changed = true
+	}
+	s.mu.Unlock()
+	if changed {
+		s.notify()
 	}
 }
 
@@ -174,12 +179,15 @@ func (s *SubagentTree) NoteSnapshot(nodeID string, snap *snapshot.ContextSnapsho
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	record := s.nodes[nodeID]
 	if record == nil {
+		s.mu.Unlock()
 		return
 	}
 	record.contextSnap = snap
+	s.mu.Unlock()
+	// 快照挂载即通知：非打开节点的上下文数据随信号刷新，不必等 done。
+	s.notify()
 }
 
 // CompleteSubagentNode 写入节点终态（AgentNode.Run 结束路径调用）：

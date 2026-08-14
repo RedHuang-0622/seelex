@@ -110,6 +110,7 @@ type Runtime struct {
 	liveStop       chan struct{}
 	liveCh         chan dto.SubagentLiveEvent
 	liveSubs       map[string][]chan dto.SubagentLiveEvent
+	liveHistory    map[string][]dto.SubagentLiveEvent
 	liveToolCancel func()
 
 	// 子代理会话注册表组件（actor：channel 命令 + 单 goroutine，subagent_sessions.go）。
@@ -373,6 +374,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if r.agt != nil {
 		r.lifecycle = append(r.lifecycle, r.agt.Shutdown)
 	}
+	// node 第一视角实时流分发器**立即启动**：stage/tool 事件从子代理一开始
+	// 就进入每节点历史缓冲（即使 GUI 从未订阅），打开详情时回放不丢。
+	r.startLiveDispatcher()
 	return r, nil
 }
 
