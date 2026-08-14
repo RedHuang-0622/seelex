@@ -182,7 +182,7 @@ func run() error {
 	})
 	// The framework Session is intentionally created only by StartSession or
 	// ReplaceHistory during resume; startup itself remains a cold draft.
-	registerProductTools(runtime, pluginManager, appEngine, approval)
+	registerProductTools(runtime, pluginManager, appEngine, approval, skillRegistry)
 	if err := activateDefaultPlugin(pluginManager, nil); err != nil {
 		return err
 	}
@@ -478,12 +478,13 @@ type pluginPromptEngine interface {
 	SetSystemPrompt(string)
 }
 
-func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker) {
+func registerProductTools(runtime *seelebridge.Runtime, plugins *plugin.Manager, eng pluginPromptEngine, approval *application.ApprovalBroker, skills *skill.Registry) {
 	registerTimeTool(runtime)
 	websearch.Register(runtime, accountsPath())
 	registerMCPServers(runtime, accountsPath()) // mcpstack/config 加载 + Runtime 冷启动登记
 	registerMCPLoadTool(runtime)
 	registerPluginSwitchTools(runtime, plugins, eng)
+	registerPluginSelfTools(runtime, plugins)
 	registerAskApprove(runtime, approval)
 }
 
@@ -628,6 +629,246 @@ func registerPluginSwitchTools(
 		"required": []string{"mode"},
 	}
 	runtime.RegisterTool("switch_mode", "兼容工具：等价于 switch_plugin", legacySchema, handler)
+}
+
+// registerPluginSelfTools 注册插件/技能/MCP 的自迭代工具族：
+// 创建（写盘）→ 加载（reload）→ 列表查看，闭环让 main agent 可以自己扩展
+// 运行时能力。plugin 与 skill 的写盘都**不改变运行时状态**，由 plugins_reload
+// 事务式应用；MCP 走冷启动登记 + mcp_load 连接。
+func registerPluginSelfTools(runtime *seelebridge.Runtime, plugins *plugin.Manager) {
+	// ── plugin_create ──────────────────────────────────────────────
+	runtime.RegisterTool(
+		"plugin_create",
+		"在 plugins 目录脚手架一个插件（plugin.md manifest + README + 可选 skills），写入磁盘但不立即生效；调用后请执行 plugins_reload 加载。插件名须匹配 ^[a-z0-9][a-z0-9_-]*$ 且目录不存在。",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"name":        map[string]interface{}{"type": "string", "description": "插件名（小写字母/数字/_-）"},
+				"description": map[string]interface{}{"type": "string", "description": "插件职责一句话"},
+				"include":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "允许暴露的工具前缀"},
+				"exclude":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "排除的工具前缀"},
+				"prompt":      map[string]interface{}{"type": "string", "description": "插件系统提示词正文"},
+				"skills": map[string]interface{}{
+					"type": "array",
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name":        map[string]interface{}{"type": "string"},
+							"description": map[string]interface{}{"type": "string"},
+							"prompt":      map[string]interface{}{"type": "string", "description": "skill 指令正文"},
+						},
+						"required": []string{"name"},
+					},
+				},
+			},
+			"required": []string{"name"},
+		},
+		func(ctx context.Context, argsJSON string) (string, error) {
+			var input plugin.CreateSpec
+			if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+				return "", fmt.Errorf("plugin_create: %w", err)
+			}
+			paths, err := plugins.Create(input)
+			if err != nil {
+				return "", fmt.Errorf("plugin_create: %w", err)
+			}
+			encoded, _ := json.Marshal(map[string]interface{}{
+				"status": "created", "plugin": input.Name, "files": paths,
+				"next": "调用 plugins_reload 使插件生效",
+			})
+			return string(encoded), nil
+		},
+	)
+
+	// ── plugins_reload ─────────────────────────────────────────────
+	runtime.RegisterTool(
+		"plugins_reload",
+		"重新扫描 plugins 目录并事务式应用差异（新增/删除/修改）：新增插件立即可见但不激活，修改中的当前激活插件先停用再按新定义重新激活；任一步失败回滚到上一个可用状态。用于 plugin_create / skill_create 之后的加载。",
+		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		func(ctx context.Context, _ string) (string, error) {
+			report, err := plugins.Reload(ctx)
+			if err != nil {
+				return "", fmt.Errorf("plugins_reload: %w", err)
+			}
+			encoded, _ := json.Marshal(report)
+			return string(encoded), nil
+		},
+	)
+
+	// ── plugins_list ───────────────────────────────────────────────
+	runtime.RegisterTool(
+		"plugins_list",
+		"列出全部已加载插件及其描述、激活态、include/exclude、skills 与 MCP server 清单。",
+		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		func(ctx context.Context, _ string) (string, error) {
+			type pluginView struct {
+				Name        string   `json:"name"`
+				Description string   `json:"description,omitempty"`
+				Active      bool     `json:"active"`
+				Include     []string `json:"include,omitempty"`
+				Exclude     []string `json:"exclude,omitempty"`
+				Skills      []string `json:"skills,omitempty"`
+				MCPServers  []string `json:"mcp_servers,omitempty"`
+			}
+			active, _ := plugins.Current()
+			views := make([]pluginView, 0)
+			for _, p := range plugins.All() {
+				view := pluginView{
+					Name: p.Name, Description: p.Description, Active: active.Name == p.Name,
+					Include: p.Include, Exclude: p.Exclude,
+				}
+				for _, s := range p.Skills {
+					view.Skills = append(view.Skills, s.Name)
+				}
+				for _, server := range p.MCPServers {
+					view.MCPServers = append(view.MCPServers, server.Name)
+				}
+				views = append(views, view)
+			}
+			encoded, err := json.Marshal(views)
+			return string(encoded), err
+		},
+	)
+
+	// ── skill_create ───────────────────────────────────────────────
+	runtime.RegisterTool(
+		"skill_create",
+		"在指定插件目录下脚手架一个 skill（<plugin>/<skill>/SKILL.md，含 name/description frontmatter 与指令正文），写入磁盘但不立即生效；调用后请执行 plugins_reload 加载。",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"plugin":      map[string]interface{}{"type": "string", "description": "目标插件名（须已存在）"},
+				"name":        map[string]interface{}{"type": "string", "description": "skill 名"},
+				"description": map[string]interface{}{"type": "string"},
+				"prompt":      map[string]interface{}{"type": "string", "description": "skill 指令正文"},
+			},
+			"required": []string{"plugin", "name"},
+		},
+		func(ctx context.Context, argsJSON string) (string, error) {
+			var input plugin.SkillSpec
+			var meta struct {
+				Plugin string `json:"plugin"`
+				plugin.SkillSpec
+			}
+			if err := json.Unmarshal([]byte(argsJSON), &meta); err != nil {
+				return "", fmt.Errorf("skill_create: %w", err)
+			}
+			input = meta.SkillSpec
+			path, err := plugins.CreateSkill(meta.Plugin, input)
+			if err != nil {
+				return "", fmt.Errorf("skill_create: %w", err)
+			}
+			encoded, _ := json.Marshal(map[string]interface{}{
+				"status": "created", "plugin": meta.Plugin, "skill": input.Name, "file": path,
+				"next": "调用 plugins_reload 使 skill 生效",
+			})
+			return string(encoded), nil
+		},
+	)
+
+	// ── skills_list ────────────────────────────────────────────────
+	runtime.RegisterTool(
+		"skills_list",
+		"列出全部已加载插件内的 skill（无论是否激活）及其描述与来源路径。",
+		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		func(ctx context.Context, _ string) (string, error) {
+			type skillView struct {
+				Name        string `json:"name"`
+				Description string `json:"description,omitempty"`
+				Plugin      string `json:"plugin,omitempty"`
+				Path        string `json:"path,omitempty"`
+			}
+			views := make([]skillView, 0)
+			for _, p := range plugins.All() {
+				for _, s := range p.Skills {
+					views = append(views, skillView{
+						Name: s.Name, Description: s.Description, Plugin: p.Name, Path: s.FilePath,
+					})
+				}
+			}
+			encoded, err := json.Marshal(views)
+			return string(encoded), err
+		},
+	)
+
+	// ── mcp_create ─────────────────────────────────────────────────
+	runtime.RegisterTool(
+		"mcp_create",
+		"冷启动登记一个 MCP server（内存态，本次会话有效）：登记后调用 mcp_load 连接并注册其工具。注意：不写入 accounts.yaml，重启后需重新登记。",
+		map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"name":      map[string]interface{}{"type": "string", "description": "MCP server 名"},
+				"transport": map[string]interface{}{"type": "string", "enum": []string{"stdio", "sse"}, "description": "stdio（本地命令）或 sse（远程 URL）"},
+				"command":   map[string]interface{}{"type": "string", "description": "stdio 启动命令"},
+				"args":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+				"env":       map[string]interface{}{"type": "object", "description": "环境变量（不含机密）"},
+				"url":       map[string]interface{}{"type": "string", "description": "sse 端点 URL"},
+			},
+			"required": []string{"name", "transport"},
+		},
+		func(ctx context.Context, argsJSON string) (string, error) {
+			var input struct {
+				Name      string            `json:"name"`
+				Transport string            `json:"transport"`
+				Command   string            `json:"command,omitempty"`
+				Args      []string          `json:"args,omitempty"`
+				Env       map[string]string `json:"env,omitempty"`
+				URL       string            `json:"url,omitempty"`
+			}
+			if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
+				return "", fmt.Errorf("mcp_create: %w", err)
+			}
+			env := make([]string, 0, len(input.Env))
+			for key, value := range input.Env {
+				env = append(env, key+"="+value)
+			}
+			cfg := seelebridge.MCPServer{
+				Name: input.Name, Transport: input.Transport, Command: input.Command,
+				Args: input.Args, Env: env, URL: input.URL,
+			}
+			if err := runtime.RegisterLazyMCP(input.Name, cfg); err != nil {
+				return "", fmt.Errorf("mcp_create: %w", err)
+			}
+			encoded, _ := json.Marshal(map[string]interface{}{
+				"status": "registered", "server": input.Name,
+				"next": "调用 mcp_load 连接并注册工具",
+			})
+			return string(encoded), nil
+		},
+	)
+
+	// ── mcp_list ───────────────────────────────────────────────────
+	runtime.RegisterTool(
+		"mcp_list",
+		"列出已登记的 MCP server（冷启动未连接 + 已连接）及其存活状态与工具数。",
+		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		func(ctx context.Context, _ string) (string, error) {
+			type mcpView struct {
+				Name   string `json:"name"`
+				Loaded bool   `json:"loaded"`
+				Alive  bool   `json:"alive,omitempty"`
+				Tools  int    `json:"tools,omitempty"`
+			}
+			names := append([]string(nil), runtime.LazyMCPServerNames()...)
+			seen := make(map[string]bool, len(names))
+			views := make([]mcpView, 0, len(names))
+			for _, name := range names {
+				seen[name] = true
+				alive, tools, _ := runtime.MCPServerStatus(name)
+				views = append(views, mcpView{Name: name, Loaded: alive, Alive: alive, Tools: tools})
+			}
+			for _, name := range runtime.MCPServerNames() {
+				if seen[name] {
+					continue
+				}
+				alive, tools, _ := runtime.MCPServerStatus(name)
+				views = append(views, mcpView{Name: name, Loaded: alive, Alive: alive, Tools: tools})
+			}
+			encoded, err := json.Marshal(views)
+			return string(encoded), err
+		},
+	)
 }
 
 func applyPluginPrompt(eng pluginPromptEngine, plugins *plugin.Manager) {
