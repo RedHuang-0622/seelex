@@ -8,6 +8,9 @@ const FAILURE_STATUSES = new Set(["failed", "aborted", "canceled", "panicked"]);
 const DONE_STATUSES = new Set(["completed", "skipped"]);
 const ACTIVE_STATUSES = new Set(["queued", "running", "worktree_creating", "rebasing", "merging"]);
 
+// 工具消息前的小型内联 SVG（避免在数据密集的终端气质界面里引入 emoji）。
+const TOOL_ICON = '<svg class="node-msg-tool-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>';
+
 export function planToDSL(plan) {
   if (!isRecord(plan)) return null;
 
@@ -381,7 +384,7 @@ function renderSideRefs(node) {
 }
 
 // renderOutgoing 渲染节点下游分支（Dify 树语义核心）：每个 outgoing 边一行
-// 箭头 + 目标节点名 + 条件标签；并行分支（同层多出边）标 ⚡，条件边显示条件。
+// 箭头 + 目标节点名 + 条件标签；并行分支（同层多出边）标 ⇉，条件边显示条件。
 function renderOutgoing(node) {
   if (!node.outgoing?.length) return "";
   return node.outgoing.map(edge => {
@@ -389,7 +392,7 @@ function renderOutgoing(node) {
     const parallel = node.outgoing.length > 1;
     const condition = edge.condition || edge.label;
     return `<div class="plan-branch-row is-${statusToken(edge.status)}" data-plan-edge-key="${escapeHTML(edge.key)}" title="${escapeHTML(condition || `流向 ${targetLabel}`)}">
-      <span class="branch-arrow" aria-hidden="true">${parallel ? "⚡→" : "→"}</span>
+      <span class="branch-arrow" aria-hidden="true">${parallel ? "⇉" : "→"}</span>
       <span class="branch-target" data-branch-target="${escapeHTML(edge.to || "")}">${escapeHTML(targetLabel)}</span>
       ${condition ? `<span class="branch-condition">${escapeHTML(condition)}</span>` : ""}
     </div>`;
@@ -773,7 +776,7 @@ export function setNodeDetailConversation(detail) {
     container.innerHTML = messages.map(msg => {
       const role = msg.role === "user" ? "user" : (msg.role === "assistant" ? "assistant" : "tool");
       const body = msg.tool && msg.tool.name
-        ? `<span class="node-msg-tool">🛠 ${escapeHTML(msg.tool.name)}</span>${msg.content ? `<div>${escapeHTML(msg.content)}</div>` : ""}`
+        ? `<span class="node-msg-tool">${TOOL_ICON}${escapeHTML(msg.tool.name)}</span>${msg.content ? `<div>${escapeHTML(msg.content)}</div>` : ""}`
         : `<div>${escapeHTML(msg.content || "")}</div>`;
       return `<div class="node-msg is-${role}"><span class="node-msg-role">${role}</span>${body}</div>`;
     }).join("");

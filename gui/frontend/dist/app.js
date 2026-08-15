@@ -28,7 +28,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-interval", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-period-value", "sched-period-unit", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -177,6 +177,7 @@ function renderProject(snapshot) {
 }
 
 function renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces) {
+  lastSessionsRender = { sessions, current, capabilities, sessionWorkspaces, workspaces };
   const currentID = current.id || "";
   const workspaceNames = new Map(workspaces.map(workspace => [workspace.id, workspace.name]));
   const items = sessions.map(session => session.id === currentID && current.name
@@ -187,22 +188,7 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
   }
   elements["session-count"].textContent = String(items.length);
   elements["session-list"].innerHTML = items.length
-    ? items.map(session => {
-      const active = session.id === currentID;
-	  const resuming = session.id === state.resumingSessionID;
-      const updated = session.updated_at
-        ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
-        : "当前会话";
-      const workspaceID = sessionWorkspaces[session.id];
-      const scope = workspaceID ? `Project: ${workspaceNames.get(workspaceID) || workspaceID}` : "No project";
-      const detail = session.token_count ? `${updated} · ${session.token_count} tokens · ${scope}` : `${updated} · ${scope}`;
-      return `<div class="session-row">
-        <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""}>
-          <span class="session-name">${icon("message", 13)} ${escapeHtml(resuming ? "恢复中…" : (session.name || shortSessionID(session.id)))}</span><small>${escapeHtml(detail)}</small>
-        </button>
-        <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
-      </div>`;
-    }).join("")
+    ? renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames)
     : '<span class="muted list-empty">暂无会话</span>';
 
   elements["session-list"].querySelectorAll(".session-button").forEach(button => {
@@ -243,6 +229,83 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       catch (error) { showToast(error); }
     });
   });
+  elements["session-list"].querySelectorAll("[data-collapse-group]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      toggleWorkspaceGroup(button.dataset.collapseGroup);
+    });
+  });
+}
+
+const UNBOUND_WORKSPACE = "__unbound__";
+
+// 折叠状态：key → 是否折叠（工作区消失后旧 key 自然失效）；持久化到
+// localStorage，重渲染后仍然保持。
+const collapsedWorkspaceGroups = new Set(
+  (JSON.parse(storageGet("seelex.collapsed-workspace-groups") || "[]") || [])
+    .filter(key => typeof key === "string")
+);
+
+let lastSessionsRender = null;
+
+// renderSessionGroups 把会话按工作区（session_workspaces 投影）分组渲染；
+// 未绑定工作区或工作区已消失的会话收进「未关联会话」组，置底展示。
+function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames) {
+  const groups = new Map();
+  for (const session of items) {
+    const workspaceID = sessionWorkspaces[session.id];
+    const key = workspaceID && workspaceNames.has(workspaceID) ? workspaceID : UNBOUND_WORKSPACE;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(session);
+  }
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (a === UNBOUND_WORKSPACE) return 1;
+    if (b === UNBOUND_WORKSPACE) return -1;
+    return String(workspaceNames.get(a)).localeCompare(String(workspaceNames.get(b)), "zh-Hans-CN");
+  });
+  return keys.map(key => {
+    const label = key === UNBOUND_WORKSPACE ? "未关联会话" : workspaceNames.get(key) || key;
+    const rows = groups.get(key).map(session => sessionRow(session, currentID)).join("");
+    const collapsed = collapsedWorkspaceGroups.has(key);
+    return `<div class="session-group${collapsed ? " is-collapsed" : ""}" data-workspace-group="${escapeHtml(key)}">
+      <button type="button" class="session-group-head" data-collapse-group="${escapeHtml(key)}" aria-expanded="${!collapsed}">
+        <span class="session-group-chevron" aria-hidden="true"></span>
+        <span class="session-group-name">${escapeHtml(label)}</span>
+        <span class="badge">${groups.get(key).length}</span>
+      </button>
+      <div class="session-group-body">${rows}</div>
+    </div>`;
+  }).join("");
+}
+
+function toggleWorkspaceGroup(key) {
+  if (collapsedWorkspaceGroups.has(key)) collapsedWorkspaceGroups.delete(key);
+  else collapsedWorkspaceGroups.add(key);
+  storageSet("seelex.collapsed-workspace-groups", JSON.stringify([...collapsedWorkspaceGroups]));
+  rerenderSessions();
+}
+
+function rerenderSessions() {
+  if (!lastSessionsRender) return;
+  renderSessions(
+    lastSessionsRender.sessions, lastSessionsRender.current, lastSessionsRender.capabilities,
+    lastSessionsRender.sessionWorkspaces, lastSessionsRender.workspaces
+  );
+}
+
+function sessionRow(session, currentID) {
+  const active = session.id === currentID;
+  const resuming = session.id === state.resumingSessionID;
+  const updated = session.updated_at
+    ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : "当前会话";
+  const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
+  return `<div class="session-row">
+    <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""}>
+      <span class="session-name">${icon("message", 13)} ${escapeHtml(resuming ? "恢复中…" : (session.name || shortSessionID(session.id)))}</span><small>${escapeHtml(detail)}</small>
+    </button>
+    <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
+  </div>`;
 }
 
 function shortSessionID(id) {
@@ -285,10 +348,12 @@ function renderPlugins(runtime) {
 function renderAccounts(runtime) {
   const accounts = runtime.accounts || [];
   elements["account-count"].textContent = String(accounts.length);
-  elements["account-list"].innerHTML = accounts.map(account => `
-    <button class="stack-button ${runtime.account === account.name ? "active" : ""}" data-account="${escapeHtml(account.name)}" ${account.disabled ? "disabled" : ""}>
-      ${escapeHtml(account.name)}<small>${escapeHtml(`${account.provider || ""} ${account.model || ""}`.trim())}</small>
-    </button>`).join("");
+  elements["account-list"].innerHTML = accounts.length
+    ? accounts.map(account => `
+      <button class="stack-button ${runtime.account === account.name ? "active" : ""}" data-account="${escapeHtml(account.name)}" ${account.disabled ? "disabled" : ""}>
+        ${escapeHtml(account.name)}<small>${escapeHtml(`${account.provider || ""} ${account.model || ""}`.trim())}</small>
+      </button>`).join("")
+    : '<span class="muted list-empty">暂无账户</span>';
   elements["account-list"].querySelectorAll("button").forEach(button => {
     button.addEventListener("click", async () => {
       try { await invoke("SelectAccount", button.dataset.account); await refresh({ scroll: false }); }
@@ -716,6 +781,7 @@ elements.composer.addEventListener("submit", async event => {
     resizePrompt();
     await refresh({ scroll: "bottom" });
   } catch (error) { showToast(error); }
+  elements.prompt.focus();
 });
 
 elements.prompt.addEventListener("keydown", event => {
@@ -738,7 +804,8 @@ elements.prompt.addEventListener("keydown", event => {
       return;
     }
   }
-  if (event.key === "Enter" && !event.shiftKey) {
+  // 中文输入法确认候选词时也会触发 Enter（isComposing=true），此时不能发送。
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     elements.composer.requestSubmit();
   }
@@ -868,17 +935,19 @@ function syncScheduledTaskFields() {
 }
 
 // submitScheduledTask 组装任务入参并提交 Bridge ScheduleTask
-// （间隔为分钟 → Go time.Duration 纳秒；sessionId 留空 = 绑定当前主会话）。
+// （周期单位 → 等价秒 → Go time.Duration 纳秒；month 由后端按日历月推进；
+// sessionId 留空 = 绑定当前主会话）。
 async function submitScheduledTask() {
   const name = elements["sched-name"].value.trim();
   const kind = elements["sched-kind"].value;
-  const minutes = Number(elements["sched-interval"].value);
+  const periodValue = Number(elements["sched-period-value"].value);
+  const periodUnit = elements["sched-period-unit"].value;
   if (!name) {
     showToast("请填写任务名称");
     return;
   }
-  if (!Number.isFinite(minutes) || minutes < 1) {
-    showToast("周期至少 1 分钟");
+  if (!Number.isInteger(periodValue) || periodValue < 1) {
+    showToast("周期数值至少为 1");
     return;
   }
   if (kind === "command" && !elements["sched-command"].value) {
@@ -888,7 +957,9 @@ async function submitScheduledTask() {
   const spec = {
     name,
     kind,
-    interval: Math.round(minutes) * 60 * 1e9,
+    interval: periodToSeconds(periodUnit, periodValue) * 1e9,
+    periodUnit,
+    periodValue,
     command: kind === "command" ? elements["sched-command"].value : "",
     prompt: kind === "prompt" ? elements["sched-prompt"].value.trim() : "",
     sessionId: "",
@@ -900,6 +971,18 @@ async function submitScheduledTask() {
     await refresh({ scroll: false });
   } catch (error) {
     showToast(error);
+  }
+}
+
+// periodToSeconds 周期单位 → 等价秒（month 用 30 天名义值，仅用于 interval
+// 字段与后端最小周期校验；真实排期由调度器按日历月推进）。
+function periodToSeconds(unit, value) {
+  switch (unit) {
+    case "day": return value * 86400;
+    case "week": return value * 604800;
+    case "month": return value * 2592000;
+    case "hour":
+    default: return value * 3600;
   }
 }
 
@@ -967,19 +1050,22 @@ function renderWorkspace(snapshot) {
       '<div class="ws-current"><strong>' + escapeHtml(ws.name) + '</strong>' +
       '<small>' + escapeHtml(ws.root_path || "") + '</small>' +
       (gitOk ? '<a class="ws-git" href="' + escapeHtml(ws.git_remote) + '" target="_blank">' + escapeHtml(ws.git_remote) + '</a>' : '<span class="ws-warn">未关联仓库</span>') +
-      '<button id="unbind-workspace" class="text-button" type="button">Unbind project</button>' +
+      '<button id="unbind-workspace" class="text-button" type="button">解除项目绑定</button>' +
       '</div>';
     elements["workspace-info"].querySelector("#unbind-workspace").addEventListener("click", async function() {
+      if (!confirm("确认解除当前项目绑定？")) return;
       try { await invoke("UnbindWorkspace"); await refresh({ scroll: false }); }
       catch (error) { showToast(error); }
     });
   } else {
     elements["workspace-info"].innerHTML = '<span class="muted">未绑定工作区 — 文件读写受限</span>';
   }
-  elements["workspace-list"].innerHTML = list.map(function(w) {
-    return '<button class="stack-button' + (ws && ws.id === w.id ? ' active' : '') + '" data-ws="' + escapeHtml(w.id) + '">' +
-      escapeHtml(w.name) + '<small>' + escapeHtml(w.root_path || "") + '</small></button>';
-  }).join("");
+  elements["workspace-list"].innerHTML = list.length
+    ? list.map(function(w) {
+      return '<button class="stack-button' + (ws && ws.id === w.id ? ' active' : '') + '" data-ws="' + escapeHtml(w.id) + '">' +
+        escapeHtml(w.name) + '<small>' + escapeHtml(w.root_path || "") + '</small></button>';
+    }).join("")
+    : '<span class="muted list-empty">暂无工作区 — 点击 + 新建</span>';
   elements["workspace-list"].querySelectorAll("button").forEach(function(btn) {
     btn.addEventListener("click", async function() {
       try { await invoke("BindWorkspace", btn.dataset.ws); await refresh({ scroll: false }); }
@@ -1005,6 +1091,84 @@ elements["new-workspace"].addEventListener("click", async function() {
     await refresh({ scroll: false });
   } catch (error) { showToast(error); }
 });
+
+// ── 左右栏宽度拖拽 ─────────────────────────────────────────
+const LEFT_WIDTH_KEY = "seelex.left-panel-width";
+const RIGHT_WIDTH_KEY = "seelex.right-panel-width";
+const LEFT_WIDTH_RANGE = [200, 420];
+const RIGHT_WIDTH_RANGE = [220, 480];
+
+function storageGet(key) {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+function storageSet(key, value) {
+  try { window.localStorage.setItem(key, value); } catch { /* 无存储环境忽略 */ }
+}
+function clampPanelWidth(value, min, max) {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+function applyPanelWidths() {
+  const left = clampPanelWidth(Number(storageGet(LEFT_WIDTH_KEY)) || 268, ...LEFT_WIDTH_RANGE);
+  const right = clampPanelWidth(Number(storageGet(RIGHT_WIDTH_KEY)) || 300, ...RIGHT_WIDTH_RANGE);
+  document.documentElement.style.setProperty("--left-w", `${left}px`);
+  document.documentElement.style.setProperty("--right-w", `${right}px`);
+}
+function setupPanelDividers() {
+  applyPanelWidths();
+  const shell = document.querySelector(".app-shell");
+  const leftDivider = document.getElementById("left-divider");
+  const rightDivider = document.getElementById("right-divider");
+  if (!shell || !leftDivider || !rightDivider) return;
+
+  function setWidth(variable, key, range, width) {
+    const clamped = clampPanelWidth(width, ...range);
+    document.documentElement.style.setProperty(variable, `${clamped}px`);
+    storageSet(key, String(clamped));
+  }
+  function beginDrag(divider, onMove) {
+    return event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      divider.classList.add("is-dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      const move = moveEvent => onMove(moveEvent);
+      const up = () => {
+        divider.classList.remove("is-dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    };
+  }
+  leftDivider.addEventListener("pointerdown", beginDrag(leftDivider, event => {
+    setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_RANGE, event.clientX - shell.getBoundingClientRect().left);
+  }));
+  rightDivider.addEventListener("pointerdown", beginDrag(rightDivider, event => {
+    setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_RANGE, shell.getBoundingClientRect().right - event.clientX);
+  }));
+
+  function keyboardAdjust(divider, isRight) {
+    divider.addEventListener("keydown", event => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const step = event.key === "ArrowLeft" ? -16 : 16;
+      if (isRight) {
+        const current = parseFloat(document.documentElement.style.getPropertyValue("--right-w")) || 300;
+        setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_RANGE, current - step);
+      } else {
+        const current = parseFloat(document.documentElement.style.getPropertyValue("--left-w")) || 268;
+        setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_RANGE, current + step);
+      }
+    });
+  }
+  keyboardAdjust(leftDivider, false);
+  keyboardAdjust(rightDivider, true);
+}
+setupPanelDividers();
 
 function resizePrompt() {
   elements.prompt.style.height = "auto";

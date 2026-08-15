@@ -40,6 +40,15 @@ test("renders task list with name, interval, next run and cancel button", () => 
   assert.match(html, /采集完成，共 12 条/);
 });
 
+test("renders period units for recurring tasks", () => {
+  const html = renderScheduledTasks([
+    task({ id: "sched_4", name: "每月巡检", period_unit: "month", period_value: 1, interval_seconds: 2592000 }),
+    task({ id: "sched_5", name: "每周同步", period_unit: "week", period_value: 2, interval_seconds: 1209600 })
+  ], []);
+  assert.match(html, /每 1 月/);
+  assert.match(html, /每 2 周/);
+});
+
 test("renders prompt tasks with prompt content and session binding stays out of display", () => {
   const html = renderScheduledTasks([
     task({ id: "sched_2", name: "周期提醒", kind: "prompt", prompt: "每隔一小时检查发布状态", command: "", session_id: "sess_1" })

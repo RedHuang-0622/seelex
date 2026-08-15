@@ -10,54 +10,62 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand"><span class="brand-mark">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
       <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
     </header>
 
     <aside class="left-panel panel">
       <section class="sessions-section">
         <div class="section-title">
-          <span>Sessions</span>
+          <span>会话</span>
           <span class="section-actions"><span id="session-count" class="badge">0</span><button id="new-session" class="icon-button" type="button" title="新建会话" aria-label="新建会话" data-icon="plus"></button></span>
         </div>
         <div id="session-list" class="stack-list"></div>
       </section>
-      <section>
-        <div class="section-title"><span>Accounts</span><span id="account-count" class="badge">0</span></div>
-        <div id="account-list" class="stack-list"></div>
+      <section class="workspace-section">
+        <div class="section-title"><span>工作区</span><span class="section-actions"><button id="new-workspace" class="icon-button subtle" type="button" title="新建工作区" aria-label="新建工作区" data-icon="plus"></button></span></div>
+        <div id="workspace-info" class="workspace-info"></div>
+        <div id="workspace-list" class="source-list"></div>
       </section>
+      <details class="collapse-section" id="accounts-section" open>
+        <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>账户</span><span id="account-count" class="badge">0</span></summary>
+        <div id="account-list" class="stack-list"></div>
+      </details>
     </aside>
 
     <main class="workspace">
       <div id="history-bar" class="history-bar hidden"><button id="load-history" class="icon-button history-button" type="button" title="加载更早消息" aria-label="加载更早消息" data-icon="message"></button></div>
       <div id="conversation" class="conversation" aria-live="polite"></div>
       <div id="empty-state" class="empty-state">
-        <div class="orb">S</div>
+        <div class="orb" aria-hidden="true">&gt;_</div>
         <h1>从一个工程目标开始</h1>
         <p>Seelex 会在同一个应用核心中协调 Plugin、Skill、工具调用和审批。</p>
+        <div class="empty-hints">
+          <span class="kbd" aria-hidden="true">/</span> 命令与工具
+          <span class="kbd" aria-hidden="true">#</span> 加载 Skill
+          <span class="kbd" aria-hidden="true">@</span> 使用 Plugin
+        </div>
       </div>
       <form id="composer" class="composer">
         <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
         <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，输入 # 加载 Skill"></textarea>
         <div class="composer-actions">
           <div class="composer-tools">
-            <button id="command-button" class="icon-button composer-icon" type="button" title="指令面板 (Ctrl+K)" aria-label="指令面板" data-icon="command"></button>
+            <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
             <button id="runtime-button" class="icon-button composer-icon" type="button" title="Agent Runtime" aria-label="Agent Runtime" data-icon="runtime"></button>
-            <button id="perm-toggle" class="perm-chip" type="button" title="Full Access 模式">FA</button>
+            <button id="perm-toggle" class="perm-chip" type="button" title="Full Access 模式" aria-label="Full Access 模式">FA</button>
           </div>
-          <span id="composer-status">Ready</span>
+          <span id="composer-status">READY</span>
           <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
-          <div id="effort-control" class="effort-control" data-effort="lite" role="group">
+          <div id="effort-control" class="effort-control" data-effort="lite" role="group" aria-label="Effort 级别">
             <span class="effort-end effort-end--min">Lite</span>
             <div class="effort-syringe">
               <div class="syringe-barrel">
                 <div id="syringe-piston" class="syringe-piston"></div>
               </div>
-              <div class="syringe-ticks" aria-hidden="true"><i></i><i></i><i></i></div>
               <input id="effort-range" class="syringe-input" type="range" min="0" max="3" step="1" value="0" aria-label="Effort 级别" aria-valuetext="Lite">
             </div>
             <span class="effort-end effort-end--max">Max</span>
-            <span class="effort-max-aura" aria-hidden="true"></span>
           </div>
           <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
         </div>
@@ -66,7 +74,7 @@
 
     <aside class="right-panel panel">
       <section class="project-heading">
-        <div class="section-title">Project</div>
+        <div class="section-title">项目</div>
         <h2 id="project-name">当前工作区</h2>
         <div id="project-root" class="project-root"></div>
       </section>
@@ -77,38 +85,41 @@
       <section id="work-section" class="hidden">
         <div class="section-title"><span>工作表格</span><span id="work-count" class="badge">0</span><span id="work-unread" class="badge is-unread hidden">0 未读</span></div>
         <button id="work-table-open" class="work-table-button" type="button" title="打开工作表格详情">
-          <span class="work-table-button-icon" aria-hidden="true">▦</span>
+          <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
           <span id="work-table-summary">0 项任务</span>
-          <span class="work-table-button-hint">点开查看完整表格</span>
+          <span class="work-table-button-hint">点击查看完整表格</span>
         </button>
       </section>
       <section id="scheduled-task-section">
-        <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建周期任务" data-icon="plus" style="width:16px;height:16px"></button></div>
+        <div class="section-title"><span>周期任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建周期任务" aria-label="新建周期任务" data-icon="plus"></button></div>
         <div id="scheduled-task-view" class="sched-view muted">暂无周期任务</div>
       </section>
-      <section id="history-search-section">
-        <div class="section-title"><span>历史检索</span><span id="history-search-count" class="badge">0</span></div>
-        <form id="history-search-form" class="history-search-form">
-          <input id="history-search-input" type="text" placeholder="检索历史聊天记录…" autocomplete="off" aria-label="检索历史聊天记录">
-          <button id="history-search-submit" class="icon-button subtle" type="submit" title="检索" aria-label="检索" data-icon="search"></button>
-        </form>
-        <div id="history-search-view" class="history-search-view muted">输入关键词检索历史记录</div>
-      </section>
-      <section>
-        <div class="section-title">概要</div>
-        <div id="project-overview" class="project-overview"></div>
-        <div id="context-compactions" class="context-compactions hidden"></div>
-      </section>
-      <section>
-        <div class="section-title"><span>工作区</span><button id="new-workspace" class="icon-button subtle" type="button" title="新建工作区" data-icon="plus" style="width:16px;height:16px"></button></div>
-        <div id="workspace-info" class="workspace-info"></div>
-        <div id="workspace-list" class="source-list"></div>
-      </section>
-      <section>
-        <div class="section-title"><span>Agent 已读文件</span><span id="source-count" class="badge">0</span></div>
-        <div id="project-sources" class="source-list"></div>
-      </section>
+
+      <details class="side-more" id="side-more">
+        <summary class="side-more-summary"><span>更多面板</span></summary>
+        <div class="side-more-body">
+          <section id="history-search-section">
+            <div class="section-title"><span>历史检索</span><span id="history-search-count" class="badge">0</span></div>
+            <form id="history-search-form" class="history-search-form">
+              <input id="history-search-input" type="text" placeholder="搜索历史聊天记录…" autocomplete="off" aria-label="搜索历史聊天记录">
+              <button id="history-search-submit" class="icon-button subtle" type="submit" title="搜索" aria-label="搜索" data-icon="search"></button>
+            </form>
+            <div id="history-search-view" class="history-search-view muted">输入关键词搜索历史记录</div>
+          </section>
+          <section>
+            <div class="section-title">概要</div>
+            <div id="project-overview" class="project-overview"></div>
+            <div id="context-compactions" class="context-compactions hidden"></div>
+          </section>
+          <section>
+            <div class="section-title"><span>Agent 已读文件</span><span id="source-count" class="badge">0</span></div>
+            <div id="project-sources" class="source-list"></div>
+          </section>
+        </div>
+      </details>
     </aside>
+    <div id="left-divider" class="panel-divider" role="separator" aria-orientation="vertical" aria-label="调整左侧栏宽度" tabindex="0"></div>
+    <div id="right-divider" class="panel-divider" role="separator" aria-orientation="vertical" aria-label="调整右侧栏宽度" tabindex="0"></div>
   </div>
 
   <div id="runtime-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="runtime-modal-title">
@@ -136,7 +147,7 @@
       <div class="modal-header"><div><span class="eyebrow">Persistence</span><h2 id="settings-modal-title">会话存储</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <p class="settings-note">切换后，新写入会话使用新的存储；已有历史不会自动迁移。数据库密码不会回显。</p>
       <label class="settings-field">存储形式
-        <select id="storage-backend"><option value="json">JSON（分片序列化）</option><option value="sqlite">SQLite（本地数据库）</option><option value="postgres">PostgreSQL（外部数据库）</option><option value="redis">Redis（远程分片缓存/存储）</option></select>
+        <select id="storage-backend"><option value="json">JSON（分片序列化）</option><option value="sqlite">SQLite（本地数据库）</option><option value="postgres">PostgreSQL（外部数据库）</option><option value="redis">Redis（远程分片缓存存储）</option></select>
       </label>
       <label id="storage-path-field" class="settings-field">本地路径<input id="storage-path" type="text" autocomplete="off"></label>
       <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL / Redis）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require 或 redis://:password@host:6379/0" autocomplete="off"></label>
@@ -153,7 +164,18 @@
       <label class="settings-field">任务类型
         <select id="sched-kind"><option value="command">命令（白名单脚本）</option><option value="prompt">提示词（agent 会话）</option></select>
       </label>
-      <label class="settings-field">周期（分钟）<input id="sched-interval" type="number" min="1" value="60"></label>
+      <label class="settings-field">周期
+        <span class="period-row">
+          <span class="period-prefix">每</span>
+          <input id="sched-period-value" type="number" min="1" value="1">
+          <select id="sched-period-unit">
+            <option value="hour">小时</option>
+            <option value="day">天</option>
+            <option value="week">周</option>
+            <option value="month">月</option>
+          </select>
+        </span>
+      </label>
       <label id="sched-command-field" class="settings-field">命令<select id="sched-command"></select></label>
       <label id="sched-prompt-field" class="settings-field hidden">提示词内容<textarea id="sched-prompt" rows="3" placeholder="定时让 agent 执行的内容"></textarea></label>
       <label class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> 创建后立即启用</label>
@@ -163,13 +185,13 @@
 
   <div id="command-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="command-modal-title">
     <div class="modal-card command-card">
-      <div class="modal-header"><div><span class="eyebrow">Command mode</span><h2 id="command-modal-title">指令面板</h2></div><button id="command-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">Command mode</span><h2 id="command-modal-title">命令面板</h2></div><button id="command-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="command-triggers" class="command-triggers">
         <button class="active" type="button" data-trigger="/">/ 命令与工具</button>
         <button type="button" data-trigger="#"># Skills</button>
         <button type="button" data-trigger="@">@ Plugins</button>
       </div>
-      <input id="command-search" class="command-search" value="/" autocomplete="off" spellcheck="false" aria-label="搜索指令">
+      <input id="command-search" class="command-search" value="/" autocomplete="off" spellcheck="false" aria-label="搜索命令">
       <div id="command-results" class="command-results"></div>
       <div class="command-hint">↑↓ 选择 · Enter/Tab 写入输入框 · Esc 关闭</div>
     </div>

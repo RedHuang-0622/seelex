@@ -62,10 +62,23 @@ async function handleAction(event, getPayloads, options) {
   const expandButton = event.target.closest("[data-expand]");
   if (!expandButton) return;
   const panel = expandButton.closest(".io-panel");
-  const value = getPayloads().get(expandButton.dataset.expand) || "";
-  panel?.querySelector("pre")?.replaceChildren(document.createTextNode(value));
+  const key = expandButton.dataset.expand;
+  const value = getPayloads().get(key) || "";
+  const pre = panel?.querySelector("pre");
+  const label = expandButton.querySelector("span");
+  if (panel?.classList.contains("expanded")) {
+    panel.classList.remove("expanded");
+    pre?.replaceChildren(document.createTextNode(expandButton.dataset.original || ""));
+    if (label) label.textContent = `+${expandButton.dataset.hiddenChars || "0"} chars`;
+    expandButton.title = "展开完整内容";
+    return;
+  }
+  expandButton.dataset.original = pre?.textContent || "";
+  expandButton.dataset.hiddenChars = (label?.textContent || "").replace(/\D/g, "");
+  pre?.replaceChildren(document.createTextNode(value));
   panel?.classList.add("expanded");
-  expandButton.remove();
+  if (label) label.textContent = "收回";
+  expandButton.title = "收回完整内容";
 }
 
 function reconcile(container, items, htmlByKey, payloads) {
@@ -115,9 +128,17 @@ function restoreUIState(node, state, payloads) {
   });
   for (const panel of node.querySelectorAll(".io-panel")) {
     if (!state.expanded.has(panel.dataset.payload)) continue;
-    panel.querySelector("pre")?.replaceChildren(document.createTextNode(payloads.get(panel.dataset.payload) || ""));
+    const pre = panel.querySelector("pre");
+    const toggle = panel.querySelector("[data-expand]");
+    const label = toggle?.querySelector("span");
+    if (toggle) toggle.dataset.hiddenChars = (label?.textContent || "").replace(/\D/g, "");
+    if (toggle) toggle.dataset.original = pre?.textContent || "";
+    pre?.replaceChildren(document.createTextNode(payloads.get(panel.dataset.payload) || ""));
     panel.classList.add("expanded");
-    panel.querySelector("[data-expand]")?.remove();
+    if (toggle) {
+      if (label) label.textContent = "收回";
+      toggle.title = "收回完整内容";
+    }
   }
 }
 

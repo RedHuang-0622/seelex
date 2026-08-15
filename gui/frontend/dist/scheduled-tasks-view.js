@@ -36,7 +36,7 @@ export function renderScheduledTasks(items, commands) {
         <span class="sched-status is-${schedStatusClass(task)}">${escapeHtml(schedStatusText(task))}</span>
       </div>
       <div class="sched-meta">
-        <span>每 ${formatInterval(task.interval_seconds)}</span>
+        <span>每 ${formatInterval(task)}</span>
         <span>下次 ${formatRunTime(task.next_run_at)}</span>
         <span>共 ${Number(task.run_count) || 0} 次</span>
       </div>
@@ -72,13 +72,27 @@ function schedStatusClass(task) {
   return "pending";
 }
 
-// formatInterval 周期文案：秒 → 分/小时/天。
-function formatInterval(seconds) {
-  const value = Number(seconds) || 0;
+// formatInterval 周期文案：优先 period_unit/period_value（每 n 小时/天/周/月），
+// 旧任务回退到 interval_seconds（秒 → 分/小时/天）。
+function formatInterval(task) {
+  if (task?.period_unit && Number(task.period_value) > 0) {
+    return `${Number(task.period_value)} ${periodUnitLabel(task.period_unit)}`;
+  }
+  const value = Number(task?.interval_seconds) || 0;
   if (value % 86400 === 0 && value > 0) return `${value / 86400} 天`;
   if (value % 3600 === 0 && value > 0) return `${value / 3600} 小时`;
   if (value % 60 === 0 && value > 0) return `${value / 60} 分钟`;
   return `${value} 秒`;
+}
+
+function periodUnitLabel(unit) {
+  switch (unit) {
+    case "hour": return "小时";
+    case "day": return "天";
+    case "week": return "周";
+    case "month": return "月";
+    default: return String(unit || "");
+  }
 }
 
 // formatRunTime 运行时间文案（RFC3339 → 本地短格式；空 = "—"）。

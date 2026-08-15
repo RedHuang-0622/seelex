@@ -181,10 +181,10 @@ test("renders Dify-style branch flow inside nodes (outgoing targets, conditions,
   const start = dsl.nodes.find(node => node.id === "start");
   assert.equal(start.outgoing.length, 2); // fork ×2 → 并行分支
   const html = renderPlanDSL(dsl);
-  // 分支行：目标节点名 + 条件/标签；并行箭头 ⚡→
+  // 分支行：目标节点名 + 条件/标签；并行箭头 ⇉
   assert.match(html, /data-plan-node-field="branches"/);
   assert.match(html, /plan-branch-row/);
-  assert.match(html, /⚡→/);
+  assert.match(html, /⇉/);
   assert.match(html, /data-branch-target="left">Left branch</);
   assert.match(html, /branch-condition">fork</);
   // 节点仍带完整 outgoing 对象（targetLabel 供树语义使用）

@@ -11,11 +11,11 @@ Effort 控件把 Core 已有的 `lite / medium / high / max` 四档能力变成�
 
 主要实现：
 
-- 语义挂载点：`gui/frontend/dist/index.html:14-22`；
+- 语义挂载点：`gui/frontend/dist/index.html` 中 `id="effort-control"` 区块（位于 composer，独立于 Runtime modal）；
 - Controller：`gui/frontend/dist/effort-control.js:1-77`；
 - Composition：`gui/frontend/dist/app.js:41-50`、`app.js:166-177`；
 - Core 动作：`application/app.go:213-229`；
-- 视觉状态：`gui/frontend/dist/styles.css:72-125`。
+- 视觉状态：`gui/frontend/dist/styles.css` 的 `/* Effort */` 段（`.effort-control` 系列选择器）。
 
 ## 2. 四档数据模型
 
@@ -53,26 +53,27 @@ Runtime Snapshot ──→ setLevel(level) ──→ Committed(level)
 
 `renderRuntime` 每次收到全量 Snapshot 或 `runtime.changed` 都调用 `setLevel`，因此命令行 `/effort`、TUI 或未来远端控制导致的变化也能同步到滑杆。Controller 不持久化业务状态。
 
-## 5. Max 紫色光效
+## 5. 视觉状态与动效克制
 
-实现位置：`gui/frontend/dist/styles.css:109-125`。
+实现位置：`gui/frontend/dist/styles.css` 的 `/* Effort：紧凑分段滑轨 */` 段。
 
-当 `root.dataset.effort == "max"` 时：
+控件是一枚紧凑分段滑轨（Lite/Max 两端标签 + 细轨填充），视觉原则与全局设计系统一致：克制、无装饰：
 
-- 主色切换为紫色渐变并增强边框、thumb 和文字光晕；
-- `effort-max-aura` 只用 opacity/transform 做呼吸；
-- 容器伪元素用 background-position 产生横向流光；
-- 非 Max 档不运行动画，避免常驻 GPU 压力。
+- 每档只切换填充色：`lite` 绿、`medium` 青、`high` 琥珀、`max` 紫；不使用渐变、辉光、流光或呼吸动画；
+- 已移除针筒玻璃反光、刻度点与 `effort-max-aura`，不产生常驻 GPU 动画；
+- `--effort-progress` 与 `data-effort` 仍是 Controller 的派生视图，不影响提交逻辑；
+- `prefers-reduced-motion: reduce` 关闭全部过渡与动画，颜色状态保留。
 
-动效只是 `data-effort` 的派生视图，不影响提交逻辑。`prefers-reduced-motion: reduce` 会关闭呼吸和流光动画，但保留静态紫色 Max 状态（`styles.css:358-361`）。
+色值与进度映射只允许出现在 `:root` 的语义色 token 与 `EFFORT_LEVELS` 中，组件不得硬编码。
 
 ## 6. 布局与可访问性
 
-- 控件位于 topbar，独立于 Runtime modal；嵌入资源契约在 `gui/bridge_test.go:228-241` 固定该边界。
-- `role=group + aria-labelledby` 描述控件用途；range 使用 `aria-valuetext` 暴露 Lite/Medium/High/Max，而不是裸数字。
-- output 与 range 通过 `for` 关联；键盘可使用方向键和 Home/End 操作原生 range。
-- 780px 以下隐藏 Effort 小标题并压缩滑杆，provider/model 文本收起但连接状态点保留（`styles.css:370-380`）。
-- Max 不能只靠颜色表达：output 同时明确显示 `MAX`。
+- 控件位于 composer，独立于 Runtime modal；嵌入资源契约在 `gui/bridge_test.go:641-652` 固定该边界（`id="effort-control"` 先于 `id="runtime-modal"`，且 modal 内不得出现 `id="effort-range"`）。
+- `role=group` + `aria-label` 描述控件用途；range 使用 `aria-valuetext` 暴露 Lite/Medium/High/Max，而不是裸数字。
+- 若 HTML 挂载了 `id="effort-value"`，Controller 会同步其文本；当前未挂载，档位由两端标签与 `aria-valuetext` 表达。
+- 键盘可使用方向键和 Home/End 操作原生 range。
+- 780px 以下压缩滑杆宽度，provider/model 文本收起但连接状态点保留（`styles.css` 响应式段）。
+- Max 不能只靠颜色表达：右端 `Max` 标签常驻，range 的 `aria-valuetext` 同步为 `Max`。
 
 ## 7. 错误与边界策略
 
@@ -83,7 +84,7 @@ Runtime Snapshot ──→ setLevel(level) ──→ Committed(level)
 | 重复选择当前档 | 直接恢复 committed 视图，不调用 Bridge |
 | Bridge 尚未就绪/调用失败 | 回滚、解除 disabled、统一 toast |
 | 提交中收到重复 change | pending guard 忽略 |
-| 用户要求减少动态效果 | 保留 Max 紫色状态，关闭动画 |
+| 用户要求减少动态效果 | 全局 `prefers-reduced-motion` 关闭过渡与动画，颜色状态保留 |
 
 ## 8. 自动化证据
 
@@ -101,5 +102,5 @@ Runtime Snapshot ──→ setLevel(level) ──→ Committed(level)
 - 新的档位是否同步更新 range max、映射测试和 Core 校验？
 - `input` 是否保持纯预览，只有 `change` 才调用 Bridge？
 - 失败是否回滚到最后一份权威 committed 状态？
-- Max 动效是否只使用派生状态并支持 reduced-motion？
+- Effort 视觉是否保持克制（无辉光/流光/常驻动画）并支持 reduced-motion？
 - Effort 是否仍可在不打开任何 modal 的情况下看到和操作？
