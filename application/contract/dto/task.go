@@ -69,7 +69,9 @@ type TaskSpec struct {
 	Attachments  []string `json:"attachments,omitempty"`
 }
 
-// TodoItemStatus 是清单项三态（兼容 TUI/旧契约；权威状态在 TaskRecord.Status）。
+// TodoItemStatus 是清单项三态（兼容 TUI/旧契约；权威状态在
+// TaskRecord.Status。移除窗口：TUI/旧契约调用方迁移到 TaskRecord 后删除，
+// 建议随 v0.2 清理批次，2026-12-31）。
 type TodoItemStatus string
 
 const (
@@ -78,7 +80,8 @@ const (
 	TodoItemDone    TodoItemStatus = "done"
 )
 
-// TodoItem 是清单项（快照 DTO，兼容 TUI/旧契约）。
+// TodoItem 是清单项（快照 DTO，兼容 TUI/旧契约。移除窗口：同
+// TodoItemStatus，TUI/旧契约调用方迁移后删除，建议 v0.2，2026-12-31）。
 // Status 是权威三态；Done 是派生布尔（Status == done），两者始终一致。
 type TodoItem struct {
 	Text   string         `json:"text"`

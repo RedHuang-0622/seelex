@@ -18,12 +18,15 @@ type DiagnosticHook struct {
 	observe func(event tools.BashDiagnosticEvent)
 }
 
-// NewDiagnosticHook 构造诊断钩子；observe 由 Runtime 注入（bash 诊断观察者）。
-func NewDiagnosticHook(next frameworktelemetry.Hook, observe func(event tools.BashDiagnosticEvent)) frameworktelemetry.Hook {
-	if next == nil {
-		return nil
+// NewDiagnosticHook 构造诊断观察面（Wrapper 形态，由 Chain 负责透传）；
+// observe 由 Runtime 注入（bash 诊断观察者）。
+func NewDiagnosticHook(observe func(event tools.BashDiagnosticEvent)) Wrapper {
+	return func(next frameworktelemetry.Hook) frameworktelemetry.Hook {
+		if next == nil {
+			return nil
+		}
+		return &DiagnosticHook{next: next, observe: observe}
 	}
-	return &DiagnosticHook{next: next, observe: observe}
 }
 
 // Before 实现 telemetry.Hook。

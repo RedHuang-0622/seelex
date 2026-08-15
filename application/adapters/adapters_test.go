@@ -199,8 +199,10 @@ func TestEnginePortPreparesDurableLoadWithApplicationHistory(t *testing.T) {
 		}
 		return fresh
 	}, nil)
-	port.SetHistoryPreparer(func(_ string, history []types.Message) {
-		durableHistory = append([]types.Message(nil), history...)
+	port.ApplyDeps(EnginePortDeps{
+		PrepareHistory: func(_ string, history []types.Message) {
+			durableHistory = append([]types.Message(nil), history...)
+		},
 	})
 	assembled := "restored checkpoint"
 	if err := port.ReplaceRawHistory("logical-session", []types.Message{{Role: "system", Content: &assembled}}); err != nil {

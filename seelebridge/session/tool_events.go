@@ -8,22 +8,15 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/tools"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
 // SubagentToolEvent 是 Runtime 对子代理工具调用的稳定投影，不暴露 Seele
 // 内部 hook 类型。Application 负责截断并写入 Snapshot/EventHub。
-type SubagentToolEvent struct {
-	ID        string
-	NodeID    string
-	Name      string
-	Arguments string
-	Result    string
-	Error     string
-	Status    string
-	StartedAt time.Time
-	Duration  time.Duration
-}
+// 结构体本体以 application/contract/dto 为单源（与 application 快照投影同一
+// 形状），本包用别名保持运行态引用面兼容。
+type SubagentToolEvent = dto.SubagentToolEvent
 
 // ToolEventState 是子代理工具事件的分发器（回调 + 序号），由根包注入
 // 工具注册表 middleware。

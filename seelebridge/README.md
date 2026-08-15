@@ -19,6 +19,9 @@ Runtime，同时隔离上游 API 变化。
 | `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
 | `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
 | `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器） |
+| `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
+| `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |
+| `events_unified.go` | 统一事件库（解耦方案 §02.3/§04.7 长期形态）：B 类 llm/tool 脱敏摘要 `SummaryLog`（与 A 类事实同库持久化）+ 统一查询 `UnifiedEventReader`/`Runtime.UnifiedEvents` |
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 
@@ -42,10 +45,12 @@ Runtime，同时隔离上游 API 变化。
 | `scheduler/` | 定时周期任务 actor：白名单命令/prompt 任务/状态快照（见 `scheduler/README.md`） |
 | `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch（见 `tools/README.md`） |
 | `internal/model/` | 各域共享的纯类型层（`AccountSpec`/`AccountRole`/`NodeScope`，无运行时依赖） |
+| `internal/actor/` | 单消费者 actor 底座（有界命令通道 + 串行 handler + 幂等 Close；task/session 等 mailbox actor 复用，见 `internal/actor/README.md`） |
+| `internal/mapper/` | 运行态结构 ↔ `application/contract/dto` 的无业务转换（`ToolEventToDTO` 等；见 `internal/mapper/README.md`） |
 | `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`） |
 | `internal/docker/` | Docker 守护进程自动恢复（探针/daemon-down 判定/恢复提示，见 `internal/docker/README.md`） |
 | `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
-| `internal/telemetry/` | 内存遥测追踪器/生命周期钩子/诊断钩子构造（见 `internal/telemetry/README.md`） |
+| `internal/telemetry/` | 内存遥测追踪器/生命周期钩子/诊断钩子/`Chain` 组合器/`SummaryHook` 脱敏摘要构造（见 `internal/telemetry/README.md`） |
 
 根包对子包保持单向依赖；子包禁止 import seelebridge 根包，跨域协作一律走
 Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Router`、

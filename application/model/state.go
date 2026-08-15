@@ -375,18 +375,9 @@ type SubagentEvent struct {
 	Progress   float64    `json:"progress"`
 }
 
-// SubagentToolEvent 是子代理内部工具调用的有界活动投影。
-type SubagentToolEvent struct {
-	ID        string        `json:"id"`
-	NodeID    string        `json:"node_id"`
-	Name      string        `json:"name"`
-	Arguments string        `json:"arguments,omitempty"`
-	Result    string        `json:"result,omitempty"`
-	Error     string        `json:"error,omitempty"`
-	Status    string        `json:"status"`
-	StartedAt time.Time     `json:"started_at,omitempty"`
-	Duration  time.Duration `json:"duration,omitempty"`
-}
+// SubagentToolEvent 是子代理内部工具调用的有界活动投影（单源在 dto；
+// runtime 事件与快照投影同一形状，本包以别名保持契约兼容）。
+type SubagentToolEvent = dto.SubagentToolEvent
 
 type NodeStatus string
 

@@ -48,9 +48,16 @@
 
 **问题**：同一运行的两类事实分别落两套存储/命名，统一检索与审计要写桥。
 
-**收敛方向（长期，依赖 Seele 上游 G5）**：定义 `seelebridge/events` 归一化适配器，
-把两种事件投影为内部统一 Event（含 sessionID/nodeID 关联），落一个事件库；
-短期至少把两个订阅入口收进同一文件，标注关联字段。
+**收敛方向**：
+- 短期（已实施，2026-08-15）：两个订阅入口与关联字段收进
+  `seelebridge/events.go`，并为缺失 session_id 的事实轨事件补主会话关联
+  （`Runtime.SetEventPersister` 持久化前补全）——seelex 侧自补，无需等待
+  Seele 上游（旧「G5」前提已过时，见
+  `docs/2026-08-14-probe-context-plugin/seele-gap-analysis.md`）。
+- 长期：推荐形态 = **单一追加日志源 + 分层投影**（A 类 plan 事实全量落盘、
+  B 类 llm/tool 遥测留内存 + 脱敏摘要落盘、统一查询接口跨源关联），
+  详细取舍见
+  [06-unified-event-store-decision.md](06-unified-event-store-decision.md)。
 
 ## 4. 插件管理器双轨（root plugin ↔ seelebridge/plugin）
 

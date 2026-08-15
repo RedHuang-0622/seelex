@@ -63,7 +63,6 @@ func (service *Service) BeginNewSession() error {
 	service.activePlanID = ""
 	service.planSequence = 0
 	service.inputQueue = nil
-	service.deferredInputQueue = nil
 	service.taskExecution = nil
 	service.taskService = nil
 	service.components.tasks.syncGoalSkillActiveLocked()

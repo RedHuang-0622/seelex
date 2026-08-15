@@ -8,33 +8,16 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-// AppendSubagentContext preserves the public compatibility path for callers
-// that already hold a merge-back result. Production subagents write to the
-// Runtime-owned mailbox instead; both queues are consumed outside service.mu.
-func (service *Service) AppendSubagentContext(content string) {
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return
-	}
-	service.mu.Lock()
-	service.pendingSubagentContexts = append(service.pendingSubagentContexts, content)
-	service.mu.Unlock()
-}
-
 // subagentContextMarker 标记子代理产出块（模型不误读为普通用户轮次）。
 const subagentContextMarker = "[子代理产出] "
 
-// injectPendingSubagentContexts drains the Runtime-owned bounded mailbox and
-// legacy local queue, then injects messages into Engine outside service.mu.
+// injectPendingSubagentContexts drains the Runtime-owned bounded mailbox
+// (单一来源 = Runtime mailbox；无本地兼容队列), then injects messages into
+// Engine outside service.mu.
 // Snapshot mutation is a separate short critical section, so Engine cannot
 // form a reverse wait cycle with Application.
 func (service *Service) injectPendingSubagentContexts() {
-	runtimePending := service.deps.Runtime.DrainSubagentContexts()
-	service.mu.Lock()
-	pending := service.pendingSubagentContexts
-	service.pendingSubagentContexts = nil
-	service.mu.Unlock()
-	pending = append(pending, runtimePending...)
+	pending := service.deps.Runtime.DrainSubagentContexts()
 	if len(pending) == 0 {
 		return
 	}
@@ -43,27 +26,6 @@ func (service *Service) injectPendingSubagentContexts() {
 		value := subagentContextMarker + content
 		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &value})
 	}
-}
-
-// drainQueuedInputsAfterLoop removes inputs accepted behind the active turn as
-// soon as the framework ReAct loop returns. The next turn is still started
-// only after the current turn's persistence/finalization completes, but the
-// frontend no longer reports stale queued work during that boundary.
-func (service *Service) drainQueuedInputsAfterLoop() {
-	service.mu.Lock()
-	if len(service.inputQueue) == 0 {
-		service.mu.Unlock()
-		return
-	}
-	queued := service.inputQueue
-	service.inputQueue = nil
-	service.deferredInputQueue = append(service.deferredInputQueue, queued...)
-	service.snapshot.Chat.QueuedCount = 0
-	service.snapshot.Chat.InputQueue = nil
-	requestID := service.snapshot.Chat.RequestID
-	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
 }
 
 func (service *Service) Submit(ctx context.Context, text string) error {

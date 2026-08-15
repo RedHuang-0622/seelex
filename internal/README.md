@@ -5,5 +5,6 @@
 当前子模块：
 
 - [`frontmatter/`](frontmatter/README.md)：Markdown YAML front matter 解析。
+- [`testutil/`](testutil/README.md)：仅测试使用的共享桩（EmbeddedChatEngine 等）。
 
 新增 internal 包前应确认它确实被多个内部模块复用；只被单一模块使用的 helper 优先留在拥有者目录。

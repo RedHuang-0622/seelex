@@ -2,10 +2,16 @@
 
 ## 模块定位
 
-承载 Runtime 的插件可见性配置：插件不再控制 holder，而是作为
+承载 Runtime 的插件可见性**执行面**：插件不再控制 holder，而是作为
 `bridge.WithVisibilityPolicy` 的输入——激活插件时按 include/exclude 过滤
 每次请求的可见工具集。主要调用方：`ports.go`（插件端口）、`runtime.go`
 （seelexVisibilityPolicy）。
+
+> 边界（解耦方案 §02.4 方案 A 轻量版）：本包只是**可见性投影缓存**，不是
+> 插件定义的事实源。事实源在顶层 `plugin.Manager`（manifest/skills/MCP
+> 全量契约），本包 `defs` 由 root 经 `ToolBackend` 单点推送；写路径只有
+> root 一个入口，配合 `plugin/apply.go` 的 `Transaction` 保证更新原子。
+> 多插件叠加属产品决策，当前为单选（`active string`）。
 
 ## 职责与非职责
 
@@ -29,8 +35,9 @@ runtime.seelexVisibilityPolicy ──► plugin.Manager.Filter ──► bridge 
 
 ## 数据流
 
-main 装配 `DefinePlugin`/`ActivatePlugin` → 每次工具可见性求值时
-`Filter` 过滤 → 模型可见工具面。
+root `plugin.Manager`（定义事实源）→ `ToolBackend` 单点推送
+`DefinePlugin`/`UndefinePlugin`/`ActivatePlugin` → 本包投影缓存
+（defs + active）→ 每次工具可见性求值时 `Filter` 过滤 → 模型可见工具面。
 
 ## 依赖方向
 

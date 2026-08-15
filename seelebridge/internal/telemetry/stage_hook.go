@@ -25,12 +25,15 @@ type StageHook struct {
 	recorder StageRecorder
 }
 
-// NewStageHook 构造阶段记录钩子；next 为 nil 时降级为透传空实现。
-func NewStageHook(next frameworktelemetry.Hook, recorder StageRecorder) frameworktelemetry.Hook {
-	if next == nil {
-		next = noopHook{}
+// NewStageHook 构造阶段记录观察面（Wrapper 形态，由 Chain 负责透传）；
+// next 为 nil 时降级为透传空实现。
+func NewStageHook(recorder StageRecorder) Wrapper {
+	return func(next frameworktelemetry.Hook) frameworktelemetry.Hook {
+		if next == nil {
+			next = noopHook{}
+		}
+		return &StageHook{next: next, recorder: recorder}
 	}
-	return &StageHook{next: next, recorder: recorder}
 }
 
 // Before 实现 telemetry.Hook：按 NodeScope 投影 turn/tool 阶段日志后透传。
@@ -51,14 +54,6 @@ func (hook *StageHook) Before(ctx context.Context, action frameworktelemetry.Act
 // After 实现 telemetry.Hook：透传。
 func (hook *StageHook) After(ctx context.Context, invocation frameworktelemetry.Invocation, effect frameworktelemetry.Effect) error {
 	return hook.next.After(ctx, invocation, effect)
-}
-
-// OnError 透传下游 ErrorHook（若存在），保持 best-effort 语义。
-func (hook *StageHook) OnError(ctx context.Context, name string, err error, attributes frameworktelemetry.Attributes) error {
-	if errorHook, ok := hook.next.(frameworktelemetry.ErrorHook); ok {
-		return errorHook.OnError(ctx, name, err, attributes)
-	}
-	return nil
 }
 
 func (hook *StageHook) record(nodeID, stage string, action frameworktelemetry.Action) {

@@ -176,7 +176,7 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 	}
 	// 父子上下文消息通道（Actor 边界，与 main.go 同款：无锁数据面）：
 	// ParentEvidence 从遥测构造快照；MergeBack 捕获 merge-back 结果
-	// （生产 = app.AppendSubagentContext 排队 mailbox）。
+	// （生产 = Application 经 Runtime mailbox 单一入口回传）。
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
 		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
 	})

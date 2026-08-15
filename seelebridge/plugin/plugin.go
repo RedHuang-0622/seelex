@@ -1,6 +1,11 @@
-// Package plugin 承载 Runtime 的插件可见性配置：插件不再控制 holder，而是
-// 作为 bridge.WithVisibilityPolicy 的输入——激活插件时按 include/exclude
-// 过滤每次请求的可见工具集。域内不依赖 seelebridge 根包。
+// Package plugin 承载 Runtime 的插件可见性执行面：插件不再控制 holder，
+// 而是作为 bridge.WithVisibilityPolicy 的输入——激活插件时按
+// include/exclude 过滤每次请求的可见工具集。域内不依赖 seelebridge 根包。
+//
+// 边界（解耦方案 §02.4 方案 A 轻量版）：本包只是可见性投影缓存，不是
+// 插件定义的事实源——事实源在顶层 plugin.Manager（manifest/skills/MCP
+// 全量契约），本包 defs 由 root 经 ToolBackend 单点推送（Define/Undefine/
+// Activate），写路径只有 root 一个入口；多插件叠加属产品决策，当前为单选。
 package plugin
 
 import (
@@ -19,7 +24,8 @@ type Def struct {
 	Exclude     []string
 }
 
-// Manager 是插件可见性状态的 actor 资源（自带锁）。
+// Manager 是插件可见性状态的 actor 资源（自带锁）。defs 是 root
+// plugin.Manager 定义的投影缓存，本包不解释 manifest/skills/MCP。
 type Manager struct {
 	mu     sync.RWMutex
 	defs   map[string]Def

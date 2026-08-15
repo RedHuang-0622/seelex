@@ -51,15 +51,11 @@ type lifecycleRuntimeState struct {
 	// 控制：取代同步回调嵌套，数据经 channel 流转。
 	lifecycleStop chan struct{}
 	lifecycleOnce sync.Once
-	inputQueue    []chatRequest
-	// deferredInputQueue has been acknowledged to the UI after a framework
-	// loop returns, but remains available to the current turn's persistence
-	// and is promoted into the next turn only after that persistence boundary.
-	deferredInputQueue []chatRequest
-	// pendingSubagentContexts 是子代理 merge-back 排队内容：节点执行期间主
-	// 会话被 ChatStream 持锁，回传只能排队；下一次 startChat（锁外）注入
-	// engine history。
-	pendingSubagentContexts []string
+	// inputQueue 是会话运行期间排队输入的单一队列（单一写入点：
+	// submitConversation；单一消费点：runChat 结尾）。队列输入在每轮
+	// ReAct 结束（Session-backed 引擎 OnIterationComplete 返回 false）后由
+	// runChat 结尾 drain 并开启下一轮——不设中间提升队列。
+	inputQueue []chatRequest
 }
 
 type promptRuntimeState struct {

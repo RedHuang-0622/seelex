@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+)
 
 // Node 第一视角 / 语义结果返回的数据契约（叶子类型，node/session/telemetry
 // 域共用，避免跨域依赖）。
@@ -26,15 +30,9 @@ const (
 // NodeStageLog 是同一 node 会话在某个阶段的上下文日志（第一视角数据面）。
 // 同一子代理的多个阶段日志必须携带相同 SessionID——这是"分阶段上下文出自
 // 同一个 subagent 而非多个 subagent 拼凑"的认证依据。
-type NodeStageLog struct {
-	Stage         string    `json:"stage"`
-	NodeID        string    `json:"node_id"`
-	SessionID     string    `json:"session_id"`
-	Turn          int       `json:"turn,omitempty"`
-	At            time.Time `json:"at"`
-	Preview       string    `json:"preview,omitempty"`
-	TokenEstimate int       `json:"token_estimate,omitempty"`
-}
+// 结构体本体以 application/contract/dto 为单源（跨层投影与对外契约同一形状），
+// 本包用别名保持运行态引用面兼容。
+type NodeStageLog = dto.NodeStageLog
 
 // SemanticDecision 是语义结果中的关键决策（与 ContextSnapshot.Decision 同构，
 // 叶子化避免跨包引用）。

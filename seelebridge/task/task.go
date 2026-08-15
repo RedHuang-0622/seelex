@@ -9,11 +9,11 @@ import (
 	"hash/fnv"
 	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 )
 
 // ── task 注册表（worktable task 状态体系，Actor + Mailbox）────────────
@@ -146,51 +146,33 @@ type taskRecord struct {
 // TaskRegistry 是 task 注册表 actor：单消费者串行处理命令（CSP 阻塞请求/
 // 应答），外部读写只经门面方法，杜绝数据竞争。
 type TaskRegistry struct {
-	mailbox        chan taskCommand
+	mailbox        *actor.Actor[taskCommand]
+	state          *TaskRegistryState // 仅消费者 goroutine 内访问
 	changes        chan TaskRecord
-	done           chan struct{}
-	closeOnce      sync.Once
 	droppedChanges atomic.Int64
 }
 
 func NewTaskRegistry() *TaskRegistry {
-	registry := &TaskRegistry{
-		mailbox: make(chan taskCommand),
-		changes: make(chan TaskRecord, 256),
-		done:    make(chan struct{}),
-	}
-	go registry.loop()
-	return registry
-}
-
-func (registry *TaskRegistry) send(command taskCommand) (taskReply, error) {
-	select {
-	case registry.mailbox <- command:
-		select {
-		case reply := <-command.reply:
-			return reply, nil
-		case <-registry.done:
-			return taskReply{}, errTaskClosed
-		}
-	case <-registry.done:
-		return taskReply{}, errTaskClosed
-	}
-}
-
-func (registry *TaskRegistry) loop() {
-	state := &TaskRegistryState{
+	registry := &TaskRegistry{changes: make(chan TaskRecord, 256)}
+	registry.state = &TaskRegistryState{
 		tasks:  make(map[string]*taskRecord),
 		byKey:  make(map[string]string),
 		todo:   make([]string, 0),
 		nextID: 1,
 	}
-	for {
-		select {
-		case command := <-registry.mailbox:
-			registry.apply(command, state)
-		case <-registry.done:
-			return
-		}
+	registry.mailbox = actor.New(registry.apply, actor.WithCap(0))
+	return registry
+}
+
+func (registry *TaskRegistry) send(command taskCommand) (taskReply, error) {
+	if registry == nil || !registry.mailbox.Send(command) {
+		return taskReply{}, errTaskClosed
+	}
+	select {
+	case reply := <-command.reply:
+		return reply, nil
+	case <-registry.mailbox.Done():
+		return taskReply{}, errTaskClosed
 	}
 }
 
@@ -202,7 +184,8 @@ type TaskRegistryState struct {
 	nextID uint64
 }
 
-func (registry *TaskRegistry) apply(command taskCommand, state *TaskRegistryState) {
+func (registry *TaskRegistry) apply(command taskCommand) {
+	state := registry.state
 	var reply taskReply
 	switch command.op {
 	case taskOpAdd:
@@ -632,7 +615,7 @@ func (registry *TaskRegistry) SetTodoStatusByIndex(index int, status TaskStatus)
 // Close 优雅关闭 actor。
 func (registry *TaskRegistry) Close() {
 	if registry != nil {
-		registry.closeOnce.Do(func() { close(registry.done) })
+		registry.mailbox.Close()
 	}
 }
 

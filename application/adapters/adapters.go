@@ -66,16 +66,54 @@ type EnginePort struct {
 	subagentLive func(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
 }
 
+// EnginePortDeps 是 EnginePort 的启动期装配（main.go 装配点一次注入；
+// 对应原散装单字段 setter，统一走 Deps 结构——禁止再新增单字段 setter）。
+type EnginePortDeps struct {
+	// NodeConversations 子代理会话记录查询（节点详情数据面；只读子代理
+	// actor，安全——不经过主会话锁）。
+	NodeConversations func(string) ([]types.Message, bool)
+	// NodeContext 子代理结构化上下文快照查询（详情弹窗"上下文"标签）。
+	NodeContext func(string) (*snapshot.ContextSnapshot, bool)
+	// NodeToolResult 子代理工具结果读回（ref 带 node:<nodeID>: 前缀）。
+	NodeToolResult func(string, string) (string, bool)
+	// NodeWorktree 节点 worktree 现场查询（失败现场恢复入口；只读注册表）。
+	NodeWorktree func(string) (seelebridge.NodeWorktreeInfo, bool)
+	// SubAgentTree fork 子代理树投影查询（GUI 树视图数据源；内存态只读
+	// actor，安全）。
+	SubAgentTree func() []dto.SubAgentTreeNode
+	// SubagentLive node 第一视角实时流订阅源（历史回放 + 即时输出面）。
+	SubagentLive func(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
+	// PrepareHistory Runtime-owned one-shot handoff（framework Session 的
+	// DurableHistory.Load 使用；启动期配置，必须在并发开始前完成）。
+	PrepareHistory func(string, []types.Message)
+}
+
+// ApplyDeps 一次注入 EnginePort 启动期装配（幂等；覆盖旧值）。
+// 调用方保证在并发应用工作开始前完成注入。
+func (port *EnginePort) ApplyDeps(deps EnginePortDeps) {
+	if port == nil {
+		return
+	}
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	port.nodeConversations = deps.NodeConversations
+	port.nodeContextSnapshot = deps.NodeContext
+	port.nodeToolResult = deps.NodeToolResult
+	port.nodeWorktree = deps.NodeWorktree
+	port.subAgentTree = deps.SubAgentTree
+	port.subagentLive = deps.SubagentLive
+	port.prepareHistory = deps.PrepareHistory
+}
+
 // ReactorEngine is the small framework surface the application adapter
 // needs. Keeping construction behind a factory makes a new application session
 // a new ReAct loop, rather than a logical ID layered over an old loop.
+// 基础面（ChatStream/ClearHistory/SessionID/SetSystemPrompt/SetMaxLoops）
+// 与 contract.ChatEngine 共享（contract.EngineBase）；History/AppendHistory
+// 使用框架消息类型 types.Message，属于适配面的扩展部分。
 type ReactorEngine interface {
-	ChatStream(context.Context, string, func(string)) (string, error)
+	contract.EngineBase
 	History() []types.Message
-	ClearHistory()
-	SessionID() string
-	SetSystemPrompt(string)
-	SetMaxLoops(int)
 	AppendHistory(types.Message)
 }
 
@@ -123,7 +161,7 @@ func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk fu
 }
 
 // NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
-// 查询源经 SetNodeConversationsProvider 注入，只读子代理 actor，安全）。
+// 查询源经 ApplyDeps 注入，只读子代理 actor，安全）。
 func (port *EnginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
 	if port == nil || port.nodeConversations == nil {
 		return nil, false
@@ -131,15 +169,8 @@ func (port *EnginePort) NodeSessionConversation(nodeID string) ([]types.Message,
 	return port.nodeConversations(nodeID)
 }
 
-// SetNodeConversationsProvider 注入子代理会话记录查询源（Runtime 接线）。
-func (port *EnginePort) SetNodeConversationsProvider(fn func(string) ([]types.Message, bool)) {
-	if port != nil {
-		port.nodeConversations = fn
-	}
-}
-
 // NodeContextSnapshot 转发子代理结构化上下文查询（详情弹窗"上下文"标签；
-// 查询源经 SetNodeContextProvider 注入，只读子代理 actor，安全）。
+// 查询源经 ApplyDeps 注入，只读子代理 actor，安全）。
 func (port *EnginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool) {
 	if port == nil || port.nodeContextSnapshot == nil {
 		return nil, false
@@ -148,7 +179,7 @@ func (port *EnginePort) NodeContextSnapshot(nodeID string) (*snapshot.ContextSna
 }
 
 // NodeToolResult 转发子代理工具结果读回（ref 带 node:<nodeID>: 前缀；
-// 查询源经 SetNodeToolResultProvider 注入，只读子代理归档器，安全）。
+// 查询源经 ApplyDeps 注入，只读子代理归档器，安全）。
 func (port *EnginePort) NodeToolResult(nodeID, ref string) (string, bool) {
 	if port == nil || port.nodeToolResult == nil {
 		return "", false
@@ -156,34 +187,13 @@ func (port *EnginePort) NodeToolResult(nodeID, ref string) (string, bool) {
 	return port.nodeToolResult(nodeID, ref)
 }
 
-// SetNodeContextProvider 注入子代理上下文快照查询源（Runtime 接线）。
-func (port *EnginePort) SetNodeContextProvider(fn func(string) (*snapshot.ContextSnapshot, bool)) {
-	if port != nil {
-		port.nodeContextSnapshot = fn
-	}
-}
-
 // NodeWorktreeInfoFor 转发节点 worktree 现场查询（失败现场恢复入口；
-// 查询源经 SetNodeWorktreeProvider 注入，只读注册表，安全）。
+// 查询源经 ApplyDeps 注入，只读注册表，安全）。
 func (port *EnginePort) NodeWorktreeInfoFor(nodeID string) (seelebridge.NodeWorktreeInfo, bool) {
 	if port == nil || port.nodeWorktree == nil {
 		return seelebridge.NodeWorktreeInfo{}, false
 	}
 	return port.nodeWorktree(nodeID)
-}
-
-// SetNodeWorktreeProvider 注入节点 worktree 现场查询源（Runtime 接线）。
-func (port *EnginePort) SetNodeWorktreeProvider(fn func(string) (seelebridge.NodeWorktreeInfo, bool)) {
-	if port != nil {
-		port.nodeWorktree = fn
-	}
-}
-
-// SetNodeToolResultProvider 注入子代理工具结果查询源（Runtime 接线）。
-func (port *EnginePort) SetNodeToolResultProvider(fn func(string, string) (string, bool)) {
-	if port != nil {
-		port.nodeToolResult = fn
-	}
 }
 
 // SubAgentTree 转发 fork 子代理树投影查询（GUI 树视图数据源；内存态
@@ -193,20 +203,6 @@ func (port *EnginePort) SubAgentTree() []dto.SubAgentTreeNode {
 		return nil
 	}
 	return port.subAgentTree()
-}
-
-// SetSubAgentTreeProvider 注入子代理树投影查询源（Runtime 接线，main.go）。
-func (port *EnginePort) SetSubAgentTreeProvider(fn func() []dto.SubAgentTreeNode) {
-	if port != nil {
-		port.subAgentTree = fn
-	}
-}
-
-// SetSubagentLiveProvider 注入 node 第一视角实时流订阅源（Runtime 接线）。
-func (port *EnginePort) SetSubagentLiveProvider(fn func(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)) {
-	if port != nil {
-		port.subagentLive = fn
-	}
 }
 
 // SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 即时输出面）。
@@ -243,14 +239,6 @@ func (port *EnginePort) ReplaceHistory(sessionID string, history []application.E
 	return port.ReplaceRawHistory(sessionID, restoreMessages(history))
 }
 
-// SetHistoryPreparer installs the Runtime-owned one-shot handoff used by the
-// framework Session's DurableHistory.Load. It is configured during startup,
-// before concurrent application work begins.
-func (port *EnginePort) SetHistoryPreparer(preparer func(string, []types.Message)) {
-	port.mu.Lock()
-	port.prepareHistory = preparer
-	port.mu.Unlock()
-}
 func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Message) error {
 	desired := canonicalEngineHistory(history)
 	port.mu.Lock()

@@ -59,6 +59,8 @@ func NormalizePlanLoadArguments(argsJSON string) (string, error) {
 // object with input/kind fields whose key is already named by entry or edges.
 // Every other top-level field remains an error, so metadata such as item
 // cannot silently become an executable node.
+// 移除窗口：旧形状（顶层节点 spec）迁移到 canonical nodes 后删除本兼容
+// 分支，建议随 v0.2 清理批次，2026-12-31；到期后顶层字段一律报错。
 func mergeReferencedTopLevelNodes(root map[string]json.RawMessage, entry string, nodes map[string]json.RawMessage, edges map[string][]string) error {
 	referenced := map[string]struct{}{entry: {}}
 	for from, targets := range edges {

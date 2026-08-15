@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"sync"
 
@@ -62,25 +61,31 @@ func (m *Manager) Load() error {
 	}
 
 	loaded := make(map[string]Plugin, len(plugins))
-	registered := make([]string, 0, len(plugins))
-	rollback := func() {
-		for i := len(registered) - 1; i >= 0; i-- {
-			name := registered[i]
-			m.skills.ClearPluginSkills(name)
-			m.tools.UndefinePlugin(name)
-		}
-	}
-	for _, p := range plugins {
-		if err := m.tools.DefinePlugin(p.Name, p.Description, p.Include, p.Exclude); err != nil {
-			rollback()
-			return fmt.Errorf("plugin define %q: %w", p.Name, err)
-		}
-		registered = append(registered, p.Name)
-		if err := m.skills.PublishPluginSkills(p.Name, p.Skills); err != nil {
-			rollback()
-			return fmt.Errorf("plugin skills %q: %w", p.Name, err)
-		}
+	steps := make([]Step, 0, len(plugins)*2)
+	for index := range plugins {
+		p := plugins[index]
+		steps = append(steps,
+			Step{
+				Name: fmt.Sprintf("define %q", p.Name),
+				Do: func() error {
+					return m.tools.DefinePlugin(p.Name, p.Description, p.Include, p.Exclude)
+				},
+				// 逆序回滚时清理该插件已发布的 skills 并撤销定义。
+				Undo: func() error {
+					m.skills.ClearPluginSkills(p.Name)
+					m.tools.UndefinePlugin(p.Name)
+					return nil
+				},
+			},
+			Step{
+				Name: fmt.Sprintf("publish skills %q", p.Name),
+				Do:   func() error { return m.skills.PublishPluginSkills(p.Name, p.Skills) },
+			},
+		)
 		loaded[p.Name] = p
+	}
+	if err := Transaction(steps...); err != nil {
+		return err
 	}
 	m.plugins = loaded
 	return nil
@@ -101,22 +106,27 @@ func (m *Manager) Activate(ctx context.Context, name string) error {
 	// Runtime MCP names are plugin-qualified, so the target can be prepared
 	// while the previous plugin remains fully usable. This gives rollback a
 	// stable state instead of tearing down the old plugin first.
+	// 目标 MCP 准备失败时不触及旧插件状态，直接返回。
 	if err := m.attachLocked(ctx, target); err != nil {
 		return err
 	}
-	if err := m.tools.ActivatePlugin(name); err != nil {
+	err := Transaction(
+		Step{
+			Name: fmt.Sprintf("activate tools %q", name),
+			Do:   func() error { return m.tools.ActivatePlugin(name) },
+		},
+		Step{
+			Name: fmt.Sprintf("activate skills %q", name),
+			Do:   func() error { return m.skills.ActivatePluginSkills(name) },
+		},
+		Step{
+			Name: fmt.Sprintf("detach previous %q", m.current),
+			Do:   func() error { return m.detachLocked(ctx, m.current) },
+		},
+	)
+	if err != nil {
 		cleanupErr := m.detachLocked(ctx, name)
 		m.restoreToolPluginLocked(previous)
-		return errors.Join(fmt.Errorf("plugin activate tools %q: %w", name, err), cleanupErr)
-	}
-	if err := m.skills.ActivatePluginSkills(name); err != nil {
-		cleanupErr := m.detachLocked(ctx, name)
-		m.restoreToolPluginLocked(previous)
-		return errors.Join(fmt.Errorf("plugin activate skills %q: %w", name, err), cleanupErr)
-	}
-	if err := m.detachLocked(ctx, m.current); err != nil {
-		m.restoreToolPluginLocked(previous)
-		cleanupErr := m.detachLocked(ctx, name)
 		return errors.Join(err, cleanupErr)
 	}
 	m.current = name
@@ -127,14 +137,27 @@ func (m *Manager) Deactivate(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	previous := m.plugins[m.current]
+	// MCP 拆除失败时旧插件仍完整可用，直接返回。
 	if err := m.detachLocked(ctx, m.current); err != nil {
 		return err
 	}
-	m.tools.DeactivatePlugin()
-	if err := m.skills.DeactivatePluginSkills(); err != nil {
+	err := Transaction(
+		Step{
+			Name: "deactivate tools",
+			Do: func() error {
+				m.tools.DeactivatePlugin()
+				return nil
+			},
+		},
+		Step{
+			Name: "deactivate skills",
+			Do:   func() error { return m.skills.DeactivatePluginSkills() },
+		},
+	)
+	if err != nil {
 		restoreErr := m.attachLocked(ctx, previous)
 		m.restoreToolPluginLocked(previous)
-		return errors.Join(fmt.Errorf("plugin deactivate skills: %w", err), restoreErr)
+		return errors.Join(err, restoreErr)
 	}
 	m.current = ""
 	return nil
@@ -197,7 +220,10 @@ func (m *Manager) Reload(ctx context.Context) (ReloadReport, error) {
 	for index := range next {
 		nextMap[next[index].Name] = next[index]
 	}
-	report := ReloadReport{}
+	diff := DiffState(m.plugins, nextMap)
+	report := ReloadReport{
+		Added: diff.Added, Removed: diff.Removed, Updated: diff.Updated,
+	}
 	rollback := func(cause error) (ReloadReport, error) {
 		// best-effort 恢复快照：先拆当前态，再重建旧定义并恢复旧 active。
 		if m.current != "" {
@@ -223,11 +249,7 @@ func (m *Manager) Reload(ctx context.Context) (ReloadReport, error) {
 	}
 
 	// 1) 删除
-	for name := range m.plugins {
-		if _, ok := nextMap[name]; ok {
-			continue
-		}
-		report.Removed = append(report.Removed, name)
+	for _, name := range diff.Removed {
 		if m.current == name {
 			if err := m.detachLocked(ctx, name); err != nil {
 				return rollback(err)
@@ -243,14 +265,17 @@ func (m *Manager) Reload(ctx context.Context) (ReloadReport, error) {
 	}
 
 	// 2) 新增 / 修改（保持 next 的稳定顺序）
+	updated := make(map[string]bool, len(diff.Updated))
+	for _, name := range diff.Updated {
+		updated[name] = true
+	}
 	for _, p := range next {
-		old, existed := m.plugins[p.Name]
-		if existed && reflect.DeepEqual(old, p) {
+		_, existed := m.plugins[p.Name]
+		if existed && !updated[p.Name] {
 			continue
 		}
 		wasActive := m.current == p.Name
 		if existed {
-			report.Updated = append(report.Updated, p.Name)
 			if wasActive {
 				if err := m.detachLocked(ctx, p.Name); err != nil {
 					return rollback(err)
@@ -261,8 +286,6 @@ func (m *Manager) Reload(ctx context.Context) (ReloadReport, error) {
 			}
 			m.skills.ClearPluginSkills(p.Name)
 			m.tools.UndefinePlugin(p.Name)
-		} else {
-			report.Added = append(report.Added, p.Name)
 		}
 		if err := m.tools.DefinePlugin(p.Name, p.Description, p.Include, p.Exclude); err != nil {
 			return rollback(err)

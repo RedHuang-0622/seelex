@@ -12,17 +12,11 @@ func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEv
 	if strings.TrimSpace(event.NodeID) == "" || strings.TrimSpace(event.ID) == "" {
 		return
 	}
-	projected := SubagentToolEvent{
-		ID:        event.ID,
-		NodeID:    event.NodeID,
-		Name:      event.Name,
-		Arguments: truncateSubagentEvidence(event.Arguments),
-		Result:    truncateSubagentEvidence(event.Result),
-		Error:     truncateSubagentEvidence(event.Error),
-		Status:    event.Status,
-		StartedAt: event.StartedAt,
-		Duration:  event.Duration,
-	}
+	// runtime 事件与快照投影同一类型（dto.SubagentToolEvent 单源）；此处只做
+	// 有界截断，不复制字段。
+	event.Arguments = truncateSubagentEvidence(event.Arguments)
+	event.Result = truncateSubagentEvidence(event.Result)
+	event.Error = truncateSubagentEvidence(event.Error)
 
 	service.mu.Lock()
 	plan := service.snapshot.Runtime.Plan
@@ -35,16 +29,16 @@ func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEv
 		service.mu.Unlock()
 		return
 	}
-	upsertSubagentToolEvent(node, projected)
+	upsertSubagentToolEvent(node, event)
 	revision := service.bumpLocked()
 	requestID := service.snapshot.Chat.RequestID
 	service.mu.Unlock()
 
 	kind := EventSubagentToolCompleted
-	if projected.Status == "running" {
+	if event.Status == "running" {
 		kind = EventSubagentToolStarted
 	}
-	service.events.Publish(kind, revision, requestID, projected)
+	service.events.Publish(kind, revision, requestID, event)
 }
 
 func upsertSubagentToolEvent(node *PlanNode, event SubagentToolEvent) {

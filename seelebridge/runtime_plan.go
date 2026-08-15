@@ -51,7 +51,13 @@ func (r *Runtime) SetEventErrorHandler(handler frameworkevent.ErrorHandler) {
 // event.Sink → sessionstore 事件库）。钩子失败经 ErrorHandler 隔离，
 // 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
 func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Event) error) {
+	// 短期事件桥：持久化前为主会话事件补 session_id 关联（见 events.go）。
+	fn = correlateMainSessionID(r.bindings.sessionID, fn)
 	r.planExecutor.SetEventPersister(fn)
+	// 统一事件库：B 类摘要与 A 类事实同一 sessionstore 事件库（同库不双写）。
+	if r.summaryLog != nil {
+		r.summaryLog.SetPersister(fn)
+	}
 }
 
 // SetPlanApprovalGate 设置 plan kind:approve/manual 节点的审批门控；

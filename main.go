@@ -132,9 +132,6 @@ func run() error {
 		return err
 	}
 	defer runtime.Shutdown()
-	if backendTrace != nil {
-		runtime.SetBashDiagnosticObserver(backendTrace.LogBashEvent)
-	}
 	console.LogStageIf(backendTrace, "startup.runtime.ready")
 
 	runtime.RegisterBuiltins()
@@ -155,12 +152,10 @@ func run() error {
 	runtime.AttachHistoryRouter(store)
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
-	runtime.SetPlanApprovalGate(&adapters.PlanApprovalGate{Broker: approval})
 	// 双轨事件（slice 8）：执行事实 → sessionstore 事件库（事实轨），
 	// EventHub 继续前端快照（快照轨）。Sink 失败经 ErrorHandler 隔离，
 	// 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
 	eventStore := sessionstore.NewEventStore(store)
-	runtime.SetEventPersister(eventStore.Append)
 	if err := setupPermissionGate(runtime, approval); err != nil {
 		return fmt.Errorf("权限模式无效: %w", err)
 	}
@@ -177,9 +172,6 @@ func run() error {
 		return fresh
 	}, runtime.Tracer())
 	appEngine.EnableWorkingHistoryRelease()
-	appEngine.SetHistoryPreparer(func(sessionID string, messages []types.Message) {
-		runtime.PrepareMainSessionHistory(sessionID, messages)
-	})
 	// The framework Session is intentionally created only by StartSession or
 	// ReplaceHistory during resume; startup itself remains a cold draft.
 	registerProductTools(runtime, pluginManager, appEngine, approval, skillRegistry)
@@ -187,16 +179,20 @@ func run() error {
 		return err
 	}
 	console.LogStageIf(backendTrace, "startup.engine.lazy-ready")
-	// 子代理详情数据面：节点会话记录 + 结构化上下文查询 + 工具结果读回
-	// （只读子代理 actor，安全——运行中实时导出、结束后快照）。
-	appEngine.SetNodeConversationsProvider(runtime.NodeSessionConversation)
-	appEngine.SetNodeContextProvider(runtime.NodeContextSnapshot)
-	appEngine.SetNodeToolResultProvider(runtime.NodeToolResult)
-	appEngine.SetNodeWorktreeProvider(runtime.NodeWorktreeInfoFor)
-	// 子代理树投影（fork 内存态，GUI 树视图数据源；权威 Snapshot 增量携带）。
-	appEngine.SetSubAgentTreeProvider(runtime.SubAgentTree)
-	// node 第一视角实时流（阶段+工具事件即时投递，子代理详情视图数据源）。
-	appEngine.SetSubagentLiveProvider(runtime.SubscribeSubagentLive)
+	// 启动期装配一次注入：子代理详情数据面（会话记录/上下文/工具结果/
+	// worktree 现场，只读子代理 actor，安全）+ 子代理树投影 + 实时流订阅源
+	// + 历史准备器（DurableHistory.Load handoff）。
+	appEngine.ApplyDeps(adapters.EnginePortDeps{
+		NodeConversations: runtime.NodeSessionConversation,
+		NodeContext:       runtime.NodeContextSnapshot,
+		NodeToolResult:    runtime.NodeToolResult,
+		NodeWorktree:      runtime.NodeWorktreeInfoFor,
+		SubAgentTree:      runtime.SubAgentTree,
+		SubagentLive:      runtime.SubscribeSubagentLive,
+		PrepareHistory: func(sessionID string, messages []types.Message) {
+			runtime.PrepareMainSessionHistory(sessionID, messages)
+		},
+	})
 	sessionManager := initSessionManager(store, appEngine)
 	wsRepo, err := initWorkspaceRepo()
 	if err != nil {
@@ -209,20 +205,10 @@ func run() error {
 	defer app.Shutdown()
 	console.LogStageIf(backendTrace, "startup.application.ready")
 	registerTaskTerminalTools(runtime, app)
-	registerContextReadTools(runtime, app, sessionManager)
+	registerContextReadTools(runtime, app)
 	registerProjectRefreshTool(runtime, store)
-	registerScheduledTaskCapability(runtime, app)
-	// 项目级模块语义提供者：Assembler 会话前预读 project 块（内容 hash
-	// 版本化复用；重建失败保留上一版本）。
-	runtime.SetProjectKnowledgeProvider(func() *sessionstore.ProjectRecord {
-		record, readErr := store.LoadProjectRecord(store.Workspace())
-		if readErr != nil {
-			return nil
-		}
-		return &record
-	})
+	registerScheduledTaskCapability(runtime)
 	toolHooks.Bind(app)
-	runtime.SetSubagentToolCallback(app.HandleSubagentToolEvent)
 	// plan 节点事件 / 子代理树生命周期 / task 变更均由 application 内的
 	// CSP 消费者经 channel 处理（service_assembler 启动），无需模型调用
 	// 任何工具，worktable/task 增量自动发布（被动技能）。
@@ -230,9 +216,44 @@ func run() error {
 	// Runtime 只读自己的缓存，子代理 merge-back 写 Runtime 有界 mailbox，
 	// 由主会话在下一次 ChatStream 前锁外消费。
 	app.PublishRuntimeProjections()
-	// 子代理 skill 能力（与主代理一致读取 skill 目录）：装配 skill 目录
-	// actor（Registry 自带锁，读写经其方法进出；nodeSkillBlocks 消费）。
-	runtime.SetSkillRegistry(skillRegistry)
+	// 启动期装配一次注入（RuntimeDeps）：项目知识/子代理工具回调/skill 目录
+	// + 计划事件钩子 + 压缩归档 + 调度器执行器/观察者 + 诊断观察者。
+	// 对应原散装单字段 setter，装配点统一走 Deps 结构。
+	var bashObserver seelebridge.BashDiagnosticObserver
+	if backendTrace != nil {
+		bashObserver = backendTrace.LogBashEvent
+	}
+	runtime.ApplyDeps(seelebridge.RuntimeDeps{
+		BashDiagnosticObserver: bashObserver,
+		TurnArchiver: &core.CompressedTurnArchiver{
+			Sessions:          sessionManager,
+			SessionIDProvider: func() string { return app.Snapshot().Session.ID },
+		},
+		ProjectKnowledge: func() *sessionstore.ProjectRecord {
+			record, readErr := store.LoadProjectRecord(store.Workspace())
+			if readErr != nil {
+				return nil
+			}
+			return &record
+		},
+		EventPersister:       eventStore.Append,
+		PlanApprovalGate:     &adapters.PlanApprovalGate{Broker: approval},
+		SubagentToolCallback: app.HandleSubagentToolEvent,
+		SkillRegistry:        skillRegistry,
+		ScheduledPromptExecutor: func(ctx context.Context, prompt, sessionID string) (string, error) {
+			// 会话绑定：显式 sessionID 必须匹配当前主会话（切换后跳过，
+			// 不误投递）；空 = 执行时当前 main session。
+			current := app.Snapshot().Session.ID
+			if sessionID != "" && sessionID != current {
+				return "", fmt.Errorf("任务绑定会话 %s，当前会话 %s（已切换），本次跳过", sessionID, current)
+			}
+			if err := app.Submit(ctx, prompt); err != nil {
+				return "", err
+			}
+			return "已提交到当前会话执行（异步输出见会话记录）", nil
+		},
+		SchedulerObserver: app.RefreshRuntimeSnapshot,
+	})
 	if frontend == "backend" && strings.TrimSpace(*backendProject) != "" {
 		if err := console.BindProject(app, *backendProject); err != nil {
 			return err
@@ -243,7 +264,7 @@ func run() error {
 	return startFrontend(app, backendOutput)
 }
 
-func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service, sessionManager *session.Manager) {
+func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service) {
 	readResultSchema := map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -286,12 +307,6 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 		"required": []string{"query"},
 	}
 	runtime.RegisterTool("search_history", "Search the session's long-term history: select relevant compressed segments (compact stack index) and read back the real chat records in their unit ranges, bounded by a token budget. Use it when the current context lacks relevant history the user mentioned earlier (past decisions, requirements, tool outputs).", searchHistorySchema, app.SearchHistoryHandler)
-	// 压缩轮次原文归档装配：溢出轮次原文经 session 管理器持久化
-	// （ref = compressed:<segment_id>），read_compressed_turn 读回。
-	runtime.SetTurnArchiver(&core.CompressedTurnArchiver{
-		Sessions:          sessionManager,
-		SessionIDProvider: func() string { return app.Snapshot().Session.ID },
-	})
 }
 
 // registerProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +
@@ -333,13 +348,11 @@ func registerProjectRefreshTool(runtime *seelebridge.Runtime, store *sessionstor
 	runtime.RegisterTool("project_refresh", "扫描项目模块文档与元数据，重建项目级模块语义知识；来源未变化时直接复用", schema, handler)
 }
 
-// registerScheduledTaskCapability 装配定时周期任务（seelebridge/scheduler.go）：
-//   - 登记 auto_get_jobs 白名单命令（脚本目录或 python 不可用时跳过并告警）；
-//   - 注入 prompt 任务执行器：复用当前主会话 Submit（带会话绑定校验，切换
-//     后跳过而不是打到错误的会话）；
-//   - 注入状态变化 observer：调度器开始/完成/失败 → 快照投影 →
-//     runtime.changed 增量（GUI 定时任务面板实时更新）。
-func registerScheduledTaskCapability(runtime *seelebridge.Runtime, app *application.Service) {
+// registerScheduledTaskCapability 装配定时周期任务白名单命令：
+// 登记 auto_get_jobs（脚本目录或 python 不可用时跳过并告警）。prompt
+// 任务执行器与状态 observer 由主流程经 Runtime.ApplyDeps 一次注入
+// （对应 RuntimeDeps.ScheduledPromptExecutor / SchedulerObserver）。
+func registerScheduledTaskCapability(runtime *seelebridge.Runtime) {
 	if scriptDir, ok := resolveAutoGetJobsDir(); ok {
 		if python := resolvePythonCommand(); python != "" {
 			if err := runtime.RegisterScheduledCommand(seelebridge.ScheduledCommand{
@@ -354,19 +367,6 @@ func registerScheduledTaskCapability(runtime *seelebridge.Runtime, app *applicat
 			}
 		}
 	}
-	runtime.SetScheduledPromptExecutor(func(ctx context.Context, prompt, sessionID string) (string, error) {
-		// 会话绑定：显式 sessionID 必须匹配当前主会话（切换后跳过，不误投递）；
-		// 空 = 执行时当前 main session。
-		current := app.Snapshot().Session.ID
-		if sessionID != "" && sessionID != current {
-			return "", fmt.Errorf("任务绑定会话 %s，当前会话 %s（已切换），本次跳过", sessionID, current)
-		}
-		if err := app.Submit(ctx, prompt); err != nil {
-			return "", err
-		}
-		return "已提交到当前会话执行（异步输出见会话记录）", nil
-	})
-	runtime.SetSchedulerObserver(app.RefreshRuntimeSnapshot)
 }
 
 // resolveAutoGetJobsDir 定位 auto_get_jobs 脚本目录：优先相对当前工作目录

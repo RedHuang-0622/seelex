@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/mapper"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	subagentsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
@@ -150,27 +151,15 @@ func (r *Runtime) stopLiveDispatcher() {
 
 func stageLiveEvent(log model.NodeStageLog) dto.SubagentLiveEvent {
 	return dto.SubagentLiveEvent{
-		NodeID: log.NodeID,
-		At:     log.At,
-		Kind:   "stage",
-		Stage: &dto.NodeStageLog{
-			Stage: log.Stage, NodeID: log.NodeID, SessionID: log.SessionID,
-			Turn: log.Turn, At: log.At, Preview: log.Preview,
-			TokenEstimate: log.TokenEstimate,
-		},
+		NodeID: log.NodeID, At: log.At, Kind: "stage",
+		Stage: &log, // model.NodeStageLog 与 dto.NodeStageLog 同一类型（alias 单源）
 	}
 }
 
 func toolLiveEvent(event subagentsession.SubagentToolEvent) dto.SubagentLiveEvent {
+	tool := mapper.ToolEventToDTO(event)
 	return dto.SubagentLiveEvent{
-		NodeID: event.NodeID,
-		At:     time.Now(),
-		Kind:   "tool",
-		Tool: &dto.SubagentTool{
-			ID: event.ID, NodeID: event.NodeID, Name: event.Name,
-			Arguments: event.Arguments, Result: event.Result, Error: event.Error,
-			Status: event.Status, StartedAt: event.StartedAt,
-			DurationMS: event.Duration.Milliseconds(),
-		},
+		NodeID: event.NodeID, At: time.Now(), Kind: "tool",
+		Tool: &tool,
 	}
 }

@@ -11,12 +11,13 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
-	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
 )
 
 type guiChainEngine struct {
+	*testutil.EmbeddedChatEngine
 	hooks     *frameworksession.LoopHooks
 	mu        sync.Mutex
 	history   []application.EngineMessage
@@ -61,22 +62,11 @@ func (engine *guiChainEngine) StartSession() string {
 	engine.sessionID = "gui-chain-session"
 	return engine.sessionID
 }
-func (*guiChainEngine) SetSystemPrompt(string)                                 {}
-func (*guiChainEngine) SetMaxLoops(int)                                        {}
-func (*guiChainEngine) TraceText() string                                      { return "" }
-func (*guiChainEngine) TokenCount() string                                     { return "0" }
-func (*guiChainEngine) AppendHistory(types.Message)                            {}
-func (*guiChainEngine) NodeSessionConversation(string) ([]types.Message, bool) { return nil, false }
-func (*guiChainEngine) NodeContextSnapshot(string) (*snapshot.ContextSnapshot, bool) {
-	return nil, false
-}
-func (*guiChainEngine) NodeToolResult(string, string) (string, bool) { return "", false }
-func (*guiChainEngine) NodeWorktreeInfoFor(string) (seelebridge.NodeWorktreeInfo, bool) {
-	return seelebridge.NodeWorktreeInfo{}, false
-}
-func (*guiChainEngine) SubscribeSubagentLive(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
-	return nil, nil, func() {}, nil
-}
+func (*guiChainEngine) SetSystemPrompt(string)               {}
+func (*guiChainEngine) SetMaxLoops(int)                      {}
+func (*guiChainEngine) TraceText() string                    { return "" }
+func (*guiChainEngine) TokenCount() string                   { return "0" }
+func (*guiChainEngine) AppendHistory(types.Message)          {}
 func (*guiChainEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 type guiChainRuntime struct {

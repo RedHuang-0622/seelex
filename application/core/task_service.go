@@ -443,8 +443,7 @@ func (s *TaskService) completeAuthoritativePlanLocked() error {
 // rememberResumeLocked 在任务终态时保留最小恢复记录（objective + 排队输入引用），
 // 供 TaskFrame 与事件投影落库（slice 7）；功能打点快照本身终态即亡，不持久化。
 func (s *TaskService) rememberResumeLocked(summary ChatEndSummary) {
-	queued := append([]chatRequest(nil), s.deferredInputQueue...)
-	queued = append(queued, s.inputQueue...)
+	queued := append([]chatRequest(nil), s.inputQueue...)
 	s.resumeRecord = TaskResumeRecord{
 		TaskID: summary.RequestID, Objective: s.state.objective,
 		QueuedRefs: queuedInputRefs(queued),

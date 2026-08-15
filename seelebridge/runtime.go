@@ -73,6 +73,10 @@ type Runtime struct {
 	// tracer.Query 读取（enginePort.TraceText / TokenCount）。
 	tracer *telemetry.MemoryTracer
 	hook   telemetry.Hook
+	// summaryLog 是 B 类（llm/tool 意图-效果）脱敏摘要的统一日志：
+	// 内存 append-only + 经 SetEventPersister 与 A 类事实同库持久化
+	// （events_unified.go；形态见 06-unified-event-store-decision.md）。
+	summaryLog *SummaryLog
 
 	model string
 
@@ -231,9 +235,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		subagentTree:        subagentsession.NewSubagentTree(tracer),
 		subagentContext:     subagentsession.NewSubagentContextActor(tracer),
 
-		window: seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
-		tracer: tracer,
-		hook:   hook,
+		window:     seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
+		tracer:     tracer,
+		hook:       hook,
+		summaryLog: NewSummaryLog(),
 	}
 	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
@@ -325,14 +330,21 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		Gate:  r.planExecutor.CurrentApprovalGate,
 	})
 	r.forkTool = fork.NewTool(r.forkDeps())
-	// The wrapper is inert until the backend diagnostic observer is enabled.
-	// It brackets telemetry.After, the only framework boundary between a tool
-	// registry return and the application ToolHookBridge completion callback.
-	r.hook = seeletelemetry.NewDiagnosticHook(r.hook, r.observeBash)
-	// node 第一视角：把 node 会话的 llm/tool telemetry 边界投影为同节点
-	// 分阶段日志（NodeScope 已在 AgentNode.Run 注入 ctx；主会话无 NodeScope
-	// 被过滤）。best-effort，绝不改变执行路径。
-	r.hook = seeletelemetry.NewStageHook(r.hook, r.node)
+	// telemetry 钩子链统一由 Chain 组装（最外层→最内层，见
+	// seelebridge/internal/telemetry/chain.go）：
+	// 1) DiagnosticHook：bash 停滞诊断，bracket telemetry.After（这是工具
+	//    注册表返回与应用 ToolHookBridge 完成回调之间唯一的框架边界；
+	//    观察者未启用时保持惰性）。
+	// 2) StageHook：把 node 会话的 llm/tool telemetry 边界投影为同节点
+	//    分阶段日志（NodeScope 已在 AgentNode.Run 注入 ctx；主会话无
+	//    NodeScope 被过滤）。best-effort，绝不改变执行路径。
+	// 3) SummaryHook：B 类 llm/tool 脱敏摘要（统一事件库，
+	//    events_unified.go；best-effort）。
+	r.hook = seeletelemetry.Chain(r.hook,
+		seeletelemetry.NewDiagnosticHook(r.observeBash),
+		seeletelemetry.NewStageHook(r.node),
+		seeletelemetry.NewSummaryHook(r.summaryLog),
+	)
 
 	// 9. MCP 管理器：MCPStack 承接熔断事件 trace，注册表此时已装配。
 	r.mcpManager = mcp.NewManager(r.MCPStack, mcpRegistryAdapter{runtime: r})
@@ -439,7 +451,9 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	// 滑动窗口加载区间（D1，plan.md §9）：装配 DurableHistory 并经
 	// SetTailBudget 注入窗口读尾预算——Session 每次 Chat 前 Load 只装载
 	// 窗口区间（token + 轮数），窗口外由 CompactStack 摘要承接。
-	// 未装配 Router 时保持框架内存 history，供测试和兼容调用方使用。
+	// 未装配 Router 时保持框架内存 history——仅测试可用；生产装配点
+	// （main.go）始终在会话创建前 AttachHistoryRouter(store)，不会走到
+	// 该兜底（存储双轨只读迁移语义，见解耦方案 §02.5）。
 	if router := r.durableHistoryRouter(); router != nil {
 		history := sessionstore.NewDurableHistory(router, sessionID)
 		history.SetTailBudget(r.windowTailBudget())

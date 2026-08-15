@@ -124,8 +124,14 @@ func TestMergeBackMailboxOverflowPreserved(t *testing.T) {
 	}
 	wg.Wait()
 
-	overflowed := actor.Overflow()
-	if overflowed == 0 {
+	// wg.Wait 只保证 8 条 enqueue 命令已入 mailbox，不保证 handler 已处理完；
+	// Overflow 在 Drain 时归零，故先轮询等待计数收敛再断言（原写法是时序竞态，
+	// 全量测试下偶发读到 0）。
+	deadline := time.Now().Add(2 * time.Second)
+	for actor.Overflow() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if overflowed := actor.Overflow(); overflowed == 0 {
 		t.Fatal("expected overflow counter to observe the full mailbox")
 	}
 	kept := actor.Drain()

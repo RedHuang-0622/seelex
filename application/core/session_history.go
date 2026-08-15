@@ -68,6 +68,8 @@ func (service *Service) resumeSession(sessionID string) error {
 		// A v2 SessionRecord is authoritative for the visible transcript and
 		// recovery checkpoint. Framework history is only a provider cache, so a
 		// lost legacy cache must not make the saved session impossible to open.
+		// 只读迁移路径：legacy 仅作读取解码（写路径一律走 SessionRecord /
+		// sessionstore），到期后该兜底不再需要（解耦方案 §02.5）。
 		history = nil
 	}
 	if transcriptErr != nil && !hasRecord {

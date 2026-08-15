@@ -15,9 +15,9 @@ func TestDiagnosticHookMarksBashBeforeAndAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hook := NewDiagnosticHook(base, func(event tools.BashDiagnosticEvent) {
+	hook := NewDiagnosticHook(func(event tools.BashDiagnosticEvent) {
 		stages = append(stages, event.Stage)
-	})
+	})(base)
 	ctx, invocation, err := hook.Before(context.Background(), telemetry.Action{Type: telemetry.EventToolBefore, Name: "bash"})
 	if err != nil {
 		t.Fatal(err)

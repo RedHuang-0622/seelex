@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/Seele/session"
-	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
@@ -86,10 +85,6 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		modelInput = nonEmptyProviderInput(modelInput)
 		var reply string
 		reply, err = service.deps.Engine.ChatStream(ctx, modelInput, onChunk)
-		// Session-backed engines cannot be re-entered from an iteration hook.
-		// Once ChatStream returns its loop lock is released, so acknowledge queued
-		// inputs immediately; the next turn still starts after persistence.
-		service.drainQueuedInputsAfterLoop()
 		// 模型输出观测（自然终态判定输入面）
 		service.currentTaskService().ObserveModelOutput(ctx, ModelOutput{RequestID: requestID, Reply: reply, Err: err})
 		if reply != "" {
@@ -175,9 +170,8 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
 	// 全量重建可能带入跨会话的残留消息。
 	service.applyRuntimeProjectionLocked(runtimeProjection)
-	// 处理输入队列：取所有排队输入合并为一条，批量发送
-	pendingQueue := append([]chatRequest(nil), service.deferredInputQueue...)
-	pendingQueue = append(pendingQueue, service.inputQueue...)
+	// 处理输入队列（单一消费点）：取排队输入合并为一条，批量发送并起下一轮
+	pendingQueue := append([]chatRequest(nil), service.inputQueue...)
 	processQueue := len(pendingQueue) > 0
 	var batchRequest chatRequest
 	var nextContext context.Context
@@ -187,7 +181,6 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
 		service.inputQueue = nil
-		service.deferredInputQueue = nil
 		service.snapshot.Chat.QueuedCount = 0
 		service.snapshot.Chat.InputQueue = nil
 		nextRequestID = fmt.Sprintf("chat-%d", time.Now().UnixNano())
@@ -1314,8 +1307,8 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			// 的历史操作（History/ReplaceHistory/AppendHistory），否则死锁。
 			// 压缩决策移交 ContextController（seelectx.ContextController，
 			// plan.md §3.5：OnIterationComplete 不再触发 compactTaskContext）；
-			// 配对修复与队列注入由 chat 边界（prepareProviderHistory /
-			// 批处理路径）承担，进度回调与事件流保持不变。
+			// 配对修复由 chat 边界（prepareProviderHistory / 批处理路径）
+			// 承担，进度回调与事件流保持不变。
 			if reentrant, ok := svc.deps.Engine.(interface{ SessionBacked() bool }); ok && reentrant.SessionBacked() {
 				// Session 锁内不可重入 AppendHistory（死锁）；每轮 ReAct
 				// 迭代结束检查输入队列：非空 → 返回 false 中断本轮（本轮
@@ -1335,33 +1328,9 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 				svc.components.context.recordContextControlFailure(activeRequestID, err)
 				return false
 			}
-			// 每轮 ReAct 结束后检查输入队列：非空时清空并注入到引擎对话历史，
-			// 下一轮 LLM 调用将看到这些排队消息，无需停止 loop。
-			svc.mu.Lock()
-			if len(svc.inputQueue) == 0 {
-				svc.mu.Unlock()
-				return true
-			}
-			batch := combineChatRequests(svc.inputQueue)
-			svc.inputQueue = nil
-			svc.snapshot.Chat.QueuedCount = 0
-			svc.snapshot.Chat.InputQueue = nil
-
-			// 追加到引擎内部历史（同 goroutine，无需加锁）
-			batchInput := batch.modelInput
-			svc.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: activeRequestID, Role: "user", Content: batch.displayInput})
-			svc.mu.Unlock()
-			svc.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &batchInput})
-
-			// 追加到 snapshot conversation → UI 即时展示
-			svc.mu.Lock()
-			svc.appendMessageLocked("user", batch.displayInput, nil)
-			svc.appendMessageLocked("assistant", "", nil) // 占位，下一轮 fill
-			revision := svc.bumpLocked()
-			requestID := svc.snapshot.Chat.RequestID
-			svc.mu.Unlock()
-			svc.events.Publish(EventSnapshotChanged, revision, requestID, nil)
-			return true // 继续 loop，下一轮 LLM 调用将处理排队输入
+			// 非 Session-backed 引擎（仅测试）：队列输入统一由 runChat 结尾
+			// 单点消费并开启下一轮，不在此处注入引擎历史。
+			return true
 		},
 	}
 }

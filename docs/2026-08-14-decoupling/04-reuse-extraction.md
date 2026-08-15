@@ -99,10 +99,14 @@
 
 ## 7. 事件桥与插件双轨合并（P2，依赖上游/产品决策）
 
-- 事件桥：`seelebridge/events` 归一化适配器（workplan `event.Sink` ↔
-  `telemetry.Hook`），依赖 Seele G5（sessionID 关联）；
+- 事件桥：短期收敛已实施（`seelebridge/events.go` + 主会话 session_id
+  补全）；统一事件库推荐形态已定稿（单一日志源 + A 类全量 / B 类内存 +
+  脱敏摘要，见
+  [06-unified-event-store-decision.md](06-unified-event-store-decision.md)），
+  待产品确认摘要落盘范围。原「依赖 Seele G5」前提已过时。
 - 插件双轨：root manager 唯一事实源 + `seelebridge/plugin` 纯执行面，
-  属产品决策（是否支持多插件叠加），另立文档讨论。
+  产品已确认单选 + 方案 A 轻量版（见
+  [05-plugin-dual-track-decision.md](05-plugin-dual-track-decision.md)）。
 
 ## 8. 执行顺序建议
 

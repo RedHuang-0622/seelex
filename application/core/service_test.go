@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/testutil"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
@@ -22,6 +23,7 @@ import (
 )
 
 type fakeEngine struct {
+	*testutil.EmbeddedChatEngine
 	mu                 sync.Mutex
 	history            []EngineMessage
 	historyBeforeChat  []EngineMessage
@@ -1370,8 +1372,8 @@ type sessionBackedEngine struct {
 func (*sessionBackedEngine) SessionBacked() bool { return true }
 
 // TestSessionBackedIterationInterruptsOnQueuedInput 验证每轮 ReAct 结束的
-// 队列消费：session-backed 引擎下队列非空 → OnIterationComplete 返回 false
-// 中断本轮（由 runChat 结尾自动提升下一轮）；队列空 → true 继续。
+// 队列边界：session-backed 引擎下队列非空 → OnIterationComplete 返回 false
+// 中断本轮（队列由 runChat 结尾单点消费并开启下一轮）；队列空 → true 继续。
 func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 	service := newTestService(t, &sessionBackedEngine{fakeEngine: &fakeEngine{}})
 	bridge := NewToolHookBridge()
@@ -1392,14 +1394,12 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 		t.Fatal("queued input must interrupt the loop at the round boundary")
 	}
 
-	// 中断后 runChat 结尾提升并清空队列（drainQueuedInputsAfterLoop 语义）。
-	service.drainQueuedInputsAfterLoop()
+	// 中断后队列保留在 inputQueue（不在此处消费），由 runChat 结尾 drain。
 	service.mu.RLock()
-	queued := len(service.deferredInputQueue)
-	inputQueueLen := len(service.inputQueue)
+	queued := len(service.inputQueue)
 	service.mu.RUnlock()
-	if queued != 1 || inputQueueLen != 0 {
-		t.Fatalf("after interrupt: deferred=%d inputQueue=%d, want 1/0", queued, inputQueueLen)
+	if queued != 1 {
+		t.Fatalf("after interrupt: inputQueue=%d, want 1", queued)
 	}
 }
 
@@ -1744,7 +1744,7 @@ func TestGracefulShutdownWaitsForQueuedChat(t *testing.T) {
 	}
 }
 
-func TestSessionBackedQueueIsAcknowledgedWhenLoopReturns(t *testing.T) {
+func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 	engine := &sessionBackedBlockingEngine{
 		fakeEngine: &fakeEngine{},
 		started:    make(chan struct{}),
@@ -1770,8 +1770,8 @@ func TestSessionBackedQueueIsAcknowledgedWhenLoopReturns(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("current turn did not reach persistence")
 	}
-	if got := service.Snapshot().Chat.QueuedCount; got != 0 {
-		t.Fatalf("queued count while persistence is draining = %d, want 0", got)
+	if got := service.Snapshot().Chat.QueuedCount; got != 1 {
+		t.Fatalf("queued count while persistence is draining = %d, want 1", got)
 	}
 	service.mu.RLock()
 	resume := service.taskService.ResumeRecord()

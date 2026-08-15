@@ -28,15 +28,24 @@ type EngineToolCall struct {
 	Name      string
 	Arguments string
 }
-type ChatEngine interface {
+
+// EngineBase 是引擎的公共基础面（framework 与 application 共享的最小契约）。
+// ChatEngine（应用契约）与 adapters.ReactorEngine（框架适配面）都内嵌它，
+// 表达"引擎 = 基础面 + 扩展面"。History/AppendHistory 因消息类型边界
+// （types.Message ↔ EngineMessage）分属两侧，不并入基础面。
+type EngineBase interface {
 	ChatStream(context.Context, string, func(string)) (string, error)
-	History() []EngineMessage
 	ClearHistory()
-	ReplaceHistory(string, []EngineMessage) error
 	SessionID() string
-	StartSession() string
 	SetSystemPrompt(string)
 	SetMaxLoops(int)
+}
+
+type ChatEngine interface {
+	EngineBase
+	History() []EngineMessage
+	ReplaceHistory(string, []EngineMessage) error
+	StartSession() string
 	TraceText() string
 	TokenCount() string
 	// AppendHistory 追加消息到引擎内部对话历史。

@@ -2,12 +2,12 @@ package session
 
 import (
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	frameworkSession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
@@ -24,11 +24,8 @@ import (
 // 边界：组件只管理“会话注册表”数据面。subagentTree 的挂载副作用（noteSession/
 // noteSnapshot）仍由 Runtime 委托方法在组件调用后完成，避免组件反向依赖树。
 type SubagentSessions struct {
-	cmd   chan subagentSessionCmd
+	actor *actor.Actor[subagentSessionCmd]
 	trace provider.TraceSource // 结束快照导出时提取 Findings/Decisions（nil 降级）
-	done  chan struct{}
-	once  sync.Once
-	wg    sync.WaitGroup
 
 	// 以下字段仅在 actor goroutine 内访问。
 	sessions         map[string]*frameworkSession.Session
@@ -90,9 +87,7 @@ const (
 
 func NewSubagentSessions(trace provider.TraceSource) *SubagentSessions {
 	s := &SubagentSessions{
-		cmd:              make(chan subagentSessionCmd, subagentSessionCmdCap),
 		trace:            trace,
-		done:             make(chan struct{}),
 		sessions:         make(map[string]*frameworkSession.Session),
 		sessionIDs:       make(map[string]string),
 		snapshots:        make(map[string][]types.Message),
@@ -103,24 +98,8 @@ func NewSubagentSessions(trace provider.TraceSource) *SubagentSessions {
 		results:          make(map[string]*model.NodeSemanticResult),
 		events:           make(chan model.NodeStageLog, subagentStageEventCap),
 	}
-	s.wg.Add(1)
-	go s.run()
+	s.actor = actor.New(s.handle, actor.WithCap(subagentSessionCmdCap))
 	return s
-}
-
-func (s *SubagentSessions) run() {
-	defer s.wg.Done()
-	for {
-		select {
-		case cmd, ok := <-s.cmd:
-			if !ok {
-				return
-			}
-			s.handle(cmd)
-		case <-s.done:
-			return
-		}
-	}
 }
 
 func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
@@ -239,16 +218,7 @@ func (s *SubagentSessions) send(cmd subagentSessionCmd) bool {
 	if s == nil {
 		return false
 	}
-	timer := time.NewTimer(subagentSessionCmdTimeout)
-	defer timer.Stop()
-	select {
-	case s.cmd <- cmd:
-		return true
-	case <-timer.C:
-		return false
-	case <-s.done:
-		return false
-	}
+	return s.actor.SendTimeout(cmd, subagentSessionCmdTimeout)
 }
 
 // Register 注册运行中的子代理会话与节点目标（goal 供 ContextSnapshot 导出复用）。
@@ -274,7 +244,7 @@ func (s *SubagentSessions) Unregister(nodeID string) *snapshot.ContextSnapshot {
 		return result.snap
 	case <-time.After(subagentSessionCmdTimeout):
 		return nil
-	case <-s.done:
+	case <-s.actor.Done():
 		return nil
 	}
 }
@@ -293,7 +263,7 @@ func (s *SubagentSessions) Conversation(nodeID string) ([]types.Message, bool) {
 		return result.msgs, result.ok
 	case <-time.After(subagentSessionCmdTimeout):
 		return nil, false
-	case <-s.done:
+	case <-s.actor.Done():
 		return nil, false
 	}
 }
@@ -312,7 +282,7 @@ func (s *SubagentSessions) ContextSnapshot(nodeID string) (*snapshot.ContextSnap
 		return result.snap, result.ok
 	case <-time.After(subagentSessionCmdTimeout):
 		return nil, false
-	case <-s.done:
+	case <-s.actor.Done():
 		return nil, false
 	}
 }
@@ -331,7 +301,7 @@ func (s *SubagentSessions) ToolResultArchiverFor(nodeID string) *seelexctx.InMem
 		return result.arch
 	case <-time.After(subagentSessionCmdTimeout):
 		return nil
-	case <-s.done:
+	case <-s.actor.Done():
 		return nil
 	}
 }
@@ -350,7 +320,7 @@ func (s *SubagentSessions) ToolResult(nodeID, ref string) (string, bool) {
 		return result.raw, result.ok
 	case <-time.After(subagentSessionCmdTimeout):
 		return "", false
-	case <-s.done:
+	case <-s.actor.Done():
 		return "", false
 	}
 }
@@ -378,7 +348,7 @@ func (s *SubagentSessions) StageLogs(nodeID string) []model.NodeStageLog {
 		return result.logs
 	case <-time.After(subagentSessionCmdTimeout):
 		return nil
-	case <-s.done:
+	case <-s.actor.Done():
 		return nil
 	}
 }
@@ -424,7 +394,7 @@ func (s *SubagentSessions) Result(nodeID string) *model.NodeSemanticResult {
 		return result.res
 	case <-time.After(subagentSessionCmdTimeout):
 		return nil
-	case <-s.done:
+	case <-s.actor.Done():
 		return nil
 	}
 }
@@ -443,7 +413,7 @@ func (s *SubagentSessions) DrainResults() []*model.NodeSemanticResult {
 		return result.resq
 	case <-time.After(subagentSessionCmdTimeout):
 		return nil
-	case <-s.done:
+	case <-s.actor.Done():
 		return nil
 	}
 }
@@ -453,6 +423,6 @@ func (s *SubagentSessions) Close() {
 	if s == nil {
 		return
 	}
-	s.once.Do(func() { close(s.done) })
-	s.wg.Wait()
+	s.actor.Close()
+	s.actor.Wait()
 }

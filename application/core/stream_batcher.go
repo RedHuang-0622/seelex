@@ -21,7 +21,8 @@ type StreamBatcherOptions struct {
 	FlushSize  int
 	Interval   time.Duration
 	BufferSize int
-	// BatchSize remains a compatibility alias for FlushSize.
+	// BatchSize 是 FlushSize 的兼容别名（当前仅测试使用；移除窗口：
+	// FlushSize 全量接管后删除，建议随 v0.2 清理批次，2026-12-31）。
 	BatchSize int
 	Store     lifecycle.Storage[string]
 }

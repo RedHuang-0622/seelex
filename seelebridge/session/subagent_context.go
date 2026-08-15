@@ -2,10 +2,10 @@ package session
 
 import (
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
+	seelactor "github.com/RedHuang-0622/seelex/seelebridge/internal/actor"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/merger"
@@ -27,15 +27,12 @@ import (
 // 命令通道有界；actor 停摆（极端：被外部泄漏的 reply 阻塞）时投递带超时，
 // 超时返回 nil 而非永久阻塞子代理。
 type SubagentContextActor struct {
-	cmd   chan subagentContextCmd
+	actor *seelactor.Actor[subagentContextCmd]
 	state atomic.Pointer[snapshot.ContextSnapshot] // 读取面（actor 写，外部无锁读）
 	trace provider.TraceSource                     // 投影时提取 Findings/Decisions（nil 降级）
 	// queueCap 是 merge-back 队列的 soft cap：超过后仅计数 overflow，
 	// 内容仍保留（不丢）；测试可注入小值触发溢出路径。
 	queueCap int
-	done     chan struct{}
-	once     sync.Once
-	wg       sync.WaitGroup
 
 	// 以下字段只在 actor goroutine 内访问。
 	queue    []string     // merge-back 文本队列（channel 语义；Drain 全量回收）
@@ -81,29 +78,11 @@ func NewSubagentContextActor(trace provider.TraceSource, queueCap ...int) *Subag
 		cap = queueCap[0]
 	}
 	actor := &SubagentContextActor{
-		cmd:      make(chan subagentContextCmd, subagentContextCmdCap),
 		trace:    trace,
 		queueCap: cap,
-		done:     make(chan struct{}),
 	}
-	actor.wg.Add(1)
-	go actor.run()
+	actor.actor = seelactor.New(actor.handle, seelactor.WithCap(subagentContextCmdCap))
 	return actor
-}
-
-func (a *SubagentContextActor) run() {
-	defer a.wg.Done()
-	for {
-		select {
-		case cmd, ok := <-a.cmd:
-			if !ok {
-				return
-			}
-			a.handle(cmd)
-		case <-a.done:
-			return
-		}
-	}
 }
 
 func (a *SubagentContextActor) handle(cmd subagentContextCmd) {
@@ -184,14 +163,7 @@ func (a *SubagentContextActor) send(cmd subagentContextCmd) bool {
 	if a == nil {
 		return false
 	}
-	timer := time.NewTimer(subagentContextCmdTimeout)
-	defer timer.Stop()
-	select {
-	case a.cmd <- cmd:
-		return true
-	case <-timer.C:
-		return false
-	}
+	return a.actor.SendTimeout(cmd, subagentContextCmdTimeout)
 }
 
 // SetParentEvidenceProjection 应用侧发布父证据投影。命令投递后等待 actor
@@ -279,6 +251,6 @@ func (a *SubagentContextActor) Close() {
 	if a == nil {
 		return
 	}
-	a.once.Do(func() { close(a.done) })
-	a.wg.Wait()
+	a.actor.Close()
+	a.actor.Wait()
 }

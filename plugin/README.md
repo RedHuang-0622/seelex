@@ -8,7 +8,10 @@
 
 - `plugin.go`：`Plugin`、`MCPServer` 和 schema version 模型。
 - `loader.go`：多 root discovery、front matter 解析、名称/schema 校验和 Skill 加载。
-- `manager.go`：Load、Activate、Deactivate 及跨 Tool/MCP/Skill 的事务式回滚。
+- `apply.go`：通用事务助手 `Transaction`（顺序执行 + 失败逆序回滚）与
+  快照差异 `DiffState`（新增/删除/修改）。
+- `manager.go`：Load、Activate、Deactivate、Reload；跨 Tool/MCP/Skill 的
+  事务式回滚统一走 `Transaction`，Reload 热更新 diff 走 `DiffState`。
 
 ## 生命周期
 
