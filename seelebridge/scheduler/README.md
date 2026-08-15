@@ -24,12 +24,14 @@ runtime/ports.go ──► scheduler.State ──► security（ScrubEnvironment
 
 - `State`：自带锁的 actor；ticker 循环 `tick` 找出到期任务，独立 goroutine
   执行（running 标志防重叠），状态快照只读外发。
-- `Schedule`：校验周期下限/命令白名单/prompt 执行器装配后创建任务。
+- `Schedule`：校验周期下限/周期单位（`period_unit`）+ 数值/命令白名单/prompt
+  执行器装配后创建任务；周期表达支持 hour/day/week/month，month 为日历月
+  （`addCalendarMonths` 月末钳制），无单位时回退 `Interval` 秒级固定周期。
 
 ## 数据流
 
-Schedule → start（惰启动 ticker）→ tick → executeTask → 状态回写 +
-observe（通知 application 投影）。
+Schedule → start（惰启动 ticker）→ tick → executeTask（下次运行按
+`nextScheduledAt` 计算）→ 状态回写 + observe（通知 application 投影）。
 
 ## 依赖方向
 

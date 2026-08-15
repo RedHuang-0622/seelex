@@ -186,7 +186,7 @@ func (s *State) executeTask(t *task) {
 		status.LastResult = tailText(result, scheduledResultTail)
 		t.appendLogLocked(now, "运行完成")
 	}
-	next := now.Add(t.spec.Interval)
+	next := nextScheduledAt(now, t.spec)
 	t.nextRun = next
 	status.NextRunAt = next
 	s.mu.Unlock()
@@ -275,7 +275,11 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 	if name == "" {
 		return nil, errors.New("任务名称不能为空")
 	}
-	if spec.Interval < minScheduledInterval {
+	if err := validatePeriod(spec); err != nil {
+		return nil, err
+	}
+	effective := effectiveInterval(spec)
+	if effective < minScheduledInterval {
 		return nil, fmt.Errorf("周期过短：至少 %s", minScheduledInterval)
 	}
 	switch spec.Kind {
@@ -301,15 +305,17 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 		id: fmt.Sprintf("sched_%d", time.Now().UnixNano()),
 		spec: ScheduledTaskSpec{
 			Name: name, Kind: spec.Kind, Interval: spec.Interval,
+			PeriodUnit: spec.PeriodUnit, PeriodValue: spec.PeriodValue,
 			Command: strings.TrimSpace(spec.Command), Prompt: strings.TrimSpace(spec.Prompt),
 			SessionID: strings.TrimSpace(spec.SessionID), Enabled: spec.Enabled,
 		},
-		nextRun: time.Now().Add(spec.Interval),
+		nextRun: nextScheduledAt(time.Now(), spec),
 	}
 	t.status = ScheduledTaskStatus{
 		ID: t.id, Name: name, Kind: string(spec.Kind),
-		IntervalSec: int64(spec.Interval / time.Second),
-		Command:     t.spec.Command, Prompt: t.spec.Prompt,
+		IntervalSec: int64(effective / time.Second),
+		PeriodUnit:  string(spec.PeriodUnit), PeriodValue: spec.PeriodValue,
+		Command: t.spec.Command, Prompt: t.spec.Prompt,
 		SessionID: t.spec.SessionID, Enabled: spec.Enabled,
 		NextRunAt: t.nextRun, LastStatus: scheduledStatusPending,
 	}
@@ -404,6 +410,7 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 	return ScheduledTaskStatus{
 		ID: t.status.ID, Name: t.status.Name, Kind: t.status.Kind,
 		IntervalSec: t.status.IntervalSec, Command: t.status.Command,
+		PeriodUnit: t.status.PeriodUnit, PeriodValue: t.status.PeriodValue,
 		Prompt: t.status.Prompt, SessionID: t.status.SessionID,
 		Enabled: t.status.Enabled, Running: t.status.Running,
 		NextRunAt: t.status.NextRunAt, LastRunAt: t.status.LastRunAt,
@@ -411,6 +418,73 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 		LastError: t.status.LastError, RunCount: t.status.RunCount,
 		LogTail: append([]string(nil), t.status.LogTail...),
 	}
+}
+
+// validatePeriod 校验周期单位/数值（空单位 = 秒级 Interval 路径）。
+func validatePeriod(spec ScheduledTaskSpec) error {
+	if spec.PeriodUnit == "" {
+		return nil
+	}
+	switch spec.PeriodUnit {
+	case dto.PeriodHour, dto.PeriodDay, dto.PeriodWeek, dto.PeriodMonth:
+	default:
+		return fmt.Errorf("未知周期单位 %q", spec.PeriodUnit)
+	}
+	if spec.PeriodValue < 1 {
+		return fmt.Errorf("周期数值必须 >= 1")
+	}
+	return nil
+}
+
+// effectiveInterval 返回用于最小周期校验与状态展示的等价秒级周期
+// （month 使用 30 天名义值；真实排期走 nextScheduledAt 的日历语义）。
+func effectiveInterval(spec ScheduledTaskSpec) time.Duration {
+	switch spec.PeriodUnit {
+	case dto.PeriodHour:
+		return time.Duration(spec.PeriodValue) * time.Hour
+	case dto.PeriodDay:
+		return time.Duration(spec.PeriodValue) * 24 * time.Hour
+	case dto.PeriodWeek:
+		return time.Duration(spec.PeriodValue) * 7 * 24 * time.Hour
+	case dto.PeriodMonth:
+		return time.Duration(spec.PeriodValue) * 30 * 24 * time.Hour
+	default:
+		return spec.Interval
+	}
+}
+
+// nextScheduledAt 计算任务下一次运行时间：周期单位优先（month 为日历月，
+// 月末钳制），否则按 Interval 固定周期。
+func nextScheduledAt(now time.Time, spec ScheduledTaskSpec) time.Time {
+	switch spec.PeriodUnit {
+	case dto.PeriodHour:
+		return now.Add(time.Duration(spec.PeriodValue) * time.Hour)
+	case dto.PeriodDay:
+		return now.Add(time.Duration(spec.PeriodValue) * 24 * time.Hour)
+	case dto.PeriodWeek:
+		return now.Add(time.Duration(spec.PeriodValue) * 7 * 24 * time.Hour)
+	case dto.PeriodMonth:
+		return addCalendarMonths(now, spec.PeriodValue)
+	default:
+		return now.Add(spec.Interval)
+	}
+}
+
+// addCalendarMonths 按日历月推进并钳制月末日期（如 1-31 加 1 月 → 2-28/29）。
+func addCalendarMonths(now time.Time, months int) time.Time {
+	target := time.Date(now.Year(), now.Month()+time.Month(months), 1,
+		now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), now.Location())
+	last := lastDayOfMonth(target.Year(), target.Month())
+	day := now.Day()
+	if day > last {
+		day = last
+	}
+	return time.Date(target.Year(), target.Month(), day,
+		now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), now.Location())
+}
+
+func lastDayOfMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
 // appendLog 追加运行日志尾部（有界环保留）。

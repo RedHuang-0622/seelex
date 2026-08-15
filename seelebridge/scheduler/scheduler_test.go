@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // ── 定时周期任务（scheduler）测试 ────────────────────────────────────────
@@ -125,6 +127,86 @@ func TestScheduledTaskValidation(t *testing.T) {
 	}
 	if _, err := state.Schedule(context.Background(), prompt); err != nil {
 		t.Fatalf("valid prompt schedule rejected: %v", err)
+	}
+}
+
+func TestScheduledPeriodValidationAndStatus(t *testing.T) {
+	state := newSchedulerTestState(t)
+	defer state.Stop()
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+
+	badUnit := ScheduledTaskSpec{Name: "坏单位", Kind: ScheduledTaskCommand, Command: "helper",
+		Interval: time.Second, PeriodUnit: "year", PeriodValue: 1, Enabled: true}
+	if _, err := state.Schedule(context.Background(), badUnit); err == nil {
+		t.Fatal("unknown period unit must be rejected")
+	}
+
+	zeroValue := ScheduledTaskSpec{Name: "零周期", Kind: ScheduledTaskCommand, Command: "helper",
+		Interval: time.Second, PeriodUnit: "week", PeriodValue: 0, Enabled: true}
+	if _, err := state.Schedule(context.Background(), zeroValue); err == nil {
+		t.Fatal("period value below 1 must be rejected")
+	}
+
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "每月任务", Kind: ScheduledTaskCommand, Command: "helper",
+		PeriodUnit: "month", PeriodValue: 1, Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("monthly schedule rejected: %v", err)
+	}
+	if created.PeriodUnit != "month" || created.PeriodValue != 1 {
+		t.Fatalf("period fields not carried to status: %+v", created)
+	}
+	if created.IntervalSec != int64(30*24*time.Hour/time.Second) {
+		t.Fatalf("monthly nominal interval = %d", created.IntervalSec)
+	}
+	want := addCalendarMonths(time.Now(), 1)
+	if diff := created.NextRunAt.Sub(want); diff > time.Minute || diff < -time.Minute {
+		t.Fatalf("next run = %v, want ~ %v", created.NextRunAt, want)
+	}
+	if snapshot := state.Snapshot(); len(snapshot) != 1 || snapshot[0].PeriodValue != 1 {
+		t.Fatalf("snapshot period fields missing: %+v", snapshot)
+	}
+}
+
+func TestCalendarMonthClamping(t *testing.T) {
+	loc := time.Local
+	cases := []struct {
+		from time.Time
+		want time.Time
+	}{
+		{time.Date(2026, 1, 31, 10, 30, 0, 0, loc), time.Date(2026, 2, 28, 10, 30, 0, 0, loc)},
+		{time.Date(2026, 8, 31, 10, 30, 0, 0, loc), time.Date(2026, 9, 30, 10, 30, 0, 0, loc)},
+		{time.Date(2026, 12, 31, 23, 59, 59, 0, loc), time.Date(2027, 1, 31, 23, 59, 59, 0, loc)},
+	}
+	for _, tc := range cases {
+		if got := addCalendarMonths(tc.from, 1); !got.Equal(tc.want) {
+			t.Fatalf("addCalendarMonths(%v) = %v, want %v", tc.from, got, tc.want)
+		}
+	}
+}
+
+func TestNextScheduledAtPeriods(t *testing.T) {
+	now := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		unit dto.PeriodUnit
+		n    int
+		want time.Duration
+	}{
+		{dto.PeriodHour, 3, 3 * time.Hour},
+		{dto.PeriodDay, 2, 48 * time.Hour},
+		{dto.PeriodWeek, 1, 7 * 24 * time.Hour},
+	}
+	for _, tc := range cases {
+		got := nextScheduledAt(now, ScheduledTaskSpec{PeriodUnit: tc.unit, PeriodValue: tc.n})
+		if !got.Equal(now.Add(tc.want)) {
+			t.Fatalf("nextScheduledAt(%s, %d) = %v, want %v", tc.unit, tc.n, got, now.Add(tc.want))
+		}
+	}
+	if got := nextScheduledAt(now, ScheduledTaskSpec{Interval: 5 * time.Minute}); !got.Equal(now.Add(5 * time.Minute)) {
+		t.Fatalf("interval fallback = %v", got)
 	}
 }
 
