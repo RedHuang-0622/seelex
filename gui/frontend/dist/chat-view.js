@@ -10,7 +10,7 @@ export function createChatView(elements, conversationView) {
   function renderControls(snapshot) {
     const running = Boolean(snapshot.chat?.running);
     const queued = Number(snapshot.chat?.queued_count || 0);
-    elements["composer-status"].textContent = running ? queued ? `RUN · ${queued} QUEUED` : "RUN" : "READY";
+    elements["composer-status"].textContent = running ? queued ? `执行中 · ${queued} 排队` : "执行中" : "就绪";
     elements["send-button"].disabled = false;
     elements["send-button"].title = running ? "加入队列" : "发送";
     elements["send-button"].setAttribute("aria-label", running ? "加入队列" : "发送");

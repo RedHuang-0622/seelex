@@ -28,7 +28,7 @@ const elements = Object.fromEntries([
   "session-list", "session-count", "new-session",
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
-  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-period-value", "sched-period-unit", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
+  "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -302,7 +302,7 @@ function sessionRow(session, currentID) {
   const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
   return `<div class="session-row">
     <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""}>
-      <span class="session-name">${icon("message", 13)} ${escapeHtml(resuming ? "恢复中…" : (session.name || shortSessionID(session.id)))}</span><small>${escapeHtml(detail)}</small>
+      <span class="entry-name">${icon("message", 13)} ${escapeHtml(resuming ? "恢复中…" : (session.name || shortSessionID(session.id)))}</span><small>${escapeHtml(detail)}</small>
     </button>
     <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
   </div>`;
@@ -325,7 +325,7 @@ function renderRuntime(runtime) {
 
   const fullAccess = Boolean(runtime.full_access);
   elements["perm-toggle"].classList.toggle("is-on", fullAccess);
-  elements["perm-toggle"].textContent = fullAccess ? "FA ✓" : "FA";
+  elements["perm-toggle"].textContent = fullAccess ? "全权 ✓" : "全权";
 
   effortControl.setLevel(runtime.effort);
 }
@@ -838,7 +838,24 @@ async function loadOlderHistory() {
 elements["load-history"].addEventListener("click", loadOlderHistory);
 
 elements["new-session"].addEventListener("click", async () => {
-  try { await invoke("BeginNewSession"); await refresh({ scroll: "bottom" }); }
+  const previous = client.current();
+  const previousSessions = Array.isArray(previous?.sessions) ? previous.sessions : null;
+  try {
+    await invoke("BeginNewSession");
+    await refresh({ scroll: "bottom" });
+    // 防御：会话目录由后端异步 worker 刷新，新建会话后首轮快照理论上仍携带旧列表；
+    // 若竞态导致返回空 sessions，则保留上一次可见列表并稍后重拉权威目录收敛，
+    // 避免左侧栏会话"全部消失"的假象。
+    const latest = client.current();
+    if (previousSessions && previousSessions.length > 0 && latest &&
+        (!Array.isArray(latest.sessions) || latest.sessions.length === 0)) {
+      latest.sessions = previousSessions;
+      latest.session_workspaces = previous?.session_workspaces || {};
+      latest.workspaces = previous?.workspaces || [];
+      render(latest, { scroll: "bottom" });
+      window.setTimeout(() => refresh({ scroll: false }), 250);
+    }
+  }
   catch (error) { showToast(error); }
 });
 
@@ -919,6 +936,8 @@ function openScheduledTaskDialog() {
   elements["sched-command"].innerHTML = commands.length
     ? commands.map(command => `<option value="${escapeHtml(command.key)}">${escapeHtml(command.label || command.key)}</option>`).join("")
     : '<option value="">（无可用白名单命令）</option>';
+  elements["sched-mode"].value = "period";
+  elements["sched-datetime"].value = "";
   syncScheduledTaskFields();
   setModal("scheduled-task-modal", true);
   elements["sched-name"].focus();
@@ -932,21 +951,44 @@ function syncScheduledTaskFields() {
   const promptKind = elements["sched-kind"].value === "prompt";
   elements["sched-prompt-field"].classList.toggle("hidden", !promptKind);
   elements["sched-command-field"].classList.toggle("hidden", promptKind);
+  const atMode = elements["sched-mode"].value === "at";
+  elements["sched-period-field"].classList.toggle("hidden", atMode);
+  elements["sched-datetime-field"].classList.toggle("hidden", !atMode);
+  elements["sched-enabled-field"].classList.toggle("hidden", atMode);
 }
 
 // submitScheduledTask 组装任务入参并提交 Bridge ScheduleTask
-// （周期单位 → 等价秒 → Go time.Duration 纳秒；month 由后端按日历月推进；
+// （周期模式：周期单位 → 等价秒 → Go time.Duration 纳秒，month 由后端按
+// 日历月推进；定时模式：runAt 传 RFC3339，后端创建即启用、执行后自动停用；
 // sessionId 留空 = 绑定当前主会话）。
 async function submitScheduledTask() {
   const name = elements["sched-name"].value.trim();
   const kind = elements["sched-kind"].value;
+  const mode = elements["sched-mode"].value;
   const periodValue = Number(elements["sched-period-value"].value);
   const periodUnit = elements["sched-period-unit"].value;
   if (!name) {
     showToast("请填写任务名称");
     return;
   }
-  if (!Number.isInteger(periodValue) || periodValue < 1) {
+  let runAt = "";
+  if (mode === "at") {
+    const runAtValue = elements["sched-datetime"].value;
+    if (!runAtValue) {
+      showToast("请选择定时执行时间");
+      return;
+    }
+    const parsed = new Date(runAtValue);
+    if (Number.isNaN(parsed.getTime())) {
+      showToast("定时时间格式无效");
+      return;
+    }
+    if (parsed.getTime() <= Date.now()) {
+      showToast("定时时间必须晚于当前时间");
+      return;
+    }
+    runAt = parsed.toISOString();
+  } else if (!Number.isInteger(periodValue) || periodValue < 1) {
     showToast("周期数值至少为 1");
     return;
   }
@@ -957,13 +999,14 @@ async function submitScheduledTask() {
   const spec = {
     name,
     kind,
-    interval: periodToSeconds(periodUnit, periodValue) * 1e9,
-    periodUnit,
-    periodValue,
+    interval: mode === "at" ? 0 : periodToSeconds(periodUnit, periodValue) * 1e9,
+    periodUnit: mode === "at" ? "" : periodUnit,
+    periodValue: mode === "at" ? 0 : periodValue,
+    runAt,
     command: kind === "command" ? elements["sched-command"].value : "",
     prompt: kind === "prompt" ? elements["sched-prompt"].value.trim() : "",
     sessionId: "",
-    enabled: elements["sched-enabled"].checked
+    enabled: mode === "at" ? true : elements["sched-enabled"].checked
   };
   try {
     await invoke("ScheduleTask", spec);
@@ -989,13 +1032,14 @@ function periodToSeconds(unit, value) {
 elements["new-scheduled-task"].addEventListener("click", openScheduledTaskDialog);
 elements["scheduled-task-close"].addEventListener("click", closeScheduledTaskDialog);
 elements["sched-kind"].addEventListener("change", syncScheduledTaskFields);
+elements["sched-mode"].addEventListener("change", syncScheduledTaskFields);
 elements["sched-submit"].addEventListener("click", submitScheduledTask);
 
 // 取消按钮事件委托（任务列表渲染全量刷新，事件挂容器层；ID 是操作键）。
 elements["scheduled-task-view"].addEventListener("click", async event => {
   const button = event.target.closest?.("[data-sched-cancel]");
   if (!button?.dataset.schedCancel) return;
-  if (!confirm("确认取消该周期任务？")) return;
+  if (!confirm("确认取消该定时任务？")) return;
   try {
     await invoke("CancelScheduledTask", button.dataset.schedCancel);
     await refresh({ scroll: false });
@@ -1063,7 +1107,8 @@ function renderWorkspace(snapshot) {
   elements["workspace-list"].innerHTML = list.length
     ? list.map(function(w) {
       return '<button class="stack-button' + (ws && ws.id === w.id ? ' active' : '') + '" data-ws="' + escapeHtml(w.id) + '">' +
-        escapeHtml(w.name) + '<small>' + escapeHtml(w.root_path || "") + '</small></button>';
+        '<span class="entry-name">' + icon("folder", 13) + ' ' + escapeHtml(w.name) + '</span>' +
+        '<small>' + escapeHtml(w.root_path || "") + '</small></button>';
     }).join("")
     : '<span class="muted list-empty">暂无工作区 — 点击 + 新建</span>';
   elements["workspace-list"].querySelectorAll("button").forEach(function(btn) {

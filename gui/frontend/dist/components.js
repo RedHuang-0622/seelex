@@ -74,12 +74,12 @@ export function renderChatActivity(chat = {}) {
   if (!running && queue.length === 0) return "";
   const loader = running ? `<section class="runtime-activity" role="status" aria-live="polite">
     <span class="runtime-spinner">${icon("source", 15)}</span>
-    <strong>WORKING</strong>
+    <strong>执行中</strong>
     <span class="runtime-pulse" aria-hidden="true"><i></i><i></i><i></i></span>
   </section>` : "";
   const queued = queue.length ? `<section class="message-queue" aria-label="等待发送的消息">
     ${queue.map((input, index) => `<article class="queued-message">
-      <header><span>${icon("message", 13)}</span><strong>QUEUE ${String(index + 1).padStart(2, "0")}</strong><small>WAIT</small></header>
+      <header><span>${icon("message", 13)}</span><strong>排队 ${String(index + 1).padStart(2, "0")}</strong><small>等待</small></header>
       <div class="queued-message-body">${markdown(input)}</div>
     </article>`).join("")}
   </section>` : "";

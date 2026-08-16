@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seelex · Tracebench 审美体系（设计探索）</title>
+<style>
+/* ============================================================
+   Seelex 审美体系 demo —— Tracebench / 轨迹台架
+   ------------------------------------------------------------
+   方向：本地 Agent 工程验证台架。界面是一台测量仪器：
+   会话是连续轨迹（timebase），Plan 是路线图，工作表格是台账，
+   一切状态都是“打点”。大胆只花在轨迹刻度与黄铜信号灯上，
+   其余保持安静：平表面、发丝线、暖纸白文本。
+   本文件是 docs 下的一次性设计探索，未应用到 gui/frontend/dist。
+   ============================================================ */
+
+/* ---------- 1. Tokens ---------- */
+:root {
+  /* surfaces：铁蓝石墨，不是纯黑 */
+  --ink:      #141b21;
+  --bench:    #1b242c;
+  --bench-2:  #222c35;
+  --bench-3:  #2b3742;
+  --hairline: #2c3843;
+  --hairline-strong: #3c4a56;
+
+  /* text：暖纸白，像打印在钢板上 */
+  --paper:       #e9e4d8;
+  --paper-soft:  #c6c4ba;
+  --paper-dim:   #98a09e;
+  --paper-faint: #77828a;
+
+  /* signal：黄铜灯是唯一“主信号”，铜绿=成功，砖红=失败，钢蓝=信息 */
+  --brass:     #d9a657;
+  --brass-2:   #e8bc72;
+  --on-brass:  #1a1308;
+  --verdigris: #6fb58e;
+  --brick:     #d4695f;
+  --steel:     #7ba3c7;
+  --idle:      #7e8b90;
+
+  /* trace：刻度线 */
+  --tick:      #39454f;
+  --tick-hot:  #d9a657;
+
+  /* type */
+  --font-display: "Bahnschrift", "Space Grotesk", "Arial Narrow", "Segoe UI Variable", system-ui, sans-serif;
+  --font-body: "Segoe UI Variable Text", "Segoe UI Variable", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "Cascadia Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+
+  /* measure scale：数据 10.5 起，正文 13.5 起，标签 12，层级靠重量不靠字距 */
+  --t-xs: 10.5px;
+  --t-sm: 12px;
+  --t-md: 13.5px;
+  --t-lg: 15.5px;
+  --t-xl: 19px;
+  --t-2xl: 28px;
+
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 7px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 36px;
+
+  --shadow: 0 18px 44px rgba(6, 10, 13, .55);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur-fast: 160ms;
+  --dur-med: 260ms;
+}
+
+/* ---------- 2. Base ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ink); color: var(--paper); font-family: var(--font-body); font-size: var(--t-md); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+::selection { background: rgba(217, 166, 87, .28); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: var(--bench-3); background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 3. Spec strip ---------- */
+.spec { padding: 14px 18px 16px; border-bottom: 1px solid var(--hairline); background: var(--bench); }
+.spec-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; font-family: var(--font-display); font-size: var(--t-xl); font-weight: 600; letter-spacing: .01em; }
+.spec-title small { color: var(--paper-dim); font: 400 var(--t-xs) var(--font-mono); }
+.spec-row { display: grid; grid-template-columns: 1.1fr 1fr 1.3fr; gap: 18px; margin-top: 12px; }
+.spec-block > h3 { margin: 0 0 8px; color: var(--paper-dim); font: 650 var(--t-xs) var(--font-display); letter-spacing: .08em; text-transform: uppercase; }
+.swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.swatch { min-width: 0; }
+.swatch i { display: block; height: 34px; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); }
+.swatch span { display: block; margin-top: 4px; overflow: hidden; color: var(--paper-dim); font: 500 var(--t-xs) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.type-row { display: grid; gap: 6px; }
+.type-row .face { padding: 6px 9px; border: 1px solid var(--hairline); border-radius: var(--r-sm); background: var(--ink); }
+.type-row .face b { display: block; font-size: 15px; font-weight: 600; }
+.type-row .face span { display: block; margin-top: 2px; color: var(--paper-dim); font-size: 11px; }
+.face.f-display b { font-family: var(--font-display); }
+.face.f-body b { font-family: var(--font-body); }
+.face.f-mono b { font-family: var(--font-mono); }
+.sig-note { padding: 8px 10px; border-left: 3px solid var(--brass); background: rgba(217, 166, 87, .07); color: var(--paper-soft); font-size: var(--t-sm); line-height: 1.6; }
+.sig-note b { color: var(--brass); font-family: var(--font-display); }
+
+/* ---------- 4. App shell ---------- */
+.app {
+  display: grid;
+  grid-template-columns: 236px 6px minmax(0, 1fr) 6px 288px;
+  grid-template-rows: 50px minmax(0, 1fr);
+  height: calc(100vh - 128px);
+  min-height: 560px;
+  background: var(--ink);
+}
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(20, 27, 33, .94);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(217, 166, 87, .5);
+  border-radius: var(--r-sm);
+  color: var(--brass);
+  background: var(--ink);
+  font: 700 13px/1 var(--font-display);
+}
+.brand strong { font: 600 13px var(--font-display); letter-spacing: .02em; }
+.brand small { display: block; margin-top: 1px; color: var(--paper-dim); font: 10px var(--font-mono); }
+.runtime-summary { display: flex; align-items: center; gap: 10px; color: var(--paper-dim); font: var(--t-xs) var(--font-mono); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); box-shadow: 0 0 0 3px rgba(126, 139, 144, .14); }
+.status-dot.online { background: var(--verdigris); box-shadow: 0 0 0 3px rgba(111, 181, 142, .16); }
+.icon-button {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  color: var(--paper-dim); background: transparent;
+}
+.icon-button:hover { color: var(--paper); border-color: var(--hairline-strong); background: var(--bench-2); }
+
+/* ---------- 5. Left panel ---------- */
+.panel { min-width: 0; padding: var(--sp-4) var(--sp-3); overflow-y: auto; }
+.left { display: flex; flex-direction: column; border-right: 1px solid var(--hairline); background: var(--bench); }
+.section-title {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 0 0 7px;
+  color: var(--paper-dim);
+  font: 600 var(--t-xs) var(--font-display);
+  letter-spacing: .07em;
+}
+.section-title .zh { letter-spacing: 0; font-weight: 650; }
+.badge {
+  min-width: 20px; padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--paper-dim); background: var(--bench-2);
+  font: 600 var(--t-xs) var(--font-mono); text-align: center;
+}
+.stack-list { display: grid; gap: 3px; }
+.stack-button {
+  width: 100%; padding: 6px 9px;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  color: var(--paper-soft); background: transparent; text-align: left;
+  font-size: var(--t-sm);
+}
+.stack-button:hover { background: var(--bench-2); }
+.stack-button.active { color: var(--paper); background: var(--bench-2); border-color: var(--hairline); box-shadow: inset 2px 0 0 var(--brass); }
+.stack-button small { display: block; margin: 3px 0 0; overflow: hidden; color: var(--paper-faint); font: var(--t-xs) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.panel section + section { margin-top: 18px; }
+.group-label { display: flex; align-items: center; gap: 6px; margin: 10px 2px 4px; color: var(--paper-faint); font: 600 9.5px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.group-label .tick { width: 4px; height: 4px; border-radius: 50%; background: var(--tick); }
+
+/* ---------- 6. Center: trace rail ---------- */
+.center { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--ink); }
+.rail {
+  position: absolute;
+  top: 0; bottom: 0; left: 34px;
+  width: 1px;
+  background: linear-gradient(to bottom, var(--tick) 0%, var(--tick) 92%, transparent 100%);
+}
+.conversation { flex: 1; overflow-y: auto; padding: 26px max(30px, calc((100% - 720px) / 2)) 170px 56px; }
+.msg { position: relative; max-width: 720px; margin: 0 auto 20px; }
+.msg::before {
+  content: "";
+  position: absolute;
+  top: 8px; left: -25px;
+  width: 7px; height: 7px;
+  border: 1.5px solid var(--tick);
+  border-radius: 1px;
+  transform: rotate(45deg);
+  background: var(--ink);
+}
+.msg.user { margin-left: auto; }
+.msg.user::before { background: var(--brass); border-color: var(--brass); box-shadow: 0 0 0 3px rgba(217, 166, 87, .14); }
+.msg.user .bubble {
+  width: fit-content; max-width: min(560px, 92%);
+  margin-left: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-lg);
+  background: var(--bench);
+}
+.msg-head { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; color: var(--paper-faint); font: 600 9.5px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.msg-body { color: var(--paper-soft); font-size: var(--t-md); line-height: 1.72; }
+.msg-body strong { color: var(--paper); font-weight: 650; }
+.msg-body code { padding: 1px 5px; border-radius: var(--r-xs); background: var(--bench-2); font: 11.5px var(--font-mono); }
+.msg-body p { margin: 0 0 10px; }
+.msg-body p:last-child { margin-bottom: 0; }
+.msg-body ul { margin: 6px 0 10px; padding-left: 22px; }
+.msg-body li { margin: 3px 0; }
+.msg-body li::marker { color: var(--brass); }
+
+/* tool card：IN/OUT 仪表面板，挂在轨迹上 */
+.tool-card { position: relative; max-width: 720px; margin: 0 auto 20px; }
+.tool-card::before {
+  content: "";
+  position: absolute;
+  top: 9px; left: -25px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--tick);
+}
+.tool-card.is-running::before { background: var(--brass); box-shadow: 0 0 0 4px rgba(217, 166, 87, .16); }
+.tool-card.is-ok::before { background: var(--verdigris); }
+.tool-card.is-err::before { background: var(--brick); }
+.tool-frame { overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--r-lg); background: var(--bench); }
+.tool-head { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 10px; border-bottom: 1px solid var(--hairline); background: var(--bench-2); }
+.tool-head strong { font: 600 var(--t-sm) var(--font-mono); }
+.tool-state { margin-left: auto; font: 700 9.5px var(--font-mono); letter-spacing: .08em; }
+.tool-card.is-running .tool-state { color: var(--brass); }
+.tool-card.is-ok .tool-state { color: var(--verdigris); }
+.tool-io { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.io-panel { min-width: 0; background: #10161b; }
+.io-panel + .io-panel { border-left: 1px solid var(--hairline); }
+.io-label { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border-bottom: 1px solid var(--hairline); color: var(--paper-faint); font: 700 9px var(--font-mono); letter-spacing: .1em; }
+.io-panel pre { max-height: 150px; margin: 0; padding: 9px 11px; overflow: auto; color: var(--paper-dim); font: 10.5px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* plan board：签名区 */
+.plan-board { position: relative; max-width: 720px; margin: 0 auto 20px; overflow: hidden; border: 1px solid var(--hairline-strong); border-radius: var(--r-lg); background: var(--bench); }
+.plan-board::before {
+  content: "";
+  position: absolute;
+  top: 9px; left: -25px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--brass);
+  box-shadow: 0 0 0 4px rgba(217, 166, 87, .14);
+}
+.plan-head { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid var(--hairline); background: var(--bench-2); }
+.plan-head strong { font: 600 var(--t-sm) var(--font-display); letter-spacing: .02em; }
+.plan-mode { padding: 1px 6px; border: 1px solid rgba(217, 166, 87, .5); border-radius: var(--r-xs); color: var(--brass); font: 700 9px var(--font-mono); letter-spacing: .06em; }
+.plan-meta { margin-left: auto; color: var(--paper-faint); font: 9.5px var(--font-mono); }
+.plan-progress { height: 2px; background: var(--bench-3); }
+.plan-progress i { display: block; height: 100%; width: 62%; background: var(--brass); }
+.plan-tree { display: grid; gap: 0; padding: 10px 12px; }
+.plan-node { display: flex; align-items: center; gap: 7px; height: 24px; font: 11px var(--font-mono); color: var(--paper-soft); }
+.plan-guide { display: inline-flex; flex: none; }
+.plan-guide span { display: block; width: 14px; height: 24px; border-left: 1px solid var(--tick); }
+.plan-guide span.last { height: 12px; }
+.plan-dot { display: grid; place-items: center; width: 12px; height: 12px; flex: none; border: 1px solid var(--tick); border-radius: 50%; font: 700 8px/1 var(--font-mono); color: var(--paper-faint); background: var(--ink); }
+.plan-node.is-run .plan-dot { border-color: var(--brass); color: var(--brass); background: rgba(217, 166, 87, .1); }
+.plan-node.is-ok .plan-dot { border-color: var(--verdigris); color: var(--verdigris); }
+.plan-node.is-err .plan-dot { border-color: var(--brick); color: var(--brick); }
+.plan-node-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-node-dur { margin-left: auto; color: var(--paper-faint); font-size: 9.5px; }
+.plan-node.is-run .plan-node-label { color: var(--brass); }
+.plan-sweep { position: relative; overflow: hidden; }
+.plan-sweep::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; height: 1px;
+  background: linear-gradient(to right, transparent, var(--brass), transparent);
+  animation: sweep 1.8s var(--ease-out) infinite;
+}
+@keyframes sweep {
+  from { top: -1px; opacity: 0; }
+  15% { opacity: .85; }
+  to { top: 100%; opacity: 0; }
+}
+
+/* ---------- 7. Composer ---------- */
+.composer {
+  position: absolute;
+  left: max(30px, calc((100% - 720px) / 2));
+  right: max(30px, calc((100% - 720px) / 2));
+  bottom: 18px;
+  padding: 9px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-xl);
+  background: rgba(27, 36, 44, .97);
+  box-shadow: var(--shadow);
+}
+.composer textarea {
+  width: 100%; max-height: 120px; padding: 2px 3px;
+  border: 0; outline: 0; resize: none;
+  color: var(--paper); background: transparent;
+  font-size: var(--t-md); line-height: 1.55;
+}
+.composer textarea::placeholder { color: var(--paper-faint); }
+.composer-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.composer-tools { display: flex; gap: 5px; margin-right: auto; }
+.perm-chip {
+  display: inline-flex; align-items: center; height: 26px; padding: 0 9px;
+  border: 1px solid var(--hairline); border-radius: var(--r-sm);
+  color: var(--paper-dim); background: var(--ink);
+  font: 700 9.5px var(--font-mono); letter-spacing: .04em;
+}
+.perm-chip.is-on { border-color: rgba(217, 166, 87, .55); color: var(--brass); background: rgba(217, 166, 87, .08); }
+.composer-status { color: var(--paper-faint); font: 700 9.5px var(--font-mono); letter-spacing: .1em; }
+.effort { display: flex; align-items: center; gap: 7px; width: 148px; }
+.effort-label { color: var(--paper-faint); font: 650 9px var(--font-mono); text-transform: uppercase; }
+.effort-track { position: relative; flex: 1; height: 5px; border: 1px solid var(--hairline-strong); border-radius: 999px; background: var(--ink); overflow: hidden; }
+.effort-fill { height: 100%; width: 28%; background: var(--brass); border-radius: 999px; }
+.send-button {
+  display: inline-grid; place-items: center;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--brass); border-radius: var(--r-sm);
+  color: var(--on-brass); background: var(--brass);
+}
+.send-button:hover { background: var(--brass-2); }
+
+/* ---------- 8. Right panel：台账 ---------- */
+.right { border-left: 1px solid var(--hairline); background: var(--bench); }
+.ledger { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--hairline); border-radius: var(--r-sm); overflow: hidden; background: var(--hairline); }
+.ledger-item { min-width: 0; padding: 7px 9px; background: var(--bench); }
+.ledger-item span, .ledger-item strong { display: block; }
+.ledger-item span { color: var(--paper-faint); font: 600 9px var(--font-display); letter-spacing: .07em; }
+.ledger-item strong { margin-top: 3px; overflow: hidden; color: var(--paper); font: 600 var(--t-sm) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ledger-item strong.num { color: var(--brass); }
+.work-entry {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 9px 10px;
+  border: 1px solid var(--hairline); border-radius: var(--r-sm);
+  color: var(--paper-soft); background: var(--bench-2);
+  font-size: var(--t-sm); text-align: left;
+}
+.work-entry:hover { border-color: var(--hairline-strong); }
+.work-entry small { margin-left: auto; color: var(--paper-faint); font: 9.5px var(--font-mono); }
+.work-rows { display: grid; gap: 3px; margin-top: 6px; }
+.work-row {
+  display: grid;
+  grid-template-columns: 10px 1fr 56px 44px;
+  gap: 7px; align-items: center;
+  padding: 5px 8px;
+  border: 1px solid var(--hairline); border-radius: var(--r-xs);
+  background: #10161b;
+  font: 10.5px var(--font-mono);
+}
+.work-row .stamp { display: grid; place-items: center; width: 12px; height: 12px; border-radius: 2px; font: 700 7px/1 var(--font-mono); }
+.work-row.is-run .stamp { background: rgba(217, 166, 87, .16); color: var(--brass); }
+.work-row.is-ok .stamp { background: rgba(111, 181, 142, .14); color: var(--verdigris); }
+.work-row.is-err .stamp { background: rgba(212, 105, 95, .14); color: var(--brick); }
+.work-row b { overflow: hidden; color: var(--paper-soft); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.work-row time, .work-row .retry { color: var(--paper-faint); text-align: right; font-variant-numeric: tabular-nums; }
+.work-row .retry { color: var(--brass); }
+.sched-item { padding: 7px 2px; border-bottom: 1px solid var(--hairline); }
+.sched-item:last-child { border-bottom: 0; }
+.sched-head { display: flex; align-items: center; gap: 6px; }
+.sched-head b { font: 600 var(--t-xs) var(--font-mono); }
+.sched-status { margin-left: auto; color: var(--brass); font: 700 9px var(--font-mono); }
+.sched-meta { display: flex; gap: 8px; margin-top: 3px; color: var(--paper-faint); font: 9.5px var(--font-mono); }
+
+/* ---------- 9. Responsive ---------- */
+@media (max-width: 1100px) {
+  .app { grid-template-columns: 210px 6px minmax(0, 1fr); }
+  .right, .r-divider { display: none; }
+  .spec-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  .left, .l-divider { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="spec">
+  <div class="spec-title">Seelex 审美体系 · Tracebench 轨迹台架 <small>设计探索 demo · 未应用到 dist</small></div>
+  <div class="spec-row">
+    <div class="spec-block">
+      <h3>色板 Signal &amp; Surface</h3>
+      <div class="swatches">
+        <div class="swatch"><i style="background:#141b21"></i><span>ink #141b21</span></div>
+        <div class="swatch"><i style="background:#1b242c"></i><span>bench #1b242c</span></div>
+        <div class="swatch"><i style="background:#e9e4d8"></i><span>paper #e9e4d8</span></div>
+        <div class="swatch"><i style="background:#d9a657"></i><span>brass #d9a657</span></div>
+        <div class="swatch"><i style="background:#6fb58e"></i><span>verdigris #6fb58e</span></div>
+        <div class="swatch"><i style="background:#d4695f"></i><span>brick #d4695f</span></div>
+      </div>
+    </div>
+    <div class="spec-block">
+      <h3>字体三角色</h3>
+      <div class="type-row">
+        <div class="face f-display"><b>MEASURE 0 1 2 3</b><span>display：Bahnschrift · 标签与数字</span></div>
+        <div class="face f-body"><b>会话正文与中文排版</b><span>body：Segoe UI Variable + PingFang SC / YaHei</span></div>
+        <div class="face f-mono"><b>trace: 00:12.4s</b><span>mono：Cascadia Mono · 轨迹与数据</span></div>
+      </div>
+    </div>
+    <div class="spec-block">
+      <h3>签名 Signature</h3>
+      <div class="sig-note">
+        <b>轨迹刻度 + 黄铜信号灯。</b> 会话、工具、Plan 全部打在一条垂直时间基线上；
+        运行中的一步是唯一的动态（黄铜扫掠），完成即盖章。大胆只花在这一处。
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">S</span>
+      <div><strong>Seelex</strong><small>alpha · tracebench</small></div>
+    </div>
+    <div class="runtime-summary">
+      <span class="status-dot online"></span>
+      <span>openai · gpt-5</span>
+      <span>18.2k tokens</span>
+      <button class="icon-button" type="button" title="设置" aria-label="设置">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V20.3h-3v-.08A1.7 1.7 0 0 0 10.66 18.66a1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.56-1.04h-.08v-3h.08A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88L6.6 7.98l2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.7 4.7v-.08h3v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.04h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <aside class="panel left">
+    <section>
+      <div class="section-title"><span class="zh">会话</span><span class="badge">3</span></div>
+      <div class="group-label"><span class="tick"></span>seelex</div>
+      <div class="stack-list">
+        <button class="stack-button active">工作表格打点验证<small>#a1f2 · 3 分钟前</small></button>
+        <button class="stack-button">证据门禁设计评审<small>#99e1 · 昨天</small></button>
+      </div>
+      <div class="group-label"><span class="tick"></span>未关联会话</div>
+      <div class="stack-list">
+        <button class="stack-button">GUI 文案统一<small>#77c0 · 8 月 12 日</small></button>
+      </div>
+    </section>
+    <section>
+      <div class="section-title"><span class="zh">工作区</span></div>
+      <div class="stack-list">
+        <button class="stack-button active">seelex<small>G:\Program\go\seelex</small></button>
+      </div>
+    </section>
+    <section>
+      <div class="section-title"><span class="zh">账户</span><span class="badge">1</span></div>
+      <div class="stack-list">
+        <button class="stack-button active">openai<small>gpt-5 · default</small></button>
+      </div>
+    </section>
+  </aside>
+
+  <div class="l-divider"></div>
+
+  <main class="center">
+    <div class="rail" aria-hidden="true"></div>
+    <div class="conversation">
+      <div class="msg user">
+        <div class="bubble"><div class="msg-body">把工作表格的未读角标判定改成 status/retry 签名，并补上对应契约测试。</div></div>
+      </div>
+
+      <div class="msg">
+        <p class="msg-head">assistant · 00:01.2s</p>
+        <div class="msg-body">
+          <p>已把未读判据收敛到 <code>workTableSignatures</code>，事件路径只做 <strong>按 task_id 单行 upsert</strong>，整表替换只发生在 <code>worktable.changed</code>。这是证据面，不是 UI 猜测：</p>
+          <ul>
+            <li>状态变化 = 新增/状态/retry 变化 → 未读角标</li>
+            <li>打开详情后按签名清零，重开不误报</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="tool-card is-ok">
+        <div class="tool-frame">
+          <div class="tool-head"><strong>read_file</strong><span class="tool-state">OK · 0.8s</span></div>
+          <div class="tool-io">
+            <div class="io-panel">
+              <div class="io-label">IN</div>
+              <pre>{ "path": "gui/frontend/dist/work-table.js" }</pre>
+            </div>
+            <div class="io-panel">
+              <div class="io-label">OUT</div>
+              <pre>export function workTableSignatures(rows) { … }</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="plan-board">
+        <div class="plan-head">
+          <span class="plan-mode">PLAN</span>
+          <strong>未读签名收敛</strong>
+          <span class="plan-meta">3/5 · 62%</span>
+        </div>
+        <div class="plan-progress"><i></i></div>
+        <div class="plan-tree">
+          <div class="plan-node is-ok"><span class="plan-guide"><span class="last"></span></span><span class="plan-dot">✓</span><span class="plan-node-label">签名函数与单测</span><span class="plan-node-dur">1.9s</span></div>
+          <div class="plan-node is-ok"><span class="plan-guide"><span></span><span class="last"></span></span><span class="plan-dot">✓</span><span class="plan-node-label">reducer 单行 upsert</span><span class="plan-node-dur">2.4s</span></div>
+          <div class="plan-node is-run plan-sweep"><span class="plan-guide"><span></span><span></span><span class="last"></span></span><span class="plan-dot"></span><span class="plan-node-label">未读角标接线</span><span class="plan-node-dur">RUN</span></div>
+          <div class="plan-node"><span class="plan-guide"><span></span><span class="last"></span></span><span class="plan-dot"></span><span class="plan-node-label">全链验证</span></div>
+        </div>
+      </div>
+    </div>
+
+    <form class="composer">
+      <textarea rows="1" placeholder="描述任务，输入 / 查看命令，输入 # 加载 Skill"></textarea>
+      <div class="composer-actions">
+        <div class="composer-tools">
+          <button class="icon-button" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7"/><path d="m17 16 3 2-3 2"/></svg></button>
+          <button class="icon-button" type="button" title="Agent Runtime" aria-label="Agent Runtime"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+          <button class="perm-chip is-on" type="button" title="Full Access 模式" aria-label="Full Access 模式">全权</button>
+        </div>
+        <span class="composer-status">就绪</span>
+        <div class="effort" role="group" aria-label="Effort 级别">
+          <span class="effort-label">Lite</span>
+          <div class="effort-track"><div class="effort-fill"></div></div>
+          <span class="effort-label">Max</span>
+        </div>
+        <button class="send-button" type="submit" title="发送" aria-label="发送"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/></svg></button>
+      </div>
+    </form>
+  </main>
+
+  <div class="r-divider"></div>
+
+  <aside class="panel right">
+    <section>
+      <div class="section-title"><span class="zh">项目</span></div>
+      <div style="margin:0 0 10px;font-weight:600">seelex</div>
+      <div class="ledger">
+        <div class="ledger-item"><span>状态</span><strong>Agent 执行中</strong></div>
+        <div class="ledger-item"><span>会话</span><strong>#a1f2</strong></div>
+        <div class="ledger-item"><span>消息</span><strong class="num">42</strong></div>
+        <div class="ledger-item"><span>任务</span><strong>3/5</strong></div>
+      </div>
+    </section>
+    <section>
+      <div class="section-title"><span class="zh">工作表格</span><span class="badge">2 未读</span></div>
+      <button class="work-entry" type="button">查看完整台账<small>打点 12 · 工具 18</small></button>
+      <div class="work-rows">
+        <div class="work-row is-run"><span class="stamp">▶</span><b>未读角标接线</b><time>00:06</time><span class="retry">RUN</span></div>
+        <div class="work-row is-ok"><span class="stamp">✓</span><b>reducer 单行 upsert</b><time>00:02</time><span></span></div>
+        <div class="work-row is-ok"><span class="stamp">✓</span><b>签名函数与单测</b><time>00:01</time><span></span></div>
+        <div class="work-row is-err"><span class="stamp">×</span><b>全链验证</b><time>00:04</time><span class="retry">RETRY 1</span></div>
+      </div>
+    </section>
+    <section>
+      <div class="section-title"><span class="zh">定时任务</span><span class="badge">1</span></div>
+      <div class="sched-item">
+        <div class="sched-head"><b>每周抓取职位</b><span class="sched-status">RUN</span></div>
+        <div class="sched-meta"><span>每 1 周</span><span>下次 08-23 09:00</span></div>
+      </div>
+    </section>
+  </aside>
+</div>
+
+</body>
+</html>

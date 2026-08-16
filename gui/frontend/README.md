@@ -16,7 +16,7 @@
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、筛选（全部/Plan/Task/Tasklist/Subagent）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
-| `dist/scheduled-tasks-view.js` | 定时周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
+| `dist/scheduled-tasks-view.js` | 定时/周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | 从会话工具事件中收集成功完成的 `read_file` 路径，供右侧栏显示。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
@@ -25,18 +25,20 @@
 
 ## 视觉设计系统
 
-样式全部集中在 `dist/styles.css`，遵循与 GUI 文档一致的设计原则：本地 Agent 工程工作台的克制、精密仪器气质。
+样式全部集中在 `dist/styles.css`，遵循 Tracebench（轨迹台架）设计体系：本地 Agent 工程验证台架，铁蓝石墨 + 暖纸白 + 黄铜信号灯，会话/工具/Plan 全部打在一条时间基线上。
 
-- `:root` 定义唯一 token 层：表面色、文本色、品牌色（`--accent`）、语义色（`--status-running/done/failed/info`）、字阶、圆角与间距。组件不得硬编码色值；同义状态只允许使用对应语义变量，禁止色值漂移。
-- 字体角色：界面正文使用 `--font-ui`，数据/时间戳/状态使用 `--font-mono`；最小可见字号 9.5px，正文不低于 12px。
+- `:root` 定义唯一 token 层：表面色（`--bg/panel/surface`）、文本色（`--paper` 系）、品牌色（`--accent` 黄铜）、语义色（`--status-running/done/failed/info`）、刻度线（`--tick`）、字阶、圆角与间距。组件不得硬编码色值；同义状态只允许使用对应语义变量，禁止色值漂移。
+- 字体三角色：界面正文 `--font-ui`，数据/时间戳/状态 `--font-mono`，标签与数字 `--font-display`（Bahnschrift 系测量字）；最小可见字号 10px，数据行 ≥11px，正文不低于 12px。
+- 中栏签名：`#trace-rail` 是一条垂直时间基线，消息与 Plan 卡片以打点（`::before` 圆点）挂线，工具卡片以左侧 3px 状态条标识；运行中的 Plan 节点是唯一常驻动效（黄铜扫掠 `trace-sweep`），`prefers-reduced-motion` 全局关闭。
+- 界面词统一为中文：就绪 / 执行中 / 排队 / 全权；弹窗 eyebrow 不再使用英文机器词。
 - 图标管线：静态按钮以 `data-icon` 占位，启动时由 `components.js` 的
   `hydrateIcons()` 注入统一 stroke SVG（ICONS 注册表）；顶部连接点
   `.status-dot` 由 `chat-view.js` 追加 `online` 类切换语义色。
-- 信息层级：右栏主面板（项目/状态/工作表格/周期任务）常驻，次要面板（历史检索/概要/Agent 已读文件）收进 `#side-more` 折叠区；左侧栏承载会话树、工作区绑定与账户，三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆），账户区可折叠。
+- 信息层级：右栏主面板（项目/状态/工作表格/定时任务）常驻，次要面板（历史检索/概要/Agent 已读文件）收进 `#side-more` 折叠区；左侧栏承载会话树、工作区绑定与账户，三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆），账户区可折叠。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
 - 语义色映射以 `:root` token 为唯一事实来源；新增组件时先查 token，不新增同义色。
 - 会话树：会话按工作区（`session_workspaces` 投影）分组，未绑定或工作区已消失的会话收进「未关联会话」置底；工作区组头可点击折叠（localStorage 记忆）；工具 in/out 面板支持展开/收回切换。
-- 去线框原则：主面板与内容面（状态、概要、工作区、周期任务、历史检索、
+- 去线框原则：主面板与内容面（状态、概要、工作区、定时任务、历史检索、
   用户消息等）默认不画边框，靠底色/留白/字阶分层；数据密集视图（工作表格、
   Plan/节点详情）保留细边框作数据分隔。
 
@@ -71,16 +73,21 @@ retry 状态展示 `RETRY n`（retry_count）。
 
 ## 定时周期任务
 
-右侧栏「周期任务」section 常驻（含「新建周期任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `seelebridge/scheduler/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
+右侧栏「定时任务」section 常驻（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `seelebridge/scheduler/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
 
-新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：类型分「命令」与「提示词」两种。
+新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：类型分「命令」与「提示词」两种；执行方式分「周期重复」与「定时执行（一次性）」两种。
 
 - **命令任务（主路径）**：下拉选项来自 `snapshot.runtime.scheduled_commands`（后端编译期白名单，`main.go` 登记 `auto_get_jobs`，指向 `local/tools/auto_get_jobs/main.py`）。白名单命令的 argv 固定、不经 shell 展开，前端无法注入任意命令。脚本依赖（`.env`、`user_requirements.txt`、`city_list.json`、chromedriver）均按其自身目录解析，调度器只提供固定工作目录与超时。
 - **提示词任务（扩展点）**：提交后由后端注入的 executor 触发一次 agent 会话（main 装配为 application Submit，排队语义：会话忙时任务排队，不与进行中的对话冲突）。任务绑定当前 main session（`session_id` 留空 = 执行时当前会话；显式绑定会在会话切换后跳过而非误投）。结果回传为「已提交」状态字；异步会话的完整输出请从会话记录/事件库查询，这是当前实现的有意取舍。
 
-周期以「每 n 小时/天/周/月」表达（`period-row`：数值 + 单位下拉；提交时换算为
-`interval` 纳秒并附带 `periodUnit`/`periodValue`）。month 由调度器按日历月推进、
-月末日期自动钳制；无周期单位的旧任务回退到 `interval_seconds` 秒级展示。
+- **周期重复**：以「每 n 小时/天/周/月」表达（`period-row`：数值 + 单位下拉；
+  提交时换算为 `interval` 纳秒并附带 `periodUnit`/`periodValue`）。month 由
+  调度器按日历月推进、月末日期自动钳制；无周期单位的旧任务回退到
+  `interval_seconds` 秒级展示。
+- **定时执行（一次性）**：以 `datetime-local` 选择执行时间，提交时转为
+  RFC3339 `runAt`；后端要求晚于当前时间，创建即启用，执行后自动停用并保留
+  记录（面板展示「定时 MM-dd HH:mm」与「一次性」标记）。
+
 任务状态、白名单命令均为公开元数据，不含 secret；渲染文本全部 escape。
 
 `Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。

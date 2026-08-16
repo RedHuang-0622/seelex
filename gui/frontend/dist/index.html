@@ -34,6 +34,7 @@
     </aside>
 
     <main class="workspace">
+      <div id="trace-rail" class="trace-rail" aria-hidden="true"></div>
       <div id="history-bar" class="history-bar hidden"><button id="load-history" class="icon-button history-button" type="button" title="加载更早消息" aria-label="加载更早消息" data-icon="message"></button></div>
       <div id="conversation" class="conversation" aria-live="polite"></div>
       <div id="empty-state" class="empty-state">
@@ -52,8 +53,8 @@
         <div class="composer-actions">
           <div class="composer-tools">
             <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
-            <button id="runtime-button" class="icon-button composer-icon" type="button" title="Agent Runtime" aria-label="Agent Runtime" data-icon="runtime"></button>
-            <button id="perm-toggle" class="perm-chip" type="button" title="Full Access 模式" aria-label="Full Access 模式">FA</button>
+            <button id="runtime-button" class="icon-button composer-icon" type="button" title="运行状态" aria-label="运行状态" data-icon="runtime"></button>
+            <button id="perm-toggle" class="perm-chip" type="button" title="全权访问模式" aria-label="全权访问模式">全权</button>
           </div>
           <span id="composer-status">READY</span>
           <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
@@ -91,8 +92,8 @@
         </button>
       </section>
       <section id="scheduled-task-section">
-        <div class="section-title"><span>周期任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建周期任务" aria-label="新建周期任务" data-icon="plus"></button></div>
-        <div id="scheduled-task-view" class="sched-view muted">暂无周期任务</div>
+        <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
+        <div id="scheduled-task-view" class="sched-view muted">暂无定时任务</div>
       </section>
 
       <details class="side-more" id="side-more">
@@ -124,7 +125,7 @@
 
   <div id="runtime-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="runtime-modal-title">
     <div class="modal-card runtime-card">
-      <div class="modal-header"><div><span class="eyebrow">Agent</span><h2 id="runtime-modal-title">Runtime</h2></div><button id="runtime-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">运行</span><h2 id="runtime-modal-title">运行状态</h2></div><button id="runtime-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div class="runtime-grid">
         <section>
           <div class="section-title">Runtime</div>
@@ -144,7 +145,7 @@
 
   <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
     <div class="modal-card settings-card">
-      <div class="modal-header"><div><span class="eyebrow">Persistence</span><h2 id="settings-modal-title">会话存储</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">存储</span><h2 id="settings-modal-title">会话存储</h2></div><button id="settings-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <p class="settings-note">切换后，新写入会话使用新的存储；已有历史不会自动迁移。数据库密码不会回显。</p>
       <label class="settings-field">存储形式
         <select id="storage-backend"><option value="json">JSON（分片序列化）</option><option value="sqlite">SQLite（本地数据库）</option><option value="postgres">PostgreSQL（外部数据库）</option><option value="redis">Redis（远程分片缓存存储）</option></select>
@@ -158,13 +159,19 @@
 
   <div id="scheduled-task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-task-modal-title">
     <div class="modal-card settings-card">
-      <div class="modal-header"><div><span class="eyebrow">Scheduled tasks</span><h2 id="scheduled-task-modal-title">新建周期任务</h2></div><button id="scheduled-task-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-task-modal-title">新建定时任务</h2></div><button id="scheduled-task-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <p class="settings-note">命令任务只执行后端白名单脚本（不可任意输入命令）；提示词任务复用当前主会话执行，会话切换后自动跳过。</p>
       <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每周抓取职位" autocomplete="off"></label>
       <label class="settings-field">任务类型
         <select id="sched-kind"><option value="command">命令（白名单脚本）</option><option value="prompt">提示词（agent 会话）</option></select>
       </label>
-      <label class="settings-field">周期
+      <label class="settings-field">执行方式
+        <select id="sched-mode">
+          <option value="period">周期重复</option>
+          <option value="at">定时执行（一次性）</option>
+        </select>
+      </label>
+      <label id="sched-period-field" class="settings-field">周期
         <span class="period-row">
           <span class="period-prefix">每</span>
           <input id="sched-period-value" type="number" min="1" value="1">
@@ -176,16 +183,17 @@
           </select>
         </span>
       </label>
+      <label id="sched-datetime-field" class="settings-field hidden">执行时间<input id="sched-datetime" type="datetime-local" aria-label="定时执行时间"></label>
       <label id="sched-command-field" class="settings-field">命令<select id="sched-command"></select></label>
       <label id="sched-prompt-field" class="settings-field hidden">提示词内容<textarea id="sched-prompt" rows="3" placeholder="定时让 agent 执行的内容"></textarea></label>
-      <label class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> 创建后立即启用</label>
+      <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> 创建后立即启用</label>
       <div class="settings-actions"><button id="sched-submit" type="button" class="primary">创建任务</button></div>
     </div>
   </div>
 
   <div id="command-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="command-modal-title">
     <div class="modal-card command-card">
-      <div class="modal-header"><div><span class="eyebrow">Command mode</span><h2 id="command-modal-title">命令面板</h2></div><button id="command-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">指令</span><h2 id="command-modal-title">命令面板</h2></div><button id="command-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="command-triggers" class="command-triggers">
         <button class="active" type="button" data-trigger="/">/ 命令与工具</button>
         <button type="button" data-trigger="#"># Skills</button>
@@ -216,7 +224,7 @@
 
   <div id="work-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="work-table-modal-title">
     <div class="modal-card work-table-modal-card">
-      <div class="modal-header"><div><span class="eyebrow">Work Table</span><h2 id="work-table-modal-title">工作表格</h2></div><button id="work-table-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div class="modal-header"><div><span class="eyebrow">工作表格</span><h2 id="work-table-modal-title">工作表格</h2></div><button id="work-table-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="work-table-modal-view" class="work-table-modal-view muted">暂无工作任务</div>
     </div>
   </div>
