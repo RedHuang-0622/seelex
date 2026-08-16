@@ -53,7 +53,7 @@ for platform in "${!TARGETS[@]}"; do
     mkdir -p "$outdir/config"
     cp "$ROOT/config/accounts.example.yaml" "$outdir/config/"
     cp -r "$ROOT/plugins" "$outdir/"
-    cp "$ROOT/seele.yaml" "$outdir/"
+    cp "$ROOT/config/seele.yaml" "$ROOT/config/seelex.yaml" "$outdir/"
     cp "$ROOT/LICENSE" "$ROOT/CHANGELOG.md" "$ROOT/README.md" "$outdir/"
 
     size=$(du -h "$binpath" | cut -f1)

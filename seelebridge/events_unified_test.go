@@ -14,7 +14,7 @@ import (
 )
 
 func TestSummaryEventToFrameworkEvent(t *testing.T) {
-	at := time.Unix(1000, 0)
+	at := time.Unix(1000, 0).UTC()
 	event := seeletelemetry.SummaryEvent{
 		Kind: "tool", Name: "bash", Status: "failed",
 		DurationMS: 2000, At: at, NodeID: "node-1",

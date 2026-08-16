@@ -101,6 +101,8 @@ function periodUnitLabel(unit) {
 function formatRunTime(value) {
   if (!value) return "—";
   const parsed = new Date(value);
+  const wall = /^\d{4}-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (wall) return `${wall[1]}-${wall[2]} ${wall[3]}:${wall[4]}`;
   if (Number.isNaN(parsed.getTime())) return "—";
   return parsed.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
