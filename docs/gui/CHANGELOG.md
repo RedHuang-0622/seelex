@@ -2,6 +2,40 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-08-16
+
+### Changed
+
+- 会话树折叠箭头方向修正：展开组显示下箭头（∨）、折叠组显示右箭头（›），
+  与账户/更多面板的 `<details>` 箭头语义一致（`styles.css`）；此前旋转角度
+  与状态接反，导致展开状态误显示 `>`，点击反而折叠隐藏整组会话。
+- 左侧栏工作区/会话条目尺寸与对齐统一：条目内边距收敛为 6px 10px；工作区
+  列表条目补齐 folder 图标并与会话条目共用 `.entry-name` 布局，详情行缩进
+  统一到图标文本起点（30px），工作区列表间距与会话列表一致（gap 3px）。
+- 新建会话流程防御：`BeginNewSession` 后若首轮快照因异步目录刷新竞态返回
+  空 `sessions`，保留上一次可见会话列表并安排一次权威重拉，避免左侧栏会话
+  「全部消失」的假象（`app.js`）。
+- 定时任务面板从「周期任务」更名为「定时任务」，新建弹窗增加「执行方式」：
+  - **周期重复**：原「每 n 小时/天/周/月」路径不变；
+  - **定时执行（一次性）**：`datetime-local` 选择执行时间，提交 `runAt`
+    （RFC3339），后端校验晚于当前时间、创建即启用、执行后自动停用并保留
+    记录（`index.html` + `app.js` + `scheduled-tasks-view.js`）。
+
+### Added
+
+- 调度器一次性定时任务：`dto.ScheduledTaskSpec` 新增 `RunAt`，
+  `ScheduledTaskStatus` 新增 `run_at`/`one_shot`；`nextScheduledAt` 优先
+  返回 `RunAt`，执行完成后自动停用并清除下次排期
+  （`seelebridge/scheduler/scheduler.go` + `scheduler_test.go`）。
+- 定时任务面板一次性任务展示：任务行显示「定时 MM-dd HH:mm」与「一次性」
+  chip，空态文案统一为「暂无定时任务」（`scheduled-tasks-view.js` +
+  `scheduled-tasks-view.test.mjs`）。
+
+### Design decisions
+
+- 一次性任务不支持「创建后停用」（后端创建即启用），避免出现无法再次启用的
+  死胡同；执行后保留记录供面板查看，用户可手动取消移除。
+
 ## 2026-08-15
 
 ### Changed

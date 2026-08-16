@@ -171,6 +171,73 @@ func TestScheduledPeriodValidationAndStatus(t *testing.T) {
 	}
 }
 
+func TestScheduledOneShotTaskRunsOnceThenDisables(t *testing.T) {
+	state := newSchedulerTestState(t)
+	defer state.Stop()
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	runAt := time.Now().Add(80 * time.Millisecond)
+	created, err := state.Schedule(context.Background(), ScheduledTaskSpec{
+		Name: "一次性任务", Kind: ScheduledTaskCommand, Command: "helper",
+		RunAt: runAt, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created.OneShot || created.RunAt.IsZero() || !created.RunAt.Equal(runAt) {
+		t.Fatalf("one-shot fields not carried: %+v", created)
+	}
+	if !created.Enabled || created.NextRunAt.IsZero() || !created.NextRunAt.Equal(runAt) {
+		t.Fatalf("one-shot must be enabled with next run at RunAt: %+v", created)
+	}
+
+	status := waitForStatus(t, state, created.ID, func(status ScheduledTaskStatus) bool {
+		return status.RunCount >= 1 && status.LastStatus == "ok"
+	})
+	if status.Enabled {
+		t.Fatalf("one-shot must auto-disable after run: %+v", status)
+	}
+	if !status.NextRunAt.IsZero() {
+		t.Fatalf("one-shot must clear next run after execution: %+v", status)
+	}
+	if status.RunCount != 1 {
+		t.Fatalf("one-shot must run exactly once: %+v", status)
+	}
+	time.Sleep(150 * time.Millisecond)
+	for _, snapshot := range state.Snapshot() {
+		if snapshot.ID == created.ID && snapshot.RunCount != 1 {
+			t.Fatalf("one-shot ran more than once: %+v", snapshot)
+		}
+	}
+}
+
+func TestScheduledOneShotValidation(t *testing.T) {
+	state := newSchedulerTestState(t)
+	defer state.Stop()
+	if err := state.RegisterCommand(helperCommand(t, t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	past := ScheduledTaskSpec{
+		Name: "过期定时", Kind: ScheduledTaskCommand, Command: "helper",
+		RunAt: time.Now().Add(-time.Minute), Enabled: true,
+	}
+	if _, err := state.Schedule(context.Background(), past); err == nil {
+		t.Fatal("one-shot in the past must be rejected")
+	}
+	future := ScheduledTaskSpec{
+		Name: "未来定时", Kind: ScheduledTaskCommand, Command: "helper",
+		RunAt: time.Now().Add(time.Hour), Enabled: false,
+	}
+	created, err := state.Schedule(context.Background(), future)
+	if err != nil {
+		t.Fatalf("future one-shot rejected: %v", err)
+	}
+	if !created.Enabled {
+		t.Fatal("one-shot must be force-enabled regardless of input flag")
+	}
+}
+
 func TestCalendarMonthClamping(t *testing.T) {
 	loc := time.Local
 	cases := []struct {

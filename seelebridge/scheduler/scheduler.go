@@ -186,9 +186,17 @@ func (s *State) executeTask(t *task) {
 		status.LastResult = tailText(result, scheduledResultTail)
 		t.appendLogLocked(now, "运行完成")
 	}
-	next := nextScheduledAt(now, t.spec)
-	t.nextRun = next
-	status.NextRunAt = next
+	if !t.spec.RunAt.IsZero() {
+		// 一次性定时任务：执行完成后自动停用并清除下次排期，记录保留供面板查看。
+		t.spec.Enabled = false
+		t.nextRun = time.Time{}
+		status.NextRunAt = time.Time{}
+		status.Enabled = false
+	} else {
+		next := nextScheduledAt(now, t.spec)
+		t.nextRun = next
+		status.NextRunAt = next
+	}
 	s.mu.Unlock()
 	s.observe()
 }
@@ -275,12 +283,22 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 	if name == "" {
 		return nil, errors.New("任务名称不能为空")
 	}
-	if err := validatePeriod(spec); err != nil {
-		return nil, err
-	}
-	effective := effectiveInterval(spec)
-	if effective < minScheduledInterval {
-		return nil, fmt.Errorf("周期过短：至少 %s", minScheduledInterval)
+	oneShot := !spec.RunAt.IsZero()
+	effective := time.Duration(0)
+	if oneShot {
+		if !spec.RunAt.After(time.Now()) {
+			return nil, errors.New("定时执行时间必须晚于当前时间")
+		}
+		// 一次性任务创建即启用，避免"已停用且无法重新启用"的死角。
+		spec.Enabled = true
+	} else {
+		if err := validatePeriod(spec); err != nil {
+			return nil, err
+		}
+		effective = effectiveInterval(spec)
+		if effective < minScheduledInterval {
+			return nil, fmt.Errorf("周期过短：至少 %s", minScheduledInterval)
+		}
 	}
 	switch spec.Kind {
 	case ScheduledTaskCommand:
@@ -306,6 +324,7 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 		spec: ScheduledTaskSpec{
 			Name: name, Kind: spec.Kind, Interval: spec.Interval,
 			PeriodUnit: spec.PeriodUnit, PeriodValue: spec.PeriodValue,
+			RunAt:   spec.RunAt,
 			Command: strings.TrimSpace(spec.Command), Prompt: strings.TrimSpace(spec.Prompt),
 			SessionID: strings.TrimSpace(spec.SessionID), Enabled: spec.Enabled,
 		},
@@ -315,6 +334,7 @@ func (s *State) Schedule(_ context.Context, spec ScheduledTaskSpec) (*ScheduledT
 		ID: t.id, Name: name, Kind: string(spec.Kind),
 		IntervalSec: int64(effective / time.Second),
 		PeriodUnit:  string(spec.PeriodUnit), PeriodValue: spec.PeriodValue,
+		RunAt: t.nextRun, OneShot: oneShot,
 		Command: t.spec.Command, Prompt: t.spec.Prompt,
 		SessionID: t.spec.SessionID, Enabled: spec.Enabled,
 		NextRunAt: t.nextRun, LastStatus: scheduledStatusPending,
@@ -411,6 +431,7 @@ func (t *task) statusSnapshot() ScheduledTaskStatus {
 		ID: t.status.ID, Name: t.status.Name, Kind: t.status.Kind,
 		IntervalSec: t.status.IntervalSec, Command: t.status.Command,
 		PeriodUnit: t.status.PeriodUnit, PeriodValue: t.status.PeriodValue,
+		RunAt: t.status.RunAt, OneShot: t.status.OneShot,
 		Prompt: t.status.Prompt, SessionID: t.status.SessionID,
 		Enabled: t.status.Enabled, Running: t.status.Running,
 		NextRunAt: t.status.NextRunAt, LastRunAt: t.status.LastRunAt,
@@ -456,6 +477,9 @@ func effectiveInterval(spec ScheduledTaskSpec) time.Duration {
 // nextScheduledAt 计算任务下一次运行时间：周期单位优先（month 为日历月，
 // 月末钳制），否则按 Interval 固定周期。
 func nextScheduledAt(now time.Time, spec ScheduledTaskSpec) time.Time {
+	if !spec.RunAt.IsZero() {
+		return spec.RunAt
+	}
 	switch spec.PeriodUnit {
 	case dto.PeriodHour:
 		return now.Add(time.Duration(spec.PeriodValue) * time.Hour)

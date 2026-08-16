@@ -372,12 +372,12 @@ func (bridge *Bridge) ConfigureSessionStorage(config sessionstore.Config) error 
 	return bridge.app.ConfigureSessionStorage(bridge.requestContext(), config)
 }
 
-// ScheduleTask 创建并启动一个周期任务（后端调度器校验白名单/周期）。
+// ScheduleTask 创建并启动一个定时/周期任务（后端调度器校验白名单/周期或 RunAt）。
 func (bridge *Bridge) ScheduleTask(spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	return bridge.app.ScheduleTask(bridge.requestContext(), spec)
 }
 
-// CancelScheduledTask 取消并移除周期任务。
+// CancelScheduledTask 取消并移除定时/周期任务。
 func (bridge *Bridge) CancelScheduledTask(id string) error {
 	return bridge.app.CancelScheduledTask(id)
 }

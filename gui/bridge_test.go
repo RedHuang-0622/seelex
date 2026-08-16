@@ -284,6 +284,16 @@ func TestBridgeForwardsScheduledTaskCommands(t *testing.T) {
 		t.Fatalf("schedule not forwarded: %+v", fake.scheduledSpec)
 	}
 
+	runAt := time.Now().Add(time.Hour).Truncate(time.Second)
+	if _, err := bridge.ScheduleTask(seelebridge.ScheduledTaskSpec{
+		Name: "one-shot", Kind: seelebridge.ScheduledTaskPrompt, Prompt: "P", RunAt: runAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.scheduledSpec.RunAt.Equal(runAt) {
+		t.Fatalf("one-shot runAt not forwarded: %+v", fake.scheduledSpec)
+	}
+
 	if err := bridge.CancelScheduledTask("sched_1"); err != nil {
 		t.Fatal(err)
 	}

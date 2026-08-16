@@ -2,7 +2,7 @@ package dto
 
 import "time"
 
-// ScheduledTaskKind 周期任务类型。
+// ScheduledTaskKind 定时/周期任务类型。
 type ScheduledTaskKind string
 
 const (
@@ -10,7 +10,8 @@ const (
 	ScheduledTaskPrompt  ScheduledTaskKind = "prompt"
 )
 
-// PeriodUnit 周期任务时间单位（空 = 使用 Interval 的秒级固定周期）。
+// PeriodUnit 周期任务时间单位（空 = 使用 Interval 的秒级固定周期；
+// 一次性定时任务使用 RunAt，不依赖 PeriodUnit）。
 // month 是日历月：月末日期自动钳制（如 1-31 加 1 月 → 2-28/29）。
 type PeriodUnit string
 
@@ -31,27 +32,28 @@ type ScheduledCommand struct {
 	TimeoutSec  int      // 单次运行超时（0 = 默认 10 分钟）
 }
 
-// ScheduledCommandInfo 是周期任务白名单命令的展示信息（GUI 新建弹窗数据源）。
+// ScheduledCommandInfo 是定时/周期任务白名单命令的展示信息（GUI 新建弹窗数据源）。
 type ScheduledCommandInfo struct {
 	Key         string `json:"key"`
 	Label       string `json:"label"`
 	Description string `json:"description"`
 }
 
-// ScheduledTaskSpec 是周期任务的创建入参（变更入口）。
+// ScheduledTaskSpec 是定时/周期任务的创建入参（变更入口）。
 type ScheduledTaskSpec struct {
 	Name        string
 	Kind        ScheduledTaskKind
 	Interval    time.Duration
 	PeriodUnit  PeriodUnit // 可选：hour/day/week/month（空 = Interval）
 	PeriodValue int        // 周期数值（>=1，配合 PeriodUnit 使用）
+	RunAt       time.Time  // 一次性定时任务执行时间（零值 = 周期任务）
 	Command     string     // kind=command：白名单键
 	Prompt      string     // kind=prompt：提示词内容（非 secret，可进快照展示）
 	SessionID   string     // 绑定会话（空 = 执行时当前 main session）
 	Enabled     bool
 }
 
-// ScheduledTaskStatus 是周期任务只读快照（GUI 定时任务面板数据源）。
+// ScheduledTaskStatus 是定时/周期任务只读快照（GUI 定时任务面板数据源）。
 type ScheduledTaskStatus struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -59,6 +61,8 @@ type ScheduledTaskStatus struct {
 	IntervalSec int64     `json:"interval_seconds"`
 	PeriodUnit  string    `json:"period_unit,omitempty"`
 	PeriodValue int       `json:"period_value,omitempty"`
+	RunAt       time.Time `json:"run_at,omitempty"`   // 一次性任务的预定执行时间（零值 = 周期任务）
+	OneShot     bool      `json:"one_shot,omitempty"` // 是否一次性定时任务（执行后自动停用）
 	Command     string    `json:"command,omitempty"`
 	Prompt      string    `json:"prompt,omitempty"`
 	SessionID   string    `json:"session_id,omitempty"`

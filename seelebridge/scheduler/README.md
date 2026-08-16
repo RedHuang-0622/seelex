@@ -2,8 +2,10 @@
 
 ## 模块定位
 
-承载 seelex 的定时周期任务 actor：标准库 time.Ticker 驱动单循环 goroutine，
-任务两类（command 白名单命令 / prompt 复用 agent 会话）。主要调用方：
+承载 seelex 的定时/周期任务 actor：标准库 time.Ticker 驱动单循环 goroutine，
+任务两类（command 白名单命令 / prompt 复用 agent 会话），排期两种：
+周期重复（hour/day/week/month 或固定 Interval）与一次性定时（RunAt）。
+主要调用方：
 `ports.go`（调度器端口）、`main.go`（白名单与执行器装配）。
 
 ## 职责与非职责
@@ -26,12 +28,15 @@ runtime/ports.go ──► scheduler.State ──► security（ScrubEnvironment
   执行（running 标志防重叠），状态快照只读外发。
 - `Schedule`：校验周期下限/周期单位（`period_unit`）+ 数值/命令白名单/prompt
   执行器装配后创建任务；周期表达支持 hour/day/week/month，month 为日历月
-  （`addCalendarMonths` 月末钳制），无单位时回退 `Interval` 秒级固定周期。
+  （`addCalendarMonths` 月末钳制），无单位时回退 `Interval` 秒级固定周期；
+  `RunAt` 非零时创建一次性定时任务（要求晚于当前时间，创建即启用，执行后
+  自动停用并清除下次排期，记录保留供面板查看）。
 
 ## 数据流
 
-Schedule → start（惰启动 ticker）→ tick → executeTask（下次运行按
-`nextScheduledAt` 计算）→ 状态回写 + observe（通知 application 投影）。
+Schedule → start（惰启动 ticker）→ tick → executeTask（周期任务下次运行按
+`nextScheduledAt` 计算；一次性任务执行后停用）→ 状态回写 + observe
+（通知 application 投影）。
 
 ## 依赖方向
 

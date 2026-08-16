@@ -58,6 +58,26 @@ test("renders prompt tasks with prompt content and session binding stays out of 
   assert.doesNotMatch(html, /sess_1/);
 });
 
+test("renders one-shot scheduled tasks with fixed run time", () => {
+  const html = renderScheduledTasks([
+    task({
+      id: "sched_6",
+      name: "明天发布检查",
+      one_shot: true,
+      run_at: "2026-08-17T09:30:00+08:00",
+      interval_seconds: 0,
+      enabled: false,
+      run_count: 1,
+      last_status: "ok"
+    })
+  ], []);
+  assert.match(html, /一次性/);
+  assert.match(html, /定时/);
+  assert.match(html, /09:30/);
+  assert.match(html, /已停用/);
+  assert.doesNotMatch(html, /每 /);
+});
+
 test("shows running and failed states from authoritative flags", () => {
   const running = renderScheduledTasks([task({ running: true, last_status: "running" })], []);
   assert.match(running, /运行中/);
@@ -95,10 +115,10 @@ test("escapes all rendered text and tolerates malformed items", () => {
 });
 
 test("renders empty state for empty or non-array input", () => {
-  assert.match(renderScheduledTasks([], []), /暂无周期任务/);
-  assert.match(renderScheduledTasks(null, null), /暂无周期任务/);
-  assert.match(renderScheduledTasks(undefined, undefined), /暂无周期任务/);
-  assert.match(renderScheduledTasks("nope", []), /暂无周期任务/);
+  assert.match(renderScheduledTasks([], []), /暂无定时任务/);
+  assert.match(renderScheduledTasks(null, null), /暂无定时任务/);
+  assert.match(renderScheduledTasks(undefined, undefined), /暂无定时任务/);
+  assert.match(renderScheduledTasks("nope", []), /暂无定时任务/);
 });
 
 test("renders disabled task with off chip and pending status", () => {

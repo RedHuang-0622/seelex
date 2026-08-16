@@ -22,21 +22,23 @@ function isScheduledTask(value) {
 export function renderScheduledTasks(items, commands) {
   const list = scheduledTasksView(items);
   if (!list.length) {
-    return '<span class="muted list-empty">暂无周期任务</span>';
+    return '<span class="muted list-empty">暂无定时任务</span>';
   }
   const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
   return `<ul class="sched-list">${list.map(task => {
     const kind = task.kind === "prompt" ? "提示词" : "命令";
     const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
+    const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
     return `<li class="sched-item" data-sched-id="${escapeHtml(task.id)}">
       <div class="sched-head">
         <strong title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</strong>
         <span class="chip">${escapeHtml(kind)}</span>
+        ${task.one_shot ? '<span class="chip">一次性</span>' : ""}
         <span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span>
         <span class="sched-status is-${schedStatusClass(task)}">${escapeHtml(schedStatusText(task))}</span>
       </div>
       <div class="sched-meta">
-        <span>每 ${formatInterval(task)}</span>
+        <span>${scheduleText}</span>
         <span>下次 ${formatRunTime(task.next_run_at)}</span>
         <span>共 ${Number(task.run_count) || 0} 次</span>
       </div>

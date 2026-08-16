@@ -13,7 +13,7 @@ import (
 // 调度器运行中的状态变化（开始/完成/失败）经 main 装配的 observer 回调
 // RefreshRuntimeSnapshot，同样走 runtime.changed 增量路径。
 
-// ScheduleTask 创建并启动一个周期任务（校验在 Runtime 调度器内完成）。
+// ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
 func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	created, err := service.deps.Runtime.ScheduleTask(ctx, spec)
 	if err != nil {
@@ -23,7 +23,7 @@ func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.Sched
 	return created, nil
 }
 
-// CancelScheduledTask 取消并移除周期任务。
+// CancelScheduledTask 取消并移除定时/周期任务。
 func (service *Service) CancelScheduledTask(id string) error {
 	if err := service.deps.Runtime.CancelScheduledTask(id); err != nil {
 		return err
@@ -32,9 +32,9 @@ func (service *Service) CancelScheduledTask(id string) error {
 	return nil
 }
 
-// RefreshRuntimeSnapshot 重新收集运行时投影（含周期任务快照）并发布
+// RefreshRuntimeSnapshot 重新收集运行时投影（含定时/周期任务快照）并发布
 // runtime.changed 增量。供 Runtime 侧状态变化通知（调度器 observer）与
-// 周期任务变更入口复用；与 SelectAccount 等既有路径内联逻辑一致。
+// 定时/周期任务变更入口复用；与 SelectAccount 等既有路径内联逻辑一致。
 func (service *Service) RefreshRuntimeSnapshot() {
 	projection := service.collectRuntimeProjection(context.Background())
 	service.mu.Lock()
@@ -45,8 +45,8 @@ func (service *Service) RefreshRuntimeSnapshot() {
 	service.publishTaskDeltas()
 }
 
-// ScheduledTaskSpec 是周期任务创建入参的类型别名（GUI Bridge 直接使用）。
+// ScheduledTaskSpec 是定时/周期任务创建入参的类型别名（GUI Bridge 直接使用）。
 type ScheduledTaskSpec = seelebridge.ScheduledTaskSpec
 
-// ScheduledTaskStatus 是周期任务快照的类型别名（GUI 面板消费）。
+// ScheduledTaskStatus 是定时/周期任务快照的类型别名（GUI 面板消费）。
 type ScheduledTaskStatus = seelebridge.ScheduledTaskStatus

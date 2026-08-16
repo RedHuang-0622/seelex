@@ -117,13 +117,13 @@ type RuntimePort interface {
 	// SwitchSessionTasks 会话级 task 隔离：切换会话时整体替换注册表
 	// （清空当前会话 task，恢复目标会话 task；复用 session stack 存储）。
 	SwitchSessionTasks(records []dto.TaskRecord)
-	// ScheduledCommands 返回定时周期任务白名单命令展示信息（GUI 新建弹窗数据源）。
+	// ScheduledCommands 返回定时/周期任务白名单命令展示信息（GUI 新建弹窗数据源）。
 	ScheduledCommands() []dto.ScheduledCommandInfo
-	// ScheduledTasksSnapshot 返回周期任务只读快照（GUI 定时任务面板数据源）。
+	// ScheduledTasksSnapshot 返回定时/周期任务只读快照（GUI 定时任务面板数据源）。
 	ScheduledTasksSnapshot() []dto.ScheduledTaskStatus
-	// ScheduleTask 创建并启动一个周期任务（变更入口；Runtime 调度器执行）。
+	// ScheduleTask 创建并启动一个定时/周期任务（变更入口；Runtime 调度器执行）。
 	ScheduleTask(context.Context, dto.ScheduledTaskSpec) (*dto.ScheduledTaskStatus, error)
-	// CancelScheduledTask 取消并移除周期任务。
+	// CancelScheduledTask 取消并移除定时/周期任务。
 	CancelScheduledTask(string) error
 	// ClearSubagentTree 清空子代理树（GUI「清空」入口；失败节点显式清走，
 	// 详情数据面不受影响）。
