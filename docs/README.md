@@ -65,6 +65,7 @@
 |------|------|
 | [`agent-frontend-design-research.md`](research/agent-frontend-design-research.md) | AI Agent 前端界面 + DSL 卡片渲染设计调研 |
 | [`approve-research.md`](research/approve-research.md) | Approve 节点选型（OpenCode vs Claude Code vs Seele） |
+| [`context-management-review.md`](research/context-management-review.md) | 上下文管理（继承/合并/压缩）实现审查与理论依据调研 |
 
 ## 📊 根目录
 
