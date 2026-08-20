@@ -107,6 +107,11 @@ func (service *taskContextCoordinator) recordLLMComplete(info session.LLMInfo) {
 	if info.Usage != nil {
 		state.tokenAudit.ActualPromptTokens = info.Usage.PromptTokens
 		state.tokenAudit.UpdatedAt = time.Now()
+		// 用真实 usage 反馈校准估算因子（同一请求的估算与实际配对）。
+		if counter, ok := service.tokenCounter.(*calibratedTokenCounter); ok &&
+			state.tokenAudit.EstimatedPromptTokens > 0 && info.Usage.PromptTokens > 0 {
+			counter.Observe(state.tokenAudit.EstimatedPromptTokens, info.Usage.PromptTokens)
+		}
 	}
 	if info.Response == "" && len(info.ToolCalls) == 0 {
 		return

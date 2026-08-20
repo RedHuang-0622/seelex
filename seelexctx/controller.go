@@ -23,6 +23,7 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -82,42 +83,24 @@ type TokenCounter interface {
 	CountHistory([]types.Message) int
 }
 
-// ConservativeTokenCounter 保守估算（len/3，与 seelectx.EstimateTokens 同源）。
+// ConservativeTokenCounter 脚本感知的保守估算（seelexctx/tokens），
+// 替代旧 len/3 字节估算。
 type ConservativeTokenCounter struct{}
 
 // Name 实现 TokenCounter。
 func (ConservativeTokenCounter) Name() string { return "conservative-v1" }
 
 // CountText 实现 TokenCounter。
-func (ConservativeTokenCounter) CountText(value string) int {
-	if value == "" {
-		return 0
-	}
-	return (len([]byte(value)) + 2) / 3
-}
+func (ConservativeTokenCounter) CountText(value string) int { return tokens.Count(value) }
 
 // CountMessage 实现 TokenCounter。
-func (c ConservativeTokenCounter) CountMessage(message types.Message) int {
-	tokens := 4 + c.CountText(message.Role) + c.CountText(messageContent(message)) + c.CountText(message.ReasoningContent)
-	if message.ToolCallID != "" {
-		tokens += 2 + c.CountText(message.ToolCallID)
-	}
-	if message.Name != "" {
-		tokens += 2 + c.CountText(message.Name)
-	}
-	for _, call := range message.ToolCalls {
-		tokens += 8 + c.CountText(call.ID) + c.CountText(call.Function.Name) + c.CountText(call.Function.Arguments)
-	}
-	return tokens
+func (ConservativeTokenCounter) CountMessage(message types.Message) int {
+	return tokens.CountMessage(message)
 }
 
 // CountHistory 实现 TokenCounter。
-func (c ConservativeTokenCounter) CountHistory(history []types.Message) int {
-	total := 0
-	for _, message := range history {
-		total += c.CountMessage(message)
-	}
-	return total
+func (ConservativeTokenCounter) CountHistory(history []types.Message) int {
+	return tokens.CountHistory(history)
 }
 
 // messageContent 解引用可空消息正文。

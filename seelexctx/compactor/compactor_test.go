@@ -7,8 +7,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 )
 
 func largeSnap() *snapshot.ContextSnapshot {
@@ -123,7 +123,7 @@ func TestTruncateForTokenKeepsUTF8AndBudget(t *testing.T) {
 	if !utf8.ValidString(truncated) {
 		t.Fatalf("invalid UTF-8 result: %q", truncated)
 	}
-	if got := seelectx.EstimateTokens(truncated); got > 25 {
+	if got := tokens.Count(truncated); got > 25 {
 		t.Fatalf("token estimate = %d, want <= 25", got)
 	}
 }

@@ -9,13 +9,15 @@ import (
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/seelectx/ctx_manager"
 	"github.com/RedHuang-0622/Seele/types"
+
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 )
 
 // ── Token 估算 ──────────────────────────────────────────────────
 
-// EstimateTokens 估算文本的 token 数（保守公式 len/3）。
-// 委托给 seelectx.EstimateTokens。
-var EstimateTokens = seelectx.EstimateTokens
+// EstimateTokens 估算文本的 token 数（脚本感知的保守估算，见 seelexctx/tokens）。
+// 保留名称兼容既有调用方；不再委托 seelectx.EstimateTokens（len/3）。
+var EstimateTokens = tokens.Count
 
 // ── 历史管理 ────────────────────────────────────────────────────
 

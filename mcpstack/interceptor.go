@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 )
 
 // ── MCPCallRecorder ─────────────────────────────────────────────
@@ -113,11 +115,11 @@ type Callback func(ctx context.Context, rec *CallRecorder, next func(ctx context
 // ── Helpers ─────────────────────────────────────────────────────
 
 func estimateTokenCount(serverName, toolName string, args json.RawMessage) int {
-	tokens := len(serverName)/2 + len(toolName)/2 + len(args)/3 + 10
-	if tokens < 20 {
-		tokens = 20
+	n := tokens.Count(serverName) + tokens.Count(toolName) + tokens.Count(string(args)) + 10
+	if n < 20 {
+		n = 20
 	}
-	return tokens
+	return n
 }
 
 // ── FormatSummary ───────────────────────────────────────────────

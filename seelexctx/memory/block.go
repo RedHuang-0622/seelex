@@ -6,6 +6,8 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
+
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 )
 
 // RenderMemoryBlock 把选中的记忆渲染为单个「相关记忆」PromptBlock。
@@ -21,7 +23,7 @@ func RenderMemoryBlock(selected []Candidate, maxTokens int) *seelectx.PromptBloc
 	var builder strings.Builder
 	builder.WriteString("## 相关记忆 (Related Memories)\n")
 	builder.WriteString("> 从历史压缩段选取的与当前请求相关的过往记忆；排序分数仅用于选取，不作为事实。\n")
-	remaining := maxTokens - seelectx.EstimateTokens(builder.String())
+	remaining := maxTokens - tokens.Count(builder.String())
 	if remaining <= 0 {
 		return blockFrom(&builder)
 	}
@@ -34,7 +36,7 @@ func RenderMemoryBlock(selected []Candidate, maxTokens int) *seelectx.PromptBloc
 			continue // 固定开销超预算：跳过该条（不截断到空）
 		}
 		builder.WriteString(line)
-		remaining -= seelectx.EstimateTokens(line)
+		remaining -= tokens.Count(line)
 	}
 	return blockFrom(&builder)
 }
@@ -43,7 +45,7 @@ func RenderMemoryBlock(selected []Candidate, maxTokens int) *seelectx.PromptBloc
 // + 证据引用。固定部分本身超预算 → 返回空串（调用方跳过）。
 func renderCandidateLine(candidate Candidate, budget int) string {
 	head := "- " + candidate.SegmentID + fmt.Sprintf(" [%d..%d]: ", candidate.From, candidate.To)
-	headTokens := seelectx.EstimateTokens(head)
+	headTokens := tokens.Count(head)
 	if headTokens > budget {
 		return ""
 	}
@@ -64,7 +66,7 @@ func renderCandidateLine(candidate Candidate, budget int) string {
 		}
 		if len(refs) > 0 {
 			evidenceText := "; 证据: " + strings.Join(refs, ", ")
-			if seelectx.EstimateTokens(line.String()+evidenceText) <= budget {
+			if tokens.Count(line.String()+evidenceText) <= budget {
 				line.WriteString(evidenceText)
 			}
 		}
@@ -87,17 +89,17 @@ func truncateTokens(text string, maxTokens int) string {
 	if maxTokens <= 0 {
 		return ""
 	}
-	if seelectx.EstimateTokens(text) <= maxTokens {
+	if tokens.Count(text) <= maxTokens {
 		return text
 	}
 	const marker = "…"
-	if seelectx.EstimateTokens(marker) > maxTokens {
+	if tokens.Count(marker) > maxTokens {
 		return ""
 	}
 	var out strings.Builder
 	for _, r := range text {
 		next := out.String() + string(r)
-		if seelectx.EstimateTokens(next+marker) > maxTokens {
+		if tokens.Count(next+marker) > maxTokens {
 			break
 		}
 		out.WriteRune(r)

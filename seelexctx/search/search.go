@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/seelexctx/memory"
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -351,11 +352,11 @@ func renderUnitSummaryLine(unit []sessionstore.Event) string {
 	return strings.TrimSpace(builder.String())
 }
 
-// estimateRecord 估算一条记录的 token（保守公式 (len+2)/3 + 固定开销，
+// estimateRecord 估算一条记录的 token（脚本感知估算 + 固定开销，
 // 与 ConservativeTokenCounter 同源）。
 func estimateRecord(record ChatRecord) int {
-	total := len(record.Role) + len(record.Content) + len(record.ToolName) + len(record.ResultRef)
-	return (total+2)/3 + 1
+	total := record.Role + record.Content + record.ToolName + record.ResultRef
+	return tokens.Count(total) + 1
 }
 
 // sumRecordEstimate 汇总记录 token 估算。

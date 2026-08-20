@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/Seele/seelectx"
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -142,8 +142,8 @@ func TestRenderMemoryBlockBoundsAndNil(t *testing.T) {
 		t.Fatal("block must render")
 	}
 	content := *block.Messages[0].Content
-	if tokens := seelectx.EstimateTokens(content); tokens > 80 {
-		t.Fatalf("block must respect token budget (est=%d > 64*1.25)", tokens)
+	if est := tokens.Count(content); est > 80 {
+		t.Fatalf("block must respect token budget (est=%d > 64*1.25)", est)
 	}
 	if !strings.HasSuffix(content, "…\n") && !strings.Contains(content, "…") {
 		t.Fatalf("truncated summary must carry ellipsis, got:\n%s", content)

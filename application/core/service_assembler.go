@@ -39,7 +39,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			replanInFlight: make(map[string]struct{}),
 		},
 		taskRuntimeState: taskRuntimeState{
-			tokenCounter: conservativeTokenCounter{}, resultRefsByToolCallID: make(map[string]string),
+			tokenCounter: newCalibratedTokenCounter(), resultRefsByToolCallID: make(map[string]string),
 		},
 	}
 	service := &Service{serviceState: state}

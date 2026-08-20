@@ -18,6 +18,7 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 | [`merger/`](merger/README.md) | 子任务 findings/decisions/progress 合并回父上下文。 |
 | [`memory/`](memory/README.md) | 超长上下文的历史记忆选取：按当前查询从压缩帧选 top-K，渲染有界「相关记忆」块。 |
 | [`lifecycle/`](lifecycle/) | 泛型 Context actor 与有界批处理管道；提供 cold-load/windowed/pipelined 策略和关闭竞态测试。 |
+| [`tokens/`](tokens/README.md) | 脚本感知的 token 估算（零依赖、确定性，替代 len/3）。 |
 
 根包文件：
 
@@ -31,7 +32,7 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 | `gap.go` | 真空区覆盖：滑动窗口与压缩内容之间的未压缩轮次，Load 时检测并压入合并帧。 |
 | `history_safety.go` | Provider 历史安全配对规则（assistant/tool 配对、恢复信封）。 |
 | `bridge.go` | Export/ExportWithGoal/Import 兼容 API（委托子包）。 |
-| `seele.go` | re-export 仍被使用的 Seele `seelectx` token 估算/压缩函数。 |
+| `seele.go` | re-export 仍被使用的 Seele `seelectx` 压缩函数；`EstimateTokens` 兼容变量已改为 `tokens` 脚本感知估算。 |
 
 ## 数据流
 
@@ -49,6 +50,7 @@ Assembler ─ 查询 → memory.Select（压缩帧 top-K）→ 相关记忆块
 - 有界上下文：所有跨 Agent 注入都应有 token budget。
 - 结构化优先：Goal、Decision、Finding、Constraint、PendingWork 分字段传递。
 - 向后兼容：门面 API 保持稳定，复杂能力下沉子包。
+- token 估算：事前用 `tokens` 脚本感知估算，事后由 application 侧以 provider usage 校准（`calibratedTokenCounter`）。
 
 ## Review 指南
 

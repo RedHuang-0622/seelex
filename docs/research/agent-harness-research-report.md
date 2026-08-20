@@ -161,6 +161,8 @@
 10. **Token 估算升级**
     len/3 保守估算在中文/工具参数混合场景误差大。建议接入模型感知 tokenizer（tiktoken 或 provider 计数接口），至少对窗口决策与压缩预算使用同源计数，避免"估算说够、实际爆顶"。
 
+    > 落地（2026-08-20）：len/3 已替换为 `seelexctx/tokens` 脚本感知估算，application 侧增加 provider usage 反馈校准（`calibratedTokenCounter`，EMA 修正因子），窗口/压缩/归档计数已同源；模型感知 tokenizer（tiktoken）仍未接入，见 `docs/research/context-management-review.md` §8.2。
+
 11. **快照字段稳定 ID**
     merger 的 constraints 去重按文本、findings 无 ID，README 已标注"是否需要未来稳定 ID"。建议为 decisions/findings/constraints 加稳定 ID（如内容 hash 或生成 ID），使跨会话/跨分支合并可增量、可去重、可溯源。
 

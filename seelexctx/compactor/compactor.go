@@ -5,7 +5,7 @@
 //   - 摘要（Budget 200~499）
 //   - 极简（Budget < 200）
 //
-// Token 估算使用 seelectx.EstimateTokens。
+// Token 估算使用 seelexctx/tokens（脚本感知的保守估算）。
 package compactor
 
 import (
@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 )
 
 type Compactor struct{}
@@ -125,26 +125,26 @@ func fitSnapshotFields(cp, snap *snapshot.ContextSnapshot, budget int) *snapshot
 
 func estimateTokens(snap *snapshot.ContextSnapshot) int {
 	t := 20 // 元数据开销
-	t += seelectx.EstimateTokens(snap.Goal)
+	t += tokens.Count(snap.Goal)
 	for _, d := range snap.Decisions {
-		t += seelectx.EstimateTokens(d.What) + seelectx.EstimateTokens(d.Why)
+		t += tokens.Count(d.What) + tokens.Count(d.Why)
 		for _, a := range d.Alternatives {
-			t += seelectx.EstimateTokens(a)
+			t += tokens.Count(a)
 		}
 		t += 4
 	}
 	for _, f := range snap.Findings {
-		t += seelectx.EstimateTokens(f)
+		t += tokens.Count(f)
 	}
-	t += seelectx.EstimateTokens(snap.Progress)
+	t += tokens.Count(snap.Progress)
 	for _, c := range snap.Constraints {
-		t += seelectx.EstimateTokens(c)
+		t += tokens.Count(c)
 	}
 	for _, w := range snap.PendingWork {
-		t += seelectx.EstimateTokens(w)
+		t += tokens.Count(w)
 	}
 	if snap.Escape != nil {
-		t += seelectx.EstimateTokens(snap.Escape.Reason) + seelectx.EstimateTokens(snap.Escape.Message) + seelectx.EstimateTokens(snap.Escape.ParentGoal) + 8
+		t += tokens.Count(snap.Escape.Reason) + tokens.Count(snap.Escape.Message) + tokens.Count(snap.Escape.ParentGoal) + 8
 	}
 	return t
 }
@@ -153,17 +153,17 @@ func truncateForToken(s string, maxTokens int) string {
 	if maxTokens <= 0 || s == "" {
 		return ""
 	}
-	if seelectx.EstimateTokens(s) <= maxTokens {
+	if tokens.Count(s) <= maxTokens {
 		return s
 	}
 	const marker = "..."
-	if seelectx.EstimateTokens(marker) > maxTokens {
+	if tokens.Count(marker) > maxTokens {
 		return ""
 	}
 	var out string
 	for _, r := range s {
 		next := out + string(r)
-		if seelectx.EstimateTokens(next+marker) > maxTokens {
+		if tokens.Count(next+marker) > maxTokens {
 			break
 		}
 		out = next
