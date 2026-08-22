@@ -30,7 +30,7 @@ func TestBindSubagentTaskIdempotent(t *testing.T) {
 	if record.Status != task.TaskQueued {
 		t.Fatalf("task status after bind = %v, want queued（会话未启动前不显示 running）", record.Status)
 	}
-	if len(record.Participants) != 2 || record.Participants[0] != "s1" || record.Participants[1] != "s2" {
-		t.Fatalf("participants = %v, want [s1 s2]", record.Participants)
+	if len(record.Participants) != 0 || record.Assignee != "" {
+		t.Fatalf("participants/assignee = %v / %q, want empty（被动认领在子代理会话注册后发生）", record.Participants, record.Assignee)
 	}
 }

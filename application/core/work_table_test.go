@@ -246,7 +246,7 @@ func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 	engine.subAgentTree = []dto.SubAgentTreeNode{{
 		ID: "main",
 		Children: []dto.SubAgentTreeNode{{
-			ID: "s1", Goal: "分析作者", Status: dto.SubAgentRunning, StartedAt: time.Now(),
+			ID: "s1", Goal: "分析作者", Status: dto.SubAgentRunning, SessionID: "node-s1", StartedAt: time.Now(),
 		}},
 	}}
 	engine.mu.Unlock()
@@ -260,7 +260,8 @@ func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T) {
 		t.Fatalf("worktable.changed = %+v", event.Items)
 	}
 	snapshot := service.Snapshot()
-	if len(snapshot.Runtime.WorkTable) != 1 || snapshot.Runtime.WorkTable[0].Phase != "subagent" || snapshot.Runtime.WorkTable[0].Assignee != "s1" {
+	if len(snapshot.Runtime.WorkTable) != 1 || snapshot.Runtime.WorkTable[0].Phase != "subagent" ||
+		snapshot.Runtime.WorkTable[0].Assignee != "subagent:node-s1" {
 		t.Fatalf("snapshot work table = %+v", snapshot.Runtime.WorkTable)
 	}
 }

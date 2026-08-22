@@ -62,6 +62,23 @@ Dependency/附件），并把任务打点（trace）带进同一数据面。右�
   未命中 → 子代理自行开 task；`NodeScope.TaskID` 只作绑定元数据，不进
   prompt（保护子代理 prompt 格式纯净）。
 
+### Assignee 被动识别（role:sessionID）
+
+Assignee 不是 AI 提供的自由文本，而是系统按「执行角色 + 会话 ID」被动生成的
+身份标识（`dto.ActorIdentity`，格式 `<role>:<sessionID>`）：
+
+- 主会话（main）执行者：`main:<mainSessionID>`（`sess_<nano>`）。主会话建立时
+  （`Runtime.newMainSession`）注入 task 注册表默认身份；todolist、taskadd、
+  plan 同步等所有由主会话创建的任务自动继承并自动上名单。
+- 子代理执行者：`subagent:<subagentSessionID>`（`node-<hash>`，取自
+  `SubAgentTreeNode.SessionID`）。子代理会话注册后经 `syncSubagentTask`
+  被动认领（attach），Assignee 随之切换。
+- 自动上名单：任务创建时 Assignee 自动写入 `Participants`；接管者
+  （attach）追加进名单并成为当前 Assignee（认领语义，幂等去重）。
+- 覆盖范围：tasklist（todo）、task、plan、subagent 统一适用；旧的
+  「Assignee = 子代理 id / 执行节点」自由文本不再由 AI 或业务代码直接写入，
+  旧数据在会话恢复后经同步路径被动补齐。
+
 ### retry（B3）
 
 `status=retry` 时 `RetryCount` 自增，重跑 `running` 保留计数；前端展示
@@ -122,6 +139,7 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
   在同一临界区生成。
 - 行 ID 与 Dependency 引用是否稳定、是否有环/悬垂。
 - trace/evidence 是否截断有界；文本是否全部 escape。
+- Assignee 是否只来自 role:sessionID 被动识别并自动上名单（创建者 + 接管者）。
 - todo 状态更新是否只走后端权威（拒绝路径不发布增量）。
 - 发布器关闭是否排空尾态、Send 是否可退出（无 goroutine 泄漏）。
 

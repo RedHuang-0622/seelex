@@ -155,6 +155,60 @@ func TestTaskRegistryIdempotentAddByKey(t *testing.T) {
 	}
 }
 
+func TestActorIdentity(t *testing.T) {
+	if got := ActorIdentity("main", "sess_1"); got != "main:sess_1" {
+		t.Fatalf("ActorIdentity(main, sess_1) = %q", got)
+	}
+	if got := ActorIdentity("subagent", "node-abc"); got != "subagent:node-abc" {
+		t.Fatalf("ActorIdentity(subagent, node-abc) = %q", got)
+	}
+	if got := ActorIdentity("main", ""); got != "" {
+		t.Fatalf("empty session must yield empty identity, got %q", got)
+	}
+	if got := ActorIdentity("", "sess_1"); got != "" {
+		t.Fatalf("empty role must yield empty identity, got %q", got)
+	}
+}
+
+// TestTaskRegistryPassiveIdentityAndClaim 验证被动识别：创建默认继承
+// main:<mainSessionID> 并自动上名单；子代理认领后 Assignee 变更为
+// subagent:<sessionID>，幂等认领不重复上名单。
+func TestTaskRegistryPassiveIdentityAndClaim(t *testing.T) {
+	registry := NewTaskRegistry()
+	defer registry.Close()
+	if err := registry.SetDefaultIdentity("main:sess_1"); err != nil {
+		t.Fatal(err)
+	}
+	created, _, err := registry.Add(TaskSpec{Key: "k1", Phase: TaskPhaseTasklist, Task: "写测试", Kind: "todo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Assignee != "main:sess_1" || !containsParticipant(created.Participants, "main:sess_1") {
+		t.Fatalf("passive assignee/roster = %q / %v", created.Assignee, created.Participants)
+	}
+	// 显式 Assignee 优先于默认身份。
+	explicit, _, err := registry.Add(TaskSpec{Key: "k2", Phase: TaskPhasePlan, Task: "p", Kind: "plan", Assignee: "main:sess_2"})
+	if err != nil || explicit.Assignee != "main:sess_2" {
+		t.Fatalf("explicit assignee must win: %+v err=%v", explicit, err)
+	}
+	// 认领：子代理接管 → Assignee 变更并追加名单。
+	claimed, err := registry.AttachParticipant(created.ID, "subagent:node-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.Assignee != "subagent:node-abc" {
+		t.Fatalf("claimed assignee = %q, want subagent:node-abc", claimed.Assignee)
+	}
+	if len(claimed.Participants) != 2 || claimed.Participants[0] != "main:sess_1" || claimed.Participants[1] != "subagent:node-abc" {
+		t.Fatalf("claimed roster = %v", claimed.Participants)
+	}
+	// 幂等认领：名单不重复，Assignee 保持。
+	again, err := registry.AttachParticipant(created.ID, "subagent:node-abc")
+	if err != nil || len(again.Participants) != 2 || again.Assignee != "subagent:node-abc" {
+		t.Fatalf("idempotent claim = %+v err=%v", again, err)
+	}
+}
+
 func TestTaskRegistryRetryIncrementsCount(t *testing.T) {
 	registry := NewTaskRegistry()
 	defer registry.Close()

@@ -45,6 +45,9 @@ func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
+	if _, err := runtime.NewMainSessionWithID("sess_smoke", nil); err != nil {
+		t.Fatal(err)
+	}
 
 	now := time.Now().Format("2006-01-02 15:04:05")
 	timeCompleter := &scopeRecordingCompleter{reply: "当前时间: " + now}
@@ -82,7 +85,8 @@ func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
 		}
 	}
 
-	// 注册表幂等：两个 task，终态 completed，参与者已挂。
+	// 注册表幂等：两个 task，终态 completed，Assignee 为被动 role:sessionID
+	// 身份并已自动上名单。
 	tasks := runtime.TaskSnapshot()
 	if len(tasks) != 2 {
 		t.Fatalf("tasks = %+v, want 2", tasks)
@@ -93,10 +97,12 @@ func TestForkSubagentsSmokeTimeAndFileSummary(t *testing.T) {
 	}
 	timeTask := byID["subagent:time_agent"]
 	fileTask := byID["subagent:file_agent"]
-	if timeTask.Status != dto.TaskCompleted || !containsParticipant(timeTask.Participants, "time_agent") {
+	if timeTask.Status != dto.TaskCompleted || timeTask.Assignee != "main:sess_smoke" ||
+		!containsParticipant(timeTask.Participants, "main:sess_smoke") {
 		t.Fatalf("time task = %+v", timeTask)
 	}
-	if fileTask.Status != dto.TaskCompleted || !containsParticipant(fileTask.Participants, "file_agent") {
+	if fileTask.Status != dto.TaskCompleted || fileTask.Assignee != "main:sess_smoke" ||
+		!containsParticipant(fileTask.Participants, "main:sess_smoke") {
 		t.Fatalf("file task = %+v", fileTask)
 	}
 }

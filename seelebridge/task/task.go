@@ -112,6 +112,7 @@ const (
 	taskOpTodoByIndex
 	taskOpRestore
 	taskOpReplaceAll
+	taskOpSetIdentity
 )
 
 type taskCommand struct {
@@ -128,6 +129,7 @@ type taskCommand struct {
 	participant string
 	point       TaskTracePoint
 	items       []TodoItem
+	identity    string
 	reply       chan taskReply
 }
 
@@ -178,10 +180,11 @@ func (registry *TaskRegistry) send(command taskCommand) (taskReply, error) {
 
 // TaskRegistryState 是 actor 持有的状态（按 task 键隔离；todo 有序列表）。
 type TaskRegistryState struct {
-	tasks  map[string]*taskRecord
-	byKey  map[string]string
-	todo   []string // kind=todo 的有序 ID 列表（todolist 索引语义）
-	nextID uint64
+	tasks           map[string]*taskRecord
+	byKey           map[string]string
+	todo            []string // kind=todo 的有序 ID 列表（todolist 索引语义）
+	nextID          uint64
+	defaultIdentity string // 当前主执行身份（main:<mainSessionID>；被动 Assignee 兜底）
 }
 
 func (registry *TaskRegistry) apply(command taskCommand) {
@@ -218,6 +221,8 @@ func (registry *TaskRegistry) apply(command taskCommand) {
 		reply.task, reply.err = restoreTaskLocked(command.id, command.record, state)
 	case taskOpReplaceAll:
 		replaceAllTasksLocked(command.taskRecords, state)
+	case taskOpSetIdentity:
+		state.defaultIdentity = command.identity
 	}
 	if reply.err == nil && reply.task.ID != "" && command.op != taskOpRestore && command.op != taskOpReplaceAll {
 		registry.emitChange(reply.task)
@@ -268,9 +273,14 @@ func addTaskLocked(spec TaskSpec, state *TaskRegistryState) (TaskRecord, bool) {
 		id = fmt.Sprintf("todo:%d", state.nextID)
 		state.nextID++
 	}
+	assignee := spec.Assignee
+	if assignee == "" {
+		// 被动兜底：主执行身份（main:<mainSessionID>）由 Runtime 在会话建立时注入。
+		assignee = state.defaultIdentity
+	}
 	record := &taskRecord{record: TaskRecord{
 		ID: id, Key: key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
-		Status: TaskPending, Assignee: spec.Assignee, Kind: spec.Kind, SourceID: spec.SourceID,
+		Status: TaskPending, Assignee: assignee, Kind: spec.Kind, SourceID: spec.SourceID,
 		Dependencies: append([]string(nil), spec.Dependencies...),
 		Attachments:  append([]string(nil), spec.Attachments...),
 		StartedAt:    time.Now(),
@@ -278,6 +288,10 @@ func addTaskLocked(spec TaskSpec, state *TaskRegistryState) (TaskRecord, bool) {
 			At: time.Now(), Status: string(TaskPending), Operation: taskAddOperation(spec.Kind),
 		}},
 	}}
+	// 被动上名单：创建即把 Assignee 加入 Participants（去重），AI 不参与。
+	if assignee != "" && !containsParticipant(record.record.Participants, assignee) {
+		record.record.Participants = append(record.record.Participants, assignee)
+	}
 	state.tasks[id] = record
 	if key != "" {
 		state.byKey[key] = id
@@ -350,13 +364,29 @@ func attachParticipantLocked(id, participant string, state *TaskRegistryState) (
 	if !ok {
 		return TaskRecord{}, fmt.Errorf("task: %s not found", id)
 	}
+	if participant == "" {
+		return record.record, nil
+	}
 	for _, existing := range record.record.Participants {
 		if existing == participant {
+			// 幂等重复认领：保持当前 Assignee 为该身份。
+			record.record.Assignee = participant
 			return record.record, nil
 		}
 	}
 	record.record.Participants = append(record.record.Participants, participant)
+	// 认领语义：最近接管者成为当前 Assignee（被动识别，AI 不提供自由文本）。
+	record.record.Assignee = participant
 	return record.record, nil
+}
+
+func containsParticipant(participants []string, want string) bool {
+	for _, participant := range participants {
+		if participant == want {
+			return true
+		}
+	}
+	return false
 }
 
 func appendTaskTraceLocked(id string, point TaskTracePoint, state *TaskRegistryState) (TaskRecord, error) {
@@ -531,6 +561,17 @@ func (registry *TaskRegistry) Add(spec TaskSpec) (TaskRecord, bool, error) {
 	return reply.task, reply.created, err
 }
 
+// SetDefaultIdentity 设置当前主执行身份（main:<mainSessionID>）。无显式
+// Assignee 的 task 创建（todolist/taskadd/plan 同步）自动继承并在创建时
+// 自动上名单（Participants）。
+func (registry *TaskRegistry) SetDefaultIdentity(identity string) error {
+	reply, err := registry.send(taskCommand{op: taskOpSetIdentity, identity: identity, reply: make(chan taskReply, 1)})
+	if err != nil {
+		return err
+	}
+	return reply.err
+}
+
 // ResolveByKey 按幂等键查 task。
 func (registry *TaskRegistry) ResolveByKey(key string) (TaskRecord, bool, error) {
 	reply, err := registry.send(taskCommand{op: taskOpResolveByKey, key: key, reply: make(chan taskReply, 1)})
@@ -653,4 +694,9 @@ func TaskKeyForGoal(goal string) string {
 	hasher := fnv.New64a()
 	_, _ = hasher.Write([]byte(normalized))
 	return fmt.Sprintf("goal:%x", hasher.Sum64())
+}
+
+// ActorIdentity 按 role+sessionID 合成执行身份（dto 自由函数别名）。
+func ActorIdentity(role, sessionID string) string {
+	return dto.ActorIdentity(role, sessionID)
 }

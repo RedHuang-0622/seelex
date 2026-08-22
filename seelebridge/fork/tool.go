@@ -169,7 +169,6 @@ func (t *Tool) forkReuseResultJSON(specs []SubagentSpec, summaries map[string]st
 func (t *Tool) bindSubagentTask(spec SubagentSpec) string {
 	key := task.TaskKeyForGoal(spec.Goal)
 	if existing, found, _ := t.deps.TaskResolveByKey(key); found {
-		_, _ = t.deps.TaskAttachParticipant(existing.ID, spec.ID)
 		// 既有 task 被子代理重新接手：
 		//   - 终态（completed/failed）→ 重试语义：置 retry（RetryCount
 		//     自增，worktable 显示 RETRY n），节点真正启动时再转 running；
@@ -187,12 +186,11 @@ func (t *Tool) bindSubagentTask(spec SubagentSpec) string {
 	}
 	created, _, err := t.deps.TaskAdd(task.TaskSpec{
 		ID: "subagent:" + spec.ID, Key: key, Phase: task.TaskPhaseSubagent, Task: spec.Goal,
-		Kind: "subagent", Assignee: spec.ID, SourceID: spec.ID,
+		Kind: "subagent", SourceID: spec.ID,
 	})
 	if err != nil {
 		return ""
 	}
-	_, _ = t.deps.TaskAttachParticipant(created.ID, spec.ID)
 	_, _ = t.deps.TaskSetStatus(created.ID, task.TaskQueued, "fork scheduled")
 	return created.ID
 }

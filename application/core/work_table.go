@@ -237,6 +237,7 @@ func (service *Service) syncTasksFromSources() {
 func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
 	key := "plan:" + node.ID
 	status := taskStatusForNode(node.Status)
+	identity := dto.ActorIdentity("main", service.deps.Engine.SessionID())
 	existing, found, err := service.deps.Runtime.ResolveTaskByKey(key)
 	if err != nil {
 		return
@@ -244,7 +245,7 @@ func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
 	if !found {
 		spec := dto.TaskSpec{
 			ID: key, Key: key, Phase: dto.TaskPhasePlan, Task: node.Label, Kind: "plan",
-			SourceID: node.ID,
+			SourceID: node.ID, Assignee: identity,
 		}
 		if parentID != "" {
 			spec.Dependencies = []string{parentID}
@@ -255,11 +256,16 @@ func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
 	if existing.Status != status {
 		_, _ = service.deps.Runtime.TaskSetStatus(existing.ID, status, "node:"+string(node.Status))
 	}
+	// 被动认领：旧数据/恢复会话无 Assignee 时补主身份并上名单。
+	if existing.Assignee == "" && identity != "" {
+		_, _ = service.deps.Runtime.TaskAttachParticipant(existing.ID, identity)
+	}
 }
 
 func (service *Service) syncSubagentTask(node dto.SubAgentTreeNode, parentID string) {
 	key := "subagent:" + node.ID
 	status := taskStatusForSubagent(node.Status)
+	identity := dto.ActorIdentity("subagent", node.SessionID)
 	existing, found, err := service.deps.Runtime.ResolveTaskByKey(key)
 	if err != nil {
 		return
@@ -267,20 +273,26 @@ func (service *Service) syncSubagentTask(node dto.SubAgentTreeNode, parentID str
 	if !found {
 		spec := dto.TaskSpec{
 			ID: key, Key: key, Phase: dto.TaskPhaseSubagent, Task: node.Goal, Kind: "subagent",
-			Assignee: node.ID, SourceID: node.ID,
+			SourceID: node.ID,
 		}
 		if parentID != "" {
 			spec.Dependencies = []string{"subagent:" + parentID}
 		}
 		created, _, _ := service.deps.Runtime.TaskAdd(spec)
 		_, _ = service.deps.Runtime.TaskSetStatus(created.ID, status, "subagent:"+string(node.Status))
-		_, _ = service.deps.Runtime.TaskAttachParticipant(created.ID, node.ID)
+		// 会话已注册 → 子代理认领（Assignee 变更为 subagent:<sessionID> 并上名单）。
+		if identity != "" {
+			_, _ = service.deps.Runtime.TaskAttachParticipant(created.ID, identity)
+		}
 		return
 	}
 	if existing.Status != status {
 		_, _ = service.deps.Runtime.TaskSetStatus(existing.ID, status, "subagent:"+string(node.Status))
 	}
-	_, _ = service.deps.Runtime.TaskAttachParticipant(existing.ID, node.ID)
+	// 被动认领：确保当前子代理身份在名单上并成为 Assignee。
+	if identity != "" {
+		_, _ = service.deps.Runtime.TaskAttachParticipant(existing.ID, identity)
+	}
 }
 
 func taskStatusForNode(status NodeStatus) dto.TaskStatus {

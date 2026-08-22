@@ -2,7 +2,10 @@
 // （无运行时依赖；contract 依赖它、seelebridge 以 alias 兼容）。
 package dto
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // TaskStatus 是 task 生命周期状态。
 type TaskStatus string
@@ -43,12 +46,12 @@ type TaskRecord struct {
 	Description  string           `json:"description,omitempty"`  //
 	Status       TaskStatus       `json:"status"`                 // pending/running/completed/failed/retry
 	RetryCount   int              `json:"retry_count,omitempty"`  // 重试数字
-	Assignee     string           `json:"assignee,omitempty"`     // main | 子代理 id | 执行节点
+	Assignee     string           `json:"assignee,omitempty"`     // main:<mainSessionID> | subagent:<subagentSessionID>；role:sessionID 被动识别
 	Dependencies []string         `json:"dependencies,omitempty"` // 前置任务（WorkItem ID 引用）
 	Attachments  []string         `json:"attachments,omitempty"`  // 可选附件路径
 	Kind         string           `json:"kind"`                   // plan | todo | subagent | task
 	SourceID     string           `json:"source_id,omitempty"`    // 原数据面 ID（详情溯源）
-	Participants []string         `json:"participants,omitempty"` // 同一 task 的多个子代理
+	Participants []string         `json:"participants,omitempty"` // 名单：创建者自动上名单；接管者（role:sessionID）追加并成为当前 Assignee
 	StartedAt    time.Time        `json:"started_at,omitempty"`
 	EndedAt      time.Time        `json:"ended_at,omitempty"`
 	Elapsed      string           `json:"elapsed,omitempty"`
@@ -67,6 +70,19 @@ type TaskSpec struct {
 	SourceID     string   `json:"source_id,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
 	Attachments  []string `json:"attachments,omitempty"`
+}
+
+// ActorIdentity 由执行角色与会话 ID 合成 Assignee/Participants 身份标识。
+//
+// 识别规则（被动）：系统按实际执行者生成，AI 不提供自由文本。role 与
+// sessionID 任一为空时返回空串；否则返回 "<role>:<sessionID>"。
+func ActorIdentity(role, sessionID string) string {
+	role = strings.TrimSpace(role)
+	sessionID = strings.TrimSpace(sessionID)
+	if role == "" || sessionID == "" {
+		return ""
+	}
+	return role + ":" + sessionID
 }
 
 // TodoItemStatus 是清单项三态（兼容 TUI/旧契约；权威状态在

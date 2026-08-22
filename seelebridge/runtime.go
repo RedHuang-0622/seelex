@@ -440,6 +440,10 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	}
 	r.bindings.setSessionID(sessionID)
+	if r.tasks != nil {
+		// 被动识别：主执行身份 = main:<mainSessionID>，task 创建默认继承并上名单。
+		_ = r.tasks.SetDefaultIdentity(dto.ActorIdentity("main", sessionID))
+	}
 	components := session.SessionComponents{
 		Agent:     r.agt,
 		Context:   r.mainContextComponents(),

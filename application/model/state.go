@@ -310,12 +310,12 @@ type WorkItem struct {
 	Description  string           `json:"description,omitempty"`  // 描述/output 摘要
 	Status       string           `json:"status"`                 // 权威状态（来源状态机）
 	RetryCount   int              `json:"retry_count,omitempty"`  // 重试数字（RETRY n）
-	Assignee     string           `json:"assignee,omitempty"`     // main | 子代理 id | 执行节点
+	Assignee     string           `json:"assignee,omitempty"`     // main:<mainSessionID> | subagent:<subagentSessionID>；role:sessionID 被动识别
 	Dependencies []string         `json:"dependencies,omitempty"` // 前置任务（WorkItem ID 引用）
 	Attachments  []string         `json:"attachments,omitempty"`  // 可选：worktree/read_file 路径
 	Kind         string           `json:"kind"`                   // plan | todo | subagent
 	SourceID     string           `json:"source_id,omitempty"`    // 原数据面 ID（详情溯源）
-	Participants []string         `json:"participants,omitempty"` // 同一 task 的多个子代理（幂等去重后合并）
+	Participants []string         `json:"participants,omitempty"` // 名单：创建者自动上名单；接管者（role:sessionID）追加并成为当前 Assignee
 	StartedAt    time.Time        `json:"started_at,omitempty"`
 	EndedAt      time.Time        `json:"ended_at,omitempty"`
 	Elapsed      string           `json:"elapsed,omitempty"`
