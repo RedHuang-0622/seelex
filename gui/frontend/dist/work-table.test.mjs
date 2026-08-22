@@ -10,6 +10,7 @@ const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSourc
 const source = (await readFile(new URL("./work-table.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`);
 const {
+  createWorkTableView,
   workTableView,
   renderShellHTML,
   renderWorkItemRow,
@@ -21,6 +22,60 @@ const {
 } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const uiState = () => ({ expanded: true, filter: "all", traces: new Set() });
+
+function workTableViewHarness() {
+  let clickHandler = null;
+  const rowsContainer = {
+    children: [],
+    querySelector: () => null,
+    append() {},
+    insertAdjacentHTML() {},
+    ownerDocument: { createElement: () => ({ innerHTML: "", content: { firstElementChild: null } }) }
+  };
+  const container = {
+    classList: { add() {}, remove() {}, toggle() {} },
+    dataset: {},
+    innerHTML: "",
+    addEventListener(type, fn) { if (type === "click") clickHandler = fn; },
+    querySelector(selector) { return selector === "[data-work-rows]" ? rowsContainer : null; }
+  };
+  return { container, click: event => clickHandler(event) };
+}
+
+test("delegates detail clicks in the work table to onDetail", () => {
+  const harness = workTableViewHarness();
+  const view = createWorkTableView(harness.container);
+  let opened = "";
+  view.bind({ onDetail: id => { opened = id; }, onStatus() {} });
+  view.render([{
+    id: "plan:n1", phase: "plan", task: "调研", status: "running", kind: "plan",
+    source_id: "n1", trace: []
+  }]);
+  harness.click({
+    target: { closest(selector) {
+      return selector === "[data-plan-node-open]" ? { dataset: { planNodeOpen: "n1" } } : null;
+    } },
+    stopPropagation() {}
+  });
+  assert.equal(opened, "n1");
+});
+
+test("trace toggle does not fall through to the detail delegation", () => {
+  const harness = workTableViewHarness();
+  const view = createWorkTableView(harness.container);
+  let opened = "";
+  view.bind({ onDetail: id => { opened = id; }, onStatus() {} });
+  view.render([{
+    id: "plan:n1", phase: "plan", task: "调研", status: "running", kind: "plan",
+    source_id: "n1", trace: [{ status: "running", operation: "read_file" }]
+  }]);
+  harness.click({
+    target: { closest(selector) {
+      return selector === "[data-work-trace-toggle]" ? { dataset: { workTraceToggle: "plan:n1" } } : null;
+    } }
+  });
+  assert.equal(opened, "");
+});
 
 test("normalizes work table rows defensively", () => {
   assert.deepEqual(workTableView(null), []);

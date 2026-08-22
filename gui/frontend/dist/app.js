@@ -418,7 +418,8 @@ workTableView.bind({
     } catch (error) {
       showToast(error);
     }
-  }
+  },
+  onDetail: id => openNodeDetail(id)
 });
 
 elements["work-table-open"]?.addEventListener("click", openWorkTable);

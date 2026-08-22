@@ -119,6 +119,13 @@ export function createWorkTableView(container, options = {}) {
         render();
         return;
       }
+      const detail = event.target.closest?.("[data-plan-node-open]");
+      if (detail?.dataset.planNodeOpen) {
+        // 详情入口委托给宿主（节点详情弹窗），弹窗内 self-contained。
+        event.stopPropagation();
+        handlers.onDetail?.(detail.dataset.planNodeOpen);
+        return;
+      }
       const status = event.target.closest?.("[data-work-status]");
       if (status?.dataset.workStatus && status.dataset.status) {
         handlers.onStatus?.(status.dataset.workStatus, status.dataset.status);
