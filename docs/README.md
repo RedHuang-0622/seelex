@@ -72,3 +72,18 @@
 | 文档 | 说明 |
 |------|------|
 | [`feature-instrumentation.md`](feature-instrumentation.md) | 功能打点表与北极星指标 |
+
+## 📦 一次性工作包（YYYY-MM-DD-topic）
+
+| 文档 | 说明 |
+|------|------|
+| [`2026-08-22-full-code-review/README.md`](2026-08-22-full-code-review/README.md) | 全仓库分层代码审阅：架构字符画、数据流图、设计决策解读、Tech Leader 质询与解答 |
+| [`2026-08-22-application-split/design.md`](2026-08-22-application-split/design.md) | application 容器化重构设计（合约净化、adapters 归位、core 域包化） |
+| [`2026-08-23-worktable-sharding-filetree/README.md`](2026-08-23-worktable-sharding-filetree/README.md) | worktable 多维分片 + 工作台文件树工作包（plan + 打点表） |
+| [`2026-08-14-decoupling/00-index.md`](2026-08-14-decoupling/00-index.md) | 解耦重构系列文档索引 |
+
+## 🔬 调研报告
+
+| 文档 | 说明 |
+|------|------|
+| [`research/2026-08-23-file-content-preview.md`](research/2026-08-23-file-content-preview.md) | 文件内容详情查看（File Preview）方案调研 |
