@@ -435,11 +435,14 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 
 /* ---------- 7. Tool runs ---------- */
-.tool-run { border: 1px solid var(--border); border-left: 3px solid var(--tick); border-radius: var(--r-xl); overflow: hidden; background: var(--surface); }
-.tool-run.is-running { border-left-color: var(--status-running); }
-.tool-run.is-success { border-left-color: var(--status-done); }
-.tool-run.is-error { border-left-color: var(--status-failed); }
+.tool-run { border: 1px solid var(--border); border-top: 2px solid var(--tick); border-radius: var(--r-lg); overflow: hidden; background: var(--surface); }
+.tool-run.is-running { border-top-color: var(--status-running); }
+.tool-run.is-success { border-top-color: var(--status-done); }
+.tool-run.is-error { border-top-color: var(--status-failed); }
 .tool-run-head { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.tool-run.is-running .tool-run-head { background: var(--tint-running); }
+.tool-run.is-success .tool-run-head { background: var(--tint-done); }
+.tool-run.is-error .tool-run-head { background: var(--tint-failed); }
 .tool-symbol { color: var(--muted); }
 .tool-run-head strong { overflow: hidden; font: 600 12px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .tool-duration { margin-left: auto; color: var(--muted); font: 10px var(--font-mono); }
