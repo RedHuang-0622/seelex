@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
@@ -37,9 +39,9 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 	// node:<nodeID>: 前缀 = 子代理工具结果：经引擎桥读回节点专属归档
 	// （P1 修复——子代理 ref 主会话原本读不到；ref 前缀由节点归档器写入）。
 	if nodeID, ok := nodeResultRef(input.ResultRef); ok {
-		service.mu.RLock()
+		service.Mu.RLock()
 		raw, found := service.nodeToolResult(nodeID, input.ResultRef)
-		service.mu.RUnlock()
+		service.Mu.RUnlock()
 		if !found {
 			return "", errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
 		}
@@ -54,22 +56,22 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 	// result:call_... 读回失败）。
 	input.ResultRef = service.resolveToolResultRefAlias(input.ResultRef)
 
-	service.mu.RLock()
+	service.Mu.RLock()
 	if !service.hasToolResultRefLocked(input.ResultRef) {
-		service.mu.RUnlock()
+		service.Mu.RUnlock()
 		return "", errors.New("read_tool_result: result_ref is not available in the current session")
 	}
-	for _, pending := range service.pendingToolResults {
+	for _, pending := range service.components.tasks.PendingToolResults() {
 		if pending.Ref == input.ResultRef {
-			service.mu.RUnlock()
+			service.Mu.RUnlock()
 			return encodeToolResultPage(pending, input.Offset, input.Limit, input.Contains)
 		}
 	}
-	sessionID := service.snapshot.Session.ID
-	workspaceID := workspaceID(service.snapshot.CurrentWorkspace)
-	service.mu.RUnlock()
+	sessionID := service.Core.Snapshot.Session.ID
+	workspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
+	service.Mu.RUnlock()
 
-	store, ok := service.deps.Sessions.(sessionTranscriptPort)
+	store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
 	if !ok {
 		return "", errors.New("read_tool_result: durable result storage is unavailable")
 	}
@@ -93,9 +95,9 @@ func (service *Service) resolveToolResultRefAlias(ref string) string {
 	if callID == "" {
 		return ref
 	}
-	service.mu.RLock()
-	realRef := service.resultRefsByToolCallID[callID]
-	service.mu.RUnlock()
+	service.Mu.RLock()
+	realRef := service.components.tasks.ToolResultRefByCallID(callID)
+	service.Mu.RUnlock()
 	if realRef == "" {
 		return ref
 	}
@@ -118,14 +120,14 @@ func nodeResultRef(ref string) (string, bool) {
 
 // nodeToolResult 读回子代理工具结果（引擎桥；Engine 未装配 → 不可用）。
 func (service *Service) nodeToolResult(nodeID, ref string) (string, bool) {
-	if service == nil || service.deps.Engine == nil {
+	if service == nil || service.Deps.Engine == nil {
 		return "", false
 	}
-	return service.deps.Engine.NodeToolResult(nodeID, ref)
+	return service.Deps.Engine.NodeToolResult(nodeID, ref)
 }
 
 func (service *Service) hasToolResultRefLocked(resultRef string) bool {
-	for _, result := range service.toolResultRefs {
+	for _, result := range service.components.tasks.ToolResultRefs() {
 		if result.Ref == resultRef {
 			return true
 		}
@@ -189,19 +191,19 @@ func (service *Service) ReadPlanHandler(_ context.Context, argsJSON string) (str
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("read_plan: invalid JSON: %w", err)
 	}
-	service.mu.RLock()
+	service.Mu.RLock()
 	planRef := strings.TrimSpace(input.PlanRef)
 	if planRef == "" {
-		planRef = service.activePlanID
+		planRef = service.components.tasks.ActivePlanID()
 	}
-	frame := activePlanFrame(service.planStack, planRef)
+	frame := task_context.ActivePlanFrame(service.components.tasks.PlanStack(), planRef)
 	if frame == nil {
-		service.mu.RUnlock()
+		service.Mu.RUnlock()
 		return "", errors.New("read_plan: plan_ref is not available in the current session")
 	}
 	arguments := frame.Arguments
 	planState := cloneRuntimeState(RuntimeState{Plan: frame.Plan}).Plan
-	service.mu.RUnlock()
+	service.Mu.RUnlock()
 
 	var canonical map[string]any
 	if err := json.Unmarshal([]byte(arguments), &canonical); err != nil {

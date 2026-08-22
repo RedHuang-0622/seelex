@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
@@ -65,7 +66,7 @@ func TestBuildWorkTableMapsPlanNodes(t *testing.T) {
 	for _, point := range n1.Trace {
 		traceOps = append(traceOps, point.Operation)
 	}
-	if !containsString(traceOps, "read_file") || !containsString(traceOps, "node.lifecycle") {
+	if !task_context.ContainsString(traceOps, "read_file") || !task_context.ContainsString(traceOps, "node.lifecycle") {
 		t.Fatalf("n1 trace ops = %v", traceOps)
 	}
 }
@@ -85,7 +86,7 @@ func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T) {
 	for _, point := range rows[0].Trace {
 		ops = append(ops, point.Operation)
 	}
-	if len(rows) != 1 || !containsString(ops, "task_check_node") {
+	if len(rows) != 1 || !task_context.ContainsString(ops, "task_check_node") {
 		t.Fatalf("tasklist mode trace = %+v", rows)
 	}
 }

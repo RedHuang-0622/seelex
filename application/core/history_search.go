@@ -21,10 +21,10 @@ func (service *Service) SearchHistory(ctx context.Context, query string, limit i
 	if strings.TrimSpace(query) == "" {
 		return seelexctxsearch.Result{}, ErrEmptySearchQuery
 	}
-	if service == nil || service.deps.Runtime == nil {
+	if service == nil || service.Deps.Runtime == nil {
 		return seelexctxsearch.Result{}, errors.New("search_history: runtime is unavailable")
 	}
-	return service.deps.Runtime.SearchHistory(ctx, query, limit)
+	return service.Deps.Runtime.SearchHistory(ctx, query, limit)
 }
 
 // SearchHistoryHandler 实现 search_history 工具：模型在上下文缺少相关历史
@@ -45,7 +45,7 @@ func (service *Service) SearchHistoryHandler(_ context.Context, argsJSON string)
 	if input.Limit <= 0 {
 		input.Limit = seelexctxsearch.DefaultLimit
 	}
-	result, err := service.deps.Runtime.SearchHistory(context.Background(), input.Query, input.Limit)
+	result, err := service.Deps.Runtime.SearchHistory(context.Background(), input.Query, input.Limit)
 	if err != nil {
 		return "", fmt.Errorf("search_history: %w", err)
 	}

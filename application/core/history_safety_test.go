@@ -3,32 +3,11 @@ package core
 import (
 	"context"
 	"errors"
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"strings"
 	"testing"
 )
-
-func TestRepairEmptyHistoryContentRepairsToolCallAssistantContent(t *testing.T) {
-	history := []EngineMessage{
-		{Role: "assistant", ToolCalls: []EngineToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"a.go"}`}}},
-		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: ""},
-		{Role: "assistant", Content: ""},
-	}
-	prepared, repaired := repairEmptyHistoryContent(history)
-	if !repaired {
-		t.Fatal("expected empty non-protocol messages to be repaired")
-	}
-	if prepared[0].Content != toolCallHistoryContent || !prepared[0].ContentSet {
-		t.Fatalf("tool-call assistant was not repaired: %+v", prepared[0])
-	}
-	if len(prepared[0].ToolCalls) != 1 || prepared[0].ToolCalls[0].ID != "call-1" {
-		t.Fatalf("tool-call assistant lost its protocol data: %+v", prepared[0])
-	}
-	for _, index := range []int{1, 2} {
-		if prepared[index].Content != missingHistoryContent || !prepared[index].ContentSet {
-			t.Fatalf("message %d was not repaired: %+v", index, prepared[index])
-		}
-	}
-}
 
 func TestNonEmptyProviderInputExplainsEmptySubmission(t *testing.T) {
 	if got := nonEmptyProviderInput("  \n"); got == "" {
@@ -43,11 +22,11 @@ func TestPrepareProviderHistoryRepairsBeforeChat(t *testing.T) {
 	engine := &fakeEngine{history: []EngineMessage{{Role: "assistant", Content: ""}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	if err := service.components.history.prepareProviderHistory(); err != nil {
+	if err := service.components.history.PrepareProviderHistory(); err != nil {
 		t.Fatal(err)
 	}
 	history := engine.History()
-	if len(history) != 1 || history[0].Content != missingHistoryContent || !history[0].ContentSet {
+	if len(history) != 1 || history[0].Content != context_runtime.MissingHistoryContent || !history[0].ContentSet {
 		t.Fatalf("prepared history = %+v", history)
 	}
 }
@@ -61,10 +40,10 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.mu.Lock()
-	service.taskExecution = newTaskExecutionState("task-1", "audit the repository", "high")
-	service.taskExecution.checkpoint("inspect", "inspect source", "completed", "found the call path", "")
-	service.mu.Unlock()
+	service.Mu.Lock()
+	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, TaskCheckpoint{})
+	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found the call path", "")
+	service.Mu.Unlock()
 
 	err := errors.New("engine loop 15: invalid params, context window exceeds limit (2013)")
 	if err := service.recoverProviderContext(err, "audit the repository"); err != nil {
@@ -109,11 +88,11 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.mu.Lock()
-	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.taskExecution = newTaskExecutionState("task-1", "audit source", "high")
-	service.taskExecution.checkpoint("inspect", "source", "completed", "found a call path", "")
-	service.mu.Unlock()
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "audit source", "high", nil, TaskCheckpoint{})
+	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "source", "completed", "found a call path", "")
+	service.Mu.Unlock()
 
 	recovered, err := service.recoverProviderFailure(errors.New("engine loop 16: ChatClient stream: HTTP 504: timeout_error"), "audit source")
 	if err != nil || !recovered {
@@ -149,10 +128,10 @@ func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t 
 	if task := service.Snapshot().Task; task == nil || task.Status != TaskInterrupted {
 		t.Fatalf("task state = %#v, want interrupted", task)
 	}
-	service.mu.RLock()
-	projection := service.components.tasks.taskProjectionLocked(service.snapshot.Session.ID)
-	service.mu.RUnlock()
-	if projection == nil || projection.Status != taskStatusInterrupted || projection.Checkpoint.CoversEventRange.End == 0 {
+	service.Mu.RLock()
+	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
+	service.Mu.RUnlock()
+	if projection == nil || projection.Status != task_context.StatusInterrupted || projection.Checkpoint.CoversEventRange.End == 0 {
 		t.Fatalf("projection = %#v", projection)
 	}
 }
@@ -232,10 +211,10 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 	}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.mu.Lock()
-	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.taskExecution = newTaskExecutionState("task-1", "load a plan", "high")
-	service.mu.Unlock()
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "load a plan", "high", nil, TaskCheckpoint{})
+	service.Mu.Unlock()
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
@@ -248,7 +227,7 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 	if len(history) != 1 || len(history[0].ToolCalls) != 1 {
 		t.Fatalf("tool round must be retained for pairing repair: %#v", history)
 	}
-	if history[0].Content != toolCallHistoryContent {
+	if history[0].Content != context_runtime.ToolCallHistoryContent {
 		t.Fatalf("empty assistant tool-call content = %q, want pairing repair text", history[0].Content)
 	}
 }

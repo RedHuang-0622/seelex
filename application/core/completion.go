@@ -30,7 +30,7 @@ func (service *Service) Suggestions(input string) []Suggestion {
 	}
 	all := make([]Suggestion, 0)
 	if trigger == "/" || trigger == "#" {
-		for _, skill := range service.deps.Skills.All() {
+		for _, skill := range service.Deps.Skills.All() {
 			all = append(all, Suggestion{Text: skill.Name, Description: skill.Description, Kind: "skill"})
 		}
 	}
@@ -38,12 +38,12 @@ func (service *Service) Suggestions(input string) []Suggestion {
 		for _, command := range service.commands.All() {
 			all = append(all, Suggestion{Text: command.Name(), Description: command.Description(), Kind: "command"})
 		}
-		for _, tool := range service.deps.Runtime.VisibleTools(context.Background()) {
+		for _, tool := range service.Deps.Runtime.VisibleTools(context.Background()) {
 			all = append(all, Suggestion{Text: tool.Name, Description: tool.Description, Kind: "tool"})
 		}
 	}
 	if trigger == "@" {
-		for _, plugin := range service.deps.Plugins.All() {
+		for _, plugin := range service.Deps.Plugins.All() {
 			all = append(all, Suggestion{Text: plugin.Name, Description: plugin.Description, Kind: "plugin"})
 		}
 		all = append(all, Suggestion{Text: "off", Description: "停用所有插件", Kind: "plugin"})

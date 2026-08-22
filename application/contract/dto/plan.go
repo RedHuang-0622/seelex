@@ -2,6 +2,16 @@ package dto
 
 import "time"
 
+// PlanEdge 是 Seelex 拥有的可序列化 Plan 边类型。
+// JSON 格式与旧 serialize.PlanEdgeSpec 保持同形，PlanState.Edges 的 DTO
+// 契约不变；seelebridge/plan 以 alias 复用本定义（单源）。
+type PlanEdge struct {
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Label     string `json:"label,omitempty"`
+	Condition string `json:"condition,omitempty"`
+}
+
 // AccountRole 表示账号承担的任务类别（agent/subagent/goalplan）。
 type AccountRole string
 

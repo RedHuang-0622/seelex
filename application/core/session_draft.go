@@ -5,24 +5,27 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
 const draftSessionName = "新会话"
 
-// BeginNewSession enters an idempotent, unpersisted draft state. The engine
-// session is created only when the first real conversation request is sent.
+// BeginNewSession 进入幂等、未持久化的草稿状态。引擎会话只在第一条真实
+// conversation 请求发出时创建。
 func (service *Service) BeginNewSession() error {
-	service.sessionTransitionMu.Lock()
-	defer service.sessionTransitionMu.Unlock()
+	transition := service.components.sessions.TransitionLock()
+	transition.Lock()
+	defer transition.Unlock()
 
-	service.mu.RLock()
+	service.Mu.RLock()
 	closed := service.closed
 	draining := service.draining
-	running := service.snapshot.Chat.Running
-	draft := service.snapshot.Session.Draft
-	sessionID := service.snapshot.Session.ID
-	currentWorkspaceID := workspaceID(service.snapshot.CurrentWorkspace)
-	service.mu.RUnlock()
+	running := service.Core.Snapshot.Chat.Running
+	draft := service.Core.Snapshot.Session.Draft
+	sessionID := service.Core.Snapshot.Session.ID
+	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
+	service.Mu.RUnlock()
 	if closed {
 		return errors.New("application is shut down")
 	}
@@ -36,105 +39,91 @@ func (service *Service) BeginNewSession() error {
 		return nil
 	}
 
-	if len(service.deps.Engine.History()) > 0 {
-		service.deps.Sessions.SetWorkspace(currentWorkspaceID)
-		if err := service.components.sessions.persistCurrentSession(sessionID); err != nil {
+	if len(service.Deps.Engine.History()) > 0 {
+		service.Deps.Sessions.SetWorkspace(currentWorkspaceID)
+		if err := service.components.sessions.PersistCurrentSession(sessionID); err != nil {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
 		}
 	}
-	service.deps.Engine.ClearHistory()
+	service.Deps.Engine.ClearHistory()
 	service.promptStack.ClearKind("skill")
 	// 离开当前会话：解绑 context 模块，防止四栈串到新会话。
-	if store, ok := service.deps.Sessions.(sessionContextPort); ok {
+	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
 		store.DetachSessionContext()
 	}
 
-	service.mu.Lock()
-	service.snapshot.Session = SessionState{Name: draftSessionName, Draft: true}
-	service.snapshot.Conversation = nil
-	service.snapshot.Chat = ChatState{}
-	service.snapshot.HistoryOffset = 0
-	service.snapshot.TotalMessages = 0
-	service.snapshot.HasMoreHistory = false
-	service.snapshot.Runtime.Plan = nil
-	service.snapshot.Interaction = nil
-	service.sessionTitle = SessionTitle{}
-	service.planStack = nil
-	service.activePlanID = ""
-	service.planSequence = 0
+	service.Mu.Lock()
+	service.Core.Snapshot.Session = SessionState{Name: draftSessionName, Draft: true}
+	service.Core.Snapshot.Conversation = nil
+	service.Core.Snapshot.Chat = ChatState{}
+	service.Core.Snapshot.HistoryOffset = 0
+	service.Core.Snapshot.TotalMessages = 0
+	service.Core.Snapshot.HasMoreHistory = false
+	service.Core.Snapshot.Runtime.Plan = nil
+	service.Core.Snapshot.Interaction = nil
+	service.components.sessions.SetSessionTitleLocked(SessionTitle{})
 	service.inputQueue = nil
-	service.taskExecution = nil
-	service.taskService = nil
-	service.components.tasks.syncGoalSkillActiveLocked()
-	service.transcript = nil
-	service.transcriptSeq = 0
-	service.pendingProviderCalls = nil
-	service.pendingToolResults = nil
-	service.toolResultRefs = nil
-	service.resultRefsByToolCallID = make(map[string]string)
-	service.taskCheckpoints = nil
+	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
-	service.mu.Unlock()
+	service.Mu.Unlock()
 	service.publishRuntimeProjections()
 	// 会话级工作台隔离：新会话清空 task 注册表与子代理树，避免旧会话
 	// 数据污染新会话工作台，并发布空工作表格。
-	service.deps.Runtime.SwitchSessionTasks(nil)
-	_ = service.deps.Runtime.ClearSubagentTree()
+	service.Deps.Runtime.SwitchSessionTasks(nil)
+	_ = service.Deps.Runtime.ClearSubagentTree()
 	service.refreshWorkTableFromSources()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
 }
 
-// materializeDraftSession creates the engine session and project binding for
-// the first request. The caller must hold sessionTransitionMu.
+// materializeDraftSession 为首条请求创建引擎会话与项目绑定。调用方必须持有
+// sessionTransitionMu。
 func (service *Service) materializeDraftSession(firstQuestion string) error {
-	service.mu.RLock()
-	draft := service.snapshot.Session.Draft
+	service.Mu.RLock()
+	draft := service.Core.Snapshot.Session.Draft
 	var workspace *WorkspaceInfo
-	if service.snapshot.CurrentWorkspace != nil {
-		item := *service.snapshot.CurrentWorkspace
+	if service.Core.Snapshot.CurrentWorkspace != nil {
+		item := *service.Core.Snapshot.CurrentWorkspace
 		workspace = &item
 	}
-	service.mu.RUnlock()
+	service.Mu.RUnlock()
 	if !draft {
 		return nil
 	}
 
 	if workspace != nil {
-		if err := service.deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+		if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
 			return fmt.Errorf("bind project root for new session: %w", err)
 		}
-		service.deps.Sessions.SetWorkspace(workspace.ID)
+		service.Deps.Sessions.SetWorkspace(workspace.ID)
 	} else {
-		service.deps.Runtime.UnbindProjectRoot()
-		service.deps.Sessions.SetWorkspace("")
+		service.Deps.Runtime.UnbindProjectRoot()
+		service.Deps.Sessions.SetWorkspace("")
 	}
-	newID := strings.TrimSpace(service.deps.Engine.StartSession())
+	newID := strings.TrimSpace(service.Deps.Engine.StartSession())
 	if newID == "" {
 		return errors.New("engine returned an empty session ID")
 	}
 	// 新会话无既有 context：保持解绑（Runtime 退回内存态，与 draft 一致）。
-	if store, ok := service.deps.Sessions.(sessionContextPort); ok {
+	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
 		store.DetachSessionContext()
 	}
-	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
-	if workspace != nil && service.deps.Workspace != nil {
-		service.deps.Workspace.BindSession(newID, workspace.ID)
+	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	if workspace != nil && service.Deps.Workspace != nil {
+		service.Deps.Workspace.BindSession(newID, workspace.ID)
 	}
 	workspaceProjection := service.collectWorkspaceProjection()
 
-	service.mu.Lock()
-	title := SessionTitle{Value: sessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
-	service.snapshot.Session = SessionState{ID: newID, Name: title.Value}
-	service.sessionTitle = title
-	service.planStack = nil
-	service.activePlanID = ""
-	service.planSequence = 0
+	service.Mu.Lock()
+	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
+	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
+	service.components.sessions.SetSessionTitleLocked(title)
+	service.components.tasks.ResetPlanStateLocked()
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
-	service.mu.Unlock()
+	service.Mu.Unlock()
 	service.publishRuntimeProjections()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
-	service.requestSessionCatalogRefresh()
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.components.sessions.RequestCatalogRefresh()
 	return nil
 }

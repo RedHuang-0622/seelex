@@ -13,7 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
-	"github.com/RedHuang-0622/seelex/application/search"
+	"github.com/RedHuang-0622/seelex/seelebridge/search"
 )
 
 type (

@@ -3,31 +3,31 @@ package core
 import (
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/core/view_state"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
-// publishRuntimeProjections copies application-owned state under service.mu,
-// then publishes immutable values after releasing the lock. Runtime therefore
-// never calls back into Application from tool visibility or subagent paths.
+// publishRuntimeProjections 在 service.Mu 下拷贝应用自有状态，释放锁后发布
+// 不可变值。Runtime 因此不会从工具可见性或子代理路径回调 Application。
 func (service *Service) publishRuntimeProjections() {
-	service.mu.RLock()
+	service.Mu.RLock()
 	projection := seelebridge.RuntimeVisibilityProjection{
-		GoalSkillActive: service.goalSkillActive.Load(),
+		GoalSkillActive: service.components.tasks.GoalSkillActive(),
 	}
 	evidence := seelebridge.ParentEvidenceProjection{
-		SessionID:         service.snapshot.Session.ID,
-		Goal:              latestVisibleUserGoal(service.snapshot.Conversation),
-		ConversationCount: service.snapshot.TotalMessages,
+		SessionID:         service.Core.Snapshot.Session.ID,
+		Goal:              latestVisibleUserGoal(service.Core.Snapshot.Conversation),
+		ConversationCount: service.Core.Snapshot.TotalMessages,
 	}
-	service.mu.RUnlock()
-	service.deps.Runtime.SetRuntimeVisibilityProjection(projection)
-	service.deps.Runtime.SetParentEvidenceProjection(evidence)
+	service.Mu.RUnlock()
+	service.Deps.Runtime.SetRuntimeVisibilityProjection(projection)
+	service.Deps.Runtime.SetParentEvidenceProjection(evidence)
 }
 
 func latestVisibleUserGoal(messages []Message) string {
 	for index := len(messages) - 1; index >= 0; index-- {
 		message := messages[index]
-		if message.Role == "user" && strings.TrimSpace(message.Content) != "" && !strings.HasPrefix(message.Content, subagentContextMarker) {
+		if message.Role == "user" && strings.TrimSpace(message.Content) != "" && !strings.HasPrefix(message.Content, view_state.SubagentContextMarker) {
 			return truncateRuntimeProjectionGoal(message.Content)
 		}
 	}

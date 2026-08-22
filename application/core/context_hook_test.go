@@ -19,18 +19,18 @@ func TestIterationHookDoesNotTriggerContextControl(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	service.mu.Lock()
-	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.taskExecution = newTaskExecutionState("task-1", "inspect", "high")
-	service.setTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
-	service.mu.Unlock()
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
+	service.Mu.Unlock()
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
 	if !bridge.Hooks().OnIterationComplete(context.Background(), 0) {
 		t.Fatal("iteration must remain available (context control moved to Controller)")
 	}
-	if got := service.components.context.takeContextControlFailure("task-1"); got != nil {
+	if got := service.components.context.TakeContextControlFailure("task-1"); got != nil {
 		t.Fatalf("no context-control failure expected in iteration hook, got %v", got)
 	}
 }

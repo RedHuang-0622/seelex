@@ -6,33 +6,30 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
+
+	"github.com/RedHuang-0622/seelex/application/core/view_state"
 )
 
-// subagentContextMarker 标记子代理产出块（模型不误读为普通用户轮次）。
-const subagentContextMarker = "[子代理产出] "
-
-// injectPendingSubagentContexts drains the Runtime-owned bounded mailbox
-// (单一来源 = Runtime mailbox；无本地兼容队列), then injects messages into
-// Engine outside service.mu.
-// Snapshot mutation is a separate short critical section, so Engine cannot
-// form a reverse wait cycle with Application.
+// injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（单一来源 =
+// Runtime mailbox；无本地兼容队列），并在 service.Mu 之外把消息注入 Engine。
+// 快照变更是独立短临界区，Engine 不会与 Application 形成反向等待环。
 func (service *Service) injectPendingSubagentContexts() {
-	pending := service.deps.Runtime.DrainSubagentContexts()
+	pending := service.Deps.Runtime.DrainSubagentContexts()
 	if len(pending) == 0 {
 		return
 	}
 
 	for _, content := range pending {
-		value := subagentContextMarker + content
-		service.deps.Engine.AppendHistory(types.Message{Role: "user", Content: &value})
+		value := view_state.SubagentContextMarker + content
+		service.Deps.Engine.AppendHistory(types.Message{Role: "user", Content: &value})
 	}
 }
 
 func (service *Service) Submit(ctx context.Context, text string) error {
-	service.mu.RLock()
+	service.Mu.RLock()
 	draining := service.draining
 	closed := service.closed
-	service.mu.RUnlock()
+	service.Mu.RUnlock()
 	if closed {
 		return errors.New("application is shut down")
 	}
@@ -50,48 +47,49 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortManager.Current()
 	request.budget = reactBudgetFor(effort)
-	service.sessionTransitionMu.Lock()
-	defer service.sessionTransitionMu.Unlock()
+	transition := service.components.sessions.TransitionLock()
+	transition.Lock()
+	defer transition.Unlock()
 	if err := service.materializeDraftSession(request.displayInput); err != nil {
 		return err
 	}
-	service.mu.Lock()
+	service.Mu.Lock()
 	if service.closed {
-		service.mu.Unlock()
+		service.Mu.Unlock()
 		return errors.New("application is shut down")
 	}
 	if service.draining {
-		service.mu.Unlock()
+		service.Mu.Unlock()
 		return ErrApplicationDraining
 	}
-	if service.snapshot.Chat.Running {
+	if service.Core.Snapshot.Chat.Running {
 		service.inputQueue = append(service.inputQueue, request)
-		service.snapshot.Chat.InputQueue = chatRequestDisplays(service.inputQueue)
-		service.snapshot.Chat.QueuedCount = len(service.inputQueue)
+		service.Core.Snapshot.Chat.InputQueue = chatRequestDisplays(service.inputQueue)
+		service.Core.Snapshot.Chat.QueuedCount = len(service.inputQueue)
 		revision := service.bumpLocked()
-		service.mu.Unlock()
-		service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		service.Mu.Unlock()
+		service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 		return nil
 	}
-	service.mu.Unlock()
+	service.Mu.Unlock()
 	return service.startChat(ctx, request)
 }
 
-// BeginGracefulShutdown stops new user input while allowing the active chat
-// and any input already queued behind it to finish naturally.
+// BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
+// 自然完成。
 func (service *Service) BeginGracefulShutdown() {
-	service.mu.Lock()
+	service.Mu.Lock()
 	service.draining = true
-	service.mu.Unlock()
+	service.Mu.Unlock()
 }
 
-// WaitForIdle waits for all accepted chat work to finish. It never cancels an
-// active chat; callers control abandonment through ctx.
+// WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
+// 通过 ctx 控制放弃。
 func (service *Service) WaitForIdle(ctx context.Context) error {
 	for {
-		service.mu.RLock()
+		service.Mu.RLock()
 		idle := service.idle
-		service.mu.RUnlock()
+		service.Mu.RUnlock()
 		select {
 		case <-idle:
 			return nil
@@ -102,9 +100,9 @@ func (service *Service) WaitForIdle(ctx context.Context) error {
 }
 
 func (service *Service) CancelChat(requestID string) bool {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	if !service.snapshot.Chat.Running || (requestID != "" && requestID != service.snapshot.Chat.RequestID) || service.cancelChat == nil {
+	service.Mu.Lock()
+	defer service.Mu.Unlock()
+	if !service.Core.Snapshot.Chat.Running || (requestID != "" && requestID != service.Core.Snapshot.Chat.RequestID) || service.cancelChat == nil {
 		return false
 	}
 	service.cancelChat()
@@ -112,20 +110,20 @@ func (service *Service) CancelChat(requestID string) bool {
 }
 
 func (service *Service) Shutdown() {
-	service.mu.Lock()
+	service.Mu.Lock()
 	if service.closed {
-		service.mu.Unlock()
+		service.Mu.Unlock()
 		return
 	}
 	service.closed = true
 	if service.cancelChat != nil {
 		service.cancelChat()
 	}
-	service.mu.Unlock()
-	service.stopSessionCatalogRefresh()
+	service.Mu.Unlock()
+	service.components.sessions.StopCatalogRefresh()
 	service.stopLifecycleConsumers()
 	if service.workTablePublisher != nil {
 		service.workTablePublisher.Close()
 	}
-	service.approval.Shutdown()
+	service.Approval.Shutdown()
 }

@@ -20,15 +20,15 @@ func TestHandlePlanNodeCompleteProjectsSubAgentTree(t *testing.T) {
 		}},
 	}}}
 	svc := newTestService(t, engine)
-	svc.mu.Lock()
-	svc.snapshot.Runtime.Plan = &PlanState{Status: PlanRunning, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
-	svc.mu.Unlock()
+	svc.Mu.Lock()
+	svc.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanRunning, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
+	svc.Mu.Unlock()
 
 	svc.HandlePlanNodeComplete(dto.PlanNodeEvent{NodeID: "s1", Status: "completed"})
 
-	svc.mu.RLock()
-	tree := svc.snapshot.Runtime.SubAgentTree
-	svc.mu.RUnlock()
+	svc.Mu.RLock()
+	tree := svc.Core.Snapshot.Runtime.SubAgentTree
+	svc.Mu.RUnlock()
 	if len(tree) != 1 || tree[0].ID != "main" {
 		t.Fatalf("subagent tree not projected: %+v", tree)
 	}
@@ -45,15 +45,15 @@ func TestHandlePlanBranchEventProjectsSubAgentTree(t *testing.T) {
 		Children: []dto.SubAgentTreeNode{{ID: "s1", ParentID: "main", Status: dto.SubAgentFailed}},
 	}}}
 	svc := newTestService(t, engine)
-	svc.mu.Lock()
-	svc.snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
-	svc.mu.Unlock()
+	svc.Mu.Lock()
+	svc.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
+	svc.Mu.Unlock()
 
 	svc.HandlePlanBranchEvent(seelplan.PlanBranchEvent{NodeID: "s1", Type: "failed"})
 
-	svc.mu.RLock()
-	tree := svc.snapshot.Runtime.SubAgentTree
-	svc.mu.RUnlock()
+	svc.Mu.RLock()
+	tree := svc.Core.Snapshot.Runtime.SubAgentTree
+	svc.Mu.RUnlock()
 	if len(tree) != 1 || tree[0].Status != dto.SubAgentFailed || len(tree[0].Children) != 1 {
 		t.Fatalf("tree not projected on branch event: %+v", tree)
 	}
@@ -70,13 +70,13 @@ func TestCollectRuntimeProjectionCarriesSubAgentTree(t *testing.T) {
 
 	projection := svc.collectRuntimeProjection(t.Context())
 
-	if len(projection.runtime.SubAgentTree) != 1 || projection.runtime.SubAgentTree[0].Children[0].Goal != "g" {
-		t.Fatalf("runtime projection missing subagent tree: %+v", projection.runtime.SubAgentTree)
+	if len(projection.Runtime.SubAgentTree) != 1 || projection.Runtime.SubAgentTree[0].Children[0].Goal != "g" {
+		t.Fatalf("runtime projection missing subagent tree: %+v", projection.Runtime.SubAgentTree)
 	}
 	// 克隆契约：投影树的深拷贝独立于引擎数据（改克隆不改引擎）。
-	cloned := cloneRuntimeState(projection.runtime)
+	cloned := cloneRuntimeState(projection.Runtime)
 	cloned.SubAgentTree[0].Children[0].Goal = "mutated"
-	if projection.runtime.SubAgentTree[0].Children[0].Goal != "g" {
+	if projection.Runtime.SubAgentTree[0].Children[0].Goal != "g" {
 		t.Fatal("clone must not mutate the source tree")
 	}
 }

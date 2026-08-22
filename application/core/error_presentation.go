@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 // presentedError is the stable, user-facing form of an internal failure. It
@@ -65,7 +67,7 @@ func classifyPresentedError(err error) presentedError {
 		strings.Contains(message, "plan preflight") || strings.Contains(message, "plan_load:") ||
 		strings.Contains(message, "plan policy "):
 		return planPreflightPresentation()
-	case errors.Is(err, ErrReActBudgetExceeded) || structuredErrorCode(err) == errorCodeReActBudget ||
+	case errors.Is(err, task_context.ErrReActBudgetExceeded) || structuredErrorCode(err) == errorCodeReActBudget ||
 		strings.Contains(message, "react execution budget"):
 		return reactBudgetPresentation()
 	case strings.Contains(message, "result_ref is not available") ||

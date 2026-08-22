@@ -48,6 +48,16 @@ type Subscription struct {
 	close  func()
 }
 
+// Hub 是应用事件投递的窄契约。合约层与核心组件只依赖该接口，
+// 不依赖具体投递实现，便于替换、测试与跨进程传输。
+type Hub interface {
+	Publish(kind EventKind, revision uint64, requestID string, payload any) Event
+	Subscribe(buffer int) Subscription
+}
+
+// 编译期断言：*EventHub 完整实现 Hub。
+var _ Hub = (*EventHub)(nil)
+
 func (subscription Subscription) Close() {
 	if subscription.close != nil {
 		subscription.close()

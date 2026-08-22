@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
-
-const missingHistoryContent = "[Seelex recovery note: the previous message had no text after an interrupted request; its original content is unavailable.]"
-
-const toolCallHistoryContent = "[Seelex recovery note: the assistant issued the recorded tool call(s); the original accompanying text is unavailable.]"
 
 const contextRecoveryPrefix = "<!-- seelex:context-recovery:v1 -->"
 const providerRecoveryPrefix = "<!-- seelex:provider-recovery:v1 -->"
@@ -19,58 +18,6 @@ const contextRecoveryAgentInput = "<!-- seelex:context-recovery-agent:v1 -->\n" 
 	"Continue from that checkpoint without assuming omitted details. If more detail is required, use a narrower, paginated, or filtered tool call; do not request a full large result. " +
 	"Deliver the task if the checkpoint evidence is sufficient."
 
-// isProviderOnlyHistoryContent identifies repair text that exists solely to
-// satisfy providers requiring non-empty message content. It is never user
-// authored and must not be rendered as an assistant reply after resume.
-func isProviderOnlyHistoryContent(content string) bool {
-	return content == missingHistoryContent || content == toolCallHistoryContent
-}
-
-// prepareProviderHistory makes every persisted message safe for providers that
-// reject an empty `content` field, including assistant messages with tool calls.
-// Tool calls are retained; only their absent explanatory text is restored.
-func (service *historySafetyCoordinator) prepareProviderHistory() error {
-	history := service.deps.Engine.History()
-	prepared, repaired := repairEmptyHistoryContent(history)
-	if !repaired {
-		return nil
-	}
-	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), prepared); err != nil {
-		return fmt.Errorf("repair empty provider history content: %w", err)
-	}
-	return nil
-}
-
-func repairEmptyHistoryContent(history []EngineMessage) ([]EngineMessage, bool) {
-	prepared := make([]EngineMessage, len(history))
-	copy(prepared, history)
-	repaired := false
-	for index := range prepared {
-		message := &prepared[index]
-		if strings.TrimSpace(message.Content) != "" {
-			continue
-		}
-		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			message.Content = toolCallHistoryContent
-			message.ContentSet = true
-			repaired = true
-			continue
-		}
-		if !message.ContentSet && message.Role == "assistant" && message.ReasoningContent != "" {
-			message.Content = missingHistoryContent
-			message.ContentSet = true
-			repaired = true
-			continue
-		}
-		if message.Role == "system" || message.Role == "user" || message.Role == "assistant" || message.Role == "tool" {
-			message.Content = missingHistoryContent
-			message.ContentSet = true
-			repaired = true
-		}
-	}
-	return prepared, repaired
-}
-
 func nonEmptyProviderInput(input string) string {
 	if strings.TrimSpace(input) != "" {
 		return input
@@ -78,12 +25,10 @@ func nonEmptyProviderInput(input string) string {
 	return "[Seelex recovery note: the submitted request was empty. Ask the user to provide the missing request details.]"
 }
 
-// recoverProviderContext keeps a minimal, evidence-first continuation record
-// after a provider rejects the accumulated transcript for exceeding its context
-// window. It deliberately does not use a guessed token or character limit: the
-// provider has already supplied the authoritative signal that the full history
-// is unusable. The record stays private to the engine and is restored to the
-// original user request after a successful subsequent turn.
+// recoverProviderContext 在 provider 因超出上下文窗口拒绝累积 transcript 后，
+// 保留最小、证据优先的续接记录。刻意不使用猜测的 token/字符上限：provider
+// 已给出"全量历史不可用"的权威信号。记录仅留在引擎私有区，下一轮成功后
+// 恢复原始用户请求。
 func (service *Service) recoverProviderContext(err error, originalRequest string) error {
 	if !isProviderContextExhaustion(err) {
 		return nil
@@ -92,10 +37,9 @@ func (service *Service) recoverProviderContext(err error, originalRequest string
 	return recoveryErr
 }
 
-// recoverProviderFailure replaces an unusable transcript with a bounded,
-// private continuation record only after the provider has rejected the request.
-// It never retries a timed-out tool turn automatically: a 504 leaves tool-side
-// effects uncertain, so the user must explicitly continue from the checkpoint.
+// recoverProviderFailure 仅在 provider 拒绝请求后，把不可用 transcript 替换
+// 为有界、私有的续接记录。它从不自动重放超时工具轮：504 意味着工具侧效果
+// 不确定，用户必须从 checkpoint 显式继续。
 func (service *Service) recoverProviderFailure(err error, originalRequest string) (bool, error) {
 	failureKind := classifyProviderFailure(err)
 	if failureKind == providerFailureNone {
@@ -103,15 +47,15 @@ func (service *Service) recoverProviderFailure(err error, originalRequest string
 	}
 	prefix, heading, summary := providerRecoveryDetails(failureKind)
 
-	service.mu.Lock()
+	service.Mu.Lock()
 	checkpoint := ""
-	if state := service.taskExecution; state != nil {
-		checkpoint = state.contextSummary()
-		state.status = taskStatusInterrupted
+	if state := service.components.tasks.CurrentTaskExecution(); state != nil {
+		checkpoint = state.ContextSummary()
+		state.Status = task_context.StatusInterrupted
 	}
-	requestID := service.snapshot.Chat.RequestID
-	service.setTaskStateLocked(requestID, TaskInterrupted, summary)
-	service.mu.Unlock()
+	requestID := service.Core.Snapshot.Chat.RequestID
+	service.components.tasks.SetTaskStateLocked(requestID, TaskInterrupted, summary)
+	service.Mu.Unlock()
 
 	recovery := prefix + "\n## " + heading + `
 The raw transcript was removed. Continue from the durable task checkpoint below;
@@ -121,39 +65,36 @@ replayed safely.
 
 ` + checkpoint + contextRecoveryRequestDelimiter + nonEmptyProviderInput(originalRequest)
 
-	history := service.deps.Engine.History()
-	recovered := retainedSystemHistory(history)
+	history := service.Deps.Engine.History()
+	recovered := context_runtime.RetainedSystemHistory(history)
 	recovered = append(recovered, EngineMessage{Role: "user", Content: recovery, ContentSet: true})
-	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), recovered); err != nil {
+	if err := service.Deps.Engine.ReplaceHistory(service.Deps.Engine.SessionID(), recovered); err != nil {
 		return false, fmt.Errorf("recover provider context: %w", err)
 	}
 	return true, nil
 }
 
-// retryContextRecovery gives the same Agent one safe recovery turn after the
-// provider rejects the request before executing it for context length. This
-// is intentionally restricted to context exhaustion: timeouts and server
-// failures can leave tool side effects uncertain and must not be replayed.
+// retryContextRecovery 在 provider 因上下文长度在执行前拒绝请求时，给同一
+// Agent 一次安全的恢复回合。刻意限定于上下文耗尽：超时与服务器故障可能留下
+// 不确定的工具副作用，不得重放。
 func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error {
-	service.mu.Lock()
-	state := service.taskExecution
-	if state == nil || state.requestID != requestID {
-		service.mu.Unlock()
+	service.Mu.Lock()
+	state := service.components.tasks.CurrentTaskExecution()
+	if state == nil || state.RequestID != requestID {
+		service.Mu.Unlock()
 		return fmt.Errorf("resume context recovery: task state is unavailable")
 	}
-	state.status = taskStatusRunning
-	state.progressEpoch++
-	service.setTaskStateLocked(requestID, TaskProgressing, "Context was reset to a bounded checkpoint; the Agent is continuing with targeted reads.")
+	service.components.tasks.ResumeTaskLocked(requestID, "Context was reset to a bounded checkpoint; the Agent is continuing with targeted reads.")
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, requestID, nil)
+	service.Mu.Unlock()
+	service.Events.Publish(EventSnapshotChanged, revision, requestID, nil)
 
-	recoveryInput, prepareErr := service.components.context.prepareExecutionContext(requestID, contextRecoveryAgentInput)
+	recoveryInput, prepareErr := service.components.context.PrepareExecutionContext(requestID, contextRecoveryAgentInput)
 	if prepareErr != nil {
 		return prepareErr
 	}
-	_, err := service.deps.Engine.ChatStream(ctx, recoveryInput, onChunk)
-	if contextErr := service.components.context.takeContextControlFailure(requestID); contextErr != nil {
+	_, err := service.Deps.Engine.ChatStream(ctx, recoveryInput, onChunk)
+	if contextErr := service.components.context.TakeContextControlFailure(requestID); contextErr != nil {
 		return contextErr
 	}
 	return err
@@ -219,7 +160,7 @@ func isProviderContextExhaustion(err error) bool {
 }
 
 func (service *Service) removeProviderContextRecovery() error {
-	history := service.deps.Engine.History()
+	history := service.Deps.Engine.History()
 	filtered := make([]EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
@@ -238,7 +179,7 @@ func (service *Service) removeProviderContextRecovery() error {
 	if !removed {
 		return nil
 	}
-	if err := service.deps.Engine.ReplaceHistory(service.deps.Engine.SessionID(), filtered); err != nil {
+	if err := service.Deps.Engine.ReplaceHistory(service.Deps.Engine.SessionID(), filtered); err != nil {
 		return fmt.Errorf("remove provider context recovery: %w", err)
 	}
 	return nil

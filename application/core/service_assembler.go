@@ -4,6 +4,15 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/internal/state"
+	"github.com/RedHuang-0622/seelex/application/core/prompt_layer"
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/subagent_view"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/application/core/view_state"
+	"github.com/RedHuang-0622/seelex/application/core/worktable"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 )
 
@@ -11,6 +20,25 @@ import (
 // supplies infrastructure defaults before wiring stateful collaborators.
 type serviceAssembler struct {
 	deps Dependencies
+}
+
+// taskPromptPort 是 task_context.PromptPort 的根包适配（prompt 域尚未下沉
+// 时的装配适配层）。
+type taskPromptPort struct {
+	promptStack   *PromptStack
+	effortManager *EffortManager
+}
+
+func (p taskPromptPort) CurrentEffort() string {
+	return p.effortManager.Current()
+}
+
+func (p taskPromptPort) ClearSkillLayers() {
+	p.promptStack.ClearKind("skill")
+}
+
+func (p taskPromptPort) PushSkillLayer(kind, name, text string) {
+	p.promptStack.Push(kind, name, text)
 }
 
 func (assembler serviceAssembler) assemble() (*Service, error) {
@@ -23,76 +51,118 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	assembler.applyInfrastructureDefaults()
 
 	promptStack := NewPromptStack()
-	state := &serviceState{
-		infrastructureState: infrastructureState{
-			deps: assembler.deps, events: assembler.deps.Events,
-			approval: assembler.deps.Approval, commands: NewCommandRegistry(),
-		},
+	kernel := state.New(assembler.deps)
+	svcState := &serviceState{
+		Core:               kernel,
+		commands:           NewCommandRegistry(),
 		promptRuntimeState: promptRuntimeState{promptStack: promptStack},
-		sessionRuntimeState: sessionRuntimeState{
-			sessionNames:       make(map[string]sessionNameCacheEntry),
-			sessionCatalogWake: make(chan struct{}, 1),
-			sessionCatalogStop: make(chan struct{}),
-			sessionCatalogDone: make(chan struct{}),
-		},
-		planRuntimeState: planRuntimeState{
-			replanInFlight: make(map[string]struct{}),
-		},
-		taskRuntimeState: taskRuntimeState{
-			tokenCounter: newCalibratedTokenCounter(), resultRefsByToolCallID: make(map[string]string),
-		},
 	}
-	service := &Service{serviceState: state}
-	service.effortManager = NewEffortManager(promptStack, service.deps.Engine)
-	service.components.prompts = newPromptCoordinator(state)
-	service.components.tasks = newTaskContextCoordinator(state)
-	service.components.history = newHistorySafetyCoordinator(state)
-	service.components.sessions = newSessionCoordinator(state)
-	service.components.sessions.tasks = service.components.tasks
-	service.components.view = newViewCoordinator(state, service.components.sessions)
-	service.components.context = newContextCoordinator(state, contextCollaborators{
-		prompts:  service.components.prompts,
-		sessions: service.components.sessions,
-		view:     service.components.view,
-		tasks:    service.components.tasks,
-		history:  service.components.history,
+	service := &Service{serviceState: svcState}
+	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
+	service.components.tasks = task_context.NewCoordinator(task_context.Deps{
+		Core: kernel,
+		Prompt: taskPromptPort{
+			promptStack: promptStack, effortManager: service.effortManager,
+		},
+		Limits: Limits,
+		IsInternalContent: func(content string) bool {
+			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content)
+		},
+		IsOversizedToolResult:      context_runtime.IsOversizedToolResult,
+		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
+		PresentToolError:           presentToolError,
+		QueuedInputRefs: func() []string {
+			return queuedInputRefs(service.inputQueue) // 调用方持有 Core.Mu（TaskService 终态路径）
+		},
+	})
+	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
+		Core:          kernel,
+		PromptStack:   promptStack,
+		EffortManager: service.effortManager,
+		Tasks:         service.components.tasks,
+	})
+	service.components.history = context_runtime.NewHistoryCoordinator(kernel)
+	service.components.sessions = session_runtime.NewCoordinator(session_runtime.Deps{
+		Core:  kernel,
+		Tasks: service.components.tasks,
+		Closed: func() bool {
+			return service.closed
+		},
+		TranscriptTailBudget: func(runtime any) int {
+			return task_context.ContextBudgetFor(runtime).TargetAfterCompaction
+		},
+		IsInternalContent: func(content string) bool {
+			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content)
+		},
+		TailHistory:                task_context.TranscriptTailHistory,
+		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
+		ContentReferenceWarning:    context_runtime.ContentReferenceWarning,
+		Limits:                     Limits,
+		DisplayUserInput:           displayUserInput,
+	})
+	service.components.view = view_state.NewCoordinator(view_state.Deps{
+		Core: kernel,
+		CurrentEffort: func() string {
+			return service.effortManager.Current()
+		},
+		RefreshWorkTableLocked: func(tasks []dto.TaskRecord) {
+			service.refreshWorkTableLocked(tasks)
+		},
+		Limits: Limits,
+	})
+	service.components.sessions.BindView(service.components.view)
+	service.components.context = context_runtime.NewCoordinator(context_runtime.Deps{
+		Core:     kernel,
+		Tasks:    service.components.tasks,
+		Sessions: service.components.sessions,
+		Prompts:  service.components.prompts,
+		View:     service.components.view,
+		History:  service.components.history,
+		WorkTableTraceBlock: func() string {
+			return service.workTableTraceBlock()
+		},
+	})
+	service.components.subagent = subagent_view.NewCoordinator(subagent_view.Deps{
+		Core:   kernel,
+		View:   service.components.view,
+		Limits: Limits,
 	})
 	service.components.input = newInputRouter(inputRouteHandlers{
-		command: service.submitCommand,
-		skill:   service.submitSkill,
-		plugin:  service.SwitchPlugin,
-		conversation: func(ctx context.Context, input string) error {
+		Command: service.submitCommand,
+		Skill:   service.submitSkill,
+		Plugin:  service.SwitchPlugin,
+		Conversation: func(ctx context.Context, input string) error {
 			service.prepareCompletedTaskBoundary()
 			return service.submitConversation(ctx, input)
 		},
 	})
 	// worktable.changed 汇聚发布器：与事件 hub 解耦，突发时 latest-wins。
-	service.workTablePublisher = newWorkTablePublisher(func(update worktableUpdate) {
-		service.events.Publish(EventWorkTableChanged, update.revision, update.requestID, WorkTableEvent{Items: update.items})
+	service.workTablePublisher = worktable.NewWorkTablePublisher(func(update worktable.WorkTableUpdate) {
+		service.Events.Publish(EventWorkTableChanged, update.Revision, update.RequestID, WorkTableEvent{Items: update.Items})
 	})
 	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
 	// channel 流转（取代同步回调嵌套，避免锁序事故）。
 	service.startLifecycleConsumers()
-	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
+	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
 	service.idle = closedSignal()
-	initialSessionID := service.deps.Engine.SessionID()
-	service.snapshot = Snapshot{
+	initialSessionID := service.Deps.Engine.SessionID()
+	service.Core.Snapshot = Snapshot{
 		ProtocolVersion:    ProtocolVersion,
 		Session:            SessionState{ID: initialSessionID, Draft: initialSessionID == ""},
-		Runtime:            RuntimeState{Model: service.deps.Runtime.Model(), Effort: service.effortManager.Current()},
+		Runtime:            RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current()},
 		Capabilities:       Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}
-	service.components.tasks.importEngineHistoryAsTranscriptLocked(service.deps.Engine.History())
+	service.components.tasks.ImportEngineHistoryAsTranscriptLocked(service.Deps.Engine.History())
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err
 	}
 	service.applyRuntimeProjectionLocked(service.collectRuntimeProjection(context.Background()))
 	service.restoreInitialWorkspace()
-	service.components.prompts.buildSystemPrompt()
-	service.snapshot.Revision = 1
-	service.approval.SetObserver(service.observeInteraction)
-	service.startSessionCatalogRefresh()
+	service.components.prompts.BuildSystemPrompt()
+	service.Core.Snapshot.Revision = 1
+	service.Approval.SetObserver(service.observeInteraction)
+	service.components.sessions.StartCatalogRefresh()
 	service.publishRuntimeProjections()
 	return service, nil
 }
@@ -126,18 +196,18 @@ func (assembler *serviceAssembler) applyInfrastructureDefaults() {
 }
 
 func (service *Service) restoreInitialWorkspace() {
-	if service.deps.Workspace == nil {
+	if service.Deps.Workspace == nil {
 		return
 	}
 	workspaceProjection := service.collectWorkspaceProjection()
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
-	workspace, ok := service.deps.Workspace.SessionWorkspace(service.snapshot.Session.ID)
+	workspace, ok := service.Deps.Workspace.SessionWorkspace(service.Core.Snapshot.Session.ID)
 	if !ok {
 		return
 	}
-	if err := service.deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+	if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
 		return
 	}
-	service.deps.Sessions.SetWorkspace(workspace.ID)
-	service.snapshot.CurrentWorkspace = &workspace
+	service.Deps.Sessions.SetWorkspace(workspace.ID)
+	service.Core.Snapshot.CurrentWorkspace = &workspace
 }

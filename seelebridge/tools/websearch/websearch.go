@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge/search"
 )
 
 // ToolRegistrar 是 websearch 注册所需的运行时窄接口。
@@ -19,8 +19,8 @@ type ToolRegistrar interface {
 }
 
 // loadWebSearchConfig 从账号池配置文件中加载 websearch 段。
-func loadWebSearchConfig(accountsPath string) application.WebSearchConfig {
-	cfg := application.WebSearchConfig{
+func loadWebSearchConfig(accountsPath string) search.WebSearchConfig {
+	cfg := search.WebSearchConfig{
 		Provider:      "tavily",
 		MaxResults:    5,
 		IncludeAnswer: true,
@@ -31,7 +31,7 @@ func loadWebSearchConfig(accountsPath string) application.WebSearchConfig {
 		return cfg
 	}
 	var wrapper struct {
-		WebSearch application.WebSearchConfig `yaml:"websearch"`
+		WebSearch search.WebSearchConfig `yaml:"websearch"`
 	}
 	if err := yaml.Unmarshal(b, &wrapper); err != nil {
 		return cfg
@@ -66,7 +66,7 @@ func Register(registrar ToolRegistrar, accountsPath string) {
 		if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 			return "", fmt.Errorf("web_search: %w", err)
 		}
-		return application.WebSearch(ctx, cfg, input.Query, input.MaxResults)
+		return search.WebSearch(ctx, cfg, input.Query, input.MaxResults)
 	}
 
 	if cfg.APIKey == "" {

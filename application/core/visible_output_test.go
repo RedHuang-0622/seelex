@@ -3,26 +3,18 @@ package core
 import (
 	"strings"
 	"testing"
-)
 
-func TestVisibleOutputStreamSuppressesSplitThoughtBlock(t *testing.T) {
-	stream := newVisibleOutputStream("request-1")
-	if got := stream.Consume("visible<th"); got != "visible" {
-		t.Fatalf("first chunk = %q", got)
-	}
-	if got := stream.Consume("ink>private</think> answer"); got != " answer" {
-		t.Fatalf("second chunk = %q", got)
-	}
-}
+	"github.com/RedHuang-0622/seelex/application/core/chat"
+)
 
 func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.mu.Lock()
-	service.snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
-	service.streamOutput = newVisibleOutputStream("request-1")
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
+	service.streamOutput = chat.NewVisibleOutputStream("request-1")
 	service.appendMessageLocked("assistant", "", nil)
-	service.mu.Unlock()
+	service.Mu.Unlock()
 
 	service.appendDelta("request-1", "answer<think>private reasoning</think> done")
 	snapshot := service.Snapshot()

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 func (service *Service) submitCommand(ctx context.Context, input string) error {
@@ -12,7 +14,7 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 		return nil
 	}
 	parts := strings.Fields(trimmed)
-	if skill, ok := service.deps.Skills.Get(parts[0]); ok {
+	if skill, ok := service.Deps.Skills.Get(parts[0]); ok {
 		return service.activateSkillAndSubmit(ctx, skill, parts[1:], input)
 	}
 	command, ok := service.commands.Get(parts[0])
@@ -36,7 +38,7 @@ func (service *Service) submitCommand(ctx context.Context, input string) error {
 		}
 	}
 	if result.Exit {
-		service.events.Publish(EventExitRequested, service.Snapshot().Revision, "", nil)
+		service.Events.Publish(EventExitRequested, service.Snapshot().Revision, "", nil)
 	}
 	return nil
 }
@@ -48,7 +50,7 @@ func (service *Service) submitSkill(ctx context.Context, name string, args []str
 	if name == "end" {
 		return service.endSkill()
 	}
-	skill, ok := service.deps.Skills.Get(name)
+	skill, ok := service.Deps.Skills.Get(name)
 	if !ok {
 		service.addNotice("未知 Skill: " + name)
 		return nil
@@ -70,7 +72,7 @@ func (service *Service) endSkill() error {
 			break
 		}
 	}
-	service.deps.Engine.SetMaxLoops(loopLimit)
+	service.Deps.Engine.SetMaxLoops(loopLimit)
 	service.addNotice("已退栈 Skill: " + name)
 	return nil
 }
@@ -85,19 +87,19 @@ func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillI
 }
 
 func (service *Service) prepareCompletedTaskBoundary() {
-	service.mu.RLock()
+	service.Mu.RLock()
 	terminal := false
-	if !service.snapshot.Chat.Running {
-		terminal = service.snapshot.Task != nil &&
-			(service.snapshot.Task.Status == TaskCompleted || service.snapshot.Task.Status == TaskFailed)
-		if state := service.taskExecution; state != nil {
-			terminal = terminal || state.status == taskStatusCompleted || state.status == taskStatusFailed
+	if !service.Core.Snapshot.Chat.Running {
+		terminal = service.Core.Snapshot.Task != nil &&
+			(service.Core.Snapshot.Task.Status == TaskCompleted || service.Core.Snapshot.Task.Status == TaskFailed)
+		if state := service.components.tasks.CurrentTaskExecution(); state != nil {
+			terminal = terminal || state.Status == task_context.StatusCompleted || state.Status == task_context.StatusFailed
 		}
 	}
-	service.mu.RUnlock()
+	service.Mu.RUnlock()
 	if terminal {
 		service.promptStack.ClearKind("skill")
-		service.deps.Engine.SetMaxLoops(maxLoopsFor(service.effortManager.Current()))
+		service.Deps.Engine.SetMaxLoops(maxLoopsFor(service.effortManager.Current()))
 	}
 }
 
@@ -105,7 +107,7 @@ func (service *Service) applySkill(skill SkillInfo) {
 	service.promptStack.Push("skill", skill.Name, skill.Prompt)
 	// goal skill 不受 MaxLoops 限制（设大值模拟无上限）
 	if skill.Name == "goal" {
-		service.deps.Engine.SetMaxLoops(9999)
+		service.Deps.Engine.SetMaxLoops(9999)
 	}
 	service.addNotice("加载 Skill: " + skill.Name)
 }

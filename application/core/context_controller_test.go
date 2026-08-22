@@ -2,10 +2,21 @@ package core
 
 import (
 	"errors"
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+type runtimeWithContextLimits struct {
+	*fakeRuntime
+	window int
+	output int
+}
+
+func (runtime runtimeWithContextLimits) ContextWindow() int   { return runtime.window }
+func (runtime runtimeWithContextLimits) MaxOutputTokens() int { return runtime.output }
 
 func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 	const rawOutput = "secret source detail"
@@ -14,12 +25,12 @@ func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: strings.Repeat(rawOutput, 300), ContentSet: true},
 	}
 
-	filtered, changed := rejectToolResults(history, 200)
+	filtered, changed := context_runtime.RejectToolResults(history, 200)
 	if !changed {
 		t.Fatal("expected oversized tool result to be rejected")
 	}
 	if got := filtered[1]; got.ToolCallID != "call-1" || got.Name != "read_file" ||
-		!strings.HasPrefix(got.Content, toolResultOmittedPrefix) || strings.Contains(got.Content, rawOutput) {
+		!strings.HasPrefix(got.Content, context_runtime.ToolResultOmittedPrefix) || strings.Contains(got.Content, rawOutput) {
 		t.Fatalf("filtered tool result = %#v", got)
 	}
 	if got := filtered[0].ToolCalls[0]; got.ID != "call-1" || got.Arguments != `{"path":"source.txt"}` {
@@ -30,14 +41,14 @@ func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	budget := defaultContextBudget()
+	budget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "oversized-system", strings.Repeat("s", budget.Budget*3))
-	service.mu.Lock()
-	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.taskExecution = newTaskExecutionState("task-1", "inspect", "high")
-	service.mu.Unlock()
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Mu.Unlock()
 
-	if _, err := service.components.context.prepareExecutionContext("task-1", "continue"); !errors.Is(err, errProviderContextBudgetExceeded) {
+	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue"); !errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
 		t.Fatalf("prepare error = %v, want provider budget exceeded", err)
 	}
 }
@@ -47,19 +58,19 @@ func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
 		fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192,
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	legacyBudget := defaultContextBudget()
+	legacyBudget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "large-system", strings.Repeat("s", legacyBudget.Budget*3))
-	service.mu.Lock()
-	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.taskExecution = newTaskExecutionState("task-1", "inspect", "high")
-	service.mu.Unlock()
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	service.Mu.Unlock()
 
-	if _, err := service.components.context.prepareExecutionContext("task-1", "continue"); err != nil {
+	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue"); err != nil {
 		t.Fatalf("prepare with configured context window: %v", err)
 	}
-	service.mu.RLock()
-	audit := service.taskExecution.tokenAudit
-	service.mu.RUnlock()
+	service.Mu.RLock()
+	audit := service.components.tasks.CurrentTaskExecution().TokenAudit
+	service.Mu.RUnlock()
 	if audit.Budget != 166_808 {
 		t.Fatalf("token audit budget = %d, want 166808", audit.Budget)
 	}
@@ -69,29 +80,29 @@ func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.mu.Lock()
-	service.snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
-	service.taskExecution = newTaskExecutionState("task-1", "inspect", "high")
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
 	for round := 0; round < 8; round++ {
 		callID := "call-" + string(rune('a'+round))
-		service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "user", Content: strings.Repeat("request ", 2500)})
-		service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "assistant", ToolCalls: []TranscriptToolCall{{ID: callID, Name: "read"}}})
-		service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "tool", ToolCallID: callID, Name: "read", Content: strings.Repeat("result ", 2500)})
-		service.components.tasks.appendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "assistant", Content: "round complete"})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "user", Content: strings.Repeat("request ", 2500)})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "assistant", ToolCalls: []TranscriptToolCall{{ID: callID, Name: "read"}}})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "tool", ToolCallID: callID, Name: "read", Content: strings.Repeat("result ", 2500)})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "assistant", Content: "round complete"})
 	}
-	service.mu.Unlock()
+	service.Mu.Unlock()
 
-	preparedInput, err := service.components.context.prepareExecutionContext("task-1", "continue with verification")
+	preparedInput, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification")
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.mu.RLock()
-	systemPrompt := service.components.prompts.systemPromptForActiveTaskLocked()
-	service.mu.RUnlock()
-	tools := service.deps.Runtime.VisibleTools(t.Context())
-	estimated := service.tokenCounter.CountRequest(systemPrompt, engine.History(), preparedInput, tools)
-	if estimated > defaultContextBudget().Budget {
-		t.Fatalf("final request tokens = %d, budget = %d", estimated, defaultContextBudget().Budget)
+	service.Mu.RLock()
+	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
+	service.Mu.RUnlock()
+	tools := service.Deps.Runtime.VisibleTools(t.Context())
+	estimated := service.components.tasks.CountRequestTokens(systemPrompt, engine.History(), preparedInput, tools)
+	if estimated > task_context.DefaultContextBudget().Budget {
+		t.Fatalf("final request tokens = %d, budget = %d", estimated, task_context.DefaultContextBudget().Budget)
 	}
 }
 
@@ -107,7 +118,7 @@ func TestTranscriptTailDropsIncompleteAndOrphanToolProtocols(t *testing.T) {
 		{Seq: 8, Role: "assistant", Content: "finished", TokenCount: 1},
 		{Seq: 9, Role: "tool", ToolCallID: "orphan", TokenCount: 1},
 	}
-	history := transcriptTailHistory(events, 100, 4)
+	history := task_context.TranscriptTailHistory(events, 100, 4)
 	gotSeq := make([]string, len(history))
 	for index, message := range history {
 		gotSeq[index] = message.Role + ":" + message.ToolCallID
@@ -124,7 +135,7 @@ func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T) {
 		{Seq: 2, Role: "assistant", Content: "answer", TokenCount: 1},
 		{Seq: 3, Role: "user", Content: "please continue from the report", TokenCount: 1},
 	}
-	history := transcriptTailHistory(events, 100, 2)
+	history := task_context.TranscriptTailHistory(events, 100, 2)
 	got := make([]string, len(history))
 	for index, message := range history {
 		got[index] = message.Content
@@ -137,10 +148,10 @@ func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T) {
 func TestRejectToolResultsRecognizesFrameworkTruncationMarker(t *testing.T) {
 	history := []EngineMessage{{
 		Role: "tool", ToolCallID: "call-1", Name: "bash",
-		Content: strings.Repeat("x", 4000) + frameworkToolOutputTruncatedMarker,
+		Content: strings.Repeat("x", 4000) + context_runtime.FrameworkToolOutputTruncatedMarker,
 	}}
-	filtered, changed := rejectToolResults(history, 4000)
-	if !changed || !strings.HasPrefix(filtered[0].Content, toolResultOmittedPrefix) {
+	filtered, changed := context_runtime.RejectToolResults(history, 4000)
+	if !changed || !strings.HasPrefix(filtered[0].Content, context_runtime.ToolResultOmittedPrefix) {
 		t.Fatalf("framework-truncated result = %#v, changed=%v", filtered, changed)
 	}
 }

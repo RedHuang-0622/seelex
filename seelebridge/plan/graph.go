@@ -4,17 +4,14 @@ package plan
 import (
 	"fmt"
 	"sort"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // PlanEdge is the Seelex-owned serializable edge type.
-// JSON format: {"from","to","label","condition"} — 与旧 serialize.PlanEdgeSpec
-// 保持同形，PlanState.Edges 的 DTO 契约不变。
-type PlanEdge struct {
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Label     string `json:"label,omitempty"`
-	Condition string `json:"condition,omitempty"`
-}
+// 单源定义在 application/contract/dto（JSON 格式与旧 serialize.PlanEdgeSpec
+// 保持同形，PlanState.Edges 的 DTO 契约不变），本包以 alias 复用。
+type PlanEdge = dto.PlanEdge
 
 // AdjacencyToEdges converts an adjacency list (plan_load input format) to a
 // PlanEdge slice suitable for PlanState.Edges.

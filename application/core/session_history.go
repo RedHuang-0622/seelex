@@ -4,35 +4,46 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/RedHuang-0622/seelex/application/core/chat"
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/application/core/view_state"
 )
 
-// resumeSession replaces the active engine history and restores the session's
-// workspace binding before publishing one coherent snapshot.
+// persistedPlanRestorer 是 Runtime 的可选能力：resume 时按 plan 参数恢复
+// 可执行 Plan（不可用时保留可见投影）。
+type persistedPlanRestorer interface {
+	RestorePlan(context.Context, string) error
+}
+
+// resumeSession 替换活跃引擎历史并恢复会话的 workspace 绑定，然后发布一份
+// 一致的快照。
 func (service *Service) resumeSession(sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
 
-	service.sessionTransitionMu.Lock()
-	defer service.sessionTransitionMu.Unlock()
+	transition := service.components.sessions.TransitionLock()
+	transition.Lock()
+	defer transition.Unlock()
 
-	service.mu.RLock()
-	running := service.snapshot.Chat.Running
-	service.mu.RUnlock()
+	service.Mu.RLock()
+	running := service.Core.Snapshot.Chat.Running
+	service.Mu.RUnlock()
 	if running {
 		return ErrChatRunning
 	}
 
-	location := service.components.sessions.locateSession(sessionID)
+	location := service.components.sessions.LocateSession(sessionID)
 	// 会话恢复三读（record/history/transcript）相互独立，并行加载：
 	// 大会话（数 MB）下全量解析总耗时从串行求和变为三路取最大值。
 	// history 路径为尾部窗口读：先 (0,0) 取总数（只读 manifest，不解析 shard），
-	// 再 (total-window, window) 只解析覆盖尾部窗口的 1-2 个 shard——
-	// 8.4MB/6 shard 的会话从全量解析降为单 shard 解析。
+	// 再 (total-window, window) 只解析覆盖尾部窗口的 1-2 个 shard。
 	var (
 		record        SessionRecord
 		hasRecord     bool
@@ -47,15 +58,15 @@ func (service *Service) resumeSession(sessionID string) error {
 	loadGroup.Add(3)
 	go func() {
 		defer loadGroup.Done()
-		record, hasRecord, recordErr = service.components.sessions.loadSessionRecord(location, sessionID)
+		record, hasRecord, recordErr = service.components.sessions.LoadSessionRecord(location, sessionID)
 	}()
 	go func() {
 		defer loadGroup.Done()
-		history, historyTotal, historyErr = service.components.sessions.loadHistoryTailWindow(location)
+		history, historyTotal, historyErr = service.components.sessions.LoadHistoryTailWindow(location)
 	}()
 	go func() {
 		defer loadGroup.Done()
-		transcript, transcriptErr = service.components.sessions.loadSessionTranscript(location, sessionID)
+		transcript, transcriptErr = service.components.sessions.LoadSessionTranscript(location, sessionID)
 	}()
 	loadGroup.Wait()
 	if recordErr != nil {
@@ -68,8 +79,6 @@ func (service *Service) resumeSession(sessionID string) error {
 		// A v2 SessionRecord is authoritative for the visible transcript and
 		// recovery checkpoint. Framework history is only a provider cache, so a
 		// lost legacy cache must not make the saved session impossible to open.
-		// 只读迁移路径：legacy 仅作读取解码（写路径一律走 SessionRecord /
-		// sessionstore），到期后该兜底不再需要（解耦方案 §02.5）。
 		history = nil
 	}
 	if transcriptErr != nil && !hasRecord {
@@ -77,127 +86,114 @@ func (service *Service) resumeSession(sessionID string) error {
 	}
 	engineHistory := history
 	if hasRecord {
-		budget := contextBudgetFor(service.deps.Runtime)
-		latestUser := latestUserContent(record.Conversation.Messages)
-		if len(transcript) == 0 || (latestUser != "" && !transcriptContainsUser(transcript, latestUser)) {
+		budget := task_context.ContextBudgetFor(service.Deps.Runtime)
+		latestUser := service.components.sessions.LatestUserContent(record.Conversation.Messages)
+		if len(transcript) == 0 || (latestUser != "" && !service.components.sessions.TranscriptContainsUser(transcript, latestUser)) {
 			// The durable Conversation is the source of truth. Rehydrate it into
 			// the application transcript when the append-only tail is empty or
 			// stale, otherwise the next prepareExecutionContext call would drop
 			// the fallback history again.
-			transcript = recordConversationTranscript(record)
+			transcript = service.components.sessions.RecordConversationTranscript(record)
 		}
-		engineHistory = transcriptTailHistory(transcript, budget.TargetAfterCompaction, 4)
-		recordHistory := recordConversationResumeHistory(record, budget.TargetAfterCompaction, 4)
-		if len(engineHistory) == 0 || (latestUser != "" && !historyContainsUser(engineHistory, latestUser)) {
+		engineHistory = task_context.TranscriptTailHistory(transcript, budget.TargetAfterCompaction, 4)
+		recordHistory := service.components.sessions.RecordConversationResumeHistory(record, budget.TargetAfterCompaction, 4)
+		if len(engineHistory) == 0 || (latestUser != "" && !service.components.sessions.HistoryContainsUser(engineHistory, latestUser)) {
 			engineHistory = recordHistory
 		}
 		if len(engineHistory) == 0 {
-			engineHistory = recordResumeHistory(record)
+			engineHistory = session_runtime.RecordResumeHistory(record)
 		}
 	}
-	if err := service.deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
+	if err := service.Deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
 		return fmt.Errorf("replace engine history: %w", err)
 	}
-	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 
 	total := historyTotal // 尾部窗口读返回的真实总数（无 record 的旧格式会话）
 	if hasRecord {
-		total = len(recordConversation(record))
+		total = len(service.components.sessions.RecordConversation(record))
 	}
 	offset := total - Limits().HistoryWindow
 	if offset < 0 {
 		offset = 0
 	}
 	// 标题说明（审查 #5）：hasRecord 时标题取 record.Title（权威）；无 record
-	// 的旧格式会话标题由 sessionTitleFromHistory 取窗口内首条 user 消息——
-	// 会话总条数 > HistoryWindow 且真实首条 user 落在窗口外时，标题从"真实
-	// 首条消息"变为"窗口内首条消息"（行为变化，已接受：旧格式迁移场景）。
+	// 的旧格式会话标题由 SessionTitleFromHistory 取窗口内首条 user 消息。
 	visibleHistory := history
-	currentWorkspace := location.workspace
-	if service.deps.Workspace != nil {
+	currentWorkspace := location.Workspace
+	if service.Deps.Workspace != nil {
 		if currentWorkspace != nil {
-			if err := service.deps.Runtime.BindProjectRoot(currentWorkspace.RootPath); err != nil {
+			if err := service.Deps.Runtime.BindProjectRoot(currentWorkspace.RootPath); err != nil {
 				return fmt.Errorf("bind project root: %w", err)
 			}
-			service.deps.Sessions.SetWorkspace(currentWorkspace.ID)
-			service.deps.Workspace.BindSession(sessionID, currentWorkspace.ID)
+			service.Deps.Sessions.SetWorkspace(currentWorkspace.ID)
+			service.Deps.Workspace.BindSession(sessionID, currentWorkspace.ID)
 		} else {
-			service.deps.Runtime.UnbindProjectRoot()
-			service.deps.Sessions.SetWorkspace("")
-			service.deps.Workspace.UnbindSession(sessionID)
+			service.Deps.Runtime.UnbindProjectRoot()
+			service.Deps.Sessions.SetWorkspace("")
+			service.Deps.Workspace.UnbindSession(sessionID)
 		}
 	}
 
-	activePlan := activePlanFrame(record.PlanStack, record.ActivePlanID)
+	activePlan := task_context.ActivePlanFrame(record.PlanStack, record.ActivePlanID)
 	var planRestoreErr error
 	if hasRecord && activePlan != nil && activePlan.Arguments != "" {
-		if restorer, ok := service.deps.Runtime.(persistedPlanRestorer); ok {
+		if restorer, ok := service.Deps.Runtime.(persistedPlanRestorer); ok {
 			planRestoreErr = restorer.RestorePlan(context.Background(), activePlan.Arguments)
 		}
 	}
 	// 会话级 task 隔离：切换会话时整体替换注册表（清空旧会话、恢复目标
 	// 会话 task）并清空子代理树，避免旧数据污染新会话工作台。
-	service.deps.Runtime.SwitchSessionTasks(record.Tasks)
-	_ = service.deps.Runtime.ClearSubagentTree()
+	service.Deps.Runtime.SwitchSessionTasks(record.Tasks)
+	_ = service.Deps.Runtime.ClearSubagentTree()
 	workspaceProjection := service.collectWorkspaceProjection()
 
-	service.mu.Lock()
-	name := sessionTitleFromHistory(history)
+	service.Mu.Lock()
+	name := session_runtime.SessionTitleFromHistory(history, displayUserInput)
 	if hasRecord && record.Title.Value != "" {
 		name = record.Title.Value
 	}
-	service.snapshot.Session = SessionState{ID: sessionID, Name: name}
-	service.sessionTitle = SessionTitle{Value: name, Source: "legacy_history"}
+	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
+	service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {
-		service.sessionTitle = record.Title
-		service.planStack = cloneSessionPlanStack(record.PlanStack)
-		service.activePlanID = record.ActivePlanID
-		service.planSequence = uint64(len(service.planStack))
-		service.transcript = append([]TranscriptEvent(nil), transcript...)
+		service.components.sessions.SetSessionTitleLocked(record.Title)
+		transcriptSeq := uint64(0)
 		if len(transcript) > 0 {
-			service.transcriptSeq = transcript[len(transcript)-1].Seq
+			transcriptSeq = transcript[len(transcript)-1].Seq
 		}
-		if record.Projection != nil && record.Projection.Checkpoint.CoversEventRange.End > service.transcriptSeq {
-			service.transcriptSeq = record.Projection.Checkpoint.CoversEventRange.End
+		if record.Projection != nil && record.Projection.Checkpoint.CoversEventRange.End > transcriptSeq {
+			transcriptSeq = record.Projection.Checkpoint.CoversEventRange.End
 		}
-		service.taskCheckpoints = append([]TaskCheckpoint(nil), record.Checkpoints...)
-		service.toolResultRefs = append([]ToolResultRef(nil), record.ToolResults...)
-		service.pendingProviderCalls = nil
-		service.pendingToolResults = nil
-		service.resultRefsByToolCallID = make(map[string]string)
-		service.components.tasks.restoreTaskProjectionLocked(record.Projection, latestUserContent(record.Conversation.Messages))
+		service.components.tasks.RestoreSessionTaskLocked(task_context.RestoredTaskState{
+			PlanStack:         session_runtime.CloneSessionPlanStack(record.PlanStack),
+			ActivePlanID:      record.ActivePlanID,
+			Transcript:        transcript,
+			TranscriptSeq:     transcriptSeq,
+			Checkpoints:       record.Checkpoints,
+			ToolResults:       record.ToolResults,
+			Projection:        record.Projection,
+			FallbackObjective: service.components.sessions.LatestUserContent(record.Conversation.Messages),
+		})
 	} else {
-		service.planStack = nil
-		service.activePlanID = ""
-		service.planSequence = 0
-		service.transcript = nil
-		service.transcriptSeq = 0
-		service.taskExecution = nil
-		service.taskService = nil
-		service.components.tasks.syncGoalSkillActiveLocked()
-		service.taskCheckpoints = nil
-		service.toolResultRefs = nil
-		service.pendingToolResults = nil
-		service.pendingProviderCalls = nil
-		service.resultRefsByToolCallID = make(map[string]string)
+		service.components.tasks.ResetForNewSessionLocked()
 	}
-	service.snapshot.Conversation = nil
-	service.snapshot.Runtime.Plan = nil
-	service.snapshot.ReadFiles = nil
-	service.snapshot.Task = nil
-	service.snapshot.Interaction = nil
+	service.Core.Snapshot.Conversation = nil
+	service.Core.Snapshot.Runtime.Plan = nil
+	service.Core.Snapshot.ReadFiles = nil
+	service.Core.Snapshot.Task = nil
+	service.Core.Snapshot.Interaction = nil
 	if hasRecord {
 		service.advanceMessageSeqLocked(record.Conversation.Messages)
 	}
 	service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
 	if hasRecord {
-		service.snapshot.Conversation = append(service.snapshot.Conversation, recordConversationTail(record, Limits().HistoryWindow)...)
-		service.snapshot.Runtime.Plan = activePlanFromStack(record.PlanStack, record.ActivePlanID)
-		service.snapshot.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
+		service.Core.Snapshot.Conversation = append(service.Core.Snapshot.Conversation, service.components.sessions.RecordConversationTail(record, Limits().HistoryWindow)...)
+		service.Core.Snapshot.Runtime.Plan = task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
+		service.Core.Snapshot.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
 		if record.Execution.Task != nil {
 			task := *record.Execution.Task
 			task.ContextCompactions = append([]ContextCompaction(nil), record.Execution.Task.ContextCompactions...)
-			service.snapshot.Task = &task
+			service.Core.Snapshot.Task = &task
 		}
 		if planRestoreErr != nil {
 			service.appendMessageLocked("system", "The stored Plan is visible for review but could not be reloaded for execution with the current settings.", nil)
@@ -205,119 +201,47 @@ func (service *Service) resumeSession(sessionID string) error {
 	} else {
 		service.appendHistoryLocked(visibleHistory)
 	}
-	systemPrompt := service.components.prompts.systemPromptForActiveTaskLocked()
-	service.snapshot.HistoryOffset = offset
-	service.snapshot.TotalMessages = total
-	service.snapshot.HasMoreHistory = offset > 0
-	service.snapshot.ConversationWindow = Limits().HistoryWindow
-	if service.deps.Workspace != nil {
-		service.snapshot.CurrentWorkspace = currentWorkspace
+	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
+	service.Core.Snapshot.HistoryOffset = offset
+	service.Core.Snapshot.TotalMessages = total
+	service.Core.Snapshot.HasMoreHistory = offset > 0
+	service.Core.Snapshot.ConversationWindow = Limits().HistoryWindow
+	if service.Deps.Workspace != nil {
+		service.Core.Snapshot.CurrentWorkspace = currentWorkspace
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 	}
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.deps.Engine.SetSystemPrompt(systemPrompt)
+	service.Mu.Unlock()
+	service.Deps.Engine.SetSystemPrompt(systemPrompt)
 	// context 模块挂接：resume 恢复后加载会话四栈到 Runtime（下一轮 prompt
 	// 组装前就绪）。损坏的 context 显式失败，不静默降级成内存栈。
-	if store, ok := service.deps.Sessions.(sessionContextPort); ok {
-		if err := store.AttachSessionContext(location.workspaceID, sessionID); err != nil {
+	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
+		if err := store.AttachSessionContext(location.WorkspaceID, sessionID); err != nil {
 			return fmt.Errorf("attach session context %q: %w", sessionID, err)
 		}
 	}
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 	service.publishRuntimeProjections()
-	service.requestSessionCatalogRefresh()
+	service.components.sessions.RequestCatalogRefresh()
 	return nil
 }
 
-// loadHistoryTailWindow 尾部窗口读：先探总数（limit=0 只读 manifest），
-// 再读尾部 window 条（只解析覆盖窗口的 shard）。返回窗口消息与真实总数，
-// resumeSession 的 visibleHistory/TotalMessages 直接消费。
-// 注（审查 #8）：探测与窗口读是两次独立加锁操作，非原子——两读之间会话
-// 并发增长时 total 与窗口可能错位；恢复场景通常无并发写，影响极小（观察项）。
-func (service *sessionCoordinator) loadHistoryTailWindow(location sessionLocation) ([]EngineMessage, int, error) {
-	window := Limits().HistoryWindow
-	_, total, err := service.loadSessionHistoryRange(location.workspaceID, location.meta.ID, 0, 0)
-	if err != nil {
-		return nil, 0, err
-	}
-	offset := total - window
-	if offset < 0 {
-		offset = 0
-	}
-	history, _, err := service.loadSessionHistoryRange(location.workspaceID, location.meta.ID, offset, window)
-	return history, total, err
-}
-
-func latestUserContent(messages []Message) string {
-	for index := len(messages) - 1; index >= 0; index-- {
-		if messages[index].Role == "user" && !isInternalConversationMessage(messages[index]) {
-			return messages[index].Content
-		}
-	}
-	return ""
-}
-
-func historyContainsUser(history []EngineMessage, content string) bool {
-	content = strings.TrimSpace(displayUserInput(content))
-	if content == "" {
-		return true
-	}
-	for _, message := range history {
-		if message.Role == "user" && strings.TrimSpace(displayUserInput(message.Content)) == content {
-			return true
-		}
-	}
-	return false
-}
-
-func transcriptContainsUser(events []TranscriptEvent, content string) bool {
-	content = strings.TrimSpace(displayUserInput(content))
-	if content == "" {
-		return true
-	}
-	for _, event := range events {
-		if event.Role == "user" && strings.TrimSpace(displayUserInput(event.Content)) == content {
-			return true
-		}
-	}
-	return false
-}
-
-// ResumeSession is the direct application boundary for GUI/TUI session
-// selection. It deliberately bypasses command text parsing so a click has one
-// synchronous outcome: a restored snapshot or a returned error.
+// ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，
+// 让一次点击有同步结果：恢复的快照或返回的错误。
 func (service *Service) ResumeSession(sessionID string) error {
 	return service.resumeSession(sessionID)
 }
 
-func activePlanFrame(stack []SessionPlanFrame, activeID string) *SessionPlanFrame {
-	for index := range stack {
-		if stack[index].ID == activeID {
-			return &stack[index]
-		}
-	}
-	return nil
-}
-
-func activePlanFromStack(stack []SessionPlanFrame, activeID string) *PlanState {
-	frame := activePlanFrame(stack, activeID)
-	if frame == nil {
-		return nil
-	}
-	return cloneRuntimeState(RuntimeState{Plan: frame.Plan}).Plan
-}
-
-// LoadMoreHistory prepends an older history page to the visible conversation.
+// LoadMoreHistory 把更早的历史页前置到可见会话。
 func (service *Service) LoadMoreHistory(limit int) error {
 	if limit <= 0 {
 		limit = Limits().HistoryWindow
 	}
 
-	service.mu.RLock()
-	offset := service.snapshot.HistoryOffset
-	sessionID := service.snapshot.Session.ID
-	service.mu.RUnlock()
+	service.Mu.RLock()
+	offset := service.Core.Snapshot.HistoryOffset
+	sessionID := service.Core.Snapshot.Session.ID
+	service.Mu.RUnlock()
 	if offset <= 0 {
 		return nil
 	}
@@ -329,22 +253,22 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	loadLimit := offset - loadOffset
 
 	workspaceID := ""
-	service.mu.RLock()
-	if service.snapshot.CurrentWorkspace != nil {
-		workspaceID = service.snapshot.CurrentWorkspace.ID
+	service.Mu.RLock()
+	if service.Core.Snapshot.CurrentWorkspace != nil {
+		workspaceID = service.Core.Snapshot.CurrentWorkspace.ID
 	}
-	service.mu.RUnlock()
+	service.Mu.RUnlock()
 	var adapted []Message
 	total := 0
-	if store, ok := service.deps.Sessions.(sessionConversationRangePort); ok {
+	if store, ok := service.Deps.Sessions.(session_runtime.SessionConversationRangePort); ok {
 		messages, count, err := store.LoadConversationRangeWorkspace(workspaceID, sessionID, loadOffset, loadLimit)
 		if err != nil {
 			return fmt.Errorf("load conversation range: %w", err)
 		}
-		adapted = recordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}})
+		adapted = service.components.sessions.RecordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}})
 		total = count
 	} else {
-		history, count, err := service.components.sessions.loadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
+		history, count, err := service.components.sessions.LoadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
 		if err != nil {
 			return fmt.Errorf("load history range: %w", err)
 		}
@@ -358,35 +282,22 @@ func (service *Service) LoadMoreHistory(limit int) error {
 		}
 	}
 
-	service.mu.Lock()
+	service.Mu.Lock()
 	for index := range adapted {
 		if adapted[index].ID == "" {
-			service.messageSeq++
-			adapted[index].ID = fmt.Sprintf("message-%d", service.messageSeq)
+			adapted[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqLocked())
 		}
 	}
-	service.snapshot.Conversation = append(adapted, service.snapshot.Conversation...)
-	service.snapshot.Conversation = boundConversationHead(service.snapshot.Conversation, Limits().HistoryWindow)
-	service.snapshot.HistoryOffset = loadOffset
-	service.snapshot.TotalMessages = total
-	service.snapshot.HasMoreHistory = loadOffset > 0
-	service.snapshot.ConversationWindow = Limits().HistoryWindow
+	service.Core.Snapshot.Conversation = append(adapted, service.Core.Snapshot.Conversation...)
+	service.Core.Snapshot.Conversation = view_state.BoundConversationHead(service.Core.Snapshot.Conversation, Limits().HistoryWindow)
+	service.Core.Snapshot.HistoryOffset = loadOffset
+	service.Core.Snapshot.TotalMessages = total
+	service.Core.Snapshot.HasMoreHistory = loadOffset > 0
+	service.Core.Snapshot.ConversationWindow = Limits().HistoryWindow
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.Mu.Unlock()
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
-}
-
-func (service *Service) advanceMessageSeqLocked(messages []Message) {
-	for _, message := range messages {
-		if !strings.HasPrefix(message.ID, "message-") {
-			continue
-		}
-		sequence, err := strconv.ParseUint(strings.TrimPrefix(message.ID, "message-"), 10, 64)
-		if err == nil && sequence > service.messageSeq {
-			service.messageSeq = sequence
-		}
-	}
 }
 
 func adaptEngineMessage(msg EngineMessage) Message {
@@ -394,9 +305,9 @@ func adaptEngineMessage(msg EngineMessage) Message {
 	if msg.Role == "user" {
 		content = displayUserInput(content)
 	} else if msg.Role == "assistant" || msg.Role == "tool" {
-		content = stripThoughtBlocks(content)
+		content = chat.StripThoughtBlocks(content)
 	}
-	if isProviderOnlyHistoryContent(content) {
+	if context_runtime.IsProviderOnlyHistoryContent(content) {
 		content = ""
 	}
 	message := Message{Role: msg.Role, Content: content}

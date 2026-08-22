@@ -5,58 +5,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/application/core/input_router"
 )
-
-type Command interface {
-	Name() string
-	Description() string
-	Execute(context.Context, []string) (CommandResult, error)
-}
-type CommandResult struct {
-	Notice      string
-	Exit        bool
-	Interaction *Interaction
-}
-type commandFunc struct {
-	name        string
-	description string
-	execute     func(context.Context, []string) (CommandResult, error)
-}
-
-func (command commandFunc) Name() string        { return command.name }
-func (command commandFunc) Description() string { return command.description }
-func (command commandFunc) Execute(ctx context.Context, args []string) (CommandResult, error) {
-	return command.execute(ctx, args)
-}
-
-type CommandRegistry struct{ commands map[string]Command }
-
-func NewCommandRegistry() *CommandRegistry {
-	return &CommandRegistry{commands: make(map[string]Command)}
-}
-func (registry *CommandRegistry) Register(command Command) error {
-	name := strings.ToLower(strings.TrimSpace(command.Name()))
-	if name == "" {
-		return fmt.Errorf("command name is empty")
-	}
-	if _, exists := registry.commands[name]; exists {
-		return fmt.Errorf("command %q already registered", name)
-	}
-	registry.commands[name] = command
-	return nil
-}
-func (registry *CommandRegistry) Get(name string) (Command, bool) {
-	command, ok := registry.commands[strings.ToLower(name)]
-	return command, ok
-}
-func (registry *CommandRegistry) All() []Command {
-	commands := make([]Command, 0, len(registry.commands))
-	for _, command := range registry.commands {
-		commands = append(commands, command)
-	}
-	sort.Slice(commands, func(i, j int) bool { return commands[i].Name() < commands[j].Name() })
-	return commands
-}
 
 func (service *Service) registerBuiltinCommands() error {
 	var registrationErr error
@@ -64,7 +15,7 @@ func (service *Service) registerBuiltinCommands() error {
 		if registrationErr != nil {
 			return
 		}
-		if err := service.commands.Register(commandFunc{name: name, description: description, execute: execute}); err != nil {
+		if err := service.commands.Register(input_router.NewCommandFunc(name, description, execute)); err != nil {
 			registrationErr = fmt.Errorf("register command %q: %w", name, err)
 		}
 	}
@@ -78,15 +29,15 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{Notice: builder.String()}, nil
 	})
 	register("clear", "清空对话历史", func(context.Context, []string) (CommandResult, error) {
-		service.deps.Engine.ClearHistory()
+		service.Deps.Engine.ClearHistory()
 		service.resetConversation("已清空")
 		return CommandResult{}, nil
 	})
 	register("model", "显示当前模型和 Provider", func(context.Context, []string) (CommandResult, error) {
-		return CommandResult{Notice: fmt.Sprintf("Model: %s  Provider: %s", service.deps.Runtime.Model(), service.deps.Runtime.Provider())}, nil
+		return CommandResult{Notice: fmt.Sprintf("Model: %s  Provider: %s", service.Deps.Runtime.Model(), service.Deps.Runtime.Provider())}, nil
 	})
 	register("history", "显示历史消息统计", func(context.Context, []string) (CommandResult, error) {
-		history := service.deps.Engine.History()
+		history := service.Deps.Engine.History()
 		if len(history) == 0 {
 			return CommandResult{Notice: "历史为空"}, nil
 		}
@@ -102,7 +53,7 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{Notice: fmt.Sprintf("共 %d 条 (%s)", len(history), strings.Join(parts, ", "))}, nil
 	})
 	register("trace", "显示调用追踪树", func(context.Context, []string) (CommandResult, error) {
-		trace := service.deps.Engine.TraceText()
+		trace := service.Deps.Engine.TraceText()
 		if trace == "" {
 			trace = "暂无追踪数据"
 		}
@@ -112,9 +63,9 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{}, service.BeginNewSession()
 	})
 	register("resume", "恢复历史会话：/resume <session_id>", func(ctx context.Context, args []string) (CommandResult, error) {
-		service.mu.RLock()
-		capabilities := service.snapshot.Capabilities
-		service.mu.RUnlock()
+		service.Mu.RLock()
+		capabilities := service.Core.Snapshot.Capabilities
+		service.Mu.RUnlock()
 		if !capabilities.SessionResume {
 			reason := strings.TrimSpace(capabilities.SessionResumeReason)
 			if reason == "" {
@@ -143,11 +94,11 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{Interaction: service.accountInteraction()}, nil
 	})
 	register("plugins", "列出可用插件", func(context.Context, []string) (CommandResult, error) {
-		plugins := service.deps.Plugins.All()
+		plugins := service.Deps.Plugins.All()
 		if len(plugins) == 0 {
 			return CommandResult{Notice: "暂无可用插件"}, nil
 		}
-		current, _ := service.deps.Plugins.Current()
+		current, _ := service.Deps.Plugins.Current()
 		var builder strings.Builder
 		builder.WriteString("可用插件:\n")
 		for _, plugin := range plugins {
@@ -161,7 +112,7 @@ func (service *Service) registerBuiltinCommands() error {
 	})
 	register("plugin", "切换插件：/plugin <name|off>", func(ctx context.Context, args []string) (CommandResult, error) {
 		if len(args) == 0 {
-			current, ok := service.deps.Plugins.Current()
+			current, ok := service.Deps.Plugins.Current()
 			if !ok {
 				return CommandResult{Notice: "当前未激活插件"}, nil
 			}
@@ -177,9 +128,9 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{Notice: "已切换插件: " + name}, nil
 	})
 	register("diag", "系统诊断信息", func(context.Context, []string) (CommandResult, error) {
-		service.mu.RLock()
-		snap := service.snapshot
-		service.mu.RUnlock()
+		service.Mu.RLock()
+		snap := service.Core.Snapshot
+		service.Mu.RUnlock()
 		return CommandResult{Notice: RenderDiag(snap)}, nil
 	})
 	register("exit", "退出程序", func(context.Context, []string) (CommandResult, error) { return CommandResult{Exit: true}, nil })
@@ -191,11 +142,11 @@ func (service *Service) registerBuiltinCommands() error {
 		if err := service.effortManager.Apply(level); err != nil {
 			return CommandResult{}, err
 		}
-		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
-		service.mu.Lock()
+		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+		service.Mu.Lock()
 		revision := service.bumpLocked()
-		service.mu.Unlock()
-		service.events.Publish(EventSnapshotChanged, revision, "", nil)
+		service.Mu.Unlock()
+		service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 		return CommandResult{Notice: "Effort 已切换为: " + level}, nil
 	})
 	return registrationErr

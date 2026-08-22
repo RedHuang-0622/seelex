@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/seelebridge"
-	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
 )
 
 // ProtocolVersion identifies the Snapshot/Event contract consumed by frontends.
@@ -96,22 +94,22 @@ type ChatState struct {
 	InputQueue  []string  `json:"input_queue,omitempty"` // 排队消息内容（TUI 显示用）
 }
 type RuntimeState struct {
-	Model             string                             `json:"model"`
-	Provider          string                             `json:"provider"`
-	Account           string                             `json:"account,omitempty"`
-	Plugin            string                             `json:"plugin,omitempty"`
-	Effort            string                             `json:"effort"`
-	FullAccess        bool                               `json:"full_access"`
-	VisibleTools      []Tool                             `json:"visible_tools"`
-	Skills            []SkillInfo                        `json:"skills"`
-	Tokens            string                             `json:"tokens"`
-	Replan            ReplanMonitor                      `json:"replan"`
-	Plan              *PlanState                         `json:"plan,omitempty"`
-	Plugins           []PluginInfo                       `json:"plugins,omitempty"`            // 完整插件列表（含描述）
-	Accounts          []AccountInfo                      `json:"accounts,omitempty"`           // 账号池
-	TodoItems         []dto.TodoItem                     `json:"todo_items,omitempty"`         // todolist 清单（GUI 待办面板）
-	ScheduledTasks    []seelebridge.ScheduledTaskStatus  `json:"scheduled_tasks,omitempty"`    // 定时周期任务（GUI 定时任务面板）
-	ScheduledCommands []seelebridge.ScheduledCommandInfo `json:"scheduled_commands,omitempty"` // 白名单命令（新建弹窗下拉）
+	Model             string                     `json:"model"`
+	Provider          string                     `json:"provider"`
+	Account           string                     `json:"account,omitempty"`
+	Plugin            string                     `json:"plugin,omitempty"`
+	Effort            string                     `json:"effort"`
+	FullAccess        bool                       `json:"full_access"`
+	VisibleTools      []Tool                     `json:"visible_tools"`
+	Skills            []SkillInfo                `json:"skills"`
+	Tokens            string                     `json:"tokens"`
+	Replan            ReplanMonitor              `json:"replan"`
+	Plan              *PlanState                 `json:"plan,omitempty"`
+	Plugins           []PluginInfo               `json:"plugins,omitempty"`            // 完整插件列表（含描述）
+	Accounts          []AccountInfo              `json:"accounts,omitempty"`           // 账号池
+	TodoItems         []dto.TodoItem             `json:"todo_items,omitempty"`         // todolist 清单（GUI 待办面板）
+	ScheduledTasks    []dto.ScheduledTaskStatus  `json:"scheduled_tasks,omitempty"`    // 定时周期任务（GUI 定时任务面板）
+	ScheduledCommands []dto.ScheduledCommandInfo `json:"scheduled_commands,omitempty"` // 白名单命令（新建弹窗下拉）
 	// SubAgentTree 是 fork 子代理树的权威投影（内存态，不落盘；GUI 树视图
 	// 数据源）。节点状态由 fork 子代理会话生命周期投影，随节点事件增量刷新。
 	SubAgentTree []dto.SubAgentTreeNode `json:"subagent_tree,omitempty"`
@@ -221,14 +219,14 @@ type ReplanMonitor struct {
 
 // PlanState 描述当前 WorkPlan 的执行状态（nil = 无活跃 Plan）。
 type PlanState struct {
-	Name        string              `json:"name"`
-	EntryNodeID string              `json:"entry_node_id"`
-	Status      PlanStatus          `json:"status"`
-	Nodes       []PlanNode          `json:"nodes,omitempty"`
-	Edges       []seelplan.PlanEdge `json:"edges,omitempty"`
-	Progress    float64             `json:"progress"`
-	Elapsed     string              `json:"elapsed,omitempty"`
-	ReplanCount int                 `json:"replan_count,omitempty"`
+	Name        string         `json:"name"`
+	EntryNodeID string         `json:"entry_node_id"`
+	Status      PlanStatus     `json:"status"`
+	Nodes       []PlanNode     `json:"nodes,omitempty"`
+	Edges       []dto.PlanEdge `json:"edges,omitempty"`
+	Progress    float64        `json:"progress"`
+	Elapsed     string         `json:"elapsed,omitempty"`
+	ReplanCount int            `json:"replan_count,omitempty"`
 }
 
 type PlanStatus string
@@ -502,12 +500,12 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.Plugins = append([]PluginInfo(nil), runtime.Plugins...)
 	copyRuntime.Accounts = append([]AccountInfo(nil), runtime.Accounts...)
 	copyRuntime.TodoItems = append([]dto.TodoItem(nil), runtime.TodoItems...)
-	copyRuntime.ScheduledTasks = append([]seelebridge.ScheduledTaskStatus(nil), runtime.ScheduledTasks...)
-	copyRuntime.ScheduledCommands = append([]seelebridge.ScheduledCommandInfo(nil), runtime.ScheduledCommands...)
+	copyRuntime.ScheduledTasks = append([]dto.ScheduledTaskStatus(nil), runtime.ScheduledTasks...)
+	copyRuntime.ScheduledCommands = append([]dto.ScheduledCommandInfo(nil), runtime.ScheduledCommands...)
 	if runtime.Plan != nil {
 		planCopy := *runtime.Plan
 		planCopy.Nodes = clonePlanNodes(runtime.Plan.Nodes)
-		planCopy.Edges = append([]seelplan.PlanEdge(nil), runtime.Plan.Edges...)
+		planCopy.Edges = append([]dto.PlanEdge(nil), runtime.Plan.Edges...)
 		copyRuntime.Plan = &planCopy
 	}
 	copyRuntime.SubAgentTree = cloneSubAgentTree(runtime.SubAgentTree)

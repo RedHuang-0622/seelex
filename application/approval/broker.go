@@ -48,12 +48,14 @@ type approvalPending struct {
 type ApprovalBroker struct {
 	mu                    sync.Mutex
 	pending               map[string]*approvalPending
-	events                *event.EventHub
+	events                event.Hub
 	observer              func(*model.Interaction)
 	autoApprovePermission bool
 }
 
-func NewApprovalBroker(events *event.EventHub) *ApprovalBroker {
+// NewApprovalBroker 构造异步审批 broker。events 可为 nil（无事件发布）。
+// 参数是 event.Hub 窄接口，*event.EventHub 以及测试桩均可满足。
+func NewApprovalBroker(events event.Hub) *ApprovalBroker {
 	return &ApprovalBroker{pending: make(map[string]*approvalPending), events: events}
 }
 

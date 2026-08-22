@@ -63,8 +63,8 @@ func TestReadToolResultResolvesNodeRef(t *testing.T) {
 func TestReadToolResultResolvesCallAlias(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	raw := strings.Repeat("x", 4000) + "alias-target-content"
-	stored := service.components.tasks.storeToolResultLocked("fork_subagents", raw)
-	service.resultRefsByToolCallID["call_00_Ohu6emGEZr0gV4m2JU4t0987"] = stored.Ref
+	stored := service.components.tasks.StoreToolResultLocked("fork_subagents", raw)
+	service.components.tasks.SetResultRefByCallIDLocked("call_00_Ohu6emGEZr0gV4m2JU4t0987", stored.Ref)
 
 	page, err := service.ReadToolResultHandler(t.Context(),
 		`{"result_ref":"result:call_00_Ohu6emGEZr0gV4m2JU4t0987","offset":4000,"limit":64}`)

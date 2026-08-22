@@ -8,45 +8,75 @@
 
 `service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。
 
-## 模块定位
+## 生态位
 
 `core` 是 Seelex 的应用用例层和权威状态机。它不直接创建数据库、Wails 窗口或 Seele Agent，而是通过 `contract.Dependencies` 编排这些能力。
 
 主要调用方是 `application` facade；主要消费者是 TUI、GUI Bridge 和 E2E harness。
+
+本包按域拆分子包（装配件 + 消费方窄接口的容器化方向，见
+`docs/2026-08-22-application-split/plan.md`）：
+
+- 零依赖叶子域：`chat/`（流式批次与可见输出）、`worktable/`（表格增量 CSP
+  汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
+  （窗口策略配置加载）。
+- 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
+  `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
+  `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
+  （system prompt 组装）、`view_state/`（Snapshot 读/写/事件发布）、
+  `subagent_view/`（子代理详情/live/树投影）。
+- 共享叶子：`internal/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
+  内核）、`internal/limits`（运行时上限）。
+
+域包依赖 `state.Core` 与装配根注入的消费方窄接口，禁止反向依赖 core 根包；
+`service_assembler.go` 是唯一组合根。
 
 > Seele v2 装配模型：`contract.ChatEngine` 端口由 seelebridge 创建的
 > `session.Session`（`session.NewSession` 主会话）经 `enginePort` 适配满足；
 > `RuntimePort` 转发 seelebridge.Runtime（账号池/Completer/可见性/Plan
 > preflight/策略）。本模块只消费窄端口，不直接接触 Seele 会话实现。
 
-## 文件结构
+## 分卷 README（根包按文件前缀）
 
-| 文件 | 职责 |
+根包的文件与函数说明按文件前缀分卷到独立 README，主 README 只保留生态位
+与导航；各卷含「生态位 + 文件与函数索引」，由
+`scripts/gen_core_readme_index.py` 从源码 doc 注释自动刷新。
+
+| 分卷 | 覆盖文件 | 生态位 |
+|---|---|---|
+| [README-service.md](README-service.md) | `service*.go` | Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具） |
+| [README-session.md](README-session.md) | `session*.go` | 会话草稿/恢复/存储用例与集成测试 |
+| [README-chat.md](README-chat.md) | `chat.go`、`visible_output_test.go` | 聊天主循环与可见输出集成 |
+| [README-command.md](README-command.md) | `command*.go` | 内置命令注册与执行 |
+| [README-error.md](README-error.md) | `error*.go` | 错误码与面向用户的错误呈现 |
+| [README-history.md](README-history.md) | `history*.go` | 历史检索与 provider 失败恢复 |
+| [README-input.md](README-input.md) | `input.go`、`input_router_compat_test.go` | 输入分派与路由兼容测试 |
+| [README-plan.md](README-plan.md) | `plan_tools.go` | Plan 打点/分支事件/重规划 |
+| [README-reference.md](README-reference.md) | `reference*.go` | read_tool_result / read_plan 引用工具 |
+| [README-skill.md](README-skill.md) | `skill*.go` | Skill 指令信封编解码 |
+| [README-tool.md](README-tool.md) | `tool_hooks.go`、`tool_hook_diagnostic_test.go` | 工具事件钩子与诊断 |
+| [README-work-table.md](README-work-table.md) | `work_table*.go` | 工作表格投影与测试 |
+| [README-context.md](README-context.md) | `context_*_test.go` | 上下文控制相关集成测试 |
+| [README-task.md](README-task.md) | `task_*_test.go` | 任务执行集成测试 |
+| [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
+| [README-misc.md](README-misc.md) | aliases/completion/compressed/diagnostics/limits/runtime/workspace/race | 基础与杂项 |
+
+### 叶子包 README
+
+| 包 | 生态位 |
 |---|---|
-| `service.go` | `Service` 共享状态、锁、依赖与构造；不承载具体用例。 |
-| `service_assembler.go` | 装配件：补齐基础设施默认值，按既有顺序组合 `Service`、输入路由、Prompt、Runtime 与初始 workspace。 |
-| `service_input.go` | 输入路由、conversation 排队、取消、空闲等待与关闭。 |
-| `input_router.go` | 组合式输入路由器；按 command → skill → plugin → conversation 的策略顺序分派已规范化输入。 |
-| `service_prompt.go` | system prompt 层组装与引擎同步。 |
-| `service_interaction.go` | approval/session/account/plan retry 交互，以及 effort 和 plugin 切换。 |
-| `service_snapshot.go` | Snapshot 读取、runtime 刷新、消息追加、revision 与事件发布。 |
-| `workspace_usecase.go` | session 删除和 workspace 的创建、绑定、解绑与 snapshot 同步。 |
-| `session_history.go` | session 恢复、历史分页加载和 EngineMessage 到 UI Message 的转换。 |
-| `chat.go` | 流式聊天、输入队列、工具事件、Plan 状态打点和 idle/draining。 |
-| `work_table.go` | 工作表格（Work Table）读模型投影：plan/todo/subagent → 有界 WorkItem 行（含任务打点）；`UpdateWorkItemStatus`（todo 三态）。 |
-| `worktable_publisher.go` | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态）。 |
-| `task_execution.go` | 请求私有的 PlanAct checkpoint、终态 payload 校验和 `task_complete` / `task_needs_user_decision` / `task_failed` handler。 |
-| `history_safety.go` | Provider 空 content、上下文耗尽与 504 可恢复中断的历史安全处理。 |
-| `visible_output.go` | 前端可见输出过滤；剥离模型 `<think>` 块，不暴露内部推理。 |
-| `context_controller.go` | 基于 token 与 checkpoint 的上下文控制；超长工具结果以重取警告替代，内部控制消息在持久化前清除。 |
-| `command.go` | 内置命令注册与执行。 |
-| `session_scope.go` | 跨项目 session catalog、真实存储位置定位、标题恢复和 scoped read。 |
-| `session_draft.go` | GUI 新会话草稿、首次请求物化和项目 binding。 |
-| `session_storage.go` | JSON/SQLite/PostgreSQL 存储设置用例。 |
-| `skill_context.go` | Skill 指令与用户可见输入的 envelope 编解码。 |
-| `completion.go` | `/`、`#`、`@` 输入建议。 |
-| `diagnostics.go` | Snapshot 诊断文本。 |
-| `aliases.go` | 对 model/event/approval/prompt/contract 的兼容别名。 |
+| [chat/](chat/README.md) | 流式批次管道（`StreamBatcher`）与 `<think>` 可见输出剥离 |
+| [worktable/](worktable/README.md) | worktable.changed CSP 汇聚发布器（latest-wins、背压、关闭排空尾态） |
+| [input_router/](input_router/README.md) | 命令注册表与输入路由 |
+| [context_control/](context_control/README.md) | 窗口策略配置加载 |
+| [session_runtime/](session_runtime/README.md) | 会话持久化/目录/项目绑定协调器 |
+| [task_context/](task_context/README.md) | 任务执行/checkpoint/transcript/token 审计协调器 |
+| [context_runtime/](context_runtime/README.md) | provider 上下文装配/压缩/历史安全协调器 |
+| [prompt_layer/](prompt_layer/README.md) | system prompt 组装与引擎同步 |
+| [view_state/](view_state/README.md) | Snapshot 读/写/事件发布协调器 |
+| [subagent_view/](subagent_view/README.md) | 子代理详情/live/树投影 |
+| [internal/state/](internal/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖） |
+| [internal/limits/](internal/limits/README.md) | 运行时上限（seele.yaml limits 段） |
 
 ## 权威状态与生命周期
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	seeleerrors "github.com/RedHuang-0622/Seele/errors"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
 type failingSnapshotSessions struct{ fakeSessions }
@@ -117,7 +118,7 @@ func TestClassifyStructuredErrorsByCode(t *testing.T) {
 		},
 		{
 			name:   "react budget code",
-			err:    wrapError(fmt.Errorf("%w: no progress", ErrReActBudgetExceeded), errorCodeReActBudget),
+			err:    wrapError(fmt.Errorf("%w: no progress", task_context.ErrReActBudgetExceeded), errorCodeReActBudget),
 			module: "执行预算", method: "finalizeReActBudget",
 		},
 		{
@@ -143,9 +144,9 @@ func TestClassifyStructuredErrorsByCode(t *testing.T) {
 	}
 
 	// 结构化包装不破坏预算错误的 errors.Is 语义。
-	budgetErr := wrapError(fmt.Errorf("%w: no progress", ErrReActBudgetExceeded), errorCodeReActBudget)
-	if !errors.Is(budgetErr, ErrReActBudgetExceeded) {
-		t.Fatal("errors.Is(ErrReActBudgetExceeded) broken through structured envelope")
+	budgetErr := wrapError(fmt.Errorf("%w: no progress", task_context.ErrReActBudgetExceeded), errorCodeReActBudget)
+	if !errors.Is(budgetErr, task_context.ErrReActBudgetExceeded) {
+		t.Fatal("errors.Is(task_context.ErrReActBudgetExceeded) broken through structured envelope")
 	}
 	// 取消语义优先于结构化分类（与旧分类顺序一致）。
 	canceled := wrapError(fmt.Errorf("plan preflight: %w", context.Canceled), errorCodePlanPreflight)
@@ -158,7 +159,7 @@ func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New(`ChatClient stream: HTTP 500: server_error request_id=req-secret`)}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	subscription := service.events.Subscribe(16)
+	subscription := service.Events.Subscribe(16)
 	defer subscription.Close()
 
 	if err := service.Submit(t.Context(), "检查项目"); err != nil {

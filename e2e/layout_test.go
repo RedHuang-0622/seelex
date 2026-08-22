@@ -7,22 +7,28 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application/adapters"
+	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/plugin"
 )
 
 var repositoryModules = []string{
 	".", ".claude", ".github", "application", "application/approval", "application/contract",
-	"application/core", "application/event", "application/model", "application/prompt",
-	"application/search", "application/adapters", "application/console", "config", "docs",
+	"application/core", "application/core/chat", "application/core/context_control",
+	"application/core/context_runtime", "application/core/input_router",
+	"application/core/internal/limits", "application/core/internal/state",
+	"application/core/prompt_layer", "application/core/session_runtime",
+	"application/core/subagent_view", "application/core/task_context",
+	"application/core/view_state", "application/core/worktable",
+	"application/event", "application/model", "application/prompt",
+	"application/console", "config", "docs",
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
-	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/buildinfo",
-	"internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
+	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/adapters",
+	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
 	"plugins/freecad", "plugins/git", "plugins/read", "plugins/shell", "plugins/write", "scripts",
 	"seelebridge", "seelebridge/fork", "seelebridge/fs", "seelebridge/internal/config",
 	"seelebridge/internal/model", "seelebridge/internal/stream",
 	"seelebridge/internal/telemetry", "seelebridge/plan",
-	"seelebridge/security", "seelebridge/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
+	"seelebridge/search", "seelebridge/security", "seelebridge/task", "seelebridge/tools/websearch", "seelexctx", "seelexctx/compactor",
 	"seelexctx/merger", "seelexctx/provider", "seelexctx/search", "seelexctx/snapshot",
 	"session", "sessionstore", "skill", "tui", "tui/splash", "workspace",
 }

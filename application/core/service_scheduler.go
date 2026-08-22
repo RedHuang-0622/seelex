@@ -15,7 +15,7 @@ import (
 
 // ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。
 func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
-	created, err := service.deps.Runtime.ScheduleTask(ctx, spec)
+	created, err := service.Deps.Runtime.ScheduleTask(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +25,7 @@ func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.Sched
 
 // CancelScheduledTask 取消并移除定时/周期任务。
 func (service *Service) CancelScheduledTask(id string) error {
-	if err := service.deps.Runtime.CancelScheduledTask(id); err != nil {
+	if err := service.Deps.Runtime.CancelScheduledTask(id); err != nil {
 		return err
 	}
 	service.RefreshRuntimeSnapshot()
@@ -37,11 +37,11 @@ func (service *Service) CancelScheduledTask(id string) error {
 // 定时/周期任务变更入口复用；与 SelectAccount 等既有路径内联逻辑一致。
 func (service *Service) RefreshRuntimeSnapshot() {
 	projection := service.collectRuntimeProjection(context.Background())
-	service.mu.Lock()
+	service.Mu.Lock()
 	service.applyRuntimeProjectionLocked(projection)
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
+	service.Mu.Unlock()
+	service.Events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
 	service.publishTaskDeltas()
 }
 

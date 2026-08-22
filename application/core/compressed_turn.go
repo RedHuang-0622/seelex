@@ -16,6 +16,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -85,12 +86,12 @@ func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON st
 		input.Limit = max
 	}
 
-	service.mu.RLock()
-	sessionID := service.snapshot.Session.ID
-	currentWorkspaceID := workspaceID(service.snapshot.CurrentWorkspace)
-	service.mu.RUnlock()
+	service.Mu.RLock()
+	sessionID := service.Core.Snapshot.Session.ID
+	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
+	service.Mu.RUnlock()
 
-	store, ok := service.deps.Sessions.(sessionTranscriptPort)
+	store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
 	if !ok {
 		return "", errors.New("read_compressed_turn: durable storage is unavailable")
 	}

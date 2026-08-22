@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/seelebridge/search"
 )
 
 func TestLoadWebSearchConfig_Defaults(t *testing.T) {
@@ -152,7 +152,7 @@ func TestRegisterWebSearch_NoAPIKey(t *testing.T) {
 
 func TestWebSearchConfig_Struct(t *testing.T) {
 	// Verify the struct fields etc.
-	cfg := application.WebSearchConfig{
+	cfg := search.WebSearchConfig{
 		Provider:      "custom",
 		APIKey:        "key-123",
 		MaxResults:    7,

@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/base64"
 	"fmt"
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"strings"
 )
 
@@ -67,7 +68,7 @@ func displayUserInput(modelInput string) string {
 		}
 		return ""
 	}
-	if isTaskContextCheckpoint(modelInput) || modelInput == reactBudgetFinalizationInput {
+	if context_runtime.IsTaskContextCheckpoint(modelInput) || modelInput == reactBudgetFinalizationInput {
 		return ""
 	}
 	display, _, ok := parseModelEnvelope(modelInput)

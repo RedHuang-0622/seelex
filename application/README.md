@@ -15,8 +15,12 @@
 | [`approval/`](approval/README.md) | 异步审批请求、决议、超时和关闭。 |
 | [`contract/`](contract/README.md) | Application 拥有的 Engine、Runtime、Plugin、Session、Workspace 端口。 |
 | [`prompt/`](prompt/README.md) | PromptStack 与 Effort 策略。 |
-| [`search/`](search/README.md) | Tavily Web Search 能力。 |
 | [`core/`](core/README.md) | Service 用例、聊天状态机、命令、session/project 作用域和工具事件。 |
+
+`application/search` 已于 2026-08-22 迁至 `seelebridge/search/`（后端能力归位）；
+`application` 门面保留 `WebSearchConfig`/`WebSearch` 兼容别名与薄转发。
+后端适配器（`application/adapters`）同步迁至 `internal/adapters/`，只依赖
+`contract` 层，不再反向依赖本门面。
 
 `application.go` 通过类型别名和薄转发保持外部 API 稳定，调用方不需要依赖内部子包。
 
@@ -60,4 +64,4 @@ go test ./application/... -count=1
 go test ./application/... -race -count=1   # 需要 CGO/C toolchain
 ```
 
-集成入口主要位于 `core/service_test.go`、`core/command_test.go` 和根目录 `application_adapters_test.go`。
+集成入口主要位于 `core/service_test.go`、`core/command_test.go` 和 `internal/adapters/adapters_test.go`。

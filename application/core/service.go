@@ -3,6 +3,10 @@ package core
 
 import (
 	"errors"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/model"
+	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
 
 // defaultHistoryWindow 与 maxReplansPerPlanChain 已收编进 seele.yaml limits 段
@@ -31,29 +35,45 @@ func New(deps Dependencies) (*Service, error) {
 // ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
 // 见 Runtime 单向可见性投影；锁内快照，无锁外访问）。
 func (service *Service) ActiveSkillIDs() []string {
-	service.mu.RLock()
-	defer service.mu.RUnlock()
-	state := service.components.tasks.taskExecution
-	if state == nil {
-		return nil
-	}
-	ids := make([]string, 0, len(state.activeSkills))
-	for _, active := range state.activeSkills {
-		ids = append(ids, active.SkillID)
-	}
-	return ids
+	return service.components.tasks.ActiveSkillIDs()
 }
 
-// GoalSkillActive returns the latest local projection for diagnostics and
-// tests. Runtime receives the same value through PublishRuntimeProjections;
-// it does not call this method.
+// GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
+// PublishRuntimeProjections 收到同一值；它不调用本方法。
 func (service *Service) GoalSkillActive() bool {
-	return service.goalSkillActive.Load()
+	return service.components.tasks.GoalSkillActive()
 }
 
-// PublishRuntimeProjections refreshes Runtime's immutable state copies. It is
-// exposed for composition roots that complete their Runtime wiring after
-// Application.New returns.
+// PublishRuntimeProjections 刷新 Runtime 的不可变状态副本。供在
+// Application.New 返回后完成 Runtime 接线的组合根调用。
 func (service *Service) PublishRuntimeProjections() {
 	service.publishRuntimeProjections()
+}
+
+// SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 只读事件通道
+// + 取消函数，取消幂等）。
+func (service *Service) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
+	return service.components.subagent.SubscribeSubagentLive(nodeID)
+}
+
+// HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
+// 发布一次前端增量。
+func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent) {
+	service.components.subagent.HandleSubagentToolEvent(event)
+}
+
+// SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
+// worktree 现场）。
+func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error) {
+	return service.components.subagent.SubagentDetail(nodeID)
+}
+
+// ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
+// 完成后刷新快照投影，前端经 runtime.changed 增量收到空树 → 分区隐藏）。
+func (service *Service) ClearSubagentTree() error {
+	if err := service.Deps.Runtime.ClearSubagentTree(); err != nil {
+		return err
+	}
+	service.RefreshRuntimeSnapshot()
+	return nil
 }

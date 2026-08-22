@@ -1,26 +1,30 @@
 package core
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
+)
 
 func (service *Service) DeleteSession(sessionID string) error {
-	location := service.components.sessions.locateSession(sessionID)
-	if scoped, ok := service.deps.Sessions.(scopedSessionPort); ok {
-		if err := scoped.DeleteWorkspace(location.workspaceID, sessionID); err != nil {
+	location := service.components.sessions.LocateSession(sessionID)
+	if scoped, ok := service.Deps.Sessions.(session_runtime.ScopedSessionPort); ok {
+		if err := scoped.DeleteWorkspace(location.WorkspaceID, sessionID); err != nil {
 			return err
 		}
-	} else if err := service.deps.Sessions.Delete(sessionID); err != nil {
+	} else if err := service.Deps.Sessions.Delete(sessionID); err != nil {
 		return err
 	}
-	if service.deps.Workspace != nil {
-		service.deps.Workspace.UnbindSession(sessionID)
+	if service.Deps.Workspace != nil {
+		service.Deps.Workspace.UnbindSession(sessionID)
 		workspaceProjection := service.collectWorkspaceProjection()
-		service.mu.Lock()
+		service.Mu.Lock()
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		service.bumpLocked()
-		service.mu.Unlock()
-		service.requestSessionCatalogRefresh()
+		service.Mu.Unlock()
+		service.components.sessions.RequestCatalogRefresh()
 	}
-	service.components.sessions.invalidateSessionName(sessionID)
+	service.components.sessions.InvalidateSessionName(sessionID)
 	return nil
 }
 
@@ -29,11 +33,11 @@ func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error 
 		return fmt.Errorf("workspace name and root path are required")
 	}
 	if gitRemote == "" {
-		if detected := service.deps.Workspace.DetectGitRemote(rootPath); detected != "" {
+		if detected := service.Deps.Workspace.DetectGitRemote(rootPath); detected != "" {
 			gitRemote = detected
 		}
 	}
-	workspace, err := service.deps.Workspace.Create(name, rootPath, gitRemote)
+	workspace, err := service.Deps.Workspace.Create(name, rootPath, gitRemote)
 	if err != nil {
 		return err
 	}
@@ -41,7 +45,7 @@ func (service *Service) CreateWorkspace(name, rootPath, gitRemote string) error 
 }
 
 func (service *Service) BindWorkspace(workspaceID string) error {
-	workspace, err := service.deps.Workspace.Get(workspaceID)
+	workspace, err := service.Deps.Workspace.Get(workspaceID)
 	if err != nil {
 		return err
 	}
@@ -49,106 +53,108 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 }
 
 func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
-	service.sessionTransitionMu.Lock()
-	defer service.sessionTransitionMu.Unlock()
+	transition := service.components.sessions.TransitionLock()
+	transition.Lock()
+	defer transition.Unlock()
 
-	service.mu.RLock()
-	if service.snapshot.Chat.Running {
-		service.mu.RUnlock()
+	service.Mu.RLock()
+	if service.Core.Snapshot.Chat.Running {
+		service.Mu.RUnlock()
 		return ErrChatRunning
 	}
-	currentSessionID := service.snapshot.Session.ID
-	draft := service.snapshot.Session.Draft
+	currentSessionID := service.Core.Snapshot.Session.ID
+	draft := service.Core.Snapshot.Session.Draft
 	currentWorkspaceID := ""
-	if service.snapshot.CurrentWorkspace != nil {
-		currentWorkspaceID = service.snapshot.CurrentWorkspace.ID
+	if service.Core.Snapshot.CurrentWorkspace != nil {
+		currentWorkspaceID = service.Core.Snapshot.CurrentWorkspace.ID
 	}
-	service.mu.RUnlock()
+	service.Mu.RUnlock()
 
 	if draft {
-		if err := service.deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+		if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
 			return err
 		}
-		service.deps.Sessions.SetWorkspace(workspace.ID)
+		service.Deps.Sessions.SetWorkspace(workspace.ID)
 		workspaceProjection := service.collectWorkspaceProjection()
-		service.mu.Lock()
-		service.snapshot.CurrentWorkspace = &WorkspaceInfo{
+		service.Mu.Lock()
+		service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 		}
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		revision := service.bumpLocked()
-		service.mu.Unlock()
-		service.events.Publish(EventSnapshotChanged, revision, "", nil)
-		service.requestSessionCatalogRefresh()
+		service.Mu.Unlock()
+		service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+		service.components.sessions.RequestCatalogRefresh()
 		return nil
 	}
 
-	history := service.deps.Engine.History()
+	history := service.Deps.Engine.History()
 	startFreshSession := currentWorkspaceID != workspace.ID && len(history) > 0
 	if startFreshSession {
 		writeWorkspaceID := currentWorkspaceID
 		if writeWorkspaceID == "" {
-			writeWorkspaceID = service.components.sessions.locateSession(currentSessionID).workspaceID
+			writeWorkspaceID = service.components.sessions.LocateSession(currentSessionID).WorkspaceID
 		}
-		service.deps.Sessions.SetWorkspace(writeWorkspaceID)
-		if err := service.deps.Sessions.SaveCurrent(currentSessionID); err != nil {
+		service.Deps.Sessions.SetWorkspace(writeWorkspaceID)
+		if err := service.Deps.Sessions.SaveCurrent(currentSessionID); err != nil {
 			return fmt.Errorf("save current session before switching project: %w", err)
 		}
 	}
-	if err := service.deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+	if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
 		return err
 	}
 	if startFreshSession {
-		currentSessionID = service.deps.Engine.StartSession()
-		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+		currentSessionID = service.Deps.Engine.StartSession()
+		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	}
-	service.deps.Workspace.BindSession(currentSessionID, workspace.ID)
-	service.deps.Sessions.SetWorkspace(workspace.ID)
+	service.Deps.Workspace.BindSession(currentSessionID, workspace.ID)
+	service.Deps.Sessions.SetWorkspace(workspace.ID)
 	workspaceProjection := service.collectWorkspaceProjection()
-	service.mu.Lock()
+	service.Mu.Lock()
 	if startFreshSession {
-		service.snapshot.Session.ID = currentSessionID
-		service.snapshot.Session.Name = ""
-		service.snapshot.Conversation = nil
-		service.snapshot.HistoryOffset = 0
-		service.snapshot.TotalMessages = 0
-		service.snapshot.HasMoreHistory = false
-		service.snapshot.Runtime.Plan = nil
-		service.snapshot.Interaction = nil
+		service.Core.Snapshot.Session.ID = currentSessionID
+		service.Core.Snapshot.Session.Name = ""
+		service.Core.Snapshot.Conversation = nil
+		service.Core.Snapshot.HistoryOffset = 0
+		service.Core.Snapshot.TotalMessages = 0
+		service.Core.Snapshot.HasMoreHistory = false
+		service.Core.Snapshot.Runtime.Plan = nil
+		service.Core.Snapshot.Interaction = nil
 		service.appendMessageLocked("system", fmt.Sprintf("已切换到项目 %s，新建独立会话", workspace.Name), nil)
 	}
-	service.snapshot.CurrentWorkspace = &WorkspaceInfo{
+	service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
 		ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 	}
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
-	service.requestSessionCatalogRefresh()
+	service.Mu.Unlock()
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.components.sessions.RequestCatalogRefresh()
 	return nil
 }
 
 func (service *Service) UnbindWorkspace() {
-	service.sessionTransitionMu.Lock()
-	defer service.sessionTransitionMu.Unlock()
+	transition := service.components.sessions.TransitionLock()
+	transition.Lock()
+	defer transition.Unlock()
 
-	service.deps.Runtime.UnbindProjectRoot()
-	service.mu.RLock()
-	sessionID := service.snapshot.Session.ID
-	draft := service.snapshot.Session.Draft
-	service.mu.RUnlock()
+	service.Deps.Runtime.UnbindProjectRoot()
+	service.Mu.RLock()
+	sessionID := service.Core.Snapshot.Session.ID
+	draft := service.Core.Snapshot.Session.Draft
+	service.Mu.RUnlock()
 	if !draft && sessionID != "" {
-		service.deps.Workspace.UnbindSession(sessionID)
+		service.Deps.Workspace.UnbindSession(sessionID)
 	}
-	service.deps.Sessions.SetWorkspace("")
+	service.Deps.Sessions.SetWorkspace("")
 	workspaceProjection := service.collectWorkspaceProjection()
-	service.mu.Lock()
-	service.snapshot.CurrentWorkspace = nil
+	service.Mu.Lock()
+	service.Core.Snapshot.CurrentWorkspace = nil
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
-	service.requestSessionCatalogRefresh()
+	service.Mu.Unlock()
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.components.sessions.RequestCatalogRefresh()
 }
 
 type workspaceStateProjection struct {
@@ -156,27 +162,27 @@ type workspaceStateProjection struct {
 	bindings   map[string]string
 }
 
-// collectWorkspaceProjection performs WorkspacePort I/O before service.mu is
-// acquired. Applying it only copies already-owned values into the snapshot.
+// collectWorkspaceProjection 在获取 service.Mu 之前执行 WorkspacePort I/O。
+// 应用时只拷贝已拥有的值进快照。
 func (service *Service) collectWorkspaceProjection() workspaceStateProjection {
-	if service.deps.Workspace == nil {
+	if service.Deps.Workspace == nil {
 		return workspaceStateProjection{}
 	}
-	all := service.deps.Workspace.List()
+	all := service.Deps.Workspace.List()
 	projection := workspaceStateProjection{workspaces: make([]WorkspaceInfo, len(all))}
 	for index, workspace := range all {
 		projection.workspaces[index] = WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 		}
 	}
-	projection.bindings = service.deps.Workspace.AllBindings()
+	projection.bindings = service.Deps.Workspace.AllBindings()
 	return projection
 }
 
 func (service *Service) applyWorkspaceProjectionLocked(projection workspaceStateProjection) {
-	service.snapshot.Workspaces = append([]WorkspaceInfo(nil), projection.workspaces...)
-	service.snapshot.SessionWorkspaces = make(map[string]string, len(projection.bindings))
+	service.Core.Snapshot.Workspaces = append([]WorkspaceInfo(nil), projection.workspaces...)
+	service.Core.Snapshot.SessionWorkspaces = make(map[string]string, len(projection.bindings))
 	for sessionID, workspaceID := range projection.bindings {
-		service.snapshot.SessionWorkspaces[sessionID] = workspaceID
+		service.Core.Snapshot.SessionWorkspaces[sessionID] = workspaceID
 	}
 }

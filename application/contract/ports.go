@@ -167,6 +167,17 @@ type WorkspacePort interface {
 	DetectGitRemote(rootPath string) string
 }
 
+// ApprovalBroker 是异步审批的窄契约（实现：application/approval.ApprovalBroker）。
+// 合约层只依赖该接口，装配根负责注入具体实现，便于替换审批机制或注入测试桩。
+type ApprovalBroker interface {
+	SetObserver(observer func(*model.Interaction))
+	SetPermissionAutoApproval(on bool)
+	Request(ctx context.Context, request approval.ApprovalRequest) (approval.ApprovalDecision, error)
+	Resolve(id string, decision approval.ApprovalDecision) error
+	ResolveAll(decision approval.ApprovalDecision) int
+	Shutdown()
+}
+
 type Dependencies struct {
 	Engine    ChatEngine
 	Runtime   RuntimePort
@@ -174,6 +185,6 @@ type Dependencies struct {
 	Skills    SkillPort
 	Sessions  SessionPort
 	Workspace WorkspacePort
-	Events    *event.EventHub
-	Approval  *approval.ApprovalBroker
+	Events    event.Hub
+	Approval  ApprovalBroker
 }

@@ -8,22 +8,22 @@ import (
 )
 
 func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {
-	service.mu.RLock()
-	interaction := service.snapshot.Interaction
-	service.mu.RUnlock()
+	service.Mu.RLock()
+	interaction := service.Core.Snapshot.Interaction
+	service.Mu.RUnlock()
 	if interaction == nil || interaction.ID != id {
 		return ErrInteractionNotFound
 	}
 	if optionID == "__CANCEL__" {
 		if interaction.Kind == "approval" {
-			return service.approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+			return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
 		}
 		service.closeInteraction(id)
 		return nil
 	}
 	switch interaction.Kind {
 	case "approval":
-		return service.approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+		return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
 	case "session":
 		if err := service.resumeSession(optionID); err != nil {
 			service.addNotice("恢复失败: " + err.Error())
@@ -57,16 +57,16 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 }
 
 func (service *Service) appendPlanRetryNotice(message string) {
-	service.mu.Lock()
+	service.Mu.Lock()
 	service.appendMessageLocked("system", message, nil)
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.Mu.Unlock()
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 }
 
 func (service *Service) abortPlanInteraction() {
-	service.mu.Lock()
-	if plan := service.snapshot.Runtime.Plan; plan != nil {
+	service.Mu.Lock()
+	if plan := service.Core.Snapshot.Runtime.Plan; plan != nil {
 		plan.Status = PlanAborted
 		for index := range plan.Nodes {
 			if plan.Nodes[index].Status == NodePending || plan.Nodes[index].Status == NodeRunning {
@@ -76,21 +76,21 @@ func (service *Service) abortPlanInteraction() {
 	}
 	service.appendMessageLocked("system", "工作流已终止。", nil)
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.Mu.Unlock()
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 }
 
 func (service *Service) SelectAccount(_ context.Context, name string) error {
-	if !service.deps.Runtime.SelectAccount(name) {
+	if !service.Deps.Runtime.SelectAccount(name) {
 		return fmt.Errorf("账号不可用: %s", name)
 	}
 	runtimeProjection := service.collectRuntimeProjection(context.Background())
-	service.mu.Lock()
-	service.snapshot.Runtime.Account = name
+	service.Mu.Lock()
+	service.Core.Snapshot.Runtime.Account = name
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
+	service.Mu.Unlock()
+	service.Events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
 	service.addNotice("已切换账号: " + name)
 	return nil
 }
@@ -106,110 +106,110 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	if err := service.effortManager.Apply(level); err != nil {
 		return err
 	}
-	service.deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
-	service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
-	service.mu.Lock()
-	service.snapshot.Runtime.Effort = service.effortManager.Current()
+	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
+	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	service.Mu.Lock()
+	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.Mu.Unlock()
+	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 	return nil
 }
 
 func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	if name == "off" || name == "none" || name == "" {
-		if err := service.deps.Plugins.Deactivate(ctx); err != nil {
+		if err := service.Deps.Plugins.Deactivate(ctx); err != nil {
 			return fmt.Errorf("deactivate plugin: %w", err)
 		}
-		service.deps.Engine.ClearHistory()
+		service.Deps.Engine.ClearHistory()
 		service.promptStack.Reset("")
-		service.deps.Engine.SetSystemPrompt("")
-		service.effortManager = NewEffortManager(service.promptStack, service.deps.Engine)
+		service.Deps.Engine.SetSystemPrompt("")
+		service.effortManager = NewEffortManager(service.promptStack, service.Deps.Engine)
 		service.resetConversation("已停用插件")
 	} else {
-		if err := service.deps.Plugins.Activate(ctx, name); err != nil {
+		if err := service.Deps.Plugins.Activate(ctx, name); err != nil {
 			return fmt.Errorf("activate plugin: %w", err)
 		}
-		service.deps.Engine.ClearHistory()
-		if current, ok := service.deps.Plugins.Current(); ok {
+		service.Deps.Engine.ClearHistory()
+		if current, ok := service.Deps.Plugins.Current(); ok {
 			service.promptStack.Reset(strings.TrimSpace(current.Prompt))
 		}
-		service.effortManager = NewEffortManager(service.promptStack, service.deps.Engine)
+		service.effortManager = NewEffortManager(service.promptStack, service.Deps.Engine)
 		_ = service.effortManager.Apply(service.effortManager.Current())
-		service.deps.Engine.SetSystemPrompt(service.promptStack.Render())
+		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 		service.resetConversation("已切换到 " + name + " 插件")
 	}
 	runtimeProjection := service.collectRuntimeProjection(ctx)
-	service.mu.Lock()
+	service.Mu.Lock()
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
-	runtime := cloneRuntimeState(service.snapshot.Runtime)
-	service.mu.Unlock()
-	service.events.Publish(EventRuntimeChanged, revision, "", runtime)
+	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+	service.Mu.Unlock()
+	service.Events.Publish(EventRuntimeChanged, revision, "", runtime)
 	service.publishRuntimeProjections()
 	return nil
 }
 
 func (service *Service) SetFullAccess(on bool) {
-	if !on && service.approval != nil {
-		service.approval.SetPermissionAutoApproval(false)
+	if !on && service.Approval != nil {
+		service.Approval.SetPermissionAutoApproval(false)
 	}
-	service.deps.Runtime.SetFullAccess(on)
-	fullAccess := service.deps.Runtime.FullAccess()
-	if fullAccess && service.approval != nil {
-		service.approval.SetPermissionAutoApproval(true)
-		service.approval.ResolveAll(ApprovalDecision{OptionID: "always"})
+	service.Deps.Runtime.SetFullAccess(on)
+	fullAccess := service.Deps.Runtime.FullAccess()
+	if fullAccess && service.Approval != nil {
+		service.Approval.SetPermissionAutoApproval(true)
+		service.Approval.ResolveAll(ApprovalDecision{OptionID: "always"})
 	}
-	service.mu.Lock()
-	service.snapshot.Runtime.FullAccess = fullAccess
+	service.Mu.Lock()
+	service.Core.Snapshot.Runtime.FullAccess = fullAccess
 	revision := service.bumpLocked()
-	runtime := cloneRuntimeState(service.snapshot.Runtime)
-	service.mu.Unlock()
-	service.events.Publish(EventRuntimeChanged, revision, "", runtime)
+	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+	service.Mu.Unlock()
+	service.Events.Publish(EventRuntimeChanged, revision, "", runtime)
 }
 
 func (service *Service) observeInteraction(interaction *Interaction) {
-	service.mu.Lock()
+	service.Mu.Lock()
 	previousID := ""
-	if service.snapshot.Interaction != nil {
-		previousID = service.snapshot.Interaction.ID
+	if service.Core.Snapshot.Interaction != nil {
+		previousID = service.Core.Snapshot.Interaction.ID
 	}
 	if interaction == nil {
-		service.snapshot.Interaction = nil
+		service.Core.Snapshot.Interaction = nil
 	} else {
 		copied := *interaction
 		copied.Options = append([]InteractionOption(nil), interaction.Options...)
-		service.snapshot.Interaction = &copied
+		service.Core.Snapshot.Interaction = &copied
 	}
 	revision := service.bumpLocked()
-	service.mu.Unlock()
+	service.Mu.Unlock()
 	if interaction == nil {
-		service.events.Publish(EventInteractionClosed, revision, previousID, nil)
+		service.Events.Publish(EventInteractionClosed, revision, previousID, nil)
 		return
 	}
-	service.events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
+	service.Events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
 }
 
 func (service *Service) openInteraction(interaction *Interaction) {
 	if interaction == nil {
 		return
 	}
-	service.mu.Lock()
-	service.snapshot.Interaction = interaction
+	service.Mu.Lock()
+	service.Core.Snapshot.Interaction = interaction
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
+	service.Mu.Unlock()
+	service.Events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
 }
 
 func (service *Service) closeInteraction(id string) {
-	service.mu.Lock()
-	delete(service.replanInFlight, id)
-	if service.snapshot.Interaction != nil && service.snapshot.Interaction.ID == id {
-		service.snapshot.Interaction = nil
+	service.Mu.Lock()
+	service.components.tasks.DeleteReplanInFlight(id)
+	if service.Core.Snapshot.Interaction != nil && service.Core.Snapshot.Interaction.ID == id {
+		service.Core.Snapshot.Interaction = nil
 	}
 	revision := service.bumpLocked()
-	service.mu.Unlock()
-	service.events.Publish(EventInteractionClosed, revision, id, nil)
+	service.Mu.Unlock()
+	service.Events.Publish(EventInteractionClosed, revision, id, nil)
 }
 
 func (service *Service) sessionInteraction() *Interaction {
@@ -218,7 +218,7 @@ func (service *Service) sessionInteraction() *Interaction {
 	for _, session := range sessions {
 		label := session.Name
 		if label == "" {
-			label = shortSessionID(session.ID)
+			label = service.components.sessions.ShortSessionID(session.ID)
 		}
 		options = append(options, InteractionOption{ID: session.ID, Label: label, Description: fmt.Sprintf("tok:%d  %s", session.TokenCount, session.UpdatedAt.Format("01-02 15:04"))})
 	}
@@ -226,7 +226,7 @@ func (service *Service) sessionInteraction() *Interaction {
 }
 
 func (service *Service) accountInteraction() *Interaction {
-	accounts := service.deps.Runtime.Accounts()
+	accounts := service.Deps.Runtime.Accounts()
 	options := make([]InteractionOption, 0, len(accounts))
 	for _, account := range accounts {
 		label := account.Name

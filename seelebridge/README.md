@@ -71,6 +71,7 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
 | `session/` | 子代理会话注册表与父证据/merge-back 两个 actor（见 `session/README.md`） |
 | `worktree/` | 子代理 worktree 生命周期管理器（见 `worktree/README.md`） |
 | `tools/websearch/` | `web_search` 工具注册与账号池配置加载（见 `tools/websearch/README.md`） |
+| `search/` | Tavily Web Search 能力：账号池配置加载 + HTTP 客户端（自 `application/search` 迁入，见 `search/README.md`） |
 | `internal/model/` | 账号等各域共享的纯类型层（`AccountSpec`/`AccountRole`，无运行时依赖） |
 | `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`；根 facade 装配细节） |
 | `internal/storage/` | legacy shard 会话存储（`SessionStore`/`NestedSessionStore`） |

@@ -3,6 +3,8 @@ package core
 import (
 	"github.com/RedHuang-0622/seelex/application/approval"
 	"github.com/RedHuang-0622/seelex/application/contract"
+	cc "github.com/RedHuang-0622/seelex/application/core/context_control"
+	"github.com/RedHuang-0622/seelex/application/core/input_router"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
@@ -10,6 +12,9 @@ import (
 
 type (
 	Dependencies           = contract.Dependencies
+	Command                = input_router.Command
+	CommandResult          = input_router.CommandResult
+	CommandRegistry        = input_router.CommandRegistry
 	EngineMessage          = contract.EngineMessage
 	EngineToolCall         = contract.EngineToolCall
 	ChatEngine             = contract.ChatEngine
@@ -76,7 +81,36 @@ type (
 	PromptLayer            = prompt.PromptLayer
 	PromptStack            = prompt.PromptStack
 	EffortManager          = prompt.EffortManager
+	WindowPolicy           = cc.WindowPolicy
+	ProviderContextInfo    = cc.ProviderContextInfo
+	WindowConfig           = cc.WindowConfig
+	DefaultWindowPolicy    = cc.DefaultWindowPolicy
 )
+
+// 域子包内部类型的根包别名（保持 package core 内部调用面稳定）。
+type (
+	inputDispatcher    = input_router.Dispatcher
+	inputRouter        = input_router.Router
+	inputRouteHandlers = input_router.RouteHandlers
+)
+
+func NewCommandRegistry() *CommandRegistry { return input_router.NewCommandRegistry() }
+
+func newInputRouter(handlers inputRouteHandlers) *inputRouter {
+	return input_router.NewRouter(handlers)
+}
+
+func NewDefaultWindowPolicy(config WindowConfig) DefaultWindowPolicy {
+	return cc.NewDefaultWindowPolicy(config)
+}
+
+func DefaultWindowConfig() WindowConfig {
+	return cc.DefaultWindowConfig()
+}
+
+func LoadWindowConfig(path string) (WindowConfig, error) {
+	return cc.LoadWindowConfig(path)
+}
 
 const (
 	ProtocolVersion            = model.ProtocolVersion
@@ -129,7 +163,7 @@ var (
 
 func NewEventHub() *EventHub { return event.NewEventHub() }
 
-func NewApprovalBroker(events *EventHub) *ApprovalBroker { return approval.NewApprovalBroker(events) }
+func NewApprovalBroker(events event.Hub) *ApprovalBroker { return approval.NewApprovalBroker(events) }
 
 func NewPromptStack() *PromptStack { return prompt.NewPromptStack() }
 
