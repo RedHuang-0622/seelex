@@ -72,9 +72,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	recovered := false
 	modelInput := request.modelInput
 	batcher, onChunk := service.newBatchedDeltaSink(requestID)
-	if err == nil {
-		service.components.prompts.ApplyActiveTaskSystemPrompt(requestID)
-	}
+	service.components.prompts.ApplyActiveTaskSystemPrompt(requestID)
 	if err == nil {
 		modelInput, err = service.components.context.PrepareExecutionContext(requestID, modelInput)
 	}
