@@ -60,6 +60,7 @@ type (
 	WorkItem               = model.WorkItem
 	WorkTracePoint         = model.WorkTracePoint
 	WorkTableEvent         = model.WorkTableEvent
+	WorkTableBatch         = model.WorkTableBatch
 	TaskChangedEvent       = model.TaskChangedEvent
 	NodeStatus             = model.NodeStatus
 	Tool                   = model.Tool
@@ -159,6 +160,7 @@ var (
 	ErrInteractionNotFound = approval.ErrInteractionNotFound
 	ErrInteractionResolved = approval.ErrInteractionResolved
 	CloneWorkItems         = model.CloneWorkItems
+	CloneWorkTableBatches  = model.CloneWorkTableBatches
 )
 
 func NewEventHub() *EventHub { return event.NewEventHub() }

@@ -136,6 +136,70 @@ func TestTaskRegistryCloseFailsSends(t *testing.T) {
 	registry.Close() // 幂等，不 panic
 }
 
+// TestTaskRegistryDefaultBatchStampsNewTasks 验证批次盖章：SetDefaultBatch
+// 后的新条目自动归属当前批次；显式 spec.BatchID 优先；切换默认批次后新
+// 条目归属新批次。
+func TestTaskRegistryDefaultBatchStampsNewTasks(t *testing.T) {
+	registry := NewTaskRegistry()
+	defer registry.Close()
+	if err := registry.SetDefaultBatch("chat-1"); err != nil {
+		t.Fatal(err)
+	}
+	created, _, err := registry.Add(TaskSpec{Key: "k1", Phase: TaskPhaseTask, Task: "t", Kind: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.BatchID != "chat-1" || created.CreatedAt.IsZero() {
+		t.Fatalf("default batch stamp = %+v", created)
+	}
+	// 显式 BatchID 优先。
+	explicit, _, err := registry.Add(TaskSpec{Key: "k2", Phase: TaskPhaseTask, Task: "t2", Kind: "task", BatchID: "chat-2"})
+	if err != nil || explicit.BatchID != "chat-2" {
+		t.Fatalf("explicit batch must win: %+v err=%v", explicit, err)
+	}
+	// 切换默认批次后新条目归属新批次。
+	_ = registry.SetDefaultBatch("chat-3")
+	switched, _, err := registry.Add(TaskSpec{Key: "k3", Phase: TaskPhaseTask, Task: "t3", Kind: "task"})
+	if err != nil || switched.BatchID != "chat-3" {
+		t.Fatalf("switched batch stamp = %+v err=%v", switched, err)
+	}
+}
+
+// TestTaskRegistryTodoKindRestrictsStateMachine 验证按 kind 的状态机：
+// todo 只允许三态（pending/doing/completed），执行器状态（queued/running/
+// retry/failed）必须拒绝。
+func TestTaskRegistryTodoKindRestrictsStateMachine(t *testing.T) {
+	registry := NewTaskRegistry()
+	defer registry.Close()
+	if err := registry.ReplaceTodo([]TodoItem{{Text: "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := registry.TodoSnapshot()
+	if len(snapshot) != 1 {
+		t.Fatalf("todo snapshot = %+v", snapshot)
+	}
+	id := snapshot[0].ID
+	if _, err := registry.SetStatus(id, TaskDoing, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.SetStatus(id, TaskCompleted, ""); err != nil {
+		t.Fatal(err)
+	}
+	// 完成态可回退三态（GUI 三态按钮允许重开）。
+	if _, err := registry.SetStatus(id, TaskPending, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.SetStatus(id, TaskRunning, ""); err == nil {
+		t.Fatal("todo -> running must be rejected")
+	}
+	if _, err := registry.SetStatus(id, TaskQueued, ""); err == nil {
+		t.Fatal("todo -> queued must be rejected")
+	}
+	if _, err := registry.SetStatus(id, TaskRetry, ""); err == nil {
+		t.Fatal("todo -> retry must be rejected")
+	}
+}
+
 func TestTaskRegistryIdempotentAddByKey(t *testing.T) {
 	registry := NewTaskRegistry()
 	defer registry.Close()

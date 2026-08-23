@@ -104,6 +104,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error)`
 - `func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error`
 - `func (runtime *fakeRuntime) UnbindProjectRoot()`
+- `func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string)`
 - `func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool`
 - `func (*fakePlugins) All() []PluginInfo`
 - `func (plugins *fakePlugins) Activate(_ context.Context, name string) error`

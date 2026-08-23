@@ -56,6 +56,9 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	assistant := *service.appendMessageLocked("assistant", "", nil)
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
+	// 新批次：此后创建的 todo/task/plan/subagent 条目自动归属当前 chat
+	// 请求（requestID），工作表格按批次分片。
+	service.Deps.Runtime.SetCurrentTaskBatch(requestID)
 	service.publishRuntimeProjections()
 	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
 	// 期间主会话被持锁无法回写，只能在此时补注入。
@@ -214,6 +217,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	if processQueue {
 		service.Events.Publish(EventMessageAdded, revision, nextRequestID, *nextUser)
 		service.Events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
+		service.Deps.Runtime.SetCurrentTaskBatch(nextRequestID)
 		service.publishRuntimeProjections()
 		go service.runChat(nextContext, nextRequestID, batchRequest)
 	}

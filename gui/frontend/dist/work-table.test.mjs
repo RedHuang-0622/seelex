@@ -12,6 +12,7 @@ const source = (await readFile(new URL("./work-table.js", import.meta.url), "utf
 const {
   createWorkTableView,
   workTableView,
+  workTableBatches,
   renderShellHTML,
   renderWorkItemRow,
   renderWorkTraceHTML,
@@ -105,12 +106,86 @@ test("renders shell with filter chips and totals", () => {
   assert.match(html, /1 打点/);
   assert.match(html, /data-work-filter="all"/);
   assert.match(html, /data-work-filter="plan"/);
-  assert.match(html, /data-work-filter="tasklist"/);
+  assert.match(html, /data-work-filter="task"/);
+  assert.match(html, /data-work-filter="todo"/);
   assert.match(html, /data-work-filter="subagent"/);
   assert.match(html, />阶段</);
   assert.match(html, />Assignee</);
   assert.match(html, />Dependency</);
   assert.match(html, />附件</);
+});
+
+test("normalizes batch headers defensively", () => {
+  assert.deepEqual(workTableBatches(null), []);
+  assert.deepEqual(workTableBatches("nope"), []);
+
+  const batches = workTableBatches([
+    { id: "chat-1", label: "2026-08-23 09:15", created_at: "2026-08-23T09:15:00Z", counts: { all: 3, todo: 2, plan: 1, bogus: 9 } },
+    { id: "", label: "早期任务", counts: null },
+    null
+  ]);
+  assert.equal(batches.length, 2);
+  assert.equal(batches[0].id, "chat-1");
+  assert.equal(batches[0].counts.all, 3);
+  assert.equal(batches[0].counts.task, 0);
+  assert.equal(batches[0].counts.bogus, undefined);
+  assert.equal(batches[1].label, "早期任务");
+  assert.deepEqual(batches[1].counts, { all: 0, plan: 0, task: 0, todo: 0, subagent: 0 });
+});
+
+test("renders batch sections with labels, counts and row containers", () => {
+  const html = renderShellHTML([
+    { id: "todo:0", phase: "tasklist", task: "a", status: "pending", kind: "todo", batch_id: "chat-1" },
+    { id: "task:1", phase: "task", task: "b", status: "pending", kind: "task", batch_id: "chat-1" }
+  ], {
+    ...uiState(),
+    batches: workTableBatches([
+      { id: "chat-1", label: "2026-08-23 09:15", created_at: "2026-08-23T09:15:00Z", counts: { all: 2, todo: 1, task: 1 } }
+    ])
+  });
+  assert.match(html, /data-work-batch="chat-1"/);
+  assert.match(html, /data-work-batch-toggle="chat-1"/);
+  assert.match(html, /2026-08-23 09:15/);
+  assert.match(html, /Task 1 · Todo 1/);
+  assert.match(html, /data-work-batch-rows="chat-1"/);
+  assert.doesNotMatch(html, /data-work-rows/);
+
+  // 无批次时保持扁平结构（向后兼容，旧快照/事件不分组）。
+  const flat = renderShellHTML([
+    { id: "todo:0", phase: "tasklist", task: "a", status: "pending", kind: "todo" }
+  ], uiState());
+  assert.match(flat, /data-work-rows/);
+  assert.doesNotMatch(flat, /data-work-batch=""/);
+});
+
+test("batch toggle and kind filter update view state", () => {
+  const harness = workTableViewHarness();
+  const view = createWorkTableView(harness.container);
+  view.bind({ onDetail() {}, onStatus() {} });
+  const rows = workTableView([
+    { id: "todo:0", phase: "tasklist", task: "a", status: "pending", kind: "todo", batch_id: "chat-1" },
+    { id: "task:1", phase: "task", task: "b", status: "pending", kind: "task", batch_id: "chat-1" }
+  ]);
+  const batches = workTableBatches([
+    { id: "chat-1", label: "批次A", created_at: "", counts: { all: 2, todo: 1, task: 1 } }
+  ]);
+  view.render(rows, batches);
+
+  // 批次折叠切换。
+  harness.click({
+    target: { closest(selector) {
+      return selector === "[data-work-batch-toggle]" ? { dataset: { workBatchToggle: "chat-1" } } : null;
+    } }
+  });
+  assert.equal(view.state.collapsedBatches.has("chat-1"), true);
+
+  // kind 筛选切换（todo）。
+  harness.click({
+    target: { closest(selector) {
+      return selector === "[data-work-filter]" ? { dataset: { workFilter: "todo" } } : null;
+    } }
+  });
+  assert.equal(view.state.filter, "todo");
 });
 
 test("paginates rows and clamps out-of-range page", () => {

@@ -13,12 +13,14 @@
 
 - `func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.SubAgentTreeNode) []WorkItem` — buildWorkTable 组装工作表格行：注册表 task → WorkItem；plan 行额外合并
 - `func taskRecordToWorkItem(record dto.TaskRecord) WorkItem` — taskRecordToWorkItem 把注册表 task 快照映射为 WorkItem（含 retry 计数）。
+- `func batchLabel(id string, createdAt time.Time) string` — batchLabel 由批次 ID 与创建时间派生展示标签：真实批次用本地时间
+- `func buildWorkTableBatches(rows []WorkItem) []WorkTableBatch` — buildWorkTableBatches 从工作表格行派生批次分片头：按 BatchID 分组，
 - `func planNodeTrace(node PlanNode, tasklistMode bool) []WorkTracePoint` — planNodeTrace 由节点事件 + 子代理工具活动合成打点（按时间倒序、有界；
 - `func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint` — boundWorkTrace 按时间倒序排序并截断。
 - `func truncateWorkEvidence(value string, limit int) string`
 - `func formatWorkDuration(duration time.Duration) string`
 - `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.Mu 持锁时重建工作表格投影。
-- `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
+- `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 - `func (state *serviceState) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
 - `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 把 plan 节点与子代理树的生命周期投影进 task 注册表
@@ -60,6 +62,8 @@
 - `func TestBuildWorkTableMapsPlanNodes(t *testing.T)`
 - `func TestBuildWorkTableTasklistModeMarksCheckNode(t *testing.T)`
 - `func TestBuildWorkTableMapsTodoItems(t *testing.T)`
+- `func TestBuildWorkTableBatches(t *testing.T)` — TestBuildWorkTableBatches 验证批次分片：按 BatchID 分组、按 CreatedAt
+- `func TestTaskRecordToWorkItemCarriesBatch(t *testing.T)` — TestTaskRecordToWorkItemCarriesBatch 验证批次字段透传（task.changed 单行
 - `func TestBuildWorkTableMapsSubagentTasks(t *testing.T)`
 - `func TestBuildWorkTableBoundsRowsAndTruncatesEvidence(t *testing.T)`
 - `func TestUpdateWorkItemStatusTodoThreeStates(t *testing.T)` — TestUpdateWorkItemStatusTodoThreeStates 走完整 Service 路径：

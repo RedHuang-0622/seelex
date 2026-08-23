@@ -17,12 +17,13 @@ import (
 //    （latest-wins 汇聚，避免 subagent 工具事件洪峰逐条 JSON）；
 //  - 关闭：排空最后一次更新后退出，保证尾态不丢。
 
-// WorkTableUpdate 是一次工作表格快照（Revision/RequestID 与 Items 必须在
-// 同一临界区生成，保证内容与修订号一致）。
+// WorkTableUpdate 是一次工作表格快照（Revision/RequestID 与 Items/Batches
+// 必须在同一临界区生成，保证内容与修订号一致）。
 type WorkTableUpdate struct {
 	Revision  uint64
 	RequestID string
 	Items     []model.WorkItem
+	Batches   []model.WorkTableBatch
 }
 
 // WorkTablePublisher 是 worktable.changed 的汇聚发布器。

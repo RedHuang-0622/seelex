@@ -36,9 +36,10 @@ func validTodoStatus(status TodoItemStatus) bool {
 	return status == TodoItemPending || status == TodoItemDoing || status == TodoItemDone
 }
 
-// RegisterTodoTools 注册 todolist_init/add/done/status。
+// RegisterTodoTools 注册 todo 清单工具族：规范名 todo_init/add/done/status，
+// 并保留 todolist_* 兼容别名（deprecated，迁移窗口内并存）。
 func (t *Tools) RegisterTodoTools() {
-	t.deps.RegisterTool("todolist_init",
+	t.deps.RegisterTool("todo_init",
 		"Replace the current todo list with the given items (max "+todoLimitHint+"). Use to plan your own work; the list is yours to maintain as you execute.",
 		map[string]interface{}{
 			"type":     "object",
@@ -52,7 +53,21 @@ func (t *Tools) RegisterTodoTools() {
 			},
 		},
 		t.todoInitHandler)
-	t.deps.RegisterTool("todolist_add",
+	t.deps.RegisterTool("todolist_init",
+		"[deprecated] 兼容旧名，请改用 todo_init。Replace the current todo list with the given items (max "+todoLimitHint+").",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"items"},
+			"properties": map[string]interface{}{
+				"items": map[string]interface{}{
+					"type":        "array",
+					"items":       map[string]interface{}{"type": "string"},
+					"description": "Todo items, each a short actionable step.",
+				},
+			},
+		},
+		t.todoInitHandler)
+	t.deps.RegisterTool("todo_add",
 		"Append an item to the current todo list.",
 		map[string]interface{}{
 			"type":     "object",
@@ -62,8 +77,18 @@ func (t *Tools) RegisterTodoTools() {
 			},
 		},
 		t.todoAddHandler)
-	t.deps.RegisterTool("todolist_done",
-		"Mark a todo item as done by its index (0-based, from todolist_status). When ALL items are done, call task_complete to submit the task.",
+	t.deps.RegisterTool("todolist_add",
+		"[deprecated] 兼容旧名，请改用 todo_add。Append an item to the current todo list.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"item"},
+			"properties": map[string]interface{}{
+				"item": map[string]interface{}{"type": "string"},
+			},
+		},
+		t.todoAddHandler)
+	t.deps.RegisterTool("todo_done",
+		"Mark a todo item as done by its index (0-based, from todo_status). When ALL items are done, call task_complete to submit the task.",
 		map[string]interface{}{
 			"type":     "object",
 			"required": []string{"index"},
@@ -72,16 +97,44 @@ func (t *Tools) RegisterTodoTools() {
 			},
 		},
 		t.todoDoneHandler)
-	t.deps.RegisterTool("todolist_status",
+	t.deps.RegisterTool("todolist_done",
+		"[deprecated] 兼容旧名，请改用 todo_done。Mark a todo item as done by its index (0-based, from todo_status).",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"index"},
+			"properties": map[string]interface{}{
+				"index": map[string]interface{}{"type": "integer", "minimum": 0},
+			},
+		},
+		t.todoDoneHandler)
+	t.deps.RegisterTool("todo_status",
 		"Show the current todo list with done flags and indexes.",
+		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		t.todoStatusHandler)
+	t.deps.RegisterTool("todolist_status",
+		"[deprecated] 兼容旧名，请改用 todo_status。Show the current todo list with done flags and indexes.",
 		map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		t.todoStatusHandler)
 }
 
-// RegisterTaskTools 注册主动任务工具 taskadd（worktable task 体系；主动触发）。
+// RegisterTaskTools 注册主动任务工具 task_add（worktable task 体系；主动
+// 触发），并保留 taskadd 兼容别名（deprecated）。
 func (t *Tools) RegisterTaskTools() {
-	t.deps.RegisterTool("taskadd",
+	t.deps.RegisterTool("task_add",
 		"Register a task in the work table (task is a worktable entry). Tasks are deduplicated by normalized goal: if the same task already exists, the existing task id is returned and no duplicate is created. Do not create tasks that already exist.",
+		map[string]interface{}{
+			"type":     "object",
+			"required": []string{"goal"},
+			"properties": map[string]interface{}{
+				"goal":         map[string]interface{}{"type": "string", "description": "Task goal / name; used as the dedup key."},
+				"description":  map[string]interface{}{"type": "string", "description": "Optional task description."},
+				"dependencies": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Optional prerequisite task ids."},
+				"attachments":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Optional attachment paths."},
+			},
+		},
+		t.taskAddHandler)
+	t.deps.RegisterTool("taskadd",
+		"[deprecated] 兼容旧名，请改用 task_add。Register a task in the work table (task is a worktable entry).",
 		map[string]interface{}{
 			"type":     "object",
 			"required": []string{"goal"},
@@ -100,11 +153,11 @@ func (t *Tools) todoInitHandler(_ context.Context, argsJSON string) (string, err
 		Items []string `json:"items"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
-		return "", fmt.Errorf("todolist_init: invalid args: %w", err)
+		return "", fmt.Errorf("todo_init: invalid args: %w", err)
 	}
 	limit := t.deps.TodoMaxItems
 	if len(input.Items) > limit {
-		return "", fmt.Errorf("todolist_init: %d items exceeds limit %d", len(input.Items), limit)
+		return "", fmt.Errorf("todo_init: %d items exceeds limit %d", len(input.Items), limit)
 	}
 	items := make([]TodoItem, 0, len(input.Items))
 	for _, text := range input.Items {
@@ -123,10 +176,10 @@ func (t *Tools) todoAddHandler(_ context.Context, argsJSON string) (string, erro
 		Item string `json:"item"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
-		return "", fmt.Errorf("todolist_add: invalid args: %w", err)
+		return "", fmt.Errorf("todo_add: invalid args: %w", err)
 	}
 	if text := strings.TrimSpace(input.Item); text == "" {
-		return "", fmt.Errorf("todolist_add: item is required")
+		return "", fmt.Errorf("todo_add: item is required")
 	}
 	if err := t.deps.AppendTodo(TodoItem{Text: strings.TrimSpace(input.Item), Status: TodoItemPending}, t.deps.TodoMaxItems); err != nil {
 		return "", err
@@ -139,7 +192,7 @@ func (t *Tools) todoDoneHandler(_ context.Context, argsJSON string) (string, err
 		Index int `json:"index"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
-		return "", fmt.Errorf("todolist_done: invalid args: %w", err)
+		return "", fmt.Errorf("todo_done: invalid args: %w", err)
 	}
 	if _, err := t.deps.SetTodoStatusByIndex(input.Index, TaskCompleted); err != nil {
 		return "", err
@@ -173,11 +226,11 @@ func (t *Tools) taskAddHandler(_ context.Context, argsJSON string) (string, erro
 		Attachments  []string `json:"attachments,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
-		return "", fmt.Errorf("taskadd: invalid args: %w", err)
+		return "", fmt.Errorf("task_add: invalid args: %w", err)
 	}
 	goal := strings.TrimSpace(input.Goal)
 	if goal == "" {
-		return "", errors.New("taskadd: goal is required")
+		return "", errors.New("task_add: goal is required")
 	}
 	record, created, err := t.deps.TaskAdd(TaskSpec{
 		Key:          TaskKeyForGoal(goal),

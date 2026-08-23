@@ -230,6 +230,7 @@ type fakeRuntime struct {
 	replanErr      error
 	replanMetrics  dto.ReplanMetrics
 	projectRoot    string
+	currentBatch   string
 	todoMu         sync.Mutex
 	todoItems      []dto.TodoItem
 	tasks          map[string]dto.TaskRecord
@@ -469,6 +470,8 @@ func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
 }
 
 func (runtime *fakeRuntime) UnbindProjectRoot() { runtime.projectRoot = "" }
+
+func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string) { runtime.currentBatch = batchID }
 
 // goalVisibilityRuntime models Runtime's one-way visibility projection. Its
 // VisibleTools implementation reads only Runtime-owned state; it cannot call

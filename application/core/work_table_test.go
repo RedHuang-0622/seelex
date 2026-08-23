@@ -113,6 +113,53 @@ func TestBuildWorkTableMapsTodoItems(t *testing.T) {
 	}
 }
 
+// TestBuildWorkTableBatches 验证批次分片：按 BatchID 分组、按 CreatedAt
+// 升序、早期/未分批会话置底、按权威类型计数。
+func TestBuildWorkTableBatches(t *testing.T) {
+	now := time.Now()
+	early := now.Add(-30 * time.Minute)
+	rows := []WorkItem{
+		{ID: "todo:0", Kind: "todo", Phase: "tasklist", BatchID: "chat-2", CreatedAt: now.Add(-time.Minute)},
+		{ID: "task:1", Kind: "task", Phase: "task", BatchID: "chat-2", CreatedAt: now},
+		{ID: "plan:p1", Kind: "plan", Phase: "plan", BatchID: "chat-1", CreatedAt: early},
+		{ID: "subagent:s1", Kind: "subagent", Phase: "subagent", BatchID: "", CreatedAt: now.Add(-2 * time.Hour)},
+	}
+	batches := buildWorkTableBatches(rows)
+	if len(batches) != 3 {
+		t.Fatalf("batches = %d, want 3: %+v", len(batches), batches)
+	}
+	// 排序：chat-1（最早）→ chat-2 → 早期会话置底。
+	if batches[0].ID != "chat-1" || batches[1].ID != "chat-2" || batches[2].ID != "" {
+		t.Fatalf("batch order = %+v", batches)
+	}
+	if batches[1].Label == "" || batches[2].Label != "早期任务" {
+		t.Fatalf("batch labels = %+v", batches)
+	}
+	if batches[1].Counts["all"] != 2 || batches[1].Counts["todo"] != 1 || batches[1].Counts["task"] != 1 {
+		t.Fatalf("chat-2 counts = %+v", batches[1].Counts)
+	}
+	if batches[2].Counts["subagent"] != 1 || batches[2].Counts["all"] != 1 {
+		t.Fatalf("legacy counts = %+v", batches[2].Counts)
+	}
+}
+
+// TestTaskRecordToWorkItemCarriesBatch 验证批次字段透传（task.changed 单行
+// 增量也携带 batch_id/batch_label/created_at）。
+func TestTaskRecordToWorkItemCarriesBatch(t *testing.T) {
+	createdAt := time.Now().Add(-5 * time.Minute)
+	record := dto.TaskRecord{
+		ID: "task:1", Phase: "task", Task: "t", Status: dto.TaskPending, Kind: "task",
+		BatchID: "chat-9", CreatedAt: createdAt,
+	}
+	row := taskRecordToWorkItem(record)
+	if row.BatchID != "chat-9" || row.CreatedAt != createdAt || row.BatchLabel == "" {
+		t.Fatalf("row = %+v", row)
+	}
+	if row.BatchLabel != batchLabel("chat-9", createdAt) {
+		t.Fatalf("batch label = %q, want %q", row.BatchLabel, batchLabel("chat-9", createdAt))
+	}
+}
+
 func TestBuildWorkTableMapsSubagentTasks(t *testing.T) {
 	startedAt := time.Now().Add(-10 * time.Minute)
 	endedAt := time.Now().Add(-5 * time.Minute)

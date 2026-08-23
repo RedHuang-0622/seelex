@@ -84,6 +84,15 @@ func (r *Runtime) SwitchSessionTasks(records []dto.TaskRecord) {
 	_ = r.tasks.ReplaceAll(records)
 }
 
+// SetCurrentTaskBatch 设置注册表默认批次（application startChat 调用；
+// 此后创建的 todo/task/plan/subagent 条目自动盖章 BatchID）。
+func (r *Runtime) SetCurrentTaskBatch(batchID string) {
+	if r == nil || r.tasks == nil {
+		return
+	}
+	_ = r.tasks.SetDefaultBatch(batchID)
+}
+
 // TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递）。
 func (r *Runtime) TaskChangedChannel() <-chan dto.TaskRecord {
 	if r == nil || r.tasks == nil {

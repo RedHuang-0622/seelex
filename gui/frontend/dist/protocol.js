@@ -69,6 +69,11 @@ function applyIncremental(snapshot, event, payload) {
   case "worktable.changed":
     if (!payload || !Array.isArray(payload.items)) return false;
     snapshot.runtime.work_table = payload.items;
+    // batches 是可选增量（批次头：标签/时间/各类计数）；缺失时保留既有
+    // 批次（task.changed 单行增量不携带 batches）。
+    if (Array.isArray(payload.batches)) {
+      snapshot.runtime.work_table_batches = payload.batches;
+    }
     return true;
   case "task.changed":
     if (!payload?.task || !payload.task_id || typeof payload.task !== "object") return false;

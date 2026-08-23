@@ -41,7 +41,7 @@ type TaskTracePoint struct {
 type TaskRecord struct {
 	ID           string           `json:"id"`                     // plan:<node_id> | subagent:<id> | todo:<n> | task:<n>
 	Key          string           `json:"key,omitempty"`          // 幂等键（归一化 goal hash / source id）
-	Phase        string           `json:"phase"`                  // plan | tasklist | subagent | task
+	Phase        string           `json:"phase"`                  // 展示派生字段：plan | tasklist | task | subagent（创建时由 Kind 派生）
 	Task         string           `json:"task"`                   // goal / label / todo text
 	Description  string           `json:"description,omitempty"`  //
 	Status       TaskStatus       `json:"status"`                 // pending/running/completed/failed/retry
@@ -49,9 +49,11 @@ type TaskRecord struct {
 	Assignee     string           `json:"assignee,omitempty"`     // main:<mainSessionID> | subagent:<subagentSessionID>；role:sessionID 被动识别
 	Dependencies []string         `json:"dependencies,omitempty"` // 前置任务（WorkItem ID 引用）
 	Attachments  []string         `json:"attachments,omitempty"`  // 可选附件路径
-	Kind         string           `json:"kind"`                   // plan | todo | subagent | task
+	Kind         string           `json:"kind"`                   // 权威类型：plan | todo | task | subagent
 	SourceID     string           `json:"source_id,omitempty"`    // 原数据面 ID（详情溯源）
 	Participants []string         `json:"participants,omitempty"` // 名单：创建者自动上名单；接管者（role:sessionID）追加并成为当前 Assignee
+	BatchID      string           `json:"batch_id,omitempty"`     // 所属批次（发起该批条目的 chat 请求 requestID；空 = 早期/未分批会话）
+	CreatedAt    time.Time        `json:"created_at,omitempty"`   // 条目创建时间（批次排序/展示）
 	StartedAt    time.Time        `json:"started_at,omitempty"`
 	EndedAt      time.Time        `json:"ended_at,omitempty"`
 	Elapsed      string           `json:"elapsed,omitempty"`
@@ -70,6 +72,27 @@ type TaskSpec struct {
 	SourceID     string   `json:"source_id,omitempty"`
 	Dependencies []string `json:"dependencies,omitempty"`
 	Attachments  []string `json:"attachments,omitempty"`
+	// BatchID 所属批次（chat 请求 requestID）。空 → 由注册表默认批次盖章
+	// （startChat 写入 SetCurrentTaskBatch）。
+	BatchID string `json:"batch_id,omitempty"`
+}
+
+// PhaseForKind 由权威类型 Kind 派生展示阶段（Phase 与 Kind 不允许双轨漂移）。
+// todo→tasklist、task→task、plan→plan、subagent→subagent；未知类型按原样
+// 返回（保守兼容旧数据/扩展类型）。
+func PhaseForKind(kind string) string {
+	switch kind {
+	case "todo":
+		return TaskPhaseTasklist
+	case "task":
+		return TaskPhaseTask
+	case "plan":
+		return TaskPhasePlan
+	case "subagent":
+		return TaskPhaseSubagent
+	default:
+		return kind
+	}
 }
 
 // ActorIdentity 由执行角色与会话 ID 合成 Assignee/Participants 身份标识。

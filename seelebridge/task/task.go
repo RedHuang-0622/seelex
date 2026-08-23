@@ -113,6 +113,7 @@ const (
 	taskOpRestore
 	taskOpReplaceAll
 	taskOpSetIdentity
+	taskOpSetBatch
 )
 
 type taskCommand struct {
@@ -130,6 +131,7 @@ type taskCommand struct {
 	point       TaskTracePoint
 	items       []TodoItem
 	identity    string
+	batchID     string
 	reply       chan taskReply
 }
 
@@ -185,6 +187,7 @@ type TaskRegistryState struct {
 	todo            []string // kind=todo 的有序 ID 列表（todolist 索引语义）
 	nextID          uint64
 	defaultIdentity string // 当前主执行身份（main:<mainSessionID>；被动 Assignee 兜底）
+	defaultBatchID  string // 当前默认批次（chat 请求 requestID；新建条目盖章）
 }
 
 func (registry *TaskRegistry) apply(command taskCommand) {
@@ -211,7 +214,7 @@ func (registry *TaskRegistry) apply(command taskCommand) {
 		replaceTodoLocked(command.items, state)
 	case taskOpAppendTodo:
 		if len(state.todo) >= command.limit {
-			reply.err = fmt.Errorf("todolist_add: list already at limit %d", command.limit)
+			reply.err = fmt.Errorf("todo_add: list already at limit %d", command.limit)
 			break
 		}
 		appendTodoLocked(command.items[0], state)
@@ -223,6 +226,8 @@ func (registry *TaskRegistry) apply(command taskCommand) {
 		replaceAllTasksLocked(command.taskRecords, state)
 	case taskOpSetIdentity:
 		state.defaultIdentity = command.identity
+	case taskOpSetBatch:
+		state.defaultBatchID = command.batchID
 	}
 	if reply.err == nil && reply.task.ID != "" && command.op != taskOpRestore && command.op != taskOpReplaceAll {
 		registry.emitChange(reply.task)
@@ -278,14 +283,23 @@ func addTaskLocked(spec TaskSpec, state *TaskRegistryState) (TaskRecord, bool) {
 		// 被动兜底：主执行身份（main:<mainSessionID>）由 Runtime 在会话建立时注入。
 		assignee = state.defaultIdentity
 	}
+	batchID := spec.BatchID
+	if batchID == "" {
+		// 被动兜底：startChat 设置的默认批次（chat-<nano>）；恢复/旧数据
+		// 保留原 BatchID，空值表示早期会话。
+		batchID = state.defaultBatchID
+	}
+	now := time.Now()
 	record := &taskRecord{record: TaskRecord{
 		ID: id, Key: key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
 		Status: TaskPending, Assignee: assignee, Kind: spec.Kind, SourceID: spec.SourceID,
 		Dependencies: append([]string(nil), spec.Dependencies...),
 		Attachments:  append([]string(nil), spec.Attachments...),
-		StartedAt:    time.Now(),
+		BatchID:      batchID,
+		CreatedAt:    now,
+		StartedAt:    now,
 		Trace: []TaskTracePoint{{
-			At: time.Now(), Status: string(TaskPending), Operation: taskAddOperation(spec.Kind),
+			At: now, Status: string(TaskPending), Operation: taskAddOperation(spec.Kind),
 		}},
 	}}
 	// 被动上名单：创建即把 Assignee 加入 Participants（去重），AI 不参与。
@@ -335,7 +349,7 @@ func setTaskStatusLocked(id string, status TaskStatus, evidence string, state *T
 	if !ok {
 		return TaskRecord{}, fmt.Errorf("task: %s not found", id)
 	}
-	if err := validateTaskTransition(record.record.Status, status); err != nil {
+	if err := validateTaskTransition(record.record.Kind, record.record.Status, status); err != nil {
 		return record.record, err
 	}
 	now := time.Now()
@@ -401,13 +415,24 @@ func appendTaskTraceLocked(id string, point TaskTracePoint, state *TaskRegistryS
 	return record.record, nil
 }
 
-// validateTaskTransition 状态迁移：终态（completed/failed）只能重开为
-// retry（重试语义，RetryCount 自增），不允许退回其他状态；running/doing
-// 不可退回 queued/pending；retry 可前向回 running（保留计数）。其余
-// 前向迁移允许。
-func validateTaskTransition(current, next TaskStatus) error {
+// validateTaskTransition 按权威类型（Kind）限定状态机：
+//   - todo（清单项）：仅三态 pending/doing/completed 之间自由迁移（GUI
+//     三态按钮 pending/doing/done），禁止 queued/running/retry/failed 等
+//     执行器状态；
+//   - task/plan/subagent：维持通用迁移——终态（completed/failed）只能重开为
+//     retry（重试语义，RetryCount 自增），不允许退回其他状态；running/doing
+//     不可退回 queued/pending；retry 可前向回 running（保留计数）。
+func validateTaskTransition(kind string, current, next TaskStatus) error {
 	if current == next {
 		return nil
+	}
+	if kind == "todo" {
+		switch next {
+		case TaskPending, TaskDoing, TaskCompleted:
+			return nil
+		default:
+			return fmt.Errorf("task: todo 只支持三态 pending/doing/completed，不能迁移到 %s", next)
+		}
 	}
 	if (current == TaskCompleted || current == TaskFailed) && next == TaskRetry {
 		// 终态任务被重试：重开为 retry（RetryCount 自增），由调用方在
@@ -491,7 +516,7 @@ func appendTodoLocked(item TodoItem, state *TaskRegistryState) {
 
 func todoByIndexLocked(index int, state *TaskRegistryState) (TaskRecord, error) {
 	if index < 0 || index >= len(state.todo) {
-		return TaskRecord{}, fmt.Errorf("todolist: index %d out of range (0..%d)", index, len(state.todo)-1)
+		return TaskRecord{}, fmt.Errorf("todo: index %d out of range (0..%d)", index, len(state.todo)-1)
 	}
 	id := state.todo[index]
 	record, ok := state.tasks[id]
@@ -566,6 +591,16 @@ func (registry *TaskRegistry) Add(spec TaskSpec) (TaskRecord, bool, error) {
 // 自动上名单（Participants）。
 func (registry *TaskRegistry) SetDefaultIdentity(identity string) error {
 	reply, err := registry.send(taskCommand{op: taskOpSetIdentity, identity: identity, reply: make(chan taskReply, 1)})
+	if err != nil {
+		return err
+	}
+	return reply.err
+}
+
+// SetDefaultBatch 设置当前默认批次（chat 请求 requestID）。此后创建的
+// todo/task/plan/subagent 条目自动盖章 BatchID（显式 spec.BatchID 优先）。
+func (registry *TaskRegistry) SetDefaultBatch(batchID string) error {
+	reply, err := registry.send(taskCommand{op: taskOpSetBatch, batchID: batchID, reply: make(chan taskReply, 1)})
 	if err != nil {
 		return err
 	}

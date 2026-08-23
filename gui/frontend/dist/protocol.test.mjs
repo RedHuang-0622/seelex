@@ -121,15 +121,39 @@ test("applies worktable.changed without deep-cloning the plan", () => {
     payload: { items: [
       { id: "plan:n1", phase: "plan", task: "新", status: "running", trace: [{ status: "running", operation: "node.lifecycle" }] },
       { id: "todo:0", phase: "tasklist", task: "a", status: "doing" }
+    ], batches: [
+      { id: "chat-1", label: "2026-08-23 09:15", created_at: "2026-08-23T09:15:00Z", counts: { all: 2, todo: 1, plan: 1 } }
     ] }
   });
   assert.equal(result.needsRefresh, false);
   assert.equal(result.changed, "worktable.changed");
   assert.equal(result.snapshot.runtime.work_table.length, 2);
   assert.equal(result.snapshot.runtime.work_table[0].task, "新");
+  assert.equal(result.snapshot.runtime.work_table_batches.length, 1);
+  assert.equal(result.snapshot.runtime.work_table_batches[0].id, "chat-1");
   // 结构共享：worktable.changed 只替换 work_table，plan 对象引用不变（无深拷贝）。
   assert.equal(result.snapshot.runtime.plan, current.runtime.plan);
   assert.equal(current.runtime.work_table[0].task, "旧");
+});
+
+test("worktable.changed without batches keeps existing batch headers", () => {
+  const current = {
+    ...snapshot(),
+    runtime: {
+      work_table: [],
+      work_table_batches: [{ id: "chat-1", label: "批次A", counts: { all: 0 } }]
+    }
+  };
+  const result = applyEvent(current, {
+    protocol_version: 1, seq: 1, revision: 2, kind: "worktable.changed",
+    payload: {
+      items: [{ id: "task:1", phase: "task", task: "t", status: "pending", kind: "task", batch_id: "chat-1" }]
+    }
+  });
+  assert.equal(result.needsRefresh, false);
+  assert.equal(result.snapshot.runtime.work_table.length, 1);
+  assert.equal(result.snapshot.runtime.work_table_batches.length, 1);
+  assert.equal(result.snapshot.runtime.work_table_batches[0].id, "chat-1");
 });
 
 test("applies task.changed as a single-row upsert", () => {

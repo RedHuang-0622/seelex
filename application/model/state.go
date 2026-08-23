@@ -117,6 +117,9 @@ type RuntimeState struct {
 	// fork 子代理 → 扁平 WorkItem 行，含任务打点 trace）。有界（行数上限
 	// limits.work_table_rows，trace 上限 limits.plan_node_events）。
 	WorkTable []WorkItem `json:"work_table,omitempty"`
+	// WorkTableBatches 是工作表格的批次分片头（按 CreatedAt 升序；空批次
+	// 归入「早期任务」置底）。前端按 batch_id 分组渲染。
+	WorkTableBatches []WorkTableBatch `json:"work_table_batches,omitempty"`
 }
 
 // ReplanMonitor exposes bounded recovery-planning usage without exposing
@@ -303,7 +306,7 @@ type SubagentContext struct {
 // fork 子代理归一为同一张多维表格；Trace 是任务打点（有界，按时间倒序）。
 type WorkItem struct {
 	ID           string           `json:"id"`                     // 稳定键：plan:<id> | todo:<index> | subagent:<id>
-	Phase        string           `json:"phase"`                  // plan | tasklist | subagent
+	Phase        string           `json:"phase"`                  // 展示派生字段：plan | tasklist | task | subagent
 	Task         string           `json:"task"`                   // 任务名/节点 label/goal
 	Description  string           `json:"description,omitempty"`  // 描述/output 摘要
 	Status       string           `json:"status"`                 // 权威状态（来源状态机）
@@ -311,9 +314,12 @@ type WorkItem struct {
 	Assignee     string           `json:"assignee,omitempty"`     // main:<mainSessionID> | subagent:<subagentSessionID>；role:sessionID 被动识别
 	Dependencies []string         `json:"dependencies,omitempty"` // 前置任务（WorkItem ID 引用）
 	Attachments  []string         `json:"attachments,omitempty"`  // 可选：worktree/read_file 路径
-	Kind         string           `json:"kind"`                   // plan | todo | subagent
+	Kind         string           `json:"kind"`                   // 权威类型：plan | todo | task | subagent
 	SourceID     string           `json:"source_id,omitempty"`    // 原数据面 ID（详情溯源）
 	Participants []string         `json:"participants,omitempty"` // 名单：创建者自动上名单；接管者（role:sessionID）追加并成为当前 Assignee
+	BatchID      string           `json:"batch_id,omitempty"`     // 所属批次（chat 请求 requestID；空 = 早期会话）
+	BatchLabel   string           `json:"batch_label,omitempty"`  // 批次展示标签（由 CreatedAt 派生；与 batches[].label 一致）
+	CreatedAt    time.Time        `json:"created_at,omitempty"`   // 条目创建时间（批次排序/展示）
 	StartedAt    time.Time        `json:"started_at,omitempty"`
 	EndedAt      time.Time        `json:"ended_at,omitempty"`
 	Elapsed      string           `json:"elapsed,omitempty"`
@@ -329,9 +335,20 @@ type WorkTracePoint struct {
 	Duration  string    `json:"duration,omitempty"`
 }
 
-// WorkTableEvent 是 worktable.changed 增量的 payload（只含表格，不整份 runtime）。
+// WorkTableBatch 是 worktable 的批次分片头：一批 = 一次 chat 请求创建的
+// 全部条目。Counts 按权威类型统计（all/plan/task/todo/subagent）。
+type WorkTableBatch struct {
+	ID        string         `json:"id"`
+	Label     string         `json:"label"`
+	CreatedAt time.Time      `json:"created_at,omitempty"`
+	Counts    map[string]int `json:"counts"`
+}
+
+// WorkTableEvent 是 worktable.changed 增量的 payload（只含表格与批次头，
+// 不整份 runtime）。
 type WorkTableEvent struct {
-	Items []WorkItem `json:"items"`
+	Items   []WorkItem       `json:"items"`
+	Batches []WorkTableBatch `json:"batches,omitempty"`
 }
 
 // TaskChangedEvent 是 task.changed 增量的 payload：单个 task 的内部变更
@@ -510,7 +527,27 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	}
 	copyRuntime.SubAgentTree = cloneSubAgentTree(runtime.SubAgentTree)
 	copyRuntime.WorkTable = CloneWorkItems(runtime.WorkTable)
+	copyRuntime.WorkTableBatches = CloneWorkTableBatches(runtime.WorkTableBatches)
 	return copyRuntime
+}
+
+// CloneWorkTableBatches 深拷贝批次头（Counts map 必须独立，避免并发读者
+// 与写入者共享同一 map）。
+func CloneWorkTableBatches(batches []WorkTableBatch) []WorkTableBatch {
+	if len(batches) == 0 {
+		return nil
+	}
+	cloned := append([]WorkTableBatch(nil), batches...)
+	for index := range cloned {
+		if batches[index].Counts != nil {
+			counts := make(map[string]int, len(batches[index].Counts))
+			for key, value := range batches[index].Counts {
+				counts[key] = value
+			}
+			cloned[index].Counts = counts
+		}
+	}
+	return cloned
 }
 
 // cloneSubAgentTree 深拷贝子代理树投影（快照克隆不改旧快照的契约）。

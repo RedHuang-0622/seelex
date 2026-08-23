@@ -9,6 +9,9 @@
       "dependencies": [],
       "kind": "plan",
       "source_id": "research",
+      "batch_id": "chat-1725000000000000001",
+      "batch_label": "2026-08-23 09:15",
+      "created_at": "2026-08-23T09:15:00Z",
       "trace": [
         {
           "at": "2026-08-09T09:30:00Z",
@@ -26,7 +29,10 @@
       "status": "doing",
       "assignee": "main",
       "kind": "todo",
-      "source_id": "0"
+      "source_id": "0",
+      "batch_id": "chat-1725000000000000001",
+      "batch_label": "2026-08-23 09:15",
+      "created_at": "2026-08-23T09:15:02Z"
     },
     {
       "id": "subagent:s1",
@@ -38,6 +44,9 @@
       "kind": "subagent",
       "source_id": "s1",
       "dependencies": [],
+      "batch_id": "chat-1725000000000000001",
+      "batch_label": "2026-08-23 09:15",
+      "created_at": "2026-08-23T09:15:30Z",
       "started_at": "2026-08-09T09:20:00Z",
       "trace": [
         {
@@ -46,6 +55,31 @@
           "operation": "subagent.lifecycle"
         }
       ]
+    },
+    {
+      "id": "task:2",
+      "phase": "task",
+      "task": "补充回归测试",
+      "description": "task 主动任务条目",
+      "status": "pending",
+      "kind": "task",
+      "batch_id": "chat-1725003600000000002",
+      "batch_label": "2026-08-23 10:20",
+      "created_at": "2026-08-23T10:20:00Z"
+    }
+  ],
+  "batches": [
+    {
+      "id": "chat-1725000000000000001",
+      "label": "2026-08-23 09:15",
+      "created_at": "2026-08-23T09:15:00Z",
+      "counts": { "all": 3, "plan": 1, "task": 0, "todo": 1, "subagent": 1 }
+    },
+    {
+      "id": "chat-1725003600000000002",
+      "label": "2026-08-23 10:20",
+      "created_at": "2026-08-23T10:20:00Z",
+      "counts": { "all": 1, "plan": 0, "task": 1, "todo": 0, "subagent": 0 }
     }
   ]
 }

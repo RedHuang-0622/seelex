@@ -7,7 +7,8 @@ import { escapeHtml } from "./components.js";
 // 交互：
 //  - 条目（工作表格）点开 → 展开多维表格（阶段/任务/描述/状态/Assignee/
 //    Dependency/附件/操作）；
-//  - 筛选 chips 切换全部/Plan/Tasklist/Subagent（纯客户端过滤）；
+//  - 批次分片：批次 = 一次 chat 请求创建的全部条目；批次头可折叠，展示
+//    标签/时间/各类计数；批内按类型 chips 过滤（纯客户端过滤）；
 //  - todo 行状态按钮 → Bridge.UpdateWorkItemStatus（pending/doing/done）；
 //  - plan/subagent 行「详情」→ 既有节点详情弹窗（会话/上下文/打点/时间线/
 //    工具活动，数据面 SubagentSessionDetail）；
@@ -17,7 +18,9 @@ import { escapeHtml } from "./components.js";
 // 是纯 UI 态（视图实例持有），不写回业务状态。所有文本 escape。
 
 const PHASE_LABELS = { plan: "Plan", task: "Task", tasklist: "Tasklist", subagent: "Subagent" };
-const FILTERS = [["all", "全部"], ["plan", "Plan"], ["task", "Task"], ["tasklist", "Tasklist"], ["subagent", "Subagent"]];
+// FILTERS 按权威类型（kind）筛选：全部 / Plan / Task / Todo / Subagent。
+const FILTERS = [["all", "全部"], ["plan", "Plan"], ["task", "Task"], ["todo", "Todo"], ["subagent", "Subagent"]];
+const KIND_LABELS = { plan: "Plan", task: "Task", todo: "Todo", subagent: "Subagent" };
 const PAGE_SIZES = [10, 20, 50];
 const DEFAULT_PAGE_SIZE = 20;
 const STATUS_LABELS = {
@@ -40,6 +43,9 @@ export function workTableView(items) {
     assignee: textValue(row.assignee),
     kind: textValue(row.kind, "plan"),
     source_id: textValue(row.source_id),
+    batch_id: textValue(row.batch_id),
+    batch_label: textValue(row.batch_label),
+    created_at: textValue(row.created_at),
     retry_count: finiteNumber(row.retry_count) ?? 0,
     dependencies: Array.isArray(row.dependencies) ? row.dependencies.map(textValue) : [],
     attachments: Array.isArray(row.attachments) ? row.attachments.map(textValue) : [],
@@ -56,20 +62,46 @@ export function workTableView(items) {
   })).filter(row => row.id);
 }
 
+// workTableBatches 归一化批次分片头（防畸形载荷：非数组 → []；计数缺失
+// 的键补 0）。批次 ID 为空串表示「早期任务」伪批次。
+export function workTableBatches(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(batch => Boolean(batch) && typeof batch === "object" && !Array.isArray(batch))
+    .map(batch => ({
+      id: textValue(batch.id),
+      label: textValue(batch.label, "批次"),
+      created_at: textValue(batch.created_at),
+      counts: normalizeBatchCounts(batch.counts)
+    }));
+}
+
+function normalizeBatchCounts(counts) {
+  const normalized = { all: 0, plan: 0, task: 0, todo: 0, subagent: 0 };
+  if (!counts || typeof counts !== "object") return normalized;
+  for (const key of Object.keys(normalized)) {
+    normalized[key] = finiteNumber(counts[key]) ?? 0;
+  }
+  return normalized;
+}
+
 // createWorkTableView 创建视图实例：持有展开/筛选/trace 展开的纯 UI 态。
 export function createWorkTableView(container, options = {}) {
   const state = {
     expanded: true,
     filter: "all",
     traces: new Set(),
+    batches: [],
+    collapsedBatches: new Set(),
     page: 1,
     pageSize: normalizePageSize(options.pageSize)
   };
   const htmlCache = new Map();
   let items = [];
 
-  function render(nextItems = items) {
+  function render(nextItems = items, nextBatches) {
     items = workTableView(nextItems);
+    if (nextBatches !== undefined) state.batches = workTableBatches(nextBatches);
     const filtered = visibleRows(items, state);
     const paged = pagedRows(filtered, state); // 先钳制页码，再渲染壳与行
     if (!container.querySelector("[data-work-table]")) {
@@ -80,7 +112,12 @@ export function createWorkTableView(container, options = {}) {
       updateShell(container, items, state);
     }
     const rowsContainer = container.querySelector("[data-work-rows]");
-    reconcileRows(rowsContainer, paged, state, htmlCache);
+    const batchesRoot = container.querySelector("[data-work-batches]");
+    if (state.batches.length > 0 && batchesRoot) {
+      reconcileBatchSections(batchesRoot, groupRowsByBatch(paged, state.batches), state, htmlCache);
+    } else {
+      reconcileRows(rowsContainer, paged, state, htmlCache);
+    }
     if (options.onCount) options.onCount(items.length);
   }
 
@@ -89,6 +126,14 @@ export function createWorkTableView(container, options = {}) {
       const entry = event.target.closest?.("[data-work-entry-toggle]");
       if (entry) {
         state.expanded = !state.expanded;
+        render();
+        return;
+      }
+      const batchToggle = event.target.closest?.("[data-work-batch-toggle]");
+      if (batchToggle?.dataset.workBatchToggle !== undefined) {
+        const batchID = batchToggle.dataset.workBatchToggle;
+        if (state.collapsedBatches.has(batchID)) state.collapsedBatches.delete(batchID);
+        else state.collapsedBatches.add(batchID);
         render();
         return;
       }
@@ -169,7 +214,7 @@ export function countUnread(rows, seen) {
 
 function visibleRows(items, state) {
   if (state.filter === "all") return items;
-  return items.filter(row => row.phase === state.filter);
+  return items.filter(row => row.kind === state.filter);
 }
 
 // pageCount 计算分页总数（空列表也至少 1 页）。
@@ -207,7 +252,7 @@ function updateShell(container, items, state) {
     if (traceTotal) traceTotal.textContent = `${countTrace(items)} 打点`;
   }
   container.querySelector("[data-work-entry-body]")?.classList.toggle("is-collapsed", !state.expanded);
-  const counts = phaseCounts(items);
+  const counts = kindCounts(items);
   container.querySelectorAll("[data-work-filter]").forEach(button => {
     const key = button.dataset.workFilter;
     button.classList.toggle("is-active", state.filter === key);
@@ -228,7 +273,7 @@ function updateShell(container, items, state) {
 }
 
 export function renderShellHTML(items, state) {
-  const counts = phaseCounts(items);
+  const counts = kindCounts(items);
   const filtered = visibleRows(items, state);
   const pages = pageCount(filtered.length, state.pageSize);
   const page = clampPage(state.page, pages);
@@ -239,6 +284,10 @@ export function renderShellHTML(items, state) {
   const pageSizes = PAGE_SIZES.map(size =>
     `<option value="${size}"${state.pageSize === size ? " selected" : ""}>${size} / 页</option>`
   ).join("");
+  const batches = Array.isArray(state?.batches) ? state.batches : [];
+  const rowsHTML = batches.length
+    ? batches.map(batch => renderBatchSectionHTML(batch, state)).join("")
+    : '<div class="work-rows" data-work-rows></div>';
   return `<div class="work-table" data-work-table>
     <header class="work-table-head">
       <button type="button" class="work-entry-toggle" data-work-entry-toggle aria-expanded="${state.expanded}" title="展开/折叠工作表格">
@@ -255,7 +304,7 @@ export function renderShellHTML(items, state) {
           <span>阶段</span><span>任务</span><span>描述</span><span>状态</span>
           <span>Assignee</span><span>Dependency</span><span>附件</span><span>操作</span>
         </div>
-        <div class="work-rows" data-work-rows></div>
+        <div class="work-batches" data-work-batches>${rowsHTML}</div>
       </div>
       <div class="work-pager" data-work-pager>
         <button type="button" class="work-page-btn" data-work-page-prev${page <= 1 ? " disabled" : ""}>‹ 上一页</button>
@@ -269,12 +318,105 @@ export function renderShellHTML(items, state) {
   </div>`;
 }
 
-function phaseCounts(items) {
-  const counts = { all: items.length, plan: 0, task: 0, tasklist: 0, subagent: 0 };
+function kindCounts(items) {
+  const counts = { all: items.length, plan: 0, task: 0, todo: 0, subagent: 0 };
   for (const row of items) {
-    if (counts[row.phase] !== undefined) counts[row.phase] += 1;
+    if (counts[row.kind] !== undefined) counts[row.kind] += 1;
   }
   return counts;
+}
+
+// groupRowsByBatch 按 batch_id 把（已分页的）行分进批次组；批次顺序取
+// batches 顺序，未知批次（如 task.changed 先行到达）按行内 batch_id 兜底。
+function groupRowsByBatch(rows, batches) {
+  const groups = new Map();
+  for (const batch of batches) groups.set(batch.id, { batch, rows: [] });
+  for (const row of rows) {
+    const key = row.batch_id || "";
+    let group = groups.get(key);
+    if (!group) {
+      group = { batch: { id: key, label: key || "早期任务", created_at: "", counts: {} }, rows: [] };
+      groups.set(key, group);
+    }
+    group.rows.push(row);
+  }
+  return [...groups.values()].filter(group => group.rows.length > 0);
+}
+
+// reconcileBatchSections 按批次 keyed reconciliation：批次头更新（标签/
+// 时间/计数/折叠态），行容器复用 reconcileRows 的 keyed 行重建。
+function reconcileBatchSections(root, grouped, state, htmlCache) {
+  if (!root) return;
+  const existing = new Map(Array.from(root.children)
+    .filter(element => element.dataset?.workBatch !== undefined)
+    .map(element => [element.dataset.workBatch, element]));
+  const used = new Set();
+  for (const group of grouped) {
+    const id = group.batch.id;
+    used.add(id);
+    let section = existing.get(id);
+    if (!section) {
+      section = elementFromHTML(root.ownerDocument, renderBatchSectionHTML(group.batch, state));
+      root.append(section);
+    } else {
+      updateBatchHeader(section, group.batch, state);
+    }
+    const rowsContainer = section.querySelector("[data-work-batch-rows]");
+    reconcileRows(rowsContainer, group.rows, state, htmlCache);
+  }
+  existing.forEach((section, id) => {
+    if (!used.has(id)) section.remove();
+  });
+  const empty = root.querySelector(":scope > .work-empty");
+  if (grouped.length === 0) {
+    if (!empty) root.insertAdjacentHTML("beforeend", '<div class="work-empty">当前筛选无任务</div>');
+  } else {
+    empty?.remove();
+  }
+}
+
+// renderBatchSectionHTML 渲染批次头（标签 + 时间 + 各类计数）与行容器。
+function renderBatchSectionHTML(batch, state) {
+  const collapsed = state?.collapsedBatches?.has?.(batch.id) ?? false;
+  const id = escapeHtml(batch.id);
+  return `<section class="work-batch" data-work-batch="${id}">
+    <header class="work-batch-head">
+      <button type="button" class="work-batch-toggle" data-work-batch-toggle="${id}" aria-expanded="${!collapsed}" title="展开/折叠该批次任务">
+        <span class="work-chevron" aria-hidden="true">${collapsed ? "▸" : "▾"}</span>
+        <strong>${escapeHtml(batch.label || "批次")}</strong>
+        <span class="work-batch-time">${escapeHtml(formatEventTime(batch.created_at))}</span>
+        <span class="work-batch-counts">${batchCountsText(batch.counts)}</span>
+      </button>
+    </header>
+    <div class="work-batch-rows${collapsed ? " is-collapsed" : ""}" data-work-batch-rows="${id}"></div>
+  </section>`;
+}
+
+function updateBatchHeader(section, batch, state) {
+  const collapsed = state?.collapsedBatches?.has?.(batch.id) ?? false;
+  const toggle = section.querySelector("[data-work-batch-toggle]");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    const chevron = toggle.querySelector(".work-chevron");
+    if (chevron) chevron.textContent = collapsed ? "▸" : "▾";
+    const label = toggle.querySelector("strong");
+    if (label) label.textContent = batch.label || "批次";
+    const time = toggle.querySelector(".work-batch-time");
+    if (time) time.textContent = formatEventTime(batch.created_at);
+    const counts = toggle.querySelector(".work-batch-counts");
+    if (counts) counts.textContent = batchCountsText(batch.counts);
+  }
+  section.querySelector("[data-work-batch-rows]")?.classList.toggle("is-collapsed", collapsed);
+}
+
+// batchCountsText 渲染批次各类计数（仅展示非零类型）。
+function batchCountsText(counts) {
+  const parts = [];
+  for (const [key, label] of [["plan", "Plan"], ["task", "Task"], ["todo", "Todo"], ["subagent", "Subagent"]]) {
+    const value = counts?.[key] || 0;
+    if (value > 0) parts.push(`${label} ${value}`);
+  }
+  return parts.join(" · ") || "空批次";
 }
 
 // clampPage 将页码钳制到 [1, pages]；非法输入按第 1 页处理。

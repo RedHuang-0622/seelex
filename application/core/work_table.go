@@ -91,9 +91,87 @@ func taskRecordToWorkItem(record dto.TaskRecord) WorkItem {
 		Attachments:  append([]string(nil), record.Attachments...),
 		Kind:         record.Kind, SourceID: record.SourceID,
 		Participants: append([]string(nil), record.Participants...),
+		BatchID:      record.BatchID,
+		BatchLabel:   batchLabel(record.BatchID, record.CreatedAt),
+		CreatedAt:    record.CreatedAt,
 		StartedAt:    record.StartedAt, EndedAt: record.EndedAt, Elapsed: record.Elapsed,
 		Trace: trace,
 	}
+}
+
+// legacyBatchID 是早期/未分批会话的伪批次 ID（空串；展示标签「早期任务」，
+// 排序置底，不与真实 chat 请求批次混排）。
+const legacyBatchID = ""
+
+// batchLabel 由批次 ID 与创建时间派生展示标签：真实批次用本地时间
+// （YYYY-MM-DD HH:MM），早期/未分批会话固定为「早期任务」。
+func batchLabel(id string, createdAt time.Time) string {
+	if id == "" {
+		return "早期任务"
+	}
+	if createdAt.IsZero() {
+		return id
+	}
+	return createdAt.Format("2006-01-02 15:04")
+}
+
+// buildWorkTableBatches 从工作表格行派生批次分片头：按 BatchID 分组，
+// 组内取最早 CreatedAt 作为批次时间；按 CreatedAt 升序返回，空批次（早期
+// 会话）置底。Counts 按权威类型统计（all/plan/task/todo/subagent），
+// 仅包含有内容的批次。
+func buildWorkTableBatches(rows []WorkItem) []WorkTableBatch {
+	type batchGroup struct {
+		id        string
+		createdAt time.Time
+		counts    map[string]int
+	}
+	order := make([]string, 0, 4)
+	byID := make(map[string]*batchGroup)
+	for _, row := range rows {
+		id := row.BatchID
+		group := byID[id]
+		if group == nil {
+			group = &batchGroup{
+				id: id,
+				counts: map[string]int{
+					"all": 0, "plan": 0, "task": 0, "todo": 0, "subagent": 0,
+				},
+			}
+			byID[id] = group
+			order = append(order, id)
+		}
+		group.counts["all"]++
+		group.counts[row.Kind]++
+		if group.createdAt.IsZero() || (!row.CreatedAt.IsZero() && row.CreatedAt.Before(group.createdAt)) {
+			group.createdAt = row.CreatedAt
+		}
+	}
+	batches := make([]WorkTableBatch, 0, len(order))
+	for _, id := range order {
+		group := byID[id]
+		batches = append(batches, WorkTableBatch{
+			ID:        group.id,
+			Label:     batchLabel(group.id, group.createdAt),
+			CreatedAt: group.createdAt,
+			Counts:    group.counts,
+		})
+	}
+	sort.SliceStable(batches, func(left, right int) bool {
+		leftLegacy := batches[left].ID == legacyBatchID
+		rightLegacy := batches[right].ID == legacyBatchID
+		if leftLegacy != rightLegacy {
+			return !leftLegacy // 早期/未分批置底
+		}
+		leftAt, rightAt := batches[left].CreatedAt, batches[right].CreatedAt
+		if leftAt.IsZero() != rightAt.IsZero() {
+			return !leftAt.IsZero() // 无时间的批次靠后
+		}
+		if !leftAt.Equal(rightAt) {
+			return leftAt.Before(rightAt)
+		}
+		return batches[left].ID < batches[right].ID
+	})
+	return batches
 }
 
 // planNodeTrace 由节点事件 + 子代理工具活动合成打点（按时间倒序、有界；
@@ -164,20 +242,24 @@ func formatWorkDuration(duration time.Duration) string {
 
 // refreshWorkTableLocked 在 service.Mu 持锁时重建工作表格投影。
 func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord) {
-	state.Snapshot.Runtime.WorkTable = buildWorkTable(
+	rows := buildWorkTable(
 		state.Snapshot.Runtime.Plan,
 		tasks,
 		state.Snapshot.Runtime.SubAgentTree,
 	)
+	state.Snapshot.Runtime.WorkTable = rows
+	state.Snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
 }
 
 // publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 // 是同一临界区克隆的不可变快照，保证 revision 与内容一致）。
-func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem) {
+func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch) {
 	if state.workTablePublisher == nil {
 		return
 	}
-	state.workTablePublisher.Send(worktable.WorkTableUpdate{Revision: revision, RequestID: requestID, Items: items})
+	state.workTablePublisher.Send(worktable.WorkTableUpdate{
+		Revision: revision, RequestID: requestID, Items: items, Batches: batches,
+	})
 }
 
 // publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
@@ -199,8 +281,9 @@ func (service *Service) publishTaskDeltas() {
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)
+	batches := CloneWorkTableBatches(service.Core.Snapshot.Runtime.WorkTableBatches)
 	service.Mu.Unlock()
-	service.publishWorkTable(revision, requestID, items)
+	service.publishWorkTable(revision, requestID, items, batches)
 }
 
 // syncTasksFromSources 把 plan 节点与子代理树的生命周期投影进 task 注册表
@@ -548,7 +631,8 @@ func (service *Service) refreshRuntimeAfterTodoChange() {
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)
+	batches := CloneWorkTableBatches(service.Core.Snapshot.Runtime.WorkTableBatches)
 	service.Mu.Unlock()
 	service.Events.Publish(EventRuntimeChanged, revision, requestID, service.Snapshot().Runtime)
-	service.publishWorkTable(revision, requestID, items)
+	service.publishWorkTable(revision, requestID, items, batches)
 }
