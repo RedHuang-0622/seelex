@@ -609,6 +609,23 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .source-item small { margin-top: 2px; overflow: hidden; color: var(--faint); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .source-kind { color: var(--faint); font: 700 10px var(--font-mono); }
 
+/* 工作树（Work Tree）：右栏惰性文件树（只含元数据，数据源 Bridge.WorkspaceTree） */
+.worktree-view { display: grid; gap: 2px; font-size: var(--text-sm); }
+.worktree-error { padding: 6px 8px; border: 1px solid var(--border-failed); border-radius: var(--r-sm); color: var(--status-failed); font-size: 11px; background: var(--tint-failed); }
+.worktree-empty, .worktree-limit { padding: 6px 8px; color: var(--faint); font-size: 11px; }
+.tree-node { --tree-depth: 0; padding-left: calc(var(--tree-depth) * 14px); }
+.tree-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 24px; padding: 2px 6px; border: 1px solid transparent; border-radius: var(--r-sm); }
+.tree-row:hover { border-color: var(--border); background: var(--surface); }
+.tree-icon { display: inline-flex; color: var(--faint); }
+.tree-row.is-dir .tree-icon { color: var(--status-info); }
+.tree-toggle { padding: 0; border: 0; background: transparent; color: var(--text-strong); font: inherit; font-size: 11.5px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.tree-toggle:hover { color: var(--accent); }
+.tree-file { overflow: hidden; color: var(--text-strong); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.tree-count { color: var(--faint); font: 700 10px var(--font-mono); }
+.tree-size { color: var(--faint); font: 10px var(--font-mono); }
+.tree-loading { width: 10px; height: 10px; border: 1.5px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: worktree-spin .8s linear infinite; }
+@keyframes worktree-spin { to { transform: rotate(360deg); } }
+
 .ws-current { padding: 2px; border: 0; background: transparent; }
 .ws-current strong { display: block; color: var(--text-strong); font-size: 11.5px; font-weight: 600; }
 .ws-current small { display: block; margin-top: 3px; color: var(--faint); font: 10px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

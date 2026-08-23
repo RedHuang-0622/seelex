@@ -45,6 +45,11 @@ type fakeApplication struct {
 	workItemID       string
 	workItemStatus   string
 	workItemErr      error
+	treeListing      dto.TreeListing
+	treeCount        dto.TreeCount
+	treeRel          string
+	treeDepth        int
+	treeErr          error
 }
 
 type staleCancelApplication struct {
@@ -161,6 +166,16 @@ func (fake *fakeApplication) SearchHistory(_ context.Context, query string, limi
 	return fake.searchResult, nil
 }
 
+func (fake *fakeApplication) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error) {
+	fake.treeRel = relPath
+	fake.treeDepth = depth
+	return fake.treeListing, fake.treeErr
+}
+
+func (fake *fakeApplication) WorkspaceFileCount() (dto.TreeCount, error) {
+	return fake.treeCount, fake.treeErr
+}
+
 func TestNewBridgeRequiresApplication(t *testing.T) {
 	t.Parallel()
 	if _, err := NewBridge(nil, Options{}); err == nil {
@@ -259,6 +274,48 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	}
 	if bridge.Info().Title != "Seelex Test" || bridge.Snapshot().Runtime.Model != "test-model" {
 		t.Fatal("bridge metadata or snapshot mismatch")
+	}
+}
+
+func TestBridgeWorkspaceTreeForwardsArguments(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.treeListing = dto.TreeListing{Entries: []dto.TreeEntry{
+		{Name: "src", Path: "src", Type: "dir", Count: 2},
+		{Name: "README.md", Path: "README.md", Type: "file", Size: 10},
+	}}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listing, err := bridge.WorkspaceTree("src", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.treeRel != "src" || fake.treeDepth != 1 {
+		t.Fatalf("forwarded rel=%q depth=%d", fake.treeRel, fake.treeDepth)
+	}
+	if len(listing.Entries) != 2 || listing.Entries[0].Name != "src" {
+		t.Fatalf("unexpected listing: %+v", listing.Entries)
+	}
+}
+
+func TestBridgeWorkspaceFileCountForwards(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.treeCount = dto.TreeCount{Files: 42, Dirs: 7}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := bridge.WorkspaceFileCount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count.Files != 42 || count.Dirs != 7 {
+		t.Fatalf("unexpected count: %+v", count)
 	}
 }
 
@@ -661,8 +718,8 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if effortStart > runtimeStart || strings.Contains(runtimeModal, `id="effort-range"`) || !strings.Contains(string(script), "createEffortControl") {
 		t.Fatal("Effort must be a persistent topbar control outside the runtime modal")
 	}
-	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="project-sources"`) {
-		t.Fatal("right sidebar must render project status and sources")
+	if !strings.Contains(rightPanel, `id="project-status"`) || !strings.Contains(rightPanel, `id="worktree-view"`) || !strings.Contains(rightPanel, `id="file-count"`) {
+		t.Fatal("right sidebar must render project status and the work tree panel")
 	}
 	if !strings.Contains(rightPanel, `id="work-table-open"`) || strings.Contains(runtimeModal, `id="work-table-open"`) {
 		t.Fatal("工作表格入口按钮必须常驻右侧栏")

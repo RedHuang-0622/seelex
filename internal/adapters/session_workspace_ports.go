@@ -9,6 +9,7 @@ import (
 
 	seelectxstorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
@@ -83,6 +84,16 @@ func (port WorkspacePort) AllBindings() map[string]string {
 }
 func (port WorkspacePort) DetectGitRemote(rootPath string) string {
 	return workspace.DetectGitRemote(rootPath)
+}
+
+// WorkspaceTreePort 实现：转发给 Repo（工作树只读元数据；root/relPath 的
+// containment 与忽略规则在 workspace 域内保证）。
+func (port WorkspacePort) ListTree(root, relPath string, depth int) (dto.TreeListing, error) {
+	return port.Repo.ListTree(root, relPath, depth)
+}
+
+func (port WorkspacePort) CountFiles(root string) (dto.TreeCount, error) {
+	return port.Repo.CountFiles(root)
 }
 
 func adaptWorkspace(item workspace.Info) model.WorkspaceInfo {

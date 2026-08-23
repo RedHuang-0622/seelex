@@ -1,8 +1,11 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
@@ -155,6 +158,44 @@ func (service *Service) UnbindWorkspace() {
 	service.Mu.Unlock()
 	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 	service.components.sessions.RequestCatalogRefresh()
+}
+
+// WorkspaceTree 列出当前工作区某目录的子条目（GUI 工作树数据源；root 只
+// 来自后端当前 workspace，客户端只能传相对路径，containment 由后端保证）。
+func (service *Service) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error) {
+	port, root, err := service.workspaceTreePort()
+	if err != nil {
+		return dto.TreeListing{}, err
+	}
+	return port.ListTree(root, relPath, depth)
+}
+
+// WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge 数据源）。
+func (service *Service) WorkspaceFileCount() (dto.TreeCount, error) {
+	port, root, err := service.workspaceTreePort()
+	if err != nil {
+		return dto.TreeCount{}, err
+	}
+	return port.CountFiles(root)
+}
+
+// workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
+// 断言 WorkspacePort 实现 optional 树端口。
+func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error) {
+	service.Mu.RLock()
+	root := ""
+	if service.Core.Snapshot.CurrentWorkspace != nil {
+		root = service.Core.Snapshot.CurrentWorkspace.RootPath
+	}
+	service.Mu.RUnlock()
+	if root == "" {
+		return nil, "", errors.New("worktree: no workspace bound to current session")
+	}
+	port, ok := service.Deps.Workspace.(contract.WorkspaceTreePort)
+	if !ok {
+		return nil, "", errors.New("worktree: workspace backend does not support tree listing")
+	}
+	return port, root, nil
 }
 
 type workspaceStateProjection struct {

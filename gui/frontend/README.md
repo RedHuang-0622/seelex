@@ -15,9 +15,10 @@
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
-| `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、筛选（全部/Plan/Task/Tasklist/Subagent）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
+| `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
+| `dist/worktree-view.js` | 工作树视图（右栏「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；`--tree-depth` 缩进、全部文本 escape。 |
 | `dist/scheduled-tasks-view.js` | 定时/周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
-| `dist/read-sources.js` | 从会话工具事件中收集成功完成的 `read_file` 路径，供右侧栏显示。 |
+| `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用，待文件预览方案落地后再清理。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer。 |
@@ -34,7 +35,7 @@
 - 图标管线：静态按钮以 `data-icon` 占位，启动时由 `components.js` 的
   `hydrateIcons()` 注入统一 stroke SVG（ICONS 注册表）；顶部连接点
   `.status-dot` 由 `chat-view.js` 追加 `online` 类切换语义色。
-- 信息层级：右栏主面板（项目/状态/工作表格/定时任务）常驻，次要面板（历史检索/概要/Agent 已读文件）收进 `#side-more` 折叠区；左侧栏承载会话树、工作区绑定与账户，三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆），账户区可折叠。
+- 信息层级：右栏主面板（项目/状态/工作表格/定时任务）常驻，次要面板（历史检索/概要/工作树）收进 `#side-more` 折叠区；左侧栏承载会话树、工作区绑定与账户，三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆），账户区可折叠。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
 - 语义色映射以 `:root` token 为唯一事实来源；新增组件时先查 token，不新增同义色。
 - 会话树：会话按工作区（`session_workspaces` 投影）分组，未绑定或工作区已消失的会话收进「未关联会话」置底；工作区组头可点击折叠（localStorage 记忆）；工具 in/out 面板支持展开/收回切换。
@@ -54,15 +55,20 @@ Full Access 按钮不维护本地布尔状态：显示与下一次 toggle 都读
 事件是状态更新的快速路径；在 `chat.running=true` 期间，`active-chat-sync.js` 每秒从 Bridge 拉取一次权威 Snapshot 作为有限对账。它只用于纠正桌面 WebView 丢失某个 terminal event 后遗留的 `RUN`/`Waiting for output…`，Snapshot 显示 idle 后立即停止。
 
 右侧工作台由「工作表格」入口按钮统一接管：数据源 `snapshot.runtime.work_table`
-（权威投影）与 `worktable.changed`/`task.changed` 增量。按钮常驻，带未读
-角标（未读 = 新增或状态/retry 变化的条目，打开详情后清零）；点开按钮弹出
-完整多维表格弹窗（工作台窄，详情在弹窗内看全）。Plan 节点 / todolist 项 /
-fork 子代理归一为 WorkItem 行，按阶段筛选；行内可展开打点、todo 三态更新、
-plan/subagent 详情入口。无任务时隐藏整个 section。
++ `snapshot.runtime.work_table_batches`（权威投影）与
+`worktable.changed`/`task.changed` 增量（`worktable.changed` 附加 `batches`
+批次头，缺失时保留既有批次）。按钮常驻，带未读角标（未读 = 新增或状态/
+retry 变化的条目，打开详情后清零）；点开按钮弹出完整多维表格弹窗（工作台
+窄，详情在弹窗内看全）。Plan 节点 / todolist 项 / task 主动条目 / fork
+子代理归一为 WorkItem 行，按批次分组（批次头可折叠）并按权威 kind 筛选；
+行内可展开打点、todo 三态更新、plan/subagent 详情入口。无任务时隐藏整个
+section。
 
-todolist 项进入工作表格的 `tasklist` 阶段；三态（pending/doing/done）只读
-权威 `work_table` 状态，行内按钮经 `Bridge.UpdateWorkItemStatus` 回写后端
-（成功路径发布 `runtime.changed` + `worktable.changed`），渲染不做本地猜测。
+todo 项（kind=todo）进入工作表格的 `tasklist` 阶段；三态（pending/doing/
+done）只读权威 `work_table` 状态，行内按钮经 `Bridge.UpdateWorkItemStatus`
+回写后端（成功路径发布 `runtime.changed` + `worktable.changed`），渲染不做
+本地猜测。状态迁移按 kind 限定（todo 仅三态；task/plan/subagent 维持通用
+迁移），非法状态由后端拒绝。
 Plan DSL（`plan-dsl.js`）保留为节点详情弹窗的数据面：`refreshPlanDetailData`
 只算 DSL 不改面板 DOM。
 
@@ -152,4 +158,9 @@ go test ./gui -count=1
 
 The project overview renders `task.context_compactions` as a small timeline of successful context compressions. The frontend receives only public metadata (version, reason, counts, and time); it does not receive private checkpoint content, prompt text, tool payloads, or raw conversation history.
 
-The “Agent read files” panel also merges the live successful `read_file` calls with the persisted `read_files` cache. It therefore remains useful after context compression or session restoration without retaining file content in renderer state.
+The right-column “工作树” panel shows the bound workspace's file tree via
+`Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` (metadata only: name,
+path, type, size, counts). It replaces the former flat “Agent read files”
+list; the backend `read_files` archive is still persisted as session evidence
+but is no longer a main panel. The tree never carries file content into the
+renderer.

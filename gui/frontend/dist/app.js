@@ -1,11 +1,11 @@
-import { escapeHtml, hydrateIcons, icon, renderSources } from "./components.js";
+import { escapeHtml, hydrateIcons, icon } from "./components.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
 import { createEffortControl } from "./effort-control.js";
 import { planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL } from "./plan-dsl.js";
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
-import { collectReadFileSources } from "./read-sources.js";
+import { createWorkTreeView } from "./worktree-view.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
@@ -29,7 +29,7 @@ const elements = Object.fromEntries([
   "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
-  "project-name", "project-root", "project-status", "project-overview", "project-sources", "source-count", "context-compactions",
+  "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "interaction-modal", "perm-toggle", "new-workspace", "workspace-info", "workspace-list", "interaction-risk", "interaction-title",
@@ -55,10 +55,18 @@ const activeChatSync = createActiveChatSnapshotSync({
   onError: showToast
 });
 const workTableView = createWorkTableView(elements["work-table-modal-view"]);
+const workTreeView = createWorkTreeView(elements["worktree-view"], {
+  loadDir: async relPath => invoke("WorkspaceTree", relPath, 1)
+});
 // workTableSeen 是“已读”快照（status|retry_count 签名）；workTableOpen
 // 控制弹窗打开期间不显示未读角标。
 let workTableSeen = new Map();
 let workTableOpen = false;
+// worktreeRoot 是已加载文件树的工作区 root；worktreeFileCount 是递归文件
+// 统计；lastChatRunning 用于在 chat 结束（文件可能变化）时刷新。
+let worktreeRoot = "";
+let worktreeFileCount = null;
+let lastChatRunning = false;
 const effortControl = createEffortControl({
   root: elements["effort-control"],
   input: elements["effort-range"],
@@ -101,7 +109,7 @@ function render(snapshot, options = {}) {
   renderAccounts(snapshot.runtime || {});
   chatView.render(snapshot, options.scrollMode);
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
-  renderWorkTable(snapshot.runtime?.work_table);
+  renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
@@ -123,7 +131,7 @@ function renderIncremental(snapshot, kind) {
     renderPlugins(snapshot.runtime || {});
     renderAccounts(snapshot.runtime || {});
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
-    renderWorkTable(snapshot.runtime?.work_table);
+    renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
     renderScheduledTaskPanel(snapshot.runtime || {});
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
@@ -131,12 +139,12 @@ function renderIncremental(snapshot, kind) {
   }
   if (kind === "worktable.changed") {
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
-    renderWorkTable(snapshot.runtime?.work_table);
+    renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
     return;
   }
   if (kind === "task.changed") {
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
-    renderWorkTable(snapshot.runtime?.work_table);
+    renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
     return;
   }
   if (["subagent.changed", "subagent.tool.started", "subagent.tool.completed"].includes(kind)) {
@@ -154,17 +162,10 @@ function renderProject(snapshot) {
   const runtime = snapshot.runtime || {};
   const task = snapshot.task || null;
   const running = Boolean(snapshot.chat?.running);
-  const sources = collectReadFileSources(snapshot.conversation || [], snapshot.read_files || []);
   const compactions = task?.context_compactions || [];
   elements["project-name"].textContent = workspace?.name || "No project selected";
   elements["project-root"].textContent = workspace?.root_path || "";
-  elements["project-status"].innerHTML = [
-    ["状态", running ? "Agent 执行中" : "Ready"],
-    ["会话", snapshot.session?.draft ? "待发送" : shortSessionID(snapshot.session?.id || "—")],
-    ["消息", String(snapshot.conversation?.length || 0)],
-    ["任务", task ? task.status : "idle"],
-    ["资料源", String(sources.length)]
-  ].map(([label, value]) => `<div class="status-item"><span>${escapeHtml(label)}</span><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
+  renderProjectStatus(snapshot, running);
   elements["project-overview"].textContent = workspace
     ? (running
       ? `Current task is running with ${runtime.plugin || "default"} capabilities in this project scope.`
@@ -172,8 +173,58 @@ function renderProject(snapshot) {
     : "Select a project to define this session's read and write scope.";
   elements["context-compactions"].innerHTML = renderContextCompactions(compactions);
   elements["context-compactions"].classList.toggle("hidden", compactions.length === 0);
-  elements["source-count"].textContent = String(sources.length);
-  elements["project-sources"].innerHTML = renderSources(sources);
+  refreshWorkTree(snapshot, running);
+}
+
+function renderProjectStatus(snapshot, running) {
+  elements["project-status"].innerHTML = [
+    ["状态", running ? "Agent 执行中" : "Ready"],
+    ["会话", snapshot.session?.draft ? "待发送" : shortSessionID(snapshot.session?.id || "—")],
+    ["消息", String(snapshot.conversation?.length || 0)],
+    ["任务", snapshot.task ? snapshot.task.status : "idle"],
+    ["文件数", fileCountLabel()]
+  ].map(([label, value]) => `<div class="status-item"><span>${escapeHtml(label)}</span><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
+}
+
+function fileCountLabel() {
+  if (!worktreeRoot) return "—";
+  if (worktreeFileCount == null) return "…";
+  return String(worktreeFileCount.files ?? 0);
+}
+
+// refreshWorkTree 惰性加载工作树：绑定工作区后拉一次文件统计与根目录列表；
+// chat 结束（文件可能变化）时刷新；重复 render 不重复拉取。
+async function refreshWorkTree(snapshot, running) {
+  const view = elements["worktree-view"];
+  const rootPath = snapshot.current_workspace?.root_path || "";
+  if (!rootPath) {
+    worktreeRoot = "";
+    worktreeFileCount = null;
+    view.classList.add("muted");
+    view.textContent = "绑定工作区后显示项目文件树";
+    elements["file-count"].textContent = "0";
+    return;
+  }
+  const chatFinished = lastChatRunning && !running;
+  lastChatRunning = running;
+  if (rootPath === worktreeRoot && !chatFinished) return;
+  worktreeRoot = rootPath;
+  worktreeFileCount = null;
+  workTreeView.reset();
+  elements["file-count"].textContent = "…";
+  renderProjectStatus(snapshot, running);
+  try {
+    const count = await invoke("WorkspaceFileCount");
+    worktreeFileCount = count;
+    elements["file-count"].textContent = String(count.files ?? 0);
+    renderProjectStatus(snapshot, running);
+    const listing = await invoke("WorkspaceTree", "", 1);
+    workTreeView.renderRoot(listing?.entries || []);
+  } catch (error) {
+    view.classList.add("muted");
+    view.textContent = "工作树暂不可用";
+    showToast(error);
+  }
 }
 
 function renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces) {
@@ -385,8 +436,8 @@ function refreshPlanDetailData(plan, subagentTree = null) {
 
 // renderWorkTable 渲染工作表格详情（弹窗内 keyed reconciliation）并同步
 // 右侧按钮摘要与未读角标（未读 = 新增或状态/retry 变化的条目）。
-function renderWorkTable(rows) {
-  workTableView.render(rows);
+function renderWorkTable(rows, batches) {
+  workTableView.render(rows, batches);
   const normalized = workTableView.current();
   elements["work-count"].textContent = String(normalized.length);
   elements["work-table-summary"].textContent = `${normalized.length} 项任务`;

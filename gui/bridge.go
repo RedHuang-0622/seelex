@@ -54,6 +54,11 @@ type Application interface {
 	// SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；
 	// GUI 历史检索面板数据源）。
 	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)
+	// WorkspaceTree 列出当前工作区某目录的子条目（工作树数据源；只含
+	// 元数据，不含文件内容）。
+	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
+	// WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge）。
+	WorkspaceFileCount() (dto.TreeCount, error)
 }
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -386,4 +391,14 @@ func (bridge *Bridge) CancelScheduledTask(id string) error {
 // Wails 前端历史检索面板数据源，返回权威 seelexctx/search.Result）。
 func (bridge *Bridge) SearchHistory(query string, limit int) (seelexctxsearch.Result, error) {
 	return bridge.app.SearchHistory(bridge.requestContext(), query, limit)
+}
+
+// WorkspaceTree 转发工作树目录列表（参数与业务校验在 application 层）。
+func (bridge *Bridge) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error) {
+	return bridge.app.WorkspaceTree(relPath, depth)
+}
+
+// WorkspaceFileCount 转发工作区文件统计。
+func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
+	return bridge.app.WorkspaceFileCount()
 }
