@@ -33,7 +33,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	defer transition.Unlock()
 
 	service.Mu.RLock()
-	running := service.Core.Snapshot.Chat.Running
+	running := service.anyChatRunningLocked()
 	service.Mu.RUnlock()
 	if running {
 		return ErrChatRunning
@@ -104,7 +104,14 @@ func (service *Service) resumeSession(sessionID string) error {
 			engineHistory = session_runtime.RecordResumeHistory(record)
 		}
 	}
-	if err := service.Deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
+	if enginePort, ok := service.Deps.Engine.(interface {
+		ResumeSession(string, []EngineMessage) error
+	}); ok {
+		// M1：恢复目标会话自己的引擎实例（会话注册表内存缓存，切走不再销毁）。
+		if err := enginePort.ResumeSession(sessionID, engineHistory); err != nil {
+			return fmt.Errorf("resume engine session: %w", err)
+		}
+	} else if err := service.Deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
 		return fmt.Errorf("replace engine history: %w", err)
 	}
 	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
@@ -154,6 +161,10 @@ func (service *Service) resumeSession(sessionID string) error {
 		name = record.Title.Value
 	}
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
+	resumedRuntime := service.sessionChatLocked(sessionID)
+	resumedRuntime.cancel = nil
+	service.Core.Snapshot.Chat = resumedRuntime.chat
+	service.inputQueue = resumedRuntime.inputQueue
 	service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {
 		service.components.sessions.SetSessionTitleLocked(record.Title)
@@ -220,7 +231,7 @@ func (service *Service) resumeSession(sessionID string) error {
 			return fmt.Errorf("attach session context %q: %w", sessionID, err)
 		}
 	}
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishRuntimeProjections()
 	service.components.sessions.RequestCatalogRefresh()
 	return nil

@@ -24,7 +24,9 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 		service.Mu.Unlock()
 		return ErrApplicationDraining
 	}
-	if service.Core.Snapshot.Chat.Running {
+	sessionID := service.Core.Snapshot.Session.ID
+	runtime := service.sessionChatLocked(sessionID)
+	if runtime.chat.Running {
 		service.Mu.Unlock()
 		return ErrChatRunning
 	}
@@ -34,6 +36,7 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 		budget = reactBudgetFor(service.effortManager.Current())
 	}
 	chatContext, cancel := context.WithCancel(parent)
+	runtime.cancel = cancel
 	service.cancelChat = cancel
 	service.components.tasks.StartReActBudgetLocked(requestID, budget)
 	previousTask := service.components.tasks.CurrentTaskExecution()
@@ -44,9 +47,11 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	taskState := service.components.tasks.BeginTask(requestID, request.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, request.skills)
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
-	service.streamOutput = chat.NewVisibleOutputStream(requestID)
+	runtime.streamOutput = chat.NewVisibleOutputStream(requestID)
+	service.streamOutput = runtime.streamOutput
 	service.markBusyLocked()
-	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
+	runtime.chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
+	service.Core.Snapshot.Chat = runtime.chat
 	service.components.tasks.SetTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
 	if service.Core.Snapshot.Session.Name == "" {
 		service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()})
@@ -63,13 +68,13 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
 	// 期间主会话被持锁无法回写，只能在此时补注入。
 	service.injectPendingSubagentContexts()
-	service.Events.Publish(EventMessageAdded, revision, requestID, user)
-	service.Events.Publish(EventMessageAdded, revision, requestID, assistant)
-	go service.runChat(chatContext, requestID, request)
+	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, user)
+	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, assistant)
+	go service.runChat(chatContext, sessionID, requestID, request)
 	return nil
 }
 
-func (service *Service) runChat(ctx context.Context, requestID string, request chatRequest) {
+func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
 	defer service.components.tasks.ClearReActBudget(requestID)
 	var err error
 	recovered := false
@@ -150,18 +155,19 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		releaser.ReleaseWorkingHistory()
 	}
 	service.Mu.Lock()
-	if service.Core.Snapshot.Chat.RequestID != requestID {
+	runtime := service.sessionChatLocked(sessionID)
+	if runtime.chat.RequestID != requestID {
 		service.Mu.Unlock()
 		return
 	}
-	service.Core.Snapshot.Chat.Error = ""
+	runtime.chat.Error = ""
 	visibleError := ""
 	if err != nil {
 		if isUnclassifiedRunChatError(err) {
 			log.Printf("[runChat] request_id=%s unclassified_error=%v", requestID, err)
 		}
 		visibleError = presentUserError(err)
-		service.Core.Snapshot.Chat.Error = visibleError
+		runtime.chat.Error = visibleError
 		service.appendMessageLocked("error", visibleError, nil)
 	}
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
@@ -169,7 +175,7 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	// 全量重建可能带入跨会话的残留消息。
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	// 处理输入队列（单一消费点）：取排队输入合并为一条，批量发送并起下一轮
-	pendingQueue := append([]chatRequest(nil), service.inputQueue...)
+	pendingQueue := append([]chatRequest(nil), runtime.inputQueue...)
 	processQueue := len(pendingQueue) > 0
 	var batchRequest chatRequest
 	var nextContext context.Context
@@ -178,15 +184,17 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 	if processQueue {
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
+		runtime.inputQueue = nil
 		service.inputQueue = nil
-		service.Core.Snapshot.Chat.QueuedCount = 0
-		service.Core.Snapshot.Chat.InputQueue = nil
+		runtime.chat.QueuedCount = 0
+		runtime.chat.InputQueue = nil
 		nextRequestID = fmt.Sprintf("chat-%d", time.Now().UnixNano())
 		budget := batchRequest.budget
 		if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
 			budget = reactBudgetFor(service.effortManager.Current())
 		}
-		nextContext, service.cancelChat = context.WithCancel(context.Background())
+		nextContext, runtime.cancel = context.WithCancel(context.Background())
+		service.cancelChat = runtime.cancel
 		service.components.tasks.StartReActBudgetLocked(nextRequestID, budget)
 		previousTask := service.components.tasks.CurrentTaskExecution()
 		previousCheckpoint := TaskCheckpoint{}
@@ -196,30 +204,35 @@ func (service *Service) runChat(ctx context.Context, requestID string, request c
 		taskState := service.components.tasks.BeginTask(nextRequestID, batchRequest.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
 		service.components.tasks.ActivateTaskSkillsLocked(taskState, batchRequest.skills)
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
-		service.streamOutput = chat.NewVisibleOutputStream(nextRequestID)
-		service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
+		runtime.streamOutput = chat.NewVisibleOutputStream(nextRequestID)
+		service.streamOutput = runtime.streamOutput
+		runtime.chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
 		service.components.tasks.SetTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
 		nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
 		nextAssistant = service.appendMessageLocked("assistant", "", nil)
 	} else {
-		service.Core.Snapshot.Chat.Running = false
+		runtime.chat.Running = false
+		runtime.cancel = nil
 		service.cancelChat = nil
-		service.markIdleLocked()
+		if !service.anyChatRunningLocked() {
+			service.markIdleLocked()
+		}
 	}
+	service.Core.Snapshot.Chat = runtime.chat
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
 	if err != nil {
-		service.Events.Publish(EventError, revision, requestID, map[string]string{"message": visibleError})
+		service.publishSessionEvent(EventError, revision, requestID, sessionID, map[string]string{"message": visibleError})
 	} else {
-		service.Events.Publish(EventSnapshotChanged, revision, requestID, nil)
+		service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
 	}
 	// 批量发送：所有排队消息一次发给 LLM
 	if processQueue {
-		service.Events.Publish(EventMessageAdded, revision, nextRequestID, *nextUser)
-		service.Events.Publish(EventMessageAdded, revision, nextRequestID, *nextAssistant)
+		service.publishSessionEvent(EventMessageAdded, revision, nextRequestID, sessionID, *nextUser)
+		service.publishSessionEvent(EventMessageAdded, revision, nextRequestID, sessionID, *nextAssistant)
 		service.Deps.Runtime.SetCurrentTaskBatch(nextRequestID)
 		service.publishRuntimeProjections()
-		go service.runChat(nextContext, nextRequestID, batchRequest)
+		go service.runChat(nextContext, sessionID, nextRequestID, batchRequest)
 	}
 }
 

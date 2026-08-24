@@ -22,11 +22,6 @@
         </div>
         <div id="session-list" class="stack-list"></div>
       </section>
-      <section class="workspace-section">
-        <div class="section-title"><span>工作区</span><span class="section-actions"><button id="new-workspace" class="icon-button subtle" type="button" title="新建工作区" aria-label="新建工作区" data-icon="plus"></button></span></div>
-        <div id="workspace-info" class="workspace-info"></div>
-        <div id="workspace-list" class="source-list"></div>
-      </section>
       <details class="collapse-section" id="accounts-section" open>
         <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>账户</span><span id="account-count" class="badge">0</span></summary>
         <div id="account-list" class="stack-list"></div>
@@ -79,10 +74,13 @@
         <h2 id="project-name">当前工作区</h2>
         <div id="project-root" class="project-root"></div>
       </section>
-      <section>
-        <div class="section-title">状态</div>
+      <details class="collapse-section" id="status-panel">
+        <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>状态</span></summary>
         <div id="project-status" class="status-grid"></div>
-      </section>
+        <div class="section-title sub-title">概要</div>
+        <div id="project-overview" class="project-overview"></div>
+        <div id="context-compactions" class="context-compactions hidden"></div>
+      </details>
       <section id="work-section" class="hidden">
         <div class="section-title"><span>工作表格</span><span id="work-count" class="badge">0</span><span id="work-unread" class="badge is-unread hidden">0 未读</span></div>
         <button id="work-table-open" class="work-table-button" type="button" title="打开工作表格详情">
@@ -93,7 +91,12 @@
       </section>
       <section id="scheduled-task-section">
         <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
-        <div id="scheduled-task-view" class="sched-view muted">暂无定时任务</div>
+        <button id="scheduled-table-open" class="work-table-button" type="button" title="打开定时任务表格">
+          <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
+          <span id="scheduled-table-summary">0 项任务</span>
+          <span class="work-table-button-hint">点击查看完整表格</span>
+        </button>
+        <div id="scheduled-task-view" class="sched-view muted hidden">暂无定时任务</div>
       </section>
 
       <details class="side-more" id="side-more">
@@ -106,11 +109,6 @@
               <button id="history-search-submit" class="icon-button subtle" type="submit" title="搜索" aria-label="搜索" data-icon="search"></button>
             </form>
             <div id="history-search-view" class="history-search-view muted">输入关键词搜索历史记录</div>
-          </section>
-          <section>
-            <div class="section-title">概要</div>
-            <div id="project-overview" class="project-overview"></div>
-            <div id="context-compactions" class="context-compactions hidden"></div>
           </section>
           <section>
             <div class="section-title"><span>工作树</span><span id="file-count" class="badge">0</span></div>
@@ -158,7 +156,7 @@
   </div>
 
   <div id="scheduled-task-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-task-modal-title">
-    <div class="modal-card settings-card">
+    <div class="modal-card settings-card" data-resizable>
       <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-task-modal-title">新建定时任务</h2></div><button id="scheduled-task-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <p class="settings-note">命令任务只执行后端白名单脚本（不可任意输入命令）；提示词任务复用当前主会话执行，会话切换后自动跳过。</p>
       <label class="settings-field">任务名称<input id="sched-name" type="text" placeholder="如：每周抓取职位" autocomplete="off"></label>
@@ -188,6 +186,7 @@
       <label id="sched-prompt-field" class="settings-field hidden">提示词内容<textarea id="sched-prompt" rows="3" placeholder="定时让 agent 执行的内容"></textarea></label>
       <label id="sched-enabled-field" class="settings-field sched-toggle"><input id="sched-enabled" type="checkbox" checked> 创建后立即启用</label>
       <div class="settings-actions"><button id="sched-submit" type="button" class="primary">创建任务</button></div>
+      <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>
   </div>
 
@@ -223,9 +222,42 @@
   </div>
 
   <div id="work-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="work-table-modal-title">
-    <div class="modal-card work-table-modal-card">
+    <div class="modal-card work-table-modal-card" data-resizable>
       <div class="modal-header"><div><span class="eyebrow">工作表格</span><h2 id="work-table-modal-title">工作表格</h2></div><button id="work-table-modal-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="work-table-modal-view" class="work-table-modal-view muted">暂无工作任务</div>
+      <div class="modal-resize-handle" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <div id="new-session-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="new-session-modal-title">
+    <div class="modal-card new-session-card" data-resizable>
+      <div class="modal-header"><div><span class="eyebrow">会话</span><h2 id="new-session-modal-title">新建会话</h2></div><button id="new-session-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div id="new-session-step-1" class="new-session-step">
+        <div class="new-session-choices">
+          <button id="new-session-task" class="new-session-choice" type="button">
+            <span class="new-session-choice-title">新建任务会话</span>
+            <span class="new-session-choice-desc">普通对话会话，不绑定项目工作区</span>
+          </button>
+          <button id="new-session-workspace" class="new-session-choice" type="button">
+            <span class="new-session-choice-title">新建工作区会话</span>
+            <span class="new-session-choice-desc">绑定一个项目文件夹，文件工具作用于该工作区</span>
+          </button>
+        </div>
+      </div>
+      <div id="new-session-step-2" class="new-session-step hidden">
+        <button id="new-session-back" class="text-button" type="button">← 返回</button>
+        <div id="new-session-workspace-list" class="stack-list"></div>
+        <button id="new-session-pick-folder" class="text-button" type="button">选择文件夹新建工作区…</button>
+      </div>
+      <div class="modal-resize-handle" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <div id="scheduled-table-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="scheduled-table-modal-title">
+    <div class="modal-card scheduled-table-card" data-resizable>
+      <div class="modal-header"><div><span class="eyebrow">定时任务</span><h2 id="scheduled-table-modal-title">定时任务表格</h2></div><button id="scheduled-table-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
+      <div id="scheduled-table-view" class="scheduled-table-view muted">暂无定时任务</div>
+      <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>
   </div>
 

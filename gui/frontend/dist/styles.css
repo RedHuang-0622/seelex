@@ -71,11 +71,11 @@
   --text-2xl: 26px;
 
   /* radii */
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 8px;
-  --r-xl: 12px;
-  --r-2xl: 14px;
+  --r-sm: 2px;
+  --r-md: 3px;
+  --r-lg: 4px;
+  --r-xl: 6px;
+  --r-2xl: 8px;
 
   /* spacing */
   --sp-1: 4px;
@@ -84,8 +84,8 @@
   --sp-4: 16px;
   --sp-5: 24px;
 
-  --shadow: 0 16px 48px rgba(0, 0, 0, .48);
-  --shadow-sm: 0 6px 20px rgba(0, 0, 0, .35);
+  --shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  --shadow-sm: 0 3px 10px rgba(0, 0, 0, .18);
 
   /* motion */
   --ease-out: cubic-bezier(.16, 1, .3, 1);
@@ -518,7 +518,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .primary-button:disabled { opacity: .35; cursor: default; }
 .danger-button { color: var(--status-failed); border-color: var(--border-failed); background: var(--tint-failed); }
 .history-bar { position: absolute; z-index: 3; top: 12px; left: 50%; transform: translateX(-50%); }
-.history-button { border-radius: 999px; background: var(--surface); box-shadow: 0 5px 20px rgba(0, 0, 0, .3); }
+.history-button { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-sm); }
 
 /* Effort：紧凑分段滑轨，去掉针筒装饰与辉光 */
 .effort-control {
@@ -1146,3 +1146,62 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   .effort-control { width: 120px; min-width: 90px; gap: 3px; }
   .runtime-summary span:not(.status-dot) { display: none; }
 }
+
+/* ── L 区域样式：新建会话弹窗 / 会话分组 / 置顶 ── */
+.new-session-card { width: min(460px, 92vw); max-height: 86vh; }
+.new-session-step { display: grid; gap: 10px; padding: 14px 2px 4px; }
+.new-session-choices { display: grid; gap: 8px; }
+.new-session-choice { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-strong); background: var(--surface); text-align: left; cursor: pointer; }
+.new-session-choice:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.new-session-choice-title { font-size: 12.5px; font-weight: 600; }
+.new-session-choice-desc { color: var(--faint); font-size: 10.5px; line-height: 1.45; }
+.new-session-ws { width: 100%; }
+.new-session-unbind { margin-top: 4px; }
+.session-group-head-row { display: flex; align-items: center; gap: 2px; }
+.session-group-head-row .session-group-head { flex: 1; min-width: 0; }
+.session-group-add { display: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; cursor: pointer; flex: none; }
+.session-group:hover .session-group-add { display: inline-flex; }
+.session-group-add:hover { border-color: var(--border-strong); color: var(--text-strong); }
+.session-pin { display: none; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 11px; cursor: pointer; flex: none; }
+.session-row:hover .session-pin { display: inline-flex; }
+.session-row.is-pinned .session-pin { display: inline-flex; color: var(--accent); }
+.session-pin:hover { border-color: var(--border-strong); color: var(--accent-strong); }
+
+/* __R_STYLES__ */
+/* Excel 网格（工作表格 / 定时任务表格共用）：低圆角、扁平、表头吸顶 */
+.excel-grid { width: 100%; border-collapse: collapse; background: var(--surface); }
+.excel-grid thead th { position: sticky; top: 0; z-index: 1; padding: 7px 10px; border: 1px solid var(--border); border-top: 0; background: var(--surface-2); color: var(--faint); font: 700 10px var(--font-mono); letter-spacing: .04em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.excel-grid tbody td { padding: 6px 10px; border: 1px solid var(--border); color: var(--text-mid); font-size: 11px; line-height: 1.4; vertical-align: middle; }
+.excel-grid tbody tr:nth-child(even) td { background: var(--code-bg); }
+.excel-grid .work-row { border: 0; border-radius: 0; background: transparent; }
+.excel-grid .work-row.is-running td:first-child, .excel-grid .work-row.is-queued td:first-child, .excel-grid .work-row.is-doing td:first-child { box-shadow: inset 3px 0 0 var(--border-running); }
+.excel-grid .work-row.is-completed td:first-child, .excel-grid .work-row.is-done td:first-child { box-shadow: inset 3px 0 0 var(--border-done); }
+.excel-grid .work-row.is-failed td:first-child, .excel-grid .work-row.is-aborted td:first-child, .excel-grid .work-row.is-panicked td:first-child { box-shadow: inset 3px 0 0 var(--border-failed); }
+.excel-grid td.work-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.excel-grid td.work-cell-desc { max-width: 260px; }
+.excel-grid td.work-cell-deps, .excel-grid td.work-cell-attachments { max-width: 160px; }
+.excel-grid td.work-cell-actions { max-width: none; white-space: nowrap; }
+.excel-grid tr.work-trace-expand td { padding: 4px 10px 8px; background: var(--code-bg); }
+.excel-grid tr.work-empty-row td { padding: 14px 10px; color: var(--faint); font-size: 11px; text-align: center; }
+.work-filter { border-radius: var(--r-lg); }
+
+/* 批次 sheet 页签（切维度 = 切工作表） */
+.excel-sheets { display: flex; flex-wrap: wrap; gap: 3px; padding: 7px 10px 9px; border-top: 1px solid var(--border); background: var(--surface-2); }
+.excel-sheet { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 3px 3px 0 0; color: var(--muted); background: var(--surface); cursor: pointer; font: 10px var(--font-mono); }
+.excel-sheet:hover { color: var(--text-strong); border-color: var(--border-strong); }
+.excel-sheet.is-active { color: var(--text-bright); border-color: var(--border-strong); background: var(--surface); box-shadow: inset 0 -2px 0 var(--status-running); font-weight: 700; }
+.excel-sheet-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.excel-sheet-counts { flex: none; color: var(--faint); }
+
+/* 定时任务 Excel 表格弹窗 */
+.scheduled-table-card { width: min(960px, 94vw); max-height: 86vh; }
+.scheduled-table-view { overflow: auto; padding: 10px; }
+.scheduled-table-view .scheduled-table { min-width: 720px; }
+.sched-row td:first-child { color: var(--text-strong); font-weight: 600; }
+.sched-table-command { display: block; color: var(--faint); font: 10px var(--font-mono); }
+
+/* 弹窗拉伸（右下角手柄，仅尺寸调整） */
+.modal-card[data-resizable] { position: relative; overflow: auto; min-width: 420px; min-height: 260px; }
+.modal-resize-handle { position: absolute; right: 3px; bottom: 3px; z-index: 2; width: 16px; height: 16px; cursor: nwse-resize; opacity: .5; touch-action: none; }
+.modal-resize-handle::before { content: ""; position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; border-right: 2px solid var(--border-strong); border-bottom: 2px solid var(--border-strong); }
+.modal-resize-handle:hover { opacity: 1; }

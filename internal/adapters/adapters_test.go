@@ -218,6 +218,75 @@ func TestEnginePortPreparesDurableLoadWithApplicationHistory(t *testing.T) {
 	}
 }
 
+func TestEnginePortPerSessionEnginesStayIsolated(t *testing.T) {
+	factoryCalls := 0
+	port := NewEnginePort(nil, func(sessionID string) ReactorEngine {
+		factoryCalls++
+		return &fakeReactorEngine{sessionID: sessionID}
+	}, nil)
+
+	first := "a1"
+	if err := port.ResumeRawSession("sess-a", []types.Message{{Role: "user", Content: &first}}); err != nil {
+		t.Fatalf("resume sess-a: %v", err)
+	}
+	if got := port.SessionID(); got != "sess-a" {
+		t.Fatalf("active session after resume a = %q, want sess-a", got)
+	}
+	second := "b1"
+	if err := port.ResumeRawSession("sess-b", []types.Message{{Role: "user", Content: &second}}); err != nil {
+		t.Fatalf("resume sess-b: %v", err)
+	}
+	if got := port.SessionID(); got != "sess-b" {
+		t.Fatalf("active session after resume b = %q, want sess-b", got)
+	}
+	if err := port.ActivateSession("sess-a"); err != nil {
+		t.Fatalf("activate sess-a: %v", err)
+	}
+	history := port.RawHistory()
+	if len(history) != 1 || history[0].Content == nil || *history[0].Content != first {
+		t.Fatalf("session A history lost after switching: %#v", history)
+	}
+	if factoryCalls != 2 {
+		t.Fatalf("engine factory calls = %d, want 2 (one per session)", factoryCalls)
+	}
+}
+
+func TestEnginePortActivateSessionRequiresFactoryWhenUnmaterialized(t *testing.T) {
+	port := NewEnginePort(nil, nil, nil)
+	if err := port.ActivateSession("missing"); err == nil {
+		t.Fatal("expected error activating unmaterialized session without factory")
+	}
+	if err := port.ActivateSession("  "); err == nil {
+		t.Fatal("expected error activating empty session ID")
+	}
+}
+
+func TestEnginePortResumeSessionKeepsExistingEngineInstance(t *testing.T) {
+	first := "keep-me"
+	factoryCalls := 0
+	port := NewEnginePort(nil, func(sessionID string) ReactorEngine {
+		factoryCalls++
+		return &fakeReactorEngine{sessionID: sessionID}
+	}, nil)
+	if err := port.ResumeRawSession("sess-a", []types.Message{{Role: "user", Content: &first}}); err != nil {
+		t.Fatalf("first resume: %v", err)
+	}
+	if err := port.ResumeRawSession("sess-b", nil); err != nil {
+		t.Fatalf("resume sess-b: %v", err)
+	}
+	second := "replaced"
+	if err := port.ResumeRawSession("sess-a", []types.Message{{Role: "user", Content: &second}}); err != nil {
+		t.Fatalf("re-resume sess-a: %v", err)
+	}
+	history := port.RawHistory()
+	if len(history) != 1 || history[0].Content == nil || *history[0].Content != second {
+		t.Fatalf("re-resumed session A history = %#v, want replaced content", history)
+	}
+	if factoryCalls != 2 {
+		t.Fatalf("engine factory calls = %d, want 2 (re-resume must reuse session engine)", factoryCalls)
+	}
+}
+
 func TestDecodeSessionRecordMigratesLegacyArchive(t *testing.T) {
 	payload := []byte(`{"version":1,"name":"Stable legacy title","conversation":[{"id":"user-1","role":"user","content":"first request"}],"plan":{"entry_node_id":"inspect"},"plan_arguments":"{\"entry\":\"inspect\"}"}`)
 	record, err := decodeSessionRecord(payload, "session-a")

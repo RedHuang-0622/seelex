@@ -62,13 +62,17 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		service.Mu.Unlock()
 		return ErrApplicationDraining
 	}
-	if service.Core.Snapshot.Chat.Running {
-		service.inputQueue = append(service.inputQueue, request)
-		service.Core.Snapshot.Chat.InputQueue = chatRequestDisplays(service.inputQueue)
-		service.Core.Snapshot.Chat.QueuedCount = len(service.inputQueue)
+	sessionID := service.Core.Snapshot.Session.ID
+	runtime := service.sessionChatLocked(sessionID)
+	if runtime.chat.Running {
+		runtime.inputQueue = append(runtime.inputQueue, request)
+		service.inputQueue = runtime.inputQueue
+		runtime.chat.InputQueue = chatRequestDisplays(runtime.inputQueue)
+		runtime.chat.QueuedCount = len(runtime.inputQueue)
+		service.Core.Snapshot.Chat = runtime.chat
 		revision := service.bumpLocked()
 		service.Mu.Unlock()
-		service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		return nil
 	}
 	service.Mu.Unlock()
@@ -102,10 +106,12 @@ func (service *Service) WaitForIdle(ctx context.Context) error {
 func (service *Service) CancelChat(requestID string) bool {
 	service.Mu.Lock()
 	defer service.Mu.Unlock()
-	if !service.Core.Snapshot.Chat.Running || (requestID != "" && requestID != service.Core.Snapshot.Chat.RequestID) || service.cancelChat == nil {
+	sessionID := service.Core.Snapshot.Session.ID
+	runtime := service.sessionChatLocked(sessionID)
+	if !runtime.chat.Running || (requestID != "" && requestID != runtime.chat.RequestID) || runtime.cancel == nil {
 		return false
 	}
-	service.cancelChat()
+	runtime.cancel()
 	return true
 }
 

@@ -99,6 +99,13 @@
 - project 只定义会话的文件读写范围，不共享 conversation history。
 - session ID 是唯一键；标题是按 `(workspaceID, sessionID)` 保存的稳定 KV 元数据。首次请求只初始化一次标题；除显式重命名外，恢复、压缩、历史分页和首条历史消息都不能改写它。
 - `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。
+- M1（2026-08-23）起聊天保护粒度从全局单例收窄为**会话级**：每会话独立
+  `ChatState`/cancel/inputQueue（`session_scope.go` 的 `sessionChat`
+  注册表），`ErrChatRunning` 只对同会话二次提交生效；跨会话提交在运行中
+  返回 `ErrSessionBusy`（单飞执行边界）。显式 session API：
+  `SubmitToSession/ActivateSession/SnapshotOf/SubscribeSession`；旧方法
+  委托活跃会话。真并行执行、每会话驻留 Snapshot/组件栈为 M2 规划
+  （见 `docs/gui/modules/multi-session-pages.md` §2.1）。
 - workspace ID 是 binding 与 storage shard 的键；显示名来自 root basename。
 - 恢复 session 时先定位真实 `workspaceID + sessionID`，再读取历史和绑定 Runtime。
 - 有历史的 session 切换 project 时先保存旧 scope，然后创建新 session，禁止把同一 ID 重新绑定后继续写。
@@ -107,6 +114,10 @@
 ## Snapshot/Event 协议
 
 每次状态变化先在锁内 bump revision，再在锁外 Publish。Snapshot 可独立重建全部 UI；Event 只负责低延迟增量。Message ID 由 Service 生成并在 history prepend 时保持稳定。
+
+Event 自 M1 起携带 `session_id` 路由键（`EventHub.PublishSession`），
+`SubscribeSession` 可按会话过滤订阅；Snapshot 的会话归属由
+`Snapshot.Session.ID` 表达（当前仅活跃会话有驻留快照）。
 
 ## Plan 集成
 

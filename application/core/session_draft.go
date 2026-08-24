@@ -21,9 +21,21 @@ func (service *Service) BeginNewSession() error {
 	service.Mu.RLock()
 	closed := service.closed
 	draining := service.draining
-	running := service.Core.Snapshot.Chat.Running
 	draft := service.Core.Snapshot.Session.Draft
 	sessionID := service.Core.Snapshot.Session.ID
+	currentRunning := false
+	if runtime := service.sessionChat[sessionID]; runtime != nil {
+		currentRunning = runtime.chat.Running
+	}
+	otherRunning := false
+	if !currentRunning {
+		for _, runtime := range service.sessionChat {
+			if runtime != nil && runtime.chat.Running {
+				otherRunning = true
+				break
+			}
+		}
+	}
 	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
 	service.Mu.RUnlock()
 	if closed {
@@ -32,8 +44,11 @@ func (service *Service) BeginNewSession() error {
 	if draining {
 		return ErrApplicationDraining
 	}
-	if running {
+	if currentRunning {
 		return ErrChatRunning
+	}
+	if otherRunning {
+		return ErrSessionBusy
 	}
 	if draft {
 		return nil
@@ -45,6 +60,8 @@ func (service *Service) BeginNewSession() error {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
 		}
 	}
+	// 离开当前会话：清空活跃引擎历史（历史已持久化；会话引擎缓存按需
+	// 由 ResumeSession 重建），防止 draft 状态串入旧会话内容。
 	service.Deps.Engine.ClearHistory()
 	service.promptStack.ClearKind("skill")
 	// 离开当前会话：解绑 context 模块，防止四栈串到新会话。
@@ -55,12 +72,16 @@ func (service *Service) BeginNewSession() error {
 	service.Mu.Lock()
 	service.Core.Snapshot.Session = SessionState{Name: draftSessionName, Draft: true}
 	service.Core.Snapshot.Conversation = nil
-	service.Core.Snapshot.Chat = ChatState{}
 	service.Core.Snapshot.HistoryOffset = 0
 	service.Core.Snapshot.TotalMessages = 0
 	service.Core.Snapshot.HasMoreHistory = false
 	service.Core.Snapshot.Runtime.Plan = nil
 	service.Core.Snapshot.Interaction = nil
+	draftRuntime := service.sessionChatLocked("")
+	draftRuntime.chat = ChatState{}
+	draftRuntime.cancel = nil
+	draftRuntime.inputQueue = nil
+	service.Core.Snapshot.Chat = draftRuntime.chat
 	service.components.sessions.SetSessionTitleLocked(SessionTitle{})
 	service.inputQueue = nil
 	service.components.tasks.ResetForNewSessionLocked()
@@ -72,7 +93,7 @@ func (service *Service) BeginNewSession() error {
 	service.Deps.Runtime.SwitchSessionTasks(nil)
 	_ = service.Deps.Runtime.ClearSubagentTree()
 	service.refreshWorkTableFromSources()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", "", nil)
 	return nil
 }
 

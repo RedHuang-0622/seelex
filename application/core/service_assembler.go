@@ -56,6 +56,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Core:               kernel,
 		commands:           NewCommandRegistry(),
 		promptRuntimeState: promptRuntimeState{promptStack: promptStack},
+		sessionChat:        make(map[string]*sessionChatRuntime),
 	}
 	service := &Service{serviceState: svcState}
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
@@ -138,7 +139,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	})
 	// worktable.changed 汇聚发布器：与事件 hub 解耦，突发时 latest-wins。
 	service.workTablePublisher = worktable.NewWorkTablePublisher(func(update worktable.WorkTableUpdate) {
-		service.Events.Publish(EventWorkTableChanged, update.Revision, update.RequestID, WorkTableEvent{
+		service.Mu.RLock()
+		sessionID := service.Core.Snapshot.Session.ID
+		service.Mu.RUnlock()
+		service.publishSessionEvent(EventWorkTableChanged, update.Revision, update.RequestID, sessionID, WorkTableEvent{
 			Items: update.Items, Batches: update.Batches,
 		})
 	})
@@ -155,6 +159,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Capabilities:       Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}
+	service.sessionChatLocked(initialSessionID)
+	service.mirrorActiveChatLocked()
 	service.components.tasks.ImportEngineHistoryAsTranscriptLocked(service.Deps.Engine.History())
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err

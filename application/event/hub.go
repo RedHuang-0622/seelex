@@ -30,12 +30,15 @@ const (
 )
 
 type Event struct {
-	ProtocolVersion int             `json:"protocol_version"`
-	Seq             uint64          `json:"seq"`
-	Revision        uint64          `json:"revision"`
-	RequestID       string          `json:"request_id,omitempty"`
-	Kind            EventKind       `json:"kind"`
-	Payload         json.RawMessage `json:"payload,omitempty"`
+	ProtocolVersion int    `json:"protocol_version"`
+	Seq             uint64 `json:"seq"`
+	Revision        uint64 `json:"revision"`
+	RequestID       string `json:"request_id,omitempty"`
+	// SessionID 是事件所属会话的路由键（M1 起 chat 生命周期事件携带；
+	// 空值表示全局事件，SubscribeSession 不过滤）。
+	SessionID string          `json:"session_id,omitempty"`
+	Kind      EventKind       `json:"kind"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
 type MessageDelta struct {
@@ -55,8 +58,16 @@ type Hub interface {
 	Subscribe(buffer int) Subscription
 }
 
+// SessionAwareHub 是 Hub 的可选扩展：发布携带会话路由键的事件。
+// 装配层提供 *EventHub 时天然满足；测试桩只需实现 Hub 即可，会话发布
+// 会退化为普通 Publish（SessionID 为空）。
+type SessionAwareHub interface {
+	PublishSession(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event
+}
+
 // 编译期断言：*EventHub 完整实现 Hub。
 var _ Hub = (*EventHub)(nil)
+var _ SessionAwareHub = (*EventHub)(nil)
 
 func (subscription Subscription) Close() {
 	if subscription.close != nil {
@@ -106,6 +117,16 @@ func (hub *EventHub) Subscribe(buffer int) Subscription {
 }
 
 func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, payload any) Event {
+	return hub.publish(kind, revision, requestID, "", payload)
+}
+
+// PublishSession 与 Publish 等价，但事件携带会话路由键 sessionID，
+// 供多会话页签按会话过滤订阅使用。
+func (hub *EventHub) PublishSession(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event {
+	return hub.publish(kind, revision, requestID, sessionID, payload)
+}
+
+func (hub *EventHub) publish(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event {
 	var encoded json.RawMessage
 	if payload != nil {
 		encoded, _ = json.Marshal(payload)
@@ -118,7 +139,7 @@ func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, 
 
 	hub.mu.Lock()
 	hub.seq++
-	event := Event{ProtocolVersion: model.ProtocolVersion, Seq: hub.seq, Revision: revision, RequestID: requestID, Kind: kind, Payload: encoded}
+	event := Event{ProtocolVersion: model.ProtocolVersion, Seq: hub.seq, Revision: revision, RequestID: requestID, SessionID: sessionID, Kind: kind, Payload: encoded}
 	subscribers := make([]*eventSubscriber, 0, len(hub.subscribers))
 	for _, subscriber := range hub.subscribers {
 		subscribers = append(subscribers, subscriber)
@@ -129,6 +150,43 @@ func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, 
 		subscriber.deliver(event)
 	}
 	return event
+}
+
+// SubscribeSession 返回按会话过滤的订阅：只投递 sessionID 匹配（或全局
+// 空 SessionID）的事件。订阅关闭后内部中继与源订阅一并释放。
+func (hub *EventHub) SubscribeSession(sessionID string, buffer int) Subscription {
+	source := hub.Subscribe(buffer)
+	out := make(chan Event, buffer)
+	done := make(chan struct{})
+	var closeOnce sync.Once
+	closeAll := func() {
+		closeOnce.Do(func() {
+			source.Close()
+			close(done)
+		})
+	}
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case event, ok := <-source.Events:
+				if !ok {
+					return
+				}
+				if event.SessionID != "" && event.SessionID != sessionID {
+					continue
+				}
+				select {
+				case out <- event:
+				case <-done:
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	return Subscription{Events: out, close: closeAll}
 }
 
 func (subscriber *eventSubscriber) deliver(event Event) {

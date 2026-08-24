@@ -4,18 +4,19 @@ import { escapeHtml } from "./components.js";
 // 数据源：snapshot.runtime.work_table（权威投影，plan 节点 / todolist 项 /
 // fork 子代理归一为 WorkItem 行）与 worktable.changed 增量。
 //
-// 交互：
-//  - 条目（工作表格）点开 → 展开多维表格（阶段/任务/描述/状态/Assignee/
-//    Dependency/附件/操作）；
-//  - 批次分片：批次 = 一次 chat 请求创建的全部条目；批次头可折叠，展示
-//    标签/时间/各类计数；批内按类型 chips 过滤（纯客户端过滤）；
+// Excel 化交互：
+//  - 工具栏：展开/折叠 + 类型筛选 chips（全部/Plan/Task/Todo/Subagent，
+//    按权威 kind 筛选）；
+//  - `<table class="excel-grid">`：固定表头（类型/任务/描述/状态/Assignee/
+//    依赖/附件/打点/操作），行 keyed reconciliation；
+//  - 底部 sheet 页签：批次 = 维度，「全部」页签居首，点击切换当前批次
+//    （类 Excel 切换工作表，批次维度 = 不同批次任务的表格）；
 //  - todo 行状态按钮 → Bridge.UpdateWorkItemStatus（pending/doing/done）；
-//  - plan/subagent 行「详情」→ 既有节点详情弹窗（会话/上下文/打点/时间线/
-//    工具活动，数据面 SubagentSessionDetail）；
+//  - plan/subagent 行「详情」→ 既有节点详情弹窗；
 //  - 行内「打点」→ 展开该行 trace 表（后端有界 ≤10 条）。
 //
-// 渲染策略：keyed reconciliation + html 缓存（只重建变化行），展开/筛选
-// 是纯 UI 态（视图实例持有），不写回业务状态。所有文本 escape。
+// 渲染策略：keyed reconciliation + html 缓存（只重建变化行）；展开/筛选/
+// 批次切换是纯 UI 态（视图实例持有），不写回业务状态。所有文本 escape。
 
 const PHASE_LABELS = { plan: "Plan", task: "Task", tasklist: "Tasklist", subagent: "Subagent" };
 // FILTERS 按权威类型（kind）筛选：全部 / Plan / Task / Todo / Subagent。
@@ -30,6 +31,8 @@ const STATUS_LABELS = {
   canceled: "CANCELED", panicked: "PANICKED", doing: "DOING", done: "DONE",
   retry: "RETRY", active: "ACTIVE", success: "SUCCESS", error: "ERROR"
 };
+// 表头固定列数（trace 展开行 colspan 对齐此数量）。
+const GRID_COLUMNS = 9;
 
 // workTableView 归一化工作表格行（防畸形载荷：非数组 → []，非法行丢弃）。
 export function workTableView(items) {
@@ -85,14 +88,14 @@ function normalizeBatchCounts(counts) {
   return normalized;
 }
 
-// createWorkTableView 创建视图实例：持有展开/筛选/trace 展开的纯 UI 态。
+// createWorkTableView 创建视图实例：持有展开/筛选/批次维度/trace 展开的纯 UI 态。
 export function createWorkTableView(container, options = {}) {
   const state = {
     expanded: true,
     filter: "all",
     traces: new Set(),
     batches: [],
-    collapsedBatches: new Set(),
+    activeBatch: "all",
     page: 1,
     pageSize: normalizePageSize(options.pageSize)
   };
@@ -102,8 +105,10 @@ export function createWorkTableView(container, options = {}) {
   function render(nextItems = items, nextBatches) {
     items = workTableView(nextItems);
     if (nextBatches !== undefined) state.batches = workTableBatches(nextBatches);
-    const filtered = visibleRows(items, state);
-    const paged = pagedRows(filtered, state); // 先钳制页码，再渲染壳与行
+    // 批次维度失效（批次头被清空/重建）时回退「全部」页签。
+    if (state.activeBatch !== "all" && !state.batches.some(batch => batch.id === state.activeBatch)) {
+      state.activeBatch = "all";
+    }
     if (!container.querySelector("[data-work-table]")) {
       container.classList.remove("muted");
       container.classList.add("work-table-view");
@@ -111,13 +116,12 @@ export function createWorkTableView(container, options = {}) {
     } else {
       updateShell(container, items, state);
     }
+    const filtered = visibleRows(items, state);
+    const paged = pagedRows(filtered, state);
     const rowsContainer = container.querySelector("[data-work-rows]");
-    const batchesRoot = container.querySelector("[data-work-batches]");
-    if (state.batches.length > 0 && batchesRoot) {
-      reconcileBatchSections(batchesRoot, groupRowsByBatch(paged, state.batches), state, htmlCache);
-    } else {
-      reconcileRows(rowsContainer, paged, state, htmlCache);
-    }
+    reconcileRows(rowsContainer, paged, state, htmlCache);
+    const sheetsRoot = ensureSheetsBar(container, state);
+    if (sheetsRoot) reconcileSheets(sheetsRoot, items, state);
     if (options.onCount) options.onCount(items.length);
   }
 
@@ -129,11 +133,10 @@ export function createWorkTableView(container, options = {}) {
         render();
         return;
       }
-      const batchToggle = event.target.closest?.("[data-work-batch-toggle]");
-      if (batchToggle?.dataset.workBatchToggle !== undefined) {
-        const batchID = batchToggle.dataset.workBatchToggle;
-        if (state.collapsedBatches.has(batchID)) state.collapsedBatches.delete(batchID);
-        else state.collapsedBatches.add(batchID);
+      const sheet = event.target.closest?.("[data-work-sheet]");
+      if (sheet?.dataset.workSheet !== undefined) {
+        state.activeBatch = sheet.dataset.workSheet;
+        state.page = 1;
         render();
         return;
       }
@@ -212,9 +215,17 @@ export function countUnread(rows, seen) {
   return count;
 }
 
+// rowsForSheet 按当前批次维度过滤（「全部」/无批次时返回原列表）。
+function rowsForSheet(items, state) {
+  if (state.activeBatch === "all" || !Array.isArray(state.batches) || !state.batches.length) return items;
+  return items.filter(row => (row.batch_id || "") === state.activeBatch);
+}
+
+// visibleRows 依次应用批次维度与类型筛选（纯客户端过滤）。
 function visibleRows(items, state) {
-  if (state.filter === "all") return items;
-  return items.filter(row => row.kind === state.filter);
+  const sheetRows = rowsForSheet(items, state);
+  if (state.filter === "all") return sheetRows;
+  return sheetRows.filter(row => row.kind === state.filter);
 }
 
 // pageCount 计算分页总数（空列表也至少 1 页）。
@@ -247,12 +258,13 @@ function updateShell(container, items, state) {
     const chevron = toggle.querySelector(".work-chevron");
     if (chevron) chevron.textContent = state.expanded ? "▾" : "▸";
     const total = toggle.querySelector(".work-total");
-    if (total) total.textContent = `${items.length} 项`;
+    if (total) total.textContent = `${rowsForSheet(items, state).length} 项`;
     const traceTotal = toggle.querySelector(".work-trace-total");
     if (traceTotal) traceTotal.textContent = `${countTrace(items)} 打点`;
   }
   container.querySelector("[data-work-entry-body]")?.classList.toggle("is-collapsed", !state.expanded);
-  const counts = kindCounts(items);
+  const base = rowsForSheet(items, state);
+  const counts = kindCounts(base);
   container.querySelectorAll("[data-work-filter]").forEach(button => {
     const key = button.dataset.workFilter;
     button.classList.toggle("is-active", state.filter === key);
@@ -273,7 +285,8 @@ function updateShell(container, items, state) {
 }
 
 export function renderShellHTML(items, state) {
-  const counts = kindCounts(items);
+  const base = rowsForSheet(items, state);
+  const counts = kindCounts(base);
   const filtered = visibleRows(items, state);
   const pages = pageCount(filtered.length, state.pageSize);
   const page = clampPage(state.page, pages);
@@ -285,26 +298,28 @@ export function renderShellHTML(items, state) {
     `<option value="${size}"${state.pageSize === size ? " selected" : ""}>${size} / 页</option>`
   ).join("");
   const batches = Array.isArray(state?.batches) ? state.batches : [];
-  const rowsHTML = batches.length
-    ? batches.map(batch => renderBatchSectionHTML(batch, state)).join("")
-    : '<div class="work-rows" data-work-rows></div>';
+  const sheets = batches.length ? renderSheetTabsHTML(items, state) : "";
   return `<div class="work-table" data-work-table>
     <header class="work-table-head">
       <button type="button" class="work-entry-toggle" data-work-entry-toggle aria-expanded="${state.expanded}" title="展开/折叠工作表格">
         <span class="work-chevron" aria-hidden="true">${state.expanded ? "▾" : "▸"}</span>
         <strong>工作表格</strong>
-        <span class="work-total">${items.length} 项</span>
+        <span class="work-total">${base.length} 项</span>
         <span class="work-trace-total">${countTrace(items)} 打点</span>
       </button>
       <div class="work-filters" data-work-filters>${filters}</div>
     </header>
     <div class="work-entry-body${state.expanded ? "" : " is-collapsed"}" data-work-entry-body>
       <div class="work-table-scroll" data-work-table-scroll>
-        <div class="work-grid work-grid-head" aria-hidden="true">
-          <span>阶段</span><span>任务</span><span>描述</span><span>状态</span>
-          <span>Assignee</span><span>Dependency</span><span>附件</span><span>操作</span>
-        </div>
-        <div class="work-batches" data-work-batches>${rowsHTML}</div>
+        <table class="excel-grid" data-excel-grid>
+          <thead>
+            <tr class="excel-head-row">
+              <th>类型</th><th>任务</th><th>描述</th><th>状态</th><th>Assignee</th>
+              <th>依赖</th><th>附件</th><th>打点</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody data-work-rows></tbody>
+        </table>
       </div>
       <div class="work-pager" data-work-pager>
         <button type="button" class="work-page-btn" data-work-page-prev${page <= 1 ? " disabled" : ""}>‹ 上一页</button>
@@ -315,6 +330,7 @@ export function renderShellHTML(items, state) {
         </label>
       </div>
     </div>
+    ${sheets}
   </div>`;
 }
 
@@ -326,87 +342,47 @@ function kindCounts(items) {
   return counts;
 }
 
-// groupRowsByBatch 按 batch_id 把（已分页的）行分进批次组；批次顺序取
-// batches 顺序，未知批次（如 task.changed 先行到达）按行内 batch_id 兜底。
-function groupRowsByBatch(rows, batches) {
-  const groups = new Map();
-  for (const batch of batches) groups.set(batch.id, { batch, rows: [] });
-  for (const row of rows) {
-    const key = row.batch_id || "";
-    let group = groups.get(key);
-    if (!group) {
-      group = { batch: { id: key, label: key || "早期任务", created_at: "", counts: {} }, rows: [] };
-      groups.set(key, group);
-    }
-    group.rows.push(row);
+// renderSheetTabsHTML 渲染批次 sheet 页签（「全部」居首；批次页签带
+// 权威批次计数摘要，如 Task 1 · Todo 1）。
+function renderSheetTabsHTML(items, state) {
+  const batches = Array.isArray(state?.batches) ? state.batches : [];
+  if (!batches.length) return "";
+  const tabs = [
+    sheetTabHTML("all", "全部", `共 ${items.length} 项`, state.activeBatch === "all")
+  ];
+  for (const batch of batches) {
+    tabs.push(sheetTabHTML(batch.id, batch.label || "批次", batchCountsText(batch.counts), state.activeBatch === batch.id));
   }
-  return [...groups.values()].filter(group => group.rows.length > 0);
+  return `<div class="excel-sheets" data-work-sheets>${tabs.join("")}</div>`;
 }
 
-// reconcileBatchSections 按批次 keyed reconciliation：批次头更新（标签/
-// 时间/计数/折叠态），行容器复用 reconcileRows 的 keyed 行重建。
-function reconcileBatchSections(root, grouped, state, htmlCache) {
-  if (!root) return;
-  const existing = new Map(Array.from(root.children)
-    .filter(element => element.dataset?.workBatch !== undefined)
-    .map(element => [element.dataset.workBatch, element]));
-  const used = new Set();
-  for (const group of grouped) {
-    const id = group.batch.id;
-    used.add(id);
-    let section = existing.get(id);
-    if (!section) {
-      section = elementFromHTML(root.ownerDocument, renderBatchSectionHTML(group.batch, state));
-      root.append(section);
-    } else {
-      updateBatchHeader(section, group.batch, state);
-    }
-    const rowsContainer = section.querySelector("[data-work-batch-rows]");
-    reconcileRows(rowsContainer, group.rows, state, htmlCache);
-  }
-  existing.forEach((section, id) => {
-    if (!used.has(id)) section.remove();
-  });
-  const empty = root.querySelector(":scope > .work-empty");
-  if (grouped.length === 0) {
-    if (!empty) root.insertAdjacentHTML("beforeend", '<div class="work-empty">当前筛选无任务</div>');
-  } else {
-    empty?.remove();
-  }
+function sheetTabHTML(id, label, countsText, active) {
+  const safeID = escapeHtml(id);
+  return `<button type="button" class="excel-sheet${active ? " is-active" : ""}" data-work-sheet="${safeID}" title="${escapeHtml(label)}">
+    <span class="excel-sheet-label">${escapeHtml(label)}</span>
+    <span class="excel-sheet-counts">${escapeHtml(countsText)}</span>
+  </button>`;
 }
 
-// renderBatchSectionHTML 渲染批次头（标签 + 时间 + 各类计数）与行容器。
-function renderBatchSectionHTML(batch, state) {
-  const collapsed = state?.collapsedBatches?.has?.(batch.id) ?? false;
-  const id = escapeHtml(batch.id);
-  return `<section class="work-batch" data-work-batch="${id}">
-    <header class="work-batch-head">
-      <button type="button" class="work-batch-toggle" data-work-batch-toggle="${id}" aria-expanded="${!collapsed}" title="展开/折叠该批次任务">
-        <span class="work-chevron" aria-hidden="true">${collapsed ? "▸" : "▾"}</span>
-        <strong>${escapeHtml(batch.label || "批次")}</strong>
-        <span class="work-batch-time">${escapeHtml(formatEventTime(batch.created_at))}</span>
-        <span class="work-batch-counts">${batchCountsText(batch.counts)}</span>
-      </button>
-    </header>
-    <div class="work-batch-rows${collapsed ? " is-collapsed" : ""}" data-work-batch-rows="${id}"></div>
-  </section>`;
+// ensureSheetsBar 保证批次 sheet 栏存在/移除（快照从有批次切到无批次时移除）。
+function ensureSheetsBar(container, state) {
+  let sheetsRoot = container.querySelector("[data-work-sheets]");
+  if (!state.batches.length) {
+    sheetsRoot?.remove();
+    return null;
+  }
+  if (!sheetsRoot) {
+    const anchor = container.querySelector("[data-excel-grid]") || container.querySelector("[data-work-table-scroll]");
+    if (anchor) anchor.insertAdjacentHTML("afterend", '<div class="excel-sheets" data-work-sheets></div>');
+    sheetsRoot = container.querySelector("[data-work-sheets]");
+  }
+  return sheetsRoot;
 }
 
-function updateBatchHeader(section, batch, state) {
-  const collapsed = state?.collapsedBatches?.has?.(batch.id) ?? false;
-  const toggle = section.querySelector("[data-work-batch-toggle]");
-  if (toggle) {
-    toggle.setAttribute("aria-expanded", String(!collapsed));
-    const chevron = toggle.querySelector(".work-chevron");
-    if (chevron) chevron.textContent = collapsed ? "▸" : "▾";
-    const label = toggle.querySelector("strong");
-    if (label) label.textContent = batch.label || "批次";
-    const time = toggle.querySelector(".work-batch-time");
-    if (time) time.textContent = formatEventTime(batch.created_at);
-    const counts = toggle.querySelector(".work-batch-counts");
-    if (counts) counts.textContent = batchCountsText(batch.counts);
-  }
-  section.querySelector("[data-work-batch-rows]")?.classList.toggle("is-collapsed", collapsed);
+function reconcileSheets(sheetsRoot, items, state) {
+  if (!sheetsRoot) return;
+  const html = renderSheetTabsHTML(items, state);
+  if (sheetsRoot.innerHTML !== html) sheetsRoot.innerHTML = html;
 }
 
 // batchCountsText 渲染批次各类计数（仅展示非零类型）。
@@ -426,43 +402,68 @@ function clampPage(page, pages) {
   return Math.min(p, Math.max(1, pages));
 }
 
+// reconcileRows 在 tbody 内做行级 keyed reconciliation：主行
+// （data-work-row）+ trace 展开行（data-work-trace，紧随主行）。
 function reconcileRows(rowsContainer, visible, state, htmlCache) {
-  const existing = new Map(Array.from(rowsContainer.children)
-    .filter(element => element.dataset?.workRow)
-    .map(element => [element.dataset.workRow, element]));
+  if (!rowsContainer) return;
+  const existing = new Map();
+  for (const child of Array.from(rowsContainer.children)) {
+    const key = child.dataset?.workRow;
+    if (key !== undefined) existing.set(key, child);
+  }
   const used = new Set();
-  const renderedHtml = new Map();
 
   for (const row of visible) {
     used.add(row.id);
     const html = renderWorkItemRow(row, state);
-    renderedHtml.set(row.id, html);
     let element = existing.get(row.id);
     if (!element) {
       element = elementFromHTML(rowsContainer.ownerDocument, html);
       rowsContainer.append(element);
-      continue;
-    }
-    if (htmlCache.get(row.id) !== html) {
+    } else if (htmlCache.get(row.id) !== html) {
+      const oldNext = element.nextElementSibling;
       const replacement = elementFromHTML(rowsContainer.ownerDocument, html);
       element.replaceWith(replacement);
+      // 主行内容变化时一并移除旧 trace 展开行（稍后按需重建）。
+      if (oldNext?.dataset?.workTrace === row.id) oldNext.remove();
       element = replacement;
     }
-    rowsContainer.append(element);
+    htmlCache.set(row.id, html);
+    reconcileTraceRow(rowsContainer, element, row, state);
   }
 
   existing.forEach((element, id) => {
-    if (!used.has(id)) element.remove();
+    if (!used.has(id)) {
+      if (element.nextElementSibling?.dataset?.workTrace === id) element.nextElementSibling.remove();
+      element.remove();
+    }
   });
-  for (const [id, html] of renderedHtml) htmlCache.set(id, html);
+  for (const child of Array.from(rowsContainer.children)) {
+    if (child.dataset?.workTrace !== undefined && !used.has(child.dataset.workTrace)) child.remove();
+  }
   for (const id of [...htmlCache.keys()]) {
     if (!used.has(id)) htmlCache.delete(id);
   }
-  const empty = rowsContainer.querySelector(":scope > .work-empty");
+
   if (!visible.length) {
-    if (!empty) rowsContainer.insertAdjacentHTML("beforeend", '<div class="work-empty">当前筛选无任务</div>');
+    if (!rowsContainer.querySelector(":scope > .work-empty-row")) {
+      rowsContainer.insertAdjacentHTML("beforeend", `<tr class="work-empty-row" data-work-empty><td colspan="${GRID_COLUMNS}">当前筛选无任务</td></tr>`);
+    }
   } else {
-    empty?.remove();
+    rowsContainer.querySelector(":scope > .work-empty-row")?.remove();
+  }
+}
+
+// reconcileTraceRow 维护主行后的 trace 展开行（state.traces 驱动）。
+function reconcileTraceRow(rowsContainer, mainRow, row, state) {
+  if (!mainRow) return;
+  const next = mainRow.nextElementSibling;
+  const hasTraceRow = next?.dataset?.workTrace === row.id;
+  if (state.traces.has(row.id) && !hasTraceRow) {
+    const traceRow = elementFromHTML(rowsContainer.ownerDocument, renderWorkTraceRow(row));
+    mainRow.after(traceRow);
+  } else if (!state.traces.has(row.id) && hasTraceRow) {
+    next.remove();
   }
 }
 
@@ -472,25 +473,28 @@ export function renderWorkItemRow(row, state) {
   const traceOpen = state.traces.has(row.id);
   const deps = row.dependencies || [];
   const attachments = row.attachments || [];
+  const kindLabel = KIND_LABELS[row.kind] || PHASE_LABELS[row.phase] || row.kind || row.phase || "—";
   const actions = row.kind === "todo"
     ? renderTodoStatusControl(row)
     : `<button type="button" class="work-row-detail-btn" data-plan-node-open="${escapeHtml(row.source_id || row.id)}" title="查看会话记录 / 上下文 / 打点详情">详情</button>`;
-  return `<article class="work-row is-${status}" data-work-row="${escapeHtml(row.id)}" data-work-kind="${escapeHtml(row.kind)}">
-    <div class="work-grid work-row-grid">
-      <span class="work-cell" title="${escapeHtml(row.phase)}"><span class="work-phase-chip is-${escapeHtml(row.phase)}">${escapeHtml(PHASE_LABELS[row.phase] || row.phase)}</span></span>
-      <span class="work-cell work-cell-task" title="${escapeHtml(row.task)}">${escapeHtml(shorten(row.task, 80))}</span>
-      <span class="work-cell work-cell-desc" title="${escapeHtml(row.description)}">${escapeHtml(shorten(row.description, 140)) || '<span class="muted">—</span>'}</span>
-      <span class="work-cell"><span class="work-status is-${status}">${escapeHtml(statusCellLabel(row))}</span></span>
-      <span class="work-cell work-cell-assignee" title="${escapeHtml(row.assignee)}">${escapeHtml(row.assignee || "—")}</span>
-      <span class="work-cell work-cell-deps">${deps.length ? deps.map(dep => `<span class="work-dep" title="${escapeHtml(dep)}">${escapeHtml(shorten(dep, 24))}</span>`).join("") : '<span class="muted">—</span>'}</span>
-      <span class="work-cell work-cell-attachments">${attachments.length ? attachments.map(path => `<span class="work-attachment" title="${escapeHtml(path)}">${escapeHtml(shorten(path, 24))}</span>`).join("") : '<span class="muted">—</span>'}</span>
-      <span class="work-cell work-cell-actions">
-        ${actions}
-        ${trace.length ? `<button type="button" class="work-trace-toggle" data-work-trace-toggle="${escapeHtml(row.id)}" aria-expanded="${traceOpen}" title="展开任务打点">打点 ${trace.length}</button>` : ""}
-      </span>
-    </div>
-    ${traceOpen ? `<div class="work-trace-panel" data-work-trace="${escapeHtml(row.id)}">${renderWorkTraceHTML(trace)}</div>` : ""}
-  </article>`;
+  return `<tr class="work-row is-${status}" data-work-row="${escapeHtml(row.id)}" data-work-kind="${escapeHtml(row.kind)}">
+    <td class="work-cell work-cell-kind" title="${escapeHtml(row.phase)}"><span class="work-phase-chip is-${escapeHtml(row.kind)}">${escapeHtml(kindLabel)}</span></td>
+    <td class="work-cell work-cell-task" title="${escapeHtml(row.task)}">${escapeHtml(shorten(row.task, 80))}</td>
+    <td class="work-cell work-cell-desc" title="${escapeHtml(row.description)}">${escapeHtml(shorten(row.description, 140)) || '<span class="muted">—</span>'}</td>
+    <td class="work-cell"><span class="work-status is-${status}">${escapeHtml(statusCellLabel(row))}</span></td>
+    <td class="work-cell work-cell-assignee" title="${escapeHtml(row.assignee)}">${escapeHtml(row.assignee || "—")}</td>
+    <td class="work-cell work-cell-deps">${deps.length ? deps.map(dep => `<span class="work-dep" title="${escapeHtml(dep)}">${escapeHtml(shorten(dep, 24))}</span>`).join("") : '<span class="muted">—</span>'}</td>
+    <td class="work-cell work-cell-attachments">${attachments.length ? attachments.map(path => `<span class="work-attachment" title="${escapeHtml(path)}">${escapeHtml(shorten(path, 24))}</span>`).join("") : '<span class="muted">—</span>'}</td>
+    <td class="work-cell work-cell-trace">${trace.length ? `<button type="button" class="work-trace-toggle" data-work-trace-toggle="${escapeHtml(row.id)}" aria-expanded="${traceOpen}" title="展开任务打点">打点 ${trace.length}</button>` : '<span class="muted">—</span>'}</td>
+    <td class="work-cell work-cell-actions">${actions}</td>
+  </tr>`;
+}
+
+// renderWorkTraceRow 渲染 trace 展开行（colspan 对齐表头列数）。
+function renderWorkTraceRow(row) {
+  return `<tr class="work-trace-expand" data-work-trace="${escapeHtml(row.id)}">
+    <td colspan="${GRID_COLUMNS}">${renderWorkTraceHTML(row.trace || [])}</td>
+  </tr>`;
 }
 
 function renderTodoStatusControl(row) {

@@ -54,6 +54,37 @@ export function renderScheduledTasks(items, commands) {
   }).join("")}</ul>`;
 }
 
+// renderScheduledTasksTable 渲染定时任务 Excel 表格（弹窗内展示；列：
+// 名称/类型/周期/下次运行/状态/操作；取消按钮以 data-sched-cancel 携带
+// 任务 ID——ID 是操作键，名称只展示）。
+export function renderScheduledTasksTable(items, commands) {
+  const list = scheduledTasksView(items);
+  if (!list.length) {
+    return '<span class="muted list-empty">暂无定时任务</span>';
+  }
+  const labelByKey = new Map((Array.isArray(commands) ? commands : []).map(command => [command.key, command.label]));
+  const rows = list.map(task => {
+    const kind = task.kind === "prompt" ? "提示词" : "命令";
+    const commandLabel = task.kind === "command" ? (labelByKey.get(task.command) || task.command || "") : "";
+    const scheduleText = task.one_shot ? `定时 ${formatRunTime(task.run_at)}` : `每 ${formatInterval(task)}`;
+    const statusClass = schedStatusClass(task);
+    return `<tr class="sched-row is-${statusClass}" data-sched-id="${escapeHtml(task.id)}">
+      <td class="work-cell work-cell-task" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</td>
+      <td class="work-cell">${escapeHtml(kind)}${task.one_shot ? '<span class="chip">一次性</span>' : ""}</td>
+      <td class="work-cell">${escapeHtml(scheduleText)}${task.kind === "command" && commandLabel ? `<small class="sched-table-command" title="${escapeHtml(task.command)}">${escapeHtml(commandLabel)}</small>` : ""}</td>
+      <td class="work-cell">${escapeHtml(formatRunTime(task.next_run_at))}</td>
+      <td class="work-cell"><span class="chip ${task.enabled ? "sched-chip-on" : "sched-chip-off"}">${task.enabled ? "已启用" : "已停用"}</span> <span class="sched-status is-${statusClass}">${escapeHtml(schedStatusText(task))}</span></td>
+      <td class="work-cell work-cell-actions"><button type="button" class="text-button sched-cancel" data-sched-cancel="${escapeHtml(task.id)}">取消</button></td>
+    </tr>`;
+  }).join("");
+  return `<table class="excel-grid scheduled-table" data-scheduled-table>
+    <thead><tr class="excel-head-row">
+      <th>名称</th><th>类型</th><th>周期</th><th>下次运行</th><th>状态</th><th>操作</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 // schedStatusText 状态文案（权威 JSON 的 running/last_status 驱动）。
 function schedStatusText(task) {
   if (task.running) return "运行中";

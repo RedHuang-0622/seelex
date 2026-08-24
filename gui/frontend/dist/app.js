@@ -9,8 +9,9 @@ import { createWorkTreeView } from "./worktree-view.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
-import { renderScheduledTasks } from "./scheduled-tasks-view.js";
+import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
+import { truncateTitle, isPinned, togglePinned } from "./sidebar.js";
 
 const state = {
   info: null,
@@ -32,7 +33,9 @@ const elements = Object.fromEntries([
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
-  "load-history", "interaction-modal", "perm-toggle", "new-workspace", "workspace-info", "workspace-list", "interaction-risk", "interaction-title",
+  "load-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title",
+  "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
+  "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
   "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast"
 ].map(id => [id, document.getElementById(id)]));
@@ -113,7 +116,6 @@ function render(snapshot, options = {}) {
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
-  renderWorkspace(snapshot);
   activeChatSync.observe(snapshot);
 }
 
@@ -286,6 +288,20 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       toggleWorkspaceGroup(button.dataset.collapseGroup);
     });
   });
+  elements["session-list"].querySelectorAll("[data-pin-session]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      togglePinned(button.dataset.pinSession);
+      rerenderSessions();
+    });
+  });
+  elements["session-list"].querySelectorAll("[data-workspace-new-session]").forEach(button => {
+    button.addEventListener("click", event => {
+      event.stopPropagation();
+      const workspaceID = button.dataset.workspaceNewSession;
+      if (workspaceID) bindWorkspaceAndStart(workspaceID);
+    });
+  });
 }
 
 const UNBOUND_WORKSPACE = "__unbound__";
@@ -316,14 +332,21 @@ function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames
   });
   return keys.map(key => {
     const label = key === UNBOUND_WORKSPACE ? "未关联会话" : workspaceNames.get(key) || key;
-    const rows = groups.get(key).map(session => sessionRow(session, currentID)).join("");
+    const sessions = groups.get(key).slice().sort((a, b) => Number(isPinned(b.id)) - Number(isPinned(a.id)));
+    const rows = sessions.map(session => sessionRow(session, currentID)).join("");
     const collapsed = collapsedWorkspaceGroups.has(key);
+    const addButton = key === UNBOUND_WORKSPACE
+      ? ""
+      : `<button type="button" class="session-group-add" data-workspace-new-session="${escapeHtml(key)}" title="在该工作区新建会话" aria-label="在该工作区新建会话">${icon("plus", 12)}</button>`;
     return `<div class="session-group${collapsed ? " is-collapsed" : ""}" data-workspace-group="${escapeHtml(key)}">
-      <button type="button" class="session-group-head" data-collapse-group="${escapeHtml(key)}" aria-expanded="${!collapsed}">
-        <span class="session-group-chevron" aria-hidden="true"></span>
-        <span class="session-group-name">${escapeHtml(label)}</span>
-        <span class="badge">${groups.get(key).length}</span>
-      </button>
+      <div class="session-group-head-row">
+        <button type="button" class="session-group-head" data-collapse-group="${escapeHtml(key)}" aria-expanded="${!collapsed}">
+          <span class="session-group-chevron" aria-hidden="true"></span>
+          <span class="session-group-name">${escapeHtml(label)}</span>
+          <span class="badge">${groups.get(key).length}</span>
+        </button>
+        ${addButton}
+      </div>
       <div class="session-group-body">${rows}</div>
     </div>`;
   }).join("");
@@ -347,14 +370,18 @@ function rerenderSessions() {
 function sessionRow(session, currentID) {
   const active = session.id === currentID;
   const resuming = session.id === state.resumingSessionID;
+  const pinned = isPinned(session.id);
   const updated = session.updated_at
     ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : "当前会话";
   const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
-  return `<div class="session-row">
-    <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""}>
-      <span class="entry-name">${icon("message", 13)} ${escapeHtml(resuming ? "恢复中…" : (session.name || shortSessionID(session.id)))}</span><small>${escapeHtml(detail)}</small>
+  const display = resuming ? "恢复中…" : (session.name || shortSessionID(session.id));
+  const truncated = truncateTitle(display, 5);
+  return `<div class="session-row${pinned ? " is-pinned" : ""}">
+    <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" title="${escapeHtml(session.name || "")}" ${resuming ? "disabled" : ""}>
+      <span class="entry-name">${icon("message", 13)} ${escapeHtml(truncated)}</span><small>${escapeHtml(detail)}</small>
     </button>
+    <button class="session-pin${pinned ? " is-on" : ""}" data-pin-session="${escapeHtml(session.id)}" title="${pinned ? "取消置顶" : "置顶会话"}" aria-label="置顶会话">📌</button>
     <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
   </div>`;
 }
@@ -495,9 +522,80 @@ function findSubagentTreeNode(nodeID) {
 // 新建按钮常驻（命令白名单来自 runtime.scheduled_commands）。
 function renderScheduledTaskPanel(runtime) {
   const tasks = Array.isArray(runtime.scheduled_tasks) ? runtime.scheduled_tasks : [];
+  const commands = Array.isArray(runtime.scheduled_commands) ? runtime.scheduled_commands : [];
   elements["scheduled-task-count"].textContent = String(tasks.length);
-  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, runtime.scheduled_commands || []);
+  elements["scheduled-table-summary"].textContent = `${tasks.length} 项任务`;
+  elements["scheduled-task-view"].innerHTML = renderScheduledTasks(tasks, commands);
+  elements["scheduled-table-view"].innerHTML = renderScheduledTasksTable(tasks, commands);
 }
+
+// openScheduledTable / closeScheduledTable：定时任务 Excel 表格弹窗
+// （右栏只留入口按钮，表格放弹窗；新建复用表单弹窗）。
+function openScheduledTable() {
+  setModal("scheduled-table-modal", true);
+}
+
+function closeScheduledTable() {
+  setModal("scheduled-table-modal", false);
+}
+
+elements["scheduled-table-open"]?.addEventListener("click", openScheduledTable);
+elements["scheduled-table-close"]?.addEventListener("click", closeScheduledTable);
+elements["scheduled-table-modal"]?.addEventListener("click", event => {
+  if (event.target === elements["scheduled-table-modal"]) closeScheduledTable();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeScheduledTable();
+});
+
+// 定时任务表格内取消按钮（事件委托挂表格容器；ID 是操作键）。
+elements["scheduled-table-view"]?.addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-sched-cancel]");
+  if (!button?.dataset.schedCancel) return;
+  if (!confirm("确认取消该定时任务？")) return;
+  try {
+    await invoke("CancelScheduledTask", button.dataset.schedCancel);
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  }
+});
+
+// initModalResize 通用弹窗拉伸：右下角手柄 pointer 拖动调整宽高
+// （覆盖工作表格/定时任务表格等 data-resizable 弹窗，仅尺寸调整）。
+function initModalResize() {
+  document.querySelectorAll(".modal-card[data-resizable]").forEach(card => {
+    const handle = card.querySelector(".modal-resize-handle");
+    if (!handle || handle.dataset.resizableBound) return;
+    handle.dataset.resizableBound = "1";
+    let tracking = false;
+    let startX = 0;
+    let startY = 0;
+    let startW = 0;
+    let startH = 0;
+    handle.addEventListener("pointerdown", event => {
+      event.preventDefault();
+      tracking = true;
+      const rect = card.getBoundingClientRect();
+      startX = event.clientX;
+      startY = event.clientY;
+      startW = rect.width;
+      startH = rect.height;
+      handle.setPointerCapture?.(event.pointerId);
+    });
+    handle.addEventListener("pointermove", event => {
+      if (!tracking) return;
+      const width = Math.max(360, startW + (event.clientX - startX));
+      const height = Math.max(240, startH + (event.clientY - startY));
+      card.style.width = `${Math.min(width, window.innerWidth - 40)}px`;
+      card.style.height = `${Math.min(height, window.innerHeight - 40)}px`;
+    });
+    const stop = () => { tracking = false; };
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  });
+}
+initModalResize();
 
 // openNodeDetail 渲染并打开节点详情弹窗（子代理详情页）：
 // 会话记录（invoke SubagentSessionDetail，运行中 2s 轮询）+ 事件时间线 +
@@ -889,7 +987,24 @@ async function loadOlderHistory() {
 
 elements["load-history"].addEventListener("click", loadOlderHistory);
 
-elements["new-session"].addEventListener("click", async () => {
+elements["new-session"].addEventListener("click", openNewSessionModal);
+
+// ── 新建会话弹窗（两步：任务会话 / 工作区会话）──────────────────────────
+function openNewSessionModal() {
+  showNewSessionStep(1);
+  setModal("new-session-modal", true);
+}
+
+function closeNewSessionModal() {
+  setModal("new-session-modal", false);
+}
+
+function showNewSessionStep(step) {
+  elements["new-session-step-1"].classList.toggle("hidden", step !== 1);
+  elements["new-session-step-2"].classList.toggle("hidden", step !== 2);
+}
+
+async function beginNewSession() {
   const previous = client.current();
   const previousSessions = Array.isArray(previous?.sessions) ? previous.sessions : null;
   try {
@@ -909,6 +1024,82 @@ elements["new-session"].addEventListener("click", async () => {
     }
   }
   catch (error) { showToast(error); }
+}
+
+async function bindWorkspaceAndStart(workspaceID) {
+  try {
+    closeNewSessionModal();
+    await invoke("BindWorkspace", workspaceID);
+    await beginNewSession();
+  } catch (error) { showToast(error); }
+}
+
+function normalizePath(value) {
+  return String(value || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function renderNewSessionWorkspaces() {
+  const snapshot = client.current() || {};
+  const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : [];
+  const current = snapshot.current_workspace || null;
+  const rows = workspaces.map(workspace => `
+    <button type="button" class="stack-button new-session-ws${current && current.id === workspace.id ? " active" : ""}" data-new-session-ws="${escapeHtml(workspace.id)}">
+      <span class="entry-name">${icon("folder", 13)} ${escapeHtml(workspace.name)}</span>
+      <small>${escapeHtml(workspace.root_path || "")}</small>
+    </button>`).join("");
+  const unbind = current
+    ? `<button type="button" class="text-button new-session-unbind" data-new-session-unbind="1">解除当前绑定：${escapeHtml(current.name)}</button>`
+    : "";
+  elements["new-session-workspace-list"].innerHTML =
+    (rows || '<span class="muted list-empty">暂无工作区</span>') + unbind;
+}
+
+elements["new-session-task"].addEventListener("click", async () => {
+  closeNewSessionModal();
+  await beginNewSession();
+});
+
+elements["new-session-workspace"].addEventListener("click", () => {
+  showNewSessionStep(2);
+  renderNewSessionWorkspaces();
+});
+
+elements["new-session-back"].addEventListener("click", () => showNewSessionStep(1));
+
+elements["new-session-close"].addEventListener("click", closeNewSessionModal);
+
+elements["new-session-workspace-list"].addEventListener("click", async event => {
+  const workspaceButton = event.target.closest?.("[data-new-session-ws]");
+  if (workspaceButton) {
+    await bindWorkspaceAndStart(workspaceButton.dataset.newSessionWs);
+    return;
+  }
+  if (event.target.closest?.("[data-new-session-unbind]")) {
+    if (!confirm("确认解除当前项目绑定？")) return;
+    try {
+      await invoke("UnbindWorkspace");
+      await refresh({ scroll: false });
+      renderNewSessionWorkspaces();
+    } catch (error) { showToast(error); }
+  }
+});
+
+elements["new-session-pick-folder"].addEventListener("click", async () => {
+  try {
+    const dir = await invoke("PickDirectory");
+    if (!dir) return;
+    const name = dir.split(/[\\/]/).pop() || "workspace";
+    await invoke("CreateWorkspace", name, dir, "");
+    await refresh({ scroll: false });
+    const latest = client.current() || {};
+    const workspaces = Array.isArray(latest.workspaces) ? latest.workspaces : [];
+    const created = workspaces.find(workspace => normalizePath(workspace.root_path) === normalizePath(dir));
+    if (!created?.id) {
+      showToast("创建工作区失败：未找到新工作区");
+      return;
+    }
+    await bindWorkspaceAndStart(created.id);
+  } catch (error) { showToast(error); }
 });
 
 elements["runtime-button"].addEventListener("click", openRuntime);
@@ -1100,7 +1291,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });
@@ -1134,59 +1325,15 @@ document.addEventListener("keydown", event => {
     closeScheduledTaskDialog();
     closeNodeDetail();
     closeWorkTable();
+    closeNewSessionModal();
   }
 });
-
-function renderWorkspace(snapshot) {
-  const ws = snapshot.current_workspace;
-  const list = snapshot.workspaces || [];
-  if (ws) {
-    const gitOk = Boolean(ws.git_remote);
-    elements["workspace-info"].innerHTML =
-      '<div class="ws-current"><strong>' + escapeHtml(ws.name) + '</strong>' +
-      '<small>' + escapeHtml(ws.root_path || "") + '</small>' +
-      (gitOk ? '<a class="ws-git" href="' + escapeHtml(ws.git_remote) + '" target="_blank">' + escapeHtml(ws.git_remote) + '</a>' : '<span class="ws-warn">未关联仓库</span>') +
-      '<button id="unbind-workspace" class="text-button" type="button">解除项目绑定</button>' +
-      '</div>';
-    elements["workspace-info"].querySelector("#unbind-workspace").addEventListener("click", async function() {
-      if (!confirm("确认解除当前项目绑定？")) return;
-      try { await invoke("UnbindWorkspace"); await refresh({ scroll: false }); }
-      catch (error) { showToast(error); }
-    });
-  } else {
-    elements["workspace-info"].innerHTML = '<span class="muted">未绑定工作区 — 文件读写受限</span>';
-  }
-  elements["workspace-list"].innerHTML = list.length
-    ? list.map(function(w) {
-      return '<button class="stack-button' + (ws && ws.id === w.id ? ' active' : '') + '" data-ws="' + escapeHtml(w.id) + '">' +
-        '<span class="entry-name">' + icon("folder", 13) + ' ' + escapeHtml(w.name) + '</span>' +
-        '<small>' + escapeHtml(w.root_path || "") + '</small></button>';
-    }).join("")
-    : '<span class="muted list-empty">暂无工作区 — 点击 + 新建</span>';
-  elements["workspace-list"].querySelectorAll("button").forEach(function(btn) {
-    btn.addEventListener("click", async function() {
-      try { await invoke("BindWorkspace", btn.dataset.ws); await refresh({ scroll: false }); }
-      catch (error) { showToast(error); }
-    });
-  });
-}
 
 // FA toggle
 elements["perm-toggle"].addEventListener("click", async function() {
   const next = !Boolean(client.current()?.runtime?.full_access);
   try { await invoke("SetFullAccess", next); await refresh({ scroll: false }); }
   catch (error) { showToast(error); }
-});
-
-// New workspace
-elements["new-workspace"].addEventListener("click", async function() {
-  try {
-    var dir = await invoke("PickDirectory");
-    if (!dir) return;
-    var name = dir.split(/[\\/]/).pop() || "workspace";
-    await invoke("CreateWorkspace", name, dir, "");
-    await refresh({ scroll: false });
-  } catch (error) { showToast(error); }
 });
 
 // ── 左右栏宽度拖拽 ─────────────────────────────────────────

@@ -6,9 +6,12 @@
 主动 task 条目（task_add）与 fork 子代理四种异构执行状态归一为同一张多维
 表格（阶段/任务/描述/状态/Assignee/Dependency/附件），并按**批次分片**：
 一批 = 一次 chat 请求创建的全部条目（BatchID = requestID，如
-`chat-<nano>`），批次头可折叠、展示标签/时间/各类计数，批内按权威类型
-（kind：plan/task/todo/subagent）chips 过滤。任务打点（trace）带进同一
-数据面。右栏为「入口按钮 + 未读角标」，点开按钮弹出完整多维表格弹窗
+`chat-<nano>`）。展示层为 Excel 化多维表格：`<table class="excel-grid">`
+固定表头（类型/任务/描述/状态/Assignee/依赖/附件/打点/操作），**批次维度
+通过底部 sheet 页签切换**（类 Excel 切换工作表；「全部」页签居首，页签
+展示标签与各类计数），表内按权威类型（kind：plan/task/todo/subagent）
+chips 过滤。任务打点（trace）带进同一数据面。右栏为「入口按钮 + 未读
+角标」，点开按钮弹出完整多维表格弹窗
 （工作台窄，详情在弹窗内看全）；未读 = 新增或状态/retry 变化的条目
 （`workTableSignatures`/`countUnread`，纯 UI 态，打开详情后清零）。节点
 详情弹窗（会话记录/上下文/打点/时间线/工具活动）保留并复用。
@@ -26,9 +29,10 @@
 - 后端以 `worktable.changed` 轻量增量发布表格与批次头（只含表格与批次，
   不整份 runtime）。
 - 前端 `gui/frontend/dist/work-table.js` 渲染表格、筛选、展开与行内交互；
-  按批次分组渲染（批次头可折叠 + 各类计数）、按 kind chips 过滤；todo 行
-  三态更新经 `Bridge.UpdateWorkItemStatus` 回写后端权威状态；行区独立滚轮
-  滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）。
+  以 `<table class="excel-grid">` 渲染（固定表头、行 keyed reconciliation、
+  表头吸顶），批次维度通过底部 sheet 页签切换（`activeBatch` 纯 UI 态），
+  按 kind chips 过滤；todo 行三态更新经 `Bridge.UpdateWorkItemStatus` 回写
+  后端权威状态；行区独立滚轮滚动 + 分页查看（每页 10/20/50，页码钳制）。
 
 非职责：
 
@@ -56,11 +60,12 @@
 4. 前端 reducer（`protocol.js`）：`task.changed` 按 task_id 单行 upsert
    （结构共享）；`worktable.changed` 整表替换并附加 `batches`（缺失时保留
    既有批次头）；不克隆 plan。
-5. `work-table.js` keyed reconcile：批次头按 batch_id 做 section 级
-   reconciliation，行在批次容器内 keyed 重建；行详情复用
-   `SubagentSessionDetail`（上下文/会话/工具活动）。分页与滚动是纯 UI 态：
-   筛选/每页条数变化时页码重置，数据收缩时页码钳制，行数据永远来自后端
-   权威 JSON。
+5. `work-table.js` keyed reconcile：批次维度通过底部 sheet 页签切换
+   （`activeBatch` 是纯 UI 态；批次失效自动回退「全部」），行在 tbody 内
+   按 `data-work-row` keyed 重建，trace 展开行（`data-work-trace`）紧随
+   主行并随主行内容变化重建；行详情复用 `SubagentSessionDetail`（上下文/
+   会话/工具活动）。分页与滚动是纯 UI 态：筛选/批次/每页条数变化时页码
+   重置，数据收缩时页码钳制，行数据永远来自后端权威 JSON。
 
 ### 类型轴（Kind 权威）与工具命名
 
@@ -147,8 +152,8 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
 | 三态/清单资源并发安全 | Actor + Mailbox（`seelebridge/todo_tool.go`，单消费者串行，请求-应答走 channel） |
 | 高并发事件流转 | CSP 汇聚发布器（channel cap=1，drain latest-wins，生产者阻塞背压） |
 | 多源归一 | 读模型投影（纯函数，锁内构建，无 I/O） |
-| 多维分片 | 批次 = chat 请求；`buildWorkTableBatches` 派生批次头（最早 CreatedAt 为批次时间），前端 section 级 keyed reconciliation |
-| 前端增量 | keyed reconciliation + html 缓存（只重建变化行）+ 结构共享 reducer |
+| 多维分片 | 批次 = chat 请求；`buildWorkTableBatches` 派生批次头（最早 CreatedAt 为批次时间），前端 sheet 页签维度切换（类 Excel 工作表） |
+| 前端增量 | keyed reconciliation（tbody 行级 + trace 展开行）+ html 缓存（只重建变化行）+ 结构共享 reducer |
 
 ## 扩展方式
 

@@ -32,6 +32,28 @@
 
 所以现有列表可以“换会话”，不能“多开并行”。迁移不能只增加页签 DOM，必须先隔离每个会话的 Engine 和业务状态。
 
+### 2.1 M1 落地（2026-08-23，会话保护粒度收窄）
+
+已完成（代码事实，见 `application/core/session_scope.go`、
+`internal/adapters/engine_port.go`、`application/event/hub.go`、
+`gui/bridge.go`）：
+
+- 聊天保护从全局单例收窄为**会话级**：每会话独立 `ChatState`/cancel/
+  inputQueue（`sessionChat` 注册表），`ErrChatRunning` 只对同会话二次
+  提交生效；跨会话提交在运行中返回 `ErrSessionBusy`（单飞执行边界）。
+- `EnginePort` 会话级引擎多实例：`engines map[sessionID]ReactorEngine` +
+  每会话调用计数，`ResumeSession`/`ActivateSession` 切换不销毁其它会话
+  引擎。
+- 显式 session API：`Service.SubmitToSession/ActivateSession/SnapshotOf/
+  SubscribeSession`；`Bridge` 经可选接口透传（旧方法继续委托活跃会话）。
+- Event 携带 `session_id` 路由键（`EventHub.PublishSession` +
+  `SubscribeSession` 会话过滤）。
+
+尚未实现（规划）：真并行执行、每会话驻留 Snapshot/组件栈
+（`task_context`/`prompt_layer`/`view_state`/`session_runtime` 仍共享单
+kernel）、Effort/Plugin/Skill/Plan/Interaction 会话级隔离、页签 UI。
+这些是 §3 方案 B 的 M2/M3，走 §20 实施步骤 2–5。
+
 ## 3. 方案对比
 
 | 维度 | A：单 Service 切换 History | B：进程内 SessionActor + Coordinator | C：每会话子进程 |
@@ -381,7 +403,7 @@ Interaction ID 采用 `session_id + interaction_id` 复合身份，所有 resolv
 
 ## 20. 实施与回滚
 
-1. 先引入 explicit session ID API 和 per-scope Event，保持 scheduler concurrency=1；
+1. 先引入 explicit session ID API 和 per-scope Event，保持 scheduler concurrency=1；✅ M1 已完成（2026-08-23）
 2. 把现有单 Service 状态迁入 SessionActor，验证单页行为无回归；
 3. 引入页签 store/UI，但仍只允许一个 running；
 4. EngineFactory、Approval 和 Workspace precondition 完成后开启多个 running；
@@ -393,10 +415,10 @@ Feature flag `capabilities.multi_session_pages` 可关闭页签并把 max open/r
 
 | PRD | 设计落点 |
 |-----|----------|
-| MS-001 | persisted/open/active/running 四态语义 |
-| MS-002 | SessionActor + 独立 Engine/runtime |
+| MS-001 | persisted/open/active/running 四态语义（M1：会话级保护与显式 API 已落地，真并行未实现） |
+| MS-002 | SessionActor + 独立 Engine/runtime（M1：EnginePort 会话级多实例已落地，组件栈隔离未实现） |
 | MS-003 | WorkbenchCoordinator + page APIs |
-| MS-004 | scoped Event 与局部 resync |
+| MS-004 | scoped Event 与局部 resync（M1：Event 携带 session_id + 会话过滤订阅已落地） |
 | MS-005 | tablist、后台 badge、viewState 恢复 |
 | MS-006 | session-scoped approval routing |
 | MS-007 | scheduler、fairness 与硬 limits |

@@ -19,12 +19,18 @@ import (
 var _ contract.RuntimePort = RuntimePort{}
 
 type EnginePort struct {
-	engine         ReactorEngine
-	newEngine      ReactorEngineFactory
-	tracer         *telemetry.MemoryTracer // trace 视图查询源（slice 8：telemetry）
-	mu             sync.RWMutex
-	sessionID      string
-	activeCalls    int
+	engine    ReactorEngine
+	newEngine ReactorEngineFactory
+	tracer    *telemetry.MemoryTracer // trace 视图查询源（slice 8：telemetry）
+	mu        sync.RWMutex
+	sessionID string
+	// engines 是会话级引擎注册表（sessionID → ReactorEngine）。活跃会话
+	// 的引擎与 engine/sessionID 字段保持一致；M1 起切换会话不再销毁其它
+	// 会话引擎，恢复时按需创建。
+	engines map[string]ReactorEngine
+	// engineCalls 是每会话进行中 ChatStream 计数（会话级锁语义：历史替换
+	// 只在该会话无活跃调用时才安装干净引擎）。
+	engineCalls    map[string]int
 	pendingHistory []types.Message
 	pendingSession string
 	prepareHistory func(string, []types.Message)
@@ -105,11 +111,19 @@ type ReactorEngine interface {
 type ReactorEngineFactory func(sessionID string) ReactorEngine
 
 func NewEnginePort(eng ReactorEngine, newEngine ReactorEngineFactory, tracer *telemetry.MemoryTracer) *EnginePort {
-	port := &EnginePort{engine: eng, newEngine: newEngine, tracer: tracer}
+	port := &EnginePort{
+		engine:      eng,
+		newEngine:   newEngine,
+		tracer:      tracer,
+		engines:     make(map[string]ReactorEngine),
+		engineCalls: make(map[string]int),
+	}
 	if eng == nil {
 		return port
 	}
 	port.sessionID = eng.SessionID()
+	port.engines[port.sessionID] = eng
+	port.engineCalls[port.sessionID] = 0
 	if _, ok := eng.(*frameworkSession.Session); ok {
 		port.sessionBacked = true
 	}
@@ -124,20 +138,20 @@ func (port *EnginePort) SessionBacked() bool { return port.sessionBacked }
 func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	port.mu.Lock()
 	current := port.engine
-	port.activeCalls++
+	port.engineCalls[port.sessionID]++
 	port.mu.Unlock()
 	if current == nil {
 		port.mu.Lock()
-		port.activeCalls--
+		port.engineCalls[port.sessionID]--
 		port.mu.Unlock()
 		return "", fmt.Errorf("engine is unavailable")
 	}
 	result, err := current.ChatStream(ctx, input, onChunk)
 
 	port.mu.Lock()
-	port.activeCalls--
-	if port.activeCalls == 0 && len(port.pendingHistory) > 0 {
-		port.installFreshHistoryLocked(port.pendingHistory, port.pendingSession)
+	port.engineCalls[port.sessionID]--
+	if port.engineCalls[port.sessionID] == 0 && len(port.pendingHistory) > 0 {
+		port.installSessionEngineLocked(port.pendingSession, port.pendingHistory)
 		port.pendingHistory = nil
 		port.pendingSession = ""
 	}
@@ -231,7 +245,7 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Mess
 	if port.engine == nil && port.newEngine == nil {
 		return fmt.Errorf("engine is unavailable")
 	}
-	if port.activeCalls > 0 {
+	if port.engineCalls[port.sessionID] > 0 {
 		// A running ReActLoop owns its in-memory slice. Keep it valid for the
 		// current turn, then install a genuinely clean reactor before the next
 		// request. ClearHistory deliberately retains system messages upstream,
@@ -241,7 +255,7 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Mess
 		port.pendingHistory = append([]types.Message(nil), desired...)
 		port.pendingSession = sessionID
 	} else {
-		port.installFreshHistoryLocked(desired, sessionID)
+		port.installSessionEngineLocked(sessionID, desired)
 	}
 	port.sessionID = sessionID
 	return nil
@@ -265,7 +279,10 @@ func (port *EnginePort) replaceActiveHistoryLocked(history []types.Message) {
 	}
 }
 
-func (port *EnginePort) installFreshHistoryLocked(history []types.Message, sessionID string) {
+// installSessionEngineLocked 为目标会话安装权威历史：优先创建全新引擎并
+// 注册到会话注册表（ReplaceHistory 语义 = 干净 reactor）；工厂不可用时
+// 回退为就地替换当前引擎。调用方必须持有 port.mu。
+func (port *EnginePort) installSessionEngineLocked(sessionID string, history []types.Message) {
 	if port.newEngine == nil {
 		port.replaceActiveHistoryLocked(history)
 		if port.prepareHistory != nil {
@@ -284,6 +301,8 @@ func (port *EnginePort) installFreshHistoryLocked(history []types.Message, sessi
 	for _, message := range history {
 		fresh.AppendHistory(message)
 	}
+	port.engines[sessionID] = fresh
+	port.engineCalls[sessionID] = 0
 	port.engine = fresh
 	_, port.sessionBacked = fresh.(*frameworkSession.Session)
 	if port.systemPrompt != "" {
@@ -321,6 +340,8 @@ func (port *EnginePort) StartSession() string {
 	if fresh == nil {
 		return ""
 	}
+	port.engines[fresh.SessionID()] = fresh
+	port.engineCalls[fresh.SessionID()] = 0
 	port.engine = fresh
 	port.sessionID = fresh.SessionID()
 	_, port.sessionBacked = fresh.(*frameworkSession.Session)
@@ -331,6 +352,99 @@ func (port *EnginePort) StartSession() string {
 		fresh.SetMaxLoops(port.maxLoops)
 	}
 	return port.sessionID
+}
+
+// ActivateSession 把活跃引擎切换到目标会话（首次激活按需经工厂创建并
+// 注册）。只切换活跃别名，不销毁其它会话引擎。会话 ID 为空返回错误。
+func (port *EnginePort) ActivateSession(sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("engine: session ID is required")
+	}
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	engine, ok := port.engines[sessionID]
+	if !ok || engine == nil {
+		if port.newEngine == nil {
+			return fmt.Errorf("engine: session %q is not materialized and no factory is configured", sessionID)
+		}
+		engine = port.newEngine(sessionID)
+		if engine == nil {
+			return fmt.Errorf("engine: factory returned nil for session %q", sessionID)
+		}
+		port.engines[sessionID] = engine
+		port.engineCalls[sessionID] = 0
+		if port.systemPrompt != "" {
+			engine.SetSystemPrompt(port.systemPrompt)
+		}
+		if port.maxLoops > 0 {
+			engine.SetMaxLoops(port.maxLoops)
+		}
+	}
+	port.engine = engine
+	port.sessionID = sessionID
+	_, port.sessionBacked = engine.(*frameworkSession.Session)
+	return nil
+}
+
+// ResumeSession 为目标会话恢复引擎历史并切换为活跃引擎：会话已有引擎时
+// 就地重置安装（保留会话级引擎实例），否则经工厂创建后注册。
+func (port *EnginePort) ResumeSession(sessionID string, history []contract.EngineMessage) error {
+	return port.ResumeRawSession(sessionID, restoreMessages(history))
+}
+
+// ResumeRawSession 是 ResumeSession 的原始消息版本（框架消息类型）。
+func (port *EnginePort) ResumeRawSession(sessionID string, history []types.Message) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("engine: session ID is required")
+	}
+	desired := canonicalEngineHistory(history)
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	if port.newEngine == nil && port.engine == nil {
+		return fmt.Errorf("engine is unavailable")
+	}
+	if port.engineCalls[port.sessionID] > 0 {
+		// 恢复只允许在空闲态发生（application 层保证）；防御性回退为延迟安装。
+		port.pendingHistory = append([]types.Message(nil), desired...)
+		port.pendingSession = sessionID
+		return nil
+	}
+	engine, ok := port.engines[sessionID]
+	if !ok || engine == nil {
+		if port.newEngine == nil {
+			port.replaceActiveHistoryLocked(desired)
+			if port.prepareHistory != nil {
+				port.prepareHistory(sessionID, desired)
+			}
+			port.sessionID = sessionID
+			return nil
+		}
+		engine = port.newEngine(sessionID)
+		if engine == nil {
+			return fmt.Errorf("engine: factory returned nil for session %q", sessionID)
+		}
+		port.engines[sessionID] = engine
+		port.engineCalls[sessionID] = 0
+	}
+	engine.ClearHistory()
+	for _, message := range desired {
+		engine.AppendHistory(message)
+	}
+	port.engine = engine
+	port.sessionID = sessionID
+	_, port.sessionBacked = engine.(*frameworkSession.Session)
+	if port.systemPrompt != "" {
+		engine.SetSystemPrompt(port.systemPrompt)
+	}
+	if port.maxLoops > 0 {
+		engine.SetMaxLoops(port.maxLoops)
+	}
+	if port.prepareHistory != nil {
+		port.prepareHistory(sessionID, desired)
+	}
+	return nil
 }
 
 // EnableWorkingHistoryRelease marks this adapter as backed by DurableHistory.
@@ -345,7 +459,7 @@ func (port *EnginePort) EnableWorkingHistoryRelease() {
 func (port *EnginePort) ReleaseWorkingHistory() {
 	port.mu.Lock()
 	defer port.mu.Unlock()
-	if !port.releaseWorking || port.engine == nil || port.activeCalls > 0 {
+	if !port.releaseWorking || port.engine == nil || port.engineCalls[port.sessionID] > 0 {
 		return
 	}
 	port.engine.ClearHistory()

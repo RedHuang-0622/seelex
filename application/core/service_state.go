@@ -22,6 +22,10 @@ type serviceState struct {
 	lifecycleRuntimeState
 	workTableRuntimeState
 	promptRuntimeState
+
+	// sessionChat 是会话级聊天运行态注册表（Core.Mu 保护）。M1 起聊天
+	// 保护从全局单例收窄为会话级：同会话串行 + 每会话独立队列/取消。
+	sessionChat map[string]*sessionChatRuntime
 }
 
 type conversationRuntimeState struct {

@@ -9,7 +9,7 @@ const componentsSource = (await readFile(new URL("./components.js", import.meta.
 const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSource).toString("base64")}`;
 const source = (await readFile(new URL("./scheduled-tasks-view.js", import.meta.url), "utf8"))
   .replace('"./components.js"', `"${componentsURL}"`);
-const { renderScheduledTasks } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { renderScheduledTasks, renderScheduledTasksTable } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 const task = (overrides = {}) => ({
   id: "sched_1",
@@ -126,4 +126,29 @@ test("renders disabled task with off chip and pending status", () => {
   assert.match(html, /sched-chip-off/);
   assert.match(html, /已停用/);
   assert.match(html, /待运行/);
+});
+
+test("renders scheduled tasks as Excel table with columns and cancel buttons", () => {
+  const html = renderScheduledTasksTable([task()], [{ key: "auto_get_jobs", label: "BOSS直聘自动投简历" }]);
+  assert.match(html, /excel-grid scheduled-table/);
+  assert.match(html, />名称</);
+  assert.match(html, />类型</);
+  assert.match(html, />周期</);
+  assert.match(html, />下次运行</);
+  assert.match(html, />状态</);
+  assert.match(html, />操作</);
+  assert.match(html, /抓职位/);
+  assert.match(html, /每 1 小时/);
+  assert.match(html, /BOSS直聘自动投简历/);
+  assert.match(html, /data-sched-cancel="sched_1"/);
+  assert.match(html, /已启用/);
+  assert.match(html, /上次成功/);
+  assert.match(html, /data-sched-id="sched_1"/);
+});
+
+test("renders empty scheduled table state for empty or non-array input", () => {
+  assert.match(renderScheduledTasksTable([], []), /暂无定时任务/);
+  assert.match(renderScheduledTasksTable(null, null), /暂无定时任务/);
+  assert.match(renderScheduledTasksTable(undefined, undefined), /暂无定时任务/);
+  assert.match(renderScheduledTasksTable("nope", []), /暂无定时任务/);
 });

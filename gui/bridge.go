@@ -61,6 +61,15 @@ type Application interface {
 	WorkspaceFileCount() (dto.TreeCount, error)
 }
 
+// sessionAwareApplication 是 Application 的可选会话级扩展（M1 显式
+// sessionID API；旧方法继续委托活跃会话，桌面宿主可按能力渐进接入）。
+type sessionAwareApplication interface {
+	SubmitToSession(context.Context, string, string) error
+	ActivateSession(string) error
+	SnapshotOf(string) (application.Snapshot, error)
+	SubscribeSession(string, int) (application.Subscription, error)
+}
+
 // EventEmitter receives Application events after the Bridge has adapted them
 // to the stable desktop event names. Desktop hosts pass the function that
 // forwards events into their renderer runtime.
@@ -319,6 +328,44 @@ func (bridge *Bridge) CancelChat(requestID string) bool {
 		return bridge.app.CancelChat("")
 	}
 	return false
+}
+
+// SubmitToSession 向指定会话提交输入（会话级保护 API；应用不支持时返回
+// 明确错误，不影响既有 Submit 路径）。
+func (bridge *Bridge) SubmitToSession(sessionID, text string) error {
+	app, ok := bridge.app.(sessionAwareApplication)
+	if !ok {
+		return errors.New("session-scoped API is not supported by the application")
+	}
+	return app.SubmitToSession(bridge.requestContext(), sessionID, text)
+}
+
+// ActivateSession 切换指定会话为当前会话（M1：切换即恢复，运行中拒绝）。
+func (bridge *Bridge) ActivateSession(sessionID string) error {
+	app, ok := bridge.app.(sessionAwareApplication)
+	if !ok {
+		return errors.New("session-scoped API is not supported by the application")
+	}
+	return app.ActivateSession(sessionID)
+}
+
+// SnapshotOf 返回指定会话的权威快照（M1：仅活跃会话有驻留快照）。
+func (bridge *Bridge) SnapshotOf(sessionID string) (application.Snapshot, error) {
+	app, ok := bridge.app.(sessionAwareApplication)
+	if !ok {
+		return application.Snapshot{}, errors.New("session-scoped API is not supported by the application")
+	}
+	return app.SnapshotOf(sessionID)
+}
+
+// SubscribeSession 返回按会话过滤的事件订阅（M1：chat 生命周期事件携带
+// session_id 路由键）。
+func (bridge *Bridge) SubscribeSession(sessionID string, buffer int) (application.Subscription, error) {
+	app, ok := bridge.app.(sessionAwareApplication)
+	if !ok {
+		return application.Subscription{}, errors.New("session-scoped API is not supported by the application")
+	}
+	return app.SubscribeSession(sessionID, buffer)
 }
 
 func (bridge *Bridge) ResolveInteraction(id, optionID string) error {

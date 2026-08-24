@@ -16,6 +16,12 @@ import (
 var (
 	ErrChatRunning         = errors.New("chat is already running")
 	ErrApplicationDraining = errors.New("application is finishing active work")
+	// ErrSessionBusy 是跨会话提交/切换的单飞执行边界（M1：共享组件栈要求
+	// 同一时刻只有一个会话在执行；真并行 = M2 会话级组件隔离）。
+	ErrSessionBusy = errors.New("another session is running")
+	// ErrSessionSnapshotUnavailable 表示目标会话无驻留快照（M1 只有活跃
+	// 会话持有快照，其它会话需先 ActivateSession）。
+	ErrSessionSnapshotUnavailable = errors.New("session snapshot is unavailable until activated")
 	// ErrEmptySearchQuery 是历史检索空查询拒绝（检索必须有关键词）。
 	ErrEmptySearchQuery = errors.New("search_history: query is required")
 )
