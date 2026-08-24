@@ -95,6 +95,9 @@ func (port RuntimePort) CancelScheduledTask(id string) error {
 func (port RuntimePort) ClearSubagentTree() error {
 	return port.Runtime.ClearSubagentTree()
 }
+func (port RuntimePort) RestoreSubagentAnchors(sessionID string) error {
+	return port.Runtime.RestoreSubagentAnchors(sessionID)
+}
 func (port RuntimePort) SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error) {
 	return port.Runtime.SearchHistory(ctx, query, limit)
 }

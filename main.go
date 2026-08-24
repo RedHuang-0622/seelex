@@ -150,6 +150,10 @@ func run() error {
 	defer store.Close()
 	console.LogStageIf(backendTrace, "startup.store.ready")
 	runtime.AttachHistoryRouter(store)
+	// 子代理会话记录持久化（运行期落盘 + 结束时结论归主会话 + 记录删除）
+	// 与 plan checkpoint 持久化（RunPlan 落最终快照，ResumePlan 续跑）。
+	runtime.AttachSubSessionStore(sessionstore.NewNodeSessionStore(store))
+	runtime.SetPlanCheckpointStore(sessionstore.NewCheckpointStore(store, store.Workspace()))
 	events := application.NewEventHub()
 	approval := application.NewApprovalBroker(events)
 	// 双轨事件（slice 8）：执行事实 → sessionstore 事件库（事实轨），

@@ -9,6 +9,7 @@ import (
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
+	workplancheckpoint "github.com/RedHuang-0622/Seele/workplan/runtime/checkpoint"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -19,6 +20,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // PlanNodeEventChannel 返回 plan 节点事件 channel（CSP：application 消费者
@@ -53,11 +55,36 @@ func (r *Runtime) SetEventErrorHandler(handler frameworkevent.ErrorHandler) {
 func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Event) error) {
 	// 短期事件桥：持久化前为主会话事件补 session_id 关联（见 events.go）。
 	fn = correlateMainSessionID(r.bindings.sessionID, fn)
+	r.eventPersisterMu.Lock()
+	r.eventPersister = fn
+	r.eventPersisterMu.Unlock()
 	r.planExecutor.SetEventPersister(fn)
 	// 统一事件库：B 类摘要与 A 类事实同一 sessionstore 事件库（同库不双写）。
 	if r.summaryLog != nil {
 		r.summaryLog.SetPersister(fn)
 	}
+}
+
+// SetPlanCheckpointStore 装配 workplan checkpoint 持久化（sessionstore 实现；
+// plan_run 结束后落最终快照，ResumePlan 从快照续跑）。
+func (r *Runtime) SetPlanCheckpointStore(store workplancheckpoint.Store) {
+	if r == nil || r.planExecutor == nil {
+		return
+	}
+	r.planExecutor.SetCheckpointStore(store)
+}
+
+// ResumePlan 从 checkpoint（snapshotID = 节点 ID）续跑当前加载的 Plan DAG。
+// 事件轨 run/node 关联与 RunPlan 同一契约（同 runID/sink/NodeHook）。
+func (r *Runtime) ResumePlan(ctx context.Context, snapshotID string, withNodeOutputs bool) (string, error) {
+	if r == nil || r.planExecutor == nil {
+		return "", fmt.Errorf("resume plan: plan executor is unavailable")
+	}
+	loaded, ok := r.planExecutor.LoadedPlan()
+	if !ok || loaded == nil {
+		return "", fmt.Errorf("resume plan: no plan is loaded")
+	}
+	return r.planExecutor.ResumePlan(ctx, loaded, snapshotID, withNodeOutputs)
 }
 
 // SetPlanApprovalGate 设置 plan kind:approve/manual 节点的审批门控；
@@ -108,7 +135,13 @@ func (r *Runtime) beginNodeWorktree(scope seenode.NodeScope, nodeID string) *wor
 	if r == nil || r.worktreeMgr == nil {
 		return nil
 	}
-	return r.worktreeMgr.Begin(scope, nodeID)
+	wt := r.worktreeMgr.Begin(scope, nodeID)
+	if wt != nil && r.subagentSessions != nil {
+		r.subagentSessions.NoteWorktree(nodeID, sessionstore.NodeWorktreeRecord{
+			Path: wt.Path, Branch: wt.Branch, BaseCommit: wt.BaseCommit, MainBranch: wt.MainBranch,
+		})
+	}
+	return wt
 }
 
 // branchTraceID 返回分支追踪 ID（planID:branchID 或 traceID:branchID）。

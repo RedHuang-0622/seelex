@@ -150,8 +150,9 @@ func (harnessRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus
 func (harnessRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	return nil, fmt.Errorf("harness: scheduled tasks are not supported in e2e scenarios")
 }
-func (harnessRuntime) CancelScheduledTask(string) error { return nil }
-func (harnessRuntime) ClearSubagentTree() error         { return nil }
+func (harnessRuntime) CancelScheduledTask(string) error    { return nil }
+func (harnessRuntime) ClearSubagentTree() error            { return nil }
+func (harnessRuntime) RestoreSubagentAnchors(string) error { return nil }
 
 func (harnessRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
 	return seelexctxsearch.Result{}, nil

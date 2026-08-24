@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	coreplan "github.com/RedHuang-0622/Seele/workplan/core/plan"
 	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	workplanrunner "github.com/RedHuang-0622/Seele/workplan/runtime/runner"
 )
 
 const planLoadContractDescription = `
@@ -347,39 +348,64 @@ func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, e
 // 只保留节点元数据、不内嵌完整节点输出——最终内容由 final_output（按子代理
 // 数 ×n 放大的汇总窗口）承载，避免结果超限被归档后模型看不到内容而重跑。
 func (executor *Executor) RunPlan(ctx context.Context, loaded *LoadedPlanDoc, withNodeOutputs bool) (string, error) {
-	runID := newPlanRunID()
-	executor.runMu.Lock()
-	executor.currentRunID = runID
-	executor.runMu.Unlock()
-	defer func() {
-		executor.runMu.Lock()
-		if executor.currentRunID == runID {
-			executor.currentRunID = ""
-		}
-		executor.runMu.Unlock()
-	}()
+	runID := executor.beginRun()
+	defer executor.endRun(runID)
 	binding := executor.Binding()
 	planID := binding.PlanID
 	if planID == "" {
 		planID = loaded.Entry
 	}
 	sink := executor.events
-	wp := workplan.NewFromPlan(loaded.Plan, executor.CurrentAgentFactory(),
-		workplan.WithEventSink(sink, planID),
-		workplan.WithEventRunID(runID),
-		workplan.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: executor.deps.Heartbeat}),
-		workplan.WithEventErrorHandler(executor.CurrentEventError()),
-		workplan.WithMaxForkConcurrency(loaded.MaxForkConc),
-		workplan.WithEventLocators(
-			agent.EventLocator{AgentID: mainAgentID, SessionID: binding.SessionID, AccountID: binding.AccountID, Model: executor.deps.Model},
+	planRunner := executor.newPlanRunner(loaded, planID, runID, sink)
+	planRunner.SetNodeHook(func(nr *workplanTypes.NodeResult) {
+		sink.AppendNodeResult(ctx, planID, runID, nr)
+	})
+	result, err := planRunner.Run(ctx)
+	executor.persistCheckpoint(loaded.Entry, result, err)
+	return planRunResultJSON(result, err, withNodeOutputs)
+}
+
+// ResumePlan 从 checkpoint（snapshotID = 节点 ID）续跑已加载的 Plan DAG。
+// 与 RunPlan 共用事件 sink/run ID/NodeHook 契约；checkpoint 未装配时
+// 返回 runner 的错误（Resume 需要 WithCheckpoint 才能 Load）。
+func (executor *Executor) ResumePlan(ctx context.Context, loaded *LoadedPlanDoc, snapshotID string, withNodeOutputs bool) (string, error) {
+	runID := executor.beginRun()
+	defer executor.endRun(runID)
+	binding := executor.Binding()
+	planID := binding.PlanID
+	if planID == "" {
+		planID = loaded.Entry
+	}
+	sink := executor.events
+	planRunner := executor.newPlanRunner(loaded, planID, runID, sink)
+	planRunner.SetNodeHook(func(nr *workplanTypes.NodeResult) {
+		sink.AppendNodeResult(ctx, planID, runID, nr)
+	})
+	result, err := planRunner.Resume(ctx, snapshotID)
+	executor.persistCheckpoint(loaded.Entry, result, err)
+	return planRunResultJSON(result, err, withNodeOutputs)
+}
+
+// newPlanRunner 构造 workplan runner：事件配置与 RunPlan 旧路径逐项等价
+// （sink/runID/heartbeat/error/locators/max-fork），checkpoint 装配时追加
+// WithCheckpoint，使 Resume(snapshotID) 可读回快照上下文续跑。
+func (executor *Executor) newPlanRunner(loaded *LoadedPlanDoc, planID, runID string, sink *EventSink) *workplanrunner.Runner {
+	opts := []workplanrunner.Option{
+		workplanrunner.WithEventSink(sink, planID),
+		workplanrunner.WithEventRunID(runID),
+		workplanrunner.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: executor.deps.Heartbeat}),
+		workplanrunner.WithEventErrorHandler(executor.CurrentEventError()),
+		workplanrunner.WithEventLocators(
+			agent.EventLocator{AgentID: mainAgentID, SessionID: executor.Binding().SessionID, AccountID: executor.Binding().AccountID, Model: executor.deps.Model},
 			workplan.EventLocator{PlanID: planID, RunID: runID},
 		),
-	)
-	wp.NodeHook = func(nr *workplanTypes.NodeResult) {
-		sink.AppendNodeResult(ctx, planID, runID, nr)
 	}
-	result, err := wp.Run(ctx)
-	return planRunResultJSON(result, err, withNodeOutputs)
+	if store := executor.CurrentCheckpointStore(); store != nil {
+		opts = append(opts, workplanrunner.WithCheckpoint(store))
+	}
+	planRunner := workplanrunner.New(loaded.Plan, opts...)
+	planRunner.SetMaxForkConcurrency(loaded.MaxForkConc)
+	return planRunner
 }
 
 // newPlanRunID 生成一次 plan_run 的执行标识（事件相关性 run_id）。

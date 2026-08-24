@@ -10,7 +10,10 @@
   `EventSink`/`LoadedPlan`/`MaxForkConcurrency` 读取面）。
 - `preflight.go`：`PlanPreflight`/`ReplanRequest` + 隔离规划/重规划回合。
 - `tool_provider.go`：`ToolProvider`（plan_load/plan_run/plan_clear/status/
-  export/validate）、`LoadedPlanDoc`、`Executor.RunPlan`。
+  export/validate）、`LoadedPlanDoc`、`Executor.RunPlan`/`ResumePlan`/
+  `newPlanRunner`（checkpoint 接线：`SetCheckpointStore` 装配后 plan_run 落
+  最终快照，`ResumePlan(snapshotID)` 经 `runner.WithCheckpoint` + `Resume`
+  从快照节点续跑，事件轨 run/node 关联与 RunPlan 同一契约）。
 - `events.go`：`PlanNodeEvent` 投影 + `EventSink`（事件库 + 订阅 + 持久化钩子）。
 - `replan_guard.go`：`ReplanGuard` 进程级重规划护栏与 `ReplanMetrics`。
 - `input_adapter.go`：`NormalizePlanLoadArguments` 规范化/兼容归一化。

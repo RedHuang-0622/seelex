@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // ─── 子代理 worktree 生命周期管理器（Runtime 装配件拆分 Step 1）───
@@ -167,6 +168,29 @@ func (w *WorktreeManager) Release(nodeID string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	delete(w.worktrees, nodeID)
+}
+
+// Restore 从持久化记录重建 worktree 注册表（重启/恢复锚点）：
+// 崩溃遗留节点的现场信息（path/branch/baseCommit）重新登记，
+// NodeWorktreeInfoFor 恢复可用。
+func (w *WorktreeManager) Restore(records []sessionstore.NodeSessionRecord) {
+	if w == nil || len(records) == 0 {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, record := range records {
+		wt := record.Worktree
+		if record.NodeID == "" || wt.Path == "" || wt.Branch == "" {
+			continue
+		}
+		w.worktrees[record.NodeID] = &NodeWorktree{
+			Path:       wt.Path,
+			Branch:     wt.Branch,
+			BaseCommit: wt.BaseCommit,
+			MainBranch: wt.MainBranch,
+		}
+	}
 }
 
 // Info 返回节点 worktree 现场信息（无现场 → false）。

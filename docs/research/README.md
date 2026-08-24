@@ -8,6 +8,8 @@
 
 | 文档 | 说明 |
 |---|---|
+| [`2026-08-24-session-resource-granularity.md`](2026-08-24-session-resource-granularity.md) | 会话资源与锁粒度盘点：单例现状、M1 会话级已落地项、多会话解除单例的路径（2026-08-24） |
+| [`2026-08-24-fork-subagent-recovery.md`](2026-08-24-fork-subagent-recovery.md) | fork 子代理异常中断状态恢复可行性调研：串行/执行者归因、checkpoint 原语、前置准备与现状对照（2026-08-24） |
 | [`context-management-review.md`](context-management-review.md) | 上下文管理（继承/合并/压缩）实现审查 + 论文/博客理论依据调研（2026-08-20） |
 | [`agent-frontend-design-research.md`](agent-frontend-design-research.md) | AI Agent 前端界面与 DSL 卡片渲染设计调研 |
 | [`agent-harness-research-report.md`](agent-harness-research-report.md) | Agent harness 能力缺口与建议 |

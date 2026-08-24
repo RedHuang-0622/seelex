@@ -32,6 +32,7 @@ type SessionPort interface {
 	StageLogs(nodeID string) []model.NodeStageLog
 	RecordResult(nodeID string, result *model.NodeSemanticResult)
 	Result(nodeID string) *model.NodeSemanticResult
+	NoteOutcome(nodeID, status, summary, errMsg string)
 	DrainResults() []*model.NodeSemanticResult
 	StageEvents() <-chan model.NodeStageLog
 }
@@ -119,6 +120,15 @@ func (c *Coordinator) UnregisterSession(nodeID string) {
 func (c *Coordinator) CompleteSubagentNode(nodeID, summary string, err error) {
 	if c == nil || c.deps.Tree == nil {
 		return
+	}
+	if c.deps.Sessions != nil {
+		status := "done"
+		errMsg := ""
+		if err != nil {
+			status = "failed"
+			errMsg = err.Error()
+		}
+		c.deps.Sessions.NoteOutcome(nodeID, status, summary, errMsg)
 	}
 	c.deps.Tree.CompleteSubagentNode(nodeID, summary, err)
 	if c.deps.Tasks != nil {

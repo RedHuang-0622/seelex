@@ -58,6 +58,29 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 主 Runtime 通过 `seelebridge.Runtime.AttachHistoryRouter` 独立装配 `DurableHistory`，不复用 `SessionContextStore` 的 application-owned state blob。恢复会话时 DurableHistory 与框架 Session 使用同一个 session ID；Application 成功提交完整 `SessionRecord` 后才释放 provider working history，下一轮再从 durable tail 冷加载。
 
+## 子代理会话记录（NodeSessionRecord）
+
+子代理（fork/plan 的 `kind:agent` 节点）会话记录按主会话索引落盘：
+
+```text
+sessions-json/<project>/session-<mainID>/subagents/<mainID>-<subID>.json
+```
+
+文件名为 `<mainSessionID>-<subSessionID>.json`（用户约定：从主会话索引可直接
+列举全部子会话，无需全局扫描）。内容为 opaque JSON 记录
+（`NodeSessionRecord`：NodeID/SessionID/Goal/Status/History/ContextJSON/
+StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
+
+生命周期（2026-08-24 策略）：运行期由 `seelebridge/session` 的
+`SubagentSessions` actor 在注册/阶段/结果/终态时写入（进程中断可恢复）；
+节点结束（done/failed）时最终结论经 `seelex.subagent.result` 事件写入主会话
+事件库（"结论跟随 mainagent"），随后删除节点记录文件。删除后详情数据面保留
+在进程内存快照；重启后恢复锚点从主会话事件库重建。
+
+`NodeSessionStore`（JSON backend 已实现）提供 `Save/Load/List/Delete`，显式
+项目作用域，不改变 Router 的 active write scope；SQLite/PostgreSQL/Redis
+接入为后续项（当前返回明确错误）。
+
 ## 配置与安全
 
 - JSON/SQLite 使用本地 path；PostgreSQL/Redis 使用 DSN。

@@ -1,6 +1,8 @@
 package session
 
 import (
+	"encoding/json"
+	"log"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // ─── 子代理会话注册表 actor（Runtime 装配件拆分 Step 1）───
@@ -27,6 +30,14 @@ type SubagentSessions struct {
 	actor *actor.Actor[subagentSessionCmd]
 	trace provider.TraceSource // 结束快照导出时提取 Findings/Decisions（nil 降级）
 
+	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
+	// 见 sessionstore.NodeSessionRecord）。nil → 保持纯内存态（测试/未装配）。
+	nodeStore     *sessionstore.NodeSessionStore
+	mainSessionID func() string
+	// conclusionSink 在节点结束（done/failed）时把最终结论交给主会话侧
+	// 持久化（"最后的结论跟随 mainagent"）；随后本节点记录文件被删除。
+	conclusionSink func(string, sessionstore.NodeSessionRecord)
+
 	// 以下字段仅在 actor goroutine 内访问。
 	sessions         map[string]*frameworkSession.Session
 	sessionIDs       map[string]string
@@ -37,8 +48,17 @@ type SubagentSessions struct {
 	stages           map[string][]model.NodeStageLog
 	results          map[string]*model.NodeSemanticResult
 	resultQueue      []*model.NodeSemanticResult
+	worktrees        map[string]sessionstore.NodeWorktreeRecord
+	outcomes         map[string]subagentOutcome
 	events           chan model.NodeStageLog
 	droppedEvents    atomic.Int64
+}
+
+// subagentOutcome 是节点终态（done/failed）的持久化摘要。
+type subagentOutcome struct {
+	status  string
+	summary string
+	errMsg  string
 }
 
 type subagentSessionCmdKind int
@@ -55,6 +75,10 @@ const (
 	subagentSessionRecordResult
 	subagentSessionResult
 	subagentSessionDrainResults
+	subagentSessionNoteWorktree
+	subagentSessionNoteOutcome
+	subagentSessionRestore
+	subagentSessionConfigure
 )
 
 type subagentSessionCmd struct {
@@ -66,6 +90,13 @@ type subagentSessionCmd struct {
 	stage  model.NodeStageLog
 	res    *model.NodeSemanticResult
 	reply  chan subagentSessionReply
+	wt     sessionstore.NodeWorktreeRecord
+	out    subagentOutcome
+	recs   []sessionstore.NodeSessionRecord
+	// configure 装配（AttachSubSessionStore 注入；nil 字段保持现状）。
+	store  *sessionstore.NodeSessionStore
+	mainID func() string
+	sink   func(string, sessionstore.NodeSessionRecord)
 }
 
 type subagentSessionReply struct {
@@ -85,7 +116,24 @@ const (
 	subagentStageEventCap     = 512
 )
 
-func NewSubagentSessions(trace provider.TraceSource) *SubagentSessions {
+type SubagentSessionsOption func(*SubagentSessions)
+
+// WithNodeSessionStore 装配节点会话记录持久化（nil = 纯内存态）。
+func WithNodeSessionStore(store *sessionstore.NodeSessionStore) SubagentSessionsOption {
+	return func(s *SubagentSessions) { s.nodeStore = store }
+}
+
+// WithMainSessionID 提供当前主会话 ID（记录落盘时作为索引键；nil = 不落盘）。
+func WithMainSessionID(fn func() string) SubagentSessionsOption {
+	return func(s *SubagentSessions) { s.mainSessionID = fn }
+}
+
+// WithConclusionSink 装配节点结束时的结论回传（mainagent 侧持久化；nil = 只删不传）。
+func WithConclusionSink(fn func(string, sessionstore.NodeSessionRecord)) SubagentSessionsOption {
+	return func(s *SubagentSessions) { s.conclusionSink = fn }
+}
+
+func NewSubagentSessions(trace provider.TraceSource, opts ...SubagentSessionsOption) *SubagentSessions {
 	s := &SubagentSessions{
 		trace:            trace,
 		sessions:         make(map[string]*frameworkSession.Session),
@@ -96,7 +144,14 @@ func NewSubagentSessions(trace provider.TraceSource) *SubagentSessions {
 		toolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
 		stages:           make(map[string][]model.NodeStageLog),
 		results:          make(map[string]*model.NodeSemanticResult),
+		worktrees:        make(map[string]sessionstore.NodeWorktreeRecord),
+		outcomes:         make(map[string]subagentOutcome),
 		events:           make(chan model.NodeStageLog, subagentStageEventCap),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
 	}
 	s.actor = actor.New(s.handle, actor.WithCap(subagentSessionCmdCap))
 	return s
@@ -110,6 +165,7 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		if cmd.sess != nil {
 			s.sessionIDs[cmd.nodeID] = cmd.sess.SessionID()
 		}
+		s.persistLocked(cmd.nodeID)
 	case subagentSessionUnregister:
 		sess := s.sessions[cmd.nodeID]
 		delete(s.sessions, cmd.nodeID)
@@ -119,12 +175,19 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 			s.reply(cmd, subagentSessionReply{})
 			return
 		}
+		if _, ok := s.outcomes[cmd.nodeID]; !ok {
+			s.outcomes[cmd.nodeID] = subagentOutcome{status: "done"}
+		}
 		var snap *snapshot.ContextSnapshot
 		if exported := seelexctx.ExportSnapshot(sess, s.trace, goal); exported != nil {
 			s.contextSnapshots[cmd.nodeID] = exported
 			snap = exported
 		}
 		s.snapshots[cmd.nodeID] = sess.History()
+		// 生命周期策略：结束即收敛——最终结论交给 mainagent（conclusionSink），
+		// 节点自己的记录文件删除（运行期记录已覆盖崩溃恢复；结束后的详情
+		// 数据面保持在内存快照，进程存活期内仍可读）。
+		s.finalizeLocked(cmd.nodeID)
 		s.reply(cmd, subagentSessionReply{snap: snap, ok: true})
 	case subagentSessionConversation:
 		if sess := s.sessions[cmd.nodeID]; sess != nil {
@@ -179,6 +242,7 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 			default:
 				s.droppedEvents.Add(1)
 			}
+			s.persistLocked(cmd.nodeID)
 		}
 		s.reply(cmd, subagentSessionReply{ok: true})
 	case subagentSessionStageLogs:
@@ -195,6 +259,7 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 			result.Stages = append([]model.NodeStageLog(nil), s.stages[cmd.nodeID]...)
 			s.results[cmd.nodeID] = result
 			s.resultQueue = append(s.resultQueue, result)
+			s.persistLocked(cmd.nodeID)
 		}
 		s.reply(cmd, subagentSessionReply{ok: true})
 	case subagentSessionResult:
@@ -204,7 +269,164 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		queue := s.resultQueue
 		s.resultQueue = nil
 		s.reply(cmd, subagentSessionReply{resq: queue, ok: len(queue) > 0})
+	case subagentSessionNoteWorktree:
+		if cmd.nodeID != "" {
+			s.worktrees[cmd.nodeID] = cmd.wt
+			s.persistLocked(cmd.nodeID)
+		}
+		s.reply(cmd, subagentSessionReply{ok: true})
+	case subagentSessionNoteOutcome:
+		if cmd.nodeID != "" {
+			s.outcomes[cmd.nodeID] = cmd.out
+			s.persistLocked(cmd.nodeID)
+		}
+		s.reply(cmd, subagentSessionReply{ok: true})
+	case subagentSessionRestore:
+		for _, record := range cmd.recs {
+			s.restoreLocked(record)
+		}
+		s.reply(cmd, subagentSessionReply{ok: true})
+	case subagentSessionConfigure:
+		if cmd.store != nil {
+			s.nodeStore = cmd.store
+		}
+		if cmd.mainID != nil {
+			s.mainSessionID = cmd.mainID
+		}
+		if cmd.sink != nil {
+			s.conclusionSink = cmd.sink
+		}
+		s.reply(cmd, subagentSessionReply{ok: true})
 	}
+}
+
+// finalizeLocked 节点结束时收敛持久化（actor goroutine 内调用）：
+// 1) 组装最终记录；2) conclusionSink 交给 mainagent 侧；3) 删除节点记录文件。
+func (s *SubagentSessions) finalizeLocked(nodeID string) {
+	if s.nodeStore == nil || nodeID == "" {
+		return
+	}
+	mainID := ""
+	if s.mainSessionID != nil {
+		mainID = s.mainSessionID()
+	}
+	if mainID == "" {
+		return
+	}
+	record := s.buildRecordLocked(nodeID)
+	record.MainSessionID = mainID
+	if s.conclusionSink != nil {
+		s.conclusionSink(mainID, record)
+	}
+	projectID := s.nodeStore.ProjectID()
+	if record.SessionID != "" {
+		if err := s.nodeStore.Delete(projectID, mainID, record.SessionID); err != nil {
+			log.Printf("seelebridge/session: delete node session %q: %v", nodeID, err)
+		}
+	}
+}
+
+// restoreLocked 从持久化记录重建节点的详情数据面（actor goroutine 内调用）：
+// 会话 ID/goal/History 快照/上下文快照/阶段日志/语义结果/终态/worktree。
+// 无运行中会话：Conversation 读历史快照，ContextSnapshot 读留存快照。
+func (s *SubagentSessions) restoreLocked(record sessionstore.NodeSessionRecord) {
+	if record.NodeID == "" || record.SessionID == "" {
+		return
+	}
+	s.sessionIDs[record.NodeID] = record.SessionID
+	s.goals[record.NodeID] = record.Goal
+	// 空历史也登记：恢复后 Conversation 可读（ok=true），语义与运行期一致。
+	s.snapshots[record.NodeID] = record.History
+	if len(record.ContextJSON) > 0 {
+		var snap snapshot.ContextSnapshot
+		if err := json.Unmarshal(record.ContextJSON, &snap); err == nil {
+			s.contextSnapshots[record.NodeID] = &snap
+		}
+	}
+	if len(record.StagesJSON) > 0 {
+		var stages []model.NodeStageLog
+		if err := json.Unmarshal(record.StagesJSON, &stages); err == nil {
+			s.stages[record.NodeID] = stages
+		}
+	}
+	if len(record.ResultJSON) > 0 {
+		var result model.NodeSemanticResult
+		if err := json.Unmarshal(record.ResultJSON, &result); err == nil {
+			s.results[record.NodeID] = &result
+		}
+	}
+	if record.Worktree.Path != "" {
+		s.worktrees[record.NodeID] = record.Worktree
+	}
+	if record.Status != "" {
+		s.outcomes[record.NodeID] = subagentOutcome{
+			status: record.Status, summary: record.Summary, errMsg: record.Error,
+		}
+	}
+}
+
+// persistLocked 把节点的当前内存态投影为 NodeSessionRecord 并落盘
+// （actor goroutine 内调用；best-effort，失败只记日志，不影响执行路径）。
+func (s *SubagentSessions) persistLocked(nodeID string) {
+	if s.nodeStore == nil || nodeID == "" {
+		return
+	}
+	mainID := ""
+	if s.mainSessionID != nil {
+		mainID = s.mainSessionID()
+	}
+	if mainID == "" {
+		return
+	}
+	record := s.buildRecordLocked(nodeID)
+	record.MainSessionID = mainID
+	projectID := s.nodeStore.ProjectID()
+	if err := s.nodeStore.Save(projectID, mainID, record); err != nil {
+		log.Printf("seelebridge/session: persist node session %q: %v", nodeID, err)
+	}
+}
+
+// buildRecordLocked 把节点当前内存态投影为 NodeSessionRecord（actor goroutine 内调用）。
+func (s *SubagentSessions) buildRecordLocked(nodeID string) sessionstore.NodeSessionRecord {
+	record := sessionstore.NodeSessionRecord{
+		SchemaVersion: sessionstore.NodeSessionSchemaVersion,
+		NodeID:        nodeID,
+		SessionID:     s.sessionIDs[nodeID],
+		Goal:          s.goals[nodeID],
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if sess := s.sessions[nodeID]; sess != nil {
+		record.History = sess.History()
+		if snap := seelexctx.ExportSnapshot(sess, s.trace, record.Goal); snap != nil {
+			record.ContextJSON, _ = json.Marshal(snap)
+		}
+	} else if len(s.snapshots[nodeID]) > 0 {
+		record.History = s.snapshots[nodeID]
+		if snap := s.contextSnapshots[nodeID]; snap != nil {
+			record.ContextJSON, _ = json.Marshal(snap)
+		}
+	} else if snap := s.contextSnapshots[nodeID]; snap != nil {
+		record.ContextJSON, _ = json.Marshal(snap)
+	}
+	if stages := s.stages[nodeID]; len(stages) > 0 {
+		record.StagesJSON, _ = json.Marshal(stages)
+	}
+	if result := s.results[nodeID]; result != nil {
+		record.ResultJSON, _ = json.Marshal(result)
+	}
+	if wt, ok := s.worktrees[nodeID]; ok {
+		record.Worktree = wt
+	}
+	if outcome, ok := s.outcomes[nodeID]; ok {
+		record.Status = outcome.status
+		record.Summary = outcome.summary
+		record.Error = outcome.errMsg
+	} else if _, running := s.sessions[nodeID]; running {
+		record.Status = "running"
+	} else {
+		record.Status = "queued"
+	}
+	return record
 }
 
 func (s *SubagentSessions) reply(cmd subagentSessionCmd, reply subagentSessionReply) {
@@ -416,6 +638,45 @@ func (s *SubagentSessions) DrainResults() []*model.NodeSemanticResult {
 	case <-s.actor.Done():
 		return nil
 	}
+}
+
+// NoteWorktree 记录节点 worktree 现场（持久化恢复数据面：重启后可重建
+// nodeID → path/branch/baseCommit 索引）。
+func (s *SubagentSessions) NoteWorktree(nodeID string, wt sessionstore.NodeWorktreeRecord) {
+	if s == nil || nodeID == "" {
+		return
+	}
+	s.send(subagentSessionCmd{kind: subagentSessionNoteWorktree, nodeID: nodeID, wt: wt})
+}
+
+// NoteOutcome 记录节点终态（done/failed + 摘要/错误），落盘后恢复时
+// worktable 认领与详情数据面可直接回填。
+func (s *SubagentSessions) NoteOutcome(nodeID, status, summary, errMsg string) {
+	if s == nil || nodeID == "" {
+		return
+	}
+	s.send(subagentSessionCmd{
+		kind: subagentSessionNoteOutcome, nodeID: nodeID,
+		out: subagentOutcome{status: status, summary: summary, errMsg: errMsg},
+	})
+}
+
+// Restore 从持久化记录重建节点会话的详情数据面（重启/恢复锚点；
+// 无运行中会话，详情读取走留存快照与历史）。
+func (s *SubagentSessions) Restore(records []sessionstore.NodeSessionRecord) {
+	if s == nil || len(records) == 0 {
+		return
+	}
+	s.send(subagentSessionCmd{kind: subagentSessionRestore, recs: records})
+}
+
+// Configure 装配/替换节点会话记录持久化（Router 就绪后注入；幂等）。
+// store/mainID/sink 任一为 nil 表示保持现状；显式关闭需分别传 nil 包装。
+func (s *SubagentSessions) Configure(store *sessionstore.NodeSessionStore, mainID func() string, sink func(string, sessionstore.NodeSessionRecord)) {
+	if s == nil {
+		return
+	}
+	s.send(subagentSessionCmd{kind: subagentSessionConfigure, store: store, mainID: mainID, sink: sink})
 }
 
 // Close 关闭命令通道并等待 actor 退出（幂等）。

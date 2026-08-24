@@ -153,6 +153,9 @@ func (service *Service) resumeSession(sessionID string) error {
 	// 会话 task）并清空子代理树，避免旧数据污染新会话工作台。
 	service.Deps.Runtime.SwitchSessionTasks(record.Tasks)
 	_ = service.Deps.Runtime.ClearSubagentTree()
+	// 恢复锚点：从主会话事件库/子会话记录重建目标会话的 fork 树与认领
+	// （Assignee → subagent:<节点会话ID>；重启/切页后不再停留 main）。
+	_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 	workspaceProjection := service.collectWorkspaceProjection()
 
 	service.Mu.Lock()

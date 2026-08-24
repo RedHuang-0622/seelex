@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/Seele/accountpool"
 	"github.com/RedHuang-0622/Seele/agent"
 	"github.com/RedHuang-0622/Seele/agent/bridge"
+	frameworkevent "github.com/RedHuang-0622/Seele/event"
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/telemetry"
@@ -142,11 +143,16 @@ type Runtime struct {
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
 	// ProjectKnowledge 提供者为可选注入（会话恢复流程就绪后 Attach）。
-	windowMu        sync.RWMutex
-	window          seelexctx.WindowPolicy
-	bindings        sessionBindings // 会话绑定状态归组（runtime_session.go）
-	lazyMCPServerMu sync.RWMutex
-	lazyMCPServers  map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
+	windowMu sync.RWMutex
+	window   seelexctx.WindowPolicy
+	bindings sessionBindings // 会话绑定状态归组（runtime_session.go）
+	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
+	// 见 sessionstore.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
+	nodeSessionStore *sessionstore.NodeSessionStore
+	eventPersisterMu sync.Mutex
+	eventPersister   func(context.Context, frameworkevent.Event) error
+	lazyMCPServerMu  sync.RWMutex
+	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。

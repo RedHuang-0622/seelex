@@ -131,6 +131,9 @@ type RuntimePort interface {
 	// ClearSubagentTree 清空子代理树（GUI「清空」入口；失败节点显式清走，
 	// 详情数据面不受影响）。
 	ClearSubagentTree() error
+	// RestoreSubagentAnchors 从持久化重建目标会话的子代理恢复锚点
+	// （重启/切页后：fork 树 + worktable 认领 subagent:<节点会话ID>）。
+	RestoreSubagentAnchors(sessionID string) error
 	// SearchHistory 在会话压缩栈（语义索引）上检索历史聊天记录
 	// （GUI 历史检索面板数据源；无压缩栈时尾部扫描兜底）。
 	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)

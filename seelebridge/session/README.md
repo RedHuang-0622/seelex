@@ -40,7 +40,7 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
 
 | 文件 | 职责 |
 |---|---|
-| `subagent_sessions.go` | 会话注册表 actor |
+| `subagent_sessions.go` | 会话注册表 actor（运行期记录落盘 + 结束结论回传主会话 + 记录删除） |
 | `subagent_stage_test.go` | 第一视角阶段日志与语义结果队列单元测试 |
 | `subagent_context.go` | 父证据合并 + merge-back mailbox actor |
 | `context_clone.go` | `ContextSnapshot` 深拷贝辅助 |
@@ -70,7 +70,13 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
 - actor 串行化父证据合并，防并发覆盖（B 修复）；
 - mailbox soft cap 只作诊断计数、内容不丢（A 修复）；
 - 命令投递带超时，actor 关闭后快速失败；
-- 内存态，不落盘；进程存活期可读。
+- 运行期记录落盘（`<mainSessionID>-<subSessionID>.json`，见
+  [sessionstore/README.md](../../sessionstore/README.md)）；节点结束
+  （done/failed）时最终结论写入主会话事件库（`seelex.subagent.result`），
+  节点记录文件随即删除——详情数据面保留在内存快照，进程存活期可读，
+  重启后由恢复锚点（`Runtime.RestoreSubagentAnchors`）从主会话事件库重建；
+- 压缩栈与主会话隔离：节点控制器使用独立内存栈（2026-08-24 修复，
+  子代理压缩帧不再写入主会话 SessionContextStore）。
 
 ## 扩展方式
 

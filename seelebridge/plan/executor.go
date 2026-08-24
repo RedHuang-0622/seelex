@@ -12,6 +12,8 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/Seele/workplan/core/node"
+	workplanTypes "github.com/RedHuang-0622/Seele/workplan/core/types"
+	workplancheckpoint "github.com/RedHuang-0622/Seele/workplan/runtime/checkpoint"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelexctx"
@@ -62,6 +64,9 @@ type Executor struct {
 
 	eventErrorMu sync.RWMutex
 	eventError   frameworkevent.ErrorHandler
+
+	checkpointMu    sync.RWMutex
+	checkpointStore workplancheckpoint.Store
 }
 
 // newPlanExecutor 装配 plan 执行域组件：事件通道与订阅在构造时建立，
@@ -250,6 +255,97 @@ func (executor *Executor) CurrentEventError() frameworkevent.ErrorHandler {
 	executor.eventErrorMu.RLock()
 	defer executor.eventErrorMu.RUnlock()
 	return executor.eventError
+}
+
+// SetCheckpointStore 装配 workplan checkpoint 持久化（sessionstore.CheckpointStore
+// 或其他实现）。未装配时 plan_run 保持原有行为（无快照、无 Resume 入口）。
+func (executor *Executor) SetCheckpointStore(store workplancheckpoint.Store) {
+	if executor == nil {
+		return
+	}
+	executor.checkpointMu.Lock()
+	executor.checkpointStore = store
+	executor.checkpointMu.Unlock()
+}
+
+// CurrentCheckpointStore 返回当前 checkpoint 存储（nil = 未装配）。
+func (executor *Executor) CurrentCheckpointStore() workplancheckpoint.Store {
+	if executor == nil {
+		return nil
+	}
+	executor.checkpointMu.RLock()
+	defer executor.checkpointMu.RUnlock()
+	return executor.checkpointStore
+}
+
+// planCheckpointSnapshot 把一次 plan_run 的完整结果沉淀为 workplan 快照，
+// 供后续 Resume 恢复（vars/已执行节点输出保留；NodeResult.Err 不跨存储）。
+func planCheckpointSnapshot(entryNodeID string, result *workplanTypes.WorkPlanResult, runErr error) *workplanTypes.Snapshot {
+	context := workplanTypes.NewWorkflowContext()
+	status := workplanTypes.StatusFailed
+	if result != nil {
+		context.Result = result
+		for _, nr := range result.NodeResults {
+			if nr == nil {
+				continue
+			}
+			context.SetResultRaw(nr.NodeID, nr.Output)
+			if nr.Output != "" {
+				context.PrevOutput = nr.Output
+			}
+		}
+		switch {
+		case result.Aborted:
+			status = workplanTypes.StatusAborted
+		case runErr != nil:
+			status = workplanTypes.StatusFailed
+		default:
+			status = workplanTypes.StatusCompleted
+		}
+	} else if runErr != nil {
+		status = workplanTypes.StatusFailed
+	}
+	return &workplanTypes.Snapshot{
+		NodeID:    entryNodeID,
+		Context:   context,
+		Timestamp: time.Now().UTC(),
+		Status:    status,
+	}
+}
+
+// persistCheckpoint 把最近一次 plan_run 的快照写入 checkpoint 存储
+// （best-effort：写入失败只记日志，不改变 plan_run 的返回语义）。
+// 快照键使用入口节点 ID，与 runner.Resume(snapshotID) 的“从快照节点续跑”
+// 契约一致。
+func (executor *Executor) persistCheckpoint(entryNodeID string, result *workplanTypes.WorkPlanResult, runErr error) {
+	store := executor.CurrentCheckpointStore()
+	if store == nil || entryNodeID == "" {
+		return
+	}
+	snapshot := planCheckpointSnapshot(entryNodeID, result, runErr)
+	// Store.Save 直接落最终快照（含 status）；Resume 由 runner 内部的
+	// checkpoint.Manager 经同一 Store.Load 读取（runner.WithCheckpoint 注入）。
+	if err := store.Save(entryNodeID, snapshot); err != nil {
+		log.Printf("seelebridge: persist plan checkpoint %q: %v", entryNodeID, err)
+	}
+}
+
+// beginRun 登记当前执行 run ID（RunPlan/ResumePlan 共享入口）。
+func (executor *Executor) beginRun() string {
+	runID := newPlanRunID()
+	executor.runMu.Lock()
+	executor.currentRunID = runID
+	executor.runMu.Unlock()
+	return runID
+}
+
+// endRun 清除 run ID（只清理仍属于本次 run 的 ID，避免误删嵌套执行）。
+func (executor *Executor) endRun(runID string) {
+	executor.runMu.Lock()
+	if executor.currentRunID == runID {
+		executor.currentRunID = ""
+	}
+	executor.runMu.Unlock()
 }
 
 // AppendPhase 记录 Seelex 侧子代理阶段事件：内部读取当前分支绑定与 run ID，

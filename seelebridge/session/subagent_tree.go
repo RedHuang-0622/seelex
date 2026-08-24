@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"sort"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	"github.com/RedHuang-0622/seelex/seelexctx/provider"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // ──── 子代理树（fork 内存态可视化数据面）────
@@ -276,6 +278,76 @@ func (s *SubagentTree) Clear() error {
 	s.nodes = make(map[string]*subagentNodeRecord)
 	s.children = make(map[string][]string)
 	return nil
+}
+
+// Restore 从持久化记录重建 fork 树节点（重启/恢复锚点）：
+// 运行中/崩溃遗留节点从 NodeSessionRecord 恢复；父级未知时统一挂到主代理
+// 根下。恢复完成后通知 observer（application 工作表格自动刷新，认领回填
+// subagent:<节点会话ID>）。
+func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord) {
+	if s == nil || len(records) == 0 {
+		return
+	}
+	s.mu.Lock()
+	for _, record := range records {
+		if record.NodeID == "" {
+			continue
+		}
+		node := &subagentNodeRecord{
+			id:        record.NodeID,
+			parentID:  model.MainAgentNodeID,
+			goal:      record.Goal,
+			status:    restoredSubAgentStatus(record.Status),
+			summary:   record.Summary,
+			errorMsg:  record.Error,
+			sessionID: record.SessionID,
+			startedAt: record.StartedAt,
+			endedAt:   record.EndedAt,
+		}
+		if len(record.ContextJSON) > 0 {
+			var snap snapshot.ContextSnapshot
+			if err := json.Unmarshal(record.ContextJSON, &snap); err == nil {
+				node.contextSnap = &snap
+			}
+		}
+		if existing := s.nodes[node.id]; existing != nil {
+			node.session = existing.session
+			if node.status == SubAgentQueued || node.status == SubAgentRunning {
+				if existing.status == SubAgentDone || existing.status == SubAgentFailed {
+					node.status = existing.status
+				}
+			}
+		}
+		s.nodes[node.id] = node
+		if !containsString(s.children[model.MainAgentNodeID], node.id) {
+			s.children[model.MainAgentNodeID] = append(s.children[model.MainAgentNodeID], node.id)
+		}
+	}
+	s.mu.Unlock()
+	s.notify()
+}
+
+// restoredSubAgentStatus 把持久化状态映射为树投影状态（未知 → queued）。
+func restoredSubAgentStatus(status string) SubAgentNodeStatus {
+	switch status {
+	case "running", "queued":
+		return SubAgentQueued
+	case "done":
+		return SubAgentDone
+	case "failed":
+		return SubAgentFailed
+	default:
+		return SubAgentQueued
+	}
+}
+
+func containsString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }
 
 // SummaryFor 返回节点最后一次完成的输出摘要（复用判定：子代理跑完但外层

@@ -81,8 +81,25 @@ func (r *Runtime) nodeContextComponents() session.ContextComponents {
 			Shared:      seelexctx.NewInMemoryToolResultArchiver(),
 		}),
 		Compressor: r.seelexCompressor(),
-		Controller: r.seelexController(),
+		Controller: r.nodeController(),
 	}
+}
+
+// nodeController 构造节点子代理会话的上下文控制器：压缩栈与主会话隔离
+// （子代理压缩帧不再写入主会话 SessionContextStore），窗口/预算仍按节点
+// 账号限额推导。节点级栈当前为内存态（运行期隔离优先；节点会话记录
+// 落盘承载恢复数据面）。
+func (r *Runtime) nodeController() seelectx.ContextController {
+	policy := seelexctx.NewContextWindowPolicy(r.ContextWindow(), r.MaxOutputTokens())
+	return seelexctx.NewContextController(seelexctx.ControllerOptions{
+		Policy: policy,
+		Window: r.windowPolicy(),
+		Budget: runtimeBudgetProvider{runtime: r},
+		Stacks: seelexctx.NewMemoryCompactStack(),
+		Turns:  r.bindings.getTurnArchiver(),
+		// 节点压缩帧 SegmentID 溯源到节点会话：与主会话栈隔离（2026-08-24 修复）。
+		SessionIDProvider: func() string { return "node" },
+	})
 }
 
 // projectBlock 渲染项目级模块语义块（ProjectKnowledge，会话前预读缓存；

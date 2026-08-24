@@ -134,8 +134,9 @@ func (*guiChainRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStat
 func (*guiChainRuntime) ScheduleTask(context.Context, seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	return nil, nil
 }
-func (*guiChainRuntime) CancelScheduledTask(string) error { return nil }
-func (*guiChainRuntime) ClearSubagentTree() error         { return nil }
+func (*guiChainRuntime) CancelScheduledTask(string) error    { return nil }
+func (*guiChainRuntime) ClearSubagentTree() error            { return nil }
+func (*guiChainRuntime) RestoreSubagentAnchors(string) error { return nil }
 
 func (*guiChainRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
 	return seelexctxsearch.Result{}, nil
