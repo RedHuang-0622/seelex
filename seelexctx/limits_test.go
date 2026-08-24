@@ -130,11 +130,39 @@ func TestLoadLimitsRejectsNegative(t *testing.T) {
 // TestLimitsDurations 验证秒字段 → time.Duration 转换。
 func TestLimitsDurations(t *testing.T) {
 	full := DefaultLimits()
-	toolCall, approval, planDecision, heartbeat, replanWindow, tavily := full.Durations()
-	if toolCall != 30*time.Minute || approval != 10*time.Minute || heartbeat != 15*time.Second || tavily != 15*time.Second {
-		t.Fatalf("durations = %v %v %v %v", toolCall, approval, heartbeat, tavily)
+	toolCall, approval, planDecision, heartbeat, replanWindow, searchTimeout := full.Durations()
+	if toolCall != 30*time.Minute || approval != 10*time.Minute || heartbeat != 15*time.Second || searchTimeout != 15*time.Second {
+		t.Fatalf("durations = %v %v %v %v", toolCall, approval, heartbeat, searchTimeout)
 	}
 	if planDecision != 10*time.Second || replanWindow != time.Minute {
 		t.Fatalf("durations = %v %v", planDecision, replanWindow)
+	}
+}
+
+// TestLimitsSearchTimeoutAlias 验证旧字段 tavily_timeout 仍兼容，且
+// search_timeout 优先于旧字段。
+func TestLimitsSearchTimeoutAlias(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(path, []byte("limits:\n  tavily_timeout: 30\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	limits, err := LoadLimits(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := limits.WithDefaults().SearchTimeoutSec; got != 30 {
+		t.Fatalf("tavily_timeout alias should map to search_timeout 30, got %d", got)
+	}
+
+	path = filepath.Join(t.TempDir(), "seele.yaml")
+	if err := os.WriteFile(path, []byte("limits:\n  search_timeout: 25\n  tavily_timeout: 30\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	limits, err = LoadLimits(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := limits.WithDefaults().SearchTimeoutSec; got != 25 {
+		t.Fatalf("search_timeout should take precedence, got %d", got)
 	}
 }

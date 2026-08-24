@@ -21,7 +21,7 @@ limits:
   plan_decision_timeout: 10      # preflight 决策回合秒（默认 10）
   heartbeat_interval: 15         # workplan 心跳间隔秒（默认 15；详情页"最后活跃"时间线）
   replan_window: 60              # replan 频率窗口秒（默认 60）
-  tavily_timeout: 15             # tavily HTTP 超时秒（默认 15）
+  search_timeout: 15             # 搜索 HTTP 超时秒（默认 15；旧字段 tavily_timeout 兼容）
   max_concurrent_replans: 2      # replan 并发上限（默认 2）
   max_replans_per_window: 6      # 窗口内 replan 次数（默认 6）
   max_replan_provider_requests: 6 # 窗口内 provider 请求预算（默认 6）

@@ -422,9 +422,9 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	}
 	limits = limits.WithDefaults()
 	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
-	toolCallTimeout, _, planDecision, heartbeat, replanWindow, tavily := limits.Durations()
+	toolCallTimeout, _, planDecision, heartbeat, replanWindow, searchTimeout := limits.Durations()
 	core.ApplyLimits(limits)
-	search.ApplyLimits(int(tavily / time.Second))
+	search.ApplyLimits(int(searchTimeout / time.Second))
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath: accountsPath(), StorePath: *storePath,
 		ToolCallTimeout:           toolCallTimeout,

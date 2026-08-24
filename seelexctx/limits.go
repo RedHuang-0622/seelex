@@ -21,7 +21,8 @@ type Limits struct {
 	PlanDecisionTimeoutSec int `yaml:"plan_decision_timeout"` // preflight 决策回合
 	HeartbeatIntervalSec   int `yaml:"heartbeat_interval"`    // workplan 心跳间隔
 	ReplanWindowSec        int `yaml:"replan_window"`         // replan 频率窗口
-	TavilyTimeoutSec       int `yaml:"tavily_timeout"`        // tavily HTTP 超时
+	SearchTimeoutSec       int `yaml:"search_timeout"`        // 所有搜索源的 HTTP 超时
+	TavilyTimeoutSec       int `yaml:"tavily_timeout"`        // 兼容别名（已弃用，优先 search_timeout）
 	// 预算/上限类
 	MaxConcurrentReplans   int `yaml:"max_concurrent_replans"`       // replan 并发上限
 	MaxReplansPerWindow    int `yaml:"max_replans_per_window"`       // 窗口内 replan 次数
@@ -67,7 +68,7 @@ func DefaultLimits() Limits {
 		PlanDecisionTimeoutSec: 10,
 		HeartbeatIntervalSec:   15,
 		ReplanWindowSec:        60,
-		TavilyTimeoutSec:       15,
+		SearchTimeoutSec:       15,
 		MaxConcurrentReplans:   2,
 		MaxReplansPerWindow:    6,
 		MaxReplanProviderReqs:  6,
@@ -122,8 +123,11 @@ func (l Limits) WithDefaults() Limits {
 	if l.ReplanWindowSec == 0 {
 		l.ReplanWindowSec = def.ReplanWindowSec
 	}
-	if l.TavilyTimeoutSec == 0 {
-		l.TavilyTimeoutSec = def.TavilyTimeoutSec
+	if l.SearchTimeoutSec == 0 && l.TavilyTimeoutSec != 0 {
+		l.SearchTimeoutSec = l.TavilyTimeoutSec
+	}
+	if l.SearchTimeoutSec == 0 {
+		l.SearchTimeoutSec = def.SearchTimeoutSec
 	}
 	if l.MaxConcurrentReplans == 0 {
 		l.MaxConcurrentReplans = def.MaxConcurrentReplans
@@ -207,13 +211,13 @@ func (l Limits) WithDefaults() Limits {
 }
 
 // Durations 返回常用的时间转换（秒字段 → time.Duration）。
-func (l Limits) Durations() (toolCall, approval, planDecision, heartbeat, replanWindow, tavily time.Duration) {
+func (l Limits) Durations() (toolCall, approval, planDecision, heartbeat, replanWindow, searchTimeout time.Duration) {
 	return time.Duration(l.ToolCallTimeoutSec) * time.Second,
 		time.Duration(l.ApprovalTimeoutSec) * time.Second,
 		time.Duration(l.PlanDecisionTimeoutSec) * time.Second,
 		time.Duration(l.HeartbeatIntervalSec) * time.Second,
 		time.Duration(l.ReplanWindowSec) * time.Second,
-		time.Duration(l.TavilyTimeoutSec) * time.Second
+		time.Duration(l.SearchTimeoutSec) * time.Second
 }
 
 // LoadLimits 读取 seele.yaml 的 limits 配置段：
@@ -243,7 +247,7 @@ func LoadLimits(path string) (Limits, error) {
 		return Limits{}, fmt.Errorf("limits: parse config: %w", err)
 	}
 	if check.ToolCallTimeoutSec < 0 || check.ApprovalTimeoutSec < 0 || check.PlanDecisionTimeoutSec < 0 ||
-		check.HeartbeatIntervalSec < 0 || check.ReplanWindowSec < 0 || check.TavilyTimeoutSec < 0 ||
+		check.HeartbeatIntervalSec < 0 || check.ReplanWindowSec < 0 || check.SearchTimeoutSec < 0 || check.TavilyTimeoutSec < 0 ||
 		check.MaxConcurrentReplans < 0 || check.MaxReplansPerWindow < 0 || check.MaxReplanProviderReqs < 0 || check.MaxReplansPerPlanChain < 0 ||
 		check.HistoryWindow < 0 || check.PlanNodeEvents < 0 || check.PlanNodeMaxLoops < 0 ||
 		check.EvidenceChars < 0 || check.ReplanEvidenceBytes < 0 || check.InputLoopLimit < 0 ||

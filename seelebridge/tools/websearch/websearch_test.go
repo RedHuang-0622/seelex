@@ -1,168 +1,123 @@
 package websearch
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/RedHuang-0622/seelex/seelebridge/search"
 )
 
-func TestLoadWebSearchConfig_Defaults(t *testing.T) {
-	// 不存在的文件应返回默认配置
-	cfg := loadWebSearchConfig("non_existent_path.yaml")
-	if cfg.Provider != "tavily" {
-		t.Errorf("expected default provider 'tavily', got %q", cfg.Provider)
-	}
-	if cfg.MaxResults != 5 {
-		t.Errorf("expected default max_results 5, got %d", cfg.MaxResults)
-	}
-	if !cfg.IncludeAnswer {
-		t.Error("expected IncludeAnswer default true")
-	}
-	if cfg.SearchDepth != "advanced" {
-		t.Errorf("expected default search_depth 'advanced', got %q", cfg.SearchDepth)
-	}
+// fakeRegistrar 记录注册的 web_search 工具，便于单元测试触发 handler。
+type fakeRegistrar struct {
+	name        string
+	description string
+	handler     func(context.Context, string) (string, error)
 }
 
-func TestLoadWebSearchConfig_InvalidYAML(t *testing.T) {
-	tmpFile := t.TempDir() + "/invalid_ws.yaml"
-	if err := os.WriteFile(tmpFile, []byte("{{{invalid yaml"), 0644); err != nil {
+func (f *fakeRegistrar) RegisterTool(name, description string, inputSchema map[string]interface{}, handler func(context.Context, string) (string, error)) {
+	f.name = name
+	f.description = description
+	f.handler = handler
+}
+
+func writeAccounts(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "accounts.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadWebSearchConfig(tmpFile)
-	// 坏文件也应返回默认值
-	if cfg.Provider != "tavily" {
-		t.Errorf("expected default provider 'tavily', got %q", cfg.Provider)
-	}
+	return path
 }
 
-func TestLoadWebSearchConfig_PartialOverride(t *testing.T) {
-	tmpFile := t.TempDir() + "/partial_ws.yaml"
-	content := `
-websearch:
-  api_key: "sk-test-key"
-  max_results: 10
-`
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+func TestRegister_NoConfigRegistersPlaceholder(t *testing.T) {
+	r := &fakeRegistrar{}
+	Register(r, filepath.Join(t.TempDir(), "missing.yaml"))
+	if r.name != "web_search" {
+		t.Fatalf("expected web_search tool, got %q", r.name)
+	}
+	if r.handler == nil {
+		t.Fatal("expected placeholder handler")
+	}
+	out, err := r.handler(context.Background(), `{"query":"x"}`)
+	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadWebSearchConfig(tmpFile)
-	if cfg.Provider != "tavily" {
-		t.Errorf("expected default provider 'tavily', got %q", cfg.Provider)
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("placeholder must return JSON: %v", err)
 	}
-	if cfg.APIKey != "sk-test-key" {
-		t.Errorf("expected API key 'sk-test-key', got %q", cfg.APIKey)
-	}
-	if cfg.MaxResults != 10 {
-		t.Errorf("expected max_results 10, got %d", cfg.MaxResults)
-	}
-	// IncludeAnswer 默认 true，但 loadWebSearchConfig 中无条件覆盖：
-	//   cfg.IncludeAnswer = wrapper.WebSearch.IncludeAnswer
-	// 如果 YAML 未显式设置 includeanswer，其零值为 false，因此会被覆盖为 false。
-	// 这是现有代码的行为，后续可考虑加 yaml tag 修复。
-	// 这里只记录实际值，不做断言。
-	t.Logf("IncludeAnswer = %v (note: loaded config unconditionally overrides it)", cfg.IncludeAnswer)
-	if cfg.SearchDepth != "advanced" {
-		t.Errorf("expected default search_depth 'advanced', got %q", cfg.SearchDepth)
+	if !strings.Contains(payload["error"], "未装配可用代理策略") {
+		t.Errorf("unexpected placeholder payload: %s", out)
 	}
 }
 
-func TestLoadWebSearchConfig_FullOverride(t *testing.T) {
-	tmpFile := t.TempDir() + "/full_ws.yaml"
-	content := `
-websearch:
-  provider: "tavily"
-  api_key: "sk-test-key"
-  max_results: 3
-  include_answer: false
-  search_depth: "basic"
-`
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := loadWebSearchConfig(tmpFile)
-	if cfg.Provider != "tavily" {
-		t.Errorf("expected provider 'tavily', got %q", cfg.Provider)
-	}
-	if cfg.APIKey != "sk-test-key" {
-		t.Errorf("expected API key 'sk-test-key', got %q", cfg.APIKey)
-	}
-	if cfg.MaxResults != 3 {
-		t.Errorf("expected max_results 3, got %d", cfg.MaxResults)
-	}
-	if cfg.IncludeAnswer {
-		t.Error("expected IncludeAnswer false")
-	}
-	if cfg.SearchDepth != "basic" {
-		t.Errorf("expected search_depth 'basic', got %q", cfg.SearchDepth)
-	}
-}
-
-func TestLoadWebSearchConfig_EmptyAPIKeyOverride(t *testing.T) {
-	tmpFile := t.TempDir() + "/empty_key_ws.yaml"
-	content := `
-websearch:
-  api_key: ""
-  max_results: 8
-`
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := loadWebSearchConfig(tmpFile)
-	// apikey 为空字符串时，if cfg.APIKey != "" 条件不成立，保留默认值
-	if cfg.APIKey != "" {
-		t.Errorf("expected empty API key, got %q", cfg.APIKey)
-	}
-	if cfg.MaxResults != 8 {
-		t.Errorf("expected max_results 8, got %d", cfg.MaxResults)
-	}
-}
-
-func TestLoadWebSearchConfig_ZeroMaxResultsKeepsDefault(t *testing.T) {
-	tmpFile := t.TempDir() + "/zero_max_ws.yaml"
-	content := `
-websearch:
-  max_results: 0
-`
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := loadWebSearchConfig(tmpFile)
-	if cfg.MaxResults != 5 {
-		t.Errorf("expected default max_results 5, got %d", cfg.MaxResults)
-	}
-}
-
-func TestRegisterWebSearch_NoAPIKey(t *testing.T) {
-	// When no API key is configured, a placeholder tool should be registered
-	// We can't easily test this without a runtime, but verify no panic
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("Register panicked: %v", r)
+func TestRegister_MinimalStrategyEndToEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 4096)
+		n, _ := r.Body.Read(buf)
+		if !strings.Contains(string(buf[:n]), `"query":"golang"`) {
+			t.Errorf("expected query golang in POST body, got %s", string(buf[:n]))
 		}
-	}()
+		_, _ = w.Write([]byte(`{"results":[{"title":"Go","url":"https://go.dev","content":"语言"}]}`))
+	}))
+	defer srv.Close()
 
-	// Just test config loading - the full registration needs a real runtime
-	// which we can't create in unit test
-	cfg := loadWebSearchConfig("nonexistent.yaml")
-	if cfg.APIKey != "" {
-		t.Error("expected empty API key for missing file")
+	content := `
+websearch:
+  max_results: 3
+  strategies:
+    - name: local
+      endpoint: ` + srv.URL + `
+      apikey: test-key
+`
+	r := &fakeRegistrar{}
+	Register(r, writeAccounts(t, content))
+	if r.name != "web_search" || r.handler == nil {
+		t.Fatalf("expected registered handler, got %+v", r)
+	}
+	out, err := r.handler(context.Background(), `{"query":"golang","max_results":3}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "## 搜索结果") || !strings.Contains(out, "https://go.dev") {
+		t.Errorf("unexpected output: %s", out)
 	}
 }
 
-func TestWebSearchConfig_Struct(t *testing.T) {
-	// Verify the struct fields etc.
-	cfg := search.WebSearchConfig{
-		Provider:      "custom",
-		APIKey:        "key-123",
-		MaxResults:    7,
-		IncludeAnswer: true,
-		SearchDepth:   "advanced",
+func TestRegister_EmptyQueryRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer srv.Close()
+
+	content := `
+websearch:
+  strategies:
+    - name: local
+      endpoint: ` + srv.URL + `
+      apikey: test-key
+`
+	r := &fakeRegistrar{}
+	Register(r, writeAccounts(t, content))
+	if _, err := r.handler(context.Background(), `{"query":"  "}`); err == nil {
+		t.Fatal("expected error for empty query")
 	}
-	if cfg.Provider != "custom" {
-		t.Errorf("expected 'custom', got %q", cfg.Provider)
+}
+
+func TestToolSchema(t *testing.T) {
+	schema := toolSchema()
+	props, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected properties, got %#v", schema)
 	}
-	if cfg.APIKey != "key-123" {
-		t.Errorf("expected 'key-123', got %q", cfg.APIKey)
+	if _, ok := props["query"]; !ok {
+		t.Error("expected query property")
+	}
+	if _, ok := props["max_results"]; !ok {
+		t.Error("expected max_results property")
 	}
 }
