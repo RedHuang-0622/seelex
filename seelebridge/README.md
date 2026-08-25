@@ -102,6 +102,15 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
 
 主 Session 可通过 `AttachHistoryRouter` 独立装配 `sessionstore.DurableHistory`；指定恢复 ID 时 `NewMainSessionWithID` 同时用它作为框架 Session identity 和 durable key。该路径不读取或覆盖 `SessionContextStore` 的 application state blob。
 
+主会话在 seelebridge 侧按**会话槽化**：每个逻辑会话一个独立
+`sessionBundle`（独立 `session.Session`、锁与会话绑定状态），
+`NewMainSessionWithID` 新建/登记对应会话的 bundle，切换会话不销毁其它
+会话的驻留 Session 与 context store（互不串写）；`Session()`/
+`MainSessionID()` 按当前激活会话路由。跨会话共享装配（存储 Router、
+轮次归档器、项目知识提供者）保留进程级单例（决策契约见
+`docs/research/2026-08-24-session-resource-granularity.md` §决策契约；
+fork 子会话深拷贝 = 新建 bundle + 数据面拷贝，不共享实例句柄）。
+
 子代理节点通过 `NodeScope.Role == RoleSubAgent` 识别。工具 middleware 发布 `running/success/error`，worktree 编排发布 `worktree_creating/rebasing/merging`；阶段事实沿用 Plan binding，并在存在 session ID 时写入 `agent.runtime` Location。
 
 ## ProjectScope 与 PathGate

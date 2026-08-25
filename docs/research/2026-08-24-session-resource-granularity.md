@@ -4,12 +4,55 @@
 状态：调研结论（部分落地，2026-08-24）。本文件是现状盘点与迁移路径研究；M1 保持已实现，M2（会话并行）仍未实现。本次 fork 恢复落地（见 [2026-08-24-fork-subagent-recovery.md](2026-08-24-fork-subagent-recovery.md) 实现记录）已覆盖本文件 §4.2 的键空间补 sessionID 与子代理树/记录按主会话索引持久化两个衔接项；seelebridge Runtime 会话槽化与应用组件栈会话化仍按 M2 规划。
 范围：`application/core`（应用服务层）与 `seelebridge`（运行时桥接层）中锁、actor、注册表、上下文绑定等资源的持有粒度；多会话并行（M2/M3）时如何把进程级单例拆成会话级。
 
+决策已定稿（2026-08-24，见「决策契约」）：runtime 生成与生命周期、锁、actor 保护层级一律**会话粒度且不传播**；fork 会话走深拷贝（= 快照数据拷贝 + 子会话全新 actor/runtime/mu）；参考 forksubagent 的调研结论为「确认走新建道路」；执行模型采用**每会话一个协程**。2026-08-25 落地状态：seelebridge 会话槽化（`sessionBundle` 注册表）已实现并测试；fork 数据面深拷贝原语与血缘 meta 由并行实现推进；per-session actor 实例化与 `max_running` 放开仍待 M2。
+
 ## TL;DR
 
 1. 现状是“两级单例 + 少量会话级”：`application.Service` 全局只有一份 `Core.Mu`/Snapshot/组件栈（task/prompt/view/session/worktable），聊天运行态（`sessionChat`）和引擎（`EnginePort.engines`）已在 M1 收窄为会话级；`seelebridge.Runtime` 只有一个会话槽（`r.session`），tasks/子代理树/子代理会话/plan 绑定/项目作用域/窗口策略等全是进程级单例，多数靠“切换会话时替换内容”而不是“每会话一份”。
 2. 真正的单飞边界在 M1：`ErrSessionBusy`/`anyChatRunningLocked` 仍是全局判定——同一时刻只允许一个会话执行；`Core.Mu` 是全局快照锁。真并行 = M2，代码注释和既有设计都明确指路。
 3. 解除单例的核心不是换锁，而是“会话工厂化”：把可复制资源（组件栈、子代理注册表、plan 绑定、project scope、bindings）改成 `map[sessionID]*X` 由工厂创建；把天然共享资源（账号池、文件系统 actor、sandbox、skills、插件、权限）保留共享但按会话/节点路由；把键空间补上 `sessionID` 维度（nodeID、task key、live 事件、事件轨）。
 4. 已登记的多会话 P0 与风险：多会话页签设计在 multi-session-pages.md（方案 B：SessionActor + WorkbenchCoordinator）；会话并行前需解决单 Service 操作串行、审批/取消/Workspace 作用域、MCP 连接等 P0（见 2026-07-24 GUI 架构审查）。
+
+## 决策契约（2026-08-24 定稿）
+
+> 决策事实源。后续实现与 agent 以本节为准；§4/§5 中的候选方案仅作调研记录，已被本节覆盖的方向不再作为可选实现。
+
+1. **粒度契约：会话级，不传播**
+   - runtime 的生成与生命周期管理、锁、actor 保护层级一律**会话粒度**。
+   - fork 会话的粒度**不做传播**：子会话的 actor、runtime、mu 全部**新建**到子会话，不继承父会话的实例句柄。
+2. **fork 深拷贝语义 = 快照数据拷贝 + 全新实例**
+   - 深拷贝只适用于**数据面**：ProviderHistory/事件流/SessionRecord/context 四栈/tool-results 按 conversation-fork 一期决策整体复制到子会话 key，两端此后完全独立。
+   - 运行期对象**禁止复制**：复制在用的 `sync.Mutex/RWMutex` 是 Go 未定义行为（go vet 可检）；复制 `actor.Actor` 会共享 mailbox/done 通道；复制框架 `session.Session` 会共享 `mu`/`history`/`loop`/`tracer` 与 agent/completer/cache/store 引用。**因此运行时一律走「新建道路」**：子会话新建 Session、actor、锁，只把快照数据灌入。
+3. **forksubagent 调研结论（2026-08-24）**
+   - forksubagent 本身就是「每节点全新 `session.NewSession` + 独立 SessionComponents + 独立 worktree」，**不是深拷贝**；可参考的是它的「新装配」模式与单消费者 actor 免锁模式，不能作为深拷贝活对象的蓝本。
+   - 它的进程级单例注册表（task registry、subagent 三件套、plan executor、live 分发器、sessionBindings）在多会话并行下是跨会话**语义竞态/串写**来源：nodeID 键碰撞（同 goal 同 `node-<hash>`）、`ReplaceAll` 互清、LoadedPlan/runID/binding 互踩、事件归因闭包串会话、`Core.Mu`/`ErrSessionBusy` 全局单飞。
+   - 结论：actor 内部无内存级数据竞争（单 goroutine 串行），但上述跨会话竞态成立 → **确认走新建道路**，与决策 1/2 一致；actor 免锁模式保留，但实例范围改为每会话一份。
+4. **执行模型：每会话一个协程（actor）**
+   - 每会话一个专用 goroutine（沿用 `internal/actor` 底座：有界命令通道 + 单消费者），会话内所有变更串行，per-session 锁降为少数；全局只保留共享资源锁（账号池 lease、fs actor 写分片、worktree git 全局串行、sessionstore、EventHub）。
+   - 约束：**不强制异步队列**——跨会话调用发生在会话执行 goroutine（不在 actor handler 内）时，沿用现有「同步投递 + 有界超时 reply」模式（`subagentSessionCmdTimeout` 10s）即可；唯一硬约束是 **actor handler 内部不得同步阻塞等待另一会话的 actor**（否则 A/B handler 互等死锁，且阻塞期间本会话取消/审批命令进不来）。跨会话请求如需排队，才走 WorkbenchCoordinator；空闲会话收敛 goroutine（Close/Wait 幂等）；`max_running > 1` 前执行仍受全局单飞门控，协程化可先行落地。
+5. **共享保留**：账号池（P2C lease）、filesystem actor、sandbox、skills/plugins/permission、EventHub、sessionstore 保持共享，按 sessionID 路由（见 §4.1 表格）。
+
+### 落地记录（2026-08-25）
+
+已落地：
+
+- seelebridge 会话槽化：`sessionMu/session/sessionBindings` 单槽 →
+  `map[sessionID]*sessionBundle`（[runtime_bundle.go](../../seelebridge/runtime_bundle.go)）；
+  每 bundle 独立 `mu`/`session`/`binding`（ctxStore/mainHistory/mainSessionID）；
+  跨会话共享装配（historyRouter/turnArchiver/project）上移 Runtime 全局；
+  `Session()`/`MainSessionID()`/`PrepareMainSessionHistory`/
+  `AttachSessionContextStore` 按当前激活会话路由，公共 API 签名不变，
+  单飞门控期间语义与 M1 一致；测试 `TestRuntimeSessionBundlesArePerSession`
+  覆盖驻留与不串写。
+
+待办（M2，未实现）：
+
+- task 注册表 / subagent 三件套 / plan executor / worktree manager / live
+  分发器从进程级单例改为每会话实例（actor 保护层级会话化）；
+- application 组件栈会话化与 `Core.Mu` 拆 per-session shard；
+- 每会话一协程（actor）执行模型的接线（单飞门控保留至 `max_running > 1`）；
+- fork 数据面深拷贝原语与血缘 meta：并行实现推进中（sessionstore
+  `ListToolResults`/`CurrentGeneration`/段落索引/`SessionRecord.ForkedFrom`）。
 
 ## 1. 两级现状盘点
 

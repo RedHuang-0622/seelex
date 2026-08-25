@@ -54,7 +54,7 @@ func (r *Runtime) SetEventErrorHandler(handler frameworkevent.ErrorHandler) {
 // 不破坏 WorkPlan 控制流（见 Seele event/README.md）。
 func (r *Runtime) SetEventPersister(fn func(context.Context, frameworkevent.Event) error) {
 	// 短期事件桥：持久化前为主会话事件补 session_id 关联（见 events.go）。
-	fn = correlateMainSessionID(r.bindings.sessionID, fn)
+	fn = correlateMainSessionID(r.MainSessionID, fn)
 	r.eventPersisterMu.Lock()
 	r.eventPersister = fn
 	r.eventPersisterMu.Unlock()

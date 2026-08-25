@@ -65,9 +65,23 @@ type Runtime struct {
 	streamer  agent.StreamCompleter
 	agt       *agent.Agent
 
-	sessionMu    sync.Mutex
-	session      *session.Session // 主会话（每逻辑会话经 NewMainSession 重建）
-	sessionHooks *session.LoopHooks
+	// 会话槽化（决策契约 §决策契约 1/2）：每个逻辑会话一个独立 bundle
+	// （Session + 锁 + 绑定状态），runtime 生成与生命周期会话粒度且不
+	// 传播；fork 子会话走「新建 bundle + 数据面拷贝」。bundlesMu 只保护
+	// 注册表与 activeSessionID；bundle 内部 mu 保护单会话状态。单飞门控
+	// 期间 application 层保证同一时刻只有一个运行中会话，activeSessionID
+	// 提供“当前会话”向后兼容语义。
+	bundles         map[string]*sessionBundle
+	bundlesMu       sync.RWMutex
+	activeSessionID string
+	// 跨会话共享装配（决策契约 §5：保留共享，按会话路由）：存储路由、
+	// 轮次归档器与项目知识提供者。
+	historyRouterMu sync.RWMutex
+	historyRouter   *sessionstore.Router
+	turnArchiverMu  sync.RWMutex
+	turnArchiver    seelexctx.TurnArchiver
+	projectMu       sync.RWMutex
+	project         func() *sessionstore.ProjectRecord
 
 	// 遥测（slice 8）：内存追踪器 + 生命周期钩子。会话级 llm/tool
 	// intent-effect 事件经 hook 写入 tracer；GUI/TUI 的 trace 视图经
@@ -145,7 +159,6 @@ type Runtime struct {
 	// ProjectKnowledge 提供者为可选注入（会话恢复流程就绪后 Attach）。
 	windowMu sync.RWMutex
 	window   seelexctx.WindowPolicy
-	bindings sessionBindings // 会话绑定状态归组（runtime_session.go）
 	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
 	// 见 sessionstore.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
 	nodeSessionStore *sessionstore.NodeSessionStore
@@ -160,14 +173,18 @@ func (r *Runtime) MainSessionID() string {
 	if r == nil {
 		return ""
 	}
-	return r.bindings.sessionID()
+	r.bundlesMu.RLock()
+	defer r.bundlesMu.RUnlock()
+	return r.activeSessionID
 }
 
 // SetTurnArchiver 注入压缩轮次原文归档实现（application 层持久化通道）。
 // 注入后窗口外压缩会把溢出轮次原文持久化，帧 Evidence 携带读回句柄，
 // 模型可经 read_compressed_turn 工具读回（压缩丢失可逆）。
 func (r *Runtime) SetTurnArchiver(archiver seelexctx.TurnArchiver) {
-	r.bindings.setTurnArchiver(archiver)
+	r.turnArchiverMu.Lock()
+	r.turnArchiver = archiver
+	r.turnArchiverMu.Unlock()
 }
 
 // Account 账号路由摘要（域本体在 account/）。
@@ -245,6 +262,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		tracer:     tracer,
 		hook:       hook,
 		summaryLog: NewSummaryLog(),
+		bundles:    make(map[string]*sessionBundle),
 	}
 	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
@@ -403,9 +421,12 @@ func (r *Runtime) Agent() *agent.Agent { return r.agt }
 
 // Session 返回当前主会话（尚未创建时返回 nil）。
 func (r *Runtime) Session() *session.Session {
-	r.sessionMu.Lock()
-	defer r.sessionMu.Unlock()
-	return r.session
+	if bundle := r.activeBundle(); bundle != nil {
+		bundle.mu.Lock()
+		defer bundle.mu.Unlock()
+		return bundle.session
+	}
+	return nil
 }
 
 // NewMainSession 按新装配模型（session.NewSession）构造主会话。
@@ -426,10 +447,14 @@ func (r *Runtime) NewMainSessionWithID(sessionID string, hooks *session.LoopHook
 // AttachHistoryRouter installs the provider-history plane independently from
 // SessionContextStore, whose state blob has a different owner.
 func (r *Runtime) AttachHistoryRouter(router *sessionstore.Router) {
-	r.bindings.attachHistoryRouter(router)
+	r.historyRouterMu.Lock()
+	r.historyRouter = router
+	r.historyRouterMu.Unlock()
 }
 func (r *Runtime) durableHistoryRouter() *sessionstore.Router {
-	return r.bindings.getHistoryRouter()
+	r.historyRouterMu.RLock()
+	defer r.historyRouterMu.RUnlock()
+	return r.historyRouter
 }
 
 // PrepareMainSessionHistory arms the Runtime-owned DurableHistory to hand the
@@ -439,13 +464,24 @@ func (r *Runtime) PrepareMainSessionHistory(sessionID string, messages []types.M
 	if r == nil {
 		return false
 	}
-	return r.bindings.prepareMainSessionHistory(sessionID, messages)
+	r.bundlesMu.RLock()
+	bundle := r.bundles[sessionID]
+	r.bundlesMu.RUnlock()
+	if bundle == nil {
+		return false
+	}
+	return bundle.binding.prepareMainSessionHistory(sessionID, messages)
 }
 func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*session.Session, error) {
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	}
-	r.bindings.setSessionID(sessionID)
+	// 会话槽化：目标会话 bundle 独立持有 Session/锁/绑定（新建即登记并
+	// 成为当前会话）。fork 子会话同样经此新建，不复制父 bundle。
+	bundle := r.bundleFor(sessionID)
+	bundle.mu.Lock()
+	defer bundle.mu.Unlock()
+	bundle.binding.setSessionID(sessionID)
 	if r.tasks != nil {
 		// 被动识别：主执行身份 = main:<mainSessionID>，task 创建默认继承并上名单。
 		_ = r.tasks.SetDefaultIdentity(dto.ActorIdentity("main", sessionID))
@@ -474,16 +510,14 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 			return r.coverHistoryGap(ctx, allEvents, tailEvents)
 		})
 		components.History = history
-		r.bindings.setMainHistory(history)
+		bundle.binding.setMainHistory(history)
 	}
 	sess, err := session.NewSession(components)
 	if err != nil {
 		return nil, fmt.Errorf("seelebridge: create main session: %w", err)
 	}
-	r.sessionMu.Lock()
-	r.session = sess
-	r.sessionHooks = hooks
-	r.sessionMu.Unlock()
+	bundle.session = sess
+	bundle.hooks = hooks
 	return sess, nil
 }
 func (r *Runtime) Shutdown() {
@@ -523,9 +557,7 @@ func (r *Runtime) Tracer() *telemetry.MemoryTracer { return r.tracer }
 // 注意：仅在 ChatStream 之外读取（会话切换/装配）；运行中的子代理上下文
 // 访问会与主会话锁死锁，父证据/回传均走无锁旁路。
 func (r *Runtime) CurrentSession() *session.Session {
-	r.sessionMu.Lock()
-	defer r.sessionMu.Unlock()
-	return r.session
+	return r.Session()
 }
 
 // ContextWindow returns the total context available to the selected account.

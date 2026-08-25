@@ -17,13 +17,17 @@ import (
 // AttachSessionContextStore 绑定会话上下文存储（state blob，plan.md §3.7.2）。
 // 会话恢复流程接线时由调用方注入（router + sessionID 就绪后）。
 func (r *Runtime) AttachSessionContextStore(store *sessionstore.SessionContextStore) {
-	r.bindings.attachContextStore(store)
+	if bundle := r.activeBundle(); bundle != nil {
+		bundle.mu.Lock()
+		bundle.binding.attachContextStore(store)
+		bundle.mu.Unlock()
+	}
 }
 
 // SetProjectKnowledgeProvider 注入项目级模块语义提供者（ProjectKnowledge
 // 会话前预读；nil 关闭 project 块）。
 func (r *Runtime) SetProjectKnowledgeProvider(provider func() *sessionstore.ProjectRecord) {
-	r.bindings.setProjectKnowledge(provider)
+	r.setProjectKnowledge(provider)
 }
 
 // compactorInstance 返回跨会话快照压缩器（构造一次，会话间复用）。
@@ -51,7 +55,7 @@ func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents, tailEvents []s
 		TailEvents: tailEvents,
 		Record:     stacks.Snapshot(),
 		Stacks:     stacks,
-		Turns:      r.bindings.getTurnArchiver(),
+		Turns:      r.getTurnArchiver(),
 		SessionID:  r.MainSessionID(),
 	})
 	return err
@@ -96,16 +100,10 @@ func (r *Runtime) nodeController() seelectx.ContextController {
 		Window: r.windowPolicy(),
 		Budget: runtimeBudgetProvider{runtime: r},
 		Stacks: seelexctx.NewMemoryCompactStack(),
-		Turns:  r.bindings.getTurnArchiver(),
+		Turns:  r.getTurnArchiver(),
 		// 节点压缩帧 SegmentID 溯源到节点会话：与主会话栈隔离（2026-08-24 修复）。
 		SessionIDProvider: func() string { return "node" },
 	})
-}
-
-// projectBlock 渲染项目级模块语义块（ProjectKnowledge，会话前预读缓存；
-// 提供者未注入 → 无块）。
-func (r *Runtime) projectBlock() *seelectx.PromptBlock {
-	return r.bindings.projectBlock()
 }
 
 // relatedMemoryBlocks 按当前查询从 CompactStack 全部帧选取相关记忆块
@@ -185,7 +183,7 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 		Window: r.windowPolicy(),
 		Budget: runtimeBudgetProvider{runtime: r},
 		Stacks: runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
-		Turns:  r.bindings.getTurnArchiver(),
+		Turns:  r.getTurnArchiver(),
 		// 压缩帧 SegmentID 溯源到当前会话：每次压缩动态取值，会话切换后
 		// 仍指向正确会话（compact-<sessionID>-<ms>）。
 		SessionIDProvider: r.MainSessionID,
@@ -194,7 +192,10 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 
 // sessionContextStore 返回绑定的会话上下文存储（nil = 未绑定）。
 func (r *Runtime) sessionContextStore() *sessionstore.SessionContextStore {
-	return r.bindings.contextStore()
+	if bundle := r.activeBundle(); bundle != nil {
+		return bundle.binding.contextStore()
+	}
+	return nil
 }
 
 // stackBlocks 渲染会话级使用栈块（now using = 栈顶；未绑定存储 → 无块）。

@@ -13,16 +13,14 @@ import (
 
 // 主会话与子代理 merge-back 的会话侧内部方法。公开会话端口见 ports.go。
 
-// sessionBindings 归组 Runtime 的会话绑定状态：上下文存储、历史路由、
-// DurableHistory、项目知识提供者、轮次归档器与当前主会话 ID。
-// 原来 10 字段 + 6 把锁收敛为两把锁（data + mainSession）。
+// sessionBindings 归组一个会话（sessionBundle）的绑定状态：上下文存储、
+// DurableHistory 与当前主会话 ID。跨会话共享装配（历史路由、轮次归档器、
+// 项目知识提供者）已上移到 Runtime 全局（决策契约 §5 保留共享），本结构
+// 只随 bundle 持有会话态；锁粒度随会话（决策契约 §1）。
 type sessionBindings struct {
-	mu            sync.RWMutex
-	ctxStore      *sessionstore.SessionContextStore
-	historyRouter *sessionstore.Router
-	mainHistory   *sessionstore.DurableHistory
-	project       func() *sessionstore.ProjectRecord
-	turnArchiver  seelexctx.TurnArchiver
+	mu          sync.RWMutex
+	ctxStore    *sessionstore.SessionContextStore
+	mainHistory *sessionstore.DurableHistory
 
 	mainSessionMu sync.RWMutex
 	mainSessionID string
@@ -40,34 +38,10 @@ func (b *sessionBindings) setSessionID(id string) {
 	b.mainSessionMu.Unlock()
 }
 
-func (b *sessionBindings) setTurnArchiver(archiver seelexctx.TurnArchiver) {
-	b.mu.Lock()
-	b.turnArchiver = archiver
-	b.mu.Unlock()
-}
-
-func (b *sessionBindings) getTurnArchiver() seelexctx.TurnArchiver {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.turnArchiver
-}
-
 func (b *sessionBindings) setMainHistory(history *sessionstore.DurableHistory) {
 	b.mu.Lock()
 	b.mainHistory = history
 	b.mu.Unlock()
-}
-
-func (b *sessionBindings) attachHistoryRouter(router *sessionstore.Router) {
-	b.mu.Lock()
-	b.historyRouter = router
-	b.mu.Unlock()
-}
-
-func (b *sessionBindings) getHistoryRouter() *sessionstore.Router {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.historyRouter
 }
 
 func (b *sessionBindings) prepareMainSessionHistory(sessionID string, messages []types.Message) bool {
@@ -93,18 +67,27 @@ func (b *sessionBindings) contextStore() *sessionstore.SessionContextStore {
 	return b.ctxStore
 }
 
-func (b *sessionBindings) setProjectKnowledge(provider func() *sessionstore.ProjectRecord) {
-	b.mu.Lock()
-	b.project = provider
-	b.mu.Unlock()
+// getTurnArchiver 返回全局轮次归档器（跨会话共享；nil = 未注入）。
+func (r *Runtime) getTurnArchiver() seelexctx.TurnArchiver {
+	r.turnArchiverMu.RLock()
+	defer r.turnArchiverMu.RUnlock()
+	return r.turnArchiver
+}
+
+// setProjectKnowledge 设置全局项目级模块语义提供者（ProjectKnowledge
+// 会话前预读；nil 关闭 project 块）。
+func (r *Runtime) setProjectKnowledge(provider func() *sessionstore.ProjectRecord) {
+	r.projectMu.Lock()
+	r.project = provider
+	r.projectMu.Unlock()
 }
 
 // projectBlock 渲染项目级模块语义块（ProjectKnowledge，会话前预读缓存；
 // 提供者未注入 → 无块）。
-func (b *sessionBindings) projectBlock() *seelectx.PromptBlock {
-	b.mu.RLock()
-	provider := b.project
-	b.mu.RUnlock()
+func (r *Runtime) projectBlock() *seelectx.PromptBlock {
+	r.projectMu.RLock()
+	provider := r.project
+	r.projectMu.RUnlock()
 	if provider == nil {
 		return nil
 	}
