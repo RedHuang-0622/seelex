@@ -109,3 +109,28 @@ go test ./sessionstore -count=1
 `ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. JSON manifests publish the committed result-reference set, SQL stores all parts in one transaction, and Redis uses one `MULTI/EXEC` in the project hash slot.
 
 测试覆盖 JSON/SQLite 的 generation 原子性与状态 sidecar、SQLite 分表分片、Redis 的配置和 key 分片策略、backend 切换和显式 workspace read 不污染 active scope。
+
+## 会话 fork 存储契约（一期，已实现）
+
+对话 fork（新开会话的分支，**非 subagent fork**）在存储层的契约：
+
+- **段落边界**：`EventParagraphs` 由完整协议单元（`CompleteEventUnits`）推导
+  段落表（EventFrom/EventTo/RequestID/MessageFrom/MessageTo）；fork 切断点
+  必须落在段落边界（`IsParagraphBoundary`），EventSeq 含端点，避免截出半截
+  轮次。
+- **通道枚举**：`ListToolResults` 返回 tool-results 通道全部不可变结果（含
+  `compressed:<segment_id>` 压缩原文归档），供 fork 深拷贝物理复制。
+- **快照版本**：`CurrentGeneration` 返回会话当前已发布 generation，是血缘
+  `forked_from_generation` 的事实来源（不可变快照绑定，禁止引用父的最新
+  内存状态或后续提交）。
+- **落盘路径**：fork 由 application 层构建截断后的 `Commit`（ProviderHistory
+  重建缓存 + 继承事件流 + 截断 SessionRecord + 父通道全量 tool-results），
+  经 `WriteCommit` 原子写入子会话 key；两端此后完全独立。删父安全的前提是
+  tool-results 物理复制——`read_tool_result`/`read_compressed_turn` 在删父后
+  仍从子会话自己的通道读回。
+- **不随 fork 传播**：子代理节点记录（`subagents/`）与执行事实事件库
+  （`framework-events.json`）归属父会话执行，不复制到子会话。
+
+血缘 meta（`forked_from`/ForkPoint）与截断重写属于 application 层
+（`application/model` + `application/core/session_runtime`），存储层只负责
+通道与原子提交，不解释内容。

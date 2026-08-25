@@ -37,6 +37,7 @@ type fakeApplication struct {
 	suggestionsInput string
 	beganNewSession  bool
 	resumedSession   string
+	forkedSession    string
 	scheduledSpec    seelebridge.ScheduledTaskSpec
 	cancelledTaskID  string
 	searchQuery      string
@@ -90,6 +91,11 @@ func (fake *fakeApplication) BeginNewSession() error {
 func (fake *fakeApplication) ResumeSession(sessionID string) error {
 	fake.resumedSession = sessionID
 	return nil
+}
+
+func (fake *fakeApplication) ForkSessionLatest(sessionID string) (string, error) {
+	fake.forkedSession = sessionID
+	return "child-" + sessionID, nil
 }
 func (fake *fakeApplication) CancelChat(requestID string) bool {
 	fake.cancelled = requestID
@@ -774,5 +780,20 @@ func TestBridgeUpdateWorkItemStatusForwardsAndReturnsErrors(t *testing.T) {
 	app.workItemErr = errors.New("todolist: index out of range")
 	if err := bridge.UpdateWorkItemStatus("todo:99", "done"); err == nil || err.Error() != "todolist: index out of range" {
 		t.Fatalf("error must be transparent, got %v", err)
+	}
+}
+
+func TestBridgeForwardsForkSession(t *testing.T) {
+	app := newFakeApplication()
+	bridge, err := NewBridge(app, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childID, err := bridge.ForkSessionLatest("session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.forkedSession != "session-1" || childID != "child-session-1" {
+		t.Fatalf("fork forwarded = %q child = %q", app.forkedSession, childID)
 	}
 }

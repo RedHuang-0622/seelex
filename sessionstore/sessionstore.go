@@ -33,6 +33,10 @@ const (
 	BackendSQLite     Backend = "sqlite"
 	BackendPostgreSQL Backend = "postgres"
 	BackendRedis      Backend = "redis"
+	// CompressedTurnRefPrefix 是压缩轮次原文在 tool-results 通道中的 ref
+	// 前缀（ref = "compressed:"+segment_id）。前缀属于存储通道命名空间，
+	// 压缩/检索与 fork 血缘共用同一常量，避免字符串漂移。
+	CompressedTurnRefPrefix = "compressed:"
 	// defaultMessageShardSize 是 JSON 存储分片条数的默认值
 	// （seele.yaml limits 段 message_shard_size 可调，0 = 默认）。
 	defaultMessageShardSize = 100
@@ -169,6 +173,14 @@ type Repository interface {
 	// 与 ReadRange 一致（limit <= 0 返回窗口尾段；总数为完整消息数）。
 	ReadConversationRange(context.Context, Key, int, int) ([]ConversationMessage, int, error)
 	ReadToolResult(context.Context, Key, string) (ToolResult, error)
+	// ListToolResults 返回会话 tool-results 通道的全部不可变结果（含
+	// compressed:<segment_id> 压缩原文归档）。fork 深拷贝需要物理复制整个
+	// 通道：先枚举，再随子会话快照逐条写入。
+	ListToolResults(context.Context, Key) ([]ToolResult, error)
+	// CurrentGeneration 返回会话当前已发布 generation（不可变快照版本；
+	// fork 血缘的 forked_from_generation 来源）。会话不存在时返回
+	// fs.ErrNotExist / sql.ErrNoRows。
+	CurrentGeneration(context.Context, Key) (string, error)
 	WriteState(context.Context, Key, []byte) error
 	ReadState(context.Context, Key) ([]byte, error)
 	// WriteContextState/ReadContextState 是会话 context 模块的独立存储通道
@@ -339,6 +351,30 @@ func (router *Router) LoadToolResultWorkspace(projectID, sessionID, resultRef st
 		return err
 	})
 	return result, err
+}
+
+// ListToolResultsWorkspace 读取会话 tool-results 通道全部结果（显式项目
+// 作用域；fork 深拷贝物理复制的枚举来源）。
+func (router *Router) ListToolResultsWorkspace(projectID, sessionID string) ([]ToolResult, error) {
+	var results []ToolResult
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		results, err = repository.ListToolResults(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return results, err
+}
+
+// CurrentGenerationWorkspace 读取会话当前已发布 generation（显式项目
+// 作用域；fork 血缘快照版本绑定）。
+func (router *Router) CurrentGenerationWorkspace(projectID, sessionID string) (string, error) {
+	var generation string
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		var err error
+		generation, err = repository.CurrentGeneration(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return generation, err
 }
 
 // SaveState stores application-owned session state next to the engine history.
@@ -931,6 +967,47 @@ func (repository *jsonRepository) ReadToolResult(_ context.Context, key Key, res
 	return result, nil
 }
 
+func (repository *jsonRepository) ListToolResults(_ context.Context, key Key) ([]ToolResult, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	manifest, err := repository.readManifest(repository.sessionDir(key))
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ToolResult, 0, len(manifest.ToolResultRefs))
+	for _, resultRef := range manifest.ToolResultRefs {
+		data, err := os.ReadFile(repository.toolResultPath(key, resultRef))
+		if err != nil {
+			return nil, err
+		}
+		var result ToolResult
+		if err := json.Unmarshal(data, &result); err != nil {
+			return nil, err
+		}
+		if result.Ref != resultRef {
+			return nil, errors.New("session storage: tool result reference mismatch")
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (repository *jsonRepository) CurrentGeneration(_ context.Context, key Key) (string, error) {
+	if err := key.validate(); err != nil {
+		return "", err
+	}
+	repository.mu.RLock()
+	defer repository.mu.RUnlock()
+	manifest, err := repository.readManifest(repository.sessionDir(key))
+	if err != nil {
+		return "", err
+	}
+	return manifest.Generation, nil
+}
+
 func (repository *jsonRepository) WriteState(_ context.Context, key Key, state []byte) error {
 	if err := key.validate(); err != nil {
 		return err
@@ -1515,6 +1592,55 @@ func (repository *redisRepository) ReadToolResult(ctx context.Context, key Key, 
 	return result, nil
 }
 
+func (repository *redisRepository) ListToolResults(ctx context.Context, key Key) ([]ToolResult, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	resultRefs, err := repository.client.SMembers(ctx, repository.toolResultIndexKey(key)).Result()
+	if errors.Is(err, redis.Nil) {
+		return []ToolResult{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(resultRefs)
+	keys := make([]string, len(resultRefs))
+	for index, resultRef := range resultRefs {
+		keys[index] = repository.toolResultKey(key, resultRef)
+	}
+	values, err := repository.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ToolResult, 0, len(resultRefs))
+	for index, value := range values {
+		data, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("session storage: missing tool result %q", resultRefs[index])
+		}
+		var result ToolResult
+		if err := json.Unmarshal([]byte(data), &result); err != nil {
+			return nil, err
+		}
+		if result.Ref != resultRefs[index] {
+			return nil, errors.New("session storage: tool result reference mismatch")
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (repository *redisRepository) CurrentGeneration(ctx context.Context, key Key) (string, error) {
+	if err := key.validate(); err != nil {
+		return "", err
+	}
+	manifest, err := repository.readManifest(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	return manifest.Generation, nil
+}
+
 func (repository *redisRepository) WriteState(ctx context.Context, key Key, state []byte) error {
 	if err := key.validate(); err != nil {
 		return err
@@ -2014,6 +2140,41 @@ func (repository *sqlRepository) ReadToolResult(ctx context.Context, key Key, re
 	}
 	result.CreatedAt = time.Unix(0, createdAt).UTC()
 	return result, nil
+}
+
+func (repository *sqlRepository) ListToolResults(ctx context.Context, key Key) ([]ToolResult, error) {
+	if err := key.validate(); err != nil {
+		return nil, err
+	}
+	query := `SELECT result_ref,tool_name,content,digest,size_bytes,token_count,created_at FROM seelex_tool_result WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2) + ` ORDER BY result_ref`
+	rows, err := repository.db.QueryContext(ctx, query, key.ProjectID, key.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	results := make([]ToolResult, 0)
+	for rows.Next() {
+		var result ToolResult
+		var createdAt int64
+		if err := rows.Scan(&result.Ref, &result.Tool, &result.Content, &result.Digest, &result.Size, &result.TokenCount, &createdAt); err != nil {
+			return nil, err
+		}
+		result.CreatedAt = time.Unix(0, createdAt).UTC()
+		results = append(results, result)
+	}
+	return results, rows.Err()
+}
+
+func (repository *sqlRepository) CurrentGeneration(ctx context.Context, key Key) (string, error) {
+	if err := key.validate(); err != nil {
+		return "", err
+	}
+	query := `SELECT generation FROM seelex_session_manifest WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
+	var generation string
+	if err := repository.db.QueryRowContext(ctx, query, key.ProjectID, key.SessionID).Scan(&generation); err != nil {
+		return "", err
+	}
+	return generation, nil
 }
 
 func (repository *sqlRepository) WriteState(ctx context.Context, key Key, state []byte) error {

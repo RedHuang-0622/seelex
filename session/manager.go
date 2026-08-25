@@ -169,11 +169,47 @@ func (m *Manager) LoadContextStateByWorkspace(workspaceID, sessionID string) ([]
 	return m.router.LoadContextStateWorkspace(workspaceID, sessionID)
 }
 
+// SaveContextStateWorkspace 在显式项目作用域下保存会话 context 模块（fork
+// 四栈深拷贝写入子会话用）。
+func (m *Manager) SaveContextStateWorkspace(projectID, sessionID string, state []byte) error {
+	if m.router == nil {
+		return fmt.Errorf("session: context persistence requires the configurable router")
+	}
+	return m.router.SaveContextStateWorkspace(projectID, sessionID, state)
+}
+
+// ListToolResultsByWorkspace 在显式项目作用域下枚举会话 tool-results 通道
+// 全部结果（fork 深拷贝物理复制用）。
+func (m *Manager) ListToolResultsByWorkspace(workspaceID, sessionID string) ([]sessionstore.ToolResult, error) {
+	if m.router == nil {
+		return nil, fmt.Errorf("session: tool result enumeration requires the configurable router")
+	}
+	return m.router.ListToolResultsWorkspace(workspaceID, sessionID)
+}
+
+// CurrentGenerationWorkspace 在显式项目作用域下读取会话当前已发布
+// generation（fork 血缘快照版本绑定）。
+func (m *Manager) CurrentGenerationWorkspace(workspaceID, sessionID string) (string, error) {
+	if m.router == nil {
+		return "", fmt.Errorf("session: generation reads require the configurable router")
+	}
+	return m.router.CurrentGenerationWorkspace(workspaceID, sessionID)
+}
+
 func (m *Manager) SaveCommit(sessionID string, commit sessionstore.Commit) error {
 	if m.router == nil {
 		return fmt.Errorf("session: atomic commit requires the configurable router")
 	}
 	return m.router.SaveCommit(sessionID, commit)
+}
+
+// SaveCommitWorkspace 在显式项目作用域下原子提交会话快照（fork 深拷贝
+// 写入子会话键用；不改变 Router 的 active write scope）。
+func (m *Manager) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error {
+	if m.router == nil {
+		return fmt.Errorf("session: atomic commit requires the configurable router")
+	}
+	return m.router.SaveCommitWorkspace(projectID, sessionID, commit)
 }
 
 func (m *Manager) LoadEventTailByWorkspace(workspaceID, sessionID string, tokenBudget, maxUnits int) ([]sessionstore.Event, error) {

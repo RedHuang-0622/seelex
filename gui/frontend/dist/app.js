@@ -282,6 +282,27 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       catch (error) { showToast(error); }
     });
   });
+  elements["session-list"].querySelectorAll(".session-fork").forEach(button => {
+    button.addEventListener("click", async event => {
+      event.stopPropagation();
+      const sessionID = button.dataset.fork;
+      if (!sessionID) return;
+      if (!confirm(`从会话 ${shortSessionID(sessionID)} 分支出新会话？`)) return;
+      elements["composer-status"].textContent = "正在分支出新会话…";
+      try {
+        const childID = await invoke("ForkSessionLatest", sessionID);
+        elements["composer-status"].textContent = `已分支出新会话 ${shortSessionID(childID)}`;
+        await refresh({ scroll: "bottom" });
+      } catch (error) {
+        elements["composer-status"].textContent = `分支失败：${error?.message || String(error)}`;
+        showToast(error);
+      } finally {
+        elements["composer-status"].textContent = "";
+        const latest = client.current() || { sessions, session: current, capabilities, session_workspaces: sessionWorkspaces, workspaces };
+        renderSessions(latest.sessions || sessions, latest.session || current, latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces, latest.workspaces || workspaces);
+      }
+    });
+  });
   elements["session-list"].querySelectorAll("[data-collapse-group]").forEach(button => {
     button.addEventListener("click", event => {
       event.stopPropagation();
@@ -382,6 +403,7 @@ function sessionRow(session, currentID) {
       <span class="entry-name">${icon("message", 13)} ${escapeHtml(truncated)}</span><small>${escapeHtml(detail)}</small>
     </button>
     <button class="session-pin${pinned ? " is-on" : ""}" data-pin-session="${escapeHtml(session.id)}" title="${pinned ? "取消置顶" : "置顶会话"}" aria-label="置顶会话">📌</button>
+    <button class="session-fork" data-fork="${escapeHtml(session.id)}" title="分支出新会话" aria-label="分支出新会话">⑂</button>
     <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
   </div>`;
 }

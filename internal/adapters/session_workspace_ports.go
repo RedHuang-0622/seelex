@@ -206,6 +206,56 @@ func (port SessionPort) SaveSessionSnapshot(
 	return port.Manager.SaveCommit(id, commit)
 }
 
+// LoadEventRangeWorkspace 按 EventSeq 范围读取事件流（fork 切断点解析用）。
+func (port SessionPort) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
+	return port.Manager.LoadEventRangeByWorkspace(projectID, sessionID, fromSeq, toSeq)
+}
+
+// LoadToolResultsWorkspace 枚举会话 tool-results 通道全部结果（fork 深拷贝
+// 物理复制用）。
+func (port SessionPort) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error) {
+	return port.Manager.ListToolResultsByWorkspace(projectID, sessionID)
+}
+
+// SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入会话快照
+// （fork 深拷贝写入子会话键用；不改变 active write scope）。
+func (port SessionPort) SaveSessionSnapshotWorkspace(
+	projectID, sessionID string,
+	providerHistory []contract.EngineMessage,
+	record model.SessionRecord,
+	events []model.TranscriptEvent,
+	results []model.StoredToolResult,
+) error {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("encode session record: %w", err)
+	}
+	commit := sessionstore.Commit{
+		ProviderHistory: restoreMessages(providerHistory),
+		Events:          storeTranscriptEvents(events),
+		State:           payload,
+		ToolResults:     storeToolResults(results),
+	}
+	return port.Manager.SaveCommitWorkspace(projectID, sessionID, commit)
+}
+
+// LoadContextStateWorkspace 读取会话 context 模块（显式项目作用域）。
+func (port SessionPort) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error) {
+	return port.Manager.LoadContextStateByWorkspace(projectID, sessionID)
+}
+
+// SaveContextStateWorkspace 保存会话 context 模块（显式项目作用域；fork
+// 四栈深拷贝写入子会话用）。
+func (port SessionPort) SaveContextStateWorkspace(projectID, sessionID string, state []byte) error {
+	return port.Manager.SaveContextStateWorkspace(projectID, sessionID, state)
+}
+
+// CurrentGenerationWorkspace 返回会话当前已发布 generation（fork 血缘
+// forked_from_generation 来源）。
+func (port SessionPort) CurrentGenerationWorkspace(projectID, sessionID string) (string, error) {
+	return port.Manager.CurrentGenerationWorkspace(projectID, sessionID)
+}
+
 func (port SessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, tokenBudget, maxUnits int) ([]model.TranscriptEvent, error) {
 	events, err := port.Manager.LoadEventTailByWorkspace(workspaceID, id, tokenBudget, maxUnits)
 	if err != nil {

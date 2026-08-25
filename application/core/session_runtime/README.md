@@ -101,6 +101,57 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) CatalogRefreshDone() <-chan struct` — CatalogRefreshDone 返回目录 worker 退出信号（测试/生命周期钩子：worker
 - `func (c *Coordinator) refreshCatalogCache()` — refreshCatalogCache 把目录快照发布进内核（锁内 bump → 锁外 Publish）。
 
+### fork.go
+
+- `func (c *Coordinator) PrepareFork(location Location, childID, parentID string, request model.ForkRequest) (ForkContext, error)` — PrepareFork 基于父会话的已发布快照构建子会话深拷贝（一期决策契约）：
+- `func (c *Coordinator) LatestForkCut(location Location, parentID string) (uint64, error)` — LatestForkCut 返回父会话最新完整段落边界（最后一个完整轮次的 EventSeq，
+- `func forkTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent`
+- `func forkStoredToolResults(results []sessionstore.ToolResult) []model.StoredToolResult`
+- `func resolveForkCut(events []sessionstore.Event, request model.ForkRequest) (uint64, *sessionstore.Event, error)` — resolveForkCut 解析 fork 切断点（EventSeq 含端点，段落边界语义）。
+- `func eventAt(events []sessionstore.Event, seq uint64) *sessionstore.Event`
+- `func forkInheritedEvents(events []sessionstore.Event, cut uint64) []sessionstore.Event`
+- `func truncateForkRecord(record model.SessionRecord, events []sessionstore.Event, frames []sessionstore.CompactFrame, cutTime time.Time, displayUserInput func(string) string) model.SessionRecord` — truncateForkRecord 把父 SessionRecord 截断到 fork 时刻：Conversation/
+- `func forkCutSeq(events []sessionstore.Event) uint64`
+- `func inheritedForkTitle(title model.SessionTitle, messages []model.Message, now time.Time, displayUserInput func(string) string) model.SessionTitle`
+- `func forkConversationMessages(messages []model.Message, events []sessionstore.Event, cutTime time.Time) []model.Message`
+- `func forkPlanFramesByTime(frames []model.SessionPlanFrame, cutTime time.Time) []model.SessionPlanFrame`
+- `func hasPlanFrame(frames []model.SessionPlanFrame, planID string) bool`
+- `func forkTaskRecordsByTime(tasks []dto.TaskRecord, cutTime time.Time) []dto.TaskRecord`
+- `func forkCheckpoints(checkpoints []model.TaskCheckpoint, cut uint64) []model.TaskCheckpoint`
+- `func forkProjection(projection *model.TaskContextProjection, cut uint64, sessionID string) *model.TaskContextProjection`
+- `func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFileRef`
+- `func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总子会话可达的 tool-result ref：继承事件流的
+- `func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]struct{}) []model.ToolResultRef`
+- `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error)` — forkContextRecord 重写父 context 四栈为子会话独立栈起点：Plan/Task/Skill
+- `func forkContextPlanFrames(frames []sessionstore.PlanFrame, cutTime time.Time) []sessionstore.PlanFrame`
+- `func forkContextTaskFrames(frames []sessionstore.TaskFrame, cutTime time.Time) []sessionstore.TaskFrame`
+- `func forkContextSkillFrames(frames []sessionstore.SkillFrame, cutTime time.Time) []sessionstore.SkillFrame`
+- `func rewriteForkCompactStack(frames []sessionstore.CompactFrame, cut uint64, cutMessageID string) []sessionstore.CompactFrame` — rewriteForkCompactStack 处理压缩帧内的 fork 切断：整帧继承 + 范围重写
+
+### fork_test.go
+
+- `func (s *forkTestSessions) SaveCurrent(string) error`
+- `func (s *forkTestSessions) Delete(string) error`
+- `func (s *forkTestSessions) List() []model.SessionInfo`
+- `func (s *forkTestSessions) LoadHistory(string) ([]contract.EngineMessage, error)`
+- `func (s *forkTestSessions) LoadHistoryRange(string, int, int) ([]contract.EngineMessage, int, error)`
+- `func (s *forkTestSessions) SetWorkspace(string)`
+- `func (s *forkTestSessions) Workspace() string`
+- `func (s *forkTestSessions) SaveSessionRecord(string, model.SessionRecord) error`
+- `func (s *forkTestSessions) LoadSessionRecord(string) (model.SessionRecord, error)`
+- `func (s *forkTestSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error)`
+- `func (s *forkTestSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
+- `func (s *forkTestSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)`
+- `func (s *forkTestSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error`
+- `func (s *forkTestSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)`
+- `func (s *forkTestSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error`
+- `func (s *forkTestSessions) CurrentGenerationWorkspace(projectID, sessionID string) (string, error)`
+- `func newForkTestCoordinator(t *testing.T, sessions contract.SessionPort) *Coordinator`
+- `func forkTestFixture() (*forkTestSessions, time.Time)`
+- `func TestPrepareForkTruncatesToRequestBoundary(t *testing.T)`
+- `func TestPrepareForkRejectsInvalidCutPoints(t *testing.T)`
+- `func TestPrepareForkAtStartProducesEmptyChild(t *testing.T)`
+
 ### history.go
 
 - `func (c *Coordinator) LoadHistoryTailWindow(location Location) ([]contract.EngineMessage, int, error)` — LoadHistoryTailWindow 尾部窗口读：先探总数（limit=0 只读 manifest），

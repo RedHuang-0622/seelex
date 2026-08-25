@@ -66,6 +66,28 @@ type SessionContextPort interface {
 	DetachSessionContext()
 }
 
+// SessionForkPort 是会话 fork 的持久化面（可选能力断言：实现后会话 fork
+// 才能落盘；未实现时 ForkSession 返回明确错误）。全部方法走显式项目作用域，
+// 不改变 Router 的 active write scope。
+type SessionForkPort interface {
+	// LoadEventRangeWorkspace 按 EventSeq 范围（含端点）读取事件流
+	// （fork 切断点解析/段落边界校验用）。
+	LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)
+	// LoadToolResultsWorkspace 枚举父会话 tool-results 通道全部结果
+	// （fork 深拷贝物理复制用）。
+	LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)
+	// SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入子会话快照
+	// （截断后的 record + events + tool-results 物理复制）。
+	SaveSessionSnapshotWorkspace(projectID, sessionID string, providerHistory []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error
+	// LoadContextStateWorkspace / SaveContextStateWorkspace 读写会话 context
+	// 模块（四栈深拷贝写入子会话）。
+	LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)
+	SaveContextStateWorkspace(projectID, sessionID string, state []byte) error
+	// CurrentGenerationWorkspace 返回会话当前已发布 generation（血缘
+	// forked_from_generation 来源）。
+	CurrentGenerationWorkspace(projectID, sessionID string) (string, error)
+}
+
 // ScopedSessionPort 是生产会话适配器显式项目键读取面（可选能力断言）。
 type ScopedSessionPort interface {
 	ListWorkspace(workspaceID string) []model.SessionInfo

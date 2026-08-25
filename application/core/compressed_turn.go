@@ -20,8 +20,9 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-// compressedTurnRefPrefix 是压缩轮次原文在 ToolResults 通道中的 ref 前缀。
-const compressedTurnRefPrefix = "compressed:"
+// compressedTurnRefPrefix 是压缩轮次原文在 ToolResults 通道中的 ref 前缀
+// （与 sessionstore.CompressedTurnRefPrefix 同源，存储通道命名空间唯一）。
+const compressedTurnRefPrefix = sessionstore.CompressedTurnRefPrefix
 
 // sessionCommitPort 是压缩轮次原文持久化的写通道（session.Manager 满足）。
 type sessionCommitPort interface {

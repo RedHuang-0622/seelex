@@ -41,12 +41,18 @@ type TaskFrame struct {
 	Objective string        `json:"objective"`
 	Status    string        `json:"status"` // active | completed | failed | needs_user_decision
 	Evidence  []EvidenceRef `json:"evidence,omitempty"`
+	// EnteredAt 是任务进入使用栈的时间（fork 四栈按 fork 时刻过滤用；
+	// 旧记录缺失时视为 fork 点之前，保守保留）。
+	EnteredAt time.Time `json:"entered_at,omitempty"`
 }
 
 // SkillFrame 是 SkillStack 的一帧（now using skill = 栈顶）。
 type SkillFrame struct {
 	SkillID string `json:"skill_id"`
 	Name    string `json:"name"`
+	// ActivatedAt 是 skill 激活进入使用栈的时间（fork 四栈按 fork 时刻
+	// 过滤用；旧记录缺失时视为 fork 点之前，保守保留）。
+	ActivatedAt time.Time `json:"activated_at,omitempty"`
 }
 
 // Revision 标识一次提交版本（CommitID + 单调序号）；root manifest 发布后
@@ -255,6 +261,9 @@ func (s *SessionContextStore) PushTask(frame TaskFrame) error {
 		if frame.TaskID == "" {
 			return fmt.Errorf("session context: task frame requires task_id")
 		}
+		if frame.EnteredAt.IsZero() {
+			frame.EnteredAt = time.Now()
+		}
 		record.TaskStack = append(record.TaskStack, frame)
 		return nil
 	})
@@ -279,6 +288,9 @@ func (s *SessionContextStore) PushSkill(frame SkillFrame) error {
 	return s.update(func(record *SessionContextRecord) error {
 		if frame.SkillID == "" {
 			return fmt.Errorf("session context: skill frame requires skill_id")
+		}
+		if frame.ActivatedAt.IsZero() {
+			frame.ActivatedAt = time.Now()
 		}
 		record.SkillStack = append(record.SkillStack, frame)
 		return nil

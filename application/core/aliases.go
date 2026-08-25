@@ -38,6 +38,9 @@ type (
 	SessionPlanFrame       = model.SessionPlanFrame
 	SessionExecutionRecord = model.SessionExecutionRecord
 	SessionRecord          = model.SessionRecord
+	ForkRequest            = model.ForkRequest
+	SessionForkRef         = model.SessionForkRef
+	ForkPoint              = model.ForkPoint
 	SessionArchive         = model.SessionArchive
 	ActiveSkill            = model.ActiveSkill
 	ActivePlanProjection   = model.ActivePlanProjection

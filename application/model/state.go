@@ -171,9 +171,12 @@ type SessionExecutionRecord struct {
 // (workspace_id, session_id). It is the source of truth for stable metadata,
 // Plan revisions, and visible conversation; framework history is not.
 type SessionRecord struct {
-	Version      int                `json:"version"`
-	ID           string             `json:"id"`
-	Title        SessionTitle       `json:"title"`
+	Version int          `json:"version"`
+	ID      string       `json:"id"`
+	Title   SessionTitle `json:"title"`
+	// ForkedFrom 是 fork 血缘（子会话侧事实源；nil = 非 fork 会话）。
+	// 父目录 children 索引只是可重建的展示层，不承载血缘事实。
+	ForkedFrom   *SessionForkRef    `json:"forked_from,omitempty"`
 	ActivePlanID string             `json:"active_plan_id,omitempty"`
 	PlanStack    []SessionPlanFrame `json:"plan_stack,omitempty"`
 	// Tasks 是 task 注册表快照（worktable 条目；复用 session stack 持久化，

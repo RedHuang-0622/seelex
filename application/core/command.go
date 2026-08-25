@@ -78,6 +78,24 @@ func (service *Service) registerBuiltinCommands() error {
 		}
 		return CommandResult{}, service.resumeSession(strings.TrimSpace(args[0]))
 	})
+	register("fork", "从会话分支出新会话：/fork [session_id]（默认当前会话，切到最新完整轮次）", func(ctx context.Context, args []string) (CommandResult, error) {
+		service.Mu.RLock()
+		currentID := service.Core.Snapshot.Session.ID
+		draft := service.Core.Snapshot.Session.Draft
+		service.Mu.RUnlock()
+		parentID := currentID
+		if len(args) > 0 {
+			parentID = strings.TrimSpace(args[0])
+		}
+		if parentID == "" || (parentID == currentID && draft) {
+			return CommandResult{Notice: "当前会话尚未持久化，无法 fork（请先发送一条消息）"}, nil
+		}
+		childID, err := service.ForkSessionLatest(parentID)
+		if err != nil {
+			return CommandResult{}, err
+		}
+		return CommandResult{Notice: "已从 " + parentID + " 分支出新会话: " + childID}, nil
+	})
 	register("sessions", "列出所有持久化会话", func(context.Context, []string) (CommandResult, error) {
 		sessions := service.Snapshot().Sessions
 		if len(sessions) == 0 {

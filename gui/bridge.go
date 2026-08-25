@@ -28,6 +28,9 @@ type Application interface {
 	Submit(context.Context, string) error
 	BeginNewSession() error
 	ResumeSession(string) error
+	// ForkSessionLatest 从指定会话最新完整轮次分支出新会话并切换（fork
+	// 一期 GUI 入口；返回子会话 ID）。
+	ForkSessionLatest(string) (string, error)
 	CancelChat(string) bool
 	ResolveInteraction(context.Context, string, string) error
 	SelectAccount(context.Context, string) error
@@ -315,6 +318,12 @@ func (bridge *Bridge) BeginNewSession() error {
 
 func (bridge *Bridge) ResumeSession(sessionID string) error {
 	return bridge.app.ResumeSession(sessionID)
+}
+
+// ForkSessionLatest 从会话最新完整轮次分支出新会话并切换（Wails 前端会话
+// 树「分支」按钮数据源；返回子会话 ID）。
+func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
+	return bridge.app.ForkSessionLatest(sessionID)
 }
 
 func (bridge *Bridge) CancelChat(requestID string) bool {
