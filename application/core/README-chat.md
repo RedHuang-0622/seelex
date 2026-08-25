@@ -12,7 +12,7 @@
 ### chat.go
 
 - `func (service *Service) startChat(parent context.Context, request chatRequest) error`
-- `func (service *Service) runChat(ctx context.Context, requestID string, request chatRequest)`
+- `func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest)`
 - `func (service *Service) recordUnhandledTaskErrorLocked(requestID string, err error)`
 - `func (service *Service) finalizeReActBudget(ctx context.Context, requestID string) error` — finalizeReActBudget 在工具预算耗尽后保留一次纯文本交付回合。常规循环在
 - `func queuedInputRefs(queue []chatRequest) []string` — queuedInputRefs 取排队输入的最小引用（displayInput），供任务终态恢复记录

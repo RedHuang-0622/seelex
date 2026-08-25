@@ -101,6 +101,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)`
 - `func (runtime *fakeRuntime) CancelScheduledTask(id string) error`
 - `func (runtime *fakeRuntime) ClearSubagentTree() error`
+- `func (runtime *fakeRuntime) RestoreSubagentAnchors(string) error`
 - `func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error)`
 - `func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error`
 - `func (runtime *fakeRuntime) UnbindProjectRoot()`
