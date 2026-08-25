@@ -71,6 +71,15 @@ func (recorder *eventRecorder) waitForChange(ctx context.Context) error {
 
 func (recorder *eventRecorder) waitForRevision(ctx context.Context, revision uint64) error {
 	return recorder.waitFor(ctx, func(events []application.Event) bool {
-		return len(events) > 0 && events[len(events)-1].Revision >= revision
+		// 快照 bump 与事件发布分属不同临界区（聊天主循环、工具钩子、
+		// worktable CSP 消费者等并发执行），事件到达顺序可能与 Revision
+		// 顺序错开。只要任一事件已达到目标 Revision，就说明 recorder 已
+		// 追平该快照，不能只检查最后一条事件。
+		for _, event := range events {
+			if event.Revision >= revision {
+				return true
+			}
+		}
+		return false
 	})
 }
