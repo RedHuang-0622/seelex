@@ -16,6 +16,10 @@
 
 它不调用 Bridge，不决定 Chat 业务状态，也不修改客户端 Snapshot。
 
+对话区由「对话 / 轨迹」两个子页组成（`app.js` 的 `conversation-tabs` 本地
+tab 状态）；「轨迹」子页基于同一份 `Snapshot.conversation` 派生 Network
+风格响应日志，见 [`trajectory-view.md`](trajectory-view.md)。
+
 ## 2. Presentation model
 
 实现位置：`gui/frontend/dist/components.js:45-128`。
