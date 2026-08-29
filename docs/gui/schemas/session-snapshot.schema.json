@@ -46,6 +46,15 @@
         "plugin": { "type": "string" },
         "effort": { "enum": ["lite", "medium", "high", "max"] },
         "workspace_id": { "$ref": "common.schema.json#/$defs/identifier" },
+        "active_skills": {
+          "description": "任务级激活 skill ID 列表（右侧栏「目标」面板数据源）。",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "goal_skill_active": {
+          "description": "GOAL 方法论 skill 激活投影（右侧栏「目标」面板 badge）。",
+          "type": "boolean"
+        },
         "plan": {
           "description": "Active WorkPlan execution state. Present only when a plan is loaded or running.",
           "anyOf": [

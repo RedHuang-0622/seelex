@@ -51,9 +51,11 @@ docs/gui/
 | Desktop Bridge | 已实现 | [`desktop-bridge.md`](modules/desktop-bridge.md) |
 | Client state | 已实现 | [`client-state.md`](modules/client-state.md) |
 | Conversation rendering | 已实现 | [`conversation-rendering.md`](modules/conversation-rendering.md) |
+| Trajectory view | 已实现 | [`trajectory-view.md`](modules/trajectory-view.md) |
 | Effort control | 已实现 | [`effort-control.md`](modules/effort-control.md) |
 | Shell/interactions | 已实现 | [`shell-and-interactions.md`](modules/shell-and-interactions.md) |
 | Work table | 已实现 | [`work-table.md`](modules/work-table.md) |
+| Right sidebar | 已实现 | [`right-sidebar.md`](modules/right-sidebar.md) |
 | JSON DSL Card | 规划 | [`dsl-card-runtime.md`](modules/dsl-card-runtime.md) |
 | Workspace sandbox | 规划 | [`workspace-sandbox.md`](modules/workspace-sandbox.md) |
 | Generation repository | 规划 | [`generation-store.md`](modules/generation-store.md) |
