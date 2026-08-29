@@ -24,7 +24,7 @@ var repositoryModules = []string{
 	"docs/arch", "docs/devlog", "docs/gui", "docs/gui/schemas", "docs/product", "docs/research",
 	"docs/test", "e2e", "e2e/scenario", "gui", "gui/frontend", "internal", "internal/adapters",
 	"internal/buildinfo", "internal/frontmatter", "mcpstack", "mcpstack/config", "plugin", "plugins", "plugins/default",
-	"plugins/freecad", "plugins/git", "plugins/read", "plugins/shell", "plugins/write", "scripts",
+	"plugins/freecad", "scripts",
 	"seelebridge", "seelebridge/fork", "seelebridge/fs", "seelebridge/internal/config",
 	"seelebridge/internal/model", "seelebridge/internal/stream",
 	"seelebridge/internal/telemetry", "seelebridge/plan",
@@ -128,8 +128,8 @@ func TestRepositorySkillAndPluginLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plugins) != 6 {
-		t.Fatalf("loaded %d plugins, want 6 (5 base + freecad)", len(plugins))
+	if len(plugins) != 2 {
+		t.Fatalf("loaded %d plugins, want 2 (default + freecad)", len(plugins))
 	}
 	for _, p := range plugins {
 		t.Logf("  plugin=%q skills=%d", p.Name, len(p.Skills))
