@@ -11,7 +11,7 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
-      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
+      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
     </header>
 
     <aside class="left-panel panel">
@@ -30,8 +30,13 @@
 
     <main class="workspace">
       <div id="trace-rail" class="trace-rail" aria-hidden="true"></div>
+      <div class="conversation-tabs" id="conversation-tabs" role="tablist" aria-label="对话区视图">
+        <button class="conversation-tab is-active" type="button" role="tab" data-tab="conversation" aria-selected="true">对话</button>
+        <button class="conversation-tab" type="button" role="tab" data-tab="trajectory" aria-selected="false">轨迹</button>
+      </div>
       <div id="history-bar" class="history-bar hidden"><button id="load-history" class="icon-button history-button" type="button" title="加载更早消息" aria-label="加载更早消息" data-icon="message"></button></div>
       <div id="conversation" class="conversation" aria-live="polite"></div>
+      <div id="trajectory" class="trajectory hidden" aria-live="polite"></div>
       <div id="empty-state" class="empty-state">
         <div class="orb" aria-hidden="true">&gt;_</div>
         <h1>从一个工程目标开始</h1>
@@ -74,33 +79,68 @@
         <h2 id="project-name">当前工作区</h2>
         <div id="project-root" class="project-root"></div>
       </section>
-      <details class="collapse-section" id="status-panel">
-        <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>状态</span></summary>
-        <div id="project-status" class="status-grid"></div>
-        <div class="section-title sub-title">概要</div>
-        <div id="project-overview" class="project-overview"></div>
-        <div id="context-compactions" class="context-compactions hidden"></div>
-      </details>
-      <section id="work-section" class="hidden">
-        <div class="section-title"><span>工作表格</span><span id="work-count" class="badge">0</span><span id="work-unread" class="badge is-unread hidden">0 未读</span></div>
-        <button id="work-table-open" class="work-table-button" type="button" title="打开工作表格详情">
-          <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
-          <span id="work-table-summary">0 项任务</span>
-          <span class="work-table-button-hint">点击查看完整表格</span>
-        </button>
-      </section>
-      <section id="scheduled-task-section">
-        <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
-        <button id="scheduled-table-open" class="work-table-button" type="button" title="打开定时任务表格">
-          <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
-          <span id="scheduled-table-summary">0 项任务</span>
-          <span class="work-table-button-hint">点击查看完整表格</span>
-        </button>
-        <div id="scheduled-task-view" class="sched-view muted hidden">暂无定时任务</div>
-      </section>
+
+      <nav class="right-tabs" id="right-tabs" role="tablist" aria-label="右侧栏视图">
+        <button class="right-tab is-active" type="button" role="tab" data-right-tab="status" aria-selected="true">状态</button>
+        <button class="right-tab" type="button" role="tab" data-right-tab="workbench" aria-selected="false">工作台</button>
+        <button class="right-tab" type="button" role="tab" data-right-tab="code" aria-selected="false">资源管理器</button>
+      </nav>
+
+      <div class="right-tabpanel" data-right-panel="status" role="tabpanel">
+        <details class="collapse-section" id="status-panel">
+          <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>状态</span></summary>
+          <div id="project-status" class="status-grid"></div>
+          <div class="section-title sub-title">概要</div>
+          <div id="project-overview" class="project-overview"></div>
+          <div id="context-compactions" class="context-compactions hidden"></div>
+        </details>
+      </div>
+
+      <div class="right-tabpanel hidden" data-right-panel="workbench" role="tabpanel">
+        <section id="goal-section" class="hidden">
+          <div class="section-title"><span>目标</span><span id="goal-badge" class="badge hidden">GOAL</span></div>
+          <div id="goal-view" class="goal-view muted">当前无目标任务</div>
+        </section>
+        <section id="work-section" class="hidden">
+          <div class="section-title"><span>工作表格</span><span id="work-count" class="badge">0</span><span id="work-unread" class="badge is-unread hidden">0 未读</span></div>
+          <button id="work-table-open" class="work-table-button" type="button" title="打开工作表格详情">
+            <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
+            <span id="work-table-summary">0 项任务</span>
+            <span class="work-table-button-hint">点击查看完整表格</span>
+          </button>
+        </section>
+        <section id="scheduled-task-section">
+          <div class="section-title"><span>定时任务</span><span id="scheduled-task-count" class="badge">0</span><button id="new-scheduled-task" class="icon-button subtle" type="button" title="新建定时任务" aria-label="新建定时任务" data-icon="plus"></button></div>
+          <button id="scheduled-table-open" class="work-table-button" type="button" title="打开定时任务表格">
+            <span class="work-table-button-icon" aria-hidden="true" data-icon="table" data-icon-size="15"></span>
+            <span id="scheduled-table-summary">0 项任务</span>
+            <span class="work-table-button-hint">点击查看完整表格</span>
+          </button>
+          <div id="scheduled-task-view" class="sched-view muted hidden">暂无定时任务</div>
+        </section>
+      </div>
+
+      <div class="right-tabpanel hidden" data-right-panel="code" role="tabpanel">
+        <div class="code-panes" id="code-panes">
+          <section class="code-pane" data-pane="worktree" id="code-pane-worktree">
+            <div class="code-pane-head">
+              <span class="code-pane-title">工作树</span><span id="file-count" class="badge">0</span>
+              <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+            </div>
+            <div id="worktree-view" class="worktree-view muted">绑定工作区后显示项目文件树</div>
+          </section>
+          <section class="code-pane" data-pane="gitlog" id="code-pane-gitlog">
+            <div class="code-pane-head">
+              <span class="code-pane-title">提交记录</span><span id="git-log-count" class="badge">0</span>
+              <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+            </div>
+            <div id="git-log-view" class="git-log-view muted">绑定工作区后显示提交记录</div>
+          </section>
+        </div>
+      </div>
 
       <details class="side-more" id="side-more">
-        <summary class="side-more-summary"><span>更多面板</span></summary>
+        <summary class="side-more-summary"><span>历史检索</span></summary>
         <div class="side-more-body">
           <section id="history-search-section">
             <div class="section-title"><span>历史检索</span><span id="history-search-count" class="badge">0</span></div>
@@ -109,10 +149,6 @@
               <button id="history-search-submit" class="icon-button subtle" type="submit" title="搜索" aria-label="搜索" data-icon="search"></button>
             </form>
             <div id="history-search-view" class="history-search-view muted">输入关键词搜索历史记录</div>
-          </section>
-          <section>
-            <div class="section-title"><span>工作树</span><span id="file-count" class="badge">0</span></div>
-            <div id="worktree-view" class="worktree-view muted">绑定工作区后显示项目文件树</div>
           </section>
         </div>
       </details>

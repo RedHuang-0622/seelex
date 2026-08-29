@@ -2,16 +2,20 @@ import { escapeHtml, hydrateIcons, icon } from "./components.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
+import { createTrajectoryView } from "./trajectory-view.js";
+import { buildTrajectory } from "./trajectory.js";
 import { createEffortControl } from "./effort-control.js";
 import { planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL } from "./plan-dsl.js";
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
 import { createWorkTreeView } from "./worktree-view.js";
+import { createGitLogView } from "./git-log-view.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { truncateTitle, isPinned, togglePinned } from "./sidebar.js";
+import { createPerfHooks } from "./perf-hooks.js";
 
 const state = {
   info: null,
@@ -21,16 +25,20 @@ const state = {
   inlineSuggestions: [],
   inlineSelected: 0,
   inlineRequest: 0,
-  resumingSessionID: ""
+  resumingSessionID: "",
+  tab: "conversation",
+  rightTab: "status",
+  trajectoryFilter: "all"
 };
 
 const elements = Object.fromEntries([
   "app-title", "app-version", "connection-dot", "provider-label", "token-label",
   "session-list", "session-count", "new-session",
-  "plugin-list", "plugin-count", "account-list", "account-count", "conversation",
+  "plugin-list", "plugin-count", "account-list", "account-count", "conversation", "conversation-tabs", "trajectory",
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
+  "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title",
@@ -43,9 +51,48 @@ const elements = Object.fromEntries([
 const conversationView = createConversationView(elements.conversation, {
   copyText: value => navigator.clipboard.writeText(value),
   notify: showToast,
-  loadMore: loadOlderHistory
+  loadMore: loadOlderHistory,
+  loadResultRef: async (ref, offset, limit) => {
+    try {
+      return await invoke("ToolResultContent", ref, offset, limit);
+    } catch (error) {
+      showToast(error);
+      throw error;
+    }
+  },
+  resultPageLimit: 12000
 });
 const chatView = createChatView(elements, conversationView);
+// 轨迹视图（对话区「轨迹」子页）：Network 风格响应日志。数据从权威
+// Snapshot.conversation 派生（buildTrajectory，先分类响应类型再投影轨迹），
+// 本地过滤/展开/滚动状态只存前端，不进入 Snapshot。
+const trajectoryView = createTrajectoryView(elements.trajectory, {
+  copyText: value => navigator.clipboard.writeText(value),
+  notify: showToast,
+  loadResultRef: async (ref, offset, limit) => {
+    try {
+      return await invoke("ToolResultContent", ref, offset, limit);
+    } catch (error) {
+      showToast(error);
+      throw error;
+    }
+  },
+  resultPageLimit: 12000,
+  onFilterChange: kind => { state.trajectoryFilter = kind; }
+});
+// 性能追踪钩子：渲染进程可观测指标（DOM/JS heap/渲染耗时）与后端快照
+// 载荷对照，10s 轮询；徽标挂在顶部状态区。
+const perfHooks = createPerfHooks({
+  getStats: async () => {
+    try { return await invoke("PerfStats"); } catch { return null; }
+  },
+  onError: showToast
+});
+if (elements["perf-badge-host"]) {
+  elements["perf-badge-host"].appendChild(perfHooks.badge);
+}
+perfHooks.start();
+window.__seelexPerf = perfHooks;
 const client = createGUIClient({
   loadSnapshot: () => invoke("Snapshot"),
   onSnapshot: (snapshot, options) => render(snapshot, options),
@@ -60,6 +107,15 @@ const activeChatSync = createActiveChatSnapshotSync({
 const workTableView = createWorkTableView(elements["work-table-modal-view"]);
 const workTreeView = createWorkTreeView(elements["worktree-view"], {
   loadDir: async relPath => invoke("WorkspaceTree", relPath, 1)
+});
+const gitLogView = createGitLogView(elements["git-log-view"], {
+  onCopy: async hash => {
+    try {
+      await navigator.clipboard.writeText(hash);
+    } catch (error) {
+      showToast(error);
+    }
+  }
 });
 // workTableSeen 是“已读”快照（status|retry_count 签名）；workTableOpen
 // 控制弹窗打开期间不显示未读角标。
@@ -105,27 +161,39 @@ async function refresh(options = {}) {
 }
 
 function render(snapshot, options = {}) {
+  const started = performance.now();
   renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {}, snapshot.session_workspaces || {}, snapshot.workspaces || []);
   renderProject(snapshot);
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
   chatView.render(snapshot, options.scrollMode);
+  renderTrajectory(snapshot);
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
   renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
+  renderGoal(snapshot);
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
   activeChatSync.observe(snapshot);
+  perfHooks.markRender(performance.now() - started);
 }
 
 function renderIncremental(snapshot, kind) {
   if (!snapshot) return;
+  const started = performance.now();
   activeChatSync.observe(snapshot);
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
     chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history);
     chatView.renderControls(snapshot);
+    renderTrajectory(snapshot);
     if (kind !== "message.delta") renderProject(snapshot);
+    // 轨迹子页激活时：对话视图隐藏，empty-state / 加载更早按钮一并隐藏。
+    if (state.tab !== "conversation") {
+      elements["empty-state"].classList.add("hidden");
+      elements["history-bar"].classList.add("hidden");
+    }
+    perfHooks.markRender(performance.now() - started);
     return;
   }
   if (kind === "runtime.changed") {
@@ -134,6 +202,7 @@ function renderIncremental(snapshot, kind) {
     renderAccounts(snapshot.runtime || {});
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
+    renderGoal(snapshot);
     renderScheduledTaskPanel(snapshot.runtime || {});
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
@@ -156,6 +225,158 @@ function renderIncremental(snapshot, kind) {
   }
   if (kind === "interaction.opened" || kind === "interaction.closed") renderInteraction(snapshot.interaction);
 }
+
+// ── 对话区子页（对话 / 轨迹）──────────────────────────────
+// 轨迹与对话共用对话区，通过 workspace 顶部 tab 切换；当前 tab、过滤类型、
+// 展开与滚动都是本地 UI 状态，不进入 Snapshot。
+
+// renderTrajectory 从权威 conversation 派生轨迹记录并渲染。
+// active=false（轨迹子页未激活）时只缓存数据面，不碰轨迹 DOM。
+function renderTrajectory(snapshot, active = state.tab === "trajectory") {
+  if (!snapshot) return;
+  trajectoryView.render(buildTrajectory(snapshot.conversation || []), state.trajectoryFilter, active);
+}
+
+function setConversationTab(tab) {
+  if (tab !== "conversation" && tab !== "trajectory") return;
+  state.tab = tab;
+  elements["conversation-tabs"].querySelectorAll(".conversation-tab").forEach(button => {
+    const active = button.dataset.tab === tab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  elements.conversation.classList.toggle("hidden", tab !== "conversation");
+  elements.trajectory.classList.toggle("hidden", tab !== "trajectory");
+  const snapshot = client.current();
+  if (tab === "trajectory") {
+    // 轨迹子页：对话视图与加载更早入口隐藏；空态文案由轨迹视图自己渲染。
+    elements["history-bar"].classList.add("hidden");
+    elements["empty-state"].classList.add("hidden");
+    renderTrajectory(snapshot);
+    return;
+  }
+  if (!snapshot) return;
+  // 切回对话子页：恢复对话视图，empty-state / 加载更早由 chatView 重新判定。
+  chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "preserve", Boolean(snapshot.has_more_history));
+  chatView.renderControls(snapshot);
+}
+
+elements["conversation-tabs"].addEventListener("click", event => {
+  const button = event.target.closest(".conversation-tab");
+  if (!button || button.dataset.tab === state.tab) return;
+  setConversationTab(button.dataset.tab);
+});
+
+// ── 右侧栏子页（状态 / 工作台 / 代码）───────────────────────
+// 子页切换是纯 UI 状态（localStorage 记忆）；业务事实仍来自 Snapshot/Event。
+const RIGHT_TAB_KEY = "seelex.right.tab";
+const RIGHT_PANE_ORDER_KEY = "seelex.right.codePanes";
+
+function storedRightTab() {
+  const value = localStorage.getItem(RIGHT_TAB_KEY);
+  return value === "status" || value === "workbench" || value === "code" ? value : "status";
+}
+
+function setRightTab(tab) {
+  if (tab !== "status" && tab !== "workbench" && tab !== "code") return;
+  localStorage.setItem(RIGHT_TAB_KEY, tab);
+  elements["right-tabs"].querySelectorAll(".right-tab").forEach(button => {
+    const active = button.dataset.rightTab === tab;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  // 三个 tabpanel 是 #right-tabs 的兄弟节点（.right-panel 的直接子节点），
+  // 不能从 nav 内查询；从父容器作用域查询才能正确切换 hidden。
+  elements["right-tabs"].parentElement.querySelectorAll("[data-right-panel]").forEach(panel => {
+    panel.classList.toggle("hidden", panel.dataset.rightPanel !== tab);
+  });
+  if (tab === "code") refreshGitLogIfStale();
+}
+
+elements["right-tabs"].addEventListener("click", event => {
+  const button = event.target.closest(".right-tab");
+  if (!button || button.dataset.rightTab === state.rightTab) return;
+  state.rightTab = button.dataset.rightTab;
+  setRightTab(state.rightTab);
+});
+
+// ── 子页3：工作树 / 提交记录 面板顺序（拖拽调换，localStorage 记忆）────
+const CODE_PANES = ["worktree", "gitlog"];
+// gitLogRoot / gitLogLoadedAt 记录 git log 数据面（工作区切换/chat 结束
+// 后重新拉取；子页未激活时缓存，激活时按需刷新）。
+let gitLogRoot = "";
+let gitLogLoaded = false;
+
+function storedPaneOrder() {
+  const value = localStorage.getItem(RIGHT_PANE_ORDER_KEY);
+  if (Array.isArray(value)) {
+    const parsed = value.filter(pane => CODE_PANES.includes(pane));
+    if (parsed.length === CODE_PANES.length) return parsed;
+  }
+  return CODE_PANES;
+}
+
+function persistPaneOrder() {
+  const order = [];
+  elements["code-panes"].querySelectorAll("[data-pane]").forEach(section => {
+    order.push(section.dataset.pane);
+  });
+  localStorage.setItem(RIGHT_PANE_ORDER_KEY, JSON.stringify(order));
+}
+
+function applyPaneOrder(order) {
+  const panes = elements["code-panes"];
+  if (!panes) return;
+  order.forEach(pane => {
+    const section = panes.querySelector(`[data-pane="${pane}"]`);
+    if (section) panes.appendChild(section);
+  });
+}
+
+function initCodePanes() {
+  applyPaneOrder(storedPaneOrder());
+  const handles = elements["code-panes"]?.querySelectorAll("[data-pane]");
+  handles?.forEach(section => {
+    section.setAttribute("draggable", "true");
+    section.addEventListener("dragstart", event => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", section.dataset.pane);
+      section.classList.add("is-dragging");
+    });
+    section.addEventListener("dragend", () => {
+      section.classList.remove("is-dragging");
+      panes().forEach(other => other.classList.remove("is-drag-over"));
+    });
+    section.addEventListener("dragover", event => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      panes().forEach(other => other.classList.toggle("is-drag-over", other === section));
+    });
+    section.addEventListener("drop", event => {
+      event.preventDefault();
+      const fromPane = event.dataTransfer.getData("text/plain");
+      const fromSection = panes().find(other => other.dataset.pane === fromPane);
+      if (!fromSection || fromSection === section) return;
+      const panesList = panes();
+      const fromIndex = panesList.indexOf(fromSection);
+      const toIndex = panesList.indexOf(section);
+      if (fromIndex < 0 || toIndex < 0) return;
+      if (fromIndex < toIndex) {
+        section.after(fromSection);
+      } else {
+        section.before(fromSection);
+      }
+      panes().forEach(other => other.classList.remove("is-drag-over"));
+      persistPaneOrder();
+    });
+  });
+}
+
+function panes() {
+  return Array.from(elements["code-panes"]?.querySelectorAll("[data-pane]") || []);
+}
+
+initCodePanes();
 
 window.addEventListener("beforeunload", () => activeChatSync.stop());
 
@@ -205,6 +426,7 @@ async function refreshWorkTree(snapshot, running) {
     view.classList.add("muted");
     view.textContent = "绑定工作区后显示项目文件树";
     elements["file-count"].textContent = "0";
+    resetGitLog(snapshot);
     return;
   }
   const chatFinished = lastChatRunning && !running;
@@ -227,6 +449,48 @@ async function refreshWorkTree(snapshot, running) {
     view.textContent = "工作树暂不可用";
     showToast(error);
   }
+  refreshGitLog(snapshot, chatFinished);
+}
+
+// ── 提交记录树（工作台「代码」子页）────────────────────────
+// refreshGitLog 惰性加载提交记录：绑定工作区后拉一次；chat 结束（可能产生
+// 新提交）或工作区切换时刷新；子页未激活时数据面缓存，激活时按需刷新。
+async function refreshGitLog(snapshot, force = false) {
+  const view = elements["git-log-view"];
+  const rootPath = snapshot.current_workspace?.root_path || "";
+  if (!rootPath) {
+    resetGitLog(snapshot);
+    return;
+  }
+  if (rootPath === gitLogRoot && gitLogLoaded && !force) return;
+  gitLogRoot = rootPath;
+  gitLogLoaded = false;
+  elements["git-log-count"].textContent = "…";
+  try {
+    const result = await invoke("WorkspaceGitLog", 20);
+    gitLogView.renderRoot(result);
+    gitLogLoaded = true;
+    elements["git-log-count"].textContent = String(result.commits?.length ?? 0);
+  } catch (error) {
+    view.classList.add("muted");
+    view.textContent = "提交记录暂不可用";
+    showToast(error);
+  }
+}
+
+function resetGitLog(snapshot) {
+  gitLogRoot = "";
+  gitLogLoaded = false;
+  gitLogView.reset();
+  elements["git-log-count"].textContent = "0";
+}
+
+// refreshGitLogIfStale 子页3激活时按需刷新（数据面未加载或已失效）。
+function refreshGitLogIfStale() {
+  const snapshot = client.current();
+  const rootPath = snapshot?.current_workspace?.root_path || "";
+  if (rootPath === gitLogRoot && gitLogLoaded) return;
+  refreshGitLog(snapshot, true);
 }
 
 function renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces) {
@@ -466,6 +730,61 @@ function renderSkills(skills) {
   elements["skill-list"].innerHTML = skills.length
     ? skills.map(skill => `<span class="chip" title="${escapeHtml(skill.description || "")}">#${escapeHtml(skill.name)}</span>`).join("")
     : '<span class="muted">当前 Plugin 无 Skill</span>';
+}
+
+// ── 「目标」面板（工作台子页）──────────────────────────────
+// 数据源：runtime.goal_skill_active / runtime.active_skills（任务级 skill
+// 激活权威投影，backend 锁内快照）+ snapshot.task（当前任务状态/摘要）+
+// 最近用户输入（目标文本，本地派生展示）。无内容时隐藏整个 section。
+function renderGoal(snapshot) {
+  const runtime = snapshot.runtime || {};
+  const task = snapshot.task || null;
+  const goalActive = Boolean(runtime.goal_skill_active);
+  const activeSkills = Array.isArray(runtime.active_skills) ? runtime.active_skills : [];
+  const goalSection = elements["goal-section"];
+  if (!goalSection) return;
+  const goalText = latestUserInput(snapshot);
+  const hasContent = goalActive || activeSkills.length > 0 || task || goalText;
+  goalSection.classList.toggle("hidden", !hasContent);
+  const badge = elements["goal-badge"];
+  if (badge) {
+    badge.classList.toggle("hidden", !goalActive);
+    badge.textContent = "GOAL";
+    badge.title = goalActive ? "GOAL 方法论已激活" : "";
+  }
+  const view = elements["goal-view"];
+  if (!hasContent) {
+    view.classList.add("muted");
+    view.innerHTML = "当前无目标任务";
+    return;
+  }
+  view.classList.remove("muted");
+  const goalLine = goalText
+    ? `<div class="goal-text" title="${escapeHtml(goalText)}">${escapeHtml(truncateGoalText(goalText))}</div>`
+    : "";
+  const taskLine = task
+    ? `<div class="goal-task"><span class="goal-task-status is-${escapeHtml(task.status || "idle")}">${escapeHtml(task.status || "idle")}</span><span class="goal-task-summary" title="${escapeHtml(task.summary || "")}">${escapeHtml(task.summary || "任务进行中")}</span></div>`
+    : "";
+  const chips = activeSkills.length
+    ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">#${escapeHtml(skill)}</span>`).join("")}</div>`
+    : "";
+  view.innerHTML = `${goalLine}${taskLine}${chips}`;
+}
+
+// latestUserInput 返回会话最近一条非空用户消息（目标文本数据源）。
+function latestUserInput(snapshot) {
+  const conversation = snapshot.conversation || [];
+  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+    const message = conversation[index];
+    if (message?.role === "user" && message.content && String(message.content).trim()) {
+      return String(message.content).trim();
+    }
+  }
+  return "";
+}
+
+function truncateGoalText(text, max = 120) {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
 // lastPlanDsl 保存最近一次渲染的 Plan DSL（节点详情弹窗的数据源；
@@ -1444,6 +1763,8 @@ function resizePrompt() {
 async function initialise() {
   try {
     hydrateIcons();
+    state.rightTab = storedRightTab();
+    setRightTab(state.rightTab);
     if (!bindRuntimeEvents(window.runtime)) {
       throw new Error("GUI event runtime 尚未就绪");
     }

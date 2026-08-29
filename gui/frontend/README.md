@@ -12,17 +12,20 @@
 | `dist/client-state.js` | Snapshot/Event reducer、seq gap 和 resync。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
+| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/notice）、tool 请求/响应配对、过滤、统计与表格渲染。 |
+| `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
-| `dist/worktree-view.js` | 工作树视图（右栏「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；`--tree-depth` 缩进、全部文本 escape。 |
+| `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；`--tree-depth` 缩进、全部文本 escape。 |
+| `dist/git-log-view.js` | 提交记录树视图（「资源管理器」子页「提交记录」面板）：数据源 `Bridge.WorkspaceGitLog(limit)`（后端权威只读元数据：`git log --all --graph` 拓扑行 + hash/作者/时间/标题，不含 diff/文件内容）；graph 前缀等宽渲染保留分支拓扑、延续线（merge `| \ /`）原样保留、短 hash 点击复制完整 hash、截断提示；全部文本 escape。 |
 | `dist/scheduled-tasks-view.js` | 定时/周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用，待文件预览方案落地后再清理。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer。 |
-| `dist/*.test.mjs` | Node 内置 test runner 契约测试。 |
+| `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计与转义安全。 |
 
 ## 视觉设计系统
 
@@ -35,7 +38,10 @@
 - 图标管线：静态按钮以 `data-icon` 占位，启动时由 `components.js` 的
   `hydrateIcons()` 注入统一 stroke SVG（ICONS 注册表）；顶部连接点
   `.status-dot` 由 `chat-view.js` 追加 `online` 类切换语义色。
-- 信息层级：右栏主面板（项目/状态/工作表格/定时任务）常驻，次要面板（历史检索/概要/工作树）收进 `#side-more` 折叠区；左侧栏承载会话树、工作区绑定与账户，三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆），账户区可折叠。
+- 信息层级：右侧栏按内容划分为三个子页（`状态 / 工作台 / 资源管理器`），子页切换
+  localStorage 记忆；「历史检索」收进 `#side-more` 折叠区常驻子页之下；左侧栏
+  承载会话树、工作区绑定与账户，三栏宽度可拖拽调整（`--left-w`/`--right-w`，
+  localStorage 记忆），账户区可折叠。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
 - 语义色映射以 `:root` token 为唯一事实来源；新增组件时先查 token，不新增同义色。
 - 会话树：会话按工作区（`session_workspaces` 投影）分组，未绑定或工作区已消失的会话收进「未关联会话」置底；工作区组头可点击折叠（localStorage 记忆）；工具 in/out 面板支持展开/收回切换。
@@ -77,9 +83,31 @@ task 即 worktable 条目（单一注册表 actor，保护粒度=task）：主�
 `task.changed` 按 task_id 单行 upsert，`worktable.changed` 保持整表替换；
 retry 状态展示 `RETRY n`（retry_count）。
 
+## 右侧栏子页（状态 / 工作台 / 资源管理器）
+
+右侧栏在项目标题之下按内容分为三个子页（`.right-tabs`，localStorage 记忆
+`seelex.right.tab`，默认「状态」）：
+
+- **状态**：项目状态 grid（状态/会话/消息/任务/文件数）+ 概要 + 上下文压缩
+  时间线（原「状态」面板整体移入）。
+- **工作台**：「目标」面板 + 工作表格入口 + 定时任务面板。
+- **代码**：「工作树」与「提交记录」两块面板，可拖拽调换顺序（grip 手柄，
+  `seelex.right.codePanes` localStorage 记忆）。
+
+「目标」面板（`goal-view`）展示当前任务的工程目标证据面：目标文本（最近一条
+非空用户消息）、任务状态/摘要（`snapshot.task` 权威 TaskState）、激活 skill
+chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
+后端锁内快照投影，`runtime.changed` 增量携带）。无内容时整个 section 隐藏。
+
+「资源管理器」子页数据面：工作树走 `Bridge.WorkspaceTree/FileCount`（惰性目录展开），
+提交记录走 `Bridge.WorkspaceGitLog(limit)`（最近 20 条，graph 拓扑行 + hash/
+作者/时间/标题；graph 等宽渲染保留分支拓扑，短 hash 点击复制完整 hash）。
+两面板在工作区切换或 chat 结束（文件/提交可能变化）时按需刷新；子页未激活时
+数据面缓存，激活时按需拉取。历史检索保留在 `#side-more` 折叠区常驻。
+
 ## 定时周期任务
 
-右侧栏「定时任务」section 常驻（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `seelebridge/scheduler/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
+右侧栏「工作台」子页「定时任务」section 常驻（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `seelebridge/scheduler/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。
 
 新建弹窗的字段由 `Bridge.ScheduleTask` 提交（`scheduled-tasks-view` 不直接持有 Bridge）：类型分「命令」与「提示词」两种；执行方式分「周期重复」与「定时执行（一次性）」两种。
 
@@ -97,6 +125,14 @@ retry 状态展示 `RETRY n`（retry_count）。
 任务状态、白名单命令均为公开元数据，不含 secret；渲染文本全部 escape。
 
 `Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
+
+对话区顶部有「对话 / 轨迹」两个子页 tab（`.conversation-tabs`，本地 UI 状态）。
+「轨迹」子页把同一份 `Snapshot.conversation` 投影为 Network 风格的响应日志：
+先按响应类型分类（输入 / LLM / 工具 / 错误 / 通知），工具请求与 `tool_result`
+按 tool id 配对为一行（IN/OUT、状态、耗时、大小、`result_ref` 截断读回）；
+过滤条按类型筛选并带计数，展开详情复用 `io-panel` 交互契约（复制/展开/
+`ToolResultContent` 分页读回）。轨迹数据纯前端派生，不新增后端契约；子页
+未激活时只缓存数据面（懒渲染），增量事件到达时重新投影。
 
 子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，
 工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持
@@ -152,15 +188,17 @@ go test ./gui -count=1
 `work-table.test.mjs` 覆盖工作表格归一化、多维表格渲染（含转义）、todo 三态
 控件与打点表；`protocol.test.mjs` 断言 `worktable.changed` 只替换
 `runtime.work_table`（plan 对象引用不变）且子代理事件复用未命中分支节点
-（结构共享，无整树深拷贝）。
+（结构共享，无整树深拷贝）。`git-log-view.test.mjs` 覆盖提交记录树归一化
+（提交行/延续线/畸形载荷）、graph 前缀截断、全部文本 escape 与复制回调。
 
 ## Context compression summary
 
 The project overview renders `task.context_compactions` as a small timeline of successful context compressions. The frontend receives only public metadata (version, reason, counts, and time); it does not receive private checkpoint content, prompt text, tool payloads, or raw conversation history.
 
-The right-column “工作树” panel shows the bound workspace's file tree via
+The right-column “代码”子页“工作树”面板 shows the bound workspace's file tree via
 `Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` (metadata only: name,
 path, type, size, counts). It replaces the former flat “Agent read files”
 list; the backend `read_files` archive is still persisted as session evidence
 but is no longer a main panel. The tree never carries file content into the
-renderer.
+renderer. 同一子页的「提交记录」面板经 `Bridge.WorkspaceGitLog` 展示最近 20 条
+提交的 graph 拓扑树（hash/作者/时间/标题，只读元数据，不含 diff/文件内容）。

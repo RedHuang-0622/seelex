@@ -51,6 +51,8 @@ type fakeApplication struct {
 	treeRel          string
 	treeDepth        int
 	treeErr          error
+	gitLog           dto.GitLogResult
+	gitLimit         int
 }
 
 type staleCancelApplication struct {
@@ -180,6 +182,19 @@ func (fake *fakeApplication) WorkspaceTree(relPath string, depth int) (dto.TreeL
 
 func (fake *fakeApplication) WorkspaceFileCount() (dto.TreeCount, error) {
 	return fake.treeCount, fake.treeErr
+}
+
+func (fake *fakeApplication) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
+	fake.gitLimit = limit
+	return fake.gitLog, nil
+}
+
+func (fake *fakeApplication) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (application.ToolResultPage, error) {
+	return application.ToolResultPage{ResultRef: resultRef, Offset: offset, NextOffset: offset + limit, Content: "page"}, nil
+}
+
+func (fake *fakeApplication) PerfStats() application.PerfStats {
+	return application.PerfStats{SnapshotBytes: 1024, ConversationMessages: 3}
 }
 
 func TestNewBridgeRequiresApplication(t *testing.T) {
@@ -322,6 +337,29 @@ func TestBridgeWorkspaceFileCountForwards(t *testing.T) {
 	}
 	if count.Files != 42 || count.Dirs != 7 {
 		t.Fatalf("unexpected count: %+v", count)
+	}
+}
+
+func TestBridgeWorkspaceGitLogForwardsLimit(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.gitLog = dto.GitLogResult{Lines: []dto.GitLogLine{
+		{Graph: "*", Commit: &dto.GitCommitNode{Hash: "aaaa", ShortHash: "a1b2", Author: "Alice", Date: "08-29", Subject: "fix: git log"}},
+	}, Commits: []dto.GitCommitNode{{Hash: "aaaa"}}}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := bridge.WorkspaceGitLog(20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.gitLimit != 20 {
+		t.Fatalf("forwarded limit=%d", fake.gitLimit)
+	}
+	if len(result.Lines) != 1 || result.Lines[0].Commit == nil || result.Lines[0].Commit.Subject != "fix: git log" {
+		t.Fatalf("unexpected git log result: %+v", result.Lines)
 	}
 }
 
@@ -691,13 +729,19 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		!strings.Contains(string(script), `Boolean(runtime.full_access)`) {
 		t.Fatal("Full Access control must use the authoritative GUI backend snapshot")
 	}
+	if !strings.Contains(string(script), `from "./perf-hooks.js"`) || !strings.Contains(string(script), `createPerfHooks`) || !strings.Contains(string(script), `invoke("PerfStats")`) || !strings.Contains(string(script), `invoke("ToolResultContent"`) {
+		t.Fatal("embedded frontend must wire performance hooks and result_ref loading")
+	}
+	if !strings.Contains(string(index), `id="perf-badge-host"`) {
+		t.Fatal("embedded frontend must include the perf badge host")
+	}
 	components, err := embeddedFrontend.ReadFile("frontend/dist/components.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	componentSource := string(components)
-	if !strings.Contains(componentSource, `renderIOPanel("IN"`) || !strings.Contains(componentSource, `renderIOPanel("OUT"`) || !strings.Contains(componentSource, "2400, 40") {
-		t.Fatal("tool component must split IN/OUT and limit default output")
+	if !strings.Contains(componentSource, `renderIOPanel("IN"`) || !strings.Contains(componentSource, `renderIOPanel("OUT"`) || !strings.Contains(componentSource, "previewLimit = 4000") || !strings.Contains(componentSource, `data-load-ref`) || !strings.Contains(componentSource, `io-collapse`) {
+		t.Fatal("tool component must split IN/OUT, cap preview (4KB), and offer result_ref expansion for truncated output")
 	}
 	if !strings.Contains(string(index), `data-icon="command"`) || !strings.Contains(string(index), `data-icon="send"`) {
 		t.Fatal("primary GUI actions must use icon controls")
