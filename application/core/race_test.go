@@ -356,7 +356,7 @@ func TestChat_RaceToolHandling(t *testing.T) {
 		wg.Add(2)
 		go func(id int) {
 			defer wg.Done()
-			service.handleToolStart("test_tool", fmt.Sprintf("tool-%d", id), `{"arg":"value"}`)
+			service.handleToolStart(context.Background(), "test_tool", fmt.Sprintf("tool-%d", id), `{"arg":"value"}`)
 			time.Sleep(time.Microsecond)
 			service.handleToolComplete("test_tool", fmt.Sprintf("tool-%d", id), "result", nil, time.Millisecond)
 		}(i)
@@ -653,7 +653,7 @@ func TestSnapshot_RaceReadWrite(t *testing.T) {
 		// 另一个写入者
 		go func(id int) {
 			defer wg.Done()
-			service.handleToolStart("t", fmt.Sprintf("t%d", id), "{}")
+			service.handleToolStart(context.Background(), "t", fmt.Sprintf("t%d", id), "{}")
 			service.handleToolComplete("t", fmt.Sprintf("t%d", id), "ok", nil, 0)
 		}(i)
 	}

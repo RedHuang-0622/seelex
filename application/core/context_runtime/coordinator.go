@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
@@ -69,22 +70,36 @@ type Ports struct {
 }
 
 // CompactTaskContext 把整个可变 transcript 替换为一个私有、有界的 checkpoint
-// （引擎迭代 hook 调用，绝不持有 Core.Mu）。
+// （引擎迭代 hook 调用，绝不持有 Core.Mu；活跃会话兼容包装）。
 func (c *Coordinator) CompactTaskContext(requestID string) error {
-	_, err := c.PrepareExecutionContext(requestID, "")
+	return c.CompactTaskContextFor(c.tasks.SessionIDForRequest(requestID), requestID)
+}
+
+// CompactTaskContextFor 把指定会话整个可变 transcript 替换为一个私有、有界
+// 的 checkpoint（引擎迭代 hook 调用，绝不持有 Core.Mu）。
+func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
+	_, err := c.PrepareExecutionContextFor(sessionID, requestID, "")
 	if err != nil {
 		return err
 	}
-	if err := c.sessions.PersistCurrentSession(c.Deps.Engine.SessionID()); err != nil {
+	if err := c.sessions.PersistCurrentSession(sessionID); err != nil {
 		return fmt.Errorf("persist context checkpoint: %w", err)
 	}
 	return nil
 }
 
 // PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
-// provider 缓存。返回可能被引用的当前输入；仍超安全预算时拒绝发送。
+// provider 缓存（活跃会话兼容包装）。返回可能被引用的当前输入；仍超安全
+// 预算时拒绝发送。
 func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error) {
-	if _, err := c.rejectOversizedToolResults(task_context.DefaultToolResultLimit()); err != nil {
+	return c.PrepareExecutionContextFor(c.tasks.SessionIDForRequest(requestID), requestID, currentInput)
+}
+
+// PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
+// 指定会话 provider 缓存。返回可能被引用的当前输入；仍超安全预算时拒绝
+// 发送。sessionID 指明执行会话（多会话并行时目标会话）。
+func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error) {
+	if _, err := c.rejectOversizedToolResults(sessionID, task_context.DefaultToolResultLimit()); err != nil {
 		return "", err
 	}
 	// 工作打点表：请求尾部的只读标记块（system 前缀保持不变 → 缓存友好；
@@ -98,21 +113,21 @@ func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (s
 	}
 	budget := task_context.ContextBudgetFor(c.Deps.Runtime)
 	tools := c.Deps.Runtime.VisibleTools(context.Background())
-	existing := c.Deps.Engine.History()
+	existing := c.engineHistory(sessionID)
 	c.Mu.RLock()
-	systemPrompt := c.prompts.SystemPromptForActiveTaskLocked()
+	systemPrompt := c.prompts.SystemPromptForActiveTaskLockedFor(sessionID)
 	c.Mu.RUnlock()
-	c.Deps.Engine.SetSystemPrompt(systemPrompt)
+	c.setEngineSystemPrompt(sessionID, systemPrompt)
 	rawTokens := c.tasks.CountRequestTokens(systemPrompt, existing, currentInput, tools)
 
 	runtimeModel := c.Deps.Runtime.Model()
 	c.Mu.Lock()
-	state := c.tasks.CurrentTaskExecution()
+	state := c.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || state.RequestID != requestID {
 		c.Mu.Unlock()
 		return currentInput, nil
 	}
-	currentInput = c.protectOversizedCurrentInputLocked(requestID, currentInput, budget)
+	currentInput = c.protectOversizedCurrentInputLocked(sessionID, requestID, currentInput, budget)
 	newCheckpoint := rawTokens >= budget.SoftThreshold && state.CompactedEpoch != state.ProgressEpoch
 	if newCheckpoint {
 		state.ContextVersion++
@@ -120,13 +135,13 @@ func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (s
 	}
 	checkpoint := c.tasks.BuildTaskCheckpointLocked(state)
 	checkpoint.Version = state.ContextVersion
-	planMessage := c.planContextMessageLocked()
+	planMessage := c.planContextMessageLocked(sessionID)
 	checkpointMessage := checkpointContextMessage(checkpoint, rawTokens >= budget.HardThreshold)
-	events := append([]model.TranscriptEvent(nil), c.tasks.Transcript()...)
+	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
 	events = excludeCurrentInputEvent(events, requestID, currentInput)
 	c.Mu.Unlock()
 
-	systems := RetainedSystemHistory(c.Deps.Engine.History())
+	systems := RetainedSystemHistory(c.engineHistory(sessionID))
 	target := budget.Budget
 	if rawTokens >= budget.SoftThreshold {
 		target = budget.TargetAfterCompaction
@@ -139,15 +154,15 @@ func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (s
 	if estimated > budget.Budget {
 		return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
 	}
-	if err := c.Deps.Engine.ReplaceHistory(c.Deps.Engine.SessionID(), assembled); err != nil {
+	if err := c.replaceEngineHistory(sessionID, assembled); err != nil {
 		return "", fmt.Errorf("assemble provider context: %w", err)
 	}
-	if err := c.history.PrepareProviderHistory(); err != nil {
+	if err := c.history.PrepareProviderHistoryFor(sessionID); err != nil {
 		return "", err
 	}
 
 	c.Mu.Lock()
-	state = c.tasks.CurrentTaskExecution()
+	state = c.tasks.CurrentTaskExecutionFor(sessionID)
 	recorded := false
 	var revision uint64
 	if state != nil && state.RequestID == requestID {
@@ -210,8 +225,8 @@ func (c *Coordinator) fitExecutionHistory(
 	return history, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
 }
 
-func (c *Coordinator) planContextMessageLocked() string {
-	projection := c.tasks.ActivePlanProjectionLocked()
+func (c *Coordinator) planContextMessageLocked(sessionID string) string {
+	projection := c.tasks.ActivePlanProjectionLockedFor(sessionID)
 	if projection == nil || projection.Status == string(model.PlanCompleted) {
 		return ""
 	}
@@ -221,7 +236,7 @@ func (c *Coordinator) planContextMessageLocked() string {
 		"completed": projection.CompletedNodes, "failed": projection.FailedNodes,
 		"pending": projection.PendingNodes,
 	}
-	if frame := task_context.ActivePlanFrame(c.tasks.PlanStack(), c.tasks.ActivePlanID()); frame != nil {
+	if frame := task_context.ActivePlanFrame(c.tasks.PlanStackFor(sessionID), c.tasks.ActivePlanIDFor(sessionID)); frame != nil {
 		payload["current_slice"] = currentPlanSlice(frame.Arguments, projection.CurrentNode)
 	}
 	encoded, _ := json.Marshal(payload)
@@ -289,13 +304,13 @@ func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, current
 	return events
 }
 
-func (c *Coordinator) protectOversizedCurrentInputLocked(requestID, currentInput string, budget task_context.ContextBudget) string {
+func (c *Coordinator) protectOversizedCurrentInputLocked(sessionID, requestID, currentInput string, budget task_context.ContextBudget) string {
 	if currentInput == "" || c.tasks.CountTextTokens(currentInput) <= budget.TargetAfterCompaction/2 {
 		return currentInput
 	}
-	stored := c.tasks.StoreToolResultLocked("user_input", currentInput)
+	stored := c.tasks.StoreToolResultForLocked(sessionID, "user_input", currentInput)
 	warning := ContentReferenceWarning(stored.Ref)
-	transcript := c.tasks.Transcript()
+	transcript := c.tasks.TranscriptFor(sessionID)
 	for index := len(transcript) - 1; index >= 0; index-- {
 		event := &transcript[index]
 		if event.TaskID == requestID && event.Role == "user" {
@@ -319,17 +334,17 @@ func ContentReferenceWarning(resultRef string) string {
 const FrameworkToolOutputTruncatedMarker = "\n...[truncated]"
 
 // rejectOversizedToolResults 把超限输出替换为显式重试指令（不给头部/尾部
-// 预览，避免基于误导片段的推理）。
-func (c *Coordinator) rejectOversizedToolResults(maxChars int) (bool, error) {
-	history := c.Deps.Engine.History()
+// 预览，避免基于误导片段的推理；目标会话显式传入）。
+func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int) (bool, error) {
+	history := c.engineHistory(sessionID)
 	c.Mu.RLock()
-	refs := c.tasks.ResultRefsByCallID()
+	refs := c.tasks.ResultRefsByCallIDFor(sessionID)
 	c.Mu.RUnlock()
 	filtered, changed := rejectToolResultsWithRefs(history, maxChars, refs)
 	if !changed {
 		return false, nil
 	}
-	if err := c.Deps.Engine.ReplaceHistory(c.Deps.Engine.SessionID(), filtered); err != nil {
+	if err := c.replaceEngineHistory(sessionID, filtered); err != nil {
 		return false, fmt.Errorf("reject oversized tool results: %w", err)
 	}
 	return true, nil
@@ -421,9 +436,15 @@ func RetainedSystemHistory(history []contract.EngineMessage) []contract.EngineMe
 }
 
 // RemoveTaskContextCheckpoints 阻止 Application 控制消息被持久化/重建为
-// 前端会话占位。
+// 前端会话占位（活跃会话兼容包装）。
 func (c *Coordinator) RemoveTaskContextCheckpoints() error {
-	history := c.Deps.Engine.History()
+	return c.RemoveTaskContextCheckpointsFor(c.tasks.SessionIDForRequest(""))
+}
+
+// RemoveTaskContextCheckpointsFor 阻止 Application 控制消息被持久化/重建为
+// 前端会话占位（目标会话由调用方显式传入）。
+func (c *Coordinator) RemoveTaskContextCheckpointsFor(sessionID string) error {
+	history := c.engineHistory(sessionID)
 	filtered := make([]contract.EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
@@ -436,7 +457,7 @@ func (c *Coordinator) RemoveTaskContextCheckpoints() error {
 	if !removed {
 		return nil
 	}
-	if err := c.Deps.Engine.ReplaceHistory(c.Deps.Engine.SessionID(), filtered); err != nil {
+	if err := c.replaceEngineHistory(sessionID, filtered); err != nil {
 		return fmt.Errorf("remove task context checkpoint: %w", err)
 	}
 	return nil
@@ -455,4 +476,52 @@ func (c *Coordinator) RecordContextControlFailure(requestID string, err error) {
 // TakeContextControlFailure 取走当前请求的 context 控制失败（委托 task 域）。
 func (c *Coordinator) TakeContextControlFailure(requestID string) error {
 	return c.tasks.TakeContextControlFailure(requestID)
+}
+
+// engineHistory 返回指定会话引擎历史（会话路由引擎用 HistoryFor，否则活跃
+// 引擎）。
+func (c *Coordinator) engineHistory(sessionID string) []contract.EngineMessage {
+	if routed, ok := c.Deps.Engine.(contract.SessionChatEngine); ok {
+		return routed.HistoryFor(sessionID)
+	}
+	return c.Deps.Engine.History()
+}
+
+// setEngineSystemPrompt 设置指定会话引擎 system prompt（会话路由引擎用
+// SetSystemPromptFor，否则活跃引擎）。
+func (c *Coordinator) setEngineSystemPrompt(sessionID, prompt string) {
+	if routed, ok := c.Deps.Engine.(contract.SessionChatEngine); ok {
+		routed.SetSystemPromptFor(sessionID, prompt)
+		return
+	}
+	c.Deps.Engine.SetSystemPrompt(prompt)
+}
+
+// replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
+// ReplaceHistoryFor，不切活跃；否则回退契约 ReplaceHistory）。
+func (c *Coordinator) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error {
+	if routed, ok := c.Deps.Engine.(contract.SessionChatEngine); ok {
+		return routed.ReplaceHistoryFor(sessionID, history)
+	}
+	return c.Deps.Engine.ReplaceHistory(sessionID, history)
+}
+
+// clearEngineHistory 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，
+// 否则活跃引擎）。
+func (c *Coordinator) clearEngineHistory(sessionID string) {
+	if routed, ok := c.Deps.Engine.(contract.SessionChatEngine); ok {
+		routed.ClearHistoryFor(sessionID)
+		return
+	}
+	c.Deps.Engine.ClearHistory()
+}
+
+// appendEngineHistory 追加消息到指定会话引擎历史（会话路由引擎用
+// AppendHistoryFor，否则活跃引擎）。
+func (c *Coordinator) appendEngineHistory(sessionID string, msg types.Message) {
+	if routed, ok := c.Deps.Engine.(contract.SessionChatEngine); ok {
+		routed.AppendHistoryFor(sessionID, msg)
+		return
+	}
+	c.Deps.Engine.AppendHistory(msg)
 }

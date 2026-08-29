@@ -32,7 +32,7 @@ func TestSubagentSessionDetailCarriesContext(t *testing.T) {
 	svc := newTestService(t, engine)
 	defer svc.Shutdown()
 	// 经 plan_load 播种节点（权威 Snapshot 投影）。
-	svc.handleToolStart("plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
+	svc.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
 	svc.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
 
 	detail, err := svc.SubagentSessionDetail("worker")
@@ -70,7 +70,7 @@ func TestSubagentSessionDetailCarriesWorktree(t *testing.T) {
 	}
 	svc := newTestService(t, engine)
 	defer svc.Shutdown()
-	svc.handleToolStart("plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
+	svc.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"worker","nodes":{"worker":{"input":"audit module"}},"edges":{}}`)
 	svc.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
 
 	detail, err := svc.SubagentSessionDetail("worker")
@@ -142,7 +142,7 @@ func TestTodoItemsProjectIntoRuntimeSnapshot(t *testing.T) {
 		t.Fatalf("assembly must project todo items: %+v", snapshot.Runtime.TodoItems)
 	}
 
-	svc.handleToolStart("todolist_status", "t-1", `{}`)
+	svc.handleToolStart(context.Background(), "todolist_status", "t-1", `{}`)
 	svc.handleToolComplete("todolist_status", "t-1", `{}`, nil, 0)
 	snapshot := svc.Snapshot()
 	if len(snapshot.Runtime.TodoItems) != 2 || !snapshot.Runtime.TodoItems[0].Done || snapshot.Runtime.TodoItems[1].Done {

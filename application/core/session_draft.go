@@ -27,15 +27,6 @@ func (service *Service) BeginNewSession() error {
 	if runtime := service.sessionChat[sessionID]; runtime != nil {
 		currentRunning = runtime.chat.Running
 	}
-	otherRunning := false
-	if !currentRunning {
-		for _, runtime := range service.sessionChat {
-			if runtime != nil && runtime.chat.Running {
-				otherRunning = true
-				break
-			}
-		}
-	}
 	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
 	service.Mu.RUnlock()
 	if closed {
@@ -46,9 +37,6 @@ func (service *Service) BeginNewSession() error {
 	}
 	if currentRunning {
 		return ErrChatRunning
-	}
-	if otherRunning {
-		return ErrSessionBusy
 	}
 	if draft {
 		return nil

@@ -126,6 +126,7 @@ type terminalToolHandlers map[string]func(context.Context, taskTerminal) (string
 // 共享内核（锁 + 只读 Snapshot）与任务状态，不接触其它域。
 type TaskService struct {
 	*state.Core
+	sessionID    string
 	state        *TaskExecutionState
 	projection   PlanProjectionReader
 	terminals    terminalToolHandlers
@@ -135,9 +136,11 @@ type TaskService struct {
 }
 
 // newTaskService 构造当前任务的 TaskService。state 为 nil 时表示无活跃任务。
-func newTaskService(core *state.Core, taskState *TaskExecutionState, queueRefs func() []string) *TaskService {
+// sessionID 是该任务归属会话（多会话并行时用于快照写入守卫与状态路由）。
+func newTaskService(sessionID string, core *state.Core, taskState *TaskExecutionState, queueRefs func() []string) *TaskService {
 	service := &TaskService{
 		Core:       core,
+		sessionID:  sessionID,
 		state:      taskState,
 		projection: &planProjectionReader{Core: core},
 		queueRefs:  queueRefs,
@@ -222,13 +225,13 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 			s.setTaskStateLocked(summary.RequestID, model.TaskNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here.")
 			state.ProgressEpoch++
 			s.rememberResumeLocked(summary)
-			return *s.Snapshot.Task, nil
+			return s.taskStateResultLocked(summary.RequestID, model.TaskNeedsUserDecision, "Plan is ready but not executed. Choose whether to execute it, revise it, or stop here."), nil
 		case model.PlanFailed, model.PlanAborted:
 			state.Status = StatusFailed
 			state.Checkpoint("plan", "authoritative plan", string(plan.Status), "", "plan did not complete")
 			s.setTaskStateLocked(summary.RequestID, model.TaskFailed, "The authoritative plan did not reach completion.")
 			s.rememberResumeLocked(summary)
-			return *s.Snapshot.Task, nil
+			return s.taskStateResultLocked(summary.RequestID, model.TaskFailed, "The authoritative plan did not reach completion."), nil
 		}
 	}
 	state.Status = StatusCompleted
@@ -238,11 +241,33 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 	s.setTaskStateLocked(summary.RequestID, model.TaskCompleted, state.Terminal.Summary)
 	state.ProgressEpoch++
 	s.rememberResumeLocked(summary)
-	return *s.Snapshot.Task, nil
+	return s.taskStateResultLocked(summary.RequestID, model.TaskCompleted, state.Terminal.Summary), nil
+}
+
+// taskStateResultLocked 构造任务的可见状态结果。优先取共享快照中的 Task
+// （活跃会话已由 setTaskStateLocked 写入）；非活跃会话（后台并行）快照未
+// 写入时由本方法构造，避免 nil 解引用。
+func (s *TaskService) taskStateResultLocked(requestID string, status model.TaskStatus, summary string) model.TaskState {
+	if s.Snapshot.Task != nil && s.Snapshot.Task.RequestID == requestID {
+		return *s.Snapshot.Task
+	}
+	var compactions []model.ContextCompaction
+	if s.state != nil && s.state.RequestID == requestID {
+		compactions = append([]model.ContextCompaction(nil), s.state.ContextCompactions...)
+	}
+	return model.TaskState{
+		RequestID:          requestID,
+		Status:             status,
+		Summary:            strings.TrimSpace(summary),
+		ContextCompactions: compactions,
+		UpdatedAt:          time.Now(),
+	}
 }
 
 // VerifyAndApply 是终态/打点工具的 Registry handler 入口：解析/校验入参 →
 // 同步 flush 投影 → 校验完成度与收敛性 → 应用状态。
+// 任务归属由本 TaskService 绑定的会话状态决定（多会话并行时，调用方从
+// ctx 会话路由出正确的 TaskService），不再依赖共享快照的"当前 Chat"。
 func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error) {
 	var input taskTerminal
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
@@ -259,11 +284,8 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 		s.Mu.Lock()
 		defer s.Mu.Unlock()
 		state := s.state
-		if state == nil || state.RequestID != s.Snapshot.Chat.RequestID || !s.Snapshot.Chat.Running {
+		if state == nil || state.Terminal != nil {
 			return "", fmt.Errorf("%s: no active task execution", kind)
-		}
-		if state.Terminal != nil {
-			return "", fmt.Errorf("%s: task already reached %s", kind, state.Terminal.Kind)
 		}
 		return s.applyCheckNodeLocked(ctx, input)
 	}
@@ -283,11 +305,8 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
 	state := s.state
-	if state == nil || state.RequestID != s.Snapshot.Chat.RequestID || !s.Snapshot.Chat.Running {
+	if state == nil || state.Terminal != nil {
 		return "", fmt.Errorf("%s: no active task execution", kind)
-	}
-	if state.Terminal != nil {
-		return "", fmt.Errorf("%s: task already reached %s", kind, state.Terminal.Kind)
 	}
 	handler, ok := s.terminals[kind]
 	if !ok {
@@ -409,8 +428,12 @@ func (s *TaskService) rememberResumeLocked(summary ChatEndSummary) {
 	}
 }
 
-// setTaskStateLocked 把任务可见状态写入快照。
+// setTaskStateLocked 把任务可见状态写入快照。非活跃会话（后台并行执行）
+// 跳过共享快照写入，避免污染活跃会话投影。
 func (s *TaskService) setTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
+	if s.sessionID != s.Snapshot.Session.ID {
+		return
+	}
 	var compactions []model.ContextCompaction
 	if s.state != nil && s.state.RequestID == requestID {
 		compactions = append([]model.ContextCompaction(nil), s.state.ContextCompactions...)

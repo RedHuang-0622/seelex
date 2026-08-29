@@ -106,6 +106,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		CurrentEffort: func() string {
 			return service.effortManager.Current()
 		},
+		Tasks: service.components.tasks,
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord) {
 			service.refreshWorkTableLocked(tasks)
 		},

@@ -76,7 +76,7 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 func TestToolEventsUpdateSnapshot(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.handleToolStart("read", "read-1", `{"path":"a"}`)
+	service.handleToolStart(context.Background(), "read", "read-1", `{"path":"a"}`)
 	service.handleToolComplete("read", "read-1", "ok", nil, time.Second)
 	snapshot := service.Snapshot()
 	found := false
@@ -103,7 +103,7 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 	}
 	service.publishRuntimeProjections()
 
-	service.handleToolStart("bash", "bash-goal", `{"command":"echo ok"}`)
+	service.handleToolStart(context.Background(), "bash", "bash-goal", `{"command":"echo ok"}`)
 	done := make(chan struct{})
 	go func() {
 		service.handleToolComplete("bash", "bash-goal", "ok", nil, time.Millisecond)

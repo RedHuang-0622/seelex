@@ -32,6 +32,11 @@ type Deps struct {
 	// RefreshWorkTableLocked 在锁内重建工作表格投影（work_table 域；
 	// 调用方已持有 Core.Mu）。
 	RefreshWorkTableLocked func(tasks []dto.TaskRecord)
+	// Tasks 提供任务级 skill 激活投影（「目标」面板数据源）。
+	Tasks interface {
+		ActiveSkillIDs() []string
+		GoalSkillActive() bool
+	}
 	// Limits 返回当前生效的运行时上限（窗口配置）。
 	Limits func() seelexctx.Limits
 }
@@ -41,8 +46,12 @@ type Coordinator struct {
 	*state.Core
 	currentEffort          func() string
 	refreshWorkTableLocked func([]dto.TaskRecord)
-	limits                 func() seelexctx.Limits
-	messageSeq             uint64
+	tasks                  interface {
+		ActiveSkillIDs() []string
+		GoalSkillActive() bool
+	}
+	limits     func() seelexctx.Limits
+	messageSeq uint64
 }
 
 // NewCoordinator 构造 view 域协调器。
@@ -51,6 +60,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		Core:                   deps.Core,
 		currentEffort:          deps.CurrentEffort,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
+		tasks:                  deps.Tasks,
 		limits:                 deps.Limits,
 	}
 }
@@ -96,6 +106,10 @@ func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeState
 			ScheduledCommands: append([]seelebridge.ScheduledCommandInfo(nil), c.Deps.Runtime.ScheduledCommands()...),
 			SubAgentTree:      c.Deps.Engine.SubAgentTree(),
 		},
+	}
+	if c.tasks != nil {
+		projection.Runtime.ActiveSkills = append([]string(nil), c.tasks.ActiveSkillIDs()...)
+		projection.Runtime.GoalSkillActive = c.tasks.GoalSkillActive()
 	}
 	metrics := c.Deps.Runtime.ReplanMetrics()
 	projection.Runtime.Replan = model.ReplanMonitor{

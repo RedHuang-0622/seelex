@@ -113,9 +113,10 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 	if err != nil || !strings.Contains(result, `"accepted"`) {
 		t.Fatalf("terminal result = %q err=%v", result, err)
 	}
-	service.Mu.RLock()
+	// CurrentTaskResumeRecord 自行加 Core.Mu.RLock（供无锁调用点），外层
+	// 不能再包 service.Mu.RLock（RWMutex 不可重入；目录刷新写锁排队时
+	// 死锁）。
 	resume := service.components.tasks.CurrentTaskResumeRecord()
-	service.Mu.RUnlock()
 	if resume.TaskID != "task-1" || resume.Objective != "write report" {
 		t.Fatalf("resume record = %+v", resume)
 	}
@@ -140,9 +141,10 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	if visible.Status != TaskCompleted || visible.RequestID != "task-1" {
 		t.Fatalf("natural terminal task state = %#v", visible)
 	}
-	service.Mu.RLock()
+	// CurrentTaskResumeRecord 自行加 Core.Mu.RLock（供无锁调用点），外层
+	// 不能再包 service.Mu.RLock（RWMutex 不可重入；目录刷新写锁排队时
+	// 死锁）。
 	resume := service.components.tasks.CurrentTaskResumeRecord()
-	service.Mu.RUnlock()
 	if len(resume.QueuedRefs) != 1 || resume.QueuedRefs[0] != "queued after natural stop" {
 		t.Fatalf("resume record = %+v", resume)
 	}

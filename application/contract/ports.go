@@ -72,6 +72,30 @@ type ChatEngine interface {
 	// GUI 树视图数据源，经权威 Snapshot 增量携带）。
 	SubAgentTree() []dto.SubAgentTreeNode
 }
+
+// SessionChatEngine 是 ChatEngine 的会话路由扩展：多会话并行执行时，
+// 执行路径必须携带显式 sessionID，避免活跃会话切换串写正在进行的请求。
+// EnginePort 实现该接口；未实现的测试桩按旧活跃会话路径退化（单会话兼容）。
+type SessionChatEngine interface {
+	ChatEngine
+	// ChatStreamFor 向指定会话的引擎提交一次流式对话。会话引擎未实例化
+	// 时返回错误（执行路径必须先 ResumeSession/StartSession 注册）。
+	ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)
+	// HistoryFor 返回指定会话引擎的历史（只读拷贝）。
+	HistoryFor(sessionID string) []EngineMessage
+	// AppendHistoryFor 追加消息到指定会话引擎历史。
+	AppendHistoryFor(sessionID string, msg types.Message)
+	// ClearHistoryFor 清空指定会话引擎历史。
+	ClearHistoryFor(sessionID string)
+	// SetSystemPromptFor 设置指定会话引擎的 system prompt。
+	SetSystemPromptFor(sessionID, prompt string)
+	// ReplaceHistoryFor 会话内历史替换：替换指定会话引擎历史，但不切换活跃
+	// 会话（后台并行执行的 context 装配/恢复路径用）。
+	ReplaceHistoryFor(sessionID string, history []EngineMessage) error
+	// HasSession 报告目标会话引擎是否已实例化（后台提交前检查；未加载的
+	// 会话需先 ActivateSession 恢复）。
+	HasSession(sessionID string) bool
+}
 type RuntimePort interface {
 	Model() string
 	Provider() string

@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// TestCrossSessionSubmitWhileRunningReturnsSessionBusy 验证 M1 单飞执行
-// 边界：同会话运行中，向其它会话提交返回 ErrSessionBusy（而非全局
-// ErrChatRunning——保护粒度已收窄到会话级，真并行 = M2）。
-func TestCrossSessionSubmitWhileRunningReturnsSessionBusy(t *testing.T) {
+// TestCrossSessionSubmitWhileRunningNoLongerBusy 验证 M2 多会话并行语义：
+// 同会话运行中，向其它会话提交不再返回 ErrSessionBusy——未加载的会话走
+// 切换恢复路径（兼容 M1），已加载的会话在后台并行执行。
+func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T) {
 	engine := &sessionBackedBlockingEngine{
 		fakeEngine: &fakeEngine{},
 		started:    make(chan struct{}),
@@ -27,9 +27,10 @@ func TestCrossSessionSubmitWhileRunningReturnsSessionBusy(t *testing.T) {
 		t.Fatal("chat did not start")
 	}
 
+	// M2：跨会话提交不再被单飞门控拒绝（未加载会话回退切换恢复路径）。
 	err := service.SubmitToSession(context.Background(), "other-session", "to other session")
-	if !errors.Is(err, ErrSessionBusy) {
-		t.Fatalf("SubmitToSession(other) while running = %v, want ErrSessionBusy", err)
+	if errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("SubmitToSession(other) returned ErrSessionBusy, want M2 background/activate semantics")
 	}
 
 	close(engine.release)
@@ -71,9 +72,10 @@ func TestSubmitToSessionRejectsEmptyID(t *testing.T) {
 	}
 }
 
-// TestActivateSessionRejectedWhileRunning 验证运行中切换会话被拒绝
-// （共享 Snapshot 不串写；多页签并行驻留 = M2）。
-func TestActivateSessionRejectedWhileRunning(t *testing.T) {
+// TestActivateSessionAllowedForIdleTargetWhileOtherRunning 验证 M2 会话级
+// 门控：运行中的会话不再阻止切换/恢复一个空闲目标会话（M1 的全局拒绝已
+// 收窄为目标会话自身）。目标会话恢复成功后，原运行会话继续独立完成。
+func TestActivateSessionAllowedForIdleTargetWhileOtherRunning(t *testing.T) {
 	engine := &sessionBackedBlockingEngine{
 		fakeEngine: &fakeEngine{},
 		started:    make(chan struct{}),
@@ -88,8 +90,9 @@ func TestActivateSessionRejectedWhileRunning(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("chat did not start")
 	}
-	if err := service.ActivateSession("other-session"); !errors.Is(err, ErrChatRunning) {
-		t.Fatalf("ActivateSession while running = %v, want ErrChatRunning", err)
+	// M2：目标会话自身空闲即可切换/恢复（不再返回 ErrChatRunning）。
+	if err := service.ActivateSession("other-session"); errors.Is(err, ErrChatRunning) {
+		t.Fatalf("ActivateSession(idle target) while other running = ErrChatRunning, want M2 per-session gate")
 	}
 	close(engine.release)
 	if err := service.WaitForIdle(context.Background()); err != nil {

@@ -26,6 +26,12 @@ type serviceState struct {
 	// sessionChat 是会话级聊天运行态注册表（Core.Mu 保护）。M1 起聊天
 	// 保护从全局单例收窄为会话级：同会话串行 + 每会话独立队列/取消。
 	sessionChat map[string]*sessionChatRuntime
+
+	// chatSeq 是聊天请求 ID 的单调序号（Core.Mu 保护）。requestID 必须
+	// 跨会话唯一：Windows 上 time.Now().UnixNano() 分辨率约 0.5ms，并行
+	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与
+	// ClearReActBudget/FinalizeTask 串写。附加序号消除碰撞。
+	chatSeq uint64
 }
 
 type conversationRuntimeState struct {

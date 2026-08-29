@@ -38,9 +38,19 @@ func (service *Service) recoverProviderContext(err error, originalRequest string
 }
 
 // recoverProviderFailure 仅在 provider 拒绝请求后，把不可用 transcript 替换
-// 为有界、私有的续接记录。它从不自动重放超时工具轮：504 意味着工具侧效果
-// 不确定，用户必须从 checkpoint 显式继续。
+// 为有界、私有的续接记录（活跃会话兼容包装）。它从不自动重放超时工具轮：
+// 504 意味着工具侧效果不确定，用户必须从 checkpoint 显式继续。
 func (service *Service) recoverProviderFailure(err error, originalRequest string) (bool, error) {
+	return service.recoverProviderFailureFor(context.Background(), err, originalRequest)
+}
+
+// recoverProviderFailureFor 与 recoverProviderFailure 相同，但 ctx 携带会话
+// ID 时按目标会话路由（多会话并行执行路径）。
+func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error) {
+	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		sessionID = service.Core.Snapshot.Session.ID
+	}
 	failureKind := classifyProviderFailure(err)
 	if failureKind == providerFailureNone {
 		return false, nil
@@ -49,7 +59,7 @@ func (service *Service) recoverProviderFailure(err error, originalRequest string
 
 	service.Mu.Lock()
 	checkpoint := ""
-	if state := service.components.tasks.CurrentTaskExecution(); state != nil {
+	if state := service.components.tasks.CurrentTaskExecutionFor(sessionID); state != nil {
 		checkpoint = state.ContextSummary()
 		state.Status = task_context.StatusInterrupted
 	}
@@ -65,10 +75,10 @@ replayed safely.
 
 ` + checkpoint + contextRecoveryRequestDelimiter + nonEmptyProviderInput(originalRequest)
 
-	history := service.Deps.Engine.History()
+	history := service.engineHistoryFor(sessionID)
 	recovered := context_runtime.RetainedSystemHistory(history)
 	recovered = append(recovered, EngineMessage{Role: "user", Content: recovery, ContentSet: true})
-	if err := service.Deps.Engine.ReplaceHistory(service.Deps.Engine.SessionID(), recovered); err != nil {
+	if err := service.replaceEngineHistory(sessionID, recovered); err != nil {
 		return false, fmt.Errorf("recover provider context: %w", err)
 	}
 	return true, nil
@@ -78,8 +88,12 @@ replayed safely.
 // Agent 一次安全的恢复回合。刻意限定于上下文耗尽：超时与服务器故障可能留下
 // 不确定的工具副作用，不得重放。
 func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error {
+	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		sessionID = service.Core.Snapshot.Session.ID
+	}
 	service.Mu.Lock()
-	state := service.components.tasks.CurrentTaskExecution()
+	state := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || state.RequestID != requestID {
 		service.Mu.Unlock()
 		return fmt.Errorf("resume context recovery: task state is unavailable")
@@ -89,11 +103,11 @@ func (service *Service) retryContextRecovery(ctx context.Context, requestID stri
 	service.Mu.Unlock()
 	service.Events.Publish(EventSnapshotChanged, revision, requestID, nil)
 
-	recoveryInput, prepareErr := service.components.context.PrepareExecutionContext(requestID, contextRecoveryAgentInput)
+	recoveryInput, prepareErr := service.components.context.PrepareExecutionContextFor(sessionID, requestID, contextRecoveryAgentInput)
 	if prepareErr != nil {
 		return prepareErr
 	}
-	_, err := service.Deps.Engine.ChatStream(ctx, recoveryInput, onChunk)
+	_, err := service.chatStream(ctx, sessionID, recoveryInput, onChunk)
 	if contextErr := service.components.context.TakeContextControlFailure(requestID); contextErr != nil {
 		return contextErr
 	}
@@ -160,7 +174,11 @@ func isProviderContextExhaustion(err error) bool {
 }
 
 func (service *Service) removeProviderContextRecovery() error {
-	history := service.Deps.Engine.History()
+	return service.removeProviderContextRecoveryFor(service.Core.Snapshot.Session.ID)
+}
+
+func (service *Service) removeProviderContextRecoveryFor(sessionID string) error {
+	history := service.engineHistoryFor(sessionID)
 	filtered := make([]EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
@@ -179,7 +197,7 @@ func (service *Service) removeProviderContextRecovery() error {
 	if !removed {
 		return nil
 	}
-	if err := service.Deps.Engine.ReplaceHistory(service.Deps.Engine.SessionID(), filtered); err != nil {
+	if err := service.replaceEngineHistory(sessionID, filtered); err != nil {
 		return fmt.Errorf("remove provider context recovery: %w", err)
 	}
 	return nil

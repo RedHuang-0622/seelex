@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/event"
 )
@@ -68,9 +69,10 @@ func (service *Service) publishSessionEvent(kind event.EventKind, revision uint6
 	return service.Events.Publish(kind, revision, requestID, payload)
 }
 
-// SubmitToSession 是会话级提交 API（M1）：目标会话即活跃会话时等价
-// Submit（同会话运行中排队）；目标为其它会话且当前有任意会话运行时返回
-// ErrSessionBusy（单飞执行边界，真并行 = M2），空闲时切换并提交。
+// SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃
+// 会话时等价 Submit（同会话运行中排队）；目标会话为其它会话且已加载（引擎
+// 已实例化）时，在该会话上下文中后台并行启动（不切换活跃会话）；未加载的
+// 会话先切换恢复再提交（兼容 M1 语义）。
 func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -78,18 +80,27 @@ func (service *Service) SubmitToSession(ctx context.Context, sessionID, text str
 	}
 	service.Mu.RLock()
 	current := service.Core.Snapshot.Session.ID
-	running := service.anyChatRunningLocked()
 	service.Mu.RUnlock()
 	if sessionID == current {
 		return service.Submit(ctx, text)
 	}
-	if running {
-		return ErrSessionBusy
+	if loaded := service.sessionLoaded(sessionID); loaded {
+		return service.submitConversationFor(ctx, sessionID, text)
 	}
+	// 目标会话未加载：切换恢复后提交（旧 M1 语义；会话级门控允许运行中
+	// 恢复空闲会话）。
 	if err := service.ActivateSession(sessionID); err != nil {
 		return err
 	}
 	return service.Submit(ctx, text)
+}
+
+// sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
+func (service *Service) sessionLoaded(sessionID string) bool {
+	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+		return routed.HasSession(sessionID)
+	}
+	return sessionID == service.Core.Snapshot.Session.ID
 }
 
 // ActivateSession 切换当前展示/执行会话。M1 没有每会话驻留快照，切换即

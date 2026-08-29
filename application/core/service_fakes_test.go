@@ -225,6 +225,7 @@ type fakeRuntime struct {
 	visibility     seelebridge.RuntimeVisibilityProjection
 	evidence       seelebridge.ParentEvidenceProjection
 	mailbox        []string
+	mailboxMu      sync.Mutex
 	replans        []dto.ReplanRequest
 	replanResult   dto.PlanPreflight
 	replanErr      error
@@ -268,17 +269,35 @@ func (runtime *fakeRuntime) FullAccess() bool { return runtime.fullAccess }
 
 func (runtime *fakeRuntime) SetFullAccess(on bool) { runtime.fullAccess = on }
 
+// SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
+// 多个 runChat 并发调用（M2：每个会话各自 publishRuntimeProjections），
+// 生产 Runtime 的投影存储是并发安全的；fake 需用锁镜像，否则 -race 报
+// 数据竞争。
 func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
+	runtime.mailboxMu.Lock()
 	runtime.visibility = projection
+	runtime.mailboxMu.Unlock()
+	debugLog("fakeRuntime.SetRuntimeVisibilityProjection goalskill=%v", projection.GoalSkillActive)
 }
 
 func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection) {
+	runtime.mailboxMu.Lock()
 	runtime.evidence = projection
+	runtime.mailboxMu.Unlock()
+	debugLog("fakeRuntime.SetParentEvidenceProjection sessionID=%q", projection.SessionID)
 }
 
+// DrainSubagentContexts 排空 merge-back 邮箱。M2 多会话并行下多个
+// runChat 会并发调用（生产 Runtime 的 actor mailbox 线程安全），fake 需
+// 用锁镜像该语义，否则 -race 报数据竞争。
 func (runtime *fakeRuntime) DrainSubagentContexts() []string {
+	runtime.mailboxMu.Lock()
 	items := append([]string(nil), runtime.mailbox...)
 	runtime.mailbox = nil
+	runtime.mailboxMu.Unlock()
+	if len(items) > 0 {
+		debugLog("fakeRuntime.DrainSubagentContexts drained=%d items=%q", len(items), items)
+	}
 	return items
 }
 
@@ -472,7 +491,14 @@ func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
 
 func (runtime *fakeRuntime) UnbindProjectRoot() { runtime.projectRoot = "" }
 
-func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string) { runtime.currentBatch = batchID }
+// SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
+// 各自 SetCurrentTaskBatch），fake 需加锁镜像生产 Runtime 的线程安全。
+func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string) {
+	runtime.mailboxMu.Lock()
+	runtime.currentBatch = batchID
+	runtime.mailboxMu.Unlock()
+	debugLog("fakeRuntime.SetCurrentTaskBatch batch=%q", batchID)
+}
 
 // goalVisibilityRuntime models Runtime's one-way visibility projection. Its
 // VisibleTools implementation reads only Runtime-owned state; it cannot call

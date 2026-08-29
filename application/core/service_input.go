@@ -7,13 +7,21 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 
+	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
 )
 
-// injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（单一来源 =
-// Runtime mailbox；无本地兼容队列），并在 service.Mu 之外把消息注入 Engine。
-// 快照变更是独立短临界区，Engine 不会与 Application 形成反向等待环。
+// injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
+// 包装）。
 func (service *Service) injectPendingSubagentContexts() {
+	service.injectPendingSubagentContextsFor(service.Core.Snapshot.Session.ID)
+}
+
+// injectPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
+// Runtime mailbox；无本地兼容队列），并在 service.Mu 之外把消息注入目标
+// 会话引擎。快照变更是独立短临界区，Engine 不会与 Application 形成反向
+// 等待环。
+func (service *Service) injectPendingSubagentContextsFor(sessionID string) {
 	pending := service.Deps.Runtime.DrainSubagentContexts()
 	if len(pending) == 0 {
 		return
@@ -21,8 +29,43 @@ func (service *Service) injectPendingSubagentContexts() {
 
 	for _, content := range pending {
 		value := view_state.SubagentContextMarker + content
-		service.Deps.Engine.AppendHistory(types.Message{Role: "user", Content: &value})
+		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
 	}
+}
+
+// chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
+// 否则回退活跃引擎）。
+func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error) {
+	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+		return routed.ChatStreamFor(sessionID, ctx, input, onChunk)
+	}
+	return service.Deps.Engine.ChatStream(ctx, input, onChunk)
+}
+
+// appendEngineMessage 追加消息到指定会话引擎历史。
+func (service *Service) appendEngineMessage(sessionID string, msg types.Message) {
+	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+		routed.AppendHistoryFor(sessionID, msg)
+		return
+	}
+	service.Deps.Engine.AppendHistory(msg)
+}
+
+// replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
+// ReplaceHistoryFor，不切活跃；否则回退契约 ReplaceHistory）。
+func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error {
+	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+		return routed.ReplaceHistoryFor(sessionID, history)
+	}
+	return service.Deps.Engine.ReplaceHistory(sessionID, history)
+}
+
+// engineHistoryFor 返回指定会话引擎历史（只读拷贝）。
+func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMessage {
+	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+		return routed.HistoryFor(sessionID)
+	}
+	return service.Deps.Engine.History()
 }
 
 func (service *Service) Submit(ctx context.Context, text string) error {
@@ -77,6 +120,43 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	}
 	service.Mu.Unlock()
 	return service.startChat(ctx, request)
+}
+
+// submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
+// 到该会话自己的队列，否则在其上下文中后台启动（不切换活跃会话）。
+func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error {
+	request := newChatRequest(input, service.promptStack.Layers())
+	effort := service.effortManager.Current()
+	request.budget = reactBudgetFor(effort)
+	service.Mu.Lock()
+	if service.closed {
+		service.Mu.Unlock()
+		return errors.New("application is shut down")
+	}
+	if service.draining {
+		service.Mu.Unlock()
+		return ErrApplicationDraining
+	}
+	active := service.isActiveSessionLocked(sessionID)
+	runtime := service.sessionChatLocked(sessionID)
+	if runtime.chat.Running {
+		runtime.inputQueue = append(runtime.inputQueue, request)
+		runtime.chat.InputQueue = chatRequestDisplays(runtime.inputQueue)
+		runtime.chat.QueuedCount = len(runtime.inputQueue)
+		if active {
+			service.inputQueue = runtime.inputQueue
+			service.Core.Snapshot.Chat = runtime.chat
+			revision := service.bumpLocked()
+			service.Mu.Unlock()
+			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+			return nil
+		}
+		service.Mu.Unlock()
+		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
+		return nil
+	}
+	service.Mu.Unlock()
+	return service.startChatFor(sessionID, ctx, request)
 }
 
 // BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入

@@ -33,7 +33,10 @@ func (service *Service) resumeSession(sessionID string) error {
 	defer transition.Unlock()
 
 	service.Mu.RLock()
-	running := service.anyChatRunningLocked()
+	running := false
+	if runtime := service.sessionChat[sessionID]; runtime != nil {
+		running = runtime.chat.Running
+	}
 	service.Mu.RUnlock()
 	if running {
 		return ErrChatRunning

@@ -526,7 +526,7 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 		return fmt.Errorf("replan: runtime returned no plan_load arguments")
 	}
 	toolID := fmt.Sprintf("%s:plan-replan-%d", requestID, time.Now().UnixNano())
-	service.handleToolStart("plan_load", toolID, result.Arguments)
+	service.handleToolStart(ctx, "plan_load", toolID, result.Arguments)
 	service.handleToolComplete("plan_load", toolID, result.Result, nil, 0)
 	runtimeProjection := service.collectRuntimeProjection(context.Background())
 	service.Mu.Lock()

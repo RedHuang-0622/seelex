@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -14,7 +15,51 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
+// runChatDebug 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时
+// 定位会话级执行路径；定位完成后清理）。
+func runChatDebug(format string, args ...any) {
+	if os.Getenv("SEELEX_TEST_DEBUG") == "1" {
+		log.Printf("[runChat-debug] "+format, args...)
+	}
+}
+
+// isActiveSessionLocked 判定指定会话是否为共享快照归属会话（锁内调用；
+// 空会话 ID 视为活跃，兼容 draft 状态）。
+func (service *Service) isActiveSessionLocked(sessionID string) bool {
+	return sessionID == "" || sessionID == service.Core.Snapshot.Session.ID
+}
+
+// buildBackgroundMessage 为后台会话（非活跃、并行执行）构造可见消息，但不
+// 写入活跃会话快照。事件按会话路由发布，切回时由 resumeSession 从持久化
+// 重建。
+func (service *Service) buildBackgroundMessage(role, content string, tool *ToolCall) Message {
+	if role == "assistant" || role == "tool_result" {
+		content = chat.StripThoughtBlocks(content)
+	}
+	return Message{
+		ID:        fmt.Sprintf("message-bg-%d", time.Now().UnixNano()),
+		Role:      role,
+		Content:   content,
+		Tool:      tool,
+		CreatedAt: time.Now(),
+	}
+}
+
+// nextChatRequestIDLocked 生成跨会话唯一的聊天请求 ID（调用方持有
+// Core.Mu）。时间戳 + 单调序号：仅时间戳在 Windows（UnixNano 分辨率约
+// 0.5ms）下并行会话启动会碰撞。
+func (service *Service) nextChatRequestIDLocked() string {
+	service.chatSeq++
+	return fmt.Sprintf("chat-%d-%d", time.Now().UnixNano(), service.chatSeq)
+}
+
 func (service *Service) startChat(parent context.Context, request chatRequest) error {
+	return service.startChatFor(service.Core.Snapshot.Session.ID, parent, request)
+}
+
+// startChatFor 在指定会话启动 ReAct 对话（多会话并行：后台会话不写活跃
+// 快照，只维护会话级任务/plan 状态与按会话路由的事件）。
+func (service *Service) startChatFor(sessionID string, parent context.Context, request chatRequest) error {
 	service.Mu.Lock()
 	if service.closed {
 		service.Mu.Unlock()
@@ -24,42 +69,58 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 		service.Mu.Unlock()
 		return ErrApplicationDraining
 	}
-	sessionID := service.Core.Snapshot.Session.ID
+	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionChatLocked(sessionID)
 	if runtime.chat.Running {
 		service.Mu.Unlock()
 		return ErrChatRunning
 	}
-	requestID := fmt.Sprintf("chat-%d", time.Now().UnixNano())
+	requestID := service.nextChatRequestIDLocked()
+	runChatDebug("startChatFor session=%s request=%s input=%q active=%v", sessionID, requestID, request.displayInput, active)
 	budget := request.budget
 	if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
 		budget = reactBudgetFor(service.effortManager.Current())
 	}
 	chatContext, cancel := context.WithCancel(parent)
 	runtime.cancel = cancel
-	service.cancelChat = cancel
-	service.components.tasks.StartReActBudgetLocked(requestID, budget)
-	previousTask := service.components.tasks.CurrentTaskExecution()
+	if active {
+		service.cancelChat = cancel
+	}
+	service.components.tasks.StartReActBudgetForLocked(sessionID, requestID, budget)
+	previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 	previousCheckpoint := TaskCheckpoint{}
 	if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
 		previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
 	}
-	taskState := service.components.tasks.BeginTask(requestID, request.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+	taskState := service.components.tasks.BeginTaskFor(sessionID, requestID, request.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, request.skills)
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
 	runtime.streamOutput = chat.NewVisibleOutputStream(requestID)
-	service.streamOutput = runtime.streamOutput
+	if active {
+		service.streamOutput = runtime.streamOutput
+	}
 	service.markBusyLocked()
 	runtime.chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
-	service.Core.Snapshot.Chat = runtime.chat
-	service.components.tasks.SetTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
-	if service.Core.Snapshot.Session.Name == "" {
-		service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()})
-		service.Core.Snapshot.Session.Name = service.components.sessions.SessionTitle().Value
+	if active {
+		service.Core.Snapshot.Chat = runtime.chat
+		service.components.tasks.SetTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
+		if service.Core.Snapshot.Session.Name == "" {
+			service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()})
+			service.Core.Snapshot.Session.Name = service.components.sessions.SessionTitle().Value
+		}
 	}
-	user := *service.appendMessageLocked("user", request.displayInput, nil)
-	assistant := *service.appendMessageLocked("assistant", "", nil)
-	revision := service.bumpLocked()
+	var user, assistant Message
+	if active {
+		user = *service.appendMessageLocked("user", request.displayInput, nil)
+		assistant = *service.appendMessageLocked("assistant", "", nil)
+	} else {
+		user = service.buildBackgroundMessage("user", request.displayInput, nil)
+		assistant = service.buildBackgroundMessage("assistant", "", nil)
+	}
+	revision := uint64(0)
+	if active {
+		revision = service.bumpLocked()
+	}
 	service.Mu.Unlock()
 	// 新批次：此后创建的 todo/task/plan/subagent 条目自动归属当前 chat
 	// 请求（requestID），工作表格按批次分片。
@@ -67,7 +128,7 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 	service.publishRuntimeProjections()
 	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
 	// 期间主会话被持锁无法回写，只能在此时补注入。
-	service.injectPendingSubagentContexts()
+	service.injectPendingSubagentContextsFor(sessionID)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, user)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, assistant)
 	go service.runChat(chatContext, sessionID, requestID, request)
@@ -75,19 +136,22 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 }
 
 func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
+	ctx = withSessionID(ctx, sessionID)
 	defer service.components.tasks.ClearReActBudget(requestID)
 	var err error
+	runChatDebug("runChat start session=%s request=%s input=%q", sessionID, requestID, request.displayInput)
+	defer func() { runChatDebug("runChat end session=%s request=%s err=%v", sessionID, requestID, err) }()
 	recovered := false
 	modelInput := request.modelInput
 	batcher, onChunk := service.newBatchedDeltaSink(requestID)
-	service.components.prompts.ApplyActiveTaskSystemPrompt(requestID)
-	if err == nil {
-		modelInput, err = service.components.context.PrepareExecutionContext(requestID, modelInput)
-	}
+	service.components.prompts.ApplyActiveTaskSystemPromptFor(sessionID, requestID)
+	modelInput, err = service.components.context.PrepareExecutionContextFor(sessionID, requestID, modelInput)
 	if err == nil {
 		modelInput = nonEmptyProviderInput(modelInput)
+		runChatDebug("runChat entering chatStream session=%s request=%s", sessionID, requestID)
 		var reply string
-		reply, err = service.Deps.Engine.ChatStream(ctx, modelInput, onChunk)
+		reply, err = service.chatStream(ctx, sessionID, modelInput, onChunk)
+		runChatDebug("runChat chatStream returned session=%s request=%s replyLen=%d err=%v", sessionID, requestID, len(reply), err)
 		// 模型输出观测（自然终态判定输入面）
 		_ = service.components.tasks.ObserveModelOutput(ctx, task_context.ModelOutput{RequestID: requestID, Reply: reply, Err: err})
 		if reply != "" {
@@ -97,7 +161,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 			err = contextErr
 		}
 		var recoveryErr error
-		recovered, recoveryErr = service.recoverProviderFailure(err, request.displayInput)
+		recovered, recoveryErr = service.recoverProviderFailureFor(ctx, err, request.displayInput)
 		if recoveryErr != nil {
 			err = fmt.Errorf("%w; context recovery failed: %v", err, recoveryErr)
 		}
@@ -124,18 +188,18 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// plan_run may have completed child agents while the main framework session
 	// was locked. Drain their Runtime-owned mailbox only after ChatStream has
 	// returned, so every subsequently queued turn sees the merge-back history.
-	service.injectPendingSubagentContexts()
+	service.injectPendingSubagentContextsFor(sessionID)
 	runtimeProjection := service.collectRuntimeProjection(context.Background())
 	service.Mu.Lock()
 	if service.streamBatcher == batcher {
 		service.streamBatcher = nil
 	}
 	service.Mu.Unlock()
-	if cleanupErr := service.components.context.RemoveTaskContextCheckpoints(); cleanupErr != nil && err == nil {
+	if cleanupErr := service.components.context.RemoveTaskContextCheckpointsFor(sessionID); cleanupErr != nil && err == nil {
 		err = cleanupErr
 	}
 	if err == nil {
-		if cleanupErr := service.removeProviderContextRecovery(); cleanupErr != nil {
+		if cleanupErr := service.removeProviderContextRecoveryFor(sessionID); cleanupErr != nil {
 			err = cleanupErr
 		}
 	}
@@ -144,7 +208,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		service.recordUnhandledTaskErrorLocked(requestID, err)
 		service.Mu.Unlock()
 	}
-	saveErr := service.components.sessions.PersistCurrentSession(service.Deps.Engine.SessionID())
+	saveErr := service.components.sessions.PersistCurrentSession(sessionID)
 	if saveErr != nil {
 		if err != nil {
 			err = wrapError(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), errorCodePersistenceFailed)
@@ -155,8 +219,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		releaser.ReleaseWorkingHistory()
 	}
 	service.Mu.Lock()
+	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionChatLocked(sessionID)
 	if runtime.chat.RequestID != requestID {
+		runChatDebug("runChat stale request session=%s request=%s runtimeRequest=%s (superseded)", sessionID, requestID, runtime.chat.RequestID)
 		service.Mu.Unlock()
 		return
 	}
@@ -168,12 +234,16 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		}
 		visibleError = presentUserError(err)
 		runtime.chat.Error = visibleError
-		service.appendMessageLocked("error", visibleError, nil)
+		if active {
+			service.appendMessageLocked("error", visibleError, nil)
+		}
 	}
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
 	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
 	// 全量重建可能带入跨会话的残留消息。
-	service.applyRuntimeProjectionLocked(runtimeProjection)
+	if active {
+		service.applyRuntimeProjectionLocked(runtimeProjection)
+	}
 	// 处理输入队列（单一消费点）：取排队输入合并为一条，批量发送并起下一轮
 	pendingQueue := append([]chatRequest(nil), runtime.inputQueue...)
 	processQueue := len(pendingQueue) > 0
@@ -185,42 +255,63 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
 		runtime.inputQueue = nil
-		service.inputQueue = nil
+		if active {
+			service.inputQueue = nil
+		}
 		runtime.chat.QueuedCount = 0
 		runtime.chat.InputQueue = nil
-		nextRequestID = fmt.Sprintf("chat-%d", time.Now().UnixNano())
+		nextRequestID = service.nextChatRequestIDLocked()
 		budget := batchRequest.budget
 		if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
 			budget = reactBudgetFor(service.effortManager.Current())
 		}
 		nextContext, runtime.cancel = context.WithCancel(context.Background())
-		service.cancelChat = runtime.cancel
-		service.components.tasks.StartReActBudgetLocked(nextRequestID, budget)
-		previousTask := service.components.tasks.CurrentTaskExecution()
+		if active {
+			service.cancelChat = runtime.cancel
+		}
+		service.components.tasks.StartReActBudgetForLocked(sessionID, nextRequestID, budget)
+		previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 		previousCheckpoint := TaskCheckpoint{}
 		if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
 			previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
 		}
-		taskState := service.components.tasks.BeginTask(nextRequestID, batchRequest.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+		taskState := service.components.tasks.BeginTaskFor(sessionID, nextRequestID, batchRequest.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
 		service.components.tasks.ActivateTaskSkillsLocked(taskState, batchRequest.skills)
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
 		runtime.streamOutput = chat.NewVisibleOutputStream(nextRequestID)
-		service.streamOutput = runtime.streamOutput
+		if active {
+			service.streamOutput = runtime.streamOutput
+		}
 		runtime.chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
 		service.components.tasks.SetTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
-		nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
-		nextAssistant = service.appendMessageLocked("assistant", "", nil)
+		if active {
+			nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
+			nextAssistant = service.appendMessageLocked("assistant", "", nil)
+		} else {
+			u := service.buildBackgroundMessage("user", batchRequest.displayInput, nil)
+			a := service.buildBackgroundMessage("assistant", "", nil)
+			nextUser = &u
+			nextAssistant = &a
+		}
 	} else {
 		runtime.chat.Running = false
 		runtime.cancel = nil
-		service.cancelChat = nil
+		if active {
+			service.cancelChat = nil
+		}
 		if !service.anyChatRunningLocked() {
 			service.markIdleLocked()
 		}
 	}
-	service.Core.Snapshot.Chat = runtime.chat
-	revision := service.bumpLocked()
+	if active {
+		service.Core.Snapshot.Chat = runtime.chat
+	}
+	revision := uint64(0)
+	if active {
+		revision = service.bumpLocked()
+	}
 	service.Mu.Unlock()
+	runChatDebug("runChat tail session=%s request=%s err=%v processQueue=%v nextRequest=%q", sessionID, requestID, err, processQueue, nextRequestID)
 	if err != nil {
 		service.publishSessionEvent(EventError, revision, requestID, sessionID, map[string]string{"message": visibleError})
 	} else {
@@ -292,6 +383,10 @@ func (service *Service) finalizeTaskExecution(requestID string) error {
 }
 
 func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, requestID string, onChunk func(string)) error {
+	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		sessionID = service.Core.Snapshot.Session.ID
+	}
 	budgetErr := service.components.tasks.ReActBudgetError(requestID)
 	if budgetErr != nil {
 		budgetErr = wrapError(budgetErr, errorCodeReActBudget)
@@ -299,12 +394,12 @@ func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, request
 	if budgetErr == nil {
 		return nil
 	}
-	finalizationInput, prepareErr := service.components.context.PrepareExecutionContext(requestID, reactBudgetFinalizationInput)
+	finalizationInput, prepareErr := service.components.context.PrepareExecutionContextFor(sessionID, requestID, reactBudgetFinalizationInput)
 	if prepareErr != nil {
 		return fmt.Errorf("%w; prepare final delivery context: %v", budgetErr, prepareErr)
 	}
-	result, err := service.Deps.Engine.ChatStream(ctx, finalizationInput, onChunk)
-	cleanupErr := service.removeReActBudgetFinalizationInput()
+	result, err := service.chatStream(ctx, sessionID, finalizationInput, onChunk)
+	cleanupErr := service.removeReActBudgetFinalizationInput(sessionID)
 	if err != nil {
 		return fmt.Errorf("%w; final delivery failed: %v", budgetErr, err)
 	}
@@ -317,8 +412,8 @@ func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, request
 	return nil
 }
 
-func (service *Service) removeReActBudgetFinalizationInput() error {
-	history := service.Deps.Engine.History()
+func (service *Service) removeReActBudgetFinalizationInput(sessionID string) error {
+	history := service.engineHistoryFor(sessionID)
 	filtered := make([]EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
@@ -331,7 +426,7 @@ func (service *Service) removeReActBudgetFinalizationInput() error {
 	if !removed {
 		return nil
 	}
-	if err := service.Deps.Engine.ReplaceHistory(service.Deps.Engine.SessionID(), filtered); err != nil {
+	if err := service.replaceEngineHistory(sessionID, filtered); err != nil {
 		return fmt.Errorf("remove ReAct budget finalization input: %w", err)
 	}
 	return nil
@@ -442,7 +537,12 @@ func (service *Service) appendHistoryLocked(history []EngineMessage) {
 			service.appendMessageLocked("tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"})
 		}
 		if historyMessage.Role == "tool" {
-			service.appendMessageLocked("tool_result", historyMessage.Content, &ToolCall{ID: historyMessage.ToolCallID, Name: historyMessage.Name, Result: historyMessage.Content, Status: "success"})
+			visible, ref, truncated, totalChars := service.boundToolResultForSnapshot(historyMessage.Name, historyMessage.Content)
+			service.appendMessageLocked("tool_result", visible, &ToolCall{
+				ID: historyMessage.ToolCallID, Name: historyMessage.Name,
+				Result: visible, Status: "success",
+				ResultRef: ref, Truncated: truncated, TotalChars: totalChars,
+			})
 		}
 	}
 }

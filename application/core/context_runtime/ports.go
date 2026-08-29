@@ -15,19 +15,27 @@ import (
 // TaskPort 是 context 域对 task 域的窄端口。
 type TaskPort interface {
 	ActivePlanProjectionLocked() *model.ActivePlanProjection
+	ActivePlanProjectionLockedFor(sessionID string) *model.ActivePlanProjection
 	BuildTaskCheckpointLocked(*task_context.TaskExecutionState) model.TaskCheckpoint
 	RecordContextCompactionLocked(string, model.ContextCompaction) bool
 	StoreToolResultLocked(string, string) model.StoredToolResult
+	StoreToolResultForLocked(string, string, string) model.StoredToolResult
 	CountTranscriptEvent(model.TranscriptEvent) int
 	CurrentTaskExecution() *task_context.TaskExecutionState
+	CurrentTaskExecutionFor(sessionID string) *task_context.TaskExecutionState
 	Transcript() []model.TranscriptEvent
+	TranscriptFor(sessionID string) []model.TranscriptEvent
 	RememberCheckpointLocked(model.TaskCheckpoint)
 	ResultRefsByCallID() map[string]string
+	ResultRefsByCallIDFor(sessionID string) map[string]string
 	TokenCounterName() string
 	CountRequestTokens(string, []contract.EngineMessage, string, []model.Tool) int
 	CountTextTokens(string) int
 	PlanStack() []model.SessionPlanFrame
+	PlanStackFor(sessionID string) []model.SessionPlanFrame
 	ActivePlanID() string
+	ActivePlanIDFor(sessionID string) string
+	SessionIDForRequest(requestID string) string
 	RecordContextControlFailure(requestID string, err error)
 	TakeContextControlFailure(requestID string) error
 }
@@ -40,6 +48,9 @@ type SessionPort interface {
 // PromptPort 是 context 域对 prompt 域的窄端口。
 type PromptPort interface {
 	SystemPromptForActiveTaskLocked() string
+	// SystemPromptForActiveTaskLockedFor 返回指定会话活跃任务 system prompt
+	// （多会话并行）。
+	SystemPromptForActiveTaskLockedFor(sessionID string) string
 }
 
 // ViewPort 是 Snapshot revision bump 窄接口。
@@ -47,9 +58,9 @@ type ViewPort interface {
 	BumpLocked() uint64
 }
 
-// HistoryPort 是 provider 缓存归一化窄接口。
+// HistoryPort 是 provider 缓存归一化窄接口（sessionID 指明目标会话）。
 type HistoryPort interface {
-	PrepareProviderHistory() error
+	PrepareProviderHistoryFor(sessionID string) error
 }
 
 // Deps 是 context_runtime 的装配输入。

@@ -199,7 +199,7 @@ func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
 		t.Fatalf("event error leaks or lacks source: %q", eventMessage)
 	}
 
-	service.handleToolStart("plan_load", "tool-plan", `{}`)
+	service.handleToolStart(context.Background(), "plan_load", "tool-plan", `{}`)
 	service.handleToolComplete("plan_load", "tool-plan", "", errors.New(`plan_load: normalize DAG input: edges is required`), 0)
 	tool := service.Snapshot().Conversation[len(service.Snapshot().Conversation)-2].Tool
 	if tool == nil || strings.Contains(tool.Error, "edges is required") || !strings.Contains(tool.Error, "模块：计划预检") {

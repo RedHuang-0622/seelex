@@ -456,7 +456,7 @@ func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T) {
 	defer service.Shutdown()
 	arguments := `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
 
-	service.handleToolStart("plan_load", "plan-call", arguments)
+	service.handleToolStart(context.Background(), "plan_load", "plan-call", arguments)
 	service.handleToolComplete("plan_load", "plan-call", `{"status":"loaded"}`, nil, 0)
 
 	service.Mu.RLock()

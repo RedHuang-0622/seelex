@@ -19,10 +19,10 @@ import (
 func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
+	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
 
-	service.handleToolStart("plan_run", "run-1", `{}`)
+	service.handleToolStart(context.Background(), "plan_run", "run-1", `{}`)
 	service.handleToolComplete("plan_run", "run-1", `{"status":"failed","error":"node \"build\": failed"}`, nil, 0)
 
 	snapshot := service.Snapshot()
@@ -40,12 +40,12 @@ func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T) {
 func TestPlanRunToolErrorDoesNotDeadlock(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
+	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build it"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
 
 	done := make(chan struct{})
 	go func() {
-		service.handleToolStart("plan_run", "run-1", `{}`)
+		service.handleToolStart(context.Background(), "plan_run", "run-1", `{}`)
 		service.handleToolComplete("plan_run", "run-1", "", errors.New(`node "build": interrupted`), 0)
 		close(done)
 	}()
@@ -70,9 +70,9 @@ func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T) {
 	service.Mu.Lock()
 	service.appendMessageLocked("user", "build and verify the release", nil)
 	service.Mu.Unlock()
-	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
+	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
-	service.handleToolStart("plan_run", "run-1", `{}`)
+	service.handleToolStart(context.Background(), "plan_run", "run-1", `{}`)
 	service.handleToolComplete("plan_run", "run-1", `{"status":"failed","error":"node \"build\": compiler failed"}`, nil, 0)
 
 	interaction := service.Snapshot().Interaction
@@ -108,9 +108,9 @@ func TestResolvePlanFailureKeepsInteractionWhenReplanFails(t *testing.T) {
 	runtime := &fakeRuntime{replanErr: errors.New("planner unavailable")}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
-	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
+	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
-	service.handleToolStart("plan_run", "run-1", `{}`)
+	service.handleToolStart(context.Background(), "plan_run", "run-1", `{}`)
 	service.handleToolComplete("plan_run", "run-1", `{"status":"failed","error":"node \"build\": compiler failed"}`, nil, 0)
 
 	interaction := service.Snapshot().Interaction
@@ -132,10 +132,10 @@ func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
-	service.handleToolStart("plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build"}},"edges":{}}`)
+	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
 	for attempt := 0; attempt < Limits().MaxReplansPerPlanChain; attempt++ {
-		service.handleToolStart("plan_run", fmt.Sprintf("run-%d", attempt), `{}`)
+		service.handleToolStart(context.Background(), "plan_run", fmt.Sprintf("run-%d", attempt), `{}`)
 		service.handleToolComplete("plan_run", fmt.Sprintf("run-%d", attempt), `{"status":"failed","error":"node \"recover\": failed"}`, nil, 0)
 		interaction := service.Snapshot().Interaction
 		if interaction == nil {
@@ -145,7 +145,7 @@ func TestResolvePlanFailureStopsAfterPlanChainReplanLimit(t *testing.T) {
 			t.Fatalf("attempt %d replan: %v", attempt, err)
 		}
 	}
-	service.handleToolStart("plan_run", "run-limit", `{}`)
+	service.handleToolStart(context.Background(), "plan_run", "run-limit", `{}`)
 	service.handleToolComplete("plan_run", "run-limit", `{"status":"failed","error":"node \"recover\": failed"}`, nil, 0)
 	interaction := service.Snapshot().Interaction
 	if interaction == nil {
@@ -193,7 +193,7 @@ func TestNormalizePlanToolCallInfoUsesCanonicalAdapterJSON(t *testing.T) {
 func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.handleToolStart("plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"}},"edges":{"start":["left"]}}`)
+	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"left":{"input":"left"}},"edges":{"start":["left"]}}`)
 
 	subscription := service.Subscribe(8)
 	defer subscription.Close()
@@ -243,7 +243,7 @@ func TestHandlePlanBranchEventUpdatesLifecycleAndRuntime(t *testing.T) {
 func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.handleToolStart("plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"worker":{"input":"worker"}},"edges":{"start":["worker"]}}`)
+	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"start","nodes":{"start":{"input":"start"},"worker":{"input":"worker"}},"edges":{"start":["worker"]}}`)
 
 	// 事件流现包含 worktable.changed（CSP 汇聚，异步到达）：订阅缓冲调大，
 	// 避免杂散生命周期事件触发 deliver 排空丢弃本测试关注的工具事件。

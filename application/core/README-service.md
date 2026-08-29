@@ -191,6 +191,10 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) sessionInteraction() *Interaction`
 - `func (service *Service) accountInteraction() *Interaction`
 
+### service_notice_test.go
+
+- `func TestServiceAddNoticeAppendsSystemMessage(t *testing.T)`
+
 ### service_plan_test.go
 
 - `func TestPlanRunJSONFailureOpensRecoveryInteraction(t *testing.T)`
@@ -219,6 +223,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message`
 - `func (service *Service) bumpLocked() uint64`
 - `func (service *Service) addNotice(notice string)`
+- `func (service *Service) AddNotice(notice string)` — AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布
 - `func (service *Service) resetConversation(notice string)`
 - `func (service *Service) advanceMessageSeqLocked(messages []Message)` — advanceMessageSeqLocked 按既有消息 ID 推进消息序列（恢复路径委托）。
 

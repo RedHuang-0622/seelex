@@ -18,6 +18,9 @@ import (
 
 var _ contract.RuntimePort = RuntimePort{}
 
+// 编译期断言：EnginePort 实现会话路由扩展（多会话并行执行）。
+var _ contract.SessionChatEngine = (*EnginePort)(nil)
+
 type EnginePort struct {
 	engine    ReactorEngine
 	newEngine ReactorEngineFactory
@@ -159,6 +162,110 @@ func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk fu
 	return result, err
 }
 
+// ChatStreamFor 是会话路由的 ChatStream：多会话并行执行时，runChat 用
+// 显式 sessionID 调用，避免活跃会话切换把请求打到别的会话引擎上。
+// 会话引擎未注册时回退到当前活跃引擎（单会话兼容）；两者皆不可用返回
+// 错误。
+func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error) {
+	port.mu.Lock()
+	engine := port.engineForSessionLocked(sessionID)
+	if engine == nil {
+		port.mu.Unlock()
+		return "", fmt.Errorf("engine for session %q is unavailable", sessionID)
+	}
+	port.engineCalls[sessionID]++
+	port.mu.Unlock()
+
+	result, err := engine.ChatStream(ctx, input, onChunk)
+
+	port.mu.Lock()
+	port.engineCalls[sessionID]--
+	if port.engineCalls[sessionID] == 0 && port.pendingSession == sessionID && len(port.pendingHistory) > 0 {
+		port.installSessionEngineLocked(sessionID, port.pendingHistory)
+		port.pendingHistory = nil
+		port.pendingSession = ""
+	}
+	port.mu.Unlock()
+	return result, err
+}
+
+// engineForSessionLocked 返回指定会话的引擎；未注册会话回退到活跃引擎。
+// 调用方必须持有 port.mu。
+func (port *EnginePort) engineForSessionLocked(sessionID string) ReactorEngine {
+	if engine, ok := port.engines[sessionID]; ok && engine != nil {
+		return engine
+	}
+	return port.engine
+}
+
+// HistoryFor 返回指定会话引擎的历史（只读拷贝）。
+func (port *EnginePort) HistoryFor(sessionID string) []contract.EngineMessage {
+	return adaptMessages(port.RawHistoryFor(sessionID))
+}
+
+// RawHistoryFor 返回指定会话引擎的原始历史（只读拷贝）。
+func (port *EnginePort) RawHistoryFor(sessionID string) []types.Message {
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	engine := port.engineForSessionLocked(sessionID)
+	if engine == nil {
+		return nil
+	}
+	return append([]types.Message(nil), engine.History()...)
+}
+
+// AppendHistoryFor 追加消息到指定会话引擎历史。
+func (port *EnginePort) AppendHistoryFor(sessionID string, msg types.Message) {
+	port.mu.RLock()
+	engine := port.engineForSessionLocked(sessionID)
+	port.mu.RUnlock()
+	if engine != nil {
+		engine.AppendHistory(msg)
+	}
+}
+
+// ClearHistoryFor 清空指定会话引擎历史。
+func (port *EnginePort) ClearHistoryFor(sessionID string) {
+	port.mu.Lock()
+	engine := port.engineForSessionLocked(sessionID)
+	port.mu.Unlock()
+	if engine != nil {
+		engine.ClearHistory()
+	}
+}
+
+// SetSystemPromptFor 设置指定会话引擎的 system prompt。
+func (port *EnginePort) SetSystemPromptFor(sessionID, prompt string) {
+	port.mu.RLock()
+	engine := port.engineForSessionLocked(sessionID)
+	port.mu.RUnlock()
+	if engine != nil {
+		engine.SetSystemPrompt(prompt)
+	}
+}
+
+// HasSession 报告目标会话引擎是否已实例化。
+func (port *EnginePort) HasSession(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	port.mu.RLock()
+	defer port.mu.RUnlock()
+	engine, ok := port.engines[sessionID]
+	return ok && engine != nil
+}
+
+// ReplaceHistoryFor 是会话内历史替换（contract 版）：替换指定会话引擎
+// 历史，不切换活跃会话。
+func (port *EnginePort) ReplaceHistoryFor(sessionID string, history []contract.EngineMessage) error {
+	return port.ReplaceRawHistoryFor(sessionID, restoreMessages(history))
+}
+
+// ReplaceRawHistoryFor 是 ReplaceHistoryFor 的原始消息版本。
+func (port *EnginePort) ReplaceRawHistoryFor(sessionID string, history []types.Message) error {
+	return port.replaceRawHistoryFor(sessionID, history)
+}
+
 // NodeSessionConversation 转发子代理会话记录查询（节点详情数据面；
 // 查询源经 ApplyDeps 注入，只读子代理 actor，安全）。
 func (port *EnginePort) NodeSessionConversation(nodeID string) ([]types.Message, bool) {
@@ -258,6 +365,52 @@ func (port *EnginePort) ReplaceRawHistory(sessionID string, history []types.Mess
 		port.installSessionEngineLocked(sessionID, desired)
 	}
 	port.sessionID = sessionID
+	return nil
+}
+
+// ReplaceHistoryFor 是会话内历史替换（M2 后台并行）：替换指定会话引擎的
+// 历史，但不切换活跃会话。context 装配/恢复路径（PrepareExecutionContextFor、
+// removeProviderContextRecovery 等）按执行会话替换其自身历史；目标会话
+// 未注册时按需创建（工厂可用）。
+func (port *EnginePort) replaceRawHistoryFor(sessionID string, history []types.Message) error {
+	desired := canonicalEngineHistory(history)
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	if sessionID == port.sessionID {
+		// 目标是当前活跃会话：与 ReplaceRawHistory 相同语义（可能延迟安装）。
+		if port.engine == nil && port.newEngine == nil {
+			return fmt.Errorf("engine is unavailable")
+		}
+		if port.engineCalls[port.sessionID] > 0 {
+			port.replaceActiveHistoryLocked(desired)
+			port.pendingHistory = append([]types.Message(nil), desired...)
+			port.pendingSession = sessionID
+		} else {
+			port.installSessionEngineLocked(sessionID, desired)
+		}
+		return nil
+	}
+	// 非活跃目标会话：会话内替换，不切换活跃。
+	engine, ok := port.engines[sessionID]
+	if !ok || engine == nil {
+		if port.newEngine == nil {
+			return fmt.Errorf("engine for session %q is unavailable", sessionID)
+		}
+		fresh := port.newEngine(sessionID)
+		if fresh == nil {
+			return fmt.Errorf("engine for session %q is unavailable", sessionID)
+		}
+		port.engines[sessionID] = fresh
+		port.engineCalls[sessionID] = 0
+		engine = fresh
+	}
+	engine.ClearHistory()
+	for _, message := range desired {
+		engine.AppendHistory(message)
+	}
+	if port.prepareHistory != nil {
+		port.prepareHistory(sessionID, desired)
+	}
 	return nil
 }
 

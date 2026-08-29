@@ -228,9 +228,10 @@ func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 	if got := service.Snapshot().Chat.QueuedCount; got != 1 {
 		t.Fatalf("queued count while persistence is draining = %d, want 1", got)
 	}
-	service.Mu.RLock()
+	// CurrentTaskResumeRecord 自行加 Core.Mu.RLock（"供无锁调用点"），外层
+	// 不能再包 service.Mu.RLock——Go RWMutex 不可重入，目录刷新 worker 在
+	// 两次 RLock 之间排队写锁时会造成永久死锁（-race + 并发加载下偶发）。
 	resume := service.components.tasks.CurrentTaskResumeRecord()
-	service.Mu.RUnlock()
 	if len(resume.QueuedRefs) != 1 || resume.QueuedRefs[0] != "queued" {
 		t.Fatalf("persistence resume refs = %#v, want queued input", resume.QueuedRefs)
 	}
