@@ -62,6 +62,15 @@ type Application interface {
 	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
 	// WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge）。
 	WorkspaceFileCount() (dto.TreeCount, error)
+	// WorkspaceGitLog 返回当前工作区最近 limit 条提交的拓扑树（提交记录树
+	// 数据源；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
+	WorkspaceGitLog(limit int) (dto.GitLogResult, error)
+	// ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
+	// 工具输出，前端"加载完整输出"数据源；复用 read_tool_result 通道）。
+	ToolResultContent(context.Context, string, int, int) (application.ToolResultPage, error)
+	// PerfStats 返回性能追踪钩子的后端数据面（无内容指标，供前端渲染
+	// 进程对照 DOM/JS heap 与快照载荷体积）。
+	PerfStats() application.PerfStats
 }
 
 // sessionAwareApplication 是 Application 的可选会话级扩展（M1 显式
@@ -84,6 +93,9 @@ type Options struct {
 	ProjectRoot string
 	Width       int
 	Height      int
+	// StartupWarning 非空时，GUI 窗口就绪后会弹出原生错误对话框展示启动
+	// 配置警告（配置损坏仍可启动，不闪退）。
+	StartupWarning string
 }
 
 type AppInfo struct {
@@ -457,4 +469,22 @@ func (bridge *Bridge) WorkspaceTree(relPath string, depth int) (dto.TreeListing,
 // WorkspaceFileCount 转发工作区文件统计。
 func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
 	return bridge.app.WorkspaceFileCount()
+}
+
+// WorkspaceGitLog 转发工作区 git 提交记录树（最近 limit 条提交的 --graph
+// 拓扑行；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
+func (bridge *Bridge) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
+	return bridge.app.WorkspaceGitLog(limit)
+}
+
+// ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
+// 工具输出，"加载完整输出"数据源；参数透传，业务校验在 application 层）。
+func (bridge *Bridge) ToolResultContent(resultRef string, offset, limit int) (application.ToolResultPage, error) {
+	return bridge.app.ToolResultContent(bridge.requestContext(), resultRef, offset, limit)
+}
+
+// PerfStats 返回性能追踪钩子的后端数据面（无内容指标：快照载荷体积/
+// 会话规模/归档体积，供前端渲染进程对照）。
+func (bridge *Bridge) PerfStats() application.PerfStats {
+	return bridge.app.PerfStats()
 }

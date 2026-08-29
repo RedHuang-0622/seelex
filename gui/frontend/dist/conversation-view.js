@@ -60,25 +60,70 @@ async function handleAction(event, getPayloads, options) {
     return;
   }
   const expandButton = event.target.closest("[data-expand]");
-  if (!expandButton) return;
-  const panel = expandButton.closest(".io-panel");
-  const key = expandButton.dataset.expand;
-  const value = getPayloads().get(key) || "";
-  const pre = panel?.querySelector("pre");
-  const label = expandButton.querySelector("span");
-  if (panel?.classList.contains("expanded")) {
-    panel.classList.remove("expanded");
-    pre?.replaceChildren(document.createTextNode(expandButton.dataset.original || ""));
-    if (label) label.textContent = `+${expandButton.dataset.hiddenChars || "0"} chars`;
-    expandButton.title = "展开完整内容";
+  if (expandButton) {
+    const panel = expandButton.closest(".io-panel");
+    const key = expandButton.dataset.expand;
+    const value = getPayloads().get(key) || "";
+    const pre = panel?.querySelector("pre");
+    const label = expandButton.querySelector("span");
+    if (panel?.classList.contains("expanded")) {
+      panel.classList.remove("expanded");
+      pre?.replaceChildren(document.createTextNode(expandButton.dataset.original || ""));
+      if (label) label.textContent = `+${expandButton.dataset.hiddenChars || "0"} chars`;
+      expandButton.title = "展开完整内容";
+      return;
+    }
+    expandButton.dataset.original = pre?.textContent || "";
+    expandButton.dataset.hiddenChars = (label?.textContent || "").replace(/\D/g, "");
+    pre?.replaceChildren(document.createTextNode(value));
+    panel?.classList.add("expanded");
+    if (label) label.textContent = "收回";
+    expandButton.title = "收回完整内容";
     return;
   }
-  expandButton.dataset.original = pre?.textContent || "";
-  expandButton.dataset.hiddenChars = (label?.textContent || "").replace(/\D/g, "");
-  pre?.replaceChildren(document.createTextNode(value));
-  panel?.classList.add("expanded");
-  if (label) label.textContent = "收回";
-  expandButton.title = "收回完整内容";
+  // 快照截断输出的"加载完整输出"：按 result_ref 从后端分页拉全文
+  // （复用 read_tool_result 通道），拉回后替换预览并展开；再点收回。
+  const loadButton = event.target.closest("[data-load-ref]");
+  if (loadButton) {
+    const panel = loadButton.closest(".io-panel");
+    const ref = loadButton.dataset.loadRef;
+    const details = panel?.querySelector("details.io-collapse");
+    const pre = panel?.querySelector("pre");
+    if (details?.open && panel?.classList.contains("expanded")) {
+      details.open = false;
+      panel.classList.remove("expanded");
+      const label = loadButton.querySelector("span");
+      if (label) label.textContent = "加载完整输出";
+      loadButton.title = "加载完整输出";
+      return;
+    }
+    if (!panel || panel.classList.contains("loading-full")) return;
+    panel.classList.add("loading-full");
+    const label = loadButton.querySelector("span");
+    if (label) label.textContent = "加载中…";
+    loadButton.disabled = true;
+    try {
+      const page = await options.loadResultRef(ref, 0, options.resultPageLimit || 12000);
+      const text = page?.content || "";
+      if (pre) pre.replaceChildren(document.createTextNode(text));
+      if (details) details.open = true;
+      panel.classList.add("expanded");
+      panel.dataset.fullRef = ref;
+      if (label) label.textContent = page?.has_more ? "加载更多" : "收回完整输出";
+      loadButton.title = "收回完整输出";
+      loadButton.dataset.fullLoaded = "1";
+      if (page?.has_more && page.next_offset > 0 && typeof options.loadResultRef === "function") {
+        loadButton.dataset.nextOffset = String(page.next_offset);
+      }
+    } catch (error) {
+      if (label) label.textContent = "加载失败";
+      options.notify?.(error);
+    } finally {
+      panel.classList.remove("loading-full");
+      loadButton.disabled = false;
+    }
+    return;
+  }
 }
 
 function reconcile(container, items, htmlByKey, payloads) {

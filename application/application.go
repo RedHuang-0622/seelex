@@ -57,6 +57,8 @@ type (
 	TranscriptToolCall         = model.TranscriptToolCall
 	ToolResultRef              = model.ToolResultRef
 	StoredToolResult           = model.StoredToolResult
+	ToolResultPage             = model.ToolResultPage
+	PerfStats                  = model.PerfStats
 	RuntimeState               = model.RuntimeState
 	ReplanMonitor              = model.ReplanMonitor
 	PlanState                  = model.PlanState

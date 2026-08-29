@@ -84,6 +84,53 @@ type ToolCall struct {
 	Error     string        `json:"error,omitempty"`
 	Status    string        `json:"status"`
 	Duration  time.Duration `json:"duration,omitempty"`
+	// ResultRef 是完整工具输出的归档引用（仅当输出超过快照截断阈值时
+	// 设置）：快照里的 Result 只含预览，前端"加载完整输出"经
+	// ToolResultContent 按此 ref 分页读回。空 = 输出未截断（Result 即全文）。
+	ResultRef string `json:"result_ref,omitempty"`
+	// Truncated 标记快照输出已被截断（Result 为预览，全文在 ResultRef）。
+	Truncated bool `json:"truncated,omitempty"`
+	// TotalChars 是完整输出的原始字符数（截断时前端用于展示
+	// "+N 字符"，无需预先拉全文）。
+	TotalChars int `json:"total_chars,omitempty"`
+}
+
+// ToolResultPage 是按 result_ref 分页读回工具完整输出的一页（GUI
+// ToolResultContent 与 read_tool_result 工具共用同一持久化通道；字段
+// 与 encodeToolResultPage 的 JSON 载荷一一对应）。
+type ToolResultPage struct {
+	ResultRef  string `json:"result_ref"`
+	Tool       string `json:"tool"`
+	Digest     string `json:"digest"`
+	Offset     int    `json:"offset"`
+	NextOffset int    `json:"next_offset"`
+	TotalBytes int    `json:"total_bytes"`
+	HasMore    bool   `json:"has_more"`
+	Content    string `json:"content"`
+}
+
+// PerfStats 是 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容
+// 指标，供前端渲染进程对照（DOM 节点数 ↔ 快照载荷体积 ↔ JS heap）。
+type PerfStats struct {
+	// Snapshot 载荷体积（字节）：会话可见区 JSON 序列化大小估算。
+	SnapshotBytes int `json:"snapshot_bytes"`
+	// ConversationMessages 是可见会话消息条数（含 tool 消息）。
+	ConversationMessages int `json:"conversation_messages"`
+	// ConversationChars 是可见会话全部消息 content/参数/结果字符总数。
+	ConversationChars int `json:"conversation_chars"`
+	// LargestMessageChars 是单条可见消息的最大字符数（截断后）。
+	LargestMessageChars int `json:"largest_message_chars"`
+	// ToolResults 是已归档 result_ref 条数。
+	ToolResults int `json:"tool_results"`
+	// ArchivedBytes 是已归档工具结果的字节总量（内存态 pending + 会话
+	// 注册表元数据；磁盘占用以 Size 为准）。
+	ArchivedBytes int `json:"archived_bytes"`
+	// TruncatedOutputs 是快照中被截断的工具输出条数。
+	TruncatedOutputs int `json:"truncated_outputs"`
+	// HistoryWindow 是当前生效的可见会话窗口上限。
+	HistoryWindow int `json:"history_window"`
+	// Revision 是当前快照修订号。
+	Revision uint64 `json:"revision"`
 }
 type ChatState struct {
 	Running     bool      `json:"running"`
@@ -113,6 +160,10 @@ type RuntimeState struct {
 	// SubAgentTree 是 fork 子代理树的权威投影（内存态，不落盘；GUI 树视图
 	// 数据源）。节点状态由 fork 子代理会话生命周期投影，随节点事件增量刷新。
 	SubAgentTree []dto.SubAgentTreeNode `json:"subagent_tree,omitempty"`
+	// GoalSkillActive 是 goal skill 激活投影（右侧栏「目标」面板 badge）。
+	GoalSkillActive bool `json:"goal_skill_active,omitempty"`
+	// ActiveSkills 是当前任务的激活 skill ID 列表（「目标」面板数据源）。
+	ActiveSkills []string `json:"active_skills,omitempty"`
 	// WorkTable 是工作台统一工作表格的权威投影（plan 节点 / todolist 项 /
 	// fork 子代理 → 扁平 WorkItem 行，含任务打点 trace）。有界（行数上限
 	// limits.work_table_rows，trace 上限 limits.plan_node_events）。
@@ -520,6 +571,7 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.Plugins = append([]PluginInfo(nil), runtime.Plugins...)
 	copyRuntime.Accounts = append([]AccountInfo(nil), runtime.Accounts...)
 	copyRuntime.TodoItems = append([]dto.TodoItem(nil), runtime.TodoItems...)
+	copyRuntime.ActiveSkills = append([]string(nil), runtime.ActiveSkills...)
 	copyRuntime.ScheduledTasks = append([]dto.ScheduledTaskStatus(nil), runtime.ScheduledTasks...)
 	copyRuntime.ScheduledCommands = append([]dto.ScheduledCommandInfo(nil), runtime.ScheduledCommands...)
 	if runtime.Plan != nil {

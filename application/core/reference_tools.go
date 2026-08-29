@@ -15,6 +15,9 @@ import (
 
 // 引用工具分页默认值收编进 seele.yaml limits 段
 // （reference_page_size / max_reference_page_size，默认 4000 / 12000）。
+// ReadToolResultHandler 是 read_tool_result 工具的 handler（模型面；
+// 返回 JSON 字符串）。读取逻辑与 GUI 的 Service.ToolResultContent 共用
+// toolResultContent，保证两条通道读到同一份归档。
 func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string) (string, error) {
 	var input struct {
 		ResultRef string `json:"result_ref"`
@@ -35,18 +38,46 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 	if max := Limits().MaxReferencePageSize; max > 0 && input.Limit > max {
 		input.Limit = max
 	}
+	page, err := service.toolResultContent(input.ResultRef, input.Offset, input.Limit, input.Contains)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(page)
+	return string(encoded), err
+}
 
+// ToolResultContent 按 result_ref 分页读回完整工具输出（GUI 面：快照被
+// 截断的工具输出，前端"加载完整输出"调用；复用 read_tool_result 的持久
+// 化通道，offset/limit 语义一致）。
+func (service *Service) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (model.ToolResultPage, error) {
+	resultRef = strings.TrimSpace(resultRef)
+	if resultRef == "" || offset < 0 {
+		return model.ToolResultPage{}, errors.New("tool_result_content: result_ref is required and offset must be non-negative")
+	}
+	if limit <= 0 {
+		limit = Limits().ReferencePageSize
+	}
+	if max := Limits().MaxReferencePageSize; max > 0 && limit > max {
+		limit = max
+	}
+	return service.toolResultContent(resultRef, offset, limit, "")
+}
+
+// toolResultContent 解析 result_ref 并分页读回工具输出（含 contains 过滤
+// 的模型面参数）。node:<nodeID>: 前缀走引擎桥读子代理归档；result:call_
+// 别名映射回真实 tr- ref；其余查 pending（内存态）→ 会话落盘存储。
+func (service *Service) toolResultContent(resultRef string, offset, limit int, contains string) (model.ToolResultPage, error) {
 	// node:<nodeID>: 前缀 = 子代理工具结果：经引擎桥读回节点专属归档
 	// （P1 修复——子代理 ref 主会话原本读不到；ref 前缀由节点归档器写入）。
-	if nodeID, ok := nodeResultRef(input.ResultRef); ok {
+	if nodeID, ok := nodeResultRef(resultRef); ok {
 		service.Mu.RLock()
-		raw, found := service.nodeToolResult(nodeID, input.ResultRef)
+		raw, found := service.nodeToolResult(nodeID, resultRef)
 		service.Mu.RUnlock()
 		if !found {
-			return "", errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
+			return model.ToolResultPage{}, errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
 		}
-		result := StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: input.ResultRef}, Content: raw}
-		return encodeToolResultPage(result, input.Offset, input.Limit, input.Contains)
+		result := StoredToolResult{ToolResultRef: model.ToolResultRef{Ref: resultRef}, Content: raw}
+		return buildToolResultPage(result, offset, limit, contains), nil
 	}
 
 	// result:call_<callID> 别名：模型在省略占位提示后常自行拼接
@@ -54,17 +85,17 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 	// 映射回真实 ref 再读取，避免「result_ref is not available」假阴性
 	// （2026-08-10：GUI 会话记录实证——fork 结果过大被省略后模型用
 	// result:call_... 读回失败）。
-	input.ResultRef = service.resolveToolResultRefAlias(input.ResultRef)
+	resultRef = service.resolveToolResultRefAlias(resultRef)
 
 	service.Mu.RLock()
-	if !service.hasToolResultRefLocked(input.ResultRef) {
+	if !service.hasToolResultRefLocked(resultRef) {
 		service.Mu.RUnlock()
-		return "", errors.New("read_tool_result: result_ref is not available in the current session")
+		return model.ToolResultPage{}, errors.New("read_tool_result: result_ref is not available in the current session")
 	}
 	for _, pending := range service.components.tasks.PendingToolResults() {
-		if pending.Ref == input.ResultRef {
+		if pending.Ref == resultRef {
 			service.Mu.RUnlock()
-			return encodeToolResultPage(pending, input.Offset, input.Limit, input.Contains)
+			return buildToolResultPage(pending, offset, limit, contains), nil
 		}
 	}
 	sessionID := service.Core.Snapshot.Session.ID
@@ -73,13 +104,13 @@ func (service *Service) ReadToolResultHandler(_ context.Context, argsJSON string
 
 	store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
 	if !ok {
-		return "", errors.New("read_tool_result: durable result storage is unavailable")
+		return model.ToolResultPage{}, errors.New("read_tool_result: durable result storage is unavailable")
 	}
-	result, err := store.LoadToolResultWorkspace(workspaceID, sessionID, input.ResultRef)
+	result, err := store.LoadToolResultWorkspace(workspaceID, sessionID, resultRef)
 	if err != nil {
-		return "", fmt.Errorf("read_tool_result: %w", err)
+		return model.ToolResultPage{}, fmt.Errorf("read_tool_result: %w", err)
 	}
-	return encodeToolResultPage(result, input.Offset, input.Limit, input.Contains)
+	return buildToolResultPage(result, offset, limit, contains), nil
 }
 
 // resolveToolResultRefAlias 把模型常见的 result:call_<callID> 引用映射为
@@ -135,7 +166,10 @@ func (service *Service) hasToolResultRefLocked(resultRef string) bool {
 	return false
 }
 
-func encodeToolResultPage(result StoredToolResult, offset, limit int, contains string) (string, error) {
+// buildToolResultPage 计算工具结果的一页（contains 过滤 → offset/limit
+// 分页 → UTF-8 边界对齐）。GUI 的 ToolResultContent 与模型面
+// read_tool_result 共用同一页结构。
+func buildToolResultPage(result StoredToolResult, offset, limit int, contains string) model.ToolResultPage {
 	content := result.Content
 	if contains = strings.TrimSpace(contains); contains != "" {
 		lines := strings.Split(content, "\n")
@@ -148,7 +182,8 @@ func encodeToolResultPage(result StoredToolResult, offset, limit int, contains s
 		content = strings.Join(matched, "\n")
 	}
 	if offset > len(content) {
-		return "", errors.New("read_tool_result: offset exceeds filtered content")
+		return model.ToolResultPage{ResultRef: result.Ref, Tool: result.Tool, Digest: result.Digest,
+			Offset: offset, TotalBytes: len(content), Content: ""}
 	}
 	end := offset + limit
 	if end > len(content) {
@@ -160,12 +195,21 @@ func encodeToolResultPage(result StoredToolResult, offset, limit int, contains s
 		_, size := utf8.DecodeRuneInString(content[offset:])
 		end = offset + size
 	}
-	payload := map[string]any{
-		"result_ref": result.Ref, "tool": result.Tool, "digest": result.Digest,
-		"offset": offset, "next_offset": end, "total_bytes": len(content),
-		"has_more": end < len(content), "content": content[offset:end],
+	return model.ToolResultPage{
+		ResultRef: result.Ref, Tool: result.Tool, Digest: result.Digest,
+		Offset: offset, NextOffset: end, TotalBytes: len(content),
+		HasMore: end < len(content), Content: content[offset:end],
 	}
-	encoded, err := json.Marshal(payload)
+}
+
+// encodeToolResultPage 是模型面 read_tool_result 的 JSON 编码（保留既有
+// 载荷形状；由 buildToolResultPage 计算）。
+func encodeToolResultPage(result StoredToolResult, offset, limit int, contains string) (string, error) {
+	page := buildToolResultPage(result, offset, limit, contains)
+	if page.Offset > page.TotalBytes {
+		return "", errors.New("read_tool_result: offset exceeds filtered content")
+	}
+	encoded, err := json.Marshal(page)
 	return string(encoded), err
 }
 

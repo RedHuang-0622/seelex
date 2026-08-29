@@ -44,6 +44,7 @@ limits:
   message_shard_size: 100        # 会话存储分片条数（默认 100）
   summary_chars: 800             # 项目记录摘要截断（默认 800）
   max_tool_result_chars: 60000   # 工具结果最大字符数（默认 60000；fork 汇总按子代理数 ×n 放大，超大结果归档为 result_ref）
+  snapshot_tool_output_chars: 8000 # 可见会话快照单条工具输出上限（默认 8000）：超限只留预览进快照，完整内容归档 result_ref 点击再取——WebView2 渲染内存截断线（治本）
   # docker 守护进程自动恢复：bash 命令因 Docker Desktop 未运行失败时自动
   # 启动守护进程并重跑一次（默认开启；关闭需显式 disable_docker_auto_start: true）
   # disable_docker_auto_start: false

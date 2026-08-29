@@ -20,7 +20,9 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
   table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h18"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
-  error: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>'
+  error: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>',
+  grip: '<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>',
+  branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.5 6h4a5.5 5.5 0 0 1 3 5v-0.5a5.5 5.5 0 0 1-3 5h-4"/>'
 };
 
 export function icon(name, size = 16) {
@@ -108,6 +110,9 @@ export function buildConversationItems(messages = []) {
         target.status = tool.error ? "error" : (tool.status || "success");
         target.duration = tool.duration || target.duration;
         target.outputAttached = true;
+        target.resultRef = tool.result_ref || "";
+        target.truncated = Boolean(tool.truncated);
+        target.totalChars = Number(tool.total_chars) || 0;
         continue;
       }
     }
@@ -121,7 +126,10 @@ export function buildConversationItems(messages = []) {
       error: tool.error || "",
       status: tool.status || (isOutput ? "success" : "pending"),
       duration: tool.duration || 0,
-      outputAttached: isOutput || Boolean(tool.result || tool.error)
+      outputAttached: isOutput || Boolean(tool.result || tool.error),
+      resultRef: tool.result_ref || "",
+      truncated: Boolean(tool.truncated),
+      totalChars: Number(tool.total_chars) || 0
     };
     items.push(item);
     pendingTools.push(item);
@@ -160,7 +168,14 @@ function renderToolCall(tool, key, payloads) {
   payloads.set(inputKey, input);
   payloads.set(outputKey, output);
   const inputView = limitText(input, 1400, 28);
-  const outputView = limitText(output, 2400, 40);
+  // 快照截断渲染（根因链治本）：后端已把超限输出截断为 ≤8KB 预览并
+  // 归档 result_ref，前端再把渲染预算压到 4KB/40 行（默认折叠成
+  // <details>），并把"加载完整输出"挂在 result_ref 上点击按需拉取——
+  // 60KB 级全文不进 DOM，展开过的大块只保留在已展开节点内。
+  const previewLimit = 4000;
+  const previewLines = 40;
+  const outputView = limitText(output, previewLimit, previewLines);
+  const ref = tool.resultRef || "";
   const status = statusMeta(tool.status, tool.error);
   return `<article class="tool-run ${status.className}" data-conversation-key="${escapeHtml(key)}">
     <header class="tool-run-head">
@@ -171,16 +186,36 @@ function renderToolCall(tool, key, payloads) {
     </header>
     <div class="tool-io-grid">
       ${renderIOPanel("IN", inputView, inputKey, false)}
-      ${renderIOPanel("OUT", outputView, outputKey, Boolean(tool.error))}
+      ${renderIOPanel("OUT", outputView, outputKey, Boolean(tool.error), {
+        resultRef: ref,
+        truncated: tool.truncated,
+        totalChars: tool.totalChars || outputView.total,
+        collapsed: outputView.truncated
+      })}
     </div>
   </article>`;
 }
 
-function renderIOPanel(label, view, payloadKey, error) {
+function renderIOPanel(label, view, payloadKey, error, extra = {}) {
+  const hidden = Number(view.hidden) || 0;
+  const note = error ? "" : view.truncated
+    ? extra.resultRef
+      ? `<span class="io-note">预览 ${view.total} 字符 · 全文 ${extra.totalChars} 字符（默认折叠，点击加载）</span>`
+      : `<span class="io-note">预览 ${view.total} 字符</span>`
+    : "";
+  const fullButton = extra.resultRef && extra.truncated
+    ? `<button class="io-expand" type="button" data-load-ref="${escapeHtml(extra.resultRef)}" title="加载完整输出（按需拉取，默认折叠）">${icon("expand", 12)} <span>加载完整输出</span></button>`
+    : view.truncated
+      ? `<button class="io-expand" type="button" data-expand="${payloadKey}" title="展开完整内容">${icon("expand", 12)} <span>+${hidden} chars</span></button>`
+      : "";
+  const body = extra.collapsed
+    ? `<details class="io-collapse"${error ? " open" : ""}><summary><span>${error ? "查看错误" : "查看输出预览"}</span><span class="io-collapse-meta">${escapeHtml(String(view.total))} chars</span></summary><pre>${escapeHtml(view.preview)}</pre></details>`
+    : `<pre>${escapeHtml(view.preview)}</pre>`;
   return `<section class="io-panel ${error ? "io-error" : ""}" data-payload="${payloadKey}">
     <header><span class="io-label">${label}</span><span class="io-meta">${view.total} chars</span><button class="icon-button subtle" type="button" data-copy="${payloadKey}" title="复制 ${label}" aria-label="复制 ${label}">${icon("copy", 13)}</button></header>
-    <pre>${escapeHtml(view.preview)}</pre>
-    ${view.truncated ? `<button class="io-expand" type="button" data-expand="${payloadKey}" title="展开完整内容">${icon("expand", 12)} <span>+${view.hidden} chars</span></button>` : ""}
+    ${body}
+    ${note}
+    ${fullButton}
   </section>`;
 }
 

@@ -25,6 +25,11 @@
 runtime）；`Bridge.UpdateWorkItemStatus(id, status)` 只做参数透传，业务校验在
 application 层（v1 仅支持 `todo:<index>` 的 pending/doing/done）。
 
+启动配置容错：`Options.StartupWarning` 非空时，窗口就绪（`OnDomReady`）后
+弹出原生错误对话框展示启动期配置警告（如 `accounts.yaml` 解析失败）。警告同时
+以系统通知进入会话可见区（`application.Service.AddNotice`），应用照常启动，
+不闪退。
+
 task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 relay；主动
 `taskadd` 是模型可调用的 harness 工具（注册表幂等去重），不经 Bridge。
 
@@ -38,7 +43,16 @@ Wails `BeforeClose` 首次触发时调用 `BeginGracefulShutdown`，后台等待
 
 - 普通构建：GUI stub，默认 TUI 不依赖 WebView。
 - Wails GUI：`-tags "gui,desktop,production"`，启用 Wails runtime。这里的 `production` 是 Wails 构建约定的一部分，只区分真实桌面实现与 stub，不表示 Seelex 已达到 production-ready；项目成熟度以根 README 的 Developer Alpha 声明为准。
+- pprof 采样：`-tags pprof`，Go 侧启动 `127.0.0.1:6060`（`SEELEX_PPROF_ADDR` 可覆盖）的 `/debug/pprof/*` 端口。用于排除法对照——GUI 内存大头在 WebView2 渲染进程，Go 侧 pprof 只能确认主进程小，救不了渲染进程。
 - 前端文件编译时嵌入，修改 `frontend/dist` 后必须重建二进制。
+
+## 渲染内存治理（根因链）
+
+WebView2（Chromium）渲染进程吃内存的根因是：每条工具输出的全文都进可见会话快照并被 `markdown()` 渲染进 DOM。治理分三层（对应 `config/seelex.yaml` limits 段与前端渲染）：
+
+1. **快照截断（治本）**：`snapshot_tool_output_chars`（默认 8000）——超过该值的工具输出只把预览放进快照 `message.content` / `tool.result`，完整内容归档为 `result_ref`，前端"加载完整输出"经 `Bridge.ToolResultContent`（复用 `read_tool_result` 通道）按需分页读回。provider 侧历史不受此值影响（仍由 `max_tool_result_chars` 约束）。
+2. **前端折叠（立竿见影）**：`components.js` 对工具输出渲染预算压到 4KB/40 行，超预算默认折叠成 `<details class="io-collapse">`；`conversation-view.js` 处理 `data-load-ref` 点击按 `result_ref` 异步拉全文。
+3. **性能追踪钩子**：`perf-hooks.js`（`window.__seelexPerf`）每 10s 轮询 `Bridge.PerfStats`（无内容指标：快照 JSON 体积/会话字符数/单条最大/截断数/归档体积），与渲染进程侧 DOM 节点数、JS heap、渲染耗时对照，顶部状态区徽标展示；点击徽标在 console 打印最近 60 个样本。对照涨跌即可定位"谁在吃内存"，无需再靠任务管理器。
 
 ## Review 指南
 
@@ -47,12 +61,14 @@ Wails `BeforeClose` 首次触发时调用 `BeginGracefulShutdown`，后台等待
 - renderer 可见数据是否已脱敏。
 - build-tag 两套实现是否保持相同导出 API。
 - 新 Bridge 方法是否有 fakeApplication contract test。
+- 快照截断是否保持"可见会话预览 + 完整内容可读回"两条通道一致（`ToolResultContent` 与 `read_tool_result` 共用 `toolResultContent`）。
 
 ## 测试
 
 ```text
 go test ./gui -count=1
 go build -tags "gui,desktop,production" ./...
+go build -tags pprof .
 node --test gui/frontend/dist/*.test.mjs
 ```
 

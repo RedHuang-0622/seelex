@@ -49,3 +49,38 @@ test("uses stable message and tool keys for incremental rendering", () => {
   assert.match(model.items[1].html, /data-conversation-key="tool:call-1"/);
   assert.equal(model.payloads.get("tool:call-1-out"), "done");
 });
+
+test("renders truncated tool output as collapsible preview with result_ref loader", () => {
+  const bigOutput = "x".repeat(9000);
+  const model = renderConversationModel([
+    { id: "tool-start", role: "tool", tool: { id: "call-big", name: "bash", arguments: "{}" } },
+    { id: "tool-end", role: "tool_result", tool: {
+      id: "call-big", name: "bash", result: bigOutput.slice(0, 8000),
+      result_ref: "tr-abc123", truncated: true, total_chars: 9000
+    } }
+  ]);
+
+  const item = model.items.find(entry => entry.key === "tool:call-big");
+  assert.ok(item, "tool item must be present");
+  assert.match(item.html, /<details class="io-collapse"/);
+  assert.match(item.html, /data-load-ref="tr-abc123"/);
+  assert.match(item.html, /加载完整输出/);
+  assert.match(item.html, /全文 9000 字符/);
+  // 完整 payload 仍可复制（预览 + 引用），与展开按钮并存。
+  assert.equal(model.payloads.get("tool:call-big-out").length, 8000);
+  // 大块输出不直接进 DOM（预览被折叠在 <pre> 内且受 4KB 上限约束）。
+  const previewMatch = item.html.match(/<pre>([\s\S]*?)<\/pre>/);
+  assert.ok(previewMatch && previewMatch[1].length <= 4000 + 128, "rendered preview must stay under 4KB + slack");
+});
+
+test("passes non-truncated tool output through unchanged", () => {
+  const model = renderConversationModel([
+    { id: "tool-start", role: "tool", tool: { id: "call-small", name: "read_file", arguments: "{}" } },
+    { id: "tool-end", role: "tool_result", tool: { id: "call-small", name: "read_file", result: "small" } }
+  ]);
+  const item = model.items.find(entry => entry.key === "tool:call-small");
+  assert.ok(item);
+  assert.doesNotMatch(item.html, /data-load-ref/);
+  assert.doesNotMatch(item.html, /io-collapse/);
+  assert.equal(model.payloads.get("tool:call-small-out"), "small");
+});

@@ -48,6 +48,13 @@ type Limits struct {
 	WorkTableRows          int `yaml:"work_table_rows"`              // 工作表格（work table）最大行数
 	WalkTimeoutSec         int `yaml:"walk_timeout"`                 // glob/grep 目录遍历超时（秒）
 	MaxToolResultChars     int `yaml:"max_tool_result_chars"`        // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
+	// SnapshotToolOutputChars 是**可见会话快照**的单条工具输出上限（0 →
+	// 默认 8000）。超过该值的输出只把前 N 字符的预览放进快照会话
+	// （message.content / tool.result），完整内容归档为 result_ref，前端
+	// 点击"加载完整输出"时经 ToolResultContent 读回。provider 侧历史
+	// 仍保留完整结果（受 max_tool_result_chars 约束），此值只约束
+	// GUI/渲染进程拿到的载荷，是 WebView2 渲染内存的治本截断线。
+	SnapshotToolOutputChars int `yaml:"snapshot_tool_output_chars"`
 	// docker 守护进程自动恢复（2026-08-07）：bash 命令因 Docker Desktop
 	// 未运行失败时，自动启动守护进程并重跑一次命令（真实环境有 docker CLI
 	// 但 daemon 未启动是常见状态，沙箱应帮模型把环境"修好"而不是报错）。
@@ -95,6 +102,7 @@ func DefaultLimits() Limits {
 		// fork 汇总窗口按子代理数 ×n 放大：4×2000 字结论 ≈ 24KB，默认
 		// 60000 字节（约 2 万汉字）给足余量——窗口是容灾上限不是截断线。
 		MaxToolResultChars:    60000,
+		SnapshotToolOutputChars: 8000,
 		DockerStartTimeoutSec: 60,
 		ForkTimeoutSec:        7200,
 	}
@@ -201,6 +209,9 @@ func (l Limits) WithDefaults() Limits {
 	if l.MaxToolResultChars == 0 {
 		l.MaxToolResultChars = def.MaxToolResultChars
 	}
+	if l.SnapshotToolOutputChars == 0 {
+		l.SnapshotToolOutputChars = def.SnapshotToolOutputChars
+	}
 	if l.DockerStartTimeoutSec == 0 {
 		l.DockerStartTimeoutSec = def.DockerStartTimeoutSec
 	}
@@ -254,7 +265,7 @@ func LoadLimits(path string) (Limits, error) {
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
 		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WorkTableRows < 0 || check.WalkTimeoutSec < 0 ||
-		check.MaxToolResultChars < 0 || check.DockerStartTimeoutSec < 0 ||
+		check.MaxToolResultChars < 0 || check.SnapshotToolOutputChars < 0 || check.DockerStartTimeoutSec < 0 ||
 		check.ForkTimeoutSec < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
 	}
