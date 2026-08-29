@@ -25,3 +25,31 @@ type TreeCount struct {
 	Dirs      int  `json:"dirs"`
 	Truncated bool `json:"truncated"`
 }
+
+// GitCommitNode 是 git log 一行提交的结构化元数据（hash/作者/时间/标题；
+// 不含 diff、补丁或文件内容）。
+type GitCommitNode struct {
+	Hash      string `json:"hash"`       // 完整 commit hash
+	ShortHash string `json:"short_hash"` // 短 hash（前端复制/展示用）
+	Author    string `json:"author"`     // 作者名
+	Date      string `json:"date"`       // 短日期（MM-dd HH:mm，由 --date=format 生成）
+	Subject   string `json:"subject"`    // 提交标题（首行）
+}
+
+// GitLogLine 是 git log --graph 输出的一行：Graph 是拓扑树形字符前缀
+// （"* "、"| "、"|\\ " 等，延续线无 Commit）；Commit 非空表示本行是一条提交。
+type GitLogLine struct {
+	Graph  string         `json:"graph"` // 树形图前缀（等宽渲染，前端 escape）
+	Commit *GitCommitNode `json:"commit,omitempty"`
+}
+
+// GitLogResult 是 git 提交记录树的完整查询结果（GUI 提交记录树数据源）。
+// 非 git 仓库或 git 不可用时 Error 携带展示文案（非致命，调用方仍返回
+// Result 而非 Go error）；Root 记录查询的仓库根。
+type GitLogResult struct {
+	Lines     []GitLogLine    `json:"lines"` // 拓扑行（含延续线，保序）
+	Commits   []GitCommitNode `json:"commits"`
+	Truncated bool            `json:"truncated"` // 达到 limit 截断
+	Root      string          `json:"root,omitempty"`
+	Error     string          `json:"error,omitempty"`
+}

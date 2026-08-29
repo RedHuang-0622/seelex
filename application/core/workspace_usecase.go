@@ -179,6 +179,16 @@ func (service *Service) WorkspaceFileCount() (dto.TreeCount, error) {
 	return port.CountFiles(root)
 }
 
+// WorkspaceGitLog 返回当前工作区最近 limit 条提交的拓扑树（GUI 提交记录树
+// 数据源；只读元数据，root 只来自后端当前 workspace）。
+func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
+	port, root, err := service.workspaceTreePort()
+	if err != nil {
+		return dto.GitLogResult{}, err
+	}
+	return port.GitLog(root, limit)
+}
+
 // workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
 // 断言 WorkspacePort 实现 optional 树端口。
 func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error) {

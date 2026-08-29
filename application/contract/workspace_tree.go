@@ -13,4 +13,7 @@ type WorkspaceTreePort interface {
 	ListTree(root, relPath string, depth int) (dto.TreeListing, error)
 	// CountFiles 递归统计 root 内文件/目录数（忽略规则 + 敏感文件除外）。
 	CountFiles(root string) (dto.TreeCount, error)
+	// GitLog 返回 root 内最近 limit 条提交的 --graph 拓扑行（固定 argv、
+	// 只读、超时；非 git 仓库以 Result.Error 描述，不返回 Go error）。
+	GitLog(root string, limit int) (dto.GitLogResult, error)
 }

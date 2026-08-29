@@ -16,11 +16,13 @@ type treeFakeWorkspace struct {
 	*fakeWorkspace
 	listing   dto.TreeListing
 	count     dto.TreeCount
+	gitLog    dto.GitLogResult
 	listErr   error
 	countErr  error
 	lastRoot  string
 	lastRel   string
 	lastDepth int
+	lastLimit int
 }
 
 func (fake *treeFakeWorkspace) ListTree(root, relPath string, depth int) (dto.TreeListing, error) {
@@ -33,6 +35,12 @@ func (fake *treeFakeWorkspace) ListTree(root, relPath string, depth int) (dto.Tr
 func (fake *treeFakeWorkspace) CountFiles(root string) (dto.TreeCount, error) {
 	fake.lastRoot = root
 	return fake.count, fake.countErr
+}
+
+func (fake *treeFakeWorkspace) GitLog(root string, limit int) (dto.GitLogResult, error) {
+	fake.lastRoot = root
+	fake.lastLimit = limit
+	return fake.gitLog, nil
 }
 
 func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
@@ -83,6 +91,37 @@ func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 	}
 	if _, err := service.WorkspaceFileCount(); err == nil {
 		t.Fatal("WorkspaceFileCount succeeded without a workspace")
+	}
+	if _, err := service.WorkspaceGitLog(20); err == nil {
+		t.Fatal("WorkspaceGitLog succeeded without a workspace")
+	}
+}
+
+func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
+	fake := &treeFakeWorkspace{
+		fakeWorkspace: newFakeWorkspace(),
+		gitLog: dto.GitLogResult{Lines: []dto.GitLogLine{
+			{Graph: "*", Commit: &dto.GitCommitNode{Hash: "abc", ShortHash: "abc", Author: "dev", Date: "08-29 10:00", Subject: "fix: git log"}},
+		}, Commits: []dto.GitCommitNode{{Hash: "abc"}}},
+	}
+	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+		deps.Workspace = fake
+	})
+
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.WorkspaceGitLog(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Lines) != 1 || result.Lines[0].Commit == nil || result.Lines[0].Commit.Subject != "fix: git log" {
+		t.Fatalf("unexpected git log result: %+v", result.Lines)
+	}
+	if fake.lastRoot != root || fake.lastLimit != 10 {
+		t.Fatalf("forwarded root=%q limit=%d", fake.lastRoot, fake.lastLimit)
 	}
 }
 

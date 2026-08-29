@@ -96,6 +96,10 @@ func (port WorkspacePort) CountFiles(root string) (dto.TreeCount, error) {
 	return port.Repo.CountFiles(root)
 }
 
+func (port WorkspacePort) GitLog(root string, limit int) (dto.GitLogResult, error) {
+	return port.Repo.GitLog(root, limit)
+}
+
 func adaptWorkspace(item workspace.Info) model.WorkspaceInfo {
 	return model.WorkspaceInfo{
 		ID:        item.ID,
