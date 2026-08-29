@@ -131,6 +131,18 @@ func Load(path string) (Config, error) {
 	}, nil
 }
 
+// LoadTolerant 与 Load 相同，但配置损坏（YAML 解析失败、账号字段非法）或
+// 未配置任何角色时不返回致命错误：返回内置兜底账号配置，并把原始错误作为
+// 非致命启动警告交给调用方展示。配置文件缺失仍视为正常回退（无警告）。
+// 用途：配置写错时应用照常启动，用户能在界面里看到错误原因，而不是闪退。
+func LoadTolerant(path string) (Config, error) {
+	cfg, err := Load(path)
+	if err != nil {
+		return fallbackConfig(), err
+	}
+	return cfg, nil
+}
+
 func fallbackConfig() Config {
 	limits := AccountLimits{ContextWindow: DefaultContextWindow, MaxOutputTokens: DefaultMaxOutputTokens}
 	spec := model.AccountSpec{

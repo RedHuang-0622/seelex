@@ -94,6 +94,9 @@ type Runtime struct {
 	summaryLog *SummaryLog
 
 	model string
+	// startupWarnings 是启动期非致命配置警告（如 accounts.yaml 解析失败、
+	// 未配置任何角色），由装配层在界面展示；不影响 Runtime 启动。
+	startupWarnings []string
 
 	// MCPStack 记录所有 MCP 调用的 trace（熔断事件 + 调用记录）。
 	// AttachMCP 时自动启动熔断事件监听，无需手动装配。
@@ -199,9 +202,13 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if planDecisionTimeout <= 0 {
 		planDecisionTimeout = time.Duration(cfg.Limits.WithDefaults().PlanDecisionTimeoutSec) * time.Second
 	}
-	loaded, err := config.Load(cfg.AccountsPath)
-	if err != nil {
-		return nil, fmt.Errorf("seelebridge: load accounts: %w", err)
+	// 配置容错：accounts.yaml 解析失败/未配置角色时退回内置兜底账号并记录
+	// 启动警告，应用照常启动（错误原因由界面展示），而不是启动即退出。
+	loaded, accountsErr := config.LoadTolerant(cfg.AccountsPath)
+	var startupWarnings []string
+	if accountsErr != nil {
+		startupWarnings = append(startupWarnings,
+			"账号配置异常，已使用内置兜底账号: "+accountsErr.Error())
 	}
 	if len(loaded.Specs) == 0 {
 		return nil, fmt.Errorf("seelebridge: accounts configuration is empty")
@@ -258,11 +265,12 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		subagentTree:        subagentsession.NewSubagentTree(tracer),
 		subagentContext:     subagentsession.NewSubagentContextActor(tracer),
 
-		window:     seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
-		tracer:     tracer,
-		hook:       hook,
-		summaryLog: NewSummaryLog(),
-		bundles:    make(map[string]*sessionBundle),
+		window:          seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
+		tracer:          tracer,
+		hook:            hook,
+		summaryLog:      NewSummaryLog(),
+		bundles:         make(map[string]*sessionBundle),
+		startupWarnings: startupWarnings,
 	}
 	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
@@ -547,6 +555,13 @@ func (r *Runtime) SetBashDiagnosticObserver(observer BashDiagnosticObserver) {
 	r.bashObserverMu.Unlock()
 }
 func (r *Runtime) Model() string { return r.model }
+
+// StartupWarnings 返回启动期非致命配置警告（如 accounts.yaml 解析失败、
+// 未配置任何角色；已自动退回内置兜底账号）。装配层应把警告展示给用户，
+// 而不是让应用启动失败。
+func (r *Runtime) StartupWarnings() []string {
+	return append([]string(nil), r.startupWarnings...)
+}
 
 // Tracer 返回遥测内存追踪器（trace 视图查询源，见 seelebridge/trace.go）。
 // GUI/TUI 经 enginePort 查询（TraceText/TokenCount）；生命周期事件

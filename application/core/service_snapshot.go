@@ -36,6 +36,12 @@ func (service *Service) addNotice(notice string) {
 	service.components.view.AddNotice(notice)
 }
 
+// AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布
+// message.added 事件）。启动期配置警告等非致命错误用它呈现给前端。
+func (service *Service) AddNotice(notice string) {
+	service.addNotice(notice)
+}
+
 func (service *Service) resetConversation(notice string) {
 	service.components.view.ResetConversation(notice)
 }

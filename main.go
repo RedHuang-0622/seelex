@@ -95,6 +95,9 @@ func main() {
 
 func run() error {
 	flag.Parse()
+	// pprof 构建钩子（-tags pprof）：Go 侧采样端口，默认 127.0.0.1:6060，
+	// 与 GUI 前端性能钩子（window.__seelexPerf / PerfStats）配合做内存对照。
+	startPprofHook()
 	if *showVersion {
 		fmt.Println(Version)
 		return nil
@@ -208,6 +211,12 @@ func run() error {
 	}
 	defer app.Shutdown()
 	console.LogStageIf(backendTrace, "startup.application.ready")
+	// 配置容错：启动期非致命警告（如 accounts.yaml 解析失败）以系统通知
+	// 进入会话可见区，GUI 另弹原生对话框；应用照常启动，不再闪退。
+	startupWarnings := runtime.StartupWarnings()
+	for _, warning := range startupWarnings {
+		app.AddNotice("⚠ 启动配置警告: " + warning)
+	}
 	registerTaskTerminalTools(runtime, app)
 	registerContextReadTools(runtime, app)
 	registerProjectRefreshTool(runtime, store)
@@ -265,7 +274,7 @@ func run() error {
 		console.LogStageIf(backendTrace, "startup.workspace.ready")
 	}
 	console.LogStageIf(backendTrace, "startup.frontend.ready")
-	return startFrontend(app, backendOutput)
+	return startFrontend(app, backendOutput, strings.Join(startupWarnings, "\n"))
 }
 
 func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Service) {
@@ -1000,10 +1009,12 @@ func startTUI(model tui.Model) error {
 	return nil
 }
 
-func startFrontend(app *application.Service, backendOutput io.Writer) error {
+func startFrontend(app *application.Service, backendOutput io.Writer, startupWarning string) error {
 	switch *frontendMode {
 	case "gui":
-		if err := gui.Run(app, gui.Options{Title: "Seelex", Version: Version}); err != nil {
+		if err := gui.Run(app, gui.Options{
+			Title: "Seelex", Version: Version, StartupWarning: startupWarning,
+		}); err != nil {
 			return fmt.Errorf("GUI 错误: %w", err)
 		}
 		return nil

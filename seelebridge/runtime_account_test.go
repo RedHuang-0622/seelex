@@ -294,22 +294,32 @@ func TestRuntimePlanBranchBindingResolvesAccountsByRoleAndPin(t *testing.T) {
 		t.Fatal("unavailable pinned account must fail")
 	}
 }
-func TestRuntimeRejectsEmptyAccounts(t *testing.T) {
+func TestRuntimeToleratesEmptyAccountsWithWarning(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.yaml")
 	if err := os.WriteFile(path, []byte("roles: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewRuntime(RuntimeConfig{AccountsPath: path}); err == nil {
-		t.Fatal("empty accounts should fail")
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: path})
+	if err != nil {
+		t.Fatalf("empty accounts should start with fallback, got: %v", err)
+	}
+	defer runtime.Shutdown()
+	if len(runtime.StartupWarnings()) == 0 {
+		t.Fatal("empty accounts should surface a startup warning")
 	}
 }
-func TestRuntimeRejectsLegacyAccountsList(t *testing.T) {
+func TestRuntimeToleratesLegacyAccountsListWithWarning(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "accounts.yaml")
 	content := "accounts:\n  - name: main\n    model: test-model\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewRuntime(RuntimeConfig{AccountsPath: path}); err == nil {
-		t.Fatal("legacy accounts-list config should fail")
+	runtime, err := NewRuntime(RuntimeConfig{AccountsPath: path})
+	if err != nil {
+		t.Fatalf("legacy accounts-list should start with fallback, got: %v", err)
+	}
+	defer runtime.Shutdown()
+	if len(runtime.StartupWarnings()) == 0 {
+		t.Fatal("legacy accounts-list should surface a startup warning")
 	}
 }

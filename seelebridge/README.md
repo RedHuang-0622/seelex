@@ -22,6 +22,13 @@ Runtime，同时隔离上游 API 变化。
 | `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
 | `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |
 | `events_unified.go` | 统一事件库（解耦方案 §02.3/§04.7 长期形态）：B 类 llm/tool 脱敏摘要 `SummaryLog`（与 A 类事实同库持久化）+ 统一查询 `UnifiedEventReader`/`Runtime.UnifiedEvents` |
+
+## 配置容错
+
+`NewRuntime` 使用 `config.LoadTolerant` 加载账号配置：`accounts.yaml` 解析
+失败或未配置任何角色时自动退回内置兜底账号并继续装配，同时把原始错误记录为
+启动警告（`Runtime.StartupWarnings()`），由装配层展示给用户；应用不再因账号
+配置损坏而启动即退出。
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 

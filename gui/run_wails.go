@@ -5,6 +5,7 @@ package gui
 import (
 	"context"
 	"io/fs"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	wailsoptions "github.com/wailsapp/wails/v2/pkg/options"
@@ -47,6 +48,15 @@ func Run(app Application, config Options) error {
 			bridge.Start(ctx, func(ctx context.Context, name string, payload any) {
 				runtime.EventsEmit(ctx, name, payload)
 			})
+		},
+		OnDomReady: func(ctx context.Context) {
+			if warning := strings.TrimSpace(config.StartupWarning); warning != "" {
+				_, _ = runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+					Type:    runtime.ErrorDialog,
+					Title:   "Seelex 配置警告",
+					Message: warning,
+				})
+			}
 		},
 		OnBeforeClose: func(context.Context) bool { return closer.BeforeClose() },
 		OnShutdown:    func(context.Context) { bridge.Stop() },
