@@ -780,6 +780,9 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(string(script), `invoke("BeginNewSession")`) || strings.Contains(string(script), `invoke("Submit", "/new")`) {
 		t.Fatal("GUI new-session action must enter a lazy draft instead of eagerly creating a session")
 	}
+	if !strings.Contains(string(script), "await beginNewSession();\n    await invoke(\"BindWorkspace\", workspaceID);") {
+		t.Fatal("workspace new-session must draft first (unbound) and then bind, so plain task sessions stay truly unassociated")
+	}
 	if !strings.Contains(string(script), `invoke("ResumeSession", sessionID)`) || strings.Contains(string(script), "/resume ${button.dataset.session}") {
 		t.Fatal("GUI session rows must use the direct resume boundary")
 	}

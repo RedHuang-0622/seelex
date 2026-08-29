@@ -56,9 +56,21 @@ func (service *Service) BeginNewSession() error {
 	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
 		store.DetachSessionContext()
 	}
+	// 新会话是「任务会话」——必须真正未关联工作区：清空上一个会话继承的
+	// 项目绑定（CurrentWorkspace / Runtime project root / session store
+	// workspace），防止上个对话的项目信息（项目地址、资源管理器文件树与
+	// 提交记录、工作台投影）污染新会话。旧会话的 workspace binding 保留
+	// （上面已按 currentWorkspaceID 持久化，会话树仍归入原工作区分组）。
+	// 需要项目上下文的「工作区会话」由调用方在草稿上显式 BindWorkspace，
+	// 再在首次请求物化时绑定。
+	if service.Deps.Runtime != nil {
+		service.Deps.Runtime.UnbindProjectRoot()
+	}
+	service.Deps.Sessions.SetWorkspace("")
 
 	service.Mu.Lock()
 	service.Core.Snapshot.Session = SessionState{Name: draftSessionName, Draft: true}
+	service.Core.Snapshot.CurrentWorkspace = nil
 	service.Core.Snapshot.Conversation = nil
 	service.Core.Snapshot.HistoryOffset = 0
 	service.Core.Snapshot.TotalMessages = 0

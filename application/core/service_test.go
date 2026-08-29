@@ -275,7 +275,11 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 	}
 }
 
-func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
+// TestNewTaskSessionIsTrulyUnbound 未关联工作区的会话必须真正未关联：
+// 新建「任务会话」（/new → BeginNewSession）不得继承上一个会话的项目绑定，
+// 否则上一个对话的项目信息（项目地址、资源管理器文件树/提交记录、工作台
+// 投影）会污染新会话。
+func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{}
 	sessions := &scopedSessions{}
@@ -297,11 +301,72 @@ func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
-	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" {
-		t.Fatalf("new session lost project binding: %+v", snapshot.CurrentWorkspace)
+	if snapshot.CurrentWorkspace != nil {
+		t.Fatalf("/new must clear project binding: %+v", snapshot.CurrentWorkspace)
 	}
 	if !snapshot.Session.Draft || snapshot.Session.ID != "" {
 		t.Fatalf("/new must remain an unmaterialized draft: %+v", snapshot.Session)
+	}
+	if workspaces.bindings["session-1"] != "project-1" {
+		t.Fatalf("previous session binding must be kept: %v", workspaces.bindings)
+	}
+	if _, exists := workspaces.bindings["session-new"]; exists {
+		t.Fatalf("draft session bound before first request: %v", workspaces.bindings)
+	}
+	if runtime.projectRoot != "" || sessions.Workspace() != "" {
+		t.Fatalf("draft must unbind project scope: root=%q sessionStore=%q", runtime.projectRoot, sessions.Workspace())
+	}
+	if err := service.Submit(context.Background(), "first unbound question"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot = service.Snapshot()
+	if got := workspaces.bindings["session-new"]; got != "" {
+		t.Fatalf("materialized task session must stay unbound: %v", workspaces.bindings)
+	}
+	if sessions.Workspace() != "" || runtime.projectRoot != "" {
+		t.Fatalf("materialized task session scope: sessionStore=%q root=%q", sessions.Workspace(), runtime.projectRoot)
+	}
+	if snapshot.CurrentWorkspace != nil || snapshot.SessionWorkspaces["session-new"] != "" {
+		t.Fatalf("materialized snapshot = %+v", snapshot)
+	}
+	if snapshot.Session.Name != "first unbound question" {
+		t.Fatalf("materialized session name = %q", snapshot.Session.Name)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWorkspaceSessionBindsDraftBeforeMaterialization 覆盖 GUI「工作区会话」
+// 的边界顺序：先 BeginNewSession 进入未关联草稿，再在草稿上 BindWorkspace；
+// 首次提交物化后会话必须绑定到所选工作区（而不是丢失绑定）。
+func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T) {
+	engine := &fakeEngine{}
+	runtime := &fakeRuntime{}
+	sessions := &scopedSessions{}
+	workspaces := newFakeWorkspace()
+	service := mustNew(t, Dependencies{
+		Engine: engine, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions, Workspace: workspaces,
+	})
+	defer service.Shutdown()
+
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.BindWorkspace("project-1"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := service.Snapshot()
+	if !snapshot.Session.Draft || snapshot.Session.ID != "" {
+		t.Fatalf("workspace session must stay a draft: %+v", snapshot.Session)
+	}
+	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" {
+		t.Fatalf("draft must be bound to the picked workspace: %+v", snapshot.CurrentWorkspace)
 	}
 	if _, exists := workspaces.bindings["session-new"]; exists {
 		t.Fatalf("draft session bound before first request: %v", workspaces.bindings)
@@ -311,9 +376,9 @@ func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T) {
 	}
 	snapshot = service.Snapshot()
 	if workspaces.bindings["session-new"] != "project-1" || sessions.Workspace() != "project-1" {
-		t.Fatalf("materialized session did not inherit project: bindings=%v sessionStore=%q", workspaces.bindings, sessions.Workspace())
+		t.Fatalf("materialized workspace session did not bind: bindings=%v sessionStore=%q", workspaces.bindings, sessions.Workspace())
 	}
-	if snapshot.SessionWorkspaces["session-new"] != "project-1" || snapshot.Session.Name != "first project question" {
+	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" || snapshot.SessionWorkspaces["session-new"] != "project-1" {
 		t.Fatalf("materialized snapshot = %+v", snapshot)
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {

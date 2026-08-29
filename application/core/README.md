@@ -98,7 +98,7 @@
 
 - project 只定义会话的文件读写范围，不共享 conversation history。
 - session ID 是唯一键；标题是按 `(workspaceID, sessionID)` 保存的稳定 KV 元数据。首次请求只初始化一次标题；除显式重命名外，恢复、压缩、历史分页和首条历史消息都不能改写它。
-- `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。
+- `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；**同时清空继承的项目绑定**（`CurrentWorkspace`/project root/session store workspace）——「任务会话」必须真正未关联工作区，上一个会话的项目信息（项目地址、资源管理器文件树与提交记录、工作台投影）不得污染新会话。需要项目上下文的「工作区会话」在草稿上显式 `BindWorkspace`，第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。
 - M1（2026-08-23）起聊天保护粒度从全局单例收窄为**会话级**：每会话独立
   `ChatState`/cancel/inputQueue（`session_scope.go` 的 `sessionChat`
   注册表），`ErrChatRunning` 只对同会话二次提交生效；跨会话提交在运行中

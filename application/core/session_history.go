@@ -117,7 +117,16 @@ func (service *Service) resumeSession(sessionID string) error {
 	} else if err := service.Deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
 		return fmt.Errorf("replace engine history: %w", err)
 	}
-	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	// 会话级 system prompt：切换路径必须按目标会话路由，禁止触碰全局活跃
+	// 引擎（运行中会话的 Session 锁可能被 ChatStream 全程持有，误触会阻塞
+	// 到该会话 LLM 返回 —— 用户视角的死锁/长时间无响应）。
+	if promptPort, ok := service.Deps.Engine.(interface {
+		SetSystemPromptFor(string, string)
+	}); ok {
+		promptPort.SetSystemPromptFor(sessionID, service.promptStack.Render())
+	} else {
+		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	}
 
 	total := historyTotal // 尾部窗口读返回的真实总数（无 record 的旧格式会话）
 	if hasRecord {

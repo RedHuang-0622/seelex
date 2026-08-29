@@ -468,7 +468,7 @@
       "outputs": [
         "轨迹子页 DOM（本地 UI 状态：当前子页/过滤/展开/滚动）"
       ],
-      "dependencies": [
+      "depends_on": [
         "conversation-rendering"
       ]
     },

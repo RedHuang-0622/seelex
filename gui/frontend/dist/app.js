@@ -1370,8 +1370,11 @@ async function beginNewSession() {
 async function bindWorkspaceAndStart(workspaceID) {
   try {
     closeNewSessionModal();
-    await invoke("BindWorkspace", workspaceID);
+    // 新会话默认未关联工作区：BeginNewSession 会清空上一个会话继承的项目
+    // 绑定（任务会话真正未关联）。因此先进入草稿，再在草稿上显式绑定
+    // 工作区——「工作区会话」仍带项目上下文，首次提交时物化到该项目。
     await beginNewSession();
+    await invoke("BindWorkspace", workspaceID);
   } catch (error) { showToast(error); }
 }
 

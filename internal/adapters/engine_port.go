@@ -558,8 +558,9 @@ func (port *EnginePort) ResumeRawSession(sessionID string, history []types.Messa
 	if port.newEngine == nil && port.engine == nil {
 		return fmt.Errorf("engine is unavailable")
 	}
-	if port.engineCalls[port.sessionID] > 0 {
-		// 恢复只允许在空闲态发生（application 层保证）；防御性回退为延迟安装。
+	if port.engineCalls[sessionID] > 0 {
+		// 目标会话自身忙时才延迟安装；其它会话运行中不阻塞本会话恢复
+		// （M2 并行语义：空闲目标可立即安装，避免触碰运行中会话的引擎锁）。
 		port.pendingHistory = append([]types.Message(nil), desired...)
 		port.pendingSession = sessionID
 		return nil
