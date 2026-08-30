@@ -440,6 +440,26 @@ func TestControllerToolChainUnits(t *testing.T) {
 	}
 }
 
+func TestControllerPlanTailMessageDoesNotFormCompressionUnit(t *testing.T) {
+	controller := newController(2, NewMemoryCompactStack())
+	history := []types.Message{
+		textMessage("user", ActivePlanContextMarker+"\n"+`{"plan_ref":"p1"}`),
+		textMessage("user", "真实问题"),
+		textMessage("assistant", "回答"),
+		textMessage("user", "下一个"),
+		textMessage("assistant", "完成"),
+	}
+	units := controller.chatUnits(history)
+	if len(units) != 2 {
+		t.Fatalf("units = %d, want 2 (plan tail message must not form a unit)", len(units))
+	}
+	for _, unit := range units {
+		if strings.HasPrefix(*unit.messages[0].Content, ActivePlanContextMarker) {
+			t.Fatalf("plan tail message entered compression units: %+v", units)
+		}
+	}
+}
+
 func stringPtr(value string) *string { return &value }
 
 // TestControllerEqualSizedOverflowBatchesBothCompress 审计 R2 回归：

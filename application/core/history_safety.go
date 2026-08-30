@@ -76,7 +76,9 @@ replayed safely.
 ` + checkpoint + contextRecoveryRequestDelimiter + nonEmptyProviderInput(originalRequest)
 
 	history := service.engineHistoryFor(sessionID)
-	recovered := context_runtime.RetainedSystemHistory(history)
+	// 恢复路径只保留 system 指令（RetainedSystemOnly）：provider 已拒绝过大
+	// 上下文，不得把已定稿轮次带进恢复信封。
+	recovered := context_runtime.RetainedSystemOnly(history)
 	recovered = append(recovered, EngineMessage{Role: "user", Content: recovery, ContentSet: true})
 	if err := service.replaceEngineHistory(sessionID, recovered); err != nil {
 		return false, fmt.Errorf("recover provider context: %w", err)

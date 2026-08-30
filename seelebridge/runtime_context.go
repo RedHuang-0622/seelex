@@ -150,7 +150,8 @@ func (r *Runtime) seelexAssembler() seelectx.RequestAssembler {
 	return seelexctx.NewAssembler(seelexctx.AssemblerOptions{
 		SystemPrompt: nil, // 会话级提示由 application 侧注入（迁移后经此渲染）
 		ProjectBlock: r.projectBlock,
-		StackBlocks:  r.stackBlocks,
+		PrefixStacks: r.prefixStacks,
+		TailStacks:   r.tailStacks,
 		Memories:     r.relatedMemoryBlocks,
 		Resolver: seelectx.PlaceholderResolverFunc(func(_ context.Context, name string) (string, error) {
 			return r.resolvePlaceholder(name)
@@ -198,13 +199,35 @@ func (r *Runtime) sessionContextStore() *sessionstore.SessionContextStore {
 	return nil
 }
 
-// stackBlocks 渲染会话级使用栈块（now using = 栈顶；未绑定存储 → 无块）。
+// stackBlocks 渲染会话级全部使用栈块（稳定前缀 skill/compact + 动态尾部
+// plan/task；now using = 栈顶；未绑定存储 → 无块）。节点子代理继承路径
+// 兼容入口（InheritedBlocks），保持原有块集合不变。
 func (r *Runtime) stackBlocks() []seelectx.PromptBlock {
 	store := r.sessionContextStore()
 	if store == nil {
 		return nil
 	}
 	return seelexctx.RenderStackBlocks(store.Snapshot())
+}
+
+// prefixStacks 渲染稳定前缀栈块（skill/compact，now using = 栈顶；未绑定
+// 存储 → 无块）：主会话装配器在记忆块之后、累积 context 之前注入。
+func (r *Runtime) prefixStacks() []seelectx.PromptBlock {
+	store := r.sessionContextStore()
+	if store == nil {
+		return nil
+	}
+	return seelexctx.RenderStablePrefixBlocks(store.Snapshot())
+}
+
+// tailStacks 渲染动态尾部栈块（plan/task，now using = 栈顶；未绑定存储 →
+// 无块）：主会话装配器在 WorkingHistory 之后、贴近当前输入注入。
+func (r *Runtime) tailStacks() []seelectx.PromptBlock {
+	store := r.sessionContextStore()
+	if store == nil {
+		return nil
+	}
+	return seelexctx.RenderTailBlocks(store.Snapshot())
 }
 
 // windowPolicy 返回当前窗口策略（NewRuntime 时按配置构造）。

@@ -103,6 +103,19 @@ plugin/ · skill/ · sessionstore/ · workspace/ · mcpstack/
 
 Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.1.2</code>。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
 
+## 数据流与机制图
+
+会话模型、上下文与 Skill 的关键数据流/机制图（分别位于各自模块 README）：
+
+| 主题 | 位置 |
+|---|---|
+| 会话数据流：状态流转（Mermaid） | [application/core/README.md](application/core/README.md)「会话数据流：状态流转」 |
+| 会话数据流：架构层与方法（Mermaid） | [docs/arch/README.md](docs/arch/README.md)「会话数据流：架构层与方法」 |
+| 上下文压缩占比（字符画，启用/未启用对照） | [seelexctx/README.md](seelexctx/README.md)「上下文压缩的占比表现」 |
+| Fork 对话机制（字符画，切点与深拷贝占比） | [application/core/README.md](application/core/README.md)「Fork 对话机制」 |
+| Skill 加载位置（Mermaid） | [skill/README.md](skill/README.md)「Skill 加载位置」 |
+| 上下文前缀链路（稳定前缀 + 累积 context + plan/task 后置，已实现） | [docs/arch/context-prefix-chain.md](docs/arch/context-prefix-chain.md) |
+
 ## 关键技术决策
 
 这一节描述当前代码中已经落地的设计选择，以及这些选择试图解决的工程问题。它们也是 Seelex 与普通 AI Chat Client、Prompt Wrapper 或单文件 Agent Demo 的主要区别。

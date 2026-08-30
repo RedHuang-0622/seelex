@@ -41,5 +41,9 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 prompt 域协调器。
 - `func (c *Coordinator) BuildSystemPrompt()` — BuildSystemPrompt 只组装 system 层（skill 内容留在请求信封，不持久化）。
 - `func (c *Coordinator) ApplyActiveTaskSystemPrompt(requestID string)` — ApplyActiveTaskSystemPrompt 按活跃任务刷新 system prompt（锁内读取任务
+- `func (c *Coordinator) ApplyActiveTaskSystemPromptFor(sessionID, requestID string)` — ApplyActiveTaskSystemPromptFor 按指定会话活跃任务刷新 system prompt（锁内
 - `func (c *Coordinator) SystemPromptForActiveTaskLocked() string` — SystemPromptForActiveTaskLocked 组装活跃任务 system prompt（调用方持有
+- `func (c *Coordinator) SystemPromptForActiveTaskLockedFor(sessionID string) string` — SystemPromptForActiveTaskLockedFor 组装指定会话活跃任务 system prompt
+- `func (c *Coordinator) setEngineSystemPrompt(sessionID, promptText string)` — setEngineSystemPrompt 设置指定会话引擎的 system prompt（支持会话路由的
+- `func (c *Coordinator) activeSessionID() string` — activeSessionID 返回当前活跃会话（快照归属会话）。
 

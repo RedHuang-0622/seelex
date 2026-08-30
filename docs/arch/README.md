@@ -26,3 +26,31 @@
 | [`subagent-visibility-design.md`](subagent-visibility-design.md) | 子代理详情查看系统设计方案 |
 | [`session-snapshot-liveness.md`](session-snapshot-liveness.md) | Session、Snapshot、Runtime 投影与子代理回流的数据流及无死锁边界 |
 | [`readme-spec.md`](readme-spec.md) | 模块 README 编写规范：生态位/文件与函数索引/分卷/链接与编码约定 |
+| [`context-prefix-chain.md`](context-prefix-chain.md) | 上下文前缀链路：稳定前缀 + 累积 context + plan/task 后置（已实现） |
+
+## 会话数据流：架构层与方法
+
+一次会话操作（提交 / 新建 / 恢复 / 分支 / 持久化）经过的层与方法：
+
+```mermaid
+flowchart LR
+    FE["前端（GUI / TUI）"] -->|invoke| BR["gui.Bridge"]
+    BR -->|Submit / BeginNewSession / ResumeSession / ForkSessionLatest| SVC["application.Service"]
+    SVC -->|TransitionLock + 会话用例（materialize / resume / fork）| CRD["session_runtime.Coordinator"]
+    CRD -->|LocateSession / LoadSessionRecord / LoadHistoryTailWindow / PrepareFork| ST["sessionstore.Router"]
+    SVC -->|BindProjectRoot / SwitchSessionTasks / AttachSessionContext| RT["seelebridge.Runtime"]
+    SVC -->|startChat → runChat| EP["adapters.EnginePort"]
+    EP -->|ChatStreamFor / ResumeSession / SetSystemPromptFor（按会话路由）| SESS["framework session.Session"]
+    RT -->|按会话 bundle 创建/持有引擎| EP
+    SESS -->|流式 chunk / tool hooks| SVC
+    SVC -->|bumpLocked + publishSessionEvent| HUB["EventHub"]
+    HUB -->|seelex:event / Snapshot| FE
+```
+
+关键方法（真实签名见各模块 README 的函数索引）：
+
+- 提交：`Service.Submit` → `submitConversation` → `materializeDraftSession` → `startChat` → `runChat` → `EnginePort.ChatStreamFor`
+- 新建：`Service.BeginNewSession`（草稿槽位）→ 首次提交物化
+- 恢复：`Service.ResumeSession` → `resumeSession`（三读 + 会话级 `SetSystemPromptFor`）
+- 分支：`Service.ForkSessionLatest` → `forkSessionLocked` → `Coordinator.PrepareFork` → `SaveCommitWorkspace`
+- 持久化：`Coordinator.PersistCurrentSession` → `SessionPort.SaveCommit` → `Router.SaveCommit`（原子写 sessions-json）

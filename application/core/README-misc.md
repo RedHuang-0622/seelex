@@ -96,6 +96,7 @@
 - `func (service *Service) UnbindWorkspace()`
 - `func (service *Service) WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)` — WorkspaceTree 列出当前工作区某目录的子条目（GUI 工作树数据源；root 只
 - `func (service *Service) WorkspaceFileCount() (dto.TreeCount, error)` — WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge 数据源）。
+- `func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error)` — WorkspaceGitLog 返回当前工作区最近 limit 条提交的拓扑树（GUI 提交记录树
 - `func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error)` — workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
 - `func (service *Service) collectWorkspaceProjection() workspaceStateProjection` — collectWorkspaceProjection 在获取 service.Mu 之前执行 WorkspacePort I/O。
 - `func (service *Service) applyWorkspaceProjectionLocked(projection workspaceStateProjection)`

@@ -118,6 +118,11 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
 `docs/research/2026-08-24-session-resource-granularity.md` §决策契约；
 fork 子会话深拷贝 = 新建 bundle + 数据面拷贝，不共享实例句柄）。
 
+主会话装配器按前缀缓存链路接线（context-prefix-chain，任务 A）：project →
+memory → 稳定前缀栈（skill/compact）→ WorkingHistory（累积 context）→
+动态尾部栈（plan/task）；节点子代理继承路径仍使用完整栈块集合
+（`stackBlocks` 兼容入口），不受主链路顺序影响。
+
 子代理节点通过 `NodeScope.Role == RoleSubAgent` 识别。工具 middleware 发布 `running/success/error`，worktree 编排发布 `worktree_creating/rebasing/merging`；阶段事实沿用 Plan binding，并在存在 session ID 时写入 `agent.runtime` Location。
 
 ## ProjectScope 与 PathGate

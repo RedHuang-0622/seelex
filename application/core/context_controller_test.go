@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/application/model"
 	"reflect"
 	"strings"
 	"testing"
@@ -106,6 +107,61 @@ func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	}
 }
 
+func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T) {
+	engine := &fakeEngine{}
+	service := newTestService(t, engine)
+	defer service.Shutdown()
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	// 已定稿轮次 = 累积 context 源。
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "user", Content: "first request", TokenCount: 2})
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "assistant", Content: "first answer", TokenCount: 2})
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "user", Content: "second request", TokenCount: 2})
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-0", Role: "assistant", Content: "second answer", TokenCount: 2})
+	plan := &model.PlanState{
+		Name: "audit", Status: model.PlanRunning,
+		Nodes: []model.PlanNode{{ID: "n1", Label: "inspect", Status: model.NodeRunning}},
+	}
+	service.Core.Snapshot.Runtime.Plan = plan
+	service.components.tasks.SetPlanStateLocked([]model.SessionPlanFrame{{
+		ID: "plan-1", Plan: plan,
+		Arguments: `{"nodes":{"n1":{"input":"read source"}},"edges":{}}`,
+	}}, "plan-1")
+	service.Mu.Unlock()
+
+	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification"); err != nil {
+		t.Fatal(err)
+	}
+	history := engine.History()
+	// 正常路径：checkpoint 消息不再注入 LLM 上下文。
+	for _, message := range history {
+		if context_runtime.IsTaskContextCheckpoint(message.Content) {
+			t.Fatalf("normal path must not inject checkpoint message: %#v", message)
+		}
+	}
+	// 顺序：累积 context（已定稿轮次）在前，plan 尾部消息在后。
+	planIndex := -1
+	tailIndex := -1
+	for index, message := range history {
+		switch {
+		case strings.HasPrefix(message.Content, "<!-- seelex:active-plan:v1 -->"):
+			planIndex = index
+		case message.Content == "second answer":
+			tailIndex = index
+		}
+	}
+	if planIndex < 0 {
+		t.Fatal("normal path must keep the active-plan tail message")
+	}
+	if tailIndex < 0 {
+		t.Fatal("accumulated context tail missing from engine history")
+	}
+	if planIndex <= tailIndex {
+		t.Fatalf("plan must follow accumulated context: tail=%d plan=%d", tailIndex, planIndex)
+	}
+}
+
 func TestTranscriptTailDropsIncompleteAndOrphanToolProtocols(t *testing.T) {
 	events := []TranscriptEvent{
 		{Seq: 1, Role: "user", Content: "incomplete", TokenCount: 1},
@@ -143,6 +199,68 @@ func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T) {
 	if want := []string{"first", "answer", "please continue from the report"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("tail content=%v, want %v", got, want)
 	}
+}
+
+func TestTranscriptTailAccumulatesAllSettledRoundsWhenUnlimited(t *testing.T) {
+	events := make([]TranscriptEvent, 0, 16)
+	for round := 0; round < 8; round++ {
+		events = append(events,
+			TranscriptEvent{Seq: uint64(2*round + 1), TaskID: "task-0", Role: "user", Content: "request", TokenCount: 2},
+			TranscriptEvent{Seq: uint64(2*round + 2), TaskID: "task-0", Role: "assistant", Content: "answer", TokenCount: 2},
+		)
+	}
+	// maxUnits <= 0 = 全量累积（append-only 已定稿轮次，不再 ≤4 轮有界窗口）。
+	history := task_context.TranscriptTailHistory(events, 100_000, 0)
+	if len(history) != 16 {
+		t.Fatalf("history = %d messages, want all 16 settled-round messages", len(history))
+	}
+	if history[0].Content != "request" || history[15].Content != "answer" {
+		t.Fatalf("accumulated context order changed: first=%q last=%q", history[0].Content, history[15].Content)
+	}
+}
+
+func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *testing.T) {
+	engine := &fakeEngine{}
+	service := newTestService(t, engine)
+	defer service.Shutdown()
+	service.Mu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
+	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	// 8 个已定稿轮次（远超 ContextMaxUnits=4），总 token 在软阈值内。
+	for round := 0; round < 8; round++ {
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: "task-0", Role: "user", Content: "request", TokenCount: 2,
+		})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: "task-0", Role: "assistant", Content: "answer", TokenCount: 2,
+		})
+	}
+	service.Mu.Unlock()
+
+	if _, err := service.components.context.PrepareExecutionContext("task-1", "next"); err != nil {
+		t.Fatal(err)
+	}
+	first := engine.History()
+	// 达峰前：首个已定稿轮次必须仍在累积 context 中（不再被 ≤4 轮窗口丢弃）。
+	if !strings.Contains(strings.Join(historyContents(first), "\n"), "request") {
+		t.Fatalf("accumulated context dropped the first settled round: %#v", first)
+	}
+	// 字节稳定：同一已定稿轮次再次装配产生逐字节相同的历史。
+	if _, err := service.components.context.PrepareExecutionContext("task-1", "next"); err != nil {
+		t.Fatal(err)
+	}
+	second := engine.History()
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("accumulated context not byte-stable:\nfirst=%#v\nsecond=%#v", first, second)
+	}
+}
+
+func historyContents(history []EngineMessage) []string {
+	contents := make([]string, 0, len(history))
+	for _, message := range history {
+		contents = append(contents, message.Content)
+	}
+	return contents
 }
 
 func TestRejectToolResultsRecognizesFrameworkTruncationMarker(t *testing.T) {

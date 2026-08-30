@@ -15,10 +15,10 @@
 
 ### tool_hooks.go
 
-- `func (service *Service) handleToolStart(name, id, arguments string)`
+- `func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string)`
 - `func (service *Service) planBranchBindingLocked() dto.PlanBranchBinding`
 - `func (service *Service) handleToolComplete(name, id, result string, toolErr error, duration time.Duration)`
-- `func (service *Service) handleToolCompleteObserved(name, id, result string, toolErr error, duration time.Duration, observe func(string))` — handleToolCompleteObserved 把生产完成投影保持在一处，同时允许 ToolHookBridge
+- `func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id, arguments, result string, toolErr error, duration time.Duration, observe func(string))` — handleToolCompleteObserved 把生产完成投影保持在一处，同时允许 ToolHookBridge
 - `func NewToolHookBridge() *ToolHookBridge`
 - `func (bridge *ToolHookBridge) Bind(service *Service)`
 - `func (bridge *ToolHookBridge) SetDiagnosticObserver(observer ToolHookDiagnosticObserver)` — SetDiagnosticObserver 安装可选、尽力而为的生命周期诊断。传入 nil 关闭。
@@ -29,3 +29,8 @@
 - `func (bridge *ToolHookBridge) completeTool(info session.ToolCallInfo) (*Service, string)`
 - `func (bridge *ToolHookBridge) nextToolIDLocked() string`
 - `func toolHookKey(info session.ToolCallInfo) string`
+
+### tool_hooks_truncation_test.go
+
+- `func TestToolCompleteTruncatesSnapshotOutput(t *testing.T)` — TestToolCompleteTruncatesSnapshotOutput 验证实时截断链端到端：大工具
+- `func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T)` — TestAppendHistoryLockedTruncatesRestoredOutput 验证会话恢复路径：恢复的

@@ -27,11 +27,19 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-// compactContextMarker 标记压缩帧块（窗口外压缩产物，进入 working history）。
-const compactContextMarker = "<!-- seelex:compact-context:v1 -->"
+// CompactContextMarker 标记压缩帧块（窗口外压缩产物，进入 working history；
+// 跨包保留/清理协议用）。
+const CompactContextMarker = "<!-- seelex:compact-context:v1 -->"
+
+// compactContextMarker 兼容别名（包内引用）。
+const compactContextMarker = CompactContextMarker
 
 // checkpointMarker 是旧应用侧任务检查点标记（替换历史时清理）。
 const checkpointMarker = "<!-- seelex:context-checkpoint:v1 -->"
+
+// ActivePlanContextMarker 是应用侧 plan 尾部消息前缀（context-prefix-chain）：
+// plan 消息贴近当前输入、不参与压缩、不作为记忆查询或轮次单元。
+const ActivePlanContextMarker = "<!-- seelex:active-plan:v1 -->"
 
 // ContextWindowPolicy 软/硬阈值（与 application contextBudget 同源决策：
 // Budget 内 75% 软阈值 / 90% 硬阈值 / 压缩目标 60%，2026-07-29 文档保留）。

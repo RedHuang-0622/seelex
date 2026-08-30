@@ -83,12 +83,16 @@ func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model
 }
 
 // TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
-// 历史（token 预算 + 单元上限）。
+// 历史（token 预算 + 单元上限）。maxUnits <= 0 表示全量累积（append-only
+// 已定稿轮次，达峰前字节稳定）；maxUnits > 0 表示有界窗口（压缩后新鲜窗口）。
 func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage {
-	if len(events) == 0 || tokenBudget <= 0 || maxUnits <= 0 {
+	if len(events) == 0 || tokenBudget <= 0 {
 		return nil
 	}
 	units := transcriptProtocolUnits(events)
+	if maxUnits <= 0 {
+		maxUnits = len(units) // 全量累积（append-only 已定稿轮次）
+	}
 	selected := make([][]model.TranscriptEvent, 0, maxUnits)
 	tokens := 0
 	for index := len(units) - 1; index >= 0 && len(selected) < maxUnits; index-- {

@@ -78,9 +78,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (*fakeRuntime) ActivePlugin() string`
 - `func (runtime *fakeRuntime) FullAccess() bool`
 - `func (runtime *fakeRuntime) SetFullAccess(on bool)`
-- `func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection)`
+- `func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection)` — SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
 - `func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection)`
-- `func (runtime *fakeRuntime) DrainSubagentContexts() []string`
+- `func (runtime *fakeRuntime) DrainSubagentContexts() []string` — DrainSubagentContexts 排空 merge-back 邮箱。M2 多会话并行下多个
 - `func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy)`
 - `func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error)`
 - `func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics`
@@ -105,7 +105,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error)`
 - `func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error`
 - `func (runtime *fakeRuntime) UnbindProjectRoot()`
-- `func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string)`
+- `func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string)` — SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
 - `func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool`
 - `func (*fakePlugins) All() []PluginInfo`
 - `func (plugins *fakePlugins) Activate(_ context.Context, name string) error`
@@ -159,9 +159,15 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_input.go
 
-- `func (service *Service) injectPendingSubagentContexts()` — injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（单一来源 =
+- `func (service *Service) injectPendingSubagentContexts()` — injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
+- `func (service *Service) injectPendingSubagentContextsFor(sessionID string)` — injectPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
+- `func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error)` — chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
+- `func (service *Service) appendEngineMessage(sessionID string, msg types.Message)` — appendEngineMessage 追加消息到指定会话引擎历史。
+- `func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
+- `func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（只读拷贝）。
 - `func (service *Service) Submit(ctx context.Context, text string) error`
 - `func (service *Service) submitConversation(ctx context.Context, input string) error`
+- `func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error` — submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 - `func (service *Service) BeginGracefulShutdown()` — BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
 - `func (service *Service) WaitForIdle(ctx context.Context) error` — WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
 - `func (service *Service) CancelChat(requestID string) bool`
@@ -217,6 +223,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 ### service_snapshot.go
 
 - `func (service *Service) Snapshot() Snapshot`
+- `func (service *Service) sessionStatusLocked(sessionID string) SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.Mu）。
 - `func (service *Service) Subscribe(buffer int) Subscription`
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
 - `func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
@@ -246,7 +253,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T)`
 - `func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T)`
 - `func TestResumeSessionLeavesLazyDraft(t *testing.T)`
-- `func TestProjectBindingCreatesScopesAndNewSessionInheritsProject(t *testing.T)`
+- `func TestNewTaskSessionIsTrulyUnbound(t *testing.T)` — TestNewTaskSessionIsTrulyUnbound 未关联工作区的会话必须真正未关联：
+- `func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T)` — TestWorkspaceSessionBindsDraftBeforeMaterialization 覆盖 GUI「工作区会话」
 - `func TestResumeRestoresProjectScope(t *testing.T)`
 - `func TestNewHydratesPersistedWorkspaceSessions(t *testing.T)`
 - `func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T)`

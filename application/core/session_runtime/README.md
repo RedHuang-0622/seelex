@@ -116,7 +116,7 @@ go test ./application/core/session_runtime -count=1
 - `func forkConversationMessages(messages []model.Message, events []sessionstore.Event, cutTime time.Time) []model.Message`
 - `func forkPlanFramesByTime(frames []model.SessionPlanFrame, cutTime time.Time) []model.SessionPlanFrame`
 - `func hasPlanFrame(frames []model.SessionPlanFrame, planID string) bool`
-- `func forkTaskRecordsByTime(tasks []dto.TaskRecord, cutTime time.Time) []dto.TaskRecord`
+- `func forkTaskRecordsByTime(tasks []dto.TaskRecord, cutTime time.Time) []dto.TaskRecord` — forkTaskRecordsByTime 按切断时间截断父 task 注册表，并丢弃 kind=todo
 - `func forkCheckpoints(checkpoints []model.TaskCheckpoint, cut uint64) []model.TaskCheckpoint`
 - `func forkProjection(projection *model.TaskContextProjection, cut uint64, sessionID string) *model.TaskContextProjection`
 - `func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFileRef`
@@ -151,6 +151,7 @@ go test ./application/core/session_runtime -count=1
 - `func TestPrepareForkTruncatesToRequestBoundary(t *testing.T)`
 - `func TestPrepareForkRejectsInvalidCutPoints(t *testing.T)`
 - `func TestPrepareForkAtStartProducesEmptyChild(t *testing.T)`
+- `func TestForkTaskRecordsFiltersTodolist(t *testing.T)`
 
 ### history.go
 

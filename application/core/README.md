@@ -98,7 +98,7 @@
 
 - project 只定义会话的文件读写范围，不共享 conversation history。
 - session ID 是唯一键；标题是按 `(workspaceID, sessionID)` 保存的稳定 KV 元数据。首次请求只初始化一次标题；除显式重命名外，恢复、压缩、历史分页和首条历史消息都不能改写它。
-- `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；**同时清空继承的项目绑定**（`CurrentWorkspace`/project root/session store workspace）——「任务会话」必须真正未关联工作区，上一个会话的项目信息（项目地址、资源管理器文件树与提交记录、工作台投影）不得污染新会话。需要项目上下文的「工作区会话」在草稿上显式 `BindWorkspace`，第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。
+- `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；**同时清空继承的项目绑定**（`CurrentWorkspace`/project root/session store workspace）——「任务会话」必须真正未关联工作区，上一个会话的项目信息（项目地址、资源管理器文件树与提交记录、工作台投影）不得污染新会话。需要项目上下文的「工作区会话」在草稿上显式 `BindWorkspace`，第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。**草稿槽位（draft slot）保留**：`BeginNewSession` 在运行中也可进入草稿（不再返回 `ErrChatRunning`，也不触碰运行中会话的引擎/落盘）；切换/新建后草稿不丢失——槽位记录工作区绑定并在会话树以 `status=draft` 行常驻，再次新建恢复同一草稿，首次提交物化时消费槽位。快照为会话补充 `status`（draft/idle/running/queued），`ApplyRuntimeProjectionLocked` 在草稿视图下不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
 - M1（2026-08-23）起聊天保护粒度从全局单例收窄为**会话级**：每会话独立
   `ChatState`/cancel/inputQueue（`session_scope.go` 的 `sessionChat`
   注册表），`ErrChatRunning` 只对同会话二次提交生效；跨会话提交在运行中
@@ -153,6 +153,55 @@ session from an iteration callback.
 - draft 期间切换项目是否只更新待继承 scope，是否避免空 Session ID binding；重复点击新建是否仍只保留一个 draft。
 - Tool/Plan callback 是否只更新所属 request/session。
 
+## 会话数据流：状态流转
+
+```mermaid
+stateDiagram-v2
+    [*] --> Draft: BeginNewSession（无 ID、draft slot 保留、status=draft）
+    Draft --> Materialized: 首次 Submit（materializeDraftSession 消费 slot、StartSession 生成 ID）
+    Materialized --> Running: startChat → runChat
+    Running --> Queued: 运行中同会话再次 Submit（inputQueue 排队）
+    Queued --> Running: runChat 尾合并队列为下一轮
+    Running --> Idle: ChatStream 返回且队列空（markIdleLocked）
+    Idle --> Running: 再次 Submit
+    Idle --> Persisted: PersistCurrentSession（SaveCommit 原子落盘）
+    Persisted --> Running: Submit
+    Persisted --> Resumed: ResumeSession（record/history/transcript 三读重建引擎）
+    Resumed --> Running: Submit
+    Resumed --> Idle: 无输入
+    Idle --> Forked: ForkSessionLatest（最新完整轮次切点）
+    Persisted --> Forked: ForkSessionLatest
+    Forked --> Running: 子会话 Submit
+    Persisted --> Deleted: DeleteSession
+    Idle --> Draft: BeginNewSession（旧会话先持久化）
+    Running --> Draft: M2 允许运行中新建草稿（不触碰运行中会话）
+    Draft --> Draft: 切换/新建后恢复（slot 保留、会话树 status=draft 行常驻）
+```
+
+- draft 没有真实 ID、不落盘，靠 `serviceState.draft` 槽位跨切换保留；首次提交物化后消费槽位（应用退出后内存槽位自然丢失）。
+- 可见状态由 `Snapshot()` 富化：`SessionState.Status` / `SessionInfo.Status` ∈ draft | idle | running | queued。
+- 运行中新建草稿时 `BeginNewSession` 不持久化、不清理运行中会话的引擎；`ApplyRuntimeProjectionLocked` 在草稿视图下不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
+
+## Fork 对话机制（字符画）
+
+`ForkSessionLatest` 以父会话「最新完整轮次」为切点，深拷贝 record / events / tool-results / context 生成独立子会话：
+
+```text
+父会话 transcript 占比（LatestForkCut 取最新完整轮次作为切点）：
+┌──────────────────────────────────────────┬──────────────┐
+│ 已落盘内容（轮 1..5）100%                │ 轮 6 进行中   │
+│ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│ ▒▒▒▒▒▒▒▒     │
+│ → 子会话完整继承（全拷贝）                │ → 不继承      │
+└──────────────────────────────────────────┴──────────────┘
+```
+
+子会话以新 ID 独立持久化到同一 workspace（SaveCommitWorkspace），血缘
+ForkedFrom 记录父会话 + 切点（EventSeq/轮次/RequestID/MessageID）；
+父会话保持原样继续，互不影响。运行中 fork 被拒绝（仅父会话自身）；
+父会话未落盘（draft）时无法 fork。task 注册表按切点截断并过滤
+`kind=todo`——子会话 todolist 全新、可正常新建；血缘与 plan/task/
+checkpoint/tool-results 等其余内容仍按切点拷贝，不受过滤影响。
+
 ## 测试
 
 ```text
@@ -175,9 +224,11 @@ Runtime mailbox and is drained outside `Service.mu` before the next main
 
 ## Context compression visibility
 
-`ContextController` rebuilds provider history from the active system policy, trusted task Skills, the active Plan slice, one structured checkpoint, and at most four recent complete protocol units. A unit is admitted only when every tool call has a matching result; orphan results and incomplete parallel calls remain in the durable transcript but never enter provider context.
+`ContextController` rebuilds provider history from the active system policy, trusted task Skills, the active Plan slice, and complete protocol units. A unit is admitted only when every tool call has a matching result; orphan results and incomplete parallel calls remain in the durable transcript but never enter provider context. The assembled order follows the prefix-cache chain: system → project → memory → compact → accumulated context → plan → task (the seelexctx assembler renders project/memory/stack blocks; the coordinator keeps the engine history as accumulated context + trailing plan message).
 
-The token audit counts the separately configured system prompt, message/tool-call overhead, visible tool metadata, the current input, and an output plus safety reserve. Requests that still exceed the safe budget after dropping complete old units and minimizing the checkpoint are rejected before `ChatStream`.
+> 已实现（任务 A/B/C）：装配顺序为「system → project → memory → compact → 累积 context（达峰前 append-only 全量已定稿轮次）→ plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常恢复路径 provider 504 / history-safety 保留）；达峰才压缩（折叠 compact 栈顶 + context 窗口，plan/task 不参与压缩）。设计见 [docs/arch/context-prefix-chain.md](../../docs/arch/context-prefix-chain.md)。
+
+The token audit counts the separately configured system prompt, message/tool-call overhead, visible tool metadata, the current input, and an output plus safety reserve. Requests that still exceed the safe budget after dropping the accumulated context (without a checkpoint fallback) are rejected before `ChatStream`; the provider-504 / history-safety recovery path then owns the bounded checkpoint continuation.
 
 Oversized tool output and oversized current input are stored through immutable `result_ref` records. Provider history and `SessionRecord` contain only the reference warning; `read_tool_result` provides bounded, read-only pagination or filtering. `read_plan` retrieves omitted canonical Plan nodes without changing Plan state.
 

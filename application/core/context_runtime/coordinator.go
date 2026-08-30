@@ -22,6 +22,11 @@ const (
 	TaskContextCheckpointPrefix = "<!-- seelex:context-checkpoint:v1 -->"
 	planContextPrefix           = "<!-- seelex:active-plan:v1 -->"
 	ToolResultOmittedPrefix     = "<seelex-tool-result-omitted>"
+	// 恢复/预算终局前缀：与根包 history_safety.go / chat.go 同源协议字符串
+	// （context_runtime 不反向依赖 core 根包，字符串字面量在此保留）。
+	contextRecoveryPrefix         = "<!-- seelex:context-recovery:v1 -->"
+	providerRecoveryPrefix        = "<!-- seelex:provider-recovery:v1 -->"
+	reactBudgetFinalizationPrefix = "<!-- seelex:react-budget-finalize:v1 -->"
 )
 
 // ErrProviderContextBudgetExceeded 标记 provider 上下文超过安全 token 预算。
@@ -118,7 +123,6 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	systemPrompt := c.prompts.SystemPromptForActiveTaskLockedFor(sessionID)
 	c.Mu.RUnlock()
 	c.setEngineSystemPrompt(sessionID, systemPrompt)
-	rawTokens := c.tasks.CountRequestTokens(systemPrompt, existing, currentInput, tools)
 
 	runtimeModel := c.Deps.Runtime.Model()
 	c.Mu.Lock()
@@ -126,6 +130,15 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	if state == nil || state.RequestID != requestID {
 		c.Mu.Unlock()
 		return currentInput, nil
+	}
+	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
+	events = excludeCurrentInputEvent(events, requestID, currentInput)
+	// 达峰判定以全量累积 context 为准（而非可能已被框架压缩的引擎历史）：
+	// 与引擎缓存估算取峰值，压缩是唯一使累积前缀失效的事件。
+	fullContext := task_context.TranscriptTailHistory(events, budget.Budget, 0)
+	rawTokens := c.tasks.CountRequestTokens(systemPrompt, fullContext, currentInput, tools)
+	if cacheTokens := c.tasks.CountRequestTokens(systemPrompt, existing, currentInput, tools); cacheTokens > rawTokens {
+		rawTokens = cacheTokens
 	}
 	currentInput = c.protectOversizedCurrentInputLocked(sessionID, requestID, currentInput, budget)
 	newCheckpoint := rawTokens >= budget.SoftThreshold && state.CompactedEpoch != state.ProgressEpoch
@@ -136,21 +149,27 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	checkpoint := c.tasks.BuildTaskCheckpointLocked(state)
 	checkpoint.Version = state.ContextVersion
 	planMessage := c.planContextMessageLocked(sessionID)
-	checkpointMessage := checkpointContextMessage(checkpoint, rawTokens >= budget.HardThreshold)
-	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
-	events = excludeCurrentInputEvent(events, requestID, currentInput)
 	c.Mu.Unlock()
 
 	systems := RetainedSystemHistory(c.engineHistory(sessionID))
 	target := budget.Budget
+	contextMaxUnits := 0 // 达峰前：全量累积（append-only 已定稿轮次）
 	if rawTokens >= budget.SoftThreshold {
 		target = budget.TargetAfterCompaction
+		contextMaxUnits = limits.Get().ContextMaxUnits // 压缩后：有界新鲜窗口
 	}
-	assembled, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, checkpointMessage, events, currentInput, tools, target)
-	if estimated > budget.Budget {
-		checkpointMessage = checkpointContextMessage(checkpoint, true)
-		assembled, estimated = c.fitExecutionHistory(systemPrompt, systems, planMessage, checkpointMessage, nil, currentInput, tools, budget.Budget)
+	if contextMaxUnits == 0 {
+		// 累积模式：保留段（稳定前缀 + 已定稿轮次）已覆盖 transcript 前缀，
+		// 只追加保留段之后的新事件（append-only，字节稳定）。
+		if covered := retainedContextEventCount(systems); covered > 0 {
+			if covered < len(events) {
+				events = events[covered:]
+			} else {
+				events = nil
+			}
+		}
 	}
+	assembled, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, events, currentInput, tools, target, contextMaxUnits)
 	if estimated > budget.Budget {
 		return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
 	}
@@ -190,37 +209,60 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	return currentInput, nil
 }
 
+// fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
+// 累积 context（已定稿轮次）→ plan 尾部。contextMaxUnits <= 0 = 全量累积
+// （达峰前 append-only，字节稳定）；>0 = 有界窗口（压缩后新鲜窗口）。
 func (c *Coordinator) fitExecutionHistory(
 	systemPrompt string,
 	systems []contract.EngineMessage,
-	planMessage, checkpointMessage string,
+	planMessage string,
 	events []model.TranscriptEvent,
 	currentInput string,
 	tools []model.Tool,
 	target int,
+	contextMaxUnits int,
 ) ([]contract.EngineMessage, int) {
-	for maxUnits := limits.Get().ContextMaxUnits; maxUnits >= 0; maxUnits-- { // limits.context_max_units（默认 4）
-		history := append([]contract.EngineMessage(nil), systems...)
-		if planMessage != "" {
-			history = append(history, contract.EngineMessage{Role: "user", Content: planMessage, ContentSet: true})
-		}
-		if checkpointMessage != "" {
-			history = append(history, contract.EngineMessage{Role: "user", Content: checkpointMessage, ContentSet: true})
-		}
-		if maxUnits > 0 {
-			history = append(history, task_context.TranscriptTailHistory(events, target, maxUnits)...)
-		}
-		estimated := c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
-		if estimated <= target {
+	// 压缩窗口模式：丢弃保留的累积段，从事件重建新鲜窗口（保留段只供全量
+	// 累积模式复用，避免与窗口内容重复）。
+	base := systems
+	if contextMaxUnits > 0 {
+		base = RetainedSystemOnly(systems)
+	}
+	if history, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, contextMaxUnits); estimated <= target {
+		return history, estimated
+	}
+	// 达峰回退：全量累积超预算 → 折为有界窗口；窗口仍超 → 逐级收缩，最后
+	// 丢弃整个累积 context，只保留 system + plan（正常路径不用 checkpoint
+	// 兜底；恢复路径仍保留 checkpoint 续接）。
+	for maxUnits := limits.Get().ContextMaxUnits; maxUnits > 0; maxUnits-- {
+		if history, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, maxUnits); estimated <= target {
 			return history, estimated
 		}
 	}
+	return c.tryFitExecutionHistory(systemPrompt, RetainedSystemOnly(systems), planMessage, nil, currentInput, tools, target, 0)
+}
+
+// tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token。
+func (c *Coordinator) tryFitExecutionHistory(
+	systemPrompt string,
+	systems []contract.EngineMessage,
+	planMessage string,
+	events []model.TranscriptEvent,
+	currentInput string,
+	tools []model.Tool,
+	target int,
+	contextMaxUnits int,
+) ([]contract.EngineMessage, int) {
 	history := append([]contract.EngineMessage(nil), systems...)
+	if contextMaxUnits <= 0 {
+		// 全量累积（append-only 已定稿轮次）。
+		history = append(history, task_context.TranscriptTailHistory(events, target, 0)...)
+	} else {
+		history = append(history, task_context.TranscriptTailHistory(events, target, contextMaxUnits)...)
+	}
+	// plan 后置贴近当前输入（LLM 循环会把当前输入追加到历史尾部）。
 	if planMessage != "" {
 		history = append(history, contract.EngineMessage{Role: "user", Content: planMessage, ContentSet: true})
-	}
-	if checkpointMessage != "" {
-		history = append(history, contract.EngineMessage{Role: "user", Content: checkpointMessage, ContentSet: true})
 	}
 	return history, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
 }
@@ -275,22 +317,6 @@ func currentPlanSlice(arguments, currentNode string) any {
 		}
 	}
 	return map[string]any{"nodes": nodes, "edges": edges}
-}
-
-func checkpointContextMessage(checkpoint model.TaskCheckpoint, minimal bool) string {
-	if !task_context.HasSubstantiveCheckpoint(checkpoint) {
-		return ""
-	}
-	if minimal {
-		checkpoint.Decisions = nil
-		checkpoint.ChangedFiles = nil
-		checkpoint.Artifacts = nil
-		if len(checkpoint.CompletedWork) > 1 {
-			checkpoint.CompletedWork = checkpoint.CompletedWork[len(checkpoint.CompletedWork)-1:]
-		}
-	}
-	encoded, _ := json.Marshal(checkpoint)
-	return TaskContextCheckpointPrefix + "\n" + string(encoded)
 }
 
 func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, currentInput string) []model.TranscriptEvent {
@@ -420,19 +446,62 @@ func EstimateEngineHistoryTokens(history []contract.EngineMessage) int {
 
 // TaskContextRecoveryHistory 保留 system 指令并把可变协议记录替换为 checkpoint。
 func TaskContextRecoveryHistory(history []contract.EngineMessage, checkpoint string) []contract.EngineMessage {
-	compacted := RetainedSystemHistory(history)
+	compacted := RetainedSystemOnly(history)
 	return append(compacted, contract.EngineMessage{Role: "user", Content: checkpoint, ContentSet: true})
 }
 
-// RetainedSystemHistory 保留一条产品指令（框架侧摘要也是 system 消息，
-// 全保留会让错误/重复的历史替换成倍放大 prompt）。
+// RetainedSystemHistory 保留稳定前缀 + 已定稿轮次的 append-only 累积段：
+// 从既有引擎历史中剔除动态尾部（plan 上下文 / checkpoint / 压缩帧标记 /
+// 恢复信封），使下一轮装配只追加保留段之后的新事件，前缀字节稳定。
+// 恢复路径（provider 504 / history-safety）请用 RetainedSystemOnly。
 func RetainedSystemHistory(history []contract.EngineMessage) []contract.EngineMessage {
+	retained := make([]contract.EngineMessage, 0, len(history))
+	for _, message := range history {
+		if message.Role == "system" || !isDynamicTailMessage(message) {
+			retained = append(retained, message)
+		}
+	}
+	return retained
+}
+
+// RetainedSystemOnly 保留一条产品指令（框架侧摘要也是 system 消息，全保留
+// 会让错误/重复的历史替换成倍放大 prompt）。恢复路径专用：不得携带已定稿
+// 轮次（provider 已拒绝过大上下文，重放 transcript 会再次失败）。
+func RetainedSystemOnly(history []contract.EngineMessage) []contract.EngineMessage {
 	for _, message := range history {
 		if message.Role == "system" {
 			return []contract.EngineMessage{message}
 		}
 	}
 	return nil
+}
+
+// isDynamicTailMessage 判定消息是否为动态尾部/控制消息（plan 上下文、
+// checkpoint、压缩帧标记、恢复信封、预算终局输入）：这类消息每轮重建或
+// 由恢复路径单独管理，不进入保留的稳定前缀 + 已定稿累积段。
+func isDynamicTailMessage(message contract.EngineMessage) bool {
+	if message.Role != "user" {
+		return false
+	}
+	content := message.Content
+	return strings.HasPrefix(content, planContextPrefix) ||
+		strings.HasPrefix(content, TaskContextCheckpointPrefix) ||
+		strings.HasPrefix(content, seelexctx.CompactContextMarker) ||
+		strings.HasPrefix(content, contextRecoveryPrefix) ||
+		strings.HasPrefix(content, providerRecoveryPrefix) ||
+		strings.HasPrefix(content, reactBudgetFinalizationPrefix)
+}
+
+// retainedContextEventCount 返回保留段中已定稿轮次的 message 数（与
+// transcript 事件 1:1，供累积模式跳过已保留前缀）。
+func retainedContextEventCount(retained []contract.EngineMessage) int {
+	count := 0
+	for _, message := range retained {
+		if message.Role != "system" {
+			count++
+		}
+	}
+	return count
 }
 
 // RemoveTaskContextCheckpoints 阻止 Application 控制消息被持久化/重建为

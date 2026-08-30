@@ -323,16 +323,17 @@ func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 	if !service.components.sessions.HistoryContainsUser(prepared, "我的名字是什么？") {
 		t.Fatalf("long-context smoke lost opening question: %#v", prepared)
 	}
-	foundIdentityCheckpoint := false
 	for _, message := range prepared {
-		if context_runtime.IsTaskContextCheckpoint(message.Content) && strings.Contains(message.Content, "user_name=hzr") {
-			foundIdentityCheckpoint = true
-		}
-		if strings.Contains(message.Content, `"covers_event_range"`) && !strings.Contains(message.Content, "user_name=hzr") {
-			t.Fatalf("metadata-only checkpoint entered long-context request: %#v", prepared)
+		if context_runtime.IsTaskContextCheckpoint(message.Content) {
+			t.Fatalf("long-context normal path must not inject checkpoint message: %#v", prepared)
 		}
 	}
-	if !foundIdentityCheckpoint {
+	// 持久化的身份 checkpoint 仍保留在任务投影（恢复/续接数据面），只是不再
+	// 进入 LLM 上下文。
+	service.Mu.RLock()
+	projection := service.components.tasks.TaskProjectionLocked(sessionID)
+	service.Mu.RUnlock()
+	if projection == nil || !strings.Contains(strings.Join(projection.Checkpoint.CompletedWork, "\n"), "user_name=hzr") {
 		t.Fatalf("long-context smoke lost durable identity checkpoint: %#v", prepared)
 	}
 }

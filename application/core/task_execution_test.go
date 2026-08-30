@@ -149,8 +149,13 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	history := engine.History()
-	if len(history) < 5 || history[0].Role != "system" || !strings.HasPrefix(history[1].Content, context_runtime.TaskContextCheckpointPrefix) {
-		t.Fatalf("history = %+v, want system, checkpoint, and recent complete units", history)
+	if len(history) < 3 || history[0].Role != "system" {
+		t.Fatalf("history = %+v, want system and recent complete units", history)
+	}
+	for _, message := range history {
+		if context_runtime.IsTaskContextCheckpoint(message.Content) {
+			t.Fatalf("normal path must not inject checkpoint message: %+v", message)
+		}
 	}
 	lastAssistant, lastTool := history[len(history)-2], history[len(history)-1]
 	if len(lastAssistant.ToolCalls) != 1 || lastAssistant.ToolCalls[0].ID != "call-1" || lastTool.ToolCallID != "call-1" || lastTool.Content != "found the current call path" {
@@ -217,8 +222,8 @@ func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *test
 				checkpointCount++
 			}
 		}
-		if checkpointCount != 1 {
-			t.Fatalf("round %d compacted history = %+v, want one checkpoint", round, compacted)
+		if checkpointCount != 0 {
+			t.Fatalf("round %d compacted history = %+v, normal path must not inject checkpoints", round, compacted)
 		}
 	}
 	compactions := service.Snapshot().Task.ContextCompactions
@@ -316,10 +321,16 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	for _, message := range history {
 		if context_runtime.IsTaskContextCheckpoint(message.Content) && strings.Contains(message.Content, "node=inspect status=completed") {
 			foundCheckpoint = true
-			break
 		}
 	}
-	if !foundCheckpoint || !strings.Contains(prompt, "review prompt") {
+	if foundCheckpoint {
+		t.Fatalf("continuation normal path must not inject checkpoint message: %#v", history)
+	}
+	service.Mu.RLock()
+	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
+	service.Mu.RUnlock()
+	carried := projection != nil && len(projection.Checkpoint.CompletedWork) > 0 && strings.Contains(projection.Checkpoint.CompletedWork[0], "node=inspect status=completed")
+	if !carried || !strings.Contains(prompt, "review prompt") {
 		t.Fatalf("continuation history=%#v prompt=%q", history, prompt)
 	}
 }

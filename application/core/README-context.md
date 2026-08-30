@@ -17,8 +17,12 @@
 - `func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T)`
 - `func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T)`
 - `func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T)`
+- `func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T)`
 - `func TestTranscriptTailDropsIncompleteAndOrphanToolProtocols(t *testing.T)`
 - `func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T)`
+- `func TestTranscriptTailAccumulatesAllSettledRoundsWhenUnlimited(t *testing.T)`
+- `func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *testing.T)`
+- `func historyContents(history []EngineMessage) []string`
 - `func TestRejectToolResultsRecognizesFrameworkTruncationMarker(t *testing.T)`
 
 ### context_hook_test.go

@@ -59,6 +59,39 @@ Assembler ─ 查询 → memory.Select（压缩帧 top-K）→ 相关记忆块
 - merge 是否去重 constraints、保留 parent goal，并正确处理 escape。
 - Provider nil/empty trace 是否安全降级。
 
+## 上下文压缩的占比表现（字符画）
+
+以 `history_window = 200k tokens` 为例（每个 `▓` 约 10k tokens；预算轴 0 → 200k）：
+
+```text
+history_window = 200k tokens（填充 ▓ 每字符 ≈ 10k，宽度按占比）
+
+未启用压缩：原始 transcript 逐轮全量累积（第 20 轮触顶）
+┌───────────────┬───────────────┬───────────────┬───────────────┐
+│   轮 1-5      │   轮 6-10     │   轮 11-15    │   轮 16-20    │
+│ ▓▓▓▓▓ 50k     │ ▓▓▓▓▓ 50k    │ ▓▓▓▓▓ 50k    │ ▓▓▓▓▓ 50k    │
+└───────────────┴───────────────┴───────────────┴───────────────┘
+  ✗ 触顶：超出预算 → 丢弃旧轮次 / 请求被拒绝（上下文丢失、质量下降）
+
+启用压缩：达到阈值 → ContextController/Compactor 生成 checkpoint + 摘要
+┌────────────────┬──────────────┬────────────────────────────────┐
+│ 已压缩占用 60k  │ 最近轮次 40k  │ 剩余可继续空间 100k（50%）      │
+│ ▓▓▓▓▓▓ (30%)   │ ▓▓▓▓ (20%)   │                                │
+└────────────────┴──────────────┴────────────────────────────────┘
+  ✓ 约 30% 占用 / 70% 空闲：可继续多轮不触顶
+  组成：system prompt + 累积 context（达峰前全量 append-only；压缩后
+  ≤4 轮新鲜窗口）+ plan/task 尾部 + compact 摘要
+```
+
+压缩后占用约 30%，释放约 70% 空间；每次压缩发布 `Snapshot.Task.ContextCompactions`（version/reason/messages_before/estimated_tokens），不含 checkpoint 文本、system prompt、工具参数/结果或原始对话；token 审计在压缩后仍超预算时，请求在 `ChatStream` 前被拒绝。checkpoint 正常路径不再进入 LLM 上下文，只保留恢复路径与持久化数据面。
+
+> 已实现（任务 A/B/C）：装配顺序为「system → project → memory → 稳定前缀栈
+> （skill/compact）→ 累积 context（达峰前 append-only 全量已定稿轮次）→
+> plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常
+> 恢复路径保留）。达峰才压缩：达到软阈值时折叠 compact 栈顶 + context 窗口，
+> 保留新鲜 compact 帧与窗口剩余；plan/task 不参与压缩。设计见
+> [docs/arch/context-prefix-chain.md](../docs/arch/context-prefix-chain.md)。
+
 ## 测试
 
 ```text

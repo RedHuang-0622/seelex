@@ -14,11 +14,13 @@
 - `func nonEmptyProviderInput(input string) string`
 - `func (service *Service) recoverProviderContext(err error, originalRequest string) error` — recoverProviderContext 在 provider 因超出上下文窗口拒绝累积 transcript 后，
 - `func (service *Service) recoverProviderFailure(err error, originalRequest string) (bool, error)` — recoverProviderFailure 仅在 provider 拒绝请求后，把不可用 transcript 替换
+- `func (service *Service) recoverProviderFailureFor(ctx context.Context, err error, originalRequest string) (bool, error)` — recoverProviderFailureFor 与 recoverProviderFailure 相同，但 ctx 携带会话
 - `func (service *Service) retryContextRecovery(ctx context.Context, requestID string, onChunk func(string)) error` — retryContextRecovery 在 provider 因上下文长度在执行前拒绝请求时，给同一
 - `func classifyProviderFailure(err error) providerFailureKind`
 - `func providerRecoveryDetails(kind providerFailureKind) (prefix, heading, summary string)`
 - `func isProviderContextExhaustion(err error) bool`
 - `func (service *Service) removeProviderContextRecovery() error`
+- `func (service *Service) removeProviderContextRecoveryFor(sessionID string) error`
 
 ### history_safety_test.go
 

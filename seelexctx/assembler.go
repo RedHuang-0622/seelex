@@ -1,11 +1,12 @@
 // seelexAssembler 是 seelex 的 RequestAssembler（plan.md §3.5 / 架构文档 4.8.4）。
 //
-// 每次模型请求的投影顺序：
+// 每次模型请求的投影顺序（context-prefix-chain 新链路）：
 //
 //	system prompt（effort/skill 动态生成）→ project 块（会话前预读）→
-//	栈块（plan/task/skill/compact，now using = 栈顶）→ 记忆块（按当前查询
-//	从历史压缩段选取的相关记忆，可选）→ 调用方静态块（plan authority /
-//	task checkpoint / evidence）→ WorkingHistory（窗口轮次）
+//	记忆块（按当前查询从历史压缩段选取的相关记忆，可选）→ 稳定前缀栈块
+//	（skill/compact，now using = 栈顶）→ 调用方静态块（plan authority /
+//	task checkpoint / evidence）→ WorkingHistory（累积 context）→ 动态尾部
+//	栈块（plan/task，now using = 栈顶）
 //
 // 系统提示与 PromptBlocks 只进入模型请求，不写入 durable history（新不变量）。
 // 占位符（{{plan}}/{{skill}}）经 PlaceholderRequestAssembler 解析，只作用于块内消息。
@@ -32,8 +33,15 @@ type AssemblerOptions struct {
 	// nil 表示不注入）。
 	ProjectBlock func() *seelectx.PromptBlock
 
-	// StackBlocks 返回会话级使用栈块（plan/task/skill/compact，栈顶 = now using）。
-	StackBlocks func() []seelectx.PromptBlock
+	// PrefixStacks 返回稳定前缀栈块（skill/compact，栈顶 = now using）。
+	// 渲染在记忆块之后、累积 context 之前：内容低频变化，构成前缀缓存
+	// 稳定段。nil 表示不注入。
+	PrefixStacks func() []seelectx.PromptBlock
+
+	// TailStacks 返回动态尾部栈块（plan/task，栈顶 = now using）。渲染在
+	// WorkingHistory（累积 context）之后、贴近当前输入：频繁变化且不参与
+	// 压缩，作为模型注意力焦点。nil 表示不注入。
+	TailStacks func() []seelectx.PromptBlock
 
 	// Window 返回滑动窗口轮次（WorkingHistory 源；nil 时使用调用方传入的
 	// WorkingHistory）。读取失败保守回退调用方历史，不让请求失败。
@@ -60,7 +68,7 @@ func NewAssembler(options AssemblerOptions) seelectx.RequestAssembler {
 
 // Assemble 按投影顺序组装一次模型请求。
 func (a seelexAssembler) Assemble(ctx context.Context, request seelectx.AssemblyRequest) (seelectx.AssembledRequest, error) {
-	blocks := make([]seelectx.PromptBlock, 0, len(request.Blocks)+4)
+	blocks := make([]seelectx.PromptBlock, 0, len(request.Blocks)+5)
 
 	// 1. system prompt（effort/skill 动态生成，永不持久化）。
 	if prompt := a.systemPrompt(); prompt != "" {
@@ -73,18 +81,19 @@ func (a seelexAssembler) Assemble(ctx context.Context, request seelectx.Assembly
 	if project := a.projectBlock(ctx); project != nil {
 		blocks = append(blocks, *project)
 	}
-	// 3. 栈块（now using = 栈顶）。
-	blocks = append(blocks, a.stackBlocks()...)
 
-	// 4. 记忆块（按当前查询从历史压缩段选取；超长会话的相关记忆注入）。
+	// 3. 记忆块（按当前查询从历史压缩段选取；超长会话的相关记忆注入）。
 	if a.options.Memories != nil {
 		blocks = append(blocks, a.options.Memories(ctx, LastUserQuery(request.WorkingHistory))...)
 	}
 
+	// 4. 稳定前缀栈块（skill/compact：低频变化，前缀缓存友好）。
+	blocks = append(blocks, a.prefixStacks()...)
+
 	// 5. 调用方静态块（plan authority / task checkpoint / evidence）。
 	blocks = append(blocks, request.Blocks...)
 
-	// 5. WorkingHistory = 滑动窗口轮次。
+	// 6. WorkingHistory = 累积 context + 当前输入。
 	history := request.WorkingHistory
 	if a.options.Window != nil {
 		if windowed, err := a.options.Window(ctx); err == nil && windowed != nil {
@@ -92,6 +101,14 @@ func (a seelexAssembler) Assemble(ctx context.Context, request seelectx.Assembly
 		}
 		// 窗口读取失败保守回退调用方历史（请求仍可进行，与 3.7.3 的
 		// "出错时保守回退"同风格）。
+	}
+
+	// 7. 动态尾部栈块（plan/task：贴近当前输入，不参与压缩）追加到
+	// WorkingHistory 尾部：框架委托装配器总是把 WorkingHistory 放在所有
+	// 块之后，尾部栈帧因此落在请求最末（当前输入之后），保持「累积
+	// context → plan/task」的前缀链语义。
+	for _, block := range a.tailStacks() {
+		history = append(history, block.Messages...)
 	}
 
 	if a.options.Resolver == nil {
@@ -124,11 +141,18 @@ func (a seelexAssembler) projectBlock(ctx context.Context) *seelectx.PromptBlock
 	return a.options.ProjectBlock()
 }
 
-func (a seelexAssembler) stackBlocks() []seelectx.PromptBlock {
-	if a.options.StackBlocks == nil {
+func (a seelexAssembler) prefixStacks() []seelectx.PromptBlock {
+	if a.options.PrefixStacks == nil {
 		return nil
 	}
-	return a.options.StackBlocks()
+	return a.options.PrefixStacks()
+}
+
+func (a seelexAssembler) tailStacks() []seelectx.PromptBlock {
+	if a.options.TailStacks == nil {
+		return nil
+	}
+	return a.options.TailStacks()
 }
 
 // LastUserQuery 提取 WorkingHistory 中最后一条非控制块 user 消息作为
@@ -149,26 +173,19 @@ func LastUserQuery(history []types.Message) string {
 
 // ── 栈块渲染（now using = 栈顶，plan.md §3.7.2）────────────────────────
 
-// RenderStackBlocks 把 SessionContextRecord 渲染为 PromptBlock 列表：
-// plan/task/skill/compact 各栈只渲染栈顶一帧（当前使用中的模块），
-// 空栈不渲染。帧内容结构化（JSON），供模型与 UI 读取当前上下文。
+// RenderStackBlocks 把 SessionContextRecord 渲染为 PromptBlock 列表（新链路
+// 顺序：稳定前缀 skill/compact + 动态尾部 plan/task）。各栈只渲染栈顶一帧
+// （当前使用中的模块），空栈不渲染。帧内容结构化（JSON），供模型与 UI
+// 读取当前上下文。
 func RenderStackBlocks(record sessionstore.SessionContextRecord) []seelectx.PromptBlock {
-	blocks := make([]seelectx.PromptBlock, 0, 4)
+	return append(RenderStablePrefixBlocks(record), RenderTailBlocks(record)...)
+}
 
-	if len(record.PlanStack) > 0 {
-		top := record.PlanStack[len(record.PlanStack)-1]
-		blocks = append(blocks, renderStackBlock("plan", "当前计划 (now using plan)", map[string]any{
-			"plan_id": top.PlanID, "title": top.Title, "status": top.Status,
-			"nodes": top.Nodes,
-		}))
-	}
-	if len(record.TaskStack) > 0 {
-		top := record.TaskStack[len(record.TaskStack)-1]
-		blocks = append(blocks, renderStackBlock("task", "当前任务 (now using task)", map[string]any{
-			"task_id": top.TaskID, "objective": top.Objective, "status": top.Status,
-			"evidence": top.Evidence,
-		}))
-	}
+// RenderStablePrefixBlocks 渲染稳定前缀栈块（skill/compact，now using =
+// 栈顶）：放在记忆块之后、累积 context 之前（前缀缓存稳定段；skill 先于
+// compact，保持 compact 紧邻 context）。
+func RenderStablePrefixBlocks(record sessionstore.SessionContextRecord) []seelectx.PromptBlock {
+	blocks := make([]seelectx.PromptBlock, 0, 2)
 	if len(record.SkillStack) > 0 {
 		top := record.SkillStack[len(record.SkillStack)-1]
 		blocks = append(blocks, renderStackBlock("skill", "当前技能 (now using skill)", map[string]any{
@@ -180,6 +197,29 @@ func RenderStackBlocks(record sessionstore.SessionContextRecord) []seelectx.Prom
 		blocks = append(blocks, renderStackBlock("compact", "压缩上下文 (now using compact context)", map[string]any{
 			"segment_id": top.SegmentID, "from": top.From, "to": top.To,
 			"summary": top.Summary, "evidence": top.Evidence,
+		}))
+	}
+	return blocks
+}
+
+// RenderTailBlocks 渲染动态尾部栈块（plan/task，now using = 栈顶）：放在
+// WorkingHistory（累积 context）之后、贴近当前输入；频繁变化且不参与压缩
+// （注意力焦点）。plan 帧只携带克制信息（plan_id/title/status），节点详情
+// 由 coordinator 的 plan 尾部消息（plan_ref + 当前节点 slice）与 read_plan
+// 提供，整计划全量不入尾部。
+func RenderTailBlocks(record sessionstore.SessionContextRecord) []seelectx.PromptBlock {
+	blocks := make([]seelectx.PromptBlock, 0, 2)
+	if len(record.PlanStack) > 0 {
+		top := record.PlanStack[len(record.PlanStack)-1]
+		blocks = append(blocks, renderStackBlock("plan", "当前计划 (now using plan)", map[string]any{
+			"plan_id": top.PlanID, "title": top.Title, "status": top.Status,
+		}))
+	}
+	if len(record.TaskStack) > 0 {
+		top := record.TaskStack[len(record.TaskStack)-1]
+		blocks = append(blocks, renderStackBlock("task", "当前任务 (now using task)", map[string]any{
+			"task_id": top.TaskID, "objective": top.Objective, "status": top.Status,
+			"evidence": top.Evidence,
 		}))
 	}
 	return blocks
@@ -238,12 +278,14 @@ func RenderProjectBlock(record sessionstore.ProjectRecord) *seelectx.PromptBlock
 	}
 }
 
-// isStackContextMarker 判断消息是否为 seelex 上下文控制块（压缩帧/检查点），
-// 这类消息不参与轮次单元切分，也不得被渲染为普通对话内容。
+// isStackContextMarker 判断消息是否为 seelex 上下文控制块（压缩帧/检查点/
+// plan 尾部消息），这类消息不参与轮次单元切分（不参与压缩），也不得被渲染
+// 为普通对话内容或记忆查询源。
 func isStackContextMarker(message types.Message) bool {
 	if message.Role != "user" || message.Content == nil {
 		return false
 	}
 	return strings.HasPrefix(*message.Content, compactContextMarker) ||
-		strings.HasPrefix(*message.Content, checkpointMarker)
+		strings.HasPrefix(*message.Content, checkpointMarker) ||
+		strings.HasPrefix(*message.Content, ActivePlanContextMarker)
 }

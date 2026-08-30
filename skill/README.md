@@ -26,6 +26,31 @@ Registry 合并 manual 与 loader skills；激活 Plugin 后，只暴露该 Plug
 - front matter body 是否完整保留，resource path 是否 canonical 后再比较。
 - 新格式必须保留已有 Skill 的向后兼容或提供迁移。
 
+## Skill 加载位置（Mermaid）
+
+```mermaid
+flowchart LR
+    subgraph Roots[加载位置]
+        DIR["配置根目录：name/SKILL.md（目录格式，资源同目录）"]
+        PLUGIN["plugins/插件目录下的 skill 目录"]
+        LEGACY["配置根目录：name.md（legacy 平铺，兼容）"]
+    end
+    LOADER["skill.Loader<br/>多 root 按配置顺序查找<br/>目录格式优先于 legacy<br/>ResourcePath 防逃逸"]
+    REG["skill.Registry<br/>manual + loader 合并<br/>plugin 激活后按 scope 覆盖"]
+    ACT["激活：ActivateTaskSkillsLocked<br/>task 级 skill 栈"]
+    PROMPT["prompt_layer skill 块<br/>进入 provider 上下文"]
+    DIR --> LOADER
+    PLUGIN --> LOADER
+    LEGACY --> LOADER
+    LOADER --> REG
+    REG --> ACT
+    ACT --> PROMPT
+```
+
+- 标准格式 `<root>/<name>/SKILL.md`，资源与脚本留在同一 Skill 目录（不跨根引用）；`<root>/<name>.md` 为 legacy 兼容。
+- loader root 按配置顺序优先；目录格式优先于 legacy；plugin skill 只在插件激活后可见且不污染 global registry。
+- 加载后进入 `skill.Registry`，任务激活时经 `ActivateTaskSkillsLocked` 注入 `prompt_layer` 的 skill 块。
+
 ## 测试
 
 ```text
