@@ -48,6 +48,10 @@ type DurableHistory struct {
 	preparedSet bool
 	tail        *historyTailBudget // 滑动窗口读尾预算（nil = 全量加载，旧语义）
 	gapCoverer  GapCoverer         // 真空区覆盖回调（nil = 不覆盖）
+	// workspaceResolver 返回本会话绑定的 workspace ID（"" = 默认）。nil 时
+	// 回退 Router 当前 active write scope（旧语义；多会话并行下会造成
+	// 键漂移——后台会话 ChatStream 结束时若 Router 已切走，历史串写他域）。
+	workspaceResolver func() string
 }
 
 // historyTailBudget 是 Load 的滑动窗口读尾预算（token + 轮数；0 = 不限）。
@@ -60,6 +64,23 @@ type historyTailBudget struct {
 // router 为 nil 时退化为内存态（Load/Save 返回空、Clear 无操作）。
 func NewDurableHistory(router *Router, sessionID string) *DurableHistory {
 	return &DurableHistory{router: router, sessionID: sessionID}
+}
+
+// SetWorkspaceResolver 注入会话绑定 workspace 解析器：DurableHistory 的
+// Load/Save/LoadEventTail/Clear 全部按显式 workspace 键落盘，不依赖 Router
+// active write scope（R3 键漂移收敛）。
+func (d *DurableHistory) SetWorkspaceResolver(resolver func() string) {
+	d.workspaceResolver = resolver
+}
+
+func (d *DurableHistory) workspace() string {
+	if d.workspaceResolver != nil {
+		return d.workspaceResolver()
+	}
+	if d.router != nil {
+		return d.router.Workspace()
+	}
+	return ""
 }
 
 // SetTailBudget 注入滑动窗口读尾预算（plan.md §3.7.2：Load 只装载窗口
@@ -129,7 +150,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 		}
 		return eventsToMessages(tail), nil
 	}
-	messages, err := d.router.Load(d.sessionID)
+	messages, err := d.router.LoadWorkspace(d.workspace(), d.sessionID)
 	if err != nil {
 		if isSessionNotFound(err) {
 			return []types.Message{}, nil
@@ -179,7 +200,7 @@ func (d *DurableHistory) Save(ctx context.Context, messages []types.Message) err
 	if d == nil || d.router == nil || d.sessionID == "" {
 		return nil
 	}
-	if err := d.router.Save(d.sessionID, messages); err != nil {
+	if err := d.router.SaveWorkspace(d.workspace(), d.sessionID, messages); err != nil {
 		return fmt.Errorf("durable history: save %q: %w", d.sessionID, err)
 	}
 	if d.stateStore != nil {
@@ -203,7 +224,7 @@ func (d *DurableHistory) LoadEventTail(_ context.Context, tokenBudget, maxUnits 
 	if d == nil || d.router == nil || d.sessionID == "" {
 		return []Event{}, nil
 	}
-	events, err := d.router.LoadEventTail(d.sessionID, tokenBudget, maxUnits)
+	events, err := d.router.LoadEventTailWorkspace(d.workspace(), d.sessionID, tokenBudget, maxUnits)
 	if err != nil {
 		if isSessionNotFound(err) {
 			return []Event{}, nil
@@ -225,7 +246,7 @@ func (d *DurableHistory) Clear(_ context.Context) error {
 	if d.router == nil || d.sessionID == "" {
 		return nil
 	}
-	if err := d.router.Delete(d.sessionID); err != nil {
+	if err := d.router.DeleteWorkspace(d.workspace(), d.sessionID); err != nil {
 		return fmt.Errorf("durable history: clear %q: %w", d.sessionID, err)
 	}
 	if d.stateStore != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/model"
@@ -87,10 +88,28 @@ func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
 	if err != nil {
 		return err
 	}
-	if err := c.sessions.PersistCurrentSession(sessionID); err != nil {
+	if err := c.sessions.PersistCurrentSession(c.sessionLocationLocked(sessionID), sessionID); err != nil {
 		return fmt.Errorf("persist context checkpoint: %w", err)
 	}
 	return nil
+}
+
+// sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
+// 回退当前活跃工作区）。压缩 checkpoint 落盘的目标会话可能不是活跃会话，
+// 必须按会话键落盘（对应 R3 键漂移修复）。
+func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	location := session_runtime.Location{Meta: model.SessionInfo{ID: sessionID}}
+	if workspaceID, ok := c.Snapshot.SessionWorkspaces[sessionID]; ok && workspaceID != "" {
+		location.WorkspaceID = workspaceID
+		return location
+	}
+	if c.Snapshot.CurrentWorkspace != nil {
+		location.WorkspaceID = c.Snapshot.CurrentWorkspace.ID
+		location.Workspace = c.Snapshot.CurrentWorkspace
+	}
+	return location
 }
 
 // PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建

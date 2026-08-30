@@ -37,6 +37,9 @@ func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (S
 }
 
 func (s *forkServiceSessions) SaveSessionRecord(string, SessionRecord) error { return nil }
+func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, SessionRecord) error {
+	return nil
+}
 
 func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
 	return s.events, nil

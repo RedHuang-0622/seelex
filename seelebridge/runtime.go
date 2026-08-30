@@ -169,6 +169,16 @@ type Runtime struct {
 	eventPersister   func(context.Context, frameworkevent.Event) error
 	lazyMCPServerMu  sync.RWMutex
 	lazyMCPServers   map[string]MCPServer // 已登记未连接的 MCP 服务器（冷启动）
+
+	// sessionTaskSnapshots 是会话切换时保存的 task 注册表快照（阶段 0：
+	// 后台会话持久化按会话取快照，不读活跃注册表；对应 R6/P2）。
+	sessionTaskMu        sync.Mutex
+	sessionTaskSnapshots map[string][]dto.TaskRecord
+	currentTaskSessionID string
+	// sessionWorkspaces 是 application 通知的会话绑定 workspace（framework
+	// DurableHistory 按显式键落盘用，R3 键漂移收敛）。
+	sessionWorkspacesMu sync.RWMutex
+	sessionWorkspaces   map[string]string
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
@@ -265,12 +275,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		subagentTree:        subagentsession.NewSubagentTree(tracer),
 		subagentContext:     subagentsession.NewSubagentContextActor(tracer),
 
-		window:          seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
-		tracer:          tracer,
-		hook:            hook,
-		summaryLog:      NewSummaryLog(),
-		bundles:         make(map[string]*sessionBundle),
-		startupWarnings: startupWarnings,
+		window:               seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
+		tracer:               tracer,
+		hook:                 hook,
+		summaryLog:           NewSummaryLog(),
+		bundles:              make(map[string]*sessionBundle),
+		sessionTaskSnapshots: make(map[string][]dto.TaskRecord),
+		sessionWorkspaces:    make(map[string]string),
+		startupWarnings:      startupWarnings,
 	}
 	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。
 	r.accounts = account.NewManager(loaded.Specs, loaded.Limits, first.Name, pool)
@@ -510,6 +522,7 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	// 该兜底（存储双轨只读迁移语义，见解耦方案 §02.5）。
 	if router := r.durableHistoryRouter(); router != nil {
 		history := sessionstore.NewDurableHistory(router, sessionID)
+		history.SetWorkspaceResolver(r.sessionWorkspaceFor(sessionID))
 		history.SetTailBudget(r.windowTailBudget())
 		// 真空区覆盖：滑动窗口与压缩内容之间未压缩轮次的断档填补
 		// （seelexctx/gap.go；压缩只随活跃期事件触发，会话结束后窗口外的
@@ -527,6 +540,16 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 	bundle.session = sess
 	bundle.hooks = hooks
 	return sess, nil
+}
+
+// sessionWorkspaceFor 返回按会话 workspace 的解析闭包（framework
+// DurableHistory 落盘键；应用层经 SetSessionWorkspace 维护映射）。
+func (r *Runtime) sessionWorkspaceFor(sessionID string) func() string {
+	return func() string {
+		r.sessionWorkspacesMu.RLock()
+		defer r.sessionWorkspacesMu.RUnlock()
+		return r.sessionWorkspaces[sessionID]
+	}
 }
 func (r *Runtime) Shutdown() {
 	if r == nil {

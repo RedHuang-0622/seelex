@@ -41,6 +41,9 @@ func (s *forkTestSessions) SetWorkspace(string) {}
 func (s *forkTestSessions) Workspace() string   { return s.workspaceID }
 
 func (s *forkTestSessions) SaveSessionRecord(string, model.SessionRecord) error { return nil }
+func (s *forkTestSessions) SaveSessionRecordWorkspace(string, string, model.SessionRecord) error {
+	return nil
+}
 func (s *forkTestSessions) LoadSessionRecord(string) (model.SessionRecord, error) {
 	return s.parentRecord, nil
 }

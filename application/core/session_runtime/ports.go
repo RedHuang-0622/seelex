@@ -17,20 +17,23 @@ import (
 )
 
 // TaskPersistencePort 是会话持久化对 task/plan 权威状态的读写面。
+// 全部方法显式携带 sessionID（For 变体）：后台会话收尾不得读活跃会话槽，
+// 违反即编译失败（阶段 0 契约，对应 plan.md P2/P4/R4）。
 // Locked 后缀方法要求调用方已持有 state.Core.Mu（内核锁内调用）。
 type TaskPersistencePort interface {
 	TaskProjectionLocked(sessionID string) *model.TaskContextProjection
-	Transcript() []model.TranscriptEvent
-	PendingToolResults() []model.StoredToolResult
-	TaskCheckpoints() []model.TaskCheckpoint
-	ToolResultRefs() []model.ToolResultRef
-	ToolResultRefByCallID(callID string) string
-	ContinuationSummary(requestID string) string
-	ActivePlanID() string
-	PlanStack() []model.SessionPlanFrame
-	SyncActivePlanFrameLocked(now time.Time)
-	PushLoadedPlanLocked(arguments string, now time.Time)
-	RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)
+	TranscriptFor(sessionID string) []model.TranscriptEvent
+	PendingToolResultsFor(sessionID string) []model.StoredToolResult
+	TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint
+	ToolResultRefsFor(sessionID string) []model.ToolResultRef
+	ToolResultRefByCallIDFor(sessionID, callID string) string
+	ContinuationSummaryFor(sessionID, requestID string) string
+	CurrentRequestIDFor(sessionID string) string
+	TaskStateFor(sessionID string) *model.TaskState
+	ActivePlanIDFor(sessionID string) string
+	PlanStackFor(sessionID string) []model.SessionPlanFrame
+	SyncActivePlanFrameLockedFor(sessionID string, now time.Time)
+	RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult)
 }
 
 // SessionRecordPort 是会话归档的持久化面（可选能力断言：会话端口实现
@@ -39,12 +42,18 @@ type SessionRecordPort interface {
 	SaveSessionRecord(string, model.SessionRecord) error
 	LoadSessionRecord(string) (model.SessionRecord, error)
 	LoadSessionRecordWorkspace(string, string) (model.SessionRecord, error)
+	// SaveSessionRecordWorkspace 在显式项目作用域下写会话 record
+	// （后台会话落盘不依赖全局 Router 写作用域；阶段 0 键漂移修复）。
+	SaveSessionRecordWorkspace(string, string, model.SessionRecord) error
 }
 
 // SessionSnapshotPort 是会话原子快照写入面（可选能力断言：record +
 // transcript + tool-result 一次性提交）。
 type SessionSnapshotPort interface {
 	SaveSessionSnapshot(string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error
+	// SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入会话快照
+	// （后台会话落盘用；不改变 Router active write scope）。
+	SaveSessionSnapshotWorkspace(string, string, []contract.EngineMessage, model.SessionRecord, []model.TranscriptEvent, []model.StoredToolResult) error
 }
 
 // SessionTranscriptPort 是 transcript 尾部与工具结果读回面（可选能力断言）。

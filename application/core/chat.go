@@ -104,9 +104,14 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	if active {
 		service.Core.Snapshot.Chat = runtime.chat
 		service.components.tasks.SetTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
-		if service.Core.Snapshot.Session.Name == "" {
-			service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()})
-			service.Core.Snapshot.Session.Name = service.components.sessions.SessionTitle().Value
+	}
+	// L2：标题按会话设置（后台会话首次请求也归属自己的标题，不读活跃槽）；
+	// 仅活跃会话同步到快照展示名。
+	if service.components.sessions.SessionTitleFor(sessionID).Value == "" {
+		title := SessionTitle{Value: session_runtime.SessionTitle(request.displayInput), Source: "first_request", FinalizedAt: time.Now()}
+		service.components.sessions.SetSessionTitleLocked(sessionID, title)
+		if active {
+			service.Core.Snapshot.Session.Name = title.Value
 		}
 	}
 	var user, assistant Message
@@ -208,15 +213,16 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		service.recordUnhandledTaskErrorLocked(requestID, err)
 		service.Mu.Unlock()
 	}
-	saveErr := service.components.sessions.PersistCurrentSession(sessionID)
+	location := service.components.sessions.LocateSession(sessionID)
+	saveErr := service.components.sessions.PersistCurrentSession(location, sessionID)
 	if saveErr != nil {
 		if err != nil {
 			err = wrapError(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), errorCodePersistenceFailed)
 		} else {
 			err = wrapError(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), errorCodePersistenceFailed)
 		}
-	} else if releaser, ok := service.Deps.Engine.(interface{ ReleaseWorkingHistory() }); ok {
-		releaser.ReleaseWorkingHistory()
+	} else if releaser, ok := service.Deps.Engine.(interface{ ReleaseWorkingHistoryFor(string) }); ok {
+		releaser.ReleaseWorkingHistoryFor(sessionID)
 	}
 	service.Mu.Lock()
 	active := service.isActiveSessionLocked(sessionID)

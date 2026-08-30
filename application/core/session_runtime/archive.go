@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,38 +23,50 @@ const (
 	SessionArchiveResumePrefix = "<!-- seelex:session-resume:v1 -->"
 )
 
-// PersistCurrentSession 把当前会话原子落盘：task 快照锁外收集（外部端口），
-// 锁内构建 record + 拷贝事件，锁外合并/写入，最后锁内清理已提交 tool
-// 结果引用。
-func (c *Coordinator) PersistCurrentSession(sessionID string) error {
+// PersistCurrentSession 把指定会话原子落盘（阶段 0：显式 location 键 +
+// 全 For 会话读源，后台会话收尾不得读全局活跃槽）：
+// task 快照锁外收集（外部端口），锁内构建 record + 拷贝事件，锁外写入，
+// 最后锁内清理已提交 tool 结果引用。
+func (c *Coordinator) PersistCurrentSession(location Location, sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
-	// task 快照随会话落盘：外部端口（actor/CSP）在锁外调用，避免持锁阻塞。
-	tasks := c.Core.Deps.Runtime.TaskSnapshot()
+	// task 快照随会话落盘：外部端口（actor/CSP）在锁外调用，避免持锁阻塞；
+	// 按会话分片取（后台会话不读活跃注册表，对应 R6/P2）。
+	tasks := c.Core.Deps.Runtime.TaskSnapshotFor(sessionID)
 	c.Core.Mu.Lock()
 	record := c.sessionRecordLocked(sessionID, tasks)
-	events := append([]model.TranscriptEvent(nil), c.tasks.Transcript()...)
-	pendingResults := append([]model.StoredToolResult(nil), c.tasks.PendingToolResults()...)
+	memoryEvents := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
+	pendingResults := append([]model.StoredToolResult(nil), c.tasks.PendingToolResultsFor(sessionID)...)
 	c.Core.Mu.Unlock()
-	enrichTranscriptMessageIDs(events, record)
-
-	if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
-		existing, err := store.LoadSessionRecord(sessionID)
-		if err == nil {
-			record.Conversation.Messages = c.mergeConversationMessages(existing.Conversation.Messages, record.Conversation.Messages)
-		} else if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("load existing session record before merge: %w", err)
+	// L1：resume 后内存 transcript 只含尾部窗口；可见对话与事件必须从
+	// 磁盘事件全量重建（旧消息保留），否则 >4 轮会话落盘会截断 record。
+	events := c.allTranscriptEventsForSession(location, sessionID, memoryEvents)
+	if len(events) > 0 {
+		// 事件非空才覆盖：transcript 为空（单会话测试桩/异常路径）时保留
+		// sessionRecordLocked 的 Snapshot 回退，避免 record 变空。
+		record.Conversation.Messages = c.conversationFromTranscriptLocked(events)
+	}
+	// L2：内存标题缺失（纯后台启动从未激活）时回退磁盘 record 标题，
+	// 不读全局活跃 Snapshot 标题。
+	if record.Title.Value == "" {
+		if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
+			if existing, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil && existing.Title.Value != "" {
+				record.Title = existing.Title
+			}
 		}
 	}
+	enrichTranscriptMessageIDs(events, record)
 
 	if store, ok := c.Core.Deps.Sessions.(SessionSnapshotPort); ok {
-		if err := store.SaveSessionSnapshot(sessionID, c.Core.Deps.Engine.History(), record, events, pendingResults); err != nil {
+		// 原子快照：transcript 是全量权威事件源，record 由其全量重建，
+		// 整键替换即可，无需增量合并。
+		if err := store.SaveSessionSnapshotWorkspace(location.WorkspaceID, sessionID, c.engineHistoryFor(sessionID), record, events, pendingResults); err != nil {
 			return fmt.Errorf("save atomic session snapshot: %w", err)
 		}
 		c.Core.Mu.Lock()
-		c.tasks.RemoveCommittedToolResultsLocked(pendingResults)
+		c.tasks.RemoveCommittedToolResultsForLocked(sessionID, pendingResults)
 		c.Core.Mu.Unlock()
 		return nil
 	}
@@ -65,10 +78,59 @@ func (c *Coordinator) PersistCurrentSession(sessionID string) error {
 	if !ok {
 		return nil
 	}
-	if err := store.SaveSessionRecord(sessionID, record); err != nil {
+	// 非原子路径防御：transcript 为空（异常/旧数据）时保留磁盘既有可见
+	// 对话，避免整键替换丢内容。
+	if len(record.Conversation.Messages) == 0 {
+		if existing, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil {
+			record.Conversation.Messages = c.RecordConversation(model.SessionRecord{Conversation: existing.Conversation})
+		}
+	}
+	if err := store.SaveSessionRecordWorkspace(location.WorkspaceID, sessionID, record); err != nil {
 		return fmt.Errorf("save session record: %w", err)
 	}
 	return nil
+}
+
+// allTranscriptEventsForSession 返回会话全量事件：磁盘持久化事件（全量读）
+// + 内存新增（按 Seq 去重合并）。恢复后内存 transcript 只有尾部窗口，
+// 必须以此保证 record/事件通道整键替换不丢旧消息。
+func (c *Coordinator) allTranscriptEventsForSession(location Location, sessionID string, memory []model.TranscriptEvent) []model.TranscriptEvent {
+	store, ok := c.Core.Deps.Sessions.(SessionTranscriptPort)
+	if !ok {
+		return memory
+	}
+	persisted, err := store.LoadTranscriptTailWorkspace(location.WorkspaceID, sessionID, 1<<30, 1<<30)
+	if err != nil {
+		return memory
+	}
+	return mergeTranscriptEventsBySeq(persisted, memory)
+}
+
+func mergeTranscriptEventsBySeq(persisted, incoming []model.TranscriptEvent) []model.TranscriptEvent {
+	bySeq := make(map[uint64]model.TranscriptEvent, len(persisted)+len(incoming))
+	for _, event := range persisted {
+		if event.Seq != 0 {
+			bySeq[event.Seq] = event
+		}
+	}
+	var tail []model.TranscriptEvent
+	for _, event := range incoming {
+		if event.Seq == 0 {
+			tail = append(tail, event)
+			continue
+		}
+		bySeq[event.Seq] = event
+	}
+	seqs := make([]uint64, 0, len(bySeq))
+	for seq := range bySeq {
+		seqs = append(seqs, seq)
+	}
+	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
+	merged := make([]model.TranscriptEvent, 0, len(bySeq)+len(tail))
+	for _, seq := range seqs {
+		merged = append(merged, bySeq[seq])
+	}
+	return append(merged, tail...)
 }
 
 // enrichTranscriptMessageIDs 建立 event-to-message 关联（模块化方案 §3.2）：
@@ -128,81 +190,60 @@ func enrichTranscriptMessageIDs(events []model.TranscriptEvent, record model.Ses
 	}
 }
 
-func (c *Coordinator) mergeConversationMessages(existing, projected []model.Message) []model.Message {
-	if len(existing) == 0 {
-		return c.RecordConversation(model.SessionRecord{Conversation: model.ConversationRecord{Messages: projected}})
-	}
-	merged := c.RecordConversation(model.SessionRecord{Conversation: model.ConversationRecord{Messages: existing}})
-	indices := make(map[string]int, len(merged))
-	for index := range merged {
-		if merged[index].ID != "" {
-			indices[merged[index].ID] = index
-		}
-	}
-	for _, message := range projected {
-		copy := c.RecordConversation(model.SessionRecord{Conversation: model.ConversationRecord{Messages: []model.Message{message}}})[0]
-		if copy.ID != "" {
-			if index, ok := indices[copy.ID]; ok {
-				merged[index] = copy
-				continue
-			}
-			indices[copy.ID] = len(merged)
-		}
-		merged = append(merged, copy)
-	}
-	return merged
-}
-
 func (c *Coordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord {
 	now := time.Now()
-	c.tasks.SyncActivePlanFrameLocked(now)
-	title := c.sessionTitle
-	if title.Value == "" {
-		title = model.SessionTitle{Value: c.Core.Snapshot.Session.Name, Source: "first_request", FinalizedAt: now}
-	}
+	c.tasks.SyncActivePlanFrameLockedFor(sessionID, now)
+	title := c.sessionTitles[sessionID]
+	requestID := c.tasks.CurrentRequestIDFor(sessionID)
 	record := model.SessionRecord{
 		Version: SessionRecordVersion, ID: sessionID, Title: title,
-		ActivePlanID: c.tasks.ActivePlanID(),
-		PlanStack:    CloneSessionPlanStack(c.tasks.PlanStack()),
+		ActivePlanID: c.tasks.ActivePlanIDFor(sessionID),
+		PlanStack:    CloneSessionPlanStack(c.tasks.PlanStackFor(sessionID)),
 		// task 注册表快照随会话落盘（复用 stack 存储通道；锁外收集）。
 		Tasks:        append([]dto.TaskRecord(nil), tasks...),
 		Conversation: model.ConversationRecord{UpdatedAt: now},
-		Execution:    model.SessionExecutionRecord{ReadFiles: append([]model.ReadFileRef(nil), c.Core.Snapshot.ReadFiles...)},
-		Projection:   c.tasks.TaskProjectionLocked(sessionID),
-		Checkpoints:  append([]model.TaskCheckpoint(nil), c.tasks.TaskCheckpoints()...),
-		ToolResults:  append([]model.ToolResultRef(nil), c.tasks.ToolResultRefs()...),
-		UpdatedAt:    now,
+		// ReadFiles 仍读全局 Snapshot（阶段 1 SessionScope 收口前遗留，
+		// 对应 P2 剩余面；阶段 0 目标是消除 record 级对话/plan/title 串写）。
+		Execution:   model.SessionExecutionRecord{ReadFiles: append([]model.ReadFileRef(nil), c.Core.Snapshot.ReadFiles...)},
+		Projection:  c.tasks.TaskProjectionLocked(sessionID),
+		Checkpoints: append([]model.TaskCheckpoint(nil), c.tasks.TaskCheckpointsFor(sessionID)...),
+		ToolResults: append([]model.ToolResultRef(nil), c.tasks.ToolResultRefsFor(sessionID)...),
+		UpdatedAt:   now,
 	}
-	for _, message := range c.Core.Snapshot.Conversation {
-		if message.Role == "system" {
-			continue
+	// 可见对话由本会话 transcript 全量重建（后台会话没有独立可见缓冲，
+	// transcript 是会话级权威事件源；不再读全局 Snapshot.Conversation）。
+	record.Conversation.Messages = c.conversationFromTranscriptLocked(c.tasks.TranscriptFor(sessionID))
+	if len(record.Conversation.Messages) == 0 {
+		// transcript 为空（异常/单会话测试桩路径）时回退全局可见对话，
+		// 保留超限替换语义；阶段 1 SessionScope 收口后删除该回退。
+		for _, message := range c.Core.Snapshot.Conversation {
+			if message.Role == "system" {
+				continue
+			}
+			record.Conversation.Messages = append(record.Conversation.Messages, c.archivedConversationMessageLocked(sessionID, message))
 		}
-		copy := c.archivedConversationMessageLocked(message)
-		record.Conversation.Messages = append(record.Conversation.Messages, copy)
 	}
-	if task := c.Core.Snapshot.Task; task != nil {
+	// Execution.Task 按会话取（后台会话收尾不得读全局 Snapshot.Task，
+	// 对应 L5/Execution.Task 串写修复）。
+	if task := c.tasks.TaskStateFor(sessionID); task != nil {
 		copy := *task
 		copy.ContextCompactions = append([]model.ContextCompaction(nil), task.ContextCompactions...)
 		record.Execution.Task = &copy
 	}
-	if continuation := c.tasks.ContinuationSummary(c.Core.Snapshot.Chat.RequestID); continuation != "" {
+	if continuation := c.tasks.ContinuationSummaryFor(sessionID, requestID); continuation != "" {
 		record.Execution.Continuation = continuation
 	}
 	return record
 }
 
-// SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.Mu；
-// 测试/恢复路径直接构造用）。
-func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord {
-	return c.sessionRecordLocked(sessionID, tasks)
-}
-
-func (c *Coordinator) archivedConversationMessageLocked(message model.Message) model.Message {
+// archivedConversationMessageLocked 归档单条可见消息：超限工具结果/用户
+// 输入替换为引用警告（transcript 为空回退路径用；调用方持有 Core.Mu）。
+func (c *Coordinator) archivedConversationMessageLocked(sessionID string, message model.Message) model.Message {
 	copy := message
 	if message.Tool != nil {
 		tool := *message.Tool
 		copy.Tool = &tool
-		if resultRef := c.tasks.ToolResultRefByCallID(tool.ID); resultRef != "" {
+		if resultRef := c.tasks.ToolResultRefByCallIDFor(sessionID, tool.ID); resultRef != "" {
 			warning := c.oversizedWarning(tool.Name, resultRef)
 			copy.Tool.Result = warning
 			if copy.Role == "tool_result" {
@@ -211,21 +252,72 @@ func (c *Coordinator) archivedConversationMessageLocked(message model.Message) m
 		}
 	}
 	if copy.Role == "user" {
-		if resultRef := c.userInputResultRefLocked(copy.Content); resultRef != "" {
+		if resultRef := c.userInputResultRefLocked(sessionID, copy.Content); resultRef != "" {
 			copy.Content = c.contentWarning(resultRef)
 		}
 	}
 	return copy
 }
 
-func (c *Coordinator) userInputResultRefLocked(content string) string {
+func (c *Coordinator) userInputResultRefLocked(sessionID, content string) string {
 	digest := "sha256:" + fmt.Sprintf("%x", sha256.Sum256([]byte("user_input\x00"+content)))
-	for _, result := range c.tasks.ToolResultRefs() {
+	for _, result := range c.tasks.ToolResultRefsFor(sessionID) {
 		if result.Tool == "user_input" && result.Digest == digest {
 			return result.Ref
 		}
 	}
 	return ""
+}
+
+// conversationFromTranscriptLocked 从指定会话 transcript 事件重建可见对话
+// 消息（阶段 0：后台会话无独立可见缓冲，transcript 是权威事件源；不读
+// 全局 Snapshot.Conversation）。消息 ID 由事件 Seq 派生（message-%d），
+// 同一会话内唯一，resume 后新消息由 advanceMessageSeq 继续递增不冲突。
+func (c *Coordinator) conversationFromTranscriptLocked(events []model.TranscriptEvent) []model.Message {
+	messages := make([]model.Message, 0, len(events))
+	for _, event := range events {
+		if event.Role == "system" || c.isInternalContent(event.Content) {
+			continue
+		}
+		message := model.Message{
+			ID: fmt.Sprintf("message-%d", event.Seq), Role: event.Role,
+			Content: event.Content, CreatedAt: event.CreatedAt,
+		}
+		switch event.Role {
+		case "assistant":
+			if len(event.ToolCalls) > 0 {
+				for callIndex, call := range event.ToolCalls {
+					messages = append(messages, model.Message{
+						// L4：同一 assistant 事件的多个 tool call 必须有独立
+						// 消息 ID，避免前端按 ID 增量路由时串更新。
+						ID: fmt.Sprintf("message-%d-%d", event.Seq, callIndex), Role: "tool", CreatedAt: event.CreatedAt,
+						Tool: &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
+					})
+				}
+				continue
+			}
+		case "tool":
+			message.Role = "tool_result"
+			message.Tool = &model.ToolCall{ID: event.ToolCallID, Name: event.Name, Result: event.Content, Status: "success"}
+		}
+		messages = append(messages, message)
+	}
+	return messages
+}
+
+// engineHistoryFor 返回指定会话引擎历史（会话路由引擎用 HistoryFor；无会话
+// 路由能力的单会话桩路径回退活跃引擎——单会话下不存在跨会话污染面）。
+func (c *Coordinator) engineHistoryFor(sessionID string) []contract.EngineMessage {
+	if routed, ok := c.Core.Deps.Engine.(contract.SessionChatEngine); ok {
+		return routed.HistoryFor(sessionID)
+	}
+	return c.Core.Deps.Engine.History()
+}
+
+// SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.Mu；
+// 测试/恢复路径直接构造用）。
+func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord {
+	return c.sessionRecordLocked(sessionID, tasks)
 }
 
 // LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/

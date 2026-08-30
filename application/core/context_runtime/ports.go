@@ -8,6 +8,7 @@ package context_runtime
 import (
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
@@ -42,7 +43,9 @@ type TaskPort interface {
 
 // SessionPort 是 context 域对会话域的窄端口（压缩 checkpoint 落盘）。
 type SessionPort interface {
-	PersistCurrentSession(string) error
+	// PersistCurrentSession 在显式 location（workspace 键）下持久化指定
+	// 会话（阶段 0：压缩 checkpoint 落盘按会话键，不依赖全局写作用域）。
+	PersistCurrentSession(session_runtime.Location, string) error
 }
 
 // PromptPort 是 context 域对 prompt 域的窄端口。

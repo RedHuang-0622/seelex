@@ -118,6 +118,8 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	}
 	service.Deps.Workspace.BindSession(currentSessionID, workspace.ID)
+	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）。
+	service.Deps.Runtime.SetSessionWorkspace(currentSessionID, workspace.ID)
 	service.Deps.Sessions.SetWorkspace(workspace.ID)
 	workspaceProjection := service.collectWorkspaceProjection()
 	service.Mu.Lock()

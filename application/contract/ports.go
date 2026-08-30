@@ -124,6 +124,9 @@ type RuntimePort interface {
 	SetTodoStatus(index int, status dto.TodoItemStatus) error
 	// TaskSnapshot 返回 task 注册表只读快照（worktable 投影数据源）。
 	TaskSnapshot() []dto.TaskRecord
+	// TaskSnapshotFor 返回指定会话的 task 注册表快照（会话持久化用；
+	// 后台会话收尾不得读活跃注册表，对应 R6/P2）。
+	TaskSnapshotFor(sessionID string) []dto.TaskRecord
 	// TaskAdd 主动登记 task（幂等：Key 命中返回既有记录）。
 	TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)
 	// ResolveTaskByKey 按幂等键查 task（子代理装配现成 task_id 用）。
@@ -141,9 +144,13 @@ type RuntimePort interface {
 	// PlanNodeEventChannel 返回 plan 节点事件 channel（CSP 消费者串行处理；
 	// 取代同步回调）。
 	PlanNodeEventChannel() <-chan dto.PlanNodeEvent
-	// SwitchSessionTasks 会话级 task 隔离：切换会话时整体替换注册表
-	// （清空当前会话 task，恢复目标会话 task；复用 session stack 存储）。
-	SwitchSessionTasks(records []dto.TaskRecord)
+	// SwitchSessionTasks 会话级 task 隔离：离开当前会话时保存其注册表
+	// 快照，切换后整体替换为目标会话 task（复用 session stack 存储）。
+	// sessionID 为空表示进入草稿（无会话归属）。
+	SwitchSessionTasks(sessionID string, records []dto.TaskRecord)
+	// SetSessionWorkspace 记录会话绑定的 workspace ID（framework
+	// DurableHistory 按显式键落盘用；R3 键漂移收敛）。
+	SetSessionWorkspace(sessionID, workspaceID string)
 	// ScheduledCommands 返回定时/周期任务白名单命令展示信息（GUI 新建弹窗数据源）。
 	ScheduledCommands() []dto.ScheduledCommandInfo
 	// ScheduledTasksSnapshot 返回定时/周期任务只读快照（GUI 定时任务面板数据源）。

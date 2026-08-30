@@ -117,6 +117,12 @@ func (engine *gracefulShutdownEngine) ChatStream(ctx context.Context, input stri
 	}
 }
 
+// ChatStreamFor 显式转发到自身 ChatStream（覆盖内嵌 fakeEngine 的提升方法，
+// 保证会话路由面下优雅关闭/消费语义仍生效）。
+func (engine *gracefulShutdownEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error) {
+	return engine.ChatStream(ctx, input, onChunk)
+}
+
 // waitForChatCompletion 轮询直到当前 chat 结束。
 func waitForChatCompletion(t *testing.T, service *Service) {
 	t.Helper()

@@ -190,6 +190,16 @@ func (port SessionPort) SaveSessionRecord(id string, record model.SessionRecord)
 	return port.Manager.SaveState(id, payload)
 }
 
+// SaveSessionRecordWorkspace 在显式项目作用域下写会话 record（后台会话
+// 落盘不依赖全局 Router 写作用域；阶段 0 键漂移修复）。
+func (port SessionPort) SaveSessionRecordWorkspace(projectID, id string, record model.SessionRecord) error {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("encode session record: %w", err)
+	}
+	return port.Manager.SaveStateByWorkspace(projectID, id, payload)
+}
+
 func (port SessionPort) SaveSessionSnapshot(
 	id string,
 	providerHistory []contract.EngineMessage,

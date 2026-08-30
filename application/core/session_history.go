@@ -107,6 +107,9 @@ func (service *Service) resumeSession(sessionID string) error {
 			engineHistory = session_runtime.RecordResumeHistory(record)
 		}
 	}
+	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）：
+	// 必须在引擎创建/恢复前登记绑定，后台会话 ChatStream 结束时不串写他域。
+	service.Deps.Runtime.SetSessionWorkspace(sessionID, location.WorkspaceID)
 	if enginePort, ok := service.Deps.Engine.(interface {
 		ResumeSession(string, []EngineMessage) error
 	}); ok {
@@ -163,7 +166,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	}
 	// 会话级 task 隔离：切换会话时整体替换注册表（清空旧会话、恢复目标
 	// 会话 task）并清空子代理树，避免旧数据污染新会话工作台。
-	service.Deps.Runtime.SwitchSessionTasks(record.Tasks)
+	service.Deps.Runtime.SwitchSessionTasks(sessionID, record.Tasks)
 	_ = service.Deps.Runtime.ClearSubagentTree()
 	// 恢复锚点：从主会话事件库/子会话记录重建目标会话的 fork 树与认领
 	// （Assignee → subagent:<节点会话ID>；重启/切页后不再停留 main）。
@@ -180,9 +183,9 @@ func (service *Service) resumeSession(sessionID string) error {
 	resumedRuntime.cancel = nil
 	service.Core.Snapshot.Chat = resumedRuntime.chat
 	service.inputQueue = resumedRuntime.inputQueue
-	service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: name, Source: "legacy_history"})
+	service.components.sessions.SetSessionTitleLocked(sessionID, SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {
-		service.components.sessions.SetSessionTitleLocked(record.Title)
+		service.components.sessions.SetSessionTitleLocked(sessionID, record.Title)
 		transcriptSeq := uint64(0)
 		if len(transcript) > 0 {
 			transcriptSeq = transcript[len(transcript)-1].Seq

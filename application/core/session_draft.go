@@ -41,7 +41,8 @@ func (service *Service) BeginNewSession() error {
 
 	if !currentRunning && len(service.Deps.Engine.History()) > 0 {
 		service.Deps.Sessions.SetWorkspace(currentWorkspaceID)
-		if err := service.components.sessions.PersistCurrentSession(sessionID); err != nil {
+		location := service.components.sessions.LocateSession(sessionID)
+		if err := service.components.sessions.PersistCurrentSession(location, sessionID); err != nil {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
 		}
 	}
@@ -101,7 +102,7 @@ func (service *Service) BeginNewSession() error {
 	draftRuntime.cancel = nil
 	draftRuntime.inputQueue = nil
 	service.Core.Snapshot.Chat = draftRuntime.chat
-	service.components.sessions.SetSessionTitleLocked(SessionTitle{})
+	service.components.sessions.SetSessionTitleLocked("", SessionTitle{})
 	service.inputQueue = nil
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
@@ -109,7 +110,7 @@ func (service *Service) BeginNewSession() error {
 	service.publishRuntimeProjections()
 	// 会话级工作台隔离：新会话清空 task 注册表与子代理树，避免旧会话
 	// 数据污染新会话工作台，并发布空工作表格。
-	service.Deps.Runtime.SwitchSessionTasks(nil)
+	service.Deps.Runtime.SwitchSessionTasks("", nil)
 	_ = service.Deps.Runtime.ClearSubagentTree()
 	service.refreshWorkTableFromSources()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", "", nil)
@@ -144,6 +145,12 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	if newID == "" {
 		return errors.New("engine returned an empty session ID")
 	}
+	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）。
+	if workspace != nil {
+		service.Deps.Runtime.SetSessionWorkspace(newID, workspace.ID)
+	} else {
+		service.Deps.Runtime.SetSessionWorkspace(newID, "")
+	}
 	// 新会话无既有 context：保持解绑（Runtime 退回内存态，与 draft 一致）。
 	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
 		store.DetachSessionContext()
@@ -158,7 +165,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.draft = nil // 草稿已物化为真实会话，消费槽位
 	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
 	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
-	service.components.sessions.SetSessionTitleLocked(title)
+	service.components.sessions.SetSessionTitleLocked(newID, title)
 	service.components.tasks.ResetPlanStateLocked()
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()

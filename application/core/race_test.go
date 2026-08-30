@@ -299,6 +299,12 @@ func (e *blockingEngine) ChatStream(ctx context.Context, input string, onChunk f
 	}
 }
 
+// ChatStreamFor 显式转发到自身 ChatStream（覆盖内嵌 fakeEngine 的提升方法，
+// 保证会话路由面下阻塞/取消语义仍生效）。
+func (e *blockingEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error) {
+	return e.ChatStream(ctx, input, onChunk)
+}
+
 // TestChat_RaceSnapshotDuringChat 验证 Chat 运行期间并发读取 Snapshot 无 data race。
 func TestChat_RaceSnapshotDuringChat(t *testing.T) {
 	engine := &blockingEngine{fakeEngine: &fakeEngine{}}

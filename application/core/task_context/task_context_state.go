@@ -624,6 +624,17 @@ func (c *Coordinator) ContinuationSummary(requestID string) string {
 	return state.ContextSummary()
 }
 
+// ContinuationSummaryFor 返回指定会话当前任务的恢复摘要（requestID 不匹配
+// → ""）。会话归档/恢复路径用（后台会话收尾不得读活跃会话摘要）。
+func (c *Coordinator) ContinuationSummaryFor(sessionID, requestID string) string {
+	st := c.sessionStateLocked(sessionID)
+	state := st.taskExecution
+	if state == nil || state.RequestID != requestID {
+		return ""
+	}
+	return state.ContextSummary()
+}
+
 // Transcript 返回活跃会话 append-only 事件。
 func (c *Coordinator) Transcript() []model.TranscriptEvent {
 	return c.activeSessionLocked().transcript
@@ -639,9 +650,19 @@ func (c *Coordinator) PendingToolResults() []model.StoredToolResult {
 	return c.activeSessionLocked().pendingToolResults
 }
 
+// PendingToolResultsFor 返回指定会话尚未随会话原子提交的工具结果。
+func (c *Coordinator) PendingToolResultsFor(sessionID string) []model.StoredToolResult {
+	return c.sessionStateLocked(sessionID).pendingToolResults
+}
+
 // TaskCheckpoints 返回活跃会话任务 checkpoint 序列。
 func (c *Coordinator) TaskCheckpoints() []model.TaskCheckpoint {
 	return c.activeSessionLocked().taskCheckpoints
+}
+
+// TaskCheckpointsFor 返回指定会话任务 checkpoint 序列。
+func (c *Coordinator) TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint {
+	return c.sessionStateLocked(sessionID).taskCheckpoints
 }
 
 // ToolResultRefs 返回活跃会话工具结果引用表。
@@ -649,9 +670,48 @@ func (c *Coordinator) ToolResultRefs() []model.ToolResultRef {
 	return c.activeSessionLocked().toolResultRefs
 }
 
+// ToolResultRefsFor 返回指定会话工具结果引用表。
+func (c *Coordinator) ToolResultRefsFor(sessionID string) []model.ToolResultRef {
+	return c.sessionStateLocked(sessionID).toolResultRefs
+}
+
 // ToolResultRefByCallID 按工具调用 ID 查活跃会话结果引用（未找到 → ""）。
 func (c *Coordinator) ToolResultRefByCallID(callID string) string {
 	return c.activeSessionLocked().resultRefsByToolCallID[callID]
+}
+
+// ToolResultRefByCallIDFor 按工具调用 ID 查指定会话结果引用（未找到 → ""）。
+func (c *Coordinator) ToolResultRefByCallIDFor(sessionID, callID string) string {
+	return c.sessionStateLocked(sessionID).resultRefsByToolCallID[callID]
+}
+
+// CurrentRequestIDFor 返回指定会话当前任务的请求 ID（无任务 → ""）。
+func (c *Coordinator) CurrentRequestIDFor(sessionID string) string {
+	st := c.sessionStateLocked(sessionID)
+	if st.taskExecution == nil {
+		return ""
+	}
+	return st.taskExecution.RequestID
+}
+
+// TaskStateFor 返回指定会话当前任务的可见状态（会话归档用；后台会话收尾
+// 不得读全局 Snapshot.Task——对应 L5/Execution.Task 串写修复）。
+func (c *Coordinator) TaskStateFor(sessionID string) *model.TaskState {
+	st := c.sessionStateLocked(sessionID)
+	state := st.taskExecution
+	if state == nil {
+		return nil
+	}
+	status := model.TaskStatus(state.Status)
+	if status == model.TaskStatus("running") {
+		status = model.TaskProgressing
+	}
+	return &model.TaskState{
+		RequestID:          state.RequestID,
+		Status:             status,
+		ContextCompactions: append([]model.ContextCompaction(nil), state.ContextCompactions...),
+		UpdatedAt:          time.Now(),
+	}
 }
 
 // ResultRefsByCallID 返回活跃会话 callID → resultRef 全量拷贝（上下文拒绝
@@ -703,6 +763,25 @@ func (c *Coordinator) SyncActivePlanFrameLocked(now time.Time) {
 	if st.activePlanID == "" || len(st.planStack) == 0 {
 		return
 	}
+	c.syncActivePlanFrameLocked(st, now)
+}
+
+// SyncActivePlanFrameLockedFor 把当前快照 Plan 收敛进指定会话激活帧（调用
+// 方持有 Core.Mu）。会话归档/恢复路径用（后台会话收尾不得清活跃帧）。
+// 遗留风险（P6）：Plan 投影仍来自全局 Snapshot.Runtime.Plan——阶段 1
+// SessionScope 收口前，plan 投影尚未按会话隔离。
+func (c *Coordinator) SyncActivePlanFrameLockedFor(sessionID string, now time.Time) {
+	st := c.sessionStateLocked(sessionID)
+	if st.activePlanID == "" || len(st.planStack) == 0 {
+		return
+	}
+	c.syncActivePlanFrameLocked(st, now)
+}
+
+func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time.Time) {
+	if st.activePlanID == "" || len(st.planStack) == 0 {
+		return
+	}
 	for index := range st.planStack {
 		frame := &st.planStack[index]
 		if frame.ID != st.activePlanID {
@@ -738,6 +817,17 @@ func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time) {
 // 结果。
 func (c *Coordinator) RemoveCommittedToolResultsLocked(committed []model.StoredToolResult) {
 	st := c.activeSessionLocked()
+	c.removeCommittedToolResultsLocked(st, committed)
+}
+
+// RemoveCommittedToolResultsForLocked 清理指定会话已随会话快照提交的待定
+// 工具结果。
+func (c *Coordinator) RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult) {
+	st := c.sessionStateLocked(sessionID)
+	c.removeCommittedToolResultsLocked(st, committed)
+}
+
+func (c *Coordinator) removeCommittedToolResultsLocked(st *sessionTaskRuntime, committed []model.StoredToolResult) {
 	if len(committed) == 0 || len(st.pendingToolResults) == 0 {
 		return
 	}

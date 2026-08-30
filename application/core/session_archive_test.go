@@ -39,6 +39,11 @@ func (sessions *archiveSessions) SaveSessionRecord(_ string, record SessionRecor
 	return nil
 }
 
+func (sessions *archiveSessions) SaveSessionRecordWorkspace(_ string, _ string, record SessionRecord) error {
+	sessions.record = record
+	return nil
+}
+
 func (sessions *archiveSessions) LoadSessionRecord(string) (SessionRecord, error) {
 	return sessions.record, nil
 }
@@ -94,10 +99,10 @@ func TestResumeSessionAttachesSessionContext(t *testing.T) {
 	service.Mu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
 	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
-	service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: "Keep this title", Source: "first_request"})
+	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
 	service.Mu.Unlock()
 
-	if err := service.components.sessions.PersistCurrentSession("session-a"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -122,9 +127,9 @@ func TestResumeSessionFailsWhenContextCorrupt(t *testing.T) {
 	service.Mu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
 	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
-	service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: "Keep this title", Source: "first_request"})
+	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
 	service.Mu.Unlock()
-	if err := service.components.sessions.PersistCurrentSession("session-a"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
 	}
 	restored := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -166,7 +171,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	service.Core.Snapshot.ReadFiles = []ReadFileRef{{Path: "application/core/chat.go", ReadAt: time.Now()}}
 	service.Core.Snapshot.Task = &TaskState{RequestID: "task-a", Status: TaskInterrupted, Summary: "checkpoint saved"}
 	service.Core.Snapshot.Chat = ChatState{RequestID: "task-a"}
-	service.components.sessions.SetSessionTitleLocked(SessionTitle{Value: "Keep this title", Source: "first_request"})
+	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
 	service.components.tasks.SetPlanStateLocked([]SessionPlanFrame{{ID: "plan-a", Plan: service.Core.Snapshot.Runtime.Plan, Arguments: `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`}}, "plan-a")
 	service.components.tasks.BeginTask("task-a", "Inspect the repository", "high", nil, TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusInterrupted
@@ -175,7 +180,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	service.Mu.Unlock()
 
-	if err := service.components.sessions.PersistCurrentSession("session-a"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
 	}
 	if sessions.saved != 1 || sessions.record.Title.Value != "Keep this title" || len(sessions.record.Conversation.Messages) != 1 || len(sessions.record.PlanStack) != 1 || len(sessions.record.Execution.ReadFiles) != 1 {
@@ -366,7 +371,7 @@ func TestBoundConversationTailKeepsOnlyConfiguredVariableHeightWindow(t *testing
 	}
 }
 
-func TestPersistSessionRecordMergesBoundedProjectionWithFullHistory(t *testing.T) {
+func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T) {
 	sessions := &archiveSessions{record: SessionRecord{
 		Version: session_runtime.SessionRecordVersion,
 		ID:      "session-window",
@@ -378,18 +383,19 @@ func TestPersistSessionRecordMergesBoundedProjectionWithFullHistory(t *testing.T
 	service := newTestService(t, &fakeEngine{sessionID: "session-window"}, withTestSessions(sessions))
 	service.Mu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-window"}
-	service.Core.Snapshot.Conversation = []Message{
-		{ID: "message-2", Role: "assistant", Content: "updated answer"},
-		{ID: "message-3", Role: "user", Content: "new question"},
-	}
+	// transcript 是全量权威事件源：record 由其全量重建（阶段 0 语义，
+	// 取代旧的"磁盘 record + 窗口投影增量合并"路径）。
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "old question"})
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "assistant", Content: "updated answer"})
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "new question"})
 	service.Mu.Unlock()
 
-	if err := service.components.sessions.PersistCurrentSession("session-window"); err != nil {
+	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-window"}}, "session-window"); err != nil {
 		t.Fatal(err)
 	}
 	got := sessions.record.Conversation.Messages
-	if len(got) != 3 || got[0].ID != "message-1" || got[1].Content != "updated answer" || got[2].ID != "message-3" {
-		t.Fatalf("merged durable conversation = %#v", got)
+	if len(got) != 3 || got[0].Content != "old question" || got[1].Content != "updated answer" || got[2].Content != "new question" {
+		t.Fatalf("rebuilt durable conversation = %#v", got)
 	}
 }
 

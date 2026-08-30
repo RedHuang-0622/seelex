@@ -60,6 +60,12 @@ func (engine *sessionBackedBlockingEngine) ChatStream(ctx context.Context, input
 	return engine.fakeEngine.ChatStream(ctx, input, onChunk)
 }
 
+// ChatStreamFor 显式转发到自身 ChatStream（覆盖内嵌 fakeEngine 的提升方法，
+// 保证会话路由面下阻塞/取消语义仍生效）。
+func (engine *sessionBackedBlockingEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error) {
+	return engine.ChatStream(ctx, input, onChunk)
+}
+
 type blockingSaveSessions struct {
 	fakeSessions
 	entered chan struct{}
@@ -217,30 +223,75 @@ func (engine *fakeEngine) ReleaseWorkingHistory() {
 	engine.mu.Unlock()
 }
 
+func (engine *fakeEngine) ReleaseWorkingHistoryFor(sessionID string) {
+	engine.mu.Lock()
+	engine.releaseCalls++
+	engine.mu.Unlock()
+}
+
+// ── SessionChatEngine 会话路由面（多会话并行测试用）────────────────────
+// fakeEngine 是单引擎桩：For 变体忽略 sessionID 差异，读写同一 history，
+// 方法均加锁，供 -race 竞态测试验证调用方不误清/不回退活跃引擎。
+
+func (engine *fakeEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error) {
+	return engine.ChatStream(ctx, input, onChunk)
+}
+
+func (engine *fakeEngine) HistoryFor(sessionID string) []EngineMessage {
+	return engine.History()
+}
+
+func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg types.Message) {
+	engine.AppendHistory(msg)
+}
+
+func (engine *fakeEngine) ClearHistoryFor(sessionID string) {
+	engine.ClearHistory()
+}
+
+func (engine *fakeEngine) SetSystemPromptFor(sessionID, prompt string) {
+	engine.SetSystemPrompt(prompt)
+}
+
+func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error {
+	return engine.ReplaceHistory(sessionID, history)
+}
+
+func (engine *fakeEngine) HasSession(sessionID string) bool {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	return engine.sessionID == sessionID || engine.sessionID != ""
+}
+
 type fakeRuntime struct {
-	account        string
-	fullAccess     bool
-	binding        dto.PlanBranchBinding
-	planPolicy     dto.PlanPolicy
-	visibility     seelebridge.RuntimeVisibilityProjection
-	evidence       seelebridge.ParentEvidenceProjection
-	mailbox        []string
-	mailboxMu      sync.Mutex
-	replans        []dto.ReplanRequest
-	replanResult   dto.PlanPreflight
-	replanErr      error
-	replanMetrics  dto.ReplanMetrics
-	projectRoot    string
-	currentBatch   string
-	todoMu         sync.Mutex
-	todoItems      []dto.TodoItem
-	tasks          map[string]dto.TaskRecord
-	scheduledTasks []seelebridge.ScheduledTaskStatus
-	scheduledSpecs []seelebridge.ScheduledTaskSpec
-	cancelledTasks []string
-	scheduleErr    error
-	searchResult   seelexctxsearch.Result
-	searchErr      error
+	account       string
+	fullAccess    bool
+	binding       dto.PlanBranchBinding
+	planPolicy    dto.PlanPolicy
+	visibility    seelebridge.RuntimeVisibilityProjection
+	evidence      seelebridge.ParentEvidenceProjection
+	mailbox       []string
+	mailboxMu     sync.Mutex
+	replans       []dto.ReplanRequest
+	replanResult  dto.PlanPreflight
+	replanErr     error
+	replanMetrics dto.ReplanMetrics
+	projectRoot   string
+	currentBatch  string
+	todoMu        sync.Mutex
+	todoItems     []dto.TodoItem
+	tasks         map[string]dto.TaskRecord
+	// sessionTaskSnapshots 是会话切换时保存的 task 快照（镜像生产 Runtime
+	// 的按会话分片语义；阶段 0 持久化按会话取快照）。
+	sessionTaskSnapshots map[string][]dto.TaskRecord
+	currentTaskSession   string
+	sessionWorkspaces    map[string]string
+	scheduledTasks       []seelebridge.ScheduledTaskStatus
+	scheduledSpecs       []seelebridge.ScheduledTaskSpec
+	cancelledTasks       []string
+	scheduleErr          error
+	searchResult         seelexctxsearch.Result
+	searchErr            error
 }
 
 func (*fakeRuntime) Model() string { return "test-model" }
@@ -336,6 +387,19 @@ func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) 
 func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
+	return runtime.snapshotLocked()
+}
+
+func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if sessionID == "" || sessionID == runtime.currentTaskSession {
+		return runtime.snapshotLocked()
+	}
+	return append([]dto.TaskRecord(nil), runtime.sessionTaskSnapshots[sessionID]...)
+}
+
+func (runtime *fakeRuntime) snapshotLocked() []dto.TaskRecord {
 	records := make([]dto.TaskRecord, 0, len(runtime.todoItems)+len(runtime.tasks))
 	for index, item := range runtime.todoItems {
 		status := dto.TaskPending
@@ -431,9 +495,17 @@ func (*fakeRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
 
-func (runtime *fakeRuntime) SwitchSessionTasks(records []dto.TaskRecord) {
+func (runtime *fakeRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
+	if runtime.sessionTaskSnapshots == nil {
+		runtime.sessionTaskSnapshots = make(map[string][]dto.TaskRecord)
+	}
+	current := runtime.snapshotLocked()
+	if runtime.currentTaskSession != "" {
+		runtime.sessionTaskSnapshots[runtime.currentTaskSession] = current
+	}
+	runtime.currentTaskSession = sessionID
 	if runtime.tasks == nil {
 		runtime.tasks = make(map[string]dto.TaskRecord)
 	}
@@ -443,6 +515,15 @@ func (runtime *fakeRuntime) SwitchSessionTasks(records []dto.TaskRecord) {
 	for _, record := range records {
 		runtime.tasks[record.ID] = record
 	}
+}
+
+func (runtime *fakeRuntime) SetSessionWorkspace(sessionID, workspaceID string) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if runtime.sessionWorkspaces == nil {
+		runtime.sessionWorkspaces = make(map[string]string)
+	}
+	runtime.sessionWorkspaces[sessionID] = workspaceID
 }
 
 func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {

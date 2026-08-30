@@ -153,6 +153,15 @@ func (m *Manager) LoadStateByWorkspace(workspaceID, sessionID string) ([]byte, e
 	return m.router.LoadStateWorkspace(workspaceID, sessionID)
 }
 
+// SaveStateByWorkspace 在显式项目作用域下保存会话 state（后台会话落盘不
+// 改变 Router active write scope；阶段 0 键漂移修复）。
+func (m *Manager) SaveStateByWorkspace(workspaceID, sessionID string, state []byte) error {
+	if m.router == nil {
+		return fmt.Errorf("session: state persistence requires the configurable router")
+	}
+	return m.router.SaveStateWorkspace(workspaceID, sessionID, state)
+}
+
 // SaveContextState 保存会话 context 模块到独立通道。
 func (m *Manager) SaveContextState(sessionID string, state []byte) error {
 	if m.router == nil {

@@ -36,6 +36,21 @@ func (r *Runtime) TaskSnapshot() []dto.TaskRecord {
 	return r.tasks.Snapshot()
 }
 
+// TaskSnapshotFor 返回指定会话的 task 注册表快照（会话持久化用）。
+// 后台会话（非当前 task 会话）返回切换时保存的分片快照；当前会话返回
+// 注册表实时快照；空会话 ID 视为当前。
+func (r *Runtime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
+	if r == nil || r.tasks == nil {
+		return nil
+	}
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == r.currentTaskSessionID {
+		return r.tasks.Snapshot()
+	}
+	return append([]dto.TaskRecord(nil), r.sessionTaskSnapshots[sessionID]...)
+}
+
 // TaskAdd 主动登记 task（幂等：Key 命中返回既有记录，不重复建条目）。
 func (r *Runtime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	if r == nil || r.tasks == nil {
@@ -76,12 +91,32 @@ func (r *Runtime) TaskAppendTrace(id string, point dto.TaskTracePoint) (dto.Task
 	return r.tasks.AppendTrace(id, point)
 }
 
-// SwitchSessionTasks 会话切换时整体替换注册表快照。
-func (r *Runtime) SwitchSessionTasks(records []dto.TaskRecord) {
+// SwitchSessionTasks 会话切换时保存旧会话注册表快照并整体替换为目标会话
+// 注册表。sessionID 为空 = 进入草稿（无会话归属）。
+func (r *Runtime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
 	if r == nil || r.tasks == nil {
 		return
 	}
+	r.sessionTaskMu.Lock()
+	current := r.tasks.Snapshot()
+	if r.currentTaskSessionID != "" {
+		r.sessionTaskSnapshots[r.currentTaskSessionID] = current
+	}
+	r.currentTaskSessionID = sessionID
+	r.sessionTaskMu.Unlock()
 	_ = r.tasks.ReplaceAll(records)
+}
+
+// SetSessionWorkspace 记录会话绑定的 workspace ID（application 在恢复/
+// 物化/绑定工作区时通知；framework DurableHistory 按显式键落盘，R3 键
+// 漂移收敛）。
+func (r *Runtime) SetSessionWorkspace(sessionID, workspaceID string) {
+	if r == nil {
+		return
+	}
+	r.sessionWorkspacesMu.Lock()
+	r.sessionWorkspaces[sessionID] = workspaceID
+	r.sessionWorkspacesMu.Unlock()
 }
 
 // SetCurrentTaskBatch 设置注册表默认批次（application startChat 调用；

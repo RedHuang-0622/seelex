@@ -56,6 +56,9 @@ func (port RuntimePort) SetTodoStatus(index int, status dto.TodoItemStatus) erro
 func (port RuntimePort) TaskSnapshot() []dto.TaskRecord {
 	return port.Runtime.TaskSnapshot()
 }
+func (port RuntimePort) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
+	return port.Runtime.TaskSnapshotFor(sessionID)
+}
 func (port RuntimePort) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return port.Runtime.TaskAdd(spec)
 }
@@ -77,8 +80,11 @@ func (port RuntimePort) SubagentTreeEvents() <-chan struct{} {
 func (port RuntimePort) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return port.Runtime.PlanNodeEventChannel()
 }
-func (port RuntimePort) SwitchSessionTasks(records []dto.TaskRecord) {
-	port.Runtime.SwitchSessionTasks(records)
+func (port RuntimePort) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
+	port.Runtime.SwitchSessionTasks(sessionID, records)
+}
+func (port RuntimePort) SetSessionWorkspace(sessionID, workspaceID string) {
+	port.Runtime.SetSessionWorkspace(sessionID, workspaceID)
 }
 func (port RuntimePort) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return port.Runtime.ScheduledCommands()

@@ -21,6 +21,10 @@ func (failingSnapshotSessions) SaveSessionSnapshot(string, []EngineMessage, Sess
 	return errors.New("storage unavailable")
 }
 
+func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error {
+	return errors.New("storage unavailable")
+}
+
 func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T) {
 	tests := []struct {
 		name   string

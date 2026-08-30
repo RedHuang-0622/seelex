@@ -122,6 +122,7 @@ func (harnessRuntime) SetCurrentTaskBatch(string)                  {}
 func (harnessRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
 func (harnessRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
 func (harnessRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
+func (harnessRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil }
 func (harnessRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
@@ -139,7 +140,8 @@ func (harnessRuntime) SubagentTreeEvents() <-chan struct{}       { return nil }
 func (harnessRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
-func (harnessRuntime) SwitchSessionTasks([]dto.TaskRecord) {}
+func (harnessRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
+func (harnessRuntime) SetSessionWorkspace(string, string)          {}
 func (harnessRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return nil
 }

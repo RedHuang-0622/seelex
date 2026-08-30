@@ -40,11 +40,13 @@ type sessionRuntimeState struct {
 	sessionNameMu       sync.Mutex
 	sessionTransitionMu sync.Mutex
 	sessionNames        map[string]sessionNameCacheEntry
-	sessionTitle        model.SessionTitle
-	sessionCatalogWake  chan struct{}
-	sessionCatalogStop  chan struct{}
-	sessionCatalogDone  chan struct{}
-	sessionCatalogOnce  sync.Once
+	// sessionTitles 是会话级标题表（阶段 0：标题 per-session，后台会话
+	// 收尾不得读活跃会话标题；对应 code-review 5.4）。
+	sessionTitles      map[string]model.SessionTitle
+	sessionCatalogWake chan struct{}
+	sessionCatalogStop chan struct{}
+	sessionCatalogDone chan struct{}
+	sessionCatalogOnce sync.Once
 }
 
 // Location 是一次会话定位结果：workspace 绑定 + 目录元信息。
@@ -76,6 +78,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		displayUserInput:     deps.DisplayUserInput,
 		sessionRuntimeState: sessionRuntimeState{
 			sessionNames:       make(map[string]sessionNameCacheEntry),
+			sessionTitles:      make(map[string]model.SessionTitle),
 			sessionCatalogWake: make(chan struct{}, 1),
 			sessionCatalogStop: make(chan struct{}),
 			sessionCatalogDone: make(chan struct{}),
@@ -83,14 +86,21 @@ func NewCoordinator(deps Deps) *Coordinator {
 	}
 }
 
-// SessionTitle 返回会话标题（调用方持有 Core.Mu）。
-func (c *Coordinator) SessionTitle() model.SessionTitle {
-	return c.sessionTitle
+// SessionTitleFor 返回指定会话标题（调用方持有 Core.Mu；缺省回退活跃
+// Snapshot 名称）。
+func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle {
+	if title, ok := c.sessionTitles[sessionID]; ok {
+		return title
+	}
+	return model.SessionTitle{Value: c.Core.Snapshot.Session.Name, Source: "first_request"}
 }
 
-// SetSessionTitleLocked 设置会话标题（调用方持有 Core.Mu）。
-func (c *Coordinator) SetSessionTitleLocked(title model.SessionTitle) {
-	c.sessionTitle = title
+// SetSessionTitleLocked 设置指定会话标题（调用方持有 Core.Mu）。
+func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle) {
+	if c.sessionTitles == nil {
+		c.sessionTitles = make(map[string]model.SessionTitle)
+	}
+	c.sessionTitles[sessionID] = title
 }
 
 // TransitionLock 返回会话切换互斥锁（BeginNewSession/ResumeSession/

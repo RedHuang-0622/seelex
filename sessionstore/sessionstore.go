@@ -254,6 +254,14 @@ func (router *Router) Save(sessionID string, messages []types.Message) error {
 	})
 }
 
+// SaveWorkspace 在显式项目作用域下原子写 provider 历史（framework
+// DurableHistory 按会话 workspace 落盘用；不改变 active write scope）。
+func (router *Router) SaveWorkspace(projectID, sessionID string, messages []types.Message) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		return repository.WriteAtomic(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, messages)
+	})
+}
+
 func (router *Router) SaveCommit(sessionID string, commit Commit) error {
 	return router.withRepository(func(repository Repository, projectID string) error {
 		return repository.WriteCommit(context.Background(), Key{ProjectID: projectID, SessionID: sessionID}, commit)

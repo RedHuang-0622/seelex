@@ -189,13 +189,14 @@ func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, inp
 	return result, err
 }
 
-// engineForSessionLocked 返回指定会话的引擎；未注册会话回退到活跃引擎。
-// 调用方必须持有 port.mu。
+// engineForSessionLocked 返回指定会话的引擎；未注册会话返回 nil（阶段 0：
+// 取消活跃引擎回退，杜绝后台提交打到活跃会话引擎，对应 P5）。调用方必须
+// 持有 port.mu。
 func (port *EnginePort) engineForSessionLocked(sessionID string) ReactorEngine {
 	if engine, ok := port.engines[sessionID]; ok && engine != nil {
 		return engine
 	}
-	return port.engine
+	return nil
 }
 
 // HistoryFor 返回指定会话引擎的历史（只读拷贝）。
@@ -608,15 +609,20 @@ func (port *EnginePort) EnableWorkingHistoryRelease() {
 	port.mu.Unlock()
 }
 
-// ReleaseWorkingHistory clears only the provider working view. The next turn
-// cold-loads a bounded tail from the durable owner.
-func (port *EnginePort) ReleaseWorkingHistory() {
+// ReleaseWorkingHistoryFor clears only the target session's provider working
+// view. The next turn cold-loads a bounded tail from the durable owner.
+// 会话参数化：后台会话收尾只清自己的引擎，不清活跃会话（对应 P4）。
+func (port *EnginePort) ReleaseWorkingHistoryFor(sessionID string) {
 	port.mu.Lock()
 	defer port.mu.Unlock()
-	if !port.releaseWorking || port.engine == nil || port.engineCalls[port.sessionID] > 0 {
+	if !port.releaseWorking {
 		return
 	}
-	port.engine.ClearHistory()
+	engine := port.engines[sessionID]
+	if engine == nil || port.engineCalls[sessionID] > 0 {
+		return
+	}
+	engine.ClearHistory()
 }
 func (port *EnginePort) SessionID() string {
 	port.mu.RLock()

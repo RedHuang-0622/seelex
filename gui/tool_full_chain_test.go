@@ -107,6 +107,7 @@ func (*guiChainRuntime) SetCurrentTaskBatch(string)                  {}
 func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
 func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
 func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }
+func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil }
 func (*guiChainRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
@@ -124,7 +125,8 @@ func (*guiChainRuntime) SubagentTreeEvents() <-chan struct{}       { return nil 
 func (*guiChainRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent {
 	return nil
 }
-func (*guiChainRuntime) SwitchSessionTasks([]dto.TaskRecord) {}
+func (*guiChainRuntime) SwitchSessionTasks(string, []dto.TaskRecord) {}
+func (*guiChainRuntime) SetSessionWorkspace(string, string)          {}
 func (*guiChainRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo {
 	return nil
 }
