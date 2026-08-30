@@ -263,7 +263,14 @@ func TestResumeSessionLeavesLazyDraft(t *testing.T) {
 	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+		for _, item := range snapshot.Sessions {
+			if item.ID == "saved" {
+				return true
+			}
+		}
+		return false
+	})
 	if snapshot.Session.Draft || snapshot.Session.ID != "saved" || snapshot.Session.Name != "saved question" {
 		t.Fatalf("resumed session = %+v", snapshot.Session)
 	}

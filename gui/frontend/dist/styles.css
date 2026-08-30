@@ -1385,6 +1385,19 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .session-del { display: none; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 12px; cursor: pointer; flex: none; }
 .session-row:hover .session-fork { display: flex; }
 .session-row:hover .session-del { display: flex; }
+.session-status {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.5;
+  vertical-align: 1px;
+}
+.session-status.is-running { color: var(--status-running); background: color-mix(in srgb, var(--status-running) 14%, transparent); }
+.session-status.is-queued { color: var(--status-info); background: color-mix(in srgb, var(--status-info) 12%, transparent); }
+.session-status.is-draft { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.session-row.is-draft .session-draft .entry-name { color: var(--accent); }
 .session-fork:hover { border-color: var(--accent); color: var(--accent); }
 .session-del:hover { border-color: var(--border-failed); color: var(--status-failed); }
 

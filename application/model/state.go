@@ -68,7 +68,20 @@ type SessionState struct {
 	ID    string `json:"id"`
 	Name  string `json:"name,omitempty"`
 	Draft bool   `json:"draft,omitempty"`
+	// Status 是会话可见状态：draft | idle | running | queued。
+	Status SessionStatus `json:"status,omitempty"`
 }
+
+// SessionStatus 描述一个会话的可见状态（会话树/当前会话徽标数据源）。
+type SessionStatus string
+
+const (
+	SessionStatusDraft   SessionStatus = "draft"
+	SessionStatusIdle    SessionStatus = "idle"
+	SessionStatusRunning SessionStatus = "running"
+	SessionStatusQueued  SessionStatus = "queued"
+)
+
 type Message struct {
 	ID        string    `json:"id"`
 	Role      string    `json:"role"`
@@ -495,10 +508,11 @@ type WorkspaceInfo struct {
 }
 
 type SessionInfo struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	TokenCount int       `json:"token_count"`
+	ID         string        `json:"id"`
+	Name       string        `json:"name,omitempty"`
+	UpdatedAt  time.Time     `json:"updated_at"`
+	TokenCount int           `json:"token_count"`
+	Status     SessionStatus `json:"status,omitempty"`
 }
 type Interaction struct {
 	ID       string              `json:"id"`

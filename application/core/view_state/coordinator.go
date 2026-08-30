@@ -129,7 +129,11 @@ func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeState
 func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjection) {
 	plan := c.Snapshot.Runtime.Plan
 	account := c.Snapshot.Runtime.Account
-	c.Snapshot.Session.ID = projection.SessionID
+	// 草稿视图守卫：当前处于"新建会话"草稿时，后台会话/调度器/runtime 变更
+	// 不得把快照会话 ID 改回运行中的会话（否则草稿会被"顶掉"）。
+	if !c.Snapshot.Session.Draft {
+		c.Snapshot.Session.ID = projection.SessionID
+	}
 	c.Snapshot.Runtime = projection.Runtime
 	c.Snapshot.Runtime.Plan = plan
 	c.Snapshot.Runtime.Account = account

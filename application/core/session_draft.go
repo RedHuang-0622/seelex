@@ -35,14 +35,11 @@ func (service *Service) BeginNewSession() error {
 	if draining {
 		return ErrApplicationDraining
 	}
-	if currentRunning {
-		return ErrChatRunning
-	}
 	if draft {
 		return nil
 	}
 
-	if len(service.Deps.Engine.History()) > 0 {
+	if !currentRunning && len(service.Deps.Engine.History()) > 0 {
 		service.Deps.Sessions.SetWorkspace(currentWorkspaceID)
 		if err := service.components.sessions.PersistCurrentSession(sessionID); err != nil {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
@@ -50,7 +47,9 @@ func (service *Service) BeginNewSession() error {
 	}
 	// 离开当前会话：清空活跃引擎历史（历史已持久化；会话引擎缓存按需
 	// 由 ResumeSession 重建），防止 draft 状态串入旧会话内容。
-	service.Deps.Engine.ClearHistory()
+	if !currentRunning {
+		service.Deps.Engine.ClearHistory()
+	}
 	service.promptStack.ClearKind("skill")
 	// 离开当前会话：解绑 context 模块，防止四栈串到新会话。
 	if store, ok := service.Deps.Sessions.(session_runtime.SessionContextPort); ok {
@@ -63,14 +62,34 @@ func (service *Service) BeginNewSession() error {
 	// （上面已按 currentWorkspaceID 持久化，会话树仍归入原工作区分组）。
 	// 需要项目上下文的「工作区会话」由调用方在草稿上显式 BindWorkspace，
 	// 再在首次请求物化时绑定。
-	if service.Deps.Runtime != nil {
-		service.Deps.Runtime.UnbindProjectRoot()
+	// 草稿槽位：恢复已保留的草稿（含工作区会话绑定）或新建。
+	service.Mu.Lock()
+	slot := service.draft
+	if slot == nil {
+		slot = &draftSlot{CreatedAt: time.Now()}
+		service.draft = slot
 	}
-	service.Deps.Sessions.SetWorkspace("")
+	slot.UpdatedAt = time.Now()
+	var restoredWorkspace *WorkspaceInfo
+	if slot.Workspace != nil {
+		item := *slot.Workspace
+		restoredWorkspace = &item
+	}
+	service.Mu.Unlock()
+
+	if restoredWorkspace == nil {
+		// 任务会话草稿：必须真正未关联工作区（清空上个会话继承的项目绑定）。
+		if service.Deps.Runtime != nil {
+			service.Deps.Runtime.UnbindProjectRoot()
+		}
+		service.Deps.Sessions.SetWorkspace("")
+	}
+	// 恢复"工作区会话"草稿：只恢复展示绑定，不在此处切换全局工程根 / store
+	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
 
 	service.Mu.Lock()
-	service.Core.Snapshot.Session = SessionState{Name: draftSessionName, Draft: true}
-	service.Core.Snapshot.CurrentWorkspace = nil
+	service.Core.Snapshot.Session = SessionState{Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
+	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace
 	service.Core.Snapshot.Conversation = nil
 	service.Core.Snapshot.HistoryOffset = 0
 	service.Core.Snapshot.TotalMessages = 0
@@ -136,6 +155,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	workspaceProjection := service.collectWorkspaceProjection()
 
 	service.Mu.Lock()
+	service.draft = nil // 草稿已物化为真实会话，消费槽位
 	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
 	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
 	service.components.sessions.SetSessionTitleLocked(title)

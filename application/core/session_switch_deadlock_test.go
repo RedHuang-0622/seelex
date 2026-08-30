@@ -173,3 +173,118 @@ func TestQueueSendDuringSessionSwitchRepro(t *testing.T) {
 		t.Fatalf("WaitForIdle: %v", err)
 	}
 }
+
+// TestDraftSlotRetainedAcrossSwitchRepro 验证草稿槽位：切换会话后草稿仍在
+// 列表可见，再次 BeginNewSession 恢复同一草稿；首次提交物化后消费槽位。
+func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
+	engine := newMultiSessionEngine()
+	service := newTestService(t, engine)
+	ctx := context.Background()
+
+	if err := service.Submit(ctx, "task A"); err != nil {
+		t.Fatal(err)
+	}
+	aID := engine.SessionID()
+	select {
+	case <-engine.started[aID]:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
+	}
+	close(engine.release[aID])
+	if err := service.WaitForIdle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	bID := "sess-draft-target"
+	engine.register(bID)
+
+	// 新建草稿会话。
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	if snap := service.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
+		t.Fatalf("draft session = %+v", snap.Session)
+	}
+	hasDraftRow := func(snapshot Snapshot) bool {
+		for _, item := range snapshot.Sessions {
+			if item.ID == "" && item.Status == SessionStatusDraft {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasDraftRow(service.Snapshot()) {
+		t.Fatal("draft row missing from session list")
+	}
+
+	// 切换到 B：草稿槽位保留、列表仍可见。
+	if err := service.ResumeSession(bID); err != nil {
+		t.Fatal(err)
+	}
+	if snap := service.Snapshot(); snap.Session.ID != bID || snap.Session.Draft {
+		t.Fatalf("after switch session = %+v", snap.Session)
+	} else if !hasDraftRow(snap) {
+		t.Fatal("draft row disappeared after switching sessions")
+	}
+
+	// 再次新建：恢复同一草稿（含状态 draft）。
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatal(err)
+	}
+	if snap := service.Snapshot(); !snap.Session.Draft || snap.Session.Status != SessionStatusDraft {
+		t.Fatalf("restored draft = %+v", snap.Session)
+	}
+
+	// 首次提交物化：消费草稿槽位，草稿行消失。
+	if err := service.Submit(ctx, "first question"); err != nil {
+		t.Fatal(err)
+	}
+	newID := engine.SessionID()
+	select {
+	case <-engine.started[newID]:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("materialized session did not start:\n%s", dumpAllGoroutines())
+	}
+	close(engine.release[newID])
+	if err := service.WaitForIdle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if hasDraftRow(service.Snapshot()) {
+		t.Fatal("draft row must disappear after materialization")
+	}
+}
+
+// TestBeginNewSessionAllowedWhileChattingRepro 验证运行中允许进入草稿：
+// 后台会话继续运行，草稿视图不被运行中会话顶掉。
+func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
+	engine := newMultiSessionEngine()
+	service := newTestService(t, engine)
+
+	if err := service.Submit(context.Background(), "task A"); err != nil {
+		t.Fatal(err)
+	}
+	aID := engine.SessionID()
+	select {
+	case <-engine.started[aID]:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("session A did not start:\n%s", dumpAllGoroutines())
+	}
+
+	if err := service.BeginNewSession(); err != nil {
+		t.Fatalf("BeginNewSession while A running = %v (want nil)", err)
+	}
+	service.Mu.RLock()
+	runningA := service.sessionChat[aID].chat.Running
+	service.Mu.RUnlock()
+	snapshot := service.Snapshot()
+	if !runningA {
+		t.Fatal("session A stopped after entering draft")
+	}
+	if !snapshot.Session.Draft || snapshot.Session.ID != "" {
+		t.Fatalf("draft session = %+v", snapshot.Session)
+	}
+
+	close(engine.release[aID])
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatalf("WaitForIdle: %v", err)
+	}
+}

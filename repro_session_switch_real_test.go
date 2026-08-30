@@ -7,7 +7,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,8 +15,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/seelex/application"
 )
 
 // blockingAfterFirstProvider 首个请求立即回复，后续请求阻塞到 release（模拟 LLM 长响应）。
@@ -206,10 +203,11 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 	newDone := make(chan error, 1)
 	go func() { newDone <- harness.app.BeginNewSession() }()
 	if err := waitReal(t, newDone, "BeginNewSession while A running (real runtime)"); err != nil {
-		// ErrChatRunning 是 M1 设计行为：立即返回，不阻塞、不死锁。
-		if !errors.Is(err, application.ErrChatRunning) {
-			t.Fatalf("BeginNewSession = %v (want nil or ErrChatRunning, no deadlock)", err)
-		}
+		t.Fatalf("BeginNewSession = %v (want nil: draft allowed while running)", err)
+	}
+	draft := harness.app.Snapshot()
+	if !draft.Session.Draft || draft.Session.ID != "" {
+		t.Fatalf("expected draft while A running, got %+v", draft.Session)
 	}
 
 	close(provider.release)
@@ -218,9 +216,9 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 	}
 }
 
-// TestRealNewSessionDraftLostOnSwitchRepro 记录“新建会话（草稿）→ 切换会话”
-// 的现状行为：草稿无 ID、不落盘，切换后从快照与目录中消失。
-func TestRealNewSessionDraftLostOnSwitchRepro(t *testing.T) {
+// TestRealNewSessionDraftRetainedOnSwitchRepro 验证“新建会话（草稿）→ 切换会话”
+// 不再丢失：草稿槽位保留并在会话树可见，再次新建恢复同一草稿。
+func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	provider := newBlockingAfterFirstProvider()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		provider.serve(t, w, r)
@@ -264,7 +262,7 @@ func TestRealNewSessionDraftLostOnSwitchRepro(t *testing.T) {
 		t.Fatalf("draft conversation = %d messages, want 0", len(draft.Conversation))
 	}
 
-	// 切换会话 B → 草稿被覆盖，快照与目录中都不再有草稿。
+	// 切换会话 B → 草稿槽位保留，会话树中仍可见草稿行。
 	if err := harness.app.ResumeSession(sessionB); err != nil {
 		t.Fatalf("resume B: %v", err)
 	}
@@ -274,13 +272,23 @@ func TestRealNewSessionDraftLostOnSwitchRepro(t *testing.T) {
 	}
 	foundDraft := false
 	for _, session := range after.Sessions {
-		if session.ID == "" || session.ID == draft.Session.ID {
+		if session.ID == "" && session.Status == "draft" {
 			foundDraft = true
 			break
 		}
 	}
 	if foundDraft {
-		t.Fatalf("draft unexpectedly appears in catalog: %+v", after.Sessions)
+		t.Logf("draft retained and visible after switching: %d sessions listed", len(after.Sessions))
+	} else {
+		t.Fatalf("draft row missing after switching: %+v", after.Sessions)
 	}
-	t.Logf("confirmed: draft (ID=%q) vanished after switching to %q; catalog has %d sessions", draft.Session.ID, sessionB, len(after.Sessions))
+
+	// 再次新建：恢复同一草稿视图。
+	if err := harness.app.BeginNewSession(); err != nil {
+		t.Fatalf("restore draft: %v", err)
+	}
+	restored := harness.app.Snapshot()
+	if !restored.Session.Draft || restored.Session.ID != "" {
+		t.Fatalf("restored draft = %+v", restored.Session)
+	}
 }

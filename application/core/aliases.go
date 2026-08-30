@@ -26,6 +26,7 @@ type (
 	WorkspaceInfo          = model.WorkspaceInfo
 	Snapshot               = model.Snapshot
 	SessionState           = model.SessionState
+	SessionStatus          = model.SessionStatus
 	Message                = model.Message
 	ToolCall               = model.ToolCall
 	ChatState              = model.ChatState
@@ -89,6 +90,14 @@ type (
 	ProviderContextInfo    = cc.ProviderContextInfo
 	WindowConfig           = cc.WindowConfig
 	DefaultWindowPolicy    = cc.DefaultWindowPolicy
+)
+
+// SessionStatus 可见状态常量（复用 model 定义）。
+const (
+	SessionStatusDraft   = model.SessionStatusDraft
+	SessionStatusIdle    = model.SessionStatusIdle
+	SessionStatusRunning = model.SessionStatusRunning
+	SessionStatusQueued  = model.SessionStatusQueued
 )
 
 // 域子包内部类型的根包别名（保持 package core 内部调用面稳定）。

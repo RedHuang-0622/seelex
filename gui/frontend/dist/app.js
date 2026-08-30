@@ -508,7 +508,7 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
     ? renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames)
     : '<span class="muted list-empty">暂无会话</span>';
 
-  elements["session-list"].querySelectorAll(".session-button").forEach(button => {
+  elements["session-list"].querySelectorAll(".session-button:not(.session-draft)").forEach(button => {
     button.addEventListener("click", async () => {
       if (button.dataset.session === currentID) return;
       if (!capabilities.session_resume) {
@@ -531,6 +531,12 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
         const latest = client.current() || { sessions, session: current, capabilities, session_workspaces: sessionWorkspaces, workspaces };
         renderSessions(latest.sessions || sessions, latest.session || current, latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces, latest.workspaces || workspaces);
       }
+    });
+  });
+  elements["session-list"].querySelectorAll(".session-draft").forEach(button => {
+    button.addEventListener("click", async () => {
+      if (client.current()?.session?.draft) return; // 已在草稿，幂等
+      await beginNewSession();
     });
   });
   elements["session-list"].querySelectorAll(".session-del").forEach(button => {
@@ -653,6 +659,15 @@ function rerenderSessions() {
 }
 
 function sessionRow(session, currentID) {
+  // 保留的"新建会话"草稿槽位：列表可见、可点击恢复（无 ID、不可 resume/删除/分支）。
+  if (session.id === "" && session.status === "draft") {
+    const active = !currentID;
+    return `<div class="session-row is-draft">
+      <button class="stack-button session-button session-draft ${active ? "active" : ""}" data-session-draft="1" title="恢复新建会话草稿">
+        <span class="entry-name">${icon("plus", 13)} ${escapeHtml(session.name || "新会话（草稿）")}</span><small>草稿 · 尚未发送</small>
+      </button>
+    </div>`;
+  }
   const active = session.id === currentID;
   const resuming = session.id === state.resumingSessionID;
   const pinned = isPinned(session.id);
@@ -662,14 +677,24 @@ function sessionRow(session, currentID) {
   const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
   const display = resuming ? "恢复中…" : (session.name || shortSessionID(session.id));
   const truncated = truncateTitle(display, 5);
+  const statusChip = session.status && session.status !== "idle"
+    ? `<span class="session-status is-${escapeHtml(session.status)}">${sessionStatusLabel(session.status)}</span>`
+    : "";
   return `<div class="session-row${pinned ? " is-pinned" : ""}">
     <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" title="${escapeHtml(session.name || "")}" ${resuming ? "disabled" : ""}>
-      <span class="entry-name">${icon("message", 13)} ${escapeHtml(truncated)}</span><small>${escapeHtml(detail)}</small>
+      <span class="entry-name">${icon("message", 13)} ${escapeHtml(truncated)}</span><small>${escapeHtml(detail)}${statusChip}</small>
     </button>
     <button class="session-pin${pinned ? " is-on" : ""}" data-pin-session="${escapeHtml(session.id)}" title="${pinned ? "取消置顶" : "置顶会话"}" aria-label="置顶会话">📌</button>
     <button class="session-fork" data-fork="${escapeHtml(session.id)}" title="分支出新会话" aria-label="分支出新会话">⑂</button>
     <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
   </div>`;
+}
+
+function sessionStatusLabel(status) {
+  if (status === "running") return "运行中";
+  if (status === "queued") return "排队";
+  if (status === "draft") return "草稿";
+  return "";
 }
 
 function shortSessionID(id) {

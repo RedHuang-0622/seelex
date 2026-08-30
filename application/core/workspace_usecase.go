@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -82,6 +83,12 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		service.Mu.Lock()
 		service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
+		}
+		if service.draft != nil {
+			service.draft.Workspace = &WorkspaceInfo{
+				ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
+			}
+			service.draft.UpdatedAt = time.Now()
 		}
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		revision := service.bumpLocked()

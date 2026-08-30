@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
@@ -27,11 +28,24 @@ type serviceState struct {
 	// 保护从全局单例收窄为会话级：同会话串行 + 每会话独立队列/取消。
 	sessionChat map[string]*sessionChatRuntime
 
+	// draft 是"新建会话"草稿槽位（Core.Mu 保护）：草稿没有真实会话 ID、
+	// 不落盘，但切换会话后仍保留并可恢复；工作区会话草稿同时保留工作区
+	// 绑定。首次提交（materializeDraftSession）时消费并清空。
+	draft *draftSlot
+
 	// chatSeq 是聊天请求 ID 的单调序号（Core.Mu 保护）。requestID 必须
 	// 跨会话唯一：Windows 上 time.Now().UnixNano() 分辨率约 0.5ms，并行
 	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与
 	// ClearReActBudget/FinalizeTask 串写。附加序号消除碰撞。
 	chatSeq uint64
+}
+
+// draftSlot 保留草稿状态。Workspace 为"工作区会话"草稿的工作区绑定
+// （任务会话草稿为 nil）。
+type draftSlot struct {
+	Workspace *WorkspaceInfo
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type conversationRuntimeState struct {
