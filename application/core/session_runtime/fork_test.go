@@ -117,8 +117,11 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 		},
 		ActivePlanID: "plan-1",
 		Tasks: []dto.TaskRecord{
-			{ID: "task-1", CreatedAt: t1},
-			{ID: "task-2", CreatedAt: t4},
+			{ID: "task-1", Kind: "plan", CreatedAt: t1},
+			{ID: "subagent:1", Kind: "subagent", CreatedAt: t1},
+			{ID: "todo:1", Kind: "todo", CreatedAt: t1},
+			{ID: "task-2", Kind: "task", CreatedAt: t4},
+			{ID: "todo:2", Kind: "todo", CreatedAt: t4},
 		},
 		Conversation: model.ConversationRecord{Messages: messages, UpdatedAt: t5},
 		Checkpoints: []model.TaskCheckpoint{{
@@ -243,8 +246,13 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	if len(record.PlanStack) != 1 || record.PlanStack[0].ID != "plan-1" || record.ActivePlanID != "plan-1" {
 		t.Fatalf("plan stack = %#v active=%q", record.PlanStack, record.ActivePlanID)
 	}
-	if len(record.Tasks) != 1 || record.Tasks[0].ID != "task-1" {
-		t.Fatalf("tasks = %#v", record.Tasks)
+	if len(record.Tasks) != 2 || record.Tasks[0].ID != "task-1" || record.Tasks[0].Kind != "plan" || record.Tasks[1].ID != "subagent:1" || record.Tasks[1].Kind != "subagent" {
+		t.Fatalf("tasks = %#v（子会话不得继承父 todolist）", record.Tasks)
+	}
+	for _, task := range record.Tasks {
+		if task.Kind == "todo" {
+			t.Fatalf("child session must not inherit parent todolist: %#v", task)
+		}
 	}
 	if len(record.Execution.ReadFiles) != 1 || record.Execution.ReadFiles[0].Path != "a.txt" {
 		t.Fatalf("read files = %#v", record.Execution.ReadFiles)
@@ -335,5 +343,33 @@ func TestPrepareForkAtStartProducesEmptyChild(t *testing.T) {
 	}
 	if len(contextRecord.CompactStack) != 0 {
 		t.Fatalf("empty fork must drop all compact frames: %#v", contextRecord.CompactStack)
+	}
+}
+
+func TestForkTaskRecordsFiltersTodolist(t *testing.T) {
+	cut := time.Unix(2, 0)
+	tasks := []dto.TaskRecord{
+		{ID: "todo:0", Kind: "todo", CreatedAt: time.Unix(1, 0)},
+		{ID: "task-1", Kind: "task", CreatedAt: time.Unix(1, 0)},
+		{ID: "plan:1", Kind: "plan", CreatedAt: time.Unix(1, 0)},
+		{ID: "subagent:1", Kind: "subagent", CreatedAt: time.Unix(1, 0)},
+		{ID: "legacy", CreatedAt: time.Unix(1, 0)},
+		{ID: "todo:1", Kind: "todo", CreatedAt: time.Unix(3, 0)},
+		{ID: "task-2", Kind: "task", CreatedAt: time.Unix(3, 0)},
+	}
+	got := forkTaskRecordsByTime(tasks, cut)
+	want := []string{"task-1", "plan:1", "subagent:1", "legacy"}
+	if len(got) != len(want) {
+		t.Fatalf("fork tasks = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for index, id := range want {
+		if got[index].ID != id {
+			t.Fatalf("fork tasks[%d] = %q, want %q（顺序保持）", index, got[index].ID, id)
+		}
+	}
+	for _, task := range got {
+		if task.Kind == "todo" {
+			t.Fatalf("todolist item leaked into child: %#v", task)
+		}
 	}
 }

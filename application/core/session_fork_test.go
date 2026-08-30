@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
@@ -74,6 +75,10 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 			{ID: "m1", Role: "user", Content: "hi"},
 			{ID: "m2", Role: "assistant", Content: "hello"},
 		}},
+		Tasks: []dto.TaskRecord{
+			{ID: "plan:1", Kind: "plan"},
+			{ID: "todo:0", Kind: "todo"},
+		},
 	}
 	sessions := &forkServiceSessions{
 		parent: parent,
@@ -104,6 +109,10 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 	// tool-results 全量物理复制进子会话提交。
 	if len(sessions.savedResults) != 1 || sessions.savedResults[0].Ref != "result:1" {
 		t.Fatalf("saved child tool results = %#v", sessions.savedResults)
+	}
+	// 子会话 task 注册表保留 plan 等非 todo 条目，父 todolist 不继承。
+	if len(sessions.savedRecord.Tasks) != 1 || sessions.savedRecord.Tasks[0].ID != "plan:1" {
+		t.Fatalf("saved child tasks = %#v, want only plan:1（todolist 全新）", sessions.savedRecord.Tasks)
 	}
 	// fork 后自动切换到子会话继续。
 	if got := service.Snapshot().Session.ID; got != "session-new" {

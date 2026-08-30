@@ -319,9 +319,15 @@ func hasPlanFrame(frames []model.SessionPlanFrame, planID string) bool {
 	return false
 }
 
+// forkTaskRecordsByTime 按切断时间截断父 task 注册表，并丢弃 kind=todo
+// 条目：子会话 todolist 全新（血缘/plan/task/checkpoint/tool-results 等
+// 其余内容仍按切点拷贝）。Kind 为空的历史条目按非 todo 保守继承。
 func forkTaskRecordsByTime(tasks []dto.TaskRecord, cutTime time.Time) []dto.TaskRecord {
 	result := make([]dto.TaskRecord, 0, len(tasks))
 	for _, task := range tasks {
+		if task.Kind == "todo" {
+			continue
+		}
 		if task.CreatedAt.IsZero() || !task.CreatedAt.After(cutTime) {
 			result = append(result, task)
 		}
