@@ -112,7 +112,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		service.inputQueue = runtime.inputQueue
 		runtime.chat.InputQueue = chatRequestDisplays(runtime.inputQueue)
 		runtime.chat.QueuedCount = len(runtime.inputQueue)
-		service.Core.Snapshot.Chat = runtime.chat
+		service.setSessionChatLockedFor(sessionID, runtime.chat)
 		revision := service.bumpLocked()
 		service.Mu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
@@ -145,7 +145,7 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 		runtime.chat.QueuedCount = len(runtime.inputQueue)
 		if active {
 			service.inputQueue = runtime.inputQueue
-			service.Core.Snapshot.Chat = runtime.chat
+			service.setSessionChatLockedFor(sessionID, runtime.chat)
 			revision := service.bumpLocked()
 			service.Mu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)

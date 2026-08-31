@@ -1,7 +1,7 @@
 # Session 资源控制重构：测试用例
 
 > 日期：2026-08-30
-> 状态：用例规格；阶段 0 用例已实施并转绿（2026-08-31，见
+> 状态：用例规格；阶段 0/1/2 用例已实施并转绿（2026-08-31，见
 > [implementation-record.md](./implementation-record.md)）；阶段 1/2 用例规划中
 > 前置：[plan.md](./plan.md)（资源清单、竞争/污染源 P1–P6 / R1–R7、场景 A1–A5）、
 > [design-model.md](./design-model.md)（六元组与不变量 Ⅰ–Ⅳ）
@@ -47,8 +47,8 @@
 
 | 编号 | 用例名 | Given / When / Then | 断言要点 | 映射 | 状态 |
 |------|--------|---------------------|----------|------|------|
-| TC-A3-01 | `TestResumeRunningSessionRejected`（并入 [session_switch_deadlock_test.go](../../application/core/session_switch_deadlock_test.go)） | Given：A 运行中。When：`ResumeSession(A)`。Then：返回 `ErrChatRunning`；`Snapshot.Session.ID` 不变。 | 错误码精确；无死锁（有超时护栏） | A3 | 现状绿（阶段 1 决策点） |
-| TC-A3-02 | `TestHotAttachDoesNotTouchRunningSession`（阶段 1 若决策采用只读回看） | Given：A 运行中，实现 `hot_attach`。When：`hot_attach(A)`（只换 V + 订阅基线/增量）。Then：A 的 `Chat.Running`、引擎历史、事件流不变。 | 不变量 Ⅱ；无重放（基线 + 增量订阅） | A3；Ⅱ | 阶段 1，待决策 |
+| TC-A3-01 | `TestResumeRunningSessionAllowsHotAttach`（决策：允许只读回看） | Given：A 运行中。When：`ResumeSession(A)`。Then：返回 nil（hot_attach）；`Snapshot.Session.ID` = A；A 运行态不变。 | 热加载回看；无死锁（有超时护栏） | A3 | 已绿 |
+| TC-A3-02 | `TestHotAttachDoesNotTouchRunningSession` | Given：A 运行中，B 活跃。When：`ResumeSession(A)`（hot_attach）。Then：A 的 `Chat.Running`、引擎历史、事件流不变。 | 不变量 Ⅱ；无重放 | A3；Ⅱ | 已绿 |
 | TC-A3-03 | `TestSnapshotOfRunningNonActiveUnavailable` | Given：A 运行中且非活跃。When：`SnapshotOf(A)`。Then：返回 `ErrSessionSnapshotUnavailable`。 | 现状契约 | A3 | 现状绿 |
 
 ---
@@ -88,10 +88,10 @@
 
 | 编号 | 用例名 | 断言要点 |
 |------|--------|----------|
-| TC-LC-01 | `TestColdLoadAtomicVisibility` | 冷加载 PREPARED→IDLE 发布窗口内，catalog/snapshot 不暴露半成品会话 |
-| TC-LC-02 | `TestHotAttachNoReplay` | attach 运行中会话只发基线 + 增量事件，不重放历史（对应 ACP resume / tmux attach） |
-| TC-LC-03 | `TestUnloadReleasesScope` | `unload(i)` 后 `engines`/`sessionStates` 无 i；registry 保留 COLD 元数据；重开走 `cold_load` |
-| TC-LC-04 | `TestPersistOwnTimelineAtomic` | 后台完成落盘与活跃会话落盘不交错；提交原子（无半写快照/事件） |
+| TC-LC-01 | `TestColdLoadAtomicVisibility` | 冷加载 PREPARED→IDLE 发布窗口内，catalog/snapshot 不暴露半成品会话 | 规划（现有 resume 冷加载路径覆盖） |
+| TC-LC-02 | `TestHotAttachNoReplay` | attach 运行中会话只发基线 + 增量事件，不重放历史（对应 ACP resume / tmux attach） | 已绿 |
+| TC-LC-03 | `TestUnloadReleasesScope` | `unload(i)` 后 `engines`/`sessionStates` 无 i；registry 保留 COLD 元数据；重开走 `cold_load` | 已绿 |
+| TC-LC-04 | `TestPersistOwnTimelineAtomic` | 后台完成落盘与活跃会话落盘不交错；提交原子（无半写快照/事件） | 已由 TC-A1-02/A4-01 覆盖 |
 
 ---
 

@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
+	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
@@ -33,13 +35,12 @@ func (service *Service) resumeSession(sessionID string) error {
 	defer transition.Unlock()
 
 	service.Mu.RLock()
-	running := false
-	if runtime := service.sessionChat[sessionID]; runtime != nil {
-		running = runtime.chat.Running
-	}
+	hot := service.sessionLoaded(sessionID)
 	service.Mu.RUnlock()
-	if running {
-		return ErrChatRunning
+	if hot {
+		// 阶段 2：目标会话已驻留（含运行中）→ 热加载，只换视图指针 +
+		// 投影会话 scope，不重建历史、不触碰 X/M/R（不变量 Ⅱ）。
+		return service.hotAttachSession(sessionID)
 	}
 
 	location := service.components.sessions.LocateSession(sessionID)
@@ -181,7 +182,6 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
 	resumedRuntime := service.sessionChatLocked(sessionID)
 	resumedRuntime.cancel = nil
-	service.Core.Snapshot.Chat = resumedRuntime.chat
 	service.inputQueue = resumedRuntime.inputQueue
 	service.components.sessions.SetSessionTitleLocked(sessionID, SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {
@@ -206,35 +206,36 @@ func (service *Service) resumeSession(sessionID string) error {
 	} else {
 		service.components.tasks.ResetForNewSessionLocked()
 	}
-	service.Core.Snapshot.Conversation = nil
-	service.Core.Snapshot.Runtime.Plan = nil
-	service.Core.Snapshot.ReadFiles = nil
-	service.Core.Snapshot.Task = nil
-	service.Core.Snapshot.Interaction = nil
+	// 阶段 1：冷加载重建写会话 view（Snapshot 是活跃会话的只读镜像）。
+	view := &state.SessionView{
+		TotalMessages:      total,
+		HistoryOffset:      offset,
+		HasMoreHistory:     offset > 0,
+		ConversationWindow: Limits().HistoryWindow,
+	}
 	if hasRecord {
 		service.advanceMessageSeqLocked(record.Conversation.Messages)
-	}
-	service.appendMessageLocked("system", "已恢复会话: "+sessionID, nil)
-	if hasRecord {
-		service.Core.Snapshot.Conversation = append(service.Core.Snapshot.Conversation, service.components.sessions.RecordConversationTail(record, Limits().HistoryWindow)...)
-		service.Core.Snapshot.Runtime.Plan = task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
-		service.Core.Snapshot.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
+		view.Conversation = append(view.Conversation, Message{Role: "system", Content: "已恢复会话: " + sessionID, CreatedAt: time.Now()})
+		view.Conversation = append(view.Conversation, service.components.sessions.RecordConversationTail(record, Limits().HistoryWindow)...)
+		view.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
+		service.components.view.SetSessionViewLocked(sessionID, view)
 		if record.Execution.Task != nil {
 			task := *record.Execution.Task
 			task.ContextCompactions = append([]ContextCompaction(nil), record.Execution.Task.ContextCompactions...)
 			service.Core.Snapshot.Task = &task
+		} else {
+			service.Core.Snapshot.Task = nil
 		}
 		if planRestoreErr != nil {
-			service.appendMessageLocked("system", "The stored Plan is visible for review but could not be reloaded for execution with the current settings.", nil)
+			service.appendSessionMessageLocked(sessionID, "system", "The stored Plan is visible for review but could not be reloaded for execution with the current settings.", nil)
 		}
 	} else {
-		service.appendHistoryLocked(visibleHistory)
+		service.appendHistoryLockedFor(sessionID, visibleHistory)
 	}
+	service.setSessionChatLockedFor(sessionID, resumedRuntime.chat)
+	service.Core.Snapshot.Runtime.Plan = task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
+	service.Core.Snapshot.Interaction = nil
 	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
-	service.Core.Snapshot.HistoryOffset = offset
-	service.Core.Snapshot.TotalMessages = total
-	service.Core.Snapshot.HasMoreHistory = offset > 0
-	service.Core.Snapshot.ConversationWindow = Limits().HistoryWindow
 	if service.Deps.Workspace != nil {
 		service.Core.Snapshot.CurrentWorkspace = currentWorkspace
 		service.applyWorkspaceProjectionLocked(workspaceProjection)

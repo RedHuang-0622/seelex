@@ -119,13 +119,35 @@ func (r *Runtime) SetSessionWorkspace(sessionID, workspaceID string) {
 	r.sessionWorkspacesMu.Unlock()
 }
 
-// SetCurrentTaskBatch 设置注册表默认批次（application startChat 调用；
-// 此后创建的 todo/task/plan/subagent 条目自动盖章 BatchID）。
-func (r *Runtime) SetCurrentTaskBatch(batchID string) {
+// SetCurrentTaskBatch 设置会话级默认批次（application startChat 按会话
+// 调用；后台会话不覆盖活跃注册表默认批次——L3 写隔离）。
+func (r *Runtime) SetCurrentTaskBatch(sessionID, batchID string) {
 	if r == nil || r.tasks == nil {
 		return
 	}
-	_ = r.tasks.SetDefaultBatch(batchID)
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	r.sessionTaskMu.Unlock()
+	r.sessionBatchesMu.Lock()
+	if r.sessionBatches == nil {
+		r.sessionBatches = make(map[string]string)
+	}
+	r.sessionBatches[sessionID] = batchID
+	r.sessionBatchesMu.Unlock()
+	if sessionID == current {
+		_ = r.tasks.SetDefaultBatch(batchID)
+	}
+}
+
+// CurrentTaskBatchFor 返回指定会话的默认批次（TaskAdd 盖章辅助；空 =
+// 未启动）。
+func (r *Runtime) CurrentTaskBatchFor(sessionID string) string {
+	if r == nil {
+		return ""
+	}
+	r.sessionBatchesMu.Lock()
+	defer r.sessionBatchesMu.Unlock()
+	return r.sessionBatches[sessionID]
 }
 
 // TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递）。

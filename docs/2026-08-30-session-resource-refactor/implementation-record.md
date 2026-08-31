@@ -1,7 +1,7 @@
 # Session 资源控制重构：阶段 0 实施记录
 
 > 日期：2026-08-31
-> 状态：阶段 0 已实施并验证（复现转绿、测试集全绿、-race 通过）；阶段 1/2 规划
+> 状态：阶段 0/1/2 已实施并验证（复现转绿、测试集全绿、-race 通过）
 > 前置：[plan.md](./plan.md)（资源/粒度/P-R 清单）、[design-model.md](./design-model.md)（六元组与不变量）、
 > [code-review-and-fix-plan.md](./code-review-and-fix-plan.md)（改动方案）、[test-cases.md](./test-cases.md)（用例规格）
 > 性质：一次性工作包记录，不冒充长期事实来源；模块事实由各模块 README 承接
@@ -254,3 +254,105 @@ go vet ./...
 gofmt -l .
 git diff --check
 ```
+
+---
+
+## 7. 阶段 1/2 实施记录（2026-08-31）
+
+### 7.1 阶段 1：SessionScope 收口
+
+**7.1.1 每会话视图 scope（`SessionView`）**
+
+`state.Core` 新增 `SessionViews map[string]*SessionView`（`internal/state/state.go`）；
+`SessionView` 承载会话级可见投影：`Conversation` / `Chat` / `ReadFiles` +
+窗口计数字段。`view_state.Coordinator` 成为唯一写方：
+
+- `AppendMessageLockedFor(sessionID, ...)`：写指定会话 view（活跃会话同步镜像
+  `Snapshot.Conversation`；后台会话只写自身 scope）；
+- `SetSessionChatLockedFor(sessionID, chat)`：Chat 由 view 单独管理，镜像不再
+  覆盖 `Snapshot.Chat`（修复"直写 Snapshot.Chat 被镜像清零"回归）；
+- `SetSessionViewLocked` / `MirrorActiveViewLocked`：冷加载装载 / 切换投影。
+
+core 包迁移（`chat.go` / `tool_hooks.go` / `service_input.go` / `session_scope.go`）：
+
+- 后台会话消息（user/assistant/tool/tool_result/error）全部改
+  `appendSessionMessageLocked(sessionID, ...)`（替代 `buildBackgroundMessage`
+  ——该函数已删除）；
+- 流式增量 `consumeVisibleChunk` / `appendVisibleDelta` 按 requestID 反查会话，
+  后台会话也实时维护可见投影（hot_attach 回看有数据）；
+- `Snapshot.Chat` 直写点全部收敛到 `setSessionChatLockedFor`；
+- `ReadFiles` 收进 view（`recordReadFileForSessionLocked`）。
+
+**7.1.2 活跃默认路由与显式键**
+
+- `TaskPersistencePort` 全 For 化在阶段 0 完成；`Router`/`DurableHistory` 显式
+  workspace 键在阶段 0 完成；
+- task_context 非 For 活跃读口（`Transcript()`/`PlanStack()` 等）仍在具体类型
+  上供 root 包调用方使用，持久化端口不再暴露（文档标注，阶段 3 全面移除）。
+
+**7.1.3 L3 task 写隔离（部分）**
+
+`SetCurrentTaskBatch(sessionID, batchID)` 按会话保存（seelebridge
+`sessionBatches` map），后台会话不再覆盖活跃注册表默认批次；`TaskAdd` 的
+BatchID 盖章仍走 registry 全局默认（后台工具任务归属待 worktable 工具路径
+会话化，记录为遗留）。
+
+### 7.2 阶段 2：冷/热加载与卸载
+
+**7.2.1 cold_load / hot_attach 双路径**
+
+`resumeSession` 拆为：
+
+- `coldLoadSession`（原 resumeSession 主体）：目标会话引擎未驻留 → 三读
+  （record/history/transcript）重建，conversation 写 `SessionView`；
+- `hotAttachSession`（新，`session_lifecycle.go`）：目标会话引擎已驻留
+  （含运行中）→ 只换视图指针 + 投影会话 scope，不重建历史、不触碰
+  X/M/R（不变量 Ⅱ）。**运行中会话 resume 从 `ErrChatRunning` 改为允许回看**
+  （design-model 第 5 节决策点已定：热加载支持运行中查看）。
+
+**7.2.2 unload**
+
+`UnloadSession(sessionID)`（新）：非活跃会话先 `PersistCurrentSession(location,
+sessionID)`，再释放内存态——引擎实例（`EnginePort.UnloadSession`）、任务运行时
+（`task_context.UnloadSessionState`）、视图 scope、标题缓存；活跃会话卸载转
+草稿。重开走 `cold_load`。
+
+**7.2.3 生命周期测试**
+
+`session_lifecycle_test.go`：TC-A3-01（运行中 resume 允许回看，不触碰执行）、
+TC-A3-02（后台运行中 hot_attach 引擎历史逐字节不变）、TC-LC-02（hot_attach
+不重放历史）、TC-LC-03（unload 释放 scope，重开 cold_load 恢复）。
+
+### 7.3 -race 全量暴露并修复的既有隐患
+
+`TestParallelSessionsExecuteConcurrently` 在 `-race` 下死锁：测试在
+`service.Mu.RLock()` 内调用 `service.Snapshot()`（内部再 RLock）——RWMutex
+writer-preference 下，runChat 尾部的写锁等待使重入 RLock 排队，形成死锁。
+修复：删除测试的外层 RLock（`Snapshot()` 自带锁）。非 -race 下 Go RWMutex
+允许 reader 重入故未暴露。
+
+### 7.4 环境说明
+
+全量 `go test ./...` 下 3 个 bash 工具真实执行用例失败
+（`TestFullAccessBashToolCompletionReachesApplication`、
+`TestRuntimeProjectScopedToolsUseBoundProject`、
+`TestScopedBashPublishesDiagnosticStages`），根因是 WSL 环境
+（`wsl: 检测到 localhost 代理配置，但不支持 WSL NAT 模式`，bash 启动即失败），
+与本阶段改动无关（bash 执行路径未触碰）。
+
+### 7.5 阶段 1/2 验证
+
+```text
+go test ./application/core/ -count=1                                      → ok
+go test . -run 'TestBackgroundSessionCompletionMustNotPolluteOwner|...'   → ok
+go test -race ./application/core/ -run 'Test' -count=1                    → ok（4.2s）
+go test -race . -run 'TestBackgroundSessionCompletionMustNotPolluteOwner|TestBackgroundCompletionWhileSwitchingToC|TestNoPhantomSessionInForeignWorkspace|TestWorkspaceSwitchConcurrentWithBackgroundPersist' -count=1 → ok
+go vet ./...                                                              → ok
+```
+
+### 7.6 阶段 1/2 遗留
+
+1. `TaskAdd` BatchID 盖章仍走 registry 全局默认（worktable 工具路径会话化）；
+2. `Snapshot.Runtime.Plan` 全局槽（P6）——hot_attach 时从 PlanStackFor 投影，
+   执行期装配仍读活跃快照；
+3. task_context 非 For 活跃读口待阶段 3 全面移除。

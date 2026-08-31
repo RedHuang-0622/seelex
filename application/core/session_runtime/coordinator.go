@@ -103,6 +103,12 @@ func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.Sessio
 	c.sessionTitles[sessionID] = title
 }
 
+// UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
+// cold_load，标题由 record 重新装载）。
+func (c *Coordinator) UnloadSessionTitle(sessionID string) {
+	delete(c.sessionTitles, sessionID)
+}
+
 // TransitionLock 返回会话切换互斥锁（BeginNewSession/ResumeSession/
 // BindWorkspace 等根包跨域事务共用；锁所有权在会话域）。
 func (c *Coordinator) TransitionLock() sync.Locker {

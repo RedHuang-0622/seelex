@@ -118,7 +118,7 @@ func (harnessRuntime) ReplanMetrics() dto.ReplanMetrics            { return dto.
 func (harnessRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)  {}
 func (harnessRuntime) BindProjectRoot(string) error                { return nil }
 func (harnessRuntime) UnbindProjectRoot()                          {}
-func (harnessRuntime) SetCurrentTaskBatch(string)                  {}
+func (harnessRuntime) SetCurrentTaskBatch(string, string)          {}
 func (harnessRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
 func (harnessRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
 func (harnessRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }

@@ -49,14 +49,14 @@ func (service *Service) anyChatRunningLocked() bool {
 	return false
 }
 
-// mirrorActiveChatLocked 把当前活跃会话的聊天运行态镜像到权威 Snapshot
-// （切换会话后调用；保证前端与共享组件读到的是活跃会话的 Chat 状态）。
+// mirrorActiveChatLocked 把当前活跃会话的聊天运行态写入会话 view（阶段 1：
+// Snapshot.Chat 由 view 统一镜像；切换会话后调用保证前端读到活跃会话状态）。
 func (service *Service) mirrorActiveChatLocked() {
 	sessionID := service.Core.Snapshot.Session.ID
 	if runtime := service.sessionChat[sessionID]; runtime != nil {
-		service.Core.Snapshot.Chat = runtime.chat
+		service.setSessionChatLockedFor(sessionID, runtime.chat)
 	} else {
-		service.Core.Snapshot.Chat = ChatState{}
+		service.setSessionChatLockedFor(sessionID, ChatState{})
 	}
 }
 

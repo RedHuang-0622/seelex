@@ -2,7 +2,11 @@ package core
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
+	"time"
 
+	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
 )
 
@@ -76,6 +80,55 @@ func (service *Service) applyRuntimeProjectionLocked(projection view_state.Runti
 
 func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {
 	return service.components.view.AppendMessageLocked(role, content, tool)
+}
+
+// appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
+// 也维护自己的可见投影；活跃会话同步镜像 Snapshot）。
+func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message {
+	return service.components.view.AppendMessageLockedFor(sessionID, role, content, tool)
+}
+
+// setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
+// Snapshot.Chat）。
+func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState) {
+	service.components.view.SetSessionChatLockedFor(sessionID, chat)
+}
+
+// mirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot。
+func (service *Service) mirrorActiveViewLocked() {
+	service.components.view.MirrorActiveViewLocked()
+}
+
+// sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
+// 调用方持有 Core.Mu）。
+func (service *Service) sessionViewLocked(sessionID string) *state.SessionView {
+	return service.components.view.SessionViewLocked(sessionID)
+}
+
+// recordReadFileForSessionLocked 记录指定会话的 read 文件引用（阶段 1：
+// ReadFiles 收进会话 view，不再写全局 Snapshot.ReadFiles）。
+func (service *Service) recordReadFileForSessionLocked(sessionID, arguments string) {
+	var input struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal([]byte(arguments), &input) != nil {
+		return
+	}
+	input.Path = strings.TrimSpace(input.Path)
+	if input.Path == "" {
+		return
+	}
+	now := time.Now()
+	view := service.sessionViewLocked(sessionID)
+	for index := range view.ReadFiles {
+		if view.ReadFiles[index].Path == input.Path {
+			view.ReadFiles[index].ReadAt = now
+			service.mirrorActiveViewLocked()
+			return
+		}
+	}
+	view.ReadFiles = append(view.ReadFiles, ReadFileRef{Path: input.Path, ReadAt: now})
+	service.mirrorActiveViewLocked()
 }
 
 func (service *Service) bumpLocked() uint64 {

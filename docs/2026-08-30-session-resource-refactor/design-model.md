@@ -1,7 +1,7 @@
 # 会话解耦数学模型与冷/热加载设计
 
 > 日期：2026-08-30
-> 状态：设计底稿（规划，尚未实现）；User Story（边界场景 + 测试用例）待用户补充
+> 状态：设计底稿；阶段 0/1/2 已实施（见 [implementation-record.md](./implementation-record.md)）
 > 前置：先读 [plan.md](./plan.md)（资源清单、粒度、竞争/污染源）；表达形式与 [plan.md](./plan.md) 第 0 节统一（Mermaid）
 > 调研对象：dsh（DeepSeek Harness）、ACP（Agent Client Protocol）、tmux、Claude Code 设计空间论文、puristajs/harness
 
@@ -358,5 +358,6 @@ mastersof-ai/harness  按用户隔离 workspace/memory/sessions + 独立 token �
 
 - 按本文件第 0 节表达形式（Mermaid）补充 user story 的场景图与用例表（用户提供）；
 - 每条场景逐条映射到 1.3 不变量 / 2.1 拷贝面 / [plan.md](./plan.md) 第 3 节的 P/R 清单；
-- 待确认的设计决策：热加载时是否允许“只读快照 + 增量事件”回看（当前 `ErrChatRunning`
-  拒绝）；项目元数据刷新后既有会话的 `P_i` 是否版本化更新（保持 Ⅰ 不变）。
+- 已确认决策：热加载允许“只读快照 + 增量事件”回看（运行中会话 resume 不再
+  `ErrChatRunning`，见阶段 2 实施记录）；
+- 待确认决策：项目元数据刷新后既有会话的 `P_i` 是否版本化更新（保持 Ⅰ 不变）。

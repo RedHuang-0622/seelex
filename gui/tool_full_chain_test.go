@@ -103,7 +103,7 @@ func (*guiChainRuntime) ReplanMetrics() dto.ReplanMetrics            { return dt
 func (*guiChainRuntime) SetPlanBranchBinding(dto.PlanBranchBinding)  {}
 func (*guiChainRuntime) BindProjectRoot(string) error                { return nil }
 func (*guiChainRuntime) UnbindProjectRoot()                          {}
-func (*guiChainRuntime) SetCurrentTaskBatch(string)                  {}
+func (*guiChainRuntime) SetCurrentTaskBatch(string, string)          {}
 func (*guiChainRuntime) TodoSnapshot() []dto.TodoItem                { return nil }
 func (*guiChainRuntime) SetTodoStatus(int, dto.TodoItemStatus) error { return nil }
 func (*guiChainRuntime) TaskSnapshot() []dto.TaskRecord              { return nil }

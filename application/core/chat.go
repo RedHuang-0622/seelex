@@ -29,22 +29,6 @@ func (service *Service) isActiveSessionLocked(sessionID string) bool {
 	return sessionID == "" || sessionID == service.Core.Snapshot.Session.ID
 }
 
-// buildBackgroundMessage 为后台会话（非活跃、并行执行）构造可见消息，但不
-// 写入活跃会话快照。事件按会话路由发布，切回时由 resumeSession 从持久化
-// 重建。
-func (service *Service) buildBackgroundMessage(role, content string, tool *ToolCall) Message {
-	if role == "assistant" || role == "tool_result" {
-		content = chat.StripThoughtBlocks(content)
-	}
-	return Message{
-		ID:        fmt.Sprintf("message-bg-%d", time.Now().UnixNano()),
-		Role:      role,
-		Content:   content,
-		Tool:      tool,
-		CreatedAt: time.Now(),
-	}
-}
-
 // nextChatRequestIDLocked 生成跨会话唯一的聊天请求 ID（调用方持有
 // Core.Mu）。时间戳 + 单调序号：仅时间戳在 Windows（UnixNano 分辨率约
 // 0.5ms）下并行会话启动会碰撞。
@@ -101,8 +85,9 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	}
 	service.markBusyLocked()
 	runtime.chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
+	// 阶段 1：聊天运行态投影写会话 scope（活跃会话镜像 Snapshot.Chat）。
+	service.setSessionChatLockedFor(sessionID, runtime.chat)
 	if active {
-		service.Core.Snapshot.Chat = runtime.chat
 		service.components.tasks.SetTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
 	}
 	// L2：标题按会话设置（后台会话首次请求也归属自己的标题，不读活跃槽）；
@@ -119,8 +104,9 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		user = *service.appendMessageLocked("user", request.displayInput, nil)
 		assistant = *service.appendMessageLocked("assistant", "", nil)
 	} else {
-		user = service.buildBackgroundMessage("user", request.displayInput, nil)
-		assistant = service.buildBackgroundMessage("assistant", "", nil)
+		// 阶段 1：后台会话也维护自己的可见投影（hot_attach 回看有数据）。
+		user = *service.appendSessionMessageLocked(sessionID, "user", request.displayInput, nil)
+		assistant = *service.appendSessionMessageLocked(sessionID, "assistant", "", nil)
 	}
 	revision := uint64(0)
 	if active {
@@ -129,7 +115,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	service.Mu.Unlock()
 	// 新批次：此后创建的 todo/task/plan/subagent 条目自动归属当前 chat
 	// 请求（requestID），工作表格按批次分片。
-	service.Deps.Runtime.SetCurrentTaskBatch(requestID)
+	service.Deps.Runtime.SetCurrentTaskBatch(sessionID, requestID)
 	service.publishRuntimeProjections()
 	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
 	// 期间主会话被持锁无法回写，只能在此时补注入。
@@ -240,9 +226,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		}
 		visibleError = presentUserError(err)
 		runtime.chat.Error = visibleError
-		if active {
-			service.appendMessageLocked("error", visibleError, nil)
-		}
+		service.appendSessionMessageLocked(sessionID, "error", visibleError, nil)
 	}
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
 	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
@@ -290,14 +274,13 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		}
 		runtime.chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
 		service.components.tasks.SetTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
+		service.setSessionChatLockedFor(sessionID, runtime.chat)
 		if active {
 			nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
 			nextAssistant = service.appendMessageLocked("assistant", "", nil)
 		} else {
-			u := service.buildBackgroundMessage("user", batchRequest.displayInput, nil)
-			a := service.buildBackgroundMessage("assistant", "", nil)
-			nextUser = &u
-			nextAssistant = &a
+			nextUser = service.appendSessionMessageLocked(sessionID, "user", batchRequest.displayInput, nil)
+			nextAssistant = service.appendSessionMessageLocked(sessionID, "assistant", "", nil)
 		}
 	} else {
 		runtime.chat.Running = false
@@ -309,9 +292,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 			service.markIdleLocked()
 		}
 	}
-	if active {
-		service.Core.Snapshot.Chat = runtime.chat
-	}
+	service.setSessionChatLockedFor(sessionID, runtime.chat)
 	revision := uint64(0)
 	if active {
 		revision = service.bumpLocked()
@@ -327,7 +308,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	if processQueue {
 		service.publishSessionEvent(EventMessageAdded, revision, nextRequestID, sessionID, *nextUser)
 		service.publishSessionEvent(EventMessageAdded, revision, nextRequestID, sessionID, *nextAssistant)
-		service.Deps.Runtime.SetCurrentTaskBatch(nextRequestID)
+		service.Deps.Runtime.SetCurrentTaskBatch(sessionID, nextRequestID)
 		service.publishRuntimeProjections()
 		go service.runChat(nextContext, sessionID, nextRequestID, batchRequest)
 	}
@@ -496,13 +477,25 @@ func (service *Service) flushStreamBatcher(requestID string) {
 func (service *Service) consumeVisibleChunk(requestID, chunk string) string {
 	service.Mu.Lock()
 	defer service.Mu.Unlock()
-	if !service.Core.Snapshot.Chat.Running || service.Core.Snapshot.Chat.RequestID != requestID {
+	sessionID := service.components.tasks.SessionIDForRequest(requestID)
+	runtime := service.sessionChatLocked(sessionID)
+	running := runtime.chat.Running && runtime.chat.RequestID == requestID
+	if !running && service.Core.Snapshot.Chat.Running && service.Core.Snapshot.Chat.RequestID == requestID {
+		// 兼容测试直写 Snapshot.Chat（活跃会话便捷构造）；生产路径 runtime 权威。
+		running = true
+		sessionID = service.Core.Snapshot.Session.ID
+		runtime = service.sessionChatLocked(sessionID)
+	}
+	if !running {
 		return ""
 	}
-	if service.streamOutput == nil || service.streamOutput.RequestID() != requestID {
-		service.streamOutput = chat.NewVisibleOutputStream(requestID)
+	if runtime.streamOutput == nil || runtime.streamOutput.RequestID() != requestID {
+		runtime.streamOutput = chat.NewVisibleOutputStream(requestID)
 	}
-	return service.streamOutput.Consume(chunk)
+	if sessionID == service.Core.Snapshot.Session.ID {
+		service.streamOutput = runtime.streamOutput
+	}
+	return runtime.streamOutput.Consume(chunk)
 }
 
 func (service *Service) appendVisibleDelta(requestID, chunk string) {
@@ -510,24 +503,42 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 		return
 	}
 	service.Mu.Lock()
-	if !service.Core.Snapshot.Chat.Running || service.Core.Snapshot.Chat.RequestID != requestID {
+	// 阶段 1：流式增量按 requestID 反查会话，写该会话自己的 view（后台
+	// 会话也实时维护可见投影；活跃会话镜像 Snapshot）。
+	sessionID := service.components.tasks.SessionIDForRequest(requestID)
+	runtime := service.sessionChatLocked(sessionID)
+	running := runtime.chat.Running && runtime.chat.RequestID == requestID
+	if !running && service.Core.Snapshot.Chat.Running && service.Core.Snapshot.Chat.RequestID == requestID {
+		running = true
+		sessionID = service.Core.Snapshot.Session.ID
+		runtime = service.sessionChatLocked(sessionID)
+	}
+	if !running {
 		service.Mu.Unlock()
 		return
 	}
+	view := service.components.view.SessionViewLocked(sessionID)
 	messageID := ""
-	for index := len(service.Core.Snapshot.Conversation) - 1; index >= 0; index-- {
-		if service.Core.Snapshot.Conversation[index].Role == "assistant" && service.Core.Snapshot.Conversation[index].Tool == nil {
-			service.Core.Snapshot.Conversation[index].Content += chunk
-			messageID = service.Core.Snapshot.Conversation[index].ID
+	for index := len(view.Conversation) - 1; index >= 0; index-- {
+		if view.Conversation[index].Role == "assistant" && view.Conversation[index].Tool == nil {
+			view.Conversation[index].Content += chunk
+			messageID = view.Conversation[index].ID
 			break
 		}
 	}
+	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
 	service.Events.Publish(EventMessageDelta, revision, requestID, MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {
+	service.appendHistoryLockedFor(service.Core.Snapshot.Session.ID, history)
+}
+
+// appendHistoryLockedFor 把引擎历史追加为指定会话的可见消息（冷加载无
+// record 的旧格式会话恢复路径；阶段 1：写会话 view）。
+func (service *Service) appendHistoryLockedFor(sessionID string, history []EngineMessage) {
 	for _, historyMessage := range history {
 		if !isVisibleHistoryMessage(historyMessage) {
 			continue
@@ -537,14 +548,14 @@ func (service *Service) appendHistoryLocked(history []EngineMessage) {
 			if historyMessage.Role == "user" {
 				content = displayUserInput(content)
 			}
-			service.appendMessageLocked(historyMessage.Role, content, nil)
+			service.appendSessionMessageLocked(sessionID, historyMessage.Role, content, nil)
 		}
 		for _, call := range historyMessage.ToolCalls {
-			service.appendMessageLocked("tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"})
+			service.appendSessionMessageLocked(sessionID, "tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"})
 		}
 		if historyMessage.Role == "tool" {
 			visible, ref, truncated, totalChars := service.boundToolResultForSnapshot(historyMessage.Name, historyMessage.Content)
-			service.appendMessageLocked("tool_result", visible, &ToolCall{
+			service.appendSessionMessageLocked(sessionID, "tool_result", visible, &ToolCall{
 				ID: historyMessage.ToolCallID, Name: historyMessage.Name,
 				Result: visible, Status: "success",
 				ResultRef: ref, Truncated: truncated, TotalChars: totalChars,

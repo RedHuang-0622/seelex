@@ -624,6 +624,23 @@ func (port *EnginePort) ReleaseWorkingHistoryFor(sessionID string) {
 	}
 	engine.ClearHistory()
 }
+
+// UnloadSession 释放指定会话的引擎实例（阶段 2 生命周期：unload 后重开走
+// cold_load；活跃会话卸载时清空活跃别名）。
+func (port *EnginePort) UnloadSession(sessionID string) error {
+	port.mu.Lock()
+	defer port.mu.Unlock()
+	if port.engineCalls[sessionID] > 0 {
+		return fmt.Errorf("engine: session %q is busy", sessionID)
+	}
+	delete(port.engines, sessionID)
+	delete(port.engineCalls, sessionID)
+	if port.sessionID == sessionID {
+		port.engine = nil
+		port.sessionID = ""
+	}
+	return nil
+}
 func (port *EnginePort) SessionID() string {
 	port.mu.RLock()
 	defer port.mu.RUnlock()

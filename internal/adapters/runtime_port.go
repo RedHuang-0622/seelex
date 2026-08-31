@@ -44,8 +44,8 @@ func (port RuntimePort) BindProjectRoot(rootPath string) error {
 	return port.Runtime.BindProjectRoot(rootPath)
 }
 func (port RuntimePort) UnbindProjectRoot() { port.Runtime.UnbindProjectRoot() }
-func (port RuntimePort) SetCurrentTaskBatch(batchID string) {
-	port.Runtime.SetCurrentTaskBatch(batchID)
+func (port RuntimePort) SetCurrentTaskBatch(sessionID, batchID string) {
+	port.Runtime.SetCurrentTaskBatch(sessionID, batchID)
 }
 func (port RuntimePort) TodoSnapshot() []dto.TodoItem {
 	return port.Runtime.TodoSnapshot()

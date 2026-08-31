@@ -33,6 +33,7 @@ type fakeEngine struct {
 	lastInput          string
 	maxLoops           int
 	releaseCalls       int
+	loadedSessions     map[string]bool
 	nodeContext        *snapshot.ContextSnapshot
 	nodeToolResultFn   func(string, string) (string, bool)
 	nodeWorktreeInfoFn func(string) (seelebridge.NodeWorktreeInfo, bool)
@@ -140,6 +141,10 @@ func (engine *fakeEngine) StartSession() string {
 	engine.sessionID = "session-new"
 	engine.history = nil
 	engine.cleared = true
+	if engine.loadedSessions == nil {
+		engine.loadedSessions = make(map[string]bool)
+	}
+	engine.loadedSessions["session-new"] = true
 	return engine.sessionID
 }
 
@@ -148,6 +153,10 @@ func (engine *fakeEngine) ReplaceHistory(sessionID string, history []EngineMessa
 	defer engine.mu.Unlock()
 	engine.sessionID = sessionID
 	engine.history = append([]EngineMessage(nil), history...)
+	if engine.loadedSessions == nil {
+		engine.loadedSessions = make(map[string]bool)
+	}
+	engine.loadedSessions[sessionID] = true
 	return nil
 }
 
@@ -260,7 +269,7 @@ func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []EngineMe
 func (engine *fakeEngine) HasSession(sessionID string) bool {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	return engine.sessionID == sessionID || engine.sessionID != ""
+	return engine.loadedSessions[sessionID]
 }
 
 type fakeRuntime struct {
@@ -574,7 +583,7 @@ func (runtime *fakeRuntime) UnbindProjectRoot() { runtime.projectRoot = "" }
 
 // SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
 // 各自 SetCurrentTaskBatch），fake 需加锁镜像生产 Runtime 的线程安全。
-func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string) {
+func (runtime *fakeRuntime) SetCurrentTaskBatch(sessionID, batchID string) {
 	runtime.mailboxMu.Lock()
 	runtime.currentBatch = batchID
 	runtime.mailboxMu.Unlock()

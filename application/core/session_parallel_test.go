@@ -90,6 +90,20 @@ func (e *multiSessionEngine) register(sessionID string) {
 	debugLog("register session=%s", sessionID)
 }
 
+// UnloadSession 释放指定会话的引擎状态（阶段 2 生命周期）。
+func (e *multiSessionEngine) UnloadSession(sessionID string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.sessions, sessionID)
+	delete(e.started, sessionID)
+	delete(e.release, sessionID)
+	delete(e.streamCalls, sessionID)
+	if e.active == sessionID {
+		e.active = ""
+	}
+	return nil
+}
+
 // debugSnapshot 返回引擎侧诊断快照（断点现场；自动加锁）。
 func (e *multiSessionEngine) debugSnapshot(sessionIDs ...string) string {
 	e.mu.Lock()
@@ -219,8 +233,8 @@ func (e *multiSessionEngine) SetSystemPromptFor(sessionID, prompt string) {}
 
 func (e *multiSessionEngine) ClearHistory() { e.ClearHistoryFor(e.SessionID()) }
 
-func (e *multiSessionEngine) TokenCount() string { return "0" }
-func (e *multiSessionEngine) TraceText() string  { return "" }
+func (e *multiSessionEngine) TokenCount() string                   { return "0" }
+func (e *multiSessionEngine) TraceText() string                    { return "" }
 func (e *multiSessionEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 func (e *multiSessionEngine) SetSystemPrompt(string)               {}
 func (e *multiSessionEngine) SetMaxLoops(int)                      {}
@@ -294,9 +308,7 @@ func TestParallelSessionsExecuteConcurrently(t *testing.T) {
 	}
 
 	// 活跃会话快照只包含会话 A 的消息（B 的后台执行不污染）。
-	service.Mu.RLock()
 	snapshot := service.Snapshot()
-	service.Mu.RUnlock()
 	for _, message := range snapshot.Conversation {
 		if message.Content == "task B" {
 			t.Logf("BREAKPOINT background session B polluted active snapshot:\n%s", dumpParallelState(service, engine, aID, bID))

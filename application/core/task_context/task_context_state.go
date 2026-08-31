@@ -844,6 +844,17 @@ func (c *Coordinator) removeCommittedToolResultsLocked(st *sessionTaskRuntime, c
 	st.pendingToolResults = pending
 }
 
+// UnloadSessionState 释放指定会话的任务/plan 运行时状态（阶段 2 生命周期；
+// 调用方持有 Core.Mu）。unload 后重开走 cold_load。
+func (c *Coordinator) UnloadSessionState(sessionID string) {
+	delete(c.sessionStates, sessionID)
+	for requestID, sid := range c.requestToSession {
+		if sid == sessionID {
+			delete(c.requestToSession, requestID)
+		}
+	}
+}
+
 // TokenCounterName 返回当前 token 计数器标识。
 func (c *Coordinator) TokenCounterName() string {
 	return c.tokenCounter.Name()

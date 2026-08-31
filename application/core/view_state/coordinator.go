@@ -140,9 +140,16 @@ func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjec
 	c.refreshWorkTableLocked(projection.Tasks)
 }
 
-// AppendMessageLocked 追加一条可见消息（返回快照内引用；调用方持有
-// Core.Mu）。
+// AppendMessageLocked 追加一条可见消息到当前活跃会话（调用方持有
+// Core.Mu；委托 AppendMessageLockedFor）。
 func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message {
+	return c.AppendMessageLockedFor(c.Snapshot.Session.ID, role, content, tool)
+}
+
+// AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进
+// 每会话 SessionView；活跃会话同步镜像 Snapshot，后台会话只写自身 scope，
+// hot_attach 回看有数据）。
+func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message {
 	// 子代理继承上下文（SubagentContextMarker 前缀）只注入 provider history
 	// 供模型消费，不进入可见会话区。
 	if role == "user" && strings.HasPrefix(content, SubagentContextMarker) {
@@ -151,23 +158,97 @@ func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.Tool
 	if role == "assistant" || role == "tool_result" {
 		content = chat.StripThoughtBlocks(content)
 	}
+	view := c.sessionViewLocked(sessionID)
 	c.messageSeq++
 	message := model.Message{ID: fmt.Sprintf("message-%d", c.messageSeq), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
-	visibleBefore := durableConversationCount(c.Snapshot.Conversation)
-	c.Snapshot.Conversation = append(c.Snapshot.Conversation, message)
+	view.Conversation = append(view.Conversation, message)
 	if role != "system" {
-		if c.Snapshot.TotalMessages < visibleBefore {
-			c.Snapshot.TotalMessages = visibleBefore
-		}
-		c.Snapshot.TotalMessages++
+		view.TotalMessages++
 	}
-	c.boundConversationTailLocked()
-	for index := len(c.Snapshot.Conversation) - 1; index >= 0; index-- {
-		if c.Snapshot.Conversation[index].ID == message.ID {
-			return &c.Snapshot.Conversation[index]
+	c.boundViewTailLocked(view)
+	c.mirrorActiveViewLocked(sessionID, view)
+	for index := len(view.Conversation) - 1; index >= 0; index-- {
+		if view.Conversation[index].ID == message.ID {
+			return &view.Conversation[index]
 		}
 	}
 	return &message
+}
+
+// sessionViewLocked 返回指定会话的可见投影（按需创建；调用方持有 Core.Mu）。
+func (c *Coordinator) sessionViewLocked(sessionID string) *state.SessionView {
+	if c.SessionViews == nil {
+		c.SessionViews = make(map[string]*state.SessionView)
+	}
+	view := c.SessionViews[sessionID]
+	if view == nil {
+		view = &state.SessionView{}
+		c.SessionViews[sessionID] = view
+	}
+	return view
+}
+
+// SessionViewLocked 返回指定会话的可见投影（core 域恢复/回看路径用；
+// 调用方持有 Core.Mu）。
+func (c *Coordinator) SessionViewLocked(sessionID string) *state.SessionView {
+	return c.sessionViewLocked(sessionID)
+}
+
+// SetSessionViewLocked 装载指定会话的可见投影（冷加载/恢复路径；调用方
+// 持有 Core.Mu）。活跃会话同步镜像 Snapshot。
+func (c *Coordinator) SetSessionViewLocked(sessionID string, view *state.SessionView) {
+	if view == nil {
+		return
+	}
+	copy := &state.SessionView{
+		Conversation:       append([]model.Message(nil), view.Conversation...),
+		Chat:               view.Chat,
+		ReadFiles:          append([]model.ReadFileRef(nil), view.ReadFiles...),
+		TotalMessages:      view.TotalMessages,
+		HistoryOffset:      view.HistoryOffset,
+		HasMoreHistory:     view.HasMoreHistory,
+		ConversationWindow: view.ConversationWindow,
+	}
+	c.SessionViews[sessionID] = copy
+	c.mirrorActiveViewLocked(sessionID, copy)
+}
+
+// SetSessionChatLockedFor 写指定会话的聊天运行态投影（调用方持有
+// Core.Mu；活跃会话同步镜像 Snapshot.Chat）。
+func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatState) {
+	view := c.sessionViewLocked(sessionID)
+	view.Chat = chat
+	if sessionID == c.Snapshot.Session.ID {
+		c.Snapshot.Chat = chat
+	}
+}
+
+// SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.Mu）。
+func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFileRef) {
+	view := c.sessionViewLocked(sessionID)
+	view.ReadFiles = append([]model.ReadFileRef(nil), readFiles...)
+	c.mirrorActiveViewLocked(sessionID, view)
+}
+
+// mirrorActiveViewLocked 把指定会话的 scope 镜像到 Snapshot（仅当目标为
+// 当前活跃会话；调用方持有 Core.Mu）。
+func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *state.SessionView) {
+	if sessionID != c.Snapshot.Session.ID {
+		return
+	}
+	c.Snapshot.Conversation = append([]model.Message(nil), view.Conversation...)
+	c.Snapshot.ReadFiles = append([]model.ReadFileRef(nil), view.ReadFiles...)
+	c.Snapshot.TotalMessages = view.TotalMessages
+	c.Snapshot.HistoryOffset = view.HistoryOffset
+	c.Snapshot.HasMoreHistory = view.HasMoreHistory
+	c.Snapshot.ConversationWindow = view.ConversationWindow
+}
+
+// MirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot（切换/恢复
+// 后调用；调用方持有 Core.Mu）。
+func (c *Coordinator) MirrorActiveViewLocked() {
+	view := c.sessionViewLocked(c.Snapshot.Session.ID)
+	c.mirrorActiveViewLocked(c.Snapshot.Session.ID, view)
 }
 
 // AdvanceMessageSeqLocked 按既有消息 ID 推进消息序列（会话恢复路径）。
@@ -189,19 +270,19 @@ func (c *Coordinator) NextMessageSeqLocked() uint64 {
 	return c.messageSeq
 }
 
-func (c *Coordinator) boundConversationTailLocked() {
+func (c *Coordinator) boundViewTailLocked(view *state.SessionView) {
 	window := c.limits().HistoryWindow
 	if window <= 0 {
 		window = 1
 	}
-	c.Snapshot.ConversationWindow = window
-	c.Snapshot.Conversation = BoundConversationTail(c.Snapshot.Conversation, window)
-	visible := durableConversationCount(c.Snapshot.Conversation)
-	c.Snapshot.HistoryOffset = c.Snapshot.TotalMessages - visible
-	if c.Snapshot.HistoryOffset < 0 {
-		c.Snapshot.HistoryOffset = 0
+	view.ConversationWindow = window
+	view.Conversation = BoundConversationTail(view.Conversation, window)
+	visible := durableConversationCount(view.Conversation)
+	view.HistoryOffset = view.TotalMessages - visible
+	if view.HistoryOffset < 0 {
+		view.HistoryOffset = 0
 	}
-	c.Snapshot.HasMoreHistory = c.Snapshot.HistoryOffset > 0
+	view.HasMoreHistory = view.HistoryOffset > 0
 }
 
 func durableConversationCount(messages []model.Message) int {

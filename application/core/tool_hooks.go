@@ -31,7 +31,8 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 		tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}
 		message = *service.appendMessageLocked("tool", "", tool)
 	} else {
-		message = service.buildBackgroundMessage("tool", "", &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"})
+		// 阶段 1：后台会话工具消息写自身 view（hot_attach 回看可见）。
+		message = *service.appendSessionMessageLocked(sessionID, "tool", "", &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"})
 	}
 
 	// plan_load 启动时：解析 DAG 并初始化 PlanState（Plan 状态属活跃会话；
@@ -118,8 +119,9 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.lock.done")
 	toolArguments := arguments
 	if toolArguments == "" {
-		for index := len(service.Core.Snapshot.Conversation) - 1; index >= 0; index-- {
-			tool := service.Core.Snapshot.Conversation[index].Tool
+		view := service.sessionViewLocked(sessionID)
+		for index := len(view.Conversation) - 1; index >= 0; index-- {
+			tool := view.Conversation[index].Tool
 			if tool != nil && tool.ID == id {
 				toolArguments = tool.Arguments
 				break
@@ -148,9 +150,10 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	// （≤ limits.snapshot_tool_output_chars），完整输出归档 result_ref，
 	// 前端"加载完整输出"再取——60KB 级全文不再随快照/事件进渲染进程。
 	visibleContent, resultRef, truncated, totalChars := service.boundToolResultForSnapshot(name, result)
-	if active {
-		for index := len(service.Core.Snapshot.Conversation) - 1; index >= 0; index-- {
-			tool := service.Core.Snapshot.Conversation[index].Tool
+	{
+		view := service.sessionViewLocked(sessionID)
+		for index := len(view.Conversation) - 1; index >= 0; index-- {
+			tool := view.Conversation[index].Tool
 			if tool != nil && tool.ID == id {
 				tool.Status, tool.Result, tool.Error, tool.Duration = status, visibleContent, errorText, duration
 				tool.ResultRef, tool.Truncated, tool.TotalChars = resultRef, truncated, totalChars
@@ -158,8 +161,9 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 			}
 		}
 	}
+	service.mirrorActiveViewLocked()
 	if active && name == "read_file" && toolErr == nil {
-		service.components.sessions.RecordReadFileLocked(toolArguments)
+		service.recordReadFileForSessionLocked(sessionID, toolArguments)
 	}
 	if active && name == "plan_load" && toolErr == nil {
 		service.components.tasks.PushLoadedPlanLocked(toolArguments, time.Now())
@@ -200,7 +204,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 			assistant = &appended
 		}
 	} else {
-		message = service.buildBackgroundMessage("tool_result", content, &ToolCall{
+		message = *service.appendSessionMessageLocked(sessionID, "tool_result", content, &ToolCall{
 			ID: id, Name: name, Result: visibleContent, Error: errorText,
 			Status: status, Duration: duration,
 			ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,

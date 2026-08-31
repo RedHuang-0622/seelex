@@ -179,6 +179,10 @@ type Runtime struct {
 	// DurableHistory 按显式键落盘用，R3 键漂移收敛）。
 	sessionWorkspacesMu sync.RWMutex
 	sessionWorkspaces   map[string]string
+	// sessionBatches 是会话级默认批次（阶段 1 L3：后台会话不覆盖活跃
+	// 注册表默认批次）。
+	sessionBatchesMu sync.Mutex
+	sessionBatches   map[string]string
 }
 
 // MainSessionID 返回当前主会话 ID（压缩帧 SegmentID 溯源；空 = 未创建）。
@@ -282,6 +286,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		bundles:              make(map[string]*sessionBundle),
 		sessionTaskSnapshots: make(map[string][]dto.TaskRecord),
 		sessionWorkspaces:    make(map[string]string),
+		sessionBatches:       make(map[string]string),
 		startupWarnings:      startupWarnings,
 	}
 	// 账号路由状态收敛为 account.Manager：选中账号/provider 过滤/限额。

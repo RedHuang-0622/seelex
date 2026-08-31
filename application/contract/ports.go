@@ -114,9 +114,9 @@ type RuntimePort interface {
 	SetPlanBranchBinding(dto.PlanBranchBinding)
 	BindProjectRoot(rootPath string) error
 	UnbindProjectRoot()
-	// SetCurrentTaskBatch 设置 task 注册表默认批次（startChat 写入
-	// requestID；此后创建的 todo/task/plan/subagent 条目自动盖章）。
-	SetCurrentTaskBatch(batchID string)
+	// SetCurrentTaskBatch 设置会话级 task 注册表默认批次（startChat 写入
+	// requestID；按会话保存，后台会话不覆盖活跃注册表默认批次——L3）。
+	SetCurrentTaskBatch(sessionID, batchID string)
 	// TodoSnapshot 返回当前 todolist 清单只读拷贝（GUI 待办面板数据源）。
 	TodoSnapshot() []dto.TodoItem
 	// SetTodoStatus 设置待办项三态（pending/doing/done；GUI 工作表格状态
