@@ -68,9 +68,10 @@ test("relays a completed main-agent tool result through the GUI reducer and rend
   assert.deepEqual(incrementals, ["tool.started", "tool.completed", "runtime.changed"]);
   assert.equal(current.runtime.full_access, true, "authoritative full-access state must reach the frontend");
   assert.ok(tool, "completed tool card must retain the started tool key");
-  assert.deepEqual(JSON.parse(rendered.payloads.get("tool:tool-1-out")), JSON.parse(result));
-  assert.doesNotMatch(tool.html, /Waiting for output/);
+  assert.match(tool.html, /class="chat-chip is-tool"/);
+  assert.match(tool.html, /data-trajectory-key="tool:tool-1"/);
   assert.match(tool.html, /tool-run is-success/);
+  assert.doesNotMatch(tool.html, /Waiting for output/);
 });
 
 test("relays mocked seelex:event subagent activity through the GUI client reducer", async () => {

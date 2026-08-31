@@ -143,6 +143,11 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		var reply string
 		reply, err = service.chatStream(ctx, sessionID, modelInput, onChunk)
 		runChatDebug("runChat chatStream returned session=%s request=%s replyLen=%d err=%v", sessionID, requestID, len(reply), err)
+		if err == nil {
+			// 回合结束后把引擎历史中最后一次 assistant 的推理内容挂到可见消息：
+			// 聊天区一行带过，轨迹区完整查看（reasoning_content 与 content 分离）。
+			service.attachLatestReasoning(sessionID, requestID)
+		}
 		// 模型输出观测（自然终态判定输入面）
 		_ = service.components.tasks.ObserveModelOutput(ctx, task_context.ModelOutput{RequestID: requestID, Reply: reply, Err: err})
 		if reply != "" {
@@ -532,6 +537,50 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	service.Events.Publish(EventMessageDelta, revision, requestID, MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
+// attachLatestReasoning 在聊天回合结束后，把引擎历史中最后一次 assistant
+// 的推理内容挂到可见 assistant 消息（ReasoningContent 字段）。推理内容与
+// content 分离：聊天区一行带过，轨迹区完整查看；不写入 content，避免与
+// 可见回复混排。找不到目标消息或内容未变化时静默返回。
+func (service *Service) attachLatestReasoning(sessionID, requestID string) {
+	history := service.engineHistoryFor(sessionID)
+	reasoning := ""
+	for index := len(history) - 1; index >= 0; index-- {
+		if history[index].Role == "assistant" && history[index].ReasoningContent != "" {
+			reasoning = history[index].ReasoningContent
+			break
+		}
+	}
+	if reasoning == "" {
+		return
+	}
+	service.Mu.Lock()
+	view := service.sessionViewLocked(sessionID)
+	messageID := ""
+	for index := len(view.Conversation) - 1; index >= 0; index-- {
+		if view.Conversation[index].Role != "assistant" || view.Conversation[index].Tool != nil {
+			continue
+		}
+		if view.Conversation[index].ReasoningContent == reasoning {
+			service.Mu.Unlock()
+			return
+		}
+		view.Conversation[index].ReasoningContent = reasoning
+		messageID = view.Conversation[index].ID
+		break
+	}
+	if messageID == "" {
+		service.Mu.Unlock()
+		return
+	}
+	service.mirrorActiveViewLocked()
+	revision := service.bumpLocked()
+	service.Mu.Unlock()
+	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{
+		MessageID:        messageID,
+		ReasoningContent: reasoning,
+	})
+}
+
 func (service *Service) appendHistoryLocked(history []EngineMessage) {
 	service.appendHistoryLockedFor(service.Core.Snapshot.Session.ID, history)
 }
@@ -548,7 +597,10 @@ func (service *Service) appendHistoryLockedFor(sessionID string, history []Engin
 			if historyMessage.Role == "user" {
 				content = displayUserInput(content)
 			}
-			service.appendSessionMessageLocked(sessionID, historyMessage.Role, content, nil)
+			appended := service.appendSessionMessageLocked(sessionID, historyMessage.Role, content, nil)
+			if historyMessage.ReasoningContent != "" && appended != nil {
+				appended.ReasoningContent = historyMessage.ReasoningContent
+			}
 		}
 		for _, call := range historyMessage.ToolCalls {
 			service.appendSessionMessageLocked(sessionID, "tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"})

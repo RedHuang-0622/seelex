@@ -81,7 +81,7 @@ export function buildTrajectory(messages = []) {
       } else if (role === "assistant") {
         // 空 assistant 是工具回合后的占位消息，对轨迹无信息量，跳过。
         if (!message.content) continue;
-        push({ kind: "llm", key: `message:${message.id || index}`, name: "LLM", output: message.content, status: "success", startedAt: createdAt, duration: 0 });
+        push({ kind: "llm", key: `message:${message.id || index}`, name: "LLM", output: message.content, reasoning: message.reasoning_content || "", status: "success", startedAt: createdAt, duration: 0 });
       } else if (role === "error") {
         push({ kind: "error", key: `message:${message.id || index}`, name: "错误", output: message.content || "", status: "error", startedAt: createdAt, duration: 0 });
       } else {
@@ -171,6 +171,39 @@ export function renderTrajectorySummary(stats) {
   return `<div class="trajectory-summary">共 ${stats.total} 条${statuses ? ` · ${statuses}` : ""}</div>`;
 }
 
+// contextAxisWeight 返回上下文轴上该记录占据的相对体量：工具记录按输出/输入
+// 字符数，其余按内容与推理字符数；最小为 1，保证记录都有可见落点。
+export function contextAxisWeight(record) {
+  if (record.kind === "tool") {
+    return Math.max(Number(record.totalChars) || String(record.output || "").length || String(record.input || "").length, 1);
+  }
+  return Math.max(String(record.output || "").length + String(record.reasoning || "").length, 1);
+}
+
+// renderContextAxis 渲染轨迹视图顶部的上下文轴（类 Network 面板的 Overview，
+// 但横轴是「对话顺序 + 内容体量」而非时间）。每个记录是一个可点击段，点击后
+// 由视图定位到对应轨迹行；空数据给出引导文案。
+export function renderContextAxis(records = []) {
+  if (!records.length) return '<div class="context-axis-empty">暂无上下文轴数据</div>';
+  const weights = records.map(contextAxisWeight);
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  const track = records.map((record, index) => {
+    const percent = Math.max((weights[index] / total) * 100, 0.5);
+    const label = record.kind === "tool" ? (record.toolName || record.name) : trajectoryKindLabel(record.kind);
+    const size = trajectorySize(record);
+    const statusClass = statusClassName(record.status);
+    return `<button type="button" class="axis-segment is-${escapeHtml(record.kind)} ${statusClass}" style="--w:${percent.toFixed(2)}%" data-trajectory-key="${escapeHtml(record.key)}" title="${escapeHtml(`${label} · ${size} · 点击定位轨迹行`)}" aria-label="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
+  }).join("");
+  const legend = TRAJECTORY_KINDS.map(kind =>
+    `<span class="axis-legend-item is-${kind.kind}">${trajectoryKindIcon(kind.kind, 11)}${escapeHtml(kind.label)}</span>`
+  ).join("");
+  return `<div class="context-axis" role="group" aria-label="上下文轴（按对话顺序，非时间轴）">
+    <div class="context-axis-head"><strong>上下文轴</strong><span>按对话顺序排列 · 宽度 ∝ 内容体量 · 点击定位</span></div>
+    <div class="context-axis-track">${track}</div>
+    <div class="context-axis-legend">${legend}</div>
+  </div>`;
+}
+
 // 表头行（Network 面板的列定义）。
 const TRAJECTORY_COLUMNS = ["时间", "类型", "名称", "状态", "耗时", "大小"];
 
@@ -210,6 +243,9 @@ export function renderTrajectoryRow(record, key, payloads) {
   const outputKey = `${key}-out`;
   payloads.set(inputKey, input);
   payloads.set(outputKey, output);
+  if (record.reasoning) {
+    payloads.set(`${outputKey}-think`, String(record.reasoning));
+  }
 
   const detail = record.kind === "tool"
     ? renderTrajectoryDetail({ input, output, inputKey, outputKey, record, statusClass })
@@ -269,10 +305,21 @@ function renderTrajectoryTextDetail({ output, outputKey, record }) {
   const fullButton = view.truncated
     ? `<button class="io-expand" type="button" data-expand="${outputKey}" title="展开完整内容">${svgExpand()} <span>+${view.hidden} chars</span></button>`
     : "";
+  const think = String(record.reasoning || "").trim();
+  const thinkKey = `${outputKey}-think`;
+  const thinkView = think ? limitText(think, 4000, 40) : null;
+  const thinkPanel = thinkView
+    ? `<section class="io-panel trajectory-think" data-payload="${thinkKey}">
+        <header><span class="io-label">THINK</span><span class="io-meta">${thinkView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${thinkKey}" title="复制思考内容" aria-label="复制思考内容">${svgCopy()}</button></header>
+        <pre>${escapeHtml(thinkView.preview)}</pre>
+        ${thinkView.truncated ? `<button class="io-expand" type="button" data-expand="${thinkKey}" title="展开完整内容">${svgExpand()} <span>+${thinkView.hidden} chars</span></button>` : ""}
+      </section>`
+    : "";
   const body = view.truncated
     ? `<details class="io-collapse"><summary><span>查看内容</span><span class="io-collapse-meta">${escapeHtml(String(view.total))} chars</span></summary><pre>${escapeHtml(view.preview)}</pre></details>`
     : `<pre>${escapeHtml(view.preview)}</pre>`;
   return `<div class="trajectory-text-panel">
+    ${thinkPanel}
     <section class="io-panel ${record.status === "error" ? "io-error" : ""}" data-payload="${outputKey}">
       <header><span class="io-label">BODY</span><span class="io-meta">${view.total} chars</span><button class="icon-button subtle" type="button" data-copy="${outputKey}" title="复制内容" aria-label="复制内容">${svgCopy()}</button></header>
       ${body}

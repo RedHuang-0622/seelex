@@ -267,6 +267,22 @@ elements["conversation-tabs"].addEventListener("click", event => {
   setConversationTab(button.dataset.tab);
 });
 
+// 聊天区「一行带过」的思考/工具 chip 点击 → 切到轨迹子页并定位对应记录。
+elements.conversation.addEventListener("click", event => {
+  const chip = event.target.closest(".chat-chip[data-trajectory-key]");
+  const key = chip?.dataset.trajectoryKey;
+  if (!key) return;
+  setConversationTab("trajectory");
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`[data-trajectory-key="${CSS.escape(key)}"]`);
+    if (!row) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+    row.classList.add("is-flash");
+    setTimeout(() => row.classList.remove("is-flash"), 1400);
+  });
+});
+
 // ── 右侧栏子页（状态 / 工作台 / 代码）───────────────────────
 // 子页切换是纯 UI 状态（localStorage 记忆）；业务事实仍来自 Snapshot/Event。
 const RIGHT_TAB_KEY = "seelex.right.tab";

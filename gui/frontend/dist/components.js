@@ -154,88 +154,44 @@ function renderMessage(message, key) {
   const role = message.role || "assistant";
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const label = role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
+  const thinking = role === "assistant" && String(message.reasoning_content || "").trim()
+    ? `<button type="button" class="chat-chip is-thinking" data-trajectory-key="${escapeHtml(key)}" title="完整思考过程见轨迹视图">
+        <span class="chat-chip-icon">${icon("source", 11)}</span>
+        <span class="chat-chip-name">思考</span>
+        <span class="chat-chip-meta">${formatChars(String(message.reasoning_content).length)}</span>
+        <span class="chat-chip-hint">完整内容 → 轨迹</span>
+      </button>`
+    : "";
   return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}">
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(time)}</span></div>
+    ${thinking}
     <div class="message-body">${markdown(message.content || "")}</div>
   </article>`;
 }
 
 function renderToolCall(tool, key, payloads) {
-  const input = prettyValue(tool.input) || "—";
-  const output = prettyValue(tool.output) || (tool.status === "pending" || tool.status === "running" ? "Waiting for output…" : "—");
-  const inputKey = `${key}-in`;
-  const outputKey = `${key}-out`;
-  payloads.set(inputKey, input);
-  payloads.set(outputKey, output);
-  const inputView = limitText(input, 1400, 28);
-  // 快照截断渲染（根因链治本）：后端已把超限输出截断为 ≤8KB 预览并
-  // 归档 result_ref，前端再把渲染预算压到 4KB/40 行（默认折叠成
-  // <details>），并把"加载完整输出"挂在 result_ref 上点击按需拉取——
-  // 60KB 级全文不进 DOM，展开过的大块只保留在已展开节点内。
-  const previewLimit = 4000;
-  const previewLines = 40;
-  const outputView = limitText(output, previewLimit, previewLines);
-  const ref = tool.resultRef || "";
   const status = statusMeta(tool.status, tool.error);
   return `<article class="tool-run ${status.className}" data-conversation-key="${escapeHtml(key)}">
-    <header class="tool-run-head">
-      <span class="tool-symbol">${icon("terminal", 15)}</span>
-      <strong>${escapeHtml(tool.name)}</strong>
-      ${tool.duration ? `<span class="tool-duration">${escapeHtml(formatDuration(tool.duration))}</span>` : ""}
-      <span class="tool-state">${icon(status.icon, 13)} ${status.label}</span>
-    </header>
-    <div class="tool-io-grid">
-      ${renderIOPanel("IN", inputView, inputKey, false)}
-      ${renderIOPanel("OUT", outputView, outputKey, Boolean(tool.error), {
-        resultRef: ref,
-        truncated: tool.truncated,
-        totalChars: tool.totalChars || outputView.total,
-        collapsed: outputView.truncated
-      })}
-    </div>
+    <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图">
+      <span class="tool-symbol">${icon("terminal", 13)}</span>
+      <strong class="chat-chip-name">${escapeHtml(tool.name)}</strong>
+      <span class="tool-state">${icon(status.icon, 11)} ${status.label}</span>
+      ${tool.duration ? `<span class="chat-chip-meta">${escapeHtml(formatDuration(tool.duration))}</span>` : ""}
+      ${chatChipSize(tool) ? `<span class="chat-chip-meta">${escapeHtml(chatChipSize(tool))}</span>` : ""}
+      <span class="chat-chip-hint">完整内容 → 轨迹</span>
+    </button>
   </article>`;
 }
 
-function renderIOPanel(label, view, payloadKey, error, extra = {}) {
-  const hidden = Number(view.hidden) || 0;
-  const note = error ? "" : view.truncated
-    ? extra.resultRef
-      ? `<span class="io-note">预览 ${view.total} 字符 · 全文 ${extra.totalChars} 字符（默认折叠，点击加载）</span>`
-      : `<span class="io-note">预览 ${view.total} 字符</span>`
-    : "";
-  const fullButton = extra.resultRef && extra.truncated
-    ? `<button class="io-expand" type="button" data-load-ref="${escapeHtml(extra.resultRef)}" title="加载完整输出（按需拉取，默认折叠）">${icon("expand", 12)} <span>加载完整输出</span></button>`
-    : view.truncated
-      ? `<button class="io-expand" type="button" data-expand="${payloadKey}" title="展开完整内容">${icon("expand", 12)} <span>+${hidden} chars</span></button>`
-      : "";
-  const body = extra.collapsed
-    ? `<details class="io-collapse"${error ? " open" : ""}><summary><span>${error ? "查看错误" : "查看输出预览"}</span><span class="io-collapse-meta">${escapeHtml(String(view.total))} chars</span></summary><pre>${escapeHtml(view.preview)}</pre></details>`
-    : `<pre>${escapeHtml(view.preview)}</pre>`;
-  return `<section class="io-panel ${error ? "io-error" : ""}" data-payload="${payloadKey}">
-    <header><span class="io-label">${label}</span><span class="io-meta">${view.total} chars</span><button class="icon-button subtle" type="button" data-copy="${payloadKey}" title="复制 ${label}" aria-label="复制 ${label}">${icon("copy", 13)}</button></header>
-    ${body}
-    ${note}
-    ${fullButton}
-  </section>`;
+function chatChipSize(tool) {
+  const chars = Number(tool.totalChars) || String(tool.output || "").length;
+  if (chars <= 0) return "";
+  return chars < 1024 ? `${chars} B` : `${(chars / 1024).toFixed(chars < 10240 ? 1 : 0)} KB`;
 }
 
-function limitText(value, maxChars, maxLines) {
-  const text = String(value || "");
-  const lines = text.split("\n");
-  let preview = lines.slice(0, maxLines).join("\n");
-  if (preview.length > maxChars) preview = preview.slice(0, maxChars);
-  const truncated = preview.length < text.length;
-  return { preview, truncated, hidden: Math.max(text.length - preview.length, 0), total: text.length };
-}
-
-function prettyValue(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
+function formatChars(length) {
+  if (length < 1024) return `${length} 字符`;
+  return `${(length / 1024).toFixed(length < 10240 ? 1 : 0)} KB`;
 }
 
 function statusMeta(status, error) {

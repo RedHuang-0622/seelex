@@ -740,8 +740,19 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		t.Fatal(err)
 	}
 	componentSource := string(components)
-	if !strings.Contains(componentSource, `renderIOPanel("IN"`) || !strings.Contains(componentSource, `renderIOPanel("OUT"`) || !strings.Contains(componentSource, "previewLimit = 4000") || !strings.Contains(componentSource, `data-load-ref`) || !strings.Contains(componentSource, `io-collapse`) {
-		t.Fatal("tool component must split IN/OUT, cap preview (4KB), and offer result_ref expansion for truncated output")
+	if !strings.Contains(componentSource, `class="chat-chip is-tool"`) || !strings.Contains(componentSource, `data-trajectory-key`) || !strings.Contains(componentSource, `reasoning_content`) {
+		t.Fatal("chat view must collapse tool calls and thinking into one-line chips linked to the trajectory view")
+	}
+	trajectory, err := embeddedFrontend.ReadFile("frontend/dist/trajectory.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trajectorySource := string(trajectory)
+	if !strings.Contains(trajectorySource, `class="io-label">IN`) || !strings.Contains(trajectorySource, `class="io-label">OUT`) || !strings.Contains(trajectorySource, "limitText(output, 4000") || !strings.Contains(trajectorySource, `data-load-ref`) || !strings.Contains(trajectorySource, `io-collapse`) {
+		t.Fatal("trajectory detail must split IN/OUT, cap preview (4KB), and offer result_ref expansion for truncated output")
+	}
+	if !strings.Contains(trajectorySource, "renderContextAxis") || !strings.Contains(trajectorySource, "trajectory-think") {
+		t.Fatal("trajectory view must include the context axis and the full THINK panel")
 	}
 	if !strings.Contains(string(index), `data-icon="command"`) || !strings.Contains(string(index), `data-icon="send"`) {
 		t.Fatal("primary GUI actions must use icon controls")

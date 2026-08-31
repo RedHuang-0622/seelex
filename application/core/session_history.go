@@ -340,7 +340,7 @@ func adaptEngineMessage(msg EngineMessage) Message {
 	if context_runtime.IsProviderOnlyHistoryContent(content) {
 		content = ""
 	}
-	message := Message{Role: msg.Role, Content: content}
+	message := Message{Role: msg.Role, Content: content, ReasoningContent: msg.ReasoningContent}
 	for _, toolCall := range msg.ToolCalls {
 		message.Tool = &ToolCall{
 			ID: toolCall.ID, Name: toolCall.Name, Arguments: toolCall.Arguments, Status: "success",

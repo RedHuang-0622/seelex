@@ -97,11 +97,17 @@ function applyIncremental(snapshot, event, payload) {
 }
 
 function appendMessageDelta(snapshot, payload) {
-  if (!payload?.message_id || typeof payload.delta !== "string") return false;
+  if (!payload?.message_id) return false;
+  const hasDelta = typeof payload.delta === "string";
+  const hasReasoning = typeof payload.reasoning_content === "string";
+  if (!hasDelta && !hasReasoning) return false;
   const index = snapshot.conversation.findIndex(message => message.id === payload.message_id);
   if (index < 0) return false;
   const messages = [...snapshot.conversation];
-  messages[index] = { ...messages[index], content: (messages[index].content || "") + payload.delta };
+  const next = { ...messages[index] };
+  if (hasDelta) next.content = (messages[index].content || "") + payload.delta;
+  if (hasReasoning) next.reasoning_content = payload.reasoning_content;
+  messages[index] = next;
   snapshot.conversation = messages;
   markRunning(snapshot, snapshot.chat?.request_id);
   return true;

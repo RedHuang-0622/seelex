@@ -11,6 +11,7 @@ import {
   renderTrajectorySummary,
   renderTrajectoryTable,
   renderTrajectoryRow,
+  renderContextAxis,
   escapeHtml
 } from "./trajectory.js";
 
@@ -65,6 +66,25 @@ test("skips empty assistant placeholders (tool-round markers)", () => {
     { id: "a-empty-2", role: "assistant", content: "", created_at: "2026-08-25T10:00:04Z" }
   ]);
   assert.deepEqual(records.map(record => record.kind), ["input", "tool"]);
+});
+
+test("carries reasoning_content on llm records for the trajectory view", () => {
+  const records = buildTrajectory([
+    { id: "a1", role: "assistant", content: "answer", reasoning_content: "thinking steps", created_at: "2026-08-25T10:00:01Z" }
+  ]);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].reasoning, "thinking steps");
+});
+
+test("renders THINK panel with full reasoning in trajectory detail", () => {
+  const payloads = new Map();
+  const records = buildTrajectory([
+    { id: "a1", role: "assistant", content: "answer", reasoning_content: "step one\nstep two", created_at: "2026-08-25T10:00:01Z" }
+  ]);
+  const html = renderTrajectoryRow(records[0], records[0].key, payloads);
+  assert.match(html, /trajectory-think/);
+  assert.match(html, /class="io-label">THINK/);
+  assert.equal(payloads.get("message:a1-out-think"), "step one\nstep two");
 });
 
 test("merges tool_result by tool id and marks error status", () => {
@@ -200,6 +220,29 @@ test("renders summary counts", () => {
   assert.match(html, /共 2 条/);
   assert.match(html, /成功 1/);
   assert.match(html, /失败 1/);
+});
+
+test("renders context axis segments for every trajectory record", () => {
+  const records = buildTrajectory([
+    userMessage("u1", "hi"),
+    llmMessage("a1", "hello"),
+    toolStart("call-1", "bash", "{}"),
+    toolEnd("call-1", "bash", "done")
+  ]);
+  const html = renderContextAxis(records);
+  assert.match(html, /context-axis-track/);
+  assert.match(html, /data-trajectory-key="message:u1"/);
+  assert.match(html, /data-trajectory-key="message:a1"/);
+  assert.match(html, /data-trajectory-key="tool:call-1"/);
+  assert.match(html, /axis-segment is-input/);
+  assert.match(html, /axis-segment is-llm/);
+  assert.match(html, /axis-segment is-tool/);
+  assert.match(html, /axis-legend-item/);
+});
+
+test("renders context axis empty state", () => {
+  const html = renderContextAxis([]);
+  assert.match(html, /context-axis-empty/);
 });
 
 test("row rendering keeps duration and size columns", () => {

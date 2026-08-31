@@ -42,6 +42,16 @@ test("applies message additions and deltas without a snapshot refresh", () => {
   assert.equal(delta.snapshot.conversation[0].content, "AB");
 });
 
+test("applies reasoning_content deltas without touching visible content", () => {
+  const delta = applyEvent(snapshot(), {
+    protocol_version: 1, seq: 11, revision: 3, request_id: "chat-1", kind: "message.delta",
+    payload: JSON.stringify({ message_id: "assistant-1", reasoning_content: "thinking steps" })
+  }, 10);
+  assert.equal(delta.needsRefresh, false);
+  assert.equal(delta.snapshot.conversation[0].reasoning_content, "thinking steps");
+  assert.equal(delta.snapshot.conversation[0].content, "A");
+});
+
 test("requests resync for sequence gaps and unknown events", () => {
   const gap = applyEvent(snapshot(), { protocol_version: 1, seq: 4, kind: "message.delta" }, 2);
   assert.equal(gap.needsRefresh, true);

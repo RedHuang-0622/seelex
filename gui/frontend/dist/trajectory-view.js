@@ -13,7 +13,8 @@ import {
   trajectoryStats,
   renderTrajectoryFilters,
   renderTrajectorySummary,
-  renderTrajectoryTable
+  renderTrajectoryTable,
+  renderContextAxis
 } from "./trajectory.js";
 
 export function createTrajectoryView(container, options = {}) {
@@ -23,12 +24,14 @@ export function createTrajectoryView(container, options = {}) {
   let filter = "all";
   let lastRecordCount = -1;
 
-  // 骨架：过滤条 / 摘要 / 表格区三个固定子容器（各自独立更新）。
+  // 骨架：上下文轴 / 过滤条 / 摘要 / 表格区四个固定子容器（各自独立更新）。
   container.innerHTML = [
+    '<div class="trajectory-axis" data-trajectory-axis></div>',
     '<div class="trajectory-filters" data-trajectory-filters></div>',
     '<div class="trajectory-summary" data-trajectory-summary></div>',
     '<div class="trajectory-list" data-trajectory-list></div>'
   ].join("");
+  const axisEl = container.querySelector("[data-trajectory-axis]");
   const filtersEl = container.querySelector("[data-trajectory-filters]");
   const summaryEl = container.querySelector("[data-trajectory-summary]");
   const listEl = container.querySelector("[data-trajectory-list]");
@@ -39,6 +42,23 @@ export function createTrajectoryView(container, options = {}) {
     if (!button) return;
     setFilter(button.dataset.trajectoryFilter);
   });
+  // 上下文轴点击：先切回全量过滤保证行存在，再滚动定位并短暂高亮。
+  axisEl.addEventListener("click", event => {
+    const segment = event.target.closest(".axis-segment");
+    const key = segment?.dataset.trajectoryKey;
+    if (!key) return;
+    if (filter !== "all") setFilter("all");
+    requestAnimationFrame(() => focusRow(key));
+  });
+
+  function focusRow(key) {
+    const row = listEl.querySelector(`[data-trajectory-key="${CSS.escape(key)}"]`);
+    if (!row) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+    row.classList.add("is-flash");
+    setTimeout(() => row.classList.remove("is-flash"), 1400);
+  }
 
   // setFilter 更新本地过滤状态并重渲染（按钮 active 由 render 负责）。
   function setFilter(next) {
@@ -53,6 +73,8 @@ export function createTrajectoryView(container, options = {}) {
     records = Array.isArray(nextRecords) ? nextRecords : [];
     filter = nextFilter || "all";
     if (!active) return;
+    // 上下文轴始终反映完整对话顺序（与过滤状态无关）。
+    axisEl.innerHTML = renderContextAxis(records);
     const stats = trajectoryStats(records);
     filtersEl.innerHTML = renderTrajectoryFilters(records, filter);
     summaryEl.innerHTML = renderTrajectorySummary(stats);

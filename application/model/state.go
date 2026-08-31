@@ -83,11 +83,14 @@ const (
 )
 
 type Message struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content,omitempty"`
-	Tool      *ToolCall `json:"tool,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID      string `json:"id"`
+	Role    string `json:"role"`
+	Content string `json:"content,omitempty"`
+	// ReasoningContent 是模型推理内容（thinking）。可见消息里与 Content 分离：
+	// 聊天区只做一行带过，轨迹区完整查看；不做 HTML 注入，前端按纯文本渲染。
+	ReasoningContent string    `json:"reasoning_content,omitempty"`
+	Tool             *ToolCall `json:"tool,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 type ToolCall struct {
 	ID        string        `json:"id"`

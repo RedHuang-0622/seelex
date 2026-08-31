@@ -44,6 +44,8 @@ type Event struct {
 type MessageDelta struct {
 	MessageID string `json:"message_id"`
 	Delta     string `json:"delta"`
+	// ReasoningContent 在回合结束时整段送达（聊天区一行带过，轨迹区完整查看）。
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type Subscription struct {
