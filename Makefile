@@ -7,6 +7,8 @@ ARCHIVE_VERSION := $(patsubst v%,%,$(VERSION))
 DIST ?= dist
 POWERSHELL ?= powershell.exe
 LOCAL_CONFIG ?= config/accounts.yaml
+SMOKE_TARGET ?=
+CONFIRMED ?=
 GUI_PACKAGE := seelex-v$(ARCHIVE_VERSION)-windows-amd64-gui
 GUI_PACKAGE_ROOT := $(DIST)/$(GUI_PACKAGE)
 GUI_ARCHIVE := $(GUI_PACKAGE_ROOT).zip
@@ -15,7 +17,7 @@ GUI_CHECKSUM := $(GUI_ARCHIVE).sha256
 # 目标平台: OS/ARCH
 PLATFORMS := windows/amd64 linux/amd64 darwin/amd64 darwin/arm64
 
-.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui publish-build-gui rebuild-gui publish-rebuild-gui guard-dist guard-version guard-local-config help
+.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui publish-build-gui rebuild-gui publish-rebuild-gui stage-gui smoke-gui deploy-gui rollback-gui release-dev dev-flow guard-dist guard-version guard-local-config help
 
 ## all: 安全清理、构建所有平台并打包
 all: release
@@ -117,6 +119,36 @@ rebuild-gui: clean-gui
 ## publish-rebuild-gui: 清理并重建只含 example 的可发布 Windows GUI
 publish-rebuild-gui: clean-gui
 	@$(MAKE) publish-build-gui VERSION="$(VERSION)" DIST="$(DIST)" POWERSHELL="$(POWERSHELL)"
+
+## stage-gui: 阶段1 构建新 GUI 二进制到暂存区 tmp/staging-gui（不触碰基线工作区）
+stage-gui: guard-version
+	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+		-File scripts/seelex-flow.ps1 -Stage Stage -Version "$(VERSION)"
+
+## smoke-gui: 对暂存区/指定二进制做无头冒烟测试（SMOKE_TARGET 可指定路径）
+smoke-gui: guard-version
+	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+		-File scripts/seelex-flow.ps1 -Stage Smoke -Version "$(VERSION)" -SmokeTarget "$(SMOKE_TARGET)"
+
+## deploy-gui: 阶段2 部署暂存区二进制到基线工作区（进程检测+确认+stash 备份）
+deploy-gui: guard-version
+	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+		-File scripts/seelex-flow.ps1 -Stage Deploy -Version "$(VERSION)" $(if $(CONFIRMED),-Yes)
+
+## rollback-gui: 从 stash 回滚基线工作区到上一个可用版本
+rollback-gui: guard-version
+	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+		-File scripts/seelex-flow.ps1 -Stage Rollback -Version "$(VERSION)" $(if $(CONFIRMED),-Yes)
+
+## release-dev: 阶段3 构建各平台发布包（需 VERSION=tag，仅 example 配置，不清空 dist）
+release-dev: guard-version
+	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+		-File scripts/seelex-flow.ps1 -Stage Release -Version "$(VERSION)" $(if $(CONFIRMED),-Yes)
+
+## dev-flow: 一键分阶段流程 Stage -> Smoke -> Deploy -> Smoke -> Release（交互确认）
+dev-flow: guard-version
+	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+		-File scripts/seelex-flow.ps1 -Stage All -Version "$(VERSION)" $(if $(CONFIRMED),-Yes)
 
 ## help: 显示帮助
 help:

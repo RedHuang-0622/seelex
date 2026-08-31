@@ -56,3 +56,20 @@ go build -tags "gui desktop production" -ldflags "-X main.DefaultFrontend=gui" -
 - 避免根目录被编译产物污染
 - `make clean` 一键清理所有产物
 - 多平台产物按目录隔离，方便打包分发
+
+## 分阶段部署流程（推荐，替代直接覆盖 dist）
+
+日常更新 dev GUI 与本地发布请优先使用 `scripts/seelex-flow.ps1` 或根 `Makefile`
+封装的目标，全程不清空 `dist/`：
+
+- `make stage-gui`：构建新 GUI 二进制到暂存区 `tmp/staging-gui/`；
+- `make smoke-gui`：对产物做无头冒烟（报告保留在 `tmp/smoke/`）；
+- `make deploy-gui`：进程检测 + 确认后，备份旧二进制到 `tmp/stash/seelex-gui-dev/`
+  并覆盖 `dist/seelex-gui-dev/seelex-gui.exe`（只替换二进制，配置与会话不动）；
+- `make rollback-gui`：从 stash 一键回滚上一个可用版本；
+- `make release-dev VERSION=vX.Y.Z`：各平台 CLI + Windows GUI 发布包（仅 example
+  配置，带 sha256），不清空 dist；
+- `make dev-flow VERSION=vX.Y.Z`：一键走完 Stage → Smoke → Deploy → Smoke → Release。
+
+`make clean` / `make release` 仍是公开发布的 clean → build → package 路径，
+执行前必须按 `MEMORY.md` 检查运行进程并备份 `dist/` 内用户数据。
