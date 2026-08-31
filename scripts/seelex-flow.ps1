@@ -271,7 +271,7 @@ function Invoke-Deploy {
     if (-not (Test-Path -LiteralPath $StagedExe -PathType Leaf)) {
         throw "暂存区没有二进制 $StagedExe, 请先执行 Stage 构建"
     }
-    if (-not (Test-Path -LiteralPath $BaselineDir -PathType Directory)) {
+    if (-not (Test-Path -LiteralPath $BaselineDir -PathType Container)) {
         throw "未找到基线工作区 $BaselineDir, 请先准备带真实配置的基线目录"
     }
     $stagedHash = (Get-FileHash -LiteralPath $StagedExe -Algorithm SHA256).Hash
@@ -309,7 +309,7 @@ function Invoke-Rollback {
     if (-not (Test-Path -LiteralPath $StashPrevious -PathType Leaf)) {
         throw "stash 中没有可恢复的版本: $StashPrevious"
     }
-    if (-not (Test-Path -LiteralPath $BaselineDir -PathType Directory)) {
+    if (-not (Test-Path -LiteralPath $BaselineDir -PathType Container)) {
         throw "未找到基线工作区 $BaselineDir"
     }
     $stashHash = (Get-FileHash -LiteralPath $StashPrevious -Algorithm SHA256).Hash
@@ -369,7 +369,7 @@ function Invoke-Release {
     & (Join-Path $PSScriptRoot "build-gui.ps1") -Version $Version -BuildKind Publish
     if ($LASTEXITCODE -ne 0) { throw "GUI 发布包构建失败" }
     $guiRoot = Join-Path $DistRoot "seelex-v$archiveVersion-windows-amd64-gui"
-    if (Test-Path -LiteralPath $guiRoot -PathType Directory) {
+    if (Test-Path -LiteralPath $guiRoot -PathType Container) {
         Assert-PublishClean $guiRoot
     }
 
