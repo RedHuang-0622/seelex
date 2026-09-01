@@ -25,6 +25,11 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
   const seq = Number(event.seq || 0);
   if (!seq || (lastSeq && seq > lastSeq + 1)) return refreshResult(snapshot, Math.max(lastSeq, seq));
   if (lastSeq && seq <= lastSeq) return { snapshot, lastSeq, needsRefresh: false };
+  // 会话域收口：非当前会话的负载事件一律忽略（推进 seq，不触发 resync，
+  // 绝不 upsert 进当前会话快照）；无 session_id 的全局/目录事件照常应用。
+  if (isForeignSessionEvent(event, snapshot)) {
+    return { snapshot, lastSeq: seq, needsRefresh: false };
+  }
   if (!snapshot || !INCREMENTAL_KINDS.has(event.kind)) return refreshResult(snapshot, seq);
   const revision = Number(event.revision || 0);
   if (revision && revision <= Number(snapshotRevisionFloor || 0)) {
@@ -37,6 +42,13 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
   return applied
     ? { snapshot: next, lastSeq: seq, needsRefresh: false, changed: event.kind }
     : refreshResult(snapshot, seq);
+}
+
+function isForeignSessionEvent(event, snapshot) {
+  const sessionID = event?.session_id;
+  if (!sessionID) return false;
+  const current = snapshot?.session?.id;
+  return Boolean(current) && sessionID !== current;
 }
 
 function applyIncremental(snapshot, event, payload) {

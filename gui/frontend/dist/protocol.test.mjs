@@ -52,6 +52,42 @@ test("applies reasoning_content deltas without touching visible content", () => 
   assert.equal(delta.snapshot.conversation[0].content, "A");
 });
 
+// S0 靶场：跨会话污染。后台会话 A 的负载事件不得改写当前会话 B 的快照。
+// 当前 reducer 不按 session_id 过滤，以下测试应为红；重构后转绿。
+test("ignores message events from other sessions (S0: cross-session pollution)", () => {
+  const current = { ...snapshot(), session: { id: "session-b" } };
+  const added = applyEvent(current, {
+    protocol_version: 1, seq: 12, revision: 3, request_id: "chat-a", kind: "message.added",
+    session_id: "session-a",
+    payload: { id: "msg-a", role: "assistant", content: "background A" }
+  }, 11);
+  assert.equal(added.needsRefresh, false);
+  assert.equal(added.snapshot.conversation.length, 1, "background A message must not pollute session B snapshot");
+  assert.equal(added.snapshot.conversation[0].id, "assistant-1");
+});
+
+test("ignores worktable changes from other sessions (S0: cross-session tasks)", () => {
+  const current = { ...snapshot(), session: { id: "session-b" } };
+  const result = applyEvent(current, {
+    protocol_version: 1, seq: 13, revision: 3, request_id: "chat-a", kind: "worktable.changed",
+    session_id: "session-a",
+    payload: { items: [{ id: "task-a", phase: "task", task: "A task", status: "running" }] }
+  }, 12);
+  assert.equal(result.needsRefresh, false);
+  assert.equal((result.snapshot.runtime.work_table || []).length, 0, "background A tasks must not pollute session B worktable");
+});
+
+test("applies message events from the current session (positive control)", () => {
+  const current = { ...snapshot(), session: { id: "session-b" } };
+  const added = applyEvent(current, {
+    protocol_version: 1, seq: 14, revision: 3, request_id: "chat-b", kind: "message.added",
+    session_id: "session-b",
+    payload: { id: "msg-b", role: "user", content: "hello" }
+  }, 13);
+  assert.equal(added.needsRefresh, false);
+  assert.equal(added.snapshot.conversation.length, 2, "current-session events must still apply");
+});
+
 test("requests resync for sequence gaps and unknown events", () => {
   const gap = applyEvent(snapshot(), { protocol_version: 1, seq: 4, kind: "message.delta" }, 2);
   assert.equal(gap.needsRefresh, true);
