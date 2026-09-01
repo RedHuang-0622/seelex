@@ -59,6 +59,50 @@ func (r *Runtime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return r.tasks.Add(spec)
 }
 
+// TaskAddFor 按归属会话登记 task：当前任务会话写实时注册表，后台会话写自身
+// scope 分区（R6/P2 收口：写自有域，后台任务不再污染当前注册表）。
+func (r *Runtime) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
+	if r == nil || r.tasks == nil {
+		return dto.TaskRecord{}, false, errors.New("task: registry unavailable")
+	}
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == current {
+		return r.tasks.Add(spec)
+	}
+	return r.addTaskPartition(sessionID, spec)
+}
+
+// addTaskPartition 把 task 写入指定会话的 scope 分区（幂等：Key 命中返回既有记录）。
+func (r *Runtime) addTaskPartition(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	if r.sessionTaskSnapshots == nil {
+		r.sessionTaskSnapshots = make(map[string][]dto.TaskRecord)
+	}
+	records := r.sessionTaskSnapshots[sessionID]
+	if spec.Key != "" {
+		for _, record := range records {
+			if record.Key == spec.Key {
+				return record, false, nil
+			}
+		}
+	}
+	id := spec.ID
+	if id == "" {
+		id = fmt.Sprintf("task:%d", len(records)+1)
+	}
+	record := dto.TaskRecord{
+		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
+		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
+		Dependencies: append([]string(nil), spec.Dependencies...),
+		Attachments:  append([]string(nil), spec.Attachments...),
+	}
+	r.sessionTaskSnapshots[sessionID] = append(records, record)
+	return record, true, nil
+}
+
 // ResolveTaskByKey 按幂等键查 task（B6 子代理装配：查重命中 → 绑定既有 id）。
 func (r *Runtime) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error) {
 	if r == nil || r.tasks == nil {
@@ -67,12 +111,63 @@ func (r *Runtime) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error) {
 	return r.tasks.ResolveByKey(key)
 }
 
+// ResolveTaskByKeyFor 按归属会话查 task。
+func (r *Runtime) ResolveTaskByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error) {
+	if r == nil || r.tasks == nil {
+		return dto.TaskRecord{}, false, errors.New("task: registry unavailable")
+	}
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == current {
+		return r.tasks.ResolveByKey(key)
+	}
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	for _, record := range r.sessionTaskSnapshots[sessionID] {
+		if record.Key == key {
+			return record, true, nil
+		}
+	}
+	return dto.TaskRecord{}, false, nil
+}
+
 // TaskSetStatus 更新 task 状态（生命周期打点）。
 func (r *Runtime) TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
 	if r == nil || r.tasks == nil {
 		return dto.TaskRecord{}, errors.New("task: registry unavailable")
 	}
 	return r.tasks.SetStatus(id, status, evidence)
+}
+
+// TaskSetStatusFor 按归属会话更新 task 状态。
+func (r *Runtime) TaskSetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
+	if r == nil || r.tasks == nil {
+		return dto.TaskRecord{}, errors.New("task: registry unavailable")
+	}
+	r.sessionTaskMu.Lock()
+	current := r.currentTaskSessionID
+	r.sessionTaskMu.Unlock()
+	if sessionID == "" || sessionID == current {
+		return r.tasks.SetStatus(id, status, evidence)
+	}
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	records := r.sessionTaskSnapshots[sessionID]
+	for index := range records {
+		if records[index].ID != id {
+			continue
+		}
+		record := records[index]
+		record.Status = status
+		if status == dto.TaskRetry {
+			record.RetryCount++
+		}
+		records[index] = record
+		r.sessionTaskSnapshots[sessionID] = records
+		return record, nil
+	}
+	return dto.TaskRecord{}, fmt.Errorf("task %q not found in session %q scope", id, sessionID)
 }
 
 // TaskAttachParticipant 记录参与节点（并行执行证明）。
@@ -91,19 +186,26 @@ func (r *Runtime) TaskAppendTrace(id string, point dto.TaskTracePoint) (dto.Task
 	return r.tasks.AppendTrace(id, point)
 }
 
-// SwitchSessionTasks 会话切换时保存旧会话注册表快照并整体替换为目标会话
-// 注册表。sessionID 为空 = 进入草稿（无会话归属）。
+// SwitchSessionTasks 会话切换：保存旧会话注册表快照到其 scope 分区，装载
+// 目标会话分区记录到当前注册表。sessionID 为空 = 进入草稿（无会话归属）。
+// 与旧语义的关键差异：后台会话的 TaskAddFor 分区写不再被切换覆盖（换血
+// 只作用于当前注册表本身，分区是写自有域的权威存储）。
 func (r *Runtime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
 	if r == nil || r.tasks == nil {
 		return
 	}
 	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
 	current := r.tasks.Snapshot()
-	if r.currentTaskSessionID != "" {
+	if r.currentTaskSessionID != "" && r.currentTaskSessionID != sessionID {
 		r.sessionTaskSnapshots[r.currentTaskSessionID] = current
 	}
 	r.currentTaskSessionID = sessionID
-	r.sessionTaskMu.Unlock()
+	// 目标会话已装载进当前注册表后，其分区即过期（实时读当前注册表）；
+	// 删除避免后续 TaskSnapshotFor 读到陈旧分片。
+	if sessionID != "" {
+		delete(r.sessionTaskSnapshots, sessionID)
+	}
 	_ = r.tasks.ReplaceAll(records)
 }
 

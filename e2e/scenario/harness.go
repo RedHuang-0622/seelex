@@ -126,10 +126,19 @@ func (harnessRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return nil 
 func (harnessRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
+func (harnessRuntime) TaskAddFor(string, dto.TaskSpec) (dto.TaskRecord, bool, error) {
+	return dto.TaskRecord{}, false, nil
+}
 func (harnessRuntime) ResolveTaskByKey(string) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
+func (harnessRuntime) ResolveTaskByKeyFor(string, string) (dto.TaskRecord, bool, error) {
+	return dto.TaskRecord{}, false, nil
+}
 func (harnessRuntime) TaskSetStatus(string, dto.TaskStatus, string) (dto.TaskRecord, error) {
+	return dto.TaskRecord{}, nil
+}
+func (harnessRuntime) TaskSetStatusFor(string, string, dto.TaskStatus, string) (dto.TaskRecord, error) {
 	return dto.TaskRecord{}, nil
 }
 func (harnessRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, error) {

@@ -111,10 +111,19 @@ func (*guiChainRuntime) TaskSnapshotFor(string) []dto.TaskRecord     { return ni
 func (*guiChainRuntime) TaskAdd(dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
+func (*guiChainRuntime) TaskAddFor(string, dto.TaskSpec) (dto.TaskRecord, bool, error) {
+	return dto.TaskRecord{}, false, nil
+}
 func (*guiChainRuntime) ResolveTaskByKey(string) (dto.TaskRecord, bool, error) {
 	return dto.TaskRecord{}, false, nil
 }
+func (*guiChainRuntime) ResolveTaskByKeyFor(string, string) (dto.TaskRecord, bool, error) {
+	return dto.TaskRecord{}, false, nil
+}
 func (*guiChainRuntime) TaskSetStatus(string, dto.TaskStatus, string) (dto.TaskRecord, error) {
+	return dto.TaskRecord{}, nil
+}
+func (*guiChainRuntime) TaskSetStatusFor(string, string, dto.TaskStatus, string) (dto.TaskRecord, error) {
 	return dto.TaskRecord{}, nil
 }
 func (*guiChainRuntime) TaskAttachParticipant(string, string) (dto.TaskRecord, error) {

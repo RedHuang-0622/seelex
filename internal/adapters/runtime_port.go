@@ -62,11 +62,20 @@ func (port RuntimePort) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
 func (port RuntimePort) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	return port.Runtime.TaskAdd(spec)
 }
+func (port RuntimePort) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
+	return port.Runtime.TaskAddFor(sessionID, spec)
+}
 func (port RuntimePort) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error) {
 	return port.Runtime.ResolveTaskByKey(key)
 }
+func (port RuntimePort) ResolveTaskByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error) {
+	return port.Runtime.ResolveTaskByKeyFor(sessionID, key)
+}
 func (port RuntimePort) TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
 	return port.Runtime.TaskSetStatus(id, status, evidence)
+}
+func (port RuntimePort) TaskSetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
+	return port.Runtime.TaskSetStatusFor(sessionID, id, status, evidence)
 }
 func (port RuntimePort) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error) {
 	return port.Runtime.TaskAttachParticipant(id, participant)

@@ -432,6 +432,10 @@ func (runtime *fakeRuntime) snapshotLocked() []dto.TaskRecord {
 func (runtime *fakeRuntime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
+	return runtime.addTaskLocked(spec)
+}
+
+func (runtime *fakeRuntime) addTaskLocked(spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	if runtime.tasks == nil {
 		runtime.tasks = make(map[string]dto.TaskRecord)
 	}
@@ -456,10 +460,60 @@ func (runtime *fakeRuntime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, er
 	return record, true, nil
 }
 
+func (runtime *fakeRuntime) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if sessionID == "" || sessionID == runtime.currentTaskSession {
+		return runtime.addTaskLocked(spec)
+	}
+	if runtime.sessionTaskSnapshots == nil {
+		runtime.sessionTaskSnapshots = make(map[string][]dto.TaskRecord)
+	}
+	records := runtime.sessionTaskSnapshots[sessionID]
+	if spec.Key != "" {
+		for _, record := range records {
+			if record.Key == spec.Key {
+				return record, false, nil
+			}
+		}
+	}
+	id := spec.ID
+	if id == "" {
+		id = fmt.Sprintf("task:%d", len(records)+1)
+	}
+	record := dto.TaskRecord{
+		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
+		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
+		Dependencies: append([]string(nil), spec.Dependencies...),
+		Attachments:  append([]string(nil), spec.Attachments...),
+	}
+	runtime.sessionTaskSnapshots[sessionID] = append(records, record)
+	return record, true, nil
+}
+
 func (runtime *fakeRuntime) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error) {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
 	for _, record := range runtime.tasks {
+		if record.Key == key {
+			return record, true, nil
+		}
+	}
+	return dto.TaskRecord{}, false, nil
+}
+
+func (runtime *fakeRuntime) ResolveTaskByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if sessionID == "" || sessionID == runtime.currentTaskSession {
+		for _, record := range runtime.tasks {
+			if record.Key == key {
+				return record, true, nil
+			}
+		}
+		return dto.TaskRecord{}, false, nil
+	}
+	for _, record := range runtime.sessionTaskSnapshots[sessionID] {
 		if record.Key == key {
 			return record, true, nil
 		}
@@ -480,6 +534,38 @@ func (runtime *fakeRuntime) TaskSetStatus(id string, status dto.TaskStatus, evid
 	}
 	runtime.tasks[id] = record
 	return record, nil
+}
+
+func (runtime *fakeRuntime) TaskSetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error) {
+	runtime.todoMu.Lock()
+	defer runtime.todoMu.Unlock()
+	if sessionID == "" || sessionID == runtime.currentTaskSession {
+		record, ok := runtime.tasks[id]
+		if !ok {
+			return dto.TaskRecord{}, fmt.Errorf("fake task %s not found", id)
+		}
+		record.Status = status
+		if status == dto.TaskRetry {
+			record.RetryCount++
+		}
+		runtime.tasks[id] = record
+		return record, nil
+	}
+	records := runtime.sessionTaskSnapshots[sessionID]
+	for index := range records {
+		if records[index].ID != id {
+			continue
+		}
+		record := records[index]
+		record.Status = status
+		if status == dto.TaskRetry {
+			record.RetryCount++
+		}
+		records[index] = record
+		runtime.sessionTaskSnapshots[sessionID] = records
+		return record, nil
+	}
+	return dto.TaskRecord{}, fmt.Errorf("fake task %s not found in session %s scope", id, sessionID)
 }
 
 func (runtime *fakeRuntime) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error) {

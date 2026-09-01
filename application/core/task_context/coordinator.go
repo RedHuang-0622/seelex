@@ -43,21 +43,21 @@ type Coordinator struct {
 
 // sessionTaskRuntime 是单个会话的任务/plan 运行时状态（M2 分片单元）。
 type sessionTaskRuntime struct {
-	taskExecution        *TaskExecutionState
-	taskService          *TaskService // 当前任务的 TaskService（与 taskExecution 同生命周期）
-	transcript           []model.TranscriptEvent
-	transcriptSeq        uint64
-	pendingProviderCalls []model.TranscriptToolCall
-	pendingToolResults   []model.StoredToolResult
-	toolResultRefs       []model.ToolResultRef
-	resultRefsByToolCallID map[string]string
-	taskCheckpoints        []model.TaskCheckpoint
-	planStack              []model.SessionPlanFrame
-	activePlanID           string
-	planSequence           uint64
-	replanInFlight         map[string]struct{}
-	reactBudget            *activeReActBudget
-	contextControlFailure  error
+	taskExecution           *TaskExecutionState
+	taskService             *TaskService // 当前任务的 TaskService（与 taskExecution 同生命周期）
+	transcript              []model.TranscriptEvent
+	transcriptSeq           uint64
+	pendingProviderCalls    []model.TranscriptToolCall
+	pendingToolResults      []model.StoredToolResult
+	toolResultRefs          []model.ToolResultRef
+	resultRefsByToolCallID  map[string]string
+	taskCheckpoints         []model.TaskCheckpoint
+	planStack               []model.SessionPlanFrame
+	activePlanID            string
+	planSequence            uint64
+	replanInFlight          map[string]struct{}
+	reactBudget             *activeReActBudget
+	contextControlFailure   error
 	contextControlRequestID string
 }
 
@@ -466,8 +466,14 @@ type RestoredTaskState struct {
 // RestoreSessionTaskLocked 装载活跃会话恢复的任务/plan 状态（调用方持有
 // Core.Mu；对应 resumeSession 的 hasRecord 分支）。
 func (c *Coordinator) RestoreSessionTaskLocked(restored RestoredTaskState) {
-	st := c.activeSessionLocked()
-	st.planStack = restored.PlanStack
+	c.RestoreSessionTaskLockedFor(c.activeSessionIDLocked(), restored)
+}
+
+// RestoreSessionTaskLockedFor 装载指定会话恢复的任务/plan 状态（调用方持有
+// Core.Mu；会话域重构：plan/task 状态写按会话路由，后台会话不再写活跃槽）。
+func (c *Coordinator) RestoreSessionTaskLockedFor(sessionID string, restored RestoredTaskState) {
+	st := c.sessionStateLocked(sessionID)
+	st.planStack = append([]model.SessionPlanFrame(nil), restored.PlanStack...)
 	st.activePlanID = restored.ActivePlanID
 	st.planSequence = uint64(len(st.planStack))
 	st.transcript = append([]model.TranscriptEvent(nil), restored.Transcript...)

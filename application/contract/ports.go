@@ -129,10 +129,17 @@ type RuntimePort interface {
 	TaskSnapshotFor(sessionID string) []dto.TaskRecord
 	// TaskAdd 主动登记 task（幂等：Key 命中返回既有记录）。
 	TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)
+	// TaskAddFor 按归属会话登记 task：当前任务会话写实时注册表，后台会话写
+	// 自身 scope 分区（写自有域；跨会话污染收口）。
+	TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error)
 	// ResolveTaskByKey 按幂等键查 task（子代理装配现成 task_id 用）。
 	ResolveTaskByKey(key string) (dto.TaskRecord, bool, error)
+	// ResolveTaskByKeyFor 按归属会话查 task。
+	ResolveTaskByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error)
 	// TaskSetStatus 更新 task 状态（retry 自增计数）。
 	TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)
+	// TaskSetStatusFor 按归属会话更新 task 状态。
+	TaskSetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)
 	// TaskAttachParticipant 把子代理挂为 task 参与者（幂等）。
 	TaskAttachParticipant(id, participant string) (dto.TaskRecord, error)
 	// TaskChangedChannel 返回 task.changed 输出 channel（CSP：变更即投递，

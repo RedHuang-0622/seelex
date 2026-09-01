@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/core/worktable"
 )
 
@@ -263,13 +264,14 @@ func (state *serviceState) publishWorkTable(revision uint64, requestID string, i
 }
 
 // publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
-// payload 小，逐任务保证不丢）。
-func (state *serviceState) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID string) {
-	if state.Events == nil {
+// payload 小，逐任务保证不丢）。事件携带归属会话 sid（前端按会话过滤，
+// 后台注册表变更不污染当前视图）。
+func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string) {
+	if service.Events == nil {
 		return
 	}
 	item := taskRecordToWorkItem(record)
-	state.Events.Publish(EventTaskChanged, revision, requestID, TaskChangedEvent{TaskID: item.ID, Task: item})
+	service.publishSessionEvent(EventTaskChanged, revision, requestID, sessionID, TaskChangedEvent{TaskID: item.ID, Task: item})
 }
 
 // publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
@@ -286,19 +288,32 @@ func (service *Service) publishTaskDeltas() {
 	service.publishWorkTable(revision, requestID, items, batches)
 }
 
-// syncTasksFromSources 把 plan 节点与子代理树的生命周期投影进 task 注册表
-// （被动触发；锁外调用外部端口，状态不一致才写入，避免 trace 刷屏）。
+// syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
 func (service *Service) syncTasksFromSources() {
 	service.Mu.RLock()
-	plan := clonePlanForSync(service.Core.Snapshot.Runtime.Plan)
+	sid := service.Core.Snapshot.Session.ID
+	service.Mu.RUnlock()
+	service.syncTasksFromSourcesFor(sid)
+}
+
+// syncTasksFromSourcesFor 把指定会话的 plan 节点与子代理树生命周期投影进该
+// 会话自身的 task scope（R6/P2 收口：写自有域，后台会话不再污染当前注册表）。
+func (service *Service) syncTasksFromSourcesFor(sessionID string) {
+	service.Mu.RLock()
+	plan := service.sessionActivePlanLocked(sessionID)
 	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+	// 活跃会话的 task scope 恒为实时注册表（""）；后台会话写自身分区。
+	scope := sessionID
+	if sessionID == "" || sessionID == service.Core.Snapshot.Session.ID {
+		scope = ""
+	}
 	service.Mu.RUnlock()
 
 	if plan != nil {
 		var walk func(nodes []PlanNode, parentID string)
 		walk = func(nodes []PlanNode, parentID string) {
 			for _, node := range nodes {
-				service.syncPlanNodeTask(node, parentID)
+				service.syncPlanNodeTask(scope, node, parentID)
 				walk(node.Children, "plan:"+node.ID)
 			}
 		}
@@ -311,18 +326,30 @@ func (service *Service) syncTasksFromSources() {
 				walkTree(node.Children, parentID)
 				continue
 			}
-			service.syncSubagentTask(node, parentID)
+			service.syncSubagentTask(scope, node, parentID)
 			walkTree(node.Children, node.ID)
 		}
 	}
 	walkTree(tree, "")
 }
 
-func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
+// sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
+// 后台会话读会话自身的 plan 栈（task_context 每会话持有）。
+func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState {
+	if sessionID == service.Core.Snapshot.Session.ID {
+		return clonePlanForSync(service.Core.Snapshot.Runtime.Plan)
+	}
+	return task_context.ActivePlanFromStack(
+		service.components.tasks.PlanStackFor(sessionID),
+		service.components.tasks.ActivePlanIDFor(sessionID),
+	)
+}
+
+func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parentID string) {
 	key := "plan:" + node.ID
 	status := taskStatusForNode(node.Status)
 	identity := dto.ActorIdentity("main", service.Deps.Engine.SessionID())
-	existing, found, err := service.Deps.Runtime.ResolveTaskByKey(key)
+	existing, found, err := service.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {
 		return
 	}
@@ -334,11 +361,11 @@ func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
 		if parentID != "" {
 			spec.Dependencies = []string{parentID}
 		}
-		_, _, _ = service.Deps.Runtime.TaskAdd(spec)
+		_, _, _ = service.Deps.Runtime.TaskAddFor(sessionID, spec)
 		return
 	}
 	if existing.Status != status {
-		_, _ = service.Deps.Runtime.TaskSetStatus(existing.ID, status, "node:"+string(node.Status))
+		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, existing.ID, status, "node:"+string(node.Status))
 	}
 	// 被动认领：旧数据/恢复会话无 Assignee 时补主身份并上名单。
 	if existing.Assignee == "" && identity != "" {
@@ -346,11 +373,11 @@ func (service *Service) syncPlanNodeTask(node PlanNode, parentID string) {
 	}
 }
 
-func (service *Service) syncSubagentTask(node dto.SubAgentTreeNode, parentID string) {
+func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string) {
 	key := "subagent:" + node.ID
 	status := taskStatusForSubagent(node.Status)
 	identity := dto.ActorIdentity("subagent", node.SessionID)
-	existing, found, err := service.Deps.Runtime.ResolveTaskByKey(key)
+	existing, found, err := service.Deps.Runtime.ResolveTaskByKeyFor(sessionID, key)
 	if err != nil {
 		return
 	}
@@ -362,8 +389,8 @@ func (service *Service) syncSubagentTask(node dto.SubAgentTreeNode, parentID str
 		if parentID != "" {
 			spec.Dependencies = []string{"subagent:" + parentID}
 		}
-		created, _, _ := service.Deps.Runtime.TaskAdd(spec)
-		_, _ = service.Deps.Runtime.TaskSetStatus(created.ID, status, "subagent:"+string(node.Status))
+		created, _, _ := service.Deps.Runtime.TaskAddFor(sessionID, spec)
+		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, created.ID, status, "subagent:"+string(node.Status))
 		// 会话已注册 → 子代理认领（Assignee 变更为 subagent:<sessionID> 并上名单）。
 		if identity != "" {
 			_, _ = service.Deps.Runtime.TaskAttachParticipant(created.ID, identity)
@@ -371,7 +398,7 @@ func (service *Service) syncSubagentTask(node dto.SubAgentTreeNode, parentID str
 		return
 	}
 	if existing.Status != status {
-		_, _ = service.Deps.Runtime.TaskSetStatus(existing.ID, status, "subagent:"+string(node.Status))
+		_, _ = service.Deps.Runtime.TaskSetStatusFor(sessionID, existing.ID, status, "subagent:"+string(node.Status))
 	}
 	// 被动认领：确保当前子代理身份在名单上并成为 Assignee。
 	if identity != "" {
@@ -567,8 +594,9 @@ func (service *Service) consumeTaskChanges() {
 			service.Mu.RLock()
 			revision := service.Core.Snapshot.Revision
 			requestID := service.Core.Snapshot.Chat.RequestID
+			sessionID := service.Core.Snapshot.Session.ID
 			service.Mu.RUnlock()
-			service.safeLifecycleCall(func() { service.publishTaskChanged(record, revision, requestID) })
+			service.safeLifecycleCall(func() { service.publishTaskChanged(record, revision, requestID, sessionID) })
 		case <-service.lifecycleStop:
 			return
 		}
@@ -630,9 +658,10 @@ func (service *Service) refreshRuntimeAfterTodoChange() {
 	service.applyRuntimeProjectionLocked(projection)
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
+	sessionID := service.Core.Snapshot.Session.ID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)
 	batches := CloneWorkTableBatches(service.Core.Snapshot.Runtime.WorkTableBatches)
 	service.Mu.Unlock()
-	service.Events.Publish(EventRuntimeChanged, revision, requestID, service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, service.Snapshot().Runtime)
 	service.publishWorkTable(revision, requestID, items, batches)
 }
