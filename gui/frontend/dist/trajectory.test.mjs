@@ -12,6 +12,7 @@ import {
   renderTrajectoryTable,
   renderTrajectoryRow,
   renderContextAxis,
+  renderPromptInjection,
   escapeHtml
 } from "./trajectory.js";
 
@@ -191,6 +192,32 @@ test("renders empty state for empty trajectory", () => {
   assert.equal(model.items.length, 0);
   assert.match(model.html, /trajectory-empty/);
   assert.match(model.html, /暂无轨迹记录/);
+});
+
+test("renders prompt injection empty state for no layers", () => {
+  const html = renderPromptInjection([]);
+  assert.match(html, /data-prompt-injection="1"/);
+  assert.match(html, /暂无前缀注入层/);
+  assert.equal(renderPromptInjection(null).includes("暂无前缀注入层"), true);
+  assert.equal(renderPromptInjection(undefined).includes("暂无前缀注入层"), true);
+});
+
+test("renders prompt injection layers with kind labels and escaped text", () => {
+  const html = renderPromptInjection([
+    { kind: "base", name: "system", text: "你是 Seelex，负责代码审查。" },
+    { kind: "effort", name: "high", text: "高力度：逐步验证。" },
+    { kind: "skill", name: "review", text: "<script>alert(1)</script> 技能内容" }
+  ]);
+  assert.match(html, /基础\/系统提示/);
+  assert.match(html, /力度/);
+  assert.match(html, /技能/);
+  assert.match(html, /你是 Seelex，负责代码审查。/);
+  assert.match(html, /高力度：逐步验证。/);
+  // 技能内容转义，无未受控注入。
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  // 每个层都是可展开 details。
+  assert.equal((html.match(/<details class="trajectory-prompt-layer"/g) || []).length, 3);
 });
 
 test("renders filters with counts and active state", () => {

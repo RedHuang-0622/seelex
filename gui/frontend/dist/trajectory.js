@@ -171,6 +171,43 @@ export function renderTrajectorySummary(stats) {
   return `<div class="trajectory-summary">共 ${stats.total} 条${statuses ? ` · ${statuses}` : ""}</div>`;
 }
 
+// renderPromptInjection 渲染"前缀注入"区块（轨迹视图调试面）：展示每次
+// 提交注入的 prompt 前缀层（identity/base/effort/instructions/skill），
+// 内容来自后端 PromptLayers 桥接数据（不进 Snapshot，避免私有指令泄漏
+// 到常规快照）。数据全部 escape，无未受控 HTML 注入。
+export function renderPromptInjection(layers = []) {
+  if (!Array.isArray(layers) || layers.length === 0) {
+    return `<section class="trajectory-prompt" data-prompt-injection="1">
+      <h3>前缀注入</h3>
+      <p class="muted">本次会话暂无前缀注入层（system prompt / effort / skill 等）。</p>
+    </section>`;
+  }
+  const rows = layers.map(layer => {
+    const kind = String(layer.kind || "layer");
+    const name = layer.name ? ` · ${escapeHtml(String(layer.name))}` : "";
+    const text = layer.text != null ? String(layer.text) : "";
+    return `<details class="trajectory-prompt-layer" data-prompt-kind="${escapeHtml(kind)}">
+      <summary><span class="prompt-kind">${promptKindLabel(kind)}</span>${name}</summary>
+      <pre class="prompt-text">${escapeHtml(text) || '<span class="muted">（空层）</span>'}</pre>
+    </details>`;
+  }).join("");
+  return `<section class="trajectory-prompt" data-prompt-injection="1">
+    <h3>前缀注入</h3>
+    ${rows}
+  </section>`;
+}
+
+function promptKindLabel(kind) {
+  switch (kind) {
+  case "identity": return "身份";
+  case "base": return "基础/系统提示";
+  case "effort": return "力度";
+  case "instructions": return "指令";
+  case "skill": return "技能";
+  default: return kind || "层";
+  }
+}
+
 // contextAxisWeight 返回上下文轴上该记录占据的相对体量：工具记录按输出/输入
 // 字符数，其余按内容与推理字符数；最小为 1，保证记录都有可见落点。
 export function contextAxisWeight(record) {

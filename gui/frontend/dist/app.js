@@ -14,7 +14,7 @@ import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
-import { truncateTitle, isPinned, togglePinned } from "./sidebar.js";
+import { truncateTitle, duplicateSuffix, isPinned, togglePinned } from "./sidebar.js";
 import { createPerfHooks } from "./perf-hooks.js";
 
 const state = {
@@ -126,6 +126,9 @@ let workTableOpen = false;
 let worktreeRoot = "";
 let worktreeFileCount = null;
 let lastChatRunning = false;
+// promptLayersCache 是轨迹视图"前缀注入"的本地缓存（后端 PromptLayers
+// 桥接数据，不进 Snapshot；打开轨迹子页时刷新）。
+let promptLayersCache = null;
 const effortControl = createEffortControl({
   root: elements["effort-control"],
   input: elements["effort-range"],
@@ -234,7 +237,18 @@ function renderIncremental(snapshot, kind) {
 // active=false（轨迹子页未激活）时只缓存数据面，不碰轨迹 DOM。
 function renderTrajectory(snapshot, active = state.tab === "trajectory") {
   if (!snapshot) return;
-  trajectoryView.render(buildTrajectory(snapshot.conversation || []), state.trajectoryFilter, active);
+  trajectoryView.render(buildTrajectory(snapshot.conversation || []), state.trajectoryFilter, active, promptLayersCache || []);
+}
+
+// refreshPromptInjection 拉取当前会话的 prompt 前缀层并重渲染轨迹视图。
+async function refreshPromptInjection() {
+  try {
+    const layers = await invoke("PromptLayers");
+    promptLayersCache = Array.isArray(layers) ? layers : [];
+  } catch {
+    promptLayersCache = [];
+  }
+  renderTrajectory(client.current());
 }
 
 function setConversationTab(tab) {
@@ -253,6 +267,7 @@ function setConversationTab(tab) {
     elements["history-bar"].classList.add("hidden");
     elements["empty-state"].classList.add("hidden");
     renderTrajectory(snapshot);
+    refreshPromptInjection();
     return;
   }
   if (!snapshot) return;
@@ -513,6 +528,11 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
   lastSessionsRender = { sessions, current, capabilities, sessionWorkspaces, workspaces };
   const currentID = current.id || "";
   const workspaceNames = new Map(workspaces.map(workspace => [workspace.id, workspace.name]));
+  const workspaceNameCounts = new Map();
+  for (const workspace of workspaces) {
+    const name = workspace.name || "";
+    if (name) workspaceNameCounts.set(name, (workspaceNameCounts.get(name) || 0) + 1);
+  }
   const items = sessions.map(session => session.id === currentID && current.name
     ? { ...session, name: current.name }
     : session);
@@ -521,7 +541,7 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
   }
   elements["session-count"].textContent = String(items.length);
   elements["session-list"].innerHTML = items.length
-    ? renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames)
+    ? renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames, workspaceNameCounts)
     : '<span class="muted list-empty">暂无会话</span>';
 
   elements["session-list"].querySelectorAll(".session-button:not(.session-draft)").forEach(button => {
@@ -624,7 +644,7 @@ let lastSessionsRender = null;
 
 // renderSessionGroups 把会话按工作区（session_workspaces 投影）分组渲染；
 // 未绑定工作区或工作区已消失的会话收进「未关联会话」组，置底展示。
-function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames) {
+function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames, workspaceNameCounts) {
   const groups = new Map();
   for (const session of items) {
     const workspaceID = sessionWorkspaces[session.id];
@@ -637,10 +657,37 @@ function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames
     if (b === UNBOUND_WORKSPACE) return -1;
     return String(workspaceNames.get(a)).localeCompare(String(workspaceNames.get(b)), "zh-Hans-CN");
   });
+  // 重名会话/重名项目的全局序号（按渲染顺序 1 基；仅当总数 > 1 时追加）。
+  const sessionNameSeen = new Map();
+  const sessionNameTotal = new Map();
+  for (const session of items) {
+    if (session.id === "" && session.status === "draft") continue;
+    const name = session.name || "";
+    if (name) sessionNameTotal.set(name, (sessionNameTotal.get(name) || 0) + 1);
+  }
+  const workspaceNameSeen = new Map();
   return keys.map(key => {
-    const label = key === UNBOUND_WORKSPACE ? "未关联会话" : workspaceNames.get(key) || key;
+    let label = key === UNBOUND_WORKSPACE ? "未关联会话" : workspaceNames.get(key) || key;
+    if (key !== UNBOUND_WORKSPACE) {
+      const name = label;
+      const total = workspaceNameCounts?.get(name) || 0;
+      if (total > 1) {
+        const index = (workspaceNameSeen.get(name) || 0) + 1;
+        workspaceNameSeen.set(name, index);
+        label = name + duplicateSuffix(index, total);
+      }
+    }
     const sessions = groups.get(key).slice().sort((a, b) => Number(isPinned(b.id)) - Number(isPinned(a.id)));
-    const rows = sessions.map(session => sessionRow(session, currentID)).join("");
+    const rows = sessions.map(session => {
+      let nameIndex = 1;
+      const name = session.name || "";
+      const total = sessionNameTotal.get(name) || 0;
+      if (total > 1) {
+        nameIndex = (sessionNameSeen.get(name) || 0) + 1;
+        sessionNameSeen.set(name, nameIndex);
+      }
+      return sessionRow(session, currentID, nameIndex, total);
+    }).join("");
     const collapsed = collapsedWorkspaceGroups.has(key);
     const addButton = key === UNBOUND_WORKSPACE
       ? ""
@@ -674,7 +721,7 @@ function rerenderSessions() {
   );
 }
 
-function sessionRow(session, currentID) {
+function sessionRow(session, currentID, nameIndex = 1, nameTotal = 0) {
   // 保留的"新建会话"草稿槽位：列表可见、可点击恢复（无 ID、不可 resume/删除/分支）。
   if (session.id === "" && session.status === "draft") {
     const active = !currentID;
@@ -693,12 +740,13 @@ function sessionRow(session, currentID) {
   const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
   const display = resuming ? "恢复中…" : (session.name || shortSessionID(session.id));
   const truncated = truncateTitle(display, 5);
+  const duplicate = duplicateSuffix(nameIndex, nameTotal);
   const statusChip = session.status && session.status !== "idle"
     ? `<span class="session-status is-${escapeHtml(session.status)}">${sessionStatusLabel(session.status)}</span>`
     : "";
   return `<div class="session-row${pinned ? " is-pinned" : ""}">
     <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" title="${escapeHtml(session.name || "")}" ${resuming ? "disabled" : ""}>
-      <span class="entry-name">${icon("message", 13)} ${escapeHtml(truncated)}</span><small>${escapeHtml(detail)}${statusChip}</small>
+      <span class="entry-name">${icon("message", 13)} ${escapeHtml(truncated + duplicate)}</span><small>${escapeHtml(detail)}${statusChip}</small>
     </button>
     <button class="session-pin${pinned ? " is-on" : ""}" data-pin-session="${escapeHtml(session.id)}" title="${pinned ? "取消置顶" : "置顶会话"}" aria-label="置顶会话">📌</button>
     <button class="session-fork" data-fork="${escapeHtml(session.id)}" title="分支出新会话" aria-label="分支出新会话">⑂</button>

@@ -71,6 +71,9 @@ type Application interface {
 	// PerfStats 返回性能追踪钩子的后端数据面（无内容指标，供前端渲染
 	// 进程对照 DOM/JS heap 与快照载荷体积）。
 	PerfStats() application.PerfStats
+	// PromptLayers 返回当前会话注入的 prompt 前缀层（轨迹视图"前缀注入"
+	// 数据源；经桥接单独拉取，不进 Snapshot，避免私有指令泄漏）。
+	PromptLayers() []application.PromptLayer
 }
 
 // sessionAwareApplication 是 Application 的可选会话级扩展（M1 显式
@@ -535,4 +538,12 @@ func (bridge *Bridge) ToolResultContent(resultRef string, offset, limit int) (ap
 // 会话规模/归档体积，供前端渲染进程对照）。
 func (bridge *Bridge) PerfStats() application.PerfStats {
 	return bridge.app.PerfStats()
+}
+
+// PromptLayers 返回当前会话注入的 prompt 前缀层（轨迹视图数据源）。
+func (bridge *Bridge) PromptLayers() []application.PromptLayer {
+	if bridge == nil || bridge.app == nil {
+		return nil
+	}
+	return bridge.app.PromptLayers()
 }

@@ -197,6 +197,10 @@ func (fake *fakeApplication) PerfStats() application.PerfStats {
 	return application.PerfStats{SnapshotBytes: 1024, ConversationMessages: 3}
 }
 
+func (fake *fakeApplication) PromptLayers() []application.PromptLayer {
+	return nil
+}
+
 func TestNewBridgeRequiresApplication(t *testing.T) {
 	t.Parallel()
 	if _, err := NewBridge(nil, Options{}); err == nil {

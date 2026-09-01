@@ -14,7 +14,8 @@ import {
   renderTrajectoryFilters,
   renderTrajectorySummary,
   renderTrajectoryTable,
-  renderContextAxis
+  renderContextAxis,
+  renderPromptInjection
 } from "./trajectory.js";
 
 export function createTrajectoryView(container, options = {}) {
@@ -26,12 +27,14 @@ export function createTrajectoryView(container, options = {}) {
 
   // 骨架：上下文轴 / 过滤条 / 摘要 / 表格区四个固定子容器（各自独立更新）。
   container.innerHTML = [
+    '<div class="trajectory-prompt" data-trajectory-prompt></div>',
     '<div class="trajectory-axis" data-trajectory-axis></div>',
     '<div class="trajectory-filters" data-trajectory-filters></div>',
     '<div class="trajectory-summary" data-trajectory-summary></div>',
     '<div class="trajectory-list" data-trajectory-list></div>'
   ].join("");
   const axisEl = container.querySelector("[data-trajectory-axis]");
+  const promptEl = container.querySelector("[data-trajectory-prompt]");
   const filtersEl = container.querySelector("[data-trajectory-filters]");
   const summaryEl = container.querySelector("[data-trajectory-summary]");
   const listEl = container.querySelector("[data-trajectory-list]");
@@ -69,10 +72,11 @@ export function createTrajectoryView(container, options = {}) {
     render(records, filter, true);
   }
 
-  function render(nextRecords, nextFilter = filter, active = true) {
+  function render(nextRecords, nextFilter = filter, active = true, promptLayers = []) {
     records = Array.isArray(nextRecords) ? nextRecords : [];
     filter = nextFilter || "all";
     if (!active) return;
+    promptEl.innerHTML = renderPromptInjection(promptLayers);
     // 上下文轴始终反映完整对话顺序（与过滤状态无关）。
     axisEl.innerHTML = renderContextAxis(records);
     const stats = trajectoryStats(records);

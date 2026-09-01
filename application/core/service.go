@@ -44,6 +44,16 @@ func (service *Service) ActiveSkillIDs() []string {
 	return service.components.tasks.ActiveSkillIDs()
 }
 
+// PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
+// instructions/skill；GUI 轨迹视图"前缀注入"数据源，经桥接方法单独拉取，
+// 不进 Snapshot 序列化——避免把私有指令泄漏进常规快照）。
+func (service *Service) PromptLayers() []PromptLayer {
+	if service == nil || service.promptStack == nil {
+		return nil
+	}
+	return service.promptStack.Layers()
+}
+
 // GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
 // PublishRuntimeProjections 收到同一值；它不调用本方法。
 func (service *Service) GoalSkillActive() bool {
