@@ -66,6 +66,8 @@ type subagentSessionCmdKind int
 const (
 	subagentSessionRegister subagentSessionCmdKind = iota
 	subagentSessionUnregister
+	subagentSessionSession
+	subagentSessionCount
 	subagentSessionConversation
 	subagentSessionContextSnapshot
 	subagentSessionToolArchiver
@@ -101,8 +103,10 @@ type subagentSessionCmd struct {
 
 type subagentSessionReply struct {
 	snap *snapshot.ContextSnapshot
+	sess *frameworkSession.Session
 	msgs []types.Message
 	ok   bool
+	n    int
 	arch *seelexctx.InMemoryToolResultArchiver
 	raw  string
 	logs []model.NodeStageLog
@@ -189,6 +193,11 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		// 数据面保持在内存快照，进程存活期内仍可读）。
 		s.finalizeLocked(cmd.nodeID)
 		s.reply(cmd, subagentSessionReply{snap: snap, ok: true})
+	case subagentSessionSession:
+		sess := s.sessions[cmd.nodeID]
+		s.reply(cmd, subagentSessionReply{sess: sess, ok: sess != nil})
+	case subagentSessionCount:
+		s.reply(cmd, subagentSessionReply{n: len(s.sessions), ok: true})
 	case subagentSessionConversation:
 		if sess := s.sessions[cmd.nodeID]; sess != nil {
 			s.reply(cmd, subagentSessionReply{msgs: sess.History(), ok: true})
@@ -449,6 +458,44 @@ func (s *SubagentSessions) Register(nodeID string, sess *frameworkSession.Sessio
 		return
 	}
 	s.send(subagentSessionCmd{kind: subagentSessionRegister, nodeID: nodeID, sess: sess, goal: goal})
+}
+
+// Session 返回指定节点当前注册的运行中会话（UC7 查询面）；不存在返回 nil。
+func (s *SubagentSessions) Session(nodeID string) *frameworkSession.Session {
+	if s == nil || nodeID == "" {
+		return nil
+	}
+	reply := make(chan subagentSessionReply, 1)
+	if !s.send(subagentSessionCmd{kind: subagentSessionSession, nodeID: nodeID, reply: reply}) {
+		return nil
+	}
+	select {
+	case result := <-reply:
+		return result.sess
+	case <-time.After(subagentSessionCmdTimeout):
+		return nil
+	case <-s.actor.Done():
+		return nil
+	}
+}
+
+// Count 返回当前注册的子代理会话数（监控/测试）。
+func (s *SubagentSessions) Count() int {
+	if s == nil {
+		return 0
+	}
+	reply := make(chan subagentSessionReply, 1)
+	if !s.send(subagentSessionCmd{kind: subagentSessionCount, reply: reply}) {
+		return 0
+	}
+	select {
+	case result := <-reply:
+		return result.n
+	case <-time.After(subagentSessionCmdTimeout):
+		return 0
+	case <-s.actor.Done():
+		return 0
+	}
 }
 
 // Unregister 结束注册：移除会话，导出并留存结束快照与最后 History；
