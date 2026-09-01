@@ -197,9 +197,40 @@ func resolveNodeStatus(nodes []struct {
 // SetPlanNodeCallback 注册）：planEventSink 把 workplan 事件投影为
 // PlanNodeEvent 后回调本方法，实时更新节点/计划状态并通知 TUI/GUI 重绘。
 // NodeID 为空表示计划级投影（PlanStatus），否则为节点级投影（NodeStatus）。
+// planProjectionLocked 返回指定会话的 plan 显示投影（调用方持有 Core.Mu）。
+// 当前会话与 Snapshot.Runtime.Plan 同一指针；后台会话用 per-session 缓存
+// （P6 收口：后台 plan 事件不再写全局投影）。缓存缺失时从 task_context 的
+// 会话 plan 帧重建（ActivePlanFromStack）。
+func (service *Service) planProjectionLocked(sessionID string) *PlanState {
+	if sessionID == "" || sessionID == service.Core.Snapshot.Session.ID {
+		return service.Core.Snapshot.Runtime.Plan
+	}
+	if service.planProjections == nil {
+		service.planProjections = make(map[string]*PlanState)
+	}
+	plan := service.planProjections[sessionID]
+	if plan == nil {
+		plan = task_context.ActivePlanFromStack(
+			service.components.tasks.PlanStackFor(sessionID),
+			service.components.tasks.ActivePlanIDFor(sessionID),
+		)
+		service.planProjections[sessionID] = plan
+	}
+	return plan
+}
+
+// planEventSession 解析 plan 事件归属会话：优先事件自带 sid，缺失回退当前。
+func (service *Service) planEventSession(event dto.PlanNodeEvent) string {
+	if event.SessionID != "" {
+		return event.SessionID
+	}
+	return service.Core.Snapshot.Session.ID
+}
+
 func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.Mu.Lock()
-	plan := service.Core.Snapshot.Runtime.Plan
+	sessionID := service.planEventSession(event)
+	plan := service.planProjectionLocked(sessionID)
 	if plan == nil {
 		service.Mu.Unlock()
 		return
@@ -237,7 +268,9 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 			task_context.AppendPlanNodeEvent(node, event)
 			// checkpoint 只对终态生效（旧 HandlePlanNodeComplete 只在节点完成时调用）；
 			// 观测经 TaskService.ObservePlanEvent 写入功能打点快照
-			if isTerminalNodeStatus(event.Status) {
+			// checkpoint 观测只对活跃会话（TaskService 无 For 变体）；后台
+			// 会话 plan 打点由切换后基线重建，不做跨会话观测。
+			if isTerminalNodeStatus(event.Status) && sessionID == service.Core.Snapshot.Session.ID {
 				service.components.tasks.ObservePlanEvent(task_context.PlanEvent{
 					NodeID: event.NodeID, Status: event.Status, Output: event.Output, Objective: node.Label,
 				})
@@ -257,12 +290,20 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	}
 	service.Mu.Unlock()
 	if changedNode != nil {
-		service.Events.Publish(EventSubagentChanged, revision, requestID, changed)
-		service.refreshWorkTableFromSources()
+		service.publishSessionEvent(EventSubagentChanged, revision, requestID, sessionID, changed)
+		if sessionID == service.Core.Snapshot.Session.ID {
+			service.refreshWorkTableFromSources()
+		} else {
+			service.syncTasksFromSourcesFor(sessionID)
+		}
 		return
 	}
-	service.Events.Publish(EventSnapshotChanged, revision, requestID, nil)
-	service.refreshWorkTableFromSources()
+	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
+	if sessionID == service.Core.Snapshot.Session.ID {
+		service.refreshWorkTableFromSources()
+	} else {
+		service.syncTasksFromSourcesFor(sessionID)
+	}
 }
 
 // HandlePlanBranchEvent 应用来自桥接层的分支生命周期迁移，并向两端前端发布
@@ -298,11 +339,11 @@ func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
 	}
 	service.Mu.Unlock()
 	if node != nil {
-		service.Events.Publish(EventSubagentChanged, revision, requestID, changed)
+		service.publishSessionEvent(EventSubagentChanged, revision, requestID, service.Core.Snapshot.Session.ID, changed)
 		service.refreshWorkTableFromSources()
 		return
 	}
-	service.Events.Publish(EventSnapshotChanged, revision, requestID, nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, service.Core.Snapshot.Session.ID, nil)
 	service.refreshWorkTableFromSources()
 }
 
@@ -514,8 +555,9 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 		service.applyRuntimeProjectionLocked(runtimeProjection)
 		revision := service.bumpLocked()
 		runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+		sessionID := service.Core.Snapshot.Session.ID
 		service.Mu.Unlock()
-		service.Events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+		service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, runtime)
 	}()
 
 	result, err := service.Deps.Runtime.PrepareReplan(ctx, request)
@@ -536,8 +578,9 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+	sessionID := service.Core.Snapshot.Session.ID
 	service.Mu.Unlock()
-	service.Events.Publish(EventRuntimeChanged, revision, requestID, runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, runtime)
 	service.addNotice("Recovery plan loaded. Review it before calling plan_run.")
 	succeeded = true
 	return nil

@@ -223,7 +223,11 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	}
 	c.Mu.Unlock()
 	if recorded {
-		c.Events.Publish(event.EventSnapshotChanged, revision, requestID, nil)
+		if hub, ok := c.Events.(event.SessionAwareHub); ok {
+			hub.PublishSession(event.EventSnapshotChanged, revision, requestID, sessionID, nil)
+		} else {
+			c.Events.Publish(event.EventSnapshotChanged, revision, requestID, nil)
+		}
 	}
 	return currentInput, nil
 }

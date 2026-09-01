@@ -64,11 +64,11 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	if planBinding != nil {
 		service.Deps.Runtime.SetPlanBranchBinding(*planBinding)
 	}
-	service.Events.Publish(EventToolStarted, revision, requestID, message)
+	service.publishSessionEvent(EventToolStarted, revision, requestID, sessionID, message)
 	// plan_load/plan_clear/plan_run 已改 PlanState：被动同步 plan → task
 	// 注册表并发布 worktable/task 增量，再发最新 runtime.changed。
 	service.refreshWorkTableFromSources()
-	service.Events.Publish(EventRuntimeChanged, service.Snapshot().Revision, requestID, service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, service.Snapshot().Revision, requestID, sessionID, service.Snapshot().Runtime)
 }
 
 func (service *Service) planBranchBindingLocked() dto.PlanBranchBinding {
@@ -224,7 +224,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.event.start")
 	service.publishSessionEvent(EventToolCompleted, revision, requestID, sessionID, message)
 	if planFailure != nil {
-		service.Events.Publish(EventInteractionOpened, revision, planFailure.ID, planFailure)
+		service.publishSessionEvent(EventInteractionOpened, revision, planFailure.ID, sessionID, planFailure)
 	}
 	if assistant != nil {
 		service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, *assistant)
@@ -232,7 +232,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	// 工具完成：todo/taskadd 已写注册表，plan/subagent 状态已更新——
 	// 统一走被动同步 + 增量发布，再发最新 runtime.changed。
 	service.refreshWorkTableFromSources()
-	service.Events.Publish(EventRuntimeChanged, service.Snapshot().Revision, requestID, service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, service.Snapshot().Revision, requestID, sessionID, service.Snapshot().Runtime)
 	emit("toolhook.complete.event.done")
 }
 
@@ -338,7 +338,7 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 				// 工具已全部完成，是安全边界），由 runChat 结尾的队列提升
 				// 自动开启下一轮并清空队列——一轮一消费，无需等整条 loop。
 				svc.Mu.RLock()
-				queued := len(svc.inputQueue) > 0
+				queued := len(svc.activeQueuedChatRequestsLocked()) > 0
 				svc.Mu.RUnlock()
 				return !queued
 			}

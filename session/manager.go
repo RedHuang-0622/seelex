@@ -1,4 +1,8 @@
-// Package session 提供会话管理薄包装 — 直接使用 Seele 的 storage.Store
+// Package session 是 Seelex 的会话域：
+//   - domain.go 拥有会话资源（身份、可见投影、聊天运行态、生命周期状态机）
+//     与每会话线程隔离，执行内核经端口读写；
+//   - manager.go 是 legacy 存储桥（Save/Load callback、workspace-scoped
+//     读写、Router 装配），自会话域重构起降级为迁移辅助，新逻辑不得依赖它。
 package session
 
 import (

@@ -45,6 +45,10 @@ type PlanBranchBinding struct {
 
 // PlanNodeEvent 是 plan 节点执行事件的投影（前端 plan 可视化数据源）。
 type PlanNodeEvent struct {
+	// SessionID 是事件归属会话（plan 执行绑定所在会话；空 = 全局/未知，
+	// 会话域收口后必填）。前端按 session_id 过滤，后台会话 plan 事件不得
+	// 污染当前快照（P6 收口）。
+	SessionID string
 	PlanID  string
 	RunID   string
 	NodeID  string

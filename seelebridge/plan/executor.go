@@ -92,6 +92,9 @@ func NewExecutor(
 	// plan 节点事件走 CSP channel（非阻塞投递；消费者慢时丢事件——前端经
 	// Snapshot resync 兜底），application 侧不同步回调嵌套。
 	executor.events.Subscribe(func(event PlanNodeEvent) {
+		// 事件归属会话 = 当前 plan 分支绑定会话（P6 收口：后台会话 plan
+		// 事件携带自身 sid，应用侧按会话路由投影）。
+		event.SessionID = executor.Binding().SessionID
 		select {
 		case executor.nodeEvents <- event:
 		default:

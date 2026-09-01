@@ -108,7 +108,7 @@
 
 ### session_scope.go
 
-- `func (service *Service) sessionChatLocked(sessionID string) *sessionChatRuntime` — sessionChatLocked 返回指定会话的聊天运行态（按需创建）。调用方必须
+- `func (service *Service) chatRuntimeLocked(sessionID string) *session.ChatRuntime` — chatRuntimeLocked 返回指定会话的聊天运行态（会话域单元，按需创建）。调用方必须
 - `func (service *Service) anyChatRunningLocked() bool` — anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 - `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态镜像到权威 Snapshot
 - `func (service *Service) publishSessionEvent(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) event.Event` — publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带

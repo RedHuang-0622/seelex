@@ -103,7 +103,7 @@ func (service *Service) retryContextRecovery(ctx context.Context, requestID stri
 	service.components.tasks.ResumeTaskLocked(requestID, "Context was reset to a bounded checkpoint; the Agent is continuing with targeted reads.")
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventSnapshotChanged, revision, requestID, nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
 
 	recoveryInput, prepareErr := service.components.context.PrepareExecutionContextFor(sessionID, requestID, contextRecoveryAgentInput)
 	if prepareErr != nil {

@@ -2,7 +2,14 @@
 
 ## 模块定位
 
-`session` 是 Application 与会话存储之间的用例适配层。它统一保存/恢复 callback、active workspace routing、显式 project-scoped read 和存储设置，不实现具体 JSON/SQL 格式。
+`session` 是 Seelex 的**会话域**：会话资源（身份、可见投影、聊天运行态、
+生命周期状态机）的唯一所有者。执行内核（`application/core`）经本包暴露的
+端口读写会话；会话之间零共享，继承只走深拷贝（详细设计见
+`docs/2026-08-30-session-resource-refactor/session-domain-design.md`）。
+
+`manager.go` 保留为 legacy 存储桥（Save/Load callback、active workspace
+routing、显式 project-scoped read、存储设置），自会话域重构起降级为迁移辅助，
+新逻辑不得依赖它。
 
 ## 核心实现
 
