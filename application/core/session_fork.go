@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
@@ -65,7 +66,7 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	draining := service.draining
 	running := false
 	if unit := service.sessions.Unit(parentID); unit != nil {
-		running = unit.Chat.ChatState().Running
+		running = unit.ChatState().Running
 	}
 	service.Mu.RUnlock()
 	if closed {
@@ -90,6 +91,11 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	if err != nil {
 		return "", err
 	}
+	// 会话粒度深拷贝（thin-wrapper §5）：子会话 record 前缀 + 上下文栈
+	// 引用与父不相交（T2.7/B4）；改子不影响父。
+	forkContext.Record = deepCopyForkRecord(forkContext.Record)
+	forkContext.Events = append([]model.TranscriptEvent(nil), forkContext.Events...)
+	forkContext.ToolResults = append([]model.StoredToolResult(nil), forkContext.ToolResults...)
 	// ProviderHistory 是可重建缓存：子会话冷恢复由事件流/record 重建，
 	// 不继承父的 provider 缓存（避免消息↔事件坐标映射的不确定性）。
 	// ToolResults 为父通道全量物理复制（含 compressed:<segment_id> 原文）。
@@ -107,4 +113,26 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	service.Deps.Sessions.SetWorkspace(location.WorkspaceID)
 	service.components.sessions.RequestCatalogRefresh()
 	return childID, nil
+}
+
+// deepCopyForkRecord 深拷贝 fork 子会话 record：Conversation 消息（含
+// Tool 引用）、Tasks、Checkpoints、ToolResults、ReadFiles、PlanStack 全部
+// 新建切片/对象，父子引用不相交。
+func deepCopyForkRecord(record model.SessionRecord) model.SessionRecord {
+	copy := record
+	copy.Conversation.Messages = make([]model.Message, len(record.Conversation.Messages))
+	for index, message := range record.Conversation.Messages {
+		cloned := message
+		if message.Tool != nil {
+			tool := *message.Tool
+			cloned.Tool = &tool
+		}
+		copy.Conversation.Messages[index] = cloned
+	}
+	copy.Tasks = append([]dto.TaskRecord(nil), record.Tasks...)
+	copy.Checkpoints = append([]model.TaskCheckpoint(nil), record.Checkpoints...)
+	copy.ToolResults = append([]model.ToolResultRef(nil), record.ToolResults...)
+	copy.PlanStack = session_runtime.CloneSessionPlanStack(record.PlanStack)
+	copy.Execution.ReadFiles = append([]model.ReadFileRef(nil), record.Execution.ReadFiles...)
+	return copy
 }

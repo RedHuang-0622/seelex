@@ -2,10 +2,12 @@ package core
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -191,5 +193,103 @@ func TestForkCommandForksCurrentSession(t *testing.T) {
 	}
 	if got := service.Snapshot().Session.ID; got != "session-new" {
 		t.Fatalf("active session after /fork = %q, want session-new", got)
+	}
+}
+
+// TestForkSessionDeepCopyIsolation（T2.7）：fork 子会话 record 与父数据面
+// 引用不相交——改子不影响父（Conversation/Tasks/PlanStack）。
+func TestForkSessionDeepCopyIsolation(t *testing.T) {
+	parent := SessionRecord{
+		Version: 3,
+		ID:      "parent",
+		Title:   SessionTitle{Value: "Parent", Source: "first_request"},
+		Conversation: ConversationRecord{Messages: []Message{
+			{ID: "m1", Role: "user", Content: "hi"},
+			{ID: "m2", Role: "assistant", Content: "let me read"},
+			{ID: "m3", Role: "tool_result", Content: "out", Tool: &ToolCall{ID: "t1", Name: "read", Arguments: "{}"}},
+		}},
+		Tasks: []dto.TaskRecord{
+			{ID: "plan:1", Kind: "plan"},
+		},
+		PlanStack: []model.SessionPlanFrame{
+			{ID: "plan-1"},
+		},
+	}
+	sessions := &forkServiceSessions{
+		parent: parent,
+		events: []sessionstore.Event{
+			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
+			{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "t1", Name: "read", Arguments: "{}"}}, MessageID: "m2"},
+			{Seq: 3, TaskID: "chat-1", Role: "tool", ToolCallID: "t1", Name: "read", Content: "out", MessageID: "m3"},
+		},
+		context:    []byte(`{"schema_version":1}`),
+		generation: "generation-parent",
+	}
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+
+	if _, err := service.ForkSession("parent", ForkRequest{RequestID: "chat-1"}); err != nil {
+		t.Fatal(err)
+	}
+	// 修改子会话 record：追加消息 + 改 tool 参数 + 改 plan。
+	sessions.savedRecord.Conversation.Messages = append(sessions.savedRecord.Conversation.Messages,
+		Message{ID: "c-1", Role: "assistant", Content: "child"})
+	mutatedTool := false
+	for index := range sessions.savedRecord.Conversation.Messages {
+		if sessions.savedRecord.Conversation.Messages[index].Tool != nil {
+			sessions.savedRecord.Conversation.Messages[index].Tool.Arguments = "mutated"
+			mutatedTool = true
+			break
+		}
+	}
+	if !mutatedTool {
+		t.Fatal("child record has no tool message to mutate (fixture shape mismatch)")
+	}
+	if len(sessions.savedRecord.PlanStack) > 0 {
+		sessions.savedRecord.PlanStack[0].ID = "plan-child"
+	}
+	sessions.savedRecord.Tasks = append(sessions.savedRecord.Tasks, dto.TaskRecord{ID: "child-task", Kind: "todo"})
+
+	// 父数据面不受影响。
+	if len(parent.Conversation.Messages) != 3 {
+		t.Fatalf("parent conversation mutated: %+v", parent.Conversation.Messages)
+	}
+	for _, message := range parent.Conversation.Messages {
+		if message.Tool != nil && message.Tool.Arguments == "mutated" {
+			t.Fatal("parent tool arguments mutated by child")
+		}
+	}
+	if parent.PlanStack[0].ID != "plan-1" {
+		t.Fatalf("parent plan stack mutated: %+v", parent.PlanStack)
+	}
+	if len(parent.Tasks) != 1 {
+		t.Fatalf("parent tasks mutated: %+v", parent.Tasks)
+	}
+}
+
+// TestForkSessionRejectsRunningParent（UC5）：父会话运行中拒绝 fork。
+func TestForkSessionRejectsRunningParent(t *testing.T) {
+	sessions := &forkServiceSessions{
+		parent:     SessionRecord{Version: 3, ID: "parent", Title: SessionTitle{Value: "Parent"}},
+		context:    []byte(`{}`),
+		generation: "generation-parent",
+	}
+	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
+
+	// 标记父会话运行中。
+	service.Mu.Lock()
+	service.Core.Snapshot.Session = SessionState{ID: "parent"}
+	unit := service.sessions.Unit("parent")
+	if unit == nil {
+		unit, _ = session.NewSessionUnit("parent")
+		service.sessions.Register(unit)
+	}
+	unit.SetChatState(ChatState{Running: true, RequestID: "req-parent"}, nil)
+	service.Mu.Unlock()
+
+	if _, err := service.ForkSession("parent", ForkRequest{}); !errors.Is(err, ErrChatRunning) {
+		t.Fatalf("ForkSession(running parent) = %v, want ErrChatRunning", err)
+	}
+	if sessions.savedChild != "" {
+		t.Fatalf("fork wrote child %q while parent running", sessions.savedChild)
 	}
 }
