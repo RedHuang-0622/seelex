@@ -200,6 +200,69 @@ func TestFrameworkEventLogMissingSessionReturnsEmpty(t *testing.T) {
 	}
 }
 
+// TestEventStoreResolvesSessionBindingProject（R3 键漂移回归）：执行事实
+// 按会话绑定项目落盘，不随 Router active write scope 复位拆到默认项目。
+func TestEventStoreResolvesSessionBindingProject(t *testing.T) {
+	router := newTestRouter(t)
+	router.SetWorkspace("project-active")
+
+	store := NewEventStore(router)
+	store.SetWorkspaceResolver(func(sessionID string) string {
+		if sessionID == "sess-bound" {
+			return "project-bound"
+		}
+		return ""
+	})
+	event := frameworkevent.Event{
+		ID: "evt", Sequence: 1, Source: "seelex.telemetry.summary",
+		Type: frameworkevent.TypeLifecycle, Status: frameworkevent.StatusFailed,
+		Locations: []frameworkevent.Location{{
+			Kind: "agent.runtime", IDs: map[string]string{"session_id": "sess-bound"},
+		}},
+	}
+	if err := store.Append(context.Background(), event); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	// 事件落在绑定项目，而非 active scope。
+	bound, err := router.ReadFrameworkEventsWorkspace(context.Background(), "project-bound", "sess-bound")
+	if err != nil || len(bound) != 1 {
+		t.Fatalf("bound project events = %d err=%v, want 1", len(bound), err)
+	}
+	active, err := router.ReadFrameworkEventsWorkspace(context.Background(), "project-active", "sess-bound")
+	if err != nil || len(active) != 0 {
+		t.Fatalf("active project events = %d err=%v, want 0（不得拆到 active scope）", len(active), err)
+	}
+
+	// Load 走同一解析器，能读回绑定项目事件。
+	loaded, err := store.Load(context.Background(), "sess-bound")
+	if err != nil || len(loaded) != 1 {
+		t.Fatalf("load via resolver = %d err=%v, want 1", len(loaded), err)
+	}
+}
+
+// TestEventStoreWithoutResolverFallsBackToActiveScope 验证未注入解析器时
+// 保持旧语义（active write scope），不破坏现有装配。
+func TestEventStoreWithoutResolverFallsBackToActiveScope(t *testing.T) {
+	router := newTestRouter(t)
+	router.SetWorkspace("project-active")
+	store := NewEventStore(router)
+	event := frameworkevent.Event{
+		ID: "evt", Sequence: 1, Source: "workplan.runner",
+		Type: frameworkevent.TypeLifecycle, Status: frameworkevent.StatusRunning,
+		Locations: []frameworkevent.Location{{
+			Kind: "agent.runtime", IDs: map[string]string{"session_id": "sess-unbound"},
+		}},
+	}
+	if err := store.Append(context.Background(), event); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	active, err := router.ReadFrameworkEventsWorkspace(context.Background(), "project-active", "sess-unbound")
+	if err != nil || len(active) != 1 {
+		t.Fatalf("active project events = %d err=%v, want 1", len(active), err)
+	}
+}
+
 func eventLogEntry(seq uint64, status frameworkevent.Status) EventLogEntry {
 	payload, err := json.Marshal(frameworkevent.Event{
 		ID: "evt", Sequence: seq, Source: "workplan.runner",

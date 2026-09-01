@@ -205,6 +205,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// 执行事实事件库按会话绑定项目落盘（R3 键漂移修复：后台会话事件不再
+	// 因 active write scope 复位而拆到默认项目）。
+	eventStore.SetWorkspaceResolver(func(sessionID string) string {
+		if workspace, ok := wsRepo.SessionWorkspace(sessionID); ok {
+			return workspace.ID
+		}
+		return ""
+	})
 	app, err := initApplication(appEngine, runtime, pluginManager, sessionManager, skillRegistry, wsRepo, events, approval)
 	if err != nil {
 		return err
@@ -970,8 +978,7 @@ func initEngine(runtime *seelebridge.Runtime, hooks *application.ToolHookBridge,
 }
 
 func initSessionManager(router *sessionstore.Router, eng *adapters.EnginePort) *session.Manager {
-	manager := session.NewManager(router)
-	manager.WithRouter(router)
+	manager := session.NewManager().WithRouter(router)
 	manager.InjectSaveLoad(
 		func(sessionID string) error { return router.Save(sessionID, eng.RawHistory()) },
 		func(sessionID string) error {

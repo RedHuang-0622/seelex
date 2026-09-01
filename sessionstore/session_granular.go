@@ -1,0 +1,510 @@
+package sessionstore
+
+import (
+	"encoding/json"
+	"math"
+	"time"
+
+	"github.com/RedHuang-0622/Seele/types"
+)
+
+// 会话粒度持久化（thin-wrapper-session-design.md §2）：原子单位 = session，
+// 键 session:<id> 五片（record/history/transcript/toolresults/context）+
+// 项目索引（project = 会话集合）。主会话与子代理会话同构（同五片，parent
+// 经 record/binding 关联）。物理布局复用 Router 现有 (projectID, sessionID)
+// 复合键，暴露层为会话粒度 API（module-map.md §4 迁移）。
+//
+// 注意：本包不得 import seelex/session（session 依赖本包，反向会成环）；
+// 本文件定义存储侧类型，seelex/session 以类型别名暴露为 StorePort 契约。
+
+// Kind 是会话种类（M2 K_i）。
+type Kind string
+
+const (
+	KindMain     Kind = "main"
+	KindSubagent Kind = "subagent"
+)
+
+// Status 是会话可见状态（M2 status_i；热/冷由 HasSession 驱动）。
+type Status string
+
+const (
+	StatusDraft   Status = "draft"
+	StatusIdle    Status = "idle"
+	StatusRunning Status = "running"
+	StatusQueued  Status = "queued"
+)
+
+// Record 是会话粒度记录（session:<id> → SessionRecord）。
+type Record struct {
+	ID         string    `json:"id"`
+	Kind       Kind      `json:"kind"`
+	ParentID   string    `json:"parent_id,omitempty"`
+	Title      string    `json:"title,omitempty"`
+	Status     Status    `json:"status"`
+	Checkpoint string    `json:"checkpoint,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at,omitempty"`
+	Binding    Binding   `json:"binding,omitempty"`
+}
+
+// Binding 是会话绑定（B_i：workspaceID / parent / kind）。
+type Binding struct {
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	ParentID    string `json:"parent_id,omitempty"`
+	Kind        Kind   `json:"kind,omitempty"`
+}
+
+// TranscriptEvent 是会话事件日志条目（session:<id>:transcript）。
+type TranscriptEvent struct {
+	Seq     uint64          `json:"seq"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// ToolResultRef 是工具结果归档引用（session:<id>:toolresults）。
+type ToolResultRef struct {
+	Ref  string `json:"ref"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// ContextStack 是会话上下文四栈（session:<id>:context；C_i）。
+type ContextStack struct {
+	Plan    []string `json:"plan,omitempty"`
+	Task    []string `json:"task,omitempty"`
+	Skill   []string `json:"skill,omitempty"`
+	Compact []string `json:"compact,omitempty"`
+}
+
+// SessionInfo 是项目索引中的会话摘要（project:<p>:sessions）。
+type SessionInfo struct {
+	ID       string `json:"id"`
+	Title    string `json:"title,omitempty"`
+	Kind     Kind   `json:"kind"`
+	Status   Status `json:"status"`
+	ParentID string `json:"parent_id,omitempty"`
+}
+
+// SessionGranularStore 是会话粒度 StorePort 的存储实现：包装 Router，
+// 暴露五片 + 项目索引的会话粒度 API。projectID 为空时回退 Router 当前
+// active write scope（旧语义兼容）。
+type SessionGranularStore struct {
+	router *Router
+}
+
+// NewSessionGranularStore 构造会话粒度存储；router 为 nil 时所有方法
+// 退化为空操作/空结果（测试桩兼容）。
+func NewSessionGranularStore(router *Router) *SessionGranularStore {
+	return &SessionGranularStore{router: router}
+}
+
+func (store *SessionGranularStore) projectID(projectID string) string {
+	if store == nil || store.router == nil {
+		return projectID
+	}
+	if projectID == "" {
+		return store.router.Workspace()
+	}
+	return projectID
+}
+
+// SaveSession 原子写会话记录（幂等：同键重写不漂移；B6）。
+func (store *SessionGranularStore) SaveSession(projectID string, record Record) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	projectID = store.projectID(projectID)
+	// 首次落盘：写一次空 commit 生成项目索引条目（manifest/meta），使
+	// record-only 会话也能被 SessionsOf 枚举；已有条目（含仅历史、无
+	// record 的旧会话）不再写 commit，避免覆盖历史 generation。
+	if !store.sessionIndexed(projectID, record.ID) {
+		if err := store.router.SaveCommitWorkspace(projectID, record.ID, Commit{}); err != nil {
+			return err
+		}
+	}
+	if record.UpdatedAt.IsZero() {
+		record.UpdatedAt = time.Now()
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	return store.router.SaveStateWorkspace(projectID, record.ID, payload)
+}
+
+// SaveRecordRaw 以会话粒度原子写 record 通道原始字节（state.json；
+// 应用侧 model.SessionRecord 等自有 schema 经此通道落盘）。
+func (store *SessionGranularStore) SaveRecordRaw(projectID, sessionID string, payload []byte) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.SaveStateWorkspace(store.projectID(projectID), sessionID, payload)
+}
+
+// LoadRecordRaw 读取 record 通道原始字节；不存在原样返回 fs.ErrNotExist
+// （调用方按存储语义处理，如恢复路径的 record 缺失分支）。
+func (store *SessionGranularStore) LoadRecordRaw(projectID, sessionID string) ([]byte, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	return store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
+}
+
+// sessionIndexed 报告会话是否已出现在项目索引（物理实现 = Router
+// workspace 列表，即 manifest/meta 存在性）。
+func (store *SessionGranularStore) sessionIndexed(projectID, sessionID string) bool {
+	for _, meta := range store.router.ListWorkspace(projectID) {
+		if meta.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+// LoadSession 读取会话记录；不存在返回 (zero, false, nil)。
+func (store *SessionGranularStore) LoadSession(projectID, sessionID string) (Record, bool, error) {
+	if store == nil || store.router == nil {
+		return Record{}, false, nil
+	}
+	payload, err := store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
+	if err != nil {
+		if isSessionNotFound(err) {
+			return Record{}, false, nil
+		}
+		return Record{}, false, err
+	}
+	var record Record
+	if err := json.Unmarshal(payload, &record); err != nil {
+		// 生产 state.json 为 application model.SessionRecord（title 为对象、
+		// 含 conversation/execution/projection 等），与薄封装 Record 结构
+		// 不同构。目录/绑定解析必须宽容：能提取身份即返回，绝不因类型不
+		// 匹配把整个会话从侧栏清掉（左侧栏历史会话消失的根因）。
+		info, ok := parseRecordInfo(payload)
+		if !ok || info.ID != sessionID {
+			return Record{}, false, nil
+		}
+		return Record{ID: sessionID, Kind: KindMain, Status: StatusIdle, Title: info.Title}, true, nil
+	}
+	return record, true, nil
+}
+
+// History 返回会话的框架工作历史句柄（session:<id>:history）。
+func (store *SessionGranularStore) History(sessionID string) *DurableHistory {
+	if store == nil || store.router == nil {
+		return NewDurableHistory(nil, sessionID)
+	}
+	return NewDurableHistory(store.router, sessionID)
+}
+
+// HistoryForProject 返回绑定到显式项目作用域的会话历史句柄（会话粒度
+// API 不再以 workspace 参数调用；项目解析由调用方/绑定提供）。
+func (store *SessionGranularStore) HistoryForProject(projectID, sessionID string) *DurableHistory {
+	if store == nil || store.router == nil {
+		return NewDurableHistory(nil, sessionID)
+	}
+	history := NewDurableHistory(store.router, sessionID)
+	history.SetWorkspaceResolver(func() string { return store.projectID(projectID) })
+	return history
+}
+
+// ResolveProjectForSession 返回会话绑定的项目 ID（record.Binding.WorkspaceID
+// 优先；未绑定回退 Router active scope）。
+func (store *SessionGranularStore) ResolveProjectForSession(sessionID string) string {
+	if store == nil || store.router == nil {
+		return ""
+	}
+	if record, ok, err := store.LoadSession("", sessionID); err == nil && ok && record.Binding.WorkspaceID != "" {
+		return record.Binding.WorkspaceID
+	}
+	return store.router.Workspace()
+}
+
+// SaveHistory 以会话粒度原子写 provider 历史（session:<id>:history；
+// 幂等：同键重写不漂移）。
+func (store *SessionGranularStore) SaveHistory(projectID, sessionID string, messages []types.Message) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.SaveWorkspace(store.projectID(projectID), sessionID, messages)
+}
+
+// HistoryRange 按窗口读取会话 provider 历史，返回 [offset, offset+limit)
+// 与总数（会话粒度键）。
+func (store *SessionGranularStore) HistoryRange(projectID, sessionID string, offset, limit int) ([]types.Message, int, error) {
+	if store == nil || store.router == nil {
+		return nil, 0, nil
+	}
+	return store.router.LoadRangeWorkspace(store.projectID(projectID), sessionID, offset, limit)
+}
+
+// Transcript 读取会话事件日志（session:<id>:transcript；事件通道与
+// provider history 同库，事务序=seq 序）。
+func (store *SessionGranularStore) Transcript(projectID, sessionID string) ([]TranscriptEvent, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, math.MaxInt, math.MaxInt)
+	if err != nil {
+		if isSessionNotFound(err) {
+			return []TranscriptEvent{}, nil
+		}
+		return nil, err
+	}
+	transcript := make([]TranscriptEvent, 0, len(events))
+	for _, event := range events {
+		transcript = append(transcript, TranscriptEvent{
+			Seq:  event.Seq,
+			Type: event.Role,
+		})
+	}
+	return transcript, nil
+}
+
+// TranscriptTail 读取会话事件日志尾部窗口（token + 单元上限；会话粒度键）。
+func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, tokenBudget, maxUnits)
+	if err != nil {
+		if isSessionNotFound(err) {
+			return []Event{}, nil
+		}
+		return nil, err
+	}
+	return events, nil
+}
+
+// EventRange 按 EventSeq 范围读取会话事件流（fork 切断点解析用）。
+func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	events, err := store.router.LoadEventRangeWorkspace(store.projectID(projectID), sessionID, fromSeq, toSeq)
+	if err != nil {
+		if isSessionNotFound(err) {
+			return []Event{}, nil
+		}
+		return nil, err
+	}
+	return events, nil
+}
+
+// ToolResults 读取会话工具结果归档引用（session:<id>:toolresults）。
+func (store *SessionGranularStore) ToolResults(projectID, sessionID string) ([]ToolResultRef, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	results, err := store.router.ListToolResultsWorkspace(store.projectID(projectID), sessionID)
+	if err != nil {
+		if isSessionNotFound(err) {
+			return []ToolResultRef{}, nil
+		}
+		return nil, err
+	}
+	refs := make([]ToolResultRef, 0, len(results))
+	for _, result := range results {
+		refs = append(refs, ToolResultRef{
+			Ref:  result.Ref,
+			Name: result.Tool,
+			Size: int64(result.Size),
+		})
+	}
+	return refs, nil
+}
+
+// ToolResult 读取会话工具结果原始内容（按 resultRef）。
+func (store *SessionGranularStore) ToolResult(projectID, sessionID, resultRef string) (ToolResult, error) {
+	if store == nil || store.router == nil {
+		return ToolResult{}, nil
+	}
+	return store.router.LoadToolResultWorkspace(store.projectID(projectID), sessionID, resultRef)
+}
+
+// ListToolResults 读取会话 tool-results 通道全量（fork 深拷贝物理复制用）。
+func (store *SessionGranularStore) ListToolResults(projectID, sessionID string) ([]ToolResult, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	results, err := store.router.ListToolResultsWorkspace(store.projectID(projectID), sessionID)
+	if err != nil {
+		if isSessionNotFound(err) {
+			return []ToolResult{}, nil
+		}
+		return nil, err
+	}
+	return results, nil
+}
+
+// Context 读取会话上下文四栈（session:<id>:context）。
+func (store *SessionGranularStore) Context(projectID, sessionID string) (ContextStack, error) {
+	if store == nil || store.router == nil {
+		return ContextStack{}, nil
+	}
+	payload, err := store.router.LoadContextStateWorkspace(store.projectID(projectID), sessionID)
+	if err != nil {
+		if isSessionNotFound(err) {
+			return ContextStack{}, nil
+		}
+		return ContextStack{}, err
+	}
+	var stack ContextStack
+	if err := json.Unmarshal(payload, &stack); err != nil {
+		return ContextStack{}, err
+	}
+	return stack, nil
+}
+
+// SaveContext 保存会话上下文四栈（session:<id>:context；幂等）。
+func (store *SessionGranularStore) SaveContext(projectID, sessionID string, payload []byte) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.SaveContextStateWorkspace(store.projectID(projectID), sessionID, payload)
+}
+
+// LoadContextRaw 读取会话上下文模块原始字节（fork 四栈深拷贝用）；不存在
+// 原样返回 fs.ErrNotExist（fork 据此走默认上下文分支）。
+func (store *SessionGranularStore) LoadContextRaw(projectID, sessionID string) ([]byte, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	return store.router.LoadContextStateWorkspace(store.projectID(projectID), sessionID)
+}
+
+// SaveCommit 以会话粒度原子提交快照（record + transcript + tool-results）。
+func (store *SessionGranularStore) SaveCommit(projectID, sessionID string, commit Commit) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.SaveCommitWorkspace(store.projectID(projectID), sessionID, commit)
+}
+
+// CurrentGeneration 返回会话当前已发布 generation（fork 血缘来源）。
+func (store *SessionGranularStore) CurrentGeneration(projectID, sessionID string) (string, error) {
+	if store == nil || store.router == nil {
+		return "", nil
+	}
+	return store.router.CurrentGenerationWorkspace(store.projectID(projectID), sessionID)
+}
+
+// ConversationRange 读取会话 conversation 模块窗口（只解析 conversation
+// 子树；offset/limit 语义与 Router 一致）。
+func (store *SessionGranularStore) ConversationRange(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error) {
+	if store == nil || store.router == nil {
+		return nil, 0, nil
+	}
+	return store.router.LoadConversationRangeWorkspace(store.projectID(projectID), sessionID, offset, limit)
+}
+
+// Delete 以会话粒度删除会话（record/history/transcript/toolresults/context
+// 同键；项目索引同步移除）。
+func (store *SessionGranularStore) Delete(projectID, sessionID string) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.DeleteWorkspace(store.projectID(projectID), sessionID)
+}
+
+// SessionsOf 按项目索引枚举会话（project = 会话集合；物理实现 = Router
+// workspace 列表，record 补充 kind/status/parent）。
+func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, error) {
+	if store == nil || store.router == nil {
+		return nil, nil
+	}
+	projectID = store.projectID(projectID)
+	metas := store.router.ListWorkspace(projectID)
+	infos := make([]SessionInfo, 0, len(metas))
+	for _, meta := range metas {
+		record, ok, err := store.LoadSession(projectID, meta.SessionID)
+		if err != nil {
+			// 单条记录解析失败不阻断目录枚举（宽容降级为 meta 信息）。
+			record, ok = Record{ID: meta.SessionID, Kind: KindMain, Status: StatusIdle}, false
+		}
+		info := SessionInfo{
+			ID:     meta.SessionID,
+			Title:  meta.Summary,
+			Kind:   KindMain,
+			Status: StatusIdle,
+		}
+		if ok {
+			info.Kind = record.Kind
+			info.Status = record.Status
+			info.ParentID = record.ParentID
+			if record.Title != "" {
+				info.Title = record.Title
+			}
+		}
+		infos = append(infos, info)
+	}
+	return infos, nil
+}
+
+// parseRecordInfo 宽容解析会话记录头：兼容薄封装 Record（title 字符串）与
+// 生产 model.SessionRecord（title 为 SessionTitle 对象）。解析失败返回
+// ok=false（调用方降级，不阻断目录）。
+func parseRecordInfo(payload []byte) (Record, bool) {
+	if len(payload) == 0 {
+		return Record{}, false
+	}
+	var header struct {
+		ID     string          `json:"id"`
+		Title  json.RawMessage `json:"title"`
+		Kind   Kind            `json:"kind"`
+		Status Status          `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &header); err != nil {
+		return Record{}, false
+	}
+	record := Record{ID: header.ID, Kind: header.Kind, Status: header.Status}
+	if record.Kind == "" {
+		record.Kind = KindMain
+	}
+	if record.Status == "" {
+		record.Status = StatusIdle
+	}
+	record.Title = parseRecordTitle(header.Title)
+	return record, record.ID != ""
+}
+
+// parseRecordTitle 兼容 title 的两种形态：字符串（薄封装 Record）与
+// SessionTitle 对象（生产 model.SessionRecord，取 value 字段）。
+func parseRecordTitle(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var object struct {
+		Value string `json:"value"`
+	}
+	if json.Unmarshal(raw, &object) == nil {
+		return object.Value
+	}
+	return ""
+}
+
+// Bind 写会话绑定（session:<id>:binding；幂等合并进 record）。
+func (store *SessionGranularStore) Bind(projectID, sessionID string, binding Binding) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	projectID = store.projectID(projectID)
+	record, ok, err := store.LoadSession(projectID, sessionID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		record = Record{ID: sessionID, Kind: binding.Kind, Status: StatusDraft}
+	}
+	if record.Binding.WorkspaceID == "" {
+		record.Binding.WorkspaceID = projectID
+	}
+	record.Binding.ParentID = binding.ParentID
+	record.Binding.Kind = binding.Kind
+	record.Kind = binding.Kind
+	record.ParentID = binding.ParentID
+	return store.SaveSession(projectID, record)
+}

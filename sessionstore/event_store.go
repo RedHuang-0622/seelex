@@ -26,11 +26,39 @@ type EventLogEntry struct {
 type EventStore struct {
 	router *Router
 	mu     sync.Mutex
+	// workspaceResolver 返回会话绑定的 workspace（项目作用域）ID；nil 时
+	// 回退 Router 当前 active write scope（旧语义，R3 键漂移根因）。
+	// 装配方注入 workspace binding 解析器后，执行事实与 record/history
+	// 同项目落盘，不再拆到默认项目。
+	workspaceResolver func(sessionID string) string
 }
 
 // NewEventStore 创建会话级执行事实事件库（惰性追加，不预读）。
 func NewEventStore(router *Router) *EventStore {
 	return &EventStore{router: router}
+}
+
+// SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点：从
+// workspace.Repo.SessionWorkspace 读绑定）。未注入时回退 active scope。
+func (store *EventStore) SetWorkspaceResolver(resolver func(sessionID string) string) {
+	if store == nil {
+		return
+	}
+	store.mu.Lock()
+	store.workspaceResolver = resolver
+	store.mu.Unlock()
+}
+
+func (store *EventStore) projectFor(sessionID string) string {
+	if store.workspaceResolver != nil {
+		if projectID := store.workspaceResolver(sessionID); projectID != "" {
+			return projectID
+		}
+	}
+	if store.router != nil {
+		return store.router.Workspace()
+	}
+	return ""
 }
 
 // Append 实现 frameworkevent.Sink：按事件 Location（agent.runtime →
@@ -50,7 +78,7 @@ func (store *EventStore) Append(ctx context.Context, event frameworkevent.Event)
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	return store.router.AppendFrameworkEvent(ctx, sessionID, EventLogEntry{
+	return store.router.AppendFrameworkEventWorkspace(ctx, store.projectFor(sessionID), sessionID, EventLogEntry{
 		Seq:     event.Sequence,
 		Payload: payload,
 	})
@@ -62,7 +90,7 @@ func (store *EventStore) Load(ctx context.Context, sessionID string) ([]framewor
 	if store == nil || store.router == nil {
 		return nil, fmt.Errorf("event store: router is unavailable")
 	}
-	entries, err := store.router.ReadFrameworkEvents(ctx, sessionID)
+	entries, err := store.router.ReadFrameworkEventsWorkspace(ctx, store.projectFor(sessionID), sessionID)
 	if err != nil {
 		return nil, err
 	}
