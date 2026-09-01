@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
@@ -29,6 +30,7 @@ type Coordinator struct {
 	oversizedWarning  func(string, string) string
 	presentToolError  func(string, error) string
 	queuedInputRefs   func() []string
+	currentSessionID  func() string
 
 	goalSkillActive atomic.Bool
 	tokenCounter    RequestTokenCounter
@@ -37,8 +39,10 @@ type Coordinator struct {
 	// Core.Mu 下进行（Locked 方法）或由方法自行加锁。
 	sessionStates map[string]*sessionTaskRuntime
 	// requestToSession 维护 requestID → sessionID 绑定（BeginTask 登记，
-	// 任务结束后清理），供带 requestID 的方法反查会话状态。
+	// 任务结束后清理），供带 requestID 的方法反查会话状态。会话域重构后
+	// 后台流式路径经 requestMu 并发读，不取全局锁。
 	requestToSession map[string]string
+	requestMu        sync.RWMutex
 }
 
 // sessionTaskRuntime 是单个会话的任务/plan 运行时状态（M2 分片单元）。
@@ -79,6 +83,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		oversizedWarning:  deps.OversizedToolResultWarning,
 		presentToolError:  deps.PresentToolError,
 		queuedInputRefs:   deps.QueuedInputRefs,
+		currentSessionID:  deps.CurrentSessionID,
 		tokenCounter:      NewCalibratedTokenCounter(),
 	}
 }
@@ -123,6 +128,8 @@ func (c *Coordinator) sessionForRequestLocked(requestID string) *sessionTaskRunt
 // bindRequestLocked 登记 requestID → sessionID（BeginTask 时；调用方持有
 // Core.Mu）。
 func (c *Coordinator) bindRequestLocked(requestID, sessionID string) {
+	c.requestMu.Lock()
+	defer c.requestMu.Unlock()
 	if c.requestToSession == nil {
 		c.requestToSession = make(map[string]string)
 	}
@@ -132,6 +139,8 @@ func (c *Coordinator) bindRequestLocked(requestID, sessionID string) {
 // unbindRequestLocked 移除 requestID → sessionID（任务结束时；调用方持有
 // Core.Mu）。
 func (c *Coordinator) unbindRequestLocked(requestID string) {
+	c.requestMu.Lock()
+	defer c.requestMu.Unlock()
 	delete(c.requestToSession, requestID)
 }
 

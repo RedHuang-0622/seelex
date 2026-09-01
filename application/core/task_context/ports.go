@@ -42,4 +42,7 @@ type Deps struct {
 	// QueuedInputRefs 返回当前排队输入的显示引用（lifecycle 域；终态恢复
 	// 记录用）。
 	QueuedInputRefs func() []string
+	// CurrentSessionID 返回当前活跃会话 ID（线程安全；会话域重构后流式
+	// 路径在无 Core.Mu 下反查活跃会话）。
+	CurrentSessionID func() string
 }

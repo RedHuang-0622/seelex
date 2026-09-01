@@ -55,7 +55,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		return ErrApplicationDraining
 	}
 	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.chatRuntimeLocked(sessionID)
+	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
 		service.Mu.Unlock()
 		return ErrChatRunning
@@ -117,10 +117,24 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	service.injectPendingSubagentContextsFor(sessionID)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, user)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, assistant)
+	// 会话列表状态机：chat 启动即发布 snapshot.changed，前端刷新左侧栏
+	// 显示"运行中"（完成路径 runChat 尾部已有对应发布，恢复到 idle）。
+	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
 	go service.runChat(chatContext, sessionID, requestID, request)
 	return nil
 }
 
+// runChat 在独立 goroutine 中执行一次会话提交：委托 Seele loop（9.2 边界，
+// thin-wrapper-session-design.md §1.2/§6）——
+//   - 提交：session.Engine.ChatStreamFor（显式 sid 路由，切换不串写）；
+//   - 执行：Seele ReAct loop 在单次 ChatStream 内完成全部工具轮次，core
+//     不自编循环（UC6 结构断言，见 chat_delegation_test.go）；
+//   - 观察：Seele LoopHooks 链（seelebridge Chain：DiagnosticHook →
+//     StageHook → SummaryHook）只做记录/透传，不改变 loop 控制流；
+//     core 侧仅投影 ΔV/事件（appendDelta / appendVisibleDeltaBackground）。
+//   - 收尾：context 恢复、task 终态、会话粒度 persist、ReleaseWorkingHistory。
+// 事件指纹方法：相同输入序列 → 相同事件序列（kind + session/request/message
+// ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。
 func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
 	ctx = withSessionID(ctx, sessionID)
 	defer service.components.tasks.ClearReActBudget(requestID)
@@ -207,7 +221,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	}
 	service.Mu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.chatRuntimeLocked(sessionID)
+	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().RequestID != requestID {
 		runChatDebug("runChat stale request session=%s request=%s runtimeRequest=%s (superseded)", sessionID, requestID, runtime.ChatState().RequestID)
 		service.Mu.Unlock()
@@ -443,7 +457,7 @@ func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatch
 	if service.Core.Snapshot.Chat.RequestID == requestID {
 		if sessionID := service.components.tasks.SessionIDForRequest(requestID); sessionID != "" {
 			if unit := service.sessions.Unit(sessionID); unit != nil {
-				unit.Chat.SetBatcher(batcher)
+				unit.SetBatcher(batcher)
 			}
 		}
 	}
@@ -460,7 +474,7 @@ func (service *Service) flushStreamBatcher(requestID string) {
 	sessionID := service.components.tasks.SessionIDForRequest(requestID)
 	var batcher session.StreamBatcherSink
 	if unit := service.sessions.Unit(sessionID); unit != nil {
-		batcher = unit.Chat.BatcherSink()
+		batcher = unit.BatcherSink()
 	}
 	active := sessionID == service.Core.Snapshot.Session.ID && service.Core.Snapshot.Chat.RequestID == requestID
 	service.Mu.Unlock()
@@ -472,18 +486,40 @@ func (service *Service) flushStreamBatcher(requestID string) {
 }
 
 func (service *Service) consumeVisibleChunk(requestID, chunk string) string {
+	sessionID := service.components.tasks.SessionIDForRequest(requestID)
+	if sessionID != "" && sessionID != service.sessions.ActiveID() {
+		// 后台会话：只写自身流状态，不取全局锁（线程隔离）。
+		return service.consumeVisibleChunkBackground(sessionID, requestID, chunk)
+	}
 	service.Mu.Lock()
 	defer service.Mu.Unlock()
-	sessionID := service.components.tasks.SessionIDForRequest(requestID)
-	runtime := service.chatRuntimeLocked(sessionID)
+	runtime := service.sessionUnitLocked(sessionID)
 	running := runtime.ChatState().Running && runtime.ChatState().RequestID == requestID
 	if !running && service.Core.Snapshot.Chat.Running && service.Core.Snapshot.Chat.RequestID == requestID {
 		// 兼容测试直写 Snapshot.Chat（活跃会话便捷构造）；生产路径 runtime 权威。
 		running = true
 		sessionID = service.Core.Snapshot.Session.ID
-		runtime = service.chatRuntimeLocked(sessionID)
+		runtime = service.sessionUnitLocked(sessionID)
 	}
 	if !running {
+		return ""
+	}
+	if stream := runtime.StreamSink(); stream == nil || stream.RequestID() != requestID {
+		runtime.SetStream(chat.NewVisibleOutputStream(requestID))
+	}
+	return runtime.StreamSink().Consume(chunk)
+}
+
+// consumeVisibleChunkBackground 后台会话的流式消费：仅触碰该会话单元自身的
+// 锁与流，不获取全局锁。
+func (service *Service) consumeVisibleChunkBackground(sessionID, requestID, chunk string) string {
+	unit := service.sessions.Unit(sessionID)
+	if unit == nil {
+		return ""
+	}
+	runtime := unit
+	chatState := runtime.ChatState()
+	if !chatState.Running || chatState.RequestID != requestID {
 		return ""
 	}
 	if stream := runtime.StreamSink(); stream == nil || stream.RequestID() != requestID {
@@ -496,16 +532,21 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	if chunk == "" {
 		return
 	}
+	sessionID := service.components.tasks.SessionIDForRequest(requestID)
+	if sessionID != "" && sessionID != service.sessions.ActiveID() {
+		// 后台会话：写自身 View（View.mu），零全局锁；revision 用会话本地计数。
+		service.appendVisibleDeltaBackground(sessionID, requestID, chunk)
+		return
+	}
 	service.Mu.Lock()
 	// 阶段 1：流式增量按 requestID 反查会话，写该会话自己的 view（后台
 	// 会话也实时维护可见投影；活跃会话镜像 Snapshot）。
-	sessionID := service.components.tasks.SessionIDForRequest(requestID)
-	runtime := service.chatRuntimeLocked(sessionID)
+	runtime := service.sessionUnitLocked(sessionID)
 	running := runtime.ChatState().Running && runtime.ChatState().RequestID == requestID
 	if !running && service.Core.Snapshot.Chat.Running && service.Core.Snapshot.Chat.RequestID == requestID {
 		running = true
 		sessionID = service.Core.Snapshot.Session.ID
-		runtime = service.chatRuntimeLocked(sessionID)
+		runtime = service.sessionUnitLocked(sessionID)
 	}
 	if !running {
 		service.Mu.Unlock()
@@ -523,6 +564,36 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
+	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{MessageID: messageID, Delta: chunk})
+}
+
+// appendVisibleDeltaBackground 后台会话的流式增量：仅 View.mu + 会话本地
+// revision，不获取全局锁（切换后由基线重建，无需全局 revision 语义）。
+func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk string) {
+	unit := service.sessions.Unit(sessionID)
+	if unit == nil {
+		return
+	}
+	chatState := unit.ChatState()
+	if !chatState.Running || chatState.RequestID != requestID {
+		return
+	}
+	var messageID string
+	var revision uint64
+	unit.View.Mutate(func(view *session.View) {
+		for index := len(view.Conversation) - 1; index >= 0; index-- {
+			if view.Conversation[index].Role == "assistant" && view.Conversation[index].Tool == nil {
+				view.Conversation[index].Content += chunk
+				messageID = view.Conversation[index].ID
+				break
+			}
+		}
+		view.Revision++
+		revision = view.Revision
+	})
+	if messageID == "" {
+		return
+	}
 	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{MessageID: messageID, Delta: chunk})
 }
 

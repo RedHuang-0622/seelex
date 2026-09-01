@@ -741,10 +741,19 @@ func (c *Coordinator) PlanStackFor(sessionID string) []model.SessionPlanFrame {
 // SessionIDForRequest 按 requestID 反查会话 ID（未绑定 → 活跃会话）。
 func (c *Coordinator) SessionIDForRequest(requestID string) string {
 	if requestID == "" {
+		if c.currentSessionID != nil {
+			return c.currentSessionID()
+		}
 		return c.activeSessionIDLocked()
 	}
+	c.requestMu.RLock()
 	if sessionID, ok := c.requestToSession[requestID]; ok {
+		c.requestMu.RUnlock()
 		return sessionID
+	}
+	c.requestMu.RUnlock()
+	if c.currentSessionID != nil {
+		return c.currentSessionID()
 	}
 	return c.activeSessionIDLocked()
 }
