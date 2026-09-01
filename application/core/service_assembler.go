@@ -77,6 +77,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		QueuedInputRefs: func() []string {
 			return queuedInputRefs(service.activeQueuedChatRequestsLocked()) // 调用方持有 Core.Mu（TaskService 终态路径）
 		},
+		CurrentSessionID: func() string {
+			return service.sessions.ActiveID()
+		},
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,
@@ -163,7 +166,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Capabilities:       Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}
-	service.chatRuntimeLocked(initialSessionID)
+	service.sessions.SetActive(initialSessionID)
+	service.sessionUnitLocked(initialSessionID)
 	service.mirrorActiveChatLocked()
 	service.components.tasks.ImportEngineHistoryAsTranscriptLocked(service.Deps.Engine.History())
 	if err := service.registerBuiltinCommands(); err != nil {

@@ -183,7 +183,8 @@ func (service *Service) resumeSession(sessionID string) error {
 		name = record.Title.Value
 	}
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
-	resumedRuntime := service.chatRuntimeLocked(sessionID)
+	service.sessions.SetActive(sessionID)
+	resumedRuntime := service.sessionUnitLocked(sessionID)
 	resumedRuntime.SetCancel(nil)
 	service.components.sessions.SetSessionTitleLocked(sessionID, SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {

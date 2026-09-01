@@ -10,15 +10,20 @@ import (
 	"github.com/RedHuang-0622/seelex/session"
 )
 
-// chatRuntimeLocked 返回指定会话的聊天运行态（会话域单元，按需创建）。
+// sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
+// 9.5 起 core 直接经会话单元接入；按需创建）。
 // 调用方必须持有 Core.Mu；域内锁序 Core.Mu → Domain.mu → Unit.mu，不反向。
-func (service *Service) chatRuntimeLocked(sessionID string) *session.ChatRuntime {
+func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit {
 	unit := service.sessions.Unit(sessionID)
 	if unit == nil {
-		unit = session.NewUnit(sessionID)
+		if sessionID == "" {
+			unit = session.NewDraftUnit()
+		} else {
+			unit, _ = session.NewSessionUnit(sessionID)
+		}
 		service.sessions.Register(unit)
 	}
-	return unit.Chat
+	return unit
 }
 
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
@@ -27,7 +32,7 @@ func (service *Service) chatRuntimeLocked(sessionID string) *session.ChatRuntime
 func (service *Service) anyChatRunningLocked() bool {
 	for _, sid := range service.sessions.UnitIDs() {
 		unit := service.sessions.Unit(sid)
-		if unit != nil && unit.Chat.ChatState().Running {
+		if unit != nil && unit.ChatState().Running {
 			return true
 		}
 	}
@@ -39,7 +44,7 @@ func (service *Service) anyChatRunningLocked() bool {
 func (service *Service) mirrorActiveChatLocked() {
 	sessionID := service.Core.Snapshot.Session.ID
 	if unit := service.sessions.Unit(sessionID); unit != nil {
-		service.setSessionChatLockedFor(sessionID, unit.Chat.ChatState())
+		service.setSessionChatLockedFor(sessionID, unit.ChatState())
 	} else {
 		service.setSessionChatLockedFor(sessionID, ChatState{})
 	}
@@ -64,7 +69,7 @@ func (service *Service) activeQueuedChatRequestsLocked() []chatRequest {
 	if unit == nil {
 		return nil
 	}
-	return queuedChatRequests(unit.Chat.PendingRequests())
+	return queuedChatRequests(unit.PendingRequests())
 }
 
 // publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
@@ -166,7 +171,7 @@ func (service *Service) SnapshotOf(sessionID string) (Snapshot, error) {
 		Revision:           service.Core.Snapshot.Revision,
 		Session:            SessionState{ID: sessionID, Name: name},
 		Conversation:       append([]Message(nil), view.Conversation...),
-		Chat:               unit.Chat.ChatState(),
+		Chat:               unit.ChatState(),
 		Runtime:            cloneRuntimeState(service.Core.Snapshot.Runtime),
 		Capabilities:       Capabilities{SessionResume: true},
 		HistoryOffset:      view.HistoryOffset,
