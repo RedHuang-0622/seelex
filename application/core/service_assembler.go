@@ -14,6 +14,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
 	"github.com/RedHuang-0622/seelex/application/core/worktable"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
+	"github.com/RedHuang-0622/seelex/session"
 )
 
 // serviceAssembler is the composition root for the application service. It
@@ -52,11 +53,12 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 
 	promptStack := NewPromptStack()
 	kernel := state.New(assembler.deps)
+	sessionDomain := session.NewDomain()
 	svcState := &serviceState{
 		Core:               kernel,
 		commands:           NewCommandRegistry(),
 		promptRuntimeState: promptRuntimeState{promptStack: promptStack},
-		sessionChat:        make(map[string]*sessionChatRuntime),
+		sessions:           sessionDomain,
 	}
 	service := &Service{serviceState: svcState}
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
@@ -73,7 +75,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
 		PresentToolError:           presentToolError,
 		QueuedInputRefs: func() []string {
-			return queuedInputRefs(service.inputQueue) // 调用方持有 Core.Mu（TaskService 终态路径）
+			return queuedInputRefs(service.activeQueuedChatRequestsLocked()) // 调用方持有 Core.Mu（TaskService 终态路径）
 		},
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
@@ -102,7 +104,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		DisplayUserInput:           displayUserInput,
 	})
 	service.components.view = view_state.NewCoordinator(view_state.Deps{
-		Core: kernel,
+		Core:  kernel,
+		Units: sessionDomain,
 		CurrentEffort: func() string {
 			return service.effortManager.Current()
 		},
@@ -160,7 +163,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Capabilities:       Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,
 	}
-	service.sessionChatLocked(initialSessionID)
+	service.chatRuntimeLocked(initialSessionID)
 	service.mirrorActiveChatLocked()
 	service.components.tasks.ImportEngineHistoryAsTranscriptLocked(service.Deps.Engine.History())
 	if err := service.registerBuiltinCommands(); err != nil {

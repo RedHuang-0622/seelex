@@ -35,7 +35,7 @@ func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
 		t.Fatalf("ResumeSession(running A) = %v, want hot attach nil", err)
 	}
 	service.Mu.RLock()
-	running := service.sessionChat[aID].chat.Running
+	running := service.sessions.Unit(aID).Chat.ChatState().Running
 	active := service.Core.Snapshot.Session.ID
 	service.Mu.RUnlock()
 	if active != aID {
@@ -83,7 +83,7 @@ func TestHotAttachDoesNotTouchRunningSession(t *testing.T) {
 		t.Fatalf("hot attach A while running: %v", err)
 	}
 	service.Mu.RLock()
-	runningA := service.sessionChat[aID].chat.Running
+	runningA := service.sessions.Unit(aID).Chat.ChatState().Running
 	service.Mu.RUnlock()
 	if !runningA {
 		t.Fatal("A stopped running after hot attach")
@@ -170,11 +170,10 @@ func TestUnloadReleasesScope(t *testing.T) {
 		t.Fatalf("unload: %v", err)
 	}
 	service.Mu.RLock()
-	_, hasChat := service.sessionChat[sessionID]
-	_, hasView := service.Core.SessionViews[sessionID]
+	hasUnit := service.sessions.Unit(sessionID) != nil
 	service.Mu.RUnlock()
-	if hasChat || hasView {
-		t.Fatalf("unload retained scope: chat=%v view=%v", hasChat, hasView)
+	if hasUnit {
+		t.Fatalf("unload retained session unit: %q", sessionID)
 	}
 	if engine.HasSession(sessionID) {
 		t.Fatal("unload retained engine instance")

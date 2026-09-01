@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/session"
 )
 
 // runChatDebug 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时
@@ -54,8 +55,8 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		return ErrApplicationDraining
 	}
 	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.sessionChatLocked(sessionID)
-	if runtime.chat.Running {
+	runtime := service.chatRuntimeLocked(sessionID)
+	if runtime.ChatState().Running {
 		service.Mu.Unlock()
 		return ErrChatRunning
 	}
@@ -66,10 +67,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		budget = reactBudgetFor(service.effortManager.Current())
 	}
 	chatContext, cancel := context.WithCancel(parent)
-	runtime.cancel = cancel
-	if active {
-		service.cancelChat = cancel
-	}
+	runtime.SetCancel(cancel)
 	service.components.tasks.StartReActBudgetForLocked(sessionID, requestID, budget)
 	previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 	previousCheckpoint := TaskCheckpoint{}
@@ -79,14 +77,11 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	taskState := service.components.tasks.BeginTaskFor(sessionID, requestID, request.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, request.skills)
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
-	runtime.streamOutput = chat.NewVisibleOutputStream(requestID)
-	if active {
-		service.streamOutput = runtime.streamOutput
-	}
+	runtime.SetStream(chat.NewVisibleOutputStream(requestID))
 	service.markBusyLocked()
-	runtime.chat = ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}
+	runtime.SetChatState(ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}, nil)
 	// 阶段 1：聊天运行态投影写会话 scope（活跃会话镜像 Snapshot.Chat）。
-	service.setSessionChatLockedFor(sessionID, runtime.chat)
+	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 	if active {
 		service.components.tasks.SetTaskStateLocked(requestID, TaskProgressing, "Task is in progress.")
 	}
@@ -186,11 +181,6 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// returned, so every subsequently queued turn sees the merge-back history.
 	service.injectPendingSubagentContextsFor(sessionID)
 	runtimeProjection := service.collectRuntimeProjection(context.Background())
-	service.Mu.Lock()
-	if service.streamBatcher == batcher {
-		service.streamBatcher = nil
-	}
-	service.Mu.Unlock()
 	if cleanupErr := service.components.context.RemoveTaskContextCheckpointsFor(sessionID); cleanupErr != nil && err == nil {
 		err = cleanupErr
 	}
@@ -217,20 +207,20 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	}
 	service.Mu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.sessionChatLocked(sessionID)
-	if runtime.chat.RequestID != requestID {
-		runChatDebug("runChat stale request session=%s request=%s runtimeRequest=%s (superseded)", sessionID, requestID, runtime.chat.RequestID)
+	runtime := service.chatRuntimeLocked(sessionID)
+	if runtime.ChatState().RequestID != requestID {
+		runChatDebug("runChat stale request session=%s request=%s runtimeRequest=%s (superseded)", sessionID, requestID, runtime.ChatState().RequestID)
 		service.Mu.Unlock()
 		return
 	}
-	runtime.chat.Error = ""
+	runtime.UpdateChat(func(chat *ChatState) { chat.Error = "" }, nil)
 	visibleError := ""
 	if err != nil {
 		if isUnclassifiedRunChatError(err) {
 			log.Printf("[runChat] request_id=%s unclassified_error=%v", requestID, err)
 		}
 		visibleError = presentUserError(err)
-		runtime.chat.Error = visibleError
+		runtime.UpdateChat(func(chat *ChatState) { chat.Error = visibleError }, nil)
 		service.appendSessionMessageLocked(sessionID, "error", visibleError, nil)
 	}
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
@@ -240,30 +230,28 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		service.applyRuntimeProjectionLocked(runtimeProjection)
 	}
 	// 处理输入队列（单一消费点）：取排队输入合并为一条，批量发送并起下一轮
-	pendingQueue := append([]chatRequest(nil), runtime.inputQueue...)
+	pendingQueue := queuedChatRequests(runtime.PendingRequests())
 	processQueue := len(pendingQueue) > 0
 	var batchRequest chatRequest
 	var nextContext context.Context
+	var nextCancel context.CancelFunc
 	nextRequestID := ""
 	var nextUser, nextAssistant *Message
 	if processQueue {
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
-		runtime.inputQueue = nil
-		if active {
-			service.inputQueue = nil
-		}
-		runtime.chat.QueuedCount = 0
-		runtime.chat.InputQueue = nil
+		runtime.SetRequests(nil)
+		runtime.UpdateChat(func(chat *ChatState) {
+			chat.QueuedCount = 0
+			chat.InputQueue = nil
+		}, nil)
 		nextRequestID = service.nextChatRequestIDLocked()
 		budget := batchRequest.budget
 		if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
 			budget = reactBudgetFor(service.effortManager.Current())
 		}
-		nextContext, runtime.cancel = context.WithCancel(context.Background())
-		if active {
-			service.cancelChat = runtime.cancel
-		}
+		nextContext, nextCancel = context.WithCancel(context.Background())
+		runtime.SetCancel(nextCancel)
 		service.components.tasks.StartReActBudgetForLocked(sessionID, nextRequestID, budget)
 		previousTask := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 		previousCheckpoint := TaskCheckpoint{}
@@ -273,13 +261,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		taskState := service.components.tasks.BeginTaskFor(sessionID, nextRequestID, batchRequest.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
 		service.components.tasks.ActivateTaskSkillsLocked(taskState, batchRequest.skills)
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
-		runtime.streamOutput = chat.NewVisibleOutputStream(nextRequestID)
-		if active {
-			service.streamOutput = runtime.streamOutput
-		}
-		runtime.chat = ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}
+		runtime.SetStream(chat.NewVisibleOutputStream(nextRequestID))
+		runtime.SetChatState(ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}, nil)
 		service.components.tasks.SetTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
-		service.setSessionChatLockedFor(sessionID, runtime.chat)
+		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 		if active {
 			nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
 			nextAssistant = service.appendMessageLocked("assistant", "", nil)
@@ -288,16 +273,13 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 			nextAssistant = service.appendSessionMessageLocked(sessionID, "assistant", "", nil)
 		}
 	} else {
-		runtime.chat.Running = false
-		runtime.cancel = nil
-		if active {
-			service.cancelChat = nil
-		}
+		runtime.UpdateChat(func(chat *ChatState) { chat.Running = false }, nil)
+		runtime.SetCancel(nil)
 		if !service.anyChatRunningLocked() {
 			service.markIdleLocked()
 		}
 	}
-	service.setSessionChatLockedFor(sessionID, runtime.chat)
+	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 	revision := uint64(0)
 	if active {
 		revision = service.bumpLocked()
@@ -459,7 +441,11 @@ func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatch
 	}, chat.StreamBatcherOptions{FlushSize: 32, BufferSize: 128, Interval: 40 * time.Millisecond})
 	service.Mu.Lock()
 	if service.Core.Snapshot.Chat.RequestID == requestID {
-		service.streamBatcher = batcher
+		if sessionID := service.components.tasks.SessionIDForRequest(requestID); sessionID != "" {
+			if unit := service.sessions.Unit(sessionID); unit != nil {
+				unit.Chat.SetBatcher(batcher)
+			}
+		}
 	}
 	service.Mu.Unlock()
 	return batcher, func(chunk string) {
@@ -470,12 +456,18 @@ func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatch
 }
 
 func (service *Service) flushStreamBatcher(requestID string) {
-	service.Mu.RLock()
-	batcher := service.streamBatcher
-	active := service.Core.Snapshot.Chat.RequestID == requestID
-	service.Mu.RUnlock()
-	if active && batcher != nil {
-		_ = batcher.FlushPending()
+	service.Mu.Lock()
+	sessionID := service.components.tasks.SessionIDForRequest(requestID)
+	var batcher session.StreamBatcherSink
+	if unit := service.sessions.Unit(sessionID); unit != nil {
+		batcher = unit.Chat.BatcherSink()
+	}
+	active := sessionID == service.Core.Snapshot.Session.ID && service.Core.Snapshot.Chat.RequestID == requestID
+	service.Mu.Unlock()
+	if batcher != nil {
+		if active {
+			_ = batcher.FlushPending()
+		}
 	}
 }
 
@@ -483,24 +475,21 @@ func (service *Service) consumeVisibleChunk(requestID, chunk string) string {
 	service.Mu.Lock()
 	defer service.Mu.Unlock()
 	sessionID := service.components.tasks.SessionIDForRequest(requestID)
-	runtime := service.sessionChatLocked(sessionID)
-	running := runtime.chat.Running && runtime.chat.RequestID == requestID
+	runtime := service.chatRuntimeLocked(sessionID)
+	running := runtime.ChatState().Running && runtime.ChatState().RequestID == requestID
 	if !running && service.Core.Snapshot.Chat.Running && service.Core.Snapshot.Chat.RequestID == requestID {
 		// 兼容测试直写 Snapshot.Chat（活跃会话便捷构造）；生产路径 runtime 权威。
 		running = true
 		sessionID = service.Core.Snapshot.Session.ID
-		runtime = service.sessionChatLocked(sessionID)
+		runtime = service.chatRuntimeLocked(sessionID)
 	}
 	if !running {
 		return ""
 	}
-	if runtime.streamOutput == nil || runtime.streamOutput.RequestID() != requestID {
-		runtime.streamOutput = chat.NewVisibleOutputStream(requestID)
+	if stream := runtime.StreamSink(); stream == nil || stream.RequestID() != requestID {
+		runtime.SetStream(chat.NewVisibleOutputStream(requestID))
 	}
-	if sessionID == service.Core.Snapshot.Session.ID {
-		service.streamOutput = runtime.streamOutput
-	}
-	return runtime.streamOutput.Consume(chunk)
+	return runtime.StreamSink().Consume(chunk)
 }
 
 func (service *Service) appendVisibleDelta(requestID, chunk string) {
@@ -511,12 +500,12 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	// 阶段 1：流式增量按 requestID 反查会话，写该会话自己的 view（后台
 	// 会话也实时维护可见投影；活跃会话镜像 Snapshot）。
 	sessionID := service.components.tasks.SessionIDForRequest(requestID)
-	runtime := service.sessionChatLocked(sessionID)
-	running := runtime.chat.Running && runtime.chat.RequestID == requestID
+	runtime := service.chatRuntimeLocked(sessionID)
+	running := runtime.ChatState().Running && runtime.ChatState().RequestID == requestID
 	if !running && service.Core.Snapshot.Chat.Running && service.Core.Snapshot.Chat.RequestID == requestID {
 		running = true
 		sessionID = service.Core.Snapshot.Session.ID
-		runtime = service.sessionChatLocked(sessionID)
+		runtime = service.chatRuntimeLocked(sessionID)
 	}
 	if !running {
 		service.Mu.Unlock()
@@ -534,7 +523,7 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventMessageDelta, revision, requestID, MessageDelta{MessageID: messageID, Delta: chunk})
+	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
 // attachLatestReasoning 在聊天回合结束后，把引擎历史中最后一次 assistant

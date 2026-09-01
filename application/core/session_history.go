@@ -10,10 +10,10 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
+	"github.com/RedHuang-0622/seelex/session"
 )
 
 // persistedPlanRestorer 是 Runtime 的可选能力：resume 时按 plan 参数恢复
@@ -146,14 +146,17 @@ func (service *Service) resumeSession(sessionID string) error {
 	currentWorkspace := location.Workspace
 	if service.Deps.Workspace != nil {
 		if currentWorkspace != nil {
-			if err := service.Deps.Runtime.BindProjectRoot(currentWorkspace.RootPath); err != nil {
-				return fmt.Errorf("bind project root: %w", err)
+			// 冷加载同样遵守「运行中不改根」：有后台会话运行中时跳过全局
+			// 重绑（P3/G5），per-session workspace 记录照写。
+			if service.bindProjectRootIfSafe(sessionID, currentWorkspace.RootPath) {
+				service.Deps.Sessions.SetWorkspace(currentWorkspace.ID)
 			}
-			service.Deps.Sessions.SetWorkspace(currentWorkspace.ID)
 			service.Deps.Workspace.BindSession(sessionID, currentWorkspace.ID)
 		} else {
-			service.Deps.Runtime.UnbindProjectRoot()
-			service.Deps.Sessions.SetWorkspace("")
+			if !service.anyChatRunningLocked() {
+				service.Deps.Runtime.UnbindProjectRoot()
+				service.Deps.Sessions.SetWorkspace("")
+			}
 			service.Deps.Workspace.UnbindSession(sessionID)
 		}
 	}
@@ -180,9 +183,8 @@ func (service *Service) resumeSession(sessionID string) error {
 		name = record.Title.Value
 	}
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
-	resumedRuntime := service.sessionChatLocked(sessionID)
-	resumedRuntime.cancel = nil
-	service.inputQueue = resumedRuntime.inputQueue
+	resumedRuntime := service.chatRuntimeLocked(sessionID)
+	resumedRuntime.SetCancel(nil)
 	service.components.sessions.SetSessionTitleLocked(sessionID, SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {
 		service.components.sessions.SetSessionTitleLocked(sessionID, record.Title)
@@ -207,7 +209,7 @@ func (service *Service) resumeSession(sessionID string) error {
 		service.components.tasks.ResetForNewSessionLocked()
 	}
 	// 阶段 1：冷加载重建写会话 view（Snapshot 是活跃会话的只读镜像）。
-	view := &state.SessionView{
+	view := &session.View{
 		TotalMessages:      total,
 		HistoryOffset:      offset,
 		HasMoreHistory:     offset > 0,
@@ -232,7 +234,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	} else {
 		service.appendHistoryLockedFor(sessionID, visibleHistory)
 	}
-	service.setSessionChatLockedFor(sessionID, resumedRuntime.chat)
+	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	service.Core.Snapshot.Runtime.Plan = task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
 	service.Core.Snapshot.Interaction = nil
 	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()

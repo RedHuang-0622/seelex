@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
+	"github.com/RedHuang-0622/seelex/session"
 )
 
 // injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
@@ -106,13 +107,15 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		return ErrApplicationDraining
 	}
 	sessionID := service.Core.Snapshot.Session.ID
-	runtime := service.sessionChatLocked(sessionID)
-	if runtime.chat.Running {
-		runtime.inputQueue = append(runtime.inputQueue, request)
-		service.inputQueue = runtime.inputQueue
-		runtime.chat.InputQueue = chatRequestDisplays(runtime.inputQueue)
-		runtime.chat.QueuedCount = len(runtime.inputQueue)
-		service.setSessionChatLockedFor(sessionID, runtime.chat)
+	runtime := service.chatRuntimeLocked(sessionID)
+	if runtime.ChatState().Running {
+		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
+		pending := runtime.PendingRequests()
+		runtime.UpdateChat(func(chat *ChatState) {
+			chat.InputQueue = chatRequestDisplays(queuedChatRequests(pending))
+			chat.QueuedCount = len(pending)
+		}, nil)
+		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 		revision := service.bumpLocked()
 		service.Mu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
@@ -138,14 +141,16 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 		return ErrApplicationDraining
 	}
 	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.sessionChatLocked(sessionID)
-	if runtime.chat.Running {
-		runtime.inputQueue = append(runtime.inputQueue, request)
-		runtime.chat.InputQueue = chatRequestDisplays(runtime.inputQueue)
-		runtime.chat.QueuedCount = len(runtime.inputQueue)
+	runtime := service.chatRuntimeLocked(sessionID)
+	if runtime.ChatState().Running {
+		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
+		pending := runtime.PendingRequests()
+		runtime.UpdateChat(func(chat *ChatState) {
+			chat.InputQueue = chatRequestDisplays(queuedChatRequests(pending))
+			chat.QueuedCount = len(pending)
+		}, nil)
 		if active {
-			service.inputQueue = runtime.inputQueue
-			service.setSessionChatLockedFor(sessionID, runtime.chat)
+			service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 			revision := service.bumpLocked()
 			service.Mu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
@@ -187,11 +192,12 @@ func (service *Service) CancelChat(requestID string) bool {
 	service.Mu.Lock()
 	defer service.Mu.Unlock()
 	sessionID := service.Core.Snapshot.Session.ID
-	runtime := service.sessionChatLocked(sessionID)
-	if !runtime.chat.Running || (requestID != "" && requestID != runtime.chat.RequestID) || runtime.cancel == nil {
+	runtime := service.chatRuntimeLocked(sessionID)
+	chat := runtime.ChatState()
+	if !chat.Running || (requestID != "" && requestID != chat.RequestID) || runtime.CancelFunc() == nil {
 		return false
 	}
-	runtime.cancel()
+	runtime.CancelFunc()()
 	return true
 }
 
@@ -202,8 +208,13 @@ func (service *Service) Shutdown() {
 		return
 	}
 	service.closed = true
-	if service.cancelChat != nil {
-		service.cancelChat()
+	// 取消所有运行中会话的执行（会话域持有 cancel；core 不再持有全局镜像）。
+	for _, sid := range service.sessions.UnitIDs() {
+		if unit := service.sessions.Unit(sid); unit != nil {
+			if cancel := unit.Chat.CancelFunc(); cancel != nil {
+				cancel()
+			}
+		}
 	}
 	service.Mu.Unlock()
 	service.components.sessions.StopCatalogRefresh()

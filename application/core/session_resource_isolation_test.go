@@ -66,8 +66,8 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
 	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, TaskCheckpoint{})
 	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "user", Content: "long task A"})
-	aRuntime := service.sessionChatLocked("session-a")
-	aRuntime.chat = ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}
+	aRuntime := service.chatRuntimeLocked("session-a")
+	aRuntime.SetChatState(ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 	service.Mu.Unlock()
 
 	if err := service.ResumeSession("session-b"); err != nil {
@@ -76,9 +76,13 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 
 	service.Mu.RLock()
 	defer service.Mu.RUnlock()
-	aRuntime = service.sessionChat["session-a"]
-	if aRuntime == nil || !aRuntime.chat.Running || aRuntime.chat.RequestID != "req-a" {
-		t.Fatalf("A execution state mutated by view switch: %#v", aRuntime)
+	unitA := service.sessions.Unit("session-a")
+	if unitA == nil {
+		t.Fatal("A unit missing after view switch")
+	}
+	chatA := unitA.Chat.ChatState()
+	if !chatA.Running || chatA.RequestID != "req-a" {
+		t.Fatalf("A execution state mutated by view switch: %#v", chatA)
 	}
 	aTranscript := service.components.tasks.TranscriptFor("session-a")
 	if len(aTranscript) != 1 || aTranscript[0].Content != "long task A" {

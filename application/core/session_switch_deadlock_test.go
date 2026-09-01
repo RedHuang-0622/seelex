@@ -59,7 +59,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	}
 
 	service.Mu.RLock()
-	runningA := service.sessionChat[aID].chat.Running
+	runningA := service.sessions.Unit(aID).Chat.ChatState().Running
 	active := service.Core.Snapshot.Session.ID
 	service.Mu.RUnlock()
 	if active != bID {
@@ -74,7 +74,7 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
 	service.Mu.RLock()
-	queuedA := len(service.sessionChat[aID].inputQueue)
+	queuedA := len(service.sessions.Unit(aID).Chat.PendingRequests())
 	snapQueued := service.Core.Snapshot.Chat.QueuedCount
 	service.Mu.RUnlock()
 	if queuedA != 1 {
@@ -273,7 +273,7 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 		t.Fatalf("BeginNewSession while A running = %v (want nil)", err)
 	}
 	service.Mu.RLock()
-	runningA := service.sessionChat[aID].chat.Running
+	runningA := service.sessions.Unit(aID).Chat.ChatState().Running
 	service.Mu.RUnlock()
 	snapshot := service.Snapshot()
 	if !runningA {

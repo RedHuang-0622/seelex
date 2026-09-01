@@ -24,8 +24,8 @@ func (service *Service) BeginNewSession() error {
 	draft := service.Core.Snapshot.Session.Draft
 	sessionID := service.Core.Snapshot.Session.ID
 	currentRunning := false
-	if runtime := service.sessionChat[sessionID]; runtime != nil {
-		currentRunning = runtime.chat.Running
+	if unit := service.sessions.Unit(sessionID); unit != nil {
+		currentRunning = unit.Chat.ChatState().Running
 	}
 	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
 	service.Mu.RUnlock()
@@ -97,13 +97,12 @@ func (service *Service) BeginNewSession() error {
 	service.Core.Snapshot.HasMoreHistory = false
 	service.Core.Snapshot.Runtime.Plan = nil
 	service.Core.Snapshot.Interaction = nil
-	draftRuntime := service.sessionChatLocked("")
-	draftRuntime.chat = ChatState{}
-	draftRuntime.cancel = nil
-	draftRuntime.inputQueue = nil
-	service.Core.Snapshot.Chat = draftRuntime.chat
+	draftRuntime := service.chatRuntimeLocked("")
+	draftRuntime.SetChatState(ChatState{}, nil)
+	draftRuntime.SetCancel(nil)
+	draftRuntime.SetRequests(nil)
+	service.Core.Snapshot.Chat = draftRuntime.ChatState()
 	service.components.sessions.SetSessionTitleLocked("", SessionTitle{})
-	service.inputQueue = nil
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()

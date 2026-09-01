@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 
 func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
@@ -111,15 +112,19 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 
 	// 运行中入队一条 → 本轮结束中断（一轮一消费，队列随后清空提升）。
 	service.Mu.Lock()
-	service.inputQueue = append(service.inputQueue, chatRequest{displayInput: "临时补充需求", modelInput: "临时补充需求"})
+	runtime := service.chatRuntimeLocked(service.Core.Snapshot.Session.ID)
+	runtime.Enqueue(selexsession.QueuedRequest{
+		DisplayInput: "临时补充需求",
+		Payload:      chatRequest{displayInput: "临时补充需求", modelInput: "临时补充需求"},
+	})
 	service.Mu.Unlock()
 	if hooks.OnIterationComplete(ctx, 2) {
 		t.Fatal("queued input must interrupt the loop at the round boundary")
 	}
 
-	// 中断后队列保留在 inputQueue（不在此处消费），由 runChat 结尾 drain。
+	// 中断后队列保留在会话域 runtime（不在此处消费），由 runChat 结尾 drain。
 	service.Mu.RLock()
-	queued := len(service.inputQueue)
+	queued := len(service.sessions.Unit(service.Core.Snapshot.Session.ID).Chat.PendingRequests())
 	service.Mu.RUnlock()
 	if queued != 1 {
 		t.Fatalf("after interrupt: inputQueue=%d, want 1", queued)

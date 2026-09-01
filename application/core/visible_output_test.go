@@ -12,7 +12,7 @@ func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T) {
 	defer service.Shutdown()
 	service.Mu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
-	service.streamOutput = chat.NewVisibleOutputStream("request-1")
+	service.chatRuntimeLocked(service.Core.Snapshot.Session.ID).SetStream(chat.NewVisibleOutputStream("request-1"))
 	service.appendMessageLocked("assistant", "", nil)
 	service.Mu.Unlock()
 

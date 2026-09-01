@@ -24,10 +24,11 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	if service.Deps.Workspace != nil {
 		workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID)
 		if ok {
-			if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
-				return fmt.Errorf("bind project root: %w", err)
+			// 热加载 = 只换视图指针，不得触碰执行作用域：有其它会话运行中
+			// 时跳过全局项目根/写作用域重绑（P3/G5），per-session 绑定照记。
+			if service.bindProjectRootIfSafe(sessionID, workspace.RootPath) {
+				service.Deps.Sessions.SetWorkspace(workspace.ID)
 			}
-			service.Deps.Sessions.SetWorkspace(workspace.ID)
 			service.Deps.Runtime.SetSessionWorkspace(sessionID, workspace.ID)
 		}
 	}
@@ -39,9 +40,8 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	service.Mu.Lock()
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
-	resumedRuntime := service.sessionChatLocked(sessionID)
-	service.inputQueue = resumedRuntime.inputQueue
-	service.setSessionChatLockedFor(sessionID, resumedRuntime.chat)
+	resumedRuntime := service.chatRuntimeLocked(sessionID)
+	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	service.mirrorActiveViewLocked()
 	if task := service.components.tasks.TaskStateFor(sessionID); task != nil {
 		service.Core.Snapshot.Task = task
@@ -82,8 +82,8 @@ func (service *Service) UnloadSession(sessionID string) error {
 
 	service.Mu.RLock()
 	running := false
-	if runtime := service.sessionChat[sessionID]; runtime != nil {
-		running = runtime.chat.Running
+	if unit := service.sessions.Unit(sessionID); unit != nil {
+		running = unit.Chat.ChatState().Running
 	}
 	active := sessionID == service.Core.Snapshot.Session.ID
 	service.Mu.RUnlock()
@@ -103,8 +103,10 @@ func (service *Service) UnloadSession(sessionID string) error {
 		}
 	}
 	service.Mu.Lock()
-	delete(service.sessionChat, sessionID)
-	delete(service.Core.SessionViews, sessionID)
+	service.sessions.Remove(sessionID)
+	if service.planProjections != nil {
+		delete(service.planProjections, sessionID)
+	}
 	service.components.tasks.UnloadSessionState(sessionID)
 	service.components.sessions.UnloadSessionTitle(sessionID)
 	if active {

@@ -64,8 +64,8 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	closed := service.closed
 	draining := service.draining
 	running := false
-	if runtime := service.sessionChat[parentID]; runtime != nil {
-		running = runtime.chat.Running
+	if unit := service.sessions.Unit(parentID); unit != nil {
+		running = unit.Chat.ChatState().Running
 	}
 	service.Mu.RUnlock()
 	if closed {

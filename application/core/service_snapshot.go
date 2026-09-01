@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
+	"github.com/RedHuang-0622/seelex/session"
 )
 
 // Service 门面快照/订阅/投影/消息写入委托（实现位于 view_state 域包）。
@@ -53,14 +53,15 @@ func (service *Service) sessionStatusLocked(sessionID string) SessionStatus {
 	if sessionID == "" {
 		return SessionStatusDraft
 	}
-	runtime := service.sessionChat[sessionID]
-	if runtime == nil {
+	unit := service.sessions.Unit(sessionID)
+	if unit == nil {
 		return SessionStatusIdle
 	}
-	if runtime.chat.Running {
+	runtime := unit.Chat.ChatState()
+	if runtime.Running {
 		return SessionStatusRunning
 	}
-	if len(runtime.inputQueue) > 0 || runtime.chat.QueuedCount > 0 {
+	if len(unit.Chat.PendingRequests()) > 0 || runtime.QueuedCount > 0 {
 		return SessionStatusQueued
 	}
 	return SessionStatusIdle
@@ -101,7 +102,7 @@ func (service *Service) mirrorActiveViewLocked() {
 
 // sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
 // 调用方持有 Core.Mu）。
-func (service *Service) sessionViewLocked(sessionID string) *state.SessionView {
+func (service *Service) sessionViewLocked(sessionID string) *session.View {
 	return service.components.view.SessionViewLocked(sessionID)
 }
 

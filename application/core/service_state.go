@@ -1,13 +1,12 @@
 package core
 
 import (
-	"context"
 	"sync"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/core/chat"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/worktable"
+	"github.com/RedHuang-0622/seelex/session"
 )
 
 // serviceState is assembled from cohesive state groups. Components share the
@@ -23,10 +22,11 @@ type serviceState struct {
 	lifecycleRuntimeState
 	workTableRuntimeState
 	promptRuntimeState
+	planProjectionState
 
-	// sessionChat 是会话级聊天运行态注册表（Core.Mu 保护）。M1 起聊天
-	// 保护从全局单例收窄为会话级：同会话串行 + 每会话独立队列/取消。
-	sessionChat map[string]*sessionChatRuntime
+	// sessions 是会话域（阶段 B：会话资源唯一所有者；本状态只保留当前
+	// 会话的只读视图指针 V，不再持有任何会话容器）。
+	sessions *session.Domain
 
 	// draft 是"新建会话"草稿槽位（Core.Mu 保护）：草稿没有真实会话 ID、
 	// 不落盘，但切换会话后仍保留并可恢复；工作区会话草稿同时保留工作区
@@ -49,8 +49,6 @@ type draftSlot struct {
 }
 
 type conversationRuntimeState struct {
-	streamOutput  *chat.VisibleOutputStream
-	streamBatcher *chat.StreamBatcher
 }
 
 // workTableRuntimeState 持有工作表格增量发布器（CSP 汇聚；见
@@ -59,20 +57,22 @@ type workTableRuntimeState struct {
 	workTablePublisher *worktable.WorkTablePublisher
 }
 
+// planProjections 是 per-session plan 显示投影缓存（Core.Mu 保护）：当前
+// 会话的投影与 Snapshot.Runtime.Plan 同一指针；后台会话的 plan 事件只写
+// 自己的投影（P6 收口），切换回看时经 SnapshotOf/sessionActivePlanLocked
+// 读取。plan 节点状态属运行期显示态，不落盘（resume 由 plan 帧重建）。
+type planProjectionState struct {
+	planProjections map[string]*PlanState
+}
+
 type lifecycleRuntimeState struct {
-	cancelChat context.CancelFunc
-	idle       chan struct{}
-	draining   bool
-	closed     bool
+	idle     chan struct{}
+	draining bool
+	closed   bool
 	// CSP 生命周期消费者（子代理树信号 / plan 节点事件 / task 变更）停止
 	// 控制：取代同步回调嵌套，数据经 channel 流转。
 	lifecycleStop chan struct{}
 	lifecycleOnce sync.Once
-	// inputQueue 是会话运行期间排队输入的单一队列（单一写入点：
-	// submitConversation；单一消费点：runChat 结尾）。队列输入在每轮
-	// ReAct 结束（Session-backed 引擎 OnIterationComplete 返回 false）后由
-	// runChat 结尾 drain 并开启下一轮——不设中间提升队列。
-	inputQueue []chatRequest
 }
 
 type promptRuntimeState struct {

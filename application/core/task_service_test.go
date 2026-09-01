@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	selexsession "github.com/RedHuang-0622/seelex/session"
 	"strings"
 	"testing"
 )
@@ -102,9 +103,12 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 	service.Mu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "write report", "high", nil, TaskCheckpoint{})
-	service.inputQueue = []chatRequest{
-		{displayInput: "first follow-up"},
-		{displayInput: "second follow-up"},
+	runtime := service.chatRuntimeLocked(service.Core.Snapshot.Session.ID)
+	for _, input := range []string{"first follow-up", "second follow-up"} {
+		runtime.Enqueue(selexsession.QueuedRequest{
+			DisplayInput: input,
+			Payload:      chatRequest{displayInput: input},
+		})
 	}
 	service.Mu.Unlock()
 
@@ -131,7 +135,10 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	service.Mu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, TaskCheckpoint{})
-	service.inputQueue = []chatRequest{{displayInput: "queued after natural stop"}}
+	service.chatRuntimeLocked(service.Core.Snapshot.Session.ID).Enqueue(selexsession.QueuedRequest{
+		DisplayInput: "queued after natural stop",
+		Payload:      chatRequest{displayInput: "queued after natural stop"},
+	})
 	service.Mu.Unlock()
 
 	visible, err := service.components.tasks.OnChatEnd(context.Background(), task_context.ChatEndSummary{RequestID: "task-1"})

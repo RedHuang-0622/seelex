@@ -16,10 +16,9 @@ import (
 // Events/Approval 直接引用 deps 注入的通道，不在此处二次创建。
 func New(deps contract.Dependencies) *Core {
 	return &Core{
-		Deps:         deps,
-		Events:       deps.Events,
-		Approval:     deps.Approval,
-		SessionViews: make(map[string]*SessionView),
+		Deps:     deps,
+		Events:   deps.Events,
+		Approval: deps.Approval,
 	}
 }
 
@@ -28,25 +27,7 @@ func New(deps contract.Dependencies) *Core {
 type Core struct {
 	Mu       sync.RWMutex
 	Snapshot model.Snapshot
-	// SessionViews 是每会话可见投影状态（阶段 1：Snapshot 会话字段收进
-	// 每会话 scope，Snapshot 保留当前会话的只读镜像；后台会话也维护自己
-	// 的 conversation/chat/readFiles，hot_attach 回看不再为空）。
-	// Core.Mu 保护；view_state 域是唯一写方。
-	SessionViews map[string]*SessionView
-	Deps         contract.Dependencies
-	Events       event.Hub
-	Approval     contract.ApprovalBroker
-}
-
-// SessionView 是单会话的可见投影状态（阶段 1/2 生命周期单元）。
-// 与 Snapshot 会话字段一一对应：活跃会话的 SessionView 是 Snapshot 的
-// 数据源（bump/切换时镜像）。
-type SessionView struct {
-	Conversation       []model.Message
-	Chat               model.ChatState
-	ReadFiles          []model.ReadFileRef
-	TotalMessages      int
-	HistoryOffset      int
-	HasMoreHistory     bool
-	ConversationWindow int
+	Deps     contract.Dependencies
+	Events   event.Hub
+	Approval contract.ApprovalBroker
 }

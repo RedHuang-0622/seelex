@@ -19,6 +19,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelexctx"
+	"github.com/RedHuang-0622/seelex/session"
 )
 
 // SubagentContextMarker 标记子代理产出块（模型不误读为普通用户轮次）。
@@ -27,6 +28,9 @@ const SubagentContextMarker = "[子代理产出] "
 // Deps 是 view_state 的装配输入。
 type Deps struct {
 	Core *state.Core
+	// Units 是会话域（阶段 B：每会话可见投影的唯一所有者；本域只读/写单元
+	// 内的 View，不自行持有会话容器）。
+	Units *session.Domain
 	// CurrentEffort 返回当前 effort 级别（prompt 域；runtime 投影用）。
 	CurrentEffort func() string
 	// RefreshWorkTableLocked 在锁内重建工作表格投影（work_table 域；
@@ -44,6 +48,7 @@ type Deps struct {
 // Coordinator 拥有用户可见快照、消息序列与事件修订号。
 type Coordinator struct {
 	*state.Core
+	units                  *session.Domain
 	currentEffort          func() string
 	refreshWorkTableLocked func([]dto.TaskRecord)
 	tasks                  interface {
@@ -58,6 +63,7 @@ type Coordinator struct {
 func NewCoordinator(deps Deps) *Coordinator {
 	return &Coordinator{
 		Core:                   deps.Core,
+		units:                  deps.Units,
 		currentEffort:          deps.CurrentEffort,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
@@ -175,32 +181,30 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 	return &message
 }
 
-// sessionViewLocked 返回指定会话的可见投影（按需创建；调用方持有 Core.Mu）。
-func (c *Coordinator) sessionViewLocked(sessionID string) *state.SessionView {
-	if c.SessionViews == nil {
-		c.SessionViews = make(map[string]*state.SessionView)
+// sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
+// Core.Mu，域内锁序为 Core.Mu → Domain.mu，不反向）。
+func (c *Coordinator) sessionViewLocked(sessionID string) *session.View {
+	unit := c.units.Unit(sessionID)
+	if unit == nil {
+		unit = session.NewUnit(sessionID)
+		c.units.Register(unit)
 	}
-	view := c.SessionViews[sessionID]
-	if view == nil {
-		view = &state.SessionView{}
-		c.SessionViews[sessionID] = view
-	}
-	return view
+	return unit.View
 }
 
 // SessionViewLocked 返回指定会话的可见投影（core 域恢复/回看路径用；
 // 调用方持有 Core.Mu）。
-func (c *Coordinator) SessionViewLocked(sessionID string) *state.SessionView {
+func (c *Coordinator) SessionViewLocked(sessionID string) *session.View {
 	return c.sessionViewLocked(sessionID)
 }
 
 // SetSessionViewLocked 装载指定会话的可见投影（冷加载/恢复路径；调用方
 // 持有 Core.Mu）。活跃会话同步镜像 Snapshot。
-func (c *Coordinator) SetSessionViewLocked(sessionID string, view *state.SessionView) {
+func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View) {
 	if view == nil {
 		return
 	}
-	copy := &state.SessionView{
+	loaded := &session.View{
 		Conversation:       append([]model.Message(nil), view.Conversation...),
 		Chat:               view.Chat,
 		ReadFiles:          append([]model.ReadFileRef(nil), view.ReadFiles...),
@@ -209,8 +213,13 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *state.Session
 		HasMoreHistory:     view.HasMoreHistory,
 		ConversationWindow: view.ConversationWindow,
 	}
-	c.SessionViews[sessionID] = copy
-	c.mirrorActiveViewLocked(sessionID, copy)
+	unit := c.units.Unit(sessionID)
+	if unit == nil {
+		unit = session.NewUnit(sessionID)
+		c.units.Register(unit)
+	}
+	unit.View = loaded
+	c.mirrorActiveViewLocked(sessionID, loaded)
 }
 
 // SetSessionChatLockedFor 写指定会话的聊天运行态投影（调用方持有
@@ -232,7 +241,7 @@ func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFi
 
 // mirrorActiveViewLocked 把指定会话的 scope 镜像到 Snapshot（仅当目标为
 // 当前活跃会话；调用方持有 Core.Mu）。
-func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *state.SessionView) {
+func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.View) {
 	if sessionID != c.Snapshot.Session.ID {
 		return
 	}
@@ -270,7 +279,7 @@ func (c *Coordinator) NextMessageSeqLocked() uint64 {
 	return c.messageSeq
 }
 
-func (c *Coordinator) boundViewTailLocked(view *state.SessionView) {
+func (c *Coordinator) boundViewTailLocked(view *session.View) {
 	window := c.limits().HistoryWindow
 	if window <= 0 {
 		window = 1
