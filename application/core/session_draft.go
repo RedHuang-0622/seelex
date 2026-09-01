@@ -25,7 +25,7 @@ func (service *Service) BeginNewSession() error {
 	sessionID := service.Core.Snapshot.Session.ID
 	currentRunning := false
 	if unit := service.sessions.Unit(sessionID); unit != nil {
-		currentRunning = unit.Chat.ChatState().Running
+		currentRunning = unit.ChatState().Running
 	}
 	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
 	service.Mu.RUnlock()
@@ -90,6 +90,7 @@ func (service *Service) BeginNewSession() error {
 
 	service.Mu.Lock()
 	service.Core.Snapshot.Session = SessionState{Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
+	service.sessions.SetActive("")
 	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace
 	service.Core.Snapshot.Conversation = nil
 	service.Core.Snapshot.HistoryOffset = 0
@@ -97,7 +98,7 @@ func (service *Service) BeginNewSession() error {
 	service.Core.Snapshot.HasMoreHistory = false
 	service.Core.Snapshot.Runtime.Plan = nil
 	service.Core.Snapshot.Interaction = nil
-	draftRuntime := service.chatRuntimeLocked("")
+	draftRuntime := service.sessionUnitLocked("")
 	draftRuntime.SetChatState(ChatState{}, nil)
 	draftRuntime.SetCancel(nil)
 	draftRuntime.SetRequests(nil)
@@ -164,6 +165,9 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.draft = nil // 草稿已物化为真实会话，消费槽位
 	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
 	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
+	// 视图单例一致性：V 的唯一镜像随物化切到新会话（与 hot_attach/resume 同
+	// 步路径），否则流式增量会按 ActiveID="" 误判为后台，Snapshot 收不到增量。
+	service.sessions.SetActive(newID)
 	service.components.sessions.SetSessionTitleLocked(newID, title)
 	service.components.tasks.ResetPlanStateLocked()
 	service.applyWorkspaceProjectionLocked(workspaceProjection)

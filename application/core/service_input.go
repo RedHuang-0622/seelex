@@ -107,7 +107,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		return ErrApplicationDraining
 	}
 	sessionID := service.Core.Snapshot.Session.ID
-	runtime := service.chatRuntimeLocked(sessionID)
+	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
 		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
 		pending := runtime.PendingRequests()
@@ -141,7 +141,7 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 		return ErrApplicationDraining
 	}
 	active := service.isActiveSessionLocked(sessionID)
-	runtime := service.chatRuntimeLocked(sessionID)
+	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
 		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
 		pending := runtime.PendingRequests()
@@ -192,7 +192,7 @@ func (service *Service) CancelChat(requestID string) bool {
 	service.Mu.Lock()
 	defer service.Mu.Unlock()
 	sessionID := service.Core.Snapshot.Session.ID
-	runtime := service.chatRuntimeLocked(sessionID)
+	runtime := service.sessionUnitLocked(sessionID)
 	chat := runtime.ChatState()
 	if !chat.Running || (requestID != "" && requestID != chat.RequestID) || runtime.CancelFunc() == nil {
 		return false
@@ -211,13 +211,14 @@ func (service *Service) Shutdown() {
 	// 取消所有运行中会话的执行（会话域持有 cancel；core 不再持有全局镜像）。
 	for _, sid := range service.sessions.UnitIDs() {
 		if unit := service.sessions.Unit(sid); unit != nil {
-			if cancel := unit.Chat.CancelFunc(); cancel != nil {
+			if cancel := unit.CancelFunc(); cancel != nil {
 				cancel()
 			}
 		}
 	}
 	service.Mu.Unlock()
 	service.components.sessions.StopCatalogRefresh()
+	service.sessions.Close() // 会话域 actor 收尾（注册表 + V 指针）
 	service.stopLifecycleConsumers()
 	if service.workTablePublisher != nil {
 		service.workTablePublisher.Close()

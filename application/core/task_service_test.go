@@ -103,7 +103,7 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 	service.Mu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "write report", "high", nil, TaskCheckpoint{})
-	runtime := service.chatRuntimeLocked(service.Core.Snapshot.Session.ID)
+	runtime := service.sessionUnitLocked(service.Core.Snapshot.Session.ID)
 	for _, input := range []string{"first follow-up", "second follow-up"} {
 		runtime.Enqueue(selexsession.QueuedRequest{
 			DisplayInput: input,
@@ -135,7 +135,7 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	service.Mu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, TaskCheckpoint{})
-	service.chatRuntimeLocked(service.Core.Snapshot.Session.ID).Enqueue(selexsession.QueuedRequest{
+	service.sessionUnitLocked(service.Core.Snapshot.Session.ID).Enqueue(selexsession.QueuedRequest{
 		DisplayInput: "queued after natural stop",
 		Payload:      chatRequest{displayInput: "queued after natural stop"},
 	})

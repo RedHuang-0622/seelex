@@ -66,7 +66,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
 	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, TaskCheckpoint{})
 	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "user", Content: "long task A"})
-	aRuntime := service.chatRuntimeLocked("session-a")
+	aRuntime := service.sessionUnitLocked("session-a")
 	aRuntime.SetChatState(ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
 	service.Mu.Unlock()
 
@@ -80,7 +80,7 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	if unitA == nil {
 		t.Fatal("A unit missing after view switch")
 	}
-	chatA := unitA.Chat.ChatState()
+	chatA := unitA.ChatState()
 	if !chatA.Running || chatA.RequestID != "req-a" {
 		t.Fatalf("A execution state mutated by view switch: %#v", chatA)
 	}

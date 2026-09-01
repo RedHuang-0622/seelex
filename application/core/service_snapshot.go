@@ -57,11 +57,11 @@ func (service *Service) sessionStatusLocked(sessionID string) SessionStatus {
 	if unit == nil {
 		return SessionStatusIdle
 	}
-	runtime := unit.Chat.ChatState()
+	runtime := unit.ChatState()
 	if runtime.Running {
 		return SessionStatusRunning
 	}
-	if len(unit.Chat.PendingRequests()) > 0 || runtime.QueuedCount > 0 {
+	if len(unit.PendingRequests()) > 0 || runtime.QueuedCount > 0 {
 		return SessionStatusQueued
 	}
 	return SessionStatusIdle

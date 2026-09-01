@@ -36,9 +36,9 @@ func dumpServiceState(service *Service, ids ...string) string {
 			fmt.Fprintf(&b, "session %s: <nil unit>\n", sid)
 			continue
 		}
-		chat := unit.Chat.ChatState()
+		chat := unit.ChatState()
 		fmt.Fprintf(&b, "session %s: Running=%v RequestID=%s Queued=%d queueLen=%d\n",
-			sid, chat.Running, chat.RequestID, chat.QueuedCount, len(unit.Chat.PendingRequests()))
+			sid, chat.Running, chat.RequestID, chat.QueuedCount, len(unit.PendingRequests()))
 		if st := service.components.tasks.CurrentTaskExecutionFor(sid); st != nil {
 			fmt.Fprintf(&b, "  task: RequestID=%s Status=%s Objective=%q\n", st.RequestID, st.Status, st.Objective)
 		} else {
@@ -298,8 +298,8 @@ func TestParallelSessionsExecuteConcurrently(t *testing.T) {
 
 	// 两个会话同时 Running（会话级状态分片）。
 	service.Mu.RLock()
-	chatA := service.sessions.Unit(aID).Chat.ChatState().Running
-	chatB := service.sessions.Unit(bID).Chat.ChatState().Running
+	chatA := service.sessions.Unit(aID).ChatState().Running
+	chatB := service.sessions.Unit(bID).ChatState().Running
 	taskA := service.components.tasks.CurrentTaskExecutionFor(aID)
 	taskB := service.components.tasks.CurrentTaskExecutionFor(bID)
 	service.Mu.RUnlock()
@@ -362,7 +362,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 		t.Fatalf("Submit queued A: %v", err)
 	}
 	service.Mu.RLock()
-	queuedA := len(service.sessions.Unit(aID).Chat.PendingRequests())
+	queuedA := len(service.sessions.Unit(aID).PendingRequests())
 	service.Mu.RUnlock()
 	if queuedA != 1 {
 		t.Logf("BREAKPOINT session A queue wrong:\n%s", dumpParallelState(service, engine, aID))
@@ -385,7 +385,7 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 		t.Fatalf("SubmitToSession queued B: %v", err)
 	}
 	service.Mu.RLock()
-	queuedB := len(service.sessions.Unit(bID).Chat.PendingRequests())
+	queuedB := len(service.sessions.Unit(bID).PendingRequests())
 	service.Mu.RUnlock()
 	if queuedB != 1 {
 		t.Logf("BREAKPOINT session B queue wrong:\n%s", dumpParallelState(service, engine, aID, bID))

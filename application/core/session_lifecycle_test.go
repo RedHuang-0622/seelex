@@ -35,7 +35,7 @@ func TestResumeRunningSessionAllowsHotAttach(t *testing.T) {
 		t.Fatalf("ResumeSession(running A) = %v, want hot attach nil", err)
 	}
 	service.Mu.RLock()
-	running := service.sessions.Unit(aID).Chat.ChatState().Running
+	running := service.sessions.Unit(aID).ChatState().Running
 	active := service.Core.Snapshot.Session.ID
 	service.Mu.RUnlock()
 	if active != aID {
@@ -83,7 +83,7 @@ func TestHotAttachDoesNotTouchRunningSession(t *testing.T) {
 		t.Fatalf("hot attach A while running: %v", err)
 	}
 	service.Mu.RLock()
-	runningA := service.sessions.Unit(aID).Chat.ChatState().Running
+	runningA := service.sessions.Unit(aID).ChatState().Running
 	service.Mu.RUnlock()
 	if !runningA {
 		t.Fatal("A stopped running after hot attach")

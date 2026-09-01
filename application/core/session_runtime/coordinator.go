@@ -37,9 +37,9 @@ type Coordinator struct {
 // sessionRuntimeState 是会话域自持状态（Catalog worker 的 channel 生命周期
 // 由 Start/StopCatalogRefresh 管理）。
 type sessionRuntimeState struct {
-	sessionNameMu       sync.Mutex
-	sessionTransitionMu sync.Mutex
-	sessionNames        map[string]sessionNameCacheEntry
+	// transition 是"会话切换互斥"的显式 actor（无锁化：单 goroutine 持有
+	// inFlight 状态，channel 命令；取代原 sync.Mutex，见 transition_actor.go）。
+	transition *SessionTransitionActor
 	// sessionTitles 是会话级标题表（阶段 0：标题 per-session，后台会话
 	// 收尾不得读活跃会话标题；对应 code-review 5.4）。
 	sessionTitles      map[string]model.SessionTitle
@@ -54,11 +54,6 @@ type Location struct {
 	WorkspaceID string
 	Workspace   *model.WorkspaceInfo
 	Meta        model.SessionInfo
-}
-
-type sessionNameCacheEntry struct {
-	updatedAt time.Time
-	name      string
 }
 
 // NewCoordinator 构造会话域协调器；Tasks 由装配根注入
@@ -77,7 +72,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		limits:               deps.Limits,
 		displayUserInput:     deps.DisplayUserInput,
 		sessionRuntimeState: sessionRuntimeState{
-			sessionNames:       make(map[string]sessionNameCacheEntry),
+			transition:         NewSessionTransitionActor(),
 			sessionTitles:      make(map[string]model.SessionTitle),
 			sessionCatalogWake: make(chan struct{}, 1),
 			sessionCatalogStop: make(chan struct{}),
@@ -109,10 +104,11 @@ func (c *Coordinator) UnloadSessionTitle(sessionID string) {
 	delete(c.sessionTitles, sessionID)
 }
 
-// TransitionLock 返回会话切换互斥锁（BeginNewSession/ResumeSession/
-// BindWorkspace 等根包跨域事务共用；锁所有权在会话域）。
+// TransitionLock 返回会话切换互斥（BeginNewSession/ResumeSession/
+// BindWorkspace 等根包跨域事务共用）。实现为显式 actor（无 mutex）：
+// inFlight 状态由单一 goroutine 持有，Acquire/Release 经 channel 命令。
 func (c *Coordinator) TransitionLock() sync.Locker {
-	return &c.sessionTransitionMu
+	return transitionLocker{actor: c.transition}
 }
 
 // BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；
@@ -159,6 +155,9 @@ func (c *Coordinator) StopCatalogRefresh() {
 		case <-c.sessionCatalogDone:
 		case <-time.After(sessionCatalogShutdownWait):
 		}
+		// 切换互斥 actor 一并收尾（契约：调用方保证无活跃持有者；
+		// Shutdown 已取消运行中会话并等待收敛）。
+		c.transition.Close()
 	})
 }
 

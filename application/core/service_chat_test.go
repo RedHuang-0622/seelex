@@ -112,7 +112,7 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 
 	// 运行中入队一条 → 本轮结束中断（一轮一消费，队列随后清空提升）。
 	service.Mu.Lock()
-	runtime := service.chatRuntimeLocked(service.Core.Snapshot.Session.ID)
+	runtime := service.sessionUnitLocked(service.Core.Snapshot.Session.ID)
 	runtime.Enqueue(selexsession.QueuedRequest{
 		DisplayInput: "临时补充需求",
 		Payload:      chatRequest{displayInput: "临时补充需求", modelInput: "临时补充需求"},
@@ -124,7 +124,7 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 
 	// 中断后队列保留在会话域 runtime（不在此处消费），由 runChat 结尾 drain。
 	service.Mu.RLock()
-	queued := len(service.sessions.Unit(service.Core.Snapshot.Session.ID).Chat.PendingRequests())
+	queued := len(service.sessions.Unit(service.Core.Snapshot.Session.ID).PendingRequests())
 	service.Mu.RUnlock()
 	if queued != 1 {
 		t.Fatalf("after interrupt: inputQueue=%d, want 1", queued)

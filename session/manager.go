@@ -1,8 +1,8 @@
-// Package session 是 Seelex 的会话域：
-//   - domain.go 拥有会话资源（身份、可见投影、聊天运行态、生命周期状态机）
-//     与每会话线程隔离，执行内核经端口读写；
-//   - manager.go 是 legacy 存储桥（Save/Load callback、workspace-scoped
-//     读写、Router 装配），自会话域重构起降级为迁移辅助，新逻辑不得依赖它。
+// Package session 的 Manager 是会话装配薄壳（thin-wrapper 9.5 清理后）：
+//   - Router 装配与 workspace 写作用域；
+//   - SaveCurrent/Resume 回调注入（main.go 装配点）；
+//   - 存储桥与 workspace 粒度旧口已删除——持久化一律经
+//     sessionstore.SessionGranularStore（会话粒度五片）。
 package session
 
 import (
@@ -13,38 +13,24 @@ import (
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-type Store interface {
-	List() []sessionstore.SessionMeta
-	Delete(sessionID string) error
-	Load(sessionID string) ([]sessionstore.Message, error)
-	LoadRange(sessionID string, offset, limit int) ([]sessionstore.Message, int, error)
-	MessageCount(sessionID string) (int, error)
-}
-
-// Manager 薄包装 Seele 的 storage.Store，提供 /new 和 /resume 能力
+// Manager 是会话装配薄壳：持有 Router（物理布局）、workspace 写作用域与
+// 保存/恢复回调。不再承担任何会话数据读写（存储归 SessionGranularStore）。
 type Manager struct {
-	store       Store
-	nestedStore *sessionstore.NestedSessionStore // optional workspace-aware store
-	router      *sessionstore.Router
-	mu          sync.Mutex
-	saveFn      func(sessionID string) error // 注入：保存当前会话到 store
-	loadFn      func(sessionID string) error // 注入：从 store 加载到 engine
+	router *sessionstore.Router
+	mu     sync.Mutex
+	saveFn func(sessionID string) error // 注入：保存当前会话到 store
+	loadFn func(sessionID string) error // 注入：从 store 加载到 engine
 }
 
-func NewManager(store Store) *Manager {
-	return &Manager{store: store}
+// NewManager 构造空装配薄壳（Router 经 WithRouter 装配）。
+func NewManager() *Manager {
+	return &Manager{}
 }
 
-// WithNestedStore attaches a workspace-aware nested store for routing.
-func (m *Manager) WithNestedStore(ns *sessionstore.NestedSessionStore) {
-	m.nestedStore = ns
-}
-
-// WithRouter installs the atomic, configurable repository used by production.
-// The legacy nested store remains supported for compatibility with old callers.
-func (m *Manager) WithRouter(router *sessionstore.Router) {
+// WithRouter 安装会话存储路由（原子、可配置仓库；生产装配点）。
+func (m *Manager) WithRouter(router *sessionstore.Router) *Manager {
 	m.router = router
-	m.store = router
+	return m
 }
 
 // Router 返回底层存储路由（context 模块装配等用途；未装配时 nil）。
@@ -52,24 +38,17 @@ func (m *Manager) Router() *sessionstore.Router {
 	return m.router
 }
 
-// SetWorkspace sets the active workspace for session routing.
+// SetWorkspace 设置当前 workspace 写作用域。
 func (m *Manager) SetWorkspace(workspaceID string) {
 	if m.router != nil {
 		m.router.SetWorkspace(workspaceID)
-		return
-	}
-	if m.nestedStore != nil {
-		m.nestedStore.SetWorkspace(workspaceID)
 	}
 }
 
-// Workspace returns the currently active workspace ID.
+// Workspace 返回当前 workspace 写作用域。
 func (m *Manager) Workspace() string {
 	if m.router != nil {
 		return m.router.Workspace()
-	}
-	if m.nestedStore != nil {
-		return m.nestedStore.Workspace()
 	}
 	return ""
 }
@@ -95,181 +74,7 @@ func (m *Manager) ConfigureStorage(ctx context.Context, config sessionstore.Conf
 	return m.router.Configure(ctx, config)
 }
 
-// ListByWorkspace lists sessions stored under a specific workspace.
-func (m *Manager) ListByWorkspace(workspaceID string) []sessionstore.SessionMeta {
-	if m.router != nil {
-		return m.router.ListWorkspace(workspaceID)
-	}
-	if m.nestedStore != nil {
-		return m.nestedStore.ListByWorkspace(workspaceID)
-	}
-	if workspaceID == m.Workspace() {
-		return m.store.List()
-	}
-	return []sessionstore.SessionMeta{}
-}
-
-// LoadHistoryByWorkspace reads a session from an explicit workspace without
-// changing the active workspace used by subsequent writes.
-func (m *Manager) LoadHistoryByWorkspace(workspaceID, sessionID string) ([]sessionstore.Message, error) {
-	if m.router != nil {
-		return m.router.LoadWorkspace(workspaceID, sessionID)
-	}
-	if workspaceID != m.Workspace() {
-		return nil, fmt.Errorf("session: explicit workspace reads require the configurable router")
-	}
-	return m.store.Load(sessionID)
-}
-
-// LoadHistoryRangeByWorkspace reads a history window from an explicit
-// workspace without changing the active workspace used by subsequent writes.
-func (m *Manager) LoadHistoryRangeByWorkspace(workspaceID, sessionID string, offset, limit int) ([]sessionstore.Message, int, error) {
-	if m.router != nil {
-		return m.router.LoadRangeWorkspace(workspaceID, sessionID, offset, limit)
-	}
-	if workspaceID != m.Workspace() {
-		return nil, 0, fmt.Errorf("session: explicit workspace reads require the configurable router")
-	}
-	return m.store.LoadRange(sessionID, offset, limit)
-}
-
-// SaveState persists an application-owned session archive alongside the
-// framework history. It is available only for the configurable Router, whose
-// JSON, SQLite, PostgreSQL, and Redis implementations share the same contract.
-func (m *Manager) SaveState(sessionID string, state []byte) error {
-	if m.router == nil {
-		return fmt.Errorf("session: state persistence requires the configurable router")
-	}
-	return m.router.SaveState(sessionID, state)
-}
-
-func (m *Manager) LoadState(sessionID string) ([]byte, error) {
-	if m.router == nil {
-		return nil, fmt.Errorf("session: state persistence requires the configurable router")
-	}
-	return m.router.LoadState(sessionID)
-}
-
-func (m *Manager) LoadStateByWorkspace(workspaceID, sessionID string) ([]byte, error) {
-	if m.router == nil {
-		return nil, fmt.Errorf("session: state persistence requires the configurable router")
-	}
-	return m.router.LoadStateWorkspace(workspaceID, sessionID)
-}
-
-// SaveStateByWorkspace 在显式项目作用域下保存会话 state（后台会话落盘不
-// 改变 Router active write scope；阶段 0 键漂移修复）。
-func (m *Manager) SaveStateByWorkspace(workspaceID, sessionID string, state []byte) error {
-	if m.router == nil {
-		return fmt.Errorf("session: state persistence requires the configurable router")
-	}
-	return m.router.SaveStateWorkspace(workspaceID, sessionID, state)
-}
-
-// SaveContextState 保存会话 context 模块到独立通道。
-func (m *Manager) SaveContextState(sessionID string, state []byte) error {
-	if m.router == nil {
-		return fmt.Errorf("session: context persistence requires the configurable router")
-	}
-	return m.router.SaveContextState(sessionID, state)
-}
-
-// LoadContextStateByWorkspace 读取会话 context 模块（显式 workspace 作用域）。
-func (m *Manager) LoadContextStateByWorkspace(workspaceID, sessionID string) ([]byte, error) {
-	if m.router == nil {
-		return nil, fmt.Errorf("session: context reads require the configurable router")
-	}
-	return m.router.LoadContextStateWorkspace(workspaceID, sessionID)
-}
-
-// SaveContextStateWorkspace 在显式项目作用域下保存会话 context 模块（fork
-// 四栈深拷贝写入子会话用）。
-func (m *Manager) SaveContextStateWorkspace(projectID, sessionID string, state []byte) error {
-	if m.router == nil {
-		return fmt.Errorf("session: context persistence requires the configurable router")
-	}
-	return m.router.SaveContextStateWorkspace(projectID, sessionID, state)
-}
-
-// ListToolResultsByWorkspace 在显式项目作用域下枚举会话 tool-results 通道
-// 全部结果（fork 深拷贝物理复制用）。
-func (m *Manager) ListToolResultsByWorkspace(workspaceID, sessionID string) ([]sessionstore.ToolResult, error) {
-	if m.router == nil {
-		return nil, fmt.Errorf("session: tool result enumeration requires the configurable router")
-	}
-	return m.router.ListToolResultsWorkspace(workspaceID, sessionID)
-}
-
-// CurrentGenerationWorkspace 在显式项目作用域下读取会话当前已发布
-// generation（fork 血缘快照版本绑定）。
-func (m *Manager) CurrentGenerationWorkspace(workspaceID, sessionID string) (string, error) {
-	if m.router == nil {
-		return "", fmt.Errorf("session: generation reads require the configurable router")
-	}
-	return m.router.CurrentGenerationWorkspace(workspaceID, sessionID)
-}
-
-func (m *Manager) SaveCommit(sessionID string, commit sessionstore.Commit) error {
-	if m.router == nil {
-		return fmt.Errorf("session: atomic commit requires the configurable router")
-	}
-	return m.router.SaveCommit(sessionID, commit)
-}
-
-// SaveCommitWorkspace 在显式项目作用域下原子提交会话快照（fork 深拷贝
-// 写入子会话键用；不改变 Router 的 active write scope）。
-func (m *Manager) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error {
-	if m.router == nil {
-		return fmt.Errorf("session: atomic commit requires the configurable router")
-	}
-	return m.router.SaveCommitWorkspace(projectID, sessionID, commit)
-}
-
-func (m *Manager) LoadEventTailByWorkspace(workspaceID, sessionID string, tokenBudget, maxUnits int) ([]sessionstore.Event, error) {
-	if m.router == nil {
-		return nil, fmt.Errorf("session: event tail reads require the configurable router")
-	}
-	return m.router.LoadEventTailWorkspace(workspaceID, sessionID, tokenBudget, maxUnits)
-}
-
-func (m *Manager) LoadToolResultByWorkspace(workspaceID, sessionID, resultRef string) (sessionstore.ToolResult, error) {
-	if m.router == nil {
-		return sessionstore.ToolResult{}, fmt.Errorf("session: tool result reads require the configurable router")
-	}
-	return m.router.LoadToolResultWorkspace(workspaceID, sessionID, resultRef)
-}
-
-// LoadEventRangeByWorkspace 按 EventSeq 范围读取事件流（显式 workspace
-// 作用域，不改变当前写作用域）。
-func (m *Manager) LoadEventRangeByWorkspace(workspaceID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
-	if m.router == nil {
-		return nil, fmt.Errorf("session: event range reads require the configurable router")
-	}
-	return m.router.LoadEventRangeWorkspace(workspaceID, sessionID, fromSeq, toSeq)
-}
-
-// LoadConversationRangeByWorkspace 读取会话 conversation 模块窗口（显式
-// workspace 作用域，不改变当前写作用域；只解析 conversation 子树）。
-func (m *Manager) LoadConversationRangeByWorkspace(workspaceID, sessionID string, offset, limit int) ([]sessionstore.ConversationMessage, int, error) {
-	if m.router == nil {
-		return nil, 0, fmt.Errorf("session: conversation module reads require the configurable router")
-	}
-	return m.router.LoadConversationRangeWorkspace(workspaceID, sessionID, offset, limit)
-}
-
-// DeleteByWorkspace deletes a session from an explicit workspace without
-// changing the active workspace used by subsequent writes.
-func (m *Manager) DeleteByWorkspace(workspaceID, sessionID string) error {
-	if m.router != nil {
-		return m.router.DeleteWorkspace(workspaceID, sessionID)
-	}
-	if workspaceID != m.Workspace() {
-		return fmt.Errorf("session: explicit workspace deletes require the configurable router")
-	}
-	return m.store.Delete(sessionID)
-}
-
-// InjectSaveLoad 注入保存/加载回调（由 main.go 装配时传入）
+// InjectSaveLoad 注入保存/加载回调（由 main.go 装配时传入）。
 func (m *Manager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -277,7 +82,7 @@ func (m *Manager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error) {
 	m.loadFn = loadFn
 }
 
-// SaveCurrent 持久化当前会话
+// SaveCurrent 持久化当前会话。
 func (m *Manager) SaveCurrent(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -287,7 +92,7 @@ func (m *Manager) SaveCurrent(sessionID string) error {
 	return m.saveFn(sessionID)
 }
 
-// Resume 恢复历史会话
+// Resume 恢复历史会话。
 func (m *Manager) Resume(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -295,29 +100,4 @@ func (m *Manager) Resume(sessionID string) error {
 		return fmt.Errorf("session: loadFn not injected")
 	}
 	return m.loadFn(sessionID)
-}
-
-// List 列出所有持久化会话
-func (m *Manager) List() []sessionstore.SessionMeta {
-	return m.store.List()
-}
-
-// Delete 删除会话
-func (m *Manager) Delete(sessionID string) error {
-	return m.store.Delete(sessionID)
-}
-
-// LoadHistory 获取会话的全部历史消息（全量，用于 /resume 首次加载）。
-func (m *Manager) LoadHistory(sessionID string) ([]sessionstore.Message, error) {
-	return m.store.Load(sessionID)
-}
-
-// LoadHistoryRange 按偏移量窗口加载会话消息，返回 [offset, offset+limit) 范围内的消息和总数。
-func (m *Manager) LoadHistoryRange(sessionID string, offset, limit int) ([]sessionstore.Message, int, error) {
-	return m.store.LoadRange(sessionID, offset, limit)
-}
-
-// MessageCount 返回会话总消息数。
-func (m *Manager) MessageCount(sessionID string) (int, error) {
-	return m.store.MessageCount(sessionID)
 }

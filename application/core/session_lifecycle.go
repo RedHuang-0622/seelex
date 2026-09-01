@@ -16,10 +16,20 @@ import (
 // 只换视图指针 + 投影会话 scope；不重建历史、不触碰 X/M/R（不变量 Ⅱ）。
 // 运行中会话也允许回看（design-model 第 5 节决策：热加载支持运行中查看）。
 func (service *Service) hotAttachSession(sessionID string) error {
-	if promptPort, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
-		promptPort.SetSystemPromptFor(sessionID, service.promptStack.Render())
-	} else {
-		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	// 目标会话运行中：其 framework Session 锁被 ChatStream 全程持有，
+	// SetSystemPromptFor 会阻塞到该会话跑完（用户视角：切换后应用冻结、
+	// 消息发不出、也切不走）。运行中会话的 prompt 在下一轮上下文装配时
+	// 自然生效，热挂载只移视图指针，不得触碰引擎锁。
+	targetRunning := false
+	if unit := service.sessions.Unit(sessionID); unit != nil {
+		targetRunning = unit.ChatState().Running
+	}
+	if !targetRunning {
+		if promptPort, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
+			promptPort.SetSystemPromptFor(sessionID, service.promptStack.Render())
+		} else {
+			service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+		}
 	}
 	if service.Deps.Workspace != nil {
 		workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID)
@@ -40,7 +50,8 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	service.Mu.Lock()
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
-	resumedRuntime := service.chatRuntimeLocked(sessionID)
+	service.sessions.SetActive(sessionID)
+	resumedRuntime := service.sessionUnitLocked(sessionID)
 	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	service.mirrorActiveViewLocked()
 	if task := service.components.tasks.TaskStateFor(sessionID); task != nil {
@@ -61,7 +72,9 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	}
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Deps.Engine.SetSystemPrompt(service.components.prompts.SystemPromptForActiveTaskLocked())
+	if !targetRunning {
+		service.Deps.Engine.SetSystemPrompt(service.components.prompts.SystemPromptForActiveTaskLocked())
+	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishRuntimeProjections()
 	service.components.sessions.RequestCatalogRefresh()
@@ -83,7 +96,7 @@ func (service *Service) UnloadSession(sessionID string) error {
 	service.Mu.RLock()
 	running := false
 	if unit := service.sessions.Unit(sessionID); unit != nil {
-		running = unit.Chat.ChatState().Running
+		running = unit.ChatState().Running
 	}
 	active := sessionID == service.Core.Snapshot.Session.ID
 	service.Mu.RUnlock()
@@ -110,6 +123,9 @@ func (service *Service) UnloadSession(sessionID string) error {
 	service.components.tasks.UnloadSessionState(sessionID)
 	service.components.sessions.UnloadSessionTitle(sessionID)
 	if active {
+		// 视图单例一致性：V 的唯一镜像同步到空（draft），避免 Domain.ActiveID
+		// 与 Snapshot.Session.ID 分叉（否则后台/活跃判定误判新会话）。
+		service.sessions.SetActive("")
 		service.Core.Snapshot.Session = SessionState{Draft: true, Name: draftSessionName}
 		service.Core.Snapshot.Conversation = nil
 		service.Core.Snapshot.Chat = ChatState{}

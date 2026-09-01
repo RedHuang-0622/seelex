@@ -165,20 +165,22 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 		content = chat.StripThoughtBlocks(content)
 	}
 	view := c.sessionViewLocked(sessionID)
-	c.messageSeq++
-	message := model.Message{ID: fmt.Sprintf("message-%d", c.messageSeq), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
-	view.Conversation = append(view.Conversation, message)
-	if role != "system" {
-		view.TotalMessages++
-	}
-	c.boundViewTailLocked(view)
-	c.mirrorActiveViewLocked(sessionID, view)
-	for index := len(view.Conversation) - 1; index >= 0; index-- {
-		if view.Conversation[index].ID == message.ID {
-			return &view.Conversation[index]
+	var message *model.Message
+	view.Mutate(func(v *session.View) {
+		c.messageSeq++
+		next := model.Message{ID: fmt.Sprintf("message-%d", c.messageSeq), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
+		v.Conversation = append(v.Conversation, next)
+		if role != "system" {
+			v.TotalMessages++
 		}
+		c.boundViewTailLocked(v)
+		message = &v.Conversation[len(v.Conversation)-1]
+	})
+	c.mirrorActiveViewLocked(sessionID, view)
+	if message != nil && message.ID != "" {
+		return message
 	}
-	return &message
+	return message
 }
 
 // sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
@@ -186,7 +188,11 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 func (c *Coordinator) sessionViewLocked(sessionID string) *session.View {
 	unit := c.units.Unit(sessionID)
 	if unit == nil {
-		unit = session.NewUnit(sessionID)
+		if sessionID == "" {
+			unit = session.NewDraftUnit()
+		} else {
+			unit, _ = session.NewSessionUnit(sessionID)
+		}
 		c.units.Register(unit)
 	}
 	return unit.View
@@ -215,7 +221,11 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)
 	}
 	unit := c.units.Unit(sessionID)
 	if unit == nil {
-		unit = session.NewUnit(sessionID)
+		if sessionID == "" {
+			unit = session.NewDraftUnit()
+		} else {
+			unit, _ = session.NewSessionUnit(sessionID)
+		}
 		c.units.Register(unit)
 	}
 	unit.View = loaded
@@ -226,7 +236,7 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)
 // Core.Mu；活跃会话同步镜像 Snapshot.Chat）。
 func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatState) {
 	view := c.sessionViewLocked(sessionID)
-	view.Chat = chat
+	view.Mutate(func(v *session.View) { v.Chat = chat })
 	if sessionID == c.Snapshot.Session.ID {
 		c.Snapshot.Chat = chat
 	}
@@ -235,7 +245,9 @@ func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatS
 // SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.Mu）。
 func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFileRef) {
 	view := c.sessionViewLocked(sessionID)
-	view.ReadFiles = append([]model.ReadFileRef(nil), readFiles...)
+	view.Mutate(func(v *session.View) {
+		v.ReadFiles = append([]model.ReadFileRef(nil), readFiles...)
+	})
 	c.mirrorActiveViewLocked(sessionID, view)
 }
 
@@ -245,12 +257,14 @@ func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.Vie
 	if sessionID != c.Snapshot.Session.ID {
 		return
 	}
-	c.Snapshot.Conversation = append([]model.Message(nil), view.Conversation...)
-	c.Snapshot.ReadFiles = append([]model.ReadFileRef(nil), view.ReadFiles...)
-	c.Snapshot.TotalMessages = view.TotalMessages
-	c.Snapshot.HistoryOffset = view.HistoryOffset
-	c.Snapshot.HasMoreHistory = view.HasMoreHistory
-	c.Snapshot.ConversationWindow = view.ConversationWindow
+	view.Read(func(v *session.View) {
+		c.Snapshot.Conversation = append([]model.Message(nil), v.Conversation...)
+		c.Snapshot.ReadFiles = append([]model.ReadFileRef(nil), v.ReadFiles...)
+		c.Snapshot.TotalMessages = v.TotalMessages
+		c.Snapshot.HistoryOffset = v.HistoryOffset
+		c.Snapshot.HasMoreHistory = v.HasMoreHistory
+		c.Snapshot.ConversationWindow = v.ConversationWindow
+	})
 }
 
 // MirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot（切换/恢复
