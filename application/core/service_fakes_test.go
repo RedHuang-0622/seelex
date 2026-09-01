@@ -822,10 +822,11 @@ func (sessions *scopedSessions) SavedIDs() []string {
 	return append([]string(nil), sessions.savedIDs...)
 }
 
-func (sessions *scopedSessions) ListWorkspace(workspaceID string) []SessionInfo {
+// SessionsOf 实现 session_runtime.SessionGranularPort：按项目索引枚举会话。
+func (sessions *scopedSessions) SessionsOf(projectID string) []SessionInfo {
 	sessions.mu.RLock()
 	defer sessions.mu.RUnlock()
-	return append([]SessionInfo(nil), sessions.catalog[workspaceID]...)
+	return append([]SessionInfo(nil), sessions.catalog[projectID]...)
 }
 
 func (sessions *scopedSessions) LoadedWorkspace() string {
@@ -834,42 +835,71 @@ func (sessions *scopedSessions) LoadedWorkspace() string {
 	return sessions.loadedWorkspace
 }
 
-func (sessions *scopedSessions) LoadHistoryWorkspace(workspaceID, sessionID string) ([]EngineMessage, error) {
+// resolveWorkspaceFor 返回会话历史所在 workspace（扫描 histories；未找到
+// 返回 ""）。
+func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, []EngineMessage, bool) {
 	sessions.mu.Lock()
-	sessions.loadedWorkspace = workspaceID
-	var (
-		history  []EngineMessage
-		found    bool
-		hasScope bool
-	)
-	if bySession := sessions.histories[workspaceID]; bySession != nil {
-		hasScope = true
-		history, found = bySession[sessionID]
-		history = append([]EngineMessage(nil), history...)
-	}
-	sessions.mu.Unlock()
-	if hasScope {
-		if found {
-			return history, nil
+	defer sessions.mu.Unlock()
+	for workspaceID, bySession := range sessions.histories {
+		if bySession == nil {
+			continue
 		}
-		return nil, errors.New("session missing from workspace")
+		if history, ok := bySession[sessionID]; ok {
+			return workspaceID, append([]EngineMessage(nil), history...), true
+		}
 	}
-	return sessions.fakeSessions.LoadHistory(sessionID)
+	return "", nil, false
 }
 
-func (sessions *scopedSessions) LoadHistoryRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]EngineMessage, int, error) {
-	history, err := sessions.LoadHistoryWorkspace(workspaceID, sessionID)
+// LoadHistory 实现 SessionGranularPort：读取会话历史（会话粒度键；workspace
+// 由存储层解析——桩按扫描 histories 解析并记录加载面供断言）。
+func (sessions *scopedSessions) LoadHistory(sessionID string) ([]EngineMessage, error) {
+	workspaceID, history, ok := sessions.resolveWorkspaceFor(sessionID)
+	if !ok {
+		sessions.mu.Lock()
+		sessions.loadedWorkspace = ""
+		sessions.mu.Unlock()
+		return sessions.fakeSessions.LoadHistory(sessionID)
+	}
+	sessions.mu.Lock()
+	sessions.loadedWorkspace = workspaceID
+	sessions.mu.Unlock()
+	return history, nil
+}
+
+// LoadHistoryRange 实现 SessionGranularPort：按窗口读取会话历史。
+func (sessions *scopedSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error) {
+	history, err := sessions.LoadHistory(sessionID)
 	if err != nil {
 		return nil, 0, err
 	}
-	end := min(offset+limit, len(history))
+	if offset > len(history) {
+		offset = len(history)
+	}
+	end := offset + limit
+	if limit <= 0 || end > len(history) {
+		end = len(history)
+	}
 	return append([]EngineMessage(nil), history[offset:end]...), len(history), nil
 }
 
-func (sessions *scopedSessions) DeleteWorkspace(workspaceID, sessionID string) error {
+// Delete 实现 SessionGranularPort：从全部项目索引删除会话。
+func (sessions *scopedSessions) Delete(sessionID string) error {
 	sessions.mu.Lock()
 	defer sessions.mu.Unlock()
-	delete(sessions.histories[workspaceID], sessionID)
+	for workspaceID, bySession := range sessions.histories {
+		delete(bySession, sessionID)
+		_ = workspaceID
+	}
+	for workspaceID, items := range sessions.catalog {
+		filtered := items[:0]
+		for _, item := range items {
+			if item.ID != sessionID {
+				filtered = append(filtered, item)
+			}
+		}
+		sessions.catalog[workspaceID] = filtered
+	}
 	return nil
 }
 

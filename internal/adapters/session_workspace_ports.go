@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	seelectxstorage "github.com/RedHuang-0622/Seele/seelectx/storage"
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
@@ -141,6 +140,12 @@ type SessionPort struct {
 	Runtime *seelebridge.Runtime
 }
 
+// granular 返回会话粒度存储入口（Router 为物理布局，暴露层为
+// session:<id> 五片 API；session.Manager 不再承担存储桥）。
+func (port SessionPort) granular() *sessionstore.SessionGranularStore {
+	return sessionstore.NewSessionGranularStore(port.Manager.Router())
+}
+
 // AttachSessionContext 装配会话 context 模块（system prompt + 四栈）：
 // 创建按 sessionID 的 SessionContextStore，加载持久化记录并挂接到 Runtime，
 // 使下一轮 prompt 组装（stackBlocks）能使用持久化的 Plan/Task/Skill/Compact
@@ -161,7 +166,6 @@ func (port SessionPort) DetachSessionContext() {
 }
 
 func (port SessionPort) SaveCurrent(id string) error     { return port.Manager.SaveCurrent(id) }
-func (port SessionPort) Delete(id string) error          { return port.Manager.Delete(id) }
 func (port SessionPort) Resume(id string) error          { return port.Manager.Resume(id) }
 func (port SessionPort) SetWorkspace(workspaceID string) { port.Manager.SetWorkspace(workspaceID) }
 func (port SessionPort) Workspace() string               { return port.Manager.Workspace() }
@@ -174,12 +178,52 @@ func (port SessionPort) TestStorage(ctx context.Context, config sessionstore.Con
 func (port SessionPort) ConfigureStorage(ctx context.Context, config sessionstore.Config) error {
 	return port.Manager.ConfigureStorage(ctx, config)
 }
+
+// Delete 以会话粒度删除会话（resolve 项目绑定后整键删除）。
+func (port SessionPort) Delete(id string) error {
+	granular := port.granular()
+	return granular.Delete(granular.ResolveProjectForSession(id), id)
+}
+
 func (port SessionPort) LoadHistory(id string) ([]contract.EngineMessage, error) {
-	messages, err := port.Manager.LoadHistory(id)
+	granular := port.granular()
+	messages, err := granular.HistoryForProject(granular.ResolveProjectForSession(id), id).Load(context.Background())
 	if err != nil {
 		return nil, err
 	}
 	return adaptMessages(messages), nil
+}
+
+func (port SessionPort) LoadHistoryRange(id string, offset, limit int) ([]contract.EngineMessage, int, error) {
+	granular := port.granular()
+	messages, total, err := granular.HistoryRange(granular.ResolveProjectForSession(id), id, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return adaptMessages(messages), total, nil
+}
+
+func (port SessionPort) MessageCount(id string) (int, error) {
+	_, total, err := port.LoadHistoryRange(id, 0, 0)
+	return total, err
+}
+
+// List 返回项目索引下的会话列表（project = 会话集合）。
+func (port SessionPort) List() []model.SessionInfo {
+	infos, err := port.granular().SessionsOf("")
+	if err != nil {
+		return nil
+	}
+	return adaptGranularInfos(infos)
+}
+
+// SessionsOf 实现 session_runtime.SessionGranularPort：按项目索引枚举会话。
+func (port SessionPort) SessionsOf(projectID string) []model.SessionInfo {
+	infos, err := port.granular().SessionsOf(projectID)
+	if err != nil {
+		return nil
+	}
+	return adaptGranularInfos(infos)
 }
 
 func (port SessionPort) SaveSessionRecord(id string, record model.SessionRecord) error {
@@ -187,17 +231,17 @@ func (port SessionPort) SaveSessionRecord(id string, record model.SessionRecord)
 	if err != nil {
 		return fmt.Errorf("encode session record: %w", err)
 	}
-	return port.Manager.SaveState(id, payload)
+	return port.granular().SaveRecordRaw("", id, payload)
 }
 
-// SaveSessionRecordWorkspace 在显式项目作用域下写会话 record（后台会话
-// 落盘不依赖全局 Router 写作用域；阶段 0 键漂移修复）。
+// SaveSessionRecordWorkspace 在显式项目作用域下写会话 record（物理布局
+// 显式键；会话粒度存储入口统一经 SessionGranularStore）。
 func (port SessionPort) SaveSessionRecordWorkspace(projectID, id string, record model.SessionRecord) error {
 	payload, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("encode session record: %w", err)
 	}
-	return port.Manager.SaveStateByWorkspace(projectID, id, payload)
+	return port.granular().SaveRecordRaw(projectID, id, payload)
 }
 
 func (port SessionPort) SaveSessionSnapshot(
@@ -217,18 +261,18 @@ func (port SessionPort) SaveSessionSnapshot(
 		State:           payload,
 		ToolResults:     storeToolResults(results),
 	}
-	return port.Manager.SaveCommit(id, commit)
+	return port.granular().SaveCommit("", id, commit)
 }
 
 // LoadEventRangeWorkspace 按 EventSeq 范围读取事件流（fork 切断点解析用）。
 func (port SessionPort) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error) {
-	return port.Manager.LoadEventRangeByWorkspace(projectID, sessionID, fromSeq, toSeq)
+	return port.granular().EventRange(projectID, sessionID, fromSeq, toSeq)
 }
 
 // LoadToolResultsWorkspace 枚举会话 tool-results 通道全部结果（fork 深拷贝
 // 物理复制用）。
 func (port SessionPort) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error) {
-	return port.Manager.ListToolResultsByWorkspace(projectID, sessionID)
+	return port.granular().ListToolResults(projectID, sessionID)
 }
 
 // SaveSessionSnapshotWorkspace 在显式项目作用域下原子写入会话快照
@@ -250,28 +294,28 @@ func (port SessionPort) SaveSessionSnapshotWorkspace(
 		State:           payload,
 		ToolResults:     storeToolResults(results),
 	}
-	return port.Manager.SaveCommitWorkspace(projectID, sessionID, commit)
+	return port.granular().SaveCommit(projectID, sessionID, commit)
 }
 
 // LoadContextStateWorkspace 读取会话 context 模块（显式项目作用域）。
 func (port SessionPort) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error) {
-	return port.Manager.LoadContextStateByWorkspace(projectID, sessionID)
+	return port.granular().LoadContextRaw(projectID, sessionID)
 }
 
 // SaveContextStateWorkspace 保存会话 context 模块（显式项目作用域；fork
 // 四栈深拷贝写入子会话用）。
 func (port SessionPort) SaveContextStateWorkspace(projectID, sessionID string, state []byte) error {
-	return port.Manager.SaveContextStateWorkspace(projectID, sessionID, state)
+	return port.granular().SaveContext(projectID, sessionID, state)
 }
 
 // CurrentGenerationWorkspace 返回会话当前已发布 generation（fork 血缘
 // forked_from_generation 来源）。
 func (port SessionPort) CurrentGenerationWorkspace(projectID, sessionID string) (string, error) {
-	return port.Manager.CurrentGenerationWorkspace(projectID, sessionID)
+	return port.granular().CurrentGeneration(projectID, sessionID)
 }
 
 func (port SessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, tokenBudget, maxUnits int) ([]model.TranscriptEvent, error) {
-	events, err := port.Manager.LoadEventTailByWorkspace(workspaceID, id, tokenBudget, maxUnits)
+	events, err := port.granular().TranscriptTail(workspaceID, id, tokenBudget, maxUnits)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +323,7 @@ func (port SessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, toke
 }
 
 func (port SessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (model.StoredToolResult, error) {
-	result, err := port.Manager.LoadToolResultByWorkspace(workspaceID, id, resultRef)
+	result, err := port.granular().ToolResult(workspaceID, id, resultRef)
 	if err != nil {
 		return model.StoredToolResult{}, err
 	}
@@ -338,7 +382,7 @@ func storeToolResults(results []model.StoredToolResult) []sessionstore.ToolResul
 }
 
 func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error) {
-	payload, err := port.Manager.LoadState(id)
+	payload, err := port.granular().LoadRecordRaw("", id)
 	if err != nil {
 		return model.SessionRecord{}, err
 	}
@@ -346,7 +390,7 @@ func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error
 }
 
 func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (model.SessionRecord, error) {
-	payload, err := port.Manager.LoadStateByWorkspace(workspaceID, id)
+	payload, err := port.granular().LoadRecordRaw(workspaceID, id)
 	if err != nil {
 		return model.SessionRecord{}, err
 	}
@@ -357,7 +401,7 @@ func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, o
 	// conversation 模块冷读：只解析 state blob 的 conversation 子树，
 	// 不反序列化 Plan/Execution/Projection 等非 conversation 模块
 	// （模块化方案 plan.md §阶段1：长会话翻页不加载完整 state blob）。
-	messages, total, err := port.Manager.LoadConversationRangeByWorkspace(workspaceID, id, offset, limit)
+	messages, total, err := port.granular().ConversationRange(workspaceID, id, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -441,44 +485,14 @@ func migrateSessionArchive(sessionID string, archive model.SessionArchive) model
 	}
 	return record
 }
-func (port SessionPort) LoadHistoryWorkspace(workspaceID, id string) ([]contract.EngineMessage, error) {
-	messages, err := port.Manager.LoadHistoryByWorkspace(workspaceID, id)
-	if err != nil {
-		return nil, err
-	}
-	return adaptMessages(messages), nil
-}
-func (port SessionPort) LoadHistoryRange(id string, offset, limit int) ([]contract.EngineMessage, int, error) {
-	messages, total, err := port.Manager.LoadHistoryRange(id, offset, limit)
-	if err != nil {
-		return nil, 0, err
-	}
-	return adaptMessages(messages), total, nil
-}
-func (port SessionPort) LoadHistoryRangeWorkspace(workspaceID, id string, offset, limit int) ([]contract.EngineMessage, int, error) {
-	messages, total, err := port.Manager.LoadHistoryRangeByWorkspace(workspaceID, id, offset, limit)
-	if err != nil {
-		return nil, 0, err
-	}
-	return adaptMessages(messages), total, nil
-}
-func (port SessionPort) MessageCount(id string) (int, error) {
-	return port.Manager.MessageCount(id)
-}
-func (port SessionPort) List() []model.SessionInfo {
-	return adaptSessionMeta(port.Manager.List())
-}
-func (port SessionPort) ListWorkspace(workspaceID string) []model.SessionInfo {
-	return adaptSessionMeta(port.Manager.ListByWorkspace(workspaceID))
-}
-func (port SessionPort) DeleteWorkspace(workspaceID, id string) error {
-	return port.Manager.DeleteByWorkspace(workspaceID, id)
-}
-
-func adaptSessionMeta(sessions []seelectxstorage.SessionMeta) []model.SessionInfo {
+func adaptGranularInfos(sessions []sessionstore.SessionInfo) []model.SessionInfo {
 	result := make([]model.SessionInfo, 0, len(sessions))
 	for _, item := range sessions {
-		result = append(result, model.SessionInfo{ID: item.SessionID, UpdatedAt: item.UpdatedAt, TokenCount: item.TokenCount})
+		result = append(result, model.SessionInfo{
+			ID:     item.ID,
+			Name:   item.Title,
+			Status: model.SessionStatus(item.Status),
+		})
 	}
 	return result
 }

@@ -34,6 +34,5 @@ func (c *Coordinator) ConfigureSessionStorage(ctx context.Context, config sessio
 	if err := storage.ConfigureStorage(ctx, config); err != nil {
 		return err
 	}
-	c.clearSessionNames()
 	return nil
 }

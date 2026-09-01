@@ -97,12 +97,18 @@ type SessionForkPort interface {
 	CurrentGenerationWorkspace(projectID, sessionID string) (string, error)
 }
 
-// ScopedSessionPort 是生产会话适配器显式项目键读取面（可选能力断言）。
-type ScopedSessionPort interface {
-	ListWorkspace(workspaceID string) []model.SessionInfo
-	LoadHistoryWorkspace(workspaceID, sessionID string) ([]contract.EngineMessage, error)
-	LoadHistoryRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)
-	DeleteWorkspace(workspaceID, sessionID string) error
+// SessionGranularPort 是会话粒度读取面：原子单位 = session，调用方只传
+// sessionID/项目 ID，不再以 workspace 粒度口读写。实现方为
+// sessionstore.SessionGranularStore 的适配器（装配根注入）。
+type SessionGranularPort interface {
+	// SessionsOf 按项目索引枚举会话（project = 会话集合）。
+	SessionsOf(projectID string) []model.SessionInfo
+	// LoadHistory 读取会话 provider 历史。
+	LoadHistory(sessionID string) ([]contract.EngineMessage, error)
+	// LoadHistoryRange 按窗口读取会话历史。
+	LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)
+	// Delete 删除会话（record/history/transcript/toolresults/context 同键）。
+	Delete(sessionID string) error
 }
 
 // SessionStoragePort 是会话存储设置面（可选能力断言）。

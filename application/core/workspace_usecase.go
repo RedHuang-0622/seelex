@@ -7,16 +7,12 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
-	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 )
 
 func (service *Service) DeleteSession(sessionID string) error {
-	location := service.components.sessions.LocateSession(sessionID)
-	if scoped, ok := service.Deps.Sessions.(session_runtime.ScopedSessionPort); ok {
-		if err := scoped.DeleteWorkspace(location.WorkspaceID, sessionID); err != nil {
-			return err
-		}
-	} else if err := service.Deps.Sessions.Delete(sessionID); err != nil {
+	// 会话粒度删除：项目绑定由存储层从会话 record 解析（旧 workspace
+	// 粒度 DeleteWorkspace 口已删除）。
+	if err := service.Deps.Sessions.Delete(sessionID); err != nil {
 		return err
 	}
 	if service.Deps.Workspace != nil {
@@ -28,7 +24,6 @@ func (service *Service) DeleteSession(sessionID string) error {
 		service.Mu.Unlock()
 		service.components.sessions.RequestCatalogRefresh()
 	}
-	service.components.sessions.InvalidateSessionName(sessionID)
 	return nil
 }
 

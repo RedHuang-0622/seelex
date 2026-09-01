@@ -10,36 +10,12 @@ import (
 
 // sessionCatalog 返回可见会话列表与工作区绑定发现结果。
 func (c *Coordinator) sessionCatalog() ([]model.SessionInfo, map[string]string) {
-	scoped, ok := c.Core.Deps.Sessions.(ScopedSessionPort)
+	granular, ok := c.Core.Deps.Sessions.(SessionGranularPort)
 	if !ok {
 		return c.Core.Deps.Sessions.List(), nil
 	}
 
-	locations := c.allSessionLocations(scoped)
-	bindings := map[string]string{}
-	if c.Core.Deps.Workspace != nil {
-		bindings = c.Core.Deps.Workspace.AllBindings()
-	}
-	selected := make(map[string]Location, len(locations))
-	for _, location := range locations {
-		current, exists := selected[location.Meta.ID]
-		if !exists || preferSessionLocation(location, current, bindings[location.Meta.ID]) {
-			selected[location.Meta.ID] = location
-		}
-	}
-
-	sessions := make([]model.SessionInfo, 0, len(selected))
-	discovered := make(map[string]string, len(selected))
-	for sessionID, location := range selected {
-		meta := location.Meta
-		if meta.Name == "" {
-			meta.Name = c.sessionName(location, scoped)
-		}
-		sessions = append(sessions, meta)
-		if location.WorkspaceID != "" {
-			discovered[sessionID] = location.WorkspaceID
-		}
-	}
+	sessions, discovered := c.sessionCatalogGranular(granular)
 	sort.Slice(sessions, func(i, j int) bool {
 		if sessions[i].UpdatedAt.Equal(sessions[j].UpdatedAt) {
 			return sessions[i].ID < sessions[j].ID
@@ -49,34 +25,42 @@ func (c *Coordinator) sessionCatalog() ([]model.SessionInfo, map[string]string) 
 	return sessions, discovered
 }
 
-func (c *Coordinator) sessionName(location Location, scoped ScopedSessionPort) string {
-	key := location.WorkspaceID + "\x00" + location.Meta.ID
-	c.sessionNameMu.Lock()
-	entry, ok := c.sessionNames[key]
-	c.sessionNameMu.Unlock()
-	if ok && entry.updatedAt.Equal(location.Meta.UpdatedAt) {
-		return entry.name
-	}
-
-	name := ""
-	if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
-		record, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, location.Meta.ID)
-		if err == nil {
-			name = strings.TrimSpace(record.Title.Value)
+// sessionCatalogGranular 是会话粒度目录：项目 = 会话集合，项目索引直接
+// 枚举（当前项目 + 全部 workspace 绑定项目）；标题从 record 读取（不再走
+// workspace 粒度 tail 回退）。
+func (c *Coordinator) sessionCatalogGranular(granular SessionGranularPort) ([]model.SessionInfo, map[string]string) {
+	discovered := map[string]string{}
+	selected := map[string]model.SessionInfo{}
+	for _, projectID := range c.allProjectIDs() {
+		for _, info := range granular.SessionsOf(projectID) {
+			current, exists := selected[info.ID]
+			if !exists || preferSessionInfo(info, current) {
+				selected[info.ID] = info
+			}
+			if projectID != "" {
+				discovered[info.ID] = projectID
+			}
 		}
 	}
-	if name == "" {
-		name = c.sessionNameFromTail(location, scoped)
+	sessions := make([]model.SessionInfo, 0, len(selected))
+	for _, info := range selected {
+		if info.Name == "" {
+			if record, ok, err := c.loadGranularRecord(info.ID); err == nil && ok && record.Title.Value != "" {
+				info.Name = record.Title.Value
+			} else if name := c.sessionNameFromTail(granular, info.ID); name != "" {
+				info.Name = name
+			}
+		}
+		sessions = append(sessions, info)
 	}
-	c.sessionNameMu.Lock()
-	c.sessionNames[key] = sessionNameCacheEntry{updatedAt: location.Meta.UpdatedAt, name: name}
-	c.sessionNameMu.Unlock()
-	return name
+	return sessions, discovered
 }
 
-func (c *Coordinator) sessionNameFromTail(location Location, scoped ScopedSessionPort) string {
+// sessionNameFromTail 从会话历史尾部窗口提取标题（会话粒度端口；
+// record 标题缺失时的回退）。
+func (c *Coordinator) sessionNameFromTail(granular SessionGranularPort, sessionID string) string {
 	window := c.limits().HistoryWindow
-	_, total, err := scoped.LoadHistoryRangeWorkspace(location.WorkspaceID, location.Meta.ID, 0, 0)
+	_, total, err := granular.LoadHistoryRange(sessionID, 0, 0)
 	if err != nil {
 		return ""
 	}
@@ -84,29 +68,11 @@ func (c *Coordinator) sessionNameFromTail(location Location, scoped ScopedSessio
 	if offset < 0 {
 		offset = 0
 	}
-	history, _, err := scoped.LoadHistoryRangeWorkspace(location.WorkspaceID, location.Meta.ID, offset, window)
+	history, _, err := granular.LoadHistoryRange(sessionID, offset, window)
 	if err != nil {
 		return ""
 	}
 	return SessionTitleFromHistory(history, c.displayUserInput)
-}
-
-// InvalidateSessionName 删除会话标题缓存（删除/重命名后立即失效）。
-func (c *Coordinator) InvalidateSessionName(sessionID string) {
-	suffix := "\x00" + strings.TrimSpace(sessionID)
-	c.sessionNameMu.Lock()
-	for key := range c.sessionNames {
-		if strings.HasSuffix(key, suffix) {
-			delete(c.sessionNames, key)
-		}
-	}
-	c.sessionNameMu.Unlock()
-}
-
-func (c *Coordinator) clearSessionNames() {
-	c.sessionNameMu.Lock()
-	clear(c.sessionNames)
-	c.sessionNameMu.Unlock()
 }
 
 // SessionTitleFromHistory 从历史窗口内的首条可见 user 消息提取标题。
@@ -148,21 +114,22 @@ func (c *Coordinator) ShortSessionID(id string) string {
 	return string(runes[:maxRunes])
 }
 
-func (c *Coordinator) allSessionLocations(scoped ScopedSessionPort) []Location {
-	locations := make([]Location, 0)
-	for _, meta := range scoped.ListWorkspace("") {
-		locations = append(locations, Location{Meta: meta})
-	}
+// allProjectIDs 返回目录枚举的项目集合（空项目 = 当前 active scope + 全部
+// workspace 绑定项目；去重）。
+func (c *Coordinator) allProjectIDs() []string {
+	seen := map[string]bool{"": true}
+	projects := []string{""}
 	if c.Core.Deps.Workspace == nil {
-		return locations
+		return projects
 	}
 	for _, item := range c.Core.Deps.Workspace.List() {
-		workspace := item
-		for _, meta := range scoped.ListWorkspace(item.ID) {
-			locations = append(locations, Location{WorkspaceID: item.ID, Workspace: &workspace, Meta: meta})
+		if seen[item.ID] {
+			continue
 		}
+		seen[item.ID] = true
+		projects = append(projects, item.ID)
 	}
-	return locations
+	return projects
 }
 
 // LocateSession 定位会话（workspace 绑定优先；支持 scoped 读取时遍历全部
@@ -176,7 +143,7 @@ func (c *Coordinator) LocateSession(sessionID string) Location {
 		}
 	}
 
-	scoped, ok := c.Core.Deps.Sessions.(ScopedSessionPort)
+	granular, ok := c.Core.Deps.Sessions.(SessionGranularPort)
 	if !ok {
 		location := Location{Meta: model.SessionInfo{ID: sessionID}}
 		if boundWorkspace != nil {
@@ -188,13 +155,22 @@ func (c *Coordinator) LocateSession(sessionID string) Location {
 
 	var selected Location
 	found := false
-	for _, location := range c.allSessionLocations(scoped) {
-		if location.Meta.ID != sessionID {
-			continue
-		}
-		if !found || preferSessionLocation(location, selected, WorkspaceID(boundWorkspace)) {
-			selected = location
-			found = true
+	for _, projectID := range c.allProjectIDs() {
+		for _, info := range granular.SessionsOf(projectID) {
+			if info.ID != sessionID {
+				continue
+			}
+			location := Location{Meta: info}
+			if projectID != "" {
+				if workspace, err := c.Core.Deps.Workspace.Get(projectID); err == nil {
+					location.WorkspaceID = projectID
+					location.Workspace = &workspace
+				}
+			}
+			if !found || preferSessionLocation(location, selected, WorkspaceID(boundWorkspace)) {
+				selected = location
+				found = true
+			}
 		}
 	}
 	if found {
@@ -218,6 +194,10 @@ func preferSessionLocation(candidate, current Location, boundWorkspaceID string)
 	return candidate.Meta.UpdatedAt.After(current.Meta.UpdatedAt)
 }
 
+func preferSessionInfo(candidate, current model.SessionInfo) bool {
+	return candidate.UpdatedAt.After(current.UpdatedAt)
+}
+
 // WorkspaceID 返回工作区指针的 ID（nil → ""）。
 func WorkspaceID(workspace *model.WorkspaceInfo) string {
 	if workspace == nil {
@@ -229,8 +209,8 @@ func WorkspaceID(workspace *model.WorkspaceInfo) string {
 // LoadSessionHistory 加载会话 provider 历史（scoped 端口优先；回退切换写
 // 作用域后读回并恢复）。
 func (c *Coordinator) LoadSessionHistory(location Location, sessionID string) ([]contract.EngineMessage, error) {
-	if scoped, ok := c.Core.Deps.Sessions.(ScopedSessionPort); ok {
-		return scoped.LoadHistoryWorkspace(location.WorkspaceID, sessionID)
+	if granular, ok := c.Core.Deps.Sessions.(SessionGranularPort); ok {
+		return granular.LoadHistory(sessionID)
 	}
 	previous := c.Core.Deps.Sessions.Workspace()
 	c.Core.Deps.Sessions.SetWorkspace(location.WorkspaceID)
@@ -243,8 +223,23 @@ func (c *Coordinator) LoadSessionHistory(location Location, sessionID string) ([
 
 // LoadSessionHistoryRange 按偏移量窗口加载历史（scoped 端口优先）。
 func (c *Coordinator) LoadSessionHistoryRange(workspaceID, sessionID string, offset, limit int) ([]contract.EngineMessage, int, error) {
-	if scoped, ok := c.Core.Deps.Sessions.(ScopedSessionPort); ok {
-		return scoped.LoadHistoryRangeWorkspace(workspaceID, sessionID, offset, limit)
+	if granular, ok := c.Core.Deps.Sessions.(SessionGranularPort); ok {
+		return granular.LoadHistoryRange(sessionID, offset, limit)
 	}
 	return c.Core.Deps.Sessions.LoadHistoryRange(sessionID, offset, limit)
+}
+
+// loadGranularRecord 读取会话 record（会话粒度；不存在返回 false）。
+func (c *Coordinator) loadGranularRecord(sessionID string) (model.SessionRecord, bool, error) {
+	if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
+		record, err := store.LoadSessionRecord(sessionID)
+		if err != nil {
+			return model.SessionRecord{}, false, err
+		}
+		if record.Version != SessionRecordVersion || record.ID != sessionID {
+			return model.SessionRecord{}, false, nil
+		}
+		return record, true, nil
+	}
+	return model.SessionRecord{}, false, nil
 }
