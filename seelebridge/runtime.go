@@ -152,6 +152,7 @@ type Runtime struct {
 	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
 	scopedToolsReady    bool
 	lifecycle           []func() // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
+	shutdownOnce        sync.Once // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
 
 	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
 
@@ -563,13 +564,15 @@ func (r *Runtime) Shutdown() {
 	if r == nil {
 		return
 	}
-	r.stopLiveDispatcher()
-	// 逆装配序统一关停（NewRuntime 登记）；幂等由各实现保证。
-	for index := len(r.lifecycle) - 1; index >= 0; index-- {
-		if r.lifecycle[index] != nil {
-			r.lifecycle[index]()
+	r.shutdownOnce.Do(func() {
+		r.stopLiveDispatcher()
+		// 逆装配序统一关停（NewRuntime 登记）；幂等由本守卫保证。
+		for index := len(r.lifecycle) - 1; index >= 0; index-- {
+			if r.lifecycle[index] != nil {
+				r.lifecycle[index]()
+			}
 		}
-	}
+	})
 }
 
 // SetBashDiagnosticObserver installs an optional, best-effort diagnostic
