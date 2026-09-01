@@ -96,7 +96,9 @@ func RealProber() Prober {
 			// 优先官方 CLI 启动命令（不开完整 GUI）；失败回退直接拉起
 			// Docker Desktop（引擎启动入口，GUI 窗口可能短暂出现）。
 			if cli := CLIPath(); cli != "" {
-				if cmd := exec.CommandContext(ctx, cli, "desktop", "start"); cmd.Run() == nil {
+				cmd := exec.CommandContext(ctx, cli, "desktop", "start")
+				security.ConfigureHiddenCommand(cmd)
+				if cmd.Run() == nil {
 					return nil
 				}
 			}

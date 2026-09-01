@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/internal/winhide"
 )
 
 // Info holds a workspace definition.
@@ -368,6 +370,7 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 // 如果目录不是 git 仓库或没有 remote，返回空字符串。
 func DetectGitRemote(rootPath string) string {
 	cmd := exec.Command("git", "-C", rootPath, "remote", "-v")
+	winhide.Apply(cmd)
 	output, err := cmd.Output()
 	if err != nil {
 		return ""

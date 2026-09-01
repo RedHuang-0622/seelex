@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/internal/winhide"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
@@ -58,6 +59,7 @@ func (r *Repo) GitLog(root string, limit int) (dto.GitLogResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", argv...)
+	winhide.Apply(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

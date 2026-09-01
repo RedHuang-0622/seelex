@@ -3,11 +3,14 @@ package seelebridge
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/mcp"
+	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
 func TestFrameworkMCPValidation(t *testing.T) {
@@ -95,6 +98,32 @@ func TestRuntimeProjectScopedToolsUseBoundProject(t *testing.T) {
 	}
 	result, err = runtime.Agent().DirectDispatch(context.Background(), "bash", `{"command":"pwd && ls -la","timeout":10}`)
 	if err != nil || !strings.Contains(result, filepath.Base(projectB)) {
+		if !hasSuitableBash() {
+			t.Skipf("no suitable POSIX bash on this host; skipping bash scoping assertion: result=%q err=%v", result, err)
+		}
 		t.Fatalf("bash did not use project root: result=%q err=%v", result, err)
 	}
+}
+
+// hasSuitableBash 报告是否存在可供 bash 工具使用的 POSIX bash（固定 Git 路径
+// 或非 WSL 的 PATH bash）。WSL bash 自 9.5.3 起被 bash 工具排除（冷启动慢、
+// 弹控制台、输出 localhost 代理警告）；仅剩 WSL bash 的机器上 bash 工具回退
+// PowerShell，无法解析 POSIX 语法，相关断言跳过而非失败。
+func hasSuitableBash() bool {
+	if runtime.GOOS != "windows" {
+		return true // 非 Windows 必有 /bin/bash 或 PATH bash
+	}
+	for _, bash := range []string{
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files\Git\usr\bin\bash.exe`,
+		`C:\Program Files (x86)\Git\bin\bash.exe`,
+	} {
+		if security.FileExists(bash) {
+			return true
+		}
+	}
+	if bash, err := exec.LookPath("bash"); err == nil && !security.IsWSLBash(bash) {
+		return true
+	}
+	return false
 }

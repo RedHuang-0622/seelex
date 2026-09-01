@@ -13,6 +13,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/winhide"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -299,6 +300,7 @@ func GitRunner(root string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
+	winhide.Apply(cmd)
 	cmd.Dir = root
 	security.ConfigureHiddenCommand(cmd)
 	var out, errOut strings.Builder

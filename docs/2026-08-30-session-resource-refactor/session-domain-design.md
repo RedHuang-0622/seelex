@@ -1,5 +1,11 @@
 # 会话域独立重构详细设计（Session Domain Independence — Detailed Design）
 
+> **取代说明（2026-09-01）**：本文档中「自造生命周期状态机 / 并行 ChatRuntime /
+> 项目粒度存储」部分已被 [thin-wrapper-session-design.md](../2026-09-01-session-thin-wrapper/thin-wrapper-session-design.md)
+> 取代——会话性归 Seele（引擎+loop），seelex 只做薄封装；存储改会话粒度；
+> 主/子代理会话同构。本文档保留的仍有价值部分：事件按会话路由、前端过滤、
+> 对抗性审查记录（§8）与实施记录（§9）。
+
 > 日期: 2026-09-01
 > 状态: **设计稿 v2.1（已并入主代理对抗性审查结论；子代理审查并入第 8 节）**
 > 前置: [niche-redesign.md](./niche-redesign.md)（生态位重划）、

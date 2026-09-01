@@ -4,8 +4,11 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/RedHuang-0622/seelex/internal/winhide"
 )
 
 // ── CommandSandbox 端口（docs/2026-07-28-project-session-scope/sandbox-research.md）──
@@ -50,6 +53,7 @@ func NewNativeProjectCWD() CommandSandbox { return &nativeProjectCWD{} }
 // 环境变量清洗（凭据类不传给子进程）、超时由调用方 ctx 控制。
 func (s *nativeProjectCWD) Prepare(ctx context.Context, root string, command string, timeoutSec int) (*exec.Cmd, SandboxCapabilities, error) {
 	cmd := exec.CommandContext(ctx, commandShell(), commandShellArgs(command)...)
+	winhide.Apply(cmd)
 	cmd.Dir = root
 	ConfigureHiddenCommand(cmd)
 	// 环境透传契约：仅清洗凭据变量，PATH/SystemRoot 等基础变量与本地
@@ -102,7 +106,7 @@ func commandShell() string {
 				return bash
 			}
 		}
-		if bash, err := exec.LookPath("bash"); err == nil {
+		if bash, err := exec.LookPath("bash"); err == nil && !IsWSLBash(bash) {
 			return bash
 		}
 	}
@@ -130,6 +134,17 @@ func commandShellArgs(command string) []string {
 	default:
 		return []string{"/d", "/s", "/c", command}
 	}
+}
+
+// IsWSLBash 报告路径是否为 WSL bash 启动器（System32/Sysnative/WindowsApps
+// 下的 bash.exe）。WSL bash 是子系统启动器：冷启动可能数秒、会弹控制台、
+// 输出 localhost 代理警告，不得作为 bash 工具的默认 shell（无 git-bash 的
+// 机器上 LookPath("bash") 会命中它，导致工具超时/黑窗）。
+func IsWSLBash(path string) bool {
+	lower := strings.ToLower(filepath.Clean(path))
+	return strings.HasSuffix(lower, `\system32\bash.exe`) ||
+		strings.HasSuffix(lower, `\sysnative\bash.exe`) ||
+		strings.HasSuffix(lower, `\windowsapps\bash.exe`)
 }
 
 // FileExists 报告路径是否存在（供 shell 探测/工具链查找复用）。

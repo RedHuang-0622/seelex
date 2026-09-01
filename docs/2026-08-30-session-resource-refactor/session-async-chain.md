@@ -110,7 +110,95 @@ ctx 注入 sid，全程按会话路由：
 
 ---
 
-## 2. 会话运行中的切换策略
+## 2. 运行时运行隔离机制
+
+两个会话并行运行，靠三层叠加：**结构上每会话一份完整状态单元、路径上全链
+按会话路由、锁协议上执行在全局锁外**。
+
+### 2.1 结构隔离：每个会话一个完整状态单元
+
+```mermaid
+flowchart TB
+    subgraph SID_A["会话 A 的隔离单元"]
+        CA["sessionChat[A]<br/>队列/取消/流输出/运行态"]
+        EA["engines[A]<br/>framework Session 实例"]
+        TA["sessionStates[A]<br/>transcript/plan/checkpoint/预算"]
+        VA["SessionView[A]<br/>conversation/chat/readFiles"]
+    end
+    subgraph SID_B["会话 B 的隔离单元"]
+        CB["sessionChat[B]<br/>队列/取消/流输出/运行态"]
+        EB["engines[B]<br/>framework Session 实例"]
+        TB["sessionStates[B]<br/>transcript/plan/checkpoint/预算"]
+        VB["SessionView[B]<br/>conversation/chat/readFiles"]
+    end
+    subgraph GLOBAL["全局共享（不随会话）"]
+        SNAPSHOT["Snapshot（当前会话只读镜像）"]
+        ACCOUNT["账号/provider"]
+        HUB["事件 hub / approval"]
+        REG["task 注册表（切换时换 per-session 快照）"]
+    end
+```
+
+关键：**执行时的可写状态没有跨会话共享引用**。A 的引擎、队列、transcript、
+可见投影与 B 的是不同内存对象（不变量 Ⅰ）；`SessionView[A]` 只在 A 是活跃时
+才镜像到 `Snapshot`，后台会话的写入到不了全局快照。
+
+### 2.2 路径隔离：全链按 sid 路由
+
+- 提交：`SubmitToSession(sid, text)` 先判 `HasSession(sid)`，已加载就在 sid
+  上下文后台启动，不切活跃；
+- 绑定：`startChatFor(sid)` 里 `BeginTaskFor(sid, requestID, ...)` 把
+  requestID→sessionID 写进 `requestToSession`，这是所有反查的锚；
+- 执行：`runChat` 开头 `ctx = withSessionID(ctx, sid)`，之后
+  `PrepareExecutionContextFor(sid)` / `ChatStreamFor(sid)` /
+  `RecordLLMComplete(ctx)` / 工具钩子全部从 ctx 或 requestID 反查出 sid，
+  只碰 sid 的分片；
+- 流式增量：`consumeVisibleChunk` / `appendVisibleDelta` 用
+  `SessionIDForRequest(requestID)` 反查，后台会话流式内容写
+  `SessionView[sid]`，不碰 `Snapshot.Conversation`；
+- 事件：`publishSessionEvent(kind, rev, requestID, sid, payload)` 经
+  `SessionAwareHub.PublishSession` 按会话路由，前端订阅按 sid 过滤。
+
+没有任何执行路径"顺手"用全局活跃会话：要么带 sid 参数，要么带 requestID
+反查；反查不到的兜底才是活跃会话——这是阶段 0 把持久化端口改成全 For 变体的
+原因（编译期堵死兜底路径）。
+
+### 2.3 锁与并发模型：执行在全局锁外
+
+- `Core.Mu` 是唯一全局锁，只保护共享结构本身（`sessionChat` map、
+  `SessionViews` map、`Snapshot`），临界区都是短操作（取指针、写一条消息、
+  bump 修订号）；`ChatStream`、provider 往返、落盘 I/O 全在锁外——两个会话的
+  `runChat` 可同时阻塞在各自的 provider 请求上，互不等待；
+- 每会话引擎有自己的内部锁（framework `session.Session` 锁 /
+  `EnginePort.mu`）：A 持 A 引擎锁时，B 的恢复/提交绝不碰 A 的引擎
+  （`SetSystemPromptFor` 按会话路由，`ReplaceHistoryFor` 只替换目标会话）；
+- `TransitionLock` 只串行化切换/新建/绑定工作区等跨会话事务，不进入执行
+  路径——切换 B 时运行中的 A 不受影响；
+- 死锁防护关键：**hot_attach 不拿运行中会话的引擎锁**（`SetSystemPromptFor`
+  曾走全局活跃引擎，运行中会话的 Session 锁被 ChatStream 全程持有会阻塞到
+  LLM 返回——已按会话路由修复，见 c925a61）。
+
+### 2.4 收尾与落盘隔离
+
+- 收尾只清自己：`ReleaseWorkingHistoryFor(sid)` 只清 `engines[sid]`；
+- 落盘只读自己：`PersistCurrentSession(location, sid)` 的每个读源都是 sid 的
+  For 变体（`TranscriptFor(sid)` / `TaskStateFor(sid)` / `HistoryFor(sid)` /
+  `TaskSnapshotFor(sid)`），键是显式 `(workspaceID, sid)`；
+- framework 侧同样：`DurableHistory` 的 workspace 解析闭包让 A 的 ChatStream
+  结束时即使 Router 已切到 B 的 workspace，也写 A 自己的键。
+
+### 2.5 共享面与边界
+
+仍共享：账号/provider 池、事件 hub、approval、task 注册表（全局单例，切换时
+整体替换 + 每会话保留快照）、`promptStack`（system prompt 按会话渲染）。
+
+尚未隔离：`CancelChat` 只取消活跃会话（后台会话按会话取消未落地，TC-A2-03）、
+`TaskAdd` 批次盖章仍走注册表全局默认、`Snapshot.Runtime.Plan` 仍是全局槽
+（P6，hot_attach 时从 `PlanStackFor(sid)` 投影，执行期装配读活跃快照）。
+
+---
+
+## 3. 会话运行中的切换策略
 
 ```mermaid
 flowchart LR
@@ -161,7 +249,7 @@ flowchart LR
 
 ---
 
-## 3. 与不变量对照
+## 4. 与不变量对照
 
 | 不变量 | 实现落点 |
 |--------|----------|
@@ -172,7 +260,7 @@ flowchart LR
 
 ---
 
-## 4. 已知边界（当前实现限制）
+## 5. 已知边界（当前实现限制）
 
 1. `CancelChat(requestID)` 目前只取消**活跃**会话的请求
    （[service_input.go](../../application/core/service_input.go)）；后台会话的
@@ -186,7 +274,7 @@ flowchart LR
 
 ---
 
-## 5. 验证
+## 6. 验证
 
 ```text
 go test ./application/core/ -count=1                                    → ok

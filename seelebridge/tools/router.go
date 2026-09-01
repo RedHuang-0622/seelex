@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/internal/winhide"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
@@ -454,7 +455,8 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 	timeout := r.scopedToolTimeout(input.Timeout)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
+		cmd := exec.CommandContext(runCtx, shell, shellArgs...)
+		winhide.Apply(cmd)
 	cmd.Dir = workdir
 	security.ConfigureHiddenCommand(cmd)
 	var stdout, stderr bytes.Buffer
@@ -496,6 +498,7 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 			// 重跑（新超时上下文；原 runCtx 可能已耗尽）。
 			retryCtx, retryCancel := context.WithTimeout(ctx, timeout)
 			retryCmd := exec.CommandContext(retryCtx, shell, shellArgs...)
+			winhide.Apply(retryCmd)
 			retryCmd.Dir = workdir
 			security.ConfigureHiddenCommand(retryCmd)
 			var retryOut, retryErrBuf bytes.Buffer
@@ -550,7 +553,7 @@ func scopedBashCommand(command string) (string, []string) {
 				return bash, []string{"-c", command}
 			}
 		}
-		if bash, err := exec.LookPath("bash"); err == nil {
+		if bash, err := exec.LookPath("bash"); err == nil && !security.IsWSLBash(bash) {
 			return bash, []string{"-c", command}
 		}
 	}

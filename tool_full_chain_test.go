@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,14 +19,39 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
+	"github.com/RedHuang-0622/seelex/seelebridge/security"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
+
+// requireGitBash 断言环境提供真实 bash（git-bash 或非 WSL 的 PATH bash）。
+// WSL bash 是子系统启动器（冷启动数秒、弹控制台、localhost 代理警告），
+// 已从 bash 工具 shell 探测中排除；缺失时跳过 bash 全链路用例。
+func requireGitBash(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		return
+	}
+	for _, path := range []string{
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files\Git\usr\bin\bash.exe`,
+		`C:\Program Files (x86)\Git\bin\bash.exe`,
+	} {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+	}
+	if bash, err := exec.LookPath("bash"); err == nil && !security.IsWSLBash(bash) {
+		return
+	}
+	t.Skip("bash 全链路测试需要真实 bash（git-bash）；本机仅 WSL bash，已排除")
+}
 
 // TestFullAccessBashToolCompletionReachesApplication exercises the production
 // Runtime -> Session -> ToolHookBridge -> Application event path without a
 // real provider. The second provider request is held open so tool completion
 // must be observable independently of the final assistant response.
 func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
+	requireGitBash(t)
 	server := newBashToolChainServer(t)
 	defer server.Close()
 
@@ -99,6 +125,7 @@ func TestFullAccessBashToolCompletionReachesApplication(t *testing.T) {
 // fail-closed while guaranteeing the user sees a terminal tool event instead
 // of an indefinitely running tool card.
 func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
+	requireGitBash(t)
 	server := newBashToolChainServer(t)
 	defer server.Close()
 	server.expectedToolResult = "project scope"

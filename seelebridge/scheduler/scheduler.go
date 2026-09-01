@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/winhide"
 	"github.com/RedHuang-0622/seelex/seelebridge/security"
 )
 
@@ -220,6 +221,7 @@ func (s *State) runCommand(t *task) (string, error) {
 	runCtx, cancel := context.WithTimeout(s.ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 	execCmd := exec.CommandContext(runCtx, command.Argv[0], command.Argv[1:]...)
+	winhide.Apply(execCmd)
 	execCmd.Dir = command.WorkingDir
 	execCmd.Env = security.ScrubEnvironment(os.Environ())
 	security.ConfigureHiddenCommand(execCmd)
