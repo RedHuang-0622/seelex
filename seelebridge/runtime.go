@@ -389,7 +389,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	//    NodeScope 被过滤）。best-effort，绝不改变执行路径。
 	// 3) SummaryHook：B 类 llm/tool 脱敏摘要（统一事件库，
 	//    events_unified.go；best-effort）。
+	// 4) SessionTagHook：把 ctx 中的会话 ID 打到 telemetry attributes
+	//    上，trace 按会话隔离（INV-T1；查询经 SessionTracer 过滤）。
 	r.hook = seeletelemetry.Chain(r.hook,
+		seeletelemetry.SessionTagHook,
 		seeletelemetry.NewDiagnosticHook(r.observeBash),
 		seeletelemetry.NewStageHook(r.node),
 		seeletelemetry.NewSummaryHook(r.summaryLog),
@@ -595,6 +598,15 @@ func (r *Runtime) StartupWarnings() []string {
 // GUI/TUI 经 enginePort 查询（TraceText/TokenCount）；生命周期事件
 // （llm/tool intent-effect）由会话级 hook 写入。
 func (r *Runtime) Tracer() *telemetry.MemoryTracer { return r.tracer }
+
+// SessionTracer 返回会话过滤的 trace 查询面（M1 INV-T2：查询只含该会话
+// span；数据源仍为同一 MemoryTracer，共享面不变）。
+func (r *Runtime) SessionTracer() *seeletelemetry.SessionTracer {
+	if r == nil {
+		return nil
+	}
+	return seeletelemetry.NewSessionTracer(r.tracer)
+}
 
 // CurrentSession 返回当前主会话（会话切换重建后依然是最新实例）。
 // 注意：仅在 ChatStream 之外读取（会话切换/装配）；运行中的子代理上下文
