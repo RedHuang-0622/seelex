@@ -16,13 +16,17 @@ import (
 // testStringPtr 返回字符串指针（测试消息正文）。
 func testStringPtr(value string) *string { return &value }
 
-// fakeCommitSession 实现 sessionCommitPort：记录 SaveCommit 调用。
+// fakeCommitSession 实现 sessionCommitPort：记录 SaveCommit 调用（含目标
+// 会话 ID —— G0a 断言压缩轮次按 ctx/兜底路由到正确会话）。
 type fakeCommitSession struct {
-	commits []sessionstore.Commit
+	commits          []sessionstore.Commit
+	commitSessionIDs []string
+	providerCalls    int
 }
 
-func (f *fakeCommitSession) SaveCommit(_ string, commit sessionstore.Commit) error {
+func (f *fakeCommitSession) SaveCommit(sessionID string, commit sessionstore.Commit) error {
 	f.commits = append(f.commits, commit)
+	f.commitSessionIDs = append(f.commitSessionIDs, sessionID)
 	return nil
 }
 
@@ -75,6 +79,75 @@ func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
 	}
 	if len(decoded) != 2 || *decoded[0].Content != "审计上下文压缩" {
 		t.Fatalf("decoded messages = %+v", decoded)
+	}
+	if len(store.commitSessionIDs) != 1 || store.commitSessionIDs[0] != "session-1" {
+		t.Fatalf("commit session IDs = %+v, want [session-1] (provider fallback)", store.commitSessionIDs)
+	}
+}
+
+// TestCompressedTurnArchiverRoutesByContextSessionID 写侧归属（G0a 回归）：
+// 后台会话压缩出的轮次原文必须按 ctx 携带的会话 ID 落盘，绝不落入 provider
+// 返回的视图会话 —— provider 只允许在 ctx 未注入时兜底。
+func TestCompressedTurnArchiverRoutesByContextSessionID(t *testing.T) {
+	store := &fakeCommitSession{}
+	archiver := &CompressedTurnArchiver{
+		Sessions: store,
+		SessionIDProvider: func() string {
+			store.providerCalls++
+			return "session-view"
+		},
+	}
+	ctx := withSessionID(context.Background(), "session-background")
+	messages := []types.Message{{Role: "user", Content: testStringPtr("后台会话压缩原文")}}
+	ref, err := archiver.StoreTurn(ctx, "seg-bg-1", messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref != "compressed:seg-bg-1" {
+		t.Fatalf("ref = %q, want compressed:seg-bg-1", ref)
+	}
+	if len(store.commitSessionIDs) != 1 || store.commitSessionIDs[0] != "session-background" {
+		t.Fatalf("commit session IDs = %+v, want [session-background] (ctx 优先)", store.commitSessionIDs)
+	}
+	if store.providerCalls != 0 {
+		t.Fatalf("provider consulted %d time(s) though ctx carried the session ID", store.providerCalls)
+	}
+}
+
+// TestCompressedTurnArchiverFallsBackToProviderWithoutContext 无 ctx 注入时
+// （装配期预热、非回合路径）provider 兜底仍可用。
+func TestCompressedTurnArchiverFallsBackToProviderWithoutContext(t *testing.T) {
+	store := &fakeCommitSession{}
+	archiver := &CompressedTurnArchiver{
+		Sessions: store,
+		SessionIDProvider: func() string {
+			store.providerCalls++
+			return "session-view"
+		},
+	}
+	messages := []types.Message{{Role: "user", Content: testStringPtr("装配期预热压缩")}}
+	if _, err := archiver.StoreTurn(context.Background(), "seg-warm", messages); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.commitSessionIDs) != 1 || store.commitSessionIDs[0] != "session-view" {
+		t.Fatalf("commit session IDs = %+v, want [session-view] (provider 兜底)", store.commitSessionIDs)
+	}
+	if store.providerCalls != 1 {
+		t.Fatalf("provider calls = %d, want 1", store.providerCalls)
+	}
+}
+
+// TestCompressedTurnArchiverRejectsWithoutSessionID ctx 与 provider 都拿不到
+// 会话 ID 时压缩不得落盘（宁可失败也不猜归属）。
+func TestCompressedTurnArchiverRejectsWithoutSessionID(t *testing.T) {
+	store := &fakeCommitSession{}
+	archiver := &CompressedTurnArchiver{Sessions: store}
+	messages := []types.Message{{Role: "user", Content: testStringPtr("无归属压缩")}}
+	if _, err := archiver.StoreTurn(context.Background(), "seg-orphan", messages); err == nil {
+		t.Fatal("compression without a routable session ID must fail")
+	}
+	if len(store.commits) != 0 {
+		t.Fatalf("commits = %+v, want none when session ID is unavailable", store.commits)
 	}
 }
 

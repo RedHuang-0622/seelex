@@ -36,18 +36,25 @@ type CompressedTurnArchiver struct {
 	// Sessions 提供写通道（SaveCommit），由装配方注入（session.Manager /
 	// 应用服务满足；内部断言 sessionCommitPort）。
 	Sessions any
-	// SessionIDProvider 提供当前会话 ID（会话恢复/新建后动态变化）。
+	// SessionIDProvider 是兜底归属：仅在 ctx 未携带会话 ID 时使用（装配期
+	// 预热、非回合路径）。运行中的会话归属一律以 ctx 为准 —— provider 返回
+	// 的是**视图**会话，多会话并行时按它落盘会把后台会话的原文写进别的会话。
 	SessionIDProvider func() string
 }
 
-// StoreTurn 实现 seelexctx.TurnArchiver。
-func (a *CompressedTurnArchiver) StoreTurn(_ context.Context, segmentID string, messages []types.Message) (string, error) {
+// StoreTurn 实现 seelexctx.TurnArchiver。会话归属优先取 ctx（runChat 注入
+// 的会话 ID，Seele loop 原样透传给上下文控制器），provider 仅兜底。
+func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string, messages []types.Message) (string, error) {
 	store, ok := a.Sessions.(sessionCommitPort)
 	if !ok {
 		return "", errors.New("read_compressed_turn: durable commit storage is unavailable")
 	}
-	if a.SessionIDProvider == nil {
-		return "", errors.New("read_compressed_turn: session ID provider is unavailable")
+	sessionID := strings.TrimSpace(sessionIDFromContext(ctx))
+	if sessionID == "" && a.SessionIDProvider != nil {
+		sessionID = strings.TrimSpace(a.SessionIDProvider())
+	}
+	if sessionID == "" {
+		return "", errors.New("read_compressed_turn: session ID is unavailable for this compression")
 	}
 	data, err := json.Marshal(messages)
 	if err != nil {
@@ -57,7 +64,7 @@ func (a *CompressedTurnArchiver) StoreTurn(_ context.Context, segmentID string, 
 	commit := sessionstore.Commit{ToolResults: []sessionstore.ToolResult{{
 		Ref: ref, Tool: "compact_frame", Content: string(data), Size: len(data),
 	}}}
-	if err := store.SaveCommit(a.SessionIDProvider(), commit); err != nil {
+	if err := store.SaveCommit(sessionID, commit); err != nil {
 		return "", fmt.Errorf("read_compressed_turn: persist: %w", err)
 	}
 	return ref, nil
