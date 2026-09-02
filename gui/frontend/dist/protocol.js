@@ -24,10 +24,13 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
     return { snapshot, lastSeq, needsRefresh: false, error };
   }
   // 连续性只按 delivery_seq（本订阅内的投递序号）判定：会话归属由 application
-  // 在投递端过滤，全局 seq 因此必然跳号，跳号不代表丢事件；缓冲溢出的
-  // resync.required 才是唯一的丢失信号。
+  // 在投递端过滤，全局 seq 因此必然跳号，跳号不代表丢事件；缺口才是。
   const seq = Number(event.delivery_seq || 0);
-  if (!seq || (lastSeq && seq > lastSeq + 1)) return refreshResult(snapshot, Math.max(lastSeq, seq));
+  if (!seq || (lastSeq && seq > lastSeq + 1)) {
+    // 刻意不推进 lastSeq：宿主会先按 delivery_seq 增量补取这段缺口（C4），
+    // 补得齐就不必整份重拉快照。gapSeq 是补不齐时重拉后要落到的水位。
+    return { snapshot, lastSeq, needsRefresh: true, gap: true, gapSeq: Math.max(lastSeq, seq) };
+  }
   if (lastSeq && seq <= lastSeq) return { snapshot, lastSeq, needsRefresh: false };
   if (!snapshot || !INCREMENTAL_KINDS.has(event.kind)) return refreshResult(snapshot, seq);
   const revision = Number(event.revision || 0);

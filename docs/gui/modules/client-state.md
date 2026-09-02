@@ -28,13 +28,28 @@ Event kinds 白名单只包含 reducer 能安全归并的类型。`snapshot.chan
 处理顺序：
 
 1. 校验 event 对象和 protocol version；
-2. 验证 seq 非零、检测向前缺口；
+2. 验证 delivery_seq 非零、检测向前缺口（缺口只标记 `gap` 并**不推进**水位）；
 3. 丢弃重复/乱序旧 seq；
 4. 未知 kind 或缺少 Snapshot → refresh；
 5. revision 不高于权威 Snapshot floor → 只推进 seq；
 6. decode payload；
 7. clone 必需的 Snapshot 分支并应用增量；
 8. 无法应用 payload → refresh。
+
+`handleEvent` 把每条事件排进一条 promise 链：缺口补取与快照重拉都是异步的，两
+条事件并发落地会让水位和 snapshot 交叉写坏。链本身吞掉失败，一次抛错不会永久卡
+住后续事件。
+
+### 3.1 缺口增量补取（replay）
+
+`applyEvent` 判定缺口时，客户端先调用宿主的 `replay(sinceSeq)`（桌面实现
+`Bridge.ReplayEvents`，见 [`application-protocol.md`](application-protocol.md)）：
+补得齐就按序应用补回来的事件并继续增量路径，**不重拉快照**；返回
+`covered=false`（窗口已淘汰、宿主不支持补取）或补取途中又不一致，才整份重拉并
+把水位落到 `gapSeq`。
+
+每次应用结束（含重拉后）客户端向宿主回报应用水位（`Bridge.AckEvents`）。宿主
+因此不需要用轮询猜自己漏没漏事件；重复投递由第 3 步的去重规则吸收。
 
 ### 增量规则
 
@@ -89,7 +104,7 @@ event 先提高客户端 revision；慢 Snapshot 返回更低 revision 时被拒
 |------|------|
 | Snapshot schema/version 无效 | `onError`，保留当前状态 |
 | Event version 无效 | `onError`，不尝试按未知协议刷新 |
-| seq 缺口 | 拉 Snapshot |
+| seq 缺口 | 先向宿主 `ReplayEvents` 增量补取；补不齐才拉 Snapshot |
 | payload 缺字段/目标不存在 | 拉 Snapshot |
 | 未知 kind | 拉 Snapshot |
 | Snapshot 请求失败 | `onError`，刷新循环可接收后续请求重试 |
@@ -97,7 +112,8 @@ event 先提高客户端 revision；慢 Snapshot 返回更低 revision 时被拒
 ## 7. 自动化证据
 
 - `protocol.test.mjs:17-92`：版本、add/delta、seq gap、未知事件、旧事件、同 revision、runtime/interaction。
-- `client-state.test.mjs:17-88`：无刷新 delta、gap refresh、旧 Snapshot、delta replay。
+- `client-state.test.mjs`：无刷新 delta、gap refresh、旧 Snapshot、delta replay、
+  缺口增量补取（不重拉）、补不齐时回落权威快照并落到 `gapSeq`、一次应用失败不卡死事件链。
 - 测试不需要 WebView、Wails 或 DOM。
 
 ## 8. 审查清单

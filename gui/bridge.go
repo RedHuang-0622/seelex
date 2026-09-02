@@ -91,6 +91,14 @@ type sessionAwareApplication interface {
 	SubscribeSession(string, int) (application.Subscription, error)
 }
 
+// replayAwareApplication 是 sessionAwareApplication 的再一层可选扩展：宿主能
+// 给出带重放窗口的订阅（缓冲写满不丢事件，可按 delivery_seq 增量补取），
+// Bridge 才会启用回执重推（C4）。未实现时退回无窗口订阅，溢出仍由 hub 的
+// resync.required 兜底。
+type replayAwareApplication interface {
+	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (application.Subscription, error)
+}
+
 // EventEmitter receives Application events after the Bridge has adapted them
 // to the stable desktop event names. Desktop hosts pass the function that
 // forwards events into their renderer runtime.
@@ -137,7 +145,27 @@ type Bridge struct {
 	running bool
 	emitFn  EventEmitter
 	streams map[string]func()
+	// 事件投递回执（C4，均由 mu 保护）：Go→WebView 这条腿没有任何投递反馈
+	// （EventEmitter 无返回值），事件"发过了"不等于"渲染层应用了"。ackedSeq 是
+	// 渲染层回执的应用水位；落后于订阅水位时 Bridge 从重放窗口增量重推，
+	// resendTimer/resendTries 是那次重推的节流与止损。
+	ackedSeq    uint64
+	resendTimer *time.Timer
+	resendTries int
 }
+
+const (
+	// 会话级事件订阅的缓冲与重放窗口：窗口 ≥ 缓冲，落后一档仍可增量补取，
+	// 不必整份重拉快照。
+	eventSubscriptionBuffer = 256
+	eventReplayWindow       = 1024
+	// eventResendDelay 必须显著大于渲染层回执节流（150ms），否则每次正常投递都
+	// 会被误判为丢失而白发一遍重复事件（重复虽幂等，但白耗一次跨进程往返）。
+	eventResendDelay = 500 * time.Millisecond
+	// eventResendMaxTries 后停止重推：渲染层多半已经不可达，继续重推只会掩盖
+	// 真问题；下一条事件或下一次回执会重新武装。
+	eventResendMaxTries = 3
+)
 
 // subagentLiveEventName 是 node 第一视角实时流的前端事件名。
 const subagentLiveEventName = "seelex:subagent_live"
@@ -213,6 +241,9 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 				if emit != nil {
 					emit(loopContext, eventName, event)
 				}
+				// 交给 renderer 只是"发过"；等它回执才算送达。收不到回执时
+				// 由 catchUpRenderer 从重放窗口增量重推（C4）。
+				bridge.armResend()
 			}
 		}
 	}()
@@ -221,14 +252,22 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 // subscribeView 订阅当前视图会话的事件流。会话归属由 application 在投递端
 // 判定（sessionID 为空 = 跟随视图指针，草稿物化与切换都由它覆盖），Bridge
 // 不再保存"当前会话"副本，渲染层也收不到别会话的事件。
-// 宿主不支持会话级订阅时退回全局订阅：此时应用本身也没有多会话状态可污染。
+//
+// 优先申请带重放窗口的订阅：缓冲写满时事件不丢，落后的渲染层可以按
+// delivery_seq 增量补取而不是整份重拉快照（C4）。宿主不支持窗口时退回
+// 全局/无窗口订阅（此时溢出仍由 hub 的 resync.required 兜底）。
 func (bridge *Bridge) subscribeView() application.Subscription {
-	if app, ok := bridge.app.(sessionAwareApplication); ok {
-		if subscription, err := app.SubscribeSession("", 256); err == nil {
+	if app, ok := bridge.app.(replayAwareApplication); ok {
+		if subscription, err := app.SubscribeSessionWithReplay("", eventSubscriptionBuffer, eventReplayWindow); err == nil {
 			return subscription
 		}
 	}
-	return bridge.app.Subscribe(256)
+	if app, ok := bridge.app.(sessionAwareApplication); ok {
+		if subscription, err := app.SubscribeSession("", eventSubscriptionBuffer); err == nil {
+			return subscription
+		}
+	}
+	return bridge.app.Subscribe(eventSubscriptionBuffer)
 }
 
 // Stop cancels the event relay and waits until its goroutine has exited. It is
@@ -245,6 +284,7 @@ func (bridge *Bridge) Stop() {
 	bridge.cancel = nil
 	bridge.ctx = nil
 	bridge.emitFn = nil
+	bridge.stopResendLocked()
 	for nodeID, cancel := range bridge.streams {
 		cancel()
 		delete(bridge.streams, nodeID)
@@ -256,6 +296,104 @@ func (bridge *Bridge) Stop() {
 	}
 	subscription.Close()
 	bridge.wg.Wait()
+}
+
+// AckEvents 是渲染层的应用回执（C4）：seq 是它已经应用过的最后一个
+// delivery_seq。回执推进即说明事件真送达，重推止损计数随之清零；Bridge 立刻
+// 尝试补齐缺口，不必等下一个定时器。
+//
+// 回执只允许单调推进：Wails 的 invoke 之间无顺序保证，旧回执直接忽略。
+func (bridge *Bridge) AckEvents(seq uint64) {
+	bridge.mu.Lock()
+	if seq <= bridge.ackedSeq {
+		bridge.mu.Unlock()
+		return
+	}
+	bridge.ackedSeq = seq
+	bridge.resendTries = 0
+	bridge.mu.Unlock()
+	bridge.catchUpRenderer()
+}
+
+// ReplayEvents 供渲染层在 delivery_seq 跳号时主动增量补取（C4）：返回窗口内
+// 晚于 sinceSeq 的事件。Covered=false 表示窗口已不覆盖（或宿主订阅没有窗口），
+// 调用方必须整份重拉快照。
+func (bridge *Bridge) ReplayEvents(sinceSeq uint64) application.ReplayResult {
+	bridge.mu.Lock()
+	subscription, running := bridge.sub, bridge.running
+	bridge.mu.Unlock()
+	if !running {
+		return application.ReplayResult{}
+	}
+	return subscription.ReplaySince(sinceSeq)
+}
+
+// armResend 武装一次"等回执"的重推：同一时刻至多一个待触发定时器，
+// 事件密集期不会堆积定时器。
+func (bridge *Bridge) armResend() {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if !bridge.running || bridge.resendTimer != nil {
+		return
+	}
+	bridge.resendTimer = time.AfterFunc(eventResendDelay, func() {
+		bridge.mu.Lock()
+		bridge.resendTimer = nil
+		bridge.mu.Unlock()
+		bridge.catchUpRenderer()
+	})
+}
+
+// catchUpRenderer 比较渲染层回执水位与本订阅的投递水位：落后就把重放窗口里的
+// 事件重推一遍（渲染层按 delivery_seq 去重，重复投递是幂等的）；窗口不再覆盖
+// 时改为投递一条带当前水位的 resync.required，让渲染层整份重拉并把水位抬到该
+// 处，避免对补不回来的区间无限重推。
+func (bridge *Bridge) catchUpRenderer() {
+	bridge.mu.Lock()
+	if !bridge.running || bridge.emitFn == nil {
+		bridge.mu.Unlock()
+		return
+	}
+	subscription, emit, loopContext := bridge.sub, bridge.emitFn, bridge.ctx
+	acked := bridge.ackedSeq
+	watermark := subscription.DeliveryWatermark()
+	if acked >= watermark {
+		bridge.resendTries = 0
+		bridge.mu.Unlock()
+		return
+	}
+	if bridge.resendTries >= eventResendMaxTries {
+		// 止损：渲染层大概率不可达。下一条事件或下一次回执会重新走这里。
+		bridge.mu.Unlock()
+		return
+	}
+	bridge.resendTries++
+	replay := subscription.ReplaySince(acked)
+	bridge.mu.Unlock()
+
+	if replay.Covered && len(replay.Events) > 0 {
+		for _, item := range replay.Events {
+			emit(loopContext, eventName, item)
+		}
+		bridge.armResend()
+		return
+	}
+	// 窗口补不齐：显式要求整份重拉，并把本订阅水位交给渲染层作为新基准
+	// （渲染层应用后按该值回执，缺口到此收敛）。
+	emit(loopContext, eventName, application.Event{
+		ProtocolVersion: application.ProtocolVersion,
+		DeliverySeq:     watermark,
+		Kind:            application.EventResyncRequired,
+	})
+	bridge.armResend()
+}
+
+func (bridge *Bridge) stopResendLocked() {
+	if bridge.resendTimer != nil {
+		bridge.resendTimer.Stop()
+		bridge.resendTimer = nil
+	}
+	bridge.resendTries = 0
 }
 
 func (bridge *Bridge) requestContext() context.Context {

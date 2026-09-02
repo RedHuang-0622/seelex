@@ -56,6 +56,105 @@ test("reloads a snapshot when an event sequence has a gap", async () => {
   assert.deepEqual(snapshots, ["S1", "S2"]);
 });
 
+test("replays a delivery_seq gap from the host instead of reloading the snapshot", async () => {
+  let loads = 0;
+  const applied = [];
+  const acked = [];
+  const client = createGUIClient({
+    loadSnapshot: async () => { loads += 1; return makeSnapshot(); },
+    onSnapshot() {},
+    onIncremental: (snapshot, kind) => applied.push(kind),
+    onApplied: seq => acked.push(seq),
+    // 宿主的重放窗口覆盖 2..3：即 Bridge.ReplayEvents 的返回形状。revision 必须
+    // 高于快照 floor（1），否则会被协议层判为"已由权威快照表示"而丢弃。
+    replay: async since => ({
+      covered: true,
+      events: [
+        { protocol_version: 1, seq: 2, delivery_seq: 2, revision: 3, kind: "message.delta",
+          payload: { message_id: "assistant-1", delta: "B" } },
+        { protocol_version: 1, seq: 3, delivery_seq: 3, revision: 4, kind: "message.delta",
+          payload: { message_id: "assistant-1", delta: "C" } }
+      ]
+    }),
+    onError: error => { throw error; }
+  });
+
+  await client.refresh();
+  await client.handleEvent({
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 2, kind: "message.added",
+    payload: { id: "user-1", role: "user", content: "hi" }
+  });
+  await client.handleEvent({
+    protocol_version: 1, seq: 3, delivery_seq: 3, revision: 4, kind: "message.delta",
+    payload: { message_id: "assistant-1", delta: "C" }
+  });
+
+  assert.equal(loads, 1, "缺口能增量补取时不得整份重拉快照");
+  assert.deepEqual(applied, ["message.added", "message.delta", "message.delta"]);
+  assert.deepEqual(client.current().conversation.map(message => `${message.id}:${message.content}`),
+    ["assistant-1:ABC", "user-1:hi"]);
+  assert.deepEqual(acked, [1, 3]);
+});
+
+test("reloads the snapshot when the host replay cannot cover the gap", async () => {
+  let loads = 0;
+  let replayedSince = null;
+  const client = createGUIClient({
+    loadSnapshot: async () => { loads += 1; return makeSnapshot(loads, `S${loads}`); },
+    onSnapshot() {},
+    onIncremental() {},
+    replay: async since => { replayedSince = since; return { covered: false, events: [] }; },
+    onError: error => { throw error; }
+  });
+
+  await client.refresh();
+  await client.handleEvent({
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 1, kind: "message.added",
+    payload: { id: "user-1", role: "user", content: "hi" }
+  });
+  await client.handleEvent({
+    protocol_version: 1, seq: 4, delivery_seq: 4, revision: 4, kind: "message.delta",
+    payload: { message_id: "assistant-1", delta: "Z" }
+  });
+
+  assert.equal(replayedSince, 1, "补取必须从缺口起点请求");
+  assert.equal(loads, 2, "窗口覆盖不了时退回权威快照");
+  assert.equal(client.appliedSeq(), 4, "重拉后水位落到 gapSeq，避免对补不回来的区间反复触发");
+});
+
+test("keeps applying events after one apply fails", async () => {
+  let loads = 0;
+  const client = createGUIClient({
+    loadSnapshot: async () => {
+      loads += 1;
+      if (loads === 1) return makeSnapshot();
+      throw new Error("bridge busy");
+    },
+    onSnapshot() {},
+    onIncremental() {},
+    onError: error => { throw error; }
+  });
+
+  await client.refresh();
+  await client.handleEvent({
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 1, kind: "message.added",
+    payload: { id: "user-1", role: "user", content: "hi" }
+  });
+  // 缺口触发重拉，重拉抛错并被 onError 再抛：这一次应用以失败结束。
+  await assert.rejects(client.handleEvent({
+    protocol_version: 1, seq: 3, delivery_seq: 3, revision: 3, kind: "message.added",
+    payload: { id: "user-2", role: "user", content: "again" }
+  }));
+  // 链不能被一次失败永久卡住：后续事件仍要落地。
+  await client.handleEvent({
+    protocol_version: 1, seq: 4, delivery_seq: 4, revision: 4, kind: "message.delta",
+    payload: { message_id: "assistant-1", delta: "B" }
+  });
+
+  assert.equal(client.current().conversation[0].content, "AB");
+  assert.equal(client.appliedSeq(), 4);
+});
+
 test("ignores stale ready snapshots", () => {
   const rendered = [];
   const client = createGUIClient({

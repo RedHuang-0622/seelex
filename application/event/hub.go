@@ -59,6 +59,43 @@ type MessageDelta struct {
 type Subscription struct {
 	Events <-chan Event
 	close  func()
+	// replay 读取本订阅的重放窗口；nil 表示该订阅未开启窗口（旧语义：溢出即
+	// 排空缓冲并投递 resync.required，客户端只能整份重拉快照）。
+	replay func(sinceSeq uint64) ReplayResult
+	// watermark 返回本订阅已分配的最大 delivery_seq。
+	watermark func() uint64
+}
+
+// ReplayResult 是一次增量补取的结果，可直接跨 JSON 边界回给消费者。
+type ReplayResult struct {
+	// Events 是窗口内 delivery_seq > sinceSeq 的事件，按序排列。
+	Events []Event `json:"events"`
+	// Covered 表示窗口覆盖了 sinceSeq 之后的全部序号；false 表示有事件已被淘
+	// 汰（或该订阅未开重放窗口），调用方必须整份重拉快照。
+	Covered bool `json:"covered"`
+}
+
+// ReplaySince 返回本订阅内 delivery_seq > sinceSeq 且仍留在重放窗口里的事件。
+// Covered=false 表示窗口不再覆盖（最早可重放序号 > sinceSeq+1）或该订阅根本没
+// 开窗口，调用方必须退回整份快照重拉，不能假设补得齐。
+//
+// 重放是幂等的：事件可能同时存在于 channel 与窗口中，客户端按 delivery_seq
+// 去重即可（已应用过的事件 seq <= lastSeq 直接忽略）。
+func (subscription Subscription) ReplaySince(sinceSeq uint64) ReplayResult {
+	if subscription.replay == nil {
+		return ReplayResult{}
+	}
+	return subscription.replay(sinceSeq)
+}
+
+// DeliveryWatermark 返回本订阅已分配到的最后一个 delivery_seq。调用方用它区分
+// "确实没有新事件"与"有新事件但我还没拿到"（后者才需要 ReplaySince 或重拉）。
+// 未开窗口的订阅同样可用：水位始终是分配的。
+func (subscription Subscription) DeliveryWatermark() uint64 {
+	if subscription.watermark == nil {
+		return 0
+	}
+	return subscription.watermark()
 }
 
 // Hub 是应用事件投递的窄契约。合约层与核心组件只依赖该接口，
@@ -102,6 +139,11 @@ type eventSubscriber struct {
 	// 谓词由发布 goroutine 执行，必须无阻塞、无副作用（nil = 收全部）。
 	filter func(Event) bool
 	seq    uint64
+	// replayWindow > 0 时，每个通过过滤的事件都先进入 replay 环形窗口（按
+	// delivery_seq 有序），channel 满时不再丢弃载荷：落后的消费者凭
+	// ReplaySince 增量补取，只有窗口被淘汰掉才会退化为整份重拉。
+	replay       []Event
+	replayWindow int
 }
 
 func NewEventHub() *EventHub {
@@ -109,36 +151,66 @@ func NewEventHub() *EventHub {
 }
 
 func (hub *EventHub) Subscribe(buffer int) Subscription {
-	return hub.subscribe(nil, buffer)
+	return hub.subscribe(nil, buffer, 0)
 }
 
 // SubscribeFiltered 返回按谓词筛选的订阅：只有 filter(event) 为真的事件会
 // 被投递，且投递序号在筛选后仍然连续（见 Event.DeliverySeq）。
 func (hub *EventHub) SubscribeFiltered(filter func(Event) bool, buffer int) Subscription {
-	return hub.subscribe(filter, buffer)
+	return hub.subscribe(filter, buffer, 0)
 }
 
-func (hub *EventHub) subscribe(filter func(Event) bool, buffer int) Subscription {
+// SubscribeWithReplay 是带重放窗口的订阅：除 filter 筛选外，最近 replayWindow
+// 条事件按 delivery_seq 留在窗口内，供落后消费者 ReplaySince 增量补取。
+//
+// 与 SubscribeFiltered 的区别只在溢出策略：本订阅缓冲满时**不丢弃载荷、也不
+// 排空缓冲**（事件已在窗口里，等消费者自己补），而 SubscribeFiltered 在缓冲满
+// 时排空并投递 resync.required，要求消费者重拉整份快照。只推荐给能回报
+// delivery_seq 水位并会主动补取的宿主（桌面 Bridge）。replayWindow <= 0 时
+// 退化为 SubscribeFiltered。
+func (hub *EventHub) SubscribeWithReplay(filter func(Event) bool, buffer, replayWindow int) Subscription {
+	if replayWindow <= 0 {
+		return hub.subscribe(filter, buffer, 0)
+	}
+	return hub.subscribe(filter, buffer, replayWindow)
+}
+
+func (hub *EventHub) subscribe(filter func(Event) bool, buffer, replayWindow int) Subscription {
 	if buffer < 1 {
 		buffer = 1
+	}
+	if replayWindow > 0 {
+		// 窗口至少容纳一份缓冲，否则"能补取的范围"小于"可能积压的深度"，
+		// 落后一点就直接被淘汰退化重拉。
+		if replayWindow < buffer {
+			replayWindow = buffer
+		}
 	}
 	hub.mu.Lock()
 	hub.nextID++
 	id := hub.nextID
-	subscriber := &eventSubscriber{events: make(chan Event, buffer), filter: filter}
+	subscriber := &eventSubscriber{
+		events: make(chan Event, buffer), filter: filter,
+		replay: make([]Event, 0, replayWindow), replayWindow: replayWindow,
+	}
 	hub.subscribers[id] = subscriber
 	hub.mu.Unlock()
 	var once sync.Once
-	return Subscription{Events: subscriber.events, close: func() {
-		once.Do(func() {
-			hub.mu.Lock()
-			if current, ok := hub.subscribers[id]; ok && current == subscriber {
-				delete(hub.subscribers, id)
-			}
-			hub.mu.Unlock()
-			subscriber.close()
-		})
-	}}
+	return Subscription{
+		Events:    subscriber.events,
+		replay:    subscriber.replaySince,
+		watermark: subscriber.deliveredWatermark,
+		close: func() {
+			once.Do(func() {
+				hub.mu.Lock()
+				if current, ok := hub.subscribers[id]; ok && current == subscriber {
+					delete(hub.subscribers, id)
+				}
+				hub.mu.Unlock()
+				subscriber.close()
+			})
+		},
+	}
 }
 
 func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, payload any) Event {
@@ -196,6 +268,20 @@ func (subscriber *eventSubscriber) deliver(event Event) {
 	}
 	subscriber.seq++
 	event.DeliverySeq = subscriber.seq
+	if subscriber.replayWindow > 0 {
+		subscriber.replay = append(subscriber.replay, event)
+		if over := len(subscriber.replay) - subscriber.replayWindow; over > 0 {
+			subscriber.replay = append(subscriber.replay[:0], subscriber.replay[over:]...)
+		}
+		select {
+		case subscriber.events <- event:
+		default:
+			// 慢消费者：事件已在重放窗口里，因此既不丢弃载荷也不排空缓冲。
+			// 消费者凭 delivery_seq 跳号或 DeliveryWatermark 发现自己落后，
+			// 再用 ReplaySince 增量补取；只有窗口被淘汰才退化为整份重拉。
+		}
+		return
+	}
 	select {
 	case subscriber.events <- event:
 	default:
@@ -212,6 +298,35 @@ func (subscriber *eventSubscriber) deliver(event Event) {
 	}
 }
 
+// replaySince 返回窗口内 delivery_seq > sinceSeq 的事件。Covered=false 表示窗口
+// 已不再覆盖该区间（或本订阅未开窗口），调用方必须整份重拉。
+func (subscriber *eventSubscriber) replaySince(sinceSeq uint64) ReplayResult {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	if subscriber.closed || subscriber.replayWindow == 0 || len(subscriber.replay) == 0 {
+		return ReplayResult{}
+	}
+	if subscriber.replay[0].DeliverySeq > sinceSeq+1 {
+		return ReplayResult{}
+	}
+	// 顺序扫描定位第一个 > sinceSeq 的序号：窗口按 delivery_seq 严格递增。
+	start := len(subscriber.replay)
+	for index, item := range subscriber.replay {
+		if item.DeliverySeq > sinceSeq {
+			start = index
+			break
+		}
+	}
+	return ReplayResult{Events: append([]Event(nil), subscriber.replay[start:]...), Covered: true}
+}
+
+// deliveredWatermark 返回已分配的最大 delivery_seq（0 = 尚未投递任何事件）。
+func (subscriber *eventSubscriber) deliveredWatermark() uint64 {
+	subscriber.mu.Lock()
+	defer subscriber.mu.Unlock()
+	return subscriber.seq
+}
+
 func (subscriber *eventSubscriber) close() {
 	subscriber.mu.Lock()
 	defer subscriber.mu.Unlock()
@@ -219,5 +334,6 @@ func (subscriber *eventSubscriber) close() {
 		return
 	}
 	subscriber.closed = true
+	subscriber.replay = nil
 	close(subscriber.events)
 }

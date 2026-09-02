@@ -11,7 +11,6 @@ import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
-import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
@@ -97,13 +96,30 @@ const client = createGUIClient({
   loadSnapshot: () => invoke("Snapshot"),
   onSnapshot: (snapshot, options) => render(snapshot, options),
   onIncremental: renderIncremental,
+  // 缺口增量补取：宿主从重放窗口按 delivery_seq 补事件，补不齐才重拉快照。
+  replay: sinceSeq => invoke("ReplayEvents", sinceSeq),
+  // 应用回执：告诉宿主哪些序号已经落地，宿主因此不必用轮询猜自己漏没漏事件。
+  onApplied: reportAppliedEvents,
   onError: showToast
 });
 const bindRuntimeEvents = createRuntimeEventBinder({ client, onError: showToast });
-const activeChatSync = createActiveChatSnapshotSync({
-  refresh: () => refresh({ scroll: false }),
-  onError: showToast
-});
+
+// reportAppliedEvents 回报渲染层实际应用到的 delivery_seq（C4）。事件密集期按
+// 150ms 尾随合并：每条事件一次跨进程往返太贵，而宿主判定"没收到回执"的延迟
+// 更长（Bridge.eventResendDelay），正常投递不会被误判成丢失。宿主已关闭时回执
+// 失败静默忽略——回执是尽力而为的确认，不是业务命令。
+let ackTimer = null;
+let ackPendingSeq = 0;
+
+function reportAppliedEvents(seq) {
+  if (!seq || seq <= ackPendingSeq) return;
+  ackPendingSeq = seq;
+  if (ackTimer !== null) return;
+  ackTimer = window.setTimeout(() => {
+    ackTimer = null;
+    invoke("AckEvents", ackPendingSeq).catch(() => {});
+  }, 150);
+}
 const workTableView = createWorkTableView(elements["work-table-modal-view"]);
 const workTreeView = createWorkTreeView(elements["worktree-view"], {
   loadDir: async relPath => invoke("WorkspaceTree", relPath, 1)
@@ -178,14 +194,12 @@ function render(snapshot, options = {}) {
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
-  activeChatSync.observe(snapshot);
   perfHooks.markRender(performance.now() - started);
 }
 
 function renderIncremental(snapshot, kind) {
   if (!snapshot) return;
   const started = performance.now();
-  activeChatSync.observe(snapshot);
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
     chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history);
     chatView.renderControls(snapshot);
@@ -408,8 +422,6 @@ function panes() {
 }
 
 initCodePanes();
-
-window.addEventListener("beforeunload", () => activeChatSync.stop());
 
 function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;

@@ -212,6 +212,32 @@ func (service *Service) SnapshotOf(sessionID string) (Snapshot, error) {
 	return snapshot, nil
 }
 
+// sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。
+func (service *Service) sessionEventFilter(sessionID string) func(event.Event) bool {
+	if sessionID != "" {
+		return func(event Event) bool {
+			return event.SessionID == "" || event.SessionID == sessionID
+		}
+	}
+	return func(event Event) bool {
+		return event.SessionID == "" || event.SessionID == service.sessions.ActiveID()
+	}
+}
+
+// SubscribeSessionWithReplay 与 SubscribeSession 同一归属口径，但订阅附带
+// replayWindow 条重放窗口：缓冲写满时事件不丢，落后的消费者可按 delivery_seq
+// 增量补取（Subscription.ReplaySince）。装配的 hub 不支持窗口时退化为
+// SubscribeSession 的旧溢出语义。
+func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (Subscription, error) {
+	hub, ok := service.Events.(interface {
+		SubscribeWithReplay(func(event.Event) bool, int, int) Subscription
+	})
+	if !ok {
+		return service.SubscribeSession(sessionID, buffer)
+	}
+	return hub.SubscribeWithReplay(service.sessionEventFilter(strings.TrimSpace(sessionID)), buffer, replayWindow), nil
+}
+
 // SubscribeSession 返回按会话过滤的事件订阅（只投递该会话或全局事件）。
 //
 // sessionID 为空表示「跟随当前视图会话」：草稿尚无真实 ID（首次提交才由引擎
@@ -226,13 +252,5 @@ func (service *Service) SubscribeSession(sessionID string, buffer int) (Subscrip
 	if !ok {
 		return Subscription{}, errors.New("event hub does not support session-scoped subscriptions")
 	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID != "" {
-		return hub.SubscribeFiltered(func(event Event) bool {
-			return event.SessionID == "" || event.SessionID == sessionID
-		}, buffer), nil
-	}
-	return hub.SubscribeFiltered(func(event Event) bool {
-		return event.SessionID == "" || event.SessionID == service.sessions.ActiveID()
-	}, buffer), nil
+	return hub.SubscribeFiltered(service.sessionEventFilter(strings.TrimSpace(sessionID)), buffer), nil
 }

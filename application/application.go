@@ -81,6 +81,7 @@ type (
 	EventKind                  = event.EventKind
 	Event                      = event.Event
 	MessageDelta               = event.MessageDelta
+	ReplayResult               = event.ReplayResult
 	Subscription               = event.Subscription
 	EventHub                   = event.EventHub
 	ApprovalRequest            = approval.ApprovalRequest

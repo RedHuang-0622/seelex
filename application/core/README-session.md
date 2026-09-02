@@ -39,6 +39,18 @@
 - `func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)`
 - `func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T)`
 
+### session_catalog.go
+
+- `func (service *Service) WaitCatalogRefresh(ctx context.Context) error` — WaitCatalogRefresh 等待会话目录 worker 完成一轮"覆盖了本次请求"的刷新，使
+
+### session_catalog_test.go
+
+- `func addCatalogSession(sessions *scopedSessions, projectID, sessionID string, updatedAt time.Time)` — addCatalogSession 在会话端口的项目索引里追加一个会话（目录刷新会读到它）。
+- `func newCatalogTestService(t *testing.T, sessions *scopedSessions) *Service`
+- `func TestWaitCatalogRefreshSettlesFreshCatalog(t *testing.T)` — TestWaitCatalogRefreshSettlesFreshCatalog 是 C3 回执的核心契约：一轮
+- `func TestWaitCatalogRefreshServesCoalescedRequests(t *testing.T)` — TestWaitCatalogRefreshServesCoalescedRequests 覆盖唤醒槽位被丢弃时的回执
+- `func TestWaitCatalogRefreshConvergesAfterShutdown(t *testing.T)` — TestWaitCatalogRefreshConvergesAfterShutdown 钉住关闭路径：worker 退出时
+
 ### session_ctx.go
 
 - `func withSessionID(ctx context.Context, sessionID string) context.Context` — withSessionID 把会话 ID 注入 ctx（runChat 执行路径）。Seele ReActLoop 会
@@ -173,6 +185,8 @@
 - `func (service *Service) sessionLoaded(sessionID string) bool` — sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
 - `func (service *Service) ActivateSession(sessionID string) error` — ActivateSession 切换当前展示/执行会话。M1 没有每会话驻留快照，切换即
 - `func (service *Service) SnapshotOf(sessionID string) (Snapshot, error)` — SnapshotOf 返回指定会话的权威快照：活跃会话直接返回 Snapshot()；其它
+- `func (service *Service) sessionEventFilter(sessionID string) func(event.Event) bool` — sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。
+- `func (service *Service) SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (Subscription, error)` — SubscribeSessionWithReplay 与 SubscribeSession 同一归属口径，但订阅附带
 - `func (service *Service) SubscribeSession(sessionID string, buffer int) (Subscription, error)` — SubscribeSession 返回按会话过滤的事件订阅（只投递该会话或全局事件）。
 
 ### session_scope_test.go

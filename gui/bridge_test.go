@@ -802,8 +802,12 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(string(script), `from "./plan-dsl.js"`) {
 		t.Fatal("embedded frontend does not load the Plan JSON DSL renderer")
 	}
-	if !strings.Contains(string(script), `from "./active-chat-sync.js"`) {
-		t.Fatal("embedded frontend does not reconcile a running chat from the authoritative Bridge Snapshot")
+	if !strings.Contains(string(script), `invoke("AckEvents"`) ||
+		!strings.Contains(string(script), `invoke("ReplayEvents"`) {
+		t.Fatal("embedded frontend must report its applied delivery_seq and replay gaps incrementally (C4)")
+	}
+	if strings.Contains(string(script), "active-chat-sync") {
+		t.Fatal("running-chat reconciliation must not fall back to periodic Snapshot polling")
 	}
 	if strings.Contains(string(script), "let fullAccessOn") ||
 		!strings.Contains(string(script), `client.current()?.runtime?.full_access`) ||

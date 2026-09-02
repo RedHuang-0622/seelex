@@ -26,6 +26,14 @@ application 在事件投递端判定，Bridge 不保存 `currentSessionID` 副�
 别会话的事件，因此切换/新建/分支都只是应用层命令，不需要重建订阅。宿主应用不支持
 会话级订阅时退回全局订阅（此时应用自身也没有多会话状态可污染）。
 
+事件投递回执（C4）：`EventEmitter` 没有返回值，Go→WebView 这条腿丢了什么 Bridge
+无从得知。因此 relay 优先申请**带重放窗口的订阅**（可选端口
+`SubscribeSessionWithReplay`），渲染层每应用一批事件回报水位（`Bridge.AckEvents`，
+150ms 合并），并可在 `delivery_seq` 缺口处主动 `Bridge.ReplayEvents` 增量补取。
+水位落后时 `catchUpRenderer` 把窗口内未确认的事件重推（重复对渲染层是幂等的，
+按 `delivery_seq` 去重），重推封顶 `eventResendMaxTries` 次；窗口已淘汰则改投一条带
+当前水位的 `resync.required`，让渲染层整份重拉并把水位抬到该处。运行期因此不再
+需要"每秒轮询 Snapshot"的兜底对账。
 
 子代理 `subagent.changed`、`subagent.tool.started`、`subagent.tool.completed` 与其他 Application Event 使用同一 relay，不在 Bridge 内改写 payload。`tool_full_chain_test.go` 从 `Bridge.Submit` 进入，覆盖 ToolHookBridge → Application/EventHub → Bridge emitter → `seelex:event`，并验证 `Bridge.SetFullAccess(true)` 会释放既有审批、投影 Snapshot、relay `runtime.changed`。
 

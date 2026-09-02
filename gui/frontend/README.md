@@ -54,12 +54,18 @@
 
 1. 初始化先等待并幂等绑定 Wails `EventsOn`，再通过 Bridge `Snapshot` 获取权威状态；runtime 尚未就绪时整个初始化按既有重试机制继续，不能静默进入无事件模式。
 2. `client-state` 应用连续 `seelex:event` 增量。
-3. seq gap、协议不兼容或未知状态触发完整 Snapshot resync。
+3. seq 缺口先向宿主 `ReplayEvents` 增量补取；补不齐、协议不兼容或未知状态才触发完整 Snapshot resync。
 4. render functions 根据 state 投影 DOM；所有 mutation 通过 Bridge 返回 Application。
 
 Full Access 按钮不维护本地布尔状态：显示与下一次 toggle 都读取 `snapshot.runtime.full_access`，调用 `Bridge.SetFullAccess` 后重新拉取 Snapshot；后端同时发布完整 `runtime.changed` 供连续事件链更新。
 
-事件是状态更新的快速路径；在 `chat.running=true` 期间，`active-chat-sync.js` 每秒从 Bridge 拉取一次权威 Snapshot 作为有限对账。它只用于纠正桌面 WebView 丢失某个 terminal event 后遗留的 `RUN`/`Waiting for output…`，Snapshot 显示 idle 后立即停止。
+事件是状态更新的唯一快路径。渲染层每应用一批事件就向宿主回报应用水位
+（`Bridge.AckEvents`，密集期按 150ms 合并）；`delivery_seq` 出现缺口时先向宿主
+`ReplayEvents` 增量补取，补不齐才整份重拉 Snapshot。因此 `chat.running=true` 期间
+不再有每秒轮询：桌面 WebView 丢掉 terminal event 遗留的 `RUN`/`Waiting for output…`
+由宿主重推未确认事件收敛（`gui/bridge.go` 的 `armResend`/`catchUpRenderer`，重推封顶
+`eventResendMaxTries` 次，超出窗口则投递带水位的 `resync.required`）。原
+`active-chat-sync.js` 已删除。
 
 右侧工作台由「工作表格」入口按钮统一接管：数据源 `snapshot.runtime.work_table`
 + `snapshot.runtime.work_table_batches`（权威投影）与

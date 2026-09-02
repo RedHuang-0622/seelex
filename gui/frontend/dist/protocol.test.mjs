@@ -106,13 +106,26 @@ test("global seq jumps are normal; only delivery_seq gaps mean loss", () => {
   assert.equal(lost.needsRefresh, true);
 });
 
-test("requests resync for sequence gaps and unknown events", () => {
+test("flags sequence gaps for incremental replay and unknown events for resync", () => {
+  // 缺口刻意不推进 lastSeq：宿主先按 delivery_seq 增量补取（C4），补不齐才整份
+  // 重拉，重拉后落到 gapSeq。
   const gap = applyEvent(snapshot(), { protocol_version: 1, delivery_seq: 4, kind: "message.delta" }, 2);
   assert.equal(gap.needsRefresh, true);
-  assert.equal(gap.lastSeq, 4);
+  assert.equal(gap.gap, true);
+  assert.equal(gap.lastSeq, 2);
+  assert.equal(gap.gapSeq, 4);
 
+  // 未知事件类型不是缺口，补取补不回来：直接整份重拉并把水位推到该处。
   const unknown = applyEvent(snapshot(), { protocol_version: 1, delivery_seq: 5, kind: "future.event" }, 4);
   assert.equal(unknown.needsRefresh, true);
+  assert.equal(unknown.gap, undefined);
+  assert.equal(unknown.lastSeq, 5);
+
+  // 没有 delivery_seq 的事件无法定位区间：按缺口上报，但水位只能停在已知处。
+  const unnumbered = applyEvent(snapshot(), { protocol_version: 1, kind: "message.delta" }, 3);
+  assert.equal(unnumbered.gap, true);
+  assert.equal(unnumbered.lastSeq, 3);
+  assert.equal(unnumbered.gapSeq, 3);
 });
 
 test("rejects incompatible events without mutating state", () => {

@@ -18,17 +18,31 @@
 | `Subscribe(buffer)` | 全部事件（全局观察、测试） |
 | `SubscribeSession(sessionID, buffer)` | 该会话 + 全局（`SessionID == ""`）事件 |
 | `SubscribeFiltered(filter, buffer)` | 谓词筛选；`application/core` 用它实现「跟随当前视图会话」（草稿尚无真实 ID，归属只能由视图指针持有者判定） |
+| `SubscribeWithReplay(filter, buffer, window)` | 同上，另保留最近 `window` 条可增量补取（桌面 Bridge 用） |
 
 谓词在发布 goroutine 上求值，必须无阻塞、无副作用。不属于本订阅的事件根本不进入
 其 channel：别会话的流量既不挤占本订阅缓冲，也不要求客户端二次过滤。
 
-发布时 Hub 按全局顺序递增 seq，并在复制 subscriber 列表后立即释放 registry 锁；实际投递只持有目标 subscriber 的局部锁。慢订阅者不会阻塞 Subscribe/Close 或其他 subscriber 的状态管理；buffer 溢出时该 subscriber 只保留一个 `resync.required`，且它一律以**全局事件**投递（保留会话路由键会被本订阅自己的过滤条件吞掉，客户端从此静默地看旧数据），由消费者重新获取 Snapshot。
+发布时 Hub 按全局顺序递增 seq，并在复制 subscriber 列表后立即释放 registry 锁；实际投递只持有目标 subscriber 的局部锁。慢订阅者不会阻塞 Subscribe/Close 或其他 subscriber 的状态管理。溢出按订阅类型分两种策略：
+
+- **无重放窗口**（`Subscribe` / `SubscribeFiltered`）：排空该订阅缓冲，只保留一个
+  `resync.required`，且它一律以**全局事件**投递（保留会话路由键会被本订阅自己的
+  过滤条件吞掉，客户端从此静默地看旧数据），由消费者重新获取 Snapshot。
+- **带重放窗口**（`SubscribeWithReplay`）：**不丢弃载荷、也不排空缓冲** —— 每个通过
+  过滤的事件都先进入按 `DeliverySeq` 有序的窗口，再尽力写入 channel。落后消费者用
+  `ReplaySince(sinceSeq)` 增量补取，`DeliveryWatermark()` 用来区分"确实没有新事件"和
+  "有事件但我还没拿到"。只有窗口淘汰掉缺口区间（`ReplayResult Covered=false`）时才
+  退化为整份重拉。重放是幂等的：同一事件可能既在 channel 又在窗口里，客户端按
+  `DeliverySeq` 去重即可。
 
 ## 依赖和边界
 
 本包只依赖 `application/model`，不读取 Service 内部状态。经过投递端过滤后，全局
-`Seq` 必然跳号，连续性只以 `DeliverySeq` 判定：GUI 的 reducer 在 delivery seq gap
-时重新请求 Snapshot，详见 [`docs/gui`](../../docs/gui/README.md)。
+`Seq` 必然跳号，连续性只以 `DeliverySeq` 判定：GUI 的 reducer 在 delivery_seq 缺口时
+先向宿主增量补取（`Bridge.ReplayEvents`），补不齐才重拉 Snapshot；渲染层每次应用后
+回报水位（`Bridge.AckEvents`），宿主据此重推未确认的事件。改动这套语义时，
+`gui/bridge.go`、`gui/frontend/dist/protocol.js` 与 `client-state.js` 必须同步，详见
+[`docs/gui`](../../docs/gui/README.md)。
 
 ## Review 指南
 

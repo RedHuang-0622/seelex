@@ -38,13 +38,13 @@
 实现位置：`application/event.go:10-36`、`application/event.go:81-101`。
 
 ```text
-protocol_version + seq + revision + request_id + kind + payload
+protocol_version + seq + delivery_seq + revision + request_id + session_id + kind + payload
 ```
 
-- `seq` 描述交付顺序，用于发现订阅丢失；
+- `seq` 描述全局发布顺序，用于跨订阅排查；连续性只看 `delivery_seq`（订阅内投递序号），经过投递端过滤后 `seq` 必然跳号；
 - `revision` 描述业务状态版本，用于 Snapshot/Event 竞争判断；
 - 多个 Event 可以共享 revision，例如一次工具完成同时发布 tool、message 和 runtime；
-- 订阅缓冲溢出时清空旧事件并发送 `resync.required`。
+- 桌面订阅带重放窗口：缓冲溢出时事件不丢，客户端按 `delivery_seq` 缺口向宿主 `ReplayEvents` 增量补取，并在每次应用后 `AckEvents` 回报水位；窗口被淘汰（或无窗口订阅溢出）才退化为 `resync.required` + 整份重拉。
 
 ## 3. Chat 状态机
 
@@ -130,7 +130,8 @@ ToolHookBridge 为每个 start 分配 `tool-N`，用 `turn + name + arguments` �
 | 并发启动 Chat | 返回 `ErrChatRunning` |
 | request ID 已过期 | 忽略 delta/cancel |
 | Session load/replace 失败 | 保持当前会话并返回带上下文错误 |
-| Event subscriber 背压 | 发送 `resync.required` |
+| Event subscriber 背压（带重放窗口，桌面） | 事件不丢：客户端按缺口 `ReplayEvents` 补取，Bridge 依 `AckEvents` 水位重推未确认事件 |
+| Event subscriber 背压（无重放窗口） | 清空该订阅缓冲并发送 `resync.required`，消费者整份重拉 Snapshot |
 | 工具失败 | tool_result 使用 error 状态和错误文本 |
 | 保存最终会话失败 | Chat 以错误完成并写入 Error message |
 

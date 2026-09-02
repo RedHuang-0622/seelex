@@ -47,7 +47,10 @@ application/core 权威解析**：`SubscribeSession("")` = 跟随当前视图会
 
 ### 仍是缺口
 
-- [ ] D6b `durable_history_test.go` / `router_storage_test.go` / `project_record_test.go` / `fork_test.go` 的发散式 `-race`（本轮补了 `session_granular` 与 `event_store`）。
+- [ ] D6b `fork_test.go` 的发散式 `-race`（其余三处已落地：`sessionstore/concurrency_race_test.go`
+  的 `TestDurableHistoryConcurrentSessionsStaySeparate`、`TestRouterConcurrentProjectIsolation`、
+  `TestProjectRecordConcurrentReadDoesNotTear`；`session_granular` 与 `event_store` 在
+  `session_granular_race_test.go`）。
 - [x] D7 跨项目 + 后台落盘 + 切换组合：已有 `repro_session_workspace_test.go`、`repro_session_background_test.go`、`repro_session_race_test.go` 覆盖；"切换瞬间 in-flight 事件归属"由阶段 A 的 `application/core/subscribe_session_test.go` 覆盖。
 
 ## 阶段 B · 下沉越界逻辑
@@ -80,9 +83,49 @@ application/core 权威解析**：`SubscribeSession("")` = 跟随当前视图会
 
 - [ ] C1 `ListSessions` / `SnapshotOf`（扩展到非活跃驻留）/ `GetSessionTranscript(range)`
 - [ ] C2 `ArchiveSession`（`SetSessionMeta`/`GetSessionMeta` 已随 B6 落地）
-- [ ] C3 `RequestCatalogRefresh()` 返回完成回执，删除 `app.js: beginNewSession` 补数据代码
-- [ ] C4 事件面：慢订阅者策略（`SubscribeSince(seq)` 或增量读回）
-- [ ] C5 轮询退场：`active-chat-sync.js` 1s 轮询、`refreshWorkTree`/`refreshGitLog`、`nodeDetailPollTimer` 改事件驱动
+- [x] C3 目录刷新完成回执：`Coordinator.RequestCatalogRefresh()` 返回 `<-chan struct{}`（**先登记回执再非阻塞唤醒**，worker 每次唤醒逐批排空：每批跑一轮刷新并在发布后关闭，批次为空才回到等待 —— 因此 wake channel 丢唤醒不会丢请求）；`StopCatalogRefresh` 退出路径释放全部在等回执并置停止标记，之后的请求立即收敛，关闭不会被目录 I/O 挂住。新增 `application/core/session_catalog.go` 的 `Service.WaitCatalogRefresh(ctx) error` 作为公开等待口（ctx 超时返回 `ctx.Err()`，不算失败）。
+  - `gui/bridge.go`：`BeginNewSession`/`DeleteSession`/`ForkSessionLatest`/`SetSessionMeta` 成功后调用 `settleCatalog()`（预算 `sessionCatalogSettleTimeout = 2s`），使 renderer 紧接着重拉的 `Snapshot()` 已携带权威目录；超时按最佳努力处理，不向上报错。
+  - `gui/frontend/dist/app.js: beginNewSession` **删除**"首轮列表为空就回填上一次 `sessions`/`session_workspaces`/`workspaces` + 250ms 延时重拉"的前端伪造状态。
+  - 测试：`application/core/session_catalog_test.go`（新条目在一轮等待后即可见 / 16 个并发等待全部收敛 / Shutdown 后等待立即收敛）、`gui/bridge_test.go: TestBridgeSettlesSessionCatalogBeforeReturning`（四个命令必须等收敛才返回，且只等一次）。
+  - 文档：`application/core/session_runtime/README.md`（回执契约）、`docs/arch/session-snapshot-liveness.md` §3（函数名与流程随实现更新）、`gui/README.md`（Bridge 契约）、`gui/frontend/README.md`、`application/core/README-session.md` 与 `session_runtime/README.md` 函数索引刷新。
+- [x] C4 慢订阅者策略（订阅内重放 + 投递回执）：
+  - `application/event/hub.go`：`Subscription` 新增 `ReplaySince(sinceSeq) ReplayResult` 与
+    `DeliveryWatermark()`；新增 `SubscribeWithReplay(filter, buffer, window)`。开启窗口的
+    订阅在缓冲写满时**不丢弃载荷、不排空缓冲**（事件先进按 `DeliverySeq` 有序的窗口，
+    再尽力写 channel），溢出不再强制整份重拉；`Subscribe`/`SubscribeFiltered` 保持旧语义
+    （排空 + 全局 `resync.required`），TUI/headless 行为不变。窗口淘汰掉缺口区间时
+    `Covered=false`，调用方必须整份重拉。
+  - `application/core/session_scope.go`：`SubscribeSession` 的谓词抽出 `sessionEventFilter`
+    复用，新增 `SubscribeSessionWithReplay(sessionID, buffer, window)`（hub 不支持窗口时退化）。
+  - `gui/bridge.go`：relay 优先申请带窗口订阅（可选端口 `replayAwareApplication`）；新增
+    `AckEvents(seq)`（渲染层应用水位，单调推进，过期回执忽略）与 `ReplayEvents(sinceSeq)`
+    （缺口主动补取）；`armResend`/`catchUpRenderer` 在 `eventResendDelay` 内没等到回执就
+    从窗口重推未确认事件，封顶 `eventResendMaxTries`，窗口淘汰则改投一条带当前水位的
+    `resync.required`（渲染层据此整份重拉并抬水位）。重复投递对渲染层幂等（按
+    `delivery_seq` 去重）。
+  - 前端：`protocol.js` 缺口分支不再推进水位而是返回 `gap`/`gapSeq`；`client-state.js`
+    缺口先 `replay` 后重拉，并把事件应用串行化（链本身吞掉失败，一次抛错不得永久卡住
+    后续事件）；`app.js` 新增 150ms 合并的 `reportAppliedEvents` 回执。
+  - 测试：`application/event/hub_replay_test.go`（溢出可补取 / 淘汰后不覆盖 / 窗口与投递
+    同一归属口径 / 关闭后拒绝补取）、`gui/bridge_events_test.go`（未回执事件被重推且封顶、
+    覆盖缺口不得强制 resync、过期回执不改水位、窗口淘汰退化为 resync、未启动时补取显式
+    不可用）、`client-state.test.mjs` 3 例、`protocol.test.mjs` 缺口契约改写；
+    `gui/bridge_test.go: TestEmbeddedFrontendExists` 的前端契约从"必须内联轮询兜底"改为
+    "必须接线 AckEvents/ReplayEvents 且不得引用轮询"。
+- [ ] C5 轮询退场 —— 拆分后实情：
+  - [x] C5a `active-chat-sync.js` 1s 轮询**已删除**（连同其测试与 `beforeunload` 钩子）：
+    它兜的是"Go→WebView 丢了尾部事件"，`delivery_seq` 只能发现**后续还有事件**的缺口，
+    尾部丢失永远不跳号。C4 的 `AckEvents` 水位 + 未确认事件重推正面解决了这个场景，
+    因此不再需要无条件轮询对账。
+  - [x] C5b `refreshWorkTree`/`refreshGitLog`（`app.js:451-525`）：**判定不改**。核查后它
+    不是轮询 —— 全函数没有任何定时器，是渲染期惰性加载，触发条件为 rootPath 变化或
+    `lastChatRunning && !running`（回合刚结束）。改成推送需要 `worktree.changed`/`git.changed`
+    事件面，而 `application/event/hub.go` 现有 19 个 `EventKind` 里两者都不存在：那是"新增
+    文件/git 监视"新功能（跨平台监视生命周期），不属于本工作包的整改。留作独立立项。
+  - [ ] C5c `nodeDetailPollTimer`（`app.js`，运行中每 2s 拉 `SubagentSessionDetail`）：仍开放。
+    实时流 `seelex:subagent_live` 已在，但 `application/contract/dto/subagent_live.go` 的
+    `Kind` 只有 `stage|tool`，子代理自己的 assistant 正文没有推送面 —— 要退场必须先在
+    `seelebridge/runtime_live.go` 增加正文增量 kind。
 
 ## 阶段 E · 未关联会话与左栏重新绑定 —— **已决定不做**（2026-09-02）
 
@@ -151,6 +194,26 @@ node --test gui/frontend/dist/*.test.mjs          # 175 pass / 0 fail（删除 l
 阶段 D 期间 `gofmt -l` 对 `application/core/session_scope.go` 的报告为**基线既有**
 （该文件在本轮改动前已在 `gofmt -l .` 列表中，差异位于 `bindProjectRootIfSafe` 的
 注释排版），未顺手改写。
+
+阶段 C3（目录刷新完成回执）：
+
+```text
+go build ./...                                    # 通过
+go build -tags "gui,desktop,production" ./...     # 通过
+go vet ./...                                      # 无告警
+go test ./... -count=1 -timeout=180s              # exit 0，零 FAIL
+go test -race -run 'TestWaitCatalogRefresh|TestBridgeSettlesSessionCatalog' ./application/core ./gui   # 7 例全 PASS
+node --test gui/frontend/dist/*.test.mjs          # 175 pass / 0 fail
+```
+
+`gofmt -l .` 仍只报告 12 个**基线既有**文件（CRLF 工作副本），本工作包改动的 5 个 Go
+文件不在其中，未顺手改写。
+
+首次全量 `go test ./...` 曾出现 `seelexctx/lifecycle: TestPipelineIntervalFlush`
+失败（`interval flush must persist low-traffic chunks, store=0`，用时 0.08s）；单包
+连跑 3 次与该用例均绿、全量复跑亦绿。判定为多包并行下的计时抖动，与阶段 C3 无
+关（本包未触及 `seelexctx/lifecycle`）。该抖动留在台账备查，若要根治应把断言改
+为按预算等待落盘而不是固定 tick。
 
 文档同步：`application/event/README.md`（订阅口径/DeliverySeq/resync 全局）、
 `session/README.md`（actor 命令语义与关闭所有权）、`sessionstore/README.md`
