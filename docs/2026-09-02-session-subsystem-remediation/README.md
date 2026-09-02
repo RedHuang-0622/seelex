@@ -5,6 +5,11 @@
 > 每完成一项即把 `[ ]` 改为 `[x]`。
 >
 > 阶段顺序：A（链路收口）→ D（同步缺口 + 测试凹陷）→ B（下沉越界逻辑）→ C（扩 API）。
+>
+> **后续对账纠正（见 [target-design.md](target-design.md) M1/M2）**：下文阶段 A 的
+> 「订阅传空 sid 跟随视图指针」结论**已被撤销** —— 它把"视图神谕"从数据面搬进了事件
+> 面（replay 环因而跨会话，且空 sid 通配让含会话字段的全局载荷畅通）。正确口径是订阅
+> 键含 sid、切换即重订阅、会话类 kind 事件 sid 必填。阶段 G 的刀 2 负责收口。
 
 ## 阶段 A · 事件分发链路收口（会话过滤只留一处）
 
@@ -12,6 +17,10 @@
 `Engine.StartSession()` 生成），因此不由客户端"切换后重订阅"，而是让**视图归属由
 application/core 权威解析**：`SubscribeSession("")` = 跟随当前视图会话，归属判定
 只在 `session.Domain` 的视图指针一处。
+
+该修正的前提（草稿无法预知 SID）已随 [target-design.md](target-design.md) 决策 2
+（早分配 SID + 建 Unit，不建引擎 bundle）消失，因此"客户端切换后重订阅"重新成为
+可行且正确的方案，见刀 2。
 
 - [x] A1 `application/event/hub.go`：订阅者携带过滤谓词，`publish` 在投递端过滤（消除跨会话挤 buffer）；溢出 resync 强制以全局事件（`SessionID=""`）投递，不被过滤吞掉
 - [x] A2 `application/event/hub.go`：`SubscribeSession` 改为基于谓词实现（删除中继 goroutine）；新增 `SubscribeFiltered`；新增订阅内 `delivery_seq`（全局 seq 过滤后必然跳号，连续性只能按投递序号判定）
@@ -82,7 +91,13 @@ application/core 权威解析**：`SubscribeSession("")` = 跟随当前视图会
 ## 阶段 C · application 查询面补齐（headless 可行）
 
 - [ ] C1 `ListSessions` / `SnapshotOf`（扩展到非活跃驻留）/ `GetSessionTranscript(range)`
-- [ ] C2 `ArchiveSession`（`SetSessionMeta`/`GetSessionMeta` 已随 B6 落地）
+  —— **后移到阶段 G 刀 6**。原因：进程内只有一格 `Core.Snapshot.Runtime`，冷拼装只能
+  clone 视图的 Runtime，读回来的 model/tokens/replan/子代理树属于别的会话；且
+  `SnapshotOf` 返回视图 revision，前端 `revision <= floor` 规则会把该会话后续合法增量
+  判为过期丢掉（`gui/frontend/dist/protocol.js:37-39`）。必须先用刀 1'/刀 3 造出每会话
+  Runtime 槽、每会话 revision 与快照分型，冷读面才有干净形状。
+- [ ] C2 `ArchiveSession`（`SetSessionMeta`/`GetSessionMeta` 已随 B6 落地）—— 依赖刀 6
+  的目录按 projectID 索引（归档状态要在目录里过滤，否则仍是全局数组上的标记位）。
 - [x] C3 目录刷新完成回执：`Coordinator.RequestCatalogRefresh()` 返回 `<-chan struct{}`（**先登记回执再非阻塞唤醒**，worker 每次唤醒逐批排空：每批跑一轮刷新并在发布后关闭，批次为空才回到等待 —— 因此 wake channel 丢唤醒不会丢请求）；`StopCatalogRefresh` 退出路径释放全部在等回执并置停止标记，之后的请求立即收敛，关闭不会被目录 I/O 挂住。新增 `application/core/session_catalog.go` 的 `Service.WaitCatalogRefresh(ctx) error` 作为公开等待口（ctx 超时返回 `ctx.Err()`，不算失败）。
   - `gui/bridge.go`：`BeginNewSession`/`DeleteSession`/`ForkSessionLatest`/`SetSessionMeta` 成功后调用 `settleCatalog()`（预算 `sessionCatalogSettleTimeout = 2s`），使 renderer 紧接着重拉的 `Snapshot()` 已携带权威目录；超时按最佳努力处理，不向上报错。
   - `gui/frontend/dist/app.js: beginNewSession` **删除**"首轮列表为空就回填上一次 `sessions`/`session_workspaces`/`workspaces` + 250ms 延时重拉"的前端伪造状态。
@@ -220,3 +235,89 @@ node --test gui/frontend/dist/*.test.mjs          # 175 pass / 0 fail
 （SQLite 单连接 + busy_timeout）、`gui/README.md`、`gui/frontend/README.md`、
 `tui/README.md`、`docs/gui/modules/multi-session-pages.md`、
 `application/core/README-*.md`（函数索引刷新）。
+
+## 阶段 G · 会话粒度收敛（对账后新增，目标形状见 [target-design.md](target-design.md)）
+
+### 刀 0：现在就在错写用户数据的三处（彼此独立，各自一个提交）
+
+- [x] G0a 压缩轮次归档按 sid 路由：`application/core/compressed_turn.go:44-60` 忽略
+  `ctx`、用 `SessionIDProvider()`（= `app.Snapshot().Session.ID`，`main.go:251`）落
+  `SaveCommit` → 后台会话 A 压缩出的轮次原文写进视图会话 B 的 commit 分片。修法：优先
+  `sessionIDFromContext(ctx)`（core 在 `chat.go:140` 已注入），provider 仅作兜底。
+- [x] G0b effort/plugin 运行守卫：`application/core/service_interaction.go:98-149` 无
+  `Chat.Running` 检查，且走 `Engine.SetSystemPrompt`（全局活跃别名）与
+  `Engine.ClearHistory`、`promptStack.Reset("")` → 改动正在后台运行的会话的 system 与
+  历史。修法：effort 只允许改目标（视图）会话且其 idle，改用
+  `Engine.SetSystemPromptFor(sid,…)`；plugin 切换是进程级动作，任一会话 running 即拒绝。
+- [x] G0c 退出语义：`gui/shutdown.go:49` 只看视图会话 `Chat.Running` 决定是否等待、
+  `:67` 超时只 `CancelChat("")`（`WaitForIdle` 本身是进程 refcount，
+  `service_input.go:180-192`）→ 视图空闲而后台在跑时窗口直接关。修法：判定改"任一会话
+  非 idle"，超时取消全部 running sid，关闭前逐会话 flush。
+
+### 刀 1'~7：结构收敛
+
+- [ ] G1 每会话 `Runtime` 槽 + `Runtime`/`Revision` 进 `SessionUnit`；
+  `view_state/coordinator.go:96-146` 投影全量改 For 端口并带 sid；
+  `ApplyRuntimeProjectionLocked(sid, …)` 只写该会话槽、仅 `sid==视图指针` 时镜像；
+  seelebridge 会话入口注入 `internal/telemetry.WithSessionID`（`SessionTagHook` 已挂在
+  `runtime.go:395-400`，但生产侧无人注入 → INV-T1/T2 目前只在测试成立），
+  `internal/adapters/engine_port.go:688-700` 的 `TokenCount()` 改 `TokenCountFor(sid)`；
+  `planExecutor` 的 fork 信号量与 `ReplanGuard` 按 sid 建槽（M5）。
+  完成后替换 `session_scope.go:191` 的 `cloneRuntimeState(视图 Runtime)`。
+- [ ] G2 订阅键 `(通道, sid)` + 切换即重订阅；`protocol.js` 补 `session_id` 校验；
+  事件通道按 kind 白名单（会话类必填、进程类必空，违例拒绝发布）；Bridge 的 ack 游标与
+  replay 环按 sid 分格、resend 定时器合并。
+- [ ] G3 `SessionSnapshot` / `ProcessSnapshot` 分型（不升 `protocol_version`，走
+  `capabilities` 声明），并设计成传输完备制品（为进程隔离保留退路，见决策 5）。
+- [ ] G4 Composer（新分片 + `limits.composer_max_chars`）、effort/fullAccess、子代理树、
+  approval 归属进 `Unit`；早分配 SID（不建引擎 bundle）；子代理会话按 `Kind=Subagent`
+  落盘、不进侧栏、经父树打开，重启标 `stale`；"mainagent 实际接收内容"改为可见可持久
+  （撤销 `view_state/coordinator.go:160-162` 的丢弃）。
+- [ ] G5 锁拆分（`ViewMu`/`CatalogMu`/`Unit[i].Mu`）+ `TransitionLock` 按会话串行、
+  跨会话并行；阻塞式端口调用一律出临界区。
+- [ ] G6 驻留 LRU 上限 + 驱逐前置 flush；目录按 projectID 索引（`RequestCatalogRefresh`
+  补 projectID，撤销 C3 固化的全局数组形状）；C2 `ArchiveSession`；C1 冷读面。
+- [ ] G7 双轨 trace 桥：`seelebridge/events_unified.go:121-176` 的 `UnifiedEvents` 已能
+  按 sid/nodeID 合并持久事实与实时遥测，缺 `EventStore` 区间读与"投进
+  `application/event`"的一跳；完成后去掉 `nodeDetailPollTimer`（原 #3）。
+
+### 撤销与不做（对账结论）
+
+- [x] 撤销 B6 相关待办「per-session 存储策略」：存储策略只有全局的，`Router` 单份
+  `Config`（`sessionstore/sessionstore.go:211-236`）即目标形状（INV-G13）。
+- [x] 消息 ID **保持全局分发**（`view_state/coordinator.go:59,169`）：防重复与上下文
+  干扰；新增不变量「唯一但不要求连续」（INV-G10），恢复取 max 与分页用计数已兼容，
+  只需补一条测试钉住。
+- [x] 「core 又成上帝模块」的判定成立，但**先补数据面再搬模块**：刀 1' 之前把会话治理
+  迁出 `application/core` 只会把"只有一格 Runtime"的缺陷搬到新地方。
+
+### 遗留待决
+
+- [ ] `session.StorePort` 生产零调用方（`session/store_adapter.go` 只被测试引用）：删除
+  还是在刀 1' 接为 `session` 域唯一存储入口，二选一，不留死契约。
+- [ ] 待审批计数在 TUI 的呈现口径。
+
+## 阶段 G 刀 0 验证记录（追加）
+
+G0a/G0b/G0c 三处彼此独立，各自聚焦一个行为主题；改动面：
+`application/core/compressed_turn.go(+test)`、`service_interaction.go`、
+`command.go`、`service_input.go`、`gui/shutdown.go(+test)`，配套
+`application/core/close_semantics_test.go`、`service_interaction_guard_test.go`。
+
+```text
+go build ./...                                   # 通过
+go build -tags "gui,desktop,production" ./...     # 通过
+go vet ./application/core ./gui ./seelexctx ./session ./sessionstore   # 无告警
+go test ./application/core ./gui ./seelexctx -count=1 -timeout=180s    # 全 ok
+go test -race ./application/core ./gui -count=1 -timeout=240s          # 全 ok
+go test ./... -count=1 -timeout=240s             # 仅 sessionstore 并发 rename 用例
+                                                # TestProjectRecordConcurrentReadDoesNotTear
+                                                # 出现一次 Windows Access is denied；
+                                                # 该用例单独复跑与全包复跑均绿（未触碰该包），
+                                                # 判定为 Windows 临时目录文件锁抖动，与刀 0 无关。
+```
+
+README 同步：`gui/README.md`（关闭语义改为进程级空闲判定 + 取消全部
+running sid + 取消后等待逐会话 flush）、`application/core/README-service.md` 与
+`README-misc.md`（函数索引刷新：`AnyChatRunning`/`CancelAllChats`、
+`StoreTurn` ctx 签名、新增守卫测试）。

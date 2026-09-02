@@ -12,7 +12,7 @@
 | `assets.go` | `//go:embed frontend/dist`。 |
 | `run_wails.go` / `run_stub.go` | build tags 下的真实 GUI 与不可用 stub。 |
 | `dialogs_gui.go` / `dialogs_stub.go` | 平台目录选择适配。 |
-| `shutdown.go` | 等待 active/queued chat 完成的 graceful close。 |
+| `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
 
 ## Bridge 契约
@@ -53,7 +53,15 @@ Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等
 
 ## 关闭语义
 
-Wails `BeforeClose` 首次触发时调用 `BeginGracefulShutdown`，后台等待 `WaitForIdle`，active session 与已接受队列完成后再允许窗口退出。重复关闭不得启动多个 waiter。
+Wails `BeforeClose` 首次触发时调用 `BeginGracefulShutdown`，后台等待
+`WaitForIdle`。空闲判定是**进程级**的（生产 Application 经可选端口
+`AnyChatRunning` 报告）：视图会话空闲而后台会话仍在跑时同样进入 drain，
+全部会话与已接受队列完成后再允许窗口退出。重复关闭不得启动多个 waiter。
+
+等待超时（默认 5s）表示工具、审批或 Provider 未收敛：此时调用
+`CancelAllChats` 取消**全部**运行中会话（不只视图会话——后台会话同样占用
+引擎与持久化通道），随后再等一个短预算让每个 runChat 走正常收尾（逐会话
+flush 完成才标记 idle），到点仍未收敛才按最佳努力退出。
 
 ## Build tags
 
@@ -92,4 +100,4 @@ node --test gui/frontend/dist/*.test.mjs
 
 ## 事件与关闭生命周期
 
-桌面宿主在启动时调用 `Bridge.Start`，在关闭时调用 `Bridge.Stop`；前者先发送 `seelex:ready` 快照，再将 Application Event 原样转发为 `seelex:event`。关闭运行中的会话会先进入 graceful drain，最长等待 5 秒；超时表示工具、审批或 Provider 未收敛，Bridge 会取消当前聊天并继续退出，避免窗口无限处于拒绝关闭状态。
+桌面宿主在启动时调用 `Bridge.Start`，在关闭时调用 `Bridge.Stop`；前者先发送 `seelex:ready` 快照，再将 Application Event 原样转发为 `seelex:event`。关闭运行中的会话会先进入 graceful drain，最长等待 5 秒；超时表示工具、审批或 Provider 未收敛，关闭协调器会取消全部运行中会话并等待取消收尾后退出，避免窗口无限处于拒绝关闭状态、也避免在后台会话数据落盘前强行退出。

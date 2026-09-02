@@ -540,6 +540,12 @@ func (fake *closeFakeApplication) CancelChat(requestID string) bool {
 	fake.cancelled = requestID
 	fake.cancelCalls++
 	fake.mu.Unlock()
+	// 模拟取消后收尾完成（旧宿主只有视图会话，取消即空闲）。
+	select {
+	case <-fake.idle:
+	default:
+		close(fake.idle)
+	}
 	return true
 }
 
@@ -569,6 +575,38 @@ func (fake *closeFakeApplication) WaitForIdle(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// activityCloseFakeApplication 模拟生产 application.Service（G0c）：视图
+// 快照可能空闲，但后台会话仍在运行；取消动作覆盖全部运行中会话。
+type activityCloseFakeApplication struct {
+	*closeFakeApplication
+	anyRunning     bool
+	cancelAllCalls int
+}
+
+func newActivityCloseFakeApplication(viewRunning, anyRunning bool) *activityCloseFakeApplication {
+	return &activityCloseFakeApplication{
+		closeFakeApplication: newCloseFakeApplication(viewRunning),
+		anyRunning:           anyRunning,
+	}
+}
+
+func (fake *activityCloseFakeApplication) AnyChatRunning() bool {
+	return fake.anyRunning
+}
+
+// CancelAllChats 模拟取消全部运行中会话：取消后各 runChat 收尾并把进程
+// 标记 idle（WaitForIdle 因此收敛）。
+func (fake *activityCloseFakeApplication) CancelAllChats() {
+	fake.mu.Lock()
+	fake.cancelAllCalls++
+	fake.mu.Unlock()
+	select {
+	case <-fake.idle:
+	default:
+		close(fake.idle)
 	}
 }
 
@@ -611,6 +649,43 @@ func TestCloseCoordinatorWaitsForRunningChat(t *testing.T) {
 	}
 }
 
+// TestCloseCoordinatorWaitsForBackgroundRunningChat G0c 回归：视图会话空闲
+// （Snapshot.Chat.Running=false）而后台会话在跑时，窗口关闭必须被阻止并
+// 进入 graceful drain——旧实现只看视图快照会直接关窗。
+func TestCloseCoordinatorWaitsForBackgroundRunningChat(t *testing.T) {
+	t.Parallel()
+	fake := newActivityCloseFakeApplication(false, true)
+	quit := make(chan struct{}, 1)
+	coordinator := newCloseCoordinator(fake, func() { quit <- struct{}{} })
+
+	if !coordinator.BeforeClose() {
+		t.Fatal("background running chat must prevent native window close")
+	}
+	select {
+	case <-fake.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("idle wait did not start for background running chat")
+	}
+	select {
+	case <-quit:
+		t.Fatal("application quit while the background session was still running")
+	default:
+	}
+
+	close(fake.idle)
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("application did not quit after the background session became idle")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.beginCalls != 1 || fake.waitCalls != 1 || fake.cancelAllCalls != 0 {
+		t.Fatalf("unexpected close coordination calls: begin=%d wait=%d cancelAll=%d",
+			fake.beginCalls, fake.waitCalls, fake.cancelAllCalls)
+	}
+}
+
 func TestCloseCoordinatorAllowsIdleClose(t *testing.T) {
 	t.Parallel()
 	fake := newCloseFakeApplication(false)
@@ -649,8 +724,43 @@ func TestCloseCoordinatorCancelsStalledChatAndQuits(t *testing.T) {
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	if fake.beginCalls != 1 || fake.waitCalls != 1 || fake.cancelCalls != 1 || fake.cancelled != "" {
-		t.Fatalf("stalled close calls = begin:%d wait:%d cancel:%d request:%q", fake.beginCalls, fake.waitCalls, fake.cancelCalls, fake.cancelled)
+	// 旧宿主（无 AnyChatRunning/CancelAllChats）：超时回退到只取消视图会话，
+	// 随后等待取消收尾（第二次 WaitForIdle 立即返回）。
+	if fake.beginCalls != 1 || fake.waitCalls != 2 || fake.cancelCalls != 1 || fake.cancelled != "" {
+		t.Fatalf("stalled close calls = begin:%d wait:%d cancel:%d request:%q",
+			fake.beginCalls, fake.waitCalls, fake.cancelCalls, fake.cancelled)
+	}
+}
+
+// TestCloseCoordinatorCancelsAllRunningSessionsAfterTimeout G0c 超时路径：
+// 生产宿主取消全部运行中会话（不只视图），并等待其收尾（逐会话 flush）。
+func TestCloseCoordinatorCancelsAllRunningSessionsAfterTimeout(t *testing.T) {
+	t.Parallel()
+	fake := newActivityCloseFakeApplication(false, true)
+	quit := make(chan struct{}, 1)
+	coordinator := newCloseCoordinatorWithTimeout(fake, func() { quit <- struct{}{} }, 10*time.Millisecond)
+
+	if !coordinator.BeforeClose() {
+		t.Fatal("background running chat must initially prevent native window close")
+	}
+	select {
+	case <-fake.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("idle wait did not start")
+	}
+	select {
+	case <-quit:
+	case <-time.After(time.Second):
+		t.Fatal("stalled background chat did not force the native quit path")
+	}
+	if coordinator.BeforeClose() {
+		t.Fatal("forced quit must permit the programmatic close")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.beginCalls != 1 || fake.waitCalls != 2 || fake.cancelAllCalls != 1 || fake.cancelCalls != 0 {
+		t.Fatalf("stalled close calls = begin:%d wait:%d cancelAll:%d legacyCancel:%d",
+			fake.beginCalls, fake.waitCalls, fake.cancelAllCalls, fake.cancelCalls)
 	}
 }
 

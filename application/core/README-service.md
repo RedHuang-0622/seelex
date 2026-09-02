@@ -190,6 +190,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error` — submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 - `func (service *Service) BeginGracefulShutdown()` — BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
 - `func (service *Service) WaitForIdle(ctx context.Context) error` — WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
+- `func (service *Service) AnyChatRunning() bool` — AnyChatRunning 报告是否存在任一会话的运行中回合（G0c 关闭语义：视图空闲
+- `func (service *Service) CancelAllChats()` — CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
 - `func (service *Service) CancelChat(requestID string) bool` — CancelChat 取消当前视图会话正在运行的回合。
 - `func (service *Service) Shutdown()`
 
@@ -208,14 +210,27 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) appendPlanRetryNotice(message string)`
 - `func (service *Service) abortPlanInteraction()`
 - `func (service *Service) SelectAccount(_ context.Context, name string) error`
-- `func (service *Service) SwitchEffort(_ context.Context, level string) error`
-- `func (service *Service) SwitchPlugin(ctx context.Context, name string) error`
+- `func (service *Service) SwitchEffort(_ context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
+- `func (service *Service) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
 - `func (service *Service) SetFullAccess(on bool)`
 - `func (service *Service) observeInteraction(interaction *Interaction)`
 - `func (service *Service) openInteraction(interaction *Interaction)`
 - `func (service *Service) closeInteraction(id string)`
 - `func (service *Service) sessionInteraction() *Interaction`
 - `func (service *Service) accountInteraction() *Interaction`
+
+### service_interaction_guard_test.go
+
+- `func newRecordingPromptEngine() *recordingPromptEngine`
+- `func (engine *recordingPromptEngine) SetSystemPromptFor(sessionID, prompt string)`
+- `func (engine *recordingPromptEngine) SetSystemPrompt(prompt string)`
+- `func (engine *recordingPromptEngine) SetMaxLoops(loops int)`
+- `func (engine *recordingPromptEngine) ClearHistory()`
+- `func (engine *recordingPromptEngine) promptSnapshot() (promptFor map[string]string, globalCount, loops, clears int)` — promptSnapshot 返回测试断言的引擎侧快照（加锁拷贝）。
+- `func waitChatStarted(t *testing.T, started <-chan struct{})` — waitChatStarted 等待指定会话的 ChatStream 进入引擎（阻塞点已建立）。
+- `func waitUnitIdle(t *testing.T, service *Service, sessionID string)` — waitUnitIdle 轮询指定会话单元直到其聊天停止运行（后台另一会话可能仍在跑，
+- `func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T)` — TestEffortAndPluginGuardsAroundRunningSessions 覆盖 G0b 守卫：
+- `func TestEffortCommandUsesGuardedServicePath(t *testing.T)` — TestEffortCommandUsesGuardedServicePath /effort 命令必须走 SwitchEffort：
 
 ### service_notice_test.go
 

@@ -191,6 +191,34 @@ func (service *Service) WaitForIdle(ctx context.Context) error {
 	}
 }
 
+// AnyChatRunning 报告是否存在任一会话的运行中回合（G0c 关闭语义：视图空闲
+// 而后台会话仍在跑也必须在 graceful drain 中等待）。多会话并行下视图快照
+// 的 Chat.Running 只反映当前会话，不是进程空闲判据。
+func (service *Service) AnyChatRunning() bool {
+	service.Mu.RLock()
+	defer service.Mu.RUnlock()
+	return service.anyChatRunningLocked()
+}
+
+// CancelAllChats 取消全部会话的运行中回合（G0c 关闭超时路径：后台会话同样
+// 占用引擎与持久化通道，不能只取消视图会话）。取消后每个 runChat 走正常
+// 收尾（逐会话 persist），随后 WaitForIdle 自然收敛。
+func (service *Service) CancelAllChats() {
+	service.Mu.RLock()
+	cancels := make([]context.CancelFunc, 0, 4)
+	for _, sid := range service.sessions.UnitIDs() {
+		if unit := service.sessions.Unit(sid); unit != nil {
+			if cancel := unit.CancelFunc(); cancel != nil {
+				cancels = append(cancels, cancel)
+			}
+		}
+	}
+	service.Mu.RUnlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
 // CancelChat 取消当前视图会话正在运行的回合。
 //
 // requestID 只作参考，不作为否决条件：渲染层持有的 request_id 可能滞后一个事件
