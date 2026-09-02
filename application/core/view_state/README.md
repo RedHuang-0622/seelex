@@ -43,10 +43,18 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) Subscribe(buffer int) event.Subscription` — Subscribe 订阅事件流。
 - `func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection` — CollectRuntimeProjection 锁外调用外部端口收集 runtime 投影。
 - `func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjection)` — ApplyRuntimeProjectionLocked 应用 runtime 投影（保留 Plan/Account 指针，
-- `func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLocked 追加一条可见消息（返回快照内引用；调用方持有
+- `func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLocked 追加一条可见消息到当前活跃会话（调用方持有
+- `func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进
+- `func (c *Coordinator) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
+- `func (c *Coordinator) SessionViewLocked(sessionID string) *session.View` — SessionViewLocked 返回指定会话的可见投影（core 域恢复/回看路径用；
+- `func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)` — SetSessionViewLocked 装载指定会话的可见投影（冷加载/恢复路径；调用方
+- `func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatState)` — SetSessionChatLockedFor 写指定会话的聊天运行态投影（调用方持有
+- `func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFileRef)` — SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.Mu）。
+- `func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.View)` — mirrorActiveViewLocked 把指定会话的 scope 镜像到 Snapshot（仅当目标为
+- `func (c *Coordinator) MirrorActiveViewLocked()` — MirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot（切换/恢复
 - `func (c *Coordinator) AdvanceMessageSeqLocked(messages []model.Message)` — AdvanceMessageSeqLocked 按既有消息 ID 推进消息序列（会话恢复路径）。
 - `func (c *Coordinator) NextMessageSeqLocked() uint64` — NextMessageSeqLocked 返回下一条消息序号并推进（分页加载 ID 分配用）。
-- `func (c *Coordinator) boundConversationTailLocked()`
+- `func (c *Coordinator) boundViewTailLocked(view *session.View)`
 - `func durableConversationCount(messages []model.Message) int`
 - `func BoundConversationTail(messages []model.Message, window int) []model.Message` — BoundConversationTail 保留尾部窗口（system 与普通消息分列计数）。
 - `func BoundConversationHead(messages []model.Message, window int) []model.Message` — BoundConversationHead 保留头部窗口（分页加载前置用）。

@@ -20,7 +20,13 @@ func TestStorePortAdapterRoundTrip(t *testing.T) {
 	t.Cleanup(func() { _ = router.Close() })
 	router.SetWorkspace("project-adapter")
 
-	store := NewStorePort(sessionstore.NewSessionGranularStore(router))
+	// 归属解析的权威来源是装配注入的会话绑定（生产 = workspace.Repo）；未绑定
+	// 一律未关联默认项目，不再猜 Router 活跃写作用域，因此夹具必须按生产形态注入
+	// 绑定解析器与已知项目来源。
+	granular := sessionstore.NewSessionGranularStore(router)
+	granular.SetWorkspaceResolver(func(string) string { return "project-adapter" })
+	granular.SetProjectSource(func() []string { return []string{"project-adapter"} })
+	store := NewStorePort(granular)
 	record := SessionRecord{
 		ID:     "sess-adapter",
 		Kind:   KindSubagent,

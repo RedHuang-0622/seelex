@@ -64,13 +64,16 @@ go test ./application/core/session_runtime -count=1
 
 ### archive.go
 
-- `func (c *Coordinator) PersistCurrentSession(sessionID string) error` — PersistCurrentSession 把当前会话原子落盘：task 快照锁外收集（外部端口），
+- `func (c *Coordinator) PersistCurrentSession(location Location, sessionID string) error` — PersistCurrentSession 把指定会话原子落盘（阶段 0：显式 location 键 +
+- `func (c *Coordinator) allTranscriptEventsForSession(location Location, sessionID string, memory []model.TranscriptEvent) []model.TranscriptEvent` — allTranscriptEventsForSession 返回会话全量事件：磁盘持久化事件（全量读）
+- `func mergeTranscriptEventsBySeq(persisted, incoming []model.TranscriptEvent) []model.TranscriptEvent`
 - `func enrichTranscriptMessageIDs(events []model.TranscriptEvent, record model.SessionRecord)` — enrichTranscriptMessageIDs 建立 event-to-message 关联（模块化方案 §3.2）：
-- `func (c *Coordinator) mergeConversationMessages(existing, projected []model.Message) []model.Message`
 - `func (c *Coordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord`
+- `func (c *Coordinator) archivedConversationMessageLocked(sessionID string, message model.Message) model.Message` — archivedConversationMessageLocked 归档单条可见消息：超限工具结果/用户
+- `func (c *Coordinator) userInputResultRefLocked(sessionID, content string) string`
+- `func (c *Coordinator) conversationFromTranscriptLocked(events []model.TranscriptEvent) []model.Message` — conversationFromTranscriptLocked 从指定会话 transcript 事件重建可见对话
+- `func (c *Coordinator) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（会话路由引擎用 HistoryFor；无会话
 - `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.Mu；
-- `func (c *Coordinator) archivedConversationMessageLocked(message model.Message) model.Message`
-- `func (c *Coordinator) userInputResultRefLocked(content string) string`
 - `func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error)` — LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
 - `func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error)` — LoadSessionTranscript 读取会话 transcript 尾部窗口（预算 + 单元上限由
 - `func recordResumeHistory(record model.SessionRecord) []contract.EngineMessage`
@@ -91,9 +94,10 @@ go test ./application/core/session_runtime -count=1
 ### coordinator.go
 
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造会话域协调器；Tasks 由装配根注入
-- `func (c *Coordinator) SessionTitle() model.SessionTitle` — SessionTitle 返回会话标题（调用方持有 Core.Mu）。
-- `func (c *Coordinator) SetSessionTitleLocked(title model.SessionTitle)` — SetSessionTitleLocked 设置会话标题（调用方持有 Core.Mu）。
-- `func (c *Coordinator) TransitionLock() sync.Locker` — TransitionLock 返回会话切换互斥锁（BeginNewSession/ResumeSession/
+- `func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle` — SessionTitleFor 返回指定会话标题（调用方持有 Core.Mu；缺省回退活跃
+- `func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle)` — SetSessionTitleLocked 设置指定会话标题（调用方持有 Core.Mu）。
+- `func (c *Coordinator) UnloadSessionTitle(sessionID string)` — UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
+- `func (c *Coordinator) TransitionLock() sync.Locker` — TransitionLock 返回会话切换互斥（BeginNewSession/ResumeSession/
 - `func (c *Coordinator) BindView(view ViewPort)` — BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；
 - `func (c *Coordinator) StartCatalogRefresh()` — StartCatalogRefresh 启动会话目录刷新 worker：目录发现与标题恢复离开
 - `func (c *Coordinator) RequestCatalogRefresh()` — RequestCatalogRefresh 非阻塞唤醒目录刷新 worker。
@@ -138,6 +142,7 @@ go test ./application/core/session_runtime -count=1
 - `func (s *forkTestSessions) SetWorkspace(string)`
 - `func (s *forkTestSessions) Workspace() string`
 - `func (s *forkTestSessions) SaveSessionRecord(string, model.SessionRecord) error`
+- `func (s *forkTestSessions) SaveSessionRecordWorkspace(string, string, model.SessionRecord) error`
 - `func (s *forkTestSessions) LoadSessionRecord(string) (model.SessionRecord, error)`
 - `func (s *forkTestSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error)`
 - `func (s *forkTestSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
@@ -160,26 +165,52 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) HistoryContainsUser(history []contract.EngineMessage, content string) bool` — HistoryContainsUser 判定 provider 历史中是否存在指定 user 内容。
 - `func (c *Coordinator) TranscriptContainsUser(events []model.TranscriptEvent, content string) bool` — TranscriptContainsUser 判定 transcript 事件中是否存在指定 user 内容。
 
+### migration_test.go
+
+- `func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T)` — TestWorkspaceScopedDataReadableThroughSessionGranularStore（迁移测试）：
+- `func (s *granularPortTestSessions) SessionsOf(string) []model.SessionInfo`
+- `func (s *granularPortTestSessions) LoadHistory(string) ([]contract.EngineMessage, error)`
+- `func (s *granularPortTestSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)`
+- `func (s *granularPortTestSessions) Delete(string) error`
+- `func TestLoadSessionHistoryPrefersSessionGranularPort(t *testing.T)` — TestLoadSessionHistoryPrefersSessionGranularPort 验证 9.3.2 迁移：
+
 ### scope.go
 
 - `func (c *Coordinator) sessionCatalog() ([]model.SessionInfo, map[string]string)` — sessionCatalog 返回可见会话列表与工作区绑定发现结果。
-- `func (c *Coordinator) sessionName(location Location, scoped ScopedSessionPort) string`
-- `func (c *Coordinator) sessionNameFromTail(location Location, scoped ScopedSessionPort) string`
-- `func (c *Coordinator) InvalidateSessionName(sessionID string)` — InvalidateSessionName 删除会话标题缓存（删除/重命名后立即失效）。
-- `func (c *Coordinator) clearSessionNames()`
+- `func (c *Coordinator) sessionCatalogGranular(granular SessionGranularPort) ([]model.SessionInfo, map[string]string)` — sessionCatalogGranular 是会话粒度目录：项目 = 会话集合，项目索引直接
+- `func (c *Coordinator) sessionNameFromTail(granular SessionGranularPort, sessionID string) string` — sessionNameFromTail 从会话历史尾部窗口提取标题（会话粒度端口；
 - `func SessionTitleFromHistory(history []contract.EngineMessage, displayUserInput func(string) string) string` — SessionTitleFromHistory 从历史窗口内的首条可见 user 消息提取标题。
 - `func SessionTitle(input string) string` — SessionTitle 从输入首行提取会话标题（>48 rune 截断）。
 - `func (c *Coordinator) ShortSessionID(id string) string` — ShortSessionID 按 limits.session_name_runes 截断会话 ID 显示。
-- `func (c *Coordinator) allSessionLocations(scoped ScopedSessionPort) []Location`
+- `func (c *Coordinator) allProjectIDs() []string` — allProjectIDs 返回目录枚举的项目集合（空项目 = 当前 active scope + 全部
 - `func (c *Coordinator) LocateSession(sessionID string) Location` — LocateSession 定位会话（workspace 绑定优先；支持 scoped 读取时遍历全部
 - `func preferSessionLocation(candidate, current Location, boundWorkspaceID string) bool`
+- `func preferSessionInfo(candidate, current model.SessionInfo) bool`
 - `func WorkspaceID(workspace *model.WorkspaceInfo) string` — WorkspaceID 返回工作区指针的 ID（nil → ""）。
 - `func (c *Coordinator) LoadSessionHistory(location Location, sessionID string) ([]contract.EngineMessage, error)` — LoadSessionHistory 加载会话 provider 历史（scoped 端口优先；回退切换写
 - `func (c *Coordinator) LoadSessionHistoryRange(workspaceID, sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)` — LoadSessionHistoryRange 按偏移量窗口加载历史（scoped 端口优先）。
+- `func (c *Coordinator) loadGranularRecord(sessionID string) (model.SessionRecord, bool, error)` — loadGranularRecord 读取会话 record（会话粒度；不存在返回 false）。
 
 ### storage.go
 
 - `func (c *Coordinator) SessionStorageConfig() (sessionstore.Config, error)` — SessionStorageConfig 返回会话存储设置（可选能力：无 storage 端口报错）。
 - `func (c *Coordinator) TestSessionStorage(ctx context.Context, config sessionstore.Config) error` — TestSessionStorage 验证会话存储配置可用性（可选能力）。
 - `func (c *Coordinator) ConfigureSessionStorage(ctx context.Context, config sessionstore.Config) error` — ConfigureSessionStorage 应用会话存储配置并清空标题缓存（可选能力）。
+
+### transition_actor.go
+
+- `func NewSessionTransitionActor() *SessionTransitionActor` — NewSessionTransitionActor 启动切换互斥 actor（单 goroutine）。
+- `func (actor *SessionTransitionActor) loop()` — loop 是 actor 的唯一状态持有者：inFlight 与等待队列只在本 goroutine 内
+- `func (actor *SessionTransitionActor) Acquire()` — Acquire 阻塞直到获得切换互斥（FIFO；Close 后退化为无操作）。
+- `func (actor *SessionTransitionActor) Release()` — Release 释放切换互斥（未持有也可调用：空操作；Close 后同样安全）。
+- `func (actor *SessionTransitionActor) Close()` — Close 停止 actor goroutine（幂等）。契约：调用方须保证无活跃持有者；
+- `func (locker transitionLocker) Lock()`
+- `func (locker transitionLocker) Unlock()`
+
+### transition_actor_test.go
+
+- `func TestTransitionActorSerializesConcurrentAcquire(t *testing.T)` — TestTransitionActorSerializesConcurrentAcquire（无锁化语义）：并发
+- `func TestTransitionActorFIFOOrder(t *testing.T)` — TestTransitionActorFIFOOrder：等待者按请求顺序被授予（队列即等待队列）。
+- `func TestTransitionActorCloseReleasesGoroutine(t *testing.T)` — TestTransitionActorCloseReleasesGoroutine：Close 停止 actor goroutine，
+- `func TestTransitionLockerAdapter(t *testing.T)` — TestTransitionLockerAdapter：sync.Locker 适配层与现有调用方契约一致。
 

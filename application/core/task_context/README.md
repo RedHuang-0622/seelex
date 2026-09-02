@@ -98,6 +98,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) currentTaskServiceForLocked(sessionID string) *TaskService` — currentTaskServiceForLocked 返回指定会话当前任务的 TaskService；要求
 - `func (c *Coordinator) taskServiceForRequestLocked(requestID string) *TaskService` — taskServiceForRequestLocked 按 requestID 返回任务的 TaskService（未绑定
 - `func (c *Coordinator) RestoreSessionTaskLocked(restored RestoredTaskState)` — RestoreSessionTaskLocked 装载活跃会话恢复的任务/plan 状态（调用方持有
+- `func (c *Coordinator) RestoreSessionTaskLockedFor(sessionID string, restored RestoredTaskState)` — RestoreSessionTaskLockedFor 装载指定会话恢复的任务/plan 状态（调用方持有
 - `func (c *Coordinator) ResetForNewSessionLocked()` — ResetForNewSessionLocked 清空活跃会话任务/plan 状态（BeginNewSession /
 
 ### ctx.go
@@ -159,20 +160,32 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) BeginTask(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState` — BeginTask 为活跃会话当前请求创建任务执行状态与 TaskService（调用方持有
 - `func (c *Coordinator) BeginTaskFor(sessionID, requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState` — BeginTaskFor 为指定会话当前请求创建任务执行状态与 TaskService（调用方
 - `func (c *Coordinator) ContinuationSummary(requestID string) string` — ContinuationSummary 返回活跃会话当前任务的恢复摘要（requestID 不匹配 →
+- `func (c *Coordinator) ContinuationSummaryFor(sessionID, requestID string) string` — ContinuationSummaryFor 返回指定会话当前任务的恢复摘要（requestID 不匹配
 - `func (c *Coordinator) Transcript() []model.TranscriptEvent` — Transcript 返回活跃会话 append-only 事件。
 - `func (c *Coordinator) TranscriptFor(sessionID string) []model.TranscriptEvent` — TranscriptFor 返回指定会话 append-only 事件。
 - `func (c *Coordinator) PendingToolResults() []model.StoredToolResult` — PendingToolResults 返回活跃会话尚未随会话原子提交的工具结果。
+- `func (c *Coordinator) PendingToolResultsFor(sessionID string) []model.StoredToolResult` — PendingToolResultsFor 返回指定会话尚未随会话原子提交的工具结果。
 - `func (c *Coordinator) TaskCheckpoints() []model.TaskCheckpoint` — TaskCheckpoints 返回活跃会话任务 checkpoint 序列。
+- `func (c *Coordinator) TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint` — TaskCheckpointsFor 返回指定会话任务 checkpoint 序列。
 - `func (c *Coordinator) ToolResultRefs() []model.ToolResultRef` — ToolResultRefs 返回活跃会话工具结果引用表。
+- `func (c *Coordinator) ToolResultRefsFor(sessionID string) []model.ToolResultRef` — ToolResultRefsFor 返回指定会话工具结果引用表。
 - `func (c *Coordinator) ToolResultRefByCallID(callID string) string` — ToolResultRefByCallID 按工具调用 ID 查活跃会话结果引用（未找到 → ""）。
+- `func (c *Coordinator) ToolResultRefByCallIDFor(sessionID, callID string) string` — ToolResultRefByCallIDFor 按工具调用 ID 查指定会话结果引用（未找到 → ""）。
+- `func (c *Coordinator) CurrentRequestIDFor(sessionID string) string` — CurrentRequestIDFor 返回指定会话当前任务的请求 ID（无任务 → ""）。
+- `func (c *Coordinator) TaskStateFor(sessionID string) *model.TaskState` — TaskStateFor 返回指定会话当前任务的可见状态（会话归档用；后台会话收尾
 - `func (c *Coordinator) ResultRefsByCallID() map[string]string` — ResultRefsByCallID 返回活跃会话 callID → resultRef 全量拷贝（上下文拒绝
 - `func (c *Coordinator) ResultRefsByCallIDFor(sessionID string) map[string]string` — ResultRefsByCallIDFor 返回指定会话 callID → resultRef 全量拷贝。
 - `func (c *Coordinator) PlanStackFor(sessionID string) []model.SessionPlanFrame` — PlanStackFor 返回指定会话 plan 帧栈。
 - `func (c *Coordinator) SessionIDForRequest(requestID string) string` — SessionIDForRequest 按 requestID 反查会话 ID（未绑定 → 活跃会话）。
 - `func (c *Coordinator) ActivePlanProjectionLockedFor(sessionID string) *model.ActivePlanProjection` — ActivePlanProjectionLockedFor 返回指定会话激活 Plan 的只读投影（调用方
 - `func (c *Coordinator) SyncActivePlanFrameLocked(now time.Time)` — SyncActivePlanFrameLocked 把当前快照 Plan 收敛进活跃会话激活帧（调用方
+- `func (c *Coordinator) SyncActivePlanFrameLockedFor(sessionID string, now time.Time)` — SyncActivePlanFrameLockedFor 把当前快照 Plan 收敛进指定会话激活帧（调用
+- `func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time.Time)`
 - `func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time)` — PushLoadedPlanLocked 把 plan_load 参数追加为活跃会话新的激活帧（调用方
 - `func (c *Coordinator) RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)` — RemoveCommittedToolResultsLocked 清理活跃会话已随会话快照提交的待定工具
+- `func (c *Coordinator) RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult)` — RemoveCommittedToolResultsForLocked 清理指定会话已随会话快照提交的待定
+- `func (c *Coordinator) removeCommittedToolResultsLocked(st *sessionTaskRuntime, committed []model.StoredToolResult)`
+- `func (c *Coordinator) UnloadSessionState(sessionID string)` — UnloadSessionState 释放指定会话的任务/plan 运行时状态（阶段 2 生命周期；
 - `func (c *Coordinator) TokenCounterName() string` — TokenCounterName 返回当前 token 计数器标识。
 - `func (c *Coordinator) CountRequestTokens(systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool) int` — CountRequestTokens 估算一次完整请求 token 数。
 - `func (c *Coordinator) CountTextTokens(value string) int` — CountTextTokens 估算文本 token 数。

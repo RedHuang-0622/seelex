@@ -1544,7 +1544,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .chat-chip-hint { flex: none; color: var(--faint); font-style: italic; }
 .chat-chip:hover .chat-chip-hint { color: var(--accent); }
 
-/* ---------- 轨迹上下文轴（类 Network Overview，横轴=对话顺序+体量） ---------- */
+/* ---------- 轨迹上下文轴（多线谱分轨，横轴=对话顺序+体量） ---------- */
 .trajectory-axis { padding: 0 0 10px; }
 .context-axis {
   padding: 8px 10px 9px;
@@ -1563,26 +1563,68 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .context-axis-head strong { color: var(--text-soft); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 .context-axis-head span { color: var(--faint); font: 10px var(--font-mono); }
 .context-axis-track {
-  display: flex;
-  gap: 1px;
-  height: 26px;
-  padding: 2px;
+  display: grid;
+  gap: 2px;
+  padding: 5px 7px 6px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
   background: var(--code-bg);
+}
+.context-axis-lane {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+}
+.axis-lane-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--faint);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .05em;
+  white-space: nowrap;
+}
+.axis-lane-label span { overflow: hidden; text-overflow: ellipsis; }
+.context-axis-lane .axis-lane-label .icon { color: var(--status-info); }
+.context-axis-lane.is-llm .axis-lane-label .icon { color: var(--status-done); }
+.context-axis-lane.is-error .axis-lane-label .icon { color: var(--status-failed); }
+.context-axis-lane.is-notice .axis-lane-label .icon { color: var(--status-idle); }
+.context-axis-lane.is-empty { opacity: .55; }
+.context-axis-lane.is-empty .axis-lane-bar::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  left: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--tick);
+  opacity: .5;
+}
+.axis-lane-bar {
+  position: relative;
+  height: 14px;
+  border-radius: 2px;
   overflow: hidden;
 }
 .axis-segment {
+  --x: 0%;
   --w: 1%;
-  flex: 0 0 var(--w);
-  min-width: 3px;
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: var(--x);
+  width: var(--w);
+  min-width: 2px;
   padding: 0 4px;
   border: 0;
   border-radius: 2px;
   color: transparent;
   background: var(--tint-info);
   font: 9px var(--font-mono);
-  line-height: 26px;
+  line-height: 12px;
   overflow: hidden;
   white-space: nowrap;
   text-align: left;
@@ -1594,15 +1636,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .axis-segment.is-llm { background: var(--tint-done); }
 .axis-segment.is-error { background: var(--tint-failed); }
 .axis-segment.is-notice { background: var(--tint-info); opacity: .75; }
-.axis-segment:hover { color: var(--text); outline: 1px solid var(--accent); outline-offset: -1px; }
+.axis-segment:hover { z-index: 1; color: var(--text); outline: 1px solid var(--accent); outline-offset: -1px; }
 .axis-segment:hover span { color: var(--text-soft); }
 .axis-segment span { display: block; overflow: hidden; text-overflow: ellipsis; }
-.context-axis-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 7px; color: var(--faint); font: 9px var(--font-mono); }
-.axis-legend-item { display: inline-flex; align-items: center; gap: 4px; }
-.axis-legend-item.is-input, .axis-legend-item.is-tool { color: var(--status-info); }
-.axis-legend-item.is-llm { color: var(--status-done); }
-.axis-legend-item.is-error { color: var(--status-failed); }
-.axis-legend-item.is-notice { color: var(--faint); }
 .context-axis-empty {
   padding: 10px;
   border: 1px dashed var(--border);
