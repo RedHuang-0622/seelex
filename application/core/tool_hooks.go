@@ -15,10 +15,13 @@ import (
 
 func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string) {
 	sessionID := sessionIDFromContext(ctx)
-	service.Mu.RLock()
-	activeRequestID := service.Core.Snapshot.Chat.RequestID
-	service.Mu.RUnlock()
-	service.flushStreamBatcher(activeRequestID)
+	if sessionID == "" {
+		service.Mu.RLock()
+		sessionID = service.Core.Snapshot.Session.ID
+		service.Mu.RUnlock()
+	}
+	// 先落地本会话未交付的流式文本（工具消息之前），与活跃视图无关。
+	service.flushStreamBatcherFor(sessionID)
 	service.Mu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
 	if sessionID == "" {
@@ -60,6 +63,11 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 		revision = service.bumpLocked()
 	}
 	requestID := service.Core.Snapshot.Chat.RequestID
+	if !active {
+		if task := service.components.tasks.CurrentTaskExecutionFor(sessionID); task != nil {
+			requestID = task.RequestID
+		}
+	}
 	service.Mu.Unlock()
 	if planBinding != nil {
 		service.Deps.Runtime.SetPlanBranchBinding(*planBinding)
@@ -100,11 +108,13 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 		}
 	}
 	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		service.Mu.RLock()
+		sessionID = service.Core.Snapshot.Session.ID
+		service.Mu.RUnlock()
+	}
 	emit("toolhook.complete.flush.start")
-	service.Mu.RLock()
-	activeRequestID := service.Core.Snapshot.Chat.RequestID
-	service.Mu.RUnlock()
-	service.flushStreamBatcher(activeRequestID)
+	service.flushStreamBatcherFor(sessionID)
 	emit("toolhook.complete.flush.done")
 	runtimeProjection := service.collectRuntimeProjection(context.Background())
 	emit("toolhook.complete.lock.start")

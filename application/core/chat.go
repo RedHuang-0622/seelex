@@ -454,11 +454,12 @@ func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatch
 		service.appendVisibleDelta(requestID, strings.Join(batch, ""))
 	}, chat.StreamBatcherOptions{FlushSize: 32, BufferSize: 128, Interval: 40 * time.Millisecond})
 	service.Mu.Lock()
-	if service.Core.Snapshot.Chat.RequestID == requestID {
-		if sessionID := service.components.tasks.SessionIDForRequest(requestID); sessionID != "" {
-			if unit := service.sessions.Unit(sessionID); unit != nil {
-				unit.SetBatcher(batcher)
-			}
+	// batcher 一律挂到所属会话单元（不再只看活跃快照 requestID）：后台会话
+	// 流式文本也必须能在工具钩子边界被按会话 flush，否则视图切到运行中会话
+	// 后，缓冲文本会在工具消息之后才落地（排序混乱）。
+	if sessionID := service.components.tasks.SessionIDForRequest(requestID); sessionID != "" {
+		if unit := service.sessions.Unit(sessionID); unit != nil {
+			unit.SetBatcher(batcher)
 		}
 	}
 	service.Mu.Unlock()
@@ -469,19 +470,21 @@ func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatch
 	}
 }
 
-func (service *Service) flushStreamBatcher(requestID string) {
-	service.Mu.Lock()
-	sessionID := service.components.tasks.SessionIDForRequest(requestID)
+// flushStreamBatcherFor 把指定会话的流式缓冲同步落地（工具钩子边界调用：
+// 文本必须先于工具消息进入可见会话，保持「文本 → 工具 → 结果 → 下一条
+// 文本」顺序）。目标会话即工具所在会话，与活跃视图无关。
+func (service *Service) flushStreamBatcherFor(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	service.Mu.RLock()
 	var batcher session.StreamBatcherSink
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		batcher = unit.BatcherSink()
 	}
-	active := sessionID == service.Core.Snapshot.Session.ID && service.Core.Snapshot.Chat.RequestID == requestID
-	service.Mu.Unlock()
+	service.Mu.RUnlock()
 	if batcher != nil {
-		if active {
-			_ = batcher.FlushPending()
-		}
+		_ = batcher.FlushPending()
 	}
 }
 

@@ -135,11 +135,10 @@ func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeState
 func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjection) {
 	plan := c.Snapshot.Runtime.Plan
 	account := c.Snapshot.Runtime.Account
-	// 草稿视图守卫：当前处于"新建会话"草稿时，后台会话/调度器/runtime 变更
-	// 不得把快照会话 ID 改回运行中的会话（否则草稿会被"顶掉"）。
-	if !c.Snapshot.Session.Draft {
-		c.Snapshot.Session.ID = projection.SessionID
-	}
+	// 视图会话身份解耦：Snapshot.Session.ID 只由装配/物化/恢复/热挂载/卸载
+	// 路径显式设置，绝不随引擎活跃别名（projection.SessionID）被覆写——否则
+	// 热挂载运行中会话后，引擎旧别名会在下一次 runtime 投影时把视图顶回旧
+	// 会话（工具/LLM 事件串会话、视图表现混乱、动态更新丢失）。
 	c.Snapshot.Runtime = projection.Runtime
 	c.Snapshot.Runtime.Plan = plan
 	c.Snapshot.Runtime.Account = account
