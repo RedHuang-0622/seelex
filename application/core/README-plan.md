@@ -14,7 +14,9 @@ Plan 打点/分支事件/重规划
 - `func (service *Service) updatePlanFromLoad(argsJSON string)` — updatePlanFromLoad 从 plan_load 的参数 JSON 初始化 PlanState。
 - `func (service *Service) updatePlanFromRunResult(resultJSON string)` — updatePlanFromRunResult 从 plan_run 返回的 JSON 更新 PlanState。
 - `func resolveNodeStatus(nodes []struct { NodeID string `json:"node_id"` Kind string `json:"kind"` Status string `json:"status"` Output string `json:"output,omitempty"` Skipped bool `json:"skipped"` Aborted bool `json:"aborted"` StartedAt string `json:"started_at,omitempty"` EndedAt string `json:"ended_at,omitempty"` }, nodeID string) NodeStatus` — resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。
-- `func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent)` — HandlePlanNodeComplete 是 plan 执行事实的投影订阅（由 Runtime 经
+- `func (service *Service) planProjectionLocked(sessionID string) *PlanState` — HandlePlanNodeComplete 是 plan 执行事实的投影订阅（由 Runtime 经
+- `func (service *Service) planEventSession(event dto.PlanNodeEvent) string` — planEventSession 解析 plan 事件归属会话：优先事件自带 sid，缺失回退当前。
+- `func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent)`
 - `func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent)` — HandlePlanBranchEvent 应用来自桥接层的分支生命周期迁移，并向两端前端发布
 - `func mapKindForDisplay(kind string) string` — mapKindForDisplay 将框架节点 kind 映射为 seelex PlanNode 展示值。
 - `func isTerminalNodeStatus(status string) bool` — isTerminalNodeStatus 判定节点状态是否为终态（checkpoint 只对终态生效）。

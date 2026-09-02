@@ -33,6 +33,7 @@
 ### error_presentation_test.go
 
 - `func (failingSnapshotSessions) SaveSessionSnapshot(string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error`
+- `func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error`
 - `func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T)`
 - `func TestClassifyStructuredErrorsByCode(t *testing.T)` — TestClassifyStructuredErrorsByCode 验证 slice 8 的结构化错误分类
 - `func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T)`

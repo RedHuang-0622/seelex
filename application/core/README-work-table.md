@@ -21,11 +21,13 @@
 - `func formatWorkDuration(duration time.Duration) string`
 - `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.Mu 持锁时重建工作表格投影。
 - `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
-- `func (state *serviceState) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
+- `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
-- `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 把 plan 节点与子代理树的生命周期投影进 task 注册表
-- `func (service *Service) syncPlanNodeTask(node PlanNode, parentID string)`
-- `func (service *Service) syncSubagentTask(node dto.SubAgentTreeNode, parentID string)`
+- `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
+- `func (service *Service) syncTasksFromSourcesFor(sessionID string)` — syncTasksFromSourcesFor 把指定会话的 plan 节点与子代理树生命周期投影进该
+- `func (service *Service) sessionActivePlanLocked(sessionID string) *PlanState` — sessionActivePlanLocked 返回指定会话当前 plan 投影：活跃会话读 Snapshot 镜像，
+- `func (service *Service) syncPlanNodeTask(sessionID string, node PlanNode, parentID string)`
+- `func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
 - `func taskStatusForNode(status NodeStatus) dto.TaskStatus`
 - `func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus`
 - `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 构建打点表标记块：只含未终态任务

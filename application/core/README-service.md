@@ -13,6 +13,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func New(deps Dependencies) (*Service, error)`
 - `func (service *Service) ActiveSkillIDs() []string` — ActiveSkillIDs 返回当前任务的激活 skill ID 列表（goal skill 激活判定用，
+- `func (service *Service) PromptLayers() []PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
 - `func (service *Service) GoalSkillActive() bool` — GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
 - `func (service *Service) PublishRuntimeProjections()` — PublishRuntimeProjections 刷新 Runtime 的不可变状态副本。供在
 - `func (service *Service) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)` — SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 只读事件通道
@@ -40,6 +41,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestGracefulShutdownWaitsForQueuedChat(t *testing.T)`
 - `func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T)`
 - `func TestCancelChatInterruptsContextAwareEngine(t *testing.T)`
+- `func TestCancelChatWithStaleRequestID(t *testing.T)` — TestCancelChatWithStaleRequestID 验证取消语义归属：request_id 只是参考，动作
 
 ### service_components_test.go
 
@@ -51,6 +53,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (engine *sessionBackedBlockingEngine) SessionBacked() bool`
 - `func (engine *sessionBackedBlockingEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *sessionBackedBlockingEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 显式转发到自身 ChatStream（覆盖内嵌 fakeEngine 的提升方法，
 - `func (sessions *blockingSaveSessions) SaveCurrent(string) error`
 - `func (engine *fakeEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (engine *fakeEngine) History() []EngineMessage`
@@ -70,6 +73,14 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (engine *fakeEngine) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)`
 - `func (engine *fakeEngine) SubAgentTree() []dto.SubAgentTreeNode`
 - `func (engine *fakeEngine) ReleaseWorkingHistory()`
+- `func (engine *fakeEngine) ReleaseWorkingHistoryFor(sessionID string)`
+- `func (engine *fakeEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *fakeEngine) HistoryFor(sessionID string) []EngineMessage`
+- `func (engine *fakeEngine) AppendHistoryFor(sessionID string, msg types.Message)`
+- `func (engine *fakeEngine) ClearHistoryFor(sessionID string)`
+- `func (engine *fakeEngine) SetSystemPromptFor(sessionID, prompt string)`
+- `func (engine *fakeEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error`
+- `func (engine *fakeEngine) HasSession(sessionID string) bool`
 - `func (*fakeRuntime) Model() string`
 - `func (*fakeRuntime) Provider() string`
 - `func (*fakeRuntime) Accounts() []AccountInfo`
@@ -88,14 +99,21 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) TodoSnapshot() []dto.TodoItem`
 - `func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) error`
 - `func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord`
+- `func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord`
+- `func (runtime *fakeRuntime) snapshotLocked() []dto.TaskRecord`
 - `func (runtime *fakeRuntime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)`
+- `func (runtime *fakeRuntime) addTaskLocked(spec dto.TaskSpec) (dto.TaskRecord, bool, error)`
+- `func (runtime *fakeRuntime) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error)`
 - `func (runtime *fakeRuntime) ResolveTaskByKey(key string) (dto.TaskRecord, bool, error)`
+- `func (runtime *fakeRuntime) ResolveTaskByKeyFor(sessionID, key string) (dto.TaskRecord, bool, error)`
 - `func (runtime *fakeRuntime) TaskSetStatus(id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)`
+- `func (runtime *fakeRuntime) TaskSetStatusFor(sessionID, id string, status dto.TaskStatus, evidence string) (dto.TaskRecord, error)`
 - `func (runtime *fakeRuntime) TaskAttachParticipant(id, participant string) (dto.TaskRecord, error)`
 - `func (*fakeRuntime) TaskChangedChannel() <-chan dto.TaskRecord`
 - `func (*fakeRuntime) SubagentTreeEvents() <-chan struct`
 - `func (*fakeRuntime) PlanNodeEventChannel() <-chan dto.PlanNodeEvent`
-- `func (runtime *fakeRuntime) SwitchSessionTasks(records []dto.TaskRecord)`
+- `func (runtime *fakeRuntime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord)`
+- `func (runtime *fakeRuntime) SetSessionWorkspace(sessionID, workspaceID string)`
 - `func (runtime *fakeRuntime) ScheduledCommands() []seelebridge.ScheduledCommandInfo`
 - `func (runtime *fakeRuntime) ScheduledTasksSnapshot() []seelebridge.ScheduledTaskStatus`
 - `func (runtime *fakeRuntime) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)`
@@ -105,7 +123,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error)`
 - `func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error`
 - `func (runtime *fakeRuntime) UnbindProjectRoot()`
-- `func (runtime *fakeRuntime) SetCurrentTaskBatch(batchID string)` — SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
+- `func (runtime *fakeRuntime) SetCurrentTaskBatch(sessionID, batchID string)` — SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
 - `func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool`
 - `func (*fakePlugins) All() []PluginInfo`
 - `func (plugins *fakePlugins) Activate(_ context.Context, name string) error`
@@ -129,11 +147,12 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (sessions *scopedSessions) Workspace() string`
 - `func (sessions *scopedSessions) SaveCurrent(sessionID string) error`
 - `func (sessions *scopedSessions) SavedIDs() []string`
-- `func (sessions *scopedSessions) ListWorkspace(workspaceID string) []SessionInfo`
+- `func (sessions *scopedSessions) SessionsOf(projectID string) []SessionInfo` — SessionsOf 实现 session_runtime.SessionGranularPort：按项目索引枚举会话。
 - `func (sessions *scopedSessions) LoadedWorkspace() string`
-- `func (sessions *scopedSessions) LoadHistoryWorkspace(workspaceID, sessionID string) ([]EngineMessage, error)`
-- `func (sessions *scopedSessions) LoadHistoryRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]EngineMessage, int, error)`
-- `func (sessions *scopedSessions) DeleteWorkspace(workspaceID, sessionID string) error`
+- `func (sessions *scopedSessions) resolveWorkspaceFor(sessionID string) (string, []EngineMessage, bool)` — resolveWorkspaceFor 返回会话历史所在 workspace（扫描 histories；未找到
+- `func (sessions *scopedSessions) LoadHistory(sessionID string) ([]EngineMessage, error)` — LoadHistory 实现 SessionGranularPort：读取会话历史（会话粒度键；workspace
+- `func (sessions *scopedSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)` — LoadHistoryRange 实现 SessionGranularPort：按窗口读取会话历史。
+- `func (sessions *scopedSessions) Delete(sessionID string) error` — Delete 实现 SessionGranularPort：从全部项目索引删除会话。
 - `func newFakeWorkspace() *fakeWorkspace`
 - `func (repo *fakeWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error)`
 - `func (repo *fakeWorkspace) Get(id string) (WorkspaceInfo, error)`
@@ -155,6 +174,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (*sessionBackedEngine) SessionBacked() bool`
 - `func newGracefulShutdownEngine() *gracefulShutdownEngine`
 - `func (engine *gracefulShutdownEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *gracefulShutdownEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 显式转发到自身 ChatStream（覆盖内嵌 fakeEngine 的提升方法，
 - `func waitForChatCompletion(t *testing.T, service *Service)` — waitForChatCompletion 轮询直到当前 chat 结束。
 
 ### service_input.go
@@ -170,7 +190,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error` — submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 - `func (service *Service) BeginGracefulShutdown()` — BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
 - `func (service *Service) WaitForIdle(ctx context.Context) error` — WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
-- `func (service *Service) CancelChat(requestID string) bool`
+- `func (service *Service) CancelChat(requestID string) bool` — CancelChat 取消当前视图会话正在运行的回合。
 - `func (service *Service) Shutdown()`
 
 ### service_input_test.go
@@ -228,6 +248,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
 - `func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
 - `func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message`
+- `func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message` — appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
+- `func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState)` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
+- `func (service *Service) mirrorActiveViewLocked()` — mirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot。
+- `func (service *Service) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
+- `func (service *Service) recordReadFileForSessionLocked(sessionID, arguments string)` — recordReadFileForSessionLocked 记录指定会话的 read 文件引用（阶段 1：
 - `func (service *Service) bumpLocked() uint64`
 - `func (service *Service) addNotice(notice string)`
 - `func (service *Service) AddNotice(notice string)` — AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布

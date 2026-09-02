@@ -14,6 +14,7 @@
 - `func (sessions *archiveSessions) SaveCurrent(string) error`
 - `func (sessions *archiveSessions) LoadHistory(string) ([]EngineMessage, error)`
 - `func (sessions *archiveSessions) SaveSessionRecord(_ string, record SessionRecord) error`
+- `func (sessions *archiveSessions) SaveSessionRecordWorkspace(_ string, _ string, record SessionRecord) error`
 - `func (sessions *archiveSessions) LoadSessionRecord(string) (SessionRecord, error)`
 - `func (sessions *archiveSessions) LoadSessionRecordWorkspace(string, string) (SessionRecord, error)`
 - `func (sessions *archiveSessions) LoadTranscriptTailWorkspace(_, _ string, tokenBudget, maxUnits int) ([]TranscriptEvent, error)`
@@ -28,7 +29,7 @@
 - `func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T)`
 - `func historyContainsAssistant(history []EngineMessage, content string) bool`
 - `func TestBoundConversationTailKeepsOnlyConfiguredVariableHeightWindow(t *testing.T)`
-- `func TestPersistSessionRecordMergesBoundedProjectionWithFullHistory(t *testing.T)`
+- `func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T)`
 - `func TestSessionRecordStoresLargeContentByReference(t *testing.T)`
 - `func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T)`
 - `func TestToolResultPaginationMakesProgressAcrossUTF8Boundaries(t *testing.T)`
@@ -43,6 +44,17 @@
 - `func withSessionID(ctx context.Context, sessionID string) context.Context` — withSessionID 把会话 ID 注入 ctx（runChat 执行路径）。Seele ReActLoop 会
 - `func sessionIDFromContext(ctx context.Context) string` — sessionIDFromContext 返回 ctx 中的会话 ID；未注入时返回 ""。
 
+### session_decoupling_test.go
+
+- `func TestCoreHoldsNoSessionContainerFields(t *testing.T)` — TestCoreHoldsNoSessionContainerFields（T2.4 编译断言）：core 门面不再
+- `func assertNoSessionContainerField(t *testing.T, typ reflect.Type)`
+- `func isSessionContainerType(typ reflect.Type) bool`
+- `func TestEventFingerprintStable(t *testing.T)` — TestEventFingerprintStable（P5 事件指纹回归）：相同输入序列驱动两次
+- `func runFingerprintScenario(t *testing.T) []string` — runFingerprintScenario 装配一次性服务并驱动单次对话，返回归一化事件
+- `func messageIDFromPayload(raw json.RawMessage) string`
+- `func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T)`
+- `func containsText(value, sub string) bool`
+
 ### session_draft.go
 
 - `func (service *Service) BeginNewSession() error` — BeginNewSession 进入幂等、未持久化的草稿状态。引擎会话只在第一条真实
@@ -53,12 +65,14 @@
 - `func (service *Service) ForkSession(parentID string, request model.ForkRequest) (string, error)` — ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
 - `func (service *Service) ForkSessionLatest(parentID string) (string, error)` — ForkSessionLatest 从父会话最新完整段落边界创建独立子会话并切换到子会话
 - `func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error)` — forkSessionLocked 在持有会话切换锁时执行 fork 落盘：解析切断点 → 构建
+- `func deepCopyForkRecord(record model.SessionRecord) model.SessionRecord` — deepCopyForkRecord 深拷贝 fork 子会话 record：Conversation 消息（含
 
 ### session_fork_test.go
 
 - `func (s *forkServiceSessions) LoadSessionRecord(string) (SessionRecord, error)`
 - `func (s *forkServiceSessions) LoadSessionRecordWorkspace(_, sessionID string) (SessionRecord, error)`
 - `func (s *forkServiceSessions) SaveSessionRecord(string, SessionRecord) error`
+- `func (s *forkServiceSessions) SaveSessionRecordWorkspace(string, string, SessionRecord) error`
 - `func (s *forkServiceSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
 - `func (s *forkServiceSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)`
 - `func (s *forkServiceSessions) SaveSessionSnapshotWorkspace(projectID, sessionID string, history []EngineMessage, record SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult) error`
@@ -68,6 +82,8 @@
 - `func TestForkSessionCreatesAndSwitchesToChild(t *testing.T)`
 - `func TestForkSessionLatestResolvesNewestParagraph(t *testing.T)`
 - `func TestForkCommandForksCurrentSession(t *testing.T)`
+- `func TestForkSessionDeepCopyIsolation(t *testing.T)` — TestForkSessionDeepCopyIsolation（T2.7）：fork 子会话 record 与父数据面
+- `func TestForkSessionRejectsRunningParent(t *testing.T)` — TestForkSessionRejectsRunningParent（UC5）：父会话运行中拒绝 fork。
 
 ### session_history.go
 
@@ -77,6 +93,27 @@
 - `func adaptEngineMessage(msg EngineMessage) Message`
 - `func isVisibleHistoryMessage(message EngineMessage) bool`
 
+### session_lifecycle.go
+
+- `func (service *Service) hotAttachSession(sessionID string) error` — hotAttachSession 热加载：目标会话已驻留（引擎实例在内存，含运行中），
+- `func (service *Service) UnloadSession(sessionID string) error` — UnloadSession 卸载会话：先持久化（非活跃时），再释放内存态（引擎实例、
+
+### session_lifecycle_test.go
+
+- `func TestResumeRunningSessionAllowsHotAttach(t *testing.T)` — TestResumeRunningSessionAllowsHotAttach（TC-A3-01 新语义）：运行中会话
+- `func TestHotAttachDoesNotTouchRunningSession(t *testing.T)` — TestHotAttachDoesNotTouchRunningSession（TC-A3-02）：B 活跃、A 后台运行中
+- `func TestHotAttachNoReplay(t *testing.T)` — TestHotAttachNoReplay（TC-LC-02）：空闲驻留会话 resume 只换指针，不重建
+- `func TestUnloadReleasesScope(t *testing.T)` — TestUnloadReleasesScope（TC-LC-03）：unload 释放会话内存态（chat 运行态、
+- `func TestUnloadRejectsRunningSession(t *testing.T)` — TestUnloadRejectsRunningSession（阶段 D · 卸载/提交互斥）：unload 与 submit
+- `func containsMessageContent(messages []Message, needle string) bool`
+- `func conversationTextsForTest(conversation []Message) []string`
+
+### session_meta.go
+
+- `func (service *Service) metaPort() (session.SessionMetaPort, bool)` — metaPort 返回会话端口的可选展示元数据扩展。
+- `func (service *Service) SetSessionMeta(sessionID string, meta SessionMeta) error` — SetSessionMeta 写单个会话的展示元数据，随后唤醒目录刷新让所有客户端重拉。
+- `func (service *Service) SessionMeta(sessionID string) (SessionMeta, error)` — SessionMeta 读取单个会话的展示元数据（未装配元数据存储时返回
+
 ### session_parallel_test.go
 
 - `func debugLog(format string, args ...any)` — debugLog 是 SEELEX_TEST_DEBUG=1 门控的临时诊断日志（复跑噪音点时用，
@@ -84,6 +121,7 @@
 - `func dumpParallelState(service *Service, engine *multiSessionEngine, ids ...string) string` — dumpParallelState 汇总 service + engine 双侧状态，供失败断点输出。
 - `func newMultiSessionEngine() *multiSessionEngine`
 - `func (e *multiSessionEngine) register(sessionID string)` — register 注册一个已加载会话（模拟 fork/resume 后的子会话）。
+- `func (e *multiSessionEngine) UnloadSession(sessionID string) error` — UnloadSession 释放指定会话的引擎状态（阶段 2 生命周期）。
 - `func (e *multiSessionEngine) debugSnapshot(sessionIDs ...string) string` — debugSnapshot 返回引擎侧诊断快照（断点现场；自动加锁）。
 - `func (e *multiSessionEngine) HasSession(sessionID string) bool`
 - `func (e *multiSessionEngine) StartSession() string`
@@ -106,16 +144,35 @@
 - `func TestParallelSessionsExecuteConcurrently(t *testing.T)` — TestParallelSessionsExecuteConcurrently 验证 M2 核心语义：活跃会话运行中，
 - `func TestParallelSessionsQueuedPerSession(t *testing.T)` — TestParallelSessionsQueuedPerSession 验证每个会话维护自己的输入队列：A 运行
 
+### session_pollution_s0_test.go
+
+- `func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T)`
+
+### session_race_test.go
+
+- `func TestSnapshotBumpConcurrentWithRunChatTail(t *testing.T)` — TestSnapshotBumpConcurrentWithRunChatTail（TC-R-02）：并发 Submit（触发
+- `func TestReleaseWorkingHistoryConcurrentWithChatStream(t *testing.T)` — TestReleaseWorkingHistoryConcurrentWithChatStream（TC-R-03）：收尾清工作
+
+### session_resource_isolation_test.go
+
+- `func TestSessionDomainsDisjoint(t *testing.T)` — TestSessionDomainsDisjoint（TC-INV-01）：A 与 B 的 M/X/R 状态域无共享，
+- `func TestViewSwitchDoesNotMutateExecution(t *testing.T)` — TestViewSwitchDoesNotMutateExecution（TC-INV-02）：切到 B 只换视图指针，
+- `func TestPersistReadsOnlyOwnDomain(t *testing.T)` — TestPersistReadsOnlyOwnDomain（TC-INV-03）：快照/活跃槽全是 B 时，
+
 ### session_scope.go
 
-- `func (service *Service) chatRuntimeLocked(sessionID string) *session.ChatRuntime` — chatRuntimeLocked 返回指定会话的聊天运行态（会话域单元，按需创建）。调用方必须
+- `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) anyChatRunningLocked() bool` — anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
-- `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态镜像到权威 Snapshot
+- `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态写入会话 view（阶段 1：
+- `func queuedChatRequests(requests []session.QueuedRequest) []chatRequest` — queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的
+- `func (service *Service) activeQueuedChatRequestsLocked() []chatRequest` — activeQueuedChatRequestsLocked 返回当前会话域的排队输入（还原为执行内核
 - `func (service *Service) publishSessionEvent(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) event.Event` — publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
+- `func (service *Service) publishChatStateFor(sessionID string)` — publishChatStateFor 下发指定会话的权威聊天运行态（chat.changed）。运行/排队
+- `func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool` — bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
 - `func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error` — SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃
 - `func (service *Service) sessionLoaded(sessionID string) bool` — sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
 - `func (service *Service) ActivateSession(sessionID string) error` — ActivateSession 切换当前展示/执行会话。M1 没有每会话驻留快照，切换即
-- `func (service *Service) SnapshotOf(sessionID string) (Snapshot, error)` — SnapshotOf 返回指定会话的权威快照。M1 只有活跃会话有驻留快照，其它
+- `func (service *Service) SnapshotOf(sessionID string) (Snapshot, error)` — SnapshotOf 返回指定会话的权威快照：活跃会话直接返回 Snapshot()；其它
 - `func (service *Service) SubscribeSession(sessionID string, buffer int) (Subscription, error)` — SubscribeSession 返回按会话过滤的事件订阅（只投递该会话或全局事件）。
 
 ### session_scope_test.go
@@ -128,11 +185,23 @@
 - `func TestChatEventsCarrySessionID(t *testing.T)` — TestChatEventsCarrySessionID 验证 chat 生命周期事件携带会话路由键。
 - `func TestSubscribeSessionFiltersBySessionID(t *testing.T)` — TestSubscribeSessionFiltersBySessionID 验证会话级订阅只投递目标会话
 
+### session_status_test.go
+
+- `func (sessions *liveCatalogSessions) SessionsOf(string) []SessionInfo`
+- `func (sessions *liveCatalogSessions) setInfos(infos []SessionInfo)`
+- `func catalogStatusOf(t *testing.T, service *Service, sessionID string) SessionStatus` — catalogStatusOf 返回会话在 Snapshot 目录中的可见状态（等待目录刷新）。
+- `func TestSessionStatusReflectsRunningWhileChatActive(t *testing.T)` — TestSessionStatusReflectsRunningWhileChatActive（状态机回归）：chat 启动
+- `func TestSwitchToRunningSessionPreservesState(t *testing.T)` — TestSwitchToRunningSessionPreservesState（T4.5/运行中切换）：A 运行中切到
+
 ### session_storage.go
 
 - `func (service *Service) SessionStorageConfig() (sessionstore.Config, error)`
 - `func (service *Service) TestSessionStorage(ctx context.Context, config sessionstore.Config) error`
 - `func (service *Service) ConfigureSessionStorage(ctx context.Context, config sessionstore.Config) error`
+
+### session_stress_test.go
+
+- `func TestStressConcurrentSessionsDoNotPollute(t *testing.T)`
 
 ### session_switch_deadlock_test.go
 
@@ -143,3 +212,15 @@
 - `func TestQueueSendDuringSessionSwitchRepro(t *testing.T)` — TestQueueSendDuringSessionSwitchRepro 场景 3：运行中切换与入队并发（-race 检测）。
 - `func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T)` — TestDraftSlotRetainedAcrossSwitchRepro 验证草稿槽位：切换会话后草稿仍在
 - `func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T)` — TestBeginNewSessionAllowedWhileChattingRepro 验证运行中允许进入草稿：
+
+### session_switch_dynamics_test.go
+
+- `func newChunkCaptureEngine() *chunkCaptureEngine`
+- `func (engine *chunkCaptureEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *chunkCaptureEngine) emit(sessionID, chunk string)` — emit 向指定会话进行中的 ChatStream 注入一个文本块（会话未启动时静默
+- `func viewRoles(service *Service, sessionID string) []string` — viewRoles 返回指定会话可见对话的角色序列（含文本内容），用于断言顺序。
+- `func indexOf(roles []string, prefix string) int` — indexOf 返回序列中首个以 prefix 开头的下标；不存在返回 -1。
+- `func TestToolOrderingStableAfterSwitchToRunningSession(t *testing.T)` — TestToolOrderingStableAfterSwitchToRunningSession 复现「切换运行中会话后
+- `func TestBackgroundToolEventsCarryOwnRequestID(t *testing.T)` — TestBackgroundToolEventsCarryOwnRequestID 复现后台会话工具事件携带活跃
+- `func TestSubmitPromptWhileOtherSessionRuns(t *testing.T)` — TestSubmitPromptWhileOtherSessionRuns 复现输入阻塞：A 运行中（引擎阻塞），
+- `func TestDeltasKeepFlowingAfterSwitchToRunningSession(t *testing.T)` — TestDeltasKeepFlowingAfterSwitchToRunningSession 回归守卫：切到运行中
