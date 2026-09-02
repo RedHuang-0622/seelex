@@ -20,20 +20,28 @@ const (
 	EventSubagentToolStarted   EventKind = "subagent.tool.started"
 	EventSubagentToolCompleted EventKind = "subagent.tool.completed"
 	EventRuntimeChanged        EventKind = "runtime.changed"
-	EventWorkTableChanged      EventKind = "worktable.changed"
-	EventTaskChanged           EventKind = "task.changed"
-	EventInteractionOpened     EventKind = "interaction.opened"
-	EventInteractionClosed     EventKind = "interaction.closed"
-	EventError                 EventKind = "error"
-	EventResyncRequired        EventKind = "resync.required"
-	EventExitRequested         EventKind = "app.exit_requested"
+	// EventChatChanged 下发会话权威聊天运行态（ChatState 载荷）：运行/排队是
+	// 后端口径，客户端不得从"收到增量事件"反推。
+	EventChatChanged       EventKind = "chat.changed"
+	EventWorkTableChanged  EventKind = "worktable.changed"
+	EventTaskChanged       EventKind = "task.changed"
+	EventInteractionOpened EventKind = "interaction.opened"
+	EventInteractionClosed EventKind = "interaction.closed"
+	EventError             EventKind = "error"
+	EventResyncRequired    EventKind = "resync.required"
+	EventExitRequested     EventKind = "app.exit_requested"
 )
 
 type Event struct {
 	ProtocolVersion int    `json:"protocol_version"`
 	Seq             uint64 `json:"seq"`
-	Revision        uint64 `json:"revision"`
-	RequestID       string `json:"request_id,omitempty"`
+	// DeliverySeq 是订阅内的投递序号（从 1 起，由 Hub 在投递端赋值）：会话级
+	// 订阅在投递端过滤掉其它会话的事件，全局 Seq 必然跳号，因此客户端判定
+	// "是否丢了事件"只能看 DeliverySeq —— 缓冲溢出的 ResyncRequired 是唯一
+	// 的丢失信号。发布方拿到的返回值不携带该字段。
+	DeliverySeq uint64 `json:"delivery_seq,omitempty"`
+	Revision    uint64 `json:"revision"`
+	RequestID   string `json:"request_id,omitempty"`
 	// SessionID 是事件所属会话的路由键（M1 起 chat 生命周期事件携带；
 	// 空值表示全局事件，SubscribeSession 不过滤）。
 	SessionID string          `json:"session_id,omitempty"`
@@ -89,6 +97,11 @@ type eventSubscriber struct {
 	mu     sync.Mutex
 	events chan Event
 	closed bool
+	// filter 在投递端判定事件是否属于本订阅：不匹配的事件根本不进入 channel，
+	// 因此其它会话的流量既不挤占本订阅缓冲，也不要求客户端二次过滤。
+	// 谓词由发布 goroutine 执行，必须无阻塞、无副作用（nil = 收全部）。
+	filter func(Event) bool
+	seq    uint64
 }
 
 func NewEventHub() *EventHub {
@@ -96,13 +109,23 @@ func NewEventHub() *EventHub {
 }
 
 func (hub *EventHub) Subscribe(buffer int) Subscription {
+	return hub.subscribe(nil, buffer)
+}
+
+// SubscribeFiltered 返回按谓词筛选的订阅：只有 filter(event) 为真的事件会
+// 被投递，且投递序号在筛选后仍然连续（见 Event.DeliverySeq）。
+func (hub *EventHub) SubscribeFiltered(filter func(Event) bool, buffer int) Subscription {
+	return hub.subscribe(filter, buffer)
+}
+
+func (hub *EventHub) subscribe(filter func(Event) bool, buffer int) Subscription {
 	if buffer < 1 {
 		buffer = 1
 	}
 	hub.mu.Lock()
 	hub.nextID++
 	id := hub.nextID
-	subscriber := &eventSubscriber{events: make(chan Event, buffer)}
+	subscriber := &eventSubscriber{events: make(chan Event, buffer), filter: filter}
 	hub.subscribers[id] = subscriber
 	hub.mu.Unlock()
 	var once sync.Once
@@ -155,40 +178,11 @@ func (hub *EventHub) publish(kind EventKind, revision uint64, requestID, session
 }
 
 // SubscribeSession 返回按会话过滤的订阅：只投递 sessionID 匹配（或全局
-// 空 SessionID）的事件。订阅关闭后内部中继与源订阅一并释放。
+// 空 SessionID）的事件。过滤发生在投递端，其它会话的流量不会进入本订阅缓冲。
 func (hub *EventHub) SubscribeSession(sessionID string, buffer int) Subscription {
-	source := hub.Subscribe(buffer)
-	out := make(chan Event, buffer)
-	done := make(chan struct{})
-	var closeOnce sync.Once
-	closeAll := func() {
-		closeOnce.Do(func() {
-			source.Close()
-			close(done)
-		})
-	}
-	go func() {
-		defer close(out)
-		for {
-			select {
-			case event, ok := <-source.Events:
-				if !ok {
-					return
-				}
-				if event.SessionID != "" && event.SessionID != sessionID {
-					continue
-				}
-				select {
-				case out <- event:
-				case <-done:
-					return
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
-	return Subscription{Events: out, close: closeAll}
+	return hub.SubscribeFiltered(func(event Event) bool {
+		return event.SessionID == "" || event.SessionID == sessionID
+	}, buffer)
 }
 
 func (subscriber *eventSubscriber) deliver(event Event) {
@@ -197,6 +191,11 @@ func (subscriber *eventSubscriber) deliver(event Event) {
 	if subscriber.closed {
 		return
 	}
+	if subscriber.filter != nil && !subscriber.filter(event) {
+		return
+	}
+	subscriber.seq++
+	event.DeliverySeq = subscriber.seq
 	select {
 	case subscriber.events <- event:
 	default:
@@ -206,6 +205,9 @@ func (subscriber *eventSubscriber) deliver(event Event) {
 		resync := event
 		resync.Kind = EventResyncRequired
 		resync.Payload = nil
+		// resync 要求客户端重拉权威快照，必须全局可达：保留会话路由键会让
+		// 它被本订阅自己的过滤条件吞掉，客户端从此静默地看旧数据。
+		resync.SessionID = ""
 		subscriber.events <- resync
 	}
 }

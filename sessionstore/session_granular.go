@@ -3,6 +3,7 @@ package sessionstore
 import (
 	"encoding/json"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -86,14 +87,21 @@ type SessionInfo struct {
 }
 
 // SessionGranularStore 是会话粒度 StorePort 的存储实现：包装 Router，
-// 暴露五片 + 项目索引的会话粒度 API。projectID 为空时回退 Router 当前
-// active write scope（旧语义兼容）。
+// 暴露五片 + 项目索引的会话粒度 API。projectID 为空 = 默认项目（未关联
+// 会话归属），不再回退 Router 活跃写作用域（视图切换不得改变会话的存储
+// 归属，R3 键漂移收敛）。
 type SessionGranularStore struct {
 	router *Router
+	// resolverMu 只保护 workspaceResolver 的读写：注入发生在装配期，读取
+	// 发生在 Delete/LoadHistory 等会话级操作（可与注入并发）。
 	// workspaceResolver 返回会话绑定的 workspace（项目作用域）ID；用于
 	// Delete/LoadHistory 等会话级操作的归属项目解析（生产 record 无
-	// binding 字段，绑定在 workspace.Repo；nil 时回退 active scope）。
+	// binding 字段，绑定在 workspace.Repo；未绑定 = 未关联默认项目）。
+	resolverMu        sync.RWMutex
 	workspaceResolver func(sessionID string) string
+	// projectSource 返回应用已知的项目 ID 列表（生产装配 = workspace.Repo.List）：
+	// 绑定丢失/旧布局时按"数据实际所在"定位，取代按活跃写作用域猜。
+	projectSource func() []string
 }
 
 // NewSessionGranularStore 构造会话粒度存储；router 为 nil 时所有方法
@@ -108,15 +116,39 @@ func (store *SessionGranularStore) SetWorkspaceResolver(resolver func(sessionID 
 	if store == nil {
 		return
 	}
+	store.resolverMu.Lock()
 	store.workspaceResolver = resolver
+	store.resolverMu.Unlock()
+}
+
+// resolver 返回注入的会话绑定解析器（可能为 nil）。回调在锁外调用。
+func (store *SessionGranularStore) resolver() func(string) string {
+	store.resolverMu.RLock()
+	defer store.resolverMu.RUnlock()
+	return store.workspaceResolver
+}
+
+// SetProjectSource 注入应用已知项目列表（main.go 装配点：workspace.Repo.List），
+// 供归属解析在绑定缺失时按"数据实际所在"定位。
+func (store *SessionGranularStore) SetProjectSource(source func() []string) {
+	if store == nil {
+		return
+	}
+	store.resolverMu.Lock()
+	store.projectSource = source
+	store.resolverMu.Unlock()
+}
+
+// projectList 返回注入的项目来源（可能为 nil）。回调在锁外调用。
+func (store *SessionGranularStore) projectList() func() []string {
+	store.resolverMu.RLock()
+	defer store.resolverMu.RUnlock()
+	return store.projectSource
 }
 
 func (store *SessionGranularStore) projectID(projectID string) string {
 	if store == nil || store.router == nil {
 		return projectID
-	}
-	if projectID == "" {
-		return store.router.Workspace()
 	}
 	return projectID
 }
@@ -220,33 +252,38 @@ func (store *SessionGranularStore) HistoryForProject(projectID, sessionID string
 	return history
 }
 
-// ResolveProjectForSession 返回会话绑定的项目 ID（record.Binding.WorkspaceID
-// 优先；未绑定回退 Router active scope）。
+// ResolveProjectForSession 返回会话归属项目，定序：
+//
+//	resolver（workspace.Repo 绑定，权威）→ record 自带 Binding →
+//	已知项目里数据实际所在 → 未关联（默认项目 ""）
+//
+// 刻意不回退 Router 活跃写作用域：活跃作用域是**视图**状态，切换项目就会变，
+// 返回它等于把会话指向一个可能根本没有它数据的项目（读不到/删错/manifest 错键，
+// R3 键漂移根因）。解析为 "" 的会话即左栏「未关联会话」分组，可显式重新绑定。
 func (store *SessionGranularStore) ResolveProjectForSession(sessionID string) string {
 	if store == nil || store.router == nil {
 		return ""
 	}
-	resolved := ""
-	if store.workspaceResolver != nil {
-		if projectID := store.workspaceResolver(sessionID); projectID != "" {
-			resolved = projectID
+	if resolver := store.resolver(); resolver != nil {
+		if projectID := resolver(sessionID); projectID != "" {
+			// 绑定项目缺数据而默认项目有：按数据实际所在回退（迁移中/旧布局）。
+			if !store.sessionIndexed(projectID, sessionID) && store.sessionIndexed("", sessionID) {
+				return ""
+			}
+			return projectID
 		}
 	}
-	if resolved == "" {
-		if record, ok, err := store.LoadSession("", sessionID); err == nil && ok && record.Binding.WorkspaceID != "" {
-			resolved = record.Binding.WorkspaceID
+	if record, ok, err := store.LoadSession("", sessionID); err == nil && ok && record.Binding.WorkspaceID != "" {
+		return record.Binding.WorkspaceID
+	}
+	if source := store.projectList(); source != nil {
+		for _, projectID := range source() {
+			if projectID != "" && store.sessionIndexed(projectID, sessionID) {
+				return projectID
+			}
 		}
 	}
-	if resolved == "" {
-		resolved = store.router.Workspace()
-	}
-	// 数据兜底：绑定/活跃项目里没有该会话数据时，回退到数据实际所在的
-	// 默认项目（旧布局/未关联会话：数据在默认项目，视图切换后活跃作用域
-	// 变化会解析到错误项目 → 打不开/标题串扰）。
-	if !store.sessionIndexed(resolved, sessionID) && store.sessionIndexed("", sessionID) {
-		return ""
-	}
-	return resolved
+	return ""
 }
 
 // SaveHistory 以会话粒度原子写 provider 历史（session:<id>:history；

@@ -48,6 +48,10 @@ type DurableHistory struct {
 	preparedSet bool
 	tail        *historyTailBudget // 滑动窗口读尾预算（nil = 全量加载，旧语义）
 	gapCoverer  GapCoverer         // 真空区覆盖回调（nil = 不覆盖）
+	// resolverMu 只保护 workspaceResolver：注入发生在会话创建/切换路径，
+	// 读取发生在 Load/Save/Clear（可与写并发）。用独立锁而不是 mu，避免把
+	// 解析器读写和 prepared/tail 的串行化缠在一起。
+	resolverMu sync.RWMutex
 	// workspaceResolver 返回本会话绑定的 workspace ID（"" = 默认）。nil 时
 	// 回退 Router 当前 active write scope（旧语义；多会话并行下会造成
 	// 键漂移——后台会话 ChatStream 结束时若 Router 已切走，历史串写他域）。
@@ -70,12 +74,17 @@ func NewDurableHistory(router *Router, sessionID string) *DurableHistory {
 // Load/Save/LoadEventTail/Clear 全部按显式 workspace 键落盘，不依赖 Router
 // active write scope（R3 键漂移收敛）。
 func (d *DurableHistory) SetWorkspaceResolver(resolver func() string) {
+	d.resolverMu.Lock()
 	d.workspaceResolver = resolver
+	d.resolverMu.Unlock()
 }
 
 func (d *DurableHistory) workspace() string {
-	if d.workspaceResolver != nil {
-		return d.workspaceResolver()
+	d.resolverMu.RLock()
+	resolver := d.workspaceResolver
+	d.resolverMu.RUnlock()
+	if resolver != nil {
+		return resolver()
 	}
 	if d.router != nil {
 		return d.router.Workspace()

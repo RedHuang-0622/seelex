@@ -20,7 +20,7 @@
 
 ## 状态流
 
-Model 初始化读取 Snapshot 并订阅 Application events。Update 根据 event 更新本地投影；提交、取消、选择、翻页等 mutation 全部回调 AppController。View 是纯投影，不发起 IO。
+Model 初始化读取 Snapshot 并以 `SubscribeSession("")`（跟随当前视图会话）订阅 Application events，与 GUI 共用 application 投递端的会话归属判定，TUI 自身不判定事件属于哪个会话。Update 根据 event 更新本地投影；提交、取消、选择、翻页等 mutation 全部回调 AppController。View 是纯投影，不发起 IO。
 
 TUI local state 只包含光标、viewport、输入框、suggestion 和布局信息；conversation/runtime 等业务事实来自 Snapshot/Event。
 

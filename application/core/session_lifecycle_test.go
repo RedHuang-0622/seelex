@@ -7,6 +7,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -185,6 +186,44 @@ func TestUnloadReleasesScope(t *testing.T) {
 	if !containsMessageContent(service.Snapshot().Conversation, "persisted content") {
 		t.Fatalf("reopened conversation lost persisted content: %v",
 			conversationTextsForTest(service.Snapshot().Conversation))
+	}
+}
+
+// TestUnloadRejectsRunningSession（阶段 D · 卸载/提交互斥）：unload 与 submit
+// 共用同一把会话切换锁，"读 running → 释放内存态"整段对提交原子 —— 运行中
+// 必须拒绝卸载，回合收尾后才允许，且单元确实不再驻留。
+func TestUnloadRejectsRunningSession(t *testing.T) {
+	engine := &sessionBackedBlockingEngine{
+		fakeEngine: &fakeEngine{},
+		started:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	service := newTestService(t, engine)
+	if err := service.Submit(context.Background(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-engine.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("chat did not start")
+	}
+	sessionID := service.Snapshot().Session.ID
+	if err := service.UnloadSession(sessionID); !errors.Is(err, ErrChatRunning) {
+		close(engine.release)
+		t.Fatalf("unload while running = %v, want ErrChatRunning", err)
+	}
+	close(engine.release)
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UnloadSession(sessionID); err != nil {
+		t.Fatalf("unload after idle: %v", err)
+	}
+	service.Mu.RLock()
+	hasUnit := service.sessions.Unit(sessionID) != nil
+	service.Mu.RUnlock()
+	if hasUnit {
+		t.Fatalf("unload retained session unit %q", sessionID)
 	}
 }
 

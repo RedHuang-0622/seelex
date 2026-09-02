@@ -284,6 +284,9 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
+	// 视图会话在解锁后仍要参与分支判定，必须在此取快照：Mu 释放后再读
+	// Core.Snapshot 是数据竞争，且切换会让后台会话的事件错投。
+	viewSessionID := service.Core.Snapshot.Session.ID
 	var changed SubagentEvent
 	if changedNode != nil {
 		changed = subagent_view.SubagentChangedPayload(plan, event.PlanID, event.RunID, *changedNode)
@@ -291,7 +294,7 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.Mu.Unlock()
 	if changedNode != nil {
 		service.publishSessionEvent(EventSubagentChanged, revision, requestID, sessionID, changed)
-		if sessionID == service.Core.Snapshot.Session.ID {
+		if sessionID == viewSessionID {
 			service.refreshWorkTableFromSources()
 		} else {
 			service.syncTasksFromSourcesFor(sessionID)
@@ -299,7 +302,7 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 		return
 	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
-	if sessionID == service.Core.Snapshot.Session.ID {
+	if sessionID == viewSessionID {
 		service.refreshWorkTableFromSources()
 	} else {
 		service.syncTasksFromSourcesFor(sessionID)
@@ -333,17 +336,18 @@ func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
 	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
+	viewSessionID := service.Core.Snapshot.Session.ID
 	var changed SubagentEvent
 	if node != nil {
 		changed = subagent_view.SubagentChangedPayload(plan, "", "", *node)
 	}
 	service.Mu.Unlock()
 	if node != nil {
-		service.publishSessionEvent(EventSubagentChanged, revision, requestID, service.Core.Snapshot.Session.ID, changed)
+		service.publishSessionEvent(EventSubagentChanged, revision, requestID, viewSessionID, changed)
 		service.refreshWorkTableFromSources()
 		return
 	}
-	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, service.Core.Snapshot.Session.ID, nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, viewSessionID, nil)
 	service.refreshWorkTableFromSources()
 }
 

@@ -328,8 +328,8 @@ func TestResolveProjectForSessionUsesWorkspaceResolver(t *testing.T) {
 	if got := store.ResolveProjectForSession("sess-bound"); got != "ws-bound" {
 		t.Fatalf("ResolveProjectForSession(bound) = %q, want ws-bound", got)
 	}
-	if got := store.ResolveProjectForSession("sess-other"); got != "ws-active" {
-		t.Fatalf("ResolveProjectForSession(unbound) = %q, want active ws-active", got)
+	if got := store.ResolveProjectForSession("sess-other"); got != "" {
+		t.Fatalf("ResolveProjectForSession(unbound) = %q, want default project \"\"（未绑定不跟随活跃作用域）", got)
 	}
 }
 

@@ -1,8 +1,10 @@
 package session
 
 import (
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/model"
 )
@@ -100,6 +102,80 @@ func TestDomainActivePointer(t *testing.T) {
 	if domain.Live() != 1 {
 		t.Fatalf("live units = %d, want 1", domain.Live())
 	}
+}
+
+// TestDomainConcurrentCommands（-race）：注册/注销/移动视图指针与读取并发进行，
+// 断言命令同步返回即对所有 goroutine 可见（异步会让事件投递端的视图归属和
+// Unit 查询读到旧状态）。
+func TestDomainConcurrentCommands(t *testing.T) {
+	domain := NewDomain()
+	var group sync.WaitGroup
+
+	for index := 0; index < 8; index++ {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+			unit, err := NewSessionUnit(fmt.Sprintf("session-%d", index))
+			if err != nil {
+				t.Errorf("NewSessionUnit: %v", err)
+				return
+			}
+			for round := 0; round < 40; round++ {
+				domain.Register(unit)
+				if domain.Unit(unit.ID) == nil {
+					t.Errorf("register not visible right after return: %s", unit.ID)
+					return
+				}
+				domain.SetActive(unit.ID)
+				if got := domain.ActiveID(); got != "" && !isTestSessionID(got) {
+					t.Errorf("active id = %q, want a registered session id", got)
+				}
+				domain.Remove(unit.ID)
+				if domain.Unit(unit.ID) != nil {
+					t.Errorf("remove not visible right after return: %s", unit.ID)
+					return
+				}
+			}
+		}(index)
+	}
+	group.Wait()
+	if domain.Live() != 0 {
+		t.Fatalf("live units after every worker removed its own = %d, want 0", domain.Live())
+	}
+
+	// 关闭阶段：并发且重复的 Close 必须幂等不 panic，停机后的调用不得挂起。
+	stopped := make(chan struct{})
+	for index := 0; index < 3; index++ {
+		go func() {
+			domain.Close()
+			domain.Close()
+			stopped <- struct{}{}
+		}()
+	}
+	for range 3 {
+		select {
+		case <-stopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Close did not return for every caller")
+		}
+	}
+	if got := domain.Unit("session-0"); got != nil {
+		t.Fatalf("Unit after Close = %v, want nil (call must not block or resurrect state)", got)
+	}
+}
+
+// isTestSessionID 报告 id 是否形如本测试注册的 "session-<n>"。
+func isTestSessionID(id string) bool {
+	const prefix = "session-"
+	if len(id) <= len(prefix) || id[:len(prefix)] != prefix {
+		return false
+	}
+	for _, r := range id[len(prefix):] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // TestForkDeepCopyIsolation（S0）：fork 继承面 = 深拷贝——子会话 View/队列

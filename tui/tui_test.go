@@ -27,6 +27,9 @@ func newFakeApp() *fakeApp {
 }
 func (app *fakeApp) Snapshot() application.Snapshot                { return app.snapshot }
 func (app *fakeApp) Subscribe(buffer int) application.Subscription { return app.hub.Subscribe(buffer) }
+func (app *fakeApp) SubscribeSession(sessionID string, buffer int) (application.Subscription, error) {
+	return app.hub.SubscribeSession(sessionID, buffer), nil
+}
 func (app *fakeApp) Submit(_ context.Context, input string) error {
 	app.submitted = input
 	return app.submitErr

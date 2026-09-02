@@ -32,6 +32,8 @@ Every backend partitions first by `project_id`, then isolates `session_id`, then
 
 统一使用 `seelex_session_manifest` 与 `seelex_session_shard`：manifest 以 `(project_id, session_id)` 定位当前 immutable generation，shard 以 `(project_id, session_id, generation, shard_index)` 保存固定大小的消息片。事务先写新 generation，再原子切换 manifest。旧版单行 `seelex_sessions.messages_json` 仍可读取，下一次写入自动迁移到分片表。SQLite 使用 modernc，无 CGO；PostgreSQL 使用 pgx stdlib。
 
+SQLite 本地库打开时固定附加 `_pragma=busy_timeout(5000)` 并把连接池收敛为单连接：SQLITE_BUSY 只发生在多连接之间，单连接后由 `database/sql` 排队，多会话并行落盘不再随机失败（只设 busy_timeout 不够 —— 它覆盖不了同进程内读事务与写事务的升级冲突）。
+
 ### Redis
 
 Redis 使用 `redis://` 或 `rediss://` DSN。每个项目拥有一个 hash-tagged keyspace；同项目的 manifest、history shards、state 和 session index 位于同一 Cluster slot，因此一次 `MULTI/EXEC` 可以原子切换该 session 的 generation。DSN 仅写入本地配置，GUI 只显示 `configured`。
@@ -41,6 +43,22 @@ Redis 使用 `redis://` 或 `rediss://` DSN。每个项目拥有一个 hash-tagg
 Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子视图。`Configure` 先 normalize/open/ping/save config，再在锁内 swap，最后关闭旧 backend。进行中的旧操作完成后，新操作才看到 replacement。
 
 显式 `LoadWorkspace` 等方法不修改 active write scope，避免恢复其他项目会话时读错 shard。
+
+## 会话展示元数据（`SessionMetaStore`）
+
+`SessionMeta`（置顶、别名、手动排序位）描述"用户怎么看这个会话"，不参与执行与存储
+归属。它以**项目级 blob** 落在 state 通道的伪会话键 `seelex:project:session-meta`
+上：
+
+- 为什么不并进 `SessionRecord`：record 每次回合结束都由存活状态整体重建，夹在其中的
+  展示字段会被覆盖；独立 blob 与记录写路径完全隔离。
+- 为什么不造新通道：JSON/SQLite 的目录枚举只认有 manifest 的会话目录，只写 state 的
+  键不会出现在 `SessionsOf`/`List` 里（回归用例 `TestSessionMetaStoreRoundTrip` 钉住
+  这一点，避免造出幽灵会话）；`Delete(session)` 也删不到它。
+- 写是读-改-写，进程内由 `SessionMetaStore.mu` 串行化（桌面单进程形态；实例由
+  `main.go` 构造一次并以指针注入 `SessionPort`，值拷贝后仍共用同一把锁）。
+  `TestSessionMetaStoreConcurrentSets` 在 `-race` 下断言无丢失更新。
+- 读失败或缺键一律按"无元数据"处理：展示元数据不得让会话目录整体失败。
 
 ## Seele v2 会话适配
 

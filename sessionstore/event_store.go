@@ -26,10 +26,13 @@ type EventLogEntry struct {
 type EventStore struct {
 	router *Router
 	mu     sync.Mutex
+	// resolverMu 只保护 workspaceResolver 的读写：Append 持有 mu 时会经
+	// projectFor 读它，复用 mu 会自死锁。
 	// workspaceResolver 返回会话绑定的 workspace（项目作用域）ID；nil 时
 	// 回退 Router 当前 active write scope（旧语义，R3 键漂移根因）。
 	// 装配方注入 workspace binding 解析器后，执行事实与 record/history
 	// 同项目落盘，不再拆到默认项目。
+	resolverMu        sync.RWMutex
 	workspaceResolver func(sessionID string) string
 }
 
@@ -44,16 +47,20 @@ func (store *EventStore) SetWorkspaceResolver(resolver func(sessionID string) st
 	if store == nil {
 		return
 	}
-	store.mu.Lock()
+	store.resolverMu.Lock()
 	store.workspaceResolver = resolver
-	store.mu.Unlock()
+	store.resolverMu.Unlock()
 }
 
 func (store *EventStore) projectFor(sessionID string) string {
-	if store.workspaceResolver != nil {
-		if projectID := store.workspaceResolver(sessionID); projectID != "" {
-			return projectID
-		}
+	store.resolverMu.RLock()
+	resolver := store.workspaceResolver
+	store.resolverMu.RUnlock()
+	if resolver != nil {
+		// resolver 返回 "" = 未关联会话 → 默认项目。未关联会话的执行事实
+		// 不得随 Router 活跃写作用域漂移（否则同一会话的 record/事件被拆到
+		// 两个项目，manifest 错键、会话打不开）。
+		return resolver(sessionID)
 	}
 	if store.router != nil {
 		return store.router.Workspace()

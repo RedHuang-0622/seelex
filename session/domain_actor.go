@@ -17,6 +17,9 @@ const (
 	domainCmdLive
 	domainCmdSetActive
 	domainCmdActiveID
+	// domainCmdClose 请求 actor 停止：由唯一所有者关闭 stopCh，Close 因此
+	// 天然幂等，且不需要在 Domain 上挂额外共享状态（见共享面约束）。
+	domainCmdClose
 )
 
 type domainReply struct {
@@ -84,6 +87,9 @@ func (domain *Domain) loop() {
 				domain.reply(cmd, domainReply{})
 			case domainCmdActiveID:
 				domain.reply(cmd, domainReply{active: activeID})
+			case domainCmdClose:
+				close(domain.stopCh)
+				return
 			}
 		case <-domain.stopCh:
 			return
@@ -122,14 +128,21 @@ func (domain *Domain) call(cmd domainCmd) domainReply {
 	}
 }
 
-// Register 注册一个会话单元。
+// Register 注册一个会话单元。等 actor 回包：注册返回后即对所有 goroutine
+// 可见，不存在"刚注册尚不可命中"的窗口。
 func (domain *Domain) Register(unit *SessionUnit) {
-	domain.send(domainCmd{kind: domainCmdRegister, unit: unit, reply: make(chan domainReply, 1)})
+	if domain == nil {
+		return
+	}
+	domain.call(domainCmd{kind: domainCmdRegister, unit: unit})
 }
 
-// Remove 注销会话单元（unload 后调用）。
+// Remove 注销会话单元（unload 后调用）。等回包，理由同 Register。
 func (domain *Domain) Remove(sid string) {
-	domain.send(domainCmd{kind: domainCmdRemove, sid: sid, reply: make(chan domainReply, 1)})
+	if domain == nil {
+		return
+	}
+	domain.call(domainCmd{kind: domainCmdRemove, sid: sid})
 }
 
 // Unit 返回指定会话单元；不存在时返回 nil。
@@ -148,8 +161,13 @@ func (domain *Domain) Live() int {
 }
 
 // SetActive 移动当前视图指针 V（hot_attach / cold_load 发布后调用）。
+// 必须等 actor 回包：视图指针是事件投递端判定会话归属的依据，fire-and-forget
+// 会让紧随其后读取 ActiveID 的路径（发布、流式增量）看到旧指针。
 func (domain *Domain) SetActive(sid string) {
-	domain.send(domainCmd{kind: domainCmdSetActive, sid: sid, reply: make(chan domainReply, 1)})
+	if domain == nil {
+		return
+	}
+	domain.call(domainCmd{kind: domainCmdSetActive, sid: sid})
 }
 
 // ActiveID 返回当前视图指针指向的会话 ID。
@@ -157,17 +175,14 @@ func (domain *Domain) ActiveID() string {
 	return domain.call(domainCmd{kind: domainCmdActiveID}).active
 }
 
-// Close 停止会话域 actor（幂等；Shutdown/测试 teardown 使用）。契约：
-// 调用方保证无活跃操作。
+// Close 停止会话域 actor（幂等；Shutdown/测试 teardown 使用）。关闭是 actor
+// 自己的一条命令：stopCh 只由唯一所有者关闭，所以重复与并发 Close 都不会
+// panic（原 select+close 组合可让两个 goroutine 同时通过检查），且调用方
+// 返回后确信不再有命令被消费。
 func (domain *Domain) Close() {
 	if domain == nil {
 		return
 	}
-	select {
-	case <-domain.stopCh:
-		return
-	default:
-		close(domain.stopCh)
-		<-domain.done
-	}
+	domain.send(domainCmd{kind: domainCmdClose})
+	<-domain.done
 }

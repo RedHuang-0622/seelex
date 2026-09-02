@@ -197,17 +197,26 @@ func (service *Service) SnapshotOf(sessionID string) (Snapshot, error) {
 }
 
 // SubscribeSession 返回按会话过滤的事件订阅（只投递该会话或全局事件）。
+//
+// sessionID 为空表示「跟随当前视图会话」：草稿尚无真实 ID（首次提交才由引擎
+// 生成），客户端无从预知，因此视图归属只能由本服务判定——session.Domain 是视
+// 图指针的唯一持有者，草稿物化/切换的瞬间谓词即随之改变，不存在事件空洞。
+// 显式 sessionID 为严格过滤（多页签回看、headless 观察其它会话）。
 // 底层 Hub 不支持会话订阅时返回错误。
 func (service *Service) SubscribeSession(sessionID string, buffer int) (Subscription, error) {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return Subscription{}, errors.New("session ID is required")
-	}
 	hub, ok := service.Events.(interface {
-		SubscribeSession(string, int) Subscription
+		SubscribeFiltered(func(event.Event) bool, int) Subscription
 	})
 	if !ok {
 		return Subscription{}, errors.New("event hub does not support session-scoped subscriptions")
 	}
-	return hub.SubscribeSession(sessionID, buffer), nil
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID != "" {
+		return hub.SubscribeFiltered(func(event Event) bool {
+			return event.SessionID == "" || event.SessionID == sessionID
+		}, buffer), nil
+	}
+	return hub.SubscribeFiltered(func(event Event) bool {
+		return event.SessionID == "" || event.SessionID == service.sessions.ActiveID()
+	}, buffer), nil
 }

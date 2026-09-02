@@ -46,8 +46,10 @@
   引擎。
 - 显式 session API：`Service.SubmitToSession/ActivateSession/SnapshotOf/
   SubscribeSession`；`Bridge` 经可选接口透传（旧方法继续委托活跃会话）。
-- Event 携带 `session_id` 路由键（`EventHub.PublishSession` +
-  `SubscribeSession` 会话过滤）。
+- Event 携带 `session_id` 路由键（`EventHub.PublishSession`）；过滤发生在
+  **Hub 投递端**（2026-09-02 阶段 A）：`SubscribeSession(sessionID)` 严格过滤，
+  `sessionID` 为空表示跟随当前视图会话（草稿物化与切换都由 `session.Domain`
+  视图指针覆盖）。Bridge/TUI/`protocol.js` 均不再判定事件归属，过滤实现只剩一处。
 
 尚未实现（规划）：真并行执行、每会话驻留 Snapshot/组件栈
 （`task_context`/`prompt_layer`/`view_state`/`session_runtime` 仍共享单

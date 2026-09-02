@@ -1848,10 +1848,23 @@ func newSQLRepository(ctx context.Context, driver, dsn, placeholder string) (*sq
 		if err := os.MkdirAll(filepath.Dir(dsn), 0o700); err != nil {
 			return nil, err
 		}
+		// 并发写必须有等待：SQLite 默认 busy_timeout=0，多会话并行落盘时第二个
+		// 写事务立刻拿到 SQLITE_BUSY（而不是排队），表现为随机保存失败。
+		if strings.Contains(dsn, "?") {
+			dsn += "&_pragma=busy_timeout(5000)"
+		} else {
+			dsn += "?_pragma=busy_timeout(5000)"
+		}
 	}
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		return nil, err
+	}
+	if driver == "sqlite" {
+		// 单连接：SQLITE_BUSY 只在多连接间发生，收敛到一条连接后由 database/sql
+		// 排队，本地会话库的并发写不再随机失败（busy_timeout 覆盖不了同进程内
+		// 读事务与写事务的升级冲突）。
+		db.SetMaxOpenConns(1)
 	}
 	repository := &sqlRepository{db: db, placeholder: placeholder}
 	if err := repository.Ping(ctx); err != nil {

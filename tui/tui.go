@@ -17,6 +17,9 @@ import (
 type AppController interface {
 	Snapshot() application.Snapshot
 	Subscribe(buffer int) application.Subscription
+	// SubscribeSession 订阅指定会话的事件；sessionID 为空表示跟随当前视图
+	// 会话（含草稿物化后的新会话），归属由 application 在投递端过滤。
+	SubscribeSession(sessionID string, buffer int) (application.Subscription, error)
 	Submit(context.Context, string) error
 	CancelChat(requestID string) bool
 	Suggestions(input string) []application.Suggestion
@@ -64,7 +67,13 @@ func NewModel(app AppController) Model {
 	input.SetHeight(1)
 	input.Focus()
 	input.ShowLineNumbers = false
-	return Model{app: app, snapshot: app.Snapshot(), subscription: app.Subscribe(256), textarea: input, histIdx: -1, showLogo: true, textareaHeight: 1}
+	// "" = 跟随当前视图会话：草稿物化成真实会话后事件自动可达，TUI 与 GUI
+	// 因此共用 application 投递端这一套会话归属判定，不再各自过滤。
+	subscription, err := app.SubscribeSession("", 256)
+	if err != nil {
+		subscription = app.Subscribe(256)
+	}
+	return Model{app: app, snapshot: app.Snapshot(), subscription: subscription, textarea: input, histIdx: -1, showLogo: true, textareaHeight: 1}
 }
 
 func (model Model) Init() tea.Cmd { return waitApplicationEvent(model.subscription) }
@@ -266,10 +275,8 @@ func copyLastResponse(model Model) tea.Cmd {
 		if last == "" {
 			return submitResultMsg{err: nil}
 		}
-		// 分离思考内容与正文（以 "以以以" 或 "---" 为界）
-		if idx := strings.LastIndex(last, "---"); idx > 0 {
-			last = strings.TrimSpace(last[idx+3:])
-		}
+		// Content 已由 application 剥掉思考块（reasoning 在 Message.ReasoningContent
+		// 单独字段），终端不再自行按分隔符猜正文边界。
 		if err := clipboard.WriteAll(last); err != nil {
 			// 失败不阻塞，复制是辅助功能
 			return submitResultMsg{err: nil}

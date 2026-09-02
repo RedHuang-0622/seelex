@@ -70,10 +70,12 @@ func (service *Service) hotAttachSession(sessionID string) error {
 		}
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 	}
+	// *Locked 方法必须在持锁段内取值：引擎写入留到解锁之后。
+	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
 	if !targetRunning {
-		service.Deps.Engine.SetSystemPrompt(service.components.prompts.SystemPromptForActiveTaskLocked())
+		service.Deps.Engine.SetSystemPrompt(systemPrompt)
 	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishRuntimeProjections()
