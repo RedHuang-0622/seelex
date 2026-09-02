@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -95,7 +96,24 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 	return nil
 }
 
+// SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
+//
+// 运行守卫（G0b/INV-G7）：effort 会改写视图会话的 system prompt 与后续
+// 回合预算（含排队回合），因此视图会话 running 时拒绝；系统提示只经
+// SetSystemPromptFor 写目标（视图）会话引擎，绝不触碰运行中的后台会话
+// （后台会话的 prompt 由各自的 runChat 起点/热挂载刷新）。会话化 effort
+// 属刀 4，在此之前的全局选择器只允许在视图空闲时变更。
 func (service *Service) SwitchEffort(_ context.Context, level string) error {
+	service.Mu.RLock()
+	viewSessionID := service.Core.Snapshot.Session.ID
+	viewRunning := false
+	if unit := service.sessions.Unit(viewSessionID); unit != nil {
+		viewRunning = unit.ChatState().Running
+	}
+	service.Mu.RUnlock()
+	if viewRunning {
+		return errors.New("当前会话正在运行：请等待回合结束或取消后再切换 Effort")
+	}
 	if level == "" || level == "cycle" {
 		next, err := service.effortManager.Cycle()
 		if err != nil {
@@ -107,7 +125,12 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 		return err
 	}
 	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
-	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
+	promptText := service.promptStack.Render()
+	if routed, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); ok {
+		routed.SetSystemPromptFor(viewSessionID, promptText)
+	} else {
+		service.Deps.Engine.SetSystemPrompt(promptText)
+	}
 	service.Mu.Lock()
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	revision := service.bumpLocked()
@@ -116,7 +139,19 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	return nil
 }
 
+// SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
+//
+// 运行守卫：插件切换会重建进程级 prompt 栈、清空引擎历史并重置对话，任何
+// 会话 running 都会被打到（运行中会话的下一轮 prompt 与历史原件被替换），
+// 因此任一会话 running 即拒绝；模型侧 switch_plugin 工具走 seelebridge
+// 的独立激活面，不经过本进程级入口。
 func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
+	service.Mu.RLock()
+	anyRunning := service.anyChatRunningLocked()
+	service.Mu.RUnlock()
+	if anyRunning {
+		return errors.New("有会话正在运行：插件切换会重建进程级提示与历史，请等待全部会话空闲后再切换")
+	}
 	if name == "off" || name == "none" || name == "" {
 		if err := service.Deps.Plugins.Deactivate(ctx); err != nil {
 			return fmt.Errorf("deactivate plugin: %w", err)

@@ -157,14 +157,11 @@ func (service *Service) registerBuiltinCommands() error {
 			return CommandResult{Notice: "当前 Effort: " + service.effortManager.Current() + "（可用: lite, medium, high, max）"}, nil
 		}
 		level := strings.ToLower(strings.TrimSpace(args[0]))
-		if err := service.effortManager.Apply(level); err != nil {
+		// 与 GUI 共用 SwitchEffort 单一路径：视图会话 running 时拒绝，且
+		// system prompt 只写目标（视图）会话引擎（G0b）。
+		if err := service.SwitchEffort(ctx, level); err != nil {
 			return CommandResult{}, err
 		}
-		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
-		service.Mu.Lock()
-		revision := service.bumpLocked()
-		service.Mu.Unlock()
-		service.Events.Publish(EventSnapshotChanged, revision, "", nil)
 		return CommandResult{Notice: "Effort 已切换为: " + level}, nil
 	})
 	return registrationErr
