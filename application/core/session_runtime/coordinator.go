@@ -47,6 +47,11 @@ type sessionRuntimeState struct {
 	sessionCatalogStop chan struct{}
 	sessionCatalogDone chan struct{}
 	sessionCatalogOnce sync.Once
+	// catalogMu 保护"等待某轮目录刷新完成"的回执队列（C3）：worker 每轮开始时
+	// 取走当前批次，发布后统一关闭，因此登记方无需持有 worker 的调度权。
+	catalogMu      sync.Mutex
+	catalogWaiters []chan struct{}
+	catalogStopped bool
 }
 
 // Location 是一次会话定位结果：workspace 绑定 + 目录元信息。
@@ -126,8 +131,9 @@ func (c *Coordinator) StartCatalogRefresh() {
 		for {
 			select {
 			case <-c.sessionCatalogWake:
-				c.refreshCatalogCache()
+				c.runCatalogPasses()
 			case <-c.sessionCatalogStop:
+				c.stopCatalogWaiters()
 				return
 			}
 		}
@@ -135,11 +141,58 @@ func (c *Coordinator) StartCatalogRefresh() {
 	c.RequestCatalogRefresh()
 }
 
-// RequestCatalogRefresh 非阻塞唤醒目录刷新 worker。
-func (c *Coordinator) RequestCatalogRefresh() {
+// RequestCatalogRefresh 非阻塞唤醒目录刷新 worker，并返回完成回执：某一轮
+// 刷新在该请求登记之后开始并收尾（发布或因服务已关闭而跳过）时回执关闭。
+//
+// 回执先登记再唤醒，所以唤醒撞上"槽位已满"被丢弃也不会丢请求：正在排空批次的
+// 那一轮收尾时会看到新登记的回执并再刷一轮；已在等待的 worker 则被这次唤醒
+// 直接唤起。worker 已停止时返回已关闭回执——关闭路径上不得有人因等目录而卡住。
+func (c *Coordinator) RequestCatalogRefresh() <-chan struct{} {
+	c.catalogMu.Lock()
+	if c.catalogStopped {
+		c.catalogMu.Unlock()
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+	done := make(chan struct{})
+	c.catalogWaiters = append(c.catalogWaiters, done)
+	c.catalogMu.Unlock()
 	select {
 	case c.sessionCatalogWake <- struct{}{}:
 	default:
+	}
+	return done
+}
+
+// runCatalogPasses 逐批排空回执：每批跑一轮刷新并在发布后关闭回执，批次为空才
+// 回到等待。刷新期间登记的请求因此在同一次唤醒里继续被处理。
+func (c *Coordinator) runCatalogPasses() {
+	for {
+		c.catalogMu.Lock()
+		batch := c.catalogWaiters
+		c.catalogWaiters = nil
+		c.catalogMu.Unlock()
+		if len(batch) == 0 {
+			return
+		}
+		c.refreshCatalogCache()
+		for _, done := range batch {
+			close(done)
+		}
+	}
+}
+
+// stopCatalogWaiters 在 worker 退出路径上释放仍等待的回执：目录不再刷新，
+// 等待者应立即收敛而不是等各自的超时。
+func (c *Coordinator) stopCatalogWaiters() {
+	c.catalogMu.Lock()
+	batch := c.catalogWaiters
+	c.catalogWaiters = nil
+	c.catalogStopped = true
+	c.catalogMu.Unlock()
+	for _, done := range batch {
+		close(done)
 	}
 }
 

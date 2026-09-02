@@ -12,7 +12,8 @@
 - 做：`PersistCurrentSession`、`SessionRecordLocked`、`LoadSessionRecord`/
   `LoadSessionTranscript`/`LoadHistoryTailWindow`、目录发现与标题缓存、
   `LocateSession`、storage 设置、`RecordReadFileLocked`、catalog worker
-  生命周期（`StartCatalogRefresh`/`StopCatalogRefresh`）。
+  生命周期（`StartCatalogRefresh`/`StopCatalogRefresh`）与刷新完成回执
+  （`RequestCatalogRefresh` 返回的 channel）。
 - 不做：会话切换编排、chat 流式、任务执行（task 域）。
 
 ## 关键文件
@@ -32,6 +33,13 @@
 状态经 `TaskPersistencePort` 读取）→ 锁外合并/写入 → 锁内清理已提交
 tool-result。目录 worker 锁外做 SessionPort/WorkspacePort I/O，锁内只发布
 内存态拷贝（bump → 锁外 Publish）。
+
+`RequestCatalogRefresh()` 除唤醒外还返回**完成回执**（`<-chan struct{}`）：调用方
+可选地等到"某一轮刷新在该请求登记之后开始并收尾"，回执即关闭。回执先登记再
+唤醒，因此容量 1 的 wake channel 丢唤醒不会丢请求——正在排空批次的那一轮收尾时
+会看到新登记的回执并再刷一轮。等待者不必自己轮询重试（根包
+`Service.WaitCatalogRefresh(ctx)` 是它的带 ctx 包装）。`StopCatalogRefresh` 的退出
+路径会释放全部在等回执并置停止标记，之后的请求立即收敛，关闭不会被目录 I/O 挂住。
 
 ## 依赖方向
 
@@ -100,7 +108,9 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) TransitionLock() sync.Locker` — TransitionLock 返回会话切换互斥（BeginNewSession/ResumeSession/
 - `func (c *Coordinator) BindView(view ViewPort)` — BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；
 - `func (c *Coordinator) StartCatalogRefresh()` — StartCatalogRefresh 启动会话目录刷新 worker：目录发现与标题恢复离开
-- `func (c *Coordinator) RequestCatalogRefresh()` — RequestCatalogRefresh 非阻塞唤醒目录刷新 worker。
+- `func (c *Coordinator) RequestCatalogRefresh() <-chan struct` — RequestCatalogRefresh 非阻塞唤醒目录刷新 worker，并返回完成回执：某一轮
+- `func (c *Coordinator) runCatalogPasses()` — runCatalogPasses 逐批排空回执：每批跑一轮刷新并在发布后关闭回执，批次为空才
+- `func (c *Coordinator) stopCatalogWaiters()` — stopCatalogWaiters 在 worker 退出路径上释放仍等待的回执：目录不再刷新，
 - `func (c *Coordinator) StopCatalogRefresh()` — StopCatalogRefresh 关闭目录刷新 worker（有限等待，避免慢端口拖垮退出）。
 - `func (c *Coordinator) CatalogRefreshDone() <-chan struct` — CatalogRefreshDone 返回目录 worker 退出信号（测试/生命周期钩子：worker
 - `func (c *Coordinator) refreshCatalogCache()` — refreshCatalogCache 把目录快照发布进内核（锁内 bump → 锁外 Publish）。

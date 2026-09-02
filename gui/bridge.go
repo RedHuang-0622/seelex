@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -41,6 +42,9 @@ type Application interface {
 	DeleteSession(string) error
 	// SetSessionMeta 写会话展示元数据（置顶/别名/排序位），随会话目录下发。
 	SetSessionMeta(string, application.SessionMeta) error
+	// WaitCatalogRefresh 等待会话目录 worker 完成一轮覆盖本次变更的刷新，使随后
+	// 的 Snapshot() 直接携带权威目录（前端因此不必回填上一次列表伪造状态）。
+	WaitCatalogRefresh(context.Context) error
 	CreateWorkspace(name, rootPath, gitRemote string) error
 	BindWorkspace(workspaceID string) error
 	UnbindWorkspace()
@@ -265,6 +269,20 @@ func (bridge *Bridge) requestContext() context.Context {
 
 func (bridge *Bridge) Info() AppInfo { return bridge.info }
 
+// sessionCatalogSettleTimeout 是"等目录收敛"的预算：超过它就直接返回，让
+// renderer 拿到当时的快照，随后 worker 发布的 snapshot.changed 仍会到达。
+const sessionCatalogSettleTimeout = 2 * time.Second
+
+// settleCatalog 在会改变会话目录的命令返回前等一轮目录刷新，使前端紧接着
+// 重拉的 Snapshot() 已含本次变更（新建/删除/分支/展示元数据）。超时按最佳
+// 努力处理而不向上报错：命令本身已成功，未收敛的列表由异步
+// snapshot.changed 补齐，前端不得为此回填旧列表。
+func (bridge *Bridge) settleCatalog() {
+	ctx, cancel := context.WithTimeout(bridge.requestContext(), sessionCatalogSettleTimeout)
+	defer cancel()
+	_ = bridge.app.WaitCatalogRefresh(ctx)
+}
+
 func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.app.Snapshot() }
 
 // SubagentSessionDetail 返回子代理节点详情（会话记录 + 状态/耗时/输出）。
@@ -343,7 +361,11 @@ func (bridge *Bridge) Submit(text string) error {
 }
 
 func (bridge *Bridge) BeginNewSession() error {
-	return bridge.app.BeginNewSession()
+	if err := bridge.app.BeginNewSession(); err != nil {
+		return err
+	}
+	bridge.settleCatalog()
+	return nil
 }
 
 func (bridge *Bridge) ResumeSession(sessionID string) error {
@@ -353,7 +375,12 @@ func (bridge *Bridge) ResumeSession(sessionID string) error {
 // ForkSessionLatest 从会话最新完整轮次分支出新会话并切换（Wails 前端会话
 // 树「分支」按钮数据源；返回子会话 ID）。
 func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
-	return bridge.app.ForkSessionLatest(sessionID)
+	childID, err := bridge.app.ForkSessionLatest(sessionID)
+	if err != nil {
+		return "", err
+	}
+	bridge.settleCatalog()
+	return childID, nil
 }
 
 // CancelChat 取消当前视图会话的运行中回合。request_id 可能滞后一个事件 tick，
@@ -425,15 +452,24 @@ func (bridge *Bridge) Suggestions(input string) []application.Suggestion {
 }
 
 func (bridge *Bridge) DeleteSession(sessionID string) error {
-	return bridge.app.DeleteSession(sessionID)
+	if err := bridge.app.DeleteSession(sessionID); err != nil {
+		return err
+	}
+	bridge.settleCatalog()
+	return nil
 }
 
 // SetSessionMeta 写会话展示元数据（置顶/别名/排序位）。参数保持扁平供 renderer
-// 调用；写成功后由 application 唤醒目录刷新，新排序随快照回到侧栏。
+// 调用；写成功后由 application 唤醒目录刷新，并在返回前等一轮收敛，使前端
+// 重拉的快照已按新排序与别名呈现。
 func (bridge *Bridge) SetSessionMeta(sessionID string, pinned bool, alias string, sortOrder int) error {
-	return bridge.app.SetSessionMeta(sessionID, application.SessionMeta{
+	if err := bridge.app.SetSessionMeta(sessionID, application.SessionMeta{
 		Pinned: pinned, Alias: alias, SortOrder: sortOrder,
-	})
+	}); err != nil {
+		return err
+	}
+	bridge.settleCatalog()
+	return nil
 }
 
 func (bridge *Bridge) CreateWorkspace(name, rootPath, gitRemote string) error {

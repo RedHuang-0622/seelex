@@ -55,6 +55,8 @@ type fakeApplication struct {
 	gitLimit         int
 	metaSessionID    string
 	sessionMeta      application.SessionMeta
+	catalogSettles   int
+	catalogGate      chan struct{}
 }
 
 // recordingCancelApplication 记录 Bridge 转发的 request_id 序列。
@@ -137,6 +139,21 @@ func (fake *fakeApplication) SetSessionMeta(sessionID string, meta application.S
 	fake.metaSessionID = sessionID
 	fake.sessionMeta = meta
 	return nil
+}
+
+// WaitCatalogRefresh 记录 Bridge 的目录收敛等待；catalogGate 非空时阻塞到该
+// channel 关闭，用于断言命令未等到收敛就不会返回。
+func (fake *fakeApplication) WaitCatalogRefresh(ctx context.Context) error {
+	fake.catalogSettles++
+	if fake.catalogGate == nil {
+		return nil
+	}
+	select {
+	case <-fake.catalogGate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 func (fake *fakeApplication) CreateWorkspace(name, rootPath, gitRemote string) error {
 	return nil
@@ -456,11 +473,61 @@ func TestBridgeCancelChatForwardsOnce(t *testing.T) {
 	}
 }
 
+// TestBridgeSettlesSessionCatalogBeforeReturning 会改变会话目录的命令必须在
+// 目录刷新收敛后才返回给 renderer（C3）：否则前端只能靠"列表为空就回填上一次
+// 列表"掩盖竞态。
+func TestBridgeSettlesSessionCatalogBeforeReturning(t *testing.T) {
+	commands := []struct {
+		name   string
+		invoke func(*Bridge) error
+	}{
+		{"BeginNewSession", func(bridge *Bridge) error { return bridge.BeginNewSession() }},
+		{"DeleteSession", func(bridge *Bridge) error { return bridge.DeleteSession("session-a") }},
+		{"ForkSessionLatest", func(bridge *Bridge) error {
+			_, err := bridge.ForkSessionLatest("session-a")
+			return err
+		}},
+		{"SetSessionMeta", func(bridge *Bridge) error {
+			return bridge.SetSessionMeta("session-a", true, "alias", 1)
+		}},
+	}
+	for _, command := range commands {
+		command := command
+		t.Run(command.name, func(t *testing.T) {
+			fake := newFakeApplication()
+			fake.catalogGate = make(chan struct{})
+			bridge, err := NewBridge(fake, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			returned := make(chan error, 1)
+			go func() { returned <- command.invoke(bridge) }()
+
+			select {
+			case err := <-returned:
+				t.Fatalf("%s returned before the session catalog settled (err=%v)", command.name, err)
+			case <-time.After(50 * time.Millisecond):
+			}
+			close(fake.catalogGate)
+			select {
+			case err := <-returned:
+				if err != nil {
+					t.Fatalf("%s: %v", command.name, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("%s did not return after the session catalog settled", command.name)
+			}
+			if fake.catalogSettles != 1 {
+				t.Fatalf("catalog settle waits = %d, want exactly 1", fake.catalogSettles)
+			}
+		})
+	}
+}
+
 type closeFakeApplication struct {
 	*fakeApplication
-	waitStarted chan struct{}
-	idle        chan struct{}
-
+	waitStarted   chan struct{}
+	idle          chan struct{}
 	mu            sync.Mutex
 	beginCalls    int
 	waitCalls     int

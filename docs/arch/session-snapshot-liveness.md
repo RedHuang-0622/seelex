@@ -43,18 +43,21 @@ Frontend Submit
 
 ## 3. Session 目录不再阻塞 Snapshot
 
-会话目录、工作区绑定和标题恢复来自 `SessionPort`、`WorkspacePort`，属于潜在阻塞的外部读取。启动时 `startSessionCatalogRefresh()` 创建独立 worker；`requestSessionCatalogRefresh()` 通过容量为 1 的 wake channel 合并重复刷新请求。
+会话目录、工作区绑定和标题恢复来自 `SessionPort`、`WorkspacePort`，属于潜在阻塞的外部读取。启动时 `Coordinator.StartCatalogRefresh()` 创建独立 worker；`RequestCatalogRefresh()` 通过容量为 1 的 wake channel 合并重复刷新请求，并返回**完成回执**。
+
+回执先登记再唤醒：worker 每次被唤起后逐批排空登记的回执，每批跑一轮刷新并在发布后关闭它们，批次为空才回到等待。因此"唤醒槽位已满被丢弃"不会丢请求，正在跑的那一轮收尾时会看到新登记的回执并再刷一轮。需要「目录已收敛」的调用方（GUI 的会话变更命令、headless 客户端）显式等待 `Service.WaitCatalogRefresh(ctx)`，而不是由前端在拿到旧列表时回填上一次的状态。
 
 ```text
-catalog refresh request
-  -> session catalog worker
+catalog refresh request（登记回执 + 非阻塞唤醒）
+  -> session catalog worker（取走当前批次）
   -> [锁外] SessionPort.List / WorkspacePort.AllBindings
   -> 得到本地不可变结果
   -> [service.mu] 复制 sessions、bindings、缺失标题到 Snapshot
   -> 解锁 -> 发布 snapshot.changed
+  -> 关闭本批回执（刷新期间新登记的请求进入下一批）
 ```
 
-关闭时先将 Application 标记为 closed，再停止该 worker。历史 `SessionPort` 目录接口尚未提供 `context`，因此关闭最多等待 100 ms；超时后 worker 可在外部调用返回时自行退出，并因 `closed` 不再发布新状态。这是一个明确的可用性优先取舍：关闭不会因为不受控的目录 I/O 卡住 GUI。
+关闭时先将 Application 标记为 closed，再停止该 worker。历史 `SessionPort` 目录接口尚未提供 `context`，因此关闭最多等待 100 ms；超时后 worker 可在外部调用返回时自行退出，并因 `closed` 不再发布新状态。退出路径同时释放在等的回执并置停止标记，之后的请求立即收敛。这是一个明确的可用性优先取舍：关闭不会因为不受控的目录 I/O 卡住 GUI。
 
 ## 4. Application 到 Runtime：单向不可变投影
 

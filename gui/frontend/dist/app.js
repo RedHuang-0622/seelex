@@ -1455,23 +1455,11 @@ function showNewSessionStep(step) {
 }
 
 async function beginNewSession() {
-  const previous = client.current();
-  const previousSessions = Array.isArray(previous?.sessions) ? previous.sessions : null;
   try {
+    // BeginNewSession 在返回前已等过一轮会话目录刷新，因此这次重拉的快照
+    // 携带权威左侧栏列表（前端不再回填旧列表掩盖异步竞态）。
     await invoke("BeginNewSession");
     await refresh({ scroll: "bottom" });
-    // 防御：会话目录由后端异步 worker 刷新，新建会话后首轮快照理论上仍携带旧列表；
-    // 若竞态导致返回空 sessions，则保留上一次可见列表并稍后重拉权威目录收敛，
-    // 避免左侧栏会话"全部消失"的假象。
-    const latest = client.current();
-    if (previousSessions && previousSessions.length > 0 && latest &&
-        (!Array.isArray(latest.sessions) || latest.sessions.length === 0)) {
-      latest.sessions = previousSessions;
-      latest.session_workspaces = previous?.session_workspaces || {};
-      latest.workspaces = previous?.workspaces || [];
-      render(latest, { scroll: "bottom" });
-      window.setTimeout(() => refresh({ scroll: false }), 250);
-    }
   }
   catch (error) { showToast(error); }
 }

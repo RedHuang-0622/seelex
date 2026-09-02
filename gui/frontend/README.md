@@ -160,6 +160,8 @@ fork 子代理不在活跃 Plan 里时（计划已清除）详情弹窗回退到
 
 点击新建会话只调用 `BeginNewSession` 进入编辑草稿：左侧列表不新增任何条目，也不生成临时 ID。「任务会话」是真正未关联的会话——`BeginNewSession` 会清空上一个会话继承的项目绑定（项目地址、资源管理器文件树/提交记录不再显示），第一次提交真实对话后 Application 返回真实 ID，左侧才新增正式 Session，并以首个问题作为列表标题。「工作区会话」先进入未关联草稿、再在草稿上 `BindWorkspace` 绑定所选工作区，首次提交物化到该项目。
 
+`beginNewSession` 只做「调命令 + 重拉快照」：会话目录的收敛由 Bridge 在命令返回前等刷新回执保证（见 `gui/README.md` 的 Bridge 契约），前端不再在列表为空时回填上一次目录并延时重拉——那是在 renderer 里伪造业务状态掩盖异步竞态。
+
 ## 安全和身份规则
 
 - 所有模型/工具/用户文本在进入 HTML 前 escape 或经过受控 Markdown renderer。
