@@ -90,8 +90,9 @@ export function renderChatActivity(chat = {}) {
 
 export function buildConversationItems(messages = []) {
   const items = [];
+  // 配对键 = 框架 tool-call id（tool.started 与 tool_result 同源）；不按名字回退
+  // 猜配对，否则同名并发工具会被并成一行。
   const pendingByID = new Map();
-  const pendingTools = [];
   for (const [messageIndex, message] of messages.entries()) {
     if (!message.tool) {
       items.push({ kind: "message", key: `message:${message.id || messageIndex}`, message });
@@ -100,10 +101,7 @@ export function buildConversationItems(messages = []) {
     const tool = message.tool;
     const isOutput = message.role === "tool_result";
     if (isOutput) {
-      let target = tool.id ? pendingByID.get(tool.id) : null;
-      if (!target) {
-        target = [...pendingTools].reverse().find(item => item.name === tool.name);
-      }
+      const target = tool.id ? pendingByID.get(tool.id) : null;
       if (target) {
         target.output = tool.error || tool.result || message.content || "";
         target.error = tool.error || "";
@@ -132,7 +130,6 @@ export function buildConversationItems(messages = []) {
       totalChars: Number(tool.total_chars) || 0
     };
     items.push(item);
-    pendingTools.push(item);
     if (item.id) pendingByID.set(item.id, item);
   }
   return items;

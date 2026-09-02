@@ -81,6 +81,22 @@ func (service *Service) publishSessionEvent(kind event.EventKind, revision uint6
 	return service.Events.Publish(kind, revision, requestID, payload)
 }
 
+// publishChatStateFor 下发指定会话的权威聊天运行态（chat.changed）。运行/排队
+// 是后端口径，客户端不得从"收到增量事件"反推自己是否在跑。
+//
+// 载荷刻意不带 revision（=0）：本事件是运行态的整体替换，而同一批转换往往先
+// 发 snapshot.changed（触发客户端重拉并把 revision floor 抬到当前值），带
+// revision 的 chat.changed 会被协议层判为"已由权威快照表示"而丢弃。
+// 只读会话单元自有状态，因此必须在释放 Core.Mu 之后调用。
+func (service *Service) publishChatStateFor(sessionID string) {
+	unit := service.sessions.Unit(sessionID)
+	if unit == nil {
+		return
+	}
+	chat := unit.ChatState()
+	service.publishSessionEvent(EventChatChanged, 0, chat.RequestID, sessionID, chat)
+}
+
 // bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
 // - 无任何会话运行中 → 可安全重绑（当前视图会话的工具需要正确根）；
 // - 有会话运行中 → 仅当目标是当前会话时重绑——后台运行中的会话不得因视图

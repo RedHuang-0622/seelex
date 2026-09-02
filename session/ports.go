@@ -162,6 +162,14 @@ type StorePort interface {
 	Bind(sessionID string, binding SessionBinding) error
 }
 
+// SessionMetaPort 是会话端口的可选扩展：读写会话展示元数据（置顶/别名/排序位，
+// 持久化在项目级 meta blob）。未实现时应用层返回明确错误，目录照常枚举（元数据
+// 取零值），因此测试桩与最小宿主不受影响。
+type SessionMetaPort interface {
+	SetSessionMeta(sessionID string, meta model.SessionMeta) error
+	SessionMeta(sessionID string) (model.SessionMeta, error)
+}
+
 // SessionUnit 是会话资源单元骨架：S_i=(id,K,parent,E,V,Q,C,B,status)。
 // 热/冷由 EnginePort.HasSession 判定（loaded），薄状态机只维护可见状态。
 type SessionUnit struct {

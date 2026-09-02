@@ -42,7 +42,7 @@ test("relays a completed main-agent tool result through the GUI reducer and rend
   await client.refresh();
 
   await runtime.emit("seelex:event", {
-    protocol_version: 1, seq: 1, revision: 2, request_id: "request-1", kind: "tool.started",
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 2, request_id: "request-1", kind: "tool.started",
     payload: {
       id: "message-tool-start", role: "tool",
       tool: { id: "tool-1", name: "bash", arguments: '{"command":"pwd"}', status: "running" }
@@ -50,14 +50,14 @@ test("relays a completed main-agent tool result through the GUI reducer and rend
   });
   const result = '{"stdout":"C:\\\\workspace","stderr":"","exit_code":0}';
   await runtime.emit("seelex:event", {
-    protocol_version: 1, seq: 2, revision: 3, request_id: "request-1", kind: "tool.completed",
+    protocol_version: 1, seq: 2, delivery_seq: 2, revision: 3, request_id: "request-1", kind: "tool.completed",
     payload: {
       id: "message-tool-result", role: "tool_result", content: result,
       tool: { id: "tool-1", name: "bash", result, status: "success", duration: 12000000 }
     }
   });
   await runtime.emit("seelex:event", {
-    protocol_version: 1, seq: 3, revision: 4, request_id: "request-1", kind: "runtime.changed",
+    protocol_version: 1, seq: 3, delivery_seq: 3, revision: 4, request_id: "request-1", kind: "runtime.changed",
     payload: { ...client.current().runtime, full_access: true }
   });
 
@@ -107,18 +107,18 @@ test("relays mocked seelex:event subagent activity through the GUI client reduce
   await client.refresh();
 
   await runtime.emit("seelex:event", {
-    protocol_version: 1, seq: 1, revision: 2, kind: "subagent.changed",
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 2, kind: "subagent.changed",
     payload: {
       node_id: "worker", plan_status: "running", progress: 0.5,
       node: { id: "worker", status: "running", tool_events: [], children: [] }
     }
   });
   await runtime.emit("seelex:event", {
-    protocol_version: 1, seq: 2, revision: 3, kind: "subagent.tool.started",
+    protocol_version: 1, seq: 2, delivery_seq: 2, revision: 3, kind: "subagent.tool.started",
     payload: { id: "subtool-1", node_id: "worker", name: "bash", arguments: "{}", status: "running" }
   });
   await runtime.emit("seelex:event", {
-    protocol_version: 1, seq: 3, revision: 4, kind: "subagent.tool.completed",
+    protocol_version: 1, seq: 3, delivery_seq: 3, revision: 4, kind: "subagent.tool.completed",
     payload: { id: "subtool-1", node_id: "worker", name: "bash", status: "success", result: "ok" }
   });
 
@@ -160,7 +160,7 @@ test("relays worktable.changed without falling back to a snapshot reload", async
   await client.refresh();
 
   await runtime.emit("seelex:event", {
-    protocol_version: 1, seq: 1, revision: 2, kind: "worktable.changed",
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 2, kind: "worktable.changed",
     payload: {
       items: [
         { id: "plan:n1", phase: "plan", task: "调研", status: "running", kind: "plan" },

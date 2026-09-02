@@ -14,7 +14,7 @@ import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
-import { truncateTitle, duplicateSuffix, titleSuffix, isPinned, togglePinned, readTitleTails, writeTitleTails } from "./sidebar.js";
+import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import { createPerfHooks } from "./perf-hooks.js";
 
 const state = {
@@ -616,10 +616,18 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
     });
   });
   elements["session-list"].querySelectorAll("[data-pin-session]").forEach(button => {
-    button.addEventListener("click", event => {
+    button.addEventListener("click", async event => {
       event.stopPropagation();
-      togglePinned(button.dataset.pinSession);
-      rerenderSessions();
+      const sessionID = button.dataset.pinSession;
+      const meta = sessionMetaByID(sessionID);
+      try {
+        // 展示元数据是后端状态（随目录下发）：写入后刷新快照即可，浏览器不再
+        // 自行记忆置顶，避免换窗口/换设备就丢失。
+        await invoke("SetSessionMeta", sessionID, !meta.pinned, meta.alias || "", meta.sort_order || 0);
+        await refresh({ scroll: false });
+      } catch (error) {
+        showToast(error);
+      }
     });
   });
   elements["session-list"].querySelectorAll("[data-workspace-new-session]").forEach(button => {
@@ -673,7 +681,7 @@ function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames
         label = name + duplicateSuffix(index, total);
       }
     }
-    const sessions = groups.get(key).slice().sort((a, b) => Number(isPinned(b.id)) - Number(isPinned(a.id)));
+    const sessions = groups.get(key).slice().sort((a, b) => Number(Boolean(b.meta?.pinned)) - Number(Boolean(a.meta?.pinned)));
     const rows = sessions.map(session => {
       let nameIndex = 1;
       const name = session.name || "";
@@ -726,6 +734,13 @@ function rerenderSessions() {
   );
 }
 
+// sessionMetaByID 从最近一次目录渲染数据里取会话展示元数据（写元数据时要保留
+// 其它字段，不能整份覆盖）。
+function sessionMetaByID(sessionID) {
+  const found = (lastSessionsRender?.sessions || []).find(item => item.id === sessionID);
+  return found?.meta || {};
+}
+
 function sessionRow(session, currentID, nameIndex = 1) {
   // 保留的"新建会话"草稿槽位：列表可见、可点击恢复（无 ID、不可 resume/删除/分支）。
   if (session.id === "" && session.status === "draft") {
@@ -738,12 +753,12 @@ function sessionRow(session, currentID, nameIndex = 1) {
   }
   const active = session.id === currentID;
   const resuming = session.id === state.resumingSessionID;
-  const pinned = isPinned(session.id);
+  const pinned = Boolean(session.meta?.pinned);
   const updated = session.updated_at
     ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : "当前会话";
   const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
-  const display = resuming ? "恢复中…" : (session.name || shortSessionID(session.id));
+  const display = resuming ? "恢复中…" : (session.meta?.alias || session.name || shortSessionID(session.id));
   const truncated = truncateTitle(display, 5);
   const duplicate = titleSuffix(nameIndex);
   const statusChip = session.status && session.status !== "idle"

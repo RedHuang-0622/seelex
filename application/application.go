@@ -73,6 +73,7 @@ type (
 	PluginInfo                 = model.PluginInfo
 	AccountInfo                = model.AccountInfo
 	SessionInfo                = model.SessionInfo
+	SessionMeta                = model.SessionMeta
 	WorkspaceInfo              = model.WorkspaceInfo
 	Interaction                = model.Interaction
 	InteractionOption          = model.InteractionOption

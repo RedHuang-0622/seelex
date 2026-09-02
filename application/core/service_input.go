@@ -119,6 +119,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		revision := service.bumpLocked()
 		service.Mu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+		service.publishChatStateFor(sessionID)
 		return nil
 	}
 	service.Mu.Unlock()
@@ -154,10 +155,12 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 			revision := service.bumpLocked()
 			service.Mu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+			service.publishChatStateFor(sessionID)
 			return nil
 		}
 		service.Mu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
+		service.publishChatStateFor(sessionID)
 		return nil
 	}
 	service.Mu.Unlock()
@@ -188,14 +191,23 @@ func (service *Service) WaitForIdle(ctx context.Context) error {
 	}
 }
 
+// CancelChat 取消当前视图会话正在运行的回合。
+//
+// requestID 只作参考，不作为否决条件：渲染层持有的 request_id 可能滞后一个事件
+// tick（排队回合刚提升时尤其明显），而一个会话同时只有一个运行中回合，"停掉我
+// 看到在跑的那个回合"与"停掉本会话当前回合"是同一件事。此前这一判断由桌面 Bridge
+// 用空 id 重试兜底，属于业务语义，收在本服务内（TUI/CLI/headless 同样受益）。
 func (service *Service) CancelChat(requestID string) bool {
 	service.Mu.Lock()
 	defer service.Mu.Unlock()
 	sessionID := service.Core.Snapshot.Session.ID
 	runtime := service.sessionUnitLocked(sessionID)
 	chat := runtime.ChatState()
-	if !chat.Running || (requestID != "" && requestID != chat.RequestID) || runtime.CancelFunc() == nil {
+	if !chat.Running || runtime.CancelFunc() == nil {
 		return false
+	}
+	if requestID != "" && requestID != chat.RequestID {
+		runChatDebug("cancel request id %q is stale; cancelling current request %q of session %s", requestID, chat.RequestID, sessionID)
 	}
 	runtime.CancelFunc()()
 	return true

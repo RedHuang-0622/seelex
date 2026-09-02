@@ -8,7 +8,9 @@
 
 该模块为对话区新增「轨迹」子页，提供类似浏览器 DevTools Network 面板的
 响应日志体验：先按响应类型把会话消息分类，再按时间把请求/响应投影为
-轨迹行（时间 / 类型 / 名称 / 状态 / 耗时 / 大小），点击行展开 IN/OUT 详情。
+轨迹行（时间 / 类型 / 名称 / 状态 / 耗时 / 大小），点击行展开 IN/OUT 详情；
+轨迹顶部另有一条多线谱式上下文轴，把不同类型（输入 / LLM / 工具 / 错误 /
+通知）的上下文块分到各自的横轨上，对照查看上下文填充与先后关系。
 
 它不调用 Bridge，不决定 Chat 业务状态，也不修改客户端 Snapshot。轨迹数据
 完全从 `Snapshot.conversation` 派生（呈现层职责），本地 UI 状态（当前子页、
@@ -28,8 +30,11 @@
 
 规则：
 
-- `tool` 请求与 `tool_result` 响应按 `tool.id` 配对为一条记录（`id` 缺失时按
-  `name` 回退，与 `components.buildConversationItems` 同一契约）；响应把
+- `tool` 请求与 `tool_result` 响应**只按 `tool.id`（框架 tool-call id）配对**为一条
+  记录（`id` 缺失时不再按 `name` 猜，响应独立成行；与
+  `components.buildConversationItems` 同一契约，阶段 B3 起生效）。服务端两处
+  构造都携带同一 id，恢复历史亦取 `toolCall.ID`，因此按名回退是纯前端自造的
+  猜测，会把同名并发工具错配成一行。响应把
   OUT / 状态 / 耗时 / `result_ref` / `truncated` / `total_chars` 合并进记录。
 - 空 `assistant` 消息是工具回合后的占位，对轨迹无信息量，跳过。
 - `role=system` 之外的未知 role 兜底为 `notice`。
@@ -47,13 +52,32 @@
 
 ### 3.2 面板结构
 
-`createTrajectoryView` 在容器内建立三个固定子区：
+`createTrajectoryView` 在容器内建立五个固定子区：
 
-1. **过滤条**（`renderTrajectoryFilters`）：全部 / 输入 / LLM / 工具 / 错误 /
+1. **前缀注入区**（`renderPromptInjection`）：展示本次会话可见的前缀注入层
+   摘要；无层时给引导文案。
+2. **上下文轴**（`renderContextAxis`）：多线谱（分轨）布局，见下节。
+3. **过滤条**（`renderTrajectoryFilters`）：全部 / 输入 / LLM / 工具 / 错误 /
    通知，各带计数徽标（Network 面板 filter 语义）；当前过滤由
    `onFilterChange` 回传给 app.js（`state.trajectoryFilter`）。
-2. **摘要条**（`renderTrajectorySummary`）：共 N 条 · 成功 X · 失败 Y · 运行 Z。
-3. **表格区**（`renderTrajectoryTable`）：表头 + 记录行，keyed reconciliation。
+4. **摘要条**（`renderTrajectorySummary`）：共 N 条 · 成功 X · 失败 Y · 运行 Z。
+5. **表格区**（`renderTrajectoryTable`）：表头 + 记录行，keyed reconciliation。
+
+### 3.2.1 上下文轴（多线谱分轨）
+
+上下文轴把 `TRAJECTORY_KINDS` 的每种响应类型固定为一条横轨（输入 / LLM /
+工具 / 错误 / 通知），五轨上下叠放，像总谱一样共用同一条横轴；横轴语义与
+旧单轨一致，仍是「对话顺序 + 内容体量」，不是时间轴：
+
+- 每个轨迹记录按 `contextAxisWeight` 占全局体量的比例获得一个块；块的起点
+  是此前所有记录体量占比的累计（`--x`），块宽是自身体量占比（`--w`），
+  落在本类型轨道上。
+- 某类型在对应区段没有记录时，该轨留空（`.is-empty`，只显示一条细刻度线），
+  因此一眼能看出「哪些类型在哪个阶段消耗了上下文」以及空窗。
+- 每个块仍是 `<button class="axis-segment is-<kind>">`，带
+  `data-trajectory-key`；点击后 `trajectory-view.js` 先切回全量过滤，再滚动
+  定位并短暂高亮对应轨迹行。图例随分轨省略——轨道标签（图标 + 类型名）即图例。
+- 空数据渲染 `.context-axis-empty` 引导文案。
 
 ### 3.3 记录行
 
@@ -87,11 +111,11 @@ Snapshot.conversation → buildTrajectory（分类+配对） → filterTrajector
 
 ## 5. 自动化证据
 
-- `trajectory.test.mjs`（14 例）：响应类型分类、空 assistant 跳过、tool 配对
+- `trajectory.test.mjs`（20 例）：响应类型分类、空 assistant 跳过、tool 配对
   （按 id / 按 name / 错误状态）、result_ref 截断元数据、过滤与统计、表格行
-  稳定 key、HTML 转义安全、过滤条计数与 active、摘要计数、时长/大小列、空
-  状态。
-- `node --test gui/frontend/dist/*.test.mjs` 全量通过（147 例）。
+  稳定 key、上下文轴分轨布局（五轨固定 + 空轨占位 + 共享横轴定位）、HTML
+  转义安全、过滤条计数与 active、摘要计数、时长/大小列、空状态。
+- `node --test gui/frontend/dist/*.test.mjs` 全量通过（178 例）。
 
 ## 6. 审查清单
 

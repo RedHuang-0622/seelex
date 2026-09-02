@@ -53,16 +53,19 @@ type fakeApplication struct {
 	treeErr          error
 	gitLog           dto.GitLogResult
 	gitLimit         int
+	metaSessionID    string
+	sessionMeta      application.SessionMeta
 }
 
-type staleCancelApplication struct {
+// recordingCancelApplication 记录 Bridge 转发的 request_id 序列。
+type recordingCancelApplication struct {
 	*fakeApplication
 	calls []string
 }
 
-func (fake *staleCancelApplication) CancelChat(requestID string) bool {
+func (fake *recordingCancelApplication) CancelChat(requestID string) bool {
 	fake.calls = append(fake.calls, requestID)
-	return len(fake.calls) > 1
+	return true
 }
 
 func newFakeApplication() *fakeApplication {
@@ -128,6 +131,11 @@ func (fake *fakeApplication) Suggestions(input string) []application.Suggestion 
 	return []application.Suggestion{{Text: "help", Kind: "command"}}
 }
 func (fake *fakeApplication) DeleteSession(sessionID string) error {
+	return nil
+}
+func (fake *fakeApplication) SetSessionMeta(sessionID string, meta application.SessionMeta) error {
+	fake.metaSessionID = sessionID
+	fake.sessionMeta = meta
 	return nil
 }
 func (fake *fakeApplication) CreateWorkspace(name, rootPath, gitRemote string) error {
@@ -432,17 +440,19 @@ func TestBridgeSearchHistoryForwardsQueryAndReturnsAuthoritativeResult(t *testin
 	}
 }
 
-func TestBridgeCancelChatRetriesAgainstActiveRequestWhenRendererIDIsStale(t *testing.T) {
-	fake := &staleCancelApplication{fakeApplication: newFakeApplication()}
+// TestBridgeCancelChatForwardsOnce：取消对象的归属判断在 application 层
+// （视图会话当前回合），Bridge 不得再用空 id 重试兜底。
+func TestBridgeCancelChatForwardsOnce(t *testing.T) {
+	fake := &recordingCancelApplication{fakeApplication: newFakeApplication()}
 	bridge, err := NewBridge(fake, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bridge.CancelChat("old-request") {
-		t.Fatal("CancelChat did not retry against the active request")
+		t.Fatal("CancelChat should forward the application result")
 	}
-	if len(fake.calls) != 2 || fake.calls[1] != "" {
-		t.Fatalf("cancel calls = %#v, want stale ID followed by active-request cancellation", fake.calls)
+	if len(fake.calls) != 1 || fake.calls[0] != "old-request" {
+		t.Fatalf("cancel calls = %#v, want a single forwarded request id", fake.calls)
 	}
 }
 

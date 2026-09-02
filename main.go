@@ -999,6 +999,9 @@ func initApplication(
 	events *application.EventHub, approval *application.ApprovalBroker,
 ) (*application.Service, error) {
 	sessionPort := adapters.SessionPort{Manager: sessions, Runtime: runtime}
+	// 会话展示元数据（置顶/别名/排序位）按项目存一份 blob：与 SessionRecord 的
+	// 落盘路径完全隔离，不会被回合结束的记录重建覆盖。
+	sessionPort.Meta = sessionstore.NewSessionMetaStore(sessions.Router())
 	// 会话级操作（删除/读历史）按会话绑定项目解析，避免视图切换后活跃
 	// 写作用域变化导致删错/读错项目（R3 键漂移 + 列表污染根因）。
 	sessionPort.SetWorkspaceResolver(func(sessionID string) string {
@@ -1006,6 +1009,16 @@ func initApplication(
 			return workspace.ID
 		}
 		return ""
+	})
+	// 已知项目来源：绑定缺失时归属解析按"数据实际所在"定位，都没有 = 未关联
+	// （默认项目），绝不按活跃写作用域猜（视图切换会改变它）。
+	sessionPort.SetProjectSource(func() []string {
+		items := workspaces.List()
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			ids = append(ids, item.ID)
+		}
+		return ids
 	})
 	return application.New(application.Dependencies{
 		Engine: eng, Runtime: adapters.RuntimePort{Runtime: runtime},

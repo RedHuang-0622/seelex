@@ -1,6 +1,6 @@
-// 左侧栏纯函数工具：会话置顶（localStorage 持久化）与标题截断。
-// 与 DOM 无关，可独立单测；默认存储取 window.localStorage，测试可注入假存储。
-export const PIN_STORAGE_KEY = "seelex.pinned-sessions";
+// 左侧栏纯函数工具：标题截断与重名消歧编号（均为渲染期派生的显示逻辑）。
+// 会话置顶/别名不再存 localStorage —— 它们属于会话展示元数据，由后端持久化
+// 并随快照 `session.meta` 下发（见 application/core/session_meta.go）。
 export const TITLE_TAILS_KEY = "seelex.session-title-tails";
 
 function defaultStorage() {
@@ -56,35 +56,4 @@ export function titleSuffix(number) {
   const n = Number(number);
   if (!Number.isFinite(n) || n <= 1) return "";
   return ` (${n})`;
-}
-
-export function readPinnedSessions(storage = defaultStorage()) {
-  try {
-    const parsed = JSON.parse(storage?.getItem(PIN_STORAGE_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed.filter(id => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-export function writePinnedSessions(ids, storage = defaultStorage()) {
-  try {
-    storage?.setItem(PIN_STORAGE_KEY, JSON.stringify(ids));
-  } catch {
-    // 无存储环境（隐私模式/测试）静默忽略
-  }
-}
-
-export function isPinned(id, storage = defaultStorage()) {
-  return readPinnedSessions(storage).includes(String(id));
-}
-
-export function togglePinned(id, storage = defaultStorage()) {
-  const key = String(id);
-  const current = readPinnedSessions(storage);
-  const next = current.includes(key)
-    ? current.filter(item => item !== key)
-    : [...current, key];
-  writePinnedSessions(next, storage);
-  return next;
 }

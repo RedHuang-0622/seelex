@@ -111,14 +111,29 @@ test("carries result_ref truncation metadata for oversized outputs", () => {
   assert.equal(records[0].totalChars, 9000);
 });
 
-test("matches tool_result by name when tool id is missing", () => {
+test("keeps an unpaired tool_result as its own row instead of guessing by name", () => {
   const records = buildTrajectory([
     { id: "t1", role: "tool", tool: { name: "grep", arguments: "{}" }, created_at: "2026-08-25T10:00:02Z" },
     { id: "t2", role: "tool_result", content: "hits", tool: { name: "grep", result: "hits", status: "success" }, created_at: "2026-08-25T10:00:03Z" }
   ]);
-  assert.equal(records.length, 1);
-  assert.equal(records[0].output, "hits");
-  assert.equal(records[0].status, "success");
+  // 没有配对键就不配对：按名字猜会把同名并发工具并成一行（错误呈现）。
+  assert.equal(records.length, 2);
+  assert.equal(records[0].output, "");
+  assert.equal(records[1].output, "hits");
+});
+
+test("pairs concurrent same-name tools strictly by call id, even out of order", () => {
+  const records = buildTrajectory([
+    { id: "c1", role: "tool", tool: { id: "call-1", name: "bash", arguments: "ls" } },
+    { id: "c2", role: "tool", tool: { id: "call-2", name: "bash", arguments: "pwd" } },
+    { id: "c3", role: "tool_result", tool: { id: "call-2", name: "bash", result: "/work", status: "success" } },
+    { id: "c4", role: "tool_result", tool: { id: "call-1", name: "bash", result: "a.txt", status: "success" } }
+  ]);
+  assert.equal(records.length, 2);
+  assert.equal(records[0].input, "ls");
+  assert.equal(records[0].output, "a.txt");
+  assert.equal(records[1].input, "pwd");
+  assert.equal(records[1].output, "/work");
 });
 
 test("filters trajectory by kind and aggregates stats", () => {
@@ -249,7 +264,7 @@ test("renders summary counts", () => {
   assert.match(html, /失败 1/);
 });
 
-test("renders context axis segments for every trajectory record", () => {
+test("renders context axis as per-kind lanes with shared axis positions", () => {
   const records = buildTrajectory([
     userMessage("u1", "hi"),
     llmMessage("a1", "hello"),
@@ -258,13 +273,22 @@ test("renders context axis segments for every trajectory record", () => {
   ]);
   const html = renderContextAxis(records);
   assert.match(html, /context-axis-track/);
+  // 五种类型各占一条横轨（多线谱分轨），无记录的轨道保留为空轨。
+  for (const kind of ["input", "llm", "tool", "error", "notice"]) {
+    assert.match(html, new RegExp(`context-axis-lane is-${kind}`));
+  }
+  assert.match(html, /context-axis-lane is-error is-empty/);
+  assert.match(html, /context-axis-lane is-notice is-empty/);
+  assert.match(html, /axis-lane-label/);
+  // 每个记录块带稳定 key，并以共享横轴上的 --x/--w 定位。
   assert.match(html, /data-trajectory-key="message:u1"/);
   assert.match(html, /data-trajectory-key="message:a1"/);
   assert.match(html, /data-trajectory-key="tool:call-1"/);
   assert.match(html, /axis-segment is-input/);
   assert.match(html, /axis-segment is-llm/);
   assert.match(html, /axis-segment is-tool/);
-  assert.match(html, /axis-legend-item/);
+  assert.match(html, /style="--x:/);
+  assert.match(html, /--w:/);
 });
 
 test("renders context axis empty state", () => {

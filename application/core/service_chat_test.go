@@ -270,3 +270,32 @@ func TestCancelChatInterruptsContextAwareEngine(t *testing.T) {
 		t.Fatalf("cancelled task = %#v, want interrupted", task)
 	}
 }
+
+// TestCancelChatWithStaleRequestID 验证取消语义归属：request_id 只是参考，动作
+// 对象是本会话当前运行中的回合（渲染层可能持有一拍前的 id）。此前该兜底由桌面
+// Bridge 用空 id 重试实现，属于业务判断，现收在本服务内。
+func TestCancelChatWithStaleRequestID(t *testing.T) {
+	service := newTestService(t, &blockingEngine{fakeEngine: &fakeEngine{}})
+	if err := service.Submit(context.Background(), "stop the spinner"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !service.Snapshot().Chat.Running {
+		time.Sleep(time.Millisecond)
+	}
+	if !service.Snapshot().Chat.Running {
+		t.Fatal("chat did not start")
+	}
+	if !service.CancelChat("request-from-a-previous-turn") {
+		t.Fatal("CancelChat with a stale request id returned false, want the current turn cancelled")
+	}
+	waitContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := service.WaitForIdle(waitContext); err != nil {
+		t.Fatal(err)
+	}
+	// 空闲后不得"顺手取消"任何东西。
+	if service.CancelChat("request-from-a-previous-turn") {
+		t.Fatal("CancelChat succeeded while idle")
+	}
+}

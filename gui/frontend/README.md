@@ -9,11 +9,11 @@
 | 文件 | 职责 |
 |---|---|
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
-| `dist/client-state.js` | Snapshot/Event reducer、seq gap 和 resync。 |
+| `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
-| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/notice）、tool 请求/响应配对、过滤、统计与表格渲染。 |
-| `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态。 |
+| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/notice）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。 |
+| `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；上下文轴按类型分轨，点击块切回全量并定位轨迹行。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
@@ -24,8 +24,9 @@
 | `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用，待文件预览方案落地后再清理。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
-| `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer。 |
-| `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计与转义安全。 |
+| `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
+| `dist/sidebar.js` | 左栏纯显示工具：标题截断、重名消歧编号（渲染期派生）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
+| `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计、上下文轴分轨布局与转义安全。 |
 
 ## 视觉设计系统
 
@@ -124,7 +125,7 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 
 任务状态、白名单命令均为公开元数据，不含 secret；渲染文本全部 escape。
 
-`Snapshot.Conversation` 是后端提供的有界窗口；增量 reducer 继续按 `conversation_window` 截断。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
+`Snapshot.Conversation` 是后端提供的有界窗口；**窗口截断与游标（`total_messages`/`history_offset`/`has_more_history`）全部是后端 `view_state` 的投影，增量 reducer 只负责 upsert 消息**（阶段 B2：旧实现曾在 JS 里复刻一份截断+计数规则，两边一旦漂移就会出现客户端少显示历史）。回合边界的 `snapshot.changed` 会把权威窗口带回，因此一次回合内数组最多增长该回合新增的消息数。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
 
 对话区顶部有「对话 / 轨迹」两个子页 tab（`.conversation-tabs`，本地 UI 状态）。
 「轨迹」子页把同一份 `Snapshot.conversation` 投影为 Network 风格的响应日志：

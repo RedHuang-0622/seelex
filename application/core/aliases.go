@@ -72,6 +72,7 @@ type (
 	PluginInfo             = model.PluginInfo
 	AccountInfo            = model.AccountInfo
 	SessionInfo            = model.SessionInfo
+	SessionMeta            = model.SessionMeta
 	Interaction            = model.Interaction
 	InteractionOption      = model.InteractionOption
 	Capabilities           = model.Capabilities
@@ -136,6 +137,7 @@ const (
 	EventSubagentToolStarted   = event.EventSubagentToolStarted
 	EventSubagentToolCompleted = event.EventSubagentToolCompleted
 	EventRuntimeChanged        = event.EventRuntimeChanged
+	EventChatChanged           = event.EventChatChanged
 	EventWorkTableChanged      = event.EventWorkTableChanged
 	EventTaskChanged           = event.EventTaskChanged
 	EventInteractionOpened     = event.EventInteractionOpened

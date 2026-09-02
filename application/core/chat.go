@@ -115,6 +115,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
 	// 期间主会话被持锁无法回写，只能在此时补注入。
 	service.injectPendingSubagentContextsFor(sessionID)
+	service.publishChatStateFor(sessionID)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, user)
 	service.publishSessionEvent(EventMessageAdded, revision, requestID, sessionID, assistant)
 	// 会话列表状态机：chat 启动即发布 snapshot.changed，前端刷新左侧栏
@@ -300,6 +301,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	}
 	service.Mu.Unlock()
 	runChatDebug("runChat tail session=%s request=%s err=%v processQueue=%v nextRequest=%q", sessionID, requestID, err, processQueue, nextRequestID)
+	service.publishChatStateFor(sessionID)
 	if err != nil {
 		service.publishSessionEvent(EventError, revision, requestID, sessionID, map[string]string{"message": visibleError})
 	} else {

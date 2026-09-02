@@ -27,24 +27,45 @@ test("validates snapshot protocol versions", () => {
 
 test("applies message additions and deltas without a snapshot refresh", () => {
   const added = applyEvent(snapshot(), {
-    protocol_version: 1, seq: 10, revision: 2, request_id: "chat-1", kind: "message.added",
+    protocol_version: 1, delivery_seq: 10, revision: 2, request_id: "chat-1", kind: "message.added",
     payload: { id: "user-1", role: "user", content: "question" }
   });
   assert.equal(added.needsRefresh, false);
-  assert.equal(added.snapshot.chat.running, true);
   assert.equal(added.snapshot.conversation.at(-1).id, "user-1");
+  // 运行态只由后端下发：增量事件到达不等于"在跑"。
+  assert.equal(added.snapshot.chat.running, false);
 
   const delta = applyEvent(added.snapshot, {
-    protocol_version: 1, seq: 11, revision: 3, request_id: "chat-1", kind: "message.delta",
+    protocol_version: 1, delivery_seq: 11, revision: 3, request_id: "chat-1", kind: "message.delta",
     payload: JSON.stringify({ message_id: "assistant-1", delta: "B" })
   }, added.lastSeq);
   assert.equal(delta.needsRefresh, false);
   assert.equal(delta.snapshot.conversation[0].content, "AB");
+  assert.equal(delta.snapshot.chat.running, false);
+});
+
+test("applies authoritative chat state from chat.changed", () => {
+  const running = applyEvent(snapshot(), {
+    protocol_version: 1, delivery_seq: 12, revision: 0, request_id: "chat-1", kind: "chat.changed",
+    payload: { running: true, request_id: "chat-1", queued_count: 2, input_queue: ["a", "b"] }
+  }, 11);
+  assert.equal(running.needsRefresh, false);
+  assert.equal(running.snapshot.chat.running, true);
+  assert.equal(running.snapshot.chat.request_id, "chat-1");
+  assert.deepEqual(running.snapshot.chat.input_queue, ["a", "b"]);
+
+  // 停止态同样由后端下发；revision=0 不受 revision floor 抑制。
+  const idle = applyEvent(running.snapshot, {
+    protocol_version: 1, delivery_seq: 13, revision: 0, kind: "chat.changed",
+    payload: { running: false }
+  }, running.lastSeq, 99);
+  assert.equal(idle.needsRefresh, false);
+  assert.equal(idle.snapshot.chat.running, false);
 });
 
 test("applies reasoning_content deltas without touching visible content", () => {
   const delta = applyEvent(snapshot(), {
-    protocol_version: 1, seq: 11, revision: 3, request_id: "chat-1", kind: "message.delta",
+    protocol_version: 1, delivery_seq: 11, revision: 3, request_id: "chat-1", kind: "message.delta",
     payload: JSON.stringify({ message_id: "assistant-1", reasoning_content: "thinking steps" })
   }, 10);
   assert.equal(delta.needsRefresh, false);
@@ -52,54 +73,51 @@ test("applies reasoning_content deltas without touching visible content", () => 
   assert.equal(delta.snapshot.conversation[0].content, "A");
 });
 
-// S0 靶场：跨会话污染。后台会话 A 的负载事件不得改写当前会话 B 的快照。
-// 当前 reducer 不按 session_id 过滤，以下测试应为红；重构后转绿。
-test("ignores message events from other sessions (S0: cross-session pollution)", () => {
+// 会话归属是 application 投递端（SubscribeSession / 跟随视图订阅）的不变量：
+// 前端一旦再判一次"这个事件属于哪个会话"，同一规则就有两份实现并各自漂移。
+// 跨会话污染的正向防线见 gui/bridge_session_test.go。
+test("never inspects session_id when applying events (attribution lives upstream)", () => {
   const current = { ...snapshot(), session: { id: "session-b" } };
   const added = applyEvent(current, {
-    protocol_version: 1, seq: 12, revision: 3, request_id: "chat-a", kind: "message.added",
+    protocol_version: 1, delivery_seq: 12, revision: 3, request_id: "chat-a", kind: "message.added",
     session_id: "session-a",
-    payload: { id: "msg-a", role: "assistant", content: "background A" }
+    payload: { id: "msg-a", role: "assistant", content: "already routed by the hub" }
   }, 11);
   assert.equal(added.needsRefresh, false);
-  assert.equal(added.snapshot.conversation.length, 1, "background A message must not pollute session B snapshot");
-  assert.equal(added.snapshot.conversation[0].id, "assistant-1");
+  assert.equal(added.snapshot.conversation.length, 2);
 });
 
-test("ignores worktable changes from other sessions (S0: cross-session tasks)", () => {
+test("global seq jumps are normal; only delivery_seq gaps mean loss", () => {
   const current = { ...snapshot(), session: { id: "session-b" } };
-  const result = applyEvent(current, {
-    protocol_version: 1, seq: 13, revision: 3, request_id: "chat-a", kind: "worktable.changed",
-    session_id: "session-a",
-    payload: { items: [{ id: "task-a", phase: "task", task: "A task", status: "running" }] }
-  }, 12);
-  assert.equal(result.needsRefresh, false);
-  assert.equal((result.snapshot.runtime.work_table || []).length, 0, "background A tasks must not pollute session B worktable");
-});
-
-test("applies message events from the current session (positive control)", () => {
-  const current = { ...snapshot(), session: { id: "session-b" } };
-  const added = applyEvent(current, {
-    protocol_version: 1, seq: 14, revision: 3, request_id: "chat-b", kind: "message.added",
+  // 两次投递之间别会话产生了事件：全局 seq 跳号、投递序号连续 → 不得 resync。
+  const jumped = applyEvent(current, {
+    protocol_version: 1, seq: 40, delivery_seq: 12, revision: 3, kind: "message.added",
     session_id: "session-b",
     payload: { id: "msg-b", role: "user", content: "hello" }
-  }, 13);
-  assert.equal(added.needsRefresh, false);
-  assert.equal(added.snapshot.conversation.length, 2, "current-session events must still apply");
+  }, 11);
+  assert.equal(jumped.needsRefresh, false);
+  assert.equal(jumped.lastSeq, 12);
+  assert.equal(jumped.snapshot.conversation.length, 2);
+
+  const lost = applyEvent(jumped.snapshot, {
+    protocol_version: 1, seq: 44, delivery_seq: 14, revision: 4, kind: "task.changed",
+    payload: { task_id: "task-1", task: { id: "task-1", status: "pending" } }
+  }, jumped.lastSeq);
+  assert.equal(lost.needsRefresh, true);
 });
 
 test("requests resync for sequence gaps and unknown events", () => {
-  const gap = applyEvent(snapshot(), { protocol_version: 1, seq: 4, kind: "message.delta" }, 2);
+  const gap = applyEvent(snapshot(), { protocol_version: 1, delivery_seq: 4, kind: "message.delta" }, 2);
   assert.equal(gap.needsRefresh, true);
   assert.equal(gap.lastSeq, 4);
 
-  const unknown = applyEvent(snapshot(), { protocol_version: 1, seq: 5, kind: "future.event" }, 4);
+  const unknown = applyEvent(snapshot(), { protocol_version: 1, delivery_seq: 5, kind: "future.event" }, 4);
   assert.equal(unknown.needsRefresh, true);
 });
 
 test("rejects incompatible events without mutating state", () => {
   const current = snapshot();
-  const result = applyEvent(current, { protocol_version: 9, seq: 1, kind: "message.added" });
+  const result = applyEvent(current, { protocol_version: 9, delivery_seq: 1, kind: "message.added" });
   assert.equal(result.snapshot, current);
   assert.match(result.error.message, /不受支持/);
 });
@@ -107,7 +125,7 @@ test("rejects incompatible events without mutating state", () => {
 test("ignores events already represented by an authoritative snapshot", () => {
   const current = { ...snapshot(), revision: 4, conversation: [{ id: "assistant-1", role: "assistant", content: "AB" }] };
   const result = applyEvent(current, {
-    protocol_version: 1, seq: 7, revision: 4, request_id: "chat-1", kind: "message.delta",
+    protocol_version: 1, delivery_seq: 7, revision: 4, request_id: "chat-1", kind: "message.delta",
     payload: { message_id: "assistant-1", delta: "B" }
   }, 6, 4);
 
@@ -119,11 +137,11 @@ test("ignores events already represented by an authoritative snapshot", () => {
 
 test("applies sibling events sharing a revision above the snapshot floor", () => {
   const first = applyEvent(snapshot(), {
-    protocol_version: 1, seq: 1, revision: 2, request_id: "chat-1", kind: "message.added",
+    protocol_version: 1, delivery_seq: 1, revision: 2, request_id: "chat-1", kind: "message.added",
     payload: { id: "user-1", role: "user", content: "question" }
   }, 0, 1);
   const second = applyEvent(first.snapshot, {
-    protocol_version: 1, seq: 2, revision: 2, request_id: "chat-1", kind: "message.added",
+    protocol_version: 1, delivery_seq: 2, revision: 2, request_id: "chat-1", kind: "message.added",
     payload: { id: "assistant-2", role: "assistant", content: "" }
   }, first.lastSeq, 1);
 
@@ -133,7 +151,7 @@ test("applies sibling events sharing a revision above the snapshot floor", () =>
 
 test("applies runtime and interaction events", () => {
   const runtime = applyEvent(snapshot(), {
-    protocol_version: 1, seq: 1, revision: 2, kind: "runtime.changed", payload: {
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "runtime.changed", payload: {
       model: "next",
       plan: { name: "build", status: "running", progress: 0.5, nodes: [{ id: "test", status: "running" }] }
     }
@@ -143,12 +161,12 @@ test("applies runtime and interaction events", () => {
   assert.equal(runtime.changed, "runtime.changed");
 
   const opened = applyEvent(runtime.snapshot, {
-    protocol_version: 1, seq: 2, revision: 3, kind: "interaction.opened", payload: { id: "approval-1" }
+    protocol_version: 1, delivery_seq: 2, revision: 3, kind: "interaction.opened", payload: { id: "approval-1" }
   }, runtime.lastSeq);
   assert.equal(opened.snapshot.interaction.id, "approval-1");
 
   const closed = applyEvent(opened.snapshot, {
-    protocol_version: 1, seq: 3, revision: 4, kind: "interaction.closed"
+    protocol_version: 1, delivery_seq: 3, revision: 4, kind: "interaction.closed"
   }, opened.lastSeq);
   assert.equal(closed.snapshot.interaction, null);
 });
@@ -163,7 +181,7 @@ test("applies worktable.changed without deep-cloning the plan", () => {
     }
   };
   const result = applyEvent(current, {
-    protocol_version: 1, seq: 1, revision: 2, kind: "worktable.changed",
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "worktable.changed",
     payload: { items: [
       { id: "plan:n1", phase: "plan", task: "新", status: "running", trace: [{ status: "running", operation: "node.lifecycle" }] },
       { id: "todo:0", phase: "tasklist", task: "a", status: "doing" }
@@ -191,7 +209,7 @@ test("worktable.changed without batches keeps existing batch headers", () => {
     }
   };
   const result = applyEvent(current, {
-    protocol_version: 1, seq: 1, revision: 2, kind: "worktable.changed",
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "worktable.changed",
     payload: {
       items: [{ id: "task:1", phase: "task", task: "t", status: "pending", kind: "task", batch_id: "chat-1" }]
     }
@@ -213,7 +231,7 @@ test("applies task.changed as a single-row upsert", () => {
     }
   };
   const result = applyEvent(current, {
-    protocol_version: 1, seq: 1, revision: 2, kind: "task.changed",
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "task.changed",
     payload: { task_id: "plan:n1", task: { id: "plan:n1", phase: "plan", task: "新", status: "retry", retry_count: 2 } }
   });
   assert.equal(result.needsRefresh, false);
@@ -226,7 +244,7 @@ test("applies task.changed as a single-row upsert", () => {
 
   // 未知 task_id → 插入新行（add 语义）。
   const added = applyEvent(result.snapshot, {
-    protocol_version: 1, seq: 2, revision: 3, kind: "task.changed",
+    protocol_version: 1, delivery_seq: 2, revision: 3, kind: "task.changed",
     payload: { task_id: "task:9", task: { id: "task:9", phase: "task", task: "新任务", status: "pending" } }
   }, result.lastSeq);
   assert.equal(added.snapshot.runtime.work_table.length, 3);
@@ -246,7 +264,7 @@ test("subagent updates share unchanged sibling nodes instead of cloning the whol
     }
   };
   const result = applyEvent(current, {
-    protocol_version: 1, seq: 1, revision: 2, kind: "subagent.changed",
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "subagent.changed",
     payload: {
       node_id: "worker", plan_status: "running", progress: 0.5,
       node: { id: "worker", label: "Worker", status: "running", tool_events: [], children: [] }
@@ -269,18 +287,18 @@ test("applies recursive subagent lifecycle and tool events without mutating the 
     }
   };
   const lifecycle = applyEvent(current, {
-    protocol_version: 1, seq: 1, revision: 2, kind: "subagent.changed",
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "subagent.changed",
     payload: {
       node_id: "worker", plan_status: "running", progress: 0.5,
       node: { id: "worker", label: "Worker", status: "worktree_creating", tool_events: [], children: [] }
     }
   });
   const started = applyEvent(lifecycle.snapshot, {
-    protocol_version: 1, seq: 2, revision: 3, kind: "subagent.tool.started",
+    protocol_version: 1, delivery_seq: 2, revision: 3, kind: "subagent.tool.started",
     payload: { id: "subtool-1", node_id: "worker", name: "read_file", status: "running" }
   }, lifecycle.lastSeq);
   const completed = applyEvent(started.snapshot, {
-    protocol_version: 1, seq: 3, revision: 4, kind: "subagent.tool.completed",
+    protocol_version: 1, delivery_seq: 3, revision: 4, kind: "subagent.tool.completed",
     payload: { id: "subtool-1", node_id: "worker", name: "read_file", status: "success", result: "done" }
   }, started.lastSeq);
 
@@ -293,24 +311,31 @@ test("applies recursive subagent lifecycle and tool events without mutating the 
   assert.deepEqual(current.runtime.plan.nodes[0].children[0].tool_events, []);
 });
 
-test("bounds incrementally added conversation messages to the advertised window", () => {
+// 窗口投影属于后端 view_state：reducer 只追加消息，不再本地截断或推算
+// total_messages / history_offset / has_more_history（旧实现在 JS 里复刻了同一
+// 套规则，两边一旦漂移就出现"客户端少显示历史"）。权威游标随下一次
+// snapshot.changed 重拉到达。
+test("leaves window counters and array bounds to the authoritative snapshot", () => {
   let result = {
     snapshot: {
       ...snapshot(),
       conversation_window: 2,
       total_messages: 1,
+      history_offset: 0,
+      has_more_history: false,
       conversation: [{ id: "m1", role: "assistant", content: "one" }]
     },
     lastSeq: 0
   };
   for (const [index, id] of ["m2", "m3"].entries()) {
     result = applyEvent(result.snapshot, {
-      protocol_version: 1, seq: index + 1, revision: index + 2, kind: "message.added",
+      protocol_version: 1, delivery_seq: index + 1, revision: index + 2, kind: "message.added",
       payload: { id, role: "assistant", content: id }
     }, result.lastSeq);
+    assert.equal(result.needsRefresh, false);
   }
-  assert.deepEqual(result.snapshot.conversation.map(message => message.id), ["m2", "m3"]);
-  assert.equal(result.snapshot.total_messages, 3);
-  assert.equal(result.snapshot.history_offset, 1);
-  assert.equal(result.snapshot.has_more_history, true);
+  assert.deepEqual(result.snapshot.conversation.map(message => message.id), ["m1", "m2", "m3"]);
+  assert.equal(result.snapshot.total_messages, 1);
+  assert.equal(result.snapshot.history_offset, 0);
+  assert.equal(result.snapshot.has_more_history, false);
 });

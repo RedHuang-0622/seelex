@@ -31,7 +31,7 @@ test("uses event deltas without reloading snapshots", async () => {
 
   await client.refresh({ scroll: "bottom" });
   await client.handleEvent({
-    protocol_version: 1, seq: 1, revision: 2, request_id: "chat-1", kind: "message.delta",
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 2, request_id: "chat-1", kind: "message.delta",
     payload: { message_id: "assistant-1", delta: "B" }
   });
 
@@ -50,7 +50,7 @@ test("reloads a snapshot when an event sequence has a gap", async () => {
   });
 
   await client.refresh();
-  await client.handleEvent({ protocol_version: 1, seq: 3, revision: 3, kind: "message.delta" });
+  await client.handleEvent({ protocol_version: 1, seq: 3, delivery_seq: 3, revision: 3, kind: "message.delta" });
 
   assert.equal(loads, 2);
   assert.deepEqual(snapshots, ["S1", "S2"]);
@@ -81,7 +81,7 @@ test("does not replay a delta already included in a loaded snapshot", async () =
 
   await client.refresh();
   await client.handleEvent({
-    protocol_version: 1, seq: 1, revision: 4, request_id: "chat-1", kind: "message.delta",
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 4, request_id: "chat-1", kind: "message.delta",
     payload: { message_id: "assistant-1", delta: "B" }
   });
 
@@ -89,11 +89,12 @@ test("does not replay a delta already included in a loaded snapshot", async () =
   assert.deepEqual(incrementals, []);
 });
 
-test("switch resync: acceptSnapshot resets baseline, foreign events dropped, current applied (S0)", async () => {
+test("switch resync: acceptSnapshot resets the baseline and view increments keep applying", async () => {
   const incrementals = [];
   const snapshots = [];
+  let loads = 0;
   const client = createGUIClient({
-    loadSnapshot: async () => makeSnapshot(1, "A"),
+    loadSnapshot: async () => { loads += 1; return makeSnapshot(1, "A"); },
     onSnapshot: snapshot => snapshots.push(snapshot.session?.id),
     onIncremental: (snapshot, kind) => incrementals.push([snapshot.session?.id, kind]),
     onError: error => { throw error; }
@@ -101,16 +102,14 @@ test("switch resync: acceptSnapshot resets baseline, foreign events dropped, cur
 
   await client.refresh({ scroll: "bottom" });
 
-  // 后台会话 A 的事件（当前视图是 A，事件也是 A）→ 正常应用。
   await client.handleEvent({
-    protocol_version: 1, seq: 1, revision: 2, session_id: "session-a",
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 2, session_id: "session-a",
     kind: "message.delta",
     payload: { message_id: "assistant-1", delta: "B" }
   });
   assert.deepEqual(incrementals, [["session-a", "message.delta"]]);
 
-  // 切换到会话 B：权威基线重置（acceptSnapshot），lastSeq 归零语义由后续
-  // 增量验证。
+  // 切换到会话 B：权威基线重置（acceptSnapshot）。
   const baselineB = {
     protocol_version: 1, revision: 10,
     session: { id: "session-b" },
@@ -121,21 +120,16 @@ test("switch resync: acceptSnapshot resets baseline, foreign events dropped, cur
   client.acceptSnapshot(baselineB, "bottom");
   assert.equal(client.current().session.id, "session-b");
 
-  // 旧会话 A 的迟到事件 → 丢弃（推进 seq，不触发 resync、不 upsert）。
-  const dropped = await client.handleEvent({
-    protocol_version: 1, seq: 11, revision: 11, session_id: "session-a",
-    kind: "message.added",
-    payload: { id: "a-late", role: "assistant", content: "late A" }
-  });
-  assert.equal(client.current().conversation.some(message => message.id === "a-late"), false);
-  assert.equal(incrementals.filter(item => item[0] === "session-b").length, 0);
-
-  // 当前会话 B 的事件 → 正常应用。
+  // 基线之后视图会话的增量继续生效，且不额外触发快照重载。
   await client.handleEvent({
-    protocol_version: 1, seq: 12, revision: 12, session_id: "session-b",
+    protocol_version: 1, seq: 12, delivery_seq: 2, revision: 12, session_id: "session-b",
     kind: "message.delta",
     payload: { message_id: "b-1", delta: "!" }
   });
   assert.equal(client.current().conversation[0].content, "hi from B!");
   assert.deepEqual(incrementals.at(-1), ["session-b", "message.delta"]);
+  assert.equal(loads, 1, "切换后的增量不得回落到快照重载");
+
+  // 旧会话 A 的迟到事件不会出现在这里：会话归属由 application 在投递端
+  // 过滤，前端不判定 session_id（正向防线见 gui/bridge_session_test.go）。
 });

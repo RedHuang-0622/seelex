@@ -516,6 +516,16 @@ type SessionInfo struct {
 	UpdatedAt  time.Time     `json:"updated_at"`
 	TokenCount int           `json:"token_count"`
 	Status     SessionStatus `json:"status,omitempty"`
+	// Meta 是用户侧展示元数据（置顶/别名/排序位）。随目录由后端下发，客户端
+	// 不再存在 localStorage（否则换窗口/换设备即分叉）。
+	Meta SessionMeta `json:"meta,omitempty"`
+}
+
+// SessionMeta 描述"用户怎么看这个会话"，不参与执行与存储归属。
+type SessionMeta struct {
+	Pinned    bool   `json:"pinned,omitempty"`
+	Alias     string `json:"alias,omitempty"`
+	SortOrder int    `json:"sort_order,omitempty"`
 }
 type Interaction struct {
 	ID       string              `json:"id"`

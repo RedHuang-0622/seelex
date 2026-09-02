@@ -3,7 +3,8 @@ export const SUPPORTED_PROTOCOL_VERSION = 1;
 const INCREMENTAL_KINDS = new Set([
   "message.added", "message.delta", "tool.started", "tool.completed",
   "subagent.changed", "subagent.tool.started", "subagent.tool.completed",
-  "runtime.changed", "worktable.changed", "task.changed", "interaction.opened", "interaction.closed"
+  "chat.changed", "runtime.changed", "worktable.changed", "task.changed",
+  "interaction.opened", "interaction.closed"
 ]);
 
 const MAX_FRONTEND_NODE_TOOL_EVENTS = 100;
@@ -22,14 +23,12 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
   } catch (error) {
     return { snapshot, lastSeq, needsRefresh: false, error };
   }
-  const seq = Number(event.seq || 0);
+  // 连续性只按 delivery_seq（本订阅内的投递序号）判定：会话归属由 application
+  // 在投递端过滤，全局 seq 因此必然跳号，跳号不代表丢事件；缓冲溢出的
+  // resync.required 才是唯一的丢失信号。
+  const seq = Number(event.delivery_seq || 0);
   if (!seq || (lastSeq && seq > lastSeq + 1)) return refreshResult(snapshot, Math.max(lastSeq, seq));
   if (lastSeq && seq <= lastSeq) return { snapshot, lastSeq, needsRefresh: false };
-  // 会话域收口：非当前会话的负载事件一律忽略（推进 seq，不触发 resync，
-  // 绝不 upsert 进当前会话快照）；无 session_id 的全局/目录事件照常应用。
-  if (isForeignSessionEvent(event, snapshot)) {
-    return { snapshot, lastSeq: seq, needsRefresh: false };
-  }
   if (!snapshot || !INCREMENTAL_KINDS.has(event.kind)) return refreshResult(snapshot, seq);
   const revision = Number(event.revision || 0);
   if (revision && revision <= Number(snapshotRevisionFloor || 0)) {
@@ -44,31 +43,24 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
     : refreshResult(snapshot, seq);
 }
 
-function isForeignSessionEvent(event, snapshot) {
-  const sessionID = event?.session_id;
-  if (!sessionID) return false;
-  const current = snapshot?.session?.id;
-  return Boolean(current) && sessionID !== current;
-}
-
 function applyIncremental(snapshot, event, payload) {
   switch (event.kind) {
   case "message.added":
   case "tool.started":
   case "tool.completed":
     if (!payload?.id) return false;
-    {
-      const result = upsertMessage(snapshot.conversation, payload);
-      snapshot.conversation = result.messages;
-      if (result.inserted && payload.role !== "system") {
-        snapshot.total_messages = Math.max(Number(snapshot.total_messages || 0), countDurableMessages(snapshot.conversation) - 1) + 1;
-      }
-      boundConversation(snapshot);
-    }
-    markRunning(snapshot, event.request_id);
+    // 窗口游标（total_messages / history_offset / has_more_history）与截断都是
+    // 后端 view_state 的投影：reducer 只 upsert 消息，下一次 snapshot.changed
+    // 会带回权威窗口，客户端不再复刻这份规则。
+    snapshot.conversation = upsertMessage(snapshot.conversation, payload);
     return true;
   case "message.delta":
     return appendMessageDelta(snapshot, payload);
+  case "chat.changed":
+    // 运行态只有后端能说：ChatState 整体替换，客户端不自造 running/request_id。
+    if (!payload || typeof payload !== "object") return false;
+    snapshot.chat = payload;
+    return true;
   case "subagent.changed":
     return applySubagentChanged(snapshot, payload);
   case "subagent.tool.started":
@@ -121,7 +113,6 @@ function appendMessageDelta(snapshot, payload) {
   if (hasReasoning) next.reasoning_content = payload.reasoning_content;
   messages[index] = next;
   snapshot.conversation = messages;
-  markRunning(snapshot, snapshot.chat?.request_id);
   return true;
 }
 
@@ -130,7 +121,7 @@ function upsertMessage(messages, message) {
   const index = next.findIndex(current => current.id === message.id);
   if (index < 0) next.push(message);
   else next[index] = message;
-  return { messages: next, inserted: index < 0 };
+  return next;
 }
 
 function applySubagentChanged(snapshot, payload) {
@@ -178,11 +169,6 @@ function mapPlanNodePath(nodes, nodeID, update) {
   return { nodes: next, changed };
 }
 
-function markRunning(snapshot, requestID) {
-  if (!requestID) return;
-  snapshot.chat = { ...(snapshot.chat || {}), running: true, request_id: requestID };
-}
-
 function cloneSnapshot(snapshot, revision) {
   return {
     ...snapshot,
@@ -200,34 +186,6 @@ function clonePlanNode(node) {
     tool_events: Array.isArray(node.tool_events) ? node.tool_events.map(event => ({ ...event })) : [],
     children: Array.isArray(node.children) ? node.children.map(clonePlanNode) : []
   };
-}
-
-function boundConversation(snapshot) {
-  const window = Math.trunc(Number(snapshot.conversation_window || 0));
-  if (window <= 0 || snapshot.conversation.length === 0) return;
-  const keep = new Array(snapshot.conversation.length).fill(false);
-  let durable = 0;
-  let system = 0;
-  for (let index = snapshot.conversation.length - 1; index >= 0; index -= 1) {
-    if (snapshot.conversation[index]?.role === "system") {
-      if (system < window) {
-        keep[index] = true;
-        system += 1;
-      }
-    } else if (durable < window) {
-      keep[index] = true;
-      durable += 1;
-    }
-  }
-  snapshot.conversation = snapshot.conversation.filter((_message, index) => keep[index]);
-  const total = Math.max(Number(snapshot.total_messages || 0), countDurableMessages(snapshot.conversation));
-  snapshot.total_messages = total;
-  snapshot.history_offset = Math.max(total - countDurableMessages(snapshot.conversation), 0);
-  snapshot.has_more_history = snapshot.history_offset > 0;
-}
-
-function countDurableMessages(messages) {
-  return (messages || []).reduce((count, message) => count + (message?.role === "system" ? 0 : 1), 0);
 }
 
 function decodePayload(payload) {

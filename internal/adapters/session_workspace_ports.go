@@ -3,6 +3,7 @@ package adapters
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -141,6 +142,60 @@ type SessionPort struct {
 	// workspaceResolver 解析会话绑定的项目（workspace.Repo 装配注入；
 	// Delete/LoadHistory 等会话级操作按归属项目落键，避免删错/读错作用域）。
 	workspaceResolver func(sessionID string) string
+	// projectSource 提供应用已知项目列表（workspace.Repo.List）：绑定缺失时
+	// 归属解析按"数据实际所在"定位，未找到即未关联（默认项目）。
+	projectSource func() []string
+	// Meta 是项目级会话展示元数据存取（main.go 装配）。它是指针：SessionPort
+	// 会被值拷贝进 Dependencies，共享同一个实例才共用其读改写串行化。
+	Meta *sessionstore.SessionMetaStore
+}
+
+// SetSessionMeta 实现 session.SessionMetaPort：写单个会话的展示元数据到其归属
+// 项目 blob（零值语义即清除条目）。
+func (port SessionPort) SetSessionMeta(sessionID string, meta model.SessionMeta) error {
+	if port.Meta == nil {
+		return errors.New("session meta storage is not assembled")
+	}
+	projectID := port.granular().ResolveProjectForSession(sessionID)
+	_, err := port.Meta.Set(projectID, sessionID, adaptSessionMetaToStore(meta))
+	return err
+}
+
+// SessionMeta 实现 session.SessionMetaPort：读单个会话的展示元数据。
+func (port SessionPort) SessionMeta(sessionID string) (model.SessionMeta, error) {
+	if port.Meta == nil {
+		return model.SessionMeta{}, errors.New("session meta storage is not assembled")
+	}
+	projectID := port.granular().ResolveProjectForSession(sessionID)
+	metas, err := port.Meta.Meta(projectID)
+	if err != nil {
+		return model.SessionMeta{}, err
+	}
+	return adaptSessionMetaFromStore(metas[sessionID]), nil
+}
+
+// applySessionMetas 把项目 blob 里的展示元数据盖到目录枚举结果上。缺 blob 或
+// 读失败都不阻断目录：元数据只影响排序与标题显示。
+func (port SessionPort) applySessionMetas(projectID string, infos []model.SessionInfo) []model.SessionInfo {
+	if port.Meta == nil {
+		return infos
+	}
+	metas, err := port.Meta.Meta(projectID)
+	if err != nil || len(metas) == 0 {
+		return infos
+	}
+	for index := range infos {
+		infos[index].Meta = adaptSessionMetaFromStore(metas[infos[index].ID])
+	}
+	return infos
+}
+
+func adaptSessionMetaToStore(meta model.SessionMeta) sessionstore.SessionDisplayMeta {
+	return sessionstore.SessionDisplayMeta{Pinned: meta.Pinned, Alias: meta.Alias, SortOrder: meta.SortOrder}
+}
+
+func adaptSessionMetaFromStore(meta sessionstore.SessionDisplayMeta) model.SessionMeta {
+	return model.SessionMeta{Pinned: meta.Pinned, Alias: meta.Alias, SortOrder: meta.SortOrder}
 }
 
 // SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点）。
@@ -151,11 +206,20 @@ func (port *SessionPort) SetWorkspaceResolver(resolver func(sessionID string) st
 	port.workspaceResolver = resolver
 }
 
+// SetProjectSource 注入已知项目列表（main.go 装配点）。
+func (port *SessionPort) SetProjectSource(source func() []string) {
+	if port == nil {
+		return
+	}
+	port.projectSource = source
+}
+
 // granular 返回会话粒度存储入口（Router 为物理布局，暴露层为
 // session:<id> 五片 API；session.Manager 不再承担存储桥）。
 func (port SessionPort) granular() *sessionstore.SessionGranularStore {
 	store := sessionstore.NewSessionGranularStore(port.Manager.Router())
 	store.SetWorkspaceResolver(port.workspaceResolver)
+	store.SetProjectSource(port.projectSource)
 	return store
 }
 
@@ -229,7 +293,7 @@ func (port SessionPort) List() []model.SessionInfo {
 	if err != nil {
 		return nil
 	}
-	return adaptGranularInfos(infos)
+	return port.applySessionMetas(port.Manager.Workspace(), adaptGranularInfos(infos))
 }
 
 // SessionsOf 实现 session_runtime.SessionGranularPort：按项目索引枚举会话。
@@ -238,7 +302,7 @@ func (port SessionPort) SessionsOf(projectID string) []model.SessionInfo {
 	if err != nil {
 		return nil
 	}
-	return adaptGranularInfos(infos)
+	return port.applySessionMetas(projectID, adaptGranularInfos(infos))
 }
 
 func (port SessionPort) SaveSessionRecord(id string, record model.SessionRecord) error {

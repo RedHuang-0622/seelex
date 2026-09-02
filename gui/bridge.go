@@ -39,6 +39,8 @@ type Application interface {
 	LoadMoreHistory(int) error
 	Suggestions(string) []application.Suggestion
 	DeleteSession(string) error
+	// SetSessionMeta 写会话展示元数据（置顶/别名/排序位），随会话目录下发。
+	SetSessionMeta(string, application.SessionMeta) error
 	CreateWorkspace(name, rootPath, gitRemote string) error
 	BindWorkspace(workspaceID string) error
 	UnbindWorkspace()
@@ -131,12 +133,6 @@ type Bridge struct {
 	running bool
 	emitFn  EventEmitter
 	streams map[string]func()
-
-	// curMu 保护 currentSessionID：事件中继 goroutine 按它做第一道会话过滤
-	// （协议层 protocol.js 为第二道防御）。会话切换成功后在 Bridge 方法里
-	// 更新；禁止在事件热路径调用 app.Snapshot()（克隆整份快照代价过高）。
-	curMu            sync.RWMutex
-	currentSessionID string
 }
 
 // subagentLiveEventName 是 node 第一视角实时流的前端事件名。
@@ -188,10 +184,9 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 		return
 	}
 	bridge.ctx, bridge.cancel = context.WithCancel(ctx)
-	bridge.sub = bridge.app.Subscribe(256)
+	bridge.sub = bridge.subscribeView()
 	bridge.emitFn = emit
 	bridge.streams = make(map[string]func())
-	bridge.currentSessionID = bridge.app.Snapshot().Session.ID
 	bridge.running = true
 	loopContext := bridge.ctx
 	subscription := bridge.sub
@@ -211,9 +206,6 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 				if !ok {
 					return
 				}
-				if bridge.isForeignSessionEvent(event) {
-					continue
-				}
 				if emit != nil {
 					emit(loopContext, eventName, event)
 				}
@@ -222,24 +214,17 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 	}()
 }
 
-// isForeignSessionEvent 判断事件是否属于非当前会话的负载（第一道过滤）。
-// 空 session_id = 全局/目录事件，放行；当前会话为空（草稿）时放行全部
-// 会话事件，由协议层按快照会话二次校验。
-func (bridge *Bridge) isForeignSessionEvent(event application.Event) bool {
-	if event.SessionID == "" {
-		return false
+// subscribeView 订阅当前视图会话的事件流。会话归属由 application 在投递端
+// 判定（sessionID 为空 = 跟随视图指针，草稿物化与切换都由它覆盖），Bridge
+// 不再保存"当前会话"副本，渲染层也收不到别会话的事件。
+// 宿主不支持会话级订阅时退回全局订阅：此时应用本身也没有多会话状态可污染。
+func (bridge *Bridge) subscribeView() application.Subscription {
+	if app, ok := bridge.app.(sessionAwareApplication); ok {
+		if subscription, err := app.SubscribeSession("", 256); err == nil {
+			return subscription
+		}
 	}
-	bridge.curMu.RLock()
-	current := bridge.currentSessionID
-	bridge.curMu.RUnlock()
-	return current != "" && event.SessionID != current
-}
-
-// setCurrentSession 更新事件过滤的当前会话（会话切换成功后调用）。
-func (bridge *Bridge) setCurrentSession(sessionID string) {
-	bridge.curMu.Lock()
-	bridge.currentSessionID = sessionID
-	bridge.curMu.Unlock()
+	return bridge.app.Subscribe(256)
 }
 
 // Stop cancels the event relay and waits until its goroutine has exited. It is
@@ -358,44 +343,23 @@ func (bridge *Bridge) Submit(text string) error {
 }
 
 func (bridge *Bridge) BeginNewSession() error {
-	if err := bridge.app.BeginNewSession(); err != nil {
-		return err
-	}
-	bridge.setCurrentSession("")
-	return nil
+	return bridge.app.BeginNewSession()
 }
 
 func (bridge *Bridge) ResumeSession(sessionID string) error {
-	if err := bridge.app.ResumeSession(sessionID); err != nil {
-		return err
-	}
-	bridge.setCurrentSession(sessionID)
-	return nil
+	return bridge.app.ResumeSession(sessionID)
 }
 
 // ForkSessionLatest 从会话最新完整轮次分支出新会话并切换（Wails 前端会话
 // 树「分支」按钮数据源；返回子会话 ID）。
 func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
-	childID, err := bridge.app.ForkSessionLatest(sessionID)
-	if err != nil {
-		return "", err
-	}
-	// fork 成功后应用切换到子会话：更新事件过滤的当前会话。
-	bridge.setCurrentSession(childID)
-	return childID, nil
+	return bridge.app.ForkSessionLatest(sessionID)
 }
 
+// CancelChat 取消当前视图会话的运行中回合。request_id 可能滞后一个事件 tick，
+// 归属判断（停掉本会话当前回合）在 application 层，Bridge 只做转发。
 func (bridge *Bridge) CancelChat(requestID string) bool {
-	if bridge.app.CancelChat(requestID) {
-		return true
-	}
-	// A renderer can hold the previous request ID for one event tick while a
-	// queued turn is promoted. Retry against the application's current active
-	// request instead of silently turning the stop button into a no-op.
-	if strings.TrimSpace(requestID) != "" {
-		return bridge.app.CancelChat("")
-	}
-	return false
+	return bridge.app.CancelChat(requestID)
 }
 
 // SubmitToSession 向指定会话提交输入（会话级保护 API；应用不支持时返回
@@ -414,11 +378,7 @@ func (bridge *Bridge) ActivateSession(sessionID string) error {
 	if !ok {
 		return errors.New("session-scoped API is not supported by the application")
 	}
-	if err := app.ActivateSession(sessionID); err != nil {
-		return err
-	}
-	bridge.setCurrentSession(sessionID)
-	return nil
+	return app.ActivateSession(sessionID)
 }
 
 // SnapshotOf 返回指定会话的权威快照（M1：仅活跃会话有驻留快照）。
@@ -466,6 +426,14 @@ func (bridge *Bridge) Suggestions(input string) []application.Suggestion {
 
 func (bridge *Bridge) DeleteSession(sessionID string) error {
 	return bridge.app.DeleteSession(sessionID)
+}
+
+// SetSessionMeta 写会话展示元数据（置顶/别名/排序位）。参数保持扁平供 renderer
+// 调用；写成功后由 application 唤醒目录刷新，新排序随快照回到侧栏。
+func (bridge *Bridge) SetSessionMeta(sessionID string, pinned bool, alias string, sortOrder int) error {
+	return bridge.app.SetSessionMeta(sessionID, application.SessionMeta{
+		Pinned: pinned, Alias: alias, SortOrder: sortOrder,
+	})
 }
 
 func (bridge *Bridge) CreateWorkspace(name, rootPath, gitRemote string) error {

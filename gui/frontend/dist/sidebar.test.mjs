@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { PIN_STORAGE_KEY, TITLE_TAILS_KEY, truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails, readPinnedSessions, writePinnedSessions, isPinned, togglePinned } from "./sidebar.js";
+import { TITLE_TAILS_KEY, truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 
 function fakeStorage(initial = {}) {
   const map = new Map(Object.entries(initial));
@@ -62,33 +62,6 @@ test("truncateTitle tolerates null/undefined/non-string", () => {
   assert.equal(truncateTitle(12345, 3), "123…");
 });
 
-test("pinned helpers persist through a fake storage", () => {
-  const storage = fakeStorage();
-  assert.deepEqual(readPinnedSessions(storage), []);
-  assert.equal(isPinned("s1", storage), false);
-  togglePinned("s1", storage);
-  assert.equal(isPinned("s1", storage), true);
-  assert.deepEqual(readPinnedSessions(storage), ["s1"]);
-  togglePinned("s1", storage);
-  assert.equal(isPinned("s1", storage), false);
-  assert.deepEqual(readPinnedSessions(storage), []);
-});
-
-test("pinned helpers tolerate malformed stored JSON", () => {
-  const storage = fakeStorage({ [PIN_STORAGE_KEY]: "not-json" });
-  assert.deepEqual(readPinnedSessions(storage), []);
-  assert.equal(isPinned("s1", storage), false);
-});
-
-test("togglePinned appends new ids and keeps order", () => {
-  const storage = fakeStorage();
-  togglePinned("b", storage);
-  togglePinned("a", storage);
-  assert.deepEqual(readPinnedSessions(storage), ["b", "a"]);
-});
-
-test("writePinnedSessions normalizes stored value to JSON string", () => {
-  const storage = fakeStorage();
-  writePinnedSessions(["s1", "s2"], storage);
-  assert.equal(storage.getItem(PIN_STORAGE_KEY), JSON.stringify(["s1", "s2"]));
-});
+// 置顶/别名不再是本模块职责：它们作为会话展示元数据由后端持久化，侧栏只读快照
+// 下发的 session.meta（写入经 Bridge.SetSessionMeta），因此 localStorage 辅助
+// 函数已整体删除。

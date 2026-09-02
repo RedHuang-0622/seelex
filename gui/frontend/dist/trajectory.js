@@ -60,15 +60,14 @@ export function trajectoryKindIcon(kind, size = 13) {
 //   其它/未知       → notice 兜底
 export function buildTrajectory(messages = []) {
   const records = [];
+  // 配对键 = 框架 tool-call id：tool.started 与 tool_result 携带同一个 id（恢复
+  // 历史同样取 toolCall.ID）。按名字回退会把同名并发工具错配成一行，属于前端
+  // 自造的业务判断，不再实现。
   const pendingByID = new Map();
-  const pendingTools = [];
 
   const push = record => {
     records.push(record);
-    if (record.kind === "tool") {
-      pendingTools.push(record);
-      if (record.toolID) pendingByID.set(record.toolID, record);
-    }
+    if (record.kind === "tool" && record.toolID) pendingByID.set(record.toolID, record);
     return record;
   };
 
@@ -93,10 +92,7 @@ export function buildTrajectory(messages = []) {
     const tool = message.tool;
     const isOutput = role === "tool_result";
     if (isOutput) {
-      let target = tool.id ? pendingByID.get(tool.id) : null;
-      if (!target) {
-        target = [...pendingTools].reverse().find(record => record.toolName === tool.name);
-      }
+      const target = tool.id ? pendingByID.get(tool.id) : null;
       if (target) {
         target.output = tool.error || tool.result || message.content || "";
         target.status = tool.error ? "error" : (tool.status === "error" || tool.status === "failed" ? "error" : "success");
@@ -217,27 +213,41 @@ export function contextAxisWeight(record) {
   return Math.max(String(record.output || "").length + String(record.reasoning || "").length, 1);
 }
 
-// renderContextAxis 渲染轨迹视图顶部的上下文轴（类 Network 面板的 Overview，
-// 但横轴是「对话顺序 + 内容体量」而非时间）。每个记录是一个可点击段，点击后
-// 由视图定位到对应轨迹行；空数据给出引导文案。
+// renderContextAxis 渲染轨迹视图顶部的上下文轴——多线谱（分轨）布局，
+// 类似 DevTools Network 面板的时间轴：每种响应类型占一条横轨，各轨共用
+// 同一横轴（对话顺序 + 内容体量，非时间轴）。每个记录是一个可点击块，
+// 按它在全局序列中的位置落在本类型轨道上；某类型在某段对话里没有记录时，
+// 该轨留空，便于跨类型对照上下文块的先后与体量。点击块由视图定位到对应
+// 轨迹行；空数据给出引导文案。
 export function renderContextAxis(records = []) {
   if (!records.length) return '<div class="context-axis-empty">暂无上下文轴数据</div>';
   const weights = records.map(contextAxisWeight);
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  const track = records.map((record, index) => {
-    const percent = Math.max((weights[index] / total) * 100, 0.5);
+  const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  // 共享横轴上的游标：块的起点 = 此前所有记录的体量占比累计，块宽 = 自身体量占比。
+  let cursor = 0;
+  const blocksByKind = new Map(TRAJECTORY_KINDS.map(entry => [entry.kind, []]));
+  for (const [index, record] of records.entries()) {
+    const x = (cursor / total) * 100;
+    const width = (weights[index] / total) * 100;
+    cursor += weights[index];
     const label = record.kind === "tool" ? (record.toolName || record.name) : trajectoryKindLabel(record.kind);
     const size = trajectorySize(record);
     const statusClass = statusClassName(record.status);
-    return `<button type="button" class="axis-segment is-${escapeHtml(record.kind)} ${statusClass}" style="--w:${percent.toFixed(2)}%" data-trajectory-key="${escapeHtml(record.key)}" title="${escapeHtml(`${label} · ${size} · 点击定位轨迹行`)}" aria-label="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
+    const block = `<button type="button" class="axis-segment is-${escapeHtml(record.kind)} ${statusClass}" style="--x:${x.toFixed(3)}%;--w:${width.toFixed(3)}%" data-trajectory-key="${escapeHtml(record.key)}" title="${escapeHtml(`${label} · ${size} · 点击定位轨迹行`)}" aria-label="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
+    blocksByKind.get(record.kind)?.push(block);
+  }
+  const lanes = TRAJECTORY_KINDS.map(entry => {
+    const blocks = blocksByKind.get(entry.kind) || [];
+    const empty = blocks.length === 0;
+    const laneHint = empty ? "（无上下文块）" : "";
+    return `<div class="context-axis-lane is-${entry.kind}${empty ? " is-empty" : ""}" aria-label="${escapeHtml(entry.label)}${laneHint}">
+      <span class="axis-lane-label" title="${escapeHtml(entry.label + (empty ? "：本类型无上下文块" : ""))}">${trajectoryKindIcon(entry.kind, 10)}<span>${escapeHtml(entry.label)}</span></span>
+      <div class="axis-lane-bar">${blocks.join("")}</div>
+    </div>`;
   }).join("");
-  const legend = TRAJECTORY_KINDS.map(kind =>
-    `<span class="axis-legend-item is-${kind.kind}">${trajectoryKindIcon(kind.kind, 11)}${escapeHtml(kind.label)}</span>`
-  ).join("");
-  return `<div class="context-axis" role="group" aria-label="上下文轴（按对话顺序，非时间轴）">
-    <div class="context-axis-head"><strong>上下文轴</strong><span>按对话顺序排列 · 宽度 ∝ 内容体量 · 点击定位</span></div>
-    <div class="context-axis-track">${track}</div>
-    <div class="context-axis-legend">${legend}</div>
+  return `<div class="context-axis" role="group" aria-label="上下文轴：按响应类型分轨，横轴为对话顺序与内容体量（非时间轴）">
+    <div class="context-axis-head"><strong>上下文轴</strong><span>按类型分轨 · 横轴=对话顺序+体量 · 点击定位轨迹行</span></div>
+    <div class="context-axis-track">${lanes}</div>
   </div>`;
 }
 
