@@ -14,7 +14,7 @@ import { createRuntimeEventBinder } from "./runtime-events.js";
 import { createActiveChatSnapshotSync } from "./active-chat-sync.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
-import { truncateTitle, duplicateSuffix, isPinned, togglePinned } from "./sidebar.js";
+import { truncateTitle, duplicateSuffix, titleSuffix, isPinned, togglePinned, readTitleTails, writeTitleTails } from "./sidebar.js";
 import { createPerfHooks } from "./perf-hooks.js";
 
 const state = {
@@ -657,16 +657,12 @@ function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames
     if (b === UNBOUND_WORKSPACE) return -1;
     return String(workspaceNames.get(a)).localeCompare(String(workspaceNames.get(b)), "zh-Hans-CN");
   });
-  // 重名会话/重名项目的全局序号（按渲染顺序 1 基；仅当总数 > 1 时追加）。
+  // 重名会话按渲染顺序编号（首条不编号，重复的从 2 起续号），尾号存档
+  // 为键值对「名字 → 尾号」（编到第几号）。
   const sessionNameSeen = new Map();
-  const sessionNameTotal = new Map();
-  for (const session of items) {
-    if (session.id === "" && session.status === "draft") continue;
-    const name = session.name || "";
-    if (name) sessionNameTotal.set(name, (sessionNameTotal.get(name) || 0) + 1);
-  }
+  const sessionNameTail = new Map();
   const workspaceNameSeen = new Map();
-  return keys.map(key => {
+  const groupHtml = keys.map(key => {
     let label = key === UNBOUND_WORKSPACE ? "未关联会话" : workspaceNames.get(key) || key;
     if (key !== UNBOUND_WORKSPACE) {
       const name = label;
@@ -681,12 +677,12 @@ function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames
     const rows = sessions.map(session => {
       let nameIndex = 1;
       const name = session.name || "";
-      const total = sessionNameTotal.get(name) || 0;
-      if (total > 1) {
+      if (name) {
         nameIndex = (sessionNameSeen.get(name) || 0) + 1;
         sessionNameSeen.set(name, nameIndex);
+        sessionNameTail.set(name, Math.max(sessionNameTail.get(name) || 0, nameIndex));
       }
-      return sessionRow(session, currentID, nameIndex, total);
+      return sessionRow(session, currentID, nameIndex);
     }).join("");
     const collapsed = collapsedWorkspaceGroups.has(key);
     const addButton = key === UNBOUND_WORKSPACE
@@ -704,6 +700,15 @@ function renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames
       <div class="session-group-body">${rows}</div>
     </div>`;
   }).join("");
+  // 尾号存档（名字 → 尾号），跨重启可查"编到第几号"。
+  if (sessionNameTail.size > 0) {
+    const tails = readTitleTails();
+    for (const [name, tail] of sessionNameTail) {
+      tails[name] = Math.max(Number(tails[name]) || 0, tail);
+    }
+    writeTitleTails(tails);
+  }
+  return groupHtml;
 }
 
 function toggleWorkspaceGroup(key) {
@@ -721,7 +726,7 @@ function rerenderSessions() {
   );
 }
 
-function sessionRow(session, currentID, nameIndex = 1, nameTotal = 0) {
+function sessionRow(session, currentID, nameIndex = 1) {
   // 保留的"新建会话"草稿槽位：列表可见、可点击恢复（无 ID、不可 resume/删除/分支）。
   if (session.id === "" && session.status === "draft") {
     const active = !currentID;
@@ -740,7 +745,7 @@ function sessionRow(session, currentID, nameIndex = 1, nameTotal = 0) {
   const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
   const display = resuming ? "恢复中…" : (session.name || shortSessionID(session.id));
   const truncated = truncateTitle(display, 5);
-  const duplicate = duplicateSuffix(nameIndex, nameTotal);
+  const duplicate = titleSuffix(nameIndex);
   const statusChip = session.status && session.status !== "idle"
     ? `<span class="session-status is-${escapeHtml(session.status)}">${sessionStatusLabel(session.status)}</span>`
     : "";

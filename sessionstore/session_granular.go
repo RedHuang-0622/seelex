@@ -90,12 +90,25 @@ type SessionInfo struct {
 // active write scope（旧语义兼容）。
 type SessionGranularStore struct {
 	router *Router
+	// workspaceResolver 返回会话绑定的 workspace（项目作用域）ID；用于
+	// Delete/LoadHistory 等会话级操作的归属项目解析（生产 record 无
+	// binding 字段，绑定在 workspace.Repo；nil 时回退 active scope）。
+	workspaceResolver func(sessionID string) string
 }
 
 // NewSessionGranularStore 构造会话粒度存储；router 为 nil 时所有方法
 // 退化为空操作/空结果（测试桩兼容）。
 func NewSessionGranularStore(router *Router) *SessionGranularStore {
 	return &SessionGranularStore{router: router}
+}
+
+// SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点：从
+// workspace.Repo.SessionWorkspace 读绑定；同 EventStore 模式）。
+func (store *SessionGranularStore) SetWorkspaceResolver(resolver func(sessionID string) string) {
+	if store == nil {
+		return
+	}
+	store.workspaceResolver = resolver
 }
 
 func (store *SessionGranularStore) projectID(projectID string) string {
@@ -213,10 +226,27 @@ func (store *SessionGranularStore) ResolveProjectForSession(sessionID string) st
 	if store == nil || store.router == nil {
 		return ""
 	}
-	if record, ok, err := store.LoadSession("", sessionID); err == nil && ok && record.Binding.WorkspaceID != "" {
-		return record.Binding.WorkspaceID
+	resolved := ""
+	if store.workspaceResolver != nil {
+		if projectID := store.workspaceResolver(sessionID); projectID != "" {
+			resolved = projectID
+		}
 	}
-	return store.router.Workspace()
+	if resolved == "" {
+		if record, ok, err := store.LoadSession("", sessionID); err == nil && ok && record.Binding.WorkspaceID != "" {
+			resolved = record.Binding.WorkspaceID
+		}
+	}
+	if resolved == "" {
+		resolved = store.router.Workspace()
+	}
+	// 数据兜底：绑定/活跃项目里没有该会话数据时，回退到数据实际所在的
+	// 默认项目（旧布局/未关联会话：数据在默认项目，视图切换后活跃作用域
+	// 变化会解析到错误项目 → 打不开/标题串扰）。
+	if !store.sessionIndexed(resolved, sessionID) && store.sessionIndexed("", sessionID) {
+		return ""
+	}
+	return resolved
 }
 
 // SaveHistory 以会话粒度原子写 provider 历史（session:<id>:history；
@@ -412,15 +442,16 @@ func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, 
 	if store == nil || store.router == nil {
 		return nil, nil
 	}
-	projectID = store.projectID(projectID)
+	// 目录枚举契约：projectID 原样使用（"" = 默认项目），不随 Router 活跃
+	// 写作用域替换——否则视图切换（SetWorkspace）会让默认/未关联项目会话从
+	// 左侧栏消失（视图变更污染列表）。活跃作用域会话由调用方显式传
+	// workspaceID。
 	metas := store.router.ListWorkspace(projectID)
 	infos := make([]SessionInfo, 0, len(metas))
 	for _, meta := range metas {
-		record, ok, err := store.LoadSession(projectID, meta.SessionID)
-		if err != nil {
-			// 单条记录解析失败不阻断目录枚举（宽容降级为 meta 信息）。
-			record, ok = Record{ID: meta.SessionID, Kind: KindMain, Status: StatusIdle}, false
-		}
+		// 目录枚举用字面项目读取 record（不做 "" → active scope 替换），
+		// 保证标题补全不随视图切换读错项目。
+		record, ok := store.loadSessionLiteral(projectID, meta.SessionID)
 		info := SessionInfo{
 			ID:     meta.SessionID,
 			Title:  meta.Summary,
@@ -438,6 +469,28 @@ func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, 
 		infos = append(infos, info)
 	}
 	return infos, nil
+}
+
+// loadSessionLiteral 以字面项目 ID 读取会话记录（不替换 "" 为活跃作用域；
+// 目录枚举专用）。生产 schema 宽容解析；不存在/解析失败返回 ok=false，
+// 不阻断目录枚举。
+func (store *SessionGranularStore) loadSessionLiteral(projectID, sessionID string) (Record, bool) {
+	if store == nil || store.router == nil {
+		return Record{}, false
+	}
+	payload, err := store.router.LoadStateWorkspace(projectID, sessionID)
+	if err != nil {
+		return Record{}, false
+	}
+	var record Record
+	if err := json.Unmarshal(payload, &record); err != nil {
+		info, ok := parseRecordInfo(payload)
+		if !ok || info.ID != sessionID {
+			return Record{}, false
+		}
+		return Record{ID: sessionID, Kind: KindMain, Status: StatusIdle, Title: info.Title}, true
+	}
+	return record, true
 }
 
 // parseRecordInfo 宽容解析会话记录头：兼容薄封装 Record（title 字符串）与

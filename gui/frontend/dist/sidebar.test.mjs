@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { PIN_STORAGE_KEY, truncateTitle, readPinnedSessions, writePinnedSessions, isPinned, togglePinned } from "./sidebar.js";
+import { PIN_STORAGE_KEY, TITLE_TAILS_KEY, truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails, readPinnedSessions, writePinnedSessions, isPinned, togglePinned } from "./sidebar.js";
 
 function fakeStorage(initial = {}) {
   const map = new Map(Object.entries(initial));
@@ -24,6 +24,36 @@ test("truncateTitle cuts long titles to 5 code points plus ellipsis", () => {
 test("truncateTitle handles surrogate pairs (emoji) without splitting", () => {
   assert.equal(truncateTitle("😀😀😀😀😀😀", 5), "😀😀😀😀😀…");
   assert.equal(truncateTitle("a😀b😀c😀d", 5), "a😀b😀c…");
+});
+
+test("duplicateSuffix appends ordinal only for repeated names", () => {
+  assert.equal(duplicateSuffix(1, 1), "");
+  assert.equal(duplicateSuffix(2, 1), "");
+  assert.equal(duplicateSuffix(1, 3), " (1)");
+  assert.equal(duplicateSuffix(2, 3), " (2)");
+  assert.equal(duplicateSuffix(3, 3), " (3)");
+  // 非法输入不崩溃。
+  assert.equal(duplicateSuffix(0, 2), "");
+  assert.equal(duplicateSuffix(null, 2), "");
+});
+
+test("titleSuffix only numbers duplicates (1 stays plain)", () => {
+  assert.equal(titleSuffix(1), "");
+  assert.equal(titleSuffix(2), " (2)");
+  assert.equal(titleSuffix(3), " (3)");
+  assert.equal(titleSuffix(0), "");
+  assert.equal(titleSuffix(null), "");
+});
+
+test("title tails persist as name -> tail number key-value pair", () => {
+  const storage = fakeStorage();
+  assert.deepEqual(readTitleTails(storage), {});
+  writeTitleTails({ "你好": 3, "审查": 2 }, storage);
+  assert.equal(storage.getItem(TITLE_TAILS_KEY), JSON.stringify({ "你好": 3, "审查": 2 }));
+  assert.deepEqual(readTitleTails(storage), { "你好": 3, "审查": 2 });
+  // 损坏存档回退空。
+  const broken = fakeStorage({ [TITLE_TAILS_KEY]: "not-json" });
+  assert.deepEqual(readTitleTails(broken), {});
 });
 
 test("truncateTitle tolerates null/undefined/non-string", () => {

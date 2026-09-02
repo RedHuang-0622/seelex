@@ -268,3 +268,106 @@ func TestSessionsOfToleratesProductionRecordSchema(t *testing.T) {
 		t.Fatalf("record = %+v", record)
 	}
 }
+
+// TestSessionsOfDefaultProjectIndependentOfActiveScope（视图切换污染列表
+// 回归）：目录枚举的 "" = 默认项目，不随 Router 活跃写作用域替换——否则
+// 切换到带项目会话时默认/未关联会话从左侧栏消失。
+func TestSessionsOfDefaultProjectIndependentOfActiveScope(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionGranularStore(router)
+	const defaultProject = ""
+	const activeProject = "ws-active"
+
+	// 默认项目 + 活跃项目各写一个会话（manifest 条目）。
+	for _, projectID := range []string{defaultProject, activeProject} {
+		sessionID := "sess-" + projectID
+		if projectID == "" {
+			sessionID = "sess-default"
+		}
+		if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{
+			ProviderHistory: messages(1, sessionID),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 活跃作用域切到工作区：SessionsOf("") 必须仍只返回默认项目会话。
+	router.SetWorkspace(activeProject)
+	defaultInfos, err := store.SessionsOf(defaultProject)
+	if err != nil || len(defaultInfos) != 1 || defaultInfos[0].ID != "sess-default" {
+		t.Fatalf("SessionsOf(%q) with active=%q = %+v err=%v, want only sess-default",
+			defaultProject, activeProject, defaultInfos, err)
+	}
+	activeInfos, err := store.SessionsOf(activeProject)
+	if err != nil || len(activeInfos) != 1 || activeInfos[0].ID != "sess-ws-active" {
+		t.Fatalf("SessionsOf(%q) = %+v err=%v", activeProject, activeInfos, err)
+	}
+
+	// 回到默认作用域后依旧稳定。
+	router.SetWorkspace("")
+	defaultInfos, err = store.SessionsOf(defaultProject)
+	if err != nil || len(defaultInfos) != 1 || defaultInfos[0].ID != "sess-default" {
+		t.Fatalf("SessionsOf(%q) after scope reset = %+v err=%v", defaultProject, defaultInfos, err)
+	}
+}
+
+// TestResolveProjectForSessionUsesWorkspaceResolver（删除/读历史归属回归）：
+// 会话绑定解析优先 resolver（workspace.Repo 绑定），不因活跃作用域变化
+// 删错/读错项目。
+func TestResolveProjectForSessionUsesWorkspaceResolver(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionGranularStore(router)
+	store.SetWorkspaceResolver(func(sessionID string) string {
+		if sessionID == "sess-bound" {
+			return "ws-bound"
+		}
+		return ""
+	})
+	router.SetWorkspace("ws-active")
+
+	if got := store.ResolveProjectForSession("sess-bound"); got != "ws-bound" {
+		t.Fatalf("ResolveProjectForSession(bound) = %q, want ws-bound", got)
+	}
+	if got := store.ResolveProjectForSession("sess-other"); got != "ws-active" {
+		t.Fatalf("ResolveProjectForSession(unbound) = %q, want active ws-active", got)
+	}
+}
+
+// TestResolveProjectForSessionFallsBackToDefaultProject（未关联会话打不开
+// 回归）：绑定/活跃项目缺数据时回退到默认项目（数据实际所在）。
+func TestResolveProjectForSessionFallsBackToDefaultProject(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionGranularStore(router)
+	store.SetWorkspaceResolver(func(sessionID string) string {
+		if sessionID == "sess-bound" {
+			return "ws-empty" // 绑定项目里没有该会话数据
+		}
+		return ""
+	})
+	// 数据只写在默认项目。
+	if err := router.SaveCommitWorkspace("", "sess-bound", Commit{
+		ProviderHistory: messages(1, "default"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	router.SetWorkspace("ws-active")
+
+	if got := store.ResolveProjectForSession("sess-bound"); got != "" {
+		t.Fatalf("ResolveProjectForSession(bound-but-empty) = %q, want default project", got)
+	}
+	// 绑定项目确有数据时不回退。
+	if err := router.SaveCommitWorkspace("ws-real", "sess-real", Commit{
+		ProviderHistory: messages(1, "real"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.SetWorkspaceResolver(func(sessionID string) string {
+		if sessionID == "sess-real" {
+			return "ws-real"
+		}
+		return ""
+	})
+	if got := store.ResolveProjectForSession("sess-real"); got != "ws-real" {
+		t.Fatalf("ResolveProjectForSession(real) = %q, want ws-real", got)
+	}
+}

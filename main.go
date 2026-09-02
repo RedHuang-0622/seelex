@@ -998,10 +998,19 @@ func initApplication(
 	workspaces *workspace.Repo,
 	events *application.EventHub, approval *application.ApprovalBroker,
 ) (*application.Service, error) {
+	sessionPort := adapters.SessionPort{Manager: sessions, Runtime: runtime}
+	// 会话级操作（删除/读历史）按会话绑定项目解析，避免视图切换后活跃
+	// 写作用域变化导致删错/读错项目（R3 键漂移 + 列表污染根因）。
+	sessionPort.SetWorkspaceResolver(func(sessionID string) string {
+		if workspace, ok := workspaces.SessionWorkspace(sessionID); ok {
+			return workspace.ID
+		}
+		return ""
+	})
 	return application.New(application.Dependencies{
 		Engine: eng, Runtime: adapters.RuntimePort{Runtime: runtime},
 		Plugins: adapters.PluginPort{Manager: plugins}, Skills: adapters.SkillPort{Registry: skills},
-		Sessions: adapters.SessionPort{Manager: sessions, Runtime: runtime}, Workspace: adapters.WorkspacePort{Repo: workspaces},
+		Sessions: sessionPort, Workspace: adapters.WorkspacePort{Repo: workspaces},
 		Events: events, Approval: approval,
 	})
 }

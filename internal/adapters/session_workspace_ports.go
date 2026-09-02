@@ -138,12 +138,25 @@ func (port SkillPort) All() []model.SkillInfo {
 type SessionPort struct {
 	Manager *session.Manager
 	Runtime *seelebridge.Runtime
+	// workspaceResolver 解析会话绑定的项目（workspace.Repo 装配注入；
+	// Delete/LoadHistory 等会话级操作按归属项目落键，避免删错/读错作用域）。
+	workspaceResolver func(sessionID string) string
+}
+
+// SetWorkspaceResolver 注入会话绑定项目解析器（main.go 装配点）。
+func (port *SessionPort) SetWorkspaceResolver(resolver func(sessionID string) string) {
+	if port == nil {
+		return
+	}
+	port.workspaceResolver = resolver
 }
 
 // granular 返回会话粒度存储入口（Router 为物理布局，暴露层为
 // session:<id> 五片 API；session.Manager 不再承担存储桥）。
 func (port SessionPort) granular() *sessionstore.SessionGranularStore {
-	return sessionstore.NewSessionGranularStore(port.Manager.Router())
+	store := sessionstore.NewSessionGranularStore(port.Manager.Router())
+	store.SetWorkspaceResolver(port.workspaceResolver)
+	return store
 }
 
 // AttachSessionContext 装配会话 context 模块（system prompt + 四栈）：
@@ -210,7 +223,9 @@ func (port SessionPort) MessageCount(id string) (int, error) {
 
 // List 返回项目索引下的会话列表（project = 会话集合）。
 func (port SessionPort) List() []model.SessionInfo {
-	infos, err := port.granular().SessionsOf("")
+	// List 语义 = 当前写作用域下的会话（与 Router active scope 一致）；
+	// 目录全量枚举（含默认项目）走 SessionGranularPort.SessionsOf。
+	infos, err := port.granular().SessionsOf(port.Manager.Workspace())
 	if err != nil {
 		return nil
 	}
@@ -382,7 +397,8 @@ func storeToolResults(results []model.StoredToolResult) []sessionstore.ToolResul
 }
 
 func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error) {
-	payload, err := port.granular().LoadRecordRaw("", id)
+	granular := port.granular()
+	payload, err := granular.LoadRecordRaw(granular.ResolveProjectForSession(id), id)
 	if err != nil {
 		return model.SessionRecord{}, err
 	}
