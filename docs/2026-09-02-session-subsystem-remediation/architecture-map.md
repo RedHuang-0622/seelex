@@ -265,6 +265,10 @@ Session 的 `ChatStream` onChunk（`AgentNode.Run` 边界，ChatStream 与 Chat
 等价执行），经 Runtime node 实时面广播 + 历史回放。GUI 删除
 `nodeDetailPollTimer` 2s 轮询，详情会话记录由正文增量驱动保持新鲜。
 
+TUI 待批承载面（2026-09-03 收口）：无会话侧栏的 TUI 以最小可用面承载
+口径——状态行跨会话待批计数（目录行数据源）+ 待批会话提示行；单格
+Interaction 仍只表达当前视图会话审批，不做平行会话管理。
+
 ## 4. 热挂载 vs 冷加载（切换/恢复分支）
 
 ```mermaid

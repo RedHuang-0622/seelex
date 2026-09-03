@@ -7,15 +7,26 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/tui/splash"
 )
 
 const shortcutsBarH = 1
 
+// awaitingApprovalStatus 是会话级待批状态的稳定字面量（与 model.SessionStatus
+// awaiting_approval 一致；TUI 只消费展示口径，不参与归属判定）。
+const awaitingApprovalStatus = "awaiting_approval"
+
 func (model Model) convHeight() int {
 	return max(model.height-model.topPanelH()-model.planPanelH()-model.midPanelH()-model.bottomPanelH(), 4)
 }
-func (Model) topPanelH() int { return 2 }
+func (model Model) topPanelH() int {
+	height := 2
+	if len(model.pendingSessions()) > 0 {
+		height++
+	}
+	return height
+}
 func (model Model) planPanelH() int {
 	return PlanPanelHeight(model.snapshot.Runtime.Plan, model.snapshot.Runtime.Effort)
 }
@@ -47,6 +58,10 @@ func (model Model) View() string {
 	var builder strings.Builder
 	builder.WriteString(model.renderStatusBar())
 	builder.WriteString("\n")
+	if panel := model.renderPendingApprovals(); panel != "" {
+		builder.WriteString(panel)
+		builder.WriteString("\n")
+	}
 	if panel := PlanPanel(model.snapshot.Runtime.Plan, model.snapshot.Runtime.Effort, model.width); panel != "" {
 		builder.WriteString(panel)
 		builder.WriteString("\n")
@@ -80,6 +95,57 @@ func (model Model) View() string {
 	builder.WriteString("\n")
 	builder.WriteString(model.renderShortcuts())
 	return builder.String()
+}
+
+// pendingSessions 返回目录中处于 awaiting_approval 的会话行（跨会话待批
+// 计数的目录面；Snapshot.Sessions 是后端目录联合镜像，非视图单格神谕）。
+func (model Model) pendingSessions() []application.SessionInfo {
+	if len(model.snapshot.Sessions) == 0 {
+		return nil
+	}
+	var pending []application.SessionInfo
+	for _, item := range model.snapshot.Sessions {
+		if item.Status == awaitingApprovalStatus {
+			pending = append(pending, item)
+		}
+	}
+	return pending
+}
+
+// pendingApprovalCount 返回跨会话待批总数（状态行计数；单格审批仍只表达
+// 当前视图会话的 Interaction，后台会话待批只计数、不做单格展开）。
+func (model Model) pendingApprovalCount() int {
+	total := 0
+	for _, item := range model.pendingSessions() {
+		if item.ApprovalCount > 0 {
+			total += item.ApprovalCount
+		} else {
+			total++
+		}
+	}
+	return total
+}
+
+// renderPendingApprovals 渲染待批会话的最小提示行：跨会话计数 + 短 ID。
+// 这是 TUI 的最小承载面（无会话侧栏；不做平行会话管理）——切到目标会话后，
+// 该会话的审批经既有单格 Interaction 呈现与 ResolveInteraction 处理。
+func (model Model) renderPendingApprovals() string {
+	pending := model.pendingSessions()
+	if len(pending) == 0 {
+		return ""
+	}
+	ids := make([]string, 0, len(pending))
+	for _, item := range pending {
+		id := item.ID
+		if len(id) > 8 {
+			id = id[len(id)-8:]
+		}
+		ids = append(ids, id)
+	}
+	total := model.pendingApprovalCount()
+	label := StyleTaskRunning.Render(fmt.Sprintf("  ⚠ 待审批 %d 项", total))
+	detail := StyleMuted.Render("  " + strings.Join(ids, " "))
+	return label + detail
 }
 
 func (model Model) renderInputLine() string {
@@ -132,6 +198,9 @@ func (model Model) renderStatusBar() string {
 	}
 	if sessionID := model.snapshot.Session.ID; len(sessionID) > 8 {
 		parts = append(parts, sessionID[len(sessionID)-8:])
+	}
+	if pending := model.pendingApprovalCount(); pending > 0 {
+		parts = append(parts, fmt.Sprintf("待批:%d", pending))
 	}
 	right := strings.Join(parts, "  ")
 	left := StyleBanner.Render(" ◆ Seele") + StyleMuted.Render(fmt.Sprintf("  %s", model.snapshot.Runtime.Model))

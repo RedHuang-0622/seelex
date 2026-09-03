@@ -24,6 +24,12 @@ Model 初始化读取 Snapshot 并以 `SubscribeSession("")`（跟随当前视�
 
 TUI local state 只包含光标、viewport、输入框、suggestion 和布局信息；conversation/runtime 等业务事实来自 Snapshot/Event。
 
+待批计数承载面（2026-09-03 收口）：TUI 无会话侧栏，采用最小可用面——状态行
+右侧显示跨会话待批计数（`待批:N`），正文区顶部在有待批会话时显示提示行
+（计数 + 短 ID）。数据源是目录联合镜像 `Snapshot.Sessions` 的
+`awaiting_approval` 行；单格 `Interaction` 仍只表达当前视图会话审批（切换
+到目标会话后经既有 dialog + `ResolveInteraction` 处理）。不做平行会话管理。
+
 ## 交互和关闭
 
 - Enter 提交原始输入。

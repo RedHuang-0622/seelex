@@ -50,6 +50,39 @@ func (app *fakeApp) LoadMoreHistory(limit int) error {
 	return nil
 }
 
+// TestStatusBarShowsCrossSessionPendingApprovalCount E：TUI 最小承载面 =
+// 状态行跨会话待批计数 + 待批会话提示行（目录行数据源，非单格神谕）。
+func TestStatusBarShowsCrossSessionPendingApprovalCount(t *testing.T) {
+	app := newFakeApp()
+	app.snapshot.Sessions = []application.SessionInfo{
+		{ID: "sess-awaiting-long-1", Status: "awaiting_approval", ApprovalCount: 2},
+		{ID: "sess-idle", Status: "idle"},
+	}
+	model := NewModel(app)
+	model.showLogo = false
+
+	bar := model.renderStatusBar()
+	if !strings.Contains(bar, "待批:2") {
+		t.Fatalf("status bar missing cross-session pending count: %q", bar)
+	}
+	panel := model.renderPendingApprovals()
+	if !strings.Contains(panel, "待审批 2 项") {
+		t.Fatalf("pending panel missing count: %q", panel)
+	}
+	shortID := "sess-awaiting-long-1"
+	if len(shortID) > 8 {
+		shortID = shortID[len(shortID)-8:]
+	}
+	if !strings.Contains(panel, shortID) {
+		t.Fatalf("pending panel missing short id %q: %q", shortID, panel)
+	}
+	// idle 会话不进入计数面。
+	model.snapshot.Sessions = []application.SessionInfo{{ID: "sess-idle", Status: "idle"}}
+	if got := model.pendingApprovalCount(); got != 0 {
+		t.Fatalf("pending count for idle-only directory = %d, want 0", got)
+	}
+}
+
 func TestEnterSubmitsRawInput(t *testing.T) {
 	app := newFakeApp()
 	model := NewModel(app)
