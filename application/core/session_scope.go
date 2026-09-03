@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/session"
 )
@@ -170,46 +171,40 @@ func (service *Service) ActivateSession(sessionID string) error {
 	return service.resumeSession(sessionID)
 }
 
-// SnapshotOf 返回指定会话的权威快照：活跃会话直接返回 Snapshot()；其它
-// 已驻留（LIVE）会话从该会话 Unit 的可见投影与 per-session task/plan scope
-// 组装（F5：运行中会话回看的数据面，不要求先切换）。
-func (service *Service) SnapshotOf(sessionID string) (Snapshot, error) {
+// SnapshotOf 返回指定会话的权威**会话快照**（G3 分型：SessionSnapshot，
+// 传输完备且只含本会话事实——不带进程级目录/工作区/能力清单；进程制品见
+// ProcessSnapshot）。活跃会话与其它已驻留（LIVE）会话走同一条组装路径：
+// 会话身份/可见对话/聊天运行态/会话运行原件（本会话槽）/task/工作表格/
+// 子代理树/本会话 revision（INV-G5，与进程 revision 分离）。
+func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return Snapshot{}, errors.New("session ID is required")
-	}
-	service.Mu.RLock()
-	current := service.Core.Snapshot.Session.ID
-	service.Mu.RUnlock()
-	if sessionID == current {
-		return service.Snapshot(), nil
-	}
-	unit := service.sessions.Unit(sessionID)
-	if unit == nil {
-		return Snapshot{}, ErrSessionSnapshotUnavailable
+		return SessionSnapshot{}, errors.New("session ID is required")
 	}
 	service.Mu.RLock()
 	defer service.Mu.RUnlock()
+	unit := service.sessions.Unit(sessionID)
+	if unit == nil {
+		return SessionSnapshot{}, ErrSessionSnapshotUnavailable
+	}
 	view := service.components.view.SessionViewLocked(sessionID)
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
-	// G1：非活跃会话的运行时投影读本会话槽（回合尾/工具边界已按 sid 写入）。
-	// 槽尚未写入时回退旧口径（clone 视图 Runtime），保证存量测试/宿主无感知。
-	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
-	if unit.RuntimeStateLoaded() {
-		runtime = unit.RuntimeState()
+	runtime := unit.RuntimeState()
+	if !unit.RuntimeStateLoaded() {
+		runtime = cloneRuntimeState(service.Core.Snapshot.Runtime)
 	}
 	revision := unit.SnapshotRevision()
 	if revision == 0 {
 		revision = service.Core.Snapshot.Revision
 	}
-	snapshot := Snapshot{
+	snapshot := SessionSnapshot{
 		ProtocolVersion:    ProtocolVersion,
 		Revision:           revision,
 		Session:            SessionState{ID: sessionID, Name: name},
 		Conversation:       append([]Message(nil), view.Conversation...),
 		Chat:               unit.ChatState(),
-		Runtime:            runtime,
-		Capabilities:       Capabilities{SessionResume: true},
+		Runtime:            sessionRuntimeOf(runtime),
+		Capabilities:       Capabilities{SessionResume: true, SessionSnapshot: true},
 		HistoryOffset:      view.HistoryOffset,
 		TotalMessages:      view.TotalMessages,
 		HasMoreHistory:     view.HasMoreHistory,
@@ -230,6 +225,25 @@ func (service *Service) SnapshotOf(sessionID string) (Snapshot, error) {
 		snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
 	}
 	return snapshot, nil
+}
+
+// sessionRuntimeOf 从全量 RuntimeState 投影提取会话专属运行原件（G3 字段
+// 归属表：进程级字段 model/provider/plugin/accounts/skills/tools/scheduled
+// 不进入 SessionSnapshot）。
+func sessionRuntimeOf(runtime RuntimeState) SessionRuntime {
+	return SessionRuntime{
+		Effort:           runtime.Effort,
+		FullAccess:       runtime.FullAccess,
+		Tokens:           runtime.Tokens,
+		Replan:           runtime.Replan,
+		Plan:             cloneRuntimeState(RuntimeState{Plan: runtime.Plan}).Plan,
+		TodoItems:        append([]dto.TodoItem(nil), runtime.TodoItems...),
+		SubAgentTree:     append([]dto.SubAgentTreeNode(nil), runtime.SubAgentTree...),
+		GoalSkillActive:  runtime.GoalSkillActive,
+		ActiveSkills:     append([]string(nil), runtime.ActiveSkills...),
+		WorkTable:        CloneWorkItems(runtime.WorkTable),
+		WorkTableBatches: CloneWorkTableBatches(runtime.WorkTableBatches),
+	}
 }
 
 // sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。

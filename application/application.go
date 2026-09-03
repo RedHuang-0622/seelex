@@ -34,6 +34,10 @@ type (
 	SessionPort                = contract.SessionPort
 	WorkspacePort              = contract.WorkspacePort
 	Snapshot                   = model.Snapshot
+	SessionSnapshot            = model.SessionSnapshot
+	ProcessSnapshot            = model.ProcessSnapshot
+	SessionRuntime             = model.SessionRuntime
+	ProcessRuntime             = model.ProcessRuntime
 	SessionState               = model.SessionState
 	Message                    = model.Message
 	ToolCall                   = model.ToolCall

@@ -565,6 +565,78 @@ type InteractionOption struct {
 type Capabilities struct {
 	SessionResume       bool   `json:"session_resume"`
 	SessionResumeReason string `json:"session_resume_reason,omitempty"`
+	// SessionSnapshot 声明当前快照制品是"会话粒度、传输完备"的
+	// SessionSnapshot（G3）：载荷只含本会话事实，不含进程级目录/能力清单；
+	// 客户端据此决定是否需要另拉 ProcessSnapshot（进程隔离退路）。
+	SessionSnapshot bool `json:"session_snapshot,omitempty"`
+}
+
+// SessionRuntime 是会话快照的会话专属运行原件（target-design §2.4 字段归属：
+// effort/fullAccess/plan/todo/worktable/subagent 树/tokens/replan/激活 skill；
+// model/provider/account/plugin/能力清单等进程级原件不进入本结构）。
+type SessionRuntime struct {
+	Effort     string         `json:"effort"`
+	FullAccess bool           `json:"full_access"`
+	Tokens     string         `json:"tokens,omitempty"`
+	Replan     ReplanMonitor  `json:"replan"`
+	Plan       *PlanState     `json:"plan,omitempty"`
+	TodoItems  []dto.TodoItem `json:"todo_items,omitempty"`
+	// SubAgentTree 是 fork 子代理树的权威投影（本会话槽）。
+	SubAgentTree    []dto.SubAgentTreeNode `json:"subagent_tree,omitempty"`
+	GoalSkillActive bool                   `json:"goal_skill_active,omitempty"`
+	ActiveSkills    []string               `json:"active_skills,omitempty"`
+	// WorkTable 是工作台统一工作表格的权威投影（本会话槽）。
+	WorkTable        []WorkItem       `json:"work_table,omitempty"`
+	WorkTableBatches []WorkTableBatch `json:"work_table_batches,omitempty"`
+}
+
+// SessionSnapshot 是会话粒度、传输完备的快照制品（G3）：每会话一份，只承载
+// 该会话的事实（会话身份/可见对话/聊天运行态/会话运行原件/task/工作表格/
+// 子代理树/revision/窗口游标）。进程级目录与能力清单在 ProcessSnapshot。
+type SessionSnapshot struct {
+	ProtocolVersion int            `json:"protocol_version"`
+	Revision        uint64         `json:"revision"`
+	Session         SessionState   `json:"session"`
+	Conversation    []Message      `json:"conversation"`
+	Chat            ChatState      `json:"chat"`
+	Task            *TaskState     `json:"task,omitempty"`
+	Runtime         SessionRuntime `json:"runtime"`
+	// Approvals 是本会话待批请求（G4 归属进 Unit 后填充；当前为预留）。
+	Approvals          []Interaction `json:"approvals,omitempty"`
+	Capabilities       Capabilities  `json:"capabilities"`
+	HistoryOffset      int           `json:"history_offset"`
+	TotalMessages      int           `json:"total_messages"`
+	HasMoreHistory     bool          `json:"has_more_history"`
+	ConversationWindow int           `json:"conversation_window"`
+	ReadFiles          []ReadFileRef `json:"read_files,omitempty"`
+}
+
+// ProcessRuntime 是进程级运行原件（target-design §2.1：model/provider/
+// account/plugin、能力清单与定时任务——进程单例，只读原件，深拷贝进渲染）。
+type ProcessRuntime struct {
+	Model             string                     `json:"model"`
+	Provider          string                     `json:"provider"`
+	Account           string                     `json:"account,omitempty"`
+	Plugin            string                     `json:"plugin,omitempty"`
+	VisibleTools      []Tool                     `json:"visible_tools"`
+	Skills            []SkillInfo                `json:"skills"`
+	Plugins           []PluginInfo               `json:"plugins,omitempty"`
+	Accounts          []AccountInfo              `json:"accounts,omitempty"`
+	ScheduledTasks    []dto.ScheduledTaskStatus  `json:"scheduled_tasks,omitempty"`
+	ScheduledCommands []dto.ScheduledCommandInfo `json:"scheduled_commands,omitempty"`
+}
+
+// ProcessSnapshot 是进程级权威快照制品（G3）：会话目录/工作区/绑定/
+// 能力清单与进程级运行原件；为进程隔离保留传输完备的退路。
+type ProcessSnapshot struct {
+	ProtocolVersion   int               `json:"protocol_version"`
+	Revision          uint64            `json:"revision"`
+	Sessions          []SessionInfo     `json:"sessions"`
+	Workspaces        []WorkspaceInfo   `json:"workspaces,omitempty"`
+	SessionWorkspaces map[string]string `json:"session_workspaces,omitempty"`
+	CurrentWorkspace  *WorkspaceInfo    `json:"current_workspace,omitempty"`
+	Capabilities      Capabilities      `json:"capabilities"`
+	Runtime           ProcessRuntime    `json:"runtime"`
 }
 
 // CloneSnapshot returns an independent copy suitable for concurrent readers.

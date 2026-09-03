@@ -25,6 +25,10 @@ type (
 	WorkspacePort          = contract.WorkspacePort
 	WorkspaceInfo          = model.WorkspaceInfo
 	Snapshot               = model.Snapshot
+	SessionSnapshot        = model.SessionSnapshot
+	ProcessSnapshot        = model.ProcessSnapshot
+	SessionRuntime         = model.SessionRuntime
+	ProcessRuntime         = model.ProcessRuntime
 	SessionState           = model.SessionState
 	SessionStatus          = model.SessionStatus
 	Message                = model.Message

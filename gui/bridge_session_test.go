@@ -44,13 +44,18 @@ func (fake *sessionAwareFakeApplication) ForkSessionLatest(sessionID string) (st
 
 func (fake *sessionAwareFakeApplication) BeginNewSession() error {
 	fake.beganNewSession = true
-	fake.snapshot.Session = application.SessionState{ID: "", Draft: true}
+	// G4 先行：草稿从新建即持有早分配的真实 SID。
+	fake.snapshot.Session = application.SessionState{ID: "draft-session", Draft: true}
 	return nil
 }
 
-func (fake *sessionAwareFakeApplication) SnapshotOf(sessionID string) (application.Snapshot, error) {
+func (fake *sessionAwareFakeApplication) SnapshotOf(sessionID string) (application.SessionSnapshot, error) {
 	fake.snapshotOfID = sessionID
-	return application.Snapshot{}, nil
+	return application.SessionSnapshot{
+		ProtocolVersion: application.ProtocolVersion,
+		Session:         application.SessionState{ID: sessionID},
+		Capabilities:    application.Capabilities{SessionResume: true, SessionSnapshot: true},
+	}, nil
 }
 
 func (fake *sessionAwareFakeApplication) SubscribeSession(sessionID string, buffer int) (application.Subscription, error) {
@@ -183,7 +188,7 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	if err := bridge.BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	if len(app.subscribeIDs) != 4 || app.subscribeIDs[3] != "" {
-		t.Fatalf("subscription keys after BeginNewSession = %v, want rebuilt for draft (empty)", app.subscribeIDs)
+	if len(app.subscribeIDs) != 4 || app.subscribeIDs[3] != "draft-session" {
+		t.Fatalf("subscription keys after BeginNewSession = %v, want rebuilt for draft-session", app.subscribeIDs)
 	}
 }

@@ -89,7 +89,7 @@ type Application interface {
 type sessionAwareApplication interface {
 	SubmitToSession(context.Context, string, string) error
 	ActivateSession(string) error
-	SnapshotOf(string) (application.Snapshot, error)
+	SnapshotOf(string) (application.SessionSnapshot, error)
 	SubscribeSession(string, int) (application.Subscription, error)
 }
 
@@ -627,11 +627,12 @@ func (bridge *Bridge) ActivateSession(sessionID string) error {
 	return nil
 }
 
-// SnapshotOf 返回指定会话的权威快照（M1：仅活跃会话有驻留快照）。
-func (bridge *Bridge) SnapshotOf(sessionID string) (application.Snapshot, error) {
+// SnapshotOf 返回指定会话的权威会话快照（G3：SessionSnapshot，进程级目录
+// 与能力清单不在其中；经 capabilities.session_snapshot 声明）。
+func (bridge *Bridge) SnapshotOf(sessionID string) (application.SessionSnapshot, error) {
 	app, ok := bridge.app.(sessionAwareApplication)
 	if !ok {
-		return application.Snapshot{}, errors.New("session-scoped API is not supported by the application")
+		return application.SessionSnapshot{}, errors.New("session-scoped API is not supported by the application")
 	}
 	return app.SnapshotOf(sessionID)
 }
