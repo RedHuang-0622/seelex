@@ -58,7 +58,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	resumedRuntime := service.sessionUnitLocked(sessionID)
 	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	service.mirrorActiveViewLocked()
-	if task := service.components.tasks.TaskStateFor(sessionID); task != nil {
+	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
 		service.Core.Snapshot.Task = task
 	} else {
 		service.Core.Snapshot.Task = nil

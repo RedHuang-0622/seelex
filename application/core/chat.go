@@ -214,7 +214,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	}
 	if err != nil {
 		service.ViewMu.Lock()
-		service.recordUnhandledTaskErrorLocked(requestID, err)
+		service.recordUnhandledTaskErrorLocked(sessionID, requestID, err)
 		service.ViewMu.Unlock()
 	}
 	location := service.components.sessions.LocateSession(sessionID)
@@ -304,6 +304,14 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		}
 	}
 	service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+	// F 镜像收口：TaskService 不再直写 Snapshot.Task——runChat 收尾在
+	// ViewMu 段把当前会话的权威任务状态镜像进快照（前台发布 snapshot.changed
+	// 前完成），task 域只维护自有状态与 lastTaskState。
+	if active {
+		if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
+			service.Core.Snapshot.Task = task
+		}
+	}
 	revision := uint64(0)
 	if active {
 		revision = service.bumpLocked()
@@ -326,8 +334,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	}
 }
 
-func (service *Service) recordUnhandledTaskErrorLocked(requestID string, err error) {
-	task := service.Core.Snapshot.Task
+func (service *Service) recordUnhandledTaskErrorLocked(sessionID, requestID string, err error) {
+	// 读权威任务状态（TaskStateFor），不再依赖 Snapshot.Task 镜像是否新鲜
+	// （镜像写已收敛到 runChat 收尾的 ViewMu 段）。
+	task := service.components.tasks.TaskStateFor(sessionID)
 	if task == nil || task.RequestID != requestID || task.Status != TaskProgressing {
 		return
 	}
@@ -371,14 +381,42 @@ func queuedInputRefs(queue []chatRequest) []string {
 // task_context.Coordinator.VerifyAndApply 路由。
 func (service *Service) TaskTerminalHandler(kind string) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, argsJSON string) (string, error) {
-		return service.components.tasks.VerifyAndApply(ctx, kind, argsJSON)
+		result, err := service.components.tasks.VerifyAndApply(ctx, kind, argsJSON)
+		if err == nil {
+			service.mirrorActiveTaskAfterTerminal(ctx)
+		}
+		return result, err
+	}
+}
+
+// mirrorActiveTaskAfterTerminal 在终态工具落地后把活跃会话的权威任务状态
+// 镜像进 Snapshot.Task（TaskService 不再直写快照；工具路径没有 runChat 收尾
+// 的镜像段，须在此补齐，见 task_service.go lastTaskState 说明）。
+func (service *Service) mirrorActiveTaskAfterTerminal(ctx context.Context) {
+	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		service.ViewMu.RLock()
+		sessionID = service.Core.Snapshot.Session.ID
+		service.ViewMu.RUnlock()
+	}
+	service.ViewMu.Lock()
+	defer service.ViewMu.Unlock()
+	if sessionID == "" || sessionID != service.Core.Snapshot.Session.ID {
+		return
+	}
+	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
+		service.Core.Snapshot.Task = task
 	}
 }
 
 // finalizeTaskExecution 把自然停止转换为可审计的完成/交接
 // （TaskService.OnChatEnd 入口）。
 func (service *Service) finalizeTaskExecution(requestID string) error {
-	return service.components.tasks.FinalizeTask(context.Background(), task_context.ChatEndSummary{RequestID: requestID})
+	err := service.components.tasks.FinalizeTask(context.Background(), task_context.ChatEndSummary{RequestID: requestID})
+	if err == nil {
+		service.mirrorActiveTaskAfterTerminal(context.Background())
+	}
+	return err
 }
 
 func (service *Service) finalizeReActBudgetWithSink(ctx context.Context, requestID string, onChunk func(string)) error {

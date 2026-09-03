@@ -132,7 +132,11 @@ type TaskService struct {
 	terminals    terminalToolHandlers
 	modelOutput  ModelOutput
 	resumeRecord TaskResumeRecord
-	queueRefs    func() []string
+	// lastTaskState 是本任务最近一次可见状态值（F 镜像收口：task 域不再直写
+	// Core.Snapshot.Task；由根调用方在 Core.ViewMu 段把权威 TaskStateFor
+	// 镜像进 Snapshot，见 chat.go runChat 收尾）。
+	lastTaskState *model.TaskState
+	queueRefs     func() []string
 }
 
 // newTaskService 构造当前任务的 TaskService。state 为 nil 时表示无活跃任务。
@@ -248,8 +252,8 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 // （活跃会话已由 setTaskStateLocked 写入）；非活跃会话（后台并行）快照未
 // 写入时由本方法构造，避免 nil 解引用。
 func (s *TaskService) taskStateResultLocked(requestID string, status model.TaskStatus, summary string) model.TaskState {
-	if s.Snapshot.Task != nil && s.Snapshot.Task.RequestID == requestID {
-		return *s.Snapshot.Task
+	if s.lastTaskState != nil && s.lastTaskState.RequestID == requestID {
+		return *s.lastTaskState
 	}
 	var compactions []model.ContextCompaction
 	if s.state != nil && s.state.RequestID == requestID {
@@ -431,20 +435,18 @@ func (s *TaskService) rememberResumeLocked(summary ChatEndSummary) {
 // setTaskStateLocked 把任务可见状态写入快照。非活跃会话（后台并行执行）
 // 跳过共享快照写入，避免污染活跃会话投影。
 func (s *TaskService) setTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
-	if s.sessionID != s.Snapshot.Session.ID {
-		return
-	}
 	var compactions []model.ContextCompaction
 	if s.state != nil && s.state.RequestID == requestID {
 		compactions = append([]model.ContextCompaction(nil), s.state.ContextCompactions...)
 	}
-	s.Snapshot.Task = &model.TaskState{
+	visible := &model.TaskState{
 		RequestID:          requestID,
 		Status:             status,
 		Summary:            strings.TrimSpace(summary),
 		ContextCompactions: compactions,
 		UpdatedAt:          time.Now(),
 	}
+	s.lastTaskState = visible
 }
 
 func nodesNotCovered(projected, completed []string, projection PlanProjectionReader) []string {

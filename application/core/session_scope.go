@@ -324,7 +324,7 @@ func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, e
 	if plan := service.planProjectionLocked(sessionID); plan != nil {
 		snapshot.Runtime.Plan = clonePlanForSync(plan)
 	}
-	if task := service.components.tasks.TaskStateFor(sessionID); task != nil {
+	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {
 		taskCopy := *task
 		taskCopy.ContextCompactions = append([]ContextCompaction(nil), task.ContextCompactions...)
 		snapshot.Task = &taskCopy

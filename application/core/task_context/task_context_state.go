@@ -705,6 +705,23 @@ func (c *Coordinator) TaskStateFor(sessionID string) *model.TaskState {
 	}
 }
 
+// VisibleTaskStateFor 返回指定会话当前任务的**可见**状态（镜像收口用）：
+// 优先取 TaskService 最近一次落地值（含 summary/decision 等展示字段），
+// 任务已推进到新请求时回退 TaskStateFor 的构造值。调用方持有 Core.ViewMu。
+func (c *Coordinator) VisibleTaskStateFor(sessionID string) *model.TaskState {
+	st := c.sessionStateLocked(sessionID)
+	state := st.taskExecution
+	if state == nil {
+		return nil
+	}
+	if ts := st.taskService; ts != nil && ts.lastTaskState != nil &&
+		ts.lastTaskState.RequestID == state.RequestID && ts.state == state {
+		visible := *ts.lastTaskState
+		return &visible
+	}
+	return c.TaskStateFor(sessionID)
+}
+
 // ResultRefsByCallID 返回活跃会话 callID → resultRef 全量拷贝（上下文拒绝
 // 路径）。
 func (c *Coordinator) ResultRefsByCallID() map[string]string {
