@@ -213,18 +213,27 @@ func (service *Service) planProjectionLocked(sessionID string) *PlanState {
 	})
 }
 
-// planEventSession 解析 plan 事件归属会话：优先事件自带 sid，缺失回退当前。
-func (service *Service) planEventSession(event dto.PlanNodeEvent) string {
-	if event.SessionID != "" {
-		return event.SessionID
+func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
+	service.ViewMu.RLock()
+	viewSessionID := service.Core.Snapshot.Session.ID
+	sessionID := event.SessionID
+	if sessionID == "" {
+		sessionID = viewSessionID
 	}
-	return service.Core.Snapshot.Session.ID
+	service.ViewMu.RUnlock()
+	if sessionID != viewSessionID {
+		service.handleBackgroundPlanNodeComplete(event, sessionID)
+		return
+	}
+	service.handleViewPlanNodeComplete(event, sessionID)
 }
 
-func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
+// handleViewPlanNodeComplete 是当前视图会话的 plan 节点事件路径：投影即
+// Snapshot.Runtime.Plan 视图镜像（镜像写留 ViewMu），与刷新/发布在同一个
+// ViewMu 临界区内完成。
+func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sessionID string) {
 	service.ViewMu.Lock()
-	sessionID := service.planEventSession(event)
-	plan := service.planProjectionLocked(sessionID)
+	plan := service.Core.Snapshot.Runtime.Plan
 	if plan == nil {
 		service.ViewMu.Unlock()
 		return
@@ -278,9 +287,6 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
-	// 视图会话在解锁后仍要参与分支判定，必须在此取快照：ViewMu 释放后再读
-	// Core.Snapshot 是数据竞争，且切换会让后台会话的事件错投。
-	viewSessionID := service.Core.Snapshot.Session.ID
 	var changed SubagentEvent
 	if changedNode != nil {
 		changed = subagent_view.SubagentChangedPayload(plan, event.PlanID, event.RunID, *changedNode)
@@ -288,19 +294,33 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.ViewMu.Unlock()
 	if changedNode != nil {
 		service.publishSessionEvent(EventSubagentChanged, revision, requestID, sessionID, changed)
-		if sessionID == viewSessionID {
-			service.refreshWorkTableFromSources()
-		} else {
-			service.syncTasksFromSourcesFor(sessionID)
-		}
+		service.refreshWorkTableFromSources()
 		return
 	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
-	if sessionID == viewSessionID {
-		service.refreshWorkTableFromSources()
-	} else {
-		service.syncTasksFromSourcesFor(sessionID)
+	service.refreshWorkTableFromSources()
+}
+
+// handleBackgroundPlanNodeComplete 是后台会话的 plan 节点事件路径：投影变更
+// 在 task_context 协调器 planMu 下完成（F：不与视图写共享 ViewMu），视图
+// 镜像（子代理树/Revision bump）在随后的 ViewMu 短临界区写，两段不嵌套。
+func (service *Service) handleBackgroundPlanNodeComplete(event dto.PlanNodeEvent, sessionID string) {
+	result := service.components.tasks.ApplyPlanNodeProjection(sessionID, event)
+	if !result.Applied {
+		return
 	}
+	service.ViewMu.Lock()
+	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
+	revision := service.bumpLocked()
+	requestID := service.Core.Snapshot.Chat.RequestID
+	service.ViewMu.Unlock()
+	if result.NodeFound && result.ChangedNode != nil {
+		changed := subagent_view.SubagentChangedPayload(result.Plan, event.PlanID, event.RunID, *result.ChangedNode)
+		service.publishSessionEvent(EventSubagentChanged, revision, requestID, sessionID, changed)
+	} else {
+		service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
+	}
+	service.syncTasksFromSourcesFor(sessionID)
 }
 
 // HandlePlanBranchEvent 应用来自桥接层的分支生命周期迁移，并向两端前端发布
