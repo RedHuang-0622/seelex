@@ -36,6 +36,25 @@ func (c *Coordinator) DropPlanProjection(sessionID string) {
 	delete(c.planProjections, sessionID)
 }
 
+// SeedPlanProjection 把会话 plan 基线写入投影缓存（plan_load/resume/
+// hotAttach 后调用；F-2c：当前视图会话的 plan 也统一落在协调器投影，
+// Snapshot.Runtime.Plan 只是镜像副本）。plan 为 nil 时仅清空旧条目。
+func (c *Coordinator) SeedPlanProjection(sessionID string, plan *model.PlanState) {
+	if sessionID == "" {
+		return
+	}
+	c.planMu.Lock()
+	defer c.planMu.Unlock()
+	if plan == nil {
+		delete(c.planProjections, sessionID)
+		return
+	}
+	if c.planProjections == nil {
+		c.planProjections = make(map[string]*model.PlanState)
+	}
+	c.planProjections[sessionID] = model.CloneRuntimeState(model.RuntimeState{Plan: plan}).Plan
+}
+
 // PlanNodeApplyResult 是后台 plan 事件应用结果（planMu 段内产生的深拷贝，
 // 供调用方在锁外发布事件/刷新工作台）。
 type PlanNodeApplyResult struct {
@@ -76,14 +95,14 @@ func (c *Coordinator) ApplyPlanNodeProjection(sessionID string, event dto.PlanNo
 	result.Applied = true
 	if event.NodeID == "" {
 		switch event.Status {
-		case "running":
+		case "running", "queued", "started":
 			if plan.Status == model.PlanPending {
 				plan.Status = model.PlanRunning
 			}
 		case "completed":
 			plan.Status = model.PlanCompleted
 			plan.Progress = 1.0
-		case "failed":
+		case "failed", "panicked":
 			plan.Status = model.PlanFailed
 		case "canceled", "aborted":
 			plan.Status = model.PlanAborted

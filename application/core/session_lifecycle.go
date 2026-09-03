@@ -67,6 +67,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 		service.components.tasks.PlanStackFor(sessionID),
 		service.components.tasks.ActivePlanIDFor(sessionID),
 	)
+	service.components.tasks.SeedPlanProjection(sessionID, service.Core.Snapshot.Runtime.Plan)
 	service.Core.Snapshot.Interaction = nil
 	// 波 4 approval 会话级归属：热切换后单格只镜像目标会话的待批（后台
 	// 会话卡在审批时切回即见，不依赖「审批发生在视图会话」的旧假设）。

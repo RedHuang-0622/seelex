@@ -63,6 +63,9 @@ func (service *Service) updatePlanFromLoad(argsJSON string) {
 		Nodes:       nodes,
 		Edges:       planEdges,
 	}
+	// F-2c：视图会话的 plan 同步种子进 task_context 投影缓存（Snapshot 只是
+	// 镜像副本；事件/结果后续都落协调器投影再镜像）。
+	service.components.tasks.SeedPlanProjection(service.Core.Snapshot.Session.ID, service.Core.Snapshot.Runtime.Plan)
 }
 
 // updatePlanFromRunResult 从 plan_run 返回的 JSON 更新 PlanState。
@@ -172,6 +175,8 @@ func (service *Service) updatePlanFromRunResult(resultJSON string) {
 	if plan.Elapsed == "" && !planStart.IsZero() && !planEnd.IsZero() {
 		plan.Elapsed = planEnd.Sub(planStart).String()
 	}
+	// F-2c：plan_run 结果同步回协调器投影（Snapshot 镜像与投影同轮收敛）。
+	service.components.tasks.SeedPlanProjection(service.Core.Snapshot.Session.ID, plan)
 }
 
 // resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。

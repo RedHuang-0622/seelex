@@ -50,6 +50,7 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 	// plan_clear 启动时：清空 PlanState
 	if active && name == "plan_clear" {
 		service.Core.Snapshot.Runtime.Plan = nil
+		service.components.tasks.SeedPlanProjection(service.Core.Snapshot.Session.ID, nil)
 		if state := service.components.tasks.CurrentTaskExecution(); state != nil && state.RequestID == service.Core.Snapshot.Chat.RequestID {
 			state.PlanArguments = ""
 		}
