@@ -40,18 +40,21 @@ type sessionRuntimeState struct {
 	// transition 是"会话切换互斥"的显式 actor（无锁化：单 goroutine 持有
 	// inFlight 状态，channel 命令；取代原 sync.Mutex，见 transition_actor.go）。
 	transition *SessionTransitionActor
-	// sessionTitles 是会话级标题表（阶段 0：标题 per-session，后台会话
-	// 收尾不得读活跃会话标题；对应 code-review 5.4）。
-	sessionTitles      map[string]model.SessionTitle
+	// catalogMu 保护会话目录 worker 的三类内存态：目录缓存（最近一轮枚举
+	// 结果）、会话标题表与刷新回执队列。G5：目录枚举/标题恢复走外部
+	// SessionPort/WorkspacePort（阻塞 I/O），一律在锁外完成；catalogMu
+	// 只护"换内存态"，发布镜像到 Snapshot 时另取 ViewMu 短临界区。
+	// 锁序：ViewMu → catalogMu（目录 worker 从不反向持有）。
+	catalogMu         sync.Mutex
+	catalogSessions   []model.SessionInfo
+	catalogWorkspaces map[string]string
+	catalogTitles     map[string]model.SessionTitle
+	catalogWaiters    []chan struct{}
+	catalogStopped    bool
 	sessionCatalogWake chan struct{}
 	sessionCatalogStop chan struct{}
 	sessionCatalogDone chan struct{}
 	sessionCatalogOnce sync.Once
-	// catalogMu 保护"等待某轮目录刷新完成"的回执队列（C3）：worker 每轮开始时
-	// 取走当前批次，发布后统一关闭，因此登记方无需持有 worker 的调度权。
-	catalogMu      sync.Mutex
-	catalogWaiters []chan struct{}
-	catalogStopped bool
 }
 
 // Location 是一次会话定位结果：workspace 绑定 + 目录元信息。
@@ -78,7 +81,8 @@ func NewCoordinator(deps Deps) *Coordinator {
 		displayUserInput:     deps.DisplayUserInput,
 		sessionRuntimeState: sessionRuntimeState{
 			transition:         NewSessionTransitionActor(),
-			sessionTitles:      make(map[string]model.SessionTitle),
+			catalogWorkspaces:  make(map[string]string),
+			catalogTitles:      make(map[string]model.SessionTitle),
 			sessionCatalogWake: make(chan struct{}, 1),
 			sessionCatalogStop: make(chan struct{}),
 			sessionCatalogDone: make(chan struct{}),
@@ -86,27 +90,56 @@ func NewCoordinator(deps Deps) *Coordinator {
 	}
 }
 
-// SessionTitleFor 返回指定会话标题（调用方持有 Core.ViewMu；缺省回退活跃
-// Snapshot 名称）。
+// SessionTitleFor 返回指定会话标题（G5：标题表由 catalogMu 保护，调用方
+// 无需再为标题持 ViewMu；缺省回退活跃 Snapshot 名称——该回退读发生在
+// 调用方的 ViewMu 上下文中，锁序 ViewMu → catalogMu，不反向）。
 func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle {
-	if title, ok := c.sessionTitles[sessionID]; ok {
+	c.catalogMu.Lock()
+	defer c.catalogMu.Unlock()
+	if title, ok := c.catalogTitles[sessionID]; ok {
 		return title
 	}
 	return model.SessionTitle{Value: c.Core.Snapshot.Session.Name, Source: "first_request"}
 }
 
-// SetSessionTitleLocked 设置指定会话标题（调用方持有 Core.ViewMu）。
+// SetSessionTitleLocked 设置指定会话标题（标题表由 catalogMu 保护；调用方
+// 持有 ViewMu 时同样安全——锁序 ViewMu → catalogMu）。
 func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle) {
-	if c.sessionTitles == nil {
-		c.sessionTitles = make(map[string]model.SessionTitle)
+	c.catalogMu.Lock()
+	defer c.catalogMu.Unlock()
+	if c.catalogTitles == nil {
+		c.catalogTitles = make(map[string]model.SessionTitle)
 	}
-	c.sessionTitles[sessionID] = title
+	c.catalogTitles[sessionID] = title
 }
 
 // UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
 // cold_load，标题由 record 重新装载）。
 func (c *Coordinator) UnloadSessionTitle(sessionID string) {
-	delete(c.sessionTitles, sessionID)
+	c.catalogMu.Lock()
+	defer c.catalogMu.Unlock()
+	delete(c.catalogTitles, sessionID)
+}
+
+// catalogTitleOf 返回标题表原始值（不回退活跃会话名；存档 record 用——
+// 后台会话没有标题时不得借用视图会话名落盘）。
+func (c *Coordinator) catalogTitleOf(sessionID string) model.SessionTitle {
+	c.catalogMu.Lock()
+	defer c.catalogMu.Unlock()
+	return c.catalogTitles[sessionID]
+}
+
+// CatalogCache 返回目录 worker 最近一轮枚举结果的拷贝（catalogMu 保护；
+// 观察/测试用，渲染数据仍以 Snapshot 镜像为准）。
+func (c *Coordinator) CatalogCache() ([]model.SessionInfo, map[string]string) {
+	c.catalogMu.Lock()
+	defer c.catalogMu.Unlock()
+	sessions := append([]model.SessionInfo(nil), c.catalogSessions...)
+	workspaces := make(map[string]string, len(c.catalogWorkspaces))
+	for sessionID, workspaceID := range c.catalogWorkspaces {
+		workspaces[sessionID] = workspaceID
+	}
+	return sessions, workspaces
 }
 
 // TransitionLock 返回会话切换互斥（BeginNewSession/ResumeSession/
@@ -223,6 +256,20 @@ func (c *Coordinator) CatalogRefreshDone() <-chan struct{} {
 // refreshCatalogCache 把目录快照发布进内核（锁内 bump → 锁外 Publish）。
 func (c *Coordinator) refreshCatalogCache() {
 	sessions, discoveredBindings := c.sessionCatalog()
+	// G5：worker 枚举（外部 SessionPort/WorkspacePort I/O）在锁外完成；结果
+	// 先落 catalogMu 保护的目录缓存（只换内存态），再取 ViewMu 短临界区
+	// 发布 Snapshot 镜像——目录刷新不再持有视图锁做 I/O，也不与视图写路径
+	// 争用同一把锁。
+	c.catalogMu.Lock()
+	c.catalogSessions = append([]model.SessionInfo(nil), sessions...)
+	if c.catalogWorkspaces == nil {
+		c.catalogWorkspaces = make(map[string]string, len(discoveredBindings))
+	}
+	for sessionID, workspaceID := range discoveredBindings {
+		c.catalogWorkspaces[sessionID] = workspaceID
+	}
+	c.catalogMu.Unlock()
+
 	c.Core.ViewMu.Lock()
 	if c.closed() {
 		c.Core.ViewMu.Unlock()

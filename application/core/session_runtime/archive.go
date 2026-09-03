@@ -193,7 +193,7 @@ func enrichTranscriptMessageIDs(events []model.TranscriptEvent, record model.Ses
 func (c *Coordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord {
 	now := time.Now()
 	c.tasks.SyncActivePlanFrameLockedFor(sessionID, now)
-	title := c.sessionTitles[sessionID]
+	title := c.catalogTitleOf(sessionID)
 	requestID := c.tasks.CurrentRequestIDFor(sessionID)
 	record := model.SessionRecord{
 		Version: SessionRecordVersion, ID: sessionID, Title: title,
