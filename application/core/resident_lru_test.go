@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -64,10 +65,20 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 	if !residentOf(t, service, "sess-2") || !residentOf(t, service, "sess-3") {
 		t.Fatal("sess-2/sess-3 unit resident flag lost")
 	}
+	// 目录行随 worker 异步刷新：Snapshot 前等一轮收敛，避免高负载下读到
+	// 未含全部行的联合镜像（resident 标记由行数据源叠加）。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := service.WaitCatalogRefresh(ctx); err != nil {
+		t.Fatalf("catalog settle: %v", err)
+	}
 	snapshot := service.Snapshot()
 	byID := map[string]SessionInfo{}
 	for _, item := range snapshot.Sessions {
 		byID[item.ID] = item
+	}
+	if len(byID) != 3 {
+		t.Fatalf("snapshot rows after settle = %d, want 3", len(byID))
 	}
 	if byID["sess-1"].Resident {
 		t.Fatal("snapshot row sess-1 still marks resident")
