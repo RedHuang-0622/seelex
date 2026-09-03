@@ -31,8 +31,9 @@ type Deps struct {
 	// Units 是会话域（阶段 B：每会话可见投影的唯一所有者；本域只读/写单元
 	// 内的 View，不自行持有会话容器）。
 	Units *session.Domain
-	// CurrentEffort 返回当前 effort 级别（prompt 域；runtime 投影用）。
-	CurrentEffort func() string
+	// CurrentEffort 返回指定会话的 effort 级别（prompt 域；runtime 投影用；
+	// G4：会话优先，未选择回退进程默认）。
+	CurrentEffort func(sessionID string) string
 	// RefreshWorkTableLocked 在锁内重建工作表格投影（work_table 域；
 	// 调用方已持有 Core.Mu）。
 	RefreshWorkTableLocked func(tasks []dto.TaskRecord)
@@ -49,7 +50,7 @@ type Deps struct {
 type Coordinator struct {
 	*state.Core
 	units                  *session.Domain
-	currentEffort          func() string
+	currentEffort          func(string) string
 	refreshWorkTableLocked func([]dto.TaskRecord)
 	tasks                  interface {
 		ActiveSkillIDs() []string
@@ -105,13 +106,17 @@ func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeState
 // 未具备的字段（todo 清单、subagent 树、replan 指标）在 G3/G4 分型前
 // 暂时保留进程/视图口径，槽位内容以回合尾与工具边界的 For 收集为准。
 func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID string) RuntimeStateProjection {
+	effort := ""
+	if c.currentEffort != nil {
+		effort = c.currentEffort(sessionID)
+	}
 	projection := RuntimeStateProjection{
 		SessionID: sessionID,
 		Runtime: model.RuntimeState{
 			Model:             c.Deps.Runtime.Model(),
 			Provider:          c.Deps.Runtime.Provider(),
 			Plugin:            c.Deps.Runtime.ActivePlugin(),
-			Effort:            c.currentEffort(),
+			Effort:            effort,
 			FullAccess:        c.Deps.Runtime.FullAccess(),
 			VisibleTools:      append([]model.Tool(nil), c.Deps.Runtime.VisibleTools(ctx)...),
 			Skills:            append([]model.SkillInfo(nil), c.Deps.Skills.All()...),

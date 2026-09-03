@@ -193,6 +193,9 @@ type SessionUnit struct {
 	// Composer 是该会话的未发送输入草稿（G4 先行：草稿会话早分配 SID，
 	// Composer 随 record 持久化、跨重启恢复；提交成功后清空）。
 	Composer model.ComposerDraft
+	// Effort 是该会话选择的 effort 级别（G4：归属进 Unit；未选择时为空，
+	// 回退进程级默认 effortManager.Current）。
+	Effort string
 
 	// 聊天运行态（9.5 收口：原 ChatRuntime 平行容器已删除，直接收进单元；
 	// 执行态归 Seele loop，这里只留 seelex 侧的投影/取消/流/队列桥）。

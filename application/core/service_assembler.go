@@ -107,12 +107,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		DisplayUserInput:           displayUserInput,
 	})
 	service.components.view = view_state.NewCoordinator(view_state.Deps{
-		Core:  kernel,
-		Units: sessionDomain,
-		CurrentEffort: func() string {
-			return service.effortManager.Current()
-		},
-		Tasks: service.components.tasks,
+		Core:          kernel,
+		Units:         sessionDomain,
+		CurrentEffort: service.effortForSession,
+		Tasks:         service.components.tasks,
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord) {
 			service.refreshWorkTableLocked(tasks)
 		},

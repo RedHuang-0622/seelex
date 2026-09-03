@@ -28,6 +28,27 @@ func (unit *SessionUnit) SetComposerText(text string, updatedAt time.Time) {
 	unit.mu.Unlock()
 }
 
+// EffortLevel 返回本会话选择的 effort 级别（空 = 未选择，回退进程默认）。
+func (unit *SessionUnit) EffortLevel() string {
+	if unit == nil {
+		return ""
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	return unit.Effort
+}
+
+// SetEffortLevel 写入本会话的 effort 选择（运行守卫由调用方持有：目标会话
+// idle 时才允许变更）。
+func (unit *SessionUnit) SetEffortLevel(level string) {
+	if unit == nil {
+		return
+	}
+	unit.mu.Lock()
+	unit.Effort = level
+	unit.mu.Unlock()
+}
+
 // SetRuntimeState 把一次运行时投影写入本会话槽（深拷贝：投影的 slice
 // 与调用方后续写入互不 alias）。
 func (unit *SessionUnit) SetRuntimeState(state model.RuntimeState) {

@@ -132,6 +132,11 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 		service.Deps.Engine.SetSystemPrompt(promptText)
 	}
 	service.Mu.Lock()
+	if unit := service.sessions.Unit(viewSessionID); unit != nil {
+		// G4：effort 选择归属进 SessionUnit（视图会话 idle 才允许变更；
+		// 后台会话各自保留自己的选择）。
+		unit.SetEffortLevel(service.effortManager.Current())
+	}
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()

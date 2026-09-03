@@ -112,7 +112,7 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 
 func (service *Service) submitConversation(ctx context.Context, input string) error {
 	request := newChatRequest(input, service.promptStack.Layers())
-	effort := service.effortManager.Current()
+	effort := service.effortForSession(service.currentViewSessionID())
 	request.budget = reactBudgetFor(effort)
 	transition := service.components.sessions.TransitionLock()
 	transition.Lock()
@@ -153,7 +153,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 // 到该会话自己的队列，否则在其上下文中后台启动（不切换活跃会话）。
 func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error {
 	request := newChatRequest(input, service.promptStack.Layers())
-	effort := service.effortManager.Current()
+	effort := service.effortForSession(sessionID)
 	request.budget = reactBudgetFor(effort)
 	service.Mu.Lock()
 	if service.closed {

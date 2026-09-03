@@ -36,6 +36,18 @@ func (service *Service) currentViewSessionID() string {
 	return service.Core.Snapshot.Session.ID
 }
 
+// effortForSession 返回指定会话生效的 effort 级别（G4：Unit 内选择优先；
+// 未选择回退进程级默认 effortManager.Current）。不持有 Core.Mu——Unit
+// 自带锁，进程默认由 EffortManager 自身锁保护。
+func (service *Service) effortForSession(sessionID string) string {
+	if unit := service.sessions.Unit(sessionID); unit != nil {
+		if level := unit.EffortLevel(); level != "" {
+			return level
+		}
+	}
+	return service.effortManager.Current()
+}
+
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 // 闸门依赖它：切换会话/新建会话必须等所有会话空闲；同会话二次提交仍走
 // 会话内队列。

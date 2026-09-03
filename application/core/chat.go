@@ -62,9 +62,10 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	}
 	requestID := service.nextChatRequestIDLocked()
 	runChatDebug("startChatFor session=%s request=%s input=%q active=%v", sessionID, requestID, request.displayInput, active)
+	effort := service.effortForSession(sessionID)
 	budget := request.budget
 	if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
-		budget = reactBudgetFor(service.effortManager.Current())
+		budget = reactBudgetFor(effort)
 	}
 	chatContext, cancel := context.WithCancel(parent)
 	runtime.SetCancel(cancel)
@@ -74,7 +75,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
 		previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
 	}
-	taskState := service.components.tasks.BeginTaskFor(sessionID, requestID, request.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+	taskState := service.components.tasks.BeginTaskFor(sessionID, requestID, request.displayInput, effort, previousTask, previousCheckpoint)
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, request.skills)
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
 	runtime.SetStream(chat.NewVisibleOutputStream(requestID))
@@ -262,9 +263,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 			chat.InputQueue = nil
 		}, nil)
 		nextRequestID = service.nextChatRequestIDLocked()
+		effort := service.effortForSession(sessionID)
 		budget := batchRequest.budget
 		if budget.MaxToolRounds <= 0 && budget.MaxToolCalls <= 0 {
-			budget = reactBudgetFor(service.effortManager.Current())
+			budget = reactBudgetFor(effort)
 		}
 		nextContext, nextCancel = context.WithCancel(context.Background())
 		runtime.SetCancel(nextCancel)
@@ -274,7 +276,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		if previousTask != nil && task_context.IsContinuableStatus(previousTask.Status) {
 			previousCheckpoint = service.components.tasks.BuildTaskCheckpointLocked(previousTask)
 		}
-		taskState := service.components.tasks.BeginTaskFor(sessionID, nextRequestID, batchRequest.displayInput, service.effortManager.Current(), previousTask, previousCheckpoint)
+		taskState := service.components.tasks.BeginTaskFor(sessionID, nextRequestID, batchRequest.displayInput, effort, previousTask, previousCheckpoint)
 		service.components.tasks.ActivateTaskSkillsLocked(taskState, batchRequest.skills)
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
 		runtime.SetStream(chat.NewVisibleOutputStream(nextRequestID))
