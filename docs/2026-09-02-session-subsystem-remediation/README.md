@@ -297,6 +297,13 @@ node --test gui/frontend/dist/*.test.mjs          # 175 pass / 0 fail
   （撤销 `view_state/coordinator.go:160-162` 的丢弃）。
 - [ ] G5 锁拆分（`ViewMu`/`CatalogMu`/`Unit[i].Mu`）+ `TransitionLock` 按会话串行、
   跨会话并行；阻塞式端口调用一律出临界区。
+  - 进度（波 3，2026-09-03）：`Core.Mu` 收口为 `ViewMu`（只护 Snapshot 与
+    可见投影）；CatalogMu 独立（目录 worker/缓存/标题表）；会话可见投影写
+    一律经 View.mu（访问器化）；TransitionLock 拆 per-session keyed
+    （`SessionTransitionManager`，视图命令保留 view key）；hotAttachSession
+    的持锁 workspace 端口查询移出临界区。**剩余**：task/prompt/context/
+    plan 投影等协调器自有状态仍在 ViewMu 下（per-coordinator 锁 + 进程级
+    引擎副作用清除后放开视图过渡 key，随波 4 G6 落地，见"波 3 尚未完成"）。
 - [ ] G6 驻留 LRU 上限 + 驱逐前置 flush；目录按 projectID 索引（`RequestCatalogRefresh`
   补 projectID，撤销 C3 固化的全局数组形状）；C2 `ArchiveSession`；C1 冷读面。
 - [ ] G7 双轨 trace 桥：`seelebridge/events_unified.go:121-176` 的 `UnifiedEvents` 已能
@@ -315,9 +322,17 @@ node --test gui/frontend/dist/*.test.mjs          # 175 pass / 0 fail
 
 ### 遗留待决
 
-- [ ] `session.StorePort` 生产零调用方（`session/store_adapter.go` 只被测试引用）：删除
+- [x] `session.StorePort` 生产零调用方（`session/store_adapter.go` 只被测试引用）：删除
   还是在刀 1' 接为 `session` 域唯一存储入口，二选一，不留死契约。
-- [ ] 待审批计数在 TUI 的呈现口径。
+  —— **波 3 决策：删除**（提交 `195e875`）。适配职责已由
+  `internal/adapters.SessionPort` 承担，消费端口定义在
+  `application/core/session_runtime/ports.go`；session 包不留死契约。
+- [x] 待审批计数在 TUI 的呈现口径。
+  —— **波 3 决策：先定口径、落地随波 4**。TUI 现为 `Snapshot.Interaction`
+  单格模态（`tui/dialog.go`），无待审批计数面；波 4 approval 会话级归属
+  （Unit.Approvals + `awaiting_approval` 状态）落地后，口径 = 侧栏会话
+  条目标记 `awaiting_approval` + 状态行待审批计数（跨会话总数），单格
+  Interaction 只表达当前视图会话的审批。
 
 ## 阶段 G 刀 0 验证记录（追加）
 
@@ -411,12 +426,12 @@ target-design §2.5 的「子代理按 `Kind=Subagent` 落五分片 + `SessionsO
 若未来需要子代理出现在会话目录（归档/冷打开/独立管理），再做
 `Kind=Subagent` 五分片迁移，不改变现网行为。
 
-尚未完成（剩余项，见 target-design §9 波 2 剩余）：
+尚未完成（剩余项，见 target-design §9 波 2/波 3 剩余）：
 
-- G4 其余：approval 的会话级归属与 awaiting_approval 状态（进程单飞期间
-  审批只可能属于运行/视图会话，会话级待批列表与门控随波 3 并行执行落地）；
-  Composer 工作区草稿的 binding 落盘（草稿在 `BindWorkspace` 后 record 仍
-  落默认项目，跨重启不可枚举——随 G4 完整归属收口）。
+- G4 其余：approval 的会话级归属与 awaiting_approval 状态——波 3 审计决策
+  **延后到波 4**（证据见文末"波 3 执行与验证记录"）；Composer 工作区草稿的
+  binding 落盘（草稿在 `BindWorkspace` 后 record 仍落默认项目，跨重启不可
+  枚举——随 G4 完整归属收口；波 3 拆锁未显著降低其修复成本，保持延后）。
 
 波 2 验证命令（本机 CGO_ENABLED=1，-race 为真实执行）：
 
@@ -487,3 +502,76 @@ go test ./session ./application/core ./gui ./internal/adapters ./seelebridge -co
 在只剩中断/完成子节点时显示 interrupted；工作表映射显式分支
 （`taskStatusForSubagent`）；plan-dsl/work-table 标签与 failed 色调 CSS
 覆盖 interrupted。
+
+## 波 3 执行与验证记录（追加，2026-09-03）
+
+波 3 只做 G5 + 第 3 节顺带审计；提交（每个提交点全绿）：
+`9b9ac2c`（ViewMu 收口）、`1110cc4`（CatalogMu 独立）、`546a991`
+（View/Unit 访问器化 + 并行靶场）、`b69c33e`（TransitionLock per-session
+keyed）、`0de02c9`（hotAttach 出临界区）、`195e875`（删除 StorePort 死契约）。
+
+### G5 落地内容
+
+1. **ViewMu**：`internal/state.Core.Mu` 更名 `ViewMu`（职责面 = Core.Snapshot
+   与可见投影），目录/标题/会话单元不再借用这把锁。
+2. **CatalogMu**：`session_runtime` 的目录三态（最近一轮枚举缓存、会话标题
+   表、刷新回执队列）统一由 `catalogMu` 保护；worker 锁外做 SessionPort/
+   WorkspacePort I/O，锁内只换内存态，发布 Snapshot 镜像时另取 ViewMu 短
+   临界区；新增 `CatalogCache()` 观察口。archive 的 record 标题改经
+   `catalogTitleOf` 原始读（不回退活跃会话名，避免后台落盘借用视图名）。
+3. **Unit[i].Mu / 访问器化**：会话可见投影字段写一律经 View.mu
+   （`SessionViewMutateLocked`/`SessionViewReadLocked`；流式增量、推理回挂、
+   ReadFiles、工具状态写回、冷加载装载）；单元 View 指针注册后不再整体
+   替换。`-race` 全量 application/core 期间发现并修复
+   `TestStressConcurrentSessionsDoNotPollute` 的真实竞态：多个 runChat 起点
+   并发写进程级引擎 fullAccess 门（测试桩加锁，镜像生产 PermissionGate
+   语义）。
+4. **TransitionLock per-session keyed**：`SessionTransitionManager`（每 key
+   一把显式 actor；同 key 串行、跨 key 并行；空 key 归一视图保留 key）。
+   fork 落盘段按父会话 key；视图命令（BeginNew/Resume/Unload/Bind/
+   SaveComposerDraft/Submit）保持视图 key；遗留单会话引擎全部归一到视图 key。
+5. **出临界区化**：hotAttachSession 持 ViewMu 的 `Workspace.SessionWorkspace`
+   查询（可能磁盘索引读）改为锁外一次并保存拷贝；审计其余锁定段（persist/
+   目录/上下文装配/工具打点）的端口 I/O 均在锁外或纯内存态操作。
+6. **测试**：`TestConcurrentStreamingViewSwitchNoPollution`（流式输出 × 多
+   会话热切换 × Snapshot 读 × 目录刷新并发）、`TestCatalogCacheMirrorsWorker
+   Round`、`TestCatalogCacheObservesProjectDiscoveredBindings`、
+   `TestCatalogRefreshConcurrentWithTitleWritesAndSnapshotReads`、
+   `TestSessionTransitionManager*`（同 key 互斥/跨 key 并行/关闭释放等待者）。
+
+### 波 3 尚未完成（不在本波收口，台账保持开放）
+
+- G5 剩余：task_context/prompt/context/plan 投影等协调器自有状态仍在 ViewMu
+  下（后台会话的 task/plan 状态与视图写仍共享一把视图锁）；对应 per-
+  coordinator 自有锁 + 把 task 镜像进 Snapshot 的耦合收口，随波 4 G6
+  （驻留 LRU/驱逐）一并落地。波 4 需要先清除视图过渡里剩余的进程级引擎
+  副作用（fork 的 StartSession 活跃别名、全局项目根绑定、legacy Router 写
+  作用域），之后才可把视图命令从 view key 放开为 per-session key。
+- approval 会话级归属与 awaiting_approval 状态（见下）。
+
+### 顺带审计决策（波 3，证据见上）
+
+- **approval 会话级归属：仍延后到波 4**。证据：`ApprovalRequest` 无
+  SessionID 字段；broker 是进程级单例（`pending` 全进程一张表、observer
+  单回调）；`Service.observeInteraction` 把打开的审批写进唯一的
+  `Snapshot.Interaction` 并按**当前视图** sid 发布；`main.go
+  newPermissionBridge` 用 `context.Background()`（无会话路由），
+  `PlanApprovalGate.Ask`/`ask_approve` 的 ctx 虽已携带会话 ID（G1-T），但
+  broker/observer/UI 三侧都没有按 sid 分格的承载。当前单格语义 = 任一时刻
+  只有一个审批可见（后开覆盖先开），进程单飞期间成立；波 3 落地 per-session
+  过渡/锁拆分后，跨会话并行面扩大，必须先做 ApprovalBroker 会话感知 +
+  Unit.Approvals + awaiting_approval + UI 每会话待批列表才能声明归属正确，
+  且波 3 验收锚的"审批并发"用例在无归属承载前只能断言"视图审批可解析、
+  后台会话执行不受阻"（不虚报归属）。Composer 工作区草稿 binding 与 TUI
+  计数口径同理延后（TUI 现无计数面，口径已定：侧栏 awaiting_approval +
+  状态行计数，落波 4）。
+
+验证（本机 CGO_ENABLED=1，`-race` 为真实执行）：
+
+```text
+go build ./...                                   # 通过
+go vet ./application/core/... ./session ./sessionstore   # 无告警
+go test ./application/core/... -count=1           # 全 ok
+go test -race ./application/core -count=1         # 全 ok（含新靶场）
+go test ./session ./sessionstore -count=1         # 全 ok
+```

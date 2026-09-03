@@ -62,7 +62,7 @@ go test ./application/core/task_context -count=1
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造任务域协调器。
 - `func (c *Coordinator) activeSessionIDLocked() string` — activeSessionIDLocked 返回当前活跃会话（快照归属会话）。调用方持有
 - `func (c *Coordinator) sessionStateLocked(sessionID string) *sessionTaskRuntime` — sessionStateLocked 返回指定会话的运行时状态（按需创建）。调用方持有
-- `func (c *Coordinator) activeSessionLocked() *sessionTaskRuntime` — activeSessionLocked 返回活跃会话的运行时状态。调用方持有 Core.Mu。
+- `func (c *Coordinator) activeSessionLocked() *sessionTaskRuntime` — activeSessionLocked 返回活跃会话的运行时状态。调用方持有 Core.ViewMu。
 - `func (c *Coordinator) sessionForRequestLocked(requestID string) *sessionTaskRuntime` — sessionForRequestLocked 按 requestID 反查会话状态（未绑定 → nil）。
 - `func (c *Coordinator) bindRequestLocked(requestID, sessionID string)` — bindRequestLocked 登记 requestID → sessionID（BeginTask 时；调用方持有
 - `func (c *Coordinator) unbindRequestLocked(requestID string)` — unbindRequestLocked 移除 requestID → sessionID（任务结束时；调用方持有
@@ -73,7 +73,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) GoalSkillActive() bool` — GoalSkillActive 返回 goal skill 可见性投影（lock-free 原子值）。
 - `func (c *Coordinator) GoalSkillActiveFor(sessionID string) bool` — GoalSkillActiveFor 返回指定会话当前任务的 goal skill 激活判定（G1：
 - `func (c *Coordinator) goalSkillActiveForLocked(sessionID string) bool` — goalSkillActiveForLocked 是 GoalSkillActiveFor/syncGoalSkillActiveLocked
-- `func (c *Coordinator) CurrentTaskExecution() *TaskExecutionState` — CurrentTaskExecution 返回活跃会话当前任务执行状态（调用方持有 Core.Mu
+- `func (c *Coordinator) CurrentTaskExecution() *TaskExecutionState` — CurrentTaskExecution 返回活跃会话当前任务执行状态（调用方持有 Core.ViewMu
 - `func (c *Coordinator) CurrentTaskExecutionFor(sessionID string) *TaskExecutionState` — CurrentTaskExecutionFor 返回指定会话当前任务执行状态（调用方持有
 - `func (c *Coordinator) ActivePlanID() string` — ActivePlanID 返回活跃会话当前激活 plan 帧 ID。
 - `func (c *Coordinator) ActivePlanIDFor(sessionID string) string` — ActivePlanIDFor 返回指定会话当前激活 plan 帧 ID。
@@ -87,7 +87,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) ReplanInFlight(interactionID string) bool` — ReplanInFlight 判定活跃会话重规划交互是否在途。
 - `func (c *Coordinator) MarkReplanInFlight(interactionID string)` — MarkReplanInFlight 登记活跃会话重规划交互。
 - `func (c *Coordinator) DeleteReplanInFlight(interactionID string)` — DeleteReplanInFlight 移除活跃会话重规划交互标记。
-- `func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReActBudget)` — StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.Mu）。
+- `func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReActBudget)` — StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.ViewMu）。
 - `func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget)` — StartReActBudgetForLocked 启动指定会话请求级执行预算（调用方持有
 - `func (c *Coordinator) SetReActBudgetExhaustedLocked(requestID, reason string)` — SetReActBudgetExhaustedLocked 直接置位预算终止原因（测试模拟预算耗尽；
 - `func (c *Coordinator) ClearReActBudget(requestID string)` — ClearReActBudget 清除请求级预算（自行加锁）。
@@ -145,7 +145,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) EnsureFinalAssistantTranscript(requestID, content string)` — EnsureFinalAssistantTranscript 在请求结束时补一条可见 assistant 终态事件
 - `func (c *Coordinator) sessionStateForTaskLocked(state *TaskExecutionState) *sessionTaskRuntime` — sessionStateForTaskLocked 返回任务状态所属会话的运行时（调用方持有
 - `func (c *Coordinator) TaskProjectionLocked(sessionID string) *model.TaskContextProjection` — TaskProjectionLocked 构建指定会话任务的权威投影（会话归档用；调用方持有
-- `func (c *Coordinator) BuildTaskCheckpointLocked(state *TaskExecutionState) model.TaskCheckpoint` — BuildTaskCheckpointLocked 构建任务 checkpoint（调用方持有 Core.Mu）。
+- `func (c *Coordinator) BuildTaskCheckpointLocked(state *TaskExecutionState) model.TaskCheckpoint` — BuildTaskCheckpointLocked 构建任务 checkpoint（调用方持有 Core.ViewMu）。
 - `func (c *Coordinator) buildTaskCheckpointLocked(st *sessionTaskRuntime, state *TaskExecutionState) model.TaskCheckpoint`
 - `func extendEventRange(existing, current model.EventRange) model.EventRange`
 - `func boundedFailure(value string) string`
@@ -155,10 +155,10 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projection *model.TaskContextProjection, fallbackObjective string)`
 - `func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiveRef string) string`
 - `func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool` — RecordContextCompactionLocked 记录一次上下文压缩（仅运行中任务；调用方
-- `func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)` — SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.Mu；requestID
+- `func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)` — SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
 - `func (c *Coordinator) isActiveSessionLocked(sessionID string) bool` — isActiveSessionLocked 判定会话是否为共享快照归属会话（调用方持有
-- `func (c *Coordinator) InterruptTaskLocked(requestID, summary string)` — InterruptTaskLocked 把任务置为中断（快照 + 内部状态；调用方持有 Core.Mu）。
-- `func (c *Coordinator) FailTaskLocked(requestID, summary string)` — FailTaskLocked 把任务置为失败（快照 + 内部状态；调用方持有 Core.Mu）。
+- `func (c *Coordinator) InterruptTaskLocked(requestID, summary string)` — InterruptTaskLocked 把任务置为中断（快照 + 内部状态；调用方持有 Core.ViewMu）。
+- `func (c *Coordinator) FailTaskLocked(requestID, summary string)` — FailTaskLocked 把任务置为失败（快照 + 内部状态；调用方持有 Core.ViewMu）。
 - `func (c *Coordinator) ResumeTaskLocked(requestID, summary string)` — ResumeTaskLocked 恢复被压缩/中断的任务（快照 + 内部状态 + epoch 推进；
 - `func (c *Coordinator) RememberCheckpointLocked(checkpoint model.TaskCheckpoint)` — RememberCheckpointLocked 按 version 替换或追加活跃会话 checkpoint（调用
 - `func (c *Coordinator) BeginTask(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState` — BeginTask 为活跃会话当前请求创建任务执行状态与 TaskService（调用方持有
@@ -198,8 +198,8 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) OnChatEnd(ctx context.Context, summary ChatEndSummary) (model.TaskState, error)` — OnChatEnd 把自然停止转换为可审计完成/交接，返回可见任务状态。
 - `func (c *Coordinator) CurrentTaskResumeRecord() TaskResumeRecord` — CurrentTaskResumeRecord 返回活跃会话当前任务的终态恢复记录。
 - `func (c *Coordinator) SetTaskProjectionFlushLocked(flush func(context.Context) error)` — SetTaskProjectionFlushLocked 注入活跃会话 TaskService 的 Plan 投影 flush
-- `func (c *Coordinator) ObserveTool(observation ToolObservation)` — ObserveTool 记录工具执行观测（调用方持有 Core.Mu；observation requestID
-- `func (c *Coordinator) ObservePlanEvent(event PlanEvent)` — ObservePlanEvent 记录 plan 事件投影观测（调用方持有 Core.Mu；活跃会话）。
+- `func (c *Coordinator) ObserveTool(observation ToolObservation)` — ObserveTool 记录工具执行观测（调用方持有 Core.ViewMu；observation requestID
+- `func (c *Coordinator) ObservePlanEvent(event PlanEvent)` — ObservePlanEvent 记录 plan 事件投影观测（调用方持有 Core.ViewMu；活跃会话）。
 - `func (c *Coordinator) ObserveModelOutput(ctx context.Context, output ModelOutput) error` — ObserveModelOutput 记录模型回复观测（自行加锁；output requestID 反查
 - `func (c *Coordinator) taskServiceForContextLocked(ctx context.Context) *TaskService` — taskServiceForContextLocked 按 ctx 会话 ID 返回任务的 TaskService（未注入
 

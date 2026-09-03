@@ -261,3 +261,17 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
   awaiting_approval 状态（进程单飞期间审批只可能属于运行/视图会话，会话级
   待批列表与门控随波 3 并行执行落地）；`Kind=Subagent` 落盘与 stale 标记、
   Composer 工作区草稿 binding 完整归属。
+
+### 波 3 执行中对账（2026-09-03 追加）
+
+- 波 3 落地（G5 主体）：`Core.Mu` 收口 `ViewMu`；`CatalogMu` 独立（目录
+  worker/缓存/标题表）；会话可见投影访问器化（写一律经 View.mu）；
+  `TransitionLock` 拆 per-session keyed（`SessionTransitionManager`）。
+- **波次边界调整（如实记录）**：G5 的协调器自有状态拆分（task/prompt/
+  context/plan 投影离开 ViewMu）与视图命令的 per-session 过渡放开未在波 3
+  收口——前者需要 Snapshot.Task 镜像耦合收口，后者需要清除视图过渡剩余进程
+  级引擎副作用；两者随波 4 G6 一并落地，依赖不变（G1+G4 数据面 → G5 →
+  G6）。
+- approval 会话级归属经审计**延后到波 4**（证据与决策在台账 README 波 3
+  记录）：ApprovalRequest/broker/observer/Snapshot.Interaction 现无 sid 承载，
+  单格审批语义在进程单飞期间成立，per-session 归属需整条链路会话化。

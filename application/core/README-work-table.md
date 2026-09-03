@@ -19,7 +19,7 @@
 - `func boundWorkTrace(points []WorkTracePoint) []WorkTracePoint` — boundWorkTrace 按时间倒序排序并截断。
 - `func truncateWorkEvidence(value string, limit int) string`
 - `func formatWorkDuration(duration time.Duration) string`
-- `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.Mu 持锁时重建工作表格投影。
+- `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
 - `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
 - `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
@@ -58,6 +58,10 @@
 ### work_table_race_test.go
 
 - `func TestWorkTableRaceConcurrentMutations(t *testing.T)` — TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
+
+### work_table_subagent_status_test.go
+
+- `func TestTaskStatusForSubagentInterrupted(t *testing.T)` — TestTaskStatusForSubagentInterrupted（G4 stale）：崩溃遗留节点经树恢复为
 
 ### work_table_test.go
 

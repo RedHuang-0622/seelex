@@ -263,7 +263,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 ### service_snapshot.go
 
 - `func (service *Service) Snapshot() Snapshot`
-- `func (service *Service) sessionStatusLocked(sessionID string) SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.Mu）。
+- `func (service *Service) sessionStatusLocked(sessionID string) SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。
 - `func (service *Service) Subscribe(buffer int) Subscription`
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
 - `func (service *Service) collectRuntimeProjectionFor(ctx context.Context, sessionID string) view_state.RuntimeStateProjection` — collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的

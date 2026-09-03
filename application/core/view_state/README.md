@@ -19,8 +19,11 @@ revision 在此自持。
 
 ## 并发/安全语义
 
-锁内 bump → 锁外 Publish；`CollectRuntimeProjection` 锁外收集外部端口，
-`ApplyRuntimeProjectionLocked` 锁内应用并重建工作表格。
+视图锁（`Core.ViewMu`，保护 Snapshot 与可见投影）内 bump → 锁外 Publish；
+`CollectRuntimeProjection` 锁外收集外部端口，`ApplyRuntimeProjectionLocked`
+锁内应用并重建工作表格。会话可见投影的字段写一律经 `View.mu`
+（`SessionViewMutateLocked`/`SessionViewReadLocked`；G5 访问器化）：单元
+View 指针注册后不再整体替换，冷加载装载在 View.mu 内逐字段拷贝。
 
 ## 扩展与 Review
 
@@ -43,6 +46,7 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) Subscribe(buffer int) event.Subscription` — Subscribe 订阅事件流。
 - `func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection` — CollectRuntimeProjection 锁外调用外部端口收集当前视图会话的 runtime
 - `func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID string) RuntimeStateProjection` — CollectRuntimeProjectionFor 按显式会话收集 runtime 投影（G1：会话槽的
+- `func (c *Coordinator) fullAccessFor(sessionID string) bool` — fullAccessFor 返回指定会话生效的全权模式（G4：会话选择优先；未选择时
 - `func (c *Coordinator) replanMetricsFor(sessionID string) dto.ReplanMetrics` — replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；
 - `func (c *Coordinator) tokenCountFor(sessionID string) string` — tokenCountFor 返回指定会话的 token 计数（有 per-session 端口优先；
 - `func (c *Coordinator) activeSkillIDsFor(sessionID string) []string` — activeSkillIDsFor 返回指定会话的任务激活 skill ID（per-session 端口
@@ -53,9 +57,11 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进
 - `func (c *Coordinator) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
 - `func (c *Coordinator) SessionViewLocked(sessionID string) *session.View` — SessionViewLocked 返回指定会话的可见投影（core 域恢复/回看路径用；
+- `func (c *Coordinator) SessionViewMutateLocked(sessionID string, mutate func(*session.View))` — SessionViewMutateLocked 在指定会话可见投影的 View.mu 内应用变更（G5 访问
+- `func (c *Coordinator) SessionViewReadLocked(sessionID string, read func(*session.View))` — SessionViewReadLocked 在指定会话可见投影的 View.mu（读）内读取字段快照
 - `func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)` — SetSessionViewLocked 装载指定会话的可见投影（冷加载/恢复路径；调用方
 - `func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatState)` — SetSessionChatLockedFor 写指定会话的聊天运行态投影（调用方持有
-- `func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFileRef)` — SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.Mu）。
+- `func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFileRef)` — SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.ViewMu）。
 - `func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.View)` — mirrorActiveViewLocked 把指定会话的 scope 镜像到 Snapshot（仅当目标为
 - `func (c *Coordinator) MirrorActiveViewLocked()` — MirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot（切换/恢复
 - `func (c *Coordinator) AdvanceMessageSeqLocked(messages []model.Message)` — AdvanceMessageSeqLocked 按既有消息 ID 推进消息序列（会话恢复路径）。

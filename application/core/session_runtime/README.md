@@ -22,6 +22,7 @@
 |---|---|
 | `ports.go` | `TaskPersistencePort` 与可选能力断言端口、`Deps`。 |
 | `coordinator.go` | `Coordinator` + `sessionRuntimeState` + catalog worker。 |
+| `transition_manager.go` | per-session keyed 过渡锁注册表（G5：同会话串行、跨会话并行）。 |
 | `archive.go` | record 构建/合并、transcript 事件关联、恢复历史回退。 |
 | `scope.go` | 目录发现、标题恢复、会话定位、history 读。 |
 | `history.go` | 尾部窗口读与 user 内容判定。 |
@@ -41,6 +42,12 @@ tool-result。目录 worker 锁外做 SessionPort/WorkspacePort I/O，锁内只�
 `Service.WaitCatalogRefresh(ctx)` 是它的带 ctx 包装）。`StopCatalogRefresh` 的退出
 路径会释放全部在等回执并置停止标记，之后的请求立即收敛，关闭不会被目录 I/O 挂住。
 
+目录三态（最近一轮枚举缓存、会话标题表、刷新回执队列）由 `catalogMu` 保护
+（G5）：worker 在锁外做 SessionPort/WorkspacePort I/O，锁内只换内存态，
+发布 Snapshot 镜像时另取 ViewMu 短临界区；锁序 ViewMu → catalogMu，不反向。
+标题读写（`SessionTitleFor`/`SetSessionTitleLocked`）不再要求调用方持有
+ViewMu。
+
 ## 依赖方向
 
 依赖 `state.Core` + `TaskPersistencePort`（消费方接口）与装配注入的跨域纯
@@ -48,8 +55,13 @@ tool-result。目录 worker 锁外做 SessionPort/WorkspacePort I/O，锁内只�
 
 ## 并发/安全语义
 
-`sessionNameMu`/`sessionTransitionMu` 自持；`TransitionLock()` 供根包跨域
-事务共用。Locked 方法要求调用方持有 `Core.Mu`。持锁禁止调用外部端口。
+- 过渡互斥：`SessionTransitionManager`（`TransitionLock(key)`）——每个 key
+  一把显式 actor（channel 命令 + 单 goroutine），同 key 串行、跨 key 并行；
+  空 key 归一为视图保留 key（视图命令共用）。关闭后 Lock/Unlock 为空操作，
+  退出路径不卡死。
+- 目录缓存/标题表：`catalogMu`（见上）。持久化/目录/上下文装配的端口 I/O
+  一律在锁外完成；持锁段只做内存态组装与拷贝。Locked 方法仍要求调用方持有
+  ViewMu（视图锁），但不再为标题/目录持有。
 
 ## 扩展与 Review
 
@@ -81,7 +93,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) userInputResultRefLocked(sessionID, content string) string`
 - `func (c *Coordinator) conversationFromTranscriptLocked(events []model.TranscriptEvent) []model.Message` — conversationFromTranscriptLocked 从指定会话 transcript 事件重建可见对话
 - `func (c *Coordinator) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（会话路由引擎用 HistoryFor；无会话
-- `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.Mu；
+- `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.ViewMu；
 - `func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error)` — LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
 - `func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error)` — LoadSessionTranscript 读取会话 transcript 尾部窗口（预算 + 单元上限由
 - `func recordResumeHistory(record model.SessionRecord) []contract.EngineMessage`
@@ -102,10 +114,12 @@ go test ./application/core/session_runtime -count=1
 ### coordinator.go
 
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造会话域协调器；Tasks 由装配根注入
-- `func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle` — SessionTitleFor 返回指定会话标题（调用方持有 Core.Mu；缺省回退活跃
-- `func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle)` — SetSessionTitleLocked 设置指定会话标题（调用方持有 Core.Mu）。
+- `func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle` — SessionTitleFor 返回指定会话标题（G5：标题表由 catalogMu 保护，调用方
+- `func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle)` — SetSessionTitleLocked 设置指定会话标题（标题表由 catalogMu 保护；调用方
 - `func (c *Coordinator) UnloadSessionTitle(sessionID string)` — UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
-- `func (c *Coordinator) TransitionLock() sync.Locker` — TransitionLock 返回会话切换互斥（BeginNewSession/ResumeSession/
+- `func (c *Coordinator) catalogTitleOf(sessionID string) model.SessionTitle` — catalogTitleOf 返回标题表原始值（不回退活跃会话名；存档 record 用——
+- `func (c *Coordinator) CatalogCache() ([]model.SessionInfo, map[string]string)` — CatalogCache 返回目录 worker 最近一轮枚举结果的拷贝（catalogMu 保护；
+- `func (c *Coordinator) TransitionLock(key string) sync.Locker` — TransitionLock 返回指定 key 的会话过渡互斥（key=会话 ID：该会话生命
 - `func (c *Coordinator) BindView(view ViewPort)` — BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；
 - `func (c *Coordinator) StartCatalogRefresh()` — StartCatalogRefresh 启动会话目录刷新 worker：目录发现与标题恢复离开
 - `func (c *Coordinator) RequestCatalogRefresh() <-chan struct` — RequestCatalogRefresh 非阻塞唤醒目录刷新 worker，并返回完成回执：某一轮
@@ -223,4 +237,21 @@ go test ./application/core/session_runtime -count=1
 - `func TestTransitionActorFIFOOrder(t *testing.T)` — TestTransitionActorFIFOOrder：等待者按请求顺序被授予（队列即等待队列）。
 - `func TestTransitionActorCloseReleasesGoroutine(t *testing.T)` — TestTransitionActorCloseReleasesGoroutine：Close 停止 actor goroutine，
 - `func TestTransitionLockerAdapter(t *testing.T)` — TestTransitionLockerAdapter：sync.Locker 适配层与现有调用方契约一致。
+
+### transition_manager.go
+
+- `func NewSessionTransitionManager() *SessionTransitionManager` — NewSessionTransitionManager 构造空的 per-session 过渡锁注册表。
+- `func (manager *SessionTransitionManager) Lock(key string) sync.Locker` — Lock 返回 keyed locker：同 key 串行、跨 key 并行；关闭后为空操作。
+- `func (manager *SessionTransitionManager) lock(key string)` — lock 阻塞直到获得指定 key 的过渡锁（actor 不存在时按需创建）。
+- `func (manager *SessionTransitionManager) unlock(key string)` — unlock 释放指定 key 的过渡锁（未持有也可调用：空操作）。
+- `func (manager *SessionTransitionManager) Close()` — Close 停止全部 per-key actor（幂等）。契约：调用方保证无活跃持有者；
+- `func (locker keyedTransitionLocker) Lock()`
+- `func (locker keyedTransitionLocker) Unlock()`
+
+### transition_manager_test.go
+
+- `func TestSessionTransitionManagerSerializesSameKey(t *testing.T)` — TestSessionTransitionManagerSerializesSameKey G5：同一 key 的命令串行
+- `func TestSessionTransitionManagerParallelAcrossKeys(t *testing.T)` — TestSessionTransitionManagerParallelAcrossKeys G5：不同 key 的命令并行
+- `func TestSessionTransitionManagerViewKeyAliasesEmpty(t *testing.T)` — TestSessionTransitionManagerViewKeyAliasesEmpty G5：空 key 与保留视图 key
+- `func TestSessionTransitionManagerCloseReleasesWaiters(t *testing.T)` — TestSessionTransitionManagerCloseReleasesWaiters G5：关闭后释放全部等待者，
 
