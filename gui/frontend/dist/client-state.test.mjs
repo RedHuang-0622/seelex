@@ -4,8 +4,11 @@ import test from "node:test";
 
 const protocolSource = await readFile(new URL("./protocol.js", import.meta.url), "utf8");
 const protocolURL = `data:text/javascript;base64,${Buffer.from(protocolSource).toString("base64")}`;
+const shapeSource = await readFile(new URL("./snapshot-shape.js", import.meta.url), "utf8");
+const shapeURL = `data:text/javascript;base64,${Buffer.from(shapeSource).toString("base64")}`;
 const clientSource = (await readFile(new URL("./client-state.js", import.meta.url), "utf8"))
-  .replace('"./protocol.js"', `"${protocolURL}"`);
+  .replace('"./protocol.js"', `"${protocolURL}"`)
+  .replace('"./snapshot-shape.js"', `"${shapeURL}"`);
 const { createGUIClient } = await import(`data:text/javascript;base64,${Buffer.from(clientSource).toString("base64")}`);
 
 function makeSnapshot(revision = 1, content = "A") {
@@ -231,4 +234,115 @@ test("switch resync: acceptSnapshot resets the baseline and view increments keep
 
   // 旧会话 A 的迟到事件不会出现在这里：会话归属由 application 在投递端
   // 过滤，前端不判定 session_id（正向防线见 gui/bridge_session_test.go）。
+});
+
+// G3 收口：桌面 Workbench 收到联合快照后保留进程段（目录 + 进程运行原件）；
+// 会话粒度基线（capabilities.session_snapshot）与 session-only 的
+// runtime.changed 不得让账户/插件/技能/模型等进程面板数据抖动。
+test("keeps the desktop process segment across session-scoped baselines and events", async () => {
+  const rendered = [];
+  const incrementals = [];
+  let loads = 0;
+  const client = createGUIClient({
+    loadSnapshot: async () => {
+      loads += 1;
+      // 第一次拉取返回桌面联合 Workbench 快照（现状传输形状）。
+      if (loads === 1) {
+        return {
+          protocol_version: 1,
+          revision: 10,
+          session: { id: "sess-a", name: "A" },
+          sessions: [{ id: "sess-a", name: "A", updated_at: "2026-09-03T00:00:00Z", token_count: 0 }],
+          conversation: [{ id: "m1", role: "assistant", content: "hi" }],
+          chat: { running: false },
+          runtime: {
+            model: "gpt-5",
+            provider: "openai",
+            account: "default",
+            effort: "medium",
+            full_access: false,
+            tokens: "120",
+            visible_tools: [{ name: "bash", description: "run" }],
+            skills: [{ name: "web", description: "search" }],
+            plugins: [],
+            accounts: [{ name: "default", provider: "openai", model: "gpt-5" }]
+          },
+          capabilities: { session_resume: true },
+          session_workspaces: { "sess-a": "proj-a" },
+          workspaces: [{ id: "proj-a", name: "P", root_path: "G:/p" }],
+          current_workspace: null
+        };
+      }
+      // 之后是会话粒度基线：只描述会话事实，不含目录与进程运行原件。
+      return {
+        protocol_version: 1,
+        revision: 12,
+        session: { id: "sess-b", name: "B" },
+        conversation: [{ id: "b1", role: "assistant", content: "from B" }],
+        chat: { running: true, request_id: "chat-b" },
+        runtime: { effort: "lite", full_access: false, tokens: "10", replan: { in_flight: 0 } },
+        capabilities: { session_resume: true, session_snapshot: true },
+        history_offset: 0,
+        total_messages: 1,
+        has_more_history: false
+      };
+    },
+    onSnapshot: snapshot => rendered.push([snapshot.session?.id, snapshot.runtime?.model, snapshot.runtime?.effort, Boolean(snapshot.sessions)]),
+    onIncremental: (_snapshot, kind) => incrementals.push(kind),
+    onError: error => { throw error; }
+  });
+
+  await client.refresh({ scroll: "bottom" });
+  assert.deepEqual(rendered.at(-1), ["sess-a", "gpt-5", "medium", true]);
+
+  // 切换到会话 B（session-scoped 基线）：进程字段由保留的进程段继续提供。
+  await client.refresh({ scroll: "bottom" });
+  const baseline = client.current();
+  assert.equal(baseline.session.id, "sess-b");
+  assert.equal(baseline.conversation[0].content, "from B");
+  assert.equal(baseline.runtime.effort, "lite");
+  assert.equal(baseline.runtime.model, "gpt-5", "会话基线不得清空桌面模型显示");
+  assert.equal(baseline.runtime.visible_tools.length, 1);
+  assert.equal(baseline.runtime.skills.length, 1);
+  assert.equal(baseline.runtime.accounts.length, 1);
+  assert.deepEqual(baseline.sessions.map(item => item.id), ["sess-a"], "会话目录来自进程段而非会话载荷");
+  assert.deepEqual(rendered.at(-1), ["sess-b", "gpt-5", "lite", true]);
+
+  // session-only 的 runtime.changed 增量只替换会话运行字段，进程段保留。
+  await client.handleEvent({
+    protocol_version: 1, seq: 1, delivery_seq: 1, revision: 13, session_id: "sess-b", kind: "runtime.changed",
+    payload: { effort: "high", full_access: true, tokens: "30", replan: { in_flight: 0 } }
+  });
+  const current = client.current();
+  assert.deepEqual(incrementals, ["runtime.changed"]);
+  assert.equal(current.runtime.effort, "high");
+  assert.equal(current.runtime.full_access, true);
+  assert.equal(current.runtime.model, "gpt-5", "进程字段必须穿过 session-only 增量");
+  assert.equal(current.runtime.accounts.length, 1);
+  assert.equal(loads, 2, "session-scoped 基线之间不得因进程字段缺失触发额外重拉");
+});
+
+test("workbench joint snapshots keep their inline process fields untouched", async () => {
+  const workbench = {
+    protocol_version: 1,
+    revision: 10,
+    session: { id: "sess-a" },
+    sessions: [{ id: "sess-a", name: "A", updated_at: "2026-09-03T00:00:00Z", token_count: 0 }],
+    conversation: [],
+    chat: {},
+    runtime: { model: "gpt-5", effort: "medium", accounts: [] },
+    capabilities: { session_resume: true }
+  };
+  const rendered = [];
+  const client = createGUIClient({
+    loadSnapshot: async () => workbench,
+    onSnapshot: snapshot => rendered.push(snapshot),
+    onIncremental() {},
+    onError: error => { throw error; }
+  });
+  await client.refresh();
+  assert.equal(rendered[0].runtime.model, "gpt-5");
+  assert.equal(rendered[0].runtime.effort, "medium");
+  assert.ok(rendered[0].runtime.accounts !== undefined);
+  assert.equal(rendered[0], client.current());
 });

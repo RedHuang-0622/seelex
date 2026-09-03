@@ -9,7 +9,7 @@
 | 文件 | 职责 |
 |---|---|
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
-| `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync。 |
+| `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
 | `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/notice）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。 |
@@ -60,8 +60,11 @@
 是前端唯一的字段归属事实表：进程面板（账户/插件/技能/定时任务/模型）与
 会话面板（effort/plan/work_table/子代理树）各自按所有权提取；会话制品若泄漏
 进程字段或进程制品泄漏会话字段，`assertTypedShape` 直接拒绝（INV-G1）。
-进程上下文（`processContextOf`）可在会话粒度载荷之间保留，进程面板不随会话
-快照抖动。
+`createGUIClient` 在快照边界经 `processContextOf` 记录进程上下文（联合
+Workbench 快照或进程制品）；会话粒度基线（`capabilities.session_snapshot`）
+到达时与进程段合并成渲染快照，`runtime.changed` 只携带会话运行字段时进程
+段照常保留——桌面进程面板不随会话载荷抖动。联合快照自身已带进程字段，
+按原样渲染（无重复合并）。
 
 1. 初始化先等待并幂等绑定 Wails `EventsOn`，再通过 Bridge `Snapshot` 获取权威状态；runtime 尚未就绪时整个初始化按既有重试机制继续，不能静默进入无事件模式。
 2. `client-state` 应用连续 `seelex:event` 增量。

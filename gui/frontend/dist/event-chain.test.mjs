@@ -4,8 +4,11 @@ import test from "node:test";
 
 const protocolSource = await readFile(new URL("./protocol.js", import.meta.url), "utf8");
 const protocolURL = `data:text/javascript;base64,${Buffer.from(protocolSource).toString("base64")}`;
+const shapeSource = await readFile(new URL("./snapshot-shape.js", import.meta.url), "utf8");
+const shapeURL = `data:text/javascript;base64,${Buffer.from(shapeSource).toString("base64")}`;
 const clientSource = (await readFile(new URL("./client-state.js", import.meta.url), "utf8"))
-  .replace('"./protocol.js"', `"${protocolURL}"`);
+  .replace('"./protocol.js"', `"${protocolURL}"`)
+  .replace('"./snapshot-shape.js"', `"${shapeURL}"`);
 const { createGUIClient } = await import(`data:text/javascript;base64,${Buffer.from(clientSource).toString("base64")}`);
 const markdownSource = await readFile(new URL("./markdown.js", import.meta.url), "utf8");
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
