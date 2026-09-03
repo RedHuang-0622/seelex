@@ -13,8 +13,8 @@ import (
 )
 
 // TestWorkspaceScopedDataReadableThroughSessionGranularStore（迁移测试）：
-// 旧 workspace 粒度口写入的物理数据，经会话粒度 StorePort 同键读取
-// （Router 复合键保留为物理布局；暴露层切到会话粒度，键不漂移）。
+// 旧 workspace 粒度口写入的物理数据，经会话粒度存储同键读取（Router 复合键
+// 保留为物理布局；暴露层切到会话粒度，键不漂移）。
 func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 	root := t.TempDir()
 	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)

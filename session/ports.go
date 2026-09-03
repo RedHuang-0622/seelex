@@ -1,7 +1,9 @@
-// Package session 的端口契约层（9.1）：EnginePort/StorePort 与 SessionUnit
-// 骨架。会话性归 Seele（seelebridge 实现 EnginePort），seelex 只做薄封装；
-// 生命周期热/冷判定由 HasSession 驱动，本包不重造 COLD/PREPARED/LIVE
-// 状态机（thin-wrapper-session-design.md §3.2、mbd-models.md §2）。
+// Package session 的端口契约层（9.1）：EnginePort 与 SessionUnit 骨架。
+// 会话性归 Seele（seelebridge 实现 EnginePort），seelex 只做薄封装；生命周期
+// 热/冷判定由 HasSession 驱动，本包不重造 COLD/PREPARED/LIVE 状态机
+// （thin-wrapper-session-design.md §3.2、mbd-models.md §2）。会话粒度存储
+// 契约不再经本包暴露（StorePort 已删除：适配职责由 internal/adapters 承担，
+// 消费端口定义在 application/core/session_runtime/ports.go）。
 package session
 
 import (
@@ -140,26 +142,6 @@ type EnginePort interface {
 	// PrepareMainSessionHistory 把应用装配的 provider history 交给目标
 	// 会话的 DurableHistory（下次 ChatStream 装载）。
 	PrepareMainSessionHistory(sessionID string, messages []types.Message) bool
-}
-
-// StorePort 是会话粒度持久化端口（原子单位 = session；项目 = 集合索引）。
-type StorePort interface {
-	// SaveSession 原子写会话记录（幂等：同键重写不漂移）。
-	SaveSession(record SessionRecord) error
-	// LoadSession 读取会话记录；不存在返回 (zero, false, nil)。
-	LoadSession(sessionID string) (SessionRecord, bool, error)
-	// History 返回会话的框架工作历史句柄。
-	History(sessionID string) *sessionstore.DurableHistory
-	// Transcript 读取会话事件日志。
-	Transcript(sessionID string) ([]TranscriptEvent, error)
-	// ToolResults 读取会话工具结果归档引用列表。
-	ToolResults(sessionID string) ([]ToolResultRef, error)
-	// Context 读取会话上下文四栈。
-	Context(sessionID string) (ContextStack, error)
-	// SessionsOf 按项目索引枚举会话（项目 = 会话集合）。
-	SessionsOf(projectID string) ([]SessionInfo, error)
-	// Bind 写会话绑定（workspaceID / parent / kind）。
-	Bind(sessionID string, binding SessionBinding) error
 }
 
 // SessionMetaPort 是会话端口的可选扩展：读写会话展示元数据（置顶/别名/排序位，

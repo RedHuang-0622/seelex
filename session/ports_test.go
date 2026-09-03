@@ -9,14 +9,10 @@ import (
 
 	seelesession "github.com/RedHuang-0622/Seele/session"
 	"github.com/RedHuang-0622/Seele/types"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
-// 编译期断言：EnginePort/StorePort 契约可被具体实现满足（接口先行）。
-var (
-	_ EnginePort = (*fakeEnginePort)(nil)
-	_ StorePort  = (*fakeStorePort)(nil)
-)
+// 编译期断言：EnginePort 契约可被具体实现满足（接口先行）。
+var _ EnginePort = (*fakeEnginePort)(nil)
 
 // fakeEnginePort 是 EnginePort 的测试桩（空实现，仅供编译期契约断言）。
 type fakeEnginePort struct{}
@@ -31,22 +27,8 @@ func (fakeEnginePort) NewSubagentSessionWithID(string, *seelesession.LoopHooks) 
 func (fakeEnginePort) ChatStreamFor(string, context.Context, string, func(string)) (string, error) {
 	return "", errors.New("not implemented")
 }
-func (fakeEnginePort) UnloadSession(string) error { return nil }
+func (fakeEnginePort) UnloadSession(string) error                             { return nil }
 func (fakeEnginePort) PrepareMainSessionHistory(string, []types.Message) bool { return false }
-
-// fakeStorePort 是 StorePort 的测试桩（空实现，仅供编译期契约断言）。
-type fakeStorePort struct{}
-
-func (fakeStorePort) SaveSession(SessionRecord) error { return nil }
-func (fakeStorePort) LoadSession(string) (SessionRecord, bool, error) {
-	return SessionRecord{}, false, nil
-}
-func (fakeStorePort) History(string) *sessionstore.DurableHistory { return nil }
-func (fakeStorePort) Transcript(string) ([]TranscriptEvent, error) { return nil, nil }
-func (fakeStorePort) ToolResults(string) ([]ToolResultRef, error) { return nil, nil }
-func (fakeStorePort) Context(string) (ContextStack, error) { return ContextStack{}, nil }
-func (fakeStorePort) SessionsOf(string) ([]SessionInfo, error) { return nil, nil }
-func (fakeStorePort) Bind(string, SessionBinding) error { return nil }
 
 // TestSessionUnitComponents（T2.1）：元组契约 S_i=(id,K,parent,E,V,Q,C,B,status)。
 func TestSessionUnitComponents(t *testing.T) {
@@ -244,7 +226,7 @@ func TestLockOrdering(t *testing.T) {
 	defer domain.Close()
 	units := make([]*SessionUnit, 8)
 	for index := 0; index < len(units); index++ {
-		unit, err := NewSessionUnit(string(rune('a'+index)))
+		unit, err := NewSessionUnit(string(rune('a' + index)))
 		if err != nil {
 			t.Fatalf("NewSessionUnit: %v", err)
 		}
