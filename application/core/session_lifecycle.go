@@ -128,9 +128,7 @@ func (service *Service) UnloadSession(sessionID string) error {
 	}
 	service.ViewMu.Lock()
 	service.sessions.Remove(sessionID)
-	if service.planProjections != nil {
-		delete(service.planProjections, sessionID)
-	}
+	service.components.tasks.DropPlanProjection(sessionID)
 	service.components.tasks.UnloadSessionState(sessionID)
 	service.components.sessions.UnloadSessionTitle(sessionID)
 	if active {

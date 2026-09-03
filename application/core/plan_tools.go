@@ -198,25 +198,19 @@ func resolveNodeStatus(nodes []struct {
 // PlanNodeEvent 后回调本方法，实时更新节点/计划状态并通知 TUI/GUI 重绘。
 // NodeID 为空表示计划级投影（PlanStatus），否则为节点级投影（NodeStatus）。
 // planProjectionLocked 返回指定会话的 plan 显示投影（调用方持有 Core.ViewMu）。
-// 当前会话与 Snapshot.Runtime.Plan 同一指针；后台会话用 per-session 缓存
-// （P6 收口：后台 plan 事件不再写全局投影）。缓存缺失时从 task_context 的
+// 当前会话与 Snapshot.Runtime.Plan 同一指针（视图镜像）；后台会话的投影
+// 缓存已归 task_context 协调器自有状态（planMu 护 map 结构，F），缺失时从
 // 会话 plan 帧重建（ActivePlanFromStack）。
 func (service *Service) planProjectionLocked(sessionID string) *PlanState {
 	if sessionID == "" || sessionID == service.Core.Snapshot.Session.ID {
 		return service.Core.Snapshot.Runtime.Plan
 	}
-	if service.planProjections == nil {
-		service.planProjections = make(map[string]*PlanState)
-	}
-	plan := service.planProjections[sessionID]
-	if plan == nil {
-		plan = task_context.ActivePlanFromStack(
+	return service.components.tasks.PlanProjectionFor(sessionID, func() *PlanState {
+		return task_context.ActivePlanFromStack(
 			service.components.tasks.PlanStackFor(sessionID),
 			service.components.tasks.ActivePlanIDFor(sessionID),
 		)
-		service.planProjections[sessionID] = plan
-	}
-	return plan
+	})
 }
 
 // planEventSession 解析 plan 事件归属会话：优先事件自带 sid，缺失回退当前。

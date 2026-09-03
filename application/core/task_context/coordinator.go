@@ -43,6 +43,13 @@ type Coordinator struct {
 	// 后台流式路径经 requestMu 并发读，不取全局锁。
 	requestToSession map[string]string
 	requestMu        sync.RWMutex
+	// planMu 与 planProjections：后台会话（非当前视图）的 plan 显示投影
+	// 缓存，归本协调器自有状态（F：plan 投影不再挂根 Service/Core.ViewMu
+	// 下的全局 map）。当前视图会话的 plan 仍是 Snapshot.Runtime.Plan 镜像
+	// （视图镜像写留 ViewMu），不进入本表。planMu 为叶子锁（持有时不得再取
+	// Core.ViewMu）。
+	planMu          sync.Mutex
+	planProjections map[string]*model.PlanState
 }
 
 // sessionTaskRuntime 是单个会话的任务/plan 运行时状态（M2 分片单元）。
