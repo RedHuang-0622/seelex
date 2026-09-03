@@ -39,14 +39,11 @@ type ExecutorDeps struct {
 type Executor struct {
 	deps ExecutorDeps
 
-	policyMu sync.RWMutex
-	policy   PlanPolicy
-
-	bindingMu sync.RWMutex
-	binding   PlanBranchBinding
-
-	runMu        sync.RWMutex
-	currentRunID string
+	// slotMu/slots 是按会话建立的 plan 额度槽（G1-C/M6）：policy/binding/
+	// runID 都以 sessionID 为键隔离；"" 是无 sid legacy/默认槽（单飞执行
+	// 期间行为与改造前一致，run 路径的 For 化读取随 G4 并行执行接线）。
+	slotMu sync.RWMutex
+	slots  map[string]*planSlot
 
 	provider   *ToolProvider
 	events     *EventSink         // plan 执行事实 → 事件库 + 投影订阅
@@ -67,6 +64,41 @@ type Executor struct {
 
 	checkpointMu    sync.RWMutex
 	checkpointStore workplancheckpoint.Store
+}
+
+// planSlot 是一次会话的 plan 额度槽（策略 / 分支绑定 / run ID）。
+type planSlot struct {
+	policy  PlanPolicy
+	binding PlanBranchBinding
+	runID   string
+}
+
+// slotLocked 返回指定会话槽（写锁内调用；不存在则创建）。
+func (executor *Executor) slotLocked(sessionID string) *planSlot {
+	if executor.slots == nil {
+		executor.slots = make(map[string]*planSlot)
+	}
+	slot := executor.slots[sessionID]
+	if slot == nil {
+		slot = &planSlot{}
+		executor.slots[sessionID] = slot
+	}
+	return slot
+}
+
+// readSlot 返回指定会话槽（读锁内调用）；不存在时返回默认槽值（无 sid
+// 的 legacy 写入对显式会话读取可见，兼容最小宿主）。
+func (executor *Executor) readSlot(sessionID string) *planSlot {
+	if executor.slots == nil {
+		return &planSlot{}
+	}
+	if slot := executor.slots[sessionID]; slot != nil {
+		return slot
+	}
+	if slot := executor.slots[""]; slot != nil {
+		return slot
+	}
+	return &planSlot{}
 }
 
 // newPlanExecutor 装配 plan 执行域组件：事件通道与订阅在构造时建立，
@@ -111,44 +143,77 @@ func (executor *Executor) Provider() *ToolProvider {
 	return executor.provider
 }
 
-// SetPolicy 更新后续 plan_load 应用的约束策略。
+// SetPolicy 更新默认（无 sid）槽的约束策略（legacy 入口：单飞执行期间
+// 等价于全局策略；per-session 策略经 SetPolicyFor 建槽）。
 func (executor *Executor) SetPolicy(policy PlanPolicy) {
+	executor.SetPolicyFor("", policy)
+}
+
+// Policy 返回默认（无 sid）槽的 Plan 策略（legacy 读取）。
+func (executor *Executor) Policy() PlanPolicy {
+	return executor.PolicyFor("")
+}
+
+// SetPolicyFor 按会话建立策略槽（G1-C/M6：per-session effort 落位后，
+// plan_load 按会话读取自己的约束；未建槽时回退默认槽）。
+func (executor *Executor) SetPolicyFor(sessionID string, policy PlanPolicy) {
 	if executor == nil {
 		return
 	}
-	executor.policyMu.Lock()
-	executor.policy = policy
-	executor.policyMu.Unlock()
+	executor.slotMu.Lock()
+	executor.slotLocked(sessionID).policy = policy
+	executor.slotMu.Unlock()
 }
 
-// Policy 返回当前 Plan 策略。
-func (executor *Executor) Policy() PlanPolicy {
+// PolicyFor 返回指定会话的策略（未建槽时回退默认槽值）。
+func (executor *Executor) PolicyFor(sessionID string) PlanPolicy {
 	if executor == nil {
 		return PlanPolicy{}
 	}
-	executor.policyMu.RLock()
-	defer executor.policyMu.RUnlock()
-	return executor.policy
+	executor.slotMu.RLock()
+	slot := executor.readSlot(sessionID)
+	executor.slotMu.RUnlock()
+	return slot.policy
 }
 
-// SetBinding 冻结下一次 plan_run 的请求级绑定（默认值填充由 Runtime 委托完成）。
+// SetBinding 冻结下一次 plan_run 的请求级绑定（默认值填充由 Runtime 委托
+// 完成）。绑定写入其 SessionID 槽；单飞执行期间默认（无 sid）槽保持为
+// legacy 别名，两种读取语义一致。
 func (executor *Executor) SetBinding(binding PlanBranchBinding) {
 	if executor == nil {
 		return
 	}
-	executor.bindingMu.Lock()
-	executor.binding = binding
-	executor.bindingMu.Unlock()
+	executor.SetBindingFor(binding.SessionID, binding)
+	if binding.SessionID != "" {
+		executor.SetBindingFor("", binding)
+	}
 }
 
-// Binding 返回当前分支绑定。
+// Binding 返回默认（无 sid）槽的分支绑定（legacy 读取；单飞执行别名）。
 func (executor *Executor) Binding() PlanBranchBinding {
+	return executor.BindingFor("")
+}
+
+// SetBindingFor 按会话建立分支绑定槽（G1-C/M6：后台会话 plan_run 绑定
+// 互不覆盖；未建槽回退默认槽）。
+func (executor *Executor) SetBindingFor(sessionID string, binding PlanBranchBinding) {
+	if executor == nil {
+		return
+	}
+	executor.slotMu.Lock()
+	executor.slotLocked(sessionID).binding = binding
+	executor.slotMu.Unlock()
+}
+
+// BindingFor 返回指定会话的分支绑定（未建槽回退默认槽值）。
+func (executor *Executor) BindingFor(sessionID string) PlanBranchBinding {
 	if executor == nil {
 		return PlanBranchBinding{}
 	}
-	executor.bindingMu.RLock()
-	defer executor.bindingMu.RUnlock()
-	return executor.binding
+	executor.slotMu.RLock()
+	slot := executor.readSlot(sessionID)
+	executor.slotMu.RUnlock()
+	return slot.binding
 }
 
 // SetApprovalGate 设置 plan kind:approve/manual 节点的审批门控。
@@ -333,22 +398,42 @@ func (executor *Executor) persistCheckpoint(entryNodeID string, result *workplan
 	}
 }
 
-// beginRun 登记当前执行 run ID（RunPlan/ResumePlan 共享入口）。
+// beginRun 登记默认（无 sid）槽的执行 run ID（legacy 单飞入口）。
 func (executor *Executor) beginRun() string {
+	return executor.beginRunFor("")
+}
+
+// beginRunFor 按会话登记执行 run ID（G1-C：不同会话的 run 分槽登记，
+// 不互相覆盖；后台会话 plan 事件按自己槽的 run ID 关联）。
+func (executor *Executor) beginRunFor(sessionID string) string {
 	runID := newPlanRunID()
-	executor.runMu.Lock()
-	executor.currentRunID = runID
-	executor.runMu.Unlock()
+	executor.slotMu.Lock()
+	executor.slotLocked(sessionID).runID = runID
+	if sessionID != "" {
+		// 单飞别名：legacy 读取（CurrentRunID/AppendPhase）仍可见当前 run。
+		executor.slotLocked("").runID = runID
+	}
+	executor.slotMu.Unlock()
 	return runID
 }
 
-// endRun 清除 run ID（只清理仍属于本次 run 的 ID，避免误删嵌套执行）。
+// endRun 清除默认（无 sid）槽的 run ID（legacy 单飞入口）。
 func (executor *Executor) endRun(runID string) {
-	executor.runMu.Lock()
-	if executor.currentRunID == runID {
-		executor.currentRunID = ""
+	executor.endRunFor("", runID)
+}
+
+// endRunFor 清除指定会话槽的 run ID（只清理仍属于本次 run 的 ID）。
+func (executor *Executor) endRunFor(sessionID, runID string) {
+	if executor == nil {
+		return
 	}
-	executor.runMu.Unlock()
+	executor.slotMu.Lock()
+	if executor.slots != nil {
+		if slot := executor.slots[sessionID]; slot != nil && slot.runID == runID {
+			slot.runID = ""
+		}
+	}
+	executor.slotMu.Unlock()
 }
 
 // AppendPhase 记录 Seelex 侧子代理阶段事件：内部读取当前分支绑定与 run ID，
@@ -357,9 +442,10 @@ func (executor *Executor) AppendPhase(ctx context.Context, nodeID, status string
 	if executor == nil || executor.events == nil || nodeID == "" || status == "" {
 		return
 	}
-	executor.runMu.RLock()
-	runID := executor.currentRunID
-	executor.runMu.RUnlock()
+	executor.slotMu.RLock()
+	slot := executor.readSlot("")
+	runID := slot.runID
+	executor.slotMu.RUnlock()
 	executor.events.AppendPhase(ctx, executor.Binding(), runID, nodeID, status)
 }
 
@@ -380,14 +466,20 @@ func (executor *Executor) ReplanMetricsFor(sessionID string) ReplanMetrics {
 	return executor.replans.MetricsFor(sessionID)
 }
 
-// CurrentRunID 返回当前执行 run ID（执行中非空，结束后清空；诊断/测试读取）。
+// CurrentRunID 返回默认（无 sid）槽的执行 run ID（legacy 读取）。
 func (executor *Executor) CurrentRunID() string {
+	return executor.CurrentRunIDFor("")
+}
+
+// CurrentRunIDFor 返回指定会话槽的执行 run ID（诊断/测试读取）。
+func (executor *Executor) CurrentRunIDFor(sessionID string) string {
 	if executor == nil {
 		return ""
 	}
-	executor.runMu.RLock()
-	defer executor.runMu.RUnlock()
-	return executor.currentRunID
+	executor.slotMu.RLock()
+	slot := executor.readSlot(sessionID)
+	executor.slotMu.RUnlock()
+	return slot.runID
 }
 
 // EventSink 返回执行事实投影 sink（事件库 + 订阅；诊断/测试读取）。
