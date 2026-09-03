@@ -383,6 +383,14 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
    `session_snapshot`，协议版本不升；Bridge/fake 类型同步；契约测试钉住
    JSON 传输形状。桌面 Workbench 仍以联合 Snapshot 下发（进程段消费与前端
    reducer 分型属 G3 后续收口）。
+6. **G4 join 证据可见可持久**：撤销 `view_state/coordinator.go` 的
+   `SubagentContextMarker` 丢弃点；merge-back 注入引擎历史时同步写会话
+   transcript（持久化事实源）与可见对话并发布 snapshot.changed
+   （INV-G12：mainagent 实际接收的内容有记录）。测试：可见+transcript
+   用例与原 mailbox 用例改写。
+7. **G4 effort 归属进 Unit（数据面）**：`SessionUnit` 增 Effort 槽；
+   SwitchEffort 写视图会话单元；runtime 投影与预算/任务装配按会话读
+   effort（unit 优先、回退进程默认）；测试覆盖 per-session 隔离。
 
 尚未完成（留给下一会话，见 target-design §9 波 2 剩余）：
 
@@ -393,9 +401,9 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
 - G3 收口：桌面 Workbench Snapshot 的进程字段消费/前端 reducer 分型契约
   测试（模型层分型与 SnapshotOf 会话制品已落地，见上第 5 条）。
 - G4 其余：effort/fullAccess/approval/子代理树/Composer 完整归属进
-  `SessionUnit`；子代理会话按 `Kind=Subagent` 落盘、不进侧栏、经父树打开、
-  重启标 `stale`；"mainagent 实际接收内容"可见可持久（撤销
-  `view_state/coordinator.go:160-162` 的丢弃点）。
+  `SessionUnit`（effort 与 join 证据记录已落地）；fullAccess/approval 的
+  会话级门控、子代理会话按 `Kind=Subagent` 落盘/不进侧栏/经父树打开/重启
+  标 `stale` 尚未做。
 
 波 2 验证命令（本机 CGO_ENABLED=1，-race 为真实执行）：
 
