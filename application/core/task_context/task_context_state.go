@@ -466,7 +466,7 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projec
 		c.prompt.PushSkillLayer(layer.Kind, layer.Name, layer.Text)
 	}
 	st.taskExecution = state
-	st.taskService = newTaskService(c.activeSessionIDLocked(), c.Core, c, state, c.queuedInputRefs)
+	st.taskService = newTaskService(c.activeSessionIDLocked(), c, state, c.queuedInputRefs)
 	c.syncGoalSkillActiveLocked()
 }
 
@@ -599,7 +599,7 @@ func (c *Coordinator) BeginTaskFor(sessionID, requestID, objective, effort strin
 	st := c.sessionStateLocked(sessionID)
 	state := continuationTaskExecutionState(requestID, objective, effort, previous, checkpoint)
 	st.taskExecution = state
-	st.taskService = newTaskService(sessionID, c.Core, c, state, c.queuedInputRefs)
+	st.taskService = newTaskService(sessionID, c, state, c.queuedInputRefs)
 	c.bindRequestLocked(requestID, sessionID)
 	return state
 }
@@ -923,7 +923,7 @@ func (c *Coordinator) CurrentTaskResumeRecord() TaskResumeRecord {
 // 钩子（测试模拟延迟投影；调用方持有 Core.ViewMu）。
 func (c *Coordinator) SetTaskProjectionFlushLocked(flush func(context.Context) error) {
 	if ts := c.activeSessionLocked().taskService; ts != nil {
-		ts.projection = &planProjectionReader{c: c, core: c.Core, flush: flush}
+		ts.projection = &planProjectionReader{c: c, flush: flush}
 	}
 }
 
@@ -934,7 +934,7 @@ func (c *Coordinator) ObserveTool(observation ToolObservation) {
 		ts := st.taskService
 		state := st.taskExecution
 		if ts == nil || ts.state != state {
-			ts = newTaskService(c.SessionIDForRequest(observation.RequestID), c.Core, c, state, c.queuedInputRefs)
+			ts = newTaskService(c.SessionIDForRequest(observation.RequestID), c, state, c.queuedInputRefs)
 		}
 		ts.ObserveTool(observation)
 		return

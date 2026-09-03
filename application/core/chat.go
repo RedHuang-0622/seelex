@@ -458,6 +458,7 @@ func (service *Service) mirrorActiveTaskAfterTerminal(ctx context.Context) {
 // finalizeTaskExecution 把自然停止转换为可审计的完成/交接
 // （TaskService.OnChatEnd 入口）。
 func (service *Service) finalizeTaskExecution(requestID string) error {
+	service.ensureViewPlanProjection(context.Background())
 	err := service.components.tasks.FinalizeTask(context.Background(), task_context.ChatEndSummary{RequestID: requestID})
 	if err == nil {
 		service.mirrorActiveTaskAfterTerminal(context.Background())

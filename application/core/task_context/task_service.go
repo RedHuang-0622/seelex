@@ -9,7 +9,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
-	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
@@ -22,36 +21,25 @@ type PlanProjectionReader interface {
 	PlanStatus() model.PlanStatus
 	Converged() bool
 	Flush(ctx context.Context) error
-	// Plan 返回当前 plan 投影的只读深拷贝（TaskService 终态判定用；协调器
-	// 投影缺失时回退视图镜像，保证测试直设 Snapshot 的旧路径仍可用）。
+	// Plan 返回当前 plan 投影的只读深拷贝（TaskService 终态判定用；根在
+	// 进入终态工具前经 EnsurePlanProjection 补种基线）。
 	Plan() *model.PlanState
 }
 
-// planProjectionReader 是 PlanProjectionReader 的默认实现：读取由事件投影
-// 累积的 PlanState（snapshot.Runtime.Plan）。当前接线中 workplan 事件在
-// Append 内同步入库并投影，生产 Flush 为空操作；flush 钩子保留给测试注入。
+// planProjectionReader 是 PlanProjectionReader 的默认实现：读取协调器自有
+// plan 投影的深拷贝（不再直读视图镜像 Snapshot.Runtime.Plan）。生产 Flush
+// 为空操作；flush 钩子保留给测试注入。
 type planProjectionReader struct {
 	c         *Coordinator
-	core      *state.Core
 	sessionID string
 	flush     func(context.Context) error
 }
 
 func (r *planProjectionReader) plan() *model.PlanState {
-	if r == nil {
+	if r == nil || r.c == nil {
 		return nil
 	}
-	if r.c != nil {
-		if plan := r.c.PlanProjectionCopy(r.sessionID); plan != nil {
-			return plan
-		}
-	}
-	if r.core == nil {
-		return nil
-	}
-	// 回退：测试/迁移期直设 Snapshot.Runtime.Plan 的路径（调用方持有
-	// Core.ViewMu 时读取镜像）。
-	return model.CloneRuntimeState(model.RuntimeState{Plan: r.core.Snapshot.Runtime.Plan}).Plan
+	return r.c.PlanProjectionCopy(r.sessionID)
 }
 
 func (r *planProjectionReader) AllNodes() []string {
@@ -149,9 +137,9 @@ type terminalToolHandlers map[string]func(context.Context, taskTerminal) (string
 
 // TaskService 拥有单个任务的功能打点快照与终态判定。每个任务（含排队输入
 // 续接任务）构造一个实例；任务终态后不再演化，由下一任务替换。它只持有
-// 共享内核（锁 + 只读 Snapshot）与任务状态，不接触其它域。
+// 会话归属 + 协调器投影 reader 与任务状态，不接触共享内核（ViewMu/Snapshot
+// 镜像由根负责；F-3b）。
 type TaskService struct {
-	*state.Core
 	sessionID    string
 	tasks        *Coordinator
 	state        *TaskExecutionState
@@ -167,14 +155,13 @@ type TaskService struct {
 }
 
 // newTaskService 构造当前任务的 TaskService。state 为 nil 时表示无活跃任务。
-// sessionID 是该任务归属会话（多会话并行时用于快照写入守卫与状态路由）。
-func newTaskService(sessionID string, core *state.Core, tasks *Coordinator, taskState *TaskExecutionState, queueRefs func() []string) *TaskService {
+// sessionID 是该任务归属会话；tasks 提供协调器 plan 投影 reader。
+func newTaskService(sessionID string, tasks *Coordinator, taskState *TaskExecutionState, queueRefs func() []string) *TaskService {
 	service := &TaskService{
-		Core:       core,
 		sessionID:  sessionID,
 		tasks:      tasks,
 		state:      taskState,
-		projection: &planProjectionReader{c: tasks, core: core, sessionID: sessionID},
+		projection: &planProjectionReader{c: tasks, sessionID: sessionID},
 		queueRefs:  queueRefs,
 	}
 	service.terminals = terminalToolHandlers{
@@ -223,8 +210,6 @@ func (s *TaskService) ObserveModelOutput(ctx context.Context, output ModelOutput
 	if s == nil || s.state == nil {
 		return nil
 	}
-	s.ViewMu.Lock()
-	defer s.ViewMu.Unlock()
 	if s.state.RequestID != output.RequestID {
 		return nil
 	}
@@ -238,8 +223,6 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 	if s == nil {
 		return model.TaskState{}, nil
 	}
-	s.ViewMu.Lock()
-	defer s.ViewMu.Unlock()
 	state := s.state
 	if state == nil || state.RequestID != summary.RequestID || state.Terminal != nil {
 		return model.TaskState{}, nil
@@ -313,8 +296,6 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 		if err := s.projection.Flush(ctx); err != nil {
 			return "", fmt.Errorf("%s: plan projection flush failed: %w", kind, err)
 		}
-		s.ViewMu.Lock()
-		defer s.ViewMu.Unlock()
 		state := s.state
 		if state == nil || state.Terminal != nil {
 			return "", fmt.Errorf("%s: no active task execution", kind)
@@ -334,8 +315,6 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 	if err := s.projection.Flush(ctx); err != nil {
 		return "", fmt.Errorf("%s: plan projection flush failed: %w", kind, err)
 	}
-	s.ViewMu.Lock()
-	defer s.ViewMu.Unlock()
 	state := s.state
 	if state == nil || state.Terminal != nil {
 		return "", fmt.Errorf("%s: no active task execution", kind)
