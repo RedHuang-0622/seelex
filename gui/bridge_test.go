@@ -24,8 +24,11 @@ type emittedEvent struct {
 }
 
 type fakeApplication struct {
-	hub              *application.EventHub
-	snapshot         application.Snapshot
+	hub      *application.EventHub
+	snapshot application.Snapshot
+	// snapshotMu 保护 snapshot：Bridge 中继 goroutine 持续 Snapshot()，
+	// 测试主 goroutine 的切换方法会改写它（-race 下必须互斥）。
+	snapshotMu       sync.RWMutex
 	submitted        string
 	cancelled        string
 	resolvedID       string
@@ -82,9 +85,13 @@ func newFakeApplication() *fakeApplication {
 	}
 }
 
-func (fake *fakeApplication) Snapshot() application.Snapshot { return fake.snapshot }
-func (*fakeApplication) BeginGracefulShutdown()              {}
-func (*fakeApplication) WaitForIdle(context.Context) error   { return nil }
+func (fake *fakeApplication) Snapshot() application.Snapshot {
+	fake.snapshotMu.RLock()
+	defer fake.snapshotMu.RUnlock()
+	return fake.snapshot
+}
+func (*fakeApplication) BeginGracefulShutdown()            {}
+func (*fakeApplication) WaitForIdle(context.Context) error { return nil }
 func (fake *fakeApplication) Subscribe(buffer int) application.Subscription {
 	return fake.hub.Subscribe(buffer)
 }
@@ -562,7 +569,9 @@ func (fake *closeFakeApplication) CancelChat(requestID string) bool {
 
 func newCloseFakeApplication(running bool) *closeFakeApplication {
 	fake := newFakeApplication()
+	fake.snapshotMu.Lock()
 	fake.snapshot.Chat.Running = running
+	fake.snapshotMu.Unlock()
 	return &closeFakeApplication{
 		fakeApplication: fake,
 		waitStarted:     make(chan struct{}),

@@ -25,27 +25,35 @@ func (fake *sessionAwareFakeApplication) SubmitToSession(_ context.Context, sess
 
 func (fake *sessionAwareFakeApplication) ActivateSession(sessionID string) error {
 	fake.activated = sessionID
+	fake.snapshotMu.Lock()
 	fake.snapshot.Session = application.SessionState{ID: sessionID}
+	fake.snapshotMu.Unlock()
 	return nil
 }
 
 func (fake *sessionAwareFakeApplication) ResumeSession(sessionID string) error {
 	fake.resumedSession = sessionID
+	fake.snapshotMu.Lock()
 	fake.snapshot.Session = application.SessionState{ID: sessionID}
+	fake.snapshotMu.Unlock()
 	return nil
 }
 
 func (fake *sessionAwareFakeApplication) ForkSessionLatest(sessionID string) (string, error) {
 	fake.forkedSession = sessionID
 	child := "child-" + sessionID
+	fake.snapshotMu.Lock()
 	fake.snapshot.Session = application.SessionState{ID: child}
+	fake.snapshotMu.Unlock()
 	return child, nil
 }
 
 func (fake *sessionAwareFakeApplication) BeginNewSession() error {
 	fake.beganNewSession = true
 	// G4 先行：草稿从新建即持有早分配的真实 SID。
+	fake.snapshotMu.Lock()
 	fake.snapshot.Session = application.SessionState{ID: "draft-session", Draft: true}
+	fake.snapshotMu.Unlock()
 	return nil
 }
 
@@ -122,7 +130,9 @@ func TestBridgeSessionAwareAPIsFallBackWhenUnsupported(t *testing.T) {
 // application/core/subscribe_session_test.go。
 func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	app := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
+	app.snapshotMu.Lock()
 	app.snapshot.Session = application.SessionState{ID: "session-b"}
+	app.snapshotMu.Unlock()
 	bridge, err := NewBridge(app, Options{})
 	if err != nil {
 		t.Fatalf("NewBridge: %v", err)

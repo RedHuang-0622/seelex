@@ -526,6 +526,11 @@ keyed）、`0de02c9`（hotAttach 出临界区）、`195e875`（删除 StorePort 
    `TestStressConcurrentSessionsDoNotPollute` 的真实竞态：多个 runChat 起点
    并发写进程级引擎 fullAccess 门（测试桩加锁，镜像生产 PermissionGate
    语义）。
+   验收锚 `-race ./gui` 期间定位波 2 台账记载的
+   `TestBridgeRelaySubscribesToViewOnce` 偶发根因：Bridge 中继 goroutine
+   持续 `Snapshot()`，与测试主 goroutine 的会话切换方法并发写
+   `sessionAwareFakeApplication.snapshot`（测试桩无锁）——fake 增
+   `snapshotMu` 修复，非生产路径缺陷。
 4. **TransitionLock per-session keyed**：`SessionTransitionManager`（每 key
    一把显式 actor；同 key 串行、跨 key 并行；空 key 归一视图保留 key）。
    fork 落盘段按父会话 key；视图命令（BeginNew/Resume/Unload/Bind/
