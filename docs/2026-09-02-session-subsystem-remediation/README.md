@@ -371,12 +371,19 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
    `ValidateSessionRouting` 拒绝会话类空 sid / 进程类带 sid 的发布并记诊断
    （`event.PublishDiagnostic`，默认 stderr）；订阅测试同步为新契约
    （草稿显式 ID 订阅、进程类全局事件以 resync 验证）。
+4. **G1-C plan 额度按 sid 建槽（结构片）**：planExecutor 的
+   PlanPolicy/PlanBranchBinding/run ID 收进按 sessionID 索引的槽表，
+   提供 For 读写（SetPolicyFor/SetBindingFor/beginRunFor/CurrentRunIDFor）
+   与隔离测试；SetBinding/beginRun 保留默认槽 legacy 别名保证单飞执行
+   行为不变。运行路径的 For 化读取与 per-session effort 落位耦合，随
+   G4 并行执行接线。
 
 尚未完成（留给下一会话，见 target-design §9 波 2 剩余）：
 
-- G1-C 剩余：planExecutor 的 binding/policy/fork 额度按 sid 建槽
-  （`plan_run` 上下文绑定 per-run 携带，不再读全局单例）——与 G4 的
-  per-session effort 及 plan 运行上下文绑定耦合。
+- G1-C 剩余：planExecutor 的 binding/policy/fork **运行路径** For 化
+  （`plan_run` 上下文绑定 per-run 携带）——槽结构已建，执行接线与 G4 的
+  per-session effort 及 plan 运行上下文绑定耦合；fork 并发上限仍为
+  process 单例（随并行执行落地）。
 - G3：`SessionSnapshot`/`ProcessSnapshot` 分型（进程级字段移出会话快照，
   前端 reducer/契约测试同步）。
 - G4 其余：effort/fullAccess/approval/子代理树/Composer 完整归属进
