@@ -60,7 +60,7 @@ go test ./application/core/task_context -count=1
 
 - `func newSessionTaskRuntime() *sessionTaskRuntime`
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造任务域协调器。
-- `func (c *Coordinator) activeSessionIDLocked() string` — activeSessionIDLocked 返回当前活跃会话（快照归属会话）。调用方持有
+- `func (c *Coordinator) activeSessionIDLocked() string` — activeSessionIDLocked 返回当前活跃会话。G5 锁拆分过渡期统一走注入的
 - `func (c *Coordinator) sessionStateLocked(sessionID string) *sessionTaskRuntime` — sessionStateLocked 返回指定会话的运行时状态（按需创建）。调用方持有
 - `func (c *Coordinator) activeSessionLocked() *sessionTaskRuntime` — activeSessionLocked 返回活跃会话的运行时状态。调用方持有 Core.ViewMu。
 - `func (c *Coordinator) sessionForRequestLocked(requestID string) *sessionTaskRuntime` — sessionForRequestLocked 按 requestID 反查会话状态（未绑定 → nil）。
@@ -68,47 +68,90 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) unbindRequestLocked(requestID string)` — unbindRequestLocked 移除 requestID → sessionID（任务结束时；调用方持有
 - `func (c *Coordinator) semanticProgressLocked(requestID string) (uint64, bool)` — semanticProgressLocked 返回指定请求的语义进展计数（TaskService epoch）；
 - `func (c *Coordinator) ActiveSkillIDs() []string` — ActiveSkillIDs 返回活跃会话当前任务的激活 skill ID 列表（锁内快照）。
+- `func (c *Coordinator) _ActiveSkillIDs() []string`
 - `func (c *Coordinator) ActiveSkillIDsFor(sessionID string) []string` — ActiveSkillIDsFor 返回指定会话当前任务的激活 skill ID 列表（G1：后台
+- `func (c *Coordinator) _ActiveSkillIDsFor(sessionID string) []string`
 - `func (c *Coordinator) activeSkillIDsLocked(sessionID string) []string` — activeSkillIDsLocked 是 ActiveSkillIDs/ActiveSkillIDsFor 的锁内实现。
 - `func (c *Coordinator) GoalSkillActive() bool` — GoalSkillActive 返回 goal skill 可见性投影（lock-free 原子值）。
-- `func (c *Coordinator) GoalSkillActiveFor(sessionID string) bool` — GoalSkillActiveFor 返回指定会话当前任务的 goal skill 激活判定（G1：
+- `func (c *Coordinator) _GoalSkillActive() bool`
+- `func (c *Coordinator) GoalSkillActiveFor(sessionID string) bool`
+- `func (c *Coordinator) _GoalSkillActiveFor(sessionID string) bool`
 - `func (c *Coordinator) goalSkillActiveForLocked(sessionID string) bool` — goalSkillActiveForLocked 是 GoalSkillActiveFor/syncGoalSkillActiveLocked
 - `func (c *Coordinator) CurrentTaskExecution() *TaskExecutionState` — CurrentTaskExecution 返回活跃会话当前任务执行状态（调用方持有 Core.ViewMu
-- `func (c *Coordinator) CurrentTaskExecutionFor(sessionID string) *TaskExecutionState` — CurrentTaskExecutionFor 返回指定会话当前任务执行状态（调用方持有
-- `func (c *Coordinator) ActivePlanID() string` — ActivePlanID 返回活跃会话当前激活 plan 帧 ID。
-- `func (c *Coordinator) ActivePlanIDFor(sessionID string) string` — ActivePlanIDFor 返回指定会话当前激活 plan 帧 ID。
-- `func (c *Coordinator) PlanSequence() uint64` — PlanSequence 返回活跃会话 plan 帧序列号。
-- `func (c *Coordinator) PlanSequenceFor(sessionID string) uint64` — PlanSequenceFor 返回指定会话 plan 帧序列号。
-- `func (c *Coordinator) PlanStack() []model.SessionPlanFrame` — PlanStack 返回活跃会话 plan 帧栈。
-- `func (c *Coordinator) ClearActivePlanLocked()` — ClearActivePlanLocked 清空活跃会话激活 plan 帧 ID（plan_clear 路径）。
-- `func (c *Coordinator) ResetPlanStateLocked()` — ResetPlanStateLocked 清空活跃会话 plan 帧状态（新会话/恢复路径；调用方
+- `func (c *Coordinator) _CurrentTaskExecution() *TaskExecutionState`
+- `func (c *Coordinator) CurrentTaskExecutionFor(sessionID string) *TaskExecutionState`
+- `func (c *Coordinator) _CurrentTaskExecutionFor(sessionID string) *TaskExecutionState`
+- `func (c *Coordinator) ActivePlanID() string`
+- `func (c *Coordinator) _ActivePlanID() string`
+- `func (c *Coordinator) ActivePlanIDFor(sessionID string) string`
+- `func (c *Coordinator) _ActivePlanIDFor(sessionID string) string`
+- `func (c *Coordinator) PlanSequence() uint64`
+- `func (c *Coordinator) _PlanSequence() uint64`
+- `func (c *Coordinator) PlanSequenceFor(sessionID string) uint64`
+- `func (c *Coordinator) _PlanSequenceFor(sessionID string) uint64`
+- `func (c *Coordinator) PlanStack() []model.SessionPlanFrame`
+- `func (c *Coordinator) _PlanStack() []model.SessionPlanFrame`
+- `func (c *Coordinator) ClearActivePlanLocked()`
+- `func (c *Coordinator) _ClearActivePlanLocked()`
+- `func (c *Coordinator) ResetPlanStateLocked()`
+- `func (c *Coordinator) _ResetPlanStateLocked()`
 - `func (c *Coordinator) SetPlanStateLocked(stack []model.SessionPlanFrame, activeID string)` — SetPlanStateLocked 装载活跃会话 plan 帧栈与激活帧（测试/恢复路径；调用
+- `func (c *Coordinator) _SetPlanStateLocked(stack []model.SessionPlanFrame, activeID string)`
 - `func (c *Coordinator) SetResultRefByCallIDLocked(callID, ref string)` — SetResultRefByCallIDLocked 登记活跃会话 callID → resultRef（测试/恢复
-- `func (c *Coordinator) ReplanInFlight(interactionID string) bool` — ReplanInFlight 判定活跃会话重规划交互是否在途。
+- `func (c *Coordinator) _SetResultRefByCallIDLocked(callID, ref string)`
+- `func (c *Coordinator) ReplanInFlight(interactionID string) bool`
+- `func (c *Coordinator) _ReplanInFlight(interactionID string) bool`
 - `func (c *Coordinator) MarkReplanInFlight(interactionID string)` — MarkReplanInFlight 登记活跃会话重规划交互。
-- `func (c *Coordinator) DeleteReplanInFlight(interactionID string)` — DeleteReplanInFlight 移除活跃会话重规划交互标记。
+- `func (c *Coordinator) _MarkReplanInFlight(interactionID string)`
+- `func (c *Coordinator) DeleteReplanInFlight(interactionID string)`
+- `func (c *Coordinator) _DeleteReplanInFlight(interactionID string)`
 - `func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReActBudget)` — StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.ViewMu）。
+- `func (c *Coordinator) _StartReActBudgetLocked(requestID string, budget prompt.ReActBudget)`
 - `func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget)` — StartReActBudgetForLocked 启动指定会话请求级执行预算（调用方持有
+- `func (c *Coordinator) _StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget)`
 - `func (c *Coordinator) SetReActBudgetExhaustedLocked(requestID, reason string)` — SetReActBudgetExhaustedLocked 直接置位预算终止原因（测试模拟预算耗尽；
+- `func (c *Coordinator) _SetReActBudgetExhaustedLocked(requestID, reason string)`
 - `func (c *Coordinator) ClearReActBudget(requestID string)` — ClearReActBudget 清除请求级预算（自行加锁）。
+- `func (c *Coordinator) _ClearReActBudget(requestID string)`
 - `func (c *Coordinator) RecordReActToolCall(ctx context.Context)` — RecordReActToolCall 累计一次工具调用（自行加锁）。ctx 携带会话 ID 时
+- `func (c *Coordinator) _RecordReActToolCall(ctx context.Context)`
 - `func (c *Coordinator) AllowNextReActIteration(ctx context.Context, turn int) bool` — AllowNextReActIteration 判定是否允许下一轮模型迭代（自行加锁）。ctx
+- `func (c *Coordinator) _AllowNextReActIteration(ctx context.Context, turn int) bool`
 - `func (c *Coordinator) ReActBudgetError(requestID string) error` — ReActBudgetError 返回预算终止错误（自行加锁；无终止原因 → nil）。
+- `func (c *Coordinator) _ReActBudgetError(requestID string) error`
 - `func (c *Coordinator) runtimeForContextLocked(ctx context.Context) *sessionTaskRuntime` — runtimeForContextLocked 按 ctx 中的会话 ID 返回会话运行时（未注入 → 活跃
 - `func (c *Coordinator) RecordContextControlFailure(requestID string, err error)` — RecordContextControlFailure 把 hook 失败转移给 runChat（自行加锁）。
+- `func (c *Coordinator) _RecordContextControlFailure(requestID string, err error)`
 - `func (c *Coordinator) TakeContextControlFailure(requestID string) error` — TakeContextControlFailure 取走当前请求的 context 控制失败（自行加锁）。
+- `func (c *Coordinator) _TakeContextControlFailure(requestID string) error`
 - `func (c *Coordinator) currentTaskService() *TaskService` — currentTaskService 返回活跃会话当前任务的 TaskService（自行加 RLock，
 - `func (c *Coordinator) currentTaskServiceLocked() *TaskService` — currentTaskServiceLocked 返回活跃会话当前任务的 TaskService；要求调用方
 - `func (c *Coordinator) currentTaskServiceForLocked(sessionID string) *TaskService` — currentTaskServiceForLocked 返回指定会话当前任务的 TaskService；要求
 - `func (c *Coordinator) taskServiceForRequestLocked(requestID string) *TaskService` — taskServiceForRequestLocked 按 requestID 返回任务的 TaskService（未绑定
 - `func (c *Coordinator) RestoreSessionTaskLocked(restored RestoredTaskState)` — RestoreSessionTaskLocked 装载活跃会话恢复的任务/plan 状态（调用方持有
-- `func (c *Coordinator) RestoreSessionTaskLockedFor(sessionID string, restored RestoredTaskState)` — RestoreSessionTaskLockedFor 装载指定会话恢复的任务/plan 状态（调用方持有
+- `func (c *Coordinator) _RestoreSessionTaskLocked(restored RestoredTaskState)`
+- `func (c *Coordinator) RestoreSessionTaskLockedFor(sessionID string, restored RestoredTaskState)`
+- `func (c *Coordinator) _RestoreSessionTaskLockedFor(sessionID string, restored RestoredTaskState)`
 - `func (c *Coordinator) ResetForNewSessionLocked()` — ResetForNewSessionLocked 清空活跃会话任务/plan 状态（BeginNewSession /
+- `func (c *Coordinator) _ResetForNewSessionLocked()`
 
 ### ctx.go
 
 - `func WithSessionID(ctx context.Context, sessionID string) context.Context` — WithSessionID 返回携带会话 ID 的上下文（幂等覆盖）。
 - `func SessionIDFromContext(ctx context.Context) string` — SessionIDFromContext 返回 ctx 中的会话 ID；未注入时返回 ""。
+
+### plan_projection.go
+
+- `func (c *Coordinator) PlanProjectionFor(sessionID string, fromStack func() *model.PlanState) *model.PlanState` — PlanProjectionFor 返回指定**后台**会话的 plan 显示投影的只读深拷贝
+- `func (c *Coordinator) DropPlanProjection(sessionID string)` — DropPlanProjection 释放指定后台会话的 plan 投影缓存（unload/删除路径）。
+- `func (c *Coordinator) SeedPlanProjection(sessionID string, plan *model.PlanState)` — SeedPlanProjection 把会话 plan 基线写入投影缓存（plan_load/resume/
+- `func (c *Coordinator) EnsurePlanProjection(sessionID string, plan *model.PlanState)` — EnsurePlanProjection 仅在投影缺失时写入基线（迁移期测试/直设 Snapshot
+- `func (c *Coordinator) CheckPlanNodeProjection(sessionID, nodeID, output string) (bool, bool)` — CheckPlanNodeProjection 把指定会话投影中的节点打点为 completed（task_
+- `func (c *Coordinator) CompletePlanProjection(sessionID string)` — CompletePlanProjection 把指定会话投影整体标记为 completed（task_complete
+- `func (c *Coordinator) PlanProjectionCopy(sessionID string) *model.PlanState` — PlanProjectionCopy 返回指定会话 plan 投影的只读深拷贝（无基线则 nil）。
+- `func (c *Coordinator) ApplyPlanNodeProjection(sessionID string, event dto.PlanNodeEvent) PlanNodeApplyResult` — ApplyPlanNodeProjection 在 planMu 下把 plan 节点事件应用到指定后台会话的
+- `func findPlanNode(nodes []model.PlanNode, nodeID string) *model.PlanNode`
+- `func planKindForDisplay(kind string) string`
 
 ### plan_transcript.go
 
@@ -126,81 +169,142 @@ go test ./application/core/task_context -count=1
 ### task_context_state.go
 
 - `func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer)` — ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
+- `func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer)`
 - `func (c *Coordinator) SyncGoalSkillActiveLocked()` — SyncGoalSkillActiveLocked 把任务级 skill 集投影到 lock-free 可见性值
+- `func (c *Coordinator) _SyncGoalSkillActiveLocked()`
 - `func (c *Coordinator) syncGoalSkillActiveLocked()`
 - `func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent` — AppendTranscriptEventLocked 追加一条 append-only transcript 事件（seq 自增；
+- `func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent` — AppendTranscriptEventForLocked 追加一条指定会话的 transcript 事件（调用
+- `func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage)` — ImportEngineHistoryAsTranscriptLocked 把引擎既有历史导入活跃会话
+- `func (c *Coordinator) _ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage)`
 - `func (c *Coordinator) importEngineHistoryLocked(st *sessionTaskRuntime, history []contract.EngineMessage)`
 - `func (c *Coordinator) appendTranscriptEventLocked(st *sessionTaskRuntime, event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) CountTranscriptEvent(event model.TranscriptEvent) int` — CountTranscriptEvent 估算一条 transcript 事件的 token 数。
+- `func (c *Coordinator) _CountTranscriptEvent(event model.TranscriptEvent) int`
 - `func (c *Coordinator) RecordLLMComplete(ctx context.Context, info session.LLMInfo)` — RecordLLMComplete 记录一次 LLM 完成（真实 usage 校准 + assistant 事件；
+- `func (c *Coordinator) _RecordLLMComplete(ctx context.Context, info session.LLMInfo)`
 - `func (c *Coordinator) EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string)` — EnsureToolCallTranscriptLocked 保证工具调用宣告已入指定会话 transcript
+- `func (c *Coordinator) _EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string)`
 - `func (c *Coordinator) RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string)` — RecordToolTranscriptLocked 记录指定会话工具结果事件（错误呈现/超限引用；
+- `func (c *Coordinator) _RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string)`
 - `func defaultToolResultLimit() int` — defaultToolResultLimit 返回工具结果字符预算（seelex.yaml limits 段
 - `func DefaultToolResultLimit() int` — DefaultToolResultLimit 返回工具结果字符预算（导出面；根包兼容包装用）。
 - `func (c *Coordinator) StoreToolResultLocked(name, content string) model.StoredToolResult` — StoreToolResultLocked 把超限工具结果以引用形式存储（活跃会话；内容 +
+- `func (c *Coordinator) _StoreToolResultLocked(name, content string) model.StoredToolResult`
 - `func (c *Coordinator) StoreToolResultForLocked(sessionID, name, content string) model.StoredToolResult` — StoreToolResultForLocked 把超限工具结果以引用形式存储到指定会话。
+- `func (c *Coordinator) _StoreToolResultForLocked(sessionID, name, content string) model.StoredToolResult`
 - `func (c *Coordinator) storeToolResultLocked(st *sessionTaskRuntime, name, content string) model.StoredToolResult`
 - `func (c *Coordinator) EnsureFinalAssistantTranscript(requestID, content string)` — EnsureFinalAssistantTranscript 在请求结束时补一条可见 assistant 终态事件
+- `func (c *Coordinator) _EnsureFinalAssistantTranscript(requestID, content string)`
 - `func (c *Coordinator) sessionStateForTaskLocked(state *TaskExecutionState) *sessionTaskRuntime` — sessionStateForTaskLocked 返回任务状态所属会话的运行时（调用方持有
 - `func (c *Coordinator) TaskProjectionLocked(sessionID string) *model.TaskContextProjection` — TaskProjectionLocked 构建指定会话任务的权威投影（会话归档用；调用方持有
+- `func (c *Coordinator) _TaskProjectionLocked(sessionID string) *model.TaskContextProjection`
 - `func (c *Coordinator) BuildTaskCheckpointLocked(state *TaskExecutionState) model.TaskCheckpoint` — BuildTaskCheckpointLocked 构建任务 checkpoint（调用方持有 Core.ViewMu）。
+- `func (c *Coordinator) _BuildTaskCheckpointLocked(state *TaskExecutionState) model.TaskCheckpoint`
 - `func (c *Coordinator) buildTaskCheckpointLocked(st *sessionTaskRuntime, state *TaskExecutionState) model.TaskCheckpoint`
 - `func extendEventRange(existing, current model.EventRange) model.EventRange`
 - `func boundedFailure(value string) string`
 - `func eventRangeForTask(events []model.TranscriptEvent, taskID string) model.EventRange`
 - `func AppendUniqueStrings(values []string, incoming ...string) []string` — AppendUniqueStrings 追加去重后的非空字符串。
 - `func (c *Coordinator) ActivePlanProjectionLocked() *model.ActivePlanProjection` — ActivePlanProjectionLocked 返回活跃会话当前激活 Plan 的只读投影（调用方
+- `func (c *Coordinator) _ActivePlanProjectionLocked() *model.ActivePlanProjection`
 - `func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projection *model.TaskContextProjection, fallbackObjective string)`
 - `func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiveRef string) string`
 - `func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool` — RecordContextCompactionLocked 记录一次上下文压缩（仅运行中任务；调用方
+- `func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool`
 - `func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)` — SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
+- `func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TaskStatus, summary string)`
 - `func (c *Coordinator) isActiveSessionLocked(sessionID string) bool` — isActiveSessionLocked 判定会话是否为共享快照归属会话（调用方持有
 - `func (c *Coordinator) InterruptTaskLocked(requestID, summary string)` — InterruptTaskLocked 把任务置为中断（快照 + 内部状态；调用方持有 Core.ViewMu）。
+- `func (c *Coordinator) _InterruptTaskLocked(requestID, summary string)`
 - `func (c *Coordinator) FailTaskLocked(requestID, summary string)` — FailTaskLocked 把任务置为失败（快照 + 内部状态；调用方持有 Core.ViewMu）。
+- `func (c *Coordinator) _FailTaskLocked(requestID, summary string)`
 - `func (c *Coordinator) ResumeTaskLocked(requestID, summary string)` — ResumeTaskLocked 恢复被压缩/中断的任务（快照 + 内部状态 + epoch 推进；
+- `func (c *Coordinator) _ResumeTaskLocked(requestID, summary string)`
 - `func (c *Coordinator) RememberCheckpointLocked(checkpoint model.TaskCheckpoint)` — RememberCheckpointLocked 按 version 替换或追加活跃会话 checkpoint（调用
+- `func (c *Coordinator) _RememberCheckpointLocked(checkpoint model.TaskCheckpoint)`
 - `func (c *Coordinator) BeginTask(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState` — BeginTask 为活跃会话当前请求创建任务执行状态与 TaskService（调用方持有
+- `func (c *Coordinator) _BeginTask(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState`
 - `func (c *Coordinator) BeginTaskFor(sessionID, requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState` — BeginTaskFor 为指定会话当前请求创建任务执行状态与 TaskService（调用方
+- `func (c *Coordinator) _BeginTaskFor(sessionID, requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState`
 - `func (c *Coordinator) ContinuationSummary(requestID string) string` — ContinuationSummary 返回活跃会话当前任务的恢复摘要（requestID 不匹配 →
+- `func (c *Coordinator) _ContinuationSummary(requestID string) string`
 - `func (c *Coordinator) ContinuationSummaryFor(sessionID, requestID string) string` — ContinuationSummaryFor 返回指定会话当前任务的恢复摘要（requestID 不匹配
+- `func (c *Coordinator) _ContinuationSummaryFor(sessionID, requestID string) string`
 - `func (c *Coordinator) Transcript() []model.TranscriptEvent` — Transcript 返回活跃会话 append-only 事件。
-- `func (c *Coordinator) TranscriptFor(sessionID string) []model.TranscriptEvent` — TranscriptFor 返回指定会话 append-only 事件。
-- `func (c *Coordinator) PendingToolResults() []model.StoredToolResult` — PendingToolResults 返回活跃会话尚未随会话原子提交的工具结果。
-- `func (c *Coordinator) PendingToolResultsFor(sessionID string) []model.StoredToolResult` — PendingToolResultsFor 返回指定会话尚未随会话原子提交的工具结果。
-- `func (c *Coordinator) TaskCheckpoints() []model.TaskCheckpoint` — TaskCheckpoints 返回活跃会话任务 checkpoint 序列。
-- `func (c *Coordinator) TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint` — TaskCheckpointsFor 返回指定会话任务 checkpoint 序列。
-- `func (c *Coordinator) ToolResultRefs() []model.ToolResultRef` — ToolResultRefs 返回活跃会话工具结果引用表。
-- `func (c *Coordinator) ToolResultRefsFor(sessionID string) []model.ToolResultRef` — ToolResultRefsFor 返回指定会话工具结果引用表。
-- `func (c *Coordinator) ToolResultRefByCallID(callID string) string` — ToolResultRefByCallID 按工具调用 ID 查活跃会话结果引用（未找到 → ""）。
-- `func (c *Coordinator) ToolResultRefByCallIDFor(sessionID, callID string) string` — ToolResultRefByCallIDFor 按工具调用 ID 查指定会话结果引用（未找到 → ""）。
-- `func (c *Coordinator) CurrentRequestIDFor(sessionID string) string` — CurrentRequestIDFor 返回指定会话当前任务的请求 ID（无任务 → ""）。
+- `func (c *Coordinator) _Transcript() []model.TranscriptEvent`
+- `func (c *Coordinator) TranscriptFor(sessionID string) []model.TranscriptEvent`
+- `func (c *Coordinator) _TranscriptFor(sessionID string) []model.TranscriptEvent`
+- `func (c *Coordinator) PendingToolResults() []model.StoredToolResult`
+- `func (c *Coordinator) _PendingToolResults() []model.StoredToolResult`
+- `func (c *Coordinator) PendingToolResultsFor(sessionID string) []model.StoredToolResult`
+- `func (c *Coordinator) _PendingToolResultsFor(sessionID string) []model.StoredToolResult`
+- `func (c *Coordinator) TaskCheckpoints() []model.TaskCheckpoint`
+- `func (c *Coordinator) _TaskCheckpoints() []model.TaskCheckpoint`
+- `func (c *Coordinator) TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint`
+- `func (c *Coordinator) _TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint`
+- `func (c *Coordinator) ToolResultRefs() []model.ToolResultRef`
+- `func (c *Coordinator) _ToolResultRefs() []model.ToolResultRef`
+- `func (c *Coordinator) ToolResultRefsFor(sessionID string) []model.ToolResultRef`
+- `func (c *Coordinator) _ToolResultRefsFor(sessionID string) []model.ToolResultRef`
+- `func (c *Coordinator) ToolResultRefByCallID(callID string) string`
+- `func (c *Coordinator) _ToolResultRefByCallID(callID string) string`
+- `func (c *Coordinator) ToolResultRefByCallIDFor(sessionID, callID string) string`
+- `func (c *Coordinator) _ToolResultRefByCallIDFor(sessionID, callID string) string`
+- `func (c *Coordinator) CurrentRequestIDFor(sessionID string) string`
+- `func (c *Coordinator) _CurrentRequestIDFor(sessionID string) string`
 - `func (c *Coordinator) TaskStateFor(sessionID string) *model.TaskState` — TaskStateFor 返回指定会话当前任务的可见状态（会话归档用；后台会话收尾
+- `func (c *Coordinator) _TaskStateFor(sessionID string) *model.TaskState`
+- `func (c *Coordinator) VisibleTaskStateFor(sessionID string) *model.TaskState` — VisibleTaskStateFor 返回指定会话当前任务的**可见**状态（镜像收口用）：
+- `func (c *Coordinator) _VisibleTaskStateFor(sessionID string) *model.TaskState`
 - `func (c *Coordinator) ResultRefsByCallID() map[string]string` — ResultRefsByCallID 返回活跃会话 callID → resultRef 全量拷贝（上下文拒绝
+- `func (c *Coordinator) _ResultRefsByCallID() map[string]string`
 - `func (c *Coordinator) ResultRefsByCallIDFor(sessionID string) map[string]string` — ResultRefsByCallIDFor 返回指定会话 callID → resultRef 全量拷贝。
+- `func (c *Coordinator) _ResultRefsByCallIDFor(sessionID string) map[string]string`
 - `func (c *Coordinator) PlanStackFor(sessionID string) []model.SessionPlanFrame` — PlanStackFor 返回指定会话 plan 帧栈。
-- `func (c *Coordinator) SessionIDForRequest(requestID string) string` — SessionIDForRequest 按 requestID 反查会话 ID（未绑定 → 活跃会话）。
+- `func (c *Coordinator) _PlanStackFor(sessionID string) []model.SessionPlanFrame`
+- `func (c *Coordinator) SessionIDForRequest(requestID string) string`
+- `func (c *Coordinator) _SessionIDForRequest(requestID string) string`
 - `func (c *Coordinator) ActivePlanProjectionLockedFor(sessionID string) *model.ActivePlanProjection` — ActivePlanProjectionLockedFor 返回指定会话激活 Plan 的只读投影（调用方
+- `func (c *Coordinator) _ActivePlanProjectionLockedFor(sessionID string) *model.ActivePlanProjection`
 - `func (c *Coordinator) SyncActivePlanFrameLocked(now time.Time)` — SyncActivePlanFrameLocked 把当前快照 Plan 收敛进活跃会话激活帧（调用方
+- `func (c *Coordinator) _SyncActivePlanFrameLocked(now time.Time)`
 - `func (c *Coordinator) SyncActivePlanFrameLockedFor(sessionID string, now time.Time)` — SyncActivePlanFrameLockedFor 把当前快照 Plan 收敛进指定会话激活帧（调用
+- `func (c *Coordinator) _SyncActivePlanFrameLockedFor(sessionID string, now time.Time)`
 - `func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time.Time)`
 - `func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time)` — PushLoadedPlanLocked 把 plan_load 参数追加为活跃会话新的激活帧（调用方
+- `func (c *Coordinator) _PushLoadedPlanLocked(arguments string, now time.Time)`
 - `func (c *Coordinator) RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)` — RemoveCommittedToolResultsLocked 清理活跃会话已随会话快照提交的待定工具
+- `func (c *Coordinator) _RemoveCommittedToolResultsLocked(committed []model.StoredToolResult)`
 - `func (c *Coordinator) RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult)` — RemoveCommittedToolResultsForLocked 清理指定会话已随会话快照提交的待定
+- `func (c *Coordinator) _RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult)`
 - `func (c *Coordinator) removeCommittedToolResultsLocked(st *sessionTaskRuntime, committed []model.StoredToolResult)`
 - `func (c *Coordinator) UnloadSessionState(sessionID string)` — UnloadSessionState 释放指定会话的任务/plan 运行时状态（阶段 2 生命周期；
+- `func (c *Coordinator) _UnloadSessionState(sessionID string)`
 - `func (c *Coordinator) TokenCounterName() string` — TokenCounterName 返回当前 token 计数器标识。
-- `func (c *Coordinator) CountRequestTokens(systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool) int` — CountRequestTokens 估算一次完整请求 token 数。
-- `func (c *Coordinator) CountTextTokens(value string) int` — CountTextTokens 估算文本 token 数。
-- `func (c *Coordinator) VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error)` — VerifyAndApply 是终态/打点工具的入口（Registry handler 面）。ctx 携带
+- `func (c *Coordinator) _TokenCounterName() string`
+- `func (c *Coordinator) CountRequestTokens(systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool) int`
+- `func (c *Coordinator) _CountRequestTokens(systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool) int`
+- `func (c *Coordinator) CountTextTokens(value string) int`
+- `func (c *Coordinator) _CountTextTokens(value string) int`
+- `func (c *Coordinator) VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error)`
+- `func (c *Coordinator) _VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error)`
 - `func (c *Coordinator) FinalizeTask(ctx context.Context, summary ChatEndSummary) error` — FinalizeTask 把自然停止转换为可审计完成/交接（OnChatEnd 入口；summary
+- `func (c *Coordinator) _FinalizeTask(ctx context.Context, summary ChatEndSummary) error`
 - `func (c *Coordinator) OnChatEnd(ctx context.Context, summary ChatEndSummary) (model.TaskState, error)` — OnChatEnd 把自然停止转换为可审计完成/交接，返回可见任务状态。
+- `func (c *Coordinator) _OnChatEnd(ctx context.Context, summary ChatEndSummary) (model.TaskState, error)`
 - `func (c *Coordinator) CurrentTaskResumeRecord() TaskResumeRecord` — CurrentTaskResumeRecord 返回活跃会话当前任务的终态恢复记录。
-- `func (c *Coordinator) SetTaskProjectionFlushLocked(flush func(context.Context) error)` — SetTaskProjectionFlushLocked 注入活跃会话 TaskService 的 Plan 投影 flush
+- `func (c *Coordinator) _CurrentTaskResumeRecord() TaskResumeRecord`
+- `func (c *Coordinator) SetTaskProjectionFlushLocked(flush func(context.Context) error)`
+- `func (c *Coordinator) _SetTaskProjectionFlushLocked(flush func(context.Context) error)`
 - `func (c *Coordinator) ObserveTool(observation ToolObservation)` — ObserveTool 记录工具执行观测（调用方持有 Core.ViewMu；observation requestID
+- `func (c *Coordinator) _ObserveTool(observation ToolObservation)`
 - `func (c *Coordinator) ObservePlanEvent(event PlanEvent)` — ObservePlanEvent 记录 plan 事件投影观测（调用方持有 Core.ViewMu；活跃会话）。
-- `func (c *Coordinator) ObserveModelOutput(ctx context.Context, output ModelOutput) error` — ObserveModelOutput 记录模型回复观测（自行加锁；output requestID 反查
+- `func (c *Coordinator) _ObservePlanEvent(event PlanEvent)`
+- `func (c *Coordinator) ObserveModelOutput(ctx context.Context, output ModelOutput) error`
+- `func (c *Coordinator) _ObserveModelOutput(ctx context.Context, output ModelOutput) error`
 - `func (c *Coordinator) taskServiceForContextLocked(ctx context.Context) *TaskService` — taskServiceForContextLocked 按 ctx 会话 ID 返回任务的 TaskService（未注入
 
 ### task_execution.go
@@ -224,12 +328,14 @@ go test ./application/core/task_context -count=1
 
 ### task_service.go
 
+- `func (r *planProjectionReader) plan() *model.PlanState`
 - `func (r *planProjectionReader) AllNodes() []string`
 - `func (r *planProjectionReader) NodeStatus(nodeID string) model.NodeStatus`
 - `func (r *planProjectionReader) PlanStatus() model.PlanStatus`
 - `func (r *planProjectionReader) Converged() bool`
+- `func (r *planProjectionReader) Plan() *model.PlanState`
 - `func (r *planProjectionReader) Flush(ctx context.Context) error`
-- `func newTaskService(sessionID string, core *state.Core, taskState *TaskExecutionState, queueRefs func() []string) *TaskService` — newTaskService 构造当前任务的 TaskService。state 为 nil 时表示无活跃任务。
+- `func newTaskService(sessionID string, tasks *Coordinator, taskState *TaskExecutionState, queueRefs func(string) []string) *TaskService` — newTaskService 构造当前任务的 TaskService。state 为 nil 时表示无活跃任务。
 - `func (s *TaskService) SemanticProgress(requestID string) (uint64, bool)` — SemanticProgress 返回任务的语义进展计数（epoch）。
 - `func (s *TaskService) ResumeRecord() TaskResumeRecord` — ResumeRecord 返回任务终态时保留的最小恢复记录。
 - `func (s *TaskService) ObserveTool(observation ToolObservation)` — ObserveTool 记录一次工具执行观测（tool 签名去重 + progressEpoch 推进）。

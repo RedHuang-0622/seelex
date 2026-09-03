@@ -696,8 +696,9 @@ G7（EventStore 区间读/双轨桥/去轮询）。若本波无法在会话内�
 - [x] **Composer 工作区草稿 binding 落盘**：绑定项目 record + `EnsureIndexed`
   项目索引 + 冷启动 `DraftCandidates` 跨项目恢复；物化同 SID/项目。
 - [x] **D6b fork 发散式 -race**（见阶段 D 勾销）。
-- [ ] **G5 剩余锁面**（见文末「收官验证记录」#剩余项）：**未收口**。
-  证据与下一步在收官段；不把部分完成当完成。
+- [x] **G5 剩余锁面**：见文末「收官验证记录」——task/prompt/plan 协调器
+  自有状态已各自持锁离开 ViewMu，Snapshot.Task 镜像收口，视图过渡 per-
+  session key 按宿主能力放开（2026-09-04，提交链见「G5 收口记录」）。
 
 验证（本机 CGO_ENABLED=1，-race 为真实执行）：
 
@@ -740,24 +741,31 @@ node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
 
 ### 剩余项
 
-- **G5 剩余锁面（本波唯一未收口项）**：task/prompt/context/plan 投影的
-  协调器自有状态仍共享 `ViewMu`；视图过渡的 per-session key 放开仍被
-  fork `StartSession` 活跃别名 / 全局项目根绑定 / legacy Router 写作用域
-  依赖。证据：`task_context.Coordinator` 的 `sessionStates`/`requestToSession`
-  共 111 处访问经 `sessionStateLocked/activeSessionLocked/sessionForRequestLocked`
-  间接持有 `Core.ViewMu`（`task_context/coordinator.go`）；`planProjections`
-  只读路径要读 task plan 栈，先拆任一锁都会引入
-  `ViewMu↔协调器锁` 环（`plan_tools.go:planProjectionLocked`）。下一步
-  （已按依赖排好）：① 先给 `sessionTaskRuntime` 逐会话加锁并让
-  `sessionStateLocked` 全量改走自有锁，逐步释放 ViewMu 的 task 写路径；
-  ② 再把 `planProjections`/Snapshot.Task 镜像改为锁外收集、ViewMu 短临界
-  区写副本；③ prompt/context 层跟随；④ 清除视图过渡剩余进程级引擎副作用
-  后把视图命令过渡 key 放开为 per-session。现有验收锚
-  （`TestConcurrentStreamingViewSwitchNoPollution`、
-  `TestStressConcurrentSessionsDoNotPollute`、`TestSessionTransitionManager*`、
-  `TestCatalogCache*`、关闭路径 G0c）在本轮全量 -race 仍全绿，说明当前
-  共享锁面正确但未拆分——本项不是部分完成，仍按 [ ] 保留。
+**剩余项 = 0**（含用户确认继续完成的 F 后全量勾销）。
 
-其余项均为 0；「明确不做」清单（E1–E5、per-session 存储策略、消息 ID
-会话化、无 sid 兼容端口一次性删除、进程隔离）按 target-design §7 与
-本提示第 2.9 节保持不做。
+### G5 收口记录（追加，2026-09-04）
+
+F 提交链（每点全绿）：`69d5967`（prompt 自有缓存锁 + 任务域活跃会话经
+Domain 解析）→ `c41137e`（Snapshot.Task 镜像收口）→ `7cf7fc2`/`74339ed`
+（plan 投影缓存迁入 task_context/planMu；后台 plan 事件 planMu 下应用）→
+`b76926c`（视图 plan 种子双向收敛）→ `1ebc4f0`（TaskService plan 读取走
+协调器投影 reader）→ `4093e79`/`14d1149`（TaskService 去 ViewMu/Core；
+sessionStates 迁 stateMu，task 域 ViewMu 方法调用清零）→ `73543e0`
+（plan 锁序 stateMu→planMu）→ `6672a88`（F-4：逐会话宿主跳过全局根/Router
+副作用、fork/切项目走显式会话 ID、Resume/Unload 用 per-session key）→
+`e2c22d6`（验收锚抗抖）。
+
+关键证据：
+- `task_context` 两文件 `c.ViewMu.*` 方法调用为 0（自有状态 `stateMu`、
+  plan `planMu` 独立于视图锁）；`Snapshot.Task` 镜像写只剩根 ViewMu 段
+  （runChat 收尾/终态工具/错误路径），TaskService 只维护 `lastTaskState`。
+- `seelebridge.Runtime.PerSessionExecution()` 声明逐会话能力；core 在
+  per-session 宿主下跳过 `BindProjectRoot`/`SetWorkspace` 进程级副作用，
+  fork/切项目经显式会话 ID（`newGeneratedSessionID` + ActivateSession），
+  Resume/Unload 过渡锁按会话 key；草稿/空 key 仍归视图。
+- 全量门禁：`go build ./...`、`go build -tags "gui,desktop,production" ./...`、
+  `go vet ./...`、`go test ./... -count=1 -timeout=300s`、`-race` 子集、
+  `node --test`（184）全绿。
+
+「明确不做」清单（E1–E5、per-session 存储策略、消息 ID 会话化、无 sid
+端口一次性删除、进程隔离）按 target-design §7 与本提示第 2.9 节保持不做。

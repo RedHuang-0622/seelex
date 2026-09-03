@@ -296,8 +296,8 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
   QueryRange + (channel,sid) 映射、subagent_live assistant 正文 kind、
   删除 nodeDetailPollTimer）；TUI 待批计数最小承载面；Composer 工作区
   草稿 binding 落盘与跨重启恢复；D6b fork 发散式 -race。
-- **G5 剩余锁面仍未收口（唯一 [ ]）**：task/prompt/context/plan 投影的
-  协调器自有状态锁拆分与 Snapshot.Task 镜像耦合收口、视图过渡 per-session
-  key 放开互相依赖（task 自有状态 111 处访问点先于 plan 投影拆锁；
-  planProjections 只读依赖 task plan 栈，先拆任一会成环）。验收锚现全绿
-  （当前共享锁面正确），下一步按台账「收官验证记录」#剩余项顺序推进。
+- **G5 剩余锁面已收口（2026-09-04）**：task_context 自有状态 `stateMu`、
+  plan 投影 `planMu`、prompt 缓存锁各自独立于 ViewMu；Snapshot.Task 镜像
+  写收口到根 ViewMu 段；逐会话宿主（PerSessionExecution）下 Resume/Unload
+  过渡按会话 key，fork/切项目走显式会话 ID 且跳过全局根/Router 副作用。
+  台账勾销与全量门禁见 README「G5 收口记录」。

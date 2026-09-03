@@ -230,6 +230,12 @@
 ### session_scope.go
 
 - `func (service *Service) transitionView() sync.Locker` — transitionView 返回视图过渡锁（G5）：影响视图指针/当前视图会话生命周期
+- `func (service *Service) perSessionExecution() bool` — perSessionExecution 报告宿主是否具备逐会话执行能力（生产 seelebridge
+- `func (service *Service) transitionForSession(sessionID string) sync.Locker` — transitionForSession 返回目标会话生命周期的过渡锁：逐会话宿主按会话 key
+- `func (service *Service) newGeneratedSessionID(prefix string) string` — newGeneratedSessionID 生成显式会话 ID（逐会话宿主 fork/切项目新建用；
+- `func (service *Service) setWorkspaceWriteScope(workspaceID string)` — setWorkspaceWriteScope 设置 legacy Router 写作用域；逐会话宿主跳过（存储
+- `func (service *Service) bindGlobalProjectRoot(rootPath string) error` — bindGlobalProjectRoot 设置进程级项目根；逐会话宿主跳过（per-session
+- `func (service *Service) unbindGlobalProjectRoot()` — unbindGlobalProjectRoot 清空进程级项目根；逐会话宿主跳过。
 - `func (service *Service) transitionForKey(key string) sync.Locker` — transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
@@ -257,6 +263,8 @@
 
 ### session_scope_test.go
 
+- `func (perSessionFakeRuntime) PerSessionExecution() bool`
+- `func TestPerSessionHostSkipsGlobalScopeSideEffects(t *testing.T)` — TestPerSessionHostSkipsGlobalScopeSideEffects F-4：逐会话宿主下
 - `func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T)` — TestCrossSessionSubmitWhileRunningNoLongerBusy 验证 M2 多会话并行语义：
 - `func TestSubmitToSessionDelegatesForActiveSession(t *testing.T)` — TestSubmitToSessionDelegatesForActiveSession 验证同会话提交走既有
 - `func TestSubmitToSessionRejectsEmptyID(t *testing.T)` — TestSubmitToSessionRejectsEmptyID 验证会话级 API 拒绝空会话 ID。
