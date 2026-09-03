@@ -151,7 +151,7 @@ type Runtime struct {
 	heartbeatInterval   time.Duration
 	limits              seelexctx.Limits // seele.yaml limits 段（含默认；seelebridge 消费点读取）
 	scopedToolsReady    bool
-	lifecycle           []func() // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
+	lifecycle           []func()  // 生命周期登记（NewRuntime 装配序；Shutdown 逆序）
 	shutdownOnce        sync.Once // Shutdown 幂等守卫：并发/重复调用只执行一次（lifecycle 各实现不保证并发安全）
 
 	plugins *plugin.Manager // 插件可见性配置（plugin/ 域）
@@ -275,10 +275,13 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		heartbeatInterval:   heartbeatInterval,
 		limits:              cfg.Limits.WithDefaults(),
 		plugins:             plugin.NewManager(),
-		permission:          &seeltools.PermissionGate{},
-		subagentSessions:    subagentsession.NewSubagentSessions(tracer),
-		subagentTree:        subagentsession.NewSubagentTree(tracer),
-		subagentContext:     subagentsession.NewSubagentContextActor(tracer),
+		permission: &seeltools.PermissionGate{
+			// 波 4 approval 会话级归属：权限审批随调度 ctx 归属发起会话。
+			SessionFromContext: seeletelemetry.SessionIDFromContext,
+		},
+		subagentSessions: subagentsession.NewSubagentSessions(tracer),
+		subagentTree:     subagentsession.NewSubagentTree(tracer),
+		subagentContext:  subagentsession.NewSubagentContextActor(tracer),
 
 		window:               seelexctx.NewDefaultWindowPolicy(cfg.WindowConfig),
 		tracer:               tracer,

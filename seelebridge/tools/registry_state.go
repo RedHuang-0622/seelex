@@ -102,6 +102,9 @@ type PermissionGate struct {
 	checker *toolspermission.PermissionChecker
 	handler toolspermission.ApprovalHandler
 	manual  *toolspermission.PermissionConfig
+	// SessionFromContext 从工具调度 ctx 提取会话归属（seelebridge 根包
+	// 注入 seelebridge 会话路由键；nil = 权限审批保持进程级空归属回退）。
+	SessionFromContext func(ctx context.Context) string
 }
 
 // Set 装配权限配置与审批处理器。
@@ -158,8 +161,13 @@ func (state *PermissionGate) Middleware(approvalTimeout time.Duration) framework
 				if handler == nil {
 					return next.Execute(ctx, argsJSON)
 				}
+				sessionID := state.sessionFromContext(ctx)
 				request := toolspermission.ApprovalRequest{
-					ID:        fmt.Sprintf("perm-%d", time.Now().UnixNano()),
+					ID: fmt.Sprintf("perm-%d", time.Now().UnixNano()),
+					// 波 4 approval 会话级归属：权限审批随调度 ctx 携带会话
+					// ID（注入的会话路由键），不再以进程级空归属进入
+					// 视图单格。
+					SessionID: sessionID,
 					ToolName:  name,
 					Arguments: argsJSON,
 					Preview:   previewArguments(argsJSON),
@@ -180,6 +188,19 @@ func (state *PermissionGate) Middleware(approvalTimeout time.Duration) framework
 			}
 		})
 	}
+}
+
+func (state *PermissionGate) sessionFromContext(ctx context.Context) string {
+	if state == nil {
+		return ""
+	}
+	state.mu.RLock()
+	resolver := state.SessionFromContext
+	state.mu.RUnlock()
+	if resolver == nil {
+		return ""
+	}
+	return resolver(ctx)
 }
 
 func previewArguments(argsJSON string) string {

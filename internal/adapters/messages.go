@@ -81,6 +81,9 @@ func ApprovalAccepted(optionID string) bool {
 // plan_run 执行到 kind:manual 节点时，框架调用 Ask 阻塞等待用户在 UI 中选择。
 type PlanApprovalGate struct {
 	Broker *approval.ApprovalBroker
+	// SessionIDFromContext 从审批 ctx 提取会话归属（装配根注入 application
+	// 会话路由键；nil = 不归属，进程级空归属回退）。
+	SessionIDFromContext func(ctx context.Context) string
 }
 
 // Ask 将框架审批请求转换为 ApprovalBroker.Request，阻塞等待用户选择后返回。
@@ -98,6 +101,9 @@ func (g *PlanApprovalGate) Ask(ctx context.Context, q approve.Question) (any, er
 		Question: q.Content,
 		Options:  options,
 		Timeout:  q.Timeout,
+	}
+	if g.SessionIDFromContext != nil {
+		req.SessionID = g.SessionIDFromContext(ctx)
 	}
 
 	decision, err := g.Broker.Request(ctx, req)

@@ -471,11 +471,15 @@ function renderProject(snapshot) {
 }
 
 function renderProjectStatus(snapshot, running) {
+  const pendingApprovals = (snapshot.sessions || []).reduce(
+    (sum, session) => sum + Number(session.approval_count || 0), 0
+  );
   elements["project-status"].innerHTML = [
     ["状态", running ? "Agent 执行中" : "Ready"],
     ["会话", snapshot.session?.draft ? "待发送" : shortSessionID(snapshot.session?.id || "—")],
     ["消息", String(snapshot.conversation?.length || 0)],
     ["任务", snapshot.task ? snapshot.task.status : "idle"],
+    ["待审批", pendingApprovals > 0 ? `${pendingApprovals} 项` : "0"],
     ["文件数", fileCountLabel()]
   ].map(([label, value]) => `<div class="status-item"><span>${escapeHtml(label)}</span><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
 }
@@ -818,6 +822,8 @@ function sessionStatusLabel(status) {
   if (status === "running") return "运行中";
   if (status === "queued") return "排队";
   if (status === "draft") return "草稿";
+  if (status === "awaiting_approval") return "待审批";
+  if (status === "archived") return "已归档";
   return "";
 }
 

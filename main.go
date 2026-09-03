@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/console"
 	"github.com/RedHuang-0622/seelex/application/core"
+	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/internal/buildinfo"
@@ -257,8 +258,13 @@ func run() error {
 			}
 			return &record
 		},
-		EventPersister:       eventStore.Append,
-		PlanApprovalGate:     &adapters.PlanApprovalGate{Broker: approval},
+		EventPersister: eventStore.Append,
+		PlanApprovalGate: &adapters.PlanApprovalGate{
+			Broker: approval,
+			// 波 4 approval 会话级归属：plan/manual 审批节点随执行 ctx
+			// 归属到目标会话（与 runChat 同一路由键）。
+			SessionIDFromContext: coretask.SessionIDFromContext,
+		},
 		SubagentToolCallback: app.HandleSubagentToolEvent,
 		SkillRegistry:        skillRegistry,
 		ScheduledPromptExecutor: func(ctx context.Context, prompt, sessionID string) (string, error) {
@@ -936,7 +942,10 @@ func registerAskApprove(runtime *seelebridge.Runtime, approval *application.Appr
 			}
 			decision, err := approval.Request(ctx, application.ApprovalRequest{
 				ID: fmt.Sprintf("ask_%d", time.Now().UnixNano()), Question: input.Question,
-				Options: options, Risk: "low", ToolName: "ask_approve",
+				// 波 4 approval 会话级归属：ask_approve 随工具 ctx 归属到
+				// 发起会话（不再以进程级空归属进入视图单格）。
+				SessionID: coretask.SessionIDFromContext(ctx),
+				Options:   options, Risk: "low", ToolName: "ask_approve",
 			})
 			if err != nil || !adapters.ApprovalAccepted(decision.OptionID) {
 				return `{"approved":false,"reason":"cancelled"}`, nil
@@ -1165,7 +1174,10 @@ func newPermissionBridge(broker *application.ApprovalBroker) toolspermission.App
 	return func(ctx *toolspermission.ApprovalContext) (*toolspermission.ApprovalResponse, error) {
 		req := ctx.Request
 		appReq := application.ApprovalRequest{
-			ID:                req.ID,
+			ID: req.ID,
+			// 波 4 approval 会话级归属：权限审批的会话 ID 由 seelebridge
+			// 权限中间件随调度 ctx 填充（registry_state.go）。
+			SessionID:         req.SessionID,
 			Question:          req.Preview,
 			Options:           adapters.ConvertPermissionOptions(req.Options),
 			Risk:              req.Risk,

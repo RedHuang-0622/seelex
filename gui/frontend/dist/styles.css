@@ -1401,6 +1401,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .session-status.is-running { color: var(--status-running); background: color-mix(in srgb, var(--status-running) 14%, transparent); }
 .session-status.is-queued { color: var(--status-info); background: color-mix(in srgb, var(--status-info) 12%, transparent); }
 .session-status.is-draft { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.session-status.is-awaiting_approval { color: var(--status-running); background: color-mix(in srgb, var(--status-running) 22%, transparent); border-color: var(--status-running); }
+.session-status.is-archived { color: var(--status-idle); background: color-mix(in srgb, var(--status-idle) 12%, transparent); }
 .session-row.is-draft .session-draft .entry-name { color: var(--accent); }
 .session-fork:hover { border-color: var(--accent); color: var(--accent); }
 .session-del:hover { border-color: var(--border-failed); color: var(--status-failed); }
