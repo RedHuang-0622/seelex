@@ -209,5 +209,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.clearComposerDraft(newID)
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)
 	service.components.sessions.RequestCatalogRefresh()
+	// G6 驻留 LRU：物化完成（引擎 bundle 已建）即记录使用序并收敛超限。
+	service.touchResident(newID)
 	return nil
 }

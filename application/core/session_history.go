@@ -256,6 +256,8 @@ func (service *Service) resumeSession(sessionID string) error {
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishRuntimeProjections()
 	service.components.sessions.RequestCatalogRefresh()
+	// G6 驻留 LRU：冷加载完成即记录使用序并收敛超限驻留（INV-G8）。
+	service.touchResident(sessionID)
 	return nil
 }
 

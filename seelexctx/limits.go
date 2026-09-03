@@ -28,26 +28,30 @@ type Limits struct {
 	MaxReplansPerWindow    int `yaml:"max_replans_per_window"`       // 窗口内 replan 次数
 	MaxReplanProviderReqs  int `yaml:"max_replan_provider_requests"` // 窗口内 provider 请求预算
 	MaxReplansPerPlanChain int `yaml:"max_replans_per_plan_chain"`   // 单计划链 replan 次数
-	HistoryWindow          int `yaml:"history_window"`               // 会话可见历史条数
-	PlanNodeEvents         int `yaml:"plan_node_events"`             // 节点详情时间线上限
-	PlanNodeMaxLoops       int `yaml:"plan_node_max_loops"`          // 子代理节点循环上限
-	EvidenceChars          int `yaml:"evidence_chars"`               // 证据/输出截断
-	ReplanEvidenceBytes    int `yaml:"replan_evidence_bytes"`        // replan 证据字节上限
-	InputLoopLimit         int `yaml:"input_loop_limit"`             // 输入循环上限
-	ReferencePageSize      int `yaml:"reference_page_size"`          // 引用工具默认分页
-	MaxReferencePageSize   int `yaml:"max_reference_page_size"`      // 引用工具分页上限
-	GrepMaxResults         int `yaml:"grep_max_results"`             // grep 默认结果数
-	SessionNameRunes       int `yaml:"session_name_runes"`           // 会话名截断
-	PreflightRetry         int `yaml:"preflight_retry"`              // preflight 重试次数
-	OutputReserveTokens    int `yaml:"output_reserve_tokens"`        // provider 输出预留 token
-	ToolTokenOverhead      int `yaml:"tool_token_overhead"`          // 工具 token 估算开销
-	ContextMaxUnits        int `yaml:"context_max_units"`            // 上下文压缩扫描单元上限
-	MessageShardSize       int `yaml:"message_shard_size"`           // 会话存储分片条数
-	SummaryChars           int `yaml:"summary_chars"`                // 摘要截断字符数
-	TodoMaxItems           int `yaml:"todo_max_items"`               // todolist 清单项上限
-	WorkTableRows          int `yaml:"work_table_rows"`              // 工作表格（work table）最大行数
-	WalkTimeoutSec         int `yaml:"walk_timeout"`                 // glob/grep 目录遍历超时（秒）
-	MaxToolResultChars     int `yaml:"max_tool_result_chars"`        // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
+	// ResidentSessionLimit 是进程内驻留引擎（session bundle）的 LRU 上限
+	// （G6 INV-G8：默认 6；驱逐前置 = 非 running/awaiting_approval，且
+	// composer/View/Runtime 槽已 flush）。
+	ResidentSessionLimit int `yaml:"resident_limit"`
+	HistoryWindow        int `yaml:"history_window"`          // 会话可见历史条数
+	PlanNodeEvents       int `yaml:"plan_node_events"`        // 节点详情时间线上限
+	PlanNodeMaxLoops     int `yaml:"plan_node_max_loops"`     // 子代理节点循环上限
+	EvidenceChars        int `yaml:"evidence_chars"`          // 证据/输出截断
+	ReplanEvidenceBytes  int `yaml:"replan_evidence_bytes"`   // replan 证据字节上限
+	InputLoopLimit       int `yaml:"input_loop_limit"`        // 输入循环上限
+	ReferencePageSize    int `yaml:"reference_page_size"`     // 引用工具默认分页
+	MaxReferencePageSize int `yaml:"max_reference_page_size"` // 引用工具分页上限
+	GrepMaxResults       int `yaml:"grep_max_results"`        // grep 默认结果数
+	SessionNameRunes     int `yaml:"session_name_runes"`      // 会话名截断
+	PreflightRetry       int `yaml:"preflight_retry"`         // preflight 重试次数
+	OutputReserveTokens  int `yaml:"output_reserve_tokens"`   // provider 输出预留 token
+	ToolTokenOverhead    int `yaml:"tool_token_overhead"`     // 工具 token 估算开销
+	ContextMaxUnits      int `yaml:"context_max_units"`       // 上下文压缩扫描单元上限
+	MessageShardSize     int `yaml:"message_shard_size"`      // 会话存储分片条数
+	SummaryChars         int `yaml:"summary_chars"`           // 摘要截断字符数
+	TodoMaxItems         int `yaml:"todo_max_items"`          // todolist 清单项上限
+	WorkTableRows        int `yaml:"work_table_rows"`         // 工作表格（work table）最大行数
+	WalkTimeoutSec       int `yaml:"walk_timeout"`            // glob/grep 目录遍历超时（秒）
+	MaxToolResultChars   int `yaml:"max_tool_result_chars"`   // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
 	// SnapshotToolOutputChars 是**可见会话快照**的单条工具输出上限（0 →
 	// 默认 8000）。超过该值的输出只把前 N 字符的预览放进快照会话
 	// （message.content / tool.result），完整内容归档为 result_ref，前端
@@ -80,6 +84,7 @@ func DefaultLimits() Limits {
 		MaxReplansPerWindow:    6,
 		MaxReplanProviderReqs:  6,
 		MaxReplansPerPlanChain: 2,
+		ResidentSessionLimit:   6,
 		HistoryWindow:          200,
 		PlanNodeEvents:         30,
 		PlanNodeMaxLoops:       15,
@@ -101,10 +106,10 @@ func DefaultLimits() Limits {
 		WalkTimeoutSec:         30,
 		// fork 汇总窗口按子代理数 ×n 放大：4×2000 字结论 ≈ 24KB，默认
 		// 60000 字节（约 2 万汉字）给足余量——窗口是容灾上限不是截断线。
-		MaxToolResultChars:    60000,
+		MaxToolResultChars:      60000,
 		SnapshotToolOutputChars: 8000,
-		DockerStartTimeoutSec: 60,
-		ForkTimeoutSec:        7200,
+		DockerStartTimeoutSec:   60,
+		ForkTimeoutSec:          7200,
 	}
 }
 
@@ -148,6 +153,9 @@ func (l Limits) WithDefaults() Limits {
 	}
 	if l.MaxReplansPerPlanChain == 0 {
 		l.MaxReplansPerPlanChain = def.MaxReplansPerPlanChain
+	}
+	if l.ResidentSessionLimit == 0 {
+		l.ResidentSessionLimit = def.ResidentSessionLimit
 	}
 	if l.HistoryWindow == 0 {
 		l.HistoryWindow = def.HistoryWindow
@@ -259,7 +267,7 @@ func LoadLimits(path string) (Limits, error) {
 	}
 	if check.ToolCallTimeoutSec < 0 || check.ApprovalTimeoutSec < 0 || check.PlanDecisionTimeoutSec < 0 ||
 		check.HeartbeatIntervalSec < 0 || check.ReplanWindowSec < 0 || check.SearchTimeoutSec < 0 || check.TavilyTimeoutSec < 0 ||
-		check.MaxConcurrentReplans < 0 || check.MaxReplansPerWindow < 0 || check.MaxReplanProviderReqs < 0 || check.MaxReplansPerPlanChain < 0 ||
+		check.MaxConcurrentReplans < 0 || check.MaxReplansPerWindow < 0 || check.MaxReplanProviderReqs < 0 || check.MaxReplansPerPlanChain < 0 || check.ResidentSessionLimit < 0 ||
 		check.HistoryWindow < 0 || check.PlanNodeEvents < 0 || check.PlanNodeMaxLoops < 0 ||
 		check.EvidenceChars < 0 || check.ReplanEvidenceBytes < 0 || check.InputLoopLimit < 0 ||
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||

@@ -53,6 +53,7 @@ func (service *Service) Snapshot() Snapshot {
 		snapshot.Sessions[index].Status = service.sessionStatusLocked(sessionID)
 		if unit := service.sessions.Unit(sessionID); unit != nil {
 			snapshot.Sessions[index].ApprovalCount = unit.PendingApprovalCount()
+			snapshot.Sessions[index].Resident = unit.Resident()
 		}
 	}
 	return snapshot

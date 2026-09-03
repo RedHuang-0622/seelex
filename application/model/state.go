@@ -538,6 +538,9 @@ type SessionInfo struct {
 	// ApprovalCount 是本会话当前待批审批数（波 4 approval 会话级归属：
 	// awaiting_approval 状态行/侧栏计数数据源，随快照覆盖下发）。
 	ApprovalCount int `json:"approval_count,omitempty"`
+	// Resident 是本会话引擎 bundle 是否驻留（G6：驱逐/诊断/侧栏；随
+	// 快照覆盖下发，非持久字段）。
+	Resident bool `json:"resident,omitempty"`
 	// Meta 是用户侧展示元数据（置顶/别名/排序位）。随目录由后端下发，客户端
 	// 不再存在 localStorage（否则换窗口/换设备即分叉）。
 	Meta SessionMeta `json:"meta,omitempty"`

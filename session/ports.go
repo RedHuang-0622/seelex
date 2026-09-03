@@ -168,6 +168,9 @@ type SessionUnit struct {
 	// approvalIDs 是本会话待批审批（波 4 approval 会话级归属：observe 按
 	// sid 记账；非空时 Status()=awaiting_approval——INV-G8 驱逐守卫面）。
 	approvalIDs []string
+	// resident 是引擎 bundle 驻留标记（G6：驱逐释放 bundle 后 false，
+	// 单元与视图保留；重开走 cold_load——驱逐后再进 = 冷）。
+	resident bool
 
 	// Runtime 是该会话的运行时投影槽（G1：每会话一份）。进程级只读原件
 	// （model/plugins/accounts/...）在 G3 分型前先整份拷贝进槽，之后随
@@ -321,6 +324,26 @@ func (unit *SessionUnit) PendingApprovalCount() int {
 	unit.mu.Lock()
 	defer unit.mu.Unlock()
 	return len(unit.approvalIDs)
+}
+
+// Resident 返回引擎 bundle 是否驻留（G6 驱逐/诊断/目录 Resident 列）。
+func (unit *SessionUnit) Resident() bool {
+	if unit == nil {
+		return false
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	return unit.resident
+}
+
+// SetResident 更新驻留标记（冷加载/激活置 true；驱逐/卸载置 false）。
+func (unit *SessionUnit) SetResident(on bool) {
+	if unit == nil {
+		return
+	}
+	unit.mu.Lock()
+	unit.resident = on
+	unit.mu.Unlock()
 }
 
 // HasSession 返回引擎热/冷判定（loaded 由 ColdLoad/Unload 驱动，与

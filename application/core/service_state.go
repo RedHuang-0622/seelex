@@ -41,6 +41,10 @@ type serviceState struct {
 	// draftSeq 是草稿会话 ID 的单调序号（Core.ViewMu 保护）：早分配 SID 在
 	// Windows 时间戳低分辨率下也保持同 tick 内唯一。
 	draftSeq uint64
+	// residentOrder 是驻留引擎（session bundle）的 LRU 使用序（Core.ViewMu
+	// 保护；索引 0 = 最近使用）。G6 驱逐按最旧优先；running/queued/
+	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
+	residentOrder []string
 
 	// fullAccessDefault 是进程级全权默认（装配期从引擎门捕获一次；G4：
 	// 会话未选择时回退该值，不继承其它会话的遗留开关）。

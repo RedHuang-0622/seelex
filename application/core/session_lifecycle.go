@@ -87,6 +87,8 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishRuntimeProjections()
 	service.components.sessions.RequestCatalogRefresh()
+	// G6 驻留 LRU：热切换 = 一次引擎使用（移动到使用序最前）。
+	service.touchResident(sessionID)
 	return nil
 }
 
