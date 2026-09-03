@@ -586,3 +586,37 @@ node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
 波 3 提交链：`9b9ac2c` → `1110cc4` → `546a991` → `b69c33e` →
 `0de02c9` → `195e875` → `902ab98` → `5d3a741`。每个提交点
 `go build ./...` 与受影响包测试全绿；收尾处执行上表全量门禁。
+
+## 波 4 承接项决策（追加，2026-09-03，波 4 开工）
+
+按本波执行提示第 3 节逐项先出结论与证据，再决定是否/如何实施：
+
+- **approval 会话级归属 + awaiting_approval：本波实施**（波 3 记账给波 4 的
+  显式承接）。证据链（波 3 审计 + 本次代码核对）：`ApprovalRequest` 无
+  SessionID；框架 `toolspermission.ApprovalRequest` 已带 SessionID 但
+  seelebridge 权限中间件未填（`seelebridge/tools/registry_state.go:161`）、
+  `main.go newPermissionBridge` 丢弃并换 `context.Background()`；
+  `ask_approve`/`PlanApprovalGate.Ask` 的 ctx 已携带会话路由键；broker
+  进程级单表、observer 单回调；`Snapshot.Interaction` 单格按当前视图发布。
+  实施分片：① 数据面（broker 会话化 + sessionstore/model 状态枚举扩展 +
+  Unit Approvals/状态访问器 + 测试）→ ② core 门控与事件面（observe 按
+  sid 路由、awaiting_approval 状态机、待批查询、审批并发用例升级为真归属
+  断言）→ ③ 前端呈现（GUI 待批计数/侧栏状态 + TUI 状态行口径落地）。
+- **Composer 工作区草稿 binding 落盘：保持延后**。证据：成本集中在
+  「draft 在 BindWorkspace 后 record 仍落默认项目 + 跨重启恢复枚举路径」
+  的存储归属收敛，与 approval/G6/G7 不共享改动面；bind 是视图命令，与
+  per-session 过渡 key 放开无耦合，波 4 拆锁不显著降低其修复成本。
+- **G5 剩余锁面（task/prompt/context/plan 协调器自有状态仍在 ViewMu 下；
+  视图过渡 per-session key 放开）：仍延后**。证据：per-coordinator 拆锁
+  需要 Snapshot.Task 镜像耦合收口 + 全部 task 读路径改造；视图过渡放开
+  需要先清 fork 的 StartSession 活跃别名、全局项目根绑定与 legacy Router
+  写作用域——各自是独立大改动面，不适合与 G6 驱逐/冷读在同一波并线；
+  本波继续按既有锁序（ViewMu → catalogMu → Unit/View.mu）推进，不扩大
+  锁面。
+- 其余遗留待决若被触碰（TUI/headless 呈现面、`StorePort` 已删不留死契约），
+  随实现显式记录。
+
+实施顺序（每提交点全绿，`SKIP_BUILD=1` 提交）：approval 数据面 → core
+门控/事件 → 前端呈现 → G6 驻留/驱逐 → G6 目录 projectID/C2 → C1 冷读 →
+G7（EventStore 区间读/双轨桥/去轮询）。若本波无法在会话内全部完成，未完成
+项与下一步留在「波 4 尚未完成」段，不把部分完成当完成。
