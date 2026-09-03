@@ -1,6 +1,8 @@
 package task_context
 
 import (
+	"time"
+
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
@@ -53,6 +55,98 @@ func (c *Coordinator) SeedPlanProjection(sessionID string, plan *model.PlanState
 		c.planProjections = make(map[string]*model.PlanState)
 	}
 	c.planProjections[sessionID] = model.CloneRuntimeState(model.RuntimeState{Plan: plan}).Plan
+}
+
+// EnsurePlanProjection 仅在投影缺失时写入基线（迁移期测试/直设 Snapshot
+// 路径由根在进入终态工具前调用；不覆盖运行期事件已推进的投影）。
+func (c *Coordinator) EnsurePlanProjection(sessionID string, plan *model.PlanState) {
+	if sessionID == "" || plan == nil {
+		return
+	}
+	c.planMu.Lock()
+	defer c.planMu.Unlock()
+	if c.planProjections == nil {
+		c.planProjections = make(map[string]*model.PlanState)
+	}
+	if _, ok := c.planProjections[sessionID]; ok {
+		return
+	}
+	c.planProjections[sessionID] = model.CloneRuntimeState(model.RuntimeState{Plan: plan}).Plan
+}
+
+// CheckPlanNodeProjection 把指定会话投影中的节点打点为 completed（task_
+// check_node 在途进度；planMu 下变更）。返回 (节点是否找到, 是否发生了状态
+// 变更)——已 completed 的重复 check 幂等（不推进 epoch）。
+func (c *Coordinator) CheckPlanNodeProjection(sessionID, nodeID, output string) (bool, bool) {
+	if sessionID == "" || nodeID == "" {
+		return false, false
+	}
+	c.planMu.Lock()
+	defer c.planMu.Unlock()
+	if c.planProjections == nil {
+		return false, false
+	}
+	plan := c.planProjections[sessionID]
+	if plan == nil {
+		return false, false
+	}
+	node := findPlanNode(plan.Nodes, nodeID)
+	if node == nil {
+		return false, false
+	}
+	if node.Status != model.NodeCompleted {
+		node.Status = model.NodeCompleted
+		if output != "" {
+			node.Output = output
+		}
+		AppendPlanNodeEvent(node, dto.PlanNodeEvent{
+			NodeID: nodeID, Status: "completed", Output: output, At: time.Now(),
+		})
+		RecalculatePlanProgress(plan)
+		return true, true
+	}
+	return true, false
+}
+
+// CompletePlanProjection 把指定会话投影整体标记为 completed（task_complete
+// 对已收敛 plan 的收尾；planMu 下变更）。
+func (c *Coordinator) CompletePlanProjection(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	c.planMu.Lock()
+	defer c.planMu.Unlock()
+	if c.planProjections == nil {
+		return
+	}
+	plan := c.planProjections[sessionID]
+	if plan == nil {
+		return
+	}
+	for index := range plan.Nodes {
+		plan.Nodes[index].Status = model.NodeCompleted
+	}
+	plan.Status = model.PlanCompleted
+	plan.Progress = 1
+}
+
+// PlanProjectionCopy 返回指定会话 plan 投影的只读深拷贝（无基线则 nil）。
+// TaskService 等自有状态读取面用它替代对视图镜像 Snapshot.Runtime.Plan 的
+// 直读（F-3：读自有投影锁内拷贝；不触发创建）。
+func (c *Coordinator) PlanProjectionCopy(sessionID string) *model.PlanState {
+	if sessionID == "" {
+		return nil
+	}
+	c.planMu.Lock()
+	defer c.planMu.Unlock()
+	if c.planProjections == nil {
+		return nil
+	}
+	plan := c.planProjections[sessionID]
+	if plan == nil {
+		return nil
+	}
+	return model.CloneRuntimeState(model.RuntimeState{Plan: plan}).Plan
 }
 
 // PlanNodeApplyResult 是后台 plan 事件应用结果（planMu 段内产生的深拷贝，

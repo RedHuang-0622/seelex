@@ -381,11 +381,57 @@ func queuedInputRefs(queue []chatRequest) []string {
 // task_context.Coordinator.VerifyAndApply 路由。
 func (service *Service) TaskTerminalHandler(kind string) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, argsJSON string) (string, error) {
+		service.ensureViewPlanProjection(ctx)
 		result, err := service.components.tasks.VerifyAndApply(ctx, kind, argsJSON)
 		if err == nil {
 			service.mirrorActiveTaskAfterTerminal(ctx)
+			if kind == task_context.ToolCheckNode || kind == task_context.ToolComplete {
+				service.mirrorActivePlanAfterTerminal(ctx)
+			}
 		}
 		return result, err
+	}
+}
+
+// ensureViewPlanProjection 在进入终态工具前确保当前视图会话的协调器投影有
+// 基线（迁移期：直设 Snapshot.Runtime.Plan 的路径/旧装配在 plan_load 前
+// 没有种子时，从镜像补种；已有投影不覆盖）。
+func (service *Service) ensureViewPlanProjection(ctx context.Context) {
+	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		service.ViewMu.RLock()
+		sessionID = service.Core.Snapshot.Session.ID
+		service.ViewMu.RUnlock()
+	}
+	if sessionID == "" {
+		return
+	}
+	service.ViewMu.RLock()
+	plan := service.Core.Snapshot.Runtime.Plan
+	service.ViewMu.RUnlock()
+	service.components.tasks.EnsurePlanProjection(sessionID, plan)
+}
+
+// mirrorActivePlanAfterTerminal 在 check/complete 终态把协调器投影的最新
+// plan 镜像进 Snapshot（这些工具以投影为权威变更点）。
+func (service *Service) mirrorActivePlanAfterTerminal(ctx context.Context) {
+	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		service.ViewMu.RLock()
+		sessionID = service.Core.Snapshot.Session.ID
+		service.ViewMu.RUnlock()
+	}
+	if sessionID == "" {
+		return
+	}
+	plan := service.components.tasks.PlanProjectionCopy(sessionID)
+	if plan == nil {
+		return
+	}
+	service.ViewMu.Lock()
+	defer service.ViewMu.Unlock()
+	if sessionID == service.Core.Snapshot.Session.ID {
+		service.Core.Snapshot.Runtime.Plan = plan
 	}
 }
 

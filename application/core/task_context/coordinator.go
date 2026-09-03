@@ -492,7 +492,7 @@ func (c *Coordinator) currentTaskServiceForLocked(sessionID string) *TaskService
 	if ts != nil && ts.state == state {
 		return ts
 	}
-	return newTaskService(sessionID, c.Core, state, c.queuedInputRefs)
+	return newTaskService(sessionID, c.Core, c, state, c.queuedInputRefs)
 }
 
 // taskServiceForRequestLocked 按 requestID 返回任务的 TaskService（未绑定
@@ -504,7 +504,7 @@ func (c *Coordinator) taskServiceForRequestLocked(requestID string) *TaskService
 		if ts != nil && ts.state == state {
 			return ts
 		}
-		return newTaskService(c.SessionIDForRequest(requestID), c.Core, state, c.queuedInputRefs)
+		return newTaskService(c.SessionIDForRequest(requestID), c.Core, c, state, c.queuedInputRefs)
 	}
 	return c.currentTaskServiceForLocked(c.activeSessionIDLocked())
 }

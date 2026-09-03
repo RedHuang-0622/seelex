@@ -22,18 +22,40 @@ type PlanProjectionReader interface {
 	PlanStatus() model.PlanStatus
 	Converged() bool
 	Flush(ctx context.Context) error
+	// Plan 返回当前 plan 投影的只读深拷贝（TaskService 终态判定用；协调器
+	// 投影缺失时回退视图镜像，保证测试直设 Snapshot 的旧路径仍可用）。
+	Plan() *model.PlanState
 }
 
 // planProjectionReader 是 PlanProjectionReader 的默认实现：读取由事件投影
 // 累积的 PlanState（snapshot.Runtime.Plan）。当前接线中 workplan 事件在
 // Append 内同步入库并投影，生产 Flush 为空操作；flush 钩子保留给测试注入。
 type planProjectionReader struct {
-	*state.Core
-	flush func(context.Context) error
+	c         *Coordinator
+	core      *state.Core
+	sessionID string
+	flush     func(context.Context) error
+}
+
+func (r *planProjectionReader) plan() *model.PlanState {
+	if r == nil {
+		return nil
+	}
+	if r.c != nil {
+		if plan := r.c.PlanProjectionCopy(r.sessionID); plan != nil {
+			return plan
+		}
+	}
+	if r.core == nil {
+		return nil
+	}
+	// 回退：测试/迁移期直设 Snapshot.Runtime.Plan 的路径（调用方持有
+	// Core.ViewMu 时读取镜像）。
+	return model.CloneRuntimeState(model.RuntimeState{Plan: r.core.Snapshot.Runtime.Plan}).Plan
 }
 
 func (r *planProjectionReader) AllNodes() []string {
-	plan := r.Snapshot.Runtime.Plan
+	plan := r.plan()
 	if plan == nil {
 		return nil
 	}
@@ -45,7 +67,7 @@ func (r *planProjectionReader) AllNodes() []string {
 }
 
 func (r *planProjectionReader) NodeStatus(nodeID string) model.NodeStatus {
-	plan := r.Snapshot.Runtime.Plan
+	plan := r.plan()
 	if plan == nil {
 		return model.NodePending
 	}
@@ -58,18 +80,22 @@ func (r *planProjectionReader) NodeStatus(nodeID string) model.NodeStatus {
 }
 
 func (r *planProjectionReader) PlanStatus() model.PlanStatus {
-	if plan := r.Snapshot.Runtime.Plan; plan != nil {
+	if plan := r.plan(); plan != nil {
 		return plan.Status
 	}
 	return ""
 }
 
 func (r *planProjectionReader) Converged() bool {
-	plan := r.Snapshot.Runtime.Plan
+	plan := r.plan()
 	if plan == nil {
 		return true
 	}
 	return plan.Status != model.PlanRunning
+}
+
+func (r *planProjectionReader) Plan() *model.PlanState {
+	return r.plan()
 }
 
 func (r *planProjectionReader) Flush(ctx context.Context) error {
@@ -127,6 +153,7 @@ type terminalToolHandlers map[string]func(context.Context, taskTerminal) (string
 type TaskService struct {
 	*state.Core
 	sessionID    string
+	tasks        *Coordinator
 	state        *TaskExecutionState
 	projection   PlanProjectionReader
 	terminals    terminalToolHandlers
@@ -141,12 +168,13 @@ type TaskService struct {
 
 // newTaskService 构造当前任务的 TaskService。state 为 nil 时表示无活跃任务。
 // sessionID 是该任务归属会话（多会话并行时用于快照写入守卫与状态路由）。
-func newTaskService(sessionID string, core *state.Core, taskState *TaskExecutionState, queueRefs func() []string) *TaskService {
+func newTaskService(sessionID string, core *state.Core, tasks *Coordinator, taskState *TaskExecutionState, queueRefs func() []string) *TaskService {
 	service := &TaskService{
 		Core:       core,
 		sessionID:  sessionID,
+		tasks:      tasks,
 		state:      taskState,
-		projection: &planProjectionReader{Core: core},
+		projection: &planProjectionReader{c: tasks, core: core, sessionID: sessionID},
 		queueRefs:  queueRefs,
 	}
 	service.terminals = terminalToolHandlers{
@@ -216,7 +244,7 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 	if state == nil || state.RequestID != summary.RequestID || state.Terminal != nil {
 		return model.TaskState{}, nil
 	}
-	if plan := s.Snapshot.Runtime.Plan; plan != nil {
+	if plan := s.projection.Plan(); plan != nil {
 		switch plan.Status {
 		case model.PlanPending, model.PlanRunning:
 			state.Status = StatusNeedsUserDecision
@@ -322,34 +350,31 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 // applyCheckNodeLocked 接受 task_check_node：把已加载任务结构中的单个节点
 // 打点为 completed（在途进度，不结束任务）。
 func (s *TaskService) applyCheckNodeLocked(ctx context.Context, input taskTerminal) (string, error) {
-	plan := s.Snapshot.Runtime.Plan
+	plan := s.projection.Plan()
 	if plan == nil {
 		return "", fmt.Errorf("%s: no task structure is loaded; load one with plan_load first", ToolCheckNode)
 	}
-	var node *model.PlanNode
+	var label string
 	for index := range plan.Nodes {
 		if plan.Nodes[index].ID == input.NodeID {
-			node = &plan.Nodes[index]
+			label = plan.Nodes[index].Label
 			break
 		}
 	}
-	if node == nil {
+	found := false
+	if s.tasks != nil {
+		var changed bool
+		found, changed = s.tasks.CheckPlanNodeProjection(s.sessionID, input.NodeID, input.Output)
+		if changed {
+			s.state.Checkpoint(input.NodeID, label, "completed", input.Output, "")
+			s.state.ProgressEpoch++
+		}
+	}
+	if !found {
 		return "", fmt.Errorf("%s: unknown node %q", ToolCheckNode, input.NodeID)
 	}
-	if node.Status != model.NodeCompleted {
-		node.Status = model.NodeCompleted
-		if input.Output != "" {
-			node.Output = input.Output
-		}
-		AppendPlanNodeEvent(node, dto.PlanNodeEvent{
-			NodeID: input.NodeID, Status: "completed", Output: input.Output, At: time.Now(),
-		})
-		RecalculatePlanProgress(plan)
-		s.state.Checkpoint(input.NodeID, node.Label, "completed", input.Output, "")
-		s.state.ProgressEpoch++
-	}
 	encoded, _ := json.Marshal(map[string]string{
-		"status": "accepted", "node_id": input.NodeID, "node_status": string(node.Status),
+		"status": "accepted", "node_id": input.NodeID, "node_status": "completed",
 	})
 	return string(encoded), nil
 }
@@ -408,15 +433,9 @@ func (s *TaskService) verifyCompletionLocked(terminal taskTerminal) error {
 }
 
 func (s *TaskService) completeAuthoritativePlanLocked() error {
-	plan := s.Snapshot.Runtime.Plan
-	if plan == nil {
-		return nil
+	if s.tasks != nil {
+		s.tasks.CompletePlanProjection(s.sessionID)
 	}
-	for index := range plan.Nodes {
-		plan.Nodes[index].Status = model.NodeCompleted
-	}
-	plan.Status = model.PlanCompleted
-	plan.Progress = 1
 	return nil
 }
 
