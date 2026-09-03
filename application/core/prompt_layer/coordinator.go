@@ -6,6 +6,7 @@ package prompt_layer
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
@@ -42,6 +43,9 @@ type Coordinator struct {
 	effortManager *prompt.EffortManager
 	tasks         TaskContextView
 
+	// cacheMu 保护 lastSystemPrompt（prompt 域自有状态锁；G5 锁拆分：本层
+	// 只串行化自己的"前缀缓存 + 引擎同步"临界区，不借用 Core.ViewMu 护它）。
+	cacheMu          sync.Mutex
 	lastSystemPrompt string // 缓存前缀稳定：内容不变时不重复 SetSystemPrompt
 }
 
@@ -57,6 +61,8 @@ func NewCoordinator(deps Deps) *Coordinator {
 
 // BuildSystemPrompt 只组装 system 层（skill 内容留在请求信封，不持久化）。
 func (c *Coordinator) BuildSystemPrompt() {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
 	c.promptStack.ClearKind("identity")
 	c.promptStack.ClearKind("instructions")
 	c.promptStack.Push("identity", "identity", promptassets.SystemIdentity())
@@ -92,6 +98,8 @@ func (c *Coordinator) ApplyActiveTaskSystemPromptFor(sessionID, requestID string
 	}
 	promptText := c.SystemPromptForActiveTaskLockedFor(sessionID)
 	c.ViewMu.RUnlock()
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
 	if promptText == c.lastSystemPrompt {
 		return
 	}

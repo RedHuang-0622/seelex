@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"strings"
@@ -133,17 +134,24 @@ func TestArchiveSessionHidesSessionFromItsProjectGrid(t *testing.T) {
 		t.Fatalf("create workspace: %v", err)
 	}
 	sessions.add("project-1", "session-b")
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 2 })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := service.WaitCatalogRefresh(ctx); err != nil {
+		t.Fatalf("catalog settle after project add: %v", err)
+	}
+	if got := len(service.Snapshot().Sessions); got != 2 {
+		t.Fatalf("catalog after settle = %d sessions, want 2", got)
+	}
 
 	if err := service.ArchiveSession("session-a"); err != nil {
 		t.Fatalf("ArchiveSession: %v", err)
 	}
-	snapshot := waitForSnapshot(t, service, func(snapshot Snapshot) bool {
-		ids := sessionIDsOf(snapshot.Sessions)
-		return len(ids) == 1 && containsSessionID(ids, "session-b")
-	})
-	if containsSessionID(sessionIDsOf(snapshot.Sessions), "session-a") {
-		t.Fatalf("archived session-a still listed: %v", sessionIDsOf(snapshot.Sessions))
+	if err := service.WaitCatalogRefresh(ctx); err != nil {
+		t.Fatalf("catalog settle after archive: %v", err)
+	}
+	ids := sessionIDsOf(service.Snapshot().Sessions)
+	if len(ids) != 1 || !containsSessionID(ids, "session-b") || containsSessionID(ids, "session-a") {
+		t.Fatalf("archived session-a still listed: %v", ids)
 	}
 	record, ok := sessions.recordFor("", "session-a")
 	if !ok || record.Status != SessionStatusArchived {
@@ -164,7 +172,11 @@ func TestArchiveSessionRejectsBusySessions(t *testing.T) {
 	sessions := newArchiveCommandSessions()
 	sessions.add("", "session-a")
 	service := archiveTestService(t, sessions)
-	waitForSnapshot(t, service, func(snapshot Snapshot) bool { return len(snapshot.Sessions) == 1 })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := service.WaitCatalogRefresh(ctx); err != nil {
+		t.Fatalf("catalog settle: %v", err)
+	}
 
 	service.ViewMu.Lock()
 	unit := service.sessionUnitLocked("session-a")

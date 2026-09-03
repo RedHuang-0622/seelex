@@ -88,9 +88,15 @@ func NewCoordinator(deps Deps) *Coordinator {
 	}
 }
 
-// activeSessionIDLocked 返回当前活跃会话（快照归属会话）。调用方持有
-// Core.ViewMu。
+// activeSessionIDLocked 返回当前活跃会话。G5 锁拆分过渡期统一走注入的
+// currentSessionID（session.Domain.ActiveID，线程安全），不再读
+// Core.Snapshot.Session.ID 当"活跃会话神谕"（INV-G2：视图指针唯一持有者在
+// Domain）。测试桩未注入回调时回退快照读（仅迁移期路径，仍要求调用方持有
+// Core.ViewMu）。
 func (c *Coordinator) activeSessionIDLocked() string {
+	if c.currentSessionID != nil {
+		return c.currentSessionID()
+	}
 	return c.Snapshot.Session.ID
 }
 

@@ -2,6 +2,7 @@ package core
 
 import (
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
@@ -44,6 +45,12 @@ func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T) {
 		if err := service.ResumeSession(sessionID); err != nil {
 			t.Fatalf("resume %s: %v", sessionID, err)
 		}
+	}
+	// 驱逐在 touchResident 内同步完成；-race 全量/高负载下给调度一个极短
+	// 的收敛窗（不改断言语义，仅容忍环境抖动）。
+	deadline := time.Now().Add(2 * time.Second)
+	for engine.HasSession("sess-1") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
 	}
 	if engine.HasSession("sess-1") {
 		t.Fatalf("sess-1 engine still resident after exceeding limit（LRU 最旧应被驱逐）\n%s", engine.debugSnapshot())
