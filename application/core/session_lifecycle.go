@@ -91,7 +91,7 @@ func (service *Service) UnloadSession(sessionID string) error {
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
 

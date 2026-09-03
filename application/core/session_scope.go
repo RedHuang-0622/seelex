@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -11,6 +12,24 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/session"
 )
+
+// transitionView 返回视图过渡锁（G5）：影响视图指针/当前视图会话生命周期
+// 的命令共用视图 key（同会话串行、不同会话并行目前只适用于不触碰视图的
+// 生命周期段；视图命令保持单例过渡，见 transitionForKey 注释）。
+func (service *Service) transitionView() sync.Locker {
+	return service.transitionForKey("")
+}
+
+// transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会
+// 话路由引擎（SessionChatEngine）下，key=会话 ID 表示该会话生命周期命令
+// 串行、不同会话可并行；非路由单会话引擎一律归一到视图 key——该宿主没有
+// 跨会话并行面，任何 per-session 拆分都会重新引入进程级引擎串写。
+func (service *Service) transitionForKey(key string) sync.Locker {
+	if _, routed := service.Deps.Engine.(contract.SessionChatEngine); !routed {
+		return service.components.sessions.TransitionLock("")
+	}
+	return service.components.sessions.TransitionLock(key)
+}
 
 // sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 // 9.5 起 core 直接经会话单元接入；按需创建）。

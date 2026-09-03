@@ -27,7 +27,7 @@ type composerRecordPort interface {
 // SaveComposerDraft 保存当前视图草稿会话的未发送输入（仅 draft 会话允许；
 // 草稿正文随会话 record 落盘，跨重启恢复）。提交后由 materialize 清空。
 func (service *Service) SaveComposerDraft(text string) error {
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
 

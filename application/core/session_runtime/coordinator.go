@@ -37,20 +37,22 @@ type Coordinator struct {
 // sessionRuntimeState 是会话域自持状态（Catalog worker 的 channel 生命周期
 // 由 Start/StopCatalogRefresh 管理）。
 type sessionRuntimeState struct {
-	// transition 是"会话切换互斥"的显式 actor（无锁化：单 goroutine 持有
-	// inFlight 状态，channel 命令；取代原 sync.Mutex，见 transition_actor.go）。
-	transition *SessionTransitionActor
+	// transition 是"会话过渡互斥"的 per-session keyed 注册表（G5：同会话
+	// 串行、跨会话并行；视图命令共用 view key）。每个 key 一个显式 actor
+	// （无锁化：单 goroutine 持有 inFlight 状态，channel 命令；取代原
+	// 进程级单把 mutex，见 transition_actor.go / transition_manager.go）。
+	transition *SessionTransitionManager
 	// catalogMu 保护会话目录 worker 的三类内存态：目录缓存（最近一轮枚举
 	// 结果）、会话标题表与刷新回执队列。G5：目录枚举/标题恢复走外部
 	// SessionPort/WorkspacePort（阻塞 I/O），一律在锁外完成；catalogMu
 	// 只护"换内存态"，发布镜像到 Snapshot 时另取 ViewMu 短临界区。
 	// 锁序：ViewMu → catalogMu（目录 worker 从不反向持有）。
-	catalogMu         sync.Mutex
-	catalogSessions   []model.SessionInfo
-	catalogWorkspaces map[string]string
-	catalogTitles     map[string]model.SessionTitle
-	catalogWaiters    []chan struct{}
-	catalogStopped    bool
+	catalogMu          sync.Mutex
+	catalogSessions    []model.SessionInfo
+	catalogWorkspaces  map[string]string
+	catalogTitles      map[string]model.SessionTitle
+	catalogWaiters     []chan struct{}
+	catalogStopped     bool
 	sessionCatalogWake chan struct{}
 	sessionCatalogStop chan struct{}
 	sessionCatalogDone chan struct{}
@@ -80,7 +82,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		limits:               deps.Limits,
 		displayUserInput:     deps.DisplayUserInput,
 		sessionRuntimeState: sessionRuntimeState{
-			transition:         NewSessionTransitionActor(),
+			transition:         NewSessionTransitionManager(),
 			catalogWorkspaces:  make(map[string]string),
 			catalogTitles:      make(map[string]model.SessionTitle),
 			sessionCatalogWake: make(chan struct{}, 1),
@@ -142,11 +144,12 @@ func (c *Coordinator) CatalogCache() ([]model.SessionInfo, map[string]string) {
 	return sessions, workspaces
 }
 
-// TransitionLock 返回会话切换互斥（BeginNewSession/ResumeSession/
-// BindWorkspace 等根包跨域事务共用）。实现为显式 actor（无 mutex）：
-// inFlight 状态由单一 goroutine 持有，Acquire/Release 经 channel 命令。
-func (c *Coordinator) TransitionLock() sync.Locker {
-	return transitionLocker{actor: c.transition}
+// TransitionLock 返回指定 key 的会话过渡互斥（key=会话 ID：该会话生命
+// 周期命令串行、不同会话并行；key=""：视图过渡保留 key，BeginNewSession/
+// ResumeSession/BindWorkspace 等影响视图指针的根包跨域事务共用）。实现为
+// per-key 显式 actor（无 mutex），见 transition_manager.go。
+func (c *Coordinator) TransitionLock(key string) sync.Locker {
+	return c.transition.Lock(key)
 }
 
 // BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；

@@ -19,7 +19,7 @@ func (service *Service) ForkSession(parentID string, request model.ForkRequest) 
 	if parentID == "" {
 		return "", errors.New("session ID is required")
 	}
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionForKey(parentID)
 	transition.Lock()
 	childID, err := service.forkSessionLocked(parentID, request)
 	transition.Unlock()
@@ -39,7 +39,7 @@ func (service *Service) ForkSessionLatest(parentID string) (string, error) {
 	if parentID == "" {
 		return "", errors.New("session ID is required")
 	}
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionForKey(parentID)
 	transition.Lock()
 	location := service.components.sessions.LocateSession(parentID)
 	cut, err := service.components.sessions.LatestForkCut(location, parentID)

@@ -52,7 +52,7 @@ func (service *Service) BindWorkspace(workspaceID string) error {
 }
 
 func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
 
@@ -141,7 +141,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 }
 
 func (service *Service) UnbindWorkspace() {
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
 

@@ -114,7 +114,7 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(service.currentViewSessionID())
 	request.budget = reactBudgetFor(effort)
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
 	if err := service.materializeDraftSession(request.displayInput); err != nil {

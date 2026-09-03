@@ -25,7 +25,7 @@ func (service *Service) newDraftSessionIDLocked() string {
 // 真实 conversation 请求发出时创建。草稿槽位携带 ID 与工作区绑定，切换
 // 会话后仍可恢复；首次提交（materializeDraftSession）时消费并清空。
 func (service *Service) BeginNewSession() error {
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
 

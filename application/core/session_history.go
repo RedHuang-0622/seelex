@@ -30,7 +30,7 @@ func (service *Service) resumeSession(sessionID string) error {
 		return errors.New("session ID is required")
 	}
 
-	transition := service.components.sessions.TransitionLock()
+	transition := service.transitionView()
 	transition.Lock()
 	defer transition.Unlock()
 
