@@ -35,7 +35,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T)`
 - `func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T)`
-- `func TestRuntimeMailboxDrainsIntoHistoryOutsideServiceLock(t *testing.T)`
+- `func TestRuntimeMailboxDrainsIntoHistoryAndVisibleEvidence(t *testing.T)`
 - `func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T)`
 - `func TestChatPublishesSnapshotWithoutUI(t *testing.T)`
 - `func TestGracefulShutdownWaitsForQueuedChat(t *testing.T)`
@@ -94,6 +94,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection)`
 - `func (runtime *fakeRuntime) DrainSubagentContexts() []string` — DrainSubagentContexts 排空 merge-back 邮箱。M2 多会话并行下多个
 - `func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy)`
+- `func (runtime *fakeRuntime) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy)`
+- `func (runtime *fakeRuntime) planPolicyFor(sessionID string) (dto.PlanPolicy, bool)`
 - `func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error)`
 - `func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics`
 - `func (runtime *fakeRuntime) ReplanMetricsFor(sessionID string) dto.ReplanMetrics`
@@ -183,6 +185,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func (service *Service) injectPendingSubagentContexts()` — injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
 - `func (service *Service) injectPendingSubagentContextsFor(sessionID string)` — injectPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
+- `func (service *Service) recordSubagentEvidence(sessionID, content string)` — recordSubagentEvidence 把子代理合并回父的一条证据记录写入目标会话：
 - `func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error)` — chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
 - `func (service *Service) appendEngineMessage(sessionID string, msg types.Message)` — appendEngineMessage 追加消息到指定会话引擎历史。
 - `func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用

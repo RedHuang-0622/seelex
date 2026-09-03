@@ -42,7 +42,6 @@ func (store *draftRecordStore) List() []SessionInfo {
 	defer store.mu.Unlock()
 	out := make([]SessionInfo, 0, len(store.catalog))
 	for _, item := range store.catalog {
-		item.UpdatedAt = item.UpdatedAt
 		out = append(out, item)
 	}
 	return out

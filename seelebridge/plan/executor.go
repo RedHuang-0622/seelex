@@ -16,6 +16,7 @@ import (
 	workplancheckpoint "github.com/RedHuang-0622/Seele/workplan/runtime/checkpoint"
 	"github.com/RedHuang-0622/Seele/workplan/sugar/approve"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 )
 
@@ -86,16 +87,14 @@ func (executor *Executor) slotLocked(sessionID string) *planSlot {
 	return slot
 }
 
-// readSlot 返回指定会话槽（读锁内调用）；不存在时返回默认槽值（无 sid
-// 的 legacy 写入对显式会话读取可见，兼容最小宿主）。
+// readSlot 返回指定会话槽（读锁内调用）。显式会话只读自己的槽：槽未建
+// 时返回零值，绝不回退全局默认（G1-C/M6：额度按 sid 建槽，activeSessionID
+// 与默认槽不得成为后台会话的事实源）；"" 是 legacy 无 sid 槽。
 func (executor *Executor) readSlot(sessionID string) *planSlot {
 	if executor.slots == nil {
 		return &planSlot{}
 	}
 	if slot := executor.slots[sessionID]; slot != nil {
-		return slot
-	}
-	if slot := executor.slots[""]; slot != nil {
 		return slot
 	}
 	return &planSlot{}
@@ -124,9 +123,9 @@ func NewExecutor(
 	// plan 节点事件走 CSP channel（非阻塞投递；消费者慢时丢事件——前端经
 	// Snapshot resync 兜底），application 侧不同步回调嵌套。
 	executor.events.Subscribe(func(event PlanNodeEvent) {
-		// 事件归属会话 = 当前 plan 分支绑定会话（P6 收口：后台会话 plan
-		// 事件携带自身 sid，应用侧按会话路由投影）。
-		event.SessionID = executor.Binding().SessionID
+		// 事件归属会话由 sink 写入（AppendPhase/AppendNodeResult 携带执行
+		// 绑定；runner 事件从 Locations 投影）。订阅者不再读全局单例补号：
+		// 并发会话的 plan 事件各自携带自身 sid，应用侧按会话路由投影。
 		select {
 		case executor.nodeEvents <- event:
 		default:
@@ -409,10 +408,6 @@ func (executor *Executor) beginRunFor(sessionID string) string {
 	runID := newPlanRunID()
 	executor.slotMu.Lock()
 	executor.slotLocked(sessionID).runID = runID
-	if sessionID != "" {
-		// 单飞别名：legacy 读取（CurrentRunID/AppendPhase）仍可见当前 run。
-		executor.slotLocked("").runID = runID
-	}
 	executor.slotMu.Unlock()
 	return runID
 }
@@ -442,11 +437,19 @@ func (executor *Executor) AppendPhase(ctx context.Context, nodeID, status string
 	if executor == nil || executor.events == nil || nodeID == "" || status == "" {
 		return
 	}
+	sessionID := runSessionID(ctx)
 	executor.slotMu.RLock()
-	slot := executor.readSlot("")
+	slot := executor.readSlot(sessionID)
 	runID := slot.runID
 	executor.slotMu.RUnlock()
-	executor.events.AppendPhase(ctx, executor.Binding(), runID, nodeID, status)
+	executor.events.AppendPhase(ctx, executor.BindingFor(sessionID), runID, nodeID, status)
+}
+
+// runSessionID 从执行 ctx 读取当前会话 ID（seelebridge 会话入口注入：
+// ChatStreamFor/节点会话把 runChat 的 sid 转写为 telemetry 路由键，工具
+// handler 原样收到）。空 = legacy 无 sid 路径（回退默认槽）。
+func runSessionID(ctx context.Context) string {
+	return seetelemetry.SessionIDFromContext(ctx)
 }
 
 // ReplanMetrics 返回 replan 成本与拒绝统计（legacy 无 sid 口径 = 默认槽）。

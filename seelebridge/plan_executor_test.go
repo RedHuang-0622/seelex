@@ -154,7 +154,7 @@ func TestPlanExecutorConcurrentEventProjection(t *testing.T) {
 					NodeID: nodeID, Kind: "auto", Status: "completed", Output: nodeID,
 					StartedAt: time.Now().Add(-time.Second), EndedAt: time.Now(),
 				}}
-				executor.EventSink().AppendNodeResult(context.Background(), "p", "r", nr)
+				executor.EventSink().AppendNodeResult(context.Background(), dto.PlanBranchBinding{}, "p", "r", nr)
 				executor.EventSink().AppendPhase(context.Background(), executor.Binding(), "r", nodeID, "running")
 			}
 		}(i)

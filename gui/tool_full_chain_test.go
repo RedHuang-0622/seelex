@@ -103,6 +103,7 @@ func (*guiChainRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibi
 func (*guiChainRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
 func (*guiChainRuntime) DrainSubagentContexts() []string                                        { return nil }
 func (*guiChainRuntime) SetPlanPolicy(dto.PlanPolicy)                                           {}
+func (*guiChainRuntime) SetPlanPolicyFor(string, dto.PlanPolicy)                                {}
 func (*guiChainRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
 	return dto.PlanPreflight{}, nil
 }

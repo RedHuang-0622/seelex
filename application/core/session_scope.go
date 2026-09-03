@@ -8,6 +8,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/event"
+	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -46,6 +47,16 @@ func (service *Service) effortForSession(sessionID string) string {
 		}
 	}
 	return service.effortManager.Current()
+}
+
+// syncPlanPolicyFor 按会话 effort 向引擎写入该会话的 plan 策略槽（G1-C：
+// plan_load/plan_run 在引擎内按执行 ctx 的会话读取自己的槽；chat 起点同步，
+// 保证每个会话（含后台）都携带自己的额度，而不是继承进程默认槽）。
+func (service *Service) syncPlanPolicyFor(sessionID string) {
+	if service == nil || service.Deps.Runtime == nil {
+		return
+	}
+	service.Deps.Runtime.SetPlanPolicyFor(sessionID, prompt.PlanningPolicy(service.effortForSession(sessionID)))
 }
 
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行

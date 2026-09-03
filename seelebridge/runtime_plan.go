@@ -121,6 +121,15 @@ func (r *Runtime) SetPlanPolicy(policy dto.PlanPolicy) {
 	r.planExecutor.SetPolicy(policy)
 }
 
+// SetPlanPolicyFor 按会话写入 plan 策略槽（G1-C：plan_load/plan_run 按执行
+// ctx 会话读取自己的策略；未建槽会话按零值执行，绝不回退进程默认槽）。
+func (r *Runtime) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy) {
+	if r == nil || r.planExecutor == nil {
+		return
+	}
+	r.planExecutor.SetPolicyFor(sessionID, policy)
+}
+
 // agentDispatch 统一工具分发入口（agent.DirectDispatch 语义等价）。
 func (r *Runtime) agentDispatch(ctx context.Context, name, argsJSON string) (string, error) {
 	if r.agt == nil {

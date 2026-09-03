@@ -28,6 +28,12 @@ func (port RuntimePort) DrainSubagentContexts() []string { return port.Runtime.D
 func (port RuntimePort) SetPlanPolicy(policy dto.PlanPolicy) {
 	port.Runtime.SetPlanPolicy(policy)
 }
+
+// SetPlanPolicyFor 按会话写入 plan 策略槽（会话 effort 同步入口；引擎侧
+// plan_load/plan_run 按执行 ctx 会话读取自己的槽）。
+func (port RuntimePort) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy) {
+	port.Runtime.SetPlanPolicyFor(sessionID, policy)
+}
 func (port RuntimePort) PrepareReplan(ctx context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error) {
 	return port.Runtime.PrepareReplan(ctx, request)
 }

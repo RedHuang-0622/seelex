@@ -368,7 +368,7 @@ func TestPlanEventSinkAppendAndProjection(t *testing.T) {
 		NodeID: "n1", Kind: "auto", Status: "completed", Output: "output-1",
 		StartedAt: started, EndedAt: ended,
 	}}
-	sink.AppendNodeResult(context.Background(), "p1", "r1", nr)
+	sink.AppendNodeResult(context.Background(), dto.PlanBranchBinding{}, "p1", "r1", nr)
 	if len(projected) != 2 {
 		t.Fatalf("projection count = %d, want 2", len(projected))
 	}
@@ -397,7 +397,7 @@ func TestPlanEventSinkPersisterReceivesEveryEvent(t *testing.T) {
 		NodeID: "n1", Kind: "auto", Status: "completed", Output: "out",
 		StartedAt: started, EndedAt: time.Now(),
 	}}
-	sink.AppendNodeResult(context.Background(), "p", "r", nr)
+	sink.AppendNodeResult(context.Background(), dto.PlanBranchBinding{}, "p", "r", nr)
 	if len(persisted) != 2 {
 		t.Fatalf("persisted = %d, want 2", len(persisted))
 	}

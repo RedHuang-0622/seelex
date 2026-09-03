@@ -18,6 +18,11 @@
 - `func TestTodoItemsProjectIntoRuntimeSnapshot(t *testing.T)` — TestTodoItemsProjectIntoRuntimeSnapshot 验证 todolist 清单经运行时投影
 - `func strPtr(value string) *string`
 
+### subagent_evidence_test.go
+
+- `func (runtime *evidenceRuntime) DrainSubagentContexts() []string`
+- `func TestSubagentMergeBackEvidenceVisibleAndDurable(t *testing.T)` — TestSubagentMergeBackEvidenceVisibleAndDurable（G4/INV-G12）：子代理合并回
+
 ### subagent_tree_test.go
 
 - `func TestHandlePlanNodeCompleteProjectsSubAgentTree(t *testing.T)` — TestHandlePlanNodeCompleteProjectsSubAgentTree 验证 plan 节点事件把

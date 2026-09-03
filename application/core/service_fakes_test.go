@@ -288,18 +288,22 @@ func (engine *fakeEngine) HasSession(sessionID string) bool {
 }
 
 type fakeRuntime struct {
-	account       string
-	fullAccess    bool
-	binding       dto.PlanBranchBinding
-	planPolicy    dto.PlanPolicy
-	visibility    seelebridge.RuntimeVisibilityProjection
-	evidence      seelebridge.ParentEvidenceProjection
-	mailbox       []string
-	mailboxMu     sync.Mutex
-	replans       []dto.ReplanRequest
-	replanResult  dto.PlanPreflight
-	replanErr     error
-	replanMetrics dto.ReplanMetrics
+	account    string
+	fullAccess bool
+	binding    dto.PlanBranchBinding
+	planPolicy dto.PlanPolicy
+	// planPolicyBySession 是按会话 plan 策略槽（G1-C：镜像生产
+	// Runtime.SetPlanPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
+	planPolicyMu        sync.Mutex
+	planPolicyBySession map[string]dto.PlanPolicy
+	visibility          seelebridge.RuntimeVisibilityProjection
+	evidence            seelebridge.ParentEvidenceProjection
+	mailbox             []string
+	mailboxMu           sync.Mutex
+	replans             []dto.ReplanRequest
+	replanResult        dto.PlanPreflight
+	replanErr           error
+	replanMetrics       dto.ReplanMetrics
 	// replanMetricsBySession 是按会话 replan 统计（G1/M5：fake 镜像
 	// 生产 Runtime.ReplanMetricsFor 的会话槽语义）。
 	replanMetricsBySession map[string]dto.ReplanMetrics
@@ -381,6 +385,22 @@ func (runtime *fakeRuntime) DrainSubagentContexts() []string {
 
 func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy) {
 	runtime.planPolicy = policy
+}
+
+func (runtime *fakeRuntime) SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy) {
+	runtime.planPolicyMu.Lock()
+	defer runtime.planPolicyMu.Unlock()
+	if runtime.planPolicyBySession == nil {
+		runtime.planPolicyBySession = make(map[string]dto.PlanPolicy)
+	}
+	runtime.planPolicyBySession[sessionID] = policy
+}
+
+func (runtime *fakeRuntime) planPolicyFor(sessionID string) (dto.PlanPolicy, bool) {
+	runtime.planPolicyMu.Lock()
+	defer runtime.planPolicyMu.Unlock()
+	policy, ok := runtime.planPolicyBySession[sessionID]
+	return policy, ok
 }
 
 func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error) {

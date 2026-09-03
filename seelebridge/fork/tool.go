@@ -9,6 +9,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/workplan/codec"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
 )
@@ -108,7 +109,14 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 	if forkTimeout <= 0 {
 		forkTimeout = 2 * time.Hour
 	}
+	// 剥离外层截止时间（保留用户取消传播），改用 limits.fork_timeout。
+	// forkCtx 由 Background 派生会丢会话路由值，这里把执行会话 ID 重新
+	// 注入（G1-C）：fork 的 plan_run 与主会话 plan_run 同槽登记、事件
+	// 归属同一会话，绝不落进 legacy 默认槽。
 	forkCtx, forkCancel := context.WithTimeout(context.Background(), forkTimeout)
+	if sessionID := seetelemetry.SessionIDFromContext(ctx); sessionID != "" {
+		forkCtx = seetelemetry.WithSessionID(forkCtx, sessionID)
+	}
 	stop := context.AfterFunc(ctx, forkCancel) // 原 ctx 取消（用户停止）→ 同步取消 fork
 	defer stop()
 	defer forkCancel()

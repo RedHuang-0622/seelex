@@ -111,6 +111,7 @@ func (harnessRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibili
 func (harnessRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
 func (harnessRuntime) DrainSubagentContexts() []string                                        { return nil }
 func (harnessRuntime) SetPlanPolicy(dto.PlanPolicy)                                           {}
+func (harnessRuntime) SetPlanPolicyFor(string, dto.PlanPolicy)                                {}
 func (harnessRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
 	return dto.PlanPreflight{}, nil
 }

@@ -109,6 +109,9 @@ type RuntimePort interface {
 	SetParentEvidenceProjection(dto.ParentEvidenceProjection)
 	DrainSubagentContexts() []string
 	SetPlanPolicy(dto.PlanPolicy)
+	// SetPlanPolicyFor 按会话写入 plan 策略槽（G1-C：plan_load/plan_run 按
+	// 执行 ctx 会话读取自己的额度；chat 起点由 application 按会话 effort 同步）。
+	SetPlanPolicyFor(sessionID string, policy dto.PlanPolicy)
 	PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error)
 	ReplanMetrics() dto.ReplanMetrics
 	SetPlanBranchBinding(dto.PlanBranchBinding)

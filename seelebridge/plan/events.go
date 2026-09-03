@@ -68,8 +68,9 @@ func (s *EventSink) storeEvent(ctx context.Context, ev frameworkevent.Event) err
 
 // AppendNodeResult 记录 runner NodeHook 的节点完成结果：合成框架形态事件
 // 入库（保持事件库完整），并向订阅者投影一次含 kind/elapsed 的节点级事件
-// （避免与入库事件的自动投影重复）。
-func (s *EventSink) AppendNodeResult(ctx context.Context, planID, runID string, nr *workplanTypes.NodeResult) {
+// （避免与入库事件的自动投影重复）。binding 携带本次 plan_run 的会话归属：
+// 事件定位与投影 SessionID 均以执行绑定的会话为准（G1-C：不再读全局单例）。
+func (s *EventSink) AppendNodeResult(ctx context.Context, binding PlanBranchBinding, planID, runID string, nr *workplanTypes.NodeResult) {
 	if s == nil || nr == nil {
 		return
 	}
@@ -78,23 +79,33 @@ func (s *EventSink) AppendNodeResult(ctx context.Context, planID, runID string, 
 		status = frameworkevent.StatusFailed
 	}
 	content, _ := json.Marshal(nr.Output)
-	_ = s.storeEvent(ctx, frameworkevent.Event{
+	ev := frameworkevent.Event{
 		Source:     "workplan.runner",
 		Type:       frameworkevent.TypeLifecycle,
 		Status:     status,
 		Scope:      frameworkevent.Scope{PlanID: planID, RunID: runID, NodeID: nr.NodeID},
 		Content:    content,
 		OccurredAt: nr.EndedAt,
-	})
+	}
+	if binding.SessionID != "" {
+		ev.Locations = []frameworkevent.Location{{
+			Kind: "agent.runtime",
+			IDs: map[string]string{
+				"agent_id": mainAgentID, "session_id": binding.SessionID,
+			},
+		}}
+	}
+	_ = s.storeEvent(ctx, ev)
 	s.publish(PlanNodeEvent{
-		PlanID:  planID,
-		RunID:   runID,
-		NodeID:  nr.NodeID,
-		Kind:    nr.Kind,
-		Status:  nr.Status,
-		Output:  nr.Output,
-		Elapsed: nr.Elapsed().String(),
-		At:      nr.EndedAt,
+		SessionID: binding.SessionID,
+		PlanID:    planID,
+		RunID:     runID,
+		NodeID:    nr.NodeID,
+		Kind:      nr.Kind,
+		Status:    nr.Status,
+		Output:    nr.Output,
+		Elapsed:   nr.Elapsed().String(),
+		At:        nr.EndedAt,
 	})
 }
 
@@ -177,22 +188,24 @@ func planEventProjection(ev frameworkevent.Event) *PlanNodeEvent {
 			return nil
 		}
 		return &PlanNodeEvent{
-			PlanID: ev.Scope.PlanID,
-			RunID:  ev.Scope.RunID,
-			NodeID: ev.Scope.NodeID,
-			Status: string(frameworkevent.StatusRunning),
-			At:     ev.OccurredAt,
+			SessionID: sessionIDFromLocations(ev.Locations),
+			PlanID:    ev.Scope.PlanID,
+			RunID:     ev.Scope.RunID,
+			NodeID:    ev.Scope.NodeID,
+			Status:    string(frameworkevent.StatusRunning),
+			At:        ev.OccurredAt,
 		}
 	}
 	if ev.Type != frameworkevent.TypeLifecycle {
 		return nil
 	}
 	projected := &PlanNodeEvent{
-		PlanID: ev.Scope.PlanID,
-		RunID:  ev.Scope.RunID,
-		NodeID: ev.Scope.NodeID,
-		Status: string(ev.Status),
-		At:     ev.OccurredAt,
+		SessionID: sessionIDFromLocations(ev.Locations),
+		PlanID:    ev.Scope.PlanID,
+		RunID:     ev.Scope.RunID,
+		NodeID:    ev.Scope.NodeID,
+		Status:    string(ev.Status),
+		At:        ev.OccurredAt,
 	}
 	if len(ev.Content) > 0 {
 		var output string
@@ -203,4 +216,19 @@ func planEventProjection(ev frameworkevent.Event) *PlanNodeEvent {
 		}
 	}
 	return projected
+}
+
+// sessionIDFromLocations 从 framework 事件定位读取会话归属（agent.runtime
+// 定位的 session_id；无定位返回空）。事件定位由 runner WithEventLocators /
+// Seelex 合成路径（AppendPhase/AppendNodeResult）写入。
+func sessionIDFromLocations(locations []frameworkevent.Location) string {
+	for _, location := range locations {
+		if location.Kind != "agent.runtime" {
+			continue
+		}
+		if sessionID := location.IDs["session_id"]; sessionID != "" {
+			return sessionID
+		}
+	}
+	return ""
 }

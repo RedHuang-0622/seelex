@@ -70,7 +70,6 @@ type LoadedPlanDoc struct {
 // tools.Registry；plan 状态保存在 Runtime 内存中（slice 4 之前）。
 type ToolProvider struct {
 	executor  *Executor
-	policy    func() PlanPolicy
 	authorize func(context.Context, string) error
 
 	mu                 sync.Mutex
@@ -81,7 +80,6 @@ type ToolProvider struct {
 func NewToolProvider(executor *Executor) *ToolProvider {
 	return &ToolProvider{
 		executor:  executor,
-		policy:    executor.Policy,
 		authorize: AuthorizePlanMutation,
 	}
 }
@@ -261,10 +259,9 @@ func (handler *planLoadPolicyHandler) Execute(ctx context.Context, argsJSON stri
 		return "", fmt.Errorf("plan_load: normalize DAG input: %w", err)
 	}
 
-	policy := PlanPolicy{}
-	if provider.policy != nil {
-		policy = provider.policy()
-	}
+	// 额度按会话槽读取：plan_load 发生在模型回合内，ctx 由会话入口注入
+	// sid；后台会话读取自己的策略槽，绝不回退全局默认（G1-C/M6）。
+	policy := provider.executor.PolicyFor(runSessionID(ctx))
 	nodeCount, err := ValidatePolicyLoad(policy, canonicalArgs)
 	if err != nil {
 		return "", err
@@ -348,17 +345,18 @@ func (handler *planRunHandler) Execute(ctx context.Context, _ string) (string, e
 // 只保留节点元数据、不内嵌完整节点输出——最终内容由 final_output（按子代理
 // 数 ×n 放大的汇总窗口）承载，避免结果超限被归档后模型看不到内容而重跑。
 func (executor *Executor) RunPlan(ctx context.Context, loaded *LoadedPlanDoc, withNodeOutputs bool) (string, error) {
-	runID := executor.beginRun()
-	defer executor.endRun(runID)
-	binding := executor.Binding()
+	sessionID := runSessionID(ctx)
+	runID := executor.beginRunFor(sessionID)
+	defer executor.endRunFor(sessionID, runID)
+	binding := executor.BindingFor(sessionID)
 	planID := binding.PlanID
 	if planID == "" {
 		planID = loaded.Entry
 	}
 	sink := executor.events
-	planRunner := executor.newPlanRunner(loaded, planID, runID, sink)
+	planRunner := executor.newPlanRunner(loaded, binding, planID, runID, sink)
 	planRunner.SetNodeHook(func(nr *workplanTypes.NodeResult) {
-		sink.AppendNodeResult(ctx, planID, runID, nr)
+		sink.AppendNodeResult(ctx, binding, planID, runID, nr)
 	})
 	result, err := planRunner.Run(ctx)
 	executor.persistCheckpoint(loaded.Entry, result, err)
@@ -369,17 +367,18 @@ func (executor *Executor) RunPlan(ctx context.Context, loaded *LoadedPlanDoc, wi
 // 与 RunPlan 共用事件 sink/run ID/NodeHook 契约；checkpoint 未装配时
 // 返回 runner 的错误（Resume 需要 WithCheckpoint 才能 Load）。
 func (executor *Executor) ResumePlan(ctx context.Context, loaded *LoadedPlanDoc, snapshotID string, withNodeOutputs bool) (string, error) {
-	runID := executor.beginRun()
-	defer executor.endRun(runID)
-	binding := executor.Binding()
+	sessionID := runSessionID(ctx)
+	runID := executor.beginRunFor(sessionID)
+	defer executor.endRunFor(sessionID, runID)
+	binding := executor.BindingFor(sessionID)
 	planID := binding.PlanID
 	if planID == "" {
 		planID = loaded.Entry
 	}
 	sink := executor.events
-	planRunner := executor.newPlanRunner(loaded, planID, runID, sink)
+	planRunner := executor.newPlanRunner(loaded, binding, planID, runID, sink)
 	planRunner.SetNodeHook(func(nr *workplanTypes.NodeResult) {
-		sink.AppendNodeResult(ctx, planID, runID, nr)
+		sink.AppendNodeResult(ctx, binding, planID, runID, nr)
 	})
 	result, err := planRunner.Resume(ctx, snapshotID)
 	executor.persistCheckpoint(loaded.Entry, result, err)
@@ -388,15 +387,18 @@ func (executor *Executor) ResumePlan(ctx context.Context, loaded *LoadedPlanDoc,
 
 // newPlanRunner 构造 workplan runner：事件配置与 RunPlan 旧路径逐项等价
 // （sink/runID/heartbeat/error/locators/max-fork），checkpoint 装配时追加
-// WithCheckpoint，使 Resume(snapshotID) 可读回快照上下文续跑。
-func (executor *Executor) newPlanRunner(loaded *LoadedPlanDoc, planID, runID string, sink *EventSink) *workplanrunner.Runner {
+// WithCheckpoint，使 Resume(snapshotID) 可读回快照上下文续跑。binding 是
+// 本次 plan_run 的执行绑定（per-run 携带，G1-C）：runner 生命周期/心跳
+// 事件的 agent.runtime Location 一律使用该绑定的会话与账号，绝不回读
+// 全局默认槽——后台会话的 plan 事件因此从源头携带自身 sid。
+func (executor *Executor) newPlanRunner(loaded *LoadedPlanDoc, binding PlanBranchBinding, planID, runID string, sink *EventSink) *workplanrunner.Runner {
 	opts := []workplanrunner.Option{
 		workplanrunner.WithEventSink(sink, planID),
 		workplanrunner.WithEventRunID(runID),
 		workplanrunner.WithEventHeartbeatPolicy(frameworkevent.HeartbeatPolicy{Interval: executor.deps.Heartbeat}),
 		workplanrunner.WithEventErrorHandler(executor.CurrentEventError()),
 		workplanrunner.WithEventLocators(
-			agent.EventLocator{AgentID: mainAgentID, SessionID: executor.Binding().SessionID, AccountID: executor.Binding().AccountID, Model: executor.deps.Model},
+			agent.EventLocator{AgentID: mainAgentID, SessionID: binding.SessionID, AccountID: binding.AccountID, Model: executor.deps.Model},
 			workplan.EventLocator{PlanID: planID, RunID: runID},
 		),
 	}
@@ -490,7 +492,7 @@ func (provider *ToolProvider) planExport(_ context.Context, _ string) (string, e
 	return provider.loaded.Canonical, nil
 }
 
-func (provider *ToolProvider) planValidate(_ context.Context, argsJSON string) (string, error) {
+func (provider *ToolProvider) planValidate(ctx context.Context, argsJSON string) (string, error) {
 	var input struct {
 		Plan string `json:"plan"`
 	}
@@ -501,10 +503,7 @@ func (provider *ToolProvider) planValidate(_ context.Context, argsJSON string) (
 	if err != nil {
 		return "", fmt.Errorf("plan_validate: normalize DAG input: %w", err)
 	}
-	policy := PlanPolicy{}
-	if provider.policy != nil {
-		policy = provider.policy()
-	}
+	policy := provider.executor.PolicyFor(runSessionID(ctx))
 	nodeCount, err := ValidatePolicyLoad(policy, canonical)
 	if err != nil {
 		return "", err
