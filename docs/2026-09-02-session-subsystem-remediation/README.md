@@ -56,10 +56,12 @@ application/core 权威解析**：`SubscribeSession("")` = 跟随当前视图会
 
 ### 仍是缺口
 
-- [ ] D6b `fork_test.go` 的发散式 `-race`（其余三处已落地：`sessionstore/concurrency_race_test.go`
+- [x] D6b `fork_test.go` 的发散式 `-race`（其余三处已落地：`sessionstore/concurrency_race_test.go`
   的 `TestDurableHistoryConcurrentSessionsStaySeparate`、`TestRouterConcurrentProjectIsolation`、
   `TestProjectRecordConcurrentReadDoesNotTear`；`session_granular` 与 `event_store` 在
-  `session_granular_race_test.go`）。
+  `session_granular_race_test.go`；2026-09-04 补
+  `TestForkToolResultsConcurrentDivergenceStayIsolated`——多对 parent/child 并发深拷贝、
+  删父、子读回，与既有三处同写法）。
 - [x] D7 跨项目 + 后台落盘 + 切换组合：已有 `repro_session_workspace_test.go`、`repro_session_background_test.go`、`repro_session_race_test.go` 覆盖；"切换瞬间 in-flight 事件归属"由阶段 A 的 `application/core/subscribe_session_test.go` 覆盖。
 
 ## 阶段 B · 下沉越界逻辑
@@ -90,14 +92,16 @@ application/core 权威解析**：`SubscribeSession("")` = 跟随当前视图会
 
 ## 阶段 C · application 查询面补齐（headless 可行）
 
-- [ ] C1 `ListSessions` / `SnapshotOf`（扩展到非活跃驻留）/ `GetSessionTranscript(range)`
-  —— **后移到阶段 G 刀 6**。原因：进程内只有一格 `Core.Snapshot.Runtime`，冷拼装只能
-  clone 视图的 Runtime，读回来的 model/tokens/replan/子代理树属于别的会话；且
-  `SnapshotOf` 返回视图 revision，前端 `revision <= floor` 规则会把该会话后续合法增量
-  判为过期丢掉（`gui/frontend/dist/protocol.js:37-39`）。必须先用刀 1'/刀 3 造出每会话
-  Runtime 槽、每会话 revision 与快照分型，冷读面才有干净形状。
-- [ ] C2 `ArchiveSession`（`SetSessionMeta`/`GetSessionMeta` 已随 B6 落地）—— 依赖刀 6
-  的目录按 projectID 索引（归档状态要在目录里过滤，否则仍是全局数组上的标记位）。
+- [x] C1 `ListSessions` / `SnapshotOf`（扩展到非活跃驻留）/ `GetSessionTranscript(range)`
+  —— 2026-09-04 收口：未驻留会话（无 unit 或 Resident=false）从 record +
+  Transcript/事件库拼只读基线（`SessionSnapshot.Resident=false`），撤销
+  `cloneRuntimeState` 视图回退（M4）；新增 `ListSessions`（权威目录行富化）与
+  `GetSessionTranscript(sessionID, fromSeq, toSeq)`（事件库区间读，(0,0)=全量），
+  宿主面经 gui Bridge 暴露。
+- [x] C2 `ArchiveSession`（`SetSessionMeta`/`GetSessionMeta` 已随 B6 落地）—— 2026-09-04
+  收口：busy 门控（running/queued/awaiting_approval 拒绝）→ flush + 释放 bundle →
+  `record.Status=archived`（粘性状态落盘继承）→ 项目分格目录过滤；五片保留可按 ID
+  冷读/重开（存储层枚举不丢行）。
 - [x] C3 目录刷新完成回执：`Coordinator.RequestCatalogRefresh()` 返回 `<-chan struct{}`（**先登记回执再非阻塞唤醒**，worker 每次唤醒逐批排空：每批跑一轮刷新并在发布后关闭，批次为空才回到等待 —— 因此 wake channel 丢唤醒不会丢请求）；`StopCatalogRefresh` 退出路径释放全部在等回执并置停止标记，之后的请求立即收敛，关闭不会被目录 I/O 挂住。新增 `application/core/session_catalog.go` 的 `Service.WaitCatalogRefresh(ctx) error` 作为公开等待口（ctx 超时返回 `ctx.Err()`，不算失败）。
   - `gui/bridge.go`：`BeginNewSession`/`DeleteSession`/`ForkSessionLatest`/`SetSessionMeta` 成功后调用 `settleCatalog()`（预算 `sessionCatalogSettleTimeout = 2s`），使 renderer 紧接着重拉的 `Snapshot()` 已携带权威目录；超时按最佳努力处理，不向上报错。
   - `gui/frontend/dist/app.js: beginNewSession` **删除**"首轮列表为空就回填上一次 `sessions`/`session_workspaces`/`workspaces` + 250ms 延时重拉"的前端伪造状态。
@@ -137,10 +141,11 @@ application/core 权威解析**：`SubscribeSession("")` = 跟随当前视图会
     `lastChatRunning && !running`（回合刚结束）。改成推送需要 `worktree.changed`/`git.changed`
     事件面，而 `application/event/hub.go` 现有 19 个 `EventKind` 里两者都不存在：那是"新增
     文件/git 监视"新功能（跨平台监视生命周期），不属于本工作包的整改。留作独立立项。
-  - [ ] C5c `nodeDetailPollTimer`（`app.js`，运行中每 2s 拉 `SubagentSessionDetail`）：仍开放。
-    实时流 `seelex:subagent_live` 已在，但 `application/contract/dto/subagent_live.go` 的
-    `Kind` 只有 `stage|tool`，子代理自己的 assistant 正文没有推送面 —— 要退场必须先在
-    `seelebridge/runtime_live.go` 增加正文增量 kind。
+  - [x] C5c `nodeDetailPollTimer`（`app.js`，运行中每 2s 拉 `SubagentSessionDetail`）：
+    2026-09-04 删除。`dto.SubagentLiveEvent` 增加 `assistant` 正文增量 kind，内容源 =
+    节点 Session `ChatStream` onChunk（`node/agent_node.go` 证据：ChatStream 与 Chat
+    等价执行，仅多出流式分片）；前端详情会话记录由正文增量驱动，
+    `TestEmbeddedFrontendExists` 禁轮询断言已启用。
 
 ## 阶段 E · 未关联会话与左栏重新绑定 —— **已决定不做**（2026-09-02）
 
@@ -674,28 +679,25 @@ G7（EventStore 区间读/双轨桥/去轮询）。若本波无法在会话内�
    分区，不再无锁读 `Snapshot.Session.ID`（与 INV-G2「视图指针唯一持有者
    在 Domain」一致）。
 
-### 波 4 尚未完成（后续会话，逐项下一步）
+### 收官长会话收口（2026-09-03/04，见文末「收官验证记录」）
 
-- **G6 目录按 projectID 索引**：`RequestCatalogRefresh` 补 projectID 维度，
-  目录缓存/镜像（catalogSessions/catalogWorkspaces/标题表）按项目分格；
-  同步桌面 joint 快照进程段与 `docs/gui/modules/multi-session-pages.md`/
-  `snapshot-shape.js` 契约。现状：枚举源头已按 projectID（SessionsOf），
-  缓存仍是合并后的单一列表。
-- **C2 `ArchiveSession`**：命令/门控 + 目录归档过滤（archived 状态已进
-  枚举与前端徽标，存档写入与过滤未接）。
-- **C1 冷读面**：`ListSessions`/`SnapshotOf(非驻留)`/
-  `GetSessionTranscript(range)`；替换 `session_scope.go` 的
-  `cloneRuntimeState` 回退为从 record/Transcript/DurableHistory 冷拼装。
-- **G7 剩余**：UnifiedEvents「投进 application/event」的一跳（EventStore
-  区间读已具备）；`runtime_live` 子代理 assistant 正文增量 kind（需先定
-  LLM 输出内容源：OnLLMComplete/telemetry effect 或节点会话历史增量）；
-  删除 `app.js` 的 `nodeDetailPollTimer` 并把「去轮询后详情仍新鲜」契约
-  测试落地（现有 TestEmbeddedFrontendExists 的禁轮询断言届时启用）。
-- **TUI 待批计数面**：TUI 现无会话侧栏/状态行；口径已定（侧栏
-  awaiting_approval + 状态行跨会话计数），呈现需在 TUI 增加会话列表或
-  状态行后落地，本会话未做（避免在无计数面处空造 UI）。
-- **Composer 工作区草稿 binding 与 G5 剩余锁面**：按「波 4 承接项决策」
-  保持延后，本波未触碰。
+- [x] **G6 目录按 projectID 索引**：`catalogGrid` 按项目分格 +
+  `RequestCatalogRefreshProject` 项目范围刷新（快照镜像仍为联合去重视图）；
+  workspace/标题表以全局唯一 sessionID 为键天然安全；前端/文档归属表同步。
+- [x] **C2 `ArchiveSession`**：busy 门控 → flush/释放 bundle →
+  `record.Status=archived`（`PersistCurrentSession` 粘性继承）→ 项目分格过滤。
+- [x] **C1 冷读面**：`SnapshotOf` 热/冷分型 + `ListSessions` +
+  `GetSessionTranscript(range)`；M4 的 `cloneRuntimeState` 回退撤销。
+- [x] **G7 剩余**：统一事件 `QueryRange`（LoadRange+实时轨合并）与
+  `unifiedEventTopic` (channel, sid) 映射；`subagent_live` 增加 `assistant`
+  正文增量 kind（节点 ChatStream onChunk 内容源）；`nodeDetailPollTimer`
+  删除，`TestEmbeddedFrontendExists` 禁轮询断言启用。
+- [x] **TUI 待批计数面**：状态行跨会话计数 + 待批会话提示行（最小承载面）。
+- [x] **Composer 工作区草稿 binding 落盘**：绑定项目 record + `EnsureIndexed`
+  项目索引 + 冷启动 `DraftCandidates` 跨项目恢复；物化同 SID/项目。
+- [x] **D6b fork 发散式 -race**（见阶段 D 勾销）。
+- [ ] **G5 剩余锁面**（见文末「收官验证记录」#剩余项）：**未收口**。
+  证据与下一步在收官段；不把部分完成当完成。
 
 验证（本机 CGO_ENABLED=1，-race 为真实执行）：
 
@@ -712,3 +714,50 @@ go test -race ./session ./sessionstore ./application/... ./gui ./seelebridge -co
                                                  # TestApproval*、
                                                  # TestResidentLimit*）
 ```
+
+## 收官验证记录（2026-09-04）
+
+本次收官长会话提交链（每点全绿，`SKIP_BUILD=1`）：
+`9006e33`（G6 目录分格）→ `fcd182e`（C2 ArchiveSession）→ `070959f`
+（C1 冷读面）→ `07443a4`（G7 双轨桥/assistant 正文 kind/去轮询）→
+`c05f100`（TUI 待批承载面）→ `c04eea1`（Composer 工作区草稿 binding）→
+`3b282e1`（D6b fork 发散式 -race）。
+
+```text
+go build ./...                                   # 通过
+go build -tags "gui,desktop,production" ./...     # 通过
+go vet ./...                                      # 无告警
+go test ./... -count=1 -timeout=300s             # 通过（首轮出现一次
+                                                 # resident-lru 偶发 FAIL，
+                                                 # 立即复跑零 FAIL——与历史
+                                                 # 台账同类 Windows 环境抖动，
+                                                 # 单独/复跑均绿）
+go test -race ./session ./sessionstore ./application/... ./gui ./seelebridge -count=1
+                                                 # 全 ok（真实 -race，
+                                                 # CGO_ENABLED=1）
+node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
+```
+
+### 剩余项
+
+- **G5 剩余锁面（本波唯一未收口项）**：task/prompt/context/plan 投影的
+  协调器自有状态仍共享 `ViewMu`；视图过渡的 per-session key 放开仍被
+  fork `StartSession` 活跃别名 / 全局项目根绑定 / legacy Router 写作用域
+  依赖。证据：`task_context.Coordinator` 的 `sessionStates`/`requestToSession`
+  共 111 处访问经 `sessionStateLocked/activeSessionLocked/sessionForRequestLocked`
+  间接持有 `Core.ViewMu`（`task_context/coordinator.go`）；`planProjections`
+  只读路径要读 task plan 栈，先拆任一锁都会引入
+  `ViewMu↔协调器锁` 环（`plan_tools.go:planProjectionLocked`）。下一步
+  （已按依赖排好）：① 先给 `sessionTaskRuntime` 逐会话加锁并让
+  `sessionStateLocked` 全量改走自有锁，逐步释放 ViewMu 的 task 写路径；
+  ② 再把 `planProjections`/Snapshot.Task 镜像改为锁外收集、ViewMu 短临界
+  区写副本；③ prompt/context 层跟随；④ 清除视图过渡剩余进程级引擎副作用
+  后把视图命令过渡 key 放开为 per-session。现有验收锚
+  （`TestConcurrentStreamingViewSwitchNoPollution`、
+  `TestStressConcurrentSessionsDoNotPollute`、`TestSessionTransitionManager*`、
+  `TestCatalogCache*`、关闭路径 G0c）在本轮全量 -race 仍全绿，说明当前
+  共享锁面正确但未拆分——本项不是部分完成，仍按 [ ] 保留。
+
+其余项均为 0；「明确不做」清单（E1–E5、per-session 存储策略、消息 ID
+会话化、无 sid 兼容端口一次性删除、进程隔离）按 target-design §7 与
+本提示第 2.9 节保持不做。

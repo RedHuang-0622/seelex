@@ -95,6 +95,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（会话路由引擎用 HistoryFor；无会话
 - `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.ViewMu；
 - `func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error)` — LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
+- `func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) error` — MarkSessionArchived 把会话 record 的可见状态置为 archived（C2）。只改
 - `func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error)` — LoadSessionTranscript 读取会话 transcript 尾部窗口（预算 + 单元上限由
 - `func recordResumeHistory(record model.SessionRecord) []contract.EngineMessage`
 - `func RecordResumeHistory(record model.SessionRecord) []contract.EngineMessage` — RecordResumeHistory 是 durable-record 冷加载兜底（仅当 transcript 与可见
@@ -119,15 +120,22 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) UnloadSessionTitle(sessionID string)` — UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
 - `func (c *Coordinator) catalogTitleOf(sessionID string) model.SessionTitle` — catalogTitleOf 返回标题表原始值（不回退活跃会话名；存档 record 用——
 - `func (c *Coordinator) CatalogCache() ([]model.SessionInfo, map[string]string)` — CatalogCache 返回目录 worker 最近一轮枚举结果的拷贝（catalogMu 保护；
+- `func mergedCatalogLocked(grid map[string][]model.SessionInfo) []model.SessionInfo` — mergedCatalogLocked 从分格网格组合联合目录视图（调用方持 catalogMu）：
+- `func catalogProjectOrder(grid map[string][]model.SessionInfo) []string` — catalogProjectOrder 返回网格的全部项目键（稳定顺序，避免测试/镜像抖动）。
 - `func (c *Coordinator) TransitionLock(key string) sync.Locker` — TransitionLock 返回指定 key 的会话过渡互斥（key=会话 ID：该会话生命
 - `func (c *Coordinator) BindView(view ViewPort)` — BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；
 - `func (c *Coordinator) StartCatalogRefresh()` — StartCatalogRefresh 启动会话目录刷新 worker：目录发现与标题恢复离开
 - `func (c *Coordinator) RequestCatalogRefresh() <-chan struct` — RequestCatalogRefresh 非阻塞唤醒目录刷新 worker，并返回完成回执：某一轮
+- `func (c *Coordinator) RequestCatalogRefreshProject(projectID string) <-chan struct` — RequestCatalogRefreshProject 请求只刷新指定项目（projectID="" = 默认/
+- `func (c *Coordinator) registerCatalogRefresh(projects map[string]struct{}) <-chan struct`
 - `func (c *Coordinator) runCatalogPasses()` — runCatalogPasses 逐批排空回执：每批跑一轮刷新并在发布后关闭回执，批次为空才
+- `func unionCatalogScope(batch []catalogWaiter) map[string]struct` — unionCatalogScope 合并一批回执的项目范围：任一请求覆盖全部项目（nil）
 - `func (c *Coordinator) stopCatalogWaiters()` — stopCatalogWaiters 在 worker 退出路径上释放仍等待的回执：目录不再刷新，
 - `func (c *Coordinator) StopCatalogRefresh()` — StopCatalogRefresh 关闭目录刷新 worker（有限等待，避免慢端口拖垮退出）。
 - `func (c *Coordinator) CatalogRefreshDone() <-chan struct` — CatalogRefreshDone 返回目录 worker 退出信号（测试/生命周期钩子：worker
-- `func (c *Coordinator) refreshCatalogCache()` — refreshCatalogCache 把目录快照发布进内核（锁内 bump → 锁外 Publish）。
+- `func (c *Coordinator) refreshCatalogProjects(scope map[string]struct{})` — refreshCatalogProjects 按项目范围刷新目录：scope == nil 表示全部项目
+- `func (c *Coordinator) scopedProjectIDs(scope map[string]struct{}) []string` — scopedProjectIDs 返回本次刷新的项目集合：scope == nil → 全部已知项目；
+- `func (c *Coordinator) publishCatalogMirror()` — publishCatalogMirror 把分格目录组合成联合镜像发布进内核（锁内 bump →
 
 ### fork.go
 
@@ -200,13 +208,14 @@ go test ./application/core/session_runtime -count=1
 
 ### scope.go
 
-- `func (c *Coordinator) sessionCatalog() ([]model.SessionInfo, map[string]string)` — sessionCatalog 返回可见会话列表与工作区绑定发现结果。
-- `func (c *Coordinator) sessionCatalogGranular(granular SessionGranularPort) ([]model.SessionInfo, map[string]string)` — sessionCatalogGranular 是会话粒度目录：项目 = 会话集合，项目索引直接
+- `func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projectID string) ([]model.SessionInfo, map[string]string)` — sessionCatalogProject 枚举单个项目的会话集合（G6：目录按 projectID 分格，
 - `func (c *Coordinator) sessionNameFromTail(granular SessionGranularPort, sessionID string) string` — sessionNameFromTail 从会话历史尾部窗口提取标题（会话粒度端口；
 - `func SessionTitleFromHistory(history []contract.EngineMessage, displayUserInput func(string) string) string` — SessionTitleFromHistory 从历史窗口内的首条可见 user 消息提取标题。
 - `func SessionTitle(input string) string` — SessionTitle 从输入首行提取会话标题（>48 rune 截断）。
 - `func (c *Coordinator) ShortSessionID(id string) string` — ShortSessionID 按 limits.session_name_runes 截断会话 ID 显示。
 - `func (c *Coordinator) allProjectIDs() []string` — allProjectIDs 返回目录枚举的项目集合（空项目 = 当前 active scope + 全部
+- `func (c *Coordinator) AllProjectIDs() []string` — AllProjectIDs 返回目录枚举的项目集合（公开观察面：冷启动草稿恢复需要跨
+- `func (c *Coordinator) DraftCandidates() []model.SessionInfo` — DraftCandidates 返回目录里 status=draft 的会话候选（G：跨项目枚举，用于
 - `func (c *Coordinator) LocateSession(sessionID string) Location` — LocateSession 定位会话（workspace 绑定优先；支持 scoped 读取时遍历全部
 - `func preferSessionLocation(candidate, current Location, boundWorkspaceID string) bool`
 - `func preferSessionInfo(candidate, current model.SessionInfo) bool`
@@ -220,6 +229,11 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) SessionStorageConfig() (sessionstore.Config, error)` — SessionStorageConfig 返回会话存储设置（可选能力：无 storage 端口报错）。
 - `func (c *Coordinator) TestSessionStorage(ctx context.Context, config sessionstore.Config) error` — TestSessionStorage 验证会话存储配置可用性（可选能力）。
 - `func (c *Coordinator) ConfigureSessionStorage(ctx context.Context, config sessionstore.Config) error` — ConfigureSessionStorage 应用会话存储配置并清空标题缓存（可选能力）。
+
+### transcript_range.go
+
+- `func (c *Coordinator) LoadTranscriptRange(sessionID string, fromSeq, toSeq uint64) ([]model.TranscriptEvent, error)` — LoadTranscriptRange 按 Seq 区间（含端点）读回会话事件日志并转换为
+- `func modelTranscriptEventsFromStore(events []sessionstore.Event) []model.TranscriptEvent` — modelTranscriptEventsFromStore 把存储层事件转换为应用层 transcript 事件
 
 ### transition_actor.go
 

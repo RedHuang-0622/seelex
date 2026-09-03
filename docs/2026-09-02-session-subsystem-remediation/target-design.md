@@ -287,3 +287,17 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
   正文 kind、去 nodeDetailPollTimer）未在本会话收口；依赖不变（目录分格
   依赖状态字段/Unit 锁；C1 依赖目录与快照分型；G7 桥依赖 EventStore 区间
   读——后者已具备）。未完成项与下一步留在台账「波 4 尚未完成」段。
+
+### 收官对账（2026-09-04 追加）
+
+- 已收口：G6 目录按 projectID 分格（catalogGrid + 项目范围刷新 + 联合镜像
+  去重）；C2 ArchiveSession；C1 冷读面（SnapshotOf 热/冷分型 +
+  ListSessions + GetSessionTranscript，M4 撤销）；G7 剩余（统一事件
+  QueryRange + (channel,sid) 映射、subagent_live assistant 正文 kind、
+  删除 nodeDetailPollTimer）；TUI 待批计数最小承载面；Composer 工作区
+  草稿 binding 落盘与跨重启恢复；D6b fork 发散式 -race。
+- **G5 剩余锁面仍未收口（唯一 [ ]）**：task/prompt/context/plan 投影的
+  协调器自有状态锁拆分与 Snapshot.Task 镜像耦合收口、视图过渡 per-session
+  key 放开互相依赖（task 自有状态 111 处访问点先于 plan 投影拆锁；
+  planProjections 只读依赖 task plan 栈，先拆任一会成环）。验收锚现全绿
+  （当前共享锁面正确），下一步按台账「收官验证记录」#剩余项顺序推进。
