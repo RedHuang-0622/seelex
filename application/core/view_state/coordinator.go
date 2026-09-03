@@ -242,11 +242,6 @@ func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.Tool
 // 每会话 SessionView；活跃会话同步镜像 Snapshot，后台会话只写自身 scope，
 // hot_attach 回看有数据）。
 func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message {
-	// 子代理继承上下文（SubagentContextMarker 前缀）只注入 provider history
-	// 供模型消费，不进入可见会话区。
-	if role == "user" && strings.HasPrefix(content, SubagentContextMarker) {
-		return nil
-	}
 	if role == "assistant" || role == "tool_result" {
 		content = chat.StripThoughtBlocks(content)
 	}

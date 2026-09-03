@@ -70,7 +70,7 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	}
 }
 
-func TestRuntimeMailboxDrainsIntoHistoryOutsideServiceLock(t *testing.T) {
+func TestRuntimeMailboxDrainsIntoHistoryAndVisibleEvidence(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{mailbox: []string{"child conclusion"}}
 	service := mustNew(t, Dependencies{
@@ -85,10 +85,26 @@ func TestRuntimeMailboxDrainsIntoHistoryOutsideServiceLock(t *testing.T) {
 		t.Fatalf("merge-back was not injected into Engine history: %#v", history)
 	}
 	snapshot := service.Snapshot()
+	foundVisible := false
 	for _, message := range snapshot.Conversation {
-		if strings.Contains(message.Content, "child conclusion") {
-			t.Fatalf("merge-back must stay out of the visible conversation: %#v", snapshot.Conversation)
+		if strings.Contains(message.Content, "[子代理产出]") && strings.Contains(message.Content, "child conclusion") {
+			foundVisible = true
+			break
 		}
+	}
+	if !foundVisible {
+		t.Fatalf("merge-back evidence missing from visible conversation (G4/INV-G12): %#v", snapshot.Conversation)
+	}
+	events := service.components.tasks.TranscriptFor(snapshot.Session.ID)
+	foundDurable := false
+	for _, event := range events {
+		if strings.Contains(event.Content, "child conclusion") {
+			foundDurable = true
+			break
+		}
+	}
+	if !foundDurable {
+		t.Fatalf("merge-back evidence missing from transcript: %#v", events)
 	}
 	if pending := runtime.DrainSubagentContexts(); len(pending) != 0 {
 		t.Fatalf("runtime mailbox was not drained: %#v", pending)
