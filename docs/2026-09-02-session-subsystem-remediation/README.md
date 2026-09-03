@@ -377,6 +377,12 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
    与隔离测试；SetBinding/beginRun 保留默认槽 legacy 别名保证单飞执行
    行为不变。运行路径的 For 化读取与 per-session effort 落位耦合，随
    G4 并行执行接线。
+5. **G3 快照分型（首片）**：model 层新增 `SessionSnapshot`/`SessionRuntime`
+   与 `ProcessSnapshot`/`ProcessRuntime`（进程级目录/能力清单移出会话制品）；
+   `SnapshotOf` 统一返回会话粒度制品（活跃/后台同路径），capabilities 声明
+   `session_snapshot`，协议版本不升；Bridge/fake 类型同步；契约测试钉住
+   JSON 传输形状。桌面 Workbench 仍以联合 Snapshot 下发（进程段消费与前端
+   reducer 分型属 G3 后续收口）。
 
 尚未完成（留给下一会话，见 target-design §9 波 2 剩余）：
 
@@ -384,8 +390,8 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
   （`plan_run` 上下文绑定 per-run 携带）——槽结构已建，执行接线与 G4 的
   per-session effort 及 plan 运行上下文绑定耦合；fork 并发上限仍为
   process 单例（随并行执行落地）。
-- G3：`SessionSnapshot`/`ProcessSnapshot` 分型（进程级字段移出会话快照，
-  前端 reducer/契约测试同步）。
+- G3 收口：桌面 Workbench Snapshot 的进程字段消费/前端 reducer 分型契约
+  测试（模型层分型与 SnapshotOf 会话制品已落地，见上第 5 条）。
 - G4 其余：effort/fullAccess/approval/子代理树/Composer 完整归属进
   `SessionUnit`；子代理会话按 `Kind=Subagent` 落盘、不进侧栏、经父树打开、
   重启标 `stale`；"mainagent 实际接收内容"可见可持久（撤销
