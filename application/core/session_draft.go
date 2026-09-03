@@ -116,6 +116,7 @@ func (service *Service) BeginNewSession() error {
 	draftRuntime.SetCancel(nil)
 	draftRuntime.SetRequests(nil)
 	service.Core.Snapshot.Chat = draftRuntime.ChatState()
+	service.Core.Snapshot.Session.Composer = draftRuntime.ComposerText()
 	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
@@ -194,8 +195,6 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 
 	service.Mu.Lock()
 	service.draft = nil // 草稿已物化为真实会话，消费槽位
-	unit := service.sessionUnitLocked(newID)
-	unit.SetComposerText("", time.Now()) // 提交成功后清空未发送输入草稿
 	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
 	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
 	// 视图单例一致性：V 的唯一镜像随物化切到新会话（与 hot_attach/resume 同
@@ -207,6 +206,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
 	service.publishRuntimeProjections()
+	service.clearComposerDraft(newID)
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)
 	service.components.sessions.RequestCatalogRefresh()
 	return nil

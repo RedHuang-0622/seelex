@@ -145,6 +145,9 @@ let lastChatRunning = false;
 // promptLayersCache 是轨迹视图"前缀注入"的本地缓存（后端 PromptLayers
 // 桥接数据，不进 Snapshot；打开轨迹子页时刷新）。
 let promptLayersCache = null;
+// composerSaveTimer 是未发送输入草稿的防抖落盘定时器（草稿会话输入后
+// 300ms 写后端，跨重启恢复；物化提交后 draft 标记消失，不再落盘）。
+let composerSaveTimer = null;
 const effortControl = createEffortControl({
   root: elements["effort-control"],
   input: elements["effort-range"],
@@ -179,8 +182,33 @@ async function refresh(options = {}) {
   return client.refresh(options);
 }
 
+// scheduleComposerSave 在草稿会话输入后防抖持久化未发送正文
+// （仅 draft 会话有归属；非草稿不调用后端）。
+function scheduleComposerSave() {
+  const snapshot = client.current();
+  if (!snapshot?.session?.draft) return;
+  window.clearTimeout(composerSaveTimer);
+  composerSaveTimer = window.setTimeout(() => {
+    const current = client.current();
+    if (!current?.session?.draft) return;
+    invoke("SaveComposerDraft", elements.prompt.value).catch(() => {});
+  }, 300);
+}
+
+// restoreComposerDraft 在整份快照渲染时把后端恢复的草稿正文回填输入框
+// （仅在未聚焦输入框时生效，避免覆盖用户正在输入的内容）。
+function restoreComposerDraft(snapshot) {
+  if (!snapshot?.session?.draft || !snapshot.session.composer) return;
+  if (document.activeElement === elements.prompt) return;
+  if (elements.prompt.value === snapshot.session.composer) return;
+  elements.prompt.value = snapshot.session.composer;
+  resizePrompt();
+  elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
+}
+
 function render(snapshot, options = {}) {
   const started = performance.now();
+  restoreComposerDraft(snapshot);
   renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {}, snapshot.session_workspaces || {}, snapshot.workspaces || []);
   renderProject(snapshot);
   renderRuntime(snapshot.runtime || {});
@@ -1424,6 +1452,7 @@ elements.prompt.addEventListener("keydown", event => {
 });
 elements.prompt.addEventListener("input", () => {
   resizePrompt();
+  scheduleComposerSave();
   state.inlineSelected = 0;
   updateInlineSuggestions();
 });

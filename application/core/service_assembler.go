@@ -179,6 +179,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.sessions.SetActive(initialSessionID)
 	service.sessionUnitLocked(initialSessionID)
 	service.mirrorActiveChatLocked()
+	if initialDraft {
+		// 冷启动恢复持久化的草稿会话（composer 跨重启恢复）；无草稿记录时
+		// 保持装配器生成的空白草稿。
+		service.restorePersistedDraft()
+	}
 	service.components.tasks.ImportEngineHistoryAsTranscriptLocked(service.Deps.Engine.History())
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err

@@ -70,6 +70,9 @@ type SessionState struct {
 	Draft bool   `json:"draft,omitempty"`
 	// Status 是会话可见状态：draft | idle | running | queued。
 	Status SessionStatus `json:"status,omitempty"`
+	// Composer 是当前视图会话的未发送输入草稿正文（草稿会话跨重启恢复用；
+	// 只出现在视图当前会话，不进入目录行）。
+	Composer string `json:"composer,omitempty"`
 }
 
 // ComposerDraft 是会话"未发送输入"草稿（G4：归属进 SessionUnit，随会话

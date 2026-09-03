@@ -28,6 +28,8 @@ type Application interface {
 	Subscribe(buffer int) application.Subscription
 	Submit(context.Context, string) error
 	BeginNewSession() error
+	// SaveComposerDraft 持久化当前草稿会话的未发送输入（跨重启恢复）。
+	SaveComposerDraft(string) error
 	ResumeSession(string) error
 	// ForkSessionLatest 从指定会话最新完整轮次分支出新会话并切换（fork
 	// 一期 GUI 入口；返回子会话 ID）。
@@ -558,6 +560,13 @@ func (bridge *Bridge) BeginNewSession() error {
 		bridge.resubscribe()
 	}
 	return nil
+}
+
+// SaveComposerDraft 把渲染层输入框的未发送正文交给草稿会话持久化
+// （渲染层在输入时防抖调用；重启后随 seelex:ready 的 Snapshot
+// session.composer 恢复）。
+func (bridge *Bridge) SaveComposerDraft(text string) error {
+	return bridge.app.SaveComposerDraft(text)
 }
 
 func (bridge *Bridge) ResumeSession(sessionID string) error {
