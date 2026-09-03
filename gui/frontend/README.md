@@ -25,6 +25,7 @@
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
+| `dist/snapshot-shape.js` | 快照分型的字段归属契约（G3）：SessionRuntime/ProcessRuntime/顶层键所有权表、`splitRuntime`/`classifySnapshot`/`assertTypedShape`/`processContextOf` 纯函数。桌面仍收联合 Snapshot 时按表区分会话与进程字段；会话/进程制品到达后做泄漏校验（INV-G1 前端镜像）。 |
 | `dist/sidebar.js` | 左栏纯显示工具：标题截断、重名消歧编号（渲染期派生）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
 | `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计、上下文轴分轨布局与转义安全。 |
 
@@ -51,6 +52,16 @@
   Plan/节点详情）保留细边框作数据分隔。
 
 ## 状态流
+
+快照分型（G3，契约先行）：`application/model` 已把 DTO 拆成
+`SessionSnapshot`/`SessionRuntime`（会话粒度、传输完备）与
+`ProcessSnapshot`/`ProcessRuntime`（进程目录/能力清单）。桌面 Workbench
+现阶段仍以联合 Snapshot 下发（进程字段内联在 `runtime`），`snapshot-shape.js`
+是前端唯一的字段归属事实表：进程面板（账户/插件/技能/定时任务/模型）与
+会话面板（effort/plan/work_table/子代理树）各自按所有权提取；会话制品若泄漏
+进程字段或进程制品泄漏会话字段，`assertTypedShape` 直接拒绝（INV-G1）。
+进程上下文（`processContextOf`）可在会话粒度载荷之间保留，进程面板不随会话
+快照抖动。
 
 1. 初始化先等待并幂等绑定 Wails `EventsOn`，再通过 Bridge `Snapshot` 获取权威状态；runtime 尚未就绪时整个初始化按既有重试机制继续，不能静默进入无事件模式。
 2. `client-state` 应用连续 `seelex:event` 增量。
