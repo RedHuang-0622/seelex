@@ -116,7 +116,10 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Units:             sessionDomain,
 		CurrentEffort:     service.effortForSession,
 		CurrentFullAccess: service.fullAccessForSession,
-		Tasks:             service.components.tasks,
+		CurrentSessionID: func() string {
+			return service.sessions.ActiveID()
+		},
+		Tasks: service.components.tasks,
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord) {
 			service.refreshWorkTableLocked(tasks)
 		},

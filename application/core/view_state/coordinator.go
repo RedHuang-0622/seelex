@@ -37,6 +37,9 @@ type Deps struct {
 	// CurrentFullAccess 返回指定会话生效的全权模式（G4：会话选择优先，
 	// 未选择回退进程默认/引擎门值）。
 	CurrentFullAccess func(sessionID string) bool
+	// CurrentSessionID 返回当前视图指针会话（线程安全；投影收集在锁外
+	// 读取视图归属——视图指针在 session.Domain actor，不经快照镜像）。
+	CurrentSessionID func() string
 	// RefreshWorkTableLocked 在锁内重建工作表格投影（work_table 域；
 	// 调用方已持有 Core.ViewMu）。
 	RefreshWorkTableLocked func(tasks []dto.TaskRecord)
@@ -55,6 +58,7 @@ type Coordinator struct {
 	units                  *session.Domain
 	currentEffort          func(string) string
 	currentFullAccess      func(string) bool
+	currentSessionID       func() string
 	refreshWorkTableLocked func([]dto.TaskRecord)
 	tasks                  interface {
 		ActiveSkillIDs() []string
@@ -71,6 +75,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		units:                  deps.Units,
 		currentEffort:          deps.CurrentEffort,
 		currentFullAccess:      deps.CurrentFullAccess,
+		currentSessionID:       deps.CurrentSessionID,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
 		limits:                 deps.Limits,
@@ -102,7 +107,16 @@ func (c *Coordinator) Subscribe(buffer int) event.Subscription {
 // 投影（M3/M5：引擎活跃别名不是事实源——草稿早分配 SID 后引擎
 // SessionID() 在未建 bundle 阶段为空，路由必须读视图指针）。
 func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection {
-	return c.CollectRuntimeProjectionFor(ctx, c.Snapshot.Session.ID)
+	return c.CollectRuntimeProjectionFor(ctx, c.viewSessionID())
+}
+
+// viewSessionID 返回当前视图指针会话（装配注入的 Domain.ActiveID；未注入
+// 时回退快照镜像——仅直接构造的测试桩路径）。
+func (c *Coordinator) viewSessionID() string {
+	if c.currentSessionID != nil {
+		return c.currentSessionID()
+	}
+	return c.Snapshot.Session.ID
 }
 
 // CollectRuntimeProjectionFor 按显式会话收集 runtime 投影（G1：会话槽的
@@ -151,7 +165,7 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 	// currentTaskSession 可能尚未切换，For 会取到空分区）；后台会话读自身
 	// 分区快照（TaskAddFor 写自有域）。
 	projection.Tasks = c.Deps.Runtime.TaskSnapshot()
-	if sessionID != "" && sessionID != c.Snapshot.Session.ID {
+	if sessionID != "" && sessionID != c.viewSessionID() {
 		if forTasks, ok := c.Deps.Runtime.(interface {
 			TaskSnapshotFor(string) []dto.TaskRecord
 		}); ok {
