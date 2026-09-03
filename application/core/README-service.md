@@ -95,6 +95,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SetPlanPolicy(policy dto.PlanPolicy)`
 - `func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanRequest) (dto.PlanPreflight, error)`
 - `func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics`
+- `func (runtime *fakeRuntime) ReplanMetricsFor(sessionID string) dto.ReplanMetrics`
 - `func (runtime *fakeRuntime) SetPlanBranchBinding(binding dto.PlanBranchBinding)`
 - `func (runtime *fakeRuntime) TodoSnapshot() []dto.TodoItem`
 - `func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) error`
@@ -261,7 +262,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) sessionStatusLocked(sessionID string) SessionStatus` — sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.Mu）。
 - `func (service *Service) Subscribe(buffer int) Subscription`
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
+- `func (service *Service) collectRuntimeProjectionFor(ctx context.Context, sessionID string) view_state.RuntimeStateProjection` — collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
 - `func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
+- `func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection)` — applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
 - `func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message`
 - `func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message` — appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
 - `func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState)` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像

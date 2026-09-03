@@ -75,8 +75,20 @@ func (service *Service) collectRuntimeProjection(ctx context.Context) view_state
 	return service.components.view.CollectRuntimeProjection(ctx)
 }
 
+// collectRuntimeProjectionFor 按显式会话收集运行时投影（G1：后台会话的
+// 槽写入方；tasks/tokens/skills 走 per-session 端口）。
+func (service *Service) collectRuntimeProjectionFor(ctx context.Context, sessionID string) view_state.RuntimeStateProjection {
+	return service.components.view.CollectRuntimeProjectionFor(ctx, sessionID)
+}
+
 func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection) {
 	service.components.view.ApplyRuntimeProjectionLocked(projection)
+}
+
+// applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
+// 视图协调器镜像 Snapshot；调用方持有 Core.Mu）。
+func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection) {
+	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, projection)
 }
 
 func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message {

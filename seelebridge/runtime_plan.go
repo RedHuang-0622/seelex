@@ -184,6 +184,15 @@ func (r *Runtime) ReplanMetrics() dto.ReplanMetrics {
 	return r.planExecutor.ReplanMetrics()
 }
 
+// ReplanMetricsFor 返回指定会话的 replan 成本与拒绝统计（G1/M5：按会话
+// 额度槽查询；空会话 ID = 默认槽）。
+func (r *Runtime) ReplanMetricsFor(sessionID string) dto.ReplanMetrics {
+	if r == nil || r.planExecutor == nil {
+		return dto.ReplanMetrics{}
+	}
+	return r.planExecutor.ReplanMetricsFor(sessionID)
+}
+
 // finishNodeWorktree 收尾：变基仓库 → 提交判定 → 合并审批 → merge → 清理。
 func (r *Runtime) finishNodeWorktree(ctx context.Context, nodeID string, wt *worktree.NodeWorktree) error {
 	if r == nil || r.worktreeMgr == nil {

@@ -171,6 +171,18 @@
 - `func TestViewSwitchDoesNotMutateExecution(t *testing.T)` — TestViewSwitchDoesNotMutateExecution（TC-INV-02）：切到 B 只换视图指针，
 - `func TestPersistReadsOnlyOwnDomain(t *testing.T)` — TestPersistReadsOnlyOwnDomain（TC-INV-03）：快照/活跃槽全是 B 时，
 
+### session_runtime_slot_integration_test.go
+
+- `func (engine *sessionTokenEngine) TokenCountFor(sessionID string) string`
+- `func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T)` — TestBackgroundRuntimeProjectionLandsInOwnSlot（G1-A/B 验收）：后台会话 B
+
+### session_s0_events_test.go
+
+- `func (engine *s0ChunkEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func viewContains(unit *session.SessionUnit, text string) bool` — viewContains 报告指定会话可见对话中是否出现目标文本。
+- `func TestS0BackgroundEventsDoNotPolluteActiveSnapshot(t *testing.T)` — TestS0BackgroundEventsDoNotPolluteActiveSnapshot（波 1 验收锚）：
+- `func conversationTexts(messages []Message) []string`
+
 ### session_scope.go
 
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，

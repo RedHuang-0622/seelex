@@ -285,11 +285,14 @@ type fakeRuntime struct {
 	replanResult  dto.PlanPreflight
 	replanErr     error
 	replanMetrics dto.ReplanMetrics
-	projectRoot   string
-	currentBatch  string
-	todoMu        sync.Mutex
-	todoItems     []dto.TodoItem
-	tasks         map[string]dto.TaskRecord
+	// replanMetricsBySession 是按会话 replan 统计（G1/M5：fake 镜像
+	// 生产 Runtime.ReplanMetricsFor 的会话槽语义）。
+	replanMetricsBySession map[string]dto.ReplanMetrics
+	projectRoot            string
+	currentBatch           string
+	todoMu                 sync.Mutex
+	todoItems              []dto.TodoItem
+	tasks                  map[string]dto.TaskRecord
 	// sessionTaskSnapshots 是会话切换时保存的 task 快照（镜像生产 Runtime
 	// 的按会话分片语义；阶段 0 持久化按会话取快照）。
 	sessionTaskSnapshots map[string][]dto.TaskRecord
@@ -371,6 +374,13 @@ func (runtime *fakeRuntime) PrepareReplan(_ context.Context, request dto.ReplanR
 }
 
 func (runtime *fakeRuntime) ReplanMetrics() dto.ReplanMetrics { return runtime.replanMetrics }
+
+func (runtime *fakeRuntime) ReplanMetricsFor(sessionID string) dto.ReplanMetrics {
+	if runtime.replanMetricsBySession == nil {
+		return runtime.replanMetrics
+	}
+	return runtime.replanMetricsBySession[sessionID]
+}
 
 func (runtime *fakeRuntime) SetPlanBranchBinding(binding dto.PlanBranchBinding) {
 	runtime.binding = binding

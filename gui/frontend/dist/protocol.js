@@ -7,7 +7,25 @@ const INCREMENTAL_KINDS = new Set([
   "interaction.opened", "interaction.closed"
 ]);
 
+// PROCESS_KINDS 是进程级事件（G2/M2）：不带会话归属（session_id 必空），
+// 投递给全部订阅。白名单之外的 kind 一律视为会话级：session_id 必须与当前
+// 视图快照的 session.id 精确匹配——空 sid 不再作为会话事件的通配。
+const PROCESS_KINDS = new Set(["resync.required", "app.exit_requested"]);
+
 const MAX_FRONTEND_NODE_TOOL_EVENTS = 100;
+
+export function belongsToView(event, snapshot) {
+  if (!event || typeof event !== "object") return false;
+  if (PROCESS_KINDS.has(event.kind)) {
+    return !event.session_id;
+  }
+  const eventSession = event.session_id;
+  // 过渡期：草稿/存量事件可能尚缺 sid（投递端已按订阅键过滤），G4 早分配
+  // SID 后服务端保证会话类事件必带 sid，此处再收紧为缺失即拒。
+  if (!eventSession) return true;
+  const viewSession = (snapshot && snapshot.session && snapshot.session.id) || "";
+  return eventSession === viewSession;
+}
 
 export function validateSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") throw new Error("GUI snapshot 无效");
@@ -23,9 +41,15 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
   } catch (error) {
     return { snapshot, lastSeq, needsRefresh: false, error };
   }
+  const seq = Number(event.delivery_seq || 0);
+  // G2/M2：会话级事件带 sid 时必须归属当前视图会话；进程级事件不得带 sid。
+  // 投递端已按订阅键过滤，此处只做防御性硬校验：不匹配的事件丢弃但推进
+  // 水位（服务端不会给本订阅投递它，避免异常路径造成后续事件连环跳号）。
+  if (!belongsToView(event, snapshot)) {
+    return { snapshot, lastSeq: seq, needsRefresh: false, dropped: true };
+  }
   // 连续性只按 delivery_seq（本订阅内的投递序号）判定：会话归属由 application
   // 在投递端过滤，全局 seq 因此必然跳号，跳号不代表丢事件；缺口才是。
-  const seq = Number(event.delivery_seq || 0);
   if (!seq || (lastSeq && seq > lastSeq + 1)) {
     // 刻意不推进 lastSeq：宿主会先按 delivery_seq 增量补取这段缺口（C4），
     // 补得齐就不必整份重拉快照。gapSeq 是补不齐时重拉后要落到的水位。

@@ -42,7 +42,13 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) SnapshotView() model.Snapshot` — SnapshotView 返回权威快照深拷贝。
 - `func (c *Coordinator) Subscribe(buffer int) event.Subscription` — Subscribe 订阅事件流。
 - `func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection` — CollectRuntimeProjection 锁外调用外部端口收集 runtime 投影。
-- `func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjection)` — ApplyRuntimeProjectionLocked 应用 runtime 投影（保留 Plan/Account 指针，
+- `func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID string) RuntimeStateProjection` — CollectRuntimeProjectionFor 按显式会话收集 runtime 投影（G1：会话槽的
+- `func (c *Coordinator) replanMetricsFor(sessionID string) dto.ReplanMetrics` — replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；
+- `func (c *Coordinator) tokenCountFor(sessionID string) string` — tokenCountFor 返回指定会话的 token 计数（有 per-session 端口优先；
+- `func (c *Coordinator) activeSkillIDsFor(sessionID string) []string` — activeSkillIDsFor 返回指定会话的任务激活 skill ID（per-session 端口
+- `func (c *Coordinator) goalSkillActiveFor(sessionID string) bool` — goalSkillActiveFor 返回指定会话的 goal skill 激活判定。
+- `func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjection)` — ApplyRuntimeProjectionLocked 应用 runtime 投影到当前活跃会话（保留 Plan/
+- `func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projection RuntimeStateProjection)` — ApplyRuntimeProjectionForLocked 应用 runtime 投影到指定会话（G1）：
 - `func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLocked 追加一条可见消息到当前活跃会话（调用方持有
 - `func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进
 - `func (c *Coordinator) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有

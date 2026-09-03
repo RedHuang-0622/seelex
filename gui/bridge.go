@@ -216,15 +216,20 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 		return
 	}
 	bridge.ctx, bridge.cancel = context.WithCancel(ctx)
-	bridge.sub = bridge.subscribeView()
 	bridge.emitFn = emit
 	bridge.streams = make(map[string]func())
 	bridge.running = true
 	loopContext := bridge.ctx
-	subscription := bridge.sub
-	bridge.wg.Add(1)
+	subscription := bridge.subscribeViewLocked()
+	bridge.sub = subscription
 	bridge.mu.Unlock()
+	bridge.startRelay(loopContext, emit, subscription)
+}
 
+// startRelay 启动一个订阅的转发 goroutine（relay 生命周期随 bridge.ctx
+// 取消；resubscribe 会关闭旧订阅并另起新 relay）。
+func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter, subscription application.Subscription) {
+	bridge.wg.Add(1)
 	go func() {
 		defer bridge.wg.Done()
 		if emit != nil {
@@ -249,25 +254,51 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 	}()
 }
 
-// subscribeView 订阅当前视图会话的事件流。会话归属由 application 在投递端
-// 判定（sessionID 为空 = 跟随视图指针，草稿物化与切换都由它覆盖），Bridge
-// 不再保存"当前会话"副本，渲染层也收不到别会话的事件。
+// subscribeViewLocked 按**显式当前视图 sid** 订阅事件流（G2：订阅键含
+// sid；会话切换由 Bridge 重订阅，不再依赖 application 的"空 sid 跟随视图
+// 指针"判定）。草稿期 sid 为空时保留跟随视图过渡口径（G4 早分配 SID 后
+// 彻底消失）；调用方必须持有 bridge.mu。
 //
 // 优先申请带重放窗口的订阅：缓冲写满时事件不丢，落后的渲染层可以按
 // delivery_seq 增量补取而不是整份重拉快照（C4）。宿主不支持窗口时退回
 // 全局/无窗口订阅（此时溢出仍由 hub 的 resync.required 兜底）。
-func (bridge *Bridge) subscribeView() application.Subscription {
+func (bridge *Bridge) subscribeViewLocked() application.Subscription {
+	sessionID := bridge.app.Snapshot().Session.ID
 	if app, ok := bridge.app.(replayAwareApplication); ok {
-		if subscription, err := app.SubscribeSessionWithReplay("", eventSubscriptionBuffer, eventReplayWindow); err == nil {
+		if subscription, err := app.SubscribeSessionWithReplay(sessionID, eventSubscriptionBuffer, eventReplayWindow); err == nil {
 			return subscription
 		}
 	}
 	if app, ok := bridge.app.(sessionAwareApplication); ok {
-		if subscription, err := app.SubscribeSession("", eventSubscriptionBuffer); err == nil {
+		if subscription, err := app.SubscribeSession(sessionID, eventSubscriptionBuffer); err == nil {
 			return subscription
 		}
 	}
 	return bridge.app.Subscribe(eventSubscriptionBuffer)
+}
+
+// resubscribe 在视图会话切换后重建事件订阅（G2：切换即重订阅，新订阅从
+// 当前权威快照基线开始，replay/ack 游标随新订阅重置）。旧订阅立即关闭，
+// 渲染层按 delivery_seq 去重，因此切换瞬间可能重复/跳号由新订阅窗口承接。
+func (bridge *Bridge) resubscribe() {
+	bridge.mu.Lock()
+	if !bridge.running {
+		bridge.mu.Unlock()
+		return
+	}
+	old := bridge.sub
+	loopContext := bridge.ctx
+	emit := bridge.emitFn
+	subscription := bridge.subscribeViewLocked()
+	bridge.sub = subscription
+	bridge.ackedSeq = 0
+	bridge.resendTries = 0
+	bridge.stopResendLocked()
+	bridge.mu.Unlock()
+	if old.Events != nil {
+		old.Close()
+	}
+	bridge.startRelay(loopContext, emit, subscription)
 }
 
 // Stop cancels the event relay and waits until its goroutine has exited. It is
@@ -499,25 +530,40 @@ func (bridge *Bridge) Submit(text string) error {
 }
 
 func (bridge *Bridge) BeginNewSession() error {
+	before := bridge.app.Snapshot().Session.ID
 	if err := bridge.app.BeginNewSession(); err != nil {
 		return err
 	}
 	bridge.settleCatalog()
+	if bridge.app.Snapshot().Session.ID != before {
+		bridge.resubscribe()
+	}
 	return nil
 }
 
 func (bridge *Bridge) ResumeSession(sessionID string) error {
-	return bridge.app.ResumeSession(sessionID)
+	before := bridge.app.Snapshot().Session.ID
+	if err := bridge.app.ResumeSession(sessionID); err != nil {
+		return err
+	}
+	if bridge.app.Snapshot().Session.ID != before {
+		bridge.resubscribe()
+	}
+	return nil
 }
 
 // ForkSessionLatest 从会话最新完整轮次分支出新会话并切换（Wails 前端会话
 // 树「分支」按钮数据源；返回子会话 ID）。
 func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
+	before := bridge.app.Snapshot().Session.ID
 	childID, err := bridge.app.ForkSessionLatest(sessionID)
 	if err != nil {
 		return "", err
 	}
 	bridge.settleCatalog()
+	if bridge.app.Snapshot().Session.ID != before {
+		bridge.resubscribe()
+	}
 	return childID, nil
 }
 
@@ -543,7 +589,14 @@ func (bridge *Bridge) ActivateSession(sessionID string) error {
 	if !ok {
 		return errors.New("session-scoped API is not supported by the application")
 	}
-	return app.ActivateSession(sessionID)
+	before := bridge.app.Snapshot().Session.ID
+	if err := app.ActivateSession(sessionID); err != nil {
+		return err
+	}
+	if bridge.app.Snapshot().Session.ID != before {
+		bridge.resubscribe()
+	}
+	return nil
 }
 
 // SnapshotOf 返回指定会话的权威快照（M1：仅活跃会话有驻留快照）。

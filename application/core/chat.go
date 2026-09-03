@@ -134,6 +134,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 //     StageHook → SummaryHook）只做记录/透传，不改变 loop 控制流；
 //     core 侧仅投影 ΔV/事件（appendDelta / appendVisibleDeltaBackground）。
 //   - 收尾：context 恢复、task 终态、会话粒度 persist、ReleaseWorkingHistory。
+//
 // 事件指纹方法：相同输入序列 → 相同事件序列（kind + session/request/message
 // ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。
 func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
@@ -195,7 +196,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// was locked. Drain their Runtime-owned mailbox only after ChatStream has
 	// returned, so every subsequently queued turn sees the merge-back history.
 	service.injectPendingSubagentContextsFor(sessionID)
-	runtimeProjection := service.collectRuntimeProjection(context.Background())
+	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
 	if cleanupErr := service.components.context.RemoveTaskContextCheckpointsFor(sessionID); cleanupErr != nil && err == nil {
 		err = cleanupErr
 	}
@@ -241,9 +242,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 不在此处从 Engine.History() 重建 conversation——增量构建已在
 	// startChat/handleToolStart/handleToolComplete/appendDelta 中完成，
 	// 全量重建可能带入跨会话的残留消息。
-	if active {
-		service.applyRuntimeProjectionLocked(runtimeProjection)
-	}
+	// 每会话投影写回本会话槽（G1）：后台会话的运行态不再丢弃——回看/切换
+	// 时 SnapshotOf 直接读槽；活跃会话由协调器镜像 Snapshot.Runtime。
+	service.applyRuntimeProjectionForLocked(sessionID, runtimeProjection)
 	// 处理输入队列（单一消费点）：取排队输入合并为一条，批量发送并起下一轮
 	pendingQueue := queuedChatRequests(runtime.PendingRequests())
 	processQueue := len(pendingQueue) > 0

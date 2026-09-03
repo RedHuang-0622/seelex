@@ -238,6 +238,9 @@ node --test gui/frontend/dist/*.test.mjs          # 175 pass / 0 fail
 
 ## 阶段 G · 会话粒度收敛（对账后新增，目标形状见 [target-design.md](target-design.md)）
 
+> 推进波形（刀 1'~7 收成四波、依赖 DAG 与验收锚）见
+> [target-design.md](target-design.md) §9；波 3/4 与波 1/2 分会话推进。
+
 ### 刀 0：现在就在错写用户数据的三处（彼此独立，各自一个提交）
 
 - [x] G0a 压缩轮次归档按 sid 路由：`application/core/compressed_turn.go:44-60` 忽略
@@ -264,9 +267,28 @@ node --test gui/frontend/dist/*.test.mjs          # 175 pass / 0 fail
   `internal/adapters/engine_port.go:688-700` 的 `TokenCount()` 改 `TokenCountFor(sid)`；
   `planExecutor` 的 fork 信号量与 `ReplanGuard` 按 sid 建槽（M5）。
   完成后替换 `session_scope.go:191` 的 `cloneRuntimeState(视图 Runtime)`。
+  - 进度（波 1）：G1-T（EnginePort 会话入口注入 telemetry 会话 ID +
+    `TokenCountFor(sid)`）、G1-A（`SessionUnit` 增每会话 `Runtime` 槽与
+    `Revision` 原语；task_context 增 `ActiveSkillIDsFor`/`GoalSkillActiveFor`）、
+    G1-B（投影按 sid 收集/写回本会话槽；`SnapshotOf` 读槽并回退旧口径）已
+    落地并有回归用例（`TestBackgroundRuntimeProjectionLandsInOwnSlot`、
+    `TestS0BackgroundEventsDoNotPolluteActiveSnapshot`）。G1-C 的 ReplanGuard
+    按 sid 建槽已完成（`ReplanGuards` 注册表 + `ReplanMetricsFor` + 运行时槽
+    replan 统计）；planExecutor 的 binding/policy/fork 按 sid 槽尚未做（与
+    G4 的 per-session effort 及 plan 运行上下文绑定相关）。
 - [ ] G2 订阅键 `(通道, sid)` + 切换即重订阅；`protocol.js` 补 `session_id` 校验；
   事件通道按 kind 白名单（会话类必填、进程类必空，违例拒绝发布）；Bridge 的 ack 游标与
   replay 环按 sid 分格、resend 定时器合并。
+  - 进度（波 1，执行中对账）：kind 白名单分类与 `ValidateSessionRouting` 辅助
+    已落地（`application/event`，含单测）；显式会话订阅改为「进程类空 sid 全
+    投、会话类必须 sid 精确匹配」，草稿空视图保留过渡口径。Bridge 已改为
+    显式当前视图 sid 订阅并在 Resume/Activate/Fork/New 切换成功后重订阅；
+    `protocol.js` 增加 `session_id` 校验（带 sid 不匹配即丢弃；缺 sid 的存量
+    事件过渡期信任投递端）。验收锚 `TestS0BackgroundEventsDoNotPolluteActiveSnapshot`
+    与 `TestS0SwitchResyncsBaseline` 均已转绿。**严格拒绝
+    （空 sid 会话类发布直接拒）依赖 G4 早分配 SID**——草稿不再以空 sid 占位
+    前不可全量开启（与 §9 依赖说明一致）；per-sid ack/replay 分格由重订阅
+    （新订阅窗口/水位）天然重置，resend 定时器保持单例。
 - [ ] G3 `SessionSnapshot` / `ProcessSnapshot` 分型（不升 `protocol_version`，走
   `capabilities` 声明），并设计成传输完备制品（为进程隔离保留退路，见决策 5）。
 - [ ] G4 Composer（新分片 + `limits.composer_max_chars`）、effort/fullAccess、子代理树、

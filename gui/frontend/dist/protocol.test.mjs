@@ -73,18 +73,44 @@ test("applies reasoning_content deltas without touching visible content", () => 
   assert.equal(delta.snapshot.conversation[0].content, "A");
 });
 
-// 会话归属是 application 投递端（SubscribeSession / 跟随视图订阅）的不变量：
-// 前端一旦再判一次"这个事件属于哪个会话"，同一规则就有两份实现并各自漂移。
-// 跨会话污染的正向防线见 gui/bridge_session_test.go。
-test("never inspects session_id when applying events (attribution lives upstream)", () => {
+// G2/M2：订阅键含 sid 后前端做硬校验——带 sid 的会话级事件必须归属当前
+// 视图会话，不匹配直接丢弃；进程级事件不得带 sid。
+test("drops events that do not belong to the current view session", () => {
   const current = { ...snapshot(), session: { id: "session-b" } };
-  const added = applyEvent(current, {
+  const foreign = applyEvent(current, {
     protocol_version: 1, delivery_seq: 12, revision: 3, request_id: "chat-a", kind: "message.added",
     session_id: "session-a",
-    payload: { id: "msg-a", role: "assistant", content: "already routed by the hub" }
+    payload: { id: "msg-a", role: "assistant", content: "foreign" }
   }, 11);
-  assert.equal(added.needsRefresh, false);
-  assert.equal(added.snapshot.conversation.length, 2);
+  assert.equal(foreign.dropped, true);
+  assert.equal(foreign.needsRefresh, false);
+  assert.equal(foreign.lastSeq, 12);
+  assert.equal(foreign.snapshot.conversation.length, 1);
+
+  // 过渡期：缺 sid 的会话事件信任投递端过滤（G4 早分配 SID 后收紧）。
+  const missing = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 13, revision: 3, kind: "message.delta",
+    payload: { message_id: "assistant-1", delta: "B" }
+  }, foreign.lastSeq);
+  assert.equal(missing.dropped, undefined);
+  assert.equal(missing.needsRefresh, false);
+
+  // 本会话事件正常应用。
+  const own = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 14, revision: 3, kind: "message.added",
+    session_id: "session-b",
+    payload: { id: "msg-b", role: "assistant", content: "own" }
+  }, 13);
+  assert.equal(own.dropped, undefined);
+  assert.equal(own.needsRefresh, false);
+  assert.equal(own.snapshot.conversation.length, 2);
+
+  // 进程级事件（resync.required / app.exit_requested）以空 sid 全投。
+  const resync = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 15, kind: "resync.required"
+  }, 14);
+  assert.equal(resync.dropped, undefined);
+  assert.equal(resync.needsRefresh, true);
 });
 
 test("global seq jumps are normal; only delivery_seq gaps mean loss", () => {
@@ -101,6 +127,7 @@ test("global seq jumps are normal; only delivery_seq gaps mean loss", () => {
 
   const lost = applyEvent(jumped.snapshot, {
     protocol_version: 1, seq: 44, delivery_seq: 14, revision: 4, kind: "task.changed",
+    session_id: "session-b",
     payload: { task_id: "task-1", task: { id: "task-1", status: "pending" } }
   }, jumped.lastSeq);
   assert.equal(lost.needsRefresh, true);

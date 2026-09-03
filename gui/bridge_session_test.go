@@ -25,6 +25,26 @@ func (fake *sessionAwareFakeApplication) SubmitToSession(_ context.Context, sess
 
 func (fake *sessionAwareFakeApplication) ActivateSession(sessionID string) error {
 	fake.activated = sessionID
+	fake.snapshot.Session = application.SessionState{ID: sessionID}
+	return nil
+}
+
+func (fake *sessionAwareFakeApplication) ResumeSession(sessionID string) error {
+	fake.resumedSession = sessionID
+	fake.snapshot.Session = application.SessionState{ID: sessionID}
+	return nil
+}
+
+func (fake *sessionAwareFakeApplication) ForkSessionLatest(sessionID string) (string, error) {
+	fake.forkedSession = sessionID
+	child := "child-" + sessionID
+	fake.snapshot.Session = application.SessionState{ID: child}
+	return child, nil
+}
+
+func (fake *sessionAwareFakeApplication) BeginNewSession() error {
+	fake.beganNewSession = true
+	fake.snapshot.Session = application.SessionState{ID: "", Draft: true}
 	return nil
 }
 
@@ -90,9 +110,10 @@ func TestBridgeSessionAwareAPIsFallBackWhenUnsupported(t *testing.T) {
 	}
 }
 
-// TestBridgeRelaySubscribesToViewOnce 验证会话归属不再落在 Bridge：它只以
-// 「跟随当前视图会话」（空 sessionID）订阅一次，切换会话也不需要重新订阅；
-// 中继只做透传，投递序号由 Hub 赋值。路由正确性见
+// TestBridgeRelaySubscribesToViewOnce 验证订阅键含显式当前视图 sid（G2）：
+// Bridge 只以 Snapshot().Session.ID 订阅一次；会话切换（Resume/Activate/
+// Fork/New）成功且视图变化后重建订阅（切换即重订阅）。中继只做透传，
+// 投递序号由 Hub 赋值。路由正确性见
 // application/core/subscribe_session_test.go。
 func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	app := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
@@ -114,14 +135,14 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	if ready := waitEmitted(t, emitted); ready.name != "seelex:ready" {
 		t.Fatalf("first event = %q, want seelex:ready", ready.name)
 	}
-	if len(app.subscribeIDs) != 1 || app.subscribeIDs[0] != "" {
-		t.Fatalf("subscription keys = %v, want one follow-view (empty) subscription", app.subscribeIDs)
+	if len(app.subscribeIDs) != 1 || app.subscribeIDs[0] != "session-b" {
+		t.Fatalf("subscription keys = %v, want one explicit session-b subscription", app.subscribeIDs)
 	}
 
 	// 视图会话之外的事件在投递端就不属于本订阅，因此根本不到达渲染层。
 	app.hub.PublishSession(application.EventMessageDelta, 2, "", "session-background", application.MessageDelta{MessageID: "m-bg"})
-	// 全局事件（目录/配置）始终可达，且携带订阅内投递序号。
-	app.hub.Publish(application.EventSnapshotChanged, 3, "", nil)
+	// 视图会话自身的 snapshot.changed 可达，且携带订阅内投递序号。
+	app.hub.PublishSession(application.EventSnapshotChanged, 3, "", "session-b", nil)
 	relayed := waitEmitted(t, emitted)
 	if relayed.name != eventName {
 		t.Fatalf("relayed event name = %q, want %q", relayed.name, eventName)
@@ -130,8 +151,8 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	if !ok {
 		t.Fatalf("relayed payload type = %T, want application.Event", relayed.payload)
 	}
-	if event.SessionID != "" || event.DeliverySeq == 0 {
-		t.Fatalf("relayed event = %+v, want global with hub-assigned delivery seq", event)
+	if event.SessionID != "session-b" || event.DeliverySeq == 0 {
+		t.Fatalf("relayed event = %+v, want session-b event with hub-assigned delivery seq", event)
 	}
 	select {
 	case extra := <-emitted:
@@ -139,20 +160,30 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	default:
 	}
 
-	// 切换/新建/分支都只是应用层命令：订阅不需要重建。
+	// 切换/新建/分支成功且视图变化时重建订阅（订阅键含 sid）。
 	if err := bridge.ResumeSession("session-b"); err != nil {
 		t.Fatalf("ResumeSession: %v", err)
+	}
+	if len(app.subscribeIDs) != 1 {
+		t.Fatalf("resume to the same view must not rebuild the subscription: keys=%v", app.subscribeIDs)
 	}
 	if err := bridge.ActivateSession("session-c"); err != nil {
 		t.Fatalf("ActivateSession: %v", err)
 	}
-	if _, err := bridge.ForkSessionLatest("session-c"); err != nil {
+	if len(app.subscribeIDs) != 2 || app.subscribeIDs[1] != "session-c" {
+		t.Fatalf("subscription keys after ActivateSession = %v, want rebuilt for session-c", app.subscribeIDs)
+	}
+	child, err := bridge.ForkSessionLatest("session-c")
+	if err != nil {
 		t.Fatalf("ForkSessionLatest: %v", err)
+	}
+	if child != "child-session-c" || len(app.subscribeIDs) != 3 || app.subscribeIDs[2] != child {
+		t.Fatalf("subscription keys after ForkSessionLatest = %v (child=%s), want rebuilt for %s", app.subscribeIDs, child, child)
 	}
 	if err := bridge.BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	if len(app.subscribeIDs) != 1 {
-		t.Fatalf("subscription keys after switching = %v, want the single follow-view subscription", app.subscribeIDs)
+	if len(app.subscribeIDs) != 4 || app.subscribeIDs[3] != "" {
+		t.Fatalf("subscription keys after BeginNewSession = %v, want rebuilt for draft (empty)", app.subscribeIDs)
 	}
 }

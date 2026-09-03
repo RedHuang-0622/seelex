@@ -20,23 +20,23 @@ import (
 // 会话粒度类型以 sessionstore 为单一事实源（存储模块定义，端口层别名；
 // sessionstore 不得反向依赖本包，见 session_granular.go 说明）。
 type (
-	SessionKind      = sessionstore.Kind
-	SessionStatus    = sessionstore.Status
-	SessionRecord    = sessionstore.Record
-	TranscriptEvent  = sessionstore.TranscriptEvent
-	ToolResultRef    = sessionstore.ToolResultRef
-	ContextStack     = sessionstore.ContextStack
-	SessionInfo      = sessionstore.SessionInfo
-	SessionBinding   = sessionstore.Binding
+	SessionKind     = sessionstore.Kind
+	SessionStatus   = sessionstore.Status
+	SessionRecord   = sessionstore.Record
+	TranscriptEvent = sessionstore.TranscriptEvent
+	ToolResultRef   = sessionstore.ToolResultRef
+	ContextStack    = sessionstore.ContextStack
+	SessionInfo     = sessionstore.SessionInfo
+	SessionBinding  = sessionstore.Binding
 )
 
 const (
-	KindMain     = sessionstore.KindMain
-	KindSubagent = sessionstore.KindSubagent
-	StatusDraft  = sessionstore.StatusDraft
-	StatusIdle   = sessionstore.StatusIdle
+	KindMain      = sessionstore.KindMain
+	KindSubagent  = sessionstore.KindSubagent
+	StatusDraft   = sessionstore.StatusDraft
+	StatusIdle    = sessionstore.StatusIdle
 	StatusRunning = sessionstore.StatusRunning
-	StatusQueued = sessionstore.StatusQueued
+	StatusQueued  = sessionstore.StatusQueued
 )
 
 // EngineHandle 是引擎/loop 句柄（E_i，opaque：seelebridge bundle 持有
@@ -181,6 +181,14 @@ type SessionUnit struct {
 	mu     sync.Mutex
 	status SessionStatus
 	loaded bool // 引擎热/冷判定（HasSession 驱动）
+
+	// Runtime 是该会话的运行时投影槽（G1：每会话一份）。进程级只读原件
+	// （model/plugins/accounts/...）在 G3 分型前先整份拷贝进槽，之后随
+	// SessionSnapshot/ProcessSnapshot 分家只存会话专属字段。
+	Runtime model.RuntimeState
+	// Revision 是该会话的快照修订号（INV-G5：与进程 revision 互不相干；
+	// 会话事件推进自己的 revision，不碰 Snapshot.Revision）。
+	Revision uint64
 
 	// 聊天运行态（9.5 收口：原 ChatRuntime 平行容器已删除，直接收进单元；
 	// 执行态归 Seele loop，这里只留 seelex 侧的投影/取消/流/队列桥）。

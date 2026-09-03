@@ -487,7 +487,11 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 // replanRequestLocked 从权威快照提取最小的可用恢复上下文。要求调用方持有
 // service.Mu。
 func (service *Service) replanRequestLocked(failure, idempotencyKey string) dto.ReplanRequest {
-	request := dto.ReplanRequest{Failure: failure, IdempotencyKey: idempotencyKey}
+	request := dto.ReplanRequest{
+		SessionID:      service.Core.Snapshot.Session.ID,
+		Failure:        failure,
+		IdempotencyKey: idempotencyKey,
+	}
 	for index := len(service.Core.Snapshot.Conversation) - 1; index >= 0; index-- {
 		message := service.Core.Snapshot.Conversation[index]
 		if request.Objective == "" && message.Role == "user" {

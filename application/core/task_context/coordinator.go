@@ -169,7 +169,20 @@ func (c *Coordinator) semanticProgressLocked(requestID string) (uint64, bool) {
 func (c *Coordinator) ActiveSkillIDs() []string {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
-	state := c.activeSessionLocked().taskExecution
+	return c.activeSkillIDsLocked(c.activeSessionIDLocked())
+}
+
+// ActiveSkillIDsFor 返回指定会话当前任务的激活 skill ID 列表（G1：后台
+// 会话投影同样需要；与活跃视图解耦）。
+func (c *Coordinator) ActiveSkillIDsFor(sessionID string) []string {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	return c.activeSkillIDsLocked(sessionID)
+}
+
+// activeSkillIDsLocked 是 ActiveSkillIDs/ActiveSkillIDsFor 的锁内实现。
+func (c *Coordinator) activeSkillIDsLocked(sessionID string) []string {
+	state := c.sessionStateLocked(sessionID).taskExecution
 	if state == nil {
 		return nil
 	}
@@ -183,6 +196,29 @@ func (c *Coordinator) ActiveSkillIDs() []string {
 // GoalSkillActive 返回 goal skill 可见性投影（lock-free 原子值）。
 func (c *Coordinator) GoalSkillActive() bool {
 	return c.goalSkillActive.Load()
+}
+
+// GoalSkillActiveFor 返回指定会话当前任务的 goal skill 激活判定（G1：
+// lock-free 原子值只镜像活跃会话；后台会话按自身任务状态实时计算）。
+func (c *Coordinator) GoalSkillActiveFor(sessionID string) bool {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	return c.goalSkillActiveForLocked(sessionID)
+}
+
+// goalSkillActiveForLocked 是 GoalSkillActiveFor/syncGoalSkillActiveLocked
+// 的锁内实现（调用方持有 Core.Mu）。
+func (c *Coordinator) goalSkillActiveForLocked(sessionID string) bool {
+	state := c.sessionStateLocked(sessionID).taskExecution
+	if state == nil {
+		return false
+	}
+	for _, skill := range state.ActiveSkills {
+		if skill.SkillID == "goal" {
+			return true
+		}
+	}
+	return false
 }
 
 // CurrentTaskExecution 返回活跃会话当前任务执行状态（调用方持有 Core.Mu

@@ -46,16 +46,7 @@ func (c *Coordinator) SyncGoalSkillActiveLocked() {
 }
 
 func (c *Coordinator) syncGoalSkillActiveLocked() {
-	active := false
-	if state := c.activeSessionLocked().taskExecution; state != nil {
-		for _, skill := range state.ActiveSkills {
-			if skill.SkillID == "goal" {
-				active = true
-				break
-			}
-		}
-	}
-	c.goalSkillActive.Store(active)
+	c.goalSkillActive.Store(c.goalSkillActiveForLocked(c.activeSessionIDLocked()))
 }
 
 // AppendTranscriptEventLocked 追加一条 append-only transcript 事件（seq 自增；

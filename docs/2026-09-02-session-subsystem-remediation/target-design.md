@@ -171,3 +171,71 @@ sequenceDiagram
 - `session.StorePort`：生产零调用方。建议删除（适配职责已由 `internal/adapters` 承担），
   或在刀 1' 一并接为 `session` 域唯一存储入口——二选一，不留死契约。
 - 待审批计数在 TUI 的呈现口径。
+
+## 9. 推进波次（执行计划，2026-09-02 对账后定稿）
+
+对账结论：阶段 G 其余各刀的改动面与刀 0 不在一个量级——G1/G5 是贯穿式大改，
+G2/G4 是跨端/跨域中-大改，G3/G6/G7 是契约与装配中改。据此把刀 1'~7 收成四个
+可独立验收的波次；波 3/4 与波 1/2 分会话推进，本文件与台账 README 是跨会话的
+事实交接面。
+
+### 依赖 DAG（依据代码事实）
+
+```text
+G1-T（trace 会话化 + TokenCountFor）已落地
+   │
+   ▼
+G1（A: SessionUnit Runtime/Revision 槽 → B: 投影按 sid 收集/应用 + SnapshotOf
+     → C: planExecutor/ReplanGuard 按 sid）
+   │
+   ├──────────────┬──────────────────┐
+   ▼              ▼                  ▼
+G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数据面准备）
+   │              │                  │
+   └──────┬───────┘                  │
+          ▼                          ▼
+      G4（composer/effort/fullAccess/approval/子代理树进 Unit）
+          │
+          ▼
+      G5（锁拆分；前置 = G1+G4 数据面）
+          │
+          ▼
+      G6（LRU/驱逐/目录按 projectID/C2/C1 冷读）
+          │
+          ▼
+      G7（双轨 trace 桥 + 去 nodeDetailPollTimer）
+```
+
+依赖理由：
+
+- G1 → G2/G3：每会话 revision 与 Runtime 槽是「切换即重订阅基线」与
+  `SessionSnapshot` 分型的形状前提（C1/C2 后移到刀 6 的原因）。
+- G2/G3 → G4：归属进 Unit 后，事件必须能按 kind 白名单区分会话类/进程类，
+  且状态字段需要干净的 `SessionSnapshot` 承载。
+- G1+G4 → G5：锁拆分的前提是数据已进 Unit 槽、视图指针只是展示。
+- G3+G4+G5 → G6：驱逐/目录/冷读依赖状态字段、Unit 锁与传输完备快照。
+- G2 → G7：EventStore 区间读「投进 application/event」必须符合 `(通道,sid)` 语义。
+
+执行中对账（2026-09-03，写入以修正波 1 范围）：
+
+- G2 的**严格 kind 白名单**（会话类空 sid 直接拒绝发布）依赖 G4 的早分配
+  SID——草稿目前以空 sid 占位，视图级快照/工作台事件在草稿期合法为空归属；
+  因此波 1 只落地白名单分类/校验辅助与「显式会话订阅的精确 sid 口径」，
+  把「空 sid 通配撤销」的最终开关放在 G4 之后。
+- G1-C 拆成两半：ReplanGuard/额度按 sid 建槽（已完成，含运行时槽 replan
+  统计）；planExecutor 的 binding/policy/fork 按 sid 槽（与 G4 的 per-session
+  effort 及 plan 运行上下文绑定耦合，随波 2 推进）。
+- 波 1 验收锚 `TestS0BackgroundEventsDoNotPolluteActiveSnapshot` 已落地并转绿；
+  `TestS0SwitchResyncsBaseline` 待 G2 的 Bridge/前端重订阅切片完成后落地。
+
+### 波次与验收锚
+
+| 波 | 内容 | 主要改动面 | 验收锚（测试） |
+|---|---|---|---|
+| 波 1 | G1 全量 + G2 | core/session/task_context/view_state、seelebridge/plan、application/event、gui Bridge + 前端 protocol/client-state/app | `TestS0BackgroundEventsDoNotPolluteActiveSnapshot`、`TestS0SwitchResyncsBaseline`、`-race` 并行多用例 |
+| 波 2 | G3 + G4 | model DTO 分型、前端 reducer/契约测试、session/sessionstore（composer 分片、Kind=Subagent 落盘）、approval/effort/fullAccess 归属 | `TestS0ForkDeepCopyIsolation` 扩展、前端分型契约测试 |
+| 波 3 | G5 | core 锁拆分（ViewMu/CatalogMu/Unit[i].Mu）+ 出临界区化 | `-race` 全量 + 并行多用例 |
+| 波 4 | G6 + G7 | 驻留 LRU/驱逐、目录 projectID 索引、C2/C1；EventStore 区间读、runtime_live 正文 kind、去 node 轮询 | 台账 #4/#6 与 INV-G8、G4 事件面测试 |
+
+波 1/2 与波 3/4 分会话推进；每波内仍按小分片提交（先契约与测试，再实现），
+保证任意提交点 `go build ./...` 与受影响包测试全绿。

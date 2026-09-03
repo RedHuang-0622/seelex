@@ -40,3 +40,7 @@
 - `func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T)` — TestTaskCompleteCoversAlreadyCheckedNodes 验证歧义消除：在途打点已完成的节点
 - `func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T)` — TestTaskCompleteStillRejectsUncheckedNodes 打点流下缺节点仍拒绝：
 - `func TestNoProgressBudgetReadsTaskServiceSemanticProgress(t *testing.T)`
+
+### task_skills_for_test.go
+
+- `func TestActiveSkillsProjectionForSession(t *testing.T)` — TestActiveSkillsProjectionForSession（G1-A）：skill/目标可见性按会话取

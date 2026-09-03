@@ -116,7 +116,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.flush.start")
 	service.flushStreamBatcherFor(sessionID)
 	emit("toolhook.complete.flush.done")
-	runtimeProjection := service.collectRuntimeProjection(context.Background())
+	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
 	emit("toolhook.complete.lock.start")
 	service.Mu.Lock()
 	// sessionID 回退必须在锁内解析：Snapshot.Session.ID 由
@@ -221,9 +221,9 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 		})
 	}
 	emit("toolhook.complete.runtime.start")
-	if active {
-		service.applyRuntimeProjectionLocked(runtimeProjection)
-	}
+	// 每会话投影写回本会话槽（G1）：后台会话的工具边界投影保留在自身槽，
+	// 不再因非活跃被丢弃；活跃会话由协调器镜像 Snapshot.Runtime。
+	service.applyRuntimeProjectionForLocked(sessionID, runtimeProjection)
 	emit("toolhook.complete.runtime.done")
 	revision := uint64(0)
 	if active {

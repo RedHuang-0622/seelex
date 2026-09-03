@@ -141,19 +141,24 @@ func (port *EnginePort) SessionBacked() bool { return port.sessionBacked }
 func (port *EnginePort) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	port.mu.Lock()
 	current := port.engine
-	port.engineCalls[port.sessionID]++
+	sessionID := port.sessionID
+	port.engineCalls[sessionID]++
 	port.mu.Unlock()
 	if current == nil {
 		port.mu.Lock()
-		port.engineCalls[port.sessionID]--
+		port.engineCalls[sessionID]--
 		port.mu.Unlock()
 		return "", fmt.Errorf("engine is unavailable")
 	}
+	// 会话标签注入（G1/M8）：legacy 活跃别名路径也要让 telemetry 事件带上
+	// 会话 ID，否则 SessionTagHook 在生产侧无标签可打，per-session trace
+	// 查询（TokenCountFor/TraceText 按会话）退回全局求和。
+	ctx = seelebridge.WithTelemetrySessionID(ctx, sessionID)
 	result, err := current.ChatStream(ctx, input, onChunk)
 
 	port.mu.Lock()
-	port.engineCalls[port.sessionID]--
-	if port.engineCalls[port.sessionID] == 0 && len(port.pendingHistory) > 0 {
+	port.engineCalls[sessionID]--
+	if port.engineCalls[sessionID] == 0 && len(port.pendingHistory) > 0 {
 		port.installSessionEngineLocked(port.pendingSession, port.pendingHistory)
 		port.pendingHistory = nil
 		port.pendingSession = ""
@@ -176,6 +181,10 @@ func (port *EnginePort) ChatStreamFor(sessionID string, ctx context.Context, inp
 	port.engineCalls[sessionID]++
 	port.mu.Unlock()
 
+	// 会话入口 ctx 注入（G1/M8）：runChat 的会话 ID 在这里转写为 telemetry
+	// 路由键。Seele loop 原样把该 ctx 传给 hooks 与工具 handler，因此 llm/tool
+	// 的 intent-effect 事件都带 session_id，可按会话查询（INV-T1/T2 生产成立）。
+	ctx = seelebridge.WithTelemetrySessionID(ctx, sessionID)
 	result, err := engine.ChatStream(ctx, input, onChunk)
 
 	port.mu.Lock()
@@ -702,6 +711,17 @@ func (port *EnginePort) TokenCount() string {
 		total += attrTelemetryInt(event.Attributes, telemetry.AttributeGenAIUsageOutput)
 	}
 	return strconv.Itoa(total)
+}
+
+// TokenCountFor 返回指定会话的 token 计数（G1/M8）：只累加带该会话
+// session_id 标签的 LLM usage 事件。会话标签由 ChatStreamFor/ChatStream
+// 的 ctx 注入 + SessionTagHook 在生产路径打上；空会话 ID 或未命中返回 "0"。
+// 未实现会话标签的旧事件（升级前存量）不计入任何会话。
+func (port *EnginePort) TokenCountFor(sessionID string) string {
+	if port == nil || port.tracer == nil {
+		return "0"
+	}
+	return strconv.Itoa(seelebridge.SessionTokenCount(port.tracer, sessionID))
 }
 
 // writeSpanSnapshot 递归渲染遥测 span 树（trace 视图文本）。

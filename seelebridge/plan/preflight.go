@@ -39,11 +39,15 @@ func (executor *Executor) PrepareReplan(ctx context.Context, request ReplanReque
 	if idempotencyKey == "" {
 		idempotencyKey = replanOperationKey(request)
 	}
-	finish, err := executor.replan.acquire(idempotencyKey)
+	guard := executor.replans.For(request.SessionID)
+	if guard == nil {
+		return PlanPreflight{}, fmt.Errorf("plan replan: replan guard unavailable")
+	}
+	finish, err := guard.acquire(idempotencyKey)
 	if err != nil {
 		return PlanPreflight{}, err
 	}
-	result, err := executor.preparePlan(ctx, ReplanPrompt, context, "plan replan", true, executor.replan.acquireProviderRequest)
+	result, err := executor.preparePlan(ctx, ReplanPrompt, context, "plan replan", true, guard.acquireProviderRequest)
 	finish(err)
 	return result, err
 }

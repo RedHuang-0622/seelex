@@ -51,7 +51,7 @@ type Executor struct {
 	provider   *ToolProvider
 	events     *EventSink         // plan 执行事实 → 事件库 + 投影订阅
 	nodeEvents chan PlanNodeEvent // plan 节点事件 channel（CSP：application 消费者处理）
-	replan     *ReplanGuard
+	replans    *ReplanGuards
 
 	agentFactoryMu sync.RWMutex
 	agentFactory   node.AgentFactory // bridge.NewAgentFactory 产物（plan 子代理工厂）
@@ -80,7 +80,7 @@ func NewExecutor(
 		deps:       deps,
 		events:     NewEventSink(),
 		nodeEvents: make(chan PlanNodeEvent, 256),
-		replan:     NewReplanGuard(maxConcurrentReplans, maxReplansPerWindow, maxReplanProviderRequests, replanWindow),
+		replans:    NewReplanGuards(maxConcurrentReplans, maxReplansPerWindow, maxReplanProviderRequests, replanWindow),
 		eventError: deps.EventError,
 	}
 	if executor.eventError == nil {
@@ -363,12 +363,21 @@ func (executor *Executor) AppendPhase(ctx context.Context, nodeID, status string
 	executor.events.AppendPhase(ctx, executor.Binding(), runID, nodeID, status)
 }
 
-// ReplanMetrics 返回进程级 replan 成本与拒绝统计。
+// ReplanMetrics 返回 replan 成本与拒绝统计（legacy 无 sid 口径 = 默认槽）。
 func (executor *Executor) ReplanMetrics() ReplanMetrics {
-	if executor == nil || executor.replan == nil {
+	if executor == nil || executor.replans == nil {
 		return ReplanMetrics{}
 	}
-	return executor.replan.snapshot()
+	return executor.replans.MetricsFor("")
+}
+
+// ReplanMetricsFor 返回指定会话的 replan 成本与拒绝统计（G1/M5：按会话
+// 额度槽查询，视图只展示自己的重规划预算）。
+func (executor *Executor) ReplanMetricsFor(sessionID string) ReplanMetrics {
+	if executor == nil || executor.replans == nil {
+		return ReplanMetrics{}
+	}
+	return executor.replans.MetricsFor(sessionID)
 }
 
 // CurrentRunID 返回当前执行 run ID（执行中非空，结束后清空；诊断/测试读取）。

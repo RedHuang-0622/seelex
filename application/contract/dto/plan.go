@@ -49,14 +49,14 @@ type PlanNodeEvent struct {
 	// 会话域收口后必填）。前端按 session_id 过滤，后台会话 plan 事件不得
 	// 污染当前快照（P6 收口）。
 	SessionID string
-	PlanID  string
-	RunID   string
-	NodeID  string
-	Kind    string // 展示用 kind（approve 由前端映射为 manual）
-	Status  string
-	Output  string
-	Elapsed string
-	At      time.Time
+	PlanID    string
+	RunID     string
+	NodeID    string
+	Kind      string // 展示用 kind（approve 由前端映射为 manual）
+	Status    string
+	Output    string
+	Elapsed   string
+	At        time.Time
 }
 
 // PlanPreflight 是隔离规划回合的输出（Arguments/Result）。
@@ -68,6 +68,9 @@ type PlanPreflight struct {
 // ReplanRequest 是提供给隔离恢复规划回合的有界可审计上下文（只含执行
 // 事实，不含无界聊天转写）。
 type ReplanRequest struct {
+	// SessionID 是本次重规划归属会话（G1/M5：额度按会话建槽；空 = 无
+	// sid legacy 路径，回退默认槽）。
+	SessionID      string
 	IdempotencyKey string
 	Objective      string
 	PreviousPlan   string

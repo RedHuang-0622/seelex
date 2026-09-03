@@ -68,7 +68,11 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) unbindRequestLocked(requestID string)` — unbindRequestLocked 移除 requestID → sessionID（任务结束时；调用方持有
 - `func (c *Coordinator) semanticProgressLocked(requestID string) (uint64, bool)` — semanticProgressLocked 返回指定请求的语义进展计数（TaskService epoch）；
 - `func (c *Coordinator) ActiveSkillIDs() []string` — ActiveSkillIDs 返回活跃会话当前任务的激活 skill ID 列表（锁内快照）。
+- `func (c *Coordinator) ActiveSkillIDsFor(sessionID string) []string` — ActiveSkillIDsFor 返回指定会话当前任务的激活 skill ID 列表（G1：后台
+- `func (c *Coordinator) activeSkillIDsLocked(sessionID string) []string` — activeSkillIDsLocked 是 ActiveSkillIDs/ActiveSkillIDsFor 的锁内实现。
 - `func (c *Coordinator) GoalSkillActive() bool` — GoalSkillActive 返回 goal skill 可见性投影（lock-free 原子值）。
+- `func (c *Coordinator) GoalSkillActiveFor(sessionID string) bool` — GoalSkillActiveFor 返回指定会话当前任务的 goal skill 激活判定（G1：
+- `func (c *Coordinator) goalSkillActiveForLocked(sessionID string) bool` — goalSkillActiveForLocked 是 GoalSkillActiveFor/syncGoalSkillActiveLocked
 - `func (c *Coordinator) CurrentTaskExecution() *TaskExecutionState` — CurrentTaskExecution 返回活跃会话当前任务执行状态（调用方持有 Core.Mu
 - `func (c *Coordinator) CurrentTaskExecutionFor(sessionID string) *TaskExecutionState` — CurrentTaskExecutionFor 返回指定会话当前任务执行状态（调用方持有
 - `func (c *Coordinator) ActivePlanID() string` — ActivePlanID 返回活跃会话当前激活 plan 帧 ID。

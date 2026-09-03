@@ -3,6 +3,7 @@ package event
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/application/model"
@@ -31,6 +32,38 @@ const (
 	EventResyncRequired    EventKind = "resync.required"
 	EventExitRequested     EventKind = "app.exit_requested"
 )
+
+// processClassKinds 是进程级 kind 白名单（G2/M2）：此类事件不带会话归属
+// （SessionID 必空），投递给所有订阅者。白名单之外的 kind 一律视为会话类
+// ——会话类 kind 的 SessionID 必填，空 sid 不再是通配。
+var processClassKinds = map[EventKind]bool{
+	EventResyncRequired: true,
+	EventExitRequested:  true,
+}
+
+// KindIsProcessClass 报告 kind 是否属于进程级（空 sid 必填）。
+func KindIsProcessClass(kind EventKind) bool {
+	return processClassKinds[kind]
+}
+
+// KindIsSessionClass 报告 kind 是否属于会话级（sid 必填）。
+func KindIsSessionClass(kind EventKind) bool {
+	return !KindIsProcessClass(kind)
+}
+
+// ValidateSessionRouting 校验 (kind, sessionID) 归属（G2/M2 白名单口径）：
+// 会话类 kind 必须携带非空 sid；进程类 kind 必须为空。违例返回明确错误，
+// 调用方（PublishSession）应拒绝发布并记诊断。
+func ValidateSessionRouting(kind EventKind, sessionID string) error {
+	switch {
+	case KindIsProcessClass(kind) && sessionID != "":
+		return fmt.Errorf("event kind %q is process-level and must not carry a session ID", kind)
+	case KindIsSessionClass(kind) && sessionID == "":
+		return fmt.Errorf("event kind %q is session-level and requires a session ID", kind)
+	default:
+		return nil
+	}
+}
 
 type Event struct {
 	ProtocolVersion int    `json:"protocol_version"`

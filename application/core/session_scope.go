@@ -98,9 +98,10 @@ func (service *Service) publishChatStateFor(sessionID string) {
 }
 
 // bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
-// - 无任何会话运行中 → 可安全重绑（当前视图会话的工具需要正确根）；
-// - 有会话运行中 → 仅当目标是当前会话时重绑——后台运行中的会话不得因视图
-//   切换被改根，否则 A 的后续路径工具会解析到 B 的项目根（跨会话串写）。
+//   - 无任何会话运行中 → 可安全重绑（当前视图会话的工具需要正确根）；
+//   - 有会话运行中 → 仅当目标是当前会话时重绑——后台运行中的会话不得因视图
+//     切换被改根，否则 A 的后续路径工具会解析到 B 的项目根（跨会话串写）。
+//
 // 返回是否已绑定；未绑定时调用方必须跳过全局 SetWorkspace（Router 写作用域
 // 同样全局，不能为后台会话切换）。
 func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool {
@@ -182,13 +183,23 @@ func (service *Service) SnapshotOf(sessionID string) (Snapshot, error) {
 	defer service.Mu.RUnlock()
 	view := service.components.view.SessionViewLocked(sessionID)
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
+	// G1：非活跃会话的运行时投影读本会话槽（回合尾/工具边界已按 sid 写入）。
+	// 槽尚未写入时回退旧口径（clone 视图 Runtime），保证存量测试/宿主无感知。
+	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
+	if unit.RuntimeStateLoaded() {
+		runtime = unit.RuntimeState()
+	}
+	revision := unit.SnapshotRevision()
+	if revision == 0 {
+		revision = service.Core.Snapshot.Revision
+	}
 	snapshot := Snapshot{
 		ProtocolVersion:    ProtocolVersion,
-		Revision:           service.Core.Snapshot.Revision,
+		Revision:           revision,
 		Session:            SessionState{ID: sessionID, Name: name},
 		Conversation:       append([]Message(nil), view.Conversation...),
 		Chat:               unit.ChatState(),
-		Runtime:            cloneRuntimeState(service.Core.Snapshot.Runtime),
+		Runtime:            runtime,
 		Capabilities:       Capabilities{SessionResume: true},
 		HistoryOffset:      view.HistoryOffset,
 		TotalMessages:      view.TotalMessages,
@@ -216,11 +227,24 @@ func (service *Service) SnapshotOf(sessionID string) (Snapshot, error) {
 func (service *Service) sessionEventFilter(sessionID string) func(event.Event) bool {
 	if sessionID != "" {
 		return func(event Event) bool {
-			return event.SessionID == "" || event.SessionID == sessionID
+			// G2/M2：进程类事件（resync.required / app.exit_requested）以空
+			// sid 投递给全部订阅者；会话类事件必须 sid 精确匹配——空 sid
+			// 不再作为显式会话订阅的通配（草稿占位由下方空订阅视图口径承接，
+			// 待 G4 早分配 SID 后彻底移除）。
+			if event.Kind == EventResyncRequired || event.Kind == EventExitRequested {
+				return event.SessionID == ""
+			}
+			return event.SessionID == sessionID
 		}
 	}
 	return func(event Event) bool {
-		return event.SessionID == "" || event.SessionID == service.sessions.ActiveID()
+		if event.Kind == EventResyncRequired || event.Kind == EventExitRequested {
+			return event.SessionID == ""
+		}
+		// 草稿视图（空 sid）过渡口径：事件归属当前视图会话或仍为空占位。
+		// G4 早分配 SID 后本分支只保留进程类判定。
+		activeID := service.sessions.ActiveID()
+		return event.SessionID == "" || event.SessionID == activeID
 	}
 }
 
