@@ -37,6 +37,18 @@ func TestSessionSnapshotTransportShape(t *testing.T) {
 	}
 }
 
+// TestSessionSnapshotCarriesResidentFlag C1：SessionSnapshot 顶层携带
+// resident（热=驻留，冷=只读基线 false），展示方可据此标只读/未加载。
+func TestSessionSnapshotCarriesResidentFlag(t *testing.T) {
+	encoded, err := json.Marshal(SessionSnapshot{ProtocolVersion: ProtocolVersion, Resident: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"resident":true`) {
+		t.Fatalf("resident flag missing from SessionSnapshot: %s", encoded)
+	}
+}
+
 // TestProcessSnapshotTransportShape（G3）：ProcessSnapshot 承载进程级目录与
 // 能力清单，不含会话对话/聊天运行态。
 func TestProcessSnapshotTransportShape(t *testing.T) {

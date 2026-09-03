@@ -42,21 +42,40 @@ func (service *Service) Snapshot() Snapshot {
 			}}, snapshot.Sessions...)
 		}
 	}
-	for index := range snapshot.Sessions {
-		if service.draft != nil && service.draft.ID != "" && snapshot.Sessions[index].ID == service.draft.ID {
+	snapshot.Sessions = service.enrichDirectoryRowsLocked(snapshot.Sessions)
+	return snapshot
+}
+
+// ListSessions 返回当前权威会话目录（C1 冷读面/headless 宿主）：与会话树
+// 同一数据源（catalog 联合镜像），按行补会话级可见状态（运行/排队/待批/
+// resident/审批计数），不含 UI 专用草稿占位槽。调用方可直接枚举而无需拉
+// 整份视图快照。
+func (service *Service) ListSessions() []SessionInfo {
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
+	rows := append([]SessionInfo(nil), service.Core.Snapshot.Sessions...)
+	return service.enrichDirectoryRowsLocked(rows)
+}
+
+// enrichDirectoryRowsLocked 给目录行补会话级可见状态（调用方持有
+// Core.ViewMu）：草稿槽位行恒为 draft；其余行按单元运行态叠加状态/
+// 待批计数/resident 标记。
+func (service *Service) enrichDirectoryRowsLocked(rows []SessionInfo) []SessionInfo {
+	for index := range rows {
+		if service.draft != nil && service.draft.ID != "" && rows[index].ID == service.draft.ID {
 			// 草稿槽位行：未发送输入期间恒为 draft（单元 ChatState 空闲，
 			// 不能被运行态叠加成 idle）。
-			snapshot.Sessions[index].Status = SessionStatusDraft
+			rows[index].Status = SessionStatusDraft
 			continue
 		}
-		sessionID := snapshot.Sessions[index].ID
-		snapshot.Sessions[index].Status = service.sessionStatusLocked(sessionID)
+		sessionID := rows[index].ID
+		rows[index].Status = service.sessionStatusLocked(sessionID)
 		if unit := service.sessions.Unit(sessionID); unit != nil {
-			snapshot.Sessions[index].ApprovalCount = unit.PendingApprovalCount()
-			snapshot.Sessions[index].Resident = unit.Resident()
+			rows[index].ApprovalCount = unit.PendingApprovalCount()
+			rows[index].Resident = unit.Resident()
 		}
 	}
-	return snapshot
+	return rows
 }
 
 // sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。

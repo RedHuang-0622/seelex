@@ -25,6 +25,11 @@
 过滤（record 状态 archived 是唯一标记，不存在全局数组上的归档位），其它项目
 列表与数据五片不受影响。
 
+会话级冷读宿主面（C1）：`Bridge.ListSessions()` 返回权威会话目录（与快照目录
+同源）；`Bridge.SnapshotOf(sessionID)` 对未驻留会话返回 `Resident=false` 的
+record 只读基线；`Bridge.GetSessionTranscript(sessionID, fromSeq, toSeq)` 按
+Seq 区间读事件日志（`(0,0)` = 全量）。三者均不要求目标会话加载引擎。
+
 relay 只订阅一次 `SubscribeSession("")`（跟随当前视图会话）：会话归属由
 application 在事件投递端判定，Bridge 不保存 `currentSessionID` 副本，渲染层收不到
 别会话的事件，因此切换/新建/分支都只是应用层命令，不需要重建订阅。宿主应用不支持

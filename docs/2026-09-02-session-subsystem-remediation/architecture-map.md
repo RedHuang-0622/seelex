@@ -249,6 +249,13 @@ flush + 释放引擎 bundle（驱逐前置语义），再经 `Coordinator.MarkSe
 粘性状态，避免归档被后续落盘悄悄清掉。目录分格枚举过滤归档行，五片数据保留、
 可按 ID 冷读/重开（存储层枚举与定位仍返回归档行）。
 
+C1 冷读面（2026-09-03 收口）：`SnapshotOf` 分热/冷：驻留（引擎 bundle 在内存，
+含 legacy 当前视图占位）走单元槽热组装；未驻留从 record + Transcript/事件库
+拼只读基线（`SessionSnapshot.Resident=false`），撤销 `cloneRuntimeState` 视图
+回退（M4）。新增 `ListSessions()`（权威目录，行状态富化与 Snapshot 同源）与
+`GetSessionTranscript(sessionID, fromSeq, toSeq)`（事件库区间读，(0,0)=全量）；
+宿主面经 gui Bridge 暴露，不要求会话加载引擎。
+
 ## 4. 热挂载 vs 冷加载（切换/恢复分支）
 
 ```mermaid

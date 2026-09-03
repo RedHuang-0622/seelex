@@ -47,6 +47,7 @@ export const SESSION_TOP_KEYS = Object.freeze([
   "chat",
   "task",
   "approvals",
+  "resident",
   "history_offset",
   "total_messages",
   "has_more_history",

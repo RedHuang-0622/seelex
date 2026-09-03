@@ -19,9 +19,9 @@ var (
 	// ErrSessionBusy 是跨会话提交/切换的单飞执行边界（M1：共享组件栈要求
 	// 同一时刻只有一个会话在执行；真并行 = M2 会话级组件隔离）。
 	ErrSessionBusy = errors.New("another session is running")
-	// ErrSessionSnapshotUnavailable 表示目标会话无驻留快照（M1 只有活跃
-	// 会话持有快照，其它会话需先 ActivateSession）。
-	ErrSessionSnapshotUnavailable = errors.New("session snapshot is unavailable until activated")
+	// ErrSessionSnapshotUnavailable 表示目标会话既无驻留引擎快照、也无持久化
+	// record 可拼只读基线（C1：未驻留会话从 record 冷拼装；两者皆无即不可用）。
+	ErrSessionSnapshotUnavailable = errors.New("session snapshot unavailable: no resident engine and no persisted record")
 	// ErrEmptySearchQuery 是历史检索空查询拒绝（检索必须有关键词）。
 	ErrEmptySearchQuery = errors.New("search_history: query is required")
 )

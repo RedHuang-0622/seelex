@@ -620,6 +620,10 @@ type SessionSnapshot struct {
 	HasMoreHistory     bool          `json:"has_more_history"`
 	ConversationWindow int           `json:"conversation_window"`
 	ReadFiles          []ReadFileRef `json:"read_files,omitempty"`
+	// Resident 是本会话引擎 bundle 是否驻留（C1 冷读：非驻留会话从
+	// record/Transcript/事件库拼只读基线时 Resident=false；展示方据此标
+	// 只读/未加载，不参与任何写入判定）。
+	Resident bool `json:"resident,omitempty"`
 }
 
 // ProcessRuntime 是进程级运行原件（target-design §2.1：model/provider/

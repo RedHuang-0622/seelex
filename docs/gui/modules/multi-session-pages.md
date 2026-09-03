@@ -55,6 +55,9 @@
   （`RequestCatalogRefreshProject`）；快照目录字段（`sessions[]` /
   `session_workspaces`）只是逐格组合的联合镜像，跨项目同 ID 会话取最近更新。
   归档/状态过滤按项目执行，互不串扰。
+- 冷读宿主面（2026-09-03 C1 收口）：`SnapshotOf` 对未驻留会话返回 record
+  只读基线（`resident=false`），`ListSessions`/`GetSessionTranscript` 提供
+  headless 枚举与事件区间读，均不要求引擎加载。
 
 尚未实现（规划）：真并行执行、每会话驻留 Snapshot/组件栈
 （`task_context`/`prompt_layer`/`view_state`/`session_runtime` 仍共享单

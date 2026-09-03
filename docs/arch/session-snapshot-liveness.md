@@ -41,6 +41,14 @@ Frontend Submit
 
 `Snapshot()` 的实现仅在 `service.mu.RLock()` 内执行 `cloneSnapshot(service.snapshot)`，随后立刻释放锁。它不会读取 Engine history、调用 Runtime，也不会触发 Session/Workspace/Storage I/O。复制本身的成本随当前 Snapshot 大小增长，但热路径没有外部等待。
 
+`SnapshotOf(sessionID)` 是会话级快照面（C1，2026-09-03 收口）：驻留会话（引擎
+bundle 在内存）从本会话 Unit/Runtime 槽/协调器投影组装；**未驻留**会话（无
+unit，或驱逐/冷启动后 Resident=false）从 `record`（全量可见对话/标题/plan 栈/
+task）+ Transcript/事件库拼**只读基线**（`Resident=false`，revision=0，无增量
+源）——不再 clone 进程视图 Runtime 冒充其它会话（M4 撤销）。`ListSessions` 与
+`GetSessionTranscript(sessionID, fromSeq, toSeq)` 提供 headless 枚举与区间读；
+两者都不要求目标会话驻留，也不建引擎 bundle。
+
 ## 3. Session 目录不再阻塞 Snapshot
 
 会话目录、工作区绑定和标题恢复来自 `SessionPort`、`WorkspacePort`，属于潜在阻塞的外部读取。启动时 `Coordinator.StartCatalogRefresh()` 创建独立 worker；`RequestCatalogRefresh()` 通过容量为 1 的 wake channel 合并重复刷新请求，并返回**完成回执**。

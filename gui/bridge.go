@@ -93,6 +93,12 @@ type sessionAwareApplication interface {
 	SubmitToSession(context.Context, string, string) error
 	ActivateSession(string) error
 	SnapshotOf(string) (application.SessionSnapshot, error)
+	// ListSessions 返回权威会话目录（headless/控制台枚举；与快照目录同源，
+	// 不要求会话驻留）。
+	ListSessions() []application.SessionInfo
+	// GetSessionTranscript 按 Seq 区间读取会话事件日志（冷读可用，不要求
+	// 目标会话驻留；(0,0) = 全量）。
+	GetSessionTranscript(string, uint64, uint64) ([]application.TranscriptEvent, error)
 	SubscribeSession(string, int) (application.Subscription, error)
 }
 
@@ -638,6 +644,25 @@ func (bridge *Bridge) SnapshotOf(sessionID string) (application.SessionSnapshot,
 		return application.SessionSnapshot{}, errors.New("session-scoped API is not supported by the application")
 	}
 	return app.SnapshotOf(sessionID)
+}
+
+// ListSessions 返回权威会话目录（C1 冷读宿主面；与会话树同一数据源）。
+func (bridge *Bridge) ListSessions() []application.SessionInfo {
+	app, ok := bridge.app.(sessionAwareApplication)
+	if !ok {
+		return nil
+	}
+	return app.ListSessions()
+}
+
+// GetSessionTranscript 按 Seq 区间读取会话事件日志（C1；未驻留会话同样
+// 可用，(0,0) = 全量）。
+func (bridge *Bridge) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]application.TranscriptEvent, error) {
+	app, ok := bridge.app.(sessionAwareApplication)
+	if !ok {
+		return nil, errors.New("session-scoped API is not supported by the application")
+	}
+	return app.GetSessionTranscript(sessionID, fromSeq, toSeq)
 }
 
 // SubscribeSession 返回按会话过滤的事件订阅（M1：chat 生命周期事件携带

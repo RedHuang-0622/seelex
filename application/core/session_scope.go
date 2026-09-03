@@ -250,6 +250,44 @@ func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
 	if sessionID == "" {
 		return SessionSnapshot{}, errors.New("session ID is required")
 	}
+	// C1 冷读面：未驻留（unit 不存在或 Resident=false）的会话走持久化基线，
+	// 不再 clone 视图 Runtime 冒充其它会话（M4 撤销）。
+	service.ViewMu.RLock()
+	unit := service.sessions.Unit(sessionID)
+	resident := service.sessionResidentLocked(unit, sessionID)
+	service.ViewMu.RUnlock()
+	if !resident {
+		return service.snapshotOfCold(sessionID)
+	}
+	return service.snapshotOfResident(sessionID)
+}
+
+// sessionResidentLocked 判定目标会话引擎是否驻留（SnapshotOf 热/冷分界；
+// 调用方持有 Core.ViewMu）。会话路由宿主看 Unit.Resident + 引擎
+// HasSession（驱逐/归档后 false → 冷读）；legacy 单会话宿主没有 bundle
+// 概念，其唯一引擎实例挂在视图会话上，视图会话即视为驻留（不触发冷读，
+// 维持既有 active SnapshotOf 语义）。
+func (service *Service) sessionResidentLocked(unit *session.SessionUnit, sessionID string) bool {
+	if unit == nil {
+		return false
+	}
+	if routed, ok := service.Deps.Engine.(interface{ HasSession(string) bool }); ok {
+		if routed.HasSession(sessionID) {
+			// 引擎 bundle 在内存 = 驻留（驱逐/归档先 UnloadSession，
+			// HasSession 随即为 false → 冷读）。Unit.Resident 只用于 LRU
+			// 诊断序，不作为快照热/冷的事实源。
+			return true
+		}
+	}
+	// 引擎 bundle 缺失：当前视图会话（含初始占位与未物化草稿）仍有内存快照
+	// 语义，按热路径处理（空 record 的占位会话也不该误报"不可用"）；其它
+	// 会话单元（驱逐后 Resident=false）显式 SnapshotOf 走持久化基线。
+	return sessionID == service.Core.Snapshot.Session.ID
+}
+
+// snapshotOfResident 组装驻留会话（引擎 bundle 在内存）的会话快照：走单元
+// Runtime 槽/View/协调器每会话投影。调用方无需持有 Core.ViewMu（本方法自取）。
+func (service *Service) snapshotOfResident(sessionID string) (SessionSnapshot, error) {
 	service.ViewMu.RLock()
 	defer service.ViewMu.RUnlock()
 	unit := service.sessions.Unit(sessionID)
@@ -259,9 +297,6 @@ func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
 	view := service.components.view.SessionViewLocked(sessionID)
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	runtime := unit.RuntimeState()
-	if !unit.RuntimeStateLoaded() {
-		runtime = cloneRuntimeState(service.Core.Snapshot.Runtime)
-	}
 	revision := unit.SnapshotRevision()
 	if revision == 0 {
 		revision = service.Core.Snapshot.Revision
@@ -274,6 +309,7 @@ func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
 		Chat:               unit.ChatState(),
 		Runtime:            sessionRuntimeOf(runtime),
 		Capabilities:       Capabilities{SessionResume: true, SessionSnapshot: true},
+		Resident:           true,
 		HistoryOffset:      view.HistoryOffset,
 		TotalMessages:      view.TotalMessages,
 		HasMoreHistory:     view.HasMoreHistory,

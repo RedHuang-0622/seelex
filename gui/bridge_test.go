@@ -28,40 +28,44 @@ type fakeApplication struct {
 	snapshot application.Snapshot
 	// snapshotMu 保护 snapshot：Bridge 中继 goroutine 持续 Snapshot()，
 	// 测试主 goroutine 的切换方法会改写它（-race 下必须互斥）。
-	snapshotMu       sync.RWMutex
-	submitted        string
-	cancelled        string
-	resolvedID       string
-	resolvedOption   string
-	selectedAccount  string
-	selectedEffort   string
-	selectedPlugin   string
-	loadedHistory    int
-	suggestionsInput string
-	beganNewSession  bool
-	composerText     string
-	resumedSession   string
-	forkedSession    string
-	scheduledSpec    seelebridge.ScheduledTaskSpec
-	cancelledTaskID  string
-	searchQuery      string
-	searchLimit      int
-	searchResult     seelexctxsearch.Result
-	workItemID       string
-	workItemStatus   string
-	workItemErr      error
-	treeListing      dto.TreeListing
-	treeCount        dto.TreeCount
-	treeRel          string
-	treeDepth        int
-	treeErr          error
-	gitLog           dto.GitLogResult
-	gitLimit         int
-	metaSessionID    string
-	sessionMeta      application.SessionMeta
-	archivedSession  string
-	catalogSettles   int
-	catalogGate      chan struct{}
+	snapshotMu        sync.RWMutex
+	submitted         string
+	cancelled         string
+	resolvedID        string
+	resolvedOption    string
+	selectedAccount   string
+	selectedEffort    string
+	selectedPlugin    string
+	loadedHistory     int
+	suggestionsInput  string
+	beganNewSession   bool
+	composerText      string
+	resumedSession    string
+	forkedSession     string
+	scheduledSpec     seelebridge.ScheduledTaskSpec
+	cancelledTaskID   string
+	searchQuery       string
+	searchLimit       int
+	searchResult      seelexctxsearch.Result
+	workItemID        string
+	workItemStatus    string
+	workItemErr       error
+	treeListing       dto.TreeListing
+	treeCount         dto.TreeCount
+	treeRel           string
+	treeDepth         int
+	treeErr           error
+	gitLog            dto.GitLogResult
+	gitLimit          int
+	metaSessionID     string
+	sessionMeta       application.SessionMeta
+	archivedSession   string
+	listSessionsCalls int
+	transcriptSession string
+	transcriptFrom    uint64
+	transcriptTo      uint64
+	catalogSettles    int
+	catalogGate       chan struct{}
 }
 
 // recordingCancelApplication 记录 Bridge 转发的 request_id 序列。
@@ -151,6 +155,18 @@ func (fake *fakeApplication) DeleteSession(sessionID string) error {
 func (fake *fakeApplication) ArchiveSession(sessionID string) error {
 	fake.archivedSession = sessionID
 	return nil
+}
+func (fake *fakeApplication) ListSessions() []application.SessionInfo {
+	fake.listSessionsCalls++
+	fake.snapshotMu.RLock()
+	defer fake.snapshotMu.RUnlock()
+	return append([]application.SessionInfo(nil), fake.snapshot.Sessions...)
+}
+func (fake *fakeApplication) GetSessionTranscript(sessionID string, fromSeq, toSeq uint64) ([]application.TranscriptEvent, error) {
+	fake.transcriptSession = sessionID
+	fake.transcriptFrom = fromSeq
+	fake.transcriptTo = toSeq
+	return nil, nil
 }
 func (fake *fakeApplication) SetSessionMeta(sessionID string, meta application.SessionMeta) error {
 	fake.metaSessionID = sessionID
@@ -512,6 +528,32 @@ func TestBridgeArchiveSessionForwardsOnce(t *testing.T) {
 	}
 	if fake.catalogSettles != 1 {
 		t.Fatalf("catalog settle waits = %d, want 1", fake.catalogSettles)
+	}
+}
+
+// TestBridgeSessionReadAPIsForwardOnce C1：冷读宿主面（ListSessions /
+// GetSessionTranscript）只转发一次，参数原样到达 application。
+func TestBridgeSessionReadAPIsForwardOnce(t *testing.T) {
+	fake := &sessionAwareFakeApplication{fakeApplication: newFakeApplication()}
+	fake.snapshotMu.Lock()
+	fake.snapshot.Sessions = []application.SessionInfo{{ID: "sess-a"}}
+	fake.snapshotMu.Unlock()
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bridge.ListSessions(); len(got) != 1 || got[0].ID != "sess-a" {
+		t.Fatalf("ListSessions relay = %+v", got)
+	}
+	if fake.listSessionsCalls != 1 {
+		t.Fatalf("ListSessions calls = %d, want 1", fake.listSessionsCalls)
+	}
+	if _, err := bridge.GetSessionTranscript("sess-a", 3, 7); err != nil {
+		t.Fatalf("GetSessionTranscript: %v", err)
+	}
+	if fake.transcriptSession != "sess-a" || fake.transcriptFrom != 3 || fake.transcriptTo != 7 {
+		t.Fatalf("transcript range = %q %d..%d, want sess-a 3..7",
+			fake.transcriptSession, fake.transcriptFrom, fake.transcriptTo)
 	}
 }
 
