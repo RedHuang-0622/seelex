@@ -98,7 +98,7 @@
 
 - project 只定义会话的文件读写范围，不共享 conversation history。
 - session ID 是唯一键；标题是按 `(workspaceID, sessionID)` 保存的稳定 KV 元数据。首次请求只初始化一次标题；除显式重命名外，恢复、压缩、历史分页和首条历史消息都不能改写它。
-- `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后只进入幂等 draft：不生成 ID、不写入空 Session、不建立 workspace binding；**同时清空继承的项目绑定**（`CurrentWorkspace`/project root/session store workspace）——「任务会话」必须真正未关联工作区，上一个会话的项目信息（项目地址、资源管理器文件树与提交记录、工作台投影）不得污染新会话。需要项目上下文的「工作区会话」在草稿上显式 `BindWorkspace`，第一次进入 `submitConversation` 时才调用 `StartSession`，并立即用首问设置显示名。**草稿槽位（draft slot）保留**：`BeginNewSession` 在运行中也可进入草稿（不再返回 `ErrChatRunning`，也不触碰运行中会话的引擎/落盘）；切换/新建后草稿不丢失——槽位记录工作区绑定并在会话树以 `status=draft` 行常驻，再次新建恢复同一草稿，首次提交物化时消费槽位。快照为会话补充 `status`（draft/idle/running/queued），`ApplyRuntimeProjectionLocked` 在草稿视图下不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
+- `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后进入幂等 draft：**早分配真实会话 ID 并建 `SessionUnit`**（`HasSession=false`，不建引擎 bundle、不写空历史、不建立 workspace binding）；**同时清空继承的项目绑定**（`CurrentWorkspace`/project root/session store workspace）——「任务会话」必须真正未关联工作区，上一个会话的项目信息（项目地址、资源管理器文件树与提交记录、工作台投影）不得污染新会话。需要项目上下文的「工作区会话」在草稿上显式 `BindWorkspace`，第一次进入 `submitConversation` 时才经 `ActivateSession` 用同一草稿 ID 建引擎 bundle，并立即用首问设置显示名。**草稿槽位（draft slot）保留**：`BeginNewSession` 在运行中也可进入草稿（不再返回 `ErrChatRunning`，也不触碰运行中会话的引擎）；切换/新建后草稿不丢失——槽位记录工作区绑定与早分配 SID 并在会话树以 `status=draft` 行常驻，再次新建恢复同一草稿，首次提交物化时消费槽位。用户输入未发送正文后 composer 随 record 落盘（`Status=draft`），冷启动恢复草稿。快照为会话补充 `status`（draft/idle/running/queued）与 `session.composer`（当前草稿未发送正文），`ApplyRuntimeProjectionLocked` 在草稿视图下不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
 - M1（2026-08-23）起聊天保护粒度从全局单例收窄为**会话级**：每会话独立
   `ChatState`/cancel/inputQueue（`session_scope.go` 的 `sessionChat`
   注册表），`ErrChatRunning` 只对同会话二次提交生效；跨会话提交在运行中
@@ -157,8 +157,8 @@ session from an iteration callback.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft: BeginNewSession（无 ID、draft slot 保留、status=draft）
-    Draft --> Materialized: 首次 Submit（materializeDraftSession 消费 slot、StartSession 生成 ID）
+    [*] --> Draft: BeginNewSession（早分配真实 SID、draft slot 保留、status=draft）
+    Draft --> Materialized: 首次 Submit（materializeDraftSession 消费 slot、ActivateSession 复用同一 ID 建引擎）
     Materialized --> Running: startChat → runChat
     Running --> Queued: 运行中同会话再次 Submit（inputQueue 排队）
     Queued --> Running: runChat 尾合并队列为下一轮
@@ -178,9 +178,13 @@ stateDiagram-v2
     Draft --> Draft: 切换/新建后恢复（slot 保留、会话树 status=draft 行常驻）
 ```
 
-- draft 没有真实 ID、不落盘，靠 `serviceState.draft` 槽位跨切换保留；首次提交物化后消费槽位（应用退出后内存槽位自然丢失）。
+- draft 从新建即持有早分配的真实 SID（引擎 bundle `HasSession=false`），
+  槽位跨切换保留；有未发送正文时 composer 随会话 record 落盘（
+  `Status=draft`），冷启动恢复草稿，首次提交物化后消费槽位并清空 composer。
 - 可见状态由 `Snapshot()` 富化：`SessionState.Status` / `SessionInfo.Status` ∈ draft | idle | running | queued。
-- 运行中新建草稿时 `BeginNewSession` 不持久化、不清理运行中会话的引擎；`ApplyRuntimeProjectionLocked` 在草稿视图下不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
+- 运行中新建草稿时 `BeginNewSession` 不清理运行中会话的引擎；仅当用户输入
+  未发送正文时才落盘 composer；`ApplyRuntimeProjectionLocked` 在草稿视图下
+  不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
 
 ## Fork 对话机制（字符画）
 

@@ -37,7 +37,8 @@ DTO 不执行 IO、不调用 Engine，也不持有锁。它可以引用稳定的
 ## Review 指南
 
 - 名称是否被误当作索引；恢复/删除/绑定必须继续使用 ID。
-- draft 是否保持空 ID，且只在首个真实对话请求到达时物化并用首问生成 Name。
+- draft 是否从新建即持有早分配的真实 SID（草稿期不建引擎 bundle），物化是否
+  复用同一 ID 并用首问生成 Name；composer 未发送正文是否随 record 落盘。
 - Snapshot clone 是否仍真正隔离可变数据。
 - Plan 节点状态是否覆盖 queued/running/worktree_creating/rebasing/merging/completed/failed/skipped/aborted 生命周期。
 - Full Access 按钮是否只消费 `RuntimeState.full_access`，而不是维护前端本地镜像。

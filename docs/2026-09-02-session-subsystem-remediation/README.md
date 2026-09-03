@@ -343,3 +343,51 @@ README 同步：`gui/README.md`（关闭语义改为进程级空闲判定 + 取�
 running sid + 取消后等待逐会话 flush）、`application/core/README-service.md` 与
 `README-misc.md`（函数索引刷新：`AnyChatRunning`/`CancelAllChats`、
 `StoreTurn` ctx 签名、新增守卫测试）。
+
+## 波 2 执行与验证记录（追加，2026-09-03）
+
+波 1 验收锚转绿后继续推进波 2；每次提交保持
+`go build ./...`、`go test ./...`、`node --test gui/frontend/dist/*.test.mjs`
+全绿。提交：`d5d42c5`（G4 先行第 1 片）、`81d9028`（composer 落盘/恢复）、
+`906d3da`（G2 严格白名单）。
+
+已完成：
+
+1. **早分配 SID + 建 Unit（HasSession=false）**（G4 先行第 1 片）：
+   - 草稿从新建（含冷启动懒引擎）即持有真实会话 ID 并注册 `SessionUnit`，
+     不建引擎 bundle；首次提交经 `EnginePort.ActivateSession` 复用同一 SID
+     物化（legacy 单会话引擎仍回退 `StartSession`）；卸载活跃会话后进入新的
+     早分配 SID 草稿单元。
+   - 订阅键因此恒等于视图 ID：所有作用于当前视图的全局发布改为会话级发布并
+     携带 sid（`runtime.changed`/`snapshot.changed`/`interaction.*`/
+     `message.added`/目录刷新等）；Bridge relay 检测会话键漂移时自动重订阅。
+2. **composer 草稿跨重启可恢复**（G4 先行第 2 片）：`SessionRecord` 增
+   `Status`/`Composer` 落盘字段；`SaveComposerDraft` 把未发送正文随草稿
+   record 落盘（`Status=draft`），冷启动装配器恢复最近草稿（同 SID + 正文
+   回填），物化成功后清空；`Snapshot.Session.composer` 供渲染层恢复，
+   GUI 输入防抖保存。限定：当前恢复路径覆盖未绑定工作区的任务会话草稿，
+   工作区草稿的 binding 落盘随 G4 完整归属。
+3. **G2 严格 kind 白名单开启**：`EventHub.PublishSession` 按
+   `ValidateSessionRouting` 拒绝会话类空 sid / 进程类带 sid 的发布并记诊断
+   （`event.PublishDiagnostic`，默认 stderr）；订阅测试同步为新契约
+   （草稿显式 ID 订阅、进程类全局事件以 resync 验证）。
+
+尚未完成（留给下一会话，见 target-design §9 波 2 剩余）：
+
+- G1-C 剩余：planExecutor 的 binding/policy/fork 额度按 sid 建槽
+  （`plan_run` 上下文绑定 per-run 携带，不再读全局单例）——与 G4 的
+  per-session effort 及 plan 运行上下文绑定耦合。
+- G3：`SessionSnapshot`/`ProcessSnapshot` 分型（进程级字段移出会话快照，
+  前端 reducer/契约测试同步）。
+- G4 其余：effort/fullAccess/approval/子代理树/Composer 完整归属进
+  `SessionUnit`；子代理会话按 `Kind=Subagent` 落盘、不进侧栏、经父树打开、
+  重启标 `stale`；"mainagent 实际接收内容"可见可持久（撤销
+  `view_state/coordinator.go:160-162` 的丢弃点）。
+
+波 2 验证命令（本机 CGO_ENABLED=1，-race 为真实执行）：
+
+```text
+go build ./...                                   # 通过
+go test ./... -count=1 -timeout=300s             # 通过（全仓）
+node --test gui/frontend/dist/*.test.mjs          # 176 pass / 0 fail
+```

@@ -17,7 +17,7 @@
 
 ## Bridge 契约
 
-`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、ResumeSession、`ForkSessionLatest`（从会话最新完整轮次分支出新会话并切换，返回子会话 ID）、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft，GUI 不通过 `/new` 字符串命令抢先创建 Session。
+`Application` 是 GUI 需要的最小端口。`Bridge` 暴露 Snapshot、Submit、BeginNewSession、`SaveComposerDraft`（草稿未发送输入防抖落盘，跨重启恢复）、ResumeSession、`ForkSessionLatest`（从会话最新完整轮次分支出新会话并切换，返回子会话 ID）、Cancel、Interaction、Plugin/Account/Effort/Full Access、history pagination、workspace、session storage settings、`UpdateWorkItemStatus`（工作表格 todo 三态）等方法，并把 Application Event 统一转发为 `seelex:event`。`BeginNewSession` 只进入 Application draft（早分配真实 SID，不建引擎 bundle），GUI 不通过 `/new` 字符串命令抢先创建 Session。
 
 会改变会话目录的命令（`BeginNewSession`/`DeleteSession`/`ForkSessionLatest`/`SetSessionMeta`）在返回前调用 `settleCatalog()`：等 `Application.WaitCatalogRefresh` 的目录刷新回执（预算 `sessionCatalogSettleTimeout`），使 renderer 紧接着重拉的 `Snapshot()` 已携带权威列表。等待超时不算失败也不向上报错——命令本身已成功，未收敛的列表由 worker 发布的 `snapshot.changed` 补齐，前端不得为此回填旧列表。
 

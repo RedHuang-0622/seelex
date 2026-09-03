@@ -164,7 +164,14 @@ fork 子代理不在活跃 Plan 里时（计划已清除）详情弹窗回退到
 
 `fork_subagents` 的外层工具在 summary 完成前保持运行态；这时应点击 Plan 节点查看真实进度，不能仅以 `Waiting for output…` 判定卡死。若外层工具报告子代理结果过大，详情中的会话、功能打点和工具活动才是可核验的证据面；renderer 不把过大的 `final_output` 当作完整审查结果的替代品。
 
-点击新建会话只调用 `BeginNewSession` 进入编辑草稿：左侧列表不新增任何条目，也不生成临时 ID。「任务会话」是真正未关联的会话——`BeginNewSession` 会清空上一个会话继承的项目绑定（项目地址、资源管理器文件树/提交记录不再显示），第一次提交真实对话后 Application 返回真实 ID，左侧才新增正式 Session，并以首个问题作为列表标题。「工作区会话」先进入未关联草稿、再在草稿上 `BindWorkspace` 绑定所选工作区，首次提交物化到该项目。
+点击新建会话只调用 `BeginNewSession` 进入编辑草稿：草稿从新建即持有早分配
+的真实 SID（`HasSession=false`，不建引擎 bundle）。「任务会话」是真正未关联
+的会话——`BeginNewSession` 会清空上一个会话继承的项目绑定（项目地址、资源
+管理器文件树/提交记录不再显示），第一次提交真实对话后 Application 用同一
+草稿 ID 物化，并以首个问题作为列表标题。「工作区会话」先进入未关联草稿、
+再在草稿上 `BindWorkspace` 绑定所选工作区，首次提交物化到该项目。草稿
+未发送正文由渲染层输入防抖写后端（`SaveComposerDraft`），重启后随
+`seelex:ready` 的 `snapshot.session.composer` 回填输入框。
 
 `beginNewSession` 只做「调命令 + 重拉快照」：会话目录的收敛由 Bridge 在命令返回前等刷新回执保证（见 `gui/README.md` 的 Bridge 契约），前端不再在列表为空时回填上一次目录并延时重拉——那是在 renderer 里伪造业务状态掩盖异步竞态。
 
@@ -173,7 +180,9 @@ fork 子代理不在活跃 Plan 里时（计划已清除）详情弹窗回退到
 - 所有模型/工具/用户文本在进入 HTML 前 escape 或经过受控 Markdown renderer。
 - 禁止执行 raw HTML、危险 URL 或任意脚本。
 - session/project 名称只显示；按钮 `data-session`、`data-ws` 必须保存 ID。
-- draft session 没有 ID、没有左侧列表行，不允许触发 resume/delete/binding；物化后列表行为仍只使用真实 ID。
+- 草稿 session 从新建即持有早分配真实 ID；只有输入过 composer 才随 record
+  落盘并常驻左侧列表（`status=draft` 行，点击恢复同一草稿）；草稿行不允许
+  delete/binding，物化后按正式 Session 处理。
 - DSN、API key 等秘密不能进入 renderer state。
 - system prompt、其装配结果和层摘要不能进入 renderer state；Runtime 面板只显示模型、Provider、Plugin、Effort、工具和 Plan 等可公开诊断信息。
 

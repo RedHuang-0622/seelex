@@ -41,7 +41,7 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 view 域协调器。
 - `func (c *Coordinator) SnapshotView() model.Snapshot` — SnapshotView 返回权威快照深拷贝。
 - `func (c *Coordinator) Subscribe(buffer int) event.Subscription` — Subscribe 订阅事件流。
-- `func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection` — CollectRuntimeProjection 锁外调用外部端口收集 runtime 投影。
+- `func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection` — CollectRuntimeProjection 锁外调用外部端口收集当前视图会话的 runtime
 - `func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID string) RuntimeStateProjection` — CollectRuntimeProjectionFor 按显式会话收集 runtime 投影（G1：会话槽的
 - `func (c *Coordinator) replanMetricsFor(sessionID string) dto.ReplanMetrics` — replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；
 - `func (c *Coordinator) tokenCountFor(sessionID string) string` — tokenCountFor 返回指定会话的 token 计数（有 per-session 端口优先；

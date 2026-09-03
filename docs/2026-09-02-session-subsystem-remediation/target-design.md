@@ -239,3 +239,18 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
 
 波 1/2 与波 3/4 分会话推进；每波内仍按小分片提交（先契约与测试，再实现），
 保证任意提交点 `go build ./...` 与受影响包测试全绿。
+
+### 波 2 执行中对账（2026-09-03 追加）
+
+- G4 先行子项（早分配 SID + 建 Unit + composer 落盘/重启恢复）已落地：
+  草稿从新建即持有真实 SID（`HasSession=false`），物化复用同一 ID；
+  `SessionRecord.Status/Composer` 落盘，冷启动恢复草稿，提交成功后清空。
+- G2 严格 kind 白名单已开启：会话类空 sid / 进程类带 sid 在
+  `PublishSession` 拒绝并记诊断；草稿不再以空 sid 占位的前提已满足。
+- 剩余波 2 内容（本会话未完成，随下一会话推进）：
+  1. G1-C 剩余：planExecutor binding/policy/fork 额度按 sid 建槽（与 G4
+     per-session effort 及 plan 运行上下文绑定耦合）；
+  2. G3：`SessionSnapshot`/`ProcessSnapshot` 分型（进程级字段移出会话
+     快照，前端 reducer/契约测试同步）；
+  3. G4 其余：effort/fullAccess/approval/子代理树/Composer 归属进 Unit、
+     `Kind=Subagent` 落盘与 stale、join 可见持久记录。

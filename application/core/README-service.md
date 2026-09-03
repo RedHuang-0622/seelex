@@ -60,6 +60,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (engine *fakeEngine) ClearHistory()`
 - `func (engine *fakeEngine) SessionID() string`
 - `func (engine *fakeEngine) StartSession() string`
+- `func (engine *fakeEngine) ActivateSession(sessionID string) error` — ActivateSession 以显式会话 ID 创建并激活引擎实例（G4 早分配 SID：
 - `func (engine *fakeEngine) ReplaceHistory(sessionID string, history []EngineMessage) error`
 - `func (engine *fakeEngine) SetSystemPrompt(prompt string)`
 - `func (engine *fakeEngine) SetMaxLoops(maxLoops int)`

@@ -16,9 +16,15 @@
 | 口径 | 投递内容 |
 |------|----------|
 | `Subscribe(buffer)` | 全部事件（全局观察、测试） |
-| `SubscribeSession(sessionID, buffer)` | 该会话 + 全局（`SessionID == ""`）事件 |
-| `SubscribeFiltered(filter, buffer)` | 谓词筛选；`application/core` 用它实现「跟随当前视图会话」（草稿尚无真实 ID，归属只能由视图指针持有者判定） |
+| `SubscribeSession(sessionID, buffer)` | 该会话 + 进程类全局（`SessionID == ""`，resync/exit）事件 |
+| `SubscribeFiltered(filter, buffer)` | 谓词筛选；`application/core` 用它实现显式 sid 订阅与（过渡口径）空 sid 跟随视图 |
 | `SubscribeWithReplay(filter, buffer, window)` | 同上，另保留最近 `window` 条可增量补取（桌面 Bridge 用） |
+
+发布端严格白名单（G2，波 2 开启）：`PublishSession` 在发布前按
+`ValidateSessionRouting` 校验 `(kind, sessionID)`——会话类 kind 空 sid、
+进程类 kind 带 sid 一律拒绝发布（返回零值事件）并经 `PublishDiagnostic`
+记诊断（默认 stderr，可整体替换）。草稿早分配真实 SID 后，会话类事件
+不再存在合法的空 sid 形态。
 
 谓词在发布 goroutine 上求值，必须无阻塞、无副作用。不属于本订阅的事件根本不进入
 其 channel：别会话的流量既不挤占本订阅缓冲，也不要求客户端二次过滤。

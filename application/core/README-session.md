@@ -69,8 +69,9 @@
 
 ### session_draft.go
 
-- `func (service *Service) BeginNewSession() error` — BeginNewSession 进入幂等、未持久化的草稿状态。引擎会话只在第一条真实
-- `func (service *Service) materializeDraftSession(firstQuestion string) error` — materializeDraftSession 为首条请求创建引擎会话与项目绑定。调用方必须持有
+- `func (service *Service) newDraftSessionIDLocked() string` — newDraftSessionIDLocked 生成早分配的草稿会话 ID（调用方持有 Core.Mu）。
+- `func (service *Service) BeginNewSession() error` — BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
+- `func (service *Service) materializeDraftSession(firstQuestion string) error` — materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
 
 ### session_fork.go
 
@@ -137,6 +138,7 @@
 - `func (e *multiSessionEngine) debugSnapshot(sessionIDs ...string) string` — debugSnapshot 返回引擎侧诊断快照（断点现场；自动加锁）。
 - `func (e *multiSessionEngine) HasSession(sessionID string) bool`
 - `func (e *multiSessionEngine) StartSession() string`
+- `func (e *multiSessionEngine) ActivateSession(sessionID string) error` — ActivateSession 以显式会话 ID 创建（如缺）并激活引擎实例。
 - `func (e *multiSessionEngine) SessionID() string`
 - `func (e *multiSessionEngine) History() []EngineMessage`
 - `func (e *multiSessionEngine) HistoryFor(sessionID string) []EngineMessage`
@@ -181,11 +183,13 @@
 - `func (engine *s0ChunkEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func viewContains(unit *session.SessionUnit, text string) bool` — viewContains 报告指定会话可见对话中是否出现目标文本。
 - `func TestS0BackgroundEventsDoNotPolluteActiveSnapshot(t *testing.T)` — TestS0BackgroundEventsDoNotPolluteActiveSnapshot（波 1 验收锚）：
+- `func TestS0SwitchResyncsBaseline(t *testing.T)` — TestS0SwitchResyncsBaseline（波 1 验收锚）：视图切到会话 B 后按显式 sid
 - `func conversationTexts(messages []Message) []string`
 
 ### session_scope.go
 
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
+- `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
 - `func (service *Service) anyChatRunningLocked() bool` — anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 - `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态写入会话 view（阶段 1：
 - `func queuedChatRequests(requests []session.QueuedRequest) []chatRequest` — queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的
