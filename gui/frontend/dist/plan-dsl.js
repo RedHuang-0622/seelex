@@ -496,7 +496,7 @@ function statusToken(status) {
 }
 
 function statusLabel(status) {
-  return ({ pending: "PENDING", queued: "QUEUED", running: "RUNNING", worktree_creating: "WORKTREE", rebasing: "REBASING", merging: "MERGING", completed: "DONE", failed: "FAILED", aborted: "ABORTED", skipped: "SKIPPED", canceled: "CANCELED", panicked: "PANICKED", active: "ACTIVE", success: "SUCCESS", error: "ERROR" })[status] || "UNKNOWN";
+  return ({ pending: "PENDING", queued: "QUEUED", running: "RUNNING", worktree_creating: "WORKTREE", rebasing: "REBASING", merging: "MERGING", completed: "DONE", failed: "FAILED", aborted: "ABORTED", skipped: "SKIPPED", canceled: "CANCELED", interrupted: "INTERRUPTED", panicked: "PANICKED", active: "ACTIVE", success: "SUCCESS", error: "ERROR" })[status] || "UNKNOWN";
 }
 
 function modeLabel(mode) {
@@ -518,7 +518,7 @@ function setMode(root, mode) {
 }
 
 function statusSymbol(status) {
-  return ({ pending: "·", queued: "○", running: "●", worktree_creating: "◇", rebasing: "↻", merging: "⋈", completed: "✓", skipped: "↷", failed: "!", aborted: "×", canceled: "×", panicked: "!", success: "✓", error: "!" })[status] || "?";
+  return ({ pending: "·", queued: "○", running: "●", worktree_creating: "◇", rebasing: "↻", merging: "⋈", completed: "✓", skipped: "↷", failed: "!", aborted: "×", canceled: "×", interrupted: "×", panicked: "!", success: "✓", error: "!" })[status] || "?";
 }
 
 function renderDetailButton(node) {
@@ -994,16 +994,17 @@ export function subagentTreeNodeToDSL(treeNode) {
   };
 }
 
-// normalizeSubagentStatus 校验子代理树状态（running/done/failed；非法 → unknown）。
+// normalizeSubagentStatus 校验子代理树状态（queued/running/done/failed/
+// interrupted；非法 → unknown）。
 function normalizeSubagentStatus(value) {
   const status = textValue(value).toLowerCase();
-  return status === "running" || status === "done" || status === "failed" ? status : "unknown";
+  return ["queued", "running", "done", "failed", "interrupted"].includes(status) ? status : "unknown";
 }
 
 // subagentStatusToken 把子代理树状态映射到既有节点状态 token（状态徽标/
 // 符号复用 plan-dsl 的状态表）。
 function subagentStatusToken(status) {
-  return ({ running: "running", done: "completed", failed: "failed" })[status] || "unknown";
+  return ({ queued: "queued", running: "running", done: "completed", failed: "failed", interrupted: "interrupted" })[status] || "unknown";
 }
 
 // shortSessionID 截断会话 ID（显示用；完整 ID 在 title 提示里）。

@@ -1033,7 +1033,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .work-row.is-completed, .work-row.is-done { border-color: var(--border-done); }
 .work-status.is-completed, .work-status.is-done { border-color: var(--border-done); color: var(--status-done); background: var(--tint-done); }
 .work-row.is-failed, .work-row.is-aborted, .work-row.is-panicked { border-color: var(--border-failed); }
+.work-row.is-interrupted { border-color: var(--border-failed); }
 .work-status.is-failed, .work-status.is-aborted, .work-status.is-panicked { border-color: var(--border-failed); color: var(--status-failed); background: var(--tint-failed); }
+.work-status.is-interrupted { border-color: var(--border-failed); color: var(--status-failed); background: var(--tint-failed); }
 .work-status.is-retry { border-color: rgba(217, 166, 87, .45); color: var(--brass); background: var(--tint-running); }
 .work-dep, .work-attachment { display: inline-block; max-width: 100%; margin: 1px 2px 1px 0; padding: 0 5px; border-radius: var(--r-sm); color: var(--status-info); background: var(--tint-info); font: 10px var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
 .work-attachment { color: var(--status-done); background: var(--tint-done); }
@@ -1151,6 +1153,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .plan-dsl-node.is-queued .plan-dot, .plan-dsl-node.is-running .plan-dot, .plan-dsl-node.is-worktree_creating .plan-dot, .plan-dsl-node.is-rebasing .plan-dot, .plan-dsl-node.is-merging .plan-dot { border-color: var(--border-running); color: var(--status-running); background: var(--tint-running); }
 .plan-dsl-node.is-completed .plan-dot, .plan-dsl-node.is-skipped .plan-dot { border-color: var(--border-done); color: var(--status-done); background: var(--tint-done); }
 .plan-dsl-node.is-failed .plan-dot, .plan-dsl-node.is-aborted .plan-dot, .plan-dsl-node.is-canceled .plan-dot, .plan-dsl-node.is-panicked .plan-dot { border-color: var(--border-failed); color: var(--status-failed); background: var(--tint-failed); }
+.plan-dsl-node.is-interrupted .plan-dot { border-color: var(--border-failed); color: var(--status-failed); background: var(--tint-failed); }
 .plan-tree-guide { position: relative; z-index: 1; flex: none; padding: 1px 0 0 4px; color: var(--faint); font: 10px/1 var(--font-mono); white-space: pre; }
 .plan-node-side { display: flex; flex-wrap: wrap; gap: 3px; padding-top: 4px; }
 .plan-side-ref { padding: 1px 5px; border: 1px solid rgba(123, 163, 199, .35); border-radius: var(--r-sm); color: var(--status-info); background: var(--tint-info); font: 700 10px var(--font-mono); text-transform: uppercase; }
@@ -1159,6 +1162,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .plan-dsl-node.is-running .plan-node-card, .plan-dsl-node.is-worktree_creating .plan-node-card, .plan-dsl-node.is-rebasing .plan-node-card, .plan-dsl-node.is-merging .plan-node-card { border-color: var(--border-running); background: var(--tint-running); }
 .plan-dsl-node.is-completed .plan-node-card { border-color: var(--border-done); }
 .plan-dsl-node.is-failed .plan-node-card, .plan-dsl-node.is-panicked .plan-node-card { border-color: var(--border-failed); background: var(--tint-failed); }
+.plan-dsl-node.is-interrupted .plan-node-card { border-color: var(--border-failed); background: var(--tint-failed); }
 .plan-dsl-node.is-running .plan-node-card { position: relative; overflow: hidden; }
 .plan-dsl-node.is-running .plan-node-card::after {
   content: "";

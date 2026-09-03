@@ -6,10 +6,11 @@ import "time"
 type SubAgentNodeStatus string
 
 const (
-	SubAgentQueued  SubAgentNodeStatus = "queued" // fork 派工但会话尚未启动
-	SubAgentRunning SubAgentNodeStatus = "running"
-	SubAgentDone    SubAgentNodeStatus = "done"
-	SubAgentFailed  SubAgentNodeStatus = "failed"
+	SubAgentQueued      SubAgentNodeStatus = "queued" // fork 派工但会话尚未启动
+	SubAgentRunning     SubAgentNodeStatus = "running"
+	SubAgentDone        SubAgentNodeStatus = "done"
+	SubAgentFailed      SubAgentNodeStatus = "failed"
+	SubAgentInterrupted SubAgentNodeStatus = "interrupted" // 进程中断/崩溃遗留的未完成节点（重启后可见，供用户在父会话重跑）
 )
 
 // SubAgentTreeNode 是子代理树的只读投影节点（GUI 树视图数据源）。

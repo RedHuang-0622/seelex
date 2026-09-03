@@ -473,6 +473,8 @@ test("converts a subagent tree node into a detail DSL node", () => {
   assert.equal(done.parentKey, "main");
   assert.equal(subagentTreeNodeToDSL({ id: "x", status: "failed" }).status, "failed");
   assert.equal(subagentTreeNodeToDSL({ id: "y", status: "running" }).status, "running");
+  assert.equal(subagentTreeNodeToDSL({ id: "q", status: "queued" }).status, "queued");
+  assert.equal(subagentTreeNodeToDSL({ id: "i", status: "interrupted" }).status, "interrupted");
   assert.equal(subagentTreeNodeToDSL({ id: "z" }).status, "unknown"); // 未知状态 → unknown 徽标
   assert.equal(subagentTreeNodeToDSL({ status: "done" }).key, ""); // 缺 id → 空 key
 });

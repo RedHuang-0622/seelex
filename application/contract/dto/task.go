@@ -18,6 +18,9 @@ const (
 	TaskCompleted TaskStatus = "completed"
 	TaskFailed    TaskStatus = "failed"
 	TaskRetry     TaskStatus = "retry"
+	// TaskInterrupted 是进程中断/崩溃遗留的工作表条目状态（重启后可见；
+	// 由子代理树 interrupted 节点投影而来，供用户在父会话重跑）。
+	TaskInterrupted TaskStatus = "interrupted"
 )
 
 // TaskPhase* 是 worktable 条目阶段常量（前端筛选/渲染依赖这些字符串）。

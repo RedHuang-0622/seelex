@@ -425,12 +425,16 @@ func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus {
 	switch status {
 	case dto.SubAgentQueued:
 		return dto.TaskQueued
+	case dto.SubAgentRunning:
+		return dto.TaskRunning
 	case dto.SubAgentDone:
 		return dto.TaskCompleted
 	case dto.SubAgentFailed:
 		return dto.TaskFailed
+	case dto.SubAgentInterrupted:
+		return dto.TaskInterrupted
 	default:
-		return dto.TaskRunning
+		return dto.TaskInterrupted
 	}
 }
 

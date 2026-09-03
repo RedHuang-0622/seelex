@@ -12,6 +12,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelexctx/snapshot"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // ── 子代理树（fork 内存态可视化，subagent_tree.go）──────────────────
@@ -154,6 +155,47 @@ func TestSubAgentTreeLifecycleTransitions(t *testing.T) {
 	}
 	if tree := runtime.SubAgentTree(); tree != nil {
 		t.Fatalf("tree must be empty after clear, got %+v", tree)
+	}
+}
+
+// TestRestoredCrashLeftoversMarkedInterrupted（INV-G9/G4 stale）：进程中断
+// 遗留的 running/queued 节点记录在重启恢复后标记 interrupted（不再伪装成
+// "运行中/排队"），done/failed 原样保留；未知状态按保守口径标 interrupted；
+// 主代理合成根在只剩中断/完成子节点时显示 interrupted。
+func TestRestoredCrashLeftoversMarkedInterrupted(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+
+	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{
+		{NodeID: "crashed-run", SessionID: "node-crash-run", Goal: "run-crash", Status: "running"},
+		{NodeID: "crashed-queued", SessionID: "node-crash-queued", Goal: "queued-crash", Status: "queued"},
+		{NodeID: "done-node", SessionID: "node-done", Goal: "done", Status: "done", Summary: "ok"},
+		{NodeID: "mystery", SessionID: "node-mystery", Goal: "mystery", Status: ""},
+	})
+
+	tree := runtime.SubAgentTree()
+	if len(tree) != 1 {
+		t.Fatalf("tree roots = %d, want 1", len(tree))
+	}
+	root := tree[0]
+	byID := map[string]dto.SubAgentTreeNode{}
+	for _, child := range root.Children {
+		byID[child.ID] = child
+	}
+	if got := byID["crashed-run"]; got.Status != dto.SubAgentInterrupted {
+		t.Fatalf("restored running leftover status = %q, want interrupted (%+v)", got.Status, got)
+	}
+	if got := byID["crashed-queued"]; got.Status != dto.SubAgentInterrupted {
+		t.Fatalf("restored queued leftover status = %q, want interrupted (%+v)", got.Status, got)
+	}
+	if got := byID["done-node"]; got.Status != dto.SubAgentDone {
+		t.Fatalf("restored done status = %q, want done (%+v)", got.Status, got)
+	}
+	if got := byID["mystery"]; got.Status != dto.SubAgentInterrupted {
+		t.Fatalf("restored unknown status = %q, want interrupted (%+v)", got.Status, got)
+	}
+	if root.Status != dto.SubAgentInterrupted {
+		t.Fatalf("main root with interrupted leftovers = %q, want interrupted", root.Status)
 	}
 }
 

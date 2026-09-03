@@ -28,7 +28,7 @@ const STATUS_LABELS = {
   pending: "PENDING", queued: "QUEUED", running: "RUNNING",
   worktree_creating: "WORKTREE", rebasing: "REBASING", merging: "MERGING",
   completed: "DONE", failed: "FAILED", aborted: "ABORTED", skipped: "SKIPPED",
-  canceled: "CANCELED", panicked: "PANICKED", doing: "DOING", done: "DONE",
+  canceled: "CANCELED", interrupted: "INTERRUPTED", panicked: "PANICKED", doing: "DOING", done: "DONE",
   retry: "RETRY", active: "ACTIVE", success: "SUCCESS", error: "ERROR"
 };
 // 表头固定列数（trace 展开行 colspan 对齐此数量）。

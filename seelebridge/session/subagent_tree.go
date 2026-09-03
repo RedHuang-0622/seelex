@@ -39,10 +39,11 @@ import (
 type SubAgentNodeStatus = dto.SubAgentNodeStatus
 
 const (
-	SubAgentQueued  = dto.SubAgentQueued
-	SubAgentRunning = dto.SubAgentRunning
-	SubAgentDone    = dto.SubAgentDone
-	SubAgentFailed  = dto.SubAgentFailed
+	SubAgentQueued      = dto.SubAgentQueued
+	SubAgentRunning     = dto.SubAgentRunning
+	SubAgentDone        = dto.SubAgentDone
+	SubAgentFailed      = dto.SubAgentFailed
+	SubAgentInterrupted = dto.SubAgentInterrupted
 )
 
 // SubAgentTreeNode 是子代理树的只读投影节点（GUI 树视图数据源）。
@@ -327,17 +328,20 @@ func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord) {
 	s.notify()
 }
 
-// restoredSubAgentStatus 把持久化状态映射为树投影状态（未知 → queued）。
+// restoredSubAgentStatus 把持久化状态映射为树投影状态：崩溃遗留的
+// running/queued 记录在重启后标记为 interrupted（不再是"运行中/排队"的
+// 假象），done/failed 原样保留，未知 → interrupted（保守口径：残留记录
+// 说明父会话没有等到它收敛）。
 func restoredSubAgentStatus(status string) SubAgentNodeStatus {
 	switch status {
 	case "running", "queued":
-		return SubAgentQueued
+		return SubAgentInterrupted
 	case "done":
 		return SubAgentDone
 	case "failed":
 		return SubAgentFailed
 	default:
-		return SubAgentQueued
+		return SubAgentInterrupted
 	}
 }
 
@@ -472,7 +476,7 @@ func compactSubAgentContext(snap *snapshot.ContextSnapshot) *SubAgentNodeContext
 
 // subagentMainStatus 汇总主代理合成根状态（递归）：任一子代理
 // running/queued → running；存在 failed 且无 running/queued → failed；
-// 否则 done。
+// 存在 interrupted 且无 running/queued/failed → interrupted；否则 done。
 func subagentMainStatus(children []SubAgentTreeNode) SubAgentNodeStatus {
 	status := SubAgentDone
 	var walk func(items []SubAgentTreeNode)
@@ -484,6 +488,10 @@ func subagentMainStatus(children []SubAgentTreeNode) SubAgentNodeStatus {
 			case SubAgentFailed:
 				if status != SubAgentRunning {
 					status = SubAgentFailed
+				}
+			case SubAgentInterrupted:
+				if status != SubAgentRunning && status != SubAgentFailed {
+					status = SubAgentInterrupted
 				}
 			}
 			walk(item.Children)
