@@ -59,6 +59,7 @@ type fakeApplication struct {
 	gitLimit         int
 	metaSessionID    string
 	sessionMeta      application.SessionMeta
+	archivedSession  string
 	catalogSettles   int
 	catalogGate      chan struct{}
 }
@@ -145,6 +146,10 @@ func (fake *fakeApplication) Suggestions(input string) []application.Suggestion 
 	return []application.Suggestion{{Text: "help", Kind: "command"}}
 }
 func (fake *fakeApplication) DeleteSession(sessionID string) error {
+	return nil
+}
+func (fake *fakeApplication) ArchiveSession(sessionID string) error {
+	fake.archivedSession = sessionID
 	return nil
 }
 func (fake *fakeApplication) SetSessionMeta(sessionID string, meta application.SessionMeta) error {
@@ -491,6 +496,25 @@ func TestBridgeCancelChatForwardsOnce(t *testing.T) {
 	}
 }
 
+// TestBridgeArchiveSessionForwardsOnce C2：ArchiveSession 只转发一次到
+// application（门控在 application 层），Bridge 不重试、不伪造归档状态。
+func TestBridgeArchiveSessionForwardsOnce(t *testing.T) {
+	fake := newFakeApplication()
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.ArchiveSession("session-a"); err != nil {
+		t.Fatalf("ArchiveSession: %v", err)
+	}
+	if fake.archivedSession != "session-a" {
+		t.Fatalf("archived session = %q, want session-a", fake.archivedSession)
+	}
+	if fake.catalogSettles != 1 {
+		t.Fatalf("catalog settle waits = %d, want 1", fake.catalogSettles)
+	}
+}
+
 // TestBridgeSettlesSessionCatalogBeforeReturning 会改变会话目录的命令必须在
 // 目录刷新收敛后才返回给 renderer（C3）：否则前端只能靠"列表为空就回填上一次
 // 列表"掩盖竞态。
@@ -501,6 +525,7 @@ func TestBridgeSettlesSessionCatalogBeforeReturning(t *testing.T) {
 	}{
 		{"BeginNewSession", func(bridge *Bridge) error { return bridge.BeginNewSession() }},
 		{"DeleteSession", func(bridge *Bridge) error { return bridge.DeleteSession("session-a") }},
+		{"ArchiveSession", func(bridge *Bridge) error { return bridge.ArchiveSession("session-a") }},
 		{"ForkSessionLatest", func(bridge *Bridge) error {
 			_, err := bridge.ForkSessionLatest("session-a")
 			return err

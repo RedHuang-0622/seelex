@@ -15,6 +15,12 @@ func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projec
 	discovered := map[string]string{}
 	sessions := []model.SessionInfo{}
 	for _, info := range granular.SessionsOf(projectID) {
+		// C2 归档过滤：archived 是 record 级粘性状态，归档会话不进常规目录
+		// 行（按项目分格过滤，避免在别的项目格/全局数组上留标记位）。存储层
+		// 枚举仍返回归档行——按 ID 冷读/重开/定位不受影响。
+		if info.Status == model.SessionStatusArchived {
+			continue
+		}
 		if projectID != "" {
 			discovered[info.ID] = projectID
 		}

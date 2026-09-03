@@ -50,10 +50,16 @@ func (c *Coordinator) PersistCurrentSession(location Location, sessionID string)
 	}
 	// L2：内存标题缺失（纯后台启动从未激活）时回退磁盘 record 标题，
 	// 不读全局活跃 Snapshot 标题。
-	if record.Title.Value == "" {
-		if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
-			if existing, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil && existing.Title.Value != "" {
+	if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
+		if existing, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID); err == nil {
+			if record.Title.Value == "" && existing.Title.Value != "" {
 				record.Title = existing.Title
+			}
+			// L2 粘性状态：draft/archived 是 record 级持久状态，落盘重建时
+			// 必须继承（否则归档会话在下一次持久化后被悄悄清掉状态、回到目录）。
+			// idle/running/queued/awaiting_approval 由运行期叠加，不落盘。
+			if existing.Status == model.SessionStatusDraft || existing.Status == model.SessionStatusArchived {
+				record.Status = existing.Status
 			}
 		}
 	}
@@ -342,6 +348,30 @@ func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (mo
 		return model.SessionRecord{}, false, nil
 	}
 	return record, true, nil
+}
+
+// MarkSessionArchived 把会话 record 的可见状态置为 archived（C2）。只改
+// record 状态通道，不动 history/transcript/tool-results/context 其余四片；
+// 目录分格枚举过滤归档行后，会话从常规列表隐藏，仍可按 ID 冷读/重开
+// （存储层 SessionsOf 与 LocateSession 原样返回归档行）。
+func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) error {
+	store, ok := c.Core.Deps.Sessions.(SessionRecordPort)
+	if !ok {
+		return errors.New("session record persistence is not assembled")
+	}
+	record, err := store.LoadSessionRecordWorkspace(location.WorkspaceID, sessionID)
+	if err != nil {
+		return err
+	}
+	if record.ID != sessionID || record.Version != SessionRecordVersion {
+		return fmt.Errorf("archive session %q: record missing or unsupported version", sessionID)
+	}
+	if record.Status == model.SessionStatusArchived {
+		return nil
+	}
+	record.Status = model.SessionStatusArchived
+	record.UpdatedAt = time.Now()
+	return store.SaveSessionRecordWorkspace(location.WorkspaceID, sessionID, record)
 }
 
 // LoadSessionTranscript 读取会话 transcript 尾部窗口（预算 + 单元上限由

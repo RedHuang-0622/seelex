@@ -242,6 +242,13 @@ projectID 一格一格的会话列表；`RequestCatalogRefreshProject(projectID)
 `CatalogCache` 是逐格组合后的联合镜像（跨项目按会话 ID 去重），内部不再
 存在单一全局数组。workspace/标题表以全局唯一 sessionID 为键，天然不分格。
 
+C2 ArchiveSession（2026-09-03 收口）：`Service.ArchiveSession`/Bridge 命令
+复用 `sessionBusy` 门控（running/queued/awaiting_approval 拒绝）；驻留会话先
+flush + 释放引擎 bundle（驱逐前置语义），再经 `Coordinator.MarkSessionArchived`
+把 `record.Status` 写为 archived；`PersistCurrentSession` 继承 draft/archived
+粘性状态，避免归档被后续落盘悄悄清掉。目录分格枚举过滤归档行，五片数据保留、
+可按 ID 冷读/重开（存储层枚举与定位仍返回归档行）。
+
 ## 4. 热挂载 vs 冷加载（切换/恢复分支）
 
 ```mermaid

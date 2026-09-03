@@ -42,6 +42,9 @@ type Application interface {
 	LoadMoreHistory(int) error
 	Suggestions(string) []application.Suggestion
 	DeleteSession(string) error
+	// ArchiveSession 把指定会话置为 archived（record 级状态；运行中/待批
+	// 拒绝）。归档会话从常规目录隐藏，数据五片保留可按 ID 重开。
+	ArchiveSession(string) error
 	// SetSessionMeta 写会话展示元数据（置顶/别名/排序位），随会话目录下发。
 	SetSessionMeta(string, application.SessionMeta) error
 	// WaitCatalogRefresh 等待会话目录 worker 完成一轮覆盖本次变更的刷新，使随后
@@ -673,6 +676,16 @@ func (bridge *Bridge) Suggestions(input string) []application.Suggestion {
 
 func (bridge *Bridge) DeleteSession(sessionID string) error {
 	if err := bridge.app.DeleteSession(sessionID); err != nil {
+		return err
+	}
+	bridge.settleCatalog()
+	return nil
+}
+
+// ArchiveSession 归档指定会话（C2）：转发 application 门控，成功后等目录
+// 收敛再返回，使 renderer 重拉的快照已过滤归档行。
+func (bridge *Bridge) ArchiveSession(sessionID string) error {
+	if err := bridge.app.ArchiveSession(sessionID); err != nil {
 		return err
 	}
 	bridge.settleCatalog()
