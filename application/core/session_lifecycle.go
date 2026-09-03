@@ -31,9 +31,13 @@ func (service *Service) hotAttachSession(sessionID string) error {
 			service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 		}
 	}
+	// G5 出临界区化：workspace 查询（外部 WorkspacePort，可能含磁盘索引读）
+	// 在锁外完成一次并保存拷贝，ViewMu 临界区内不再调用外部端口。
+	var attachWorkspace *WorkspaceInfo
 	if service.Deps.Workspace != nil {
 		workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID)
 		if ok {
+			attachWorkspace = &workspace
 			// 热加载 = 只换视图指针，不得触碰执行作用域：有其它会话运行中
 			// 时跳过全局项目根/写作用域重绑（P3/G5），per-session 绑定照记。
 			if service.bindProjectRootIfSafe(sessionID, workspace.RootPath) {
@@ -65,8 +69,8 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	)
 	service.Core.Snapshot.Interaction = nil
 	if service.Deps.Workspace != nil {
-		if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {
-			service.Core.Snapshot.CurrentWorkspace = &workspace
+		if attachWorkspace != nil {
+			service.Core.Snapshot.CurrentWorkspace = attachWorkspace
 		}
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 	}
