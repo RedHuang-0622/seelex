@@ -392,12 +392,31 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
    SwitchEffort 写视图会话单元；runtime 投影与预算/任务装配按会话读
    effort（unit 优先、回退进程默认）；测试覆盖 per-session 隔离。
 
+### G4 子代理持久化形状对账（2026-09-03）
+
+target-design §2.5 的「子代理按 `Kind=Subagent` 落五分片 + `SessionsOf`
+按 kind 过滤」与现状实现（2026-08-24 用户约定：`NodeSessionRecord` 存于
+主会话目录 `subagents/<main>-<sub>.json`，见 `sessionstore/node_session_store.go`
+与 `seelebridge/runtime_subagent_recovery.go`）是**等价实现**，不需要迁移：
+
+- 不进侧栏：node 记录不在主目录枚举路径内，天然不进会话目录/侧栏；
+- 经父树打开：恢复锚点挂回父会话的 SubagentTree（节点带 subSessionID），
+  GUI 经 Plan 树节点/`SubagentSessionDetail` 打开；
+- 落盘：运行期 History/ContextSnapshot/Stages/Result/Worktree 持续落盘，
+  终态结论（`seelex.subagent.result`）随父会话事件库持久化；
+- 重启标 stale：崩溃遗留的 running/queued 记录经恢复路径标记为
+  `interrupted`（提交 `77121f1`），父树合成根显示 interrupted，工作表条目
+  映射 `TaskStatus=interrupted`，供用户在父会话指挥 mainagent 重跑。
+
+若未来需要子代理出现在会话目录（归档/冷打开/独立管理），再做
+`Kind=Subagent` 五分片迁移，不改变现网行为。
+
 尚未完成（剩余项，见 target-design §9 波 2 剩余）：
 
 - G4 其余：approval 的会话级归属与 awaiting_approval 状态（进程单飞期间
   审批只可能属于运行/视图会话，会话级待批列表与门控随波 3 并行执行落地）；
-  子代理会话按 `Kind=Subagent` 落盘/不进侧栏/经父树打开/重启标 `stale`
-  尚未做；Composer 工作区草稿 binding 完整归属。
+  Composer 工作区草稿的 binding 落盘（草稿在 `BindWorkspace` 后 record 仍
+  落默认项目，跨重启不可枚举——随 G4 完整归属收口）。
 
 波 2 验证命令（本机 CGO_ENABLED=1，-race 为真实执行）：
 
@@ -459,3 +478,12 @@ go build ./...                                   # 通过
 go vet ./session ./application/core ./application/core/view_state          # 无告警
 go test ./session ./application/core ./gui ./internal/adapters ./seelebridge -count=1   # 全 ok
 ```
+
+### 波 2 子代理 interrupted 标记（追加，2026-09-03）
+
+提交 `77121f1`：`dto.SubAgentNodeStatus`/`TaskStatus` 新增 `interrupted`；
+恢复路径把崩溃遗留的 running/queued 节点记录标记为 interrupted（不再伪装
+运行/排队），done/failed 原样保留，未知状态保守标 interrupted；父树合成根
+在只剩中断/完成子节点时显示 interrupted；工作表映射显式分支
+（`taskStatusForSubagent`）；plan-dsl/work-table 标签与 failed 色调 CSS
+覆盖 interrupted。
