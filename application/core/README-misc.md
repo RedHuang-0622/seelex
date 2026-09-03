@@ -85,6 +85,23 @@
 - `func TestCancelChat_Race(t *testing.T)` — TestCancelChat_Race 验证并发 CancelChat 安全。
 - `func TestObserveInteraction_Race(t *testing.T)` — TestObserveInteraction_Race 验证 observeInteraction 并发安全。
 
+### resident_lru.go
+
+- `func (service *Service) touchResident(sessionID string)` — touchResident 记录一次会话引擎使用（冷加载/热切换/物化），并触发超限
+- `func (service *Service) markResidentRecentLocked(sessionID string, resident bool)` — markResidentRecentLocked 把会话移到 LRU 使用序最前并标记驻留（调用方持
+- `func (service *Service) reconcileResidentLimit()` — reconcileResidentLimit 在超限时按 LRU 驱逐空闲驻留会话（无候选则容忍
+- `func (service *Service) pickEvictableCandidateLocked(engine residentEngine) string` — pickEvictableCandidateLocked 从 LRU 最旧端挑一个可驱逐会话（调用方持有
+- `func (service *Service) evictResident(sessionID string, engine residentEngine) error` — evictResident 驱逐一个空闲驻留会话：先 flush（非活跃持久化），再释放
+- `func (service *Service) sessionBusy(unit *session.SessionUnit) bool`
+
+### resident_lru_test.go
+
+- `func withResidentLimit(limit int) func()` — withResidentLimit 把进程级 resident_limit 临时改成 limit，返回还原函数
+- `func residentOf(t *testing.T, service *Service, sessionID string) bool`
+- `func TestResidentLimitEvictsLeastRecentlyUsedIdle(t *testing.T)` — TestResidentLimitEvictsLeastRecentlyUsedIdle 波 4 G6 INV-G8：驻留上限 2，
+- `func TestResidentLimitKeepsBusySessions(t *testing.T)` — TestResidentLimitKeepsBusySessions 波 4 G6 INV-G8：运行中会话不可驱逐
+- `func TestResidentLimitDefaultSix(t *testing.T)` — TestResidentLimitDefaultSix 默认 resident_limit = 6（INV-G8 口径）。
+
 ### runtime_projection.go
 
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布

@@ -173,7 +173,7 @@ def main() -> None:
             names = {
                 "aliases.go", "completion.go", "compressed_turn.go", "compressed_turn_test.go",
                 "diagnostics.go", "limits.go", "runtime_projection.go", "workspace_usecase.go",
-                "race_test.go",
+                "race_test.go", "resident_lru.go", "resident_lru_test.go",
             }
             group_files = [f for f in all_files if f.name in names]
         else:

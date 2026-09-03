@@ -212,13 +212,15 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 ### service_interaction.go
 
 - `func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error`
+- `func (service *Service) pendingApprovalSession(id string) (string, bool)` — pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
 - `func (service *Service) appendPlanRetryNotice(message string)`
 - `func (service *Service) abortPlanInteraction()`
 - `func (service *Service) SelectAccount(_ context.Context, name string) error`
 - `func (service *Service) SwitchEffort(_ context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 - `func (service *Service) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
 - `func (service *Service) SetFullAccess(on bool)`
-- `func (service *Service) observeInteraction(interaction *Interaction)`
+- `func (service *Service) observeInteraction(sessionID, requestID string, interaction *Interaction)` — observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
+- `func (service *Service) mirrorPendingApprovalsLocked(sessionID string)` — mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
 - `func (service *Service) openInteraction(interaction *Interaction)`
 - `func (service *Service) closeInteraction(id string)`
 - `func (service *Service) sessionInteraction() *Interaction`
