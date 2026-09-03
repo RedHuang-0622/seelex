@@ -15,6 +15,9 @@ func (c *Coordinator) PlanProjectionFor(sessionID string, fromStack func() *mode
 	if sessionID == "" {
 		return nil
 	}
+	// 基线重建先于 planMu（fromStack 可能经导出包装取 stateMu；锁序
+	// stateMu → planMu，避免 planMu→stateMu 倒置）。
+	baseline := fromStack()
 	c.planMu.Lock()
 	defer c.planMu.Unlock()
 	if c.planProjections == nil {
@@ -22,11 +25,11 @@ func (c *Coordinator) PlanProjectionFor(sessionID string, fromStack func() *mode
 	}
 	plan := c.planProjections[sessionID]
 	if plan == nil {
-		plan = fromStack()
-		if plan == nil {
+		if baseline == nil {
 			return nil
 		}
-		c.planProjections[sessionID] = plan
+		c.planProjections[sessionID] = baseline
+		plan = baseline
 	}
 	return model.CloneRuntimeState(model.RuntimeState{Plan: plan}).Plan
 }
@@ -167,11 +170,10 @@ func (c *Coordinator) ApplyPlanNodeProjection(sessionID string, event dto.PlanNo
 	if sessionID == "" {
 		return result
 	}
-	var baseline *model.PlanState
-	c.ViewMu.RLock()
+	c.stateMu.Lock()
 	st := c.sessionStateLocked(sessionID)
-	baseline = ActivePlanFromStack(st.planStack, st.activePlanID)
-	c.ViewMu.RUnlock()
+	baseline := ActivePlanFromStack(st.planStack, st.activePlanID)
+	c.stateMu.Unlock()
 
 	c.planMu.Lock()
 	defer c.planMu.Unlock()
