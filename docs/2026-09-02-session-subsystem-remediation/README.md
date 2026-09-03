@@ -571,12 +571,18 @@ keyed）、`0de02c9`（hotAttach 出临界区）、`195e875`（删除 StorePort 
   计数口径同理延后（TUI 现无计数面，口径已定：侧栏 awaiting_approval +
   状态行计数，落波 4）。
 
-验证（本机 CGO_ENABLED=1，`-race` 为真实执行）：
+### 波 3 收尾全量验证（追加，2026-09-03，提交 `5d3a741`）
 
 ```text
 go build ./...                                   # 通过
-go vet ./application/core/... ./session ./sessionstore   # 无告警
-go test ./application/core/... -count=1           # 全 ok
-go test -race ./application/core -count=1         # 全 ok（含新靶场）
-go test ./session ./sessionstore -count=1         # 全 ok
+go build -tags "gui,desktop,production" ./...     # 通过
+go vet ./...                                      # 无告警
+go test ./... -count=1 -timeout=300s             # 通过（全仓，零 FAIL）
+go test -race ./session ./sessionstore ./application/... ./gui ./seelebridge -count=1
+                                                 # 全 ok（真实 -race，CGO_ENABLED=1）
+node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
 ```
+
+波 3 提交链：`9b9ac2c` → `1110cc4` → `546a991` → `b69c33e` →
+`0de02c9` → `195e875` → `902ab98` → `5d3a741`。每个提交点
+`go build ./...` 与受影响包测试全绿；收尾处执行上表全量门禁。
