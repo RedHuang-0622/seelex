@@ -18,14 +18,18 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 		t.Fatalf("assemble V mirrors diverge: ActiveID=%q Snapshot=%q", got, initial)
 	}
 
-	// 草稿：V 镜像同步为空（draft）。
+	// 草稿：V 镜像同步为早分配的草稿 SID（draft）。
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if got := service.sessions.ActiveID(); got != "" {
-		t.Fatalf("draft V mirrors diverge: ActiveID=%q, want empty", got)
+	draftID := service.Snapshot().Session.ID
+	if draftID == "" {
+		t.Fatal("draft session must hold a pre-assigned ID")
 	}
-	if !service.Snapshot().Session.Draft {
+	if got := service.sessions.ActiveID(); got != draftID {
+		t.Fatalf("draft V mirrors diverge: ActiveID=%q Snapshot=%q", got, draftID)
+	}
+	if snapshot := service.Snapshot(); !snapshot.Session.Draft || snapshot.Session.ID != draftID {
 		t.Fatal("snapshot not draft after BeginNewSession")
 	}
 
@@ -44,14 +48,18 @@ func TestViewSingletonMirrorConsistent(t *testing.T) {
 		t.Fatalf("materialize V mirrors diverge: ActiveID=%q Snapshot=%q", got, newID)
 	}
 
-	// 活跃卸载：V 镜像同步回 draft（不残留旧 ActiveID）。
+	// 活跃卸载：V 镜像同步到新的早分配 SID 草稿（不残留旧 ActiveID）。
 	if err := service.UnloadSession(newID); err != nil {
 		t.Fatal(err)
 	}
-	if got := service.sessions.ActiveID(); got != "" {
-		t.Fatalf("unload active left stale ActiveID=%q", got)
+	after := service.Snapshot()
+	if after.Session.ID == "" || after.Session.ID == newID {
+		t.Fatalf("unload active must switch to a fresh draft ID: %+v", after.Session)
 	}
-	if !service.Snapshot().Session.Draft {
+	if got := service.sessions.ActiveID(); got != after.Session.ID {
+		t.Fatalf("unload active V mirrors diverge: ActiveID=%q Snapshot=%q", got, after.Session.ID)
+	}
+	if !after.Session.Draft {
 		t.Fatal("snapshot not draft after unloading active session")
 	}
 }

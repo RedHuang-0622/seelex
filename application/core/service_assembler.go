@@ -159,9 +159,19 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.Deps.Runtime.SetPlanPolicy(service.effortManager.PlanPolicy())
 	service.idle = closedSignal()
 	initialSessionID := service.Deps.Engine.SessionID()
+	initialDraft := initialSessionID == ""
+	if initialDraft {
+		// 冷启动：引擎尚未建 bundle（HasSession=false）。早分配草稿 SID，
+		// 使"启动即草稿"也持有真实会话身份（订阅键/事件路由/物化复用同一 ID）。
+		initialSessionID = service.newDraftSessionIDLocked()
+	}
+	initialSession := SessionState{ID: initialSessionID, Draft: initialDraft}
+	if initialDraft {
+		initialSession.Name = draftSessionName
+	}
 	service.Core.Snapshot = Snapshot{
 		ProtocolVersion:    ProtocolVersion,
-		Session:            SessionState{ID: initialSessionID, Draft: initialSessionID == ""},
+		Session:            initialSession,
 		Runtime:            RuntimeState{Model: service.Deps.Runtime.Model(), Effort: service.effortManager.Current()},
 		Capabilities:       Capabilities{SessionResume: true},
 		ConversationWindow: Limits().HistoryWindow,

@@ -88,7 +88,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		revision := service.bumpLocked()
 		service.Mu.Unlock()
-		service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+		service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 		service.components.sessions.RequestCatalogRefresh()
 		return nil
 	}
@@ -135,7 +135,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	service.components.sessions.RequestCatalogRefresh()
 	return nil
 }
@@ -160,7 +160,7 @@ func (service *Service) UnbindWorkspace() {
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	service.components.sessions.RequestCatalogRefresh()
 }
 

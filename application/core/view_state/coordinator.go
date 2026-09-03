@@ -92,9 +92,11 @@ func (c *Coordinator) Subscribe(buffer int) event.Subscription {
 	return c.Events.Subscribe(buffer)
 }
 
-// CollectRuntimeProjection 锁外调用外部端口收集 runtime 投影。
+// CollectRuntimeProjection 锁外调用外部端口收集当前视图会话的 runtime
+// 投影（M3/M5：引擎活跃别名不是事实源——草稿早分配 SID 后引擎
+// SessionID() 在未建 bundle 阶段为空，路由必须读视图指针）。
 func (c *Coordinator) CollectRuntimeProjection(ctx context.Context) RuntimeStateProjection {
-	return c.CollectRuntimeProjectionFor(ctx, c.Deps.Engine.SessionID())
+	return c.CollectRuntimeProjectionFor(ctx, c.Snapshot.Session.ID)
 }
 
 // CollectRuntimeProjectionFor 按显式会话收集 runtime 投影（G1：会话槽的
@@ -468,8 +470,13 @@ func (c *Coordinator) AddNotice(notice string) {
 	c.Mu.Lock()
 	message := *c.AppendMessageLocked("system", notice, nil)
 	revision := c.BumpLocked()
+	sessionID := c.Snapshot.Session.ID
 	c.Mu.Unlock()
-	c.Events.Publish(event.EventMessageAdded, revision, "", message)
+	if hub, ok := c.Events.(event.SessionAwareHub); ok {
+		hub.PublishSession(event.EventMessageAdded, revision, "", sessionID, message)
+	} else {
+		c.Events.Publish(event.EventMessageAdded, revision, "", message)
+	}
 }
 
 // ResetConversation 清空可见会话并注入 CLI 标识与通知。
@@ -482,6 +489,11 @@ func (c *Coordinator) ResetConversation(notice string) {
 		c.AppendMessageLocked("system", notice, nil)
 	}
 	revision := c.BumpLocked()
+	sessionID := c.Snapshot.Session.ID
 	c.Mu.Unlock()
-	c.Events.Publish(event.EventSnapshotChanged, revision, "", nil)
+	if hub, ok := c.Events.(event.SessionAwareHub); ok {
+		hub.PublishSession(event.EventSnapshotChanged, revision, "", sessionID, nil)
+	} else {
+		c.Events.Publish(event.EventSnapshotChanged, revision, "", nil)
+	}
 }

@@ -62,6 +62,13 @@ func (engine *guiChainEngine) StartSession() string {
 	engine.sessionID = "gui-chain-session"
 	return engine.sessionID
 }
+func (engine *guiChainEngine) ActivateSession(sessionID string) error {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.sessionID = sessionID
+	engine.history = nil
+	return nil
+}
 func (*guiChainEngine) SetSystemPrompt(string)               {}
 func (*guiChainEngine) SetMaxLoops(int)                      {}
 func (*guiChainEngine) TraceText() string                    { return "" }

@@ -11,8 +11,19 @@ import (
 
 const draftSessionName = "新会话"
 
-// BeginNewSession 进入幂等、未持久化的草稿状态。引擎会话只在第一条真实
-// conversation 请求发出时创建。
+// newDraftSessionIDLocked 生成早分配的草稿会话 ID（调用方持有 Core.Mu）。
+// 草稿 ID 使用独立前缀与序号：Windows 时间戳低分辨率下同一 tick 多次
+// BeginNewSession 也不会碰撞；引擎按该显式 ID 建 bundle（HasSession=false
+// 阶段不建，首次提交物化时经 ActivateSession 创建）。
+func (service *Service) newDraftSessionIDLocked() string {
+	service.draftSeq++
+	return fmt.Sprintf("draft_%d_%d", time.Now().UnixNano(), service.draftSeq)
+}
+
+// BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
+// （HasSession=false，不建引擎 bundle、不写空历史），引擎会话只在第一条
+// 真实 conversation 请求发出时创建。草稿槽位携带 ID 与工作区绑定，切换
+// 会话后仍可恢复；首次提交（materializeDraftSession）时消费并清空。
 func (service *Service) BeginNewSession() error {
 	transition := service.components.sessions.TransitionLock()
 	transition.Lock()
@@ -63,14 +74,16 @@ func (service *Service) BeginNewSession() error {
 	// （上面已按 currentWorkspaceID 持久化，会话树仍归入原工作区分组）。
 	// 需要项目上下文的「工作区会话」由调用方在草稿上显式 BindWorkspace，
 	// 再在首次请求物化时绑定。
-	// 草稿槽位：恢复已保留的草稿（含工作区会话绑定）或新建。
+	// 草稿槽位：恢复已保留的草稿（含早分配 ID 与工作区绑定）或新建并
+	// 早分配真实 SID。
 	service.Mu.Lock()
 	slot := service.draft
 	if slot == nil {
-		slot = &draftSlot{CreatedAt: time.Now()}
+		slot = &draftSlot{ID: service.newDraftSessionIDLocked(), CreatedAt: time.Now()}
 		service.draft = slot
 	}
 	slot.UpdatedAt = time.Now()
+	draftID := slot.ID
 	var restoredWorkspace *WorkspaceInfo
 	if slot.Workspace != nil {
 		item := *slot.Workspace
@@ -89,8 +102,8 @@ func (service *Service) BeginNewSession() error {
 	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
 
 	service.Mu.Lock()
-	service.Core.Snapshot.Session = SessionState{Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
-	service.sessions.SetActive("")
+	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
+	service.sessions.SetActive(draftID)
 	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace
 	service.Core.Snapshot.Conversation = nil
 	service.Core.Snapshot.HistoryOffset = 0
@@ -98,30 +111,36 @@ func (service *Service) BeginNewSession() error {
 	service.Core.Snapshot.HasMoreHistory = false
 	service.Core.Snapshot.Runtime.Plan = nil
 	service.Core.Snapshot.Interaction = nil
-	draftRuntime := service.sessionUnitLocked("")
+	draftRuntime := service.sessionUnitLocked(draftID)
 	draftRuntime.SetChatState(ChatState{}, nil)
 	draftRuntime.SetCancel(nil)
 	draftRuntime.SetRequests(nil)
 	service.Core.Snapshot.Chat = draftRuntime.ChatState()
-	service.components.sessions.SetSessionTitleLocked("", SessionTitle{})
+	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
 	service.publishRuntimeProjections()
 	// 会话级工作台隔离：新会话清空 task 注册表与子代理树，避免旧会话
 	// 数据污染新会话工作台，并发布空工作表格。
-	service.Deps.Runtime.SwitchSessionTasks("", nil)
+	service.Deps.Runtime.SwitchSessionTasks(draftID, nil)
 	_ = service.Deps.Runtime.ClearSubagentTree()
 	service.refreshWorkTableFromSources()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", draftID, nil)
 	return nil
 }
 
-// materializeDraftSession 为首条请求创建引擎会话与项目绑定。调用方必须持有
-// sessionTransitionMu。
+// materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
+// 的草稿 SID（支持显式 ID 建引擎的宿主经 ActivateSession 创建，旧单会话
+// 引擎退化为 StartSession 自动分配），并清空已提交的 composer 草稿。
+// 调用方必须持有 sessionTransitionMu。
 func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.Mu.RLock()
 	draft := service.Core.Snapshot.Session.Draft
+	draftID := service.Core.Snapshot.Session.ID
+	if service.draft != nil && service.draft.ID != "" {
+		draftID = service.draft.ID
+	}
 	var workspace *WorkspaceInfo
 	if service.Core.Snapshot.CurrentWorkspace != nil {
 		item := *service.Core.Snapshot.CurrentWorkspace
@@ -130,6 +149,9 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.Mu.RUnlock()
 	if !draft {
 		return nil
+	}
+	if draftID == "" {
+		return errors.New("draft session has no pre-assigned session ID")
 	}
 
 	if workspace != nil {
@@ -141,9 +163,18 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 		service.Deps.Runtime.UnbindProjectRoot()
 		service.Deps.Sessions.SetWorkspace("")
 	}
-	newID := strings.TrimSpace(service.Deps.Engine.StartSession())
-	if newID == "" {
-		return errors.New("engine returned an empty session ID")
+	newID := draftID
+	if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {
+		// 会话路由宿主：按早分配 SID 显式创建引擎 bundle（草稿阶段
+		// HasSession=false，此刻才建）。
+		if err := activator.ActivateSession(newID); err != nil {
+			return fmt.Errorf("create engine session %q: %w", newID, err)
+		}
+	} else {
+		newID = strings.TrimSpace(service.Deps.Engine.StartSession())
+		if newID == "" {
+			return errors.New("engine returned an empty session ID")
+		}
 	}
 	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）。
 	if workspace != nil {
@@ -163,6 +194,8 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 
 	service.Mu.Lock()
 	service.draft = nil // 草稿已物化为真实会话，消费槽位
+	unit := service.sessionUnitLocked(newID)
+	unit.SetComposerText("", time.Now()) // 提交成功后清空未发送输入草稿
 	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
 	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
 	// 视图单例一致性：V 的唯一镜像随物化切到新会话（与 hot_attach/resume 同
@@ -174,7 +207,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
 	service.publishRuntimeProjections()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)
 	service.components.sessions.RequestCatalogRefresh()
 	return nil
 }

@@ -41,7 +41,7 @@ func (service *Service) RefreshRuntimeSnapshot() {
 	service.applyRuntimeProjectionLocked(projection)
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), service.Snapshot().Runtime)
 	service.publishTaskDeltas()
 }
 

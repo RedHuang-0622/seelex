@@ -246,6 +246,11 @@ func (c *Coordinator) refreshCatalogCache() {
 		}
 	}
 	revision := c.view.BumpLocked()
+	sessionID := c.Core.Snapshot.Session.ID
 	c.Core.Mu.Unlock()
-	c.Core.Events.Publish(event.EventSnapshotChanged, revision, "", nil)
+	if hub, ok := c.Core.Events.(event.SessionAwareHub); ok {
+		hub.PublishSession(event.EventSnapshotChanged, revision, "", sessionID, nil)
+	} else {
+		c.Core.Events.Publish(event.EventSnapshotChanged, revision, "", nil)
+	}
 }

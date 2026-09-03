@@ -1,8 +1,32 @@
 package session
 
 import (
+	"time"
+
 	"github.com/RedHuang-0622/seelex/application/model"
 )
+
+// ComposerText 返回本会话未发送输入草稿正文。
+func (unit *SessionUnit) ComposerText() string {
+	if unit == nil {
+		return ""
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	return unit.Composer.Text
+}
+
+// SetComposerText 写入本会话未发送输入草稿（调用方负责持久化；空正文
+// 仍更新时间戳，表示草稿曾存在后清空）。
+func (unit *SessionUnit) SetComposerText(text string, updatedAt time.Time) {
+	if unit == nil {
+		return
+	}
+	unit.mu.Lock()
+	unit.Composer.Text = text
+	unit.Composer.UpdatedAt = updatedAt
+	unit.mu.Unlock()
+}
 
 // SetRuntimeState 把一次运行时投影写入本会话槽（深拷贝：投影的 slice
 // 与调用方后续写入互不 alias）。

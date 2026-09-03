@@ -148,6 +148,21 @@ func (engine *fakeEngine) StartSession() string {
 	return engine.sessionID
 }
 
+// ActivateSession 以显式会话 ID 创建并激活引擎实例（G4 早分配 SID：
+// 草稿物化复用草稿 ID，不再经 StartSession 另发新 ID）。
+func (engine *fakeEngine) ActivateSession(sessionID string) error {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.sessionID = sessionID
+	engine.history = nil
+	engine.cleared = true
+	if engine.loadedSessions == nil {
+		engine.loadedSessions = make(map[string]bool)
+	}
+	engine.loadedSessions[sessionID] = true
+	return nil
+}
+
 func (engine *fakeEngine) ReplaceHistory(sessionID string, history []EngineMessage) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()

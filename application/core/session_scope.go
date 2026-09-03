@@ -26,6 +26,15 @@ func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit
 	return unit
 }
 
+// currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
+// 视图级事件时携带 sid——早分配 SID 后订阅键恒等于视图 ID，空 sid 不再
+// 是"跟随视图"的隐式通配）。
+func (service *Service) currentViewSessionID() string {
+	service.Mu.RLock()
+	defer service.Mu.RUnlock()
+	return service.Core.Snapshot.Session.ID
+}
+
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 // 闸门依赖它：切换会话/新建会话必须等所有会话空闲；同会话二次提交仍走
 // 会话内队列。

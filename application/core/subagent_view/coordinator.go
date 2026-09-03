@@ -89,13 +89,18 @@ func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
 	c.upsertSubagentToolEvent(node, e)
 	revision := c.view.BumpLocked()
 	requestID := c.Snapshot.Chat.RequestID
+	sessionID := c.Snapshot.Session.ID
 	c.Mu.Unlock()
 
 	kind := event.EventSubagentToolCompleted
 	if e.Status == "running" {
 		kind = event.EventSubagentToolStarted
 	}
-	c.Events.Publish(kind, revision, requestID, e)
+	if hub, ok := c.Events.(event.SessionAwareHub); ok {
+		hub.PublishSession(kind, revision, requestID, sessionID, e)
+	} else {
+		c.Events.Publish(kind, revision, requestID, e)
+	}
 }
 
 func (c *Coordinator) upsertSubagentToolEvent(node *model.PlanNode, e model.SubagentToolEvent) {

@@ -27,7 +27,7 @@ func (service *Service) Snapshot() Snapshot {
 		// 保留的草稿槽位在会话树中始终可见（切换后不再"消失"）。
 		alreadyListed := false
 		for _, item := range snapshot.Sessions {
-			if item.ID == "" {
+			if service.draft.ID != "" && item.ID == service.draft.ID {
 				alreadyListed = true
 				break
 			}
@@ -35,7 +35,7 @@ func (service *Service) Snapshot() Snapshot {
 		if !alreadyListed {
 			slot := *service.draft
 			snapshot.Sessions = append([]SessionInfo{{
-				ID:        "",
+				ID:        slot.ID,
 				Name:      draftSessionName,
 				UpdatedAt: slot.UpdatedAt,
 				Status:    SessionStatusDraft,
@@ -43,6 +43,12 @@ func (service *Service) Snapshot() Snapshot {
 		}
 	}
 	for index := range snapshot.Sessions {
+		if service.draft != nil && service.draft.ID != "" && snapshot.Sessions[index].ID == service.draft.ID {
+			// 草稿槽位行：未发送输入期间恒为 draft（单元 ChatState 空闲，
+			// 不能被运行态叠加成 idle）。
+			snapshot.Sessions[index].Status = SessionStatusDraft
+			continue
+		}
 		snapshot.Sessions[index].Status = service.sessionStatusLocked(snapshot.Sessions[index].ID)
 	}
 	return snapshot

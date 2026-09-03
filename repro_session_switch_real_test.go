@@ -206,7 +206,7 @@ func TestRealBeginNewWhileChattingRepro(t *testing.T) {
 		t.Fatalf("BeginNewSession = %v (want nil: draft allowed while running)", err)
 	}
 	draft := harness.app.Snapshot()
-	if !draft.Session.Draft || draft.Session.ID != "" {
+	if !draft.Session.Draft || draft.Session.ID == "" {
 		t.Fatalf("expected draft while A running, got %+v", draft.Session)
 	}
 
@@ -247,7 +247,7 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 		t.Fatalf("fork: %v", err)
 	}
 
-	// 新建会话 → 草稿：无 ID、无对话、未落盘。
+	// 新建会话 → 草稿：早分配真实 SID、无对话、不建引擎 bundle。
 	if err := harness.app.ResumeSession(sessionA); err != nil {
 		t.Fatalf("resume A: %v", err)
 	}
@@ -255,9 +255,10 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
 	draft := harness.app.Snapshot()
-	if !draft.Session.Draft || draft.Session.ID != "" {
+	if !draft.Session.Draft || draft.Session.ID == "" {
 		t.Fatalf("expected draft session, got %+v", draft.Session)
 	}
+	draftID := draft.Session.ID
 	if len(draft.Conversation) != 0 {
 		t.Fatalf("draft conversation = %d messages, want 0", len(draft.Conversation))
 	}
@@ -272,7 +273,7 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 	}
 	foundDraft := false
 	for _, session := range after.Sessions {
-		if session.ID == "" && session.Status == "draft" {
+		if session.ID == draftID && session.Status == "draft" {
 			foundDraft = true
 			break
 		}
@@ -288,7 +289,7 @@ func TestRealNewSessionDraftRetainedOnSwitchRepro(t *testing.T) {
 		t.Fatalf("restore draft: %v", err)
 	}
 	restored := harness.app.Snapshot()
-	if !restored.Session.Draft || restored.Session.ID != "" {
+	if !restored.Session.Draft || restored.Session.ID != draftID {
 		t.Fatalf("restored draft = %+v", restored.Session)
 	}
 }

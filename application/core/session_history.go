@@ -329,7 +329,7 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	service.Core.Snapshot.ConversationWindow = Limits().HistoryWindow
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	return nil
 }
 

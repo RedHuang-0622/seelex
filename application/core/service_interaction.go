@@ -62,7 +62,7 @@ func (service *Service) appendPlanRetryNotice(message string) {
 	service.appendMessageLocked("system", message, nil)
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 }
 
 func (service *Service) abortPlanInteraction() {
@@ -78,7 +78,7 @@ func (service *Service) abortPlanInteraction() {
 	service.appendMessageLocked("system", "工作流已终止。", nil)
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 }
 
 func (service *Service) SelectAccount(_ context.Context, name string) error {
@@ -91,7 +91,7 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventRuntimeChanged, revision, "", service.Snapshot().Runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), service.Snapshot().Runtime)
 	service.addNotice("已切换账号: " + name)
 	return nil
 }
@@ -135,7 +135,7 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventSnapshotChanged, revision, "", nil)
+	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	return nil
 }
 
@@ -180,7 +180,7 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.Mu.Unlock()
-	service.Events.Publish(EventRuntimeChanged, revision, "", runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 	service.publishRuntimeProjections()
 	return nil
 }
@@ -200,7 +200,7 @@ func (service *Service) SetFullAccess(on bool) {
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.Mu.Unlock()
-	service.Events.Publish(EventRuntimeChanged, revision, "", runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 }
 
 func (service *Service) observeInteraction(interaction *Interaction) {
@@ -219,10 +219,10 @@ func (service *Service) observeInteraction(interaction *Interaction) {
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
 	if interaction == nil {
-		service.Events.Publish(EventInteractionClosed, revision, previousID, nil)
+		service.publishSessionEvent(EventInteractionClosed, revision, previousID, service.currentViewSessionID(), nil)
 		return
 	}
-	service.Events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
+	service.publishSessionEvent(EventInteractionOpened, revision, interaction.ID, service.currentViewSessionID(), interaction)
 }
 
 func (service *Service) openInteraction(interaction *Interaction) {
@@ -233,7 +233,7 @@ func (service *Service) openInteraction(interaction *Interaction) {
 	service.Core.Snapshot.Interaction = interaction
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventInteractionOpened, revision, interaction.ID, interaction)
+	service.publishSessionEvent(EventInteractionOpened, revision, interaction.ID, service.currentViewSessionID(), interaction)
 }
 
 func (service *Service) closeInteraction(id string) {
@@ -244,7 +244,7 @@ func (service *Service) closeInteraction(id string) {
 	}
 	revision := service.bumpLocked()
 	service.Mu.Unlock()
-	service.Events.Publish(EventInteractionClosed, revision, id, nil)
+	service.publishSessionEvent(EventInteractionClosed, revision, id, service.currentViewSessionID(), nil)
 }
 
 func (service *Service) sessionInteraction() *Interaction {

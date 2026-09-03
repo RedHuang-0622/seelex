@@ -144,9 +144,10 @@ func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 		t.Fatalf("draft engine state: starts=%d cleared=%v", startsBeforeSubmit, clearedForDraft)
 	}
 	snapshot := service.Snapshot()
-	if !snapshot.Session.Draft || snapshot.Session.ID != "" || snapshot.Session.Name != "新会话" {
+	if !snapshot.Session.Draft || snapshot.Session.ID == "" || snapshot.Session.Name != "新会话" {
 		t.Fatalf("draft session = %+v", snapshot.Session)
 	}
+	draftID := snapshot.Session.ID
 	if len(snapshot.Conversation) != 0 || snapshot.Runtime.Plan != nil {
 		t.Fatalf("draft must clear conversation and plan: %+v", snapshot)
 	}
@@ -160,14 +161,15 @@ func TestBeginNewSessionIsLazyAndFirstQuestionMaterializesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot = service.Snapshot()
-	if snapshot.Session.Draft || snapshot.Session.ID != "session-new" || snapshot.Session.Name != "first lazy question" {
+	if snapshot.Session.Draft || snapshot.Session.ID != draftID || snapshot.Session.Name != "first lazy question" {
 		t.Fatalf("materialized session = %+v", snapshot.Session)
 	}
 	engine.mu.Lock()
-	startsAfterSubmit := engine.starts
+	loaded := engine.loadedSessions[draftID]
+	sessionID := engine.sessionID
 	engine.mu.Unlock()
-	if startsAfterSubmit != 1 {
-		t.Fatalf("StartSession calls after first request = %d, want 1", startsAfterSubmit)
+	if !loaded || sessionID != draftID {
+		t.Fatalf("materialize must activate the pre-assigned draft ID: loaded=%v sessionID=%q draftID=%q", loaded, sessionID, draftID)
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
@@ -188,6 +190,10 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
+	draftID := service.Snapshot().Session.ID
+	if draftID == "" {
+		t.Fatal("draft session must hold a pre-assigned session ID")
+	}
 	root := t.TempDir()
 	if err := service.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
@@ -195,13 +201,13 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	if _, exists := workspaces.bindings[""]; exists {
 		t.Fatalf("draft session created an empty-ID binding: %v", workspaces.bindings)
 	}
-	if _, exists := workspaces.bindings["session-new"]; exists {
+	if _, exists := workspaces.bindings[draftID]; exists {
 		t.Fatalf("draft session was bound before first request: %v", workspaces.bindings)
 	}
 	if err := service.Submit(context.Background(), "project question"); err != nil {
 		t.Fatal(err)
 	}
-	if got := workspaces.bindings["session-new"]; got != "project-1" {
+	if got := workspaces.bindings[draftID]; got != "project-1" {
 		t.Fatalf("materialized session workspace = %q, want project-1; bindings=%v", got, workspaces.bindings)
 	}
 	if sessions.Workspace() != "project-1" || runtime.projectRoot != root {
@@ -222,24 +228,26 @@ func TestInitialLazySessionIsDraftAndFirstSubmitMaterializes(t *testing.T) {
 	defer service.Shutdown()
 
 	// Startup with a lazy engine must present an unmaterialized draft so the
-	// first submission creates a real session instead of persisting an empty ID.
+	// first submission creates a real session under the pre-assigned draft ID.
 	initial := service.Snapshot()
-	if !initial.Session.Draft || initial.Session.ID != "" {
-		t.Fatalf("initial lazy session = %+v, want Draft=true with empty ID", initial.Session)
+	if !initial.Session.Draft || initial.Session.ID == "" {
+		t.Fatalf("initial lazy session = %+v, want Draft=true with pre-assigned ID", initial.Session)
 	}
+	draftID := initial.Session.ID
 
 	if err := service.Submit(context.Background(), "first question"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
-	if snapshot.Session.Draft || snapshot.Session.ID != "session-new" {
+	if snapshot.Session.Draft || snapshot.Session.ID != draftID {
 		t.Fatalf("materialized session = %+v", snapshot.Session)
 	}
 	engine.mu.Lock()
-	starts := engine.starts
+	loaded := engine.loadedSessions[draftID]
+	sessionID := engine.sessionID
 	engine.mu.Unlock()
-	if starts != 1 {
-		t.Fatalf("StartSession calls after first submit = %d, want 1", starts)
+	if !loaded || sessionID != draftID {
+		t.Fatalf("materialize must activate the pre-assigned draft ID: loaded=%v sessionID=%q", loaded, sessionID)
 	}
 }
 
@@ -311,13 +319,14 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	if snapshot.CurrentWorkspace != nil {
 		t.Fatalf("/new must clear project binding: %+v", snapshot.CurrentWorkspace)
 	}
-	if !snapshot.Session.Draft || snapshot.Session.ID != "" {
-		t.Fatalf("/new must remain an unmaterialized draft: %+v", snapshot.Session)
+	if !snapshot.Session.Draft || snapshot.Session.ID == "" {
+		t.Fatalf("/new must remain an unmaterialized draft with pre-assigned ID: %+v", snapshot.Session)
 	}
+	draftID := snapshot.Session.ID
 	if workspaces.bindings["session-1"] != "project-1" {
 		t.Fatalf("previous session binding must be kept: %v", workspaces.bindings)
 	}
-	if _, exists := workspaces.bindings["session-new"]; exists {
+	if _, exists := workspaces.bindings[draftID]; exists {
 		t.Fatalf("draft session bound before first request: %v", workspaces.bindings)
 	}
 	if runtime.projectRoot != "" || sessions.Workspace() != "" {
@@ -327,13 +336,13 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot = service.Snapshot()
-	if got := workspaces.bindings["session-new"]; got != "" {
+	if got := workspaces.bindings[draftID]; got != "" {
 		t.Fatalf("materialized task session must stay unbound: %v", workspaces.bindings)
 	}
 	if sessions.Workspace() != "" || runtime.projectRoot != "" {
 		t.Fatalf("materialized task session scope: sessionStore=%q root=%q", sessions.Workspace(), runtime.projectRoot)
 	}
-	if snapshot.CurrentWorkspace != nil || snapshot.SessionWorkspaces["session-new"] != "" {
+	if snapshot.CurrentWorkspace != nil || snapshot.SessionWorkspaces[draftID] != "" {
 		t.Fatalf("materialized snapshot = %+v", snapshot)
 	}
 	if snapshot.Session.Name != "first unbound question" {
@@ -369,23 +378,24 @@ func TestWorkspaceSessionBindsDraftBeforeMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := service.Snapshot()
-	if !snapshot.Session.Draft || snapshot.Session.ID != "" {
-		t.Fatalf("workspace session must stay a draft: %+v", snapshot.Session)
+	if !snapshot.Session.Draft || snapshot.Session.ID == "" {
+		t.Fatalf("workspace session must stay a draft with pre-assigned ID: %+v", snapshot.Session)
 	}
+	draftID := snapshot.Session.ID
 	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" {
 		t.Fatalf("draft must be bound to the picked workspace: %+v", snapshot.CurrentWorkspace)
 	}
-	if _, exists := workspaces.bindings["session-new"]; exists {
+	if _, exists := workspaces.bindings[draftID]; exists {
 		t.Fatalf("draft session bound before first request: %v", workspaces.bindings)
 	}
 	if err := service.Submit(context.Background(), "first project question"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot = service.Snapshot()
-	if workspaces.bindings["session-new"] != "project-1" || sessions.Workspace() != "project-1" {
+	if workspaces.bindings[draftID] != "project-1" || sessions.Workspace() != "project-1" {
 		t.Fatalf("materialized workspace session did not bind: bindings=%v sessionStore=%q", workspaces.bindings, sessions.Workspace())
 	}
-	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" || snapshot.SessionWorkspaces["session-new"] != "project-1" {
+	if snapshot.CurrentWorkspace == nil || snapshot.CurrentWorkspace.ID != "project-1" || snapshot.SessionWorkspaces[draftID] != "project-1" {
 		t.Fatalf("materialized snapshot = %+v", snapshot)
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {

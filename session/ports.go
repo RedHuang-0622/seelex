@@ -190,6 +190,10 @@ type SessionUnit struct {
 	// 会话事件推进自己的 revision，不碰 Snapshot.Revision）。
 	Revision uint64
 
+	// Composer 是该会话的未发送输入草稿（G4 先行：草稿会话早分配 SID，
+	// Composer 随 record 持久化、跨重启恢复；提交成功后清空）。
+	Composer model.ComposerDraft
+
 	// 聊天运行态（9.5 收口：原 ChatRuntime 平行容器已删除，直接收进单元；
 	// 执行态归 Seele loop，这里只留 seelex 侧的投影/取消/流/队列桥）。
 	Chat    model.ChatState

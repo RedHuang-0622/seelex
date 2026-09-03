@@ -72,6 +72,14 @@ type SessionState struct {
 	Status SessionStatus `json:"status,omitempty"`
 }
 
+// ComposerDraft 是会话"未发送输入"草稿（G4：归属进 SessionUnit，随会话
+// record 持久化，跨重启恢复；提交成功后清空）。Text 为未发送正文；
+// 附件/排队项在后续波次扩展，JSON 结构保持可向后兼容地加字段。
+type ComposerDraft struct {
+	Text      string    `json:"text,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
 // SessionStatus 描述一个会话的可见状态（会话树/当前会话徽标数据源）。
 type SessionStatus string
 
@@ -241,6 +249,12 @@ type SessionRecord struct {
 	Version int          `json:"version"`
 	ID      string       `json:"id"`
 	Title   SessionTitle `json:"title"`
+	// Status 是会话落盘可见状态（草稿行用：draft 记录在重启后仍以
+	// status=draft 进入目录；idle/running/queued 由运行期叠加，不落盘）。
+	Status SessionStatus `json:"status,omitempty"`
+	// Composer 是会话未发送输入草稿（早分配 SID 的草稿会话跨重启恢复用；
+	// 物化提交成功后清空）。
+	Composer ComposerDraft `json:"composer,omitempty"`
 	// ForkedFrom 是 fork 血缘（子会话侧事实源；nil = 非 fork 会话）。
 	// 父目录 children 索引只是可重建的展示层，不承载血缘事实。
 	ForkedFrom   *SessionForkRef    `json:"forked_from,omitempty"`

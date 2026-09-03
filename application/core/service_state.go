@@ -28,9 +28,9 @@ type serviceState struct {
 	// 会话的只读视图指针 V，不再持有任何会话容器）。
 	sessions *session.Domain
 
-	// draft 是"新建会话"草稿槽位（Core.Mu 保护）：草稿没有真实会话 ID、
-	// 不落盘，但切换会话后仍保留并可恢复；工作区会话草稿同时保留工作区
-	// 绑定。首次提交（materializeDraftSession）时消费并清空。
+	// draft 是"新建会话"草稿槽位（Core.Mu 保护）：早分配 SID 的草稿
+	// （HasSession=false，不建引擎 bundle）持有真实会话 ID 与工作区绑定；
+	// 首次提交（materializeDraftSession）时消费并清空。
 	draft *draftSlot
 
 	// chatSeq 是聊天请求 ID 的单调序号（Core.Mu 保护）。requestID 必须
@@ -38,11 +38,15 @@ type serviceState struct {
 	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与
 	// ClearReActBudget/FinalizeTask 串写。附加序号消除碰撞。
 	chatSeq uint64
+	// draftSeq 是草稿会话 ID 的单调序号（Core.Mu 保护）：早分配 SID 在
+	// Windows 时间戳低分辨率下也保持同 tick 内唯一。
+	draftSeq uint64
 }
 
-// draftSlot 保留草稿状态。Workspace 为"工作区会话"草稿的工作区绑定
-// （任务会话草稿为 nil）。
+// draftSlot 保留草稿状态。ID 是早分配的真实会话 ID（草稿会话键）；
+// Workspace 为"工作区会话"草稿的工作区绑定（任务会话草稿为 nil）。
 type draftSlot struct {
+	ID        string
 	Workspace *WorkspaceInfo
 	CreatedAt time.Time
 	UpdatedAt time.Time

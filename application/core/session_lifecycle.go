@@ -125,15 +125,22 @@ func (service *Service) UnloadSession(sessionID string) error {
 	service.components.tasks.UnloadSessionState(sessionID)
 	service.components.sessions.UnloadSessionTitle(sessionID)
 	if active {
-		// 视图单例一致性：V 的唯一镜像同步到空（draft），避免 Domain.ActiveID
-		// 与 Snapshot.Session.ID 分叉（否则后台/活跃判定误判新会话）。
-		service.sessions.SetActive("")
-		service.Core.Snapshot.Session = SessionState{Draft: true, Name: draftSessionName}
+		// 视图单例一致性：卸载活跃会话后进入新的早分配 SID 草稿单元
+		// （HasSession=false，不建引擎 bundle；不写槽位——卸载后的空白草稿
+		// 不进入会话树，与卸载前语义一致）。
+		draftID := service.newDraftSessionIDLocked()
+		service.sessions.SetActive(draftID)
+		draftUnit := service.sessionUnitLocked(draftID)
+		draftUnit.SetChatState(ChatState{}, nil)
+		draftUnit.SetCancel(nil)
+		draftUnit.SetRequests(nil)
+		service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
 		service.Core.Snapshot.Conversation = nil
-		service.Core.Snapshot.Chat = ChatState{}
+		service.Core.Snapshot.Chat = draftUnit.ChatState()
 		service.Core.Snapshot.Task = nil
 		service.Core.Snapshot.Runtime.Plan = nil
 		service.Core.Snapshot.ReadFiles = nil
+		service.components.tasks.ResetForNewSessionLocked()
 	}
 	revision := service.bumpLocked()
 	service.Mu.Unlock()

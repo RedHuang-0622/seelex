@@ -206,7 +206,7 @@ func TestDraftSlotRetainedAcrossSwitchRepro(t *testing.T) {
 	}
 	hasDraftRow := func(snapshot Snapshot) bool {
 		for _, item := range snapshot.Sessions {
-			if item.ID == "" && item.Status == SessionStatusDraft {
+			if item.ID != "" && item.Status == SessionStatusDraft {
 				return true
 			}
 		}
@@ -279,8 +279,8 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 	if !runningA {
 		t.Fatal("session A stopped after entering draft")
 	}
-	if !snapshot.Session.Draft || snapshot.Session.ID != "" {
-		t.Fatalf("draft session = %+v", snapshot.Session)
+	if !snapshot.Session.Draft || snapshot.Session.ID == "" {
+		t.Fatalf("draft session must hold a pre-assigned ID: %+v", snapshot.Session)
 	}
 
 	close(engine.release[aID])

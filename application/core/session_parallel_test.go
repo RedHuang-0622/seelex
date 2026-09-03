@@ -152,6 +152,19 @@ func (e *multiSessionEngine) StartSession() string {
 	return sessionID
 }
 
+// ActivateSession 以显式会话 ID 创建（如缺）并激活引擎实例。
+func (e *multiSessionEngine) ActivateSession(sessionID string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.sessions[sessionID]; !ok {
+		e.sessions[sessionID] = nil
+		e.started[sessionID] = make(chan struct{})
+		e.release[sessionID] = make(chan struct{})
+	}
+	e.active = sessionID
+	return nil
+}
+
 func (e *multiSessionEngine) SessionID() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()

@@ -135,16 +135,20 @@ type ProjectSource struct {
 
 // Bridge adapts the headless application service to desktop-safe methods.
 type Bridge struct {
-	app     Application
-	info    AppInfo
-	mu      sync.Mutex
-	ctx     context.Context
-	cancel  context.CancelFunc
-	sub     application.Subscription
-	wg      sync.WaitGroup
-	running bool
-	emitFn  EventEmitter
-	streams map[string]func()
+	app    Application
+	info   AppInfo
+	mu     sync.Mutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	sub    application.Subscription
+	// subscribedSessionID 是当前订阅的事件会话键（mu 保护）：草稿早分配
+	// SID 后，视图会话在 Submit 物化（或 legacy 引擎回退 StartSession 另发
+	// ID）时可能变化；relay 发现事件 sid 与订阅键不一致即重订阅。
+	subscribedSessionID string
+	wg                  sync.WaitGroup
+	running             bool
+	emitFn              EventEmitter
+	streams             map[string]func()
 	// 事件投递回执（C4，均由 mu 保护）：Go→WebView 这条腿没有任何投递反馈
 	// （EventEmitter 无返回值），事件"发过了"不等于"渲染层应用了"。ackedSeq 是
 	// 渲染层回执的应用水位；落后于订阅水位时 Bridge 从重放窗口增量重推，
@@ -246,6 +250,13 @@ func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter,
 				if emit != nil {
 					emit(loopContext, eventName, event)
 				}
+				// 会话键漂移（草稿物化 / legacy 引擎回退 StartSession 另发
+				// ID）：视图会话已切到 event.SessionID，重建订阅后旧 relay
+				// 退出，触发事件本身已先交给渲染层。
+				if event.SessionID != "" && bridge.subscribedIDLocked() != event.SessionID {
+					bridge.resubscribe()
+					return
+				}
 				// 交给 renderer 只是"发过"；等它回执才算送达。收不到回执时
 				// 由 catchUpRenderer 从重放窗口增量重推（C4）。
 				bridge.armResend()
@@ -264,6 +275,7 @@ func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter,
 // 全局/无窗口订阅（此时溢出仍由 hub 的 resync.required 兜底）。
 func (bridge *Bridge) subscribeViewLocked() application.Subscription {
 	sessionID := bridge.app.Snapshot().Session.ID
+	bridge.subscribedSessionID = sessionID
 	if app, ok := bridge.app.(replayAwareApplication); ok {
 		if subscription, err := app.SubscribeSessionWithReplay(sessionID, eventSubscriptionBuffer, eventReplayWindow); err == nil {
 			return subscription
@@ -275,6 +287,13 @@ func (bridge *Bridge) subscribeViewLocked() application.Subscription {
 		}
 	}
 	return bridge.app.Subscribe(eventSubscriptionBuffer)
+}
+
+// subscribedIDLocked 返回当前订阅的会话键（无订阅时为空串）。
+func (bridge *Bridge) subscribedIDLocked() string {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	return bridge.subscribedSessionID
 }
 
 // resubscribe 在视图会话切换后重建事件订阅（G2：切换即重订阅，新订阅从
