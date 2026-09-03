@@ -247,10 +247,11 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
   `SessionRecord.Status/Composer` 落盘，冷启动恢复草稿，提交成功后清空。
 - G2 严格 kind 白名单已开启：会话类空 sid / 进程类带 sid 在
   `PublishSession` 拒绝并记诊断；草稿不再以空 sid 占位的前提已满足。
-- 剩余波 2 内容（本会话未完成，随下一会话推进）：
-  1. G1-C 剩余：planExecutor binding/policy/fork 额度按 sid 建槽（与 G4
-     per-session effort 及 plan 运行上下文绑定耦合）；
-  2. G3：`SessionSnapshot`/`ProcessSnapshot` 分型（进程级字段移出会话
-     快照，前端 reducer/契约测试同步）；
-  3. G4 其余：effort/fullAccess/approval/子代理树/Composer 归属进 Unit、
-     `Kind=Subagent` 落盘与 stale、join 可见持久记录。
+- 波 2 已完成（2026-09-03 收尾）：G1-C 剩余（planExecutor binding/policy/
+  fork 运行路径按 sid 槽 + per-run locators + application 会话策略同步，
+  提交 `40ebd46`）；G3（模型层分型已落地，前端新增 snapshot-shape 归属契
+  约与 client-state 进程段保留/合并，提交 `0e53a03`/`75d3fc0`；桌面仍以
+  联合 Workbench Snapshot 下发，会话粒度交付走既有 joint 形状）。
+- 剩余波 2 内容（随下一会话推进）：G4 其余——fullAccess/approval 会话级
+  归属与门控、`Kind=Subagent` 落盘与 stale 标记、Composer 完整归属（effort
+  与 join 可见持久记录已落地）。

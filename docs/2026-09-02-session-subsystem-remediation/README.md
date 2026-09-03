@@ -392,14 +392,8 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
    SwitchEffort 写视图会话单元；runtime 投影与预算/任务装配按会话读
    effort（unit 优先、回退进程默认）；测试覆盖 per-session 隔离。
 
-尚未完成（留给下一会话，见 target-design §9 波 2 剩余）：
+尚未完成（剩余项，见 target-design §9 波 2 剩余）：
 
-- G1-C 剩余：planExecutor 的 binding/policy/fork **运行路径** For 化
-  （`plan_run` 上下文绑定 per-run 携带）——槽结构已建，执行接线与 G4 的
-  per-session effort 及 plan 运行上下文绑定耦合；fork 并发上限仍为
-  process 单例（随并行执行落地）。
-- G3 收口：桌面 Workbench Snapshot 的进程字段消费/前端 reducer 分型契约
-  测试（模型层分型与 SnapshotOf 会话制品已落地，见上第 5 条）。
 - G4 其余：effort/fullAccess/approval/子代理树/Composer 完整归属进
   `SessionUnit`（effort 与 join 证据记录已落地）；fullAccess/approval 的
   会话级门控、子代理会话按 `Kind=Subagent` 落盘/不进侧栏/经父树打开/重启
@@ -411,4 +405,41 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
 go build ./...                                   # 通过
 go test ./... -count=1 -timeout=300s             # 通过（全仓）
 node --test gui/frontend/dist/*.test.mjs          # 176 pass / 0 fail
+```
+
+### 波 2 收尾追加（2026-09-03，G1-C 收口 + G3 收口）
+
+提交：`40ebd46`（G1-C 运行路径 For 化收口）、`0e53a03` +
+`75d3fc0`（G3 前端分型契约与 reducer 进程段保留）。
+
+1. **G1-C 收口（运行路径）**：plan_load/plan_validate/plan_run/resume 按
+   执行 ctx 会话读取自己的策略、绑定与 run ID 槽（`runSessionID(ctx)` =
+   telemetry 路由键）；runner 生命周期/节点事件一律使用本次 plan_run 的
+   执行绑定（sink 写入 + `newPlanRunner` per-run locators），绝不回读全局
+   默认槽；fork 的 ctx 由 Background 派生时重新注入会话 ID（fork plan_run
+   与主会话同槽登记）；`SetBinding` 的默认槽 legacy 别名保留给无 sid 端口。
+   application 在 `runChat` 起点按会话 effort 同步 plan 策略槽
+   （`syncPlanPolicyFor`），后台会话不继承进程默认额度。测试：
+   `seelebridge/plan_session_run_test.go`（策略隔离 / per-run runID 与事件
+   归属 / 无槽会话不消费默认绑定 / kernel 节点投影携带执行会话）；
+   `application/core/session_effort_test.go: TestPlanPolicySlotSyncPerSession`。
+2. **G3 收口（前端分型）**：新增 `gui/frontend/dist/snapshot-shape.js`
+   （SessionRuntime/ProcessRuntime/顶层键所有权表 + splitRuntime/
+   classifySnapshot/assertTypedShape/processContextOf，与 Go 侧
+   `application/model` DTO 键一一对应）；`client-state.js` 在快照边界保留
+   桌面进程段，会话粒度基线（`capabilities.session_snapshot`）到达时与进程
+   段合并渲染，session-only 的 `runtime.changed` 增量不抖动账户/插件/技能/
+   模型面板；联合 Workbench 快照原样通过（对象引用不变）。契约测试钉住
+   三形状分类、泄漏拒绝（INV-G1 前端镜像）、进程上下文跨载荷保留与增量
+   穿透。桌面进程字段消费路径与归属表记录在 `gui/frontend/README.md`。
+
+验证（本机 CGO_ENABLED=1）：
+
+```text
+go build ./...                                   # 通过
+go vet ./seelebridge/... ./application/... ./internal/adapters ./gui   # 无告警
+go test ./seelebridge ./application/core ./gui ./internal/adapters -count=1   # 全 ok
+go test ./gui -count=1                           # 通过（TestBridgeRelaySubscribesToViewOnce
+                                                 # 在全包并行下偶发一次，单独/复跑均绿）
+node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
 ```
