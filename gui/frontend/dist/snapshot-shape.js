@@ -55,6 +55,9 @@ export const SESSION_TOP_KEYS = Object.freeze([
 ]);
 
 // PROCESS_TOP_KEYS 是 ProcessSnapshot 顶层 JSON 键：会话目录/工作区/绑定。
+// 注意目录数组（sessions）是后端按 projectID 分格枚举后的**联合镜像**
+// （G6：backend catalogGrid per-project，合并时按会话 ID 去重），消费方只
+// 把它当"当前已知会话的渲染投影"，不得假设数组内顺序/分格/单项目局部性。
 export const PROCESS_TOP_KEYS = Object.freeze([
   "sessions",
   "workspaces",

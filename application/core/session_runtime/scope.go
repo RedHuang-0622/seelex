@@ -1,49 +1,23 @@
 package session_runtime
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
-// sessionCatalog 返回可见会话列表与工作区绑定发现结果。
-func (c *Coordinator) sessionCatalog() ([]model.SessionInfo, map[string]string) {
-	granular, ok := c.Core.Deps.Sessions.(SessionGranularPort)
-	if !ok {
-		return c.Core.Deps.Sessions.List(), nil
-	}
-
-	sessions, discovered := c.sessionCatalogGranular(granular)
-	sort.Slice(sessions, func(i, j int) bool {
-		if sessions[i].UpdatedAt.Equal(sessions[j].UpdatedAt) {
-			return sessions[i].ID < sessions[j].ID
-		}
-		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
-	})
-	return sessions, discovered
-}
-
-// sessionCatalogGranular 是会话粒度目录：项目 = 会话集合，项目索引直接
-// 枚举（当前项目 + 全部 workspace 绑定项目）；标题从 record 读取（不再走
+// sessionCatalogProject 枚举单个项目的会话集合（G6：目录按 projectID 分格，
+// 项目 = 会话集合；worker 逐项目刷新格子）。返回该项目会话行与该轮发现的工作
+// 区绑定（projectID != "" 的会话即归属该项目）。标题从 record 读取（不再走
 // workspace 粒度 tail 回退）。
-func (c *Coordinator) sessionCatalogGranular(granular SessionGranularPort) ([]model.SessionInfo, map[string]string) {
+func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projectID string) ([]model.SessionInfo, map[string]string) {
 	discovered := map[string]string{}
-	selected := map[string]model.SessionInfo{}
-	for _, projectID := range c.allProjectIDs() {
-		for _, info := range granular.SessionsOf(projectID) {
-			current, exists := selected[info.ID]
-			if !exists || preferSessionInfo(info, current) {
-				selected[info.ID] = info
-			}
-			if projectID != "" {
-				discovered[info.ID] = projectID
-			}
+	sessions := []model.SessionInfo{}
+	for _, info := range granular.SessionsOf(projectID) {
+		if projectID != "" {
+			discovered[info.ID] = projectID
 		}
-	}
-	sessions := make([]model.SessionInfo, 0, len(selected))
-	for _, info := range selected {
 		if info.Name == "" {
 			if record, ok, err := c.loadGranularRecord(info.ID); err == nil && ok && record.Title.Value != "" {
 				info.Name = record.Title.Value

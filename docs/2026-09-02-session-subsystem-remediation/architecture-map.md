@@ -236,6 +236,12 @@ sequenceDiagram
 view key，fork 落盘按父会话 key）。协调器自有状态（task/prompt/context/
 plan 投影）仍在 ViewMu 下，随波 4 G6 收口（见台账“波 3 尚未完成”）。
 
+G6 目录分格（2026-09-03 收口）：目录枚举缓存改为 `catalogGrid`——按
+projectID 一格一格的会话列表；`RequestCatalogRefreshProject(projectID)` 只
+刷新目标项目的格子，其它项目保留最近一轮结果；`Snapshot.Sessions` 与
+`CatalogCache` 是逐格组合后的联合镜像（跨项目按会话 ID 去重），内部不再
+存在单一全局数组。workspace/标题表以全局唯一 sessionID 为键，天然不分格。
+
 ## 4. 热挂载 vs 冷加载（切换/恢复分支）
 
 ```mermaid

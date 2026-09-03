@@ -50,6 +50,11 @@
   **Hub 投递端**（2026-09-02 阶段 A）：`SubscribeSession(sessionID)` 严格过滤，
   `sessionID` 为空表示跟随当前视图会话（草稿物化与切换都由 `session.Domain`
   视图指针覆盖）。Bridge/TUI/`protocol.js` 均不再判定事件归属，过滤实现只剩一处。
+- 目录形状（2026-09-03 G6 收口）：会话目录枚举源头按 projectID（`SessionsOf`），
+  `session_runtime` 的目录缓存按项目分格（`catalogGrid`），支持项目范围刷新
+  （`RequestCatalogRefreshProject`）；快照目录字段（`sessions[]` /
+  `session_workspaces`）只是逐格组合的联合镜像，跨项目同 ID 会话取最近更新。
+  归档/状态过滤按项目执行，互不串扰。
 
 尚未实现（规划）：真并行执行、每会话驻留 Snapshot/组件栈
 （`task_context`/`prompt_layer`/`view_state`/`session_runtime` 仍共享单

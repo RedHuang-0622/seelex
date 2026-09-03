@@ -8,6 +8,8 @@ export function createGUIClient(options) {
   // processContext 是桌面保留的进程段（会话目录/工作区/绑定 + 进程运行原件）：
   // 会话粒度载荷只描述本会话事实，进程面板（账户/插件/技能/定时任务/模型）
   // 数据来自这份进程段，不随会话载荷抖动（G3 收口，见 snapshot-shape.js）。
+  // 目录字段（sessions/session_workspaces）是后端 per-project 网格的联合
+  // 投影（G6），前端只做渲染分组，不推断存储归属。
   let processContext = null;
   let refreshPromise = null;
   let refreshQueued = false;
