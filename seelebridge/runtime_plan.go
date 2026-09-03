@@ -252,6 +252,7 @@ func (r *Runtime) nodeDeps() seenode.Deps {
 		EnqueueSubagentContext:   r.enqueueSubagentContext,
 		RecordNodeStage:          r.node.RecordStage,
 		RecordNodeResult:         r.node.RecordResult,
+		RecordNodeAssistant:      r.recordNodeAssistant,
 		NodeBudget:               r.node.Budget,
 		NodePromptBlocks:         r.node.PromptBlocks,
 		Tracer: func() provider.TraceSource {

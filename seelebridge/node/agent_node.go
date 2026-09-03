@@ -42,9 +42,12 @@ type Deps struct {
 	EnqueueSubagentContext   func(content string)
 	RecordNodeStage          func(nodeID string, log model.NodeStageLog)
 	RecordNodeResult         func(nodeID string, result *model.NodeSemanticResult)
-	NodeBudget               func(input plan.SeelexNodeInput) NodeBudgetInfo
-	NodePromptBlocks         func(input plan.SeelexNodeInput) []seelectx.PromptBlock
-	Tracer                   func() provider.TraceSource
+	// RecordNodeAssistant 在节点会话的 assistant 正文流式边界收到增量
+	// （G7：ChatStream onChunk 转写；nodeID 即 live 事件路由键）。
+	RecordNodeAssistant func(nodeID string, delta string)
+	NodeBudget          func(input plan.SeelexNodeInput) NodeBudgetInfo
+	NodePromptBlocks    func(input plan.SeelexNodeInput) []seelectx.PromptBlock
+	Tracer              func() provider.TraceSource
 }
 
 // NodeBudgetInfo 是节点子代理的执行预算（渲染进 PromptBlock，并作为
@@ -140,7 +143,23 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 			})
 		}
 	}
-	result, err := agent.Chat(ctx, n.input.Input)
+	// G7 正文增量内容源：节点 Session 是 frameworkSession.Session（AgentNode
+	// 注册面已断言），其 ChatStream 与 Chat 等价（chat.go: Chat = Run(...,nil)，
+	// ChatStream = Run(...,onChunk)），只是把流式正文分片交给 onChunk——这里
+	// 经 Deps.RecordNodeAssistant 投进 node 实时面（见 runtime_live.go），
+	// GUI 详情不再需要 2s 轮询拉会话记录。非框架 Agent（测试桩）回退 Chat。
+	var result string
+	var err error
+	if sess, ok := agent.(*frameworkSession.Session); ok && n.deps.RecordNodeAssistant != nil {
+		result, err = sess.ChatStream(ctx, n.input.Input, func(delta string) {
+			if delta == "" {
+				return
+			}
+			n.deps.RecordNodeAssistant(n.ID(), delta)
+		})
+	} else {
+		result, err = agent.Chat(ctx, n.input.Input)
+	}
 	n.deps.CompleteSubagentNode(n.ID(), result, err)
 	// merge-back 不因 Chat 失败/超时而跳过：子代理在超时前可能已积累
 	// Findings/Decisions（长时间静置场景），整块丢弃会造成"子代理跑完

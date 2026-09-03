@@ -256,6 +256,15 @@ C1 冷读面（2026-09-03 收口）：`SnapshotOf` 分热/冷：驻留（引擎 
 `GetSessionTranscript(sessionID, fromSeq, toSeq)`（事件库区间读，(0,0)=全量）；
 宿主面经 gui Bridge 暴露，不要求会话加载引擎。
 
+G7 双轨桥收口（2026-09-03）：`UnifiedEventReader` 增加按需 `QueryRange`
+（事实轨 `EventStore.LoadRange` 区间读 + 实时轨合并，取代整段 Load），并给出
+`unifiedEventTopic` 的 (channel, sid) 映射契约（会话类事件带 session_id、
+进程类为空；装配层 adapter 据此投进 application/event，seelebridge 不反向
+依赖）。`SubagentLiveEvent` 增加 `assistant` 正文增量 kind：内容源 = 节点
+Session 的 `ChatStream` onChunk（`AgentNode.Run` 边界，ChatStream 与 Chat
+等价执行），经 Runtime node 实时面广播 + 历史回放。GUI 删除
+`nodeDetailPollTimer` 2s 轮询，详情会话记录由正文增量驱动保持新鲜。
+
 ## 4. 热挂载 vs 冷加载（切换/恢复分支）
 
 ```mermaid

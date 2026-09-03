@@ -1006,6 +1006,14 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if strings.Contains(string(script), "active-chat-sync") {
 		t.Fatal("running-chat reconciliation must not fall back to periodic Snapshot polling")
 	}
+	if strings.Contains(string(script), "nodeDetailPollTimer") ||
+		strings.Contains(string(script), "refreshNodeDetail(nodeID, generation), 2000") {
+		t.Fatal("subagent detail must not fall back to 2s polling (G7)")
+	}
+	if !strings.Contains(string(script), `event.kind === "assistant"`) ||
+		!strings.Contains(string(script), "nodeDetailLiveAssistantAppend") {
+		t.Fatal("subagent detail freshness must be driven by seelex:subagent_live assistant deltas (G7)")
+	}
 	if strings.Contains(string(script), "let fullAccessOn") ||
 		!strings.Contains(string(script), `client.current()?.runtime?.full_access`) ||
 		!strings.Contains(string(script), `Boolean(runtime.full_access)`) {
@@ -1035,6 +1043,14 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(trajectorySource, "renderContextAxis") || !strings.Contains(trajectorySource, "trajectory-think") {
 		t.Fatal("trajectory view must include the context axis and the full THINK panel")
+	}
+	planDsl, err := embeddedFrontend.ReadFile("frontend/dist/plan-dsl.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(planDsl), "export function nodeDetailLiveAssistantAppend") ||
+		!strings.Contains(string(planDsl), "export function nodeDetailLiveAssistantRetain") {
+		t.Fatal("plan DSL must expose live assistant conversation appends (G7)")
 	}
 	if !strings.Contains(string(index), `data-icon="command"`) || !strings.Contains(string(index), `data-icon="send"`) {
 		t.Fatal("primary GUI actions must use icon controls")

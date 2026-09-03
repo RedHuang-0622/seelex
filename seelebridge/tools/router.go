@@ -455,8 +455,8 @@ func (r *Router) scopedBash(ctx context.Context, argsJSON string) (output string
 	timeout := r.scopedToolTimeout(input.Timeout)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-		cmd := exec.CommandContext(runCtx, shell, shellArgs...)
-		winhide.Apply(cmd)
+	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
+	winhide.Apply(cmd)
 	cmd.Dir = workdir
 	security.ConfigureHiddenCommand(cmd)
 	var stdout, stderr bytes.Buffer

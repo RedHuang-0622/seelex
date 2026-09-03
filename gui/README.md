@@ -30,6 +30,11 @@
 record 只读基线；`Bridge.GetSessionTranscript(sessionID, fromSeq, toSeq)` 按
 Seq 区间读事件日志（`(0,0)` = 全量）。三者均不要求目标会话加载引擎。
 
+子代理详情新鲜度（G7）：`seelex:subagent_live` 除 stage/tool 外新增
+`assistant` 正文增量事件（节点 Session `ChatStream` 的流式文本分片）；前端
+详情弹窗会话记录由该事件驱动增量渲染，`nodeDetailPollTimer` 2s 轮询已删除
+（`TestEmbeddedFrontendExists` 的禁轮询断言相应启用）。
+
 relay 只订阅一次 `SubscribeSession("")`（跟随当前视图会话）：会话归属由
 application 在事件投递端判定，Bridge 不保存 `currentSessionID` 副本，渲染层收不到
 别会话的事件，因此切换/新建/分支都只是应用层命令，不需要重建订阅。宿主应用不支持

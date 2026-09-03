@@ -694,7 +694,8 @@ export function escapeHTML(value) {
 // renderNodeDetail 渲染节点详情页（弹窗内容）：身份信息 + 会话记录
 // （子代理对话流，detail.conversation）+ 事件时间线 + 最终输出。
 // 会话记录由 app.js 经 invoke("SubagentSessionDetail") 异步拉取后
-// 调用 setNodeDetailConversation 注入（运行中 2s 轮询刷新）。
+// 调用 setNodeDetailConversation 注入；运行中的增量由 seelex:subagent_live
+// 的 assistant 正文事件驱动（nodeDetailLiveAssistantAppend），不再轮询。
 export function renderNodeDetail(node) {
   const status = statusToken(node.status);
   const timeline = (node.events || []).map(event => {
@@ -781,9 +782,6 @@ export function setNodeDetailConversation(detail) {
       return `<div class="node-msg is-${role}"><span class="node-msg-role">${role}</span>${body}</div>`;
     }).join("");
   }
-  if (container && detail?.running) {
-    container.insertAdjacentHTML("beforeend", '<div class="node-timeline-empty">执行中，每 2 秒刷新…</div>');
-  }
   if (contextContainer) {
     // 工作区现场（失败/合并被拒时的恢复入口）前置在上下文快照之前。
     contextContainer.innerHTML = renderNodeWorktree(detail?.worktree) + renderNodeContext(detail?.context);
@@ -794,6 +792,46 @@ export function setNodeDetailConversation(detail) {
     const count = document.querySelector("[data-node-detail] [data-node-tool-count]");
     if (count) count.textContent = String(toolEvents.length);
   }
+  nodeDetailLiveAssistantRetain();
+}
+
+// nodeDetailLiveAssistantText 是详情弹窗内"实时 assistant 正文"的模块态：
+// 每次权威详情刷新（setNodeDetailConversation）与弹窗重渲染
+// （nodeDetailLiveAssistantRetain）后仍保留，直到弹窗关闭/重开时重置。
+let nodeDetailLiveAssistantText = "";
+let nodeDetailLiveAssistantActive = false;
+
+export function nodeDetailLiveAssistantReset() {
+  nodeDetailLiveAssistantText = "";
+  nodeDetailLiveAssistantActive = false;
+  const container = document.querySelector("[data-node-detail] [data-node-conversation]");
+  container?.querySelector("[data-node-live-assistant]")?.remove();
+}
+
+// nodeDetailLiveAssistantAppend 追加一条 assistant 正文增量并刷新展示。
+export function nodeDetailLiveAssistantAppend(delta) {
+  if (!delta) return;
+  nodeDetailLiveAssistantText += String(delta);
+  nodeDetailLiveAssistantActive = true;
+  nodeDetailLiveAssistantRetain();
+}
+
+// nodeDetailLiveAssistantRetain 把实时 assistant 正文块重新挂到当前会话
+// 记录容器末尾（容器可能刚被权威详情刷新/弹窗重渲染替换）。
+export function nodeDetailLiveAssistantRetain() {
+  const container = document.querySelector("[data-node-detail] [data-node-conversation]");
+  if (!container) return;
+  container.querySelector("[data-node-live-assistant]")?.remove();
+  const text = String(nodeDetailLiveAssistantText || "").trim();
+  if (!nodeDetailLiveAssistantActive || !text) return;
+  const row = document.createElement("div");
+  row.className = "node-msg is-assistant is-live";
+  row.dataset.nodeLiveAssistant = "1";
+  row.innerHTML = '<span class="node-msg-role">assistant</span><div class="node-msg-live-label">实时</div>';
+  const body = document.createElement("div");
+  body.textContent = text;
+  row.appendChild(body);
+  container.appendChild(row);
 }
 
 // renderNodeWorktree 渲染节点 worktree 现场（详情弹窗"上下文"标签前置

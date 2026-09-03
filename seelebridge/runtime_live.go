@@ -2,6 +2,7 @@ package seelebridge
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -127,6 +128,41 @@ func (r *Runtime) broadcastLive(event dto.SubagentLiveEvent) {
 		case ch <- event:
 		default:
 		}
+	}
+}
+
+// recordNodeAssistant 投递子代理 assistant 正文增量（G7 正文增量 kind 的
+// 数据源接线：AgentNode.Run 在节点 Session 的 ChatStream onChunk 边界调用，
+// 证据见 node/agent_node.go——ChatStream 与 Chat 等价执行，仅额外给出流式
+// 正文分片）。只在该节点已有详情订阅者（dispatcher 已启动）时保留实时面；
+// 无人订阅时不积累，避免运行路径被实时面拖慢。
+func (r *Runtime) recordNodeAssistant(nodeID, delta string) {
+	if r == nil || nodeID == "" || strings.TrimSpace(delta) == "" {
+		return
+	}
+	r.liveMu.Lock()
+	started := r.liveStarted
+	liveCh := r.liveCh
+	liveStop := r.liveStop
+	r.liveMu.Unlock()
+	if !started {
+		return
+	}
+	select {
+	case liveCh <- assistantLiveEvent(nodeID, delta):
+	case <-liveStop:
+	default:
+	}
+}
+
+func assistantLiveEvent(nodeID, delta string) dto.SubagentLiveEvent {
+	return dto.SubagentLiveEvent{
+		NodeID: nodeID,
+		At:     time.Now(),
+		Kind:   "assistant",
+		Assistant: &dto.SubagentAssistant{
+			Text: delta,
+		},
 	}
 }
 

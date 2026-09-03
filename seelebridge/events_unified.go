@@ -113,17 +113,45 @@ type UnifiedEventView struct {
 // （Load）+ B 类实时遥测（Live）。查询按 sessionID 关联两轨，nodeID
 // 非空时过滤持久日志（Scope.NodeID）；调用方持引用按需回源，不复制 payload。
 type UnifiedEventReader struct {
+	// Load 全量读（legacy；新代码优先 QueryRange，按需区间读 + 实时轨合并）。
 	Load func(ctx context.Context, sessionID string) ([]frameworkevent.Event, error)
-	Live func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error)
+	// LoadRange 按 Seq 区间（含端点）读回事实轨；(0,0) = 全量。
+	LoadRange func(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error)
+	Live      func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error)
 }
 
 // Query 按 sessionID/nodeID 返回统一事件视图。
 func (reader *UnifiedEventReader) Query(ctx context.Context, sessionID, nodeID string, limit int) (UnifiedEventView, error) {
+	return reader.query(ctx, sessionID, nodeID, limit, func(ctx context.Context, sessionID string) ([]frameworkevent.Event, error) {
+		if reader == nil || reader.Load == nil {
+			return nil, fmt.Errorf("unified events: reader is unavailable")
+		}
+		return reader.Load(ctx, sessionID)
+	})
+}
+
+// QueryRange 按 Seq 区间返回统一事件视图（G7 收口：事实轨从"整段 Load"演进
+// 为按需 LoadRange，实时轨照旧合并；fromSeq/toSeq 均 0 = 全量）。
+func (reader *UnifiedEventReader) QueryRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error) {
+	return reader.query(ctx, sessionID, nodeID, limit, func(ctx context.Context, sessionID string) ([]frameworkevent.Event, error) {
+		if reader.LoadRange == nil {
+			return nil, fmt.Errorf("unified events: range reader is unavailable")
+		}
+		return reader.LoadRange(ctx, sessionID, fromSeq, toSeq)
+	})
+}
+
+func (reader *UnifiedEventReader) query(
+	ctx context.Context,
+	sessionID, nodeID string,
+	limit int,
+	load func(context.Context, string) ([]frameworkevent.Event, error),
+) (UnifiedEventView, error) {
 	var view UnifiedEventView
-	if reader == nil || reader.Load == nil {
+	if reader == nil || load == nil {
 		return view, fmt.Errorf("unified events: reader is unavailable")
 	}
-	events, err := reader.Load(ctx, sessionID)
+	events, err := load(ctx, sessionID)
 	if err != nil {
 		return view, err
 	}
@@ -135,6 +163,23 @@ func (reader *UnifiedEventReader) Query(ctx context.Context, sessionID, nodeID s
 		}
 	}
 	return view, nil
+}
+
+// unifiedEventTopic 把框架执行事实事件映射为 application/event 桥接的
+// (channel, sid) 契约（G2 白名单镜像）：事件带 agent.runtime 位置的
+// session_id → 会话类事件，sid 必填；无会话位置的进程级事件 → sid 空。
+// 本函数只给出映射（纯函数），实际投递由装配层 adapter 完成——seelebridge
+// 在依赖方向下层，不反向 import application/event。
+func unifiedEventTopic(event frameworkevent.Event) (channel string, sessionID string, sessionScoped bool) {
+	for _, location := range event.Locations {
+		if location.Kind != "agent.runtime" {
+			continue
+		}
+		if sid := location.IDs["session_id"]; sid != "" {
+			return string(event.Type), sid, true
+		}
+	}
+	return string(event.Type), "", false
 }
 
 // filterUnifiedEvents 按 nodeID 过滤并按 limit 截断（不修改入参切片）。
@@ -164,7 +209,8 @@ func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, l
 		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
 	}
 	reader := &UnifiedEventReader{
-		Load: sessionstore.NewEventStore(router).Load,
+		Load:      sessionstore.NewEventStore(router).Load,
+		LoadRange: sessionstore.NewEventStore(router).LoadRange,
 		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
 			if r.tracer == nil {
 				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")
@@ -173,4 +219,27 @@ func (r *Runtime) UnifiedEvents(ctx context.Context, sessionID, nodeID string, l
 		},
 	}
 	return reader.Query(ctx, sessionID, nodeID, limit)
+}
+
+// UnifiedEventsRange 按 Seq 区间查询统一事件视图（事实轨 LoadRange + 实时轨
+// 合并；见 UnifiedEventReader.QueryRange）。
+func (r *Runtime) UnifiedEventsRange(ctx context.Context, sessionID, nodeID string, fromSeq, toSeq uint64, limit int) (UnifiedEventView, error) {
+	if r == nil {
+		return UnifiedEventView{}, fmt.Errorf("unified events: runtime is nil")
+	}
+	router := r.durableHistoryRouter()
+	if router == nil {
+		return UnifiedEventView{}, fmt.Errorf("unified events: sessionstore router is not attached")
+	}
+	store := sessionstore.NewEventStore(router)
+	reader := &UnifiedEventReader{
+		LoadRange: store.LoadRange,
+		Live: func(ctx context.Context, limit int) (frameworktelemetry.ViewModel, error) {
+			if r.tracer == nil {
+				return frameworktelemetry.ViewModel{}, fmt.Errorf("unified events: tracer is unavailable")
+			}
+			return r.tracer.Query(ctx, frameworktelemetry.Query{Limit: limit})
+		},
+	}
+	return reader.QueryRange(ctx, sessionID, nodeID, fromSeq, toSeq, limit)
 }

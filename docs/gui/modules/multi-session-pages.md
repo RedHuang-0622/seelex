@@ -58,6 +58,10 @@
 - 冷读宿主面（2026-09-03 C1 收口）：`SnapshotOf` 对未驻留会话返回 record
   只读基线（`resident=false`），`ListSessions`/`GetSessionTranscript` 提供
   headless 枚举与事件区间读，均不要求引擎加载。
+- 双轨 trace 桥（2026-09-03 G7 收口）：统一事件读回按需 `QueryRange`
+  （EventStore.LoadRange + 实时轨合并）；`seelex:subagent_live` 增加
+  `assistant` 正文增量 kind（节点 ChatStream onChunk），详情会话记录由实时
+  事件驱动，前端不再 2s 轮询。
 
 尚未实现（规划）：真并行执行、每会话驻留 Snapshot/组件栈
 （`task_context`/`prompt_layer`/`view_state`/`session_runtime` 仍共享单

@@ -5,7 +5,10 @@ import { createConversationView } from "./conversation-view.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createEffortControl } from "./effort-control.js";
-import { planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL } from "./plan-dsl.js";
+import {
+  planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL,
+  nodeDetailLiveAssistantReset, nodeDetailLiveAssistantAppend, nodeDetailLiveAssistantRetain
+} from "./plan-dsl.js";
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
 import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
@@ -1094,9 +1097,8 @@ function initModalResize() {
 initModalResize();
 
 // openNodeDetail 渲染并打开节点详情弹窗（子代理详情页）：
-// 会话记录（invoke SubagentSessionDetail，运行中 2s 轮询）+ 事件时间线 +
-// 状态/耗时/输出。
-let nodeDetailPollTimer = null;
+// 会话记录（invoke SubagentSessionDetail 一次）+ 事件时间线 + 状态/耗时/输出；
+// 运行中的正文增量由 seelex:subagent_live 的 assistant 事件驱动。
 let activeNodeDetailKey = "";
 let activeNodeDetailID = "";
 let nodeDetailGeneration = 0;
@@ -1125,8 +1127,9 @@ async function openNodeDetail(nodeKey) {
   elements["node-detail-content"].innerHTML = rendered;
   elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
   bindNodeDetailTabs(elements["node-detail-content"]);
+  nodeDetailLiveAssistantReset();
   // 子代理树节点（fork 不在 Plan 快照里）默认打开「上下文」标签：运行时
-  // 上下文查看是它的主诉求（会话记录/上下文/工具活动，2s 轮询实时刷新）。
+  // 上下文查看是它的主诉求（会话记录/上下文/工具活动，实时事件驱动刷新）。
   if (fromTree) {
     elements["node-detail-content"].querySelector('[data-node-tab="context"]')?.click();
   }
@@ -1158,16 +1161,13 @@ function refreshOpenNodeDetail() {
   bindNodeDetailTabs(elements["node-detail-content"]);
   const selected = elements["node-detail-content"].querySelector(`[data-node-tab="${selectedTab}"]`);
   selected?.click();
+  nodeDetailLiveAssistantRetain();
   renderLiveFeed();
-  void refreshNodeDetail(activeNodeDetailID, nodeDetailGeneration);
 }
 
-// refreshNodeDetail 拉取子代理详情（会话记录）并渲染；运行中每 2s 轮询。
+// refreshNodeDetail 拉取一次子代理详情（会话记录）并渲染。打开后的增量由
+// seelex:subagent_live 实时事件驱动，不再调度任何轮询定时器。
 async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
-  if (generation === nodeDetailGeneration && nodeID === activeNodeDetailID && nodeDetailPollTimer) {
-    clearTimeout(nodeDetailPollTimer);
-    nodeDetailPollTimer = null;
-  }
   let detail = null;
   try {
     // 兜底超时：详情接口异常/挂起时不再让“加载会话记录…”永久占位，
@@ -1179,18 +1179,12 @@ async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
   } catch { /* 节点无会话记录或非 agent 节点 → 面板保持占位 */ }
   if (generation !== nodeDetailGeneration || nodeID !== activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
   setNodeDetailConversation(detail || null);
-  if (detail?.running) {
-    nodeDetailPollTimer = setTimeout(() => refreshNodeDetail(nodeID, generation), 2000);
-  }
 }
 
 function closeNodeDetail() {
   const nodeID = activeNodeDetailID;
   nodeDetailGeneration += 1;
-  if (nodeDetailPollTimer) {
-    clearTimeout(nodeDetailPollTimer);
-    nodeDetailPollTimer = null;
-  }
+  nodeDetailLiveAssistantReset();
   activeNodeDetailKey = "";
   activeNodeDetailID = "";
   nodeLiveBuffer = [];
@@ -1204,13 +1198,16 @@ function renderLiveFeed() {
   const feed = document.querySelector("[data-node-detail] [data-node-live-feed]");
   if (!feed) return;
   feed.innerHTML = nodeLiveBuffer.length === 0
-    ? '<div class="node-timeline-empty">等待实时事件（打开即订阅；阶段/工具事件到达即显示）…</div>'
+    ? '<div class="node-timeline-empty">等待实时事件（打开即订阅；阶段/工具/正文到达即显示）…</div>'
     : nodeLiveBuffer.map(liveRowHTML).join("");
   feed.scrollTop = feed.scrollHeight;
 }
 
 function handleSubagentLive(event) {
   if (!event || event.node_id !== activeNodeDetailID) return;
+  if (event.kind === "assistant") {
+    nodeDetailLiveAssistantAppend(event.assistant?.text || "");
+  }
   nodeLiveBuffer.push(event);
   if (nodeLiveBuffer.length > 500) nodeLiveBuffer.shift();
   renderLiveFeed();
@@ -1218,6 +1215,10 @@ function handleSubagentLive(event) {
 
 function liveRowHTML(event) {
   const at = liveTime(event.at);
+  if (event.kind === "assistant") {
+    const text = event.assistant?.text || "";
+    return `<div class="node-live-row"><span class="node-live-time">${escapeHtml(at)}</span><span class="node-live-kind is-assistant">正文</span><code>${escapeHtml(livePreview(text))}</code></div>`;
+  }
   if (event.kind === "tool") {
     const tool = event.tool || {};
     const result = tool.result ? ` <code>${escapeHtml(livePreview(tool.result))}</code>` : "";

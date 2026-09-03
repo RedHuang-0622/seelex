@@ -3,13 +3,24 @@ package dto
 import "time"
 
 // SubagentLiveEvent 是 node 第一视角的实时推送事件（即时输出面）：
-// stage = 阶段日志（spawn/turn/tool/result），tool = 工具调用与结果。
+// stage = 阶段日志（spawn/turn/tool/result），tool = 工具调用与结果，
+// assistant = 子代理 assistant 正文增量（G7：ChatStream 的流式正文，经
+// node AgentNode 边界投递；驱动 GUI 详情去轮询后仍保持新鲜）。
 type SubagentLiveEvent struct {
 	NodeID string        `json:"node_id"`
 	At     time.Time     `json:"at"`
-	Kind   string        `json:"kind"` // "stage" | "tool"
+	Kind   string        `json:"kind"` // "stage" | "tool" | "assistant"
 	Stage  *NodeStageLog `json:"stage,omitempty"`
 	Tool   *SubagentTool `json:"tool,omitempty"`
+	// Assistant 是子代理 assistant 正文增量（一次 LLM 轮次的流式文本分片；
+	// 打开详情的客户端把它追加进会话记录底部，直到下次权威快照/详情到达）。
+	Assistant *SubagentAssistant `json:"assistant,omitempty"`
+}
+
+// SubagentAssistant 是子代理 assistant 正文增量的事件载荷。
+type SubagentAssistant struct {
+	Turn int    `json:"turn,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 // NodeStageLog 是 node 第一视角阶段日志的对外投影。
