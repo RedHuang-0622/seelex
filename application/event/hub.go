@@ -4,6 +4,7 @@ package event
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/RedHuang-0622/seelex/application/model"
@@ -39,6 +40,13 @@ const (
 var processClassKinds = map[EventKind]bool{
 	EventResyncRequired: true,
 	EventExitRequested:  true,
+}
+
+// PublishDiagnostic 记录被 hub 拒绝的 (kind, sessionID) 违例发布（INV-G3：
+// 会话类 kind 空 sid / 进程类 kind 带 sid）。默认打到 stderr；宿主或测试
+// 可整体替换为结构化收集器。
+var PublishDiagnostic = func(kind EventKind, sessionID string) {
+	log.Printf("event: rejected publish kind=%s session_id=%q (INV-G3)", kind, sessionID)
 }
 
 // KindIsProcessClass 报告 kind 是否属于进程级（空 sid 必填）。
@@ -252,7 +260,14 @@ func (hub *EventHub) Publish(kind EventKind, revision uint64, requestID string, 
 
 // PublishSession 与 Publish 等价，但事件携带会话路由键 sessionID，
 // 供多会话页签按会话过滤订阅使用。
+//
+// G2 严格白名单：发布前按 (kind, sessionID) 归属校验——会话类 kind 空
+// sid、进程类 kind 带 sid 均拒绝发布（返回零值 Event）并记诊断。
 func (hub *EventHub) PublishSession(kind EventKind, revision uint64, requestID, sessionID string, payload any) Event {
+	if err := ValidateSessionRouting(kind, sessionID); err != nil {
+		PublishDiagnostic(kind, sessionID)
+		return Event{}
+	}
 	return hub.publish(kind, revision, requestID, sessionID, payload)
 }
 

@@ -53,3 +53,34 @@ func TestValidateSessionRouting(t *testing.T) {
 		t.Fatalf("process kind with sid must fail, got %v", err)
 	}
 }
+
+// TestPublishSessionStrictWhitelist（G2 严格开启）：会话类 kind 空 sid 与
+// 进程类 kind 带 sid 在发布端被拒绝并记诊断；合法组合照常投递。
+func TestPublishSessionStrictWhitelist(t *testing.T) {
+	hub := NewEventHub()
+	sub := hub.Subscribe(8)
+	defer sub.Close()
+
+	var diagnostics []string
+	previous := PublishDiagnostic
+	PublishDiagnostic = func(kind EventKind, sessionID string) {
+		diagnostics = append(diagnostics, string(kind)+":"+sessionID)
+	}
+	defer func() { PublishDiagnostic = previous }()
+
+	if event := hub.PublishSession(EventMessageAdded, 1, "", "", nil); event.Seq != 0 {
+		t.Fatalf("session-kind publish without sid must be rejected, got %+v", event)
+	}
+	if event := hub.PublishSession(EventExitRequested, 1, "", "sess-a", nil); event.Seq != 0 {
+		t.Fatalf("process-kind publish with sid must be rejected, got %+v", event)
+	}
+	if len(diagnostics) != 2 {
+		t.Fatalf("diagnostics = %v, want 2", diagnostics)
+	}
+	if event := hub.PublishSession(EventMessageAdded, 1, "", "sess-a", nil); event.Seq == 0 || event.SessionID != "sess-a" {
+		t.Fatalf("valid session publish must pass, got %+v", event)
+	}
+	if event := hub.PublishSession(EventResyncRequired, 1, "", "", nil); event.Seq == 0 {
+		t.Fatalf("valid process publish must pass, got %+v", event)
+	}
+}

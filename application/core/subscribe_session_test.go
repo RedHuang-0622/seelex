@@ -7,22 +7,21 @@ import (
 	"time"
 )
 
-// TestSubscribeSessionFollowsDraftMaterialization 验证草稿态订阅（空
-// sessionID）在首轮提交物化后自动收到新会话事件。
-//
-// 草稿没有真实 ID——ID 由首次提交时的引擎生成，客户端无从预知；若归属判定放在
-// 客户端，它只能在"全放行（污染）"与"全丢弃（首轮无输出）"之间二选一。
+// TestSubscribeSessionFollowsDraftMaterialization 验证早分配 SID 后，草稿
+// 订阅直接使用草稿真实 ID：首轮提交物化复用同一 ID，订阅全程收到本会话
+// 事件（G4 先行：草稿持有真实 sessionID，不再需要"空 sid 跟随视图"）。
 func TestSubscribeSessionFollowsDraftMaterialization(t *testing.T) {
 	service := newTestService(t, &fakeEngine{lazyStart: true})
-	subscription, err := service.SubscribeSession("", 256)
+	draftID := service.Snapshot().Session.ID
+	if draftID == "" || !service.Snapshot().Session.Draft {
+		t.Fatal("expected the service to start as an unmaterialized draft with pre-assigned ID")
+	}
+	subscription, err := service.SubscribeSession(draftID, 256)
 	if err != nil {
-		t.Fatalf("SubscribeSession(draft): %v", err)
+		t.Fatalf("SubscribeSession(draft id): %v", err)
 	}
 	defer subscription.Close()
 
-	if !service.Snapshot().Session.Draft {
-		t.Fatal("expected the service to start as an unmaterialized draft")
-	}
 	if err := service.Submit(context.Background(), "first question"); err != nil {
 		t.Fatal(err)
 	}
@@ -30,8 +29,8 @@ func TestSubscribeSessionFollowsDraftMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 	materialized := service.Snapshot().Session.ID
-	if materialized == "" {
-		t.Fatal("expected the draft to materialize into a real session")
+	if materialized != draftID {
+		t.Fatalf("materialized ID = %q, want pre-assigned draft ID %q", materialized, draftID)
 	}
 
 	deadline := time.After(2 * time.Second)
@@ -47,8 +46,10 @@ func TestSubscribeSessionFollowsDraftMaterialization(t *testing.T) {
 	}
 }
 
-// TestSubscribeSessionFollowsViewPointer 验证视图指针移动即改变归属：旧会话
-// 的后续事件不再投递，新视图与全局事件投递，且投递序号保持连续。
+// TestSubscribeSessionFollowsViewPointer 验证空 sid 订阅（过渡口径）仍按
+// 视图指针判定归属：旧会话的后续事件不再投递，新视图事件投递；进程类全局
+// 事件（resync/exit）始终可达；会话类 kind 必须带 sid（INV-G3），不再以
+// 空 sid 充当"全局会话事件"。
 func TestSubscribeSessionFollowsViewPointer(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	subscription, err := service.SubscribeSession("", 64)
@@ -63,9 +64,10 @@ func TestSubscribeSessionFollowsViewPointer(t *testing.T) {
 	service.sessions.SetActive("session-new")
 	service.publishSessionEvent(EventMessageDelta, 2, "", "session-old", MessageDelta{MessageID: "m-stale"})
 	service.publishSessionEvent(EventMessageDelta, 3, "", "session-new", MessageDelta{MessageID: "m-new"})
-	service.publishSessionEvent(EventSnapshotChanged, 4, "", "", nil)
+	service.publishSessionEvent(EventResyncRequired, 4, "", "", nil)
 
 	delivered := map[string]bool{}
+	deliveredKinds := map[string]bool{}
 	count := 0
 	deadline := time.After(500 * time.Millisecond)
 collect:
@@ -79,6 +81,7 @@ collect:
 			var delta MessageDelta
 			_ = json.Unmarshal(event.Payload, &delta)
 			delivered[event.SessionID+":"+delta.MessageID] = true
+			deliveredKinds[string(event.Kind)] = true
 		case <-deadline:
 			break collect
 		}
@@ -92,7 +95,7 @@ collect:
 	if !delivered["session-new:m-new"] {
 		t.Fatal("the new view session's events never reached the subscription")
 	}
-	if !delivered[":"] {
-		t.Fatal("global events must stay reachable through a view subscription")
+	if !deliveredKinds["resync.required"] {
+		t.Fatal("process-class global events must stay reachable through a view subscription")
 	}
 }
