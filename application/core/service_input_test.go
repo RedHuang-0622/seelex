@@ -11,7 +11,7 @@ import (
 
 func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.components.tasks.SetPlanStateLocked(nil, "plan-x")
 	service.Core.Snapshot.Runtime.Plan = &PlanState{
 		Status: PlanRunning,
@@ -21,7 +21,7 @@ func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
 	first := service.components.prompts.SystemPromptForActiveTaskLocked()
 	service.Core.Snapshot.Runtime.Plan.Nodes[0].Status = NodeCompleted
 	second := service.components.prompts.SystemPromptForActiveTaskLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if first != second {
 		t.Fatalf("system prompt must be byte-stable across node transitions:\nfirst=%q\nsecond=%q", first, second)
 	}

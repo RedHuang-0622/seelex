@@ -35,11 +35,11 @@ func (c *Coordinator) PersistCurrentSession(location Location, sessionID string)
 	// task 快照随会话落盘：外部端口（actor/CSP）在锁外调用，避免持锁阻塞；
 	// 按会话分片取（后台会话不读活跃注册表，对应 R6/P2）。
 	tasks := c.Core.Deps.Runtime.TaskSnapshotFor(sessionID)
-	c.Core.Mu.Lock()
+	c.Core.ViewMu.Lock()
 	record := c.sessionRecordLocked(sessionID, tasks)
 	memoryEvents := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
 	pendingResults := append([]model.StoredToolResult(nil), c.tasks.PendingToolResultsFor(sessionID)...)
-	c.Core.Mu.Unlock()
+	c.Core.ViewMu.Unlock()
 	// L1：resume 后内存 transcript 只含尾部窗口；可见对话与事件必须从
 	// 磁盘事件全量重建（旧消息保留），否则 >4 轮会话落盘会截断 record。
 	events := c.allTranscriptEventsForSession(location, sessionID, memoryEvents)
@@ -65,9 +65,9 @@ func (c *Coordinator) PersistCurrentSession(location Location, sessionID string)
 		if err := store.SaveSessionSnapshotWorkspace(location.WorkspaceID, sessionID, c.engineHistoryFor(sessionID), record, events, pendingResults); err != nil {
 			return fmt.Errorf("save atomic session snapshot: %w", err)
 		}
-		c.Core.Mu.Lock()
+		c.Core.ViewMu.Lock()
 		c.tasks.RemoveCommittedToolResultsForLocked(sessionID, pendingResults)
-		c.Core.Mu.Unlock()
+		c.Core.ViewMu.Unlock()
 		return nil
 	}
 
@@ -237,7 +237,7 @@ func (c *Coordinator) sessionRecordLocked(sessionID string, tasks []dto.TaskReco
 }
 
 // archivedConversationMessageLocked 归档单条可见消息：超限工具结果/用户
-// 输入替换为引用警告（transcript 为空回退路径用；调用方持有 Core.Mu）。
+// 输入替换为引用警告（transcript 为空回退路径用；调用方持有 Core.ViewMu）。
 func (c *Coordinator) archivedConversationMessageLocked(sessionID string, message model.Message) model.Message {
 	copy := message
 	if message.Tool != nil {
@@ -314,7 +314,7 @@ func (c *Coordinator) engineHistoryFor(sessionID string) []contract.EngineMessag
 	return c.Core.Deps.Engine.History()
 }
 
-// SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.Mu；
+// SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.ViewMu；
 // 测试/恢复路径直接构造用）。
 func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord {
 	return c.sessionRecordLocked(sessionID, tasks)

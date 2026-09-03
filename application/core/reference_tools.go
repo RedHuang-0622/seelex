@@ -70,9 +70,9 @@ func (service *Service) toolResultContent(resultRef string, offset, limit int, c
 	// node:<nodeID>: 前缀 = 子代理工具结果：经引擎桥读回节点专属归档
 	// （P1 修复——子代理 ref 主会话原本读不到；ref 前缀由节点归档器写入）。
 	if nodeID, ok := nodeResultRef(resultRef); ok {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		raw, found := service.nodeToolResult(nodeID, resultRef)
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		if !found {
 			return model.ToolResultPage{}, errors.New("read_tool_result: node result_ref is not available (node finished or ref unknown)")
 		}
@@ -87,20 +87,20 @@ func (service *Service) toolResultContent(resultRef string, offset, limit int, c
 	// result:call_... 读回失败）。
 	resultRef = service.resolveToolResultRefAlias(resultRef)
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	if !service.hasToolResultRefLocked(resultRef) {
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		return model.ToolResultPage{}, errors.New("read_tool_result: result_ref is not available in the current session")
 	}
 	for _, pending := range service.components.tasks.PendingToolResults() {
 		if pending.Ref == resultRef {
-			service.Mu.RUnlock()
+			service.ViewMu.RUnlock()
 			return buildToolResultPage(pending, offset, limit, contains), nil
 		}
 	}
 	sessionID := service.Core.Snapshot.Session.ID
 	workspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 
 	store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
 	if !ok {
@@ -126,9 +126,9 @@ func (service *Service) resolveToolResultRefAlias(ref string) string {
 	if callID == "" {
 		return ref
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	realRef := service.components.tasks.ToolResultRefByCallID(callID)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if realRef == "" {
 		return ref
 	}
@@ -235,19 +235,19 @@ func (service *Service) ReadPlanHandler(_ context.Context, argsJSON string) (str
 	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil {
 		return "", fmt.Errorf("read_plan: invalid JSON: %w", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	planRef := strings.TrimSpace(input.PlanRef)
 	if planRef == "" {
 		planRef = service.components.tasks.ActivePlanID()
 	}
 	frame := task_context.ActivePlanFrame(service.components.tasks.PlanStack(), planRef)
 	if frame == nil {
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		return "", errors.New("read_plan: plan_ref is not available in the current session")
 	}
 	arguments := frame.Arguments
 	planState := cloneRuntimeState(RuntimeState{Plan: frame.Plan}).Plan
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 
 	var canonical map[string]any
 	if err := json.Unmarshal([]byte(arguments), &canonical); err != nil {

@@ -11,7 +11,7 @@ import (
 
 const draftSessionName = "新会话"
 
-// newDraftSessionIDLocked 生成早分配的草稿会话 ID（调用方持有 Core.Mu）。
+// newDraftSessionIDLocked 生成早分配的草稿会话 ID（调用方持有 Core.ViewMu）。
 // 草稿 ID 使用独立前缀与序号：Windows 时间戳低分辨率下同一 tick 多次
 // BeginNewSession 也不会碰撞；引擎按该显式 ID 建 bundle（HasSession=false
 // 阶段不建，首次提交物化时经 ActivateSession 创建）。
@@ -29,7 +29,7 @@ func (service *Service) BeginNewSession() error {
 	transition.Lock()
 	defer transition.Unlock()
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	closed := service.closed
 	draining := service.draining
 	draft := service.Core.Snapshot.Session.Draft
@@ -39,7 +39,7 @@ func (service *Service) BeginNewSession() error {
 		currentRunning = unit.ChatState().Running
 	}
 	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if closed {
 		return errors.New("application is shut down")
 	}
@@ -76,7 +76,7 @@ func (service *Service) BeginNewSession() error {
 	// 再在首次请求物化时绑定。
 	// 草稿槽位：恢复已保留的草稿（含早分配 ID 与工作区绑定）或新建并
 	// 早分配真实 SID。
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	slot := service.draft
 	if slot == nil {
 		slot = &draftSlot{ID: service.newDraftSessionIDLocked(), CreatedAt: time.Now()}
@@ -89,7 +89,7 @@ func (service *Service) BeginNewSession() error {
 		item := *slot.Workspace
 		restoredWorkspace = &item
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if restoredWorkspace == nil {
 		// 任务会话草稿：必须真正未关联工作区（清空上个会话继承的项目绑定）。
@@ -101,7 +101,7 @@ func (service *Service) BeginNewSession() error {
 	// 恢复"工作区会话"草稿：只恢复展示绑定，不在此处切换全局工程根 / store
 	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
 	service.sessions.SetActive(draftID)
 	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace
@@ -120,7 +120,7 @@ func (service *Service) BeginNewSession() error {
 	service.components.sessions.SetSessionTitleLocked(draftID, SessionTitle{})
 	service.components.tasks.ResetForNewSessionLocked()
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishRuntimeProjections()
 	// 会话级工作台隔离：新会话清空 task 注册表与子代理树，避免旧会话
 	// 数据污染新会话工作台，并发布空工作表格。
@@ -136,7 +136,7 @@ func (service *Service) BeginNewSession() error {
 // 引擎退化为 StartSession 自动分配），并清空已提交的 composer 草稿。
 // 调用方必须持有 sessionTransitionMu。
 func (service *Service) materializeDraftSession(firstQuestion string) error {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	draft := service.Core.Snapshot.Session.Draft
 	draftID := service.Core.Snapshot.Session.ID
 	if service.draft != nil && service.draft.ID != "" {
@@ -147,7 +147,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 		item := *service.Core.Snapshot.CurrentWorkspace
 		workspace = &item
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if !draft {
 		return nil
 	}
@@ -193,7 +193,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	}
 	workspaceProjection := service.collectWorkspaceProjection()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.draft = nil // 草稿已物化为真实会话，消费槽位
 	title := SessionTitle{Value: session_runtime.SessionTitle(firstQuestion), Source: "first_request", FinalizedAt: time.Now()}
 	service.Core.Snapshot.Session = SessionState{ID: newID, Name: title.Value}
@@ -204,7 +204,7 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.components.tasks.ResetPlanStateLocked()
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishRuntimeProjections()
 	service.clearComposerDraft(newID)
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", newID, nil)

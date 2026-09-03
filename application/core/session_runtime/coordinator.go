@@ -86,7 +86,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 	}
 }
 
-// SessionTitleFor 返回指定会话标题（调用方持有 Core.Mu；缺省回退活跃
+// SessionTitleFor 返回指定会话标题（调用方持有 Core.ViewMu；缺省回退活跃
 // Snapshot 名称）。
 func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle {
 	if title, ok := c.sessionTitles[sessionID]; ok {
@@ -95,7 +95,7 @@ func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle {
 	return model.SessionTitle{Value: c.Core.Snapshot.Session.Name, Source: "first_request"}
 }
 
-// SetSessionTitleLocked 设置指定会话标题（调用方持有 Core.Mu）。
+// SetSessionTitleLocked 设置指定会话标题（调用方持有 Core.ViewMu）。
 func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle) {
 	if c.sessionTitles == nil {
 		c.sessionTitles = make(map[string]model.SessionTitle)
@@ -223,9 +223,9 @@ func (c *Coordinator) CatalogRefreshDone() <-chan struct{} {
 // refreshCatalogCache 把目录快照发布进内核（锁内 bump → 锁外 Publish）。
 func (c *Coordinator) refreshCatalogCache() {
 	sessions, discoveredBindings := c.sessionCatalog()
-	c.Core.Mu.Lock()
+	c.Core.ViewMu.Lock()
 	if c.closed() {
-		c.Core.Mu.Unlock()
+		c.Core.ViewMu.Unlock()
 		return
 	}
 	c.Core.Snapshot.Sessions = append([]model.SessionInfo(nil), sessions...)
@@ -247,7 +247,7 @@ func (c *Coordinator) refreshCatalogCache() {
 	}
 	revision := c.view.BumpLocked()
 	sessionID := c.Core.Snapshot.Session.ID
-	c.Core.Mu.Unlock()
+	c.Core.ViewMu.Unlock()
 	if hub, ok := c.Core.Events.(event.SessionAwareHub); ok {
 		hub.PublishSession(event.EventSnapshotChanged, revision, "", sessionID, nil)
 	} else {

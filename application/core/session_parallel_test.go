@@ -25,10 +25,10 @@ func debugLog(format string, args ...any) {
 }
 
 // dumpServiceState 在断言失败时输出 service 侧会话状态（断点现场）。
-// 调用方需保证在 service.Mu 可安全获取的上下文中执行。
+// 调用方需保证在 service.ViewMu 可安全获取的上下文中执行。
 func dumpServiceState(service *Service, ids ...string) string {
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	var b strings.Builder
 	for _, sid := range ids {
 		unit := service.sessions.Unit(sid)
@@ -310,12 +310,12 @@ func TestParallelSessionsExecuteConcurrently(t *testing.T) {
 	}
 
 	// 两个会话同时 Running（会话级状态分片）。
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	chatA := service.sessions.Unit(aID).ChatState().Running
 	chatB := service.sessions.Unit(bID).ChatState().Running
 	taskA := service.components.tasks.CurrentTaskExecutionFor(aID)
 	taskB := service.components.tasks.CurrentTaskExecutionFor(bID)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if !chatA || !chatB {
 		t.Logf("BREAKPOINT not both running:\n%s", dumpParallelState(service, engine, aID, bID))
 		t.Fatalf("expected both sessions running: A=%v B=%v", chatA, chatB)
@@ -374,9 +374,9 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 	if err := service.Submit(ctx, "queued A"); err != nil {
 		t.Fatalf("Submit queued A: %v", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	queuedA := len(service.sessions.Unit(aID).PendingRequests())
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if queuedA != 1 {
 		t.Logf("BREAKPOINT session A queue wrong:\n%s", dumpParallelState(service, engine, aID))
 		t.Fatalf("session A queue = %d, want 1", queuedA)
@@ -397,9 +397,9 @@ func TestParallelSessionsQueuedPerSession(t *testing.T) {
 	if err := service.SubmitToSession(ctx, bID, "queued B"); err != nil {
 		t.Fatalf("SubmitToSession queued B: %v", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	queuedB := len(service.sessions.Unit(bID).PendingRequests())
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if queuedB != 1 {
 		t.Logf("BREAKPOINT session B queue wrong:\n%s", dumpParallelState(service, engine, aID, bID))
 		t.Fatalf("session B queue = %d, want 1", queuedB)

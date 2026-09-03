@@ -14,7 +14,7 @@ import (
 
 // sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 // 9.5 起 core 直接经会话单元接入；按需创建）。
-// 调用方必须持有 Core.Mu；域内锁序 Core.Mu → Domain.mu → Unit.mu，不反向。
+// 调用方必须持有 Core.ViewMu；域内锁序 Core.ViewMu → Domain.mu → Unit.mu，不反向。
 func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit {
 	unit := service.sessions.Unit(sessionID)
 	if unit == nil {
@@ -32,13 +32,13 @@ func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit
 // 视图级事件时携带 sid——早分配 SID 后订阅键恒等于视图 ID，空 sid 不再
 // 是"跟随视图"的隐式通配）。
 func (service *Service) currentViewSessionID() string {
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	return service.Core.Snapshot.Session.ID
 }
 
 // effortForSession 返回指定会话生效的 effort 级别（G4：Unit 内选择优先；
-// 未选择回退进程级默认 effortManager.Current）。不持有 Core.Mu——Unit
+// 未选择回退进程级默认 effortManager.Current）。不持有 Core.ViewMu——Unit
 // 自带锁，进程默认由 EffortManager 自身锁保护。
 func (service *Service) effortForSession(sessionID string) string {
 	if unit := service.sessions.Unit(sessionID); unit != nil {
@@ -60,7 +60,7 @@ func (service *Service) syncPlanPolicyFor(sessionID string) {
 }
 
 // fullAccessForSession 返回指定会话生效的全权模式（G4：Unit 内选择优先；
-// 未选择回退进程默认/引擎门值）。不持有 Core.Mu——Unit 自带锁，进程默认
+// 未选择回退进程默认/引擎门值）。不持有 Core.ViewMu——Unit 自带锁，进程默认
 // 由 Runtime.FullAccess 门值提供。
 func (service *Service) fullAccessForSession(sessionID string) bool {
 	if unit := service.sessions.Unit(sessionID); unit != nil {
@@ -123,7 +123,7 @@ func queuedChatRequests(requests []session.QueuedRequest) []chatRequest {
 }
 
 // activeQueuedChatRequestsLocked 返回当前会话域的排队输入（还原为执行内核
-// 的 chatRequest；调用方持有 Core.Mu）。会话域是队列唯一所有者。
+// 的 chatRequest；调用方持有 Core.ViewMu）。会话域是队列唯一所有者。
 func (service *Service) activeQueuedChatRequestsLocked() []chatRequest {
 	unit := service.sessions.Unit(service.Core.Snapshot.Session.ID)
 	if unit == nil {
@@ -147,7 +147,7 @@ func (service *Service) publishSessionEvent(kind event.EventKind, revision uint6
 // 载荷刻意不带 revision（=0）：本事件是运行态的整体替换，而同一批转换往往先
 // 发 snapshot.changed（触发客户端重拉并把 revision floor 抬到当前值），带
 // revision 的 chat.changed 会被协议层判为"已由权威快照表示"而丢弃。
-// 只读会话单元自有状态，因此必须在释放 Core.Mu 之后调用。
+// 只读会话单元自有状态，因此必须在释放 Core.ViewMu 之后调用。
 func (service *Service) publishChatStateFor(sessionID string) {
 	unit := service.sessions.Unit(sessionID)
 	if unit == nil {
@@ -165,10 +165,10 @@ func (service *Service) publishChatStateFor(sessionID string) {
 // 返回是否已绑定；未绑定时调用方必须跳过全局 SetWorkspace（Router 写作用域
 // 同样全局，不能为后台会话切换）。
 func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	anyRunning := service.anyChatRunningLocked()
 	current := service.Core.Snapshot.Session.ID
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if anyRunning && sessionID != current {
 		return false
 	}
@@ -231,8 +231,8 @@ func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
 	if sessionID == "" {
 		return SessionSnapshot{}, errors.New("session ID is required")
 	}
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	unit := service.sessions.Unit(sessionID)
 	if unit == nil {
 		return SessionSnapshot{}, ErrSessionSnapshotUnavailable

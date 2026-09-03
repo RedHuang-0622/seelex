@@ -63,9 +63,9 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{}, service.BeginNewSession()
 	})
 	register("resume", "恢复历史会话：/resume <session_id>", func(ctx context.Context, args []string) (CommandResult, error) {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		capabilities := service.Core.Snapshot.Capabilities
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		if !capabilities.SessionResume {
 			reason := strings.TrimSpace(capabilities.SessionResumeReason)
 			if reason == "" {
@@ -79,10 +79,10 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{}, service.resumeSession(strings.TrimSpace(args[0]))
 	})
 	register("fork", "从会话分支出新会话：/fork [session_id]（默认当前会话，切到最新完整轮次）", func(ctx context.Context, args []string) (CommandResult, error) {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		currentID := service.Core.Snapshot.Session.ID
 		draft := service.Core.Snapshot.Session.Draft
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		parentID := currentID
 		if len(args) > 0 {
 			parentID = strings.TrimSpace(args[0])
@@ -146,9 +146,9 @@ func (service *Service) registerBuiltinCommands() error {
 		return CommandResult{Notice: "已切换插件: " + name}, nil
 	})
 	register("diag", "系统诊断信息", func(context.Context, []string) (CommandResult, error) {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		snap := service.Core.Snapshot
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		return CommandResult{Notice: RenderDiag(snap)}, nil
 	})
 	register("exit", "退出程序", func(context.Context, []string) (CommandResult, error) { return CommandResult{Exit: true}, nil })

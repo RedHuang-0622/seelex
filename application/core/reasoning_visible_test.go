@@ -22,15 +22,15 @@ func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T) {
 	sub := service.Events.Subscribe(16)
 	defer sub.Close()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	assistant := service.appendMessageLocked("assistant", "", nil)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	service.attachLatestReasoning(sessionID, "request-1")
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	got := assistant.ReasoningContent
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if got != "thinking steps" {
 		t.Fatalf("visible assistant reasoning = %q, want thinking steps", got)
 	}

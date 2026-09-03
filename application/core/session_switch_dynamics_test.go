@@ -46,8 +46,8 @@ func (engine *chunkCaptureEngine) emit(sessionID, chunk string) {
 
 // viewRoles 返回指定会话可见对话的角色序列（含文本内容），用于断言顺序。
 func viewRoles(service *Service, sessionID string) []string {
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	view := service.sessionViewLocked(sessionID)
 	if view == nil {
 		return nil
@@ -183,11 +183,11 @@ func TestBackgroundToolEventsCarryOwnRequestID(t *testing.T) {
 	service.handleToolCompleteObserved(withSessionID(ctx, aID), "tool-1", "t1", "", "result-1", nil, time.Millisecond, nil)
 
 	aRequest := ""
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	if task := service.components.tasks.CurrentTaskExecutionFor(aID); task != nil {
 		aRequest = task.RequestID
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if aRequest == "" {
 		t.Fatal("A task request ID missing")
 	}

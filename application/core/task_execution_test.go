@@ -14,10 +14,10 @@ import (
 func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "write report", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	result, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{
 		"summary":"report is ready",
@@ -30,9 +30,9 @@ func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 	if !strings.Contains(result, `"accepted"`) {
 		t.Fatalf("terminal result = %q", result)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if state.Status != task_context.StatusCompleted || state.Terminal == nil || state.Terminal.Summary != "report is ready" {
 		t.Fatalf("terminal state = %+v", state)
 	}
@@ -41,10 +41,10 @@ func TestTaskTerminalHandlerRecordsBoundedCompletion(t *testing.T) {
 func TestTaskFailedRequiresFailureType(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "verify", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.TaskTerminalHandler(task_context.ToolFailed)(context.Background(), `{"summary":"blocked"}`); err == nil || !strings.Contains(err.Error(), "failure_type") {
 		t.Fatalf("task_failed error = %v, want failure_type validation", err)
@@ -54,10 +54,10 @@ func TestTaskFailedRequiresFailureType(t *testing.T) {
 func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "choose migration", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	_, err := service.TaskTerminalHandler(task_context.ToolNeedsUserDecision)(context.Background(), `{
 		"summary":"Two compatible migration paths remain.",
@@ -67,9 +67,9 @@ func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if state.Status != task_context.StatusNeedsUserDecision {
 		t.Fatalf("terminal status = %q", state.Status)
 	}
@@ -81,11 +81,11 @@ func TestTaskNeedsUserDecisionRecordsDistinctTerminalState(t *testing.T) {
 func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.Core.Snapshot.Runtime.Plan = &PlanState{Nodes: []PlanNode{{ID: "inspect"}, {ID: "verify"}}}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	_, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{"summary":"done","completed_nodes":["inspect"]}`)
 	if err == nil || !strings.Contains(err.Error(), "verify") {
@@ -95,9 +95,9 @@ func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	plan := service.Core.Snapshot.Runtime.Plan
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if plan.Status != PlanCompleted || plan.Progress != 1 || plan.Nodes[0].Status != NodeCompleted || plan.Nodes[1].Status != NodeCompleted {
 		t.Fatalf("completed plan = %#v", plan)
 	}
@@ -106,18 +106,18 @@ func TestTaskCompleteRequiresAllAuthoritativePlanNodes(t *testing.T) {
 func TestNaturalStopWithPendingAuthoritativePlanNeedsUserDecision(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect"}}}
 	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.finalizeTaskExecution("task-1"); err != nil {
 		t.Fatal(err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if state.Status != task_context.StatusNeedsUserDecision || state.Terminal == nil || state.Terminal.Kind != task_context.ToolNeedsUserDecision {
 		t.Fatalf("task terminal = %#v, want needs-user-decision", state)
 	}
@@ -138,12 +138,12 @@ func TestContextControllerCompactsAndCleansInternalCheckpoint(t *testing.T) {
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, TaskCheckpoint{})
 	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found call path", "")
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.components.context.CompactTaskContext("task-1"); err != nil {
 		t.Fatal(err)
@@ -191,12 +191,12 @@ func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *test
 	engine := &fakeEngine{history: []EngineMessage{{Role: "system", Content: "system instruction", ContentSet: true}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, TaskCheckpoint{})
 	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found call path", "")
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	for round := 0; round < 2; round++ {
 		history := engine.History()
@@ -207,11 +207,11 @@ func TestContextControllerRepeatedCompactionDoesNotAccumulateCheckpoints(t *test
 		if err := engine.ReplaceHistory(engine.SessionID(), history); err != nil {
 			t.Fatal(err)
 		}
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		service.components.tasks.CurrentTaskExecution().RecordTool("bash", fmt.Sprintf("observed repository state %d", round), nil)
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-1", Role: "assistant", ToolCalls: []TranscriptToolCall{{ID: fmt.Sprintf("call-%d", round), Name: "bash", Arguments: `{"summary":true}`}}})
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-1", Role: "tool", ToolCallID: fmt.Sprintf("call-%d", round), Name: "bash", Content: "bounded repository observation"})
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		if err := service.components.context.CompactTaskContext("task-1"); err != nil {
 			t.Fatal(err)
 		}
@@ -254,11 +254,11 @@ func TestContextControllerRejectsLargeToolOutputBeforeGlobalCompaction(t *testin
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect project", "high", nil, TaskCheckpoint{})
 	service.components.tasks.SetTaskStateLocked("task-1", TaskProgressing, "Task is in progress.")
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.components.context.CompactTaskContext("task-1"); err != nil {
 		t.Fatal(err)
@@ -301,13 +301,13 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.promptStack.Push("skill", "review", "review prompt")
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Task = &TaskState{RequestID: "old-task", Status: TaskInterrupted}
 	service.components.tasks.BeginTask("old-task", "inspect source", "high", nil, TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusInterrupted
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.Submit(t.Context(), "continue"); err != nil {
 		t.Fatal(err)
@@ -326,9 +326,9 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	if foundCheckpoint {
 		t.Fatalf("continuation normal path must not inject checkpoint message: %#v", history)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	carried := projection != nil && len(projection.Checkpoint.CompletedWork) > 0 && strings.Contains(projection.Checkpoint.CompletedWork[0], "node=inspect status=completed")
 	if !carried || !strings.Contains(prompt, "review prompt") {
 		t.Fatalf("continuation history=%#v prompt=%q", history, prompt)
@@ -349,11 +349,11 @@ func TestTaskContextSummaryStaysWithinProviderToolBudget(t *testing.T) {
 func TestNoProgressBudgetStopsRepeatedToolRounds(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
 	service.components.tasks.StartReActBudgetLocked("task-1", ReActBudget{MaxNoProgressRounds: 2})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)

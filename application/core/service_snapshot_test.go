@@ -14,9 +14,9 @@ func TestSnapshotNeverSerializesSystemPrompt(t *testing.T) {
 	service.promptStack.Push("base", "private", privateInstruction)
 	service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	projection := service.collectRuntimeProjection(context.Background())
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.applyRuntimeProjectionLocked(projection)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	payload, err := json.Marshal(service.Snapshot())
 	if err != nil {
@@ -48,11 +48,11 @@ func TestMessageDeltaIncludesStableMessageID(t *testing.T) {
 	subscription := service.Subscribe(8)
 	defer subscription.Close()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
 	message := service.appendMessageLocked("assistant", "", nil)
 	messageID := message.ID
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	service.appendDelta("request-1", "next")
 	var event Event
@@ -94,10 +94,10 @@ func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testin
 	runtime := &goalVisibilityRuntime{fakeRuntime: &fakeRuntime{}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	taskState := service.components.tasks.BeginTask("task-goal", "plan work", "high", nil, TaskCheckpoint{})
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, []PromptLayer{{Kind: "skill", Name: "goal", Text: "goal prompt"}})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if !service.GoalSkillActive() {
 		t.Fatal("goal skill state was not projected")
 	}

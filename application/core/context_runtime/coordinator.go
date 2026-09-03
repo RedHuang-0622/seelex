@@ -76,13 +76,13 @@ type Ports struct {
 }
 
 // CompactTaskContext 把整个可变 transcript 替换为一个私有、有界的 checkpoint
-// （引擎迭代 hook 调用，绝不持有 Core.Mu；活跃会话兼容包装）。
+// （引擎迭代 hook 调用，绝不持有 Core.ViewMu；活跃会话兼容包装）。
 func (c *Coordinator) CompactTaskContext(requestID string) error {
 	return c.CompactTaskContextFor(c.tasks.SessionIDForRequest(requestID), requestID)
 }
 
 // CompactTaskContextFor 把指定会话整个可变 transcript 替换为一个私有、有界
-// 的 checkpoint（引擎迭代 hook 调用，绝不持有 Core.Mu）。
+// 的 checkpoint（引擎迭代 hook 调用，绝不持有 Core.ViewMu）。
 func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
 	_, err := c.PrepareExecutionContextFor(sessionID, requestID, "")
 	if err != nil {
@@ -98,8 +98,8 @@ func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
 // 回退当前活跃工作区）。压缩 checkpoint 落盘的目标会话可能不是活跃会话，
 // 必须按会话键落盘（对应 R3 键漂移修复）。
 func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location {
-	c.Mu.RLock()
-	defer c.Mu.RUnlock()
+	c.ViewMu.RLock()
+	defer c.ViewMu.RUnlock()
 	location := session_runtime.Location{Meta: model.SessionInfo{ID: sessionID}}
 	if workspaceID, ok := c.Snapshot.SessionWorkspaces[sessionID]; ok && workspaceID != "" {
 		location.WorkspaceID = workspaceID
@@ -138,16 +138,16 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	budget := task_context.ContextBudgetFor(c.Deps.Runtime)
 	tools := c.Deps.Runtime.VisibleTools(context.Background())
 	existing := c.engineHistory(sessionID)
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	systemPrompt := c.prompts.SystemPromptForActiveTaskLockedFor(sessionID)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	c.setEngineSystemPrompt(sessionID, systemPrompt)
 
 	runtimeModel := c.Deps.Runtime.Model()
-	c.Mu.Lock()
+	c.ViewMu.Lock()
 	state := c.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || state.RequestID != requestID {
-		c.Mu.Unlock()
+		c.ViewMu.Unlock()
 		return currentInput, nil
 	}
 	events := append([]model.TranscriptEvent(nil), c.tasks.TranscriptFor(sessionID)...)
@@ -168,7 +168,7 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 	checkpoint := c.tasks.BuildTaskCheckpointLocked(state)
 	checkpoint.Version = state.ContextVersion
 	planMessage := c.planContextMessageLocked(sessionID)
-	c.Mu.Unlock()
+	c.ViewMu.Unlock()
 
 	systems := RetainedSystemHistory(c.engineHistory(sessionID))
 	target := budget.Budget
@@ -199,7 +199,7 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 		return "", err
 	}
 
-	c.Mu.Lock()
+	c.ViewMu.Lock()
 	state = c.tasks.CurrentTaskExecutionFor(sessionID)
 	recorded := false
 	var revision uint64
@@ -221,7 +221,7 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 			}
 		}
 	}
-	c.Mu.Unlock()
+	c.ViewMu.Unlock()
 	if recorded {
 		if hub, ok := c.Events.(event.SessionAwareHub); ok {
 			hub.PublishSession(event.EventSnapshotChanged, revision, requestID, sessionID, nil)
@@ -386,9 +386,9 @@ const FrameworkToolOutputTruncatedMarker = "\n...[truncated]"
 // 预览，避免基于误导片段的推理；目标会话显式传入）。
 func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int) (bool, error) {
 	history := c.engineHistory(sessionID)
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	refs := c.tasks.ResultRefsByCallIDFor(sessionID)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	filtered, changed := rejectToolResultsWithRefs(history, maxChars, refs)
 	if !changed {
 		return false, nil

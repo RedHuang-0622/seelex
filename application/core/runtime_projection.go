@@ -7,10 +7,10 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 
-// publishRuntimeProjections 在 service.Mu 下拷贝应用自有状态，释放锁后发布
+// publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布
 // 不可变值。Runtime 因此不会从工具可见性或子代理路径回调 Application。
 func (service *Service) publishRuntimeProjections() {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	projection := seelebridge.RuntimeVisibilityProjection{
 		GoalSkillActive: service.components.tasks.GoalSkillActive(),
 	}
@@ -19,7 +19,7 @@ func (service *Service) publishRuntimeProjections() {
 		Goal:              latestVisibleUserGoal(service.Core.Snapshot.Conversation),
 		ConversationCount: service.Core.Snapshot.TotalMessages,
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	service.Deps.Runtime.SetRuntimeVisibilityProjection(projection)
 	service.Deps.Runtime.SetParentEvidenceProjection(evidence)
 }

@@ -33,7 +33,7 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 
 	// 1) A 前台：A 的 plan（n1）同步进 A 自身 scope
 	service.Deps.Runtime.SwitchSessionTasks("session-a", nil)
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
 	service.components.tasks.RestoreSessionTaskLockedFor("session-a", task_context.RestoredTaskState{
 		PlanStack:    planWith(PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning}),
@@ -42,7 +42,7 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 	service.Core.Snapshot.Runtime.Plan = task_context.ActivePlanFromStack(
 		planWith(PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning}), "p1",
 	)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.syncTasksFromSourcesFor("session-a")
 	if got := runtime.TaskSnapshotFor("session-a"); len(got) != 1 || got[0].Key != "plan:n1" {
 		t.Fatalf("seed: A scope records = %+v, want plan:n1", got)
@@ -50,12 +50,12 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 
 	// 2) 切到 B：注册表当前槽换为 B（A 的 scope 分区保留）
 	service.Deps.Runtime.SwitchSessionTasks("session-b", nil)
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-b"}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	// 3) A 后台继续跑：A 的 plan 新增 n2 并同步到 A 自身 scope
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.components.tasks.RestoreSessionTaskLockedFor("session-a", task_context.RestoredTaskState{
 		PlanStack: planWith(
 			PlanNode{ID: "n1", Label: "A 调研", Status: NodeRunning},
@@ -63,7 +63,7 @@ func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T) 
 		),
 		ActivePlanID: "p1",
 	})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.syncTasksFromSourcesFor("session-a")
 
 	// 目标态断言 1：B 的注册表不得出现 A 的 plan 任务

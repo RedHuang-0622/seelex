@@ -44,10 +44,10 @@ func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 	defer service.Shutdown()
 	budget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "oversized-system", strings.Repeat("s", budget.Budget*3))
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue"); !errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
 		t.Fatalf("prepare error = %v, want provider budget exceeded", err)
@@ -61,17 +61,17 @@ func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	legacyBudget := task_context.DefaultContextBudget()
 	service.promptStack.Push("base", "large-system", strings.Repeat("s", legacyBudget.Budget*3))
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue"); err != nil {
 		t.Fatalf("prepare with configured context window: %v", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	audit := service.components.tasks.CurrentTaskExecution().TokenAudit
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if audit.Budget != 166_808 {
 		t.Fatalf("token audit budget = %d, want 166808", audit.Budget)
 	}
@@ -81,7 +81,7 @@ func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
 	for round := 0; round < 8; round++ {
@@ -91,15 +91,15 @@ func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "tool", ToolCallID: callID, Name: "read", Content: strings.Repeat("result ", 2500)})
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "assistant", Content: "round complete"})
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	preparedInput, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification")
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	tools := service.Deps.Runtime.VisibleTools(t.Context())
 	estimated := service.components.tasks.CountRequestTokens(systemPrompt, engine.History(), preparedInput, tools)
 	if estimated > task_context.DefaultContextBudget().Budget {
@@ -111,7 +111,7 @@ func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
 	// 已定稿轮次 = 累积 context 源。
@@ -128,7 +128,7 @@ func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T) {
 		ID: "plan-1", Plan: plan,
 		Arguments: `{"nodes":{"n1":{"input":"read source"}},"edges":{}}`,
 	}}, "plan-1")
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification"); err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *test
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
 	// 8 个已定稿轮次（远超 ContextMaxUnits=4），总 token 在软阈值内。
@@ -235,7 +235,7 @@ func TestPrepareExecutionContextAccumulatesAllSettledRoundsAndByteStable(t *test
 			TaskID: "task-0", Role: "assistant", Content: "answer", TokenCount: 2,
 		})
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.components.context.PrepareExecutionContext("task-1", "next"); err != nil {
 		t.Fatal(err)

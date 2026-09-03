@@ -57,7 +57,7 @@ func (service *Service) recoverProviderFailureFor(ctx context.Context, err error
 	}
 	prefix, heading, summary := providerRecoveryDetails(failureKind)
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	checkpoint := ""
 	if state := service.components.tasks.CurrentTaskExecutionFor(sessionID); state != nil {
 		checkpoint = state.ContextSummary()
@@ -65,7 +65,7 @@ func (service *Service) recoverProviderFailureFor(ctx context.Context, err error
 	}
 	requestID := service.Core.Snapshot.Chat.RequestID
 	service.components.tasks.SetTaskStateLocked(requestID, TaskInterrupted, summary)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	recovery := prefix + "\n## " + heading + `
 The raw transcript was removed. Continue from the durable task checkpoint below;
@@ -94,15 +94,15 @@ func (service *Service) retryContextRecovery(ctx context.Context, requestID stri
 	if sessionID == "" {
 		sessionID = service.Core.Snapshot.Session.ID
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	state := service.components.tasks.CurrentTaskExecutionFor(sessionID)
 	if state == nil || state.RequestID != requestID {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return fmt.Errorf("resume context recovery: task state is unavailable")
 	}
 	service.components.tasks.ResumeTaskLocked(requestID, "Context was reset to a bounded checkpoint; the Agent is continuing with targeted reads.")
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
 
 	recoveryInput, prepareErr := service.components.context.PrepareExecutionContextFor(sessionID, requestID, contextRecoveryAgentInput)

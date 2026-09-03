@@ -16,13 +16,13 @@ import (
 func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string) {
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 	}
 	// 先落地本会话未交付的流式文本（工具消息之前），与活跃视图无关。
 	service.flushStreamBatcherFor(sessionID)
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
 	if sessionID == "" {
 		sessionID = service.Core.Snapshot.Session.ID
@@ -68,7 +68,7 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 			requestID = task.RequestID
 		}
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if planBinding != nil {
 		service.Deps.Runtime.SetPlanBranchBinding(*planBinding)
 	}
@@ -109,18 +109,18 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	}
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		sessionID = service.Core.Snapshot.Session.ID
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 	}
 	emit("toolhook.complete.flush.start")
 	service.flushStreamBatcherFor(sessionID)
 	emit("toolhook.complete.flush.done")
 	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
 	emit("toolhook.complete.lock.start")
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	// sessionID 回退必须在锁内解析：Snapshot.Session.ID 由
-	// ApplyRuntimeProjectionLocked 等写者持 Core.Mu 修改，锁外读取与
+	// ApplyRuntimeProjectionLocked 等写者持 Core.ViewMu 修改，锁外读取与
 	// handleToolComplete 并发时构成数据竞争（-race 可复现）。
 	if sessionID == "" {
 		sessionID = service.Core.Snapshot.Session.ID
@@ -229,7 +229,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	if active {
 		revision = service.bumpLocked()
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	emit("toolhook.complete.unlock.done")
 	emit("toolhook.complete.event.start")
 	service.publishSessionEvent(EventToolCompleted, revision, requestID, sessionID, message)
@@ -347,14 +347,14 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 				// 迭代结束检查输入队列：非空 → 返回 false 中断本轮（本轮
 				// 工具已全部完成，是安全边界），由 runChat 结尾的队列提升
 				// 自动开启下一轮并清空队列——一轮一消费，无需等整条 loop。
-				svc.Mu.RLock()
+				svc.ViewMu.RLock()
 				queued := len(svc.activeQueuedChatRequestsLocked()) > 0
-				svc.Mu.RUnlock()
+				svc.ViewMu.RUnlock()
 				return !queued
 			}
-			svc.Mu.RLock()
+			svc.ViewMu.RLock()
 			activeRequestID := svc.Core.Snapshot.Chat.RequestID
-			svc.Mu.RUnlock()
+			svc.ViewMu.RUnlock()
 			// The engine adds assistant/tool records after the initial preflight.
 			// Repair them before its next provider request, not only before loop 0.
 			if err := svc.components.history.PrepareProviderHistoryFor(sessionIDFromContext(ctx)); err != nil {

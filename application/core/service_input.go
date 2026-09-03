@@ -19,7 +19,7 @@ func (service *Service) injectPendingSubagentContexts() {
 }
 
 // injectPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
-// Runtime mailbox；无本地兼容队列），并在 service.Mu 之外把消息注入目标
+// Runtime mailbox；无本地兼容队列），并在 service.ViewMu 之外把消息注入目标
 // 会话引擎。快照变更是独立短临界区，Engine 不会与 Application 形成反向
 // 等待环。
 func (service *Service) injectPendingSubagentContextsFor(sessionID string) {
@@ -40,7 +40,7 @@ func (service *Service) injectPendingSubagentContextsFor(sessionID string) {
 // recordSubagentEvidence 把子代理合并回父的一条证据记录写入目标会话：
 // transcript 事件（持久化/恢复重建用）+ 可见对话（活跃会话镜像快照）。
 func (service *Service) recordSubagentEvidence(sessionID, content string) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
 	requestID := ""
 	if unit := service.sessions.Unit(sessionID); unit != nil {
@@ -53,7 +53,7 @@ func (service *Service) recordSubagentEvidence(sessionID, content string) {
 		service.appendSessionMessageLocked(sessionID, "user", content, nil)
 	}
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
 }
 
@@ -93,10 +93,10 @@ func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMess
 }
 
 func (service *Service) Submit(ctx context.Context, text string) error {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	draining := service.draining
 	closed := service.closed
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if closed {
 		return errors.New("application is shut down")
 	}
@@ -120,13 +120,13 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	if err := service.materializeDraftSession(request.displayInput); err != nil {
 		return err
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if service.closed {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return errors.New("application is shut down")
 	}
 	if service.draining {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return ErrApplicationDraining
 	}
 	sessionID := service.Core.Snapshot.Session.ID
@@ -140,12 +140,12 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		}, nil)
 		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 		revision := service.bumpLocked()
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		service.publishChatStateFor(sessionID)
 		return nil
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	return service.startChat(ctx, request)
 }
 
@@ -155,13 +155,13 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(sessionID)
 	request.budget = reactBudgetFor(effort)
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if service.closed {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return errors.New("application is shut down")
 	}
 	if service.draining {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return ErrApplicationDraining
 	}
 	active := service.isActiveSessionLocked(sessionID)
@@ -176,35 +176,35 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 		if active {
 			service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 			revision := service.bumpLocked()
-			service.Mu.Unlock()
+			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 			service.publishChatStateFor(sessionID)
 			return nil
 		}
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
 		service.publishChatStateFor(sessionID)
 		return nil
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	return service.startChatFor(sessionID, ctx, request)
 }
 
 // BeginGracefulShutdown 停止接收新输入，同时允许活跃 chat 及其已排队输入
 // 自然完成。
 func (service *Service) BeginGracefulShutdown() {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.draining = true
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 }
 
 // WaitForIdle 等待全部已接受的 chat 工作完成。它从不取消活跃 chat；调用方
 // 通过 ctx 控制放弃。
 func (service *Service) WaitForIdle(ctx context.Context) error {
 	for {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		idle := service.idle
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		select {
 		case <-idle:
 			return nil
@@ -218,8 +218,8 @@ func (service *Service) WaitForIdle(ctx context.Context) error {
 // 而后台会话仍在跑也必须在 graceful drain 中等待）。多会话并行下视图快照
 // 的 Chat.Running 只反映当前会话，不是进程空闲判据。
 func (service *Service) AnyChatRunning() bool {
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	return service.anyChatRunningLocked()
 }
 
@@ -227,7 +227,7 @@ func (service *Service) AnyChatRunning() bool {
 // 占用引擎与持久化通道，不能只取消视图会话）。取消后每个 runChat 走正常
 // 收尾（逐会话 persist），随后 WaitForIdle 自然收敛。
 func (service *Service) CancelAllChats() {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	cancels := make([]context.CancelFunc, 0, 4)
 	for _, sid := range service.sessions.UnitIDs() {
 		if unit := service.sessions.Unit(sid); unit != nil {
@@ -236,7 +236,7 @@ func (service *Service) CancelAllChats() {
 			}
 		}
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	for _, cancel := range cancels {
 		cancel()
 	}
@@ -249,8 +249,8 @@ func (service *Service) CancelAllChats() {
 // 看到在跑的那个回合"与"停掉本会话当前回合"是同一件事。此前这一判断由桌面 Bridge
 // 用空 id 重试兜底，属于业务语义，收在本服务内（TUI/CLI/headless 同样受益）。
 func (service *Service) CancelChat(requestID string) bool {
-	service.Mu.Lock()
-	defer service.Mu.Unlock()
+	service.ViewMu.Lock()
+	defer service.ViewMu.Unlock()
 	sessionID := service.Core.Snapshot.Session.ID
 	runtime := service.sessionUnitLocked(sessionID)
 	chat := runtime.ChatState()
@@ -265,9 +265,9 @@ func (service *Service) CancelChat(requestID string) bool {
 }
 
 func (service *Service) Shutdown() {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if service.closed {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return
 	}
 	service.closed = true
@@ -279,7 +279,7 @@ func (service *Service) Shutdown() {
 			}
 		}
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.components.sessions.StopCatalogRefresh()
 	service.sessions.Close() // 会话域 actor 收尾（注册表 + V 指针）
 	service.stopLifecycleConsumers()

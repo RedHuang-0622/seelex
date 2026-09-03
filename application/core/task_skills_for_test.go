@@ -9,7 +9,7 @@ import (
 func TestActiveSkillsProjectionForSession(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	taskA := service.components.tasks.BeginTaskFor("session-a", "req-a", "goal task", "high", nil, TaskCheckpoint{})
 	service.components.tasks.ActivateTaskSkillsLocked(taskA, []PromptLayer{
 		{Name: "goal", Text: "goal layer"},
@@ -19,7 +19,7 @@ func TestActiveSkillsProjectionForSession(t *testing.T) {
 	service.components.tasks.ActivateTaskSkillsLocked(taskB, []PromptLayer{
 		{Name: "review", Text: "review layer"},
 	})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	idsA := service.components.tasks.ActiveSkillIDsFor("session-a")
 	if len(idsA) != 2 || idsA[0] != "goal" || idsA[1] != "review" {

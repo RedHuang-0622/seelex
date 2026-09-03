@@ -41,9 +41,9 @@ func TestBoundToolResultForSnapshotArchives(t *testing.T) {
 	limit := snapshotToolOutputLimit()
 	big := strings.Repeat("y", limit+1000)
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	visible, ref, truncated, total := service.boundToolResultForSnapshot("bash", big)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if !truncated {
 		t.Fatal("big content must be truncated")
@@ -73,9 +73,9 @@ func TestBoundToolResultForSnapshotArchives(t *testing.T) {
 	}
 
 	// 小输出：原样 + 无引用。
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	visible, ref, truncated, _ = service.boundToolResultForSnapshot("read_file", "small")
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if truncated || ref != "" || visible != "small" {
 		t.Fatalf("small output must pass through: truncated=%v ref=%q visible=%q", truncated, ref, visible)
 	}
@@ -86,9 +86,9 @@ func TestBoundToolResultForSnapshotArchives(t *testing.T) {
 func TestToolResultContentPagination(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	big := strings.Repeat("汉字", 5000) // 15000 bytes
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	_, ref, _, _ := service.boundToolResultForSnapshot("bash", big)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	page, err := service.ToolResultContent(t.Context(), ref, 0, 1000)
 	if err != nil {
@@ -129,9 +129,9 @@ func TestSnapshotBudgetUsesConfiguredLimit(t *testing.T) {
 
 	service := newTestService(t, &fakeEngine{})
 	big := strings.Repeat("z", 4096)
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	visible, ref, truncated, _ := service.boundToolResultForSnapshot("bash", big)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if !truncated || ref == "" {
 		t.Fatal("with 128-char limit, 4KB content must be truncated and archived")
 	}

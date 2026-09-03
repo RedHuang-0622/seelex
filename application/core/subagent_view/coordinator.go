@@ -75,22 +75,22 @@ func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent) {
 	e.Result = c.truncateSubagentEvidence(e.Result)
 	e.Error = c.truncateSubagentEvidence(e.Error)
 
-	c.Mu.Lock()
+	c.ViewMu.Lock()
 	plan := c.Snapshot.Runtime.Plan
 	if plan == nil {
-		c.Mu.Unlock()
+		c.ViewMu.Unlock()
 		return
 	}
 	node := FindPlanNodeByID(plan.Nodes, e.NodeID)
 	if node == nil {
-		c.Mu.Unlock()
+		c.ViewMu.Unlock()
 		return
 	}
 	c.upsertSubagentToolEvent(node, e)
 	revision := c.view.BumpLocked()
 	requestID := c.Snapshot.Chat.RequestID
 	sessionID := c.Snapshot.Session.ID
-	c.Mu.Unlock()
+	c.ViewMu.Unlock()
 
 	kind := event.EventSubagentToolCompleted
 	if e.Status == "running" {
@@ -157,7 +157,7 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 	if nodeID == "" {
 		return nil, fmt.Errorf("subagent detail: node id is required")
 	}
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	var status model.NodeStatus
 	var elapsed, output string
 	var toolEvents []model.SubagentToolEvent
@@ -170,7 +170,7 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 			toolEvents = append([]model.SubagentToolEvent(nil), node.ToolEvents...)
 		}
 	}
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 
 	conversation, ok := c.Deps.Engine.NodeSessionConversation(nodeID)
 	if !ok && status == "" {

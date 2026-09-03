@@ -241,7 +241,7 @@ func formatWorkDuration(duration time.Duration) string {
 	return fmt.Sprintf("%.2fs", ms/1000)
 }
 
-// refreshWorkTableLocked 在 service.Mu 持锁时重建工作表格投影。
+// refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
 func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord) {
 	rows := buildWorkTable(
 		state.Snapshot.Runtime.Plan,
@@ -278,28 +278,28 @@ func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint6
 // worktable.changed（结构安全网）；task.changed 由 CSP 消费者直发。
 func (service *Service) publishTaskDeltas() {
 	tasks := service.Deps.Runtime.TaskSnapshot()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.refreshWorkTableLocked(tasks)
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)
 	batches := CloneWorkTableBatches(service.Core.Snapshot.Runtime.WorkTableBatches)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishWorkTable(revision, requestID, items, batches)
 }
 
 // syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
 func (service *Service) syncTasksFromSources() {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	sid := service.Core.Snapshot.Session.ID
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	service.syncTasksFromSourcesFor(sid)
 }
 
 // syncTasksFromSourcesFor 把指定会话的 plan 节点与子代理树生命周期投影进该
 // 会话自身的 task scope（R6/P2 收口：写自有域，后台会话不再污染当前注册表）。
 func (service *Service) syncTasksFromSourcesFor(sessionID string) {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	plan := service.sessionActivePlanLocked(sessionID)
 	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
 	// 活跃会话的 task scope 恒为实时注册表（""）；后台会话写自身分区。
@@ -307,7 +307,7 @@ func (service *Service) syncTasksFromSourcesFor(sessionID string) {
 	if sessionID == "" || sessionID == service.Core.Snapshot.Session.ID {
 		scope = ""
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 
 	if plan != nil {
 		var walk func(nodes []PlanNode, parentID string)
@@ -512,12 +512,12 @@ func cloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNo
 // 并发布增量，不依赖模型主观意愿调用任何工具。
 func (service *Service) RefreshWorkTableSnapshot() {
 	// 锁外取子代理树：Engine.SubAgentTree() 会对运行中子代理做 ExportSnapshot
-	// （拿子代理会话锁），不能在持 service.Mu 时调用——避免与 runner 持会话
+	// （拿子代理会话锁），不能在持 service.ViewMu 时调用——避免与 runner 持会话
 	// 锁 → 注册表 actor → 变更 channel 的路径成环死锁。
 	tree := service.Deps.Engine.SubAgentTree()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.SubAgentTree = tree
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.refreshWorkTableFromSources()
 }
 
@@ -595,11 +595,11 @@ func (service *Service) consumeTaskChanges() {
 			if !ok {
 				return
 			}
-			service.Mu.RLock()
+			service.ViewMu.RLock()
 			revision := service.Core.Snapshot.Revision
 			requestID := service.Core.Snapshot.Chat.RequestID
 			sessionID := service.Core.Snapshot.Session.ID
-			service.Mu.RUnlock()
+			service.ViewMu.RUnlock()
 			service.safeLifecycleCall(func() { service.publishTaskChanged(record, revision, requestID, sessionID) })
 		case <-service.lifecycleStop:
 			return
@@ -658,14 +658,14 @@ func parseWorkItemID(id string) (kind string, index int, err error) {
 // runtime.changed（既有面板/其他消费者）、worktable.changed 与 task.changed。
 func (service *Service) refreshRuntimeAfterTodoChange() {
 	projection := service.collectRuntimeProjection(context.Background())
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.applyRuntimeProjectionLocked(projection)
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
 	sessionID := service.Core.Snapshot.Session.ID
 	items := CloneWorkItems(service.Core.Snapshot.Runtime.WorkTable)
 	batches := CloneWorkTableBatches(service.Core.Snapshot.Runtime.WorkTableBatches)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, service.Snapshot().Runtime)
 	service.publishWorkTable(revision, requestID, items, batches)
 }

@@ -18,7 +18,7 @@ import (
 func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	// 投影未收敛：计划运行中（执行器仍持有 DAG，事件可能滞后）
@@ -26,15 +26,15 @@ func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 		Status: PlanRunning,
 		Nodes:  []PlanNode{{ID: "inspect", Status: NodeRunning}, {ID: "verify", Status: NodeCompleted}},
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	_, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{"summary":"done","completed_nodes":["inspect","verify"]}`)
 	if err == nil || !strings.Contains(err.Error(), "not converged") {
 		t.Fatalf("task_complete error = %v, want projection-not-converged rejection", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if state.Status != task_context.StatusRunning || state.Terminal != nil {
 		t.Fatalf("task state must stay running after rejected terminal: %+v", state)
 	}
@@ -43,7 +43,7 @@ func TestTaskCompleteRejectedWhenProjectionNotConverged(t *testing.T) {
 func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	service.Core.Snapshot.Runtime.Plan = &PlanState{
@@ -52,26 +52,26 @@ func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 	}
 	// flush 钩子模拟 Sink 同步写入：追加返回后投影收敛（计划完成、节点全部终态）
 	service.components.tasks.SetTaskProjectionFlushLocked(func(ctx context.Context) error {
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		plan := service.Core.Snapshot.Runtime.Plan
 		plan.Status = PlanCompleted
 		for index := range plan.Nodes {
 			plan.Nodes[index].Status = NodeCompleted
 		}
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return nil
 	})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	// 判定在 flush 之后执行：若未先 flush，PlanRunning 会被拒绝
 	_, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{"summary":"done","completed_nodes":["inspect"]}`)
 	if err != nil {
 		t.Fatalf("task_complete after flush should be accepted, got: %v", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
 	plan := service.Core.Snapshot.Runtime.Plan
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if state.Status != task_context.StatusCompleted || state.Terminal == nil || state.Terminal.Kind != task_context.ToolComplete {
 		t.Fatalf("terminal state = %+v", state)
 	}
@@ -83,13 +83,13 @@ func TestTaskCompleteFlushConvergesProjectionBeforeVerdict(t *testing.T) {
 func TestTaskCompleteRejectedWhenProjectionFlushFails(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	service.components.tasks.SetTaskProjectionFlushLocked(func(ctx context.Context) error {
 		return fmt.Errorf("sink unavailable")
 	})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	_, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{"summary":"done"}`)
 	if err == nil || !strings.Contains(err.Error(), "plan projection flush failed") {
@@ -100,7 +100,7 @@ func TestTaskCompleteRejectedWhenProjectionFlushFails(t *testing.T) {
 func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "write report", "high", nil, TaskCheckpoint{})
 	runtime := service.sessionUnitLocked(service.Core.Snapshot.Session.ID)
@@ -110,15 +110,15 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 			Payload:      chatRequest{displayInput: input},
 		})
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	// 无 Plan 投影 → 无需校验节点覆盖，直接接受
 	result, err := service.TaskTerminalHandler(task_context.ToolComplete)(context.Background(), `{"summary":"report is ready"}`)
 	if err != nil || !strings.Contains(result, `"accepted"`) {
 		t.Fatalf("terminal result = %q err=%v", result, err)
 	}
-	// CurrentTaskResumeRecord 自行加 Core.Mu.RLock（供无锁调用点），外层
-	// 不能再包 service.Mu.RLock（RWMutex 不可重入；目录刷新写锁排队时
+	// CurrentTaskResumeRecord 自行加 Core.ViewMu.RLock（供无锁调用点），外层
+	// 不能再包 service.ViewMu.RLock（RWMutex 不可重入；目录刷新写锁排队时
 	// 死锁）。
 	resume := service.components.tasks.CurrentTaskResumeRecord()
 	if resume.TaskID != "task-1" || resume.Objective != "write report" {
@@ -132,14 +132,14 @@ func TestTerminalResumeRecordKeepsObjectiveAndQueuedInputs(t *testing.T) {
 func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "prepare a plan", "high", nil, TaskCheckpoint{})
 	service.sessionUnitLocked(service.Core.Snapshot.Session.ID).Enqueue(selexsession.QueuedRequest{
 		DisplayInput: "queued after natural stop",
 		Payload:      chatRequest{displayInput: "queued after natural stop"},
 	})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	visible, err := service.components.tasks.OnChatEnd(context.Background(), task_context.ChatEndSummary{RequestID: "task-1"})
 	if err != nil {
@@ -148,8 +148,8 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 	if visible.Status != TaskCompleted || visible.RequestID != "task-1" {
 		t.Fatalf("natural terminal task state = %#v", visible)
 	}
-	// CurrentTaskResumeRecord 自行加 Core.Mu.RLock（供无锁调用点），外层
-	// 不能再包 service.Mu.RLock（RWMutex 不可重入；目录刷新写锁排队时
+	// CurrentTaskResumeRecord 自行加 Core.ViewMu.RLock（供无锁调用点），外层
+	// 不能再包 service.ViewMu.RLock（RWMutex 不可重入；目录刷新写锁排队时
 	// 死锁）。
 	resume := service.components.tasks.CurrentTaskResumeRecord()
 	if len(resume.QueuedRefs) != 1 || resume.QueuedRefs[0] != "queued after natural stop" {
@@ -162,14 +162,14 @@ func TestOnChatEndKeepsResumeRecord(t *testing.T) {
 func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	service.Core.Snapshot.Runtime.Plan = &PlanState{
 		Status: PlanPending,
 		Nodes:  []PlanNode{{ID: "inspect", Label: "inspect the call path", Status: NodePending}, {ID: "verify", Label: "verify the claim", Status: NodePending}},
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	result, err := service.TaskTerminalHandler(task_context.ToolCheckNode)(context.Background(), `{"node_id":"inspect","output":"read controller.go"}`)
 	if err != nil {
@@ -178,10 +178,10 @@ func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 	if !strings.Contains(result, `"accepted"`) || !strings.Contains(result, `"node_status":"completed"`) {
 		t.Fatalf("check result = %q, want accepted completed", result)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	plan := service.Core.Snapshot.Runtime.Plan
 	state := service.components.tasks.CurrentTaskExecution()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if plan.Nodes[0].Status != NodeCompleted || plan.Nodes[1].Status != NodePending {
 		t.Fatalf("node statuses = %+v, want inspect completed / verify pending", plan.Nodes)
 	}
@@ -205,11 +205,11 @@ func TestCheckNodeMarksNodeCompletedInTasklist(t *testing.T) {
 func TestCheckNodeRejectsUnknownNode(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	service.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	_, err := service.TaskTerminalHandler(task_context.ToolCheckNode)(context.Background(), `{"node_id":"missing"}`)
 	if err == nil || !strings.Contains(err.Error(), `unknown node "missing"`) {
@@ -220,10 +220,10 @@ func TestCheckNodeRejectsUnknownNode(t *testing.T) {
 func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.TaskTerminalHandler(task_context.ToolCheckNode)(context.Background(), `{"node_id":"inspect"}`); err == nil || !strings.Contains(err.Error(), "no task structure is loaded") {
 		t.Fatalf("without plan error = %v, want no-task-structure rejection", err)
@@ -236,27 +236,27 @@ func TestCheckNodeRequiresLoadedPlanAndNodeID(t *testing.T) {
 func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	service.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	handler := service.TaskTerminalHandler(task_context.ToolCheckNode)
 	if _, err := handler(context.Background(), `{"node_id":"inspect"}`); err != nil {
 		t.Fatal(err)
 	}
 	firstEpoch := func() uint64 {
-		service.Mu.RLock()
-		defer service.Mu.RUnlock()
+		service.ViewMu.RLock()
+		defer service.ViewMu.RUnlock()
 		return service.components.tasks.CurrentTaskExecution().ProgressEpoch
 	}()
 	if _, err := handler(context.Background(), `{"node_id":"inspect"}`); err != nil {
 		t.Fatalf("re-check must be idempotent, got: %v", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	epoch := service.components.tasks.CurrentTaskExecution().ProgressEpoch
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if epoch != firstEpoch {
 		t.Fatalf("re-check must not advance progress epoch: %d → %d", firstEpoch, epoch)
 	}
@@ -267,14 +267,14 @@ func TestCheckNodeIdempotentAndDoesNotReplayEpoch(t *testing.T) {
 func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	service.Core.Snapshot.Runtime.Plan = &PlanState{
 		Status: PlanPending,
 		Nodes:  []PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	// 节点 1 在途中已打点，节点 2 完成
 	if _, err := service.TaskTerminalHandler(task_context.ToolCheckNode)(context.Background(), `{"node_id":"inspect"}`); err != nil {
@@ -288,10 +288,10 @@ func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("task_complete should accept already-checked nodes, got: %v", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	plan := service.Core.Snapshot.Runtime.Plan
 	state := service.components.tasks.CurrentTaskExecution()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if state.Status != task_context.StatusCompleted || state.Terminal == nil || state.Terminal.Kind != task_context.ToolComplete {
 		t.Fatalf("terminal state = %+v", state)
 	}
@@ -305,14 +305,14 @@ func TestTaskCompleteCoversAlreadyCheckedNodes(t *testing.T) {
 func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit", "high", nil, TaskCheckpoint{})
 	service.Core.Snapshot.Runtime.Plan = &PlanState{
 		Status: PlanPending,
 		Nodes:  []PlanNode{{ID: "inspect", Status: NodePending}, {ID: "verify", Status: NodePending}},
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.TaskTerminalHandler(task_context.ToolCheckNode)(context.Background(), `{"node_id":"inspect"}`); err != nil {
 		t.Fatal(err)
@@ -326,11 +326,11 @@ func TestTaskCompleteStillRejectsUncheckedNodes(t *testing.T) {
 func TestNoProgressBudgetReadsTaskServiceSemanticProgress(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
 	service.components.tasks.StartReActBudgetLocked("task-1", ReActBudget{MaxNoProgressRounds: 2})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
@@ -339,9 +339,9 @@ func TestNoProgressBudgetReadsTaskServiceSemanticProgress(t *testing.T) {
 		t.Fatal("first no-progress round should remain available")
 	}
 	// 一次有进展的工具观测（经 TaskService epoch）重置无进展计数
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.components.tasks.ObserveTool(task_context.ToolObservation{RequestID: "task-1", Name: "read_file", Result: "found call path"})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if !hooks.OnIterationComplete(context.Background(), 1) {
 		t.Fatal("progress should reset the no-progress budget")
 	}

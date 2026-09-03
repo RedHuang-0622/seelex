@@ -48,7 +48,7 @@ type View struct {
 	Revision           uint64
 }
 
-// Mutate 在视图私有锁内应用变更（会话写路径；活跃镜像在 Core.Mu 下经 Read 克隆）。
+// Mutate 在视图私有锁内应用变更（会话写路径；活跃镜像在 Core.ViewMu 下经 Read 克隆）。
 func (view *View) Mutate(mutate func(*View)) {
 	view.mu.Lock()
 	defer view.mu.Unlock()

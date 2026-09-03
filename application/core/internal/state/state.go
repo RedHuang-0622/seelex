@@ -22,10 +22,12 @@ func New(deps contract.Dependencies) *Core {
 	}
 }
 
-// Core 是共享状态内核：Mu 保护 Snapshot；Deps 是装配注入的外部端口；
-// Events/Approval 是事件发布与异步审批通道（窄接口，可替换实现）。
+// Core 是共享状态内核：ViewMu 只保护 Core.Snapshot 与视图投影（G5：目录
+// worker/缓存走自己的 CatalogMu，会话单元走 Unit.mu，不共用这把锁——锁
+// 名即职责面）；Deps 是装配注入的外部端口；Events/Approval 是事件发布与
+// 异步审批通道（窄接口，可替换实现）。
 type Core struct {
-	Mu       sync.RWMutex
+	ViewMu   sync.RWMutex
 	Snapshot model.Snapshot
 	Deps     contract.Dependencies
 	Events   event.Hub

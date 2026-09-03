@@ -197,7 +197,7 @@ func resolveNodeStatus(nodes []struct {
 // SetPlanNodeCallback 注册）：planEventSink 把 workplan 事件投影为
 // PlanNodeEvent 后回调本方法，实时更新节点/计划状态并通知 TUI/GUI 重绘。
 // NodeID 为空表示计划级投影（PlanStatus），否则为节点级投影（NodeStatus）。
-// planProjectionLocked 返回指定会话的 plan 显示投影（调用方持有 Core.Mu）。
+// planProjectionLocked 返回指定会话的 plan 显示投影（调用方持有 Core.ViewMu）。
 // 当前会话与 Snapshot.Runtime.Plan 同一指针；后台会话用 per-session 缓存
 // （P6 收口：后台 plan 事件不再写全局投影）。缓存缺失时从 task_context 的
 // 会话 plan 帧重建（ActivePlanFromStack）。
@@ -228,11 +228,11 @@ func (service *Service) planEventSession(event dto.PlanNodeEvent) string {
 }
 
 func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	sessionID := service.planEventSession(event)
 	plan := service.planProjectionLocked(sessionID)
 	if plan == nil {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return
 	}
 	if event.NodeID == "" {
@@ -284,14 +284,14 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.Core.Snapshot.Runtime.SubAgentTree = service.Deps.Engine.SubAgentTree()
 	revision := service.bumpLocked()
 	requestID := service.Core.Snapshot.Chat.RequestID
-	// 视图会话在解锁后仍要参与分支判定，必须在此取快照：Mu 释放后再读
+	// 视图会话在解锁后仍要参与分支判定，必须在此取快照：ViewMu 释放后再读
 	// Core.Snapshot 是数据竞争，且切换会让后台会话的事件错投。
 	viewSessionID := service.Core.Snapshot.Session.ID
 	var changed SubagentEvent
 	if changedNode != nil {
 		changed = subagent_view.SubagentChangedPayload(plan, event.PlanID, event.RunID, *changedNode)
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if changedNode != nil {
 		service.publishSessionEvent(EventSubagentChanged, revision, requestID, sessionID, changed)
 		if sessionID == viewSessionID {
@@ -312,10 +312,10 @@ func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 // HandlePlanBranchEvent 应用来自桥接层的分支生命周期迁移，并向两端前端发布
 // 更新后的 runtime 快照。
 func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	plan := service.Core.Snapshot.Runtime.Plan
 	if plan == nil {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return
 	}
 	node := subagent_view.FindPlanNodeByID(plan.Nodes, event.NodeID)
@@ -341,7 +341,7 @@ func (service *Service) HandlePlanBranchEvent(event seelplan.PlanBranchEvent) {
 	if node != nil {
 		changed = subagent_view.SubagentChangedPayload(plan, "", "", *node)
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if node != nil {
 		service.publishSessionEvent(EventSubagentChanged, revision, requestID, viewSessionID, changed)
 		service.refreshWorkTableFromSources()
@@ -485,7 +485,7 @@ func (service *Service) handlePlanRunFailureLocked(errMsg, resultJSON string) *I
 }
 
 // replanRequestLocked 从权威快照提取最小的可用恢复上下文。要求调用方持有
-// service.Mu。
+// service.ViewMu。
 func (service *Service) replanRequestLocked(failure, idempotencyKey string) dto.ReplanRequest {
 	request := dto.ReplanRequest{
 		SessionID:      service.Core.Snapshot.Session.ID,
@@ -535,36 +535,36 @@ func (service *Service) replanRequestLocked(failure, idempotencyKey string) dto.
 // replanFailedWork 替换失败的 Plan 但不执行它：保留用户在恢复规划与任何新
 // 副作用之间的复核点。
 func (service *Service) replanFailedWork(ctx context.Context, interactionID, failure string) (resultErr error) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if service.components.tasks.ReplanInFlight(interactionID) {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return fmt.Errorf("replan: duplicate interaction %q is already in progress", interactionID)
 	}
 	planAttempts := 0
 	if plan := service.Core.Snapshot.Runtime.Plan; plan != nil {
 		planAttempts = plan.ReplanCount
 		if planAttempts >= Limits().MaxReplansPerPlanChain {
-			service.Mu.Unlock()
+			service.ViewMu.Unlock()
 			return fmt.Errorf("replan: plan recovery limit of %d reached", Limits().MaxReplansPerPlanChain)
 		}
 	}
 	service.components.tasks.MarkReplanInFlight(interactionID)
 	request := service.replanRequestLocked(failure, interactionID)
 	requestID := service.Core.Snapshot.Chat.RequestID
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	succeeded := false
 	defer func() {
 		if succeeded {
 			return
 		}
 		runtimeProjection := service.collectRuntimeProjection(context.Background())
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		service.components.tasks.DeleteReplanInFlight(interactionID)
 		service.applyRuntimeProjectionLocked(runtimeProjection)
 		revision := service.bumpLocked()
 		runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 		sessionID := service.Core.Snapshot.Session.ID
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, runtime)
 	}()
 
@@ -579,7 +579,7 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 	service.handleToolStart(ctx, "plan_load", toolID, result.Arguments)
 	service.handleToolComplete("plan_load", toolID, result.Result, nil, 0)
 	runtimeProjection := service.collectRuntimeProjection(context.Background())
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if plan := service.Core.Snapshot.Runtime.Plan; plan != nil {
 		plan.ReplanCount = planAttempts + 1
 	}
@@ -587,7 +587,7 @@ func (service *Service) replanFailedWork(ctx context.Context, interactionID, fai
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	sessionID := service.Core.Snapshot.Session.ID
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, requestID, sessionID, runtime)
 	service.addNotice("Recovery plan loaded. Review it before calling plan_run.")
 	succeeded = true

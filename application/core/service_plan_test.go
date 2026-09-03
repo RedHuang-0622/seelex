@@ -67,9 +67,9 @@ func TestResolvePlanFailureReplansWithoutRunningReplacement(t *testing.T) {
 	}}
 	service := newTestService(t, engine, withTestRuntime(runtime))
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.appendMessageLocked("user", "build and verify the release", nil)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.handleToolStart(context.Background(), "plan_load", "load-1", `{"entry":"build","nodes":{"build":{"input":"build release"}},"edges":{}}`)
 	service.handleToolComplete("plan_load", "load-1", `{"status":"loaded"}`, nil, 0)
 	service.handleToolStart(context.Background(), "plan_run", "run-1", `{}`)
@@ -169,9 +169,9 @@ func TestRuntimeSnapshotIncludesReplanMonitor(t *testing.T) {
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 	projection := service.collectRuntimeProjection(context.Background())
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.applyRuntimeProjectionLocked(projection)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	monitor := service.Snapshot().Runtime.Replan
 	if monitor.InFlight != 1 || monitor.WindowAttempts != 3 || monitor.Rejected != 4 || monitor.ProviderRequests != 5 {
 		t.Fatalf("replan monitor = %+v", monitor)

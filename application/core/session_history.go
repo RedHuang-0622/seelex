@@ -34,9 +34,9 @@ func (service *Service) resumeSession(sessionID string) error {
 	transition.Lock()
 	defer transition.Unlock()
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	hot := service.sessionLoaded(sessionID)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if hot {
 		// 阶段 2：目标会话已驻留（含运行中）→ 热加载，只换视图指针 +
 		// 投影会话 scope，不重建历史、不触碰 X/M/R（不变量 Ⅱ）。
@@ -177,7 +177,7 @@ func (service *Service) resumeSession(sessionID string) error {
 	_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 	workspaceProjection := service.collectWorkspaceProjection()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	name := session_runtime.SessionTitleFromHistory(history, displayUserInput)
 	if hasRecord && record.Title.Value != "" {
 		name = record.Title.Value
@@ -244,7 +244,7 @@ func (service *Service) resumeSession(sessionID string) error {
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 	}
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.Deps.Engine.SetSystemPrompt(systemPrompt)
 	// context 模块挂接：resume 恢复后加载会话四栈到 Runtime（下一轮 prompt
 	// 组装前就绪）。损坏的 context 显式失败，不静默降级成内存栈。
@@ -271,10 +271,10 @@ func (service *Service) LoadMoreHistory(limit int) error {
 		limit = Limits().HistoryWindow
 	}
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	offset := service.Core.Snapshot.HistoryOffset
 	sessionID := service.Core.Snapshot.Session.ID
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if offset <= 0 {
 		return nil
 	}
@@ -286,11 +286,11 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	loadLimit := offset - loadOffset
 
 	workspaceID := ""
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	if service.Core.Snapshot.CurrentWorkspace != nil {
 		workspaceID = service.Core.Snapshot.CurrentWorkspace.ID
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	var adapted []Message
 	total := 0
 	if store, ok := service.Deps.Sessions.(session_runtime.SessionConversationRangePort); ok {
@@ -315,7 +315,7 @@ func (service *Service) LoadMoreHistory(limit int) error {
 		}
 	}
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	for index := range adapted {
 		if adapted[index].ID == "" {
 			adapted[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqLocked())
@@ -328,7 +328,7 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	service.Core.Snapshot.HasMoreHistory = loadOffset > 0
 	service.Core.Snapshot.ConversationWindow = Limits().HistoryWindow
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	return nil
 }

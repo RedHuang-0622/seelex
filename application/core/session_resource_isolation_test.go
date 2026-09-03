@@ -17,19 +17,19 @@ func TestSessionDomainsDisjoint(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"})
 	defer service.Shutdown()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
 	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, TaskCheckpoint{})
 	service.components.tasks.BeginTaskFor("session-b", "req-b", "hello B", "high", nil, TaskCheckpoint{})
 	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "user", Content: "long task A"})
 	service.components.tasks.AppendTranscriptEventForLocked("session-b", TranscriptEvent{Role: "user", Content: "hello B"})
 	service.components.tasks.AppendTranscriptEventForLocked("session-b", TranscriptEvent{Role: "assistant", Content: "reply B"})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	aTranscript := service.components.tasks.TranscriptFor("session-a")
 	bTranscript := service.components.tasks.TranscriptFor("session-b")
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if len(aTranscript) != 1 || aTranscript[0].Content != "long task A" {
 		t.Fatalf("A transcript = %#v, want only long task A", aTranscript)
 	}
@@ -62,20 +62,20 @@ func TestViewSwitchDoesNotMutateExecution(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-a"}, withTestSessions(sessions))
 	defer service.Shutdown()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a"}
 	service.components.tasks.BeginTaskFor("session-a", "req-a", "first A", "high", nil, TaskCheckpoint{})
 	service.components.tasks.AppendTranscriptEventForLocked("session-a", TranscriptEvent{Role: "user", Content: "long task A"})
 	aRuntime := service.sessionUnitLocked("session-a")
 	aRuntime.SetChatState(ChatState{Running: true, RequestID: "req-a", StartedAt: time.Now()}, nil)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.ResumeSession("session-b"); err != nil {
 		t.Fatal(err)
 	}
 
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	unitA := service.sessions.Unit("session-a")
 	if unitA == nil {
 		t.Fatal("A unit missing after view switch")
@@ -97,7 +97,7 @@ func TestPersistReadsOnlyOwnDomain(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-b"}, withTestSessions(sessions))
 	defer service.Shutdown()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	// 全局快照归属会话 = B（模拟 A 后台完成时活跃会话是 B）。
 	service.Core.Snapshot.Session = SessionState{ID: "session-b", Name: "B title"}
 	service.Core.Snapshot.Conversation = []Message{{ID: "b-1", Role: "user", Content: "hello B"}}
@@ -110,7 +110,7 @@ func TestPersistReadsOnlyOwnDomain(t *testing.T) {
 	service.components.sessions.SetSessionTitleLocked("session-b", SessionTitle{Value: "hello B", Source: "first_request", FinalizedAt: time.Now()})
 	service.components.tasks.BeginTaskFor("session-b", "req-b", "hello B", "high", nil, TaskCheckpoint{})
 	service.components.tasks.AppendTranscriptEventForLocked("session-b", TranscriptEvent{Role: "user", Content: "hello B"})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	location := session_runtime.Location{WorkspaceID: "ws-x", Meta: SessionInfo{ID: "session-a"}}
 	if err := service.components.sessions.PersistCurrentSession(location, "session-a"); err != nil {

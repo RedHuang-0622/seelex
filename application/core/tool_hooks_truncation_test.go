@@ -86,9 +86,9 @@ func TestAppendHistoryLockedTruncatesRestoredOutput(t *testing.T) {
 		{Role: "tool", ToolCallID: "call-restore-1", Name: "bash", Content: big},
 	}
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.appendHistoryLocked(history)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	snapshot := service.Snapshot()
 	for index := range snapshot.Conversation {

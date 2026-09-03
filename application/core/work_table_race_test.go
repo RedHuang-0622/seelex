@@ -12,7 +12,7 @@ import (
 
 // TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
 // UpdateWorkItemStatus（todo actor mailbox）、HandleSubagentToolEvent（plan
-// 节点 trace）、Snapshot（读路径）。配合 -race 验证 service.Mu 与 actor
+// 节点 trace）、Snapshot（读路径）。配合 -race 验证 service.ViewMu 与 actor
 // mailbox 的并发安全（CI 运行 -race -covermode=atomic）。
 func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 	runtime := &fakeRuntime{todoItems: []dto.TodoItem{
@@ -22,13 +22,13 @@ func TestWorkTableRaceConcurrentMutations(t *testing.T) {
 	}}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.Plan = &PlanState{
 		Status: PlanRunning,
 		Nodes:  []PlanNode{{ID: "n1", Label: "并行任务", Status: NodeRunning}},
 	}
 	service.refreshWorkTableLocked(service.Deps.Runtime.TaskSnapshot())
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	const workers = 12
 	start := make(chan struct{})

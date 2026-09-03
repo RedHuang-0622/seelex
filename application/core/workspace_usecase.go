@@ -18,10 +18,10 @@ func (service *Service) DeleteSession(sessionID string) error {
 	if service.Deps.Workspace != nil {
 		service.Deps.Workspace.UnbindSession(sessionID)
 		workspaceProjection := service.collectWorkspaceProjection()
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		service.bumpLocked()
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		service.components.sessions.RequestCatalogRefresh()
 	}
 	return nil
@@ -56,9 +56,9 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	transition.Lock()
 	defer transition.Unlock()
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	if service.Core.Snapshot.Chat.Running {
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		return ErrChatRunning
 	}
 	currentSessionID := service.Core.Snapshot.Session.ID
@@ -67,7 +67,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	if service.Core.Snapshot.CurrentWorkspace != nil {
 		currentWorkspaceID = service.Core.Snapshot.CurrentWorkspace.ID
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 
 	if draft {
 		if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
@@ -75,7 +75,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		}
 		service.Deps.Sessions.SetWorkspace(workspace.ID)
 		workspaceProjection := service.collectWorkspaceProjection()
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
 			ID: workspace.ID, Name: workspace.Name, RootPath: workspace.RootPath, GitRemote: workspace.GitRemote,
 		}
@@ -87,7 +87,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		}
 		service.applyWorkspaceProjectionLocked(workspaceProjection)
 		revision := service.bumpLocked()
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 		service.components.sessions.RequestCatalogRefresh()
 		return nil
@@ -117,7 +117,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	service.Deps.Runtime.SetSessionWorkspace(currentSessionID, workspace.ID)
 	service.Deps.Sessions.SetWorkspace(workspace.ID)
 	workspaceProjection := service.collectWorkspaceProjection()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if startFreshSession {
 		service.Core.Snapshot.Session.ID = currentSessionID
 		service.Core.Snapshot.Session.Name = ""
@@ -134,7 +134,7 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	}
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	service.components.sessions.RequestCatalogRefresh()
 	return nil
@@ -146,20 +146,20 @@ func (service *Service) UnbindWorkspace() {
 	defer transition.Unlock()
 
 	service.Deps.Runtime.UnbindProjectRoot()
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	sessionID := service.Core.Snapshot.Session.ID
 	draft := service.Core.Snapshot.Session.Draft
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if !draft && sessionID != "" {
 		service.Deps.Workspace.UnbindSession(sessionID)
 	}
 	service.Deps.Sessions.SetWorkspace("")
 	workspaceProjection := service.collectWorkspaceProjection()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.CurrentWorkspace = nil
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	service.components.sessions.RequestCatalogRefresh()
 }
@@ -196,12 +196,12 @@ func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
 // workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
 // 断言 WorkspacePort 实现 optional 树端口。
 func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error) {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	root := ""
 	if service.Core.Snapshot.CurrentWorkspace != nil {
 		root = service.Core.Snapshot.CurrentWorkspace.RootPath
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if root == "" {
 		return nil, "", errors.New("worktree: no workspace bound to current session")
 	}
@@ -217,7 +217,7 @@ type workspaceStateProjection struct {
 	bindings   map[string]string
 }
 
-// collectWorkspaceProjection 在获取 service.Mu 之前执行 WorkspacePort I/O。
+// collectWorkspaceProjection 在获取 service.ViewMu 之前执行 WorkspacePort I/O。
 // 应用时只拷贝已拥有的值进快照。
 func (service *Service) collectWorkspaceProjection() workspaceStateProjection {
 	if service.Deps.Workspace == nil {

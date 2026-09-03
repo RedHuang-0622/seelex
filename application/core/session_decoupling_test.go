@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/application/core/chat"
+	"github.com/RedHuang-0622/seelex/application/event"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -138,7 +138,7 @@ func messageIDFromPayload(raw json.RawMessage) string {
 	return probe.ID
 }
 
-// 解耦测试（约束 C2 终态）：后台会话的流式增量不得阻塞在全局锁 Core.Mu 上。
+// 解耦测试（约束 C2 终态）：后台会话的流式增量不得阻塞在全局锁 Core.ViewMu 上。
 // 测试持锁模拟活跃会话的独占临界区，同时驱动后台会话 appendDelta——
 // 若后台路径仍取全局锁会死锁（超时失败）；重构后走 View.mu 快路径立即完成。
 
@@ -147,7 +147,7 @@ func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 	defer service.Shutdown()
 
 	const bgID = "sess-bg"
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	unit := service.sessions.Unit(bgID)
 	if unit == nil {
 		unit, _ = session.NewSessionUnit(bgID)
@@ -157,7 +157,7 @@ func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 	unit.SetStream(chat.NewVisibleOutputStream("bg-req"))
 	service.appendSessionMessageLocked(bgID, "assistant", "", nil)
 	service.components.tasks.BeginTaskFor(bgID, "bg-req", "bg objective", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	// 活跃会话（boot 态 session-1）持全局锁，模拟活跃独占临界区
 	lockHeld := make(chan struct{})
@@ -165,10 +165,10 @@ func TestBackgroundDeltaDoesNotBlockOnGlobalLock(t *testing.T) {
 	lockDone := make(chan struct{})
 	go func() {
 		defer close(lockDone)
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		close(lockHeld)
 		<-releaseLock
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 	}()
 	<-lockHeld
 

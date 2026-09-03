@@ -20,15 +20,15 @@ func TestHandlePlanNodeCompleteProjectsSubAgentTree(t *testing.T) {
 		}},
 	}}}
 	svc := newTestService(t, engine)
-	svc.Mu.Lock()
+	svc.ViewMu.Lock()
 	svc.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanRunning, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
-	svc.Mu.Unlock()
+	svc.ViewMu.Unlock()
 
 	svc.HandlePlanNodeComplete(dto.PlanNodeEvent{NodeID: "s1", Status: "completed"})
 
-	svc.Mu.RLock()
+	svc.ViewMu.RLock()
 	tree := svc.Core.Snapshot.Runtime.SubAgentTree
-	svc.Mu.RUnlock()
+	svc.ViewMu.RUnlock()
 	if len(tree) != 1 || tree[0].ID != "main" {
 		t.Fatalf("subagent tree not projected: %+v", tree)
 	}
@@ -45,15 +45,15 @@ func TestHandlePlanBranchEventProjectsSubAgentTree(t *testing.T) {
 		Children: []dto.SubAgentTreeNode{{ID: "s1", ParentID: "main", Status: dto.SubAgentFailed}},
 	}}}
 	svc := newTestService(t, engine)
-	svc.Mu.Lock()
+	svc.ViewMu.Lock()
 	svc.Core.Snapshot.Runtime.Plan = &PlanState{Status: PlanPending, Nodes: []PlanNode{{ID: "s1", Status: NodePending}}}
-	svc.Mu.Unlock()
+	svc.ViewMu.Unlock()
 
 	svc.HandlePlanBranchEvent(seelplan.PlanBranchEvent{NodeID: "s1", Type: "failed"})
 
-	svc.Mu.RLock()
+	svc.ViewMu.RLock()
 	tree := svc.Core.Snapshot.Runtime.SubAgentTree
-	svc.Mu.RUnlock()
+	svc.ViewMu.RUnlock()
 	if len(tree) != 1 || tree[0].Status != dto.SubAgentFailed || len(tree[0].Children) != 1 {
 		t.Fatalf("tree not projected on branch event: %+v", tree)
 	}

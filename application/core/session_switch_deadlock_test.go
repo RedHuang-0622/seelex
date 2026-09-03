@@ -58,10 +58,10 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 		t.Fatalf("ResumeSession(B) = %v", err)
 	}
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	runningA := service.sessions.Unit(aID).ChatState().Running
 	active := service.Core.Snapshot.Session.ID
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if active != bID {
 		t.Fatalf("active session = %q, want %q", active, bID)
 	}
@@ -73,10 +73,10 @@ func TestSwitchToOtherSessionWhileChattingRepro(t *testing.T) {
 	if err := service.SubmitToSession(ctx, aID, "queued-to-A"); err != nil {
 		t.Fatalf("SubmitToSession(A): %v", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	queuedA := len(service.sessions.Unit(aID).PendingRequests())
 	snapQueued := service.Core.Snapshot.Chat.QueuedCount
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if queuedA != 1 {
 		t.Fatalf("session A queue = %d, want 1", queuedA)
 	}
@@ -272,9 +272,9 @@ func TestBeginNewSessionAllowedWhileChattingRepro(t *testing.T) {
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession while A running = %v (want nil)", err)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	runningA := service.sessions.Unit(aID).ChatState().Running
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	snapshot := service.Snapshot()
 	if !runningA {
 		t.Fatal("session A stopped after entering draft")

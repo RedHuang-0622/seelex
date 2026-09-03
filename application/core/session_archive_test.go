@@ -96,11 +96,11 @@ func TestResumeSessionAttachesSessionContext(t *testing.T) {
 	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
 	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
 	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
@@ -124,11 +124,11 @@ func TestResumeSessionFailsWhenContextCorrupt(t *testing.T) {
 	sessions.attachErr = errors.New("context store unavailable")
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
 	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
 	service.components.sessions.SetSessionTitleLocked("session-a", SessionTitle{Value: "Keep this title", Source: "first_request"})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
 	}
@@ -145,10 +145,10 @@ func TestBeginNewSessionDetachesSessionContext(t *testing.T) {
 	sessions := &contextAwareSessions{archiveSessions: archiveSessions{history: engine.History()}}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "old session"}
 	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "previous turn", CreatedAt: time.Now()}}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	sessions := &archiveSessions{history: engine.History()}
 	service := newTestService(t, engine, withTestSessions(sessions))
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-a", Name: "Keep this title"}
 	service.Core.Snapshot.Conversation = []Message{{ID: "user-1", Role: "user", Content: "Inspect the repository", CreatedAt: time.Now()}}
 	service.Core.Snapshot.Runtime.Plan = &PlanState{EntryNodeID: "inspect", Status: PlanPending, Nodes: []PlanNode{{ID: "inspect", Status: NodePending}}}
@@ -178,7 +178,7 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
 	service.components.tasks.CurrentTaskExecution().PlanArguments = `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
 		t.Fatal(err)
@@ -199,10 +199,10 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	if snapshot.Runtime.Plan == nil || snapshot.Runtime.Plan.EntryNodeID != "inspect" || len(snapshot.ReadFiles) != 1 {
 		t.Fatalf("restored state = %#v", snapshot)
 	}
-	restored.Mu.RLock()
+	restored.ViewMu.RLock()
 	continuation := restored.components.tasks.CurrentTaskExecution()
 	restoredPrompt := restored.components.prompts.SystemPromptForActiveTaskLocked()
-	restored.Mu.RUnlock()
+	restored.ViewMu.RUnlock()
 	if continuation == nil || continuation.Status != task_context.StatusInterrupted || continuation.InheritedCheckpoint == nil ||
 		len(continuation.InheritedCheckpoint.CompletedWork) != 1 || !strings.Contains(restoredPrompt, "review prompt") {
 		t.Fatalf("restored projection = %#v prompt=%q", continuation, restoredPrompt)
@@ -273,9 +273,9 @@ func TestResumeSessionDropsMetadataOnlyCheckpointAndUsesDurableConversation(t *t
 			t.Fatalf("empty checkpoint leaked into next-turn provider history: %#v", prepared)
 		}
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	state := service.components.tasks.CurrentTaskExecution()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if state == nil || state.InheritedCheckpoint != nil {
 		t.Fatalf("metadata-only checkpoint was restored as task context: %#v", state)
 	}
@@ -335,9 +335,9 @@ func TestResumeLongContextReasksOpeningQuestionFromCheckpoint(t *testing.T) {
 	}
 	// 持久化的身份 checkpoint 仍保留在任务投影（恢复/续接数据面），只是不再
 	// 进入 LLM 上下文。
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	projection := service.components.tasks.TaskProjectionLocked(sessionID)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if projection == nil || !strings.Contains(strings.Join(projection.Checkpoint.CompletedWork, "\n"), "user_name=hzr") {
 		t.Fatalf("long-context smoke lost durable identity checkpoint: %#v", prepared)
 	}
@@ -381,14 +381,14 @@ func TestPersistSessionRecordRebuildsConversationFromTranscript(t *testing.T) {
 		}},
 	}}
 	service := newTestService(t, &fakeEngine{sessionID: "session-window"}, withTestSessions(sessions))
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-window"}
 	// transcript 是全量权威事件源：record 由其全量重建（阶段 0 语义，
 	// 取代旧的"磁盘 record + 窗口投影增量合并"路径）。
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "old question"})
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "assistant", Content: "updated answer"})
 	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{Role: "user", Content: "new question"})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-window"}}, "session-window"); err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 	service := newTestService(t, &fakeEngine{sessionID: "session-large"})
 	defer service.Shutdown()
 	raw := strings.Repeat("raw-secret-output", task_context.DefaultToolResultLimit())
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "session-large"}
 	service.Core.Snapshot.Chat = ChatState{RequestID: "task-large"}
 	service.components.tasks.BeginTask("task-large", "inspect", "high", nil, TaskCheckpoint{})
@@ -414,7 +414,7 @@ func TestSessionRecordStoresLargeContentByReference(t *testing.T) {
 		{Role: "tool_result", Content: raw, Tool: &ToolCall{ID: "call-large", Name: "bash", Result: raw}},
 	}
 	record := service.components.sessions.SessionRecordLocked("session-large", nil)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	for _, message := range record.Conversation.Messages {
 		if strings.Contains(message.Content, "raw-secret-output") || (message.Tool != nil && strings.Contains(message.Tool.Result, "raw-secret-output")) {
@@ -434,9 +434,9 @@ func TestCompletedTaskClearsTaskScopedSkillsBeforeNextRequest(t *testing.T) {
 	for _, status := range []TaskStatus{TaskCompleted, TaskFailed} {
 		service := newTestService(t, &fakeEngine{})
 		service.promptStack.Push("skill", "review", "review prompt")
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		service.Core.Snapshot.Task = &TaskState{Status: status}
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		service.prepareCompletedTaskBoundary()
 		if skills := selectedSkillLayers(service.promptStack.Layers()); len(skills) != 0 {
 			service.Shutdown()
@@ -466,8 +466,8 @@ func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T) {
 	service.handleToolStart(context.Background(), "plan_load", "plan-call", arguments)
 	service.handleToolComplete("plan_load", "plan-call", `{"status":"loaded"}`, nil, 0)
 
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	if service.components.tasks.ActivePlanID() == "" || len(service.components.tasks.PlanStack()) != 1 {
 		t.Fatalf("plan stack = %#v, active = %q", service.components.tasks.PlanStack(), service.components.tasks.ActivePlanID())
 	}
@@ -587,7 +587,7 @@ func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)
 func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.appendHistoryLocked([]EngineMessage{{
 		Role:    "assistant",
 		Content: context_runtime.ToolCallHistoryContent,
@@ -595,7 +595,7 @@ func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T) {
 			ID: "call-1", Name: "read_file", Arguments: `{"path":"README.md"}`,
 		}},
 	}})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	conversation := service.Snapshot().Conversation
 	if len(conversation) != 1 || conversation[0].Tool == nil || conversation[0].Content != "" {

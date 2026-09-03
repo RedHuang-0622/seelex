@@ -15,9 +15,9 @@ import (
 func (service *Service) Snapshot() Snapshot {
 	snapshot := service.components.view.SnapshotView()
 	// 会话状态属性富化：draft / running / queued / idle。
-	// SnapshotView 已释放 Core.Mu，这里重新取读锁补状态。
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	// SnapshotView 已释放 Core.ViewMu，这里重新取读锁补状态。
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	if snapshot.Session.Draft {
 		snapshot.Session.Status = SessionStatusDraft
 	} else {
@@ -54,7 +54,7 @@ func (service *Service) Snapshot() Snapshot {
 	return snapshot
 }
 
-// sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.Mu）。
+// sessionStatusLocked 返回指定会话的可见状态（调用方持有 Core.ViewMu）。
 func (service *Service) sessionStatusLocked(sessionID string) SessionStatus {
 	if sessionID == "" {
 		return SessionStatusDraft
@@ -92,7 +92,7 @@ func (service *Service) applyRuntimeProjectionLocked(projection view_state.Runti
 }
 
 // applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
-// 视图协调器镜像 Snapshot；调用方持有 Core.Mu）。
+// 视图协调器镜像 Snapshot；调用方持有 Core.ViewMu）。
 func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection) {
 	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, projection)
 }
@@ -119,7 +119,7 @@ func (service *Service) mirrorActiveViewLocked() {
 }
 
 // sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
-// 调用方持有 Core.Mu）。
+// 调用方持有 Core.ViewMu）。
 func (service *Service) sessionViewLocked(sessionID string) *session.View {
 	return service.components.view.SessionViewLocked(sessionID)
 }

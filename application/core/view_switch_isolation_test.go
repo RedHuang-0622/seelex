@@ -126,8 +126,8 @@ func TestLongRunningSessionSurvivesViewSwitch(t *testing.T) {
 
 func readSessionView(t *testing.T, service *Service, sessionID string) []Message {
 	t.Helper()
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	view := service.sessionViewLocked(sessionID)
 	if view == nil {
 		return nil

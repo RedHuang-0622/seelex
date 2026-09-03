@@ -20,7 +20,7 @@ import (
 const activeSkillVersion = "installed-v1"
 
 // ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer) {
 	if state == nil {
 		return
@@ -40,7 +40,7 @@ func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers
 }
 
 // SyncGoalSkillActiveLocked 把任务级 skill 集投影到 lock-free 可见性值
-// （Runtime.VisibleTools 消费；调用方持有 Core.Mu）。
+// （Runtime.VisibleTools 消费；调用方持有 Core.ViewMu）。
 func (c *Coordinator) SyncGoalSkillActiveLocked() {
 	c.syncGoalSkillActiveLocked()
 }
@@ -50,7 +50,7 @@ func (c *Coordinator) syncGoalSkillActiveLocked() {
 }
 
 // AppendTranscriptEventLocked 追加一条 append-only transcript 事件（seq 自增；
-// 调用方持有 Core.Mu）。事件归属会话由 event.TaskID 反查，缺省活跃会话。
+// 调用方持有 Core.ViewMu）。事件归属会话由 event.TaskID 反查，缺省活跃会话。
 func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent {
 	st := c.activeSessionLocked()
 	if event.TaskID != "" {
@@ -72,7 +72,7 @@ func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) m
 }
 
 // AppendTranscriptEventForLocked 追加一条指定会话的 transcript 事件（调用
-// 方持有 Core.Mu；hook 等显式会话路径用）。
+// 方持有 Core.ViewMu；hook 等显式会话路径用）。
 func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent {
 	st := c.sessionStateLocked(sessionID)
 	st.transcriptSeq++
@@ -89,7 +89,7 @@ func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event mod
 }
 
 // ImportEngineHistoryAsTranscriptLocked 把引擎既有历史导入活跃会话
-// transcript（装配期/恢复路径；调用方持有 Core.Mu）。
+// transcript（装配期/恢复路径；调用方持有 Core.ViewMu）。
 func (c *Coordinator) ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage) {
 	st := c.activeSessionLocked()
 	c.importEngineHistoryLocked(st, history)
@@ -149,8 +149,8 @@ func (c *Coordinator) RecordLLMComplete(ctx context.Context, info session.LLMInf
 	if info.Response == "" && len(info.ToolCalls) == 0 && info.Usage == nil {
 		return
 	}
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.ViewMu.Lock()
+	defer c.ViewMu.Unlock()
 	st := c.runtimeForContextLocked(ctx)
 	state := st.taskExecution
 	if state == nil || state.RequestID != c.Snapshot.Chat.RequestID {
@@ -178,7 +178,7 @@ func (c *Coordinator) RecordLLMComplete(ctx context.Context, info session.LLMInf
 }
 
 // EnsureToolCallTranscriptLocked 保证工具调用宣告已入指定会话 transcript
-// （缺失时补一条 assistant 事件；调用方持有 Core.Mu）。
+// （缺失时补一条 assistant 事件；调用方持有 Core.ViewMu）。
 func (c *Coordinator) EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string) {
 	st := c.sessionStateLocked(sessionID)
 	for _, call := range st.pendingProviderCalls {
@@ -192,7 +192,7 @@ func (c *Coordinator) EnsureToolCallTranscriptLocked(sessionID, name, fallbackID
 }
 
 // RecordToolTranscriptLocked 记录指定会话工具结果事件（错误呈现/超限引用；
-// 返回可见内容与结果引用；调用方持有 Core.Mu）。
+// 返回可见内容与结果引用；调用方持有 Core.ViewMu）。
 func (c *Coordinator) RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string) {
 	st := c.sessionStateLocked(sessionID)
 	callID := fallbackID
@@ -270,8 +270,8 @@ func (c *Coordinator) EnsureFinalAssistantTranscript(requestID, content string) 
 	if content == "" {
 		return
 	}
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.ViewMu.Lock()
+	defer c.ViewMu.Unlock()
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
@@ -289,7 +289,7 @@ func (c *Coordinator) EnsureFinalAssistantTranscript(requestID, content string) 
 }
 
 // sessionStateForTaskLocked 返回任务状态所属会话的运行时（调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) sessionStateForTaskLocked(state *TaskExecutionState) *sessionTaskRuntime {
 	if state != nil {
 		if st := c.sessionForRequestLocked(state.RequestID); st != nil {
@@ -300,7 +300,7 @@ func (c *Coordinator) sessionStateForTaskLocked(state *TaskExecutionState) *sess
 }
 
 // TaskProjectionLocked 构建指定会话任务的权威投影（会话归档用；调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) TaskProjectionLocked(sessionID string) *model.TaskContextProjection {
 	st := c.sessionStateLocked(sessionID)
 	state := st.taskExecution
@@ -324,7 +324,7 @@ func (c *Coordinator) TaskProjectionLocked(sessionID string) *model.TaskContextP
 	}
 }
 
-// BuildTaskCheckpointLocked 构建任务 checkpoint（调用方持有 Core.Mu）。
+// BuildTaskCheckpointLocked 构建任务 checkpoint（调用方持有 Core.ViewMu）。
 func (c *Coordinator) BuildTaskCheckpointLocked(state *TaskExecutionState) model.TaskCheckpoint {
 	st := c.sessionStateForTaskLocked(state)
 	return c.buildTaskCheckpointLocked(st, state)
@@ -419,7 +419,7 @@ func AppendUniqueStrings(values []string, incoming ...string) []string {
 }
 
 // ActivePlanProjectionLocked 返回活跃会话当前激活 Plan 的只读投影（调用方
-// 持有 Core.Mu）。
+// 持有 Core.ViewMu）。
 func (c *Coordinator) ActivePlanProjectionLocked() *model.ActivePlanProjection {
 	st := c.activeSessionLocked()
 	return ActivePlanProjection(c.Snapshot.Runtime.Plan, st.activePlanID, st.planSequence)
@@ -488,7 +488,7 @@ func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiv
 }
 
 // RecordContextCompactionLocked 记录一次上下文压缩（仅运行中任务；调用方
-// 持有 Core.Mu；requestID 反查会话）。
+// 持有 Core.ViewMu；requestID 反查会话）。
 func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool {
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
@@ -506,7 +506,7 @@ func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction
 	return true
 }
 
-// SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.Mu；requestID
+// SetTaskStateLocked 把任务可见状态写入快照（调用方持有 Core.ViewMu；requestID
 // 反查会话）。非活跃会话（后台并行执行）跳过共享快照写入，避免污染活跃
 // 会话投影；任务内部状态由调用方独立维护。
 func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
@@ -529,12 +529,12 @@ func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStat
 }
 
 // isActiveSessionLocked 判定会话是否为共享快照归属会话（调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) isActiveSessionLocked(sessionID string) bool {
 	return sessionID == c.Snapshot.Session.ID
 }
 
-// InterruptTaskLocked 把任务置为中断（快照 + 内部状态；调用方持有 Core.Mu）。
+// InterruptTaskLocked 把任务置为中断（快照 + 内部状态；调用方持有 Core.ViewMu）。
 func (c *Coordinator) InterruptTaskLocked(requestID, summary string) {
 	c.SetTaskStateLocked(requestID, model.TaskInterrupted, summary)
 	st := c.sessionForRequestLocked(requestID)
@@ -546,7 +546,7 @@ func (c *Coordinator) InterruptTaskLocked(requestID, summary string) {
 	}
 }
 
-// FailTaskLocked 把任务置为失败（快照 + 内部状态；调用方持有 Core.Mu）。
+// FailTaskLocked 把任务置为失败（快照 + 内部状态；调用方持有 Core.ViewMu）。
 func (c *Coordinator) FailTaskLocked(requestID, summary string) {
 	c.SetTaskStateLocked(requestID, model.TaskFailed, summary)
 	st := c.sessionForRequestLocked(requestID)
@@ -559,7 +559,7 @@ func (c *Coordinator) FailTaskLocked(requestID, summary string) {
 }
 
 // ResumeTaskLocked 恢复被压缩/中断的任务（快照 + 内部状态 + epoch 推进；
-// 调用方持有 Core.Mu）。
+// 调用方持有 Core.ViewMu）。
 func (c *Coordinator) ResumeTaskLocked(requestID, summary string) {
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
@@ -575,7 +575,7 @@ func (c *Coordinator) ResumeTaskLocked(requestID, summary string) {
 }
 
 // RememberCheckpointLocked 按 version 替换或追加活跃会话 checkpoint（调用
-// 方持有 Core.Mu）。
+// 方持有 Core.ViewMu）。
 func (c *Coordinator) RememberCheckpointLocked(checkpoint model.TaskCheckpoint) {
 	st := c.activeSessionLocked()
 	for index := range st.taskCheckpoints {
@@ -588,13 +588,13 @@ func (c *Coordinator) RememberCheckpointLocked(checkpoint model.TaskCheckpoint) 
 }
 
 // BeginTask 为活跃会话当前请求创建任务执行状态与 TaskService（调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) BeginTask(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState {
 	return c.BeginTaskFor(c.activeSessionIDLocked(), requestID, objective, effort, previous, checkpoint)
 }
 
 // BeginTaskFor 为指定会话当前请求创建任务执行状态与 TaskService（调用方
-// 持有 Core.Mu）。
+// 持有 Core.ViewMu）。
 func (c *Coordinator) BeginTaskFor(sessionID, requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState {
 	st := c.sessionStateLocked(sessionID)
 	state := continuationTaskExecutionState(requestID, objective, effort, previous, checkpoint)
@@ -750,14 +750,14 @@ func (c *Coordinator) SessionIDForRequest(requestID string) string {
 }
 
 // ActivePlanProjectionLockedFor 返回指定会话激活 Plan 的只读投影（调用方
-// 持有 Core.Mu）。
+// 持有 Core.ViewMu）。
 func (c *Coordinator) ActivePlanProjectionLockedFor(sessionID string) *model.ActivePlanProjection {
 	st := c.sessionStateLocked(sessionID)
 	return ActivePlanProjection(c.Snapshot.Runtime.Plan, st.activePlanID, st.planSequence)
 }
 
 // SyncActivePlanFrameLocked 把当前快照 Plan 收敛进活跃会话激活帧（调用方
-// 持有 Core.Mu）。
+// 持有 Core.ViewMu）。
 func (c *Coordinator) SyncActivePlanFrameLocked(now time.Time) {
 	st := c.activeSessionLocked()
 	if st.activePlanID == "" || len(st.planStack) == 0 {
@@ -767,7 +767,7 @@ func (c *Coordinator) SyncActivePlanFrameLocked(now time.Time) {
 }
 
 // SyncActivePlanFrameLockedFor 把当前快照 Plan 收敛进指定会话激活帧（调用
-// 方持有 Core.Mu）。会话归档/恢复路径用（后台会话收尾不得清活跃帧）。
+// 方持有 Core.ViewMu）。会话归档/恢复路径用（后台会话收尾不得清活跃帧）。
 // 遗留风险（P6）：Plan 投影仍来自全局 Snapshot.Runtime.Plan——阶段 1
 // SessionScope 收口前，plan 投影尚未按会话隔离。
 func (c *Coordinator) SyncActivePlanFrameLockedFor(sessionID string, now time.Time) {
@@ -794,7 +794,7 @@ func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time
 }
 
 // PushLoadedPlanLocked 把 plan_load 参数追加为活跃会话新的激活帧（调用方
-// 持有 Core.Mu）。
+// 持有 Core.ViewMu）。
 func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time) {
 	arguments = strings.TrimSpace(arguments)
 	if arguments == "" || c.Snapshot.Runtime.Plan == nil {
@@ -845,7 +845,7 @@ func (c *Coordinator) removeCommittedToolResultsLocked(st *sessionTaskRuntime, c
 }
 
 // UnloadSessionState 释放指定会话的任务/plan 运行时状态（阶段 2 生命周期；
-// 调用方持有 Core.Mu）。unload 后重开走 cold_load。
+// 调用方持有 Core.ViewMu）。unload 后重开走 cold_load。
 func (c *Coordinator) UnloadSessionState(sessionID string) {
 	delete(c.sessionStates, sessionID)
 	for requestID, sid := range c.requestToSession {
@@ -873,27 +873,27 @@ func (c *Coordinator) CountTextTokens(value string) int {
 // VerifyAndApply 是终态/打点工具的入口（Registry handler 面）。ctx 携带
 // 会话 ID 时路由到对应会话，否则按活跃会话。
 func (c *Coordinator) VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error) {
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	ts := c.taskServiceForContextLocked(ctx)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	return ts.VerifyAndApply(ctx, kind, argsJSON)
 }
 
 // FinalizeTask 把自然停止转换为可审计完成/交接（OnChatEnd 入口；summary
 // requestID 反查会话）。
 func (c *Coordinator) FinalizeTask(ctx context.Context, summary ChatEndSummary) error {
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	ts := c.taskServiceForRequestLocked(summary.RequestID)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	_, err := ts.OnChatEnd(ctx, summary)
 	return err
 }
 
 // OnChatEnd 把自然停止转换为可审计完成/交接，返回可见任务状态。
 func (c *Coordinator) OnChatEnd(ctx context.Context, summary ChatEndSummary) (model.TaskState, error) {
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	ts := c.taskServiceForRequestLocked(summary.RequestID)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	return ts.OnChatEnd(ctx, summary)
 }
 
@@ -903,14 +903,14 @@ func (c *Coordinator) CurrentTaskResumeRecord() TaskResumeRecord {
 }
 
 // SetTaskProjectionFlushLocked 注入活跃会话 TaskService 的 Plan 投影 flush
-// 钩子（测试模拟延迟投影；调用方持有 Core.Mu）。
+// 钩子（测试模拟延迟投影；调用方持有 Core.ViewMu）。
 func (c *Coordinator) SetTaskProjectionFlushLocked(flush func(context.Context) error) {
 	if ts := c.activeSessionLocked().taskService; ts != nil {
 		ts.projection = &planProjectionReader{Core: c.Core, flush: flush}
 	}
 }
 
-// ObserveTool 记录工具执行观测（调用方持有 Core.Mu；observation requestID
+// ObserveTool 记录工具执行观测（调用方持有 Core.ViewMu；observation requestID
 // 反查会话）。
 func (c *Coordinator) ObserveTool(observation ToolObservation) {
 	if st := c.sessionForRequestLocked(observation.RequestID); st != nil {
@@ -925,7 +925,7 @@ func (c *Coordinator) ObserveTool(observation ToolObservation) {
 	c.currentTaskServiceLocked().ObserveTool(observation)
 }
 
-// ObservePlanEvent 记录 plan 事件投影观测（调用方持有 Core.Mu；活跃会话）。
+// ObservePlanEvent 记录 plan 事件投影观测（调用方持有 Core.ViewMu；活跃会话）。
 func (c *Coordinator) ObservePlanEvent(event PlanEvent) {
 	c.currentTaskServiceLocked().ObservePlanEvent(event)
 }
@@ -933,14 +933,14 @@ func (c *Coordinator) ObservePlanEvent(event PlanEvent) {
 // ObserveModelOutput 记录模型回复观测（自行加锁；output requestID 反查
 // 会话）。
 func (c *Coordinator) ObserveModelOutput(ctx context.Context, output ModelOutput) error {
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	ts := c.taskServiceForRequestLocked(output.RequestID)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	return ts.ObserveModelOutput(ctx, output)
 }
 
 // taskServiceForContextLocked 按 ctx 会话 ID 返回任务的 TaskService（未注入
-// → 活跃会话；调用方持有 Core.Mu）。
+// → 活跃会话；调用方持有 Core.ViewMu）。
 func (c *Coordinator) taskServiceForContextLocked(ctx context.Context) *TaskService {
 	if sessionID := SessionIDFromContext(ctx); sessionID != "" {
 		return c.currentTaskServiceForLocked(sessionID)

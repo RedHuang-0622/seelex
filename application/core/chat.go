@@ -31,7 +31,7 @@ func (service *Service) isActiveSessionLocked(sessionID string) bool {
 }
 
 // nextChatRequestIDLocked 生成跨会话唯一的聊天请求 ID（调用方持有
-// Core.Mu）。时间戳 + 单调序号：仅时间戳在 Windows（UnixNano 分辨率约
+// Core.ViewMu）。时间戳 + 单调序号：仅时间戳在 Windows（UnixNano 分辨率约
 // 0.5ms）下并行会话启动会碰撞。
 func (service *Service) nextChatRequestIDLocked() string {
 	service.chatSeq++
@@ -45,19 +45,19 @@ func (service *Service) startChat(parent context.Context, request chatRequest) e
 // startChatFor 在指定会话启动 ReAct 对话（多会话并行：后台会话不写活跃
 // 快照，只维护会话级任务/plan 状态与按会话路由的事件）。
 func (service *Service) startChatFor(sessionID string, parent context.Context, request chatRequest) error {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if service.closed {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return fmt.Errorf("application is shut down")
 	}
 	if service.draining {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return ErrApplicationDraining
 	}
 	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return ErrChatRunning
 	}
 	requestID := service.nextChatRequestIDLocked()
@@ -108,7 +108,7 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	if active {
 		revision = service.bumpLocked()
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	// 新批次：此后创建的 todo/task/plan/subagent 条目自动归属当前 chat
 	// 请求（requestID），工作表格按批次分片。
 	service.Deps.Runtime.SetCurrentTaskBatch(sessionID, requestID)
@@ -213,9 +213,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		}
 	}
 	if err != nil {
-		service.Mu.Lock()
+		service.ViewMu.Lock()
 		service.recordUnhandledTaskErrorLocked(requestID, err)
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 	}
 	location := service.components.sessions.LocateSession(sessionID)
 	saveErr := service.components.sessions.PersistCurrentSession(location, sessionID)
@@ -228,12 +228,12 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	} else if releaser, ok := service.Deps.Engine.(interface{ ReleaseWorkingHistoryFor(string) }); ok {
 		releaser.ReleaseWorkingHistoryFor(sessionID)
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().RequestID != requestID {
 		runChatDebug("runChat stale request session=%s request=%s runtimeRequest=%s (superseded)", sessionID, requestID, runtime.ChatState().RequestID)
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return
 	}
 	runtime.UpdateChat(func(chat *ChatState) { chat.Error = "" }, nil)
@@ -308,7 +308,7 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	if active {
 		revision = service.bumpLocked()
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	runChatDebug("runChat tail session=%s request=%s err=%v processQueue=%v nextRequest=%q", sessionID, requestID, err, processQueue, nextRequestID)
 	service.publishChatStateFor(sessionID)
 	if err != nil {
@@ -355,7 +355,7 @@ func (service *Service) finalizeReActBudget(ctx context.Context, requestID strin
 }
 
 // queuedInputRefs 取排队输入的最小引用（displayInput），供任务终态恢复记录
-// 使用（TaskService 经装配端口读取；调用方持有 Core.Mu）。
+// 使用（TaskService 经装配端口读取；调用方持有 Core.ViewMu）。
 func queuedInputRefs(queue []chatRequest) []string {
 	refs := make([]string, 0, len(queue))
 	for _, request := range queue {
@@ -464,7 +464,7 @@ func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatch
 	batcher := chat.NewStreamBatcher(func(batch []string) {
 		service.appendVisibleDelta(requestID, strings.Join(batch, ""))
 	}, chat.StreamBatcherOptions{FlushSize: 32, BufferSize: 128, Interval: 40 * time.Millisecond})
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	// batcher 一律挂到所属会话单元（不再只看活跃快照 requestID）：后台会话
 	// 流式文本也必须能在工具钩子边界被按会话 flush，否则视图切到运行中会话
 	// 后，缓冲文本会在工具消息之后才落地（排序混乱）。
@@ -473,7 +473,7 @@ func (service *Service) newBatchedDeltaSink(requestID string) (*chat.StreamBatch
 			unit.SetBatcher(batcher)
 		}
 	}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	return batcher, func(chunk string) {
 		if visible := service.consumeVisibleChunk(requestID, chunk); visible != "" {
 			batcher.OnChunk(visible)
@@ -488,12 +488,12 @@ func (service *Service) flushStreamBatcherFor(sessionID string) {
 	if sessionID == "" {
 		return
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	var batcher session.StreamBatcherSink
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		batcher = unit.BatcherSink()
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if batcher != nil {
 		_ = batcher.FlushPending()
 	}
@@ -505,8 +505,8 @@ func (service *Service) consumeVisibleChunk(requestID, chunk string) string {
 		// 后台会话：只写自身流状态，不取全局锁（线程隔离）。
 		return service.consumeVisibleChunkBackground(sessionID, requestID, chunk)
 	}
-	service.Mu.Lock()
-	defer service.Mu.Unlock()
+	service.ViewMu.Lock()
+	defer service.ViewMu.Unlock()
 	runtime := service.sessionUnitLocked(sessionID)
 	running := runtime.ChatState().Running && runtime.ChatState().RequestID == requestID
 	if !running && service.Core.Snapshot.Chat.Running && service.Core.Snapshot.Chat.RequestID == requestID {
@@ -552,7 +552,7 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 		service.appendVisibleDeltaBackground(sessionID, requestID, chunk)
 		return
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	// 阶段 1：流式增量按 requestID 反查会话，写该会话自己的 view（后台
 	// 会话也实时维护可见投影；活跃会话镜像 Snapshot）。
 	runtime := service.sessionUnitLocked(sessionID)
@@ -563,7 +563,7 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 		runtime = service.sessionUnitLocked(sessionID)
 	}
 	if !running {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return
 	}
 	view := service.components.view.SessionViewLocked(sessionID)
@@ -577,7 +577,7 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 	}
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{MessageID: messageID, Delta: chunk})
 }
 
@@ -627,7 +627,7 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 	if reasoning == "" {
 		return
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	view := service.sessionViewLocked(sessionID)
 	messageID := ""
 	for index := len(view.Conversation) - 1; index >= 0; index-- {
@@ -635,7 +635,7 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 			continue
 		}
 		if view.Conversation[index].ReasoningContent == reasoning {
-			service.Mu.Unlock()
+			service.ViewMu.Unlock()
 			return
 		}
 		view.Conversation[index].ReasoningContent = reasoning
@@ -643,12 +643,12 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		break
 	}
 	if messageID == "" {
-		service.Mu.Unlock()
+		service.ViewMu.Unlock()
 		return
 	}
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{
 		MessageID:        messageID,
 		ReasoningContent: reasoning,

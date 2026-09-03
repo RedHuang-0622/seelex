@@ -40,10 +40,10 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.components.tasks.BeginTask("task-1", "audit the repository", "high", nil, TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", "completed", "found the call path", "")
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	err := errors.New("engine loop 15: invalid params, context window exceeds limit (2013)")
 	if err := service.recoverProviderContext(err, "audit the repository"); err != nil {
@@ -88,11 +88,11 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "audit source", "high", nil, TaskCheckpoint{})
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "source", "completed", "found a call path", "")
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	recovered, err := service.recoverProviderFailure(errors.New("engine loop 16: ChatClient stream: HTTP 504: timeout_error"), "audit source")
 	if err != nil || !recovered {
@@ -128,9 +128,9 @@ func TestContextExhaustionPersistsInterruptedProjectionAfterBoundedRetryFails(t 
 	if task := service.Snapshot().Task; task == nil || task.Status != TaskInterrupted {
 		t.Fatalf("task state = %#v, want interrupted", task)
 	}
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if projection == nil || projection.Status != task_context.StatusInterrupted || projection.Checkpoint.CoversEventRange.End == 0 {
 		t.Fatalf("projection = %#v", projection)
 	}
@@ -211,10 +211,10 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 	}}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "load a plan", "high", nil, TaskCheckpoint{})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)

@@ -191,8 +191,8 @@ func (s *TaskService) ObserveModelOutput(ctx context.Context, output ModelOutput
 	if s == nil || s.state == nil {
 		return nil
 	}
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.ViewMu.Lock()
+	defer s.ViewMu.Unlock()
 	if s.state.RequestID != output.RequestID {
 		return nil
 	}
@@ -206,8 +206,8 @@ func (s *TaskService) OnChatEnd(ctx context.Context, summary ChatEndSummary) (mo
 	if s == nil {
 		return model.TaskState{}, nil
 	}
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.ViewMu.Lock()
+	defer s.ViewMu.Unlock()
 	state := s.state
 	if state == nil || state.RequestID != summary.RequestID || state.Terminal != nil {
 		return model.TaskState{}, nil
@@ -281,8 +281,8 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 		if err := s.projection.Flush(ctx); err != nil {
 			return "", fmt.Errorf("%s: plan projection flush failed: %w", kind, err)
 		}
-		s.Mu.Lock()
-		defer s.Mu.Unlock()
+		s.ViewMu.Lock()
+		defer s.ViewMu.Unlock()
 		state := s.state
 		if state == nil || state.Terminal != nil {
 			return "", fmt.Errorf("%s: no active task execution", kind)
@@ -302,8 +302,8 @@ func (s *TaskService) VerifyAndApply(ctx context.Context, kind, argsJSON string)
 	if err := s.projection.Flush(ctx); err != nil {
 		return "", fmt.Errorf("%s: plan projection flush failed: %w", kind, err)
 	}
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.ViewMu.Lock()
+	defer s.ViewMu.Unlock()
 	state := s.state
 	if state == nil || state.Terminal != nil {
 		return "", fmt.Errorf("%s: no active task execution", kind)

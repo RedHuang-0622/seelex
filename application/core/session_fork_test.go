@@ -181,9 +181,9 @@ func TestForkCommandForksCurrentSession(t *testing.T) {
 		generation: "generation-parent",
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "parent"}
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.submitCommand(context.Background(), "/fork"); err != nil {
 		t.Fatal(err)
@@ -276,7 +276,7 @@ func TestForkSessionRejectsRunningParent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
 	// 标记父会话运行中。
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Session = SessionState{ID: "parent"}
 	unit := service.sessions.Unit("parent")
 	if unit == nil {
@@ -284,7 +284,7 @@ func TestForkSessionRejectsRunningParent(t *testing.T) {
 		service.sessions.Register(unit)
 	}
 	unit.SetChatState(ChatState{Running: true, RequestID: "req-parent"}, nil)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if _, err := service.ForkSession("parent", ForkRequest{}); !errors.Is(err, ErrChatRunning) {
 		t.Fatalf("ForkSession(running parent) = %v, want ErrChatRunning", err)

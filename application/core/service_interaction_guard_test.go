@@ -77,12 +77,12 @@ func waitUnitIdle(t *testing.T, service *Service, sessionID string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		running := false
 		if unit := service.sessions.Unit(sessionID); unit != nil {
 			running = unit.ChatState().Running
 		}
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		if !running {
 			return
 		}

@@ -85,13 +85,13 @@ func (c *Coordinator) ApplyActiveTaskSystemPrompt(requestID string) {
 // ApplyActiveTaskSystemPromptFor 按指定会话活跃任务刷新 system prompt（锁内
 // 读取任务状态，锁外同步引擎；多会话并行执行路径）。
 func (c *Coordinator) ApplyActiveTaskSystemPromptFor(sessionID, requestID string) {
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	if task := c.tasks.CurrentTaskExecutionFor(sessionID); task == nil || task.RequestID != requestID {
-		c.Mu.RUnlock()
+		c.ViewMu.RUnlock()
 		return
 	}
 	promptText := c.SystemPromptForActiveTaskLockedFor(sessionID)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	if promptText == c.lastSystemPrompt {
 		return
 	}
@@ -100,13 +100,13 @@ func (c *Coordinator) ApplyActiveTaskSystemPromptFor(sessionID, requestID string
 }
 
 // SystemPromptForActiveTaskLocked 组装活跃任务 system prompt（调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) SystemPromptForActiveTaskLocked() string {
 	return c.SystemPromptForActiveTaskLockedFor(c.activeSessionID())
 }
 
 // SystemPromptForActiveTaskLockedFor 组装指定会话活跃任务 system prompt
-// （调用方持有 Core.Mu）。
+// （调用方持有 Core.ViewMu）。
 func (c *Coordinator) SystemPromptForActiveTaskLockedFor(sessionID string) string {
 	parts := []string{c.promptStack.Render()}
 	if task := c.tasks.CurrentTaskExecutionFor(sessionID); task != nil {

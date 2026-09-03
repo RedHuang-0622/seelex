@@ -31,12 +31,12 @@ func (service *Service) SaveComposerDraft(text string) error {
 	transition.Lock()
 	defer transition.Unlock()
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	closed := service.closed
 	draining := service.draining
 	sessionID := service.Core.Snapshot.Session.ID
 	draft := service.Core.Snapshot.Session.Draft
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if closed {
 		return errors.New("application is shut down")
 	}
@@ -46,12 +46,12 @@ func (service *Service) SaveComposerDraft(text string) error {
 	if !draft || sessionID == "" {
 		return errors.New("composer draft requires an unmaterialized draft session")
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		unit.SetComposerText(text, time.Now())
 	}
 	service.Core.Snapshot.Session.Composer = text
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	return service.persistComposerDraft(sessionID, text)
 }
 
@@ -80,12 +80,12 @@ func (service *Service) persistComposerDraft(sessionID, text string) error {
 
 // clearComposerDraft 在草稿物化成功后清空 composer（内存 + 落盘）。
 func (service *Service) clearComposerDraft(sessionID string) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		unit.SetComposerText("", time.Now())
 	}
 	service.Core.Snapshot.Session.Composer = ""
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	_ = service.persistComposerDraft(sessionID, "")
 }
 
@@ -113,7 +113,7 @@ func (service *Service) restorePersistedDraft() {
 	if err != nil || !ok || record.ID != bestID {
 		return
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	unit := service.sessionUnitLocked(bestID)
 	unit.SetComposerText(record.Composer.Text, record.Composer.UpdatedAt)
 	service.sessions.SetActive(bestID)
@@ -133,5 +133,5 @@ func (service *Service) restorePersistedDraft() {
 	unit.SetRequests(nil)
 	service.components.sessions.SetSessionTitleLocked(bestID, record.Title)
 	service.components.tasks.ResetForNewSessionLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 }

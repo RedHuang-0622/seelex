@@ -19,7 +19,7 @@ import (
 // TaskPersistencePort 是会话持久化对 task/plan 权威状态的读写面。
 // 全部方法显式携带 sessionID（For 变体）：后台会话收尾不得读活跃会话槽，
 // 违反即编译失败（阶段 0 契约，对应 plan.md P2/P4/R4）。
-// Locked 后缀方法要求调用方已持有 state.Core.Mu（内核锁内调用）。
+// Locked 后缀方法要求调用方已持有 state.Core.ViewMu（内核锁内调用）。
 type TaskPersistencePort interface {
 	TaskProjectionLocked(sessionID string) *model.TaskContextProjection
 	TranscriptFor(sessionID string) []model.TranscriptEvent
@@ -132,7 +132,7 @@ type Deps struct {
 	Tasks TaskPersistencePort
 	// View 用于会话目录刷新时的 Snapshot revision bump（锁内调用）。
 	View ViewPort
-	// Closed 返回应用是否已进入关闭状态；调用方持 Core.Mu 时读取
+	// Closed 返回应用是否已进入关闭状态；调用方持 Core.ViewMu 时读取
 	// （与 Shutdown 写 closed 同锁，避免竞态）。
 	Closed func() bool
 	// TranscriptTailBudget 返回 transcript 尾部加载的压缩后 token 预算。

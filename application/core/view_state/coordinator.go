@@ -1,7 +1,7 @@
 // Package view_state owns the user-visible Snapshot, message sequence, event
 // revision and runtime projection. It embeds the shared state kernel; runtime
 // projection collection happens lock-free on external ports, and applying
-// happens under Core.Mu. Worktable refresh is injected as a function port so
+// happens under Core.ViewMu. Worktable refresh is injected as a function port so
 // the view never reaches into the work table implementation.
 package view_state
 
@@ -38,7 +38,7 @@ type Deps struct {
 	// 未选择回退进程默认/引擎门值）。
 	CurrentFullAccess func(sessionID string) bool
 	// RefreshWorkTableLocked 在锁内重建工作表格投影（work_table 域；
-	// 调用方已持有 Core.Mu）。
+	// 调用方已持有 Core.ViewMu）。
 	RefreshWorkTableLocked func(tasks []dto.TaskRecord)
 	// Tasks 提供任务级 skill 激活投影（「目标」面板数据源）。
 	Tasks interface {
@@ -87,9 +87,9 @@ type RuntimeStateProjection struct {
 
 // SnapshotView 返回权威快照深拷贝。
 func (c *Coordinator) SnapshotView() model.Snapshot {
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	snapshot := model.CloneSnapshot(c.Snapshot)
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	return snapshot
 }
 
@@ -215,7 +215,7 @@ func (c *Coordinator) ApplyRuntimeProjectionLocked(projection RuntimeStateProjec
 
 // ApplyRuntimeProjectionForLocked 应用 runtime 投影到指定会话（G1）：
 // 投影写该会话自己的 Runtime 槽；仅当 sid 是视图指针时镜像
-// Snapshot.Runtime 并重建视图工作表格。调用方持有 Core.Mu。
+// Snapshot.Runtime 并重建视图工作表格。调用方持有 Core.ViewMu。
 func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projection RuntimeStateProjection) {
 	unit := c.units.Unit(sessionID)
 	if unit == nil {
@@ -252,7 +252,7 @@ func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projecti
 }
 
 // AppendMessageLocked 追加一条可见消息到当前活跃会话（调用方持有
-// Core.Mu；委托 AppendMessageLockedFor）。
+// Core.ViewMu；委托 AppendMessageLockedFor）。
 func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message {
 	return c.AppendMessageLockedFor(c.Snapshot.Session.ID, role, content, tool)
 }
@@ -284,7 +284,7 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 }
 
 // sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
-// Core.Mu，域内锁序为 Core.Mu → Domain.mu，不反向）。
+// Core.ViewMu，域内锁序为 Core.ViewMu → Domain.mu，不反向）。
 func (c *Coordinator) sessionViewLocked(sessionID string) *session.View {
 	unit := c.units.Unit(sessionID)
 	if unit == nil {
@@ -299,13 +299,13 @@ func (c *Coordinator) sessionViewLocked(sessionID string) *session.View {
 }
 
 // SessionViewLocked 返回指定会话的可见投影（core 域恢复/回看路径用；
-// 调用方持有 Core.Mu）。
+// 调用方持有 Core.ViewMu）。
 func (c *Coordinator) SessionViewLocked(sessionID string) *session.View {
 	return c.sessionViewLocked(sessionID)
 }
 
 // SetSessionViewLocked 装载指定会话的可见投影（冷加载/恢复路径；调用方
-// 持有 Core.Mu）。活跃会话同步镜像 Snapshot。
+// 持有 Core.ViewMu）。活跃会话同步镜像 Snapshot。
 func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View) {
 	if view == nil {
 		return
@@ -333,7 +333,7 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)
 }
 
 // SetSessionChatLockedFor 写指定会话的聊天运行态投影（调用方持有
-// Core.Mu；活跃会话同步镜像 Snapshot.Chat）。
+// Core.ViewMu；活跃会话同步镜像 Snapshot.Chat）。
 func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatState) {
 	view := c.sessionViewLocked(sessionID)
 	view.Mutate(func(v *session.View) { v.Chat = chat })
@@ -342,7 +342,7 @@ func (c *Coordinator) SetSessionChatLockedFor(sessionID string, chat model.ChatS
 	}
 }
 
-// SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.Mu）。
+// SetReadFilesFor 写指定会话的 read 文件引用投影（调用方持有 Core.ViewMu）。
 func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFileRef) {
 	view := c.sessionViewLocked(sessionID)
 	view.Mutate(func(v *session.View) {
@@ -352,7 +352,7 @@ func (c *Coordinator) SetReadFilesFor(sessionID string, readFiles []model.ReadFi
 }
 
 // mirrorActiveViewLocked 把指定会话的 scope 镜像到 Snapshot（仅当目标为
-// 当前活跃会话；调用方持有 Core.Mu）。
+// 当前活跃会话；调用方持有 Core.ViewMu）。
 func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.View) {
 	if sessionID != c.Snapshot.Session.ID {
 		return
@@ -368,7 +368,7 @@ func (c *Coordinator) mirrorActiveViewLocked(sessionID string, view *session.Vie
 }
 
 // MirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot（切换/恢复
-// 后调用；调用方持有 Core.Mu）。
+// 后调用；调用方持有 Core.ViewMu）。
 func (c *Coordinator) MirrorActiveViewLocked() {
 	view := c.sessionViewLocked(c.Snapshot.Session.ID)
 	c.mirrorActiveViewLocked(c.Snapshot.Session.ID, view)
@@ -481,11 +481,11 @@ func (c *Coordinator) AddNotice(notice string) {
 	if strings.TrimSpace(notice) == "" {
 		return
 	}
-	c.Mu.Lock()
+	c.ViewMu.Lock()
 	message := *c.AppendMessageLocked("system", notice, nil)
 	revision := c.BumpLocked()
 	sessionID := c.Snapshot.Session.ID
-	c.Mu.Unlock()
+	c.ViewMu.Unlock()
 	if hub, ok := c.Events.(event.SessionAwareHub); ok {
 		hub.PublishSession(event.EventMessageAdded, revision, "", sessionID, message)
 	} else {
@@ -496,7 +496,7 @@ func (c *Coordinator) AddNotice(notice string) {
 // ResetConversation 清空可见会话并注入 CLI 标识与通知。
 func (c *Coordinator) ResetConversation(notice string) {
 	modelName := c.Deps.Runtime.Model()
-	c.Mu.Lock()
+	c.ViewMu.Lock()
 	c.Snapshot.Conversation = nil
 	c.AppendMessageLocked("system", fmt.Sprintf("Seele CLI — %s", modelName), nil)
 	if notice != "" {
@@ -504,7 +504,7 @@ func (c *Coordinator) ResetConversation(notice string) {
 	}
 	revision := c.BumpLocked()
 	sessionID := c.Snapshot.Session.ID
-	c.Mu.Unlock()
+	c.ViewMu.Unlock()
 	if hub, ok := c.Events.(event.SessionAwareHub); ok {
 		hub.PublishSession(event.EventSnapshotChanged, revision, "", sessionID, nil)
 	} else {

@@ -57,7 +57,7 @@ func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 	}
 	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
 		ProviderHistory: legacyHistory,
-		Events: []sessionstore.Event{{Seq: 1, Role: "user", Content: "hi"}},
+		Events:          []sessionstore.Event{{Seq: 1, Role: "user", Content: "hi"}},
 		ToolResults: []sessionstore.ToolResult{
 			{Ref: "legacy:1", Tool: "bash", Content: "out", Size: 3},
 		},

@@ -10,7 +10,7 @@ import (
 )
 
 // serviceState is assembled from cohesive state groups. Components share the
-// application lock (Core.Mu) where workflows must publish one coherent
+// application lock (Core.ViewMu) where workflows must publish one coherent
 // snapshot; the authoritative Snapshot and external ports live in the shared
 // state kernel (Core), while each group still makes ownership and reset
 // boundaries explicit.
@@ -28,17 +28,17 @@ type serviceState struct {
 	// 会话的只读视图指针 V，不再持有任何会话容器）。
 	sessions *session.Domain
 
-	// draft 是"新建会话"草稿槽位（Core.Mu 保护）：早分配 SID 的草稿
+	// draft 是"新建会话"草稿槽位（Core.ViewMu 保护）：早分配 SID 的草稿
 	// （HasSession=false，不建引擎 bundle）持有真实会话 ID 与工作区绑定；
 	// 首次提交（materializeDraftSession）时消费并清空。
 	draft *draftSlot
 
-	// chatSeq 是聊天请求 ID 的单调序号（Core.Mu 保护）。requestID 必须
+	// chatSeq 是聊天请求 ID 的单调序号（Core.ViewMu 保护）。requestID 必须
 	// 跨会话唯一：Windows 上 time.Now().UnixNano() 分辨率约 0.5ms，并行
 	// 会话在同一 tick 启动会碰撞，导致 request→session 绑定与
 	// ClearReActBudget/FinalizeTask 串写。附加序号消除碰撞。
 	chatSeq uint64
-	// draftSeq 是草稿会话 ID 的单调序号（Core.Mu 保护）：早分配 SID 在
+	// draftSeq 是草稿会话 ID 的单调序号（Core.ViewMu 保护）：早分配 SID 在
 	// Windows 时间戳低分辨率下也保持同 tick 内唯一。
 	draftSeq uint64
 
@@ -65,7 +65,7 @@ type workTableRuntimeState struct {
 	workTablePublisher *worktable.WorkTablePublisher
 }
 
-// planProjections 是 per-session plan 显示投影缓存（Core.Mu 保护）：当前
+// planProjections 是 per-session plan 显示投影缓存（Core.ViewMu 保护）：当前
 // 会话的投影与 Snapshot.Runtime.Plan 同一指针；后台会话的 plan 事件只写
 // 自己的投影（P6 收口），切换回看时经 SnapshotOf/sessionActivePlanLocked
 // 读取。plan 节点状态属运行期显示态，不落盘（resume 由 plan 帧重建）。

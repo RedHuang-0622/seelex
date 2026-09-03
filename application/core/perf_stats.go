@@ -11,8 +11,8 @@ import (
 // DOM 节点数 ↔ 快照载荷体积 ↔ JS heap 的涨跌能直接定位"谁在吃内存"。
 // GUI 每 5~10s 轮询一次即可（开销 = 一次锁内扫描 + 会话 JSON 体积估算）。
 func (service *Service) PerfStats() model.PerfStats {
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	snapshot := service.Core.Snapshot
 	stats := model.PerfStats{
 		ConversationMessages: len(snapshot.Conversation),

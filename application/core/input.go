@@ -87,7 +87,7 @@ func (service *Service) activateSkillAndSubmit(ctx context.Context, skill SkillI
 }
 
 func (service *Service) prepareCompletedTaskBoundary() {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	terminal := false
 	if !service.Core.Snapshot.Chat.Running {
 		terminal = service.Core.Snapshot.Task != nil &&
@@ -96,7 +96,7 @@ func (service *Service) prepareCompletedTaskBoundary() {
 			terminal = terminal || state.Status == task_context.StatusCompleted || state.Status == task_context.StatusFailed
 		}
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if terminal {
 		service.promptStack.ClearKind("skill")
 		service.Deps.Engine.SetMaxLoops(maxLoopsFor(service.effortManager.Current()))

@@ -50,11 +50,11 @@ func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 		switchWG.Add(1)
 		go func(r int) {
 			defer switchWG.Done()
-			service.Mu.Lock()
+			service.ViewMu.Lock()
 			sid := ids[r%len(ids)]
 			service.Core.Snapshot.Session = SessionState{ID: sid}
 			service.sessions.SetActive(sid)
-			service.Mu.Unlock()
+			service.ViewMu.Unlock()
 		}(round)
 	}
 
@@ -79,7 +79,7 @@ func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 	// 等待全部 drain（无死锁）
 	drainDeadline := time.After(20 * time.Second)
 	for {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		allIdle := true
 		for _, sid := range ids {
 			if unit := service.sessions.Unit(sid); unit != nil && unit.ChatState().Running {
@@ -87,7 +87,7 @@ func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 				break
 			}
 		}
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		if allIdle {
 			break
 		}
@@ -99,8 +99,8 @@ func TestStressConcurrentSessionsDoNotPollute(t *testing.T) {
 	}
 
 	// 断言：每个会话的可见对话只含自己的输入，无跨会话污染
-	service.Mu.RLock()
-	defer service.Mu.RUnlock()
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
 	for _, sid := range ids {
 		unit := service.sessions.Unit(sid)
 		if unit == nil {

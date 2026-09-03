@@ -633,9 +633,9 @@ func TestBeginNewSessionClearsWorkTable(t *testing.T) {
 		"task:a": {ID: "task:a", Phase: dto.TaskPhaseTask, Task: "a", Status: dto.TaskRunning},
 	}
 	service := newTestService(t, &fakeEngine{}, withTestRuntime(runtime))
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.WorkTable = buildWorkTable(nil, runtime.TaskSnapshot(), nil)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
@@ -678,9 +678,9 @@ func TestResumedChatPersistsToSelectedSession(t *testing.T) {
 func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.HistoryOffset = 1
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.LoadMoreHistory(1); err != nil {
 		t.Fatal(err)

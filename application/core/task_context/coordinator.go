@@ -36,7 +36,7 @@ type Coordinator struct {
 	tokenCounter    RequestTokenCounter
 
 	// sessionStates 是会话级任务/plan 运行时状态分片（M2）。所有访问在
-	// Core.Mu 下进行（Locked 方法）或由方法自行加锁。
+	// Core.ViewMu 下进行（Locked 方法）或由方法自行加锁。
 	sessionStates map[string]*sessionTaskRuntime
 	// requestToSession 维护 requestID → sessionID 绑定（BeginTask 登记，
 	// 任务结束后清理），供带 requestID 的方法反查会话状态。会话域重构后
@@ -89,13 +89,13 @@ func NewCoordinator(deps Deps) *Coordinator {
 }
 
 // activeSessionIDLocked 返回当前活跃会话（快照归属会话）。调用方持有
-// Core.Mu。
+// Core.ViewMu。
 func (c *Coordinator) activeSessionIDLocked() string {
 	return c.Snapshot.Session.ID
 }
 
 // sessionStateLocked 返回指定会话的运行时状态（按需创建）。调用方持有
-// Core.Mu。
+// Core.ViewMu。
 func (c *Coordinator) sessionStateLocked(sessionID string) *sessionTaskRuntime {
 	if c.sessionStates == nil {
 		c.sessionStates = make(map[string]*sessionTaskRuntime)
@@ -108,13 +108,13 @@ func (c *Coordinator) sessionStateLocked(sessionID string) *sessionTaskRuntime {
 	return st
 }
 
-// activeSessionLocked 返回活跃会话的运行时状态。调用方持有 Core.Mu。
+// activeSessionLocked 返回活跃会话的运行时状态。调用方持有 Core.ViewMu。
 func (c *Coordinator) activeSessionLocked() *sessionTaskRuntime {
 	return c.sessionStateLocked(c.activeSessionIDLocked())
 }
 
 // sessionForRequestLocked 按 requestID 反查会话状态（未绑定 → nil）。
-// 调用方持有 Core.Mu。
+// 调用方持有 Core.ViewMu。
 func (c *Coordinator) sessionForRequestLocked(requestID string) *sessionTaskRuntime {
 	if requestID == "" {
 		return nil
@@ -126,7 +126,7 @@ func (c *Coordinator) sessionForRequestLocked(requestID string) *sessionTaskRunt
 }
 
 // bindRequestLocked 登记 requestID → sessionID（BeginTask 时；调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) bindRequestLocked(requestID, sessionID string) {
 	c.requestMu.Lock()
 	defer c.requestMu.Unlock()
@@ -137,7 +137,7 @@ func (c *Coordinator) bindRequestLocked(requestID, sessionID string) {
 }
 
 // unbindRequestLocked 移除 requestID → sessionID（任务结束时；调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) unbindRequestLocked(requestID string) {
 	c.requestMu.Lock()
 	defer c.requestMu.Unlock()
@@ -145,7 +145,7 @@ func (c *Coordinator) unbindRequestLocked(requestID string) {
 }
 
 // semanticProgressLocked 返回指定请求的语义进展计数（TaskService epoch）；
-// 未装配 TaskService 时回退到直接状态读取。调用方持有 Core.Mu。
+// 未装配 TaskService 时回退到直接状态读取。调用方持有 Core.ViewMu。
 func (c *Coordinator) semanticProgressLocked(requestID string) (uint64, bool) {
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
@@ -167,16 +167,16 @@ func (c *Coordinator) semanticProgressLocked(requestID string) (uint64, bool) {
 
 // ActiveSkillIDs 返回活跃会话当前任务的激活 skill ID 列表（锁内快照）。
 func (c *Coordinator) ActiveSkillIDs() []string {
-	c.Mu.RLock()
-	defer c.Mu.RUnlock()
+	c.ViewMu.RLock()
+	defer c.ViewMu.RUnlock()
 	return c.activeSkillIDsLocked(c.activeSessionIDLocked())
 }
 
 // ActiveSkillIDsFor 返回指定会话当前任务的激活 skill ID 列表（G1：后台
 // 会话投影同样需要；与活跃视图解耦）。
 func (c *Coordinator) ActiveSkillIDsFor(sessionID string) []string {
-	c.Mu.RLock()
-	defer c.Mu.RUnlock()
+	c.ViewMu.RLock()
+	defer c.ViewMu.RUnlock()
 	return c.activeSkillIDsLocked(sessionID)
 }
 
@@ -201,13 +201,13 @@ func (c *Coordinator) GoalSkillActive() bool {
 // GoalSkillActiveFor 返回指定会话当前任务的 goal skill 激活判定（G1：
 // lock-free 原子值只镜像活跃会话；后台会话按自身任务状态实时计算）。
 func (c *Coordinator) GoalSkillActiveFor(sessionID string) bool {
-	c.Mu.RLock()
-	defer c.Mu.RUnlock()
+	c.ViewMu.RLock()
+	defer c.ViewMu.RUnlock()
 	return c.goalSkillActiveForLocked(sessionID)
 }
 
 // goalSkillActiveForLocked 是 GoalSkillActiveFor/syncGoalSkillActiveLocked
-// 的锁内实现（调用方持有 Core.Mu）。
+// 的锁内实现（调用方持有 Core.ViewMu）。
 func (c *Coordinator) goalSkillActiveForLocked(sessionID string) bool {
 	state := c.sessionStateLocked(sessionID).taskExecution
 	if state == nil {
@@ -221,14 +221,14 @@ func (c *Coordinator) goalSkillActiveForLocked(sessionID string) bool {
 	return false
 }
 
-// CurrentTaskExecution 返回活跃会话当前任务执行状态（调用方持有 Core.Mu
+// CurrentTaskExecution 返回活跃会话当前任务执行状态（调用方持有 Core.ViewMu
 // 时读取）。
 func (c *Coordinator) CurrentTaskExecution() *TaskExecutionState {
 	return c.activeSessionLocked().taskExecution
 }
 
 // CurrentTaskExecutionFor 返回指定会话当前任务执行状态（调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) CurrentTaskExecutionFor(sessionID string) *TaskExecutionState {
 	return c.sessionStateLocked(sessionID).taskExecution
 }
@@ -264,7 +264,7 @@ func (c *Coordinator) ClearActivePlanLocked() {
 }
 
 // ResetPlanStateLocked 清空活跃会话 plan 帧状态（新会话/恢复路径；调用方
-// 持有 Core.Mu）。
+// 持有 Core.ViewMu）。
 func (c *Coordinator) ResetPlanStateLocked() {
 	st := c.activeSessionLocked()
 	st.planStack = nil
@@ -273,7 +273,7 @@ func (c *Coordinator) ResetPlanStateLocked() {
 }
 
 // SetPlanStateLocked 装载活跃会话 plan 帧栈与激活帧（测试/恢复路径；调用
-// 方持有 Core.Mu）。
+// 方持有 Core.ViewMu）。
 func (c *Coordinator) SetPlanStateLocked(stack []model.SessionPlanFrame, activeID string) {
 	st := c.activeSessionLocked()
 	st.planStack = stack
@@ -282,7 +282,7 @@ func (c *Coordinator) SetPlanStateLocked(stack []model.SessionPlanFrame, activeI
 }
 
 // SetResultRefByCallIDLocked 登记活跃会话 callID → resultRef（测试/恢复
-// 路径；调用方持有 Core.Mu）。
+// 路径；调用方持有 Core.ViewMu）。
 func (c *Coordinator) SetResultRefByCallIDLocked(callID, ref string) {
 	c.activeSessionLocked().resultRefsByToolCallID[callID] = ref
 }
@@ -306,7 +306,7 @@ func (c *Coordinator) DeleteReplanInFlight(interactionID string) {
 // ErrReActBudgetExceeded 标记请求被其捕获的执行预算终止。
 var ErrReActBudgetExceeded = errors.New("ReAct execution budget exhausted")
 
-// StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.Mu）。
+// StartReActBudgetLocked 启动活跃会话请求级执行预算（调用方持有 Core.ViewMu）。
 func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReActBudget) {
 	st := c.activeSessionLocked()
 	st.reactBudget = &activeReActBudget{requestID: requestID, budget: budget}
@@ -314,7 +314,7 @@ func (c *Coordinator) StartReActBudgetLocked(requestID string, budget prompt.ReA
 }
 
 // StartReActBudgetForLocked 启动指定会话请求级执行预算（调用方持有
-// Core.Mu）。
+// Core.ViewMu）。
 func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, budget prompt.ReActBudget) {
 	st := c.sessionStateLocked(sessionID)
 	st.reactBudget = &activeReActBudget{requestID: requestID, budget: budget}
@@ -322,7 +322,7 @@ func (c *Coordinator) StartReActBudgetForLocked(sessionID, requestID string, bud
 }
 
 // SetReActBudgetExhaustedLocked 直接置位预算终止原因（测试模拟预算耗尽；
-// 调用方持有 Core.Mu）。
+// 调用方持有 Core.ViewMu）。
 func (c *Coordinator) SetReActBudgetExhaustedLocked(requestID, reason string) {
 	if st := c.sessionForRequestLocked(requestID); st != nil && st.reactBudget != nil && st.reactBudget.requestID == requestID {
 		st.reactBudget.reason = reason
@@ -331,8 +331,8 @@ func (c *Coordinator) SetReActBudgetExhaustedLocked(requestID, reason string) {
 
 // ClearReActBudget 清除请求级预算（自行加锁）。
 func (c *Coordinator) ClearReActBudget(requestID string) {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.ViewMu.Lock()
+	defer c.ViewMu.Unlock()
 	if st := c.sessionForRequestLocked(requestID); st != nil && st.reactBudget != nil && st.reactBudget.requestID == requestID {
 		st.reactBudget = nil
 	}
@@ -342,8 +342,8 @@ func (c *Coordinator) ClearReActBudget(requestID string) {
 // RecordReActToolCall 累计一次工具调用（自行加锁）。ctx 携带会话 ID 时
 // 路由到对应会话，否则按活跃会话。
 func (c *Coordinator) RecordReActToolCall(ctx context.Context) {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.ViewMu.Lock()
+	defer c.ViewMu.Unlock()
 	st := c.runtimeForContextLocked(ctx)
 	if st != nil && st.reactBudget != nil {
 		st.reactBudget.toolCalls++
@@ -353,8 +353,8 @@ func (c *Coordinator) RecordReActToolCall(ctx context.Context) {
 // AllowNextReActIteration 判定是否允许下一轮模型迭代（自行加锁）。ctx
 // 携带会话 ID 时路由到对应会话，否则按活跃会话。
 func (c *Coordinator) AllowNextReActIteration(ctx context.Context, turn int) bool {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.ViewMu.Lock()
+	defer c.ViewMu.Unlock()
 	st := c.runtimeForContextLocked(ctx)
 	if st == nil {
 		return true
@@ -391,8 +391,8 @@ func (c *Coordinator) AllowNextReActIteration(ctx context.Context, turn int) boo
 
 // ReActBudgetError 返回预算终止错误（自行加锁；无终止原因 → nil）。
 func (c *Coordinator) ReActBudgetError(requestID string) error {
-	c.Mu.RLock()
-	defer c.Mu.RUnlock()
+	c.ViewMu.RLock()
+	defer c.ViewMu.RUnlock()
 	if st := c.sessionForRequestLocked(requestID); st != nil && st.reactBudget != nil && st.reactBudget.requestID == requestID && st.reactBudget.reason != "" {
 		return fmt.Errorf("%w: %s", ErrReActBudgetExceeded, st.reactBudget.reason)
 	}
@@ -411,7 +411,7 @@ type activeReActBudget struct {
 }
 
 // runtimeForContextLocked 按 ctx 中的会话 ID 返回会话运行时（未注入 → 活跃
-// 会话；无匹配 → nil）。调用方持有 Core.Mu。
+// 会话；无匹配 → nil）。调用方持有 Core.ViewMu。
 func (c *Coordinator) runtimeForContextLocked(ctx context.Context) *sessionTaskRuntime {
 	if ctx == nil {
 		return c.activeSessionLocked()
@@ -427,8 +427,8 @@ func (c *Coordinator) RecordContextControlFailure(requestID string, err error) {
 	if err == nil {
 		return
 	}
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.ViewMu.Lock()
+	defer c.ViewMu.Unlock()
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		return
@@ -442,8 +442,8 @@ func (c *Coordinator) RecordContextControlFailure(requestID string, err error) {
 
 // TakeContextControlFailure 取走当前请求的 context 控制失败（自行加锁）。
 func (c *Coordinator) TakeContextControlFailure(requestID string) error {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.ViewMu.Lock()
+	defer c.ViewMu.Unlock()
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil || st.contextControlRequestID != requestID {
 		return nil
@@ -457,21 +457,21 @@ func (c *Coordinator) TakeContextControlFailure(requestID string) error {
 // currentTaskService 返回活跃会话当前任务的 TaskService（自行加 RLock，
 // 供无锁调用点）。
 func (c *Coordinator) currentTaskService() *TaskService {
-	c.Mu.RLock()
+	c.ViewMu.RLock()
 	ts := c.currentTaskServiceForLocked(c.activeSessionIDLocked())
-	c.Mu.RUnlock()
+	c.ViewMu.RUnlock()
 	return ts
 }
 
 // currentTaskServiceLocked 返回活跃会话当前任务的 TaskService；要求调用方
-// 持有 Core.Mu。测试/恢复路径未装配 taskService 时，以当前状态构造瞬态
+// 持有 Core.ViewMu。测试/恢复路径未装配 taskService 时，以当前状态构造瞬态
 // 实例。
 func (c *Coordinator) currentTaskServiceLocked() *TaskService {
 	return c.currentTaskServiceForLocked(c.activeSessionIDLocked())
 }
 
 // currentTaskServiceForLocked 返回指定会话当前任务的 TaskService；要求
-// 调用方持有 Core.Mu。
+// 调用方持有 Core.ViewMu。
 func (c *Coordinator) currentTaskServiceForLocked(sessionID string) *TaskService {
 	st := c.sessionStateLocked(sessionID)
 	ts := st.taskService
@@ -483,7 +483,7 @@ func (c *Coordinator) currentTaskServiceForLocked(sessionID string) *TaskService
 }
 
 // taskServiceForRequestLocked 按 requestID 返回任务的 TaskService（未绑定
-// → 活跃会话；调用方持有 Core.Mu）。
+// → 活跃会话；调用方持有 Core.ViewMu）。
 func (c *Coordinator) taskServiceForRequestLocked(requestID string) *TaskService {
 	if st := c.sessionForRequestLocked(requestID); st != nil {
 		ts := st.taskService
@@ -509,13 +509,13 @@ type RestoredTaskState struct {
 }
 
 // RestoreSessionTaskLocked 装载活跃会话恢复的任务/plan 状态（调用方持有
-// Core.Mu；对应 resumeSession 的 hasRecord 分支）。
+// Core.ViewMu；对应 resumeSession 的 hasRecord 分支）。
 func (c *Coordinator) RestoreSessionTaskLocked(restored RestoredTaskState) {
 	c.RestoreSessionTaskLockedFor(c.activeSessionIDLocked(), restored)
 }
 
 // RestoreSessionTaskLockedFor 装载指定会话恢复的任务/plan 状态（调用方持有
-// Core.Mu；会话域重构：plan/task 状态写按会话路由，后台会话不再写活跃槽）。
+// Core.ViewMu；会话域重构：plan/task 状态写按会话路由，后台会话不再写活跃槽）。
 func (c *Coordinator) RestoreSessionTaskLockedFor(sessionID string, restored RestoredTaskState) {
 	st := c.sessionStateLocked(sessionID)
 	st.planStack = append([]model.SessionPlanFrame(nil), restored.PlanStack...)
@@ -532,7 +532,7 @@ func (c *Coordinator) RestoreSessionTaskLockedFor(sessionID string, restored Res
 }
 
 // ResetForNewSessionLocked 清空活跃会话任务/plan 状态（BeginNewSession /
-// 无 record 的 resumeSession 分支；调用方持有 Core.Mu）。
+// 无 record 的 resumeSession 分支；调用方持有 Core.ViewMu）。
 func (c *Coordinator) ResetForNewSessionLocked() {
 	st := c.activeSessionLocked()
 	st.planStack = nil

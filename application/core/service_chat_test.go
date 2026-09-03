@@ -15,9 +15,9 @@ import (
 func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 3, MaxToolCalls: 2})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	bridge := NewToolHookBridge()
 	bridge.Bind(service)
@@ -43,14 +43,14 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	}}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.components.tasks.StartReActBudgetLocked("budget-request", ReActBudget{MaxToolRounds: 1})
 	service.components.tasks.SetReActBudgetExhaustedLocked("budget-request", "tool-round limit reached (1)")
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "budget-request"}
 	service.components.tasks.BeginTask("budget-request", "deliver result", "high", nil, TaskCheckpoint{})
 	stored := service.components.tasks.StoreToolResultLocked("bash", rawResult)
 	service.components.tasks.SetResultRefByCallIDLocked("call-large", stored.Ref)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	if err := service.finalizeReActBudget(context.Background(), "budget-request"); err != nil {
 		t.Fatal(err)
@@ -127,21 +127,21 @@ func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T) {
 	}
 
 	// 运行中入队一条 → 本轮结束中断（一轮一消费，队列随后清空提升）。
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	runtime := service.sessionUnitLocked(service.Core.Snapshot.Session.ID)
 	runtime.Enqueue(selexsession.QueuedRequest{
 		DisplayInput: "临时补充需求",
 		Payload:      chatRequest{displayInput: "临时补充需求", modelInput: "临时补充需求"},
 	})
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if hooks.OnIterationComplete(ctx, 2) {
 		t.Fatal("queued input must interrupt the loop at the round boundary")
 	}
 
 	// 中断后队列保留在会话域 runtime（不在此处消费），由 runChat 结尾 drain。
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	queued := len(service.sessions.Unit(service.Core.Snapshot.Session.ID).PendingRequests())
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if queued != 1 {
 		t.Fatalf("after interrupt: inputQueue=%d, want 1", queued)
 	}
@@ -249,8 +249,8 @@ func TestSessionBackedQueueIsConsumedAtRunChatEnd(t *testing.T) {
 	if got := service.Snapshot().Chat.QueuedCount; got != 1 {
 		t.Fatalf("queued count while persistence is draining = %d, want 1", got)
 	}
-	// CurrentTaskResumeRecord 自行加 Core.Mu.RLock（"供无锁调用点"），外层
-	// 不能再包 service.Mu.RLock——Go RWMutex 不可重入，目录刷新 worker 在
+	// CurrentTaskResumeRecord 自行加 Core.ViewMu.RLock（"供无锁调用点"），外层
+	// 不能再包 service.ViewMu.RLock——Go RWMutex 不可重入，目录刷新 worker 在
 	// 两次 RLock 之间排队写锁时会造成永久死锁（-race + 并发加载下偶发）。
 	resume := service.components.tasks.CurrentTaskResumeRecord()
 	if len(resume.QueuedRefs) != 1 || resume.QueuedRefs[0] != "queued" {

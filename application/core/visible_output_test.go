@@ -10,11 +10,11 @@ import (
 func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "request-1"}
 	service.sessionUnitLocked(service.Core.Snapshot.Session.ID).SetStream(chat.NewVisibleOutputStream("request-1"))
 	service.appendMessageLocked("assistant", "", nil)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 
 	service.appendDelta("request-1", "answer<think>private reasoning</think> done")
 	snapshot := service.Snapshot()

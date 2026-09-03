@@ -42,7 +42,7 @@ func toolOutputPreview(content string, limit int) (string, bool) {
 }
 
 // boundToolResultForSnapshot 生成进入可见会话快照的工具输出（调用方持有
-// Core.Mu；StoreToolResultLocked 与 pendingToolResults 均要求持锁）：
+// Core.ViewMu；StoreToolResultLocked 与 pendingToolResults 均要求持锁）：
 //   - 未超预算 → 原样返回（visible=content, ref=""）；
 //   - 超预算 → 全文归档为 result_ref（复用 read_tool_result 的持久化
 //     通道：pending 内存态 + 会话落盘，前端可随时经 ToolResultContent

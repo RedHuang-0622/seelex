@@ -61,14 +61,14 @@ func (service *Service) ForkSessionLatest(parentID string) (string, error) {
 // 截断后的子会话快照 → 写入子会话键 → 绑定项目并切换写作用域。
 // 只检查父会话自身是否运行中（并行会话的其它会话执行不影响 fork）。
 func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error) {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	closed := service.closed
 	draining := service.draining
 	running := false
 	if unit := service.sessions.Unit(parentID); unit != nil {
 		running = unit.ChatState().Running
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if closed {
 		return "", errors.New("application is shut down")
 	}

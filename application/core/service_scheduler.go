@@ -37,10 +37,10 @@ func (service *Service) CancelScheduledTask(id string) error {
 // 定时/周期任务变更入口复用；与 SelectAccount 等既有路径内联逻辑一致。
 func (service *Service) RefreshRuntimeSnapshot() {
 	projection := service.collectRuntimeProjection(context.Background())
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.applyRuntimeProjectionLocked(projection)
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), service.Snapshot().Runtime)
 	service.publishTaskDeltas()
 }

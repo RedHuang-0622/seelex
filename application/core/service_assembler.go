@@ -80,7 +80,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
 		PresentToolError:           presentToolError,
 		QueuedInputRefs: func() []string {
-			return queuedInputRefs(service.activeQueuedChatRequestsLocked()) // 调用方持有 Core.Mu（TaskService 终态路径）
+			return queuedInputRefs(service.activeQueuedChatRequestsLocked()) // 调用方持有 Core.ViewMu（TaskService 终态路径）
 		},
 		CurrentSessionID: func() string {
 			return service.sessions.ActiveID()
@@ -150,9 +150,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	})
 	// worktable.changed 汇聚发布器：与事件 hub 解耦，突发时 latest-wins。
 	service.workTablePublisher = worktable.NewWorkTablePublisher(func(update worktable.WorkTableUpdate) {
-		service.Mu.RLock()
+		service.ViewMu.RLock()
 		sessionID := service.Core.Snapshot.Session.ID
-		service.Mu.RUnlock()
+		service.ViewMu.RUnlock()
 		service.publishSessionEvent(EventWorkTableChanged, update.Revision, update.RequestID, sessionID, WorkTableEvent{
 			Items: update.Items, Batches: update.Batches,
 		})

@@ -94,10 +94,10 @@ func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON st
 		input.Limit = max
 	}
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	sessionID := service.Core.Snapshot.Session.ID
 	currentWorkspaceID := session_runtime.WorkspaceID(service.Core.Snapshot.CurrentWorkspace)
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 
 	store, ok := service.Deps.Sessions.(session_runtime.SessionTranscriptPort)
 	if !ok {

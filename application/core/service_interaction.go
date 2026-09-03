@@ -9,9 +9,9 @@ import (
 )
 
 func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	interaction := service.Core.Snapshot.Interaction
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if interaction == nil || interaction.ID != id {
 		return ErrInteractionNotFound
 	}
@@ -58,15 +58,15 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 }
 
 func (service *Service) appendPlanRetryNotice(message string) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.appendMessageLocked("system", message, nil)
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 }
 
 func (service *Service) abortPlanInteraction() {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if plan := service.Core.Snapshot.Runtime.Plan; plan != nil {
 		plan.Status = PlanAborted
 		for index := range plan.Nodes {
@@ -77,7 +77,7 @@ func (service *Service) abortPlanInteraction() {
 	}
 	service.appendMessageLocked("system", "工作流已终止。", nil)
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 }
 
@@ -86,11 +86,11 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 		return fmt.Errorf("账号不可用: %s", name)
 	}
 	runtimeProjection := service.collectRuntimeProjection(context.Background())
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.Account = name
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), service.Snapshot().Runtime)
 	service.addNotice("已切换账号: " + name)
 	return nil
@@ -104,13 +104,13 @@ func (service *Service) SelectAccount(_ context.Context, name string) error {
 // （后台会话的 prompt 由各自的 runChat 起点/热挂载刷新）。会话化 effort
 // 属刀 4，在此之前的全局选择器只允许在视图空闲时变更。
 func (service *Service) SwitchEffort(_ context.Context, level string) error {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	viewSessionID := service.Core.Snapshot.Session.ID
 	viewRunning := false
 	if unit := service.sessions.Unit(viewSessionID); unit != nil {
 		viewRunning = unit.ChatState().Running
 	}
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if viewRunning {
 		return errors.New("当前会话正在运行：请等待回合结束或取消后再切换 Effort")
 	}
@@ -131,7 +131,7 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	} else {
 		service.Deps.Engine.SetSystemPrompt(promptText)
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	if unit := service.sessions.Unit(viewSessionID); unit != nil {
 		// G4：effort 选择归属进 SessionUnit（视图会话 idle 才允许变更；
 		// 后台会话各自保留自己的选择）。
@@ -139,7 +139,7 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	}
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
 	return nil
 }
@@ -151,9 +151,9 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 // 因此任一会话 running 即拒绝；模型侧 switch_plugin 工具走 seelebridge
 // 的独立激活面，不经过本进程级入口。
 func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	anyRunning := service.anyChatRunningLocked()
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if anyRunning {
 		return errors.New("有会话正在运行：插件切换会重建进程级提示与历史，请等待全部会话空闲后再切换")
 	}
@@ -180,11 +180,11 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 		service.resetConversation("已切换到 " + name + " 插件")
 	}
 	runtimeProjection := service.collectRuntimeProjection(ctx)
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.applyRuntimeProjectionLocked(runtimeProjection)
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 	service.publishRuntimeProjections()
 	return nil
@@ -211,16 +211,16 @@ func (service *Service) SetFullAccess(on bool) {
 		service.Approval.SetPermissionAutoApproval(true)
 		service.Approval.ResolveAll(ApprovalDecision{OptionID: "always"})
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.FullAccess = effective
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", viewSessionID, runtime)
 }
 
 func (service *Service) observeInteraction(interaction *Interaction) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	previousID := ""
 	if service.Core.Snapshot.Interaction != nil {
 		previousID = service.Core.Snapshot.Interaction.ID
@@ -233,7 +233,7 @@ func (service *Service) observeInteraction(interaction *Interaction) {
 		service.Core.Snapshot.Interaction = &copied
 	}
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if interaction == nil {
 		service.publishSessionEvent(EventInteractionClosed, revision, previousID, service.currentViewSessionID(), nil)
 		return
@@ -245,21 +245,21 @@ func (service *Service) openInteraction(interaction *Interaction) {
 	if interaction == nil {
 		return
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.Core.Snapshot.Interaction = interaction
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventInteractionOpened, revision, interaction.ID, service.currentViewSessionID(), interaction)
 }
 
 func (service *Service) closeInteraction(id string) {
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.components.tasks.DeleteReplanInFlight(id)
 	if service.Core.Snapshot.Interaction != nil && service.Core.Snapshot.Interaction.ID == id {
 		service.Core.Snapshot.Interaction = nil
 	}
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventInteractionClosed, revision, id, service.currentViewSessionID(), nil)
 }
 

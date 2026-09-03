@@ -47,7 +47,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 	workspaceProjection := service.collectWorkspaceProjection()
 
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
 	service.sessions.SetActive(sessionID)
@@ -73,7 +73,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	// *Locked 方法必须在持锁段内取值：引擎写入留到解锁之后。
 	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	if !targetRunning {
 		service.Deps.Engine.SetSystemPrompt(systemPrompt)
 	}
@@ -95,13 +95,13 @@ func (service *Service) UnloadSession(sessionID string) error {
 	transition.Lock()
 	defer transition.Unlock()
 
-	service.Mu.RLock()
+	service.ViewMu.RLock()
 	running := false
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		running = unit.ChatState().Running
 	}
 	active := sessionID == service.Core.Snapshot.Session.ID
-	service.Mu.RUnlock()
+	service.ViewMu.RUnlock()
 	if running {
 		return ErrChatRunning
 	}
@@ -117,7 +117,7 @@ func (service *Service) UnloadSession(sessionID string) error {
 			return fmt.Errorf("unload engine %q: %w", sessionID, err)
 		}
 	}
-	service.Mu.Lock()
+	service.ViewMu.Lock()
 	service.sessions.Remove(sessionID)
 	if service.planProjections != nil {
 		delete(service.planProjections, sessionID)
@@ -143,7 +143,7 @@ func (service *Service) UnloadSession(sessionID string) error {
 		service.components.tasks.ResetForNewSessionLocked()
 	}
 	revision := service.bumpLocked()
-	service.Mu.Unlock()
+	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.components.sessions.RequestCatalogRefresh()
 	return nil
