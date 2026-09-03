@@ -138,15 +138,17 @@ func (service *Service) recordReadFileForSessionLocked(sessionID, arguments stri
 		return
 	}
 	now := time.Now()
-	view := service.sessionViewLocked(sessionID)
-	for index := range view.ReadFiles {
-		if view.ReadFiles[index].Path == input.Path {
-			view.ReadFiles[index].ReadAt = now
-			service.mirrorActiveViewLocked()
-			return
+	// G5 访问器化：ReadFiles 写经 View.mu（Mutate），避免 ViewMu 下裸字段
+	// 穿越；镜像由调用方在 ViewMu 上下文统一执行。
+	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
+		for index := range view.ReadFiles {
+			if view.ReadFiles[index].Path == input.Path {
+				view.ReadFiles[index].ReadAt = now
+				return
+			}
 		}
-	}
-	view.ReadFiles = append(view.ReadFiles, ReadFileRef{Path: input.Path, ReadAt: now})
+		view.ReadFiles = append(view.ReadFiles, ReadFileRef{Path: input.Path, ReadAt: now})
+	})
 	service.mirrorActiveViewLocked()
 }
 

@@ -290,8 +290,12 @@ func (engine *fakeEngine) HasSession(sessionID string) bool {
 type fakeRuntime struct {
 	account    string
 	fullAccess bool
-	binding    dto.PlanBranchBinding
-	planPolicy dto.PlanPolicy
+	// fullAccessMu 保护 fullAccess：多个会话的 runChat 起点并发 sync
+	// 引擎门（G4 每会话选择 → 进程单例门镜像），fake 必须与生产
+	// PermissionGate（内部 RWMutex）同构，否则 -race 报竞争。
+	fullAccessMu sync.RWMutex
+	binding      dto.PlanBranchBinding
+	planPolicy   dto.PlanPolicy
 	// planPolicyBySession 是按会话 plan 策略槽（G1-C：镜像生产
 	// Runtime.SetPlanPolicyFor 语义；fake 需锁保护并发 runChat 写入）。
 	planPolicyMu        sync.Mutex
@@ -347,9 +351,17 @@ func (*fakeRuntime) VisibleTools(context.Context) []Tool {
 
 func (*fakeRuntime) ActivePlugin() string { return "default" }
 
-func (runtime *fakeRuntime) FullAccess() bool { return runtime.fullAccess }
+func (runtime *fakeRuntime) FullAccess() bool {
+	runtime.fullAccessMu.RLock()
+	defer runtime.fullAccessMu.RUnlock()
+	return runtime.fullAccess
+}
 
-func (runtime *fakeRuntime) SetFullAccess(on bool) { runtime.fullAccess = on }
+func (runtime *fakeRuntime) SetFullAccess(on bool) {
+	runtime.fullAccessMu.Lock()
+	runtime.fullAccess = on
+	runtime.fullAccessMu.Unlock()
+}
 
 // SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
 // 多个 runChat 并发调用（M2：每个会话各自 publishRuntimeProjections），

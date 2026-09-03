@@ -304,20 +304,32 @@ func (c *Coordinator) SessionViewLocked(sessionID string) *session.View {
 	return c.sessionViewLocked(sessionID)
 }
 
+// SessionViewMutateLocked 在指定会话可见投影的 View.mu 内应用变更（G5 访问
+// 器化：View 字段写一律经 View.mu，调用方持有 ViewMu 时同样安全——View.mu
+// 是叶子锁，任何路径都不在持 View.mu 时反向获取 ViewMu）。
+func (c *Coordinator) SessionViewMutateLocked(sessionID string, mutate func(*session.View)) {
+	view := c.sessionViewLocked(sessionID)
+	if view == nil || mutate == nil {
+		return
+	}
+	view.Mutate(mutate)
+}
+
+// SessionViewReadLocked 在指定会话可见投影的 View.mu（读）内读取字段快照
+// （G5 访问器化：与 Mutate 同锁序，镜像/增量/工具写回共用 View.mu 叶子锁）。
+func (c *Coordinator) SessionViewReadLocked(sessionID string, read func(*session.View)) {
+	view := c.sessionViewLocked(sessionID)
+	if view == nil || read == nil {
+		return
+	}
+	view.Read(read)
+}
+
 // SetSessionViewLocked 装载指定会话的可见投影（冷加载/恢复路径；调用方
 // 持有 Core.ViewMu）。活跃会话同步镜像 Snapshot。
 func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View) {
 	if view == nil {
 		return
-	}
-	loaded := &session.View{
-		Conversation:       append([]model.Message(nil), view.Conversation...),
-		Chat:               view.Chat,
-		ReadFiles:          append([]model.ReadFileRef(nil), view.ReadFiles...),
-		TotalMessages:      view.TotalMessages,
-		HistoryOffset:      view.HistoryOffset,
-		HasMoreHistory:     view.HasMoreHistory,
-		ConversationWindow: view.ConversationWindow,
 	}
 	unit := c.units.Unit(sessionID)
 	if unit == nil {
@@ -328,8 +340,18 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)
 		}
 		c.units.Register(unit)
 	}
-	unit.View = loaded
-	c.mirrorActiveViewLocked(sessionID, loaded)
+	// G5 访问器化：单元 View 指针一经注册不再被整体替换（避免与并发读
+	// unit.View 的路径构成指针字段竞争）；装载在 View.mu 内逐字段拷贝。
+	unit.View.Mutate(func(target *session.View) {
+		target.Conversation = append([]model.Message(nil), view.Conversation...)
+		target.Chat = view.Chat
+		target.ReadFiles = append([]model.ReadFileRef(nil), view.ReadFiles...)
+		target.TotalMessages = view.TotalMessages
+		target.HistoryOffset = view.HistoryOffset
+		target.HasMoreHistory = view.HasMoreHistory
+		target.ConversationWindow = view.ConversationWindow
+	})
+	c.mirrorActiveViewLocked(sessionID, unit.View)
 }
 
 // SetSessionChatLockedFor 写指定会话的聊天运行态投影（调用方持有

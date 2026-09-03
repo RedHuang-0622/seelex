@@ -566,15 +566,19 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 		service.ViewMu.Unlock()
 		return
 	}
-	view := service.components.view.SessionViewLocked(sessionID)
 	messageID := ""
-	for index := len(view.Conversation) - 1; index >= 0; index-- {
-		if view.Conversation[index].Role == "assistant" && view.Conversation[index].Tool == nil {
-			view.Conversation[index].Content += chunk
-			messageID = view.Conversation[index].ID
-			break
+	// G5 访问器化：会话 View 的写一律经 View.mu（Mutate），不再在
+	// ViewMu 下裸字段穿越——后台/活跃同会话切换期间 View.mu 是叶子锁，
+	// 镜像（view.Read）与增量写互斥，天然无竞态。
+	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
+		for index := len(view.Conversation) - 1; index >= 0; index-- {
+			if view.Conversation[index].Role == "assistant" && view.Conversation[index].Tool == nil {
+				view.Conversation[index].Content += chunk
+				messageID = view.Conversation[index].ID
+				break
+			}
 		}
-	}
+	})
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
@@ -628,31 +632,35 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		return
 	}
 	service.ViewMu.Lock()
-	view := service.sessionViewLocked(sessionID)
 	messageID := ""
-	for index := len(view.Conversation) - 1; index >= 0; index-- {
-		if view.Conversation[index].Role != "assistant" || view.Conversation[index].Tool != nil {
-			continue
-		}
-		if view.Conversation[index].ReasoningContent == reasoning {
-			service.ViewMu.Unlock()
+	alreadyAttached := false
+	// G5 访问器化：经 View.mu 读写可见消息（Mutate 内完成查找+写入，
+	// 避免 ViewMu 下的裸字段穿越）。
+	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
+		for index := len(view.Conversation) - 1; index >= 0; index-- {
+			if view.Conversation[index].Role != "assistant" || view.Conversation[index].Tool != nil {
+				continue
+			}
+			if view.Conversation[index].ReasoningContent == reasoning {
+				alreadyAttached = true
+				return
+			}
+			view.Conversation[index].ReasoningContent = reasoning
+			messageID = view.Conversation[index].ID
 			return
 		}
-		view.Conversation[index].ReasoningContent = reasoning
-		messageID = view.Conversation[index].ID
-		break
-	}
-	if messageID == "" {
+	})
+	if !alreadyAttached && messageID != "" {
+		service.mirrorActiveViewLocked()
+		revision := service.bumpLocked()
 		service.ViewMu.Unlock()
+		service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{
+			MessageID:        messageID,
+			ReasoningContent: reasoning,
+		})
 		return
 	}
-	service.mirrorActiveViewLocked()
-	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventMessageDelta, revision, requestID, sessionID, MessageDelta{
-		MessageID:        messageID,
-		ReasoningContent: reasoning,
-	})
 }
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {

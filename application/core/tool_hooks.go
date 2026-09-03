@@ -11,6 +11,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 	seelplan "github.com/RedHuang-0622/seelex/seelebridge/plan"
+	selexsession "github.com/RedHuang-0622/seelex/session"
 )
 
 func (service *Service) handleToolStart(ctx context.Context, name, id, arguments string) {
@@ -129,14 +130,17 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	emit("toolhook.complete.lock.done")
 	toolArguments := arguments
 	if toolArguments == "" {
-		view := service.sessionViewLocked(sessionID)
-		for index := len(view.Conversation) - 1; index >= 0; index-- {
-			tool := view.Conversation[index].Tool
-			if tool != nil && tool.ID == id {
-				toolArguments = tool.Arguments
-				break
+		// G5 访问器化：经 View.mu 读会话可见投影（Read），不在 ViewMu 下
+		// 裸字段穿越。
+		service.components.view.SessionViewReadLocked(sessionID, func(view *selexsession.View) {
+			for index := len(view.Conversation) - 1; index >= 0; index-- {
+				tool := view.Conversation[index].Tool
+				if tool != nil && tool.ID == id {
+					toolArguments = tool.Arguments
+					return
+				}
 			}
-		}
+		})
 	}
 	emit("toolhook.complete.transcript.start")
 	providerResult, _ := service.components.tasks.RecordToolTranscriptLocked(sessionID, name, id, toolArguments, result, toolErr)
@@ -160,8 +164,9 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 	// （≤ limits.snapshot_tool_output_chars），完整输出归档 result_ref，
 	// 前端"加载完整输出"再取——60KB 级全文不再随快照/事件进渲染进程。
 	visibleContent, resultRef, truncated, totalChars := service.boundToolResultForSnapshot(name, result)
-	{
-		view := service.sessionViewLocked(sessionID)
+	// G5 访问器化：工具状态写回经 View.mu（Mutate），与流式增量/镜像同锁
+	// 序（View.mu 叶子锁），消除 ViewMu 下的裸字段穿越。
+	service.components.view.SessionViewMutateLocked(sessionID, func(view *selexsession.View) {
 		for index := len(view.Conversation) - 1; index >= 0; index-- {
 			tool := view.Conversation[index].Tool
 			if tool != nil && tool.ID == id {
@@ -170,7 +175,7 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 				break
 			}
 		}
-	}
+	})
 	service.mirrorActiveViewLocked()
 	if active && name == "read_file" && toolErr == nil {
 		service.recordReadFileForSessionLocked(sessionID, toolArguments)
