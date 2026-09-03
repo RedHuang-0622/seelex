@@ -275,3 +275,15 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
 - approval 会话级归属经审计**延后到波 4**（证据与决策在台账 README 波 3
   记录）：ApprovalRequest/broker/observer/Snapshot.Interaction 现无 sid 承载，
   单格审批语义在进程单飞期间成立，per-session 归属需整条链路会话化。
+
+### 波 4 执行中对账（2026-09-03 追加，如实记录边界调整）
+
+- 波 4 本会话已收口：approval 会话级归属 + awaiting_approval（承接项，
+  数据面/core/前端见台账）；G6 驻留 LRU 主骨架（limits.resident_limit
+  默认 6 + core 驱逐器，INV-G8）；G7 第一片 sessionstore EventStore
+  区间读。
+- **波次边界调整（如实记录）**：G6 其余（目录按 projectID 索引、C2
+  archive、C1 冷读面）与 G7 剩余（双轨桥一跳、runtime_live assistant
+  正文 kind、去 nodeDetailPollTimer）未在本会话收口；依赖不变（目录分格
+  依赖状态字段/Unit 锁；C1 依赖目录与快照分型；G7 桥依赖 EventStore 区间
+  读——后者已具备）。未完成项与下一步留在台账「波 4 尚未完成」段。

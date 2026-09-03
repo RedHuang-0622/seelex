@@ -620,3 +620,95 @@ node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
 门控/事件 → 前端呈现 → G6 驻留/驱逐 → G6 目录 projectID/C2 → C1 冷读 →
 G7（EventStore 区间读/双轨桥/去轮询）。若本波无法在会话内全部完成，未完成
 项与下一步留在「波 4 尚未完成」段，不把部分完成当完成。
+
+## 波 4 执行与验证记录（追加，2026-09-03；本会话部分完成）
+
+提交链（每个提交点全绿）：`b36d0ca`（承接项决策）→ `fe8dc53`
+（approval 数据面 + core 门控）→ `4b68855`（approval 源头接线 + GUI 呈现）
+→ `ca5c82a`（G6 驻留 LRU）→ `12901ee`（G7 EventStore 区间读）→
+`5eadfb5`（-race 修复：投影收集改经 session actor 读视图指针）→
+`3ddb55b`（core README 函数索引刷新）。
+
+### 本会话已完成
+
+1. **approval 会话级归属 + awaiting_approval（承接项，数据面 → core →
+   前端）**：
+   - broker 会话化：`ApprovalRequest.SessionID`、observer 三参
+     `(sessionID, requestID, interaction)`、`Pending()/PendingBySession()`
+     待批查询（`application/approval/broker.go`）；`contract.ApprovalBroker`
+     同步扩展。
+   - 状态枚举扩展：sessionstore.Status 与 model.SessionStatus 增加
+     `awaiting_approval`/`archived`；`SessionUnit.ApprovalIDs` 槽 +
+     `Status()` 提升 awaiting_approval（Unload 拒绝）；`SessionUnit.resident`
+     标记（G6 共用）。
+   - core 路由：`observeInteraction` 按所属 sid 记账（Unit.Add/Remove
+     Approval）、单格 `Snapshot.Interaction` 只镜像当前视图会话/空归属审批；
+     `ResolveInteraction` 增加跨会话按 id 结案回退；hotAttach 激活后镜像
+     目标会话首笔待批；`sessionStatusLocked` awaiting 优先；`SessionInfo`
+     下发 `ApprovalCount`/`Resident`；`SnapshotOf` 填充 `Approvals`。
+   - 源头接线：seelebridge 权限中间件把调度 ctx 会话 ID 写入
+     `toolspermission.ApprovalRequest.SessionID`（根包注入
+     SessionFromContext）；main.go 权限桥/ask_approve/PlanApprovalGate
+     随请求携带会话归属。
+   - 前端：侧栏 awaiting_approval/archived 状态徽标 + 状态行「待审批 N 项」
+     （app.js/styles.css）；TUI 无会话列表/状态行面，口径已文档化（见
+     「波 4 尚未完成」#5）。
+   - 测试：`approval_session_ownership_test.go`（状态/单格/快照/跨会话按
+     id 结案/两会话并发归属）、`broker_test.go` 会话归属与待批查询、
+     `seelebridge/tools/permission_session_test.go`。
+2. **G6 驻留 LRU（INV-G8 主骨架）**：
+   - `seelexctx.Limits.ResidentSessionLimit`（`resident_limit`，默认 6，
+     WithDefaults/负数校验同步）。
+   - core 会话治理侧 LRU（`application/core/resident_lru.go`）：
+     `residentOrder`（ViewMu 护）；冷加载/热切换/物化 touch；
+     超限按最旧优先驱逐：非当前视图、非 running/queued/awaiting_approval、
+     驱逐前非活跃会话 `PersistCurrentSession` flush → 引擎
+     `UnloadSession` → Unit/View/Runtime 槽保留（Resident=false）→ 重开
+     走 cold_load（驱逐后再进 = 冷）。
+   - 测试：`resident_lru_test.go`（LRU 顺序/驱逐、busy 会话守卫、默认值 6）。
+3. **G7 第一片：sessionstore `EventStore.LoadRange`**——按会话/Seq 区间
+   （含端点）读回统一事件库，倒置区间显式报错，(0,0) 保持 Load 全量语义
+   （`event_store_test.go`）。
+4. **-race 修复（本波触出）**：`view_state` 投影收集改经注入的
+   `CurrentSessionID`（session.Domain.ActiveID，线程安全）判定视图/后台
+   分区，不再无锁读 `Snapshot.Session.ID`（与 INV-G2「视图指针唯一持有者
+   在 Domain」一致）。
+
+### 波 4 尚未完成（后续会话，逐项下一步）
+
+- **G6 目录按 projectID 索引**：`RequestCatalogRefresh` 补 projectID 维度，
+  目录缓存/镜像（catalogSessions/catalogWorkspaces/标题表）按项目分格；
+  同步桌面 joint 快照进程段与 `docs/gui/modules/multi-session-pages.md`/
+  `snapshot-shape.js` 契约。现状：枚举源头已按 projectID（SessionsOf），
+  缓存仍是合并后的单一列表。
+- **C2 `ArchiveSession`**：命令/门控 + 目录归档过滤（archived 状态已进
+  枚举与前端徽标，存档写入与过滤未接）。
+- **C1 冷读面**：`ListSessions`/`SnapshotOf(非驻留)`/
+  `GetSessionTranscript(range)`；替换 `session_scope.go` 的
+  `cloneRuntimeState` 回退为从 record/Transcript/DurableHistory 冷拼装。
+- **G7 剩余**：UnifiedEvents「投进 application/event」的一跳（EventStore
+  区间读已具备）；`runtime_live` 子代理 assistant 正文增量 kind（需先定
+  LLM 输出内容源：OnLLMComplete/telemetry effect 或节点会话历史增量）；
+  删除 `app.js` 的 `nodeDetailPollTimer` 并把「去轮询后详情仍新鲜」契约
+  测试落地（现有 TestEmbeddedFrontendExists 的禁轮询断言届时启用）。
+- **TUI 待批计数面**：TUI 现无会话侧栏/状态行；口径已定（侧栏
+  awaiting_approval + 状态行跨会话计数），呈现需在 TUI 增加会话列表或
+  状态行后落地，本会话未做（避免在无计数面处空造 UI）。
+- **Composer 工作区草稿 binding 与 G5 剩余锁面**：按「波 4 承接项决策」
+  保持延后，本波未触碰。
+
+验证（本机 CGO_ENABLED=1，-race 为真实执行）：
+
+```text
+go build ./...                                   # 通过
+go vet ./...                                      # 无告警
+go test ./... -count=1 -timeout=300s             # 通过（首轮全量出现一次
+                                                 # Windows 临时文件锁类 FAIL，
+                                                 # 立即复跑零 FAIL；判定与
+                                                 # 历史台账同类的环境抖动）
+node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
+go test -race ./session ./sessionstore ./application/... ./gui ./seelebridge -count=1
+                                                 # 全 ok（含 TestStress*、
+                                                 # TestApproval*、
+                                                 # TestResidentLimit*）
+```
