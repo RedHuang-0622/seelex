@@ -22,6 +22,12 @@ const activeSkillVersion = "installed-v1"
 // ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
 // Core.ViewMu）。
 func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._ActivateTaskSkillsLocked(state, layers)
+}
+
+func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer) {
 	if state == nil {
 		return
 	}
@@ -42,6 +48,12 @@ func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers
 // SyncGoalSkillActiveLocked 把任务级 skill 集投影到 lock-free 可见性值
 // （Runtime.VisibleTools 消费；调用方持有 Core.ViewMu）。
 func (c *Coordinator) SyncGoalSkillActiveLocked() {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._SyncGoalSkillActiveLocked()
+}
+
+func (c *Coordinator) _SyncGoalSkillActiveLocked() {
 	c.syncGoalSkillActiveLocked()
 }
 
@@ -52,6 +64,12 @@ func (c *Coordinator) syncGoalSkillActiveLocked() {
 // AppendTranscriptEventLocked 追加一条 append-only transcript 事件（seq 自增；
 // 调用方持有 Core.ViewMu）。事件归属会话由 event.TaskID 反查，缺省活跃会话。
 func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._AppendTranscriptEventLocked(event)
+}
+
+func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent {
 	st := c.activeSessionLocked()
 	if event.TaskID != "" {
 		if byRequest := c.sessionForRequestLocked(event.TaskID); byRequest != nil {
@@ -66,7 +84,7 @@ func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) m
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now()
 	}
-	event.TokenCount = c.CountTranscriptEvent(event)
+	event.TokenCount = c._CountTranscriptEvent(event)
 	st.transcript = append(st.transcript, event)
 	return event
 }
@@ -74,6 +92,12 @@ func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) m
 // AppendTranscriptEventForLocked 追加一条指定会话的 transcript 事件（调用
 // 方持有 Core.ViewMu；hook 等显式会话路径用）。
 func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._AppendTranscriptEventForLocked(sessionID, event)
+}
+
+func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent {
 	st := c.sessionStateLocked(sessionID)
 	st.transcriptSeq++
 	event.Seq = st.transcriptSeq
@@ -83,7 +107,7 @@ func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event mod
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now()
 	}
-	event.TokenCount = c.CountTranscriptEvent(event)
+	event.TokenCount = c._CountTranscriptEvent(event)
 	st.transcript = append(st.transcript, event)
 	return event
 }
@@ -91,6 +115,12 @@ func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event mod
 // ImportEngineHistoryAsTranscriptLocked 把引擎既有历史导入活跃会话
 // transcript（装配期/恢复路径；调用方持有 Core.ViewMu）。
 func (c *Coordinator) ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._ImportEngineHistoryAsTranscriptLocked(history)
+}
+
+func (c *Coordinator) _ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage) {
 	st := c.activeSessionLocked()
 	c.importEngineHistoryLocked(st, history)
 }
@@ -126,13 +156,19 @@ func (c *Coordinator) appendTranscriptEventLocked(st *sessionTaskRuntime, event 
 	if event.CreatedAt.IsZero() {
 		event.CreatedAt = time.Now()
 	}
-	event.TokenCount = c.CountTranscriptEvent(event)
+	event.TokenCount = c._CountTranscriptEvent(event)
 	st.transcript = append(st.transcript, event)
 	return event
 }
 
 // CountTranscriptEvent 估算一条 transcript 事件的 token 数。
 func (c *Coordinator) CountTranscriptEvent(event model.TranscriptEvent) int {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._CountTranscriptEvent(event)
+}
+
+func (c *Coordinator) _CountTranscriptEvent(event model.TranscriptEvent) int {
 	message := contract.EngineMessage{
 		Role: event.Role, ReasoningContent: event.ReasoningContent, Content: event.Content,
 		ContentSet: true, ToolCallID: event.ToolCallID, Name: event.Name,
@@ -146,14 +182,18 @@ func (c *Coordinator) CountTranscriptEvent(event model.TranscriptEvent) int {
 // RecordLLMComplete 记录一次 LLM 完成（真实 usage 校准 + assistant 事件；
 // 自行加锁）。ctx 携带会话 ID 时路由到对应会话。
 func (c *Coordinator) RecordLLMComplete(ctx context.Context, info session.LLMInfo) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._RecordLLMComplete(ctx, info)
+}
+
+func (c *Coordinator) _RecordLLMComplete(ctx context.Context, info session.LLMInfo) {
 	if info.Response == "" && len(info.ToolCalls) == 0 && info.Usage == nil {
 		return
 	}
-	c.ViewMu.Lock()
-	defer c.ViewMu.Unlock()
 	st := c.runtimeForContextLocked(ctx)
 	state := st.taskExecution
-	if state == nil || state.RequestID != c.Snapshot.Chat.RequestID {
+	if state == nil {
 		return
 	}
 	if info.Usage != nil {
@@ -180,6 +220,12 @@ func (c *Coordinator) RecordLLMComplete(ctx context.Context, info session.LLMInf
 // EnsureToolCallTranscriptLocked 保证工具调用宣告已入指定会话 transcript
 // （缺失时补一条 assistant 事件；调用方持有 Core.ViewMu）。
 func (c *Coordinator) EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments)
+}
+
+func (c *Coordinator) _EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string) {
 	st := c.sessionStateLocked(sessionID)
 	for _, call := range st.pendingProviderCalls {
 		if call.Name == name && call.Arguments == arguments {
@@ -194,6 +240,12 @@ func (c *Coordinator) EnsureToolCallTranscriptLocked(sessionID, name, fallbackID
 // RecordToolTranscriptLocked 记录指定会话工具结果事件（错误呈现/超限引用；
 // 返回可见内容与结果引用；调用方持有 Core.ViewMu）。
 func (c *Coordinator) RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result, toolErr)
+}
+
+func (c *Coordinator) _RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string) {
 	st := c.sessionStateLocked(sessionID)
 	callID := fallbackID
 	for index, call := range st.pendingProviderCalls {
@@ -234,12 +286,24 @@ func DefaultToolResultLimit() int {
 // StoreToolResultLocked 把超限工具结果以引用形式存储（活跃会话；内容 +
 // 摘要元数据）。
 func (c *Coordinator) StoreToolResultLocked(name, content string) model.StoredToolResult {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._StoreToolResultLocked(name, content)
+}
+
+func (c *Coordinator) _StoreToolResultLocked(name, content string) model.StoredToolResult {
 	st := c.activeSessionLocked()
 	return c.storeToolResultLocked(st, name, content)
 }
 
 // StoreToolResultForLocked 把超限工具结果以引用形式存储到指定会话。
 func (c *Coordinator) StoreToolResultForLocked(sessionID, name, content string) model.StoredToolResult {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._StoreToolResultForLocked(sessionID, name, content)
+}
+
+func (c *Coordinator) _StoreToolResultForLocked(sessionID, name, content string) model.StoredToolResult {
 	return c.storeToolResultLocked(c.sessionStateLocked(sessionID), name, content)
 }
 
@@ -266,12 +330,16 @@ func (c *Coordinator) storeToolResultLocked(st *sessionTaskRuntime, name, conten
 // EnsureFinalAssistantTranscript 在请求结束时补一条可见 assistant 终态事件
 // （去重；自行加锁；requestID 反查会话）。
 func (c *Coordinator) EnsureFinalAssistantTranscript(requestID, content string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._EnsureFinalAssistantTranscript(requestID, content)
+}
+
+func (c *Coordinator) _EnsureFinalAssistantTranscript(requestID, content string) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return
 	}
-	c.ViewMu.Lock()
-	defer c.ViewMu.Unlock()
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
@@ -302,6 +370,12 @@ func (c *Coordinator) sessionStateForTaskLocked(state *TaskExecutionState) *sess
 // TaskProjectionLocked 构建指定会话任务的权威投影（会话归档用；调用方持有
 // Core.ViewMu）。
 func (c *Coordinator) TaskProjectionLocked(sessionID string) *model.TaskContextProjection {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._TaskProjectionLocked(sessionID)
+}
+
+func (c *Coordinator) _TaskProjectionLocked(sessionID string) *model.TaskContextProjection {
 	st := c.sessionStateLocked(sessionID)
 	state := st.taskExecution
 	if state == nil {
@@ -319,13 +393,19 @@ func (c *Coordinator) TaskProjectionLocked(sessionID string) *model.TaskContextP
 	return &model.TaskContextProjection{
 		SchemaVersion: 1, ProjectID: projectID, SessionID: sessionID, TaskID: state.RequestID,
 		Status: state.Status, ObjectiveRef: objectiveRef,
-		ActiveSkills: append([]model.ActiveSkill(nil), state.ActiveSkills...), ActivePlan: c.ActivePlanProjectionLocked(),
+		ActiveSkills: append([]model.ActiveSkill(nil), state.ActiveSkills...), ActivePlan: c._ActivePlanProjectionLocked(),
 		Checkpoint: checkpoint, TokenAudit: state.TokenAudit, UpdatedAt: time.Now(),
 	}
 }
 
 // BuildTaskCheckpointLocked 构建任务 checkpoint（调用方持有 Core.ViewMu）。
 func (c *Coordinator) BuildTaskCheckpointLocked(state *TaskExecutionState) model.TaskCheckpoint {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._BuildTaskCheckpointLocked(state)
+}
+
+func (c *Coordinator) _BuildTaskCheckpointLocked(state *TaskExecutionState) model.TaskCheckpoint {
 	st := c.sessionStateForTaskLocked(state)
 	return c.buildTaskCheckpointLocked(st, state)
 }
@@ -421,6 +501,12 @@ func AppendUniqueStrings(values []string, incoming ...string) []string {
 // ActivePlanProjectionLocked 返回活跃会话当前激活 Plan 的只读投影（调用方
 // 持有 Core.ViewMu）。
 func (c *Coordinator) ActivePlanProjectionLocked() *model.ActivePlanProjection {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ActivePlanProjectionLocked()
+}
+
+func (c *Coordinator) _ActivePlanProjectionLocked() *model.ActivePlanProjection {
 	st := c.activeSessionLocked()
 	return ActivePlanProjection(c.Snapshot.Runtime.Plan, st.activePlanID, st.planSequence)
 }
@@ -490,6 +576,12 @@ func (c *Coordinator) resolveObjectiveRefLocked(st *sessionTaskRuntime, objectiv
 // RecordContextCompactionLocked 记录一次上下文压缩（仅运行中任务；调用方
 // 持有 Core.ViewMu；requestID 反查会话）。
 func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._RecordContextCompactionLocked(requestID, compaction)
+}
+
+func (c *Coordinator) _RecordContextCompactionLocked(requestID string, compaction model.ContextCompaction) bool {
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
@@ -510,7 +602,13 @@ func (c *Coordinator) RecordContextCompactionLocked(requestID string, compaction
 // 反查会话）。非活跃会话（后台并行执行）跳过共享快照写入，避免污染活跃
 // 会话投影；任务内部状态由调用方独立维护。
 func (c *Coordinator) SetTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
-	sessionID := c.SessionIDForRequest(requestID)
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._SetTaskStateLocked(requestID, status, summary)
+}
+
+func (c *Coordinator) _SetTaskStateLocked(requestID string, status model.TaskStatus, summary string) {
+	sessionID := c._SessionIDForRequest(requestID)
 	if !c.isActiveSessionLocked(sessionID) {
 		return
 	}
@@ -536,7 +634,13 @@ func (c *Coordinator) isActiveSessionLocked(sessionID string) bool {
 
 // InterruptTaskLocked 把任务置为中断（快照 + 内部状态；调用方持有 Core.ViewMu）。
 func (c *Coordinator) InterruptTaskLocked(requestID, summary string) {
-	c.SetTaskStateLocked(requestID, model.TaskInterrupted, summary)
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._InterruptTaskLocked(requestID, summary)
+}
+
+func (c *Coordinator) _InterruptTaskLocked(requestID, summary string) {
+	c._SetTaskStateLocked(requestID, model.TaskInterrupted, summary)
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
@@ -548,7 +652,13 @@ func (c *Coordinator) InterruptTaskLocked(requestID, summary string) {
 
 // FailTaskLocked 把任务置为失败（快照 + 内部状态；调用方持有 Core.ViewMu）。
 func (c *Coordinator) FailTaskLocked(requestID, summary string) {
-	c.SetTaskStateLocked(requestID, model.TaskFailed, summary)
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._FailTaskLocked(requestID, summary)
+}
+
+func (c *Coordinator) _FailTaskLocked(requestID, summary string) {
+	c._SetTaskStateLocked(requestID, model.TaskFailed, summary)
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
@@ -561,6 +671,12 @@ func (c *Coordinator) FailTaskLocked(requestID, summary string) {
 // ResumeTaskLocked 恢复被压缩/中断的任务（快照 + 内部状态 + epoch 推进；
 // 调用方持有 Core.ViewMu）。
 func (c *Coordinator) ResumeTaskLocked(requestID, summary string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._ResumeTaskLocked(requestID, summary)
+}
+
+func (c *Coordinator) _ResumeTaskLocked(requestID, summary string) {
 	st := c.sessionForRequestLocked(requestID)
 	if st == nil {
 		st = c.activeSessionLocked()
@@ -571,12 +687,18 @@ func (c *Coordinator) ResumeTaskLocked(requestID, summary string) {
 	}
 	state.Status = StatusRunning
 	state.ProgressEpoch++
-	c.SetTaskStateLocked(requestID, model.TaskProgressing, summary)
+	c._SetTaskStateLocked(requestID, model.TaskProgressing, summary)
 }
 
 // RememberCheckpointLocked 按 version 替换或追加活跃会话 checkpoint（调用
 // 方持有 Core.ViewMu）。
 func (c *Coordinator) RememberCheckpointLocked(checkpoint model.TaskCheckpoint) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._RememberCheckpointLocked(checkpoint)
+}
+
+func (c *Coordinator) _RememberCheckpointLocked(checkpoint model.TaskCheckpoint) {
 	st := c.activeSessionLocked()
 	for index := range st.taskCheckpoints {
 		if st.taskCheckpoints[index].Version == checkpoint.Version && checkpoint.Version != 0 {
@@ -590,12 +712,24 @@ func (c *Coordinator) RememberCheckpointLocked(checkpoint model.TaskCheckpoint) 
 // BeginTask 为活跃会话当前请求创建任务执行状态与 TaskService（调用方持有
 // Core.ViewMu）。
 func (c *Coordinator) BeginTask(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState {
-	return c.BeginTaskFor(c.activeSessionIDLocked(), requestID, objective, effort, previous, checkpoint)
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._BeginTask(requestID, objective, effort, previous, checkpoint)
+}
+
+func (c *Coordinator) _BeginTask(requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState {
+	return c._BeginTaskFor(c.activeSessionIDLocked(), requestID, objective, effort, previous, checkpoint)
 }
 
 // BeginTaskFor 为指定会话当前请求创建任务执行状态与 TaskService（调用方
 // 持有 Core.ViewMu）。
 func (c *Coordinator) BeginTaskFor(sessionID, requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._BeginTaskFor(sessionID, requestID, objective, effort, previous, checkpoint)
+}
+
+func (c *Coordinator) _BeginTaskFor(sessionID, requestID, objective, effort string, previous *TaskExecutionState, checkpoint model.TaskCheckpoint) *TaskExecutionState {
 	st := c.sessionStateLocked(sessionID)
 	state := continuationTaskExecutionState(requestID, objective, effort, previous, checkpoint)
 	st.taskExecution = state
@@ -607,6 +741,12 @@ func (c *Coordinator) BeginTaskFor(sessionID, requestID, objective, effort strin
 // ContinuationSummary 返回活跃会话当前任务的恢复摘要（requestID 不匹配 →
 // ""）。
 func (c *Coordinator) ContinuationSummary(requestID string) string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ContinuationSummary(requestID)
+}
+
+func (c *Coordinator) _ContinuationSummary(requestID string) string {
 	st := c.activeSessionLocked()
 	state := st.taskExecution
 	if state == nil || state.RequestID != requestID {
@@ -618,6 +758,12 @@ func (c *Coordinator) ContinuationSummary(requestID string) string {
 // ContinuationSummaryFor 返回指定会话当前任务的恢复摘要（requestID 不匹配
 // → ""）。会话归档/恢复路径用（后台会话收尾不得读活跃会话摘要）。
 func (c *Coordinator) ContinuationSummaryFor(sessionID, requestID string) string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ContinuationSummaryFor(sessionID, requestID)
+}
+
+func (c *Coordinator) _ContinuationSummaryFor(sessionID, requestID string) string {
 	st := c.sessionStateLocked(sessionID)
 	state := st.taskExecution
 	if state == nil || state.RequestID != requestID {
@@ -628,56 +774,142 @@ func (c *Coordinator) ContinuationSummaryFor(sessionID, requestID string) string
 
 // Transcript 返回活跃会话 append-only 事件。
 func (c *Coordinator) Transcript() []model.TranscriptEvent {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._Transcript(
+
+	// TranscriptFor 返回指定会话 append-only 事件。
+	)
+}
+
+func (c *Coordinator) _Transcript() []model.TranscriptEvent {
 	return c.activeSessionLocked().transcript
 }
 
-// TranscriptFor 返回指定会话 append-only 事件。
 func (c *Coordinator) TranscriptFor(sessionID string) []model.TranscriptEvent {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._TranscriptFor(
+
+		// PendingToolResults 返回活跃会话尚未随会话原子提交的工具结果。
+		sessionID)
+}
+
+func (c *Coordinator) _TranscriptFor(sessionID string) []model.TranscriptEvent {
 	return c.sessionStateLocked(sessionID).transcript
 }
 
-// PendingToolResults 返回活跃会话尚未随会话原子提交的工具结果。
 func (c *Coordinator) PendingToolResults() []model.StoredToolResult {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._PendingToolResults(
+
+	// PendingToolResultsFor 返回指定会话尚未随会话原子提交的工具结果。
+	)
+}
+
+func (c *Coordinator) _PendingToolResults() []model.StoredToolResult {
 	return c.activeSessionLocked().pendingToolResults
 }
 
-// PendingToolResultsFor 返回指定会话尚未随会话原子提交的工具结果。
 func (c *Coordinator) PendingToolResultsFor(sessionID string) []model.StoredToolResult {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._PendingToolResultsFor(
+
+		// TaskCheckpoints 返回活跃会话任务 checkpoint 序列。
+		sessionID)
+}
+
+func (c *Coordinator) _PendingToolResultsFor(sessionID string) []model.StoredToolResult {
 	return c.sessionStateLocked(sessionID).pendingToolResults
 }
 
-// TaskCheckpoints 返回活跃会话任务 checkpoint 序列。
 func (c *Coordinator) TaskCheckpoints() []model.TaskCheckpoint {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._TaskCheckpoints(
+
+	// TaskCheckpointsFor 返回指定会话任务 checkpoint 序列。
+	)
+}
+
+func (c *Coordinator) _TaskCheckpoints() []model.TaskCheckpoint {
 	return c.activeSessionLocked().taskCheckpoints
 }
 
-// TaskCheckpointsFor 返回指定会话任务 checkpoint 序列。
 func (c *Coordinator) TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._TaskCheckpointsFor(
+
+		// ToolResultRefs 返回活跃会话工具结果引用表。
+		sessionID)
+}
+
+func (c *Coordinator) _TaskCheckpointsFor(sessionID string) []model.TaskCheckpoint {
 	return c.sessionStateLocked(sessionID).taskCheckpoints
 }
 
-// ToolResultRefs 返回活跃会话工具结果引用表。
 func (c *Coordinator) ToolResultRefs() []model.ToolResultRef {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ToolResultRefs(
+
+	// ToolResultRefsFor 返回指定会话工具结果引用表。
+	)
+}
+
+func (c *Coordinator) _ToolResultRefs() []model.ToolResultRef {
 	return c.activeSessionLocked().toolResultRefs
 }
 
-// ToolResultRefsFor 返回指定会话工具结果引用表。
 func (c *Coordinator) ToolResultRefsFor(sessionID string) []model.ToolResultRef {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ToolResultRefsFor(
+
+		// ToolResultRefByCallID 按工具调用 ID 查活跃会话结果引用（未找到 → ""）。
+		sessionID)
+}
+
+func (c *Coordinator) _ToolResultRefsFor(sessionID string) []model.ToolResultRef {
 	return c.sessionStateLocked(sessionID).toolResultRefs
 }
 
-// ToolResultRefByCallID 按工具调用 ID 查活跃会话结果引用（未找到 → ""）。
 func (c *Coordinator) ToolResultRefByCallID(callID string) string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ToolResultRefByCallID(
+
+		// ToolResultRefByCallIDFor 按工具调用 ID 查指定会话结果引用（未找到 → ""）。
+		callID)
+}
+
+func (c *Coordinator) _ToolResultRefByCallID(callID string) string {
 	return c.activeSessionLocked().resultRefsByToolCallID[callID]
 }
 
-// ToolResultRefByCallIDFor 按工具调用 ID 查指定会话结果引用（未找到 → ""）。
 func (c *Coordinator) ToolResultRefByCallIDFor(sessionID, callID string) string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ToolResultRefByCallIDFor(sessionID,
+
+		// CurrentRequestIDFor 返回指定会话当前任务的请求 ID（无任务 → ""）。
+		callID)
+}
+
+func (c *Coordinator) _ToolResultRefByCallIDFor(sessionID, callID string) string {
 	return c.sessionStateLocked(sessionID).resultRefsByToolCallID[callID]
 }
 
-// CurrentRequestIDFor 返回指定会话当前任务的请求 ID（无任务 → ""）。
 func (c *Coordinator) CurrentRequestIDFor(sessionID string) string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._CurrentRequestIDFor(sessionID)
+}
+
+func (c *Coordinator) _CurrentRequestIDFor(sessionID string) string {
 	st := c.sessionStateLocked(sessionID)
 	if st.taskExecution == nil {
 		return ""
@@ -688,6 +920,12 @@ func (c *Coordinator) CurrentRequestIDFor(sessionID string) string {
 // TaskStateFor 返回指定会话当前任务的可见状态（会话归档用；后台会话收尾
 // 不得读全局 Snapshot.Task——对应 L5/Execution.Task 串写修复）。
 func (c *Coordinator) TaskStateFor(sessionID string) *model.TaskState {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._TaskStateFor(sessionID)
+}
+
+func (c *Coordinator) _TaskStateFor(sessionID string) *model.TaskState {
 	st := c.sessionStateLocked(sessionID)
 	state := st.taskExecution
 	if state == nil {
@@ -709,6 +947,12 @@ func (c *Coordinator) TaskStateFor(sessionID string) *model.TaskState {
 // 优先取 TaskService 最近一次落地值（含 summary/decision 等展示字段），
 // 任务已推进到新请求时回退 TaskStateFor 的构造值。调用方持有 Core.ViewMu。
 func (c *Coordinator) VisibleTaskStateFor(sessionID string) *model.TaskState {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._VisibleTaskStateFor(sessionID)
+}
+
+func (c *Coordinator) _VisibleTaskStateFor(sessionID string) *model.TaskState {
 	st := c.sessionStateLocked(sessionID)
 	state := st.taskExecution
 	if state == nil {
@@ -719,12 +963,18 @@ func (c *Coordinator) VisibleTaskStateFor(sessionID string) *model.TaskState {
 		visible := *ts.lastTaskState
 		return &visible
 	}
-	return c.TaskStateFor(sessionID)
+	return c._TaskStateFor(sessionID)
 }
 
 // ResultRefsByCallID 返回活跃会话 callID → resultRef 全量拷贝（上下文拒绝
 // 路径）。
 func (c *Coordinator) ResultRefsByCallID() map[string]string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ResultRefsByCallID()
+}
+
+func (c *Coordinator) _ResultRefsByCallID() map[string]string {
 	refs := make(map[string]string, len(c.activeSessionLocked().resultRefsByToolCallID))
 	for callID, resultRef := range c.activeSessionLocked().resultRefsByToolCallID {
 		refs[callID] = resultRef
@@ -734,6 +984,12 @@ func (c *Coordinator) ResultRefsByCallID() map[string]string {
 
 // ResultRefsByCallIDFor 返回指定会话 callID → resultRef 全量拷贝。
 func (c *Coordinator) ResultRefsByCallIDFor(sessionID string) map[string]string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ResultRefsByCallIDFor(sessionID)
+}
+
+func (c *Coordinator) _ResultRefsByCallIDFor(sessionID string) map[string]string {
 	refs := make(map[string]string, len(c.sessionStateLocked(sessionID).resultRefsByToolCallID))
 	for callID, resultRef := range c.sessionStateLocked(sessionID).resultRefsByToolCallID {
 		refs[callID] = resultRef
@@ -743,11 +999,25 @@ func (c *Coordinator) ResultRefsByCallIDFor(sessionID string) map[string]string 
 
 // PlanStackFor 返回指定会话 plan 帧栈。
 func (c *Coordinator) PlanStackFor(sessionID string) []model.SessionPlanFrame {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._PlanStackFor(
+
+		// SessionIDForRequest 按 requestID 反查会话 ID（未绑定 → 活跃会话）。
+		sessionID)
+}
+
+func (c *Coordinator) _PlanStackFor(sessionID string) []model.SessionPlanFrame {
 	return c.sessionStateLocked(sessionID).planStack
 }
 
-// SessionIDForRequest 按 requestID 反查会话 ID（未绑定 → 活跃会话）。
 func (c *Coordinator) SessionIDForRequest(requestID string) string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._SessionIDForRequest(requestID)
+}
+
+func (c *Coordinator) _SessionIDForRequest(requestID string) string {
 	if requestID == "" {
 		if c.currentSessionID != nil {
 			return c.currentSessionID()
@@ -769,6 +1039,12 @@ func (c *Coordinator) SessionIDForRequest(requestID string) string {
 // ActivePlanProjectionLockedFor 返回指定会话激活 Plan 的只读投影（调用方
 // 持有 Core.ViewMu）。
 func (c *Coordinator) ActivePlanProjectionLockedFor(sessionID string) *model.ActivePlanProjection {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ActivePlanProjectionLockedFor(sessionID)
+}
+
+func (c *Coordinator) _ActivePlanProjectionLockedFor(sessionID string) *model.ActivePlanProjection {
 	st := c.sessionStateLocked(sessionID)
 	return ActivePlanProjection(c.Snapshot.Runtime.Plan, st.activePlanID, st.planSequence)
 }
@@ -776,6 +1052,12 @@ func (c *Coordinator) ActivePlanProjectionLockedFor(sessionID string) *model.Act
 // SyncActivePlanFrameLocked 把当前快照 Plan 收敛进活跃会话激活帧（调用方
 // 持有 Core.ViewMu）。
 func (c *Coordinator) SyncActivePlanFrameLocked(now time.Time) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._SyncActivePlanFrameLocked(now)
+}
+
+func (c *Coordinator) _SyncActivePlanFrameLocked(now time.Time) {
 	st := c.activeSessionLocked()
 	if st.activePlanID == "" || len(st.planStack) == 0 {
 		return
@@ -788,6 +1070,12 @@ func (c *Coordinator) SyncActivePlanFrameLocked(now time.Time) {
 // 遗留风险（P6）：Plan 投影仍来自全局 Snapshot.Runtime.Plan——阶段 1
 // SessionScope 收口前，plan 投影尚未按会话隔离。
 func (c *Coordinator) SyncActivePlanFrameLockedFor(sessionID string, now time.Time) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._SyncActivePlanFrameLockedFor(sessionID, now)
+}
+
+func (c *Coordinator) _SyncActivePlanFrameLockedFor(sessionID string, now time.Time) {
 	st := c.sessionStateLocked(sessionID)
 	if st.activePlanID == "" || len(st.planStack) == 0 {
 		return
@@ -813,6 +1101,12 @@ func (c *Coordinator) syncActivePlanFrameLocked(st *sessionTaskRuntime, now time
 // PushLoadedPlanLocked 把 plan_load 参数追加为活跃会话新的激活帧（调用方
 // 持有 Core.ViewMu）。
 func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._PushLoadedPlanLocked(arguments, now)
+}
+
+func (c *Coordinator) _PushLoadedPlanLocked(arguments string, now time.Time) {
 	arguments = strings.TrimSpace(arguments)
 	if arguments == "" || c.Snapshot.Runtime.Plan == nil {
 		return
@@ -833,6 +1127,12 @@ func (c *Coordinator) PushLoadedPlanLocked(arguments string, now time.Time) {
 // RemoveCommittedToolResultsLocked 清理活跃会话已随会话快照提交的待定工具
 // 结果。
 func (c *Coordinator) RemoveCommittedToolResultsLocked(committed []model.StoredToolResult) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._RemoveCommittedToolResultsLocked(committed)
+}
+
+func (c *Coordinator) _RemoveCommittedToolResultsLocked(committed []model.StoredToolResult) {
 	st := c.activeSessionLocked()
 	c.removeCommittedToolResultsLocked(st, committed)
 }
@@ -840,6 +1140,12 @@ func (c *Coordinator) RemoveCommittedToolResultsLocked(committed []model.StoredT
 // RemoveCommittedToolResultsForLocked 清理指定会话已随会话快照提交的待定
 // 工具结果。
 func (c *Coordinator) RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._RemoveCommittedToolResultsForLocked(sessionID, committed)
+}
+
+func (c *Coordinator) _RemoveCommittedToolResultsForLocked(sessionID string, committed []model.StoredToolResult) {
 	st := c.sessionStateLocked(sessionID)
 	c.removeCommittedToolResultsLocked(st, committed)
 }
@@ -864,6 +1170,12 @@ func (c *Coordinator) removeCommittedToolResultsLocked(st *sessionTaskRuntime, c
 // UnloadSessionState 释放指定会话的任务/plan 运行时状态（阶段 2 生命周期；
 // 调用方持有 Core.ViewMu）。unload 后重开走 cold_load。
 func (c *Coordinator) UnloadSessionState(sessionID string) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._UnloadSessionState(sessionID)
+}
+
+func (c *Coordinator) _UnloadSessionState(sessionID string) {
 	delete(c.sessionStates, sessionID)
 	for requestID, sid := range c.requestToSession {
 		if sid == sessionID {
@@ -874,54 +1186,104 @@ func (c *Coordinator) UnloadSessionState(sessionID string) {
 
 // TokenCounterName 返回当前 token 计数器标识。
 func (c *Coordinator) TokenCounterName() string {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock(
+
+	// CountRequestTokens 估算一次完整请求 token 数。
+	)
+	return c._TokenCounterName()
+}
+
+func (c *Coordinator) _TokenCounterName() string {
 	return c.tokenCounter.Name()
 }
 
-// CountRequestTokens 估算一次完整请求 token 数。
 func (c *Coordinator) CountRequestTokens(systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool) int {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._CountRequestTokens(systemPrompt, history,
+
+		// CountTextTokens 估算文本 token 数。
+		currentInput, tools)
+}
+
+func (c *Coordinator) _CountRequestTokens(systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool) int {
 	return c.tokenCounter.CountRequest(systemPrompt, history, currentInput, tools)
 }
 
-// CountTextTokens 估算文本 token 数。
 func (c *Coordinator) CountTextTokens(value string) int {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.
+
+		// VerifyAndApply 是终态/打点工具的入口（Registry handler 面）。ctx 携带
+		// 会话 ID 时路由到对应会话，否则按活跃会话。
+		_CountTextTokens(value)
+}
+
+func (c *Coordinator) _CountTextTokens(value string) int {
 	return c.tokenCounter.CountText(value)
 }
 
-// VerifyAndApply 是终态/打点工具的入口（Registry handler 面）。ctx 携带
-// 会话 ID 时路由到对应会话，否则按活跃会话。
 func (c *Coordinator) VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error) {
-	c.ViewMu.RLock()
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._VerifyAndApply(ctx, kind, argsJSON)
+}
+
+func (c *Coordinator) _VerifyAndApply(ctx context.Context, kind, argsJSON string) (string, error) {
 	ts := c.taskServiceForContextLocked(ctx)
-	c.ViewMu.RUnlock()
 	return ts.VerifyAndApply(ctx, kind, argsJSON)
 }
 
 // FinalizeTask 把自然停止转换为可审计完成/交接（OnChatEnd 入口；summary
 // requestID 反查会话）。
 func (c *Coordinator) FinalizeTask(ctx context.Context, summary ChatEndSummary) error {
-	c.ViewMu.RLock()
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._FinalizeTask(ctx, summary)
+}
+
+func (c *Coordinator) _FinalizeTask(ctx context.Context, summary ChatEndSummary) error {
 	ts := c.taskServiceForRequestLocked(summary.RequestID)
-	c.ViewMu.RUnlock()
 	_, err := ts.OnChatEnd(ctx, summary)
 	return err
 }
 
 // OnChatEnd 把自然停止转换为可审计完成/交接，返回可见任务状态。
 func (c *Coordinator) OnChatEnd(ctx context.Context, summary ChatEndSummary) (model.TaskState, error) {
-	c.ViewMu.RLock()
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._OnChatEnd(ctx, summary)
+}
+
+func (c *Coordinator) _OnChatEnd(ctx context.Context, summary ChatEndSummary) (model.TaskState, error) {
 	ts := c.taskServiceForRequestLocked(summary.RequestID)
-	c.ViewMu.RUnlock()
 	return ts.OnChatEnd(ctx, summary)
 }
 
 // CurrentTaskResumeRecord 返回活跃会话当前任务的终态恢复记录。
 func (c *Coordinator) CurrentTaskResumeRecord() TaskResumeRecord {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._CurrentTaskResumeRecord(
+
+	// SetTaskProjectionFlushLocked 注入活跃会话 TaskService 的 Plan 投影 flush
+	// 钩子（测试模拟延迟投影；调用方持有 Core.ViewMu）。
+	)
+}
+
+func (c *Coordinator) _CurrentTaskResumeRecord() TaskResumeRecord {
 	return c.currentTaskService().ResumeRecord()
 }
 
-// SetTaskProjectionFlushLocked 注入活跃会话 TaskService 的 Plan 投影 flush
-// 钩子（测试模拟延迟投影；调用方持有 Core.ViewMu）。
 func (c *Coordinator) SetTaskProjectionFlushLocked(flush func(context.Context) error) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._SetTaskProjectionFlushLocked(flush)
+}
+
+func (c *Coordinator) _SetTaskProjectionFlushLocked(flush func(context.Context) error) {
 	if ts := c.activeSessionLocked().taskService; ts != nil {
 		ts.projection = &planProjectionReader{c: c, flush: flush}
 	}
@@ -930,11 +1292,17 @@ func (c *Coordinator) SetTaskProjectionFlushLocked(flush func(context.Context) e
 // ObserveTool 记录工具执行观测（调用方持有 Core.ViewMu；observation requestID
 // 反查会话）。
 func (c *Coordinator) ObserveTool(observation ToolObservation) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._ObserveTool(observation)
+}
+
+func (c *Coordinator) _ObserveTool(observation ToolObservation) {
 	if st := c.sessionForRequestLocked(observation.RequestID); st != nil {
 		ts := st.taskService
 		state := st.taskExecution
 		if ts == nil || ts.state != state {
-			ts = newTaskService(c.SessionIDForRequest(observation.RequestID), c, state, c.queuedInputRefs)
+			ts = newTaskService(c._SessionIDForRequest(observation.RequestID), c, state, c.queuedInputRefs)
 		}
 		ts.ObserveTool(observation)
 		return
@@ -944,15 +1312,26 @@ func (c *Coordinator) ObserveTool(observation ToolObservation) {
 
 // ObservePlanEvent 记录 plan 事件投影观测（调用方持有 Core.ViewMu；活跃会话）。
 func (c *Coordinator) ObservePlanEvent(event PlanEvent) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c._ObservePlanEvent(event)
+
+	// ObserveModelOutput 记录模型回复观测（自行加锁；output requestID 反查
+	// 会话）。
+}
+
+func (c *Coordinator) _ObservePlanEvent(event PlanEvent) {
 	c.currentTaskServiceLocked().ObservePlanEvent(event)
 }
 
-// ObserveModelOutput 记录模型回复观测（自行加锁；output requestID 反查
-// 会话）。
 func (c *Coordinator) ObserveModelOutput(ctx context.Context, output ModelOutput) error {
-	c.ViewMu.RLock()
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._ObserveModelOutput(ctx, output)
+}
+
+func (c *Coordinator) _ObserveModelOutput(ctx context.Context, output ModelOutput) error {
 	ts := c.taskServiceForRequestLocked(output.RequestID)
-	c.ViewMu.RUnlock()
 	return ts.ObserveModelOutput(ctx, output)
 }
 

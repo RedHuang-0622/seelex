@@ -151,12 +151,12 @@ type TaskService struct {
 	// Core.Snapshot.Task；由根调用方在 Core.ViewMu 段把权威 TaskStateFor
 	// 镜像进 Snapshot，见 chat.go runChat 收尾）。
 	lastTaskState *model.TaskState
-	queueRefs     func() []string
+	queueRefs     func(string) []string
 }
 
 // newTaskService 构造当前任务的 TaskService。state 为 nil 时表示无活跃任务。
 // sessionID 是该任务归属会话；tasks 提供协调器 plan 投影 reader。
-func newTaskService(sessionID string, tasks *Coordinator, taskState *TaskExecutionState, queueRefs func() []string) *TaskService {
+func newTaskService(sessionID string, tasks *Coordinator, taskState *TaskExecutionState, queueRefs func(string) []string) *TaskService {
 	service := &TaskService{
 		sessionID:  sessionID,
 		tasks:      tasks,
@@ -422,7 +422,7 @@ func (s *TaskService) completeAuthoritativePlanLocked() error {
 func (s *TaskService) rememberResumeLocked(summary ChatEndSummary) {
 	refs := []string(nil)
 	if s.queueRefs != nil {
-		refs = s.queueRefs()
+		refs = s.queueRefs(s.sessionID)
 	}
 	s.resumeRecord = TaskResumeRecord{
 		TaskID: summary.RequestID, Objective: s.state.Objective,

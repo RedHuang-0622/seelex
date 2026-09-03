@@ -39,9 +39,10 @@ type Deps struct {
 	OversizedToolResultWarning func(name, resultRef string) string
 	// PresentToolError 把工具错误呈现为 provider 可见文本（error 域）。
 	PresentToolError func(name string, err error) string
-	// QueuedInputRefs 返回当前排队输入的显示引用（lifecycle 域；终态恢复
-	// 记录用）。
-	QueuedInputRefs func() []string
+	// QueuedInputRefs 返回指定会话排队输入的显示引用（lifecycle 域；终态
+	// 恢复记录用。F-3b：按会话取，回调自行保证线程安全，不要求调用方持
+	// Core.ViewMu）。
+	QueuedInputRefs func(sessionID string) []string
 	// CurrentSessionID 返回当前活跃会话 ID（线程安全；会话域重构后流式
 	// 路径在无 Core.ViewMu 下反查活跃会话）。
 	CurrentSessionID func() string

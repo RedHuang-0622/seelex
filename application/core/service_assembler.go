@@ -79,12 +79,13 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		IsOversizedToolResult:      context_runtime.IsOversizedToolResult,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
 		PresentToolError:           presentToolError,
-		QueuedInputRefs: func() []string {
-			// F-3b：TaskService 不再持有 Core.ViewMu，队列引用回调自行取
-			// ViewMu.RLock（终态路径可在无外层锁下安全调用）。
-			service.ViewMu.RLock()
-			defer service.ViewMu.RUnlock()
-			return queuedInputRefs(service.activeQueuedChatRequestsLocked())
+		QueuedInputRefs: func(sessionID string) []string {
+			// F-3b：按会话取排队输入引用（不读视图 Snapshot；unit 自锁）。
+			unit := service.sessions.Unit(sessionID)
+			if unit == nil {
+				return nil
+			}
+			return queuedInputRefs(queuedChatRequests(unit.PendingRequests()))
 		},
 		CurrentSessionID: func() string {
 			return service.sessions.ActiveID()
