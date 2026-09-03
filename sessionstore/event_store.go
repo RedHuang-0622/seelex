@@ -94,6 +94,24 @@ func (store *EventStore) Append(ctx context.Context, event frameworkevent.Event)
 // Load 读取会话级事件库（按 Seq 排序，追加顺序）。
 // 事件库为空时返回空切片（不报错）。
 func (store *EventStore) Load(ctx context.Context, sessionID string) ([]frameworkevent.Event, error) {
+	return store.loadRange(ctx, sessionID, 0, 0)
+}
+
+// LoadRange 读取会话级事件库的 Seq 区间（含端点；按追加顺序排序）。
+// fromSeq/toSeq 均传 0 = 全量（兼容 Load 语义）；fromSeq > toSeq 返回显式
+// 错误（与 repository.ReadEventRange 同一区间契约，G7 双轨读回用）。
+func (store *EventStore) LoadRange(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error) {
+	if fromSeq == 0 && toSeq == 0 {
+		return store.loadRange(ctx, sessionID, 0, 0)
+	}
+	if fromSeq > toSeq {
+		return nil, fmt.Errorf("event store: invalid event range %d..%d", fromSeq, toSeq)
+	}
+	return store.loadRange(ctx, sessionID, fromSeq, toSeq)
+}
+
+// loadRange 读取并按范围过滤（from=to=0 表示全量）。
+func (store *EventStore) loadRange(ctx context.Context, sessionID string, fromSeq, toSeq uint64) ([]frameworkevent.Event, error) {
 	if store == nil || store.router == nil {
 		return nil, fmt.Errorf("event store: router is unavailable")
 	}
@@ -107,7 +125,13 @@ func (store *EventStore) Load(ctx context.Context, sessionID string) ([]framewor
 		if err := json.Unmarshal(entry.Payload, &event); err != nil {
 			return nil, fmt.Errorf("event store: decode execution event: %w", err)
 		}
-		events = append(events, event)
+		if fromSeq == 0 && toSeq == 0 {
+			events = append(events, event)
+			continue
+		}
+		if event.Sequence >= fromSeq && event.Sequence <= toSeq {
+			events = append(events, event)
+		}
 	}
 	sort.Slice(events, func(i, j int) bool { return events[i].Sequence < events[j].Sequence })
 	return events, nil

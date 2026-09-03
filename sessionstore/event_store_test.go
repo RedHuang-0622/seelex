@@ -263,6 +263,49 @@ func TestEventStoreWithoutResolverFallsBackToActiveScope(t *testing.T) {
 	}
 }
 
+// TestEventStoreLoadRange（波 4 G7）：事件库按会话/Seq 区间读回（含端点），
+// 顺序保持；倒置区间显式报错；空区间返回空不报错。
+func TestEventStoreLoadRange(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewEventStore(router)
+	store.SetWorkspaceResolver(func(sessionID string) string {
+		if sessionID == "sess-range" {
+			return "project-range"
+		}
+		return ""
+	})
+	for seq := uint64(1); seq <= 5; seq++ {
+		if err := store.Append(context.Background(), frameworkevent.Event{
+			ID: "evt", Sequence: seq, Source: "workplan.runner",
+			Type: frameworkevent.TypeLifecycle, Status: frameworkevent.StatusRunning,
+			Locations: []frameworkevent.Location{{
+				Kind: "agent.runtime", IDs: map[string]string{"session_id": "sess-range"},
+			}},
+		}); err != nil {
+			t.Fatalf("append seq %d: %v", seq, err)
+		}
+	}
+	got, err := store.LoadRange(context.Background(), "sess-range", 2, 4)
+	if err != nil {
+		t.Fatalf("LoadRange: %v", err)
+	}
+	if len(got) != 3 || got[0].Sequence != 2 || got[1].Sequence != 3 || got[2].Sequence != 4 {
+		t.Fatalf("range 2..4 = %#v, want seq 2,3,4 按序", got)
+	}
+	empty, err := store.LoadRange(context.Background(), "sess-range", 1000, 2000)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty range = %d err=%v, want 0", len(empty), err)
+	}
+	if _, err := store.LoadRange(context.Background(), "sess-range", 5, 2); err == nil {
+		t.Fatal("inverted range must fail explicitly")
+	}
+	// (0,0) 保持 Load 全量语义。
+	all, err := store.LoadRange(context.Background(), "sess-range", 0, 0)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("full range = %d err=%v, want 5", len(all), err)
+	}
+}
+
 func eventLogEntry(seq uint64, status frameworkevent.Status) EventLogEntry {
 	payload, err := json.Marshal(frameworkevent.Event{
 		ID: "evt", Sequence: seq, Source: "workplan.runner",
