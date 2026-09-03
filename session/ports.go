@@ -196,6 +196,11 @@ type SessionUnit struct {
 	// Effort 是该会话选择的 effort 级别（G4：归属进 Unit；未选择时为空，
 	// 回退进程级默认 effortManager.Current）。
 	Effort string
+	// FullAccess 是该会话的全权模式（G4：归属进 Unit；未选择时回退进程
+	// 默认/引擎门值——chat 起点按目标会话的生效模式同步门，后台会话不
+	// 继承别的会话的遗留开关）。
+	FullAccess    bool
+	fullAccessSet bool
 
 	// 聊天运行态（9.5 收口：原 ChatRuntime 平行容器已删除，直接收进单元；
 	// 执行态归 Seele loop，这里只留 seelex 侧的投影/取消/流/队列桥）。

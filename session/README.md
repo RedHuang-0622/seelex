@@ -31,6 +31,10 @@ routing、显式 project-scoped read、存储设置），自会话域重构起�
   - `Close` 投递 `domainCmdClose`，由 actor 自己关闭 `stopCh` 并退出：因此重复
     与并发 `Close` 都幂等，也不需要往 `Domain` 上加共享可变状态（共享面约束由
     `shared_face_test.go` 把守）。停机后 `call` 经 `stopCh` 返回零值，不挂起。
+- `SessionUnit`（`ports.go` / `runtime_slot.go`）：每个会话一份的资源单元 ——
+  身份/血缘、`Runtime` 投影槽、`Revision`、`Composer` 草稿与 `Effort`/
+  `FullAccess` 会话选择（G4：未选择回退进程默认；fork 子单元不继承父的运行期
+  选择，见 `deepcopy_test.go: TestS0ForkDeepCopyIsolation`）。
 
 ## 生态位
 

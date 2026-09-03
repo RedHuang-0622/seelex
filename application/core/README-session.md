@@ -78,6 +78,11 @@
 - `func TestEffortOwnershipPerSession(t *testing.T)` — TestEffortOwnershipPerSession（G4）：effort 选择归属进 SessionUnit——
 - `func TestPlanPolicySlotSyncPerSession(t *testing.T)` — TestPlanPolicySlotSyncPerSession（G1-C）：chat 起点按会话 effort 把 plan
 
+### session_fullaccess_test.go
+
+- `func TestFullAccessOwnershipPerSession(t *testing.T)` — TestFullAccessOwnershipPerSession（G4）：fullAccess 选择归属进 SessionUnit——
+- `func TestFullAccessProjectionPerSession(t *testing.T)` — TestFullAccessProjectionPerSession（G4）：运行时投影按会话读取生效的
+
 ### session_fork.go
 
 - `func (service *Service) ForkSession(parentID string, request model.ForkRequest) (string, error)` — ForkSession 从父会话的指定切断点创建独立子会话，并切换到子会话继续。
@@ -196,7 +201,9 @@
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
 - `func (service *Service) effortForSession(sessionID string) string` — effortForSession 返回指定会话生效的 effort 级别（G4：Unit 内选择优先；
+- `func (service *Service) fullAccessForSession(sessionID string) bool` — fullAccessForSession 返回指定会话生效的全权模式（G4：Unit 内选择优先；
 - `func (service *Service) syncPlanPolicyFor(sessionID string)` — syncPlanPolicyFor 按会话 effort 向引擎写入该会话的 plan 策略槽（G1-C：
+- `func (service *Service) syncFullAccessFor(sessionID string)` — syncFullAccessFor 按会话全权模式同步引擎门（G4：chat 起点调用
 - `func (service *Service) anyChatRunningLocked() bool` — anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 - `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态写入会话 view（阶段 1：
 - `func queuedChatRequests(requests []session.QueuedRequest) []chatRequest` — queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的

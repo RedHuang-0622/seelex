@@ -59,6 +59,33 @@ func (service *Service) syncPlanPolicyFor(sessionID string) {
 	service.Deps.Runtime.SetPlanPolicyFor(sessionID, prompt.PlanningPolicy(service.effortForSession(sessionID)))
 }
 
+// fullAccessForSession 返回指定会话生效的全权模式（G4：Unit 内选择优先；
+// 未选择回退进程默认/引擎门值）。不持有 Core.Mu——Unit 自带锁，进程默认
+// 由 Runtime.FullAccess 门值提供。
+func (service *Service) fullAccessForSession(sessionID string) bool {
+	if unit := service.sessions.Unit(sessionID); unit != nil {
+		if on, ok := unit.FullAccessMode(); ok {
+			return on
+		}
+	}
+	// 未选择：回退装配期捕获的进程级默认（不读引擎门当前值——那可能残留
+	// 别的会话的运行开关）。
+	if service == nil {
+		return false
+	}
+	return service.fullAccessDefault
+}
+
+// syncFullAccessFor 按会话全权模式同步引擎门（G4：chat 起点调用，保证每个
+// 会话都按自己的选择运行——后台/新会话不继承其它会话的遗留开关；门是进程
+// 单例执行面，单飞期间只镜像目标会话；SetFullAccess 的即时生效路径除外）。
+func (service *Service) syncFullAccessFor(sessionID string) {
+	if service == nil || service.Deps.Runtime == nil {
+		return
+	}
+	service.Deps.Runtime.SetFullAccess(service.fullAccessForSession(sessionID))
+}
+
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 // 闸门依赖它：切换会话/新建会话必须等所有会话空闲；同会话二次提交仍走
 // 会话内队列。

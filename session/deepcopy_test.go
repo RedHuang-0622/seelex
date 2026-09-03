@@ -72,11 +72,11 @@ func TestDeepCopyBoundary(t *testing.T) {
 	}
 
 	record := SessionRecord{
-		ID:       "sess-a",
-		Kind:     KindMain,
-		Title:    "A",
-		Status:   StatusIdle,
-		Binding:  SessionBinding{WorkspaceID: "proj-a", Kind: KindMain},
+		ID:      "sess-a",
+		Kind:    KindMain,
+		Title:   "A",
+		Status:  StatusIdle,
+		Binding: SessionBinding{WorkspaceID: "proj-a", Kind: KindMain},
 	}
 	copiedRecord := DeepCopyRecordPrefix(record)
 	copiedRecord.Title = "B"
@@ -96,5 +96,49 @@ func TestForkDeepCopyNilParent(t *testing.T) {
 	}
 	if _, err := ForkDeepCopy(nil, ""); err == nil {
 		t.Fatal("fork from nil parent with empty id must return an error")
+	}
+}
+
+// TestS0ForkDeepCopyIsolation（G4 验收锚）：fork 子单元不携带父单元的运行期
+// 选择（effort/fullAccess 按新建会话语义回退进程默认），且父子互不 alias——
+// 改子不影响父、改父不回溯子。
+func TestS0ForkDeepCopyIsolation(t *testing.T) {
+	parent, err := NewSessionUnit("parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent.SetEffortLevel("high")
+	parent.SetFullAccessMode(true)
+	parent.SetRuntimeState(model.RuntimeState{
+		Effort: "high", FullAccess: true, Tokens: "42",
+		Plan: &model.PlanState{Name: "parent-plan", Status: model.PlanPending},
+	})
+
+	child, err := ForkDeepCopy(parent, "child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.EffortLevel() != "" {
+		t.Fatalf("fork child inherited parent effort %q, want unset default", child.EffortLevel())
+	}
+	if on, ok := child.FullAccessMode(); ok || on {
+		t.Fatalf("fork child inherited parent full access on=%v ok=%v, want unset default", on, ok)
+	}
+	if runtime := child.RuntimeState(); runtime.Tokens != "" || runtime.Plan != nil {
+		t.Fatalf("fork child must not copy the parent runtime projection: %+v", runtime)
+	}
+
+	// 改子不影响父。
+	child.SetEffortLevel("lite")
+	child.SetFullAccessMode(false)
+	if parent.EffortLevel() != "high" {
+		t.Fatalf("child effort mutation leaked to parent: %q", parent.EffortLevel())
+	}
+	if on, ok := parent.FullAccessMode(); !ok || !on {
+		t.Fatalf("child full access mutation leaked to parent: on=%v ok=%v", on, ok)
+	}
+	parent.SetRuntimeState(model.RuntimeState{Tokens: "7"})
+	if runtime := child.RuntimeState(); runtime.Tokens != "" {
+		t.Fatalf("parent runtime mutation leaked to child: %+v", runtime)
 	}
 }

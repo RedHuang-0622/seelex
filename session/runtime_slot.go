@@ -49,6 +49,29 @@ func (unit *SessionUnit) SetEffortLevel(level string) {
 	unit.mu.Unlock()
 }
 
+// FullAccessMode 返回本会话的全权模式选择（ok=false = 未选择，回退进程
+// 默认/引擎门值）。G4：每个会话保存自己的选择，切换/新建后互不覆盖。
+func (unit *SessionUnit) FullAccessMode() (on bool, ok bool) {
+	if unit == nil {
+		return false, false
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	return unit.FullAccess, unit.fullAccessSet
+}
+
+// SetFullAccessMode 写入本会话的全权模式选择（chat 起点按生效模式同步
+// 引擎门；未选择会话回退进程默认，不继承其它会话的遗留开关）。
+func (unit *SessionUnit) SetFullAccessMode(on bool) {
+	if unit == nil {
+		return
+	}
+	unit.mu.Lock()
+	unit.FullAccess = on
+	unit.fullAccessSet = true
+	unit.mu.Unlock()
+}
+
 // SetRuntimeState 把一次运行时投影写入本会话槽（深拷贝：投影的 slice
 // 与调用方后续写入互不 alias）。
 func (unit *SessionUnit) SetRuntimeState(state model.RuntimeState) {

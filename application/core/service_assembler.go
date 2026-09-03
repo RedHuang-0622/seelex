@@ -62,6 +62,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	}
 	service := &Service{serviceState: svcState}
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)
+	// 进程级 fullAccess 默认在装配期捕获一次（配置/初始引擎门值），会话
+	// 未选择时回退该默认，而不是读取其它会话遗留的引擎门状态（G4）。
+	if service.Deps.Runtime != nil {
+		service.fullAccessDefault = service.Deps.Runtime.FullAccess()
+	}
 	service.components.tasks = task_context.NewCoordinator(task_context.Deps{
 		Core: kernel,
 		Prompt: taskPromptPort{
@@ -107,10 +112,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		DisplayUserInput:           displayUserInput,
 	})
 	service.components.view = view_state.NewCoordinator(view_state.Deps{
-		Core:          kernel,
-		Units:         sessionDomain,
-		CurrentEffort: service.effortForSession,
-		Tasks:         service.components.tasks,
+		Core:              kernel,
+		Units:             sessionDomain,
+		CurrentEffort:     service.effortForSession,
+		CurrentFullAccess: service.fullAccessForSession,
+		Tasks:             service.components.tasks,
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord) {
 			service.refreshWorkTableLocked(tasks)
 		},

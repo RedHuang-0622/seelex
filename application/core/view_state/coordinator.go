@@ -34,6 +34,9 @@ type Deps struct {
 	// CurrentEffort 返回指定会话的 effort 级别（prompt 域；runtime 投影用；
 	// G4：会话优先，未选择回退进程默认）。
 	CurrentEffort func(sessionID string) string
+	// CurrentFullAccess 返回指定会话生效的全权模式（G4：会话选择优先，
+	// 未选择回退进程默认/引擎门值）。
+	CurrentFullAccess func(sessionID string) bool
 	// RefreshWorkTableLocked 在锁内重建工作表格投影（work_table 域；
 	// 调用方已持有 Core.Mu）。
 	RefreshWorkTableLocked func(tasks []dto.TaskRecord)
@@ -51,6 +54,7 @@ type Coordinator struct {
 	*state.Core
 	units                  *session.Domain
 	currentEffort          func(string) string
+	currentFullAccess      func(string) bool
 	refreshWorkTableLocked func([]dto.TaskRecord)
 	tasks                  interface {
 		ActiveSkillIDs() []string
@@ -66,6 +70,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		Core:                   deps.Core,
 		units:                  deps.Units,
 		currentEffort:          deps.CurrentEffort,
+		currentFullAccess:      deps.CurrentFullAccess,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
 		limits:                 deps.Limits,
@@ -117,7 +122,7 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 			Provider:          c.Deps.Runtime.Provider(),
 			Plugin:            c.Deps.Runtime.ActivePlugin(),
 			Effort:            effort,
-			FullAccess:        c.Deps.Runtime.FullAccess(),
+			FullAccess:        c.fullAccessFor(sessionID),
 			VisibleTools:      append([]model.Tool(nil), c.Deps.Runtime.VisibleTools(ctx)...),
 			Skills:            append([]model.SkillInfo(nil), c.Deps.Skills.All()...),
 			Tokens:            c.tokenCountFor(sessionID),
@@ -154,6 +159,15 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 		}
 	}
 	return projection
+}
+
+// fullAccessFor 返回指定会话生效的全权模式（G4：会话选择优先；未选择时
+// 回退进程默认/引擎门值）。
+func (c *Coordinator) fullAccessFor(sessionID string) bool {
+	if c.currentFullAccess != nil {
+		return c.currentFullAccess(sessionID)
+	}
+	return c.Deps.Runtime.FullAccess()
 }
 
 // replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；

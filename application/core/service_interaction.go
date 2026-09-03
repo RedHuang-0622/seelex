@@ -191,21 +191,32 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 }
 
 func (service *Service) SetFullAccess(on bool) {
+	if service == nil {
+		return
+	}
 	if !on && service.Approval != nil {
 		service.Approval.SetPermissionAutoApproval(false)
 	}
-	service.Deps.Runtime.SetFullAccess(on)
-	fullAccess := service.Deps.Runtime.FullAccess()
-	if fullAccess && service.Approval != nil {
+	viewSessionID := service.currentViewSessionID()
+	// G4：全权选择归属视图会话单元（每个会话记住自己的模式）；引擎门立即
+	// 同步（运行中开全权用于放行当前审批），chat 起点再按槽兜底同步。
+	if unit := service.sessions.Unit(viewSessionID); unit != nil {
+		unit.SetFullAccessMode(on)
+	}
+	if service.Deps.Runtime != nil {
+		service.Deps.Runtime.SetFullAccess(on)
+	}
+	effective := service.fullAccessForSession(viewSessionID)
+	if effective && service.Approval != nil {
 		service.Approval.SetPermissionAutoApproval(true)
 		service.Approval.ResolveAll(ApprovalDecision{OptionID: "always"})
 	}
 	service.Mu.Lock()
-	service.Core.Snapshot.Runtime.FullAccess = fullAccess
+	service.Core.Snapshot.Runtime.FullAccess = effective
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.Mu.Unlock()
-	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
+	service.publishSessionEvent(EventRuntimeChanged, revision, "", viewSessionID, runtime)
 }
 
 func (service *Service) observeInteraction(interaction *Interaction) {

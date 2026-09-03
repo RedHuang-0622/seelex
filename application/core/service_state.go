@@ -41,6 +41,10 @@ type serviceState struct {
 	// draftSeq 是草稿会话 ID 的单调序号（Core.Mu 保护）：早分配 SID 在
 	// Windows 时间戳低分辨率下也保持同 tick 内唯一。
 	draftSeq uint64
+
+	// fullAccessDefault 是进程级全权默认（装配期从引擎门捕获一次；G4：
+	// 会话未选择时回退该值，不继承其它会话的遗留开关）。
+	fullAccessDefault bool
 }
 
 // draftSlot 保留草稿状态。ID 是早分配的真实会话 ID（草稿会话键）；

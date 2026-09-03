@@ -143,6 +143,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 会话起步同步 plan 策略槽：plan_load/plan_run 在引擎内按执行 ctx 读取
 	// 本会话策略（含后台会话），不继承进程默认槽（G1-C）。
 	service.syncPlanPolicyFor(sessionID)
+	// 会话起步同步全权门：每个会话按自己的 fullAccess 选择运行（G4），
+	// 不继承别的会话遗留的开关。
+	service.syncFullAccessFor(sessionID)
 	defer service.components.tasks.ClearReActBudget(requestID)
 	var err error
 	runChatDebug("runChat start session=%s request=%s input=%q", sessionID, requestID, request.displayInput)
