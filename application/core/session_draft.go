@@ -51,7 +51,7 @@ func (service *Service) BeginNewSession() error {
 	}
 
 	if !currentRunning && len(service.Deps.Engine.History()) > 0 {
-		service.Deps.Sessions.SetWorkspace(currentWorkspaceID)
+		service.setWorkspaceWriteScope(currentWorkspaceID)
 		location := service.components.sessions.LocateSession(sessionID)
 		if err := service.components.sessions.PersistCurrentSession(location, sessionID); err != nil {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
@@ -94,9 +94,9 @@ func (service *Service) BeginNewSession() error {
 	if restoredWorkspace == nil {
 		// 任务会话草稿：必须真正未关联工作区（清空上个会话继承的项目绑定）。
 		if service.Deps.Runtime != nil {
-			service.Deps.Runtime.UnbindProjectRoot()
+			service.unbindGlobalProjectRoot()
 		}
-		service.Deps.Sessions.SetWorkspace("")
+		service.setWorkspaceWriteScope("")
 	}
 	// 恢复"工作区会话"草稿：只恢复展示绑定，不在此处切换全局工程根 / store
 	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
@@ -156,13 +156,13 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	}
 
 	if workspace != nil {
-		if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+		if err := service.bindGlobalProjectRoot(workspace.RootPath); err != nil {
 			return fmt.Errorf("bind project root for new session: %w", err)
 		}
-		service.Deps.Sessions.SetWorkspace(workspace.ID)
+		service.setWorkspaceWriteScope(workspace.ID)
 	} else {
-		service.Deps.Runtime.UnbindProjectRoot()
-		service.Deps.Sessions.SetWorkspace("")
+		service.unbindGlobalProjectRoot()
+		service.setWorkspaceWriteScope("")
 	}
 	newID := draftID
 	if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {

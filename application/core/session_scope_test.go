@@ -3,9 +3,52 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
+
+// perSessionFakeRuntime 声明宿主具备逐会话执行能力（生产 seelebridge
+// Runtime.PerSessionExecution=true 的镜像；内嵌 fakeRuntime 提供其余端口）。
+type perSessionFakeRuntime struct {
+	*fakeRuntime
+}
+
+func (perSessionFakeRuntime) PerSessionExecution() bool { return true }
+
+// TestPerSessionHostSkipsGlobalScopeSideEffects F-4：逐会话宿主下
+// bindGlobalProjectRoot/setWorkspaceWriteScope 为空操作（不写进程级根与
+// Router 写作用域），fork 类显式会话 ID 唯一且不再依赖引擎 StartSession。
+func TestPerSessionHostSkipsGlobalScopeSideEffects(t *testing.T) {
+	runtime := &perSessionFakeRuntime{fakeRuntime: &fakeRuntime{}}
+	sessions := &scopedSessions{}
+	service := mustNew(t, Dependencies{
+		Engine: &fakeEngine{}, Runtime: runtime, Plugins: &fakePlugins{current: PluginInfo{Name: "default"}},
+		Skills: fakeSkills{}, Sessions: sessions,
+	})
+	defer service.Shutdown()
+	if !service.perSessionExecution() {
+		t.Fatal("per-session capability not detected")
+	}
+	if err := service.bindGlobalProjectRoot("C:\\proj"); err != nil {
+		t.Fatalf("bindGlobalProjectRoot: %v", err)
+	}
+	if runtime.projectRoot != "" {
+		t.Fatalf("per-session host mutated global project root: %q", runtime.projectRoot)
+	}
+	service.setWorkspaceWriteScope("project-1")
+	if got := sessions.Workspace(); got != "" {
+		t.Fatalf("per-session host mutated router write scope: %q", got)
+	}
+	first := service.newGeneratedSessionID("fork")
+	second := service.newGeneratedSessionID("fork")
+	if first == second || !strings.HasPrefix(first, "fork_") || !strings.HasPrefix(second, "fork_") {
+		t.Fatalf("generated ids = %q/%q, want unique fork_ ids", first, second)
+	}
+	if !service.bindProjectRootIfSafe("sess-a", "C:\\proj") {
+		t.Fatal("per-session host must allow project binding without global root")
+	}
+}
 
 // TestCrossSessionSubmitWhileRunningNoLongerBusy 验证 M2 多会话并行语义：
 // 同会话运行中，向其它会话提交不再返回 ErrSessionBusy——未加载的会话走

@@ -70,13 +70,13 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 	service.ViewMu.RUnlock()
 
 	if draft {
-		if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+		if err := service.bindGlobalProjectRoot(workspace.RootPath); err != nil {
 			return err
 		}
 		// G：工作区草稿的绑定**随 record 落盘**（按绑定项目写 record + 项目
 		// 索引），不提前写 workspace.Repo 绑定——物化首次提交才 BindSession；
 		// 冷启动恢复路径经项目枚举 + draft 槽恢复同一绑定（见 composer_draft.go）。
-		service.Deps.Sessions.SetWorkspace(workspace.ID)
+		service.setWorkspaceWriteScope(workspace.ID)
 		workspaceProjection := service.collectWorkspaceProjection()
 		service.ViewMu.Lock()
 		service.Core.Snapshot.CurrentWorkspace = &WorkspaceInfo{
@@ -103,22 +103,31 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		if writeWorkspaceID == "" {
 			writeWorkspaceID = service.components.sessions.LocateSession(currentSessionID).WorkspaceID
 		}
-		service.Deps.Sessions.SetWorkspace(writeWorkspaceID)
+		service.setWorkspaceWriteScope(writeWorkspaceID)
 		if err := service.Deps.Sessions.SaveCurrent(currentSessionID); err != nil {
 			return fmt.Errorf("save current session before switching project: %w", err)
 		}
 	}
-	if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
+	if err := service.bindGlobalProjectRoot(workspace.RootPath); err != nil {
 		return err
 	}
 	if startFreshSession {
-		currentSessionID = service.Deps.Engine.StartSession()
+		if service.perSessionExecution() {
+			currentSessionID = service.newGeneratedSessionID("ws")
+			if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {
+				if err := activator.ActivateSession(currentSessionID); err != nil {
+					return fmt.Errorf("activate new workspace session: %w", err)
+				}
+			}
+		} else {
+			currentSessionID = service.Deps.Engine.StartSession()
+		}
 		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 	}
 	service.Deps.Workspace.BindSession(currentSessionID, workspace.ID)
 	// framework DurableHistory 按会话 workspace 显式键落盘（R3 键漂移收敛）。
 	service.Deps.Runtime.SetSessionWorkspace(currentSessionID, workspace.ID)
-	service.Deps.Sessions.SetWorkspace(workspace.ID)
+	service.setWorkspaceWriteScope(workspace.ID)
 	workspaceProjection := service.collectWorkspaceProjection()
 	service.ViewMu.Lock()
 	if startFreshSession {
@@ -148,7 +157,7 @@ func (service *Service) UnbindWorkspace() {
 	transition.Lock()
 	defer transition.Unlock()
 
-	service.Deps.Runtime.UnbindProjectRoot()
+	service.unbindGlobalProjectRoot()
 	service.ViewMu.RLock()
 	sessionID := service.Core.Snapshot.Session.ID
 	draft := service.Core.Snapshot.Session.Draft
@@ -156,7 +165,7 @@ func (service *Service) UnbindWorkspace() {
 	if !draft && sessionID != "" {
 		service.Deps.Workspace.UnbindSession(sessionID)
 	}
-	service.Deps.Sessions.SetWorkspace("")
+	service.setWorkspaceWriteScope("")
 	workspaceProjection := service.collectWorkspaceProjection()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.CurrentWorkspace = nil

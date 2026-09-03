@@ -83,9 +83,19 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 		return "", errors.New("session fork: durable storage is unavailable")
 	}
 	location := service.components.sessions.LocateSession(parentID)
-	childID := strings.TrimSpace(service.Deps.Engine.StartSession())
-	if childID == "" {
-		return "", errors.New("engine returned an empty session ID")
+	var childID string
+	if service.perSessionExecution() {
+		childID = service.newGeneratedSessionID("fork")
+		if activator, ok := service.Deps.Engine.(interface{ ActivateSession(string) error }); ok {
+			if err := activator.ActivateSession(childID); err != nil {
+				return "", fmt.Errorf("activate forked session %q: %w", childID, err)
+			}
+		}
+	} else {
+		childID = strings.TrimSpace(service.Deps.Engine.StartSession())
+		if childID == "" {
+			return "", errors.New("engine returned an empty session ID")
+		}
 	}
 	forkContext, err := service.components.sessions.PrepareFork(location, childID, parentID, request)
 	if err != nil {
@@ -110,7 +120,14 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	if service.Deps.Workspace != nil && location.Workspace != nil {
 		service.Deps.Workspace.BindSession(childID, location.WorkspaceID)
 	}
-	service.Deps.Sessions.SetWorkspace(location.WorkspaceID)
+	service.setWorkspaceWriteScope(location.WorkspaceID)
+	// F-4：逐会话宿主下 fork 的子 bundle 由显式 ID 创建；登记完成后卸载，
+	// 让重开走 cold_load（从 fork 快照装载），不残留空引擎活跃别名。
+	if service.perSessionExecution() {
+		if unloader, ok := service.Deps.Engine.(interface{ UnloadSession(string) error }); ok {
+			_ = unloader.UnloadSession(childID)
+		}
+	}
 	service.components.sessions.RequestCatalogRefresh()
 	return childID, nil
 }

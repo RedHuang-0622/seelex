@@ -18,6 +18,9 @@ func (port RuntimePort) MaxOutputTokens() int  { return port.Runtime.MaxOutputTo
 func (port RuntimePort) ActivePlugin() string  { return port.Runtime.ActivePlugin() }
 func (port RuntimePort) FullAccess() bool      { return port.Runtime.FullAccess() }
 func (port RuntimePort) SetFullAccess(on bool) { port.Runtime.SetFullAccess(on) }
+func (port RuntimePort) PerSessionExecution() bool {
+	return port.Runtime.PerSessionExecution()
+}
 func (port RuntimePort) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
 	port.Runtime.SetRuntimeVisibilityProjection(projection)
 }

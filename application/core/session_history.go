@@ -30,7 +30,7 @@ func (service *Service) resumeSession(sessionID string) error {
 		return errors.New("session ID is required")
 	}
 
-	transition := service.transitionView()
+	transition := service.transitionForSession(sessionID)
 	transition.Lock()
 	defer transition.Unlock()
 
@@ -149,13 +149,13 @@ func (service *Service) resumeSession(sessionID string) error {
 			// 冷加载同样遵守「运行中不改根」：有后台会话运行中时跳过全局
 			// 重绑（P3/G5），per-session workspace 记录照写。
 			if service.bindProjectRootIfSafe(sessionID, currentWorkspace.RootPath) {
-				service.Deps.Sessions.SetWorkspace(currentWorkspace.ID)
+				service.setWorkspaceWriteScope(currentWorkspace.ID)
 			}
 			service.Deps.Workspace.BindSession(sessionID, currentWorkspace.ID)
 		} else {
 			if !service.anyChatRunningLocked() {
-				service.Deps.Runtime.UnbindProjectRoot()
-				service.Deps.Sessions.SetWorkspace("")
+				service.unbindGlobalProjectRoot()
+				service.setWorkspaceWriteScope("")
 			}
 			service.Deps.Workspace.UnbindSession(sessionID)
 		}

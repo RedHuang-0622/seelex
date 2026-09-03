@@ -632,6 +632,12 @@ func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOut
 // filesystem tools for the active session.
 func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope.Bind(rootPath) }
 
+// PerSessionExecution 声明宿主具备逐会话执行能力：显式 ActivateSession 建
+// bundle、per-session workspace binding（Runtime.SetSessionWorkspace）。core
+// 据此把会话命令过渡 key 放开为 per-session，并在这些路径上跳过进程级全局
+// 项目根/Router 写作用域副作用（F-4）。
+func (r *Runtime) PerSessionExecution() bool { return true }
+
 // UnbindProjectRoot makes filesystem and shell tools fail closed until a
 // project is selected.
 func (r *Runtime) UnbindProjectRoot() { r.projectScope.Unbind() }

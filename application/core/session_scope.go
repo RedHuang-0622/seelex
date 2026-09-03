@@ -3,8 +3,10 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -18,6 +20,57 @@ import (
 // 生命周期段；视图命令保持单例过渡，见 transitionForKey 注释）。
 func (service *Service) transitionView() sync.Locker {
 	return service.transitionForKey("")
+}
+
+// perSessionExecution 报告宿主是否具备逐会话执行能力（生产 seelebridge
+// Runtime.PerSessionExecution=true；测试桩缺省 false 走旧语义）。
+func (service *Service) perSessionExecution() bool {
+	if provider, ok := service.Deps.Runtime.(interface{ PerSessionExecution() bool }); ok {
+		return provider.PerSessionExecution()
+	}
+	return false
+}
+
+// transitionForSession 返回目标会话生命周期的过渡锁：逐会话宿主按会话 key
+// 串行（不同会话并行），其余宿主回退视图 key。
+func (service *Service) transitionForSession(sessionID string) sync.Locker {
+	if !service.perSessionExecution() {
+		return service.transitionView()
+	}
+	return service.transitionForKey(sessionID)
+}
+
+// newGeneratedSessionID 生成显式会话 ID（逐会话宿主 fork/切项目新建用；
+// 原子序号防跨会话碰撞，不依赖引擎 StartSession 活跃别名）。
+func (service *Service) newGeneratedSessionID(prefix string) string {
+	seq := service.sessionIDSeq.Add(1)
+	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), seq)
+}
+
+// setWorkspaceWriteScope 设置 legacy Router 写作用域；逐会话宿主跳过（存储
+// 键已按会话显式解析，F-4：视图命令放开 per-session key 的前提）。
+func (service *Service) setWorkspaceWriteScope(workspaceID string) {
+	if service.perSessionExecution() {
+		return
+	}
+	service.Deps.Sessions.SetWorkspace(workspaceID)
+}
+
+// bindGlobalProjectRoot 设置进程级项目根；逐会话宿主跳过（per-session
+// workspace binding 由 Runtime.SetSessionWorkspace 承担）。
+func (service *Service) bindGlobalProjectRoot(rootPath string) error {
+	if service.perSessionExecution() {
+		return nil
+	}
+	return service.Deps.Runtime.BindProjectRoot(rootPath)
+}
+
+// unbindGlobalProjectRoot 清空进程级项目根；逐会话宿主跳过。
+func (service *Service) unbindGlobalProjectRoot() {
+	if service.perSessionExecution() {
+		return
+	}
+	service.Deps.Runtime.UnbindProjectRoot()
 }
 
 // transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会
@@ -184,6 +237,10 @@ func (service *Service) publishChatStateFor(sessionID string) {
 // 返回是否已绑定；未绑定时调用方必须跳过全局 SetWorkspace（Router 写作用域
 // 同样全局，不能为后台会话切换）。
 func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool {
+	if service.perSessionExecution() {
+		// 逐会话宿主：项目根随会话 binding，无进程级全局根副作用。
+		return true
+	}
 	service.ViewMu.RLock()
 	anyRunning := service.anyChatRunningLocked()
 	current := service.Core.Snapshot.Session.ID

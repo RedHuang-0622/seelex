@@ -41,7 +41,7 @@ func (service *Service) hotAttachSession(sessionID string) error {
 			// 热加载 = 只换视图指针，不得触碰执行作用域：有其它会话运行中
 			// 时跳过全局项目根/写作用域重绑（P3/G5），per-session 绑定照记。
 			if service.bindProjectRootIfSafe(sessionID, workspace.RootPath) {
-				service.Deps.Sessions.SetWorkspace(workspace.ID)
+				service.setWorkspaceWriteScope(workspace.ID)
 			}
 			service.Deps.Runtime.SetSessionWorkspace(sessionID, workspace.ID)
 		}
@@ -101,7 +101,7 @@ func (service *Service) UnloadSession(sessionID string) error {
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
-	transition := service.transitionView()
+	transition := service.transitionForSession(sessionID)
 	transition.Lock()
 	defer transition.Unlock()
 

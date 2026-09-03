@@ -2,6 +2,7 @@ package core
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
@@ -40,6 +41,9 @@ type serviceState struct {
 	// draftSeq 是草稿会话 ID 的单调序号（Core.ViewMu 保护）：早分配 SID 在
 	// Windows 时间戳低分辨率下也保持同 tick 内唯一。
 	draftSeq uint64
+	// sessionIDSeq 是显式新建会话（fork/切项目）ID 的全局原子序号
+	// （F-4：逐会话宿主不再经 engine.StartSession 拿活跃别名 ID）。
+	sessionIDSeq atomic.Uint64
 	// residentOrder 是驻留引擎（session bundle）的 LRU 使用序（Core.ViewMu
 	// 保护；索引 0 = 最近使用）。G6 驱逐按最旧优先；running/queued/
 	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
