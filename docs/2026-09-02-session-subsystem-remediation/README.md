@@ -394,10 +394,10 @@ running sid + 取消后等待逐会话 flush）、`application/core/README-servi
 
 尚未完成（剩余项，见 target-design §9 波 2 剩余）：
 
-- G4 其余：effort/fullAccess/approval/子代理树/Composer 完整归属进
-  `SessionUnit`（effort 与 join 证据记录已落地）；fullAccess/approval 的
-  会话级门控、子代理会话按 `Kind=Subagent` 落盘/不进侧栏/经父树打开/重启
-  标 `stale` 尚未做。
+- G4 其余：approval 的会话级归属与 awaiting_approval 状态（进程单飞期间
+  审批只可能属于运行/视图会话，会话级待批列表与门控随波 3 并行执行落地）；
+  子代理会话按 `Kind=Subagent` 落盘/不进侧栏/经父树打开/重启标 `stale`
+  尚未做；Composer 工作区草稿 binding 完整归属。
 
 波 2 验证命令（本机 CGO_ENABLED=1，-race 为真实执行）：
 
@@ -442,4 +442,20 @@ go test ./seelebridge ./application/core ./gui ./internal/adapters -count=1   # 
 go test ./gui -count=1                           # 通过（TestBridgeRelaySubscribesToViewOnce
                                                  # 在全包并行下偶发一次，单独/复跑均绿）
 node --test gui/frontend/dist/*.test.mjs          # 184 pass / 0 fail
+```
+
+### 波 2 G4 fullAccess 数据面（追加，2026-09-03）
+
+提交 `9d42a98`：`SessionUnit` 增 FullAccess 槽（`FullAccessMode`/
+`SetFullAccessMode`，与 Effort 槽同模式）；视图 `SetFullAccess` 记录本会话
+选择并即时同步引擎门，未选择会话回退装配期捕获的进程默认（不继承其它会话
+遗留的引擎门值）；view 协调器经 `CurrentFullAccess` 按会话投影（镜像
+`currentEffort` 注入模式）；`runChat` 起点 `syncFullAccessFor` 保证每个
+会话按自己的模式运行。fork 子单元不携带父运行期选择且互不 alias
+（`TestS0ForkDeepCopyIsolation` 验收锚落地）。
+
+```text
+go build ./...                                   # 通过
+go vet ./session ./application/core ./application/core/view_state          # 无告警
+go test ./session ./application/core ./gui ./internal/adapters ./seelebridge -count=1   # 全 ok
 ```

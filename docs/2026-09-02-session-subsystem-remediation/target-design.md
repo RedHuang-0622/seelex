@@ -252,6 +252,12 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
   提交 `40ebd46`）；G3（模型层分型已落地，前端新增 snapshot-shape 归属契
   约与 client-state 进程段保留/合并，提交 `0e53a03`/`75d3fc0`；桌面仍以
   联合 Workbench Snapshot 下发，会话粒度交付走既有 joint 形状）。
-- 剩余波 2 内容（随下一会话推进）：G4 其余——fullAccess/approval 会话级
-  归属与门控、`Kind=Subagent` 落盘与 stale 标记、Composer 完整归属（effort
-  与 join 可见持久记录已落地）。
+- 波 2 已完成的 G4 数据面：fullAccess 选择归属进 `SessionUnit`
+  （`FullAccessMode`/`SetFullAccessMode`；提交 `9d42a98`），投影按会话读取
+  （view 协调器 `CurrentFullAccess`），chat 起点 `syncFullAccessFor` 同步
+  引擎门；fork 子单元不携带父运行期选择且互不 alias
+  （`TestS0ForkDeepCopyIsolation` 落地）。
+- 剩余波 2 内容（随下一会话推进）：approval 的会话级归属与
+  awaiting_approval 状态（进程单飞期间审批只可能属于运行/视图会话，会话级
+  待批列表与门控随波 3 并行执行落地）；`Kind=Subagent` 落盘与 stale 标记、
+  Composer 工作区草稿 binding 完整归属。
