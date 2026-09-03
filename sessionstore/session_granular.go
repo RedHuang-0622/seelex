@@ -30,10 +30,12 @@ const (
 type Status string
 
 const (
-	StatusDraft   Status = "draft"
-	StatusIdle    Status = "idle"
-	StatusRunning Status = "running"
-	StatusQueued  Status = "queued"
+	StatusDraft            Status = "draft"
+	StatusIdle             Status = "idle"
+	StatusRunning          Status = "running"
+	StatusQueued           Status = "queued"
+	StatusAwaitingApproval Status = "awaiting_approval"
+	StatusArchived         Status = "archived"
 )
 
 // Record 是会话粒度记录（session:<id> → SessionRecord）。

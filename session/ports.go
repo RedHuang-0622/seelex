@@ -33,12 +33,14 @@ type (
 )
 
 const (
-	KindMain      = sessionstore.KindMain
-	KindSubagent  = sessionstore.KindSubagent
-	StatusDraft   = sessionstore.StatusDraft
-	StatusIdle    = sessionstore.StatusIdle
-	StatusRunning = sessionstore.StatusRunning
-	StatusQueued  = sessionstore.StatusQueued
+	KindMain               = sessionstore.KindMain
+	KindSubagent           = sessionstore.KindSubagent
+	StatusDraft            = sessionstore.StatusDraft
+	StatusIdle             = sessionstore.StatusIdle
+	StatusRunning          = sessionstore.StatusRunning
+	StatusQueued           = sessionstore.StatusQueued
+	StatusAwaitingApproval = sessionstore.StatusAwaitingApproval
+	StatusArchived         = sessionstore.StatusArchived
 )
 
 // EngineHandle 是引擎/loop 句柄（E_i，opaque：seelebridge bundle 持有
@@ -163,6 +165,9 @@ type SessionUnit struct {
 	mu     sync.Mutex
 	status SessionStatus
 	loaded bool // 引擎热/冷判定（HasSession 驱动）
+	// approvalIDs 是本会话待批审批（波 4 approval 会话级归属：observe 按
+	// sid 记账；非空时 Status()=awaiting_approval——INV-G8 驱逐守卫面）。
+	approvalIDs []string
 
 	// Runtime 是该会话的运行时投影槽（G1：每会话一份）。进程级只读原件
 	// （model/plugins/accounts/...）在 G3 分型前先整份拷贝进槽，之后随
@@ -256,11 +261,66 @@ func WithTitle(title string) func(*SessionUnit) {
 	}
 }
 
-// Status 返回当前可见状态。
+// Status 返回当前可见状态：有待批审批时提升为 awaiting_approval（覆盖
+// 运行态——引擎阻塞在审批上仍是运行中，但目录/驱逐必须把它单独标记）。
+// 底层 status 字段继续由 Submit/Finish 等薄状态机维护（运行/排队兜底）。
 func (unit *SessionUnit) Status() SessionStatus {
 	unit.mu.Lock()
 	defer unit.mu.Unlock()
+	if len(unit.approvalIDs) > 0 {
+		return StatusAwaitingApproval
+	}
 	return unit.status
+}
+
+// AddApproval 登记一条本会话待批审批（会话级归属记账；幂等去重）。
+func (unit *SessionUnit) AddApproval(requestID string) {
+	if unit == nil || requestID == "" {
+		return
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	for _, existing := range unit.approvalIDs {
+		if existing == requestID {
+			return
+		}
+	}
+	unit.approvalIDs = append(unit.approvalIDs, requestID)
+}
+
+// RemoveApproval 移除一条待批审批（结案/超时/取消；幂等）。
+func (unit *SessionUnit) RemoveApproval(requestID string) {
+	if unit == nil {
+		return
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	for index, existing := range unit.approvalIDs {
+		if existing == requestID {
+			unit.approvalIDs = append(unit.approvalIDs[:index], unit.approvalIDs[index+1:]...)
+			return
+		}
+	}
+}
+
+// ApprovalIDs 返回本会话待批审批 ID 拷贝（快照/目录行数据源）。
+func (unit *SessionUnit) ApprovalIDs() []string {
+	if unit == nil {
+		return nil
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	return append([]string(nil), unit.approvalIDs...)
+}
+
+// PendingApprovalCount 返回本会话待批审批数（awaiting_approval 判定源）。
+func (unit *SessionUnit) PendingApprovalCount() int {
+	if unit == nil {
+		return 0
+	}
+	unit.mu.Lock()
+	defer unit.mu.Unlock()
+	return len(unit.approvalIDs)
 }
 
 // HasSession 返回引擎热/冷判定（loaded 由 ColdLoad/Unload 驱动，与
@@ -324,7 +384,7 @@ func (unit *SessionUnit) Finish() error {
 func (unit *SessionUnit) Unload() error {
 	unit.mu.Lock()
 	defer unit.mu.Unlock()
-	if unit.status == StatusRunning || unit.status == StatusQueued {
+	if len(unit.approvalIDs) > 0 || unit.status == StatusRunning || unit.status == StatusQueued {
 		return fmt.Errorf("session: %q cannot unload while running", unit.ID)
 	}
 	if !unit.loaded {

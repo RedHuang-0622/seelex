@@ -49,7 +49,11 @@ func (service *Service) Snapshot() Snapshot {
 			snapshot.Sessions[index].Status = SessionStatusDraft
 			continue
 		}
-		snapshot.Sessions[index].Status = service.sessionStatusLocked(snapshot.Sessions[index].ID)
+		sessionID := snapshot.Sessions[index].ID
+		snapshot.Sessions[index].Status = service.sessionStatusLocked(sessionID)
+		if unit := service.sessions.Unit(sessionID); unit != nil {
+			snapshot.Sessions[index].ApprovalCount = unit.PendingApprovalCount()
+		}
 	}
 	return snapshot
 }
@@ -62,6 +66,11 @@ func (service *Service) sessionStatusLocked(sessionID string) SessionStatus {
 	unit := service.sessions.Unit(sessionID)
 	if unit == nil {
 		return SessionStatusIdle
+	}
+	if unit.PendingApprovalCount() > 0 {
+		// awaiting_approval 覆盖运行态：引擎阻塞在审批上（INV-G8 驱逐守卫
+		// 的目录面；ChatState.Running 仍为 true，收尾/取消路径不变）。
+		return SessionStatusAwaitingApproval
 	}
 	runtime := unit.ChatState()
 	if runtime.Running {

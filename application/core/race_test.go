@@ -716,11 +716,11 @@ func TestObserveInteraction_Race(t *testing.T) {
 				Question: "test",
 				Options:  []InteractionOption{{ID: "ok", Label: "OK"}},
 			}
-			service.observeInteraction(interaction)
+			service.observeInteraction("sess-race", interaction.ID, interaction)
 		}()
 		go func() {
 			defer wg.Done()
-			service.observeInteraction(nil)
+			service.observeInteraction("sess-race", fmt.Sprintf("i%d", time.Now().UnixNano()), nil)
 		}()
 	}
 	wg.Wait()

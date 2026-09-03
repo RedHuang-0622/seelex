@@ -280,6 +280,11 @@ func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
 		ConversationWindow: view.ConversationWindow,
 		ReadFiles:          append([]ReadFileRef(nil), view.ReadFiles...),
 	}
+	if service.Approval != nil {
+		if approvals := service.Approval.PendingBySession(sessionID); len(approvals) > 0 {
+			snapshot.Approvals = append([]Interaction(nil), approvals...)
+		}
+	}
 	if plan := service.planProjectionLocked(sessionID); plan != nil {
 		snapshot.Runtime.Plan = clonePlanForSync(plan)
 	}

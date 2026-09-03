@@ -14,7 +14,7 @@ import (
 func TestResolveAllReleasesPendingApprovals(t *testing.T) {
 	broker := NewApprovalBroker(nil)
 	opened := make(chan string, 2)
-	broker.SetObserver(func(interaction *Interaction) {
+	broker.SetObserver(func(sessionID, requestID string, interaction *Interaction) {
 		if interaction != nil {
 			opened <- interaction.ID
 		}
@@ -57,7 +57,7 @@ func TestResolveAllRacesSingleResolveWithoutDoubleCompletion(t *testing.T) {
 	for iteration := 0; iteration < 100; iteration++ {
 		broker := NewApprovalBroker(nil)
 		opened := make(chan struct{}, 1)
-		broker.SetObserver(func(interaction *Interaction) {
+		broker.SetObserver(func(sessionID, requestID string, interaction *Interaction) {
 			if interaction != nil {
 				opened <- struct{}{}
 			}
@@ -125,7 +125,7 @@ func TestPermissionAutoApprovalClosesFullAccessEnqueueRace(t *testing.T) {
 	}
 
 	opened := make(chan struct{}, 1)
-	broker.SetObserver(func(interaction *Interaction) {
+	broker.SetObserver(func(sessionID, requestID string, interaction *Interaction) {
 		if interaction != nil {
 			opened <- struct{}{}
 		}
@@ -155,5 +155,104 @@ func TestPermissionAutoApprovalClosesFullAccessEnqueueRace(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("manual permission request did not wait for explicit resolution")
+	}
+}
+
+func TestApprovalSessionAttributionAndPendingQueries(t *testing.T) {
+	broker := NewApprovalBroker(nil)
+	events := make(chan string, 8)
+	broker.SetObserver(func(sessionID, requestID string, interaction *Interaction) {
+		if interaction != nil {
+			events <- "open:" + sessionID + ":" + requestID
+			return
+		}
+		events <- "close:" + sessionID + ":" + requestID
+	})
+
+	results := make(chan ApprovalDecision, 3)
+	for index, spec := range []struct {
+		id        string
+		sessionID string
+	}{
+		{id: "approval-a", sessionID: "sess-a"},
+		{id: "approval-b", sessionID: "sess-b"},
+		{id: "approval-legacy", sessionID: ""},
+	} {
+		request := ApprovalRequest{ID: spec.id, SessionID: spec.sessionID, Question: "continue?"}
+		go func() {
+			decision, err := broker.Request(context.Background(), request)
+			if err == nil {
+				results <- decision
+			}
+		}()
+		_ = index
+	}
+	expectOpen := map[string]bool{
+		"open:sess-a:approval-a": false,
+		"open:sess-b:approval-b": false,
+		"open::approval-legacy":  false,
+	}
+	for len(expectOpen) > 0 {
+		select {
+		case event := <-events:
+			if _, ok := expectOpen[event]; ok {
+				delete(expectOpen, event)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("missing opens, remaining=%v", expectOpen)
+		}
+	}
+
+	pendingA := broker.PendingBySession("sess-a")
+	if len(pendingA) != 1 || pendingA[0].ID != "approval-a" || pendingA[0].SessionID != "sess-a" {
+		t.Fatalf("PendingBySession(sess-a) = %#v", pendingA)
+	}
+	if got := broker.PendingBySession("sess-missing"); len(got) != 0 {
+		t.Fatalf("PendingBySession(missing) = %#v", got)
+	}
+	all := broker.Pending()
+	if len(all) != 3 {
+		t.Fatalf("Pending() = %d entries, want 3", len(all))
+	}
+
+	if err := broker.Resolve("approval-b", ApprovalDecision{OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-events:
+		if event != "close:sess-b:approval-b" {
+			t.Fatalf("close event = %q, want close:sess-b:approval-b", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("close observer not called with session attribution")
+	}
+	if remaining := broker.PendingBySession("sess-b"); len(remaining) != 0 {
+		t.Fatalf("sess-b still pending after resolve: %#v", remaining)
+	}
+	if remaining := broker.PendingBySession("sess-a"); len(remaining) != 1 {
+		t.Fatalf("sess-a pending = %d, want 1", len(remaining))
+	}
+
+	if err := broker.Resolve("approval-legacy", ApprovalDecision{OptionID: "__CANCEL__"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-events:
+		if event != "close::approval-legacy" {
+			t.Fatalf("legacy close event = %q, want close::approval-legacy", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("legacy close observer not called")
+	}
+	// 收尾：释放剩余待批，避免 goroutine 泄漏。
+	if count := broker.ResolveAll(ApprovalDecision{OptionID: "always"}); count != 1 {
+		t.Fatalf("ResolveAll count = %d, want 1", count)
+	}
+	for index := 0; index < 3; index++ {
+		select {
+		case <-results:
+		case <-time.After(time.Second):
+			t.Fatal("approval result not delivered")
+		}
 	}
 }

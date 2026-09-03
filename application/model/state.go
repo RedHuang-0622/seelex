@@ -87,10 +87,12 @@ type ComposerDraft struct {
 type SessionStatus string
 
 const (
-	SessionStatusDraft   SessionStatus = "draft"
-	SessionStatusIdle    SessionStatus = "idle"
-	SessionStatusRunning SessionStatus = "running"
-	SessionStatusQueued  SessionStatus = "queued"
+	SessionStatusDraft            SessionStatus = "draft"
+	SessionStatusIdle             SessionStatus = "idle"
+	SessionStatusRunning          SessionStatus = "running"
+	SessionStatusQueued           SessionStatus = "queued"
+	SessionStatusAwaitingApproval SessionStatus = "awaiting_approval"
+	SessionStatusArchived         SessionStatus = "archived"
 )
 
 type Message struct {
@@ -533,6 +535,9 @@ type SessionInfo struct {
 	UpdatedAt  time.Time     `json:"updated_at"`
 	TokenCount int           `json:"token_count"`
 	Status     SessionStatus `json:"status,omitempty"`
+	// ApprovalCount 是本会话当前待批审批数（波 4 approval 会话级归属：
+	// awaiting_approval 状态行/侧栏计数数据源，随快照覆盖下发）。
+	ApprovalCount int `json:"approval_count,omitempty"`
 	// Meta 是用户侧展示元数据（置顶/别名/排序位）。随目录由后端下发，客户端
 	// 不再存在 localStorage（否则换窗口/换设备即分叉）。
 	Meta SessionMeta `json:"meta,omitempty"`
@@ -545,16 +550,19 @@ type SessionMeta struct {
 	SortOrder int    `json:"sort_order,omitempty"`
 }
 type Interaction struct {
-	ID       string              `json:"id"`
-	Kind     string              `json:"kind"`
-	Title    string              `json:"title"`
-	Question string              `json:"question,omitempty"`
-	Risk     string              `json:"risk,omitempty"`
-	ToolName string              `json:"tool_name,omitempty"`
-	Preview  string              `json:"preview,omitempty"`
-	Options  []InteractionOption `json:"options"`
-	OpenedAt time.Time           `json:"opened_at"`
-	Timeout  time.Duration       `json:"timeout,omitempty"`
+	ID string `json:"id"`
+	// SessionID 是审批类交互的会话级归属（波 4：awaiting_approval/待批
+	// 列表按 sid 分格；session/account/plan_retry 等视图单格交互不填）。
+	SessionID string              `json:"session_id,omitempty"`
+	Kind      string              `json:"kind"`
+	Title     string              `json:"title"`
+	Question  string              `json:"question,omitempty"`
+	Risk      string              `json:"risk,omitempty"`
+	ToolName  string              `json:"tool_name,omitempty"`
+	Preview   string              `json:"preview,omitempty"`
+	Options   []InteractionOption `json:"options"`
+	OpenedAt  time.Time           `json:"opened_at"`
+	Timeout   time.Duration       `json:"timeout,omitempty"`
 }
 type InteractionOption struct {
 	ID          string `json:"id"`

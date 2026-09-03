@@ -13,6 +13,14 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 	interaction := service.Core.Snapshot.Interaction
 	service.ViewMu.RUnlock()
 	if interaction == nil || interaction.ID != id {
+		// 波 4 approval 会话级归属：待批可能不在视图单格（后台会话卡在
+		// 审批、或单格已被下一笔覆盖）。broker 仍持有时按 id 直接结案；
+		// 非 approval 交互（session/account/plan_retry）保持视图单格校验。
+		if service.Approval != nil {
+			if _, ok := service.pendingApprovalSession(id); ok {
+				return service.Approval.Resolve(id, ApprovalDecision{OptionID: optionID})
+			}
+		}
 		return ErrInteractionNotFound
 	}
 	if optionID == "__CANCEL__" {
@@ -55,6 +63,17 @@ func (service *Service) ResolveInteraction(ctx context.Context, id, optionID str
 	}
 	service.closeInteraction(id)
 	return nil
+}
+
+// pendingApprovalSession 在 broker 待批集合中按审批 ID 反查归属会话
+// （跨会话待批解析/镜像判定用；集合小，线性扫描可接受）。
+func (service *Service) pendingApprovalSession(id string) (string, bool) {
+	for _, entry := range service.Approval.Pending() {
+		if entry.Interaction.ID == id {
+			return entry.SessionID, true
+		}
+	}
+	return "", false
 }
 
 func (service *Service) appendPlanRetryNotice(message string) {
@@ -219,26 +238,75 @@ func (service *Service) SetFullAccess(on bool) {
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", viewSessionID, runtime)
 }
 
-func (service *Service) observeInteraction(interaction *Interaction) {
+// observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
+// 级归属）：open → (sessionID, requestID, interaction)，close →
+// (sessionID, requestID, nil)。
+//
+// 归属路由：审批按所属 sid 记账到会话单元（Unit.Approvals →
+// awaiting_approval），事件按所属 sid 发布（(通道,sid) 语义）；单格
+// Snapshot.Interaction 只镜像当前视图会话（或进程级空归属）的审批——
+// 后台会话的待批不进视图单格，由目录行 awaiting_approval 状态与跨会话
+// 待批计数承载。
+func (service *Service) observeInteraction(sessionID, requestID string, interaction *Interaction) {
+	sessionID = strings.TrimSpace(sessionID)
+	viewSessionID := service.currentViewSessionID()
 	service.ViewMu.Lock()
-	previousID := ""
-	if service.Core.Snapshot.Interaction != nil {
-		previousID = service.Core.Snapshot.Interaction.ID
-	}
 	if interaction == nil {
-		service.Core.Snapshot.Interaction = nil
+		// 结案：摘除会话归属（幂等），并只清与本次结案同归属的视图单格。
+		if sessionID != "" {
+			if unit := service.sessions.Unit(sessionID); unit != nil {
+				unit.RemoveApproval(requestID)
+			}
+		}
+		slot := service.Core.Snapshot.Interaction
+		if slot != nil && (sessionID == "" || (slot.SessionID == sessionID && slot.ID == requestID)) {
+			service.Core.Snapshot.Interaction = nil
+			// 同会话仍有多笔待批时，把下一笔镜像进单格（后开覆盖先开
+			// 的进程级语义在会话格内退化为「同会话首笔」）。
+			service.mirrorPendingApprovalsLocked(viewSessionID)
+		}
 	} else {
 		copied := *interaction
+		copied.SessionID = sessionID
 		copied.Options = append([]InteractionOption(nil), interaction.Options...)
-		service.Core.Snapshot.Interaction = &copied
+		if sessionID != "" {
+			if unit := service.sessions.Unit(sessionID); unit != nil {
+				unit.AddApproval(requestID)
+			}
+		}
+		if sessionID == "" || sessionID == viewSessionID {
+			service.Core.Snapshot.Interaction = &copied
+		}
 	}
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
+	publishSID := sessionID
+	if publishSID == "" {
+		publishSID = viewSessionID
+	}
 	if interaction == nil {
-		service.publishSessionEvent(EventInteractionClosed, revision, previousID, service.currentViewSessionID(), nil)
+		service.publishSessionEvent(EventInteractionClosed, revision, requestID, publishSID, nil)
 		return
 	}
-	service.publishSessionEvent(EventInteractionOpened, revision, interaction.ID, service.currentViewSessionID(), interaction)
+	service.publishSessionEvent(EventInteractionOpened, revision, requestID, publishSID, interaction)
+}
+
+// mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
+// Snapshot.Interaction（调用方持有 Core.ViewMu；hotAttach 切换会话/结案
+// 后调用——单格交互只表达当前视图会话的审批；无待批时清空）。
+func (service *Service) mirrorPendingApprovalsLocked(sessionID string) {
+	if service.Approval == nil {
+		service.Core.Snapshot.Interaction = nil
+		return
+	}
+	pending := service.Approval.PendingBySession(sessionID)
+	if len(pending) == 0 {
+		service.Core.Snapshot.Interaction = nil
+		return
+	}
+	copied := pending[0]
+	copied.Options = append([]InteractionOption(nil), pending[0].Options...)
+	service.Core.Snapshot.Interaction = &copied
 }
 
 func (service *Service) openInteraction(interaction *Interaction) {

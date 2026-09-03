@@ -217,11 +217,19 @@ type WorkspacePort interface {
 // ApprovalBroker 是异步审批的窄契约（实现：application/approval.ApprovalBroker）。
 // 合约层只依赖该接口，装配根负责注入具体实现，便于替换审批机制或注入测试桩。
 type ApprovalBroker interface {
-	SetObserver(observer func(*model.Interaction))
+	// SetObserver 注册审批开/结观察回调（波 4 会话级归属：open →
+	// (sessionID, requestID, interaction)，close → (sessionID, requestID,
+	// nil)；requestID 区分同会话多笔待批；sessionID 空 = 进程级/无会话
+	// 审批）。
+	SetObserver(observer func(sessionID, requestID string, interaction *model.Interaction))
 	SetPermissionAutoApproval(on bool)
 	Request(ctx context.Context, request approval.ApprovalRequest) (approval.ApprovalDecision, error)
 	Resolve(id string, decision approval.ApprovalDecision) error
 	ResolveAll(decision approval.ApprovalDecision) int
+	// Pending 返回待批审批的会话归属快照（awaiting_approval/镜像补取用）。
+	Pending() []approval.PendingApproval
+	// PendingBySession 返回指定会话的待批审批（会话激活镜像用）。
+	PendingBySession(sessionID string) []model.Interaction
 	Shutdown()
 }
 

@@ -99,10 +99,12 @@ type (
 
 // SessionStatus 可见状态常量（复用 model 定义）。
 const (
-	SessionStatusDraft   = model.SessionStatusDraft
-	SessionStatusIdle    = model.SessionStatusIdle
-	SessionStatusRunning = model.SessionStatusRunning
-	SessionStatusQueued  = model.SessionStatusQueued
+	SessionStatusDraft            = model.SessionStatusDraft
+	SessionStatusIdle             = model.SessionStatusIdle
+	SessionStatusRunning          = model.SessionStatusRunning
+	SessionStatusQueued           = model.SessionStatusQueued
+	SessionStatusAwaitingApproval = model.SessionStatusAwaitingApproval
+	SessionStatusArchived         = model.SessionStatusArchived
 )
 
 // 域子包内部类型的根包别名（保持 package core 内部调用面稳定）。
