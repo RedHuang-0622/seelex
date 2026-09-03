@@ -276,6 +276,12 @@ BindWorkspace 后按绑定项目写 record（先 `EnsureIndexed` 空 commit 建�
 清理写回同键。任务会话草稿（未绑定）保持默认项目语义。workspace.Repo 的
 BindSession 仍在首次物化时写入（不在草稿期提前写），避免污染绑定解析器。
 
+D6b fork 发散式 -race（2026-09-04 收口）：`sessionstore/fork_test.go` 新增
+`TestForkToolResultsConcurrentDivergenceStayIsolated`——多对 parent/child
+并发做父通道 tool-results 全量深拷贝 → 子提交 → 删父 → 子读回，同时覆盖
+resolver 重装与活跃写作用域漂移（与 concurrency_race_test.go /
+session_granular_race_test.go 三处同写法）。
+
 ## 4. 热挂载 vs 冷加载（切换/恢复分支）
 
 ```mermaid

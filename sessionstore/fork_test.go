@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -125,4 +127,96 @@ func TestForkCommitDeepCopiesToolResultsAfterParentDelete(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestForkToolResultsConcurrentDivergenceStayIsolated（D6b 发散式 -race）：
+// 多对 parent/child fork 并发做"父通道全量 tool-results 深拷贝 → 子提交 →
+// 删父 → 子读回"，同时覆盖 resolver 重装与活跃写作用域漂移。每对的 content
+// 只属于自己（发散式隔离，不串写他域）。
+func TestForkToolResultsConcurrentDivergenceStayIsolated(t *testing.T) {
+	router := newSessionGranularRouter(t, BackendJSON)
+	store := NewSessionGranularStore(router)
+	const project = "project-fork-race"
+	resolver := func(string) string { return project }
+	store.SetWorkspaceResolver(resolver)
+
+	var churn sync.WaitGroup
+	churn.Add(1)
+	go func() {
+		defer churn.Done()
+		for round := 0; round < 300; round++ {
+			store.SetWorkspaceResolver(resolver)
+			router.SetWorkspace("project-noise")
+		}
+	}()
+
+	const pairs = 6
+	const rounds = 8
+	var group sync.WaitGroup
+	for index := 0; index < pairs; index++ {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+			for round := 0; round < rounds; round++ {
+				parent := Key{ProjectID: project, SessionID: fmt.Sprintf("fork-p%d-r%d-parent", index, round)}
+				child := Key{ProjectID: project, SessionID: fmt.Sprintf("fork-p%d-r%d-child", index, round)}
+				marker := fmt.Sprintf("p%d-r%d", index, round)
+				parentState := []byte(fmt.Sprintf(`{"version":3,"id":"%s","forked_from":null}`, parent.SessionID))
+				if err := store.SaveCommit(project, parent.SessionID, Commit{
+					ProviderHistory: messages(2, marker),
+					Events: []Event{
+						{Seq: 1, Role: "user", Content: marker + " q", MessageID: "m1"},
+					},
+					State: parentState,
+					ToolResults: []ToolResult{
+						{Ref: "result:1", Tool: "bash", Content: marker + "-one", Digest: "d1", Size: 3, TokenCount: 1},
+						{Ref: CompressedTurnRefPrefix + "seg-1", Tool: "compact_frame", Content: marker + "-archived", Digest: "d2", Size: 8, TokenCount: 2},
+					},
+				}); err != nil {
+					t.Errorf("parent commit %s: %v", parent.SessionID, err)
+					return
+				}
+				results, err := store.ListToolResults(project, parent.SessionID)
+				if err != nil {
+					t.Errorf("list parent results %s: %v", parent.SessionID, err)
+					return
+				}
+				childState := []byte(fmt.Sprintf(`{"version":3,"id":"%s","forked_from":"%s"}`, child.SessionID, parent.SessionID))
+				if err := store.SaveCommit(project, child.SessionID, Commit{
+					Events:      []Event{{Seq: 1, Role: "user", Content: marker + " q", MessageID: "m1"}},
+					State:       childState,
+					ToolResults: results,
+				}); err != nil {
+					t.Errorf("child commit %s: %v", child.SessionID, err)
+					return
+				}
+				if err := store.Delete(project, parent.SessionID); err != nil {
+					t.Errorf("delete parent %s: %v", parent.SessionID, err)
+					return
+				}
+				result, err := store.ToolResult(project, child.SessionID, "result:1")
+				if err != nil || result.Content != marker+"-one" {
+					t.Errorf("child result %s = %#v err=%v, want %q", child.SessionID, result, err, marker+"-one")
+					return
+				}
+				archived, err := store.ToolResult(project, child.SessionID, CompressedTurnRefPrefix+"seg-1")
+				if err != nil || archived.Content != marker+"-archived" {
+					t.Errorf("child archived %s = %#v err=%v", child.SessionID, archived, err)
+					return
+				}
+				state, err := router.LoadStateWorkspace(project, child.SessionID)
+				if err != nil || string(state) != string(childState) {
+					t.Errorf("child state %s = %s err=%v", child.SessionID, state, err)
+					return
+				}
+				events, err := store.EventRange(project, child.SessionID, 1, 1)
+				if err != nil || len(events) != 1 || events[0].Content != marker+" q" {
+					t.Errorf("child events %s = %#v err=%v", child.SessionID, events, err)
+					return
+				}
+			}
+		}(index)
+	}
+	group.Wait()
+	churn.Wait()
 }
