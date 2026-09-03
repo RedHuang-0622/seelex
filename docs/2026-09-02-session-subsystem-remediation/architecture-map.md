@@ -4,6 +4,8 @@
 > 覆盖现状（波 4 部分收口 `5eadfb5` 之后）；G1~G7 的**目标形状**见
 > [target-design.md](target-design.md)，与本文“现状”栏并行阅读。
 > 结构若随波 3+ 演进（Unit 槽扩展、锁拆分、快照分型），本文应同步更新。
+> 面向人读的整体讲解（专业/大白话两版 + struct/interface 属性与方法）见
+> [session-subsystem-review.md](session-subsystem-review.md)。
 
 ## 1. SessionUnit 的生态位
 
