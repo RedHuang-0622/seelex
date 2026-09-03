@@ -62,6 +62,9 @@
   （EventStore.LoadRange + 实时轨合并）；`seelex:subagent_live` 增加
   `assistant` 正文增量 kind（节点 ChatStream onChunk），详情会话记录由实时
   事件驱动，前端不再 2s 轮询。
+- 工作区草稿（2026-09-03 G 收口）：BindWorkspace 后的草稿 record 按绑定
+  项目落盘并可跨重启枚举恢复（目录按项目分格枚举即数据源）；物化保持同一
+  SID 与项目归属。
 
 尚未实现（规划）：真并行执行、每会话驻留 Snapshot/组件栈
 （`task_context`/`prompt_layer`/`view_state`/`session_runtime` 仍共享单

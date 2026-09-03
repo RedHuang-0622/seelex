@@ -1,6 +1,7 @@
 package session_runtime
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
@@ -110,6 +111,40 @@ func (c *Coordinator) allProjectIDs() []string {
 		projects = append(projects, item.ID)
 	}
 	return projects
+}
+
+// AllProjectIDs 返回目录枚举的项目集合（公开观察面：冷启动草稿恢复需要跨
+// 项目找 record，与 worker 的枚举范围一致）。
+func (c *Coordinator) AllProjectIDs() []string {
+	return c.allProjectIDs()
+}
+
+// DraftCandidates 返回目录里 status=draft 的会话候选（G：跨项目枚举，用于
+// 冷启动装配器恢复草稿——工作区草稿按绑定项目落 record 后在此找回）。
+func (c *Coordinator) DraftCandidates() []model.SessionInfo {
+	var candidates []model.SessionInfo
+	if granular, ok := c.Core.Deps.Sessions.(SessionGranularPort); ok {
+		for _, projectID := range c.allProjectIDs() {
+			for _, info := range granular.SessionsOf(projectID) {
+				if info.Status == model.SessionStatusDraft && info.ID != "" {
+					candidates = append(candidates, info)
+				}
+			}
+		}
+	} else {
+		for _, info := range c.Core.Deps.Sessions.List() {
+			if info.Status == model.SessionStatusDraft && info.ID != "" {
+				candidates = append(candidates, info)
+			}
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].UpdatedAt.Equal(candidates[j].UpdatedAt) {
+			return candidates[i].ID < candidates[j].ID
+		}
+		return candidates[i].UpdatedAt.After(candidates[j].UpdatedAt)
+	})
+	return candidates
 }
 
 // LocateSession 定位会话（workspace 绑定优先；支持 scoped 读取时遍历全部

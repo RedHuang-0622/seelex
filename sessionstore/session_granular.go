@@ -209,6 +209,21 @@ func (store *SessionGranularStore) sessionIndexed(projectID, sessionID string) b
 	return false
 }
 
+// EnsureIndexed 在项目索引尚无该会话时生成一次空 commit（manifest/meta），
+// 使 record-only 草稿会话（工作区草稿按绑定项目落盘）能被 SessionsOf 枚举；
+// 已有条目时为空操作。只在首次落盘前调用——之后 state 通道由
+// SaveRecordRaw/写端口按 model.SessionRecord 覆盖，空 commit 不会清掉它。
+func (store *SessionGranularStore) EnsureIndexed(projectID, sessionID string) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	projectID = store.projectID(projectID)
+	if store.sessionIndexed(projectID, sessionID) {
+		return nil
+	}
+	return store.router.SaveCommitWorkspace(projectID, sessionID, Commit{})
+}
+
 // LoadSession 读取会话记录；不存在返回 (zero, false, nil)。
 func (store *SessionGranularStore) LoadSession(projectID, sessionID string) (Record, bool, error) {
 	if store == nil || store.router == nil {

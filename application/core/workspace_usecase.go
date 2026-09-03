@@ -73,6 +73,9 @@ func (service *Service) bindWorkspaceInfo(workspace WorkspaceInfo) error {
 		if err := service.Deps.Runtime.BindProjectRoot(workspace.RootPath); err != nil {
 			return err
 		}
+		// G：工作区草稿的绑定**随 record 落盘**（按绑定项目写 record + 项目
+		// 索引），不提前写 workspace.Repo 绑定——物化首次提交才 BindSession；
+		// 冷启动恢复路径经项目枚举 + draft 槽恢复同一绑定（见 composer_draft.go）。
 		service.Deps.Sessions.SetWorkspace(workspace.ID)
 		workspaceProjection := service.collectWorkspaceProjection()
 		service.ViewMu.Lock()
@@ -157,6 +160,10 @@ func (service *Service) UnbindWorkspace() {
 	workspaceProjection := service.collectWorkspaceProjection()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.CurrentWorkspace = nil
+	if service.draft != nil && service.draft.ID == sessionID {
+		service.draft.Workspace = nil
+		service.draft.UpdatedAt = time.Now()
+	}
 	service.applyWorkspaceProjectionLocked(workspaceProjection)
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()

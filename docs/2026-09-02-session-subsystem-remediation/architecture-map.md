@@ -269,6 +269,13 @@ TUI 待批承载面（2026-09-03 收口）：无会话侧栏的 TUI 以最小可
 口径——状态行跨会话待批计数（目录行数据源）+ 待批会话提示行；单格
 Interaction 仍只表达当前视图会话审批，不做平行会话管理。
 
+Composer 工作区草稿 binding 落盘（2026-09-03 G 收口）：工作区草稿在
+BindWorkspace 后按绑定项目写 record（先 `EnsureIndexed` 空 commit 建项目索引，
+再写 state 通道），不再落默认项目；冷启动装配器经 `DraftCandidates` 跨项目
+枚举找回同一 SID/composer/项目，draft 槽恢复绑定；物化复用同一 SID 与项目，
+清理写回同键。任务会话草稿（未绑定）保持默认项目语义。workspace.Repo 的
+BindSession 仍在首次物化时写入（不在草稿期提前写），避免污染绑定解析器。
+
 ## 4. 热挂载 vs 冷加载（切换/恢复分支）
 
 ```mermaid

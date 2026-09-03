@@ -305,6 +305,12 @@ func (port SessionPort) SessionsOf(projectID string) []model.SessionInfo {
 	return port.applySessionMetas(projectID, adaptGranularInfos(infos))
 }
 
+// EnsureSessionIndexed 在项目索引尚无该会话时生成一次空 commit，使
+// record-only 工作区草稿能被按项目枚举找回（G：草稿 binding 落盘）。
+func (port SessionPort) EnsureSessionIndexed(projectID, sessionID string) error {
+	return port.granular().EnsureIndexed(projectID, sessionID)
+}
+
 func (port SessionPort) SaveSessionRecord(id string, record model.SessionRecord) error {
 	payload, err := json.Marshal(record)
 	if err != nil {
