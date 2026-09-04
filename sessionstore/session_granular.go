@@ -193,7 +193,7 @@ func (store *SessionGranularStore) SaveRecordRaw(projectID, sessionID string, pa
 // （调用方按存储语义处理，如恢复路径的 record 缺失分支）。
 func (store *SessionGranularStore) LoadRecordRaw(projectID, sessionID string) ([]byte, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []byte{}, nil
 	}
 	return store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
 }
@@ -326,7 +326,7 @@ func (store *SessionGranularStore) HistoryRange(projectID, sessionID string, off
 // provider history 同库，事务序=seq 序）。
 func (store *SessionGranularStore) Transcript(projectID, sessionID string) ([]TranscriptEvent, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []TranscriptEvent{}, nil
 	}
 	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, math.MaxInt, math.MaxInt)
 	if err != nil {
@@ -348,7 +348,7 @@ func (store *SessionGranularStore) Transcript(projectID, sessionID string) ([]Tr
 // TranscriptTail 读取会话事件日志尾部窗口（token + 单元上限；会话粒度键）。
 func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, tokenBudget, maxUnits int) ([]Event, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []Event{}, nil
 	}
 	events, err := store.router.LoadEventTailWorkspace(store.projectID(projectID), sessionID, tokenBudget, maxUnits)
 	if err != nil {
@@ -363,7 +363,7 @@ func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, t
 // EventRange 按 EventSeq 范围读取会话事件流（fork 切断点解析用）。
 func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []Event{}, nil
 	}
 	events, err := store.router.LoadEventRangeWorkspace(store.projectID(projectID), sessionID, fromSeq, toSeq)
 	if err != nil {
@@ -378,7 +378,7 @@ func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromS
 // ToolResults 读取会话工具结果归档引用（session:<id>:toolresults）。
 func (store *SessionGranularStore) ToolResults(projectID, sessionID string) ([]ToolResultRef, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []ToolResultRef{}, nil
 	}
 	results, err := store.router.ListToolResultsWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {
@@ -409,7 +409,7 @@ func (store *SessionGranularStore) ToolResult(projectID, sessionID, resultRef st
 // ListToolResults 读取会话 tool-results 通道全量（fork 深拷贝物理复制用）。
 func (store *SessionGranularStore) ListToolResults(projectID, sessionID string) ([]ToolResult, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []ToolResult{}, nil
 	}
 	results, err := store.router.ListToolResultsWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {
@@ -452,7 +452,7 @@ func (store *SessionGranularStore) SaveContext(projectID, sessionID string, payl
 // 原样返回 fs.ErrNotExist（fork 据此走默认上下文分支）。
 func (store *SessionGranularStore) LoadContextRaw(projectID, sessionID string) ([]byte, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []byte{}, nil
 	}
 	return store.router.LoadContextStateWorkspace(store.projectID(projectID), sessionID)
 }
@@ -495,7 +495,7 @@ func (store *SessionGranularStore) Delete(projectID, sessionID string) error {
 // workspace 列表，record 补充 kind/status/parent）。
 func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, error) {
 	if store == nil || store.router == nil {
-		return nil, nil
+		return []SessionInfo{}, nil
 	}
 	// 目录枚举契约：projectID 原样使用（"" = 默认项目），不随 Router 活跃
 	// 写作用域替换——否则视图切换（SetWorkspace）会让默认/未关联项目会话从
