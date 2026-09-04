@@ -8,6 +8,8 @@
 > [session-subsystem-review.md](session-subsystem-review.md)。
 > 会话切换并发模型的 AB 测试与路线选择见
 > [session-switch-concurrency-decision.md](session-switch-concurrency-decision.md)。
+> Thinking（推理内容）实时链路设计与线谱见
+> [thinking-live-path.md](thinking-live-path.md)。
 
 ## 1. SessionUnit 的生态位
 
