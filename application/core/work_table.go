@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -607,12 +606,13 @@ func (service *Service) consumeTaskChanges() {
 	}
 }
 
-// safeLifecycleCall 隔离消费者中的单次 panic（记录并继续，避免消费者
-// goroutine 静默死亡导致工作表格停止刷新）。
+// safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
+// 继续运行（可能持续污染其它会话）——先降级退出，再重新抛出 panic 让宿主
+// 及时退出（fail-fast）。死锁类问题由带超时的探针用例负责超时即失败。
 func (service *Service) safeLifecycleCall(call func()) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			log.Printf("seelex lifecycle consumer recovered: %v", recovered)
+			service.handleLifecycleFault(recovered)
 		}
 	}()
 	call()

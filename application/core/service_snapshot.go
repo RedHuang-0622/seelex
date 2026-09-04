@@ -61,6 +61,19 @@ func (service *Service) ListSessions() []SessionInfo {
 // Core.ViewMu）：草稿槽位行恒为 draft；其余行按单元运行态叠加状态/
 // 待批计数/resident 标记。
 func (service *Service) enrichDirectoryRowsLocked(rows []SessionInfo) []SessionInfo {
+	// 草稿行幂等防重：同一时刻只允许一个“新建会话草稿”出现在列表——当前
+	// 视图草稿（service.draft）持有责任；历史遗留的其它 draft record（如
+	// 崩溃前保存的旧草稿）隐藏但保留在磁盘，不造成列表多值。
+	if service.draft != nil && service.draft.ID != "" {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if row.Status == SessionStatusDraft && row.ID != service.draft.ID {
+				continue
+			}
+			filtered = append(filtered, row)
+		}
+		rows = filtered
+	}
 	for index := range rows {
 		if service.draft != nil && service.draft.ID != "" && rows[index].ID == service.draft.ID {
 			// 草稿槽位行：未发送输入期间恒为 draft（单元 ChatState 空闲，
