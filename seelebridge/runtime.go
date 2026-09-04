@@ -632,11 +632,14 @@ func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOut
 // filesystem tools for the active session.
 func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope.Bind(rootPath) }
 
-// PerSessionExecution 声明宿主具备逐会话执行能力：显式 ActivateSession 建
-// bundle、per-session workspace binding（Runtime.SetSessionWorkspace）。core
-// 据此把会话命令过渡 key 放开为 per-session，并在这些路径上跳过进程级全局
-// 项目根/Router 写作用域副作用（F-4）。
-func (r *Runtime) PerSessionExecution() bool { return true }
+// PerSessionExecution 声明宿主具备逐会话执行能力。当前 seelebridge 的
+// 工具/工作树项目根仍是进程级 projectScope（见 runtime_tools.go 的
+// ProjectScope 注入），Runtime.SetSessionWorkspace 只解决 DurableHistory 键
+// 解析——尚未满足“每会话项目根”这一放开前置条件，因此返回 false，让 core
+// 继续走全局项目根绑定 + 视图 key 语义（bindProjectRootIfSafe 保证后台运行
+// 中不重绑）。等 ProjectScope 按会话路由后（worktree/PathGuard 每会话根）
+// 再改回 true。
+func (r *Runtime) PerSessionExecution() bool { return false }
 
 // UnbindProjectRoot makes filesystem and shell tools fail closed until a
 // project is selected.

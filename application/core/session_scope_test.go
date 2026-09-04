@@ -16,10 +16,10 @@ type perSessionFakeRuntime struct {
 
 func (perSessionFakeRuntime) PerSessionExecution() bool { return true }
 
-// TestPerSessionHostSkipsGlobalScopeSideEffects F-4：逐会话宿主下
-// bindGlobalProjectRoot/setWorkspaceWriteScope 为空操作（不写进程级根与
-// Router 写作用域），fork 类显式会话 ID 唯一且不再依赖引擎 StartSession。
-func TestPerSessionHostSkipsGlobalScopeSideEffects(t *testing.T) {
+// TestPerSessionHostDoesNotSkipGlobalScopeSideEffects 回归：即使宿主声明
+// PerSessionExecution，在 per-session project root 能力实现前，core 仍必须
+// 设置进程级项目根与 Router 写作用域（否则工作区会话工具失效）。
+func TestPerSessionHostDoesNotSkipGlobalScopeSideEffects(t *testing.T) {
 	runtime := &perSessionFakeRuntime{fakeRuntime: &fakeRuntime{}}
 	sessions := &scopedSessions{}
 	service := mustNew(t, Dependencies{
@@ -33,20 +33,17 @@ func TestPerSessionHostSkipsGlobalScopeSideEffects(t *testing.T) {
 	if err := service.bindGlobalProjectRoot("C:\\proj"); err != nil {
 		t.Fatalf("bindGlobalProjectRoot: %v", err)
 	}
-	if runtime.projectRoot != "" {
-		t.Fatalf("per-session host mutated global project root: %q", runtime.projectRoot)
+	if runtime.projectRoot != "C:\\proj" {
+		t.Fatalf("global project root after bind = %q, want C:\\proj（不得因 PerSessionExecution 跳过）", runtime.projectRoot)
 	}
 	service.setWorkspaceWriteScope("project-1")
-	if got := sessions.Workspace(); got != "" {
-		t.Fatalf("per-session host mutated router write scope: %q", got)
+	if got := sessions.Workspace(); got != "project-1" {
+		t.Fatalf("router write scope = %q, want project-1（不得因 PerSessionExecution 跳过）", got)
 	}
 	first := service.newGeneratedSessionID("fork")
 	second := service.newGeneratedSessionID("fork")
 	if first == second || !strings.HasPrefix(first, "fork_") || !strings.HasPrefix(second, "fork_") {
 		t.Fatalf("generated ids = %q/%q, want unique fork_ ids", first, second)
-	}
-	if !service.bindProjectRootIfSafe("sess-a", "C:\\proj") {
-		t.Fatal("per-session host must allow project binding without global root")
 	}
 }
 

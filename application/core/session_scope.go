@@ -47,29 +47,21 @@ func (service *Service) newGeneratedSessionID(prefix string) string {
 	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), seq)
 }
 
-// setWorkspaceWriteScope 设置 legacy Router 写作用域；逐会话宿主跳过（存储
-// 键已按会话显式解析，F-4：视图命令放开 per-session key 的前提）。
+// setWorkspaceWriteScope 设置 legacy Router 写作用域。逐会话工具根能力
+// （per-session project root）实现前，不得因 PerSessionExecution 跳过：
+// 工具/工作树仍读进程级 projectScope，跳过会导致工作区绑定不生效。
 func (service *Service) setWorkspaceWriteScope(workspaceID string) {
-	if service.perSessionExecution() {
-		return
-	}
 	service.Deps.Sessions.SetWorkspace(workspaceID)
 }
 
-// bindGlobalProjectRoot 设置进程级项目根；逐会话宿主跳过（per-session
-// workspace binding 由 Runtime.SetSessionWorkspace 承担）。
+// bindGlobalProjectRoot 设置进程级项目根。同上：per-session root 未实现前
+// 必须绑定全局根，否则工作区会话的路径类工具失效。
 func (service *Service) bindGlobalProjectRoot(rootPath string) error {
-	if service.perSessionExecution() {
-		return nil
-	}
 	return service.Deps.Runtime.BindProjectRoot(rootPath)
 }
 
-// unbindGlobalProjectRoot 清空进程级项目根；逐会话宿主跳过。
+// unbindGlobalProjectRoot 清空进程级项目根。
 func (service *Service) unbindGlobalProjectRoot() {
-	if service.perSessionExecution() {
-		return
-	}
 	service.Deps.Runtime.UnbindProjectRoot()
 }
 
@@ -237,10 +229,6 @@ func (service *Service) publishChatStateFor(sessionID string) {
 // 返回是否已绑定；未绑定时调用方必须跳过全局 SetWorkspace（Router 写作用域
 // 同样全局，不能为后台会话切换）。
 func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool {
-	if service.perSessionExecution() {
-		// 逐会话宿主：项目根随会话 binding，无进程级全局根副作用。
-		return true
-	}
 	service.ViewMu.RLock()
 	anyRunning := service.anyChatRunningLocked()
 	current := service.Core.Snapshot.Session.ID

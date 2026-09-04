@@ -236,8 +236,9 @@ func (service *Service) resumeSession(sessionID string) error {
 		service.appendHistoryLockedFor(sessionID, visibleHistory)
 	}
 	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
-	service.Core.Snapshot.Runtime.Plan = task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
-	service.components.tasks.SeedPlanProjection(sessionID, service.Core.Snapshot.Runtime.Plan)
+	service.mirrorPlanProjectionForSessionLocked(sessionID, func() *PlanState {
+		return task_context.ActivePlanFromStack(record.PlanStack, record.ActivePlanID)
+	})
 	service.Core.Snapshot.Interaction = nil
 	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
 	if service.Deps.Workspace != nil {

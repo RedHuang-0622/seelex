@@ -218,6 +218,20 @@ func (service *Service) planProjectionLocked(sessionID string) *PlanState {
 	})
 }
 
+// mirrorPlanProjectionForSessionLocked 在会话成为视图会话时刷新
+// Snapshot.Runtime.Plan 镜像（调用方持有 Core.ViewMu）：
+//   - 若协调器投影已有（后台事件/其它路径推进过），取投影副本——不得用 plan
+//     栈旧基线覆盖（否则切换回看会丢失运行期进度）；
+//   - 投影缺失时用 fallback（record/plan 栈）补种后再镜像。
+func (service *Service) mirrorPlanProjectionForSessionLocked(sessionID string, fallback func() *PlanState) {
+	plan := service.components.tasks.PlanProjectionCopy(sessionID)
+	if plan == nil {
+		plan = fallback()
+		service.components.tasks.EnsurePlanProjection(sessionID, plan)
+	}
+	service.Core.Snapshot.Runtime.Plan = plan
+}
+
 func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent) {
 	service.ViewMu.RLock()
 	viewSessionID := service.Core.Snapshot.Session.ID

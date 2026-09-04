@@ -249,7 +249,9 @@ flowchart LR
 - `SessionChatEngine`：`HasSession/ActivateSession/ChatStreamFor/
   SetSystemPromptFor/UnloadSession` 等——决定真并行还是单飞回退。
 - `SessionPort`/`WorkspacePort`：core 消费的会话/工作区目录端口。
-- `RuntimePort`：进程原件 + `PerSessionExecution()`（逐会话能力声明）。
+- `RuntimePort`：进程原件 + `PerSessionExecution()`（逐会话能力声明；当前
+  seelebridge 返回 false——工具根仍是进程级 projectScope，待 per-session
+  project root 落地后再开启）。
 
 ## 1.6 健康度结论（专业版）
 
