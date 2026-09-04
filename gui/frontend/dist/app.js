@@ -18,6 +18,7 @@ import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tas
 import { renderHistorySearchResults } from "./history-search.js";
 import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import { createPerfHooks } from "./perf-hooks.js";
+import { createLiveDiag } from "./live-diag.js";
 
 const state = {
   info: null,
@@ -95,6 +96,13 @@ if (elements["perf-badge-host"]) {
 }
 perfHooks.start();
 window.__seelexPerf = perfHooks;
+// 会话新鲜度诊断角标：事件/增量/刷新/缺口/补取/缓冲计数（定位同视图内容
+// 不及时；纯诊断，不参与业务状态）。
+const liveDiag = createLiveDiag();
+if (elements["live-diag-host"]) {
+  elements["live-diag-host"].appendChild(liveDiag.badge);
+}
+window.__seelexLiveDiag = liveDiag;
 const client = createGUIClient({
   loadSnapshot: () => invoke("Snapshot"),
   onSnapshot: (snapshot, options) => render(snapshot, options),
@@ -103,6 +111,7 @@ const client = createGUIClient({
   replay: sinceSeq => invoke("ReplayEvents", sinceSeq),
   // 应用回执：告诉宿主哪些序号已经落地，宿主因此不必用轮询猜自己漏没漏事件。
   onApplied: reportAppliedEvents,
+  onDiag: stats => liveDiag.update(stats),
   onError: showToast
 });
 const bindRuntimeEvents = createRuntimeEventBinder({ client, onError: showToast });

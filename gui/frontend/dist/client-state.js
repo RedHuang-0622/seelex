@@ -17,6 +17,14 @@ export function createGUIClient(options) {
   // 事件应用串行化：缺口补取与快照重拉都是异步的，两条事件并发落地会把
   // lastEventSeq 与 snapshot 交叉写坏。
   let eventChain = Promise.resolve();
+  // 会话新鲜度诊断计数（只进不出，供角标/控制台；不参与业务状态）。
+  const diag = { events: 0, incrementals: 0, refreshes: 0, gaps: 0, replays: 0, buffered: 0, lastSeq: 0 };
+
+  function reportDiag(extra = {}) {
+    Object.assign(diag, extra);
+    diag.lastSeq = lastEventSeq;
+    options.onDiag?.({ ...diag });
+  }
 
   // rememberProcessContext 在快照边界记录桌面进程上下文。联合 Workbench
   // 快照与进程制品都会刷新它；会话粒度制品自身不含进程字段，不覆盖。
@@ -89,6 +97,7 @@ export function createGUIClient(options) {
   }
 
   async function applyEventFlow(event) {
+    reportDiag({ events: diag.events + 1 });
     const result = applyEvent(snapshot, event, lastEventSeq, snapshotRevisionFloor);
     if (result.error) {
       options.onError(result.error);
@@ -96,8 +105,10 @@ export function createGUIClient(options) {
       return;
     }
     if (result.gap) {
+      reportDiag({ gaps: diag.gaps + 1 });
       // delivery_seq 缺口：先向宿主按序号增量补取（C4），补得齐就不必整份重拉。
       if (await replayGap()) {
+        reportDiag({ replays: diag.replays + 1 });
         reportApplied();
         return;
       }
@@ -106,13 +117,33 @@ export function createGUIClient(options) {
       lastEventSeq = result.lastSeq;
     }
     if (result.needsRefresh) {
+      reportDiag({ refreshes: diag.refreshes + 1 });
       await refresh({ scroll: "auto" });
       reportApplied();
       return;
     }
     snapshot = mergeProcessContext(result.snapshot);
-    if (result.changed) options.onIncremental(snapshot, result.changed);
+    if (result.changed) {
+      options.onIncremental(snapshot, result.changed);
+      reportDiag({ incrementals: diag.incrementals + 1 });
+      if (result.changed === "message.delta" && bufferedDeltaMissing(event, snapshot)) {
+        reportDiag({ buffered: diag.buffered + 1 });
+      }
+    }
     reportApplied();
+  }
+
+  function bufferedDeltaMissing(event, current) {
+    const payload = decodePayloadText(event.payload);
+    if (!payload || typeof payload.message_id !== "string") return false;
+    return !(current.conversation || []).some(message => message.id === payload.message_id);
+  }
+
+  function decodePayloadText(payload) {
+    if (!payload) return null;
+    if (typeof payload === "object") return payload;
+    try { return JSON.parse(payload); }
+    catch { return null; }
   }
 
   // replayGap 补取 lastEventSeq 之后缺的事件。返回 false 表示宿主补不齐（窗口

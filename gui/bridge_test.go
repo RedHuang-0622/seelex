@@ -1081,6 +1081,10 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		!strings.Contains(string(script), "nodeDetailLiveAssistantAppend") {
 		t.Fatal("subagent detail freshness must be driven by seelex:subagent_live assistant deltas (G7)")
 	}
+	if !strings.Contains(string(script), `from "./live-diag.js"`) ||
+		!strings.Contains(string(script), "onDiag: stats => liveDiag.update(stats)") {
+		t.Fatal("GUI must wire the live freshness diagnostic badge (event/refresh/gap/buffer counters)")
+	}
 	if strings.Contains(string(script), "let fullAccessOn") ||
 		!strings.Contains(string(script), `client.current()?.runtime?.full_access`) ||
 		!strings.Contains(string(script), `Boolean(runtime.full_access)`) {
@@ -1091,6 +1095,9 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(string(index), `id="perf-badge-host"`) {
 		t.Fatal("embedded frontend must include the perf badge host")
+	}
+	if !strings.Contains(string(index), `id="live-diag-host"`) {
+		t.Fatal("embedded frontend must include the live freshness diagnostic host")
 	}
 	components, err := embeddedFrontend.ReadFile("frontend/dist/components.js")
 	if err != nil {

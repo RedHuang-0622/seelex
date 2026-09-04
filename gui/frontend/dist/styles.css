@@ -483,6 +483,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .perf-badge-host { display: inline-flex; align-items: center; }
 .perf-badge { max-width: 22vw; overflow: hidden; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .perf-badge:hover { color: var(--text); border-color: var(--accent); }
+.live-diag-badge { max-width: 26vw; overflow: hidden; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.live-diag-badge:hover { color: var(--text); border-color: var(--accent); }
 
 /* ---------- 5b. Conversation tabs / Trajectory ---------- */
 /* 对话区子页 tab（对话 / 轨迹）：固定于 workspace 顶部，不随内容滚动 */
