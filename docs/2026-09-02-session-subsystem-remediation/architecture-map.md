@@ -6,6 +6,8 @@
 > 结构若随波 3+ 演进（Unit 槽扩展、锁拆分、快照分型），本文应同步更新。
 > 面向人读的整体讲解（专业/大白话两版 + struct/interface 属性与方法）见
 > [session-subsystem-review.md](session-subsystem-review.md)。
+> 会话切换并发模型的 AB 测试与路线选择见
+> [session-switch-concurrency-decision.md](session-switch-concurrency-decision.md)。
 
 ## 1. SessionUnit 的生态位
 
