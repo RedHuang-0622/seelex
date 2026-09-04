@@ -80,6 +80,7 @@ function applyIncremental(snapshot, event, payload) {
     // 后端 view_state 的投影：reducer 只 upsert 消息，下一次 snapshot.changed
     // 会带回权威窗口，客户端不再复刻这份规则。
     snapshot.conversation = upsertMessage(snapshot.conversation, payload);
+    flushPendingDeltasForSnapshot(snapshot, payload.id);
     return true;
   case "message.delta":
     return appendMessageDelta(snapshot, payload);
@@ -133,7 +134,13 @@ function appendMessageDelta(snapshot, payload) {
   const hasReasoning = typeof payload.reasoning_content === "string";
   if (!hasDelta && !hasReasoning) return false;
   const index = snapshot.conversation.findIndex(message => message.id === payload.message_id);
-  if (index < 0) return false;
+  if (index < 0) {
+    // 增量先于 added 到达（跨进程乱序/丢 added 后重放）：缓冲等待，不触发
+    // 整份刷新——否则高频流式会退化为刷新风暴，表现为“当前视图内容不及时”。
+    if (!Array.isArray(snapshot._pending_deltas)) snapshot._pending_deltas = [];
+    snapshot._pending_deltas.push({ ...payload });
+    return true;
+  }
   const messages = [...snapshot.conversation];
   const next = { ...messages[index] };
   if (hasDelta) next.content = (messages[index].content || "") + payload.delta;
@@ -149,6 +156,32 @@ function upsertMessage(messages, message) {
   if (index < 0) next.push(message);
   else next[index] = message;
   return next;
+}
+
+// flushPendingDeltasForSnapshot 在 added/tool 消息落地后把此前缓冲的 delta 应用到该
+// 消息（不丢增量、不整份刷新）。
+function flushPendingDeltasForSnapshot(snapshot, messageID) {
+  const index = (snapshot.conversation || []).findIndex(current => current.id === messageID);
+  if (index < 0) return;
+  const target = { ...snapshot.conversation[index] };
+  const pending = snapshot._pending_deltas;
+  if (!Array.isArray(pending)) return;
+  const kept = [];
+  for (const delta of pending) {
+    if (delta.message_id !== messageID) {
+      kept.push(delta);
+      continue;
+    }
+    if (typeof delta.delta === "string") {
+      target.content = (target.content || "") + delta.delta;
+    }
+    if (typeof delta.reasoning_content === "string") {
+      target.reasoning_content = delta.reasoning_content;
+    }
+  }
+  snapshot.conversation[index] = target;
+  if (kept.length === 0) delete snapshot._pending_deltas;
+  else snapshot._pending_deltas = kept;
 }
 
 function applySubagentChanged(snapshot, payload) {
@@ -197,13 +230,17 @@ function mapPlanNodePath(nodes, nodeID, update) {
 }
 
 function cloneSnapshot(snapshot, revision) {
-  return {
+  const clone = {
     ...snapshot,
     revision: Math.max(Number(snapshot.revision || 0), Number(revision || 0)),
     conversation: [...snapshot.conversation],
     chat: { ...(snapshot.chat || {}) },
     runtime: { ...(snapshot.runtime || {}) }
   };
+  if (Array.isArray(snapshot._pending_deltas)) {
+    clone._pending_deltas = [...snapshot._pending_deltas];
+  }
+  return clone;
 }
 
 function clonePlanNode(node) {
