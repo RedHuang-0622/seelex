@@ -16,6 +16,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
@@ -232,6 +233,9 @@ func (r *Runtime) forkSubagentsHandler(ctx context.Context, argsJSON string) (st
 	if r == nil || r.forkTool == nil {
 		return "", fmt.Errorf("fork_subagents: fork tool is not configured")
 	}
+	sessionID := seetelemetry.SessionIDFromContext(ctx)
+	r.ForkBegin(sessionID)
+	defer r.ForkEnd(sessionID)
 	return r.forkTool.Handle(ctx, argsJSON)
 }
 

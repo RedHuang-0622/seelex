@@ -146,12 +146,16 @@ type ProjectSource struct {
 
 // Bridge adapts the headless application service to desktop-safe methods.
 type Bridge struct {
-	app    Application
-	info   AppInfo
-	mu     sync.Mutex
-	ctx    context.Context
-	cancel context.CancelFunc
-	sub    application.Subscription
+	app  Application
+	info AppInfo
+	mu   sync.Mutex
+	// switchMu 串行化“视图会话切换类”命令（BeginNewSession/ResumeSession/
+	// ActivateSession/ForkSessionLatest）：忙时会话产生高频事件时，并发点击
+	// 多个会话会导致多次 resubscribe 交错；串行后一次只处理一次切换。
+	switchMu sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	sub      application.Subscription
 	// subscribedSessionID 是当前订阅的事件会话键（mu 保护）：草稿早分配
 	// SID 后，视图会话在 Submit 物化（或 legacy 引擎回退 StartSession 另发
 	// ID）时可能变化；relay 发现事件 sid 与订阅键不一致即重订阅。
@@ -560,6 +564,8 @@ func (bridge *Bridge) Submit(text string) error {
 }
 
 func (bridge *Bridge) BeginNewSession() error {
+	bridge.switchMu.Lock()
+	defer bridge.switchMu.Unlock()
 	before := bridge.app.Snapshot().Session.ID
 	if err := bridge.app.BeginNewSession(); err != nil {
 		return err
@@ -579,6 +585,8 @@ func (bridge *Bridge) SaveComposerDraft(text string) error {
 }
 
 func (bridge *Bridge) ResumeSession(sessionID string) error {
+	bridge.switchMu.Lock()
+	defer bridge.switchMu.Unlock()
 	before := bridge.app.Snapshot().Session.ID
 	if err := bridge.app.ResumeSession(sessionID); err != nil {
 		return err
@@ -592,6 +600,8 @@ func (bridge *Bridge) ResumeSession(sessionID string) error {
 // ForkSessionLatest 从会话最新完整轮次分支出新会话并切换（Wails 前端会话
 // 树「分支」按钮数据源；返回子会话 ID）。
 func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
+	bridge.switchMu.Lock()
+	defer bridge.switchMu.Unlock()
 	before := bridge.app.Snapshot().Session.ID
 	childID, err := bridge.app.ForkSessionLatest(sessionID)
 	if err != nil {
@@ -622,6 +632,8 @@ func (bridge *Bridge) SubmitToSession(sessionID, text string) error {
 
 // ActivateSession 切换指定会话为当前会话（M1：切换即恢复，运行中拒绝）。
 func (bridge *Bridge) ActivateSession(sessionID string) error {
+	bridge.switchMu.Lock()
+	defer bridge.switchMu.Unlock()
 	app, ok := bridge.app.(sessionAwareApplication)
 	if !ok {
 		return errors.New("session-scoped API is not supported by the application")

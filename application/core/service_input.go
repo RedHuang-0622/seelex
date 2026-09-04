@@ -111,6 +111,11 @@ func (service *Service) Submit(ctx context.Context, text string) error {
 }
 
 func (service *Service) submitConversation(ctx context.Context, input string) error {
+	// fork 门控：fork_subagents 运行中禁止当前视图会话继续对话（含排队）。
+	if forkGate, ok := service.Deps.Runtime.(interface{ ForkInFlight(string) bool }); ok &&
+		forkGate.ForkInFlight(service.currentViewSessionID()) {
+		return ErrForkRunningChat
+	}
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(service.currentViewSessionID())
 	request.budget = reactBudgetFor(effort)
@@ -152,6 +157,11 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 // submitConversationFor 在指定（后台）会话提交对话：目标会话运行中则投递
 // 到该会话自己的队列，否则在其上下文中后台启动（不切换活跃会话）。
 func (service *Service) submitConversationFor(ctx context.Context, sessionID, input string) error {
+	// fork 门控：fork_subagents 运行中禁止同会话继续对话（含排队输入）。
+	if forkGate, ok := service.Deps.Runtime.(interface{ ForkInFlight(string) bool }); ok &&
+		forkGate.ForkInFlight(sessionID) {
+		return ErrForkRunningChat
+	}
 	request := newChatRequest(input, service.promptStack.Layers())
 	effort := service.effortForSession(sessionID)
 	request.budget = reactBudgetFor(effort)

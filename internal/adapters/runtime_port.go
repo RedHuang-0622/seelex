@@ -21,6 +21,9 @@ func (port RuntimePort) SetFullAccess(on bool) { port.Runtime.SetFullAccess(on) 
 func (port RuntimePort) PerSessionExecution() bool {
 	return port.Runtime.PerSessionExecution()
 }
+func (port RuntimePort) ForkInFlight(sessionID string) bool {
+	return port.Runtime.ForkInFlight(sessionID)
+}
 func (port RuntimePort) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection) {
 	port.Runtime.SetRuntimeVisibilityProjection(projection)
 }

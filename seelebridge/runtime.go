@@ -122,8 +122,10 @@ type Runtime struct {
 	node         *seenode.Coordinator      // 节点协调器（node/ 域）：会话注册/fork 树/task 打点/plan 阶段/Blocks
 	worktreeMgr  *worktree.WorktreeManager // 子代理 worktree 生命周期组件（worktree/ 域）
 	forkTool     *fork.Tool                // fork_subagents 执行编排（fork/ 域）
-	tasks        *task.TaskRegistry        // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
-	scheduler    *scheduler.State          // 定时周期任务 actor（scheduler/ 域）
+	forkMu       sync.Mutex
+	forkActive   map[string]int     // 会话 → 进行中的 fork 数（ForkBegin/ForkEnd 维护）
+	tasks        *task.TaskRegistry // task 注册表 actor（task/；todolist 融合为 kind=todo 的 task）
+	scheduler    *scheduler.State   // 定时周期任务 actor（scheduler/ 域）
 	toolEvents   *subagentsession.ToolEventState
 	// live* 是 node 第一视角实时流分发器（runtime_live.go）：阶段+工具事件
 	// 统一通道按 nodeID 广播；liveStarted/liveStop 保护启动与停机。
@@ -280,6 +282,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			SessionFromContext: seeletelemetry.SessionIDFromContext,
 		},
 		subagentSessions: subagentsession.NewSubagentSessions(tracer),
+		forkActive:       map[string]int{},
 		subagentTree:     subagentsession.NewSubagentTree(tracer),
 		subagentContext:  subagentsession.NewSubagentContextActor(tracer),
 
@@ -640,6 +643,43 @@ func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope
 // 中不重绑）。等 ProjectScope 按会话路由后（worktree/PathGuard 每会话根）
 // 再改回 true。
 func (r *Runtime) PerSessionExecution() bool { return false }
+
+// ForkBegin 标记某会话进入 fork_subagents 执行（可嵌套，计数 +1）。
+func (r *Runtime) ForkBegin(sessionID string) {
+	if r == nil || sessionID == "" {
+		return
+	}
+	r.forkMu.Lock()
+	if r.forkActive == nil {
+		r.forkActive = map[string]int{}
+	}
+	r.forkActive[sessionID]++
+	r.forkMu.Unlock()
+}
+
+// ForkEnd 结束某会话的一次 fork 执行（计数 -1）。
+func (r *Runtime) ForkEnd(sessionID string) {
+	if r == nil || sessionID == "" {
+		return
+	}
+	r.forkMu.Lock()
+	if count := r.forkActive[sessionID]; count > 1 {
+		r.forkActive[sessionID] = count - 1
+	} else {
+		delete(r.forkActive, sessionID)
+	}
+	r.forkMu.Unlock()
+}
+
+// ForkInFlight 报告指定会话当前是否有 fork_subagents 正在执行。
+func (r *Runtime) ForkInFlight(sessionID string) bool {
+	if r == nil || sessionID == "" {
+		return false
+	}
+	r.forkMu.Lock()
+	defer r.forkMu.Unlock()
+	return r.forkActive[sessionID] > 0
+}
 
 // UnbindProjectRoot makes filesystem and shell tools fail closed until a
 // project is selected.

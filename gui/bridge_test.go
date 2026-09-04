@@ -557,6 +557,73 @@ func TestBridgeSessionReadAPIsForwardOnce(t *testing.T) {
 	}
 }
 
+// serialResumeApp 记录 ResumeSession 进入顺序并可阻塞首个切换。
+type serialResumeApp struct {
+	*fakeApplication
+	mu      sync.Mutex
+	started []string
+	gate    chan struct{}
+}
+
+func (app *serialResumeApp) ResumeSession(sessionID string) error {
+	app.mu.Lock()
+	app.started = append(app.started, sessionID)
+	app.mu.Unlock()
+	<-app.gate
+	return nil
+}
+
+// TestBridgeSwitchCommandsSerialize 忙时高频事件下并发点击多个会话时，切换
+// 命令在 Bridge 串行执行（一次只处理一次切换/重订阅），避免交错。
+func TestBridgeSwitchCommandsSerialize(t *testing.T) {
+	fake := &serialResumeApp{
+		fakeApplication: newFakeApplication(),
+		gate:            make(chan struct{}),
+	}
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- bridge.ResumeSession("sess-a") }()
+	deadline := time.Now().Add(time.Second)
+	for {
+		fake.mu.Lock()
+		n := len(fake.started)
+		fake.mu.Unlock()
+		if n > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first switch never entered application")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- bridge.ResumeSession("sess-b") }()
+	time.Sleep(30 * time.Millisecond)
+	fake.mu.Lock()
+	started := append([]string(nil), fake.started...)
+	fake.mu.Unlock()
+	if len(started) != 1 {
+		t.Fatalf("concurrent switch entered application %d times before first finished: %v", len(started), started)
+	}
+	close(fake.gate)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	started = append([]string(nil), fake.started...)
+	fake.mu.Unlock()
+	if len(started) != 2 || started[0] != "sess-a" || started[1] != "sess-b" {
+		t.Fatalf("serialized switch order = %v, want [sess-a sess-b]", started)
+	}
+}
+
 // TestBridgeSettlesSessionCatalogBeforeReturning 会改变会话目录的命令必须在
 // 目录刷新收敛后才返回给 renderer（C3）：否则前端只能靠"列表为空就回填上一次
 // 列表"掩盖竞态。

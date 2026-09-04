@@ -16,6 +16,10 @@ import (
 var (
 	ErrChatRunning         = errors.New("chat is already running")
 	ErrApplicationDraining = errors.New("application is finishing active work")
+	// ErrForkRunningChat 是 fork 执行门控：fork_subagents（子代理并行）仍在
+	// 该会话运行时，禁止继续对话/排队输入，避免排队内容在子代理收尾后被
+	// 误吞或与父回合语义交叠。
+	ErrForkRunningChat = errors.New("fork execution is in progress; wait for subagents to finish before continuing this conversation")
 	// ErrSessionBusy 是跨会话提交/切换的单飞执行边界（M1：共享组件栈要求
 	// 同一时刻只有一个会话在执行；真并行 = M2 会话级组件隔离）。
 	ErrSessionBusy = errors.New("another session is running")

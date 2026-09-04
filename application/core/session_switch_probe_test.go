@@ -134,6 +134,14 @@ func TestSwitchDuringColdLoadSerializes(t *testing.T) {
 	if err := service.ResumeSession("sess-b"); err != nil {
 		t.Fatalf("initial resume b: %v", err)
 	}
+	// 先让目录 worker 完成首轮枚举（其标题回退也会走历史读，避免与冷加载
+	// 门闩混淆）。
+	settleCtx, cancelSettle := context.WithTimeout(context.Background(), 5*time.Second)
+	err := service.WaitCatalogRefresh(settleCtx)
+	cancelSettle()
+	if err != nil {
+		t.Fatalf("catalog settle: %v", err)
+	}
 	gated.armMu.Lock()
 	gated.armed = true
 	gated.armMu.Unlock()
