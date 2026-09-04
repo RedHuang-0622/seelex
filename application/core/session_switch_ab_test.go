@@ -137,7 +137,6 @@ func (registry *actorRegistry) loop() {
 			}
 		}
 	}
-	_ = active
 }
 
 func (registry *actorRegistry) busyWork(stop <-chan struct{}) {
