@@ -788,24 +788,44 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   padding: 10px;
 }
 
-/* 子页3：代码（资源管理器）—— 左「文件预览」抽屉 + 右「工作树/提交记录」 */
+/* 子页3：代码（资源管理器）—— 左「文件预览」抽屉 + 右「工作树/提交记录」。
+   两态 grid：
+   - 收起态（默认 .file-preview-pane.is-closed → display:none）：代码区单列
+     minmax(0,1fr)，工作树/提交记录占满整个子页宽度——修复预览抽屉收起后
+     剩余子项 auto-placement 错位、内容被裁成纯色空白（906f561 回归）。
+   - 展开态（JS 同步 .is-preview-open）：preview / divider / panes 三列命名
+     区域；预览列宽受 --preview-w 控制，但以 calc(100% - 145px) 封顶，
+     保证窄右栏下工作树列仍有 ~140px 落点。 */
 .code-split {
   display: grid;
-  grid-template-columns: var(--preview-w, 380px) 5px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "panes";
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   min-width: 0;
   min-height: 0;
   flex: 1;
   overflow: hidden;
 }
+.code-split.is-preview-open {
+  grid-template-areas: "preview divider panes";
+  grid-template-columns: min(var(--preview-w, 380px), calc(100% - 145px)) 5px minmax(0, 1fr);
+}
+.code-split #file-preview-divider {
+  display: none;
+}
+.code-split.is-preview-open #file-preview-divider {
+  display: block;
+}
 .code-split .code-panes {
+  grid-area: panes;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
 }
 .file-preview-pane {
+  grid-area: preview;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
@@ -832,6 +852,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   white-space: nowrap;
 }
 .file-split-divider {
+  grid-area: divider;
   cursor: col-resize;
   background: transparent;
   touch-action: none;

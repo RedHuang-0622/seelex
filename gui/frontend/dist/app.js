@@ -1952,12 +1952,19 @@ function setupPanelDividers() {
 setupPanelDividers();
 
 // ── 「资源管理器」文件预览抽屉（代码子页左分栏）──────────────
-// ── 「资源管理器」文件预览抽屉（代码子页左分栏）──────────────
 // 预览抽屉是代码子页内部结构：left 预览 / divider / right（工作树+提交记录）。
 // 宽度以 CSS 变量 + localStorage 记忆（默认 380px）；展开/收起态也记忆
 // （默认收起，点文件自动展开）。关闭只收起不销毁内容，再次打开同一文件
-// 直接复用（避免重复读取）。
+// 直接复用（避免重复读取）。布局两态（收起单列 / 展开三列）由
+// .code-split 上的 .is-preview-open 切换（见 styles.css「子页3」注释）。
 const FILE_PREVIEW_OPEN_KEY = "seelex.preview-pane-open";
+
+// syncPreviewLayout 同步代码子页两态布局：展开=三列（preview/divider/panes），
+// 收起=单列（panes 占满，防止预览抽屉收起后内容被裁成空白）。
+function syncPreviewLayout(open) {
+  const split = document.getElementById("code-split");
+  if (split) split.classList.toggle("is-preview-open", Boolean(open));
+}
 
 function openFilePreview(entry) {
   if (!entry || !entry.path) return;
@@ -1966,6 +1973,7 @@ function openFilePreview(entry) {
   const pane = elements["file-preview-pane"];
   if (pane) {
     pane.classList.remove("is-closed");
+    syncPreviewLayout(true);
     document.documentElement.style.setProperty("--preview-w", previewPaneWidth());
   }
   try { window.localStorage.setItem(FILE_PREVIEW_OPEN_KEY, "1"); } catch { /* 无存储环境忽略 */ }
@@ -1980,7 +1988,10 @@ function closeFilePreview() {
   if (!previewPaneOpen) return;
   previewPaneOpen = false;
   const pane = elements["file-preview-pane"];
-  if (pane) pane.classList.add("is-closed");
+  if (pane) {
+    pane.classList.add("is-closed");
+    syncPreviewLayout(false);
+  }
   try { window.localStorage.setItem(FILE_PREVIEW_OPEN_KEY, "0"); } catch { /* 无存储环境忽略 */ }
   filePreviewController.clear();
 }
@@ -2048,8 +2059,10 @@ function applyPreviewWidth() {
   if (pane) {
     if (!previewPaneOpen) {
       pane.classList.add("is-closed");
+      syncPreviewLayout(false);
     } else {
       pane.classList.remove("is-closed");
+      syncPreviewLayout(true);
       const snapshot = client.current();
       previewRoot = snapshot?.current_workspace?.root_path || "";
     }
