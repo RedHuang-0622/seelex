@@ -76,6 +76,10 @@ type Application interface {
 	// WorkspaceGitLog 返回当前工作区最近 limit 条提交的拓扑树（提交记录树
 	// 数据源；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
 	WorkspaceGitLog(limit int) (dto.GitLogResult, error)
+	// WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（文件预览
+	// 数据源；root 只来自后端当前 workspace，containment/敏感过滤在
+	// workspace 层保证；只读受控字节，不进快照）。
+	WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error)
 	// ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的
 	// 工具输出，前端"加载完整输出"数据源；复用 read_tool_result 通道）。
 	ToolResultContent(context.Context, string, int, int) (application.ToolResultPage, error)
@@ -800,6 +804,12 @@ func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
 // 拓扑行；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
 func (bridge *Bridge) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
 	return bridge.app.WorkspaceGitLog(limit)
+}
+
+// WorkspaceFileContent 转发工作树文件预览读取（containment/敏感过滤/上限
+// 在 application + workspace 层保证；只读受控字节，不进快照）。
+func (bridge *Bridge) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
+	return bridge.app.WorkspaceFileContent(relPath, limit)
 }
 
 // ToolResultContent 按 result_ref 分页读回完整工具输出（快照被截断的

@@ -121,21 +121,32 @@
       </div>
 
       <div class="right-tabpanel hidden" data-right-panel="code" role="tabpanel">
-        <div class="code-panes" id="code-panes">
-          <section class="code-pane" data-pane="worktree" id="code-pane-worktree">
+        <div class="code-split" id="code-split">
+          <section class="file-preview-pane is-closed" id="file-preview-pane" aria-label="文件预览">
             <div class="code-pane-head">
-              <span class="code-pane-title">工作树</span><span id="file-count" class="badge">0</span>
-              <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+              <span class="code-pane-title">文件预览</span>
+              <span id="file-preview-meta" class="file-preview-meta"></span>
+              <button id="file-preview-close" class="icon-button subtle file-preview-close" type="button" title="收起预览" aria-label="收起预览" data-icon="close"></button>
             </div>
-            <div id="worktree-view" class="worktree-view muted">绑定工作区后显示项目文件树</div>
+            <div id="file-preview-view" class="file-preview-view muted">从工作树选择文件后在此查看详情</div>
           </section>
-          <section class="code-pane" data-pane="gitlog" id="code-pane-gitlog">
-            <div class="code-pane-head">
-              <span class="code-pane-title">提交记录</span><span id="git-log-count" class="badge">0</span>
-              <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
-            </div>
-            <div id="git-log-view" class="git-log-view muted">绑定工作区后显示提交记录</div>
-          </section>
+          <div id="file-preview-divider" class="file-split-divider" role="separator" aria-orientation="vertical" aria-label="调整文件预览宽度" tabindex="0"></div>
+          <div class="code-panes" id="code-panes">
+            <section class="code-pane" data-pane="worktree" id="code-pane-worktree">
+              <div class="code-pane-head">
+                <span class="code-pane-title">工作树</span><span id="file-count" class="badge">0</span>
+                <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+              </div>
+              <div id="worktree-view" class="worktree-view muted">绑定工作区后显示项目文件树</div>
+            </section>
+            <section class="code-pane" data-pane="gitlog" id="code-pane-gitlog">
+              <div class="code-pane-head">
+                <span class="code-pane-title">提交记录</span><span id="git-log-count" class="badge">0</span>
+                <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+              </div>
+              <div id="git-log-view" class="git-log-view muted">绑定工作区后显示提交记录</div>
+            </section>
+          </div>
         </div>
       </div>
 
@@ -298,6 +309,15 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+  <!-- 文件预览第三方组件（本地 vendor，离线可用；随 embed 打包进二进制）。
+       顺序依赖：highlight 核心 → 语言包 → marked → DOMPurify → docx-preview
+       → pdf.js（PDF worker 由 file-preview.js 按相对路径加载）。 -->
+  <script src="./vendor/highlightjs/highlight.min.js"></script>
+  <script src="./vendor/highlightjs/languages.all.min.js"></script>
+  <script src="./vendor/marked/marked.min.js"></script>
+  <script src="./vendor/purify/purify.min.js"></script>
+  <script src="./vendor/docx-preview/docx-preview.min.js"></script>
+  <script src="./vendor/pdfjs/pdf.min.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

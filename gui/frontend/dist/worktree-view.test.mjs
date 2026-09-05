@@ -73,6 +73,19 @@ test("shows loading spinner before children arrive and limit marker when truncat
   assert.ok(truncated.includes("已截断"));
 });
 
+test("renders file rows as openable buttons with path metadata", () => {
+  const entries = worktreeView([{ name: "main.go", path: "src/main.go", type: "file", size: 2048 }]);
+  const html = renderWorkTreeHTML(entries, sampleState());
+  assert.ok(html.includes('data-file-open="src/main.go"'));
+  assert.ok(html.includes('data-file-name="main.go"'));
+  assert.ok(html.includes('data-file-size="2048"'));
+  assert.ok(html.includes("tree-file-open"));
+  // 目录行不渲染打开按钮。
+  const dirs = worktreeView([{ name: "src", path: "src", type: "dir", count: 2 }]);
+  const dirHTML = renderWorkTreeHTML(dirs, sampleState());
+  assert.ok(!dirHTML.includes("data-file-open"));
+});
+
 test("renders error and empty states", () => {
   const withError = renderWorkTreeHTML([], sampleState({ error: "boom <bad>" }));
   assert.ok(withError.includes("worktree-error"));

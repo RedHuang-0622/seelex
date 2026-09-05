@@ -32,13 +32,16 @@ export function worktreeView(entries) {
 }
 
 // createWorkTreeView 创建视图实例：持有展开/缓存/加载/截断的纯 UI 态。
+// options.onOpenFile(fileEntry) 可选：文件行点击打开详情（fileEntry 为
+// 归一化条目 {name,path,type,size,count}）。
 export function createWorkTreeView(container, options = {}) {
   const state = {
     children: new Map(),  // dirPath -> normalized entries（已加载）
     expanded: new Set(),  // dirPath -> 展开中
     loading: new Set(),   // dirPath -> 首拉进行中
     truncated: new Map(), // dirPath -> 是否截断
-    error: ""
+    error: "",
+    onOpenFile: typeof options.onOpenFile === "function" ? options.onOpenFile : null
   };
   let rootEntries = [];
 
@@ -52,6 +55,20 @@ export function createWorkTreeView(container, options = {}) {
         toggle(button.dataset.treeDir);
       });
     });
+    if (state.onOpenFile) {
+      container.querySelectorAll("[data-file-open]").forEach(button => {
+        button.addEventListener("click", () => {
+          const entry = {
+            name: button.dataset.fileName || "",
+            path: button.dataset.fileOpen || "",
+            type: "file",
+            size: finiteNumber(button.dataset.fileSize) ?? 0,
+            count: 0
+          };
+          if (entry.name && entry.path) state.onOpenFile(entry);
+        });
+      });
+    }
   }
 
   async function toggle(path) {
@@ -126,7 +143,7 @@ function renderLevel(entries, state, level, depth) {
         ${isDir
           ? `<button type="button" class="tree-toggle" data-tree-dir="${escapeHtml(entry.path)}" aria-expanded="${expanded}" title="展开/折叠 ${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</button>
              <span class="tree-count" title="直接文件数">${entry.count}</span>${spinner}`
-          : `<span class="tree-file" title="${escapeHtml(entry.path)}">${escapeHtml(entry.name)}</span>
+          : `<button type="button" class="tree-file tree-file-open" data-file-open="${escapeHtml(entry.path)}" data-file-name="${escapeHtml(entry.name)}" data-file-size="${entry.size}" title="查看 ${escapeHtml(entry.path)}">${escapeHtml(entry.name)}</button>
              <span class="tree-size">${formatSize(entry.size)}</span>`}
       </div>
       ${isDir && expanded && truncated && children

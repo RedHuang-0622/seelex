@@ -57,6 +57,10 @@ type fakeApplication struct {
 	treeErr           error
 	gitLog            dto.GitLogResult
 	gitLimit          int
+	fileContent       dto.FileContent
+	fileRel           string
+	fileLimit         int64
+	fileErr           error
 	metaSessionID     string
 	sessionMeta       application.SessionMeta
 	archivedSession   string
@@ -247,6 +251,12 @@ func (fake *fakeApplication) WorkspaceGitLog(limit int) (dto.GitLogResult, error
 	return fake.gitLog, nil
 }
 
+func (fake *fakeApplication) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
+	fake.fileRel = relPath
+	fake.fileLimit = limit
+	return fake.fileContent, fake.fileErr
+}
+
 func (fake *fakeApplication) ToolResultContent(_ context.Context, resultRef string, offset, limit int) (application.ToolResultPage, error) {
 	return application.ToolResultPage{ResultRef: resultRef, Offset: offset, NextOffset: offset + limit, Content: "page"}, nil
 }
@@ -428,6 +438,27 @@ func TestBridgeWorkspaceGitLogForwardsLimit(t *testing.T) {
 	}
 	if len(result.Lines) != 1 || result.Lines[0].Commit == nil || result.Lines[0].Commit.Subject != "fix: git log" {
 		t.Fatalf("unexpected git log result: %+v", result.Lines)
+	}
+}
+
+func TestBridgeWorkspaceFileContentForwardsPathAndLimit(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.fileContent = dto.FileContent{Name: "main.go", Path: "src/main.go", Size: 4, Limit: 8, TextLike: true}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := bridge.WorkspaceFileContent("src/main.go", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.fileRel != "src/main.go" || fake.fileLimit != 8 {
+		t.Fatalf("forwarded rel=%q limit=%d", fake.fileRel, fake.fileLimit)
+	}
+	if content.Name != "main.go" || content.Path != "src/main.go" || content.TextLike != true {
+		t.Fatalf("unexpected file content: %+v", content)
 	}
 }
 

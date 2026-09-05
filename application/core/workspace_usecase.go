@@ -209,6 +209,26 @@ func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
 	return port.GitLog(root, limit)
 }
 
+// WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（GUI 文件预览
+// 数据源；root 只来自后端当前 workspace，containment/敏感过滤/上限在
+// workspace 层保证；limit ≤ 0 用默认上限）。只读受控字节，不落快照。
+func (service *Service) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
+	service.ViewMu.RLock()
+	root := ""
+	if service.Core.Snapshot.CurrentWorkspace != nil {
+		root = service.Core.Snapshot.CurrentWorkspace.RootPath
+	}
+	service.ViewMu.RUnlock()
+	if root == "" {
+		return dto.FileContent{}, errors.New("worktree: no workspace bound to current session")
+	}
+	port, ok := service.Deps.Workspace.(contract.WorkspaceFilePort)
+	if !ok {
+		return dto.FileContent{}, errors.New("worktree: workspace backend does not support file preview")
+	}
+	return port.ReadFile(root, relPath, limit)
+}
+
 // workspaceTreePort 读取当前工作区 root（锁内快照拷贝，锁外做文件 I/O）并
 // 断言 WorkspacePort 实现 optional 树端口。
 func (service *Service) workspaceTreePort() (contract.WorkspaceTreePort, string, error) {

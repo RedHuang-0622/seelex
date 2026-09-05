@@ -4,12 +4,13 @@
 
 右侧栏是工作台的工程状态侧栏，按内容划分为三个子页：**状态 / 工作台 / 资源管理器**。
 子页切换是纯 UI 状态（localStorage 记忆），业务事实全部来自 Application
-Snapshot/Event 权威投影；子页 3 内「工作树 / 提交记录」两块面板支持拖拽调换
-顺序（localStorage 记忆）。历史检索保留在子页之下的「更多」折叠区。
+Snapshot/Event 权威投影；子页 3 内左「文件预览」抽屉 + 右「工作树 / 提交记录」
+两面板（右面板支持拖拽调换顺序，预览宽度可拖，均 localStorage 记忆）。历史
+检索保留在子页之下的「更多」折叠区。
 
 主要调用方：`app.js` 右侧栏渲染；数据源：`snapshot.runtime`（权威投影）与
-`Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` / `Bridge.WorkspaceGitLog`
-（只读元数据桥）。
+`Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` / `Bridge.WorkspaceGitLog` /
+`Bridge.WorkspaceFileContent`（只读元数据/受控读取桥）。
 
 ## 子页划分
 
@@ -17,7 +18,7 @@ Snapshot/Event 权威投影；子页 3 内「工作树 / 提交记录」两块�
 |---|---|---|
 | **状态** | 项目状态 grid（状态/会话/消息/任务/文件数）+ 概要 + 上下文压缩时间线 | `snapshot.chat/task/conversation`、`runtime` |
 | **工作台** | 「目标」面板 + 工作表格入口 + 定时任务面板 | `runtime.goal_skill_active`、`runtime.active_skills`、`task`、`work_table`、`scheduled_tasks` |
-| **代码** | 工作树（上）+ 提交记录树（下），可拖拽调换 | `Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog` |
+| **代码** | 左：文件预览抽屉（点工作树文件打开）；右：工作树 + 提交记录树（可拖拽调换） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog` |
 
 项目标题（`project-heading`）与「历史检索」折叠区跨子页常驻，不属于任何子页。
 
@@ -34,13 +35,25 @@ Snapshot/Event 权威投影；子页 3 内「工作树 / 提交记录」两块�
 `application/core/view_state` 收集投影（锁内快照），`runtime.changed` 增量携带，
 不需要额外 Bridge 调用。
 
-## 资源管理器子页：工作树 + 提交记录树
+## 资源管理器子页：文件预览 + 工作树 + 提交记录树
 
-子页 3 内两块面板上下排列，顶部有拖拽手柄（grip icon）：
+子页 3 内部左右分栏（`.code-split`）：左「文件预览」抽屉（`.file-preview-pane`，
+默认收起、点击文件自动展开），右栏上下排列工作树与提交记录两块面板（顶部有
+拖拽手柄 grip icon）。左抽屉与右栏之间是宽度拖拽分隔条（
+`--preview-w`，`localStorage["seelex.preview-pane-width"]`，默认 380px；
+展开/收起态存 `seelex.preview-pane-open`，Esc 或关闭按钮收起）。
 
+- **文件预览**：点击工作树文件行 → `Bridge.WorkspaceFileContent(relPath, limit)`
+  拉取受控字节（后端 workspace 域 containment/敏感过滤/上限/二进制探测；默认
+  文本 4 MiB、文档/图片 24 MiB、后端硬钳 64 MiB，分页类超限放弃渲染并提示）→
+  按扩展名分派渲染（markdown=marked→DOMPurify→highlight.js；代码/文本=
+  highlight.js 高亮或纯文本；PDF=PDF.js canvas 分页；Word=docx-preview；
+  图片=blob img；`.doc` 提示转换）。组件全部本地 vendor（`dist/vendor/`，
+  随 embed 离线打包）。实现见 `file-preview.js`；预览内容不进入 Snapshot/业务
+  状态，工作区切换时抽屉随树清空。
 - **工作树**：`Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`
   （后端权威元数据：名称/路径/类型/大小/直接文件计数，不含文件内容）；目录行
-  惰性展开。实现见 `worktree-view.js`。
+  惰性展开，文件行是可点击按钮（打开预览）。实现见 `worktree-view.js`。
 - **提交记录树**：`Bridge.WorkspaceGitLog(limit)`（最近 20 条，`git log --all
   --graph` 拓扑行 + hash/作者/时间/标题；只读，不含 diff/文件内容）；graph
   前缀等宽渲染保留分支拓扑，短 hash 可点击复制完整 hash。实现见

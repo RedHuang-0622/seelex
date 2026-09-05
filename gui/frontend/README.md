@@ -18,10 +18,11 @@
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
-| `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；`--tree-depth` 缩进、全部文本 escape。 |
+| `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览；`--tree-depth` 缩进、全部文本 escape。 |
+| `dist/file-preview.js` | 文件预览控制器与纯函数（「资源管理器」子页左抽屉）：数据源 `Bridge.WorkspaceFileContent(relPath, limit)`（后端受控读取：containment/敏感过滤/上限/二进制探测，原始字节 base64 带回）；按扩展名分派渲染——markdown（marked→DOMPurify→highlight.js）、代码/文本（highlight.js 高亮或纯文本）、PDF（PDF.js canvas 分页）、Word（docx-preview）、图片（blob `<img>`）、`.doc` 提示转换；组件全部本地 vendor（`dist/vendor/`，随 embed 离线打包）；文本永不直接 innerHTML，markdown 输出先 DOMPurify 消毒。 |
 | `dist/git-log-view.js` | 提交记录树视图（「资源管理器」子页「提交记录」面板）：数据源 `Bridge.WorkspaceGitLog(limit)`（后端权威只读元数据：`git log --all --graph` 拓扑行 + hash/作者/时间/标题，不含 diff/文件内容）；graph 前缀等宽渲染保留分支拓扑、延续线（merge `| \ /`）原样保留、短 hash 点击复制完整 hash、截断提示；全部文本 escape。 |
 | `dist/scheduled-tasks-view.js` | 定时/周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
-| `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用，待文件预览方案落地后再清理。 |
+| `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管；文件预览已落地）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
@@ -122,8 +123,7 @@ retry 状态展示 `RETRY n`（retry_count）。
 - **状态**：项目状态 grid（状态/会话/消息/任务/文件数）+ 概要 + 上下文压缩
   时间线（原「状态」面板整体移入）。
 - **工作台**：「目标」面板 + 工作表格入口 + 定时任务面板。
-- **代码**：「工作树」与「提交记录」两块面板，可拖拽调换顺序（grip 手柄，
-  `seelex.right.codePanes` localStorage 记忆）。
+- **代码**（资源管理器）：左右分栏——左「文件预览」抽屉 + 右「工作树」与「提交记录」两块面板。右栏两面板可拖拽调换顺序（grip 手柄，`seelex.right.codePanes` localStorage 记忆）；预览抽屉宽度可拖拽（`--preview-w`，`seelex.preview-pane-width` 记忆），可收起（`seelex.preview-pane-closed`），Esc 或关闭按钮收起。
 
 「目标」面板（`goal-view`）展示当前任务的工程目标证据面：目标文本（最近一条
 非空用户消息）、任务状态/摘要（`snapshot.task` 权威 TaskState）、激活 skill
@@ -134,7 +134,11 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 提交记录走 `Bridge.WorkspaceGitLog(limit)`（最近 20 条，graph 拓扑行 + hash/
 作者/时间/标题；graph 等宽渲染保留分支拓扑，短 hash 点击复制完整 hash）。
 两面板在工作区切换或 chat 结束（文件/提交可能变化）时按需刷新；子页未激活时
-数据面缓存，激活时按需拉取。历史检索保留在 `#side-more` 折叠区常驻。
+数据面缓存，激活时按需拉取。文件预览：点击工作树文件行 → 左抽屉经
+`Bridge.WorkspaceFileContent` 拉取受控字节（默认 4 MiB 文本 / 24 MiB 文档图片，
+后端 64 MiB 硬钳制）→ 按扩展名分派渲染（见 `file-preview.js`）；预览属当前
+工作区，工作区切换时抽屉随树清空；截断文件明确提示、分页类（PDF/Word/图片）
+超限放弃渲染而非半截展示。历史检索保留在 `#side-more` 折叠区常驻。
 
 ## 定时周期任务
 
@@ -235,6 +239,12 @@ go test ./gui -count=1
 `runtime.work_table`（plan 对象引用不变）且子代理事件复用未命中分支节点
 （结构共享，无整树深拷贝）。`git-log-view.test.mjs` 覆盖提交记录树归一化
 （提交行/延续线/畸形载荷）、graph 前缀截断、全部文本 escape 与复制回调。
+`file-preview.test.mjs` 覆盖预览分派（扩展名→类型/语言）、大小格式、UTF-8/
+UTF-16/GBK 解码、base64 往返与截断语义；`worktree-view.test.mjs` 断言文件行
+渲染为带路径元数据的打开按钮。后端侧：`workspace/readfile_test.go` 覆盖
+containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测，
+`application/core/workspace_file_usecase_test.go` 覆盖当前工作区 root 转发与
+后端缺文件端口时的降级，`gui/bridge_test.go` 覆盖 Bridge 参数转发。
 
 ## Context compression summary
 
@@ -244,6 +254,10 @@ The right-column “代码”子页“工作树”面板 shows the bound workspa
 `Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` (metadata only: name,
 path, type, size, counts). It replaces the former flat “Agent read files”
 list; the backend `read_files` archive is still persisted as session evidence
-but is no longer a main panel. The tree never carries file content into the
-renderer. 同一子页的「提交记录」面板经 `Bridge.WorkspaceGitLog` 展示最近 20 条
-提交的 graph 拓扑树（hash/作者/时间/标题，只读元数据，不含 diff/文件内容）。
+but is no longer a main panel. 点击文件行会在同子页左抽屉打开文件预览：内容经
+`Bridge.WorkspaceFileContent` 受控读取（containment/敏感文件/忽略目录过滤、
+64 MiB 硬上限 + 截断标记、二进制探测），原始字节只进预览抽屉，不进入
+Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 等
+忽略路径在 workspace 层直接拒绝。同一子页的「提交记录」面板经
+`Bridge.WorkspaceGitLog` 展示最近 20 条提交的 graph 拓扑树（hash/作者/时间/
+标题，只读元数据，不含 diff/文件内容）。

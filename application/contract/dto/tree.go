@@ -53,3 +53,16 @@ type GitLogResult struct {
 	Root      string          `json:"root,omitempty"`
 	Error     string          `json:"error,omitempty"`
 }
+
+// FileContent 是工作树文件预览的读取结果（GUI 文件预览数据源）。
+// 字节原样以 base64 带回（文本与二进制同一通道；文档/图片类由前端按
+// 扩展名分派渲染），绝不携带路径之外的任何文件系统信息。
+type FileContent struct {
+	Name      string `json:"name"`               // basename
+	Path      string `json:"path"`               // 相对工作区根路径（/ 分隔）
+	Size      int64  `json:"size"`               // 文件完整字节数
+	Base64    string `json:"base64"`             // 原始字节（≤ Limit；base64 编码传输）
+	Limit     int64  `json:"limit"`              // 本次读取上限（字节；实际生效值）
+	Truncated bool   `json:"truncated"`          // Size > Limit，内容已截断
+	TextLike  bool   `json:"text_like"`          // 二进制探测：可安全按文本展示
+}

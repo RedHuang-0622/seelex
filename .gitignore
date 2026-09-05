@@ -34,7 +34,9 @@ config/*.secret.yaml
 *.env
 
 # ── 依赖缓存 ────────────────────────────────────────────────
-vendor/
+# 只忽略仓库根的 Go vendor 缓存目录；gui/frontend/dist/vendor/ 是前端
+# 第三方组件生产资产（随 embed 打进二进制），必须纳入版本库。
+/vendor/
 node_modules/
 
 # ── IDE 与编辑器 ────────────────────────────────────────────

@@ -12,6 +12,7 @@ import {
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
 import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
+import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
@@ -42,6 +43,7 @@ const elements = Object.fromEntries([
   "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
+  "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title",
@@ -154,7 +156,8 @@ function reportAppliedEvents(seq) {
 }
 const workTableView = createWorkTableView(elements["work-table-modal-view"]);
 const workTreeView = createWorkTreeView(elements["worktree-view"], {
-  loadDir: async relPath => invoke("WorkspaceTree", relPath, 1)
+  loadDir: async relPath => invoke("WorkspaceTree", relPath, 1),
+  onOpenFile: entry => openFilePreview(entry)
 });
 const gitLogView = createGitLogView(elements["git-log-view"], {
   onCopy: async hash => {
@@ -165,6 +168,17 @@ const gitLogView = createGitLogView(elements["git-log-view"], {
     }
   }
 });
+// 文件预览（「资源管理器」子页左抽屉）：工作树文件点击 → 后端读取受控字节
+// （containment/敏感过滤/上限在 workspace 层保证）→ 按类型分派渲染。
+const filePreviewController = createFilePreviewController({
+  view: elements["file-preview-view"],
+  meta: elements["file-preview-meta"],
+  loader: async (entry, kind, limit) => invoke("WorkspaceFileContent", entry.path, limit),
+  onError: showToast
+});
+let previewPaneOpen = false;
+let previewRoot = "";
+elements["file-preview-close"].addEventListener("click", closeFilePreview);
 // workTableSeen 是“已读”快照（status|retry_count 签名）；workTableOpen
 // 控制弹窗打开期间不显示未读角标。
 let workTableSeen = new Map();
@@ -527,6 +541,8 @@ function fileCountLabel() {
 async function refreshWorkTree(snapshot, running) {
   const view = elements["worktree-view"];
   const rootPath = snapshot.current_workspace?.root_path || "";
+  // 预览的文件属于旧工作区时：抽屉内容失效，随树一起清空。
+  if (previewPaneOpen && rootPath !== previewRoot) closeFilePreview();
   if (!rootPath) {
     worktreeRoot = "";
     worktreeFileCount = null;
@@ -1844,6 +1860,7 @@ document.addEventListener("keydown", event => {
     closeNodeDetail();
     closeWorkTable();
     closeNewSessionModal();
+    closeFilePreview();
   }
 });
 
@@ -1859,6 +1876,8 @@ const LEFT_WIDTH_KEY = "seelex.left-panel-width";
 const RIGHT_WIDTH_KEY = "seelex.right-panel-width";
 const LEFT_WIDTH_RANGE = [200, 420];
 const RIGHT_WIDTH_RANGE = [220, 480];
+const PREVIEW_WIDTH_KEY = "seelex.preview-pane-width";
+const PREVIEW_WIDTH_RANGE = [280, 760];
 
 function storageGet(key) {
   try { return window.localStorage.getItem(key); } catch { return null; }
@@ -1931,6 +1950,112 @@ function setupPanelDividers() {
   keyboardAdjust(rightDivider, true);
 }
 setupPanelDividers();
+
+// ── 「资源管理器」文件预览抽屉（代码子页左分栏）──────────────
+// ── 「资源管理器」文件预览抽屉（代码子页左分栏）──────────────
+// 预览抽屉是代码子页内部结构：left 预览 / divider / right（工作树+提交记录）。
+// 宽度以 CSS 变量 + localStorage 记忆（默认 380px）；展开/收起态也记忆
+// （默认收起，点文件自动展开）。关闭只收起不销毁内容，再次打开同一文件
+// 直接复用（避免重复读取）。
+const FILE_PREVIEW_OPEN_KEY = "seelex.preview-pane-open";
+
+function openFilePreview(entry) {
+  if (!entry || !entry.path) return;
+  const snapshot = client.current();
+  previewRoot = snapshot?.current_workspace?.root_path || previewRoot;
+  const pane = elements["file-preview-pane"];
+  if (pane) {
+    pane.classList.remove("is-closed");
+    document.documentElement.style.setProperty("--preview-w", previewPaneWidth());
+  }
+  try { window.localStorage.setItem(FILE_PREVIEW_OPEN_KEY, "1"); } catch { /* 无存储环境忽略 */ }
+  filePreviewController.open(entry);
+  if (state.rightTab !== "code") {
+    state.rightTab = "code";
+    setRightTab("code");
+  }
+}
+
+function closeFilePreview() {
+  if (!previewPaneOpen) return;
+  previewPaneOpen = false;
+  const pane = elements["file-preview-pane"];
+  if (pane) pane.classList.add("is-closed");
+  try { window.localStorage.setItem(FILE_PREVIEW_OPEN_KEY, "0"); } catch { /* 无存储环境忽略 */ }
+  filePreviewController.clear();
+}
+
+function previewPaneWidth() {
+  const stored = Number(storageGet(PREVIEW_WIDTH_KEY));
+  const width = Number.isFinite(stored) ? clampPanelWidth(stored, ...PREVIEW_WIDTH_RANGE) : 380;
+  return `${width}px`;
+}
+
+function setupFilePreviewResize() {
+  applyPreviewWidth();
+  const divider = elements["file-preview-divider"];
+  if (!divider) return;
+  const pane = elements["file-preview-pane"];
+  const split = document.getElementById("code-split");
+  if (!pane || !split) return;
+
+  divider.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    divider.classList.add("is-dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const move = moveEvent => {
+      const rect = split.getBoundingClientRect();
+      const width = clampPanelWidth(moveEvent.clientX - rect.left, ...PREVIEW_WIDTH_RANGE);
+      document.documentElement.style.setProperty("--preview-w", `${width}px`);
+    };
+    const up = () => {
+      divider.classList.remove("is-dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      storageSet(PREVIEW_WIDTH_KEY, String(parseFloat(document.documentElement.style.getPropertyValue("--preview-w")) || 380));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
+  divider.addEventListener("keydown", event => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const current = parseFloat(document.documentElement.style.getPropertyValue("--preview-w")) || 380;
+    const step = event.key === "ArrowLeft" ? -24 : 24;
+    const width = clampPanelWidth(current + step, ...PREVIEW_WIDTH_RANGE);
+    document.documentElement.style.setProperty("--preview-w", `${width}px`);
+    storageSet(PREVIEW_WIDTH_KEY, String(width));
+  });
+}
+
+function applyPreviewWidth() {
+  const stored = Number(storageGet(PREVIEW_WIDTH_KEY));
+  const width = Number.isFinite(stored) ? clampPanelWidth(stored, ...PREVIEW_WIDTH_RANGE) : 380;
+  document.documentElement.style.setProperty("--preview-w", `${width}px`);
+}
+
+// 初始化：展开/收起记忆（默认收起）+ 宽度记忆；代码子页激活时惰性刷新
+// git log（原有行为）。
+(function initFilePreviewPane() {
+  applyPreviewWidth();
+  const stored = (() => { try { return window.localStorage.getItem(FILE_PREVIEW_OPEN_KEY); } catch { return null; } })();
+  previewPaneOpen = stored === "1";
+  const pane = elements["file-preview-pane"];
+  if (pane) {
+    if (!previewPaneOpen) {
+      pane.classList.add("is-closed");
+    } else {
+      pane.classList.remove("is-closed");
+      const snapshot = client.current();
+      previewRoot = snapshot?.current_workspace?.root_path || "";
+    }
+  }
+})();
+setupFilePreviewResize();
 
 function resizePrompt() {
   elements.prompt.style.height = "auto";

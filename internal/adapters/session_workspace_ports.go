@@ -100,6 +100,12 @@ func (port WorkspacePort) GitLog(root string, limit int) (dto.GitLogResult, erro
 	return port.Repo.GitLog(root, limit)
 }
 
+// WorkspaceFilePort 实现：转发给 Repo（文件预览读取；root/relPath
+// containment、敏感过滤与上限在 workspace 域内保证）。
+func (port WorkspacePort) ReadFile(root, relPath string, limit int64) (dto.FileContent, error) {
+	return port.Repo.ReadFile(root, relPath, limit)
+}
+
 func adaptWorkspace(item workspace.Info) model.WorkspaceInfo {
 	return model.WorkspaceInfo{
 		ID:        item.ID,
