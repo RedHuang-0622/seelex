@@ -15,6 +15,7 @@ Plan 打点/分支事件/重规划
 - `func (service *Service) updatePlanFromRunResult(resultJSON string)` — updatePlanFromRunResult 从 plan_run 返回的 JSON 更新 PlanState。
 - `func resolveNodeStatus(nodes []struct { NodeID string `json:"node_id"` Kind string `json:"kind"` Status string `json:"status"` Output string `json:"output,omitempty"` Skipped bool `json:"skipped"` Aborted bool `json:"aborted"` StartedAt string `json:"started_at,omitempty"` EndedAt string `json:"ended_at,omitempty"` }, nodeID string) NodeStatus` — resolveNodeStatus 辅助：从框架返回的 nodes 列表中查找 nodeID 的状态。
 - `func (service *Service) planProjectionLocked(sessionID string) *PlanState` — HandlePlanNodeComplete 是 plan 执行事实的投影订阅（由 Runtime 经
+- `func (service *Service) mirrorPlanProjectionForSessionLocked(sessionID string, fallback func() *PlanState)` — mirrorPlanProjectionForSessionLocked 在会话成为视图会话时刷新
 - `func (service *Service) HandlePlanNodeComplete(event dto.PlanNodeEvent)`
 - `func (service *Service) handleViewPlanNodeComplete(event dto.PlanNodeEvent, sessionID string)` — handleViewPlanNodeComplete 是当前视图会话的 plan 节点事件路径：投影即
 - `func (service *Service) handleBackgroundPlanNodeComplete(event dto.PlanNodeEvent, sessionID string)` — handleBackgroundPlanNodeComplete 是后台会话的 plan 节点事件路径：投影变更

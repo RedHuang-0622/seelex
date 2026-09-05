@@ -44,6 +44,31 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func (c *Coordinator) ApplyActiveTaskSystemPromptFor(sessionID, requestID string)` — ApplyActiveTaskSystemPromptFor 按指定会话活跃任务刷新 system prompt（锁内
 - `func (c *Coordinator) SystemPromptForActiveTaskLocked() string` — SystemPromptForActiveTaskLocked 组装活跃任务 system prompt（调用方持有
 - `func (c *Coordinator) SystemPromptForActiveTaskLockedFor(sessionID string) string` — SystemPromptForActiveTaskLockedFor 组装指定会话活跃任务 system prompt
+- `func (c *Coordinator) skillCatalogPart() string` — skillCatalogPart 返回当前激活插件的"可用技能"被动目录段（无技能/无插件
 - `func (c *Coordinator) setEngineSystemPrompt(sessionID, promptText string)` — setEngineSystemPrompt 设置指定会话引擎的 system prompt（支持会话路由的
 - `func (c *Coordinator) activeSessionID() string` — activeSessionID 返回当前活跃会话（快照归属会话）。
+
+### skill_catalog.go
+
+- `func RenderSkillCatalog(skills []model.SkillInfo) string` — RenderSkillCatalog 把当前插件的技能清单渲染为字节稳定的目录段（被动技能
+
+### skill_catalog_test.go
+
+- `func (s catalogSkillsStub) All() []model.SkillInfo`
+- `func (catalogSkillsStub) Get(string) (model.SkillInfo, bool)`
+- `func (s catalogTasksStub) CurrentTaskExecution() *task_context.TaskExecutionState`
+- `func (s catalogTasksStub) CurrentTaskExecutionFor(string) *task_context.TaskExecutionState`
+- `func (catalogTasksStub) ActivePlanID() string`
+- `func (catalogTasksStub) ActivePlanIDFor(string) string`
+- `func (catalogTasksStub) PlanSequence() uint64`
+- `func (catalogTasksStub) PlanSequenceFor(string) uint64`
+- `func newCatalogCoordinator(t testing.TB, skills contract.SkillPort, tasks *task_context.TaskExecutionState) *pl.Coordinator`
+- `func systemPromptFor(t testing.TB, c *pl.Coordinator) string`
+- `func TestRenderSkillCatalogEmpty(t *testing.T)` — TestRenderSkillCatalogEmpty：无技能表 → 不占 system 字节（返回空）。
+- `func TestRenderSkillCatalogStableAndSorted(t *testing.T)` — TestRenderSkillCatalogStableAndSorted：字节稳定（同输入同输出）+ 按 name 排序。
+- `func TestRenderSkillCatalogNeverLeaksPrompt(t *testing.T)` — TestRenderSkillCatalogNeverLeaksPrompt：目录只含 name/description，指令正文
+- `func TestCoordinatorInjectsPassiveCatalog(t *testing.T)` — TestCoordinatorInjectsPassiveCatalog：目录段自动进 system prompt（模型零
+- `func TestCoordinatorCatalogPrecedesTrustedSkill(t *testing.T)` — TestCoordinatorCatalogPrecedesTrustedSkill：激活技能存在时，目录段必须排在
+- `func TestCoordinatorCatalogFollowsPluginSwitch(t *testing.T)` — TestCoordinatorCatalogFollowsPluginSwitch：目录内容随"当前插件技能表"变化
+- `func TestCoordinatorEmptyCatalogOmitsSection(t *testing.T)` — TestCoordinatorEmptyCatalogOmitsSection：插件无技能 → 目录段整体不出现，
 

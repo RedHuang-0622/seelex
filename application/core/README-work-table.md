@@ -40,7 +40,7 @@
 - `func (service *Service) consumeSubagentLifecycle()`
 - `func (service *Service) consumePlanNodeEvents()`
 - `func (service *Service) consumeTaskChanges()`
-- `func (service *Service) safeLifecycleCall(call func())` — safeLifecycleCall 隔离消费者中的单次 panic（记录并继续，避免消费者
+- `func (service *Service) safeLifecycleCall(call func())` — safeLifecycleCall 处理消费者中的 panic：数据竞争/逻辑故障不得静默吞掉
 - `func (service *Service) UpdateWorkItemStatus(id, status string) error` — UpdateWorkItemStatus 是工作表格的人工状态更新入口（v1：todo 三态
 - `func parseWorkItemID(id string) (kind string, index int, err error)`
 - `func (service *Service) refreshRuntimeAfterTodoChange()` — refreshRuntimeAfterTodoChange 在 todo 状态变更后重投影并发布三类增量：
