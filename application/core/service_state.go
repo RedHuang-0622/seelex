@@ -51,6 +51,13 @@ type serviceState struct {
 	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
 	residentOrder []string
 
+	// viewEpoch 是视图切换的单调序号（Core.ViewMu 保护）：后台冷加载在
+	// 完成时校验自己仍是“最新切换目标”，否则只完成装载、不抢占当前视图。
+	viewEpoch uint64
+	// restoring 是“后台冷加载中”的会话集合（Core.ViewMu 保护）：这些会话
+	// 的目录行与当前快照展示 SessionStatusRestoring，装载完成/失败即移除。
+	restoring map[string]struct{}
+
 	// fullAccessDefault 是进程级全权默认（装配期从引擎门捕获一次；G4：
 	// 会话未选择时回退该值，不继承其它会话的遗留开关）。
 	fullAccessDefault bool

@@ -59,6 +59,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		commands:           NewCommandRegistry(),
 		promptRuntimeState: promptRuntimeState{promptStack: promptStack},
 		sessions:           sessionDomain,
+		restoring:          make(map[string]struct{}),
 	}
 	service := &Service{serviceState: svcState}
 	service.effortManager = NewEffortManager(promptStack, service.Deps.Engine)

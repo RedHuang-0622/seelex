@@ -107,6 +107,13 @@ func (service *Service) UnloadSession(sessionID string) error {
 	defer transition.Unlock()
 
 	service.ViewMu.RLock()
+	restoring := service.isRestoringLocked(sessionID)
+	service.ViewMu.RUnlock()
+	if restoring {
+		return ErrChatRunning
+	}
+
+	service.ViewMu.RLock()
 	running := false
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		running = unit.ChatState().Running
@@ -137,6 +144,7 @@ func (service *Service) UnloadSession(sessionID string) error {
 		// 视图单例一致性：卸载活跃会话后进入新的早分配 SID 草稿单元
 		// （HasSession=false，不建引擎 bundle；不写槽位——卸载后的空白草稿
 		// 不进入会话树，与卸载前语义一致）。
+		service.nextViewEpochLocked()
 		draftID := service.newDraftSessionIDLocked()
 		service.sessions.SetActive(draftID)
 		draftUnit := service.sessionUnitLocked(draftID)

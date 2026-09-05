@@ -96,6 +96,9 @@ func (service *Service) sessionStatusLocked(sessionID string) SessionStatus {
 	if sessionID == "" {
 		return SessionStatusDraft
 	}
+	if service.isRestoringLocked(sessionID) {
+		return SessionStatusRestoring
+	}
 	unit := service.sessions.Unit(sessionID)
 	if unit == nil {
 		return SessionStatusIdle
@@ -113,6 +116,36 @@ func (service *Service) sessionStatusLocked(sessionID string) SessionStatus {
 		return SessionStatusQueued
 	}
 	return SessionStatusIdle
+}
+
+// isRestoringLocked 报告目标会话是否处于后台冷加载（调用方持有
+// Core.ViewMu）。
+func (service *Service) isRestoringLocked(sessionID string) bool {
+	if service == nil || service.restoring == nil {
+		return false
+	}
+	_, ok := service.restoring[sessionID]
+	return ok
+}
+
+// setRestoringLocked 标记目标会话进入后台冷加载（调用方持有 Core.ViewMu）。
+func (service *Service) setRestoringLocked(sessionID string) {
+	if service.restoring == nil {
+		service.restoring = make(map[string]struct{})
+	}
+	service.restoring[sessionID] = struct{}{}
+}
+
+// clearRestoringLocked 移除目标会话的后台冷加载标记（调用方持有
+// Core.ViewMu）。
+func (service *Service) clearRestoringLocked(sessionID string) {
+	delete(service.restoring, sessionID)
+}
+
+// nextViewEpoch 推进视图切换序号并返回新值（调用方持有 Core.ViewMu）。
+func (service *Service) nextViewEpochLocked() uint64 {
+	service.viewEpoch++
+	return service.viewEpoch
 }
 
 func (service *Service) Subscribe(buffer int) Subscription {

@@ -650,7 +650,6 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       try {
         await invoke("ResumeSession", sessionID);
         await refresh({ scroll: "bottom" });
-        elements["composer-status"].textContent = "";
       } catch (error) {
         elements["composer-status"].textContent = `恢复会话失败：${error?.message || String(error)}`;
         showToast(error);
@@ -870,6 +869,7 @@ function sessionStatusLabel(status) {
   if (status === "running") return "运行中";
   if (status === "queued") return "排队";
   if (status === "draft") return "草稿";
+  if (status === "restoring") return "恢复中";
   if (status === "awaiting_approval") return "待审批";
   if (status === "archived") return "已归档";
   return "";

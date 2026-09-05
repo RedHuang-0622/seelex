@@ -105,6 +105,7 @@ const (
 	SessionStatusQueued           = model.SessionStatusQueued
 	SessionStatusAwaitingApproval = model.SessionStatusAwaitingApproval
 	SessionStatusArchived         = model.SessionStatusArchived
+	SessionStatusRestoring        = model.SessionStatusRestoring
 )
 
 // 域子包内部类型的根包别名（保持 package core 内部调用面稳定）。

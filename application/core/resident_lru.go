@@ -108,6 +108,9 @@ func (service *Service) pickEvictableCandidateLocked(engine residentEngine) stri
 		if sessionID == "" || sessionID == current {
 			continue
 		}
+		if service.isRestoringLocked(sessionID) {
+			continue
+		}
 		unit := service.sessions.Unit(sessionID)
 		if unit == nil || !unit.Resident() || !engine.HasSession(sessionID) {
 			continue
@@ -131,9 +134,10 @@ func (service *Service) evictResident(sessionID string, engine residentEngine) e
 	active := sessionID == service.Core.Snapshot.Session.ID
 	unit := service.sessions.Unit(sessionID)
 	busy := unit != nil && service.sessionBusy(unit)
+	restoring := service.isRestoringLocked(sessionID)
 	hasSession := engine.HasSession(sessionID)
 	service.ViewMu.RUnlock()
-	if active || busy || !hasSession {
+	if active || busy || restoring || !hasSession {
 		// 状态在挑选与驱逐之间已变：跳过，保持超限容忍。
 		return nil
 	}

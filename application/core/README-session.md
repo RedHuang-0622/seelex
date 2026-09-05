@@ -2,7 +2,7 @@
 
 ## 生态位
 
-会话草稿/恢复/存储用例与集成测试
+会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）
 
 ## 文件与函数索引
 
@@ -38,6 +38,10 @@
 - `func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T)`
 - `func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)`
 - `func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T)`
+
+### session_binding_regression_test.go
+
+- `func TestBindWorkspaceSetsProjectScope(t *testing.T)` — TestBindWorkspaceSetsProjectScope 回归：seelebridge 的 tool/worktree 项目
 
 ### session_catalog.go
 
@@ -141,7 +145,13 @@
 
 ### session_history.go
 
-- `func (service *Service) resumeSession(sessionID string) error` — resumeSession 替换活跃引擎历史并恢复会话的 workspace 绑定，然后发布一份
+- `func (service *Service) resumeSession(sessionID string) error` — resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
+- `func (service *Service) bumpViewEpoch()` — bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；后台冷加载完成
+- `func (service *Service) beginAsyncRestore(sessionID string) (uint64, error)` — beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
+- `func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64)` — resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
+- `func (service *Service) handleColdRestoreFailure(sessionID, previousID string, epoch uint64, cause error)` — handleColdRestoreFailure 后台冷加载失败的降级：用户若仍停留在失败的恢复
+- `func (service *Service) resetViewToDraftAfterRestoreFailure()` — resetViewToDraftAfterRestoreFailure 在“无前一会话可回退”时把视图重置到
+- `func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64) error` — resumeSessionCold 是 resumeSession 的冷加载主体：目标未驻留时重建引擎、
 - `func (service *Service) ResumeSession(sessionID string) error` — ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，
 - `func (service *Service) LoadMoreHistory(limit int) error` — LoadMoreHistory 把更早的历史页前置到可见会话。
 - `func adaptEngineMessage(msg EngineMessage) Message`
@@ -161,6 +171,12 @@
 - `func TestUnloadRejectsRunningSession(t *testing.T)` — TestUnloadRejectsRunningSession（阶段 D · 卸载/提交互斥）：unload 与 submit
 - `func containsMessageContent(messages []Message, needle string) bool`
 - `func conversationTextsForTest(conversation []Message) []string`
+
+### session_live_content_probe_test.go
+
+- `func newStagedChatEngine() *stagedChatEngine`
+- `func (engine *stagedChatEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func TestSwitchBackShowsLatestBackgroundContent(t *testing.T)` — TestSwitchBackShowsLatestBackgroundContent 复现“切回会话时前端拿到的内容
 
 ### session_meta.go
 
@@ -199,6 +215,10 @@
 - `func TestParallelSessionsExecuteConcurrently(t *testing.T)` — TestParallelSessionsExecuteConcurrently 验证 M2 核心语义：活跃会话运行中，
 - `func TestParallelSessionsQueuedPerSession(t *testing.T)` — TestParallelSessionsQueuedPerSession 验证每个会话维护自己的输入队列：A 运行
 
+### session_plan_switch_regression_test.go
+
+- `func TestHotAttachKeepsBackgroundPlanProgress(t *testing.T)` — TestHotAttachKeepsBackgroundPlanProgress 回归：后台会话运行期间 plan 节点
+
 ### session_pollution_s0_test.go
 
 - `func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T)`
@@ -233,9 +253,9 @@
 - `func (service *Service) perSessionExecution() bool` — perSessionExecution 报告宿主是否具备逐会话执行能力（生产 seelebridge
 - `func (service *Service) transitionForSession(sessionID string) sync.Locker` — transitionForSession 返回目标会话生命周期的过渡锁：逐会话宿主按会话 key
 - `func (service *Service) newGeneratedSessionID(prefix string) string` — newGeneratedSessionID 生成显式会话 ID（逐会话宿主 fork/切项目新建用；
-- `func (service *Service) setWorkspaceWriteScope(workspaceID string)` — setWorkspaceWriteScope 设置 legacy Router 写作用域；逐会话宿主跳过（存储
-- `func (service *Service) bindGlobalProjectRoot(rootPath string) error` — bindGlobalProjectRoot 设置进程级项目根；逐会话宿主跳过（per-session
-- `func (service *Service) unbindGlobalProjectRoot()` — unbindGlobalProjectRoot 清空进程级项目根；逐会话宿主跳过。
+- `func (service *Service) setWorkspaceWriteScope(workspaceID string)` — setWorkspaceWriteScope 设置 legacy Router 写作用域。逐会话工具根能力
+- `func (service *Service) bindGlobalProjectRoot(rootPath string) error` — bindGlobalProjectRoot 设置进程级项目根。同上：per-session root 未实现前
+- `func (service *Service) unbindGlobalProjectRoot()` — unbindGlobalProjectRoot 清空进程级项目根。
 - `func (service *Service) transitionForKey(key string) sync.Locker` — transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
@@ -264,7 +284,7 @@
 ### session_scope_test.go
 
 - `func (perSessionFakeRuntime) PerSessionExecution() bool`
-- `func TestPerSessionHostSkipsGlobalScopeSideEffects(t *testing.T)` — TestPerSessionHostSkipsGlobalScopeSideEffects F-4：逐会话宿主下
+- `func TestPerSessionHostDoesNotSkipGlobalScopeSideEffects(t *testing.T)` — TestPerSessionHostDoesNotSkipGlobalScopeSideEffects 回归：即使宿主声明
 - `func TestCrossSessionSubmitWhileRunningNoLongerBusy(t *testing.T)` — TestCrossSessionSubmitWhileRunningNoLongerBusy 验证 M2 多会话并行语义：
 - `func TestSubmitToSessionDelegatesForActiveSession(t *testing.T)` — TestSubmitToSessionDelegatesForActiveSession 验证同会话提交走既有
 - `func TestSubmitToSessionRejectsEmptyID(t *testing.T)` — TestSubmitToSessionRejectsEmptyID 验证会话级 API 拒绝空会话 ID。
@@ -297,6 +317,27 @@
 
 - `func TestStressConcurrentSessionsDoNotPollute(t *testing.T)`
 
+### session_switch_ab_test.go
+
+- `func newLockRegistry(interval time.Duration) *lockRegistry`
+- `func (registry *lockRegistry) busyWork(stop <-chan struct{})`
+- `func (registry *lockRegistry) switchTo(sessionID string) time.Duration`
+- `func (registry *lockRegistry) applied() int`
+- `func (registry *lockRegistry) validate() bool`
+- `func newActorRegistry(interval time.Duration) *actorRegistry`
+- `func (registry *actorRegistry) loop()`
+- `func (registry *actorRegistry) busyWork(stop <-chan struct{})`
+- `func (registry *actorRegistry) switchTo(sessionID string) time.Duration`
+- `func (registry *actorRegistry) applied() int`
+- `func (registry *actorRegistry) validate() bool`
+- `func (registry *actorRegistry) close()`
+- `func appendMirrorWork(log *[]int, value int)` — appendMirrorWork 追加一条“镜像工作”日志并裁剪（模拟忙写/切换的固定临界
+- `func mirrorMonotonic(log []int) bool`
+- `func runABRound(t *testing.T, registry abSwitchRegistry, name string) (time.Duration, time.Duration, int)` — runABRound 在 rate-limited 忙负载下并发发起 switches，返回一次轮次的
+- `func median(values []time.Duration) time.Duration`
+- `func runABCompare(t *testing.T, registry abSwitchRegistry, name string)` — runABCompare 跑多次轮次并汇总两个维度：
+- `func TestSessionSwitchABLockVsActor(t *testing.T)` — TestSessionSwitchABLockVsActor 对比锁串行（A）与 actor 模型（B）在忙会话
+
 ### session_switch_deadlock_test.go
 
 - `func dumpAllGoroutines() string` — dumpAllGoroutines 返回全量 goroutine 栈（死锁断点现场）。
@@ -318,3 +359,19 @@
 - `func TestBackgroundToolEventsCarryOwnRequestID(t *testing.T)` — TestBackgroundToolEventsCarryOwnRequestID 复现后台会话工具事件携带活跃
 - `func TestSubmitPromptWhileOtherSessionRuns(t *testing.T)` — TestSubmitPromptWhileOtherSessionRuns 复现输入阻塞：A 运行中（引擎阻塞），
 - `func TestDeltasKeepFlowingAfterSwitchToRunningSession(t *testing.T)` — TestDeltasKeepFlowingAfterSwitchToRunningSession 回归守卫：切到运行中
+
+### session_switch_probe_test.go
+
+- `func switchDuringInFlightChat(t *testing.T, label string)` — switchDuringInFlightChat 在引擎回合仍在执行（未 release）时切换视图到另
+- `func TestSwitchDuringToolInvocation(t *testing.T)` — TestSwitchDuringToolInvocation 复现：工具调用（引擎忙）期间切换会话。
+- `func TestSwitchDuringLLMStreaming(t *testing.T)` — TestSwitchDuringLLMStreaming 复现：LLM 输出（引擎忙）期间切换会话。
+- `func (sessions *gatedHistorySessions) releaseNow()`
+- `func (sessions *gatedHistorySessions) LoadHistory(sessionID string) ([]EngineMessage, error)`
+- `func (sessions *gatedHistorySessions) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
+- `func (sessions *gatedHistorySessions) gateEnabled(sessionID string) bool`
+- `func TestSwitchDuringColdLoadSerializes(t *testing.T)` — TestSwitchDuringColdLoadSerializes 复现：会话 A 处于冷加载（历史装载被
+- `func TestBeginNewSessionSingleDraftOwner(t *testing.T)` — TestBeginNewSessionSingleDraftOwner 复现/钉住“新建会话”的幂等与责任链：
+
+### session_switch_running_cold_test.go
+
+- `func TestColdResumeWhileRunningIsAsync(t *testing.T)` — TestColdResumeWhileRunningIsAsync 复现“会话运行中切换到冷加载目标长期处于

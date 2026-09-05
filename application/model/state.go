@@ -68,7 +68,7 @@ type SessionState struct {
 	ID    string `json:"id"`
 	Name  string `json:"name,omitempty"`
 	Draft bool   `json:"draft,omitempty"`
-	// Status 是会话可见状态：draft | idle | running | queued。
+	// Status 是会话可见状态：draft | idle | running | queued | restoring。
 	Status SessionStatus `json:"status,omitempty"`
 	// Composer 是当前视图会话的未发送输入草稿正文（草稿会话跨重启恢复用；
 	// 只出现在视图当前会话，不进入目录行）。
@@ -93,6 +93,9 @@ const (
 	SessionStatusQueued           SessionStatus = "queued"
 	SessionStatusAwaitingApproval SessionStatus = "awaiting_approval"
 	SessionStatusArchived         SessionStatus = "archived"
+	// SessionStatusRestoring 表示会话正在后台冷加载（运行中切换到未驻留
+	// 会话的异步路径）：视图已切到目标空壳，内容装载完成后由事件发布基线。
+	SessionStatusRestoring SessionStatus = "restoring"
 )
 
 type Message struct {

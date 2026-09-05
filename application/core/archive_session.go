@@ -33,6 +33,7 @@ func (service *Service) ArchiveSession(sessionID string) error {
 	draining := service.draining
 	unit := service.sessions.Unit(sessionID)
 	busy := unit != nil && service.sessionBusy(unit)
+	restoring := service.isRestoringLocked(sessionID)
 	service.ViewMu.RUnlock()
 	if closed {
 		return errors.New("application is shut down")
@@ -40,7 +41,7 @@ func (service *Service) ArchiveSession(sessionID string) error {
 	if draining {
 		return ErrApplicationDraining
 	}
-	if busy {
+	if busy || restoring {
 		return ErrChatRunning
 	}
 

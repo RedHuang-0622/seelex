@@ -102,6 +102,7 @@ func (service *Service) BeginNewSession() error {
 	// 写作用域（若其它会话运行中，切换会串写；首次提交物化时再绑定）。
 
 	service.ViewMu.Lock()
+	service.nextViewEpochLocked()
 	service.Core.Snapshot.Session = SessionState{ID: draftID, Name: draftSessionName, Draft: true, Status: SessionStatusDraft}
 	service.sessions.SetActive(draftID)
 	service.Core.Snapshot.CurrentWorkspace = restoredWorkspace

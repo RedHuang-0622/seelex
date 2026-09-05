@@ -1,6 +1,8 @@
 # 会话切换并发模型：AB 链路测试与路线选择
 
-> 性质：一次性工作包决策记录（2026-09-04）；以代码与测试为准。
+> 性质：一次性工作包决策记录（2026-09-04；第 4 条已于 2026-09-05 落地，
+> 见 `application/core/session_history.go` 与
+> `application/core/session_switch_running_cold_test.go`）；以代码与测试为准。
 > 相关实现：`gui/bridge.go`（switchMu）、`session/domain_actor.go`
 > （Domain actor / SetActive）、`application/core/session_runtime`
 > （transition manager）、测试 `application/core/session_switch_ab_test.go`。
@@ -69,7 +71,10 @@
    检测 race；`fault_guard` 负责 panic 后的降级退出）。
 4. **忙时“切不动”的下一步不是“再 actor 化切换”，而是异步冷加载 + 切换
    进度呈现**：先给目标会话空壳/进度，后台完成装载后再发布基线，消除
-   同步 I/O 在视图过渡 key 上的串行等待。
+   同步 I/O 在视图过渡 key 上的串行等待。**已实现**：运行中切到未驻留
+   会话时 `ResumeSession` 先激活 `restoring` 空壳并立即返回；后台完成
+   装载后按视图 epoch 判定发布基线（迟到的装载不抢占更新的切换）。
+   复现/回归：`TestColdResumeWhileRunningIsAsync`。
 
 本 AB 链路作为“选择路线依据”保留在仓库：后续若再评估切换并发模型
 （例如整体 actor 化或进程隔离），应复用该测试对比数据安全与速度两个维度。

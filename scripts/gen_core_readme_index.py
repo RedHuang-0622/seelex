@@ -22,7 +22,7 @@ CORRUPTED_HEADER = re.compile(r"^## \?{7,}$")
 # 根包分卷：(前缀, 卷名, 组概述)；卷名用于 README-<卷名>.md 与标题
 ROOT_GROUPS = [
     ("service", "service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）"),
-    ("session", "session", "会话草稿/恢复/存储用例与集成测试"),
+    ("session", "session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）"),
     ("chat", "chat", "聊天主循环与可见输出集成"),
     ("command", "command", "内置命令注册与执行"),
     ("error", "error", "错误码与面向用户的错误呈现"),
