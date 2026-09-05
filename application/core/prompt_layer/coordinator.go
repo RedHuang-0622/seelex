@@ -117,6 +117,12 @@ func (c *Coordinator) SystemPromptForActiveTaskLocked() string {
 // （调用方持有 Core.ViewMu）。
 func (c *Coordinator) SystemPromptForActiveTaskLockedFor(sessionID string) string {
 	parts := []string{c.promptStack.Render()}
+	// 被动技能目录（插件级稳定）：base（identity→plugin→effort→instructions）
+	// 之后、激活技能正文之前插入"可用技能"清单。数据源随当前激活插件装配，
+	// 模型零调用即每轮可见 → 插件切换/技能表变化才改变本段字节。
+	if catalog := c.skillCatalogPart(); catalog != "" {
+		parts = append(parts, catalog)
+	}
 	if task := c.tasks.CurrentTaskExecutionFor(sessionID); task != nil {
 		for _, layer := range task.TrustedSkillLayers {
 			text := strings.TrimSpace(layer.Text)
@@ -142,6 +148,22 @@ func (c *Coordinator) SystemPromptForActiveTaskLockedFor(sessionID string) strin
 		}
 	}
 	return strings.Join(filtered, "\n\n---\n\n")
+}
+
+// skillCatalogPart 返回当前激活插件的"可用技能"被动目录段（无技能/无插件
+// 返回 ""）。数据源 = contract.Skills 端口：skill.Registry 已在插件
+// Load/Activate 时把该插件技能写入 pluginSkills 并按 activePlugin 隔离，
+// adapters.SkillPort.All() 因此天然只返回当前插件技能表——插件装配即生效，
+// 不需要模型先调用 skills_list 或任何工具（被动技能，降低插件自主性要求）。
+func (c *Coordinator) skillCatalogPart() string {
+	if c == nil || c.Core == nil {
+		return ""
+	}
+	skills := c.Deps.Skills
+	if skills == nil {
+		return ""
+	}
+	return RenderSkillCatalog(skills.All())
 }
 
 // setEngineSystemPrompt 设置指定会话引擎的 system prompt（支持会话路由的

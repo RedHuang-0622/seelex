@@ -141,6 +141,14 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if modelInput != "#review focused" || !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") {
 		t.Fatalf("hash Skill input=%q prompt=%q", modelInput, prompt)
 	}
+	// 被动技能目录：随插件装配自动注入（不依赖模型调用 skills_list），
+	// 且必须位于激活技能正文之前（发现 → 生效）。
+	if !strings.Contains(prompt, "## Available Skills") || !strings.Contains(prompt, "- review: review code") {
+		t.Fatalf("prompt missing passive skill catalog: %q", prompt)
+	}
+	if catalogAt, trustedAt := strings.Index(prompt, "## Available Skills"), strings.Index(prompt, "## Trusted Active Skill: review"); catalogAt < 0 || trustedAt < 0 || catalogAt > trustedAt {
+		t.Fatalf("catalog must precede trusted skill section: %q", prompt)
+	}
 }
 
 func TestApprovalBrokerResolve(t *testing.T) {

@@ -24,7 +24,7 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 
 | 文件 | 职责 |
 |---|---|
-| `assembler.go` | `RequestAssembler`：system prompt（effort/skill）+ PromptBlocks + working history 拼装。 |
+| `assembler.go` | `RequestAssembler`：system prompt（effort/skill）+ PromptBlocks + working history 拼装；工具定义经 `AssembledRequest.Tools` 透传（引擎 API schema 通道，不渲染为消息文本）。 |
 | `processor.go` | `ToolResultProcessor`：超大工具结果 → result_ref/省略警告。 |
 | `compressor.go` | `Compressor` 适配：短历史免压缩 + QuickChat 隔离摘要。 |
 | `controller.go` | `ContextController`：软/硬阈值、窗口外压缩、checkpoint 决策。 |

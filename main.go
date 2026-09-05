@@ -227,6 +227,13 @@ func run() error {
 		app.AddNotice("⚠ 启动配置警告: " + warning)
 	}
 	registerTaskTerminalTools(runtime, app)
+	registerSkillActivateTool(runtime, skillRegistry, func(name string) (skill.Skill, error) {
+		info, err := app.ActivateSkill(name)
+		if err != nil {
+			return skill.Skill{}, err
+		}
+		return skill.Skill{Name: info.Name, Description: info.Description, Prompt: info.Prompt}, nil
+	})
 	registerContextReadTools(runtime, app)
 	registerProjectRefreshTool(runtime, store)
 	registerScheduledTaskCapability(runtime)
