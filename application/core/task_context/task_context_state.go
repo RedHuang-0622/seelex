@@ -17,10 +17,20 @@ import (
 	"github.com/RedHuang-0622/seelex/application/prompt"
 )
 
-const activeSkillVersion = "installed-v1"
+const (
+	activeSkillVersion = "installed-v1"
+	// ActiveSkillMarker 是激活技能正文事件的内部标记。与
+	// context_runtime.ActiveSkillPrefix 同源字符串（task_context 不反向依赖
+	// context_runtime）：装配根以 IsActiveSkillContent 判定 internal → 事件不
+	// 落盘、不进前端可见会话、import/压缩时跳过。正文作为一条 internal user
+	// 事件 append-only 进入 transcript，随定稿轮次作为稳定前缀缓存；压缩窗口
+	// 裁剪后技能随旧轮次自然消失（长历史由压缩帧/会话存档检索）。
+	ActiveSkillMarker = "<!-- seelex:active-skill:v1 -->"
+)
 
 // ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
-// Core.ViewMu）。
+// Core.ViewMu）。激活的技能正文以 internal 事件 append 进 transcript
+// （append-only：同名同正文只落一次；后续轮次不再重建或改写）。
 func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
@@ -32,6 +42,14 @@ func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layer
 		return
 	}
 	st := c.sessionStateForTaskLocked(state)
+	// append-only 去重基准 = 本任务既有激活记录（同名不再重复追加，避免同一
+	// ReAct 循环内重复 skill_activate 产生重复指令正文）。不按 transcript 判重：
+	// 上个任务遗留的同名技能事件属于历史轮次，新任务必须重新落一次自己的技能
+	// 正文（跟随对话 append-only：正文出现在本任务激活时的 transcript 位置）。
+	logged := make(map[string]struct{}, len(state.ActiveSkills))
+	for _, active := range state.ActiveSkills {
+		logged[active.SkillID] = struct{}{}
+	}
 	state.TrustedSkillLayers = append([]prompt.PromptLayer(nil), layers...)
 	state.ActiveSkills = make([]model.ActiveSkill, 0, len(layers))
 	for _, layer := range layers {
@@ -42,7 +60,30 @@ func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layer
 			ActivatedAt: time.Now(), SourceEvent: st.transcriptSeq + 1,
 		})
 	}
+	c.ensureActiveSkillEventsLocked(st, state.TrustedSkillLayers, logged)
 	c.syncGoalSkillActiveLocked()
+}
+
+// ensureActiveSkillEventsLocked 只追加本任务尚未落盘的技能正文事件（logged 里
+// 已存在的层名跳过）。事件作为 internal user 轮次进入 transcript（append-only：
+// 每份正文只写一次，随定稿轮次作为稳定前缀缓存；压缩窗口裁剪后技能随旧轮次
+// 自然消失，长历史由压缩帧/会话存档检索）。
+func (c *Coordinator) ensureActiveSkillEventsLocked(st *sessionTaskRuntime, layers []prompt.PromptLayer, logged map[string]struct{}) {
+	for _, layer := range layers {
+		text := strings.TrimSpace(layer.Text)
+		if text == "" {
+			continue
+		}
+		if logged != nil {
+			if _, dup := logged[layer.Name]; dup {
+				continue
+			}
+		}
+		c.appendTranscriptEventLocked(st, model.TranscriptEvent{
+			Role:    "user",
+			Content: ActiveSkillMarker + "\n## Trusted Active Skill: " + layer.Name + "\n" + text,
+		})
+	}
 }
 
 // SyncGoalSkillActiveLocked 把任务级 skill 集投影到 lock-free 可见性值
@@ -552,6 +593,12 @@ func (c *Coordinator) restoreTaskProjectionLocked(st *sessionTaskRuntime, projec
 		c.prompt.PushSkillLayer(layer.Kind, layer.Name, layer.Text)
 	}
 	st.taskExecution = state
+	// 恢复补讲：会话存档的 transcript 不含 internal 技能事件（存档层按
+	// isInternalContent 过滤），恢复后把仍激活的技能正文补 append 一次到
+	// transcript 尾部 —— 恢复会话的下一次装配即携带技能，且仍是 append-only
+	// 单次写入（只追加，不改写既有定稿轮次）。logged=nil 强制补落（恢复的
+	// transcript 已被整键重建，无同任务事件可判重）。
+	c.ensureActiveSkillEventsLocked(st, state.TrustedSkillLayers, nil)
 	st.taskService = newTaskService(c.activeSessionIDLocked(), c, state, c.queuedInputRefs)
 	c.syncGoalSkillActiveLocked()
 }

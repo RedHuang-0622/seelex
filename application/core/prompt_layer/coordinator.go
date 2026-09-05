@@ -11,7 +11,6 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
-	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/application/prompt"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 )
@@ -59,7 +58,8 @@ func NewCoordinator(deps Deps) *Coordinator {
 	}
 }
 
-// BuildSystemPrompt 只组装 system 层（skill 内容留在请求信封，不持久化）。
+// BuildSystemPrompt 只组装稳定 system 层（激活技能正文由 context_runtime 作为
+// provider-only 前缀消息装配，不持久化、不进 system）。
 func (c *Coordinator) BuildSystemPrompt() {
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
@@ -115,31 +115,23 @@ func (c *Coordinator) SystemPromptForActiveTaskLocked() string {
 
 // SystemPromptForActiveTaskLockedFor 组装指定会话活跃任务 system prompt
 // （调用方持有 Core.ViewMu）。
+//
+// 前缀缓存纪律：system 只放"与任务/会话无关"的稳定字节——base
+// （identity→plugin→effort→instructions）+ 被动技能目录（仅随插件切换变化）。
+// 两个此前毒害开头的动态段已移出：
+//   - 激活技能正文（TrustedSkillLayers）→ 激活时作为 internal 事件 append 进
+//     transcript（跟随对话 append-only，task_context 负责落事件），装配经
+//     TranscriptTailHistory 携带，见 context_runtime 与 plan_transcript.go；
+//   - plan 执行指令 → 并入请求尾部 plan 上下文消息（planContextMessage）。
+//
+// 效果：skill_activate/plan_load/节点推进/任务边界都不再改写 system 头部，
+// system 变成跨会话、跨任务共享的常量前缀。
 func (c *Coordinator) SystemPromptForActiveTaskLockedFor(sessionID string) string {
 	parts := []string{c.promptStack.Render()}
-	// 被动技能目录（插件级稳定）：base（identity→plugin→effort→instructions）
-	// 之后、激活技能正文之前插入"可用技能"清单。数据源随当前激活插件装配，
-	// 模型零调用即每轮可见 → 插件切换/技能表变化才改变本段字节。
+	// 被动技能目录（插件级稳定）：base 之后插入"可用技能"清单。数据源随当前
+	// 激活插件装配，模型零调用即每轮可见 → 插件切换/技能表变化才改变本段字节。
 	if catalog := c.skillCatalogPart(); catalog != "" {
 		parts = append(parts, catalog)
-	}
-	if task := c.tasks.CurrentTaskExecutionFor(sessionID); task != nil {
-		for _, layer := range task.TrustedSkillLayers {
-			text := strings.TrimSpace(layer.Text)
-			if text == "" {
-				continue
-			}
-			parts = append(parts, "## Trusted Active Skill: "+layer.Name+"\n"+text)
-		}
-	}
-	if plan := task_context.ActivePlanProjection(c.Snapshot.Runtime.Plan, c.tasks.ActivePlanIDFor(sessionID), c.tasks.PlanSequenceFor(sessionID)); plan != nil && plan.Status != string(model.PlanCompleted) {
-		// 前缀缓存友好：system prompt 只放 plan 级稳定信息（plan_ref），
-		// 不放随节点变化的 current_node——节点状态由每请求尾部的 plan
-		// 上下文消息（planContextMessage）与 read_plan 提供。
-		parts = append(parts, "## Active Plan Execution Policy\n"+
-			"The Plan is validated and authoritative for this task. Do not silently replace or reorder it. "+
-			"Execute the current node and its declared dependencies in stable order. Use read_plan for omitted node detail. "+
-			"plan_ref="+plan.CanonicalPlanRef)
 	}
 	filtered := parts[:0]
 	for _, part := range parts {

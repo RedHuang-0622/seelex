@@ -55,3 +55,26 @@ func retainedContents(history []contract.EngineMessage) []string {
 	}
 	return contents
 }
+
+// TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only
+// 定稿轮次（internal 标记），保留段必须照常携带并计数——它随 transcript
+// 前缀一起缓存，不是每轮重建的动态尾部消息。
+func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T) {
+	skill := ActiveSkillPrefix + "\n## Trusted Active Skill: review\nbody"
+	history := []contract.EngineMessage{
+		{Role: "system", Content: "product instruction", ContentSet: true},
+		{Role: "user", Content: skill, ContentSet: true},
+		{Role: "user", Content: "settled request", ContentSet: true},
+		{Role: "assistant", Content: "settled answer", ContentSet: true},
+	}
+	retained := RetainedSystemHistory(history)
+	if got := retainedContents(retained); !reflect.DeepEqual(got, []string{"product instruction", skill, "settled request", "settled answer"}) {
+		t.Fatalf("retained history = %v, want stable prefix + settled context including the skill event", got)
+	}
+	if !IsActiveSkillContent(skill) {
+		t.Fatal("IsActiveSkillContent must recognize the active-skill internal marker")
+	}
+	if isDynamicTailMessage(history[1]) {
+		t.Fatal("active-skill event is a settled append-only turn, not a dynamic tail message")
+	}
+}

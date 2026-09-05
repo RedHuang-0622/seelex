@@ -330,8 +330,13 @@ func TestInterruptedTaskContinuationCarriesCheckpointAndSkills(t *testing.T) {
 	projection := service.components.tasks.TaskProjectionLocked(service.Core.Snapshot.Session.ID)
 	service.ViewMu.RUnlock()
 	carried := projection != nil && len(projection.Checkpoint.CompletedWork) > 0 && strings.Contains(projection.Checkpoint.CompletedWork[0], "node=inspect status=completed")
-	if !carried || !strings.Contains(prompt, "review prompt") {
+	// 技能正文以 internal 事件 append-only 落 transcript（engine 发送前快照），
+	// system 本身保持稳定、不含技能正文。
+	if !carried || !trustedSkillInHistory(t, history, "review", "review prompt") {
 		t.Fatalf("continuation history=%#v prompt=%q", history, prompt)
+	}
+	if strings.Contains(prompt, "## Trusted Active Skill") || strings.Contains(prompt, "review prompt") {
+		t.Fatalf("continuation must not embed skill body in system: %q", prompt)
 	}
 }
 

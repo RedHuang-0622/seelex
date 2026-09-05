@@ -22,13 +22,24 @@ import (
 const (
 	TaskContextCheckpointPrefix = "<!-- seelex:context-checkpoint:v1 -->"
 	planContextPrefix           = "<!-- seelex:active-plan:v1 -->"
-	ToolResultOmittedPrefix     = "<seelex-tool-result-omitted>"
+	// ActiveSkillPrefix 标记激活技能正文 internal 事件：作为 append-only user
+	// 轮次进入 transcript（与 task_context.ActiveSkillMarker 同源字符串），
+	// 装配/存档/import 用 IsActiveSkillContent 把它挡在可见会话之外；它不是
+	// 每轮重建的动态尾部消息，保留段照常携带（定稿轮次，字节稳定）。
+	ActiveSkillPrefix       = "<!-- seelex:active-skill:v1 -->"
+	ToolResultOmittedPrefix = "<seelex-tool-result-omitted>"
 	// 恢复/预算终局前缀：与根包 history_safety.go / chat.go 同源协议字符串
 	// （context_runtime 不反向依赖 core 根包，字符串字面量在此保留）。
 	contextRecoveryPrefix         = "<!-- seelex:context-recovery:v1 -->"
 	providerRecoveryPrefix        = "<!-- seelex:provider-recovery:v1 -->"
 	reactBudgetFinalizationPrefix = "<!-- seelex:react-budget-finalize:v1 -->"
 )
+
+// IsActiveSkillContent 判定内容是否为激活技能 internal 事件（Append-only
+// transcript 技能轮次；前端可见性/存档/import 据此跳过）。
+func IsActiveSkillContent(content string) bool {
+	return strings.HasPrefix(content, ActiveSkillPrefix)
+}
 
 // ErrProviderContextBudgetExceeded 标记 provider 上下文超过安全 token 预算。
 var ErrProviderContextBudgetExceeded = errors.New("provider context exceeds the safe token budget")
@@ -233,8 +244,9 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 }
 
 // fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
-// 累积 context（已定稿轮次）→ plan 尾部。contextMaxUnits <= 0 = 全量累积
-// （达峰前 append-only，字节稳定）；>0 = 有界窗口（压缩后新鲜窗口）。
+// 累积 context（已定稿轮次，含 append-only 的激活技能事件）→ plan 尾部。
+// contextMaxUnits <= 0 = 全量累积（达峰前 append-only，字节稳定）；>0 =
+// 有界窗口（压缩后新鲜窗口）。
 func (c *Coordinator) fitExecutionHistory(
 	systemPrompt string,
 	systems []contract.EngineMessage,
@@ -305,7 +317,13 @@ func (c *Coordinator) planContextMessageLocked(sessionID string) string {
 		payload["current_slice"] = currentPlanSlice(frame.Arguments, projection.CurrentNode)
 	}
 	encoded, _ := json.Marshal(payload)
-	return planContextPrefix + "\n" + string(encoded)
+	// plan 执行指令并入尾部（原本在 system 的 Active Plan Execution Policy 段，
+	// 会随 plan 加载/完成改写 system 头部 → 一次前缀悬崖）。尾部消息每轮随节点
+	// 状态重建，本来就在缓存未命中区，指令放这里零额外失效成本。
+	return planContextPrefix + "\n" + string(encoded) + "\n\n## Active Plan Execution Policy\n" +
+		"The Plan is validated and authoritative for this task. Do not silently replace or reorder it. " +
+		"Execute the current node and its declared dependencies in stable order. Use read_plan for omitted node detail. " +
+		"plan_ref=" + projection.CanonicalPlanRef
 }
 
 func currentPlanSlice(arguments, currentNode string) any {
@@ -501,7 +519,8 @@ func RetainedSystemOnly(history []contract.EngineMessage) []contract.EngineMessa
 
 // isDynamicTailMessage 判定消息是否为动态尾部/控制消息（plan 上下文、
 // checkpoint、压缩帧标记、恢复信封、预算终局输入）：这类消息每轮重建或
-// 由恢复路径单独管理，不进入保留的稳定前缀 + 已定稿累积段。
+// 由恢复路径单独管理，不进入保留的稳定前缀 + 已定稿累积段。激活技能事件
+// 不在其列——它是 append-only 的定稿轮次，由保留段照常携带并计数。
 func isDynamicTailMessage(message contract.EngineMessage) bool {
 	if message.Role != "user" {
 		return false

@@ -1,6 +1,8 @@
 package task_context
 
 import (
+	"strings"
+
 	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
@@ -132,6 +134,15 @@ func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.Transcrip
 		event := events[index]
 		switch {
 		case event.Role == "user":
+			if isActiveSkillEvent(event) {
+				// 激活技能正文事件是独立 internal 指令轮次：不要求随附
+				// assistant 回复（transcriptUserUnit 对孤立 user 的丢弃规则
+				// 不适用），单独成单元输出 —— 保证技能正文在 wire 上每轮可见，
+				// 且随定稿轮次稳定缓存。
+				units = append(units, []model.TranscriptEvent{event})
+				index++
+				continue
+			}
 			unit, next, ok := transcriptUserUnit(events, index)
 			if ok {
 				units = append(units, unit)
@@ -153,6 +164,13 @@ func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.Transcrip
 		}
 	}
 	return units
+}
+
+// isActiveSkillEvent 判定事件是否为激活技能正文 internal 轮次（ActiveSkillMarker
+// 开头；与 context_runtime.IsActiveSkillContent 同源字符串判定，task_context
+// 不反向依赖）。
+func isActiveSkillEvent(event model.TranscriptEvent) bool {
+	return event.Role == "user" && strings.HasPrefix(event.Content, ActiveSkillMarker)
 }
 
 func transcriptUserUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool) {

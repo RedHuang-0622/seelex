@@ -7,11 +7,27 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 )
 
+// trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
+// （ActiveSkillMarker 标记、role=user）：技能正文在激活时 append 进 transcript，
+// 装配随定稿轮次出现在引擎历史中（本任务真实轮次之前）——不再进 system。
+func trustedSkillInHistory(t *testing.T, history []EngineMessage, name, text string) bool {
+	t.Helper()
+	for _, message := range history {
+		if message.Role == "user" && strings.HasPrefix(message.Content, context_runtime.ActiveSkillPrefix) {
+			return strings.Contains(message.Content, "## Trusted Active Skill: "+name) && strings.Contains(message.Content, text)
+		}
+	}
+	return false
+}
+
 func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
-	service := newTestService(t, &fakeEngine{})
+	engine := &fakeEngine{}
+	service := newTestService(t, engine)
 	service.ViewMu.Lock()
+	service.Core.Snapshot.Session.ID = engine.SessionID()
 	service.components.tasks.SetPlanStateLocked(nil, "plan-x")
 	service.Core.Snapshot.Runtime.Plan = &PlanState{
 		Status: PlanRunning,
@@ -28,8 +44,24 @@ func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
 	if strings.Contains(first, "current_node=") {
 		t.Fatal("system prompt must not embed current_node")
 	}
-	if !strings.Contains(first, "plan_ref=plan-x") {
-		t.Fatalf("system prompt should keep the stable plan_ref: %q", first)
+	// plan 执行指令与 plan_ref 已移出 system：不再出现随 plan 加载/完成而改写
+	// 头部的动态段（system 成为跨 plan 稳定常量）。
+	if strings.Contains(first, "## Active Plan Execution Policy") || strings.Contains(first, "plan_ref=") {
+		t.Fatalf("plan execution policy must not live in system: %q", first)
+	}
+	// plan 执行指令落在请求尾部 plan 上下文消息：Prepare 后引擎历史末条 user
+	// 消息同时携带策略与 plan_ref（节点状态每轮刷新，天然在未命中后缀区）。
+	if _, err := service.components.context.PrepareExecutionContext("chat-x", "next"); err != nil {
+		t.Fatal(err)
+	}
+	var tail string
+	for _, message := range engine.History() {
+		if message.Role == "user" {
+			tail = message.Content
+		}
+	}
+	if !strings.Contains(tail, "plan_ref=plan-x") || !strings.Contains(tail, "## Active Plan Execution Policy") {
+		t.Fatalf("plan tail message must carry policy + plan_ref: %q", tail)
 	}
 }
 
@@ -117,9 +149,12 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine.mu.Lock()
 	prompt := engine.prompt
 	modelInput := engine.lastInput
+	firstSentHistory := append([]EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
-	if !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") || strings.Contains(prompt, "strict") {
-		t.Fatalf("trusted Skill system prompt = %q", prompt)
+	// system 只含稳定 base + 被动技能目录；激活技能正文已移出 system，
+	// 改为激活时 append-only 落进 transcript（internal user 事件）。
+	if strings.Contains(prompt, "## Trusted Active Skill") || strings.Contains(prompt, "review prompt") {
+		t.Fatalf("skill body must not be embedded in system prompt: %q", prompt)
 	}
 	if !strings.Contains(prompt, "Seelex") {
 		t.Fatalf("prompt missing identity: %q", prompt)
@@ -130,6 +165,9 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if modelInput != "/review strict" {
 		t.Fatalf("slash Skill model input = %q", modelInput)
 	}
+	if !trustedSkillInHistory(t, firstSentHistory, "review", "review prompt") {
+		t.Fatalf("activated skill body must appear in assembled engine history: %#v", firstSentHistory)
+	}
 	if err := service.Submit(context.Background(), "#review focused"); err != nil {
 		t.Fatal(err)
 	}
@@ -137,17 +175,17 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	engine.mu.Lock()
 	prompt = engine.prompt
 	modelInput = engine.lastInput
+	secondSentHistory := append([]EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
-	if modelInput != "#review focused" || !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") {
+	if modelInput != "#review focused" || strings.Contains(prompt, "## Trusted Active Skill") {
 		t.Fatalf("hash Skill input=%q prompt=%q", modelInput, prompt)
 	}
-	// 被动技能目录：随插件装配自动注入（不依赖模型调用 skills_list），
-	// 且必须位于激活技能正文之前（发现 → 生效）。
+	if !trustedSkillInHistory(t, secondSentHistory, "review", "review prompt") {
+		t.Fatalf("hash skill body must appear in assembled engine history: %#v", secondSentHistory)
+	}
+	// 被动技能目录：随插件装配自动注入（不依赖模型调用 skills_list）。
 	if !strings.Contains(prompt, "## Available Skills") || !strings.Contains(prompt, "- review: review code") {
 		t.Fatalf("prompt missing passive skill catalog: %q", prompt)
-	}
-	if catalogAt, trustedAt := strings.Index(prompt, "## Available Skills"), strings.Index(prompt, "## Trusted Active Skill: review"); catalogAt < 0 || trustedAt < 0 || catalogAt > trustedAt {
-		t.Fatalf("catalog must precede trusted skill section: %q", prompt)
 	}
 }
 

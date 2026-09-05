@@ -178,6 +178,9 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	service.components.tasks.CurrentTaskExecution().Checkpoint("inspect", "inspect source", string(NodeCompleted), "found call path", "")
 	service.components.tasks.CurrentTaskExecution().PlanArguments = `{"entry":"inspect","nodes":{"inspect":{"input":"read"}},"edges":{}}`
 	service.components.tasks.ActivateTaskSkillsLocked(service.components.tasks.CurrentTaskExecution(), []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
+	// 技能正文以 internal 事件落 transcript；真实可见轮次跟随其后（transcript
+	// 非空即由事件重建可见对话——技能事件本身被 isInternalContent 过滤）。
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "task-a", Role: "user", Content: "Inspect the repository"})
 	service.ViewMu.Unlock()
 
 	if err := service.components.sessions.PersistCurrentSession(session_runtime.Location{Meta: SessionInfo{ID: "session-a"}}, "session-a"); err != nil {
@@ -203,9 +206,18 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	continuation := restored.components.tasks.CurrentTaskExecution()
 	restoredPrompt := restored.components.prompts.SystemPromptForActiveTaskLocked()
 	restored.ViewMu.RUnlock()
+	skillCarried := continuation != nil && len(continuation.TrustedSkillLayers) == 1 &&
+		strings.Contains(continuation.TrustedSkillLayers[0].Text, "review prompt")
 	if continuation == nil || continuation.Status != task_context.StatusInterrupted || continuation.InheritedCheckpoint == nil ||
-		len(continuation.InheritedCheckpoint.CompletedWork) != 1 || !strings.Contains(restoredPrompt, "review prompt") {
+		len(continuation.InheritedCheckpoint.CompletedWork) != 1 || !skillCarried {
 		t.Fatalf("restored projection = %#v prompt=%q", continuation, restoredPrompt)
+	}
+	// 恢复的任务继续携带技能层（TrustedSkillLayers），但 system 只含稳定
+	// base+目录：技能正文不在 system，也不在持久化 transcript（internal 事件
+	// 落盘前被过滤），恢复时由 ensureActiveSkillEventsLocked 补 append 回内存
+	// transcript，下一次装配即携带。
+	if strings.Contains(restoredPrompt, "## Trusted Active Skill") || strings.Contains(restoredPrompt, "review prompt") {
+		t.Fatalf("restored system must not embed skill body: %q", restoredPrompt)
 	}
 	history := restoredEngine.History()
 	if len(history) != 1 || history[0].Role != "user" || history[0].Content != "Inspect the repository" {

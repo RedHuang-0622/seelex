@@ -75,7 +75,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		},
 		Limits: Limits,
 		IsInternalContent: func(content string) bool {
-			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content)
+			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content) || context_runtime.IsActiveSkillContent(content)
 		},
 		IsOversizedToolResult:      context_runtime.IsOversizedToolResult,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,
@@ -109,7 +109,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return task_context.ContextBudgetFor(runtime).TargetAfterCompaction
 		},
 		IsInternalContent: func(content string) bool {
-			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content)
+			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content) || context_runtime.IsActiveSkillContent(content)
 		},
 		TailHistory:                task_context.TranscriptTailHistory,
 		OversizedToolResultWarning: context_runtime.OversizedToolResultWarning,

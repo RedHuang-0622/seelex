@@ -25,16 +25,21 @@ func TestActivateSkillPushesLayerAndNextSubmissionTrustsIt(t *testing.T) {
 	}
 
 	// 普通提交（不带 #）→ newChatRequest 从 promptStack 收集 skill 层 →
-	// 任务 TrustedSkillLayers → system 注入。
+	// 任务 TrustedSkillLayers → ActivateTaskSkillsLocked 把正文 append-only 落进
+	// transcript（internal user 事件；system 保持稳定、不含技能正文）。
 	if err := service.Submit(context.Background(), "继续审查这段代码"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
 	engine.mu.Lock()
 	prompt := engine.prompt
+	sentHistory := append([]EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
-	if !strings.Contains(prompt, "## Trusted Active Skill: review") || !strings.Contains(prompt, "review prompt") {
-		t.Fatalf("activated skill must be injected on next submission: %q", prompt)
+	if strings.Contains(prompt, "## Trusted Active Skill") || strings.Contains(prompt, "review prompt") {
+		t.Fatalf("activated skill body must not be embedded in system: %q", prompt)
+	}
+	if !trustedSkillInHistory(t, sentHistory, "review", "review prompt") {
+		t.Fatalf("activated skill body must appear in assembled engine history: %#v", sentHistory)
 	}
 }
 

@@ -142,9 +142,12 @@ func TestCoordinatorInjectsPassiveCatalog(t *testing.T) {
 	}
 }
 
-// TestCoordinatorCatalogPrecedesTrustedSkill：激活技能存在时，目录段必须排在
-// Trusted Active Skill 正文之前（发现 → 生效 的语义序）。
-func TestCoordinatorCatalogPrecedesTrustedSkill(t *testing.T) {
+// TestCoordinatorSystemOmitsActiveSkillBody：激活技能存在时，system 也只含
+// 目录段，绝不包含技能正文（Trusted Active Skill 段已移出 system；正文在
+// 激活时作为 internal 事件 append 进 transcript，跟随对话 append-only——
+// 见 task_context.ensureActiveSkillEventsLocked 与 plan_transcript.go；
+// 目录段仍须跟在 base 之后）。
+func TestCoordinatorSystemOmitsActiveSkillBody(t *testing.T) {
 	task := &task_context.TaskExecutionState{
 		RequestID: "req-1",
 		TrustedSkillLayers: []prompt.PromptLayer{
@@ -157,15 +160,17 @@ func TestCoordinatorCatalogPrecedesTrustedSkill(t *testing.T) {
 	promptText := systemPromptFor(t, c)
 	baseAt := strings.Index(promptText, "BASE-INSTRUCTIONS")
 	catalogAt := strings.Index(promptText, "## Available Skills")
-	trustedAt := strings.Index(promptText, "## Trusted Active Skill: review")
-	if baseAt < 0 || catalogAt < 0 || trustedAt < 0 {
+	if baseAt < 0 || catalogAt < 0 {
 		t.Fatalf("missing segments: %q", promptText)
 	}
-	if !(baseAt < catalogAt && catalogAt < trustedAt) {
-		t.Fatalf("order must be base < catalog < trusted skill: %q", promptText)
+	if !(baseAt < catalogAt) {
+		t.Fatalf("order must be base < catalog: %q", promptText)
 	}
-	if !strings.Contains(promptText, "review prompt body") {
-		t.Fatalf("activated skill body must be injected: %q", promptText)
+	if strings.Contains(promptText, "## Trusted Active Skill") {
+		t.Fatalf("activated skill body must NOT be embedded in system: %q", promptText)
+	}
+	if strings.Contains(promptText, "review prompt body") {
+		t.Fatalf("activated skill body must NOT be embedded in system: %q", promptText)
 	}
 }
 

@@ -13,8 +13,10 @@ import (
 //     activePlugin 隔离），技能列表随 switch_plugin 切换；
 //   - 命中后把该技能作为 kind=skill 层压入进程级 promptStack（同名覆盖，
 //     幂等），后续 submitConversation 会经 newChatRequest(promptStack.Layers())
-//     自动带进任务的 TrustedSkillLayers（S2 内容注入），下次装配进
-//     "## Trusted Active Skill:" 段；
+//     自动带进任务的 TrustedSkillLayers（S2 内容注入），ActivateTaskSkillsLocked
+//     把正文作为 internal user 事件 append-only 落进 transcript（## Trusted
+//     Active Skill 段，见 task_context.ensureActiveSkillEventsLocked）——装配随
+//     已定稿轮次携带，不再进 system；
 //   - 工具本轮直接拿到技能正文（main.go 回传给模型），因此模型在同一
 //     ReAct 循环内即可按技能继续执行——即 Codex "激活后按技能继续" 的语义。
 //
