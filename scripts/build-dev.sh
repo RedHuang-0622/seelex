@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Build dev binaries into dist/ after each commit (post-commit hook entry).
-#   - CLI:  dist/seelex-dev.exe            (TUI, DefaultFrontend=tui)
-#   - GUI:  dist/seelex-gui-dev/seelex-gui.exe (desktop, DefaultFrontend=gui)
+# ============================================================================
+# Build dev binaries after each commit (post-commit hook entry).
+# Canonical output partitions (see scripts/build-layout.ps1 /
+# .claude/build-convention.md):
+#   CLI -> dist/dev/seelex.exe                (P4 local quick builds)
+#   GUI -> dist/seelex-gui-dev/seelex-gui.exe (P2 dev GUI baseline)
 # Skip with: SKIP_BUILD=1 (e.g. quick commits) or SKIP_BUILD_GUI=1 (CLI only).
-# Worktree skip: core.hooksPath 跨 worktree 共享，子代理在独立 worktree 里
-# commit 也会触发本钩子；非主 worktree 一律跳过（避免为子代理现场重建
-# 32MB+35MB 二进制拖垮收尾/超时）。
+# Linked worktrees (subagent forks) are skipped: they share core.hooksPath and
+# must not rebuild two 30MB+ binaries on every commit.
+# ============================================================================
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,10 +23,10 @@ if [[ -d .git ]] && command -v git >/dev/null 2>&1; then
   fi
 fi
 
-mkdir -p dist
+mkdir -p dist/dev
 
-echo "[build-dev] CLI -> dist/seelex-dev.exe"
-go build -trimpath -ldflags "-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$VERSION" -o dist/seelex-dev.exe .
+echo "[build-dev] CLI -> dist/dev/seelex.exe"
+go build -trimpath -ldflags "-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$VERSION" -o dist/dev/seelex.exe .
 
 if [[ "${SKIP_BUILD_GUI:-0}" != "1" ]]; then
   echo "[build-dev] GUI -> dist/seelex-gui-dev/seelex-gui.exe"
@@ -33,4 +36,4 @@ if [[ "${SKIP_BUILD_GUI:-0}" != "1" ]]; then
     -o dist/seelex-gui-dev/seelex-gui.exe .
 fi
 
-echo "[build-dev] done: dist/seelex-dev.exe + dist/seelex-gui-dev/seelex-gui.exe"
+echo "[build-dev] done: dist/dev/seelex.exe + dist/seelex-gui-dev/seelex-gui.exe"

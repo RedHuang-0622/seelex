@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
-# Seelex 构建与打包脚本
-# 使用: ./scripts/build.sh [版本号]
+# ============================================================================
+# Seelex cross-platform CLI build and package script (POSIX).
+# Usage: ./scripts/build.sh [version] [--clean-dev]
+# ----------------------------------------------------------------------------
+# Canonical layout (single source of truth: scripts/build-layout.ps1, mirror
+# table in .claude/build-convention.md):
+#   binaries + runtime -> dist/<os>-<arch>/
+#   archives + sha256  -> dist/archive/
+# The dev GUI baseline partition dist/seelex-gui-dev/ (user data) is NEVER
+# cleaned unless --clean-dev is passed explicitly.
+# ============================================================================
 set -euo pipefail
 
 VERSION="${1:-dev}"
+CLEAN_DEV="${2:-}"
 ARCHIVE_VERSION="${VERSION#v}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
+ARCHIVE="$DIST/archive"
 
-# 颜色
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[0;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+# colors
+GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'
+RED='\033[0;31m'; NC='\033[0m'
 
-# ─── 目标平台 ────────────────────────────────────────
 declare -A TARGETS
 TARGETS=(
     ["windows/amd64"]=".exe"
@@ -24,62 +31,70 @@ TARGETS=(
     ["darwin/arm64"]=""
 )
 
-# ─── 清理 ────────────────────────────────────────────
+# ---- clean (derived partitions only; dev GUI baseline preserved) ----------
 if [ -d "$DIST" ]; then
-    echo -e "${YELLOW}[clean] 清理 $DIST${NC}"
-    rm -rf "$DIST"
+    for platform in "${!TARGETS[@]}"; do
+        os="${platform%/*}"; arch="${platform#*/}"
+        rm -rf "$DIST/${os}-${arch}"
+    done
+    rm -rf "$ARCHIVE"
+    if [ -d "$DIST/seelex-gui-dev" ]; then
+        if [ "$CLEAN_DEV" = "--clean-dev" ]; then
+            echo -e "${YELLOW}[clean] removing $DIST/seelex-gui-dev (explicit --clean-dev)${NC}"
+            rm -rf "$DIST/seelex-gui-dev"
+        else
+            echo -e "${YELLOW}[clean] keeping $DIST/seelex-gui-dev (dev GUI baseline contains user data; use --clean-dev to remove)${NC}"
+        fi
+    fi
 fi
 
-echo -e "${CYAN}[build] 版本: $VERSION${NC}"
+echo -e "${CYAN}[build] version: $VERSION${NC}"
 
-# ─── 构建每个目标 ────────────────────────────────────
+# ---- build each platform tree ---------------------------------------------
 for platform in "${!TARGETS[@]}"; do
-    os="${platform%/*}"
-    arch="${platform#*/}"
+    os="${platform%/*}"; arch="${platform#*/}"
     ext="${TARGETS[$platform]}"
-    name="seelex${ext}"
     outdir="$DIST/${os}-${arch}"
-    binpath="$outdir/$name"
+    binpath="$outdir/seelex${ext}"
 
     echo -e "${GREEN}[build] GOOS=$os GOARCH=$arch -> $binpath${NC}"
-
     mkdir -p "$outdir"
 
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
         go build -trimpath -ldflags="-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$VERSION" -o "$binpath" .
 
-    # ─── 复制运行时文件 ───────────────────────────────
-    echo -e "  [copy] 运行时文件 -> $outdir"
+    # runtime files: example config + permission/runtime yaml live under config/
     mkdir -p "$outdir/config"
     cp "$ROOT/config/accounts.example.yaml" "$outdir/config/"
+    cp "$ROOT/config/README.md" "$outdir/config/"
+    cp "$ROOT/config/seele.yaml" "$ROOT/config/seelex.yaml" "$outdir/config/"
     cp -r "$ROOT/plugins" "$outdir/"
-    cp "$ROOT/config/seele.yaml" "$ROOT/config/seelex.yaml" "$outdir/"
     cp "$ROOT/LICENSE" "$ROOT/CHANGELOG.md" "$ROOT/README.md" "$outdir/"
+    [ ! -f "$ROOT/README_EN.md" ] || cp "$ROOT/README_EN.md" "$outdir/"
 
-    size=$(du -h "$binpath" | cut -f1)
-    echo -e "${GREEN}[ok]   $os/$arch 完成 ($size)${NC}"
+    echo -e "${GREEN}[ok]   $os/$arch done${NC}"
 done
 
-# ─── 归档 ────────────────────────────────────────────
+# ---- archive into dist/archive ---------------------------------------------
 echo ""
-echo -e "${CYAN}[pack] 生成 .tar.gz 归档...${NC}"
+echo -e "${CYAN}[pack] generating archives into $ARCHIVE${NC}"
+mkdir -p "$ARCHIVE"
 
 for platform in "${!TARGETS[@]}"; do
-    os="${platform%/*}"
-    arch="${platform#*/}"
+    os="${platform%/*}"; arch="${platform#*/}"
     src="$DIST/${os}-${arch}"
     dirname="seelex-v${ARCHIVE_VERSION}-${os}-${arch}"
-    archive="$DIST/${dirname}.tar.gz"
+    archive="$ARCHIVE/${dirname}.tar.gz"
 
-    echo -e "  [tar] $archive"
-
-    cp -r "$src" "$DIST/$dirname"
-    tar -czf "$archive" -C "$DIST" "$dirname"
-    rm -rf "$DIST/$dirname"
+    echo -e "${YELLOW}[tar] $archive${NC}"
+    cp -r "$src" "$ARCHIVE/$dirname"
+    tar -czf "$archive" -C "$ARCHIVE" "$dirname"
+    rm -rf "$ARCHIVE/$dirname"
+    if command -v sha256sum >/dev/null 2>&1; then
+        (cd "$ARCHIVE" && sha256sum "${dirname}.tar.gz" > "${dirname}.tar.gz.sha256")
+    fi
 done
 
-# ─── 摘要 ────────────────────────────────────────────
-echo ""
-echo -e "${CYAN}=== 打包完成 ===${NC}"
-echo -e "输出目录: $DIST"
-find "$DIST" -type f -exec ls -lh {} \; | awk '{print "  " $NF " (" $5 ")"}'
+echo -e "${CYAN}=== build complete ===${NC}"
+echo "platform trees: $DIST/<os>-<arch>/"
+echo "archives:       $ARCHIVE"

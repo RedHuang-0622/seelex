@@ -10,14 +10,14 @@ LOCAL_CONFIG ?= config/accounts.yaml
 SMOKE_TARGET ?=
 CONFIRMED ?=
 GUI_PACKAGE := seelex-v$(ARCHIVE_VERSION)-windows-amd64-gui
-GUI_PACKAGE_ROOT := $(DIST)/$(GUI_PACKAGE)
-GUI_ARCHIVE := $(GUI_PACKAGE_ROOT).zip
+ARCHIVE_DIR := $(DIST)/archive
+GUI_ARCHIVE := $(ARCHIVE_DIR)/$(GUI_PACKAGE).zip
 GUI_CHECKSUM := $(GUI_ARCHIVE).sha256
 
 # 目标平台: OS/ARCH
 PLATFORMS := windows/amd64 linux/amd64 darwin/amd64 darwin/arm64
 
-.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui publish-build-gui rebuild-gui publish-rebuild-gui stage-gui smoke-gui deploy-gui rollback-gui release-dev dev-flow guard-dist guard-version guard-local-config help
+.PHONY: all release rebuild clean build package clean-gui build-gui dev-build-gui publish-build-gui rebuild-gui publish-rebuild-gui stage-gui smoke-gui deploy-gui rollback-gui release-dev dev-flow guard-dist guard-dist-layout guard-version guard-local-config help
 
 ## all: 安全清理、构建所有平台并打包
 all: release
@@ -48,8 +48,9 @@ build:
 	done
 	@echo "[build] 完成"
 
-## package: 复制运行时文件 + 打包
+## package: 复制运行时文件进平台树, 归档到 dist/archive/, 生成 sha256
 package:
+	@mkdir -p "$(ARCHIVE_DIR)"
 	@for p in $(PLATFORMS); do \
 		os=$$(echo $$p | cut -d/ -f1); \
 		arch=$$(echo $$p | cut -d/ -f2); \
@@ -57,16 +58,20 @@ package:
 		echo "[copy] $$outdir"; \
 		mkdir -p "$$outdir/config"; \
 		cp config/accounts.example.yaml "$$outdir/config/"; \
+		cp config/README.md "$$outdir/config/"; \
 		cp config/seele.yaml config/seelex.yaml "$$outdir/config/"; \
 		cp -r plugins "$$outdir/"; \
 		cp LICENSE CHANGELOG.md README.md "$$outdir/"; \
 		[ ! -f README_EN.md ] || cp README_EN.md "$$outdir/"; \
 		dirname="seelex-v$(ARCHIVE_VERSION)-$$os-$$arch"; \
-		cp -r "$$outdir" "$(DIST)/$$dirname"; \
-		tar -czf "$(DIST)/$$dirname.tar.gz" -C "$(DIST)" "$$dirname"; \
-		rm -rf "$(DIST)/$$dirname"; \
+		cp -r "$$outdir" "$(ARCHIVE_DIR)/$$dirname"; \
+		tar -czf "$(ARCHIVE_DIR)/$$dirname.tar.gz" -C "$(ARCHIVE_DIR)" "$$dirname"; \
+		if command -v sha256sum >/dev/null 2>&1; then \
+			(cd "$(ARCHIVE_DIR)" && sha256sum "$$dirname.tar.gz" > "$$dirname.tar.gz.sha256"); \
+		fi; \
+		rm -rf "$(ARCHIVE_DIR)/$$dirname"; \
 	done
-	@echo "[package] 完成"
+	@echo "[package] 完成: $(ARCHIVE_DIR)"
 
 ## guard-dist: 拒绝对仓库 dist 之外的路径执行 clean
 guard-dist:
@@ -74,6 +79,16 @@ guard-dist:
 		echo "refusing to clean unexpected DIST=$(DIST)"; \
 		exit 1; \
 	}
+
+## guard-dist-layout: dist 根只允许规范分区 (P1 平台树 / P2 seelex-gui-dev / P3 archive / P4 dev)
+guard-dist-layout: guard-dist
+	@for entry in $$(ls -A "$(DIST)" 2>/dev/null || true); do \
+		case "$$entry" in \
+			windows-*|linux-*|darwin-*|seelex-gui-dev|archive|dev|.seelex) ;; \
+			*) echo "unexpected entry under dist/ (layout drift): $$entry"; exit 1 ;; \
+		esac; \
+	done
+	@echo "[guard-dist-layout] ok: dist root is canonical"
 
 ## guard-version: 拒绝可能形成路径逃逸的版本字符串
 guard-version:
@@ -89,15 +104,28 @@ guard-local-config:
 		exit 1; \
 	}
 
-## clean: 安全清理全部构建产物
-clean: guard-dist
-	@echo "[clean] $(abspath $(DIST))"
-	rm -rf -- "$(DIST)"
+## clean: 清理派生产物分区 (P1 平台树 / P3 archive / P4 dev), 默认保留 P2 dev GUI 基线
+clean: guard-dist guard-dist-layout
+	@echo "[clean] $(abspath $(DIST)) partitions (P2 seelex-gui-dev kept unless CLEAN_DEV=1)"
+	@for p in $(PLATFORMS); do \
+		os=$$(echo $$p | cut -d/ -f1); \
+		arch=$$(echo $$p | cut -d/ -f2); \
+		rm -rf -- "$(DIST)/$$os-$$arch"; \
+	done
+	rm -rf -- "$(DIST)/archive" "$(DIST)/dev"
+	@if [ -d "$(DIST)/seelex-gui-dev" ]; then \
+		if [ "$(CLEAN_DEV)" = "1" ]; then \
+			echo "[clean] removing $(DIST)/seelex-gui-dev (explicit CLEAN_DEV=1)"; \
+			rm -rf -- "$(DIST)/seelex-gui-dev"; \
+		else \
+			echo "[clean] keep $(DIST)/seelex-gui-dev (user data; set CLEAN_DEV=1 to remove)"; \
+		fi; \
+	fi
 
-## clean-gui: 只清理当前版本 Windows GUI 产物
+## clean-gui: 只清理当前版本 Windows GUI 发布归档 (dist/archive)
 clean-gui: guard-dist guard-version
-	@echo "[clean-gui] $(GUI_PACKAGE)"
-	rm -rf -- "$(GUI_PACKAGE_ROOT)" "$(GUI_ARCHIVE)" "$(GUI_CHECKSUM)"
+	@echo "[clean-gui] $(GUI_ARCHIVE) $(GUI_CHECKSUM)"
+	rm -rf -- "$(GUI_ARCHIVE)" "$(GUI_CHECKSUM)" "$(ARCHIVE_DIR)/.stage-$(GUI_PACKAGE)"
 
 ## build-gui: dev-build-gui 的兼容别名
 build-gui: dev-build-gui
@@ -120,7 +148,7 @@ rebuild-gui: clean-gui
 publish-rebuild-gui: clean-gui
 	@$(MAKE) publish-build-gui VERSION="$(VERSION)" DIST="$(DIST)" POWERSHELL="$(POWERSHELL)"
 
-## stage-gui: 阶段1 构建新 GUI 二进制到暂存区 tmp/staging-gui（不触碰基线工作区）
+## stage-gui: 阶段1 构建新 GUI 二进制到暂存区 tmp/build/stage-gui（不触碰基线工作区）
 stage-gui: guard-version
 	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
 		-File scripts/seelex-flow.ps1 -Stage Stage -Version "$(VERSION)"

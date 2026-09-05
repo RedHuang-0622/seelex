@@ -123,7 +123,7 @@ jobs:
         run: |
           $auditRoot = Join-Path $env:RUNNER_TEMP "seelex-gui-audit"
           New-Item -ItemType Directory -Force -Path $auditRoot | Out-Null
-          foreach ($archive in Get-ChildItem dist -Filter "*-gui.zip") {
+          foreach ($archive in Get-ChildItem dist/archive -Filter "*-gui.zip") {
             $target = Join-Path $auditRoot $archive.BaseName
             Expand-Archive -LiteralPath $archive.FullName -DestinationPath $target -Force
             $unsafe = Get-ChildItem $target -Recurse -Force | Where-Object {
@@ -141,8 +141,8 @@ jobs:
         with:
           name: gui-windows-amd64
           path: |
-            dist/*-gui.zip
-            dist/*-gui.zip.sha256
+            dist/archive/*-gui.zip
+            dist/archive/*-gui.zip.sha256
           if-no-files-found: error
 
   publish:

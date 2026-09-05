@@ -1,33 +1,38 @@
-﻿# Seelex 分阶段构建 / 部署 / 发布 / 回滚流程
+﻿# ============================================================================
+# Seelex staged build / deploy / release / rollback flow
+# ----------------------------------------------------------------------------
+# Goal: turn "refresh the current dev GUI" and "produce cross-platform release
+# packages" into a gated, rollback-able, verifiable pipeline that never cleans
+# or overwrites dist/ by accident. All artifact paths come from the canonical
+# layout in scripts/build-layout.ps1 (single source of truth). Canonical
+# partitions (see .claude/build-convention.md):
+#   Stage     -> build GUI into staging area       tmp/build/stage-gui/
+#   Smoke     -> headless smoke (version + backend boot); report kept in
+#                tmp/build/smoke/ (timestamped, never overwritten)
+#   Deploy    -> check running seelex processes; after confirmation and exit,
+#                stash the current baseline binary, then overwrite
+#                dist/seelex-gui-dev/seelex-gui.exe (binary only; user data in
+#                config/, .seelex/, plugins/ is never touched)
+#   Rollback  -> restore the previous baseline from stash (same gates)
+#   Release   -> build cross-platform CLI packages + Windows GUI package
+#                (Publish, example config only - never accounts.yaml /
+#                *.local.yaml); does not clear dist, baseline untouched.
+#                CLI trees -> dist/<os>-<arch>/, archives -> dist/archive/
+#   All       -> Stage -> Smoke -> Deploy -> Smoke -> Release, each step gated;
+#                the first smoke report stays in tmp/build/smoke/ as a recovery
+#                reference
 #
-# 目标: 让「更新当前可用的 dev GUI」与「产出跨平台发布包」变成
-#       有门禁、可回滚、可验证的流程, 不再直接清理/覆盖 dist。
-#
-# 阶段划分:
-#   Stage     把新 GUI 二进制构建到暂存区 tmp/staging-gui/ (不触碰基线工作区)
-#   Smoke     对指定二进制做无头冒烟测试 (version + backend 启动链路),
-#             报告写入 tmp/smoke/ 并保留 (每个时间戳独立文件, 不覆盖)
-#   Deploy    检测运行中的 seelex 进程; 进程不存在或用户确认且进程退出后,
-#             先把基线二进制存入 stash, 再覆盖基线工作区
-#             dist/seelex-gui-dev/seelex-gui.exe (只替换二进制,
-#             config/ 与 .seelex/ 等用户数据一律不动)
-#   Rollback  从 stash 恢复「上一个可用版本」回基线工作区 (同样有门禁)
-#   Release   构建各平台 CLI 发布包 + Windows GUI 发布包 (Publish),
-#             携带版本 tag, 配置仅含 example (绝不含 accounts.yaml / *.local.yaml),
-#             不清空 dist, 基线工作区不受影响
-#   All       按 Stage -> Smoke -> Deploy -> Smoke -> Release 顺序执行
-#             每阶段均有确认门禁; 首个冒烟报告保留在 tmp/smoke/ 供恢复参照
-#
-# 用法:
+# Usage:
 #   .\scripts\seelex-flow.ps1 -Stage Stage [-Version "v0.0.2"]
-#   .\scripts\seelex-flow.ps1 -Stage Smoke [-SmokeTarget <路径>] [-Version "v0.0.2"]
+#   .\scripts\seelex-flow.ps1 -Stage Smoke [-SmokeTarget <path>] [-Version "v0.0.2"]
 #   .\scripts\seelex-flow.ps1 -Stage Deploy [-Version "v0.0.2"] [-Yes]
 #   .\scripts\seelex-flow.ps1 -Stage Rollback [-Version "v0.0.2"] [-Yes]
 #   .\scripts\seelex-flow.ps1 -Stage Release -Version "v0.0.2" [-Yes]
 #   .\scripts\seelex-flow.ps1 -Stage All -Version "v0.0.2" [-Yes]
 #
-# -Yes 表示操作者已在对话中明确确认过, 跳过交互式确认门禁
-#      (供 Agent / 自动化使用; 交互式使用不传该参数)。
+# -Yes means the operator already confirmed in a conversation; it skips the
+# interactive confirmation gates (for Agent / automation use).
+# ============================================================================
 param(
     [ValidateSet("Stage", "Smoke", "Deploy", "Rollback", "Release", "All")]
     [string]$Stage = "All",
@@ -39,17 +44,20 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 
-# ---------- 目录与文件常量 ----------
-$DistRoot      = Join-Path $Root "dist"
-$BaselineDir   = Join-Path $DistRoot "seelex-gui-dev"
-$BaselineExe   = Join-Path $BaselineDir "seelex-gui.exe"
-$StagingRoot   = Join-Path $Root "tmp\staging-gui"
-$StagedExe     = Join-Path $StagingRoot "seelex-gui.exe"
-$VersionFile   = Join-Path $StagingRoot "version.txt"
-$StashRoot     = Join-Path $Root "tmp\stash\seelex-gui-dev"
-$StashPrevious = Join-Path $StashRoot "seelex-gui.previous.exe"
-$SmokeDir      = Join-Path $Root "tmp\smoke"
-$DeployLog     = Join-Path $Root "tmp\deploy.log"
+# ---------- 目录与文件常量 (单一真源: scripts/build-layout.ps1) ----------
+. (Join-Path $PSScriptRoot "build-layout.ps1")
+$Layout        = Get-SeelexLayout
+$DistRoot      = $Layout.DistRoot
+$ArchiveRoot   = $Layout.ArchiveRoot
+$BaselineDir   = $Layout.DevBaselineDir
+$BaselineExe   = $Layout.DevBaselineExe
+$StagingRoot   = $Layout.StageDir
+$StagedExe     = $Layout.StageExe
+$VersionFile   = $Layout.StageVersionFile
+$StashRoot     = $Layout.StashDir
+$StashPrevious = $Layout.StashPrevious
+$SmokeDir      = $Layout.SmokeDir
+$DeployLog     = $Layout.DeployLog
 
 $VersionPkg    = "github.com/RedHuang-0622/seelex/internal/buildinfo"
 $Targets = @(
@@ -368,9 +376,14 @@ function Invoke-Release {
     Write-Host "[build] Windows GUI 发布包 (Publish, 仅 example 配置)" -ForegroundColor Green
     & (Join-Path $PSScriptRoot "build-gui.ps1") -Version $Version -BuildKind Publish
     if ($LASTEXITCODE -ne 0) { throw "GUI 发布包构建失败" }
-    $guiRoot = Join-Path $DistRoot "seelex-v$archiveVersion-windows-amd64-gui"
-    if (Test-Path -LiteralPath $guiRoot -PathType Container) {
-        Assert-PublishClean $guiRoot
+    # GUI publish package is written into the canonical archive partition by
+    # build-gui.ps1; only zip + sha256 remain there (staging dir is removed).
+    $guiArchive = Join-Path $ArchiveRoot "seelex-v$archiveVersion-windows-amd64-gui.zip"
+    if (-not (Test-Path -LiteralPath $guiArchive -PathType Leaf)) {
+        throw "GUI 发布归档缺失: $guiArchive"
+    }
+    if (-not (Test-Path -LiteralPath "$guiArchive.sha256" -PathType Leaf)) {
+        throw "GUI 发布校验和缺失: $guiArchive.sha256"
     }
 
     Write-Host "[archive] 生成归档与校验和" -ForegroundColor Cyan
@@ -378,7 +391,7 @@ function Invoke-Release {
         $os = $t.OS; $arch = $t.Arch
         $srcDir = Join-Path $DistRoot "$os-$arch"
         $dirName = "seelex-v$archiveVersion-$os-$arch"
-        $stagingDir = Join-Path $DistRoot $dirName
+        $stagingDir = Join-Path $ArchiveRoot $dirName
         if (Test-Path -LiteralPath $stagingDir) { Remove-Item -Recurse -Force -LiteralPath $stagingDir }
         Copy-Item -Recurse -LiteralPath $srcDir -Destination $stagingDir
         if ($t.Archive -eq "zip") {
@@ -386,16 +399,16 @@ function Invoke-Release {
             if (Test-Path -LiteralPath $archive) { Remove-Item -Force -LiteralPath $archive }
             Compress-Archive -Path $stagingDir -DestinationPath $archive -Force
         } else {
-            $archive = Join-Path $DistRoot "$dirName.tar.gz"
+            $archive = Join-Path $ArchiveRoot "$dirName.tar.gz"
             if (Test-Path -LiteralPath $archive) { Remove-Item -Force -LiteralPath $archive }
-            & tar -czf $archive -C $DistRoot $dirName
+            & tar -czf $archive -C $ArchiveRoot $dirName
             if ($LASTEXITCODE -ne 0) { throw "tar 归档失败: $archive" }
         }
         Remove-Item -Recurse -Force -LiteralPath $stagingDir
         Write-Checksum $archive
         Write-Host "[archive] $archive" -ForegroundColor Green
     }
-    Write-Host "[release] 完成: 发布产物位于 $DistRoot, 版本 $Version (配置仅 example)" -ForegroundColor Green
+    Write-Host "[release] 完成: 平台树位于 $DistRoot, 归档位于 $ArchiveRoot, 版本 $Version (配置仅 example)" -ForegroundColor Green
 }
 
 # ---------- All 流程 ----------

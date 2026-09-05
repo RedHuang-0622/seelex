@@ -1,33 +1,67 @@
-# Seelex 构建与打包脚本 (PowerShell)
-# 使用: .\scripts\build.ps1 [-Version "1.0.0"] [-SkipClean]
+# ============================================================================
+# Seelex cross-platform CLI build and package script (PowerShell).
+# Usage: .\scripts\build.ps1 [-Version "1.0.0"] [-SkipClean] [-CleanDev]
+# ----------------------------------------------------------------------------
+# Canonical layout (single source of truth: scripts/build-layout.ps1, mirror
+# table in .claude/build-convention.md):
+#   binaries + runtime -> dist/<os>-<arch>/
+#   archives + sha256  -> dist/archive/
+# The dev GUI baseline partition dist/seelex-gui-dev/ (user data) is NEVER
+# cleaned unless -CleanDev is passed explicitly.
+# ============================================================================
 param(
     [string]$Version = "dev",
-    [switch]$SkipClean
+    [switch]$SkipClean,
+    [switch]$CleanDev
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
+
+. (Join-Path $PSScriptRoot "build-layout.ps1")
+$Layout = Get-SeelexLayout
+$DistRoot      = $Layout.DistRoot
+$ArchiveRoot   = $Layout.ArchiveRoot
+$DevBaselineDir = $Layout.DevBaselineDir
+Assert-DistRootCleanLayout -DistRoot $DistRoot
+
 $ArchiveVersion = $Version.TrimStart("v")
 
-# ─── 目标平台 ────────────────────────────────────────
+# ---- targets --------------------------------------------------------------
 $Targets = @(
-    @{ OS = "windows"; Arch = "amd64";   Ext = ".exe" }
-    @{ OS = "linux";   Arch = "amd64";   Ext = ""     }
-    @{ OS = "darwin";  Arch = "amd64";   Ext = ""     }
-    @{ OS = "darwin";  Arch = "arm64";   Ext = ""     }
+    @{ OS = "windows"; Arch = "amd64"; Ext = ".exe"; Archive = "zip" },
+    @{ OS = "linux";   Arch = "amd64"; Ext = "";     Archive = "tar.gz" },
+    @{ OS = "darwin";  Arch = "amd64"; Ext = "";     Archive = "tar.gz" },
+    @{ OS = "darwin";  Arch = "arm64"; Ext = "";     Archive = "tar.gz" }
 )
 
-# ─── 输出根目录 ──────────────────────────────────────
-$DistRoot = Join-Path $Root "dist"
-
-if (-not $SkipClean -and (Test-Path $DistRoot)) {
-    Write-Host "[clean] 清理 $DistRoot" -ForegroundColor Yellow
-    Remove-Item -Recurse -Force $DistRoot
+# ---- clean (derived partitions only; P2 dev baseline preserved) ------------
+if (-not $SkipClean) {
+    foreach ($t in $Targets) {
+        $outDir = Join-Path $DistRoot "$($t.OS)-$($t.Arch)"
+        if (Test-Path -LiteralPath $outDir) {
+            Write-Host "[clean] $outDir" -ForegroundColor Yellow
+            Remove-Item -Recurse -Force -LiteralPath $outDir
+        }
+    }
+    if (Test-Path -LiteralPath $ArchiveRoot) {
+        Write-Host "[clean] $ArchiveRoot" -ForegroundColor Yellow
+        Remove-Item -Recurse -Force -LiteralPath $ArchiveRoot
+    }
+    if (Test-Path -LiteralPath $DevBaselineDir) {
+        if ($CleanDev) {
+            Write-Host "[clean] $DevBaselineDir (explicit -CleanDev)" -ForegroundColor Yellow
+            Remove-Item -Recurse -Force -LiteralPath $DevBaselineDir
+        }
+        else {
+            Write-Host "[clean] keep $DevBaselineDir (dev GUI baseline contains user data; pass -CleanDev to remove)" -ForegroundColor DarkGray
+        }
+    }
 }
 
-Write-Host "[build] 版本: $Version" -ForegroundColor Cyan
+Write-Host "[build] version: $Version" -ForegroundColor Cyan
 
-# ─── 构建每个目标 ────────────────────────────────────
+# ---- build each platform tree ---------------------------------------------
 foreach ($t in $Targets) {
     $os = $t.OS
     $arch = $t.Arch
@@ -36,7 +70,6 @@ foreach ($t in $Targets) {
     $binPath = Join-Path $outDir $name
 
     Write-Host "[build] GOOS=$os GOARCH=$arch -> $binPath" -ForegroundColor Green
-
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
     $env:GOOS = $os
@@ -44,85 +77,66 @@ foreach ($t in $Targets) {
     $env:CGO_ENABLED = "0"
 
     go build -trimpath -ldflags "-s -w -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=$Version" -o $binPath .
-
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[error] 构建 $os/$arch 失败" -ForegroundColor Red
+        Write-Host "[error] build failed for $os/$arch" -ForegroundColor Red
         exit $LASTEXITCODE
     }
 
-    # ─── 复制运行时文件 ───────────────────────────────
-    Write-Host "[copy]  运行时文件 -> $outDir" -ForegroundColor DarkGray
-
-    # config/ — only publish the tracked example, never local account files.
+    # runtime files: example config + permission/runtime yaml live under config/
     $configOut = Join-Path $outDir "config"
     New-Item -ItemType Directory -Force -Path $configOut | Out-Null
     Copy-Item (Join-Path $Root "config/accounts.example.yaml") $configOut -Force
-
-    # plugins/
+    Copy-Item (Join-Path $Root "config/README.md") $configOut -Force
+    Copy-Item (Join-Path $Root "config/seele.yaml") $configOut -Force
+    Copy-Item (Join-Path $Root "config/seelex.yaml") $configOut -Force
     Copy-Item -Recurse (Join-Path $Root "plugins") $outDir -Force
-
-    # seele.yaml（权限）+ seelex.yaml（运行参数）
-    Copy-Item (Join-Path $Root "config/seele.yaml") $outDir -Force
-    Copy-Item (Join-Path $Root "config/seelex.yaml") $outDir -Force
     Copy-Item (Join-Path $Root "LICENSE") $outDir -Force
     Copy-Item (Join-Path $Root "CHANGELOG.md") $outDir -Force
     Copy-Item (Join-Path $Root "README.md") $outDir -Force
+    if (Test-Path -LiteralPath (Join-Path $Root "README_EN.md") -PathType Leaf) {
+        Copy-Item (Join-Path $Root "README_EN.md") $outDir -Force
+    }
 
-    Write-Host "[ok]   $os/$arch 完成 ($( "{0:N0}" -f (Get-Item $binPath).Length) bytes)" -ForegroundColor Green
+    Write-Host "[ok]   $os/$arch done ($("{0:N0}" -f (Get-Item $binPath).Length) bytes)" -ForegroundColor Green
 }
 
-# ─── 归档（可选） ────────────────────────────────────
+# ---- archive into dist/archive --------------------------------------------
 Write-Host ""
-Write-Host "[pack] 生成归档..." -ForegroundColor Cyan
+Write-Host "[pack] generating archives into $ArchiveRoot" -ForegroundColor Cyan
+New-Item -ItemType Directory -Force -Path $ArchiveRoot | Out-Null
 
 foreach ($t in $Targets) {
     $os = $t.OS
     $arch = $t.Arch
     $dirName = "seelex-v$ArchiveVersion-$os-$arch"
     $srcDir = Join-Path $DistRoot "$os-$arch"
-    $archive = Join-Path $DistRoot "$dirName.zip"
+    $stagingDir = Join-Path $ArchiveRoot $dirName
+    if (Test-Path -LiteralPath $stagingDir) {
+        Remove-Item -Recurse -Force -LiteralPath $stagingDir
+    }
+    Copy-Item -Recurse $srcDir $stagingDir
 
-    Write-Host "[zip]  $archive" -ForegroundColor DarkGray
+    if ($t.Archive -eq "zip") {
+        $archive = "$stagingDir.zip"
+        Compress-Archive -Path $stagingDir -DestinationPath $archive -Force
+    }
+    else {
+        $archive = Join-Path $ArchiveRoot "$dirName.tar.gz"
+        & tar -czf $archive -C $ArchiveRoot $dirName
+        if ($LASTEXITCODE -ne 0) { throw "tar archive failed: $archive" }
+    }
+    Remove-Item -Recurse -Force -LiteralPath $stagingDir
 
-    # 在 dist 内创建临时目录以控制压缩包内路径
-    $tmpDir = Join-Path $DistRoot $dirName
-    if (Test-Path $tmpDir) { Remove-Item -Recurse -Force $tmpDir }
-    Copy-Item -Recurse $srcDir $tmpDir
-
-    Compress-Archive -Path $tmpDir -DestinationPath $archive -Force
-    Remove-Item -Recurse -Force $tmpDir
+    $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $([System.IO.Path]::GetFileName($archive))" | Set-Content "$archive.sha256"
+    Write-Host "[pack] $archive" -ForegroundColor DarkGray
 }
 
-# ─── 摘要 ────────────────────────────────────────────
+# ---- summary ---------------------------------------------------------------
 Write-Host ""
-Write-Host "=== 打包完成 ===" -ForegroundColor Cyan
-Write-Host "输出目录: $DistRoot" -ForegroundColor White
-
-Get-ChildItem $DistRoot -Recurse -File | ForEach-Object {
-    $rel = $_.FullName.Replace("$DistRoot\", "")
-    Write-Host "  $rel  ($( "{0:N0}" -f $_.Length) bytes)"
+Write-Host "=== build complete ===" -ForegroundColor Cyan
+Write-Host "platform trees: $DistRoot/<os>-<arch>/"
+Write-Host "archives:       $ArchiveRoot"
+Get-ChildItem $ArchiveRoot -File -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "  $($_.Name)  ($("{0:N0}" -f $_.Length) bytes)"
 }
-
-Write-Host ""
-Write-Host "目录结构:" -ForegroundColor White
-Write-Host "  dist/"
-Write-Host "    windows-amd64/"
-Write-Host "      seelex.exe"
-Write-Host "      config/"
-Write-Host "      plugins/"
-Write-Host "      seele.yaml"
-Write-Host "    linux-amd64/"
-Write-Host "      seelex"
-Write-Host "      config/"
-Write-Host "      plugins/"
-Write-Host "      seele.yaml"
-Write-Host "    darwin-amd64/"
-Write-Host "      seelex"
-Write-Host "      config/"
-Write-Host "      plugins/"
-Write-Host "      seele.yaml"
-Write-Host "    darwin-arm64/"
-Write-Host "      seelex"
-Write-Host "      config/"
-Write-Host "      plugins/"
-Write-Host "      seele.yaml"
