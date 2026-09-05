@@ -105,7 +105,18 @@ if (elements["live-diag-host"]) {
 window.__seelexLiveDiag = liveDiag;
 const client = createGUIClient({
   loadSnapshot: () => invoke("Snapshot"),
-  onSnapshot: (snapshot, options) => render(snapshot, options),
+  onSnapshot: (snapshot, options) => {
+    // 视图会话切换 = Bridge 重建订阅：宿主侧 ack 游标随新订阅从 0 重计，
+    // 渲染层的待发回执水位也必须跟着复位，否则旧会话的高水位会把新订阅的
+    // 回执吞掉（seq <= ackPendingSeq 直接 return），Bridge 误判渲染层落后并
+    // 反复重推同一批事件。
+    const sessionID = snapshot?.session?.id;
+    if (sessionID !== lastViewSessionID) {
+      lastViewSessionID = sessionID;
+      resetAckWatermark();
+    }
+    render(snapshot, options);
+  },
   onIncremental: renderIncremental,
   // 缺口增量补取：宿主从重放窗口按 delivery_seq 补事件，补不齐才重拉快照。
   replay: sinceSeq => invoke("ReplayEvents", sinceSeq),
@@ -122,6 +133,15 @@ const bindRuntimeEvents = createRuntimeEventBinder({ client, onError: showToast 
 // 失败静默忽略——回执是尽力而为的确认，不是业务命令。
 let ackTimer = null;
 let ackPendingSeq = 0;
+let lastViewSessionID = null;
+
+function resetAckWatermark() {
+  if (ackTimer !== null) {
+    window.clearTimeout(ackTimer);
+    ackTimer = null;
+  }
+  ackPendingSeq = 0;
+}
 
 function reportAppliedEvents(seq) {
   if (!seq || seq <= ackPendingSeq) return;

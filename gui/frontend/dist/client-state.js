@@ -81,9 +81,17 @@ export function createGUIClient(options) {
   function acceptSnapshot(value, scrollMode = "bottom") {
     const candidate = validateSnapshot(value);
     if (snapshot && Number(candidate.revision) < Number(snapshot.revision || 0)) return false;
+    const previousSessionID = snapshot?.session?.id;
     rememberProcessContext(candidate);
     snapshot = mergeProcessContext(candidate);
     snapshotRevisionFloor = Number(candidate.revision || 0);
+    // Bridge 在视图会话切换时重建订阅：新订阅的 delivery_seq 从 1 重新计，
+    // 权威基线（seelex:ready / ResumeSession 后的 refresh）到达时必须一并复位
+    // 已应用水位。否则新订阅 seq<=旧水位的首段事件会被当成“重复”静默丢弃，
+    // 内容停在基线，直到下一次用户交互触发的整份 refresh（G2 重订阅回归）。
+    if (previousSessionID !== candidate.session?.id) {
+      lastEventSeq = 0;
+    }
     options.onSnapshot(snapshot, { scrollMode });
     return true;
   }

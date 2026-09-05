@@ -85,6 +85,12 @@ Full Access 按钮不维护本地布尔状态：显示与下一次 toggle 都读
 `eventResendMaxTries` 次，超出窗口则投递带水位的 `resync.required`）。原
 `active-chat-sync.js` 已删除。
 
+视图会话切换（ResumeSession/ActivateSession/新建/分支）会使 Bridge 重建订阅：
+新订阅的 `delivery_seq` 从 1 重新计，因此权威基线（`seelex:ready` 或切换后的
+refresh）到达时，`client-state` 会按 `session.id` 变化复位已应用水位，`app.js`
+同步复位待发回执游标——否则新订阅 seq<=旧水位的首段事件会被当作重复静默丢弃，
+会话正文停在基线，只有下一次用户交互触发的整份 refresh 才看得到新内容。
+
 右侧工作台由「工作表格」入口按钮统一接管：数据源 `snapshot.runtime.work_table`
 + `snapshot.runtime.work_table_batches`（权威投影）与
 `worktable.changed`/`task.changed` 增量（`worktable.changed` 附加 `batches`
@@ -221,6 +227,9 @@ go test ./gui -count=1
 ```
 
 `runtime-events.test.mjs` 验证 Wails runtime 延迟就绪时不会漏绑或重复绑定。`event-chain.test.mjs` mock Wails `seelex:event` 并验证主代理/子代理工具完成状态和权威 `runtime.full_access` 通过 `createGUIClient`/`protocol.js` 后可见，且连续事件不会退化为 Snapshot reload；主代理工具卡明确断言完成后不再显示 `Waiting for output…`。
+`multi-session-switch-freshness.test.mjs` 复现「多会话 + 单会话进行」的正文冻结：
+切到另一会话后新订阅 `delivery_seq=1..N` 的流式增量必须落地并回报宿主，不得被
+旧会话水位吞掉或退化为整份刷新。
 `work-table.test.mjs` 覆盖工作表格归一化、多维表格渲染（含转义）、todo 三态
 控件与打点表；`protocol.test.mjs` 断言 `worktable.changed` 只替换
 `runtime.work_table`（plan 对象引用不变）且子代理事件复用未命中分支节点
