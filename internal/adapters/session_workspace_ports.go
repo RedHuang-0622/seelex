@@ -584,6 +584,11 @@ func adaptGranularInfos(sessions []sessionstore.SessionInfo) []model.SessionInfo
 			ID:     item.ID,
 			Name:   item.Title,
 			Status: model.SessionStatus(item.Status),
+			// 时间线字段随枚举摘要透传：目录行日期/token 必须来自 manifest
+			// 真实值，不能在此置零（否则快照里 updated_at 恒为
+			// 0001-01-01T00:00:00Z，侧栏日期退化成占位符）。
+			UpdatedAt:  item.UpdatedAt,
+			TokenCount: item.TokenCount,
 		})
 	}
 	return result

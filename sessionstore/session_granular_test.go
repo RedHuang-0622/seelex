@@ -311,6 +311,56 @@ func TestSessionsOfDefaultProjectIndependentOfActiveScope(t *testing.T) {
 	}
 }
 
+// TestSessionsOfCarriesManifestTimeline（左侧栏日期占位回归）：目录枚举
+// 摘要必须携带 manifest 的真实 updated_at / token_count——9.3.2 粒度迁移把
+// 时间线字段丢弃成零值后，快照里 updated_at 恒为 0001-01-01T00:00:00Z，
+// 前端每条会话都渲染成同一个占位日期。
+func TestSessionsOfCarriesManifestTimeline(t *testing.T) {
+	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+		t.Run(string(backend), func(t *testing.T) {
+			router := newSessionGranularRouter(t, backend)
+			store := NewSessionGranularStore(router)
+			const projectID = "project-timeline"
+			const sessionID = "sess-timeline"
+			router.SetWorkspace(projectID)
+
+			// 提交一次带 token 计数的事件快照：manifest 的 updated_at 与
+			// token_count 同步刷新为真实值。
+			if err := router.SaveCommitWorkspace(projectID, sessionID, Commit{
+				Events: []Event{
+					{Seq: 1, Role: "user", Content: "hello", TokenCount: 3, CreatedAt: time.Now()},
+					{Seq: 2, Role: "assistant", Content: "world", TokenCount: 7, CreatedAt: time.Now()},
+				},
+			}); err != nil {
+				t.Fatalf("save commit: %v", err)
+			}
+
+			metas := router.ListWorkspace(projectID)
+			if len(metas) != 1 {
+				t.Fatalf("manifest metas = %+v, want 1", metas)
+			}
+			if metas[0].UpdatedAt.IsZero() {
+				t.Fatalf("manifest updated_at is zero: %+v", metas[0])
+			}
+
+			infos, err := store.SessionsOf(projectID)
+			if err != nil || len(infos) != 1 || infos[0].ID != sessionID {
+				t.Fatalf("SessionsOf = %+v err=%v", infos, err)
+			}
+			info := infos[0]
+			if info.UpdatedAt.IsZero() {
+				t.Fatalf("catalog row updated_at = zero（占位日期回归）: %+v", info)
+			}
+			if !info.UpdatedAt.Equal(metas[0].UpdatedAt) {
+				t.Fatalf("updated_at = %v, want manifest %v", info.UpdatedAt, metas[0].UpdatedAt)
+			}
+			if info.TokenCount != metas[0].TokenCount {
+				t.Fatalf("token_count = %d, want manifest %d", info.TokenCount, metas[0].TokenCount)
+			}
+		})
+	}
+}
+
 // TestResolveProjectForSessionUsesWorkspaceResolver（删除/读历史归属回归）：
 // 会话绑定解析优先 resolver（workspace.Repo 绑定），不因活跃作用域变化
 // 删错/读错项目。

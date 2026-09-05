@@ -86,6 +86,12 @@ type SessionInfo struct {
 	Kind     Kind   `json:"kind"`
 	Status   Status `json:"status"`
 	ParentID string `json:"parent_id,omitempty"`
+	// UpdatedAt / TokenCount 取自会话 manifest（每次提交即刷新的权威时间与
+	// 计费面）。目录枚举摘要必须携带它们——侧栏/目录行据此渲染真实日期与
+	// token 数；一旦在此丢弃成零值，前端会把 0001-01-01T00:00:00Z 当占位
+	// 日期显示在每条会话上（9.3.2 粒度迁移回归）。
+	UpdatedAt  time.Time `json:"updated_at,omitempty"`
+	TokenCount int       `json:"token_count,omitempty"`
 }
 
 // SessionGranularStore 是会话粒度存储实现（消费端口定义在
@@ -508,10 +514,12 @@ func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, 
 		// 保证标题补全不随视图切换读错项目。
 		record, ok := store.loadSessionLiteral(projectID, meta.SessionID)
 		info := SessionInfo{
-			ID:     meta.SessionID,
-			Title:  meta.Summary,
-			Kind:   KindMain,
-			Status: StatusIdle,
+			ID:         meta.SessionID,
+			Title:      meta.Summary,
+			Kind:       KindMain,
+			Status:     StatusIdle,
+			UpdatedAt:  meta.UpdatedAt,
+			TokenCount: meta.TokenCount,
 		}
 		if ok {
 			info.Kind = record.Kind
@@ -519,6 +527,11 @@ func (store *SessionGranularStore) SessionsOf(projectID string) ([]SessionInfo, 
 			info.ParentID = record.ParentID
 			if record.Title != "" {
 				info.Title = record.Title
+			}
+			// manifest 时间缺失（异常/旧数据）时回退到 record 自带更新时间，
+			// 保证目录行绝不带零值占位日期。
+			if info.UpdatedAt.IsZero() && !record.UpdatedAt.IsZero() {
+				info.UpdatedAt = record.UpdatedAt
 			}
 		}
 		infos = append(infos, info)
