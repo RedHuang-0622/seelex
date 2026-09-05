@@ -1970,6 +1970,7 @@ function openFilePreview(entry) {
   if (!entry || !entry.path) return;
   const snapshot = client.current();
   previewRoot = snapshot?.current_workspace?.root_path || previewRoot;
+  previewPaneOpen = true; // open must flip the state flag, otherwise closeFilePreview guard always returns and the X button never closes
   const pane = elements["file-preview-pane"];
   if (pane) {
     pane.classList.remove("is-closed");
@@ -1985,9 +1986,9 @@ function openFilePreview(entry) {
 }
 
 function closeFilePreview() {
-  if (!previewPaneOpen) return;
-  previewPaneOpen = false;
   const pane = elements["file-preview-pane"];
+  if (!previewPaneOpen && (!pane || pane.classList.contains("is-closed"))) return;
+  previewPaneOpen = false;
   if (pane) {
     pane.classList.add("is-closed");
     syncPreviewLayout(false);
