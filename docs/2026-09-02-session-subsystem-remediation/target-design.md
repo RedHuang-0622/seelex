@@ -12,18 +12,18 @@
 
 ## 1. 矛盾消解记录
 
-| # | 矛盾 | 消解方式 | 现状证据 |
-|---|---|---|---|
-| M1 | 「视图跟随」被我在 C4 搬进事件面：订阅传空 sid 跟随视图指针，replay 环因而跨会话 | 订阅键改为 `(通道, sid)`；切换会话＝重建订阅 + 重发基线；前端补 `event.session_id === snapshot.session.id` 硬校验 | `gui/bridge.go:259-271`、`application/core/session_scope.go:216-225`、`gui/frontend/dist/protocol.js`（全文无 `session_id`） |
-| M2 | 空 sid 既是"进程级事件"又是"未知会话"，投递侧当通配放行 | 定义两类通道并按 kind 白名单：会话类 kind 的 sid 必填，hub 对「会话类 kind + 空 sid」拒绝发布并记诊断；进程类 kind 的 sid 必空 | `service_interaction.go:80/93/115/148` 全部以空 sid 发布含会话字段的载荷 |
-| M3 | 快照既是前端基线又是"进程内哪个会话"的神谕，与"指针只是展示"的 A/D 阶段结论相抵 | 神谕废除：按会话路由的写只允许三个 sid 来源（显式参数 / ctx 注入 / 事件负载）；`Core.Snapshot.Session.ID` 只允许视图四件套读写 | `main.go:251/267`、`application/core/compressed_turn.go:44-60`、`session_scope.go:153` |
-| M4 | `SnapshotOf` 声称 per-session，实际 clone 视图的 Runtime —— 把"Runtime 只有一格"固化成 API | 先补数据面（每会话 Runtime 槽 + 每会话 revision），再让 `SnapshotOf` 从该槽取；投影全量改 For 端口 | `session_scope.go:191`、`view_state/coordinator.go:96-146` |
-| M5 | seelebridge 明文假设"application 保证同一时刻只有一个运行中会话"，与并行多 main agent 目标相抵 | 撤销该前置假设：额度按 sid 建槽；`activeSessionID` 降级为无 sid legacy 端口的兜底路由，且断不得成为事实源 | `seelebridge/runtime.go:68-76`、`plan/executor.go:74-83`、`internal/telemetry/session.go:14-19` |
-| M6 | effort/plugin 修改会打到正在运行的会话（含其 system 原件与历史），与"运行中不支持更改"相抵 | 目标会话 running 时拒绝改 effort；plugin 激活/停用是进程级动作，任一会话 running 即拒绝并回滚 | `service_interaction.go:98-149`（`Engine.SetSystemPrompt`/`ClearHistory`/`promptStack.Reset` 均无守卫） |
-| M7 | 关闭判定与超时取消都只看视图会话，后台运行中的会话会被直接杀死 | 判定改"任一会话非 idle"；超时取消全部 running sid；关闭前逐会话 flush（composer/Runtime 槽/View） | `gui/shutdown.go:49,67`、`service_input.go:180-192` |
-| M8 | 我以为 tokens/replan/子代理树"卡上游 Seele"，实际基础设施已在 seelebridge 内建好但没接线 | 归入本仓库改动：在 seelebridge 会话入口注入 ctx（一处），此后 `SessionTracer.QueryBySession` 可按 sid 取 | `runtime.go:395-400` 已挂 `SessionTagHook`；`internal/telemetry.WithSessionID` 生产侧零调用；`engine_port.go:688-700` 退化成进程求和 |
-| M9 | 我上一轮把"per-session 存储策略"当成缺口 | **撤销**：存储策略只有全局的，`Router` 单份 `Config` 即目标形状 | `sessionstore/sessionstore.go:211-236` |
-| M10 | 消息 ID 全局计数器被当作需要会话化的候选 | **零改动**：保持全局分发（防重复与上下文干扰），新增不变量「唯一但不要求连续」并加测试 | `view_state/coordinator.go:59,169,277-308` |
+| #   | 矛盾                                                                         | 消解方式                                                                                  | 现状证据                                                                                                                  |
+| --- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| M1  | 「视图跟随」被我在 C4 搬进事件面：订阅传空 sid 跟随视图指针，replay 环因而跨会话                           | 订阅键改为 `(通道, sid)`；切换会话＝重建订阅 + 重发基线；前端补 `event.session_id === snapshot.session.id` 硬校验 | `gui/bridge.go:259-271`、`application/core/session_scope.go:216-225`、`gui/frontend/dist/protocol.js`（全文无 `session_id`） |
+| M2  | 空 sid 既是"进程级事件"又是"未知会话"，投递侧当通配放行                                           | 定义两类通道并按 kind 白名单：会话类 kind 的 sid 必填，hub 对「会话类 kind + 空 sid」拒绝发布并记诊断；进程类 kind 的 sid 必空 | `service_interaction.go:80/93/115/148` 全部以空 sid 发布含会话字段的载荷                                                            |
+| M3  | 快照既是前端基线又是"进程内哪个会话"的神谕，与"指针只是展示"的 A/D 阶段结论相抵                               | 神谕废除：按会话路由的写只允许三个 sid 来源（显式参数 / ctx 注入 / 事件负载）；`Core.Snapshot.Session.ID` 只允许视图四件套读写  | `main.go:251/267`、`application/core/compressed_turn.go:44-60`、`session_scope.go:153`                                  |
+| M4  | `SnapshotOf` 声称 per-session，实际 clone 视图的 Runtime —— 把"Runtime 只有一格"固化成 API | 先补数据面（每会话 Runtime 槽 + 每会话 revision），再让 `SnapshotOf` 从该槽取；投影全量改 For 端口                 | `session_scope.go:191`、`view_state/coordinator.go:96-146`                                                             |
+| M5  | seelebridge 明文假设"application 保证同一时刻只有一个运行中会话"，与并行多 main agent 目标相抵         | 撤销该前置假设：额度按 sid 建槽；`activeSessionID` 降级为无 sid legacy 端口的兜底路由，且断不得成为事实源                | `seelebridge/runtime.go:68-76`、`plan/executor.go:74-83`、`internal/telemetry/session.go:14-19`                         |
+| M6  | effort/plugin 修改会打到正在运行的会话（含其 system 原件与历史），与"运行中不支持更改"相抵                  | 目标会话 running 时拒绝改 effort；plugin 激活/停用是进程级动作，任一会话 running 即拒绝并回滚                       | `service_interaction.go:98-149`（`Engine.SetSystemPrompt`/`ClearHistory`/`promptStack.Reset` 均无守卫）                     |
+| M7  | 关闭判定与超时取消都只看视图会话，后台运行中的会话会被直接杀死                                            | 判定改"任一会话非 idle"；超时取消全部 running sid；关闭前逐会话 flush（composer/Runtime 槽/View）              | `gui/shutdown.go:49,67`、`service_input.go:180-192`                                                                    |
+| M8  | 我以为 tokens/replan/子代理树"卡上游 Seele"，实际基础设施已在 seelebridge 内建好但没接线             | 归入本仓库改动：在 seelebridge 会话入口注入 ctx（一处），此后 `SessionTracer.QueryBySession` 可按 sid 取       | `runtime.go:395-400` 已挂 `SessionTagHook`；`internal/telemetry.WithSessionID` 生产侧零调用；`engine_port.go:688-700` 退化成进程求和   |
+| M9  | 我上一轮把"per-session 存储策略"当成缺口                                                | **撤销**：存储策略只有全局的，`Router` 单份 `Config` 即目标形状                                           | `sessionstore/sessionstore.go:211-236`                                                                                |
+| M10 | 消息 ID 全局计数器被当作需要会话化的候选                                                     | **零改动**：保持全局分发（防重复与上下文干扰），新增不变量「唯一但不要求连续」并加测试                                         | `view_state/coordinator.go:59,169,277-308`                                                                            |
 
 ## 2. 目标建模：粒度归属表
 
@@ -45,17 +45,17 @@ Skill/可见工具）、**model / provider / account**（本轮已定：不 per-
 
 `SessionUnit` 增/迁：
 
-| 成员 | 内容 | 来源变化 |
-|---|---|---|
-| `Runtime RuntimeState` | 会话专属运行态投影（见 2.4） | **新增**（今天只有 `Core.Snapshot.Runtime` 一格） |
-| `Revision uint64` | 该会话快照修订号 | **新增**；`BumpFor(sid)` |
-| `Composer` | 未发送输入、附件草稿、排队项（不入 context） | 从 `service.draft` 迁入；新分片 `composer` 持久化 |
-| `PromptState` | effort 选择 + 渲染出的 system 副本 + `PlanPolicy` | 从单例 `effortManager` 拆出"选择"部分 |
-| `FullAccess` | 该会话权限模式 | 从 broker 单 bool 拆出 |
-| `Approvals []RequestID` | 待批请求归属 | `ApprovalRequest` 加 `SessionID` |
-| `SubagentTree` | 本会话的树（子女按 sid 可寻址） | `Runtime.subagentTree` 单树 → per-bundle |
-| `Status` | draft/idle/running/queued/**awaiting_approval**/archived | 枚举新增 |
-| `Resident` | 引擎 bundle 是否驻留（驱逐/LRU 用） | **新增**，供诊断与侧栏 |
+| 成员                      | 内容                                                       | 来源变化                                    |
+| ----------------------- | -------------------------------------------------------- | --------------------------------------- |
+| `Runtime RuntimeState`  | 会话专属运行态投影（见 2.4）                                         | **新增**（今天只有 `Core.Snapshot.Runtime` 一格） |
+| `Revision uint64`       | 该会话快照修订号                                                 | **新增**；`BumpFor(sid)`                   |
+| `Composer`              | 未发送输入、附件草稿、排队项（不入 context）                               | 从 `service.draft` 迁入；新分片 `composer` 持久化 |
+| `PromptState`           | effort 选择 + 渲染出的 system 副本 + `PlanPolicy`                | 从单例 `effortManager` 拆出"选择"部分            |
+| `FullAccess`            | 该会话权限模式                                                  | 从 broker 单 bool 拆出                      |
+| `Approvals []RequestID` | 待批请求归属                                                   | `ApprovalRequest` 加 `SessionID`         |
+| `SubagentTree`          | 本会话的树（子女按 sid 可寻址）                                       | `Runtime.subagentTree` 单树 → per-bundle  |
+| `Status`                | draft/idle/running/queued/**awaiting_approval**/archived | 枚举新增                                    |
+| `Resident`              | 引擎 bundle 是否驻留（驱逐/LRU 用）                                 | **新增**，供诊断与侧栏                           |
 
 `SessionSnapshot`（会话粒度、传输完备）：`session`、`conversation`、`chat`、
 `runtime`（本会话槽深拷贝）、`task`、`approvals[]`、`worktable(+batches)`、
@@ -63,15 +63,15 @@ Skill/可见工具）、**model / provider / account**（本轮已定：不 per-
 
 ### 2.4 `RuntimeState` 字段最终归属
 
-| 字段 | 归属 | 落地条件 |
-|---|---|---|
-| `Effort`、`FullAccess` | 会话 | 纯 application 改动 |
-| `Plan`、`TodoItems`、`WorkTable(+Batches)` | 会话 | 已具备（`planProjections`、`TaskSnapshotFor`）；投影需改用 For 变体 |
-| `ActiveSkills`、`GoalSkillActive` | 会话 | `tasks` 域已带 For 变体，投影改调用 |
-| `Tokens` | 会话 | 需 seelebridge ctx 注入 + `TokenCountFor(sid)` |
-| `Replan` | 会话 | 需 per-sid `ReplanGuard` |
-| `SubAgentTree` | 会话 | 需 per-bundle 树 + `ClearSubagentTreeFor(sid)` |
-| `Model`、`Provider`、`Account`、`Plugin`、`Plugins`、`VisibleTools`、`Skills`、`Accounts`、`ScheduledTasks`、`ScheduledCommands` | 进程 | 从 `SessionSnapshot` 移除，前端改读进程快照 |
+| 字段                                                                                                                      | 归属  | 落地条件                                                  |
+| ----------------------------------------------------------------------------------------------------------------------- | --- | ----------------------------------------------------- |
+| `Effort`、`FullAccess`                                                                                                   | 会话  | 纯 application 改动                                      |
+| `Plan`、`TodoItems`、`WorkTable(+Batches)`                                                                                | 会话  | 已具备（`planProjections`、`TaskSnapshotFor`）；投影需改用 For 变体 |
+| `ActiveSkills`、`GoalSkillActive`                                                                                        | 会话  | `tasks` 域已带 For 变体，投影改调用                              |
+| `Tokens`                                                                                                                | 会话  | 需 seelebridge ctx 注入 + `TokenCountFor(sid)`           |
+| `Replan`                                                                                                                | 会话  | 需 per-sid `ReplanGuard`                               |
+| `SubAgentTree`                                                                                                          | 会话  | 需 per-bundle 树 + `ClearSubagentTreeFor(sid)`          |
+| `Model`、`Provider`、`Account`、`Plugin`、`Plugins`、`VisibleTools`、`Skills`、`Accounts`、`ScheduledTasks`、`ScheduledCommands` | 进程  | 从 `SessionSnapshot` 移除，前端改读进程快照                       |
 
 未满足落地条件的字段，**留在进程档并显式标注为全局值**；禁止用 clone 伪装成会话值。
 
@@ -88,21 +88,21 @@ Skill/可见工具）、**model / provider / account**（本轮已定：不 per-
 
 ## 3. 不变量清单（测试与 review 引用编号）
 
-| 编号 | 不变量 |
-|---|---|
-| INV-G1 | `Core.Snapshot` 不持有会话专属事实；会话专属字段一律来自 `SessionUnit` |
-| INV-G2 | 按会话路由的写，其 sid 只能来自显式参数 / ctx 注入 / 事件负载；读 `Core.Snapshot.Session.ID` 做路由的位置数为 0（白名单：视图指针自身存取） |
-| INV-G3 | 会话类 kind 事件 sid 必填，进程类必空；hub 拒绝违例发布并记诊断 |
-| INV-G4 | 订阅键含 sid；replay 环与 ack 游标按 sid 隔离；切换即重订阅 |
-| INV-G5 | 每会话一个 revision，与进程 revision 互不相干 |
-| INV-G6 | 额度（PlanPolicy、fork 信号量、ReplanGuard）按 sid 建槽；`activeSessionID` 不参与事实判定 |
-| INV-G7 | 原件只读共享；running 会话不重算自身 system 层；effort 变更仅作用于 idle 会话 |
-| INV-G8 | 驻留受 LRU 上限（默认 6，走 limits）；驱逐前置＝非 running、非 awaiting_approval、composer/View/Runtime 槽已 flush；驱逐后再进＝冷 |
-| INV-G9 | 退出：任一会话非 idle 即需等待或询问；超时取消全部 running sid；子代理标 stale |
-| INV-G10 | 消息 ID 全局唯一、不要求连续；消费方禁止假设连续 |
-| INV-G11 | 子代理会话落盘、不进侧栏、经父树打开 |
-| INV-G12 | 只有 mainagent 实际接收的内容进入父会话上下文与可见区 |
-| INV-G13 | 存储策略唯一来源是 `Router.Config`（进程级）；不存在 per-session 策略 |
+| 编号      | 不变量                                                                                                 |
+| ------- | --------------------------------------------------------------------------------------------------- |
+| INV-G1  | `Core.Snapshot` 不持有会话专属事实；会话专属字段一律来自 `SessionUnit`                                                  |
+| INV-G2  | 按会话路由的写，其 sid 只能来自显式参数 / ctx 注入 / 事件负载；读 `Core.Snapshot.Session.ID` 做路由的位置数为 0（白名单：视图指针自身存取）        |
+| INV-G3  | 会话类 kind 事件 sid 必填，进程类必空；hub 拒绝违例发布并记诊断                                                             |
+| INV-G4  | 订阅键含 sid；replay 环与 ack 游标按 sid 隔离；切换即重订阅                                                            |
+| INV-G5  | 每会话一个 revision，与进程 revision 互不相干                                                                    |
+| INV-G6  | 额度（PlanPolicy、fork 信号量、ReplanGuard）按 sid 建槽；`activeSessionID` 不参与事实判定                               |
+| INV-G7  | 原件只读共享；running 会话不重算自身 system 层；effort 变更仅作用于 idle 会话                                               |
+| INV-G8  | 驻留受 LRU 上限（默认 6，走 limits）；驱逐前置＝非 running、非 awaiting_approval、composer/View/Runtime 槽已 flush；驱逐后再进＝冷 |
+| INV-G9  | 退出：任一会话非 idle 即需等待或询问；超时取消全部 running sid；子代理标 stale                                                 |
+| INV-G10 | 消息 ID 全局唯一、不要求连续；消费方禁止假设连续                                                                          |
+| INV-G11 | 子代理会话落盘、不进侧栏、经父树打开                                                                                  |
+| INV-G12 | 只有 mainagent 实际接收的内容进入父会话上下文与可见区                                                                    |
+| INV-G13 | 存储策略唯一来源是 `Router.Config`（进程级）；不存在 per-session 策略                                                   |
 
 ## 4. 关键流程（目标）
 
@@ -131,18 +131,18 @@ sequenceDiagram
 
 ## 5. 刀序与验收
 
-| 刀 | 内容 | 不变量 | 验收锚 |
-|---|---|---|---|
-| 0a | 压缩轮次归档按 sid 路由（ctx 优先，provider 兜底） | INV-G2/G3 | 后台会话压缩不再写入视图会话分片 |
-| 0b | effort 运行守卫 + plugin 全局动作守卫 + `SetSystemPromptFor` | INV-G7 | 后台 running 会话的 system/历史不被改动 |
-| 0c | 退出语义：任一会话非 idle 即等待、超时取消全部、flush composer/槽 | INV-G9 | `BeforeClose` 不再只看视图会话 |
-| 1' | 每会话 `Runtime` 槽 + `Revision`；投影带 sid；事件带 sid；seelebridge ctx 注入 + `TokenCountFor` | INV-G1/G2/G5/G6 | `TestS0BackgroundEventsDoNotPolluteActiveSnapshot` |
-| 2 | 订阅 `(通道,sid)`；前端 sid 校验；A6 通道白名单；per-sid ack/环 | INV-G3/G4 | `TestS0SwitchResyncsBaseline` |
-| 3 | `SessionSnapshot`/`ProcessSnapshot` 分型（传输完备，为进程隔离保留退路） | INV-G1 | 前端 reducer + TUI/headless 契约测试 |
-| 4 | Composer/effort/fullAccess/子代理树/approval 归属；子会话落盘与 stale | INV-G7/G11/G12 | `TestS0ForkDeepCopyIsolation` 扩展 |
-| 5 | 锁拆分（`ViewMu`/`CatalogMu`/`Unit[i].Mu`）+ `TransitionLock` per-session | INV-G1/G6 | `-race` 全量 + 并行多用例 |
-| 6 | 驻留 LRU/驱逐前置 flush；catalog 按 projectID；C2 archive；C1 冷读面 | INV-G8 | 台账 #4/#6 |
-| 7 | 双轨 trace 桥（`UnifiedEvents` → live 事件）+ `EventStore` 区间读 + 去 `nodeDetailPollTimer` | INV-G4 | 台账 #3 |
+| 刀   | 内容                                                                                | 不变量             | 验收锚                                                |
+| --- | --------------------------------------------------------------------------------- | --------------- | -------------------------------------------------- |
+| 0a  | 压缩轮次归档按 sid 路由（ctx 优先，provider 兜底）                                                | INV-G2/G3       | 后台会话压缩不再写入视图会话分片                                   |
+| 0b  | effort 运行守卫 + plugin 全局动作守卫 + `SetSystemPromptFor`                                | INV-G7          | 后台 running 会话的 system/历史不被改动                       |
+| 0c  | 退出语义：任一会话非 idle 即等待、超时取消全部、flush composer/槽                                       | INV-G9          | `BeforeClose` 不再只看视图会话                             |
+| 1'  | 每会话 `Runtime` 槽 + `Revision`；投影带 sid；事件带 sid；seelebridge ctx 注入 + `TokenCountFor` | INV-G1/G2/G5/G6 | `TestS0BackgroundEventsDoNotPolluteActiveSnapshot` |
+| 2   | 订阅 `(通道,sid)`；前端 sid 校验；A6 通道白名单；per-sid ack/环                                    | INV-G3/G4       | `TestS0SwitchResyncsBaseline`                      |
+| 3   | `SessionSnapshot`/`ProcessSnapshot` 分型（传输完备，为进程隔离保留退路）                            | INV-G1          | 前端 reducer + TUI/headless 契约测试                     |
+| 4   | Composer/effort/fullAccess/子代理树/approval 归属；子会话落盘与 stale                          | INV-G7/G11/G12  | `TestS0ForkDeepCopyIsolation` 扩展                   |
+| 5   | 锁拆分（`ViewMu`/`CatalogMu`/`Unit[i].Mu`）+ `TransitionLock` per-session              | INV-G1/G6       | `-race` 全量 + 并行多用例                                 |
+| 6   | 驻留 LRU/驱逐前置 flush；catalog 按 projectID；C2 archive；C1 冷读面                           | INV-G8          | 台账 #4/#6                                           |
+| 7   | 双轨 trace 桥（`UnifiedEvents` → live 事件）+ `EventStore` 区间读 + 去 `nodeDetailPollTimer` | INV-G4          | 台账 #3                                              |
 
 依赖：0a/0b/0c 相互独立且互不依赖刀 1；刀 1 是全局收敛点（做完 `SnapshotOf` 的拷贝
 方向自然成立，`session_scope.go:191` 的 clone 被替换）；刀 3 之后才谈前端完整分型。
@@ -230,12 +230,12 @@ G2（订阅键+白名单） G3（快照分型）      G4（归属进 Unit 的数
 
 ### 波次与验收锚
 
-| 波 | 内容 | 主要改动面 | 验收锚（测试） |
-|---|---|---|---|
+| 波   | 内容         | 主要改动面                                                                                                             | 验收锚（测试）                                                                                        |
+| --- | ---------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | 波 1 | G1 全量 + G2 | core/session/task_context/view_state、seelebridge/plan、application/event、gui Bridge + 前端 protocol/client-state/app | `TestS0BackgroundEventsDoNotPolluteActiveSnapshot`、`TestS0SwitchResyncsBaseline`、`-race` 并行多用例 |
-| 波 2 | G3 + G4 | model DTO 分型、前端 reducer/契约测试、session/sessionstore（composer 分片、Kind=Subagent 落盘）、approval/effort/fullAccess 归属 | `TestS0ForkDeepCopyIsolation` 扩展、前端分型契约测试 |
-| 波 3 | G5 | core 锁拆分（ViewMu/CatalogMu/Unit[i].Mu）+ 出临界区化 | `-race` 全量 + 并行多用例 |
-| 波 4 | G6 + G7 | 驻留 LRU/驱逐、目录 projectID 索引、C2/C1；EventStore 区间读、runtime_live 正文 kind、去 node 轮询 | 台账 #4/#6 与 INV-G8、G4 事件面测试 |
+| 波 2 | G3 + G4    | model DTO 分型、前端 reducer/契约测试、session/sessionstore（composer 分片、Kind=Subagent 落盘）、approval/effort/fullAccess 归属     | `TestS0ForkDeepCopyIsolation` 扩展、前端分型契约测试                                                      |
+| 波 3 | G5         | core 锁拆分（ViewMu/CatalogMu/Unit[i].Mu）+ 出临界区化                                                                      | `-race` 全量 + 并行多用例                                                                             |
+| 波 4 | G6 + G7    | 驻留 LRU/驱逐、目录 projectID 索引、C2/C1；EventStore 区间读、runtime_live 正文 kind、去 node 轮询                                     | 台账 #4/#6 与 INV-G8、G4 事件面测试                                                                     |
 
 波 1/2 与波 3/4 分会话推进；每波内仍按小分片提交（先契约与测试，再实现），
 保证任意提交点 `go build ./...` 与受影响包测试全绿。

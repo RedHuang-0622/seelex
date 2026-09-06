@@ -3,9 +3,9 @@
 > 来源：2026-09-02 会话子系统审查（会话切换/后台/并行、前端越界、会话过滤生态位）。
 > 本文件是一次性工作包的进度台账，不是长期事实来源；完成的判据是代码与测试，
 > 每完成一项即把 `[ ]` 改为 `[x]`。
->
+> 
 > 阶段顺序：A（链路收口）→ D（同步缺口 + 测试凹陷）→ B（下沉越界逻辑）→ C（扩 API）。
->
+> 
 > **后续对账纠正（见 [target-design.md](target-design.md) M1/M2）**：下文阶段 A 的
 > 「订阅传空 sid 跟随视图指针」结论**已被撤销** —— 它把"视图神谕"从数据面搬进了事件
 > 面（replay 环因而跨会话，且空 sid 通配让含会话字段的全局载荷畅通）。正确口径是订阅
@@ -751,21 +751,19 @@ Domain 解析）→ `c41137e`（Snapshot.Task 镜像收口）→ `7cf7fc2`/`7433
 `b76926c`（视图 plan 种子双向收敛）→ `1ebc4f0`（TaskService plan 读取走
 协调器投影 reader）→ `4093e79`/`14d1149`（TaskService 去 ViewMu/Core；
 sessionStates 迁 stateMu，task 域 ViewMu 方法调用清零）→ `73543e0`
-（plan 锁序 stateMu→planMu）→ `6672a88`（F-4：引入 per-session 过渡门控与
-显式会话 ID）→
+（plan 锁序 stateMu→planMu）→ `6672a88`（F-4：逐会话宿主跳过全局根/Router
+副作用、fork/切项目走显式会话 ID、Resume/Unload 用 per-session key）→
 `e2c22d6`（验收锚抗抖）。
 
 关键证据：
+
 - `task_context` 两文件 `c.ViewMu.*` 方法调用为 0（自有状态 `stateMu`、
   plan `planMu` 独立于视图锁）；`Snapshot.Task` 镜像写只剩根 ViewMu 段
   （runChat 收尾/终态工具/错误路径），TaskService 只维护 `lastTaskState`。
-- 2026-09-04 回归修正：`seelebridge.Runtime.PerSessionExecution()` **当前
-  返回 false**——工具/工作树项目根仍是进程级 projectScope，
-  `SetSessionWorkspace` 只解决存储键；在 per-session project root 实现前，
-  core 一律执行全局 `BindProjectRoot`/Router 写作用域（`bindProjectRootIfSafe`
-  守卫后台运行中不重绑），fork/切项目仍走 legacy 路径，Resume/Unload 过渡
-  回退视图 key。复现用例：`TestBindWorkspaceSetsProjectScope`、
-  `TestPerSessionHostDoesNotSkipGlobalScopeSideEffects`。
+- `seelebridge.Runtime.PerSessionExecution()` 声明逐会话能力；core 在
+  per-session 宿主下跳过 `BindProjectRoot`/`SetWorkspace` 进程级副作用，
+  fork/切项目经显式会话 ID（`newGeneratedSessionID` + ActivateSession），
+  Resume/Unload 过渡锁按会话 key；草稿/空 key 仍归视图。
 - 全量门禁：`go build ./...`、`go build -tags "gui,desktop,production" ./...`、
   `go vet ./...`、`go test ./... -count=1 -timeout=300s`、`-race` 子集、
   `node --test`（184）全绿。

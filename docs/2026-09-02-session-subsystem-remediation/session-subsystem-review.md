@@ -140,23 +140,25 @@ flowchart LR
     note: 锁序 ViewMu→stateMu→planMu；planMu 为叶子；两段式发布避免 stateMu→ViewMu
 ```
 
-| 锁 | 属主 | 保护内容 | 状态 |
-|---|---|---|---|
-| ViewMu | core 内核 | `Snapshot` 镜像 | 视图专用 |
-| stateMu | task_context | `sessionStates`/会话运行字段 | 独立（G5 收口） |
-| planMu | task_context | plan 投影缓存 | 独立（G5 收口） |
-| catalogMu | session_runtime | 目录分格缓存+标题+回执 | 独立（波 3） |
-| Unit/View.mu | session 域 | 单会话字段/可见区 | 独立 |
+| 锁            | 属主              | 保护内容                   | 状态        |
+| ------------ | --------------- | ---------------------- | --------- |
+| ViewMu       | core 内核         | `Snapshot` 镜像          | 视图专用      |
+| stateMu      | task_context    | `sessionStates`/会话运行字段 | 独立（G5 收口） |
+| planMu       | task_context    | plan 投影缓存              | 独立（G5 收口） |
+| catalogMu    | session_runtime | 目录分格缓存+标题+回执           | 独立（波 3）   |
+| Unit/View.mu | session 域       | 单会话字段/可见区              | 独立        |
 
 ## 1.5 关键 struct / interface：属性与方法
 
 ### `session.Domain`（会话域 actor）
+
 - 属性：`cmds chan`、`stopCh/done`。
 - 方法：`Register(unit)`、`Remove(sid)`、`Unit(sid)`、`UnitIDs()`、
   `Live()`、`SetActive(sid)`、`ActiveID()`、`Close()`。
 - 要点：单 goroutine 持注册表与视图指针 V，天然无锁串行（INV-G2）。
 
 ### `session.SessionUnit`（会话资源单元 S_i）
+
 - 属性（主要）：
   - 身份/血缘：`ID`、`Kind`、`ParentID`、`Title`；
   - 会话选择：`Effort`、`FullAccess/fullAccessSet`；
@@ -174,12 +176,14 @@ flowchart LR
 - 生态位：Unit 是“会话专属事实”的挂载点，视图指针只是 `Domain.ActiveID()`。
 
 ### `session.View`（单会话可见投影）
+
 - 属性：`Conversation`、`Chat`、`ReadFiles`、`TotalMessages`、
   `HistoryOffset`、`HasMoreHistory`、`ConversationWindow`、`Revision`。
 - 方法：`Mutate(fn)`、`Read(fn)`、`Clone()`。
 - 要点：写经 `Mutate`，读/镜像经 `Read/Clone`。
 
 ### `sessionstore.Router`（持久化仓库）
+
 - 键模型：`(projectID, sessionID)` 复合键；后端 JSON/SQLite/Postgres/Redis。
 - 方法（主要）：`SaveCommitWorkspace`（原子写 record+history+事件+工具
   结果）、`LoadHistoryRangeWorkspace`、`LoadEventRangeWorkspace`、
@@ -188,6 +192,7 @@ flowchart LR
 - 要点：单一 `Config`（INV-G13：无 per-session 存储策略）。
 
 ### `sessionstore.SessionGranularStore`（会话粒度五片门面）
+
 - 属性：`router`、`workspaceResolver`、`projectSource`。
 - 方法（主要）：`SaveSession/LoadSession`、`SessionsOf(project)`、
   `SaveHistory/HistoryRange`、`Transcript/TranscriptTail/EventRange`、
@@ -195,10 +200,12 @@ flowchart LR
   `EnsureIndexed`、`ResolveProjectForSession`。
 
 ### `sessionstore.DurableHistory` / `EventStore`
+
 - DurableHistory：会话 provider 历史句柄（按会话键读写）。
 - EventStore：执行事实轨追加式事件库；`LoadRange` 区间读（(0,0)=全量）。
 
 ### `application/core/session_runtime.Coordinator`
+
 - 属性：`Core`、`tasks TaskPersistencePort`、`view ViewPort`、闭包端口、
   `sessionRuntimeState`（transition 管理器 + catalogMu 三态：
   `catalogGrid`、`catalogWorkspaces`、`catalogTitles`、回执队列、worker
@@ -212,6 +219,7 @@ flowchart LR
   sid）。
 
 ### `application/core/task_context.Coordinator`
+
 - 属性：`stateMu`、`sessionStates`、`requestToSession`+`requestMu`、
   `planMu`、`planProjections`、依赖回调。
 - `sessionTaskRuntime` 属性（每会话一份）：`taskExecution`、`taskService`、
@@ -226,6 +234,7 @@ flowchart LR
   ObserveModelOutput`、`SemanticProgress`。
 
 ### `application/core/view_state.Coordinator`
+
 - 职责：把当前会话 View/Runtime/目录投影成 `Snapshot`；`BumpLocked()` 推进
   revision。
 - 方法（主要）：`SnapshotView`、`SessionViewLocked/ReadLocked/MutateLocked`、
@@ -234,24 +243,25 @@ flowchart LR
   `AppendMessageLocked/For`。
 
 ### `application/event` Hub / Subscription
+
 - `Hub`：`Publish/PublishSession`、`Subscribe/SubscribeFiltered/
   SubscribeWithReplay/SubscribeSession`；投递端过滤 + 溢出 resync/窗口重放。
 - `Subscription`：`Events`、`Close`、`ReplaySince`、`DeliveryWatermark`；
   `delivery_seq` 是订阅者唯一连续性来源（INV-G3/G4）。
 
 ### approval broker
+
 - 属性：`pending`、observer 回调（`(sessionID, requestID, interaction)`）。
 - 方法：`Ask/Resolve`、`Pending/PendingBySession`、`SetObserver`。
 - 会话侧：`SessionUnit.approvalIDs` 记账；`Snapshot.Interaction` 单格只镜像
   当前视图会话审批。
 
 ### contract 侧关键接口
+
 - `SessionChatEngine`：`HasSession/ActivateSession/ChatStreamFor/
   SetSystemPromptFor/UnloadSession` 等——决定真并行还是单飞回退。
 - `SessionPort`/`WorkspacePort`：core 消费的会话/工作区目录端口。
-- `RuntimePort`：进程原件 + `PerSessionExecution()`（逐会话能力声明；当前
-  seelebridge 返回 false——工具根仍是进程级 projectScope，待 per-session
-  project root 落地后再开启）。
+- `RuntimePort`：进程原件 + `PerSessionExecution()`（逐会话能力声明）。
 
 ## 1.6 健康度结论（专业版）
 
@@ -267,6 +277,7 @@ flowchart LR
 # 版本二：Mermaid + 大白话
 
 > 总比喻：会话系统像一间有很多“工位”的办公室。
+> 
 > - 工位 = 会话：聊天记录（View）、状态灯（ChatState）、待审批纸条
 >   （approvals）、草稿本（Composer）、工具箱（Engine bundle）。
 > - Domain = 前台登记员：谁在哪个工位、前台“盯着”哪个工位。
@@ -292,6 +303,7 @@ flowchart LR
 ```
 
 大白话规则：
+
 - 目录科不偷看前台：目录按项目分桶。
 - 任务科自己管账本：任务状态不与视图镜像抢锁。
 - 前台切工位只换指针，不打断干活的人（热挂载）。
@@ -341,33 +353,33 @@ sequenceDiagram
 
 ## 2.4 锁比喻（大白话）
 
-| 锁 | 像什么 | 管什么 |
-|---|---|---|
-| ViewMu | “展示大屏”的锁 | 大屏（Snapshot）别显示到一半被改花 |
-| stateMu | 任务科账本锁 | 任务/转录/审批账本 |
-| planMu | 计划图锁 | 计划甘特图谁在改 |
-| catalogMu | 目录科黑板锁 | 左侧栏会话列表 |
-| Unit/View.mu | 工位抽屉锁 | 单个会话自己的记录 |
+| 锁            | 像什么      | 管什么                   |
+| ------------ | -------- | --------------------- |
+| ViewMu       | “展示大屏”的锁 | 大屏（Snapshot）别显示到一半被改花 |
+| stateMu      | 任务科账本锁   | 任务/转录/审批账本            |
+| planMu       | 计划图锁     | 计划甘特图谁在改              |
+| catalogMu    | 目录科黑板锁   | 左侧栏会话列表               |
+| Unit/View.mu | 工位抽屉锁    | 单个会话自己的记录             |
 
 规则：锁序固定（大屏→账本→计划图）；绝不拿计划图锁去要账本锁，避免
 死锁。
 
 ## 2.5 struct / interface 大白话表
 
-| 类型 | 像什么 | 里面有什么（属性） | 能干什么（方法/虚函数） |
-|---|---|---|---|
-| `session.Domain` | 前台登记员 | 命令信箱、关闭开关 | 登记/注销/查工位、看与设“当前盯哪个工位” |
-| `SessionUnit` | 一个工位档案夹 | ID/类型/父会话/标题；状态灯；审批纸条；草稿；effort/全权；可见区；队列；引擎句柄；驻留标记 | 改状态灯、取消、排队、设流、记/撤审批、读写草稿、标驻留 |
-| `session.View` | 工位屏幕 | 聊天记录、状态灯、已读文件、窗口游标 | 加锁修改/读取、做快照副本 |
-| `Router` | 档案室总仓 | 项目×会话键、后端 | 整包存、区间读、列项目会话、删会话 |
-| `SessionGranularStore` | 档案室前台 | 仓库、会话→项目解析器 | 按项目列会话、五格读写、删、解析项目 |
-| `session_runtime.Coordinator` | 目录科主任 | 分格目录黑板、标题、回执、过渡锁 | 找会话、落盘、读 record/transcript、归档、刷目录 |
-| `task_context.Coordinator` | 任务科主任 | 每会话任务账本（stateMu）、plan 投影（planMu） | 开任务、终态工具、转录、plan 事件、预算 |
-| `TaskService` | 任务现场监督员 | 任务状态、plan 读取器、最近可见状态 | 自然停止判定、打点校验、观察输出 |
-| `EventHub/Subscription` | 广播站/电话 | 订阅谓词、窗口、水位 | 发布、按会话订阅、补发、关闭 |
-| `ApprovalBroker` | 审批窗口 | 待批表、通知回调 | 发起、按会话查待批、结案 |
-| `SessionChatEngine` 接口 | 能按会话号派活的引擎开关 | —（接口） | 有/建/跑/卸会话 |
-| `SessionPort/WorkspacePort` | 档案室/项目部的电话 | —（接口） | 列会话、读历史、绑定工作区 |
+| 类型                            | 像什么          | 里面有什么（属性）                                           | 能干什么（方法/虚函数）                      |
+| ----------------------------- | ------------ | --------------------------------------------------- | --------------------------------- |
+| `session.Domain`              | 前台登记员        | 命令信箱、关闭开关                                           | 登记/注销/查工位、看与设“当前盯哪个工位”            |
+| `SessionUnit`                 | 一个工位档案夹      | ID/类型/父会话/标题；状态灯；审批纸条；草稿；effort/全权；可见区；队列；引擎句柄；驻留标记 | 改状态灯、取消、排队、设流、记/撤审批、读写草稿、标驻留      |
+| `session.View`                | 工位屏幕         | 聊天记录、状态灯、已读文件、窗口游标                                  | 加锁修改/读取、做快照副本                     |
+| `Router`                      | 档案室总仓        | 项目×会话键、后端                                           | 整包存、区间读、列项目会话、删会话                 |
+| `SessionGranularStore`        | 档案室前台        | 仓库、会话→项目解析器                                         | 按项目列会话、五格读写、删、解析项目                |
+| `session_runtime.Coordinator` | 目录科主任        | 分格目录黑板、标题、回执、过渡锁                                    | 找会话、落盘、读 record/transcript、归档、刷目录 |
+| `task_context.Coordinator`    | 任务科主任        | 每会话任务账本（stateMu）、plan 投影（planMu）                    | 开任务、终态工具、转录、plan 事件、预算            |
+| `TaskService`                 | 任务现场监督员      | 任务状态、plan 读取器、最近可见状态                                | 自然停止判定、打点校验、观察输出                  |
+| `EventHub/Subscription`       | 广播站/电话       | 订阅谓词、窗口、水位                                          | 发布、按会话订阅、补发、关闭                    |
+| `ApprovalBroker`              | 审批窗口         | 待批表、通知回调                                            | 发起、按会话查待批、结案                      |
+| `SessionChatEngine` 接口        | 能按会话号派活的引擎开关 | —（接口）                                               | 有/建/跑/卸会话                         |
+| `SessionPort/WorkspacePort`   | 档案室/项目部的电话   | —（接口）                                               | 列会话、读历史、绑定工作区                     |
 
 ## 2.6 大白话总结
 
