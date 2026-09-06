@@ -112,6 +112,12 @@ export function createGUIClient(options) {
       reportApplied();
       return;
     }
+    if (result.dropped) {
+      // 视图外迟到事件：既不推进 applied 水位也不回报宿主。回报会把宿主
+      // ackedSeq 抬到新订阅不可能达到的旧订阅序号，且旧订阅事件在此订阅
+      // 内永不再来，bridge 会误以为渲染层已经全部落地而停止补投。
+      return;
+    }
     if (result.gap) {
       reportDiag({ gaps: diag.gaps + 1 });
       // delivery_seq 缺口：先向宿主按序号增量补取（C4），补得齐就不必整份重拉。

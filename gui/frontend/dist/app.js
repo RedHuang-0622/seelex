@@ -653,6 +653,10 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       } catch (error) {
         elements["composer-status"].textContent = `恢复会话失败：${error?.message || String(error)}`;
         showToast(error);
+        // 后端若已部分切换（迟到的失败），视图指针可能与用户所见不一致：
+        // 立即拉一次权威快照收敛（会话/聊天/输入区状态），否则后续输入会
+        // 路由进一个用户看不到的会话（“切换失败后输入发不出去/发错会话”）。
+        try { await refresh({ scroll: "preserve" }); } catch { /* 快照重拉失败按 toast 为准 */ }
       } finally {
         state.resumingSessionID = "";
         const latest = client.current() || { sessions, session: current, capabilities, session_workspaces: sessionWorkspaces, workspaces };
@@ -693,6 +697,9 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
       } catch (error) {
         elements["composer-status"].textContent = `分支失败：${error?.message || String(error)}`;
         showToast(error);
+        // 同 ResumeSession：分支可能已部分切换视图，失败后拉权威快照收敛，
+        // 避免后续输入路由到用户看不到的会话。
+        try { await refresh({ scroll: "preserve" }); } catch { /* 快照重拉失败按 toast 为准 */ }
       } finally {
         elements["composer-status"].textContent = "";
         const latest = client.current() || { sessions, session: current, capabilities, session_workspaces: sessionWorkspaces, workspaces };

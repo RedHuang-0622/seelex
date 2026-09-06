@@ -204,6 +204,46 @@ func TestBridgeFallsBackToResyncWhenWindowEvicted(t *testing.T) {
 	}
 }
 
+// TestBridgeRelayGenerationSupersedesStaleRelay 验证 resubscribe 换代语义：
+// 换代后旧 relay 的代际立即失效（不再投递已取出的余量事件），新 relay 成为
+// 唯一投递者。旧订阅余量事件不得在新订阅的权威基线之后再到达渲染层——
+// 它是“切换后跨会话迟到事件污染新订阅水位”的源头之一；渲染层对残留迟到
+// 事件另有幂等容忍（见 session-switch-stale-event.test.mjs）。
+func TestBridgeRelayGenerationSupersedesStaleRelay(t *testing.T) {
+	app := &replayAwareFakeApplication{
+		sessionAwareFakeApplication: &sessionAwareFakeApplication{fakeApplication: newFakeApplication()},
+	}
+	renderer := newAppliedRenderer(0)
+	bridge := startReplayBridge(t, app, renderer)
+
+	bridge.mu.Lock()
+	gen1 := bridge.relayGen
+	bridge.mu.Unlock()
+	if gen1 == 0 || !bridge.relayIsCurrent(gen1) {
+		t.Fatalf("initial relay generation = %d, want current", gen1)
+	}
+
+	// 换代（模拟一次视图切换后的 resubscribe）。
+	bridge.resubscribe()
+	bridge.mu.Lock()
+	gen2 := bridge.relayGen
+	bridge.mu.Unlock()
+	if gen2 != gen1+1 {
+		t.Fatalf("relay generation after resubscribe = %d, want %d", gen2, gen1+1)
+	}
+	if bridge.relayIsCurrent(gen1) {
+		t.Fatal("stale relay generation must not be current after resubscribe")
+	}
+	if !bridge.relayIsCurrent(gen2) {
+		t.Fatal("new relay generation must be current after resubscribe")
+	}
+
+	// 新 relay 正常投递（换代不丢事件能力，序号从 1 重计）。
+	app.hub.Publish(application.EventSnapshotChanged, 1, "", nil)
+	awaitWatermark(t, app.subscription, 1)
+	renderer.awaitCount(t, 1, 1)
+}
+
 // TestBridgeReplayEventsRequiresRunningRelay 确认未启动时补取显式不可用：
 // 渲染层拿 covered=false 就会走权威快照重拉，而不是误以为"没有缺口"。
 func TestBridgeReplayEventsRequiresRunningRelay(t *testing.T) {

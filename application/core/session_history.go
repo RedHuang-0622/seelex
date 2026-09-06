@@ -60,7 +60,16 @@ func (service *Service) resumeSession(sessionID string) error {
 		// 空闲：保持同步冷加载（无运行中会话共享全局根/写作用域，串行装载
 		// 更简单；activateEpoch=0 表示无条件激活）。
 		service.bumpViewEpoch()
-		return service.resumeSessionCold(sessionID, 0)
+		if err := service.resumeSessionCold(sessionID, 0); err != nil {
+			// 同步冷加载失败也保持“ResumeSession 返回错误 ⇒ 视图停留在切换
+			// 前会话”的不变量（与后台冷加载失败路径 handleColdRestoreFailure
+			// 同一语义）：resumeSessionCold 的迟到失败（如 context 挂接）发生
+			// 在视图激活之后，不回滚会让前端误以为还在 previous 而把后续输入
+			// 路由进一个用户看不到的会话（切换失败后“输入发不出去/发错会话”）。
+			service.rollbackSyncResumeFailure(sessionID, previous)
+			return err
+		}
+		return nil
 	}
 	// 运行中 + 目标未驻留：异步冷加载。先激活 restoring 空壳并立即返回，
 	// 由后台 goroutine 完成装载；期间其它切换仍可快速进行（冷加载不占视图
@@ -71,6 +80,37 @@ func (service *Service) resumeSession(sessionID string) error {
 	}
 	go service.resumeSessionColdInBackground(sessionID, previous, epoch)
 	return nil
+}
+
+// rollbackSyncResumeFailure 在同步冷加载失败后恢复视图一致性（调用方持视图
+// 过渡锁；仅空闲分支可达，无运行中会话）。目标是保证：ResumeSession 返回
+// 错误时视图仍停留在切换前会话，前端后续输入路由到用户看到的那一个会话。
+//
+//   - 视图已被目标激活（迟到失败）：目标驻留则热挂载回退，否则重置到草稿空壳
+//     （与 handleColdRestoreFailure 一致）；
+//   - 视图尚未切到目标（早失败）：若 previous 驻留则对其热挂载一次，把可能已
+//     被目标 workspace 占用的全局项目根/写作用域切回 previous（无运行中会话，
+//     安全）。
+func (service *Service) rollbackSyncResumeFailure(sessionID, previousID string) {
+	service.ViewMu.RLock()
+	stillOnTarget := service.Core.Snapshot.Session.ID == sessionID
+	service.ViewMu.RUnlock()
+	if stillOnTarget {
+		if previousID != "" && service.sessionLoaded(previousID) {
+			if err := service.hotAttachSession(previousID); err != nil {
+				runChatDebug("rollback sync resume to %q after %q failure: %v", previousID, sessionID, err)
+				service.resetViewToDraftAfterRestoreFailure()
+			}
+			return
+		}
+		service.resetViewToDraftAfterRestoreFailure()
+		return
+	}
+	// 早失败：视图本来就在 previous（或其草稿）。previous 驻留时热挂载一次，
+	// 修正可能被目标 workspace 占用的全局根；未驻留（草稿）则无需动作。
+	if previousID != "" && service.sessionLoaded(previousID) {
+		_ = service.hotAttachSession(previousID)
+	}
 }
 
 // bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；后台冷加载完成
@@ -150,10 +190,14 @@ func (service *Service) handleColdRestoreFailure(sessionID, previousID string, e
 	}
 	if previousID != "" {
 		if err := service.hotAttachSession(previousID); err == nil {
+			// 视图已异步回退到切换前会话：Bridge 的订阅可能仍钉在失败的
+			// 目标上，用进程级事件通知它对齐（见 publishViewSessionChanged）。
+			service.publishViewSessionChanged()
 			return
 		}
 	}
 	service.resetViewToDraftAfterRestoreFailure()
+	service.publishViewSessionChanged()
 }
 
 // resetViewToDraftAfterRestoreFailure 在“无前一会话可回退”时把视图重置到

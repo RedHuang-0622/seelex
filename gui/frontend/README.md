@@ -234,6 +234,11 @@ go test ./gui -count=1
 `multi-session-switch-freshness.test.mjs` 复现「多会话 + 单会话进行」的正文冻结：
 切到另一会话后新订阅 `delivery_seq=1..N` 的流式增量必须落地并回报宿主，不得被
 旧会话水位吞掉或退化为整份刷新。
+`session-switch-stale-event.test.mjs` 复现「热会话切换时而灵时不灵」的迟到事件
+竞态（热→热 与 热→冷）：切换竞态中旧订阅/旧视图的迟到事件不得推进新订阅的
+applied 水位——否则新会话 `delivery_seq=1..N` 会被误判为重复静默丢弃，正文冻结
+在基线直到下一次整份刷新或再切换一次。配套 `protocol.test.mjs` 断言视图外事件
+丢弃但不推进水位。
 `work-table.test.mjs` 覆盖工作表格归一化、多维表格渲染（含转义）、todo 三态
 控件与打点表；`protocol.test.mjs` 断言 `worktable.changed` 只替换
 `runtime.work_table`（plan 对象引用不变）且子代理事件复用未命中分支节点

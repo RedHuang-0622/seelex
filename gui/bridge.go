@@ -175,6 +175,12 @@ type Bridge struct {
 	ackedSeq    uint64
 	resendTimer *time.Timer
 	resendTries int
+	// relayGen 是 relay 代际（mu 保护）：每次（重）订阅自增。relay 在投递每条
+	// 事件前校验自己仍是当前代际，被更新的 resubscribe 取代后立即退出——
+	// 旧订阅的余量事件不得在新订阅的权威基线之后再投递到渲染层（跨会话
+	// 迟到事件会污染新订阅从 1 重计的 delivery_seq 水位；渲染层已幂等容忍，
+	// 此处把污染源收窄到最小）。
+	relayGen uint64
 }
 
 const (
@@ -246,12 +252,28 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 	subscription := bridge.subscribeViewLocked()
 	bridge.sub = subscription
 	bridge.mu.Unlock()
-	bridge.startRelay(loopContext, emit, subscription)
+	bridge.startRelay(loopContext, emit, subscription, bridge.nextRelayGeneration())
+}
+
+// nextRelayGeneration 分配一个新的 relay 代际序号（调用方不需要持有 mu）。
+func (bridge *Bridge) nextRelayGeneration() uint64 {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	bridge.relayGen++
+	return bridge.relayGen
+}
+
+// relayIsCurrent 报告指定代际是否仍是当前 relay（未被更新的 resubscribe
+// 取代）。投递事件前校验，代际过期即退出，旧订阅余量事件不再外投。
+func (bridge *Bridge) relayIsCurrent(gen uint64) bool {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	return bridge.running && bridge.relayGen == gen
 }
 
 // startRelay 启动一个订阅的转发 goroutine（relay 生命周期随 bridge.ctx
-// 取消；resubscribe 会关闭旧订阅并另起新 relay）。
-func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter, subscription application.Subscription) {
+// 取消或 resubscribe 换代；gen 是本次订阅的代际，被取代后 relay 不得再投递）。
+func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter, subscription application.Subscription, gen uint64) {
 	bridge.wg.Add(1)
 	go func() {
 		defer bridge.wg.Done()
@@ -264,6 +286,20 @@ func (bridge *Bridge) startRelay(loopContext context.Context, emit EventEmitter,
 				return
 			case event, ok := <-subscription.Events:
 				if !ok {
+					return
+				}
+				// 已被更新的 resubscribe 取代：本 relay 停在这里，已取出的
+				// 旧订阅事件不再投递（避免其 delivery_seq 污染新订阅水位）。
+				if !bridge.relayIsCurrent(gen) {
+					return
+				}
+				// 应用在后台异步改回了权威视图会话（运行中冷恢复失败回退）：
+				// 本订阅仍钉在失败目标会话上，其会话级事件流之后将永远沉默，
+				// 渲染层停在 restoring 空壳（输入区禁用）。该进程级事件不是给
+				// 渲染层的内容，而是订阅对齐信号——重建后新订阅的 seelex:ready
+				// 会把权威基线重投给渲染层。
+				if event.Kind == application.EventViewSessionChanged {
+					bridge.syncSubscriptionToView()
 					return
 				}
 				if emit != nil {
@@ -336,7 +372,28 @@ func (bridge *Bridge) resubscribe() {
 	if old.Events != nil {
 		old.Close()
 	}
-	bridge.startRelay(loopContext, emit, subscription)
+	// 换代：旧 relay 在下次取事件时发现代际过期即退出，不投递余量事件。
+	bridge.startRelay(loopContext, emit, subscription, bridge.nextRelayGeneration())
+}
+
+// syncSubscriptionToView 把事件订阅键对齐到应用的权威视图会话。应用可能在
+// Bridge 不知情时**异步**改回视图会话（运行中冷恢复失败：hot attach 回切换
+// 前会话 / 退化为新建草稿）：此时订阅键仍钉在失败目标会话上，其会话级订阅
+// 永远沉默，渲染层停在 restoring 空壳（输入区禁用、消息发不出去）。调用方
+// 为 relay（收到 view.session.changed 进程级事件）与视图命令成功路径；订阅
+// 已对齐时不做任何事（幂等，无锁空转成本以外无副作用）。
+func (bridge *Bridge) syncSubscriptionToView() {
+	bridge.mu.Lock()
+	if !bridge.running {
+		bridge.mu.Unlock()
+		return
+	}
+	subscribed := bridge.subscribedSessionID
+	bridge.mu.Unlock()
+	if subscribed == bridge.app.Snapshot().Session.ID {
+		return
+	}
+	bridge.resubscribe()
 }
 
 // Stop cancels the event relay and waits until its goroutine has exited. It is
@@ -564,20 +621,23 @@ func (bridge *Bridge) UpdateWorkItemStatus(id, status string) error {
 }
 
 func (bridge *Bridge) Submit(text string) error {
+	// 提交前先把订阅对齐到权威视图会话：异步冷恢复失败回退后，Bridge 的
+	// 订阅键可能仍钉在失败目标上（会话级事件流已沉默），若用户此刻成功发
+	// 出消息，运行结果将永远不回显。
+	bridge.syncSubscriptionToView()
 	return bridge.app.Submit(bridge.requestContext(), text)
 }
 
 func (bridge *Bridge) BeginNewSession() error {
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
-	before := bridge.app.Snapshot().Session.ID
 	if err := bridge.app.BeginNewSession(); err != nil {
 		return err
 	}
 	bridge.settleCatalog()
-	if bridge.app.Snapshot().Session.ID != before {
-		bridge.resubscribe()
-	}
+	// 对齐而非"前后会话不同才重订阅"：应用可能已在此前异步回退过视图
+	// （冷恢复失败），订阅键与权威视图会话一致才是硬不变量。
+	bridge.syncSubscriptionToView()
 	return nil
 }
 
@@ -591,13 +651,10 @@ func (bridge *Bridge) SaveComposerDraft(text string) error {
 func (bridge *Bridge) ResumeSession(sessionID string) error {
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
-	before := bridge.app.Snapshot().Session.ID
 	if err := bridge.app.ResumeSession(sessionID); err != nil {
 		return err
 	}
-	if bridge.app.Snapshot().Session.ID != before {
-		bridge.resubscribe()
-	}
+	bridge.syncSubscriptionToView()
 	return nil
 }
 
@@ -606,15 +663,12 @@ func (bridge *Bridge) ResumeSession(sessionID string) error {
 func (bridge *Bridge) ForkSessionLatest(sessionID string) (string, error) {
 	bridge.switchMu.Lock()
 	defer bridge.switchMu.Unlock()
-	before := bridge.app.Snapshot().Session.ID
 	childID, err := bridge.app.ForkSessionLatest(sessionID)
 	if err != nil {
 		return "", err
 	}
 	bridge.settleCatalog()
-	if bridge.app.Snapshot().Session.ID != before {
-		bridge.resubscribe()
-	}
+	bridge.syncSubscriptionToView()
 	return childID, nil
 }
 
@@ -642,13 +696,10 @@ func (bridge *Bridge) ActivateSession(sessionID string) error {
 	if !ok {
 		return errors.New("session-scoped API is not supported by the application")
 	}
-	before := bridge.app.Snapshot().Session.ID
 	if err := app.ActivateSession(sessionID); err != nil {
 		return err
 	}
-	if bridge.app.Snapshot().Session.ID != before {
-		bridge.resubscribe()
-	}
+	bridge.syncSubscriptionToView()
 	return nil
 }
 

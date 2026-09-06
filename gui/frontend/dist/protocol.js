@@ -43,10 +43,13 @@ export function applyEvent(snapshot, event, lastSeq = 0, snapshotRevisionFloor =
   }
   const seq = Number(event.delivery_seq || 0);
   // G2/M2：会话级事件带 sid 时必须归属当前视图会话；进程级事件不得带 sid。
-  // 投递端已按订阅键过滤，此处只做防御性硬校验：不匹配的事件丢弃但推进
-  // 水位（服务端不会给本订阅投递它，避免异常路径造成后续事件连环跳号）。
+  // 投递端已按订阅键过滤，此处只做防御性硬校验。视图外的事件（会话切换
+  // 竞态中旧订阅/旧视图的迟到事件）对本订阅的连续性没有意义：丢弃且**不
+  // 推进水位**——推进会把新订阅从 1 重计的 delivery_seq 吞成“重复”，使切换
+  // 后的正文冻结在基线（时而灵时不灵）；也不整份刷新（正常切换由权威基线
+  // 负责）。
   if (!belongsToView(event, snapshot)) {
-    return { snapshot, lastSeq: seq, needsRefresh: false, dropped: true };
+    return { snapshot, lastSeq, needsRefresh: false, dropped: true };
   }
   // 连续性只按 delivery_seq（本订阅内的投递序号）判定：会话归属由 application
   // 在投递端过滤，全局 seq 因此必然跳号，跳号不代表丢事件；缺口才是。

@@ -32,14 +32,21 @@ const (
 	EventError             EventKind = "error"
 	EventResyncRequired    EventKind = "resync.required"
 	EventExitRequested     EventKind = "app.exit_requested"
+	// EventViewSessionChanged 通告权威视图会话已被应用在内部切换（进程级、
+	// 空 sid，投递给所有订阅者）：运行中冷恢复失败把视图回退到切换前会话 /
+	// 草稿时，GUI Bridge 的事件订阅键仍钉在失败目标会话上，其订阅已永远
+	// 沉默——渲染层停在 restoring 空壳（输入框禁用）。订阅者收到本事件应
+	// 把订阅对齐到当前权威视图会话并重建，而不是把它当普通事件渲染。
+	EventViewSessionChanged EventKind = "view.session.changed"
 )
 
 // processClassKinds 是进程级 kind 白名单（G2/M2）：此类事件不带会话归属
 // （SessionID 必空），投递给所有订阅者。白名单之外的 kind 一律视为会话类
 // ——会话类 kind 的 SessionID 必填，空 sid 不再是通配。
 var processClassKinds = map[EventKind]bool{
-	EventResyncRequired: true,
-	EventExitRequested:  true,
+	EventResyncRequired:     true,
+	EventExitRequested:      true,
+	EventViewSessionChanged: true,
 }
 
 // PublishDiagnostic 记录被 hub 拒绝的 (kind, sessionID) 违例发布（INV-G3：

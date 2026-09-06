@@ -74,9 +74,12 @@ test("applies reasoning_content deltas without touching visible content", () => 
 });
 
 // G2/M2：订阅键含 sid 后前端做硬校验——带 sid 的会话级事件必须归属当前
-// 视图会话，不匹配直接丢弃；进程级事件不得带 sid。
+// 视图会话，不匹配直接丢弃（不推进水位）；进程级事件不得带 sid。
 test("drops events that do not belong to the current view session", () => {
   const current = { ...snapshot(), session: { id: "session-b" } };
+  // 视图外事件（会话切换竞态中旧订阅的迟到事件）：丢弃且**不推进水位**——
+  // 推进会把本订阅从 1 重计的 delivery_seq 吞成重复（切换后正文冻结，
+  // 见 session-switch-stale-event.test.mjs）。
   const foreign = applyEvent(current, {
     protocol_version: 1, delivery_seq: 12, revision: 3, request_id: "chat-a", kind: "message.added",
     session_id: "session-a",
@@ -84,31 +87,33 @@ test("drops events that do not belong to the current view session", () => {
   }, 11);
   assert.equal(foreign.dropped, true);
   assert.equal(foreign.needsRefresh, false);
-  assert.equal(foreign.lastSeq, 12);
+  assert.equal(foreign.lastSeq, 11, "视图外事件不得推进本订阅水位");
   assert.equal(foreign.snapshot.conversation.length, 1);
+
+  // 视图外事件不占用本订阅编号：紧随其后的本会话事件 seq=12 仍是连续的，
+  // 正常应用（若被误判为旧序号则会整份刷新或静默丢弃）。
+  const own = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 12, revision: 3, kind: "message.added",
+    session_id: "session-b",
+    payload: { id: "msg-b", role: "assistant", content: "own" }
+  }, 11);
+  assert.equal(own.dropped, undefined);
+  assert.equal(own.needsRefresh, false);
+  assert.equal(own.snapshot.conversation.length, 2);
 
   // 过渡期：缺 sid 的会话事件信任投递端过滤（G4 早分配 SID 后收紧）。
   const missing = applyEvent(current, {
     protocol_version: 1, delivery_seq: 13, revision: 3, kind: "message.delta",
     payload: { message_id: "assistant-1", delta: "B" }
-  }, foreign.lastSeq);
+  }, own.lastSeq);
   assert.equal(missing.dropped, undefined);
   assert.equal(missing.needsRefresh, false);
-
-  // 本会话事件正常应用。
-  const own = applyEvent(current, {
-    protocol_version: 1, delivery_seq: 14, revision: 3, kind: "message.added",
-    session_id: "session-b",
-    payload: { id: "msg-b", role: "assistant", content: "own" }
-  }, 13);
-  assert.equal(own.dropped, undefined);
-  assert.equal(own.needsRefresh, false);
-  assert.equal(own.snapshot.conversation.length, 2);
+  assert.equal(missing.snapshot.conversation[0].content, "AB");
 
   // 进程级事件（resync.required / app.exit_requested）以空 sid 全投。
   const resync = applyEvent(current, {
-    protocol_version: 1, delivery_seq: 15, kind: "resync.required"
-  }, 14);
+    protocol_version: 1, delivery_seq: 14, kind: "resync.required"
+  }, missing.lastSeq);
   assert.equal(resync.dropped, undefined);
   assert.equal(resync.needsRefresh, true);
 });

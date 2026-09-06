@@ -205,6 +205,19 @@ func (service *Service) publishSessionEvent(kind event.EventKind, revision uint6
 	return service.Events.Publish(kind, revision, requestID, payload)
 }
 
+// publishViewSessionChanged 通告权威视图会话已被应用内部切换（进程级事件、
+// 空 sid，投递给所有订阅者）。只用于**后台异步**改回视图会话的场景（运行中
+// 冷恢复失败：hot attach 回切换前会话，或退化为新建草稿）——此时 GUI Bridge
+// 的事件订阅键仍钉在失败目标会话上，其会话级订阅已永远沉默，渲染层停在
+// restoring 空壳（输入区禁用、消息发不出去）。同步切换（BeginNewSession /
+// ResumeSession / Fork / Activate）由 Bridge 调用方自己重订阅，不需要本事件。
+func (service *Service) publishViewSessionChanged() {
+	service.ViewMu.RLock()
+	revision := service.Core.Snapshot.Revision
+	service.ViewMu.RUnlock()
+	service.publishSessionEvent(EventViewSessionChanged, revision, "", "", nil)
+}
+
 // publishChatStateFor 下发指定会话的权威聊天运行态（chat.changed）。运行/排队
 // 是后端口径，客户端不得从"收到增量事件"反推自己是否在跑。
 //

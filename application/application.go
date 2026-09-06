@@ -113,6 +113,7 @@ const (
 	EventError                 = event.EventError
 	EventResyncRequired        = event.EventResyncRequired
 	EventExitRequested         = event.EventExitRequested
+	EventViewSessionChanged    = event.EventViewSessionChanged
 	PlanPending                = model.PlanPending
 	PlanRunning                = model.PlanRunning
 	PlanCompleted              = model.PlanCompleted
