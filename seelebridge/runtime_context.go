@@ -5,6 +5,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/session"
+	"github.com/RedHuang-0622/Seele/types"
 
 	seenode "github.com/RedHuang-0622/seelex/seelebridge/node"
 	"github.com/RedHuang-0622/seelex/seelexctx"
@@ -103,6 +104,12 @@ func (r *Runtime) nodeController() seelectx.ContextController {
 		Turns:  r.getTurnArchiver(),
 		// 节点压缩帧 SegmentID 溯源到节点会话：与主会话栈隔离（2026-08-24 修复）。
 		SessionIDProvider: func() string { return "node" },
+		// 压缩 DAG：节点子代理也走 select_range → chapter1/2 → merge 的
+		// workplan 图（2026-09-06 压缩 DAG 详设 §4.6）。前缀重放摘要器
+		// 暂不注入（字节级装配出口未固化，见设计 §9 风险 1）→ 本地折叠。
+		Compaction: seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
+			SessionIDProvider: func() string { return "node" },
+		}),
 	})
 }
 
@@ -188,6 +195,25 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 		// 压缩帧 SegmentID 溯源到当前会话：每次压缩动态取值，会话切换后
 		// 仍指向正确会话（compact-<sessionID>-<ms>）。
 		SessionIDProvider: r.MainSessionID,
+		// 压缩 DAG（2026-09-06 详设 §4.6）：阈值/窗口/去重/归档不变，
+		// 帧生成改走 workplan 图。前缀重放 Summarizer 暂不注入：启用前提
+		// 是字节级装配出口快照固化（system/History/Tools 与真实请求同一条
+		// 装配路径，见设计 §9 风险 1），未确认前 Chapter 2 恒本地折叠。
+		Compaction: seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
+			SessionIDProvider: r.MainSessionID,
+			SystemPrompt: func() string {
+				if store := r.sessionContextStore(); store != nil {
+					return store.SystemPrompt()
+				}
+				return ""
+			},
+			Tools: func() []types.Tool {
+				if r.agt == nil {
+					return nil
+				}
+				return r.agt.VisibleTools(context.Background())
+			},
+		}),
 	})
 }
 
