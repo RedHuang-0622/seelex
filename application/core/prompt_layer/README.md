@@ -39,7 +39,7 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 ### coordinator.go
 
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 prompt 域协调器。
-- `func (c *Coordinator) BuildSystemPrompt()` — BuildSystemPrompt 只组装 system 层（skill 内容留在请求信封，不持久化）。
+- `func (c *Coordinator) BuildSystemPrompt()` — BuildSystemPrompt 只组装稳定 system 层（激活技能正文由 context_runtime 作为
 - `func (c *Coordinator) ApplyActiveTaskSystemPrompt(requestID string)` — ApplyActiveTaskSystemPrompt 按活跃任务刷新 system prompt（锁内读取任务
 - `func (c *Coordinator) ApplyActiveTaskSystemPromptFor(sessionID, requestID string)` — ApplyActiveTaskSystemPromptFor 按指定会话活跃任务刷新 system prompt（锁内
 - `func (c *Coordinator) SystemPromptForActiveTaskLocked() string` — SystemPromptForActiveTaskLocked 组装活跃任务 system prompt（调用方持有
@@ -68,7 +68,7 @@ system 层、前缀缓存失效面、锁外 `SetSystemPrompt`。
 - `func TestRenderSkillCatalogStableAndSorted(t *testing.T)` — TestRenderSkillCatalogStableAndSorted：字节稳定（同输入同输出）+ 按 name 排序。
 - `func TestRenderSkillCatalogNeverLeaksPrompt(t *testing.T)` — TestRenderSkillCatalogNeverLeaksPrompt：目录只含 name/description，指令正文
 - `func TestCoordinatorInjectsPassiveCatalog(t *testing.T)` — TestCoordinatorInjectsPassiveCatalog：目录段自动进 system prompt（模型零
-- `func TestCoordinatorCatalogPrecedesTrustedSkill(t *testing.T)` — TestCoordinatorCatalogPrecedesTrustedSkill：激活技能存在时，目录段必须排在
+- `func TestCoordinatorSystemOmitsActiveSkillBody(t *testing.T)` — TestCoordinatorSystemOmitsActiveSkillBody：激活技能存在时，system 也只含
 - `func TestCoordinatorCatalogFollowsPluginSwitch(t *testing.T)` — TestCoordinatorCatalogFollowsPluginSwitch：目录内容随"当前插件技能表"变化
 - `func TestCoordinatorEmptyCatalogOmitsSection(t *testing.T)` — TestCoordinatorEmptyCatalogOmitsSection：插件无技能 → 目录段整体不出现，
 

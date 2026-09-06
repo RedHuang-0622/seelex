@@ -235,18 +235,20 @@ func (service *Service) publishChatStateFor(sessionID string) {
 }
 
 // bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
-//   - 无任何会话运行中 → 可安全重绑（当前视图会话的工具需要正确根）；
-//   - 有会话运行中 → 仅当目标是当前会话时重绑——后台运行中的会话不得因视图
-//     切换被改根，否则 A 的后续路径工具会解析到 B 的项目根（跨会话串写）。
+//   - 任意会话运行中 → 一律不重绑。全局 projectScope 是进程级执行面（工具/
+//     工作树仍读全局根），在途会话的任何一次路径工具调用都依赖它；即使目标
+//     是当前视图会话（异步冷恢复把视图先切到目标、原会话仍在后台跑），重绑
+//     也会让后台运行中会话的后续工具解析到新项目根（跨会话串写）。
+//   - 无任何会话运行中 → 可安全重绑（当前视图会话的工具需要正确根）。
 //
 // 返回是否已绑定；未绑定时调用方必须跳过全局 SetWorkspace（Router 写作用域
-// 同样全局，不能为后台会话切换）。
-func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool {
+// 同样全局，不能为后台会话切换）。运行中跳过的重绑在进程回到空闲后由
+// rebindViewWorkspaceWhenIdle 在 runChat 收尾统一对齐到当前视图会话。
+func (service *Service) bindProjectRootIfSafe(_ string, rootPath string) bool {
 	service.ViewMu.RLock()
 	anyRunning := service.anyChatRunningLocked()
-	current := service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
-	if anyRunning && sessionID != current {
+	if anyRunning {
 		return false
 	}
 	if service.Deps.Runtime == nil {
@@ -256,6 +258,33 @@ func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool {
 		return false
 	}
 	return true
+}
+
+// rebindViewWorkspaceWhenIdle 在进程变为完全空闲后，把全局项目根/Router 写
+// 作用域对齐到当前视图会话的工作区：运行期间为保护在途会话跳过的重绑在这里
+// 补齐，避免"切到的会话工具仍指向上一个运行会话的项目根"（后台收尾即触发）。
+// 当前视图会话无工作区时清掉运行期可能残留的全局根。调用方不得持有 Core.ViewMu。
+func (service *Service) rebindViewWorkspaceWhenIdle() {
+	if service == nil || service.Deps.Workspace == nil {
+		return
+	}
+	service.ViewMu.RLock()
+	sessionID := service.Core.Snapshot.Session.ID
+	service.ViewMu.RUnlock()
+	if workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID); ok {
+		if service.bindProjectRootIfSafe(sessionID, workspace.RootPath) {
+			service.setWorkspaceWriteScope(workspace.ID)
+		}
+		return
+	}
+	service.ViewMu.RLock()
+	idle := !service.anyChatRunningLocked()
+	service.ViewMu.RUnlock()
+	if !idle {
+		return
+	}
+	service.unbindGlobalProjectRoot()
+	service.setWorkspaceWriteScope("")
 }
 
 // SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃

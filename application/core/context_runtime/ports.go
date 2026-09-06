@@ -75,6 +75,7 @@ type Deps struct {
 	View     ViewPort
 	History  HistoryPort
 	// WorkTableTraceBlock 返回打点表标记块（work_table 域；请求尾部只读
-	// 注入）。
-	WorkTableTraceBlock func() string
+	// 注入）。sessionID 指明正在组装执行上下文的会话：打点必须取自该会话
+	// 自己的 task scope，多会话并行时后台会话不得看到活跃会话的打点。
+	WorkTableTraceBlock func(sessionID string) string
 }

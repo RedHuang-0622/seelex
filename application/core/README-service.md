@@ -202,6 +202,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_input_test.go
 
+- `func trustedSkillInHistory(t *testing.T, history []EngineMessage, name, text string) bool` — trustedSkillInHistory 断言引擎历史中存在激活技能 internal 事件
 - `func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T)`
 - `func TestWorkTableTraceBlock(t *testing.T)`
 - `func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T)`

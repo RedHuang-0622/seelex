@@ -30,7 +30,8 @@
 - `func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
 - `func taskStatusForNode(status NodeStatus) dto.TaskStatus`
 - `func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus`
-- `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 构建打点表标记块：只含未终态任务
+- `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
+- `func (state *serviceState) workTableTraceBlockFor(sessionID string) string` — workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
 - `func clonePlanForSync(plan *PlanState) *PlanState`
 - `func cloneSubAgentTreeForSync(nodes []dto.SubAgentTreeNode) []dto.SubAgentTreeNode`
 - `func (service *Service) RefreshWorkTableSnapshot()` — RefreshWorkTableSnapshot 是子代理树生命周期变更的被动投影入口（由 CSP
@@ -58,6 +59,11 @@
 ### work_table_race_test.go
 
 - `func TestWorkTableRaceConcurrentMutations(t *testing.T)` — TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
+
+### work_table_session_scope_test.go
+
+- `func TestS1BackgroundSessionContextMustNotCarryActiveSessionWorkTable(t *testing.T)`
+- `func TestWorkTableTraceBlockForScopesBySession(t *testing.T)`
 
 ### work_table_subagent_status_test.go
 

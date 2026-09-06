@@ -59,6 +59,7 @@ go test ./application/core/context_runtime -count=1
 
 ### coordinator.go
 
+- `func IsActiveSkillContent(content string) bool` — IsActiveSkillContent 判定内容是否为激活技能 internal 事件（Append-only
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 context 域协调器。
 - `func (c *Coordinator) Ports() Ports` — Ports 是装配端口图的只读快照（组装校验/诊断用）。
 - `func (c *Coordinator) CompactTaskContext(requestID string) error` — CompactTaskContext 把整个可变 transcript 替换为一个私有、有界的 checkpoint
@@ -111,4 +112,5 @@ go test ./application/core/context_runtime -count=1
 - `func TestRepairEmptyHistoryContentRepairsToolCallAssistantContent(t *testing.T)`
 - `func TestRetainedSystemHistoryKeepsStablePrefixAndSettledContext(t *testing.T)`
 - `func retainedContents(history []contract.EngineMessage) []string`
+- `func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T)` — TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only
 

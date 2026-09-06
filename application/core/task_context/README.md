@@ -162,14 +162,22 @@ go test ./application/core/task_context -count=1
 - `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage` — TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
 - `func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage`
 - `func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent`
+- `func isActiveSkillEvent(event model.TranscriptEvent) bool` — isActiveSkillEvent 判定事件是否为激活技能正文 internal 轮次（ActiveSkillMarker
 - `func transcriptUserUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool)`
 - `func nextTranscriptUserIndex(events []model.TranscriptEvent, start int) int`
 - `func transcriptToolUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool)`
+
+### plan_transcript_test.go
+
+- `func TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit(t *testing.T)` — TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit：激活技能 internal 事件
+- `func TestTranscriptTailHistoryEmitsActiveSkillTurn(t *testing.T)` — TestTranscriptTailHistoryEmitsActiveSkillTurn：装配输出在真实轮次之前包含
+- `func TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget(t *testing.T)` — TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget：压缩窗口/预算不足
 
 ### task_context_state.go
 
 - `func (c *Coordinator) ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer)` — ActivateTaskSkillsLocked 把请求级 skill 层投影进任务状态（调用方持有
 - `func (c *Coordinator) _ActivateTaskSkillsLocked(state *TaskExecutionState, layers []prompt.PromptLayer)`
+- `func (c *Coordinator) ensureActiveSkillEventsLocked(st *sessionTaskRuntime, layers []prompt.PromptLayer, logged map[string]struct{})` — ensureActiveSkillEventsLocked 只追加本任务尚未落盘的技能正文事件（logged 里
 - `func (c *Coordinator) SyncGoalSkillActiveLocked()` — SyncGoalSkillActiveLocked 把任务级 skill 集投影到 lock-free 可见性值
 - `func (c *Coordinator) _SyncGoalSkillActiveLocked()`
 - `func (c *Coordinator) syncGoalSkillActiveLocked()`

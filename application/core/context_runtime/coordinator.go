@@ -53,7 +53,7 @@ type Coordinator struct {
 	prompts   PromptPort
 	view      ViewPort
 	history   HistoryPort
-	workTable func() string
+	workTable func(sessionID string) string
 }
 
 // NewCoordinator 构造 context 域协调器。
@@ -138,8 +138,9 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 		return "", err
 	}
 	// 工作打点表：请求尾部的只读标记块（system 前缀保持不变 → 缓存友好；
-	// 无活动任务时块为空 → 自动删除；不落历史 → 不参与压缩）。
-	if block := c.workTable(); block != "" {
+	// 无活动任务时块为空 → 自动删除；不落历史 → 不参与压缩）。打点按正在
+	// 组装上下文的会话取数：后台会话只见自己的 scope 分区，不串活跃会话。
+	if block := c.workTable(sessionID); block != "" {
 		if currentInput == "" {
 			currentInput = block
 		} else {

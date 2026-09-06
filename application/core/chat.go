@@ -317,6 +317,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		revision = service.bumpLocked()
 	}
 	service.ViewMu.Unlock()
+	// 进程回到完全空闲：补齐运行期间因"运行中不改根"跳过的当前会话工作区
+	// 重绑（后台会话收尾时当前视图可能已切走，工具根必须跟随当前视图会话）。
+	service.rebindViewWorkspaceWhenIdle()
 	runChatDebug("runChat tail session=%s request=%s err=%v processQueue=%v nextRequest=%q", sessionID, requestID, err, processQueue, nextRequestID)
 	service.publishChatStateFor(sessionID)
 	if err != nil {

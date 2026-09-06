@@ -139,8 +139,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Prompts:  service.components.prompts,
 		View:     service.components.view,
 		History:  service.components.history,
-		WorkTableTraceBlock: func() string {
-			return service.workTableTraceBlock()
+		WorkTableTraceBlock: func(sessionID string) string {
+			return service.workTableTraceBlockFor(sessionID)
 		},
 	})
 	service.components.subagent = subagent_view.NewCoordinator(subagent_view.Deps{

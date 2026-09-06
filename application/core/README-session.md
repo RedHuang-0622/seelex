@@ -146,6 +146,7 @@
 ### session_history.go
 
 - `func (service *Service) resumeSession(sessionID string) error` — resumeSession 是会话切换的应用边界：目标已驻留（含运行中）热加载；目标
+- `func (service *Service) rollbackSyncResumeFailure(sessionID, previousID string)` — rollbackSyncResumeFailure 在同步冷加载失败后恢复视图一致性（调用方持视图
 - `func (service *Service) bumpViewEpoch()` — bumpViewEpoch 推进视图切换序号（任何新的视图激活都推进；后台冷加载完成
 - `func (service *Service) beginAsyncRestore(sessionID string) (uint64, error)` — beginAsyncRestore 激活目标会话的 restoring 空壳：视图指针立即切到目标，
 - `func (service *Service) resumeSessionColdInBackground(sessionID, previousID string, epoch uint64)` — resumeSessionColdInBackground 后台执行冷加载：完成/失败后按 epoch 判定
@@ -234,6 +235,10 @@
 - `func TestViewSwitchDoesNotMutateExecution(t *testing.T)` — TestViewSwitchDoesNotMutateExecution（TC-INV-02）：切到 B 只换视图指针，
 - `func TestPersistReadsOnlyOwnDomain(t *testing.T)` — TestPersistReadsOnlyOwnDomain（TC-INV-03）：快照/活跃槽全是 B 时，
 
+### session_running_not_rerooted_test.go
+
+- `func TestRunningSessionNotRerootedByAttach(t *testing.T)` — TestRunningSessionNotRerootedByAttach 回归（复现报告中“切到其它会话后工具
+
 ### session_runtime_slot_integration_test.go
 
 - `func (engine *sessionTokenEngine) TokenCountFor(sessionID string) string`
@@ -268,8 +273,10 @@
 - `func queuedChatRequests(requests []session.QueuedRequest) []chatRequest` — queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的
 - `func (service *Service) activeQueuedChatRequestsLocked() []chatRequest` — activeQueuedChatRequestsLocked 返回当前会话域的排队输入（还原为执行内核
 - `func (service *Service) publishSessionEvent(kind event.EventKind, revision uint64, requestID, sessionID string, payload any) event.Event` — publishSessionEvent 发布事件；装配的 EventHub 支持会话路由时携带
+- `func (service *Service) publishViewSessionChanged()` — publishViewSessionChanged 通告权威视图会话已被应用内部切换（进程级事件、
 - `func (service *Service) publishChatStateFor(sessionID string)` — publishChatStateFor 下发指定会话的权威聊天运行态（chat.changed）。运行/排队
-- `func (service *Service) bindProjectRootIfSafe(sessionID, rootPath string) bool` — bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
+- `func (service *Service) bindProjectRootIfSafe(_ string, rootPath string) bool` — bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
+- `func (service *Service) rebindViewWorkspaceWhenIdle()` — rebindViewWorkspaceWhenIdle 在进程变为完全空闲后，把全局项目根/Router 写
 - `func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error` — SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃
 - `func (service *Service) sessionLoaded(sessionID string) bool` — sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
 - `func (service *Service) ActivateSession(sessionID string) error` — ActivateSession 切换当前展示/执行会话。M1 没有每会话驻留快照，切换即
@@ -359,6 +366,12 @@
 - `func TestBackgroundToolEventsCarryOwnRequestID(t *testing.T)` — TestBackgroundToolEventsCarryOwnRequestID 复现后台会话工具事件携带活跃
 - `func TestSubmitPromptWhileOtherSessionRuns(t *testing.T)` — TestSubmitPromptWhileOtherSessionRuns 复现输入阻塞：A 运行中（引擎阻塞），
 - `func TestDeltasKeepFlowingAfterSwitchToRunningSession(t *testing.T)` — TestDeltasKeepFlowingAfterSwitchToRunningSession 回归守卫：切到运行中
+
+### session_switch_failed_resume_test.go
+
+- `func (s *attachFailingSessions) AttachSessionContext(_ string, sessionID string) error`
+- `func (s *attachFailingSessions) DetachSessionContext()`
+- `func TestFailedResumeKeepsViewOnPreviousSessionAndSubmitContinuesIt(t *testing.T)` — TestFailedResumeKeepsViewOnPreviousSessionAndSubmitContinuesIt 复现“切换失败
 
 ### session_switch_probe_test.go
 
