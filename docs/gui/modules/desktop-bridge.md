@@ -66,6 +66,29 @@ Bridge 不解释 Chat、Plugin、Session 或审批业务，不缓存业务 Snaps
 
 无 `gui` tag 时，`gui/run_stub.go:7-12` 返回明确的 tags 构建提示。这样默认 TUI 构建不需要桌面 WebView 链接环境。
 
+### 4.1 Headless 冒烟接口（headlessUI 设计）
+
+实现位置：`gui/headless.go`；装配点 `gui/run_wails.go` 的 `Run` 开头。
+
+桌面 GUI 在真实窗口之外提供一个**默认关闭、仅回环**的本地控制面，让外部驱动
+像前端一样驱动同一份 Application Core，用于多会话/长会话冒烟与时间线热力
+分析：
+
+- 开关：环境变量 `SEELEX_HEADLESS_PORT=<port>`；未设置时零开销（生产双击
+  路径不受影响）。服务只绑定 `127.0.0.1`。
+- `/rpc`：JSON-RPC 风格方法面，映射到 Bridge 同源的窄契约子集——
+  `Snapshot` / `PerfStats` / `Submit` / `BeginNewSession` / `ResumeSession` /
+  `ForkSessionLatest` / `CancelChat` / `LoadMoreHistory` /
+  `ResolveInteraction`，以及会话级扩展 `ListSessions` / `SnapshotOf` /
+  `ActivateSession`（宿主具备时）。命令全部走 application core，不新增业务
+  状态机。
+- `/events`：SSE 全量会话事件流（含 payload 体积等公开元数据，不含会话
+  正文），驱动侧按到达时刻打点即可得到事件速率/阶段耗时热力图。
+- `/healthz`：进程存活探针。
+
+安全边界：回环绑定 + 环境变量显式开关；不暴露账号配置、命令行、工具输出等
+私有内容；事件流不重复携带对话正文。
+
 ## 5. 项目资料发现
 
 实现位置：`gui/bridge.go:72-107`。
@@ -96,6 +119,8 @@ Bridge 不解释 Chat、Plugin、Session 或审批业务，不缓存业务 Snaps
 - `gui/bridge_test.go:47-94`：构造、Info、项目资料发现。
 - `gui/bridge_test.go:96-189`：绑定委托、事件转发、生命周期。
 - `gui/bridge_test.go:191-205`：所有嵌入式前端模块存在。
+- `gui/headless_test.go`：healthz、RPC 方法面（含参数/未知方法错误）与
+  SSE 事件流契约。
 - `.github/workflows/ci.yml:50-52`：Windows production tags 编译。
 - `.github/workflows/ci.yml:83-110`：Application/Bridge contract job。
 
