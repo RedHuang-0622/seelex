@@ -45,8 +45,8 @@ func TestBuildLayoutSingleSource(t *testing.T) {
 	// Spec doc must mirror the same partition table.
 	doc := readRepoFile(t, ".claude/build-convention.md")
 	requiredDoc := []string{
-		`dist/archive`, `dist/seelex-gui-dev`, `dist/dev`,
-		`tmp/build/stage-gui`, `tmp/build/smoke`, `tmp/build/stash`, `tmp/build/deploy.log`,
+		`dist/archive`, `dist/seelex-gui-dev`, `dist/dev`, `dist/stage-gui`,
+		`tmp/build/smoke`, `tmp/build/stash`, `tmp/build/deploy.log`,
 	}
 	for _, token := range requiredDoc {
 		if !strings.Contains(doc, token) {
@@ -67,6 +67,7 @@ func TestNoLegacyBuildDirsInSources(t *testing.T) {
 	t.Parallel()
 	forbidden := []string{
 		`staging-gui`,
+		`tmp/build/stage-gui`, `tmp\build\stage-gui`,
 		`tmp\smoke`, `tmp/smoke`,
 		`tmp\stash`, `tmp/stash`,
 		`tmp\deploy.log`, `tmp/deploy.log`,

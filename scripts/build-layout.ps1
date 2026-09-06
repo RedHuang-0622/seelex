@@ -15,16 +15,17 @@ $script:SeelexLayoutRoot = Split-Path -Parent $PSScriptRoot
 function Get-SeelexLayout {
     # Returns a PSCustomObject with every canonical partition path.
     #
-    # dist/  (external artifacts; only these four partitions are allowed)
+    # dist/  (external artifacts; only these partitions are allowed)
     #   <os>-<arch>/            P1 platform release tree (CLI + runtime files)
     #   seelex-gui-dev/         P2 dev GUI baseline (USER DATA - never cleaned)
     #   archive/                P3 versioned release archives (*.zip|*.tar.gz|*.sha256)
     #   dev/                    P4 post-commit quick builds
+    #   stage-gui/              P5 GUI staging area (flow Stage output; the
+    #                           single "pending release" exe placement area)
     # tmp/build/                (pipeline intermediate state; no user data)
-    #   stage-gui/              T1 GUI staging
-    #   smoke/                  T2 smoke reports
-    #   stash/seelex-gui-dev/   T3 rollback stash
-    #   deploy.log              T4 deploy log
+    #   smoke/                  T1 smoke reports
+    #   stash/seelex-gui-dev/   T2 rollback stash
+    #   deploy.log              T3 deploy log
     $distRoot   = Join-Path $script:SeelexLayoutRoot "dist"
     $tmpBuild   = Join-Path $script:SeelexLayoutRoot "tmp\build"
     return [PSCustomObject]@{
@@ -38,23 +39,23 @@ function Get-SeelexLayout {
         # P4 local quick-build partition (post-commit hook)
         DevQuickDir       = Join-Path $distRoot "dev"
         DevQuickCliExe    = Join-Path $distRoot "dev\seelex.exe"
-        # T1 staging (flow Stage)
-        StageDir          = Join-Path $tmpBuild "stage-gui"
-        StageExe          = Join-Path $tmpBuild "stage-gui\seelex-gui.exe"
-        StageVersionFile  = Join-Path $tmpBuild "stage-gui\version.txt"
-        # T2 smoke reports (flow Smoke)
+        # P5 GUI staging (flow Stage; pending-release exe placement area)
+        StageDir          = Join-Path $distRoot "stage-gui"
+        StageExe          = Join-Path $distRoot "stage-gui\seelex-gui.exe"
+        StageVersionFile  = Join-Path $distRoot "stage-gui\version.txt"
+        # T1 smoke reports (flow Smoke)
         SmokeDir          = Join-Path $tmpBuild "smoke"
-        # T3 rollback stash (flow Deploy/Rollback)
+        # T2 rollback stash (flow Deploy/Rollback)
         StashDir          = Join-Path $tmpBuild "stash\seelex-gui-dev"
         StashPrevious     = Join-Path $tmpBuild "stash\seelex-gui-dev\seelex-gui.previous.exe"
-        # T4 deploy log (flow Deploy/Rollback)
+        # T3 deploy log (flow Deploy/Rollback)
         DeployLog         = Join-Path $tmpBuild "deploy.log"
         # Everything allowed directly under dist/ (anything else is drift).
         # ".seelex" is gitignored runtime/session data created when a dev binary
         # is run with dist/ as its working directory - allowed but never written
         # by build scripts.
         AllowedDistEntries = @(
-            "archive", "seelex-gui-dev", "dev", ".seelex",
+            "archive", "seelex-gui-dev", "dev", "stage-gui", ".seelex",
             "windows-amd64", "linux-amd64", "darwin-amd64", "darwin-arm64"
         )
     }
@@ -62,7 +63,7 @@ function Get-SeelexLayout {
 
 function Assert-DistRootCleanLayout {
     # Fails when an unexpected entry exists directly under dist/. Guarantees the
-    # root stays limited to the canonical partitions (P1..P4).
+    # root stays limited to the canonical partitions (P1..P5).
     param(
         [string]$DistRoot,
         [string[]]$ExtraAllowed = @()

@@ -12,16 +12,16 @@
 ## 分区速览
 
 ```text
-dist/                               对外产物（根下只允许这四个分区）
+dist/                               对外产物（根下只允许这五个分区）
   dist/<os>-<arch>/                 P1 平台发布树（CLI + 运行时文件）
   dist/seelex-gui-dev/              P2 dev GUI 基线（用户数据，默认永不 clean）
   dist/archive/                     P3 发布归档（zip / tar.gz / sha256）
   dist/dev/                         P4 本地快速构建（post-commit → seelex.exe）
+  dist/stage-gui/                   P5 GUI 暂存区（flow Stage → 待部署 exe 放置区）
 tmp/build/                          流程中间态（可整体删除）
-  tmp/build/stage-gui/              T1 GUI 暂存区
-  tmp/build/smoke/                  T2 冒烟报告
-  tmp/build/stash/seelex-gui-dev/   T3 回滚 stash
-  tmp/build/deploy.log              T4 部署日志
+  tmp/build/smoke/                  T1 冒烟报告
+  tmp/build/stash/seelex-gui-dev/   T2 回滚 stash
+  tmp/build/deploy.log              T3 部署日志
 ```
 
 ## 文件
@@ -41,7 +41,7 @@ tmp/build/                          流程中间态（可整体删除）
 - `make rebuild-gui VERSION=<tag>`：构建 Dev GUI（要求 `LOCAL_CONFIG`，
   默认 `config/accounts.yaml`，作为不透明文件复制为包内 `config/accounts.yaml`）；
 - `make publish-rebuild-gui VERSION=<tag>`：构建 Publish GUI，只含 example；
-- `make clean`：只清 P1/P3/P4，**默认保留 P2**（`CLEAN_DEV=1` 才删 P2）；
+- `make clean`：只清 P1/P3/P4/P5（含 `dist/stage-gui/`），**默认保留 P2**（`CLEAN_DEV=1` 才删 P2）；
 - `make guard-dist-layout`：校验 `dist/` 根只有规范分区，多余条目即失败。
 
 ## 分阶段部署流程（推荐）
@@ -49,7 +49,7 @@ tmp/build/                          流程中间态（可整体删除）
 日常更新 dev GUI 使用 `scripts/seelex-flow.ps1`（或 Makefile 封装），
 把「更新当前可用基线」与「产出发布包」分开，全程不清理 P2 基线：
 
-1. `make stage-gui`：把新 GUI 二进制构建到 `tmp/build/stage-gui/`（暂存区，不触碰基线）。
+1. `make stage-gui`：把新 GUI 二进制构建到 `dist/stage-gui/`（P5 GUI 暂存区，不触碰基线）。
 2. `make smoke-gui`：对暂存区二进制做无头冒烟（`-version` + backend 启动链路），
    报告保留在 `tmp/build/smoke/`（时间戳独立文件，可作恢复参照）。
 3. `make deploy-gui`：检查运行中的 seelex 进程；无进程或进程退出且确认后，
@@ -72,7 +72,7 @@ clean 只删除派生产物分区；P2（`dist/seelex-gui-dev/`）含用户数�
 - `build-gui.ps1` 默认且公开发布固定使用 `-BuildKind Publish`，该模式拒绝 `-LocalConfigPath`；只有 `-BuildKind Dev` 才要求并复制真实配置。本地生成的 Dev GUI ZIP 含账号配置，不得公开上传。
 - 路径一律取自 `build-layout.ps1`（repo root 解析），不依赖调用者当前目录。
 - Windows 与 POSIX 脚本保持同一张分区表（版本、文件白名单、输出命名一致）。
-- 清理命令只作用于规范分区（P1 平台树、P3 `dist/archive/`、P4 `dist/dev/`），P2 需显式 `-CleanDev` / `CLEAN_DEV=1`。
+- 清理命令只作用于规范分区（P1 平台树、P3 `dist/archive/`、P4 `dist/dev/`、P5 `dist/stage-gui/`），P2 需显式 `-CleanDev` / `CLEAN_DEV=1`。
 
 ## Review 与验证
 

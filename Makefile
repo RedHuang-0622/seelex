@@ -80,11 +80,11 @@ guard-dist:
 		exit 1; \
 	}
 
-## guard-dist-layout: dist 根只允许规范分区 (P1 平台树 / P2 seelex-gui-dev / P3 archive / P4 dev)
+## guard-dist-layout: dist 根只允许规范分区 (P1 平台树 / P2 seelex-gui-dev / P3 archive / P4 dev / P5 stage-gui)
 guard-dist-layout: guard-dist
 	@for entry in $$(ls -A "$(DIST)" 2>/dev/null || true); do \
 		case "$$entry" in \
-			windows-*|linux-*|darwin-*|seelex-gui-dev|archive|dev|.seelex) ;; \
+			windows-*|linux-*|darwin-*|seelex-gui-dev|archive|dev|stage-gui|.seelex) ;; \
 			*) echo "unexpected entry under dist/ (layout drift): $$entry"; exit 1 ;; \
 		esac; \
 	done
@@ -104,7 +104,7 @@ guard-local-config:
 		exit 1; \
 	}
 
-## clean: 清理派生产物分区 (P1 平台树 / P3 archive / P4 dev), 默认保留 P2 dev GUI 基线
+## clean: 清理派生产物分区 (P1 平台树 / P3 archive / P4 dev / P5 stage-gui), 默认保留 P2 dev GUI 基线
 clean: guard-dist guard-dist-layout
 	@echo "[clean] $(abspath $(DIST)) partitions (P2 seelex-gui-dev kept unless CLEAN_DEV=1)"
 	@for p in $(PLATFORMS); do \
@@ -112,7 +112,7 @@ clean: guard-dist guard-dist-layout
 		arch=$$(echo $$p | cut -d/ -f2); \
 		rm -rf -- "$(DIST)/$$os-$$arch"; \
 	done
-	rm -rf -- "$(DIST)/archive" "$(DIST)/dev"
+	rm -rf -- "$(DIST)/archive" "$(DIST)/dev" "$(DIST)/stage-gui"
 	@if [ -d "$(DIST)/seelex-gui-dev" ]; then \
 		if [ "$(CLEAN_DEV)" = "1" ]; then \
 			echo "[clean] removing $(DIST)/seelex-gui-dev (explicit CLEAN_DEV=1)"; \
@@ -148,7 +148,7 @@ rebuild-gui: clean-gui
 publish-rebuild-gui: clean-gui
 	@$(MAKE) publish-build-gui VERSION="$(VERSION)" DIST="$(DIST)" POWERSHELL="$(POWERSHELL)"
 
-## stage-gui: 阶段1 构建新 GUI 二进制到暂存区 tmp/build/stage-gui（不触碰基线工作区）
+## stage-gui: 阶段1 构建新 GUI 二进制到暂存区 dist/stage-gui（P5，不触碰基线工作区）
 stage-gui: guard-version
 	$(POWERSHELL) -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass \
 		-File scripts/seelex-flow.ps1 -Stage Stage -Version "$(VERSION)"

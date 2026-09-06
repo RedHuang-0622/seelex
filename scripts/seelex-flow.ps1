@@ -6,7 +6,7 @@
 # or overwrites dist/ by accident. All artifact paths come from the canonical
 # layout in scripts/build-layout.ps1 (single source of truth). Canonical
 # partitions (see .claude/build-convention.md):
-#   Stage     -> build GUI into staging area       tmp/build/stage-gui/
+#   Stage     -> build GUI into staging area       dist/stage-gui/
 #   Smoke     -> headless smoke (version + backend boot); report kept in
 #                tmp/build/smoke/ (timestamped, never overwritten)
 #   Deploy    -> check running seelex processes; after confirmation and exit,
