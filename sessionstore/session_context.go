@@ -86,6 +86,26 @@ type CompactFrame struct {
 	Summary              string        `json:"summary"`
 	Evidence             []EvidenceRef `json:"evidence,omitempty"`
 	CompressedAt         time.Time     `json:"compressed_at"`
+
+	// 超上下文索引（2026-09-06 压缩 DAG 详设 §3.1）：本帧覆盖的首尾
+	// requestID。只作元数据与检索定位，不进模型可见正文；旧记录缺省
+	// 为空（向后兼容）。
+	RequestFrom string `json:"request_from,omitempty"`
+	RequestTo   string `json:"request_to,omitempty"`
+
+	// 链锚点（详设 §3.1，二阶导）：只指向前驱帧，不复制前驱全文。
+	// 栈序正确性靠 PrevSegmentID 存在性 + request 首尾接续校验。
+	PrevSegmentID      string `json:"prev_segment_id,omitempty"`
+	PrevRequestFrom    string `json:"prev_request_from,omitempty"`
+	PrevRequestTo      string `json:"prev_request_to,omitempty"`
+	PrevSummaryOneLine string `json:"prev_summary_one_line,omitempty"`
+
+	// SummarySource/AnchorSource 是兜底质量标记（详设 §4.5）：
+	//   SummarySource: replay（前缀重放厚摘要）| local（确定性本地折叠）
+	//   AnchorSource:  ok（锚点完整）| degraded（一句话摘要降级为空）
+	// 空值 = 旧记录未声明。
+	SummarySource string `json:"summary_source,omitempty"`
+	AnchorSource  string `json:"anchor_source,omitempty"`
 }
 
 // SessionContextRecord 是会话级上下文状态（state blob）：
@@ -329,6 +349,36 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 		}
 		if (frame.EventFrom == 0) != (frame.EventTo == 0) || frame.EventFrom > frame.EventTo {
 			return fmt.Errorf("session context: compact frame invalid event range [%d,%d]", frame.EventFrom, frame.EventTo)
+		}
+		// 超上下文 request 索引（详设 §3.4）：同空或同非空；非空时按
+		// 字符串序非倒置（首尾覆盖语义）。
+		if (frame.RequestFrom == "") != (frame.RequestTo == "") {
+			return fmt.Errorf("session context: compact frame request range must be both empty or both set")
+		}
+		if frame.RequestFrom != "" && frame.RequestFrom > frame.RequestTo {
+			return fmt.Errorf("session context: compact frame invalid request range [%q,%q]",
+				frame.RequestFrom, frame.RequestTo)
+		}
+		// 链锚点（详设 §3.4）：PrevSegmentID == "" 当且仅当本帧为首帧；
+		// 非首帧必须给出且与栈内上一帧 SegmentID 一致。
+		if len(record.CompactStack) == 0 {
+			if frame.PrevSegmentID != "" {
+				return fmt.Errorf("session context: first compact frame must not carry prev_segment_id")
+			}
+			record.CompactStack = append(record.CompactStack, frame)
+			return nil
+		}
+		top := record.CompactStack[len(record.CompactStack)-1]
+		if frame.PrevSegmentID == "" {
+			return fmt.Errorf("session context: non-first compact frame requires prev_segment_id")
+		}
+		if frame.PrevSegmentID != top.SegmentID {
+			return fmt.Errorf("session context: prev_segment_id %q must match stack top %q",
+				frame.PrevSegmentID, top.SegmentID)
+		}
+		if frame.PrevRequestFrom != top.RequestFrom || frame.PrevRequestTo != top.RequestTo {
+			return fmt.Errorf("session context: prev request range [%q,%q] must match stack top [%q,%q]",
+				frame.PrevRequestFrom, frame.PrevRequestTo, top.RequestFrom, top.RequestTo)
 		}
 		record.CompactStack = append(record.CompactStack, frame)
 		return nil

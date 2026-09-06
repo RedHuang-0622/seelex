@@ -238,3 +238,135 @@ func TestCompactFrameRangeFieldsPersist(t *testing.T) {
 		t.Fatalf("legacy unit range = [%d,%d]", got.From, got.To)
 	}
 }
+
+// TestCompactFrameIndexAndChainFieldsPersist 验证 2026-09-06 压缩 DAG 详设
+// §3.1 的超上下文索引与链锚点字段持久化往返完整（旧记录无新字段可读）。
+func TestCompactFrameIndexAndChainFieldsPersist(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionContextStore(router, "session-compact-index")
+	first := CompactFrame{
+		SegmentID: "compact-sess-1", From: 0, To: 6,
+		RequestFrom: "chat-1", RequestTo: "chat-7",
+		Summary:      "## 压缩内容 (Compacted Context)\n### 目标 (Goal)\n迁移",
+		CompressedAt: time.Now(),
+	}
+	if err := store.PushCompact(first); err != nil {
+		t.Fatal(err)
+	}
+	second := CompactFrame{
+		SegmentID: "compact-sess-2", From: 0, To: 8,
+		RequestFrom: "chat-1", RequestTo: "chat-9",
+		PrevSegmentID:      first.SegmentID,
+		PrevRequestFrom:    first.RequestFrom,
+		PrevRequestTo:      first.RequestTo,
+		PrevSummaryOneLine: "完成了模块 X 的迁移与验收",
+		SummarySource:      "local",
+		AnchorSource:       "ok",
+		Summary:            "## 压缩内容 (Compacted Context)\n### 目标 (Goal)\n继续",
+		CompressedAt:       time.Now(),
+	}
+	if err := store.PushCompact(second); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewSessionContextStore(router, "session-compact-index")
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := reloaded.Snapshot().CompactStack
+	if len(got) != 2 {
+		t.Fatalf("compact stack = %d frames, want 2", len(got))
+	}
+	if got[0].RequestFrom != "chat-1" || got[0].RequestTo != "chat-7" {
+		t.Fatalf("first frame request index = %q..%q", got[0].RequestFrom, got[0].RequestTo)
+	}
+	if got[1].PrevSegmentID != "compact-sess-1" || got[1].PrevSummaryOneLine != "完成了模块 X 的迁移与验收" {
+		t.Fatalf("second frame chain anchor = %+v", got[1])
+	}
+	if got[1].SummarySource != "local" || got[1].AnchorSource != "ok" {
+		t.Fatalf("second frame quality markers = %+v", got[1])
+	}
+	// 旧记录（无新字段）仍可解码：直接写入缺字段的 state blob。
+	legacyPayload := `{"schema_version":1,"compact_stack":[{"segment_id":"legacy-1","from":0,"to":3,"summary":"旧摘要"}]}`
+	if err := router.SaveContextState("session-legacy", []byte(legacyPayload)); err != nil {
+		t.Fatal(err)
+	}
+	legacy := NewSessionContextStore(router, "session-legacy")
+	if err := legacy.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	legacyFrames := legacy.Snapshot().CompactStack
+	if len(legacyFrames) != 1 || legacyFrames[0].Summary != "旧摘要" || legacyFrames[0].RequestFrom != "" {
+		t.Fatalf("legacy frame = %+v", legacyFrames)
+	}
+}
+
+// TestPushCompactIndexAndChainValidation 验证详设 §3.4 追加校验：
+// request 首尾同空/同非空 + 非倒置；PrevSegmentID 首帧为空、非首帧与栈顶
+// 一致；PrevRequestFrom/To 与栈顶 request 索引一致。
+func TestPushCompactIndexAndChainValidation(t *testing.T) {
+	router := newTestRouter(t)
+	store := NewSessionContextStore(router, "session-compact-validate")
+	base := func() CompactFrame {
+		return CompactFrame{SegmentID: "seg-x", From: 0, To: 1, Summary: "s", CompressedAt: time.Now()}
+	}
+	// request 索引半填充拒绝。
+	if err := store.PushCompact(func() CompactFrame {
+		frame := base()
+		frame.RequestFrom = "chat-1"
+		return frame
+	}()); err == nil {
+		t.Fatal("half-filled request range must fail")
+	}
+	// request 索引倒置拒绝。
+	if err := store.PushCompact(func() CompactFrame {
+		frame := base()
+		frame.RequestFrom, frame.RequestTo = "chat-9", "chat-1"
+		return frame
+	}()); err == nil {
+		t.Fatal("inverted request range must fail")
+	}
+	// 首帧携带 prev_segment_id 拒绝。
+	if err := store.PushCompact(func() CompactFrame {
+		frame := base()
+		frame.PrevSegmentID = "ghost"
+		return frame
+	}()); err == nil {
+		t.Fatal("first frame with prev_segment_id must fail")
+	}
+	// 合法首帧（带 request 索引与质量标记）。
+	first := base()
+	first.SegmentID = "compact-validate-1"
+	first.RequestFrom, first.RequestTo = "chat-1", "chat-2"
+	if err := store.PushCompact(first); err != nil {
+		t.Fatal(err)
+	}
+	// 非首帧缺 prev_segment_id 拒绝。
+	if err := store.PushCompact(base()); err == nil {
+		t.Fatal("non-first frame without prev_segment_id must fail")
+	}
+	// prev_segment_id 与栈顶不一致拒绝。
+	if err := store.PushCompact(func() CompactFrame {
+		frame := base()
+		frame.PrevSegmentID = "compact-validate-wrong"
+		return frame
+	}()); err == nil {
+		t.Fatal("prev_segment_id mismatch must fail")
+	}
+	// prev request 范围与栈顶不一致拒绝。
+	if err := store.PushCompact(func() CompactFrame {
+		frame := base()
+		frame.PrevSegmentID = "compact-validate-1"
+		frame.PrevRequestFrom, frame.PrevRequestTo = "chat-5", "chat-6"
+		return frame
+	}()); err == nil {
+		t.Fatal("prev request range mismatch must fail")
+	}
+	// 合法非首帧。
+	second := base()
+	second.SegmentID = "compact-validate-2"
+	second.PrevSegmentID = "compact-validate-1"
+	second.PrevRequestFrom, second.PrevRequestTo = "chat-1", "chat-2"
+	if err := store.PushCompact(second); err != nil {
+		t.Fatal(err)
+	}
+}
