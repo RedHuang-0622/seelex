@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -123,6 +124,73 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 	if got := service.Snapshot().Session.ID; got != "session-new" {
 		t.Fatalf("active session after fork = %q, want session-new", got)
 	}
+}
+
+// TestForkSessionChildContentVisibleAfterResume 钉住 fork 回归：ForkSession
+// 落盘子会话后自动切换到子会话，SnapshotOf(child) 必须能读到截至切点的
+// 会话正文（曾复现：真实 GUI 单轮 fork 后子会话 record 含 2 条消息，但
+// SnapshotOf 恒为 total=0 resident=true）。
+func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
+	parent := SessionRecord{
+		Version: session_runtime.SessionRecordVersion,
+		ID:      "parent",
+		Title:   SessionTitle{Value: "Parent", Source: "first_request"},
+		Conversation: ConversationRecord{Messages: []Message{
+			{ID: "m1", Role: "user", Content: "hi"},
+			{ID: "m2", Role: "assistant", Content: "hello"},
+		}},
+	}
+	sessions := &forkServiceSessions{
+		parent: parent,
+		events: []sessionstore.Event{
+			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
+			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
+		},
+		context:    []byte(`{"schema_version":1}`),
+		generation: "generation-parent",
+	}
+	engine := newMultiSessionEngine()
+	// 生产 seelebridge.Runtime.PerSessionExecution()=false（per-session
+	// project root 未落地前），fork 走 legacy StartSession 分支；回归必须
+	// 用默认 runtime 才能钉住该路径。
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	childID, err := service.ForkSessionLatest("parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := service.Snapshot().Session.ID; got != childID {
+		t.Fatalf("active session after fork = %q, want %q", got, childID)
+	}
+	snapshot, err := service.SnapshotOf(childID)
+	if err != nil {
+		t.Fatalf("SnapshotOf(child): %v", err)
+	}
+	if snapshot.Session.ID != childID || !snapshot.Resident {
+		t.Fatalf("child snapshot identity/resident = %#v", snapshot.Session)
+	}
+	if snapshot.TotalMessages != 2 {
+		t.Fatalf("child TotalMessages = %d, want 2（record 含 user+assistant 各一条）", snapshot.TotalMessages)
+	}
+	last := lastMessageOf(snapshot.Conversation)
+	if last == nil || last.Role != "assistant" || last.Content != "hello" {
+		t.Fatalf("child 最后可见消息 = %#v, want assistant hello", last)
+	}
+	if engine.HasSession(childID) {
+		history := engine.HistoryFor(childID)
+		if len(history) != 2 || history[1].Content != "hello" {
+			t.Fatalf("child engine history = %#v, want 2 messages ending hello", history)
+		}
+	}
+}
+
+func lastMessageOf(messages []Message) *Message {
+	for index := len(messages) - 1; index >= 0; index-- {
+		if messages[index].Role != "system" {
+			return &messages[index]
+		}
+	}
+	return nil
 }
 
 func TestForkSessionLatestResolvesNewestParagraph(t *testing.T) {

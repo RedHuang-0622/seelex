@@ -198,6 +198,22 @@ func (e *multiSessionEngine) ReplaceHistoryFor(sessionID string, history []Engin
 	return nil
 }
 
+// ResumeSession 模拟 production EnginePort.ResumeSession 语义：目标会话
+// 已有引擎实例时清空并重装历史，否则注册后装载，并把活跃别名切到目标。
+func (e *multiSessionEngine) ResumeSession(sessionID string, history []EngineMessage) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.sessions[sessionID]; !ok {
+		e.sessions[sessionID] = nil
+		e.started[sessionID] = make(chan struct{})
+		e.release[sessionID] = make(chan struct{})
+		e.streamCalls[sessionID] = 0
+	}
+	e.sessions[sessionID] = append([]EngineMessage(nil), history...)
+	e.active = sessionID
+	return nil
+}
+
 func (e *multiSessionEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error) {
 	return e.ChatStreamFor(e.SessionID(), ctx, input, onChunk)
 }

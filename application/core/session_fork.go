@@ -121,12 +121,14 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 		service.Deps.Workspace.BindSession(childID, location.WorkspaceID)
 	}
 	service.setWorkspaceWriteScope(location.WorkspaceID)
-	// F-4：逐会话宿主下 fork 的子 bundle 由显式 ID 创建；登记完成后卸载，
-	// 让重开走 cold_load（从 fork 快照装载），不残留空引擎活跃别名。
-	if service.perSessionExecution() {
-		if unloader, ok := service.Deps.Engine.(interface{ UnloadSession(string) error }); ok {
-			_ = unloader.UnloadSession(childID)
-		}
+	// F-4：fork 子引擎只是“占位登记”（逐会话宿主显式建 bundle，legacy
+	// 宿主经 StartSession 分配 ID），登记完成后一律卸载，让后续 resume
+	// 走 cold_load 从 fork 快照装载正文。legacy 宿主若不卸载，resume 会
+	// 把空引擎判为已加载 → 热挂载空视图（子会话 record 有正文但
+	// SnapshotOf 恒 total=0）；不支持 UnloadSession 的引擎跳过，行为与
+	// 修复前一致（其 resume 本就无热挂载语义）。
+	if unloader, ok := service.Deps.Engine.(interface{ UnloadSession(string) error }); ok {
+		_ = unloader.UnloadSession(childID)
 	}
 	service.components.sessions.RequestCatalogRefresh()
 	return childID, nil
