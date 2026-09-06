@@ -27,9 +27,12 @@ Compressor/Controller），供 `session.ContextComponents` 注入。
 | `assembler.go` | `RequestAssembler`：system prompt（effort/skill）+ PromptBlocks + working history 拼装；工具定义经 `AssembledRequest.Tools` 透传（引擎 API schema 通道，不渲染为消息文本）。 |
 | `processor.go` | `ToolResultProcessor`：超大工具结果 → result_ref/省略警告。 |
 | `compressor.go` | `Compressor` 适配：短历史免压缩 + QuickChat 隔离摘要。 |
-| `controller.go` | `ContextController`：软/硬阈值、窗口外压缩、checkpoint 决策。 |
+| `controller.go` | `ContextController`：软/硬阈值、窗口外压缩、checkpoint 决策；帧生成优先走压缩 DAG（`ControllerOptions.Compaction`），旧本地路径保留兼容。 |
 | `window.go` | 滑动窗口轮数策略（配置 + provider 推导）。 |
 | `gap.go` | 真空区覆盖：滑动窗口与压缩内容之间的未压缩轮次，Load 时检测并压入合并帧。 |
+| `frame.go` | CompactFrame 两章节 Summary 纯函数（Chapter 1 链锚点 + Chapter 2 厚内容）、渲染截取、一句话摘要与 request 覆盖标签。 |
+| `replay.go` | 前缀重放摘要协议：`PrefixReplaySummarizer` + QuickChat 实现（字节级同源素材由调用方保证）。 |
+| `dag.go` | 压缩 DAG 执行器：codec 文档装配 + workplan runner 串行执行，Chapter 2 失败回退本地折叠。 |
 | `history_safety.go` | Provider 历史安全配对规则（assistant/tool 配对、恢复信封）。 |
 | `bridge.go` | Export/ExportWithGoal/Import 兼容 API（委托子包）。 |
 | `seele.go` | re-export 仍被使用的 Seele `seelectx` 压缩函数；`EstimateTokens` 兼容变量已改为 `tokens` 脚本感知估算。 |
@@ -42,6 +45,9 @@ parent snapshot <- Merger <------------------------------ child result
 ContextComponents（Assembler/Processor/Compressor/Controller）-> session.Session
 Load（尾窗）─ 真空区 GapCoverer → CoverHistoryGap → CompactStack 合并帧
 Assembler ─ 查询 → memory.Select（压缩帧 top-K）→ 相关记忆块
+压缩 DAG（2026-09-06）：select_range → {chapter1 锚点, chapter2 厚摘要} →
+merge_frame → controller/gap PushCompact；帧 Summary 固定两章节，模型请求
+只渲染栈顶帧 Chapter 2（`FrameChapter2`），锚点与 requestID 索引留在记录里。
 ```
 
 ## 设计原则
@@ -91,6 +97,14 @@ history_window = 200k tokens（填充 ▓ 每字符 ≈ 10k，宽度按占比）
 > 恢复路径保留）。达峰才压缩：达到软阈值时折叠 compact 栈顶 + context 窗口，
 > 保留新鲜 compact 帧与窗口剩余；plan/task 不参与压缩。设计见
 > [docs/arch/context-prefix-chain.md](../docs/arch/context-prefix-chain.md)。
+
+> 已实现（2026-09-06 压缩 DAG 首批）：CompactFrame 携带超上下文 request 首尾
+> 与链锚字段（`prev_segment_id`/request/一句话 + summary/anchor 来源标记），
+> `PushCompact` 追加链不变量；Summary 固定两章节、模型可见范围只取栈顶
+> Chapter 2；压缩经 workplan DAG 表达（先串行）。前缀重放 `PrefixReplaySummarizer`
+> 协议与 QuickChat 实现已就绪，但生产注入前提 = 字节级装配出口快照固化
+> （系统/历史/工具与真实请求同源），未确认前 Chapter 2 恒本地折叠。详设见
+> [docs/2026-09-06-compaction-dag/design.md](../docs/2026-09-06-compaction-dag/design.md)。
 
 ## 测试
 
