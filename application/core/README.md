@@ -105,6 +105,15 @@
   进行，迟到完成按视图 epoch 判定不再抢占（`session_history.go` 的
   `beginAsyncRestore` / `resumeSessionCold`）。空闲切换与热加载保持原同步
   语义；`SessionStatusRestoring` 只作为运行期叠加状态，不落盘。
+- 会话路由引擎（`SessionChatEngine`）下，切换/恢复的 system prompt 一律按
+  **目标会话** 经 `SetSystemPromptFor` 写入（`EnginePort` 同步进程级 prompt
+  缓存供新建引擎继承），不写进程级“活跃别名”引擎：别名可能指向另一个正在
+  运行的会话，其 framework `Session` 锁被 `ChatStream` 全程持有，全局
+  `SetSystemPrompt` 会阻塞到该会话收尾——表现为“点第三个会话没反应、被切走
+  的会话跑完才开始切换”（复现/回归：
+  `repro_two_running_view_third_then_switched_finishes_test.go` 的
+  `TestSwitchToIdleThirdBlocksWhileAliasEngineSessionRuns`）。非路由单会话
+  引擎无跨会话别名面，仍走全局写。
 - `BeginNewSession` 保存旧的非空历史并清空 Engine history，然后进入幂等 draft：**早分配真实会话 ID 并建 `SessionUnit`**（`HasSession=false`，不建引擎 bundle、不写空历史、不建立 workspace binding）；**同时清空继承的项目绑定**（`CurrentWorkspace`/project root/session store workspace）——「任务会话」必须真正未关联工作区，上一个会话的项目信息（项目地址、资源管理器文件树与提交记录、工作台投影）不得污染新会话。需要项目上下文的「工作区会话」在草稿上显式 `BindWorkspace`，第一次进入 `submitConversation` 时才经 `ActivateSession` 用同一草稿 ID 建引擎 bundle，并立即用首问设置显示名。**草稿槽位（draft slot）保留**：`BeginNewSession` 在运行中也可进入草稿（不再返回 `ErrChatRunning`，也不触碰运行中会话的引擎）；切换/新建后草稿不丢失——槽位记录工作区绑定与早分配 SID 并在会话树以 `status=draft` 行常驻，再次新建恢复同一草稿，首次提交物化时消费槽位。用户输入未发送正文后 composer 随 record 落盘（`Status=draft`），冷启动恢复草稿。快照为会话补充 `status`（draft/idle/running/queued）与 `session.composer`（当前草稿未发送正文），`ApplyRuntimeProjectionLocked` 在草稿视图下不覆盖会话 ID（后台运行中会话不得顶掉草稿视图）。
 - M1（2026-08-23）起聊天保护粒度从全局单例收窄为**会话级**：每会话独立
   `ChatState`/cancel/inputQueue（`session_scope.go` 的 `sessionChat`
@@ -156,6 +165,9 @@ lock is released. The current turn is persisted before the merged next turn is
 started, so queue acknowledgement does not require re-entering the framework
 session from an iteration callback.
 - resume/load-more/delete 是否使用目标 session 的真实 workspace，而非当前 active scope。
+- 热挂载/冷恢复收尾是否误写全局活跃别名引擎（`SetSystemPrompt` 可能阻塞在
+  运行中会话的 framework `Session` 锁上）；路由引擎只按目标会话经
+  `SetSystemPromptFor` 写，并同步进程级 prompt 缓存。
 - project 切换、storage reconfigure、shutdown 与 running chat 的竞争是否有明确结果。
 - draft 期间切换项目是否只更新待继承 scope，是否避免空 Session ID binding；重复点击新建是否仍只保留一个 draft。
 - Tool/Plan callback 是否只更新所属 request/session。

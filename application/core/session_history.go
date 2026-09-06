@@ -463,7 +463,13 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	}
 	service.ViewMu.Unlock()
 	if mayActivate {
-		service.Deps.Engine.SetSystemPrompt(systemPrompt)
+		// 会话路由引擎的 prompt 已在装载段按目标会话经 SetSystemPromptFor
+		// 写入（EnginePort 同步进程级缓存，新建引擎自动继承）；不再重复写
+		// 全局活跃别名引擎——别名可能仍指向正在运行的被切走会话，全局写
+		// 会被其 ChatStream 持有的 Session 锁阻塞（切换等收尾现象）。
+		if _, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); !ok {
+			service.Deps.Engine.SetSystemPrompt(systemPrompt)
+		}
 	}
 	// context 模块挂接：resume 恢复后加载会话四栈到 Runtime（下一轮 prompt
 	// 组装前就绪）。损坏的 context 显式失败，不静默降级成内存栈。

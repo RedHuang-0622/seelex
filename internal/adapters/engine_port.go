@@ -246,9 +246,10 @@ func (port *EnginePort) ClearHistoryFor(sessionID string) {
 
 // SetSystemPromptFor 设置指定会话引擎的 system prompt。
 func (port *EnginePort) SetSystemPromptFor(sessionID, prompt string) {
-	port.mu.RLock()
+	port.mu.Lock()
+	port.systemPrompt = prompt
 	engine := port.engineForSessionLocked(sessionID)
-	port.mu.RUnlock()
+	port.mu.Unlock()
 	if engine != nil {
 		engine.SetSystemPrompt(prompt)
 	}

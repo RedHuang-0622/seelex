@@ -84,7 +84,15 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	if !targetRunning {
-		service.Deps.Engine.SetSystemPrompt(systemPrompt)
+		// 会话路由引擎的 prompt 已在上方按目标会话经 SetSystemPromptFor
+		// 写入（缓存同步在 EnginePort 内完成）；此处若再写全局活跃别名引擎
+		// （port.engine），而该别名恰指向另一个正在运行的会话，会被其
+		// framework Session 锁（ChatStream 全程持有）阻塞到它跑完——用户
+		// 视角的“切换要等被切走的会话结束才开始”。非路由单会话引擎无跨
+		// 会话别名面，仍走全局写。
+		if _, ok := service.Deps.Engine.(interface{ SetSystemPromptFor(string, string) }); !ok {
+			service.Deps.Engine.SetSystemPrompt(systemPrompt)
+		}
 	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 	service.publishRuntimeProjections()
