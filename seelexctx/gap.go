@@ -127,30 +127,43 @@ func buildGapFrame(
 		top := opts.Record.CompactStack[len(opts.Record.CompactStack)-1]
 		prevTop = &top
 	}
-	var builder strings.Builder
-	builder.WriteString("真空区补压缩: 上次压缩后、窗口前未压缩的轮次\n")
-	builder.WriteString(fmt.Sprintf("真空区轮次: %d 个完整协议单元", len(uncovered)))
-	builder.WriteByte('\n')
-	for _, unit := range uncovered {
-		builder.WriteString(renderEventUnitLine(unit))
+	// 真空区单元原文 → 消息 → 完整协议单元（与控制器同源切分）。
+	units := chatUnits(gapUnitMessages(uncovered))
+	from := 0
+	if prevTop != nil {
+		from = prevTop.From
 	}
-	if prevTop != nil && strings.TrimSpace(prevTop.Summary) != "" {
-		builder.WriteString("先前压缩摘要: ")
-		builder.WriteString(prevTop.Summary)
-		builder.WriteByte('\n')
+	requestFrom, requestTo := gapRequestRange(uncovered)
+	if requestFrom == "" && requestTo == "" {
+		requestFrom, requestTo = ChatQueueRequestLabels(from, gapEnd)
 	}
-	summary := strings.TrimSpace(builder.String())
-
+	summary := RenderFrameSummary(
+		RenderAnchorChapter(prevTop),
+		LocalChapter2(LocalFoldOptions{
+			Overflow:  units,
+			UnitCount: len(uncovered),
+			Kind:      CompactFoldGap,
+			PrevTop:   prevTop,
+			Record:    opts.Record,
+		}),
+	)
 	frame := sessionstore.CompactFrame{
-		SegmentID:    gapSegmentID(opts.SessionID),
-		From:         0,
-		To:           gapEnd,
-		Summary:      summary,
-		Evidence:     gapEvidence(uncovered),
-		CompressedAt: time.Now(),
+		SegmentID:     gapSegmentID(opts.SessionID),
+		From:          from,
+		To:            gapEnd,
+		RequestFrom:   requestFrom,
+		RequestTo:     requestTo,
+		Summary:       summary,
+		SummarySource: CompactSummarySourceLocal,
+		AnchorSource:  FrameAnchorSource(prevTop),
+		Evidence:      gapEvidence(uncovered),
+		CompressedAt:  time.Now(),
 	}
 	if prevTop != nil {
-		frame.From = prevTop.From // 合并帧覆盖从栈顶起点开始的连续段
+		frame.PrevSegmentID = prevTop.SegmentID
+		frame.PrevRequestFrom = prevTop.RequestFrom
+		frame.PrevRequestTo = prevTop.RequestTo
+		frame.PrevSummaryOneLine = OneLineSummary(*prevTop)
 	}
 	if opts.Turns != nil {
 		ref, err := opts.Turns.StoreTurn(ctx, frame.SegmentID, gapUnitMessages(uncovered))
@@ -164,6 +177,24 @@ func buildGapFrame(
 		frame.Summary += fmt.Sprintf("\n真空区轮次原文可经 read_compressed_turn(segment_id=%s) 读回", frame.SegmentID)
 	}
 	return frame, nil
+}
+
+// gapRequestRange 从真空区事件单元提取首尾 requestID（Event.TaskID 关联
+// 字段；事件流无 TaskID → 空，调用方回退 ChatQueue 标签）。
+func gapRequestRange(uncovered [][]sessionstore.Event) (string, string) {
+	var requestFrom, requestTo string
+	for _, unit := range uncovered {
+		for _, event := range unit {
+			if event.TaskID == "" {
+				continue
+			}
+			if requestFrom == "" {
+				requestFrom = event.TaskID
+			}
+			requestTo = event.TaskID
+		}
+	}
+	return requestFrom, requestTo
 }
 
 // gapSegmentID 生成真空区帧段标识（会话溯源前缀，与控制器同风格）。

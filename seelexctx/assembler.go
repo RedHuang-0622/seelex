@@ -196,7 +196,10 @@ func RenderStablePrefixBlocks(record sessionstore.SessionContextRecord) []seelec
 		top := record.CompactStack[len(record.CompactStack)-1]
 		blocks = append(blocks, renderStackBlock("compact", "压缩上下文 (now using compact context)", map[string]any{
 			"segment_id": top.SegmentID, "from": top.From, "to": top.To,
-			"summary": top.Summary, "evidence": top.Evidence,
+			// 模型可见正文只取栈顶帧 Chapter 2 厚内容（详设 §3.3）；
+			// 锚点/requestID 索引在 CompactStack 记录中维护，默认不进请求。
+			"summary_chapter2": FrameChapter2(top),
+			"evidence":         top.Evidence,
 		}))
 	}
 	return blocks

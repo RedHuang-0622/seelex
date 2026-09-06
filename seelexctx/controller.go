@@ -191,6 +191,12 @@ type ControllerOptions struct {
 	// （每次压缩时动态取值，会话切换后仍溯源到正确会话；nil → 无前缀）。
 	SessionIDProvider func() string
 
+	// Compaction 压缩 DAG 执行器（docs/2026-09-06-compaction-dag/design.md
+	// §4；nil → 旧 buildCompactFrame 本地折叠路径）。注入后压缩走
+	// select_range → chapter1/chapter2 → merge 的 workplan 图，成功取帧；
+	// Chapter 2 失败由 DAG 内部回退本地折叠（详设 §4.5）。
+	Compaction *CompactionDAG
+
 	// MaxToolResultChars 超大工具结果判定（≤0 → seelex 生效默认
 	// DefaultToolResultLimit()，与 processor / application.core 同源）。
 	MaxToolResultChars int
@@ -372,15 +378,26 @@ func (c *seelexContextController) compressWindowOutsideWith(ctx context.Context,
 		return seelectx.ContextDecision{}, nil
 	}
 	overflow := units[:len(units)-n]
-	frame, err := c.buildCompactFrame(overflow)
-	if err != nil {
-		return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: build compact frame: %w", err)
-	}
 	c.mu.Lock()
 	lastCompactedTo := c.lastCompactedTo
 	c.mu.Unlock()
 	// 去重基准 = 累计边界（帧 To 单调递增的 ChatQueue 单元索引）：
 	// 本次帧没有覆盖到上次压缩点之后的任何新单元 → 无新溢出。
+	// 提前检查（用同一累计公式预测 To）：无新溢出时不执行压缩 DAG，
+	// 避免无谓的前缀重放模型调用（详设 §4.6 去重语义不变）。
+	predictedTo := c.predictedFrameTo(overflow)
+	if predictedTo <= lastCompactedTo {
+		return seelectx.ContextDecision{}, nil
+	}
+	frame, err := c.buildCompactionFrame(ctx, overflow, ev)
+	if err != nil {
+		return seelectx.ContextDecision{}, fmt.Errorf("seelexctx: build compact frame: %w", err)
+	}
+	// 后置去重（并发/快照漂移兜底）：build 后上次压缩点可能已前进，帧没有
+	// 覆盖任何新溢出内容 → 跳过，保持旧路径的原子语义。
+	c.mu.Lock()
+	lastCompactedTo = c.lastCompactedTo
+	c.mu.Unlock()
 	if frame.To <= lastCompactedTo {
 		return seelectx.ContextDecision{}, nil
 	}
@@ -413,6 +430,39 @@ func (c *seelexContextController) compressWindowOutsideWith(ctx context.Context,
 	return seelectx.ContextDecision{ReplaceHistory: true, History: projected}, nil
 }
 
+// predictedFrameTo 按累计 ChatQueue 单元索引预测新帧 To（与 buildCompactFrame
+// / DAG merge 同一公式）：首帧 = len(overflow)-1；合并帧 = prevTop.To +
+// len(overflow)。
+func (c *seelexContextController) predictedFrameTo(overflow []historyUnit) int {
+	to := len(overflow) - 1
+	record := c.opts.Stacks.Snapshot()
+	if len(record.CompactStack) > 0 {
+		top := record.CompactStack[len(record.CompactStack)-1]
+		to = top.To + len(overflow)
+	}
+	return to
+}
+
+// buildCompactionFrame 生成压缩帧：注入 CompactionDAG 时走 workplan 图
+// （成功取帧，失败逐级兜底），否则用本地 buildCompactFrame（兼容旧调用方
+// 与测试）。两者都产出带链锚字段/request 索引的契约帧。
+func (c *seelexContextController) buildCompactionFrame(
+	ctx context.Context,
+	overflow []historyUnit,
+	ev seelectx.ContextEvent,
+) (sessionstore.CompactFrame, error) {
+	if c.opts.Compaction != nil {
+		input := CompactionInput{
+			Record:   c.opts.Stacks.Snapshot(),
+			Messages: overflowMessages(overflow),
+			History:  ev.History,
+			Kind:     CompactFoldOverflow,
+		}
+		return c.opts.Compaction.Execute(ctx, input)
+	}
+	return c.buildCompactFrame(overflow)
+}
+
 // buildCompactFrame 构造压缩帧：Summary 合并上一栈顶帧与当前溢出内容
 // （栈顶自足 = 该时刻窗口外全部轮次的综合摘要）。
 //
@@ -429,7 +479,6 @@ func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (ses
 		top := record.CompactStack[len(record.CompactStack)-1]
 		prevTop = &top
 	}
-	summary := c.summarizeOverflow(overflow, prevTop, record)
 	segmentID := fmt.Sprintf("compact-%d", time.Now().UnixMilli())
 	if c.opts.SessionIDProvider != nil {
 		if sessionID := c.opts.SessionIDProvider(); sessionID != "" {
@@ -437,20 +486,30 @@ func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (ses
 		}
 	}
 	to := len(overflow) - 1
+	from := 0
 	if prevTop != nil {
 		to = prevTop.To + len(overflow)
+		from = prevTop.From
 	}
+	requestFrom, requestTo := ChatQueueRequestLabels(from, to)
 	frame := sessionstore.CompactFrame{
-		SegmentID:    segmentID,
-		From:         0,
-		To:           to,
-		Summary:      summary,
-		Evidence:     overflowEvidence(overflow, record),
-		CompressedAt: time.Now(),
+		SegmentID:     segmentID,
+		From:          from,
+		To:            to,
+		RequestFrom:   requestFrom,
+		RequestTo:     requestTo,
+		Summary:       RenderFrameSummary(RenderAnchorChapter(prevTop), c.summarizeOverflow(overflow, prevTop, record)),
+		SummarySource: CompactSummarySourceLocal,
+		AnchorSource:  FrameAnchorSource(prevTop),
+		Evidence:      overflowEvidence(overflow, record),
+		CompressedAt:  time.Now(),
 	}
 	if prevTop != nil {
-		// 合并上一栈顶：帧范围接续上一帧起点（窗口外全部轮次的连续段）。
-		frame.From = prevTop.From
+		// 链锚点：只指向前驱（SegmentID/request/一句话），不复制前驱全文。
+		frame.PrevSegmentID = prevTop.SegmentID
+		frame.PrevRequestFrom = prevTop.RequestFrom
+		frame.PrevRequestTo = prevTop.RequestTo
+		frame.PrevSummaryOneLine = OneLineSummary(*prevTop)
 	}
 	return frame, nil
 }
@@ -475,7 +534,7 @@ func (c *seelexContextController) summarizeOverflow(overflow []historyUnit, prev
 	}
 	if prevTop != nil && strings.TrimSpace(prevTop.Summary) != "" {
 		builder.WriteString("先前压缩摘要: ")
-		builder.WriteString(prevTop.Summary)
+		builder.WriteString(FrameChapter2(*prevTop))
 		builder.WriteByte('\n')
 	}
 	builder.WriteString("本轮溢出轮次: ")
@@ -568,7 +627,7 @@ type historyUnit struct {
 // chatUnits 把 working history 切分为完整协议单元（轮）：user 轮、
 // assistant 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。
 // 未闭合的工具链、孤儿 tool 消息与上下文控制块不构成单元。
-func (c *seelexContextController) chatUnits(history []types.Message) []historyUnit {
+func chatUnits(history []types.Message) []historyUnit {
 	var units []historyUnit
 	for index := 0; index < len(history); {
 		message := history[index]
@@ -593,6 +652,11 @@ func (c *seelexContextController) chatUnits(history []types.Message) []historyUn
 		}
 	}
 	return units
+}
+
+// chatUnits 方法版委托自由函数（既有调用方/测试保持）。
+func (c *seelexContextController) chatUnits(history []types.Message) []historyUnit {
+	return chatUnits(history)
 }
 
 // userMessageUnit 用户轮：user + 直到下一个 user 或 assistant 文本回复；

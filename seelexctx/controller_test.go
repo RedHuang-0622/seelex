@@ -308,7 +308,7 @@ func TestControllerHardThresholdArchivesAndShrinksWindow(t *testing.T) {
 	}
 }
 
-func TestControllerPreviousFrameMergedStackTopSelfSufficient(t *testing.T) {
+func TestControllerPreviousFrameMergedKeepsChainAnchor(t *testing.T) {
 	stacks := NewMemoryCompactStack()
 	controller := newController(3, stacks)
 
@@ -326,7 +326,6 @@ func TestControllerPreviousFrameMergedStackTopSelfSufficient(t *testing.T) {
 	if len(frames) != 1 || frames[0].To != 6 {
 		t.Fatalf("first frame = %+v, want To=6", frames)
 	}
-	firstSummary := frames[0].Summary
 
 	// 第二次压缩：真实流程输入 = 首次压缩的投影历史（窗口 3 轮）
 	// + 2 新轮 = 5 单元 / 窗口 3 → 新溢出 2 轮；累计 To = 6 + 2 = 8
@@ -357,8 +356,19 @@ func TestControllerPreviousFrameMergedStackTopSelfSufficient(t *testing.T) {
 	if merged.From != 0 || merged.To != 8 {
 		t.Fatalf("merged frame range = [%d,%d], want [0,8]", merged.From, merged.To)
 	}
-	if !strings.Contains(merged.Summary, firstSummary) {
-		t.Fatal("merged frame must include previous top summary (stack top self-sufficient)")
+	// 链锚（详设 §3.1/§3.4）：只指向前驱（SegmentID/request/一句话），
+	// 不再整段递归复制前驱摘要全文。
+	if merged.PrevSegmentID != frames[0].SegmentID {
+		t.Fatalf("merged frame prev_segment_id = %q, want %q", merged.PrevSegmentID, frames[0].SegmentID)
+	}
+	if !strings.Contains(FrameChapter2(merged), FrameChapter2(frames[0])) {
+		t.Fatal("merged chapter2 must carry previous frame chapter2 body (local fold stack-top self-sufficiency)")
+	}
+	if strings.Contains(FrameChapter2(merged), "## "+CompactChapter1Title) {
+		t.Fatal("merged frame must not recursively copy previous anchor chapter")
+	}
+	if merged.PrevSummaryOneLine == "" {
+		t.Fatal("merged frame must carry previous summary one-liner")
 	}
 }
 
