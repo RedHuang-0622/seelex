@@ -167,33 +167,15 @@ export function renderTrajectorySummary(stats) {
   return `<div class="trajectory-summary">共 ${stats.total} 条${statuses ? ` · ${statuses}` : ""}</div>`;
 }
 
-// renderPromptInjection 渲染"前缀注入"区块（轨迹视图调试面）：展示每次
-// 提交注入的 prompt 前缀层（identity/base/effort/instructions/skill），
-// 内容来自后端 PromptLayers 桥接数据（不进 Snapshot，避免私有指令泄漏
-// 到常规快照）。数据全部 escape，无未受控 HTML 注入。
-export function renderPromptInjection(layers = []) {
-  if (!Array.isArray(layers) || layers.length === 0) {
-    return `<section class="trajectory-prompt" data-prompt-injection="1">
-      <h3>前缀注入</h3>
-      <p class="muted">本次会话暂无前缀注入层（system prompt / effort / skill 等）。</p>
-    </section>`;
-  }
-  const rows = layers.map(layer => {
-    const kind = String(layer.kind || "layer");
-    const name = layer.name ? ` · ${escapeHtml(String(layer.name))}` : "";
-    const text = layer.text != null ? String(layer.text) : "";
-    return `<details class="trajectory-prompt-layer" data-prompt-kind="${escapeHtml(kind)}">
-      <summary><span class="prompt-kind">${promptKindLabel(kind)}</span>${name}</summary>
-      <pre class="prompt-text">${escapeHtml(text) || '<span class="muted">（空层）</span>'}</pre>
-    </details>`;
-  }).join("");
-  return `<section class="trajectory-prompt" data-prompt-injection="1">
-    <h3>前缀注入</h3>
-    ${rows}
-  </section>`;
-}
+// ── 上下文轴元数据（US-2：压缩标记 + 前缀注入并入轴，替代独立面板）────────
+//
+// 数据源：prefixLayers 来自 Bridge.PromptLayers（会话级当前栈，不进 Snapshot）；
+// compactions 来自 Snapshot.Task.ContextCompactions（后端每次压缩发布的公开
+// 元数据，snapshot.changed 全量刷新带回）。两层都只消费公开字段，轴不携带
+// checkpoint 正文 / 工具结果 / 原始对话。
 
-function promptKindLabel(kind) {
+// promptKindLabel 层种类中文标签（identity/base/effort/instructions/skill）。
+export function promptKindLabel(kind) {
   switch (kind) {
   case "identity": return "身份";
   case "base": return "基础/系统提示";
@@ -202,6 +184,197 @@ function promptKindLabel(kind) {
   case "skill": return "技能";
   default: return kind || "层";
   }
+}
+
+function promptKindOrder(kind) {
+  switch (kind) {
+  case "identity": return 0;
+  case "base": return 1;
+  case "effort": return 2;
+  case "instructions": return 3;
+  case "skill": return 4;
+  default: return 5;
+  }
+}
+
+// prefixLayerSegments 把当前会话的 prompt 前缀层投影为轴「前缀注入」轨的段：
+// 按装配顺序排列，段宽=层文本占比、横跨整条轴。语义：system 前缀在每一轮
+// 请求都先于对话注入且字节稳定，因此它在对话坐标上是一整条常量带——轴只
+// 表达它的组成占比，不假装它有逐消息坐标。可 trace 粒度 = 会话级当前层
+// （PromptStack 不持久化每请求的层增量历史，这是当前实现的边界）。
+export function prefixLayerSegments(layers = []) {
+  const list = (Array.isArray(layers) ? layers : []).filter(layer => layer && typeof layer === "object");
+  const ordered = [...list].sort((a, b) => promptKindOrder(a.kind) - promptKindOrder(b.kind));
+  const weights = ordered.map(layer => Math.max(String(layer.text || "").length, 1));
+  const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  let cursor = 0;
+  return ordered.map((layer, index) => {
+    const x = (cursor / total) * 100;
+    const width = (weights[index] / total) * 100;
+    cursor += weights[index];
+    const kind = String(layer.kind || "layer");
+    return {
+      key: `prefix:${kind}:${index}`,
+      kind,
+      name: layer.name ? String(layer.name) : "",
+      label: layer.name ? String(layer.name) : promptKindLabel(kind),
+      text: layer.text != null ? String(layer.text) : "",
+      x,
+      width,
+      chars: String(layer.text || "").length
+    };
+  });
+}
+
+function compactionReasonLabel(reason) {
+  switch (reason) {
+  case "context_budget": return "上下文预算达峰";
+  case "large_tool_output": return "超大工具输出";
+  default: return "上下文压缩";
+  }
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Number(value) || 0);
+}
+
+function recordTime(record) {
+  if (!record || !record.startedAt) return NaN;
+  const time = new Date(record.startedAt);
+  return Number.isNaN(time.getTime()) ? NaN : time.getTime();
+}
+
+// compactionAnchorIndex 定位"压缩发生时会话已推进到的最后一条记录"：用最后
+// 一条 startedAt <= compacted_at 的记录锚定（压缩发生在该记录之后）。找不到
+// （压缩点早于已加载窗口）返回 -1，调用方把刻度钳到轴起点并注明。
+function compactionAnchorIndex(records, compactedAt) {
+  const target = compactedAt ? new Date(compactedAt).getTime() : NaN;
+  if (Number.isNaN(target)) return records.length - 1;
+  let anchor = -1;
+  for (let index = 0; index < records.length; index++) {
+    const time = recordTime(records[index]);
+    if (Number.isNaN(time)) continue;
+    if (time <= target) anchor = index;
+  }
+  return anchor;
+}
+
+// compactionMarks 把 Snapshot.Task.ContextCompactions 投影为轴「压缩」轨刻度：
+// x = 压缩发生时会话推进到的体量位置（锚定记录结束处）。只含公开元数据
+// （version/reason/messages_before/estimated_tokens/compacted_at）。
+export function compactionMarks(records = [], compactions = []) {
+  const list = (Array.isArray(compactions) ? compactions : []).filter(c => c && typeof c === "object");
+  const weights = records.map(contextAxisWeight);
+  const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  let cursor = 0;
+  const starts = [];
+  for (const weight of weights) {
+    starts.push((cursor / total) * 100);
+    cursor += weight;
+  }
+  return list.map((compaction, index) => {
+    const anchor = compactionAnchorIndex(records, compaction.compacted_at);
+    const segmentStart = anchor >= 0 && anchor < starts.length ? starts[anchor] : null;
+    const end = segmentStart !== null
+      ? segmentStart + (weights[anchor] / total) * 100
+      : 0;
+    return {
+      key: `compact:${index}`,
+      version: Number(compaction.version) || index + 1,
+      reason: String(compaction.reason || ""),
+      reasonLabel: compactionReasonLabel(compaction.reason),
+      messagesBefore: Number(compaction.messages_before) || 0,
+      tokens: Number(compaction.estimated_tokens) || 0,
+      timeLabel: compaction.compacted_at ? formatTime(compaction.compacted_at) : "—",
+      x: Math.min(Math.max(end, 0), 100),
+      anchored: anchor >= 0
+    };
+  });
+}
+
+// renderAxisDetail 渲染被点中的元数据块详情（全部 escape，无未受控注入）。
+// selection = { type: "prefix", layer } 或 { type: "compression", mark }。
+export function renderAxisDetail(selection = {}) {
+  if (!selection || typeof selection !== "object") return "";
+  if (selection.type === "prefix" && selection.layer) return renderPrefixDetail(selection.layer);
+  if (selection.type === "compression" && selection.mark) return renderCompressionDetail(selection.mark);
+  return "";
+}
+
+function renderPrefixDetail(layer) {
+  const kind = String(layer.kind || "layer");
+  const name = layer.name ? escapeHtml(String(layer.name)) : "";
+  return `<section class="axis-detail is-prefix" data-axis-detail>
+    <header>
+      <strong>前缀注入层 · ${escapeHtml(promptKindLabel(kind))}</strong>
+      <button class="axis-detail-close" type="button" data-axis-detail-close title="收起详情">收起</button>
+    </header>
+    <div class="axis-detail-meta">
+      <span>${escapeHtml(promptKindLabel(kind))}</span>
+      ${name ? `<span>${name}</span>` : ""}
+      <span>${layer.chars} chars</span>
+      <span>每请求前置（system 前缀）</span>
+    </div>
+    <pre class="axis-detail-text">${escapeHtml(layer.text) || '<span class="muted">（空层）</span>'}</pre>
+  </section>`;
+}
+
+function renderCompressionDetail(mark) {
+  const meta = [
+    mark.timeLabel && mark.timeLabel !== "—" ? `时间 ${mark.timeLabel}` : "",
+    mark.messagesBefore > 0 ? `${formatNumber(mark.messagesBefore)} 条消息` : "",
+    mark.tokens > 0 ? `约 ${formatNumber(mark.tokens)} tokens` : ""
+  ].filter(Boolean).join(" · ");
+  const where = mark.anchored ? "刻度=压缩发生时会话推进到的位置" : "刻度钳在轴起点：压缩点早于当前已加载的对话窗口";
+  return `<section class="axis-detail is-compression" data-axis-detail>
+    <header>
+      <strong>上下文压缩 #${escapeHtml(String(mark.version))}</strong>
+      <button class="axis-detail-close" type="button" data-axis-detail-close title="收起详情">收起</button>
+    </header>
+    <div class="axis-detail-meta">
+      <span>${escapeHtml(mark.reasonLabel)}</span>
+      ${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
+      <span>${escapeHtml(where)}</span>
+    </div>
+    <p>该时刻窗口外的旧轮次被折叠为栈顶压缩摘要，随后装配保留一个有界的新鲜
+       窗口继续执行。对话原文仍完整保留在时间线上（呈现层不丢消息）；折叠原文
+       可经 read_compressed_turn(segment_id) / search_history 读回。</p>
+  </section>`;
+}
+
+function normalizeAxisExtras(extras) {
+  const options = extras && typeof extras === "object" ? extras : {};
+  return {
+    prefixLayers: Array.isArray(options.prefixLayers) ? options.prefixLayers : [],
+    compactions: Array.isArray(options.compactions) ? options.compactions : []
+  };
+}
+
+// renderPrefixLane 渲染顶部「前缀注入」轨：每次请求前置的 system 前缀层，
+// 横跨整轴（段宽=层文本占比，与对话坐标无关）；点击段开轴下方详情。
+function renderPrefixLane(segments) {
+  const bar = segments.map((segment, index) => {
+    const title = `${segment.label} · ${segment.chars} chars · ${promptKindLabel(segment.kind)} · 点击查看注入文本`;
+    return `<button type="button" class="axis-segment is-prefix is-${escapeHtml(segment.kind || "layer")}" style="--x:${segment.x.toFixed(3)}%;--w:${segment.width.toFixed(3)}%" data-prefix-layer="${index}" title="${escapeHtml(title)}" aria-label="${escapeHtml(segment.label)}"><span>${escapeHtml(segment.label)}</span></button>`;
+  }).join("");
+  return `<div class="context-axis-lane is-prefix" aria-label="前缀注入（每次请求前置的 system 前缀层；段宽=层文本占比，横跨整轴）">
+    <span class="axis-lane-label" title="每次请求都会在对话之前注入的 system 前缀层（identity/base/effort/instructions/skill）；横轴=各层文本占比，不随对话推进变化"><span>前缀注入</span><span class="axis-lane-count">${segments.length}</span></span>
+    <div class="axis-lane-bar is-meta">${bar}</div>
+  </div>`;
+}
+
+// renderCompressionLane 渲染底部「压缩」轨：在会话推进位置标记历次压缩
+// （刻度点击开详情）；压缩点早于已加载窗口时钳到轴起点。
+function renderCompressionLane(marks) {
+  const bar = marks.map((mark, index) => {
+    const where = mark.anchored ? `会话推进至 ${mark.x.toFixed(0)}% 处` : "压缩点早于已加载窗口（刻度置于起点）";
+    const title = `压缩 #${mark.version} · ${mark.reasonLabel}${mark.messagesBefore > 0 ? ` · ${formatNumber(mark.messagesBefore)} 条` : ""}${mark.tokens > 0 ? ` · 约 ${formatNumber(mark.tokens)} tokens` : ""} · ${mark.timeLabel} · ${where} · 点击查看详情`;
+    return `<button type="button" class="axis-segment is-compress" style="--x:${mark.x.toFixed(3)}%" data-compact-idx="${index}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`压缩 #${mark.version}`)}"><span>#${escapeHtml(String(mark.version))}</span></button>`;
+  }).join("");
+  return `<div class="context-axis-lane is-compress" aria-label="上下文压缩刻度（模型侧把旧段折叠为摘要的位置，对话原文仍保留）">
+    <span class="axis-lane-label" title="软阈值达峰时把窗口外旧轮次折叠为栈顶摘要；刻度标记压缩发生时会话推进位置"><span>压缩</span><span class="axis-lane-count">×${marks.length}</span></span>
+    <div class="axis-lane-bar is-meta">${bar}</div>
+  </div>`;
 }
 
 // contextAxisWeight 返回上下文轴上该记录占据的相对体量：工具记录按输出/输入
@@ -214,13 +387,22 @@ export function contextAxisWeight(record) {
 }
 
 // renderContextAxis 渲染轨迹视图顶部的上下文轴——多线谱（分轨）布局，
-// 类似 DevTools Network 面板的时间轴：每种响应类型占一条横轨，各轨共用
-// 同一横轴（对话顺序 + 内容体量，非时间轴）。每个记录是一个可点击块，
-// 按它在全局序列中的位置落在本类型轨道上；某类型在某段对话里没有记录时，
-// 该轨留空，便于跨类型对照上下文块的先后与体量。点击块由视图定位到对应
-// 轨迹行；空数据给出引导文案。
-export function renderContextAxis(records = []) {
-  if (!records.length) return '<div class="context-axis-empty">暂无上下文轴数据</div>';
+// 类似 DevTools Network 面板的时间轴：五种响应类型各占一条横轨，共用同一
+// 横轴（对话顺序 + 内容体量，非时间轴）。每个轨迹记录是一个可点击块，按
+// 它在全局序列中的位置落在本类型轨道上；某类型在某段对话里没有记录时该轨
+// 留空。extras 附加两条元数据轨：
+//  - prefixLayers（Bridge.PromptLayers）：顶部「前缀注入」轨——每次请求前置
+//    的 system 前缀层，横跨整轴（段宽=层文本占比，与对话坐标无关）；
+//  - compactions（Snapshot.Task.ContextCompactions）：底部「压缩」轨——在
+//    会话推进位置标记历次上下文压缩。
+// 普通块点击由视图定位到对应轨迹行；元数据块点击开轴下方详情（view 侧）。
+export function renderContextAxis(records = [], extras) {
+  const options = normalizeAxisExtras(extras);
+  const prefixSegments = prefixLayerSegments(options.prefixLayers);
+  const marks = compactionMarks(records, options.compactions);
+  if (!records.length && !prefixSegments.length && !marks.length) {
+    return '<div class="context-axis-empty">暂无上下文轴数据</div>';
+  }
   const weights = records.map(contextAxisWeight);
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
   // 共享横轴上的游标：块的起点 = 此前所有记录的体量占比累计，块宽 = 自身体量占比。
@@ -245,9 +427,13 @@ export function renderContextAxis(records = []) {
       <div class="axis-lane-bar">${blocks.join("")}</div>
     </div>`;
   }).join("");
+  const hints = ["横轴=对话顺序+体量"];
+  if (prefixSegments.length) hints.push("前缀注入=层文本占比");
+  if (marks.length) hints.push(`压缩 ×${marks.length}（刻度可点击）`);
+  hints.push("点击块定位轨迹行");
   return `<div class="context-axis" role="group" aria-label="上下文轴：按响应类型分轨，横轴为对话顺序与内容体量（非时间轴）">
-    <div class="context-axis-head"><strong>上下文轴</strong><span>按类型分轨 · 横轴=对话顺序+体量 · 点击定位轨迹行</span></div>
-    <div class="context-axis-track">${lanes}</div>
+    <div class="context-axis-head"><strong>上下文轴</strong><span>${escapeHtml(hints.join(" · "))}</span></div>
+    <div class="context-axis-track">${prefixSegments.length ? renderPrefixLane(prefixSegments) : ""}${lanes}${marks.length ? renderCompressionLane(marks) : ""}</div>
   </div>`;
 }
 

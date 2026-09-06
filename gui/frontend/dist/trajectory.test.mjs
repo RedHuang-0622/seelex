@@ -12,7 +12,9 @@ import {
   renderTrajectoryTable,
   renderTrajectoryRow,
   renderContextAxis,
-  renderPromptInjection,
+  renderAxisDetail,
+  prefixLayerSegments,
+  compactionMarks,
   escapeHtml
 } from "./trajectory.js";
 
@@ -209,30 +211,95 @@ test("renders empty state for empty trajectory", () => {
   assert.match(model.html, /暂无轨迹记录/);
 });
 
-test("renders prompt injection empty state for no layers", () => {
-  const html = renderPromptInjection([]);
-  assert.match(html, /data-prompt-injection="1"/);
-  assert.match(html, /暂无前缀注入层/);
-  assert.equal(renderPromptInjection(null).includes("暂无前缀注入层"), true);
-  assert.equal(renderPromptInjection(undefined).includes("暂无前缀注入层"), true);
+test("prefix layers fold into the context axis as a full-width meta lane", () => {
+  const records = buildTrajectory([userMessage("u1", "hi"), llmMessage("a1", "hello")]);
+  const layers = [
+    { kind: "identity", name: "seelex", text: "你是 Seelex。" },
+    { kind: "effort", name: "high", text: "高力度：逐步验证并核对每一步。" },
+    { kind: "instructions", name: "", text: "<script>alert(1)</script> 指令正文" }
+  ];
+  const html = renderContextAxis(records, { prefixLayers: layers, compactions: [] });
+  // 前缀注入不再是独立面板：作为轴内一条整轴带状轨（段宽=层文本占比）。
+  assert.match(html, /context-axis-lane is-prefix/);
+  assert.match(html, /data-prefix-layer="0"/);
+  assert.match(html, /data-prefix-layer="2"/);
+  assert.match(html, /axis-segment is-prefix is-identity/);
+  assert.match(html, /axis-segment is-prefix is-effort/);
+  assert.match(html, /axis-segment is-prefix is-instructions/);
+  assert.match(html, /前缀注入=层文本占比/);
+  // 注入层文本不得出现在轴 DOM（只在点击后的轴详情里出现，且已转义）。
+  assert.doesNotMatch(html, /<script>/);
+  // 段按装配顺序排列、宽度为层文本占比（identity 最短 → 占比最小）。
+  const segments = prefixLayerSegments(layers);
+  assert.deepEqual(segments.map(segment => segment.kind), ["identity", "effort", "instructions"]);
+  assert.ok(segments[0].width < segments[1].width);
+  assert.ok(segments[1].width < segments[2].width);
+  const widthSum = segments.reduce((sum, segment) => sum + segment.width, 0);
+  assert.ok(Math.abs(widthSum - 100) < 0.001);
 });
 
-test("renders prompt injection layers with kind labels and escaped text", () => {
-  const html = renderPromptInjection([
-    { kind: "base", name: "system", text: "你是 Seelex，负责代码审查。" },
-    { kind: "effort", name: "high", text: "高力度：逐步验证。" },
-    { kind: "skill", name: "review", text: "<script>alert(1)</script> 技能内容" }
+test("compaction events mark the conversation axis at their anchor time", () => {
+  const records = buildTrajectory([
+    userMessage("u1", "short"),
+    { id: "a1", role: "assistant", content: "mid length reply", created_at: "2026-08-25T10:00:01Z" },
+    { id: "a2", role: "assistant", content: "a much longer third message that dominates weight", created_at: "2026-08-25T10:00:04Z" }
   ]);
-  assert.match(html, /基础\/系统提示/);
-  assert.match(html, /力度/);
-  assert.match(html, /技能/);
-  assert.match(html, /你是 Seelex，负责代码审查。/);
-  assert.match(html, /高力度：逐步验证。/);
-  // 技能内容转义，无未受控注入。
+  const compactions = [
+    { version: 1, reason: "context_budget", messages_before: 42, estimated_tokens: 96_000, compacted_at: "2026-08-25T10:00:02Z" }
+  ];
+  const marks = compactionMarks(records, compactions);
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].version, 1);
+  assert.equal(marks[0].anchored, true);
+  // 锚定最后一条 startedAt <= compacted_at 的记录（index 1），x 在其体量终点。
+  assert.ok(marks[0].x > 0 && marks[0].x < 100);
+  const html = renderContextAxis(records, { prefixLayers: [], compactions });
+  assert.match(html, /context-axis-lane is-compress/);
+  assert.match(html, /data-compact-idx="0"/);
+  assert.match(html, /压缩 ×1/);
+  // 刻度是压缩位置的元数据标记（点击开详情），不携带轨迹行定位键。
+  const compressBlock = html.match(/<button type="button" class="axis-segment is-compress"[^>]*>/)?.[0] || "";
+  assert.doesNotMatch(compressBlock, /data-trajectory-key/);
+  assert.match(compressBlock, /data-compact-idx="0"/);
+});
+
+test("compaction earlier than the loaded window clamps to the axis start", () => {
+  const records = buildTrajectory([userMessage("u1", "newest visible turn")]);
+  const compactions = [
+    { version: 2, reason: "context_budget", messages_before: 999, estimated_tokens: 120_000, compacted_at: "2026-08-20T08:00:00Z" }
+  ];
+  const marks = compactionMarks(records, compactions);
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0].anchored, false);
+  assert.equal(marks[0].x, 0);
+});
+
+test("axis detail renders escaped prefix layer text on demand", () => {
+  const layers = [
+    { kind: "identity", name: "seelex", text: "你是 Seelex。" },
+    { kind: "instructions", name: "", text: "<script>alert(1)</script> 指令正文" }
+  ];
+  const segments = prefixLayerSegments(layers);
+  const html = renderAxisDetail({ type: "prefix", layer: segments[1] });
+  assert.match(html, /前缀注入层 · 指令/);
+  assert.match(html, /data-axis-detail/);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  // 每个层都是可展开 details。
-  assert.equal((html.match(/<details class="trajectory-prompt-layer"/g) || []).length, 3);
+  assert.match(html, /每请求前置（system 前缀）/);
+});
+
+test("axis detail renders public compaction metadata without private content", () => {
+  const records = buildTrajectory([userMessage("u1", "hi")]);
+  const compactions = [
+    { version: 3, reason: "context_budget", messages_before: 88, estimated_tokens: 200_000, compacted_at: "2026-08-25T10:00:01Z" }
+  ];
+  const mark = compactionMarks(records, compactions)[0];
+  const html = renderAxisDetail({ type: "compression", mark });
+  assert.match(html, /上下文压缩 #3/);
+  assert.match(html, /88/);
+  assert.match(html, /200,000/);
+  assert.match(html, /read_compressed_turn/);
+  assert.doesNotMatch(html, /checkpoint 正文/);
 });
 
 test("renders filters with counts and active state", () => {

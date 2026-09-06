@@ -201,6 +201,8 @@ const effortControl = createEffortControl({
   selectEffort: async level => {
     await invoke("SwitchEffort", level);
     await refresh({ scroll: false });
+    // effort 改变会改写 system 前缀的 effort 层；轨迹子页激活时刷新注入层。
+    if (state.tab === "trajectory") refreshPromptInjection();
   },
   onError: showToast
 });
@@ -297,6 +299,8 @@ function renderIncremental(snapshot, kind) {
     renderScheduledTaskPanel(snapshot.runtime || {});
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
+    // 轨迹子页激活时刷新前缀注入层（effort/skill/插件等可能已变化）。
+    if (state.tab === "trajectory") refreshPromptInjection();
     return;
   }
   if (kind === "worktable.changed") {
@@ -307,6 +311,8 @@ function renderIncremental(snapshot, kind) {
   if (kind === "task.changed") {
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
+    // 任务级变更可能带动激活 skill 变化；轨迹子页激活时刷新前缀注入层。
+    if (state.tab === "trajectory") refreshPromptInjection();
     return;
   }
   if (["subagent.changed", "subagent.tool.started", "subagent.tool.completed"].includes(kind)) {
@@ -321,11 +327,17 @@ function renderIncremental(snapshot, kind) {
 // 轨迹与对话共用对话区，通过 workspace 顶部 tab 切换；当前 tab、过滤类型、
 // 展开与滚动都是本地 UI 状态，不进入 Snapshot。
 
-// renderTrajectory 从权威 conversation 派生轨迹记录并渲染。
+// renderTrajectory 从权威 conversation 派生轨迹记录并渲染；extras 携带轨迹
+// 轴的元数据轨：前缀注入层（Bridge.PromptLayers 缓存）与压缩记录
+// （Snapshot.Task.ContextCompactions，压缩发生的公开信号，随全量刷新到达）。
 // active=false（轨迹子页未激活）时只缓存数据面，不碰轨迹 DOM。
 function renderTrajectory(snapshot, active = state.tab === "trajectory") {
   if (!snapshot) return;
-  trajectoryView.render(buildTrajectory(snapshot.conversation || []), state.trajectoryFilter, active, promptLayersCache || []);
+  const compactions = Array.isArray(snapshot.task?.context_compactions) ? snapshot.task.context_compactions : [];
+  trajectoryView.render(buildTrajectory(snapshot.conversation || []), state.trajectoryFilter, active, {
+    prefixLayers: promptLayersCache || [],
+    compactions
+  });
 }
 
 // refreshPromptInjection 拉取当前会话的 prompt 前缀层并重渲染轨迹视图。

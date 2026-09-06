@@ -15,7 +15,9 @@ import {
   renderTrajectorySummary,
   renderTrajectoryTable,
   renderContextAxis,
-  renderPromptInjection
+  renderAxisDetail,
+  prefixLayerSegments,
+  compactionMarks
 } from "./trajectory.js";
 
 export function createTrajectoryView(container, options = {}) {
@@ -24,17 +26,25 @@ export function createTrajectoryView(container, options = {}) {
   let records = [];
   let filter = "all";
   let lastRecordCount = -1;
+  // 元数据轨状态：前缀层（Bridge.PromptLayers）与压缩记录
+  // （Snapshot.Task.ContextCompactions）在 render 时归一化，供轴渲染与详情。
+  let prefixLayers = [];
+  let compactions = [];
+  let axisPrefixSegments = [];
+  let axisCompactionMarks = [];
+  let axisDetailKey = "";
 
-  // 骨架：上下文轴 / 过滤条 / 摘要 / 表格区四个固定子容器（各自独立更新）。
+  // 骨架：上下文轴（记录轨 + 前缀注入/压缩元数据轨）/ 轴详情 / 过滤条 /
+  // 摘要 / 表格区（各自独立更新；轴详情只在点击元数据块时展开）。
   container.innerHTML = [
-    '<div class="trajectory-prompt" data-trajectory-prompt></div>',
     '<div class="trajectory-axis" data-trajectory-axis></div>',
+    '<div class="trajectory-axis-detail" data-axis-detail hidden></div>',
     '<div class="trajectory-filters" data-trajectory-filters></div>',
     '<div class="trajectory-summary" data-trajectory-summary></div>',
     '<div class="trajectory-list" data-trajectory-list></div>'
   ].join("");
   const axisEl = container.querySelector("[data-trajectory-axis]");
-  const promptEl = container.querySelector("[data-trajectory-prompt]");
+  const detailEl = container.querySelector("[data-axis-detail]");
   const filtersEl = container.querySelector("[data-trajectory-filters]");
   const summaryEl = container.querySelector("[data-trajectory-summary]");
   const listEl = container.querySelector("[data-trajectory-list]");
@@ -45,14 +55,90 @@ export function createTrajectoryView(container, options = {}) {
     if (!button) return;
     setFilter(button.dataset.trajectoryFilter);
   });
-  // 上下文轴点击：先切回全量过滤保证行存在，再滚动定位并短暂高亮。
+  detailEl.addEventListener("click", event => {
+    if (!event.target.closest("[data-axis-detail-close]")) return;
+    closeAxisDetail();
+  });
+  // 上下文轴点击：元数据块（前缀层/压缩刻度）开/关轴详情；普通轨迹块先切
+  // 回全量过滤保证行存在，再滚动定位并短暂高亮。
   axisEl.addEventListener("click", event => {
     const segment = event.target.closest(".axis-segment");
-    const key = segment?.dataset.trajectoryKey;
+    if (!segment) return;
+    const prefixIndex = segment.dataset.prefixLayer;
+    if (prefixIndex !== undefined) {
+      const layer = axisPrefixSegments[Number(prefixIndex)];
+      if (layer) {
+        toggleAxisDetail(`prefix:${prefixIndex}`, { type: "prefix", layer });
+        return;
+      }
+    }
+    const compactIndex = segment.dataset.compactIdx;
+    if (compactIndex !== undefined) {
+      const mark = axisCompactionMarks[Number(compactIndex)];
+      if (mark) {
+        toggleAxisDetail(`compact:${compactIndex}`, { type: "compression", mark });
+        return;
+      }
+    }
+    const key = segment.dataset.trajectoryKey;
     if (!key) return;
     if (filter !== "all") setFilter("all");
     requestAnimationFrame(() => focusRow(key));
   });
+
+  // toggleAxisDetail 打开/关闭轴详情；再次点击同一块收起。
+  function toggleAxisDetail(key, selection) {
+    if (axisDetailKey === key) {
+      closeAxisDetail();
+      return;
+    }
+    axisDetailKey = key;
+    renderAxisDetailContent(selection);
+  }
+
+  function closeAxisDetail() {
+    if (!axisDetailKey && detailEl.hidden) return;
+    axisDetailKey = "";
+    detailEl.innerHTML = "";
+    detailEl.hidden = true;
+  }
+
+  // renderAxisDetailContent 渲染详情；内容未变化时跳过（流式重渲染不闪烁）。
+  function renderAxisDetailContent(selection) {
+    const html = renderAxisDetail(selection);
+    if (!html) {
+      closeAxisDetail();
+      return;
+    }
+    detailEl.innerHTML = html;
+    detailEl.hidden = false;
+  }
+
+  // refreshOpenAxisDetail 在 render 重算元数据后保持已打开的详情有效（例如
+  // 压缩刻度随新消息体量归一化轻微移动）；索引仍存在则刷新内容，否则收起。
+  function refreshOpenAxisDetail() {
+    if (!axisDetailKey) return;
+    const separator = axisDetailKey.indexOf(":");
+    const type = axisDetailKey.slice(0, separator);
+    const index = Number(axisDetailKey.slice(separator + 1));
+    if (type === "prefix") {
+      const layer = axisPrefixSegments[index];
+      if (!layer) {
+        closeAxisDetail();
+        return;
+      }
+      renderAxisDetailContent({ type: "prefix", layer });
+      return;
+    }
+    if (type === "compact") {
+      const mark = axisCompactionMarks[index];
+      if (!mark) {
+        closeAxisDetail();
+        return;
+      }
+      renderAxisDetailContent({ type: "compression", mark });
+    }
+  }
 
   function focusRow(key) {
     const row = listEl.querySelector(`[data-trajectory-key="${CSS.escape(key)}"]`);
@@ -72,13 +158,19 @@ export function createTrajectoryView(container, options = {}) {
     render(records, filter, true);
   }
 
-  function render(nextRecords, nextFilter = filter, active = true, promptLayers = []) {
+  function render(nextRecords, nextFilter = filter, active = true, extras = {}) {
     records = Array.isArray(nextRecords) ? nextRecords : [];
     filter = nextFilter || "all";
+    // 元数据只按显式提供更新；未提供（如本地过滤切换重渲染）时沿用已缓存值。
+    if (Array.isArray(extras?.prefixLayers)) prefixLayers = extras.prefixLayers;
+    if (Array.isArray(extras?.compactions)) compactions = extras.compactions;
     if (!active) return;
-    promptEl.innerHTML = renderPromptInjection(promptLayers);
-    // 上下文轴始终反映完整对话顺序（与过滤状态无关）。
-    axisEl.innerHTML = renderContextAxis(records);
+    axisPrefixSegments = prefixLayerSegments(prefixLayers);
+    axisCompactionMarks = compactionMarks(records, compactions);
+    // 上下文轴始终反映完整对话顺序（与过滤状态无关）；extras 附加前缀注入
+    // 与压缩两条元数据轨。
+    axisEl.innerHTML = renderContextAxis(records, { prefixLayers, compactions });
+    refreshOpenAxisDetail();
     const stats = trajectoryStats(records);
     filtersEl.innerHTML = renderTrajectoryFilters(records, filter);
     summaryEl.innerHTML = renderTrajectorySummary(stats);

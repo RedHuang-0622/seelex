@@ -12,8 +12,8 @@
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
-| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/notice）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴。 |
-| `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；上下文轴按类型分轨，点击块切回全量并定位轨迹行。 |
+| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/notice）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴；轴内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）与压缩刻度（`compactionMarks`，snapshot.task.context_compactions）两条元数据轨与 `renderAxisDetail` 详情。 |
+| `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
@@ -28,7 +28,7 @@
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
 | `dist/snapshot-shape.js` | 快照分型的字段归属契约（G3）：SessionRuntime/ProcessRuntime/顶层键所有权表、`splitRuntime`/`classifySnapshot`/`assertTypedShape`/`processContextOf` 纯函数。桌面仍收联合 Snapshot 时按表区分会话与进程字段；会话/进程制品到达后做泄漏校验（INV-G1 前端镜像）。 |
 | `dist/sidebar.js` | 左栏纯显示工具：标题截断、重名消歧编号（渲染期派生）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
-| `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计、上下文轴分轨布局与转义安全。 |
+| `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计、上下文轴分轨布局、前缀注入轨与压缩刻度、轴详情与转义安全。 |
 
 ## 视觉设计系统
 
@@ -167,7 +167,12 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 按 tool id 配对为一行（IN/OUT、状态、耗时、大小、`result_ref` 截断读回）；
 过滤条按类型筛选并带计数，展开详情复用 `io-panel` 交互契约（复制/展开/
 `ToolResultContent` 分页读回）。轨迹数据纯前端派生，不新增后端契约；子页
-未激活时只缓存数据面（懒渲染），增量事件到达时重新投影。
+未激活时只缓存数据面（懒渲染），增量事件到达时重新投影。顶部上下文轴在
+五条响应类型轨之外内联两条元数据轨：「前缀注入」轨（Bridge.PromptLayers
+的会话级当前层，段宽=层文本占比、横跨整轴，点击开详情看全文——替代旧独立
+「前缀注入」面板）与「压缩」轨（`snapshot.task.context_compactions` 压缩
+刻度，锚定压缩发生时会话推进位置，点击开公开元数据详情；system prompt 与
+压缩的注入/折叠均可 trace 到轴上，粒度到会话级当前层与每次压缩事件）。
 
 子代理增量递归更新 `runtime.plan.nodes`：`subagent.changed` 替换完整节点，
 工具 started/completed 按 ID upsert `node.tool_events`。Plan 支持

@@ -1888,6 +1888,98 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   text-align: center;
 }
 
+/* ---------- 上下文轴元数据轨：前缀注入 + 压缩刻度（US-2） ---------- */
+/* 前缀注入轨：每次请求前置的 system 前缀（横跨整轴，段宽=层文本占比） */
+.context-axis-lane.is-prefix {
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+}
+.context-axis-lane.is-prefix .axis-lane-label .icon,
+.context-axis-lane.is-compress .axis-lane-label .icon { display: none; }
+.context-axis-lane .axis-lane-count {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-2);
+  font: 700 9px var(--font-mono);
+}
+.axis-segment.is-prefix {
+  background: repeating-linear-gradient(135deg, var(--tint-info), var(--tint-info) 6px, var(--surface-2) 6px, var(--surface-2) 12px);
+  color: var(--muted);
+  opacity: .9;
+}
+.axis-segment.is-prefix.is-identity { background-color: var(--surface-2); }
+.axis-segment.is-prefix:hover { color: var(--text); opacity: 1; }
+/* 压缩轨：刻度（会话推进位置上的竖线标记） */
+.context-axis-lane.is-compress { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
+.context-axis-lane.is-compress .axis-lane-label { color: var(--accent); }
+.axis-segment.is-compress {
+  left: var(--x);
+  width: 3px;
+  min-width: 3px;
+  padding: 0;
+  transform: translateX(-50%);
+  background: var(--accent);
+  border-radius: 1px;
+  color: transparent;
+  opacity: .85;
+}
+.axis-segment.is-compress:hover { color: var(--text); opacity: 1; }
+/* 轴详情（点击前缀层/压缩刻度展开，替代旧独立前缀注入面板） */
+.trajectory-axis-detail { padding: 0 0 8px; }
+.axis-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  overflow: hidden;
+}
+.axis-detail > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  color: var(--text-soft);
+  background: var(--surface-2);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .06em;
+}
+.axis-detail-close {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font: 10px var(--font-mono);
+  cursor: pointer;
+}
+.axis-detail-close:hover { color: var(--text); border-color: var(--accent); }
+.axis-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 6px 10px 0;
+  color: var(--faint);
+  font: 10px var(--font-mono);
+}
+.axis-detail p { margin: 0; padding: 6px 10px 10px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.axis-detail-text {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 10px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--code-bg);
+  color: var(--text-soft);
+  font: 11px var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.trajectory-axis-detail[hidden] { display: none; }
+
 /* ---------- 轨迹行定位高亮 + THINK 完整面板 ---------- */
 .trajectory-row.is-flash { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .trajectory-row.is-flash summary { background: var(--tint-running); }
