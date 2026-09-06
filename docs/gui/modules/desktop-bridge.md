@@ -76,12 +76,17 @@ Bridge 不解释 Chat、Plugin、Session 或审批业务，不缓存业务 Snaps
 
 - 开关：环境变量 `SEELEX_HEADLESS_PORT=<port>`；未设置时零开销（生产双击
   路径不受影响）。服务只绑定 `127.0.0.1`。
+- 独立调试入口：`-frontend headless` 无窗口装配同一 Application 并启动该
+  控制面（不依赖 WebView2/Wails，桌面进程/CI 均可驱动；需要
+  `SEELEX_HEADLESS_PORT`）。
 - `/rpc`：JSON-RPC 风格方法面，映射到 Bridge 同源的窄契约子集——
   `Snapshot` / `PerfStats` / `Submit` / `BeginNewSession` / `ResumeSession` /
   `ForkSessionLatest` / `CancelChat` / `LoadMoreHistory` /
-  `ResolveInteraction`，以及会话级扩展 `ListSessions` / `SnapshotOf` /
-  `ActivateSession`（宿主具备时）。命令全部走 application core，不新增业务
-  状态机。
+  `ResolveInteraction` / `WaitIdle` / `WaitCatalogRefresh`，以及会话级扩展
+  `ListSessions` / `SnapshotOf` / `ActivateSession`（宿主具备时）。命令全部
+  走 application core，不新增业务状态机。`WaitIdle` 与 `WaitCatalogRefresh`
+  是异步冒烟驱动的确定性等待口（可传超时秒数；缺参/0 回退内置护栏），分别
+  等待全部已接受 chat 收敛与会话目录 worker 覆盖本次命令变更。
 - `/events`：SSE 全量会话事件流（含 payload 体积等公开元数据，不含会话
   正文），驱动侧按到达时刻打点即可得到事件速率/阶段耗时热力图。
 - `/healthz`：进程存活探针。

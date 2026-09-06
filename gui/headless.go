@@ -20,8 +20,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -36,6 +38,26 @@ const headlessEventBuffer = 4096
 type headlessServer struct {
 	app Application
 	srv *http.Server
+}
+
+// RunHeadless 是 headless 控制面的独立入口（调试/冒烟用，不启动桌面窗口）：
+// 与 GUI 进程内装配一致地启动回环 RPC + 事件流，但不依赖 WebView2/Wails。
+// 未设置 SEELEX_HEADLESS_PORT 时返回可读错误；启动后阻塞到进程收到中断或
+// 终止信号（外部驱动结束后 kill 进程即可）。
+func RunHeadless(app Application) error {
+	port := strings.TrimSpace(os.Getenv(headlessEnvPort))
+	if port == "" {
+		return fmt.Errorf("headless 调试入口需要 %s=<端口>（例如 SEELEX_HEADLESS_PORT=39123）", headlessEnvPort)
+	}
+	stop, err := startHeadlessIfRequested(app)
+	if err != nil {
+		return err
+	}
+	defer stop()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	<-signals
+	return nil
 }
 
 // startHeadlessIfRequested 在设置 SEELEX_HEADLESS_PORT 时启动回环控制面；
@@ -170,6 +192,32 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 			return nil, err
 		}
 		return nil, server.app.LoadMoreHistory(limit)
+	case "WaitIdle":
+		// 异步冒烟驱动在 Submit 后等待全部已接受 chat 收敛（0/缺参回退
+		// 5 分钟默认护栏，避免控制面调用永久悬挂）。
+		timeoutSeconds, err := intArg(0, "timeoutSeconds")
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := waitContext(timeoutSeconds, 5*time.Minute)
+		defer cancel()
+		if err := server.app.WaitForIdle(ctx); err != nil {
+			return nil, fmt.Errorf("%s 等待空闲失败: %w", method, err)
+		}
+		return nil, nil
+	case "WaitCatalogRefresh":
+		// 命令（BeginNewSession/ResumeSession/ActivateSession）后等待会话
+		// 目录 worker 覆盖本次变更再读 ListSessions，避免读到旧目录。
+		timeoutSeconds, err := intArg(0, "timeoutSeconds")
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := waitContext(timeoutSeconds, 15*time.Second)
+		defer cancel()
+		if err := server.app.WaitCatalogRefresh(ctx); err != nil {
+			return nil, fmt.Errorf("%s 等待目录收敛失败: %w", method, err)
+		}
+		return nil, nil
 	case "ResolveInteraction":
 		id, err := stringArg(0, "id")
 		if err != nil {
@@ -211,6 +259,15 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 		return nil, sessionAware.ActivateSession(sessionID)
 	}
 	return nil, fmt.Errorf("未知 headless 方法: %s", method)
+}
+
+// waitContext 为异步等待类 RPC 构造带护栏的 context：显式 timeoutSeconds
+// 为正时按秒生效，否则回退 fallback（保证缺参/0 也不会无限悬挂）。
+func waitContext(timeoutSeconds int, fallback time.Duration) (context.Context, context.CancelFunc) {
+	if timeoutSeconds > 0 {
+		return context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+	}
+	return context.WithTimeout(context.Background(), fallback)
 }
 
 // serveEvents 以 SSE 方式推送全量会话事件（含 payload 体积与到达时刻由

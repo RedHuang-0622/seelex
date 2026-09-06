@@ -16,6 +16,7 @@ func TestParseFrontendMode(t *testing.T) {
 	}{
 		{input: "tui", want: "tui"},
 		{input: " GUI ", want: "gui"},
+		{input: "HEADLESS", want: "headless"},
 		{input: "BACKEND", want: "backend"},
 	} {
 		got, err := parseFrontendMode(test.input)

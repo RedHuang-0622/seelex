@@ -142,3 +142,60 @@ func TestHeadlessEventsStream(t *testing.T) {
 		return
 	}
 }
+
+// gatedIdleApplication 让 WaitForIdle 阻塞到 gate 关闭或 ctx 到期，用于验证
+// WaitIdle RPC 的超时护栏（默认 fake 的 WaitForIdle 立即返回，测不到超时）。
+type gatedIdleApplication struct {
+	*fakeApplication
+	idleGate chan struct{}
+}
+
+func (fake *gatedIdleApplication) WaitForIdle(ctx context.Context) error {
+	select {
+	case <-fake.idleGate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// TestHeadlessWaitRPC 验证异步等待口（WaitIdle / WaitCatalogRefresh）：
+// ok 路径 + 超时护栏路径（append-only 新增方法，不改变既有方法契约）。
+func TestHeadlessWaitRPC(t *testing.T) {
+	fake := newFakeApplication()
+	base := newHeadlessTestServer(t, fake)
+
+	if result := headlessRPC(t, base, "WaitIdle", 5); !result.OK {
+		t.Fatalf("WaitIdle failed: %s", result.Error)
+	}
+	if result := headlessRPC(t, base, "WaitIdle"); !result.OK {
+		t.Fatalf("WaitIdle without timeout failed: %s", result.Error)
+	}
+	if result := headlessRPC(t, base, "WaitCatalogRefresh", 5); !result.OK {
+		t.Fatalf("WaitCatalogRefresh failed: %s", result.Error)
+	}
+	if result := headlessRPC(t, base, "WaitCatalogRefresh"); !result.OK {
+		t.Fatalf("WaitCatalogRefresh without timeout failed: %s", result.Error)
+	}
+	if result := headlessRPC(t, base, "WaitIdle", "not-a-number"); result.OK ||
+		!strings.Contains(result.Error, "必须是整数") {
+		t.Fatalf("WaitIdle bad arg should fail, got ok=%v error=%q", result.OK, result.Error)
+	}
+
+	// 超时护栏：目录收敛 gate 不关闭 → 1s 后返回可读超时错误。
+	fake.catalogGate = make(chan struct{})
+	if result := headlessRPC(t, base, "WaitCatalogRefresh", 1); result.OK ||
+		!strings.Contains(result.Error, "目录") {
+		t.Fatalf("WaitCatalogRefresh gate should time out, got ok=%v error=%q", result.OK, result.Error)
+	}
+	close(fake.catalogGate)
+
+	// 超时护栏：WaitForIdle 不返回 → 1s 后返回可读超时错误。
+	gated := &gatedIdleApplication{fakeApplication: newFakeApplication(), idleGate: make(chan struct{})}
+	gatedBase := newHeadlessTestServer(t, gated)
+	if result := headlessRPC(t, gatedBase, "WaitIdle", 1); result.OK ||
+		!strings.Contains(result.Error, "空闲") {
+		t.Fatalf("WaitIdle gate should time out, got ok=%v error=%q", result.OK, result.Error)
+	}
+	close(gated.idleGate)
+}

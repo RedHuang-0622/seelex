@@ -52,7 +52,7 @@ var (
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
 	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
 	permissionMode = flag.String("permission", "manual", "权限模式: manual(白名单外需审批) | full_access(全部放行)")
-	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui | backend")
+	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui | headless | backend")
 	backendPrompt  = flag.String("backend-prompt", "", "后端诊断请求（仅 -frontend backend；为空时从标准输入逐行读取）")
 	backendTimeout = flag.Duration("backend-timeout", 2*time.Minute, "后端单次诊断请求的最大等待时间")
 	backendLogPath = flag.String("backend-log", "", "后端诊断日志文件（仅 -frontend backend；仍同步输出到标准输出）")
@@ -1063,6 +1063,13 @@ func startFrontend(app *application.Service, backendOutput io.Writer, startupWar
 			return fmt.Errorf("GUI 错误: %w", err)
 		}
 		return nil
+	case "headless":
+		// headless 调试入口：无窗口装配同一 Application，经
+		// SEELEX_HEADLESS_PORT 回环 RPC + 事件流驱动（gui/headless.go）。
+		if err := gui.RunHeadless(app); err != nil {
+			return fmt.Errorf("headless 错误: %w", err)
+		}
+		return nil
 	case "backend":
 		return console.Start(app, *backendPrompt, *backendTimeout, backendOutput)
 	default:
@@ -1073,10 +1080,10 @@ func startFrontend(app *application.Service, backendOutput io.Writer, startupWar
 func parseFrontendMode(value string) (string, error) {
 	mode := strings.ToLower(strings.TrimSpace(value))
 	switch mode {
-	case "tui", "gui", "backend":
+	case "tui", "gui", "headless", "backend":
 		return mode, nil
 	default:
-		return "", fmt.Errorf("%q，允许值为 tui、gui 或 backend", value)
+		return "", fmt.Errorf("%q，允许值为 tui、gui、headless 或 backend", value)
 	}
 }
 
