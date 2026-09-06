@@ -177,3 +177,31 @@ websearch:
 		t.Errorf("expected apikey alias to map to APIKey, got %q", cfg.Strategies[0].APIKey)
 	}
 }
+
+func TestLoadConfig_StrategiesType(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "strategies_type_ws.yaml")
+	content := `
+websearch:
+  strategies:
+    - name: bocha
+      type: bochaai
+      api_key: sk-bocha
+    - name: local
+      endpoint: https://search.example.org/search
+      api_key: key
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LoadConfig(path)
+	if len(cfg.Strategies) != 2 {
+		t.Fatalf("expected 2 strategies, got %d", len(cfg.Strategies))
+	}
+	if cfg.Strategies[0].Type != "bochaai" || cfg.Strategies[0].APIKey != "sk-bocha" {
+		t.Errorf("unexpected first strategy: %+v", cfg.Strategies[0])
+	}
+	// 未声明 type 的策略保持零值（装配时走标准协议）。
+	if cfg.Strategies[1].Type != "" {
+		t.Errorf("expected empty type for standard strategy, got %q", cfg.Strategies[1].Type)
+	}
+}

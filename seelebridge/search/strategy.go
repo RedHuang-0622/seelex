@@ -43,18 +43,21 @@ const DefaultMaxResults = 10
 // 选择规则：
 //  1. 优先使用配置中的 strategies 列表；
 //  2. 未声明策略但存在旧字段（provider: tavily / api_key）时，自动翻译为
-//     内置 tavily 兼容策略；
+//     内置 tavily 兼容策略；provider 命中内置厂商名（如 bochaai）时翻译为
+//     对应厂商适配器；
 //  3. active（或旧 provider 名）用于在多个策略中选中一个，缺省取第一个；
-//  4. 没有任何策略时返回错误，由工具层注册占位工具。
+//  4. 单条策略按 strategies[].type 分发：空/standard → 标准协议，内置厂商
+//     名 → 厂商专有适配器（见 assembleStrategy）；
+//  5. 没有任何策略时返回错误，由工具层注册占位工具。
 func Assemble(cfg WebSearchConfig) (Strategy, error) {
 	strategies := cfg.Strategies
 	if len(strategies) == 0 {
-		if legacy, ok := legacyTavilyStrategy(cfg); ok {
+		if legacy, ok := legacyStrategy(cfg); ok {
 			strategies = []StrategyConfig{legacy}
 		}
 	}
 	if len(strategies) == 0 {
-		return nil, fmt.Errorf("search: 未配置任何 websearch 代理策略（请在 websearch.strategies 声明，或沿用旧字段 provider/api_key）")
+		return nil, fmt.Errorf("search: 未配置任何 websearch 代理策略（请在 websearch.strategies 声明，或用旧字段 provider/api_key；内置厂商: %s）", strings.Join(builtinNames(), ", "))
 	}
 
 	selected := strategies[0]
@@ -77,18 +80,32 @@ func Assemble(cfg WebSearchConfig) (Strategy, error) {
 			return nil, fmt.Errorf("search: 未找到代理策略 %q（可用: %s）", name, strategyNames(strategies))
 		}
 	}
-	return newStandardStrategy(selected, cfg)
+	return assembleStrategy(selected, cfg)
 }
 
-// legacyTavilyStrategy 把旧字段（provider: tavily 或仅 api_key）翻译为内置
-// tavily 兼容策略，保证现有账号池配置无需修改即可继续使用。
-func legacyTavilyStrategy(cfg WebSearchConfig) (StrategyConfig, bool) {
+// legacyStrategy 把旧字段（provider/api_key）翻译为单条策略配置，保证旧账号池
+// 配置无需修改：
+//   - provider: tavily（或空 provider + api_key）→ tavily 标准协议兼容策略；
+//   - provider 命中内置厂商（如 bochaai）→ 对应厂商适配器（Type 置厂商名）。
+//
+// 未命中任何翻译时返回 false。
+func legacyStrategy(cfg WebSearchConfig) (StrategyConfig, bool) {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	// 显式 provider: tavily 时即使未配 key 也翻译，让装配报「API Key 未配置」；
 	// 未写 provider 但配了 api_key 时按历史行为兜底走 tavily。
 	if provider == "tavily" || (provider == "" && cfg.APIKey != "") {
 		return StrategyConfig{
 			Name:     "tavily",
+			Endpoint: cfg.Endpoint,
+			APIKey:   cfg.APIKey,
+		}, true
+	}
+	// provider 命中内置厂商（如 bochaai / searxng）：翻译为专有协议适配器，
+	// 端点可经 cfg.Endpoint 覆盖，缺省由各适配器提供或报「缺少 endpoint」。
+	if provider != "" && isBuiltinVendor(provider) {
+		return StrategyConfig{
+			Name:     provider,
+			Type:     provider,
 			Endpoint: cfg.Endpoint,
 			APIKey:   cfg.APIKey,
 		}, true

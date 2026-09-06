@@ -24,7 +24,8 @@
 `Register(registrar, accountsPath)` 流程：
 
 1. `search.LoadConfig(accountsPath)` 加载并合并默认值；
-2. `search.Assemble(cfg)` 装配代理策略（旧 `provider: tavily` 字段自动兼容）；
+2. `search.Assemble(cfg)` 装配代理策略（旧 `provider: tavily` / `api_key`
+   自动兼容，含内置厂商 `bochaai` 等；`strategies[].type` 指定厂商适配器）；
 3. 装配失败 → 注册占位工具（返回错误 JSON，不 panic）；
 4. 成功 → handler 解析 `query` / `max_results` 参数，调用 `strategy.Search`
    并 `FormatResponse` 输出 Markdown。
@@ -58,15 +59,18 @@ main.go ── websearch.Register(runtime, accountsPath)
 
 ## 扩展方式
 
-- 接入新搜索 API：只改账号池 `websearch.strategies`，本包无需改动；
-- 新增策略类型：改 `seelebridge/search` 的 `Assemble`，本包仅更新
-  占位提示文案与测试。
+- 接入新搜索 API：只改账号池 `websearch.strategies`（标准协议端点），
+  本包无需改动；
+- 新增内置厂商：在 `seelebridge/search` 新增 `builtin_xxx.go` 并
+  `registerBuiltin`（装配逻辑零改动），本包仅更新占位提示文案（错误信息
+  已动态列出可用厂商）与测试。
 
 ## Review 指南
 
 - handler 是否仍只依赖 `Strategy` 接口，没有复制业务状态？
 - 占位工具是否在任何装配错误下都能注册（不 panic）？
 - `query` 空值与 `max_results` 越界是否被正确处理？
+- 占位错误文案是否仍只给配置指引（不泄漏 key / 不重复厂商实现细节）？
 
 ## 测试与验证
 

@@ -14,17 +14,26 @@ websearch:
   include_answer: true
   search_depth: advanced
   # timeout: 15                # 可选：覆盖 limits.search_timeout
-  # active: searxng            # 可选：多策略时选中一个；缺省取第一个
-  # strategies:                # 代理策略列表：只需端点与密钥，请求/响应走
-  #                            # 标准 websearch 协议（Tavily 兼容）；
-  #                            # 启用 strategies 后请把下方 provider/api_key
-  #                            # 注释掉，或用 active 显式指定使用哪个策略。
-  #   - name: searxng
+  # active: gateway            # 可选：多策略时选中一个；缺省取第一个
+  # strategies:                # 代理策略列表。三种接入方式，入参/出参一致：
+  #   # 1) 标准协议端点 / 自建网关：只需端点与密钥，请求/响应走标准
+  #   #    websearch 协议（Tavily 兼容）；type 省略或写 standard
+  #   - name: gateway
+  #     endpoint: https://your-gateway.example/search
+  #     api_key: replace-with-your-key
+  #   # 2) 内置厂商适配器：type 指定厂商名，走该厂商专有协议，无需自建网关
+  #   - name: bocha
+  #     type: bochaai          # 博查 Web Search API（api_key 必填，端点可选）
+  #     api_key: replace-with-your-bochaai-key
+  #   - name: sx
+  #     type: searxng          # SearXNG JSON API（endpoint 必填，api_key 可选）
   #     endpoint: https://searx.example.org/search
-  #     apikey: replace-with-your-key
+  #   # 启用 strategies 后请把下方 provider/api_key 注释掉，或用 active 显式
+  #   # 指定使用哪个策略。
 
-  # 旧字段兼容：provider: tavily + api_key 等价于内置 tavily 策略模板，
-  # 未声明 strategies 时自动翻译，现有配置无需修改。
+  # 旧字段兼容：未声明 strategies 时 provider/api_key 自动翻译——
+  # provider: tavily + api_key 走内置 tavily 标准协议；
+  # provider: bochaai + api_key 走内置博查适配器。现有配置无需修改。
   provider: tavily
   api_key: replace-with-your-tavily-api-key
 

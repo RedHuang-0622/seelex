@@ -22,11 +22,16 @@ type WebSearchConfig struct {
 	Strategies     []StrategyConfig `yaml:"strategies"`
 }
 
-// StrategyConfig 描述一个代理策略：搜索端点与密钥。请求构造与响应解析
-// 遵循标准 websearch 协议（POST JSON + Bearer 鉴权，响应含 results 数组），
-// 因此无需声明 method、header 或字段映射。
+// StrategyConfig 描述一个代理策略：内置厂商类型（可选）+ 搜索端点与密钥。
+//
+// Type 为空或 "standard" 时使用标准 websearch 协议（Tavily 兼容：
+// POST JSON + Bearer 鉴权，响应含 results 数组），无需声明 method、header
+// 或字段映射；Type 为内置厂商名（tavily / bochaai / searxng，见 builtin.go）
+// 时使用该厂商的专有协议适配器。无论哪种 Type，装配出的 Strategy 对外
+// 入参 (ctx, query, maxResults) 与出参 (SearchResponse) 完全一致。
 type StrategyConfig struct {
 	Name        string `yaml:"name"`
+	Type        string `yaml:"type"`
 	Endpoint    string `yaml:"endpoint"`
 	APIKey      string `yaml:"api_key"`
 	APIKeyAlias string `yaml:"apikey"`
