@@ -289,3 +289,135 @@ go test ./application/core/govern/ ./application/core/goal/ -count=1
 - 心跳推给前端的方式：随 Snapshot 全量 vs 单独 `goal.heartbeat` 事件；
 - mainAgent 显式 `#goal` 与工具 `goal_begin` 是否都作为发球入口（两者等价）；
 - `peer.unbind` 后 TL 会话对象删除，治理快照是否保留 b 回合审计（协议 D3）。
+
+---
+
+## 9. 分阶段改动面与验收用例（实施清单）
+
+> 本节把每个 P 的**波及文件**与**验收用例**落到仓库路径。文件按"新增 /
+> 修改 / 删除"标注；用例分单元层（默认 `go test`）与真实 API 层
+> （`SEELEX_LIVE_SMOKE=1`，非默认）。改动原则：goal/govern 保持叶子包
+> 零 seelex 依赖；session 只依赖装配端口；组合根（main）负责接线。
+
+### 9.1 P0：govern 抽象 + goal 适配 + headless 测试面（已完成，提交 49b1be0/190cbc0）
+
+**波及文件（已提交）**
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `application/core/govern/governance.go` | 新增 | Seat/Governor/TurnAction/Snapshot 抽象与默认实现 |
+| `application/core/govern/governance_test.go` | 新增 | 治理循环单测（座次/断环/护栏/外部中断/错误） |
+| `application/core/govern/README.md` | 新增 | 包生态位与索引 |
+| `application/core/goal/adapter.go` | 新增 | `DirectiveBreaksLoop`/`NewAdvisorSeat`/`NewTurnGovernorForDSA2A` |
+| `application/core/goal/adapter_test.go` | 新增 | 治理驱动 TL 回合 / verdict_done 收口 / TL 缺席 |
+| `application/core/goal/headless.go` | 修改 | `WithGovernor` + `goal_gov_next/snapshot/break` RPC |
+| `application/core/goal/headless_gov_test.go` | 新增 | headless 治理 RPC 单测 |
+| `application/core/goal/README.md`、`application/core/README.md` | 修改 | 生态位与索引登记 |
+| `docs/2026-09-08-govern-loop/README.md`、`docs/research/...` | 新增/修改 | 设计/调研 |
+
+**验收用例**
+
+| 用例 | 层 | 命令 |
+|---|---|---|
+| `TestTurnGovernorAlternatesSeatsByOrder` / `...BreaksWhenSeatRequests` / `...MaxRoundsStopsLoop` / `...ExternalBreak` / `...SeatErrorStops` | 单元 | `go test ./application/core/govern/ -count=1` |
+| `TestGovernorDrivesAdvisorRound` / `TestGovernorBreaksOnVerdictDone` / `TestAdvisorSeatDisabledReportsTLDisabled` | 单元 | `go test ./application/core/goal/ -run 'TestGovernor|TestAdvisorSeat' -count=1` |
+| `TestHeadlessGovernRPC` / `TestHeadlessGovernUnwired` | 单元 | `go test ./application/core/goal/ -run TestHeadlessGovern -count=1` |
+| `TestTLRealLLMRound` / `TestTurnGovernorRealLLM` / `TestHeadlessGovernRealLLM` / `TestMainAgentToTLFinishRealLLM` | 真实 API | `$env:SEELEX_LIVE_SMOKE=1; go test ./tmp/goal-tl-live-smoke -v -count=1` |
+
+---
+
+### 9.2 P1：会话挂接（端口 + 装配 + goal 工具 + 视图投影/心跳）
+
+**波及文件**
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `application/contract/dto/projection.go` | 修改 | `RuntimeVisibilityProjection` 增 `GoalGovernance *GoalGovernanceView`（或独立投影类型） |
+| `application/model/state.go` | 修改 | `RuntimeState`/`SessionRuntime` 增 `GoalGovernance *GoalGovernanceView`；`cloneRuntimeState` 深拷贝 |
+| `application/core/view_state/coordinator.go` | 修改 | 组装 goal 治理视图进会话投影 |
+| `application/core/session_scope.go` | 修改 | `sessionRuntimeOf` 带 goal 治理视图 |
+| `application/core/service_components.go` | 修改 | `serviceComponents` 增 `goal *governance.Coordinator`（会话级持有器） |
+| `application/core/service_assembler.go` | 修改 | 装配 goal 协调器（注入 Runtime/账号面） |
+| `application/core/runtime_projection.go` | 修改 | `publishRuntimeProjections` 携带治理视图 + 心跳（seq/at） |
+| `application/core/service.go` 或新 `goal_service.go` | 新增 | Service 侧 goal 方法面：Begin/Update/ProposeFinish/Notify/Next/Snapshot（按会话路由） |
+| `application/core/goal/ports.go`（规划新增，现不存在） | 新增 | 会话挂接端口 `GoalGovernorPort`（装配侧声明；goal 域实现） |
+| `seelebridge/runtime_tools.go` | 修改 | `registerGoalTools()`：goal_begin/update/status/propose_finish 注册（main agent 工具面） |
+| `seelebridge/tools/policy.go` | 修改 | `isGoalTool` 门控（goal 激活/治理存在时对主代理可见） |
+| `main.go` | 修改 | `initApplication` 后装配 goal 协调器 + 真实 TLEvaluator（账号池）+ 注册 goal 工具（`registerTaskTerminalTools` 同款模式） |
+| `gui/headless.go` | 修改 | dispatch 增 `goal.<method>` 透传（接线位注释已预留） |
+| `application/core/goal/headless.go` | 修改 | `WithGovernor` 已有；增 `goal_gov_view` 或复用 `SnapshotOf` |
+| `tmp/goal-tl-live-smoke/smoke_test.go` | 修改 | P1 会话挂接冒烟（若独立服务形式则新增） |
+| `docs/gui/`、`docs/2026-09-08-govern-loop/design.md` | 修改 | GUI 视图/协议字段同步 |
+
+**验收用例（P1 核心：治理由会话装配驱动、视图可心跳）**
+
+| 用例（建议命名/所在文件） | 断言 |
+|---|---|
+| `application/core/goal/ports_test.go`：`TestGoalPortBeginProposeFinishIsolation` | 两会话各自 Begin/Update 不串（sessionA 的 goal 不污染 sessionB） |
+| `application/core/view_state` 或 `service_snapshot_test.go`：`TestSessionSnapshotCarriesGoalGovernanceHeartbeat` | Snapshot.Runtime 含治理视图，heartbeat_seq 单调递增 |
+| `seelebridge`（`goal_tools_test.go`）：`TestGoalToolsRegisteredAndGated` | goal 工具注册；未激活/非 goal 会话时主代理不可见（policy） |
+| `main` 装配测试/headless：`TestHeadlessGoalDispatchBeginToView` | `goal_begin` → 治理视图 active、goal 状态一致 |
+| `seelebridge/session`（若 ChatStream 边界接 OnIterationComplete）：`TestGovernorAdvancesOnChatTurn` | 一次 main agent ChatStream 后 governor.Round≥1、TL 指令入注入队列 |
+| 真实 API：`tmp/.../TestSessionGovernRealLLM`（P1 新增） | 会话级装配下 mainAgent→TL 端到端，视图心跳可观测 |
+
+### 9.3 P2：持久化与恢复（goal 栈第五栈）
+
+**波及文件**
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `sessionstore/session_context.go` | 修改 | `SessionContextRecord` 增 `GoalStack []GoalFrame`；`PushGoal/CloseTopGoal/GoalStackSnapshot`；`SessionContextSchemaVersion` bump（v1→v2，校验旧记录兼容迁移或显式拒绝） |
+| `sessionstore/session_context_test.go` | 修改 | 新增 goal 栈持久化/恢复/版本测试 |
+| `sessionstore/context_state.go` 或复用 | 修改 | 若字段编码走独立 blob 无需改（context 通道已隔离） |
+| `application/core/goal/store.go` | 修改 | 增 `ContextStateStore` 适配（把 goal.Controller 栈落 SessionContextStore）或 `Store` 实现 |
+| `seelebridge/runtime_session.go` | 修改 | session bundle 装配/恢复时重建 goal Controller（`Reload`） |
+| `application/core/goal/controller.go` | 修改 | `Reload` 与 SessionContextStore 对齐（已具备 Store 接口，需装配 Store） |
+| `seelebridge/ports.go` / `runtime_context.go` | 修改 | `sessionContextStore()` 旁路或装配点把 goal store 接到会话 |
+| `docs/2026-09-08-govern-loop/design.md`、`sessionstore/README.md` | 修改 | 第五栈语义文档 |
+
+**验收用例**
+
+| 用例 | 断言 |
+|---|---|
+| `sessionstore`：`TestGoalStackPersistReload` | Begin→Persist→新 SessionContextStore Load→栈/状态一致 |
+| `sessionstore`：`TestGoalStackSchemaBumpRejectsOld` | v1 记录在 v2 下显式失败或迁移成功（按决策） |
+| `goal`：`TestControllerReloadFromContextStore` | Controller.Reload 后 active goal/progress/directives 恢复 |
+| `seelebridge`：`TestResumedSessionRebuildsGoalGovernor` | 恢复会话后治理 round/座次与持久化前一致 |
+| fork 隔离：`TestForkSessionDoesNotInheritGoalStack` | 子会话 fork 不带父 goal 栈（对齐 plan/task 四栈语义） |
+
+### 9.4 P3：前端正式渲染（GUI/TUI 治理面板）
+
+**波及文件**
+
+| 文件 | 动作 | 说明 |
+|---|---|---|
+| `gui/frontend/dist/index.html` | 修改 | goal 面板结构扩展（状态行/座次/泳道/心跳/断环横幅） |
+| `gui/frontend/dist/app.js` | 修改 | `renderGoal` 消费 `runtime.goal_governance`；心跳 seq 轮询/停滞提示 |
+| `gui/frontend/dist/styles.css` | 修改 | 治理泳道/心跳/断环样式 |
+| `gui/frontend/dist/snapshot-shape.js` | 修改 | `SESSION_RUNTIME_KEYS` 增 `goal_governance` |
+| `gui/frontend/dist/*.test.mjs` | 修改/新增 | snapshot-shape/渲染测试 |
+| `tui/state.go` / `tui/view.go`（若 TUI 先行） | 修改 | 治理面板（默认折叠） |
+| `application/contract/dto/`（视图模型） | 修改 | 若 GUI 需分页/详情再扩展 |
+| `docs/gui/` | 修改 | GUI 协议/DOM 文档同步 |
+
+**验收用例**
+
+| 用例 | 断言 |
+|---|---|
+| `snapshot-shape.test.mjs`：`goal_governance` 在 SessionRuntime 键集且不泄漏到进程键 | 字段归属正确 |
+| `app.test.mjs` / 渲染单测：`renderGoal` 无 goal 隐藏、有 goal 显示状态/轮次/心跳 | DOM 行为符合字符画 §3.1 |
+| 手工验收（GUI）：`#goal ...` 后右栏出现治理泳道，回合推进心跳 seq 增长，断环显示 reason | 与字符画一致 |
+| E2E（Playwright/headless GUI，如 `gui/frontend/dist/consistency.test.mjs` 模式）：治理全流程驱动 | mainAgent 发起→TL 裁决→面板收口 |
+
+### 9.5 依赖与回归护栏（各 P 通用）
+
+- 每次 P 改动后跑：`go build ./... && go test ./application/core/govern/ ./application/core/goal/ -count=1`；
+- P1+ 追加：`go test ./seelebridge/ ./application/core/... -count=1`（目标相关）；
+- 前端 P3 追加：`node --test gui/frontend/dist/*.test.mjs`；
+- 真实 API 验收（P0 已固化，P1+ 每阶段重跑）：`$env:SEELEX_LIVE_SMOKE=1; go test ./tmp/goal-tl-live-smoke -v -count=1`。
+
+> 文件清单为**实施起点**，实际改动可能随代码现状微调；新增文件以
+> "需要时才引入"为原则（例如 goal 协调器若可并入既有 serviceComponents
+> 目录则不再新增包）。验收用例为必须满足的最小集，可扩展不可缩减。
+
+---
