@@ -192,6 +192,29 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 			return nil, err
 		}
 		return nil, server.app.LoadMoreHistory(limit)
+	case "CreateWorkspace":
+		name, err := stringArg(0, "name")
+		if err != nil {
+			return nil, err
+		}
+		rootPath, err := stringArg(1, "rootPath")
+		if err != nil {
+			return nil, err
+		}
+		gitRemote, err := stringArg(2, "gitRemote")
+		if err != nil {
+			return nil, err
+		}
+		return nil, server.app.CreateWorkspace(name, rootPath, gitRemote)
+	case "BindWorkspace":
+		workspaceID, err := stringArg(0, "workspaceID")
+		if err != nil {
+			return nil, err
+		}
+		return nil, server.app.BindWorkspace(workspaceID)
+	case "UnbindWorkspace":
+		server.app.UnbindWorkspace()
+		return nil, nil
 	case "WaitIdle":
 		// 异步冒烟驱动在 Submit 后等待全部已接受 chat 收敛（0/缺参回退
 		// 5 分钟默认护栏，避免控制面调用永久悬挂）。
