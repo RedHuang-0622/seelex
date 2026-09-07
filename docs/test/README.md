@@ -8,4 +8,5 @@
 
 | 文档 | 说明 |
 |------|------|
+| [REPORT-govern-live-api-2026-09-08.md](REPORT-govern-live-api-2026-09-08.md) | 治理循环真实 API 验收报告：mainAgent 发起→TL 裁决收口、headless goal_gov_* 驱动、治理快照与 TL 状态一致性（2026-09-08，deepseek 兼容端点） |
 | [](2026-07-27-test-report.md) | 本地复测报告（go vet/build/test + TUI、e2e、seelebridge 全量） |

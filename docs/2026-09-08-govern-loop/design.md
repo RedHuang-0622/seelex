@@ -1,0 +1,291 @@
+# DS-A2A 会话挂接详细设计：Goal 治理循环、视图心跳与依赖倒置装配
+
+> 日期：2026-09-08 · 状态：详细设计（目标实现）
+> 前置：`README.md`（治理循环抽象与 goal 适配，已落地并提交 49b1be0/190cbc0）、
+> `docs/2026-09-07-seele-a2a-framework-req/`（DS-A2A 协议/详设，权威基线）、
+> `docs/2026-09-07-goal-domain-techleader/`（goal 域演进档案）。
+> 本文回答四件事：goal 如何由 mainAgent 发起、由 TL 收口；治理状态如何
+> 投影到视图并回心跳；多会话如何隔离；A2A 循环如何逃生；以及如何以
+> 依赖倒置接入 seelebridge/session 的 goal 装配。
+
+---
+
+## 1. 目标语义（一句话）
+
+`#goal` / `goal_begin` 是 **mainAgent（EXEC，a）** 的发球动作；此后治理循环
+在 a 与 **ADVISOR（TL，b）** 之间按座次轮转（exec → advisor → exec → …）；
+**只有 TL 的终态裁决（verdict_done / escalate_human）可以收口**——mainAgent
+只能提议（`goal_propose_finish`），不能直接结束 goal。a 永不等待 b
+（B4）：TL 缺席/429/超时按缺席矩阵降级，治理循环由 maxRounds / Break /
+escalate 提供逃生口。
+
+```text
+mainAgent(a) ──goal_begin──► Controller(g)  ──spawn──► ADVISOR(b)
+     │  ▲                                             │
+     │  │ goal_update / tool.checkpoint / 提议收口      │ TL 回合
+     ▼  │                                             ▼
+ 治理循环 Governor（exec-a → advisor-b 轮转，Round++）
+     │
+     ├─ verdict_done      → Controller.Finish → 视图收口 + 心跳 done
+     ├─ verdict_not_done  → goal 保持 active，指令回注 a
+     └─ escalate_human / 429 / maxRounds / Break → 循环逃生（视图可见 reason）
+```
+
+---
+
+## 2. 会话隔离与状态归属
+
+### 2.1 状态归属（谁持有 goal 栈）
+
+治理状态分三层，**严格按会话隔离**：
+
+| 层 | 内容 | 归属 | 持久化 |
+|---|---|---|---|
+| 会话视图（SessionUnit） | goal 投影 + 心跳（只读） | `session/ports.go SessionUnit` | 随快照下发，不落盘 |
+| 会话状态（TaskExecution） | goal 栈 / 状态机 | `task_context`（第五栈方向，goal 域 Controller 由装配根持有） | state blob |
+| 治理域（goal/govern） | Controller + Supervisor + Governor | `application/core/goal` + `govern`（叶子包） | Store 接口（v0 内存；后续 SessionContextStore） |
+
+设计约束（沿用 goal 包现状）：`goal.Controller` 是**会话粒度单例**
+（`Depth=1` 默认），`Supervisor` 绑定一个 Controller 与一个 TL 评估器；
+多会话时由装配层按 sessionID 维护 map，**不共享** Controller/AdvisorSession
+（会话间零共享，与 DS-A2A B1 一致）。
+
+### 2.2 视图投影（session → application → GUI/TUI）
+
+新增只读投影结构（`application/contract/dto` 或 `model`）：
+
+```go
+type GoalGovernanceView struct {
+    Active        bool               `json:"active"`
+    GoalID        string             `json:"goal_id,omitempty"`
+    Title         string             `json:"title,omitempty"`
+    Status        string             `json:"status,omitempty"`      // goal 状态
+    Round         int                `json:"round"`                 // 治理轮次
+    CurrentSeat   string             `json:"current_seat,omitempty"` // exec-a / advisor-b
+    PeerState     string             `json:"peer_state,omitempty"`   // b 生命周期
+    LastDirective string             `json:"last_directive,omitempty"`
+    Broken        bool               `json:"broken"`
+    BreakReason   string             `json:"break_reason,omitempty"`
+    HeartbeatAt   int64              `json:"heartbeat_at,omitempty"`
+    HeartbeatSeq  uint64             `json:"heartbeat_seq"`          // 单调心跳序号
+}
+```
+
+写入路径（复用现有 `publishRuntimeProjections`）：
+
+```text
+goal.Controller/Governor/Supervisor（会话域）
+   │ Snapshot（读面深拷贝）
+   ▼
+application Service.components.goal（按会话持有）
+   │ 组装 GoalGovernanceView + 心跳（seq++/at=now）
+   ▼
+RuntimeVisibilityProjection（或新 GoalViewProjection）
+   ▼
+SessionUnit.Runtime（G1 会话槽）
+   ▼
+Snapshot.runtime.goal_governance
+   ▼
+GUI renderGoal / TUI 面板
+```
+
+**心跳**：治理每推进一个回合（exec/advisor Act 结束）或 goal 状态迁移，
+装配方在 `publishRuntimeProjections` 时机更新 `HeartbeatSeq/HeartbeatAt`；
+前端把 seq 单调视为"治理活着"，超过 `N` 秒无新 seq 显示
+`governance stalled`（前端只读展示，不做业务决策）。
+
+---
+
+## 3. 页面效果（字符画）
+
+### 3.1 GUI 右栏「目标 + 治理」面板（目标实现）
+
+```text
+┌─ 右侧栏 · 工作台 ─────────────────────────────────────────────┐
+│  目标 ● GOAL                                   [ 治理 ][ 工作表 ]│
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Title   审查 Seelex goal 域与 thesis 开题报告             │  │
+│  │ Status  active          Round 3 / ∞       心跳 ● 0.4s    │  │
+│  │ 座次    ① exec-a  ▸ ② advisor-b  ▸（回 ① …）             │  │
+│  │ ── 治理泳道（可折叠）───────────────────────────────     │  │
+│  │  R1 advisor  checkpoint_ok   “补负路径单测”  corr-1      │  │
+│  │  R2 advisor  verdict_not_done“缺证据：xx”    corr-2      │  │
+│  │  R3 exec     goal_update     “已补 xx 与单测”            │  │
+│  │  当前：advisor-b 评估中…（⏳ 最长 10s）                    │  │
+│  │ ── TL 最近指令 ──────────────────────────────────────     │  │
+│  │  [correct] 先补负路径单测再收口（P1）                      │  │
+│  │  收口：✋ 仅 TL 可裁决（mainAgent 只能提议）              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────┘
+```
+
+关键状态变化：
+
+```text
+无 goal          → 整块隐藏（复用 hasContent 逻辑）
+goal active      → Title/Status/Round/座次/心跳 常显，泳道展开
+TL 回合中        → 当前座次高亮 + “评估中…” 心跳转圈
+verdict_done     → Status=completed、坏境收口、心跳 done、面板复位
+escalate/429     → 面板显示 break reason + “转人工/缺席”横幅，goal 保持可见
+```
+
+### 3.2 会话内主转录（EXEC 可见）
+
+mainAgent 消息流与现有转录一致，TL 产物**不进主转录**，只以受信注入区出现
+（对齐 DS-A2A：不进 a 转录主历史）：
+
+```text
+[user]    #goal 审查 goal 域与 thesis，给出裁决与下一步
+[assistant] 已注册目标 g-1（title=…）……（mainAgent 开始干活）
+[tool]   goal_update（进度打点）          ← mainAgent 主动推进
+[assistant] ……（继续执行）
+[注入]   〔TL 指令 corr-2〕先补负路径单测   ← 下一轮前受信注入（灰底/边框）
+[user]   继续
+[assistant] ……（依指令修正）
+[tool]   goal_propose_finish
+[注入]   〔TL verdict corr-4〕done：全绿，收口
+[系统]   goal g-1 completed ✓（面板复位）
+```
+
+---
+
+## 4. 后端数据流（一次治理回合）
+
+```text
+ mainAgent 回合（ReAct loop）                     ADVISOR 回合（TL）
+ ──────────────────────────                      ─────────────────────
+ 工具 goal_update / task 打点
+   │ 会话装配层经 goal_port.Notify
+   ▼
+ Supervisor.execSeq++（a 账本）
+   │ 触发策略（eval_window / 关键信号）
+   ▼  on_eval：Mirror 补落后帧（goal.update 等）
+ AdvisorSession.appendFrame（ref_seq 单调）
+   ▼
+ renderEmbed（锚点+帧+自身回合）→ TL 评估器（LLM 或 stub）
+   ▼
+ TLDirective{kind, content, corr} → DirectiveBus（cap32）
+   ▼
+ 装配层 DrainDirectives → 下一轮受信注入 EXEC
+   ▼
+ Governor.Round++ / 快照 → 视图投影 + 心跳
+```
+
+治理循环驱动（`govern.Governor.Next`）由会话装配层在合适时机调用：
+
+```text
+装配层每轮选择：
+  A) 回合边界自动推进（ChatStream 返回后 OnIterationComplete 钩子）
+  B) 工具显式推进（headless goal_gov_next / 未来 goal 面板按钮）
+  C) 关键信号立即推进（context_compacted / approval_asked / terminal）
+```
+
+---
+
+## 5. A2A 循环逃生（B4/B6 + 护栏）
+
+| 逃生口 | 触发 | 语义 |
+|---|---|---|
+| `verdict_done` | TL 裁决收口 | `Controller.Finish` → 出栈 + `peer.unbind(done)` + reap |
+| `escalate_human` | TL 越权/无法判定 | goal 保持 active，状态 `waiting_human`，转人工 |
+| `429/timeout` | TL 回合失败 | `peer.unbind(evicted)`，a 按缺席矩阵继续（低放行/高人工） |
+| `maxRounds` | 治理循环护栏 | `Next` 返回 false，视图可见 “已达轮次上限” |
+| `Break(reason)` | 外部中断/用户 stop/预算耗尽 | governor 收束，reason 入视图与审计 |
+| 会话关闭 | ChatStream ctx 取消 | Supervisor 停议程 + reap b（B6），无孤儿 |
+
+实现要点：逃生必须是**装配层显式动作**，goal 域只产生
+`TurnAction.BreakLoop` / `DirectiveBreaksLoop` 判定，不停死循环
+（`maxRounds` 与 ctx 取消由调用方保证）。
+
+---
+
+## 6. 依赖倒置：接入 seelebridge/session 的 goal 装配
+
+### 6.1 问题：goal 不能 import session，session 也不该 import goal
+
+`goal`/`govern` 是纯领域叶子包；`seelebridge/session` 与 `application/core`
+都是装配/适配层。若让 session 直接 import goal，会引入领域包反向依赖
+组合根的环。因此接入采用 **依赖倒置**：定义会话装配端口（在组合根侧），
+goal 域只实现端口背后的小接口。
+
+### 6.2 端口（装配侧定义，goal 侧实现）
+
+```go
+// session 挂接端口（装配层声明）
+type GoalGovernorPort interface {
+    Begin(ctx context.Context, req goal.BeginRequest) (*goal.GoalRecord, error)
+    Update(ctx context.Context, req goal.UpdateRequest) (*goal.GoalRecord, error)
+    ProposeFinish(ctx context.Context, req goal.FinishRequest) (goal.FinishProposalResult, error)
+    Notify(ctx context.Context, sig goal.TLEvalSignal) error
+    Next(ctx context.Context) (bool, error)
+    Snapshot() (goalGovernanceView, error)   // 组装视图
+}
+```
+
+### 6.3 装配（main / seelebridge 组合根）
+
+```text
+main 启动
+  ├─ 装配 real TLEvaluator（账号池 → LLM client，headless 冒烟已证路径）
+  ├─ 为每个会话（懒）创建：goal.Controller + Supervisor + Governor
+  │    └─ Controller 按 sessionID 隔离（map，生命周期随会话）
+  ├─ seelebridge.Runtime.RegisterTool 注册 goal 工具族：
+  │    goal_begin / goal_update / goal_status / goal_propose_finish
+  │    （+ headless：goal_tl_eval / goal_gov_next / goal_gov_snapshot）
+  └─ ChatStream 边界接线（P0-wiring）：
+       OnIterationComplete → goal_port.Next / Notify
+       DrainDirectives → 受信注入（复用 injectPendingSubagentContexts 同类）
+```
+
+依赖方向：
+
+```text
+goal/govern（叶子，无 seelex 依赖）
+    ▲ 实现端口
+session 挂接端口（装配层声明）
+    ▲ 注入
+main / seelebridge 装配（真实 LLM、账号池、工具面）
+```
+
+这样 goal 不 import session；session 不 import goal 具体类型（只依赖端口）；
+真实装配集中在组合根，替换 TL 评估器（stub/真实 API）不需要动领域包。
+
+### 6.4 阶段性（避免一次改穿）
+
+1. **P0（已完成）**：govern 抽象 + goal adapter + headless 真实 API 测试面；
+2. **P1（本文目标）**：端口定义 + main 装配 + goal 工具注册 + 视图投影/心跳；
+3. **P2**：state blob 持久化 goal 栈（第五栈）+ 会话恢复重建 Governor；
+4. **P3**：GUI/TUI 面板正式渲染（字符画 §3 形态）。
+
+---
+
+## 7. 测试与验收
+
+真实 API 验收（环境变量门控，不默认跑）：
+
+```text
+$env:SEELEX_LIVE_SMOKE='1'
+go test ./tmp/goal-tl-live-smoke -v -count=1
+```
+
+断言覆盖：
+
+- mainAgent 发起（goal_begin）与 TL 收口（propose_finish）全链路合法；
+- TL 裁决三态（done/not_done/escalate）均不破坏状态机一致性；
+- 治理快照（round/current/broken）与 goal 状态、TL peer 状态一致；
+- B4 缺席：429/超时 → 不阻塞 a；maxRounds/Break → 逃生可观测。
+
+单元层（默认跑）：
+
+```text
+go test ./application/core/govern/ ./application/core/goal/ -count=1
+```
+
+---
+
+## 8. 开放问题（待拍板）
+
+- goal 栈持久化到 state blob 的 schema 版本（第五栈 vs 独立通道）；
+- 心跳推给前端的方式：随 Snapshot 全量 vs 单独 `goal.heartbeat` 事件；
+- mainAgent 显式 `#goal` 与工具 `goal_begin` 是否都作为发球入口（两者等价）；
+- `peer.unbind` 后 TL 会话对象删除，治理快照是否保留 b 回合审计（协议 D3）。
