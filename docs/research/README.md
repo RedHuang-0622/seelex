@@ -8,6 +8,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| [`2026-09-07-a2a-techleader-startup-research.md`](2026-09-07-a2a-techleader-startup-research.md) | 市面 A2A/Agent 产品如何"启动"评审/技术负责人角色：Codex/Claude Code 显式点名与 description 匹配、A2A Agent Card+Task、MetaGPT watch 订阅、Magentic-One Orchestrator 分派；结论：goal 激活不等于角色启动，评审由事件/分派触发（2026-09-07） |
 | [`codex-session-resume.md`](codex-session-resume.md) | Codex 会话恢复与 rollout 有序存储调研：单会话 append-only JSONL、单 writer 保序、压缩检查点后的前缀重放恢复，以及 Seelex 借鉴点（2026-09-07；官方文档 403，依据开源 main 分支与本地只读实证） |
 | [`2026-08-24-conversation-fork-research.md`](2026-08-24-conversation-fork-research.md) | 对话 fork（会话级）功能可行性调研：Codex fork 机制、session store 链路、requestID 前提核实、上下文六层模型与风险、事件流三轨盘点、边界场景 user story。**一期决策已定稿**（深拷贝 + 血缘 meta + 整帧继承，否决方向已标注；见「十、一期决策契约」）（2026-08-24） |
 | [`2026-08-24-session-resource-granularity.md`](2026-08-24-session-resource-granularity.md) | 会话资源与锁粒度盘点：单例现状、M1 会话级已落地项、多会话解除单例的路径（2026-08-24） |

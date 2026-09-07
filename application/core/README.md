@@ -19,7 +19,8 @@
 
 - 零依赖叶子域：`chat/`（流式批次与可见输出）、`worktable/`（表格增量 CSP
   汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
-  （窗口策略配置加载）。
+  （窗口策略配置加载）、`govern/`（多代理回合制治理循环抽象：座次/轮次/
+  断环，goal 域经 adapter 接入）。
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
   `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
   `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
