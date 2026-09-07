@@ -474,9 +474,9 @@
     },
     {
       "id": "right-sidebar",
-      "name": "Right sidebar tabs（状态/工作台/代码）",
+      "name": "Dockable subpage tabs（主视图会话/右栏状态/工作台/资源管理器）",
       "status": "implemented",
-      "responsibility": "Right column organized into three content tabs (status / workbench / code) with a draggable worktree + git-log pair; all data comes from authoritative snapshot projections and read-only workspace bridges.",
+      "responsibility": "Partition conversation/trajectory and status/workbench/code into main and right tab strips with click switching and drag swap, plus a draggable worktree + git-log pair; all data comes from authoritative snapshot projections and read-only workspace bridges.",
       "document": "modules/right-sidebar.md",
       "interfaces": [
         "Bridge.WorkspaceGitLog",
@@ -487,6 +487,8 @@
       ],
       "planned_paths": [
         "gui/frontend/dist/app.js",
+        "gui/frontend/dist/dock-layout.js",
+        "gui/frontend/dist/dock-layout.test.mjs",
         "gui/frontend/dist/git-log-view.js",
         "gui/frontend/dist/index.html",
         "workspace/gitlog.go",

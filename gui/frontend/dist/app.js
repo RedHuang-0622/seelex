@@ -18,6 +18,16 @@ import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
+import {
+  DOCK_STORAGE_KEY,
+  VIEW_META,
+  DEFAULT_DOCK_STATE,
+  REGIONS,
+  normalizeDockState,
+  regionOf,
+  swapViews,
+  isViewActive
+} from "./dock-layout.js";
 import { createPerfHooks } from "./perf-hooks.js";
 import { createLiveDiag } from "./live-diag.js";
 
@@ -52,6 +62,220 @@ const elements = Object.fromEntries([
   "interaction-question", "interaction-preview", "interaction-options",
   "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast"
 ].map(id => [id, document.getElementById(id)]));
+
+// ── 子页停靠布局（主视图 / 右栏）────────────────────────────
+// 五个子页（conversation/trajectory/status/workbench/code）按 dockState
+// 分区到主视图与右栏：点击切换激活页，拖拽可在栏内换序、跨栏置换。
+// 布局与激活是纯前端本地状态（localStorage，键 seelex.dock.v1），
+// 不新增后端/Bridge 契约；布局演算见 dock-layout.js。
+const dockHosts = {
+  main: document.getElementById("main-host"),
+  right: document.getElementById("right-host")
+};
+const viewPanels = {
+  conversation: document.getElementById("conversation-shell"),
+  trajectory: elements.trajectory,
+  status: document.querySelector('[data-right-panel="status"]'),
+  workbench: document.querySelector('[data-right-panel="workbench"]'),
+  code: document.querySelector('[data-right-panel="code"]')
+};
+
+function readDockState() {
+  let raw = null;
+  try {
+    const value = localStorage.getItem(DOCK_STORAGE_KEY);
+    raw = value ? JSON.parse(value) : null;
+  } catch {
+    raw = null;
+  }
+  if (!raw) {
+    const legacyRight = (() => {
+      try { return localStorage.getItem("seelex.right.tab"); } catch { return null; }
+    })();
+    raw = {
+      layout: {
+        main: [...DEFAULT_DOCK_STATE.layout.main],
+        right: [...DEFAULT_DOCK_STATE.layout.right]
+      },
+      active: {
+        main: DEFAULT_DOCK_STATE.active.main,
+        right: ["status", "workbench", "code"].includes(legacyRight)
+          ? legacyRight
+          : DEFAULT_DOCK_STATE.active.right
+      }
+    };
+  }
+  return normalizeDockState(raw);
+}
+
+let dockState = readDockState();
+
+function persistDockState() {
+  try {
+    localStorage.setItem(DOCK_STORAGE_KEY, JSON.stringify(dockState));
+  } catch {
+    /* 无存储环境忽略：本次布局不记忆，功能不受影响 */
+  }
+}
+
+function dockTabBar(region) {
+  return region === "main" ? elements["conversation-tabs"] : elements["right-tabs"];
+}
+
+function renderTabBar(region) {
+  const bar = dockTabBar(region);
+  const className = region === "main" ? "conversation-tab" : "right-tab";
+  bar.innerHTML = dockState.layout[region].map(view => {
+    const active = view === dockState.active[region];
+    const meta = VIEW_META[view];
+    return `<div class="${className}${active ? " is-active" : ""}" role="tab" data-view="${view}" aria-selected="${String(active)}" draggable="true" tabindex="0" title="点击切换；拖拽可换序，拖到另一栏可与对应子页置换">${escapeHtml(meta.label)}</div>`;
+  }).join("");
+}
+
+function renderTabBars() {
+  renderTabBar("main");
+  renderTabBar("right");
+}
+
+// syncSessionChrome 强制“会话类页面不可见时不显示会话专属悬浮件”，
+// 避免隐藏容器里的渲染把空态/加载更早/输入框带出来；对话页可见时
+// 由 chatView 自行管理空态与历史按钮。
+function syncSessionChrome() {
+  if (!elements.composer) return;
+  const conversationShown = isViewActive(dockState, "conversation");
+  const mainShowsSession = dockState.active.main === "conversation" || dockState.active.main === "trajectory";
+  // 输入框只在主视图处于会话类子页时显示：其它主视图（工作台/状态/资源
+  // 管理器）全宽展示时不能被底部输入框遮住内容。
+  elements.composer.classList.toggle("hidden", !mainShowsSession);
+  if (!conversationShown) {
+    elements["empty-state"].classList.add("hidden");
+    elements["history-bar"].classList.add("hidden");
+  }
+}
+
+function runViewActivation(view) {
+  const snapshot = client.current();
+  if (view === "conversation") {
+    if (!snapshot) return;
+    chatView.renderConversation(
+      snapshot.conversation || [],
+      snapshot.chat || {},
+      "preserve",
+      snapshot.has_more_history,
+      snapshot.session?.status === "restoring"
+    );
+    chatView.renderControls(snapshot);
+    return;
+  }
+  if (view === "trajectory") {
+    if (snapshot) renderTrajectory(snapshot, true);
+    refreshPromptInjection();
+    return;
+  }
+  if (view === "code") refreshGitLogIfStale();
+}
+
+// applyDockState 是停靠布局的唯一渲染入口：面板归属、激活页、页签条、
+// localStorage 与激活钩子都从这里收敛。
+function applyDockState() {
+  const prevMain = state.tab;
+  const prevRight = state.rightTab;
+  dockState = normalizeDockState(dockState);
+  for (const region of REGIONS) {
+    for (const view of dockState.layout[region]) {
+      const panel = viewPanels[view];
+      if (panel && panel.parentElement !== dockHosts[region]) {
+        dockHosts[region].appendChild(panel);
+      }
+    }
+  }
+  for (const region of REGIONS) {
+    for (const view of dockState.layout[region]) {
+      viewPanels[view]?.classList.toggle("hidden", view !== dockState.active[region]);
+    }
+  }
+  state.tab = dockState.active.main;
+  state.rightTab = dockState.active.right;
+  renderTabBars();
+  syncSessionChrome();
+  persistDockState();
+  if (state.tab !== prevMain) runViewActivation(state.tab);
+  if (state.rightTab !== prevRight) runViewActivation(state.rightTab);
+}
+
+function setDockTab(region, view) {
+  if (!REGIONS.includes(region) || !dockState.layout[region].includes(view)) return;
+  if (dockState.active[region] === view) return;
+  dockState.active[region] = view;
+  applyDockState();
+}
+
+// revealView 让指定子页在其所在栏成为激活页（文件预览打开 / chip 跳转轨迹
+// 等入口需要视图立即可见）。
+function revealView(view) {
+  const region = regionOf(dockState.layout, view);
+  if (!region) return;
+  if (dockState.active[region] !== view) {
+    dockState.active[region] = view;
+    applyDockState();
+  }
+}
+
+function clearDockDragState() {
+  document.querySelectorAll(
+    ".conversation-tab.is-dragging, .conversation-tab.is-drag-over, .right-tab.is-dragging, .right-tab.is-drag-over"
+  ).forEach(button => button.classList.remove("is-dragging", "is-drag-over"));
+}
+
+function bindDockTabs(region) {
+  const bar = dockTabBar(region);
+  bar.addEventListener("click", event => {
+    const tab = event.target.closest?.("[data-view]");
+    if (tab) setDockTab(region, tab.dataset.view);
+  });
+  bar.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const tab = event.target.closest?.("[data-view]");
+    if (!tab) return;
+    event.preventDefault();
+    setDockTab(region, tab.dataset.view);
+  });
+  bar.addEventListener("dragstart", event => {
+    const tab = event.target.closest?.("[data-view]");
+    if (!tab) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", tab.dataset.view);
+    tab.classList.add("is-dragging");
+  });
+  bar.addEventListener("dragend", clearDockDragState);
+  bar.addEventListener("dragover", event => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    clearDockDragState();
+    const target = event.target.closest?.("[data-view]");
+    if (target) target.classList.add("is-drag-over");
+  });
+  bar.addEventListener("drop", event => {
+    event.preventDefault();
+    const target = event.target.closest?.("[data-view]");
+    const sourceId = event.dataTransfer.getData("text/plain");
+    clearDockDragState();
+    if (!sourceId) return;
+    const sourceRegion = regionOf(dockState.layout, sourceId);
+    if (!sourceRegion) return;
+    // 拖到页签上 = 与该页签置换；拖到页签条空白处（仅跨栏） = 与该栏当前
+    // 激活页置换，避免“拖进中间却落不到目标”的空操作。
+    const targetView = target?.dataset.view || (sourceRegion !== region ? dockState.active[region] : "");
+    if (!targetView) return;
+    const next = swapViews(dockState, sourceRegion, sourceId, region, targetView);
+    if (next === dockState) return;
+    dockState = next;
+    applyDockState();
+  });
+}
+
+bindDockTabs("main");
+bindDockTabs("right");
 
 const conversationView = createConversationView(elements.conversation, {
   copyText: value => navigator.clipboard.writeText(value),
@@ -202,7 +426,7 @@ const effortControl = createEffortControl({
     await invoke("SwitchEffort", level);
     await refresh({ scroll: false });
     // effort 改变会改写 system 前缀的 effort 层；轨迹子页激活时刷新注入层。
-    if (state.tab === "trajectory") refreshPromptInjection();
+    if (isViewActive(dockState, "trajectory")) refreshPromptInjection();
   },
   onError: showToast
 });
@@ -270,6 +494,7 @@ function render(snapshot, options = {}) {
   renderScheduledTaskPanel(snapshot.runtime || {});
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
+  syncSessionChrome();
   perfHooks.markRender(performance.now() - started);
 }
 
@@ -281,11 +506,8 @@ function renderIncremental(snapshot, kind) {
     chatView.renderControls(snapshot);
     renderTrajectory(snapshot);
     if (kind !== "message.delta") renderProject(snapshot);
-    // 轨迹子页激活时：对话视图隐藏，empty-state / 加载更早按钮一并隐藏。
-    if (state.tab !== "conversation") {
-      elements["empty-state"].classList.add("hidden");
-      elements["history-bar"].classList.add("hidden");
-    }
+    // 会话类页面不可见时强制隐藏会话专属悬浮件（空态/加载更早/输入框）。
+    syncSessionChrome();
     perfHooks.markRender(performance.now() - started);
     return;
   }
@@ -300,7 +522,7 @@ function renderIncremental(snapshot, kind) {
     renderSkills(snapshot.runtime?.skills || []);
     renderProject(snapshot);
     // 轨迹子页激活时刷新前缀注入层（effort/skill/插件等可能已变化）。
-    if (state.tab === "trajectory") refreshPromptInjection();
+    if (isViewActive(dockState, "trajectory")) refreshPromptInjection();
     return;
   }
   if (kind === "worktable.changed") {
@@ -312,7 +534,7 @@ function renderIncremental(snapshot, kind) {
     refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
     renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
     // 任务级变更可能带动激活 skill 变化；轨迹子页激活时刷新前缀注入层。
-    if (state.tab === "trajectory") refreshPromptInjection();
+    if (isViewActive(dockState, "trajectory")) refreshPromptInjection();
     return;
   }
   if (["subagent.changed", "subagent.tool.started", "subagent.tool.completed"].includes(kind)) {
@@ -324,14 +546,14 @@ function renderIncremental(snapshot, kind) {
 }
 
 // ── 对话区子页（对话 / 轨迹）──────────────────────────────
-// 轨迹与对话共用对话区，通过 workspace 顶部 tab 切换；当前 tab、过滤类型、
-// 展开与滚动都是本地 UI 状态，不进入 Snapshot。
+// 子页是否激活由停靠布局决定（在主视图或右栏任一栏激活即渲染对应 DOM）；
+// 过滤类型、展开与滚动仍是本地 UI 状态，不进入 Snapshot。
 
 // renderTrajectory 从权威 conversation 派生轨迹记录并渲染；extras 携带轨迹
 // 轴的元数据轨：前缀注入层（Bridge.PromptLayers 缓存）与压缩记录
 // （Snapshot.Task.ContextCompactions，压缩发生的公开信号，随全量刷新到达）。
 // active=false（轨迹子页未激活）时只缓存数据面，不碰轨迹 DOM。
-function renderTrajectory(snapshot, active = state.tab === "trajectory") {
+function renderTrajectory(snapshot, active = isViewActive(dockState, "trajectory")) {
   if (!snapshot) return;
   const compactions = Array.isArray(snapshot.task?.context_compactions) ? snapshot.task.context_compactions : [];
   trajectoryView.render(buildTrajectory(snapshot.conversation || []), state.trajectoryFilter, active, {
@@ -351,43 +573,12 @@ async function refreshPromptInjection() {
   renderTrajectory(client.current());
 }
 
-function setConversationTab(tab) {
-  if (tab !== "conversation" && tab !== "trajectory") return;
-  state.tab = tab;
-  elements["conversation-tabs"].querySelectorAll(".conversation-tab").forEach(button => {
-    const active = button.dataset.tab === tab;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  elements.conversation.classList.toggle("hidden", tab !== "conversation");
-  elements.trajectory.classList.toggle("hidden", tab !== "trajectory");
-  const snapshot = client.current();
-  if (tab === "trajectory") {
-    // 轨迹子页：对话视图与加载更早入口隐藏；空态文案由轨迹视图自己渲染。
-    elements["history-bar"].classList.add("hidden");
-    elements["empty-state"].classList.add("hidden");
-    renderTrajectory(snapshot);
-    refreshPromptInjection();
-    return;
-  }
-  if (!snapshot) return;
-  // 切回对话子页：恢复对话视图，empty-state / 加载更早由 chatView 重新判定。
-  chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "preserve", Boolean(snapshot.has_more_history));
-  chatView.renderControls(snapshot);
-}
-
-elements["conversation-tabs"].addEventListener("click", event => {
-  const button = event.target.closest(".conversation-tab");
-  if (!button || button.dataset.tab === state.tab) return;
-  setConversationTab(button.dataset.tab);
-});
-
 // 聊天区「一行带过」的思考/工具 chip 点击 → 切到轨迹子页并定位对应记录。
 elements.conversation.addEventListener("click", event => {
   const chip = event.target.closest(".chat-chip[data-trajectory-key]");
   const key = chip?.dataset.trajectoryKey;
   if (!key) return;
-  setConversationTab("trajectory");
+  revealView("trajectory");
   requestAnimationFrame(() => {
     const row = document.querySelector(`[data-trajectory-key="${CSS.escape(key)}"]`);
     if (!row) return;
@@ -398,38 +589,9 @@ elements.conversation.addEventListener("click", event => {
   });
 });
 
-// ── 右侧栏子页（状态 / 工作台 / 代码）───────────────────────
-// 子页切换是纯 UI 状态（localStorage 记忆）；业务事实仍来自 Snapshot/Event。
-const RIGHT_TAB_KEY = "seelex.right.tab";
+// 右栏子页归属与激活由停靠布局统一管理（见上方 dockState），这里的存储键
+// 只保留「资源管理器」子页内部工作树/提交记录两面板的顺序记忆。
 const RIGHT_PANE_ORDER_KEY = "seelex.right.codePanes";
-
-function storedRightTab() {
-  const value = localStorage.getItem(RIGHT_TAB_KEY);
-  return value === "status" || value === "workbench" || value === "code" ? value : "status";
-}
-
-function setRightTab(tab) {
-  if (tab !== "status" && tab !== "workbench" && tab !== "code") return;
-  localStorage.setItem(RIGHT_TAB_KEY, tab);
-  elements["right-tabs"].querySelectorAll(".right-tab").forEach(button => {
-    const active = button.dataset.rightTab === tab;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  // 三个 tabpanel 是 #right-tabs 的兄弟节点（.right-panel 的直接子节点），
-  // 不能从 nav 内查询；从父容器作用域查询才能正确切换 hidden。
-  elements["right-tabs"].parentElement.querySelectorAll("[data-right-panel]").forEach(panel => {
-    panel.classList.toggle("hidden", panel.dataset.rightPanel !== tab);
-  });
-  if (tab === "code") refreshGitLogIfStale();
-}
-
-elements["right-tabs"].addEventListener("click", event => {
-  const button = event.target.closest(".right-tab");
-  if (!button || button.dataset.rightTab === state.rightTab) return;
-  state.rightTab = button.dataset.rightTab;
-  setRightTab(state.rightTab);
-});
 
 // ── 子页3：工作树 / 提交记录 面板顺序（拖拽调换，localStorage 记忆）────
 const CODE_PANES = ["worktree", "gitlog"];
@@ -1998,10 +2160,9 @@ function openFilePreview(entry) {
   }
   try { window.localStorage.setItem(FILE_PREVIEW_OPEN_KEY, "1"); } catch { /* 无存储环境忽略 */ }
   filePreviewController.open(entry);
-  if (state.rightTab !== "code") {
-    state.rightTab = "code";
-    setRightTab("code");
-  }
+  // 资源管理器可能停靠在主视图或右栏：无论当前在哪，打开文件预览前
+  // 先让该子页成为所在栏的激活页。
+  revealView("code");
 }
 
 function closeFilePreview() {
@@ -2098,8 +2259,7 @@ function resizePrompt() {
 async function initialise() {
   try {
     hydrateIcons();
-    state.rightTab = storedRightTab();
-    setRightTab(state.rightTab);
+    applyDockState();
     if (!bindRuntimeEvents(window.runtime)) {
       throw new Error("GUI event runtime 尚未就绪");
     }

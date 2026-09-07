@@ -16,8 +16,10 @@
 
 它不调用 Bridge，不决定 Chat 业务状态，也不修改客户端 Snapshot。
 
-对话区由「对话 / 轨迹」两个子页组成（`app.js` 的 `conversation-tabs` 本地
-tab 状态）；「轨迹」子页基于同一份 `Snapshot.conversation` 派生 Network
+对话区由「对话 / 轨迹」两个会话子页组成，与右栏三个子页共享停靠布局
+（`dock-layout.js` + `app.js` 的 `applyDockState`，`seelex.dock.v1` 本地
+记忆）；会话子页在主视图与右栏间拖拽置换后，内容 DOM 随视图迁移、局部滚动
+状态保留。「轨迹」子页基于同一份 `Snapshot.conversation` 派生 Network
 风格响应日志，见 [`trajectory-view.md`](trajectory-view.md)。
 
 ## 2. Presentation model

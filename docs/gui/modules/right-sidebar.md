@@ -2,11 +2,13 @@
 
 ## 模块定位
 
-右侧栏是工作台的工程状态侧栏，按内容划分为三个子页：**状态 / 工作台 / 资源管理器**。
-子页切换是纯 UI 状态（localStorage 记忆），业务事实全部来自 Application
-Snapshot/Event 权威投影；子页 3 内左「文件预览」抽屉 + 右「工作树 / 提交记录」
-两面板（右面板支持拖拽调换顺序，预览宽度可拖，均 localStorage 记忆）。历史
-检索保留在子页之下的「更多」折叠区。
+右侧栏与中间主视图共享一套子页停靠布局：对话区子页（**对话 / 轨迹**）与
+右栏子页（**状态 / 工作台 / 资源管理器**）共五个视图，可点击切换、拖拽换序、
+跨栏置换（拖到另一栏某页签上松开即与该页签互换位置）。布局与激活是纯 UI
+状态（`localStorage["seelex.dock.v1"]` 记忆），业务事实全部来自 Application
+Snapshot/Event 权威投影；「资源管理器」子页内另有左「文件预览」抽屉 + 右
+「工作树 / 提交记录」两面板（面板可拖拽调换顺序，预览宽度可拖，均
+localStorage 记忆）。历史检索保留在右栏子页之下的「更多」折叠区。
 
 主要调用方：`app.js` 右侧栏渲染；数据源：`snapshot.runtime`（权威投影）与
 `Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` / `Bridge.WorkspaceGitLog` /
@@ -21,6 +23,19 @@ Snapshot/Event 权威投影；子页 3 内左「文件预览」抽屉 + 右「�
 | **代码** | 左：文件预览抽屉（点工作树文件打开）；右：工作树 + 提交记录树（可拖拽调换） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog` |
 
 项目标题（`project-heading`）与「历史检索」折叠区跨子页常驻，不属于任何子页。
+
+### 页签停靠与置换
+
+- 布局模型：主视图固定两个页签、右栏固定三个页签，五个视图 id 恰好各出现一次；
+  纯函数见 `gui/frontend/dist/dock-layout.js`（`normalizeDockState`/`swapViews`），
+  DOM 归属、页签渲染与 localStorage 由 `app.js` 的 `applyDockState` 收敛。
+- 同栏拖到另一页签 = 换序；跨栏拖到另一页签 = 置换（被拖入页成为目标栏激活页，
+  原栏激活页由移入页接管）。跨栏拖到页签条空白处 = 与该栏当前激活页置换，
+  避免拖进目标栏却落不到页签上成为空操作。
+- 会话类页面在主视图激活时显示底部输入框；其它主视图（工作台/状态/资源管理器）
+  全宽展示时隐藏输入框，避免遮挡内容。
+- 布局变化只写 `seelex.dock.v1`，不触发后端调用；会话局部状态（滚动、轨迹过滤、
+  展开）随对应 DOM 一起迁移。
 
 ## 目标面板（工作台子页）
 
@@ -84,20 +99,25 @@ graph、无提交）。非 git 仓库 / git 不可用时以 `Result.Error` 返�
 ## 依赖方向
 
 ```text
-app.js（右侧栏渲染）
+app.js（停靠布局渲染）
+  ├── dock-layout.js（分区/排序/置换纯函数）
   ├── snapshot.runtime.*（状态/工作台子页，权威投影）
   ├── worktree-view.js ──► Bridge.WorkspaceTree / WorkspaceFileCount
   ├── git-log-view.js ──► Bridge.WorkspaceGitLog
   └── history-search.js ──► Bridge.SearchHistory
 ```
 
-子页切换/面板顺序是本地 UI 状态（localStorage），不进入 Snapshot；数据面
-全部来自后端权威源。
+子页切换/停靠布局/面板顺序都是本地 UI 状态（localStorage），不进入 Snapshot；
+数据面全部来自后端权威源。
 
 ## Review 指南
 
-- 子页切换与拖拽调换不得触发后端调用之外的副作用；`code-panes` 顺序变化
-  只写 localStorage。
+- 子页切换与拖拽置换不得触发后端调用之外的副作用；`seelex.dock.v1` 布局与
+  `code-panes` 顺序变化只写 localStorage。
+- 停靠布局必须保持“每个视图恰好属于一栏、激活页属于所在栏”不变量；脏存储回退
+  默认布局（`normalizeDockState` 契约测试覆盖）。
+- 会话类页面在主视图之外时，空态/历史按钮/输入框的显隐由
+  `syncSessionChrome` 统一收敛，避免隐藏容器渲染把会话专属悬浮件带出来。
 - git log 查询是只读元数据：不得暴露 diff/补丁/文件内容；参数必须固定 argv。
 - 面板渲染文本全部 escape（graph 字符、author/subject、错误文案）。
 - 工作区切换 / chat 结束时工作树与提交记录都应按需刷新，避免陈旧数据。
@@ -106,11 +126,13 @@ app.js（右侧栏渲染）
 ## 测试
 
 ```text
+node --test gui/frontend/dist/dock-layout.test.mjs
 node --test gui/frontend/dist/git-log-view.test.mjs
 go test ./workspace ./gui ./application/core -count=1
 ```
 
-关键测试：`git-log-view.test.mjs`（归一化/escape/截断/复制回调）、
+关键测试：`dock-layout.test.mjs`（默认分区/同栏换序/跨栏置换/脏存储收敛/
+持久化 round-trip）、`git-log-view.test.mjs`（归一化/escape/截断/复制回调）、
 `workspace/gitlog_test.go`（解析、非 git 仓库、limit 钳制、集成）、
 `gui/bridge_test.go`（Bridge 转发）、`application/core/workspace_tree_usecase_test.go`
 （用例转发）。

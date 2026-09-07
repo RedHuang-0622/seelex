@@ -2,6 +2,32 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-09-07
+
+### Changed
+
+- 会话区子页与右栏子页改为统一停靠布局：对话/轨迹（会话区）与状态/工作台/
+  资源管理器（右栏）共五个视图，默认主视图两页、右栏三页；页签点击切换，
+  同栏拖拽换序，跨栏拖拽与目标页签置换（拖入页成为目标栏激活页，原栏激活页
+  由移入页接管）。布局与激活持久化到 `seelex.dock.v1`（旧 `seelex.right.tab`
+  只作一次迁移读取），纯演算下沉到 `gui/frontend/dist/dock-layout.js`
+  （`normalizeDockState`/`swapViews`），由 `app.js` 统一渲染 DOM 归属、页签条、
+  激活钩子与会话专属悬浮件显隐；不新增后端/Bridge 契约。
+- `index.html` 会话区重构为 `#main-host`（内含 `#conversation-shell` 与
+  `#trajectory`），右栏三面板收进 `#right-host`；面板随布局在两个宿主间移动，
+  会话局部状态（滚动/过滤/展开）随 DOM 迁移保留。聊天区 chip 跳轨迹与文件
+  预览打开都改为先 `revealView` 让目标子页在所在栏激活。
+
+### Added
+
+- `gui/frontend/dist/dock-layout.js` + `dock-layout.test.mjs`：默认分区、
+  同栏换序、跨栏置换、脏存储收敛与持久化 round-trip 单测。
+
+### Design decisions
+
+- 主视图固定两个页签、右栏固定三个页签（置换不改变两栏容量），避免空白栏与
+  输入框归属歧义；输入框只在主视图处于会话类子页时显示，防止遮挡全宽工作台。
+
 ## 2026-08-16
 
 ### Changed

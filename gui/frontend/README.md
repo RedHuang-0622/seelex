@@ -28,6 +28,7 @@
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
 | `dist/snapshot-shape.js` | 快照分型的字段归属契约（G3）：SessionRuntime/ProcessRuntime/顶层键所有权表、`splitRuntime`/`classifySnapshot`/`assertTypedShape`/`processContextOf` 纯函数。桌面仍收联合 Snapshot 时按表区分会话与进程字段；会话/进程制品到达后做泄漏校验（INV-G1 前端镜像）。 |
 | `dist/sidebar.js` | 左栏纯显示工具：标题截断、重名消歧编号（渲染期派生）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
+| `dist/dock-layout.js` | 子页停靠布局纯函数：对话/轨迹与状态/工作台/资源管理器五个子页在主视图与右栏的分区、排序、激活与置换演算（`normalizeDockState`/`swapViews`），不含 DOM、存储或 Bridge 调用，由 `app.js` 消费。 |
 | `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计、上下文轴分轨布局、前缀注入轨与压缩刻度、轴详情与转义安全。 |
 
 ## 视觉设计系统
@@ -41,10 +42,12 @@
 - 图标管线：静态按钮以 `data-icon` 占位，启动时由 `components.js` 的
   `hydrateIcons()` 注入统一 stroke SVG（ICONS 注册表）；顶部连接点
   `.status-dot` 由 `chat-view.js` 追加 `online` 类切换语义色。
-- 信息层级：右侧栏按内容划分为三个子页（`状态 / 工作台 / 资源管理器`），子页切换
-  localStorage 记忆；「历史检索」收进 `#side-more` 折叠区常驻子页之下；左侧栏
-  承载会话树、工作区绑定与账户，三栏宽度可拖拽调整（`--left-w`/`--right-w`，
-  localStorage 记忆），账户区可折叠。
+- 信息层级：对话区子页（`对话 / 轨迹`）与右侧栏三个子页（`状态 / 工作台 /
+  资源管理器`）同属一套停靠布局（`seelex.dock.v1` localStorage 记忆）：默认
+  会话两页在主视图、右栏三页在右栏；页签可点击切换、拖拽换序、跨栏置换
+  （拖到另一栏某页签上松开即与该页签互换）。「历史检索」收进 `#side-more`
+  折叠区常驻右栏子页之下；左侧栏承载会话树、工作区绑定与账户，三栏宽度可
+  拖拽调整（`--left-w`/`--right-w`，localStorage 记忆），账户区可折叠。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
 - 语义色映射以 `:root` token 为唯一事实来源；新增组件时先查 token，不新增同义色。
 - 会话树：会话按工作区（`session_workspaces` 投影）分组，未绑定或工作区已消失的会话收进「未关联会话」置底；工作区组头可点击折叠（localStorage 记忆）；工具 in/out 面板支持展开/收回切换。每行带可见状态徽标（`session.status`：运行中/排队/草稿/恢复中），保留的「新建会话」草稿槽位以草稿行常驻列表（点击恢复，物化后消失）。`restoring` 表示运行中切换到未驻留会话时后台冷加载中：视图已切到目标空壳，输入区禁用，装载完成后由 `snapshot.changed` 发布内容基线并回到就绪。
@@ -117,8 +120,11 @@ retry 状态展示 `RETRY n`（retry_count）。
 
 ## 右侧栏子页（状态 / 工作台 / 资源管理器）
 
-右侧栏在项目标题之下按内容分为三个子页（`.right-tabs`，localStorage 记忆
-`seelex.right.tab`，默认「状态」）：
+五个子页（对话/轨迹/状态/工作台/资源管理器）由停靠布局统一管理（纯函数见
+`dist/dock-layout.js`，DOM 与持久化在 `app.js`）：`main` 区固定展示两个页签、
+`right` 区固定展示三个页签，页签可点击切换、同区拖拽换序、跨区拖拽置换，
+整体记忆在 `seelex.dock.v1`（旧 `seelex.right.tab` 仅作一次迁移读取）。
+右栏默认三个子页（`.right-tabs`，默认激活「状态」）：
 
 - **状态**：项目状态 grid（状态/会话/消息/任务/文件数）+ 概要 + 上下文压缩
   时间线（原「状态」面板整体移入）。
@@ -161,7 +167,9 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 
 `Snapshot.Conversation` 是后端提供的有界窗口；**窗口截断与游标（`total_messages`/`history_offset`/`has_more_history`）全部是后端 `view_state` 的投影，增量 reducer 只负责 upsert 消息**（阶段 B2：旧实现曾在 JS 里复刻一份截断+计数规则，两边一旦漂移就会出现客户端少显示历史）。回合边界的 `snapshot.changed` 会把权威窗口带回，因此一次回合内数组最多增长该回合新增的消息数。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
 
-对话区顶部有「对话 / 轨迹」两个子页 tab（`.conversation-tabs`，本地 UI 状态）。
+对话区顶部是主视图页签条（`.conversation-tabs`，本地 UI 状态）；「对话 / 轨迹」
+两个会话子页可以留在主视图，也可以与右栏任一子页置换后停靠到右栏。会话类
+页面在主视图激活时显示底部输入框，其它主视图全宽展示时不遮挡。
 「轨迹」子页把同一份 `Snapshot.conversation` 投影为 Network 风格的响应日志：
 先按响应类型分类（输入 / LLM / 工具 / 错误 / 通知），工具请求与 `tool_result`
 按 tool id 配对为一行（IN/OUT、状态、耗时、大小、`result_ref` 截断读回）；

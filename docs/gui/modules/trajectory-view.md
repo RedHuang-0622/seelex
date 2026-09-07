@@ -45,10 +45,12 @@
 
 ### 3.1 对话区子页（对话 / 轨迹）
 
-`index.html` 在 workspace 顶部新增 `.conversation-tabs`（对话 / 轨迹两个 tab），
-`#trajectory` 容器与 `#conversation` 平级。tab 切换只做本地 DOM 显示切换
-（`app.js` 的 `setConversationTab`），不进入 Snapshot；切回对话子页时由
-`chatView.renderConversation` 重新判定 empty-state 与加载更早入口。
+`index.html` 在 workspace 顶部有主视图页签条 `.conversation-tabs`，与右栏
+页签共享一套停靠布局（`dock-layout.js`）：对话/轨迹两页可留在主视图，也可
+拖拽与右栏子页置换后停靠到右栏。激活切换是纯本地 DOM 状态，不进入 Snapshot；
+切回对话子页时由 `chatView.renderConversation` 重新判定 empty-state 与加载
+更早入口；聊天区 chip 点击经 `app.js` 的 `revealView("trajectory")` 让轨迹页
+在它当前所在栏激活后再定位行。
 
 ### 3.2 面板结构
 
@@ -125,9 +127,9 @@ Bridge.PromptLayers（会话级当前层） → prefixLayerSegments → renderCo
 ```
 
 增量事件（`message.added` / `message.delta` / `tool.started` /
-`tool.completed`）到达时 `app.js` 重新派生并渲染轨迹；轨迹子页未激活时只
-缓存数据面，不碰 DOM（懒渲染）。压缩发布 `snapshot.changed` 触发整份刷新，
-`task.context_compactions` 随快照进入轴数据面，无需新增后端契约。
+`tool.completed`）到达时 `app.js` 重新派生并渲染轨迹；轨迹子页在主视图与右栏
+都未激活时只缓存数据面，不碰 DOM（懒渲染）。压缩发布 `snapshot.changed`
+触发整份刷新，`task.context_compactions` 随快照进入轴数据面，无需新增后端契约。
 
 ## 4. 渲染与安全
 

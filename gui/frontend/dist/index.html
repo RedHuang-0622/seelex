@@ -30,22 +30,23 @@
 
     <main class="workspace">
       <div id="trace-rail" class="trace-rail" aria-hidden="true"></div>
-      <div class="conversation-tabs" id="conversation-tabs" role="tablist" aria-label="对话区视图">
-        <button class="conversation-tab is-active" type="button" role="tab" data-tab="conversation" aria-selected="true">对话</button>
-        <button class="conversation-tab" type="button" role="tab" data-tab="trajectory" aria-selected="false">轨迹</button>
-      </div>
-      <div id="history-bar" class="history-bar hidden"><button id="load-history" class="icon-button history-button" type="button" title="加载更早消息" aria-label="加载更早消息" data-icon="message"></button></div>
-      <div id="conversation" class="conversation" aria-live="polite"></div>
-      <div id="trajectory" class="trajectory hidden" aria-live="polite"></div>
-      <div id="empty-state" class="empty-state">
-        <div class="orb" aria-hidden="true">&gt;_</div>
-        <h1>从一个工程目标开始</h1>
-        <p>Seelex 会在同一个应用核心中协调 Plugin、Skill、工具调用和审批。</p>
-        <div class="empty-hints">
-          <span class="kbd" aria-hidden="true">/</span> 命令与工具
-          <span class="kbd" aria-hidden="true">#</span> 加载 Skill
-          <span class="kbd" aria-hidden="true">@</span> 使用 Plugin
+      <div class="conversation-tabs" id="conversation-tabs" role="tablist" aria-label="对话区视图"></div>
+      <div id="main-host" class="dock-host main-host">
+        <div id="conversation-shell" class="conversation-shell">
+          <div id="history-bar" class="history-bar hidden"><button id="load-history" class="icon-button history-button" type="button" title="加载更早消息" aria-label="加载更早消息" data-icon="message"></button></div>
+          <div id="conversation" class="conversation" aria-live="polite"></div>
+          <div id="empty-state" class="empty-state">
+            <div class="orb" aria-hidden="true">&gt;_</div>
+            <h1>从一个工程目标开始</h1>
+            <p>Seelex 会在同一个应用核心中协调 Plugin、Skill、工具调用和审批。</p>
+            <div class="empty-hints">
+              <span class="kbd" aria-hidden="true">/</span> 命令与工具
+              <span class="kbd" aria-hidden="true">#</span> 加载 Skill
+              <span class="kbd" aria-hidden="true">@</span> 使用 Plugin
+            </div>
+          </div>
         </div>
+        <div id="trajectory" class="trajectory hidden" aria-live="polite"></div>
       </div>
       <form id="composer" class="composer">
         <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
@@ -81,12 +82,10 @@
       </section>
 
       <nav class="right-tabs" id="right-tabs" role="tablist" aria-label="右侧栏视图">
-        <button class="right-tab is-active" type="button" role="tab" data-right-tab="status" aria-selected="true">状态</button>
-        <button class="right-tab" type="button" role="tab" data-right-tab="workbench" aria-selected="false">工作台</button>
-        <button class="right-tab" type="button" role="tab" data-right-tab="code" aria-selected="false">资源管理器</button>
       </nav>
 
-      <div class="right-tabpanel" data-right-panel="status" role="tabpanel">
+      <div id="right-host" class="dock-host right-host">
+        <div class="right-tabpanel" data-right-panel="status" role="tabpanel">
         <details class="collapse-section" id="status-panel">
           <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>状态</span></summary>
           <div id="project-status" class="status-grid"></div>
@@ -94,9 +93,9 @@
           <div id="project-overview" class="project-overview"></div>
           <div id="context-compactions" class="context-compactions hidden"></div>
         </details>
-      </div>
+        </div>
 
-      <div class="right-tabpanel hidden" data-right-panel="workbench" role="tabpanel">
+        <div class="right-tabpanel hidden" data-right-panel="workbench" role="tabpanel">
         <section id="goal-section" class="hidden">
           <div class="section-title"><span>目标</span><span id="goal-badge" class="badge hidden">GOAL</span></div>
           <div id="goal-view" class="goal-view muted">当前无目标任务</div>
@@ -118,9 +117,9 @@
           </button>
           <div id="scheduled-task-view" class="sched-view muted hidden">暂无定时任务</div>
         </section>
-      </div>
+        </div>
 
-      <div class="right-tabpanel hidden" data-right-panel="code" role="tabpanel">
+        <div class="right-tabpanel hidden" data-right-panel="code" role="tabpanel">
         <div class="code-split" id="code-split">
           <section class="file-preview-pane is-closed" id="file-preview-pane" aria-label="文件预览">
             <div class="code-pane-head">
@@ -147,6 +146,7 @@
               <div id="git-log-view" class="git-log-view muted">绑定工作区后显示提交记录</div>
             </section>
           </div>
+        </div>
         </div>
       </div>
 
