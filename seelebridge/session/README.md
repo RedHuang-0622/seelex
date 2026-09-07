@@ -42,6 +42,8 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
 |---|---|
 | `subagent_sessions.go` | 会话注册表 actor（运行期记录落盘 + 结束结论回传主会话 + 记录删除） |
 | `subagent_stage_test.go` | 第一视角阶段日志与语义结果队列单元测试 |
+| `subagent_tree.go` | fork 子代理树注册表与只读投影（含运行中上下文实时导出） |
+| `subagent_tree_lock_test.go` | 投影锁序死锁回归测试（2026-09-07） |
 | `subagent_context.go` | 父证据合并 + merge-back mailbox actor |
 | `context_clone.go` | `ContextSnapshot` 深拷贝辅助 |
 | `subagent_sessions_test.go` | 会话注册表单元测试 |
@@ -77,6 +79,14 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
   重启后由恢复锚点（`Runtime.RestoreSubagentAnchors`）从主会话事件库重建；
 - 压缩栈与主会话隔离：节点控制器使用独立内存栈（2026-08-24 修复，
   子代理压缩帧不再写入主会话 SessionContextStore）。
+- `SubagentTree.Projection` 锁序（2026-09-07 死锁修复）：运行中节点的实时
+  上下文导出（`ExportSnapshot` 拿子代理会话锁）绝不发生在树锁内——投影先
+  持树锁浅拍快照、释放树锁后再逐节点导出。否则节点 `ChatStream` 持子代理
+  会话锁执行首次请求装配（`MarkStarted → MarkRunning`）等树锁，而投影持
+  树锁等会话锁，形成锁序死锁（真实 API 复现：多个子代理 running 后无任何
+  llm/tool 事件、行停留在 QUEUED）。回归覆盖：
+  `subagent_tree_lock_test.go`（确定性）与 `tmp/headless-smoke`
+  `TestRealAPIForkLiveProbe`（真实 API E2E）。
 
 ## 扩展方式
 
@@ -95,6 +105,7 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
 本包内：`subagent_sessions_test.go`；merge-back mailbox 并发/overflow 用例在根包 `merge_back_concurrency_test.go`（联调，保留根测试包）。验证：
 
 ```text
+go test ./seelebridge/session/ -run 'TestProjectionExportDoesNotHoldTreeLock|TestSubAgent' -count=1
 go test ./seelebridge/session/ ./seelebridge/ -count=1
 go build ./...
 ```

@@ -61,6 +61,14 @@ const (
 	subagentTreeRetainDone       = 50
 )
 
+// exportSubagentSnapshot 是运行中节点实时上下文导出的可替换函数（测试
+// seam；生产恒为 seelexctx.ExportSnapshot）。替换点必须满足同一锁序约束：
+// 调用发生在树锁释放之后，允许在导出期间再取树锁（节点 ChatStream 首次
+// 装配 MarkStarted → MarkRunning 即此路径，2026-09-07 死锁回归测试覆盖）。
+var exportSubagentSnapshot = func(source provider.SessionSource, trace provider.TraceSource, goal string) *snapshot.ContextSnapshot {
+	return seelexctx.ExportSnapshot(source, trace, goal)
+}
+
 // subagentNodeRecord 是树节点的内存态记录（含运行中会话引用；只存引用不读
 // 内容，详情读取走 NodeSessionConversation，遵守"只读子代理 actor"约束）。
 type subagentNodeRecord struct {
@@ -376,28 +384,40 @@ func (s *SubagentTree) SummaryFor(nodeID string) string {
 // 紧凑上下文：结束后节点复用 unregisterNodeSession 导出的快照（零额外
 // 导出）；运行中节点经 ExportSnapshot 实时导出（与详情弹窗同一数据面，
 // 只读子代理 actor，安全）。
+//
+// 锁序约束（2026-09-07 死锁修复）：ExportSnapshot 会拿子代理会话锁，而
+// 节点 ChatStream 持子代理会话锁执行首次请求装配（MarkStarted →
+// MarkRunning）时又需要本树锁。若在持树锁期间实时导出，会形成
+// 树锁 ↔ 会话锁 的死锁环（headless 真实 API 复现：多个子代理 running 后
+// 全部停在首个请求，无任何 llm/tool 事件）。因此投影分两阶段：
+//  1. 持树锁只拍浅快照（scalar 字段 + 结束快照指针 + 运行中会话引用）；
+//  2. 释放树锁后，再对运行中会话逐一 ExportSnapshot。
 func (s *SubagentTree) Projection() []SubAgentTreeNode {
 	if s == nil {
 		return nil
 	}
-	return s.projection(func(record *subagentNodeRecord) *SubAgentNodeContext {
-		if record.contextSnap != nil {
-			return compactSubAgentContext(record.contextSnap)
-		}
-		if record.session != nil {
-			if snap := seelexctx.ExportSnapshot(record.session, s.trace, record.goal); snap != nil {
-				return compactSubAgentContext(snap)
-			}
-		}
-		return nil
-	})
+	return s.projection()
+}
+
+// treeProjectionNode 是投影两阶段中的浅快照：只持有投影所需 scalar 与
+// 结束时快照指针；运行中会话引用在释放树锁后使用（ExportSnapshot）。
+type treeProjectionNode struct {
+	id, parentID, goal, summary, errorMsg, sessionID string
+	status                                           SubAgentNodeStatus
+	startedAt, endedAt                               time.Time
+	contextSnap                                      *snapshot.ContextSnapshot
+	liveSession                                      *frameworksession.Session
+	children                                         []string
 }
 
 // projection 组装树投影：主代理为合成根；孤儿节点（父已不在注册表）归到
 // 主代理下，树保持完整。空树（无 fork）返回 nil。
-func (s *SubagentTree) projection(export func(*subagentNodeRecord) *SubAgentNodeContext) []SubAgentTreeNode {
+//
+// 阶段 1（持锁浅拍）完成后立即释放树锁；阶段 2（实时上下文导出与 DTO
+// 组装）不再触碰树锁，避免与节点首次装配的 MarkStarted → MarkRunning
+// 形成锁序死锁。
+func (s *SubagentTree) projection() []SubAgentTreeNode {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	mainChildren := append([]string(nil), s.children[model.MainAgentNodeID]...)
 	for id, record := range s.nodes {
 		if record.parentID == model.MainAgentNodeID {
@@ -408,19 +428,44 @@ func (s *SubagentTree) projection(export func(*subagentNodeRecord) *SubAgentNode
 		}
 	}
 	if len(mainChildren) == 0 {
+		s.mu.Unlock()
 		return nil
 	}
+	records := make(map[string]*treeProjectionNode, len(s.nodes))
+	for id, record := range s.nodes {
+		node := &treeProjectionNode{
+			id:        id,
+			parentID:  record.parentID,
+			goal:      record.goal,
+			status:    record.status,
+			summary:   record.summary,
+			errorMsg:  record.errorMsg,
+			sessionID: record.sessionID,
+			startedAt: record.startedAt,
+			endedAt:   record.endedAt,
+			children:  append([]string(nil), s.children[id]...),
+		}
+		if record.contextSnap != nil {
+			node.contextSnap = record.contextSnap
+		} else if record.session != nil {
+			node.liveSession = record.session
+		}
+		records[id] = node
+	}
+	s.mu.Unlock()
+
 	root := SubAgentTreeNode{ID: model.MainAgentNodeID, Status: SubAgentRunning}
 	for _, childID := range mainChildren {
-		root.Children = append(root.Children, s.projectNode(childID, make(map[string]bool), export))
+		root.Children = append(root.Children, s.projectNode(childID, records, make(map[string]bool)))
 	}
 	root.Status = subagentMainStatus(root.Children)
 	return []SubAgentTreeNode{root}
 }
 
-// projectNode 递归投影单个树节点（visited 防环，防意外 fork DAG 无环的意外）。
-func (s *SubagentTree) projectNode(id string, seen map[string]bool, export func(*subagentNodeRecord) *SubAgentNodeContext) SubAgentTreeNode {
-	record := s.nodes[id]
+// projectNode 用阶段 1 的浅快照递归组装 DTO（无锁；实时导出在锁外执行）。
+// visited 防环，防意外 fork DAG 无环的意外。
+func (s *SubagentTree) projectNode(id string, records map[string]*treeProjectionNode, seen map[string]bool) SubAgentTreeNode {
+	record := records[id]
 	node := SubAgentTreeNode{ID: id}
 	if record == nil {
 		return node
@@ -433,15 +478,21 @@ func (s *SubagentTree) projectNode(id string, seen map[string]bool, export func(
 	node.SessionID = record.sessionID
 	node.StartedAt = record.startedAt
 	node.EndedAt = record.endedAt
-	if context := export(record); context != nil {
-		node.Context = context
+	if record.contextSnap != nil {
+		if context := compactSubAgentContext(record.contextSnap); context != nil {
+			node.Context = context
+		}
+	} else if record.liveSession != nil {
+		if snap := exportSubagentSnapshot(record.liveSession, s.trace, record.goal); snap != nil {
+			node.Context = compactSubAgentContext(snap)
+		}
 	}
 	if seen[id] {
 		return node
 	}
 	seen[id] = true
-	for _, childID := range s.children[id] {
-		node.Children = append(node.Children, s.projectNode(childID, seen, export))
+	for _, childID := range record.children {
+		node.Children = append(node.Children, s.projectNode(childID, records, seen))
 	}
 	delete(seen, id)
 	return node

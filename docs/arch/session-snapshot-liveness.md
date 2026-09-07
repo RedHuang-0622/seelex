@@ -107,6 +107,13 @@ subagent completes
 
 子会话详情读取也遵守相同原则：先在 `nodeSessionsMu` 下取出 Session 指针并释放注册表锁，再调用子会话的 `History()`；绝不在注册表锁内调用另一个 actor。
 
+`SubagentTree.Projection` 同守此原则（2026-09-07 死锁修复）：运行中节点的
+实时上下文导出（`ExportSnapshot` → 子代理会话锁）不能在持有树锁时执行。
+投影分两阶段——先持树锁浅拍（scalar + 结束快照指针 + 运行中会话引用），
+释放树锁后再逐节点导出。否则节点 `ChatStream`（持子代理会话锁、首次装配
+`MarkStarted → MarkRunning` 需要树锁）与投影（持树锁等待会话锁）会形成
+锁序死锁；headless 真实 API 复现为子代理 running 后无任何 llm/tool 事件。
+
 ## 6. 被消除的等待环
 
 旧的工具可见性路径可能形成以下自锁：
