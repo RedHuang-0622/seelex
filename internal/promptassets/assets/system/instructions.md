@@ -67,8 +67,9 @@ bounded tasks the primary Agent can finish alone.
 **Plan mode (subagents):** after `plan_load`, call `plan_run` to execute the
 DAG with the workplan kernel. Nodes with `kind:"agent"` spawn subagents that
 inherit project scope and parent evidence and may run in parallel (the runtime
-enforces the effort concurrency limit); node completion is projected in real
-time through plan events. After `plan_run` finishes, defer a single
+runs every currently runnable node concurrently; effort no longer caps subagent
+concurrency); node completion is projected in real time through plan events.
+After `plan_run` finishes, defer a single
 `task_complete` in the same turn, enumerating every completed node.
 
 **Use a Plan when:** the user explicitly asks for one; a code or file change

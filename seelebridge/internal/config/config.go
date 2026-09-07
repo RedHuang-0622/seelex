@@ -20,8 +20,14 @@ const (
 	// DefaultMaxOutputTokens 是未配置时的默认输出 token 上限。
 	DefaultMaxOutputTokens = 8_192
 	// defaultMaxConcurrency 是每个账号默认的并发租约上限。
-	// 主会话串行（Session 单锁），默认 1 即可；后续切片为 Plan 子代理并行时按角色上调。
+	// agent/goalplan 保持 1：主会话与规划路径本来就受 Session 单锁约束，
+	// 并发租约只是兜底；子代理角色另有 defaultSubagentMaxConcurrency。
 	defaultMaxConcurrency = 1
+	// defaultSubagentMaxConcurrency 是 subagent 角色账号的默认并发租约上限。
+	// 2026-09-07：subagent 只是“角色 + 模型供应商”，不再由框架设实用上限
+	// （高水位远高于任何真实 fork 扇出；实际在途请求受供应商/API 限流与
+	// 429 重试约束）。可在账号条目里用 max_concurrency 显式覆盖。
+	defaultSubagentMaxConcurrency = 1024
 )
 
 // AccountLimits 是账号的上下文/输出预算。
@@ -45,12 +51,13 @@ type simplifiedDefaults struct {
 
 // simplifiedAccount is a single entry in the role-based config format.
 type simplifiedAccount struct {
-	Provider      string `yaml:"provider"`
-	Model         string `yaml:"model"`
-	BaseURL       string `yaml:"base_url"`
-	APIKey        string `yaml:"api_key"`
-	ContextWindow *int   `yaml:"context_window"`
-	MaxTokens     *int   `yaml:"max_tokens"`
+	Provider       string `yaml:"provider"`
+	Model          string `yaml:"model"`
+	BaseURL        string `yaml:"base_url"`
+	APIKey         string `yaml:"api_key"`
+	ContextWindow  *int   `yaml:"context_window"`
+	MaxTokens      *int   `yaml:"max_tokens"`
+	MaxConcurrency *int   `yaml:"max_concurrency"`
 }
 
 // simplifiedConfig represents the role-grouped accounts.yaml format.
@@ -103,6 +110,16 @@ func Load(path string) (Config, error) {
 	for _, role := range roleOrder {
 		for index, entry := range roleMap[role] {
 			name := fmt.Sprintf("%s-%d", role, index+1)
+			maxConcurrency := defaultMaxConcurrency
+			if role == model.RoleSubAgent {
+				maxConcurrency = defaultSubagentMaxConcurrency
+			}
+			if entry.MaxConcurrency != nil {
+				if *entry.MaxConcurrency <= 0 {
+					return Config{}, fmt.Errorf("seelebridge: account %q max_concurrency must be greater than zero", name)
+				}
+				maxConcurrency = *entry.MaxConcurrency
+			}
 			limits, err := resolveAccountLimits(cfg.Defaults, entry)
 			if err != nil {
 				return Config{}, fmt.Errorf("seelebridge: account %q: %w", name, err)
@@ -117,7 +134,7 @@ func Load(path string) (Config, error) {
 				MaxTokens:       limits.MaxOutputTokens,
 				ContextWindow:   limits.ContextWindow,
 				MaxOutputTokens: limits.MaxOutputTokens,
-				MaxConcurrency:  defaultMaxConcurrency,
+				MaxConcurrency:  maxConcurrency,
 				Role:            role,
 			})
 			limitsByAccount[name] = limits

@@ -232,20 +232,21 @@ func TestReActBudgetByEffort(t *testing.T) {
 
 func TestPlanningPolicyByEffort(t *testing.T) {
 	tests := []struct {
-		level      string
-		maxNodes   int
-		serial     bool
-		concurrent int
+		level    string
+		maxNodes int
+		serial   bool
 	}{
 		{level: "lite"},
-		{level: "medium", maxNodes: 4, serial: true, concurrent: 1},
-		{level: "high", concurrent: 3},
+		{level: "medium", maxNodes: 4, serial: true},
+		{level: "high"},
 		{level: "max"},
 	}
 	for _, test := range tests {
 		t.Run(test.level, func(t *testing.T) {
 			policy := PlanningPolicy(test.level)
-			if policy.Effort != test.level || policy.MaxNodes != test.maxNodes || policy.RequireSerial != test.serial || policy.MaxForkConcurrency != test.concurrent {
+			// 2026-09-07：并发不再由 effort 档限制（subagent = 角色 +
+			// 模型供应商）；任何档位都不得再注入 MaxForkConcurrency。
+			if policy.Effort != test.level || policy.MaxNodes != test.maxNodes || policy.RequireSerial != test.serial || policy.MaxForkConcurrency != 0 {
 				t.Fatalf("PlanningPolicy(%q) = %+v", test.level, policy)
 			}
 		})

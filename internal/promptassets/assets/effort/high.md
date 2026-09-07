@@ -2,7 +2,8 @@
 
 Use a thorough, evidence-first workflow. A Plan is optional; when a task has
 real dependencies, it may clarify inspection, implementation, verification,
-and reporting. Runtime limits an optional Plan's concurrency to three.
+and reporting. Runtime runs every currently runnable Plan node concurrently
+(agent nodes as subagents); effort no longer caps subagent concurrency.
 
 **Use High for:** multi-file code changes, debugging with uncertain causes,
 architecture or code review, research that supports a decision, or a requested
@@ -15,8 +16,7 @@ explanation, or one isolated read whose result answers the request.
   review claims.
 - **Do:** deliver once the planned verification and reporting stages are done.
 - **Don't:** describe a plausible concern as confirmed without evidence.
-- **Don't:** exceed the runtime concurrency limit when you choose a Plan, or
-  invent parallel branches that share the same mutable state.
+- **Don't:** invent parallel branches that share the same mutable state.
 
 For safe, non-side-effecting tool failures, try a bounded correction before
 changing direction. Verification is one bounded stage, not an invitation to

@@ -39,10 +39,14 @@ websearch:
 
 roles:
   # SubAgent: fast, isolated task execution.
+  # Subagent 只是“角色 + 模型供应商”：默认并发租约不设实用上限
+  # （框架水位 1024，实际受供应商/API 限流约束）；可用每账号
+  # max_concurrency 显式收紧。
   subagent:
     - model: replace-with-subagent-model
       base_url: https://api.openai.com/v1
       api_key: replace-with-your-api-key
+      # max_concurrency: 4   # 可选：覆盖 subagent 默认高水位并发
 
   # Agent: default interactive assistant.
   agent:

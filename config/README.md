@@ -16,6 +16,12 @@
 
 账号按 `subagent`、`agent`、`goalplan` 等 role 分组；缺少专用 role 时由 bridge 的 fallback 规则选择账号。
 
+每个账号条目可带可选字段 `max_concurrency`，控制该账号在 AccountPool 上的
+并发租约（必须 > 0）。默认按角色区分：`agent`/`goalplan` 为 1（主会话与
+规划路径本身受 Session 单锁约束），`subagent` 为 1024——即框架不设实用
+上限，子代理只按“角色 + 模型供应商”运行，实际在途请求受供应商/API 限流
+约束；显式填写 `max_concurrency` 时优先于角色默认值。
+
 ## 安全规则
 
 - 不读取或展示真实 `api_key`、token、password、DSN。

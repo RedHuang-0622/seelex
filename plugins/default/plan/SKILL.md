@@ -32,9 +32,9 @@ When `plan_run` fails, inspect the failed node and completed-node evidence. A us
 当前 Effort 的运行时规则：
 
 - `lite`：Plan 可选。
-- `medium`：Plan 最多 4 个节点，且必须是串行链；并发固定为 1。
-- `high`：允许 DAG 并行节点；并发最多 3。
-- `max`：允许所有当前可运行节点并行。
+- `medium`：Plan 最多 4 个节点，且必须是串行链。
+- `high`：允许 DAG 并行节点；子代理并发不设上限，所有当前可运行节点同时执行。
+- `max`：允许所有当前可运行节点并行（同上，effort 不限制并发）。
 
 运行时会拒绝不符合这些规则的 `plan_load` 请求。
 

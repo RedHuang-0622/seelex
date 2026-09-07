@@ -50,15 +50,20 @@ var effortProfiles = map[string]effortProfile{
 		budget:     ReActBudget{MaxToolRounds: 15, MaxToolCalls: 30, MaxNoProgressRounds: 6},
 	},
 	"medium": {
-		prompt:     promptassets.Effort("medium"),
-		maxLoops:   48,
-		planPolicy: dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true, MaxForkConcurrency: 1},
+		prompt:   promptassets.Effort("medium"),
+		maxLoops: 48,
+		// MaxForkConcurrency 有意保持 0：subagent 只是角色 + 模型供应商，
+		// 并发不再由 effort 档限制（PolicyConcurrency 回退为“全部当前可
+		// 运行节点同时执行”）。medium 只保留节点数与串行链约束。
+		planPolicy: dto.PlanPolicy{Effort: "medium", MaxNodes: 4, RequireSerial: true},
 		budget:     ReActBudget{MaxToolRounds: 48, MaxToolCalls: 96, MaxNoProgressRounds: 10},
 	},
 	"high": {
-		prompt:     promptassets.Effort("high"),
-		maxLoops:   384,
-		planPolicy: dto.PlanPolicy{Effort: "high", MaxForkConcurrency: 3, MaxNodeLoops: 48},
+		prompt:   promptassets.Effort("high"),
+		maxLoops: 384,
+		// 同上：effort 不再携带子代理并发上限，DAG 中所有当前可运行
+		// agent 节点默认同时执行。
+		planPolicy: dto.PlanPolicy{Effort: "high", MaxNodeLoops: 48},
 		budget:     ReActBudget{MaxToolRounds: 384, MaxToolCalls: 768, MaxNoProgressRounds: 24},
 	},
 	"max": {
@@ -94,8 +99,11 @@ func ReActBudgetFor(level string) ReActBudget {
 
 // PlanningPolicy returns the hard runtime constraints for an optional
 // plan_load at an effort level. It never makes planning a chat-entry gate.
-// Max uses the loaded plan's node count as its concurrency cap so all
-// currently runnable nodes can start together.
+// Effort profiles no longer carry MaxForkConcurrency (removed 2026-09-07):
+// subagents are just a role plus a model provider, so fork_subagents and
+// plan_run let every currently runnable node start together (PolicyConcurrency
+// falls back to the loaded node count). Medium keeps its four-node serial
+// chain constraint; MaxNodeLoops caps stay effort-specific.
 func PlanningPolicy(level string) dto.PlanPolicy {
 	profile, ok := effortProfileFor(level)
 	if !ok {

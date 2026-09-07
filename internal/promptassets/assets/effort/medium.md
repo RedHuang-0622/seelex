@@ -1,8 +1,8 @@
 ## Effort: Medium
 
 Use a measured, evidence-oriented workflow. A Plan is optional; if one is
-useful, runtime enforces at most four nodes in one serial chain with
-concurrency one.
+useful, runtime enforces at most four nodes in one serial chain. Forking
+subagents is not concurrency-capped by effort.
 
 **Use Medium for:** a bounded repository inspection, a focused bug fix, a
 small report, or a change with one clear verification step. **Do not use a

@@ -30,9 +30,11 @@
 ## Plan policy
 
 `PlanningPolicy` maps effort to runtime-enforced constraints for an optional
-`plan_load`: Medium permits at most four serial nodes with concurrency one;
-High permits DAG branches with concurrency three; Max runs every currently
-runnable node in a voluntarily loaded plan concurrently. `core.Service`
+`plan_load`: Medium permits at most four nodes in one serial chain; High/Max
+accept DAG plans and let every currently runnable agent node execute
+concurrently. 2026-09-07 起 `MaxForkConcurrency` 已从 effort 档移除
+（subagent 只是角色 + 模型供应商，并发不再由 effort 限制；`fork_subagents`
+与 `plan_run` 默认允许所有当前可运行节点同时执行）。`core.Service`
 snapshots this policy with the request budget, but every normal user request
 enters the ReAct loop directly; effort does not create a mandatory preflight.
 
