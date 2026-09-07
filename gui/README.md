@@ -13,6 +13,7 @@
 | `run_wails.go` / `run_stub.go` | build tags 下的真实 GUI 与不可用 stub。 |
 | `dialogs_gui.go` / `dialogs_stub.go` | 平台目录选择适配。 |
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
+| `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
 
 ## Bridge 契约
@@ -108,6 +109,14 @@ go test ./gui -count=1
 go build -tags "gui,desktop,production" ./...
 go build -tags pprof .
 node --test gui/frontend/dist/*.test.mjs
+```
+
+真实 API fork 并发探针（默认跳过；需要已构建的 headless 目标二进制）：
+
+```powershell
+$env:SMOKE_FORK_LIVE='1'
+$env:SMOKE_FORK_LIVE_N='10'      # 子代理个数；SMOKE_FORK_LIVE_GOAL 可换题
+go test ./gui -run TestRealAPIForkLiveProbe -v -count=1 -timeout 20m
 ```
 
 权威设计文档位于 [`docs/gui`](../docs/gui/README.md)。
