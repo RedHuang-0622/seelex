@@ -3,6 +3,7 @@
 package sessionstore
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -46,6 +47,9 @@ const (
 	// frameworkEventLegacyFile 是 v1 布局下 generation 内的事件库文件名，
 	// 首次写入 v2 模块时迁移合并，之后只读回退。
 	frameworkEventLegacyFile = "events.json"
+	// transcriptEventLogFile 是会话 transcript 的物理 append-only 日志
+	// （按顺序落盘；不再随 generation rollover 整代重写事件分片）。
+	transcriptEventLogFile = "transcript.log"
 )
 
 type Config struct {
@@ -100,6 +104,43 @@ type EventToolCall struct {
 	Arguments string `json:"arguments"`
 }
 
+// EventKind 是 transcript 事件的显式类别，供轨迹多线谱与有序日志直接区分
+// 工具调用/LLM/用户输入等，避免仅按 role 启发式判定。
+const (
+	EventKindUserInput  = "user_input"
+	EventKindInternal   = "internal"
+	EventKindLLM        = "llm"
+	EventKindToolCall   = "tool_call"
+	EventKindToolOutput = "tool_output"
+	EventKindSystem     = "system"
+	EventKindError      = "error"
+	EventKindNotice     = "notice"
+)
+
+// EventKindOf 返回事件的显式类别；旧数据 Kind 为空时按 Role/ToolCalls 回退。
+func EventKindOf(event Event) string {
+	if event.Kind != "" {
+		return event.Kind
+	}
+	switch event.Role {
+	case "user":
+		return EventKindUserInput
+	case "assistant":
+		if len(event.ToolCalls) > 0 {
+			return EventKindToolCall
+		}
+		return EventKindLLM
+	case "tool":
+		return EventKindToolOutput
+	case "system":
+		return EventKindSystem
+	case "error":
+		return EventKindError
+	default:
+		return EventKindNotice
+	}
+}
+
 // Event is the append-only transcript representation shared by every
 // backend. TokenCount is recorded at event creation time so reverse reads do
 // not need to retokenize the complete archive.
@@ -108,7 +149,10 @@ type Event struct {
 	TaskID string `json:"task_id,omitempty"`
 	// MessageID 是同一逻辑单元的 UI 会话消息定位键（event-to-message 索引；
 	// 模块化方案 §3.2：禁止按数组位置临时推导）。无法稳定配对时为空。
-	MessageID        string          `json:"message_id,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+	// Kind 是轨迹可见的显式类别（tool_call/llm/user_input/…）；空 = 旧数据，
+	// 用 EventKindOf 回退。
+	Kind             string          `json:"kind,omitempty"`
 	Role             string          `json:"role"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
 	Content          string          `json:"content,omitempty"`
@@ -655,6 +699,100 @@ func newJSONRepository(root string, shardSize int) (*jsonRepository, error) {
 	return &jsonRepository{root: filepath.Clean(root), shardSize: shardSize, legacyCounts: make(map[string][]int)}, nil
 }
 
+// transcriptEventLogPath 返回会话 transcript append-only 日志路径。
+func (repository *jsonRepository) transcriptEventLogPath(key Key) string {
+	return filepath.Join(repository.sessionDir(key), transcriptEventLogFile)
+}
+
+// readTranscriptEventsLocked 读取会话 transcript 日志（调用方持 repository.mu）。
+// 日志缺失视为空会话；未换行结尾的半个尾行（崩溃残尾）按恢复语义跳过。
+func (repository *jsonRepository) readTranscriptEventsLocked(directory string) ([]Event, error) {
+	path := filepath.Join(directory, transcriptEventLogFile)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	segments := bytes.Split(data, []byte{'\n'})
+	events := make([]Event, 0, len(segments))
+	for index, segment := range segments {
+		if index == len(segments)-1 && len(bytes.TrimSpace(segment)) > 0 {
+			// 文件末尾没有换行：只可能是写入中断留下的半行，跳过而不是报错。
+			continue
+		}
+		segment = bytes.TrimSpace(segment)
+		if len(segment) == 0 {
+			continue
+		}
+		var event Event
+		if err := json.Unmarshal(segment, &event); err != nil {
+			return nil, fmt.Errorf("session storage: decode transcript log %q: %w", path, err)
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
+// appendTranscriptEventsLocked 把新增事件追加到 transcript 日志（调用方持
+// repository.mu）。日志是事件顺序的物理事实源，只追加不重写。
+func (repository *jsonRepository) appendTranscriptEventsLocked(directory string, entries []Event) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	path := filepath.Join(directory, transcriptEventLogFile)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	buffer := make([]byte, 0, 4096)
+	for _, entry := range entries {
+		data, err := json.Marshal(entry)
+		if err != nil {
+			file.Close()
+			return fmt.Errorf("session storage: encode transcript event: %w", err)
+		}
+		buffer = append(buffer, data...)
+		buffer = append(buffer, '\n')
+	}
+	if _, err := file.Write(buffer); err != nil {
+		file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+// eventLogHead 返回事件日志已落盘的最大 Seq；空日志为 0。
+func eventLogHead(events []Event) uint64 {
+	var head uint64
+	for _, event := range events {
+		if event.Seq > head {
+			head = event.Seq
+		}
+	}
+	return head
+}
+
+// eventsAfterLogHead 返回应追加进日志的新事件：Seq 严格大于已落盘 head，
+// 或 Seq=0 的 legacy 条目（合并语义中排末尾）。
+func eventsAfterLogHead(head uint64, events []Event) []Event {
+	if head == 0 {
+		return append([]Event(nil), events...)
+	}
+	delta := make([]Event, 0, len(events))
+	for _, event := range events {
+		if event.Seq == 0 || event.Seq > head {
+			delta = append(delta, event)
+		}
+	}
+	return delta
+}
+
 func (repository *jsonRepository) WriteAtomic(_ context.Context, key Key, messages []types.Message) error {
 	return repository.WriteCommit(context.Background(), key, Commit{ProviderHistory: messages})
 }
@@ -679,13 +817,11 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 		return previousErr
 	}
 	events := commit.Events
-	if previousErr == nil {
-		existing, err := repository.readEventShards(key, previous)
-		if err != nil {
-			return err
-		}
-		events = mergeEvents(existing, commit.Events)
+	existing, err := repository.readTranscriptEventsLocked(directory)
+	if err != nil {
+		return err
 	}
+	events = mergeEvents(existing, commit.Events)
 	generation := "generation-" + randomID()
 	generationDir := filepath.Join(directory, generation)
 	if err := os.MkdirAll(generationDir, 0o700); err != nil {
@@ -698,16 +834,6 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 			return fmt.Errorf("session storage: marshal shard: %w", err)
 		}
 		if err := writeAtomic(filepath.Join(generationDir, fmt.Sprintf("history.%03d.json", index)), data, 0o600); err != nil {
-			return err
-		}
-	}
-	eventShards := splitEvents(events, repository.shardSize)
-	for index, shard := range eventShards {
-		data, err := json.Marshal(shard)
-		if err != nil {
-			return fmt.Errorf("session storage: marshal event shard: %w", err)
-		}
-		if err := writeAtomic(filepath.Join(generationDir, fmt.Sprintf("events.%03d.json", index)), data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -724,6 +850,11 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 		if err := repository.writeToolResultLocked(key, result); err != nil {
 			return err
 		}
+	}
+	// transcript 事件按增量追加进日志：重复提交同一 Seq 幂等（合并后无新增），
+	// 崩溃后重试也只会补写缺失尾部。
+	if err := repository.appendTranscriptEventsLocked(directory, eventsAfterLogHead(eventLogHead(existing), events)); err != nil {
+		return err
 	}
 	toolResultRefs := []string(nil)
 	if previousErr == nil {
@@ -747,7 +878,6 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 	data, err := json.Marshal(jsonManifest{
 		Generation:         generation,
 		HistoryShardCounts: shardCounts(shards),
-		EventShardCount:    len(eventShards),
 		ToolResultRefs:     toolResultRefs,
 		Meta:               meta,
 	})
@@ -934,13 +1064,15 @@ func (repository *jsonRepository) ReadEventTail(_ context.Context, key Key, toke
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	manifest, err := repository.readManifest(repository.sessionDir(key))
+	directory := repository.sessionDir(key)
+	events, err := repository.readTranscriptEventsLocked(directory)
 	if err != nil {
 		return nil, err
 	}
-	events, err := repository.readEventShards(key, manifest)
-	if err != nil {
-		return nil, err
+	if len(events) == 0 {
+		if _, statErr := os.Stat(filepath.Join(directory, "manifest.json")); errors.Is(statErr, fs.ErrNotExist) {
+			return nil, fs.ErrNotExist
+		}
 	}
 	return selectEventTail(events, tokenBudget, maxUnits), nil
 }

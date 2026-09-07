@@ -102,6 +102,9 @@ type Message struct {
 	ID      string `json:"id"`
 	Role    string `json:"role"`
 	Content string `json:"content,omitempty"`
+	// Kind 是消息在多线谱中的显式类别（llm/tool_call/tool_output/user_input/…）。
+	// 空串 = 旧数据未标注，前端按 Role/Tool 回退分类。
+	Kind string `json:"kind,omitempty"`
 	// ReasoningContent 是模型推理内容（thinking）。可见消息里与 Content 分离：
 	// 聊天区只做一行带过，轨迹区完整查看；不做 HTML 注入，前端按纯文本渲染。
 	ReasoningContent string    `json:"reasoning_content,omitempty"`

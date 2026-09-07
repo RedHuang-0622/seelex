@@ -8,6 +8,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| [`codex-session-resume.md`](codex-session-resume.md) | Codex 会话恢复与 rollout 有序存储调研：单会话 append-only JSONL、单 writer 保序、压缩检查点后的前缀重放恢复，以及 Seelex 借鉴点（2026-09-07；官方文档 403，依据开源 main 分支与本地只读实证） |
 | [`2026-08-24-conversation-fork-research.md`](2026-08-24-conversation-fork-research.md) | 对话 fork（会话级）功能可行性调研：Codex fork 机制、session store 链路、requestID 前提核实、上下文六层模型与风险、事件流三轨盘点、边界场景 user story。**一期决策已定稿**（深拷贝 + 血缘 meta + 整帧继承，否决方向已标注；见「十、一期决策契约」）（2026-08-24） |
 | [`2026-08-24-session-resource-granularity.md`](2026-08-24-session-resource-granularity.md) | 会话资源与锁粒度盘点：单例现状、M1 会话级已落地项、多会话解除单例的路径（2026-08-24） |
 | [`2026-08-24-fork-subagent-recovery.md`](2026-08-24-fork-subagent-recovery.md) | fork 子代理异常中断状态恢复可行性调研：串行/执行者归因、checkpoint 原语、前置准备与现状对照（2026-08-24） |

@@ -73,6 +73,10 @@
       "properties": {
         "message_id": { "$ref": "common.schema.json#/$defs/identifier" },
         "role": { "enum": ["system", "user", "assistant", "tool", "tool_result", "error"] },
+        "kind": {
+          "description": "轨迹多线谱的显式类别（历史记录由后端按事件标注；空串表示旧数据，前端回退 role 判定）",
+          "enum": ["user_input", "internal", "llm", "tool_call", "tool_output", "system", "error", "notice"]
+        },
         "content": { "type": "string", "maxLength": 200000 },
         "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
         "card_id": { "$ref": "common.schema.json#/$defs/identifier" }

@@ -119,6 +119,7 @@ func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) 
 	}
 	st.transcriptSeq++
 	event.Seq = st.transcriptSeq
+	event.Kind = classifyTranscriptEventKind(event)
 	if event.TaskID == "" && st.taskExecution != nil {
 		event.TaskID = st.taskExecution.RequestID
 	}
@@ -142,6 +143,7 @@ func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event mo
 	st := c.sessionStateLocked(sessionID)
 	st.transcriptSeq++
 	event.Seq = st.transcriptSeq
+	event.Kind = classifyTranscriptEventKind(event)
 	if event.TaskID == "" && st.taskExecution != nil {
 		event.TaskID = st.taskExecution.RequestID
 	}
@@ -191,6 +193,7 @@ func (c *Coordinator) importEngineHistoryLocked(st *sessionTaskRuntime, history 
 func (c *Coordinator) appendTranscriptEventLocked(st *sessionTaskRuntime, event model.TranscriptEvent) model.TranscriptEvent {
 	st.transcriptSeq++
 	event.Seq = st.transcriptSeq
+	event.Kind = classifyTranscriptEventKind(event)
 	if event.TaskID == "" && st.taskExecution != nil {
 		event.TaskID = st.taskExecution.RequestID
 	}
@@ -200,6 +203,34 @@ func (c *Coordinator) appendTranscriptEventLocked(st *sessionTaskRuntime, event 
 	event.TokenCount = c._CountTranscriptEvent(event)
 	st.transcript = append(st.transcript, event)
 	return event
+}
+
+// classifyTranscriptEventKind 返回事件的显式类别；调用方已标注 Kind 时原样保留，
+// 否则按 Role/ToolCalls/内部标记回退，保证轨迹多线谱在旧事件上也有稳定分类。
+func classifyTranscriptEventKind(event model.TranscriptEvent) string {
+	if event.Kind != "" {
+		return event.Kind
+	}
+	switch event.Role {
+	case "user":
+		if strings.HasPrefix(event.Content, "<!-- seelex:") {
+			return model.TranscriptEventKindInternal
+		}
+		return model.TranscriptEventKindUserInput
+	case "assistant":
+		if len(event.ToolCalls) > 0 {
+			return model.TranscriptEventKindToolCall
+		}
+		return model.TranscriptEventKindLLM
+	case "tool":
+		return model.TranscriptEventKindToolOutput
+	case "system":
+		return model.TranscriptEventKindSystem
+	case "error":
+		return model.TranscriptEventKindError
+	default:
+		return model.TranscriptEventKindNotice
+	}
 }
 
 // CountTranscriptEvent 估算一条 transcript 事件的 token 数。

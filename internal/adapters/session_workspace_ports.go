@@ -436,7 +436,7 @@ func storeTranscriptEvents(events []model.TranscriptEvent) []sessionstore.Event 
 		}
 		stored[index] = sessionstore.Event{
 			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
-			ReasoningContent: event.ReasoningContent, Content: event.Content,
+			Kind: event.Kind, ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
 			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
 		}
@@ -453,7 +453,7 @@ func adaptTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent 
 		}
 		adapted[index] = model.TranscriptEvent{
 			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
-			ReasoningContent: event.ReasoningContent, Content: event.Content,
+			Kind: event.Kind, ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
 			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
 		}

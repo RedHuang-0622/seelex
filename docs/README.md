@@ -64,6 +64,7 @@
 | 文档 | 说明 |
 |------|------|
 | [`agent-frontend-design-research.md`](research/agent-frontend-design-research.md) | AI Agent 前端界面 + DSL 卡片渲染设计调研 |
+| [`codex-session-resume.md`](research/codex-session-resume.md) | Codex 会话恢复与 rollout 有序存储调研（append-only JSONL、单 writer、前缀重放） |
 | [`approve-research.md`](research/approve-research.md) | Approve 节点选型（OpenCode vs Claude Code vs Seele） |
 | [`context-management-review.md`](research/context-management-review.md) | 上下文管理（继承/合并/压缩）实现审查与理论依据调研 |
 
@@ -81,9 +82,11 @@
 | [`2026-08-22-application-split/design.md`](2026-08-22-application-split/design.md) | application 容器化重构设计（合约净化、adapters 归位、core 域包化） |
 | [`2026-08-23-worktable-sharding-filetree/README.md`](2026-08-23-worktable-sharding-filetree/README.md) | worktable 多维分片 + 工作台文件树工作包（plan + 打点表） |
 | [`2026-08-14-decoupling/00-index.md`](2026-08-14-decoupling/00-index.md) | 解耦重构系列文档索引 |
+| [`2026-09-07-session-order-log/README.md`](2026-09-07-session-order-log/README.md) | 会话全序日志（Session Order Log）设计与实施路线：现状审查、Codex 差距、按顺序存储、前缀 + 追加发送治理、恢复重放 |
 
 ## 🔬 调研报告
 
 | 文档 | 说明 |
 |------|------|
 | [`research/2026-08-23-file-content-preview.md`](research/2026-08-23-file-content-preview.md) | 文件内容详情查看（File Preview）方案调研 |
+| [`research/codex-session-resume.md`](research/codex-session-resume.md) | Codex 会话恢复与 rollout 有序存储调研（append-only JSONL、单 writer、前缀重放） |

@@ -28,6 +28,17 @@ Every backend partitions first by `project_id`, then isolates `session_id`, then
 
 每次写创建新的 `generation-*` 目录，将 history 按 100 条分 shard，最后原子替换 `manifest.json` 指向新 generation。旧 generation 不会在 manifest 提交前暴露。
 
+**transcript 事件按增量追加到会话目录 `transcript.log`**（append-only JSONL，一行一个
+`Event`，含显式 `kind`：user_input/llm/tool_call/tool_output/error/…），不再随
+generation rollover 整代重写 `events.NNN.json`。追加按 `Seq > 已落盘 head` 求增量，
+重复提交幂等；崩溃残尾（未换行收尾的半行）按恢复语义跳过。事件读取
+（`ReadEventTail`/`ReadEventRange`）以日志为物理事实源；history/state 仍走
+generation 快照，属于派生投影。
+
+状态：**JSON 后端已落地**；SQLite/PostgreSQL/Redis 的 transcript 仍为 generation
+snapshot 布局（有序日志后端子设计见
+[`docs/2026-09-07-session-order-log/README.md`](../docs/2026-09-07-session-order-log/README.md)）。
+
 ### SQLite/PostgreSQL
 
 统一使用 `seelex_session_manifest` 与 `seelex_session_shard`：manifest 以 `(project_id, session_id)` 定位当前 immutable generation，shard 以 `(project_id, session_id, generation, shard_index)` 保存固定大小的消息片。事务先写新 generation，再原子切换 manifest。旧版单行 `seelex_sessions.messages_json` 仍可读取，下一次写入自动迁移到分片表。SQLite 使用 modernc，无 CGO；PostgreSQL 使用 pgx stdlib。

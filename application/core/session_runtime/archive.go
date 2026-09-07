@@ -287,7 +287,7 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 		}
 		message := model.Message{
 			ID: fmt.Sprintf("message-%d", event.Seq), Role: event.Role,
-			Content: event.Content, CreatedAt: event.CreatedAt,
+			Content: event.Content, Kind: messageKindForEvent(event), CreatedAt: event.CreatedAt,
 		}
 		switch event.Role {
 		case "assistant":
@@ -296,7 +296,8 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 					messages = append(messages, model.Message{
 						// L4：同一 assistant 事件的多个 tool call 必须有独立
 						// 消息 ID，避免前端按 ID 增量路由时串更新。
-						ID: fmt.Sprintf("message-%d-%d", event.Seq, callIndex), Role: "tool", CreatedAt: event.CreatedAt,
+						ID:   fmt.Sprintf("message-%d-%d", event.Seq, callIndex),
+						Role: "tool", Kind: model.TranscriptEventKindToolCall, CreatedAt: event.CreatedAt,
 						Tool: &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
 					})
 				}
@@ -304,11 +305,37 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 			}
 		case "tool":
 			message.Role = "tool_result"
+			message.Kind = model.TranscriptEventKindToolOutput
 			message.Tool = &model.ToolCall{ID: event.ToolCallID, Name: event.Name, Result: event.Content, Status: "success"}
 		}
 		messages = append(messages, message)
 	}
 	return messages
+}
+
+// messageKindForEvent 把事件类别映射为可见消息的多线谱类别；旧数据 Kind 为空时
+// 按 Role/ToolCalls 回退，保证轨迹分类在迁移前数据上也稳定。
+func messageKindForEvent(event model.TranscriptEvent) string {
+	if event.Kind != "" {
+		return event.Kind
+	}
+	if event.Role == "assistant" && len(event.ToolCalls) > 0 {
+		return model.TranscriptEventKindToolCall
+	}
+	switch event.Role {
+	case "user":
+		return model.TranscriptEventKindUserInput
+	case "assistant":
+		return model.TranscriptEventKindLLM
+	case "tool", "tool_result":
+		return model.TranscriptEventKindToolOutput
+	case "system":
+		return model.TranscriptEventKindSystem
+	case "error":
+		return model.TranscriptEventKindError
+	default:
+		return model.TranscriptEventKindNotice
+	}
 }
 
 // engineHistoryFor 返回指定会话引擎历史（会话路由引擎用 HistoryFor；无会话
@@ -457,6 +484,7 @@ func (c *Coordinator) RecordConversationTranscript(record model.SessionRecord) [
 		event := model.TranscriptEvent{
 			Seq:        uint64(len(events) + 1),
 			Role:       message.Role,
+			Kind:       message.Kind,
 			Content:    message.Content,
 			MessageID:  message.ID,
 			TokenCount: seelexctx.EstimateTokens(message.Content),
@@ -465,10 +493,12 @@ func (c *Coordinator) RecordConversationTranscript(record model.SessionRecord) [
 		case "tool":
 			if message.Tool != nil && message.Tool.ID != "" {
 				event.Role = "assistant"
+				event.Kind = model.TranscriptEventKindToolCall
 				event.ToolCalls = []model.TranscriptToolCall{{ID: message.Tool.ID, Name: message.Tool.Name, Arguments: message.Tool.Arguments}}
 			}
 		case "tool_result":
 			event.Role = "tool"
+			event.Kind = model.TranscriptEventKindToolOutput
 			if message.Tool != nil {
 				event.ToolCallID = message.Tool.ID
 				event.Name = message.Tool.Name

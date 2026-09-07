@@ -60,6 +60,16 @@ test("classifies conversation messages into response types", () => {
   assert.equal(tool.startedAt, "2026-08-25T10:00:02Z");
 });
 
+test("prefers explicit kind over role fallback for multi-track classification", () => {
+  const records = buildTrajectory([
+    { id: "x1", role: "assistant", kind: "user_input", content: "typed input", created_at: "2026-08-25T10:00:00Z" },
+    { id: "x2", role: "user", kind: "error", content: "user-side failure", created_at: "2026-08-25T10:00:01Z" },
+    { id: "x3", role: "system", kind: "internal", content: "<!-- seelex:active-skill:v1 -->skill", created_at: "2026-08-25T10:00:02Z" },
+    { id: "x4", role: "assistant", kind: "llm", content: "", created_at: "2026-08-25T10:00:03Z" }
+  ]);
+  assert.deepEqual(records.map(record => record.kind), ["input", "error", "notice"]);
+});
+
 test("skips empty assistant placeholders (tool-round markers)", () => {
   const records = buildTrajectory([
     userMessage("u1", "run"),

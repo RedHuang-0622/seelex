@@ -84,7 +84,10 @@ type TranscriptEvent struct {
 	TaskID string `json:"task_id,omitempty"`
 	// MessageID 是同一逻辑单元的 UI 会话消息定位键（event-to-message 索引，
 	// 模块化方案 §3.2）；无法稳定配对时为空。
-	MessageID        string               `json:"message_id,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+	// Kind 是事件在多线谱中的显式类别（tool_call/llm/user_input/…）。
+	// 空串 = 旧数据未标注，消费方用 Role/ToolCalls 回退分类。
+	Kind             string               `json:"kind,omitempty"`
 	Role             string               `json:"role"`
 	ReasoningContent string               `json:"reasoning_content,omitempty"`
 	Content          string               `json:"content,omitempty"`
@@ -101,6 +104,20 @@ type TranscriptToolCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
+
+// TranscriptEventKind 是历史记录条目的显式类别，供轨迹多线谱（tool/llm/input/…）
+// 与恢复顺序重放直接识别，避免仅靠 role/content 启发式判定。
+// 取值与 sessionstore.Event.Kind 一致；空串表示旧数据，读取方必须回退到 role 判定。
+const (
+	TranscriptEventKindUserInput  = "user_input"
+	TranscriptEventKindInternal   = "internal"
+	TranscriptEventKindLLM        = "llm"
+	TranscriptEventKindToolCall   = "tool_call"
+	TranscriptEventKindToolOutput = "tool_output"
+	TranscriptEventKindSystem     = "system"
+	TranscriptEventKindError      = "error"
+	TranscriptEventKindNotice     = "notice"
+)
 
 // ToolResultRef is the durable metadata stored in SessionRecord. Content is
 // persisted independently and addressed only through Ref.

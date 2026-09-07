@@ -3,6 +3,9 @@ package sessionstore
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 )
 
 // selectEventRange 按 EventSeq 范围（含端点）过滤事件，保持原有顺序。
@@ -26,13 +29,15 @@ func (repository *jsonRepository) ReadEventRange(_ context.Context, key Key, fro
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	manifest, err := repository.readManifest(repository.sessionDir(key))
+	directory := repository.sessionDir(key)
+	events, err := repository.readTranscriptEventsLocked(directory)
 	if err != nil {
 		return nil, err
 	}
-	events, err := repository.readEventShards(key, manifest)
-	if err != nil {
-		return nil, err
+	if len(events) == 0 {
+		if _, statErr := os.Stat(filepath.Join(directory, "manifest.json")); errors.Is(statErr, fs.ErrNotExist) {
+			return nil, fs.ErrNotExist
+		}
 	}
 	return selectEventRange(events, fromSeq, toSeq)
 }

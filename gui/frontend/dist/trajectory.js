@@ -75,6 +75,20 @@ export function buildTrajectory(messages = []) {
     const role = message.role || "assistant";
     const createdAt = message.created_at || "";
     if (!message.tool) {
+      // 显式类别优先：历史记录条目携带 kind 时不再依赖 role 启发式。
+      if (message.kind) {
+        if (message.kind === "user_input") {
+          push({ kind: "input", key: `message:${message.id || index}`, name: "输入", output: message.content || "", status: "info", startedAt: createdAt, duration: 0 });
+        } else if (message.kind === "llm") {
+          if (!message.content) continue;
+          push({ kind: "llm", key: `message:${message.id || index}`, name: "LLM", output: message.content, reasoning: message.reasoning_content || "", status: "success", startedAt: createdAt, duration: 0 });
+        } else if (message.kind === "error") {
+          push({ kind: "error", key: `message:${message.id || index}`, name: "错误", output: message.content || "", status: "error", startedAt: createdAt, duration: 0 });
+        } else {
+          push({ kind: "notice", key: `message:${message.id || index}`, name: "通知", output: message.content || "", status: "info", startedAt: createdAt, duration: 0 });
+        }
+        continue;
+      }
       if (role === "user") {
         push({ kind: "input", key: `message:${message.id || index}`, name: "输入", output: message.content || "", status: "info", startedAt: createdAt, duration: 0 });
       } else if (role === "assistant") {
