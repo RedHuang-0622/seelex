@@ -32,8 +32,9 @@ func TestPolicyFiltersSubagentExcludedAndGoalPlanTools(t *testing.T) {
 	}
 }
 
-// TestPolicyGoalToolsGatedByGoalActive 验证 P1 goal 工具门控：goal 治理未
-// 激活时主代理不可见 goal 工具族；激活后可见；子代理一律不可见。
+// TestPolicyGoalToolsGatedByGoalActive 验证 P1 goal 工具门控：goal_begin
+// 是发球入口，主代理始终可见；其余 goal 工具在治理激活后可见；子代理一律
+// 不可见。
 func TestPolicyGoalToolsGatedByGoalActive(t *testing.T) {
 	inactive := NewPolicy(PolicyDeps{GoalSkillActive: func() bool { return false }})
 	mainCtx := context.Background()
@@ -41,8 +42,8 @@ func TestPolicyGoalToolsGatedByGoalActive(t *testing.T) {
 		planTool("goal_begin"), planTool("goal_update"), planTool("goal_status"),
 		planTool("goal_propose_finish"), planTool("bash"),
 	})
-	if len(got) != 1 || got[0].Function.Name != "bash" {
-		t.Fatalf("goal-inactive main tools = %v, want only bash", names(got))
+	if len(got) != 2 || got[0].Function.Name != "goal_begin" || got[1].Function.Name != "bash" {
+		t.Fatalf("goal-inactive main tools = %v, want goal_begin + bash", names(got))
 	}
 	active := NewPolicy(PolicyDeps{GoalActive: func() bool { return true }})
 	got = active.Filter(mainCtx, []types.Tool{

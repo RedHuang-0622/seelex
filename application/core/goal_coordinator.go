@@ -10,6 +10,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -142,16 +143,60 @@ func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal g
 func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error) {
 	runtime := g.bundleFor(sessionID)
 	if runtime.gov == nil {
-		execAct := func(context.Context) (govern.TurnAction, error) {
-			return govern.TurnAction{}, nil // EXEC 侧外部驱动，座位仅让位
-		}
-		runtime.gov = goaldomain.NewTurnGovernorForDSA2A("exec-a", execAct, runtime.sup, g.deps.MaxRounds)
+		runtime.gov = g.newGovernor(runtime)
 	}
 	more, err := runtime.gov.Next(ctx)
 	if err == nil {
 		g.bumpHeartbeat(sessionID)
 	}
 	return more, err
+}
+
+// AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
+// turn_completed（exec 账本水位），若 TL 已启用则运行一轮 Governor
+// （exec 让位 → advisor 真实 TL 回合）。TL 缺席/未启用按 B4 忽略，不阻塞。
+func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID string) error {
+	runtime := g.bundleFor(sessionID)
+	if runtime.ctl.Status().Active == nil {
+		return nil
+	}
+	if err := runtime.sup.Notify(ctx, goaldomain.TLEvalSignal{
+		Kind: goaldomain.SignalTurnCompleted, Source: "chat_end",
+	}); err != nil {
+		return err
+	}
+	if !runtime.sup.Enabled() {
+		return nil
+	}
+	if runtime.gov == nil {
+		runtime.gov = g.newGovernor(runtime)
+	}
+	// Governor.Next 每次只推进一个座位；推进一整轮（exec 让位 → advisor
+	// TL 回合）需要执行到 Round 递增或断环为止（最多两个座位）。
+	roundBefore := runtime.gov.Round()
+	for attempt := 0; attempt < 2; attempt++ {
+		more, err := runtime.gov.Next(ctx)
+		if err != nil {
+			if errors.Is(err, goaldomain.ErrTLDisabled) {
+				return nil
+			}
+			return err
+		}
+		if !more || runtime.gov.Round() > roundBefore {
+			break
+		}
+	}
+	g.bumpHeartbeat(sessionID)
+	return nil
+}
+
+// newGovernor 装配 EXEC+ADVISOR 双座位（EXEC 由外部 ChatStream 驱动，
+// 座位只让位）。
+func (g *goalCoordinator) newGovernor(runtime *goalSessionRuntime) govern.Governor {
+	execAct := func(context.Context) (govern.TurnAction, error) {
+		return govern.TurnAction{}, nil
+	}
+	return goaldomain.NewTurnGovernorForDSA2A("exec-a", execAct, runtime.sup, g.deps.MaxRounds)
 }
 
 // Break 外部中断治理循环（无 Governor 时报错，对齐 headless 未装配语义）。

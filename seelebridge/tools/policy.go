@@ -43,7 +43,8 @@ func (p *Policy) Filter(ctx context.Context, tools []types.Tool) []types.Tool {
 		if scope.NodeID != "" && scope.Role == model.RoleSubAgent && nodeScopeExcludedTool(name) {
 			continue
 		}
-		if isGoalTool(name) && (scope.Role == model.RoleSubAgent || !p.goalActive()) {
+		if isGoalTool(name) && (scope.Role == model.RoleSubAgent ||
+			(name != "goal_begin" && !p.goalActive())) {
 			continue
 		}
 		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族

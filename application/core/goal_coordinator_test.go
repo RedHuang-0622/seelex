@@ -84,3 +84,58 @@ func TestSessionRuntimeCarriesGoalGovernance(t *testing.T) {
 		t.Fatalf("sessionRuntimeOf 应携带治理视图: %+v", session.GoalGovernance)
 	}
 }
+
+// stubTLEvaluator 是一次性 TL 评估器（测试用）。
+type stubTLEvaluator struct {
+	directives []goaldomain.TLDirective
+}
+
+func (e *stubTLEvaluator) Evaluate(context.Context, goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error) {
+	if len(e.directives) == 0 {
+		return goaldomain.TLDirective{Kind: goaldomain.DirectiveCheckpointOK, Content: "继续"}, nil
+	}
+	directive := e.directives[0]
+	e.directives = e.directives[1:]
+	return directive, nil
+}
+
+// TestGoalCoordinatorAdvanceAfterChatRunsTLRound 验证 A2A 在真实会话边界
+// 可驱动：ChatStream 结束后 AdvanceAfterChat 触发一轮 Governor，Round≥1，
+// TL 指令进入待注入队列，治理视图心跳推进。
+func TestGoalCoordinatorAdvanceAfterChatRunsTLRound(t *testing.T) {
+	coordinator := newGoalCoordinator(goalCoordinatorDeps{
+		Evaluator: &stubTLEvaluator{directives: []goaldomain.TLDirective{{
+			Kind: goaldomain.DirectiveCorrect, Content: "先补负路径单测再收口",
+		}}},
+	})
+	if _, err := coordinator.Begin(context.Background(), "session-a2a", goaldomain.BeginRequest{
+		Title: "审查 goal 域",
+	}); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := coordinator.AdvanceAfterChat(context.Background(), "session-a2a"); err != nil {
+		t.Fatalf("advance after chat: %v", err)
+	}
+	view := coordinator.GoalGovernanceViewFor("session-a2a")
+	if view == nil || view.Round < 1 {
+		t.Fatalf("治理视图应体现 TL 回合（Round≥1）: %+v", view)
+	}
+	directives := coordinator.DrainDirectives("session-a2a")
+	if len(directives) != 1 || directives[0].Content != "先补负路径单测再收口" {
+		t.Fatalf("TL 指令应进入待注入队列: %+v", directives)
+	}
+}
+
+// TestGoalCoordinatorAdvanceAfterChatTLDisabledNoError 验证 TL 未启用时
+// 回合结束推进不报错（B4：a 不因 b 缺席而阻塞）。
+func TestGoalCoordinatorAdvanceAfterChatTLDisabledNoError(t *testing.T) {
+	coordinator := newGoalCoordinator(goalCoordinatorDeps{})
+	if _, err := coordinator.Begin(context.Background(), "session-a2a-off", goaldomain.BeginRequest{
+		Title: "无 TL 目标",
+	}); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := coordinator.AdvanceAfterChat(context.Background(), "session-a2a-off"); err != nil {
+		t.Fatalf("TL 缺席不应阻塞回合结束: %v", err)
+	}
+}

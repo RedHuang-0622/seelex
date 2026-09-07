@@ -154,6 +154,37 @@ func (service *Service) GoalIterationCompleted(ctx context.Context) bool {
 	return true
 }
 
+// injectGoalDirectivesForStart 在 ChatStream 开始前把 TL 回合产生的指令
+// 排空并注入引擎历史（受信注入区；visible 记录在回合尾回放）。
+func (service *Service) injectGoalDirectivesForStart(sessionID string) {
+	if service == nil || service.components.goal == nil {
+		return
+	}
+	directives := service.components.goal.DrainDirectives(sessionID)
+	if len(directives) == 0 {
+		return
+	}
+	var texts []string
+	for _, directive := range directives {
+		text := "[TL 指令 " + directive.Corr + "] " + strings.TrimSpace(directive.Content)
+		texts = append(texts, text)
+		value := "〔" + text + "〕"
+		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
+	}
+	service.components.goal.NoteInjected(sessionID, texts)
+}
+
+// goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进 goal 治理
+// （turn 结束 → TL 回合），让 A2A 在真实会话中可见（Round/Peer/指令）。
+func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
+	sessionID := sessionIDFromContext(ctx)
+	coordinator, err := service.goalCoordinatorFor(sessionID)
+	if err != nil {
+		return
+	}
+	_ = coordinator.AdvanceAfterChat(ctx, sessionID)
+}
+
 // injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入
 // 引擎的 TL 指令以可见系统记录写入目标会话视图（仅展示，不入 goal 栈）。
 func (service *Service) injectGoalDirectivesFor(sessionID string) {
