@@ -176,6 +176,14 @@ func forkTestFixture() (*forkTestSessions, time.Time) {
 			{SkillID: "s1", Name: "one", ActivatedAt: t1},
 			{SkillID: "s2", Name: "two", ActivatedAt: t4},
 		},
+		GoalStack: []sessionstore.GoalFrame{
+			{GoalID: "goal-1", Title: "父目标", Status: "active", EnteredAt: t1},
+			{GoalID: "goal-2", Title: "fork 后新目标", Status: "active", EnteredAt: t4},
+		},
+		GoalAudit: []sessionstore.GoalAuditEntry{
+			{Seq: 1, Kind: "goal.begin", GoalID: "goal-1", Title: "父目标", Status: "active", At: t1.Unix()},
+			{Seq: 2, Kind: "goal.begin", GoalID: "goal-2", Title: "fork 后新目标", Status: "active", At: t4.Unix()},
+		},
 		CompactStack: []sessionstore.CompactFrame{
 			{
 				SegmentID: "seg-cross", From: 0, To: 2, EventFrom: 1, EventTo: 5,
@@ -297,6 +305,15 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	}
 	if len(contextRecord.SkillStack) != 1 || contextRecord.SkillStack[0].SkillID != "s1" {
 		t.Fatalf("context skill stack = %#v", contextRecord.SkillStack)
+	}
+	if len(contextRecord.GoalStack) != 0 {
+		t.Fatalf("fork 会话不得继承父 goal 栈（D4）: %#v", contextRecord.GoalStack)
+	}
+	if len(contextRecord.GoalAudit) != 0 {
+		t.Fatalf("fork 会话不得继承父 goal 审计账本: %#v", contextRecord.GoalAudit)
+	}
+	if contextRecord.SchemaVersion != sessionstore.SessionContextSchemaVersion {
+		t.Fatalf("fork context schema = %d, want %d", contextRecord.SchemaVersion, sessionstore.SessionContextSchemaVersion)
 	}
 	if len(contextRecord.CompactStack) != 1 {
 		t.Fatalf("compact stack = %#v, want only the inherited crossing frame", contextRecord.CompactStack)

@@ -81,9 +81,39 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
   编排）；SessionRecord/TranscriptEvent/ToolResults 的持久化继续由
   `SaveCommit` 负责。
 - `session_context.go` — `SessionContextStore` 读写会话级上下文记录
-  （state blob）：SystemPrompt + Plan/Task/Skill/Compact 四栈 + 聊天队列
-  （"now using X" = 栈顶）。Schema 版本校验失败显式拒绝加载（不静默重建），
-  走会话恢复错误路径。
+  （state blob）：SystemPrompt + Plan/Task/Skill/Compact 四栈 + GoalStack
+  （goal 域第五栈）+ 聊天队列（"now using X" = 栈顶）。Schema 当前 v2：
+  v1 旧记录（无 GoalStack）加载时兼容迁移（内存补空栈，下次 Persist 升
+  v2）；其它版本校验失败显式拒绝加载（不静默重建），走会话恢复错误路径。
+
+### goal 第五栈（GoalStack，已落地）
+
+goal 栈随会话聊天记录同域持久化到 `SessionContextRecord.GoalStack`
+（`(project_id, session_id)` 隔离），只用于**会话恢复与后续 goal 治理**
+（对齐 plan/task 的会话级使用栈）。语义边界：
+
+- 栈内 goal **不进模型上下文**：seelexctx 的栈块渲染（稳定前缀/动态尾部）
+  只消费 Plan/Task/Skill/Compact 四栈，GoalStack 不渲染、不做记忆前缀与匹配；
+- 聊天记录中的 `#goal` 文本是普通转录内容，随上下文窗口/压缩一起被压缩，
+  与 GoalStack 无关（压缩摘要的"目标 (Goal)"小节仍由 TaskStack 顶承担）；
+- `PushGoal`/`CloseTopGoal`/`GoalStackSnapshot`/`ReplaceGoalStack` 为第五栈
+  操作：goal 域 `Controller` 每次状态机变更经 ReplaceGoalStack 全量写当前栈
+  投影；**GoalStack 是活栈投影**——begin 压栈即写入，finish/abort 弹栈即
+  **同步删除**该帧，存储初始与终态都为空（治理结束后不留任何 goal 帧；
+  终态帧的会话内审计只存在进程内 goal.Controller.History，不落 GoalStack），
+  恢复经 Controller.Reload 读 GoalStackSnapshot 重建。
+
+fork 子会话**不继承父 GoalStack**（D4，对齐 fork 不继承父 todolist）；
+父 context 为 v1 时 fork 兼容迁移为 v2。
+
+### goal 审计账本（GoalAudit，append-only，按会话隔离）
+
+`SessionContextRecord.GoalAudit` 是 goal 生命周期审计（begin/update/finish/
+abort/restore 各一条），Seq 由本会话单调递增，**只追加不回改**。审计与活栈
+正交：GoalStack 弹栈即删除、终态为空；审计保留收口记录（reason/result 与
+可选 SourceSession 出处——用户可能在其它会话完成了该 goal，装配方收口时可
+携带出处写回原会话账本，**不写入其它会话、不做跨会话回放**）。fork 子会话
+同样不继承父 GoalAudit。
 
 主 Runtime 通过 `seelebridge.Runtime.AttachHistoryRouter` 独立装配 `DurableHistory`，不复用 `SessionContextStore` 的 application-owned state blob。恢复会话时 DurableHistory 与框架 Session 使用同一个 session ID；Application 成功提交完整 `SessionRecord` 后才释放 provider working history，下一轮再从 durable tail 冷加载。
 
@@ -137,7 +167,7 @@ go test ./sessionstore -count=1
 
 `ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. JSON manifests publish the committed result-reference set, SQL stores all parts in one transaction, and Redis uses one `MULTI/EXEC` in the project hash slot.
 
-测试覆盖 JSON/SQLite 的 generation 原子性与状态 sidecar、SQLite 分表分片、Redis 的配置和 key 分片策略、backend 切换和显式 workspace read 不污染 active scope。
+测试覆盖 JSON/SQLite 的 generation 原子性与状态 sidecar、SQLite 分表分片、Redis 的配置和 key 分片策略、backend 切换和显式 workspace read 不污染 active scope。goal 第五栈另覆盖：GoalStack 持久化/重载、按会话隔离、v1→v2 迁移、LIFO 弹栈与帧校验（`TestGoalStack*`）。
 
 ## 会话 fork 存储契约（一期，已实现）
 

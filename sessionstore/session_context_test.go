@@ -3,6 +3,7 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,9 @@ func TestSessionContextStoreStackLifecycle(t *testing.T) {
 	if err := store.PushTask(TaskFrame{TaskID: "task-1", Objective: "inspect repo", Status: "active"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.PushGoal(GoalFrame{GoalID: "goal-1", Title: "审查 goal 域", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.PushSkill(SkillFrame{SkillID: "skill-1", Name: "plan"}); err != nil {
 		t.Fatal(err)
 	}
@@ -30,8 +34,12 @@ func TestSessionContextStoreStackLifecycle(t *testing.T) {
 	if record.SchemaVersion != SessionContextSchemaVersion {
 		t.Fatalf("schema version = %d", record.SchemaVersion)
 	}
-	if len(record.PlanStack) != 1 || len(record.TaskStack) != 1 || len(record.SkillStack) != 1 || len(record.CompactStack) != 1 {
+	if len(record.PlanStack) != 1 || len(record.TaskStack) != 1 ||
+		len(record.SkillStack) != 1 || len(record.CompactStack) != 1 || len(record.GoalStack) != 1 {
 		t.Fatalf("stacks after push = %+v", record)
+	}
+	if record.GoalStack[0].GoalID != "goal-1" || record.GoalStack[0].Status != "active" {
+		t.Fatalf("goal frame = %+v", record.GoalStack[0])
 	}
 	if record.CompactStack[0].From != 0 || record.CompactStack[0].To != 4 {
 		t.Fatalf("compact frame range = %+v", record.CompactStack[0])
@@ -46,6 +54,9 @@ func TestSessionContextStoreStackLifecycle(t *testing.T) {
 	if err := store.PopSkill("skill-1"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.CloseTopGoal("goal-1"); err != nil {
+		t.Fatal(err)
+	}
 	record = store.Snapshot()
 	if record.PlanStack[0].Status != "closed" || record.PlanStack[0].ClosedAt == nil {
 		t.Fatalf("closed plan frame = %+v", record.PlanStack[0])
@@ -55,6 +66,9 @@ func TestSessionContextStoreStackLifecycle(t *testing.T) {
 	}
 	if len(record.SkillStack) != 0 {
 		t.Fatalf("skill stack after pop = %+v", record.SkillStack)
+	}
+	if len(record.GoalStack) != 0 {
+		t.Fatalf("goal stack after close = %+v", record.GoalStack)
 	}
 }
 
@@ -114,6 +128,9 @@ func TestSessionContextStoreValidation(t *testing.T) {
 	if err := store.PushSkill(SkillFrame{Name: "x"}); err == nil {
 		t.Fatal("skill frame without skill_id must fail")
 	}
+	if err := store.PushGoal(GoalFrame{Title: "x", Status: "active"}); err == nil {
+		t.Fatal("goal frame without goal_id must fail")
+	}
 	if err := store.PushCompact(CompactFrame{From: 0, To: 1}); err == nil {
 		t.Fatal("compact frame without segment_id must fail")
 	}
@@ -135,6 +152,21 @@ func TestSessionContextStoreValidation(t *testing.T) {
 	}
 	if err := store.PopSkill("missing"); err == nil {
 		t.Fatal("popping an absent skill must fail")
+	}
+	if err := store.CloseTopGoal("missing"); err == nil {
+		t.Fatal("closing an absent goal must fail")
+	}
+	if err := store.PushGoal(GoalFrame{GoalID: "goal-1", Title: "A", Status: "active"}); err != nil {
+		t.Fatalf("push goal A: %v", err)
+	}
+	if err := store.PushGoal(GoalFrame{GoalID: "goal-2", Title: "B", Status: "active"}); err != nil {
+		t.Fatalf("push goal B: %v", err)
+	}
+	if err := store.CloseTopGoal("goal-1"); err == nil {
+		t.Fatal("closing non-top goal must fail (LIFO)")
+	}
+	if err := store.CloseTopGoal("goal-2"); err != nil {
+		t.Fatalf("close top goal: %v", err)
 	}
 }
 
@@ -182,6 +214,14 @@ func TestSessionContextRecordJSONShape(t *testing.T) {
 		SchemaVersion: SessionContextSchemaVersion,
 		SystemPrompt:  "system prompt",
 		PlanStack:     []PlanFrame{{PlanID: "plan-1", Status: "active", Nodes: []NodeSummary{{ID: "n1", Status: "pending"}}}},
+		GoalStack: []GoalFrame{{
+			GoalID: "goal-1", Title: "审查 goal 域", Status: "active",
+			Acceptance: []string{"单测全绿"}, Progress: []GoalProgress{{At: 1, Kind: "milestone", Content: "开题"}},
+		}},
+		GoalAudit: []GoalAuditEntry{{
+			Seq: 1, Kind: "goal.begin", GoalID: "goal-1", Title: "审查 goal 域",
+			Status: "active", SourceSession: "session-b",
+		}},
 	}
 	payload, err := json.Marshal(record)
 	if err != nil {
@@ -193,6 +233,187 @@ func TestSessionContextRecordJSONShape(t *testing.T) {
 	}
 	if decoded.SystemPrompt != "system prompt" || len(decoded.PlanStack) != 1 || decoded.PlanStack[0].Nodes[0].ID != "n1" {
 		t.Fatalf("decoded record = %+v", decoded)
+	}
+	if len(decoded.GoalStack) != 1 || decoded.GoalStack[0].GoalID != "goal-1" ||
+		len(decoded.GoalStack[0].Progress) != 1 || decoded.GoalStack[0].Progress[0].Content != "开题" {
+		t.Fatalf("decoded goal stack = %+v", decoded.GoalStack)
+	}
+	if len(decoded.GoalAudit) != 1 || decoded.GoalAudit[0].Seq != 1 ||
+		decoded.GoalAudit[0].SourceSession != "session-b" {
+		t.Fatalf("decoded goal audit = %+v", decoded.GoalAudit)
+	}
+}
+
+// TestGoalStackPersistReload 验证 goal 第五栈持久化/恢复：Begin → 落盘 →
+// 新 SessionContextStore Load → 栈内容与状态一致（会话恢复重建 goal 治理
+// 的数据基础）。
+func TestGoalStackPersistReload(t *testing.T) {
+	router := newTestRouter(t)
+	first := NewSessionContextStore(router, "session-goal-persist")
+	frames := []GoalFrame{
+		{GoalID: "g-1", Title: "父目标", Status: "paused", EnteredAt: time.Now().Add(-time.Hour)},
+		{GoalID: "g-2", Title: "子目标", Status: "active", Acceptance: []string{"go test 全绿"}},
+	}
+	if err := first.ReplaceGoalStack(frames); err != nil {
+		t.Fatalf("replace goal stack: %v", err)
+	}
+
+	second := NewSessionContextStore(router, "session-goal-persist")
+	if err := second.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := second.GoalStackSnapshot()
+	if len(got) != 2 || got[0].GoalID != "g-1" || got[1].GoalID != "g-2" {
+		t.Fatalf("reloaded goal stack = %+v", got)
+	}
+	if got[1].Status != "active" || len(got[1].Acceptance) != 1 || got[1].Acceptance[0] != "go test 全绿" {
+		t.Fatalf("reloaded top frame = %+v", got[1])
+	}
+	record := second.Snapshot()
+	if record.SchemaVersion != SessionContextSchemaVersion {
+		t.Fatalf("schema version after persist = %d", record.SchemaVersion)
+	}
+}
+
+// TestGoalStackSessionScopedIsolation 验证 goal 栈按会话隔离：两会话各自
+// Begin/Replace 互不串写（恢复/审计不跨会话）。
+func TestGoalStackSessionScopedIsolation(t *testing.T) {
+	router := newTestRouter(t)
+	storeA := NewSessionContextStore(router, "session-goal-a")
+	storeB := NewSessionContextStore(router, "session-goal-b")
+	if err := storeA.PushGoal(GoalFrame{GoalID: "g-a-1", Title: "A 目标", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storeB.PushGoal(GoalFrame{GoalID: "g-b-1", Title: "B 目标", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := storeB.GoalStackSnapshot(); len(got) != 1 || got[0].GoalID != "g-b-1" {
+		t.Fatalf("storeB 不应看到 A 的 goal: %+v", got)
+	}
+	reloadA := NewSessionContextStore(router, "session-goal-a")
+	if err := reloadA.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloadA.GoalStackSnapshot(); len(got) != 1 || got[0].GoalID != "g-a-1" {
+		t.Fatalf("reloadA goal stack = %+v", got)
+	}
+}
+
+// TestGoalStackLiveStackStartsAndEndsEmpty 固化第五栈"活栈投影"语义：
+// 持久化 goal 栈初始为空；push 即写入；CloseTopGoal 弹栈即同步删除；
+// 全部弹栈后存储恢复为空（重载后也为空，治理收口无残留）。
+func TestGoalStackLiveStackStartsAndEndsEmpty(t *testing.T) {
+	router := newTestRouter(t)
+	sessionID := "session-goal-live"
+	store := NewSessionContextStore(router, sessionID)
+	if got := store.GoalStackSnapshot(); len(got) != 0 {
+		t.Fatalf("goal 栈初始应为空: %+v", got)
+	}
+	if err := store.PushGoal(GoalFrame{GoalID: "g-1", Title: "父目标", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PushGoal(GoalFrame{GoalID: "g-2", Title: "子目标", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.GoalStackSnapshot(); len(got) != 2 {
+		t.Fatalf("压栈后应为活栈 2 帧: %+v", got)
+	}
+	if err := store.CloseTopGoal("g-2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.GoalStackSnapshot(); len(got) != 1 || got[0].GoalID != "g-1" {
+		t.Fatalf("弹栈应同步删除 g-2，只剩活栈 g-1: %+v", got)
+	}
+	if err := store.CloseTopGoal("g-1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.GoalStackSnapshot(); len(got) != 0 {
+		t.Fatalf("全部弹栈后存储应清空: %+v", got)
+	}
+	reloaded := NewSessionContextStore(router, sessionID)
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.GoalStackSnapshot(); len(got) != 0 {
+		t.Fatalf("重载后 goal 栈应为空（终态即什么都不存）: %+v", got)
+	}
+}
+
+// TestGoalStackSchemaV1MigratesOnLoadAndPersist 验证 schema v1 → v2 迁移：
+// v1 记录（无 GoalStack）可加载，内存版本升 v2；任何栈变更后落盘为 v2。
+func TestGoalStackSchemaV1MigratesOnLoadAndPersist(t *testing.T) {
+	router := newTestRouter(t)
+	if err := router.SaveContextState("session-goal-v1", []byte(
+		`{"schema_version":1,"system_prompt":"旧","plan_stack":[],"task_stack":[],"skill_stack":[],"compact_stack":[]}`,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	store := NewSessionContextStore(router, "session-goal-v1")
+	if err := store.Load(context.Background()); err != nil {
+		t.Fatalf("v1 load 应迁移成功: %v", err)
+	}
+	record := store.Snapshot()
+	if record.SchemaVersion != SessionContextSchemaVersion {
+		t.Fatalf("迁移后内存版本 = %d", record.SchemaVersion)
+	}
+	if len(record.GoalStack) != 0 {
+		t.Fatalf("v1 无 goal 栈，迁移后应为空: %+v", record.GoalStack)
+	}
+	// 首次栈变更触发 Persist，文件应升 v2。
+	if err := store.PushGoal(GoalFrame{GoalID: "g-1", Title: "迁移后目标", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := router.LoadContextState("session-goal-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"schema_version":2`) {
+		t.Fatalf("落盘 schema 未升 v2: %s", raw)
+	}
+}
+
+// TestGoalAuditAppendOnlySessionScoped 验证 goal 审计账本按会话隔离且只
+// 追加不回改：两会话 Seq 各自从 1 单调；重载后已追加条目原样保留；缺
+// kind/goal_id 拒绝。
+func TestGoalAuditAppendOnlySessionScoped(t *testing.T) {
+	router := newTestRouter(t)
+	storeA := NewSessionContextStore(router, "session-goal-audit-a")
+	storeB := NewSessionContextStore(router, "session-goal-audit-b")
+	entry := func(kind, goalID, title string) GoalAuditEntry {
+		return GoalAuditEntry{Kind: kind, GoalID: goalID, Title: title}
+	}
+	if err := storeA.AppendGoalAudit(entry("goal.begin", "g-1", "A 目标")); err != nil {
+		t.Fatal(err)
+	}
+	first := storeA.GoalAuditSnapshot()
+	if err := storeA.AppendGoalAudit(entry("goal.finish", "g-1", "A 目标")); err != nil {
+		t.Fatal(err)
+	}
+	after := storeA.GoalAuditSnapshot()
+	if len(after) != 2 || after[0] != first[0] {
+		t.Fatalf("账本应只追加不回改: first=%+v after=%+v", first, after)
+	}
+	if after[1].Seq != 2 {
+		t.Fatalf("追加条目 Seq 应续 2: %+v", after[1])
+	}
+	reloaded := NewSessionContextStore(router, "session-goal-audit-a")
+	if err := reloaded.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.GoalAuditSnapshot(); len(got) != 2 || got[0] != after[0] || got[1] != after[1] {
+		t.Fatalf("重载后审计应原样保留: %+v", got)
+	}
+	if err := storeB.AppendGoalAudit(entry("goal.begin", "g-1", "B 目标")); err != nil {
+		t.Fatal(err)
+	}
+	if got := storeB.GoalAuditSnapshot(); len(got) != 1 || got[0].Seq != 1 {
+		t.Fatalf("B 会话审计应独立从 Seq=1 开始: %+v", got)
+	}
+	if err := storeA.AppendGoalAudit(GoalAuditEntry{GoalID: "g-2"}); err == nil {
+		t.Fatal("缺少 kind 的审计条目应拒绝")
+	}
+	if err := storeA.AppendGoalAudit(GoalAuditEntry{Kind: "goal.begin"}); err == nil {
+		t.Fatal("缺少 goal_id 的审计条目应拒绝")
 	}
 }
 

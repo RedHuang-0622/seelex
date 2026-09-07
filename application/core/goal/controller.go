@@ -82,6 +82,9 @@ type Options struct {
 	Depth int
 	// Store 为 nil 时纯内存（不持久化）。
 	Store Store
+	// Audit 为 nil 时不审计；注入后每次状态机变更成功追加一条 append-only
+	// 审计（GoalStack 活栈终态清空，审计账本保留收口记录）。
+	Audit AuditAccount
 	// Now 可注入时间源（测试）；nil 用 time.Now().Unix()。
 	Now func() int64
 }
@@ -93,6 +96,7 @@ type Controller struct {
 	mu    sync.Mutex
 	depth int
 	store Store
+	audit AuditAccount
 	now   func() int64
 
 	stack   *Stack
@@ -127,6 +131,7 @@ func NewController(options Options) *Controller {
 	return &Controller{
 		depth: options.Depth,
 		store: options.Store,
+		audit: options.Audit,
 		now:   now,
 		stack: &Stack{},
 		subs:  make(map[*Subscription]struct{}),
@@ -160,6 +165,12 @@ func (c *Controller) Begin(ctx context.Context, request BeginRequest) (*GoalReco
 	c.stack.Push(record)
 	if err := c.persistLocked(ctx); err != nil {
 		c.stack.Pop() // 回滚
+		return nil, err
+	}
+	if err := c.appendAuditLocked(ctx, AuditEntry{
+		Kind: EventBegin, GoalID: record.ID, Title: record.Title,
+		Status: record.Status,
+	}); err != nil {
 		return nil, err
 	}
 	c.emitLocked(Event{
@@ -217,6 +228,19 @@ func (c *Controller) Update(ctx context.Context, request UpdateRequest) (*GoalRe
 	if err := c.persistLocked(ctx); err != nil {
 		return nil, err
 	}
+	detail := ""
+	if content := strings.TrimSpace(request.ProgressContent); content != "" {
+		detail = content
+	} else if request.Title != nil || request.Statement != nil ||
+		request.Acceptance != nil || request.OutOfScope != nil {
+		detail = "goal updated"
+	}
+	if err := c.appendAuditLocked(ctx, AuditEntry{
+		Kind: EventUpdate, GoalID: top.ID, Title: top.Title,
+		Status: top.Status, Detail: detail,
+	}); err != nil {
+		return nil, err
+	}
 	c.emitLocked(Event{
 		Kind: EventUpdate, At: now, GoalID: top.ID, Status: top.Status,
 		Projection: c.projectionLocked(),
@@ -270,11 +294,23 @@ func (c *Controller) finishOrAbort(ctx context.Context, request FinishRequest, t
 	if err := c.persistLocked(ctx); err != nil {
 		return nil, err
 	}
+	if err := c.appendAuditLocked(ctx, AuditEntry{
+		Kind: kind, GoalID: top.ID, Title: top.Title, Status: top.Status,
+		Reason: request.Reason, Result: request.Result,
+	}); err != nil {
+		return nil, err
+	}
 	event := Event{
 		Kind: kind, At: now, GoalID: top.ID, Status: top.Status,
 		Projection: c.projectionLocked(),
 	}
 	if restored := c.stack.Top(); restored != nil {
+		if err := c.appendAuditLocked(ctx, AuditEntry{
+			Kind: EventRestore, GoalID: restored.ID, Title: restored.Title,
+			Status: restored.Status, Detail: "parent restored active",
+		}); err != nil {
+			return nil, err
+		}
 		c.emitLocked(Event{
 			Kind: EventRestore, At: now, GoalID: restored.ID, Status: restored.Status,
 			Projection: event.Projection,
@@ -403,6 +439,18 @@ func (c *Controller) persistLocked(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// appendAuditLocked 在持锁下向审计账本追加一条有界审计（无 Audit 时为空
+// 操作）。At 未填时取当前时间。
+func (c *Controller) appendAuditLocked(ctx context.Context, entry AuditEntry) error {
+	if c.audit == nil {
+		return nil
+	}
+	if entry.At <= 0 {
+		entry.At = c.now()
+	}
+	return c.audit.AppendGoalAudit(ctx, entry.normalized())
 }
 
 // Reload 从 Store 装载 goal 栈（崩溃/重启恢复；design §3.7）。装载后修正：

@@ -142,6 +142,55 @@ func TestNestedDepthRestores(t *testing.T) {
 	}
 }
 
+// TestNestedGoalsPopLIFOUntilEmpty 验证嵌套逐层弹栈直至栈空（治理收口
+// 前提）：父→子 begin；子 finish → 父恢复 active；父 finish → 栈空、
+// History=2、投影复位（design §2.1a 契约 1/2/6）。
+func TestNestedGoalsPopLIFOUntilEmpty(t *testing.T) {
+	controller := newTestController(t, 2)
+	if _, err := controller.Begin(testCtx, BeginRequest{Title: "父目标"}); err != nil {
+		t.Fatalf("begin parent: %v", err)
+	}
+	if _, err := controller.Begin(testCtx, BeginRequest{Title: "子目标"}); err != nil {
+		t.Fatalf("begin child: %v", err)
+	}
+	if _, err := controller.Finish(testCtx, FinishRequest{Result: "子目标完成"}); err != nil {
+		t.Fatalf("finish child: %v", err)
+	}
+	if active := requireActive(t, controller, "父目标"); active.Status != StatusActive {
+		t.Fatalf("子完成弹栈后父应恢复 active: %+v", active)
+	}
+	if _, err := controller.Finish(testCtx, FinishRequest{Result: "父目标完成"}); err != nil {
+		t.Fatalf("finish parent: %v", err)
+	}
+	status := controller.Status()
+	if len(status.Stack) != 0 || status.Active != nil {
+		t.Fatalf("栈空语义: %+v", status)
+	}
+	if history := controller.History(); len(history) != 2 {
+		t.Fatalf("History 审计 = %d, want 2", len(history))
+	}
+	if projection := controller.Projection(); projection.Active != nil || len(projection.Goals) != 0 {
+		t.Fatalf("栈空后投影应复位: %+v", projection)
+	}
+}
+
+// TestGoalStackDepthBound 验证 Depth 放开后仍受 MaxStackDepth 上限约束：
+// 超限构造被夹紧，压满后继续 begin 拒绝（ErrStackFull）。
+func TestGoalStackDepthBound(t *testing.T) {
+	controller := NewController(Options{Depth: MaxStackDepth + 10})
+	for index := 0; index < MaxStackDepth; index++ {
+		if _, err := controller.Begin(testCtx, BeginRequest{Title: fmt.Sprintf("目标-%d", index+1)}); err != nil {
+			t.Fatalf("begin #%d: %v", index+1, err)
+		}
+	}
+	if _, err := controller.Begin(testCtx, BeginRequest{Title: "超限目标"}); !errors.Is(err, ErrStackFull) {
+		t.Fatalf("超限 begin 应报 ErrStackFull, 得 %v", err)
+	}
+	if status := controller.Status(); len(status.Stack) != MaxStackDepth {
+		t.Fatalf("栈深 = %d, want %d", len(status.Stack), MaxStackDepth)
+	}
+}
+
 // TestUpdateOnlyActive 验证更新边界：空栈/非 active 不可更新。
 func TestUpdateOnlyActive(t *testing.T) {
 	controller := newTestController(t, DefaultStackDepth)
