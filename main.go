@@ -197,6 +197,7 @@ func run() error {
 		NodeWorktree:      runtime.NodeWorktreeInfoFor,
 		SubAgentTree:      runtime.SubAgentTree,
 		SubagentLive:      runtime.SubscribeSubagentLive,
+		NodeStageLogs:     runtime.NodeStageLogs,
 		PrepareHistory: func(sessionID string, messages []types.Message) {
 			runtime.PrepareMainSessionHistory(sessionID, messages)
 		},

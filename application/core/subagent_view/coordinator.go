@@ -7,6 +7,7 @@ package subagent_view
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -152,7 +153,10 @@ func SubagentChangedPayload(plan *model.PlanState, planID, runID string, node mo
 }
 
 // SubagentDetail 返回节点子代理详情（截断会话 + 上下文快照 + worktree 现场；
-// 只读子代理 actor，安全）。
+// 只读子代理 actor，安全）。2026-09-07 起按弹窗分类回填实时数据面：
+// 归属/Goal/SessionID 来自 SubAgentTree 或工作台行（fork 不在 Plan 快照
+// 也可展示）；Stages 来自 node 阶段日志历史；Trace 来自工作台打点；
+// Timeline 由阶段日志 + 打点推导。这些分类供 GUI 打开详情后节流刷新。
 func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("subagent detail: node id is required")
@@ -170,24 +174,203 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 			toolEvents = append([]model.SubagentToolEvent(nil), node.ToolEvents...)
 		}
 	}
+	// fork 子代理树节点（不在 Plan 快照）：回填归属/状态/摘要/会话 ID。
+	var treeNode *dto.SubAgentTreeNode
+	if c.Deps.Engine != nil {
+		if found := findSubagentTreeNode(c.Deps.Engine.SubAgentTree(), nodeID); found != nil {
+			treeNode = found
+		}
+	}
+	// 工作台行（kind=subagent，key=subagent:<nodeID>）：回填 Assignee/
+	// Participants/打点与任务状态兜底。
+	var workRow *model.WorkItem
+	for index := range c.Snapshot.Runtime.WorkTable {
+		item := &c.Snapshot.Runtime.WorkTable[index]
+		if item.Kind == "subagent" && item.SourceID == nodeID {
+			workRow = item
+			break
+		}
+	}
+	if workRow == nil {
+		for index := range c.Snapshot.Runtime.WorkTable {
+			item := &c.Snapshot.Runtime.WorkTable[index]
+			if item.ID == "subagent:"+nodeID {
+				workRow = item
+				break
+			}
+		}
+	}
+	if status == "" && workRow != nil {
+		if mapped := nodeStatusFromTaskStatus(workRow.Status); mapped != "" {
+			status = mapped
+		}
+	}
+	if status == "" && treeNode != nil {
+		if mapped := nodeStatusFromSubagentStatus(treeNode.Status); mapped != "" {
+			status = mapped
+		}
+	}
+	var goal, sessionID, summary string
+	if treeNode != nil {
+		goal = treeNode.Goal
+		sessionID = treeNode.SessionID
+		summary = strings.TrimSpace(treeNode.Summary)
+		if summary == "" {
+			summary = strings.TrimSpace(treeNode.Error)
+		}
+	}
+	if output == "" && workRow != nil {
+		output = strings.TrimSpace(workRow.Description)
+	}
+	if output == "" {
+		output = summary
+	}
 	c.ViewMu.RUnlock()
 
 	conversation, ok := c.Deps.Engine.NodeSessionConversation(nodeID)
-	if !ok && status == "" {
+	if !ok && status == "" && treeNode == nil && workRow == nil {
 		return nil, fmt.Errorf("subagent detail: node %q has no conversation", nodeID)
 	}
 	contextSnap, _ := c.Deps.Engine.NodeContextSnapshot(nodeID)
+	var assignee string
+	var participants []string
+	var trace []model.WorkTracePoint
+	if workRow != nil {
+		assignee = workRow.Assignee
+		participants = append([]string(nil), workRow.Participants...)
+		trace = append([]model.WorkTracePoint(nil), workRow.Trace...)
+		if limit := c.limits().PlanNodeEvents; limit > 0 && len(trace) > limit {
+			trace = trace[len(trace)-limit:]
+		}
+	}
+	var stages []dto.NodeStageLog
+	if provider, ok := c.Deps.Engine.(interface {
+		NodeStageLogs(string) []dto.NodeStageLog
+	}); ok {
+		stages = append([]dto.NodeStageLog(nil), provider.NodeStageLogs(nodeID)...)
+		if limit := c.limits().PlanNodeEvents; limit > 0 && len(stages) > limit {
+			stages = stages[len(stages)-limit:]
+		}
+	}
 	detail := &model.SubagentDetail{
 		Running:      isRunningSubagentStatus(status),
 		Status:       status,
 		Elapsed:      elapsed,
 		Output:       output,
+		Goal:         goal,
+		SessionID:    sessionID,
+		Assignee:     assignee,
+		Participants: participants,
+		Summary:      summary,
 		Conversation: c.adaptSubagentConversation(conversation),
 		ToolEvents:   toolEvents,
 		Context:      c.adaptSubagentContext(contextSnap),
 		Worktree:     c.nodeWorktreeInfo(nodeID),
+		Stages:       stages,
+		Trace:        trace,
+		Timeline:     c.buildSubagentTimeline(stages, trace),
 	}
 	return detail, nil
+}
+
+// buildSubagentTimeline 由第一视角阶段日志 + 任务打点推导详情弹窗的
+// "事件时间线"（按 At 升序，先阶段后打点；有界）。
+func (c *Coordinator) buildSubagentTimeline(stages []dto.NodeStageLog, trace []model.WorkTracePoint) []model.PlanNodeEventInfo {
+	timeline := make([]model.PlanNodeEventInfo, 0, len(stages)+len(trace))
+	for _, stage := range stages {
+		entry := model.PlanNodeEventInfo{At: stage.At, Output: stage.Preview}
+		switch stage.Stage {
+		case "result":
+			entry.Status = model.NodeCompleted
+		case "stopped":
+			entry.Status = model.NodeFailed
+		case "spawn", "turn", "tool":
+			entry.Status = model.NodeRunning
+		default:
+			entry.Status = model.NodeRunning
+		}
+		if stage.Turn > 0 {
+			entry.Output = fmt.Sprintf("turn #%d", stage.Turn)
+			if stage.Preview != "" {
+				entry.Output += ": " + stage.Preview
+			}
+		}
+		timeline = append(timeline, entry)
+	}
+	for _, point := range trace {
+		entry := model.PlanNodeEventInfo{At: point.At, Output: point.Evidence}
+		if mapped := nodeStatusFromTaskStatus(point.Status); mapped != "" {
+			entry.Status = mapped
+		} else {
+			entry.Status = model.NodeRunning
+		}
+		if point.Operation != "" {
+			if entry.Output != "" {
+				entry.Output = point.Operation + ": " + entry.Output
+			} else {
+				entry.Output = point.Operation
+			}
+		}
+		timeline = append(timeline, entry)
+	}
+	sort.SliceStable(timeline, func(left, right int) bool {
+		if timeline[left].At.Equal(timeline[right].At) {
+			return left < right
+		}
+		return timeline[left].At.Before(timeline[right].At)
+	})
+	if limit := c.limits().PlanNodeEvents; limit > 0 && len(timeline) > limit {
+		timeline = timeline[len(timeline)-limit:]
+	}
+	return timeline
+}
+
+// nodeStatusFromSubagentStatus 把子代理树状态映射为详情状态。
+func nodeStatusFromSubagentStatus(status dto.SubAgentNodeStatus) model.NodeStatus {
+	switch status {
+	case dto.SubAgentQueued:
+		return model.NodeQueued
+	case dto.SubAgentRunning:
+		return model.NodeRunning
+	case dto.SubAgentDone:
+		return model.NodeCompleted
+	case dto.SubAgentFailed, dto.SubAgentInterrupted:
+		return model.NodeFailed
+	default:
+		return ""
+	}
+}
+
+// nodeStatusFromTaskStatus 把任务注册表状态映射为详情状态（未知 → ""）。
+func nodeStatusFromTaskStatus(status string) model.NodeStatus {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "pending":
+		return model.NodePending
+	case "queued":
+		return model.NodeQueued
+	case "running", "doing":
+		return model.NodeRunning
+	case "completed", "done":
+		return model.NodeCompleted
+	case "failed", "interrupted":
+		return model.NodeFailed
+	default:
+		return ""
+	}
+}
+
+// findSubagentTreeNode 在子代理树投影中递归查找节点。
+func findSubagentTreeNode(nodes []dto.SubAgentTreeNode, nodeID string) *dto.SubAgentTreeNode {
+	for index := range nodes {
+		node := &nodes[index]
+		if node.ID == nodeID {
+			return node
+		}
+		if found := findSubagentTreeNode(node.Children, nodeID); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 func (c *Coordinator) nodeWorktreeInfo(nodeID string) *model.SubagentWorktreeInfo {

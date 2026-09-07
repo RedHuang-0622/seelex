@@ -360,6 +360,11 @@ type PlanNodeEventInfo struct {
 
 // SubagentDetail 是子代理详情弹窗的数据载荷（会话记录 + 状态/耗时/输出）。
 // Conversation 经应用层适配截断（单条 ≤ evidence_chars、总 ≤ 50 条）。
+// 2026-09-07 起扩展为“弹窗分类实时数据面”：除会话记录外还携带
+// Goal/SessionID/Assignee/Participants（展示归属）、Stages（第一视角历史
+// 阶段日志）、Trace（功能打点）、Timeline（事件时间线）、Summary（树/工作
+// 台摘要）。GUI 打开详情后按这些分类做节流实时刷新，不再只依赖打开瞬间的
+// 一次快照。
 type SubagentDetail struct {
 	Conversation []Message           `json:"conversation,omitempty"`
 	ToolEvents   []SubagentToolEvent `json:"tool_events,omitempty"`
@@ -371,6 +376,21 @@ type SubagentDetail struct {
 	Status   NodeStatus            `json:"status"`
 	Elapsed  string                `json:"elapsed,omitempty"`
 	Output   string                `json:"output,omitempty"`
+	// Goal/SessionID/Assignee/Participants 是归属与认领展示（fork 不在
+	// Plan 快照时由 SubAgentTree + 工作台回填）。
+	Goal         string   `json:"goal,omitempty"`
+	SessionID    string   `json:"session_id,omitempty"`
+	Assignee     string   `json:"assignee,omitempty"`
+	Participants []string `json:"participants,omitempty"`
+	Summary      string   `json:"summary,omitempty"`
+	// Stages 是第一视角（阶段）tab 的历史回放（spawn/turn/tool/result；
+	// 即使详情在运行中途打开也能补全，不受 live dispatcher 启动时刻影响）。
+	Stages []dto.NodeStageLog `json:"stages,omitempty"`
+	// Trace 是功能打点 tab 的任务打点（工作台行 trace；派工/认领/完成
+	// 即打点，不依赖会话正文）。
+	Trace []WorkTracePoint `json:"trace,omitempty"`
+	// Timeline 是事件时间线 tab 的归一化事件（由阶段日志 + 打点推导）。
+	Timeline []PlanNodeEventInfo `json:"timeline,omitempty"`
 }
 
 // SubagentWorktreeInfo 是节点 worktree 现场的只读摘要（详情弹窗"工作区"

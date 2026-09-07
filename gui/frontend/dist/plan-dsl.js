@@ -772,7 +772,12 @@ export function setNodeDetailConversation(detail) {
   if (!container && !toolContainer && !contextContainer) return;
   const messages = (detail?.conversation || []);
   if (container && messages.length === 0) {
-    container.innerHTML = '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
+    const goal = detail?.goal ? `；目标 ${escapeHTML(outputSummary(detail.goal))}` : "";
+    const status = detail?.status ? `；状态 ${escapeHTML(statusLabel(detail.status))}` : "";
+    const assignee = detail?.assignee ? `；Assignee ${escapeHTML(detail.assignee)}` : "";
+    container.innerHTML = goal || status || assignee
+      ? `<div class="node-timeline-empty">该节点暂无会话消息${goal}${status}${assignee}。阶段与打点见「第一视角/功能打点」标签。</div>`
+      : '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
   } else if (container) {
     container.innerHTML = messages.map(msg => {
       const role = msg.role === "user" ? "user" : (msg.role === "assistant" ? "assistant" : "tool");
@@ -791,6 +796,39 @@ export function setNodeDetailConversation(detail) {
     toolContainer.innerHTML = renderToolEvents(toolEvents) || '<div class="node-timeline-empty">暂无子代理工具活动</div>';
     const count = document.querySelector("[data-node-detail] [data-node-tool-count]");
     if (count) count.textContent = String(toolEvents.length);
+  }
+  // 功能打点 tab：工作台任务打点（派工/认领/状态/终态），不依赖会话正文。
+  const instrumentationContainer = document.querySelector("[data-node-detail] [data-node-instrumentation]");
+  if (instrumentationContainer) {
+    const rows = (detail?.trace || []).map((point, order) => ({
+      source: "subagent",
+      operation: point.operation || point.status || "task",
+      status: point.status || "unknown",
+      at: point.at,
+      detail: point.evidence || point.duration || "",
+      order
+    }));
+    instrumentationContainer.innerHTML = renderInstrumentationTable(
+      rows,
+      "暂无打点；任务派工/认领/状态/完成打点到达后显示在这里。"
+    );
+  }
+  // 事件时间线 tab：详情返回的归一化时间线（阶段日志 + 打点推导）。
+  const timelineContainer = document.querySelector("[data-node-detail] [data-node-panel='timeline']");
+  if (timelineContainer) {
+    const events = (detail?.timeline || []);
+    timelineContainer.innerHTML = events.length
+      ? `<ol class="node-timeline">${events.map(event => {
+          const time = formatEventTime(event.at);
+          const output = outputSummary(event.output);
+          return `<li class="node-event is-${statusToken(event.status)}" data-node-event-status="${statusToken(event.status)}">
+            <span class="node-event-dot" aria-hidden="true">${escapeHTML(statusSymbol(event.status))}</span>
+            <time class="node-event-time" datetime="${escapeHTML(event.at || "")}">${escapeHTML(time)}</time>
+            <span class="node-event-status">${escapeHTML(statusLabel(event.status))}</span>
+            ${output ? `<span class="node-event-output" title="${escapeHTML(event.output)}">${escapeHTML(output)}</span>` : ""}
+          </li>`;
+        }).join("")}</ol>`
+      : '<div class="node-timeline-empty">暂无事件；任务清单模式下由 task_check_node 打点驱动</div>';
   }
   nodeDetailLiveAssistantRetain();
 }

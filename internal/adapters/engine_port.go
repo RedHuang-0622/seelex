@@ -58,6 +58,9 @@ type EnginePort struct {
 	// subagentLive 是 node 第一视角实时流订阅源（Runtime 注入，即时输出面；
 	// 返回历史回放 + 实时通道 + 取消）。
 	subagentLive func(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
+	// nodeStageLogs 是 node 第一视角阶段日志历史查询（详情弹窗"第一视角"
+	// 历史回放源；Runtime 注入，只读子代理 actor，安全）。
+	nodeStageLogs func(nodeID string) []dto.NodeStageLog
 }
 
 // EnginePortDeps 是 EnginePort 的启动期装配（main.go 装配点一次注入；
@@ -77,6 +80,9 @@ type EnginePortDeps struct {
 	SubAgentTree func() []dto.SubAgentTreeNode
 	// SubagentLive node 第一视角实时流订阅源（历史回放 + 即时输出面）。
 	SubagentLive func(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
+	// NodeStageLogs node 第一视角阶段日志历史查询（详情弹窗"第一视角"
+	// 历史回放源；只读子代理 actor，安全）。
+	NodeStageLogs func(nodeID string) []dto.NodeStageLog
 	// PrepareHistory Runtime-owned one-shot handoff（framework Session 的
 	// DurableHistory.Load 使用；启动期配置，必须在并发开始前完成）。
 	PrepareHistory func(string, []types.Message)
@@ -96,6 +102,7 @@ func (port *EnginePort) ApplyDeps(deps EnginePortDeps) {
 	port.nodeWorktree = deps.NodeWorktree
 	port.subAgentTree = deps.SubAgentTree
 	port.subagentLive = deps.SubagentLive
+	port.nodeStageLogs = deps.NodeStageLogs
 	port.prepareHistory = deps.PrepareHistory
 }
 
@@ -328,6 +335,15 @@ func (port *EnginePort) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLive
 		return nil, nil, func() {}, fmt.Errorf("subagent live stream is not configured")
 	}
 	return port.subagentLive(nodeID)
+}
+
+// NodeStageLogs 转发 node 第一视角阶段日志历史查询（详情弹窗"第一视角"
+// 历史回放源；查询源经 ApplyDeps 注入，只读子代理 actor，安全）。
+func (port *EnginePort) NodeStageLogs(nodeID string) []dto.NodeStageLog {
+	if port == nil || port.nodeStageLogs == nil {
+		return nil
+	}
+	return port.nodeStageLogs(nodeID)
 }
 
 // AppendHistory 追加消息到引擎内部对话历史。

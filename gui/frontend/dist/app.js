@@ -1330,6 +1330,8 @@ let activeNodeDetailID = "";
 let nodeDetailGeneration = 0;
 let subagentLiveBound = false;
 let nodeLiveBuffer = [];
+let nodeDetailRefreshTimer = 0;
+let nodeDetailLastSignature = "";
 
 // resolveNodeForDetail 解析详情弹窗的节点数据：优先 Plan DSL（活跃 Plan 的
 // 权威投影）；fork 子代理节点在 Plan 已清除时回退到子代理树投影（会话记录/
@@ -1372,11 +1374,20 @@ async function openNodeDetail(nodeKey) {
       // 历史回放：subagent start 以来的完整事件流 + 打开瞬间已到的实时事件。
       nodeLiveBuffer = (history || []).concat(nodeLiveBuffer);
       if (nodeLiveBuffer.length > 500) nodeLiveBuffer = nodeLiveBuffer.slice(-500);
+      seedNodeLiveStagesFromDetail();
       renderLiveFeed();
     })
     .catch(() => {});
   renderLiveFeed();
   await refreshNodeDetail(node.id, generation);
+  scheduleNodeDetailRefresh();
+  if (nodeDetailRefreshTimer) window.clearInterval(nodeDetailRefreshTimer);
+  // 弹窗打开期间低频权威刷新：会话/上下文/打点/时间线/工具按分类补齐，
+  // 覆盖打开瞬间之后才产生的内容（第一视角的即时行仍由 live 事件驱动）。
+  nodeDetailRefreshTimer = window.setInterval(() => {
+    if (!activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
+    refreshNodeDetail(activeNodeDetailID, nodeDetailGeneration);
+  }, 1500);
 }
 
 function refreshOpenNodeDetail() {
@@ -1389,6 +1400,10 @@ function refreshOpenNodeDetail() {
   selected?.click();
   nodeDetailLiveAssistantRetain();
   renderLiveFeed();
+  // 快照驱动的弹窗重建会清掉详情面板占位，重建后立即按签名补一次权威
+  // 详情（会话/上下文/打点/时间线/工具分类）。
+  nodeDetailLastSignature = "";
+  scheduleNodeDetailRefresh();
 }
 
 // refreshNodeDetail 拉取一次子代理详情（会话记录）并渲染。打开后的增量由
@@ -1404,7 +1419,11 @@ async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
     detail = await Promise.race([invoke("SubagentSessionDetail", nodeID), timeout]);
   } catch { /* 节点无会话记录或非 agent 节点 → 面板保持占位 */ }
   if (generation !== nodeDetailGeneration || nodeID !== activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
+  const signature = nodeDetailSignature(detail);
+  if (signature === nodeDetailLastSignature) return;
+  nodeDetailLastSignature = signature;
   setNodeDetailConversation(detail || null);
+  seedNodeLiveStagesFromDetail(detail);
 }
 
 function closeNodeDetail() {
@@ -1414,6 +1433,11 @@ function closeNodeDetail() {
   activeNodeDetailKey = "";
   activeNodeDetailID = "";
   nodeLiveBuffer = [];
+  nodeDetailLastSignature = "";
+  if (nodeDetailRefreshTimer) {
+    window.clearInterval(nodeDetailRefreshTimer);
+    nodeDetailRefreshTimer = 0;
+  }
   if (nodeID) invoke("SubagentDetailStreamStop", nodeID).catch(() => {});
   setModal("node-detail-modal", false);
 }
@@ -1436,6 +1460,61 @@ function handleSubagentLive(event) {
   }
   nodeLiveBuffer.push(event);
   if (nodeLiveBuffer.length > 500) nodeLiveBuffer.shift();
+  renderLiveFeed();
+  scheduleNodeDetailRefresh();
+}
+
+// scheduleNodeDetailRefresh 打开详情期间的节流权威刷新（事件驱动 + 低频
+// 兜底 interval 双保险；签名不变时跳过 DOM 重建，避免打断阅读）。
+function scheduleNodeDetailRefresh() {
+  if (!activeNodeDetailID) return;
+  const generation = nodeDetailGeneration;
+  window.setTimeout(() => {
+    if (generation !== nodeDetailGeneration || !activeNodeDetailID) return;
+    refreshNodeDetail(activeNodeDetailID, generation);
+  }, 700);
+}
+
+// nodeDetailSignature 详情内容签名：仅在这些分类有实质变化时重建各 tab。
+function nodeDetailSignature(detail) {
+  if (!detail) return "";
+  const conversation = detail.conversation || [];
+  const last = conversation[conversation.length - 1];
+  return JSON.stringify([
+    detail.status || "",
+    Boolean(detail.running),
+    conversation.length,
+    last?.content?.length || 0,
+    detail.context?.message_count || 0,
+    (detail.tool_events || []).length,
+    (detail.trace || []).length,
+    (detail.timeline || []).length,
+    (detail.stages || []).length,
+    detail.output || "",
+    detail.summary || ""
+  ]);
+}
+
+// seedNodeLiveStagesFromDetail 打开晚于节点开始时的第一视角历史补全：
+// SubagentDetail.stages 是权威阶段历史（live dispatcher 启动前的阶段不
+// 在订阅回放里），去重后并入实时缓冲。
+function seedNodeLiveStagesFromDetail(detail) {
+  const stages = detail?.stages || [];
+  if (!stages.length) return;
+  const existing = new Set(nodeLiveBuffer
+    .filter(event => event.kind === "stage" && event.stage)
+    .map(event => `${event.stage.stage}:${event.stage.turn || 0}:${event.at || ""}`));
+  let added = 0;
+  for (const stage of stages) {
+    const key = `${stage.stage}:${stage.turn || 0}:${stage.at || ""}`;
+    if (existing.has(key)) continue;
+    existing.add(key);
+    nodeLiveBuffer.push({ kind: "stage", node_id: activeNodeDetailID, at: stage.at, stage });
+    added += 1;
+  }
+  if (!added) return;
+  nodeLiveBuffer.sort((left, right) => new Date(left.at || 0) - new Date(right.at || 0));
+  if (nodeLiveBuffer.length > 500) nodeLiveBuffer = nodeLiveBuffer.slice(-500);
   renderLiveFeed();
 }
 
