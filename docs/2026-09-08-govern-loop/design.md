@@ -42,13 +42,72 @@ mainAgent(a) ──goal_begin──► Controller(g)  ──spawn──► ADVIS
 | 层 | 内容 | 归属 | 持久化 |
 |---|---|---|---|
 | 会话视图（SessionUnit） | goal 投影 + 心跳（只读） | `session/ports.go SessionUnit` | 随快照下发，不落盘 |
-| 会话状态（TaskExecution） | goal 栈 / 状态机 | `task_context`（第五栈方向，goal 域 Controller 由装配根持有） | state blob |
+| 会话状态（TaskExecution） | goal 栈 / 状态机 | `task_context`（第五栈方向，goal 域 Controller 由装配根持有） | append-only goal 上下文账本（见 §2.1b） |
 | 治理域（goal/govern） | Controller + Supervisor + Governor | `application/core/goal` + `govern`（叶子包） | Store 接口（v0 内存；后续 SessionContextStore） |
 
 设计约束（沿用 goal 包现状）：`goal.Controller` 是**会话粒度单例**
 （`Depth=1` 默认），`Supervisor` 绑定一个 Controller 与一个 TL 评估器；
 多会话时由装配层按 sessionID 维护 map，**不共享** Controller/AdvisorSession
 （会话间零共享，与 DS-A2A B1 一致）。
+
+### 2.1a goal 栈语义：可嵌套、逐层弹栈、最终清空
+
+goal 不是"一个会话一个对象"，而是 **LIFO goal 栈**（已有 `goal.Stack`/
+`Controller`，`Depth` 默认 1 = 会话单例，放开 `Depth>1` 即支持嵌套）：
+
+```text
+begin(父 goal)                    begin(子 goal)                …
+┌─────────┐                      ┌─────────┐  子 goal 完成
+│ 父(active)│  ──begin 子 goal──► │ 父(paused)│ ──verdict_done──► 弹栈
+└─────────┘                      │ 子(active)│                  ▼
+                                 └─────────┘             父恢复 active
+                                                            │
+                               … 父 goal 也完成（TL 裁决）→ 弹栈
+                                                            ▼
+                                                     栈空 = goal 清空
+```
+
+契约：
+
+1. **子 goal 先完成，父 goal 后完成**：mainAgent 只能在栈顶开子 goal，
+   TL 只裁决栈顶（active）goal；栈顶 `verdict_done` → 弹栈（completed 入
+   History 审计）→ 父 goal 从 paused 恢复 active；
+2. **完成一个弹出一个**，逐层推进直到栈空——治理循环才可整体收口
+   （"goal 最终会被清空"= 栈空 + `Round` 停止推进 + 视图复位）；
+3. 中途 abort 同样弹栈（reason 入审计），栈空语义一致；
+4. `Depth` 放开后仍需上限（建议沿用 `MaxStackDepth` 或装配层显式配置），
+   防止无限嵌套；
+5. 治理会话与 goal 栈同生命周期：栈空/收口后 Controller 可复用（新 goal
+   begin 重新压栈），b（ADVISOR）按现有 `unbind+reap` 语义重建；
+6. **栈空是治理收口前提**：治理循环每轮检查 `Controller.Status().Active ==
+   nil`——栈空即不再推进 `Round`，governor 可复用或由装配方 `Break("goal
+   stack empty")` 收束（TL verdict_done 弹栈后若栈仍非空，则父 goal 恢复
+   active、治理继续下一轮，而不是整体收口）。
+
+### 2.1b goal 设置（goal 栈/帧）落 append-only 会话上下文
+
+goal 的"设置"（每次 begin/update/finish/abort 产生的 goal 帧与栈迁移）
+不是可变覆盖，而是 **append-only 会话上下文事件流**：
+
+```text
+每次 goal 变更
+   └─► 追加一条 GoalContextEntry（revision/seq 单调）到会话级 append-only 账本
+          { seq, kind: begin|update|finish|abort|restore,
+            goal_id, status, payload(有界), at }
+   └─► 恢复/审计 = 从账本头重放（重放到最新 seq 即得当前栈）
+```
+
+落点与复用：
+
+- **参考实现**：`sessionstore/event_store.go`（会话级执行事实事件库，
+  append-only、按会话分片、Seq 严格递增）与 `task_context` transcript
+  （append-only 已定稿轮次）——goal 上下文账本复用同一形态，不新建第六类
+  存储；
+- **当前栈是账本的投影**：内存 `Controller` 栈 = append-only 账本重放的
+  缓存；`store.go` 的 `Save`（全量覆盖）仅作 P0 原型，P2 换成 append-only
+  账本 + 重放恢复（对齐 transcript/事件库的"append-only 事实源"哲学）；
+- **目标帧读取**（Goal 帧、TL 嵌入）读投影，不直接扫账本；账本负责
+  崩溃恢复/审计/可重放（A6：由事件流全量重建 goal 条与治理面板）。
 
 ### 2.2 视图投影（session → application → GUI/TUI）
 
@@ -254,7 +313,7 @@ main / seelebridge 装配（真实 LLM、账号池、工具面）
 
 1. **P0（已完成）**：govern 抽象 + goal adapter + headless 真实 API 测试面；
 2. **P1（本文目标）**：端口定义 + main 装配 + goal 工具注册 + 视图投影/心跳；
-3. **P2**：state blob 持久化 goal 栈（第五栈）+ 会话恢复重建 Governor；
+3. **P2**：append-only goal 上下文账本 + 会话恢复重建 Governor（重放恢复）；
 4. **P3**：GUI/TUI 面板正式渲染（字符画 §3 形态）。
 
 ---
@@ -285,7 +344,9 @@ go test ./application/core/govern/ ./application/core/goal/ -count=1
 
 ## 8. 开放问题（待拍板）
 
-- goal 栈持久化到 state blob 的 schema 版本（第五栈 vs 独立通道）；
+- goal 栈"设置"账本的落点：扩展 `sessionstore/event_store.go`（会话级
+  append-only）vs `SessionContextRecord` 追加 append 段 vs 独立 goal 通道
+  —— 决策后定 schema；§2.1b 暂建议复用事件库形态；
 - 心跳推给前端的方式：随 Snapshot 全量 vs 单独 `goal.heartbeat` 事件；
 - mainAgent 显式 `#goal` 与工具 `goal_begin` 是否都作为发球入口（两者等价）；
 - `peer.unbind` 后 TL 会话对象删除，治理快照是否保留 b 回合审计（协议 D3）。
@@ -373,6 +434,9 @@ go test ./application/core/govern/ ./application/core/goal/ -count=1
 | `seelebridge/runtime_session.go` | 修改 | session bundle 装配/恢复时重建 goal Controller（`Reload`） |
 | `application/core/goal/controller.go` | 修改 | `Reload` 与 SessionContextStore 对齐（已具备 Store 接口，需装配 Store） |
 | `seelebridge/ports.go` / `runtime_context.go` | 修改 | `sessionContextStore()` 旁路或装配点把 goal store 接到会话 |
+| `sessionstore/event_store.go`（goal 账本扩展） | 修改 | append-only goal 上下文账本（若第五栈走事件流而非 state blob） |
+| `application/core/goal/controller.go`（栈深/嵌套） | 修改 | `Depth` 放开与上限装配；`finishOrAbort` 弹栈→父恢复已实现（补断言） |
+| `application/core/goal/controller_test.go` | 修改 | 嵌套压栈/逐层弹栈/栈空清空断言 |
 | `docs/2026-09-08-govern-loop/design.md`、`sessionstore/README.md` | 修改 | 第五栈语义文档 |
 
 **验收用例**
@@ -384,6 +448,10 @@ go test ./application/core/govern/ ./application/core/goal/ -count=1
 | `goal`：`TestControllerReloadFromContextStore` | Controller.Reload 后 active goal/progress/directives 恢复 |
 | `seelebridge`：`TestResumedSessionRebuildsGoalGovernor` | 恢复会话后治理 round/座次与持久化前一致 |
 | fork 隔离：`TestForkSessionDoesNotInheritGoalStack` | 子会话 fork 不带父 goal 栈（对齐 plan/task 四栈语义） |
+| `goal`：`TestNestedGoalsPopLIFOUntilEmpty` | 父→子 begin；子 finish→父恢复 active；父 finish→栈空、History=2、治理收口 |
+| `goal`：`TestGoalContextAppendOnlyReplay` | begin/update/finish 各追加一条账本记录；按账本重放可重建栈与终态（含审计） |
+| `goal`：`TestGoalStackDepthBound` | Depth 放开后仍受上限约束，超限 begin 拒绝 |
+| `sessionstore`：`TestGoalContextAccountIsSessionScopedAppendOnly` | 两会话账本互不串写；记录只追加不回改（Seq 单调） |
 
 ### 9.4 P3：前端正式渲染（GUI/TUI 治理面板）
 
