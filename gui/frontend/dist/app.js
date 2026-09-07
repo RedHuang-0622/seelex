@@ -226,6 +226,7 @@ function clearDockDragState() {
     ".conversation-tab.is-dragging, .conversation-tab.is-drag-over, .right-tab.is-dragging, .right-tab.is-drag-over"
   ).forEach(button => button.classList.remove("is-dragging", "is-drag-over"));
 }
+document.addEventListener("dragend", clearDockDragState);
 
 function bindDockTabs(region) {
   const bar = dockTabBar(region);
@@ -269,8 +270,13 @@ function bindDockTabs(region) {
     if (!targetView) return;
     const next = swapViews(dockState, sourceRegion, sourceId, region, targetView);
     if (next === dockState) return;
-    dockState = next;
-    applyDockState();
+    // drop 里同步重建页签条会删掉拖动源，WebView2 可能收不到 dragend、
+    // 残留拖拽鼠标状态（表现为拖完后其它点击失灵）。延到下一帧再落布局，
+    // 让浏览器先结束本次 drag 会话。
+    window.requestAnimationFrame(() => {
+      dockState = next;
+      applyDockState();
+    });
   });
 }
 
