@@ -48,6 +48,11 @@ type Deps struct {
 		ActiveSkillIDs() []string
 		GoalSkillActive() bool
 	}
+	// Goals 提供会话级 goal 治理只读视图（无 goal 返回 nil；前端据此渲染
+	// 「目标 + 治理」面板与心跳）。nil 时投影留空（未装配 goal 协调器）。
+	Goals interface {
+		GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
+	}
 	// Limits 返回当前生效的运行时上限（窗口配置）。
 	Limits func() seelexctx.Limits
 }
@@ -64,6 +69,9 @@ type Coordinator struct {
 		ActiveSkillIDs() []string
 		GoalSkillActive() bool
 	}
+	goals interface {
+		GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
+	}
 	limits     func() seelexctx.Limits
 	messageSeq uint64
 }
@@ -78,6 +86,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		currentSessionID:       deps.CurrentSessionID,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
+		goals:                  deps.Goals,
 		limits:                 deps.Limits,
 	}
 }
@@ -151,6 +160,12 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 	if c.tasks != nil {
 		projection.Runtime.ActiveSkills = append([]string(nil), c.activeSkillIDsFor(sessionID)...)
 		projection.Runtime.GoalSkillActive = c.goalSkillActiveFor(sessionID)
+	}
+	if c.goals != nil {
+		if goalView := c.goals.GoalGovernanceViewFor(sessionID); goalView != nil {
+			copyView := *goalView
+			projection.Runtime.GoalGovernance = &copyView
+		}
 	}
 	metrics := c.replanMetricsFor(sessionID)
 	projection.Runtime.Replan = model.ReplanMonitor{

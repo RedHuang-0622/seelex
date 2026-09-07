@@ -4,8 +4,10 @@
 ## 生态位
 
 会话粒度的 Goal 对象与状态机（`Controller`）、DS-A2A 双会话治理编排
-（`Supervisor`/`AdvisorSession`/gate）以及治理循环适配（`adapter.go`）。
-主要调用方：goal 域 headless 契约（`headless.go`）作为外部驱动面；
+（`Supervisor`/`AdvisorSession`/gate）、治理循环适配（`adapter.go`）以及
+会话级第五栈持久化（`sessionstore_store.go`，goal 栈随会话聊天记录同域落
+`sessionstore.SessionContextRecord.GoalStack`）。主要调用方：goal 域
+headless 契约（`headless.go`）作为外部驱动面；
 `application/core/govern` 提供通用治理循环抽象，goal 域经 `adapter.go`
 把 EXEC/TL 语义适配为治理座位。
 
@@ -15,6 +17,13 @@
 
 - Goal 栈/状态机（active→reviewing→completed/aborted/failed/waiting_human）、
   存储与事件订阅（`controller.go`/`record.go`/`store.go`/`stack.go`）；
+- goal 栈持久化与恢复：`sessionstore_store.go` 把 Controller 栈投影到
+  sessionstore 第五栈（`ContextStateStore`），`Controller.Reload` 从会话
+  GoalStack 重建（崩溃/重启恢复，治理可续）；
+- goal 生命周期审计：`audit.go` 定义 `AuditAccount`/`AuditEntry`，Controller
+  每次状态机变更成功追加一条 append-only 审计（begin/update/finish/abort/
+  restore；可携带 SourceSession 出处，记录"用户在其它会话完成了该 goal"），
+  账本按会话隔离、只追加不回改（审计与活栈正交：栈终态为空，账本保留收口）；
 - DS-A2A 双会话治理：EXEC 事件账本（execSeq）、ADVISOR 独立上下文
   （锚点 + 帧账本 + 自身回合段，只尾部追加）、corr 信封指令、B4 缺席矩阵
   （`advisor.go`/`techleader.go`/`gate.go`）；
@@ -24,8 +33,9 @@
 
 非职责：
 
-- 不接入 seelebridge/application 生产会话（P0-wiring 后续工作，headless 是
-  当前驱动面）；
+- 不持有 seelebridge/application 装配（P1 起由 application 的会话级
+  goal 协调器持有 Controller/Supervisor，见 `application/core/goal_coordinator.go`；
+  真实 TLEvaluator 与 gui/headless 透传为待续项）；
 - 不定义通用治理循环原语（那是 `application/core/govern`）；
 - 不接触 LLM provider/账号（`TLEvaluator` 由装配方注入，本包不持有凭据）。
 
@@ -38,6 +48,11 @@
   + 自身回合段（≤ MaxEmbedRounds），前缀稳定只尾部追加；
 - `gate.go`：终态 gate（verdict done/not_done/escalate）+ 审批预筛 + B4 缺席
   矩阵（429/超时 → 判负或人工，a 永不等待 b）；
+- `sessionstore_store.go`：goal 域记录 ↔ `sessionstore.GoalFrame` 的映射，
+  Store.Save 全量替换会话 GoalStack、Store.Load 读回（第五栈只服务恢复与
+  治理，不渲染进模型上下文）；
+- `audit.go`：审计端口与有界条目（`AuditAccount`/`AuditEntry`），
+  `ContextStateStore.AppendGoalAudit` 映射为 sessionstore GoalAuditEntry；
 - `adapter.go`：把上面语义翻译为 `govern` 治理循环的座位动作。
 
 ## 数据流或生命周期
@@ -62,9 +77,12 @@ exec-a.Act（推进/登记） → advisor-b.Act（真实 TL 回合）
 
 ## 依赖方向
 
-- goal 包是独立叶子包（stdlib + 可选 store），不依赖 application/core 其它
-  子包与 seelebridge；
+- goal 包保持叶子生态位：只依赖 `application/core/govern` 与低层持久化
+  `sessionstore`（GoalFrame 纯 DTO），不依赖 application/core 其它子包与
+  seelebridge；
 - `adapter.go` 依赖 `application/core/govern`（goal → govern 单向）；
+- `sessionstore_store.go` 依赖 `sessionstore`（goal → sessionstore 单向，
+  sessionstore 不反向依赖 goal）；
 - seelebridge 未来可依赖 goal（装配面），方向不反转。
 
 ## 并发、存储、安全或错误语义
@@ -74,6 +92,22 @@ exec-a.Act（推进/登记） → advisor-b.Act（真实 TL 回合）
 - b 上下文只尾部追加（前缀稳定），帧 ref_seq 单调、dup 幂等；
 - 指令/帧/嵌入全有界（MaxDirectiveQueue/MaxDirectiveRunes/…）；
 - 错误语义：TL 缺席（ErrTLDisabled/429/超时）走 B4 矩阵，不吞不挂。
+
+goal 第五栈语义边界（docs/2026-09-08-govern-loop/design.md §2.1 澄清）：
+
+- goal 栈随会话聊天记录同域持久化到 sessionstore，只用于会话恢复与后续
+  goal 治理（对齐 plan/task 的会话级使用栈）；
+- GoalStack 是**活栈投影**：begin 压栈即写入，finish/abort 弹栈即同步删除
+  该帧；存储初始与终态都为空（治理结束不留任何 goal 帧，终态审计只在进程内
+  History，不落栈）；
+- 审计账本（GoalAudit）与活栈正交：终态帧不进 GoalStack，但**审计保留收口
+  记录**（append-only、按会话隔离、只追加不回改）；"在其它会话完成该 goal"
+  的收口可带 SourceSession 出处写回原会话账本，不跨会话共享/回放；
+- 栈内 goal **不入模型上下文**：seelexctx 只渲染 Plan/Task/Skill/Compact
+  四栈，goal 栈不做前缀/尾部块渲染，也不做记忆前缀与匹配；
+- 聊天记录中的 `#goal` 文本是普通转录内容，随上下文窗口/压缩一起被压缩；
+- 收口弹栈（finish/abort）后栈投影同步落盘（弹栈即删除），栈空 = 治理收口
+  前提。
 
 ## 扩展方式
 
@@ -142,6 +176,18 @@ go test -race ./application/core/goal/ -count=1
 - `func goalFrameText(frame GoalFrame) string` — goalFrameText 渲染锚点目标（复刻 Goal 帧关键信息，有界）。
 - `func (b *AdvisorSession) markBound(peerID string, anchor GoalFrame, refSeq uint64, now int64)` — markEvaluating / markAdvisory / markBound 是状态机辅助（调用方持锁）。
 
+### audit.go
+
+- `func (e AuditEntry) normalized() AuditEntry` — normalized 返回文本字段有界的副本。
+- `func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntry) error` — AppendGoalAudit 实现 AuditAccount：映射为 sessionstore GoalAuditEntry 后追加到会话账本（写入前确保会话 context 已 Load，避免覆盖既有账本）。
+
+### audit_test.go
+
+- `func TestControllerAuditAppendOnlyLifecycle(t *testing.T)` — TestControllerAuditAppendOnlyLifecycle 验证 Controller 自动审计：begin/update/finish 各追加一条（seq 单调）；GoalStack 活栈终态清空，而审计账本保留终态收口记录（reason/result）。
+- `func TestControllerAuditNestedRestoreAndTerminal(t *testing.T)` — TestControllerAuditNestedRestoreAndTerminal 验证嵌套治理审计：子 finish 追加 finish(child)+restore(parent)，父 finish 追加 finish(parent)；seq 严格递增且终态帧只进账本、不进活栈。
+- `func TestAuditSourceSessionProvenanceRoundTrip(t *testing.T)` — TestAuditSourceSessionProvenanceRoundTrip 验证"用户在其它会话完成 goal"的出处可审计：装配方可在收口条目携带 SourceSession，条目仍留在原会话账本（不跨会话写入），持久化/重载后出处不丢。
+- `func TestAuditPerSessionIsolation(t *testing.T)` — TestAuditPerSessionIsolation 验证审计按会话隔离：两会话各自审计独立编号，不互相串写。
+
 ### controller.go
 
 - `func viewOf(record *GoalRecord) *View`
@@ -172,6 +218,8 @@ go test -race ./application/core/goal/ -count=1
 - `func TestBeginFinishSingle(t *testing.T)` — TestBeginFinishSingle 验证会话单例主路径：begin → update → finish 弹栈删除、
 - `func TestStackDepthRejectsNested(t *testing.T)` — TestStackDepthRejectsNested 验证 D2 会话单例：depth=1 时嵌套 begin 被拒。
 - `func TestNestedDepthRestores(t *testing.T)` — TestNestedDepthRestores 验证 D2 放开嵌套（depth>1）：压栈下层 paused、
+- `func TestNestedGoalsPopLIFOUntilEmpty(t *testing.T)` — TestNestedGoalsPopLIFOUntilEmpty 验证嵌套逐层弹栈直至栈空（治理收口前提）：父→子 begin；子 finish → 父恢复 active；父 finish → 栈空、History=2、投影复位（design §2.1a 契约 1/2/6）。
+- `func TestGoalStackDepthBound(t *testing.T)` — TestGoalStackDepthBound 验证 Depth 放开后仍受 MaxStackDepth 上限约束：超限构造被夹紧，压满后继续 begin 拒绝（ErrStackFull）。
 - `func TestUpdateOnlyActive(t *testing.T)` — TestUpdateOnlyActive 验证更新边界：空栈/非 active 不可更新。
 - `func TestAbortPopsAndHistory(t *testing.T)` — TestAbortPopsAndHistory 验证 abort 路径。
 - `func TestIdempotentBegin(t *testing.T)` — TestIdempotentBegin 验证同标题 active 幂等返回现有 goal。
@@ -278,6 +326,21 @@ go test -race ./application/core/goal/ -count=1
 - `func NewJSONFileStore(path string) *JSONFileStore` — NewJSONFileStore 构造文件存储（父目录需存在；测试用 t.TempDir()）。
 - `func (s *JSONFileStore) Load(_ context.Context) ([]*GoalRecord, error)` — Load 实现 Store；文件不存在视为空栈。
 - `func (s *JSONFileStore) Save(_ context.Context, records []*GoalRecord) error` — Save 实现 Store（原子写：同目录 temp + rename）。
+
+### sessionstore_store.go
+
+- `func NewContextStateStore(session *sessionstore.SessionContextStore) *ContextStateStore` — NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回 ErrStoreUnavailable（未装配会话上下文存储的降级路径）。
+- `func (s *ContextStateStore) Load(ctx context.Context) ([]*GoalRecord, error)` — Load 实现 Store：从会话 GoalStack 读取当前栈（空栈返回空切片）。
+- `func (s *ContextStateStore) Save(_ context.Context, records []*GoalRecord) error` — Save 实现 Store：全量替换会话 GoalStack 并持久化。
+- `func goalFramesFromRecords(records []*GoalRecord) []sessionstore.GoalFrame` — goalFramesFromRecords 把 goal 域记录投影为 sessionstore 第五栈帧（深拷贝切片/映射；EnteredAt 由 CreatedAt 推导，fork 时间截断可用）。
+- `func recordsFromGoalFrames(frames []sessionstore.GoalFrame) []*GoalRecord` — recordsFromGoalFrames 把 sessionstore 第五栈帧还原为 goal 域记录（Reload 输入；Status 非法时保留原字符串，由 Controller.Reload 的位置语义修正 active/paused）。
+
+### sessionstore_store_test.go
+
+- `func TestContextStateStoreReloadRestoresNestedStack(t *testing.T)` — TestContextStateStoreReloadRestoresNestedStack 验证会话恢复：Controller 栈变更经 ContextStateStore 落 sessionstore GoalStack；新 Controller Reload 后恢复嵌套栈（下层 paused / 栈顶 active + progress）与 seq 续号。
+- `func TestContextStateStoreSessionIsolation(t *testing.T)` — TestContextStateStoreSessionIsolation 验证 goal 第五栈按会话隔离：会话 A 的 goal 不污染会话 B（恢复路径读各自 GoalStack）。
+- `func TestContextStateStoreFinishPopsToEmpty(t *testing.T)` — TestContextStateStoreFinishPopsToEmpty 验证栈空语义落盘：子 goal 完成 → 父恢复 active；父完成 → 栈空，重载后治理从零开始。
+- `func TestContextStateStoreNilRejects(t *testing.T)` — TestContextStateStoreNilRejects 验证未装配会话上下文存储时 Store 显式失败。
 
 ### supervisor_test.go
 

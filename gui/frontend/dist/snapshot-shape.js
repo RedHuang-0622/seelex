@@ -19,6 +19,7 @@ export const SESSION_RUNTIME_KEYS = Object.freeze([
   "todo_items",
   "subagent_tree",
   "goal_skill_active",
+  "goal_governance",
   "active_skills",
   "work_table",
   "work_table_batches"

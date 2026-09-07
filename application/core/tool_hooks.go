@@ -341,6 +341,10 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			if !svc.components.tasks.AllowNextReActIteration(ctx, turn) {
 				return false
 			}
+			// P1 goal 接线：回合边界登记 exec 账本水位并把 b→a TL 指令注入
+			// 引擎历史（Session 锁内仅 AppendHistory 安全；可见记录在
+			// runChat 结束点回放）。
+			svc.GoalIterationCompleted(ctx)
 			// 新 Session 装配（session.NewSession + Session.ChatStream）下，
 			// OnIterationComplete 在 Session 锁内同步执行：回调不得重入 Session
 			// 的历史操作（History/ReplaceHistory/AppendHistory），否则死锁。

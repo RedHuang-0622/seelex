@@ -1130,11 +1130,14 @@ function renderGoal(snapshot) {
   const runtime = snapshot.runtime || {};
   const task = snapshot.task || null;
   const goalActive = Boolean(runtime.goal_skill_active);
+  const governance = runtime.goal_governance && runtime.goal_governance.active
+    ? runtime.goal_governance
+    : null;
   const activeSkills = Array.isArray(runtime.active_skills) ? runtime.active_skills : [];
   const goalSection = elements["goal-section"];
   if (!goalSection) return;
   const goalText = latestUserInput(snapshot);
-  const hasContent = goalActive || activeSkills.length > 0 || task || goalText;
+  const hasContent = governance || goalActive || activeSkills.length > 0 || task || goalText;
   goalSection.classList.toggle("hidden", !hasContent);
   const badge = elements["goal-badge"];
   if (badge) {
@@ -1146,9 +1149,11 @@ function renderGoal(snapshot) {
   if (!hasContent) {
     view.classList.add("muted");
     view.innerHTML = "当前无目标任务";
+    stopGoalStallMonitor(view);
     return;
   }
   view.classList.remove("muted");
+  const governanceLine = governance ? renderGoalGovernance(governance) : "";
   const goalLine = goalText
     ? `<div class="goal-text" title="${escapeHtml(goalText)}">${escapeHtml(truncateGoalText(goalText))}</div>`
     : "";
@@ -1158,7 +1163,61 @@ function renderGoal(snapshot) {
   const chips = activeSkills.length
     ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">#${escapeHtml(skill)}</span>`).join("")}</div>`
     : "";
-  view.innerHTML = `${goalLine}${taskLine}${chips}`;
+  view.innerHTML = `${goalLine}${taskLine}${governanceLine}${chips}`;
+  if (governance) {
+    startGoalStallMonitor(view, governance);
+  } else {
+    stopGoalStallMonitor(view);
+  }
+}
+
+// renderGoalGovernance 渲染「目标 + 治理」只读面板：goal 状态/轮次/座次/
+// TL 最近指令/断环横幅/心跳（字符画 §3.1；governance 视图来自
+// runtime.goal_governance，goal 栈不入模型上下文）。
+function renderGoalGovernance(governance) {
+  const status = escapeHtml(governance.status || "active");
+  const round = Number.isFinite(governance.round) ? governance.round : 0;
+  const seat = governance.current_seat ? escapeHtml(governance.current_seat) : "";
+  const peer = governance.peer_state ? escapeHtml(governance.peer_state) : "";
+  const directive = governance.last_directive
+    ? `<div class="goal-gov-directive" title="${escapeHtml(governance.last_directive)}">TL: ${escapeHtml(truncateGoalText(governance.last_directive, 160))}</div>`
+    : "";
+  const broken = governance.broken
+    ? `<div class="goal-gov-broken">断环: ${escapeHtml(governance.break_reason || "已收束")}</div>`
+    : "";
+  const meta = [
+    `<span class="goal-gov-status">${status}</span>`,
+    `Round ${round}`,
+    seat ? `座次 ${seat}` : "",
+    peer ? `peer ${peer}` : "",
+    `<span id="goal-stall" data-heartbeat-seq="${Number(governance.heartbeat_seq || 0)}" data-heartbeat-at="${Number(governance.heartbeat_at || 0)}"></span>`
+  ].filter(Boolean).join(" · ");
+  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${directive}${broken}</div>`;
+}
+
+// startGoalStallMonitor 心跳停滞提示（前端只读展示）：治理推进会带来单调
+// heartbeat_seq；超过 stallAfterSec 无新 seq 显示 stalled。不参与业务决策。
+function startGoalStallMonitor(view, governance) {
+  const stallAfterSec = 10;
+  const deadline = Number(governance.heartbeat_at || 0) + stallAfterSec;
+  const timer = view.__goalStallTimer;
+  if (timer) clearInterval(timer);
+  const tick = () => {
+    const stall = view.querySelector("#goal-stall");
+    if (!stall) return;
+    const now = Math.floor(Date.now() / 1000);
+    const stalled = now > deadline;
+    stall.textContent = stalled ? "governance stalled" : `心跳 #${Number(governance.heartbeat_seq || 0)}`;
+    stall.classList.toggle("goal-gov-stalled", stalled);
+  };
+  tick();
+  view.__goalStallTimer = setInterval(tick, 1000);
+}
+
+function stopGoalStallMonitor(view) {
+  if (!view || !view.__goalStallTimer) return;
+  clearInterval(view.__goalStallTimer);
+  delete view.__goalStallTimer;
 }
 
 // latestUserInput 返回会话最近一条非空用户消息（目标文本数据源）。

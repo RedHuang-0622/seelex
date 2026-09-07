@@ -2014,3 +2014,34 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .trajectory-row.is-flash summary { background: var(--tint-running); }
 .trajectory-think { border-left: 3px solid var(--status-info); background: var(--tint-info); }
 .trajectory-think .io-label { color: var(--status-info); }
+/* goal 治理只读面板（P3）：状态/轮次/座次/心跳/断环横幅 */
+.goal-governance {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--accent, #4f8cff);
+  background: color-mix(in srgb, var(--panel, #fff) 92%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.goal-gov-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+.goal-gov-status {
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.goal-gov-directive {
+  margin-top: 4px;
+  color: #666;
+}
+.goal-gov-broken {
+  margin-top: 4px;
+  color: #c0392b;
+}
+.goal-gov-stalled {
+  color: #c0392b;
+  font-weight: 600;
+}

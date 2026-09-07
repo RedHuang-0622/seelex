@@ -15,6 +15,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/worktable"
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/session"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // serviceAssembler is the composition root for the application service. It
@@ -92,6 +93,17 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.sessions.ActiveID()
 		},
 	})
+	// P1：会话级 goal 治理协调器（第五栈持久化经 Runtime 按会话注入；
+	// Runtime 未实现 SessionContextStoreFor 时退化为内存态）。
+	var goalStoreFor func(sessionID string) *sessionstore.SessionContextStore
+	if provider, ok := assembler.deps.Runtime.(interface {
+		SessionContextStoreFor(sessionID string) *sessionstore.SessionContextStore
+	}); ok {
+		goalStoreFor = provider.SessionContextStoreFor
+	}
+	service.components.goal = newGoalCoordinator(goalCoordinatorDeps{
+		StoreFor: goalStoreFor,
+	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,
 		PromptStack:   promptStack,
@@ -126,6 +138,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 			return service.sessions.ActiveID()
 		},
 		Tasks: service.components.tasks,
+		Goals: service,
 		RefreshWorkTableLocked: func(tasks []dto.TaskRecord) {
 			service.refreshWorkTableLocked(tasks)
 		},

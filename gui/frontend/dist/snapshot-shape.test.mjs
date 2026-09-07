@@ -92,7 +92,7 @@ test("runtime ownership tables mirror the G3 model split without overlap", () =>
   // target-design §2.4：effort/fullAccess/tokens/replan/plan/todo/subagent
   // 树/激活 skill/worktable 属于会话；model/provider/account/plugin/能力
   // 清单/定时任务属于进程。
-  for (const key of ["effort", "full_access", "tokens", "replan", "plan", "todo_items", "subagent_tree", "goal_skill_active", "active_skills", "work_table", "work_table_batches"]) {
+  for (const key of ["effort", "full_access", "tokens", "replan", "plan", "todo_items", "subagent_tree", "goal_skill_active", "goal_governance", "active_skills", "work_table", "work_table_batches"]) {
     assert.ok(shape.SESSION_RUNTIME_KEYS.includes(key), `session runtime must own ${key}`);
   }
   for (const key of ["model", "provider", "account", "plugin", "visible_tools", "skills", "plugins", "accounts", "scheduled_tasks", "scheduled_commands"]) {

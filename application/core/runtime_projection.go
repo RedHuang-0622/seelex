@@ -3,6 +3,7 @@ package core
 import (
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/view_state"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
@@ -11,8 +12,13 @@ import (
 // 不可变值。Runtime 因此不会从工具可见性或子代理路径回调 Application。
 func (service *Service) publishRuntimeProjections() {
 	service.ViewMu.RLock()
+	var goalGovernance *dto.GoalGovernanceView
+	if service.components.goal != nil {
+		goalGovernance = service.components.goal.GoalGovernanceViewFor(service.Core.Snapshot.Session.ID)
+	}
 	projection := seelebridge.RuntimeVisibilityProjection{
 		GoalSkillActive: service.components.tasks.GoalSkillActive(),
+		GoalGovernance:  goalGovernance,
 	}
 	evidence := seelebridge.ParentEvidenceProjection{
 		SessionID:         service.Core.Snapshot.Session.ID,

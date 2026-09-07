@@ -437,10 +437,19 @@ func sessionRuntimeOf(runtime RuntimeState) SessionRuntime {
 		TodoItems:        append([]dto.TodoItem(nil), runtime.TodoItems...),
 		SubAgentTree:     append([]dto.SubAgentTreeNode(nil), runtime.SubAgentTree...),
 		GoalSkillActive:  runtime.GoalSkillActive,
+		GoalGovernance:   cloneGoalGovernanceView(runtime.GoalGovernance),
 		ActiveSkills:     append([]string(nil), runtime.ActiveSkills...),
 		WorkTable:        CloneWorkItems(runtime.WorkTable),
 		WorkTableBatches: CloneWorkTableBatches(runtime.WorkTableBatches),
 	}
+}
+
+func cloneGoalGovernanceView(view *dto.GoalGovernanceView) *dto.GoalGovernanceView {
+	if view == nil {
+		return nil
+	}
+	copyView := *view
+	return &copyView
 }
 
 // sessionEventFilter 构造会话级订阅谓词（口径见 SubscribeSession）。

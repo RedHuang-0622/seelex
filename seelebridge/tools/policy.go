@@ -10,7 +10,10 @@ import (
 // PolicyDeps 是可见性策略的跨域闭包（goal skill 激活判定 + 插件过滤）。
 type PolicyDeps struct {
 	GoalSkillActive func() bool
-	PluginFilter    func([]types.Tool) []types.Tool
+	// GoalActive 报告 goal 治理是否激活（goal skill 激活或有活跃 goal 治理）；
+	// 控制 goal 工具族对主代理的可见性（P1 门控）。
+	GoalActive   func() bool
+	PluginFilter func([]types.Tool) []types.Tool
 }
 
 // Policy 是 bridge.WithVisibilityPolicy 要求的函数类型策略的实现：
@@ -40,6 +43,9 @@ func (p *Policy) Filter(ctx context.Context, tools []types.Tool) []types.Tool {
 		if scope.NodeID != "" && scope.Role == model.RoleSubAgent && nodeScopeExcludedTool(name) {
 			continue
 		}
+		if isGoalTool(name) && (scope.Role == model.RoleSubAgent || !p.goalActive()) {
+			continue
+		}
 		// plan 工具面归位（plan.md §6）：主代理与 entry 节点的 plan 工具族
 		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
 		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
@@ -59,6 +65,26 @@ func (p *Policy) goalSkillActive() bool {
 		return false
 	}
 	return p.deps.GoalSkillActive()
+}
+
+func (p *Policy) goalActive() bool {
+	if p == nil {
+		return false
+	}
+	if p.deps.GoalActive != nil && p.deps.GoalActive() {
+		return true
+	}
+	return p.goalSkillActive()
+}
+
+// isGoalTool 判断 goal 工具族（goal_begin 等只对主代理、goal 治理可见）。
+func isGoalTool(name string) bool {
+	switch name {
+	case "goal_begin", "goal_update", "goal_status", "goal_propose_finish":
+		return true
+	default:
+		return false
+	}
 }
 
 // isPlanTool 判断 plan 工具族（goal skill 激活时对主代理可见）。

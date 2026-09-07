@@ -25,6 +25,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
 // headlessEnvPort 是启用 headless 冒烟接口的环境变量（回环端口号）。
@@ -134,6 +137,9 @@ func writeRPCError(writer http.ResponseWriter, message string) {
 // dispatch 把冒烟驱动的方法调用映射到 Application（含会话级扩展）契约。
 // 新增 GUI 命令时在这里补一行即可；命令本身仍走 application core。
 func (server *headlessServer) dispatch(method string, args []json.RawMessage) (any, error) {
+	if strings.HasPrefix(method, "goal.") {
+		return server.dispatchGoal(method, args)
+	}
 	stringArg := func(index int, name string) (string, error) {
 		if index >= len(args) {
 			return "", fmt.Errorf("%s 缺少参数 %s", method, name)
@@ -282,6 +288,70 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 		return nil, sessionAware.ActivateSession(sessionID)
 	}
 	return nil, fmt.Errorf("未知 headless 方法: %s", method)
+}
+
+// goalRPCApplication 是 Application 的 goal 扩展面（P1 headless 透传：
+// goal.<method> → application goal 协调器，按当前视图会话路由）。
+type goalRPCApplication interface {
+	GoalBeginFor(context.Context, string, goaldomain.BeginRequest) (*goaldomain.GoalRecord, error)
+	GoalUpdateFor(context.Context, string, goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)
+	GoalProposeFinishFor(context.Context, string, goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)
+	GoalStatusFor(string) (goaldomain.StatusView, error)
+	GoalNextFor(context.Context, string) (bool, error)
+	GoalBreakFor(context.Context, string, string) error
+	GoalGovernanceViewFor(string) *dto.GoalGovernanceView
+}
+
+// dispatchGoal 把 goal.<method> 透传到 application（当前视图会话）。
+func (server *headlessServer) dispatchGoal(method string, args []json.RawMessage) (any, error) {
+	app, ok := server.app.(goalRPCApplication)
+	if !ok {
+		return nil, fmt.Errorf("%s: 当前 Application 未装配 goal 扩展面", method)
+	}
+	sessionID := server.app.Snapshot().Session.ID
+	ctx := context.Background()
+	decodeArg := func(destination any) error {
+		if len(args) == 0 {
+			return nil
+		}
+		return json.Unmarshal(args[0], destination)
+	}
+	switch method {
+	case "goal.begin":
+		var request goaldomain.BeginRequest
+		if err := decodeArg(&request); err != nil {
+			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
+		}
+		return app.GoalBeginFor(ctx, sessionID, request)
+	case "goal.update":
+		var request goaldomain.UpdateRequest
+		if err := decodeArg(&request); err != nil {
+			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
+		}
+		return app.GoalUpdateFor(ctx, sessionID, request)
+	case "goal.propose_finish":
+		var request goaldomain.FinishRequest
+		if err := decodeArg(&request); err != nil {
+			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
+		}
+		return app.GoalProposeFinishFor(ctx, sessionID, request)
+	case "goal.status":
+		return app.GoalStatusFor(sessionID)
+	case "goal.gov_next":
+		return app.GoalNextFor(ctx, sessionID)
+	case "goal.gov_snapshot":
+		return app.GoalGovernanceViewFor(sessionID), nil
+	case "goal.gov_break":
+		var request struct {
+			Reason string `json:"reason"`
+		}
+		if err := decodeArg(&request); err != nil {
+			return nil, fmt.Errorf("%s 参数解码失败: %w", method, err)
+		}
+		return nil, app.GoalBreakFor(ctx, sessionID, request.Reason)
+	default:
+		return nil, fmt.Errorf("未知 goal headless 方法: %s", method)
+	}
 }
 
 // waitContext 为异步等待类 RPC 构造带护栏的 context：显式 timeoutSeconds

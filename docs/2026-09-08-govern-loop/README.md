@@ -1,7 +1,10 @@
 # 多代理治理循环：桌游式回合抽象（govern）与 goal 域适配
 
 > 日期：2026-09-08 · 状态：设计 + 已落地代码（`application/core/govern`、
-> `application/core/goal/adapter.go` + 测试）
+> `application/core/goal/adapter.go` + 测试；P2 goal 第五栈持久化：
+> `sessionstore.SessionContextRecord.GoalStack` v2 + goal `ContextStateStore`
+> + GoalAudit 会话级 append-only 审计 + fork 不继承，见
+> `docs/2026-09-08-govern-loop/design.md` §2.1c/§9.3）
 > 系列：承接 `docs/2026-09-07-goal-domain-techleader/` 与
 > `docs/2026-09-07-seele-a2a-framework-req/`；本文回答"多代理怎么按回合
 > 共同治理一个会话，且能被显式打断"。
@@ -106,6 +109,7 @@ $env:SEELEX_LIVE_SMOKE='1'; go test ./tmp/goal-tl-live-smoke -v -count=1
 
 ## 7. 后续（未做，标注规划）
 
-- 把 govern 循环接入 seelebridge/application 真实会话工具面（P0-wiring）；
-- sessionstore 持久化治理快照（轮次/断环原因审计留档）；
+- 把 govern 循环接入 seelebridge/application 真实会话工具面（P1 会话挂接）；
+- sessionstore 持久化治理快照（轮次/断环原因审计留档）——goal 栈第五栈
+  持久化已落地（Restore 语义），治理快照与 append-only 账本仍为 P2b 规划；
 - 前端投影治理循环状态（seat/round/broken）。

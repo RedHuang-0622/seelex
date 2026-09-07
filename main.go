@@ -228,6 +228,12 @@ func run() error {
 		app.AddNotice("⚠ 启动配置警告: " + warning)
 	}
 	registerTaskTerminalTools(runtime, app)
+	registerGoalTools(runtime, app)
+	// P1：真实 TL 评估器装配（seelebridge 账号 completer → goal 域
+	// TLEvaluator）；注入发生在首次会话启动前，Supervisor 首次 bind 即启用。
+	if tlEvaluator := runtime.GoalTLEvaluator(); tlEvaluator != nil {
+		app.SetGoalTLEvaluator(tlEvaluator)
+	}
 	registerSkillActivateTool(runtime, skillRegistry, func(name string) (skill.Skill, error) {
 		info, err := app.ActivateSkill(name)
 		if err != nil {

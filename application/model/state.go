@@ -197,6 +197,9 @@ type RuntimeState struct {
 	SubAgentTree []dto.SubAgentTreeNode `json:"subagent_tree,omitempty"`
 	// GoalSkillActive 是 goal skill 激活投影（右侧栏「目标」面板 badge）。
 	GoalSkillActive bool `json:"goal_skill_active,omitempty"`
+	// GoalGovernance 是本会话 goal 治理只读视图（无 goal 时为 nil；前端
+	// 据此渲染「目标 + 治理」面板与心跳）。
+	GoalGovernance *dto.GoalGovernanceView `json:"goal_governance,omitempty"`
 	// ActiveSkills 是当前任务的激活 skill ID 列表（「目标」面板数据源）。
 	ActiveSkills []string `json:"active_skills,omitempty"`
 	// WorkTable 是工作台统一工作表格的权威投影（plan 节点 / todolist 项 /
@@ -619,9 +622,10 @@ type SessionRuntime struct {
 	Plan       *PlanState     `json:"plan,omitempty"`
 	TodoItems  []dto.TodoItem `json:"todo_items,omitempty"`
 	// SubAgentTree 是 fork 子代理树的权威投影（本会话槽）。
-	SubAgentTree    []dto.SubAgentTreeNode `json:"subagent_tree,omitempty"`
-	GoalSkillActive bool                   `json:"goal_skill_active,omitempty"`
-	ActiveSkills    []string               `json:"active_skills,omitempty"`
+	SubAgentTree    []dto.SubAgentTreeNode  `json:"subagent_tree,omitempty"`
+	GoalSkillActive bool                    `json:"goal_skill_active,omitempty"`
+	GoalGovernance  *dto.GoalGovernanceView `json:"goal_governance,omitempty"`
+	ActiveSkills    []string                `json:"active_skills,omitempty"`
 	// WorkTable 是工作台统一工作表格的权威投影（本会话槽）。
 	WorkTable        []WorkItem       `json:"work_table,omitempty"`
 	WorkTableBatches []WorkTableBatch `json:"work_table_batches,omitempty"`
@@ -729,6 +733,10 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.Accounts = append([]AccountInfo(nil), runtime.Accounts...)
 	copyRuntime.TodoItems = append([]dto.TodoItem(nil), runtime.TodoItems...)
 	copyRuntime.ActiveSkills = append([]string(nil), runtime.ActiveSkills...)
+	if runtime.GoalGovernance != nil {
+		goalView := *runtime.GoalGovernance
+		copyRuntime.GoalGovernance = &goalView
+	}
 	copyRuntime.ScheduledTasks = append([]dto.ScheduledTaskStatus(nil), runtime.ScheduledTasks...)
 	copyRuntime.ScheduledCommands = append([]dto.ScheduledCommandInfo(nil), runtime.ScheduledCommands...)
 	if runtime.Plan != nil {

@@ -67,6 +67,21 @@ func (b *sessionBindings) contextStore() *sessionstore.SessionContextStore {
 	return b.ctxStore
 }
 
+// SessionContextStoreFor 返回指定会话的 SessionContextStore（goal 第五栈
+// 装配旁路；未实例化/未绑定 → nil）。
+func (r *Runtime) SessionContextStoreFor(sessionID string) *sessionstore.SessionContextStore {
+	if r == nil || sessionID == "" {
+		return nil
+	}
+	r.bundlesMu.RLock()
+	bundle := r.bundles[sessionID]
+	r.bundlesMu.RUnlock()
+	if bundle == nil {
+		return nil
+	}
+	return bundle.binding.contextStore()
+}
+
 // getTurnArchiver 返回全局轮次归档器（跨会话共享；nil = 未注入）。
 func (r *Runtime) getTurnArchiver() seelexctx.TurnArchiver {
 	r.turnArchiverMu.RLock()

@@ -317,6 +317,15 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			}
 			return r.node.GoalSkillActive()
 		},
+		GoalActive: func() bool {
+			if projection := r.visibilityProjection.Load(); projection != nil {
+				if projection.GoalSkillActive {
+					return true
+				}
+				return projection.GoalGovernance != nil && projection.GoalGovernance.Active
+			}
+			return false
+		},
 		PluginFilter: r.plugins.Filter,
 	})
 
