@@ -1,10 +1,12 @@
 package goal
 
-// directive.go：Controller 的 TL 指令记录扩展（Part II MVP）。
-// TLDirective 在 ChatStream 边界注入 mainagent 下一轮；同时以有界摘要写入
-// 当前 active goal 的指令环形记录（GoalRecord.Directives ≤ MaxDirectives）——
-// 该环既是 Goal 帧/TL 嵌入的 TLMemory（最近指引），也是审计与恢复素材
-// （design §3.2 GoalRecord.TLDirective / §3.5）。
+// directive.go：Controller 的 TL 指令记录扩展（Part I 遗留 API，deprecated）。
+//
+// 旧"同会话共享"治理把 TLDirective 摘要写回 active goal 指令环（GoalRecord.Directives），
+// 供 Goal 帧/嵌入回读 TLMemory。DS-A2A 起该写回已移除：b 的记忆由其自身上下文
+// （AdvisorSession.Rounds）承担，产物经 DirectiveBus corr 信封受信注入 EXEC，**不再写
+// goal 共享状态**（见 advisor.go / techleader.go）。本 API 保留仅供审计/兼容调用，
+// 治理代码不得再调用（新增用例须断言 active.Directives 不被 b 回合写回）。
 
 import (
 	"context"

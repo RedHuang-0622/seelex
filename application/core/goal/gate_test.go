@@ -26,9 +26,13 @@ func TestProposeFinishVerdictNotDoneBlocks(t *testing.T) {
 	if result.Directive == nil || result.Directive.Kind != DirectiveVerdictNotDone {
 		t.Fatalf("应携带纠偏指令: %+v", result.Directive)
 	}
-	// 目标仍在栈上（未弹栈）、指令环记录了纠偏。
-	if active, _ := ctl.ActiveGoal(); active == nil || active.Title != "发布 v1" || len(active.Directives) == 0 {
-		t.Fatalf("goal 应保持 active 且带纠偏: %+v", active)
+	// 目标仍在栈上（未弹栈）；纠偏指令走 b→a corr 信封（不回写 goal 共享指令环）。
+	if active, _ := ctl.ActiveGoal(); active == nil || active.Title != "发布 v1" || len(active.Directives) != 0 {
+		t.Fatalf("goal 应保持 active 且不被 b 写共享状态: %+v", active)
+	}
+	directives := sup.Mailbox().DrainDirectives()
+	if len(directives) != 1 || directives[0].Kind != DirectiveVerdictNotDone || directives[0].Corr == "" {
+		t.Fatalf("纠偏应经 corr 信封待 EXEC 领取: %+v", directives)
 	}
 	if projection := ctl.Projection(); projection.Active == nil || len(projection.Goals) != 1 {
 		t.Fatalf("投影应保持 1 个 active: %+v", projection)

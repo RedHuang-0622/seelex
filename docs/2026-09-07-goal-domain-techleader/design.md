@@ -1,5 +1,10 @@
 # Goal 域 + TechLeader A2A 详细设计
 
+> **状态：演进档案（已按 2026-09-07 DS-A2A 更新）。** §3 Part I（goal 对象/栈/工具/投影/持久化）为基线；
+> §4-§5 Part II 的 TechLeader 同会话双角色共享上下文（实时重建 + tail 尾窗 + 指令环写回）已被
+> DS-A2A 双会话治理取代（协议 v0.1 + 详设；goal 域落地 `advisor.go/techleader.go/gate.go`）；
+> 旧 `techleader-mvp.md` 相应 SUPERSEDED。
+
 > 状态：Draft（设计提案，非实现事实）
 > 日期：2026-09-07
 > 配套：架构总览见同目录 `architecture.md`（§决策清单 D1–D8 待用户拍板）。

@@ -154,17 +154,6 @@ func (s *Server) dispatch(ctx context.Context, method string, args []json.RawMes
 			return nil, err
 		}
 		return sup.Mailbox().DrainDirectives(), nil
-	case "goal_tl_tail":
-		sup, err := s.supervisorFor(method)
-		if err != nil {
-			return nil, err
-		}
-		var tail []TurnBrief
-		if err := decode(&tail); err != nil {
-			return nil, err
-		}
-		sup.SetSessionTail(tail)
-		return nil, nil
 	case "goal_propose_finish":
 		sup, err := s.supervisorFor(method)
 		if err != nil {

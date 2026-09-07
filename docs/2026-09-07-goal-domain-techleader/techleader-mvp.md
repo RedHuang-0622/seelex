@@ -1,5 +1,11 @@
 # TechLeader A2A MVP（Part II 可运行切片，2026-09-07）
 
+> **状态：SUPERSEDED（实现档案，2026-09-07 DS-A2A 起）。** 本文描述的"单会话双角色共享上下文"MVP
+> （Supervisor 每回合从 Controller 实时重建 goal 帧 + tail 尾窗 + AppendDirective 写 goal 指令环）
+> 已按 DS-A2A 双会话治理重构移除：goal 包现为 b 独立上下文（锚点 + 帧账本 ref_seq + 自身回合段）
+> + corr 信封 DirectiveBus + on_eval 镜像 + B4 缺席 gate（`application/core/goal/{advisor,techleader,gate}.go`，
+> 协议见 `docs/2026-09-07-seele-a2a-framework-req/`）。Part I（`prototype.md`）与 headless 契约保持有效。
+
 > 配套 `prototype.md`（Part I：goal 域 + headless 调教接口）与 `design.md`（P0-P2 全量设计）。
 > 本文记录 **goal MVP 的 Part II**：单会话双角色 TechLeader + A2A 契约 + 上下文共享机制——
 > 全部以 MVP 为导向实现于 `application/core/goal`，可在 headless 上驱动闭环，并有测试收束。

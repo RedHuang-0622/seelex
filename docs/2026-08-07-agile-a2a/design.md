@@ -1,5 +1,6 @@
 # Seelex 敏捷开发 A2A 详细设计（Tech Leader × Programmer）
 
+> **状态：ARCHIVED（陈旧方案，2026-09-07 废弃）。** 本 Plan-DAG 双角色原型（Tech Leader x Programmer、verify 失败回边循环、tmp/a2a-agile-smoke runLoop）已移除——DAG 子代理调度难做 tracing，被 DS-A2A 双会话治理取代（见 docs/2026-09-07-seele-a2a-framework-req/：协议 v0.1 + 详设；goal 域落地 application/core/goal/）。本目录仅作演进档案保留，不再作为实现依据。
 > 状态：Draft（设计提案，非实现事实）
 > 日期：2026-08-07
 > 配套：架构总览、角色模型、状态机、映射表见同目录 `architecture.md`。

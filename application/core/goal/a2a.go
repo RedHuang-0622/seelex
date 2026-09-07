@@ -1,12 +1,14 @@
 package goal
 
-// a2a.go 承载 goal 条件下的双角色 A2A 契约（Part II MVP，design.md §4-§5 的可运行切片）：
-// mainagent（执行）与 TechLeader（只读评估）共享同一会话/goal 栈，经三类结构化消息通信——
-//   1. TLEvalSignal    执行事件 → TL（turn/checkpoint/compaction/预算/审批/终态提议）；
-//   2. TLSessionEmbed  每次 TL 回合的有界输入（goal 帧强制嵌入 + 会话尾窗 + 待处理信号）；
-//   3. TLDirective     TL → mainagent（纠偏/规范提示/校验裁决/升级人工/审批代答）。
-// 语义护栏（design §6）：TL 无写工具（只产指令）、队列有界且溢出仅计数（状态可重读追平）、
-// 每次评估强制嵌入 goal 帧（TL 不忘目标）、指令注入长度有界。
+// a2a.go 承载 goal 条件下的 DS-A2A 双会话契约（协议 v0.1 的可运行切片，取代旧"同会话
+// 双角色共享上下文"方案 A 语义）：
+//   1. TLEvalSignal    EXEC(a) 事件登记 → 治理编排（turn 跳帧/checkpoint/compaction/审批/终态）；
+//   2. TLSessionEmbed  ADVISOR(b) 回合输入 = b 自身上下文（锚点 + 帧账本 + 自身回合记忆），
+//                      前缀稳定只尾部追加 ⇒ 缓存命中可观测（协议 §2 C1-C5）；
+//   3. TLDirective     b → a 结构化建议帧（corr 信封幂等；经 DirectiveBus 受信注入，不回写 goal）。
+// 治理编排与 b 生命周期见 advisor.go / techleader.go；终态 gate 与缺席默认见 gate.go。
+// 有界护栏：指令队列 cap MaxDirectiveQueue、内容 ≤ MaxDirectiveRunes、信号 Detail 有界、
+// b 回合记忆 ≤ MaxEmbedRounds、锚点必带（TL 不忘目标 = b 上下文含锚点快照）。
 
 import (
 	"context"
@@ -16,27 +18,19 @@ import (
 	"time"
 )
 
-// ---- 有界性常量（MVP 护栏；见 seelexctx.Limits 对齐目标） ----
+// ---- 有界性常量（DS-A2A 护栏） ----
 
 const (
-	// MaxSignalQueue 是待处理信号队列上限（对齐子代理 actor 通道 cap 256 的语义）。
-	MaxSignalQueue = 256
-	// MaxEmbedTail 是有界会话嵌入保留的最近轮次条数。
-	MaxEmbedTail = 8
-	// MaxDirectiveQueue 是待 mainagent 排空（drain）的指令队列上限。
+	// MaxDirectiveQueue 是 b→a 指令信封队列上限。
 	MaxDirectiveQueue = 32
 	// MaxDirectiveRunes 是单条 TLDirective.Content 上限（注入边界护栏）。
 	MaxDirectiveRunes = 1200
 	// MaxSignalDetailRunes 是单条信号 Detail 上限。
 	MaxSignalDetailRunes = 400
-	// MaxEmbedSignalsPerRound 是单回合嵌入携带的信号条数上限（截断计数）。
-	MaxEmbedSignalsPerRound = 16
-	// MaxGoalFrameProgress 是嵌入 goal 帧携带的最近 progress 条数。
+	// MaxGoalFrameProgress 是锚点 goal 帧携带的 progress 条数上限。
 	MaxGoalFrameProgress = 3
-	// DefaultEvalWindow 是非关键信号自动评估的最小轮次间隔（design D5：≤1 次/3-5 轮）。
+	// DefaultEvalWindow 是非关键信号自动评估的最小轮次间隔（≤1 次/3-5 轮）。
 	DefaultEvalWindow = 3
-	// DefaultSupervisorQueueCap 是 Supervisor 默认命令/队列容量上限。
-	DefaultSupervisorQueueCap = 64
 )
 
 // ---- 信号（exec → TL） ----
@@ -124,13 +118,14 @@ const (
 
 var validSeverities = map[Severity]bool{SeverityP0: true, SeverityP1: true, SeverityP2: true}
 
-// TLDirective 是 TL → mainagent 的结构化指令（design §5.4）。
+// TLDirective 是 b(ADVISOR) → a(EXEC) 的结构化指令（协议 §5 建议帧/裁决；corr 幂等信封）。
 type TLDirective struct {
 	GoalID   string        `json:"goal_id,omitempty"`
 	Kind     DirectiveKind `json:"kind"`
-	Content  string        `json:"content"`            // 有界指令文本（注入 mainagent 下一轮）
+	Content  string        `json:"content"`            // 有界指令文本（受信注入 a，不回写 goal 共享状态）
 	Refs     []string      `json:"refs,omitempty"`     // 事件/文件引用（≤16）
 	Severity Severity      `json:"severity,omitempty"` // P0/P1/P2（escalate 携带）
+	Corr     string        `json:"corr,omitempty"`     // 关联 id：b 回合 Round.Corr（去重/审计）
 	At       int64         `json:"at,omitempty"`
 }
 
@@ -211,33 +206,34 @@ func goalFrameOf(record *GoalRecord) GoalFrame {
 	return frame
 }
 
-// TurnBrief 是有界会话嵌入中的单轮摘要（设计 §5.3 SessionTail）。
-type TurnBrief struct {
-	Role    string `json:"role,omitempty"` // "mainagent" | "tool" | "user" | "tl"
-	Summary string `json:"summary"`
-	Tool    string `json:"tool,omitempty"`
-	At      int64  `json:"at,omitempty"`
-}
-
-// TLSessionEmbed 是投递给 TL 评估回合的有界输入（design §5.3）。
+// TLSessionEmbed 是一次 ADVISOR(b) 回合的有界输入（DS-A2A 协议 §5.3 语义）：
+// 内容全部来自 b 自身上下文 = PeerID + 锚点 goal.start 快照 + 追加帧账本（ref_seq 单调）
+// + b 自身回合记忆；不再包含 a 的实时会话尾窗 / 待处理共享信号（同会话共享治理已移除，
+// 见 docs/2026-09-07-goal-domain-techleader/techleader-mvp.md §旧制 vs ds-a2a-protocol.md）。
 type TLSessionEmbed struct {
-	Goal        GoalFrame      `json:"goal"`                      // 强制嵌入：栈顶 goal
-	SessionTail []TurnBrief    `json:"session_tail,omitempty"`    // 最近 ≤ MaxEmbedTail 轮
-	Pending     []TLEvalSignal `json:"pending_signals,omitempty"` // ≤ MaxEmbedSignalsPerRound
-	Trigger     string         `json:"trigger,omitempty"`         // 本回合触发原因
-	TLMemory    []string       `json:"tl_memory,omitempty"`       // 最近 TL 指令摘要（= goal.Directives）
+	PeerID   string    `json:"peer_id"`             // b 会话 id（协议 peer.bind）
+	Goal     GoalFrame `json:"goal"`                // 锚点快照（bind 时一次快照，不随 a 后续变化）
+	Frames   []Frame   `json:"frames,omitempty"`    // 追加帧（ref_seq 单调；跳帧自由）
+	TLMemory []string  `json:"tl_memory,omitempty"` // b 自身回合记忆（TL 记得自己说过什么，≤ MaxEmbedRounds）
+	Trigger  string    `json:"trigger,omitempty"`   // 本回合触发原因
+	Corr     string    `json:"corr,omitempty"`      // 本回合产物关联 id（协议 §5 幂等）
 }
 
-// Validate 校验嵌入（有界性快检；供测试与装配护栏使用）。
+// Validate 校验回合嵌入（有界性快检；供测试与装配护栏使用）。
 func (e TLSessionEmbed) Validate() error {
-	if len(e.SessionTail) > MaxEmbedTail {
-		return fmt.Errorf("%w: session tail 超限（> %d）", ErrInvalidArgument, MaxEmbedTail)
-	}
-	if len(e.Pending) > MaxEmbedSignalsPerRound {
-		return fmt.Errorf("%w: pending signals 超限（> %d）", ErrInvalidArgument, MaxEmbedSignalsPerRound)
+	if e.PeerID == "" {
+		return fmt.Errorf("%w: b 回合必须携带 peer 会话 id", ErrInvalidArgument)
 	}
 	if e.Goal.ID == "" {
-		return fmt.Errorf("%w: TL 回合必须携带 goal 帧（防遗忘）", ErrInvalidArgument)
+		return fmt.Errorf("%w: b 回合必须携带锚点 goal 帧（防遗忘）", ErrInvalidArgument)
+	}
+	for index := 1; index < len(e.Frames); index++ {
+		if e.Frames[index].RefSeq <= e.Frames[index-1].RefSeq {
+			return fmt.Errorf("%w: 帧 ref_seq 须严格递增", ErrInvalidArgument)
+		}
+	}
+	if len(e.TLMemory) > MaxEmbedRounds {
+		return fmt.Errorf("%w: tl memory 超限（> %d）", ErrInvalidArgument, MaxEmbedRounds)
 	}
 	return nil
 }

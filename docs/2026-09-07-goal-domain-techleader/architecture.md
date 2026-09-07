@@ -1,5 +1,10 @@
 # Goal 域 + TechLeader A2A 架构速览（2026-09-07）
 
+> **状态：演进档案（已按 2026-09-07 DS-A2A 更新）。** Part I（goal 栈/工具/投影）采纳为基线；
+> Part II 的 TechLeader **同会话双角色**已由 DS-A2A 双会话治理重构（b 独立上下文 + 帧账本 + corr 信封
+> + B4 缺席），见 `docs/2026-09-07-seele-a2a-framework-req/`（协议 v0.1 + 详设）与
+> `application/core/goal/{advisor,techleader,gate}.go`。
+
 > 状态：Draft（设计提案，非实现事实）
 > 日期：2026-09-07
 > 思路来源：goal 调研（`docs/research/goal-context-governance-2026-09.md`、

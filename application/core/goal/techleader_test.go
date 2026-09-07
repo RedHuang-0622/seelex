@@ -80,22 +80,31 @@ func TestA2AContractValidation(t *testing.T) {
 	if err := (TLDirective{Kind: DirectiveCorrect, Content: "x", Severity: "P9"}).Validate(); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("非法 severity 应报错: %v", err)
 	}
-	if err := (TLDirective{Kind: DirectiveCorrect, Content: "x"}).Validate(); err != nil {
-		t.Fatalf("合法 directive 应通过: %v", err)
+	if err := (TLDirective{Kind: DirectiveCorrect, Content: "x", Corr: "corr-1"}).Validate(); err != nil {
+		t.Fatalf("合法 directive（带 corr）应通过: %v", err)
 	}
 
-	embed := TLSessionEmbed{SessionTail: make([]TurnBrief, MaxEmbedTail+1)}
-	if err := embed.Validate(); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("超长 tail 应报错: %v", err)
+	// b 回合输入约束（DS-A2A）：peer 必填、锚点必填、帧 ref_seq 严格递增、记忆有界。
+	if err := (TLSessionEmbed{Goal: GoalFrame{ID: "g-1"}}).Validate(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("缺 peer id 应报错: %v", err)
 	}
-	if err := (TLSessionEmbed{Goal: GoalFrame{ID: "g-1"}}).Validate(); err != nil {
-		t.Fatalf("带 goal 帧的嵌入应通过: %v", err)
+	if err := (TLSessionEmbed{PeerID: "b-1"}).Validate(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("缺锚点 goal 应报错（防遗忘约束）: %v", err)
 	}
-	if err := (TLSessionEmbed{}).Validate(); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("缺 goal 帧应报错（防遗忘约束）: %v", err)
+	if err := (TLSessionEmbed{PeerID: "b-1", Goal: GoalFrame{ID: "g-1"}}).Validate(); err != nil {
+		t.Fatalf("合法嵌入应通过: %v", err)
+	}
+	nonMonotonic := TLSessionEmbed{PeerID: "b-1", Goal: GoalFrame{ID: "g-1"},
+		Frames: []Frame{{RefSeq: 3}, {RefSeq: 3}}}
+	if err := nonMonotonic.Validate(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("帧 ref_seq 非严格递增应报错: %v", err)
+	}
+	if err := (TLSessionEmbed{PeerID: "b-1", Goal: GoalFrame{ID: "g-1"},
+		TLMemory: make([]string, MaxEmbedRounds+1)}).Validate(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("TLMemory 超限应报错: %v", err)
 	}
 
-	// 关键信号分类（design §5.2）。
+	// 关键信号分类。
 	for _, kind := range []SignalKind{SignalContextCompacted, SignalBudgetWarning, SignalApprovalAsked, SignalTerminalProposal} {
 		if !IsCriticalSignal(kind) {
 			t.Fatalf("%s 应为关键信号", kind)
@@ -104,42 +113,37 @@ func TestA2AContractValidation(t *testing.T) {
 	if IsCriticalSignal(SignalTurnCompleted) || IsCriticalSignal(SignalStepCheckpoint) {
 		t.Fatal("turn_completed/step_checkpoint 不应为关键信号")
 	}
+
+	// 帧 kind 白名单。
+	for _, frame := range []FrameKind{FrameGoalStart, FrameGoalUpdated, FrameStepCheckpoint,
+		FrameContextCompacted, FrameApprovalRequested, FrameTerminalProposed} {
+		if err := (Frame{Kind: frame, RefSeq: 1}).Validate(); err != nil {
+			t.Fatalf("合法帧 %s 应通过: %v", frame, err)
+		}
+	}
+	if err := (Frame{Kind: "bogus", RefSeq: 1}).Validate(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("非法帧 kind 应报错: %v", err)
+	}
 }
 
-// ---- TechLeaderMailbox 有界队列 ----
+// ---- TechLeaderMailbox（b→a corr 信封队列） ----
 
-func TestMailboxBoundedQueuesAndOverflow(t *testing.T) {
-	mailbox := NewTechLeaderMailbox(2, 3)
+func TestMailboxBoundedDirectivesAndOverflow(t *testing.T) {
+	mailbox := NewTechLeaderMailbox(3)
 	for index := 0; index < 5; index++ {
-		mailbox.EnqueueSignal(TLEvalSignal{Kind: SignalTurnCompleted, Source: string(rune('a' + index))})
-	}
-	if got := mailbox.PendingSignals(); got != 2 {
-		t.Fatalf("信号队列应封顶 2, 得 %d", got)
-	}
-	signals, _ := mailbox.Overflow()
-	if signals != 3 {
-		t.Fatalf("信号溢出应计数 3, 得 %d", signals)
-	}
-	// 保留最新两条（丢弃最旧）。
-	taken := mailbox.TakeSignals(2)
-	if len(taken) != 2 || taken[1].Source != "e" || taken[0].Source != "d" {
-		t.Fatalf("应保留最新信号: %+v", taken)
-	}
-
-	for index := 0; index < 5; index++ {
-		mailbox.PublishDirective(TLDirective{Kind: DirectiveCorrect, Content: "x"})
+		mailbox.PublishDirective(TLDirective{Kind: DirectiveCorrect, Content: "x", Corr: string(rune('a' + index))})
 	}
 	if got := mailbox.PendingDirectives(); got != 3 {
 		t.Fatalf("指令队列应封顶 3, 得 %d", got)
 	}
-	_, overflowD := mailbox.Overflow()
-	if overflowD != 2 {
-		t.Fatalf("指令溢出应计数 2, 得 %d", overflowD)
+	if overflow := mailbox.Overflow(); overflow != 2 {
+		t.Fatalf("指令溢出应计数 2, 得 %d", overflow)
 	}
-	if drained := mailbox.DrainDirectives(); len(drained) != 3 {
-		t.Fatalf("排空应得 3 条, 得 %d", len(drained))
+	drained := mailbox.DrainDirectives()
+	if len(drained) != 3 || drained[0].Corr != "c" || drained[2].Corr != "e" {
+		t.Fatalf("应保留最新 3 条指令（丢最旧）: %+v", drained)
 	}
 	if drained := mailbox.DrainDirectives(); len(drained) != 0 {
-		t.Fatalf("二次排空应为空（幂等）")
+		t.Fatalf("二次排空应为空（corr 幂等消费）")
 	}
 }

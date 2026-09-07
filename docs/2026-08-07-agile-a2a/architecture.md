@@ -1,5 +1,6 @@
 # Seelex 敏捷开发 A2A 架构设计（Tech Leader × Programmer）
 
+> **状态：ARCHIVED（陈旧方案，2026-09-07 废弃）。** 本 Plan-DAG 双角色原型（Tech Leader x Programmer、verify 失败回边循环、tmp/a2a-agile-smoke runLoop）已移除——DAG 子代理调度难做 tracing，被 DS-A2A 双会话治理取代（见 docs/2026-09-07-seele-a2a-framework-req/：协议 v0.1 + 详设；goal 域落地 application/core/goal/）。本目录仅作演进档案保留，不再作为实现依据。
 > 状态：Draft（设计提案，非实现事实；代码与测试仍是"已实现"能力的唯一事实来源）
 > 日期：2026-08-07
 > 承接：W4 试点方案 [`../2026-08-06-agent-landscape-research/plan-iterative-product-pilot.md`](../2026-08-06-agent-landscape-research/plan-iterative-product-pilot.md)（M0–M4、DAG 模板、exit code 适应度、独立评审、人工生产门）与竞品调研 [`../2026-08-06-agent-landscape-research/research-agent-landscape-2026-08.md`](../2026-08-06-agent-landscape-research/research-agent-landscape-2026-08.md)。
@@ -204,6 +205,7 @@ approve_deliver [人工]       门3：生产门 → task_complete
 
 ## 5. 与现有架构的映射表（A2A 概念 × seelex 组件）
 
+> **状态：ARCHIVED（陈旧方案，2026-09-07 废弃）。** 本 Plan-DAG 双角色原型（Tech Leader x Programmer、verify 失败回边循环、tmp/a2a-agile-smoke runLoop）已移除——DAG 子代理调度难做 tracing，被 DS-A2A 双会话治理取代（见 docs/2026-09-07-seele-a2a-framework-req/：协议 v0.1 + 详设；goal 域落地 application/core/goal/）。本目录仅作演进档案保留，不再作为实现依据。
 > 状态口径：**现成** = 代码已实现；**半现成** = 机制在，但 A2A 契约语义缺一层薄壳；**缺口** = 需要新增或强化。
 
 | A2A 概念 | 期望语义 | seelex 现有组件（证据） | 状态 | 缺口处置 |

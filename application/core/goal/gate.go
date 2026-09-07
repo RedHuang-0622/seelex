@@ -1,15 +1,15 @@
 package goal
 
-// gate.go：会话/目标终态 gate + 审批预筛（design §5.5-§5.6 的 MVP 切片）。
+// gate.go：终态 gate + 审批预筛的 DS-A2A 语义（协议 §5 裁决 + §8 B4 缺席矩阵）。
 //
-// mainagent 提议终态（finish）不再直接收口：进入 ProposeFinish → TL 回合 →
-//   verdict_done        → 迁移 completed 并出栈（controller.Finish）；
-//   verdict_not_done    → 附纠偏指令写回 goal 指令环，目标保持 active（不终态）；
-//   escalate_human      → 保持 active，由调用方转人工（task_needs_user_decision 语义）；
-//   TL 未启用          → 回退直连 finish（保持 Part I 语义，MVP 兼容）。
+// EXEC(a) 提议终态（finish）不再直接收口：进入 ProposeFinish → b 回合（terminal.proposed
+// 帧 append 到 b 上下文后评估）→
+//   verdict_done     → 迁移 completed 并出栈（controller.Finish）；
+//   verdict_not_done → goal 保持 active（指令经 DirectiveBus corr 信封待 a 领取，不回写 goal）；
+//   escalate_human   → 保持 active，由调用方转人工（task_needs_user_decision 语义）；
+//   b 缺席（未启用/回合失败 429/超时） → 安全默认：low 放行（直连 finish 回退）/ high 升人工。
 //
-// 审批预筛（PreScreenApproval）：仅 low 风险可交给 TL 代答（approve/deny）；
-// high 风险与 TL 不可用时一律 escalate_human（默认拒绝兜底，design §5.5/§7 风险表）。
+// B4 铁律：a 永不等待 b —— 任何 gate 都有边界（回合失败不阻塞收口路径，goal 保持可驱动）。
 
 import (
 	"context"
@@ -22,9 +22,9 @@ type ProposalOutcome string
 
 const (
 	OutcomeNoGoal    ProposalOutcome = "no_goal"        // 栈空，无目标可收口
-	OutcomeNoTL      ProposalOutcome = "no_tl"          // TL 未启用 → 直连 finish（回退）
-	OutcomeCompleted ProposalOutcome = "completed"      // TL verdict_done → 收口出栈
-	OutcomeNotDone   ProposalOutcome = "not_done"       // TL verdict_not_done → 保持 active
+	OutcomeNoTL      ProposalOutcome = "no_tl"          // b 未启用/缺席 → 直连 finish（回退）
+	OutcomeCompleted ProposalOutcome = "completed"      // b verdict_done → 收口出栈
+	OutcomeNotDone   ProposalOutcome = "not_done"       // b verdict_not_done → 保持 active
 	OutcomeEscalate  ProposalOutcome = "escalate_human" // 保持 active，转人工
 )
 
@@ -36,8 +36,8 @@ type FinishProposalResult struct {
 	Message   string          `json:"message,omitempty"`
 }
 
-// ProposeFinish 把 mainagent 的 goal_finish 提议送入 TL 终态 gate。
-// TL 未启用/无评估器时直连 controller.Finish（Part I 兼容回退）。
+// ProposeFinish 把 EXEC 的 goal_finish 提议送入 b 终态 gate（DS-A2A）：
+// b 未启用/回合失败 → 安全默认（absent）。成功裁决按 done/not_done/escalate 走。
 func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (FinishProposalResult, error) {
 	if _, ok := s.ctl.ActiveGoal(); !ok {
 		return FinishProposalResult{Outcome: OutcomeNoGoal}, nil
@@ -47,21 +47,25 @@ func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (
 		if err != nil {
 			return FinishProposalResult{}, err
 		}
+		s.unbindIfTerminal("no_tl_absent")
 		return FinishProposalResult{Outcome: OutcomeNoTL, Goal: record}, nil
 	}
 
-	// TL 启用：入队 terminal_proposal 信号并强制一回合。
-	s.mailbox.EnqueueSignal(TLEvalSignal{
-		Kind:   SignalTerminalProposal,
-		At:     s.now(),
-		Source: "finish_gate",
-		Detail: boundedProposalDetail(request.Result),
-	})
+	// b 启用：terminal.proposed 帧进入 b 上下文并强制一回合。
 	s.mu.Lock()
-	directive, err := s.runEvalLocked(ctx, "gate:goal_finish")
+	directive, err := s.runRoundLocked(ctx, "gate:goal_finish", TLEvalSignal{
+		Kind: SignalTerminalProposal, Source: "finish_gate", Detail: boundedProposalDetail(request.Result),
+	})
 	s.mu.Unlock()
 	if err != nil {
-		return FinishProposalResult{}, err
+		// B4：b 缺席（429/超时/回合失败）——goal 保持 active，转人工/由上层决定（a 不卡死）。
+		active, _ := s.ctl.ActiveGoal()
+		s.unbindIfTerminal("evicted_round_failure")
+		return FinishProposalResult{
+			Outcome: OutcomeEscalate,
+			Goal:    active,
+			Message: fmt.Sprintf("b 回合失败（B4 缺席默认：转人工），goal 保持 active: %v", err),
+		}, nil
 	}
 
 	switch directive.Kind {
@@ -70,6 +74,7 @@ func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (
 		if err != nil {
 			return FinishProposalResult{}, err
 		}
+		s.unbindIfTerminal("done")
 		return FinishProposalResult{Outcome: OutcomeCompleted, Directive: &directive, Goal: record}, nil
 	case DirectiveVerdictNotDone:
 		current, ok := s.ctl.ActiveGoal()
@@ -107,8 +112,8 @@ func boundedProposalDetail(result string) string {
 type ApprovalOutcome string
 
 const (
-	ApprovalOutcomeApproved ApprovalOutcome = "approved"       // TL 代答放行（低风险）
-	ApprovalOutcomeDenied   ApprovalOutcome = "denied"         // TL 代答拒绝
+	ApprovalOutcomeApproved ApprovalOutcome = "approved"       // b 代答放行（低风险）
+	ApprovalOutcomeDenied   ApprovalOutcome = "denied"         // b 代答拒绝
 	ApprovalOutcomeEscalate ApprovalOutcome = "escalate_human" // 转人工（默认拒绝兜底在审批层）
 )
 
@@ -120,16 +125,16 @@ type ApprovalScreenRequest struct {
 	Ref       string `json:"ref,omitempty"`
 }
 
-// ApprovalVerdict 是预筛结果（reviewer=TL；escalate 时仍需原人工审批链）。
+// ApprovalVerdict 是预筛结果（reviewer=b；escalate 时仍需原人工审批链）。
 type ApprovalVerdict struct {
 	Outcome   ApprovalOutcome `json:"outcome"`
 	Directive *TLDirective    `json:"directive,omitempty"`
 	Message   string          `json:"message,omitempty"`
 }
 
-// PreScreenApproval 在 ask_approve/ApprovalBroker 前做 TL 预筛：
-//   - high 风险或 TL 不可用 → escalate_human（人工，默认拒绝兜底不变）；
-//   - low 风险 → TL 回合，directive approve → Approved；deny → Denied；其余 → Escalate。
+// PreScreenApproval 在 ask_approve/ApprovalBroker 前做 b 预筛（DS-A2A + B4）：
+//   - high 风险或 b 缺席 → escalate_human（人工，默认拒绝兜底不变）；
+//   - low 风险 → b 回合（approval.requested 帧）→ approve → Approved；deny → Denied；其余 → Escalate。
 func (s *Supervisor) PreScreenApproval(ctx context.Context, request ApprovalScreenRequest) (ApprovalVerdict, error) {
 	summary := strings.TrimSpace(request.Summary)
 	if summary == "" {
@@ -140,7 +145,7 @@ func (s *Supervisor) PreScreenApproval(ctx context.Context, request ApprovalScre
 	}
 	if !s.Enabled() {
 		return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate,
-			Message: "TL 未启用：转人工审批（默认拒绝兜底）"}, nil
+			Message: "b 未启用：转人工审批（默认拒绝兜底）"}, nil
 	}
 	if _, ok := s.ctl.ActiveGoal(); !ok {
 		return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate,
@@ -148,32 +153,31 @@ func (s *Supervisor) PreScreenApproval(ctx context.Context, request ApprovalScre
 	}
 	if strings.EqualFold(strings.TrimSpace(request.RiskLevel), "high") {
 		return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate,
-			Message: "high 风险不在 TL 代答白名单：转人工审批（默认拒绝兜底）"}, nil
+			Message: "high 风险不在 b 代答白名单：转人工审批（默认拒绝兜底）"}, nil
 	}
 
-	s.mailbox.EnqueueSignal(TLEvalSignal{
-		Kind:   SignalApprovalAsked,
-		At:     s.now(),
-		Source: "approval_prescreen",
-		Detail: boundedProposalDetail(summary),
-		Ref:    request.Ref,
-	})
 	s.mu.Lock()
-	directive, err := s.runEvalLocked(ctx, "gate:approval_prescreen")
+	directive, err := s.runRoundLocked(ctx, "gate:approval_prescreen", TLEvalSignal{
+		Kind: SignalApprovalAsked, Source: "approval_prescreen",
+		Detail: boundedProposalDetail(summary), Ref: request.Ref,
+	})
 	s.mu.Unlock()
 	if err != nil {
-		return ApprovalVerdict{}, err
+		// B4：b 缺席（429/超时）→ 转人工（默认拒绝兜底不变）。
+		s.unbindIfTerminal("evicted_round_failure")
+		return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate,
+			Message: fmt.Sprintf("b 回合失败（B4 缺席默认：转人工审批）: %v", err)}, nil
 	}
 	switch directive.Kind {
 	case DirectiveApprove:
 		return ApprovalVerdict{Outcome: ApprovalOutcomeApproved, Directive: &directive,
-			Message: "TL 代答放行（低风险白名单）"}, nil
+			Message: "b 代答放行（低风险白名单）"}, nil
 	case DirectiveDeny:
 		return ApprovalVerdict{Outcome: ApprovalOutcomeDenied, Directive: &directive,
 			Message: directive.Summary()}, nil
 	case DirectiveEscalateHuman:
 		return ApprovalVerdict{Outcome: ApprovalOutcomeEscalate, Directive: &directive,
-			Message: "TL 判越权：转人工审批"}, nil
+			Message: "b 判越权：转人工审批"}, nil
 	default:
 		return ApprovalVerdict{}, fmt.Errorf("%w: 预筛期望 approve/deny/escalate_human, 得 %q",
 			ErrBadDirective, directive.Kind)

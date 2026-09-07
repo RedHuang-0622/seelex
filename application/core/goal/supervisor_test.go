@@ -5,7 +5,15 @@ import (
 	"testing"
 )
 
-// TestTurnCompletedNeverEvals 验证 turn_completed 只计数不触发评估（design §5.2）。
+// 这些用例验证 DS-A2A 编排语义（替换旧"同会话共享"语义的监督器测试）：
+//   - turn_completed 只推进 a 事件水位、跳帧不评估（b 落后可观测）；
+//   - step_checkpoint 受 eval_window 抑制，到窗触发 b 回合（帧 append 到 b 上下文）；
+//   - 关键信号（compacted/approval/terminal）立即回合；
+//   - b 回合输入 = 锚点 + 追加帧（ref_seq 单调）+ 自身回合记忆，不含 a 实时尾窗；
+//   - b 产物走 corr 信封（DirectiveBus），不再写回 goal 共享指令环；
+//   - 无 active goal / TL 未启用 / 非法输出的边界保持不变。
+
+// TestTurnCompletedNeverEvals 验证 turn 跳帧：只计数不评估（用户例子中 a:6,7 而 b 不动）。
 func TestTurnCompletedNeverEvals(t *testing.T) {
 	ctl := newTestController(t, DefaultStackDepth)
 	sup, stub := newTestSupervisor(t, ctl, 0)
@@ -25,8 +33,8 @@ func TestTurnCompletedNeverEvals(t *testing.T) {
 	}
 }
 
-// TestEvalWindowSkipsAndFires 验证 eval_window（D5）：
-// step_checkpoint 在窗口内被抑制，窗口期满后触发。
+// TestEvalWindowSkipsAndFires 验证 eval_window（D5）：step 窗口内抑制、期满触发；
+// 回合产物 = corr 信封指令，且不回写 goal 共享状态。
 func TestEvalWindowSkipsAndFires(t *testing.T) {
 	ctl := newTestController(t, DefaultStackDepth)
 	sup, stub := newTestSupervisor(t, ctl, 3,
@@ -34,7 +42,6 @@ func TestEvalWindowSkipsAndFires(t *testing.T) {
 	if _, err := ctl.Begin(testCtx, BeginRequest{Title: "目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	// 1 轮 turn 后 step → 窗口 1<3 → 抑制。
 	if err := sup.Notify(testCtx, TLEvalSignal{Kind: SignalTurnCompleted}); err != nil {
 		t.Fatalf("notify: %v", err)
 	}
@@ -44,7 +51,6 @@ func TestEvalWindowSkipsAndFires(t *testing.T) {
 	if stub.evalCount() != 0 {
 		t.Fatalf("窗口内 step 不应评估, 得 %d", stub.evalCount())
 	}
-	// 再 2 轮 turn 使计数到 3 → step 触发。
 	if err := sup.Notify(testCtx, TLEvalSignal{Kind: SignalTurnCompleted}); err != nil {
 		t.Fatalf("notify: %v", err)
 	}
@@ -55,23 +61,35 @@ func TestEvalWindowSkipsAndFires(t *testing.T) {
 		t.Fatalf("notify: %v", err)
 	}
 	if stub.evalCount() != 1 {
-		t.Fatalf("窗口期满 step 应评估, 得 %d", stub.evalCount())
+		t.Fatalf("窗口期满 step 应触发 b 回合, 得 %d", stub.evalCount())
 	}
+
+	// b 产物 = corr 信封（DirectiveBus 一次性排空）。
 	directives := sup.Mailbox().DrainDirectives()
 	if len(directives) != 1 || directives[0].Kind != DirectiveCorrect {
 		t.Fatalf("指令未发布: %+v", directives)
 	}
-	// 指令摘要已写入 goal 指令环（Goal 帧/TLMemory 素材）。
+	if directives[0].Corr == "" {
+		t.Fatal("b→a 指令应带 corr 信封（幂等/审计）")
+	}
+	snapshot := sup.Snapshot()
+	if snapshot.RoundCount != 1 || snapshot.FrameCount == 0 || snapshot.Behind != 0 {
+		t.Fatalf("b 上下文应有 1 回合 + 帧账本、水位追平: %+v", snapshot)
+	}
+	if snapshot.Rounds[0].Corr != directives[0].Corr {
+		t.Fatalf("回合 corr 与指令信封不一致: %+v vs %+v", snapshot.Rounds[0], directives[0])
+	}
+	// DS-A2A：TL 产物不再写回 goal 共享指令环（同会话写污染已移除）。
 	active, _ := ctl.ActiveGoal()
-	if len(active.Directives) != 1 || active.Directives[0] != directives[0].Summary() {
-		t.Fatalf("goal 指令环未写入: %+v", active.Directives)
+	if len(active.Directives) != 0 {
+		t.Fatalf("b 回合不应写 goal 指令环（共享状态污染）: %+v", active.Directives)
 	}
 }
 
 // TestCriticalSignalImmediateEval 验证关键信号绕过窗口立即评估。
 func TestCriticalSignalImmediateEval(t *testing.T) {
 	ctl := newTestController(t, DefaultStackDepth)
-	sup, stub := newTestSupervisor(t, ctl, 100, // 大窗口也不该抑制关键信号
+	sup, stub := newTestSupervisor(t, ctl, 100,
 		TLDirective{Kind: DirectiveCorrect, Content: "压缩后重锚目标"})
 	if _, err := ctl.Begin(testCtx, BeginRequest{Title: "目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
@@ -89,12 +107,13 @@ func TestCriticalSignalImmediateEval(t *testing.T) {
 	}
 }
 
-// TestEmbedAlwaysCarriesGoalFrame 验证防遗忘约束（design §5.3/§9）：
-// 多次 turn 与一次 context_compacted 后，TL 回合嵌入仍含完整 goal 帧
-// （statement/acceptance/status/最近 progress）。
-func TestEmbedAlwaysCarriesGoalFrame(t *testing.T) {
+// TestEmbedCarriesAnchorAndFrames 验证 b 回合输入来自 b 自身上下文：
+// 锚点 goal.start 快照（bind 时一次），其后 a 的变化以 goal.update 差异帧 + 触发帧
+// （context.compacted）append 进 b 帧账本（ref_seq 单调），不含 a 实时尾窗。
+func TestEmbedCarriesAnchorAndFrames(t *testing.T) {
 	ctl := newTestController(t, DefaultStackDepth)
 	sup, stub := newTestSupervisor(t, ctl, 0,
+		TLDirective{Kind: DirectiveCheckpointOK, Content: "ok"},
 		TLDirective{Kind: DirectiveCheckpointOK, Content: "ok"})
 	if _, err := ctl.Begin(testCtx, BeginRequest{
 		Title: "发布 v1", Statement: "收敛版本并带测试",
@@ -102,45 +121,59 @@ func TestEmbedAlwaysCarriesGoalFrame(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
+	// 回合 1：bind（锚点 = begin 时快照）。
+	if err := sup.Notify(testCtx, TLEvalSignal{Kind: SignalStepCheckpoint, Source: "n-bind"}); err != nil {
+		t.Fatalf("notify checkpoint: %v", err)
+	}
+	// bind 之后 a 再 update → 差异由下个回合前的 goal.update 帧补上（on_eval 同步）。
 	if _, err := ctl.Update(testCtx, UpdateRequest{
 		ProgressKind: ProgressMilestone, ProgressContent: "框架装配完成",
 	}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	sup.SetSessionTail([]TurnBrief{
-		{Role: "mainagent", Summary: "跑测试"},
-		{Role: "tool", Summary: "go test 通过", Tool: "bash"},
-	})
 	for index := 0; index < 5; index++ {
 		if err := sup.Notify(testCtx, TLEvalSignal{Kind: SignalTurnCompleted}); err != nil {
 			t.Fatalf("notify: %v", err)
 		}
 	}
+	// 回合 2：关键信号 context_compacted → 立即回合（含 goal.update 补帧）。
 	if err := sup.Notify(testCtx, TLEvalSignal{Kind: SignalContextCompacted}); err != nil {
 		t.Fatalf("notify compacted: %v", err)
 	}
 
 	embed := stub.last()
 	if embed == nil {
-		t.Fatal("TL 未执行回合")
+		t.Fatal("b 未执行回合")
 	}
-	if embed.Goal.ID == "" || embed.Goal.Title != "发布 v1" || embed.Goal.Statement != "收敛版本并带测试" {
-		t.Fatalf("嵌入丢失 goal 帧: %+v", embed.Goal)
+	if embed.PeerID == "" || embed.Goal.ID == "" {
+		t.Fatalf("回合输入缺 peer/锚点: %+v", embed)
+	}
+	if embed.Goal.Title != "发布 v1" || embed.Goal.Statement != "收敛版本并带测试" {
+		t.Fatalf("锚点丢失 goal 帧: %+v", embed.Goal)
 	}
 	if len(embed.Goal.Acceptance) != 2 || embed.Goal.Acceptance[0] != "go test 全绿" {
-		t.Fatalf("嵌入丢失 acceptance: %+v", embed.Goal.Acceptance)
+		t.Fatalf("锚点丢失 acceptance: %+v", embed.Goal.Acceptance)
 	}
-	if len(embed.Goal.Progress) == 0 || embed.Goal.Progress[0].Content != "框架装配完成" {
-		t.Fatalf("嵌入丢失 progress: %+v", embed.Goal.Progress)
+	// 追加帧：goal.update 补帧（bind 后变化）+ context.compacted 触发帧。
+	hasUpdate, hasCompact := false, false
+	for _, frame := range embed.Frames {
+		switch frame.Kind {
+		case FrameGoalUpdated:
+			hasUpdate = true
+		case FrameContextCompacted:
+			hasCompact = true
+		}
 	}
-	if len(embed.SessionTail) != 2 {
-		t.Fatalf("会话尾窗应保留 2 条: %+v", embed.SessionTail)
+	if !hasUpdate || !hasCompact {
+		t.Fatalf("追加帧应含 goal.update 与 context.compacted: %+v", embed.Frames)
 	}
-	if len(embed.Pending) == 0 {
-		t.Fatal("嵌入应带待处理信号（compacted）")
+	for index := 1; index < len(embed.Frames); index++ {
+		if embed.Frames[index].RefSeq <= embed.Frames[index-1].RefSeq {
+			t.Fatalf("帧 ref_seq 须单调: %+v", embed.Frames)
+		}
 	}
 	if err := embed.Validate(); err != nil {
-		t.Fatalf("嵌入不合法: %v", err)
+		t.Fatalf("回合输入不合法: %v", err)
 	}
 }
 
@@ -159,7 +192,7 @@ func TestNoActiveGoalNoEval(t *testing.T) {
 	}
 }
 
-// TestTLDisabledFallback 验证 TL 未启用（无评估器）时不评估、指令直连不可用。
+// TestTLDisabledFallback 验证 TL 未启用（无评估器）时不评估、gate 走缺席直连。
 func TestTLDisabledFallback(t *testing.T) {
 	ctl := newTestController(t, DefaultStackDepth)
 	sup := NewSupervisor(ctl, nil, TechLeaderConfig{Enabled: true})
@@ -171,25 +204,22 @@ func TestTLDisabledFallback(t *testing.T) {
 	}
 }
 
-// TestBadDirectiveRejected 验证 TL 输出非法/超长/漂移指令被拒（design §5.3 有界丢弃告警）。
+// TestBadDirectiveRejected 验证 b 输出非法/超长/漂移指令被拒。
 func TestBadDirectiveRejected(t *testing.T) {
 	ctl := newTestController(t, DefaultStackDepth)
 	if _, err := ctl.Begin(testCtx, BeginRequest{Title: "目标"}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	// 超长内容。
 	longReply := newStubEvaluator(TLDirective{Kind: DirectiveCorrect, Content: string(make([]rune, MaxDirectiveRunes+1))})
 	sup := NewSupervisor(ctl, longReply, TechLeaderConfig{Enabled: true, EvalWindow: 0})
 	if _, err := sup.RunEval(testCtx, "x"); !errors.Is(err, ErrBadDirective) {
 		t.Fatalf("超长指令应报 ErrBadDirective, 得 %v", err)
 	}
-	// 未知 kind。
 	bogus := newStubEvaluator(TLDirective{Kind: "wat", Content: "x"})
 	sup2 := NewSupervisor(ctl, bogus, TechLeaderConfig{Enabled: true, EvalWindow: 0})
 	if _, err := sup2.RunEval(testCtx, "x"); !errors.Is(err, ErrBadDirective) {
 		t.Fatalf("非法 kind 应报 ErrBadDirective, 得 %v", err)
 	}
-	// goal 漂移。
 	drift := newStubEvaluator(TLDirective{Kind: DirectiveCorrect, Content: "x", GoalID: "g-other"})
 	sup3 := NewSupervisor(ctl, drift, TechLeaderConfig{Enabled: true, EvalWindow: 0})
 	if _, err := sup3.RunEval(testCtx, "x"); !errors.Is(err, ErrBadDirective) {
@@ -197,7 +227,8 @@ func TestBadDirectiveRejected(t *testing.T) {
 	}
 }
 
-// TestDirectiveEventAndRing 验证 controller.AppendDirective 发 goal.directive 事件并环形保留。
+// TestDirectiveEventAndRing 验证 Controller.AppendDirective 仍提供（审计/兼容），但 DS-A2A
+// 回合不再调用它（见 TestEvalWindowSkipsAndFires 的"不回写"断言）。
 func TestDirectiveEventAndRing(t *testing.T) {
 	ctl := newTestController(t, DefaultStackDepth)
 	sub := ctl.Subscribe(8)
@@ -214,7 +245,6 @@ func TestDirectiveEventAndRing(t *testing.T) {
 	if len(active.Directives) != MaxDirectives {
 		t.Fatalf("指令环应封顶 %d, 得 %d", MaxDirectives, len(active.Directives))
 	}
-	// 事件流含 goal.directive。
 	found := false
 	for {
 		select {

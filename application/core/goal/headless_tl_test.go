@@ -41,15 +41,7 @@ func TestHeadlessTLE2E(t *testing.T) {
 		t.Fatalf("goal_begin: %v", err)
 	}
 
-	// 2) 喂会话尾窗（有界嵌入素材）。
-	if err := client.Call(ctx, "goal_tl_tail", []TurnBrief{
-		{Role: "mainagent", Summary: "改代码"},
-		{Role: "tool", Summary: "跑 go test", Tool: "bash"},
-	}, nil); err != nil {
-		t.Fatalf("goal_tl_tail: %v", err)
-	}
-
-	// 3) step_checkpoint 信号 → 自动 TL 回合（eval_window=0）。
+	// 2) step_checkpoint 信号（DS-A2A：b 回合前自动 bind 锚点 + append 触发帧）→ b 回合。
 	if err := client.Call(ctx, "goal_tl_notify", TLEvalSignal{
 		Kind: SignalStepCheckpoint, Source: "n-verify", Detail: "完成实现，未跑测试",
 	}, nil); err != nil {
@@ -62,7 +54,13 @@ func TestHeadlessTLE2E(t *testing.T) {
 	if snapshot.EvalCount != 1 || snapshot.ActiveGoalTitle != "发布 v1" {
 		t.Fatalf("回合后快照异常: %+v", snapshot)
 	}
-	// 4) 排空指令（mainagent 下一轮领取）。
+	if snapshot.Peer != PeerBound && snapshot.Peer != PeerAdvisoryPending {
+		t.Fatalf("b 应处于 bound/advisory_pending, 得 %s", snapshot.Peer)
+	}
+	if snapshot.RoundCount != 1 || snapshot.FrameCount == 0 {
+		t.Fatalf("b 上下文应有 1 回合与帧账本: %+v", snapshot)
+	}
+	// 3) 排空指令（b→a corr 信封；EXEC 下一轮受信领取）。
 	var directives []TLDirective
 	if err := client.Call(ctx, "goal_tl_directives", nil, &directives); err != nil {
 		t.Fatalf("goal_tl_directives: %v", err)
@@ -70,16 +68,19 @@ func TestHeadlessTLE2E(t *testing.T) {
 	if len(directives) != 1 || directives[0].Kind != DirectiveCorrect || !strings.Contains(directives[0].Content, "go test") {
 		t.Fatalf("指令异常: %+v", directives)
 	}
-	// goal 指令环（TLMemory/Goal 帧素材）已写入。
+	if directives[0].Corr == "" || directives[0].Corr != snapshot.Rounds[0].Corr {
+		t.Fatalf("指令 corr 信封缺失/不一致: %+v vs %+v", directives[0], snapshot.Rounds[0])
+	}
+	// DS-A2A：b 产物不进 goal 共享状态（旧"TL 摘要写 goal 指令环"已移除）。
 	var status StatusView
 	if err := client.Call(ctx, "goal_status", nil, &status); err != nil {
 		t.Fatalf("goal_status: %v", err)
 	}
-	if len(status.Active.Directives) != 1 || !strings.Contains(status.Active.Directives[0], "correct") {
-		t.Fatalf("goal 指令环未写入: %+v", status.Active.Directives)
+	if len(status.Active.Directives) != 0 {
+		t.Fatalf("b 回合不应写 goal 指令环: %+v", status.Active.Directives)
 	}
 
-	// 5) propose_finish #1 → TL verdict_not_done → 拦截（仍 active）。
+	// 4) propose_finish #1 → b verdict_not_done → 拦截（仍 active）。
 	var proposal FinishProposalResult
 	if err := client.Call(ctx, "goal_propose_finish", FinishRequest{Result: "做完了"}, &proposal); err != nil {
 		t.Fatalf("goal_propose_finish#1: %v", err)
@@ -91,7 +92,7 @@ func TestHeadlessTLE2E(t *testing.T) {
 		t.Fatal("拦截后应有 active goal")
 	}
 
-	// 6) propose_finish #2 → TL verdict_done → 收口出栈。
+	// 5) propose_finish #2 → b verdict_done → 收口出栈 + b unbind(reason=done)。
 	if err := client.Call(ctx, "goal_propose_finish", FinishRequest{Result: "补完测试"}, &proposal); err != nil {
 		t.Fatalf("goal_propose_finish#2: %v", err)
 	}
@@ -100,6 +101,12 @@ func TestHeadlessTLE2E(t *testing.T) {
 	}
 	if projection := ctl.Projection(); projection.Active != nil || len(projection.Goals) != 0 {
 		t.Fatalf("收口后投影应为空: %+v", projection)
+	}
+	if err := client.Call(ctx, "goal_tl_snapshot", nil, &snapshot); err != nil {
+		t.Fatalf("goal_tl_snapshot(收口后): %v", err)
+	}
+	if snapshot.Peer != PeerReaped || snapshot.UnbindReason != "done" {
+		t.Fatalf("收口后 b 应 reaped(reason=done): %+v", snapshot)
 	}
 }
 
