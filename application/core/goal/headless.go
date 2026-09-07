@@ -18,12 +18,15 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/core/govern"
 )
 
 // Server 是 goal Headless 控制面（HTTP）。
 type Server struct {
 	controller *Controller
 	supervisor *Supervisor
+	governor   govern.Governor
 }
 
 // NewServer 构造 goal Headless 服务。
@@ -34,6 +37,12 @@ func NewServer(controller *Controller) *Server {
 // WithTechLeader 装配 TL 监督器（启用 goal_tl_* / goal_propose_finish / goal_prescreen RPC）。
 func (s *Server) WithTechLeader(supervisor *Supervisor) *Server {
 	s.supervisor = supervisor
+	return s
+}
+
+// WithGovernor 装配回合制治理循环（启用 goal_gov_* RPC：多代理治理测试面）。
+func (s *Server) WithGovernor(governor govern.Governor) *Server {
+	s.governor = governor
 	return s
 }
 
@@ -174,8 +183,34 @@ func (s *Server) dispatch(ctx context.Context, method string, args []json.RawMes
 			return nil, err
 		}
 		return sup.PreScreenApproval(ctx, request)
+	case "goal_gov_next":
+		if s.governor == nil {
+			return nil, fmt.Errorf("%s: 治理循环未装配（WithGovernor）", method)
+		}
+		more, err := s.governor.Next(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"more": more}, nil
+	case "goal_gov_snapshot":
+		if s.governor == nil {
+			return nil, fmt.Errorf("%s: 治理循环未装配（WithGovernor）", method)
+		}
+		return govern.SnapshotOf(s.governor), nil
+	case "goal_gov_break":
+		if s.governor == nil {
+			return nil, fmt.Errorf("%s: 治理循环未装配（WithGovernor）", method)
+		}
+		var request struct {
+			Reason string `json:"reason"`
+		}
+		if err := decode(&request); err != nil {
+			return nil, err
+		}
+		s.governor.Break(request.Reason)
+		return nil, nil
 	default:
-		return nil, fmt.Errorf("未知 method %q（可用: goal_begin/goal_update/goal_finish/goal_abort/goal_status/goal_projection/goal_tl_*/goal_propose_finish/goal_prescreen）", method)
+		return nil, fmt.Errorf("未知 method %q（可用: goal_begin/goal_update/goal_finish/goal_abort/goal_status/goal_projection/goal_tl_*/goal_propose_finish/goal_prescreen/goal_gov_next/goal_gov_snapshot/goal_gov_break）", method)
 	}
 }
 

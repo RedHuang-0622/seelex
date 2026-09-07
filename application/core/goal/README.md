@@ -216,6 +216,7 @@ go test -race ./application/core/goal/ -count=1
 
 - `func NewServer(controller *Controller) *Server` — NewServer 构造 goal Headless 服务。
 - `func (s *Server) WithTechLeader(supervisor *Supervisor) *Server` — WithTechLeader 装配 TL 监督器（启用 goal_tl_* / goal_propose_finish / goal_prescreen RPC）。
+- `func (s *Server) WithGovernor(governor govern.Governor) *Server` — WithGovernor 装配回合制治理循环（启用 goal_gov_* RPC：多代理治理测试面）。
 - `func (s *Server) Handler() http.Handler` — Handler 返回路由（/healthz /rpc /events）。
 - `func (s *Server) serveHealth(writer http.ResponseWriter, _ *http.Request)`
 - `func (s *Server) serveRPC(writer http.ResponseWriter, request *http.Request)`
@@ -226,6 +227,11 @@ go test -race ./application/core/goal/ -count=1
 - `func (c *Client) Call(ctx context.Context, method string, arg any, out any) error` — Call 调用一个 /rpc 方法；arg 可为 nil（无参）。成功时若 out 非 nil 则解码 result。
 - `func (c *Client) Health(ctx context.Context) error` — Health 探测 /healthz。
 - `func (c *Client) ReadEvents(ctx context.Context, handle func(Event) error) error` — ReadEvents 逐行读取 /events 流并调用 handle（阻塞至 ctx 取消或流结束）。
+
+### headless_gov_test.go
+
+- `func TestHeadlessGovernRPC(t *testing.T)` — TestHeadlessGovernRPC 验证 goal headless 治理测试面：
+- `func TestHeadlessGovernUnwired(t *testing.T)` — TestHeadlessGovernUnwired 验证未装配治理循环时 goal_gov_* 显式拒绝。
 
 ### headless_test.go
 
