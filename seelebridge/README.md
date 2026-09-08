@@ -19,6 +19,7 @@ Runtime，同时隔离上游 API 变化。
 | `runtime_plan.go` | plan 执行域装配与委托（SetPlan*/Replan/事件通道/分支账号/NodeFactory/plan 与 fork/node 的 Deps 闭包） |
 | `runtime_context.go` | 上下文接线（Assembler/Controller/Compressor/窗口/stack/project/memory/归档） |
 | `runtime_account.go` | 账号路由委托（account.Manager：选中账号/provider/限额/选择器） |
+| `request_log.go` | LLM 请求记录中间件（`SEELEX_REQUEST_LOG` 门控，默认关闭）：包装 Completer/StreamCompleter，把每次真实请求的 role + 内容 hash + 工具调用名按顺序写 JSONL（不落正文/参数原文），供 headless 冒烟做“请求顺序 ↔ 存储内容”匹配 |
 | `runtime_deps.go` | 启动期装配结构 `RuntimeDeps` + `ApplyDeps`（一次性注入；装配点不散装单字段 setter） |
 | `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |
 | `events_unified.go` | 统一事件库（解耦方案 §02.3/§04.7 长期形态）：B 类 llm/tool 脱敏摘要 `SummaryLog`（与 A 类事实同库持久化）+ 统一查询 `UnifiedEventReader`/`Runtime.UnifiedEvents` |
@@ -122,6 +123,12 @@ fork 子会话深拷贝 = 新建 bundle + 数据面拷贝，不共享实例句�
 memory → 稳定前缀栈（skill/compact）→ WorkingHistory（累积 context）→
 动态尾部栈（plan/task）；节点子代理继承路径仍使用完整栈块集合
 （`stackBlocks` 兼容入口），不受主链路顺序影响。
+
+冷恢复一致性：`DurableHistory` 尾窗 Load 触发的真空区补压只在会话已有
+`CompactStack` 压缩基线时执行（栈顶之后确有未覆盖区间才补帧）；**从未压缩
+过的会话恢复时不凭空生成合成摘要帧**，保证恢复后首请求与“未重启继续运行”
+的上下文逐条一致（headless 双进程回归见
+[`headless_restore_prefix_probe_test.go`](../headless_restore_prefix_probe_test.go)）。
 
 子代理节点通过 `NodeScope.Role == RoleSubAgent` 识别。工具 middleware 发布 `running/success/error`，worktree 编排发布 `worktree_creating/rebasing/merging`；阶段事实沿用 Plan binding，并在存在 session ID 时写入 `agent.runtime` Location。
 

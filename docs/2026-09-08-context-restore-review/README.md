@@ -1,7 +1,8 @@
 # 会话上下文管理 / 内容存储 / 恢复：现状描述与问题复现
 
-> 性质：一次性评审工作包（2026-09-08）。只读复现 + 判断，**未修改任何业务代码**；
-> 复现以临时红测试完成（红后即移除，用例全文见附录）。代码与测试是最终事实来源。
+> 性质：一次性评审工作包（2026-09-08）。主体（§0–§7）为只读复现 + 判断，
+> 复现以临时红测试完成（红后即移除，用例全文见附录）；§8 为后续追加的
+> headless 双进程探针与修复记录（含业务代码改动）。代码与测试是最终事实来源。
 > 关联设计/调研：[session-order-log（按顺序存储与恢复设计）](../2026-09-07-session-order-log/README.md)、
 > [context-prefix-chain（前缀链路，已实现）](../../docs/arch/context-prefix-chain.md)、
 > [context-management-review（上下文管理实现审查）](../research/context-management-review.md)。
@@ -253,6 +254,111 @@ go test ./application/core/task_context -count=1 -timeout=120s
 go test ./application/core/context_runtime -count=1 -timeout=120s
 go test ./application/core -run "TestContextBudgetOvershoot(KeepsNewestSettledRound|RefusesWhenNewestExceedsFullBudget)$" -count=1 -v
 ```
+
+## 8. pprof 复查（2026-09-08）
+
+方法：带 `pprof` tag 重建二进制（`go build -tags pprof`），在真实 headless
+控制面 + 真实 API 上做**跨进程冷恢复复查**：
+
+1. 进程 1：`BeginNewSession` 后连续 5 轮短问答（total_messages=10，超过恢复
+   窗口 4 轮，逼近尾窗恢复 + 恢复后首轮装配路径），正常收尾落盘；
+2. 进程 2（同一临时 store）：`ResumeSession` 冷恢复（三读 + 尾窗 + 首轮
+   续聊），抓 goroutine（恢复后基线 / 续聊后）、heap、活跃期 CPU profile。
+
+探针：`tmp/headless-smoke/pprof_context_review_test.go`
+（`PPROF_CONTEXT_REVIEW=1` 启用，真实 API + pprof 二进制，产物落
+`tmp/headless-smoke/reports/`）。
+
+结果（全部通过）：
+
+| 检查 | 结果 |
+|---|---|
+| 冷恢复 + 恢复后首轮 | 收敛正常（10 → 12 messages），无 chat error、无超时 |
+| goroutine | 恢复后 19 → 续聊后 22（+3，I/O/轮询瞬态），无堆积；快照仅 chan receive/select/IO wait/syscall 等待态，无 sync.Mutex/semacquire/WaitGroup 等锁等待栈 |
+| CPU（6s 活跃采样） | 200ms 采样（3.33%），flat 80% runtime.cgocall，cum 集中在 TLS handshake/证书校验 + ReActLoop.ChatStream——IO/网络等待，无本地热点 |
+| heap | inuse 约 5.8MB，top 为 runtime/pprof 采样自身、plugin 自注册工具、protobuf init；本批改动路径（coordinator/TranscriptTailHistory/fitExecutionHistory）未出现在 CPU/heap top，无内存热点 |
+
+结论：pprof 复查未发现死锁、goroutine 泄漏或新增 CPU/内存热点；修复后的
+上下文装配开销可忽略，冷恢复与续聊真实链路正常。
+
+## 8. 追加记录（2026-09-08：headless 双进程恢复前缀探针与修复）
+
+评审后按用户要求把“恢复链路梳理 + 前缀一致性验证”落到可运行探针，不再靠
+代码推断。探针为真实装配的 headless 双进程对照（mock provider 记录每次真实
+请求消息序列）：
+
+- 对照 A3：同一进程跑 12 轮后**不重启**继续提交第 13 轮，记录真实请求；
+- 对照 B：同样的 12 轮落盘后 shutdown → 重启 → `ResumeSession` → 提交
+  同样的第 13 轮，记录重启后第一条真实请求；
+- 断言两条真实请求逐条一致。
+
+探针代码：`headless_restore_prefix_probe_test.go`（仓库根，`package main`，
+复用 full-chain harness + 本地 mock provider；全部使用 `t.TempDir()` store）。
+
+运行：
+
+```text
+go test . -run TestHeadlessRestorePrefixProbe -count=1 -v -timeout 5m
+```
+
+### 现象（修复前，红）
+
+未重启继续的第 13 轮请求 = 9 条消息：round-08..round-11 四轮已定稿 +
+新输入；重启后第一条请求 = 11 条：**多出两块 `compact-gap` 合成摘要
+（覆盖 round-00..round-07）** + 同样的尾窗 + 新输入。即恢复时由真空区补压
+凭空制造了运行期从未出现的头部摘要帧，恢复前后前缀不一致（消息数 9 vs 11）。
+
+### 根因与修复
+
+`coverHistoryGap`（[runtime_context.go](../../seelebridge/runtime_context.go)）
+在冷恢复尾窗 Load 时对**从未压缩过的会话**也从头补压并推送 CompactStack
+帧，随后装配器把这些帧渲染为“相关记忆/压缩上下文”前缀。运行期应用侧窗口
+本身不会生成这些帧，于是恢复请求比“未重启继续”多了两块合成前缀。
+
+修复：真空区补压只在会话已有 `CompactStack` 压缩基线时执行（栈顶之后确有
+未覆盖区间才补帧）；无压缩基线的会话恢复只装载尾窗，与运行期上下文组成
+一致。
+
+### 结果（修复后，绿）
+
+```text
+=== RUN   TestHeadlessRestorePrefixProbe
+    对照（不重启）第13轮请求消息数=9
+    重启后首请求消息数=9
+    恢复前缀一致：重启后首请求与未重启继续运行的第13轮请求逐条相同
+--- PASS
+```
+
+回归：`go test ./seelebridge ./seelexctx ./sessionstore -count=1` 绿；
+该探针保留为 headless 恢复前缀回归用例。
+
+## 9. 请求顺序 ↔ 存储内容匹配（2026-09-08，真实 API 工具会话）
+
+按用户指定方法复查“会话结束后的记录 vs 重启恢复的会话记录”：
+
+- 中间件：新增 `SEELEX_REQUEST_LOG` 门控的请求记录器
+  （[request_log.go](../../seelebridge/request_log.go)），包装
+  Completer/StreamCompleter，把每次真实 LLM 请求的 pid/seq/role + 内容
+  sha256 + 工具调用名按发生顺序写 JSONL（不落正文/参数原文）；headless、
+  GUI、TUI 走同一条链路（[gui/headless.go](../../gui/headless.go) 只加回环
+  HTTP 控制面，Chat 仍经 application core + seelebridge runtime）。
+- 探针：`tmp/headless-smoke/request_store_match_test.go`
+  （`REQUEST_STORE_MATCH=1`，真实 API）：进程 1 跑两轮 get_time 工具会话
+  （4 次 LLM 请求），杀进程；进程 2 同 store 冷恢复后先不续聊，再续一轮
+  工具调用（2 次 LLM 请求）。
+
+结果（PASS，产物 `tmp/headless-smoke/reports/request-log-80688.jsonl`）：
+
+| 检查 | 结果 |
+|---|---|
+| 会话目录 hash（会话结束 vs 重启恢复后） | **完全一致**：combined=86b4c777819463b87ecec590eab1755bb56de4077da03f16e01bb563de6c9975（9 个文件无增删改） |
+| 请求顺序（中间件 seq） | 运行期 4 条单调连续；恢复期 2 条 |
+| 存储 provider history（续聊前） | 8 条，roles=[user,assistant,tool,assistant,user,assistant,tool,assistant] |
+| 恢复后首个请求（中间件） | 9 条，roles=[…同一 8 条原序, user(当前输入)] |
+| 前缀匹配 | 8/8 逐条 hash 一致，尾部仅追加 1 条当前输入——**无重排、无重复、无截断** |
+
+整个 store 层面的差异仅来自进程 2 启动时的 `workspace_index.json` 写入与
+`sessions/.lock`（非会话记录），会话目录本身在恢复前后逐字节一致。
 
 ## 附录 A：问题一复现用例（临时红测试，已移除工作树）
 

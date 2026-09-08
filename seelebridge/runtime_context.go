@@ -51,10 +51,18 @@ func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents, tailEvents []s
 		return nil
 	}
 	stacks := runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()}
+	record := stacks.Snapshot()
+	if len(record.CompactStack) == 0 {
+		// 没有压缩基线（会话从未在运行期产生过 CompactStack 帧）时不做真空区
+		// 补压：冷恢复只装载尾窗，与“未重启继续运行”的上下文组成一致。否则
+		// 每次恢复都会凭空生成一个覆盖会话头部的合成摘要帧，使恢复后首请求
+		// 比中断前多出模型从未见过的前缀（前缀不稳定 / 顺序不一致）。
+		return nil
+	}
 	_, err := seelexctx.CoverHistoryGap(ctx, seelexctx.GapCoverageOptions{
 		AllEvents:  allEvents,
 		TailEvents: tailEvents,
-		Record:     stacks.Snapshot(),
+		Record:     record,
 		Stacks:     stacks,
 		Turns:      r.getTurnArchiver(),
 		SessionID:  r.MainSessionID(),

@@ -4,6 +4,7 @@ package seelebridge
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -141,6 +142,10 @@ type Runtime struct {
 	// 运行中读子会话 History（子代理 actor 独立锁，安全）；结束后保留快照；
 	// node:<nodeID>: 前缀工具结果归档器由组件托管，运行中/结束后均可读回。
 	subagentSessions *subagentsession.SubagentSessions
+	// requestLog 是 LLM 请求记录中间件（SEELEX_REQUEST_LOG 门控；nil =
+	// 关闭）。包装 Completer/StreamCompleter，把每次真实请求的顺序与内容
+	// 指纹落 JSONL，供 headless 冒烟做「请求顺序 ↔ 存储内容」匹配。
+	requestLog *requestLogger
 	// subagentTree 是 fork 子代理树注册表（内存态，不落盘）：fork 创建子代理
 	// 时记录 parent/child 链与节点状态/goal/会话摘要，GUI 树视图经
 	// Runtime.SubAgentTree() 读取（subagent_tree.go）。
@@ -306,6 +311,18 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	if err := r.assembleCompleters(); err != nil {
 		return nil, err
 	}
+	// 请求记录中间件（诊断/冒烟，默认关闭）：SEELEX_REQUEST_LOG=<jsonl>
+	// 时包装 Completer/StreamCompleter，在 agent.NewWithComponents 前完成，
+	// 保证主会话、子代理与 QuickChat 辅助请求全部经过同一记录点。
+	if path := os.Getenv(requestLogEnv); path != "" {
+		logger, err := openRequestLogger(path)
+		if err != nil {
+			return nil, fmt.Errorf("seelebridge: open request log %q: %w", path, err)
+		}
+		r.requestLog = logger
+		r.completer = &requestLogCompleter{inner: r.completer, log: logger}
+		r.streamer = &requestLogStreamCompleter{inner: r.streamer, log: logger}
+	}
 
 	// 4. 可见性策略：goal skill 激活判定 + 插件过滤，经闭包注入 tools.Policy。
 	// （GoalSkillActive 是运行期状态，闭包在 Dispatch 期求值；node 可能尚未
@@ -453,6 +470,9 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	}
 	if r.agt != nil {
 		r.lifecycle = append(r.lifecycle, r.agt.Shutdown)
+	}
+	if r.requestLog != nil {
+		r.lifecycle = append(r.lifecycle, func() { _ = r.requestLog.Close() })
 	}
 	// node 第一视角实时流分发器**立即启动**：stage/tool 事件从子代理一开始
 	// 就进入每节点历史缓冲（即使 GUI 从未订阅），打开详情时回放不丢。
