@@ -102,10 +102,14 @@ func (t *Tool) Handle(ctx context.Context, argsJSON string) (string, error) {
 		parentID = scope.NodeID
 	}
 	t.deps.SubagentTreeRegisterFork(parentID, input.Subagents)
-	// fork 宽松超时（2026-08-08）：fork 是同步编排工具，总时长 = 全部子代理
-	// 工作量之和，通用工具超时（tool_call_timeout 默认 30 分钟）会掐死长任务。
-	// 剥离外层截止时间（保留用户取消传播），改用 limits.fork_timeout（默认 2h）。
-	forkTimeout := time.Duration(t.deps.ForkTimeoutSec) * time.Second
+	// fork 超时护栏：同步编排工具总时长 = 全部子代理工作量之和；通用工具
+	// 超时会掐死长任务，故剥离外层截止时间（保留用户取消传播）改用自己的
+	// 上限。任务可按需分配：长任务不填（limits.fork_timeout，默认 2h）；
+	// 简单审查/只读任务用 input.timeout_sec 给 1200s（20 分钟）等更紧上限。
+	forkTimeout := time.Duration(input.TimeoutSec) * time.Second
+	if forkTimeout <= 0 {
+		forkTimeout = time.Duration(t.deps.ForkTimeoutSec) * time.Second
+	}
 	if forkTimeout <= 0 {
 		forkTimeout = 2 * time.Hour
 	}

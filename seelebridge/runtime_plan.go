@@ -327,6 +327,11 @@ func (r *Runtime) registerForkTool() {
 					},
 				},
 				"max_concurrency": map[string]interface{}{"type": "integer", "minimum": 1},
+				"timeout_sec": map[string]interface{}{
+					"type":        "integer",
+					"minimum":     1,
+					"description": "本批 fork 总超时（秒）。长任务可省略（默认 limits.fork_timeout，2h）；简单审查/只读任务建议给 1200（20 分钟）等更紧上限，避免排队或异常时挂太久。",
+				},
 			},
 			"required": []string{"subagents"},
 		},

@@ -16,6 +16,10 @@ const SubagentsContractDescription = `
 type Input struct {
 	Subagents      []SubagentSpec `json:"subagents"`
 	MaxConcurrency int            `json:"max_concurrency,omitempty"`
+	// TimeoutSec 是本批 fork 的总超时覆盖（秒）：长任务可不填（走
+	// limits.fork_timeout，默认 2h）；简单审查/只读任务按需给 1200（20 分钟）
+	// 等更紧的上限，避免排队或异常时挂太久。
+	TimeoutSec int `json:"timeout_sec,omitempty"`
 }
 
 // SubagentSpec 是单个子代理的派工规格。
