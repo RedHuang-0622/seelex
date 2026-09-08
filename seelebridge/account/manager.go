@@ -179,20 +179,26 @@ func (m *Manager) Selector(deps SelectorDeps) func(ctx context.Context, messages
 // pin；否则按 role + planID:branchID 确定性 hash 选择。
 func (m *Manager) nodeRequest(deps SelectorDeps, scope model.NodeScope) accountpool.AcquireRequest {
 	request := accountpool.AcquireRequest{}
+	binding := dto.PlanBranchBinding{}
 	if deps.BranchBinding != nil {
-		binding := deps.BranchBinding()
-		if binding.AccountID != "" {
-			request.AccountID = binding.AccountID
-			return request
-		}
-		seed := scope.BranchID
-		if seed == "" {
-			seed = scope.NodeID
-		}
-		accountID, err := ResolveForBranch(m.pool, scope.Role, binding.PlanID+":"+seed)
-		if err == nil {
+		binding = deps.BranchBinding()
+	}
+	if binding.AccountID != "" {
+		request.AccountID = binding.AccountID
+		return request
+	}
+	if scope.BranchID == "" {
+		// 无显式 branch 钉扎（fork 双子代理/plan 默认）：按角色选当前仍有
+		// 并发余量的账号，让并发节点分散到空闲槽而不是确定性哈希撞车排队。
+		if accountID, ok := leastBusyForRole(m.pool, scope.Role); ok {
 			request.AccountID = accountID
 		}
+		return request
+	}
+	// 分支（plan branch）保留确定性哈希：同分支同 seed 恒等，维持前缀缓存。
+	accountID, err := ResolveForBranch(m.pool, scope.Role, binding.PlanID+":"+scope.BranchID)
+	if err == nil {
+		request.AccountID = accountID
 	}
 	return request
 }

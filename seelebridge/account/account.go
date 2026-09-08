@@ -99,3 +99,28 @@ func StableIndex(seed string, size int) int {
 	_, _ = hash.Write([]byte(seed))
 	return int(hash.Sum32() % uint32(size))
 }
+
+// leastBusyForRole 返回指定角色下当前还有并发余量的账号（余量最大者）；
+// 全部占满或无账号时返回 false。并发 fork/plan 节点用它避免被确定性哈希
+// 全部钉到同一账号而排队（真实双 subagent 阻塞根因）。
+func leastBusyForRole(pool *accountpool.P2CPool[agent.Completer], role model.AccountRole) (string, bool) {
+	if pool == nil {
+		return "", false
+	}
+	bestID := ""
+	bestAvailable := 0
+	for _, entry := range ForRole(pool, role) {
+		snapshot := entry.Snapshot
+		if snapshot.Disabled || snapshot.Available <= 0 {
+			continue
+		}
+		if bestID == "" || snapshot.Available > bestAvailable {
+			bestID = snapshot.ID
+			bestAvailable = snapshot.Available
+		}
+	}
+	if bestID == "" {
+		return "", false
+	}
+	return bestID, true
+}
