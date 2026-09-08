@@ -85,6 +85,7 @@
 | [`2026-09-07-session-order-log/README.md`](2026-09-07-session-order-log/README.md) | 会话全序日志（Session Order Log）设计与实施路线：现状审查、Codex 差距、按顺序存储、前缀 + 追加发送治理、恢复重放 |
 | [`2026-09-08-context-restore-review/README.md`](2026-09-08-context-restore-review/README.md) | 会话上下文管理/存储/恢复现状描述与复现：恢复后首轮上下文乱序/重复/丢前缀、超预算收缩把最新轮整段裁掉、工具轮 LLM 输出/草稿持久化缺口（均已修复转绿；pprof 无死锁/泄漏/热点；请求顺序↔存储匹配通过，记录 hash 恢复前后一致；最新修复未提交） |
 | [`2026-09-08-session-rollout-p2/README.md`](2026-09-08-session-rollout-p2/README.md) | Session Rollout 全序模型：rollout.jsonl 契约/双写/崩溃续写、生命周期 kind、resume 重放切换、跨进程一致性回归（P2 已交付）；P3 发送治理契约（I-LOG-3/4/5）已落地；SQLite/Redis 等其它后端为后续项 |
+| [`2026-09-08-interrupted-round-truncation/README.md`](2026-09-08-interrupted-round-truncation/README.md) | 中断轮截断策略更改：残缺工具链轮保留为开放单元、断点续扫不跳 next user；装配层补齐缺失 tool 结果（合成占位、provider-only、幂等）；重启 continue 续跑端到端（三处同构切分 + 装配 seam；字符画表达） |
 
 ## 🔬 调研报告
 
