@@ -208,23 +208,17 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 
 	var message Message
 	var assistant *Message
-	if active {
-		message = *service.appendMessageLocked("tool_result", content, &ToolCall{
-			ID: id, Name: name, Result: visibleContent, Error: errorText,
-			Status: status, Duration: duration,
-			ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,
-		})
-		// Only append empty assistant if the last message isn't already an empty assistant
-		if n := len(service.Core.Snapshot.Conversation); n == 0 || service.Core.Snapshot.Conversation[n-1].Role != "assistant" || service.Core.Snapshot.Conversation[n-1].Content != "" || service.Core.Snapshot.Conversation[n-1].Tool != nil {
-			appended := *service.appendMessageLocked("assistant", "", nil)
-			assistant = &appended
-		}
-	} else {
-		message = *service.appendSessionMessageLocked(sessionID, "tool_result", content, &ToolCall{
-			ID: id, Name: name, Result: visibleContent, Error: errorText,
-			Status: status, Duration: duration,
-			ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,
-		})
+	message = *service.appendSessionMessageLocked(sessionID, "tool_result", content, &ToolCall{
+		ID: id, Name: name, Result: visibleContent, Error: errorText,
+		Status: status, Duration: duration,
+		ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,
+	})
+	// tool_result 之后补空 assistant 占位（活跃与后台同一语义）：后台会话若
+	// 缺占位，后续 appendVisibleDelta(Background) 会把下一段 LLM 正文并入
+	// 工具之前的旧 assistant 空消息，工具看起来“后插入”到会话末尾
+	// （热切回该会话时可见顺序错误；持久化重建不受影响）。
+	if appended := service.appendAssistantPlaceholderAfterToolLocked(sessionID); appended != nil {
+		assistant = appended
 	}
 	emit("toolhook.complete.runtime.start")
 	// 每会话投影写回本会话槽（G1）：后台会话的工具边界投影保留在自身槽，

@@ -182,6 +182,23 @@ func (service *Service) appendSessionMessageLocked(sessionID, role, content stri
 	return service.components.view.AppendMessageLockedFor(sessionID, role, content, tool)
 }
 
+// appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
+// 空 assistant 占位（活跃与后台同一语义；调用方持有 Core.ViewMu）。末条已是
+// 空 assistant（无内容、无工具）时不重复补，避免并行工具轮产生多余空行。
+func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *Message {
+	emptyAssistantTail := false
+	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
+		if n := len(view.Conversation); n > 0 {
+			last := view.Conversation[n-1]
+			emptyAssistantTail = last.Role == "assistant" && last.Content == "" && last.Tool == nil
+		}
+	})
+	if emptyAssistantTail {
+		return nil
+	}
+	return service.appendSessionMessageLocked(sessionID, "assistant", "", nil)
+}
+
 // setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
 // Snapshot.Chat）。
 func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState) {

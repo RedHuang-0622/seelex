@@ -4,6 +4,14 @@
 
 工具事件钩子与诊断
 
+## 实现要点
+
+- 工具完成投影（`handleToolCompleteObserved`）在 `tool_result` 之后统一补一条空
+  assistant 占位，不区分会话是否活跃：后台会话若缺占位，后续流式正文会被
+  `appendVisibleDeltaBackground` 并入工具之前的旧 assistant 空消息，热切回该
+  会话时工具会“后插入”到最终回复之后（2026-09-08 修复；回归用例
+  `repro_hot_attach_background_tool_order_test.go` 钉住热/冷两种恢复顺序）。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
