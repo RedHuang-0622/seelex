@@ -62,6 +62,12 @@ type SessionTranscriptPort interface {
 	LoadToolResultWorkspace(string, string, string) (model.StoredToolResult, error)
 }
 
+// SessionRolloutPort 是 rollout 全序日志重放的可选能力（P2 恢复改造；
+// 未装配的后端不实现，Coordinator 回退旧通道读取）。
+type SessionRolloutPort interface {
+	LoadSessionRolloutTranscriptWorkspace(string, string) ([]model.TranscriptEvent, bool, error)
+}
+
 // SessionConversationRangePort 是可见会话分页读回面（可选能力断言）。
 type SessionConversationRangePort interface {
 	LoadConversationRangeWorkspace(string, string, int, int) ([]model.Message, int, error)

@@ -39,6 +39,17 @@ generation 快照，属于派生投影。
 snapshot 布局（有序日志后端子设计见
 [`docs/2026-09-07-session-order-log/README.md`](../docs/2026-09-07-session-order-log/README.md)）。
 
+**rollout 全序日志（P2 垂直切片，JSON 后端已落地）**：每会话新增物理
+append-only `rollout.jsonl`，条目带全局单调 `Ordinal` 与显式 `kind`
+（`session_meta`/对话类；request/lifecycle/compacted 等 kind 为预留常量）。
+`WriteCommit` 在 manifest 切换前把本次提交的对话增量与首条 `session_meta`
+双写进 rollout，并按提交顺序写入 request/turn/token_usage/compacted 生命周期
+条目（全部按指纹幂等）；重复提交幂等、崩溃残尾截断后续写。resume 恢复已
+优先从 rollout 正序重放对话事件重建 transcript/可见会话，rollout 缺失或
+落后时回退旧三读；旧通道（transcript/history/state）继续双写作为兼容投影
+与旧会话兜底。详见
+[docs/2026-09-08-session-rollout-p2/README.md](../docs/2026-09-08-session-rollout-p2/README.md)。
+
 ### SQLite/PostgreSQL
 
 统一使用 `seelex_session_manifest` 与 `seelex_session_shard`：manifest 以 `(project_id, session_id)` 定位当前 immutable generation，shard 以 `(project_id, session_id, generation, shard_index)` 保存固定大小的消息片。事务先写新 generation，再原子切换 manifest。旧版单行 `seelex_sessions.messages_json` 仍可读取，下一次写入自动迁移到分片表。SQLite 使用 modernc，无 CGO；PostgreSQL 使用 pgx stdlib。

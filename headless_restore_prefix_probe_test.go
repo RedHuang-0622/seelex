@@ -14,6 +14,8 @@ package main
 // 说明：旧会话记录无真实价值，探针全部使用 t.TempDir() 独立 store。
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -194,6 +196,7 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatal("session did not materialize")
 	}
 	harnessFirst.app.Shutdown()
+	assertRolloutNonEmpty(t, restartStore)
 	restartRecorder.reset()
 
 	harnessRestarted := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
@@ -211,6 +214,8 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 	if err := harnessRestarted.app.WaitForIdle(ctx); err != nil {
 		t.Fatalf("重启后等待空闲: %v", err)
 	}
+	assertRolloutContainsKind(t, restartStore, "session_meta")
+	assertRolloutContainsKind(t, restartStore, "request_begin")
 	restartRecords := restartRecorder.snapshot()
 	if len(restartRecords) != 1 {
 		t.Fatalf("重启进程请求数 = %d, want 1", len(restartRecords))
@@ -245,6 +250,61 @@ func runSettledRounds(t *testing.T, ctx context.Context, app interface {
 			t.Fatalf("wait idle round %d: %v", round, err)
 		}
 	}
+}
+
+func findRolloutFiles(root string) []string {
+	var paths []string
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() && entry.Name() == "rollout.jsonl" {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	return paths
+}
+
+func assertRolloutNonEmpty(t *testing.T, storeRoot string) {
+	t.Helper()
+	paths := findRolloutFiles(storeRoot)
+	if len(paths) == 0 {
+		t.Fatal("P2 rollout.jsonl 缺失：恢复无法走日志重放")
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(bytes.TrimSpace(data)) == 0 {
+			t.Fatalf("rollout %s 为空", path)
+		}
+	}
+}
+
+func assertRolloutContainsKind(t *testing.T, storeRoot, wantKind string) {
+	t.Helper()
+	for _, path := range findRolloutFiles(storeRoot) {
+		file, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scanner := bufio.NewScanner(file)
+		found := false
+		for scanner.Scan() {
+			var entry struct {
+				Kind string `json:"kind"`
+			}
+			if json.Unmarshal(scanner.Bytes(), &entry) == nil && entry.Kind == wantKind {
+				found = true
+				break
+			}
+		}
+		if found {
+			_ = file.Close()
+			return
+		}
+		_ = file.Close()
+	}
+	t.Fatalf("rollout 未包含 kind=%s", wantKind)
 }
 
 // visiblePairMessages 从快照可见会话里提取 user/assistant 对（跳过 system

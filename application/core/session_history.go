@@ -267,6 +267,12 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	go func() {
 		defer loadGroup.Done()
 		transcript, transcriptErr = service.components.sessions.LoadSessionTranscript(location, sessionID)
+		// P2 恢复改造：rollout 全序日志优先——从 rollout 正序重放对话事件；
+		// rollout 不比旧通道旧时使用，缺失/损坏/后端不支持则保留旧读取。
+		if replayed, replayOK, replayErr := service.components.sessions.LoadSessionRolloutTranscriptWorkspace(location, sessionID); replayErr == nil && replayOK && rolloutAtLeastAsFresh(replayed, transcript) {
+			transcript = replayed
+			transcriptErr = nil
+		}
 	}()
 	loadGroup.Wait()
 	if recordErr != nil {
@@ -486,6 +492,18 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	// G6 驻留 LRU：冷加载完成即记录使用序并收敛超限驻留（INV-G8）。
 	service.touchResident(sessionID)
 	return nil
+}
+
+// rolloutAtLeastAsFresh 判定 rollout 重放事件是否不比旧 transcript 通道旧
+// （按最大 Seq 比较；任一侧为空时按“非空更新”处理）。
+func rolloutAtLeastAsFresh(replayed, legacy []TranscriptEvent) bool {
+	if len(replayed) == 0 {
+		return false
+	}
+	if len(legacy) == 0 {
+		return true
+	}
+	return replayed[len(replayed)-1].Seq >= legacy[len(legacy)-1].Seq
 }
 
 // ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，

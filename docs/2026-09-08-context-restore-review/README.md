@@ -360,6 +360,51 @@ go test . -run TestHeadlessRestorePrefixProbe -count=1 -v -timeout 5m
 整个 store 层面的差异仅来自进程 2 启动时的 `workspace_index.json` 写入与
 `sessions/.lock`（非会话记录），会话目录本身在恢复前后逐字节一致。
 
+## 10. 工具轮 LLM 输出/草稿持久化缺口（已复现，已修复）
+
+复查发现一个此前未覆盖的真实缺口：实时轨迹里工具轮之间**有 LLM 输出与
+草稿**，但落盘 record/重启恢复只有工具痕迹。真实 API 复现（live vs store）：
+
+```text
+live : user | assistant content=550 reasoning=667 | user
+       | assistant content=93  reasoning=0   | tool(get_time) | tool_result | assistant … reasoning=451
+store(修复前): 同前，但 assistant 正文 93 消失、reasoning 667/451 全为 0
+```
+
+根因（三层）：
+
+1. 框架 `ReActLoop.callLLM` 在返回 `toolCalls` 时丢弃流式正文
+   （`msg.Content = nil`），正文只经 `onChunk` 进实时视图，不进引擎历史
+   → transcript 的 tool_call 事件 content 恒为空；
+2. `LoopHooks.LLMInfo` 不回传 reasoning，`_RecordLLMComplete` 生成的
+   transcript 事件没有推理草稿（推理只在引擎历史 assistant 消息上）；
+3. `conversationFromTranscriptLocked` 对“正文 + ToolCalls”的 assistant
+   事件只投影工具消息并 `continue`，把正文与推理一并丢弃。
+
+修复（工作树，未提交）：
+
+- [task_context_state.go](../../application/core/task_context/task_context_state.go)：
+  `BackfillAssistantReasoning` 聊天收尾后用引擎历史把 reasoning 回填到
+  transcript 事件；`MergeToolNarration` 把“只进过视图”的工具轮说明文本并入
+  对应 tool_call 事件（按序、只补缺失正文）；
+- [chat.go](../../application/core/chat.go)：`BackfillAssistantReasoning` +
+  `mergeStreamedToolNarration` 在持久化前调用；
+- [archive.go](../../application/core/session_runtime/archive.go)：投影对
+  assistant 事件先出正文/草稿消息、再出工具调用消息，普通 assistant 消息
+  携带 `ReasoningContent`。
+
+验证（真实 API 探针 `TestPersistReasoningGap`，PASS）：
+
+```text
+live : assistant content=487 reasoning=1258 | user | assistant content=91 reasoning=0
+       | tool | tool_result | assistant content=350 reasoning=283
+store: 逐条 content 一致；reasoning 1258/283 落盘；工具轮 assistant 补上
+       正文 91 并附带该轮草稿 551（store 比 live 更全，重启后轨迹可见）
+```
+
+回归：`go test ./application/core -count=1` 绿（含新增
+`TestPersistKeepsToolNarrationAndReasoningInRecord`）。
+
 ## 附录 A：问题一复现用例（临时红测试，已移除工作树）
 
 放置在 `application/core/repro_restore_order_test.go`（package core），

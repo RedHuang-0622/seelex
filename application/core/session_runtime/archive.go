@@ -287,11 +287,26 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 		}
 		message := model.Message{
 			ID: fmt.Sprintf("message-%d", event.Seq), Role: event.Role,
-			Content: event.Content, Kind: messageKindForEvent(event), CreatedAt: event.CreatedAt,
+			Content: event.Content, ReasoningContent: event.ReasoningContent,
+			Kind: messageKindForEvent(event), CreatedAt: event.CreatedAt,
 		}
 		switch event.Role {
 		case "assistant":
 			if len(event.ToolCalls) > 0 {
+				// LLM 在同一 completion 里既输出正文又宣告工具调用时，正文与
+				// 推理草稿也是真实轨迹（工具轮之间可见的 LLM 痕迹），投影要
+				// 与实时视图一致地先出一条 assistant 消息，再出工具调用消息；
+				// 否则落盘/重启恢复只剩工具痕迹（2026-09-08 持久化缺口）。
+				if strings.TrimSpace(event.Content) != "" || strings.TrimSpace(event.ReasoningContent) != "" {
+					messages = append(messages, model.Message{
+						ID:               fmt.Sprintf("message-%d", event.Seq),
+						Role:             "assistant",
+						Content:          event.Content,
+						ReasoningContent: event.ReasoningContent,
+						Kind:             model.TranscriptEventKindLLM,
+						CreatedAt:        event.CreatedAt,
+					})
+				}
 				for callIndex, call := range event.ToolCalls {
 					messages = append(messages, model.Message{
 						// L4：同一 assistant 事件的多个 tool call 必须有独立
@@ -421,6 +436,28 @@ func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string)
 		filtered = append(filtered, event)
 	}
 	return filtered, nil
+}
+
+// LoadSessionRolloutTranscriptWorkspace 从 rollout 全序日志正序重放对话事件
+// （P2 恢复改造）。未装配 rollout 端口 / 后端不支持 / 无 rollout 条目时返回
+// (nil, false, nil)，调用方回退旧三读。
+func (c *Coordinator) LoadSessionRolloutTranscriptWorkspace(location Location, sessionID string) ([]model.TranscriptEvent, bool, error) {
+	store, ok := c.Core.Deps.Sessions.(SessionRolloutPort)
+	if !ok {
+		return nil, false, nil
+	}
+	events, replayOK, err := store.LoadSessionRolloutTranscriptWorkspace(location.WorkspaceID, sessionID)
+	if err != nil || !replayOK {
+		return nil, false, err
+	}
+	filtered := make([]model.TranscriptEvent, 0, len(events))
+	for _, event := range events {
+		if event.Role == "system" || c.isInternalContent(event.Content) {
+			continue
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered, len(filtered) > 0, nil
 }
 
 func recordResumeHistory(record model.SessionRecord) []contract.EngineMessage {

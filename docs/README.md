@@ -83,7 +83,8 @@
 | [`2026-08-23-worktable-sharding-filetree/README.md`](2026-08-23-worktable-sharding-filetree/README.md) | worktable 多维分片 + 工作台文件树工作包（plan + 打点表） |
 | [`2026-08-14-decoupling/00-index.md`](2026-08-14-decoupling/00-index.md) | 解耦重构系列文档索引 |
 | [`2026-09-07-session-order-log/README.md`](2026-09-07-session-order-log/README.md) | 会话全序日志（Session Order Log）设计与实施路线：现状审查、Codex 差距、按顺序存储、前缀 + 追加发送治理、恢复重放 |
-| [`2026-09-08-context-restore-review/README.md`](2026-09-08-context-restore-review/README.md) | 会话上下文管理/存储/恢复现状描述与复现：恢复后首轮上下文乱序/重复/丢前缀、超预算收缩把最新轮整段裁掉（两个问题均已修复转绿；pprof 复查无死锁/泄漏/热点；真实 API 工具会话的请求顺序↔存储匹配通过——会话记录 hash 恢复前后一致，未提交） |
+| [`2026-09-08-context-restore-review/README.md`](2026-09-08-context-restore-review/README.md) | 会话上下文管理/存储/恢复现状描述与复现：恢复后首轮上下文乱序/重复/丢前缀、超预算收缩把最新轮整段裁掉、工具轮 LLM 输出/草稿持久化缺口（均已修复转绿；pprof 无死锁/泄漏/热点；请求顺序↔存储匹配通过，记录 hash 恢复前后一致；最新修复未提交） |
+| [`2026-09-08-session-rollout-p2/README.md`](2026-09-08-session-rollout-p2/README.md) | Session Rollout 全序模型 P2 恢复改造：rollout.jsonl 契约/双写/崩溃续写、生命周期 kind（request/turn/token/compacted）、resume 重放切换与跨进程一致性回归均已落地（JSON 后端；P3 发送治理与其它后端为后续项） |
 
 ## 🔬 调研报告
 

@@ -391,6 +391,22 @@ func (router *Router) LoadEventRangeWorkspace(projectID, sessionID string, fromS
 	return events, err
 }
 
+// ReadRolloutWorkspace 读取会话 rollout 全序日志（JSON 后端；其它后端返回
+// ErrRolloutUnavailable，上层回退旧三读）。
+func (router *Router) ReadRolloutWorkspace(projectID, sessionID string) ([]SessionLogEntry, error) {
+	var entries []SessionLogEntry
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		reader, ok := repository.(RolloutReader)
+		if !ok {
+			return ErrRolloutUnavailable
+		}
+		var err error
+		entries, err = reader.ReadRollout(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
+		return err
+	})
+	return entries, err
+}
+
 func (router *Router) LoadToolResult(sessionID, resultRef string) (ToolResult, error) {
 	return router.LoadToolResultWorkspace(router.Workspace(), sessionID, resultRef)
 }
@@ -854,6 +870,11 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 	// transcript 事件按增量追加进日志：重复提交同一 Seq 幂等（合并后无新增），
 	// 崩溃后重试也只会补写缺失尾部。
 	if err := repository.appendTranscriptEventsLocked(directory, eventsAfterLogHead(eventLogHead(existing), events)); err != nil {
+		return err
+	}
+	// rollout 全序日志（P2 垂直切片）：对话类增量 + 首条 session_meta 双写，
+	// manifest 尚未切换，失败则本次提交不发布。
+	if err := repository.commitRolloutLocked(directory, key, existing, events, commit.State); err != nil {
 		return err
 	}
 	toolResultRefs := []string(nil)

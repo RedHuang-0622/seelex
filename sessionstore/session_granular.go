@@ -366,6 +366,15 @@ func (store *SessionGranularStore) TranscriptTail(projectID, sessionID string, t
 	return events, nil
 }
 
+// ReadRollout 读取会话 rollout 全序日志（JSON 后端；其它后端返回
+// ErrRolloutUnavailable，上层回退旧通道）。
+func (store *SessionGranularStore) ReadRollout(projectID, sessionID string) ([]SessionLogEntry, error) {
+	if store == nil || store.router == nil {
+		return nil, ErrRolloutUnavailable
+	}
+	return store.router.ReadRolloutWorkspace(store.projectID(projectID), sessionID)
+}
+
 // EventRange 按 EventSeq 范围读取会话事件流（fork 切断点解析用）。
 func (store *SessionGranularStore) EventRange(projectID, sessionID string, fromSeq, toSeq uint64) ([]Event, error) {
 	if store == nil || store.router == nil {
