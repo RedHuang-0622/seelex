@@ -173,6 +173,13 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		if reply != "" {
 			service.components.tasks.EnsureFinalAssistantTranscript(requestID, reply)
 		}
+		// 推理草稿只在引擎历史可见（hook 的 LLMInfo 不回传 reasoning）：
+		// 落盘前回填 transcript 事件，使 record/重启恢复保留工具轮间的
+		// LLM 输出与草稿（2026-09-08 持久化缺口修复）。
+		service.components.tasks.BackfillAssistantReasoning(sessionID, service.engineHistoryFor(sessionID))
+		// 流式正文（工具调用前 LLM 输出的说明文本）只进过视图、不在引擎
+		// 消息里：落盘前把缺失正文并入对应 tool_call transcript 事件。
+		service.mergeStreamedToolNarration(sessionID)
 		if contextErr := service.components.context.TakeContextControlFailure(requestID); contextErr != nil {
 			err = contextErr
 		}
@@ -759,6 +766,30 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		return
 	}
 	service.ViewMu.Unlock()
+}
+
+// mergeStreamedToolNarration 在持久化前把视图中“引擎消息里没有对应正文”的
+// assistant 文本并入 transcript 的 tool_call 事件（框架 CompleteStream 返回
+// toolCalls 时丢弃 content，正文只经 onChunk 进视图；不合并则 record/恢复
+// 只剩工具痕迹）。调用方已离开 ChatStream、未持 ViewMu。
+func (service *Service) mergeStreamedToolNarration(sessionID string) {
+	candidates := make([]string, 0, 4)
+	service.ViewMu.Lock()
+	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
+		for _, message := range view.Conversation {
+			if message.Role != "assistant" || message.Tool != nil {
+				continue
+			}
+			if strings.TrimSpace(message.Content) == "" {
+				continue
+			}
+			candidates = append(candidates, message.Content)
+		}
+	})
+	service.ViewMu.Unlock()
+	if len(candidates) > 0 {
+		service.components.tasks.MergeToolNarration(sessionID, candidates)
+	}
 }
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {

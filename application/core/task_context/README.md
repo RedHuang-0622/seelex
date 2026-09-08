@@ -15,6 +15,9 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
   plan 栈/重规划/预算状态、token 计数与上下文预算。尾窗收敛
   （`TranscriptTailHistory`）：协议单元不可拆分，最新完整单元单条超预算时
   降级保留最新轮、绝不静默输出空历史（是否可发送由上层预算门禁决定）。
+  落盘前回填：`BackfillAssistantReasoning` 用引擎历史补齐 transcript 的
+  reasoning 草稿，`MergeToolNarration` 把只进过视图的工具轮说明正文并入
+  tool_call 事件（重启恢复的轨迹保留工具轮间的 LLM 输出与草稿）。
 - 不做：会话持久化跨域事务、chat 流式编排、context 装配。
 
 ## 关键文件

@@ -289,6 +289,167 @@ func (c *Coordinator) _RecordLLMComplete(ctx context.Context, info session.LLMIn
 	c.appendTranscriptEventLocked(st, event)
 }
 
+// BackfillAssistantReasoning 在聊天回合结束后，用引擎历史中的 assistant
+// 消息补齐 transcript 事件的推理草稿。原因：LoopHooks 的 LLMInfo 不携带
+// reasoning（Seele 只回传 Response/ToolCalls/Usage），推理只在引擎历史
+// assistant 消息上可见；若不回填，record/transcript 落盘后草稿丢失，重启
+// 恢复的轨迹只剩工具痕迹（2026-09-08 实测：live reasoning=555/194 →
+// store=0）。匹配以归一化 content + tool call ID 集合为准。
+func (c *Coordinator) BackfillAssistantReasoning(sessionID string, history []contract.EngineMessage) int {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._BackfillAssistantReasoning(sessionID, history)
+}
+
+type reasoningCandidate struct {
+	content   string
+	reasoning string
+	callIDs   map[string]bool
+}
+
+func (c *Coordinator) _BackfillAssistantReasoning(sessionID string, history []contract.EngineMessage) int {
+	st := c.sessionStateLocked(sessionID)
+	var candidates []reasoningCandidate
+	for _, message := range history {
+		if message.Role != "assistant" || strings.TrimSpace(message.ReasoningContent) == "" {
+			continue
+		}
+		candidate := reasoningCandidate{
+			content:   normalizeReasoningContent(message.Content),
+			reasoning: message.ReasoningContent,
+			callIDs:   make(map[string]bool, len(message.ToolCalls)),
+		}
+		for _, call := range message.ToolCalls {
+			candidate.callIDs[call.ID] = true
+		}
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return 0
+	}
+	backfilled := 0
+	for index := range st.transcript {
+		event := &st.transcript[index]
+		if event.Role != "assistant" || strings.TrimSpace(event.ReasoningContent) != "" {
+			continue
+		}
+		candidate := findReasoningCandidate(candidates, event)
+		if candidate == nil {
+			continue
+		}
+		event.ReasoningContent = candidate.reasoning
+		event.TokenCount = c._CountTranscriptEvent(*event)
+		backfilled++
+		candidates = removeReasoningCandidate(candidates, candidate)
+	}
+	return backfilled
+}
+
+func findReasoningCandidate(candidates []reasoningCandidate, event *model.TranscriptEvent) *reasoningCandidate {
+	eventIDs := make(map[string]bool, len(event.ToolCalls))
+	for _, call := range event.ToolCalls {
+		eventIDs[call.ID] = true
+	}
+	for index := range candidates {
+		candidate := &candidates[index]
+		if len(candidate.callIDs) != len(eventIDs) {
+			continue
+		}
+		idsMatch := true
+		for id := range eventIDs {
+			if !candidate.callIDs[id] {
+				idsMatch = false
+				break
+			}
+		}
+		if !idsMatch {
+			continue
+		}
+		if normalizeReasoningContent(event.Content) != candidate.content {
+			continue
+		}
+		return candidate
+	}
+	return nil
+}
+
+func removeReasoningCandidate(candidates []reasoningCandidate, target *reasoningCandidate) []reasoningCandidate {
+	for index := range candidates {
+		if &candidates[index] == target {
+			return append(candidates[:index], candidates[index+1:]...)
+		}
+	}
+	return candidates
+}
+
+func normalizeReasoningContent(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" || strings.HasPrefix(content, "<!-- seelex:") ||
+		strings.HasPrefix(content, "[Seelex recovery note:") {
+		return ""
+	}
+	return content
+}
+
+// MergeToolNarration 把“流式正文只进视图、引擎/转录事件只含 tool_calls”
+// 的说明文本并入对应 transcript tool_call 事件（2026-09-08：框架在
+// CompleteStream 返回 toolCalls 时丢弃 content，正文只经 onChunk 展示，
+// 不落盘则重启恢复只剩工具痕迹）。candidates 是视图里按顺序出现的
+// assistant 正文（含普通答复与工具轮说明）；只消费“在 transcript 里找不到
+// 对应正文”的候选，并按序赋给 content 为空的 tool_call 事件。
+func (c *Coordinator) MergeToolNarration(sessionID string, candidates []string) int {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c._MergeToolNarration(sessionID, candidates)
+}
+
+func (c *Coordinator) _MergeToolNarration(sessionID string, candidates []string) int {
+	st := c.sessionStateLocked(sessionID)
+	pending := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		content := normalizeReasoningContent(candidate)
+		if content == "" {
+			continue
+		}
+		if assistantContentExists(st.transcript, content) {
+			continue
+		}
+		pending = append(pending, content)
+	}
+	if len(pending) == 0 {
+		return 0
+	}
+	merged := 0
+	next := 0
+	for index := range st.transcript {
+		event := &st.transcript[index]
+		if event.Role != "assistant" || len(event.ToolCalls) == 0 {
+			continue
+		}
+		if strings.TrimSpace(event.Content) != "" {
+			continue
+		}
+		if next >= len(pending) {
+			break
+		}
+		event.Content = pending[next]
+		event.TokenCount = c._CountTranscriptEvent(*event)
+		next++
+		merged++
+	}
+	return merged
+}
+
+func assistantContentExists(events []model.TranscriptEvent, content string) bool {
+	for _, event := range events {
+		if event.Role == "assistant" && len(event.ToolCalls) == 0 &&
+			normalizeReasoningContent(event.Content) == content {
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureToolCallTranscriptLocked 保证工具调用宣告已入指定会话 transcript
 // （缺失时补一条 assistant 事件；调用方持有 Core.ViewMu）。
 func (c *Coordinator) EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string) {
