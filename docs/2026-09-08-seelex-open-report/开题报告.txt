@@ -1,0 +1,336 @@
+================================================================
+          本科毕业设计（论文）开题报告
+================================================================
+题目：基于大语言模型的软件工程智能代理框架 Seelex 的设计与实现
+
+学院：________________    专业：________________
+姓名：________________    学号：________________
+指导教师：______________    职称：________________
+开题日期：2026-09-08
+
+说明：本文档为开题报告初稿，基本信息（姓名、学号等）与文献著录格式
+可在正式提交前按学校/学院模板补齐与微调。本报告以开源项目 Seelex
+（面向软件工程任务的 Coding Agent Harness，构建于 Seele 多智能体
+运行时之上）为研究载体。
+
+================================================================
+一、本题目的意义及国内外研究状况
+================================================================
+
+1. 研究背景
+
+自 2022 年底 ChatGPT 问世以来，大语言模型（Large Language Model,
+LLM）展现出前所未有的语言理解、推理、规划与代码生成能力。以
+Chain-of-Thought（思维链）[1]、ReAct（推理与行动协同）[2] 为代表的
+提示与决策范式，使模型不再局限于"一问一答"，而能够在开放环境中
+"感知—决策—行动"，从而催生了大语言模型智能体（LLM Agent）这一研究
+热点 [3][10]。在软件工程领域，代码生成、程序理解、缺陷修复与测试
+生成等任务天然适合由大模型辅助完成，业界已从早期的"代码补全助手"
+（如 GitHub Copilot、OpenAI Codex）演进到具备工具调用、多步执行与
+自主规划的"智能编码代理"（Coding Agent），代表性工作包括 SWE-agent
+[4]、SWE-bench 基准 [5]、MetaGPT [9] 与 AutoGen [8] 等多智能体框架，
+以及 MCP（模型上下文协议）[13]、A2A（智能体间通信协议）[14] 等互连
+标准。
+
+然而，把"能生成代码的大模型"变成"能可靠完成软件工程任务的可运行
+系统"，仍存在一系列工程化难题：(1) 长任务与多步骤规划需要把任务
+拆解为可执行、可并行的子任务，并管理子智能体之间的上下文传递；
+(2) 模型上下文窗口有限，需要预算控制、压缩与按需读回等上下文工程
+（Context Engineering）手段；(3) 编码代理要读写文件、执行命令，必须
+建立项目级沙盒与权限审批等多层安全边界；(4) 会话、计划与工具结果
+需要在进程重启后可靠恢复，存储与恢复两侧的数据一致性直接决定任务
+能否"断点续跑"；(5) 上述机制需要可测试、可观察、可跨平台部署的工程
+化载体。正是这些问题的驱动，本项目以开源智能编码代理框架 Seelex
+为对象，研究面向软件工程任务的大模型智能代理框架的设计与实现。
+
+2. 国内研究现状
+
+国内在大模型与智能编码方向起步较快、生态活跃，呈现"模型开源、应用
+密集、治理先行"的特点。
+
+模型与工具层面：清华大学与智谱 AI 联合开源的多语言代码生成模型
+CodeGeeX 系列（KDD 2023）[6] 及其配套编程助手 [19]，是国内代码大模型
+的代表性工作之一；深度求索（DeepSeek）等团队相继开源面向代码的
+DeepSeek-Coder 等模型，并提供 OpenAI 兼容接口，降低了国产模型驱动
+编码代理的接入成本。产品层面，阿里云于 2023 年起推出 AI 编程助手
+通义灵码 [17]，百度推出文心快码（Comate）[18]，腾讯、华为等厂商也
+先后发布各自的 AI 代码助手，覆盖代码补全、解释、测试生成与代码评审
+等场景，已进入企业级应用。
+
+学术研究层面，国内学者围绕"大语言模型智能体的构建"开展了系统性
+综述与机制研究：郭先会等从智能体的规划、记忆、工具使用与多智能体
+协作等角度归纳了基于大语言模型的智能体构建方法 [15]；在大模型与
+软件工程结合方面，也有针对代码生成、自动修复与智能体评测的探索，
+并强调可靠性与评测基准的重要性。
+
+治理与规范层面：国家网信办等七部门于 2023 年 7 月公布《生成式人工
+智能服务管理暂行办法》[16]，对生成式人工智能服务的提供与使用提出
+合规要求，对涉及文件操作、命令执行与敏感数据的编码代理系统提出了
+明确的安全与伦理约束，也成为国内相关系统设计时必须考虑的制度背景。
+
+总体来看，国内在代码模型、编程助手产品与智能体综述研究上进展迅速，
+但面向"自主完成多步软件工程任务"的完整智能代理框架、多智能体编排
+与上下文/状态治理的工程化研究仍处于起步阶段，多数助手仍以"补全与
+问答"为主，自主执行、可靠性、可恢复性与安全边界方面的公开设计与
+实现资料相对有限。
+
+3. 国外研究现状
+
+国外在编码智能体方向研究密集，大致沿"代码生成模型—工具使用—自主
+软件工程智能体—多智能体协作"的脉络推进。
+
+在基础方法与评测方面：思维链 [1] 与 ReAct [2] 奠定了推理与工具调用
+的范式基础；Voyager [3] 展示了智能体在开放式环境中的长期探索与技能
+沉淀；MemGPT [7] 提出面向长任务的"类操作系统"记忆管理思想，直接
+影响编码代理的上下文与记忆设计。在软件工程落地方面：SWE-agent [4]
+设计了面向仓库交互的 Agent-Computer Interface（ACI），使智能体能像
+工程师一样检索代码、编辑文件并运行测试；SWE-bench [5] 以真实 GitHub
+Issue 为任务构造了首个大规模端到端编码智能体基准；MetaGPT [9] 通过
+"软件公司"式角色分工实现多智能体协作开发；AutoGen [8] 提供了可编排
+多智能体对话的底层框架。EvalPlus [12] 等评测工作则表明，仅靠单轮
+代码生成难以保证正确性，必须把"生成—执行—验证—修复"闭环作为编码
+智能体的核心回路；Fan 等对"大语言模型用于软件工程"的系统综述 [11]
+系统梳理了该领域的进展与开放问题。
+
+在产业与生态方面：OpenAI 于 2021 年发布 Codex，Anthropic 于 2025 年
+推出具备终端操作的 Claude Code，Cognition 的 Devin、Anysphere 的
+Cursor 等产品将"自主完成开发任务"推向工程实践；2024 年 11 月
+Anthropic 发布模型上下文协议 MCP [13]，统一工具/资源接入方式；2025 年
+Google 等发布 A2A 智能体通信协议 [14]，推动跨智能体协作走向标准化。
+
+总体来看，国外研究在"自主执行、评测基准、上下文与记忆管理、多智能
+体编排"四条主线上均有较深积累，且快速产品化。其共性趋势是：从单轮
+代码生成转向带工具调用的多步自主执行，从单智能体转向多智能体编排，
+从"能用"转向"可靠、可恢复、可治理"。这些趋势为本项目明确了研究
+方向，也暴露出仍待解决的关键问题——任务可靠性、上下文预算治理、
+会话状态持久化与恢复一致性、以及安全边界，鲜有系统开源实现能把这
+些能力以可替换、可测试的模块化方式组织起来并给出完整架构说明。
+
+4. 研究意义
+
+（1）理论意义。大模型智能代理涉及多智能体编排、上下文工程、持久化
+与恢复、权限治理等多个交叉问题。本项目以 Seelex 为实证载体，研究并
+总结"面向软件工程任务的编码智能代理框架"的分层架构与关键机制——
+包括任务级 DAG 规划与并行子智能体、预算驱动的上下文压缩与选择性
+读回、不可变代（immutable generation）的会话存储与原子切换、基于
+快照与事件的增量同步协议等，可为该方向提供一份可复现、可审计的
+工程化设计与实现样本，补充国内在自主编码智能代理系统架构层面的
+研究积累。
+
+（2）实践意义。Seelex 直接面向开发者日常场景：在项目作用域内安全地
+调用文件与命令工具、按需加载任务计划、多轮记忆与断点恢复、以及
+TUI/桌面 GUI 双前端。其"可本地部署、模型无关（兼容 OpenAI 兼容接口
+与国产模型）、存储后端可插拔（JSON/SQLite/PostgreSQL/Redis）"的特性，
+使其既可作为个人与团队的编码助手，也可作为大模型智能代理教学、评测
+与二次开发的实验平台，具有明确的工程应用价值。
+
+（3）个人意义。通过完整经历"文献调研—需求分析—详细设计—编码实现
+—测试部署"的软件开发全过程，加深对大模型应用、软件体系结构、并发
+与持久化、系统安全等课程知识的综合运用能力，培养工程素养与文档化
+交付习惯。
+
+================================================================
+二、主要研究内容
+================================================================
+
+本项目围绕 Seelex 智能编码代理框架，研究并实现以下核心内容：
+
+1. 智能代理执行与编排：研究 ReAct 主循环中项目作用域工具调用、流式
+   对话与人工审批交互；研究长任务按需加载的 WorkPlan DAG 编排，包括
+   拓扑校验、并行子智能体、独立节点会话与结果合并回主会话。
+
+2. 上下文治理管线：研究预算驱动（Assembler→ToolResultProcessor→
+   Compressor→ContextController）的上下文处理流程，包括输出预留、
+   滑动窗口、窗口外历史压缩、超大工具结果归档与按需读回。
+
+3. 安全与权限边界：研究 ProjectScope 路径约束 + PathGate 审批策略的
+   双层防护，以及插件/技能/MCP 的事务式切换与工具可见性过滤。
+
+4. 会话持久化与恢复：研究以（project_id, session_id）为隔离键、以
+   不可变代与原子 manifest 切换为核心的存储语义，对比 JSON、SQLite、
+   PostgreSQL、Redis 四种后端，保证"写路径"与"恢复/读取路径"的数据
+   一致性，实现进程重启后的断点恢复。
+
+5. 前端与可观测性：研究 TUI（Bubble Tea）与桌面 GUI 共享同一应用
+   内核的 Snapshot + Event 增量协议，以及会话/计划/工具调用轨迹的
+   可观测性设计。
+
+拟解决的关键问题：(a) 并行子智能体间的上下文隔离与受控合并；
+(b) 上下文超预算时的确定性降级策略；(c) 会话存储与恢复两侧的数据
+面一致性；(d) 工具执行安全边界的完备性；(e) 不依赖真实模型的确定性
+端到端测试方法。
+
+================================================================
+三、研究的具体步骤
+================================================================
+
+第 1 步  文献调研（约第 1—4 周）
+
+目标：掌握大模型智能体与软件工程结合的研究脉络，明确本项目与国内外
+工作的差异与创新点。
+
+内容与方法：
+- 检索范围：CNKI 等中文库与 IEEE Xplore / ACM DL / arXiv / ACL
+  Anthology 等外文库，检索词包括"大语言模型、智能体、代码生成、
+  coding agent、multi-agent、context engineering、session
+  persistence、SWE-bench、ReAct、tool use"等；
+- 精读与泛读结合：精读 ReAct [2]、SWE-agent [4]、SWE-bench [5]、
+  MemGPT [7]、AutoGen [8]、MetaGPT [9] 及两篇综述 [10][11] 等核心
+  文献，泛读国内外智能体综述 [15] 与代码助手产品文档 [17]-[19]，
+  建立技术对照表；
+- 现状归纳：梳理"代码生成→工具使用→自主软件工程智能体→多智能体
+  编排"的演进与不足，形成调研报告与参考文献清单（≥15 篇，近 5 年，
+  含 ≥2 篇英文）。
+
+阶段成果：文献调研报告、技术路线草图、参考文献清单。
+
+第 2 步  需求分析（约第 5—7 周）
+
+目标：把研究问题转化为可验收的系统需求，划定范围与边界。
+
+内容与方法：
+- 用例建模：识别主智能体执行、任务计划加载、工具审批、插件/技能
+  切换、会话持久化与恢复、前端展示等主要用例；
+- 功能需求：对话与流式输出、工具调用与结果回填、WorkPlan DAG 的
+  加载/执行/合并、上下文预算与压缩、会话新建/切换/恢复、多前端
+  一致性；
+- 非功能需求：安全（路径沙盒、审批策略、密钥不入库）、可靠（存储
+  与恢复一致性、断点续跑）、性能（串行/并发吞吐、首 token 延迟）、
+  可扩展（存储后端、模型账号可插拔）与跨平台（Windows/Linux/macOS）；
+- 约束与边界：遵循《生成式人工智能服务管理暂行办法》[16] 合规要求；
+  明确"不做跨进程/跨组织的完整 A2A 协议实现"等范围外事项。
+
+阶段成果：需求规格说明书（含用例与验收标准），用于指导详细设计。
+
+第 3 步  详细设计（约第 8—16 周）
+
+目标：给出满足需求的体系结构与模块级设计，指导编码实现。
+
+内容与方法：
+- 总体架构：采用 Hexagonal（端口-适配器）架构，划分 application
+  （应用层）、seelebridge（Seele 运行时防腐层）、seelexctx（上下文
+  管线）、sessionstore（持久化）、workspace/plugin/skill/mcpstack
+  等模块，明确依赖方向与 Anti-Corruption Layer；
+- 模块设计：
+  * 执行模块：ReAct 主循环状态机、任务终态协议、取消与审批交互；
+  * 编排模块：WorkPlan DAG 的 Schema 归一化、环检测与拓扑排序、
+    并行分支、子代理上下文注入与 merge-back；
+  * 上下文模块：token 预算分配、滑动窗口裁剪、窗口外压缩、超大
+    工具结果 result_ref 归档与读回工具；
+  * 安全模块：ProjectScope 路径 canonicalize 与 containment 校验、
+    PathGate 的 allow/ask/deny 策略、manual/full_access 权限模式、
+    插件事务式切换；
+  * 持久化模块：不可变代（immutable generation）+ manifest 原子切换
+    的存储语义，Provider History / Transcript / 应用状态 / 工具结果
+    分开存储，四后端统一逻辑快照语义（Redis 采用 hash tag 分片）；
+  * 同步协议：Snapshot + 有序 Event 增量协议与缺隙回退机制；
+  * 前端与测试设计：TUI/GUI 共享应用内核；单元测试、集成测试与基于
+    scripted engine 的确定性 E2E 场景（不依赖真实模型）。
+- 数据与接口设计：关键数据流（提交→执行→快照→事件→前端渲染）、
+  存储键（project_id, session_id）与分片方案、模块公开接口契约。
+
+阶段成果：架构设计文档、接口定义、数据库/存储格式说明、测试方案。
+
+（说明：详细设计完成后进入编码实现与迭代测试，并按 62.8%+ 的仓库
+覆盖率基线与 race/coverage 检查持续回归；此阶段可视培养方案与
+Seelex 仓库当前 Alpha 状态，聚焦于 1—2 条关键链路做深做实。）
+
+第 4 步  部署方式（约第 17—19 周，随实现迭代验证）
+
+目标：使系统能够在目标平台可靠安装、配置、运行与验收，形成可交付
+版本。
+
+内容与方法：
+- 环境与构建：Go 1.25+ 工具链；TUI 入口 `go build -o seelex .` /
+  `go run .`；GUI 采用 `go build -tags "gui,desktop,production" .`
+  显式构建；跨平台 CI（Windows/Linux/macOS）执行 gofmt/go vet/
+  go test 与发布安全检查；
+- 账号与模型配置：`config/accounts.yaml`（基于 accounts.example.yaml
+  生成，真实 API key/DSN 不入库），支持 OpenAI 兼容接口（如
+  DeepSeek），可按 agent/subagent 等角色配置账号池；
+- 存储部署：本地默认 JSON 存储于 `.seelex/sessions`；按规模可选
+  SQLite（本地）、PostgreSQL 或 Redis（需外部服务），四者保持相同
+  逻辑快照语义与 project/session 隔离；
+- 运行与安全参数：`-frontend tui|gui`、`-plugins`、`-permission
+  manual|full_access` 等启动参数说明，默认 manual 审批模式，仅受控
+  工作区允许 full_access；
+- 运维与验收：启动日志与快照/事件可观测性检查；断点恢复演练（重启
+  后会话与计划状态可恢复）；`go test ./... -count=1 -timeout=120s`
+  全量回归通过；编写部署手册、用户手册与验收测试记录；
+- 交付：发布可执行二进制与版本标签，编写结题报告与演示材料。
+
+阶段成果：部署与验证手册、验收测试记录、可运行的可交付版本。
+
+总体进度安排（可依据学校时间节点调整）：第 1—4 周文献调研；第 5—7
+周需求分析；第 8—16 周详细设计与编码实现（含迭代测试）；第 17—19 周
+部署验证与文档整理；第 20 周答辩准备。
+
+================================================================
+四、参考文献（近五年，共 19 篇，其中英文 14 篇）
+================================================================
+
+[1] WEI J, WANG X, SCHUURMANS D, et al. Chain-of-thought prompting
+    elicits reasoning in large language models[C]//Advances in Neural
+    Information Processing Systems 35 (NeurIPS 2022). New Orleans,
+    2022.
+[2] YAO S, ZHAO J, YU D, et al. ReAct: Synergizing reasoning and
+    acting in language models[C]//Proceedings of the 11th
+    International Conference on Learning Representations (ICLR 2023).
+    Kigali, 2023.
+[3] WANG G, XIE Y, JIANG Y, et al. Voyager: An open-ended embodied
+    agent with large language models[J/OL]. arXiv:2305.16291, 2023.
+[4] YANG J, JIMENEZ C E, WETTIG A, et al. SWE-agent: Agent-computer
+    interfaces enable automated software engineering[C]//Advances in
+    Neural Information Processing Systems 36 (NeurIPS 2023). New
+    Orleans, 2023.
+[5] JIMENEZ C E, YANG J, WETTIG A, et al. SWE-bench: Can language
+    models resolve real-world GitHub issues?[C]//Proceedings of the
+    12th International Conference on Learning Representations (ICLR
+    2024). Vienna, 2024.
+[6] ZHENG Q, XIA X, ZOU X, et al. CodeGeeX: A pre-trained model for
+    code generation with multilingual benchmarking on HumanEval-
+    X[C]//Proceedings of the 29th ACM SIGKDD Conference on Knowledge
+    Discovery and Data Mining (KDD 2023). Long Beach: ACM, 2023.
+[7] PACKER C, WOODERS S, LIN K, et al. MemGPT: Towards LLMs as
+    operating systems[J/OL]. arXiv:2310.08560, 2023.
+[8] WU Q, BANSAL G, ZHANG J, et al. AutoGen: Enabling next-gen LLM
+    applications via multi-agent conversation[J/OL].
+    arXiv:2308.08155, 2023.
+[9] HONG S, ZHUGE M, CHEN J, et al. MetaGPT: Meta programming for a
+    multi-agent collaborative framework[C]//Proceedings of the 12th
+    International Conference on Learning Representations (ICLR 2024).
+    Vienna, 2024.
+[10] XI Z, CHEN W, GUO X, et al. The rise and potential of large
+    language model based agents: A survey[J/OL]. arXiv:2309.07864,
+    2023.
+[11] FAN A, GOKKAYA B, HARMAN M, et al. Large language models for
+    software engineering: Survey and open problems[J/OL].
+    arXiv:2310.03533, 2023.
+[12] LIU J, XIA C S, WANG Y, et al. Is your code generated by ChatGPT
+    really correct? Rigorous evaluation of large language models for
+    code generation[C]//Advances in Neural Information Processing
+    Systems 36 (NeurIPS 2023). New Orleans, 2023.
+[13] ANTHROPIC. Model Context Protocol (MCP)[EB/OL]. (2024-11-25)
+    [2026-09-08]. https://modelcontextprotocol.io.
+[14] GOOGLE. Agent2Agent (A2A): An open protocol for agent-to-agent
+    communication[EB/OL]. (2025-04-09)[2026-09-08].
+    https://github.com/google/A2A.
+[15] 郭先会, 张梦姣, 马军. 基于大语言模型的智能体构建综述[J].
+    通信技术, 2024, 57(9).
+[16] 国家互联网信息办公室, 国家发展和改革委员会, 教育部, 等. 生成式
+    人工智能服务管理暂行办法[Z]. 2023.
+[17] 阿里云计算有限公司. 通义灵码: 企业级 AI 编程助手[EB/OL].
+    [2026-09-08]. https://lingma.aliyun.com.
+[18] 北京百度网讯科技有限公司. 文心快码（Comate）: 智能代码助手
+    [EB/OL]. [2026-09-08]. https://comate.baidu.com.
+[19] 北京智谱华章科技有限公司. CodeGeeX: AI 编程助手[EB/OL].
+    [2026-09-08]. https://codegeex.cn.
+
+（说明：以上文献均发表于/发布于 2021—2026 年（近五年），其中英文
+文献 14 篇、中文文献 5 篇，满足"≥15 篇、近五年、≥2 篇英文"的要求；
+正文引用编号与文献列表一一对应，正式提交时请按学校模板核对卷期页码
+与 URL 访问日期。）
+
+================================================================
+（开题报告正文结束）
+================================================================

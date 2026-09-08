@@ -1,0 +1,293 @@
+============================================================
+                        开  题  报  告
+============================================================
+
+课题名称（拟）：面向软件工程任务的大语言模型智能体框架的设计与实现
+——以本地 Coding Agent Harness「Seelex」为原型
+
+原型说明：Seelex 是基于 Go 实现的本地运行、可观测、可恢复的大语言
+模型（LLM）多智能体框架，提供 TUI/GUI 双前端、项目作用域 Tool
+Calling、WorkPlan DAG 任务编排与并行子代理、上下文工程（Context
+Engineering）、ProjectScope 路径约束与审批策略、Plugin/Skill/MCP
+扩展机制以及多后端持久化。
+
+学院：______________    专业：______________    班级：______________
+学号：______________    姓名：______________    指导教师：______________
+拟定日期：2026 年 9 月 8 日
+
+（注：本报告按常用开题模板要素拟稿；个人基本信息、学校院系与题目
+措辞请按本校/本院要求填写调整。）
+
+------------------------------------------------------------
+一、本题目的意义及国内外研究状况
+------------------------------------------------------------
+
+（一）研究背景
+
+1. 大语言模型从“文本生成”走向“任务执行”。
+2022 年以来，以 GPT、DeepSeek 等为代表的大语言模型（Large Language
+Model，LLM）在参数规模与训练数据的推动下，表现出指令遵循、上下文
+学习、思维链推理乃至工具使用等涌现能力，其技术体系已形成系统性
+综述[1][2]，中文领域亦同步建立起较完整的教材与知识体系[3]。与此
+同时，行业认知正从“把大模型当聊天机器人”转向“把大模型当作能够
+感知环境、调用工具、执行动作并达成目标的智能体（Agent）”，模型与
+外部工具、文件系统、代码仓库之间的交互成为新的研究重心。
+
+2. 软件工程成为智能体最重要的落地场景之一。
+早在 2021 年，OpenAI 即训练代码大模型 Codex，展示出“以自然语言
+生成程序”的可行性[4]。此后，研究重点逐渐从“单点代码生成”演进
+为“可读仓库、可调工具、可改文件、可跑测试的软件工程智能体”。
+以 SWE-bench 为代表的真实 GitHub Issue 评测基准表明：让模型端到端
+解决真实仓库缺陷仍然困难，多数模型解决率偏低[5]。这说明大模型要
+真正参与软件工程任务，仅靠“更强的模型”不够，还必须解决任务编排、
+工具使用、执行环境与反馈闭环等系统性工程问题。
+
+3. 真实工程落地仍存在若干“框架层”瓶颈。
+将 LLM 用于多步骤软件工程任务时，存在四类突出问题：其一，上下文
+有界性——模型窗口有限，长对话与超大工具结果需要预算控制、压缩与
+按需读回，而不能无界累积；其二，长任务可控性——多步骤任务需要
+规划（Plan）表达、并行子代理调度与结果合并，避免单条 ReAct 轨迹
+失控；其三，安全与合规——文件读写与 Shell 执行必须被约束在项目
+边界内，并配合权限审批（Human-in-the-loop），防止模型越权操作；
+其四，可恢复与可审计——会话、计划与工具结果需要持久化，能够在
+中断后恢复并回放事件。这些能力属于 Chat Client 和单文件 Demo 均
+无法覆盖的“框架（Harness）层”，也正是本课题拟研究并实现的内容。
+
+（二）国内研究现状
+
+1. 基座模型与产品快速追赶。
+国内已形成以大模型为核心的人工智能产业生态，中国软件评测中心发布
+的年度研究报告显示，2023 年以来国产大模型在模型设计、数据、预训练
+与微调等方面进步显著，在语言生成、逻辑推理与工具调用等能力上快速
+逼近国际前沿，并涌现出百度文心（含文心快码）、阿里通义（含通义
+灵码）、腾讯混元（含 AI 代码助手）、华为盘古（含 CodeArts Snap）、
+智谱 GLM/CodeGeeX、讯飞星火、字节豆包等模型与开发工具[6]。学界与
+产业界同步发布了多份智能体技术综述与构建方法论，对任务规划、记忆、
+工具调用与评估框架进行了系统梳理[7][8]。
+
+2. 学界在多智能体协作与软件研发自动化上积极布局。
+清华大学等机构提出 ChatDev，将软件开发抽象为“虚拟软件公司”中多
+角色智能体的自然语言协作流程，实现从需求到代码的全流程自动生成[9]；
+中国人民大学高瓴团队在 Frontiers of Computer Science 发表基于大
+语言模型的自主智能体综述，系统分析了智能体的规划、记忆、工具使用
+与评估方法[8]。多所高校与企业联合发布的综述类中文教材亦对大模型
+技术做了体系化归纳[3]。
+
+3. 总体评价与不足。
+总体看，国内研究在基座模型能力、单点代码生成与对话式开发助手方面
+进展迅速，但在“本地可运行、权限受控、计划可审计、上下文有界、可
+恢复可观测”的整机框架层，公开的成体系、可复用成果仍然偏少：商业
+产品多以云端服务与闭源形态提供，难以在私有化、离线或受限网络环境
+下直接部署；开源项目多停留在实验原型。将任务编排、上下文治理、安
+全沙箱与持久化统一在一个可测试的本地框架中，是尚待补强的方向，也
+是本课题的切入点。
+
+（三）国外研究现状
+
+1. 推理与行动结合的方法论日趋成熟。
+ReAct 提出将推理轨迹（Thought）与动作（Act）交织循环，显著提升模
+型在问答与决策任务上的表现[10]；Toolformer 使语言模型可以自监督
+地学会调用外部工具，为“以工具扩展模型能力”奠定基础[11]；Tree
+of Thoughts 以树状搜索替代贪心解码，增强复杂规划能力[12]；
+Reflexion 通过语言化反馈与自我反思实现智能体的持续改进[13]。
+
+2. 多智能体协作框架兴起。
+MetaGPT 将软件公司的标准作业流程（SOP）编码进多智能体协作，模拟
+产品经理、架构师、工程师等角色的分工与评审流程，显著提升复杂项目
+的完成质量[14]；AutoGen 提供可对话、可编排的多智能体通用框架，支
+持人类参与的人类在环（human-in-the-loop）协作与工具调用[15]。
+
+3. 软件工程智能体与开放协议成为热点。
+SWE-agent 提出“智能体—计算机接口（Agent-Computer Interface）”
+设计理念，通过定制化环境交互界面提升模型在真实代码库上的缺陷修复
+能力[16]，并与 SWE-bench[5] 共同构成评测—改进闭环。产业界方面，
+GitHub Copilot Workspace、Cognition Devin、Anthropic Claude Code、
+OpenAI Codex CLI 等 Coding Agent 产品相继推出；Anthropic 发布的
+模型上下文协议（Model Context Protocol，MCP）为智能体统一接入外部
+工具与数据源提供了开放标准[17]。
+
+4. 小结。
+国外在方法层（推理—行动循环、反思、规划）、系统层（多智能体编排
+框架）与生态层（评测基准、Agent 产品、MCP/A2A 等开放协议）均处于
+领先位置。然而，主流框架在上下文预算治理、权限隔离、可恢复持久化
+与本地化部署等方面仍不断演进、尚未收敛，给本课题留下了设计与工程
+验证空间。
+
+（四）研究意义
+
+1. 理论意义。
+本课题将多智能体编排、上下文工程与权限安全等分散技术统一到“面向
+软件工程任务的 Agent Harness”这一系统视角，研究 ReAct 执行与
+DAG 规划如何按需切换、子代理并行结果如何结构化合并、上下文如何在
+预算约束下有界保留与按需读回、执行如何以不可变快照方式持久化恢复，
+可为大模型智能体工程化提供可复用的设计经验与参考架构。
+
+2. 工程意义。
+以 Seelex 为原型，课题交付一个可编译、可测试、可运行的本地智能体
+框架：任务级（Task）、计划级（Plan）、审批（Approval）、会话与
+工具执行均可在离线 CI 中以确定性场景回归验证；TUI 与 GUI 共享同
+一应用核心，降低前端维护成本；Plugin/Skill/MCP 的事务式切换为
+Agent 的领域专业化提供扩展机制。
+
+3. 应用价值。
+框架可在私有网络、敏感数据或成本受限场景下本地部署，避免源码与
+数据出域；多后端持久化（JSON/SQLite/PostgreSQL/Redis）与权限策略
+（allow/ask/deny）兼顾个人开发与团队协作需求。课题成果对软件工程
+自动化、研发效能工具与智能体安全治理均有借鉴意义，也为后续在
+Windows/Linux/macOS 上开展 Coding Agent 应用研究提供基础平台。
+
+------------------------------------------------------------
+二、研究的具体步骤
+------------------------------------------------------------
+
+（一）文献调研
+1. 检索范围：以 CNKI、IEEE Xplore、ACM DL、ACL Anthology、
+NeurIPS/ICLR Proceedings、arXiv 为主要来源，围绕“大语言模型智
+能体（LLM-based Agent）”“工具调用（Tool Calling/Function
+Calling）”“多智能体编排（Multi-Agent Orchestration）”
+“Coding Agent / 自动化软件工程”“上下文工程（Context
+Engineering）”“智能体安全与权限”等主题检索 2021—2026 年文献。
+2. 调研要点：重点精读代表性综述[1][7][8]、推理—行动方法[10][11]
+[12][13]、多智能体框架[14][15]、软件工程智能体与评测[5][16] 以及
+开放协议[17] 等文献，梳理各方法的能力边界与不足。
+3. 调研产出：形成《文献调研报告》，包括技术路线对比表、关键技术
+选型依据与拟借鉴/拟改进点清单，据此确定需求基线。
+
+（二）需求分析
+1. 场景界定：面向个人开发者与中小团队，在本地或私有网络环境中使
+用 LLM 完成代码编写、缺陷修复、重构、评审、测试与文档生成等软件
+工程任务。
+2. 功能需求：
+   - 对话与任务：支持多轮对话、工具调用、任务（Task）与计划
+     （Plan/WorkPlan DAG）生命周期；
+   - 智能体编排：长任务按需拆分为子代理节点，支持并行执行、进度
+     事件投影与结果合并回主会话；
+   - 扩展能力：声明式 Plugin、目录化 Skill、MCP Server 动态挂载；
+   - 前端：共享同一应用核心的 TUI 与 GUI，状态经 Snapshot + Event
+     增量协议同步；
+   - 持久化：会话/计划/工具结果可保存到 JSON、SQLite、PostgreSQL
+     或 Redis，并保持项目与会话隔离。
+3. 非功能需求：路径安全（文件与 Shell 不得越出项目作用域）、权限
+审批（allow/ask/deny 与人工确认）、上下文预算可控、执行可观测可
+审计、中断可恢复、跨平台（Windows/Linux/macOS）、账号与模型可路由。
+4. 产出：需求规格说明与用例集（含确定性 E2E 场景，可在无真实模型
+账号下离线回归）。
+
+（三）详细设计
+1. 总体架构：采用端口—适配器（Ports and Adapters）分层，前端
+（TUI/GUI）只消费 Application DTO、Snapshot 与 Event；Application
+Core 实现 Chat、Task、Plan、Approval、Session、Workspace 语义；
+通过 Bridge 隔离底层 Agent Runtime，避免上游类型变更扩散。
+2. 执行与编排设计：
+   - 默认 ReAct 执行路径，仅在复杂任务时加载经拓扑校验的 WorkPlan
+     DAG；
+   - 每个子代理节点拥有独立 Session、作用域、提示块与 Token 预算，
+     并行分支不共享易变会话状态，子节点产出以结构化 Finding/
+     Decision/Progress 合并回父会话。
+3. 上下文管线设计：按 Assembler → ToolResultProcessor → Compressor
+→ ContextController 组装；为输出预留 Token 与安全余量后计算输入
+预算；滑动窗口之外的历史执行压缩，超大工具结果保存为不可变引用
+（result_ref），模型先见有界摘要、必要时按需读回。
+4. 安全设计：ProjectScope 负责物理路径约束，Permission/PathGate
+负责项目内 allow/ask/deny 策略；请求级工具可见性快照与人工审批
+共同生效；隐藏工具即使被构造调用亦被拒绝。
+5. 扩展与运维设计：Plugin 切换采用 prepare/switch/cleanup 事务；
+账号池按角色与分支确定性路由；持久化采用分片不可变生成
+（immutable generation）+ 原子切换，保证读者只能看到完整新旧快照
+之一。
+6. 测试设计：单元测试、集成测试、确定性 E2E 场景（scripted
+engine + fixture，不依赖真实 LLM/网络）、跨平台 CI 与竞态/覆盖率
+检查；生产与测试共享同一公开契约。
+
+（四）部署方式
+1. 环境准备：Go 1.25+ 构建工具链；OpenAI-compatible 模型服务
+（本地或云端，含流式与工具调用支持，如 DeepSeek 等）；Git。
+2. 构建与启动：源码编译生成可执行文件；默认入口为 TUI，GUI 作为
+可选前端；通过配置文件（如 config/accounts.yaml，Git 忽略）按
+agent/subagent/goalplan 等角色配置模型账号、base_url、上下文窗口
+与 Token 预算。
+3. 安全配置：默认采用 manual 权限模式，按需为合法操作配置 allow
+白名单或 ask 审批，路径规则经 PathGate 校验后生效；Windows 下 Shell
+以显式 PowerShell（-NoProfile -NonInteractive）调用以降低注入风险。
+4. 存储选型：单机小规模使用 JSON/SQLite；团队或多机场景可切换
+PostgreSQL/Redis，均保持统一的项目/会话隔离与原子 generation 语义。
+5. 发布与升级：面向 Windows/Linux/macOS 交叉构建与 CI 发布；升级
+前备份本地会话数据（.seelex）与账号配置；涉敏感数据场景建议完全
+离线部署并关闭外网模型路由。
+6. 验证口径：以 `go test ./...`、确定性 E2E 场景与手工冒烟测试作为
+发布验收标准；接入真实模型后再执行显式启用的联调用例。
+
+------------------------------------------------------------
+三、进度安排（拟，可按学院模板调整）
+------------------------------------------------------------
+1. 第 1—2 月：文献调研，撰写文献综述与调研报告；
+2. 第 3—4 月：需求分析与总体设计，确定架构与技术选型；
+3. 第 5—8 月：核心模块实现（执行编排、上下文管线、安全、持久化、
+Plugin/Skill/MCP、TUI/GUI 对接）；
+4. 第 9—10 月：集成测试、性能与安全验证、跨平台部署试运行；
+5. 第 11—12 月：论文撰写、答辩准备与成果整理。
+
+------------------------------------------------------------
+四、参考文献
+------------------------------------------------------------
+[1] Zhao W X, Zhou K, Li J, et al. A Survey of Large Language
+Models[J/OL]. arXiv preprint arXiv:2303.18223, 2023.
+[2] Wei J, Tay Y, Bommasani R, et al. Emergent Abilities of Large
+Language Models[J]. Transactions on Machine Learning Research,
+2022.
+[3] 赵鑫, 李军毅, 周昆, 唐天一, 文继荣. 大语言模型[M]. 北京:
+高等教育出版社, 2024.
+[4] Chen M, Tworek J, Jun H, et al. Evaluating Large Language
+Models Trained on Code[EB/OL]. arXiv preprint arXiv:2107.03374,
+2021.
+[5] Jimenez C E, Yang J, Wettig A, et al. SWE-bench: Can Language
+Models Resolve Real-World GitHub Issues?[C]//Proceedings of the
+12th International Conference on Learning Representations (ICLR).
+2024.
+[6] 中国软件评测中心（工业和信息化部软件与集成电路促进中心）.
+人工智能大语言模型技术发展研究报告(2024)[R]. 北京: 中国软件评测
+中心, 2024.
+[7] 郭先会, 张梦姣, 马军. 基于大语言模型的智能体构建综述[J].
+通信技术, 2024, 57(9).
+[8] Wang L, Ma C, Feng X, et al. A Survey on Large Language Model
+Based Autonomous Agents[J]. Frontiers of Computer Science, 2024,
+18(6): 186345.
+[9] Qian C, Cong X, Liu W, et al. ChatDev: Communicative Agents
+for Software Development[EB/OL]. arXiv preprint arXiv:2307.07924,
+2023.
+[10] Yao S, Zhao J, Yu D, et al. ReAct: Synergizing Reasoning and
+Acting in Language Models[C]//Proceedings of the 11th International
+Conference on Learning Representations (ICLR). 2023.
+[11] Schick T, Dwivedi-Yu J, Dessì R, et al. Toolformer: Language
+Models Can Teach Themselves to Use Tools[C]//Advances in Neural
+Information Processing Systems (NeurIPS 2023). 2023.
+[12] Yao S, Yu D, Zhao J, et al. Tree of Thoughts: Deliberate
+Problem Solving with Large Language Models[C]//Advances in Neural
+Information Processing Systems (NeurIPS 2023). 2023.
+[13] Shinn N, Cassano F, Gopinath A, et al. Reflexion: Language
+Agents with Verbal Reinforcement Learning[C]//Advances in Neural
+Information Processing Systems (NeurIPS 2023). 2023.
+[14] Hong S, Zheng X, Chen J, et al. MetaGPT: Meta Programming
+for A Multi-Agent Collaborative Framework[C]//Proceedings of the
+12th International Conference on Learning Representations (ICLR).
+2024.
+[15] Wu Q, Bansal G, Zhang J, et al. AutoGen: Enabling Next-Gen
+LLM Applications via Multi-Agent Conversation[C]//Proceedings of
+the First Conference on Language Modeling (COLM). 2024.
+[16] Yang J, Jimenez C E, Wettig A, et al. SWE-agent: Agent-
+Computer Interfaces Enable Automated Software Engineering[C]//
+Advances in Neural Information Processing Systems (NeurIPS 2024).
+2024.
+[17] Anthropic. Introducing the Model Context Protocol[EB/OL].
+(2024-11-25). https://www.anthropic.com/news/model-context-protocol.
+
+------------------------------------------------------------
+附：文献自查说明（供核对，不计入正文）
+------------------------------------------------------------
+· 共 17 条参考文献，满足“不少于 15 条”；
+· 出版/发表年份均在 2021—2026 年内（2021 年 1 条、2022 年 1 条、
+  2023—2024 年为主），满足“近 5 年”要求；
+· 英文文献 14 条（[1][2][4][5][8][9][10][11][12][13][14][15]
+  [16][17]），不少于 2 条；
+· 中文文献 3 条（[3] 教材、[6] 行业报告、[7] 中文期刊综述）。
+============================================================
