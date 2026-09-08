@@ -84,6 +84,9 @@ func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
+	// 夹具：每个已定稿轮次本身都超过全部预算（小预算兜底账号）。此时
+	// 协议单元不可拆分、没有可发送的窗口，装配必须显式拒绝（旧行为是
+	// 静默清空历史后照发，模型“失忆”，见 2026-09-08 上下文恢复评审 §3）。
 	for round := 0; round < 8; round++ {
 		callID := "call-" + string(rune('a'+round))
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "user", Content: strings.Repeat("request ", 2500)})
@@ -93,17 +96,8 @@ func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	}
 	service.ViewMu.Unlock()
 
-	preparedInput, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification")
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.ViewMu.RLock()
-	systemPrompt := service.components.prompts.SystemPromptForActiveTaskLocked()
-	service.ViewMu.RUnlock()
-	tools := service.Deps.Runtime.VisibleTools(t.Context())
-	estimated := service.components.tasks.CountRequestTokens(systemPrompt, engine.History(), preparedInput, tools)
-	if estimated > task_context.DefaultContextBudget().Budget {
-		t.Fatalf("final request tokens = %d, budget = %d", estimated, task_context.DefaultContextBudget().Budget)
+	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification"); !errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
+		t.Fatalf("prepare error = %v, want ErrProviderContextBudgetExceeded (single round exceeds full budget)", err)
 	}
 }
 

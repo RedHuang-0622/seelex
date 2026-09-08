@@ -193,7 +193,15 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 		// 累积模式：保留段（稳定前缀 + 已定稿轮次）已覆盖 transcript 前缀，
 		// 只追加保留段之后的新事件（append-only，字节稳定）。
 		if covered := retainedContextEventCount(systems); covered > 0 {
-			if covered < len(events) {
+			if covered < len(events) && !retainedMatchesTranscriptPrefix(systems, events) {
+				// 冷恢复只装载了尾部窗口：保留段是 transcript 的**后缀**而
+				// 非前缀（retainedMatchesTranscriptPrefix=false）。此时按
+				// “已覆盖 covered 条事件”跳过会得到 [tail]+[middle] 的
+				// 重排与重复（恢复后首个请求上下文顺序 != 会话顺序，前缀
+				// 字节不稳定 → 缓存无法命中）。回退为从完整 transcript
+				// 按原序重建：保留段只留 system，事件不裁剪。
+				systems = RetainedSystemOnly(systems)
+			} else if covered < len(events) {
 				events = events[covered:]
 			} else {
 				events = nil
@@ -267,15 +275,17 @@ func (c *Coordinator) fitExecutionHistory(
 	if history, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, contextMaxUnits); estimated <= target {
 		return history, estimated
 	}
-	// 达峰回退：全量累积超预算 → 折为有界窗口；窗口仍超 → 逐级收缩，最后
-	// 丢弃整个累积 context，只保留 system + plan（正常路径不用 checkpoint
-	// 兜底；恢复路径仍保留 checkpoint 续接）。
+	// 达峰回退：全量累积超预算 → 折为有界窗口；窗口仍超 → 逐级收缩。
+	// 最终兜底不“静默清空”：TranscriptTailHistory 保证至少返回最新 1 个
+	// 完整单元（即使估算超过 target），不再走 events=nil 的 system+plan
+	// 空历史分支；估算仍超出全量预算时由调用方以 ErrProviderContextBudgetExceeded
+	// 拒绝发送（拒绝优于“模型失忆”，正常路径不用 checkpoint 兜底）。
 	for maxUnits := limits.Get().ContextMaxUnits; maxUnits > 0; maxUnits-- {
 		if history, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, maxUnits); estimated <= target {
 			return history, estimated
 		}
 	}
-	return c.tryFitExecutionHistory(systemPrompt, RetainedSystemOnly(systems), planMessage, nil, currentInput, tools, target, 0)
+	return c.tryFitExecutionHistory(systemPrompt, RetainedSystemOnly(systems), planMessage, events, currentInput, tools, target, 1)
 }
 
 // tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token。
@@ -301,6 +311,31 @@ func (c *Coordinator) tryFitExecutionHistory(
 		history = append(history, contract.EngineMessage{Role: "user", Content: planMessage, ContentSet: true})
 	}
 	return history, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
+}
+
+// retainedMatchesTranscriptPrefix 判定引擎保留段（非 system 的已定稿轮次）
+// 是否与 transcript 事件流的前缀一一对应。正常续跑时引擎历史就是 transcript
+// 前缀，covered 计数可直接用于跳过；冷恢复（resumeSessionCold 只装载尾部
+// 窗口）时保留段对应 transcript 后缀，若仍按 covered 跳过会把中段事件
+// 追加到尾部之后，造成上下文重排/重复。比较以 Role+Content 为准（工具轮
+// 的 ToolCalls 只影响 wire 展示，不改变覆盖判断）。
+func retainedMatchesTranscriptPrefix(systems []contract.EngineMessage, events []model.TranscriptEvent) bool {
+	retained := make([]contract.EngineMessage, 0, len(systems))
+	for _, message := range systems {
+		if message.Role != "system" {
+			retained = append(retained, message)
+		}
+	}
+	if len(retained) == 0 || len(retained) > len(events) {
+		return false
+	}
+	for index := range retained {
+		if retained[index].Role != events[index].Role ||
+			retained[index].Content != events[index].Content {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Coordinator) planContextMessageLocked(sessionID string) string {

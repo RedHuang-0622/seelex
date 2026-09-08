@@ -87,6 +87,11 @@ func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model
 // TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
 // 历史（token 预算 + 单元上限）。maxUnits <= 0 表示全量累积（append-only
 // 已定稿轮次，达峰前字节稳定）；maxUnits > 0 表示有界窗口（压缩后新鲜窗口）。
+//
+// 协议单元不可拆分：若最新完整单元单条就超出 tokenBudget，函数不返回空
+// 历史，而是降级保留该最新单元（自 newest 起的最后一个可解析完整轮次）。
+// 这样“最新上下文”不会因预算装不下而静默消失；该轮是否真的可发送（相对
+// 真实 provider 窗口）由上层全量预算门禁决定，超限时应显式拒绝。
 func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage {
 	if len(events) == 0 || tokenBudget <= 0 {
 		return nil
@@ -107,6 +112,11 @@ func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits
 		}
 		selected = append(selected, units[index])
 		tokens += unitTokens
+	}
+	// 自 newest 向旧扫描一个单元都放不下（selected 为空）时，仍保留最新
+	// 完整单元：静默丢弃最新轮会让模型“失忆”（继续请求看不到上一轮内容）。
+	if len(selected) == 0 && len(units) > 0 {
+		selected = append(selected, units[len(units)-1])
 	}
 	history := make([]contract.EngineMessage, 0)
 	for index := len(selected) - 1; index >= 0; index-- {

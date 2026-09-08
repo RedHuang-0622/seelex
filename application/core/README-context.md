@@ -9,6 +9,11 @@
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### context_budget_last_resort_test.go
+
+- `func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T)` — TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿
+- `func TestContextBudgetOvershootRefusesWhenNewestExceedsFullBudget(t *testing.T)` — TestContextBudgetOvershootRefusesWhenNewestExceedsFullBudget：最新轮本身
+
 ### context_cache_smoke_test.go
 
 - `func smokeService(t *testing.T, window int) (*Service, *fakeEngine)` — smokeService 构建一个可驱动生产装配路径的服务。

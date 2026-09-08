@@ -15,6 +15,10 @@ content 修复）。
   `RecordContextCompactionLocked`），压缩后为有界新鲜窗口。checkpoint 正常
   路径不再注入 LLM 上下文，只保留恢复路径（根包 `history_safety.go` 的
   provider 504 / history-safety 信封）与持久化数据面（`RememberCheckpointLocked`）。
+  收缩兜底语义：协议单元不可拆分——单轮装不下预算时不得静默清空历史；
+  `TranscriptTailHistory` 降级保留最新完整单元，`fitExecutionHistory` 最终
+  兜底不再走 `events=nil` 的空历史分支；真正超出全量预算时由
+  `PrepareExecutionContextFor` 返回 `ErrProviderContextBudgetExceeded`。
 - 不做：chat 主循环、provider 失败重试工作流（根包 `history_safety.go`）。
 
 ## 关键文件
@@ -69,6 +73,7 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) fitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, contextMaxUnits int, ) ([]contract.EngineMessage, int)` — fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 - `func (c *Coordinator) tryFitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, contextMaxUnits int, ) ([]contract.EngineMessage, int)` — tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token。
+- `func retainedMatchesTranscriptPrefix(systems []contract.EngineMessage, events []model.TranscriptEvent) bool` — retainedMatchesTranscriptPrefix 判定引擎保留段（非 system 的已定稿轮次）
 - `func (c *Coordinator) planContextMessageLocked(sessionID string) string`
 - `func currentPlanSlice(arguments, currentNode string) any`
 - `func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, currentInput string) []model.TranscriptEvent`

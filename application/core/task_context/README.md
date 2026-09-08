@@ -12,7 +12,9 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
 - 做：`BeginTask`/`ActivateTaskSkillsLocked`/`AppendTranscriptEventLocked`/
   `BuildTaskCheckpointLocked`/`TaskProjectionLocked`、终态工具
   `VerifyAndApply`、`ObserveTool/PlanEvent/ModelOutput`、上下文压缩记录、
-  plan 栈/重规划/预算状态、token 计数与上下文预算。
+  plan 栈/重规划/预算状态、token 计数与上下文预算。尾窗收敛
+  （`TranscriptTailHistory`）：协议单元不可拆分，最新完整单元单条超预算时
+  降级保留最新轮、绝不静默输出空历史（是否可发送由上层预算门禁决定）。
 - 不做：会话持久化跨域事务、chat 流式编排、context 装配。
 
 ## 关键文件
@@ -55,6 +57,11 @@ go test ./application/core/task_context -count=1
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### budget_last_resort_test.go
+
+- `func TestTranscriptTailKeepsNewestUnitWhenItExceedsBudget(t *testing.T)` — TestTranscriptTailKeepsNewestUnitWhenItExceedsBudget：协议单元不可拆分，
+- `func TestTranscriptTailDropsOlderUnitsButKeepsNewestWithinBudget(t *testing.T)` — TestTranscriptTailDropsOlderUnitsButKeepsNewestWithinBudget：最新单元能
 
 ### coordinator.go
 
