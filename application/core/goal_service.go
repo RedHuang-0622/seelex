@@ -46,7 +46,11 @@ func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, requ
 	if err != nil {
 		return nil, err
 	}
-	return coordinator.Begin(ctx, sessionID, request)
+	record, err := coordinator.Begin(ctx, sessionID, request)
+	if err == nil {
+		service.refreshGoalRuntimeProjection(sessionID)
+	}
+	return record, err
 }
 
 // GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
@@ -60,7 +64,11 @@ func (service *Service) GoalUpdateFor(ctx context.Context, sessionID string, req
 	if err != nil {
 		return nil, err
 	}
-	return coordinator.Update(ctx, sessionID, request)
+	record, err := coordinator.Update(ctx, sessionID, request)
+	if err == nil {
+		service.refreshGoalRuntimeProjection(sessionID)
+	}
+	return record, err
 }
 
 // GoalUpdate 按执行 ctx 会话更新（main agent 工具调用路径）。
@@ -74,7 +82,11 @@ func (service *Service) GoalProposeFinishFor(ctx context.Context, sessionID stri
 	if err != nil {
 		return goaldomain.FinishProposalResult{}, err
 	}
-	return coordinator.ProposeFinish(ctx, sessionID, request)
+	result, err := coordinator.ProposeFinish(ctx, sessionID, request)
+	if err == nil {
+		service.refreshGoalRuntimeProjection(sessionID)
+	}
+	return result, err
 }
 
 // GoalProposeFinish 按执行 ctx 会话提议收口（main agent 工具调用路径）。
@@ -97,7 +109,11 @@ func (service *Service) GoalNextFor(ctx context.Context, sessionID string) (bool
 	if err != nil {
 		return false, err
 	}
-	return coordinator.Next(ctx, sessionID)
+	more, err := coordinator.Next(ctx, sessionID)
+	if err == nil {
+		service.refreshGoalRuntimeProjection(sessionID)
+	}
+	return more, err
 }
 
 // GoalNext 按执行 ctx 会话推进治理循环。
@@ -120,7 +136,24 @@ func (service *Service) GoalBreakFor(_ context.Context, sessionID, reason string
 	if err != nil {
 		return err
 	}
-	return coordinator.Break(context.Background(), sessionID, reason)
+	if err := coordinator.Break(context.Background(), sessionID, reason); err != nil {
+		return err
+	}
+	service.refreshGoalRuntimeProjection(sessionID)
+	return nil
+}
+
+// refreshGoalRuntimeProjection 在 goal 状态迁移后刷新目标会话的 runtime
+// 槽（GoalGovernanceView 进 Snapshot.Runtime），使治理面板在直接工具/headless
+// 调用路径也立即可见（不依赖下一次 ChatStream 的回合尾投影）。
+func (service *Service) refreshGoalRuntimeProjection(sessionID string) {
+	if service == nil || service.components.view == nil {
+		return
+	}
+	projection := service.components.view.CollectRuntimeProjectionFor(context.Background(), sessionID)
+	service.ViewMu.Lock()
+	service.components.view.ApplyRuntimeProjectionForLocked(sessionID, projection)
+	service.ViewMu.Unlock()
 }
 
 // GoalIterationCompleted 是 ChatStream OnIterationComplete 的 goal 接线：
