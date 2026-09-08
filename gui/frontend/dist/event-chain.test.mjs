@@ -66,11 +66,11 @@ test("relays a completed main-agent tool result through the GUI reducer and rend
 
   const current = client.current();
   const rendered = renderConversationModel(current.conversation, current.chat);
-  const tool = rendered.items.find(item => item.key === "tool:tool-1");
+  const tool = rendered.items.find(item => item.html.includes('data-conversation-key="tool:tool-1"'));
   assert.equal(loads, 1, "main tool events must not fall back to Snapshot reloads");
   assert.deepEqual(incrementals, ["tool.started", "tool.completed", "runtime.changed"]);
   assert.equal(current.runtime.full_access, true, "authoritative full-access state must reach the frontend");
-  assert.ok(tool, "completed tool card must retain the started tool key");
+  assert.ok(tool, "completed tool card must remain inside the conversation axis");
   assert.match(tool.html, /class="chat-chip is-tool"/);
   assert.match(tool.html, /data-trajectory-key="tool:tool-1"/);
   assert.match(tool.html, /tool-run is-success/);

@@ -45,9 +45,11 @@ test("uses stable message and tool keys for incremental rendering", () => {
     { id: "tool-end", role: "tool_result", tool: { id: "call-1", name: "read", result: "done" } }
   ], { running: true });
 
-  assert.deepEqual(model.items.map(item => item.key), ["message:assistant-1", "tool:call-1", "chat:activity"]);
+  assert.deepEqual(model.items.map(item => item.key), ["message:assistant-1", "roll:tool:call-1", "chat:activity"]);
+  assert.match(model.items[1].html, /class="conversation-axis is-tools"/);
   assert.match(model.items[1].html, /data-conversation-key="tool:call-1"/);
   assert.match(model.items[1].html, /data-trajectory-key="tool:call-1"/);
+  assert.match(model.items[1].html, /工具过程/);
 });
 
 test("renders tool calls as one-line chips without IN/OUT panels", () => {
@@ -59,7 +61,7 @@ test("renders tool calls as one-line chips without IN/OUT panels", () => {
     } }
   ]);
 
-  const item = model.items.find(entry => entry.key === "tool:call-big");
+  const item = model.items.find(entry => entry.html.includes('data-conversation-key="tool:call-big"'));
   assert.ok(item, "tool item must be present");
   assert.match(item.html, /class="chat-chip is-tool"/);
   assert.match(item.html, /data-trajectory-key="tool:call-big"/);
@@ -67,6 +69,7 @@ test("renders tool calls as one-line chips without IN/OUT panels", () => {
   assert.doesNotMatch(item.html, /data-load-ref/);
   assert.doesNotMatch(item.html, /io-collapse/);
   assert.doesNotMatch(item.html, /io-panel/);
+  assert.match(item.html, /class="item-id">call-big</);
 });
 
 test("keeps chat tool rows to a single line with status", () => {
@@ -74,21 +77,23 @@ test("keeps chat tool rows to a single line with status", () => {
     { id: "tool-start", role: "tool", tool: { id: "call-small", name: "read_file", arguments: "{}" } },
     { id: "tool-end", role: "tool_result", tool: { id: "call-small", name: "read_file", result: "small" } }
   ]);
-  const item = model.items.find(entry => entry.key === "tool:call-small");
+  const item = model.items.find(entry => entry.html.includes('data-conversation-key="tool:call-small"'));
   assert.ok(item);
   assert.match(item.html, /class="tool-state">.*OK/);
   assert.doesNotMatch(item.html, /data-copy/);
   assert.doesNotMatch(item.html, /io-collapse/);
 });
 
-test("renders thinking as a one-line chip and keeps the reply content", () => {
+test("renders thinking in its own scroll axis and keeps the reply content inline", () => {
   const model = renderConversationModel([
     { id: "a1", role: "assistant", content: "reply", reasoning_content: "thinking steps" }
   ]);
   const item = model.items[0];
   assert.ok(item);
-  assert.match(item.html, /class="chat-chip is-thinking"/);
+  assert.match(item.html, /class="reasoning-block is-thinking-axis"/);
   assert.match(item.html, /data-trajectory-key="message:a1"/);
+  assert.match(item.html, /thinking steps/);
+  assert.match(item.html, /class="item-id">a1</);
   assert.match(item.html, />reply<\/p>/);
   assert.match(item.html, /思考/);
 });

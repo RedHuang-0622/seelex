@@ -55,12 +55,23 @@ export function renderConversationComponent(messages = [], chat = {}) {
 export function renderConversationModel(messages = [], chat = {}) {
   const payloads = new Map();
   const items = buildConversationItems(messages);
-  const rendered = items.map((item, index) => {
+  const grouped = groupConversationItems(items, payloads);
+  const rendered = grouped.map((item, index) => {
     const key = item.key || `${item.kind}-${index}`;
-    const html = item.kind === "tool"
-      ? renderToolCall(item, key, payloads)
-      : renderMessage(item.message, key);
-    return { key, html };
+    const html = item.kind === "axis"
+      ? item.html
+      : item.kind === "tool"
+        ? renderToolCall(item, key, payloads)
+        : renderMessage(item.message, key);
+    const meta = item.kind === "message"
+      ? {
+        kind: "message",
+        role: item.message?.role || "",
+        hasReasoning: Boolean(String(item.message?.reasoning_content || "").trim()),
+        hasContent: Boolean(String(item.message?.content || "").trim())
+      }
+      : { kind: item.kind };
+    return { key, html, meta };
   });
   const activity = renderChatActivity(chat);
   if (activity) {
@@ -135,6 +146,59 @@ export function buildConversationItems(messages = []) {
   return items;
 }
 
+function hasVisibleAssistantOutput(message) {
+  if (!message || message.role !== "assistant") return false;
+  return String(message.content || "").trim().length > 0 ||
+    String(message.reasoning_content || "").trim().length > 0;
+}
+
+// 泛化“滚动轴”：对话区把 tool-calling 与思考各自收进可展开/收起的滚动轴，
+// LLM 正文不进滚动轴（保持内联）。空 assistant 占位（无 content/reasoning）
+// 不渲染为独立消息；它只是流式正文的落点。轨迹视图保持全量不变。
+function groupConversationItems(items, payloads) {
+  const grouped = [];
+  const pendingTools = [];
+  const flushTools = () => {
+    if (pendingTools.length === 0) return;
+    const first = pendingTools[0];
+    const key = `roll:${first.key}`;
+    const count = new Set(pendingTools.map(item => item.key)).size;
+    const names = [...new Set(pendingTools.map(item => item.name))].join(" / ");
+    const chips = pendingTools.map(item => renderToolCall(item, item.key, payloads)).join("");
+    const html = `<details class="conversation-axis is-tools" data-conversation-key="${escapeHtml(key)}">
+      <summary>
+        <span class="axis-caret" aria-hidden="true"></span>
+        <span class="axis-label">工具过程</span>
+        <span class="axis-meta">${count} 次 · ${escapeHtml(names)}</span>
+        <span class="axis-hint">展开 / 收起</span>
+      </summary>
+      <div class="axis-scroll tools-axis-scroll">${chips}</div>
+    </details>`;
+    grouped.push({ kind: "axis", key, html });
+    pendingTools.length = 0;
+  };
+  for (const item of items) {
+    if (item.kind !== "message") {
+      pendingTools.push(item);
+      continue;
+    }
+    const message = item.message;
+    if (message.role === "user") {
+      flushTools();
+      grouped.push(item);
+      continue;
+    }
+    if (message.role === "assistant" && !hasVisibleAssistantOutput(message)) {
+      // 结构性空 assistant 占位：正文到达前不显示，到达后按 LLM 输出渲染。
+      continue;
+    }
+    flushTools();
+    grouped.push(item);
+  }
+  flushTools();
+  return grouped;
+}
+
 export function renderSources(sources = []) {
   if (!sources.length) return '<span class="muted list-empty">暂无 Agent 已读文件</span>';
   return sources.map(source => {
@@ -151,15 +215,20 @@ function renderMessage(message, key) {
   const role = message.role || "assistant";
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const label = role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
-  const thinking = role === "assistant" && String(message.reasoning_content || "").trim()
-    ? `<button type="button" class="chat-chip is-thinking" data-trajectory-key="${escapeHtml(key)}" title="完整思考过程见轨迹视图">
-        <span class="chat-chip-icon">${icon("source", 11)}</span>
-        <span class="chat-chip-name">思考</span>
-        <span class="chat-chip-meta">${formatChars(String(message.reasoning_content).length)}</span>
-        <span class="chat-chip-hint">完整内容 → 轨迹</span>
-      </button>`
+  const reasoning = String(message.reasoning_content || "").trim();
+  const debugID = String(message.id || key || "");
+  const thinking = role === "assistant" && reasoning
+    ? `<details class="reasoning-block is-thinking-axis" open data-trajectory-key="${escapeHtml(key)}">
+        <summary>
+          <span class="reasoning-chevron" aria-hidden="true"></span>
+          <span>思考</span>
+          <span class="reasoning-state">${formatChars(reasoning.length)}</span>
+        </summary>
+        <div class="reasoning-content is-plain">${escapeHtml(reasoning)}</div>
+      </details>`
     : "";
-  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}">
+  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}">
+    <div class="message-debug"><code class="item-id">${escapeHtml(debugID)}</code></div>
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(time)}</span></div>
     ${thinking}
     <div class="message-body">${markdown(message.content || "")}</div>
@@ -169,14 +238,17 @@ function renderMessage(message, key) {
 function renderToolCall(tool, key, payloads) {
   const status = statusMeta(tool.status, tool.error);
   return `<article class="tool-run ${status.className}" data-conversation-key="${escapeHtml(key)}">
-    <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图">
-      <span class="tool-symbol">${icon("terminal", 13)}</span>
-      <strong class="chat-chip-name">${escapeHtml(tool.name)}</strong>
-      <span class="tool-state">${icon(status.icon, 11)} ${status.label}</span>
-      ${tool.duration ? `<span class="chat-chip-meta">${escapeHtml(formatDuration(tool.duration))}</span>` : ""}
-      ${chatChipSize(tool) ? `<span class="chat-chip-meta">${escapeHtml(chatChipSize(tool))}</span>` : ""}
-      <span class="chat-chip-hint">完整内容 → 轨迹</span>
-    </button>
+    <div class="tool-run-line">
+      <code class="item-id">${escapeHtml(tool.id || key)}</code>
+      <button type="button" class="chat-chip is-tool" data-trajectory-key="${escapeHtml(key)}" title="工具调用与 IN/OUT 完整内容见轨迹视图">
+        <span class="tool-symbol">${icon("terminal", 13)}</span>
+        <strong class="chat-chip-name">${escapeHtml(tool.name)}</strong>
+        <span class="tool-state">${icon(status.icon, 11)} ${status.label}</span>
+        ${tool.duration ? `<span class="chat-chip-meta">${escapeHtml(formatDuration(tool.duration))}</span>` : ""}
+        ${chatChipSize(tool) ? `<span class="chat-chip-meta">${escapeHtml(chatChipSize(tool))}</span>` : ""}
+        <span class="chat-chip-hint">完整内容 → 轨迹</span>
+      </button>
+    </div>
   </article>`;
 }
 

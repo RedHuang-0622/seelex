@@ -2048,3 +2048,123 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   color: #c0392b;
   font-weight: 600;
 }
+
+/* ---------- 对话区泛化滚动轴（思考 / 工具过程） + 左侧调试 id ---------- */
+.message-debug { display: flex; align-items: center; min-height: 0; margin: 0 0 2px; }
+.item-id {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--faint);
+  font: 9px/1.5 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.message-debug .item-id { display: block; }
+.message-head { flex-wrap: wrap; }
+.tool-run-line { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.conversation-axis {
+  max-width: 860px;
+  margin: 0 auto 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.conversation-axis > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .04em;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.conversation-axis > summary::-webkit-details-marker { display: none; }
+.conversation-axis > summary:hover { color: var(--text); }
+.axis-caret {
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid var(--muted);
+  border-bottom: 1px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.conversation-axis[open] > summary .axis-caret { transform: rotate(45deg) translate(-1px, -1px); }
+.axis-label { letter-spacing: .08em; }
+.axis-meta { overflow: hidden; color: var(--faint); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.axis-hint { margin-left: auto; flex: none; color: var(--faint); font-style: italic; font-weight: 400; }
+.axis-scroll {
+  display: grid;
+  gap: 8px;
+  max-height: min(40vh, 360px);
+  padding: 10px;
+  overflow: auto;
+}
+.tools-axis-scroll .tool-run { margin: 0; border: 0; border-radius: 0; background: transparent; }
+.tools-axis-scroll .tool-run-line { padding: 0; }
+.tools-axis-scroll .chat-chip { max-width: 100%; }
+.reasoning-block.is-thinking-axis { margin: 0 0 10px; }
+.reasoning-block.is-thinking-axis .reasoning-state { margin-left: auto; color: var(--faint); font-weight: 400; }
+.reasoning-block.is-thinking-axis .reasoning-content { max-height: min(40vh, 320px); overflow: auto; }
+.reasoning-content.is-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- 对话时间线拨轮（右侧拖拽/点击跳转） ---------- */
+.conversation-shell .conversation-wheel {
+  position: absolute;
+  top: 30px;
+  bottom: 44px;
+  right: max(12px, calc((100% - 860px) / 2 - 60px));
+  z-index: 6;
+  width: 46px;
+  opacity: .45;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.conversation-shell:hover .conversation-wheel,
+.conversation-wheel:focus-within { opacity: 1; }
+.conversation-wheel.is-empty { display: none; }
+.wheel-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.wheel-line {
+  position: absolute;
+  left: 50%;
+  min-width: 3px;
+  border-radius: 3px;
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+.wheel-line.is-user { width: 13px; background: var(--tick-hot); }
+.wheel-line.is-tools { width: 4px; background: var(--border-strong); opacity: .9; }
+.wheel-line.is-thinking { width: 9px; background: var(--status-info); }
+.wheel-line.is-llm { width: 9px; background: var(--tick); }
+.wheel-line.is-other { width: 6px; background: var(--faint); }
+.wheel-line:hover { filter: brightness(1.45); }
+.wheel-track::after {
+  content: "";
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: calc(var(--wheel-progress, 0) * 100%);
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .25);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.conversation .is-wheel-target { animation: wheel-target-flash 1.4s ease; }
+@keyframes wheel-target-flash {
+  0%, 100% { box-shadow: none; }
+  20% { box-shadow: 0 0 0 2px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 45%, transparent); }
+}

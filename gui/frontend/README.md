@@ -11,10 +11,10 @@
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
-| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
+| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel、chat activity 与右侧「时间线拨轮」（拖拽滚动 / 点击线条跳转并闪烁定位）渲染。 |
 | `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴；轴内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）与压缩刻度（`compactionMarks`，snapshot.task.context_compactions）两条元数据轨与 `renderAxisDetail` 详情。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。 |
-| `dist/components.js` | message/tool/queue 等纯渲染组件。 |
+| `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
@@ -166,6 +166,15 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 任务状态、白名单命令均为公开元数据，不含 secret；渲染文本全部 escape。
 
 `Snapshot.Conversation` 是后端提供的有界窗口；**窗口截断与游标（`total_messages`/`history_offset`/`has_more_history`）全部是后端 `view_state` 的投影，增量 reducer 只负责 upsert 消息**（阶段 B2：旧实现曾在 JS 里复刻一份截断+计数规则，两边一旦漂移就会出现客户端少显示历史）。回合边界的 `snapshot.changed` 会把权威窗口带回，因此一次回合内数组最多增长该回合新增的消息数。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
+
+对话区聊天视图（`components.js` + `conversation-view.js`）按 Codex/Qoder 式
+分离「对话与轨迹」：LLM 正文保持内联不进滚动轴；thinking 与 tool-calling
+各自收进可展开/收起的滚动轴（thinking 轴默认展开并带滚动，工具轴默认收起，
+展开后在轴内滚动查看全部工具条目）；每条消息/工具左侧显示会话定位 id
+（`.item-id`），便于对照轨迹与记录排查。聊天区右侧的时间线拨轮把已渲染条目
+按类型映射为线条：用户输入长、tool-calling 短、thinking/llm 适中；按住
+拖拽即滚动到会话任意位置，点击某条线即把对应消息滚入视口并闪烁高亮。
+轨迹子页仍保留全部工具 IN/OUT 与思考全文，不做折叠。
 
 对话区顶部是主视图页签条（`.conversation-tabs`，本地 UI 状态）；「对话 / 轨迹」
 两个会话子页可以留在主视图，也可以与右栏任一子页置换后停靠到右栏。会话类

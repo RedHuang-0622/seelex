@@ -20,11 +20,16 @@ function toolPair(id, name, status = "success", duration = 1_200_000_000, totalC
   ];
 }
 
+function findConversationToolEntry(model, toolKey) {
+  return model.items.find((entry) => entry.html.includes(`data-conversation-key="${toolKey}"`));
+}
+
 test("T3.7 chat chip and trajectory row share status/duration/size and key", () => {
   const messages = toolPair("call-1", "read_file");
   const model = renderConversationModel(messages);
-  const chip = model.items.find((entry) => entry.key === "tool:call-1");
-  assert.ok(chip, "tool chip must exist");
+  const chipEntry = findConversationToolEntry(model, "tool:call-1");
+  assert.ok(chipEntry, "tool chip must exist inside its conversation axis");
+  const chip = chipEntry.html;
 
   const records = buildTrajectory(messages);
   const tool = records.find((record) => record.kind === "tool");
@@ -32,37 +37,38 @@ test("T3.7 chat chip and trajectory row share status/duration/size and key", () 
   const row = renderTrajectoryRow(tool, tool.key, new Map());
 
   // 同一 key：chip ↔ 轨迹行跳转命中。
-  assert.match(chip.html, /data-trajectory-key="tool:call-1"/);
+  assert.match(chip, /data-trajectory-key="tool:call-1"/);
   assert.match(row, /data-trajectory-key="tool:call-1"/);
 
   // 同一 tool 在两视图 status/duration/size 一致（同一分类函数派生）。
-  assert.match(chip.html, /class="tool-state">.*OK/);
+  assert.match(chip, /class="tool-state">.*OK/);
   assert.match(row, /trajectory-status is-success">OK/);
-  assert.match(chip.html, /1\.2s/);
+  assert.match(chip, /1\.2s/);
   assert.match(row, /1\.2s/);
-  assert.match(chip.html, /8\.8 KB/);
+  assert.match(chip, /8\.8 KB/);
   assert.match(row, /8\.8 KB/);
 });
 
 test("T3.7 error tool keeps consistent state across views", () => {
   const messages = toolPair("call-err", "bash", "error", 500_000_000, 128);
-  const chip = renderConversationModel(messages).items.find((entry) => entry.key === "tool:call-err");
-  assert.ok(chip);
+  const chipEntry = findConversationToolEntry(renderConversationModel(messages), "tool:call-err");
+  assert.ok(chipEntry);
+  const chip = chipEntry.html;
   const tool = buildTrajectory(messages).find((record) => record.kind === "tool");
   const row = renderTrajectoryRow(tool, tool.key, new Map());
 
-  assert.match(chip.html, /class="tool-state">.*ERR/);
+  assert.match(chip, /class="tool-state">.*ERR/);
   assert.match(row, /trajectory-status is-error">ERR/);
-  assert.match(chip.html, /500ms/);
+  assert.match(chip, /500ms/);
   assert.match(row, /500ms/);
-  assert.match(chip.html, /128 B/);
+  assert.match(chip, /128 B/);
   assert.match(row, /128 B/);
 });
 
 test("T3.8 empty conversation renders without tool rows", () => {
   const model = renderConversationModel([]);
   assert.ok(Array.isArray(model.items));
-  assert.equal(model.items.some((entry) => entry.key.startsWith("tool:")), false);
+  assert.equal(model.items.some((entry) => entry.html.includes('data-trajectory-key="tool:')), false);
 });
 
 test("T3.8 many tool calls stay one-line chips without IO panels", () => {
@@ -71,10 +77,12 @@ test("T3.8 many tool calls stay one-line chips without IO panels", () => {
     messages.push(...toolPair(`call-${index}`, "read_file", "success", 1_000_000_000, 2048));
   }
   const model = renderConversationModel(messages);
-  const chips = model.items.filter((entry) => entry.key.startsWith("tool:"));
-  assert.equal(chips.length, 40);
-  for (const chip of chips) {
-    assert.match(chip.html, /class="chat-chip is-tool"/);
-    assert.doesNotMatch(chip.html, /io-panel|io-collapse|data-load-ref/);
+  const axis = model.items.find((entry) => entry.key.startsWith("roll:"));
+  assert.ok(axis, "all consecutive tools collapse into one axis");
+  const occurrences = (axis.html.match(/class="chat-chip is-tool"/g) || []).length;
+  assert.equal(occurrences, 40);
+  for (let index = 0; index < 40; index++) {
+    assert.match(axis.html, new RegExp(`data-conversation-key="tool:call-${index}"`));
   }
+  assert.doesNotMatch(axis.html, /io-panel|io-collapse|data-load-ref/);
 });
