@@ -165,6 +165,33 @@ func TestJSONRolloutLifecycleKinds(t *testing.T) {
 			t.Fatalf("rollout kinds = %v, want prefix %v", kinds, wantPrefix)
 		}
 	}
+	// I-LOG-5：压缩标记（compacted）之后日志仍可继续追加与重放（续播）。
+	second := Commit{
+		Events: []Event{
+			{Seq: 3, TaskID: "req-2", Role: "user", Kind: EventKindUserInput, Content: "q2", CreatedAt: now},
+		},
+		State: state,
+	}
+	if err := repository.WriteCommit(context.Background(), key, second); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err = repository.readRolloutLocked(repository.sessionDir(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactedAt := -1
+	continuationAt := -1
+	for index, entry := range entries {
+		if entry.Kind == LogCompacted && compactedAt < 0 {
+			compactedAt = index
+		}
+		if entry.Kind == LogUserInput && entry.RequestID == "req-2" && continuationAt < 0 {
+			continuationAt = index
+		}
+	}
+	if compactedAt < 0 || continuationAt < 0 || continuationAt <= compactedAt {
+		t.Fatalf("I-LOG-5 violated: compacted@%d must precede continuation user@%d", compactedAt, continuationAt)
+	}
 }
 
 // TestJSONRolloutReplayMatchesEventOrder 验证 rollout 正序重放得到的对话事件
@@ -208,5 +235,45 @@ func TestJSONRolloutReplayMatchesEventOrder(t *testing.T) {
 			t.Fatalf("replayed[%d] = seq=%d role=%s, want seq=%d role=%s",
 				index, replayed[index].Seq, replayed[index].Role, events[index].Seq, events[index].Role)
 		}
+	}
+}
+
+// TestJSONRolloutAppendOnlyNoRewrite 验证 I-LOG-3：正常提交只追加，已落盘
+// 前缀逐字节不变（无原地改写/重排/删除；崩溃残尾截断是唯一例外路径）。
+func TestJSONRolloutAppendOnlyNoRewrite(t *testing.T) {
+	repository, err := newJSONRepository(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := Key{ProjectID: "project", SessionID: "session-append"}
+	now := time.Now().UTC()
+	commitEvents := func(seqs ...uint64) []Event {
+		events := make([]Event, 0, len(seqs))
+		for _, seq := range seqs {
+			role := "assistant"
+			if seq%2 == 1 {
+				role = "user"
+			}
+			events = append(events, Event{Seq: seq, Role: role, Kind: EventKindOf(Event{Role: role}), Content: "x", CreatedAt: now})
+		}
+		return events
+	}
+	if err := repository.WriteCommit(context.Background(), key, Commit{Events: commitEvents(1)}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repository.sessionDir(key), rolloutLogFile)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteCommit(context.Background(), key, Commit{Events: commitEvents(1, 2)}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) <= len(before) || string(after[:len(before)]) != string(before) {
+		t.Fatalf("I-LOG-3 violated: committed rollout prefix was rewritten")
 	}
 }

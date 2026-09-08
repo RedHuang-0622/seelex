@@ -55,8 +55,15 @@ state.json / history shards / transcript / UI conversation
 1. ✅ 恢复重放切换：rollout 正序重放优先，旧三读兜底（本批完成）。
 2. ✅ 生命周期 kind：request/turn/token_usage/compacted 由提交路径单写、
    指纹幂等（本批完成）；`rolled_back` 待回滚事件源落地后补。
-3. ⏳ 发送治理（P3 前置）：请求装配改为“重放基线 + 追加”，rollout 与
-   运行期装配字节一致（I-LOG-3/4/5）。
+3. ✅ 发送治理（P3，契约版）：重放基线 + 追加已由回归钉住——
+   - I-LOG-3：`TestJSONRolloutAppendOnlyNoRewrite`（已提交前缀逐字节不变，
+     只追加；崩溃残尾截断是唯一例外）；
+   - I-LOG-4：`TestHeadlessRestorePrefixProbe`（重启后首请求与未重启第 13
+     轮逐条一致，即 rollout 重放基线 + 追加 = 运行期装配结果）；
+   - I-LOG-5：`TestJSONRolloutLifecycleKinds` 第二段（compacted 之后日志
+     继续追加并可重放续播）。
+   说明：运行期“每次请求都从 rollout 重新装配”尚未做（保持内存 retained
+   基线 + 追加的高效路径）；跨重启一致性以本批探针为准。
 4. ⏳ 其它后端：SQLite/PostgreSQL/Redis 的 rollout 通道 + 全后端契约测试。
 5. ⏳ 存量迁移：旧会话无 rollout——按“下一次提交起双写 + legacy_import
    基线”策略，不静默改写 `.seelex`/dist 数据（先备份+预警+确认）。
