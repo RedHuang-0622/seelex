@@ -12,7 +12,7 @@
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel 与 chat activity 渲染。 |
-| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/notice；`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴；轴内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）与压缩刻度（`compactionMarks`，snapshot.task.context_compactions）两条元数据轨与 `renderAxisDetail` 详情。 |
+| `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴；轴内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）与压缩刻度（`compactionMarks`，snapshot.task.context_compactions）两条元数据轨与 `renderAxisDetail` 详情。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
@@ -171,12 +171,13 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 两个会话子页可以留在主视图，也可以与右栏任一子页置换后停靠到右栏。会话类
 页面在主视图激活时显示底部输入框，其它主视图全宽展示时不遮挡。
 「轨迹」子页把同一份 `Snapshot.conversation` 投影为 Network 风格的响应日志：
-先按响应类型分类（输入 / LLM / 工具 / 错误 / 通知），工具请求与 `tool_result`
+先按响应类型分类（输入 / LLM / 工具 / 错误 / 系统 / 通知；`role=system` 与
+`kind=system` 独立成「系统」轨），工具请求与 `tool_result`
 按 tool id 配对为一行（IN/OUT、状态、耗时、大小、`result_ref` 截断读回）；
 过滤条按类型筛选并带计数，展开详情复用 `io-panel` 交互契约（复制/展开/
 `ToolResultContent` 分页读回）。轨迹数据纯前端派生，不新增后端契约；子页
 未激活时只缓存数据面（懒渲染），增量事件到达时重新投影。顶部上下文轴在
-五条响应类型轨之外内联两条元数据轨：「前缀注入」轨（Bridge.PromptLayers
+六条响应类型轨之外内联两条元数据轨：「前缀注入」轨（Bridge.PromptLayers
 的会话级当前层，段宽=层文本占比、横跨整轴，点击开详情看全文——替代旧独立
 「前缀注入」面板）与「压缩」轨（`snapshot.task.context_compactions` 压缩
 刻度，锚定压缩发生时会话推进位置，点击开公开元数据详情；system prompt 与

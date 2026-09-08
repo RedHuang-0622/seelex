@@ -49,8 +49,8 @@ test("classifies conversation messages into response types", () => {
     systemMessage("s1", "已恢复会话")
   ]);
 
-  assert.deepEqual(records.map(record => record.kind), ["input", "llm", "tool", "llm", "error", "notice"]);
-  assert.deepEqual(records.map(record => record.name), ["输入", "LLM", "read_file", "LLM", "错误", "通知"]);
+  assert.deepEqual(records.map(record => record.kind), ["input", "llm", "tool", "llm", "error", "system"]);
+  assert.deepEqual(records.map(record => record.name), ["输入", "LLM", "read_file", "LLM", "错误", "SYSTEM"]);
   // 工具记录：请求 + 响应合并为一条，带 IN/OUT/状态/耗时。
   const tool = records[2];
   assert.equal(tool.input, '{"path":"README.md"}');
@@ -65,9 +65,10 @@ test("prefers explicit kind over role fallback for multi-track classification", 
     { id: "x1", role: "assistant", kind: "user_input", content: "typed input", created_at: "2026-08-25T10:00:00Z" },
     { id: "x2", role: "user", kind: "error", content: "user-side failure", created_at: "2026-08-25T10:00:01Z" },
     { id: "x3", role: "system", kind: "internal", content: "<!-- seelex:active-skill:v1 -->skill", created_at: "2026-08-25T10:00:02Z" },
-    { id: "x4", role: "assistant", kind: "llm", content: "", created_at: "2026-08-25T10:00:03Z" }
+    { id: "x4", role: "assistant", kind: "llm", content: "", created_at: "2026-08-25T10:00:03Z" },
+    { id: "x5", role: "user", kind: "system", content: "TL 指令回放", created_at: "2026-08-25T10:00:04Z" }
   ]);
-  assert.deepEqual(records.map(record => record.kind), ["input", "error", "notice"]);
+  assert.deepEqual(records.map(record => record.kind), ["input", "error", "notice", "system"]);
 });
 
 test("skips empty assistant placeholders (tool-round markers)", () => {
@@ -390,7 +391,8 @@ test("row rendering keeps duration and size columns", () => {
 test("kind labels and html escaping helpers are stable", () => {
   assert.equal(trajectoryKindLabel("tool"), "工具");
   assert.equal(trajectoryKindLabel("llm"), "LLM");
+  assert.equal(trajectoryKindLabel("system"), "系统");
   assert.equal(trajectoryKindLabel("unknown"), "unknown");
-  assert.equal(TRAJECTORY_KINDS.length, 5);
+  assert.equal(TRAJECTORY_KINDS.length, 6);
   assert.equal(escapeHtml("<b>&\"'"), "&lt;b&gt;&amp;&quot;&#039;");
 });

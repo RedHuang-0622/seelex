@@ -12,6 +12,7 @@ export const TRAJECTORY_KINDS = [
   { kind: "llm",    label: "LLM" },
   { kind: "tool",   label: "工具" },
   { kind: "error",  label: "错误" },
+  { kind: "system", label: "系统" },
   { kind: "notice", label: "通知" }
 ];
 
@@ -25,6 +26,7 @@ const KIND_STATUS = {
   llm: "done",
   tool: "done",
   error: "failed",
+  system: "info",
   notice: "idle"
 };
 
@@ -37,6 +39,7 @@ const KIND_ICONS = {
   llm: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
   tool: '<path d="m5 7 4 4-4 4M11 17h8"/>',
   error: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>',
+  system: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>',
   notice: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.56V20.3h-3v-.08A1.7 1.7 0 0 0 10.66 18.66a1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.56-1.04h-.08v-3h.08A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88L6.6 7.98l2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.7 4.7v-.08h3v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.04h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z"/>'
 };
 
@@ -56,7 +59,7 @@ export function trajectoryKindIcon(kind, size = 13) {
 //   role=tool       → tool   工具调用（请求）
 //   role=tool_result→ tool   工具响应（合并到配对记录）
 //   role=error      → error  错误响应
-//   role=system     → notice 系统通知
+//   role=system     → system 系统消息（SYSTEM）
 //   其它/未知       → notice 兜底
 export function buildTrajectory(messages = []) {
   const records = [];
@@ -84,6 +87,8 @@ export function buildTrajectory(messages = []) {
           push({ kind: "llm", key: `message:${message.id || index}`, name: "LLM", output: message.content, reasoning: message.reasoning_content || "", status: "success", startedAt: createdAt, duration: 0 });
         } else if (message.kind === "error") {
           push({ kind: "error", key: `message:${message.id || index}`, name: "错误", output: message.content || "", status: "error", startedAt: createdAt, duration: 0 });
+        } else if (message.kind === "system") {
+          push({ kind: "system", key: `message:${message.id || index}`, name: "SYSTEM", output: message.content || "", status: "info", startedAt: createdAt, duration: 0 });
         } else {
           push({ kind: "notice", key: `message:${message.id || index}`, name: "通知", output: message.content || "", status: "info", startedAt: createdAt, duration: 0 });
         }
@@ -97,6 +102,8 @@ export function buildTrajectory(messages = []) {
         push({ kind: "llm", key: `message:${message.id || index}`, name: "LLM", output: message.content, reasoning: message.reasoning_content || "", status: "success", startedAt: createdAt, duration: 0 });
       } else if (role === "error") {
         push({ kind: "error", key: `message:${message.id || index}`, name: "错误", output: message.content || "", status: "error", startedAt: createdAt, duration: 0 });
+      } else if (role === "system") {
+        push({ kind: "system", key: `message:${message.id || index}`, name: "SYSTEM", output: message.content || "", status: "info", startedAt: createdAt, duration: 0 });
       } else {
         push({ kind: "notice", key: `message:${message.id || index}`, name: "通知", output: message.content || "", status: "info", startedAt: createdAt, duration: 0 });
       }
