@@ -189,6 +189,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) _ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage)`
 - `func (c *Coordinator) importEngineHistoryLocked(st *sessionTaskRuntime, history []contract.EngineMessage)`
 - `func (c *Coordinator) appendTranscriptEventLocked(st *sessionTaskRuntime, event model.TranscriptEvent) model.TranscriptEvent`
+- `func classifyTranscriptEventKind(event model.TranscriptEvent) string` — classifyTranscriptEventKind 返回事件的显式类别；调用方已标注 Kind 时原样保留，
 - `func (c *Coordinator) CountTranscriptEvent(event model.TranscriptEvent) int` — CountTranscriptEvent 估算一条 transcript 事件的 token 数。
 - `func (c *Coordinator) _CountTranscriptEvent(event model.TranscriptEvent) int`
 - `func (c *Coordinator) RecordLLMComplete(ctx context.Context, info session.LLMInfo)` — RecordLLMComplete 记录一次 LLM 完成（真实 usage 校准 + assistant 事件；

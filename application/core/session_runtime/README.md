@@ -92,6 +92,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) archivedConversationMessageLocked(sessionID string, message model.Message) model.Message` — archivedConversationMessageLocked 归档单条可见消息：超限工具结果/用户
 - `func (c *Coordinator) userInputResultRefLocked(sessionID, content string) string`
 - `func (c *Coordinator) conversationFromTranscriptLocked(events []model.TranscriptEvent) []model.Message` — conversationFromTranscriptLocked 从指定会话 transcript 事件重建可见对话
+- `func messageKindForEvent(event model.TranscriptEvent) string` — messageKindForEvent 把事件类别映射为可见消息的多线谱类别；旧数据 Kind 为空时
 - `func (c *Coordinator) engineHistoryFor(sessionID string) []contract.EngineMessage` — engineHistoryFor 返回指定会话引擎历史（会话路由引擎用 HistoryFor；无会话
 - `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.ViewMu；
 - `func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error)` — LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/

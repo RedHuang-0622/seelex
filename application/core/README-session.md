@@ -115,6 +115,36 @@
 - `func (service *Service) forkSessionLocked(parentID string, request model.ForkRequest) (string, error)` — forkSessionLocked 在持有会话切换锁时执行 fork 落盘：解析切断点 → 构建
 - `func deepCopyForkRecord(record model.SessionRecord) model.SessionRecord` — deepCopyForkRecord 深拷贝 fork 子会话 record：Conversation 消息（含
 
+### session_fork_store_regression_test.go
+
+- `func newRouterForkSessions(t *testing.T) *routerForkSessions`
+- `func (s *routerForkSessions) saveParentFixture(t *testing.T, record model.SessionRecord, events []sessionstore.Event, contextPayload []byte)`
+- `func (s *routerForkSessions) SaveCurrent(string) error`
+- `func (s *routerForkSessions) SetWorkspace(projectID string)`
+- `func (s *routerForkSessions) Workspace() string`
+- `func (s *routerForkSessions) List() []model.SessionInfo`
+- `func (s *routerForkSessions) LoadHistory(string) ([]EngineMessage, error)`
+- `func (s *routerForkSessions) LoadHistoryRange(string, int, int) ([]EngineMessage, int, error)`
+- `func (s *routerForkSessions) Delete(sessionID string) error`
+- `func (s *routerForkSessions) SessionsOf(projectID string) []model.SessionInfo`
+- `func (s *routerForkSessions) SaveSessionRecord(sessionID string, record model.SessionRecord) error`
+- `func (s *routerForkSessions) SaveSessionRecordWorkspace(projectID, sessionID string, record model.SessionRecord) error`
+- `func (s *routerForkSessions) LoadSessionRecord(sessionID string) (model.SessionRecord, error)`
+- `func (s *routerForkSessions) LoadSessionRecordWorkspace(projectID, sessionID string) (model.SessionRecord, error)`
+- `func (s *routerForkSessions) SaveSessionSnapshot( sessionID string, history []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult, ) error`
+- `func (s *routerForkSessions) SaveSessionSnapshotWorkspace( projectID, sessionID string, _ []contract.EngineMessage, record model.SessionRecord, events []model.TranscriptEvent, results []model.StoredToolResult, ) error`
+- `func (s *routerForkSessions) LoadEventRangeWorkspace(projectID, sessionID string, fromSeq, toSeq uint64) ([]sessionstore.Event, error)`
+- `func (s *routerForkSessions) LoadToolResultsWorkspace(projectID, sessionID string) ([]sessionstore.ToolResult, error)`
+- `func (s *routerForkSessions) LoadContextStateWorkspace(projectID, sessionID string) ([]byte, error)`
+- `func (s *routerForkSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error`
+- `func (s *routerForkSessions) CurrentGenerationWorkspace(projectID, sessionID string) (string, error)`
+- `func (s *routerForkSessions) LoadTranscriptTailWorkspace(projectID, sessionID string, _, _ int) ([]model.TranscriptEvent, error)`
+- `func (s *routerForkSessions) LoadToolResultWorkspace(projectID, sessionID, ref string) (model.StoredToolResult, error)`
+- `func transcriptEventsToStore(events []model.TranscriptEvent) []sessionstore.Event`
+- `func storeEventsToTranscript(events []sessionstore.Event) []model.TranscriptEvent`
+- `func storedToolResultsToStore(results []model.StoredToolResult) []sessionstore.ToolResult`
+- `func TestForkChildVisibleWithRealStore(t *testing.T)`
+
 ### session_fork_test.go
 
 - `func (s *forkServiceSessions) LoadSessionRecord(string) (SessionRecord, error)`
@@ -128,6 +158,8 @@
 - `func (s *forkServiceSessions) SaveContextStateWorkspace(projectID, sessionID string, payload []byte) error`
 - `func (s *forkServiceSessions) CurrentGenerationWorkspace(projectID, sessionID string) (string, error)`
 - `func TestForkSessionCreatesAndSwitchesToChild(t *testing.T)`
+- `func TestForkSessionChildContentVisibleAfterResume(t *testing.T)` — TestForkSessionChildContentVisibleAfterResume 钉住 fork 回归：ForkSession
+- `func lastMessageOf(messages []Message) *Message`
 - `func TestForkSessionLatestResolvesNewestParagraph(t *testing.T)`
 - `func TestForkCommandForksCurrentSession(t *testing.T)`
 - `func TestForkSessionDeepCopyIsolation(t *testing.T)` — TestForkSessionDeepCopyIsolation（T2.7）：fork 子会话 record 与父数据面
@@ -202,6 +234,7 @@
 - `func (e *multiSessionEngine) HistoryFor(sessionID string) []EngineMessage`
 - `func (e *multiSessionEngine) ReplaceHistory(sessionID string, history []EngineMessage) error`
 - `func (e *multiSessionEngine) ReplaceHistoryFor(sessionID string, history []EngineMessage) error` — ReplaceHistoryFor 是 SessionChatEngine 接口要求的会话内历史替换：替换
+- `func (e *multiSessionEngine) ResumeSession(sessionID string, history []EngineMessage) error` — ResumeSession 模拟 production EnginePort.ResumeSession 语义：目标会话
 - `func (e *multiSessionEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (e *multiSessionEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
 - `func (e *multiSessionEngine) AppendHistoryFor(sessionID string, msg types.Message)`
