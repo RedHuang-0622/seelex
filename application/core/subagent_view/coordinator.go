@@ -161,6 +161,17 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 	if nodeID == "" {
 		return nil, fmt.Errorf("subagent detail: node id is required")
 	}
+	// 锁序修复（2026-09-08 死锁复现）：引擎 SubAgentTree() 内部会读节点
+	// Session.History（Session.mu），而节点执行 goroutine 持 Session.mu
+	// 等待 ViewMu.Lock（HandleSubagentToolEvent）。若在此处先取 ViewMu.RLock
+	// 再调引擎，会形成 ViewMu → Session.mu 与 Session.mu → ViewMu 的循环
+	// 等待。因此子树查找必须在 ViewMu 锁外完成（只读引擎 actor，安全）。
+	var treeNode *dto.SubAgentTreeNode
+	if c.Deps.Engine != nil {
+		if found := findSubagentTreeNode(c.Deps.Engine.SubAgentTree(), nodeID); found != nil {
+			treeNode = found
+		}
+	}
 	c.ViewMu.RLock()
 	var status model.NodeStatus
 	var elapsed, output string
@@ -172,13 +183,6 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 			elapsed = node.Elapsed
 			output = node.Output
 			toolEvents = append([]model.SubagentToolEvent(nil), node.ToolEvents...)
-		}
-	}
-	// fork 子代理树节点（不在 Plan 快照）：回填归属/状态/摘要/会话 ID。
-	var treeNode *dto.SubAgentTreeNode
-	if c.Deps.Engine != nil {
-		if found := findSubagentTreeNode(c.Deps.Engine.SubAgentTree(), nodeID); found != nil {
-			treeNode = found
 		}
 	}
 	// 工作台行（kind=subagent，key=subagent:<nodeID>）：回填 Assignee/
@@ -219,6 +223,10 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 			summary = strings.TrimSpace(treeNode.Error)
 		}
 	}
+	var nodeError string
+	if treeNode != nil {
+		nodeError = strings.TrimSpace(treeNode.Error)
+	}
 	if output == "" && workRow != nil {
 		output = strings.TrimSpace(workRow.Description)
 	}
@@ -243,6 +251,17 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 			trace = trace[len(trace)-limit:]
 		}
 	}
+	// Plan 快照失败节点可能只在 worktable trace 带 evidence：兜底取最后
+	// 一条失败打点，保证详情错误面不空。
+	if nodeError == "" && status == model.NodeFailed {
+		for index := len(trace) - 1; index >= 0; index-- {
+			lower := strings.ToLower(trace[index].Status + " " + trace[index].Operation)
+			if strings.Contains(lower, "fail") && strings.TrimSpace(trace[index].Evidence) != "" {
+				nodeError = strings.TrimSpace(trace[index].Evidence)
+				break
+			}
+		}
+	}
 	var stages []dto.NodeStageLog
 	if provider, ok := c.Deps.Engine.(interface {
 		NodeStageLogs(string) []dto.NodeStageLog
@@ -262,6 +281,7 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 		Assignee:     assignee,
 		Participants: participants,
 		Summary:      summary,
+		Error:        nodeError,
 		Conversation: c.adaptSubagentConversation(conversation),
 		ToolEvents:   toolEvents,
 		Context:      c.adaptSubagentContext(contextSnap),
