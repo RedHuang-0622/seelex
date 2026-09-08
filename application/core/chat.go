@@ -113,9 +113,9 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	// 请求（requestID），工作表格按批次分片。
 	service.Deps.Runtime.SetCurrentTaskBatch(sessionID, requestID)
 	service.publishRuntimeProjections()
-	// 子代理 merge-back 排队内容注入（锁外、ChatStream 开始前）：节点执行
-	// 期间主会话被持锁无法回写，只能在此时补注入。
-	service.injectPendingSubagentContextsFor(sessionID)
+	// 子代理 mailbox 排空并丢弃（锁外安全点）：子代理结论已由工具结果
+	// 回传，mailbox 内容不再注入引擎历史/可见会话/transcript。
+	service.discardPendingSubagentContextsFor(sessionID)
 	// goal A2A：把上一回合 TL 产生的指令注入本回合受信区（锁外安全点）。
 	service.injectGoalDirectivesForStart(sessionID)
 	service.publishChatStateFor(sessionID)
@@ -202,9 +202,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		err = fmt.Errorf("flush streamed response: %w", flushErr)
 	}
 	// plan_run may have completed child agents while the main framework session
-	// was locked. Drain their Runtime-owned mailbox only after ChatStream has
-	// returned, so every subsequently queued turn sees the merge-back history.
-	service.injectPendingSubagentContextsFor(sessionID)
+	// was locked. Drain and discard their Runtime-owned mailbox after ChatStream
+	// returns: child results travel back as tool results, never as mailbox
+	// content injected into engine history or the durable transcript.
+	service.discardPendingSubagentContextsFor(sessionID)
 	// goal A2A：回合结束（ChatStream 已返回、Session 锁已释放）驱动一轮
 	// Governor（exec 让位 → advisor TL 回合），指令在下次 ChatStream 前
 	// 注入受信区。

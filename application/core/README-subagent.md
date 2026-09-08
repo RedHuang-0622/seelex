@@ -20,8 +20,11 @@
 
 ### subagent_evidence_test.go
 
-- `func (runtime *evidenceRuntime) DrainSubagentContexts() []string`
-- `func TestSubagentMergeBackEvidenceVisibleAndDurable(t *testing.T)` — TestSubagentMergeBackEvidenceVisibleAndDurable（G4/INV-G12）：子代理合并回
+- `func TestSubagentMailboxContentDoesNotReachFrontendOrStorage(t *testing.T)` — TestSubagentMailboxContentDoesNotReachFrontendOrStorage：mailbox 内容排空即丢弃，不进入引擎历史/可见会话/transcript
+
+### subagent_envelope_store_test.go
+
+- `func TestInheritedContextEnvelopeNotEnteringContextStores(t *testing.T)` — TestInheritedContextEnvelopeNotEnteringContextStores：继承上下文信封不进入任何上下文存储
 
 ### subagent_tree_test.go
 

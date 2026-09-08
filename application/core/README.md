@@ -95,6 +95,17 @@
 
 每个请求另有私有 `TaskExecutionState`：工具结果与 Plan 节点状态写入有界 `NodeCheckpoint`。超长工具结果在下一次 provider 调用前被替换为与原 tool-call 配对的短警告，原文不作为模型上下文；Agent 必须以文件路径、行范围、过滤条件、分页或摘要命令重新读取。历史超过标准 context budget 时，`ContextController` 保留 system prompt，并以一个私有 checkpoint 替换整段可变的 user/assistant/tool transcript；后续轮次需通过定向工具重新获取被省略的细节。连续无新事实、变更、产物或节点状态的工具轮次会触发预算兜底，但不是上下文管理主路径。模型应以 `task_complete`、`task_needs_user_decision` 或 `task_failed` 结束工具型任务；它们分别表示可交付完成、必须由用户选择的有效分歧，以及有界失败事实。若已加载的 authority Plan 尚未执行而模型自然收尾，运行时将其表示为 `needs_user_decision`，而不伪造完成或暴露内部错误。`Snapshot.Task` 公开 `progressing/completed/needs_user_decision/blocked/interrupted/failed`，而 checkpoint、装配的 system prompt 和 `<think>` 内容都不进入 frontend snapshot。Provider 明确返回 context overflow 时，Service 保存私有恢复 checkpoint 并给同一 Agent 一次受控的恢复回合；504 从不自动重放可能已有副作用的工具轮。
 
+冷恢复只给引擎装载尾部窗口（provider 缓存近似）时，恢复后的首个请求不会把
+尾部保留段误当“已覆盖前缀”：装配层校验保留段与 transcript 前缀一一对应
+（`retainedMatchesTranscriptPrefix`），检测到保留段是后缀就改为从完整
+transcript 按会话顺序重建。这样恢复前后的上下文前缀字节一致，模型缓存
+（prefix cache）可以命中，而不是得到 `[tail]+[middle]` 的重排与重复。
+
+子代理 mailbox 内容（含 `## 继承上下文 (Inherited Context)` 信封）在排空时
+整体丢弃：子代理结论经工具结果（tool_result / summary / `NodeSemanticResult`）
+回传父代理，mailbox 不再是注入引擎历史/可见会话/transcript 的通道，因此不会
+以 `[子代理产出]` 噪音进入前端或上下文存储。
+
 ## Session 与 Project 语义
 
 - project 只定义会话的文件读写范围，不共享 conversation history。
@@ -246,9 +257,11 @@ shutdown on a legacy non-context-aware catalog call.
 
 Application publishes immutable `RuntimeVisibilityProjection` and
 `ParentEvidenceProjection` values to Runtime after relevant state changes.
-Runtime never calls Application back. Subagent merge-back enters a bounded
-Runtime mailbox and is drained outside `Service.mu` before the next main
-`ChatStream` starts.
+Runtime never calls Application back. Subagent merge-back results return to the
+parent through tool results (tool_result / summary / `NodeSemanticResult`) after
+the node worktree finishes; a bounded Runtime mailbox is drained and **discarded**
+by Application outside `Service.mu` — mailbox content never enters engine
+history, the visible conversation, or the durable transcript.
 
 ## Context compression visibility
 

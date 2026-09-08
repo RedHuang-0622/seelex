@@ -8,53 +8,22 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
-	"github.com/RedHuang-0622/seelex/application/core/view_state"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
-// injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
+// discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
 // 包装）。
-func (service *Service) injectPendingSubagentContexts() {
-	service.injectPendingSubagentContextsFor(service.Core.Snapshot.Session.ID)
+func (service *Service) discardPendingSubagentContexts() {
+	service.discardPendingSubagentContextsFor(service.Core.Snapshot.Session.ID)
 }
 
-// injectPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
-// Runtime mailbox；无本地兼容队列），并在 service.ViewMu 之外把消息注入目标
-// 会话引擎。快照变更是独立短临界区，Engine 不会与 Application 形成反向
-// 等待环。
-func (service *Service) injectPendingSubagentContextsFor(sessionID string) {
-	pending := service.Deps.Runtime.DrainSubagentContexts()
-	if len(pending) == 0 {
-		return
-	}
-
-	for _, content := range pending {
-		value := view_state.SubagentContextMarker + content
-		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
-		// G4/INV-G12：mainagent 实际接收的内容（合并回父的证据）以一条可见
-		// 记录进入本会话视图与 transcript（持久化事实源），不再被可见区丢弃。
-		service.recordSubagentEvidence(sessionID, value)
-	}
-}
-
-// recordSubagentEvidence 把子代理合并回父的一条证据记录写入目标会话：
-// transcript 事件（持久化/恢复重建用）+ 可见对话（活跃会话镜像快照）。
-func (service *Service) recordSubagentEvidence(sessionID, content string) {
-	service.ViewMu.Lock()
-	active := service.isActiveSessionLocked(sessionID)
-	requestID := ""
-	if unit := service.sessions.Unit(sessionID); unit != nil {
-		requestID = unit.ChatState().RequestID
-	}
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: content})
-	if active {
-		service.appendMessageLocked("user", content, nil)
-	} else {
-		service.appendSessionMessageLocked(sessionID, "user", content, nil)
-	}
-	revision := service.bumpLocked()
-	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventSnapshotChanged, revision, requestID, sessionID, nil)
+// discardPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
+// Runtime mailbox）并**丢弃全部内容**：子代理结论经工具结果（tool_result /
+// summary / NodeSemanticResult）回传父代理，mailbox 不再作为“注入引擎历史
+// + 写入可见会话/transcript”的通道。保留排空是为了让 Runtime 的 mailbox
+// 保持有界；任何残余载荷都不进入前端、上下文或持久化存储。
+func (service *Service) discardPendingSubagentContextsFor(_ string) {
+	_ = service.Deps.Runtime.DrainSubagentContexts()
 }
 
 // chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，

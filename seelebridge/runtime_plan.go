@@ -253,7 +253,6 @@ func (r *Runtime) nodeDeps() seenode.Deps {
 		CompleteSubagentNode:     r.node.CompleteSubagentNode,
 		NodeParentEvidence:       r.node.ParentEvidence,
 		MergeBackIntoParent:      r.mergeBackIntoParent,
-		EnqueueSubagentContext:   r.enqueueSubagentContext,
 		RecordNodeStage:          r.node.RecordStage,
 		RecordNodeResult:         r.node.RecordResult,
 		RecordNodeAssistant:      r.recordNodeAssistant,

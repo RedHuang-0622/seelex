@@ -39,7 +39,6 @@ type Deps struct {
 	CompleteSubagentNode     func(nodeID, summary string, err error)
 	NodeParentEvidence       func() *snapshot.ContextSnapshot
 	MergeBackIntoParent      func(child *snapshot.ContextSnapshot) *snapshot.ContextSnapshot
-	EnqueueSubagentContext   func(content string)
 	RecordNodeStage          func(nodeID string, log model.NodeStageLog)
 	RecordNodeResult         func(nodeID string, result *model.NodeSemanticResult)
 	// RecordNodeAssistant 在节点会话的 assistant 正文流式边界收到增量
@@ -178,25 +177,24 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 }
 
 // mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/
-// TokenEstimate）合并回父会话：子快照 + 父快照 → merger.MergeBack →
-// 合并结果写回 parentEvidence（后续子代理/嵌套 fork 可累积看到）→
-// Format() 文本经 sink 回传（application 侧排队，下一次 ChatStream 开始
-// 前注入父会话）。
+// TokenEstimate）合并回父会话的 parentEvidence（后续子代理/嵌套 fork 可
+// 累积看到），并登记结构化节点结果（NodeSemanticResult）。工作树 git
+// merge 完成后，子代理产出由调用方以工具结果（tool-call 结果面）返回给
+// 父代理；不再把合并信封 Format() 文本经 mailbox 回传——mailbox 内容不进
+// 前端、引擎历史或 transcript。
 func (n *AgentNode) mergeBack(ctx context.Context, agent frameworknode.Agent, goal, status, output string) {
 	childSession, ok := agent.(*frameworkSession.Session)
 	if !ok {
 		return
 	}
 	child := seelexctx.ExportSnapshot(childSession, n.traceSource(), goal)
-	merged := n.deps.MergeBackIntoParent(child)
-	if merged == nil {
+	if n.deps.MergeBackIntoParent(child) == nil {
 		return
 	}
-	content := merged.Format()
 	if n.deps.RecordNodeStage != nil {
 		n.deps.RecordNodeStage(n.ID(), model.NodeStageLog{
 			Stage: model.NodeStageResult, NodeID: n.ID(), SessionID: child.SourceSessionID,
-			Preview: truncateNodePreview(content, nodePreviewMax), TokenEstimate: child.TokenEstimate,
+			Preview: truncateNodePreview(output, nodePreviewMax), TokenEstimate: child.TokenEstimate,
 		})
 	}
 	if n.deps.RecordNodeResult != nil {
@@ -219,9 +217,6 @@ func (n *AgentNode) mergeBack(ctx context.Context, agent frameworknode.Agent, go
 			})
 		}
 		n.deps.RecordNodeResult(n.ID(), result)
-	}
-	if sink := n.deps.EnqueueSubagentContext; sink != nil {
-		sink(content)
 	}
 }
 

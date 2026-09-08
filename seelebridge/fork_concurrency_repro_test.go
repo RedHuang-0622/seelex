@@ -64,8 +64,7 @@ func (c *countingBlockingCompleter) peakInFlight() int {
 //  1. every subagent is really executed (completer sees N requests); none is
 //     canceled while queued;
 //  2. the task registry holds N subagent tasks, all completed;
-//  3. merge-back delivers exactly N blocks (mailbox + overflow, drop=0);
-//  4. the tool returns completed, not context.Canceled ("task stopped").
+//  3. the tool returns completed, not context.Canceled ("task stopped").
 func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
@@ -105,14 +104,7 @@ func TestForkManySubagentsSharedAccountQueued(t *testing.T) {
 		t.Fatalf("completer saw %d/%d requests (queued subagents canceled?)", requestCount, subagents)
 	}
 
-	// Assertion 2: merge-back delivered exactly N blocks.
-	kept := runtime.DrainSubagentContexts()
-	if len(kept) != subagents {
-		t.Fatalf("merge-back lost results: mailbox kept %d of %d blocks (dropped=%d)",
-			len(kept), subagents, runtime.subagentContextDropped())
-	}
-
-	// Assertion 3: all subagent tasks reached completed.
+	// Assertion 2: all subagent tasks reached completed.
 	tasks := runtime.TaskSnapshot()
 	byID := make(map[string]dto.TaskRecord, len(tasks))
 	for _, task := range tasks {
@@ -194,10 +186,6 @@ func TestForkManySubagentsSharedAccountDeadlockProbe(t *testing.T) {
 	}
 	if peak := blocking.peakInFlight(); peak != 1 {
 		t.Fatalf("account pool allowed %d concurrent completes, want 1 (MaxConcurrency not enforced)", peak)
-	}
-	kept := runtime.DrainSubagentContexts()
-	if len(kept) != subagents {
-		t.Fatalf("merge-back lost results: mailbox kept %d of %d blocks", len(kept), subagents)
 	}
 	byID := make(map[string]dto.TaskRecord)
 	for _, record := range runtime.TaskSnapshot() {

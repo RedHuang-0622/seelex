@@ -159,11 +159,12 @@ func mustRegisterAccount(t *testing.T, runtime *Runtime, id string, value agent.
 	return acc
 }
 
-// TestSubAgentMergeBackToParent 验证"父证据注入 → 执行 → 合并回传"闭环：
+// TestSubAgentMergeBackRegistersResultWithoutMailbox 验证 2026-09-08 改造：
 // 子代理执行后其结构化上下文（Goal/Findings/Decisions）经 merger.MergeBack
-// 合并，Format 结果经 sink 回传（application 侧排队，ChatStream 外注入）。
-// 生产接线 = Application 单向发布父证据投影 + Runtime mailbox。
-func TestSubAgentMergeBackToParent(t *testing.T) {
+// 更新父证据投影并登记节点结果（NodeSemanticResult）；产出经工具结果回传
+// 父代理，Runtime mailbox 不再接收 Format 信封块（mailbox 内容不进入前端
+// /引擎历史/transcript）。
+func TestSubAgentMergeBackRegistersResultWithoutMailbox(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 	runtime.RegisterBuiltins()
@@ -174,9 +175,8 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 	if _, err := runtime.NewMainSession(nil); err != nil {
 		t.Fatalf("create main session: %v", err)
 	}
-	// 父子上下文消息通道（Actor 边界，与 main.go 同款：无锁数据面）：
-	// ParentEvidence 从遥测构造快照；MergeBack 捕获 merge-back 结果
-	// （生产 = Application 经 Runtime mailbox 单一入口回传）。
+	// 父子上下文消息通道（Actor 边界）：ParentEvidence 从遥测构造快照；
+	// MergeBack 更新父证据投影（嵌套 fork/后续节点可读）。
 	runtime.SetParentEvidenceProjection(ParentEvidenceProjection{
 		SessionID: "main", Goal: "audit the module", ConversationCount: 1,
 	})
@@ -192,25 +192,16 @@ func TestSubAgentMergeBackToParent(t *testing.T) {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 
-	// sink 必须收到 merge-back 块（merger.MergeBack → Format），且携带子代理
-	// 目标（节点输入）。不得直接读主会话 History（ChatStream 锁内会死锁）。
+	// mailbox 不再接收 Format 信封块：产出经工具结果回传，mailbox 保持空。
 	received := runtime.DrainSubagentContexts()
-	if len(received) == 0 {
-		t.Fatal("runtime mailbox must receive the merged child context block (closed loop)")
+	if len(received) != 0 {
+		t.Fatalf("mailbox must stay empty after node completion, got %d blocks", len(received))
 	}
-	var mergedFound, childGoalFound bool
-	for _, content := range received {
-		if strings.Contains(content, "继承上下文 (Inherited Context)") {
-			mergedFound = true
-			if strings.Contains(content, "audit the module") {
-				childGoalFound = true
-			}
-		}
+	result := runtime.NodeSemanticResult("do")
+	if result == nil || result.Status != "completed" {
+		t.Fatalf("node semantic result = %+v, want completed", result)
 	}
-	if !mergedFound {
-		t.Fatal("merged block must carry the inherited-context header")
-	}
-	if !childGoalFound {
-		t.Error("merged block should carry the child goal from node input")
+	if !strings.Contains(result.Output, "模块审计完成") {
+		t.Fatalf("semantic result output must carry the subagent conclusion, got %q", result.Output)
 	}
 }

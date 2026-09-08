@@ -15,10 +15,8 @@ import (
 )
 
 // TestMergeBackParallelSubagentsNoRace 验证两个并行子代理完成时各自
-// merge-back 并发写 Runtime mailbox，不产生数据竞争（-race 覆盖）。
-// 此测试只验证并发安全与消息不丢；内容累积由
-// TestMergeBackIntoParentAccumulates 单测覆盖（scripted completer 不产生
-// telemetry Findings，端到端块内容为空是测试环境限制，非缺陷）。
+// merge-back 并发更新父证据/登记节点结果，不产生数据竞争（-race 覆盖）。
+// 2026-09-08 起产出经工具结果回传，mailbox 不再接收 Format 信封块。
 func TestMergeBackParallelSubagentsNoRace(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
@@ -44,17 +42,14 @@ func TestMergeBackParallelSubagentsNoRace(t *testing.T) {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 
-	received := runtime.DrainSubagentContexts()
-	if len(received) < 2 {
-		t.Fatalf("mailbox must receive both subagent merge-back blocks, got %d", len(received))
+	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
+		t.Fatalf("mailbox must stay empty after parallel nodes, got %d blocks", len(kept))
 	}
-	joined := strings.Join(received, "\n")
-	if !strings.Contains(joined, "继承上下文 (Inherited Context)") {
-		t.Fatal("merged blocks must carry the inherited-context header")
-	}
-	// 两个子代理都产生了合并块（消息不丢）。
-	if len(received) < 2 {
-		t.Fatalf("merge-back must deliver a block per subagent, got %d", len(received))
+	for _, nodeID := range []string{"left", "right"} {
+		result := runtime.NodeSemanticResult(nodeID)
+		if result == nil || result.Status != "completed" {
+			t.Fatalf("node %s semantic result = %+v, want completed", nodeID, result)
+		}
 	}
 }
 
@@ -186,10 +181,15 @@ func TestMergeBackOverflowUnderParallelForks(t *testing.T) {
 		t.Fatalf("plan_run failed: %v", err)
 	}
 
-	kept := runtime.DrainSubagentContexts()
-	if len(kept) != subagents {
-		t.Fatalf("parallel merge-back lost results: mailbox kept %d of %d subagent blocks (silent drop=%d)",
-			len(kept), subagents, runtime.subagentContextDropped())
+	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
+		t.Fatalf("mailbox must stay empty after parallel nodes, got %d blocks", len(kept))
+	}
+	for i := 0; i < subagents; i++ {
+		nodeID := string(rune('a' + i))
+		result := runtime.NodeSemanticResult(nodeID)
+		if result == nil || result.Status != "completed" {
+			t.Fatalf("node %s semantic result = %+v, want completed", nodeID, result)
+		}
 	}
 }
 
@@ -244,15 +244,13 @@ func TestMergeBackSkippedOnTimeout(t *testing.T) {
 		t.Fatal("plan_run must fail when the subagent times out")
 	}
 
-	// 复现断言：超时后 mailbox 应为空（merge-back 被跳过），且子代理在
-	// 阻塞前已发出的请求/产出没有回传。当前行为即失败点。
-	received := runtime.DrainSubagentContexts()
-	if len(received) == 0 {
-		t.Fatalf("merge-back skipped on timeout: subagent context produced before cancellation was lost (mailbox empty, err=%v)", err)
+	// 2026-09-08 语义：超时节点仍执行 mergeBack 更新父证据/登记失败结果，
+	// 但产出不再经 mailbox 回传（mailbox 必须为空）；失败在 task 面可见。
+	if kept := runtime.DrainSubagentContexts(); len(kept) != 0 {
+		t.Fatalf("mailbox must stay empty on timeout, got %d blocks", len(kept))
 	}
-	joined := strings.Join(received, "\n")
-	if !strings.Contains(joined, "继承上下文 (Inherited Context)") {
-		t.Fatalf("timeout merge-back must still deliver inherited context, got:\n%s", joined)
+	if result := runtime.NodeSemanticResult("do"); result == nil || result.Status != "failed" {
+		t.Fatalf("timed-out subagent must leave a failed semantic result, got %+v", result)
 	}
 }
 

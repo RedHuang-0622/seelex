@@ -237,9 +237,13 @@ go test -race ./seelebridge -count=1
 
 Runtime accepts value copies of Application visibility and parent-evidence
 projections. Tool visibility and subagent prompt assembly read those local
-copies only; neither path calls Application or the main session. Merge-back
-uses a fixed-capacity Runtime mailbox. A full mailbox increments a diagnostic
-drop count and never blocks a child agent.
+copies only; neither path calls Application or the main session. Node
+merge-back updates the parent-evidence projection and registers a structured
+`NodeSemanticResult`; child outputs return to the parent as tool results after
+the worktree merge. A fixed-capacity Runtime mailbox remains as a bounded
+buffer (full mailbox only increments a diagnostic count and never blocks a
+child agent) and Application drains it by discarding the content — mailbox
+content never enters engine history, the visible conversation, or storage.
 
 项目边界重点在 `project_scope_test.go`/`runtime_test.go`，Plan 内核在
 `plan_kernel_test.go`，账号池/流式租约在 `runtime_test.go`/

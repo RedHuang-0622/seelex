@@ -70,7 +70,7 @@ func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T) {
 	}
 }
 
-func TestRuntimeMailboxDrainsIntoHistoryAndVisibleEvidence(t *testing.T) {
+func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T) {
 	engine := &fakeEngine{}
 	runtime := &fakeRuntime{mailbox: []string{"child conclusion"}}
 	service := mustNew(t, Dependencies{
@@ -79,32 +79,23 @@ func TestRuntimeMailboxDrainsIntoHistoryAndVisibleEvidence(t *testing.T) {
 	})
 	defer service.Shutdown()
 
-	service.injectPendingSubagentContexts()
+	service.discardPendingSubagentContexts()
 	history := engine.History()
-	if len(history) != 1 || !strings.Contains(history[0].Content, "child conclusion") {
-		t.Fatalf("merge-back was not injected into Engine history: %#v", history)
+	for _, message := range history {
+		if strings.Contains(message.Content, "child conclusion") {
+			t.Fatalf("mailbox content was injected into Engine history: %#v", history)
+		}
 	}
 	snapshot := service.Snapshot()
-	foundVisible := false
 	for _, message := range snapshot.Conversation {
-		if strings.Contains(message.Content, "[子代理产出]") && strings.Contains(message.Content, "child conclusion") {
-			foundVisible = true
-			break
+		if strings.Contains(message.Content, "child conclusion") {
+			t.Fatalf("mailbox content leaked into visible conversation: %#v", snapshot.Conversation)
 		}
 	}
-	if !foundVisible {
-		t.Fatalf("merge-back evidence missing from visible conversation (G4/INV-G12): %#v", snapshot.Conversation)
-	}
-	events := service.components.tasks.TranscriptFor(snapshot.Session.ID)
-	foundDurable := false
-	for _, event := range events {
+	for _, event := range service.components.tasks.TranscriptFor(snapshot.Session.ID) {
 		if strings.Contains(event.Content, "child conclusion") {
-			foundDurable = true
-			break
+			t.Fatalf("mailbox content leaked into transcript: %#v", event)
 		}
-	}
-	if !foundDurable {
-		t.Fatalf("merge-back evidence missing from transcript: %#v", events)
 	}
 	if pending := runtime.DrainSubagentContexts(); len(pending) != 0 {
 		t.Fatalf("runtime mailbox was not drained: %#v", pending)
