@@ -726,6 +726,9 @@ export function renderNodeDetail(node) {
       <div><dt>事件</dt><dd>${node.events ? node.events.length : 0}</dd></div>
       <div><dt>工具</dt><dd data-node-tool-count>${node.toolEvents ? node.toolEvents.length : 0}</dd></div>
     </dl>
+    <div class="node-detail-error" data-node-detail-error${node.error ? "" : " hidden"}>
+      ${node.error ? renderDetailErrorText(node.error) : ""}
+    </div>
     <div class="node-detail-tabs">
       <button class="node-tab is-active" data-node-tab="conversation" type="button">会话记录</button>
       <button class="node-tab" data-node-tab="live" type="button">第一视角</button>
@@ -763,12 +766,24 @@ export function renderNodeDetail(node) {
   </div>`;
 }
 
+// renderDetailErrorText 渲染节点失败原文（账号/HTTP 错误、未绑定工作区等；
+// 全文本转义 + pre 保留换行）。
+function renderDetailErrorText(text) {
+  return `<strong class="node-detail-error-title">执行失败</strong><pre>${escapeHTML(text)}</pre>`;
+}
+
 // setNodeDetailConversation 渲染子代理会话记录 + 结构化上下文快照
 // （详情弹窗会话记录 / 上下文标签；数据来自 invoke SubagentSessionDetail）。
 export function setNodeDetailConversation(detail) {
   const container = document.querySelector("[data-node-detail] [data-node-conversation]");
   const toolContainer = document.querySelector("[data-node-detail] [data-node-tool-events]");
   const contextContainer = document.querySelector("[data-node-detail] [data-node-context]");
+  const errorContainer = document.querySelector("[data-node-detail] [data-node-detail-error]");
+  if (errorContainer) {
+    const error = detail?.error || "";
+    errorContainer.hidden = !error;
+    if (error) errorContainer.innerHTML = renderDetailErrorText(error);
+  }
   if (!container && !toolContainer && !contextContainer) return;
   const messages = (detail?.conversation || []);
   if (container && messages.length === 0) {
@@ -1062,6 +1077,7 @@ export function subagentTreeNodeToDSL(treeNode) {
     depth: 0,
     elapsed: "",
     output: textValue(treeNode?.summary),
+    error: textValue(treeNode?.error),
     events: [],
     toolEvents: [],
     incoming: [],

@@ -101,11 +101,18 @@ func isPlanTool(name string) bool {
 // nodeScopeExcludedTool 判断子代理不可见的全局状态工具：这些工具操作
 // runtime/会话级单例状态，并行子代理调用会造成语义冲突。其余工具与主代理
 // 一致可见。
+//
+// 2026-09-08 增补：switch_plugin/switch_mode/skill_activate 在子代理
+// ChatStream 持会话锁期间执行时，handler 会同步调 SetSystemPrompt 重入
+// 同一会话锁 → 自锁死锁（headless 真实 API 复现：一个子代理 done、另一个
+// running 卡死，行 Assignee 停留在 main）。子代理运行面不需要这些控制：
+// skill 已由节点装配自动注入，插件/技能切换属于会话/UI 级控制。
 func nodeScopeExcludedTool(name string) bool {
 	switch name {
 	case "plan_load", "plan_clear", "plan_run", "plan_status", "plan_export", "plan_validate",
 		"task_complete", "task_failed", "task_needs_user_decision",
-		"fork_subagents": // fork 会递归派生子代理（无深度控制），同 plan 工具族理由
+		"fork_subagents", // fork 会递归派生子代理（无深度控制），同 plan 工具族理由
+		"switch_plugin", "switch_mode", "skill_activate":
 		return true
 	default:
 		return false

@@ -386,6 +386,9 @@ type SubagentDetail struct {
 	Assignee     string   `json:"assignee,omitempty"`
 	Participants []string `json:"participants,omitempty"`
 	Summary      string   `json:"summary,omitempty"`
+	// Error 是节点失败原文（SubAgentTree.Error / 运行时错误；含账号/供应商
+	// 错误码与"未绑定工作区"等可执行原因，GUI 原样展示）。
+	Error string `json:"error,omitempty"`
 	// Stages 是第一视角（阶段）tab 的历史回放（spawn/turn/tool/result；
 	// 即使详情在运行中途打开也能补全，不受 live dispatcher 启动时刻影响）。
 	Stages []dto.NodeStageLog `json:"stages,omitempty"`

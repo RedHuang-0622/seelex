@@ -19,7 +19,9 @@ func TestPolicyFiltersSubagentExcludedAndGoalPlanTools(t *testing.T) {
 	})
 	ctx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
 	got := policy.Filter(ctx, []types.Tool{
-		planTool("plan_run"), planTool("task_complete"), planTool("fork_subagents"), planTool("bash"),
+		planTool("plan_run"), planTool("task_complete"), planTool("fork_subagents"),
+		planTool("switch_plugin"), planTool("switch_mode"), planTool("skill_activate"),
+		planTool("bash"),
 	})
 	if len(got) != 1 || got[0].Function.Name != "bash" {
 		t.Fatalf("subagent visible tools = %v, want only bash", names(got))

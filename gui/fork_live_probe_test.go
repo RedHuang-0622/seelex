@@ -19,6 +19,10 @@ package gui
 //   SMOKE_FORK_LIVE_N               子代理个数（默认 3）
 //   SMOKE_FORK_LIVE_GOAL            每个子代理目标文案模板；{i} 替换为序号，
 //                                    自动追加 (agent fk<i>) 保持 goal 唯一
+//   SMOKE_FORK_LIVE_PREAMBLE        追加在提交消息前的顶层指令（例如激活
+//                                    #goal 技能、指定调研对象）
+//   SMOKE_FORK_LIVE_BIND            置 1 时先 CreateWorkspace(repoRoot)+Bind，
+//                                    模拟 GUI 项目绑定后 fork（文件工具可用）
 //   SMOKE_FORK_LIVE_IDLE_BUDGET_SEC 等待收敛预算（默认 240）
 //   SMOKE_FORK_LIVE_PPROF           置 1 使用 seelex-pprof.exe 并支持 goroutine dump
 //   SMOKE_FORK_LIVE_TARGET          目标二进制（默认 tmp/bin/seelex-headless.exe）
@@ -105,6 +109,7 @@ func TestRealAPIForkLiveProbe(t *testing.T) {
 	n := forkLiveEnvInt("SMOKE_FORK_LIVE_N", 3)
 	idleBudget := time.Duration(forkLiveEnvInt("SMOKE_FORK_LIVE_IDLE_BUDGET_SEC", 240)) * time.Second
 	goalTemplate := os.Getenv("SMOKE_FORK_LIVE_GOAL")
+	preamble := os.Getenv("SMOKE_FORK_LIVE_PREAMBLE")
 	usePprof := os.Getenv("SMOKE_FORK_LIVE_PPROF") == "1"
 	defaultTarget := filepath.Join(repoRoot, "tmp", "bin", "seelex-headless.exe")
 	if usePprof {
@@ -136,8 +141,35 @@ func TestRealAPIForkLiveProbe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), idleBudget+90*time.Second)
 	defer cancel()
 	proc.waitHealthy(ctx, t, time.Now().Add(90*time.Second))
+	if os.Getenv("SMOKE_FORK_LIVE_BIND") == "1" {
+		if _, err := proc.rpc(ctx, "CreateWorkspace", "fork-live-root", repoRoot, ""); err != nil {
+			t.Fatalf("CreateWorkspace: %v", err)
+		}
+		snap, err := proc.snapshot(ctx)
+		if err != nil {
+			t.Fatalf("snapshot after workspace: %v", err)
+		}
+		workspaceID := ""
+		for _, workspace := range snap.Workspaces {
+			if filepath.Clean(workspace.RootPath) == filepath.Clean(repoRoot) {
+				workspaceID = workspace.ID
+				break
+			}
+		}
+		if workspaceID == "" {
+			t.Fatal("CreateWorkspace 后未找到仓库工作区")
+		}
+		if _, err := proc.rpc(ctx, "BindWorkspace", workspaceID); err != nil {
+			t.Fatalf("BindWorkspace: %v", err)
+		}
+		t.Log("[bind] 已绑定仓库工作区")
+	}
 
 	var prompt strings.Builder
+	if preamble != "" {
+		prompt.WriteString(preamble)
+		prompt.WriteString("\n")
+	}
 	prompt.WriteString("Call the fork_subagents tool EXACTLY once to run ")
 	prompt.WriteString(strconv.Itoa(n))
 	prompt.WriteString(" subagents in parallel, wait for all of them, then reply with a one-line summary. ")

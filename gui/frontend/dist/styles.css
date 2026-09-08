@@ -1524,6 +1524,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .node-tool-evidence > span { color: var(--faint); font: 700 10px var(--font-mono); letter-spacing: .08em; }
 .node-tool-evidence pre { max-height: 120px; margin: 0; overflow: auto; padding: 7px 9px; border-radius: var(--r-sm); color: var(--text-dim); background: var(--code-bg); font: 10px/1.55 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 .node-timeline-empty { padding: 10px 2px; color: var(--faint); font-size: var(--text-sm); }
+.node-detail-error { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--status-failed); border-radius: var(--r-md); color: var(--status-failed); background: var(--code-bg); }
+.node-detail-error-title { color: var(--status-failed); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.node-detail-error pre { max-height: 140px; margin: 0; overflow: auto; color: var(--text-dim); font: 10px/1.55 var(--font-mono); white-space: pre-wrap; word-break: break-word; }
 .node-context { display: grid; gap: 10px; max-height: 340px; overflow: auto; }
 .node-context-meta { display: flex; flex-wrap: wrap; gap: 5px; }
 .node-context-meta > span { display: inline-flex; gap: 5px; align-items: center; padding: 3px 7px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--muted); background: var(--surface); font: 10px var(--font-mono); }

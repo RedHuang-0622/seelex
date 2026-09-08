@@ -136,7 +136,13 @@ func (c *Coordinator) CompleteSubagentNode(nodeID, summary string, err error) {
 		if err != nil {
 			status = dto.TaskFailed
 		}
-		_, _ = c.deps.Tasks.SetStatus("subagent:"+nodeID, status, summary)
+		evidence := summary
+		if err != nil {
+			// 失败打点携带原始错误（含账号/HTTP 错误码、未绑定工作区等
+			// 可执行原因），GUI 工作台「打点」与详情按证据原样展示。
+			evidence = truncateNodePreview(err.Error(), nodePreviewMax)
+		}
+		_, _ = c.deps.Tasks.SetStatus("subagent:"+nodeID, status, evidence)
 	}
 }
 
