@@ -2659,18 +2659,19 @@ func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
 	return result
 }
 
-// CompleteEventUnits 把事件流切分为完整协议单元（轮）：user 轮、assistant
-// 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。孤儿 tool 事件、
-// 未知角色与控制块不构成单元；流末未回复的 user 事件仍构成独立单元
-// （会话关闭/取消时保留可见性）。
+// CompleteEventUnits 把事件流切分为可见协议轮次单元（轮）：user 轮、
+// assistant 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。孤儿
+// tool 事件、未知角色与控制块不构成单元。中断（残缺）工具链轮与未回复的
+// user 请求仍构成开放单元 —— UI 可见的轮次不得因单元切分而从冷加载
+// provider 上下文消失；缺失的 tool 结果由装配层请求前补齐。
 func CompleteEventUnits(events []Event) [][]Event {
 	units := make([][]Event, 0, len(events))
 	for index := 0; index < len(events); {
 		event := events[index]
 		switch {
 		case event.Role == "user":
-			unit, next, complete := userEventUnit(events, index)
-			if complete {
+			unit, next := userEventUnit(events, index)
+			if len(unit) > 0 {
 				units = append(units, unit)
 			}
 			index = next
@@ -2681,10 +2682,12 @@ func CompleteEventUnits(events []Event) [][]Event {
 			unit, next, complete := toolEventUnit(events, index)
 			if complete {
 				units = append(units, unit)
-				index = next
-			} else {
-				index = nextUserEventIndex(events, next)
+			} else if len(unit) > 0 {
+				// 残缺（中断）工具链：保留已记录部分为开放单元，从链断裂点
+				// 续扫 —— 不整体作废、不连坐跳到下一个 user。
+				units = append(units, unit)
 			}
+			index = next
 		default:
 			// Orphan tool results and unknown roles are archive evidence but
 			// never become provider context by themselves.
@@ -2694,43 +2697,30 @@ func CompleteEventUnits(events []Event) [][]Event {
 	return units
 }
 
-func userEventUnit(events []Event, start int) ([]Event, int, bool) {
+func userEventUnit(events []Event, start int) ([]Event, int) {
 	unit := []Event{events[start]}
 	index := start + 1
-	hasAssistant := false
 	for index < len(events) && events[index].Role != "user" {
 		event := events[index]
 		if event.Role != "assistant" {
-			return nil, nextUserEventIndex(events, index+1), false
+			// 孤儿 tool / 异常角色：轮在此终止，产出已保留内容；孤儿消息由
+			// 外层 default 跳过。
+			return unit, index
 		}
-		hasAssistant = true
 		if len(event.ToolCalls) == 0 {
 			unit = append(unit, event)
-			return unit, index + 1, true
+			return unit, index + 1
 		}
-		toolUnit, next, complete := toolEventUnit(events, index)
-		if !complete {
-			return nil, nextUserEventIndex(events, next), false
-		}
+		toolUnit, next, _ := toolEventUnit(events, index)
+		// 工具链完整或残缺（中断）都并入该轮；残缺链的缺失结果由装配层
+		// 补齐。next 落在链断裂点，后续同轮文本/下一 user 不会被跳转丢弃。
 		unit = append(unit, toolUnit...)
 		index = next
 	}
-	// A final user request without a provider response is still a valid
-	// standalone context unit. It commonly occurs when a session is closed,
-	// cancelled, or the process exits between acceptance and the first model
-	// response. Dropping it would make the persisted conversation visible in
-	// the UI but absent from the next cold-loaded provider request.
-	if index == len(events) && !hasAssistant {
-		return unit, index, true
-	}
-	return unit, index, hasAssistant
-}
-
-func nextUserEventIndex(events []Event, start int) int {
-	for start < len(events) && events[start].Role != "user" {
-		start++
-	}
-	return start
+	// 到达下一个 user 或流末：产出开放单元。覆盖残缺工具链收尾、无回复的
+	// user 请求（会话关闭/取消/进程在首个模型响应前退出）等可见轮次 ——
+	// 丢弃会让持久化会话在 UI 可见但冷加载 provider 上下文缺失。
+	return unit, index
 }
 
 func toolEventUnit(events []Event, start int) ([]Event, int, bool) {

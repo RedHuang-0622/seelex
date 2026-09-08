@@ -156,7 +156,7 @@ func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T) {
 	}
 }
 
-func TestTranscriptTailDropsIncompleteAndOrphanToolProtocols(t *testing.T) {
+func TestTranscriptTailKeepsInterruptedRoundAndDropsOrphanToolProtocols(t *testing.T) {
 	events := []TranscriptEvent{
 		{Seq: 1, Role: "user", Content: "incomplete", TokenCount: 1},
 		{Seq: 2, Role: "assistant", ToolCalls: []TranscriptToolCall{{ID: "a"}, {ID: "b"}}, TokenCount: 1},
@@ -173,7 +173,9 @@ func TestTranscriptTailDropsIncompleteAndOrphanToolProtocols(t *testing.T) {
 	for index, message := range history {
 		gotSeq[index] = message.Role + ":" + message.ToolCallID
 	}
-	want := []string{"user:", "assistant:", "tool:d", "tool:c", "assistant:"}
+	// 中断（残缺）轮 1-3 是 UI 可见轮次，作为开放单元进入冷加载尾窗（缺失
+	// 结果由装配层补齐）；孤儿 tool 9 仍不构成单元、不进入 provider 上下文。
+	want := []string{"user:", "assistant:", "tool:a", "user:", "assistant:", "tool:d", "tool:c", "assistant:"}
 	if !reflect.DeepEqual(gotSeq, want) {
 		t.Fatalf("history protocol = %v, want %v", gotSeq, want)
 	}

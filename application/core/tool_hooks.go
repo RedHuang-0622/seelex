@@ -366,8 +366,12 @@ func (bridge *ToolHookBridge) Hooks() *session.LoopHooks {
 			activeRequestID := svc.Core.Snapshot.Chat.RequestID
 			svc.ViewMu.RUnlock()
 			// The engine adds assistant/tool records after the initial preflight.
-			// Repair them before its next provider request, not only before loop 0.
-			if err := svc.components.history.PrepareProviderHistoryFor(sessionIDFromContext(ctx)); err != nil {
+			// Repair empty content before its next provider request, not only
+			// before loop 0. 残缺链配对修复（注入缺失 tool 结果）不在活跃
+			// ReAct 中间态执行 —— 新 append 的 assistant 工具记录可能仍在
+			// 执行中，误判会与即将到达的真结果重复；定稿链由装配/请求前
+			// 的 PrepareProviderHistoryFor 补齐。
+			if err := svc.components.history.PrepareNewHistoryContentFor(sessionIDFromContext(ctx)); err != nil {
 				svc.components.context.RecordContextControlFailure(activeRequestID, err)
 				return false
 			}

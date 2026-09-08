@@ -88,6 +88,11 @@ func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model
 // 历史（token 预算 + 单元上限）。maxUnits <= 0 表示全量累积（append-only
 // 已定稿轮次，达峰前字节稳定）；maxUnits > 0 表示有界窗口（压缩后新鲜窗口）。
 //
+// 单元 = 可见轮次（见 transcriptProtocolUnits）：user 轮、assistant 文本轮、
+// assistant 工具链轮。残缺（中断）工具链轮同样构成开放单元 —— 只在 UI 可见
+// 就不得从冷加载 provider 上下文中消失；其协议合法性（缺失 tool 结果）由
+// 装配层的 RepairInterruptedToolChains 在请求前补齐。
+//
 // 协议单元不可拆分：若最新完整单元单条就超出 tokenBudget，函数不返回空
 // 历史，而是降级保留该最新单元（自 newest 起的最后一个可解析完整轮次）。
 // 这样“最新上下文”不会因预算装不下而静默消失；该轮是否真的可发送（相对
@@ -153,8 +158,8 @@ func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.Transcrip
 				index++
 				continue
 			}
-			unit, next, ok := transcriptUserUnit(events, index)
-			if ok {
+			unit, next := transcriptUserUnit(events, index)
+			if len(unit) > 0 {
 				units = append(units, unit)
 			}
 			index = next
@@ -162,12 +167,18 @@ func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.Transcrip
 			units = append(units, []model.TranscriptEvent{event})
 			index++
 		case event.Role == "assistant" && len(event.ToolCalls) > 0:
-			unit, next, ok := transcriptToolUnit(events, index)
-			if ok {
+			unit, next, complete := transcriptToolUnit(events, index)
+			if complete {
+				units = append(units, unit)
+				index = next
+			} else if len(unit) > 0 {
+				// 残缺（中断）工具链：保留已记录部分为开放单元，从链断裂点
+				// 续扫 —— 不整体作废、不连坐跳到下一个 user。缺失的 tool 结果
+				// 由装配层 RepairInterruptedToolChains 补齐后再进 provider。
 				units = append(units, unit)
 				index = next
 			} else {
-				index = nextTranscriptUserIndex(events, next)
+				index = next
 			}
 		default:
 			index++
@@ -183,41 +194,31 @@ func isActiveSkillEvent(event model.TranscriptEvent) bool {
 	return event.Role == "user" && strings.HasPrefix(event.Content, ActiveSkillMarker)
 }
 
-func transcriptUserUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool) {
+func transcriptUserUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int) {
 	unit := []model.TranscriptEvent{events[start]}
 	index := start + 1
-	hasAssistant := false
 	for index < len(events) && events[index].Role != "user" {
 		event := events[index]
 		if event.Role != "assistant" {
-			return nil, nextTranscriptUserIndex(events, index+1), false
+			// 孤儿 tool / 异常角色：轮在此终止，产出已保留内容（含 user 与
+			// 之前的链部分）；孤儿消息本身由外层 default 跳过，不并入任何轮。
+			return unit, index
 		}
-		hasAssistant = true
 		if len(event.ToolCalls) == 0 {
 			unit = append(unit, event)
-			return unit, index + 1, true
+			return unit, index + 1
 		}
-		toolUnit, next, ok := transcriptToolUnit(events, index)
-		if !ok {
-			return nil, nextTranscriptUserIndex(events, next), false
-		}
+		toolUnit, next, _ := transcriptToolUnit(events, index)
+		// 工具链完整或残缺（中断）都并入该轮；残缺链的缺失结果由装配层
+		// 补齐。next 落在链断裂点，后续同轮文本/下一 user 不会被跳转丢弃。
 		unit = append(unit, toolUnit...)
 		index = next
 	}
-	// Preserve an unanswered final user request: it must survive the
-	// durable-tail cold-load path so the model receives the same last request
-	// the UI renders after resume.
-	if index == len(events) && !hasAssistant {
-		return unit, index, true
-	}
-	return unit, index, hasAssistant
-}
-
-func nextTranscriptUserIndex(events []model.TranscriptEvent, start int) int {
-	for start < len(events) && events[start].Role != "user" {
-		start++
-	}
-	return start
+	// 到达下一个 user 或流末：产出开放单元。覆盖三类可见轮次 —— 残缺工具
+	// 链收尾（无文本终止点）、无回复的 user 请求（会话关闭/取消/进程在首个
+	// 模型响应前退出）、以及异常截断。丢弃它们会让持久化会话在 UI 可见但
+	// 冷加载 provider 上下文缺失，重启后 continue 无从继续。
+	return unit, index
 }
 
 func transcriptToolUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool) {

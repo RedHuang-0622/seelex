@@ -526,15 +526,15 @@ func TestControllerEqualSizedOverflowBatchesBothCompress(t *testing.T) {
 	}
 }
 
-// TestControllerOrphanMessagesBetweenOverflowAndWindow 审计 R3 回归：
-// 溢出区与窗口起点之间的非单元消息（未闭合工具链，tool 结果缺失）
-// 必须随窗口保留，不静默丢弃。
+// TestControllerOrphanMessagesBetweenOverflowAndWindow 审计 R3 演进回归：
+// 残缺（未闭合）工具链现在是开放单元 —— 与其他轮次同等参与溢出统计：
+// 溢出后进入压缩帧摘要（工具名保留），不再作为游离原文静默丢弃；真正无主
+// 的孤儿 tool 结果仍随窗口保留原文（default 分支不构成单元）。
 func TestControllerOrphanMessagesBetweenOverflowAndWindow(t *testing.T) {
 	controller := newController(2, NewMemoryCompactStack())
 	big := strings.Repeat("数据内容", 50)
-	// 单元：轮0（user+assistant）、轮1（user+assistant）、轮2（user+assistant）
-	// 孤儿 = assistant(c0)（工具调用无 tool 结果配对 → 不构成单元），
-	// 位于溢出区（轮0）与窗口（轮1 起）之间。
+	// 单元：轮0（user+assistant）、c0 残缺工具链（开放单元）、轮1、轮2；
+	// 窗口 2 → 溢出 2 单元（轮0 + c0 链）。
 	history := []types.Message{
 		textMessage("user", "轮0-用户"+big),
 		textMessage("assistant", "轮0-回复"+big),
@@ -543,6 +543,10 @@ func TestControllerOrphanMessagesBetweenOverflowAndWindow(t *testing.T) {
 		textMessage("assistant", "轮1-回复"+big),
 		textMessage("user", "轮2-用户"+big),
 		textMessage("assistant", "轮2-回复"+big),
+	}
+	units := chatUnits(history)
+	if len(units) != 4 {
+		t.Fatalf("units = %d, want 4 (round0, interrupted c0 chain, round1, round2)", len(units))
 	}
 	decision, err := controller.Handle(context.Background(), seelectx.ContextEvent{
 		Kind: seelectx.ContextAfterAssistant, Turn: 1, Query: "", History: history,
@@ -553,19 +557,18 @@ func TestControllerOrphanMessagesBetweenOverflowAndWindow(t *testing.T) {
 	if !decision.ReplaceHistory {
 		t.Fatal("window overflow must compress")
 	}
-	// 投影 = 帧块 + 孤儿（assistant c0）+ 窗口 2 轮（轮1、轮2）。
-	if len(decision.History) != 1+1+4 {
-		t.Fatalf("projected length = %d, want 6 (frame + orphan + 2 window rounds)", len(decision.History))
+	// 投影 = 帧块 + 窗口 2 轮（轮1、轮2）；c0 残缺链随溢出进入帧 Summary。
+	if len(decision.History) != 1+4 {
+		t.Fatalf("projected length = %d, want 5 (frame + 2 window rounds)", len(decision.History))
 	}
-	foundOrphan := false
 	for _, message := range decision.History {
-		if message.Role == "assistant" && len(message.ToolCalls) > 0 && message.ToolCalls[0].ID == "c0" {
-			foundOrphan = true
-			break
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			t.Fatalf("interrupted chain must compress into the frame, not stay as raw orphan: %+v", message)
 		}
 	}
-	if !foundOrphan {
-		t.Fatal("orphan assistant message between overflow and window must be preserved (R3)")
+	frames := controller.opts.Stacks.Snapshot().CompactStack
+	if len(frames) != 1 || !strings.Contains(frames[0].Summary, "read_file") {
+		t.Fatalf("frame summary must keep the interrupted tool name: %+v", frames)
 	}
 }
 

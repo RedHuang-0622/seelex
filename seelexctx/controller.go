@@ -624,17 +624,19 @@ type historyUnit struct {
 	end      int
 }
 
-// chatUnits 把 working history 切分为完整协议单元（轮）：user 轮、
-// assistant 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。
-// 未闭合的工具链、孤儿 tool 消息与上下文控制块不构成单元。
+// chatUnits 把 working history 切分为可见协议轮次单元：user 轮、assistant
+// 文本轮、assistant 工具链轮（按调用 ID 配对 tool 结果）。孤儿 tool 消息与
+// 上下文控制块不构成单元。中断（残缺）工具链轮与未回复的 user 请求仍构成
+// 开放单元 —— UI 可见的轮次不得因窗口/溢出统计而消失；缺失 tool 结果由
+// 装配层请求前补齐。
 func chatUnits(history []types.Message) []historyUnit {
 	var units []historyUnit
 	for index := 0; index < len(history); {
 		message := history[index]
 		switch {
 		case message.Role == "user" && !isStackContextMarker(message):
-			unit, next, complete := userMessageUnit(history, index)
-			if complete {
+			unit, next, _ := userMessageUnit(history, index)
+			if len(unit.messages) > 0 {
 				units = append(units, unit)
 			}
 			index = next
@@ -642,8 +644,10 @@ func chatUnits(history []types.Message) []historyUnit {
 			units = append(units, historyUnit{messages: []types.Message{message}, start: index, end: index + 1})
 			index++
 		case message.Role == "assistant" && len(message.ToolCalls) > 0:
-			unit, next, complete := toolChainUnit(history, index)
-			if complete {
+			unit, next, _ := toolChainUnit(history, index)
+			// 完整链与残缺（中断）链都保留为单元（残缺部分等待装配修复），
+			// index 落在链断裂点续扫 —— 不整体作废、不连坐跳到下一个 user。
+			if len(unit.messages) > 0 {
 				units = append(units, unit)
 			}
 			index = next
@@ -659,31 +663,35 @@ func (c *seelexContextController) chatUnits(history []types.Message) []historyUn
 	return chatUnits(history)
 }
 
-// userMessageUnit 用户轮：user + 直到下一个 user 或 assistant 文本回复；
-// 工具链在其中闭合时完整。
+// userMessageUnit 用户轮：user + 直到下一个 user 或 assistant 文本收尾；
+// 工具链（完整或中断）并入该轮，中断链的缺失结果由装配层补齐。
 func userMessageUnit(history []types.Message, start int) (historyUnit, int, bool) {
 	unit := historyUnit{messages: []types.Message{history[start]}, start: start, end: start + 1}
 	index := start + 1
 	for index < len(history) && history[index].Role != "user" {
 		message := history[index]
 		if message.Role != "assistant" {
-			// 非用户/非 assistant（孤儿 tool）→ 该轮不完整，跳到下一个 user。
-			return historyUnit{}, nextUserIndex(history, index+1), false
+			// 孤儿 tool / 异常角色：轮在此终止，产出已保留内容；孤儿消息由
+			// 外层 default 跳过。
+			return unit, index, true
 		}
 		if len(message.ToolCalls) == 0 {
 			unit.messages = append(unit.messages, message)
 			unit.end = index + 1
 			return unit, index + 1, true
 		}
-		chain, next, complete := toolChainUnit(history, index)
-		if !complete {
-			return historyUnit{}, nextUserIndex(history, next), false
-		}
+		chain, next, _ := toolChainUnit(history, index)
+		// 工具链完整或残缺（中断）都并入该轮；next 落在链断裂点，后续同轮
+		// 文本/下一 user 不会被跳转丢弃。
 		unit.messages = append(unit.messages, chain.messages...)
-		unit.end = chain.end
+		if chain.end > unit.end {
+			unit.end = chain.end
+		}
 		index = next
 	}
-	return unit, index, false
+	// 到达下一个 user 或流末：产出开放单元（残缺工具链收尾 / 无回复的
+	// user 请求等可见轮次 —— 不因单元切分从窗口/溢出统计中消失）。
+	return unit, index, true
 }
 
 // toolChainUnit 工具链轮：assistant + 全部调用 ID 配对成功的 tool 结果。
@@ -719,13 +727,6 @@ func toolChainUnit(history []types.Message, start int) (historyUnit, int, bool) 
 		index++
 	}
 	return unit, index, len(seen) == len(wanted)
-}
-
-func nextUserIndex(history []types.Message, start int) int {
-	for start < len(history) && history[start].Role != "user" {
-		start++
-	}
-	return start
 }
 
 // overflowMessages 展平溢出单元的消息（保留原始顺序；单元内消息不重复）。

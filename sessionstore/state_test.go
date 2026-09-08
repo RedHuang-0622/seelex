@@ -160,7 +160,9 @@ func TestEventTailKeepsCompleteUserAndParallelToolUnits(t *testing.T) {
 		{Seq: 11, Role: "assistant", Content: "answer", TokenCount: 1},
 	}
 	tail := selectEventTail(events, 100, 4)
-	wantSeq := []uint64{4, 5, 6, 7, 8, 10, 11}
+	// 单元 1-3（user + 中断工具链 a/b，只记录了 a）是 UI 可见的开放轮次，
+	// 必须进入冷加载尾窗（缺失结果由装配层补齐）；孤儿 tool 9 仍不构成单元。
+	wantSeq := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 10, 11}
 	gotSeq := make([]uint64, len(tail))
 	for index := range tail {
 		gotSeq[index] = tail[index].Seq
