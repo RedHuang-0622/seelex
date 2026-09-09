@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// v8Attempt 是同一操作的一次尝试说明。
-type v8Attempt struct {
+// attempt 是同一操作的一次尝试说明。
+type attempt struct {
 	// AnchorSeq 是尝试挂靠的事件行（该操作发生位置的 message seq）。
 	AnchorSeq    uint64    `json:"anchor_seq"`
 	OperationKey string    `json:"operation_key"`
@@ -22,29 +22,29 @@ type v8Attempt struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// v8AttemptCache 是会话运行期的非持久尝试缓存（进程内单例，可跨会话共享
+// attemptCache 是会话运行期的非持久尝试缓存（进程内单例，可跨会话共享
 // 实例；条目按 anchor + operation_key 归组）。
-type v8AttemptCache struct {
+type attemptCache struct {
 	mu       sync.Mutex
-	items    []v8Attempt
+	items    []attempt
 	maxItems int
 	maxChars int
 }
 
-// NewV8AttemptCache 构造尝试缓存；maxItems/maxChars <= 0 时取设计默认值
+// NewAttemptCache 构造尝试缓存；maxItems/maxChars <= 0 时取设计默认值
 // （64 条 / 8 MB）。
-func NewV8AttemptCache(maxItems, maxChars int) *v8AttemptCache {
+func NewAttemptCache(maxItems, maxChars int) *attemptCache {
 	if maxItems <= 0 {
 		maxItems = 64
 	}
 	if maxChars <= 0 {
 		maxChars = 8 << 20
 	}
-	return &v8AttemptCache{maxItems: maxItems, maxChars: maxChars}
+	return &attemptCache{maxItems: maxItems, maxChars: maxChars}
 }
 
 // Add 追加一次尝试；超出 max_items/max_chars 时淘汰最旧条目。
-func (cache *v8AttemptCache) Add(anchorSeq uint64, operationKey, role, content, status string) {
+func (cache *attemptCache) Add(anchorSeq uint64, operationKey, role, content, status string) {
 	if cache == nil {
 		return
 	}
@@ -53,7 +53,7 @@ func (cache *v8AttemptCache) Add(anchorSeq uint64, operationKey, role, content, 
 	if operationKey == "" {
 		operationKey = "default"
 	}
-	cache.items = append(cache.items, v8Attempt{
+	cache.items = append(cache.items, attempt{
 		AnchorSeq:    anchorSeq,
 		OperationKey: operationKey,
 		Role:         role,
@@ -75,13 +75,13 @@ func (cache *v8AttemptCache) Add(anchorSeq uint64, operationKey, role, content, 
 }
 
 // RecentFor 返回指定锚点 + 操作的最近 K 条尝试（时间升序）。
-func (cache *v8AttemptCache) RecentFor(anchorSeq uint64, operationKey string, k int) []v8Attempt {
+func (cache *attemptCache) RecentFor(anchorSeq uint64, operationKey string, k int) []attempt {
 	if cache == nil {
 		return nil
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	var matched []v8Attempt
+	var matched []attempt
 	for _, item := range cache.items {
 		if item.AnchorSeq == anchorSeq && item.OperationKey == operationKey {
 			matched = append(matched, item)
@@ -95,7 +95,7 @@ func (cache *v8AttemptCache) RecentFor(anchorSeq uint64, operationKey string, k 
 }
 
 // Clear 清空缓存（重启/测试用）。
-func (cache *v8AttemptCache) Clear() {
+func (cache *attemptCache) Clear() {
 	if cache == nil {
 		return
 	}

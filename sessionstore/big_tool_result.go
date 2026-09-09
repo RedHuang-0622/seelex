@@ -1,4 +1,4 @@
-// v8 big_tool_result 旁路存储（主会话统一持有，M4）。
+// big_tool_result 旁路存储（主会话统一持有，M4）。
 //
 // 事实模型（my_design §6/§11）：
 //   - 软限截断 + result_ref（默认 60000 字符）；硬限不落盘直接报错
@@ -19,19 +19,19 @@ import (
 )
 
 const (
-	v8BlobSoftLimitChars = 60000
-	v8BlobHardLimitBytes = 16 << 20
-	v8BlobQuotaBytes     = 64 << 20
-	v8BlobRefPrefix      = "blob:"
+	blobSoftLimitChars = 60000
+	blobHardLimitBytes = 16 << 20
+	blobQuotaBytes     = 64 << 20
+	blobRefPrefix      = "blob:"
 )
 
 var (
-	ErrV8BlobTooLarge = errors.New("v8: big tool result exceeds hard limit")
-	ErrV8BlobQuota    = errors.New("v8: big tool result session quota exceeded")
+	ErrBigToolResultTooLarge = errors.New("session storage: big tool result exceeds hard limit")
+	ErrBigToolResultQuota    = errors.New("session storage: big tool result session quota exceeded")
 )
 
-// v8Blob 是 big_tool_result 索引/内容结构（JSONL 一行 = 一条）。
-type v8Blob struct {
+// blob 是 big_tool_result 索引/内容结构（JSONL 一行 = 一条）。
+type toolBlob struct {
 	Hash      string    `json:"hash"`
 	SessionID string    `json:"session_id"`
 	Kind      string    `json:"kind"`
@@ -41,33 +41,33 @@ type v8Blob struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (store *v8Store) v8BlobDir(key Key) string {
-	return filepath.Join(store.v8SessionRoot(key), "big_tool_result")
+func (store *storeEngine) blobDir(key Key) string {
+	return filepath.Join(store.sessionRoot(key), "big_tool_result")
 }
 
-func (store *v8Store) v8BlobPath(key Key, hash string) string {
-	return filepath.Join(store.v8BlobDir(key), hash+".jsonl")
+func (store *storeEngine) blobPath(key Key, hash string) string {
+	return filepath.Join(store.blobDir(key), hash+".jsonl")
 }
 
-// v8WriteBlob 写超大工具输出（主会话键）。返回 blob（Content 为截断后正文；
+// writeBlob 写超大工具输出（主会话键）。返回 blob（Content 为截断后正文；
 // 调用方把 Ref = blob:hash 写进消息行）。
-func (store *v8Store) v8WriteBlob(key Key, toolName, content string) (v8Blob, error) {
-	if len(content) > v8BlobHardLimitBytes {
-		return v8Blob{}, ErrV8BlobTooLarge
+func (store *storeEngine) writeBlob(key Key, toolName, content string) (toolBlob, error) {
+	if len(content) > blobHardLimitBytes {
+		return toolBlob{}, ErrBigToolResultTooLarge
 	}
 	hash := hash(content)
-	truncated := len(content) > v8BlobSoftLimitChars
+	truncated := len(content) > blobSoftLimitChars
 	if truncated {
-		content = content[:v8BlobSoftLimitChars]
+		content = content[:blobSoftLimitChars]
 	}
-	blob := v8Blob{
+	blob := toolBlob{
 		Hash: hash, SessionID: key.SessionID, Kind: toolName,
 		Size: len(content), Truncated: truncated, Content: content,
 		CreatedAt: time.Now().UTC(),
 	}
-	dir := store.v8BlobDir(key)
+	dir := store.blobDir(key)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return v8Blob{}, err
+		return toolBlob{}, err
 	}
 	// 配额检查：dry-run 扫描现有 blob 总量 + 新增。
 	total := int64(0)
@@ -79,22 +79,22 @@ func (store *v8Store) v8WriteBlob(key Key, toolName, content string) (v8Blob, er
 			}
 		}
 	}
-	if total+int64(len(content)) > v8BlobQuotaBytes {
-		return v8Blob{}, ErrV8BlobQuota
+	if total+int64(len(content)) > blobQuotaBytes {
+		return toolBlob{}, ErrBigToolResultQuota
 	}
 	data, err := json.Marshal(blob)
 	if err != nil {
-		return v8Blob{}, err
+		return toolBlob{}, err
 	}
-	if err := os.WriteFile(store.v8BlobPath(key, hash), append(data, '\n'), 0o600); err != nil {
-		return v8Blob{}, err
+	if err := os.WriteFile(store.blobPath(key, hash), append(data, '\n'), 0o600); err != nil {
+		return toolBlob{}, err
 	}
 	return blob, nil
 }
 
-// v8ReadBlob 读取 blob 正文（返回截断后内容）。
-func (store *v8Store) v8ReadBlob(key Key, hash string) (string, error) {
-	data, err := os.ReadFile(store.v8BlobPath(key, hash))
+// readBlob 读取 blob 正文（返回截断后内容）。
+func (store *storeEngine) readBlob(key Key, hash string) (string, error) {
+	data, err := os.ReadFile(store.blobPath(key, hash))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
@@ -103,18 +103,18 @@ func (store *v8Store) v8ReadBlob(key Key, hash string) (string, error) {
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	if len(lines) == 0 {
-		return "", errors.New("v8: empty blob")
+		return "", errors.New("session storage: empty blob")
 	}
-	var blob v8Blob
+	var blob toolBlob
 	if err := json.Unmarshal([]byte(lines[0]), &blob); err != nil {
 		return "", err
 	}
 	return blob.Content, nil
 }
 
-// v8ListBlobHashes 枚举会话 blob（GC 引用扫描基础）。
-func (store *v8Store) v8ListBlobHashes(key Key) ([]string, error) {
-	entries, err := os.ReadDir(store.v8BlobDir(key))
+// listBlobHashes 枚举会话 blob（GC 引用扫描基础）。
+func (store *storeEngine) listBlobHashes(key Key) ([]string, error) {
+	entries, err := os.ReadDir(store.blobDir(key))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -131,10 +131,10 @@ func (store *v8Store) v8ListBlobHashes(key Key) ([]string, error) {
 	return hashes, nil
 }
 
-// v8BlobGarbageCollect 删除无引用 blob（referenced 跨主会话与子代理消息）。
+// blobGarbageCollect 删除无引用 blob（referenced 跨主会话与子代理消息）。
 // 返回删除列表。dryRun=true 只输出候选不删除（T-BL-03）。
-func (store *v8Store) v8BlobGarbageCollect(key Key, referenced map[string]bool, dryRun bool) ([]string, error) {
-	hashes, err := store.v8ListBlobHashes(key)
+func (store *storeEngine) blobGarbageCollect(key Key, referenced map[string]bool, dryRun bool) ([]string, error) {
+	hashes, err := store.listBlobHashes(key)
 	if err != nil {
 		return nil, err
 	}
@@ -145,13 +145,13 @@ func (store *v8Store) v8BlobGarbageCollect(key Key, referenced map[string]bool, 
 		}
 		removed = append(removed, blobHash)
 		if !dryRun {
-			_ = os.Remove(store.v8BlobPath(key, blobHash))
+			_ = os.Remove(store.blobPath(key, blobHash))
 		}
 	}
 	return removed, nil
 }
 
-// v8BlobRefOf 归一化 result_ref 为 blob hash。
-func v8BlobRefOf(ref string) string {
-	return strings.TrimPrefix(ref, v8BlobRefPrefix)
+// blobRefOf 归一化 result_ref 为 blob hash。
+func blobRefOf(ref string) string {
+	return strings.TrimPrefix(ref, blobRefPrefix)
 }

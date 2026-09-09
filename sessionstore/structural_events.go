@@ -25,27 +25,27 @@ import (
 	"time"
 )
 
-// v8EventKind 是结构性操作类别（沿用 my_design 附录 A.1 名单）。
-type v8EventKind string
+// structuralEventKind 是结构性操作类别（沿用 my_design 附录 A.1 名单）。
+type structuralEventKind string
 
 const (
-	v8EventCompacted    v8EventKind = "compacted"
-	v8EventFork         v8EventKind = "fork"
-	v8EventSubagent     v8EventKind = "subagent"
-	v8EventInterrupted  v8EventKind = "interrupted"
-	v8EventRolledBack   v8EventKind = "rolled_back"
-	v8EventRequestBegin v8EventKind = "request_begin"
-	v8EventRequestEnd   v8EventKind = "request_end"
-	v8EventTurnBegin    v8EventKind = "turn_begin"
-	v8EventTurnEnd      v8EventKind = "turn_end"
-	v8EventTokenUsage   v8EventKind = "token_usage"
-	v8EventArchived     v8EventKind = "session_archived"
+	structuralEventCompacted    structuralEventKind = "compacted"
+	structuralEventFork         structuralEventKind = "fork"
+	structuralEventSubagent     structuralEventKind = "subagent"
+	structuralEventInterrupted  structuralEventKind = "interrupted"
+	structuralEventRolledBack   structuralEventKind = "rolled_back"
+	structuralEventRequestBegin structuralEventKind = "request_begin"
+	structuralEventRequestEnd   structuralEventKind = "request_end"
+	structuralEventTurnBegin    structuralEventKind = "turn_begin"
+	structuralEventTurnEnd      structuralEventKind = "turn_end"
+	structuralEventTokenUsage   structuralEventKind = "token_usage"
+	structuralEventArchived     structuralEventKind = "session_archived"
 )
 
-// v8Event 是一行结构性事件摘要。
-type v8Event struct {
-	EventID uint64      `json:"event_id"`
-	Kind    v8EventKind `json:"kind"`
+// structuralEvent 是一行结构性事件摘要。
+type structuralEvent struct {
+	EventID uint64              `json:"event_id"`
+	Kind    structuralEventKind `json:"kind"`
 	// AnchorMessageID = 事件发生在该行之后（anchor 是 message 坐标）。
 	AnchorMessageID string          `json:"anchor_message_id,omitempty"`
 	AnchorSeq       uint64          `json:"anchor_seq,omitempty"`
@@ -55,88 +55,88 @@ type v8Event struct {
 	CreatedAt       time.Time       `json:"created_at"`
 }
 
-// v8EventHead 是 metadata/event.json payload。
-type v8EventHead struct {
-	SessionID string        `json:"session_id"`
-	LastID    uint64        `json:"last_event_id"`
-	Shards    []v8ShardInfo `json:"shards,omitempty"`
-	Total     uint64        `json:"total"`
+// eventHeadRecord 是 metadata/event.json payload。
+type eventHeadRecord struct {
+	SessionID string      `json:"session_id"`
+	LastID    uint64      `json:"last_event_id"`
+	Shards    []shardInfo `json:"shards,omitempty"`
+	Total     uint64      `json:"total"`
 }
 
-func (store *v8Store) v8EventDir(key Key) string {
-	return filepath.Join(store.v8SessionRoot(key), "event")
+func (store *storeEngine) structuralEventDir(key Key) string {
+	return filepath.Join(store.sessionRoot(key), "event")
 }
 
-func (store *v8Store) v8EventShardPath(key Key, fromID, toID uint64) string {
-	return filepath.Join(store.v8EventDir(key), fmt.Sprintf("event_%d_%d.jsonl", fromID, toID))
+func (store *storeEngine) structuralEventShardPath(key Key, fromID, toID uint64) string {
+	return filepath.Join(store.structuralEventDir(key), fmt.Sprintf("event_%d_%d.jsonl", fromID, toID))
 }
 
-func v8EmptyEventHead(key Key) v8EventHead {
-	return v8EventHead{SessionID: key.SessionID}
+func emptyEventHead(key Key) eventHeadRecord {
+	return eventHeadRecord{SessionID: key.SessionID}
 }
 
-// v8EventCommit 追加一提交的 EVENT 行并原子发布 event.json。
-func (store *v8Store) v8EventCommit(key Key, commitID string, events []v8Event) (v8EventHead, error) {
+// structuralEventCommit 追加一提交的 EVENT 行并原子发布 event.json。
+func (store *storeEngine) structuralEventCommit(key Key, commitID string, events []structuralEvent) (eventHeadRecord, error) {
 	store.eventMu.Lock()
 	defer store.eventMu.Unlock()
-	if _, err := store.ensureV8Guide(key); err != nil {
-		return v8EventHead{}, err
+	if _, err := store.ensureLayoutGuide(key); err != nil {
+		return eventHeadRecord{}, err
 	}
 	if commitID == "" {
 		commitID = randomID()
 	}
-	head, err := store.v8ReadEventHeadLocked(key)
+	head, err := store.readEventHeadLocked(key)
 	if err != nil {
-		return v8EventHead{}, err
+		return eventHeadRecord{}, err
 	}
-	if err := store.v8ReapEventUnpublishedLocked(key, head); err != nil {
-		return v8EventHead{}, err
+	if err := store.reapEventUnpublishedLocked(key, head); err != nil {
+		return eventHeadRecord{}, err
 	}
-	existing, err := store.v8ReadEventShardsLocked(key, head)
+	existing, err := store.readEventShardsLocked(key, head)
 	if err != nil {
-		return v8EventHead{}, err
+		return eventHeadRecord{}, err
 	}
 	seenExisting := make(map[string]bool, len(existing))
 	for _, row := range existing {
-		seenExisting[v8EventFingerprint(row)] = true
+		seenExisting[structuralEventFingerprint(row)] = true
 	}
-	delta, err := v8EventDeltaLocked(head, events, commitID, seenExisting)
+	delta, err := structuralEventDeltaLocked(head, events, commitID, seenExisting)
 	if err != nil {
-		return v8EventHead{}, err
+		return eventHeadRecord{}, err
 	}
 	if len(delta) == 0 {
 		return head, nil
 	}
-	if err := store.v8AppendEventsLocked(key, &head, delta); err != nil {
-		return v8EventHead{}, err
+	if err := store.appendEventsLocked(key, &head, delta); err != nil {
+		return eventHeadRecord{}, err
 	}
-	if _, err := store.publishV8ModuleHead(key, v8ModuleEvent, commitID, head, time.Now().UTC()); err != nil {
-		return v8EventHead{}, err
+	if _, err := store.publishModuleHead(key, moduleEvent, commitID, head, time.Now().UTC()); err != nil {
+		return eventHeadRecord{}, err
 	}
-	return head, store.registerV8Module(key, v8ModuleEvent, store.v8ModulePath(key, v8ModuleEvent))
+	return head, store.registerModule(key, moduleEvent, store.modulePath(key, moduleEvent))
 }
 
-func (store *v8Store) v8ReadEventHeadLocked(key Key) (v8EventHead, error) {
-	headFile, err := store.readV8ModuleHeadFile(key, v8ModuleEvent)
+func (store *storeEngine) readEventHeadLocked(key Key) (eventHeadRecord, error) {
+	headFile, err := store.readModuleHeadFile(key, moduleEvent)
 	if errors.Is(err, fs.ErrNotExist) {
-		return v8EmptyEventHead(key), nil
+		return emptyEventHead(key), nil
 	}
 	if err != nil {
-		return v8EventHead{}, err
+		return eventHeadRecord{}, err
 	}
-	return decodeV8HeadPayload[v8EventHead](headFile)
+	return decodeHeadPayload[eventHeadRecord](headFile)
 }
 
-func (store *v8Store) v8ReadEventHead(key Key) (v8EventHead, error) {
+func (store *storeEngine) readEventHead(key Key) (eventHeadRecord, error) {
 	store.eventMu.Lock()
 	defer store.eventMu.Unlock()
-	return store.v8ReadEventHeadLocked(key)
+	return store.readEventHeadLocked(key)
 }
 
-// v8ReapEventUnpublishedLocked 删除 head 未索引的事件分片并截掉尾分片超出
+// reapEventUnpublishedLocked 删除 head 未索引的事件分片并截掉尾分片超出
 // head 的行（与 message 相同的发布点恢复语义）。
-func (store *v8Store) v8ReapEventUnpublishedLocked(key Key, head v8EventHead) error {
-	dir := store.v8EventDir(key)
+func (store *storeEngine) reapEventUnpublishedLocked(key Key, head eventHeadRecord) error {
+	dir := store.structuralEventDir(key)
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -149,7 +149,7 @@ func (store *v8Store) v8ReapEventUnpublishedLocked(key Key, head v8EventHead) er
 		indexed[filepath.Clean(filepath.Join(dir, shard.Path))] = true
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !isV8EventShardName(entry.Name()) {
+		if entry.IsDir() || !isEventShardFile(entry.Name()) {
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
@@ -163,10 +163,10 @@ func (store *v8Store) v8ReapEventUnpublishedLocked(key Key, head v8EventHead) er
 		return nil
 	}
 	last := head.Shards[len(head.Shards)-1]
-	return truncateV8EventRowsAfter(filepath.Join(dir, last.Path), head.LastID)
+	return truncateStructuralEventsAfter(filepath.Join(dir, last.Path), head.LastID)
 }
 
-func isV8EventShardName(name string) bool {
+func isEventShardFile(name string) bool {
 	var fromID, toID uint64
 	if _, err := fmt.Sscanf(name, "event_%d_%d.jsonl", &fromID, &toID); err != nil {
 		return false
@@ -174,7 +174,7 @@ func isV8EventShardName(name string) bool {
 	return fromID > 0 && toID >= fromID
 }
 
-func truncateV8EventRowsAfter(path string, headID uint64) error {
+func truncateStructuralEventsAfter(path string, headID uint64) error {
 	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -183,10 +183,10 @@ func truncateV8EventRowsAfter(path string, headID uint64) error {
 		return err
 	}
 	defer file.Close()
-	if err := truncateRolloutCrashTail(file); err != nil {
+	if err := truncateCrashTail(file); err != nil {
 		return err
 	}
-	rows, err := readV8EventRowsFile(file)
+	rows, err := readStructuralEventsFile(file)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func truncateV8EventRowsAfter(path string, headID uint64) error {
 	return file.Truncate(int64(end))
 }
 
-func readV8EventRowsFile(file *os.File) ([]v8Event, error) {
+func readStructuralEventsFile(file *os.File) ([]structuralEvent, error) {
 	stat, err := file.Stat()
 	if err != nil {
 		return nil, err
@@ -227,12 +227,12 @@ func readV8EventRowsFile(file *os.File) ([]v8Event, error) {
 	if err != nil {
 		return nil, err
 	}
-	return decodeV8EventRows(data), nil
+	return decodeStructuralEvents(data), nil
 }
 
-func decodeV8EventRows(data []byte) []v8Event {
+func decodeStructuralEvents(data []byte) []structuralEvent {
 	segments := bytes.Split(data, []byte{'\n'})
-	rows := make([]v8Event, 0, len(segments))
+	rows := make([]structuralEvent, 0, len(segments))
 	for index, segment := range segments {
 		if index == len(segments)-1 && len(bytes.TrimSpace(segment)) > 0 {
 			continue
@@ -241,7 +241,7 @@ func decodeV8EventRows(data []byte) []v8Event {
 		if len(segment) == 0 {
 			continue
 		}
-		var row v8Event
+		var row structuralEvent
 		if json.Unmarshal(segment, &row) != nil {
 			continue
 		}
@@ -250,9 +250,9 @@ func decodeV8EventRows(data []byte) []v8Event {
 	return rows
 }
 
-// v8EventDeltaLocked 计算新增 EVENT 行（EventID=0 → 续号；≤ head 的重复
+// structuralEventDeltaLocked 计算新增 EVENT 行（EventID=0 → 续号；≤ head 的重复
 // 提交跳过；commit 内同指纹去重）。
-func v8EventDeltaLocked(head v8EventHead, events []v8Event, commitID string, seenExisting map[string]bool) ([]v8Event, error) {
+func structuralEventDeltaLocked(head eventHeadRecord, events []structuralEvent, commitID string, seenExisting map[string]bool) ([]structuralEvent, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
@@ -261,10 +261,10 @@ func v8EventDeltaLocked(head v8EventHead, events []v8Event, commitID string, see
 	for fingerprint := range seenExisting {
 		seen[fingerprint] = true
 	}
-	delta := make([]v8Event, 0, len(events))
+	delta := make([]structuralEvent, 0, len(events))
 	for _, row := range events {
 		row.CommitID = commitID
-		fingerprint := v8EventFingerprint(row)
+		fingerprint := structuralEventFingerprint(row)
 		if seen[fingerprint] {
 			continue
 		}
@@ -274,7 +274,7 @@ func v8EventDeltaLocked(head v8EventHead, events []v8Event, commitID string, see
 		} else if row.EventID <= head.LastID {
 			continue
 		} else if row.EventID <= next {
-			return nil, fmt.Errorf("v8: event ids must be strictly increasing (id %d)", row.EventID)
+			return nil, fmt.Errorf("session storage: event ids must be strictly increasing (id %d)", row.EventID)
 		} else {
 			next = row.EventID
 		}
@@ -284,11 +284,11 @@ func v8EventDeltaLocked(head v8EventHead, events []v8Event, commitID string, see
 	return delta, nil
 }
 
-// v8ReadEventShardsLocked 读取 head 内全部已发布 EVENT 行。
-func (store *v8Store) v8ReadEventShardsLocked(key Key, head v8EventHead) ([]v8Event, error) {
-	var out []v8Event
+// readEventShardsLocked 读取 head 内全部已发布 EVENT 行。
+func (store *storeEngine) readEventShardsLocked(key Key, head eventHeadRecord) ([]structuralEvent, error) {
+	var out []structuralEvent
 	for _, shard := range head.Shards {
-		rows, err := readV8EventRowsAt(filepath.Join(store.v8EventDir(key), shard.Path))
+		rows, err := readStructuralEventsAt(filepath.Join(store.structuralEventDir(key), shard.Path))
 		if err != nil {
 			return nil, err
 		}
@@ -297,7 +297,7 @@ func (store *v8Store) v8ReadEventShardsLocked(key Key, head v8EventHead) ([]v8Ev
 	return out, nil
 }
 
-func v8EventFingerprint(event v8Event) string {
+func structuralEventFingerprint(event structuralEvent) string {
 	var builder bytes.Buffer
 	builder.WriteString(string(event.Kind))
 	builder.WriteByte(0)
@@ -314,8 +314,8 @@ func v8EventFingerprint(event v8Event) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (store *v8Store) v8AppendEventsLocked(key Key, head *v8EventHead, delta []v8Event) error {
-	dir := store.v8EventDir(key)
+func (store *storeEngine) appendEventsLocked(key Key, head *eventHeadRecord, delta []structuralEvent) error {
+	dir := store.structuralEventDir(key)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -329,9 +329,9 @@ func (store *v8Store) v8AppendEventsLocked(key Key, head *v8EventHead, delta []v
 			if len(delta) < planned {
 				planned = len(delta)
 			}
-			path = store.v8EventShardPath(key, delta[0].EventID, delta[planned-1].EventID)
+			path = store.structuralEventShardPath(key, delta[0].EventID, delta[planned-1].EventID)
 		}
-		existing, err := readV8EventRowsAt(path)
+		existing, err := readStructuralEventsAt(path)
 		if err != nil {
 			return err
 		}
@@ -344,19 +344,19 @@ func (store *v8Store) v8AppendEventsLocked(key Key, head *v8EventHead, delta []v
 		if len(batch) > room {
 			batch = batch[:room]
 		}
-		if err := appendV8EventRows(path, batch); err != nil {
+		if err := appendStructuralEvents(path, batch); err != nil {
 			return err
 		}
 		all := append(existing, batch...)
 		if len(head.Shards) > 0 && filepath.Clean(path) == filepath.Clean(filepath.Join(dir, head.Shards[len(head.Shards)-1].Path)) {
-			head.Shards[len(head.Shards)-1] = v8ShardInfo{
+			head.Shards[len(head.Shards)-1] = shardInfo{
 				Path: filepath.Base(path), FromSeq: all[0].EventID, ToSeq: all[len(all)-1].EventID,
-				Count: len(all), SHA256: v8FileSHA256(path),
+				Count: len(all), SHA256: fileSHA256(path),
 			}
 		} else {
-			head.Shards = append(head.Shards, v8ShardInfo{
+			head.Shards = append(head.Shards, shardInfo{
 				Path: filepath.Base(path), FromSeq: all[0].EventID, ToSeq: all[len(all)-1].EventID,
-				Count: len(all), SHA256: v8FileSHA256(path),
+				Count: len(all), SHA256: fileSHA256(path),
 			})
 		}
 		head.LastID = all[len(all)-1].EventID
@@ -366,7 +366,7 @@ func (store *v8Store) v8AppendEventsLocked(key Key, head *v8EventHead, delta []v
 	return nil
 }
 
-func readV8EventRowsAt(path string) ([]v8Event, error) {
+func readStructuralEventsAt(path string) ([]structuralEvent, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -375,15 +375,15 @@ func readV8EventRowsAt(path string) ([]v8Event, error) {
 		return nil, err
 	}
 	defer file.Close()
-	return readV8EventRowsFile(file)
+	return readStructuralEventsFile(file)
 }
 
-func appendV8EventRows(path string, rows []v8Event) error {
+func appendStructuralEvents(path string, rows []structuralEvent) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
-	if err := truncateRolloutCrashTail(file); err != nil {
+	if err := truncateCrashTail(file); err != nil {
 		file.Close()
 		return err
 	}
@@ -412,11 +412,11 @@ func appendV8EventRows(path string, rows []v8Event) error {
 	return file.Close()
 }
 
-// v8ReadEvents 读取 EVENT（[from, to] 含端点；0 = 全量）。
-func (store *v8Store) v8ReadEvents(key Key, fromID, toID uint64) ([]v8Event, error) {
+// readEvents 读取 EVENT（[from, to] 含端点；0 = 全量）。
+func (store *storeEngine) readEvents(key Key, fromID, toID uint64) ([]structuralEvent, error) {
 	store.eventMu.Lock()
 	defer store.eventMu.Unlock()
-	head, err := store.v8ReadEventHeadLocked(key)
+	head, err := store.readEventHeadLocked(key)
 	if err != nil {
 		return nil, err
 	}
@@ -427,14 +427,14 @@ func (store *v8Store) v8ReadEvents(key Key, fromID, toID uint64) ([]v8Event, err
 		fromID = 1
 	}
 	if toID == 0 || fromID > toID {
-		return []v8Event{}, nil
+		return []structuralEvent{}, nil
 	}
-	var out []v8Event
+	var out []structuralEvent
 	for _, shard := range head.Shards {
 		if shard.ToSeq < fromID || shard.FromSeq > toID {
 			continue
 		}
-		rows, err := readV8EventRowsAt(filepath.Join(store.v8EventDir(key), shard.Path))
+		rows, err := readStructuralEventsAt(filepath.Join(store.structuralEventDir(key), shard.Path))
 		if err != nil {
 			return nil, err
 		}

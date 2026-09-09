@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -17,46 +16,6 @@ func messages(count int, marker string) []types.Message {
 		result[index] = types.Message{Role: "user", Content: &content}
 	}
 	return result
-}
-
-func TestJSONRepositoryCommitsShardGenerationsAtomically(t *testing.T) {
-	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := Key{ProjectID: "project", SessionID: "session"}
-	first, second := messages(205, "first"), messages(121, "second")
-	if err := repository.WriteAtomic(context.Background(), key, first); err != nil {
-		t.Fatal(err)
-	}
-	var group sync.WaitGroup
-	errors := make(chan error, 40)
-	for index := 0; index < 40; index++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			history, readErr := repository.Read(context.Background(), key)
-			if readErr != nil {
-				errors <- readErr
-				return
-			}
-			if len(history) != len(first) && len(history) != len(second) {
-				errors <- fmt.Errorf("mixed history count %d", len(history))
-			}
-		}()
-	}
-	if err := repository.WriteAtomic(context.Background(), key, second); err != nil {
-		t.Fatal(err)
-	}
-	group.Wait()
-	close(errors)
-	for err := range errors {
-		t.Error(err)
-	}
-	history, err := repository.Read(context.Background(), key)
-	if err != nil || len(history) != len(second) || *history[0].Content != "second-0" {
-		t.Fatalf("history=%d err=%v", len(history), err)
-	}
 }
 
 func TestSQLiteRepositoryRoundTrip(t *testing.T) {

@@ -438,28 +438,6 @@ func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string)
 	return filtered, nil
 }
 
-// LoadSessionRolloutTranscriptWorkspace 从 rollout 全序日志正序重放对话事件
-// （P2 恢复改造）。未装配 rollout 端口 / 后端不支持 / 无 rollout 条目时返回
-// (nil, false, nil)，调用方回退旧三读。
-func (c *Coordinator) LoadSessionRolloutTranscriptWorkspace(location Location, sessionID string) ([]model.TranscriptEvent, bool, error) {
-	store, ok := c.Core.Deps.Sessions.(SessionRolloutPort)
-	if !ok {
-		return nil, false, nil
-	}
-	events, replayOK, err := store.LoadSessionRolloutTranscriptWorkspace(location.WorkspaceID, sessionID)
-	if err != nil || !replayOK {
-		return nil, false, err
-	}
-	filtered := make([]model.TranscriptEvent, 0, len(events))
-	for _, event := range events {
-		if event.Role == "system" || c.isInternalContent(event.Content) {
-			continue
-		}
-		filtered = append(filtered, event)
-	}
-	return filtered, len(filtered) > 0, nil
-}
-
 func recordResumeHistory(record model.SessionRecord) []contract.EngineMessage {
 	continuation := strings.TrimSpace(record.Execution.Continuation)
 	if continuation == "" {

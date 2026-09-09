@@ -3,7 +3,6 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -115,71 +114,7 @@ func TestFrameworkEventSurvivesGenerationRollover(t *testing.T) {
 // TestFrameworkEventLegacyMigration 验证首次追加时迁移 v1 布局遗留的
 // events.json（含已被 rollover 隐藏的旧 generation），旧执行事实与新增
 // 事件合并可见，重复 Seq 幂等去重。
-func TestFrameworkEventLegacyMigration(t *testing.T) {
-	jsonRepo, err := newLegacyJSONRepository(filepath.Join(t.TempDir(), "json"), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := Key{ProjectID: "project", SessionID: "session"}
 
-	// 手工构造 v1 布局：G1 内写入 events.json，然后 rollover 到 G2。
-	if err := jsonRepo.WriteCommit(context.Background(), key, Commit{ProviderHistory: messages(1, "first")}); err != nil {
-		t.Fatal(err)
-	}
-	directory := jsonRepo.sessionDir(key)
-	manifest, err := jsonRepo.readManifest(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := []EventLogEntry{eventLogEntry(1, frameworkevent.StatusRunning)}
-	data, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeAtomic(filepath.Join(directory, manifest.Generation, frameworkEventLegacyFile), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := jsonRepo.WriteCommit(context.Background(), key, Commit{ProviderHistory: messages(1, "second")}); err != nil {
-		t.Fatal(err)
-	}
-
-	// 首次追加触发迁移：旧 G1 facts 与新增 entry 合并到根 framework-events.json。
-	if err := jsonRepo.AppendFrameworkEvent(context.Background(), key, eventLogEntry(2, frameworkevent.StatusCompleted)); err != nil {
-		t.Fatal(err)
-	}
-	got, err := jsonRepo.ReadFrameworkEvents(context.Background(), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got[0].Seq != 1 || got[1].Seq != 2 {
-		t.Fatalf("migrated event log = %#v, want seq 1 and 2", got)
-	}
-	// 幂等：重复追加同一 Seq 不产生重复条目。
-	if err := jsonRepo.AppendFrameworkEvent(context.Background(), key, eventLogEntry(2, frameworkevent.StatusCompleted)); err != nil {
-		t.Fatal(err)
-	}
-	got, err = jsonRepo.ReadFrameworkEvents(context.Background(), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("duplicate Seq produced %d entries, want 2", len(got))
-	}
-	// 未迁移会话的读取回退：直接删除根文件后旧 generation facts 仍可读。
-	rootPath := filepath.Join(directory, frameworkEventLogFile)
-	if err := os.Remove(rootPath); err != nil {
-		t.Fatal(err)
-	}
-	got, err = jsonRepo.ReadFrameworkEvents(context.Background(), key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Seq != 1 {
-		t.Fatalf("legacy fallback = %#v, want seq 1", got)
-	}
-}
-
-// TestFrameworkEventLogMissingSessionReturnsEmpty 验证空库读取返回空切片。
 func TestFrameworkEventLogMissingSessionReturnsEmpty(t *testing.T) {
 	repository, err := Open(context.Background(), Config{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")})
 	if err != nil {

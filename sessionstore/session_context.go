@@ -602,8 +602,8 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 	if err != nil || s.router == nil || s.sessionID == "" {
 		return err
 	}
-	// v8 运行期接线：把运行期 compact 帧桥接进 v8 compact 通道（帧摘要进入
-	// R2 装配）；非 v8 布局由 Router 返回 ok=false。桥接失败不回滚已持久化
+	// 运行期接线：把运行期 compact 帧桥接进 compact 通道（帧摘要进入
+	// wire 装配）；非 会话存储布局由 Router 返回 ok=false。桥接失败不回滚已持久化
 	// 的 context 栈（compact.jsonl 可重建，下次提交重试/忽略）。
 	if ok, bridgeErr := s.router.CommitCompactFrameWorkspace(s.workspace(), s.sessionID, frame); bridgeErr == nil && ok {
 		_, _ = s.router.RetentionAdvisoryWorkspace(s.workspace(), s.sessionID)

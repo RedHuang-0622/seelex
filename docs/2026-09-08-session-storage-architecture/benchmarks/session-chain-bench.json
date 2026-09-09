@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "generated_at": "2026-09-09T04:50:29Z",
+  "topic": "会话链路会话恢复/存储读写热点对比（旧链路参照 vs 新链路实测）",
+  "scenario": "6 轮快速请求(mock provider) + 进程重启 + ResumeSession + 1 轮；冷恢复 3 次采样平均；store 为 6 轮 + 重启后状态",
+  "legacy_reference": {
+    "source": "docs/2026-09-08-session-storage-architecture/ab-session-chain-report.md（旧链路已删除前的两次运行，第二次为准）",
+    "measured_at": "2026-09-09T03:47:42Z",
+    "platform": "windows/amd64",
+    "rounds": 6,
+    "rounds_wall_ms": 660.9,
+    "cold_resume_ms_avg": 191.2,
+    "restart_messages": 9,
+    "store_files": 32,
+    "store_bytes": 47557,
+    "generation_dirs": 14,
+    "layout_sessions": 0,
+    "hotspot_bytes": {
+      "state.json(每 generation 复制)": 28261,
+      "rollout.jsonl": 12224,
+      "transcript.log": 2715,
+      "legacy-history-shard": 3968,
+      "manifest.json": 243,
+      "other": 143
+    }
+  },
+  "new_chain_measurement": {
+    "source": "session_chain_bench_test.go TestSessionChainSmokeAndMetricsNew（本轮实测）",
+    "measured_at": "2026-09-09T04:50:29Z",
+    "go_version": "go1.25.8",
+    "platform": "windows/amd64",
+    "rounds": 6,
+    "rounds_wall_ms": 598.8,
+    "cold_resume_ms_avg": 47.0,
+    "restart_messages": 9,
+    "restart_matches_continue": true,
+    "store_files": 8,
+    "store_bytes": 8727,
+    "generation_dirs": 0,
+    "layout_sessions": 1,
+    "hotspot_bytes": {
+      "message-rows": 3152,
+      "metadata-heads": 1659,
+      "state.json(单份)": 2970,
+      "history-cache": 398,
+      "other": 548
+    }
+  },
+  "ratios": {
+    "store_files": "32/8 = 4.0x 更少",
+    "store_bytes": "47557/8727 ≈ 5.4x 更小",
+    "cold_resume": "191.2ms/47.0ms ≈ 4.1x 更快",
+    "generation_dirs": "14 → 0",
+    "rollout/transcript 双写": "12224+2715 B → 0（实现已删除）"
+  },
+  "note": "rounds_wall 为同机 mock provider 往返，波动受进程冷启动影响，不作为主要优越性依据；恢复耗时与存储热点为本链路结构性差异。"
+}

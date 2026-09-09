@@ -1,4 +1,4 @@
-// v8 compact 模块：派生摘要帧（session/compact.jsonl）+ compact head。
+// compact 模块：派生摘要帧（session/compact.jsonl）+ compact head。
 //
 // 事实模型（my_design §4）：
 //   - 一行 = 一次压缩覆盖 [message_m, message_n]（含端点）；写序 =
@@ -18,8 +18,8 @@ import (
 	"time"
 )
 
-// v8CompactFrame 是一行摘要帧。
-type v8CompactFrame struct {
+// compactFrameRecord 是一行摘要帧。
+type compactFrameRecord struct {
 	FrameID string `json:"frame_id"`
 	PrevID  string `json:"prev_id,omitempty"`
 	// MessageFrom/MessageTo 是 message 坐标（含端点）；Seq 同坐标的序号
@@ -34,8 +34,8 @@ type v8CompactFrame struct {
 	CompressedAt   time.Time `json:"compressed_at"`
 }
 
-// v8CompactHead 是 metadata/compact.json payload：最新帧水位。
-type v8CompactHead struct {
+// compactHeadRecord 是 metadata/compact.json payload：最新帧水位。
+type compactHeadRecord struct {
 	SessionID     string `json:"session_id"`
 	LastFrameID   string `json:"last_frame_id,omitempty"`
 	LastMessageTo string `json:"last_message_to,omitempty"`
@@ -43,20 +43,20 @@ type v8CompactHead struct {
 	FrameCount    int    `json:"frame_count"`
 	// LatestFrame 是最近一帧的完整副本（head 冗余便于 R2 单读；append-only
 	// 原文仍在 compact.jsonl）。
-	LatestFrame *v8CompactFrame `json:"latest_frame,omitempty"`
+	LatestFrame *compactFrameRecord `json:"latest_frame,omitempty"`
 }
 
-func (store *v8Store) v8CompactFilePath(key Key) string {
-	return filepath.Join(store.v8SessionRoot(key), "compact.jsonl")
+func (store *storeEngine) compactFilePath(key Key) string {
+	return filepath.Join(store.sessionRoot(key), "compact.jsonl")
 }
 
-// v8CompactCommit 追加摘要帧并原子发布 compact head。frame.MessageToSeq
+// compactCommit 追加摘要帧并原子发布 compact head。frame.MessageToSeq
 // 必须 ≤ message head.LastSeq（只能压缩已发布行）。
-func (store *v8Store) v8CompactCommit(key Key, frame v8CompactFrame) (v8CompactHead, error) {
+func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (compactHeadRecord, error) {
 	store.compactMu.Lock()
 	defer store.compactMu.Unlock()
-	if _, err := store.ensureV8Guide(key); err != nil {
-		return v8CompactHead{}, err
+	if _, err := store.ensureLayoutGuide(key); err != nil {
+		return compactHeadRecord{}, err
 	}
 	if frame.FrameID == "" {
 		frame.FrameID = "compact-" + randomID()
@@ -64,9 +64,9 @@ func (store *v8Store) v8CompactCommit(key Key, frame v8CompactFrame) (v8CompactH
 	if frame.CommitID == "" {
 		frame.CommitID = randomID()
 	}
-	current, currentErr := store.v8ReadCompactHeadLocked(key)
+	current, currentErr := store.readCompactHeadLocked(key)
 	if currentErr != nil {
-		return v8CompactHead{}, currentErr
+		return compactHeadRecord{}, currentErr
 	}
 	if current.LastFrameID == frame.FrameID {
 		// 幂等：同一帧重复桥接不重复 append（同帧同水位视为已提交）。
@@ -75,13 +75,13 @@ func (store *v8Store) v8CompactCommit(key Key, frame v8CompactFrame) (v8CompactH
 		}
 	}
 	store.messageMu.Lock()
-	messageHead, err := store.v8ReadMessageHeadLocked(key)
+	messageHead, err := store.readMessageHeadLocked(key)
 	store.messageMu.Unlock()
 	if err != nil {
-		return v8CompactHead{}, err
+		return compactHeadRecord{}, err
 	}
 	if frame.MessageToSeq > messageHead.LastSeq {
-		return v8CompactHead{}, fmt.Errorf("v8: compact frame message_to=%d beyond message head %d", frame.MessageToSeq, messageHead.LastSeq)
+		return compactHeadRecord{}, fmt.Errorf("session storage: compact frame message_to=%d beyond message head %d", frame.MessageToSeq, messageHead.LastSeq)
 	}
 	frameCount := 1
 	if current.FrameCount > 0 {
@@ -90,7 +90,7 @@ func (store *v8Store) v8CompactCommit(key Key, frame v8CompactFrame) (v8CompactH
 			frame.PrevID = current.LastFrameID
 		}
 	}
-	head := v8CompactHead{
+	head := compactHeadRecord{
 		SessionID:     key.SessionID,
 		LastFrameID:   frame.FrameID,
 		LastMessageTo: frame.MessageTo,
@@ -99,40 +99,40 @@ func (store *v8Store) v8CompactCommit(key Key, frame v8CompactFrame) (v8CompactH
 		LatestFrame:   &frame,
 	}
 	// compact.jsonl 追加原文（崩溃残尾恢复语义与其它 JSONL 一致）。
-	rows := []v8CompactFrame{frame}
-	if err := appendV8CompactRows(store.v8CompactFilePath(key), rows); err != nil {
-		return v8CompactHead{}, err
+	rows := []compactFrameRecord{frame}
+	if err := appendCompactFrameRows(store.compactFilePath(key), rows); err != nil {
+		return compactHeadRecord{}, err
 	}
-	if _, err := store.publishV8ModuleHead(key, v8ModuleCompact, frame.CommitID, head, time.Now().UTC()); err != nil {
-		return v8CompactHead{}, err
+	if _, err := store.publishModuleHead(key, moduleCompact, frame.CommitID, head, time.Now().UTC()); err != nil {
+		return compactHeadRecord{}, err
 	}
-	return head, store.registerV8Module(key, v8ModuleCompact, store.v8ModulePath(key, v8ModuleCompact))
+	return head, store.registerModule(key, moduleCompact, store.modulePath(key, moduleCompact))
 }
 
-func (store *v8Store) v8ReadCompactHeadLocked(key Key) (v8CompactHead, error) {
-	headFile, err := store.readV8ModuleHeadFile(key, v8ModuleCompact)
+func (store *storeEngine) readCompactHeadLocked(key Key) (compactHeadRecord, error) {
+	headFile, err := store.readModuleHeadFile(key, moduleCompact)
 	if errors.Is(err, fs.ErrNotExist) {
-		return v8CompactHead{}, nil
+		return compactHeadRecord{}, nil
 	}
 	if err != nil {
-		return v8CompactHead{}, err
+		return compactHeadRecord{}, err
 	}
-	return decodeV8HeadPayload[v8CompactHead](headFile)
+	return decodeHeadPayload[compactHeadRecord](headFile)
 }
 
-// v8ReadCompactHead 返回最新 compact head（缺失 = 零值，不报错）。
-func (store *v8Store) v8ReadCompactHead(key Key) (v8CompactHead, error) {
+// readCompactHead 返回最新 compact head（缺失 = 零值，不报错）。
+func (store *storeEngine) readCompactHead(key Key) (compactHeadRecord, error) {
 	store.compactMu.Lock()
 	defer store.compactMu.Unlock()
-	return store.v8ReadCompactHeadLocked(key)
+	return store.readCompactHeadLocked(key)
 }
 
-func appendV8CompactRows(path string, rows []v8CompactFrame) error {
+func appendCompactFrameRows(path string, rows []compactFrameRecord) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
-	if err := truncateRolloutCrashTail(file); err != nil {
+	if err := truncateCrashTail(file); err != nil {
 		file.Close()
 		return err
 	}

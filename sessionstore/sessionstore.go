@@ -162,11 +162,11 @@ type Event struct {
 	ResultRef        string          `json:"result_ref,omitempty"`
 	TokenCount       int             `json:"token_count"`
 	CreatedAt        time.Time       `json:"created_at"`
-	// CommitID 是 v8 布局中"一次持久提交"的标识：同一提交内的多行事件共享
+	// CommitID 是 会话存储布局中"一次持久提交"的标识：同一提交内的多行事件共享
 	// 同一 commit_id；重复持久化同 commit_id 幂等（行不重复、head 不双跳）。
 	// 旧布局 transcript.log / rollout.jsonl 不消费该字段，omitempty 保持兼容。
 	CommitID string `json:"commit_id,omitempty"`
-	// InOutJSON 是 v8 message 行的"最终成功载荷"（最终成功 in/out 原样）。
+	// InOutJSON 是 message 行的"最终成功载荷"（最终成功 in/out 原样）。
 	InOutJSON json.RawMessage `json:"in_out_json,omitempty"`
 	// WireMaterial 只对 internal_user/context 行有意义：true = 可作为
 	// 内部 user 材料进入 wire（R2-FILTER），false/空 = 只服务前端/历史。
@@ -289,10 +289,6 @@ func NewRouter(configPath, defaultPath string) (*Router, error) {
 	return &Router{repository: repository, config: config, configPath: configPath, defaultPath: defaultPath}, nil
 }
 
-// V8WireLayoutEnv 是测试/AB 对比用的 JSON 布局开关：设为 "legacy" 时 JSON
-// 后端新建会话走旧 manifest 布局（旧链路 AB 对照）。生产默认 v8。
-const V8WireLayoutEnv = "SEELEX_STORAGE_LAYOUT"
-
 func (router *Router) SetWorkspace(projectID string) {
 	router.mu.Lock()
 	router.projectID = strings.TrimSpace(projectID)
@@ -402,22 +398,6 @@ func (router *Router) LoadEventRangeWorkspace(projectID, sessionID string, fromS
 		return err
 	})
 	return events, err
-}
-
-// ReadRolloutWorkspace 读取会话 rollout 全序日志（JSON 后端；其它后端返回
-// ErrRolloutUnavailable，上层回退旧三读）。
-func (router *Router) ReadRolloutWorkspace(projectID, sessionID string) ([]SessionLogEntry, error) {
-	var entries []SessionLogEntry
-	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
-		reader, ok := repository.(RolloutReader)
-		if !ok {
-			return ErrRolloutUnavailable
-		}
-		var err error
-		entries, err = reader.ReadRollout(context.Background(), Key{ProjectID: projectID, SessionID: sessionID})
-		return err
-	})
-	return entries, err
 }
 
 func (router *Router) LoadToolResult(sessionID, resultRef string) (ToolResult, error) {
@@ -684,10 +664,6 @@ func (router *Router) withRepositoryAt(projectID string, fn func(Repository, str
 func Open(ctx context.Context, config Config) (Repository, error) {
 	switch config.Backend {
 	case BackendJSON:
-		if strings.EqualFold(strings.TrimSpace(os.Getenv(V8WireLayoutEnv)), "legacy") {
-			// AB 旧链路对照：新会话写旧 manifest/generation 布局。
-			return newJSONRepositoryWithV8(config.Path, config.MessageShardSize, true)
-		}
 		return newJSONRepository(config.Path, config.MessageShardSize)
 	case BackendSQLite:
 		return newSQLRepository(ctx, "sqlite", config.Path, "?")
@@ -720,17 +696,14 @@ type jsonRepository struct {
 	mu           sync.RWMutex
 	legacyMu     sync.Mutex
 	legacyCounts map[string][]int
-	// v8 是 v8 布局引擎（新建会话消息/模块 head；见 v8_*.go）。
-	v8 *v8Store
-	// v8Attempts 是 v8 会话共享的运行期尝试缓存（R2 最近 K 条装配）。
-	v8Attempts *v8AttemptCache
-	// forceLegacy 仅供测试：强制本 repository 的新会话写旧布局（旧布局
-	// 契约回归用）。
-	forceLegacy bool
+	// v8 是 会话存储布局引擎（新建会话消息/模块 head；见 对应模块文件）。
+	layout *storeEngine
+	// attempts 是 会话共享的运行期尝试缓存（wire 最近 K 条装配）。
+	attempts *attemptCache
 }
 
 func newJSONRepository(root string, shardSize int) (*jsonRepository, error) {
-	return newJSONRepositoryWithV8(root, shardSize, false)
+	return newJSONRepositoryWithLayout(root, shardSize)
 }
 
 // transcriptEventLogPath 返回会话 transcript append-only 日志路径。
@@ -840,105 +813,18 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 			return errors.New("session storage: result ref is required")
 		}
 	}
-	if repository.v8Writable(key) {
-		repository.mu.Lock()
-		defer repository.mu.Unlock()
-		return repository.writeCommitV8(key, commit)
-	}
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
-	directory := repository.sessionDir(key)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
-	previous, previousErr := repository.readManifest(directory)
-	if previousErr != nil && !errors.Is(previousErr, fs.ErrNotExist) {
-		return previousErr
-	}
-	events := commit.Events
-	existing, err := repository.readTranscriptEventsLocked(directory)
-	if err != nil {
-		return err
-	}
-	events = mergeEvents(existing, commit.Events)
-	generation := "generation-" + randomID()
-	generationDir := filepath.Join(directory, generation)
-	if err := os.MkdirAll(generationDir, 0o700); err != nil {
-		return err
-	}
-	shards := split(commit.ProviderHistory, repository.shardSize)
-	for index, shard := range shards {
-		data, err := json.Marshal(shard)
-		if err != nil {
-			return fmt.Errorf("session storage: marshal shard: %w", err)
-		}
-		if err := writeAtomic(filepath.Join(generationDir, fmt.Sprintf("history.%03d.json", index)), data, 0o600); err != nil {
-			return err
-		}
-	}
-	state := commit.State
-	if state == nil {
-		state, _ = repository.readCurrentStateLocked(directory)
-	}
-	if state != nil {
-		if err := writeAtomic(filepath.Join(generationDir, "state.json"), state, 0o600); err != nil {
-			return err
-		}
-	}
-	for _, result := range commit.ToolResults {
-		if err := repository.writeToolResultLocked(key, result); err != nil {
-			return err
-		}
-	}
-	// transcript 事件按增量追加进日志：重复提交同一 Seq 幂等（合并后无新增），
-	// 崩溃后重试也只会补写缺失尾部。
-	if err := repository.appendTranscriptEventsLocked(directory, eventsAfterLogHead(eventLogHead(existing), events)); err != nil {
-		return err
-	}
-	// rollout 全序日志（P2 垂直切片）：对话类增量 + 首条 session_meta 双写，
-	// manifest 尚未切换，失败则本次提交不发布。
-	if err := repository.commitRolloutLocked(directory, key, existing, events, commit.State); err != nil {
-		return err
-	}
-	toolResultRefs := []string(nil)
-	if previousErr == nil {
-		toolResultRefs = append(toolResultRefs, previous.ToolResultRefs...)
-	}
-	for _, result := range commit.ToolResults {
-		toolResultRefs = appendUnique(toolResultRefs, result.Ref)
-	}
-	now := time.Now().UTC()
-	meta := frameworkStorage.SessionMeta{SessionID: key.SessionID, TokenCount: eventTokenCount(events), ShardCount: len(shards), UpdatedAt: now}
-	if len(events) == 0 {
-		meta.TokenCount = tokenCount(commit.ProviderHistory)
-		meta.ShardCount = len(shards)
-	}
-	if previousErr == nil {
-		meta.CreatedAt = previous.Meta.CreatedAt
-	}
-	if meta.CreatedAt.IsZero() {
-		meta.CreatedAt = now
-	}
-	data, err := json.Marshal(jsonManifest{
-		Generation:         generation,
-		HistoryShardCounts: shardCounts(shards),
-		ToolResultRefs:     toolResultRefs,
-		Meta:               meta,
-	})
-	if err != nil {
-		return err
-	}
-	return writeAtomic(filepath.Join(directory, "manifest.json"), data, 0o600)
+	return repository.writeCommitLayout(key, commit)
 }
-
 func (repository *jsonRepository) Read(_ context.Context, key Key) ([]types.Message, error) {
 	if err := key.validate(); err != nil {
 		return nil, err
 	}
-	if repository.v8Active(key) {
+	if repository.active(key) {
 		repository.mu.RLock()
 		defer repository.mu.RUnlock()
-		return repository.readAllV8Messages(key)
+		return repository.readAllLayoutMessages(key)
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
@@ -950,10 +836,10 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 	if offset < 0 {
 		return nil, 0, errors.New("session storage: invalid range")
 	}
-	if repository.v8Active(key) {
+	if repository.active(key) {
 		repository.mu.RLock()
 		defer repository.mu.RUnlock()
-		return repository.readRangeV8(key, offset, limit)
+		return repository.readRangeLayout(key, offset, limit)
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
@@ -1116,10 +1002,10 @@ func (repository *jsonRepository) ReadEventTail(_ context.Context, key Key, toke
 	if err := key.validate(); err != nil {
 		return nil, err
 	}
-	if repository.v8Active(key) {
+	if repository.active(key) {
 		repository.mu.RLock()
 		defer repository.mu.RUnlock()
-		return repository.readEventTailV8(key, tokenBudget, maxUnits)
+		return repository.readEventTailLayout(key, tokenBudget, maxUnits)
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
@@ -1143,10 +1029,10 @@ func (repository *jsonRepository) ReadToolResult(_ context.Context, key Key, res
 	if strings.TrimSpace(resultRef) == "" {
 		return ToolResult{}, errors.New("session storage: result ref is required")
 	}
-	if repository.v8Active(key) {
+	if repository.active(key) {
 		repository.mu.RLock()
 		defer repository.mu.RUnlock()
-		if refs, refsErr := repository.v8.v8ReadToolResultRefs(key); refsErr == nil && !containsValue(refs, resultRef) {
+		if refs, refsErr := repository.layout.readToolResultRefs(key); refsErr == nil && !containsValue(refs, resultRef) {
 			return ToolResult{}, fs.ErrNotExist
 		}
 		data, err := os.ReadFile(repository.toolResultPath(key, resultRef))
@@ -1189,10 +1075,10 @@ func (repository *jsonRepository) ListToolResults(_ context.Context, key Key) ([
 	if err := key.validate(); err != nil {
 		return nil, err
 	}
-	if repository.v8Active(key) {
+	if repository.active(key) {
 		repository.mu.RLock()
 		defer repository.mu.RUnlock()
-		refs, refsErr := repository.v8.v8ReadToolResultRefs(key)
+		refs, refsErr := repository.layout.readToolResultRefs(key)
 		var results []ToolResult
 		if refsErr == nil {
 			results = make([]ToolResult, 0, len(refs))
@@ -1268,10 +1154,10 @@ func (repository *jsonRepository) CurrentGeneration(_ context.Context, key Key) 
 	if err := key.validate(); err != nil {
 		return "", err
 	}
-	if repository.v8Active(key) {
+	if repository.active(key) {
 		repository.mu.RLock()
 		defer repository.mu.RUnlock()
-		return repository.currentGenerationV8(key)
+		return repository.currentGenerationLayout(key)
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
@@ -1503,7 +1389,7 @@ func (repository *jsonRepository) List(_ context.Context, projectID string) ([]f
 			continue
 		}
 		directory := filepath.Join(repository.projectDir(projectID), entry.Name())
-		if meta, ok := readV8MetaFromDir(directory); ok {
+		if meta, ok := readMetaFromDir(directory); ok {
 			result = append(result, meta)
 			continue
 		}

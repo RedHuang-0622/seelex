@@ -11,8 +11,8 @@ import (
 	"fmt"
 )
 
-// v8R1Row 是 R1 输出的一行：事件行 + 展示标记。
-type v8R1Row struct {
+// historyReadRow 是 R1 输出的一行：事件行 + 展示标记。
+type historyReadRow struct {
 	Event
 	// Internal 标记 internal_user/context 行（前端可过滤或折叠展示）。
 	Internal bool `json:"internal,omitempty"`
@@ -20,17 +20,17 @@ type v8R1Row struct {
 	Placeholder bool `json:"placeholder,omitempty"`
 }
 
-// v8R1Page 返回 message 分页（offset/limit 基于行坐标 1..last_seq；
+// pageHistoryRows 返回 message 分页（offset/limit 基于行坐标 1..last_seq；
 // 已淘汰区由占位行承接，返回空洞不错位）。
-func (store *v8Store) v8R1Page(key Key, offset, limit int) ([]v8R1Row, int, error) {
+func (store *storeEngine) pageHistoryRows(key Key, offset, limit int) ([]historyReadRow, int, error) {
 	if offset < 0 {
-		return nil, 0, errors.New("v8: R1 offset must be >= 0")
+		return nil, 0, errors.New("session storage: history offset must be >= 0")
 	}
 	if limit <= 0 {
 		limit = 20
 	}
 	store.messageMu.Lock()
-	head, err := store.v8ReadMessageHeadLocked(key)
+	head, err := store.readMessageHeadLocked(key)
 	if err != nil {
 		store.messageMu.Unlock()
 		return nil, 0, err
@@ -38,13 +38,13 @@ func (store *v8Store) v8R1Page(key Key, offset, limit int) ([]v8R1Row, int, erro
 	store.messageMu.Unlock()
 	total := int(head.LastSeq)
 	if offset >= total {
-		return []v8R1Row{}, total, nil
+		return []historyReadRow{}, total, nil
 	}
 	end := offset + limit
 	if end > total {
 		end = total
 	}
-	rows, err := store.v8ReadRows(key, uint64(offset+1), uint64(end))
+	rows, err := store.readRows(key, uint64(offset+1), uint64(end))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -52,20 +52,20 @@ func (store *v8Store) v8R1Page(key Key, offset, limit int) ([]v8R1Row, int, erro
 	for _, row := range rows {
 		bySeq[row.Seq] = row
 	}
-	out := make([]v8R1Row, 0, end-offset)
+	out := make([]historyReadRow, 0, end-offset)
 	for seq := offset + 1; seq <= end; seq++ {
 		row, ok := bySeq[uint64(seq)]
 		if !ok {
 			if uint64(seq) <= head.WatermarkSeq {
-				out = append(out, v8R1Row{
+				out = append(out, historyReadRow{
 					Event:       Event{Seq: uint64(seq), Role: "context", Kind: EventKindNotice, Content: "（LRU 已淘汰区：原始正文已按用户确认删除，详见 compact 摘要）"},
 					Placeholder: true,
 				})
 				continue
 			}
-			return nil, 0, fmt.Errorf("v8: R1 page hole at seq %d beyond watermark %d", seq, head.WatermarkSeq)
+			return nil, 0, fmt.Errorf("session storage: history page hole at seq %d beyond watermark %d", seq, head.WatermarkSeq)
 		}
-		out = append(out, v8R1Row{
+		out = append(out, historyReadRow{
 			Event:    row,
 			Internal: EventKindOf(row) == EventKindInternal || row.Role == "context" || row.Role == "internal_user",
 		})
@@ -73,8 +73,8 @@ func (store *v8Store) v8R1Page(key Key, offset, limit int) ([]v8R1Row, int, erro
 	return out, total, nil
 }
 
-// v8ResumePoint 是 R3 断点续跑结果。
-type v8ResumePoint struct {
+// resumePoint 是 R3 断点续跑结果。
+type resumePoint struct {
 	// AnchorSeq / AnchorMessageID 是 resume 起点（该点之后的事件行）。
 	AnchorSeq       uint64 `json:"anchor_seq"`
 	AnchorMessageID string `json:"anchor_message_id,omitempty"`
@@ -83,66 +83,66 @@ type v8ResumePoint struct {
 	// Synthetic 表示 EVENT interrupted 缺失但消息残缺，恢复侧合成的锚点。
 	Synthetic bool `json:"synthetic,omitempty"`
 	// Repair 是残缺工具轮的修复占位。
-	Repair []v8WireMessage `json:"repair,omitempty"`
+	Repair []wireMessage `json:"repair,omitempty"`
 	// Incomplete 表示消息自身残缺（缺 tool 结果）。
 	Incomplete bool `json:"incomplete,omitempty"`
 }
 
-// v8ResumeTail 定位断点并返回尾段。不读 EVENT 也能正确恢复（EVENT 只加速
+// resumeTail 定位断点并返回尾段。不读 EVENT 也能正确恢复（EVENT 只加速
 // 定位）；有 interrupted 事件以事件锚点为准。
-func (store *v8Store) v8ResumeTail(key Key) (v8ResumePoint, error) {
-	messageHead, err := store.v8ReadMessageHead(key)
+func (store *storeEngine) resumeTail(key Key) (resumePoint, error) {
+	messageHead, err := store.readMessageHead(key)
 	if err != nil {
-		return v8ResumePoint{}, err
+		return resumePoint{}, err
 	}
 	if messageHead.LastSeq == 0 {
-		return v8ResumePoint{}, nil
+		return resumePoint{}, nil
 	}
 	// EVENT 定位（可缺失；缺失不改变正确性）。
-	events, err := store.v8ReadEvents(key, 0, 0)
+	events, err := store.readEvents(key, 0, 0)
 	if err != nil {
-		return v8ResumePoint{}, err
+		return resumePoint{}, err
 	}
 	anchorSeq := uint64(0)
 	anchorMessageID := ""
 	for index := len(events) - 1; index >= 0; index-- {
-		if events[index].Kind == v8EventInterrupted {
+		if events[index].Kind == structuralEventInterrupted {
 			anchorSeq = events[index].AnchorSeq
 			anchorMessageID = events[index].AnchorMessageID
 			break
 		}
 	}
 	if anchorSeq > 0 {
-		rows, err := store.v8ReadRows(key, anchorSeq+1, 0)
+		rows, err := store.readRows(key, anchorSeq+1, 0)
 		if err != nil {
-			return v8ResumePoint{}, err
+			return resumePoint{}, err
 		}
-		return v8ResumePoint{AnchorSeq: anchorSeq, AnchorMessageID: anchorMessageID, Rows: rows}, nil
+		return resumePoint{AnchorSeq: anchorSeq, AnchorMessageID: anchorMessageID, Rows: rows}, nil
 	}
 	// 无 interrupted 事件：消息完整 → 无续跑内容，不合成虚假 interrupted
 	// （T-R3-02）；消息残缺 → 合成锚点 + 修复占位（T-R3-03）。
-	open := store.v8FindOpenTail(key)
+	open := store.findOpenTail(key)
 	if !open.open {
-		return v8ResumePoint{AnchorSeq: messageHead.LastSeq}, nil
+		return resumePoint{AnchorSeq: messageHead.LastSeq}, nil
 	}
 	anchor := open.startSeq - 1
 	if anchor > messageHead.LastSeq {
 		anchor = 0
 	}
-	rows, err := store.v8ReadRows(key, open.startSeq, 0)
+	rows, err := store.readRows(key, open.startSeq, 0)
 	if err != nil {
-		return v8ResumePoint{}, err
+		return resumePoint{}, err
 	}
-	repair := make([]v8WireMessage, 0, len(open.calls))
+	repair := make([]wireMessage, 0, len(open.calls))
 	for _, callID := range open.calls {
-		repair = append(repair, v8WireMessage{
-			Role:       v8WireRoleTool,
+		repair = append(repair, wireMessage{
+			Role:       wireRoleTool,
 			ToolCallID: callID,
 			Content:    "【缺失工具结果 · 修复占位】恢复检测到 open 工具轮，装配层补齐结果。",
 			Repair:     true,
 		})
 	}
-	return v8ResumePoint{
+	return resumePoint{
 		AnchorSeq:  anchor,
 		Rows:       rows,
 		Synthetic:  true,
@@ -151,19 +151,19 @@ func (store *v8Store) v8ResumeTail(key Key) (v8ResumePoint, error) {
 	}, nil
 }
 
-// v8OpenTailInfo 是流尾残缺检测结果。
-type v8OpenTailInfo struct {
+// openTailInfo 是流尾残缺检测结果。
+type openTailInfo struct {
 	open     bool
 	startSeq uint64
 	calls    []string
 }
 
-// v8FindOpenTail 从最后一个 user 单元后扫描（无 user 则从首行）判断流尾
+// findOpenTail 从最后一个 user 单元后扫描（无 user 则从首行）判断流尾
 // 是否存在未完成工具轮。
-func (store *v8Store) v8FindOpenTail(key Key) v8OpenTailInfo {
-	all, err := store.v8ReadRows(key, 0, 0)
+func (store *storeEngine) findOpenTail(key Key) openTailInfo {
+	all, err := store.readRows(key, 0, 0)
 	if err != nil {
-		return v8OpenTailInfo{}
+		return openTailInfo{}
 	}
 	start := uint64(1)
 	for index := len(all) - 1; index >= 0; index-- {
@@ -193,7 +193,7 @@ func (store *v8Store) v8FindOpenTail(key Key) v8OpenTailInfo {
 		}
 	}
 	if len(pending) == 0 {
-		return v8OpenTailInfo{}
+		return openTailInfo{}
 	}
 	calls := make([]string, 0, len(order))
 	for _, callID := range order {
@@ -218,5 +218,5 @@ func (store *v8Store) v8FindOpenTail(key Key) v8OpenTailInfo {
 			break
 		}
 	}
-	return v8OpenTailInfo{open: true, startSeq: firstOpen, calls: calls}
+	return openTailInfo{open: true, startSeq: firstOpen, calls: calls}
 }

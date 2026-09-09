@@ -413,33 +413,6 @@ func (port SessionPort) LoadTranscriptTailWorkspace(workspaceID, id string, toke
 	return adaptTranscriptEvents(events), nil
 }
 
-// LoadSessionRolloutTranscriptWorkspace 从 rollout 全序日志正序重放对话类
-// 事件（P2 恢复改造的日志事实源路径；rollout 缺失/后端不支持返回 ok=false，
-// 上层回退旧三读）。
-func (port SessionPort) LoadSessionRolloutTranscriptWorkspace(workspaceID, id string) ([]model.TranscriptEvent, bool, error) {
-	entries, err := port.granular().ReadRollout(workspaceID, id)
-	if err != nil {
-		if errors.Is(err, sessionstore.ErrRolloutUnavailable) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	events := make([]sessionstore.Event, 0, len(entries))
-	for _, entry := range entries {
-		switch entry.Kind {
-		case sessionstore.LogUserInput, sessionstore.LogInternalUser,
-			sessionstore.LogAssistant, sessionstore.LogToolCall,
-			sessionstore.LogToolOutput, sessionstore.LogReasoning:
-			var event sessionstore.Event
-			if len(entry.Payload) == 0 || json.Unmarshal(entry.Payload, &event) != nil {
-				continue
-			}
-			events = append(events, event)
-		}
-	}
-	return adaptTranscriptEvents(events), len(events) > 0, nil
-}
-
 // AssembleWireHistoryWorkspace 实现 session_runtime.SessionWireAssemblerPort：
 // v8 会话走 R2 装配（compact 摘要 + 尾窗 + 最近 K 条尝试）；非 v8/后端返回
 // ok=false，装配方回退旧链路。

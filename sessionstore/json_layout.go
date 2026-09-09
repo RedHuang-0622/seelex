@@ -1,12 +1,12 @@
-// jsonRepository 的 v8 布局分派与适配（v8_repository.go）。
+// jsonRepository 的 会话存储布局分派与适配（json_layout.go）。
 //
 // 布局判定（my_design §7）：
-//   - 目录内存在 metadata/guide.json = v8 新布局；
+//   - 目录内存在 metadata/guide.json = 新布局；
 //   - 目录内存在 manifest.json = 旧布局（rollout/manifest/generation/
 //     transcript），只读兼容、不自动改写；
 //   - 都不存在（新会话/record-only）→ 首次写按 v8 创建。
 //
-// 公开 Repository/Router 方法签名不变：v8 会话在方法内部转接到 v8Store
+// 公开 Repository/Router 方法签名不变：会话在方法内部转接到 storeEngine
 // 引擎（message 事件行 + 模块 head），旧会话继续走原实现。
 package sessionstore
 
@@ -24,56 +24,39 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 )
 
-func newJSONRepositoryWithV8(root string, shardSize int, forceLegacy bool) (*jsonRepository, error) {
+func newJSONRepositoryWithLayout(root string, shardSize int) (*jsonRepository, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, fmt.Errorf("session storage: create JSON root: %w", err)
 	}
 	if shardSize <= 0 {
 		shardSize = defaultMessageShardSize
 	}
-	repository := &jsonRepository{root: filepath.Clean(root), shardSize: shardSize, legacyCounts: make(map[string][]int), forceLegacy: forceLegacy}
-	repository.v8 = newV8Store(root, shardSize)
-	repository.v8Attempts = NewV8AttemptCache(0, 0)
+	repository := &jsonRepository{root: filepath.Clean(root), shardSize: shardSize, legacyCounts: make(map[string][]int)}
+	repository.layout = newStoreEngine(root, shardSize)
+	repository.attempts = NewAttemptCache(0, 0)
 	return repository, nil
 }
 
-// jsonRepository 新增字段：v8 引擎与测试专用 legacy 强制开关。
-func (repository *jsonRepository) v8Active(key Key) bool {
-	if repository.forceLegacy {
-		return false
-	}
-	return isV8SessionDir(repository.sessionDir(key))
-}
-
-// v8Writable 判断本次写应走 v8 创建：目录无 manifest（新会话或已有 v8
-// guide）。
-func (repository *jsonRepository) v8Writable(key Key) bool {
-	if repository.forceLegacy {
-		return false
-	}
-	directory := repository.sessionDir(key)
-	if _, err := os.Stat(filepath.Join(directory, "manifest.json")); err == nil {
-		return false
-	}
-	return true
+func (repository *jsonRepository) active(key Key) bool {
+	return isLayoutSessionDir(repository.sessionDir(key))
 }
 
 // ---------- 写路径 ----------
 
-// writeCommitV8 是 WriteCommit 的 v8 分支：
+// writeCommitLayout 是 WriteCommit 的 分支：
 //   - commit.Events → message 事件行（append-only 正文事实源，增量去重）；
 //   - commit.ProviderHistory → session/history.json 可替换缓存（只读兼容
 //     Read/ReadRange 的"整段替换"语义；事件行为权威）；
 //   - state/tool-results 沿用原通道文件（同会话目录）。
-func (repository *jsonRepository) writeCommitV8(key Key, commit Commit) error {
-	if !repository.v8.v8SessionExists(key) {
-		// 新会话先建 v8 布局（空 head 发布，使目录可被枚举/读路径识别）。
-		if _, err := repository.v8.v8MessageCommit(key, "", nil); err != nil {
+func (repository *jsonRepository) writeCommitLayout(key Key, commit Commit) error {
+	if !repository.layout.sessionExists(key) {
+		// 新会话先建 会话存储布局（空 head 发布，使目录可被枚举/读路径识别）。
+		if _, err := repository.layout.messageCommit(key, "", nil); err != nil {
 			return err
 		}
 	}
 	if len(commit.Events) > 0 {
-		if _, err := repository.v8.v8MessageCommit(key, "", commit.Events); err != nil {
+		if _, err := repository.layout.messageCommit(key, "", commit.Events); err != nil {
 			return err
 		}
 	}
@@ -86,7 +69,7 @@ func (repository *jsonRepository) writeCommitV8(key Key, commit Commit) error {
 		if err != nil {
 			return err
 		}
-		if err := writeAtomic(filepath.Join(directory, v8HistoryCacheFile), data, 0o600); err != nil {
+		if err := writeAtomic(filepath.Join(directory, historyCacheFile), data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -96,7 +79,7 @@ func (repository *jsonRepository) writeCommitV8(key Key, commit Commit) error {
 			return err
 		}
 	}
-	refs, refsErr := repository.v8.v8ReadToolResultRefs(key)
+	refs, refsErr := repository.layout.readToolResultRefs(key)
 	if refsErr != nil && !errors.Is(refsErr, fs.ErrNotExist) {
 		return refsErr
 	}
@@ -114,40 +97,40 @@ func (repository *jsonRepository) writeCommitV8(key Key, commit Commit) error {
 		}
 	}
 	if refsChanged {
-		if err := repository.v8.v8PublishToolResultRefs(key, refs); err != nil {
+		if err := repository.layout.publishToolResultRefs(key, refs); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// v8HistoryCacheFile 是 v8 会话 provider history 缓存文件（可替换、可重建；
+// historyCacheFile 是 会话 provider history 缓存文件（可替换、可重建；
 // message 事件行才是正文权威）。
-const v8HistoryCacheFile = "history.json"
+const historyCacheFile = "history.json"
 
-// v8ToolResultHead 是 metadata/toolresult.json payload（refs 发布点）。
-type v8ToolResultHead struct {
+// toolResultHead 是 metadata/toolresult.json payload（refs 发布点）。
+type toolResultHead struct {
 	SessionID string   `json:"session_id"`
 	Refs      []string `json:"refs,omitempty"`
 }
 
-// v8PublishToolResultRefs 在全部结果文件写完后原子发布 refs 清单。
-func (store *v8Store) v8PublishToolResultRefs(key Key, refs []string) error {
+// publishToolResultRefs 在全部结果文件写完后原子发布 refs 清单。
+func (store *storeEngine) publishToolResultRefs(key Key, refs []string) error {
 	store.toolMu.Lock()
 	defer store.toolMu.Unlock()
-	if _, err := store.ensureV8Guide(key); err != nil {
+	if _, err := store.ensureLayoutGuide(key); err != nil {
 		return err
 	}
-	head := v8ToolResultHead{SessionID: key.SessionID, Refs: refs}
-	if _, err := store.publishV8ModuleHead(key, v8ModuleToolResult, "tool-"+randomID(), head, time.Now().UTC()); err != nil {
+	head := toolResultHead{SessionID: key.SessionID, Refs: refs}
+	if _, err := store.publishModuleHead(key, moduleToolResult, "tool-"+randomID(), head, time.Now().UTC()); err != nil {
 		return err
 	}
-	return store.registerV8Module(key, v8ModuleToolResult, store.v8ModulePath(key, v8ModuleToolResult))
+	return store.registerModule(key, moduleToolResult, store.modulePath(key, moduleToolResult))
 }
 
-// v8ReadToolResultRefs 读取已发布 refs（缺失 = nil + fs.ErrNotExist）。
-func (store *v8Store) v8ReadToolResultRefs(key Key) ([]string, error) {
-	head, err := v8ReadModuleHeadPayload[v8ToolResultHead](store, key, v8ModuleToolResult)
+// readToolResultRefs 读取已发布 refs（缺失 = nil + fs.ErrNotExist）。
+func (store *storeEngine) readToolResultRefs(key Key) ([]string, error) {
+	head, err := readModuleHeadPayload[toolResultHead](store, key, moduleToolResult)
 	if err != nil {
 		return nil, err
 	}
@@ -156,26 +139,40 @@ func (store *v8Store) v8ReadToolResultRefs(key Key) ([]string, error) {
 
 // ---------- 运行期装配 API（R2 / compact / retention / lifecycle） ----------
 
-// assembleWireWorkspace 对 v8 会话执行 R2 装配（frame 摘要 + tail + 最近 K
-// 条尝试）；非 v8 布局返回 ok=false（上层回退旧装配）。
+// assembleWireWorkspace 对 会话执行 wire 装配（frame 摘要 + tail + 最近 K
+// 条尝试）；非 会话存储布局返回 ok=false（上层回退旧装配）。
 func (repository *jsonRepository) assembleWireWorkspace(key Key, budget, k int) ([]types.Message, bool, error) {
 	if err := key.validate(); err != nil {
 		return nil, false, err
 	}
-	if !repository.v8Active(key) {
-		return nil, false, nil
-	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
-	result, err := repository.v8.v8AssembleWire(key, repository.v8Attempts, v8R2Params{Budget: budget, K: k})
+	params := wireParams{Budget: budget, K: k}
+	if repository.active(key) {
+		result, err := repository.layout.assembleWire(key, repository.attempts, params)
+		if err != nil {
+			return nil, false, err
+		}
+		return wireToTypesMessages(result.Messages), true, nil
+	}
+	// legacy JSON 会话：把 transcript 事件行视为 message 行，走同一 R2
+	// 纯装配（取代旧恢复组装；无 compact 帧摘要，与旧行为一致）。
+	rows, err := repository.readTranscriptEventsLocked(repository.sessionDir(key))
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
 		return nil, false, err
 	}
+	if _, statErr := os.Stat(filepath.Join(repository.sessionDir(key), "manifest.json")); errors.Is(statErr, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	result := assembleWireRows(nil, rows, repository.attempts, params)
 	return wireToTypesMessages(result.Messages), true, nil
 }
 
 // wireToTypesMessages 把 R2 wire 消息映射为 provider types.Message。
-func wireToTypesMessages(wire []v8WireMessage) []types.Message {
+func wireToTypesMessages(wire []wireMessage) []types.Message {
 	messages := make([]types.Message, 0, len(wire))
 	for _, message := range wire {
 		out := types.Message{Role: message.Role, Content: strPtrOrNil(message.Content)}
@@ -191,22 +188,22 @@ func wireToTypesMessages(wire []v8WireMessage) []types.Message {
 	return messages
 }
 
-// commitCompactFrameWorkspace 把运行期 compact 帧桥接进 v8 compact 通道
-// （frame 摘要进入 R2 装配；非 v8 或无法解析 seq 坐标时返回 ok=false）。
+// commitCompactFrameWorkspace 把运行期 compact 帧桥接进 compact 通道
+// （frame 摘要进入 wire 装配；非 v8 或无法解析 seq 坐标时返回 ok=false）。
 func (repository *jsonRepository) commitCompactFrameWorkspace(key Key, frame CompactFrame) (bool, error) {
 	if err := key.validate(); err != nil {
 		return false, err
 	}
-	if !repository.v8Active(key) {
+	if !repository.active(key) {
 		return false, nil
 	}
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
-	fromSeq, toSeq, ok := repository.v8ResolveCompactRange(key, frame)
+	fromSeq, toSeq, ok := repository.resolveCompactRange(key, frame)
 	if !ok {
 		return false, nil
 	}
-	v8Frame := v8CompactFrame{
+	record := compactFrameRecord{
 		FrameID:        frame.SegmentID,
 		PrevID:         frame.PrevSegmentID,
 		MessageFrom:    frame.MessageFrom,
@@ -217,22 +214,22 @@ func (repository *jsonRepository) commitCompactFrameWorkspace(key Key, frame Com
 		BoundaryStatus: "complete",
 		CompressedAt:   frame.CompressedAt,
 	}
-	if v8Frame.CompressedAt.IsZero() {
-		v8Frame.CompressedAt = time.Now().UTC()
+	if record.CompressedAt.IsZero() {
+		record.CompressedAt = time.Now().UTC()
 	}
-	if _, err := repository.v8.v8CompactCommit(key, v8Frame); err != nil {
+	if _, err := repository.layout.compactCommit(key, record); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// v8ResolveCompactRange 把 ChatQueue 单元索引 [frame.From, frame.To] 映射为
+// resolveCompactRange 把 ChatQueue 单元索引 [frame.From, frame.To] 映射为
 // message 事件行 seq（EventFrom/EventTo 已给定时直接使用）。
-func (repository *jsonRepository) v8ResolveCompactRange(key Key, frame CompactFrame) (uint64, uint64, bool) {
+func (repository *jsonRepository) resolveCompactRange(key Key, frame CompactFrame) (uint64, uint64, bool) {
 	if frame.EventFrom > 0 && frame.EventTo > 0 && frame.EventFrom <= frame.EventTo {
 		return frame.EventFrom, frame.EventTo, true
 	}
-	rows, err := repository.v8.v8ReadAllRows(key)
+	rows, err := repository.layout.readAllRows(key)
 	if err != nil {
 		return 0, 0, false
 	}
@@ -248,25 +245,25 @@ func (repository *jsonRepository) v8ResolveCompactRange(key Key, frame CompactFr
 	return visible[frame.From].Seq, visible[frame.To].Seq, true
 }
 
-// retentionAdvisoryWorkspace 返回 v8 会话 retention 水位建议（compact 帧数
+// retentionAdvisoryWorkspace 返回 会话 retention 水位建议（compact 帧数
 // vs 阈值、原始字节 vs 告警线；mode=manual 默认不自动删）。
-func (repository *jsonRepository) retentionAdvisoryWorkspace(key Key) (V8RetentionAdvisory, error) {
-	advisory := V8RetentionAdvisory{Layout: "legacy"}
-	if !repository.v8Active(key) {
+func (repository *jsonRepository) retentionAdvisoryWorkspace(key Key) (RetentionAdvisory, error) {
+	advisory := RetentionAdvisory{Layout: "legacy"}
+	if !repository.active(key) {
 		return advisory, nil
 	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 	advisory.Layout = "v8"
-	compactHead, err := repository.v8.v8ReadCompactHead(key)
+	compactHead, err := repository.layout.readCompactHead(key)
 	if err != nil {
 		return advisory, err
 	}
-	retention, err := repository.v8.v8ReadRetentionHead(key)
+	retention, err := repository.layout.readRetentionHead(key)
 	if err != nil {
 		return advisory, err
 	}
-	messageHead, err := repository.v8.v8ReadMessageHeadLocked(key)
+	messageHead, err := repository.layout.readMessageHeadLocked(key)
 	if err != nil {
 		return advisory, err
 	}
@@ -279,7 +276,7 @@ func (repository *jsonRepository) retentionAdvisoryWorkspace(key Key) (V8Retenti
 	return advisory, nil
 }
 
-func rawBytesEstimate(head v8MessageHead, alert uint64) uint64 {
+func rawBytesEstimate(head messageHead, alert uint64) uint64 {
 	if alert == 0 {
 		return 0
 	}
@@ -287,36 +284,36 @@ func rawBytesEstimate(head v8MessageHead, alert uint64) uint64 {
 	return head.TotalRows * 1024
 }
 
-// lruDeleteWorkspace 用户确认后的 LRU 前缀删除（v8 会话）。
+// lruDeleteWorkspace 用户确认后的 LRU 前缀删除（会话）。
 func (repository *jsonRepository) lruDeleteWorkspace(key Key, upToSeq uint64, confirmed bool) (bool, error) {
-	if !repository.v8Active(key) {
+	if !repository.active(key) {
 		return false, nil
 	}
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
-	if _, err := repository.v8.v8LRUDelete(key, upToSeq, confirmed); err != nil {
+	if _, err := repository.layout.lRUDelete(key, upToSeq, confirmed); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// lifecycleRecoverWorkspace 重启恢复 v8 lifecycle 队列（发送未确认项回
+// lifecycleRecoverWorkspace 重启恢复 lifecycle 队列（发送未确认项回
 // queued；message 已发布项出队）。返回恢复条数。
 func (repository *jsonRepository) lifecycleRecoverWorkspace(key Key) (int, bool, error) {
-	if !repository.v8Active(key) {
+	if !repository.active(key) {
 		return 0, false, nil
 	}
 	repository.mu.Lock()
 	defer repository.mu.Unlock()
-	resent, err := repository.v8.v8QueueRecover(key)
+	resent, err := repository.layout.queueRecover(key)
 	if err != nil {
 		return 0, true, err
 	}
 	return len(resent), true, nil
 }
 
-// messagesToV8Rows 把 provider history（无事件通道的兼容写）转成事件行。
-func messagesToV8Rows(messages []types.Message) []Event {
+// messagesToEventRows 把 provider history（无事件通道的兼容写）转成事件行。
+func messagesToEventRows(messages []types.Message) []Event {
 	rows := make([]Event, 0, len(messages))
 	for _, message := range messages {
 		row := Event{
@@ -347,10 +344,10 @@ func strOrEmpty(value *string) string {
 
 // ---------- 读路径 ----------
 
-// v8RowsToProviderMessages 只把完整协议单元行映射为 provider messages
+// rowsToProviderMessages 只把完整协议单元行映射为 provider messages
 // （孤儿 tool/internal/context 等不构成单元的行不进 provider 上下文，
 // 与 legacy ReadEventTail 语义一致）。
-func v8RowsToProviderMessages(rows []Event) []types.Message {
+func rowsToProviderMessages(rows []Event) []types.Message {
 	units := CompleteEventUnits(rows)
 	flat := make([]Event, 0, len(rows))
 	for _, unit := range units {
@@ -359,8 +356,8 @@ func v8RowsToProviderMessages(rows []Event) []types.Message {
 	return eventsToMessages(flat)
 }
 
-func (repository *jsonRepository) readAllV8Messages(key Key) ([]types.Message, error) {
-	messages, err := repository.readV8HistoryCache(key)
+func (repository *jsonRepository) readAllLayoutMessages(key Key) ([]types.Message, error) {
+	messages, err := repository.readHistoryCache(key)
 	if err == nil {
 		return messages, nil
 	}
@@ -368,7 +365,7 @@ func (repository *jsonRepository) readAllV8Messages(key Key) ([]types.Message, e
 		// provider history 缓存缺失 = 会话只有事件行（窗口/恢复通道）：
 		// 全量读语义由缓存承载，返回空（与 legacy "message blob 缺失为空"
 		// 一致）。
-		if repository.v8.v8SessionExists(key) {
+		if repository.layout.sessionExists(key) {
 			return []types.Message{}, nil
 		}
 		return nil, fs.ErrNotExist
@@ -376,8 +373,8 @@ func (repository *jsonRepository) readAllV8Messages(key Key) ([]types.Message, e
 	return nil, err
 }
 
-func (repository *jsonRepository) readV8HistoryCache(key Key) ([]types.Message, error) {
-	data, err := os.ReadFile(filepath.Join(repository.sessionDir(key), v8HistoryCacheFile))
+func (repository *jsonRepository) readHistoryCache(key Key) ([]types.Message, error) {
+	data, err := os.ReadFile(filepath.Join(repository.sessionDir(key), historyCacheFile))
 	if err != nil {
 		return nil, err
 	}
@@ -388,17 +385,17 @@ func (repository *jsonRepository) readV8HistoryCache(key Key) ([]types.Message, 
 	return messages, nil
 }
 
-func (repository *jsonRepository) readRangeV8(key Key, offset, limit int) ([]types.Message, int, error) {
+func (repository *jsonRepository) readRangeLayout(key Key, offset, limit int) ([]types.Message, int, error) {
 	if offset < 0 {
 		return nil, 0, errors.New("session storage: invalid range")
 	}
 	if limit <= 0 {
 		// total-only 语义（与 legacy ReadRange 一致）。
 		total := 0
-		if messages, err := repository.readV8HistoryCache(key); err == nil {
+		if messages, err := repository.readHistoryCache(key); err == nil {
 			total = len(messages)
-		} else if rows, rowErr := repository.v8.v8ReadAllRows(key); rowErr == nil {
-			total = len(v8RowsToProviderMessages(rows))
+		} else if rows, rowErr := repository.layout.readAllRows(key); rowErr == nil {
+			total = len(rowsToProviderMessages(rows))
 		} else {
 			return nil, 0, rowErr
 		}
@@ -407,7 +404,7 @@ func (repository *jsonRepository) readRangeV8(key Key, offset, limit int) ([]typ
 		}
 		return nil, total, nil
 	}
-	if messages, err := repository.readV8HistoryCache(key); err == nil {
+	if messages, err := repository.readHistoryCache(key); err == nil {
 		total := len(messages)
 		if offset > total {
 			return nil, total, errors.New("session storage: range offset exceeds history")
@@ -418,11 +415,11 @@ func (repository *jsonRepository) readRangeV8(key Key, offset, limit int) ([]typ
 		}
 		return append([]types.Message(nil), messages[offset:end]...), total, nil
 	}
-	rows, err := repository.v8.v8ReadAllRows(key)
+	rows, err := repository.layout.readAllRows(key)
 	if err != nil {
 		return nil, 0, err
 	}
-	messages := v8RowsToProviderMessages(rows)
+	messages := rowsToProviderMessages(rows)
 	total := len(messages)
 	if offset > total {
 		return nil, total, errors.New("session storage: range offset exceeds history")
@@ -434,20 +431,20 @@ func (repository *jsonRepository) readRangeV8(key Key, offset, limit int) ([]typ
 	return append([]types.Message(nil), messages[offset:end]...), total, nil
 }
 
-func (repository *jsonRepository) readEventTailV8(key Key, tokenBudget, maxUnits int) ([]Event, error) {
-	rows, err := repository.v8.v8ReadAllRows(key)
+func (repository *jsonRepository) readEventTailLayout(key Key, tokenBudget, maxUnits int) ([]Event, error) {
+	rows, err := repository.layout.readAllRows(key)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return []Event{}, nil
 		}
 		return nil, err
 	}
-	return stripV8RowFields(selectEventTail(rows, tokenBudget, maxUnits)), nil
+	return stripRowFields(selectEventTail(rows, tokenBudget, maxUnits)), nil
 }
 
-// stripV8RowFields 去掉 v8 行扩展字段（commit_id/in_out_json/wire_material），
+// stripRowFields 去掉 行扩展字段（commit_id/in_out_json/wire_material），
 // 保持公开 Event 读取接口的旧契约（返回调用方当初提交的行）。
-func stripV8RowFields(rows []Event) []Event {
+func stripRowFields(rows []Event) []Event {
 	out := make([]Event, len(rows))
 	for index, row := range rows {
 		row.CommitID = ""
@@ -458,8 +455,8 @@ func stripV8RowFields(rows []Event) []Event {
 	return out
 }
 
-func (repository *jsonRepository) currentGenerationV8(key Key) (string, error) {
-	headFile, err := repository.v8.readV8ModuleHeadFile(key, v8ModuleMessage)
+func (repository *jsonRepository) currentGenerationLayout(key Key) (string, error) {
+	headFile, err := repository.layout.readModuleHeadFile(key, moduleMessage)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", fs.ErrNotExist
 	}
@@ -467,24 +464,24 @@ func (repository *jsonRepository) currentGenerationV8(key Key) (string, error) {
 		return "", err
 	}
 	if headFile.CommitID == "" {
-		return "v8-0", nil
+		return "layout-0", nil
 	}
-	return "v8-" + headFile.CommitID, nil
+	return "layout-" + headFile.CommitID, nil
 }
 
-// readV8MetaFromDir 读取 v8 会话目录枚举 meta（message head.Meta；显式目录
+// readMetaFromDir 读取 会话目录枚举 meta（message head.Meta；显式目录
 // 路径，不经过 hash 回算）。
-func readV8MetaFromDir(sessionRoot string) (frameworkStorage.SessionMeta, bool) {
+func readMetaFromDir(sessionRoot string) (frameworkStorage.SessionMeta, bool) {
 	headPath := filepath.Join(sessionRoot, "metadata", "message.json")
 	data, err := os.ReadFile(headPath)
 	if err != nil {
 		return frameworkStorage.SessionMeta{}, false
 	}
-	var envelope v8ModuleHeadFile
+	var envelope moduleHeadFile
 	if json.Unmarshal(data, &envelope) != nil {
 		return frameworkStorage.SessionMeta{}, false
 	}
-	head, err := decodeV8HeadPayload[v8MessageHead](envelope)
+	head, err := decodeHeadPayload[messageHead](envelope)
 	if err != nil {
 		return frameworkStorage.SessionMeta{}, false
 	}
@@ -498,14 +495,8 @@ func readV8MetaFromDir(sessionRoot string) (frameworkStorage.SessionMeta, bool) 
 	return meta, true
 }
 
-// v8RolloutUnavailable 用于 v8 会话的 rollout 通道：返回 ErrRolloutUnavailable，
-// 上层回退 message/event 读。
-func (repository *jsonRepository) readRolloutV8(key Key) ([]SessionLogEntry, error) {
-	return nil, ErrRolloutUnavailable
-}
-
-// v8ListMeta 返回项目内 v8 会话的枚举 meta。
-func (repository *jsonRepository) v8ListMeta(projectID string) []frameworkStorage.SessionMeta {
+// listMeta 返回项目内 会话的枚举 meta。
+func (repository *jsonRepository) listMeta(projectID string) []frameworkStorage.SessionMeta {
 	entries, err := os.ReadDir(repository.projectDir(projectID))
 	if os.IsNotExist(err) {
 		return nil
@@ -518,7 +509,7 @@ func (repository *jsonRepository) v8ListMeta(projectID string) []frameworkStorag
 		if !entry.IsDir() {
 			continue
 		}
-		if meta, ok := readV8MetaFromDir(filepath.Join(repository.projectDir(projectID), entry.Name())); ok {
+		if meta, ok := readMetaFromDir(filepath.Join(repository.projectDir(projectID), entry.Name())); ok {
 			result = append(result, meta)
 		}
 	}

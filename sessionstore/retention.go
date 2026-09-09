@@ -1,4 +1,4 @@
-// v8 retention / LRU（M4）。
+// retention / LRU（M4）。
 //
 // 事实模型（my_design §4 I2）：
 //   - LRU 行删除只发生在 watermark 之前（连续前缀），message_id/seq 保持
@@ -18,12 +18,12 @@ import (
 	"time"
 )
 
-// v8RetentionModeManual 是当前唯一实现模式（用户确认后行删除；dry_run=true
+// retentionModeManual 是当前唯一实现模式（用户确认后行删除；dry_run=true
 // 为默认安全姿态，见 my_design §11）。
-const v8RetentionModeManual = "manual"
+const retentionModeManual = "manual"
 
-// v8RetentionHead 是 metadata/retention.json payload。
-type v8RetentionHead struct {
+// retentionHead 是 metadata/retention.json payload。
+type retentionHead struct {
 	SessionID string `json:"session_id"`
 	Mode      string `json:"mode"`
 	DryRun    bool   `json:"dry_run"`
@@ -36,13 +36,13 @@ type v8RetentionHead struct {
 	UpdatedAt          time.Time `json:"updated_at"`
 }
 
-// ErrV8RetentionRequiresConfirm 表示 manual 模式自动淘汰被拒绝。
-var ErrV8RetentionRequiresConfirm = errors.New("v8: LRU deletion requires user confirmation (mode=manual)")
+// ErrRetentionRequiresConfirm 表示 manual 模式自动淘汰被拒绝。
+var ErrRetentionRequiresConfirm = errors.New("session storage: LRU deletion requires user confirmation (mode=manual)")
 
-// ErrV8ForkBeforeWatermark 表示 fork 起点早于 LRU watermark（I7）。
-var ErrV8ForkBeforeWatermark = errors.New("v8: fork start must be >= LRU watermark")
+// ErrForkBeforeWatermark 表示 fork 起点早于 LRU watermark（I7）。
+var ErrForkBeforeWatermark = errors.New("session storage: fork start must be >= LRU watermark")
 
-var v8RetentionDefaults = struct {
+var retentionDefaults = struct {
 	compactFrameThreshold int
 	rawBytesAlert         uint64
 }{
@@ -50,48 +50,48 @@ var v8RetentionDefaults = struct {
 	rawBytesAlert:         256 << 20,
 }
 
-func (store *v8Store) v8ReadRetentionHeadLocked(key Key) (v8RetentionHead, error) {
-	return v8ReadModuleHeadPayload[v8RetentionHead](store, key, v8ModuleRetention)
+func (store *storeEngine) readRetentionHeadLocked(key Key) (retentionHead, error) {
+	return readModuleHeadPayload[retentionHead](store, key, moduleRetention)
 }
 
-// v8ReadRetentionHead 读取 retention head（缺失时先补建默认 manual head）。
-func (store *v8Store) v8ReadRetentionHead(key Key) (v8RetentionHead, error) {
+// readRetentionHead 读取 retention head（缺失时先补建默认 manual head）。
+func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 	store.retentionMu.Lock()
 	defer store.retentionMu.Unlock()
-	head, err := store.v8ReadRetentionHeadLocked(key)
+	head, err := store.readRetentionHeadLocked(key)
 	if err == nil {
 		return head, nil
 	}
-	head = v8RetentionHead{
+	head = retentionHead{
 		SessionID:        key.SessionID,
-		Mode:             v8RetentionModeManual,
+		Mode:             retentionModeManual,
 		DryRun:           true,
-		CompactThreshold: v8RetentionDefaults.compactFrameThreshold,
-		RawBytesAlert:    v8RetentionDefaults.rawBytesAlert,
+		CompactThreshold: retentionDefaults.compactFrameThreshold,
+		RawBytesAlert:    retentionDefaults.rawBytesAlert,
 		UpdatedAt:        time.Now().UTC(),
 	}
-	if _, err := store.publishV8ModuleHead(key, v8ModuleRetention, "retention-init", head, head.UpdatedAt); err != nil {
-		return v8RetentionHead{}, err
+	if _, err := store.publishModuleHead(key, moduleRetention, "retention-init", head, head.UpdatedAt); err != nil {
+		return retentionHead{}, err
 	}
-	_ = store.registerV8Module(key, v8ModuleRetention, store.v8ModulePath(key, v8ModuleRetention))
+	_ = store.registerModule(key, moduleRetention, store.modulePath(key, moduleRetention))
 	return head, nil
 }
 
-// v8LRUDelete 删除 watermark 之前的连续前缀（用户确认后调用）。
+// lRUDelete 删除 watermark 之前的连续前缀（用户确认后调用）。
 // upToSeq 含端点：删除 [watermark+1, upToSeq]。
-func (store *v8Store) v8LRUDelete(key Key, upToSeq uint64, confirmed bool) (v8RetentionHead, error) {
+func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (retentionHead, error) {
 	store.retentionMu.Lock()
 	defer store.retentionMu.Unlock()
-	retention, err := store.v8ReadRetentionHeadLocked(key)
+	retention, err := store.readRetentionHeadLocked(key)
 	if err != nil {
-		retention = v8RetentionHead{
-			SessionID: key.SessionID, Mode: v8RetentionModeManual, DryRun: true,
-			CompactThreshold: v8RetentionDefaults.compactFrameThreshold,
-			RawBytesAlert:    v8RetentionDefaults.rawBytesAlert,
+		retention = retentionHead{
+			SessionID: key.SessionID, Mode: retentionModeManual, DryRun: true,
+			CompactThreshold: retentionDefaults.compactFrameThreshold,
+			RawBytesAlert:    retentionDefaults.rawBytesAlert,
 		}
 	}
-	if retention.Mode == v8RetentionModeManual && !confirmed {
-		return v8RetentionHead{}, ErrV8RetentionRequiresConfirm
+	if retention.Mode == retentionModeManual && !confirmed {
+		return retentionHead{}, ErrRetentionRequiresConfirm
 	}
 	oldWatermark := retention.WatermarkSeq
 	if oldWatermark >= upToSeq {
@@ -99,16 +99,16 @@ func (store *v8Store) v8LRUDelete(key Key, upToSeq uint64, confirmed bool) (v8Re
 	}
 	store.messageMu.Lock()
 	defer store.messageMu.Unlock()
-	messageHead, err := store.v8ReadMessageHeadLocked(key)
+	messageHead, err := store.readMessageHeadLocked(key)
 	if err != nil {
-		return v8RetentionHead{}, err
+		return retentionHead{}, err
 	}
 	if upToSeq > messageHead.LastSeq {
 		upToSeq = messageHead.LastSeq
 	}
-	all, err := store.v8ReadRowsLocked(key, 1, 0)
+	all, err := store.readRowsLocked(key, 1, 0)
 	if err != nil {
-		return v8RetentionHead{}, err
+		return retentionHead{}, err
 	}
 	remaining := make([]Event, 0, len(all))
 	for _, row := range all {
@@ -117,9 +117,9 @@ func (store *v8Store) v8LRUDelete(key Key, upToSeq uint64, confirmed bool) (v8Re
 		}
 	}
 	if len(remaining) > 0 && remaining[0].Seq > upToSeq+1 && remaining[0].Seq <= messageHead.LastSeq {
-		return v8RetentionHead{}, errors.New("v8: LRU delete range is not a continuous prefix")
+		return retentionHead{}, errors.New("session storage: LRU delete range is not a continuous prefix")
 	}
-	oldShards := append([]v8ShardInfo(nil), messageHead.Shards...)
+	oldShards := append([]shardInfo(nil), messageHead.Shards...)
 	newHead := messageHead
 	newHead.Shards = nil
 	newHead.TotalRows = 0
@@ -128,9 +128,9 @@ func (store *v8Store) v8LRUDelete(key Key, upToSeq uint64, confirmed bool) (v8Re
 	if len(remaining) > 0 {
 		newHead.WatermarkMessageID = remaining[0].MessageID
 	}
-	dir := store.v8MessageDir(key)
+	dir := store.messageDir(key)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return v8RetentionHead{}, err
+		return retentionHead{}, err
 	}
 	newFiles := make([]string, 0, 1)
 	for start := 0; start < len(remaining); start += store.shardRows {
@@ -139,16 +139,16 @@ func (store *v8Store) v8LRUDelete(key Key, upToSeq uint64, confirmed bool) (v8Re
 			end = len(remaining)
 		}
 		batch := remaining[start:end]
-		shardPath := store.v8ShardPath(key, batch[0].Seq, batch[len(batch)-1].Seq)
-		if err := writeV8RowsNewFile(shardPath, batch); err != nil {
+		shardPath := store.shardPath(key, batch[0].Seq, batch[len(batch)-1].Seq)
+		if err := writeMessageRowsFile(shardPath, batch); err != nil {
 			for _, path := range newFiles {
 				_ = os.Remove(path)
 			}
-			return v8RetentionHead{}, err
+			return retentionHead{}, err
 		}
-		newHead.Shards = append(newHead.Shards, v8ShardInfo{
+		newHead.Shards = append(newHead.Shards, shardInfo{
 			Path: filepath.Base(shardPath), FromSeq: batch[0].Seq, ToSeq: batch[len(batch)-1].Seq,
-			Count: len(batch), SHA256: v8FileSHA256(shardPath),
+			Count: len(batch), SHA256: fileSHA256(shardPath),
 		})
 		newHead.TotalRows += uint64(len(batch))
 		newFiles = append(newFiles, shardPath)
@@ -156,11 +156,11 @@ func (store *v8Store) v8LRUDelete(key Key, upToSeq uint64, confirmed bool) (v8Re
 	if len(newHead.Shards) == 0 {
 		newHead.Shards = nil
 	}
-	if _, err := store.publishV8ModuleHead(key, v8ModuleMessage, "lru-"+randomID(), newHead, time.Now().UTC()); err != nil {
+	if _, err := store.publishModuleHead(key, moduleMessage, "lru-"+randomID(), newHead, time.Now().UTC()); err != nil {
 		for _, path := range newFiles {
 			_ = os.Remove(path)
 		}
-		return v8RetentionHead{}, err
+		return retentionHead{}, err
 	}
 	// head 已发布后删旧分片（失败只留孤儿文件，reader 以 head 为准）。
 	for _, shard := range oldShards {
@@ -170,14 +170,14 @@ func (store *v8Store) v8LRUDelete(key Key, upToSeq uint64, confirmed bool) (v8Re
 	retention.WatermarkMessageID = newHead.WatermarkMessageID
 	retention.DeletedRows += upToSeq - oldWatermark
 	retention.UpdatedAt = time.Now().UTC()
-	if _, err := store.publishV8ModuleHead(key, v8ModuleRetention, "lru-"+randomID(), retention, retention.UpdatedAt); err != nil {
-		return v8RetentionHead{}, err
+	if _, err := store.publishModuleHead(key, moduleRetention, "lru-"+randomID(), retention, retention.UpdatedAt); err != nil {
+		return retentionHead{}, err
 	}
 	return retention, nil
 }
 
-// writeV8RowsNewFile 用新文件完整写一批行（LRU 重写用）。
-func writeV8RowsNewFile(path string, rows []Event) error {
+// writeMessageRowsFile 用新文件完整写一批行（LRU 重写用）。
+func writeMessageRowsFile(path string, rows []Event) error {
 	_ = os.Remove(path)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -204,7 +204,7 @@ func writeV8RowsNewFile(path string, rows []Event) error {
 	return file.Close()
 }
 
-// v8SortShards 按 FromSeq 排序分片索引（防御读取顺序）。
-func v8SortShards(shards []v8ShardInfo) {
+// sortShards 按 FromSeq 排序分片索引（防御读取顺序）。
+func sortShards(shards []shardInfo) {
 	sort.Slice(shards, func(i, j int) bool { return shards[i].FromSeq < shards[j].FromSeq })
 }

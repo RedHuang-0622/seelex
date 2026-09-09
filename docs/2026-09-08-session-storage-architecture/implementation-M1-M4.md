@@ -88,3 +88,30 @@ ConfigurationSeparate`（GUI 构建脚本契约，与本次存储改动无关）
 - AB 冒烟：`go test . -run TestABSessionChainSmokeLegacyVsV8`，两条链路
   “重启后首请求 == 不重启继续”且跨链路逐条一致；指标与热点分析见
   [ab-session-chain-report.md](./ab-session-chain-report.md)。
+
+## 8. 取代旧链路（2026-09-09 第三轮增补）
+
+- R2 装配核心抽为纯函数 `v8AssembleWireRows`；legacy JSON 会话（旧布局存量
+  数据）把 transcript 行映射为 message 行后走同一 R2 装配——
+  `Router.AssembleWireWorkspace` 对 JSON 两种布局都返回 ok=true，恢复组装
+  在 JSON 后台上完成统一。
+- rollout 重放恢复退役：`resumeSessionCold` 不再调用
+  `LoadSessionRolloutTranscriptWorkspace`；rollout 实现与读接口随后整体
+  删除（见 §9），不再参与运行期恢复。
+
+## 9. 命名与唯一链路收口（2026-09-09 第四轮增补）
+
+- 文件命名去掉版本前缀与文档代号：`v8_*.go` → 语义化文件名（message_rows、
+  module_heads、structural_events、compact_frames、wire_assembler、
+  history_resume_readers、lifecycle、fork_store、retention、search_index、
+  big_tool_result、attempt_cache、storage_settings、json_layout、
+  runtime_api、jsonl_io），测试同理；代码标识符同步去掉 v8/R1/R2/R3
+  前缀（如 v8AssembleWire → assembleWire、v8R1Page → pageHistoryRows、
+  v8R2Result → wireResult），错误文本统一 `session storage:`。
+- 旧链路删除：`rollout.go`/`rollout_test.go`/`transcript_log_test.go`/
+  `legacy_range_test.go` 与 legacy fixture 已删除；rollout 读写接口与
+  `ReadRollout*`、`SessionRolloutPort` 一并移除；`WriteCommit` 为 JSON 唯一
+  写路径（事件行 + 模块 head），不再写 manifest/generation/transcript/
+  rollout；AB 用的 legacy 环境开关已删除。
+- 存量旧 manifest 会话保留只读回退（读路径按 `metadata/guide.json` 判定），
+  仅用于打开历史数据，不参与新写入与新链路演进。

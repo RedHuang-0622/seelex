@@ -6,48 +6,48 @@ import (
 	"time"
 )
 
-func v8M2Fixture(t *testing.T) (*v8Store, Key) {
+func wireFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newV8Store(t.TempDir(), 0)
+	store := newStoreEngine(t.TempDir(), 0)
 	return store, Key{ProjectID: "p-r2", SessionID: "s-r2"}
 }
 
-// v8M2Rows 生成 seq 连续的轮次行（user + assistant 交替）。
-func v8M2Rows(count int) []Event {
+// roundRows 生成 seq 连续的轮次行（user + assistant 交替）。
+func roundRows(count int) []Event {
 	rows := make([]Event, 0, count)
 	for index := 1; index <= count; index++ {
 		if index%2 == 1 {
-			rows = append(rows, v8M1Row(uint64(index), fmt.Sprintf("msg%d", index), "user", EventKindUserInput, fmt.Sprintf("问题-%d", index)))
+			rows = append(rows, messageRow(uint64(index), fmt.Sprintf("msg%d", index), "user", EventKindUserInput, fmt.Sprintf("问题-%d", index)))
 		} else {
-			rows = append(rows, v8M1Row(uint64(index), fmt.Sprintf("msg%d", index), "assistant", EventKindLLM, fmt.Sprintf("回答-%d", index)))
+			rows = append(rows, messageRow(uint64(index), fmt.Sprintf("msg%d", index), "assistant", EventKindLLM, fmt.Sprintf("回答-%d", index)))
 		}
 	}
 	return rows
 }
 
-func v8M2CommitRows(t *testing.T, store *v8Store, key Key, rows []Event) {
+func commitRoundRows(t *testing.T, store *storeEngine, key Key, rows []Event) {
 	t.Helper()
-	if _, err := store.v8MessageCommit(key, "m2-"+fmt.Sprintf("%d", time.Now().UnixNano()), rows); err != nil {
+	if _, err := store.messageCommit(key, "m2-"+fmt.Sprintf("%d", time.Now().UnixNano()), rows); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // ---------- R1 ----------
 
-// TestV8R1PagingStableAndMarksInternal 对应 T-R1-01。
-func TestV8R1PagingStableAndMarksInternal(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	rows := v8M2Rows(100)
-	rows[49] = v8M1Row(50, "msg50", "internal_user", EventKindInternal, "内部材料")
-	rows[50] = v8M1Row(51, "msg51", "context", EventKindInternal, "上下文块")
-	v8M2CommitRows(t, store, key, rows)
+// TestHistoryPagePagingStableAndMarksInternal 对应 T-R1-01。
+func TestHistoryPagePagingStableAndMarksInternal(t *testing.T) {
+	store, key := wireFixture(t)
+	rows := roundRows(100)
+	rows[49] = messageRow(50, "msg50", "internal_user", EventKindInternal, "内部材料")
+	rows[50] = messageRow(51, "msg51", "context", EventKindInternal, "上下文块")
+	commitRoundRows(t, store, key, rows)
 
-	page, total, err := store.v8R1Page(key, 40, 20)
+	page, total, err := store.pageHistoryRows(key, 40, 20)
 	if err != nil || total != 100 || len(page) != 20 {
 		t.Fatalf("page len=%d total=%d err=%v", len(page), total, err)
 	}
 	// 页序稳定：第二次读同页逐条一致。
-	page2, _, err := store.v8R1Page(key, 40, 20)
+	page2, _, err := store.pageHistoryRows(key, 40, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,19 +65,19 @@ func TestV8R1PagingStableAndMarksInternal(t *testing.T) {
 	}
 }
 
-// TestV8R1CompactKeepsOriginalRows 对应 T-R1-02：压缩不删正文，R1 仍能读到
+// TestHistoryPageCompactKeepsOriginalRows 对应 T-R1-02：压缩不删正文，R1 仍能读到
 // 被压缩覆盖的原始行。
-func TestV8R1CompactKeepsOriginalRows(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(60))
-	frame := v8CompactFrame{
+func TestHistoryPageCompactKeepsOriginalRows(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(60))
+	frame := compactFrameRecord{
 		FrameID: "f1", MessageFrom: "msg1", MessageTo: "msg50", MessageFromSeq: 1, MessageToSeq: 50,
 		Summary: "覆盖前 50 行的摘要", BoundaryStatus: "complete",
 	}
-	if _, err := store.v8CompactCommit(key, frame); err != nil {
+	if _, err := store.compactCommit(key, frame); err != nil {
 		t.Fatal(err)
 	}
-	page, total, err := store.v8R1Page(key, 0, 20)
+	page, total, err := store.pageHistoryRows(key, 0, 20)
 	if err != nil || total != 60 || len(page) != 20 {
 		t.Fatalf("page len=%d total=%d err=%v", len(page), total, err)
 	}
@@ -86,15 +86,15 @@ func TestV8R1CompactKeepsOriginalRows(t *testing.T) {
 	}
 }
 
-// TestV8R1LRUPlaceholderNoHoles 对应 T-R1-03：LRU 删除 watermark 前行后，
+// TestHistoryPageLRUPlaceholderNoHoles 对应 T-R1-03：LRU 删除 watermark 前行后，
 // R1 历史读取返回摘要占位；不 panic、不返回空洞错位。
-func TestV8R1LRUPlaceholderNoHoles(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(40))
-	if _, err := store.v8LRUDelete(key, 10, true); err != nil {
+func TestHistoryPageLRUPlaceholderNoHoles(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(40))
+	if _, err := store.lRUDelete(key, 10, true); err != nil {
 		t.Fatal(err)
 	}
-	page, total, err := store.v8R1Page(key, 0, 15)
+	page, total, err := store.pageHistoryRows(key, 0, 15)
 	if err != nil || total != 40 || len(page) != 15 {
 		t.Fatalf("page len=%d total=%d err=%v", len(page), total, err)
 	}
@@ -113,10 +113,10 @@ func TestV8R1LRUPlaceholderNoHoles(t *testing.T) {
 	}
 }
 
-// TestV8R1AssistantToolCallsSingleRow 对应 T-R1-04：assistant 带多个
+// TestHistoryPageAssistantToolCallsSingleRow 对应 T-R1-04：assistant 带多个
 // tool_calls 存储仍是 1 事件行。
-func TestV8R1AssistantToolCallsSingleRow(t *testing.T) {
-	store, key := v8M2Fixture(t)
+func TestHistoryPageAssistantToolCallsSingleRow(t *testing.T) {
+	store, key := wireFixture(t)
 	row := Event{
 		Seq: 1, MessageID: "msg1", Role: "assistant", Kind: EventKindToolCall,
 		ToolCalls: []EventToolCall{
@@ -125,8 +125,8 @@ func TestV8R1AssistantToolCallsSingleRow(t *testing.T) {
 		},
 		CreatedAt: time.Now().UTC(),
 	}
-	v8M2CommitRows(t, store, key, []Event{row})
-	page, total, err := store.v8R1Page(key, 0, 10)
+	commitRoundRows(t, store, key, []Event{row})
+	page, total, err := store.pageHistoryRows(key, 0, 10)
 	if err != nil || total != 1 || len(page) != 1 {
 		t.Fatalf("page len=%d total=%d err=%v", len(page), total, err)
 	}
@@ -137,16 +137,16 @@ func TestV8R1AssistantToolCallsSingleRow(t *testing.T) {
 
 // ---------- R2 ----------
 
-func v8R2Run(t *testing.T, store *v8Store, key Key, cache *v8AttemptCache, budget, k int) v8R2Result {
+func runWireAssembly(t *testing.T, store *storeEngine, key Key, cache *attemptCache, budget, k int) wireResult {
 	t.Helper()
-	result, err := store.v8AssembleWire(key, cache, v8R2Params{Budget: budget, K: k})
+	result, err := store.assembleWire(key, cache, wireParams{Budget: budget, K: k})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return result
 }
 
-func wireRoles(result v8R2Result) []string {
+func wireRoles(result wireResult) []string {
 	roles := make([]string, len(result.Messages))
 	for index, message := range result.Messages {
 		roles[index] = message.Role
@@ -154,35 +154,35 @@ func wireRoles(result v8R2Result) []string {
 	return roles
 }
 
-// TestV8R2StablePrefix 对应 T-R2-01：无 frame、无新消息两次 R2 前缀一致。
-func TestV8R2StablePrefix(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(5))
-	cache := NewV8AttemptCache(0, 0)
-	first := v8R2Run(t, store, key, cache, 200_000, 3)
-	second := v8R2Run(t, store, key, cache, 200_000, 3)
+// TestWireAssemblyStablePrefix 对应 T-R2-01：无 frame、无新消息两次 R2 前缀一致。
+func TestWireAssemblyStablePrefix(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(5))
+	cache := NewAttemptCache(0, 0)
+	first := runWireAssembly(t, store, key, cache, 200_000, 3)
+	second := runWireAssembly(t, store, key, cache, 200_000, 3)
 	if first.PrefixDigest != second.PrefixDigest {
 		t.Fatalf("digest unstable: %s vs %s", first.PrefixDigest, second.PrefixDigest)
 	}
-	if !v8WirePrefixEqual(first.Messages, second.Messages) {
+	if !wirePrefixEqual(first.Messages, second.Messages) {
 		t.Fatal("wire prefix changed without new messages")
 	}
 }
 
-// TestV8R2TailStartsAfterFrame 对应 T-R2-02：frame=[msg3,msg7] → 摘要在前；
+// TestWireAssemblyTailStartsAfterFrame 对应 T-R2-02：frame=[msg3,msg7] → 摘要在前；
 // 首条 tail = msg8。
-func TestV8R2TailStartsAfterFrame(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(10))
-	frame := v8CompactFrame{
+func TestWireAssemblyTailStartsAfterFrame(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(10))
+	frame := compactFrameRecord{
 		FrameID: "f1", MessageFrom: "msg3", MessageTo: "msg7",
 		MessageFromSeq: 3, MessageToSeq: 7,
 		Summary: "### 摘要内容", BoundaryStatus: "complete",
 	}
-	if _, err := store.v8CompactCommit(key, frame); err != nil {
+	if _, err := store.compactCommit(key, frame); err != nil {
 		t.Fatal(err)
 	}
-	result := v8R2Run(t, store, key, nil, 200_000, 3)
+	result := runWireAssembly(t, store, key, nil, 200_000, 3)
 	if len(result.Messages) == 0 || result.Messages[0].Content != "### 摘要内容" {
 		t.Fatalf("summary not first: %+v", result.Messages)
 	}
@@ -197,21 +197,21 @@ func TestV8R2TailStartsAfterFrame(t *testing.T) {
 	}
 }
 
-// TestV8R2FilterInternalRows 对应 T-R2-03：internal/context 行仅
+// TestWireAssemblyFilterInternalRows 对应 T-R2-03：internal/context 行仅
 // wire_material=true 进 wire。
-func TestV8R2FilterInternalRows(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	internalOff := v8M1Row(2, "i-off", "internal_user", EventKindInternal, "不装配")
-	internalOn := v8M1Row(3, "i-on", "internal_user", EventKindInternal, "装配材料")
+func TestWireAssemblyFilterInternalRows(t *testing.T) {
+	store, key := wireFixture(t)
+	internalOff := messageRow(2, "i-off", "internal_user", EventKindInternal, "不装配")
+	internalOn := messageRow(3, "i-on", "internal_user", EventKindInternal, "装配材料")
 	internalOn.WireMaterial = true
 	rows := []Event{
-		v8M1Row(1, "u1", "user", EventKindUserInput, "hi"),
+		messageRow(1, "u1", "user", EventKindUserInput, "hi"),
 		internalOff,
 		internalOn,
-		v8M1Row(4, "a1", "assistant", EventKindLLM, "ok"),
+		messageRow(4, "a1", "assistant", EventKindLLM, "ok"),
 	}
-	v8M2CommitRows(t, store, key, rows)
-	result := v8R2Run(t, store, key, nil, 200_000, 3)
+	commitRoundRows(t, store, key, rows)
+	result := runWireAssembly(t, store, key, nil, 200_000, 3)
 	count := 0
 	for _, message := range result.Messages {
 		if message.Internal {
@@ -226,21 +226,21 @@ func TestV8R2FilterInternalRows(t *testing.T) {
 	}
 }
 
-// TestV8R2CacheKeepsRecentK 对应 T-R2-04：同操作重试 > K，wire 只含最近
+// TestWireAssemblyCacheKeepsRecentK 对应 T-R2-04：同操作重试 > K，wire 只含最近
 // K 条、时间序正确。
-func TestV8R2CacheKeepsRecentK(t *testing.T) {
-	store, key := v8M2Fixture(t)
+func TestWireAssemblyCacheKeepsRecentK(t *testing.T) {
+	store, key := wireFixture(t)
 	rows := []Event{
-		v8M1Row(1, "u1", "user", EventKindUserInput, "跑一下"),
+		messageRow(1, "u1", "user", EventKindUserInput, "跑一下"),
 		{Seq: 2, MessageID: "a1", Role: "assistant", Kind: EventKindToolCall, ToolCalls: []EventToolCall{{ID: "c1", Name: "bash", Arguments: "{}"}}, CreatedAt: time.Now()},
-		v8M1Row(3, "t1", "tool", EventKindToolOutput, "结果"),
+		messageRow(3, "t1", "tool", EventKindToolOutput, "结果"),
 	}
-	v8M2CommitRows(t, store, key, rows)
-	cache := NewV8AttemptCache(0, 0)
+	commitRoundRows(t, store, key, rows)
+	cache := NewAttemptCache(0, 0)
 	for index := 1; index <= 5; index++ {
 		cache.Add(2, "bash", "assistant", fmt.Sprintf("第 %d 次失败", index), "failed")
 	}
-	result := v8R2Run(t, store, key, cache, 200_000, 3)
+	result := runWireAssembly(t, store, key, cache, 200_000, 3)
 	attempts := 0
 	for _, message := range result.Messages {
 		if message.Attempt {
@@ -250,11 +250,11 @@ func TestV8R2CacheKeepsRecentK(t *testing.T) {
 	if attempts != 3 {
 		t.Fatalf("K=3 wire attempts = %d want 3", attempts)
 	}
-	cache2 := NewV8AttemptCache(0, 0)
+	cache2 := NewAttemptCache(0, 0)
 	for index := 1; index <= 5; index++ {
 		cache2.Add(2, "bash", "assistant", fmt.Sprintf("第 %d 次失败", index), "failed")
 	}
-	result2 := v8R2Run(t, store, key, cache2, 200_000, 2)
+	result2 := runWireAssembly(t, store, key, cache2, 200_000, 2)
 	attempts = 0
 	for _, message := range result2.Messages {
 		if message.Attempt {
@@ -266,36 +266,36 @@ func TestV8R2CacheKeepsRecentK(t *testing.T) {
 	}
 }
 
-// TestV8R2CacheClearedPurePersistent 对应 T-R2-05：缓存清空后输出与纯持久
+// TestWireAssemblyCacheClearedPurePersistent 对应 T-R2-05：缓存清空后输出与纯持久
 // 数据装配一致（无尝试说明行）。
-func TestV8R2CacheClearedPurePersistent(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(4))
-	cache := NewV8AttemptCache(0, 0)
+func TestWireAssemblyCacheClearedPurePersistent(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(4))
+	cache := NewAttemptCache(0, 0)
 	cache.Add(2, "op", "assistant", "尝试内容", "failed")
-	withCache := v8R2Run(t, store, key, cache, 200_000, 3)
+	withCache := runWireAssembly(t, store, key, cache, 200_000, 3)
 	cache.Clear()
-	cleared := v8R2Run(t, store, key, cache, 200_000, 3)
+	cleared := runWireAssembly(t, store, key, cache, 200_000, 3)
 	for _, message := range cleared.Messages {
 		if message.Attempt {
 			t.Fatal("attempt row should not exist after clear")
 		}
 	}
-	if cleared.PrefixDigest != v8WireDigest(v8WirePrefixStrip(withCache.Messages)) {
+	if cleared.PrefixDigest != wireDigest(wirePrefixStrip(withCache.Messages)) {
 		t.Fatal("cleared output differs from pure persistent assembly")
 	}
 }
 
-// TestV8R2OrphanToolSkipped 对应 T-R2-06：孤儿 tool 行不进入 wire。
-func TestV8R2OrphanToolSkipped(t *testing.T) {
-	store, key := v8M2Fixture(t)
+// TestWireAssemblyOrphanToolSkipped 对应 T-R2-06：孤儿 tool 行不进入 wire。
+func TestWireAssemblyOrphanToolSkipped(t *testing.T) {
+	store, key := wireFixture(t)
 	rows := []Event{
-		v8M1Row(1, "u1", "user", EventKindUserInput, "问题"),
-		v8M1Row(2, "a1", "assistant", EventKindLLM, "回答"),
+		messageRow(1, "u1", "user", EventKindUserInput, "问题"),
+		messageRow(2, "a1", "assistant", EventKindLLM, "回答"),
 		{Seq: 3, MessageID: "orphan", Role: "tool", Kind: EventKindToolOutput, ToolCallID: "no-declare", Content: "孤儿", CreatedAt: time.Now()},
 	}
-	v8M2CommitRows(t, store, key, rows)
-	result := v8R2Run(t, store, key, nil, 200_000, 3)
+	commitRoundRows(t, store, key, rows)
+	result := runWireAssembly(t, store, key, nil, 200_000, 3)
 	for _, message := range result.Messages {
 		if message.ToolCallID == "no-declare" {
 			t.Fatal("orphan tool row entered wire")
@@ -303,17 +303,17 @@ func TestV8R2OrphanToolSkipped(t *testing.T) {
 	}
 }
 
-// TestV8R2OpenUnitRepairNoSuffixDrop 对应 T-R2-07：流尾残缺工具轮保留 open
+// TestWireAssemblyOpenUnitRepairNoSuffixDrop 对应 T-R2-07：流尾残缺工具轮保留 open
 // 单元 + c2 修复占位，不丢尾。
-func TestV8R2OpenUnitRepairNoSuffixDrop(t *testing.T) {
-	store, key := v8M2Fixture(t)
+func TestWireAssemblyOpenUnitRepairNoSuffixDrop(t *testing.T) {
+	store, key := wireFixture(t)
 	rows := []Event{
-		v8M1Row(1, "u1", "user", EventKindUserInput, "工具"),
+		messageRow(1, "u1", "user", EventKindUserInput, "工具"),
 		{Seq: 2, MessageID: "a1", Role: "assistant", Kind: EventKindToolCall, ToolCalls: []EventToolCall{{ID: "c1", Name: "bash", Arguments: "{}"}, {ID: "c2", Name: "read", Arguments: "{}"}}, CreatedAt: time.Now()},
 		{Seq: 3, MessageID: "t1", Role: "tool", Kind: EventKindToolOutput, ToolCallID: "c1", Content: "结果1", CreatedAt: time.Now()},
 	}
-	v8M2CommitRows(t, store, key, rows)
-	result := v8R2Run(t, store, key, nil, 200_000, 3)
+	commitRoundRows(t, store, key, rows)
+	result := runWireAssembly(t, store, key, nil, 200_000, 3)
 	if !result.Open {
 		t.Fatal("open flag missing")
 	}
@@ -331,18 +331,18 @@ func TestV8R2OpenUnitRepairNoSuffixDrop(t *testing.T) {
 	}
 }
 
-// TestV8R2OpenRepairThenNextUser 对应 T-R2-08：缺失结果后有后续 user →
+// TestWireAssemblyOpenRepairThenNextUser 对应 T-R2-08：缺失结果后有后续 user →
 // 修复后继续，不跳 next user、无重排。
-func TestV8R2OpenRepairThenNextUser(t *testing.T) {
-	store, key := v8M2Fixture(t)
+func TestWireAssemblyOpenRepairThenNextUser(t *testing.T) {
+	store, key := wireFixture(t)
 	rows := []Event{
-		v8M1Row(1, "u1", "user", EventKindUserInput, "第一问"),
+		messageRow(1, "u1", "user", EventKindUserInput, "第一问"),
 		{Seq: 2, MessageID: "a1", Role: "assistant", Kind: EventKindToolCall, ToolCalls: []EventToolCall{{ID: "c1", Name: "bash", Arguments: "{}"}}, CreatedAt: time.Now()},
-		v8M1Row(3, "u2", "user", EventKindUserInput, "第二问"),
-		v8M1Row(4, "a2", "assistant", EventKindLLM, "第二答"),
+		messageRow(3, "u2", "user", EventKindUserInput, "第二问"),
+		messageRow(4, "a2", "assistant", EventKindLLM, "第二答"),
 	}
-	v8M2CommitRows(t, store, key, rows)
-	result := v8R2Run(t, store, key, nil, 200_000, 3)
+	commitRoundRows(t, store, key, rows)
+	result := runWireAssembly(t, store, key, nil, 200_000, 3)
 	roles := wireRoles(result)
 	lastUser := -1
 	for index, role := range roles {
@@ -355,18 +355,18 @@ func TestV8R2OpenRepairThenNextUser(t *testing.T) {
 	}
 }
 
-// TestV8R2BudgetStopsAtUnitBoundary 对应 T-R2-09：预算极小 → 停在完整单元
+// TestWireAssemblyBudgetStopsAtUnitBoundary 对应 T-R2-09：预算极小 → 停在完整单元
 // 边界并置 need_compact。
-func TestV8R2BudgetStopsAtUnitBoundary(t *testing.T) {
-	store, key := v8M2Fixture(t)
+func TestWireAssemblyBudgetStopsAtUnitBoundary(t *testing.T) {
+	store, key := wireFixture(t)
 	rows := []Event{
 		{Seq: 1, MessageID: "u1", Role: "user", Kind: EventKindUserInput, Content: "第一轮长内容", TokenCount: 5, CreatedAt: time.Now()},
 		{Seq: 2, MessageID: "a1", Role: "assistant", Kind: EventKindLLM, Content: "第一轮回答长内容", TokenCount: 5, CreatedAt: time.Now()},
 		{Seq: 3, MessageID: "u2", Role: "user", Kind: EventKindUserInput, Content: "第二轮长内容", TokenCount: 5, CreatedAt: time.Now()},
 		{Seq: 4, MessageID: "a2", Role: "assistant", Kind: EventKindLLM, Content: "第二轮回答长内容", TokenCount: 5, CreatedAt: time.Now()},
 	}
-	v8M2CommitRows(t, store, key, rows)
-	result := v8R2Run(t, store, key, nil, 5, 3)
+	commitRoundRows(t, store, key, rows)
+	result := runWireAssembly(t, store, key, nil, 5, 3)
 	if !result.NeedCompact {
 		t.Fatal("need_compact missing")
 	}
@@ -375,42 +375,42 @@ func TestV8R2BudgetStopsAtUnitBoundary(t *testing.T) {
 	}
 }
 
-// TestV8R2EventMissingNoEffect 对应 T-R2-10：删除 event.json 条目（短窗口
+// TestWireAssemblyEventMissingNoEffect 对应 T-R2-10：删除 event.json 条目（短窗口
 // 崩溃）不影响 R2。
-func TestV8R2EventMissingNoEffect(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(6))
-	if _, err := store.v8EventCommit(key, "ev-1", []v8Event{{Kind: v8EventCompacted, AnchorSeq: 4, Payload: rawJSON(`{"reason":"test"}`)}}); err != nil {
+func TestWireAssemblyEventMissingNoEffect(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(6))
+	if _, err := store.structuralEventCommit(key, "ev-1", []structuralEvent{{Kind: structuralEventCompacted, AnchorSeq: 4, Payload: rawJSON(`{"reason":"test"}`)}}); err != nil {
 		t.Fatal(err)
 	}
-	withEvent := v8R2Run(t, store, key, nil, 200_000, 3)
+	withEvent := runWireAssembly(t, store, key, nil, 200_000, 3)
 	// 删除 event head 与数据（模拟短窗口崩溃：message 已发布、event 缺失）。
-	if err := store.deleteV8Module(key, v8ModuleEvent); err != nil {
+	if err := store.deleteModule(key, moduleEvent); err != nil {
 		t.Fatal(err)
 	}
-	withoutEvent := v8R2Run(t, store, key, nil, 200_000, 3)
+	withoutEvent := runWireAssembly(t, store, key, nil, 200_000, 3)
 	if withEvent.PrefixDigest != withoutEvent.PrefixDigest {
 		t.Fatal("R2 output changed after event deletion")
 	}
 }
 
-// TestV8R2LRUDeletedRegionOnlyFrameAndTail 对应 T-R2-11：LRU 已删旧区后 R2
+// TestWireAssemblyLRUDeletedRegionOnlyFrameAndTail 对应 T-R2-11：LRU 已删旧区后 R2
 // 只依赖最新 frame 与其后 tail，正常输出。
-func TestV8R2LRUDeletedRegionOnlyFrameAndTail(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(20))
-	frame := v8CompactFrame{
+func TestWireAssemblyLRUDeletedRegionOnlyFrameAndTail(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(20))
+	frame := compactFrameRecord{
 		FrameID: "f1", MessageFrom: "msg1", MessageTo: "msg10",
 		MessageFromSeq: 1, MessageToSeq: 10,
 		Summary: "摘要覆盖前 10 行", BoundaryStatus: "complete",
 	}
-	if _, err := store.v8CompactCommit(key, frame); err != nil {
+	if _, err := store.compactCommit(key, frame); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.v8LRUDelete(key, 8, true); err != nil {
+	if _, err := store.lRUDelete(key, 8, true); err != nil {
 		t.Fatal(err)
 	}
-	result := v8R2Run(t, store, key, nil, 200_000, 3)
+	result := runWireAssembly(t, store, key, nil, 200_000, 3)
 	if result.Messages[0].Content != "摘要覆盖前 10 行" {
 		t.Fatalf("frame summary missing: %+v", result.Messages[0])
 	}
@@ -421,18 +421,18 @@ func TestV8R2LRUDeletedRegionOnlyFrameAndTail(t *testing.T) {
 
 // ---------- R3 ----------
 
-// TestV8R3InterruptedAnchorTail 对应 T-R3-01：interrupted 锚 msg95，后续
+// TestResumeTailInterruptedAnchorTail 对应 T-R3-01：interrupted 锚 msg95，后续
 // user 到 msg120 → 只处理断点后尾段。
-func TestV8R3InterruptedAnchorTail(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(120))
-	if _, err := store.v8EventCommit(key, "ev-i", []v8Event{{
-		Kind: v8EventInterrupted, AnchorMessageID: "msg95", AnchorSeq: 95,
+func TestResumeTailInterruptedAnchorTail(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(120))
+	if _, err := store.structuralEventCommit(key, "ev-i", []structuralEvent{{
+		Kind: structuralEventInterrupted, AnchorMessageID: "msg95", AnchorSeq: 95,
 		Payload: rawJSON(`{"reason":"interrupted"}`),
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	point, err := store.v8ResumeTail(key)
+	point, err := store.resumeTail(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,12 +447,12 @@ func TestV8R3InterruptedAnchorTail(t *testing.T) {
 	}
 }
 
-// TestV8R3CompleteNoFakeInterrupted 对应 T-R3-02：消息完整但 interrupted
+// TestResumeTailCompleteNoFakeInterrupted 对应 T-R3-02：消息完整但 interrupted
 // 事件缺失 → 不合成虚假 interrupted。
-func TestV8R3CompleteNoFakeInterrupted(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(10))
-	point, err := store.v8ResumeTail(key)
+func TestResumeTailCompleteNoFakeInterrupted(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(10))
+	point, err := store.resumeTail(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,16 +461,16 @@ func TestV8R3CompleteNoFakeInterrupted(t *testing.T) {
 	}
 }
 
-// TestV8R3IncompleteSynthesizesInterrupted 对应 T-R3-03：消息残缺（缺 tool
+// TestResumeTailIncompleteSynthesizesInterrupted 对应 T-R3-03：消息残缺（缺 tool
 // 结果）且 event 缺失 → 合成 interrupted 并给修复占位。
-func TestV8R3IncompleteSynthesizesInterrupted(t *testing.T) {
-	store, key := v8M2Fixture(t)
+func TestResumeTailIncompleteSynthesizesInterrupted(t *testing.T) {
+	store, key := wireFixture(t)
 	rows := []Event{
-		v8M1Row(1, "u1", "user", EventKindUserInput, "执行"),
+		messageRow(1, "u1", "user", EventKindUserInput, "执行"),
 		{Seq: 2, MessageID: "a1", Role: "assistant", Kind: EventKindToolCall, ToolCalls: []EventToolCall{{ID: "c1", Name: "bash", Arguments: "{}"}}, CreatedAt: time.Now()},
 	}
-	v8M2CommitRows(t, store, key, rows)
-	point, err := store.v8ResumeTail(key)
+	commitRoundRows(t, store, key, rows)
+	point, err := store.resumeTail(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,14 +485,14 @@ func TestV8R3IncompleteSynthesizesInterrupted(t *testing.T) {
 	}
 }
 
-// TestV8R3RestartCacheEmptyR2OK 对应 T-R3-04：重启后尝试缓存为空，恢复后
+// TestResumeTailRestartCacheEmptyR2OK 对应 T-R3-04：重启后尝试缓存为空，恢复后
 // R2 不依赖缓存即可装配、不 panic。
-func TestV8R3RestartCacheEmptyR2OK(t *testing.T) {
-	store, key := v8M2Fixture(t)
-	v8M2CommitRows(t, store, key, v8M2Rows(6))
+func TestResumeTailRestartCacheEmptyR2OK(t *testing.T) {
+	store, key := wireFixture(t)
+	commitRoundRows(t, store, key, roundRows(6))
 	// 重启语义：新建空缓存（进程退出即清空）。
-	fresh := NewV8AttemptCache(0, 0)
-	result, err := store.v8AssembleWire(key, fresh, v8R2Params{Budget: 200_000})
+	fresh := NewAttemptCache(0, 0)
+	result, err := store.assembleWire(key, fresh, wireParams{Budget: 200_000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,8 +505,8 @@ func rawJSON(value string) []byte {
 	return []byte(value)
 }
 
-func v8WirePrefixStrip(messages []v8WireMessage) []v8WireMessage {
-	out := make([]v8WireMessage, 0, len(messages))
+func wirePrefixStrip(messages []wireMessage) []wireMessage {
+	out := make([]wireMessage, 0, len(messages))
 	for _, message := range messages {
 		if !message.Attempt {
 			out = append(out, message)

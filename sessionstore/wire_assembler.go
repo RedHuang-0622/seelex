@@ -1,4 +1,4 @@
-// R2 装配读取器（v8.1 §5）：会话事实 → 下一次发给 LLM 的 wire 消息序列。
+// wire 装配读取器（v8.1 §5）：会话事实 → 下一次发给 LLM 的 wire 消息序列。
 //
 // 定位：
 //   - 纯函数、只读、无副作用；只消费 guide/module head/message/compact +
@@ -17,15 +17,15 @@ import (
 	"encoding/json"
 )
 
-// v8WireRole 常量与 provider role 对齐（internal 材料以 user 形态进入 wire）。
+// wireRole 常量与 provider role 对齐（internal 材料以 user 形态进入 wire）。
 const (
-	v8WireRoleUser      = "user"
-	v8WireRoleAssistant = "assistant"
-	v8WireRoleTool      = "tool"
+	wireRoleUser      = "user"
+	wireRoleAssistant = "assistant"
+	wireRoleTool      = "tool"
 )
 
-// v8WireMessage 是 R2 输出的一条 wire 消息。
-type v8WireMessage struct {
+// wireMessage 是 R2 输出的一条 wire 消息。
+type wireMessage struct {
 	Role             string          `json:"role"`
 	Content          string          `json:"content,omitempty"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
@@ -42,15 +42,15 @@ type v8WireMessage struct {
 	Attempt bool `json:"attempt,omitempty"`
 }
 
-// v8R2Params 是 R2 请求参数（budget 为估算字符预算；K 默认 3；Repair 开关
+// wireParams 是 R2 请求参数（budget 为估算字符预算；K 默认 3；Repair 开关
 // 默认开）。
-type v8R2Params struct {
+type wireParams struct {
 	K      int  `json:"k,omitempty"`
 	Budget int  `json:"budget,omitempty"`
 	Repair bool `json:"repair,omitempty"`
 }
 
-func (params v8R2Params) normalized() v8R2Params {
+func (params wireParams) normalized() wireParams {
 	if params.K <= 0 {
 		params.K = 3
 	}
@@ -61,9 +61,9 @@ func (params v8R2Params) normalized() v8R2Params {
 	return params
 }
 
-// v8R2Result 是 R2 输出。
-type v8R2Result struct {
-	Messages []v8WireMessage `json:"messages"`
+// wireResult 是 R2 输出。
+type wireResult struct {
+	Messages []wireMessage `json:"messages"`
 	// NeedCompact 表示超预算且已停在完整单元边界（由压缩路径处理）。
 	NeedCompact bool `json:"need_compact"`
 	// PrefixDigest 是输出版本摘要（前缀稳定性比较用）。
@@ -76,23 +76,35 @@ type v8R2Result struct {
 	Open bool `json:"open,omitempty"`
 }
 
-// v8AssembleWire 构造 wire 消息序列（R2 主入口）。
-func (store *v8Store) v8AssembleWire(key Key, cache *v8AttemptCache, params v8R2Params) (v8R2Result, error) {
+// assembleWire 构造 wire 消息序列（R2 主入口）。
+func (store *storeEngine) assembleWire(key Key, cache *attemptCache, params wireParams) (wireResult, error) {
 	params = params.normalized()
-	compactHead, err := store.v8ReadCompactHead(key)
+	compactHead, err := store.readCompactHead(key)
 	if err != nil {
-		return v8R2Result{}, err
+		return wireResult{}, err
 	}
 	tailStart := uint64(1)
 	frame := compactHead.LatestFrame
 	if frame != nil {
 		tailStart = frame.MessageToSeq + 1
 	}
-	rows, err := store.v8ReadRows(key, tailStart, 0)
+	rows, err := store.readRows(key, tailStart, 0)
 	if err != nil {
-		return v8R2Result{}, err
+		return wireResult{}, err
 	}
-	state := v8WireState{
+	return assembleWireRows(frame, rows, cache, params), nil
+}
+
+// assembleWireRows 是 wire 装配的纯函数核心：给定最新帧（可空）与尾行，
+// 产出 wire 序列（frame 摘要 + 尾窗 + 最近 K 条尝试 + 预算/修复语义）。
+// legacy JSON 会话经该纯函数复用同一装配逻辑（取代旧链路组装）。
+func assembleWireRows(frame *compactFrameRecord, rows []Event, cache *attemptCache, params wireParams) wireResult {
+	params = params.normalized()
+	tailStart := uint64(1)
+	if frame != nil {
+		tailStart = frame.MessageToSeq + 1
+	}
+	state := wireState{
 		params:   params,
 		declared: make(map[string]bool),
 		pending:  make(map[string]bool),
@@ -100,8 +112,8 @@ func (store *v8Store) v8AssembleWire(key Key, cache *v8AttemptCache, params v8R2
 	if frame != nil {
 		state.summary = frame.Summary
 		if frame.Summary != "" {
-			state.wire = append(state.wire, v8WireMessage{
-				Role:    v8WireRoleAssistant,
+			state.wire = append(state.wire, wireMessage{
+				Role:    wireRoleAssistant,
 				Content: frame.Summary,
 			})
 			state.costs += len(frame.Summary) / 4
@@ -115,29 +127,29 @@ func (store *v8Store) v8AssembleWire(key Key, cache *v8AttemptCache, params v8R2
 	state.attachAttempts(cache)
 	wire := state.wire
 	if state.needCompact {
-		return v8R2Result{
+		return wireResult{
 			Messages:     wire,
 			NeedCompact:  true,
-			PrefixDigest: v8WireDigest(wire),
+			PrefixDigest: wireDigest(wire),
 			TailStartSeq: tailStart,
 			FrameApplied: frame != nil,
 			Open:         state.open,
-		}, nil
+		}
 	}
-	return v8R2Result{
+	return wireResult{
 		Messages:     wire,
-		PrefixDigest: v8WireDigest(wire),
+		PrefixDigest: wireDigest(wire),
 		TailStartSeq: tailStart,
 		FrameApplied: frame != nil,
 		Open:         state.open,
-	}, nil
+	}
 }
 
-// v8WireState 是 R2 装配的增量状态（纯函数内部结构）。
-type v8WireState struct {
-	params  v8R2Params
+// wireState 是 wire 装配的增量状态（纯函数内部结构）。
+type wireState struct {
+	params  wireParams
 	summary string
-	wire    []v8WireMessage
+	wire    []wireMessage
 	// declared 是扫描窗口内全部宣告过的 tool_call_id（孤儿判定）。
 	declared map[string]bool
 	// pending 是等待结果、尚未关闭的 tool_call_id。
@@ -152,7 +164,7 @@ type v8WireState struct {
 	unitOpen bool
 }
 
-func (state *v8WireState) emit(message v8WireMessage, cost int) {
+func (state *wireState) emit(message wireMessage, cost int) {
 	if state.stopped {
 		return
 	}
@@ -175,7 +187,7 @@ func unitCost(row Event) int {
 	return cost
 }
 
-func (state *v8WireState) consumeRow(row Event) {
+func (state *wireState) consumeRow(row Event) {
 	if state.stopped {
 		return
 	}
@@ -190,11 +202,11 @@ func (state *v8WireState) consumeRow(row Event) {
 			state.stopped = true
 			return
 		}
-		state.emit(v8WireMessage{Role: v8WireRoleUser, Content: row.Content, Seq: row.Seq}, cost)
+		state.emit(wireMessage{Role: wireRoleUser, Content: row.Content, Seq: row.Seq}, cost)
 		state.unitOpen = false
 	case EventKindLLM, EventKindToolCall:
-		message := v8WireMessage{
-			Role:             v8WireRoleAssistant,
+		message := wireMessage{
+			Role:             wireRoleAssistant,
 			Content:          row.Content,
 			ReasoningContent: row.ReasoningContent,
 			ToolCalls:        row.ToolCalls,
@@ -226,8 +238,8 @@ func (state *v8WireState) consumeRow(row Event) {
 			state.stopped = true
 			return
 		}
-		state.emit(v8WireMessage{
-			Role:       v8WireRoleTool,
+		state.emit(wireMessage{
+			Role:       wireRoleTool,
 			Content:    row.Content,
 			ToolCallID: row.ToolCallID,
 			Name:       row.Name,
@@ -248,14 +260,14 @@ func (state *v8WireState) consumeRow(row Event) {
 				state.stopped = true
 				return
 			}
-			state.emit(v8WireMessage{Role: v8WireRoleUser, Content: row.Content, Seq: row.Seq, Internal: true}, cost)
+			state.emit(wireMessage{Role: wireRoleUser, Content: row.Content, Seq: row.Seq, Internal: true}, cost)
 		}
 	}
 }
 
 // budgetWouldExceed 判断添加 cost 是否会超软预算；boundaryComplete 表示
 // 当前处于完整单元边界（可安全截断）。
-func (state *v8WireState) budgetWouldExceed(cost int, boundaryComplete bool) bool {
+func (state *wireState) budgetWouldExceed(cost int, boundaryComplete bool) bool {
 	if state.costs+cost <= state.params.Budget {
 		return false
 	}
@@ -269,10 +281,10 @@ func (state *v8WireState) budgetWouldExceed(cost int, boundaryComplete bool) boo
 }
 
 // closePendingBeforeUser 在 user 边界修复仍未完成的工具轮（不跳后续 user）。
-func (state *v8WireState) closePendingBeforeUser() {
+func (state *wireState) closePendingBeforeUser() {
 	for callID := range state.pending {
-		state.emit(v8WireMessage{
-			Role:       v8WireRoleTool,
+		state.emit(wireMessage{
+			Role:       wireRoleTool,
 			ToolCallID: callID,
 			Content:    "【缺失工具结果 · 修复占位】该工具调用未在流中完成，装配层已按安全修复补齐。",
 			Repair:     true,
@@ -283,12 +295,12 @@ func (state *v8WireState) closePendingBeforeUser() {
 }
 
 // closeTail 处理流尾：未完成工具轮保留 open + 修复占位。
-func (state *v8WireState) closeTail() {
+func (state *wireState) closeTail() {
 	if len(state.pending) > 0 {
 		state.open = true
 		for callID := range state.pending {
-			state.emit(v8WireMessage{
-				Role:       v8WireRoleTool,
+			state.emit(wireMessage{
+				Role:       wireRoleTool,
 				ToolCallID: callID,
 				Content:    "【缺失工具结果 · 修复占位】工具轮在流尾保持 open，结果缺失。",
 				Repair:     true,
@@ -300,7 +312,7 @@ func (state *v8WireState) closeTail() {
 }
 
 // attachAttempts 在尝试缓存锚点行后拼接最近 K 条尝试（锚点行必须在 wire 中）。
-func (state *v8WireState) attachAttempts(cache *v8AttemptCache) {
+func (state *wireState) attachAttempts(cache *attemptCache) {
 	if cache == nil {
 		return
 	}
@@ -313,14 +325,14 @@ func (state *v8WireState) attachAttempts(cache *v8AttemptCache) {
 	if len(anchors) == 0 {
 		return
 	}
-	out := make([]v8WireMessage, 0, len(state.wire)+8)
+	out := make([]wireMessage, 0, len(state.wire)+8)
 	for _, message := range state.wire {
 		out = append(out, message)
 		if !anchors[message.Seq] {
 			continue
 		}
 		for _, attempt := range cache.recentForAllAnchors(message.Seq, state.params.K) {
-			out = append(out, v8WireMessage{
+			out = append(out, wireMessage{
 				Role:    roleForAttempt(attempt.Role),
 				Content: attempt.Content,
 				Seq:     message.Seq,
@@ -333,16 +345,16 @@ func (state *v8WireState) attachAttempts(cache *v8AttemptCache) {
 
 func roleForAttempt(role string) string {
 	if role == "" {
-		return v8WireRoleAssistant
+		return wireRoleAssistant
 	}
-	if role == v8WireRoleTool || role == v8WireRoleUser || role == v8WireRoleAssistant {
+	if role == wireRoleTool || role == wireRoleUser || role == wireRoleAssistant {
 		return role
 	}
-	return v8WireRoleAssistant
+	return wireRoleAssistant
 }
 
-// v8WireDigest 计算 wire 序列版本摘要（前缀稳定性比较基础）。
-func v8WireDigest(messages []v8WireMessage) string {
+// wireDigest 计算 wire 序列版本摘要（前缀稳定性比较基础）。
+func wireDigest(messages []wireMessage) string {
 	sum := sha256.New()
 	for _, message := range messages {
 		data, _ := json.Marshal(message)
@@ -352,11 +364,11 @@ func v8WireDigest(messages []v8WireMessage) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-// v8WirePrefixEqual 判断两次 wire 输出的持久前缀逐字节一致：比较去掉
+// wirePrefixEqual 判断两次 wire 输出的持久前缀逐字节一致：比较去掉
 // Attempt 行后的完整序列。
-func v8WirePrefixEqual(left, right []v8WireMessage) bool {
-	strip := func(messages []v8WireMessage) []v8WireMessage {
-		out := make([]v8WireMessage, 0, len(messages))
+func wirePrefixEqual(left, right []wireMessage) bool {
+	strip := func(messages []wireMessage) []wireMessage {
+		out := make([]wireMessage, 0, len(messages))
 		for _, message := range messages {
 			if !message.Attempt {
 				out = append(out, message)
@@ -381,9 +393,9 @@ func v8WirePrefixEqual(left, right []v8WireMessage) bool {
 
 // recentForAllAnchors 归并 AttemptCache.RecentFor 的辅助（按 op 归组取最近
 // K；当前单 op 场景与测试一致）。
-func (cache *v8AttemptCache) recentForAllAnchors(anchorSeq uint64, k int) []v8Attempt {
+func (cache *attemptCache) recentForAllAnchors(anchorSeq uint64, k int) []attempt {
 	seen := make(map[string]bool)
-	var out []v8Attempt
+	var out []attempt
 	items := cache.snapshot()
 	for _, item := range items {
 		if item.AnchorSeq != anchorSeq || seen[item.OperationKey] {
@@ -395,11 +407,11 @@ func (cache *v8AttemptCache) recentForAllAnchors(anchorSeq uint64, k int) []v8At
 	return out
 }
 
-func (cache *v8AttemptCache) snapshot() []v8Attempt {
+func (cache *attemptCache) snapshot() []attempt {
 	if cache == nil {
 		return nil
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	return append([]v8Attempt(nil), cache.items...)
+	return append([]attempt(nil), cache.items...)
 }

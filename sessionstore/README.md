@@ -43,9 +43,9 @@ Every backend partitions first by `project_id`, then isolates `session_id`, then
   索引、big_tool_result blob 由 `v8_*.go` 引擎承载（契约测试 T-M1/T-R1/
   T-R2/T-R3/T-LC/T-FK/T-WM/T-EV/T-SR/T-BL/T-CFG）。
 
-旧会话（存在 `manifest.json` / `transcript.log` / `rollout.jsonl`）按旧布局
-**只读兼容**：目录无 `manifest.json` 即按 v8 创建，读路径以
-`metadata/guide.json` 是否存在分派。SQLite/PostgreSQL/Redis 后端仍为旧
+旧会话（存在 `manifest.json` / `transcript.log`）只保留**只读回退**（存量
+数据保护；不再写入、不再演进）：新会话与新写入一律走 message 事件行 + 模块
+head 布局，读路径按 `metadata/guide.json` 是否存在分派。SQLite/PostgreSQL/Redis 后端仍为旧
 generation snapshot 布局，不在 v8 范围内（见
 [`docs/2026-09-08-session-storage-architecture/README.md`](../docs/2026-09-08-session-storage-architecture/README.md)）。
 
@@ -60,20 +60,14 @@ generation rollover 整代重写 `events.NNN.json`。追加按 `Seq > 已落盘 
 （`ReadEventTail`/`ReadEventRange`）以日志为物理事实源；history/state 仍走
 generation 快照，属于派生投影。
 
-状态：**JSON 后端 v8（新会话）与旧布局（只读兼容）均已落地**；SQLite/PostgreSQL/Redis 的 transcript 仍为 generation
+状态：**JSON 后端统一走 message 事件行 + 模块 head 布局；旧 manifest 会话仅
+只读回退**。SQLite/PostgreSQL/Redis 的 transcript 仍为 generation
 snapshot 布局（有序日志后端子设计见
 [`docs/2026-09-07-session-order-log/README.md`](../docs/2026-09-07-session-order-log/README.md)）。
 
-**rollout 全序日志（P2 垂直切片，JSON 后端已落地）**：每会话新增物理
-append-only `rollout.jsonl`，条目带全局单调 `Ordinal` 与显式 `kind`
-（`session_meta`/对话类；request/lifecycle/compacted 等 kind 为预留常量）。
-`WriteCommit` 在 manifest 切换前把本次提交的对话增量与首条 `session_meta`
-双写进 rollout，并按提交顺序写入 request/turn/token_usage/compacted 生命周期
-条目（全部按指纹幂等）；重复提交幂等、崩溃残尾截断后续写。resume 恢复已
-优先从 rollout 正序重放对话事件重建 transcript/可见会话，rollout 缺失或
-落后时回退旧三读；旧通道（transcript/history/state）继续双写作为兼容投影
-与旧会话兜底。**该 rollout 通道只服务旧布局会话**：v8 会话 `ReadRollout`
-返回 `ErrRolloutUnavailable`，上层回退 record/事件尾读。详见
+**rollout 全序日志（P2 垂直切片）已删除/退役**：运行期恢复不再走 rollout
+重放，JSON 会话统一走 wire 装配（compact 摘要 + 尾窗 + 最近 K 条尝试）；
+rollout 实现文件、读接口与双写已随旧链路删除（历史设计见
 [docs/2026-09-08-session-rollout-p2/README.md](../docs/2026-09-08-session-rollout-p2/README.md)。
 
 ### SQLite/PostgreSQL
