@@ -422,7 +422,7 @@ func (repository *jsonRepository) readRangeLayout(key Key, offset, limit int) ([
 }
 
 func (repository *jsonRepository) readEventTailLayout(key Key, tokenBudget, maxUnits int) ([]Event, error) {
-	rows, err := repository.layout.readAllRows(key)
+	rows, err := repository.layout.readTailRowsForSelection(key, tokenBudget, maxUnits)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return []Event{}, nil

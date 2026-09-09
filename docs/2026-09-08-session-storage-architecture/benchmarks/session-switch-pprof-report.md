@@ -83,6 +83,21 @@ jsonRepository/Router 的外层全局 RWMutex 仍把所有会话串行化。多�
 - 冷/热切换与恢复路径占 CPU 很小（resumeSessionCold cum 3.4%，
   ForkSessionLatest 3.1%），未发现锁等待或阻塞热点。
 
+### 读放大修复（2026-09-09）
+
+已实现尾窗按需读分片（`readTailRowsForSelection`）：正常窗口读只从最后一个
+分片向前累积到 maxUnits/token 预算（含边界余量），不再每轮全量解码整个
+message 文件。5000 行/50 分片实测（`TestTailReadAmplificationMeasurement`）：
+
+| 读取方式 | 耗时 | 说明 |
+|---|---:|---|
+| 全量读（旧行为） | 69.0 ms | 50 个分片全部读+解码 |
+| 尾窗按需读（新） | 3.8 ms | 仅 7 个分片（700 行输入） |
+
+约 **18× 提速**，且 `selectEventTail` 结果与全量读完全一致。该优化直接降低
+“每轮上下文读/冷恢复尾窗”的读放大；长会话全量需求（history 缓存、R1 历史
+翻页）仍按需读取，属后续可继续缓存/分片化点。
+
 ## 5. 结论
 
 - 无死锁、无数据竞争（见 race 全绿记录）、无幻读/跨会话污染。

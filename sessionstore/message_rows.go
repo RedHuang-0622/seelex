@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -499,6 +500,56 @@ func (store *storeEngine) readRowsLocked(key Key, fromSeq, toSeq uint64) ([]Even
 // readAllRows 读取全部已发布行（含 LRU 空洞；已淘汰前缀自然缺失）。
 func (store *storeEngine) readAllRows(key Key) ([]Event, error) {
 	return store.readRows(key, 0, 0)
+}
+
+// readTailRowsForSelection 只读“尾部选择可能需要的”分片，避免每轮
+// 读/恢复都全量解码 message 文件：
+//   - tokenBudget/maxUnits 为正常窗口（maxUnits < 1<<20）时，从最后一个
+//     分片向前累积，直到行数覆盖 maxUnits 边界或 token 预算（含前一
+//     分片作单元边界余量）即停止；
+//   - 全量语义（MaxInt/MaxInt）保持旧行为读全量。
+//
+// 返回的行按 seq 升序，供调用方再做 selectEventTail/完整单元裁剪。
+func (store *storeEngine) readTailRowsForSelection(key Key, tokenBudget, maxUnits int) ([]Event, error) {
+	if tokenBudget <= 0 || maxUnits <= 0 {
+		return []Event{}, nil
+	}
+	if maxUnits >= 1<<20 {
+		return store.readRows(key, 1, 0)
+	}
+	messageLock := store.mu(key, moduleMessage)
+	messageLock.Lock()
+	defer messageLock.Unlock()
+	head, err := store.readMessageHeadLocked(key)
+	if err != nil {
+		return nil, err
+	}
+	if head.LastSeq == 0 {
+		return []Event{}, nil
+	}
+	// 128 行/单元上限的保守估算：覆盖普通轮次 + 边界余量，同时避免把
+	// 整个历史读进来；超长单单元（极端工具链）会退化为读更多分片。
+	rowCap := (maxUnits + 1) * 128
+	var rows []Event
+	collectedTokens := 0
+	for index := len(head.Shards) - 1; index >= 0; index-- {
+		shard := head.Shards[index]
+		shardRows, readErr := readMessageRowsFileAt(filepath.Join(store.messageDir(key), shard.Path))
+		if readErr != nil {
+			return nil, readErr
+		}
+		for _, row := range shardRows {
+			collectedTokens += row.TokenCount
+		}
+		rows = append(shardRows, rows...)
+		if len(rows) >= rowCap {
+			break
+		}
+		if tokenBudget < math.MaxInt && collectedTokens >= tokenBudget && index < len(head.Shards)-1 {
+			break
+		}
+	}
+	return rows, nil
 }
 
 // verifyMessage 校验 message 通道：head 可读、分片存在、文件行数与 head
