@@ -20,7 +20,7 @@ func messages(count int, marker string) []types.Message {
 }
 
 func TestJSONRepositoryCommitsShardGenerationsAtomically(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

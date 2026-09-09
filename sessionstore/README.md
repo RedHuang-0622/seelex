@@ -26,6 +26,31 @@ Every backend partitions first by `project_id`, then isolates `session_id`, then
 
 ### JSON
 
+**v8 布局（M1–M4 已实现，新会话默认）**：新会话不再写 generation/manifest，
+而是：
+
+- `session/metadata/guide.json` 只做读索引/路由；各模块 head 独立成
+  `metadata/<module>.json`（message/event/compact/stack/lifecycle/retention/
+  subagent/toolresult），写锁按模块、各自原子发布；
+- 正文事实源 = `session/message/message_{m}_{n}.jsonl` 事件行（分片按默认
+  100 行），`commit_id` 标记一次持久提交，同提交多行共享；head 是发布点，
+  崩溃残尾/未发布行按恢复语义截断或不可见；
+- provider history = 会话目录 `history.json` 可替换缓存（Read/ReadRange
+  语义与旧版一致；事件行才是权威）；
+- 结构性 EVENT（compacted/fork/subagent/interrupted/…）独立进
+  `session/event/event_{m}_{n}.jsonl`；compact 摘要帧进 `compact.jsonl`；
+- LRU 行删除、draft/queue lifecycle、fork session/subagent、单会话关键词
+  索引、big_tool_result blob 由 `v8_*.go` 引擎承载（契约测试 T-M1/T-R1/
+  T-R2/T-R3/T-LC/T-FK/T-WM/T-EV/T-SR/T-BL/T-CFG）。
+
+旧会话（存在 `manifest.json` / `transcript.log` / `rollout.jsonl`）按旧布局
+**只读兼容**：目录无 `manifest.json` 即按 v8 创建，读路径以
+`metadata/guide.json` 是否存在分派。SQLite/PostgreSQL/Redis 后端仍为旧
+generation snapshot 布局，不在 v8 范围内（见
+[`docs/2026-09-08-session-storage-architecture/README.md`](../docs/2026-09-08-session-storage-architecture/README.md)）。
+
+旧布局写路径描述（保留作 legacy 语义参考）：
+
 每次写创建新的 `generation-*` 目录，将 history 按 100 条分 shard，最后原子替换 `manifest.json` 指向新 generation。旧 generation 不会在 manifest 提交前暴露。
 
 **transcript 事件按增量追加到会话目录 `transcript.log`**（append-only JSONL，一行一个
@@ -35,7 +60,7 @@ generation rollover 整代重写 `events.NNN.json`。追加按 `Seq > 已落盘 
 （`ReadEventTail`/`ReadEventRange`）以日志为物理事实源；history/state 仍走
 generation 快照，属于派生投影。
 
-状态：**JSON 后端已落地**；SQLite/PostgreSQL/Redis 的 transcript 仍为 generation
+状态：**JSON 后端 v8（新会话）与旧布局（只读兼容）均已落地**；SQLite/PostgreSQL/Redis 的 transcript 仍为 generation
 snapshot 布局（有序日志后端子设计见
 [`docs/2026-09-07-session-order-log/README.md`](../docs/2026-09-07-session-order-log/README.md)）。
 
@@ -47,7 +72,8 @@ append-only `rollout.jsonl`，条目带全局单调 `Ordinal` 与显式 `kind`
 条目（全部按指纹幂等）；重复提交幂等、崩溃残尾截断后续写。resume 恢复已
 优先从 rollout 正序重放对话事件重建 transcript/可见会话，rollout 缺失或
 落后时回退旧三读；旧通道（transcript/history/state）继续双写作为兼容投影
-与旧会话兜底。详见
+与旧会话兜底。**该 rollout 通道只服务旧布局会话**：v8 会话 `ReadRollout`
+返回 `ErrRolloutUnavailable`，上层回退 record/事件尾读。详见
 [docs/2026-09-08-session-rollout-p2/README.md](../docs/2026-09-08-session-rollout-p2/README.md)。
 
 ### SQLite/PostgreSQL
@@ -170,6 +196,7 @@ StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 
 ```text
 go test ./sessionstore -count=1
+go test ./sessionstore -run 'TestV8' -count=1   # M1–M4 契约（65 条）
 ```
 
 ## Atomic transcript and result contract

@@ -10,12 +10,7 @@ import (
 )
 
 func TestJSONLegacyReadRangeUsesBoundedTailAfterCountProbe(t *testing.T) {
-	root := t.TempDir()
-	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer router.Close()
+	router := newLegacyTestRouter(t)
 
 	key := Key{ProjectID: "project", SessionID: "legacy-session"}
 	router.SetWorkspace(key.ProjectID)

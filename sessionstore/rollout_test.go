@@ -21,7 +21,7 @@ func rolloutFixtureEvents(now time.Time) []Event {
 //   - 对话类事件按提交顺序追加、Ordinal 连续；
 //   - 重复提交同一批事件幂等（不重复行、Ordinal 不回退）。
 func TestJSONRolloutAppendOnlyOrdinals(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestJSONRolloutAppendOnlyOrdinals(t *testing.T) {
 // TestJSONRolloutCrashTailResumes 验证崩溃残尾（未换行半行）被跳过，后续
 // 提交从已落盘 head 之后续写 Ordinal（无空洞）。
 func TestJSONRolloutCrashTailResumes(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestJSONRolloutCrashTailResumes(t *testing.T) {
 //   - state 携带 context_compactions 时写 compacted；
 //   - 重复提交幂等（指纹去重）。
 func TestJSONRolloutLifecycleKinds(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestJSONRolloutLifecycleKinds(t *testing.T) {
 // TestJSONRolloutReplayMatchesEventOrder 验证 rollout 正序重放得到的对话事件
 // 与 transcript.log 事件序一致（P2 resume 用 rollout 重建 transcript 的前提）。
 func TestJSONRolloutReplayMatchesEventOrder(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestJSONRolloutReplayMatchesEventOrder(t *testing.T) {
 // TestJSONRolloutAppendOnlyNoRewrite 验证 I-LOG-3：正常提交只追加，已落盘
 // 前缀逐字节不变（无原地改写/重排/删除；崩溃残尾截断是唯一例外路径）。
 func TestJSONRolloutAppendOnlyNoRewrite(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -116,14 +116,9 @@ func TestFrameworkEventSurvivesGenerationRollover(t *testing.T) {
 // events.json（含已被 rollover 隐藏的旧 generation），旧执行事实与新增
 // 事件合并可见，重复 Seq 幂等去重。
 func TestFrameworkEventLegacyMigration(t *testing.T) {
-	repository, err := Open(context.Background(), Config{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")})
+	jsonRepo, err := newLegacyJSONRepository(filepath.Join(t.TempDir(), "json"), 0)
 	if err != nil {
 		t.Fatal(err)
-	}
-	defer repository.Close()
-	jsonRepo, ok := repository.(*jsonRepository)
-	if !ok {
-		t.Fatal("expected JSON repository")
 	}
 	key := Key{ProjectID: "project", SessionID: "session"}
 

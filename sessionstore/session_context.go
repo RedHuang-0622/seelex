@@ -207,6 +207,10 @@ type SessionContextRecord struct {
 type SessionContextStore struct {
 	router    *Router
 	sessionID string
+	// resolverMu 只保护 workspaceResolver（与 DurableHistory 同语义：会话级
+	// 键落盘不依赖 Router active write scope）。
+	resolverMu        sync.RWMutex
+	workspaceResolver func() string
 
 	mu     sync.RWMutex
 	record SessionContextRecord
@@ -222,6 +226,33 @@ func NewSessionContextStore(router *Router, sessionID string) *SessionContextSto
 			SchemaVersion: SessionContextSchemaVersion,
 		},
 	}
+}
+
+// SetWorkspaceResolver 注入会话绑定 workspace 解析器（PushCompact 的 v8
+// compact 桥接与 Persist 使用显式键，不污染其它会话）。
+func (s *SessionContextStore) SetWorkspaceResolver(resolver func() string) {
+	if s == nil {
+		return
+	}
+	s.resolverMu.Lock()
+	s.workspaceResolver = resolver
+	s.resolverMu.Unlock()
+}
+
+func (s *SessionContextStore) workspace() string {
+	if s == nil {
+		return ""
+	}
+	s.resolverMu.RLock()
+	resolver := s.workspaceResolver
+	s.resolverMu.RUnlock()
+	if resolver != nil {
+		return resolver()
+	}
+	if s.router != nil {
+		return s.router.Workspace()
+	}
+	return ""
 }
 
 // Router 返回绑定的事件/历史路由（DurableHistory 装配接缝：滑动窗口加载
@@ -518,7 +549,7 @@ func (s *SessionContextStore) PopSkill(skillID string) error {
 
 // PushCompact 在窗口外压缩时压入摘要帧。
 func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
-	return s.update(func(record *SessionContextRecord) error {
+	err := s.update(func(record *SessionContextRecord) error {
 		if frame.SegmentID == "" {
 			return fmt.Errorf("session context: compact frame requires segment_id")
 		}
@@ -568,6 +599,16 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 		record.CompactStack = append(record.CompactStack, frame)
 		return nil
 	})
+	if err != nil || s.router == nil || s.sessionID == "" {
+		return err
+	}
+	// v8 运行期接线：把运行期 compact 帧桥接进 v8 compact 通道（帧摘要进入
+	// R2 装配）；非 v8 布局由 Router 返回 ok=false。桥接失败不回滚已持久化
+	// 的 context 栈（compact.jsonl 可重建，下次提交重试/忽略）。
+	if ok, bridgeErr := s.router.CommitCompactFrameWorkspace(s.workspace(), s.sessionID, frame); bridgeErr == nil && ok {
+		_, _ = s.router.RetentionAdvisoryWorkspace(s.workspace(), s.sessionID)
+	}
+	return nil
 }
 
 // update 在加锁下执行栈操作并持久化 state blob。

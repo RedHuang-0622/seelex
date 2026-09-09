@@ -302,6 +302,13 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			transcript = service.components.sessions.RecordConversationTranscript(record)
 		}
 		engineHistory = task_context.TranscriptTailHistory(transcript, budget.TargetAfterCompaction, 4)
+		// R2 运行期接线（v8 新链路）：直接装配 compact 摘要 + 尾窗 + 最近
+		// K 条尝试；非 v8 布局 ok=false 时保留旧装配结果。
+		if wire, wireOK, wireErr := service.components.sessions.AssembleWireHistoryWorkspace(location, sessionID, budget.TargetAfterCompaction, 3); wireErr != nil {
+			return fmt.Errorf("assemble wire history %q: %w", sessionID, wireErr)
+		} else if wireOK && len(wire) > 0 {
+			engineHistory = wire
+		}
 		recordHistory := service.components.sessions.RecordConversationResumeHistory(record, budget.TargetAfterCompaction, 4)
 		if len(engineHistory) == 0 || (latestUser != "" && !service.components.sessions.HistoryContainsUser(engineHistory, latestUser)) {
 			engineHistory = recordHistory
@@ -322,6 +329,13 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		}
 	} else if err := service.Deps.Engine.ReplaceHistory(sessionID, engineHistory); err != nil {
 		return fmt.Errorf("replace engine history: %w", err)
+	}
+	// v8 lifecycle 运行期接线：重启恢复队列（发送未确认项回 queued；
+	// message.json 已发布项出队）。非 v8 布局 ok=false 为正常空操作。
+	if _, lifecycleOK, lifecycleErr := service.components.sessions.LifecycleRecover(location, sessionID); lifecycleErr != nil {
+		return fmt.Errorf("lifecycle recover %q: %w", sessionID, lifecycleErr)
+	} else {
+		_ = lifecycleOK
 	}
 	// 会话级 system prompt：切换路径必须按目标会话路由，禁止触碰全局活跃
 	// 引擎（运行中会话的 Session 锁可能被 ChatStream 全程持有，误触会阻塞

@@ -27,6 +27,15 @@ func (repository *jsonRepository) ReadEventRange(_ context.Context, key Key, fro
 	if err := key.validate(); err != nil {
 		return nil, err
 	}
+	if repository.v8Active(key) {
+		repository.mu.RLock()
+		defer repository.mu.RUnlock()
+		rows, err := repository.v8.v8ReadRows(key, fromSeq, toSeq)
+		if err != nil {
+			return nil, err
+		}
+		return stripV8RowFields(rows), nil
+	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 	directory := repository.sessionDir(key)

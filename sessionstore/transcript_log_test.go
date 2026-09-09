@@ -13,7 +13,7 @@ import (
 // 每会话 transcript.log，而不是随 generation rollover 整代重写事件分片；重复
 // 提交同一事件列表幂等（不产生重复行）。
 func TestJSONTranscriptLogAppendOnly(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newLegacyJSONRepository(t.TempDir(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

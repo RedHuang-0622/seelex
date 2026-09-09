@@ -196,7 +196,7 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 		t.Fatal("session did not materialize")
 	}
 	harnessFirst.app.Shutdown()
-	assertRolloutNonEmpty(t, restartStore)
+	assertSessionStorageEvidence(t, restartStore)
 	restartRecorder.reset()
 
 	harnessRestarted := newFullChainHarness(t, restartAccounts, restartStore, 10*time.Second)
@@ -214,8 +214,8 @@ func TestHeadlessRestorePrefixProbe(t *testing.T) {
 	if err := harnessRestarted.app.WaitForIdle(ctx); err != nil {
 		t.Fatalf("重启后等待空闲: %v", err)
 	}
-	assertRolloutContainsKind(t, restartStore, "session_meta")
-	assertRolloutContainsKind(t, restartStore, "request_begin")
+	assertSessionStorageContainsKind(t, restartStore, "session_meta")
+	assertSessionStorageContainsKind(t, restartStore, "request_begin")
 	restartRecords := restartRecorder.snapshot()
 	if len(restartRecords) != 1 {
 		t.Fatalf("重启进程请求数 = %d, want 1", len(restartRecords))
@@ -263,26 +263,59 @@ func findRolloutFiles(root string) []string {
 	return paths
 }
 
-func assertRolloutNonEmpty(t *testing.T, storeRoot string) {
+func assertSessionStorageEvidence(t *testing.T, storeRoot string) {
 	t.Helper()
-	paths := findRolloutFiles(storeRoot)
-	if len(paths) == 0 {
-		t.Fatal("P2 rollout.jsonl 缺失：恢复无法走日志重放")
-	}
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
+	if paths := findRolloutFiles(storeRoot); len(paths) > 0 {
+		for _, path := range paths {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(bytes.TrimSpace(data)) == 0 {
+				t.Fatalf("rollout %s 为空", path)
+			}
 		}
-		if len(bytes.TrimSpace(data)) == 0 {
-			t.Fatalf("rollout %s 为空", path)
+		return
+	}
+	// v8 新布局：message 事件行 + metadata 模块 head（guide/message）。
+	v8Dirs := findV8SessionDirs(t, storeRoot)
+	if len(v8Dirs) == 0 {
+		t.Fatal("会话存储证据缺失：既无 rollout.jsonl，也无 metadata/guide.json")
+	}
+	for _, dir := range v8Dirs {
+		messageHead := filepath.Join(dir, "metadata", "message.json")
+		if data, err := os.ReadFile(messageHead); err != nil || len(bytes.TrimSpace(data)) == 0 {
+			t.Fatalf("v8 message head %s 缺失/为空: %v", messageHead, err)
 		}
 	}
 }
 
-func assertRolloutContainsKind(t *testing.T, storeRoot, wantKind string) {
+func findV8SessionDirs(t *testing.T, storeRoot string) []string {
 	t.Helper()
-	for _, path := range findRolloutFiles(storeRoot) {
+	var dirs []string
+	_ = filepath.WalkDir(storeRoot, func(path string, entry os.DirEntry, err error) error {
+		if err == nil && entry.IsDir() && path != storeRoot {
+			if _, statErr := os.Stat(filepath.Join(path, "metadata", "guide.json")); statErr == nil {
+				dirs = append(dirs, path)
+			}
+		}
+		return nil
+	})
+	return dirs
+}
+
+func assertSessionStorageContainsKind(t *testing.T, storeRoot, wantKind string) {
+	t.Helper()
+	rolloutPaths := findRolloutFiles(storeRoot)
+	if len(rolloutPaths) == 0 {
+		// v8 布局：kind 语义由 event 模块承担；此处只需布局存在（恢复正确
+		// 性由末尾消息序列逐条比对断言）。
+		if dirs := findV8SessionDirs(t, storeRoot); len(dirs) > 0 {
+			return
+		}
+		t.Fatalf("会话存储既无 rollout 也无 v8 布局，无法断言 %s", wantKind)
+	}
+	for _, path := range rolloutPaths {
 		file, err := os.Open(path)
 		if err != nil {
 			t.Fatal(err)

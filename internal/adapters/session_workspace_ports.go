@@ -440,6 +440,28 @@ func (port SessionPort) LoadSessionRolloutTranscriptWorkspace(workspaceID, id st
 	return adaptTranscriptEvents(events), len(events) > 0, nil
 }
 
+// AssembleWireHistoryWorkspace 实现 session_runtime.SessionWireAssemblerPort：
+// v8 会话走 R2 装配（compact 摘要 + 尾窗 + 最近 K 条尝试）；非 v8/后端返回
+// ok=false，装配方回退旧链路。
+func (port SessionPort) AssembleWireHistoryWorkspace(projectID, sessionID string, budget, k int) ([]contract.EngineMessage, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil, false, nil
+	}
+	messages, ok, err := port.Manager.Router().AssembleWireWorkspace(projectID, sessionID, budget, k)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	return adaptMessages(messages), true, nil
+}
+
+// LifecycleRecoverWorkspace 实现 session_runtime.SessionLifecycleRecoverPort。
+func (port SessionPort) LifecycleRecoverWorkspace(projectID, sessionID string) (int, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return 0, false, nil
+	}
+	return port.Manager.Router().LifecycleRecoverWorkspace(projectID, sessionID)
+}
+
 func (port SessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (model.StoredToolResult, error) {
 	result, err := port.granular().ToolResult(workspaceID, id, resultRef)
 	if err != nil {

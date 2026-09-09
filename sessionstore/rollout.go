@@ -140,6 +140,9 @@ func (repository *jsonRepository) ReadRollout(_ context.Context, key Key) ([]Ses
 	if err := key.validate(); err != nil {
 		return nil, err
 	}
+	if repository.v8Active(key) {
+		return repository.readRolloutV8(key)
+	}
 	repository.mu.RLock()
 	defer repository.mu.RUnlock()
 	entries, _, err := repository.readRolloutLocked(repository.sessionDir(key))

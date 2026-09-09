@@ -71,3 +71,20 @@
 - 根包/门面方法持续膨胀而外围看不到类型化端口（如 `r.Tasks()`/`r.MCP()`）。
 
 本规则适用于一切新增代码，包括 AI 子代理的自主拆分/实现。
+
+## 会话存储约定（2026-09-09，配合 docs/2026-09-08-session-storage-architecture/my_design.md）
+
+下列约定是会话存储设计（my_design v8）的权威口径，实现与讨论请保持一致：
+
+- **message 条目 = 事件行**：沿用当前代码约定；assistant 的 tool_call 与其 result 属于
+  同一逻辑轮次，但仍是独立事件行；分片按事件行数（默认 100 行/片）。
+- **message 区间含端点**：`[message_from, message_to]` 两端都包含。
+- **EVENT.anchor_message_id = 事件发生在该行之后**（从下一事件行起生效），不是包含本行。
+- **commit_id = 一次持久提交**：一次提交可含多条事件行，同提交内的行共享 commit_id。
+- **成功判定**：无重试 = 工具正常返回即成功；有重试 = 成功后再读确认（verify 目标状态）
+  后才落最终成功 message。
+- **LRU 删除只发生在 watermark 之前**：message_id/seq 保持空洞、不重编号；
+  fork 起点必须 ≥ watermark。
+
+本段是纯约定，不豁免 MEMORY.md 顶部“危险操作铁律”；任何对 `.seelex`/dist 数据的清理仍须
+先备份、先中文预警、先确认。
