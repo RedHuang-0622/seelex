@@ -102,3 +102,19 @@ go test . -run 'TestStorageConcurrentSessionLockProfile|TestSessionSwitchHotCold
 - 若真实出现 10 秒级加载，最可能落在“长会话全量读/翻页/未压缩历史”而非锁；
   本次尾窗按需读已消除每轮/恢复路径的读放大，历史全量读取的缓存化是后续
   最值得继续的方向（本次不继续优化）。
+
+## 9. 真实 API 冒烟 + pprof（2026-09-09）
+
+测试：`TestRealAPISessionRestoreSmoke`（`-tags manualsmoke2`，真实账号配置
+不透明复制、不打印内容）。场景：记住身份 → 4 轮长材料对话 → 进程重启 →
+`ResumeSession` 冷恢复 → 再次提问，断言恢复后延续“最近一轮指令”（真实
+端到端会话恢复可用）。
+
+- 结果：**通过**，单次运行墙钟 ≈ 7.5 s（含两轮 harness 启动 + 5 次真实
+  LLM 往返 + 冷恢复）。
+- CPU：采样主体为 `runtime.cgocall`（网络/文件 syscall，76%），业务侧为
+  JSON 解码/编码与 CloneRuntimeState 等装配拷贝，无锁等待热点。
+- 内存：整轮 alloc ≈ 23.8 MB；运行结束 inuse ≈ 4.5 MB，无驻留增长。
+- 经验说明：断言“恢复后仍能回答第一轮身份”在当前“尾窗装配”设计下不成立
+  （早期内容依赖压缩摘要/记忆承接），故冒烟断言改为验证最近轮次连续性；
+  若要把“早期身份跨重启可回忆”做成验收，需先接通压缩/记忆承载路径。
