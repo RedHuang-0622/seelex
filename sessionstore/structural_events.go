@@ -77,8 +77,8 @@ func emptyEventHead(key Key) eventHeadRecord {
 
 // structuralEventCommit 追加一提交的 EVENT 行并原子发布 event.json。
 func (store *storeEngine) structuralEventCommit(key Key, commitID string, events []structuralEvent) (eventHeadRecord, error) {
-	store.eventMu.Lock()
-	defer store.eventMu.Unlock()
+	store.mu(key, moduleEvent).Lock()
+	defer store.mu(key, moduleEvent).Unlock()
 	if _, err := store.ensureLayoutGuide(key); err != nil {
 		return eventHeadRecord{}, err
 	}
@@ -128,8 +128,8 @@ func (store *storeEngine) readEventHeadLocked(key Key) (eventHeadRecord, error) 
 }
 
 func (store *storeEngine) readEventHead(key Key) (eventHeadRecord, error) {
-	store.eventMu.Lock()
-	defer store.eventMu.Unlock()
+	store.mu(key, moduleEvent).Lock()
+	defer store.mu(key, moduleEvent).Unlock()
 	return store.readEventHeadLocked(key)
 }
 
@@ -414,8 +414,8 @@ func appendStructuralEvents(path string, rows []structuralEvent) error {
 
 // readEvents 读取 EVENT（[from, to] 含端点；0 = 全量）。
 func (store *storeEngine) readEvents(key Key, fromID, toID uint64) ([]structuralEvent, error) {
-	store.eventMu.Lock()
-	defer store.eventMu.Unlock()
+	store.mu(key, moduleEvent).Lock()
+	defer store.mu(key, moduleEvent).Unlock()
 	head, err := store.readEventHeadLocked(key)
 	if err != nil {
 		return nil, err

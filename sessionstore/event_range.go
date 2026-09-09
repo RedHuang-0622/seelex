@@ -28,8 +28,6 @@ func (repository *jsonRepository) ReadEventRange(_ context.Context, key Key, fro
 		return nil, err
 	}
 	if repository.active(key) {
-		repository.mu.RLock()
-		defer repository.mu.RUnlock()
 		rows, err := repository.layout.readRows(key, fromSeq, toSeq)
 		if err != nil {
 			return nil, err

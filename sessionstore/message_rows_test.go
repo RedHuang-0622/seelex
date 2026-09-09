@@ -207,7 +207,7 @@ func TestMessageRowsIndependentModuleLocks(t *testing.T) {
 				HeadSeq:   uint64(i),
 				Items:     []stackItem{{ItemID: fmt.Sprintf("item-%d", i), Status: "active"}},
 			}
-			if err := store.commitModuleHead(key, moduleStack, &store.stackMu, fmt.Sprintf("sc-%d", i), payload); err != nil {
+			if err := store.commitModuleHead(key, moduleStack, fmt.Sprintf("sc-%d", i), payload); err != nil {
 				errs <- err
 				return
 			}

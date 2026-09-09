@@ -53,8 +53,8 @@ func (store *storeEngine) compactFilePath(key Key) string {
 // compactCommit 追加摘要帧并原子发布 compact head。frame.MessageToSeq
 // 必须 ≤ message head.LastSeq（只能压缩已发布行）。
 func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (compactHeadRecord, error) {
-	store.compactMu.Lock()
-	defer store.compactMu.Unlock()
+	store.mu(key, moduleCompact).Lock()
+	defer store.mu(key, moduleCompact).Unlock()
 	if _, err := store.ensureLayoutGuide(key); err != nil {
 		return compactHeadRecord{}, err
 	}
@@ -74,9 +74,9 @@ func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (comp
 			return current, nil
 		}
 	}
-	store.messageMu.Lock()
+	store.mu(key, moduleMessage).Lock()
 	messageHead, err := store.readMessageHeadLocked(key)
-	store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Unlock()
 	if err != nil {
 		return compactHeadRecord{}, err
 	}
@@ -122,8 +122,8 @@ func (store *storeEngine) readCompactHeadLocked(key Key) (compactHeadRecord, err
 
 // readCompactHead 返回最新 compact head（缺失 = 零值，不报错）。
 func (store *storeEngine) readCompactHead(key Key) (compactHeadRecord, error) {
-	store.compactMu.Lock()
-	defer store.compactMu.Unlock()
+	store.mu(key, moduleCompact).Lock()
+	defer store.mu(key, moduleCompact).Unlock()
 	return store.readCompactHeadLocked(key)
 }
 

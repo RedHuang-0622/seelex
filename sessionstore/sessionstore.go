@@ -268,6 +268,13 @@ type Router struct {
 	configPath  string
 	defaultPath string
 	projectID   string
+	// opsMu/activeOps/opsCond 统计在途 repository 操作：Repository 切换与
+	// Close 只在活跃操作归零后关闭旧后端；数据操作本身不再持有 router.mu，
+	// 不同会话的读写可并行（跨会话锁竞争消除）。
+	opsMu     sync.Mutex
+	activeOps int
+	opsCond   *sync.Cond
+	opsOnce   sync.Once
 }
 
 func NewRouter(configPath, defaultPath string) (*Router, error) {
@@ -286,7 +293,9 @@ func NewRouter(configPath, defaultPath string) (*Router, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Router{repository: repository, config: config, configPath: configPath, defaultPath: defaultPath}, nil
+	router := &Router{repository: repository, config: config, configPath: configPath, defaultPath: defaultPath}
+	router.opsCond = sync.NewCond(&router.opsMu)
+	return router, nil
 }
 
 func (router *Router) SetWorkspace(projectID string) {
@@ -625,6 +634,7 @@ func (router *Router) Configure(ctx context.Context, config Config) error {
 		return err
 	}
 	router.mu.Lock()
+	router.waitOpsIdleLocked()
 	old := router.repository
 	router.repository = replacement
 	router.config = normalized
@@ -634,6 +644,7 @@ func (router *Router) Configure(ctx context.Context, config Config) error {
 
 func (router *Router) Close() error {
 	router.mu.Lock()
+	router.waitOpsIdleLocked()
 	repository := router.repository
 	router.repository = nil
 	router.mu.Unlock()
@@ -644,21 +655,62 @@ func (router *Router) Close() error {
 }
 
 func (router *Router) withRepository(fn func(Repository, string) error) error {
-	router.mu.RLock()
-	defer router.mu.RUnlock()
-	if router.repository == nil {
+	repository, projectID, ok := router.acquireRepository(router.projectID)
+	if !ok {
 		return errors.New("session storage: repository is closed")
 	}
-	return fn(router.repository, router.projectID)
+	defer router.releaseRepository()
+	return fn(repository, projectID)
 }
 
 func (router *Router) withRepositoryAt(projectID string, fn func(Repository, string) error) error {
-	router.mu.RLock()
-	defer router.mu.RUnlock()
-	if router.repository == nil {
+	repository, resolvedProjectID, ok := router.acquireRepository(projectID)
+	if !ok {
 		return errors.New("session storage: repository is closed")
 	}
-	return fn(router.repository, strings.TrimSpace(projectID))
+	defer router.releaseRepository()
+	return fn(repository, strings.TrimSpace(resolvedProjectID))
+}
+
+// acquireRepository 短暂取锁获取当前 repository 并登记在途操作；数据操作在
+// 锁外执行（跨会话并行），Configure/Close 会在活跃归零后再关闭旧后端。
+func (router *Router) acquireRepository(projectID string) (Repository, string, bool) {
+	router.mu.RLock()
+	repository := router.repository
+	projectID = strings.TrimSpace(projectID)
+	if repository != nil {
+		router.ensureOpsCond()
+		router.opsMu.Lock()
+		router.activeOps++
+		router.opsMu.Unlock()
+	}
+	router.mu.RUnlock()
+	return repository, projectID, repository != nil
+}
+
+func (router *Router) releaseRepository() {
+	router.opsMu.Lock()
+	router.activeOps--
+	if router.activeOps == 0 {
+		router.opsCond.Broadcast()
+	}
+	router.opsMu.Unlock()
+}
+
+func (router *Router) ensureOpsCond() {
+	router.opsOnce.Do(func() {
+		router.opsCond = sync.NewCond(&router.opsMu)
+	})
+}
+
+// waitOpsIdleLocked 等待在途操作归零（调用方持 router.mu）。
+func (router *Router) waitOpsIdleLocked() {
+	router.ensureOpsCond()
+	router.opsMu.Lock()
+	for router.activeOps > 0 {
+		router.opsCond.Wait()
+	}
+	router.opsMu.Unlock()
 }
 
 func Open(ctx context.Context, config Config) (Repository, error) {
@@ -813,8 +865,6 @@ func (repository *jsonRepository) WriteCommit(_ context.Context, key Key, commit
 			return errors.New("session storage: result ref is required")
 		}
 	}
-	repository.mu.Lock()
-	defer repository.mu.Unlock()
 	return repository.writeCommitLayout(key, commit)
 }
 func (repository *jsonRepository) Read(_ context.Context, key Key) ([]types.Message, error) {
@@ -822,8 +872,6 @@ func (repository *jsonRepository) Read(_ context.Context, key Key) ([]types.Mess
 		return nil, err
 	}
 	if repository.active(key) {
-		repository.mu.RLock()
-		defer repository.mu.RUnlock()
 		return repository.readAllLayoutMessages(key)
 	}
 	repository.mu.RLock()
@@ -837,8 +885,6 @@ func (repository *jsonRepository) ReadRange(ctx context.Context, key Key, offset
 		return nil, 0, errors.New("session storage: invalid range")
 	}
 	if repository.active(key) {
-		repository.mu.RLock()
-		defer repository.mu.RUnlock()
 		return repository.readRangeLayout(key, offset, limit)
 	}
 	repository.mu.RLock()
@@ -1003,8 +1049,6 @@ func (repository *jsonRepository) ReadEventTail(_ context.Context, key Key, toke
 		return nil, err
 	}
 	if repository.active(key) {
-		repository.mu.RLock()
-		defer repository.mu.RUnlock()
 		return repository.readEventTailLayout(key, tokenBudget, maxUnits)
 	}
 	repository.mu.RLock()
@@ -1030,8 +1074,6 @@ func (repository *jsonRepository) ReadToolResult(_ context.Context, key Key, res
 		return ToolResult{}, errors.New("session storage: result ref is required")
 	}
 	if repository.active(key) {
-		repository.mu.RLock()
-		defer repository.mu.RUnlock()
 		if refs, refsErr := repository.layout.readToolResultRefs(key); refsErr == nil && !containsValue(refs, resultRef) {
 			return ToolResult{}, fs.ErrNotExist
 		}
@@ -1076,8 +1118,6 @@ func (repository *jsonRepository) ListToolResults(_ context.Context, key Key) ([
 		return nil, err
 	}
 	if repository.active(key) {
-		repository.mu.RLock()
-		defer repository.mu.RUnlock()
 		refs, refsErr := repository.layout.readToolResultRefs(key)
 		var results []ToolResult
 		if refsErr == nil {
@@ -1155,8 +1195,6 @@ func (repository *jsonRepository) CurrentGeneration(_ context.Context, key Key) 
 		return "", err
 	}
 	if repository.active(key) {
-		repository.mu.RLock()
-		defer repository.mu.RUnlock()
 		return repository.currentGenerationLayout(key)
 	}
 	repository.mu.RLock()
@@ -1374,8 +1412,6 @@ func (repository *jsonRepository) ReadProjectRecord(_ context.Context, projectID
 }
 
 func (repository *jsonRepository) List(_ context.Context, projectID string) ([]frameworkStorage.SessionMeta, error) {
-	repository.mu.RLock()
-	defer repository.mu.RUnlock()
 	entries, err := os.ReadDir(repository.projectDir(projectID))
 	if os.IsNotExist(err) {
 		return []frameworkStorage.SessionMeta{}, nil

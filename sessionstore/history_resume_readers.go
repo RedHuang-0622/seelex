@@ -29,13 +29,13 @@ func (store *storeEngine) pageHistoryRows(key Key, offset, limit int) ([]history
 	if limit <= 0 {
 		limit = 20
 	}
-	store.messageMu.Lock()
+	store.mu(key, moduleMessage).Lock()
 	head, err := store.readMessageHeadLocked(key)
 	if err != nil {
-		store.messageMu.Unlock()
+		store.mu(key, moduleMessage).Unlock()
 		return nil, 0, err
 	}
-	store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Unlock()
 	total := int(head.LastSeq)
 	if offset >= total {
 		return []historyReadRow{}, total, nil

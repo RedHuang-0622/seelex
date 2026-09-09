@@ -33,8 +33,8 @@ type subagentHead struct {
 
 // registerSubagent 把子代理登记进父会话 subagent 模块。
 func (store *storeEngine) registerSubagent(key Key, info subagentInfo) error {
-	store.subagentMu.Lock()
-	defer store.subagentMu.Unlock()
+	store.mu(key, moduleSubagent).Lock()
+	defer store.mu(key, moduleSubagent).Unlock()
 	head, err := readModuleHeadPayload[subagentHead](store, key, moduleSubagent)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -54,8 +54,8 @@ func (store *storeEngine) registerSubagent(key Key, info subagentInfo) error {
 
 // readSubagents 读取父会话子代理清单。
 func (store *storeEngine) readSubagents(key Key) ([]subagentInfo, error) {
-	store.subagentMu.Lock()
-	defer store.subagentMu.Unlock()
+	store.mu(key, moduleSubagent).Lock()
+	defer store.mu(key, moduleSubagent).Unlock()
 	head, err := readModuleHeadPayload[subagentHead](store, key, moduleSubagent)
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -116,7 +116,7 @@ func (store *storeEngine) forkSession(parentKey, childKey Key, fromSeq uint64) e
 			}
 		}
 		childStack := stackHead{SessionID: childKey.SessionID, Items: items}
-		if err := store.commitModuleHead(childKey, moduleStack, &store.stackMu, "fork-"+randomID(), childStack); err != nil {
+		if err := store.commitModuleHead(childKey, moduleStack, "fork-"+randomID(), childStack); err != nil {
 			_ = os.RemoveAll(store.sessionRoot(childKey))
 			return err
 		}

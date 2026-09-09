@@ -61,8 +61,8 @@ func (store *storeEngine) readLifecycleHeadLocked(key Key) (lifecycleHead, error
 }
 
 func (store *storeEngine) readLifecycleHead(key Key) (lifecycleHead, error) {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	return store.readLifecycleHeadLocked(key)
 }
 
@@ -118,8 +118,8 @@ func (store *storeEngine) publishLifecycleLocked(key Key, commitID string, head 
 // draftToQueue 草稿 D → 入队（同一次 lifecycle 提交：queue 含 D，draft
 // 清空）。T-LC-01。
 func (store *storeEngine) draftToQueue(key Key, content string) error {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return err
@@ -134,8 +134,8 @@ func (store *storeEngine) draftToQueue(key Key, content string) error {
 
 // saveDraft 保存/更新草稿。
 func (store *storeEngine) saveDraft(key Key, content string) error {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return err
@@ -149,8 +149,8 @@ func (store *storeEngine) saveDraft(key Key, content string) error {
 //   - 队列空 → 立即发送（不进队，T-LC-03）；
 //   - 队列非空 → 入队尾（不插队，T-LC-04）。
 func (store *storeEngine) draftDirectSend(key Key, content string) error {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return err
@@ -168,8 +168,8 @@ func (store *storeEngine) draftDirectSend(key Key, content string) error {
 
 // queueEnqueue 队尾入队（草稿直发失败/外部入队）。
 func (store *storeEngine) queueEnqueue(key Key, requestID, content string) error {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return err
@@ -192,8 +192,8 @@ func (store *storeEngine) queueFront(key Key) (queueItem, bool) {
 
 // queueSendFront 队首进入发送态（可发即发；Q1 阻塞时 Q2 不插队）。
 func (store *storeEngine) queueSendFront(key Key) (queueItem, error) {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return queueItem{}, err
@@ -217,8 +217,8 @@ func (store *storeEngine) queueSendFront(key Key) (queueItem, error) {
 // queueConfirmSent 确认发送成功（message.json 已发布对应 request）后出队。
 // 非法迁移 queued→sent（无发送记录）拒绝（T-LC-09）。
 func (store *storeEngine) queueConfirmSent(key Key, requestID string) error {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return err
@@ -239,8 +239,8 @@ func (store *storeEngine) queueConfirmSent(key Key, requestID string) error {
 
 // queueSendFailed 队首发送失败 → 内容回草稿，队列移除该项（T-LC-05）。
 func (store *storeEngine) queueSendFailed(key Key) error {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return err
@@ -257,8 +257,8 @@ func (store *storeEngine) queueSendFailed(key Key) error {
 
 // directSendFailed 草稿直发失败 → 内容回草稿（T-LC-06）。
 func (store *storeEngine) directSendFailed(key Key, content string) error {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return err
@@ -271,16 +271,16 @@ func (store *storeEngine) directSendFailed(key Key, content string) error {
 // queueRecover 重启恢复：已发送但 message.json 未发布的项回 queued 重发
 // 一次（T-LC-07）；message.json 已发布的项直接出队（T-LC-08）。
 func (store *storeEngine) queueRecover(key Key) ([]queueItem, error) {
-	store.lifecycleMu.Lock()
-	defer store.lifecycleMu.Unlock()
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
 	head, err := store.lifecycleHeadOrEmpty(key)
 	if err != nil {
 		return nil, err
 	}
 	// 读取 message head 中已发布 request（TaskID）集合。
-	store.messageMu.Lock()
+	store.mu(key, moduleMessage).Lock()
 	rows, err := store.readAllRowsLocked(key)
-	store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Unlock()
 	if err != nil {
 		return nil, err
 	}

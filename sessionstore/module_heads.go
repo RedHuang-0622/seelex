@@ -80,12 +80,20 @@ type moduleHeadFile struct {
 // storeEngine 是 会话存储布局 JSON 引擎。root 与 jsonRepository.root 同语义
 // （sessions-json 根目录）；shardRows <= 0 时取默认 100 行/片。
 //
-// 并发语义：单数据根单进程写者（I10），写锁按模块；读共享同一把模块锁。
-// 模块间不设全会话元数据写锁（my_design §2 规则 2）。
+// 并发语义：写锁按“会话 × 模块”分片（单会话单写者、跨会话并行）；同会话
+// 不同模块互不阻塞，不设全会话/全仓库写锁。sessionMu 注册表本身只承担
+// 取锁指针的短临界区（registryMu），数据保护全部落在各会话模块锁上。
 type storeEngine struct {
 	root      string
 	shardRows int
 
+	registryMu sync.RWMutex
+	sessionMu  map[string]*sessionModuleLocks
+	metaMu     sync.Mutex // metadata 目录/guide 自愈读与注册（低频短临界区）
+}
+
+// sessionModuleLocks 是单个会话的模块锁集合。
+type sessionModuleLocks struct {
 	messageMu   sync.Mutex
 	eventMu     sync.Mutex
 	compactMu   sync.Mutex
@@ -94,7 +102,6 @@ type storeEngine struct {
 	retentionMu sync.Mutex
 	subagentMu  sync.Mutex
 	toolMu      sync.Mutex
-	metaMu      sync.Mutex // metadata 目录/guide 自愈读与注册
 }
 
 // readSelfHealHook 是自愈读的测试钩子：head 首次校验失败后、重读前被
@@ -107,7 +114,53 @@ func newStoreEngine(root string, shardRows int) *storeEngine {
 	if shardRows <= 0 {
 		shardRows = defaultMessageShardSize
 	}
-	return &storeEngine{root: filepath.Clean(root), shardRows: shardRows}
+	return &storeEngine{
+		root:      filepath.Clean(root),
+		shardRows: shardRows,
+		sessionMu: make(map[string]*sessionModuleLocks),
+	}
+}
+
+// mu 返回指定会话 + 模块的锁（按会话分片；注册表短临界区，不参与 IO）。
+func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex {
+	id := store.sessionRoot(key)
+	store.registryMu.RLock()
+	locks := store.sessionMu[id]
+	store.registryMu.RUnlock()
+	if locks != nil {
+		return locks.mutexFor(mod)
+	}
+	store.registryMu.Lock()
+	locks = store.sessionMu[id]
+	if locks == nil {
+		locks = &sessionModuleLocks{}
+		store.sessionMu[id] = locks
+	}
+	store.registryMu.Unlock()
+	return locks.mutexFor(mod)
+}
+
+func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
+	switch mod {
+	case moduleMessage:
+		return &locks.messageMu
+	case moduleEvent:
+		return &locks.eventMu
+	case moduleCompact:
+		return &locks.compactMu
+	case moduleStack:
+		return &locks.stackMu
+	case moduleLifecycle:
+		return &locks.lifecycleMu
+	case moduleRetention:
+		return &locks.retentionMu
+	case moduleSubagent:
+		return &locks.subagentMu
+	case moduleToolResult:
+		return &locks.toolMu
+	default:
+		return &locks.messageMu
+	}
 }
 
 // layout 判定：目录内存在 metadata/guide.json = 新布局。
@@ -314,15 +367,16 @@ func decodeHeadPayload[T any](head moduleHeadFile) (T, error) {
 // commitModuleHead 是通用模块提交：先确保布局，再原子发布模块 head。
 // 调用方传入对应模块锁（stack/lifecycle/retention/subagent 等无独立数据
 // 文件的模块 head 也用此入口）。
-func (store *storeEngine) commitModuleHead(key Key, mod storageModule, mu *sync.Mutex, commitID string, payload any) error {
+func (store *storeEngine) commitModuleHead(key Key, mod storageModule, commitID string, payload any) error {
 	if _, err := store.ensureLayoutGuide(key); err != nil {
 		return err
 	}
 	if commitID == "" {
 		commitID = randomID()
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	moduleLock := store.mu(key, mod)
+	moduleLock.Lock()
+	defer moduleLock.Unlock()
 	if _, err := store.publishModuleHead(key, mod, commitID, payload, time.Now().UTC()); err != nil {
 		return err
 	}

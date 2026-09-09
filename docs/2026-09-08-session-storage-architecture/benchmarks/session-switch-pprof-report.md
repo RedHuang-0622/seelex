@@ -47,6 +47,30 @@ jsonRepository/Router 的外层全局 RWMutex 仍把所有会话串行化。多�
 落盘时的锁竞争属于当前真实热点；优化方向为把外层锁收敛到
 “config/Repository 原子切换”与“单会话单写者”粒度，不再跨会话共享同一把锁。
 
+### 优化实施后复测（2026-09-09 同机）
+
+已将实现落到代码并复测：
+
+- Router：`withRepository*` 不再在数据操作全程持有 `router.mu`，改为
+  acquire/release 在途计数（`activeOps` + cond），仅在 Repository 切换与
+  Close 时等待归零；
+- jsonRepository：JSON 读写不再持仓库级 `repository.mu`（文件/head 由引擎
+  会话锁保护）；
+- 引擎：模块锁从“仓库级单实例”改为“会话 × 模块”注册表
+  （`storeEngine.sessionMu`），单会话单写者、跨会话并行。
+
+复测 mutex/block 指标：
+
+| 指标 | 优化前 | 优化后 | 变化 |
+|---|---:|---:|---|
+| mutex delay 总量 | 53.1 s | 11.5 s | 约 4.6× 下降 |
+| SaveCommitWorkspace 锁延迟占比 | 79%（42.1 s） | 58%（6.7 s，跨会话全局锁已消除） | 显著下降 |
+| 探查场景总时长 | 12.7 s | 6.2 s | 约 2× |
+
+剩余等待为**同会话**读与写之间对会话 message 锁的串行（单会话单写者 +
+读需等待该会话提交完成），不再跨会话互相阻塞；进一步可把 message 锁升级为
+读写锁或按请求异步 actor 解耦同会话读写，属于下一步。
+
 ## 4. 数据热点（cpu/mem profile）
 
 - 读侧：`readRowsLocked → io.ReadAll + decodeMessageRows` 分配占比最高

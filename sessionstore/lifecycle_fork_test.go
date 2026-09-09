@@ -262,7 +262,7 @@ func TestForkStoreStackSnapshotRebuiltByAnchor(t *testing.T) {
 			{ItemID: "item-3", ItemMessageID: "msg6", Status: "pending"},
 		},
 	}
-	if err := store.commitModuleHead(key, moduleStack, &store.stackMu, "s1", stack); err != nil {
+	if err := store.commitModuleHead(key, moduleStack, "s1", stack); err != nil {
 		t.Fatal(err)
 	}
 	childKey := Key{ProjectID: key.ProjectID, SessionID: "child-stack"}

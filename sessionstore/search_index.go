@@ -39,9 +39,9 @@ func (store *storeEngine) searchIndexPath(key Key) string {
 // rebuildSearchIndex 从 message 全量重建索引（可重建断言）；LRU 已删前缀
 // 以 compact 摘要 token 承接（SummaryOnly）。
 func (store *storeEngine) rebuildSearchIndex(key Key) error {
-	store.messageMu.Lock()
+	store.mu(key, moduleMessage).Lock()
 	head, err := store.readMessageHeadLocked(key)
-	store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Unlock()
 	if err != nil {
 		return err
 	}

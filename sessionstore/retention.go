@@ -56,8 +56,8 @@ func (store *storeEngine) readRetentionHeadLocked(key Key) (retentionHead, error
 
 // readRetentionHead 读取 retention head（缺失时先补建默认 manual head）。
 func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
-	store.retentionMu.Lock()
-	defer store.retentionMu.Unlock()
+	store.mu(key, moduleRetention).Lock()
+	defer store.mu(key, moduleRetention).Unlock()
 	head, err := store.readRetentionHeadLocked(key)
 	if err == nil {
 		return head, nil
@@ -80,8 +80,8 @@ func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 // lRUDelete 删除 watermark 之前的连续前缀（用户确认后调用）。
 // upToSeq 含端点：删除 [watermark+1, upToSeq]。
 func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (retentionHead, error) {
-	store.retentionMu.Lock()
-	defer store.retentionMu.Unlock()
+	store.mu(key, moduleRetention).Lock()
+	defer store.mu(key, moduleRetention).Unlock()
 	retention, err := store.readRetentionHeadLocked(key)
 	if err != nil {
 		retention = retentionHead{
@@ -97,8 +97,8 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 	if oldWatermark >= upToSeq {
 		return retention, nil
 	}
-	store.messageMu.Lock()
-	defer store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
 	messageHead, err := store.readMessageHeadLocked(key)
 	if err != nil {
 		return retentionHead{}, err

@@ -95,8 +95,8 @@ func (store *storeEngine) readMessageHead(key Key) (messageHead, error) {
 // （≤ head 且 commit_id 相同的重复提交为幂等空操作）。同 commit_id 重试不
 // 产生重复行、head 不双跳。
 func (store *storeEngine) messageCommit(key Key, commitID string, rows []Event) (messageHead, error) {
-	store.messageMu.Lock()
-	defer store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
 	return store.messageCommitLocked(key, commitID, rows)
 }
 
@@ -455,8 +455,8 @@ func fileSHA256(path string) string {
 // readRows 按 seq 区间读取已发布行（[from, to] 含端点；越界安全）。
 // from == 0 表示从首行开始；to == 0 表示到 head 末尾。
 func (store *storeEngine) readRows(key Key, fromSeq, toSeq uint64) ([]Event, error) {
-	store.messageMu.Lock()
-	defer store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
 	return store.readRowsLocked(key, fromSeq, toSeq)
 }
 
@@ -504,8 +504,8 @@ func (store *storeEngine) readAllRows(key Key) ([]Event, error) {
 // verifyMessage 校验 message 通道：head 可读、分片存在、文件行数与 head
 // 一致、head 末行 = 最后已发布行；LRU 空洞（锚 ≤ watermark）不算损坏。
 func (store *storeEngine) verifyMessage(key Key) error {
-	store.messageMu.Lock()
-	defer store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
 	head, err := store.readMessageHeadLocked(key)
 	if err != nil {
 		return err
@@ -538,8 +538,8 @@ func (store *storeEngine) verifyMessage(key Key) error {
 
 // messageCount 返回当前物理行数（淘汰后不包含前缀空洞）。
 func (store *storeEngine) messageCount(key Key) (uint64, error) {
-	store.messageMu.Lock()
-	defer store.messageMu.Unlock()
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
 	head, err := store.readMessageHeadLocked(key)
 	if err != nil {
 		return 0, err

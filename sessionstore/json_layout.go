@@ -116,8 +116,8 @@ type toolResultHead struct {
 
 // publishToolResultRefs 在全部结果文件写完后原子发布 refs 清单。
 func (store *storeEngine) publishToolResultRefs(key Key, refs []string) error {
-	store.toolMu.Lock()
-	defer store.toolMu.Unlock()
+	store.mu(key, moduleToolResult).Lock()
+	defer store.mu(key, moduleToolResult).Unlock()
 	if _, err := store.ensureLayoutGuide(key); err != nil {
 		return err
 	}
@@ -145,8 +145,6 @@ func (repository *jsonRepository) assembleWireWorkspace(key Key, budget, k int) 
 	if err := key.validate(); err != nil {
 		return nil, false, err
 	}
-	repository.mu.RLock()
-	defer repository.mu.RUnlock()
 	params := wireParams{Budget: budget, K: k}
 	if repository.active(key) {
 		result, err := repository.layout.assembleWire(key, repository.attempts, params)
@@ -197,8 +195,6 @@ func (repository *jsonRepository) commitCompactFrameWorkspace(key Key, frame Com
 	if !repository.active(key) {
 		return false, nil
 	}
-	repository.mu.Lock()
-	defer repository.mu.Unlock()
 	fromSeq, toSeq, ok := repository.resolveCompactRange(key, frame)
 	if !ok {
 		return false, nil
@@ -252,9 +248,7 @@ func (repository *jsonRepository) retentionAdvisoryWorkspace(key Key) (Retention
 	if !repository.active(key) {
 		return advisory, nil
 	}
-	repository.mu.RLock()
-	defer repository.mu.RUnlock()
-	advisory.Layout = "v8"
+	advisory.Layout = "session"
 	compactHead, err := repository.layout.readCompactHead(key)
 	if err != nil {
 		return advisory, err
@@ -289,8 +283,6 @@ func (repository *jsonRepository) lruDeleteWorkspace(key Key, upToSeq uint64, co
 	if !repository.active(key) {
 		return false, nil
 	}
-	repository.mu.Lock()
-	defer repository.mu.Unlock()
 	if _, err := repository.layout.lRUDelete(key, upToSeq, confirmed); err != nil {
 		return false, err
 	}
@@ -303,8 +295,6 @@ func (repository *jsonRepository) lifecycleRecoverWorkspace(key Key) (int, bool,
 	if !repository.active(key) {
 		return 0, false, nil
 	}
-	repository.mu.Lock()
-	defer repository.mu.Unlock()
 	resent, err := repository.layout.queueRecover(key)
 	if err != nil {
 		return 0, true, err
