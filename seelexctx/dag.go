@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	frameworktypes "github.com/RedHuang-0622/Seele/types"
@@ -135,6 +136,7 @@ type compactionDAGState struct {
 	summarySource string
 	frame         sessionstore.CompactFrame
 	started       map[string]bool
+	startedMu     sync.Mutex
 }
 
 // Execute 运行压缩 DAG 并返回拼装完成的 CompactFrame（不含 PushCompact；
@@ -152,7 +154,7 @@ func (d *CompactionDAG) Execute(ctx context.Context, input CompactionInput) (ses
 			return state.frame, nil
 		} else if ctx.Err() != nil {
 			return sessionstore.CompactFrame{}, ctx.Err()
-		} else if len(state.started) > 0 {
+		} else if state.startedCount() > 0 {
 			// 节点已开始执行后失败：不重复跑（避免重复模型调用/副作用）。
 			return sessionstore.CompactFrame{}, fmt.Errorf("seelexctx: compaction dag run: %w", runErr)
 		}
@@ -236,7 +238,15 @@ func (d *CompactionDAG) runSerial(ctx context.Context, state *compactionDAGState
 }
 
 func markStarted(state *compactionDAGState, id string) {
+	state.startedMu.Lock()
+	defer state.startedMu.Unlock()
 	state.started[id] = true
+}
+
+func (state *compactionDAGState) startedCount() int {
+	state.startedMu.Lock()
+	defer state.startedMu.Unlock()
+	return len(state.started)
 }
 
 // selectRangeNode：溢出单元切分（纯计算；request 首尾在 merge 按覆盖范围
