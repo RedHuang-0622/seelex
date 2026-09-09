@@ -132,8 +132,10 @@ func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []E
 			if _, err := store.publishModuleHead(key, moduleMessage, commitID, head, now); err != nil {
 				return messageHead{}, err
 			}
-			return head, store.registerModule(key, moduleMessage, store.modulePath(key, moduleMessage))
+			store.rememberMessageAnchor(key, head)
+			return head, store.registerModule(key, moduleMessage)
 		}
+		store.rememberMessageAnchor(key, head)
 		return head, nil
 	}
 	if err := store.appendRowsLocked(key, &head, delta); err != nil {
@@ -154,11 +156,38 @@ func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []E
 	if _, err := store.publishModuleHead(key, moduleMessage, commitID, head, now); err != nil {
 		return messageHead{}, err
 	}
-	if err := store.registerModule(key, moduleMessage, store.modulePath(key, moduleMessage)); err != nil {
+	// 发布锚坐标：栈通道取锚因此不必打开 metadata/message.json（跨模块
+	// 「读者持柄 → rename 发布失败」窗口）。
+	store.rememberMessageAnchor(key, head)
+	if err := store.registerModule(key, moduleMessage); err != nil {
 		// guide 注册失败不阻断已发布 head（读路径以模块 head 为准，I9）。
 		_ = err
 	}
 	return head, nil
+}
+
+// messageAnchorPoint 是 message 通道最近一次发布的坐标（内存锚）。
+type messageAnchorPoint struct {
+	messageID string
+	seq       uint64
+}
+
+// rememberMessageAnchor 在 message head 发布后盖章内存锚。调用方持 message
+// 模块锁（或刚完成发布），读者只做一次 atomic load。
+func (store *storeEngine) rememberMessageAnchor(key Key, head messageHead) {
+	store.locks(key).anchor.Store(&messageAnchorPoint{
+		messageID: head.LastMessageID, seq: head.LastSeq,
+	})
+}
+
+// messageAnchorCached 返回内存锚；未装载时返回 nil。
+func (store *storeEngine) messageAnchorCached(key Key) *messageAnchorPoint {
+	return store.locks(key).anchor.Load()
+}
+
+// forgetMessageAnchor 作废内存锚（删除会话 / 换后端）。
+func (store *storeEngine) forgetMessageAnchor(key Key) {
+	store.locks(key).anchor.Store(nil)
 }
 
 // readMessageHeadLocked 是 readMessageHead 的锁内版本。

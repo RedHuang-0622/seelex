@@ -260,7 +260,7 @@ func TestForkChildVisibleWithRealStore(t *testing.T) {
 		{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 	}
 	sessions := newRouterForkSessions(t)
-	sessions.saveParentFixture(t, parent, events, []byte(`{"schema_version":1}`))
+	sessions.saveParentFixture(t, parent, events, []byte(`{"schema_version":3}`))
 
 	engine := newMultiSessionEngine()
 	service := newTestService(t, engine,

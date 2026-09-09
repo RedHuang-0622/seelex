@@ -385,7 +385,19 @@ func (port SessionPort) SaveSessionSnapshotWorkspace(
 		State:           payload,
 		ToolResults:     storeToolResults(results),
 	}
-	return port.granular().SaveCommit(projectID, sessionID, commit)
+	if err := port.granular().SaveCommit(projectID, sessionID, commit); err != nil {
+		return err
+	}
+	// fork 子会话的三栈由 §2.4 栈通道按 message 锚重建（context blob 不再
+	// 携带栈）；失败必须显式报错，不能留下丢栈的子会话。
+	if ref := record.ForkedFrom; ref != nil {
+		if err := port.Manager.Router().ForkStacks(
+			ref.ParentWorkspaceID, ref.ParentSessionID, projectID, sessionID, ref.ForkPoint.EventSeq,
+		); err != nil {
+			return fmt.Errorf("fork session stacks: %w", err)
+		}
+	}
+	return nil
 }
 
 // LoadContextStateWorkspace 读取会话 context 模块（显式项目作用域）。

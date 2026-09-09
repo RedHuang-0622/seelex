@@ -125,7 +125,7 @@ func (store *storeEngine) publishToolResultRefs(key Key, refs []string) error {
 	if _, err := store.publishModuleHead(key, moduleToolResult, "tool-"+randomID(), head, time.Now().UTC()); err != nil {
 		return err
 	}
-	return store.registerModule(key, moduleToolResult, store.modulePath(key, moduleToolResult))
+	return store.registerModule(key, moduleToolResult)
 }
 
 // readToolResultRefs 读取已发布 refs（缺失 = nil + fs.ErrNotExist）。

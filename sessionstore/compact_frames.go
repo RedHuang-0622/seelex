@@ -106,7 +106,7 @@ func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (comp
 	if _, err := store.publishModuleHead(key, moduleCompact, frame.CommitID, head, time.Now().UTC()); err != nil {
 		return compactHeadRecord{}, err
 	}
-	return head, store.registerModule(key, moduleCompact, store.modulePath(key, moduleCompact))
+	return head, store.registerModule(key, moduleCompact)
 }
 
 func (store *storeEngine) readCompactHeadLocked(key Key) (compactHeadRecord, error) {

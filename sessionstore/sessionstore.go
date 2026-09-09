@@ -251,6 +251,10 @@ type Repository interface {
 	// 追加顺序 = 落库顺序；读取按 Seq 排序。
 	AppendFrameworkEvent(context.Context, Key, EventLogEntry) error
 	ReadFrameworkEvents(context.Context, Key) ([]EventLogEntry, error)
+	// stackJournal 返回 plan/task/goal 栈通道（my_design §2.4）的后端实现。
+	// 接口方法不可在包外实现：每个后端必须显式给出栈通道，不存在「某个后端
+	// 没有栈通道」的运行期分支。
+	stackJournal() stackJournal
 	List(context.Context, string) ([]frameworkStorage.SessionMeta, error)
 	Delete(context.Context, Key) error
 	Ping(context.Context) error
@@ -1548,6 +1552,9 @@ func (repository *jsonRepository) toolResultPath(key Key, resultRef string) stri
 type redisRepository struct {
 	client    *redis.Client
 	namespace string
+	// stackLocks/stack 是栈通道的会话级提交锁注册表与延迟归因累加器。
+	stackLocks keyedMutex
+	stack      *stackStats
 }
 
 type redisManifest struct {
@@ -1571,7 +1578,7 @@ func newRedisRepository(ctx context.Context, dsn string) (*redisRepository, erro
 		_ = client.Close()
 		return nil, err
 	}
-	return &redisRepository{client: client, namespace: "seelex"}, nil
+	return &redisRepository{client: client, namespace: "seelex", stack: &stackStats{}}, nil
 }
 
 func (repository *redisRepository) WriteAtomic(ctx context.Context, key Key, messages []types.Message) error {
@@ -1966,6 +1973,7 @@ func (repository *redisRepository) Delete(ctx context.Context, key Key) error {
 		for _, resultRef := range resultRefs {
 			pipe.Del(ctx, repository.toolResultKey(key, resultRef))
 		}
+		repository.deleteStackKeys(pipe, ctx, key)
 		pipe.ZRem(ctx, repository.projectIndexKey(key.ProjectID), key.SessionID)
 		return nil
 	})
@@ -2033,6 +2041,9 @@ func (repository *redisRepository) toolResultKey(key Key, resultRef string) stri
 type sqlRepository struct {
 	db          *sql.DB
 	placeholder string
+	// stackLocks/stack 是栈通道的会话级提交锁注册表与延迟归因累加器。
+	stackLocks keyedMutex
+	stack      *stackStats
 }
 
 func newSQLRepository(ctx context.Context, driver, dsn, placeholder string) (*sqlRepository, error) {
@@ -2058,7 +2069,7 @@ func newSQLRepository(ctx context.Context, driver, dsn, placeholder string) (*sq
 		// 读事务与写事务的升级冲突）。
 		db.SetMaxOpenConns(1)
 	}
-	repository := &sqlRepository{db: db, placeholder: placeholder}
+	repository := &sqlRepository{db: db, placeholder: placeholder, stack: &stackStats{}}
 	if err := repository.Ping(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -2134,7 +2145,10 @@ PRIMARY KEY (project_id))`)
 project_id TEXT NOT NULL, session_id TEXT NOT NULL, seq BIGINT NOT NULL,
 event_json TEXT NOT NULL, created_at BIGINT NOT NULL,
 PRIMARY KEY (project_id, session_id, seq))`)
-	return err
+	if err != nil {
+		return err
+	}
+	return repository.ensureStackSchema()
 }
 
 func (repository *sqlRepository) WriteAtomic(ctx context.Context, key Key, messages []types.Message) error {
@@ -2507,7 +2521,8 @@ func (repository *sqlRepository) Delete(ctx context.Context, key Key) error {
 		return err
 	}
 	defer transaction.Rollback()
-	for _, table := range []string{"seelex_tool_result", "seelex_session_state", "seelex_session_context", "seelex_session_event_shard", "seelex_session_shard", "seelex_session_manifest", "seelex_sessions", "seelex_framework_event"} {
+	for _, table := range []string{"seelex_tool_result", "seelex_session_state", "seelex_session_context", "seelex_session_event_shard", "seelex_session_shard", "seelex_session_manifest", "seelex_sessions", "seelex_framework_event",
+		stackItemsTable, stackHeadTable, structuralEventTable} {
 		query := `DELETE FROM ` + table + ` WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
 		if _, err := transaction.ExecContext(ctx, query, key.ProjectID, key.SessionID); err != nil {
 			return err

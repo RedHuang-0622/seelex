@@ -49,7 +49,7 @@ func (store *storeEngine) registerSubagent(key Key, info subagentInfo) error {
 	if _, err := store.publishModuleHead(key, moduleSubagent, "subagent-"+randomID(), head, time.Now().UTC()); err != nil {
 		return err
 	}
-	return store.registerModule(key, moduleSubagent, store.modulePath(key, moduleSubagent))
+	return store.registerModule(key, moduleSubagent)
 }
 
 // readSubagents 读取父会话子代理清单。
@@ -99,24 +99,19 @@ func (store *storeEngine) forkSession(parentKey, childKey Key, fromSeq uint64) e
 	} else if _, err := store.messageCommit(childKey, commitID, nil); err != nil {
 		return err
 	}
-	// 栈快照：只保留锚点 ≤ from 的条目（history 重建语义）。
-	stack, err := readModuleHeadPayload[stackHead](store, parentKey, moduleStack)
-	if err == nil && len(stack.Items) > 0 {
-		seqOf := make(map[string]uint64)
-		for _, row := range rows {
-			if row.MessageID != "" {
-				seqOf[row.MessageID] = row.Seq
-			}
+	// 栈快照：按 history 锚重建「该点」的栈（active 只含进入坐标 ≤ from 的条目，
+	// 归档只含弹栈坐标 ≤ from 的条目，T-FK-02）。
+	journal := store.stackJournal()
+	store.dropSessionCaches(childKey)
+	var snapshot []StackItemRecord
+	for _, kind := range []StackKind{StackKindPlan, StackKindTask, StackKindGoal} {
+		active, archived, err := stackSnapshotAt(journal, parentKey, kind, fromSeq)
+		if err != nil {
+			_ = os.RemoveAll(store.sessionRoot(childKey))
+			return err
 		}
-		items := make([]stackItem, 0, len(stack.Items))
-		for _, item := range stack.Items {
-			itemSeq, ok := seqOf[item.ItemMessageID]
-			if ok && itemSeq <= fromSeq {
-				items = append(items, item)
-			}
-		}
-		childStack := stackHead{SessionID: childKey.SessionID, Items: items}
-		if err := store.commitModuleHead(childKey, moduleStack, "fork-"+randomID(), childStack); err != nil {
+		snapshot = append(snapshot, active...)
+		if err := stackRestoreSnapshot(journal, childKey, kind, active, archived); err != nil {
 			_ = os.RemoveAll(store.sessionRoot(childKey))
 			return err
 		}
@@ -126,6 +121,7 @@ func (store *storeEngine) forkSession(parentKey, childKey Key, fromSeq uint64) e
 		"child_id": childKey.SessionID, "child_kind": "fork_session",
 		"from_message": lastMessageID(rows),
 		"copy_range":   map[string]any{"from_seq": uint64(1), "to_seq": fromSeq},
+		"stack_items":  len(snapshot),
 	})
 	_, _ = store.structuralEventCommit(parentKey, "fork-event", []structuralEvent{{
 		Kind: structuralEventFork, AnchorSeq: fromSeq, AnchorMessageID: lastMessageID(rows), Payload: payload,
@@ -211,11 +207,13 @@ func (store *storeEngine) newSubagent(parentKey Key, subagentID string, fromSeq 
 	return childStore, childKey, nil
 }
 
-// deleteSession 删除整个 会话目录（Reset/归档语义；显式键路径）。
+// deleteSession 删除整个会话目录（Reset/归档语义；显式键路径）。目录删除后
+// 会话级内存读投影必须作废，否则读者会继续看到已删除会话的栈投影。
 func (store *storeEngine) deleteSession(key Key) error {
 	root := store.sessionRoot(key)
 	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
+	defer store.dropSessionCaches(key)
 	return os.RemoveAll(root)
 }

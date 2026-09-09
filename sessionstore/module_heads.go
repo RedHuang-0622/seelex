@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -89,10 +90,18 @@ type storeEngine struct {
 
 	registryMu sync.RWMutex
 	sessionMu  map[string]*sessionModuleLocks
-	metaMu     sync.Mutex // metadata 目录/guide 自愈读与注册（低频短临界区）
+	// stack 是栈通道后端的延迟归因累加器（构造时创建，只读引用无竞争）。
+	stack *stackStats
 }
 
-// sessionModuleLocks 是单个会话的模块锁集合。
+// sessionModuleLocks 是单个会话的模块锁集合与只属于该会话的短临界区状态。
+//
+// 锁口径：
+//   - 每个模块一把锁（§2.0 规则 2）→ 模块间互不阻塞；
+//   - guideMu 只保护本会话 metadata 目录/guide 注册（原实现是仓库级
+//     metaMu：任一会话注册模块会让所有会话的提交排队）；
+//   - stackViews 是栈通道提交时发布的不可变读投影（actor 出口），读者既不
+//     取锁也不打开文件句柄。
 type sessionModuleLocks struct {
 	messageMu   sync.Mutex
 	eventMu     sync.Mutex
@@ -102,6 +111,12 @@ type sessionModuleLocks struct {
 	retentionMu sync.Mutex
 	subagentMu  sync.Mutex
 	toolMu      sync.Mutex
+	guideMu     sync.Mutex
+
+	stackViews [3]atomic.Pointer[stackView]
+	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
+	// metadata/message.json）。
+	anchor atomic.Pointer[messageAnchorPoint]
 }
 
 // readSelfHealHook 是自愈读的测试钩子：head 首次校验失败后、重读前被
@@ -118,26 +133,32 @@ func newStoreEngine(root string, shardRows int) *storeEngine {
 		root:      filepath.Clean(root),
 		shardRows: shardRows,
 		sessionMu: make(map[string]*sessionModuleLocks),
+		stack:     &stackStats{},
 	}
 }
 
-// mu 返回指定会话 + 模块的锁（按会话分片；注册表短临界区，不参与 IO）。
-func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex {
+// locks 返回（必要时创建）该会话的模块锁与短临界区状态集合。
+func (store *storeEngine) locks(key Key) *sessionModuleLocks {
 	id := store.sessionRoot(key)
 	store.registryMu.RLock()
 	locks := store.sessionMu[id]
 	store.registryMu.RUnlock()
 	if locks != nil {
-		return locks.mutexFor(mod)
+		return locks
 	}
 	store.registryMu.Lock()
-	locks = store.sessionMu[id]
-	if locks == nil {
-		locks = &sessionModuleLocks{}
-		store.sessionMu[id] = locks
+	defer store.registryMu.Unlock()
+	if locks = store.sessionMu[id]; locks != nil {
+		return locks
 	}
-	store.registryMu.Unlock()
-	return locks.mutexFor(mod)
+	locks = &sessionModuleLocks{}
+	store.sessionMu[id] = locks
+	return locks
+}
+
+// mu 返回指定会话 + 模块的锁（按会话分片；注册表短临界区，不参与 IO）。
+func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex {
+	return store.locks(key).mutexFor(mod)
 }
 
 func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
@@ -190,8 +211,9 @@ func (store *storeEngine) guidePath(key Key) string {
 // ensureLayoutGuide 创建会话 会话存储布局目录并写入 guide.json（幂等：已存在直接
 // 读取返回）。guide 是唯一由本方法创建的模块注册点。
 func (store *storeEngine) ensureLayoutGuide(key Key) (layoutGuide, error) {
-	store.metaMu.Lock()
-	defer store.metaMu.Unlock()
+	locks := store.locks(key)
+	locks.guideMu.Lock()
+	defer locks.guideMu.Unlock()
 	path := store.guidePath(key)
 	if data, err := os.ReadFile(path); err == nil {
 		var guide layoutGuide
@@ -225,10 +247,12 @@ func (store *storeEngine) ensureLayoutGuide(key Key) (layoutGuide, error) {
 }
 
 // registerModule 把模块注册进 guide.module_index（幂等；guide 低频更新，
-// 不随每次提交重写）。
-func (store *storeEngine) registerModule(key Key, mod storageModule, modulePath string) error {
-	store.metaMu.Lock()
-	defer store.metaMu.Unlock()
+// 不随每次提交重写）。module_index 记录相对会话目录的文件名（my_design
+// §3.2），使 guide.json 不携带本机绝对路径、数据根搬迁后仍可用。
+func (store *storeEngine) registerModule(key Key, mod storageModule) error {
+	locks := store.locks(key)
+	locks.guideMu.Lock()
+	defer locks.guideMu.Unlock()
 	path := store.guidePath(key)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -245,7 +269,7 @@ func (store *storeEngine) registerModule(key Key, mod storageModule, modulePath 
 		guide.ModuleIndex = make(map[storageModule]moduleRef)
 	}
 	guide.ModuleIndex[mod] = moduleRef{
-		File:         modulePath,
+		File:         "metadata/" + string(mod) + ".json",
 		Version:      schemaVersion,
 		RegisteredAt: time.Now().UTC(),
 	}
@@ -380,7 +404,7 @@ func (store *storeEngine) commitModuleHead(key Key, mod storageModule, commitID 
 	if _, err := store.publishModuleHead(key, mod, commitID, payload, time.Now().UTC()); err != nil {
 		return err
 	}
-	return store.registerModule(key, mod, store.modulePath(key, mod))
+	return store.registerModule(key, mod)
 }
 
 // readModuleHeadPayload 读取通用模块 head 并解码 payload；缺失时返回
@@ -409,20 +433,5 @@ func (store *storeEngine) deleteModule(key Key, module storageModule) error {
 	return nil
 }
 
-// stackHead 是 plan/task/goal 栈模块 head（M3 fork 栈快照、T-M1-05 并发
-// 用；当前只保存 head_seq 与批次锚点摘要）。
-type stackHead struct {
-	SessionID string `json:"session_id"`
-	HeadSeq   uint64 `json:"head_seq"`
-	// Items 是活跃批次条目摘要（item_message_id/batch_message_* 锚）。
-	Items []stackItem `json:"items,omitempty"`
-}
-
-// stackItem 是栈条目摘要（history 锚，my_design §4）。
-type stackItem struct {
-	ItemID           string `json:"item_id"`
-	ItemMessageID    string `json:"item_message_id"`
-	BatchMessageFrom string `json:"batch_message_from,omitempty"`
-	BatchMessageTo   string `json:"batch_message_to,omitempty"`
-	Status           string `json:"status,omitempty"`
-}
+// stackHead 的历史职责已迁出：条目内容落 session/{plan,task,goal}/
+// {active,history}.jsonl，metadata/stack.json 只存水位，见 stack_channel.go。

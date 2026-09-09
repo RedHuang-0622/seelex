@@ -8,20 +8,15 @@ import (
 	"time"
 )
 
-// SessionContextSchemaVersion 是会话上下文记录（state blob）的版本号。
+// SessionContextSchemaVersion 是会话上下文记录（context blob）的版本号。
 // 损坏或不兼容的记录拒绝加载并显式失败（不静默重建），走会话恢复错误路径。
 //
-// v2（当前）：新增 GoalStack（goal 域第五栈）。goal 栈与会话聊天记录同属
-// 会话级持久化（sessionstore context 通道），但**不进模型上下文**：不渲染为
-// 前缀/尾部栈块、不做记忆前缀与匹配、不参与压缩摘要提取；只用于会话恢复与
-// 后续 goal 治理。聊天记录中的 #goal 文本是普通转录内容，随上下文窗口压缩。
-// v1（旧）：无 GoalStack；加载时兼容迁移（内存补空栈，下次 Persist 升 v2）。
-const (
-	SessionContextSchemaVersion = 2
-	// SessionContextSchemaVersionLegacy 是 v1 旧记录版本号（无 goal 栈）。
-	// Load 时显式接受并迁移；其它版本拒绝。
-	SessionContextSchemaVersionLegacy = 1
-)
+// v3（当前）：blob 不再承载三栈——plan/task/goal 由 §2.4 栈通道
+// （session/{plan,task,goal}/{active,history}.jsonl + metadata/stack.json）
+// 独占；context 只剩尚未按设计稿分文件的字段（system_prompt / skill 记录 /
+// compact 栈 / goal 审计），这几项分别在 S2/S4 收口。
+// v2 及更早（栈内联在 blob 里）不再兼容读取。
+const SessionContextSchemaVersion = 3
 
 // EvidenceRef 是证据引用：指向不可变工具结果/事件库条目。
 type EvidenceRef struct {
@@ -264,8 +259,22 @@ func (s *SessionContextStore) Router() *Router {
 	return s.router
 }
 
-// Load 从 state blob 读取记录到内存缓存。损坏/版本不兼容显式失败。
+// Load 装载会话上下文：blob（system/skill/compact/audit）+ 三栈（§2.4 通道，
+// 权威）。通道回读在不持 s.mu 的外层做，避免与 refreshStack 的加锁嵌套。
 func (s *SessionContextStore) Load(ctx context.Context) error {
+	if err := s.loadBlob(ctx); err != nil {
+		return err
+	}
+	for _, kind := range []StackKind{StackKindPlan, StackKindTask, StackKindGoal} {
+		if err := s.refreshStack(kind); err != nil {
+			return fmt.Errorf("session context: load %s stack %q: %w", kind, s.sessionID, err)
+		}
+	}
+	return nil
+}
+
+// loadBlob 从 context blob 读取记录到内存缓存。损坏或版本不兼容显式失败。
+func (s *SessionContextStore) loadBlob(_ context.Context) error {
 	if s == nil || s.router == nil || s.sessionID == "" {
 		return fmt.Errorf("session context: router or session ID is unavailable")
 	}
@@ -282,37 +291,23 @@ func (s *SessionContextStore) Load(ctx context.Context) error {
 		}
 		return fmt.Errorf("session context: load state %q: %w", s.sessionID, err)
 	}
-	if len(payload) == 0 {
-		s.loaded = true
-		return nil
-	}
 	var record SessionContextRecord
-	if err := json.Unmarshal(payload, &record); err != nil {
-		return fmt.Errorf("session context: decode state %q: %w", s.sessionID, err)
-	}
-	if record.SchemaVersion != SessionContextSchemaVersion &&
-		record.SchemaVersion != SessionContextSchemaVersionLegacy {
-		return fmt.Errorf("session context: %q has unsupported schema version %d (want %d)",
-			s.sessionID, record.SchemaVersion, SessionContextSchemaVersion)
-	}
-	// v1 → v2 迁移：v1 记录无 GoalStack/GoalAudit，内存补空栈/空账本（JSON
-	// 字段缺省即 nil）；文件在下次 Persist（含任何栈操作）时统一升为
-	// SessionContextSchemaVersion。
-	if record.SchemaVersion == SessionContextSchemaVersionLegacy {
-		if record.GoalStack == nil {
-			record.GoalStack = []GoalFrame{}
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &record); err != nil {
+			return fmt.Errorf("session context: decode state %q: %w", s.sessionID, err)
 		}
-		if record.GoalAudit == nil {
-			record.GoalAudit = []GoalAuditEntry{}
+		if record.SchemaVersion != SessionContextSchemaVersion {
+			return fmt.Errorf("session context: %q has unsupported schema version %d (want %d)",
+				s.sessionID, record.SchemaVersion, SessionContextSchemaVersion)
 		}
-		record.SchemaVersion = SessionContextSchemaVersion
 	}
 	s.record = record
 	s.loaded = true
 	return nil
 }
 
-// Persist 把内存缓存写入 state blob。
+// Persist 把内存缓存写入 context blob。三栈不在此落盘（权威只有 §2.4 栈
+// 通道），落盘前剥离，避免 blob 里留一份可被回读的副本。
 func (s *SessionContextStore) Persist(ctx context.Context) error {
 	if s == nil || s.router == nil || s.sessionID == "" {
 		return fmt.Errorf("session context: router or session ID is unavailable")
@@ -321,6 +316,9 @@ func (s *SessionContextStore) Persist(ctx context.Context) error {
 	record := s.record
 	s.mu.RUnlock()
 	record.SchemaVersion = SessionContextSchemaVersion
+	record.PlanStack = nil
+	record.TaskStack = nil
+	record.GoalStack = nil
 	payload, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("session context: encode state %q: %w", s.sessionID, err)
@@ -372,100 +370,211 @@ func (s *SessionContextStore) Snapshot() SessionContextRecord {
 	return cloneSessionContextRecord(s.record)
 }
 
-// ── 栈操作（plan.md §3.7.2）──────────────────────────────────────────
+// ── 栈操作（plan/task/goal 走 §2.4 栈通道，非 context blob）──────────────
 
-// PushPlan 在 plan_load/plan_run 进入时压栈。
-func (s *SessionContextStore) PushPlan(frame PlanFrame) error {
-	return s.update(func(record *SessionContextRecord) error {
-		if frame.PlanID == "" {
-			return fmt.Errorf("session context: plan frame requires plan_id")
-		}
-		record.PlanStack = append(record.PlanStack, frame)
-		return nil
-	})
+// writeStack 把一次栈变更写进通道并回读该 kind 的 active 投影。
+func (s *SessionContextStore) writeStack(kind StackKind, mutate func() error) error {
+	if err := mutate(); err != nil {
+		return err
+	}
+	return s.refreshStack(kind)
 }
 
-// CloseTopPlan 关闭栈顶匹配的 Plan 帧（终态/被取代时）。
-func (s *SessionContextStore) CloseTopPlan(planID string) error {
-	return s.update(func(record *SessionContextRecord) error {
-		stack := record.PlanStack
-		for index := len(stack) - 1; index >= 0; index-- {
-			if stack[index].PlanID == planID {
-				now := time.Now()
-				stack[index].ClosedAt = &now
-				stack[index].Status = "closed"
-				return nil
+// refreshStack 从栈通道回读指定 kind 的 active 条目覆盖内存投影。
+func (s *SessionContextStore) refreshStack(kind StackKind) error {
+	projectID := s.workspace()
+	rows, err := s.router.StackActive(projectID, s.sessionID, kind)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch kind {
+	case StackKindPlan:
+		s.record.PlanStack = s.record.PlanStack[:0]
+		for _, row := range rows {
+			var frame PlanFrame
+			if json.Unmarshal(row.Payload, &frame) == nil {
+				frame.PlanID = row.ItemID
+				frame.Status = row.Status
+				s.record.PlanStack = append(s.record.PlanStack, frame)
 			}
 		}
-		return fmt.Errorf("session context: plan %q is not on the plan stack", planID)
+	case StackKindTask:
+		s.record.TaskStack = s.record.TaskStack[:0]
+		for _, row := range rows {
+			var frame TaskFrame
+			if json.Unmarshal(row.Payload, &frame) == nil {
+				frame.TaskID = row.ItemID
+				frame.Status = row.Status
+				s.record.TaskStack = append(s.record.TaskStack, frame)
+			}
+		}
+	case StackKindGoal:
+		s.record.GoalStack = s.record.GoalStack[:0]
+		for _, row := range rows {
+			var frame GoalFrame
+			if json.Unmarshal(row.Payload, &frame) == nil {
+				frame.GoalID = row.ItemID
+				frame.Status = row.Status
+				frame.EnteredAt = row.EnteredAt
+				s.record.GoalStack = append(s.record.GoalStack, frame)
+			}
+		}
+	}
+	return nil
+}
+
+// stackPayload 编码栈帧为通道 payload。
+func stackPayload(frame any) json.RawMessage {
+	data, err := json.Marshal(frame)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// PushPlan 在 plan_load/plan_run 进入时压栈（一个计划 = 一个批次）。
+func (s *SessionContextStore) PushPlan(frame PlanFrame) error {
+	if frame.PlanID == "" {
+		return fmt.Errorf("session context: plan frame requires plan_id")
+	}
+	if frame.EnteredAt.IsZero() {
+		frame.EnteredAt = time.Now()
+	}
+	status := frame.Status
+	if status == "" {
+		status = "active"
+	}
+	return s.writeStack(StackKindPlan, func() error {
+		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindPlan, "plan:"+frame.PlanID, []StackItemInput{{
+			ItemID: frame.PlanID, Kind: StackKindPlan, Status: status,
+			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
+		}})
+		return err
 	})
 }
 
-// PushTask 在任务开始时压栈。
+// CloseTopPlan 关闭栈顶匹配的 Plan 帧；该计划批次随即整批归档（§2.4）。
+func (s *SessionContextStore) CloseTopPlan(planID string) error {
+	if err := s.ensureStackItem(StackKindPlan, planID, "plan"); err != nil {
+		return err
+	}
+	return s.writeStack(StackKindPlan, func() error {
+		_, err := s.router.StackSetStatus(s.workspace(), s.sessionID, StackKindPlan, planID, "closed")
+		return err
+	})
+}
+
+// PushTask 在任务开始时压栈（一个任务 = 一个批次）。
 func (s *SessionContextStore) PushTask(frame TaskFrame) error {
-	return s.update(func(record *SessionContextRecord) error {
-		if frame.TaskID == "" {
-			return fmt.Errorf("session context: task frame requires task_id")
-		}
-		if frame.EnteredAt.IsZero() {
-			frame.EnteredAt = time.Now()
-		}
-		record.TaskStack = append(record.TaskStack, frame)
-		return nil
+	if frame.TaskID == "" {
+		return fmt.Errorf("session context: task frame requires task_id")
+	}
+	if frame.EnteredAt.IsZero() {
+		frame.EnteredAt = time.Now()
+	}
+	status := frame.Status
+	if status == "" {
+		status = "active"
+	}
+	return s.writeStack(StackKindTask, func() error {
+		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindTask, "task:"+frame.TaskID, []StackItemInput{{
+			ItemID: frame.TaskID, Kind: StackKindTask, Status: status,
+			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
+		}})
+		return err
 	})
 }
 
 // CloseTopTask 关闭栈顶匹配的任务帧（终态工具接受后）。
 func (s *SessionContextStore) CloseTopTask(taskID string) error {
-	return s.update(func(record *SessionContextRecord) error {
-		stack := record.TaskStack
-		for index := len(stack) - 1; index >= 0; index-- {
-			if stack[index].TaskID == taskID {
-				stack[index].Status = "completed"
-				return nil
-			}
-		}
-		return fmt.Errorf("session context: task %q is not on the task stack", taskID)
+	if err := s.ensureStackItem(StackKindTask, taskID, "task"); err != nil {
+		return err
+	}
+	return s.writeStack(StackKindTask, func() error {
+		_, err := s.router.StackSetStatus(s.workspace(), s.sessionID, StackKindTask, taskID, "completed")
+		return err
 	})
+}
+
+// ensureStackItem 校验条目确实在该 kind 的 active 栈上（保持旧的显式失败语义）。
+func (s *SessionContextStore) ensureStackItem(kind StackKind, itemID, label string) error {
+	if err := s.Load(context.Background()); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var ids []string
+	switch kind {
+	case StackKindPlan:
+		for _, frame := range s.record.PlanStack {
+			ids = append(ids, frame.PlanID)
+		}
+	case StackKindTask:
+		for _, frame := range s.record.TaskStack {
+			ids = append(ids, frame.TaskID)
+		}
+	case StackKindGoal:
+		for _, frame := range s.record.GoalStack {
+			ids = append(ids, frame.GoalID)
+		}
+	}
+	for _, id := range ids {
+		if id == itemID {
+			return nil
+		}
+	}
+	return fmt.Errorf("session context: %s %q is not on the %s stack", label, itemID, kind)
 }
 
 // ── goal 第五栈操作（goal 域适配；见 GoalFrame 注释）────────────────────
 
-// PushGoal 在 goal_begin 压栈时追加一帧（goal 治理活栈：写入即当前栈投影，
-// 不渲染进模型上下文）。终态帧不保留——收口/放弃走 CloseTopGoal 弹栈删除。
+// PushGoal 在 goal_begin 压栈时追加一帧（goal 治理活栈，单条目批次 LIFO）。
+// goal 栈不入模型上下文，只服务恢复与治理。
 func (s *SessionContextStore) PushGoal(frame GoalFrame) error {
-	return s.update(func(record *SessionContextRecord) error {
-		if frame.GoalID == "" {
-			return fmt.Errorf("session context: goal frame requires goal_id")
-		}
-		if frame.EnteredAt.IsZero() {
-			frame.EnteredAt = time.Now()
-		}
-		record.GoalStack = append(record.GoalStack, frame)
-		return nil
+	if frame.GoalID == "" {
+		return fmt.Errorf("session context: goal frame requires goal_id")
+	}
+	if frame.EnteredAt.IsZero() {
+		frame.EnteredAt = time.Now()
+	}
+	status := frame.Status
+	if status == "" {
+		status = "active"
+	}
+	return s.writeStack(StackKindGoal, func() error {
+		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindGoal, "goal:"+frame.GoalID, []StackItemInput{{
+			ItemID: frame.GoalID, Kind: StackKindGoal, Status: status,
+			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
+		}})
+		return err
 	})
 }
 
-// CloseTopGoal 弹掉栈顶 goal 帧并从持久化栈**同步删除**（goal 是 LIFO：
-// 只有栈顶可收口/放弃；下层恢复 active 属 goal 域状态机，Controller 在
-// Save 前已处理）。弹栈后栈存储为空即代表治理收口、无残留。
+// CloseTopGoal 弹掉栈顶 goal 帧并归档（goal 是 LIFO：只有栈顶可收口/放弃；
+// 下层恢复 active 属 goal 域状态机）。
 func (s *SessionContextStore) CloseTopGoal(goalID string) error {
-	return s.update(func(record *SessionContextRecord) error {
-		stack := record.GoalStack
-		if len(stack) == 0 {
-			return fmt.Errorf("session context: goal %q is not on the goal stack (empty)", goalID)
-		}
-		top := stack[len(stack)-1]
-		if top.GoalID != goalID {
-			return fmt.Errorf("session context: goal %q is not the stack top (top=%q)", goalID, top.GoalID)
-		}
-		record.GoalStack = append([]GoalFrame(nil), stack[:len(stack)-1]...)
-		return nil
+	s.mu.RLock()
+	empty := len(s.record.GoalStack) == 0
+	var top string
+	if !empty {
+		top = s.record.GoalStack[len(s.record.GoalStack)-1].GoalID
+	}
+	s.mu.RUnlock()
+	if empty {
+		return fmt.Errorf("session context: goal %q is not on the goal stack (empty)", goalID)
+	}
+	if top != goalID {
+		return fmt.Errorf("session context: goal %q is not the stack top (top=%q)", goalID, top)
+	}
+	return s.writeStack(StackKindGoal, func() error {
+		_, err := s.router.StackPopTop(s.workspace(), s.sessionID, StackKindGoal, goalID, "closed")
+		return err
 	})
 }
 
-// GoalStackSnapshot 返回 goal 栈的深拷贝（供 goal.Controller Reload 使用；
-// 只读面，不暴露内部状态）。
+// GoalStackSnapshot 返回 goal 栈的深拷贝（供 goal.Controller Reload 使用）。
 func (s *SessionContextStore) GoalStackSnapshot() []GoalFrame {
 	if s == nil {
 		return nil
@@ -475,17 +584,23 @@ func (s *SessionContextStore) GoalStackSnapshot() []GoalFrame {
 	return cloneGoalFrames(s.record.GoalStack)
 }
 
-// ReplaceGoalStack 全量替换 goal 栈并持久化（goal.Controller 的 Store.Save
-// 语义：每次状态机变更后保存当前栈投影；收口弹栈后终态帧从栈消失）。
+// ReplaceGoalStack 用当前栈投影替换 goal active 栈：通道按逐条迁移落地
+// （新增压栈、状态变化更新、投影中消失的条目按其末态归档），因此 goal 的
+// begin/update/finish/abort 都会留下 goal.* EVENT（§2.4 + 附录 A.1）。
 func (s *SessionContextStore) ReplaceGoalStack(frames []GoalFrame) error {
-	return s.update(func(record *SessionContextRecord) error {
-		record.GoalStack = cloneGoalFrames(frames)
-		for _, frame := range record.GoalStack {
-			if frame.GoalID == "" {
-				return fmt.Errorf("session context: goal frame requires goal_id")
-			}
+	items := make([]StackItemInput, 0, len(frames))
+	for _, frame := range frames {
+		if frame.GoalID == "" {
+			return fmt.Errorf("session context: goal frame requires goal_id")
 		}
-		return nil
+		items = append(items, StackItemInput{
+			ItemID: frame.GoalID, Kind: StackKindGoal, Status: frame.Status,
+			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
+		})
+	}
+	return s.writeStack(StackKindGoal, func() error {
+		_, err := s.router.StackReplace(s.workspace(), s.sessionID, StackKindGoal, items, "closed")
+		return err
 	})
 }
 

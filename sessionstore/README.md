@@ -112,30 +112,28 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
   编排）；SessionRecord/TranscriptEvent/ToolResults 的持久化继续由
   `SaveCommit` 负责。
 - `session_context.go` — `SessionContextStore` 读写会话级上下文记录
-  （state blob）：SystemPrompt + Plan/Task/Skill/Compact 四栈 + GoalStack
-  （goal 域第五栈）+ 聊天队列（"now using X" = 栈顶）。Schema 当前 v2：
-  v1 旧记录（无 GoalStack）加载时兼容迁移（内存补空栈，下次 Persist 升
-  v2）；其它版本校验失败显式拒绝加载（不静默重建），走会话恢复错误路径。
+  （state blob）：SystemPrompt + Skill 记录 + Compact 栈 + GoalAudit。
+  Schema 当前 **v3**：v3 起 blob **不再承载 plan/task/goal 三栈**（权威在
+  §2.4 栈通道，见下节），v2 及更早的「栈内联在 blob」记录一律显式拒绝加载
+  （不静默迁移、不降级为内存栈），走会话恢复错误路径。`SessionContextStore`
+  的四栈 API 因此是两个后端的组合门面：blob 字段读写 blob，三栈读写通道。
 
-### goal 第五栈（GoalStack，已落地）
+### goal 帧：走栈通道，不走 blob
 
-goal 栈随会话聊天记录同域持久化到 `SessionContextRecord.GoalStack`
-（`(project_id, session_id)` 隔离），只用于**会话恢复与后续 goal 治理**
-（对齐 plan/task 的会话级使用栈）。语义边界：
+goal 帧与 plan/task 同属 §2.4 栈通道（`session/goal/{active,history}.jsonl`
++ `metadata/stack.json` 水位），`SessionContextStore` 的 `PushGoal` /
+`CloseTopGoal` / `ReplaceGoalStack` / `GoalStackSnapshot` 只做「goal 域 DTO ↔
+栈条目 payload」的编解码，落盘一律经 `Router.Stack*`。语义边界不变：
 
 - 栈内 goal **不进模型上下文**：seelexctx 的栈块渲染（稳定前缀/动态尾部）
-  只消费 Plan/Task/Skill/Compact 四栈，GoalStack 不渲染、不做记忆前缀与匹配；
-- 聊天记录中的 `#goal` 文本是普通转录内容，随上下文窗口/压缩一起被压缩，
-  与 GoalStack 无关（压缩摘要的"目标 (Goal)"小节仍由 TaskStack 顶承担）；
-- `PushGoal`/`CloseTopGoal`/`GoalStackSnapshot`/`ReplaceGoalStack` 为第五栈
-  操作：goal 域 `Controller` 每次状态机变更经 ReplaceGoalStack 全量写当前栈
-  投影；**GoalStack 是活栈投影**——begin 压栈即写入，finish/abort 弹栈即
-  **同步删除**该帧，存储初始与终态都为空（治理结束后不留任何 goal 帧；
-  终态帧的会话内审计只存在进程内 goal.Controller.History，不落 GoalStack），
-  恢复经 Controller.Reload 读 GoalStackSnapshot 重建。
+  只消费 Plan/Task/Skill/Compact，goal 帧不渲染、不做记忆前缀与匹配；
+- 聊天记录中的 `#goal` 文本是普通转录内容，随上下文窗口/压缩一起被压缩；
+- goal 域 `Controller` 每次状态机变更经 `ReplaceGoalStack` 全量写回当前栈
+  投影；**goal 是活栈投影 + 单条目批次 LIFO**（只有栈顶可弹），批次收口即
+  整批归档进 `history.jsonl`，恢复时读 active 重建。
 
-fork 子会话**不继承父 GoalStack**（D4，对齐 fork 不继承父 todolist）；
-父 context 为 v1 时 fork 兼容迁移为 v2。
+fork 子会话**不继承父 goal/plan/task 栈的"未来"条目**：按 message 锚重建
+"该点"快照（`Router.ForkStacks`，起点早于 LRU 水位显式报错）。
 
 ### goal 审计账本（GoalAudit，append-only，按会话隔离）
 
@@ -147,6 +145,57 @@ abort/restore 各一条），Seq 由本会话单调递增，**只追加不回改
 同样不继承父 GoalAudit。
 
 主 Runtime 通过 `seelebridge.Runtime.AttachHistoryRouter` 独立装配 `DurableHistory`，不复用 `SessionContextStore` 的 application-owned state blob。恢复会话时 DurableHistory 与框架 Session 使用同一个 session ID；Application 成功提交完整 `SessionRecord` 后才释放 provider working history，下一轮再从 durable tail 冷加载。
+
+## plan / task / goal 栈通道（v8 §2.4，已实现）
+
+三栈是**独立数据通道**，不再塞进任何 blob（塞进 context 单文件会让一次栈写入
+与整份上下文重写抢同一把锁）。
+
+- 放置（§3.2）：`session/{plan,task,goal}/active.jsonl`（当前投影）与
+  `history.jsonl`（append-only 归档）；head 在 `metadata/stack.json`，
+  **只装逐 kind 水位**（head_seq / active_count / history_count /
+  open_batches / history_bytes），条目内容不进 head。
+- 语义（§2.4 + §0 条目 4）：批次内未完成 → 整批留 active；全部完成 → 整批
+  弹栈归档；goal 是单条目批次且 LIFO（只有栈顶可收口）；每条带 message 锚
+  `item_message_id` / `batch_message_from` / `batch_message_to`，fork 按锚
+  重建"该点"快照。
+- 写序（I5）：数据文件 → 模块 head（提交发布点）→ EVENT（`plan.*`/`task.*`/
+  `goal.*` 状态迁移摘要，I4：不参与装配）。head 未发布的行按 `revision` 判定
+  不可见，崩溃残尾按 JSONL 行边界丢弃，head 记录的 `history_bytes` 让下一次
+  提交 O(1) 回收「已落盘但未发布」的归档尾行。
+
+### 后端矩阵
+
+`Repository` 暴露 `stackJournal()`（不可在包外实现），**每个后端必须给出栈
+通道**，运行期没有「这个后端没有栈」的分支。通道语义（批次、水位、锚、迁移、
+fork、verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实现
+`load / publish / anchor / watermark / recordEvents / dropCache / stats`：
+
+| 后端 | 数据放置 | 发布点 | 锚（message 坐标） |
+|---|---|---|---|
+| JSON | `{kind}/active.jsonl` + `history.jsonl` + `metadata/stack.json` | 先数据后 head（rename），读侧按 revision 过滤 | 事件行 `message_id` + `seq` |
+| SQLite / PostgreSQL | `seelex_session_stack_item`（ER 逐列）+ `seelex_session_stack_head` + `seelex_session_structural_event` | 一个事务（COMMIT 即发布） | 只有 `seq`（消息通道仍是整块 shard，无事件行键 → id 为空） |
+| Redis | `<session>:stack:<kind>:{active,history}` 列表 + `<session>:stack:head` + `<session>:structural-events` | 一次 `MULTI/EXEC` | 同上，只有 `seq` |
+
+### 并发与读路径（为什么读者不等写者）
+
+- **单写者 actor**：一次变更是一个提交闭包（`StackMutation` 工厂），在同一
+  会话的 `stackMu` 临界区内执行；可变投影只被该临界区触碰 → 无数据竞争。
+  head 是跨 kind 共享的发布点，所以临界区按会话而非按 kind。
+- **读走内存快照**：每次发布把 active 投影连同 head 水位塞进
+  `atomic.Pointer[stackView]`，读者只做一次原子装载 + 小切片复制，既不取锁
+  也不打开文件句柄 —— 绕开「Windows 上任何句柄都会让 rename 发布失败且零
+  重试」。冷读只发生在该会话在本进程的首次访问。
+- **写路径不解析归档文件**：归档计数/字节水位取自 head，history.jsonl 只在
+  读者与 fork 需要时解析。
+- **EVENT 移出栈临界区**：写序不变（数据 → head → EVENT），只是 EVENT 的分片
+  IO 不再拉长栈锁；EVENT 失败不撤销已发布 head（§2.0 规则 4 的短窗口分离）。
+- `Router.StackStorageStats()` 逐域计量（锁等待 / active / history_append /
+  history_read / head / guide / EVENT + 冷读次数），`-race` 与延迟归因由
+  `TestStackChannelLockAttribution` 验收。
+- 作废点：删除会话、fork 覆盖子目录后必须 `dropSessionCaches`（快照与本进程
+  写者同源，目录不在了就作废）。单数据根 = 单进程写者（§9）是该内存快照
+  成立的前提，§9 独占锁尚未实现（见打点表 §4）。
 
 ## 子代理会话记录（NodeSessionRecord）
 
@@ -185,6 +234,10 @@ StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 - SQL migration/upsert 是否兼容 SQLite 与 PostgreSQL placeholder，Redis key 是否保留同一 project hash tag。
 - Router 是否在任何错误路径关闭 replacement、保留 old repository。
 - range offset/limit 和 empty history 的语义是否一致。
+- 栈通道：新增后端时 `stackJournal()` 是否实现（接口编译期强制，禁止用
+  `ok=false` 兜底）；head 是否仍只装水位；写路径是否又开始解析 history。
+- 任何"让读者不持锁读文件"的改动：先确认发布形态不再是 rename 覆盖，否则
+  锁等待会被换成提交失败。
 
 ## 测试
 
@@ -199,7 +252,7 @@ go test ./sessionstore -run 'TestV8' -count=1   # M1–M4 契约（65 条）
 
 `ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. JSON manifests publish the committed result-reference set, SQL stores all parts in one transaction, and Redis uses one `MULTI/EXEC` in the project hash slot.
 
-测试覆盖 JSON/SQLite 的 generation 原子性与状态 sidecar、SQLite 分表分片、Redis 的配置和 key 分片策略、backend 切换和显式 workspace read 不污染 active scope。goal 第五栈另覆盖：GoalStack 持久化/重载、按会话隔离、v1→v2 迁移、LIFO 弹栈与帧校验（`TestGoalStack*`）。
+测试覆盖 JSON/SQLite 的 generation 原子性与状态 sidecar、SQLite 分表分片、Redis 的配置和 key 分片策略、backend 切换和显式 workspace read 不污染 active scope。plan/task/goal 三栈的用例经 `forEachStackBackend` 在 **json 与 sqlite 两个后端各跑一遍**（head 只装水位、批次整批弹栈、message 锚、迁移 EVENT、LIFO、投影替换、并发单写者、fork 按锚重建、跨实例持久化）；JSON 后端另测物理放置、head 未发布不可见、崩溃残尾与归档回收，以及 `-race` 下的延迟归因（`TestStackChannel*`）。goal 侧另覆盖按会话隔离与帧校验（`TestGoalStack*`）；blob 版本不再兼容 v2 及更早（`TestGoalStackLegacySchemaRejected`）。
 
 ## 会话 fork 存储契约（一期，已实现）
 

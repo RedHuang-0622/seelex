@@ -112,7 +112,7 @@ func (store *storeEngine) publishLifecycleLocked(key Key, commitID string, head 
 	} else {
 		_ = os.Remove(filepath.Join(root, "queue", "queue.jsonl"))
 	}
-	return store.registerModule(key, moduleLifecycle, store.modulePath(key, moduleLifecycle))
+	return store.registerModule(key, moduleLifecycle)
 }
 
 // draftToQueue 草稿 D → 入队（同一次 lifecycle 提交：queue 含 D，draft

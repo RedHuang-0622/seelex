@@ -246,40 +246,54 @@ func TestForkStoreSessionCopyRange(t *testing.T) {
 // 批次中 → 子栈排除 > from 条目。
 func TestForkStoreStackSnapshotRebuiltByAnchor(t *testing.T) {
 	store, key := lifecycleFixture(t)
-	rows := []Event{
-		messageRow(1, "msg1", "user", EventKindUserInput, "一"),
-		messageRow(2, "msg2", "assistant", EventKindLLM, "a"),
-		messageRow(3, "msg3", "user", EventKindUserInput, "二"),
-		messageRow(4, "msg4", "assistant", EventKindLLM, "b"),
-		messageRow(5, "msg5", "user", EventKindUserInput, "三"),
-	}
-	commitRoundRows(t, store, key, rows)
-	stack := stackHead{
-		SessionID: key.SessionID, HeadSeq: 5,
-		Items: []stackItem{
-			{ItemID: "item-1", ItemMessageID: "msg2", Status: "active"},
-			{ItemID: "item-2", ItemMessageID: "msg4", Status: "active"},
-			{ItemID: "item-3", ItemMessageID: "msg6", Status: "pending"},
+	rounds := [][]Event{
+		{
+			messageRow(1, "msg1", "user", EventKindUserInput, "一"),
+			messageRow(2, "msg2", "assistant", EventKindLLM, "a"),
 		},
+		{
+			messageRow(3, "msg3", "user", EventKindUserInput, "二"),
+			messageRow(4, "msg4", "assistant", EventKindLLM, "b"),
+		},
+		{messageRow(5, "msg5", "user", EventKindUserInput, "三")},
 	}
-	if err := store.commitModuleHead(key, moduleStack, "s1", stack); err != nil {
+	itemIDs := []string{"item-1", "item-2", "item-3"}
+	for index, rows := range rounds {
+		commitRoundRows(t, store, key, rows)
+		items := []StackItemInput{{ItemID: itemIDs[index], Kind: StackKindTask, Status: "active"}}
+		if _, err := stackCommit(store.stackJournal(), key, StackKindTask, stackPushMessage(StackKindTask, "", items)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parentActive, err := stackReadActive(store.stackJournal(), key, StackKindTask)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if parentActive[0].ItemMessageID != "msg2" || parentActive[1].ItemMessageID != "msg4" ||
+		parentActive[2].ItemMessageID != "msg5" {
+		t.Fatalf("parent anchors = %+v", parentActive)
 	}
 	childKey := Key{ProjectID: key.ProjectID, SessionID: "child-stack"}
 	if err := store.forkSession(key, childKey, 4); err != nil {
 		t.Fatal(err)
 	}
-	childStack, err := readModuleHeadPayload[stackHead](store, childKey, moduleStack)
+	childStack, err := stackReadActive(store.stackJournal(), childKey, StackKindTask)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(childStack.Items) != 2 {
-		t.Fatalf("child stack items = %+v", childStack.Items)
+	if len(childStack) != 2 {
+		t.Fatalf("child stack items = %+v", childStack)
 	}
-	for _, item := range childStack.Items {
+	for _, item := range childStack {
 		if item.ItemID == "item-3" {
 			t.Fatal("item beyond from leaked into child stack")
 		}
+		if item.ItemMessageSeq > 4 {
+			t.Fatalf("item %q anchor %d > fork point", item.ItemID, item.ItemMessageSeq)
+		}
+	}
+	if childStack[0].ItemMessageID != "msg2" || childStack[1].ItemMessageID != "msg4" {
+		t.Fatalf("child anchors not preserved: %+v", childStack)
 	}
 }
 

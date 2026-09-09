@@ -429,11 +429,11 @@ func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]str
 	return result
 }
 
-// forkContextRecord 重写父 context 为子会话独立起点：Plan/Task/Skill 按
-// 进入时间过滤到 fork 时刻；CompactStack 整帧继承 + 帧范围重写；GoalStack
-// （goal 域第五栈）与 GoalAudit（goal 审计账本）默认不继承（D4：fork 不带
-// 父 goal 治理状态/审计；父会话聊天记录里的 goal 文本作为转录内容照常进
-// 子会话，不由治理栈/账本承担）。
+// forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
+// 过滤到 fork 时刻；CompactStack 整帧继承 + 帧范围重写；三栈（plan/task/
+// goal）不在这里处理——它们的权威是 §2.4 栈通道，fork 时由存储层按 message
+// 锚重建（storeEngine.stackSnapshotAt）；GoalAudit 与 goal 治理状态默认不
+// 继承（D4）。
 func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error) {
 	forkPort, ok := c.Core.Deps.Sessions.(SessionForkPort)
 	if !ok {
@@ -451,17 +451,14 @@ func (c *Coordinator) forkContextRecord(location Location, parentID string, cut 
 	if err := json.Unmarshal(payload, &record); err != nil {
 		return nil, nil, fmt.Errorf("session fork: decode parent context: %w", err)
 	}
-	if record.SchemaVersion != sessionstore.SessionContextSchemaVersion &&
-		record.SchemaVersion != sessionstore.SessionContextSchemaVersionLegacy {
+	if record.SchemaVersion != sessionstore.SessionContextSchemaVersion {
 		return nil, nil, fmt.Errorf("session fork: parent context has unsupported schema version %d (want %d)", record.SchemaVersion, sessionstore.SessionContextSchemaVersion)
 	}
-	// v1 旧记录（无 GoalStack）在 fork 时兼容迁移为当前版本。
-	record.SchemaVersion = sessionstore.SessionContextSchemaVersion
-	record.PlanStack = forkContextPlanFrames(record.PlanStack, cutTime)
-	record.TaskStack = forkContextTaskFrames(record.TaskStack, cutTime)
-	record.SkillStack = forkContextSkillFrames(record.SkillStack, cutTime)
+	record.PlanStack = nil
+	record.TaskStack = nil
 	record.GoalStack = nil
 	record.GoalAudit = nil
+	record.SkillStack = forkContextSkillFrames(record.SkillStack, cutTime)
 	frames := rewriteForkCompactStack(record.CompactStack, cut, cutMessageID)
 	record.CompactStack = frames
 	data, err := json.Marshal(record)

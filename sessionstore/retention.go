@@ -73,7 +73,7 @@ func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 	if _, err := store.publishModuleHead(key, moduleRetention, "retention-init", head, head.UpdatedAt); err != nil {
 		return retentionHead{}, err
 	}
-	_ = store.registerModule(key, moduleRetention, store.modulePath(key, moduleRetention))
+	_ = store.registerModule(key, moduleRetention)
 	return head, nil
 }
 
@@ -162,6 +162,7 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 		}
 		return retentionHead{}, err
 	}
+	store.rememberMessageAnchor(key, newHead)
 	// head 已发布后删旧分片（失败只留孤儿文件，reader 以 head 为准）。
 	for _, shard := range oldShards {
 		_ = os.Remove(filepath.Join(dir, shard.Path))

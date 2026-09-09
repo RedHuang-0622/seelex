@@ -58,11 +58,24 @@ func TestSessionContextStoreStackLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	record = store.Snapshot()
-	if record.PlanStack[0].Status != "closed" || record.PlanStack[0].ClosedAt == nil {
-		t.Fatalf("closed plan frame = %+v", record.PlanStack[0])
+	// §2.4：批次整批完成即弹栈归档，active 投影不再保留终态帧。
+	if len(record.PlanStack) != 0 || len(record.TaskStack) != 0 {
+		t.Fatalf("closed batches must pop out of active: plan=%+v task=%+v", record.PlanStack, record.TaskStack)
 	}
-	if record.TaskStack[0].Status != "completed" {
-		t.Fatalf("closed task frame = %+v", record.TaskStack[0])
+	projectID := router.Workspace()
+	planHistory, err := router.StackHistory(projectID, "session-stacks", StackKindPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(planHistory) != 1 || planHistory[0].Status != "closed" || planHistory[0].ClosedAt.IsZero() {
+		t.Fatalf("plan history = %+v", planHistory)
+	}
+	taskHistory, err := router.StackHistory(projectID, "session-stacks", StackKindTask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(taskHistory) != 1 || taskHistory[0].Status != "completed" {
+		t.Fatalf("task history = %+v", taskHistory)
 	}
 	if len(record.SkillStack) != 0 {
 		t.Fatalf("skill stack after pop = %+v", record.SkillStack)
@@ -339,36 +352,25 @@ func TestGoalStackLiveStackStartsAndEndsEmpty(t *testing.T) {
 	}
 }
 
-// TestGoalStackSchemaV1MigratesOnLoadAndPersist 验证 schema v1 → v2 迁移：
-// v1 记录（无 GoalStack）可加载，内存版本升 v2；任何栈变更后落盘为 v2。
-func TestGoalStackSchemaV1MigratesOnLoadAndPersist(t *testing.T) {
+// TestGoalStackLegacySchemaRejected 验证「旧链路不兼容」：旧 schema 版本的
+// context 记录不得被静默迁移加载，必须显式失败并带上版本号。
+func TestGoalStackLegacySchemaRejected(t *testing.T) {
 	router := newTestRouter(t)
-	if err := router.SaveContextState("session-goal-v1", []byte(
-		`{"schema_version":1,"system_prompt":"旧","plan_stack":[],"task_stack":[],"skill_stack":[],"compact_stack":[]}`,
+	if err := router.SaveContextState("session-goal-legacy", []byte(
+		`{"schema_version":2,"system_prompt":"旧","plan_stack":[{"plan_id":"p1","status":"active"}],"task_stack":[],"skill_stack":[],"compact_stack":[]}`,
 	)); err != nil {
 		t.Fatal(err)
 	}
-	store := NewSessionContextStore(router, "session-goal-v1")
-	if err := store.Load(context.Background()); err != nil {
-		t.Fatalf("v1 load 应迁移成功: %v", err)
+	store := NewSessionContextStore(router, "session-goal-legacy")
+	err := store.Load(context.Background())
+	if err == nil {
+		t.Fatal("legacy schema must be rejected, not migrated")
 	}
-	record := store.Snapshot()
-	if record.SchemaVersion != SessionContextSchemaVersion {
-		t.Fatalf("迁移后内存版本 = %d", record.SchemaVersion)
+	if !strings.Contains(err.Error(), "unsupported schema version 2") {
+		t.Fatalf("err = %v", err)
 	}
-	if len(record.GoalStack) != 0 {
-		t.Fatalf("v1 无 goal 栈，迁移后应为空: %+v", record.GoalStack)
-	}
-	// 首次栈变更触发 Persist，文件应升 v2。
-	if err := store.PushGoal(GoalFrame{GoalID: "g-1", Title: "迁移后目标", Status: "active"}); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := router.LoadContextState("session-goal-v1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), `"schema_version":2`) {
-		t.Fatalf("落盘 schema 未升 v2: %s", raw)
+	if got := store.Snapshot().PlanStack; len(got) != 0 {
+		t.Fatalf("rejected record must not leak into projection: %+v", got)
 	}
 }
 
@@ -506,18 +508,19 @@ func TestCompactFrameIndexAndChainFieldsPersist(t *testing.T) {
 	if got[1].SummarySource != "local" || got[1].AnchorSource != "ok" {
 		t.Fatalf("second frame quality markers = %+v", got[1])
 	}
-	// 旧记录（无新字段）仍可解码：直接写入缺字段的 state blob。
-	legacyPayload := `{"schema_version":1,"compact_stack":[{"segment_id":"legacy-1","from":0,"to":3,"summary":"旧摘要"}]}`
-	if err := router.SaveContextState("session-legacy", []byte(legacyPayload)); err != nil {
+	// 缺新字段的记录仍可解码（字段级默认值，不是版本兼容：旧 schema 版本已
+	// 按「旧链路不兼容」拒绝加载）。
+	partialPayload := `{"schema_version":3,"compact_stack":[{"segment_id":"partial-1","from":0,"to":3,"summary":"缺字段帧"}]}`
+	if err := router.SaveContextState("session-compact-partial", []byte(partialPayload)); err != nil {
 		t.Fatal(err)
 	}
-	legacy := NewSessionContextStore(router, "session-legacy")
-	if err := legacy.Load(context.Background()); err != nil {
+	partial := NewSessionContextStore(router, "session-compact-partial")
+	if err := partial.Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	legacyFrames := legacy.Snapshot().CompactStack
-	if len(legacyFrames) != 1 || legacyFrames[0].Summary != "旧摘要" || legacyFrames[0].RequestFrom != "" {
-		t.Fatalf("legacy frame = %+v", legacyFrames)
+	partialFrames := partial.Snapshot().CompactStack
+	if len(partialFrames) != 1 || partialFrames[0].Summary != "缺字段帧" || partialFrames[0].RequestFrom != "" {
+		t.Fatalf("partial frame = %+v", partialFrames)
 	}
 }
 

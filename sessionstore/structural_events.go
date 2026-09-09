@@ -113,7 +113,7 @@ func (store *storeEngine) structuralEventCommit(key Key, commitID string, events
 	if _, err := store.publishModuleHead(key, moduleEvent, commitID, head, time.Now().UTC()); err != nil {
 		return eventHeadRecord{}, err
 	}
-	return head, store.registerModule(key, moduleEvent, store.modulePath(key, moduleEvent))
+	return head, store.registerModule(key, moduleEvent)
 }
 
 func (store *storeEngine) readEventHeadLocked(key Key) (eventHeadRecord, error) {

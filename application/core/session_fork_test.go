@@ -92,7 +92,7 @@ func TestForkSessionCreatesAndSwitchesToChild(t *testing.T) {
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
-		context:    []byte(`{"schema_version":1}`),
+		context:    []byte(`{"schema_version":3}`),
 		generation: "generation-parent",
 		results:    []sessionstore.ToolResult{{Ref: "result:1", Tool: "bash", Content: "out", Digest: "d", Size: 3, TokenCount: 1}},
 	}
@@ -146,7 +146,7 @@ func TestForkSessionChildContentVisibleAfterResume(t *testing.T) {
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
-		context:    []byte(`{"schema_version":1}`),
+		context:    []byte(`{"schema_version":3}`),
 		generation: "generation-parent",
 	}
 	engine := newMultiSessionEngine()
@@ -213,7 +213,7 @@ func TestForkSessionLatestResolvesNewestParagraph(t *testing.T) {
 			{Seq: 3, TaskID: "chat-2", Role: "user", Content: "again", MessageID: "m3"},
 			{Seq: 4, TaskID: "chat-2", Role: "assistant", Content: "answer", MessageID: "m4"},
 		},
-		context:    []byte(`{"schema_version":1}`),
+		context:    []byte(`{"schema_version":3}`),
 		generation: "generation-parent",
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -245,7 +245,7 @@ func TestForkCommandForksCurrentSession(t *testing.T) {
 			{Seq: 1, TaskID: "chat-1", Role: "user", Content: "hi", MessageID: "m1"},
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", Content: "hello", MessageID: "m2"},
 		},
-		context:    []byte(`{"schema_version":1}`),
+		context:    []byte(`{"schema_version":3}`),
 		generation: "generation-parent",
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
@@ -290,7 +290,7 @@ func TestForkSessionDeepCopyIsolation(t *testing.T) {
 			{Seq: 2, TaskID: "chat-1", Role: "assistant", ToolCalls: []sessionstore.EventToolCall{{ID: "t1", Name: "read", Arguments: "{}"}}, MessageID: "m2"},
 			{Seq: 3, TaskID: "chat-1", Role: "tool", ToolCallID: "t1", Name: "read", Content: "out", MessageID: "m3"},
 		},
-		context:    []byte(`{"schema_version":1}`),
+		context:    []byte(`{"schema_version":3}`),
 		generation: "generation-parent",
 	}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))

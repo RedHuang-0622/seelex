@@ -202,12 +202,10 @@ func TestMessageRowsIndependentModuleLocks(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 1; i <= 50; i++ {
-			payload := stackHead{
-				SessionID: key.SessionID,
-				HeadSeq:   uint64(i),
-				Items:     []stackItem{{ItemID: fmt.Sprintf("item-%d", i), Status: "active"}},
-			}
-			if err := store.commitModuleHead(key, moduleStack, fmt.Sprintf("sc-%d", i), payload); err != nil {
+			items := []StackItemInput{{
+				ItemID: fmt.Sprintf("item-%d", i), Kind: StackKindTask, Status: "active",
+			}}
+			if _, err := stackCommit(store.stackJournal(), key, StackKindTask, stackPushMessage(StackKindTask, "", items)); err != nil {
 				errs <- err
 				return
 			}
@@ -222,12 +220,12 @@ func TestMessageRowsIndependentModuleLocks(t *testing.T) {
 	if err != nil || len(rows) != 50 {
 		t.Fatalf("message rows len=%d err=%v", len(rows), err)
 	}
-	stackHead, err := readModuleHeadPayload[stackHead](store, key, moduleStack)
+	active, err := stackReadActive(store.stackJournal(), key, StackKindTask)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stackHead.HeadSeq != 50 || len(stackHead.Items) != 1 || stackHead.Items[0].ItemID != "item-50" {
-		t.Fatalf("stack head = %+v", stackHead)
+	if len(active) != 50 || active[49].ItemID != "item-50" {
+		t.Fatalf("stack active = %+v", active)
 	}
 }
 

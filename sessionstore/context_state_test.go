@@ -83,6 +83,8 @@ func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			// 三栈权威 = §2.4 栈通道，每个后端都必须实现；context/state 两通道
+			// 物理隔离与后端无关。
 			store := NewSessionContextStore(testRouter, "session")
 			if err := store.Load(context.Background()); err != nil {
 				t.Fatalf("load over SessionRecord state must not fail: %v", err)

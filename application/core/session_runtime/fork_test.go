@@ -292,16 +292,16 @@ func TestPrepareForkTruncatesToRequestBoundary(t *testing.T) {
 	if len(forkContext.ToolResults) != 3 {
 		t.Fatalf("fork tool results = %d, want full channel copy (3)", len(forkContext.ToolResults))
 	}
-	// context 四栈：Plan/Task/Skill 过滤到 fork 时刻；压缩帧整帧继承 + 重写。
+	// context blob 不再承载三栈：plan/task 权威 = §2.4 栈通道（子会话由
+	// ForkStacks 按 message 锚重建），blob 内不得留影子副本；skill 记录仍按
+	// fork 时刻过滤，压缩帧整帧继承 + 重写。
 	var contextRecord sessionstore.SessionContextRecord
 	if err := json.Unmarshal(forkContext.Context, &contextRecord); err != nil {
 		t.Fatal(err)
 	}
-	if len(contextRecord.PlanStack) != 1 || contextRecord.PlanStack[0].PlanID != "plan-1" {
-		t.Fatalf("context plan stack = %#v", contextRecord.PlanStack)
-	}
-	if len(contextRecord.TaskStack) != 1 || contextRecord.TaskStack[0].TaskID != "task-1" {
-		t.Fatalf("context task stack = %#v", contextRecord.TaskStack)
+	if len(contextRecord.PlanStack) != 0 || len(contextRecord.TaskStack) != 0 {
+		t.Fatalf("stacks must not travel in the context blob: plan=%#v task=%#v",
+			contextRecord.PlanStack, contextRecord.TaskStack)
 	}
 	if len(contextRecord.SkillStack) != 1 || contextRecord.SkillStack[0].SkillID != "s1" {
 		t.Fatalf("context skill stack = %#v", contextRecord.SkillStack)
