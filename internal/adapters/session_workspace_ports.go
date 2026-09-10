@@ -463,68 +463,102 @@ func (port SessionPort) roleRouter(mainSessionID string) (*sessionstore.Router, 
 	return port.Manager.Router(), projectID, nil
 }
 
-func (port SessionPort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (sessionstore.RoleSessionInfo, error) {
+// ── R2/R4 角色会话与定时插话（S27：端口签名只用 dto 纯 DTO）────────────
+
+func (port SessionPort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error) {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
-		return sessionstore.RoleSessionInfo{}, err
+		return dto.RoleSessionInfo{}, err
 	}
-	return router.CreateRoleSessionWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq)
+	info, err := router.CreateRoleSessionWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq)
+	if err != nil {
+		return dto.RoleSessionInfo{}, err
+	}
+	return dto.RoleSessionInfo{
+		MainSessionID: info.MainSessionID, RoleName: info.RoleName,
+		RoleSessionID: info.RoleSessionID, Root: info.Root,
+	}, nil
 }
 
-func (port SessionPort) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []sessionstore.RoleDraftRow) error {
+func (port SessionPort) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return err
 	}
-	return router.AppendRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID, rows)
+	return router.AppendRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID,
+		storeRoleDraftRows(rows))
 }
 
-func (port SessionPort) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]sessionstore.RoleDraftRow, error) {
+func (port SessionPort) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return nil, err
 	}
-	return router.ReadRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	rows, err := router.ReadRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	if err != nil {
+		return nil, err
+	}
+	return roleDraftRows(rows), nil
 }
 
-func (port SessionPort) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (sessionstore.RoleDraftSyncResult, error) {
+func (port SessionPort) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error) {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
-		return sessionstore.RoleDraftSyncResult{}, err
+		return dto.RoleDraftSyncResult{}, err
 	}
-	return router.SyncRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID, order)
+	result, err := router.SyncRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID, order)
+	if err != nil {
+		return dto.RoleDraftSyncResult{}, err
+	}
+	return dto.RoleDraftSyncResult{
+		CommitID: result.CommitID, SyncedRows: result.SyncedRows, LastSeq: result.LastSeq,
+		LastMessageID: result.LastMessageID, AlreadySynced: result.AlreadySynced,
+	}, nil
 }
 
-func (port SessionPort) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []sessionstore.Event) error {
+func (port SessionPort) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return err
 	}
-	return router.AppendRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID, rows)
+	return router.AppendRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID,
+		storeRoleRows(rows))
 }
 
-func (port SessionPort) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]sessionstore.Event, error) {
+func (port SessionPort) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error) {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return nil, err
 	}
-	return router.ReadRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	rows, err := router.ReadRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	if err != nil {
+		return nil, err
+	}
+	return roleRows(rows), nil
 }
 
-func (port SessionPort) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (sessionstore.RoleSnapshot, error) {
+func (port SessionPort) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
-		return sessionstore.RoleSnapshot{}, err
+		return dto.RoleSnapshot{}, err
 	}
-	return router.RoleSnapshotWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	snapshot, err := router.RoleSnapshotWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+	if err != nil {
+		return dto.RoleSnapshot{}, err
+	}
+	return roleSnapshot(snapshot), nil
 }
 
-func (port SessionPort) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (sessionstore.RoleWireSnapshot, error) {
+func (port SessionPort) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error) {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
-		return sessionstore.RoleWireSnapshot{}, err
+		return dto.RoleWireSnapshot{}, err
 	}
-	return router.AssembleRoleWireWorkspace(projectID, mainSessionID, roleName, roleSessionID, budget, k)
+	snapshot, err := router.AssembleRoleWireWorkspace(projectID, mainSessionID, roleName, roleSessionID, budget, k)
+	if err != nil {
+		return dto.RoleWireSnapshot{}, err
+	}
+	return roleWireSnapshot(snapshot), nil
 }
 
 func (port SessionPort) SetLifecycleOrder(sessionID, policy string, roles []string) error {
@@ -535,12 +569,13 @@ func (port SessionPort) SetLifecycleOrder(sessionID, policy string, roles []stri
 	return router.SetLifecycleOrderWorkspace(projectID, sessionID, policy, roles)
 }
 
-func (port SessionPort) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *sessionstore.CompactRef) error {
+func (port SessionPort) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error {
 	router, projectID, err := port.roleRouter(mainSessionID)
 	if err != nil {
 		return err
 	}
-	return router.SetRoleLifecycleWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq, ref)
+	return router.SetRoleLifecycleWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq,
+		storeCompactRef(ref))
 }
 
 func (port SessionPort) ListRoleSessions(mainSessionID string) ([]string, error) {
@@ -551,28 +586,160 @@ func (port SessionPort) ListRoleSessions(mainSessionID string) ([]string, error)
 	return router.ListRoleSessionsWorkspace(projectID, mainSessionID)
 }
 
-func (port SessionPort) ScheduleRegister(sessionID string, payload sessionstore.ScheduleEventPayload) error {
+func (port SessionPort) ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error {
 	router, projectID, err := port.roleRouter(sessionID)
 	if err != nil {
 		return err
 	}
-	return router.ScheduleRegisterWorkspace(projectID, sessionID, payload)
+	return router.ScheduleRegisterWorkspace(projectID, sessionID, storeSchedulePayload(payload))
 }
 
-func (port SessionPort) ScheduleCancel(sessionID string, payload sessionstore.ScheduleEventPayload) error {
+func (port SessionPort) ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error {
 	router, projectID, err := port.roleRouter(sessionID)
 	if err != nil {
 		return err
 	}
-	return router.ScheduleCancelWorkspace(projectID, sessionID, payload)
+	return router.ScheduleCancelWorkspace(projectID, sessionID, storeSchedulePayload(payload))
 }
 
-func (port SessionPort) ScheduleFire(sessionID string, payload sessionstore.ScheduleEventPayload) error {
+func (port SessionPort) ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error {
 	router, projectID, err := port.roleRouter(sessionID)
 	if err != nil {
 		return err
 	}
-	return router.ScheduleFireWorkspace(projectID, sessionID, payload)
+	return router.ScheduleFireWorkspace(projectID, sessionID, storeSchedulePayload(payload))
+}
+
+// ── DTO ↔ 存储映射（S27）：存储类型只在本文件出现 ────────────────────
+
+func storeRoleRows(rows []dto.RoleRow) []sessionstore.Event {
+	stored := make([]sessionstore.Event, len(rows))
+	for index, row := range rows {
+		calls := make([]sessionstore.EventToolCall, len(row.ToolCalls))
+		for callIndex, call := range row.ToolCalls {
+			calls[callIndex] = sessionstore.EventToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		stored[index] = sessionstore.Event{
+			Seq: row.Seq, TaskID: row.TaskID, MessageID: row.MessageID, Kind: row.Kind, Role: row.Role,
+			ReasoningContent: row.ReasoningContent, Content: row.Content, ToolCallID: row.ToolCallID,
+			Name: row.Name, ToolCalls: calls, ResultRef: row.ResultRef, TokenCount: row.TokenCount,
+			CreatedAt: row.CreatedAt, CommitID: row.CommitID, InOutJSON: row.InOutJSON,
+			WireMaterial: row.WireMaterial, RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
+			RoundID: row.RoundID, UnitSeq: row.UnitSeq,
+		}
+	}
+	return stored
+}
+
+func roleRows(events []sessionstore.Event) []dto.RoleRow {
+	rows := make([]dto.RoleRow, len(events))
+	for index, event := range events {
+		calls := make([]dto.RoleToolCall, len(event.ToolCalls))
+		for callIndex, call := range event.ToolCalls {
+			calls[callIndex] = dto.RoleToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		rows[index] = dto.RoleRow{
+			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Kind: event.Kind,
+			Role: event.Role, ReasoningContent: event.ReasoningContent, Content: event.Content,
+			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+			CommitID: event.CommitID, InOutJSON: event.InOutJSON, WireMaterial: event.WireMaterial,
+			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
+			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
+		}
+	}
+	return rows
+}
+
+func storeRoleDraftRows(rows []dto.RoleDraftRow) []sessionstore.RoleDraftRow {
+	stored := make([]sessionstore.RoleDraftRow, len(rows))
+	for index, row := range rows {
+		stored[index] = sessionstore.RoleDraftRow{
+			RoundID: row.RoundID, RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
+			UnitSeq: row.UnitSeq, MessageID: row.MessageID,
+			Event: storeRoleRows([]dto.RoleRow{row.Event})[0],
+		}
+	}
+	return stored
+}
+
+func roleDraftRows(rows []sessionstore.RoleDraftRow) []dto.RoleDraftRow {
+	drafts := make([]dto.RoleDraftRow, len(rows))
+	for index, row := range rows {
+		drafts[index] = dto.RoleDraftRow{
+			RoundID: row.RoundID, RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
+			UnitSeq: row.UnitSeq, MessageID: row.MessageID,
+			Event: roleRows([]sessionstore.Event{row.Event})[0],
+		}
+	}
+	return drafts
+}
+
+func storeCompactRef(ref *dto.CompactFrameRef) *sessionstore.CompactRef {
+	if ref == nil {
+		return nil
+	}
+	return &sessionstore.CompactRef{FrameID: ref.FrameID, AppliedSeq: ref.AppliedSeq}
+}
+
+func compactRef(ref *sessionstore.CompactRef) *dto.CompactFrameRef {
+	if ref == nil {
+		return nil
+	}
+	return &dto.CompactFrameRef{FrameID: ref.FrameID, AppliedSeq: ref.AppliedSeq}
+}
+
+func roleSnapshot(snapshot sessionstore.RoleSnapshot) dto.RoleSnapshot {
+	out := dto.RoleSnapshot{
+		MainSessionID: snapshot.MainSessionID, RoleName: snapshot.RoleName,
+		RoleSessionID: snapshot.RoleSessionID, Root: snapshot.Root,
+		JoinSeqID: snapshot.JoinSeqID, CompactRef: compactRef(snapshot.CompactRef),
+		OrderPolicy: snapshot.OrderPolicy, OrderRoles: append([]string(nil), snapshot.OrderRoles...),
+		MainHeadCommitID: snapshot.MainHeadCommitID, MainHeadSeq: snapshot.MainHeadSeq,
+		MainRows: roleRows(snapshot.MainRows), RoleRows: roleRows(snapshot.RoleRows),
+		DraftRows:          roleDraftRows(snapshot.DraftRows),
+		UnassignedRoleRows: snapshot.UnassignedRoleRows,
+		DesignWarnings:     append([]string(nil), snapshot.DesignWarnings...),
+	}
+	if snapshot.Floor != nil {
+		out.Floor = &dto.RoleFloor{
+			RoleName: snapshot.Floor.RoleName, RoleSessionID: snapshot.Floor.RoleSessionID,
+			RoundID: snapshot.Floor.RoundID, Seq: snapshot.Floor.Seq, UpdatedAt: snapshot.Floor.UpdatedAt,
+		}
+	}
+	return out
+}
+
+func roleWireSnapshot(snapshot sessionstore.RoleWireSnapshot) dto.RoleWireSnapshot {
+	messages := make([]dto.RoleWireMessage, len(snapshot.Messages))
+	for index, message := range snapshot.Messages {
+		calls := make([]dto.RoleToolCall, len(message.ToolCalls))
+		for callIndex, call := range message.ToolCalls {
+			calls[callIndex] = dto.RoleToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
+		}
+		messages[index] = dto.RoleWireMessage{
+			Role: message.Role, Content: message.Content, ReasoningContent: message.ReasoningContent,
+			ToolCalls: calls, ToolCallID: message.ToolCallID, Name: message.Name,
+			ResultRef: message.ResultRef, Seq: message.Seq, Internal: message.Internal,
+			Repair: message.Repair, Attempt: message.Attempt,
+		}
+	}
+	return dto.RoleWireSnapshot{
+		MainSessionID: snapshot.MainSessionID, RoleName: snapshot.RoleName,
+		RoleSessionID: snapshot.RoleSessionID, AppliedSeq: snapshot.AppliedSeq,
+		Messages: messages, NeedCompact: snapshot.NeedCompact, PrefixDigest: snapshot.PrefixDigest,
+		TailStartSeq: snapshot.TailStartSeq, FrameApplied: snapshot.FrameApplied,
+		Open: snapshot.Open, PendingRows: snapshot.PendingRows,
+		DesignWarnings: append([]string(nil), snapshot.DesignWarnings...),
+	}
+}
+
+func storeSchedulePayload(payload dto.ScheduleEventPayload) sessionstore.ScheduleEventPayload {
+	return sessionstore.ScheduleEventPayload{
+		ScheduleID: payload.ScheduleID, RoleName: payload.RoleName, RoleSessionID: payload.RoleSessionID,
+		Cron: payload.Cron, Interval: payload.Interval, NextFireAt: payload.NextFireAt,
+		PayloadRef: payload.PayloadRef,
+	}
 }
 
 func (port SessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (model.StoredToolResult, error) {

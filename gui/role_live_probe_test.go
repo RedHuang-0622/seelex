@@ -30,8 +30,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 func TestRealAPIRoleSessionLiveProbe(t *testing.T) {
@@ -118,17 +118,17 @@ func TestRealAPIRoleSessionLiveProbe(t *testing.T) {
 	}
 
 	// 3) draft 乱序写入 → sequencer 按 unit_seq 排序 sync → 同步即删 + floor。
-	rows := []sessionstore.RoleDraftRow{
+	rows := []dto.RoleDraftRow{
 		{
 			RoundID: 1, RoleName: "tl", RoleSessionID: roleSessionID, UnitSeq: 2,
-			MessageID: "tl-msg-2", Event: sessionstore.Event{
-				Role: "assistant", Kind: sessionstore.EventKindLLM, Content: "TL-DRAFT-2",
+			MessageID: "tl-msg-2", Event: dto.RoleRow{
+				Role: "assistant", Kind: model.TranscriptEventKindLLM, Content: "TL-DRAFT-2",
 			},
 		},
 		{
 			RoundID: 1, RoleName: "tl", RoleSessionID: roleSessionID, UnitSeq: 1,
-			MessageID: "tl-msg-1", Event: sessionstore.Event{
-				Role: "assistant", Kind: sessionstore.EventKindLLM, Content: "TL-DRAFT-1",
+			MessageID: "tl-msg-1", Event: dto.RoleRow{
+				Role: "assistant", Kind: model.TranscriptEventKindLLM, Content: "TL-DRAFT-1",
 			},
 		},
 	}
@@ -213,7 +213,7 @@ func TestRealAPIRoleSessionLiveProbe(t *testing.T) {
 	// 5) 角色备份与定时插话 EVENT 走同一 headless 控制面。
 	if _, err := proc.rpc(ctx, "role.append_backup", map[string]any{
 		"main_session_id": mainSessionID, "role_name": "tl", "role_session_id": roleSessionID,
-		"rows": []sessionstore.Event{{Role: "assistant", Kind: sessionstore.EventKindLLM, Content: "TL-BACKUP"}},
+		"rows": []dto.RoleRow{{Role: "assistant", Kind: model.TranscriptEventKindLLM, Content: "TL-BACKUP"}},
 	}); err != nil {
 		t.Fatalf("role.append_backup: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestRealAPIRoleSessionLiveProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var backup []sessionstore.Event
+	var backup []dto.RoleRow
 	if err := json.Unmarshal(backupRaw, &backup); err != nil || len(backup) != 1 || backup[0].Content != "TL-BACKUP" {
 		t.Fatalf("role backup = %s err=%v", backupRaw, err)
 	}
@@ -267,41 +267,41 @@ func roleLiveSessionID(t *testing.T, ctx context.Context, proc *forkLiveProc) st
 	return snapshot.Session.ID
 }
 
-func roleLiveSnapshot(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) (sessionstore.RoleSnapshot, error) {
+func roleLiveSnapshot(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
 	raw, err := proc.rpc(ctx, "role.snapshot", map[string]any{
 		"main_session_id": mainSessionID, "role_name": roleName, "role_session_id": roleSessionID,
 	})
 	if err != nil {
-		return sessionstore.RoleSnapshot{}, err
+		return dto.RoleSnapshot{}, err
 	}
-	var snapshot sessionstore.RoleSnapshot
+	var snapshot dto.RoleSnapshot
 	return snapshot, json.Unmarshal(raw, &snapshot)
 }
 
-func roleLiveDraftRows(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) ([]sessionstore.RoleDraftRow, error) {
+func roleLiveDraftRows(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error) {
 	raw, err := proc.rpc(ctx, "role.read_draft", map[string]any{
 		"main_session_id": mainSessionID, "role_name": roleName, "role_session_id": roleSessionID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	var rows []sessionstore.RoleDraftRow
+	var rows []dto.RoleDraftRow
 	return rows, json.Unmarshal(raw, &rows)
 }
 
-func roleLiveWire(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) (sessionstore.RoleWireSnapshot, error) {
+func roleLiveWire(ctx context.Context, proc *forkLiveProc, mainSessionID, roleName, roleSessionID string) (dto.RoleWireSnapshot, error) {
 	raw, err := proc.rpc(ctx, "role.wire", map[string]any{
 		"main_session_id": mainSessionID, "role_name": roleName,
 		"role_session_id": roleSessionID, "budget": 200000, "k": 3,
 	})
 	if err != nil {
-		return sessionstore.RoleWireSnapshot{}, err
+		return dto.RoleWireSnapshot{}, err
 	}
-	var wire sessionstore.RoleWireSnapshot
+	var wire dto.RoleWireSnapshot
 	return wire, json.Unmarshal(raw, &wire)
 }
 
-func roleLiveAssertFloorAndRoleRows(t *testing.T, snapshot sessionstore.RoleSnapshot) {
+func roleLiveAssertFloorAndRoleRows(t *testing.T, snapshot dto.RoleSnapshot) {
 	t.Helper()
 	if snapshot.Floor == nil || snapshot.Floor.RoleName != "tl" || snapshot.Floor.RoleSessionID == "" {
 		t.Fatalf("floor = %+v, want tl role session", snapshot.Floor)

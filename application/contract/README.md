@@ -17,6 +17,20 @@
 
 `Dependencies` 是 `core.New` 的装配输入；Engine、Runtime、Plugin、Skill 与 Session 端口为必需依赖，构造器缺失时返回 error。`EngineMessage`/`EngineToolCall` 是防止 Seele types 穿透应用层的传输模型。
 
+### 可选扩展端口（按类型断言发现）
+
+| 接口 | 责任 | 典型实现 |
+|---|---|---|
+| `RoleSessionPort` | R2/R4 群聊角色会话：建角色会话、role draft 读写与 sequencer sync、顺序设置、角色 backup、snapshot/wire 观察面 | `internal/adapters.SessionPort`（同时实现 `SessionPort`） |
+| `SchedulePort` | 定时任务式插话的 `schedule.registered` / `schedule.cancelled` / `schedule.fired` 事件登记 | 同上 |
+
+这两个端口是**可选能力**：`application/core` 用类型断言在 `Deps.Sessions` 上发现它们，
+未装配时显式返回“不可用”，不静默退化、不新增旁路。签名只用
+`application/contract/dto` 的纯 DTO（`dto.RoleRow` / `dto.RoleDraftRow` /
+`dto.RoleSnapshot` / `dto.RoleWireSnapshot` / `dto.ScheduleEventPayload`），
+存储实现类型 `sessionstore.*` 只允许出现在 `internal/adapters` 的映射函数里
+（S27 收口；回归见 `e2e/dto_boundary_test.go`）。
+
 ## 扩展规则
 
 - 只有 Application 用例确实需要的新能力才进入接口；不要为底层实现“顺手暴露”方法。

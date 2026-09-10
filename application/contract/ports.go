@@ -216,6 +216,36 @@ type SessionPort interface {
 	Workspace() string
 }
 
+// RoleSessionPort 是 R2/R4 群聊角色会话与 role draft 的应用契约（S27 收口：
+// 只用 application/contract/dto 纯 DTO，不出现存储类型）。
+//
+// 装配口径：会话端口实现（internal/adapters.SessionPort）在实现 SessionPort 的
+// 同时实现本接口；`application/core` 用类型断言发现它，未装配时显式返回“不可用”，
+// 不静默退化、不新增旁路。真正的排序、幂等、同步即删与 message head 发布仍由
+// 存储侧 sequencer 入口执行，本端口只做窄转发。
+type RoleSessionPort interface {
+	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
+	AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error
+	ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)
+	SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)
+	AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error
+	ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)
+	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
+	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)
+	SetLifecycleOrder(sessionID, policy string, roles []string) error
+	SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error
+	ListRoleSessions(mainSessionID string) ([]string, error)
+}
+
+// SchedulePort 是定时任务式插话 EVENT 的应用契约（§8.3）：注册/取消/触发都写
+// `schedule.*` 结构性事件，冷启动按其重放重建 timer。触发本身由运行期执行，
+// 本端口只落事件、不做调度。
+type SchedulePort interface {
+	ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error
+	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error
+	ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error
+}
+
 type WorkspacePort interface {
 	Create(name, rootPath, gitRemote string) (model.WorkspaceInfo, error)
 	Get(id string) (model.WorkspaceInfo, error)

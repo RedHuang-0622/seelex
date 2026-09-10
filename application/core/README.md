@@ -292,11 +292,17 @@ Provider history is an execution cache, not the user-visible source of truth. `p
 
 ## 群聊角色会话（R2/R4 可选端口）
 
-`application/core/role_session.go` 把 `SessionPort` 可选实现的角色能力面
+`application/core/role_session.go` 把会话端口可选实现的角色能力面
 （`CreateRoleSession` / `AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` /
 `AssembleRoleWire` / `SetLifecycleOrder` / `schedule.*`）透传给 headless。
 Application 只做窄转发，不实现 sequencer、floor、draft 删除或 compact_ref
 校验；这些语义仍在 `sessionstore`。
+
+端口形状在 S27 之后来自 `application/contract`：`contract.RoleSessionPort`
+与 `contract.SchedulePort`（可选能力，装配期用类型断言发现），签名只用
+`application/contract/dto` 纯 DTO，本包与 `gui/headless` 不再出现
+`sessionstore.*` 类型；DTO ↔ 存储映射是 `internal/adapters.SessionPort` 的
+职责。边界回归见 `e2e/dto_boundary_test.go`。
 
 `task_context` 的消息生产者给 `user` 行写 `role_name=user`、给
 `assistant/tool` 行写 `role_name=main`、给 `system`/internal 状态材料写

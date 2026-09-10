@@ -28,7 +28,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
-	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // headlessEnvPort 是启用 headless 冒烟接口的环境变量（回环端口号）。
@@ -305,21 +304,22 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 
 // roleRPCApplication 是 Application 的 R2/R4 群聊角色扩展面（headless
 // 冒烟/巡检透传；真实排序/幂等/floor 仍由 sessionstore 执行）。
+// S27 收口：接口只用 application/contract/dto 纯 DTO，gui 不 import 存储包。
 type roleRPCApplication interface {
-	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (sessionstore.RoleSessionInfo, error)
-	AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []sessionstore.RoleDraftRow) error
-	ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]sessionstore.RoleDraftRow, error)
-	SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (sessionstore.RoleDraftSyncResult, error)
-	AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []sessionstore.Event) error
-	ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]sessionstore.Event, error)
-	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (sessionstore.RoleSnapshot, error)
-	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (sessionstore.RoleWireSnapshot, error)
+	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (dto.RoleSessionInfo, error)
+	AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []dto.RoleDraftRow) error
+	ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]dto.RoleDraftRow, error)
+	SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)
+	AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []dto.RoleRow) error
+	ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]dto.RoleRow, error)
+	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
+	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (dto.RoleWireSnapshot, error)
 	SetLifecycleOrder(sessionID, policy string, roles []string) error
-	SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *sessionstore.CompactRef) error
+	SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *dto.CompactFrameRef) error
 	ListRoleSessions(mainSessionID string) ([]string, error)
-	ScheduleRegister(sessionID string, payload sessionstore.ScheduleEventPayload) error
-	ScheduleCancel(sessionID string, payload sessionstore.ScheduleEventPayload) error
-	ScheduleFire(sessionID string, payload sessionstore.ScheduleEventPayload) error
+	ScheduleRegister(sessionID string, payload dto.ScheduleEventPayload) error
+	ScheduleCancel(sessionID string, payload dto.ScheduleEventPayload) error
+	ScheduleFire(sessionID string, payload dto.ScheduleEventPayload) error
 }
 
 type roleCreateRequest struct {
@@ -330,20 +330,20 @@ type roleCreateRequest struct {
 }
 
 type roleDraftRequest struct {
-	MainSessionID string                      `json:"main_session_id"`
-	RoleName      string                      `json:"role_name"`
-	RoleSessionID string                      `json:"role_session_id"`
-	Rows          []sessionstore.RoleDraftRow `json:"rows,omitempty"`
-	Order         []string                    `json:"order,omitempty"`
-	Budget        int                         `json:"budget,omitempty"`
-	K             int                         `json:"k,omitempty"`
+	MainSessionID string             `json:"main_session_id"`
+	RoleName      string             `json:"role_name"`
+	RoleSessionID string             `json:"role_session_id"`
+	Rows          []dto.RoleDraftRow `json:"rows,omitempty"`
+	Order         []string           `json:"order,omitempty"`
+	Budget        int                `json:"budget,omitempty"`
+	K             int                `json:"k,omitempty"`
 }
 
 type roleBackupRequest struct {
-	MainSessionID string               `json:"main_session_id"`
-	RoleName      string               `json:"role_name"`
-	RoleSessionID string               `json:"role_session_id"`
-	Rows          []sessionstore.Event `json:"rows,omitempty"`
+	MainSessionID string        `json:"main_session_id"`
+	RoleName      string        `json:"role_name"`
+	RoleSessionID string        `json:"role_session_id"`
+	Rows          []dto.RoleRow `json:"rows,omitempty"`
 }
 
 type roleOrderRequest struct {
@@ -353,16 +353,16 @@ type roleOrderRequest struct {
 }
 
 type roleLifecycleRequest struct {
-	MainSessionID string                   `json:"main_session_id"`
-	RoleName      string                   `json:"role_name"`
-	RoleSessionID string                   `json:"role_session_id"`
-	JoinSeqID     uint64                   `json:"join_seq_id,omitempty"`
-	CompactRef    *sessionstore.CompactRef `json:"compact_ref,omitempty"`
+	MainSessionID string               `json:"main_session_id"`
+	RoleName      string               `json:"role_name"`
+	RoleSessionID string               `json:"role_session_id"`
+	JoinSeqID     uint64               `json:"join_seq_id,omitempty"`
+	CompactRef    *dto.CompactFrameRef `json:"compact_ref,omitempty"`
 }
 
 type scheduleRPCRequest struct {
-	SessionID string                            `json:"session_id"`
-	Payload   sessionstore.ScheduleEventPayload `json:"payload"`
+	SessionID string                   `json:"session_id"`
+	Payload   dto.ScheduleEventPayload `json:"payload"`
 }
 
 func decodeHeadlessObject(method string, args []json.RawMessage, destination any) error {

@@ -8,6 +8,7 @@ package core
 import (
 	"errors"
 
+	"github.com/RedHuang-0622/seelex/application/contract"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 )
@@ -22,10 +23,10 @@ type agentTeamPort interface {
 }
 
 // agentTeamAdapter 把会话端口（DTO 形态）适配为 agentteam.Port。
-// 顺序读写复用既有 roleSessionPort.SetLifecycleOrder，避免第二套写入口。
+// 顺序读写复用既有 contract.RoleSessionPort.SetLifecycleOrder，避免第二套写入口。
 type agentTeamAdapter struct {
 	port agentTeamPort
-	role roleSessionPort
+	role contract.RoleSessionPort
 }
 
 func (adapter agentTeamAdapter) EnsureRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error) {
@@ -48,11 +49,11 @@ func (adapter agentTeamAdapter) WriteTeamRegistry(mainSessionID string, registry
 	return adapter.port.WriteTeamRegistry(mainSessionID, registry)
 }
 
-func (service *Service) agentTeamPorts() (agentTeamPort, roleSessionPort, error) {
+func (service *Service) agentTeamPorts() (agentTeamPort, contract.RoleSessionPort, error) {
 	if service == nil || service.Deps.Sessions == nil {
 		return nil, nil, errors.New("agent team storage is not assembled")
 	}
-	role, ok := service.Deps.Sessions.(roleSessionPort)
+	role, ok := service.Deps.Sessions.(contract.RoleSessionPort)
 	if !ok {
 		return nil, nil, errors.New("session port does not expose role session storage")
 	}
