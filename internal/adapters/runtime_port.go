@@ -125,6 +125,21 @@ func (port RuntimePort) ClearSubagentTree() error {
 func (port RuntimePort) RestoreSubagentAnchors(sessionID string) error {
 	return port.Runtime.RestoreSubagentAnchors(sessionID)
 }
+func (port RuntimePort) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error) {
+	return port.Runtime.ListSubagentRecovery(sessionID)
+}
+func (port RuntimePort) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error) {
+	return port.Runtime.ResumeInterruptedSubagents(ctx, sessionID)
+}
+func (port RuntimePort) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error) {
+	return port.Runtime.ResumeSubagent(ctx, sessionID, nodeID)
+}
+func (port RuntimePort) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error) {
+	return port.Runtime.ForkSubagents(ctx, sessionID, specs)
+}
+func (port RuntimePort) SetSubagentParentRepairer(fn func(sessionID string) error) {
+	port.Runtime.SetSubagentParentRepairer(fn)
+}
 func (port RuntimePort) SearchHistory(ctx context.Context, query string, limit int) (seelexctxsearch.Result, error) {
 	return port.Runtime.SearchHistory(ctx, query, limit)
 }

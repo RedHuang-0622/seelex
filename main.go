@@ -221,6 +221,9 @@ func run() error {
 	}
 	defer app.Shutdown()
 	console.LogStageIf(backendTrace, "startup.application.ready")
+	// 子代理中断恢复的「补历史」步骤：父侧缺失的工具结果（含中断的
+	// subagent 派发）在续跑前补齐 provider-only tool 占位。
+	runtime.SetSubagentParentRepairer(app.PrepareProviderHistory)
 	// 配置容错：启动期非致命警告（如 accounts.yaml 解析失败）以系统通知
 	// 进入会话可见区，GUI 另弹原生对话框；应用照常启动，不再闪退。
 	startupWarnings := runtime.StartupWarnings()

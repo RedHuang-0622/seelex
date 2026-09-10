@@ -290,6 +290,22 @@ Provider history is an execution cache, not the user-visible source of truth. `p
 
 子代理事件由 `HandlePlanNodeComplete` 和 `HandleSubagentToolEvent` 投影到嵌套 `PlanNode`。节点生命周期发布 `subagent.changed`，内部工具活动按 ID upsert 到有界 `tool_events` 并发布 started/completed 增量；Snapshot 始终可以重建相同状态。
 
+## 群聊角色会话（R2/R4 可选端口）
+
+`application/core/role_session.go` 把 `SessionPort` 可选实现的角色能力面
+（`CreateRoleSession` / `AppendRoleDraft` / `SyncRoleDraft` / `RoleSnapshot` /
+`AssembleRoleWire` / `SetLifecycleOrder` / `schedule.*`）透传给 headless。
+Application 只做窄转发，不实现 sequencer、floor、draft 删除或 compact_ref
+校验；这些语义仍在 `sessionstore`。
+
+`task_context` 的消息生产者给 `user` 行写 `role_name=user`、给
+`assistant/tool` 行写 `role_name=main`、给 `system`/internal 状态材料写
+`role_name=system`，并用 `round_id`（每个 user 输入一轮）与 `unit_seq`
+（轮内事件序）补齐群聊排序键；`role_session_id` 默认当前会话 ID。显式已填
+字段不覆盖，给未来 agent-team 生产者留入口。注意：provider 请求的 `role`
+仍是标准集（实验确认自定义 `tl` 被端点拒绝），A2A 角色只能放 metadata
+`role_name`，不得透传成 provider role。
+
 ## 工作表格（Work Table）
 
 工作表格是右侧工作台的统一读模型：`buildWorkTable`（纯函数，锁内构建）把

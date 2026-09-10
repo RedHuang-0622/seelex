@@ -23,6 +23,7 @@ import (
 // subagentsession.SubagentSessions，接口化避免 node→session→fork 测试环）。
 type SessionPort interface {
 	Register(nodeID string, sess *frameworkSession.Session, goal string)
+	RegisterFor(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string)
 	Unregister(nodeID string) *snapshot.ContextSnapshot
 	Conversation(nodeID string) ([]types.Message, bool)
 	ContextSnapshot(nodeID string) (*snapshot.ContextSnapshot, bool)
@@ -64,6 +65,9 @@ type CoordinatorDeps struct {
 	AccountLimits   func() config.AccountLimits
 	InheritedBlocks func() []seelectx.PromptBlock
 	RelatedMemory   func(ctx context.Context, query string) []seelectx.PromptBlock
+	// ResumeNote 返回节点当前的中断恢复说明（system 注入；非恢复轮次为空）。
+	// 只进被执行节点自己的上下文，不进 main 历史（AT7/AT9）。
+	ResumeNote func(nodeID string) string
 }
 
 // Coordinator 收拢原 Runtime 侧节点门面：会话注册、fork 树终态、task 打点、
@@ -97,11 +101,11 @@ func (c *Coordinator) Close() {
 }
 
 // RegisterSession 注册运行中的子代理会话（详情查询数据面）。
-func (c *Coordinator) RegisterSession(nodeID string, sess *frameworkSession.Session, goal string) {
+func (c *Coordinator) RegisterSession(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string) {
 	if c == nil || c.deps.Sessions == nil || c.deps.Tree == nil {
 		return
 	}
-	c.deps.Sessions.Register(nodeID, sess, goal)
+	c.deps.Sessions.RegisterFor(mainSessionID, nodeID, sess, goal)
 	c.deps.Tree.NoteSession(nodeID, sess)
 }
 
@@ -289,8 +293,10 @@ func (c *Coordinator) GoalSkillActive() bool {
 // PromptBlocks 构建节点级 PromptBlock：子代理章程（Claude Code 风格结构化
 // 提示词：Role/Context/Task/Investigation/Constraints/Verification）。
 // 父证据、预算、收尾约束全部并入章程（单一权威契约，不再拆碎块）。
+// 中断恢复说明（若有）以 system 紧跟章程注入：它是编排事实，不是模型发言，
+// 也不是用户输入（AT9），且只进本节点自己的上下文。
 func (c *Coordinator) PromptBlocks(input plan.SeelexNodeInput) []seelectx.PromptBlock {
-	blocks := make([]seelectx.PromptBlock, 0, 3)
+	blocks := make([]seelectx.PromptBlock, 0, 4)
 	blocks = append(blocks, seelectx.PromptBlock{
 		Name: "node-charter",
 		Messages: []types.Message{{
@@ -298,8 +304,25 @@ func (c *Coordinator) PromptBlocks(input plan.SeelexNodeInput) []seelectx.Prompt
 			Content: stringPtr(NodeSubagentCharter(input, c.Budget(input), c.ParentEvidence())),
 		}},
 	})
+	if note := c.resumeNote(input.ID); note != "" {
+		blocks = append(blocks, seelectx.PromptBlock{
+			Name: "node-resume-note",
+			Messages: []types.Message{{
+				Role:    "system",
+				Content: stringPtr(note),
+			}},
+		})
+	}
 	blocks = append(blocks, c.skillBlocks(input)...)
 	return blocks
+}
+
+// resumeNote 读取节点中断恢复说明（未接线/非恢复轮次 → 空串）。
+func (c *Coordinator) resumeNote(nodeID string) string {
+	if c == nil || c.deps.ResumeNote == nil {
+		return ""
+	}
+	return c.deps.ResumeNote(nodeID)
 }
 
 // Assembler 返回节点子代理会话的 RequestAssembler：把 AgentNode 注入 ctx 的

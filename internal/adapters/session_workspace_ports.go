@@ -450,6 +450,131 @@ func (port SessionPort) LifecycleRecoverWorkspace(projectID, sessionID string) (
 	return port.Manager.Router().LifecycleRecoverWorkspace(projectID, sessionID)
 }
 
+// ---------- R2/R4 群聊角色会话适配（Application 可选能力面） ----------
+
+func (port SessionPort) roleRouter(mainSessionID string) (*sessionstore.Router, string, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil, "", errors.New("session storage is not assembled")
+	}
+	if strings.TrimSpace(mainSessionID) == "" {
+		return nil, "", errors.New("main session ID is required")
+	}
+	projectID := port.granular().ResolveProjectForSession(mainSessionID)
+	return port.Manager.Router(), projectID, nil
+}
+
+func (port SessionPort) CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (sessionstore.RoleSessionInfo, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return sessionstore.RoleSessionInfo{}, err
+	}
+	return router.CreateRoleSessionWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq)
+}
+
+func (port SessionPort) AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []sessionstore.RoleDraftRow) error {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return err
+	}
+	return router.AppendRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID, rows)
+}
+
+func (port SessionPort) ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]sessionstore.RoleDraftRow, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return nil, err
+	}
+	return router.ReadRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+}
+
+func (port SessionPort) SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (sessionstore.RoleDraftSyncResult, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return sessionstore.RoleDraftSyncResult{}, err
+	}
+	return router.SyncRoleDraftWorkspace(projectID, mainSessionID, roleName, roleSessionID, order)
+}
+
+func (port SessionPort) AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []sessionstore.Event) error {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return err
+	}
+	return router.AppendRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID, rows)
+}
+
+func (port SessionPort) ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]sessionstore.Event, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return nil, err
+	}
+	return router.ReadRoleSessionRowsWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+}
+
+func (port SessionPort) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (sessionstore.RoleSnapshot, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return sessionstore.RoleSnapshot{}, err
+	}
+	return router.RoleSnapshotWorkspace(projectID, mainSessionID, roleName, roleSessionID)
+}
+
+func (port SessionPort) AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (sessionstore.RoleWireSnapshot, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return sessionstore.RoleWireSnapshot{}, err
+	}
+	return router.AssembleRoleWireWorkspace(projectID, mainSessionID, roleName, roleSessionID, budget, k)
+}
+
+func (port SessionPort) SetLifecycleOrder(sessionID, policy string, roles []string) error {
+	router, projectID, err := port.roleRouter(sessionID)
+	if err != nil {
+		return err
+	}
+	return router.SetLifecycleOrderWorkspace(projectID, sessionID, policy, roles)
+}
+
+func (port SessionPort) SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *sessionstore.CompactRef) error {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return err
+	}
+	return router.SetRoleLifecycleWorkspace(projectID, mainSessionID, roleName, roleSessionID, joinSeq, ref)
+}
+
+func (port SessionPort) ListRoleSessions(mainSessionID string) ([]string, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return nil, err
+	}
+	return router.ListRoleSessionsWorkspace(projectID, mainSessionID)
+}
+
+func (port SessionPort) ScheduleRegister(sessionID string, payload sessionstore.ScheduleEventPayload) error {
+	router, projectID, err := port.roleRouter(sessionID)
+	if err != nil {
+		return err
+	}
+	return router.ScheduleRegisterWorkspace(projectID, sessionID, payload)
+}
+
+func (port SessionPort) ScheduleCancel(sessionID string, payload sessionstore.ScheduleEventPayload) error {
+	router, projectID, err := port.roleRouter(sessionID)
+	if err != nil {
+		return err
+	}
+	return router.ScheduleCancelWorkspace(projectID, sessionID, payload)
+}
+
+func (port SessionPort) ScheduleFire(sessionID string, payload sessionstore.ScheduleEventPayload) error {
+	router, projectID, err := port.roleRouter(sessionID)
+	if err != nil {
+		return err
+	}
+	return router.ScheduleFireWorkspace(projectID, sessionID, payload)
+}
+
 func (port SessionPort) LoadToolResultWorkspace(workspaceID, id, resultRef string) (model.StoredToolResult, error) {
 	result, err := port.granular().ToolResult(workspaceID, id, resultRef)
 	if err != nil {
@@ -477,6 +602,8 @@ func storeTranscriptEvents(events []model.TranscriptEvent) []sessionstore.Event 
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
 			ResultRef: event.ResultRef, TokenCount: event.TokenCount,
 			WireMaterial: event.WireMaterial, CreatedAt: event.CreatedAt,
+			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
+			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
 		}
 	}
 	return stored
@@ -495,6 +622,8 @@ func adaptTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent 
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
 			ResultRef: event.ResultRef, TokenCount: event.TokenCount,
 			WireMaterial: event.WireMaterial, CreatedAt: event.CreatedAt,
+			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
+			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
 		}
 	}
 	return adapted

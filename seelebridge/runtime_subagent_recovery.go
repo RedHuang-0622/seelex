@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
@@ -43,7 +44,21 @@ func (r *Runtime) AttachSubSessionStore(store *sessionstore.NodeSessionStore) {
 		return
 	}
 	r.nodeSessionStore = store
-	r.subagentSessions.Configure(store, r.MainSessionID, r.persistSubagentConclusion)
+	r.subagentSessions.Configure(store, r.MainSessionID, func() string {
+		return r.sessionProjectIDFor(r.MainSessionID())
+	}, r.persistSubagentConclusion)
+}
+
+// sessionProjectIDFor 返回会话绑定的项目 ID（无绑定 = 默认项目 ""）。角色/
+// 子代理记录按该稳定键落盘，不读 Router active workspace —— fork 执行期
+// 可能切换 active scope，读取它会写到另一个项目。
+func (r *Runtime) sessionProjectIDFor(sessionID string) string {
+	if r == nil || strings.TrimSpace(sessionID) == "" {
+		return ""
+	}
+	r.sessionWorkspacesMu.RLock()
+	defer r.sessionWorkspacesMu.RUnlock()
+	return r.sessionWorkspaces[sessionID]
 }
 
 // persistSubagentConclusion 把子代理最终结论写入主会话事件库
@@ -103,7 +118,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 	if router == nil {
 		return nil
 	}
-	projectID := router.Workspace()
+	projectID := r.sessionProjectIDFor(sessionID)
 	records := []sessionstore.NodeSessionRecord{}
 	if r.nodeSessionStore != nil {
 		var err error

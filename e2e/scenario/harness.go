@@ -166,6 +166,24 @@ func (harnessRuntime) CancelScheduledTask(string) error    { return nil }
 func (harnessRuntime) ClearSubagentTree() error            { return nil }
 func (harnessRuntime) RestoreSubagentAnchors(string) error { return nil }
 
+func (harnessRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error) {
+	return nil, nil
+}
+
+func (harnessRuntime) ResumeInterruptedSubagents(context.Context, string) (dto.SubagentResumeReport, error) {
+	return dto.SubagentResumeReport{}, nil
+}
+
+func (harnessRuntime) ResumeSubagent(context.Context, string, string) (dto.SubagentResumeResult, error) {
+	return dto.SubagentResumeResult{}, nil
+}
+
+func (harnessRuntime) ForkSubagents(context.Context, string, []dto.SubagentForkSpec) (string, error) {
+	return "", nil
+}
+
+func (harnessRuntime) SetSubagentParentRepairer(func(string) error) {}
+
 func (harnessRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
 	return seelexctxsearch.Result{}, nil
 }

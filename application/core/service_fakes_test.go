@@ -327,6 +327,10 @@ type fakeRuntime struct {
 	scheduleErr          error
 	searchResult         seelexctxsearch.Result
 	searchErr            error
+	// 子代理恢复面（headless subagent.* 的测试桩投影）。
+	subagentRecovery     []dto.SubagentRecoveryView
+	subagentResumeReport dto.SubagentResumeReport
+	subagentResumeErr    error
 }
 
 func (*fakeRuntime) Model() string { return "test-model" }
@@ -712,6 +716,24 @@ func (runtime *fakeRuntime) CancelScheduledTask(id string) error {
 
 func (runtime *fakeRuntime) ClearSubagentTree() error            { return nil }
 func (runtime *fakeRuntime) RestoreSubagentAnchors(string) error { return nil }
+
+func (runtime *fakeRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error) {
+	return runtime.subagentRecovery, nil
+}
+
+func (runtime *fakeRuntime) ResumeInterruptedSubagents(context.Context, string) (dto.SubagentResumeReport, error) {
+	return runtime.subagentResumeReport, runtime.subagentResumeErr
+}
+
+func (runtime *fakeRuntime) ResumeSubagent(context.Context, string, string) (dto.SubagentResumeResult, error) {
+	return dto.SubagentResumeResult{}, runtime.subagentResumeErr
+}
+
+func (runtime *fakeRuntime) ForkSubagents(context.Context, string, []dto.SubagentForkSpec) (string, error) {
+	return "", nil
+}
+
+func (runtime *fakeRuntime) SetSubagentParentRepairer(func(string) error) {}
 
 func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error) {
 	return runtime.searchResult, runtime.searchErr

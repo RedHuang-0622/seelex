@@ -34,6 +34,12 @@ type SubagentSessions struct {
 	// 见 sessionstore.NodeSessionRecord）。nil → 保持纯内存态（测试/未装配）。
 	nodeStore     *sessionstore.NodeSessionStore
 	mainSessionID func() string
+	// projectID 解析记录归属项目（稳定于主会话绑定，不读 Router active
+	// workspace）。nil → 回退 nodeStore.ProjectID()（测试/旧装配兼容）。
+	projectID func() string
+	// mainSessionIDs 是节点注册时显式绑定的主会话 ID（ctx 路由注入）。
+	// 冷恢复/后台执行时不能依赖“当前 active session”。
+	mainSessionIDs map[string]string
 	// conclusionSink 在节点结束（done/failed）时把最终结论交给主会话侧
 	// 持久化（"最后的结论跟随 mainagent"）；随后本节点记录文件被删除。
 	conclusionSink func(string, sessionstore.NodeSessionRecord)
@@ -86,19 +92,24 @@ const (
 type subagentSessionCmd struct {
 	kind   subagentSessionCmdKind
 	nodeID string
-	sess   *frameworkSession.Session
-	goal   string
-	ref    string
-	stage  model.NodeStageLog
-	res    *model.NodeSemanticResult
-	reply  chan subagentSessionReply
-	wt     sessionstore.NodeWorktreeRecord
-	out    subagentOutcome
-	recs   []sessionstore.NodeSessionRecord
+	// mainSessionID 是注册时显式绑定的主会话 ID（context 路由）。
+	mainSessionID string
+	sess          *frameworkSession.Session
+	goal          string
+	ref           string
+	stage         model.NodeStageLog
+	res           *model.NodeSemanticResult
+	reply         chan subagentSessionReply
+	wt            sessionstore.NodeWorktreeRecord
+	out           subagentOutcome
+	recs          []sessionstore.NodeSessionRecord
 	// configure 装配（AttachSubSessionStore 注入；nil 字段保持现状）。
 	store  *sessionstore.NodeSessionStore
 	mainID func() string
-	sink   func(string, sessionstore.NodeSessionRecord)
+	// projectID 解析记录归属项目（稳定于主会话绑定，不读 Router active
+	// workspace；否则 fork 期间 Router 作用域漂移会把记录写到另一个项目）。
+	projectID func() string
+	sink      func(string, sessionstore.NodeSessionRecord)
 }
 
 type subagentSessionReply struct {
@@ -150,6 +161,7 @@ func NewSubagentSessions(trace provider.TraceSource, opts ...SubagentSessionsOpt
 		results:          make(map[string]*model.NodeSemanticResult),
 		worktrees:        make(map[string]sessionstore.NodeWorktreeRecord),
 		outcomes:         make(map[string]subagentOutcome),
+		mainSessionIDs:   make(map[string]string),
 		events:           make(chan model.NodeStageLog, subagentStageEventCap),
 	}
 	for _, opt := range opts {
@@ -166,6 +178,9 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 	case subagentSessionRegister:
 		s.sessions[cmd.nodeID] = cmd.sess
 		s.goals[cmd.nodeID] = cmd.goal
+		if cmd.mainSessionID != "" {
+			s.mainSessionIDs[cmd.nodeID] = cmd.mainSessionID
+		}
 		if cmd.sess != nil {
 			s.sessionIDs[cmd.nodeID] = cmd.sess.SessionID()
 		}
@@ -175,6 +190,7 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		delete(s.sessions, cmd.nodeID)
 		goal := s.goals[cmd.nodeID]
 		delete(s.goals, cmd.nodeID)
+		delete(s.mainSessionIDs, cmd.nodeID)
 		if sess == nil {
 			s.reply(cmd, subagentSessionReply{})
 			return
@@ -302,6 +318,9 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		if cmd.mainID != nil {
 			s.mainSessionID = cmd.mainID
 		}
+		if cmd.projectID != nil {
+			s.projectID = cmd.projectID
+		}
 		if cmd.sink != nil {
 			s.conclusionSink = cmd.sink
 		}
@@ -315,8 +334,8 @@ func (s *SubagentSessions) finalizeLocked(nodeID string) {
 	if s.nodeStore == nil || nodeID == "" {
 		return
 	}
-	mainID := ""
-	if s.mainSessionID != nil {
+	mainID := s.mainSessionIDs[nodeID]
+	if mainID == "" && s.mainSessionID != nil {
 		mainID = s.mainSessionID()
 	}
 	if mainID == "" {
@@ -390,6 +409,9 @@ func (s *SubagentSessions) persistLocked(nodeID string) {
 	record := s.buildRecordLocked(nodeID)
 	record.MainSessionID = mainID
 	projectID := s.nodeStore.ProjectID()
+	if s.projectID != nil {
+		projectID = s.projectID()
+	}
 	if err := s.nodeStore.Save(projectID, mainID, record); err != nil {
 		log.Printf("seelebridge/session: persist node session %q: %v", nodeID, err)
 	}
@@ -454,10 +476,19 @@ func (s *SubagentSessions) send(cmd subagentSessionCmd) bool {
 
 // Register 注册运行中的子代理会话与节点目标（goal 供 ContextSnapshot 导出复用）。
 func (s *SubagentSessions) Register(nodeID string, sess *frameworkSession.Session, goal string) {
+	s.RegisterFor("", nodeID, sess, goal)
+}
+
+// RegisterFor 在显式主会话作用域下注册节点（冷恢复/后台会话用；空 ID 回退
+// 兼容旧调用）。
+func (s *SubagentSessions) RegisterFor(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string) {
 	if s == nil || nodeID == "" || sess == nil {
 		return
 	}
-	s.send(subagentSessionCmd{kind: subagentSessionRegister, nodeID: nodeID, sess: sess, goal: goal})
+	s.send(subagentSessionCmd{
+		kind: subagentSessionRegister, mainSessionID: strings.TrimSpace(mainSessionID),
+		nodeID: nodeID, sess: sess, goal: goal,
+	})
 }
 
 // Session 返回指定节点当前注册的运行中会话（UC7 查询面）；不存在返回 nil。
@@ -719,11 +750,11 @@ func (s *SubagentSessions) Restore(records []sessionstore.NodeSessionRecord) {
 
 // Configure 装配/替换节点会话记录持久化（Router 就绪后注入；幂等）。
 // store/mainID/sink 任一为 nil 表示保持现状；显式关闭需分别传 nil 包装。
-func (s *SubagentSessions) Configure(store *sessionstore.NodeSessionStore, mainID func() string, sink func(string, sessionstore.NodeSessionRecord)) {
+func (s *SubagentSessions) Configure(store *sessionstore.NodeSessionStore, mainID, projectID func() string, sink func(string, sessionstore.NodeSessionRecord)) {
 	if s == nil {
 		return
 	}
-	s.send(subagentSessionCmd{kind: subagentSessionConfigure, store: store, mainID: mainID, sink: sink})
+	s.send(subagentSessionCmd{kind: subagentSessionConfigure, store: store, mainID: mainID, projectID: projectID, sink: sink})
 }
 
 // Close 关闭命令通道并等待 actor 退出（幂等）。

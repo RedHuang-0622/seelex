@@ -1,6 +1,11 @@
 
 # goal — Goal 域（DS-A2A 双会话治理 + 治理循环适配）
 
+> 角色/团队泛化边界见
+> [`docs/arch/a2a-agent-team-factory.md`](../../../docs/arch/a2a-agent-team-factory.md)：
+> goal 的 TL/ADVISOR 是 AgentTeam 工厂的第一个实例；subagent 是 tool calling
+> 能力，不属于 AgentTeam。
+
 ## 生态位
 
 会话粒度的 Goal 对象与状态机（`Controller`）、DS-A2A 双会话治理编排

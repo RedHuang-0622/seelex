@@ -173,6 +173,10 @@ type Runtime struct {
 	// 节点会话记录持久化（用户约定：<mainSessionID>-<subSessionID>.json，
 	// 见 sessionstore.NodeSessionRecord）；Router 就绪后 AttachSubSessionStore 注入。
 	nodeSessionStore *sessionstore.NodeSessionStore
+	// subagentResume 保存中断子代理恢复期的状态：节点 → system 恢复说明
+	// （仅该节点的下一次装配读取）与父侧历史补齐钩子。见
+	// runtime_subagent_resume.go。
+	subagentResume   subagentResumeState
 	eventPersisterMu sync.Mutex
 	eventPersister   func(context.Context, frameworkevent.Event) error
 	lazyMCPServerMu  sync.RWMutex
@@ -400,6 +404,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			return blocks
 		},
 		RelatedMemory: r.relatedMemoryBlocks,
+		ResumeNote:    r.SubagentResumeNote,
 	})
 	// 8. 回填节点工厂（node 已就绪；plan_load 在运行期才消费）。
 	r.planExecutor.SetNodeFactory(r.nodeFactory)

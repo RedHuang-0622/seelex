@@ -175,6 +175,20 @@ type RuntimePort interface {
 	// RestoreSubagentAnchors 从持久化重建目标会话的子代理恢复锚点
 	// （重启/切页后：fork 树 + worktable 认领 subagent:<节点会话ID>）。
 	RestoreSubagentAnchors(sessionID string) error
+	// ListSubagentRecovery 列出目标会话下残留子代理单元的恢复态（只读：
+	// active/是否有结论/是否可续跑；不改状态、不重跑）。
+	ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)
+	// ResumeInterruptedSubagents 冷恢复续跑目标会话下未完成的子代理
+	// （七步模板：补占位 → 重建现场 → system 注入 → 同键重跑 → 收敛）。
+	ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)
+	// ResumeSubagent 定点续跑单个子代理（幂等键 = 节点 ID；失败可重试）。
+	ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)
+	// ForkSubagents 直接派发一批子代理（自动化/冒烟入口；与模型调用
+	// fork_subagents 同一条执行链，不新增旁路）。
+	ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)
+	// SetSubagentParentRepairer 注入父侧历史补齐钩子（缺失的子代理结果 →
+	// provider-only tool 占位）；组合根接线，未接线时该步退化为 no-op。
+	SetSubagentParentRepairer(fn func(sessionID string) error)
 	// SearchHistory 在会话压缩栈（语义索引）上检索历史聊天记录
 	// （GUI 历史检索面板数据源；无压缩栈时尾部扫描兜底）。
 	SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error)

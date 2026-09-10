@@ -6,6 +6,8 @@ package node
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/internal/promptassets"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/plan"
 	"github.com/RedHuang-0622/seelex/seelebridge/worktree"
 	"github.com/RedHuang-0622/seelex/seelexctx"
@@ -34,7 +37,7 @@ type Deps struct {
 	BeginNodeWorktree        func(scope model.NodeScope, nodeID string) *worktree.NodeWorktree
 	FinishNodeWorktree       func(ctx context.Context, nodeID string, wt *worktree.NodeWorktree) error
 	ReleaseNodeWorktree      func(nodeID string)
-	RegisterNodeSession      func(nodeID string, sess *frameworkSession.Session, goal string)
+	RegisterNodeSession      func(mainSessionID, nodeID string, sess *frameworkSession.Session, goal string)
 	UnregisterNodeSession    func(nodeID string)
 	CompleteSubagentNode     func(nodeID, summary string, err error)
 	NodeParentEvidence       func() *snapshot.ContextSnapshot
@@ -133,8 +136,18 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 	agent := factory.NewAgent(n.input.Input)
 	if sess, ok := agent.(*frameworkSession.Session); ok {
 		sess.SetMaxLoops(n.deps.NodeBudget(n.input).MaxLoops)
-		n.deps.RegisterNodeSession(n.ID(), sess, n.input.Input)
+		n.deps.RegisterNodeSession(seetelemetry.SessionIDFromContext(ctx), n.ID(), sess, n.input.Input)
 		defer n.deps.UnregisterNodeSession(n.ID())
+		// 诊断/冒烟 seam：仅当显式设置 SEELEX_SUBAGENT_HOLD_MS 时，在节点注册
+		// 后保持 running 一段时间，让外部驱动能稳定观测 active 残留记录。
+		// 生产默认 0，不增加任何等待。
+		if holdMS, _ := strconv.Atoi(strings.TrimSpace(os.Getenv("SEELEX_SUBAGENT_HOLD_MS"))); holdMS > 0 {
+			select {
+			case <-time.After(time.Duration(holdMS) * time.Millisecond):
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
 		if n.deps.RecordNodeStage != nil {
 			n.deps.RecordNodeStage(n.ID(), model.NodeStageLog{
 				Stage: model.NodeStageSpawn, NodeID: n.ID(), SessionID: sess.SessionID(),
