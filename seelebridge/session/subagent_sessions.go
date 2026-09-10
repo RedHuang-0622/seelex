@@ -45,9 +45,14 @@ type SubagentSessions struct {
 	conclusionSink func(string, sessionstore.NodeSessionRecord)
 
 	// 以下字段仅在 actor goroutine 内访问。
-	sessions         map[string]*frameworkSession.Session
-	sessionIDs       map[string]string
-	snapshots        map[string][]types.Message
+	sessions   map[string]*frameworkSession.Session
+	sessionIDs map[string]string
+	snapshots  map[string][]types.Message
+	// liveHistories 是运行中节点最近一次读到的历史（循环发布的检查点）。
+	// Seele 的 Session 在整段 ChatStream 期间持有会话锁，actor 若直接读
+	// History() 会停在流式上几十秒并堵住整个注册表；因此运行中的读取一律走
+	// 这里的缓存（由 refreshLiveHistoryLocked 用 HistoryIfAvailable 刷新）。
+	liveHistories    map[string][]types.Message
 	goals            map[string]string
 	contextSnapshots map[string]*snapshot.ContextSnapshot
 	toolArchivers    map[string]*seelexctx.InMemoryToolResultArchiver
@@ -154,6 +159,7 @@ func NewSubagentSessions(trace provider.TraceSource, opts ...SubagentSessionsOpt
 		sessions:         make(map[string]*frameworkSession.Session),
 		sessionIDs:       make(map[string]string),
 		snapshots:        make(map[string][]types.Message),
+		liveHistories:    make(map[string][]types.Message),
 		goals:            make(map[string]string),
 		contextSnapshots: make(map[string]*snapshot.ContextSnapshot),
 		toolArchivers:    make(map[string]*seelexctx.InMemoryToolResultArchiver),
@@ -199,11 +205,16 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 			s.outcomes[cmd.nodeID] = subagentOutcome{status: "done"}
 		}
 		var snap *snapshot.ContextSnapshot
-		if exported := seelexctx.ExportSnapshot(sess, s.trace, goal); exported != nil {
+		// 节点结束路径：ChatStream 已返回（UnregisterNodeSession 在 defer 中
+		// 执行，晚于 ChatStream 出栈），此时 HistoryIfAvailable 拿到的是权威
+		// 历史；万一被短暂占用则退化为最后一次检查点，仍优于阻塞 actor。
+		history := s.refreshLiveHistoryLocked(cmd.nodeID, sess)
+		if exported := seelexctx.ExportSnapshotFromData(s.sessionIDs[cmd.nodeID], goal, len(history), s.trace); exported != nil {
 			s.contextSnapshots[cmd.nodeID] = exported
 			snap = exported
 		}
-		s.snapshots[cmd.nodeID] = sess.History()
+		s.snapshots[cmd.nodeID] = history
+		delete(s.liveHistories, cmd.nodeID)
 		// 生命周期策略：结束即收敛——最终结论交给 mainagent（conclusionSink），
 		// 节点自己的记录文件删除（运行期记录已覆盖崩溃恢复；结束后的详情
 		// 数据面保持在内存快照，进程存活期内仍可读）。
@@ -216,7 +227,7 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		s.reply(cmd, subagentSessionReply{n: len(s.sessions), ok: true})
 	case subagentSessionConversation:
 		if sess := s.sessions[cmd.nodeID]; sess != nil {
-			s.reply(cmd, subagentSessionReply{msgs: sess.History(), ok: true})
+			s.reply(cmd, subagentSessionReply{msgs: s.refreshLiveHistoryLocked(cmd.nodeID, sess), ok: true})
 			return
 		}
 		msgs, ok := s.snapshots[cmd.nodeID]
@@ -224,7 +235,11 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 	case subagentSessionContextSnapshot:
 		if sess := s.sessions[cmd.nodeID]; sess != nil {
 			goal := s.goals[cmd.nodeID]
-			s.reply(cmd, subagentSessionReply{snap: seelexctx.ExportSnapshot(sess, s.trace, goal), ok: true})
+			history := s.refreshLiveHistoryLocked(cmd.nodeID, sess)
+			s.reply(cmd, subagentSessionReply{
+				snap: seelexctx.ExportSnapshotFromData(s.sessionIDs[cmd.nodeID], goal, len(history), s.trace),
+				ok:   true,
+			})
 			return
 		}
 		snap := s.contextSnapshots[cmd.nodeID]
@@ -417,6 +432,21 @@ func (s *SubagentSessions) persistLocked(nodeID string) {
 	}
 }
 
+// refreshLiveHistoryLocked 刷新并返回运行中节点的最近历史（actor goroutine 内
+// 调用），**绝不阻塞**：Seele 的 Session 在整段 ChatStream 期间持有会话锁，
+// History() 会让 actor 停在流式上（实测 28s；actor 是单 goroutine，一处阻塞
+// 会让所有节点的详情与落账排队，mailbox 满后还丢阶段事件）。HistoryIfAvailable
+// 返回循环在每个历史检查点发布的快照，代价是最多滞后一个检查点；节点刚注册、
+// 尚未发布过检查点时返回上次缓存（可能为 nil）。
+func (s *SubagentSessions) refreshLiveHistoryLocked(nodeID string, sess *frameworkSession.Session) []types.Message {
+	if sess != nil {
+		if history, ok := sess.HistoryIfAvailable(); ok {
+			s.liveHistories[nodeID] = history
+		}
+	}
+	return s.liveHistories[nodeID]
+}
+
 // buildRecordLocked 把节点当前内存态投影为 NodeSessionRecord（actor goroutine 内调用）。
 func (s *SubagentSessions) buildRecordLocked(nodeID string) sessionstore.NodeSessionRecord {
 	record := sessionstore.NodeSessionRecord{
@@ -427,10 +457,17 @@ func (s *SubagentSessions) buildRecordLocked(nodeID string) sessionstore.NodeSes
 		UpdatedAt:     time.Now().UTC(),
 	}
 	if sess := s.sessions[nodeID]; sess != nil {
-		record.History = sess.History()
-		if snap := seelexctx.ExportSnapshot(sess, s.trace, record.Goal); snap != nil {
-			record.ContextJSON, _ = json.Marshal(snap)
-		}
+		// 运行期落账读的是循环发布的检查点（HistoryIfAvailable），**不再阻塞
+		// actor**：本函数由 RecordStage/RecordResult/NoteWorktree/NoteOutcome
+		// 在节点运行期间触发，而节点整段 ChatStream 都持有会话锁——旧实现让
+		// actor 停在流式上（实测 28s），期间所有节点的详情与落账全部排队。
+		// 代价是记录最多滞后一个检查点，换来的是"写得及时"：崩溃恢复要的是
+		// 最近一次成功落盘的检查点，而不是卡了几十秒才写下的那一份。
+		history := s.refreshLiveHistoryLocked(nodeID, sess)
+		record.History = history
+		record.ContextJSON, _ = json.Marshal(
+			seelexctx.ExportSnapshotFromData(record.SessionID, record.Goal, len(history), s.trace),
+		)
 	} else if len(s.snapshots[nodeID]) > 0 {
 		record.History = s.snapshots[nodeID]
 		if snap := s.contextSnapshots[nodeID]; snap != nil {

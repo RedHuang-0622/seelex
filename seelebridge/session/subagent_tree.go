@@ -61,28 +61,27 @@ const (
 	subagentTreeRetainDone       = 50
 )
 
-// exportSubagentSnapshot 是运行中节点实时上下文导出的可替换函数（测试
-// seam；生产恒为 seelexctx.ExportSnapshot）。替换点必须满足同一锁序约束：
-// 调用发生在树锁释放之后，允许在导出期间再取树锁（节点 ChatStream 首次
-// 装配 MarkStarted → MarkRunning 即此路径，2026-09-07 死锁回归测试覆盖）。
-var exportSubagentSnapshot = func(source provider.SessionSource, trace provider.TraceSource, goal string) *snapshot.ContextSnapshot {
-	return seelexctx.ExportSnapshot(source, trace, goal)
-}
-
 // subagentNodeRecord 是树节点的内存态记录（含运行中会话引用；只存引用不读
 // 内容，详情读取走 NodeSessionConversation，遵守"只读子代理 actor"约束）。
 type subagentNodeRecord struct {
-	id          string
-	parentID    string
-	goal        string
-	status      SubAgentNodeStatus
-	summary     string
-	errorMsg    string
-	sessionID   string
-	session     *frameworksession.Session // 运行中会话（实时上下文导出）
+	id        string
+	parentID  string
+	goal      string
+	status    SubAgentNodeStatus
+	summary   string
+	errorMsg  string
+	sessionID string
+	// session 只保存运行中子会话的引用，**不在投影路径中读取它的 History**
+	// （会话锁被 ChatStream 整段持有，读它会阻塞观测面几十秒）。运行中的
+	// 可见信息一律来自本结构里的 scalar 与 messageCount。
+	session     *frameworksession.Session
 	contextSnap *snapshot.ContextSnapshot // 结束后快照（unregisterNodeSession 写入）
-	startedAt   time.Time
-	endedAt     time.Time
+	// messageCount 是节点自己上报的工作历史条数（NoteMessageCount）：由节点
+	// 在请求装配路径（持自己会话锁的那个 goroutine）里给出，因此观测面读到
+	// 它是无锁的。
+	messageCount int
+	startedAt    time.Time
+	endedAt      time.Time
 }
 
 // SubagentTree 是子代理树注册表（Runtime 自有锁，与 nodeSessions 同构）。
@@ -198,6 +197,28 @@ func (s *SubagentTree) NoteSnapshot(nodeID string, snap *snapshot.ContextSnapsho
 	record.contextSnap = snap
 	s.mu.Unlock()
 	// 快照挂载即通知：非打开节点的上下文数据随信号刷新，不必等 done。
+	s.notify()
+}
+
+// NoteMessageCount 记录节点上报的工作历史条数（节点在请求装配路径调用，
+// 见 node/coordinator.go 的 ScopeAssembler）。它存在的唯一理由是让运行中
+// 节点的上下文投影**无锁**：会话锁被 ChatStream 整段持有，观测面不能在
+// 那里读 History，只能读这个由执行侧自己送出来的计数。
+//
+// 计数只在变化时通知 observer（非阻塞、满则丢信号），避免每轮装配都触发
+// 一次工作表格重投影。
+func (s *SubagentTree) NoteMessageCount(nodeID string, count int) {
+	if s == nil || nodeID == "" || count < 0 {
+		return
+	}
+	s.mu.Lock()
+	record := s.nodes[nodeID]
+	if record == nil || record.messageCount == count {
+		s.mu.Unlock()
+		return
+	}
+	record.messageCount = count
+	s.mu.Unlock()
 	s.notify()
 }
 
@@ -381,17 +402,17 @@ func (s *SubagentTree) SummaryFor(nodeID string) string {
 
 // Projection 返回子代理树的只读投影（根 = 主代理；含全部层级子节点）。
 // 纯内存态投影：每次调用重建（深拷贝语义），不持有内部指针。
-// 紧凑上下文：结束后节点复用 unregisterNodeSession 导出的快照（零额外
-// 导出）；运行中节点经 ExportSnapshot 实时导出（与详情弹窗同一数据面，
-// 只读子代理 actor，安全）。
+// 紧凑上下文：结束后节点复用 unregisterNodeSession 导出的快照；运行中节点
+// 只用节点自己上报的计数与遥测 trace 组装（ExportSnapshotFromData）。
 //
-// 锁序约束（2026-09-07 死锁修复）：ExportSnapshot 会拿子代理会话锁，而
-// 节点 ChatStream 持子代理会话锁执行首次请求装配（MarkStarted →
-// MarkRunning）时又需要本树锁。若在持树锁期间实时导出，会形成
-// 树锁 ↔ 会话锁 的死锁环（headless 真实 API 复现：多个子代理 running 后
-// 全部停在首个请求，无任何 llm/tool 事件）。因此投影分两阶段：
-//  1. 持树锁只拍浅快照（scalar 字段 + 结束快照指针 + 运行中会话引用）；
-//  2. 释放树锁后，再对运行中会话逐一 ExportSnapshot。
+// 锁序与阻塞约束（2026-09-07 死锁 + 2026-09-10 长流热点）：
+//   - 投影**永不读取运行中子会话**。子会话锁被 ChatStream 从进函数持到出
+//     函数（整段流式期间不放），读 History/ExportSnapshot 会把观测面阻塞
+//     到本轮流式结束（实测 28s，表现为工作表格卡住不动）。
+//   - 因此投影分两阶段：持树锁只拍浅快照（scalar + 结束快照指针 + 会话
+//     引用），释放树锁后再组装 DTO；组装阶段不取会话锁，运行中上下文由
+//     NoteMessageCount 上报的计数 + 遥测 trace 提供。
+//   - 这同时杜绝了历史死锁环（树锁 ↔ 会话锁）：投影一侧不再有会话锁。
 func (s *SubagentTree) Projection() []SubAgentTreeNode {
 	if s == nil {
 		return nil
@@ -399,23 +420,24 @@ func (s *SubagentTree) Projection() []SubAgentTreeNode {
 	return s.projection()
 }
 
-// treeProjectionNode 是投影两阶段中的浅快照：只持有投影所需 scalar 与
-// 结束时快照指针；运行中会话引用在释放树锁后使用（ExportSnapshot）。
+// treeProjectionNode 是投影两阶段中的浅快照：只持有投影所需 scalar、结束
+// 快照指针与"是否有运行中会话"的标记；运行中节点不读会话内容。
 type treeProjectionNode struct {
 	id, parentID, goal, summary, errorMsg, sessionID string
 	status                                           SubAgentNodeStatus
 	startedAt, endedAt                               time.Time
 	contextSnap                                      *snapshot.ContextSnapshot
 	liveSession                                      *frameworksession.Session
+	messageCount                                     int
 	children                                         []string
 }
 
 // projection 组装树投影：主代理为合成根；孤儿节点（父已不在注册表）归到
 // 主代理下，树保持完整。空树（无 fork）返回 nil。
 //
-// 阶段 1（持锁浅拍）完成后立即释放树锁；阶段 2（实时上下文导出与 DTO
-// 组装）不再触碰树锁，避免与节点首次装配的 MarkStarted → MarkRunning
-// 形成锁序死锁。
+// 阶段 1（持锁浅拍）完成后立即释放树锁；阶段 2（DTO 组装）不再触碰树锁，
+// 也不触碰子会话（无会话锁），因此既不会与节点首次装配的 MarkStarted →
+// MarkRunning 形成锁序死锁，也不会被运行中的长流式挡住。
 func (s *SubagentTree) projection() []SubAgentTreeNode {
 	s.mu.Lock()
 	mainChildren := append([]string(nil), s.children[model.MainAgentNodeID]...)
@@ -434,16 +456,17 @@ func (s *SubagentTree) projection() []SubAgentTreeNode {
 	records := make(map[string]*treeProjectionNode, len(s.nodes))
 	for id, record := range s.nodes {
 		node := &treeProjectionNode{
-			id:        id,
-			parentID:  record.parentID,
-			goal:      record.goal,
-			status:    record.status,
-			summary:   record.summary,
-			errorMsg:  record.errorMsg,
-			sessionID: record.sessionID,
-			startedAt: record.startedAt,
-			endedAt:   record.endedAt,
-			children:  append([]string(nil), s.children[id]...),
+			id:           id,
+			parentID:     record.parentID,
+			goal:         record.goal,
+			status:       record.status,
+			summary:      record.summary,
+			errorMsg:     record.errorMsg,
+			sessionID:    record.sessionID,
+			startedAt:    record.startedAt,
+			endedAt:      record.endedAt,
+			messageCount: record.messageCount,
+			children:     append([]string(nil), s.children[id]...),
 		}
 		if record.contextSnap != nil {
 			node.contextSnap = record.contextSnap
@@ -483,8 +506,12 @@ func (s *SubagentTree) projectNode(id string, records map[string]*treeProjection
 			node.Context = context
 		}
 	} else if record.liveSession != nil {
-		if snap := exportSubagentSnapshot(record.liveSession, s.trace, record.goal); snap != nil {
-			node.Context = compactSubAgentContext(snap)
+		// 运行中节点：只读节点自己上报的无锁计数 + 遥测 trace，绝不触碰
+		// 子会话（会话锁被 ChatStream 整段持有，读 History 会把观测面
+		// 阻塞到本轮流式结束）。
+		snap := seelexctx.ExportSnapshotFromData(record.sessionID, record.goal, record.messageCount, s.trace)
+		if context := compactSubAgentContext(snap); context != nil {
+			node.Context = context
 		}
 	}
 	if seen[id] {

@@ -42,6 +42,9 @@ type SessionPort interface {
 type TreePort interface {
 	NoteSession(nodeID string, sess *frameworkSession.Session)
 	MarkRunning(nodeID string)
+	// NoteMessageCount 上报节点自己的工作历史条数：树投影据此组装运行中
+	// 上下文，从而不必去读运行中会话（会话锁被 ChatStream 整段持有）。
+	NoteMessageCount(nodeID string, count int)
 	NoteSnapshot(nodeID string, snap *snapshot.ContextSnapshot)
 	CompleteSubagentNode(nodeID, summary string, runErr error)
 }
@@ -387,6 +390,16 @@ func (c *Coordinator) MarkStarted(nodeID string) {
 	_, _ = c.deps.Tasks.SetStatus("subagent:"+nodeID, dto.TaskRunning, "stream started")
 }
 
+// NoteProgress 上报节点本轮装配的工作历史条数（调用点在节点自己的请求
+// 装配路径内，即持有该节点会话锁的那个 goroutine）。树只记一个计数，
+// 观测面因此无需在运行中会话上取锁——长流式不再阻塞工作表格投影。
+func (c *Coordinator) NoteProgress(nodeID string, messageCount int) {
+	if c == nil || c.deps.Tree == nil || nodeID == "" {
+		return
+	}
+	c.deps.Tree.NoteMessageCount(nodeID, messageCount)
+}
+
 // inheritedBlocks 返回子代理会话继承的主代理稳定上下文块：
 // project（项目模块语义）→ stack（now using 栈顶）。这些块内容与主代理
 // 装配器同源（同一 provider），会话内稳定，插在节点块之前构成可缓存前缀。
@@ -409,6 +422,9 @@ func (a ScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyR
 	if a.Coordinator != nil {
 		if scope, ok := model.NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.Role == model.RoleSubAgent {
 			a.Coordinator.MarkStarted(scope.NodeID)
+			// 每次装配上报工作历史条数：这是投影能拿到"运行中消息数"的唯一
+			// 无锁来源（读子会话 History 会等整段流式结束）。
+			a.Coordinator.NoteProgress(scope.NodeID, len(request.WorkingHistory))
 		}
 	}
 	nodeBlocks := NodePromptBlocksFromContext(ctx)
