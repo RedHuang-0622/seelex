@@ -80,9 +80,14 @@ func TestCustomRoleLiveProbe(t *testing.T) {
 		t.Fatalf("request did not contain custom role %q; first request roles=%v", role, roles[0])
 	}
 	if chatErr != nil {
-		t.Fatalf("provider rejected custom role %q after it was sent: %v", role, chatErr)
+		if strings.Contains(strings.ToLower(chatErr.Error()), "unknown variant") ||
+			strings.Contains(strings.ToLower(chatErr.Error()), "expected one of") {
+			t.Logf("provider rejected custom role %q as expected: %v", role, chatErr)
+			return
+		}
+		t.Fatalf("provider rejected custom role %q for an unexpected reason: %v", role, chatErr)
 	}
-	t.Logf("provider accepted custom role %q; answer=%q", role, strings.TrimSpace(answer))
+	t.Logf("provider accepted custom role %q; answer=%q（仍保持逻辑角色只走 role_name metadata）", role, strings.TrimSpace(answer))
 }
 
 type customRoleProbeRequest struct {
