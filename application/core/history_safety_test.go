@@ -50,7 +50,7 @@ func TestRecoverProviderContextReplacesRejectedTranscriptWithPrivateCheckpoint(t
 		t.Fatal(err)
 	}
 	history := engine.History()
-	if len(history) != 2 || history[0].Role != "system" || history[1].Role != "user" {
+	if len(history) != 3 || history[0].Role != "system" || history[1].Role != "system" || history[2].Role != "user" {
 		t.Fatalf("recovered history = %#v", history)
 	}
 	if !strings.HasPrefix(history[1].Content, contextRecoveryPrefix) || !strings.Contains(history[1].Content, "node=inspect status=completed") {
@@ -99,7 +99,7 @@ func TestRecoverProviderTimeoutCreatesPrivateResumeCheckpoint(t *testing.T) {
 		t.Fatalf("recover timeout = %v, %v", recovered, err)
 	}
 	history := engine.History()
-	if len(history) != 2 || !strings.HasPrefix(history[1].Content, providerRecoveryPrefix) {
+	if len(history) != 3 || history[1].Role != "system" || !strings.HasPrefix(history[1].Content, providerRecoveryPrefix) || history[2].Role != "user" {
 		t.Fatalf("timeout recovery history = %#v", history)
 	}
 	if strings.Contains(history[1].Content, "raw output that must not survive") || !strings.Contains(history[1].Content, "node=inspect status=completed") {
@@ -181,7 +181,14 @@ func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T) 
 	waitForChatCompletion(t, service)
 
 	history := engine.History()
-	if len(history) == 0 || !strings.HasPrefix(history[len(history)-1].Content, providerRecoveryPrefix) {
+	recoveryFound := false
+	for _, message := range history {
+		if strings.HasPrefix(message.Content, providerRecoveryPrefix) {
+			recoveryFound = true
+			break
+		}
+	}
+	if !recoveryFound {
 		t.Fatalf("empty-content failure left no recovery history: %#v", history)
 	}
 	if state := service.Snapshot().Task; state == nil || state.Status != TaskInterrupted {

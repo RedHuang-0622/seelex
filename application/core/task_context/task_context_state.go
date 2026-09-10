@@ -117,23 +117,12 @@ func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) 
 			st = byRequest
 		}
 	}
-	st.transcriptSeq++
-	event.Seq = st.transcriptSeq
-	event.Kind = classifyTranscriptEventKind(event)
 	// S19/D8：给模型看的内部材料（检查点渲染正文等）由生产方置
 	// wire_material=true；否则重启后 internal 行进不了装配。
 	if event.Kind == model.TranscriptEventKindInternal {
 		event.WireMaterial = true
 	}
-	if event.TaskID == "" && st.taskExecution != nil {
-		event.TaskID = st.taskExecution.RequestID
-	}
-	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now()
-	}
-	event.TokenCount = c._CountTranscriptEvent(event)
-	st.transcript = append(st.transcript, event)
-	return event
+	return c.appendTranscriptEventLocked(st, event)
 }
 
 // AppendTranscriptEventForLocked 追加一条指定会话的 transcript 事件（调用
@@ -146,18 +135,7 @@ func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event mod
 
 func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent {
 	st := c.sessionStateLocked(sessionID)
-	st.transcriptSeq++
-	event.Seq = st.transcriptSeq
-	event.Kind = classifyTranscriptEventKind(event)
-	if event.TaskID == "" && st.taskExecution != nil {
-		event.TaskID = st.taskExecution.RequestID
-	}
-	if event.CreatedAt.IsZero() {
-		event.CreatedAt = time.Now()
-	}
-	event.TokenCount = c._CountTranscriptEvent(event)
-	st.transcript = append(st.transcript, event)
-	return event
+	return c.appendTranscriptEventLocked(st, event)
 }
 
 // ImportEngineHistoryAsTranscriptLocked 把引擎既有历史导入活跃会话
@@ -195,10 +173,50 @@ func (c *Coordinator) importEngineHistoryLocked(st *sessionTaskRuntime, history 
 	}
 }
 
+// applyTranscriptRoleFieldsLocked 给消息行盖群聊角色归属与排序键（R4）：
+// user 行开启新 round；assistant/tool 行归 main；role_session_id 默认取本
+// 会话 ID。显式已填字段不覆盖，给未来 agent-team 生产者留入口。
+func (c *Coordinator) applyTranscriptRoleFieldsLocked(st *sessionTaskRuntime, event *model.TranscriptEvent) {
+	if event.RoleName == "" {
+		switch {
+		case event.Role == "system":
+			event.RoleName = "system"
+		case event.Kind == model.TranscriptEventKindInternal:
+			// internal/context 行是任务/plan/goal/subagent 状态材料，不是
+			// 用户输入；provider role 仍走标准 role，逻辑归属登记为 system。
+			event.RoleName = "system"
+		case event.Role == "internal_user" || event.Role == "context":
+			event.RoleName = "system"
+		case event.Role == "user":
+			event.RoleName = "user"
+		case event.Role == "assistant" || event.Role == "tool":
+			event.RoleName = "main"
+		}
+	}
+	if event.RoleName == "" {
+		return
+	}
+	if event.RoleSessionID == "" {
+		event.RoleSessionID = st.sessionID
+	}
+	if event.RoundID == 0 {
+		if event.RoleName == "user" {
+			st.roleRoundID++
+			st.roleUnitSeq = 0
+		}
+		event.RoundID = st.roleRoundID
+	}
+	st.roleUnitSeq++
+	if event.UnitSeq == 0 {
+		event.UnitSeq = st.roleUnitSeq
+	}
+}
+
 func (c *Coordinator) appendTranscriptEventLocked(st *sessionTaskRuntime, event model.TranscriptEvent) model.TranscriptEvent {
+	event.Kind = classifyTranscriptEventKind(event)
+	c.applyTranscriptRoleFieldsLocked(st, &event)
 	st.transcriptSeq++
 	event.Seq = st.transcriptSeq
-	event.Kind = classifyTranscriptEventKind(event)
 	if event.TaskID == "" && st.taskExecution != nil {
 		event.TaskID = st.taskExecution.RequestID
 	}

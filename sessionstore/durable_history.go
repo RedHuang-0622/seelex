@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"strings"
 	"sync"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -177,7 +178,7 @@ func eventsToMessages(events []Event) []types.Message {
 	messages := make([]types.Message, 0, len(events))
 	for _, event := range events {
 		message := types.Message{
-			Role:             event.Role,
+			Role:             providerRoleForEvent(event),
 			ReasoningContent: event.ReasoningContent,
 			Content:          strPtrOrNil(event.Content),
 			ToolCallID:       event.ToolCallID,
@@ -193,6 +194,25 @@ func eventsToMessages(events []Event) []types.Message {
 		messages = append(messages, message)
 	}
 	return messages
+}
+
+// providerRoleForEvent 把存储事实映射为 provider 可见 role（AT9）：
+// 只有真实用户输入是 user；任务/plan/goal/subagent 的 internal/context
+// 状态材料一律以 system 进入请求。存储行本身仍保留原 Role/Kind，供 UI、
+// 审计和单元切分使用。
+func providerRoleForEvent(event Event) string {
+	if event.Role == "system" {
+		return "system"
+	}
+	if strings.Contains(event.Content, "<!-- seelex:active-skill:") {
+		// 激活技能正文沿用 internal user 轮次参与稳定前缀缓存；它不在
+		// task/goal/plan/subagent 状态材料之列。
+		return event.Role
+	}
+	if event.Kind == EventKindInternal || event.Role == "internal_user" || event.Role == "context" {
+		return "system"
+	}
+	return event.Role
 }
 
 func strPtrOrNil(value string) *string {

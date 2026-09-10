@@ -100,6 +100,14 @@ type TranscriptEvent struct {
 	// 作为材料进入装配（S19/D8：检查点渲染正文等必须由生产方置位）。
 	WireMaterial bool      `json:"wire_material,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
+	// 群聊角色归属与排序键（§8.3）：message 行必须可识别角色，否则 UI/审计/
+	// 冷恢复不可辨。user/main/tl/agent-team（以及系统状态行 system）共用同一
+	// 事件通道；这里的 RoleName 是 Seelex 逻辑角色，provider 请求的 Role 仍
+	// 只能是标准 role（真实端点实验：自定义 tl 会被拒绝）。
+	RoleName      string `json:"role_name,omitempty"`
+	RoleSessionID string `json:"role_session_id,omitempty"`
+	RoundID       uint64 `json:"round_id,omitempty"`
+	UnitSeq       uint64 `json:"unit_seq,omitempty"`
 }
 
 type TranscriptToolCall struct {

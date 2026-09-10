@@ -134,13 +134,30 @@ func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits
 
 func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage {
 	message := contract.EngineMessage{
-		Role: event.Role, ReasoningContent: event.ReasoningContent, Content: event.Content,
+		Role: providerRoleForTranscriptEvent(event), ReasoningContent: event.ReasoningContent, Content: event.Content,
 		ContentSet: true, ToolCallID: event.ToolCallID, Name: event.Name,
 	}
 	for _, call := range event.ToolCalls {
 		message.ToolCalls = append(message.ToolCalls, contract.EngineToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments})
 	}
 	return message
+}
+
+// providerRoleForTranscriptEvent 把 transcript 事实映射为 provider 可见 role：
+// 只有真实用户输入是 user；internal/context 状态材料统一为 system。存储行
+// 本身仍保留原 Role/Kind（UI、审计、单元切分继续按事实读取）。
+func providerRoleForTranscriptEvent(event model.TranscriptEvent) string {
+	if event.Role == "system" {
+		return "system"
+	}
+	if strings.Contains(event.Content, "<!-- seelex:active-skill:") {
+		return event.Role
+	}
+	if event.Kind == model.TranscriptEventKindInternal ||
+		event.Role == "internal_user" || event.Role == "context" {
+		return "system"
+	}
+	return event.Role
 }
 
 func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent {

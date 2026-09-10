@@ -49,6 +49,7 @@ func modelTranscriptEventsFromStore(events []sessionstore.Event) []model.Transcr
 			Seq:              event.Seq,
 			TaskID:           event.TaskID,
 			MessageID:        event.MessageID,
+			Kind:             event.Kind,
 			Role:             event.Role,
 			ReasoningContent: event.ReasoningContent,
 			Content:          event.Content,
@@ -57,7 +58,12 @@ func modelTranscriptEventsFromStore(events []sessionstore.Event) []model.Transcr
 			ToolCalls:        calls,
 			ResultRef:        event.ResultRef,
 			TokenCount:       event.TokenCount,
+			WireMaterial:     event.WireMaterial,
 			CreatedAt:        event.CreatedAt,
+			RoleName:         event.RoleName,
+			RoleSessionID:    event.RoleSessionID,
+			RoundID:          event.RoundID,
+			UnitSeq:          event.UnitSeq,
 		})
 	}
 	return adapted

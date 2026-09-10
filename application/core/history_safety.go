@@ -67,19 +67,24 @@ func (service *Service) recoverProviderFailureFor(ctx context.Context, err error
 	service.components.tasks.SetTaskStateLocked(requestID, TaskInterrupted, summary)
 	service.ViewMu.Unlock()
 
-	recovery := prefix + "\n## " + heading + `
+	recoveryNote := prefix + "\n## " + heading + `
 The raw transcript was removed. Continue from the durable task checkpoint below;
 use targeted tools to reacquire omitted detail, then deliver a result or state
 what information is still needed. Do not assume a timed-out tool call can be
 replayed safely.
 
-` + checkpoint + contextRecoveryRequestDelimiter + nonEmptyProviderInput(originalRequest)
+` + checkpoint
 
 	history := service.engineHistoryFor(sessionID)
 	// 恢复路径只保留 system 指令（RetainedSystemOnly）：provider 已拒绝过大
 	// 上下文，不得把已定稿轮次带进恢复信封。
 	recovered := context_runtime.RetainedSystemOnly(history)
-	recovered = append(recovered, EngineMessage{Role: "user", Content: recovery, ContentSet: true})
+	// 恢复说明是 Seelex 编排事实，走 provider system；原始用户请求保持 user。
+	// 两条分开，成功恢复后才能只删说明、保留真实 user 输入。
+	recovered = append(recovered,
+		EngineMessage{Role: "system", Content: recoveryNote, ContentSet: true},
+		EngineMessage{Role: "user", Content: nonEmptyProviderInput(originalRequest), ContentSet: true},
+	)
 	if err := service.replaceEngineHistory(sessionID, recovered); err != nil {
 		return false, fmt.Errorf("recover provider context: %w", err)
 	}
@@ -184,6 +189,11 @@ func (service *Service) removeProviderContextRecoveryFor(sessionID string) error
 	filtered := make([]EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
+		if message.Role == "system" && (strings.HasPrefix(message.Content, contextRecoveryPrefix) || strings.HasPrefix(message.Content, providerRecoveryPrefix)) {
+			removed = true
+			continue
+		}
+		// 兼容旧的单条 user 恢复信封：切出原请求后保留为 user 行。
 		if message.Role == "user" && (strings.HasPrefix(message.Content, contextRecoveryPrefix) || strings.HasPrefix(message.Content, providerRecoveryPrefix)) {
 			_, original, found := strings.Cut(message.Content, contextRecoveryRequestDelimiter)
 			if found {

@@ -308,7 +308,7 @@ func (c *Coordinator) tryFitExecutionHistory(
 	}
 	// plan 后置贴近当前输入（LLM 循环会把当前输入追加到历史尾部）。
 	if planMessage != "" {
-		history = append(history, contract.EngineMessage{Role: "user", Content: planMessage, ContentSet: true})
+		history = append(history, contract.EngineMessage{Role: "system", Content: planMessage, ContentSet: true})
 	}
 	return history, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
 }
@@ -524,7 +524,7 @@ func EstimateEngineHistoryTokens(history []contract.EngineMessage) int {
 // TaskContextRecoveryHistory 保留 system 指令并把可变协议记录替换为 checkpoint。
 func TaskContextRecoveryHistory(history []contract.EngineMessage, checkpoint string) []contract.EngineMessage {
 	compacted := RetainedSystemOnly(history)
-	return append(compacted, contract.EngineMessage{Role: "user", Content: checkpoint, ContentSet: true})
+	return append(compacted, contract.EngineMessage{Role: "system", Content: checkpoint, ContentSet: true})
 }
 
 // RetainedSystemHistory 保留稳定前缀 + 已定稿轮次的 append-only 累积段：
@@ -534,7 +534,7 @@ func TaskContextRecoveryHistory(history []contract.EngineMessage, checkpoint str
 func RetainedSystemHistory(history []contract.EngineMessage) []contract.EngineMessage {
 	retained := make([]contract.EngineMessage, 0, len(history))
 	for _, message := range history {
-		if message.Role == "system" || !isDynamicTailMessage(message) {
+		if !isDynamicTailMessage(message) {
 			retained = append(retained, message)
 		}
 	}
@@ -558,9 +558,6 @@ func RetainedSystemOnly(history []contract.EngineMessage) []contract.EngineMessa
 // 由恢复路径单独管理，不进入保留的稳定前缀 + 已定稿累积段。激活技能事件
 // 不在其列——它是 append-only 的定稿轮次，由保留段照常携带并计数。
 func isDynamicTailMessage(message contract.EngineMessage) bool {
-	if message.Role != "user" {
-		return false
-	}
 	content := message.Content
 	return strings.HasPrefix(content, planContextPrefix) ||
 		strings.HasPrefix(content, TaskContextCheckpointPrefix) ||

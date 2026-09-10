@@ -15,10 +15,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 )
 
 // wireRole 常量与 provider role 对齐（internal 材料以 user 形态进入 wire）。
 const (
+	wireRoleSystem    = "system"
 	wireRoleUser      = "user"
 	wireRoleAssistant = "assistant"
 	wireRoleTool      = "tool"
@@ -260,7 +262,11 @@ func (state *wireState) consumeRow(row Event) {
 				state.stopped = true
 				return
 			}
-			state.emit(wireMessage{Role: wireRoleUser, Content: row.Content, Seq: row.Seq, Internal: true}, cost)
+			wireRole := wireRoleSystem
+			if strings.Contains(row.Content, "<!-- seelex:active-skill:") {
+				wireRole = wireRoleUser
+			}
+			state.emit(wireMessage{Role: wireRole, Content: row.Content, Seq: row.Seq, Internal: true}, cost)
 		}
 	}
 }

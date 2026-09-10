@@ -56,8 +56,11 @@ func TestSystemPromptStableAcrossPlanNodeChanges(t *testing.T) {
 	}
 	var tail string
 	for _, message := range engine.History() {
-		if message.Role == "user" {
+		if strings.Contains(message.Content, "plan_ref=plan-x") || strings.Contains(message.Content, "## Active Plan Execution Policy") {
 			tail = message.Content
+			if message.Role != "system" {
+				t.Fatalf("plan tail/state material must use provider system, got %q: %q", message.Role, message.Content)
+			}
 		}
 	}
 	if !strings.Contains(tail, "plan_ref=plan-x") || !strings.Contains(tail, "## Active Plan Execution Policy") {
