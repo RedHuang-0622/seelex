@@ -5,7 +5,7 @@
 
 ## C1 存储侧角色会话 / draft / floor / team registry
 
-- 状态：`[ ]`
+- 状态：`[x]` — 落在 `164acab feat(sessionstore): add role sessions, drafts, floor and team registry`
 - 主题：R2/R3/R4 存储基建。
 - 文件：
   - `sessionstore/sessionstore.go`
@@ -26,7 +26,7 @@
 
 ## C2 Application / headless 角色与 AgentTeam 管理
 
-- 状态：`[ ]`
+- 状态：`[x]` — 落在 `44634e7 feat(application): add agent team factory and subagent resume backends` + `d10cabf feat(gui): expose headless role, team and subagent recovery probes`（与 C3 共用这两批）
 - 主题：RoleSession 窄转发、AgentTeam factory/registry、headless `role.*`/`team.*`。
 - 文件：
   - `application/contract/dto/agentteam.go`
@@ -51,7 +51,7 @@
 
 ## C3 subagent 中断恢复续跑
 
-- 状态：`[ ]`
+- 状态：`[x]` — 落在 `44634e7` + `d10cabf`，真实 API 探针修正见 `589c6e1`
 - 主题：领域无关七步恢复模板 + subagent tool-call 适配 + headless `subagent.*`。
 - 文件：
   - `application/contract/ports.go`
@@ -78,7 +78,7 @@
 
 ## C4 编排态材料统一 provider `system`
 
-- 状态：`[ ]`
+- 状态：`[x]` — 落在 `e5330c8 refactor(context): use system role for orchestration state materials` + `69ab354 feat(task-context): track role round and unit sequence cursors`
 - 主题：只有真实用户输入是 `user`；task/goal/plan/subagent 状态材料 provider `system`。
 - 文件：
   - `application/core/context_runtime/coordinator.go`
@@ -102,7 +102,7 @@
 
 ## C5 验证、文档与构建钩子
 
-- 状态：`[ ]`
+- 状态：`[x]` — 落在 `d9b338a docs: record A2A agent team, recovery and provider-role baselines`；真实 API 冒烟报告见 [REPORT-a2a-agentteam-subagent-recovery-2026-09-10.md](../../test/REPORT-a2a-agentteam-subagent-recovery-2026-09-10.md)
 - 主题：设计工作包、符合度记录、pprof 钩子与构建缓存忽略。
 - 文件：
   - `.gitignore`
@@ -117,8 +117,15 @@
 
 ## 最终门禁
 
-- `[ ] go test ./application/... ./sessionstore ./internal/adapters ./gui -count=1`
-- `[ ] go test ./seelebridge/... ./session/... ./workspace/... -count=1`（非沙箱，项目根链接解析）
-- `[ ] go build ./...`
-- `[ ] go build -tags "gui,desktop,production" ./...`
-- `[ ] gofmt -l` / `git diff --check`
+- `[x] go test ./application/... ./sessionstore ./internal/adapters ./gui -count=1` — 2026-09-10 全绿（`sessionstore 49.1s`、`application/core 11.7s`、`gui 3.9s`）
+- `[x] go test ./seelebridge/... ./session/... ./workspace/... -count=1`（非沙箱，项目根链接解析）— 2026-09-10 全绿（`seelebridge 24.0s`）
+- `[x] go build ./...` — exit 0
+- `[x] go build -tags "gui,desktop,production" ./...` — exit 0
+- `[x] git diff --check` — 干净
+- `[!] gofmt -l` — 仅列出 6 个与本工作无关的历史文件（`application/contract/dto/tree.go`、`application/core/goal/{adapter,advisor,techleader}.go`、`application/core/govern/{governance,governance_test}.go`、`repro_three_sessions_running_switch_test.go`、`tmp/` 下测试），本工作触碰的文件全部已格式化；这些历史文件不在本轮改动范围内，未顺手重排以免混入无关主题
+
+## 真实 API 冒烟
+
+- `[x] TestRealAPIAgentTeamLiveProbe` — PASS（真实 API + pprof，2026-09-10）
+- `[x] TestRealAPISubagentResumeLiveProbe` — PASS（真实 API + pprof + `-race` 目标，2026-09-10）
+- 结论与热点归因见 [REPORT-a2a-agentteam-subagent-recovery-2026-09-10.md](../../test/REPORT-a2a-agentteam-subagent-recovery-2026-09-10.md)
