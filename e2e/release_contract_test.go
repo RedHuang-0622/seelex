@@ -56,7 +56,9 @@ func TestGUIBuildKeepsLocalAndPublicConfigurationSeparate(t *testing.T) {
 		`if ($BuildKind -eq "Dev")`,
 		`publish GUI build must not receive a local account configuration`,
 		`Test-Path -LiteralPath $configSource -PathType Leaf`,
-		`Join-Path $PackageRoot "config/accounts.yaml"`,
+		// 产物分区规范化（build-layout.ps1）后暂存根变量为 $StageRoot：
+		// Dev 构建把本地账号配置不透明复制成 <stage>/config/accounts.yaml。
+		`Join-Path $StageRoot "config/accounts.yaml"`,
 		`if ($BuildKind -eq "Publish")`,
 		`publish GUI package contains private or runtime-local files`,
 		`README_EN.md`,
