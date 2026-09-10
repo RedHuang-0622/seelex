@@ -60,6 +60,7 @@ type Coordinator struct {
 
 // sessionTaskRuntime 是单个会话的任务/plan 运行时状态（M2 分片单元）。
 type sessionTaskRuntime struct {
+	sessionID               string
 	taskExecution           *TaskExecutionState
 	taskService             *TaskService // 当前任务的 TaskService（与 taskExecution 同生命周期）
 	transcript              []model.TranscriptEvent
@@ -76,10 +77,15 @@ type sessionTaskRuntime struct {
 	reactBudget             *activeReActBudget
 	contextControlFailure   error
 	contextControlRequestID string
+	// roleRoundID / roleUnitSeq 是 R4 群聊排序键的会话内游标：user 行开启新
+	// round；同一 round 内所有角色事件共享 round_id，unit_seq 逐事件递增。
+	roleRoundID uint64
+	roleUnitSeq uint64
 }
 
-func newSessionTaskRuntime() *sessionTaskRuntime {
+func newSessionTaskRuntime(sessionID string) *sessionTaskRuntime {
 	return &sessionTaskRuntime{
+		sessionID:              sessionID,
 		resultRefsByToolCallID: make(map[string]string),
 		replanInFlight:         make(map[string]struct{}),
 	}
@@ -121,7 +127,7 @@ func (c *Coordinator) sessionStateLocked(sessionID string) *sessionTaskRuntime {
 	}
 	st := c.sessionStates[sessionID]
 	if st == nil {
-		st = newSessionTaskRuntime()
+		st = newSessionTaskRuntime(sessionID)
 		c.sessionStates[sessionID] = st
 	}
 	return st
