@@ -445,7 +445,14 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		view.Conversation = append(view.Conversation, Message{Role: "system", Content: "已恢复会话: " + sessionID, CreatedAt: time.Now()})
 		view.Conversation = append(view.Conversation, service.components.sessions.RecordConversationTail(record, Limits().HistoryWindow)...)
 		view.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
-		service.components.view.SetSessionViewLocked(sessionID, view)
+		// 可见投影：后台冷恢复（activateEpoch>0）可能迟到完成，而目标会话在这
+		// 期间可能已经跑过自己的回合——它的可见会话是更新的活事实，用恢复快照
+		// 覆盖会把这一轮顶掉（2026-09-11 TC-A2-01 第三层根因：fork 子会话首轮
+		// 被迟到的基线整体覆盖）。后台装载因此只在目标可见会话仍为空时安装；
+		// 同步装载（activateEpoch=0，调用方持视图过渡锁、无并发写）保持原语义。
+		if activateEpoch == 0 || service.sessionViewEmptyLocked(sessionID) {
+			service.components.view.SetSessionViewLocked(sessionID, view)
+		}
 		if mayActivate {
 			if record.Execution.Task != nil {
 				task := *record.Execution.Task

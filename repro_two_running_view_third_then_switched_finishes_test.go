@@ -286,9 +286,14 @@ func runTwoRunningViewThirdScenario(t *testing.T, cold bool) {
 	if !strings.Contains(joinedC, "seed C") {
 		t.Fatalf("view C missing own context (saw %q)", joinedC)
 	}
-	if strings.Contains(joinedC, "seed A") || strings.Contains(joinedC, "seed B") ||
-		strings.Contains(joinedC, "long A") || strings.Contains(joinedC, "long B") {
-		t.Fatalf("view C polluted by A/B content: %q", joinedC)
+	// 污染判据只认"其它会话的在途内容"（long A / long B）：C 是从 B fork 出来的，
+	// seed A / seed B 是它**合法继承**的父会话正文——F-4 契约明确要求 fork 子会话
+	// 可见继承内容（见 application/core/session_fork_test.go 的
+	// TestForkSessionChildContentVisibleAfterResume：子会话 TotalMessages=2、最后
+	// 一条是父的正文）。原先"禁 seed A/seed B"的断言只在 F-4 修复之前成立
+	// （当时子会话视图恒为空），属于过时期望，不是本用例要守的不变量。
+	if strings.Contains(joinedC, "long A") || strings.Contains(joinedC, "long B") {
+		t.Fatalf("view C polluted by in-flight A/B content: %q", joinedC)
 	}
 
 	// 关键步骤 2：放行“被切换出去的会话”A（request #4）；B 仍阻塞。

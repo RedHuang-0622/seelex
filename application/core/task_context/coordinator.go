@@ -722,8 +722,12 @@ func (c *Coordinator) _RestoreSessionTaskLockedFor(sessionID string, restored Re
 	st.planStack = append([]model.SessionPlanFrame(nil), restored.PlanStack...)
 	st.activePlanID = restored.ActivePlanID
 	st.planSequence = uint64(len(st.planStack))
-	st.transcript = append([]model.TranscriptEvent(nil), restored.Transcript...)
-	st.transcriptSeq = restored.TranscriptSeq
+	if len(st.transcript) == 0 {
+		st.transcript = append([]model.TranscriptEvent(nil), restored.Transcript...)
+	}
+	if restored.TranscriptSeq > st.transcriptSeq {
+		st.transcriptSeq = restored.TranscriptSeq
+	}
 	st.taskCheckpoints = append([]model.TaskCheckpoint(nil), restored.Checkpoints...)
 	st.toolResultRefs = append([]model.ToolResultRef(nil), restored.ToolResults...)
 	st.pendingProviderCalls = nil

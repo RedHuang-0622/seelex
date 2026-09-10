@@ -216,6 +216,21 @@ func (service *Service) sessionViewLocked(sessionID string) *session.View {
 	return service.components.view.SessionViewLocked(sessionID)
 }
 
+// sessionViewEmptyLocked 报告指定会话的可见会话是否为空（调用方持有
+// Core.ViewMu）。冷恢复用它判断"目标会话在我装载期间是否已经积累了更新
+// 的活消息"——有则不覆盖。会话域单元不存在时视为空。
+func (service *Service) sessionViewEmptyLocked(sessionID string) bool {
+	unit := service.sessions.Unit(sessionID)
+	if unit == nil {
+		return true
+	}
+	empty := true
+	unit.View.Read(func(view *session.View) {
+		empty = len(view.Conversation) == 0
+	})
+	return empty
+}
+
 // recordReadFileForSessionLocked 记录指定会话的 read 文件引用（阶段 1：
 // ReadFiles 收进会话 view，不再写全局 Snapshot.ReadFiles）。
 func (service *Service) recordReadFileForSessionLocked(sessionID, arguments string) {

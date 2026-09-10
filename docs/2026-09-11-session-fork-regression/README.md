@@ -1,7 +1,6 @@
 # 会话分叉回归：子会话序号基线与恢复覆盖（2026-09-11）
 
-> 状态：**部分修复**。根因 #1 已修复并有探针证据；根因 #2 已定位、未修复，
-> 交接给会话生命周期工作线。三个根包复现用例仍红。
+> 状态：**已修复**。三个根包复现用例全部转绿；根因 #1/#2/#3 均有探针证据。
 
 ## 1. 现象与复现
 
@@ -75,7 +74,7 @@ PROBE[after-C1] C texts=[first A, ok, hello B, ok, hello C, ok]
 merge（`seelexctx/merger`、`SubagentContextActor.MergeBackIntoParent`）
 是另一条链，本次未触碰。
 
-## 4. 根因 #2（已定位，未修复 — 交接点）
+## 4. 根因 #2（已修复）
 
 **会话恢复会用快照整段替换内存 transcript 并回退 `transcriptSeq`。**
 
@@ -90,10 +89,31 @@ PROBE restoreTask sid=C restoredTranscript=4 restoredSeq=4 currentTranscript=3 c
 ——C 内存里 3 条活事件（seq 已到 7）被替换成快照的 4 条（基线），序号回退到 4；
 随后 C2 的事件重新拿到 5,6，落盘时覆盖掉 C1 已提交的行。
 
-**试过但未转绿的候选修法（已回退，勿直接照抄）**：在该函数里改为
-「内存已有事件则不采用恢复快照，只把序号基线取两者最大」。改完后三个用例仍红，
-说明**这条恢复不是唯一写入点，或覆盖发生在别处**——继续排查请从「恢复之后
-谁又写了 C 的 transcript」入手。
+修法：`_RestoreSessionTaskLockedFor` 改为「内存已有事件则不采用恢复快照，只把
+序号基线取两者最大（只增不减）」。
+
+## 4.1 根因 #3（已修复）
+
+**后台冷恢复迟到完成时，无条件覆盖目标会话的可见会话。**
+
+`resumeSession` 在「有会话在跑 + 目标未驻留」时走异步分支
+（`resumeSessionColdInBackground`），其 epoch 守卫只防止「抢占视图」，但仍会
+发布目标会话的**可见投影**。若目标会话在这期间已经跑过自己的回合，恢复快照
+（更旧的基线）就会把这一轮的可视内容顶掉。探针证据（调用栈 + 长度）：
+
+```text
+PROBE viewSet sid=C fromLen=5 toLenBefore=2     ← 用「标记+基线」5 条替换掉 C 的 2 条活消息
+  view_state.SetSessionViewLocked ← resumeSessionCold ← resumeSessionColdInBackground(epoch=4)
+```
+
+修法：`session_history.go` 的可见投影发布加守卫——`activateEpoch == 0`
+（同步装载，调用方持视图过渡锁）保持原语义；后台装载只在目标可见会话**仍为空**
+时安装（`sessionViewEmptyLocked`）。
+
+### 关于「恢复之后谁又写了 C 的 transcript」
+
+排查确认：**没有第三方写入**。此前的候选修法未转绿，是因为它只堵住了任务状态
+（transcript/seq）这一侧，而**可见会话**仍被同一次迟到恢复覆盖——两处必须一起修。
 
 ### 探针手册（一轮可复现）
 
@@ -110,17 +130,28 @@ PROBE restoreTask sid=C restoredTranscript=4 restoredSeq=4 currentTranscript=3 c
 已知清白（本轮排除）：`PrepareNextLoad` 全程未被武装；`ImportEngineHistory`
 只对 A 跑过一次且 history 为空、从未触碰 C。
 
-## 5. 未覆盖
+## 5. 附带修正：一条过时的污染断言
 
-- `TestTwoRunningViewThirdThenSwitchedFinishesCold` 在**改与不改**两种状态下都红
-  → 至少还有一个独立原因，本轮未排查。
-- 失败输出逐轮不同（一轮是「基线 + C2」，另一轮是「基线 + 重复的 ok」）
-  → 根因 #2 表现出并发窗口特征，建议配合 `-race` 与多轮复现。
+`TestTwoRunningViewThirdThenSwitchedFinishesHot/Cold` 原先断言「切到 C 后视图
+不得出现 seed A / seed B」。但 C 是从 B fork 出来的，`seed A/seed B` 是它**合法
+继承**的父会话正文——F-4 契约明确要求 fork 子会话可见继承内容
+（[../../application/core/session_fork_test.go](../../application/core/session_fork_test.go)
+的 `TestForkSessionChildContentVisibleAfterResume`：子会话 `TotalMessages=2`、
+最后一条是父的正文）。这两条用例在 `2ef91cc` 能过，只是因为当时 F-4 的 bug 让
+子会话视图恒为空。因此把污染判据收敛为「其它会话的**在途**内容」
+（`long A` / `long B`），保留 `seed C` 必须可见的断言。
+
+## 5.1 仍未覆盖
+
+- 全周期偶发：`seelexctx/lifecycle` 的 `TestPipelineIntervalFlush`
+  在全量并行时偶发失败、单跑 3/3 通过（时间敏感，与本回归无关）。
 
 ## 6. 验证现状
 
 ```text
-go build ./...                     通过
-go test ./application/core/...     全绿（含 F-4 的两个回归用例）
-go test . -run '<三个 repro 用例>'  仍红（根因 #2 未修）
+go build ./...                      通过
+go test . -count=1                  全绿
+go test ./application/core/...      全绿（含 F-4 的两个回归用例）
+go test . -run '<三个 repro 用例>'   全部 PASS
+go test ./... -count=1              仅剩 seelexctx/lifecycle 的偶发（单跑通过）
 ```
