@@ -85,6 +85,14 @@
   后才落最终成功 message。
 - **LRU 删除只发生在 watermark 之前**：message_id/seq 保持空洞、不重编号；
   fork 起点必须 ≥ watermark。
+- **subagent = tool calling 能力，不是 A2A 团队成员**：不进 `order_roles`、不占 floor、
+  不参与群聊装配；只在工作表以 running/interrupted/done/failed 呈现。
+- **未完成工作恢复（T-RESUME）**：终止前没做完的部分（未收敛 subagent / 未同步角色工作）
+  统一按「落盘意图 → 留 interrupted 不伪造结果 → 冷恢复重建上下文 → 同路径重跑 →
+  `role=system` 恢复说明 → 幂等」处理；恢复说明一律 `system`，provider role 不引入
+  自定义角色名。
+- **角色编排唯一权威 = registry**：角色清单 + `lifecycle.order_policy`/`order_roles`；
+  新增 A2A 角色只新增 RoleSpec，调度只替换 sequencer 的 role 顺序函数。
 
 本段是纯约定，不豁免 MEMORY.md 顶部“危险操作铁律”；任何对 `.seelex`/dist 数据的清理仍须
 先备份、先中文预警、先确认。

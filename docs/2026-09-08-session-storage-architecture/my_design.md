@@ -108,14 +108,14 @@ head 在两类通道里都**不可省**，但职责不同：追加型里它是�
 ```text
 session/metadata/
   guide.json           # 版本判定/布局标记（不登记模块地址，见规则 3）
-  message.json         # message head（热）
+  message.json         # message head（热；水位/分片路由 + floor 当前发言角色）
   compact.json         # compact head（热）
   event.json           # event head（热）
   stack_plan.json      # plan 栈 head（热，独立锁）
   stack_task.json      # task 栈 head（热，独立锁）
   stack_goal.json      # goal 栈 head（热，独立锁）
   subagent.json        # 第四栈 head：subagent 批次（热，独立锁）
-  lifecycle.json       # queue_head + draft_head + archived_at（同模块，保证迁移原子）
+  lifecycle.json       # queue_head + draft_head + archived_at + order_policy/order_roles（群聊顺序）
   retention.json       # LRU 水位/淘汰状态
   system.json          # 会话 system prompt 快照（低频内容文件，规则 1 的唯一例外）
   media.json           # 媒体索引（预留）
@@ -150,6 +150,24 @@ session/metadata/
 6. **本清单是准入门**：未在表内登记的 `session/metadata/*.json` 一律禁止落盘，新增须先改本表
    并同步 I9/写锁与 T-* 用例。`toolresult.json`（旧 `tool-results/` 通道的 refs 发布点）属禁止项，
    blob 只保留 `big_tool_result` 一条通道（§2.0 规则 6、附录 B）。
+
+   **v8.3 群聊扩展（2026-09-10，见 §8.3）的准入门登记**：
+   - role draft（角色未同步缓冲）= `role_session/draft/<role_name>.jsonl`，位于角色会话子树，
+     不进 `session/metadata/`；语义 = 未同步 WAL（文件存在即待同步，message head 发布后即删），
+     不配长期 head、不做保留窗口；
+   - 群聊顺序策略 = `metadata/lifecycle.json` 的 `order_policy`/`order_roles` 字段（整份替换型
+     head 的一部分），前端交互只改这两个字段；
+   - 定时任务 = EVENT `schedule.registered|cancelled|fired` + 运行期 timer；冷启动按 EVENT 重放
+     重建 timer，不新增 metadata 文件；
+   - compact 同步到角色 = 角色会话 `metadata/lifecycle.json` 的 `compact_ref`（frame_id +
+     applied_seq），只引用 main 的帧，不产生第二份帧。
+   - **floor（当前发言角色）** = `metadata/message.json` 的 `floor` 字段
+     （role_name/role_session_id/round_id/seq/updated_at）：随 message head 发布，
+     **零额外 IO**；运行期以 sequencer 内存态为快，冷恢复由 floor 字段 +
+     最后一行 role 归属 + `order_policy/order_roles` 重建。不新增 metadata 文件，
+     也不用 lifecycle head 另开一次 rename。
+   - **presence（Agent Team 在线状态/当前发言高亮）= 运行态，不落盘**：
+     与正文/一致性判定分离；冷启动由角色会话存在性 + 运行期 actor 状态 + floor 重建。
 
 ### 1. system / project / memory（项目粒度 + 会话侧 system 快照）
 
@@ -237,6 +255,9 @@ EVENT 完整重算，则无需落盘）。判据只有一个：**这个快照能
 
 - **`session/input/draft.json`**（1:1 单文件，整体原子替换；草稿无历史序列，不需要 append 通道）；
   head 在 lifecycle.json（与队列同模块）。
+- 该文件只承载 **user 的输入框草稿**（装配目标 = 前端输入框）。群聊角色（main/tl/
+  agent-team）的未同步产出**不写此文件**，走 §8.3 的 role draft（未同步 WAL）；
+  两类 draft 不得混用同一条可见性判据。
 
 #### 5.2 消息队列 = 引擎待发送请求队列
 
@@ -318,6 +339,160 @@ EVENT 完整重算，则无需落盘）。判据只有一个：**这个快照能
   big_tool_result**（引用主会话 blob，v8）；主会话只写 subagent EVENT；
   子代理结束可归档/删除，blob 按跨消息引用 GC。
 
+#### 8.3 群聊角色、role draft 与调度（agent-team v0，2026-09-10）
+
+> 定位：goal A2A 从“单 TechLeader 同步插话”升级为**群聊模式**的原型设计空间；
+> message 被明确为 **append-only 在线文档**，所有参与者（user、main、tl，以及
+> 后续 agent-team 角色）走同一条写入与装配流程。
+
+**角色模型**
+
+- `role_name`：`user` / `main` / `tl` / 未来 agent-team 角色；只是参与者身份，
+  **不新增专属通道、专属写入器或专属过滤器**；
+- `role_session_id`：角色自己的会话号（main = 主会话；tl = techleader 子树；
+  agent-team 同理）；角色会话只做该角色的**备份与冷恢复**，
+  主会话 message 文档是群聊正文唯一权威；
+- `join_seq_id`：角色加入群聊时主文档的 message `seq`；角色只能看到
+  `join_seq_id` 之后的群聊内容（加入前的历史由 main 决定是否以摘要共享）。
+
+**统一写入流程（所有角色一致）**
+
+1. 角色产出事件行（assistant tool_call、tool 结果、final LLM、user 输入等）
+   先写自己的 **role draft**（append-only 未同步 WAL；文件存在 = 有待同步内容）；
+2. 唯一 **sequencer** 按顺序键把 draft append 进 message 并发布 message head；
+   一次 sync = 一批行 = 一个 `commit_id`（确定性命重，重放不重复）；
+3. **同步成功（message head 发布）后立即删除该批 draft**；无保留窗口；
+   半同步窗口（head 已发布、draft 未删）崩溃 → 按 `commit_id` 判定已同步，
+   直接删除 draft，不重复 append；
+4. 顺序键：`round_id`（一条 user 输入开启一轮）→ 角色顺序 → `unit_seq`；
+   工具调用顺序在 draft 内按完整协议单元排定；
+5. sync 后回写锚：goal stack 条目 `item_message_id`/`item_message_seq` +
+   EVENT `goal.*`；
+6. 角色 draft 不是长期事实源，不配长期 head；删除即代表已同步。
+
+**角色 draft 的锁与 actor 模型（v8.3 补充，2026-09-10）**
+
+- **每个角色一把独立 draft 锁**：`user` / `main` / `tl`（以及未来 agent-team 角色）
+  各自只锁自己的 `role_session/draft/<role_name>.jsonl`；**不存在共享 draft 锁**，
+  角色之间写 draft 不互相阻塞；
+- 推荐实现为**每角色一个 actor 闭包**（goroutine + mailbox）：角色 actor 只做
+  “产出事件行 → 追加自己的 draft → 通知 sequencer”，不持有 message 锁；
+- sequencer 是另一个单写者 actor：只它持有 message 写锁，负责排序、分配全局 seq、
+  发布 message head、回写锚与更新 floor；
+- 锁域表：
+
+| 角色 | draft 锁 | 谁持有 message 锁 | 备注 |
+|---|---|---|---|
+| user | `userDraftMu`（user actor） | 只有 sequencer | 输入框草稿与 role draft 分属不同文件 |
+| main | `mainDraftMu`（main actor） | 只有 sequencer | main 同时是 compact 权威 |
+| tl | `tlDraftMu`（tl actor） | 只有 sequencer | tl 备份行由 tl actor 写 |
+| agent-team-* | 各自 `roleDraftMu` | 只有 sequencer | 新角色只新增锁/actor，不改共享锁 |
+
+- 任何角色都不得直接写 message；角色 actor 的“完成/可同步”通知只进 sequencer 的
+  排序队列，不参与 message 临界区。
+
+**floor：当前发言角色的记录（v8.3 补充，2026-09-10）**
+
+- floor = “当前轮到这里发言的角色”，字段：`floor.role_name`、
+  `floor.role_session_id`、`floor.round_id`、`floor.seq`、`floor.updated_at`；
+- **唯一写者 = sequencer**（本身就是串行点），其他角色只读；
+- 持久化落点（已定，避免新增 IO 热点）：**message head 的 `floor` 字段**，
+  随每次 sync 的 message head 原子发布写入——不额外增加 rename/fsync；
+- 运行期以 sequencer 内存态为快（in-flight draft 尚未同步时也能表示“正在谁发言”）；
+  冷恢复 = message head.floor + 最后一行 role 归属 + `order_policy/order_roles`；
+- 可选审计：EVENT `turn.floor_granted`（记录发言权转移），不参与装配；
+- 反例（禁止）：为 floor 单开 `metadata/floor.json` 或每轮额外替换 lifecycle head——
+  那会把每轮多一次 fsync+rename（≈30–63 ms 量级），收益不抵成本。
+
+**顺序策略（board-game 与 agent-team）**
+
+| 模式 | 顺序 | 谁决定 | 持久化 |
+|---|---|---|---|
+| `goal_loop`（默认，goal 原型） | `user → main → tl → main → tl → …` 交替，直到 TL 判定结束（`verdict_done`/`escalate_human`/终态 gate 通过） | goal 治理固定循环 | `lifecycle.order_policy="goal_loop"` |
+| `user_main_decided`（agent-team） | 由 **user 与 main 共同决定**群聊维护顺序（可插入/跳过/轮换其他角色） | user + main；前端交互下发 | `lifecycle.order_policy` + `order_roles`（有序角色列表） |
+| `scheduled`（定时任务式插话） | 到点触发的角色在所有待排项中获得一个插入位（默认：不抢占当前单元，插在下一个 `unit_seq` 边界） | 计划本身（用户/main 配置） | EVENT `schedule.*` + 运行期 timer |
+
+- 桌游式顺序只改变 **sequencer 的排序函数**；message/draft/compact 形态不变；
+- 新角色加入 = 注册 `role_name` + `role_session_id` + 顺序优先级 + `join_seq_id`；
+- `order_policy`/`order_roles` 是 `metadata/lifecycle.json`（整份替换型 head）字段，
+  前端“顺序编辑”只改这两个字段；不得为顺序另开 metadata 文件。
+
+**定时任务式插话（与桌游式并列支持）**
+
+- 注册/取消/触发记录为 EVENT：`schedule.registered` / `schedule.cancelled` /
+  `schedule.fired`（payload：schedule_id、role_name、role_session_id、cron/interval、
+  next_fire_at、payload 引用）；
+- 冷启动按 EVENT 重放重建 timer；错过的触发默认 **重启后立即补一次**（可配置为跳过）；
+- 触发时角色像普通参与者一样先写 role draft，由 sequencer 在下一个可插入边界同步；
+  定时插话不得阻塞其它角色的 draft 写入，也不得绕过 sequencer 直写 message。
+
+**draft 的装配秩序（与 §5.1/§5.3 配合）**
+
+- `user` 的 draft 装配目标是**前端输入框**（`session/input/draft.json`），
+  未发送前不进群聊正文；
+- 其他角色（main/tl/agent-team）的 draft 装配目标是**各自上下文**：
+  作为 pending material 参与该角色下一次 wire 组装，但**未 sync 前不进主文档**；
+- 每个角色的可见区间（装配输入）：
+
+```text
+role_wire(role) =
+    main compact 帧引用（frame_id + applied_seq）              # 唯一权威来自 main
+  + main message 行 where seq > join_seq_id(role) 且已发布      # 群聊正文
+  + 该角色自身未同步 draft（role draft，按 round/role/unit_seq 排序）
+```
+
+- 角色加入时间不同 → `join_seq_id` 不同 → 各自可见历史不同；这是**预期语义**，
+  不是数据缺失；join_seq_id 存入角色会话（`metadata/lifecycle.json` 的
+  `join_seq_id`），并登记在 goal stack 条目锚上。
+
+**压缩与恢复（join_seq_id / compact_ref）**
+
+- compact 的唯一权威是 **main**：区间、帧内容、`frame_id` 由 main 产生；
+- 帧发布后，把 `compact_ref`（frame_id + applied_seq）同步到每个角色会话的
+  `metadata/lifecycle.json`；角色**不得生成第二份帧**；
+- 角色冷恢复 = 自身备份行（message/event/draft WAL） + main 的 `compact_ref` +
+  `join_seq_id` 之后的行；引用缺失显式报错，不伪造帧；
+- **draft 在缓存中的加载**：冷启动先把未同步 draft 从 WAL 载入缓存，按
+  `round_id → role → unit_seq` 排序；与已同步 message 行拼接时以 message 为准，
+  已同步的 draft 一律删除；半同步批按 commit_id 幂等判定；
+- 压缩与角色会话同步后，角色恢复不再回放 join_seq_id 之前的正文（由 main 帧承接）。
+
+**角色区分与前端契约（设计层要求）**
+
+- message 行必须携带可识别角色归属（`role_name` + `role_session_id`，或等价映射）；
+- 右侧栏「状态 → Agent Team」子页维护团队名单：成员身份、**在线状态**、
+  当前发言标识（floor）；未建 goal 时只有 user/main，新建 goal → 新建 TL →
+  TL 上线进入团队；
+- 「工作顺序」栏展示 `order_roles`，由 main agent 编排（阶段二放开 user+main）；
+  定时任务 agent 单独分区、**不参考工作顺序**，到点经 role draft→sequencer 插话；
+- 前端按角色区分展示（徽标/配色/分组/顺序面板/定时任务面板）；
+- 顺序编辑与定时任务管理只产生：`order_policy`/`order_roles` 更新、`schedule.*` EVENT、
+  role draft 写入；不得直接改 message 文件。
+- 在线状态/presence 是运行态（不入 ER、不写 message）；协作模型调研与取舍见
+  [`docs/research/2026-09-10-collaborative-doc-session-model.md`](../research/2026-09-10-collaborative-doc-session-model.md)。
+
+**不变量（与 §4 同步登记）**
+
+```text
+I16 群聊 message 是 append-only 在线文档；只有 sequencer 能 append，所有角色（含 user/main/tl/agent-team）同一路径
+I17 role draft = 未同步 WAL；同步成功即删，无保留窗口；draft 永不作为长期事实源
+I18 compact 权威只在 main；角色会话只同步 compact_ref；join_seq_id 决定各角色可见/可装配起点
+I19 桌游式顺序与定时插话只改变 sequencer 的排序/触发，不改变 message/draft/compact 形态
+```
+
+**验收编号（T-A2A-07…12）**
+
+| 编号 | 断言 |
+|---|---|
+| T-A2A-07 | `order_policy=goal_loop` 时行序严格 `user→main↔tl` 交替，TL 终止后停止；`user_main_decided` 按 `order_roles` 生效 |
+| T-A2A-08 | 定时触发角色经 draft→sequencer 在下一个可插入边界同步；不阻塞其它角色、不绕过 sequencer |
+| T-A2A-09 | 不同 `join_seq_id` 的角色装配出的 wire 历史不同，且都只含 `seq > join_seq_id` 的已发布行 |
+| T-A2A-10 | 冷启动从 role draft WAL 载入未同步批，按 round/role/unit_seq 装配；半同步批按 commit_id 幂等删除 |
+| T-A2A-11 | main 帧发布后 `compact_ref` 同步到各角色；角色恢复不生成第二份帧，引用缺失显式报错 |
+| T-A2A-12 | user draft 只进输入框；其他角色 draft 只进各自上下文；未 sync 前均不进主文档 |
+| T-A2A-13 | user/main/tl/agent-team 各持独立 draft 锁/actor：并发写 draft 不互相阻塞、不触碰 message 锁；只有 sequencer 持 message 写锁 |
+| T-A2A-14 | floor 记录（当前发言角色）只由 sequencer 写、随 message head 发布（零额外 rename）；冷恢复由 floor + 最后一行 role + order_policy 重建 |
+
 ### 9. 数据根、进程唯一性与 GUI/CLI 隔离
 
 - GUI/CLI 各自数据根；单数据根 = 单进程写者（独占锁 + owner_process）。
@@ -349,6 +524,11 @@ EVENT 完整重算，则无需落盘）。判据只有一个：**这个快照能
 | `session_storage.retention.raw_bytes_alert` | 268435456 | 原始 message 告警（256 MB） |
 | `session_storage.retention.mode` | manual | 用户确认后行删除；dry_run=true |
 | `session_storage.queue.persist_pending` | true | 待发送队列落盘恢复 |
+| `session_storage.groups.order_mode` | `goal_loop` | 群聊顺序策略：`goal_loop`（固定 user→main↔tl，直到 TL 判定结束）或 `user_main_decided`（user+main 决定，前端交互）（§8.3） |
+| `session_storage.groups.max_roles` | 8 | 群聊角色上限（护栏；user/main/tl + agent-team） |
+| `session_storage.schedule.enabled` | false | 定时任务式插话开关（EVENT `schedule.*` + 运行期 timer）（§8.3） |
+| `session_storage.schedule.catch_up` | true | 冷启动错过定时触发时是否立即补一次 |
+| `session_storage.draft.delete_after_sync` | true | role draft 同步成功即删（固定语义；配置仅作护栏校验） |
 | `session_storage.lock.stale_after_seconds` | 300 | 心跳超时判定：距 `renewed_at` 超过此值才可能被视为可接管（锁被占用本身**立即报错**，不设等待时长） |
 | `session_storage.lock.auto_recover` | false | 心跳超时的陈旧锁是否允许接管 |
 | `session_storage.big_tool_result.soft_limit_chars` | 60000 | 对齐 DefaultToolResultLimit |
@@ -380,6 +560,17 @@ erDiagram
     SESSION ||--o{ SUBAGENT_SESSION : "子代理现场"
     SUBAGENT_SESSION ||--o{ MESSAGE_SHARD : "同构子树"
     SUBAGENT_SESSION ||--o{ EVENT : "同构子树"
+    SESSION ||--o{ ROLE : "群聊参与者（user|main|tl|agent-team）"
+    SESSION ||--o| TEAM_REGISTRY : "角色注册表（RoleSpec 清单，整份替换型）"
+    ROLE ||--o{ ROLE_SESSION : "角色会话（备份 + 冷恢复）"
+    ROLE_SESSION ||--o{ ROLE_DRAFT : "未同步 WAL（同步后即删）"
+    ROLE_SESSION ||--o{ MESSAGE_SHARD : "角色自身备份行（同构子树）"
+    SESSION ||--o{ GROUP_ORDER : "群聊顺序策略（lifecycle order_policy/order_roles）"
+    SESSION ||--o{ SCHEDULE : "定时任务式插话（EVENT schedule.*）"
+    SESSION ||--o| FLOOR : "当前发言角色（message head.floor；随 sync 发布）"
+    COMPACT_FRAME ||--o{ COMPACT_SYNC : "main 帧同步到各角色"
+    ROLE_SESSION ||--o{ COMPACT_SYNC : "compact_ref（不生成第二份帧）"
+    MESSAGE }o--o| ROLE_SESSION : "role_name/role_session_id 归属"
     COMPACT_FRAME ||--o{ MESSAGE : "覆盖区间（派生裁剪）"
     EVENT }o--o| MESSAGE : "anchor（事件发生在该行之后）"
     EVENT }o--o| COMPACT_FRAME : "frame_ref（0..1）"
@@ -429,6 +620,10 @@ erDiagram
         string session_id FK "或 subagent_id"
         uint64 seq
         string role "user|assistant|tool|internal_user|context"
+        string role_name "user|main|tl|agent-team（群聊归属）"
+        string role_session_id FK "0..1（角色会话号）"
+        uint64 round_id "0..1（群聊因果轮次）"
+        uint64 unit_seq "0..1（角色内单元序）"
         string content
         string tool_calls
         string result_ref FK "0..1"
@@ -502,9 +697,66 @@ erDiagram
         string fork_from_message
         datetime created_at
     }
+    ROLE {
+        string role_name PK "user|main|tl|agent-team"
+        string session_id FK
+        uint64 join_seq_id "加入群聊时的 main message seq"
+        int order_priority "board-game 顺序优先级"
+        string kind "user|main_agent|advisor|agent"
+    }
+    ROLE_SESSION {
+        string role_session_id PK
+        string session_id FK "main session"
+        string role_name FK
+        string path "session/goal_<hash>/ 或 session/role_<hash>/"
+        uint64 join_seq_id "角色可见起点"
+        string status "running|archived|merged"
+        datetime created_at
+    }
+    ROLE_DRAFT {
+        string role_session_id FK
+        uint64 round_id
+        uint64 unit_seq
+        string path "role_session/draft/<role_name>.jsonl"
+        string draft_lock "每角色独立锁（user/main/tl/agent-team 不共享）"
+        string actor_id "角色 actor 闭包 id（mailbox 单写者）"
+        string status "pending|synced"
+        string commit_id "同步提交凭据（幂等）"
+    }
+    GROUP_ORDER {
+        string session_id PK
+        string order_policy "goal_loop|user_main_decided"
+        json order_roles "有序角色列表"
+        string decided_by "goal|user+main"
+        uint64 round_id
+    }
+    SCHEDULE {
+        string schedule_id PK
+        string session_id FK
+        string role_name FK
+        string role_session_id FK
+        string cron_or_interval
+        datetime next_fire_at
+        string state "registered|cancelled|fired"
+    }
+    COMPACT_SYNC {
+        string frame_id FK
+        string role_session_id FK
+        uint64 applied_seq "角色已应用到的 main seq"
+        datetime synced_at
+    }
+    FLOOR {
+        string session_id PK "1:1，随 message head 发布"
+        string role_name FK "当前发言角色"
+        string role_session_id FK
+        uint64 round_id
+        uint64 seq "message 坐标"
+        datetime updated_at
+    }
 ```
 
 说明：fork 出的独立会话是另一 SESSION；操作尝试缓存是运行态不入 ER；
+presence（Agent Team 在线状态/当前发言高亮）同样是运行态、不入 ER；
 LRU 行删除只发生在 watermark 之前且保留序号空洞。
 
 ### 3.1 关键关系说明
@@ -518,6 +770,14 @@ LRU 行删除只发生在 watermark 之前且保留序号空洞。
 | STACK_ITEM → message 锚 | 观赏 + 按点重建栈快照 |
 | DRAFT / QUEUE | 同 lifecycle 模块，原子迁移；队列空才直发 |
 | MESSAGE / SUBAGENT_SESSION → BIG_TOOL_RESULT | 主会话统一 blob；GC 跨引用扫描 |
+| ROLE / ROLE_SESSION → MESSAGE | `role_name`/`role_session_id` 标记群聊归属；角色会话只做备份与冷恢复，正文权威仍为主文档 |
+| ROLE_DRAFT → MESSAGE | 未同步 WAL；只有 sequencer 能 append；同步成功（message head 发布）后 draft 立即删除 |
+| ROLE_DRAFT ↔ 角色 actor/锁 | 每角色独立 draft 锁与 actor 闭包；角色之间不共享 draft 锁，只有 sequencer 持 message 写锁 |
+| GROUP_ORDER → SESSION | 群聊顺序策略存 lifecycle `order_policy`/`order_roles`；桌游式与固定 goal 循环只改排序函数 |
+| SCHEDULE → ROLE_DRAFT | 定时触发不绕过 sequencer：先写 role draft，再在下一个可插入边界同步 |
+| COMPACT_FRAME → COMPACT_SYNC → ROLE_SESSION | compact 权威在 main；角色只同步 `compact_ref`（frame_id + applied_seq），不生成第二份帧 |
+| ROLE_SESSION.join_seq_id | 角色加入群聊的 main seq；决定该角色可装配/恢复的可见起点 |
+| FLOOR → MESSAGE head | 当前发言角色随 message head 原子发布（零额外 IO）；唯一写者 = sequencer；冷恢复据此 + 最后一行 role + order_policy 重建 |
 
 ### 3.2 实体 → 文件
 
@@ -534,6 +794,13 @@ LRU 行删除只发生在 watermark 之前且保留序号空洞。
 | DRAFT / QUEUE | `session/input/draft.json` / `session/queue/queue.jsonl`（皆整份替换型；head 在 lifecycle.json） |
 | BIG_TOOL_RESULT | `session/big_tool_result/<hash>.jsonl`（主会话统一；subagent 复用） |
 | SUBAGENT_SESSION | `session/subagent_<hash>/`（无独立 blob） |
+| ROLE / GROUP_ORDER | `session/metadata/lifecycle.json` 的 `order_policy`/`order_roles`（**运行时权威**）；角色配置内容见 TEAM_REGISTRY |
+| TEAM_REGISTRY | `session/team/roles.json`（整份替换型：`TeamSpec` 的 RoleSpec 清单 + `team_kind`；替换成功即发布，不写 message、不需要 head 水位） |
+| ROLE_SESSION | tl = `session/goal_<hash>/`；agent-team = `session/role_<hash>/`（message/event/metadata 同构，角色备份） |
+| ROLE_DRAFT | `<role_session>/draft/<role_name>.jsonl`（append-only 未同步 WAL；同步后即删；文件存在 = 待同步） |
+| FLOOR | **无独立文件**：`session/metadata/message.json` 的 `floor` 字段（随 message head 发布） |
+| SCHEDULE | EVENT `session/event/*.jsonl` 的 `schedule.registered|cancelled|fired` + 运行期 timer（冷启动按 EVENT 重建，无独立文件） |
+| COMPACT_SYNC | 角色会话 `metadata/lifecycle.json` 的 `compact_ref`（frame_id + applied_seq） |
 | 会话检索索引 | `session/metadata-index/search.*`（单会话、可重建） |
 | 操作尝试缓存 | 无（运行期内存，非存储） |
 | 媒体（后续） | 工作区媒体目录 / `session/meta/<hash>/<原名>` |
@@ -574,6 +841,22 @@ LRU 行删除只发生在 watermark 之前且保留序号空洞。
   不得提前归档（§2.4） |
 | 会话可见状态 | 不持久化状态字段：草稿 = `input/draft.json` 存在；已归档 = lifecycle head
   `archived_at`；其余运行期叠加（§2.5.4） |
+| `role_name` / `role_session_id` | 群聊参与者身份与角色会话号（user/main/tl/agent-team，另含系统状态行的 `system`）；message 行必须可识别归属；角色会话只做备份与冷恢复（§8.3）。**provider 可见 role 仍只能是标准集**（本机实验：OpenAI 兼容端点拒绝 `tl`，期望 `system/user/assistant/tool/latest_reminder`）；自定义角色名只能存在于 metadata `role_name`，不得写入 provider `role` |
+| role draft | 角色的**未同步 WAL**：append-only、文件存在 = 待同步；同步成功（message head 发布）后立即删除；无保留窗口，永不作为长期事实源（§8.3） |
+| sequencer | 会话级单写者：决定跨角色顺序、分配 message 全局 seq、发布 head、回写锚；只有它能 append message（§8.3） |
+| round_id / unit_seq | 群聊因果轮次（一条 user 输入开启一轮）与角色内单元序；与 message 全局 seq 分离（§8.3） |
+| 群聊顺序策略 | `goal_loop`（固定 user→main↔tl 交替直到 TL 判定结束，默认）或 `user_main_decided`（user+main 决定、前端交互）；存 `lifecycle.order_policy`/`order_roles`（§8.3） |
+| 定时任务式插话 | EVENT `schedule.registered/cancelled/fired` + 运行期 timer；触发角色先写 role draft，再由 sequencer 在下一个可插入边界同步（§8.3） |
+| `join_seq_id` | 角色加入群聊时的 main message seq；角色只能装配/恢复 `seq > join_seq_id` 的已发布内容，join 前历史由 main 决定是否摘要共享（§8.3） |
+| `compact_ref` | 角色会话对 main compact 帧的引用（frame_id + applied_seq）；compact 权威只在 main，角色不得生成第二份帧（§8.3） |
+| `floor`（发言权） | 当前轮到的发言角色（role_name/role_session_id/round_id/seq/updated_at）；唯一写者 = sequencer；随 message head 原子发布，零额外 IO（§8.3） |
+| 角色 draft 锁/actor | 每角色一把独立 draft 锁 + actor 闭包（user/main/tl/agent-team 不共享）；角色写 draft 不触 message 锁，只有 sequencer 持 message 写锁（§8.3） |
+| R3 物化缓存 | 每个角色会话的 wire 物化视图（已 sync 的正文形态）；失效键 = message head commit/revision + compact frame_id/applied_seq + floor；角色 draft 是未同步缓冲，不进长期缓存，sync 成功后更新缓存、draft 删除（§8.3/R3） |
+| subagent 派发 | **tool calling 能力，不是 A2A 团队成员**：劳务派遣式外包，可并发、可失败重试；不进 `order_roles`、不占 `floor`、不建参与群聊装配的角色会话子树。工作表是它的运行态视图（running/interrupted/done/failed），只有冷恢复消费 interrupted 节点（§4 T-RESUME） |
+| 未完成工作恢复（T-RESUME） | 处理「终止前没做完的部分」的统一模板：落盘意图 → 终止不收敛（留 interrupted、不伪造结果、不删现场）→ 冷恢复识别（清单只进表格，不进 prompt）→ 重建上下文（已产出部分 + 派发时可见区间）→ 协议修复（`InterruptedToolResultPrefix`）→ 同路径重跑 → `system` 恢复说明 → 幂等（新 attempt/commit，旧行只作审计）。subagent = tool call 实例；agent-team 角色 = 角色会话实例（§8.3） |
+| `RoleSpec` / `TeamSpec` | A2A 角色与团队规格（长期边界见 [`docs/arch/a2a-agent-team-factory.md`](../arch/a2a-agent-team-factory.md) §2）：`RoleSpec` = `role_name` + `role_kind` + `system_prompt` + 模型/账号策略 + `mirror_policy` + `directive_schema` + `order_priority` + `join_policy` + `presence_policy` + `tools_policy`；`TeamSpec` = `team_id` + `team_kind` + `order_policy` + `order_roles` + `roles[]` + `gate_policy` + `compact_policy`。`role_name` 只作 metadata；新增角色 = 新增一条 RoleSpec，不新增通道（§8.3） |
+| 角色 registry / 角色工厂 | registry 是角色编排的**唯一权威**（`RoleRegistry`/`TeamRegistry` + `lifecycle.order_policy`/`order_roles`）；`AgentTeamFactory` 由 `TeamSpec` 派生角色会话、actor、draft 锁与 presence。`goal` 只是内置实例（`goal_loop` + user/main/tl），不是唯一形态；同一工厂必须能实例化第二个团队 |
+| 调度策略函数 | sequencer 内**唯一可替换点**：`goal_loop` / `user_main_decided` / `schedule`；三者都不改变 message/draft/compact/floor 形态（I19） |
 
 不变量：
 
@@ -593,6 +876,20 @@ I12 检索索引 = 单会话关键词模糊索引，可重建、允许落后
 I13 栈按 kind 分域：kind 之间不共享 head、不共享写锁（v8.3）
 I14 metadata 目录只允许 §2.0 清单内文件；blob 只有 big_tool_result 一条通道（v8.3）
 I15 非上下文元数据（血缘/状态位/检查点）不进 message 正文通道（v8.3）
+I16 群聊 message = append-only 在线文档；只有 sequencer 能 append；user/main/tl/agent-team 走同一 draft→sync 路径
+I17 role draft = 未同步 WAL；同步成功即删、无保留窗口；draft 永不作为长期事实源
+I18 compact 权威只在 main；角色会话只同步 compact_ref；join_seq_id 决定各角色可见/可装配起点
+I19 桌游式顺序与定时插话只改变 sequencer 的排序/触发，不改变 message/draft/compact 形态
+I20 每角色 draft 锁/actor 独立：角色之间不共享 draft 锁，写 draft 不阻塞其他角色；只有 sequencer 持 message 写锁
+I21 floor（当前发言角色）只由 sequencer 写，随 message head 发布（不另开文件、不额外 rename）；冷恢复由 floor + 最后一行 role + order_policy 重建
+I22 装配输入只来自目标会话自身：main message/compact + 目标角色备份 + 目标角色 draft + join_seq_id/applied_seq 切点；禁止跨会话或全局历史回退
+I23 pending draft 未 sync 前不进主文档、不进其他角色 wire；user draft 只进输入框
+I24 会话切换是原子的：新 wire 就绪前保持旧视图，不允许半成品/跨会话内容可见
+I25 compact frame/compact_ref.applied_seq/join_seq_id 是仅有的历史切点；不得用“引擎内存 RawHistory”充当装配输入
+I26 subagent 是 tool calling 能力而非 A2A 角色：不进 `order_roles`、不占 floor、不参与群聊装配；其未完成节点只由工作表呈现，并被 T-RESUME 消费
+I27 恢复说明一律用 `role=system`，provider role 不引入自定义角色名；恢复不得伪造既成结果，也不得重复计入结果（幂等键 = attempt/commit）
+I28 角色编排的唯一权威 = registry（`lifecycle.order_policy`/`order_roles` + RoleSpec 清单）；前端只提交字段更新，不得持有第二份顺序事实
+I29 新增 A2A 角色只新增 RoleSpec；调度只替换 sequencer 的 role 顺序函数（`goal_loop`/`user_main_decided`/`schedule`），message/draft/compact/floor 形态不变
 ```
 
 ## 5. R2 装配读取器契约（v8.1 增补）
@@ -607,6 +904,14 @@ I15 非上下文元数据（血缘/状态位/检查点）不进 message 正文�
 R2 负责“会话事实 → wire 会话正文段”；会话外段（system/project/memory/blocks、plan/task
 尾部渲染、goal 说明）由装配层在 R2 之外组合。R2 输出不落盘；其“新材料”按第 1 节规则
 由调用方决定是否写入 message。
+
+**群聊模式的范围分域（§8.3）**：R2 的输入随角色不同而不同——
+
+- `user` 的 draft 装配目标是前端输入框，未发送前不进任何模型 wire；
+- 其他角色（main/tl/agent-team）装配各自上下文：`main compact_ref` + 该角色
+  `join_seq_id` 之后已发布的 main message 行 + 该角色自身未同步 role draft；
+- 未同步 draft 只进该角色自己的 wire，不进主文档、不进其他角色 wire；
+- 角色加入时间不同导致各自可见历史不同，这是预期语义，不是数据缺失。
 
 **skill 记录不是特例（D1）**：它是普通 message 事件行，与 user 发送的信息**同一语义、同一条
 装配路径**——按 seq 落在 tail 里该在的位置，正常进入 wire。因此：
@@ -634,6 +939,8 @@ message 数据分片（session/message/*.jsonl）
 ### 5.3 步骤
 
 ```text
+0) 确定装配角色与可见区间：role_name/role_session_id + join_seq_id + compact_ref；
+   user draft 走输入框路径，不进入 R2 的模型 wire；
 1) 读 guide → 打开 message.json/compact.json，校验 schema/checksum（不匹配重读一次）；
 2) frame = compact_head 指向的最新帧；tail_start = frame ? frame.message_to + 1 : 首行；
    （[from,to] 含端点，所以 tail 从 message_to 的下一行开始）
@@ -686,6 +993,130 @@ message 数据分片（session/message/*.jsonl）
 | R2-EVENT-1 | event 缺失（短窗口崩溃） | R2 输出不受影响 |
 | R2-WM-1 | LRU 已删旧区 | R2 只依赖 frame + tail，正常输出 |
 | R2-FORK-1 | fork 起点 < watermark | 拒绝并提示（不静默截断） |
+
+### 5.7 装配流程：冷加载、热切换、运行时切换（v8.3，2026-09-10）
+
+> 本节是“整会话装配 + draft 装配”的唯一流程口径，覆盖：
+> ① 冷加载（首步→末步）；② 已驻留会话的热切换；③ 运行中多会话的视图切换
+> （A 在跑、切到 B/C、再切回）。术语见 §4/§8.3；实现与测试以此为准。
+
+#### 5.7.1 冷加载（cold load）首步→末步
+
+```text
+view.switch(sessionID, role_name)
+  → resolve project binding（workspace 绑定；禁止回退 active scope）
+  → guide(schema) → head(message/compact/floor) 校验（失败自愈重读/按数据重建）
+  → role 上下文（role_session_id / join_seq_id / compact_ref / order_policy）
+  → main compact 帧（frame_id + applied_seq）
+  → main message 行 where seq > max(applied_seq, join_seq_id)
+  → role 备份（role session 的 message/event）
+  → role draft WAL（未同步 op；round_id→role→unit_seq 排序）
+  → pending 合并进 role wire（不进主文档）
+  → 尝试缓存 K + 预算/完整单元边界 → role wire
+  → 原子 view swap + 缓存(applied_seq/prefix_digest) + 注册 actor/presence/floor
+```
+
+逐步口径：
+
+1. **入口与绑定**：以显式 `sessionID` + `role_name` 进入；项目归属由 workspace 绑定
+   解析（`ResolveProjectForSession`），**不得回退 Router 活跃写作用域**。
+2. **guide/head 校验**：读 `guide.json` 做布局/版本判定；逐个打开
+   `message.json` / `compact.json`（+ `floor` 字段），校验 schema/checksum；
+   失败按 §2.0 规则 3 自愈重读，二次仍不符则按数据文件重建该模块 head。
+3. **角色上下文**：确定 `role_session_id`、`join_seq_id`、`compact_ref`
+   （frame_id + applied_seq）、`order_policy/order_roles`、当前 `floor`；
+   `role_name=user` 时这一支只用于输入框草稿，不进入模型 wire（见 5.7.4）。
+4. **快照（compact）**：取 main 最新帧；角色**不得**使用自建帧；
+   `applied_seq = max(compact_ref.applied_seq, join_seq_id)` 作为已同步正文起点。
+5. **已同步正文**：读 main message 行 `seq > applied_seq`（分片按 head 路由；
+   尾窗优先，全量仅在需要完整区间时）；按 `CompleteEventUnits` 收口到完整单元，
+   open 单元保留 + 修复占位（§5.3 步骤 7）。
+6. **角色备份**：`role_name != main` 时读该角色会话的备份行（message/event），
+   用于 TL/agent-team 冷恢复与审计；备份不覆盖 main 权威。
+7. **role draft WAL**：读 `<role_session>/draft/<role_name>.jsonl` 的未同步 op，
+   按 `round_id → role → unit_seq` 排序；draft 文件存在 = 有待同步内容。
+8. **pending 合并**：把未同步 draft 作为 pending 段并入**该角色自己的 wire**；
+   未 sync 前**不进主文档、不进其他角色 wire**；user draft 只回输入框。
+9. **尝试缓存与预算**：按锚点拼接同一操作最近 K 条尝试；token 预算达软阈值
+   （默认 75%）停止扩窗并收口到完整单元；仍超限 → `need_compact`。
+10. **输出与发布**：产出 `role_wire` + `need_compact` + `prefix_digest`；
+    写回 R3 物化缓存（key = applied_seq/commit_id/floor）；
+    **最后一个动作才是原子切换视图指针**（切换前视图不可见半成品）。
+11. **注册运行期**：注册该会话 actor/锁、更新 presence（online）、
+    设置 floor 高亮、订阅 head/event 变更；冷加载完成。
+12. **失败语义**：head/checksum 可自愈/重建；compact_ref 缺失或 draft 损坏时
+    **显式报错**，不伪造帧、不静默回退旧布局、不把别的会话内容当本会话历史。
+
+#### 5.7.2 热切换（目标会话已驻留）
+
+```text
+target resident?
+ ├─ yes → 读内存快照(floor/head/revision) → 校验与磁盘 revision 一致
+ │        → R3 缓存命中(role_wire) → 合并 pending draft → 原子 view swap
+ └─ no  → 走 5.7.1 冷加载（视图保持旧内容直到新 wire ready）
+```
+
+- 热切换**不做全量读**：优先取该会话的内存快照 + R3 缓存；
+  缓存失效（head revision/compact frame 变化）才重建 role wire。
+- 有未同步 draft 时，热切换同样按 5.7.7 的顺序把 pending 段并入目标角色 wire。
+- 切换只改视图指针与订阅；不写 message、不改其他会话缓存。
+
+#### 5.7.3 运行时会话切换（A 在跑，切到 B/C 再切回）
+
+```text
+A running (actor 写 A.draft, sequencer 同步 A 的 main 文档)
+   │  view.switch(B)
+   ▼
+B 是 resident → hot attach；B 非 resident → cold load（5.7.1）
+   │  A 的 runChat/actor 继续，事件只写 A 的 draft/queue/EVENT
+   ▼
+view.switch(A) → 若 A resident → hot attach；若已被卸载 → cold load A
+```
+
+- 切走 A **不写 message、不停止 A 的 actor**；A 的产出只进 A 的 draft/queue，
+  由 A 的 sequencer 同步到 A 的 main 文档；
+- B/C 的 wire **只**来自 B/C 自己的 `message + compact + 自身 draft + join_seq_id`；
+  **禁止**回退到引擎共享 RawHistory 或任何“全局历史”；
+- 切回 A 时若 A 已卸载 → 走冷加载；A 的 pending draft 从 WAL 载入并排序；
+- 加载期间保持旧视图内容，直到新 wire 就绪后**原子替换**（不允许 A/B 内容串入 C，
+  对应打点表根目录 repro 诊断用例的失败点）。
+
+#### 5.7.4 draft 装配顺序（所有角色统一）
+
+| draft | 装配目标 | 是否进主文档 | 排序键 |
+|---|---|---|---|
+| `user` draft（`input/draft.json`） | 前端输入框 | 否（发送并 sync 后才是 message 行） | 无（1:1 草稿） |
+| `main` role draft | main 上下文（wire） | sync 前否；sync 后是 | `round_id → role → unit_seq` |
+| `tl` / agent-team role draft | 各角色上下文（wire） | sync 前否；sync 后是 | 同上 |
+
+规则：
+
+1. 角色内顺序：`round_id` 升序 →（同一 round）role 顺序（`order_policy/order_roles`
+   / `schedule` 插入点）→ `unit_seq` 升序；工具调用与结果在同一 unit 内按
+   `CompleteEventUnits`（tool_call→tool→final）排定；
+2. pending 段在 wire 中的位置：紧接该角色可见的**最后一条已 sync message 行**之后
+   （`applied_seq` 之后），并以 `floor` 标识“正在谁发言”；
+3. 只有 sequencer 的 sync 会把 pending 段转成主文档行；同步成功后
+   **立即删除对应 draft**；半同步（head 已发布、draft 未删）按 `commit_id`
+   幂等删除，不重复 append；
+4. 多角色同时有 pending 时，主文档按 `order_policy` 依次同步；
+   定时插话在下一个 `unit_seq` 边界插入，不抢占当前单元；
+5. 每次 sync 后：更新 role 缓存视图、`applied_seq`、`floor`、presence 高亮。
+
+#### 5.7.5 装配不变量（与 §4 同步登记）
+
+```text
+I22 装配输入只来自目标会话自身：main message/compact + 目标角色备份 + 目标角色 draft
+    + join_seq_id/applied_seq 切点；禁止跨会话或全局历史回退
+I23 pending draft 未 sync 前不进主文档、不进其他角色 wire；user draft 只进输入框
+I24 会话切换是原子的：新 wire 就绪前保持旧视图，不允许半成品/跨会话内容可见
+I25 compact frame/compact_ref.applied_seq/join_seq_id 是仅有的历史切点；不得用
+    “引擎内存 RawHistory”充当装配输入
+```
+
+验收：T-ASM-01…06（冷加载逐步、角色可见区间、draft 分域、热切换缓存、
+运行时切换隔离、draft 顺序/幂等），实现阶段并入附录 D；执行摘要见工作包
+`docs/2026-09-10-backend-cache-goal-session/prompt.md` §8。
 
 ## 附录 A：EVENT 详细设计（v8）
 
@@ -962,6 +1393,7 @@ project-<hash>/session-<hash>/
   event/event_1_100.jsonl
   plan/{active,history}.jsonl  task/…  goal/…  subagent/…
   input/draft.json  queue/queue.jsonl
+  team/roles.json
   big_tool_result/<hash>.jsonl
   metadata-index/search.json   # 可重建索引统一放这里
 ```
