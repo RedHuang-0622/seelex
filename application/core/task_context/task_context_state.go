@@ -133,6 +133,26 @@ func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event mod
 	return c._AppendTranscriptEventForLocked(sessionID, event)
 }
 
+// SeedTranscriptSeqFor 把指定会话的内存 transcript 序号基线抬到既有事件
+// 的最大序号（只增不减，幂等）。fork 子会话专用：子会话的磁盘快照继承了
+// 父会话的事件序号区间，而内存状态可能没有任何基线（子引擎冷启动为空、
+// 没有可导入的引擎历史），此时子会话自己产生的事件会从 seq 1 起算并与
+// 继承区间**重叠**；落盘时 mergeTranscriptEventsBySeq 按 seq 覆盖，导致
+// 顺序错乱、子会话自己的消息被旧行顶掉（2026-09-11 TC-A2-01 回归）。
+//
+// 只对齐序号基线，不复制内容——基线内容仍由落盘快照承载。
+func (c *Coordinator) SeedTranscriptSeqFor(sessionID string, seq uint64) {
+	if c == nil || strings.TrimSpace(sessionID) == "" || seq == 0 {
+		return
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	st := c.sessionStateLocked(sessionID)
+	if st.transcriptSeq < seq {
+		st.transcriptSeq = seq
+	}
+}
+
 func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent {
 	st := c.sessionStateLocked(sessionID)
 	return c.appendTranscriptEventLocked(st, event)
