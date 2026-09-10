@@ -2168,3 +2168,39 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   0%, 100% { box-shadow: none; }
   20% { box-shadow: 0 0 0 2px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 45%, transparent); }
 }
+
+/* ---------- Agent Team（右侧栏 · 状态 → Agent Team） ----------
+   数据源 = Application API（Bridge.AgentTeam*）；顺序事实源是会话
+   lifecycle.order_policy/order_roles 与角色注册表。视觉规则与状态区一致：
+   只走 :root token、数字与序号用等宽、用 1px 分隔线而不是卡片堆叠。 */
+.team-view { display: block; }
+.team-view.muted { color: var(--faint); font-size: 11px; line-height: 1.5; }
+.team-panel { display: grid; gap: 10px; }
+.team-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.team-preset.is-active { color: var(--status-done); }
+.team-refresh { margin-left: auto; }
+.team-notice { padding: 6px 8px; border: 1px solid var(--border); border-left: 2px solid var(--status-running); border-radius: var(--r-sm); background: var(--tint-running); color: var(--text-soft); font-size: 11px; line-height: 1.5; }
+.team-notice.is-error { border-left-color: var(--status-failed); background: var(--tint-failed); color: var(--text-strong); }
+.team-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--faint); font-size: 10px; }
+.team-policy-label { color: var(--text-mid); }
+.team-policy-select { padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text-soft); font: 10px var(--font-mono); }
+.team-floor { margin-left: auto; color: var(--status-running); font: 700 10px var(--font-mono); }
+.team-block { display: grid; gap: 5px; padding-top: 8px; border-top: 1px solid var(--border); }
+.team-order, .team-members, .team-scheduled { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.team-order-item { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-left: 2px solid transparent; }
+.team-order-item.is-floor { border-left-color: var(--status-running); background: var(--tint-running); }
+.team-order-item.is-empty { border-left: 0; color: var(--faint); font-size: 11px; }
+.team-order-index { flex: none; width: 16px; color: var(--faint); font: 10px var(--font-mono); text-align: right; }
+.team-order-role, .team-member-name { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.team-order-actions { display: flex; gap: 2px; margin-left: auto; }
+.team-order-actions .text-button, .team-member .text-button { padding: 1px 5px; font-size: 10px; }
+.team-order-actions .text-button[disabled], .team-member .text-button[disabled] { color: var(--faint); cursor: not-allowed; opacity: .45; }
+.team-floor-chip { color: var(--status-running); }
+.team-order-outside { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--faint); font-size: 10px; }
+.team-member { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-left: 2px solid transparent; }
+.team-member.is-floor { border-left-color: var(--status-running); }
+.team-member-pos, .team-member-state { color: var(--faint); font: 10px var(--font-mono); }
+.team-member-remove { margin-left: auto; }
+.team-scheduled-item { display: flex; align-items: center; gap: 8px; padding: 4px 2px; }
+.team-scheduled-note { margin-left: auto; color: var(--faint); font-size: 10px; }
+.team-empty { padding: 8px 0; font-size: 11px; line-height: 1.5; }

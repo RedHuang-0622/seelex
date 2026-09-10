@@ -114,6 +114,22 @@ type replayAwareApplication interface {
 	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (application.Subscription, error)
 }
 
+// agentTeamApplication 是 Application 的 A2A 角色管理可选扩展面（状态 →
+// Agent Team 子页数据源）。全部走 application/contract 纯 DTO；未装配时
+// Bridge 的方法返回可展示错误，不静默退化。
+//
+// 语义边界：前端只提交**用户改动的字段**（顺序表 / 单个角色），顺序事实源
+// 仍是会话的 lifecycle.order_policy/order_roles 与角色注册表（registry）；
+// Bridge 不缓存、不推导第二份顺序。
+type agentTeamApplication interface {
+	AgentTeamPresets() []dto.TeamSpec
+	AgentTeamView(mainSessionID string) (dto.TeamView, error)
+	AgentTeamMaterializePreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)
+	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
+	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
+	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
+}
+
 // EventEmitter receives Application events after the Bridge has adapted them
 // to the stable desktop event names. Desktop hosts pass the function that
 // forwards events into their renderer runtime.
@@ -833,6 +849,102 @@ func (bridge *Bridge) ScheduleTask(spec seelebridge.ScheduledTaskSpec) (*seelebr
 // CancelScheduledTask 取消并移除定时/周期任务。
 func (bridge *Bridge) CancelScheduledTask(id string) error {
 	return bridge.app.CancelScheduledTask(id)
+}
+
+// ── Agent Team（状态 → Agent Team 子页）──────────────────────────────
+//
+// sessionID 为空 = 当前视图会话（前端不必自己记会话号；会话切换后重拉即可）。
+// 这些方法只做参数归一与窄转发，角色/顺序语义在 application 与存储侧。
+
+func (bridge *Bridge) agentTeamApp() (agentTeamApplication, error) {
+	app, ok := bridge.app.(agentTeamApplication)
+	if !ok {
+		return nil, errors.New("当前 Application 未装配 A2A 角色管理面")
+	}
+	return app, nil
+}
+
+// agentTeamSession 解析目标会话：显式 ID 优先，空值取当前视图会话。
+func (bridge *Bridge) agentTeamSession(sessionID string) string {
+	if trimmed := strings.TrimSpace(sessionID); trimmed != "" {
+		return trimmed
+	}
+	return bridge.app.Snapshot().Session.ID
+}
+
+// AgentTeamPresets 返回内置团队形态（新建下拉的数据源）。
+func (bridge *Bridge) AgentTeamPresets() ([]dto.TeamSpec, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return nil, err
+	}
+	return app.AgentTeamPresets(), nil
+}
+
+// AgentTeamView 返回成员表（成员 / 工作顺序 / 定时 agent 分区 / 设计提示）。
+func (bridge *Bridge) AgentTeamView(sessionID string) (dto.TeamView, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamView{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamView{}, errors.New("当前没有可装配的会话")
+	}
+	return app.AgentTeamView(session)
+}
+
+// AgentTeamMaterialize 按 preset 装配一支团队（新建 goal = 新建 TL 并上线）。
+// joinSeq 是角色加入群聊时的 message 水位；0 = 由装配方按当前 head 取。
+func (bridge *Bridge) AgentTeamMaterialize(sessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamMaterializeResult{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamMaterializeResult{}, errors.New("当前没有可装配的会话")
+	}
+	return app.AgentTeamMaterializePreset(session, strings.TrimSpace(teamKind), joinSeq)
+}
+
+// AgentTeamPutRole 新增/覆盖一个角色配置（前端表单只提交改动字段）。
+func (bridge *Bridge) AgentTeamPutRole(sessionID string, role dto.RoleSpec) (dto.TeamRegistry, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamRegistry{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamRegistry{}, errors.New("当前没有可配置的会话")
+	}
+	return app.AgentTeamPutRole(session, role)
+}
+
+// AgentTeamDeleteRole 删除角色（同时从工作顺序里摘除）。
+func (bridge *Bridge) AgentTeamDeleteRole(sessionID, roleName string) (dto.TeamRegistry, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamRegistry{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamRegistry{}, errors.New("当前没有可配置的会话")
+	}
+	return app.AgentTeamDeleteRole(session, strings.TrimSpace(roleName))
+}
+
+// AgentTeamSetOrder 写工作顺序（拖拽/上下移只提交这个字段；定时 agent 会被拒绝）。
+func (bridge *Bridge) AgentTeamSetOrder(sessionID, policy string, orderRoles []string) (dto.TeamView, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamView{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamView{}, errors.New("当前没有可配置的会话")
+	}
+	return app.AgentTeamSetOrder(session, strings.TrimSpace(policy), orderRoles)
 }
 
 // SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；

@@ -73,28 +73,47 @@ func fileImports(t *testing.T, path string) map[string]struct{} {
 // TestRoleSessionDTOFieldsMatchWireContract 钉住 DTO 的 JSON 形状：真实 API 冒烟
 // 与前端都按这些字段名读写，改名会同时打断 headless 巡检与 GUI 渲染。
 func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
-	path := filepath.Join(repoRoot(), "application", "contract", "dto", "rolesession.go")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
+	sources := map[string]string{
+		filepath.Join("application", "contract", "dto", "rolesession.go"): readRepoFile(t, "application", "contract", "dto", "rolesession.go"),
+		filepath.Join("application", "contract", "dto", "agentteam.go"):   readRepoFile(t, "application", "contract", "dto", "agentteam.go"),
 	}
-	source := string(data)
-	required := map[string][]string{
-		"RoleRow":              {"role_name", "role_session_id", "round_id", "unit_seq", "message_id"},
-		"RoleDraftRow":         {"round_id", "role_name", "role_session_id", "unit_seq", "event"},
-		"RoleSnapshot":         {"join_seq_id", "compact_ref", "order_policy", "order_roles", "floor"},
-		"RoleWireSnapshot":     {"applied_seq", "prefix_digest", "need_compact", "pending_rows"},
-		"ScheduleEventPayload": {"schedule_id", "role_name", "role_session_id", "next_fire_at"},
+	required := map[string]map[string][]string{
+		filepath.Join("application", "contract", "dto", "rolesession.go"): {
+			"RoleRow":              {"role_name", "role_session_id", "round_id", "unit_seq", "message_id"},
+			"RoleDraftRow":         {"round_id", "role_name", "role_session_id", "unit_seq", "event"},
+			"RoleSnapshot":         {"join_seq_id", "compact_ref", "order_policy", "order_roles", "floor"},
+			"RoleWireSnapshot":     {"applied_seq", "prefix_digest", "need_compact", "pending_rows"},
+			"ScheduleEventPayload": {"schedule_id", "role_name", "role_session_id", "next_fire_at"},
+		},
+		// 前端 normalizeAgentTeam/renderAgentTeam 按这些字段名读取：改名会同时
+		// 打断 GUI 面板与 headless 巡检的 JSON 形状。
+		filepath.Join("application", "contract", "dto", "agentteam.go"): {
+			"TeamView":   {"session_id", "team_kind", "order_policy", "order_roles", "members", "scheduled", "configured", "floor_role", "design_notice"},
+			"TeamMember": {"role_name", "role_kind", "role_session_id", "order_index", "in_order", "join_policy"},
+			"RoleSpec":   {"role_name", "role_kind", "order_priority", "join_policy", "tools_policy"},
+		},
 	}
-	for typeName, fields := range required {
-		if !strings.Contains(source, "type "+typeName+" struct") {
-			t.Errorf("dto 缺少类型 %s", typeName)
-			continue
-		}
-		for _, field := range fields {
-			if !strings.Contains(source, `json:"`+field) {
-				t.Errorf("dto 类型 %s 缺少 json 字段 %q", typeName, field)
+	for path, types := range required {
+		source := sources[path]
+		for typeName, fields := range types {
+			if !strings.Contains(source, "type "+typeName+" struct") {
+				t.Errorf("%s 缺少类型 %s", path, typeName)
+				continue
+			}
+			for _, field := range fields {
+				if !strings.Contains(source, `json:"`+field) {
+					t.Errorf("dto 类型 %s 缺少 json 字段 %q（%s）", typeName, field, path)
+				}
 			}
 		}
 	}
+}
+
+func readRepoFile(t *testing.T, parts ...string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(append([]string{repoRoot()}, parts...)...))
+	if err != nil {
+		t.Fatalf("read %v: %v", parts, err)
+	}
+	return string(data)
 }

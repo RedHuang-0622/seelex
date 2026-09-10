@@ -68,6 +68,18 @@ application 层（v1 仅支持 `todo:<index>` 的 pending/doing/done）。
 task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 relay；主动
 `taskadd` 是模型可调用的 harness 工具（注册表幂等去重），不经 Bridge。
 
+A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
+`Bridge.AgentTeamPresets` / `AgentTeamView` / `AgentTeamMaterialize` /
+`AgentTeamPutRole` / `AgentTeamDeleteRole` / `AgentTeamSetOrder`，全部走
+`application/contract` 纯 DTO（S27 收口；`agentTeamApplication` 是可选能力接口，
+宿主未装配时返回可展示错误而不是空视图）。`sessionID` 传空 = 当前视图会话，
+Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
+`lifecycle.order_policy`/`order_roles` 与角色注册表：前端只提交用户改动后的完整
+顺序表（上移/下移/摘除/恢复）或单个角色，Bridge 不缓存也不推导第二份顺序；
+定时任务 agent 单独分区、永不进入 `order_roles`（设计稿 §7.1）。前端只读渲染 +
+动作转发在 `frontend/dist/agent-team-view.js`（纯函数，含单元测试），面板 DOM 挂在
+状态子页的 `#team-section`。
+
 Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等敏感配置必须由 backend redaction 后再返回 renderer。
 
 ## 关闭语义

@@ -16,6 +16,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
+import { nextAgentTeamOrder, normalizeAgentTeam, renderAgentTeam } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import {
@@ -52,6 +53,7 @@ const elements = Object.fromEntries([
   "empty-state", "composer", "prompt", "composer-status", "stop-button", "send-button",
   "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
+  "team-section", "team-view", "team-count",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
   "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
@@ -498,6 +500,7 @@ function render(snapshot, options = {}) {
   renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
   renderGoal(snapshot);
   renderScheduledTaskPanel(snapshot.runtime || {});
+  scheduleAgentTeamRefresh(snapshot);
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
   syncSessionChrome();
@@ -1336,6 +1339,137 @@ elements["scheduled-table-modal"]?.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeScheduledTable();
+});
+
+// ── Agent Team（右侧栏 · 状态 → Agent Team）──────────────────
+// 数据源是 Application API（Bridge.AgentTeam*）：成员表 / 工作顺序 / 定时
+// agent 分区。顺序的唯一事实是会话 lifecycle.order_policy/order_roles，
+// 前端只提交用户改动后的完整顺序表，不做本地重排缓存；每次动作后重拉视图。
+let agentTeamPresets = null;
+let agentTeamView = null;
+let agentTeamSessionID = "";
+let agentTeamError = "";
+let agentTeamLoading = false;
+
+// agentTeamCurrentPolicy 取本次提交的顺序策略：优先用面板里用户选中的值，
+// 面板未渲染时回退到视图自带策略（不做隐式猜测，空值直接拒绝提交）。
+function agentTeamCurrentPolicy() {
+  const select = elements["team-view"]?.querySelector?.("[data-team-policy]");
+  if (select && select.value) return select.value;
+  const team = normalizeAgentTeam(agentTeamView);
+  return team.orderPolicy;
+}
+
+async function loadAgentTeamPresets() {
+  if (Array.isArray(agentTeamPresets)) return agentTeamPresets;
+  try {
+    const presets = await invoke("AgentTeamPresets");
+    agentTeamPresets = Array.isArray(presets) ? presets : [];
+  } catch (error) {
+    agentTeamPresets = [];
+    agentTeamError = error?.message || String(error);
+  }
+  return agentTeamPresets;
+}
+
+// refreshAgentTeam 拉取一次成员表并重绘；force=false 且会话未变时复用上次结果
+// （面板每次 render 都会调用它，避免高频 RPC）。
+async function refreshAgentTeam({ force = false } = {}) {
+  if (agentTeamLoading) return;
+  const sessionID = client.current()?.session?.id || "";
+  if (!force && sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
+  agentTeamLoading = true;
+  try {
+    await loadAgentTeamPresets();
+    agentTeamView = await invoke("AgentTeamView", "");
+    agentTeamSessionID = sessionID || agentTeamSessionID;
+    agentTeamError = "";
+  } catch (error) {
+    agentTeamView = null;
+    agentTeamError = error?.message || String(error);
+  } finally {
+    agentTeamLoading = false;
+  }
+  renderAgentTeamPanel();
+}
+
+// renderAgentTeamPanel 只重绘本区块（不触发整页 render，避免与动作互锁）。
+function renderAgentTeamPanel() {
+  const host = elements["team-view"];
+  if (!host) return;
+  const failure = agentTeamError
+    ? `<div class="team-notice is-error" role="alert">${escapeHtml(agentTeamError)}</div>`
+    : "";
+  if (!agentTeamView) {
+    host.className = "team-view muted";
+    host.innerHTML = failure || "展开后加载成员表与工作顺序";
+    if (elements["team-count"]) elements["team-count"].textContent = "0";
+    return;
+  }
+  const team = normalizeAgentTeam(agentTeamView);
+  host.className = "team-view";
+  elements["team-count"].textContent = String(team.members.length + team.scheduled.length);
+  host.innerHTML = failure + renderAgentTeam(agentTeamView, agentTeamPresets || []);
+}
+
+// scheduleAgentTeamRefresh 只在状态子页可见且 Agent Team 区块展开时拉取，
+// 会话变更后下一次 render 自然刷新（切走/未展开不产生额外请求）。
+function scheduleAgentTeamRefresh(snapshot) {
+  const section = elements["team-section"];
+  if (!section?.open || section.offsetParent === null) return;
+  const sessionID = snapshot?.session?.id || "";
+  if (sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
+  refreshAgentTeam();
+}
+
+// runAgentTeamAction 统一处理动作失败：错误既进区块内联提示也进 toast。
+async function runAgentTeamAction(action) {
+  try {
+    await action();
+    await refreshAgentTeam({ force: true });
+  } catch (error) {
+    agentTeamError = error?.message || String(error);
+    renderAgentTeamPanel();
+    showToast(error);
+  }
+}
+
+elements["team-section"]?.addEventListener("toggle", () => {
+  if (elements["team-section"].open) refreshAgentTeam();
+});
+
+elements["team-view"]?.addEventListener("click", async event => {
+  const materialize = event.target.closest?.("[data-team-materialize]");
+  if (materialize?.dataset.teamMaterialize) {
+    const kind = materialize.dataset.teamMaterialize;
+    await runAgentTeamAction(() => invoke("AgentTeamMaterialize", "", kind, 0));
+    return;
+  }
+  if (event.target.closest?.("[data-team-refresh]")) {
+    await refreshAgentTeam({ force: true });
+    return;
+  }
+  const orderButton = event.target.closest?.("[data-team-action]");
+  if (orderButton?.dataset.teamAction && orderButton.dataset.teamRole) {
+    const next = nextAgentTeamOrder(agentTeamView, orderButton.dataset.teamAction, orderButton.dataset.teamRole);
+    const policy = agentTeamCurrentPolicy();
+    if (!next || !policy) return;
+    await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", policy, next.orderRoles));
+    return;
+  }
+  const deleteButton = event.target.closest?.("[data-team-delete]");
+  if (deleteButton?.dataset.teamDelete) {
+    const roleName = deleteButton.dataset.teamDelete;
+    if (!confirm(`确认删除角色 ${roleName}？它会同时从工作顺序里摘除。`)) return;
+    await runAgentTeamAction(() => invoke("AgentTeamDeleteRole", "", roleName));
+  }
+});
+
+elements["team-view"]?.addEventListener("change", async event => {
+  const select = event.target.closest?.("[data-team-policy]");
+  if (!select?.value) return;
+  const team = normalizeAgentTeam(agentTeamView);
+  await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", select.value, team.orderRoles));
 });
 
 // 定时任务表格内取消按钮（事件委托挂表格容器；ID 是操作键）。
