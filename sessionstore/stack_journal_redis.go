@@ -33,7 +33,7 @@ func (repository *redisRepository) stackJournal() stackJournal {
 
 func (journal *redisStackJournal) backend() string { return string(BackendRedis) }
 
-func (journal *redisStackJournal) lock(key Key) func() {
+func (journal *redisStackJournal) lock(key Key, _ StackKind) func() {
 	stats := journal.repository.stack
 	lock := journal.repository.stackLocks.get(key.ProjectID + "|" + key.SessionID)
 	begin := time.Now()
@@ -75,6 +75,7 @@ func (journal *redisStackJournal) load(key Key, kind StackKind) (stackLoaded, er
 		Kinds:        cloneStackWatermarks(head.Kinds),
 		Active:       rows,
 		HistoryCount: head.Kinds[kind].HistoryCount,
+		LastCommitID: head.Kinds[kind].LastCommitID,
 	}, nil
 }
 
@@ -129,7 +130,7 @@ func (journal *redisStackJournal) readRows(ctx context.Context, key Key, kind St
 		row.StackID = string(kind) + "|" + state
 		out = append(out, row)
 	}
-	return out, nil
+	return dedupeStackRowsByItemID(out), nil
 }
 
 // publish 在 MULTI/EXEC 内重建 active 列表、续写 history 列表并写入新 head。
@@ -239,11 +240,10 @@ func (journal *redisStackJournal) recordEvents(key Key, kind StackKind, mutation
 		return err
 	}
 	payloads := make([]string, 0, len(events))
+	commitID := stackMutationCommitID(kind, mutation)
 	for _, event := range events {
 		event.EventID = uint64(count) + uint64(len(payloads)) + 1
-		if event.CommitID == "" {
-			event.CommitID = "stack-" + randomID()
-		}
+		event.CommitID = commitID
 		if event.CreatedAt.IsZero() {
 			event.CreatedAt = time.Now().UTC()
 		}

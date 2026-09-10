@@ -5,12 +5,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func lifecycleFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), 0)
+	store := newStoreEngine(t.TempDir(), storageSettings{})
 	return store, Key{ProjectID: "p-lc", SessionID: "s-lc"}
 }
 
@@ -23,15 +24,15 @@ func TestLifecycleDraftToQueueAtomic(t *testing.T) {
 	if err := store.draftToQueue(key, "草稿内容 D"); err != nil {
 		t.Fatal(err)
 	}
-	head, err := store.readLifecycleHead(key)
+	state, err := store.readLifecycleState(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(head.Queue) != 1 || head.Queue[0].Content != "草稿内容 D" {
-		t.Fatalf("queue = %+v", head.Queue)
+	if len(state.Queue) != 1 || state.Queue[0].Content != "草稿内容 D" {
+		t.Fatalf("queue = %+v", state.Queue)
 	}
-	if head.Draft != nil {
-		t.Fatalf("draft not cleared: %+v", head.Draft)
+	if state.Draft != nil {
+		t.Fatalf("draft not cleared: %+v", state.Draft)
 	}
 }
 
@@ -74,12 +75,12 @@ func TestLifecycleDirectSendQueueEmpty(t *testing.T) {
 	if err := store.draftDirectSend(key, "D"); err != nil {
 		t.Fatal(err)
 	}
-	head, err := store.readLifecycleHead(key)
+	state, err := store.readLifecycleState(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(head.Queue) != 0 || head.Draft != nil {
-		t.Fatalf("direct send should not enqueue: queue=%d draft=%+v", len(head.Queue), head.Draft)
+	if len(state.Queue) != 0 || state.Draft != nil {
+		t.Fatalf("direct send should not enqueue: queue=%d draft=%+v", len(state.Queue), state.Draft)
 	}
 }
 
@@ -93,15 +94,15 @@ func TestLifecycleDirectSendQueueNonEmptyEnqueueTail(t *testing.T) {
 	if err := store.draftDirectSend(key, "D"); err != nil {
 		t.Fatal(err)
 	}
-	head, err := store.readLifecycleHead(key)
+	state, err := store.readLifecycleState(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(head.Queue) != 2 || head.Queue[0].Content != "Q1" || head.Queue[1].Content != "D" {
-		t.Fatalf("queue = %+v", head.Queue)
+	if len(state.Queue) != 2 || state.Queue[0].Content != "Q1" || state.Queue[1].Content != "D" {
+		t.Fatalf("queue = %+v", state.Queue)
 	}
-	if head.Draft != nil {
-		t.Fatalf("draft = %+v", head.Draft)
+	if state.Draft != nil {
+		t.Fatalf("draft = %+v", state.Draft)
 	}
 }
 
@@ -118,12 +119,12 @@ func TestLifecycleQueueSendFailedReturnsDraft(t *testing.T) {
 	if err := store.queueSendFailed(key); err != nil {
 		t.Fatal(err)
 	}
-	head, err := store.readLifecycleHead(key)
+	state, err := store.readLifecycleState(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(head.Queue) != 0 || head.Draft == nil || head.Draft.Content != "Q1" {
-		t.Fatalf("queue=%d draft=%+v", len(head.Queue), head.Draft)
+	if len(state.Queue) != 0 || state.Draft == nil || state.Draft.Content != "Q1" {
+		t.Fatalf("queue=%d draft=%+v", len(state.Queue), state.Draft)
 	}
 }
 
@@ -134,12 +135,12 @@ func TestLifecycleDirectSendFailedReturnsDraft(t *testing.T) {
 	if err := store.directSendFailed(key, "D"); err != nil {
 		t.Fatal(err)
 	}
-	head, err := store.readLifecycleHead(key)
+	state, err := store.readLifecycleState(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if head.Draft == nil || head.Draft.Content != "D" || head.Draft.State != "发送失败退回" {
-		t.Fatalf("draft = %+v", head.Draft)
+	if state.Draft == nil || state.Draft.Content != "D" || state.Draft.State != "发送失败退回" {
+		t.Fatalf("draft = %+v", state.Draft)
 	}
 }
 
@@ -192,12 +193,12 @@ func TestLifecyclePublishedMessageDequeues(t *testing.T) {
 	if len(resent) != 0 {
 		t.Fatalf("resent = %+v", resent)
 	}
-	head, err := store.readLifecycleHead(key)
+	state, err := store.readLifecycleState(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(head.Queue) != 0 {
-		t.Fatalf("queue after published confirm = %+v", head.Queue)
+	if len(state.Queue) != 0 {
+		t.Fatalf("queue after published confirm = %+v", state.Queue)
 	}
 }
 
@@ -235,7 +236,12 @@ func TestForkStoreSessionCopyRange(t *testing.T) {
 		t.Fatal("child must not inherit queue")
 	}
 	if _, err := store.readLifecycleHead(childKey); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("child lifecycle should be absent: %v", err)
+		t.Fatalf("child lifecycle head should be absent: %v", err)
+	}
+	for _, path := range []string{store.lifecycleDraftPath(childKey), store.lifecycleQueuePath(childKey)} {
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("child must not inherit draft/queue data file %s: %v", path, err)
+		}
 	}
 	if !store.sessionExists(childKey) {
 		t.Fatal("child guide missing")
@@ -464,4 +470,92 @@ func containsStr(haystack, needle string) bool {
 		}
 		return false
 	})()
+}
+
+// TestLifecycleFactsLiveInDesignedFiles 断言 §3.2 实体→文件：draft/queue 的
+// 权威在 session/input/draft.json 与 session/queue/queue.jsonl，head 只装水位
+// （§2.0 规则 1）：head 文件里不得出现条目正文。
+func TestLifecycleFactsLiveInDesignedFiles(t *testing.T) {
+	store, key := lifecycleFixture(t)
+	if err := store.saveDraft(key, "机密草稿正文"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.queueEnqueue(key, "req-1", "队列正文"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(store.lifecycleDraftPath(key)); err != nil {
+		t.Fatalf("draft.json 必须落在 input/ 下: %v", err)
+	}
+	if _, err := os.Stat(store.lifecycleQueuePath(key)); err != nil {
+		t.Fatalf("queue.jsonl 必须落在 queue/ 下: %v", err)
+	}
+	head, err := store.readLifecycleHead(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head.QueueCount != 1 || head.QueueHeadSeq != 1 || head.DraftRevision == 0 {
+		t.Fatalf("head = %+v want 水位口径", head)
+	}
+	raw, err := os.ReadFile(store.modulePath(key, moduleLifecycle))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"机密草稿正文", "队列正文", `"content"`} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("lifecycle head 不得携带条目正文，发现 %s in %s", forbidden, raw)
+		}
+	}
+}
+
+// TestLifecycleHeadLagRepairsFromData 断言 head 落后/丢失时按数据文件修补
+// （§2.0 规则 4）：事实不因为「数据已写、head 未发布」而丢失。
+func TestLifecycleHeadLagRepairsFromData(t *testing.T) {
+	store, key := lifecycleFixture(t)
+	if err := store.queueEnqueue(key, "req-1", "Q1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.saveDraft(key, "D"); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟崩溃在数据之后、head 之前：删掉 head。
+	if err := os.Remove(store.modulePath(key, moduleLifecycle)); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.readLifecycleState(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Queue) != 1 || state.Queue[0].Content != "Q1" || state.Draft == nil {
+		t.Fatalf("权威投影必须来自数据文件: %+v", state)
+	}
+	repaired, err := store.readLifecycleHead(key)
+	if err != nil {
+		t.Fatalf("head 必须由数据修补出来: %v", err)
+	}
+	if repaired.QueueCount != 1 || repaired.HeadState != queueQueued {
+		t.Fatalf("repaired head = %+v", repaired)
+	}
+}
+
+// TestLifecycleQueueCrashTailDropped 断言 queue.jsonl 的未换行残尾按未提交丢弃。
+func TestLifecycleQueueCrashTailDropped(t *testing.T) {
+	store, key := lifecycleFixture(t)
+	if err := store.queueEnqueue(key, "req-1", "Q1"); err != nil {
+		t.Fatal(err)
+	}
+	path := store.lifecycleQueuePath(key)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, []byte(`{"item_id":"half","content":`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.readLifecycleState(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Queue) != 1 || state.Queue[0].ItemID == "half" {
+		t.Fatalf("残尾必须被丢弃: %+v", state.Queue)
+	}
 }

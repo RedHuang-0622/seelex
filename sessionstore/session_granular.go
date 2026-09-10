@@ -2,6 +2,7 @@ package sessionstore
 
 import (
 	"encoding/json"
+	"io/fs"
 	"math"
 	"sync"
 	"time"
@@ -183,7 +184,7 @@ func (store *SessionGranularStore) SaveSession(projectID string, record Record) 
 	if err != nil {
 		return err
 	}
-	return store.router.SaveStateWorkspace(projectID, record.ID, payload)
+	return store.SaveRecordRaw(projectID, record.ID, payload)
 }
 
 // SaveRecordRaw 以会话粒度原子写 record 通道原始字节（state.json；
@@ -192,7 +193,24 @@ func (store *SessionGranularStore) SaveRecordRaw(projectID, sessionID string, pa
 	if store == nil || store.router == nil {
 		return nil
 	}
-	return store.router.SaveStateWorkspace(store.projectID(projectID), sessionID, payload)
+	projectID = store.projectID(projectID)
+	if store.router.LayoutV8() {
+		// S20：state/record 通道退役。record 只用于"首次索引 + 归档标记"：
+		// 其余字段（Title/Binding/血缘/Checkpoints…）dev 阶段丢字段已接受。
+		if err := store.EnsureIndexed(projectID, sessionID); err != nil {
+			return err
+		}
+		archived := false
+		var status struct {
+			Status string `json:"status"`
+		}
+		if len(payload) > 0 && json.Unmarshal(payload, &status) == nil {
+			archived = status.Status == string(StatusArchived)
+		}
+		_, err := store.router.SetSessionArchivedWorkspace(projectID, sessionID, archived)
+		return err
+	}
+	return store.router.SaveStateWorkspace(projectID, sessionID, payload)
 }
 
 // LoadRecordRaw 读取 record 通道原始字节；不存在原样返回 fs.ErrNotExist
@@ -200,6 +218,21 @@ func (store *SessionGranularStore) SaveRecordRaw(projectID, sessionID string, pa
 func (store *SessionGranularStore) LoadRecordRaw(projectID, sessionID string) ([]byte, error) {
 	if store == nil || store.router == nil {
 		return []byte{}, nil
+	}
+	if store.router.LayoutV8() {
+		// D9/S20：record 通道停读；按 §2.5.4 从既有通道派生 SessionRecord 形状
+		// 供应用消费。
+		payload, handled, err := store.router.DerivedRecordWorkspace(store.projectID(projectID), sessionID)
+		if !handled {
+			return store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) == 0 {
+			return nil, fs.ErrNotExist
+		}
+		return payload, nil
 	}
 	return store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
 }
@@ -234,6 +267,10 @@ func (store *SessionGranularStore) EnsureIndexed(projectID, sessionID string) er
 func (store *SessionGranularStore) LoadSession(projectID, sessionID string) (Record, bool, error) {
 	if store == nil || store.router == nil {
 		return Record{}, false, nil
+	}
+	if store.router.LayoutV8() {
+		record, ok := store.derivedRecord(projectID, sessionID)
+		return record, ok, nil
 	}
 	payload, err := store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
 	if err != nil {
@@ -546,6 +583,9 @@ func (store *SessionGranularStore) loadSessionLiteral(projectID, sessionID strin
 	if store == nil || store.router == nil {
 		return Record{}, false
 	}
+	if store.router.LayoutV8() {
+		return store.derivedRecord(projectID, sessionID)
+	}
 	payload, err := store.router.LoadStateWorkspace(projectID, sessionID)
 	if err != nil {
 		return Record{}, false
@@ -559,6 +599,26 @@ func (store *SessionGranularStore) loadSessionLiteral(projectID, sessionID strin
 		return Record{ID: sessionID, Kind: KindMain, Status: StatusIdle, Title: info.Title}, true
 	}
 	return record, true
+}
+
+// derivedRecord 按 §2.5.4 从 message head.Meta + lifecycle 派生会话记录
+// （S20：record 通道退役；Title/Kind/子侧血缘不再持久化，dev 已接受）。
+func (store *SessionGranularStore) derivedRecord(projectID, sessionID string) (Record, bool) {
+	meta, handled, err := store.router.SessionMetaWorkspace(projectID, sessionID)
+	if err != nil || !handled || meta.SessionID == "" {
+		return Record{}, false
+	}
+	status := StatusIdle
+	if archivedAt, _, err := store.router.SessionArchivedWorkspace(projectID, sessionID); err == nil && !archivedAt.IsZero() {
+		status = StatusArchived
+	} else if jsonRepository, ok := store.router.jsonRepositoryLocked(); ok && jsonRepository.hasDraft(Key{ProjectID: projectID, SessionID: sessionID}) {
+		status = StatusDraft
+	}
+	return Record{
+		ID: sessionID, Kind: KindMain, Status: status, Title: meta.Summary,
+		UpdatedAt: meta.UpdatedAt,
+		Binding:   Binding{WorkspaceID: projectID, Kind: KindMain},
+	}, true
 }
 
 // parseRecordInfo 宽容解析会话记录头：兼容薄封装 Record（title 字符串）与

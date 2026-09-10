@@ -2,6 +2,8 @@ package sessionstore
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -42,7 +44,16 @@ func TestConversationRangeAcrossLocalBackends(t *testing.T) {
 			}
 			defer repository.Close()
 			key := Key{ProjectID: "project", SessionID: "session"}
-			if err := repository.WriteState(context.Background(), key, []byte(conversationStateV3)); err != nil {
+			if config.Backend == BackendJSON {
+				if err := repository.WriteCommit(context.Background(), key, Commit{Events: []Event{
+					{Seq: 1, MessageID: "message-1", Role: "user", Content: "hello"},
+					{Seq: 2, MessageID: "message-2", Role: "assistant", Content: "hi",
+						ToolCalls: []EventToolCall{{ID: "call-1", Name: "bash", Arguments: "{\"cmd\":\"ls\"}"}}},
+					{Seq: 3, MessageID: "message-3", Role: "user", Content: "world"},
+				}}); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := repository.WriteState(context.Background(), key, []byte(conversationStateV3)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -55,8 +66,11 @@ func TestConversationRangeAcrossLocalBackends(t *testing.T) {
 				t.Fatalf("window = %#v total=%d, want message-1..message-2 total=3", messages, total)
 			}
 			// 工具消息映射完整（Tool 深拷贝语义）。
-			if messages[1].Tool == nil || messages[1].Tool.ID != "call-1" || messages[1].Tool.Name != "bash" || messages[1].Tool.Status != "success" || messages[1].Tool.Duration != 120*time.Millisecond {
+			if messages[1].Tool == nil || messages[1].Tool.ID != "call-1" || messages[1].Tool.Name != "bash" || messages[1].Tool.Status != "success" {
 				t.Fatalf("tool message = %#v", messages[1].Tool)
+			}
+			if config.Backend != BackendJSON && messages[1].Tool.Duration != 120*time.Millisecond {
+				t.Fatalf("sqlite tool duration = %v, want 120ms", messages[1].Tool.Duration)
 			}
 			// 尾部窗口：offset=1, limit=10 → 收敛到消息 2-3。
 			messages, total, err = repository.ReadConversationRange(context.Background(), key, 1, 10)
@@ -86,16 +100,18 @@ func TestConversationRangeAcrossLocalBackends(t *testing.T) {
 	}
 }
 
-// TestConversationRangeLegacyArchiveShape 验证 v1 SessionArchive 布局
-// （conversation 直接是数组）仍可读（v1 fallback）。
-func TestConversationRangeLegacyArchiveShape(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+// TestConversationRangeDerivedFromMessageRows 验证 S20 后 conversation 由
+// message 事件行派生（不再读 state.json）。
+func TestConversationRangeDerivedFromMessageRows(t *testing.T) {
+	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key := Key{ProjectID: "project", SessionID: "session"}
-	payload := []byte(`{"version":1,"name":"legacy","conversation":[{"id":"message-1","role":"user","content":"a"},{"id":"message-2","role":"user","content":"b"}]}`)
-	if err := repository.WriteState(context.Background(), key, payload); err != nil {
+	if err := repository.WriteCommit(context.Background(), key, Commit{Events: []Event{
+		{Seq: 1, MessageID: "message-1", Role: "user", Content: "a"},
+		{Seq: 2, MessageID: "message-2", Role: "user", Content: "b"},
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	messages, total, err := repository.ReadConversationRange(context.Background(), key, 1, 1)
@@ -103,32 +119,24 @@ func TestConversationRangeLegacyArchiveShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	if total != 2 || len(messages) != 1 || messages[0].ID != "message-2" || messages[0].Content != "b" {
-		t.Fatalf("legacy window = %#v total=%d", messages, total)
+		t.Fatalf("derived window = %#v total=%d", messages, total)
 	}
 }
 
-// TestConversationRangeDegradesExplicitly 验证损坏/不兼容的 conversation
-// 模块显式报错，不静默成空历史（interfaces.md 降级矩阵）。
-func TestConversationRangeDegradesExplicitly(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+// TestStateChannelRetiredOnJSON 验证 S20：JSON v8 的 state/record 通道停写
+// 停读（WriteState 空操作、ReadState not-exist），conversation 改由 message
+// 行派生。
+func TestStateChannelRetiredOnJSON(t *testing.T) {
+	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key := Key{ProjectID: "project", SessionID: "session"}
-	for name, payload := range map[string][]byte{
-		"corrupt":          []byte(`{"version":3,"id":"session","conversation":`),
-		"version-mismatch": []byte(`{"version":3,"id":"other-session","conversation":{"messages":[]}}`),
-		"unsupported":      []byte(`{"version":9,"conversation":{"messages":[]}}`),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := repository.WriteState(context.Background(), key, payload); err != nil {
-				t.Fatal(err)
-			}
-			messages, total, err := repository.ReadConversationRange(context.Background(), key, 0, 5)
-			if err == nil {
-				t.Fatalf("corrupt conversation returned messages=%#v total=%d, want explicit error", messages, total)
-			}
-		})
+	if err := repository.WriteState(context.Background(), key, []byte(`{"version":3}`)); err != nil {
+		t.Fatalf("WriteState must be a no-op on v8 JSON: %v", err)
+	}
+	if _, err := repository.ReadState(context.Background(), key); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("ReadState err = %v, want fs.ErrNotExist", err)
 	}
 }
 

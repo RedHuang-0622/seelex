@@ -96,7 +96,10 @@ type TranscriptEvent struct {
 	ToolCalls        []TranscriptToolCall `json:"tool_calls,omitempty"`
 	ResultRef        string               `json:"result_ref,omitempty"`
 	TokenCount       int                  `json:"token_count"`
-	CreatedAt        time.Time            `json:"created_at"`
+	// WireMaterial 标记内部 user 材料（internal/context 行）：true = 该行
+	// 作为材料进入装配（S19/D8：检查点渲染正文等必须由生产方置位）。
+	WireMaterial bool      `json:"wire_material,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type TranscriptToolCall struct {

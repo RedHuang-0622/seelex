@@ -38,7 +38,7 @@ type stackHarness struct {
 
 func newJSONStackHarness(t *testing.T) *stackHarness {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), 0)
+	store := newStoreEngine(t.TempDir(), storageSettings{})
 	return &stackHarness{
 		t: t, name: "json", store: store, journal: store.stackJournal(),
 		key:               Key{ProjectID: "p-stack", SessionID: "s-stack"},
@@ -197,11 +197,12 @@ func (harness *stackHarness) mustVerify() {
 	}
 }
 
-// head 返回栈模块 head（JSON 读 metadata/stack.json；SQL 读 head 行）。
-func (harness *stackHarness) head() stackModuleHead {
+// head 返回指定 kind 的栈模块 head（JSON 读 metadata/stack_<kind>.json；
+// SQL 读共享 head 行中的该 kind 水位）。
+func (harness *stackHarness) head(kind StackKind) stackModuleHead {
 	harness.t.Helper()
 	if harness.store != nil {
-		head, err := harness.store.stackJournal().(*jsonStackJournal).readStackHead(harness.key)
+		head, err := harness.store.stackJournal().(*jsonStackJournal).readStackHead(harness.key, kind)
 		if err != nil {
 			harness.t.Fatal(err)
 		}
@@ -225,13 +226,10 @@ func TestStackChannelHeadCarriesWatermarkOnly(t *testing.T) {
 			StackItemInput{ItemID: "t1"}, StackItemInput{ItemID: "t2"}); err != nil {
 			t.Fatal(err)
 		}
-		head := harness.head()
+		head := harness.head(StackKindTask)
 		water := head.Kinds[StackKindTask]
 		if head.HeadSeq == 0 || water.ActiveCount != 2 || water.HeadSeq != 2 {
 			t.Fatalf("head = %+v water = %+v", head, water)
-		}
-		if len(water.OpenBatches) != 1 || water.OpenBatches[0] != "batch-b" {
-			t.Fatalf("open batches = %+v want [batch-b]", water.OpenBatches)
 		}
 		harness.mustVerify()
 	})
@@ -288,8 +286,8 @@ func TestStackChannelBatchPopsWhenAllComplete(t *testing.T) {
 		if archived[0].BatchMessageFrom != wantTo {
 			t.Fatalf("batch_message_from = %q want %q", archived[0].BatchMessageFrom, wantTo)
 		}
-		water := harness.head().Kinds[StackKindTask]
-		if water.ActiveCount != 0 || water.HistoryCount != 2 || len(water.OpenBatches) != 0 {
+		water := harness.head(StackKindTask).Kinds[StackKindTask]
+		if water.ActiveCount != 0 || water.HistoryCount != 2 {
 			t.Fatalf("water = %+v", water)
 		}
 		harness.mustVerify()
@@ -436,13 +434,13 @@ func TestStackChannelPersistsAcrossInstances(t *testing.T) {
 	t.Run("json", func(t *testing.T) {
 		root := t.TempDir()
 		key := Key{ProjectID: "p-stack", SessionID: "s-reopen"}
-		first := newStoreEngine(root, 0)
+		first := newStoreEngine(root, storageSettings{})
 		commitRoundRows(t, first, key, []Event{messageRow(1, "msg1", "user", EventKindUserInput, "x")})
 		if _, err := stackCommit(first.stackJournal(), key, StackKindPlan,
 			stackPushMessage(StackKindPlan, "b", []StackItemInput{{ItemID: "again", Kind: StackKindPlan}})); err != nil {
 			t.Fatal(err)
 		}
-		second := newStoreEngine(root, 0)
+		second := newStoreEngine(root, storageSettings{})
 		rows, err := stackReadActive(second.stackJournal(), key, StackKindPlan)
 		if err != nil {
 			t.Fatal(err)
@@ -556,7 +554,7 @@ func TestStackChannelConcurrentKindsSingleWriter(t *testing.T) {
 			if history := harness.history(kind); len(history) != 10 {
 				t.Fatalf("%s history len = %d want 10", kind, len(history))
 			}
-			if water := harness.head().Kinds[kind]; water.HistoryCount != 10 || water.ActiveCount != 0 {
+			if water := harness.head(kind).Kinds[kind]; water.HistoryCount != 10 || water.ActiveCount != 0 {
 				t.Fatalf("%s water = %+v", kind, water)
 			}
 		}
@@ -736,11 +734,19 @@ func TestStackChannelWritesDesignedFiles(t *testing.T) {
 	if lines := strings.Count(string(data), "\n"); lines != 2 {
 		t.Fatalf("active.jsonl lines = %d want 2\n%s", lines, data)
 	}
-	headData, err := os.ReadFile(store.modulePath(key, moduleStack))
+	// S16：每 kind 独立 head 文件（metadata/stack_plan.json 等），不再有共享
+	// metadata/stack.json。
+	if _, err := os.Stat(store.modulePath(key, moduleStackPlan)); err != nil {
+		t.Fatalf("stack_plan head missing after push: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(store.metadataDir(key), "stack.json")); err == nil {
+		t.Fatal("legacy 共享 metadata/stack.json 仍存在（S16 应按 kind 拆分）")
+	}
+	headData, err := os.ReadFile(store.modulePath(key, moduleStackPlan))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{`"item_id"`, "plan-1", "task-1", `"p1"`} {
+	for _, forbidden := range []string{`"item_id"`, `"batch_id"`, `"stack_id"`, `"status"`} {
 		if strings.Contains(string(headData), forbidden) {
 			t.Fatalf("栈 head 只能装水位，发现 %s in %s", forbidden, headData)
 		}
@@ -826,7 +832,7 @@ func TestStackChannelUnpublishedHistoryReaped(t *testing.T) {
 		t.Fatal(err)
 	}
 	orphan := StackItemRecord{ItemID: "orphan", BatchID: "r2", Kind: StackKindGoal, Seq: 500,
-		Status: "closed", Revision: harness.head().HeadSeq + 1, StackID: "goal|history"}
+		Status: "closed", Revision: harness.head(StackKindGoal).HeadSeq + 1, StackID: "goal|history"}
 	encoded, _ := json.Marshal(orphan)
 	if err := os.WriteFile(store.stackHistoryPath(key, StackKindGoal),
 		append(published, encoded...), 0o600); err != nil {

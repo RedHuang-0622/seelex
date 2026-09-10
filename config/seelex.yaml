@@ -49,6 +49,29 @@ limits:
   # 启动守护进程并重跑一次（默认开启；关闭需显式 disable_docker_auto_start: true）
   # disable_docker_auto_start: false
   # docker_start_timeout: 60     # 启动等待上限（秒；默认 60）
+  # ── v8 会话存储参数（my_design §11；全部缺省 = 存储内置默认，注释即为默认值）
+  # 覆盖链：存储内置默认 ← 本段 ← 数据根内 session-storage.json。
+  session_storage:
+    # 尝试缓存（运行期，不落盘）
+    # retry_cache_max_items: 64                 # 条目上限
+    # retry_cache_max_chars: 8388608            # 字符上限（8 MB）
+    # retry_cache_wire_recent_errors: 3         # 同一操作最近 K 条进 wire
+    # wire 装配预算（§5.2）：软阈值触发压缩，目标比例决定裁剪到哪
+    # wire_budget_tokens: 200000
+    # wire_soft_ratio: 0.75
+    # wire_target_ratio: 0.60
+    # retention（LRU 只删水位前连续前缀，且必须用户确认）
+    # retention_compact_frame_threshold: 30
+    # retention_raw_bytes_alert: 268435456      # 256 MB
+    # retention_mode: manual                    # 当前只实现 manual
+    # queue_persist_pending: true               # 待发送队列落盘恢复
+    # 数据根独占锁（§9）
+    # lock_stale_after_seconds: 300             # 心跳超龄即判陈旧
+    # lock_auto_recover: false                  # 陈旧锁默认只报错不接管
+    # 超大工具输出 blob（§2.6）
+    # big_tool_result_soft_limit_chars: 60000   # 软限截断后归档
+    # big_tool_result_hard_limit_bytes: 16777216 # 硬限直接报错
+    # big_tool_result_session_quota_bytes: 67108864 # 单会话配额
   # fork 子代理长任务宽松预算：fork_subagents 总时长 = 子代理工作量之和，
   # 不受通用工具超时（tool_call_timeout）限制，用独立预算（默认 2 小时）。
   # 子代理循环数复用 effort 调节值（high=48 / max=96），无需单独配置。

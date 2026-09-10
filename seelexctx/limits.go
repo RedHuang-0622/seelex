@@ -8,6 +8,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// SessionStorageLimits 是 seele.yaml `limits.session_storage` 块（缺失 = 存储
+// 默认值）。键名与 my_design §11 的叶子一一对应（`session_storage.<域>.<叶子>`
+// → `session_storage.<域>_<叶子>`）。
+type SessionStorageLimits struct {
+	RetryCacheMaxItems             int     `yaml:"retry_cache_max_items"`             // 尝试缓存条目上限
+	RetryCacheMaxChars             int     `yaml:"retry_cache_max_chars"`             // 尝试缓存字符上限
+	RetryCacheWireRecentErrors     int     `yaml:"retry_cache_wire_recent_errors"`    // 同一操作最近 K 条
+	RetentionCompactFrameThreshold int     `yaml:"retention_compact_frame_threshold"` // 压缩帧数阈值
+	RetentionRawBytesAlert         int64   `yaml:"retention_raw_bytes_alert"`         // 原始 message 告警字节
+	RetentionMode                  string  `yaml:"retention_mode"`                    // 当前只实现 manual
+	QueuePersistPending            *bool   `yaml:"queue_persist_pending"`             // 待发送队列落盘恢复
+	LockStaleAfterSeconds          int     `yaml:"lock_stale_after_seconds"`          // 数据根锁陈旧判定
+	LockAutoRecover                *bool   `yaml:"lock_auto_recover"`                 // 陈旧锁自动接管
+	BlobSoftLimitChars             int     `yaml:"big_tool_result_soft_limit_chars"`
+	BlobHardLimitBytes             int     `yaml:"big_tool_result_hard_limit_bytes"`
+	BlobSessionQuotaBytes          int     `yaml:"big_tool_result_session_quota_bytes"`
+	WireBudgetTokens               int     `yaml:"wire_budget_tokens"` // §5.2 wire 总预算
+	WireSoftRatio                  float64 `yaml:"wire_soft_ratio"`    // 软阈值比例（触发压缩）
+	WireTargetRatio                float64 `yaml:"wire_target_ratio"`  // 目标比例（裁剪到哪）
+}
+
 // ── 运行时上限（limits）────────────────────────────────────────
 // seele.yaml 的 limits 段：集中治理需要跨模块一致、影响资源消耗或用户可见
 // 行为的运行时上限。局部 UI/格式常量仍由所属模块维护，不宣称消除所有常量。
@@ -15,6 +36,10 @@ import (
 
 // Limits 是运行时行为上限集合（零值 = 未配置，走默认）。
 type Limits struct {
+	// SessionStorage 是 v8 会话存储的 §11 参数块（my_design §11）。默认值不在
+	// 这里重复声明：零值 = 未配置，由 sessionstore 的覆盖链补默认，避免同一
+	// 数字两处维护。分片行数沿用既有顶层键 limits.message_shard_size。
+	SessionStorage SessionStorageLimits `yaml:"session_storage"`
 	// 时延类（秒；0 = 无限制/未配置）
 	ToolCallTimeoutSec     int `yaml:"tool_call_timeout"`     // 工具调用超时（0 = 无限制）
 	ApprovalTimeoutSec     int `yaml:"approval_timeout"`      // 审批等待

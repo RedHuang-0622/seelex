@@ -2,9 +2,12 @@ package adapters
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"math"
 	"path/filepath"
 	"strings"
 
@@ -472,7 +475,8 @@ func storeTranscriptEvents(events []model.TranscriptEvent) []sessionstore.Event 
 			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
 			Kind: event.Kind, ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
-			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount,
+			WireMaterial: event.WireMaterial, CreatedAt: event.CreatedAt,
 		}
 	}
 	return stored
@@ -489,7 +493,8 @@ func adaptTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent 
 			Seq: event.Seq, TaskID: event.TaskID, MessageID: event.MessageID, Role: event.Role,
 			Kind: event.Kind, ReasoningContent: event.ReasoningContent, Content: event.Content,
 			ToolCallID: event.ToolCallID, Name: event.Name, ToolCalls: calls,
-			ResultRef: event.ResultRef, TokenCount: event.TokenCount, CreatedAt: event.CreatedAt,
+			ResultRef: event.ResultRef, TokenCount: event.TokenCount,
+			WireMaterial: event.WireMaterial, CreatedAt: event.CreatedAt,
 		}
 	}
 	return adapted
@@ -508,8 +513,14 @@ func storeToolResults(results []model.StoredToolResult) []sessionstore.ToolResul
 
 func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error) {
 	granular := port.granular()
-	payload, err := granular.LoadRecordRaw(granular.ResolveProjectForSession(id), id)
+	workspaceID := granular.ResolveProjectForSession(id)
+	payload, err := granular.LoadRecordRaw(workspaceID, id)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+			// S20：record 通道退役；无派生 payload 时按该会话自身的事件流
+			// 构造最小 record，避免上层回退到引擎共享历史造成视图串写。
+			return port.deriveSessionRecord(workspaceID, id)
+		}
 		return model.SessionRecord{}, err
 	}
 	return decodeSessionRecord(payload, id)
@@ -518,9 +529,35 @@ func (port SessionPort) LoadSessionRecord(id string) (model.SessionRecord, error
 func (port SessionPort) LoadSessionRecordWorkspace(workspaceID, id string) (model.SessionRecord, error) {
 	payload, err := port.granular().LoadRecordRaw(workspaceID, id)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+			return port.deriveSessionRecord(workspaceID, id)
+		}
 		return model.SessionRecord{}, err
 	}
 	return decodeSessionRecord(payload, id)
+}
+
+// deriveSessionRecord 从该会话自身的事件流构造最小 SessionRecord（S20：
+// 保证每个会话的可见会话域只来自自己的持久事实）。
+func (port SessionPort) deriveSessionRecord(workspaceID, sessionID string) (model.SessionRecord, error) {
+	events, err := port.LoadEventRangeWorkspace(workspaceID, sessionID, 1, math.MaxUint64)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, sql.ErrNoRows) {
+			return model.SessionRecord{}, fs.ErrNotExist
+		}
+		return model.SessionRecord{}, err
+	}
+	record := model.SessionRecord{Version: 3, ID: sessionID}
+	for _, event := range events {
+		id := event.MessageID
+		if id == "" {
+			id = fmt.Sprintf("seq-%d", event.Seq)
+		}
+		record.Conversation.Messages = append(record.Conversation.Messages, model.Message{
+			ID: id, Role: event.Role, Content: event.Content, CreatedAt: event.CreatedAt,
+		})
+	}
+	return record, nil
 }
 
 func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, offset, limit int) ([]model.Message, int, error) {

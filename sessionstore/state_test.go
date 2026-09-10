@@ -30,14 +30,28 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := repository.ReadState(context.Background(), key)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(got) != string(want) {
-				t.Fatalf("state = %s, want %s", got, want)
+			if config.Backend == BackendJSON {
+				// S20：state 通道在 v8 JSON 停写停读。
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("json ReadState err = %v, want fs.ErrNotExist", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(got) != string(want) {
+					t.Fatalf("state = %s, want %s", got, want)
+				}
 			}
 			history := testMessages(defaultMessageShardSize+5, string(config.Backend))
-			if err := repository.WriteAtomic(context.Background(), key, history); err != nil {
+			if config.Backend == BackendJSON {
+				// v8 JSON 布局（S11）：事件行为正文事实源，ReadRange 由行派生。
+				if err := repository.WriteCommit(context.Background(), key, Commit{
+					Events: messagesToEventRows(history),
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := repository.WriteAtomic(context.Background(), key, history); err != nil {
 				t.Fatal(err)
 			}
 			window, total, err := repository.ReadRange(context.Background(), key, defaultMessageShardSize-2, 4)
@@ -85,12 +99,22 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 			if err := repository.WriteCommit(context.Background(), key, commit); err != nil {
 				t.Fatal(err)
 			}
+			wantHistory := 2
+			if config.Backend == BackendJSON {
+				// v8 JSON 布局（S11）：Read 由事件行派生（ProviderHistory 与
+				// history.json 缓存已退役），5 行事件映射为 5 条消息。
+				wantHistory = len(rowsToProviderMessages(commit.Events))
+			}
 			history, err := repository.Read(context.Background(), key)
-			if err != nil || len(history) != 2 {
+			if err != nil || len(history) != wantHistory {
 				t.Fatalf("history=%#v err=%v", history, err)
 			}
 			state, err := repository.ReadState(context.Background(), key)
-			if err != nil || string(state) != string(commit.State) {
+			if config.Backend == BackendJSON {
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("json state err=%v, want fs.ErrNotExist", err)
+				}
+			} else if err != nil || string(state) != string(commit.State) {
 				t.Fatalf("state=%s err=%v", state, err)
 			}
 			result, err := repository.ReadToolResult(context.Background(), key, "tr-result")
@@ -98,8 +122,17 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 				t.Fatalf("result=%#v err=%v", result, err)
 			}
 			tail, err := repository.ReadEventTail(context.Background(), key, 100, 4)
-			if err != nil || !reflect.DeepEqual(tail, commit.Events) {
+			if err != nil || len(tail) != len(commit.Events) {
 				t.Fatalf("tail=%#v err=%v", tail, err)
+			}
+			if config.Backend == BackendJSON {
+				// 公开读接口保留 commit_id 等凭据（S17b/T-EV-07），逐字段
+				// 比较行身份与正文。
+				if !sameRangeEvents(tail, commit.Events) {
+					t.Fatalf("tail=%#v want events", tail)
+				}
+			} else if !reflect.DeepEqual(tail, commit.Events) {
+				t.Fatalf("tail=%#v want events", tail)
 			}
 
 			failed := Commit{
@@ -112,8 +145,11 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 			}
 			history, _ = repository.Read(context.Background(), key)
 			state, _ = repository.ReadState(context.Background(), key)
-			if len(history) != 2 || string(state) != string(commit.State) {
+			if len(history) != wantHistory {
 				t.Fatalf("failed commit became visible: history=%#v state=%s", history, state)
+			}
+			if config.Backend != BackendJSON && string(state) != string(commit.State) {
+				t.Fatalf("failed commit changed state: %s", state)
 			}
 		})
 	}
@@ -138,7 +174,11 @@ func TestWriteStateAfterCommitReturnsLatestState(t *testing.T) {
 				t.Fatal(err)
 			}
 			state, err := repository.ReadState(context.Background(), key)
-			if err != nil || string(state) != "second" {
+			if config.Backend == BackendJSON {
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("json state err=%v, want fs.ErrNotExist", err)
+				}
+			} else if err != nil || string(state) != "second" {
 				t.Fatalf("state=%q err=%v", state, err)
 			}
 		})

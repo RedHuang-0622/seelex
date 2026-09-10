@@ -78,12 +78,17 @@ func TestWorkspaceScopedDataReadableThroughSessionGranularStore(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("granular load record ok=%v err=%v", ok, err)
 	}
-	if record.ID != sessionID || record.Title != "旧会话" || record.Binding.WorkspaceID != projectID {
+	// S20：record 通道退役，Title 不持久化；身份/绑定由 message head.Meta +
+	// 枚举项目派生。
+	if record.ID != sessionID || record.Title != "" || record.Binding.WorkspaceID != projectID {
 		t.Fatalf("granular record = %+v", record)
 	}
 
+	// v8 JSON 布局（S11）：provider 整段历史（legacyHistory）不再落盘，
+	// 读由 commit.Events 的 message 行派生。
 	history, err := store.History(sessionID).Load(context.Background())
-	if err != nil || len(history) != 2 || history[0].Role != "user" || history[1].Role != "assistant" {
+	if err != nil || len(history) != 1 || history[0].Role != "user" ||
+		history[0].Content == nil || *history[0].Content != "hi" {
 		t.Fatalf("granular history len=%d err=%v", len(history), err)
 	}
 

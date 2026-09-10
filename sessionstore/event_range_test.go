@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
 
@@ -42,7 +41,7 @@ func TestEventRangeAcrossLocalBackends(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if want := events[2:5]; !reflect.DeepEqual(got, want) {
+			if want := events[2:5]; !sameRangeEvents(got, want) {
 				t.Fatalf("range [3,5] = %d events, want %d", len(got), len(want))
 			}
 			// 跨 shard 边界：seq 90-115 覆盖 shard 0/1，保持连续性。
@@ -74,10 +73,25 @@ func TestEventRangeAcrossLocalBackends(t *testing.T) {
 	}
 }
 
+// sameRangeEvents 忽略提交后由存储层补的 commit_id 等扩展字段，只比较
+// 行身份与正文（公开读接口保留凭据由 T-EV-07 单独断言）。
+func sameRangeEvents(got, want []Event) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for index := range got {
+		if got[index].Seq != want[index].Seq || got[index].Role != want[index].Role ||
+			got[index].Content != want[index].Content || got[index].MessageID != want[index].MessageID {
+			return false
+		}
+	}
+	return true
+}
+
 // TestEventRangeMissingSessionFails 验证缺失会话的 event range 读取显式
 // 报错（不静默伪造为空；interfaces.md 降级矩阵）。
 func TestEventRangeMissingSessionFails(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}

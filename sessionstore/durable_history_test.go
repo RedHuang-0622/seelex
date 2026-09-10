@@ -24,8 +24,9 @@ func TestDurableHistoryRoundTrip(t *testing.T) {
 	history := NewDurableHistory(router, "session-roundtrip")
 
 	stored := messages(3, "round")
-	if err := history.Save(context.Background(), stored); err != nil {
-		t.Fatal(err)
+	// v8 JSON 布局（S11）：provider 整段写已退役，正文以事件行落库。
+	if err := router.SaveCommit("session-roundtrip", Commit{Events: messagesToEventRows(stored)}); err != nil {
+		t.Fatalf("save events: %v", err)
 	}
 	loaded, err := history.Load(context.Background())
 	if err != nil {
@@ -39,8 +40,8 @@ func TestDurableHistoryRoundTrip(t *testing.T) {
 func TestDurableHistoryClearIsResetSemantics(t *testing.T) {
 	router := newTestRouter(t)
 	history := NewDurableHistory(router, "session-clear")
-	if err := history.Save(context.Background(), messages(2, "keep")); err != nil {
-		t.Fatal(err)
+	if err := router.SaveCommit("session-clear", Commit{Events: messagesToEventRows(messages(2, "keep"))}); err != nil {
+		t.Fatalf("save events: %v", err)
 	}
 	if err := history.Clear(context.Background()); err != nil {
 		t.Fatal(err)
@@ -53,8 +54,8 @@ func TestDurableHistoryClearIsResetSemantics(t *testing.T) {
 		t.Fatalf("cleared history = %d messages, want empty", len(loaded))
 	}
 	// 显式 Clear 后可重新开始会话（对应旧 ClearHistory + store 清理）。
-	if err := history.Save(context.Background(), messages(1, "fresh")); err != nil {
-		t.Fatal(err)
+	if err := router.SaveCommit("session-clear", Commit{Events: messagesToEventRows(messages(1, "fresh"))}); err != nil {
+		t.Fatalf("save fresh events: %v", err)
 	}
 	if loaded, err := history.Load(context.Background()); err != nil || len(loaded) != 1 {
 		t.Fatalf("re-saved history = %#v err=%v", loaded, err)
@@ -147,11 +148,12 @@ func TestDurableHistoryLoadUsesWindowTailBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 未配置预算 → 全量路径（Router.Load；此处事件未转消息 blob → 空，
-	// 语义与旧行为一致——全量读由消息 blob 承载）。
+	// 未配置预算 → 全量路径：v8 JSON 布局（S11）下 Router.Load 由 message
+	// 事件行派生，6 行全部可见（history.json 缓存已退役，不再"事件未转
+	// blob → 空"）。
 	history := NewDurableHistory(router, "session-windowed-load")
-	if all, err := history.Load(context.Background()); err != nil || len(all) != 0 {
-		t.Fatalf("unconfigured load = %d err=%v, want legacy Read semantics", len(all), err)
+	if all, err := history.Load(context.Background()); err != nil || len(all) != 6 {
+		t.Fatalf("unconfigured load = %d err=%v, want 6 (derived from rows)", len(all), err)
 	}
 
 	// 配置窗口预算（maxUnits=2 轮）→ Load 只返回最后 2 轮（4 条消息，
@@ -278,8 +280,8 @@ func TestDurableHistoryPreparedLoadWinsOnce(t *testing.T) {
 	router := newTestRouter(t)
 	history := NewDurableHistory(router, "session-prepared")
 	stored := messages(1, "durable")
-	if err := history.Save(context.Background(), stored); err != nil {
-		t.Fatal(err)
+	if err := router.SaveCommit("session-prepared", Commit{Events: messagesToEventRows(stored)}); err != nil {
+		t.Fatalf("save events: %v", err)
 	}
 	prepared := messages(2, "assembled")
 	history.PrepareNextLoad(prepared)

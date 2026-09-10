@@ -44,9 +44,10 @@ func (journal *sqlStackJournal) backend() string {
 	return string(BackendSQLite)
 }
 
-// lock 串行化同一会话的栈提交（head 行是跨 kind 共享的发布点）。等待时长单独
-// 计量 → 与 JSON 后端同一口径回答「栈锁等了多久」。
-func (journal *sqlStackJournal) lock(key Key) func() {
+// lock 串行化同一会话的栈提交（SQL head 行仍为会话级共享，SQL v8 化拆分
+// 见打点表 §4 待决）。等待时长单独计量 → 与 JSON 后端同一口径回答「栈锁等了
+// 多久」。kind 保留在签名里以对齐 stackJournal 契约（S16）。
+func (journal *sqlStackJournal) lock(key Key, _ StackKind) func() {
 	stats := journal.repository.stack
 	lock := journal.repository.stackLocks.get(key.ProjectID + "|" + key.SessionID)
 	begin := time.Now()
@@ -117,6 +118,7 @@ func (journal *sqlStackJournal) load(key Key, kind StackKind) (stackLoaded, erro
 		Kinds:        cloneStackWatermarks(head.Kinds),
 		Active:       rows,
 		HistoryCount: head.Kinds[kind].HistoryCount,
+		LastCommitID: head.Kinds[kind].LastCommitID,
 	}, nil
 }
 
@@ -131,7 +133,7 @@ func (journal *sqlStackJournal) readHistory(key Key, kind StackKind) ([]StackIte
 	}); err != nil {
 		return nil, err
 	}
-	return rows, nil
+	return dedupeStackRowsByItemID(rows), nil
 }
 
 func (journal *sqlStackJournal) selectRows(ctx context.Context, key Key, kind StackKind, state string) ([]StackItemRecord, error) {
@@ -307,7 +309,7 @@ func (journal *sqlStackJournal) recordEvents(key Key, kind StackKind, mutation S
 	ctx, cancel := backgroundJournalContext()
 	defer cancel()
 	return timeSection(&journal.repository.stack.eventIO, func() error {
-		return appendStructuralEventsSQL(ctx, journal.repository, key, "stack-"+randomID(), events)
+		return appendStructuralEventsSQL(ctx, journal.repository, key, stackMutationCommitID(kind, mutation), events)
 	})
 }
 

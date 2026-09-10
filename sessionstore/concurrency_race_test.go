@@ -6,11 +6,15 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/RedHuang-0622/Seele/types"
 )
 
 // TestDurableHistoryConcurrentSessionsStaySeparate（阶段 D6b，-race）：多会话
-// 并发 Save/Load provider 历史，同时重装解析器并漂移 Router 活跃写作用域。
-// 断言每个会话读回的是自己的内容（不串写他域）且读取不受视图影响。
+// 并发提交事件行 / Load 派生历史，同时重装解析器并漂移 Router 活跃写作用域。
+// v8 JSON 布局（S11）不再整段替换 provider 历史：正文事实源是 SaveCommit
+// 的 message 事件行，Load 由行派生。断言每个会话读回的是自己的内容（不串写
+// 他域）且读取不受视图影响。
 func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 	router := newSessionGranularRouter(t, BackendJSON)
 	store := NewSessionGranularStore(router)
@@ -40,8 +44,13 @@ func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 			history := store.HistoryForProject(project, fmt.Sprintf("sess-h-%d", index))
 			for round := 0; round < rounds; round++ {
 				marker := fmt.Sprintf("s%d-r%d", index, round)
-				if err := history.Save(ctx, messages(2, marker)); err != nil {
-					t.Errorf("save sess-h-%d/%d: %v", index, round, err)
+				if err := store.SaveCommit(project, fmt.Sprintf("sess-h-%d", index), Commit{
+					Events: []Event{
+						{Role: "user", Content: marker + "-0", MessageID: marker + "-0"},
+						{Role: "user", Content: marker + "-1", MessageID: marker + "-1"},
+					},
+				}); err != nil {
+					t.Errorf("commit sess-h-%d/%d: %v", index, round, err)
 					return
 				}
 				loaded, err := history.Load(ctx)
@@ -49,17 +58,25 @@ func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 					t.Errorf("load sess-h-%d/%d: %v", index, round, err)
 					return
 				}
-				if len(loaded) != 2 {
-					t.Errorf("sess-h-%d round %d loaded %d messages, want 2", index, round, len(loaded))
+				wantCount := 2 * (round + 1)
+				if len(loaded) != wantCount {
+					t.Errorf("sess-h-%d round %d loaded %d messages, want %d", index, round, len(loaded), wantCount)
 					return
 				}
-				if got := *loaded[0].Content; got != marker+"-0" {
-					t.Errorf("sess-h-%d round %d first content = %q, want %q（串写到别的会话）", index, round, got, marker+"-0")
+				if got := *loaded[len(loaded)-1].Content; got != marker+"-1" {
+					t.Errorf("sess-h-%d round %d last content = %q, want %q（串写到别的会话）", index, round, got, marker+"-1")
 					return
 				}
 			}
-			if err := history.Save(ctx, messages(3, fmt.Sprintf("s%d-final", index))); err != nil {
-				t.Errorf("final save sess-h-%d: %v", index, err)
+			marker := fmt.Sprintf("s%d-final", index)
+			if err := store.SaveCommit(project, fmt.Sprintf("sess-h-%d", index), Commit{
+				Events: []Event{
+					{Role: "user", Content: marker + "-0", MessageID: marker + "-0"},
+					{Role: "user", Content: marker + "-1", MessageID: marker + "-1"},
+					{Role: "user", Content: marker + "-2", MessageID: marker + "-2"},
+				},
+			}); err != nil {
+				t.Errorf("final commit sess-h-%d: %v", index, err)
 				return
 			}
 			loaded, err := history.LoadEventTail(ctx, 1<<20, 1<<20)
@@ -77,14 +94,37 @@ func TestDurableHistoryConcurrentSessionsStaySeparate(t *testing.T) {
 		sessionID := fmt.Sprintf("sess-h-%d", index)
 		router.SetWorkspace("project-elsewhere")
 		storedHistory, err := store.HistoryForProject(project, sessionID).Load(context.Background())
-		if err != nil || len(storedHistory) != 3 || *storedHistory[0].Content != fmt.Sprintf("s%d-final-0", index) {
-			t.Fatalf("%s after scope churn = %+v err=%v, want its own 3 messages", sessionID, storedHistory, err)
+		wantCount := 2*rounds + 3
+		if err != nil || len(storedHistory) != wantCount ||
+			*storedHistory[0].Content != fmt.Sprintf("s%d-r0-0", index) ||
+			*storedHistory[len(storedHistory)-1].Content != fmt.Sprintf("s%d-final-2", index) {
+			t.Fatalf("%s after scope churn = %d messages (first %q last %q) err=%v, want %d own messages",
+				sessionID, len(storedHistory), firstContentOr(storedHistory, ""),
+				lastContentOr(storedHistory), err, wantCount)
 		}
 	}
 }
 
-// TestRouterConcurrentProjectIsolation（阶段 D6b，-race）：两个项目并发提交与
-// 枚举，断言目录互不见面（列表不污染）且删除只影响自己项目。
+func firstContentOr(messages []types.Message, fallback string) string {
+	if len(messages) == 0 || messages[0].Content == nil {
+		return fallback
+	}
+	return *messages[0].Content
+}
+
+func lastContentOr(messages []types.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	last := messages[len(messages)-1]
+	if last.Content == nil {
+		return ""
+	}
+	return *last.Content
+}
+
+// TestRouterConcurrentProjectIsolation（阶段 D6b，-race）：两个项目并发提交
+// 事件行与枚举，断言目录互不见面（列表不污染）且删除只影响自己项目。
 func TestRouterConcurrentProjectIsolation(t *testing.T) {
 	router := newSessionGranularRouter(t, BackendJSON)
 	store := NewSessionGranularStore(router)
@@ -97,7 +137,10 @@ func TestRouterConcurrentProjectIsolation(t *testing.T) {
 				defer group.Done()
 				sessionID := fmt.Sprintf("%s-sess-%d", project, index)
 				for round := 0; round < rounds; round++ {
-					commit := Commit{ProviderHistory: messages(round+1, fmt.Sprintf("%s-%d", project, round))}
+					commit := Commit{Events: []Event{{
+						Role: "user", Content: fmt.Sprintf("%s-%d", project, round),
+						MessageID: fmt.Sprintf("%s-sess-%d-r%d", project, index, round),
+					}}}
 					if err := store.SaveCommit(project, sessionID, commit); err != nil {
 						t.Errorf("save %s/%s: %v", project, sessionID, err)
 						return

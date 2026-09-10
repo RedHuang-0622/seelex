@@ -1,13 +1,14 @@
 // 栈通道的 JSON 文件后端（my_design §2.4 放置位置 + §2.0 head/发布点规则）。
 //
 // 放置：session/{plan,task,goal}/active.jsonl（当前投影，原子替换）、
-// {kind}/history.jsonl（append-only 归档）；head 在 metadata/stack.json，
-// 只存逐 kind 水位。
+// {kind}/history.jsonl（append-only 归档）；head 按 kind 分文件
+// metadata/stack_{plan,task,goal}.json（S16），只存该 kind 水位。
 //
 // 读路径为什么可以不持锁、不碰文件：
-//   - 提交临界区（会话级 stackMu）结束时把 active 投影连同 head 水位发布成
-//     一份不可变内存快照（atomic.Pointer），读者只读该快照 → 读者与写者之间
-//     既没有锁等待，也不会因为「读者持有句柄」让 Windows 上的 rename 发布失败；
+//   - 提交临界区（按 kind 的 stack{Plan,Task,Goal}Mu，S16）结束时把 active
+//     投影连同该 kind head 水位发布成一份不可变内存快照（atomic.Pointer），
+//     读者只读该快照 → 读者与写者之间既没有锁等待，也不会因为「读者持有
+//     句柄」让 Windows 上的 rename 发布失败；
 //   - 归档文件是 append-only 且发布后不再改写，读者直接读文件不需要锁；head
 //     未发布的行按 revision 过滤掉（与写路径同一判据）。
 //
@@ -36,6 +37,7 @@ type jsonStackJournal struct {
 type stackView struct {
 	headSeq      uint64
 	kinds        map[StackKind]stackWatermark
+	lastCommitID string
 	active       []StackItemRecord
 	historyCount uint64
 }
@@ -65,11 +67,12 @@ func (store *storeEngine) stackHistoryPath(key Key, kind StackKind) string {
 	return filepath.Join(store.stackDir(key, kind), "history.jsonl")
 }
 
-// lock 串行化同一会话的栈提交（head 是跨 kind 共享的发布点）。等待时长单独
-// 计量 → mutexprofile 之外还能直接回答「栈锁等了多久」。
-func (journal *jsonStackJournal) lock(key Key) func() {
+// lock 按「会话 × kind」串行化栈提交（S16/D6：每 kind 一份 head 一把锁，
+// 跨 kind 不再共享串行点）。等待时长单独计量 → mutexprofile 之外还能直接
+// 回答「栈锁等了多久」。
+func (journal *jsonStackJournal) lock(key Key, kind StackKind) func() {
 	store := journal.store
-	lock := store.mu(key, moduleStack)
+	lock := store.mu(key, moduleForStackKind(kind))
 	begin := time.Now()
 	lock.Lock()
 	store.stackStats().lockWait.Add(time.Since(begin).Nanoseconds())
@@ -87,11 +90,12 @@ func (journal *jsonStackJournal) load(key Key, kind StackKind) (stackLoaded, err
 			Kinds:        cloneStackWatermarks(view.kinds),
 			Active:       cloneStackRows(view.active),
 			HistoryCount: view.historyCount,
+			LastCommitID: view.lastCommitID,
 		}, nil
 	}
 	// 冷读：该会话在本进程的首次访问才走磁盘（此后读者与写者都用快照）。
 	begin := time.Now()
-	head, err := journal.readStackHead(key)
+	head, err := journal.readStackHead(key, kind)
 	if err != nil {
 		return stackLoaded{}, err
 	}
@@ -100,14 +104,16 @@ func (journal *jsonStackJournal) load(key Key, kind StackKind) (stackLoaded, err
 	if err != nil {
 		return stackLoaded{}, err
 	}
+	active = dedupeStackRowsByItemID(active)
 	water := head.Kinds[kind]
 	store.stackViewPublish(key, kind, &stackView{
 		headSeq: head.HeadSeq, kinds: cloneStackWatermarks(head.Kinds),
-		active: active, historyCount: water.HistoryCount,
+		lastCommitID: water.LastCommitID, active: active, historyCount: water.HistoryCount,
 	})
 	return stackLoaded{
 		HeadSeq: head.HeadSeq, Kinds: cloneStackWatermarks(head.Kinds),
 		Active: cloneStackRows(active), HistoryCount: water.HistoryCount,
+		LastCommitID: water.LastCommitID,
 	}, nil
 }
 
@@ -116,7 +122,7 @@ func (journal *jsonStackJournal) readHistory(key Key, kind StackKind) ([]StackIt
 	store := journal.store
 	stats := store.stackStats()
 	begin := time.Now()
-	head, err := journal.readStackHead(key)
+	head, err := journal.readStackHead(key, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +131,7 @@ func (journal *jsonStackJournal) readHistory(key Key, kind StackKind) ([]StackIt
 	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	return dedupeStackRowsByItemID(rows), nil
 }
 
 // publish 落数据并发布 head：归档回收 → 归档追加 → active 原子替换 → head
@@ -140,7 +146,7 @@ func (journal *jsonStackJournal) publish(key Key, entry stackPublish) error {
 	}); err != nil {
 		return err
 	}
-	head, err := journal.readStackHead(key)
+	head, err := journal.readStackHead(key, entry.Kind)
 	if err != nil {
 		return err
 	}
@@ -180,11 +186,9 @@ func (journal *jsonStackJournal) publish(key Key, entry stackPublish) error {
 	}
 	head.Kinds[entry.Kind] = watermark
 	if err := timeSection(&stats.headIO, func() error {
-		if _, err := store.publishModuleHead(key, moduleStack, "stack-"+randomID(), head, time.Now().UTC()); err != nil {
+		if _, err := store.publishModuleHead(key, moduleForStackKind(entry.Kind), entry.Watermark.LastCommitID, head, time.Now().UTC()); err != nil {
 			return err
 		}
-		// guide 注册失败不阻断已发布 head（读路径以模块 head 为准，I9）。
-		_ = store.registerModule(key, moduleStack)
 		store.stackStats().commits.Add(1)
 		return nil
 	}); err != nil {
@@ -195,30 +199,14 @@ func (journal *jsonStackJournal) publish(key Key, entry stackPublish) error {
 	return nil
 }
 
-// publishView 用新 head 重建三份读投影中被本次提交改动的那一份，其余 kind
-// 只更新 head_seq/水位引用（head 是共享发布点，水位必须整体可见）。
+// publishView 只重建被本次提交改动的 kind 的读投影（S16：各 kind head
+// 独立，其它 kind 的投影不受影响）。
 func (journal *jsonStackJournal) publishView(key Key, head stackModuleHead, kind StackKind, active []StackItemRecord, historyCount uint64) {
 	store := journal.store
 	kinds := cloneStackWatermarks(head.Kinds)
-	for _, candidate := range []StackKind{StackKindPlan, StackKindTask, StackKindGoal} {
-		if candidate == kind {
-			continue
-		}
-		if existing := store.stackViewLoad(key, candidate); existing != nil {
-			store.stackViewPublish(key, candidate, &stackView{
-				headSeq: head.HeadSeq, kinds: kinds, active: existing.active,
-				historyCount: existing.historyCount,
-			})
-			continue
-		}
-		store.stackViewPublish(key, candidate, &stackView{
-			headSeq: head.HeadSeq, kinds: kinds,
-			historyCount: kinds[candidate].HistoryCount,
-		})
-	}
 	store.stackViewPublish(key, kind, &stackView{
 		headSeq: head.HeadSeq, kinds: kinds, active: cloneStackRows(active),
-		historyCount: historyCount,
+		lastCommitID: head.Kinds[kind].LastCommitID, historyCount: historyCount,
 	})
 }
 
@@ -243,11 +231,11 @@ func (journal *jsonStackJournal) reapHistoryTail(path string, water stackWaterma
 	return os.Truncate(path, int64(water.HistoryBytes))
 }
 
-// readStackHead 读取 stack 模块 head（缺失 = 空水位，不报错）。
-func (journal *jsonStackJournal) readStackHead(key Key) (stackModuleHead, error) {
+// readStackHead 读取该 kind 的 stack 模块 head（缺失 = 空水位，不报错）。
+func (journal *jsonStackJournal) readStackHead(key Key, kind StackKind) (stackModuleHead, error) {
 	store := journal.store
 	begin := time.Now()
-	headFile, err := store.readModuleHeadFile(key, moduleStack)
+	headFile, err := store.readModuleHeadFile(key, moduleForStackKind(kind))
 	store.stackStats().headIO.Add(time.Since(begin).Nanoseconds())
 	if errors.Is(err, fs.ErrNotExist) {
 		return stackModuleHead{SessionID: key.SessionID}, nil
@@ -294,7 +282,7 @@ func (journal *jsonStackJournal) recordEvents(key Key, kind StackKind, mutation 
 	}
 	store := journal.store
 	return timeSection(&store.stackStats().eventIO, func() error {
-		_, err := store.structuralEventCommit(key, "stack-"+randomID(), events)
+		_, err := store.structuralEventCommit(key, stackMutationCommitID(kind, mutation), events)
 		return err
 	})
 }
@@ -418,7 +406,6 @@ func cloneStackRows(rows []StackItemRecord) []StackItemRecord {
 func cloneStackWatermarks(kinds map[StackKind]stackWatermark) map[StackKind]stackWatermark {
 	out := make(map[StackKind]stackWatermark, len(kinds))
 	for kind, water := range kinds {
-		water.OpenBatches = append([]string(nil), water.OpenBatches...)
 		out[kind] = water
 	}
 	return out

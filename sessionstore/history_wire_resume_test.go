@@ -8,7 +8,7 @@ import (
 
 func wireFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), 0)
+	store := newStoreEngine(t.TempDir(), storageSettings{})
 	return store, Key{ProjectID: "p-r2", SessionID: "s-r2"}
 }
 

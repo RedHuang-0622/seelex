@@ -14,10 +14,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-// subagentInfo 是 metadata/subagent.json 清单条目。
+// subagentInfo 是 subagent 栈条目的 payload（S18：条目落
+// session/subagent/{active,history}.jsonl，head 只留水位）。
 type subagentInfo struct {
 	SubagentID  string    `json:"subagent_id"`
 	Path        string    `json:"path"`
@@ -26,45 +28,68 @@ type subagentInfo struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type subagentHead struct {
-	SessionID string         `json:"session_id"`
-	Items     []subagentInfo `json:"items,omitempty"`
+// registerSubagent 把子代理登记进父会话第四栈（§2.4/§8.2、S18）：一次派发
+// 一条目（batch = dispatch:<subagent_id>），状态 running；全批（本批单条目）
+// 完成后整批归档进 subagent/history.jsonl。
+func (store *storeEngine) registerSubagent(key Key, operationID string, info subagentInfo) error {
+	payload, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	journal := store.stackJournal()
+	_, err = stackCommit(journal, key, StackKindSubagent, stackPushMessage(StackKindSubagent,
+		"dispatch:"+operationID, []StackItemInput{{
+			ItemID: subagentItemID(info.SubagentID), Kind: StackKindSubagent,
+			Status: info.Status, Payload: payload,
+		}}))
+	return err
 }
 
-// registerSubagent 把子代理登记进父会话 subagent 模块。
-func (store *storeEngine) registerSubagent(key Key, info subagentInfo) error {
-	store.mu(key, moduleSubagent).Lock()
-	defer store.mu(key, moduleSubagent).Unlock()
-	head, err := readModuleHeadPayload[subagentHead](store, key, moduleSubagent)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if head.SessionID == "" {
-		head.SessionID = key.SessionID
-	}
-	head.Items = append(head.Items, info)
-	if _, err := store.ensureLayoutGuide(key); err != nil {
-		return err
-	}
-	if _, err := store.publishModuleHead(key, moduleSubagent, "subagent-"+randomID(), head, time.Now().UTC()); err != nil {
-		return err
-	}
-	return store.registerModule(key, moduleSubagent)
+// updateSubagentStatus 更新子代理条目状态；批内全完成（单条目即整批）后整批
+// 归档（S18）。
+func (store *storeEngine) updateSubagentStatus(key Key, subagentID, status string) error {
+	journal := store.stackJournal()
+	_, err := stackCommit(journal, key, StackKindSubagent,
+		stackSetStatusMessage(subagentItemID(subagentID), status))
+	return err
 }
 
-// readSubagents 读取父会话子代理清单。
+func subagentItemID(subagentID string) string { return "subagent:" + subagentID }
+
+// readSubagents 读取父会话子代理清单（active + 已归档，按 subagent 栈条目）。
 func (store *storeEngine) readSubagents(key Key) ([]subagentInfo, error) {
-	store.mu(key, moduleSubagent).Lock()
-	defer store.mu(key, moduleSubagent).Unlock()
-	head, err := readModuleHeadPayload[subagentHead](store, key, moduleSubagent)
-	if err != nil && errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	journal := store.stackJournal()
+	active, err := stackReadActive(journal, key, StackKindSubagent)
 	if err != nil {
 		return nil, err
 	}
-	return head.Items, nil
+	archived, err := stackReadHistory(journal, key, StackKindSubagent)
+	if err != nil {
+		return nil, err
+	}
+	rows := append(active, archived...)
+	out := make([]subagentInfo, 0, len(rows))
+	for _, row := range rows {
+		var info subagentInfo
+		if len(row.Payload) > 0 {
+			if err := json.Unmarshal(row.Payload, &info); err != nil {
+				return nil, err
+			}
+		}
+		if info.SubagentID == "" {
+			info.SubagentID = strings.TrimPrefix(row.ItemID, "subagent:")
+		}
+		out = append(out, info)
+	}
+	return out, nil
 }
+
+// forkCommitID / subagentCommitID 将「一次逻辑操作」映射成幂等凭据（§2.0 规则 4、
+// D13）。凭据必须由操作身份推出而非存储层现造：随机 → 发布失败后的重放认不出
+// 同一操作而留下重复行；常量 → 不同操作互判重复而整次丢弃。
+func forkCommitID(childKey Key) string { return "fork-" + childKey.SessionID }
+
+func subagentCommitID(subagentID string) string { return "subagent-" + subagentID }
 
 // forkSession 从父会话 fromSeq 深拷贝独立子会话（起点 ≥ watermark）。
 func (store *storeEngine) forkSession(parentKey, childKey Key, fromSeq uint64) error {
@@ -85,7 +110,7 @@ func (store *storeEngine) forkSession(parentKey, childKey Key, fromSeq uint64) e
 	if err != nil {
 		return err
 	}
-	commitID := "fork-" + randomID()
+	commitID := forkCommitID(childKey)
 	if len(rows) > 0 {
 		copied := make([]Event, len(rows))
 		for index := range rows {
@@ -123,7 +148,7 @@ func (store *storeEngine) forkSession(parentKey, childKey Key, fromSeq uint64) e
 		"copy_range":   map[string]any{"from_seq": uint64(1), "to_seq": fromSeq},
 		"stack_items":  len(snapshot),
 	})
-	_, _ = store.structuralEventCommit(parentKey, "fork-event", []structuralEvent{{
+	_, _ = store.structuralEventCommit(parentKey, commitID, []structuralEvent{{
 		Kind: structuralEventFork, AnchorSeq: fromSeq, AnchorMessageID: lastMessageID(rows), Payload: payload,
 	}})
 	return nil
@@ -156,7 +181,7 @@ func (store *storeEngine) newSubagent(parentKey Key, subagentID string, fromSeq 
 		return nil, Key{}, ErrForkBeforeWatermark
 	}
 	subRoot := store.subagentRoot(parentKey, subagentID)
-	childStore := newStoreEngine(subRoot, store.shardRows)
+	childStore := newStoreEngine(subRoot, store.settings)
 	childKey := Key{SessionID: subagentID}
 	if childStore.sessionExists(childKey) {
 		return nil, Key{}, errors.New("session storage: subagent session already exists")
@@ -165,7 +190,7 @@ func (store *storeEngine) newSubagent(parentKey Key, subagentID string, fromSeq 
 	if err != nil {
 		return nil, Key{}, err
 	}
-	commitID := "fork-sub-" + randomID()
+	commitID := subagentCommitID(subagentID)
 	if len(rows) > 0 {
 		copied := make([]Event, len(rows))
 		for index := range rows {
@@ -181,7 +206,7 @@ func (store *storeEngine) newSubagent(parentKey Key, subagentID string, fromSeq 
 	}
 	// 子代理 event 目录落地（同构子树含 event）。
 	payload, _ := json.Marshal(map[string]any{"parent": parentKey.SessionID, "from_seq": fromSeq})
-	if _, err := childStore.structuralEventCommit(childKey, "created", []structuralEvent{{
+	if _, err := childStore.structuralEventCommit(childKey, commitID, []structuralEvent{{
 		Kind: structuralEventSubagent, AnchorSeq: fromSeq, Payload: payload,
 	}}); err != nil {
 		_ = os.RemoveAll(subRoot)
@@ -196,12 +221,12 @@ func (store *storeEngine) newSubagent(parentKey Key, subagentID string, fromSeq 
 		"subagent_id": subagentID, "path": filepath.Base(subRoot),
 		"from_seq": fromSeq, "status": "running",
 	})
-	if _, err := store.structuralEventCommit(parentKey, "subagent-"+randomID(), []structuralEvent{{
+	if _, err := store.structuralEventCommit(parentKey, commitID, []structuralEvent{{
 		Kind: structuralEventSubagent, AnchorSeq: fromSeq, AnchorMessageID: lastMessageID(rows), Payload: parentPayload,
 	}}); err != nil {
 		return nil, Key{}, err
 	}
-	if err := store.registerSubagent(parentKey, info); err != nil {
+	if err := store.registerSubagent(parentKey, subagentID, info); err != nil {
 		return nil, Key{}, err
 	}
 	return childStore, childKey, nil
@@ -215,5 +240,5 @@ func (store *storeEngine) deleteSession(key Key) error {
 		return nil
 	}
 	defer store.dropSessionCaches(key)
-	return os.RemoveAll(root)
+	return removeAllWithBackoff(root)
 }

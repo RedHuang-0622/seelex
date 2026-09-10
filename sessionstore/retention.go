@@ -42,12 +42,9 @@ var ErrRetentionRequiresConfirm = errors.New("session storage: LRU deletion requ
 // ErrForkBeforeWatermark 表示 fork 起点早于 LRU watermark（I7）。
 var ErrForkBeforeWatermark = errors.New("session storage: fork start must be >= LRU watermark")
 
-var retentionDefaults = struct {
-	compactFrameThreshold int
-	rawBytesAlert         uint64
-}{
-	compactFrameThreshold: 30,
-	rawBytesAlert:         256 << 20,
+// retentionThresholds 返回 §11 的压缩帧数阈值与原始字节告警线。
+func (store *storeEngine) retentionThresholds() (int, uint64) {
+	return store.settings.CompactFrameThreshold, store.settings.RawBytesAlert
 }
 
 func (store *storeEngine) readRetentionHeadLocked(key Key) (retentionHead, error) {
@@ -58,6 +55,7 @@ func (store *storeEngine) readRetentionHeadLocked(key Key) (retentionHead, error
 func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 	store.mu(key, moduleRetention).Lock()
 	defer store.mu(key, moduleRetention).Unlock()
+	threshold, alertBytes := store.retentionThresholds()
 	head, err := store.readRetentionHeadLocked(key)
 	if err == nil {
 		return head, nil
@@ -66,14 +64,13 @@ func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 		SessionID:        key.SessionID,
 		Mode:             retentionModeManual,
 		DryRun:           true,
-		CompactThreshold: retentionDefaults.compactFrameThreshold,
-		RawBytesAlert:    retentionDefaults.rawBytesAlert,
+		CompactThreshold: threshold,
+		RawBytesAlert:    alertBytes,
 		UpdatedAt:        time.Now().UTC(),
 	}
-	if _, err := store.publishModuleHead(key, moduleRetention, "retention-init", head, head.UpdatedAt); err != nil {
+	if _, err := store.publishModuleHead(key, moduleRetention, modulePayloadCommitID(moduleRetention, head), head, head.UpdatedAt); err != nil {
 		return retentionHead{}, err
 	}
-	_ = store.registerModule(key, moduleRetention)
 	return head, nil
 }
 
@@ -82,12 +79,13 @@ func (store *storeEngine) readRetentionHead(key Key) (retentionHead, error) {
 func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (retentionHead, error) {
 	store.mu(key, moduleRetention).Lock()
 	defer store.mu(key, moduleRetention).Unlock()
+	threshold, alertBytes := store.retentionThresholds()
 	retention, err := store.readRetentionHeadLocked(key)
 	if err != nil {
 		retention = retentionHead{
 			SessionID: key.SessionID, Mode: retentionModeManual, DryRun: true,
-			CompactThreshold: retentionDefaults.compactFrameThreshold,
-			RawBytesAlert:    retentionDefaults.rawBytesAlert,
+			CompactThreshold: threshold,
+			RawBytesAlert:    alertBytes,
 		}
 	}
 	if retention.Mode == retentionModeManual && !confirmed {
@@ -133,8 +131,8 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 		return retentionHead{}, err
 	}
 	newFiles := make([]string, 0, 1)
-	for start := 0; start < len(remaining); start += store.shardRows {
-		end := start + store.shardRows
+	for start := 0; start < len(remaining); start += store.settings.shardRows() {
+		end := start + store.settings.shardRows()
 		if end > len(remaining) {
 			end = len(remaining)
 		}
@@ -156,7 +154,7 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 	if len(newHead.Shards) == 0 {
 		newHead.Shards = nil
 	}
-	if _, err := store.publishModuleHead(key, moduleMessage, "lru-"+randomID(), newHead, time.Now().UTC()); err != nil {
+	if _, err := store.publishModuleHead(key, moduleMessage, modulePayloadCommitID(moduleMessage, newHead), newHead, time.Now().UTC()); err != nil {
 		for _, path := range newFiles {
 			_ = os.Remove(path)
 		}
@@ -171,7 +169,7 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 	retention.WatermarkMessageID = newHead.WatermarkMessageID
 	retention.DeletedRows += upToSeq - oldWatermark
 	retention.UpdatedAt = time.Now().UTC()
-	if _, err := store.publishModuleHead(key, moduleRetention, "lru-"+randomID(), retention, retention.UpdatedAt); err != nil {
+	if _, err := store.publishModuleHead(key, moduleRetention, modulePayloadCommitID(moduleRetention, retention), retention, retention.UpdatedAt); err != nil {
 		return retentionHead{}, err
 	}
 	return retention, nil

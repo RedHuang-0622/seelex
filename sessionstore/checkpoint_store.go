@@ -43,12 +43,12 @@ func (store *CheckpointStore) Save(id string, snap *workplanTypes.Snapshot) erro
 	}
 	key := checkpointStorageKey(id)
 	if store.projectID == "" {
-		if err := store.router.SaveState(key, payload); err != nil {
+		if err := store.router.SaveCheckpointWorkspace("", key, payload); err != nil {
 			return fmt.Errorf("session storage: save checkpoint %q: %w", id, err)
 		}
 		return nil
 	}
-	if err := store.router.SaveStateWorkspace(store.projectID, key, payload); err != nil {
+	if err := store.router.SaveCheckpointWorkspace(store.projectID, key, payload); err != nil {
 		return fmt.Errorf("session storage: save checkpoint %q: %w", id, err)
 	}
 	return nil
@@ -63,9 +63,9 @@ func (store *CheckpointStore) Load(id string) (*workplanTypes.Snapshot, error) {
 	var payload []byte
 	var err error
 	if store.projectID == "" {
-		payload, err = store.router.LoadState(key)
+		payload, err = store.router.LoadCheckpointWorkspace("", key)
 	} else {
-		payload, err = store.router.LoadStateWorkspace(store.projectID, key)
+		payload, err = store.router.LoadCheckpointWorkspace(store.projectID, key)
 	}
 	if err != nil {
 		if isSessionNotFound(err) {

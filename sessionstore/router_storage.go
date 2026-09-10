@@ -26,31 +26,19 @@ func NewRouterStorage(router *Router, sessionID string) *RouterStorage {
 	return &RouterStorage{router: router, sessionID: sessionID}
 }
 
-// Append 读-合并-写落库（② 后端写路径）。基建期 O(n)：Router.Save 是
-// 全量原子写（消息 blob 面），读面 LoadRange 读同一面——语义一致可读。
-// 增量优化（事件库 SaveCommit + 投影）为后续切片；当前保证 lifecycle
-// Storage 接口语义完整（追加 → 可读 → 可计数）。
+// Append 把事件行追加进 message 通道（② 后端写路径）。v8 JSON 布局以
+// message 事件行为唯一正文事实源（D9/S11：history.json 整段替换缓存已
+// 退役），不再读-合并-整段写；读面 LoadRange 由同一行派生——追加 → 可读
+// → 可计数。
 func (s *RouterStorage) Append(ctx context.Context, messages []types.Message) error {
 	if s == nil || s.router == nil || s.sessionID == "" {
 		return nil
 	}
-	// limit<=0 的 LoadRange 只返回 total 不返回内容——先取总数再读全量。
-	_, total, err := s.router.LoadRange(s.sessionID, 0, 0)
-	if err != nil && !isSessionNotFound(err) {
-		return fmt.Errorf("router storage: read for merge %q: %w", s.sessionID, err)
+	if len(messages) == 0 {
+		return nil
 	}
-	var existing []types.Message
-	if total > 0 {
-		existing, _, err = s.router.LoadRange(s.sessionID, 0, total)
-		if err != nil && !isSessionNotFound(err) {
-			return fmt.Errorf("router storage: read for merge %q: %w", s.sessionID, err)
-		}
-	}
-	merged := existing
-	if len(messages) > 0 {
-		merged = append(existing, messages...)
-	}
-	return s.router.Save(s.sessionID, merged)
+	rows := messagesToEventRows(messages)
+	return s.router.SaveCommit(s.sessionID, Commit{Events: rows})
 }
 
 // ReadRange 按 [offset, offset+limit) 读消息，返回区间与总数

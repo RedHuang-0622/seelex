@@ -11,6 +11,7 @@
 package sessionstore
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,39 +33,37 @@ const (
 	schemaVersion = 1
 )
 
-// module 是 metadata 模块 ID（guide.module_index 的注册键）。
+// module 是 metadata 模块 ID（模块文件路径一律由枚举名推导，
+// guide 不再登记模块地址，§2.0 规则 3 / D9 / S14）。
 type storageModule string
 
 const (
-	moduleMessage   storageModule = "message"
-	moduleEvent     storageModule = "event"
-	moduleCompact   storageModule = "compact"
-	moduleStack     storageModule = "stack"
+	moduleMessage storageModule = "message"
+	moduleEvent   storageModule = "event"
+	moduleCompact storageModule = "compact"
+	// §2.0/D6/S16：栈 head 按 kind 拆成三个模块文件与三把锁，跨 kind 提交
+	// 不再共享串行点。
+	moduleStackPlan storageModule = "stack_plan"
+	moduleStackTask storageModule = "stack_task"
+	moduleStackGoal storageModule = "stack_goal"
 	moduleLifecycle storageModule = "lifecycle"
 	moduleRetention storageModule = "retention"
 	moduleSubagent  storageModule = "subagent"
-	// moduleToolResult 是 tool-results 通道的发布点（写文件 → 原子发布
-	// refs 清单；读者按 head 全量可见，避免目录扫描撕裂，见 T-FK torn）。
-	moduleToolResult storageModule = "toolresult"
+	// §2.1/S19：会话侧 system prompt 快照（低频内容，规则 1 例外）。
+	moduleSystem storageModule = "system"
+	// §2.5.5/S24：引擎续跑快照（整份替换型内容，E.2 白名单）。
+	moduleCheckpoint storageModule = "checkpoint"
 	moduleMedia      storageModule = "media"
 )
 
 // guide 是会话读索引/路由（不持有模块数据，I9）。模块清单变更（首写某
 // 模块文件）时低频更新。
 type layoutGuide struct {
-	LayoutVersion int                         `json:"layout_version"`
-	SchemaVersion int                         `json:"schema_version"`
-	SessionID     string                      `json:"session_id"`
-	ModuleIndex   map[storageModule]moduleRef `json:"module_index,omitempty"`
-	CreatedAt     time.Time                   `json:"created_at"`
-	UpdatedAt     time.Time                   `json:"updated_at"`
-}
-
-// moduleRef 描述一个已注册模块 head 的物理文件与注册时间。
-type moduleRef struct {
-	File         string    `json:"file"`
-	Version      int       `json:"version"`
-	RegisteredAt time.Time `json:"registered_at"`
+	LayoutVersion int       `json:"layout_version"`
+	SchemaVersion int       `json:"schema_version"`
+	SessionID     string    `json:"session_id"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // moduleHeadFile 是 metadata/<module>.json 的统一信封：payload 是各模块
@@ -79,19 +79,21 @@ type moduleHeadFile struct {
 }
 
 // storeEngine 是 会话存储布局 JSON 引擎。root 与 jsonRepository.root 同语义
-// （sessions-json 根目录）；shardRows <= 0 时取默认 100 行/片。
+// （sessions-json 根目录）；settings 为零值时补 §11 默认值。
 //
 // 并发语义：写锁按“会话 × 模块”分片（单会话单写者、跨会话并行）；同会话
 // 不同模块互不阻塞，不设全会话/全仓库写锁。sessionMu 注册表本身只承担
 // 取锁指针的短临界区（registryMu），数据保护全部落在各会话模块锁上。
 type storeEngine struct {
-	root      string
-	shardRows int
+	root     string
+	settings storageSettings
 
 	registryMu sync.RWMutex
 	sessionMu  map[string]*sessionModuleLocks
 	// stack 是栈通道后端的延迟归因累加器（构造时创建，只读引用无竞争）。
 	stack *stackStats
+	// event 是 EVENT 写路径归因累加器（T-EV-05：shardReads 必须保持 0）。
+	event *eventStats
 }
 
 // sessionModuleLocks 是单个会话的模块锁集合与只属于该会话的短临界区状态。
@@ -103,17 +105,21 @@ type storeEngine struct {
 //   - stackViews 是栈通道提交时发布的不可变读投影（actor 出口），读者既不
 //     取锁也不打开文件句柄。
 type sessionModuleLocks struct {
-	messageMu   sync.Mutex
-	eventMu     sync.Mutex
-	compactMu   sync.Mutex
-	stackMu     sync.Mutex
-	lifecycleMu sync.Mutex
-	retentionMu sync.Mutex
-	subagentMu  sync.Mutex
-	toolMu      sync.Mutex
-	guideMu     sync.Mutex
+	messageMu    sync.Mutex
+	eventMu      sync.Mutex
+	compactMu    sync.Mutex
+	stackPlanMu  sync.Mutex
+	stackTaskMu  sync.Mutex
+	stackGoalMu  sync.Mutex
+	lifecycleMu  sync.Mutex
+	retentionMu  sync.Mutex
+	subagentMu   sync.Mutex
+	toolRefsMu   sync.Mutex
+	systemMu     sync.Mutex
+	checkpointMu sync.Mutex
+	guideMu      sync.Mutex
 
-	stackViews [3]atomic.Pointer[stackView]
+	stackViews [4]atomic.Pointer[stackView]
 	// anchor 是 message 通道最近一次发布的坐标（栈通道取锚用，避免打开
 	// metadata/message.json）。
 	anchor atomic.Pointer[messageAnchorPoint]
@@ -125,15 +131,14 @@ var readSelfHealHook func()
 
 // newStoreEngine 构造 会话存储布局引擎。root 不存在时延后到首个会话提交再创建
 // （与 jsonRepository 惰性建目录一致）。
-func newStoreEngine(root string, shardRows int) *storeEngine {
-	if shardRows <= 0 {
-		shardRows = defaultMessageShardSize
-	}
+func newStoreEngine(root string, settings storageSettings) *storeEngine {
+	resolved := resolveStorageSettings(settings)
 	return &storeEngine{
 		root:      filepath.Clean(root),
-		shardRows: shardRows,
+		settings:  resolved,
 		sessionMu: make(map[string]*sessionModuleLocks),
 		stack:     &stackStats{},
+		event:     &eventStats{},
 	}
 }
 
@@ -161,6 +166,20 @@ func (store *storeEngine) mu(key Key, mod storageModule) *sync.Mutex {
 	return store.locks(key).mutexFor(mod)
 }
 
+// moduleForStackKind 返回栈 kind 的模块 head 枚举（S16：head 按 kind 分文件）。
+func moduleForStackKind(kind StackKind) storageModule {
+	switch kind {
+	case StackKindTask:
+		return moduleStackTask
+	case StackKindGoal:
+		return moduleStackGoal
+	case StackKindSubagent:
+		return moduleSubagent
+	default:
+		return moduleStackPlan
+	}
+}
+
 func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
 	switch mod {
 	case moduleMessage:
@@ -169,16 +188,22 @@ func (locks *sessionModuleLocks) mutexFor(mod storageModule) *sync.Mutex {
 		return &locks.eventMu
 	case moduleCompact:
 		return &locks.compactMu
-	case moduleStack:
-		return &locks.stackMu
+	case moduleStackPlan:
+		return &locks.stackPlanMu
+	case moduleStackTask:
+		return &locks.stackTaskMu
+	case moduleStackGoal:
+		return &locks.stackGoalMu
 	case moduleLifecycle:
 		return &locks.lifecycleMu
 	case moduleRetention:
 		return &locks.retentionMu
 	case moduleSubagent:
 		return &locks.subagentMu
-	case moduleToolResult:
-		return &locks.toolMu
+	case moduleSystem:
+		return &locks.systemMu
+	case moduleCheckpoint:
+		return &locks.checkpointMu
 	default:
 		return &locks.messageMu
 	}
@@ -229,7 +254,6 @@ func (store *storeEngine) ensureLayoutGuide(key Key) (layoutGuide, error) {
 		LayoutVersion: layoutVersion,
 		SchemaVersion: schemaVersion,
 		SessionID:     key.SessionID,
-		ModuleIndex:   make(map[storageModule]moduleRef),
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -244,41 +268,6 @@ func (store *storeEngine) ensureLayoutGuide(key Key) (layoutGuide, error) {
 		return layoutGuide{}, err
 	}
 	return guide, nil
-}
-
-// registerModule 把模块注册进 guide.module_index（幂等；guide 低频更新，
-// 不随每次提交重写）。module_index 记录相对会话目录的文件名（my_design
-// §3.2），使 guide.json 不携带本机绝对路径、数据根搬迁后仍可用。
-func (store *storeEngine) registerModule(key Key, mod storageModule) error {
-	locks := store.locks(key)
-	locks.guideMu.Lock()
-	defer locks.guideMu.Unlock()
-	path := store.guidePath(key)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var guide layoutGuide
-	if err := json.Unmarshal(data, &guide); err != nil {
-		return err
-	}
-	if ref, ok := guide.ModuleIndex[mod]; ok && ref.File != "" {
-		return nil
-	}
-	if guide.ModuleIndex == nil {
-		guide.ModuleIndex = make(map[storageModule]moduleRef)
-	}
-	guide.ModuleIndex[mod] = moduleRef{
-		File:         "metadata/" + string(mod) + ".json",
-		Version:      schemaVersion,
-		RegisteredAt: time.Now().UTC(),
-	}
-	guide.UpdatedAt = time.Now().UTC()
-	encoded, err := json.MarshalIndent(guide, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeAtomic(path, encoded, 0o600)
 }
 
 // headChecksum 计算模块 head 的校验指纹：对信封（不含 checksum 字段）
@@ -371,9 +360,234 @@ func (store *storeEngine) readModuleHeadFile(key Key, module storageModule) (mod
 	}
 	head, retryErr := read()
 	if retryErr != nil {
-		return moduleHeadFile{}, err
+		// §2.0 规则 3 / S15：第二次仍不匹配 → 按数据文件重建该模块 head
+		// （修补），不返回旧值也不判损坏。message/event/compact/stack_* 有
+		// 完整数据文件可重建；其余模块（lifecycle 自带 lc-repair、
+		// retention/subagent/media 无独立数据文件）保留原错误。
+		if repairErr := store.repairModuleHeadFromData(key, module); repairErr != nil {
+			return moduleHeadFile{}, err
+		}
+		head, retryErr = read()
+		if retryErr != nil {
+			return moduleHeadFile{}, err
+		}
+		return head, nil
 	}
 	return head, nil
+}
+
+// repairModuleHeadFromData 按数据文件重建模块 head 并原子发布（S15）。
+func (store *storeEngine) repairModuleHeadFromData(key Key, module storageModule) error {
+	var payload any
+	switch module {
+	case moduleMessage:
+		head, err := store.rebuildMessageHeadFromData(key)
+		if err != nil {
+			return err
+		}
+		payload = head
+	case moduleEvent:
+		head, err := store.rebuildEventHeadFromData(key)
+		if err != nil {
+			return err
+		}
+		payload = head
+	case moduleCompact:
+		head, err := store.rebuildCompactHeadFromData(key)
+		if err != nil {
+			return err
+		}
+		payload = head
+	case moduleStackPlan, moduleStackTask, moduleStackGoal, moduleSubagent:
+		kind := moduleStackKindOf(module)
+		head, err := store.rebuildStackKindHeadFromData(key, kind)
+		if err != nil {
+			return err
+		}
+		payload = head
+	default:
+		return fmt.Errorf("session storage: no data-file rebuild for module %q", module)
+	}
+	_, err := store.publishModuleHead(key, module, "self-heal-repair", payload, time.Now().UTC())
+	return err
+}
+
+// rebuildMessageHeadFromData 从 message/*.jsonl 分片重建 message head。
+func (store *storeEngine) rebuildMessageHeadFromData(key Key) (messageHead, error) {
+	head := emptyMessageHead(key)
+	dir := store.messageDir(key)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return head, nil
+		}
+		return messageHead{}, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	now := time.Now().UTC()
+	tokens := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !isMessageShardFile(entry.Name()) {
+			continue
+		}
+		rows, readErr := readMessageRowsFileAt(filepath.Join(dir, entry.Name()))
+		if readErr != nil {
+			return messageHead{}, readErr
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		shard := shardInfo{
+			Path: entry.Name(), FromSeq: rows[0].Seq, ToSeq: rows[len(rows)-1].Seq,
+			Count: len(rows),
+		}
+		head.Shards = append(head.Shards, shard)
+		head.TotalRows += uint64(len(rows))
+		if shard.ToSeq > head.LastSeq {
+			head.LastSeq = shard.ToSeq
+		}
+		for _, row := range rows {
+			tokens += row.TokenCount
+			if row.MessageID != "" {
+				head.LastMessageID = row.MessageID
+			}
+		}
+	}
+	head.Meta.TokenCount = tokens
+	head.Meta.ShardCount = len(head.Shards)
+	head.Meta.SessionID = key.SessionID
+	head.Meta.CreatedAt = now
+	head.Meta.UpdatedAt = now
+	return head, nil
+}
+
+// rebuildEventHeadFromData 从 event/*.jsonl 分片重建 event head。
+func (store *storeEngine) rebuildEventHeadFromData(key Key) (eventHeadRecord, error) {
+	head := emptyEventHead(key)
+	dir := store.structuralEventDir(key)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return head, nil
+		}
+		return eventHeadRecord{}, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	for _, entry := range entries {
+		if entry.IsDir() || !isEventShardFile(entry.Name()) {
+			continue
+		}
+		rows, readErr := readStructuralEventsAt(filepath.Join(dir, entry.Name()))
+		if readErr != nil {
+			return eventHeadRecord{}, readErr
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		info := eventShardInfo{
+			Path: entry.Name(), FromID: rows[0].EventID, ToID: rows[len(rows)-1].EventID,
+			Count: len(rows), Bytes: 0,
+		}
+		head.Shards = append(head.Shards, info)
+		head.Total += uint64(len(rows))
+		if info.ToID > head.LastID {
+			head.LastID = info.ToID
+		}
+		head.LastCommitID = rows[len(rows)-1].CommitID
+	}
+	return head, nil
+}
+
+// rebuildCompactHeadFromData 从 session/compact.jsonl 重建 compact head。
+func (store *storeEngine) rebuildCompactHeadFromData(key Key) (compactHeadRecord, error) {
+	head := compactHeadRecord{SessionID: key.SessionID}
+	rows, err := readCompactFrameRows(store.compactFilePath(key))
+	if err != nil {
+		return compactHeadRecord{}, err
+	}
+	head.FrameCount = len(rows)
+	if len(rows) > 0 {
+		last := rows[len(rows)-1]
+		head.LastFrameID = last.FrameID
+		head.LastMessageTo = last.MessageTo
+		head.LastSeq = last.MessageToSeq
+		head.LatestFrame = &last
+	}
+	return head, nil
+}
+
+// moduleStackKindOf 反查栈模块对应的 kind。
+func moduleStackKindOf(module storageModule) StackKind {
+	switch module {
+	case moduleStackTask:
+		return StackKindTask
+	case moduleStackGoal:
+		return StackKindGoal
+	case moduleSubagent:
+		return StackKindSubagent
+	default:
+		return StackKindPlan
+	}
+}
+
+// rebuildStackKindHeadFromData 从该 kind 的 active/history.jsonl 重建栈
+// head 水位（revision 取行内最大；active_count/history_count 按行数）。
+func (store *storeEngine) rebuildStackKindHeadFromData(key Key, kind StackKind) (stackModuleHead, error) {
+	head := stackModuleHead{SessionID: key.SessionID, Kinds: make(map[StackKind]stackWatermark)}
+	const unbounded uint64 = ^uint64(0)
+	active, err := readStackRowsFile(store.stackActivePath(key, kind), unbounded)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return stackModuleHead{}, err
+	}
+	history, err := readStackRowsFile(store.stackHistoryPath(key, kind), unbounded)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return stackModuleHead{}, err
+	}
+	water := stackWatermark{ActiveCount: len(active), HistoryCount: uint64(len(history))}
+	for _, row := range active {
+		if row.Revision > water.HeadSeq {
+			water.HeadSeq = row.Revision
+		}
+	}
+	for _, row := range history {
+		if row.Revision > water.HeadSeq {
+			water.HeadSeq = row.Revision
+		}
+	}
+	if size, statErr := fileSizeOrZero(store.stackHistoryPath(key, kind)); statErr == nil {
+		water.HistoryBytes = size
+	}
+	head.HeadSeq = water.HeadSeq
+	head.Kinds[kind] = water
+	return head, nil
+}
+
+// readCompactFrameRows 读取 compact.jsonl 的完整帧行（崩溃残尾跳过）。
+func readCompactFrameRows(path string) ([]compactFrameRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	segments := bytes.Split(data, []byte{'\n'})
+	rows := make([]compactFrameRecord, 0, len(segments))
+	for index, segment := range segments {
+		if index == len(segments)-1 && len(bytes.TrimSpace(segment)) > 0 {
+			continue // 崩溃残尾
+		}
+		segment = bytes.TrimSpace(segment)
+		if len(segment) == 0 {
+			continue
+		}
+		var row compactFrameRecord
+		if json.Unmarshal(segment, &row) != nil {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 // decodeHeadPayload 把模块 head 的 payload 解码到 target。
@@ -396,15 +610,26 @@ func (store *storeEngine) commitModuleHead(key Key, mod storageModule, commitID 
 		return err
 	}
 	if commitID == "" {
-		commitID = randomID()
+		commitID = modulePayloadCommitID(mod, payload)
 	}
 	moduleLock := store.mu(key, mod)
 	moduleLock.Lock()
 	defer moduleLock.Unlock()
-	if _, err := store.publishModuleHead(key, mod, commitID, payload, time.Now().UTC()); err != nil {
-		return err
-	}
-	return store.registerModule(key, mod)
+	_, err := store.publishModuleHead(key, mod, commitID, payload, time.Now().UTC())
+	return err
+}
+
+// commitContentModule 整份替换型内容模块（system/checkpoint）写入：模块 head
+// 信封即内容（rename 成功 = 发布；不配独立数据文件，规则 1 例外）。
+func (store *storeEngine) commitContentModule(key Key, mod storageModule, payload any) error {
+	return store.commitModuleHead(key, mod, modulePayloadCommitID(mod, payload), payload)
+}
+
+// modulePayloadCommitID 按模块 head payload 内容确定性推导凭据（S17/D13：
+// 存储层不现造随机号，也不使用常量）。
+func modulePayloadCommitID(mod storageModule, payload any) string {
+	raw, _ := json.Marshal(payload)
+	return "head-" + string(mod) + "-" + hash(string(raw))
 }
 
 // readModuleHeadPayload 读取通用模块 head 并解码 payload；缺失时返回

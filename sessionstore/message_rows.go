@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	frameworkStorage "github.com/RedHuang-0622/Seele/seelectx/storage"
@@ -48,6 +49,8 @@ type messageHead struct {
 	// 之前的连续前缀；锚 ≤ watermark 视为已淘汰区引用，不算损坏。
 	WatermarkSeq       uint64 `json:"watermark_seq,omitempty"`
 	WatermarkMessageID string `json:"watermark_message_id,omitempty"`
+	// LastCommitID 是最近一次已发布提交的凭据（§2.0 规则 4 / S17）。
+	LastCommitID string `json:"last_commit_id,omitempty"`
 	// Meta 是目录枚举面（与 legacy manifest.Meta 同语义：UpdatedAt /
 	// TokenCount / ShardCount）。TokenCount 按已发布事件行累计。
 	Meta frameworkStorage.SessionMeta `json:"meta,omitempty"`
@@ -108,8 +111,10 @@ func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []E
 	if _, err := store.ensureLayoutGuide(key); err != nil {
 		return messageHead{}, err
 	}
-	if commitID == "" {
-		commitID = randomID()
+	if commitID == "" && len(rows) > 0 {
+		// S17/D13：存储层不得现造随机凭据；无显式凭据时按操作内容确定性
+		// 推导（重放同一操作得到同一值）。
+		commitID = messageRowsCommitID(rows)
 	}
 	head, err := store.readMessageHeadLocked(key)
 	if err != nil {
@@ -129,11 +134,12 @@ func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []E
 			// 空 commit（EnsureIndexed/record-only 首写）：仍发布空 head，
 			// 使会话可被 List/枚举发现。
 			now := time.Now().UTC()
+			head.LastCommitID = commitID
 			if _, err := store.publishModuleHead(key, moduleMessage, commitID, head, now); err != nil {
 				return messageHead{}, err
 			}
 			store.rememberMessageAnchor(key, head)
-			return head, store.registerModule(key, moduleMessage)
+			return head, nil
 		}
 		store.rememberMessageAnchor(key, head)
 		return head, nil
@@ -142,6 +148,7 @@ func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []E
 		return messageHead{}, err
 	}
 	now := time.Now().UTC()
+	head.LastCommitID = commitID
 	tokens := 0
 	for _, row := range delta {
 		tokens += row.TokenCount
@@ -159,11 +166,17 @@ func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []E
 	// 发布锚坐标：栈通道取锚因此不必打开 metadata/message.json（跨模块
 	// 「读者持柄 → rename 发布失败」窗口）。
 	store.rememberMessageAnchor(key, head)
-	if err := store.registerModule(key, moduleMessage); err != nil {
-		// guide 注册失败不阻断已发布 head（读路径以模块 head 为准，I9）。
-		_ = err
-	}
 	return head, nil
+}
+
+// messageRowsCommitID 由事件行身份字段确定性推导一次提交的凭据。
+func messageRowsCommitID(rows []Event) string {
+	identity := make([]string, 0, len(rows))
+	for _, row := range rows {
+		identity = append(identity, string(row.Kind)+"|"+row.Role+"|"+row.MessageID+"|"+
+			row.ToolCallID+"|"+row.Name+"|"+row.Content+"|"+row.ResultRef)
+	}
+	return "msg-" + hash(strings.Join(identity, "\n"))
 }
 
 // messageAnchorPoint 是 message 通道最近一次发布的坐标（内存锚）。
@@ -375,7 +388,7 @@ func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []E
 	for len(delta) > 0 {
 		if path == "" {
 			// 新分片名以实际写入的首/末 seq 命名（含端点）。
-			planned := store.shardRows
+			planned := store.settings.shardRows()
 			if len(delta) < planned {
 				planned = len(delta)
 			}
@@ -385,12 +398,12 @@ func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []E
 		if err != nil {
 			return err
 		}
-		if len(existing) >= store.shardRows {
+		if len(existing) >= store.settings.shardRows() {
 			path = ""
 			continue
 		}
 		batch := delta
-		room := store.shardRows - len(existing)
+		room := store.settings.shardRows() - len(existing)
 		if len(batch) > room {
 			batch = batch[:room]
 		}

@@ -2,6 +2,8 @@ package sessionstore
 
 import (
 	"errors"
+	"io/fs"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -42,6 +44,34 @@ func TestCheckpointStoreRoundTrip(t *testing.T) {
 	}
 	if len(loaded.Context.Result.NodeResults) != 1 {
 		t.Fatalf("node results = %d, want 1", len(loaded.Context.Result.NodeResults))
+	}
+
+	// S24：快照落 metadata/checkpoint.json，不再写 state.json。
+	root := router.repository.(*jsonRepository).root
+	checkpointFound, stateFound := false, false
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		switch filepath.Base(path) {
+		case "checkpoint.json":
+			checkpointFound = true
+		case "state.json":
+			stateFound = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checkpointFound {
+		t.Fatal("checkpoint 未落 metadata/checkpoint.json（S24）")
+	}
+	if stateFound {
+		t.Fatal("checkpoint 仍写 state.json（S24 退役项）")
 	}
 }
 

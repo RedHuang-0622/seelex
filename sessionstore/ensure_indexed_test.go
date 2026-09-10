@@ -45,7 +45,13 @@ func TestEnsureIndexedMakesRecordOnlySessionEnumerable(t *testing.T) {
 			for _, info := range infos {
 				if info.ID == sessionID {
 					found = true
-					if info.Status != StatusDraft {
+					wantStatus := StatusDraft
+					if backend == BackendJSON {
+						// S20：草稿行判据 = input/draft.json 存在；仅写 record
+						// 不再产生 draft 状态。
+						wantStatus = StatusIdle
+					}
+					if info.Status != wantStatus {
 						t.Fatalf("enumerated status = %q, want draft", info.Status)
 					}
 				}

@@ -15,6 +15,25 @@ import (
 	"github.com/RedHuang-0622/seelex/workspace"
 )
 
+// TestTranscriptEventWireMaterialRoundTrip 覆盖 S19/D8：内部 user 材料的
+// wire_material 置位必须经适配层原样进出存储（否则重启后 internal 行进不了
+// wire 装配）。
+func TestTranscriptEventWireMaterialRoundTrip(t *testing.T) {
+	events := []model.TranscriptEvent{{
+		Seq: 1, Kind: model.TranscriptEventKindInternal, Role: "user",
+		Content:      "<!-- seelex:context-checkpoint:v1 --> 已完成：栈通道",
+		WireMaterial: true,
+	}}
+	stored := storeTranscriptEvents(events)
+	if len(stored) != 1 || !stored[0].WireMaterial {
+		t.Fatalf("stored = %+v, want wire_material=true", stored)
+	}
+	back := adaptTranscriptEvents(stored)
+	if len(back) != 1 || !back[0].WireMaterial || back[0].Kind != model.TranscriptEventKindInternal {
+		t.Fatalf("adapted = %+v, want wire_material=true kind=internal", back)
+	}
+}
+
 type fakeReactorEngine struct {
 	sessionID  string
 	history    []types.Message

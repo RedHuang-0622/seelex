@@ -203,8 +203,11 @@ func strPtrOrNil(value string) *string {
 	return &value
 }
 
-// Save 编排 ProviderHistory 原子写；若存在会话上下文存储则同步持久化
+// Save 编排 ProviderHistory 持久化；若存在会话上下文存储则同步持久化
 // state blob（WriteState），保证「历史 + 上下文栈」在同一会话边界落盘。
+// v8 JSON 布局（D9/S11）：history.json 整段替换缓存已退役，ProviderHistory
+// 不再落盘——正文事实源是 SaveCommit 的 message 事件行，Load 由行派生；
+// Save 只负责 state blob。SQLite/Redis 等未 v8 化的后端沿用整段写。
 func (d *DurableHistory) Save(ctx context.Context, messages []types.Message) error {
 	if d == nil || d.router == nil || d.sessionID == "" {
 		return nil

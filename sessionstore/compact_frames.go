@@ -59,10 +59,10 @@ func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (comp
 		return compactHeadRecord{}, err
 	}
 	if frame.FrameID == "" {
-		frame.FrameID = "compact-" + randomID()
+		frame.FrameID = "compact-" + hash(frame.Summary+"|"+frame.MessageFrom+"|"+frame.MessageTo)
 	}
 	if frame.CommitID == "" {
-		frame.CommitID = randomID()
+		frame.CommitID = "compact-" + frame.FrameID
 	}
 	current, currentErr := store.readCompactHeadLocked(key)
 	if currentErr != nil {
@@ -106,7 +106,7 @@ func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (comp
 	if _, err := store.publishModuleHead(key, moduleCompact, frame.CommitID, head, time.Now().UTC()); err != nil {
 		return compactHeadRecord{}, err
 	}
-	return head, store.registerModule(key, moduleCompact)
+	return head, nil
 }
 
 func (store *storeEngine) readCompactHeadLocked(key Key) (compactHeadRecord, error) {

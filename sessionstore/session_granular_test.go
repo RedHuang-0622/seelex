@@ -54,22 +54,32 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatalf("load record ok=%v err=%v", ok, err)
 			}
-			if loaded.ID != mainID || loaded.Kind != KindMain || loaded.Title != "主会话" ||
+			wantTitle := "主会话"
+			if backend == BackendJSON {
+				wantTitle = "" // S20：Title 不再持久化（dev 丢字段）
+			}
+			if loaded.ID != mainID || loaded.Kind != KindMain || loaded.Title != wantTitle ||
 				loaded.Status != StatusIdle || loaded.Binding.WorkspaceID != projectID {
 				t.Fatalf("loaded record = %+v", loaded)
 			}
 
 			// history 片：框架工作历史句柄。
 			history := store.History(mainID)
-			if err := history.Save(context.Background(), messages(2, "hist")); err != nil {
+			if backend == BackendJSON {
+				// v8 JSON 布局（S11）：history.json 整段缓存退役，正文事实源
+				// = transcript 事件行（下方同一次提交），Load 由行派生。
+			} else if err := history.Save(context.Background(), messages(2, "hist")); err != nil {
 				t.Fatalf("save history: %v", err)
 			}
-			loadedHistory, err := history.Load(context.Background())
-			if err != nil || len(loadedHistory) != 2 {
-				t.Fatalf("load history len=%d err=%v", len(loadedHistory), err)
+			if backend != BackendJSON {
+				loadedHistory, err := history.Load(context.Background())
+				if err != nil || len(loadedHistory) != 2 {
+					t.Fatalf("load history len=%d err=%v", len(loadedHistory), err)
+				}
 			}
 
-			// transcript 片：事件日志按会话读取。
+			// transcript 片：事件日志按会话读取（v8 JSON 布局下同时是
+			// message 正文事实源）。
 			if err := router.SaveCommitWorkspace(projectID, mainID, Commit{
 				Events: []Event{{Seq: 1, Role: "user", Content: "hi"}, {Seq: 2, Role: "assistant", Content: "answer"}},
 			}); err != nil {
@@ -81,6 +91,12 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			}
 			if transcript[0].Seq != 1 || transcript[1].Type != "assistant" {
 				t.Fatalf("transcript = %+v", transcript)
+			}
+			if backend == BackendJSON {
+				loadedHistory, err := history.Load(context.Background())
+				if err != nil || len(loadedHistory) != 2 {
+					t.Fatalf("v8 layout load history len=%d err=%v", len(loadedHistory), err)
+				}
 			}
 
 			// toolresults 片：工具结果归档引用。
@@ -124,7 +140,12 @@ func TestSessionGranularityPersistence(t *testing.T) {
 				t.Fatalf("save subagent record: %v", err)
 			}
 			loadedSub, ok, err := store.LoadSession(projectID, subID)
-			if err != nil || !ok || loadedSub.Kind != KindSubagent || loadedSub.ParentID != mainID {
+			wantSubKind, wantSubParent := KindSubagent, mainID
+			if backend == BackendJSON {
+				// S20：子侧血缘不再持久化（dev 丢字段已接受）。
+				wantSubKind, wantSubParent = KindMain, ""
+			}
+			if err != nil || !ok || loadedSub.Kind != wantSubKind || loadedSub.ParentID != wantSubParent {
 				t.Fatalf("load subagent ok=%v err=%v record=%+v", ok, err, loadedSub)
 			}
 			if err := store.History(subID).Save(context.Background(), messages(1, "sub")); err != nil {
@@ -143,7 +164,11 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			if len(byID) != 2 {
 				t.Fatalf("project index = %+v, want 2 sessions", byID)
 			}
-			if byID[mainID].Kind != KindMain || byID[subID].Kind != KindSubagent || byID[subID].ParentID != mainID {
+			wantKind, wantParent := KindSubagent, mainID
+			if backend == BackendJSON {
+				wantKind, wantParent = KindMain, ""
+			}
+			if byID[mainID].Kind != KindMain || byID[subID].Kind != wantKind || byID[subID].ParentID != wantParent {
 				t.Fatalf("project index kinds/parent = %+v", byID)
 			}
 		})
@@ -178,7 +203,11 @@ func TestPersistenceIdempotent(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatalf("load ok=%v err=%v", ok, err)
 			}
-			if !reflect.DeepEqual(record.ID, loaded.ID) || loaded.Title != "幂等" ||
+			wantTitle := "幂等"
+			if backend == BackendJSON {
+				wantTitle = ""
+			}
+			if !reflect.DeepEqual(record.ID, loaded.ID) || loaded.Title != wantTitle ||
 				loaded.Kind != KindMain || loaded.Binding.WorkspaceID != projectID {
 				t.Fatalf("idempotent record drifted: %+v", loaded)
 			}
@@ -255,8 +284,9 @@ func TestSessionsOfToleratesProductionRecordSchema(t *testing.T) {
 	if len(infos) != 1 || infos[0].ID != sessionID {
 		t.Fatalf("catalog = %+v, want sess-prod（生产 schema 不得清空侧栏）", infos)
 	}
-	if infos[0].Title != "生产会话标题" {
-		t.Fatalf("title = %q, want 生产会话标题（对象 value 提取）", infos[0].Title)
+	// S20：Title 不再持久化，v8 枚举标题取 message head.Meta.Summary（空）。
+	if infos[0].Title != "" {
+		t.Fatalf("title = %q, want empty（S20 派生枚举）", infos[0].Title)
 	}
 
 	// LoadSession 宽容：不报错，身份/标题可读。
@@ -264,7 +294,7 @@ func TestSessionsOfToleratesProductionRecordSchema(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("LoadSession(production schema) ok=%v err=%v", ok, err)
 	}
-	if record.ID != sessionID || record.Title != "生产会话标题" {
+	if record.ID != sessionID || record.Title != "" {
 		t.Fatalf("record = %+v", record)
 	}
 }

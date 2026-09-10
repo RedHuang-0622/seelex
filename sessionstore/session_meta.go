@@ -72,7 +72,7 @@ func (store *SessionMetaStore) Set(projectID, sessionID string, meta SessionDisp
 	if err != nil {
 		return nil, err
 	}
-	if err := store.router.SaveStateWorkspace(projectID, sessionMetaKey, payload); err != nil {
+	if err := store.router.SaveSessionDisplayMetaWorkspace(projectID, payload); err != nil {
 		return nil, err
 	}
 	return current, nil
@@ -82,7 +82,7 @@ func (store *SessionMetaStore) Set(projectID, sessionID string, meta SessionDisp
 // 元数据缺失只影响排序与标题，不得让目录整体失败。
 func (store *SessionMetaStore) load(projectID string) (map[string]SessionDisplayMeta, error) {
 	result := map[string]SessionDisplayMeta{}
-	payload, err := store.router.LoadStateWorkspace(projectID, sessionMetaKey)
+	payload, err := store.router.LoadSessionDisplayMetaWorkspace(projectID)
 	if err != nil || len(payload) == 0 {
 		return result, nil
 	}

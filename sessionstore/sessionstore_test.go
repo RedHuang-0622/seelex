@@ -73,11 +73,15 @@ func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T) {
 	defer router.Close()
 
 	router.SetWorkspace("project-a")
-	if err := router.Save("shared", messages(1, "a")); err != nil {
+	if err := router.SaveCommitWorkspace("project-a", "shared", Commit{Events: []Event{
+		{Role: "user", Content: "a-0", MessageID: "a-0"},
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	router.SetWorkspace("project-b")
-	if err := router.Save("shared", messages(1, "b")); err != nil {
+	if err := router.SaveCommitWorkspace("project-b", "shared", Commit{Events: []Event{
+		{Role: "user", Content: "b-0", MessageID: "b-0"},
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	router.SetWorkspace("project-a")
@@ -99,13 +103,16 @@ func TestRouterReadsExplicitWorkspaceWithoutChangingActiveScope(t *testing.T) {
 // 存在时 ReadRange 只解析覆盖目标范围的 shard（尾部窗口读），结果与全量
 // 读一致。3 个 shard（250 条消息）尾部 5 条窗口。
 func TestJSONRepositoryReadRangeWindowed(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key := Key{ProjectID: "project", SessionID: "session"}
 	history := messages(250, "round") // 3 shards（100/100/50）
-	if err := repository.WriteAtomic(context.Background(), key, history); err != nil {
+	// v8 布局（S11）：provider 历史缓存退役，正文以事件行写入、读由行派生。
+	if err := repository.WriteCommit(context.Background(), key, Commit{
+		Events: messagesToEventRows(history),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	// 尾部窗口：offset=245, limit=5 → 消息 245-249（"round-245".."round-249"）。
@@ -165,13 +172,15 @@ func firstContent(messages []types.Message) string {
 // TestJSONRepositoryReadRangeTotalOnly 验证 limit<=0 语义：只读 manifest 拿
 // 总数、不解析任何 shard（会话切换"先探 total 再尾部窗口读"的依赖）。
 func TestJSONRepositoryReadRangeTotalOnly(t *testing.T) {
-	repository, err := newJSONRepository(t.TempDir(), 0)
+	repository, err := newJSONRepository(t.TempDir(), storageSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key := Key{ProjectID: "project", SessionID: "session"}
 	history := messages(250, "round") // 3 shards（100/100/50）
-	if err := repository.WriteAtomic(context.Background(), key, history); err != nil {
+	if err := repository.WriteCommit(context.Background(), key, Commit{
+		Events: messagesToEventRows(history),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	got, total, err := repository.ReadRange(context.Background(), key, 0, 0)

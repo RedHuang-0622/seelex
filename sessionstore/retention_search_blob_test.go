@@ -9,7 +9,7 @@ import (
 
 func retentionFixture(t *testing.T) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), 0)
+	store := newStoreEngine(t.TempDir(), storageSettings{})
 	return store, Key{ProjectID: "p-wm", SessionID: "s-wm"}
 }
 
@@ -194,7 +194,7 @@ func TestStructuralEventAnchorAfterMessage(t *testing.T) {
 }
 
 // TestStructuralEventDuplicateCommitIdempotent 对应 T-EV-02：同 commit 重复持久化 →
-// 事件不重复（指纹幂等）。
+// 事件不重复（head.last_commit_id 水位幂等，零历史重读）。
 func TestStructuralEventDuplicateCommitIdempotent(t *testing.T) {
 	store, key := retentionFixture(t)
 	events := []structuralEvent{{Kind: structuralEventFork, AnchorSeq: 3, Payload: rawJSON(`{"child":"c1"}`)}}
@@ -343,7 +343,7 @@ func TestSearchDeletedRegionSummaryOnly(t *testing.T) {
 // 返回明确错误。
 func TestBigToolResultHardLimitNotPersisted(t *testing.T) {
 	store, key := retentionFixture(t)
-	huge := strings.Repeat("x", blobHardLimitBytes+1)
+	huge := strings.Repeat("x", defaultStorageSettings().BlobHardLimitBytes+1)
 	if _, err := store.writeBlob(key, "bash", huge); !errors.Is(err, ErrBigToolResultTooLarge) {
 		t.Fatalf("err = %v", err)
 	}
@@ -357,16 +357,16 @@ func TestBigToolResultHardLimitNotPersisted(t *testing.T) {
 // result_ref；read_tool_result 可读回。
 func TestBigToolResultSoftLimitTruncatesWithRef(t *testing.T) {
 	store, key := retentionFixture(t)
-	long := strings.Repeat("长", blobSoftLimitChars+100)
+	long := strings.Repeat("长", defaultStorageSettings().BlobSoftLimitChars+100)
 	blob, err := store.writeBlob(key, "read", long)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !blob.Truncated || blob.Size != blobSoftLimitChars {
+	if !blob.Truncated || blob.Size != defaultStorageSettings().BlobSoftLimitChars {
 		t.Fatalf("blob = %+v", blob)
 	}
 	content, err := store.readBlob(key, blob.Hash)
-	if err != nil || len(content) != blobSoftLimitChars {
+	if err != nil || len(content) != defaultStorageSettings().BlobSoftLimitChars {
 		t.Fatalf("read content len=%d err=%v", len(content), err)
 	}
 	if !strings.HasPrefix(blobRefOf(blobRefPrefix+blob.Hash), blob.Hash) {
@@ -421,5 +421,34 @@ func TestStorageSettingsOverrideAndValidation(t *testing.T) {
 	bad2.BlobSoftLimitChars = -1
 	if err := validateStorageSettings(bad2); err == nil {
 		t.Fatal("invalid soft limit accepted")
+	}
+	if defaults.WireBudgetTokens != 200000 || defaults.WireSoftRatio != 0.75 || defaults.WireTargetRatio != 0.60 {
+		t.Fatalf("§5.2 wire 预算默认值 = %+v", defaults)
+	}
+	if budget, soft, target := defaults.wireBudget(); budget != 200000 || soft != 150000 || target != 120000 {
+		t.Fatalf("wireBudget = %d/%d/%d", budget, soft, target)
+	}
+	// 覆盖链：后一层只覆盖它显式给出的字段。
+	limits := storageSettings{MessageShardRows: 50, StaleAfterSeconds: 60}
+	persisted := storageSettings{RetryCacheMaxItems: 8}
+	merged := resolveStorageSettings(limits, persisted)
+	if merged.MessageShardRows != 50 || merged.StaleAfterSeconds != 60 || merged.RetryCacheMaxItems != 8 {
+		t.Fatalf("merged = %+v", merged)
+	}
+	if merged.CompactFrameThreshold != defaults.CompactFrameThreshold ||
+		merged.RawBytesAlert != defaults.RawBytesAlert || merged.WireRecentErrors != defaults.WireRecentErrors {
+		t.Fatalf("未覆盖的键必须保持默认: %+v", merged)
+	}
+	if boolValue(defaults.AutoRecover, true) || !boolValue(defaults.QueuePersistPending, false) {
+		t.Fatal("auto_recover 默认 false / queue.persist_pending 默认 true")
+	}
+	if err := validateStorageSettings(resolveStorageSettings()); err != nil {
+		t.Fatalf("默认值必须自洽: %v", err)
+	}
+	// 零值布尔项：显式 false 也要能覆盖默认 true。
+	off := false
+	overridden := resolveStorageSettings(storageSettings{QueuePersistPending: &off})
+	if boolValue(overridden.QueuePersistPending, true) {
+		t.Fatal("queue.persist_pending=false 被吞掉")
 	}
 }

@@ -40,8 +40,11 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 	if err != nil {
 		return ForkContext{}, fmt.Errorf("session fork: load parent record: %w", err)
 	}
-	if !has {
-		return ForkContext{}, fmt.Errorf("session fork: parent session %q has no durable record", parentID)
+	derivedParent := !has
+	if derivedParent {
+		// S20：record 通道退役后父会话没有独立 record；fork 以 message/EVENT
+		// 事实 + 栈快照为源，记录字段走派生（Title/血缘等 dev 丢字段已接受）。
+		record = model.SessionRecord{Version: 3, ID: parentID}
 	}
 	// 子会话 record 使用自己的会话身份（decodeSessionRecord 校验
 	// record.ID == 存储键，父 ID 必须改写）。
@@ -57,6 +60,11 @@ func (c *Coordinator) PrepareFork(location Location, childID, parentID string, r
 	rawEvents, err := forkPort.LoadEventRangeWorkspace(location.WorkspaceID, parentID, 1, math.MaxUint64)
 	if err != nil {
 		return ForkContext{}, fmt.Errorf("session fork: load parent transcript: %w", err)
+	}
+	if derivedParent {
+		// S20：record 退役后父会话正文由 message 事件行派生（fork 截断仍按
+		// 既有 cut 语义在该派生化 conversation 上执行）。
+		record.Conversation.Messages = conversationMessagesFromEvents(rawEvents)
 	}
 	cut, cutEvent, err := resolveForkCut(rawEvents, request)
 	if err != nil {
@@ -135,6 +143,22 @@ func forkTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent {
 		}
 	}
 	return adapted
+}
+
+// conversationMessagesFromEvents 把 message 事件行派生为 record conversation
+// 消息（S20：record 通道退役后的父会话正文事实源）。
+func conversationMessagesFromEvents(events []sessionstore.Event) []model.Message {
+	messages := make([]model.Message, 0, len(events))
+	for _, event := range events {
+		id := event.MessageID
+		if id == "" {
+			id = fmt.Sprintf("seq-%d", event.Seq)
+		}
+		messages = append(messages, model.Message{
+			ID: id, Role: event.Role, Content: event.Content, CreatedAt: event.CreatedAt,
+		})
+	}
+	return messages
 }
 
 func forkStoredToolResults(results []sessionstore.ToolResult) []model.StoredToolResult {

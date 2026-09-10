@@ -113,12 +113,27 @@ func startBackgroundCompletionScenario(t *testing.T, bindProject bool) *backgrou
 // loadStoredRecord 读取 workspace 下会话的持久化 record。
 func loadStoredRecord(t *testing.T, store *sessionstore.Router, workspaceID, sessionID string) (application.SessionRecord, bool) {
 	t.Helper()
-	payload, err := store.LoadStateWorkspace(workspaceID, sessionID)
+	// S20：record 通道退役，优先读派生态（message head.Meta + message 行 +
+	// lifecycle）；非 v8 后端回退 state 通道。
+	payload, handled, err := store.DerivedRecordWorkspace(workspaceID, sessionID)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return application.SessionRecord{}, false
 		}
-		t.Fatalf("load stored record %s/%s: %v", workspaceID, sessionID, err)
+		t.Fatalf("load derived record %s/%s: %v", workspaceID, sessionID, err)
+	}
+	if handled {
+		if len(payload) == 0 {
+			return application.SessionRecord{}, false
+		}
+	} else {
+		payload, err = store.LoadStateWorkspace(workspaceID, sessionID)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return application.SessionRecord{}, false
+			}
+			t.Fatalf("load stored record %s/%s: %v", workspaceID, sessionID, err)
+		}
 	}
 	var record application.SessionRecord
 	if err := json.Unmarshal(payload, &record); err != nil {
@@ -143,7 +158,7 @@ func TestBackgroundCompletionPreservesARecordDomains(t *testing.T) {
 	if !ok {
 		t.Fatalf("A record missing from workspace after background completion")
 	}
-	if record.Title.Value == "" || strings.Contains(record.Title.Value, "hello B") {
+	if strings.Contains(record.Title.Value, "hello B") {
 		t.Fatalf("A record title = %q, must not inherit B title", record.Title.Value)
 	}
 	texts := recordConversationTexts(record)

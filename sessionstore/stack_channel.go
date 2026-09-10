@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -34,6 +35,9 @@ const (
 	StackKindTask StackKind = "task"
 	// StackKindGoal 是 goal 治理栈（单条目批次，LIFO）。
 	StackKindGoal StackKind = "goal"
+	// StackKindSubagent 是第四栈：subagent 批次（S18，§2.4/§8.2）。条目 =
+	// 一次派发的子代理现场，含结果状态；子代理子树不入主会话三栈 fork 拷贝。
+	StackKindSubagent StackKind = "subagent"
 )
 
 // terminalStackStatus 是「批次内该项已完成」的状态集合：批次内全部条目落在这
@@ -84,13 +88,15 @@ type StackItemRecord struct {
 
 // stackWatermark 是单个 kind 的水位（head 只装水位，不装条目）。
 type stackWatermark struct {
-	HeadSeq      uint64   `json:"head_seq"`
-	ActiveCount  int      `json:"active_count"`
-	HistoryCount uint64   `json:"history_count"`
-	OpenBatches  []string `json:"open_batches,omitempty"`
+	HeadSeq      uint64 `json:"head_seq"`
+	ActiveCount  int    `json:"active_count"`
+	HistoryCount uint64 `json:"history_count"`
 	// HistoryBytes 是归档数据文件在 head 发布时刻的字节长度（JSON 后端用它
 	// 回收 head 未发布的归档尾行，使写路径完全不必解析归档文件）。
 	HistoryBytes uint64 `json:"history_bytes,omitempty"`
+	// LastCommitID 是该 kind 最近一次已发布提交的逻辑操作凭据（§2.0 规则 4、
+	// D10/D13/S17：逐操作唯一、确定性推导，供发布失败后的重放判重）。
+	LastCommitID string `json:"last_commit_id,omitempty"`
 }
 
 // stackModuleHead 是 metadata/stack.json payload：只有水位，不含条目内容。
@@ -101,7 +107,8 @@ type stackModuleHead struct {
 }
 
 func validStackKind(kind StackKind) bool {
-	return kind == StackKindPlan || kind == StackKindTask || kind == StackKindGoal
+	return kind == StackKindPlan || kind == StackKindTask ||
+		kind == StackKindGoal || kind == StackKindSubagent
 }
 
 // stackKindIndex 把 kind 映射到固定下标（内存读投影数组用）。
@@ -111,6 +118,8 @@ func stackKindIndex(kind StackKind) int {
 		return 1
 	case StackKindGoal:
 		return 2
+	case StackKindSubagent:
+		return 3
 	default:
 		return 0
 	}
@@ -219,23 +228,6 @@ func (state *stackState) archive(batch []StackItemRecord) []StackItemRecord {
 	return out
 }
 
-// openBatches 返回批次内仍有未完成条目的批次 ID。
-func (state *stackState) openBatches() []string {
-	var out []string
-	seen := make(map[string]bool)
-	for _, row := range state.active {
-		if seen[row.BatchID] {
-			continue
-		}
-		seen[row.BatchID] = true
-		if !state.batchDone(row.BatchID) {
-			out = append(out, row.BatchID)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
 // pushItem 将一条 StackItemInput 落成 active 行（压栈语义的唯一实现点）。
 func (state *stackState) pushItem(item StackItemInput, batchID, batchFrom string) (StackItemRecord, error) {
 	if item.ItemID == "" {
@@ -286,6 +278,47 @@ func maxU64(left, right uint64) uint64 {
 		return left
 	}
 	return right
+}
+
+// stackMutationCommitID 把一次栈变更映射为确定性、逐操作唯一的 commit_id
+// （§2.0 规则 4 / D13 / S17）。凭据由操作身份推出：kind + 迁移类型 + 条目
+// （batch/item/status），不含存储层现造号，也不含坐标/时间等重放时会漂移的
+// 字段——同一逻辑操作的重放得到同一个凭据，不同操作（哪怕同一批同一项）
+// 因状态不同而不同。
+func stackMutationCommitID(kind StackKind, mutation StackMutation) string {
+	var parts []string
+	for _, row := range mutation.Pushed {
+		parts = append(parts, "p|"+row.BatchID+"|"+row.ItemID+"|"+row.Status)
+	}
+	for _, row := range mutation.Updated {
+		parts = append(parts, "u|"+row.BatchID+"|"+row.ItemID+"|"+row.Status)
+	}
+	for _, row := range mutation.Archived {
+		parts = append(parts, "a|"+row.BatchID+"|"+row.ItemID+"|"+row.Status)
+	}
+	slices.Sort(parts)
+	identity := string(kind) + "|" + strings.Join(parts, "&")
+	return "stack-" + string(kind) + "-" + hash(identity)
+}
+
+// dedupeStackRowsByItemID 按条目键去重、高 revision 胜出（§2.0 规则 4 读侧、
+// D10/S17：冷重载后重放留下的同 item_id 双行只保留最高 revision）。
+func dedupeStackRowsByItemID(rows []StackItemRecord) []StackItemRecord {
+	best := make(map[string]StackItemRecord, len(rows))
+	order := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if existing, ok := best[row.ItemID]; !ok || row.Revision > existing.Revision {
+			if !ok {
+				order = append(order, row.ItemID)
+			}
+			best[row.ItemID] = row
+		}
+	}
+	out := make([]StackItemRecord, 0, len(best))
+	for _, itemID := range order {
+		out = append(out, best[itemID])
+	}
+	return out
 }
 
 // ---------- actor 消息：一次栈变更的闭包工厂 ----------

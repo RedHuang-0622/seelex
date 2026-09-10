@@ -18,12 +18,13 @@ import (
 	"time"
 )
 
-const (
-	blobSoftLimitChars = 60000
-	blobHardLimitBytes = 16 << 20
-	blobQuotaBytes     = 64 << 20
-	blobRefPrefix      = "blob:"
-)
+const blobRefPrefix = "blob:"
+
+// 三条限额（软截断 / 硬报错 / 会话配额）取自 §11 settings，不在此硬编码。
+func (store *storeEngine) blobLimits() (softChars int, hardBytes int, quotaBytes int) {
+	settings := store.settings
+	return settings.BlobSoftLimitChars, settings.BlobHardLimitBytes, settings.BlobSessionQuotaBytes
+}
 
 var (
 	ErrBigToolResultTooLarge = errors.New("session storage: big tool result exceeds hard limit")
@@ -52,13 +53,14 @@ func (store *storeEngine) blobPath(key Key, hash string) string {
 // writeBlob 写超大工具输出（主会话键）。返回 blob（Content 为截断后正文；
 // 调用方把 Ref = blob:hash 写进消息行）。
 func (store *storeEngine) writeBlob(key Key, toolName, content string) (toolBlob, error) {
-	if len(content) > blobHardLimitBytes {
+	softChars, hardBytes, _ := store.blobLimits()
+	if len(content) > hardBytes {
 		return toolBlob{}, ErrBigToolResultTooLarge
 	}
 	hash := hash(content)
-	truncated := len(content) > blobSoftLimitChars
+	truncated := len(content) > softChars
 	if truncated {
-		content = content[:blobSoftLimitChars]
+		content = content[:softChars]
 	}
 	blob := toolBlob{
 		Hash: hash, SessionID: key.SessionID, Kind: toolName,
@@ -79,7 +81,8 @@ func (store *storeEngine) writeBlob(key Key, toolName, content string) (toolBlob
 			}
 		}
 	}
-	if total+int64(len(content)) > blobQuotaBytes {
+	_, _, quotaBytes := store.blobLimits()
+	if total+int64(len(content)) > int64(quotaBytes) {
 		return toolBlob{}, ErrBigToolResultQuota
 	}
 	data, err := json.Marshal(blob)

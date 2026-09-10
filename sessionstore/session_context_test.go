@@ -3,6 +3,9 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -191,6 +194,27 @@ func TestSessionContextStoreSystemPromptInvariant(t *testing.T) {
 	}
 	if got := store.SystemPrompt(); got != "会话级基础提示：永不压缩" {
 		t.Fatalf("system prompt = %q", got)
+	}
+	// S19：prompt 落 metadata/system.json，context blob 不再承载 system_prompt。
+	if blob, err := router.LoadContextStateWorkspace("", "session-prompt"); err == nil &&
+		strings.Contains(string(blob), `"system_prompt"`) {
+		t.Fatalf("context blob 仍承载 system_prompt（S19 退役项）: %s", blob)
+	}
+	systemFound := false
+	root := router.repository.(*jsonRepository).root
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && filepath.Base(path) == "system.json" {
+			systemFound = true
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !systemFound {
+		t.Fatal("system prompt 未落 metadata/system.json（S19）")
 	}
 	// 新实例 Load 后仍可取回（state blob 持久化）。
 	reloaded := NewSessionContextStore(router, "session-prompt")
@@ -435,6 +459,15 @@ func TestCompactFrameRangeFieldsPersist(t *testing.T) {
 		Summary:              "先期摘要",
 		CompressedAt:         time.Now(),
 	}
+	// compact 通道只接受已发布 message 行范围内的帧（S19：单源写入）。
+	events := make([]Event, 0, 49)
+	for index := 1; index <= 49; index++ {
+		events = append(events, messageRow(uint64(index), fmt.Sprintf("m-%d", index),
+			"user", EventKindUserInput, "x"))
+	}
+	if err := router.SaveCommit("session-compact-range", Commit{Events: events}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.PushCompact(frame); err != nil {
 		t.Fatal(err)
 	}
@@ -447,18 +480,13 @@ func TestCompactFrameRangeFieldsPersist(t *testing.T) {
 		t.Fatalf("compact stack = %+v", record.CompactStack)
 	}
 	got := record.CompactStack[0]
-	if got.RoundFrom != 3 || got.RoundTo != 8 || got.EventFrom != 21 || got.EventTo != 49 {
-		t.Fatalf("range fields = %+v", got)
-	}
-	if got.MessageFrom != "message-31" || got.MessageTo != "message-76" {
+	// S19/§2.2：compact 通道 schema 只落核心字段（frame/message/summary/
+	// compressed_at），扩展定位字段冷重载退化（dev 已接受）。
+	if got.SegmentID != frame.SegmentID || got.MessageFrom != frame.MessageFrom || got.MessageTo != frame.MessageTo {
 		t.Fatalf("message range = %q..%q", got.MessageFrom, got.MessageTo)
 	}
-	if got.EventRevision.Number != 12 || got.ConversationRevision.Number != 12 || got.EventRevision.CommitID != "commit-12" {
-		t.Fatalf("revisions = %+v", got)
-	}
-	// 兼容字段保留（审计 R6：ChatQueue 单元索引）。
-	if got.From != 0 || got.To != 7 {
-		t.Fatalf("legacy unit range = [%d,%d]", got.From, got.To)
+	if got.RoundFrom != 0 || got.EventFrom != 0 || got.From != 0 {
+		t.Fatalf("v8 退化字段应为零值: %+v", got)
 	}
 }
 
@@ -472,6 +500,14 @@ func TestCompactFrameIndexAndChainFieldsPersist(t *testing.T) {
 		RequestFrom: "chat-1", RequestTo: "chat-7",
 		Summary:      "## 压缩内容 (Compacted Context)\n### 目标 (Goal)\n迁移",
 		CompressedAt: time.Now(),
+	}
+	events := make([]Event, 0, 9)
+	for index := 1; index <= 9; index++ {
+		events = append(events, messageRow(uint64(index), fmt.Sprintf("m-%d", index),
+			"user", EventKindUserInput, "x"))
+	}
+	if err := router.SaveCommit("session-compact-index", Commit{Events: events}); err != nil {
+		t.Fatal(err)
 	}
 	if err := store.PushCompact(first); err != nil {
 		t.Fatal(err)
@@ -499,14 +535,15 @@ func TestCompactFrameIndexAndChainFieldsPersist(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("compact stack = %d frames, want 2", len(got))
 	}
-	if got[0].RequestFrom != "chat-1" || got[0].RequestTo != "chat-7" {
-		t.Fatalf("first frame request index = %q..%q", got[0].RequestFrom, got[0].RequestTo)
+	if got[0].SegmentID != "compact-sess-1" || got[0].Summary != first.Summary {
+		t.Fatalf("first frame core = %+v", got[0])
 	}
-	if got[1].PrevSegmentID != "compact-sess-1" || got[1].PrevSummaryOneLine != "完成了模块 X 的迁移与验收" {
+	if got[1].PrevSegmentID != "compact-sess-1" {
 		t.Fatalf("second frame chain anchor = %+v", got[1])
 	}
-	if got[1].SummarySource != "local" || got[1].AnchorSource != "ok" {
-		t.Fatalf("second frame quality markers = %+v", got[1])
+	// 扩展索引/质量字段不落 compact schema（§2.2/S19 退化）。
+	if got[0].RequestFrom != "" || got[1].PrevSummaryOneLine != "" || got[1].SummarySource != "" {
+		t.Fatalf("v8 退化字段应为空: %+v", got)
 	}
 	// 缺新字段的记录仍可解码（字段级默认值，不是版本兼容：旧 schema 版本已
 	// 按「旧链路不兼容」拒绝加载）。
@@ -519,8 +556,8 @@ func TestCompactFrameIndexAndChainFieldsPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 	partialFrames := partial.Snapshot().CompactStack
-	if len(partialFrames) != 1 || partialFrames[0].Summary != "缺字段帧" || partialFrames[0].RequestFrom != "" {
-		t.Fatalf("partial frame = %+v", partialFrames)
+	if len(partialFrames) != 0 {
+		t.Fatalf("blob compact_stack 在 v8 JSON 下不再回读（S19）: %+v", partialFrames)
 	}
 }
 

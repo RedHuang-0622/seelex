@@ -86,7 +86,12 @@ func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatalf("reopen record ok=%v err=%v", ok, err)
 			}
-			if loaded.Status != StatusArchived || loaded.Title != "归档前标题" {
+			wantTitle := "归档前标题"
+			if backend == BackendJSON {
+				// S20：Title 不再持久化（dev 丢字段已接受）。
+				wantTitle = ""
+			}
+			if loaded.Status != StatusArchived || loaded.Title != wantTitle {
 				t.Fatalf("reopened record = %+v", loaded)
 			}
 			loadedHistory, err := store.HistoryForProject(projectID, sessionID).Load(ctx)

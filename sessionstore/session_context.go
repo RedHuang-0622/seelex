@@ -12,7 +12,8 @@ import (
 // 损坏或不兼容的记录拒绝加载并显式失败（不静默重建），走会话恢复错误路径。
 //
 // v3（当前）：blob 不再承载三栈——plan/task/goal 由 §2.4 栈通道
-// （session/{plan,task,goal}/{active,history}.jsonl + metadata/stack.json）
+// （session/{plan,task,goal}/{active,history}.jsonl +
+// metadata/stack_{plan,task,goal}.json）
 // 独占；context 只剩尚未按设计稿分文件的字段（system_prompt / skill 记录 /
 // compact 栈 / goal 审计），这几项分别在 S2/S4 收口。
 // v2 及更早（栈内联在 blob 里）不再兼容读取。
@@ -187,7 +188,7 @@ type CompactFrame struct {
 // + GoalAudit（goal 生命周期审计，append-only，只追加不回改）。
 type SessionContextRecord struct {
 	SchemaVersion int              `json:"schema_version"`
-	SystemPrompt  string           `json:"system_prompt"`
+	SystemPrompt  string           `json:"system_prompt,omitempty"`
 	PlanStack     []PlanFrame      `json:"plan_stack"`
 	TaskStack     []TaskFrame      `json:"task_stack"`
 	SkillStack    []SkillFrame     `json:"skill_stack"`
@@ -286,10 +287,12 @@ func (s *SessionContextStore) loadBlob(_ context.Context) error {
 	payload, err := s.router.LoadContextState(s.sessionID)
 	if err != nil {
 		if isSessionNotFound(err) {
-			s.loaded = true
-			return nil
+			// v8 会话可以没有 context blob（各字段已有独立落点）——继续从
+			// 模块/通道回读，而不是提前结束（S19）。
+			payload = nil
+		} else {
+			return fmt.Errorf("session context: load state %q: %w", s.sessionID, err)
 		}
-		return fmt.Errorf("session context: load state %q: %w", s.sessionID, err)
 	}
 	var record SessionContextRecord
 	if len(payload) > 0 {
@@ -301,7 +304,38 @@ func (s *SessionContextStore) loadBlob(_ context.Context) error {
 				s.sessionID, record.SchemaVersion, SessionContextSchemaVersion)
 		}
 	}
+	if record.SchemaVersion == 0 {
+		record.SchemaVersion = SessionContextSchemaVersion
+	}
 	s.record = record
+	// S19：system prompt 权威在 metadata/system.json（v8 JSON 布局）；blob 只
+	// 保留未 v8 化字段。
+	if snapshot, handled, err := s.router.LoadSystemPromptWorkspace(s.workspace(), s.sessionID); err != nil {
+		if !isSessionNotFound(err) {
+			return fmt.Errorf("session context: load system prompt %q: %w", s.sessionID, err)
+		}
+	} else if handled && snapshot.Prompt != "" {
+		s.record.SystemPrompt = snapshot.Prompt
+	}
+	// S19：CompactStack 权威在 compact 通道；v8 JSON 布局从通道回读（blob
+	// 不再双写），未 v8 化后端保留 blob。
+	if frames, handled, err := s.router.CompactFramesWorkspace(s.workspace(), s.sessionID); err != nil {
+		if !isSessionNotFound(err) {
+			return fmt.Errorf("session context: load compact frames %q: %w", s.sessionID, err)
+		}
+	} else if handled {
+		s.record.CompactStack = frames
+	}
+	if s.router.LayoutV8() {
+		// D1/S19：skill 记录不再是独立栈（普通 message 行承载正文），blob
+		// 不再持久化 SkillStack；GoalAudit 权威在 EVENT goal.*。
+		s.record.SkillStack = nil
+		if entries, handled, err := s.router.GoalAuditEvents(s.workspace(), s.sessionID); err != nil {
+			return fmt.Errorf("session context: load goal audit %q: %w", s.sessionID, err)
+		} else if handled {
+			s.record.GoalAudit = entries
+		}
+	}
 	s.loaded = true
 	return nil
 }
@@ -316,9 +350,39 @@ func (s *SessionContextStore) Persist(ctx context.Context) error {
 	record := s.record
 	s.mu.RUnlock()
 	record.SchemaVersion = SessionContextSchemaVersion
+	// S19：system prompt 迁 metadata/system.json；blob 不再承载该字段。
+	if handled, err := s.router.SaveSystemPromptWorkspace(s.workspace(), s.sessionID, record.SystemPrompt, ""); err != nil {
+		return fmt.Errorf("session context: save system prompt %q: %w", s.sessionID, err)
+	} else if handled {
+		record.SystemPrompt = ""
+	}
+	// S19：CompactStack 停双写——权威 = compact 通道（帧已由 PushCompact
+	// 桥接落盘），v8 JSON 布局的 blob 不再承载。
+	compactHandled := false
+	if _, handled, err := s.router.CompactFramesWorkspace(s.workspace(), s.sessionID); err != nil {
+		if !isSessionNotFound(err) {
+			return fmt.Errorf("session context: check compact channel %q: %w", s.sessionID, err)
+		}
+	} else if handled {
+		compactHandled = true
+	}
+	if compactHandled {
+		record.CompactStack = nil
+	}
+	if s.router.LayoutV8() {
+		// S19/D1：SkillStack 停 blob（普通 message 行）；GoalAudit 由 EVENT
+		// 通道承载。
+		record.SkillStack = nil
+		record.GoalAudit = nil
+	}
 	record.PlanStack = nil
 	record.TaskStack = nil
 	record.GoalStack = nil
+	if s.router.LayoutV8() {
+		// S19 收口：v8 JSON 的 context.json 已无任何字段承载（system/compact/
+		// skill/goal/audit 全有独立落点）——整文件停写。
+		return nil
+	}
 	payload, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("session context: encode state %q: %w", s.sessionID, err)
@@ -610,17 +674,24 @@ func (s *SessionContextStore) ReplaceGoalStack(frames []GoalFrame) error {
 // （last+1，首条=1）；只追加不回改既有条目。GoalStack 弹栈即删除（终态帧
 // 不进活栈），审计则保留收口记录——两者是"活栈 vs 审计"两个正交面。
 func (s *SessionContextStore) AppendGoalAudit(entry GoalAuditEntry) error {
-	return s.update(func(record *SessionContextRecord) error {
-		if entry.Kind == "" || entry.GoalID == "" {
-			return fmt.Errorf("session context: goal audit entry requires kind and goal_id")
-		}
-		entry.Seq = 1
-		if length := len(record.GoalAudit); length > 0 {
-			entry.Seq = record.GoalAudit[length-1].Seq + 1
-		}
-		record.GoalAudit = append(record.GoalAudit, entry)
+	if s == nil || s.router == nil || s.sessionID == "" {
+		return fmt.Errorf("session context: router or session ID is unavailable")
+	}
+	if entry.Kind == "" || entry.GoalID == "" {
+		return fmt.Errorf("session context: goal audit entry requires kind and goal_id")
+	}
+	s.mu.Lock()
+	entry.Seq = uint64(len(s.record.GoalAudit) + 1)
+	s.record.GoalAudit = append(s.record.GoalAudit, entry)
+	s.loaded = true
+	s.mu.Unlock()
+	// S19：v8 JSON 布局权威在 EVENT goal.*；未 v8 化后端保留 blob。
+	if handled, err := s.router.AppendGoalAuditEvent(s.workspace(), s.sessionID, entry); err != nil {
+		return fmt.Errorf("session context: append goal audit %q: %w", s.sessionID, err)
+	} else if handled {
 		return nil
-	})
+	}
+	return s.Persist(context.Background())
 }
 
 // GoalAuditSnapshot 返回本会话 goal 审计账本的深拷贝（按 Seq 追加顺序；
@@ -696,6 +767,7 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 			if frame.PrevSegmentID != "" {
 				return fmt.Errorf("session context: first compact frame must not carry prev_segment_id")
 			}
+			s.bridgeCompactFrame(frame)
 			record.CompactStack = append(record.CompactStack, frame)
 			return nil
 		}
@@ -711,19 +783,22 @@ func (s *SessionContextStore) PushCompact(frame CompactFrame) error {
 			return fmt.Errorf("session context: prev request range [%q,%q] must match stack top [%q,%q]",
 				frame.PrevRequestFrom, frame.PrevRequestTo, top.RequestFrom, top.RequestTo)
 		}
+		s.bridgeCompactFrame(frame)
 		record.CompactStack = append(record.CompactStack, frame)
 		return nil
 	})
-	if err != nil || s.router == nil || s.sessionID == "" {
-		return err
+	return err
+}
+
+// bridgeCompactFrame 把运行期压缩帧写进 compact 通道（S19：单源写入；
+// 失败不阻断内存/持久流程——compact.jsonl 可重建、下次提交重试）。
+func (s *SessionContextStore) bridgeCompactFrame(frame CompactFrame) {
+	if s == nil || s.router == nil || s.sessionID == "" {
+		return
 	}
-	// 运行期接线：把运行期 compact 帧桥接进 compact 通道（帧摘要进入
-	// wire 装配）；非 会话存储布局由 Router 返回 ok=false。桥接失败不回滚已持久化
-	// 的 context 栈（compact.jsonl 可重建，下次提交重试/忽略）。
-	if ok, bridgeErr := s.router.CommitCompactFrameWorkspace(s.workspace(), s.sessionID, frame); bridgeErr == nil && ok {
+	if ok, err := s.router.CommitCompactFrameWorkspace(s.workspace(), s.sessionID, frame); err == nil && ok {
 		_, _ = s.router.RetentionAdvisoryWorkspace(s.workspace(), s.sessionID)
 	}
-	return nil
 }
 
 // update 在加锁下执行栈操作并持久化 state blob。
@@ -733,6 +808,11 @@ func (s *SessionContextStore) update(mutate func(*SessionContextRecord) error) e
 	}
 	s.mu.Lock()
 	err := mutate(&s.record)
+	if err == nil {
+		// 本次进程已持有内存态：v8 的内存字段（SkillStack 等）不得被随后
+		// 的 Load 从已剥离的 blob 覆盖。
+		s.loaded = true
+	}
 	s.mu.Unlock()
 	if err != nil {
 		return err

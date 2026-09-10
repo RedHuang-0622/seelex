@@ -1,8 +1,8 @@
 # 会话存储架构（总览，2026-09-09 统一口径）
 
-> 状态：**设计稿，未实现**。代码与测试是最终事实源。
+> 状态：**权威设计稿的总览**。代码与测试是已实现能力的最终事实源。
 >
-> 本 README 是总览与入口；**权威明细 = [my_design.md](./my_design.md)（v8.1）**——
+> 本 README 是总览与入口；**权威明细 = [my_design.md](./my_design.md)（v8.3）**——
 > 术语、端点约定、不变量与 R2 装配读取器契约都以 my_design 为准；若与本文冲突，
 > 以 my_design 为准。实施将另开对话按契约进行，本文不再承担实现细节。
 
@@ -16,25 +16,31 @@
    compact 摘要 + 最新尾窗 + 同一操作最近 K 条尝试（默认 K=3）。
 4. **compact = 派生裁剪视图**；LRU 淘汰需用户确认，删除只发生在 watermark 之前，
    message_id/seq 保持空洞不重编号。
-5. **metadata 模块化**：`session/metadata/guide.json` 只做读索引/路由，各模块 head
-   独立成 json、写锁按模块，避免单一热点文件与跨模块写锁。
+5. **metadata 模块化**：各模块 head 独立成 json；写锁按「模块 × 栈 kind」，plan/task/goal/
+   subagent 各一份 head 一把锁（共享 head = 共享串行点）；`guide.json` 只做版本判定，
+   **不登记模块地址**（路径由模块名推导，登记会让每次首写都重写 guide 并形成跨会话写热区）。
 6. **回滚走 fork**：不原地撤销；fork 起点必须 ≥ LRU watermark；
    fork session 与 fork subagent 是两种形态。
 7. **队列 = 引擎待发送请求队列**：draft↔queue 在 lifecycle 模块内原子迁移；
    先队列后草稿；失败回草稿；已发送未确认重启后重发。
 8. **subagent 复用主会话 big_tool_result**；检索为单会话关键词模糊索引（可重建）。
 9. **GUI/CLI 各自数据根**；单数据根单进程写者（独占锁）。
+10. **旧布局彻底退役**（不留只读回退）：`manifest/generation/transcript`、`history.json`、
+    `context.json`、`state.json`、`tool-results/` 全部停止读写；blob 只剩 `big_tool_result`
+    一条通道；system prompt 改留会话侧快照（保字节级前缀稳定）。
 
 ## 1. 事实模型与记录分层
 
 | 层 | 载体 | 角色 | 生命周期 |
 |---|---|---|---|
 | message | `session/message/message_{m}_{n}.jsonl` | 正文事实（最终成功 in/out） | append；LRU 用户确认行删除 |
-| EVENT | `session/event/event_{1..100}.jsonl` | 结构性操作摘要 | append，不参与装配 |
+| EVENT | `session/event/event_{m}_{n}.jsonl` | 结构性操作摘要（含 `checkpoint`） | append，不参与装配 |
 | compact | `session/compact.jsonl` | 派生摘要帧 | append；与 retention 联动 |
-| stack/history | `session/{plan,task,goal}/{active,history}.jsonl` | 批次事实 + 归档 | 批次弹栈 |
-| metadata | `session/metadata/guide.json` + `<module>.json` | 读索引 + 模块 head | 模块原子发布 |
-| draft / queue | `session/input/`、`session/queue/` | 草稿 + 待发送队列 | lifecycle 模块内原子迁移 |
+| stack/history | `session/{plan,task,goal,subagent}/{active,history}.jsonl` | 批次事实 + 归档 | 批次弹栈，kind 分锁 |
+| metadata | `session/metadata/guide.json` + `<module>.json` | 版本判定 + 各模块 head 水位 | 模块 × kind 原子发布 |
+| draft / queue | `session/input/draft.json`、`session/queue/queue.jsonl` | 草稿 + 待发送队列 | 皆为整份替换型；出队 = 新内容不含该项 |
+| workplan 快照 | **落点未定**（现挤在 state.json；退役前须定，见 my_design §2.5.5） | 引擎续跑状态 | latest-wins 整份替换 |
+| system 快照 | `session/metadata/system.json` | 会话建立时生效的 prompt 内容 | 一次性写入，之后只读 |
 | big_tool_result | `session/big_tool_result/<hash>.jsonl` | 旁路（主会话统一） | 配额 + GC |
 | 尝试缓存 | 运行期内存 | 重试/失败说明 | 非持久，进程退出清空 |
 | 会话检索索引 | `session/metadata-index/` | 关键词模糊索引 | 可重建、允许落后 |
@@ -42,30 +48,33 @@
 ## 2. 目录布局
 
 ```text
-session-<hash>/
+project-<project_hash>/session-<session_hash>/
   metadata/
-    guide.json          # 读索引/路由（低频）
+    guide.json          # 版本判定/布局标记（不登记模块地址）
     message.json        # message head（热）
     compact.json        # compact head（热）
     event.json          # event head（热）
-    stack.json          # plan/task/goal head（热）
-    lifecycle.json      # queue_head + draft_head（同模块，原子迁移）
+    stack_plan.json     # plan 栈 head（热，独立锁）
+    stack_task.json     # task 栈 head（热，独立锁）
+    stack_goal.json     # goal 栈 head（热，独立锁）
+    subagent.json       # 第四栈 head：subagent 批次（热，独立锁）
+    lifecycle.json      # queue_head + draft_head + archived_at（同模块，原子迁移）
     retention.json      # LRU 水位/淘汰状态
-    subagent.json       # 子代理清单
+    system.json         # 会话 system prompt 快照（低频内容文件）
     media.json          # 媒体索引（预留）
   message/message_{m}_{n}.jsonl
   compact.jsonl
-  event/event_{1..100}.jsonl
-  {plan,task,goal}/{active,history}.jsonl
-  input/draft.json(l)
-  queue/queue.json(l)
+  event/event_{m}_{n}.jsonl
+  {plan,task,goal,subagent}/{active,history}.jsonl
+  input/draft.json
+  queue/queue.jsonl
   big_tool_result/<hash>.jsonl
   subagent_<hash>/      # 同构子树（无独立 blob，复用主会话）
   meta/<hash>/<原名>    # 媒体（后续，无项目关联任务）
 ```
 
-读写规则：先 append 数据 → 原子替换所属模块 json；guide 只做读索引，低频更新；
-读者路径 = guide → 模块 json → 数据文件（校验不符则自愈重读）。
+读写规则：先 append 数据 → 原子替换所属模块 json（head 是发布点，并据 `head_seq` 判崩溃残尾）；
+guide 只做版本判定，路径由模块名推导；读者路径 = guide → 模块 json → 数据文件（校验不符则自愈重读）。
 
 ## 3. 关键约定（权威：my_design §4）
 
@@ -81,7 +90,7 @@ session-<hash>/
 
 - R1（UI/历史）：读 message 分片，可展示压缩前内容；LRU 淘汰区显示摘要占位；
 - R2（LLM 装配）：最新 compact 摘要 + frame.message_to 之后的事件行 + 最近 K 条尝试，
-  纯函数、不读 EVENT；详细契约见 my_design §5（R2-STABLE/TEST-* 系列）；
+  纯函数、不读 EVENT；契约见 my_design §5（用例编号 = §5.6 的 `R2-*` 与附录 D.3 的 `T-R2-*`）；
 - R3（断点续跑）：interrupted 锚点后的尾段（EVENT 只用于定位，不改变正确性）。
 
 ## 5. 生命周期与容量
@@ -100,12 +109,14 @@ session-<hash>/
 - 检索 = 单会话关键词模糊索引（可重建）；
 - 数据根：GUI/CLI 隔离；单数据根单进程（独占锁 + owner_process；陈旧锁自动恢复默认关）。
 
-## 7. 迁移与旧布局
+## 7. 旧布局（v8.3：彻底退役）
 
-- 新会话按本布局写入；旧 rollout/manifest/generation/transcript 布局**只读兼容**，
-  不自动改写存量数据；迁移单独方案 + 备份 + 中文预警确认；
-- 布局判定：存在 `session/metadata/guide.json` = 新布局；存在 `manifest.json` = 旧布局；
-  运维/枚举工具需同时支持两套。
+- 旧 rollout / manifest / generation / transcript 布局**彻底退役，链路上不留只读回退**：
+  读路径不再判定、不再打开旧目录，运维工具不再支持两套；
+- 布局判定只剩一个用途：枚举时遇到只含 `manifest.json` 的旧目录 → 跳过并告警，不读内容；
+- 存量旧布局数据不迁移（处置与恢复来源见 conformance-checklist.md）；
+- `context.json` / `state.json` / `history.json` / `tool-results/` 一并退役，字段丢失口径见
+  my_design §3.2 与 §2.5.4（dev 阶段已接受）。
 
 ## 8. 实施顺序建议（供新对话）
 

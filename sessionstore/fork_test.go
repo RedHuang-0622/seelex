@@ -110,7 +110,11 @@ func TestForkCommitDeepCopiesToolResultsAfterParentDelete(t *testing.T) {
 				t.Fatal(err)
 			}
 			state, err := repository.ReadState(ctx, child)
-			if err != nil || string(state) != string(childState) {
+			if config.Backend == BackendJSON {
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Fatalf("json child state err=%v, want fs.ErrNotExist", err)
+				}
+			} else if err != nil || string(state) != string(childState) {
 				t.Fatalf("child state = %s err=%v", state, err)
 			}
 			events, err := repository.ReadEventRange(ctx, child, 1, 2)
@@ -205,8 +209,9 @@ func TestForkToolResultsConcurrentDivergenceStayIsolated(t *testing.T) {
 					return
 				}
 				state, err := router.LoadStateWorkspace(project, child.SessionID)
-				if err != nil || string(state) != string(childState) {
-					t.Errorf("child state %s = %s err=%v", child.SessionID, state, err)
+				if !errors.Is(err, fs.ErrNotExist) {
+					t.Errorf("child state %s = %s err=%v, want fs.ErrNotExist（S20 JSON 停读）",
+						child.SessionID, state, err)
 					return
 				}
 				events, err := store.EventRange(project, child.SessionID, 1, 1)

@@ -10,7 +10,7 @@ import (
 // 读放大：5000 行（50 个分片）下对比 readRows(全量) 与
 // readTailRowsForSelection(尾窗)，并断言两者经 selectEventTail 后语义一致。
 func TestTailReadAmplificationMeasurement(t *testing.T) {
-	store := newStoreEngine(t.TempDir(), 0)
+	store := newStoreEngine(t.TempDir(), storageSettings{})
 	key := Key{ProjectID: "p-amplify", SessionID: "s-amplify"}
 	const totalRows = 5000
 	batch := make([]Event, 0, totalRows)
@@ -40,7 +40,7 @@ func TestTailReadAmplificationMeasurement(t *testing.T) {
 		t.Fatalf("tail-window selection mismatch: full=%d tailInput=%d", len(want), len(tailRows))
 	}
 	t.Logf("rows=%d shards=%d full_read=%s tail_read=%s tail_input_rows=%d selected=%d speedup=%.1fx",
-		totalRows, len(full)/store.shardRows, fullDuration, tailDuration, len(tailRows), len(want),
+		totalRows, len(full)/store.settings.shardRows(), fullDuration, tailDuration, len(tailRows), len(want),
 		float64(fullDuration)/float64(maxDuration(tailDuration, time.Nanosecond)))
 }
 

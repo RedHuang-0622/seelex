@@ -120,6 +120,11 @@ func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) 
 	st.transcriptSeq++
 	event.Seq = st.transcriptSeq
 	event.Kind = classifyTranscriptEventKind(event)
+	// S19/D8：给模型看的内部材料（检查点渲染正文等）由生产方置
+	// wire_material=true；否则重启后 internal 行进不了装配。
+	if event.Kind == model.TranscriptEventKindInternal {
+		event.WireMaterial = true
+	}
 	if event.TaskID == "" && st.taskExecution != nil {
 		event.TaskID = st.taskExecution.RequestID
 	}

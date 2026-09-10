@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"os"
-	"path/filepath"
 )
 
 // selectEventRange 按 EventSeq 范围（含端点）过滤事件，保持原有顺序。
@@ -27,26 +25,16 @@ func (repository *jsonRepository) ReadEventRange(_ context.Context, key Key, fro
 	if err := key.validate(); err != nil {
 		return nil, err
 	}
-	if repository.active(key) {
-		rows, err := repository.layout.readRows(key, fromSeq, toSeq)
-		if err != nil {
-			return nil, err
-		}
-		return stripRowFields(rows), nil
+	if !repository.active(key) {
+		return nil, fs.ErrNotExist
 	}
-	repository.mu.RLock()
-	defer repository.mu.RUnlock()
-	directory := repository.sessionDir(key)
-	events, err := repository.readTranscriptEventsLocked(directory)
+	rows, err := repository.layout.readRows(key, fromSeq, toSeq)
 	if err != nil {
 		return nil, err
 	}
-	if len(events) == 0 {
-		if _, statErr := os.Stat(filepath.Join(directory, "manifest.json")); errors.Is(statErr, fs.ErrNotExist) {
-			return nil, fs.ErrNotExist
-		}
-	}
-	return selectEventRange(events, fromSeq, toSeq)
+	// §5.1 / D13 / S17b：公开读接口原样回传行（commit_id /
+	// wire_material / in_out_json 是幂等与装配凭据，不得擦除）。
+	return rows, nil
 }
 
 func (repository *sqlRepository) ReadEventRange(ctx context.Context, key Key, fromSeq, toSeq uint64) ([]Event, error) {

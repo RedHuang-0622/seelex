@@ -9,9 +9,11 @@
 //     不再「只有 JSON 后端有栈」。
 //
 // 并发（§2.0 规则 2）：
-//   - 写：同一会话的栈提交整段串行 —— metadata/stack.json 是跨 kind 共享的
-//     发布点，head_seq 必须单调；提交以闭包形式在该临界区内执行，可变投影
-//     只被这一个写者触碰，因此不存在数据竞争（actor 消息 = 闭包）；
+//   - 写：JSON 后端按「会话 × kind」串行（S16：每 kind 一份 head 一把锁，
+//     跨 kind 不再共享发布点）；SQL/Redis 后端 head 行仍为会话级共享，按
+//     会话粒度串行（v8 化拆分见打点表 §4）。提交以闭包形式在该临界区内
+//     执行，可变投影只被这一个写者触碰，因此不存在数据竞争（actor 消息 =
+//     闭包）；
 //   - 读：JSON 后端读者读 actor 发布的不可变内存快照，既不等写锁也不打开文件
 //     句柄（Windows 上「任何句柄都会让 rename 发布失败且零重试」）；
 //   - EVENT 移出栈临界区：写序仍是 数据 → head → EVENT（I5），只是 EVENT 的
@@ -41,8 +43,9 @@ const stackJournalTimeout = 5 * time.Second
 type stackJournal interface {
 	// backend 返回后端标识（诊断与统计用）。
 	backend() string
-	// lock 串行化同一会话的栈提交，返回解锁函数。
-	lock(key Key) func()
+	// lock 串行化同一会话（+ kind）的栈提交，返回解锁函数。JSON 后端按 kind
+	// 分锁；SQL/Redis 后端 head 行仍为会话级共享，实现侧可按会话粒度串行。
+	lock(key Key, kind StackKind) func()
 	// load 返回 head 水位与该 kind 已发布的 active 行（写路径载入）。
 	load(key Key, kind StackKind) (stackLoaded, error)
 	// readHistory 返回该 kind 的归档行（读路径与 fork 重建用；写路径不调用）。
@@ -68,6 +71,8 @@ type stackLoaded struct {
 	Kinds        map[StackKind]stackWatermark
 	Active       []StackItemRecord
 	HistoryCount uint64
+	// LastCommitID 是该 kind head 记录的最近一次发布凭据（重放判重）。
+	LastCommitID string
 }
 
 // stackPublish 是一次已确定的栈变更：新投影 + 待追加的归档行 + 该 kind 新水位。
@@ -98,7 +103,7 @@ func stackCommit(journal stackJournal, key Key, kind StackKind, mutate func(*sta
 // stackCommitLocked 执行提交的临界区（load → mutate → publish）。返回
 // published=false 表示闭包未产生迁移（未落盘、未发布 head）。
 func stackCommitLocked(journal stackJournal, key Key, kind StackKind, mutate func(*stackState) (StackMutation, error)) (bool, StackMutation, error) {
-	unlock := journal.lock(key)
+	unlock := journal.lock(key, kind)
 	defer unlock()
 
 	loaded, err := journal.load(key, kind)
@@ -130,9 +135,10 @@ func stackCommitLocked(journal stackJournal, key Key, kind StackKind, mutate fun
 			HeadSeq:      maxU64(state.nextSeq, water.HeadSeq),
 			ActiveCount:  len(state.active),
 			HistoryCount: loaded.HistoryCount + uint64(len(state.archived)),
-			OpenBatches:  state.openBatches(),
 		},
 	}
+	// 写侧凭据：逐操作唯一、确定性推导（§2.0 规则 4 / D13 / S17）。
+	entry.Watermark.LastCommitID = stackMutationCommitID(kind, mutation)
 	if err := journal.publish(key, entry); err != nil {
 		return false, StackMutation{}, err
 	}
@@ -162,28 +168,33 @@ func stackReadHistory(journal stackJournal, key Key, kind StackKind) ([]StackIte
 
 // stackVerify 校验 head 水位与数据计数一致（M5 巡检的栈通道部分）。
 func stackVerify(journal stackJournal, key Key) error {
-	unlock := journal.lock(key)
-	defer unlock()
-	loaded, err := journal.load(key, StackKindPlan)
-	if err != nil {
-		return err
-	}
-	for _, kind := range []StackKind{StackKindPlan, StackKindTask, StackKindGoal} {
+	for _, kind := range []StackKind{StackKindPlan, StackKindTask, StackKindGoal, StackKindSubagent} {
+		unlock := journal.lock(key, kind)
+		loaded, err := journal.load(key, kind)
+		if err != nil {
+			unlock()
+			return err
+		}
 		water := loaded.Kinds[kind]
 		active, err := stackReadActive(journal, key, kind)
 		if err != nil {
+			unlock()
 			return err
 		}
 		if len(active) != water.ActiveCount {
+			unlock()
 			return fmt.Errorf("session storage: verify %s active=%d want %d", kind, len(active), water.ActiveCount)
 		}
 		history, err := journal.readHistory(key, kind)
 		if err != nil {
+			unlock()
 			return err
 		}
 		if uint64(len(history)) != water.HistoryCount {
+			unlock()
 			return fmt.Errorf("session storage: verify %s history=%d want %d", kind, len(history), water.HistoryCount)
 		}
+		unlock()
 	}
 	return nil
 }

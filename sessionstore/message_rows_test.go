@@ -1,10 +1,9 @@
 package sessionstore
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +16,7 @@ import (
 // 目录扫描）。
 func messageFixture(t *testing.T, shardRows int) (*storeEngine, Key) {
 	t.Helper()
-	store := newStoreEngine(t.TempDir(), shardRows)
+	store := newStoreEngine(t.TempDir(), storageSettings{MessageShardRows: shardRows})
 	return store, Key{ProjectID: "project-p1", SessionID: "session-s1"}
 }
 
@@ -134,8 +133,11 @@ func TestMessageRowsCrashTornTailIgnored(t *testing.T) {
 	}
 }
 
-// TestMessageRowsUnpublishedRowsInvisible 对应 T-M1-04：append 完成但 message.json
-// 未替换 → 新行不可见（reader 以 head 为准），下次提交自愈不重复。
+// TestMessageRowsUnpublishedRowsInvisible 对应 T-M1-04（§2.0 通道类型表 +
+// D12/S21：该判据只约束追加型通道）：message 是追加型——append 完成但
+// message.json 未替换（head 未发布）时 reader 不得看到新行，下次提交自愈
+// 不重复。整份替换型通道（active/queue/draft/system/retention）的可见性
+// 判据见 T-STK-13/14。
 func TestMessageRowsUnpublishedRowsInvisible(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{messageRow(1, "u1", "user", EventKindUserInput, "ok")}); err != nil {
@@ -417,9 +419,10 @@ func TestMessageRowsMissingSessionReturnsEmpty(t *testing.T) {
 	}
 }
 
-// TestMessageRowsChecksumCorruptionRejected 校验 checksum 损坏（非并发替换）在两
-// 次读取后显式失败，不静默吞错。
-func TestMessageRowsChecksumCorruptionRejected(t *testing.T) {
+// TestMessageRowsChecksumCorruptionSelfHeals 校验 checksum 损坏（非并发替换）
+// 在两次读取后按数据文件重建 head（§2.0 规则 3 / S15）：不返回旧值、不判
+// 损坏、不静默吞错——修补后 head 有效且数据水位保留。
+func TestMessageRowsChecksumCorruptionSelfHeals(t *testing.T) {
 	store, key := messageFixture(t, 0)
 	if _, err := store.messageCommit(key, "c1", []Event{messageRow(1, "u1", "user", EventKindUserInput, "ok")}); err != nil {
 		t.Fatal(err)
@@ -433,10 +436,90 @@ func TestMessageRowsChecksumCorruptionRejected(t *testing.T) {
 	if err := os.WriteFile(headPath, []byte(corrupt), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.readMessageHead(key); err == nil {
-		t.Fatal("corrupt head accepted")
-	} else if errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("unexpected not-exist: %v", err)
+	head, err := store.readMessageHead(key)
+	if err != nil {
+		t.Fatalf("corrupt head must self-heal by data rebuild: %v", err)
+	}
+	if head.LastSeq != 1 || head.TotalRows != 1 {
+		t.Fatalf("rebuilt head = %+v, want last_seq=1 total=1", head)
+	}
+	repaired, err := os.ReadFile(headPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(repaired), `"checksum": "bad`) {
+		t.Fatal("rebuilt head still carries corrupted checksum")
+	}
+}
+
+// TestMessageRowsPublicReadersKeepCommitIDAndWireMaterial 对应 T-EV-07
+// （§5.1、D13、S17b）：公开读接口回传的行必须原样带着 commit_id /
+// wire_material / in_out_json。
+//
+// 擦除是双向失效：① 幂等凭据被抹掉后，「读出来改改再提交回去」的回路必然把
+// 同一次操作当成新提交（重放留下重复行）；② 补了 wire_material 置位的
+// internal 行（§2.7 检查点渲染正文）只要被公开读接口过一次就永久进不了 wire。
+func TestMessageRowsPublicReadersKeepCommitIDAndWireMaterial(t *testing.T) {
+	ctx := context.Background()
+	repository, err := Open(ctx, Config{Backend: BackendJSON, Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	store := repository.(*jsonRepository).layout
+	key := Key{ProjectID: "p-ev07", SessionID: "s-ev07"}
+	rows := []Event{
+		messageRow(1, "m-1", "user", EventKindUserInput, "落一个检查点"),
+		messageRow(2, "m-2", "user", EventKindInternal,
+			"<!-- seelex:context-checkpoint:v1 --> 已完成：栈通道"),
+	}
+	rows[1].WireMaterial = true
+	rows[1].InOutJSON = json.RawMessage(`{"version":1,"covers":[1,2]}`)
+	if _, err := store.messageCommit(key, "c-ev07", rows); err != nil {
+		t.Fatal(err)
+	}
+
+	ranged, err := repository.ReadEventRange(ctx, key, 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tail, err := repository.ReadEventTail(ctx, key, 1<<20, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, got := range map[string][]Event{"ReadEventRange": ranged, "ReadEventTail": tail} {
+		if len(got) != 2 {
+			t.Fatalf("%s rows = %d want 2", label, len(got))
+		}
+		for index, row := range got {
+			if row.CommitID != "c-ev07" {
+				t.Fatalf("%s[%d].commit_id = %q want c-ev07（公开读接口擦除了幂等凭据）", label, index, row.CommitID)
+			}
+		}
+		if !got[1].WireMaterial {
+			t.Fatalf("%s[1].wire_material = false（internal 行的装配置位被读接口抹掉）", label)
+		}
+		if len(got[1].InOutJSON) == 0 {
+			t.Fatalf("%s[1].in_out_json 为空（最终成功载荷被读接口抹掉）", label)
+		}
+	}
+
+	// 回读的行带凭据重放 = 同一次提交 → 空操作，行不重复。
+	if _, err := store.messageCommit(key, ranged[1].CommitID, ranged); err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.readAllRows(key)
+	if err != nil || len(after) != 2 {
+		t.Fatalf("同凭据重放后 rows = %d err = %v want 2", len(after), err)
+	}
+	// 换凭据的新提交不得被上一次凭据判成重复。
+	if _, err := store.messageCommit(key, "c-ev07-next", []Event{
+		messageRow(3, "m-3", "assistant", EventKindLLM, "已落"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if after, err = store.readAllRows(key); err != nil || len(after) != 3 {
+		t.Fatalf("不同凭据互判重复：rows = %d err = %v", len(after), err)
 	}
 }
 

@@ -89,13 +89,27 @@ func (repository *jsonRepository) ReadConversationRange(_ context.Context, key K
 	if err := key.validate(); err != nil {
 		return nil, 0, err
 	}
-	repository.mu.RLock()
-	defer repository.mu.RUnlock()
-	payload, err := repository.readCurrentStateLocked(repository.sessionDir(key))
+	// S20：conversation 无独立持久文件，由 message 事件行派生。
+	if !repository.active(key) {
+		return nil, 0, fs.ErrNotExist
+	}
+	rows, err := repository.layout.readRows(key, 1, 0)
 	if err != nil {
 		return nil, 0, err
 	}
-	return decodeConversationRange(payload, key.SessionID, offset, limit)
+	messages := derivedConversationMessages(rows)
+	total := len(messages)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if limit <= 0 || end > total {
+		end = total
+	}
+	return append([]ConversationMessage(nil), messages[offset:end]...), total, nil
 }
 
 func (repository *sqlRepository) ReadConversationRange(ctx context.Context, key Key, offset, limit int) ([]ConversationMessage, int, error) {
