@@ -23,7 +23,7 @@
 | D1 | skill **不是栈文件、也不是特例**：它就是普通 message 事件行，与 user 发送的信息同语义、同序装配进 wire；无专属段、无专属过滤器、无专属读取器 | 本轮问答 2026-09-09 |
 | D2 | 旧 manifest 布局会话**彻底退役，不再打开**（链路上不留只读回退） | 本轮问答 2026-09-09 |
 | D3 | 栈按设计稿分文件放置，消除 context 单文件写竞争 | 本轮指令 2026-09-09 |
-| D4 | **栈存储必须兼容其它存储格式**：JSON / SQLite / PostgreSQL / Redis 都要有栈通道，不允许「只有 JSON 有栈」 | 本轮指令 2026-09-09 |
+| D4 | **栈存储必须兼容其它存储格式**：JSON / SQLite / PostgreSQL / Redis 都要有栈通道，不允许「只有 JSON 有栈」；2026-09-10 方案 A 追加：旧后端实现退役，未来后端重写时必须显式实现 `stackJournal` | 本轮指令 2026-09-09 / 2026-09-10 |
 | D5 | 栈锁延迟必须**分域归因**（active.jsonl vs history.jsonl），并判定是数据竞争还是锁竞争；先拆锁粒度 + actor 闭包，不奏效则暂停上报 | 本轮指令 2026-09-09 |
 | D6 | **栈按 kind 分锁**：plan/task/goal/subagent 各一份 head 一把锁（共享 head = 共享串行点，拆锁必须先拆发布点）；`subagent` 是第四个批次栈（全批终态才弹栈）；**fork session 不入栈**（无完成点，按 §8.1 拷贝 + 父侧 EVENT 留档） | 本轮问答 2026-09-09 |
 | D7 | **message 只承载「给 LLM 看的会话正文事实」**：血缘/状态位/检查点等非上下文元数据不得写成 message 行 | 本轮问答 2026-09-09 |
@@ -61,10 +61,10 @@
 | head 未发布不可见 / 崩溃残尾 | `[~]` **仅对追加型成立** | 条目带 `Revision`、按 head 过滤 + `truncateCrashTail`，`T-STK-08` 覆盖崩溃残尾；但 `T-STK-07`（`stack_channel_test.go:752-777`）只测「追加一条高戳号幽灵行不可见」。`active.jsonl` 属**整份替换型**（`stack_journal_json.go:168` 整体原子替换），不存在「已 append 未发布」中间态，因此该 [x] 原本是对 §2.0「append 未发布 = 未提交」的**过度概括**——现按 D12 限定适用范围（H9 同步改判），并补 T-STK-13 断言整份替换型语义 |
 | context blob 不再承载三栈 | `[x]` | `SessionContextStore.Persist` 落盘前剥离 Plan/Task/Goal；`Load` 装载后按通道回读；schema 升 **v3**，v2 及更早显式拒绝（`TestGoalStackLegacySchemaRejected`） |
 | 运行期入口 | `[x]` | `Router.StackPush/StackSetStatus/StackPopTop/StackReplace/StackActive/StackHistory/StackVerify/StackStorageStats/ForkStacks`；`ErrChannelUnsupported` 已删除（不再有「某后端没有栈」的分支） |
-| **栈通道后端无关（D4）** | `[x]` | `stackJournal` 契约（`stack_journal.go`）+ 三份实现：JSON（`stack_journal_json.go`）、SQL（`stack_journal_sql.go`：`seelex_session_stack_item`/`_stack_head`/`seelex_session_structural_event`，事务=发布点）、Redis（`stack_journal_redis.go`：`<session>:stack:*` 列表 + head + `MULTI/EXEC`）；`Repository.stackJournal()` 是**接口方法且不可包外实现** → 新后端必须显式给栈通道 |
-| 栈语义用例的后端覆盖面（证据降格） | `[ ]` | `forEachStackBackend` 只跑 json + sqlite（`stack_channel_test.go:69-73`）；**Redis / PostgreSQL 的栈通道零语义测试**（`BackendRedis` 仅出现在 `state_test.go:215`）。D4 要求四后端都有栈通道，测试面上仍是 2/4；上一行的 `[x]` 证据只到「编译期强制 + SQLite 双跑」 |
-| SQL/Redis 锚的粒度缺口 | `[ ]` | 两后端消息通道仍是整块 shard 快照（无 v8 事件行键）→ `item_message_id` 为空、只有 `seq`；fork 过滤按 seq 不受影响，但「v8 事件行落到 SQL/Redis」仍是 §4 待办 |
-| 通道语义跨后端一致 | `[x]` | `forEachStackBackend` 把 11 条语义用例在 json + sqlite 各跑一遍（head 只装水位 / 整批弹栈 / 锚 / 迁移 EVENT / LIFO / replace 派生 / 并发单写者 / fork 按锚 / 跨实例持久化） |
+| **栈通道后端无关（D4）** | `[x]` R1 收口 | `stackJournal` 契约保留；旧 SQL/Redis 栈实现已删除，JSON v8（`stack_journal_json.go`）是当前唯一实现。`Repository.stackJournal()` 仍是接口方法且不可包外实现，新后端必须显式给栈通道 |
+| 栈语义用例的后端覆盖面 | `[x]` 当前实现 | `forEachStackBackend` 保留表驱动入口，R1 后只跑 JSON v8；旧 SQLite 矩阵半边已删除。新增后端必须补回同一套语义用例 |
+| 旧 SQL/Redis 锚的粒度缺口 | `[x]` 随实现退役 | 旧后端实现已删除；新后端必须直接按 v8 message 事件行给出 `message_id` + `seq` 锚，不复刻旧 shard 快照缺口 |
+| 通道语义跨后端一致 | `[x]` 当前实现 | `forEachStackBackend` 继续在 JSON v8 上跑完 head 水位、整批弹栈、message 锚、迁移 EVENT、LIFO、投影替换、并发单写者、fork 按锚重建、跨实例持久化；新后端重写后再扩矩阵 |
 | fork 子会话栈 | `[x]` | 存储层 `stackSnapshotAt`+`stackRestoreSnapshot`（起点 < watermark 报 `ErrForkBeforeWatermark`）；app 层经 `SaveSessionSnapshotWorkspace` 调 `Router.ForkStacks`；`T-FK-02` 改为按真实 message 锚断言 |
 | 锁延迟归因（D5） | `[x]` | 见 §5「S5/S6 归因结果」：写路径不再解析 history（`history_read=0`）、读者走 `atomic.Pointer` 快照（`cold_loads=0`，均值 5.96 µs/次）、EVENT 提交移出栈临界区、guide 锁由仓库级降为会话级 |
 | 行为变更（需知悉） | `[~]` | 关闭的 plan/task 帧不再原地留在 active（§2.4 整批弹栈归档）；「now using = 栈顶」因此只看到未收口帧 |
@@ -101,7 +101,7 @@
 | retention raw_bytes 精确度量 | `[ ]` | `rawBytesEstimate = TotalRows * 1024` 是粗估（`json_layout.go:273`），设计稿要求按原始字节告警 |
 | M5 verify / reconcile | `[ ]` | 「仅 verifyMessage」已失真：现有三把——`verifyMessage`（`message_rows.go:586`）、`verifyEvents`（`structural_events.go:510`）、`Router.StackVerify`（`runtime_api.go:150`）；但**三者零生产调用方**，跨通道 reconcile/巡检出口仍缺（结论不变、原措辞失准） |
 | 「检查点」是两个东西：workplan 续跑快照落点 | `[x]` 已定并落地 | **上下文检查点**：渲染正文 = message internal 行、结构事实 = EVENT `checkpoint`（§2.7，消费面随 S19/S20 EVENT 生产者）。**引擎续跑快照**：判据 = 不能从 message+EVENT 完全重算（各节点中间产出）→ 用户口径选会话侧整份替换型 `metadata/checkpoint.json`；`checkpoint_store.go` 已从 state 通道迁至 `Router.SaveCheckpoint/LoadCheckpointWorkspace`（JSON v8 布局；SQL/Redis 沿 state 通道待 v8 化）。T-CK-01 扩展断言：不再产生 state.json |
-| SQLite/PostgreSQL/Redis 的 v8 化 | `[~]` 搁置 | 用户口径（2026-09-10）：**先搁置，随 message 读写热点专项一并优化**；本轮不做 SQL/Redis 的 v8 化与按 kind head 拆分 |
+| SQLite/PostgreSQL/Redis 的 v8 化 | `[x]` 实现退役（方案 A） | 用户口径（2026-09-10）：旧后端实现**直接删除**，只保留策略 A = 枚举 + `Config.Normalize`/`Open` 显式 `ErrBackendRetired`（不静默回退、不改配置）；`sqlRepository`/`redisRepository`、`stack_journal_sql.go`/`stack_journal_redis.go` 与专属测试已删除，新后端待按 `Repository`/`stackJournal` 接口重写 |
 | §10 媒体/多模态 | `[~]` 不做 | 设计稿自标「后续规划」，media.json 为预留位 |
 
 ## 5. message 读写热点（本轮只记录，研究放到最后）
@@ -236,4 +236,4 @@ S1 的 mutex 观察（同机、同场景）：
 | R1 契约缺失（分页游标在 seq 空洞下的语义、LRU 摘要占位取哪一帧、internal/context 行的展示规则） | `[ ]` 稿子只给了 R2 契约（§5） |
 | EVENT / compact 分片是否共用 `shard_rows` 还是各自成文（§11 现列两键） | `[?]` 代码现状是 `store.settings.shardRows()` 四通道共用 |
 | budget 口径（200k 是 token 还是字符；软 75% 与目标 60% 的先后） | `[ ]` 见 §3 表；R2-BUDGET-1 前必须定 |
-| SQLite/PostgreSQL/Redis 的 v8 化范围 | `[~]` 搁置（2026-09-10 用户口径：随 message 读写热点专项一并优化） |
+| SQLite/PostgreSQL/Redis 的 v8 化范围 | `[x]` 旧实现已删除（方案 A）；新实现待按接口重写；v8 化随 message 读写热点专项 |

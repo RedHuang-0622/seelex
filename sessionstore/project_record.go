@@ -3,7 +3,6 @@ package sessionstore
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,16 +35,12 @@ type ModuleSemantics struct {
 	Docs    []string `json:"docs,omitempty"` // doc/interface index
 }
 
-// isProjectRecordNotFound reports whether the record has never been built
-// (JSON missing manifest file / SQL no row / Redis nil converted to fs.ErrNotExist).
+// isProjectRecordNotFound reports whether the record has never been built.
 func isProjectRecordNotFound(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return true
-	}
-	return errors.Is(err, sql.ErrNoRows)
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // ── 来源与构建（project_refresh 工具核心，plan.md §3.7.1）──────────────────

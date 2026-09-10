@@ -2,7 +2,6 @@ package sessionstore
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"io/fs"
 	"path/filepath"
@@ -16,7 +15,6 @@ import (
 func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -29,29 +27,16 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 			if err := repository.WriteState(context.Background(), key, want); err != nil {
 				t.Fatal(err)
 			}
-			got, err := repository.ReadState(context.Background(), key)
-			if config.Backend == BackendJSON {
-				// S20：state 通道在 v8 JSON 停写停读。
-				if !errors.Is(err, fs.ErrNotExist) {
-					t.Fatalf("json ReadState err = %v, want fs.ErrNotExist", err)
-				}
-			} else {
-				if err != nil {
-					t.Fatal(err)
-				}
-				if string(got) != string(want) {
-					t.Fatalf("state = %s, want %s", got, want)
-				}
+			_, err = repository.ReadState(context.Background(), key)
+			// S20：state 通道在 v8 JSON 停写停读。
+			if !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("json ReadState err = %v, want fs.ErrNotExist", err)
 			}
 			history := testMessages(defaultMessageShardSize+5, string(config.Backend))
-			if config.Backend == BackendJSON {
-				// v8 JSON 布局（S11）：事件行为正文事实源，ReadRange 由行派生。
-				if err := repository.WriteCommit(context.Background(), key, Commit{
-					Events: messagesToEventRows(history),
-				}); err != nil {
-					t.Fatal(err)
-				}
-			} else if err := repository.WriteAtomic(context.Background(), key, history); err != nil {
+			// v8 JSON 布局（S11）：事件行为正文事实源，ReadRange 由行派生。
+			if err := repository.WriteCommit(context.Background(), key, Commit{
+				Events: messagesToEventRows(history),
+			}); err != nil {
 				t.Fatal(err)
 			}
 			window, total, err := repository.ReadRange(context.Background(), key, defaultMessageShardSize-2, 4)
@@ -61,7 +46,7 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 			if err := repository.Delete(context.Background(), key); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := repository.ReadState(context.Background(), key); err == nil || (!errors.Is(err, fs.ErrNotExist) && !errors.Is(err, sql.ErrNoRows)) {
+			if _, err := repository.ReadState(context.Background(), key); err == nil || !errors.Is(err, fs.ErrNotExist) {
 				t.Fatalf("state after delete error = %v, want not found", err)
 			}
 		})
@@ -71,7 +56,6 @@ func TestStateRoundTripAcrossLocalBackends(t *testing.T) {
 func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -99,23 +83,16 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 			if err := repository.WriteCommit(context.Background(), key, commit); err != nil {
 				t.Fatal(err)
 			}
-			wantHistory := 2
-			if config.Backend == BackendJSON {
-				// v8 JSON 布局（S11）：Read 由事件行派生（ProviderHistory 与
-				// history.json 缓存已退役），5 行事件映射为 5 条消息。
-				wantHistory = len(rowsToProviderMessages(commit.Events))
-			}
+			// v8 JSON 布局（S11）：Read 由事件行派生（ProviderHistory 与
+			// history.json 缓存已退役），5 行事件映射为 5 条消息。
+			wantHistory := len(rowsToProviderMessages(commit.Events))
 			history, err := repository.Read(context.Background(), key)
 			if err != nil || len(history) != wantHistory {
 				t.Fatalf("history=%#v err=%v", history, err)
 			}
 			state, err := repository.ReadState(context.Background(), key)
-			if config.Backend == BackendJSON {
-				if !errors.Is(err, fs.ErrNotExist) {
-					t.Fatalf("json state err=%v, want fs.ErrNotExist", err)
-				}
-			} else if err != nil || string(state) != string(commit.State) {
-				t.Fatalf("state=%s err=%v", state, err)
+			if !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("json state err=%v, want fs.ErrNotExist", err)
 			}
 			result, err := repository.ReadToolResult(context.Background(), key, "tr-result")
 			if err != nil || result.Content != content {
@@ -125,13 +102,9 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 			if err != nil || len(tail) != len(commit.Events) {
 				t.Fatalf("tail=%#v err=%v", tail, err)
 			}
-			if config.Backend == BackendJSON {
-				// 公开读接口保留 commit_id 等凭据（S17b/T-EV-07），逐字段
-				// 比较行身份与正文。
-				if !sameRangeEvents(tail, commit.Events) {
-					t.Fatalf("tail=%#v want events", tail)
-				}
-			} else if !reflect.DeepEqual(tail, commit.Events) {
+			// 公开读接口保留 commit_id 等凭据（S17b/T-EV-07），逐字段
+			// 比较行身份与正文。
+			if !sameRangeEvents(tail, commit.Events) {
 				t.Fatalf("tail=%#v want events", tail)
 			}
 
@@ -148,9 +121,6 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 			if len(history) != wantHistory {
 				t.Fatalf("failed commit became visible: history=%#v state=%s", history, state)
 			}
-			if config.Backend != BackendJSON && string(state) != string(commit.State) {
-				t.Fatalf("failed commit changed state: %s", state)
-			}
 		})
 	}
 }
@@ -158,7 +128,6 @@ func TestCommitRoundTripIsAtomicAcrossLocalBackends(t *testing.T) {
 func TestWriteStateAfterCommitReturnsLatestState(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -173,13 +142,8 @@ func TestWriteStateAfterCommitReturnsLatestState(t *testing.T) {
 			if err := repository.WriteState(context.Background(), key, []byte("second")); err != nil {
 				t.Fatal(err)
 			}
-			state, err := repository.ReadState(context.Background(), key)
-			if config.Backend == BackendJSON {
-				if !errors.Is(err, fs.ErrNotExist) {
-					t.Fatalf("json state err=%v, want fs.ErrNotExist", err)
-				}
-			} else if err != nil || string(state) != "second" {
-				t.Fatalf("state=%q err=%v", state, err)
+			if _, err := repository.ReadState(context.Background(), key); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("json state err=%v, want fs.ErrNotExist", err)
 			}
 		})
 	}
@@ -228,41 +192,6 @@ func TestEventTailKeepsTrailingUnansweredUserInput(t *testing.T) {
 	}
 }
 
-func TestSQLitePersistsHistoryAsShards(t *testing.T) {
-	repository, err := Open(context.Background(), Config{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repository.Close()
-	key := Key{ProjectID: "project", SessionID: "session"}
-	if err := repository.WriteAtomic(context.Background(), key, testMessages(defaultMessageShardSize+1, "sqlite")); err != nil {
-		t.Fatal(err)
-	}
-	sqlRepo, ok := repository.(*sqlRepository)
-	if !ok {
-		t.Fatalf("repository type = %T", repository)
-	}
-	var shards int
-	if err := sqlRepo.db.QueryRow(`SELECT COUNT(*) FROM seelex_session_shard WHERE project_id=? AND session_id=?`, key.ProjectID, key.SessionID).Scan(&shards); err != nil {
-		t.Fatal(err)
-	}
-	if shards != 2 {
-		t.Fatalf("SQL shard count = %d, want 2", shards)
-	}
-}
-
-func TestRedisConfigAndKeysUseProjectScopedShardStrategy(t *testing.T) {
-	if _, err := (Config{Backend: BackendRedis}).Normalize(t.TempDir()); err == nil {
-		t.Fatal("Redis config without DSN succeeded")
-	}
-	repository := &redisRepository{namespace: "seelex"}
-	first := Key{ProjectID: "project-a", SessionID: "session-1"}
-	second := Key{ProjectID: "project-a", SessionID: "session-2"}
-	if projectKey := repository.projectKey(first.ProjectID); !containsHashTag(repository.shardKey(first, "generation-a", 0), projectKey) || !containsHashTag(repository.shardKey(second, "generation-b", 1), projectKey) {
-		t.Fatalf("Redis shard keys do not share project hash tag: %q / %q", repository.shardKey(first, "generation-a", 0), repository.shardKey(second, "generation-b", 1))
-	}
-}
-
 func testMessages(count int, marker string) []types.Message {
 	messages := make([]types.Message, count)
 	for index := range messages {
@@ -270,8 +199,4 @@ func testMessages(count int, marker string) []types.Message {
 		messages[index] = types.Message{Role: "user", Content: &content}
 	}
 	return messages
-}
-
-func containsHashTag(key, tag string) bool {
-	return len(tag) > 0 && len(key) > len(tag) && key[:len(tag)] == tag
 }

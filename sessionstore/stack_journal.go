@@ -3,37 +3,25 @@
 // 分层：
 //   - 通道语义（批次弹栈、水位、head 发布点、message 锚、EVENT 迁移、fork
 //     按锚重建、verify）只在本文件与 stack_channel.go 实现一次；
-//   - 后端只提供「载入 / 发布 / 锚 / 水位 / EVENT」五个动作：JSON 文件
-//     （stack_journal_json.go）、SQL（stack_journal_sql.go）、Redis
-//     （stack_journal_redis.go）。三种后端读写同一套 StackItemRecord 语义，
-//     不再「只有 JSON 后端有栈」。
+//   - 后端只提供「载入 / 发布 / 锚 / 水位 / EVENT」五个动作；R1 收口后仅保留
+//     JSON 文件实现（stack_journal_json.go），SQLite/PostgreSQL/Redis 枚举
+//     已退役。
 //
 // 并发（§2.0 规则 2）：
 //   - 写：JSON 后端按「会话 × kind」串行（S16：每 kind 一份 head 一把锁，
-//     跨 kind 不再共享发布点）；SQL/Redis 后端 head 行仍为会话级共享，按
-//     会话粒度串行（v8 化拆分见打点表 §4）。提交以闭包形式在该临界区内
-//     执行，可变投影只被这一个写者触碰，因此不存在数据竞争（actor 消息 =
-//     闭包）；
+//     跨 kind 不再共享发布点）。提交以闭包形式在该临界区内执行，可变投影只
+//     被这一个写者触碰，因此不存在数据竞争（actor 消息 = 闭包）；
 //   - 读：JSON 后端读者读 actor 发布的不可变内存快照，既不等写锁也不打开文件
 //     句柄（Windows 上「任何句柄都会让 rename 发布失败且零重试」）；
 //   - EVENT 移出栈临界区：写序仍是 数据 → head → EVENT（I5），只是 EVENT 的
 //     分片 IO 不再拉长栈锁的持有时间。
-//
-// 上下文：journal 接口不带 context。JSON 后端无 IO 上下文；SQL/Redis 后端在
-// 自身实现里用 context.WithTimeout(context.Background(), stackJournalTimeout)
-// 给每次调用兜底超时（Router 公开 API 引入 ctx 后再把取消传播接上）。
 package sessionstore
 
 import (
-	"context"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 )
-
-// stackJournalTimeout 是 SQL/Redis 后端单次通道调用的兜底超时。
-const stackJournalTimeout = 5 * time.Second
 
 // stackJournal 是栈通道后端契约。实现必须满足：
 //  1. load 只返回 revision ≤ head_seq 的行（head 是提交发布点）；
@@ -44,7 +32,7 @@ type stackJournal interface {
 	// backend 返回后端标识（诊断与统计用）。
 	backend() string
 	// lock 串行化同一会话（+ kind）的栈提交，返回解锁函数。JSON 后端按 kind
-	// 分锁；SQL/Redis 后端 head 行仍为会话级共享，实现侧可按会话粒度串行。
+	// 分锁。
 	lock(key Key, kind StackKind) func()
 	// load 返回 head 水位与该 kind 已发布的 active 行（写路径载入）。
 	load(key Key, kind StackKind) (stackLoaded, error)
@@ -288,33 +276,6 @@ func stackFork(journal stackJournal, parentKey, childKey Key, fromSeq uint64) er
 	return nil
 }
 
-// keyedMutex 是「按会话键分片」的独占锁注册表（SQL/Redis 后端栈提交的单写者
-// 保证；注册表短临界区只取锁指针，不参与 IO）。
-type keyedMutex struct {
-	registry sync.RWMutex
-	locks    map[string]*sync.Mutex
-}
-
-func (registry *keyedMutex) get(id string) *sync.Mutex {
-	registry.registry.RLock()
-	lock := registry.locks[id]
-	registry.registry.RUnlock()
-	if lock != nil {
-		return lock
-	}
-	registry.registry.Lock()
-	defer registry.registry.Unlock()
-	if registry.locks == nil {
-		registry.locks = make(map[string]*sync.Mutex)
-	}
-	if lock = registry.locks[id]; lock != nil {
-		return lock
-	}
-	lock = &sync.Mutex{}
-	registry.locks[id] = lock
-	return lock
-}
-
 // stackJournalStats 是栈通道的延迟归因快照：分别计量「栈锁等待」与各数据域
 // IO，直接回答「延迟落在 active 还是 history」。
 type stackJournalStats struct {
@@ -364,9 +325,4 @@ func timeSection(counter *atomic.Int64, fn func() error) error {
 	err := fn()
 	counter.Add(time.Since(begin).Nanoseconds())
 	return err
-}
-
-// backgroundJournalContext 给非 JSON 后端的单次调用兜底超时。
-func backgroundJournalContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), stackJournalTimeout)
 }

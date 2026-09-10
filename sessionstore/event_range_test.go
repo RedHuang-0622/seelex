@@ -17,12 +17,11 @@ func rangeEvents(count int) []Event {
 	return events
 }
 
-// TestEventRangeAcrossLocalBackends 契约测试：EventSeq 范围读取（含端点）
-// 在 JSON/SQLite 后端语义一致，跨 shard 边界连续、倒置范围显式报错。
-func TestEventRangeAcrossLocalBackends(t *testing.T) {
+// TestEventRangeFromMessageRows 契约测试：EventSeq 范围读取（含端点）
+// 在 JSON v8 布局中跨 shard 边界连续、倒置范围显式报错。
+func TestEventRangeFromMessageRows(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)

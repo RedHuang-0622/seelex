@@ -2,7 +2,6 @@ package sessionstore
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -16,7 +15,6 @@ import (
 func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -56,7 +54,6 @@ func TestProjectRecordRoundTripAcrossLocalBackends(t *testing.T) {
 func TestProjectRecordEmptyProjectIDRejected(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		repository, err := Open(context.Background(), config)
 		if err != nil {
@@ -69,21 +66,6 @@ func TestProjectRecordEmptyProjectIDRejected(t *testing.T) {
 			t.Fatalf("%s: empty project ID read succeeded", config.Backend)
 		}
 		repository.Close()
-	}
-}
-
-func TestRedisProjectRecordKeySharesProjectHashTag(t *testing.T) {
-	repository := &redisRepository{namespace: "seelex"}
-	first := repository.projectRecordKey("project-a")
-	if tag := repository.projectKey("project-a"); !containsHashTag(first, tag) {
-		t.Fatalf("project record key %q does not share project hash tag %q", first, tag)
-	}
-	if !strings.HasSuffix(first, ":project-record") {
-		t.Fatalf("unexpected project record key shape %q", first)
-	}
-	// 不同项目 → 不同 key（按项目隔离）。
-	if second := repository.projectRecordKey("project-b"); second == first {
-		t.Fatalf("project record keys must be project-scoped: %q", first)
 	}
 }
 
@@ -281,9 +263,6 @@ func TestIsProjectRecordNotFound(t *testing.T) {
 	}
 	if !isProjectRecordNotFound(fs.ErrNotExist) {
 		t.Fatal("fs.ErrNotExist must be not-found")
-	}
-	if !isProjectRecordNotFound(sql.ErrNoRows) {
-		t.Fatal("sql.ErrNoRows must be not-found")
 	}
 	if isProjectRecordNotFound(errors.New("boom")) {
 		t.Fatal("other errors are not not-found")

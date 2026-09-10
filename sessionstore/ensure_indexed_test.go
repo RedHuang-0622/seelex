@@ -9,7 +9,7 @@ import (
 // 先 EnsureIndexed（空 commit 建 manifest/meta），再写 state 通道后即可被
 // SessionsOf 枚举；重复调用幂等（不重复建 commit）。
 func TestEnsureIndexedMakesRecordOnlySessionEnumerable(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)

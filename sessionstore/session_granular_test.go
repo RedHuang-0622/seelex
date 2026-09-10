@@ -3,32 +3,21 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 )
 
-// newSessionGranularRouter 按后端构造 Router（JSON 默认；SQLite 经
-// Configure 切换，验证多后端同契约）。
-func newSessionGranularRouter(t *testing.T, backend Backend) *Router {
+// newSessionGranularRouter 构造 JSON v8 Router（R1 后仅保留该实现）。
+func newSessionGranularRouter(t *testing.T, _ Backend) *Router {
 	t.Helper()
-	router := newTestRouter(t)
-	if backend != BackendJSON {
-		if err := router.Configure(context.Background(), Config{
-			Backend: BackendSQLite,
-			Path:    filepath.Join(t.TempDir(), "sessions.db"),
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return router
+	return newTestRouter(t)
 }
 
 // TestSessionGranularityPersistence（T2.6）：session:<id> 五片原子读写、
 // 项目索引、subagent 与 main 同构落盘。
 func TestSessionGranularityPersistence(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)
@@ -177,7 +166,7 @@ func TestSessionGranularityPersistence(t *testing.T) {
 
 // TestPersistenceIdempotent（B6）：会话粒度重复写/恢复幂等，键不漂移。
 func TestPersistenceIdempotent(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)
@@ -346,7 +335,7 @@ func TestSessionsOfDefaultProjectIndependentOfActiveScope(t *testing.T) {
 // 时间线字段丢弃成零值后，快照里 updated_at 恒为 0001-01-01T00:00:00Z，
 // 前端每条会话都渲染成同一个占位日期。
 func TestSessionsOfCarriesManifestTimeline(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)

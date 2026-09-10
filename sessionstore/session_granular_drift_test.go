@@ -11,7 +11,7 @@ import (
 // project-A。否则重启后 B 的记录分裂在两个项目（A 项目里有 B、默认项目里
 // 只剩旧轮），目录/加载/删除全部错键（manifest 找不到 / A、B 同收消息）。
 func TestDefaultProjectSessionPersistDoesNotFollowActiveScope(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)

@@ -30,12 +30,11 @@ const conversationStateV3 = `{
   "updated_at": "2026-08-05T00:00:03Z"
 }`
 
-// TestConversationRangeAcrossLocalBackends 契约测试：conversation 模块范围
-// 读取在 JSON/SQLite 后端语义一致（窗口切片、总数、越界收敛、limit<=0）。
-func TestConversationRangeAcrossLocalBackends(t *testing.T) {
+// TestConversationRangeFromMessageRows 契约测试：conversation 模块范围读取
+// 由 message 事件行派生（窗口切片、总数、越界收敛、limit<=0）。
+func TestConversationRangeFromMessageRows(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -44,16 +43,12 @@ func TestConversationRangeAcrossLocalBackends(t *testing.T) {
 			}
 			defer repository.Close()
 			key := Key{ProjectID: "project", SessionID: "session"}
-			if config.Backend == BackendJSON {
-				if err := repository.WriteCommit(context.Background(), key, Commit{Events: []Event{
-					{Seq: 1, MessageID: "message-1", Role: "user", Content: "hello"},
-					{Seq: 2, MessageID: "message-2", Role: "assistant", Content: "hi",
-						ToolCalls: []EventToolCall{{ID: "call-1", Name: "bash", Arguments: "{\"cmd\":\"ls\"}"}}},
-					{Seq: 3, MessageID: "message-3", Role: "user", Content: "world"},
-				}}); err != nil {
-					t.Fatal(err)
-				}
-			} else if err := repository.WriteState(context.Background(), key, []byte(conversationStateV3)); err != nil {
+			if err := repository.WriteCommit(context.Background(), key, Commit{Events: []Event{
+				{Seq: 1, MessageID: "message-1", Role: "user", Content: "hello"},
+				{Seq: 2, MessageID: "message-2", Role: "assistant", Content: "hi",
+					ToolCalls: []EventToolCall{{ID: "call-1", Name: "bash", Arguments: "{\"cmd\":\"ls\"}"}}},
+				{Seq: 3, MessageID: "message-3", Role: "user", Content: "world"},
+			}}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -68,9 +63,6 @@ func TestConversationRangeAcrossLocalBackends(t *testing.T) {
 			// 工具消息映射完整（Tool 深拷贝语义）。
 			if messages[1].Tool == nil || messages[1].Tool.ID != "call-1" || messages[1].Tool.Name != "bash" || messages[1].Tool.Status != "success" {
 				t.Fatalf("tool message = %#v", messages[1].Tool)
-			}
-			if config.Backend != BackendJSON && messages[1].Tool.Duration != 120*time.Millisecond {
-				t.Fatalf("sqlite tool duration = %v, want 120ms", messages[1].Tool.Duration)
 			}
 			// 尾部窗口：offset=1, limit=10 → 收敛到消息 2-3。
 			messages, total, err = repository.ReadConversationRange(context.Background(), key, 1, 10)

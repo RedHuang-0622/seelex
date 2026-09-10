@@ -2,7 +2,6 @@ package sessionstore
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,7 +14,6 @@ import (
 func TestListToolResultsAndCurrentGenerationAcrossBackends(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -51,7 +49,7 @@ func TestListToolResultsAndCurrentGenerationAcrossBackends(t *testing.T) {
 			if err != nil || generation == "" {
 				t.Fatalf("current generation = %q err=%v", generation, err)
 			}
-			if _, err := repository.CurrentGeneration(context.Background(), Key{ProjectID: "project", SessionID: "missing"}); !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, sql.ErrNoRows) {
+			if _, err := repository.CurrentGeneration(context.Background(), Key{ProjectID: "project", SessionID: "missing"}); !errors.Is(err, fs.ErrNotExist) {
 				t.Fatalf("missing generation error = %v, want not found", err)
 			}
 		})
@@ -64,7 +62,6 @@ func TestListToolResultsAndCurrentGenerationAcrossBackends(t *testing.T) {
 func TestForkCommitDeepCopiesToolResultsAfterParentDelete(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)

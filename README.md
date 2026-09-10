@@ -22,7 +22,7 @@ Seelex 由两个公开层次组成：[Seele](https://github.com/RedHuang-0622/Se
 
 上下文处理采用预算驱动的 Context Engineering 流程。Seelex 会为输出预留 token、保留最近对话窗口、压缩窗口外历史，并把超大 Tool Result 归档为可读回的引用。文件和 Shell 工具则同时受 ProjectScope 与 Permission Policy 约束：前者负责 workspace root 的路径 containment，后者在合法范围内继续执行 allow、ask 或 deny，并通过 Human-in-the-loop Interaction 完成审批。
 
-运行时可以使用 OpenAI-compatible endpoint，包括满足流式响应和 Tool Calling 契约的 DeepSeek 服务。模型账号按 agent、subagent、goalplan 等角色进入 Account Pool；Plugin 可以事务式切换工具、Agent Skills 和 MCP Server。会话数据可保存到 JSON、SQLite、PostgreSQL 或 Redis，并保持统一的 project/session 隔离和 immutable generation 语义。
+运行时可以使用 OpenAI-compatible endpoint，包括满足流式响应和 Tool Calling 契约的 DeepSeek 服务。模型账号按 agent、subagent、goalplan 等角色进入 Account Pool；Plugin 可以事务式切换工具、Agent Skills 和 MCP Server。当前会话数据使用 JSON v8；SQLite、PostgreSQL、Redis 枚举保留用于显式退役错误，新后端待按接口重写。
 
 项目通过 Go 单元测试、集成测试、确定性 E2E scenario、GUI 协议测试和 Windows/Linux/macOS CI 验证。完整的设计依据和代码入口见 [关键技术决策](#关键技术决策)，当前已知限制见 [项目状态与边界](#当前状态与边界)。
 
@@ -60,7 +60,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 项目安全 | ProjectScope 路径约束、PathGate 规则、manual/full_access 权限模式 |
 | 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 动态挂载与工具可见性过滤 |
 | 模型与账号 | OpenAI-compatible endpoint、按角色分组的账号池、分支确定性选路和流式租约 |
-| 持久化 | JSON、SQLite、PostgreSQL、Redis 后端；项目与 Session 隔离、分片和原子 generation 切换 |
+| 持久化 | JSON v8 后端；项目与 Session 隔离、模块 head 发布与消息分片 |
 | 前端 | Bubble Tea TUI；Wails/WebView GUI（Alpha） |
 | 可观测性 | Snapshot/Event 协议、Plan 节点事件、MCP 调用轨迹和运行时状态 |
 | 测试 | Go 单元/集成/E2E、GUI 协议测试、跨平台 CI、race/coverage 和发布安全检查 |
@@ -189,14 +189,14 @@ ProjectScope 解决“能否逃出项目目录”的物理边界；PathGate 解�
 
 默认权限模式是 <code>manual</code>。Plugin tool visibility、Human-in-the-loop approval 和 scoped tool dispatch 在请求时共同生效，隐藏工具即使被模型构造出调用也会被拒绝。Windows Shell 使用显式系统 PowerShell、<code>-NoProfile</code> 和 <code>-NonInteractive</code>，降低 profile 注入、WSL shim 命中和交互阻塞风险。
 
-### 6. 会话持久化采用 Immutable Generation，而不是原地覆盖大 JSON
+### 6. 会话持久化采用 append-only message 与模块 head
 
-所有存储后端先按 <code>project_id</code> 分区，再按 <code>session_id</code> 隔离。History 被拆成固定大小的 immutable shards，manifest 只在新 generation 完整写入后原子切换：
+JSON v8 后端先按 <code>project_id</code> 分区，再按 <code>session_id</code> 隔离。message 事件行按固定大小分片追加，模块 head 只在新数据完整写入后原子发布：
 
-- 读者只能看到旧的完整 generation 或新的完整 generation。
-- 中途失败的 shard 不会被发布为当前会话。
-- JSON、SQLite、PostgreSQL 和 Redis 保持相同的逻辑 snapshot 语义。
-- Redis 使用 project hash tag，让 manifest、shard、state 和 index 位于同一 Cluster slot。
+- 读者只能看到旧水位或新水位对应的已发布内容。
+- 中途失败或未发布的追加行不会被当作当前会话事实。
+- SQLite、PostgreSQL、Redis 旧实现已删除，调用方只依赖 JSON v8 与
+  <code>Repository</code> 接口。
 
 Provider History、append-only Transcript Event、Application State 和 immutable Tool Result 分开保存。这个决策避免“为了恢复模型上下文而覆盖用户可见事实”，也让 Plan、标题、工具来源和压缩 checkpoint 可以独立演进。
 
@@ -371,7 +371,7 @@ Skill 使用 <code>&lt;skill&gt;/SKILL.md</code> 目录结构；相关脚本和�
 - Workspace 保存项目目录和 Session binding。
 - ProjectScope 把文件、Shell 和工作目录限制在绑定的项目 root 内。
 - SessionStore 以 <code>(project_id, session_id)</code> 为隔离键。
-- JSON/SQLite 适合本地使用；PostgreSQL/Redis 需要外部服务。
+- 当前使用 JSON v8 本地存储；SQLite、PostgreSQL、Redis 枚举会返回显式退役错误。
 - Provider history、可见 transcript、Plan 状态和工具结果使用不同的数据边界，避免模型历史覆盖应用事实。
 
 默认存储路径是 <code>.seelex/sessions</code>。
@@ -383,7 +383,7 @@ Skill 使用 <code>&lt;skill&gt;/SKILL.md</code> 目录结构；相关脚本和�
 | [<code>application/</code>](application/README.md) | 稳定应用层：Chat、Task、Plan、审批、会话、项目和 Snapshot/Event |
 | [<code>seelebridge/</code>](seelebridge/README.md) | Seele 防腐层、工具、账号池、Plan、MCP、ProjectScope 与 PathGate |
 | [<code>seelexctx/</code>](seelexctx/README.md) | 上下文装配、预算、压缩、快照和父子 Agent merge-back |
-| [<code>sessionstore/</code>](sessionstore/README.md) | JSON/SQLite/PostgreSQL/Redis 持久化 |
+| [<code>sessionstore/</code>](sessionstore/README.md) | JSON v8 持久化；退役后端枚举与接口契约 |
 | [<code>plugin/</code>](plugin/README.md) | Plugin loader、生命周期和事务式切换 |
 | [<code>skill/</code>](skill/README.md) | Skill 加载、资源安全和可见性 |
 | [<code>workspace/</code>](workspace/README.md) | Workspace 与 Session binding |
@@ -463,7 +463,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现。
 - OpenAI-compatible 不等于完全行为一致；工具调用、流式协议和模型参数仍需按 provider 验证。
 - 项目尚未发布 SWE-bench、Terminal-Bench 等标准化编码基准结果。
-- PostgreSQL、Redis、MCP 和外部 Web Search 的真实部署需要各自的服务与配置。
+- SQLite、PostgreSQL、Redis 会话后端已退役，需按接口重写；MCP 和外部 Web Search 的真实部署仍需要各自服务与配置。
 
 如果你正在寻找稳定 API 或无人值守生产服务，请先审查对应模块 README、测试和变更记录，再决定是否采用。
 

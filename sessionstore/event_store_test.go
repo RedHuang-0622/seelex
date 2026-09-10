@@ -9,13 +9,12 @@ import (
 	frameworkevent "github.com/RedHuang-0622/Seele/event"
 )
 
-// TestFrameworkEventLogRoundTripAcrossLocalBackends 验证执行事实事件库
+// TestFrameworkEventLogRoundTrip 验证执行事实事件库
 // （event.Sink → sessionstore 事件库；slice 8 双轨事件的事实轨）在
-// JSON/SQLite 后端的追加-读取往返：追加顺序保持、Seq 排序、空库读取。
-func TestFrameworkEventLogRoundTripAcrossLocalBackends(t *testing.T) {
+// JSON v8 后端的追加-读取往返：追加顺序保持、Seq 排序、空库读取。
+func TestFrameworkEventLogRoundTrip(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)

@@ -10,7 +10,6 @@ import (
 func TestEventKindRoundTrip(t *testing.T) {
 	configs := []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	}
 	for _, config := range configs {
 		config := config

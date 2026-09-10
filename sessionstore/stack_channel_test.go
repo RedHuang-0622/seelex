@@ -2,13 +2,11 @@
 //
 // 覆盖两类事实：
 //  1. 通道语义（批次弹栈、水位、锚、迁移 EVENT、fork 按锚重建、verify）在
-//     **每个后端**上都成立（json 文件 / sqlite；同一份表驱动用例跑两遍）；
+//     JSON v8 后端上成立；
 //  2. JSON 后端的落盘形状与锁延迟归因（active.jsonl vs history.jsonl）。
 package sessionstore
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,21 +16,16 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/RedHuang-0622/Seele/types"
 )
 
 // stackHarness 是「同一套栈通道用例 × 不同后端」的夹具。
 type stackHarness struct {
-	t          *testing.T
-	name       string
-	journal    stackJournal
-	repository Repository
-	sqlDB      *sql.DB
-	store      *storeEngine // 仅 JSON 后端用于断言物理放置
-	key        Key
-	// carriesMessageIDs = 后端消息通道是否有事件行键（JSON 有；SQL/Redis 的
-	// 消息通道仍是整块 shard 快照 → 锚只有 seq）。
+	t       *testing.T
+	name    string
+	journal stackJournal
+	store   *storeEngine
+	key     Key
+	// carriesMessageIDs = 消息通道是否有事件行键（JSON v8 固定为 true）。
 	carriesMessageIDs bool
 }
 
@@ -46,53 +39,21 @@ func newJSONStackHarness(t *testing.T) *stackHarness {
 	}
 }
 
-func newSQLStackHarness(t *testing.T) *stackHarness {
-	t.Helper()
-	repository, err := Open(context.Background(), Config{
-		Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = repository.Close() })
-	sqlBackend, ok := repository.(*sqlRepository)
-	if !ok {
-		t.Fatalf("sqlite 后端类型不符: %T", repository)
-	}
-	return &stackHarness{
-		t: t, name: "sqlite", repository: repository, sqlDB: sqlBackend.db, journal: repository.stackJournal(),
-		key: Key{ProjectID: "p-stack", SessionID: "s-stack"},
-	}
-}
-
-// forEachStackBackend 把用例在后端矩阵上各跑一遍。
+// forEachStackBackend 保留表驱动入口；R1 收口后只有 JSON 后端。
 func forEachStackBackend(t *testing.T, fn func(t *testing.T, harness *stackHarness)) {
 	t.Helper()
 	t.Run("json", func(t *testing.T) { fn(t, newJSONStackHarness(t)) })
-	t.Run("sqlite", func(t *testing.T) { fn(t, newSQLStackHarness(t)) })
 }
 
-// seedMessages 把 message 事实写成恰好 n 条（锚的来源）。两个后端都是
-// 「按总数写入」：JSON 侧靠 seq 幂等续写，SQL 侧整块重写。
+// seedMessages 把 message 事实写成恰好 n 条（锚的来源）。
 func (harness *stackHarness) seedMessages(n int) {
 	harness.t.Helper()
-	if harness.store != nil {
-		rows := make([]Event, 0, n)
-		for index := 0; index < n; index++ {
-			rows = append(rows, messageRow(uint64(index+1), harness.anchorID(index+1), "user", EventKindUserInput,
-				fmt.Sprintf("第 %d 条", index+1)))
-		}
-		commitRoundRows(harness.t, harness.store, harness.key, rows)
-		return
-	}
-	messages := make([]types.Message, 0, n)
+	rows := make([]Event, 0, n)
 	for index := 0; index < n; index++ {
-		content := fmt.Sprintf("第 %d 条", index+1)
-		messages = append(messages, types.Message{Role: "user", Content: &content})
+		rows = append(rows, messageRow(uint64(index+1), harness.anchorID(index+1), "user", EventKindUserInput,
+			fmt.Sprintf("第 %d 条", index+1)))
 	}
-	if err := harness.repository.WriteAtomic(context.Background(), harness.key, messages); err != nil {
-		harness.t.Fatal(err)
-	}
+	commitRoundRows(harness.t, harness.store, harness.key, rows)
 }
 
 func (harness *stackHarness) anchorID(index int) string {
@@ -148,34 +109,13 @@ func (harness *stackHarness) history(kind StackKind) []StackItemRecord {
 // readEventKinds 返回该会话已记录的结构性 EVENT kind 列表。
 func (harness *stackHarness) readEventKinds() []string {
 	harness.t.Helper()
-	if harness.store != nil {
-		events, err := harness.store.readEvents(harness.key, 0, 0)
-		if err != nil {
-			harness.t.Fatal(err)
-		}
-		kinds := make([]string, 0, len(events))
-		for _, event := range events {
-			kinds = append(kinds, string(event.Kind))
-		}
-		return kinds
-	}
-	rows, err := harness.sqlDB.Query(
-		`SELECT kind FROM `+structuralEventTable+` WHERE project_id=? AND session_id=? ORDER BY event_id`,
-		harness.key.ProjectID, harness.key.SessionID)
+	events, err := harness.store.readEvents(harness.key, 0, 0)
 	if err != nil {
 		harness.t.Fatal(err)
 	}
-	defer rows.Close()
-	var kinds []string
-	for rows.Next() {
-		var kind string
-		if err := rows.Scan(&kind); err != nil {
-			harness.t.Fatal(err)
-		}
-		kinds = append(kinds, kind)
-	}
-	if err := rows.Err(); err != nil {
-		harness.t.Fatal(err)
+	kinds := make([]string, 0, len(events))
+	for _, event := range events {
+		kinds = append(kinds, string(event.Kind))
 	}
 	return kinds
 }
@@ -197,18 +137,10 @@ func (harness *stackHarness) mustVerify() {
 	}
 }
 
-// head 返回指定 kind 的栈模块 head（JSON 读 metadata/stack_<kind>.json；
-// SQL 读共享 head 行中的该 kind 水位）。
+// head 返回指定 kind 的栈模块 head（metadata/stack_<kind>.json）。
 func (harness *stackHarness) head(kind StackKind) stackModuleHead {
 	harness.t.Helper()
-	if harness.store != nil {
-		head, err := harness.store.stackJournal().(*jsonStackJournal).readStackHead(harness.key, kind)
-		if err != nil {
-			harness.t.Fatal(err)
-		}
-		return head
-	}
-	head, err := harness.journal.(*sqlStackJournal).readHead(context.Background(), harness.key)
+	head, err := harness.store.stackJournal().(*jsonStackJournal).readStackHead(harness.key, kind)
 	if err != nil {
 		harness.t.Fatal(err)
 	}
@@ -442,33 +374,6 @@ func TestStackChannelPersistsAcrossInstances(t *testing.T) {
 		}
 		second := newStoreEngine(root, storageSettings{})
 		rows, err := stackReadActive(second.stackJournal(), key, StackKindPlan)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(rows) != 1 || rows[0].ItemID != "again" {
-			t.Fatalf("reopened stack = %+v", rows)
-		}
-	})
-	t.Run("sqlite", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "sessions.db")
-		key := Key{ProjectID: "p-stack", SessionID: "s-reopen"}
-		first, err := Open(context.Background(), Config{Backend: BackendSQLite, Path: path})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := stackCommit(first.stackJournal(), key, StackKindGoal,
-			stackPushMessage(StackKindGoal, "b", []StackItemInput{{ItemID: "again", Kind: StackKindGoal}})); err != nil {
-			t.Fatal(err)
-		}
-		if err := first.Close(); err != nil {
-			t.Fatal(err)
-		}
-		second, err := Open(context.Background(), Config{Backend: BackendSQLite, Path: path})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer second.Close()
-		rows, err := stackReadActive(second.stackJournal(), key, StackKindGoal)
 		if err != nil {
 			t.Fatal(err)
 		}

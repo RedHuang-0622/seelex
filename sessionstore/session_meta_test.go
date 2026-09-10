@@ -9,7 +9,7 @@ import (
 // TestSessionMetaStoreRoundTrip 验证项目级展示元数据 blob：读写、清除、项目隔离，
 // 以及最关键的一条 —— 承载 blob 的伪会话键不得出现在会话目录里（不造幽灵会话）。
 func TestSessionMetaStoreRoundTrip(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)

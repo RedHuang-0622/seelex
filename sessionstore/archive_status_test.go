@@ -12,7 +12,7 @@ import (
 // context 四片与项目索引原样保留，重开（按 ID 读回）不丢任何数据；枚举仍
 // 返回归档行（常规目录的过滤在应用层分格枚举处，不在存储层）。
 func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)

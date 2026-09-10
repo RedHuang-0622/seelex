@@ -3,12 +3,9 @@ package sessionstore
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
 // ConversationMessage 是会话语义消息的存储层 DTO（interfaces.md §Conversation
@@ -110,30 +107,4 @@ func (repository *jsonRepository) ReadConversationRange(_ context.Context, key K
 		end = total
 	}
 	return append([]ConversationMessage(nil), messages[offset:end]...), total, nil
-}
-
-func (repository *sqlRepository) ReadConversationRange(ctx context.Context, key Key, offset, limit int) ([]ConversationMessage, int, error) {
-	if err := key.validate(); err != nil {
-		return nil, 0, err
-	}
-	var payload string
-	query := `SELECT state_json FROM seelex_session_state WHERE project_id=` + repository.arg(1) + ` AND session_id=` + repository.arg(2)
-	if err := repository.db.QueryRowContext(ctx, query, key.ProjectID, key.SessionID).Scan(&payload); err != nil {
-		return nil, 0, err
-	}
-	return decodeConversationRange([]byte(payload), key.SessionID, offset, limit)
-}
-
-func (repository *redisRepository) ReadConversationRange(ctx context.Context, key Key, offset, limit int) ([]ConversationMessage, int, error) {
-	if err := key.validate(); err != nil {
-		return nil, 0, err
-	}
-	payload, err := repository.client.Get(ctx, repository.stateKey(key)).Bytes()
-	if errors.Is(err, redis.Nil) {
-		return nil, 0, fs.ErrNotExist
-	}
-	if err != nil {
-		return nil, 0, err
-	}
-	return decodeConversationRange(payload, key.SessionID, offset, limit)
 }

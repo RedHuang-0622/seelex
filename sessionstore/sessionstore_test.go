@@ -2,6 +2,7 @@ package sessionstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -18,27 +19,7 @@ func messages(count int, marker string) []types.Message {
 	return result
 }
 
-func TestSQLiteRepositoryRoundTrip(t *testing.T) {
-	repository, err := Open(context.Background(), Config{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repository.Close()
-	key := Key{ProjectID: "project", SessionID: "session"}
-	if err := repository.WriteAtomic(context.Background(), key, messages(3, "sqlite")); err != nil {
-		t.Fatal(err)
-	}
-	history, err := repository.Read(context.Background(), key)
-	if err != nil || len(history) != 3 || *history[2].Content != "sqlite-2" {
-		t.Fatalf("history=%v err=%v", history, err)
-	}
-	listed, err := repository.List(context.Background(), "project")
-	if err != nil || len(listed) != 1 || listed[0].SessionID != "session" {
-		t.Fatalf("list=%v err=%v", listed, err)
-	}
-}
-
-func TestRouterPersistsAndSwitchesConfiguredBackend(t *testing.T) {
+func TestRouterPersistsConfiguredBackend(t *testing.T) {
 	root := t.TempDir()
 	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
 	if err != nil {
@@ -46,21 +27,41 @@ func TestRouterPersistsAndSwitchesConfiguredBackend(t *testing.T) {
 	}
 	defer router.Close()
 	router.SetWorkspace("project")
-	if err := router.Save("session", messages(1, "json")); err != nil {
+	if err := router.SaveCommit("session", Commit{Events: []Event{
+		{Seq: 1, Role: "user", Content: "json-0", MessageID: "json-0"},
+	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := router.Configure(context.Background(), Config{Backend: BackendSQLite, Path: filepath.Join(root, "sessions.db")}); err != nil {
-		t.Fatal(err)
-	}
-	if router.Config().Backend != BackendSQLite {
+	if router.Config().Backend != BackendJSON {
 		t.Fatalf("backend=%q", router.Config().Backend)
 	}
-	if err := router.Save("session", messages(1, "sqlite")); err != nil {
+	history, err := router.Load("session")
+	if err != nil || *history[0].Content != "json-0" {
+		t.Fatalf("history=%v err=%v", history, err)
+	}
+}
+
+func TestRetiredBackendsReturnExplicitError(t *testing.T) {
+	for _, backend := range []Backend{BackendSQLite, BackendPostgreSQL, BackendRedis} {
+		if _, err := Open(context.Background(), Config{Backend: backend}); !errors.Is(err, ErrBackendRetired) {
+			t.Fatalf("Open(%s) err = %v, want ErrBackendRetired", backend, err)
+		}
+		if _, err := (Config{Backend: backend}).Normalize(t.TempDir()); !errors.Is(err, ErrBackendRetired) {
+			t.Fatalf("Normalize(%s) err = %v, want ErrBackendRetired", backend, err)
+		}
+	}
+
+	root := t.TempDir()
+	router, err := NewRouter(filepath.Join(root, "session-storage.json"), root)
+	if err != nil {
 		t.Fatal(err)
 	}
-	history, err := router.Load("session")
-	if err != nil || *history[0].Content != "sqlite-0" {
-		t.Fatalf("history=%v err=%v", history, err)
+	defer router.Close()
+	if err := router.Configure(context.Background(), Config{Backend: BackendSQLite, Path: filepath.Join(root, "sessions.db")}); !errors.Is(err, ErrBackendRetired) {
+		t.Fatalf("Configure(retired) err = %v, want ErrBackendRetired", err)
+	}
+	if got := router.Config().Backend; got != BackendJSON {
+		t.Fatalf("retired Configure switched backend to %q", got)
 	}
 }
 

@@ -16,7 +16,7 @@ import (
 // 关注两件事：注入点与解析读取不得裸字段竞争；已绑定会话的归属不得随活跃写
 // 作用域漂移（漂移会让 record/事件拆到两个项目，manifest 错键、会话打不开）。
 func TestSessionGranularStoreConcurrentProjectScope(t *testing.T) {
-	for _, backend := range []Backend{BackendJSON, BackendSQLite} {
+	for _, backend := range []Backend{BackendJSON} {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)

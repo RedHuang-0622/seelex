@@ -2,22 +2,33 @@
 
 ## Application state sidecar
 
-Alongside framework message history, every backend can persist an opaque application-owned state blob keyed by `(project_id, session_id)`. `Router.SaveState` and `LoadState` use the same JSON, SQLite, PostgreSQL, or Redis selection as history. The store does not inspect the blob; application code uses it for the visible transcript, Plan projection, and provenance caches without putting those records into provider history.
+Alongside framework message history, the JSON v8 backend persists an opaque
+application-owned state blob keyed by `(project_id, session_id)`.
+`Router.SaveState` and `LoadState` use the JSON backend selection as history.
+The store does not inspect the blob; application code uses it for the visible
+transcript, Plan projection, and provenance caches without putting those records
+into provider history.
 
 **v8 JSON 布局下 state/record 通道已退役（S20/D9）**：`WriteState` 为空操作、
 `ReadState` 恒 `fs.ErrNotExist`；会话 record 与 conversation 由
 `message head.Meta` + message 事件行 + `lifecycle.archived_at` 派生
 （`DerivedRecordWorkspace`），会话展示元数据（置顶/别名/排序）落
-`project-*/session-meta.json`。SQLite/PostgreSQL/Redis 仍使用 state 通道
-（v8 化随 message 读写热点专项搁置）。
+`project-*/session-meta.json`。SQLite/PostgreSQL/Redis 后端实现已退役（R1），
+新后端须按 `Repository`/`stackJournal` 接口重写。
 
 ## Unified partition and shard contract
 
-Every backend partitions first by `project_id`, then isolates `session_id`, then stores immutable history generations in fixed-size message shards. A manifest atomically switches the active generation, so readers see either the old complete generation or the next one. JSON uses generation directories; SQLite and PostgreSQL use `seelex_session_manifest` plus `seelex_session_shard`; Redis uses a project hash-tagged manifest and shard keys in one cluster slot. This keeps range/recovery semantics independent of the chosen storage strategy.
+The JSON v8 backend partitions first by `project_id`, then isolates `session_id`,
+then stores message event rows in fixed-size shards. Module heads publish each
+append-only channel, so readers observe either the preceding committed watermark
+or the next one. Retired backend enums are kept only for explicit configuration
+errors; they do not participate in range/recovery semantics.
 
 ## 模块定位
 
-`sessionstore` 提供统一、原子、项目作用域的会话持久化。当前 backend 为 JSON shards、SQLite、PostgreSQL 和 Redis；调用方只依赖 `Repository`/`Router`。
+`sessionstore` 提供统一、原子、项目作用域的会话持久化。当前实现为 JSON v8；
+调用方只依赖 `Repository`/`Router`。SQLite、PostgreSQL、Redis 枚举保留用于
+显式报错，旧实现已删除。
 
 ## 数据模型
 
@@ -55,8 +66,8 @@ Every backend partitions first by `project_id`, then isolates `session_id`, then
 旧会话（只含 `manifest.json` / `transcript.log` 的目录）**已彻底退役（D2/
 S12）**：读路径不再判定、不再打开（返回 `fs.ErrNotExist`），目录枚举跳过并
 保留磁盘内容；新会话与新写入一律走 message 事件行 + 模块 head 布局。
-SQLite/PostgreSQL/Redis 后端仍为 generation snapshot 布局（后端自身存储
-形态，不在旧 JSON 文件布局退役范围内），v8 化范围见打点表 §4。
+SQLite/PostgreSQL/Redis 后端实现已删除（R1）；枚举保留，`Open` 返回
+`ErrBackendRetired`，不会静默回退到其它后端。
 [`docs/2026-09-08-session-storage-architecture/README.md`](../docs/2026-09-08-session-storage-architecture/README.md)）。
 
 旧布局写路径描述（保留作 legacy 语义参考）：
@@ -71,24 +82,20 @@ generation rollover 整代重写 `events.NNN.json`。追加按 `Seq > 已落盘 
 generation 快照，属于派生投影。
 
 状态：**JSON 后端统一走 message 事件行 + 模块 head 布局；旧 manifest 会话
-不再打开（S12）**。SQLite/PostgreSQL/Redis 的 transcript 仍为 generation
-snapshot 布局（有序日志后端子设计见
-[`docs/2026-09-07-session-order-log/README.md`](../docs/2026-09-07-session-order-log/README.md)）。
+不再打开（S12）**。其它后端实现已退役，待按当前接口重写。
 
 **rollout 全序日志（P2 垂直切片）已删除/退役**：运行期恢复不再走 rollout
 重放，JSON 会话统一走 wire 装配（compact 摘要 + 尾窗 + 最近 K 条尝试）；
 rollout 实现文件、读接口与双写已随旧链路删除（历史设计见
 [docs/2026-09-08-session-rollout-p2/README.md](../docs/2026-09-08-session-rollout-p2/README.md)。
 
-### SQLite/PostgreSQL
+### Retired backends
 
-统一使用 `seelex_session_manifest` 与 `seelex_session_shard`：manifest 以 `(project_id, session_id)` 定位当前 immutable generation，shard 以 `(project_id, session_id, generation, shard_index)` 保存固定大小的消息片。事务先写新 generation，再原子切换 manifest。旧版单行 `seelex_sessions.messages_json` 仍可读取，下一次写入自动迁移到分片表。SQLite 使用 modernc，无 CGO；PostgreSQL 使用 pgx stdlib。
-
-SQLite 本地库打开时固定附加 `_pragma=busy_timeout(5000)` 并把连接池收敛为单连接：SQLITE_BUSY 只发生在多连接之间，单连接后由 `database/sql` 排队，多会话并行落盘不再随机失败（只设 busy_timeout 不够 —— 它覆盖不了同进程内读事务与写事务的升级冲突）。
-
-### Redis
-
-Redis 使用 `redis://` 或 `rediss://` DSN。每个项目拥有一个 hash-tagged keyspace；同项目的 manifest、history shards、state 和 session index 位于同一 Cluster slot，因此一次 `MULTI/EXEC` 可以原子切换该 session 的 generation。DSN 仅写入本地配置，GUI 只显示 `configured`。
+`BackendSQLite`、`BackendPostgreSQL`、`BackendRedis` 枚举保留，避免旧配置被
+静默改写；`Config.Normalize` 与 `Open` 对三者统一返回
+`ErrBackendRetired`（错误文本附 `use json`）。旧 SQL 表、Redis key、
+manifest/generation/shard 实现和专属测试已删除（R1），磁盘上的旧数据目录不做
+清理。新增后端必须实现 `Repository` 与 `stackJournal` 契约后再恢复枚举入口。
 
 ## Router
 
@@ -104,7 +111,7 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 - 为什么不并进 `SessionRecord`：record 每次回合结束都由存活状态整体重建，夹在其中的
   展示字段会被覆盖；独立 blob 与记录写路径完全隔离。
-- 为什么不造新通道：JSON/SQLite 的目录枚举只认有 manifest 的会话目录，只写 state 的
+- 为什么不造新通道：JSON v8 的目录枚举只认有 guide/message head 的会话目录，只写 state 的
   键不会出现在 `SessionsOf`/`List` 里（回归用例 `TestSessionMetaStoreRoundTrip` 钉住
   这一点，避免造出幽灵会话）；`Delete(session)` 也删不到它。
 - 写是读-改-写，进程内由 `SessionMetaStore.mu` 串行化（桌面单进程形态；实例由
@@ -120,7 +127,7 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
   （Load/Save/Clear）：Session 每次 Chat 前 Load、结束后 Save；`Reset`
   显式清空。v8 JSON 布局（S11）：ProviderHistory 不再落盘，Save 只负责
   会话状态 blob（SaveState 编排），正文事实源 = `SaveCommit` 的 message
-  事件行，Load 由行派生；SQLite/Redis 等未 v8 化的后端沿用整段写。
+  事件行，Load 由行派生。
 - `session_context.go` — `SessionContextStore` 读写会话级上下文记录
   （state blob）：SystemPrompt + Skill 记录 + Compact 栈 + GoalAudit。
   Schema 当前 **v3**：v3 起 blob **不再承载 plan/task/goal 三栈**（权威在
@@ -164,9 +171,8 @@ abort/restore 各一条），Seq 由本会话单调递增，**只追加不回改
 
 - 放置（§3.2）：`session/{plan,task,goal}/active.jsonl`（当前投影）与
   `history.jsonl`（append-only 归档）；JSON head 在
-  `metadata/stack_{plan,task,goal}.json`（SQL/Redis 仍为会话级 head 行，
-  **只装逐 kind 水位**（head_seq / active_count / history_count /
-  open_batches / history_bytes），条目内容不进 head。
+  `metadata/stack_{plan,task,goal}.json`，**只装逐 kind 水位**
+  （head_seq / active_count / history_count / history_bytes），条目内容不进 head。
 - 语义（§2.4 + §0 条目 4）：批次内未完成 → 整批留 active；全部完成 → 整批
   弹栈归档；goal 是单条目批次且 LIFO（只有栈顶可收口）；每条带 message 锚
   `item_message_id` / `batch_message_from` / `batch_message_to`，fork 按锚
@@ -178,16 +184,15 @@ abort/restore 各一条），Seq 由本会话单调递增，**只追加不回改
 
 ### 后端矩阵
 
-`Repository` 暴露 `stackJournal()`（不可在包外实现），**每个后端必须给出栈
-通道**，运行期没有「这个后端没有栈」的分支。通道语义（批次、水位、锚、迁移、
-fork、verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实现
+`Repository` 暴露 `stackJournal()`（不可在包外实现）；R1 后 JSON v8 是唯一
+实现，新后端必须同时给出栈通道。通道语义（批次、水位、锚、迁移、fork、
+verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实现
 `load / publish / anchor / watermark / recordEvents / dropCache / stats`：
 
 | 后端 | 数据放置 | 发布点 | 锚（message 坐标） |
 |---|---|---|---|
 | JSON | `{kind}/active.jsonl` + `history.jsonl` + `metadata/stack_{kind}.json` | 先数据后 head（rename），读侧按 revision 过滤 | 事件行 `message_id` + `seq` |
-| SQLite / PostgreSQL | `seelex_session_stack_item`（ER 逐列）+ `seelex_session_stack_head` + `seelex_session_structural_event` | 一个事务（COMMIT 即发布） | 只有 `seq`（消息通道仍是整块 shard，无事件行键 → id 为空） |
-| Redis | `<session>:stack:<kind>:{active,history}` 列表 + `<session>:stack:head` + `<session>:structural-events` | 一次 `MULTI/EXEC` | 同上，只有 `seq` |
+| SQLite / PostgreSQL / Redis | 旧实现已删除（R1） | `Open` 返回 `ErrBackendRetired` | 不适用 |
 
 ### 并发与读路径（为什么读者不等写者）
 
@@ -313,9 +318,14 @@ go test ./sessionstore -run 'TestV8' -count=1   # M1–M4 契约（65 条）
 
 `WriteCommit` publishes bounded provider history, append-only transcript events, opaque application state, and immutable tool-result objects under one `(project_id, session_id)` scope. `WriteAtomic` remains a compatibility wrapper for history-only callers.
 
-`ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. JSON manifests publish the committed result-reference set, SQL stores all parts in one transaction, and Redis uses one `MULTI/EXEC` in the project hash slot.
+`ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. The JSON v8 layout publishes the committed result-reference set through the module head.
 
-测试覆盖 JSON/SQLite 的 generation 原子性与状态 sidecar、SQLite 分表分片、Redis 的配置和 key 分片策略、backend 切换和显式 workspace read 不污染 active scope。plan/task/goal 三栈的用例经 `forEachStackBackend` 在 **json 与 sqlite 两个后端各跑一遍**（head 只装水位、批次整批弹栈、message 锚、迁移 EVENT、LIFO、投影替换、并发单写者、fork 按锚重建、跨实例持久化）；JSON 后端另测物理放置、head 未发布不可见、崩溃残尾与归档回收，以及 `-race` 下的延迟归因（`TestStackChannel*`）。goal 侧另覆盖按会话隔离与帧校验（`TestGoalStack*`）；blob 版本不再兼容 v2 及更早（`TestGoalStackLegacySchemaRejected`）。
+测试覆盖 JSON v8 的 message 事件行原子性、状态 sidecar 退役、显式 workspace
+read 不污染 active scope，以及退役后端的显式错误（`TestRetiredBackendsReturnExplicitError`）。
+plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只装水位、
+批次整批弹栈、message 锚、迁移 EVENT、LIFO、投影替换、并发单写者、fork 按锚
+重建、跨实例持久化）；另测物理放置、head 未发布不可见、崩溃残尾与归档回收，
+以及 `-race` 下的延迟归因（`TestStackChannel*`）。
 
 ## 会话 fork 存储契约（一期，已实现）
 

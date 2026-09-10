@@ -18,7 +18,6 @@ const sessionRecordStateV3 = `{"version":3,"id":"session","title":{"value":"t"},
 func TestContextStateIsolatedFromSessionState(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -46,14 +45,9 @@ func TestContextStateIsolatedFromSessionState(t *testing.T) {
 				t.Fatal(err)
 			}
 			// 两个通道互不覆盖：state 仍是 SessionRecord，context 仍是 SessionContextRecord。
-			state, err := repository.ReadState(context.Background(), key)
-			if config.Backend == BackendJSON {
-				// S20：JSON v8 的 state 通道停写停读。
-				if !isSessionNotFound(err) {
-					t.Fatalf("json state err=%v, want not-found", err)
-				}
-			} else if err != nil || string(state) != string([]byte(sessionRecordStateV3)) {
-				t.Fatalf("state channel corrupted: %s err=%v", state, err)
+			// S20：JSON v8 的 state 通道停写停读。
+			if _, err := repository.ReadState(context.Background(), key); !isSessionNotFound(err) {
+				t.Fatalf("json state err=%v, want not-found", err)
 			}
 			contextState, err := repository.ReadContextState(context.Background(), key)
 			if err != nil || string(contextState) != `{"schema_version":1,"system_prompt":"p","compact_stack":[]}` {
@@ -76,7 +70,6 @@ func TestContextStateIsolatedFromSessionState(t *testing.T) {
 func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 	for _, config := range []Config{
 		{Backend: BackendJSON, Path: filepath.Join(t.TempDir(), "json")},
-		{Backend: BackendSQLite, Path: filepath.Join(t.TempDir(), "sessions.db")},
 	} {
 		t.Run(string(config.Backend), func(t *testing.T) {
 			repository, err := Open(context.Background(), config)
@@ -117,20 +110,13 @@ func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 			if err := store.Persist(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			state, err := repository.ReadState(context.Background(), key)
-			if config.Backend == BackendJSON {
-				if !isSessionNotFound(err) {
-					t.Fatalf("json state err=%v, want not-found", err)
-				}
-			} else if err != nil || string(state) != string([]byte(sessionRecordStateV3)) {
-				t.Fatalf("state channel corrupted after context persist: %s err=%v", state, err)
+			if _, err := repository.ReadState(context.Background(), key); !isSessionNotFound(err) {
+				t.Fatalf("json state err=%v, want not-found", err)
 			}
 			// 新实例 Load 读回 compact 帧（跨实例持久）。
-			if config.Backend == BackendJSON {
-				channelFrames, handledChannel, channelErr := testRouter.CompactFramesWorkspace("project", "session")
-				if channelErr != nil || !handledChannel || len(channelFrames) != 1 {
-					t.Fatalf("compact 通道帧 = %d handled=%v err=%v", len(channelFrames), handledChannel, channelErr)
-				}
+			channelFrames, handledChannel, channelErr := testRouter.CompactFramesWorkspace("project", "session")
+			if channelErr != nil || !handledChannel || len(channelFrames) != 1 {
+				t.Fatalf("compact 通道帧 = %d handled=%v err=%v", len(channelFrames), handledChannel, channelErr)
 			}
 			reloaded := NewSessionContextStore(testRouter, "session")
 			if err := reloaded.Load(context.Background()); err != nil {
@@ -139,12 +125,6 @@ func TestSessionContextStorePersistsToIsolatedChannel(t *testing.T) {
 			record := reloaded.Snapshot()
 			if len(record.CompactStack) != 1 || record.CompactStack[0].SegmentID != "compact-session-1" {
 				t.Fatalf("reloaded compact stack = %+v", record.CompactStack)
-			}
-			// S19：v8 JSON 的 CompactStack 权威在 compact 通道，扩展字段
-			// （round/event/unit 索引）按 §2.2 冷重载退化；未 v8 化后端保留
-			// blob 原样。
-			if config.Backend == BackendSQLite && record.CompactStack[0].RoundTo != 4 {
-				t.Fatalf("sqlite blob compact frame lost fields: %+v", record.CompactStack[0])
 			}
 		})
 	}
