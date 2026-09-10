@@ -2,10 +2,11 @@ module github.com/RedHuang-0622/seelex
 
 go 1.25.8
 
-// Seele v0.1.2：发布依赖，已移除本地 replace（2026-08-11 切换）。
+// Seele v0.1.3：发布依赖（session 观测面非阻塞读 HistoryIfAvailable）。
+// 本地 replace 已于 2026-09-11 移除，联调期间的 ../Seele 指向不再需要。
 
 require (
-	github.com/RedHuang-0622/Seele v0.1.2
+	github.com/RedHuang-0622/Seele v0.1.3
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
