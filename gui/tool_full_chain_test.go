@@ -157,6 +157,24 @@ func (*guiChainRuntime) CancelScheduledTask(string) error    { return nil }
 func (*guiChainRuntime) ClearSubagentTree() error            { return nil }
 func (*guiChainRuntime) RestoreSubagentAnchors(string) error { return nil }
 
+func (*guiChainRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error) {
+	return nil, nil
+}
+
+func (*guiChainRuntime) ResumeInterruptedSubagents(context.Context, string) (dto.SubagentResumeReport, error) {
+	return dto.SubagentResumeReport{}, nil
+}
+
+func (*guiChainRuntime) ResumeSubagent(context.Context, string, string) (dto.SubagentResumeResult, error) {
+	return dto.SubagentResumeResult{}, nil
+}
+
+func (*guiChainRuntime) ForkSubagents(context.Context, string, []dto.SubagentForkSpec) (string, error) {
+	return "", nil
+}
+
+func (*guiChainRuntime) SetSubagentParentRepairer(func(string) error) {}
+
 func (*guiChainRuntime) SearchHistory(context.Context, string, int) (seelexctxsearch.Result, error) {
 	return seelexctxsearch.Result{}, nil
 }

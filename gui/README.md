@@ -14,6 +14,10 @@
 | `dialogs_gui.go` / `dialogs_stub.go` | 平台目录选择适配。 |
 | `shutdown.go` | 等待任一会话（含后台）运行完成的 graceful close；超时取消全部 running sid 并等待收尾。 |
 | `fork_live_probe_test.go` | 真实 API headless fork 探针（env 门控，opt-in；顶层 Submit → fork_subagents 链路 1/10/100 并发对照）。 |
+| `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
+| `headless_team.go` | AgentTeam 角色管理 RPC（`team.*`）：preset 清单、装配、成员表、角色配置 CRUD、工作顺序设置。 |
+| `team_live_probe_test.go` | AgentTeam 工厂真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `team.materialize`（goal/review preset）→ 角色 CRUD + `order_roles` → 设计稿不变量核对 → pprof 现场。 |
+| `seelebridge/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
 
 ## Bridge 契约
@@ -118,6 +122,43 @@ $env:SMOKE_FORK_LIVE='1'
 $env:SMOKE_FORK_LIVE_N='10'      # 子代理个数；SMOKE_FORK_LIVE_GOAL 可换题
 go test ./gui -run TestRealAPIForkLiveProbe -v -count=1 -timeout 20m
 ```
+
+真实 API R2/R4 群聊角色探针（默认跳过；目标二进制需包含 `role.*` 接口）：
+
+```powershell
+go build -tags pprof -o tmp/headless-smoke/seelex-pprof.exe .
+$env:SMOKE_ROLE_LIVE='1'
+$env:SMOKE_ROLE_LIVE_PPROF='1'
+go test ./gui -run TestRealAPIRoleSessionLiveProbe -v -count=1 -timeout 20m
+```
+
+观测点：`role.snapshot` / `role.wire` 返回 `design_warnings` 与
+`unassigned_role_rows`；报告落 `tmp/headless-smoke/reports/role-{mutex,block}-*.txt`
+及 `fork-live-goroutine-role-live-*.txt`。race 版目标：
+`go build -race -tags pprof -o tmp/headless-smoke/seelex-pprof-race.exe .`，
+运行时设 `GORACE=halt_on_error=1`。
+
+AgentTeam 角色管理 `team.*` RPC（headless 前门禁；契约测试
+[`headless_team_test.go`](headless_team_test.go)）：
+
+| 方法 | 参数 | 语义 |
+|---|---|---|
+| `team.presets` | — | 列出内置团队实例（`goal-a2a`/`review-team`/`research-team`） |
+| `team.materialize` | `main_session_id`、`team_kind` 或 `spec`、`join_seq_id` | 按 preset/自定义 `TeamSpec` 装配：幂等建角色会话 + 写注册表 + 写顺序策略 |
+| `team.view` | `main_session_id` | 成员表 + 工作顺序 + 定时分区 + 设计偏差提示 |
+| `team.put_role` | `main_session_id`、`role` | 新增/覆盖角色配置（`role_name` 幂等） |
+| `team.delete_role` | `main_session_id`、`role_name` | 删除角色配置并同步摘除 `order_roles` |
+| `team.set_order` | `main_session_id`、`order_policy`、`order_roles` | 设置工作顺序（定时角色不得入列，未注册角色拒绝） |
+
+真实 API 冒烟（默认跳过）：
+
+```powershell
+go build -tags pprof -o tmp/headless-smoke/seelex-pprof-team.exe .
+$env:SMOKE_TEAM_LIVE='1'; $env:SMOKE_TEAM_LIVE_PPROF='1'
+go test ./gui -run TestRealAPIAgentTeamLiveProbe -v -count=1 -timeout 20m
+```
+
+报告落 `tmp/headless-smoke/reports/team-live-*.json`，并抓 goroutine/mutex/block pprof。
 
 权威设计文档位于 [`docs/gui`](../docs/gui/README.md)。
 

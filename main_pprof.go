@@ -7,6 +7,7 @@ import (
 	"net/http"
 	_ "net/http/pprof" // 注册 /debug/pprof/* 到 DefaultServeMux
 	"os"
+	"runtime"
 )
 
 // startPprofHook 在 build tag pprof 下启动 Go 侧采样端口（默认
@@ -16,6 +17,10 @@ import (
 //
 // 构建：go build -tags pprof .
 func startPprofHook() {
+	// pprof 构建默认采集全部 mutex/block 事件，供 headless 冒烟观察锁等待与
+	// 阻塞链（普通构建不引入这两个采样点）。
+	runtime.SetMutexProfileFraction(1)
+	runtime.SetBlockProfileRate(1)
 	addr := os.Getenv("SEELEX_PPROF_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:6060"

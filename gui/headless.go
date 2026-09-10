@@ -28,6 +28,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // headlessEnvPort 是启用 headless 冒烟接口的环境变量（回环端口号）。
@@ -139,6 +140,18 @@ func writeRPCError(writer http.ResponseWriter, message string) {
 func (server *headlessServer) dispatch(method string, args []json.RawMessage) (any, error) {
 	if strings.HasPrefix(method, "goal.") {
 		return server.dispatchGoal(method, args)
+	}
+	if strings.HasPrefix(method, "role.") {
+		return server.dispatchRole(method, args)
+	}
+	if strings.HasPrefix(method, "schedule.") {
+		return server.dispatchSchedule(method, args)
+	}
+	if strings.HasPrefix(method, "team.") {
+		return server.dispatchTeam(method, args)
+	}
+	if strings.HasPrefix(method, "subagent.") {
+		return server.dispatchSubagent(method, args)
 	}
 	stringArg := func(index int, name string) (string, error) {
 		if index >= len(args) {
@@ -288,6 +301,176 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 		return nil, sessionAware.ActivateSession(sessionID)
 	}
 	return nil, fmt.Errorf("未知 headless 方法: %s", method)
+}
+
+// roleRPCApplication 是 Application 的 R2/R4 群聊角色扩展面（headless
+// 冒烟/巡检透传；真实排序/幂等/floor 仍由 sessionstore 执行）。
+type roleRPCApplication interface {
+	CreateRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (sessionstore.RoleSessionInfo, error)
+	AppendRoleDraft(mainSessionID, roleName, roleSessionID string, rows []sessionstore.RoleDraftRow) error
+	ReadRoleDraft(mainSessionID, roleName, roleSessionID string) ([]sessionstore.RoleDraftRow, error)
+	SyncRoleDraft(mainSessionID, roleName, roleSessionID string, order []string) (sessionstore.RoleDraftSyncResult, error)
+	AppendRoleSessionRows(mainSessionID, roleName, roleSessionID string, rows []sessionstore.Event) error
+	ReadRoleSessionRows(mainSessionID, roleName, roleSessionID string) ([]sessionstore.Event, error)
+	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (sessionstore.RoleSnapshot, error)
+	AssembleRoleWire(mainSessionID, roleName, roleSessionID string, budget, k int) (sessionstore.RoleWireSnapshot, error)
+	SetLifecycleOrder(sessionID, policy string, roles []string) error
+	SetRoleLifecycle(mainSessionID, roleName, roleSessionID string, joinSeq uint64, ref *sessionstore.CompactRef) error
+	ListRoleSessions(mainSessionID string) ([]string, error)
+	ScheduleRegister(sessionID string, payload sessionstore.ScheduleEventPayload) error
+	ScheduleCancel(sessionID string, payload sessionstore.ScheduleEventPayload) error
+	ScheduleFire(sessionID string, payload sessionstore.ScheduleEventPayload) error
+}
+
+type roleCreateRequest struct {
+	MainSessionID string `json:"main_session_id"`
+	RoleName      string `json:"role_name"`
+	RoleSessionID string `json:"role_session_id"`
+	JoinSeqID     uint64 `json:"join_seq_id,omitempty"`
+}
+
+type roleDraftRequest struct {
+	MainSessionID string                      `json:"main_session_id"`
+	RoleName      string                      `json:"role_name"`
+	RoleSessionID string                      `json:"role_session_id"`
+	Rows          []sessionstore.RoleDraftRow `json:"rows,omitempty"`
+	Order         []string                    `json:"order,omitempty"`
+	Budget        int                         `json:"budget,omitempty"`
+	K             int                         `json:"k,omitempty"`
+}
+
+type roleBackupRequest struct {
+	MainSessionID string               `json:"main_session_id"`
+	RoleName      string               `json:"role_name"`
+	RoleSessionID string               `json:"role_session_id"`
+	Rows          []sessionstore.Event `json:"rows,omitempty"`
+}
+
+type roleOrderRequest struct {
+	SessionID   string   `json:"session_id"`
+	OrderPolicy string   `json:"order_policy"`
+	OrderRoles  []string `json:"order_roles,omitempty"`
+}
+
+type roleLifecycleRequest struct {
+	MainSessionID string                   `json:"main_session_id"`
+	RoleName      string                   `json:"role_name"`
+	RoleSessionID string                   `json:"role_session_id"`
+	JoinSeqID     uint64                   `json:"join_seq_id,omitempty"`
+	CompactRef    *sessionstore.CompactRef `json:"compact_ref,omitempty"`
+}
+
+type scheduleRPCRequest struct {
+	SessionID string                            `json:"session_id"`
+	Payload   sessionstore.ScheduleEventPayload `json:"payload"`
+}
+
+func decodeHeadlessObject(method string, args []json.RawMessage, destination any) error {
+	if len(args) == 0 {
+		return fmt.Errorf("%s 缺少参数对象", method)
+	}
+	if err := json.Unmarshal(args[0], destination); err != nil {
+		return fmt.Errorf("%s 参数解码失败: %w", method, err)
+	}
+	return nil
+}
+
+func (server *headlessServer) dispatchRole(method string, args []json.RawMessage) (any, error) {
+	app, ok := server.app.(roleRPCApplication)
+	if !ok {
+		return nil, fmt.Errorf("%s: 当前 Application 未装配群聊角色扩展面", method)
+	}
+	switch method {
+	case "role.create":
+		var request roleCreateRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.CreateRoleSession(request.MainSessionID, request.RoleName, request.RoleSessionID, request.JoinSeqID)
+	case "role.append_draft":
+		var request roleDraftRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return nil, app.AppendRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Rows)
+	case "role.read_draft":
+		var request roleDraftRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.ReadRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID)
+	case "role.sync_draft":
+		var request roleDraftRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.SyncRoleDraft(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Order)
+	case "role.append_backup":
+		var request roleBackupRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return nil, app.AppendRoleSessionRows(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Rows)
+	case "role.read_backup":
+		var request roleBackupRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.ReadRoleSessionRows(request.MainSessionID, request.RoleName, request.RoleSessionID)
+	case "role.snapshot":
+		var request roleDraftRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.RoleSnapshot(request.MainSessionID, request.RoleName, request.RoleSessionID)
+	case "role.wire":
+		var request roleDraftRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.AssembleRoleWire(request.MainSessionID, request.RoleName, request.RoleSessionID, request.Budget, request.K)
+	case "role.list":
+		var request roleCreateRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.ListRoleSessions(request.MainSessionID)
+	case "role.set_order":
+		var request roleOrderRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return nil, app.SetLifecycleOrder(request.SessionID, request.OrderPolicy, request.OrderRoles)
+	case "role.set_lifecycle":
+		var request roleLifecycleRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return nil, app.SetRoleLifecycle(request.MainSessionID, request.RoleName, request.RoleSessionID, request.JoinSeqID, request.CompactRef)
+	default:
+		return nil, fmt.Errorf("未知 role headless 方法: %s", method)
+	}
+}
+
+func (server *headlessServer) dispatchSchedule(method string, args []json.RawMessage) (any, error) {
+	app, ok := server.app.(roleRPCApplication)
+	if !ok {
+		return nil, fmt.Errorf("%s: 当前 Application 未装配定时插话扩展面", method)
+	}
+	var request scheduleRPCRequest
+	if err := decodeHeadlessObject(method, args, &request); err != nil {
+		return nil, err
+	}
+	switch method {
+	case "schedule.register":
+		return nil, app.ScheduleRegister(request.SessionID, request.Payload)
+	case "schedule.cancel":
+		return nil, app.ScheduleCancel(request.SessionID, request.Payload)
+	case "schedule.fire":
+		return nil, app.ScheduleFire(request.SessionID, request.Payload)
+	default:
+		return nil, fmt.Errorf("未知 schedule headless 方法: %s", method)
+	}
 }
 
 // goalRPCApplication 是 Application 的 goal 扩展面（P1 headless 透传：
