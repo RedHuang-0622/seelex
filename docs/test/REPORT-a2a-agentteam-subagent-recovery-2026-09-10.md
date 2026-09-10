@@ -173,6 +173,76 @@ subagent 是 tool calling 能力（劳务派遣），不是 AgentTeam 成员，�
 2. 落账路径若必须读 History，走只读快照 / 带 TTL 的缓存，不要嵌在持锁期间；
 3. 补一条断言“长流期间表格投影不阻塞”的回归测试，防止后续再退化。
 
+### 4.5 复现、根因与治理结果（2026-09-11 更新）
+
+**复现方式（两条互补）**
+
+1. 确定性单元复现（秒级，不依赖真实 API）：`seelebridge/session` 的两个用例用
+   桩 LLM 造出「真会话、真持锁、真流式」——`CompleteStream` 阻塞到 ctx 取消，
+   期间观测面必须立刻返回：
+   `TestProjectionDoesNotBlockOnLiveSessionStream`（表格投影）与
+   `TestSubagentSessionsReadsDoNotBlockOnStreamingNode`（节点记录落账/详情读）。
+2. 真实 API 现场复现：本文 §1 的 `TestRealAPISubagentResumeLiveProbe`，恢复期
+   子代理重跑长文流式（~42s），抓 mutex/block profile。
+
+**根因：是锁粒度，不是数据竞争**
+
+- `Seele/session.(*Session).ChatStream` 用 `e.mu.Lock(); defer e.mu.Unlock()`
+  包住整个 ReAct 循环（`session/chat.go:222-226`），而 `History()` 用的是
+  **同一把** `e.mu`。任何“读运行中子代理历史”的观测路径都因此必须等完整段流式：
+  表格投影路径 `Runtime.SubAgentTree → SubagentTree.projectNode →
+  seelexctx.ExportSnapshot → provider.EngineProvider.Export → Session.History`；
+  落账路径 `SubagentSessions.handle → persistLocked → buildRecordLocked →
+  Session.History`。
+- `-race` 目标 + `GORACE=halt_on_error=1` 三次真实运行均无 `DATA RACE`，
+  goroutine dump 里也没有互斥等待环：**不存在数据竞争，也不构成死锁**，只是
+  观测面被流式锁串行化。
+
+**复杂度：为什么表现成“卡 28 秒”**
+
+- 单次观测的等待下界 ≈ “当前流式的剩余时长”，与历史长度无关，却与外部 LLM
+  生成速度线性相关：观测延迟 Θ(stream)。工作表格投影循环因此被拖成与流式同
+  量级的周期（本次实测 28s）。
+- 每次观测还要复制历史并序列化上下文（`EngineProvider.Export`），单次 Θ(history)；
+  K 次轮询的总成本 Θ(K · history)，且全部串在流式锁之后。
+- 两者相乘 = 用户看到的“长任务 / 恢复期表格卡住不动”。降低复杂度不能靠优化
+  常数，只能**换数据源**：让观测面读执行侧自己发布的增量面，而不是读会话锁保护
+  的历史。
+
+**治理结果（同一现场 A/B）**
+
+| 阶段 | 表格投影等待 | 记录落账等待 | mutex profile 头部（会话锁争用） |
+|---|---|---|---|
+| 修前（2026-09-10 22:09） | 28.19s | 28.19s | 42.29s（`ChatStream.deferwrap1`） |
+| 中间：只修投影（2026-09-11 00:18） | 已消失 | 27.42s | 27.42s |
+| 修后：两处都修（2026-09-11 00:44） | 已消失 | 已消失 | 206ms（退化为启动期日志） |
+
+治理动作（由并发的另一条工作流实现，本文只做**独立复测**）：
+
+1. 运行中节点不再读会话锁——投影只用“执行侧自己上报的工作计数 + 遥测 trace”
+   组装（`ExportSnapshotFromData`），不再 `ExportSnapshot` 运行中会话；
+2. 节点记录落账改用上游新暴露的非阻塞读 `HistoryIfAvailable()`（循环在每个历史
+   检查点发布的快照，代价是最多滞后一个检查点，换来 actor 不再停在流式上）；
+3. 上游依赖相应从 Seele v0.1.2 升到 **v0.1.3**（session 观测面非阻塞读）。
+
+**独立复测证据（2026-09-11 00:44，工作区含上述改动）**
+
+- `TestRealAPISubagentResumeLiveProbe` PASS（53.4s；`race_clean=true`；六步恢复、
+  同键续跑、收敛），报告 `tmp/headless-smoke/reports/subagent-live-20260911-004448.json`；
+  最终 profile：`role-mutex-1789058688655870000.txt`、`role-block-1789058688691767300.txt`。
+- `go test ./seelebridge/... -count=1` 非沙箱全绿（沙箱内 `seelebridge`/`security`
+  各有用例因“禁止解析路径链接”假红，非代码回归）。
+- `go test ./application/... ./sessionstore ./internal/adapters ./gui ./e2e -count=1`
+  全绿；`go build ./...` 与 `go build -tags "gui,desktop,production" ./...` ok。
+
+**发布前必须收口的遗留**
+
+- `go.mod` 已指向 Seele v0.1.3（远端确已发布：模块缓存有 `v0.1.3.zip` + `.ziphash`），
+  但 **`go.sum` 里还没有 v0.1.3 的校验和**，当前只靠仓库根未跟踪的 `go.work`
+  （`replace github.com/RedHuang-0622/Seele => ../Seele`）在本机成立。离开本机或
+  CI 会变成 `missing go.sum entry` 构建失败——收口动作 = `go mod tidy`（或
+  `go mod download`）写入校验和，并确认代理可解析 v0.1.3。
+
 ## 5. 与设计稿的一致性核对
 
 | 设计约定 | 本轮证据 |
