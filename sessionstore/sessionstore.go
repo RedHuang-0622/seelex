@@ -174,6 +174,14 @@ type Event struct {
 	// WireMaterial 只对 internal_user/context 行有意义：true = 可作为
 	// 内部 user 材料进入 wire（R2-FILTER），false/空 = 只服务前端/历史。
 	WireMaterial bool `json:"wire_material,omitempty"`
+	// RoleName / RoleSessionID 是群聊角色归属（§8.3）：user/main/tl/
+	// agent-team；message 行必须可识别归属，UI/审计/恢复按此区分。
+	RoleName      string `json:"role_name,omitempty"`
+	RoleSessionID string `json:"role_session_id,omitempty"`
+	// RoundID 是一条 user 输入开启的群聊因果轮次；UnitSeq 是角色内单元序。
+	// 两者与 message 全局 seq 分离，是 sequencer 排序键（§8.3）。
+	RoundID uint64 `json:"round_id,omitempty"`
+	UnitSeq uint64 `json:"unit_seq,omitempty"`
 }
 
 type ToolResult struct {

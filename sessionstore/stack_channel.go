@@ -58,6 +58,10 @@ type StackItemInput struct {
 	Kind    StackKind
 	Status  string
 	Payload json.RawMessage
+	// RoleName / RoleSessionID 是群聊角色归属（§8.3/R2）。goal 栈条目用它记录
+	// techleader 子会话锚；其它栈未用到时留空。
+	RoleName      string
+	RoleSessionID string
 	// EnteredAt 为零值时由通道按当前时间盖章。
 	EnteredAt time.Time
 }
@@ -71,6 +75,9 @@ type StackItemRecord struct {
 	Seq     uint64          `json:"seq"`
 	Status  string          `json:"status"`
 	Payload json.RawMessage `json:"payload,omitempty"`
+	// RoleName / RoleSessionID 是群聊角色归属（§8.3/R2）。
+	RoleName      string `json:"role_name,omitempty"`
+	RoleSessionID string `json:"role_session_id,omitempty"`
 	// Revision 是发布该投影时的 stack head_seq；reader 只承认 revision ≤ head
 	// 的行（head 未发布 = 未提交）。
 	Revision uint64 `json:"revision"`
@@ -248,6 +255,7 @@ func (state *stackState) pushItem(item StackItemInput, batchID, batchFrom string
 	record := StackItemRecord{
 		ItemID: item.ItemID, BatchID: batchID, StackID: string(item.Kind) + "|active",
 		Kind: item.Kind, Seq: state.nextSeq, Status: status, Payload: item.Payload,
+		RoleName: item.RoleName, RoleSessionID: item.RoleSessionID,
 		Revision:         state.revision,
 		ItemMessageID:    state.anchorID,
 		ItemMessageSeq:   state.anchorSeq,
@@ -479,6 +487,7 @@ func stackEventPayload(row StackItemRecord) json.RawMessage {
 	payload, _ := json.Marshal(map[string]any{
 		"item_id": row.ItemID, "batch_id": row.BatchID, "status": row.Status,
 		"item_message_id": row.ItemMessageID, "seq": row.Seq,
+		"role_name": row.RoleName, "role_session_id": row.RoleSessionID,
 	})
 	return payload
 }

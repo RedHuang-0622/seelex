@@ -95,6 +95,10 @@ type GoalFrame struct {
 	// EnteredAt 是 goal 进入使用栈的时间（fork 第五栈按 fork 时刻过滤用；
 	// 旧/缺省记录视为 fork 点之前，与 plan/task 帧同一保守语义）。
 	EnteredAt time.Time `json:"entered_at,omitempty"`
+	// RoleName / RoleSessionID 是 goal 治理里 techleader 的群聊角色归属
+	// （R2：goal stack 条目记录 role_name + role_session_id 锚）。
+	RoleName      string `json:"role_name,omitempty"`
+	RoleSessionID string `json:"role_session_id,omitempty"`
 }
 
 // GoalAuditEntry 是 goal 生命周期审计条目（append-only，按会话隔离）。
@@ -611,6 +615,7 @@ func (s *SessionContextStore) PushGoal(frame GoalFrame) error {
 		_, err := s.router.StackPush(s.workspace(), s.sessionID, StackKindGoal, "goal:"+frame.GoalID, []StackItemInput{{
 			ItemID: frame.GoalID, Kind: StackKindGoal, Status: status,
 			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
+			RoleName: frame.RoleName, RoleSessionID: frame.RoleSessionID,
 		}})
 		return err
 	})
@@ -660,6 +665,7 @@ func (s *SessionContextStore) ReplaceGoalStack(frames []GoalFrame) error {
 		items = append(items, StackItemInput{
 			ItemID: frame.GoalID, Kind: StackKindGoal, Status: frame.Status,
 			Payload: stackPayload(frame), EnteredAt: frame.EnteredAt,
+			RoleName: frame.RoleName, RoleSessionID: frame.RoleSessionID,
 		})
 	}
 	return s.writeStack(StackKindGoal, func() error {

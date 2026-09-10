@@ -54,6 +54,19 @@ type messageHead struct {
 	// Meta 是目录枚举面（与 legacy manifest.Meta 同语义：UpdatedAt /
 	// TokenCount / ShardCount）。TokenCount 按已发布事件行累计。
 	Meta frameworkStorage.SessionMeta `json:"meta,omitempty"`
+	// Floor 是当前发言角色记录（§8.3）：随 message head 原子发布，不新增
+	// metadata 文件、不额外 rename。只有 sequencer 写，其他角色只读。
+	Floor *Floor `json:"floor,omitempty"`
+}
+
+// Floor 是「当前轮到这里发言的角色」记录。唯一写者 = sequencer；
+// 运行期内存态由 sequencer 维护，冷恢复从 message head.floor 重建。
+type Floor struct {
+	RoleName      string    `json:"role_name"`
+	RoleSessionID string    `json:"role_session_id,omitempty"`
+	RoundID       uint64    `json:"round_id,omitempty"`
+	Seq           uint64    `json:"seq,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // shardInfo 是一个 message 分片文件的索引项。
@@ -104,9 +117,23 @@ func (store *storeEngine) messageCommit(key Key, commitID string, rows []Event) 
 	return store.messageCommitLocked(key, commitID, rows)
 }
 
+// messageCommitSync 是 sequencer 的提交入口：在普通 messageCommit 之上携带
+// 本次发言权记录。floor 与 message head 同一次原子发布，不额外 rename。
+func (store *storeEngine) messageCommitSync(key Key, commitID string, rows []Event, floor *Floor) (messageHead, error) {
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
+	return store.messageCommitSyncLocked(key, commitID, rows, floor)
+}
+
 // messageCommitLocked 是 messageCommit 的锁内实现（其它模块/重放逻辑
 // 复用时须自行持 messageMu）。
 func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []Event) (messageHead, error) {
+	return store.messageCommitSyncLocked(key, commitID, rows, nil)
+}
+
+// messageCommitSyncLocked 是 sequencer 提交的锁内实现。floor 为 nil 时保持
+// 上一 head 的 floor 不变（普通提交不破坏发言权），否则随 head 原子更新。
+func (store *storeEngine) messageCommitSyncLocked(key Key, commitID string, rows []Event, floor *Floor) (messageHead, error) {
 	freshSession := !store.sessionExists(key)
 	if _, err := store.ensureLayoutGuide(key); err != nil {
 		return messageHead{}, err
@@ -119,6 +146,10 @@ func (store *storeEngine) messageCommitLocked(key Key, commitID string, rows []E
 	head, err := store.readMessageHeadLocked(key)
 	if err != nil {
 		return messageHead{}, err
+	}
+	if floor != nil {
+		copy := *floor
+		head.Floor = &copy
 	}
 	// 崩溃恢复：删除 head 之外的分片与 head 尾分片内超过 head 的行
 	// （append 完成但 head 未发布 = 未提交，T-M1-03/04）。

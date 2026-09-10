@@ -33,17 +33,21 @@ import (
 type structuralEventKind string
 
 const (
-	structuralEventCompacted    structuralEventKind = "compacted"
-	structuralEventFork         structuralEventKind = "fork"
-	structuralEventSubagent     structuralEventKind = "subagent"
-	structuralEventInterrupted  structuralEventKind = "interrupted"
-	structuralEventRolledBack   structuralEventKind = "rolled_back"
-	structuralEventRequestBegin structuralEventKind = "request_begin"
-	structuralEventRequestEnd   structuralEventKind = "request_end"
-	structuralEventTurnBegin    structuralEventKind = "turn_begin"
-	structuralEventTurnEnd      structuralEventKind = "turn_end"
-	structuralEventTokenUsage   structuralEventKind = "token_usage"
-	structuralEventArchived     structuralEventKind = "session_archived"
+	structuralEventCompacted          structuralEventKind = "compacted"
+	structuralEventFork               structuralEventKind = "fork"
+	structuralEventSubagent           structuralEventKind = "subagent"
+	structuralEventRoleSession        structuralEventKind = "role_session"
+	structuralEventInterrupted        structuralEventKind = "interrupted"
+	structuralEventRolledBack         structuralEventKind = "rolled_back"
+	structuralEventRequestBegin       structuralEventKind = "request_begin"
+	structuralEventRequestEnd         structuralEventKind = "request_end"
+	structuralEventTurnBegin          structuralEventKind = "turn_begin"
+	structuralEventTurnEnd            structuralEventKind = "turn_end"
+	structuralEventTokenUsage         structuralEventKind = "token_usage"
+	structuralEventArchived           structuralEventKind = "session_archived"
+	structuralEventScheduleRegistered structuralEventKind = "schedule.registered"
+	structuralEventScheduleCancelled  structuralEventKind = "schedule.cancelled"
+	structuralEventScheduleFired      structuralEventKind = "schedule.fired"
 )
 
 // structuralEvent 是一行结构性事件摘要。

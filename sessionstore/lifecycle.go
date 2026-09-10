@@ -75,6 +75,20 @@ type lifecycleHead struct {
 	// ArchivedAt 是 §2.5.4 的已归档判据（列表过滤不看 EVENT）。
 	ArchivedAt time.Time `json:"archived_at,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	// OrderPolicy / OrderRoles 是 §8.3 群聊顺序策略（goal_loop 默认，或
+	// user_main_decided）；只更新这两个字段，不另开 metadata 文件。
+	OrderPolicy string   `json:"order_policy,omitempty"`
+	OrderRoles  []string `json:"order_roles,omitempty"`
+	// JoinSeqID 是角色加入群聊时的 main message seq；CompactRef 是角色对
+	// main compact 帧的引用（frame_id + applied_seq）。角色会话用它冷恢复。
+	JoinSeqID  uint64      `json:"join_seq_id,omitempty"`
+	CompactRef *CompactRef `json:"compact_ref,omitempty"`
+}
+
+// CompactRef 是角色会话对 main compact 帧的引用；角色不得生成第二份帧。
+type CompactRef struct {
+	FrameID    string `json:"frame_id"`
+	AppliedSeq uint64 `json:"applied_seq"`
 }
 
 func (store *storeEngine) lifecycleInputDir(key Key) string {
@@ -245,6 +259,10 @@ func (store *storeEngine) publishLifecycleLocked(key Key, _ string, state lifecy
 		HeadState:     queueHeadState(state.Queue),
 		ArchivedAt:    previous.ArchivedAt,
 		UpdatedAt:     time.Now().UTC(),
+		OrderPolicy:   previous.OrderPolicy,
+		OrderRoles:    previous.OrderRoles,
+		JoinSeqID:     previous.JoinSeqID,
+		CompactRef:    previous.CompactRef,
 	}
 	// S17/D13：凭据按落盘状态内容确定性推导（重放同一操作得到同一值），
 	// 不采用调用侧随机号。
@@ -264,6 +282,49 @@ func (store *storeEngine) readLifecycleHead(key Key) (lifecycleHead, error) {
 	store.mu(key, moduleLifecycle).Lock()
 	defer store.mu(key, moduleLifecycle).Unlock()
 	return store.readLifecycleHeadLocked(key)
+}
+
+// updateLifecycleHeadLocked 在 lifecycle 锁内读取 head、交给 mutate 修改并原子
+// 发布。用于群聊顺序/角色恢复坐标这类只改 head 字段、不改 draft/queue 数据
+// 文件的 low-frequency 更新（§8.3）。
+func (store *storeEngine) updateLifecycleHeadLocked(key Key, mutate func(*lifecycleHead)) error {
+	if _, err := store.ensureLayoutGuide(key); err != nil {
+		return err
+	}
+	head, err := store.readLifecycleHeadLocked(key)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	head.SessionID = key.SessionID
+	mutate(&head)
+	head.UpdatedAt = time.Now().UTC()
+	_, err = store.publishModuleHead(key, moduleLifecycle,
+		modulePayloadCommitID(moduleLifecycle, head), head, head.UpdatedAt)
+	return err
+}
+
+// setLifecycleOrder 写群聊顺序策略（§8.3）。不会触碰 draft/queue 数据文件。
+func (store *storeEngine) setLifecycleOrder(key Key, policy string, roles []string) error {
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
+	return store.updateLifecycleHeadLocked(key, func(head *lifecycleHead) {
+		head.OrderPolicy = policy
+		head.OrderRoles = append([]string(nil), roles...)
+	})
+}
+
+// setRoleLifecycle 写角色冷恢复坐标：join_seq_id 与 compact_ref。compact_ref
+// 为空表示只更新 join 点，不伪造 compact 引用。
+func (store *storeEngine) setRoleLifecycle(key Key, joinSeq uint64, ref *CompactRef) error {
+	store.mu(key, moduleLifecycle).Lock()
+	defer store.mu(key, moduleLifecycle).Unlock()
+	return store.updateLifecycleHeadLocked(key, func(head *lifecycleHead) {
+		head.JoinSeqID = joinSeq
+		if ref != nil {
+			copy := *ref
+			head.CompactRef = &copy
+		}
+	})
 }
 
 // setLifecycleArchived 写入/清除 §2.5.4 的会话归档标记（S20：record 状态

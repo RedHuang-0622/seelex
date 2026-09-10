@@ -282,21 +282,52 @@ StagesJSON/ResultJSON/Worktree 现场 + schema 版本）。
 在进程内存快照；重启后恢复锚点从主会话事件库重建。
 
 `NodeSessionStore`（JSON backend 已实现）提供 `Save/Load/List/Delete`，显式
-项目作用域，不改变 Router 的 active write scope；SQLite/PostgreSQL/Redis
-接入为后续项（当前返回明确错误）。
+项目作用域，不改变 Router 的 active write scope；其它后端已退役，待按接口
+重写。
 
 ## 配置与安全
 
-- JSON/SQLite 使用本地 path；PostgreSQL/Redis 使用 DSN。
+- JSON 使用本地 path；SQLite/PostgreSQL/Redis 枚举仍可被配置解析，但
+  `Open` 明确返回 `ErrBackendRetired`。
 - `Config.Safe` 不把 DSN 返回 GUI，只报告 configured。
 - 配置文件写入采用原子替换和私有权限。
 - project/session ID 进入路径前经过 hash/安全编码，不能直接形成逃逸路径。
 
+## 群聊角色会话与 role draft（R2/R4 基建）
+
+R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线。入口见
+`role_session.go` / `role_session_router.go` / `material_cache.go` /
+`schedule_events.go`：
+
+- 非 main 角色会话子树：`session/goal_<hash>/`（TL）与
+  `session/role_<hash>/`（未来 agent-team），复用 `storeEngine`，物理隔离，
+  message/event/metadata 同构；`CreateRoleSessionWorkspace` 创建并写
+  `join_seq_id`。
+- goal 栈条目通过 `StackItemInput`/`StackItemRecord` 的
+  `role_name`/`role_session_id` 记录角色会话锚；head 仍只装水位。
+- role draft = `<role_session>/draft/<role_name>.jsonl`，append-only 未同步
+  WAL；`AppendRoleDraftWorkspace` 写、`SyncRoleDraftWorkspace` 由 sequencer
+  同步进 main message 后立即删除；半同步批按确定性 `commit_id` 幂等删除。
+- message `Event` 增加 `role_name`/`role_session_id`/`round_id`/`unit_seq`；
+  `messageHead.Floor` 随 message head 原子发布当前发言角色。
+- 群聊顺序/角色冷恢复坐标落 `lifecycle.order_policy/order_roles/join_seq_id/
+  compact_ref`；定时插话 EVENT 为 `schedule.registered|cancelled|fired`。
+- R3 物化缓存接口 `MaterialCache`（进程内 LRU，失效键 = message head commit/
+  revision + compact applied_seq/frame_id + floor）；装配命中/回写接线留后续。
+- 角色 wire：`AssembleRoleWireWorkspace` = main compact_ref + `seq >
+  max(join_seq_id, compact_ref.applied_seq)` 已发布行 + 该角色自身 pending
+  draft；`RoleSnapshotWorkspace` 汇总 main/备份/draft/floor/compact_ref 与
+  设计偏差提示，供 headless 真实 API 冒烟与巡检读取。
+- `gui/headless` 暴露 `role.create/list/append_draft/read_draft/sync_draft/
+  append_backup/read_backup/snapshot/wire/set_order/set_lifecycle` 与
+  `schedule.register|cancel|fire`；真实 API 冒烟见
+  `gui/role_live_probe_test.go`（`SMOKE_ROLE_LIVE=1`）。
+
 ## Review 指南
 
-- 所有 backend 是否保持相同逻辑 snapshot 语义。
-- JSON manifest 是否最后提交；失败 generation 是否不会被读取。
-- SQL migration/upsert 是否兼容 SQLite 与 PostgreSQL placeholder，Redis key 是否保留同一 project hash tag。
+- 新增后端是否实现同一逻辑 snapshot 语义，并显式实现 `stackJournal()`。
+- JSON 模块 head 是否最后提交；未发布行是否不可见。
+- 退役后端是否始终返回显式 `ErrBackendRetired`，没有静默回退。
 - Router 是否在任何错误路径关闭 replacement、保留 old repository。
 - range offset/limit 和 empty history 的语义是否一致。
 - 栈通道：新增后端时 `stackJournal()` 是否实现（接口编译期强制，禁止用
