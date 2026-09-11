@@ -1,3 +1,5 @@
+import { isHtmlEmbedLanguage, renderHtmlEmbed } from "./html-embed.js";
+
 const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 const BLOCK_PATTERN = /^(?: {0,3}(?:#{1,6}\s+|>|```|~~~|<think>\s*)|\s*(?:[-+*]|\d+[.)])\s+|\s*(?:-{3,}|\*{3,}|_{3,})\s*$)/i;
 const REASONING_OPEN = /^ {0,3}<think>\s*/i;
@@ -37,7 +39,7 @@ function selectBlockRenderer(lines, index) {
 }
 
 function renderFence(lines, index) {
-  const opening = lines[index].match(/^ {0,3}(`{3,}|~{3,})\s*([^\s`~]+)?\s*$/);
+  const opening = lines[index].match(/^ {0,3}(`{3,}|~{3,})\s*([^\s`~]+)?\s*(.*)$/);
   if (!opening) return renderParagraph(lines, index);
   const marker = opening[1];
   const closePattern = new RegExp(`^ {0,3}${escapeRegExp(marker[0])}{${marker.length},}\\s*$`);
@@ -48,8 +50,14 @@ function renderFence(lines, index) {
     cursor += 1;
   }
   if (cursor < lines.length) cursor += 1;
-  const language = opening[2] ? ` class="language-${escapeAttribute(opening[2])}"` : "";
-  return { html: `<pre><code${language}>${escapeHtml(body.join("\n"))}</code></pre>`, next: cursor };
+  const language = opening[2] || "";
+  // 显式标记的块走沙箱 iframe 渲染（见 html-embed.js 的安全边界）；
+  // 普通 ```html 仍是源码块，避免既有会话里的代码片段被突然执行。
+  if (isHtmlEmbedLanguage(language)) {
+    return { html: renderHtmlEmbed(body.join("\n"), opening[3] || ""), next: cursor };
+  }
+  const languageClass = language ? ` class="language-${escapeAttribute(language)}"` : "";
+  return { html: `<pre><code${languageClass}>${escapeHtml(body.join("\n"))}</code></pre>`, next: cursor };
 }
 
 function renderReasoning(lines, index) {

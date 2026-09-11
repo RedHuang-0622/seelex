@@ -2115,18 +2115,78 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .reasoning-block.is-thinking-axis .reasoning-content { max-height: min(40vh, 320px); overflow: auto; }
 .reasoning-content.is-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* ---------- 对话时间线轮轴（右侧 minimap + 滚动滑柄） ----------
-   位置来自真实几何：一条可见条目 = 一条线，线高 = 条目占内容高度的比例，
-   视口滑柄反映当前可视区间。拖拽滑柄/点击轨道 = 滚动，点击线 = 跳转到该条
-   消息并闪烁定位，悬停出类型摘要标签。 */
+/* ---------- 会话内 HTML 渲染块（图形视图） ----------
+   模型产出的 HTML 只进沙箱 iframe（sandbox="allow-scripts"，无 same-origin），
+   srcdoc 内自带 CSP 断网；宿主 DOM 永不注入它。视觉上按「仪器读数屏」处理：
+   发丝边框 + 顶部铭牌 + 黄铜信号点，高度由围栏参数决定（120–640px）。 */
+.html-embed {
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface);
+}
+.html-embed-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-soft);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .06em;
+}
+.html-embed-mark {
+  width: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--tick-hot);
+}
+.html-embed-title { color: var(--text); letter-spacing: 0; font-family: var(--font-ui); font-size: 11.5px; }
+.html-embed-note { margin-left: auto; color: var(--faint); font-weight: 400; letter-spacing: 0; }
+.html-embed-frame {
+  display: block;
+  width: 100%;
+  height: var(--embed-height, 260px);
+  border: 0;
+  background: transparent;
+}
+.html-embed-source { border-top: 1px solid var(--border); }
+.html-embed-source > summary {
+  padding: 5px 10px;
+  color: var(--faint);
+  font: 10px var(--font-mono);
+  cursor: pointer;
+  list-style: none;
+}
+.html-embed-source > summary::-webkit-details-marker { display: none; }
+.html-embed-source > summary:hover { color: var(--text-soft); }
+.html-embed-source pre {
+  margin: 0;
+  padding: 10px;
+  max-height: 240px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--muted);
+  font: 11px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 对话导航轮轴（右侧问答刻度） ----------
+   一条刻度 = 一问一答：位置来自问题节点在内容里的真实高度比例，当前问答用
+   主信号色加长，其余压暗。悬停出问题摘要，点击跳到该问答（回答在它下面）。
+   刻度挂在一条 1px 时间基线上，与产品既有的轨迹语言一致。 */
 .conversation-shell .conversation-wheel {
   position: absolute;
   top: 34px;
   bottom: 46px;
   right: max(10px, calc((100% - 860px) / 2 - 74px));
   z-index: 6;
-  width: 26px;
-  opacity: .5;
+  width: 34px;
+  opacity: .45;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 .conversation-shell:hover .conversation-wheel,
@@ -2142,40 +2202,33 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   user-select: none;
   outline: none;
 }
-.wheel-track:focus-visible { box-shadow: 0 0 0 1px var(--border-info); border-radius: var(--r-sm); }
-.wheel-line {
+.wheel-track::before {
+  content: "";
   position: absolute;
-  left: 50%;
+  top: 0;
+  bottom: 0;
+  right: 2px;
+  width: 1px;
+  background: linear-gradient(to bottom, transparent 0%, var(--tick) 6%, var(--tick) 94%, transparent 100%);
+}
+.wheel-track:focus-visible { box-shadow: 0 0 0 1px var(--border-info); border-radius: var(--r-sm); }
+.wheel-dash {
+  position: absolute;
+  right: 2px;
+  height: 3px;
   padding: 0;
   border: 0;
-  border-radius: 2px;
+  border-radius: 999px;
+  background: var(--tick);
+  width: 16px;
   cursor: pointer;
-  transform: translateX(-50%);
-  transition: width var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+  transition: width var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
-.wheel-line.is-user { width: 14px; background: var(--tick-hot); }
-.wheel-line.is-agent { width: 11px; background: var(--tick); }
-.wheel-line.is-think { width: 8px; background: var(--status-info); opacity: .85; }
-.wheel-line.is-tools { width: 5px; background: var(--border-strong); }
-.wheel-line.is-system { width: 9px; background: var(--status-done); opacity: .8; }
-.wheel-line.is-other { width: 7px; background: var(--faint); }
-.wheel-line.is-in-view { filter: brightness(1.25); }
-.wheel-line:hover { filter: brightness(1.6); }
-.wheel-viewport {
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  border: 1px solid var(--border-info);
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--status-info) 12%, transparent);
-  pointer-events: none;
-}
-.wheel-viewport-core {
-  position: absolute;
-  inset: 0;
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--status-info) 22%, transparent);
-}
+/* 3px 的线太细：伪元素把命中区撑到 ~9px，点得中但看不清 */
+.wheel-dash::after { content: ""; position: absolute; inset: -3px -2px; }
+.wheel-dash:hover { width: 22px; background: var(--text-soft); }
+.wheel-dash.is-active { width: 26px; background: var(--tick-hot); }
+.wheel-dash.is-system { background: var(--status-done); }
 .wheel-tip {
   position: absolute;
   right: 100%;

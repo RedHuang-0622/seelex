@@ -10,7 +10,9 @@ const clientSource = (await readFile(new URL("./client-state.js", import.meta.ur
   .replace('"./protocol.js"', `"${protocolURL}"`)
   .replace('"./snapshot-shape.js"', `"${shapeURL}"`);
 const { createGUIClient } = await import(`data:text/javascript;base64,${Buffer.from(clientSource).toString("base64")}`);
-const markdownSource = await readFile(new URL("./markdown.js", import.meta.url), "utf8");
+const embedURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./html-embed.js", import.meta.url), "utf8")).toString("base64")}`;
+const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url), "utf8"))
+  .replace('"./html-embed.js"', `"${embedURL}"`);
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);

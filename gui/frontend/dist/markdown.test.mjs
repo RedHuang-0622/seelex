@@ -2,8 +2,31 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("./markdown.js", import.meta.url), "utf8");
+const embedURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./html-embed.js", import.meta.url), "utf8")).toString("base64")}`;
+const source = (await readFile(new URL("./markdown.js", import.meta.url), "utf8"))
+  .replace('"./html-embed.js"', `"${embedURL}"`);
 const { renderMarkdown } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+
+test("renders explicitly marked html fences as sandboxed embeds", () => {
+  const html = renderMarkdown([
+    "趋势如下：",
+    "",
+    "```seelex-html title=\"任务耗时\" height=300",
+    "<svg viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"/></svg>",
+    "```"
+  ].join("\n"));
+  assert.match(html, /class="html-embed"/);
+  assert.match(html, /sandbox="allow-scripts"/);
+  assert.match(html, /--embed-height:300px/);
+  assert.match(html, /任务耗时/);
+  assert.doesNotMatch(html, /<pre><code class="language-seelex-html"/);
+});
+
+test("keeps plain html fences as source blocks", () => {
+  const html = renderMarkdown(["```html", "<div>raw</div>", "```"].join("\n"));
+  assert.match(html, /<pre><code class="language-html">/);
+  assert.doesNotMatch(html, /<iframe/);
+});
 
 test("renders common block and inline markdown", () => {
   const html = renderMarkdown(`# Title

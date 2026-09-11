@@ -1,24 +1,22 @@
-// 对话时间线轮轴（右下侧 minimap + 滚动滑柄）。
+// 对话导航轮轴（右侧问答刻度）。
 //
-// 设计要点（2026-09-11 重做）：
-//   1. 位置来自**真实几何**：每条线按对应 DOM 项在滚动内容里的 offsetTop/height
-//      映射到轨道，而不是按「条目权重」均分——权重均分让线条与内容毫无对应关系
-//      （旧实现即此），拖到某个位置看到的不是那一段内容。
-//   2. 一条 DOM 项 = 一条线；线的粗细 = 该项占内容高度的比例（下限可见、上限
-//      可读，上限随轨道高度自适应），颜色/宽度按类型（用户输入 / Agent 正文 /
-//      思考 / 工具过程 / 系统）。
-//   3. 视口滑柄（thumb）宽度固定、位置与高度反映当前可视区间；拖拽滑柄或点击
-//      轨道即滚动，点击某条线即跳转到该条消息并闪烁定位。
-//   4. 悬停出标签（类型 + 摘要）与高亮；键盘可上下/翻页/首尾定位（role=scrollbar）。
-//   5. 线表随 DOM 重新测量：加载更早历史、增量新消息、容器缩放后自动重建，
-//      不需要调用方维护任何「线条加载」状态。
+// 设计要点（2026-09-11 二次重做，对齐 DeepSeek 网页版右侧导航）：
+//   1. **一条刻度 = 一问一答**：刻度挂在每个 user 轮上，点击即跳到该问题，
+//      它的回答就在下面——而不是给每条 DOM 项都画一条无意义的线。
+//   2. 刻度位置来自**真实几何**：问题节点在滚动内容里的 offsetTop 占内容
+//      高度的比例，而不是按「条目权重」均分；用户滚到哪，高亮就落在哪一条。
+//   3. 窗口里没有 user 轮时（长会话翻到中段）退回按助手步骤分段，避免右侧
+//      整条轨道空着。
+//   4. 视觉是短线 + 一条 1px 基线：当前问答用主信号色加长，其余压暗；悬停
+//      出问题摘要，键盘 ↑/↓/PgUp/PgDn/Home/End 可导航。
 //
-// 纯函数（buildWheelLines/wheelThumb/scrollTopForThumbTop/scrollTopForFraction/
-// lineAtOffset/normalizeWheelKind）可脱离 DOM 单测，见 conversation-wheel.test.mjs。
+// 纯函数（buildWheelRounds/wheelAnchors/roundAtOffset/activeRoundIndex/
+// scrollTopForFraction/normalizeWheelKind/wheelSignature）可脱离 DOM 单测，
+// 见 conversation-wheel.test.mjs。
 
-const MIN_LINE = 2;
-const MAX_LINE = 48;
-const MIN_THUMB = 14;
+const DASH = 3;
+const MIN_GAP = 11;
+const ACTIVE_LINE = 0.4;
 const DEFAULT_KINDS = ["user", "agent", "think", "tools", "system", "other"];
 
 export function normalizeWheelKind(raw) {
@@ -45,74 +43,108 @@ export function normalizeWheelKind(raw) {
   }
 }
 
-// buildWheelLines 把「已测量的条目几何」映射为轨道上的线表。
-// rows: [{ key, kind, label, offsetTop, height }]（按文档顺序）
-export function buildWheelLines(rows, options = {}) {
+// wheelAnchors 选出刻度的挂点：优先「用户提问」（一问一答导航），窗口里没有
+// 用户轮（长会话翻到中段）时退回助手步骤，都没有才算空。
+export function wheelAnchors(entries) {
+  const list = (Array.isArray(entries) ? entries : []).filter(entry => entry && entry.key);
+  const turns = list.filter(entry => normalizeWheelKind(entry.kind) === "user");
+  if (turns.length > 0) return { mode: "turn", anchors: turns };
+  const steps = list.filter(entry => {
+    const kind = normalizeWheelKind(entry.kind);
+    return kind === "agent" || kind === "think";
+  });
+  return { mode: steps.length > 0 ? "step" : "none", anchors: steps };
+}
+
+// buildWheelRounds 把「已测量的条目几何」映射为轨道上的刻度表。
+// entries: [{ key, kind, label, offsetTop, height }]（按文档顺序）
+//
+// 位置 = 该问答起始位置占内容高度的比例 × 可用轨道；同时保证最小间距，
+// 否则短问答会叠在一起。刻度等长，回答区间只用于高亮与命中。
+export function buildWheelRounds(entries, options = {}) {
   const scrollHeight = Math.max(Number(options.scrollHeight) || 0, 0);
   const trackHeight = Math.max(Number(options.trackHeight) || 0, 0);
-  const minLine = Math.max(Number(options.minLine) || MIN_LINE, 1);
-  // 上限默认随轨道高度自适应：固定值在长轨道上会把大块内容压成细线，丢失
-  // 「哪里有长工具输出/长回复」这层信息；轨道 1/4（12–48px）让最多约 8 个
-  // 大块仍彼此可分辨，同时不让单块吃掉整条轨道。
-  const adaptiveMax = Math.min(Math.max(trackHeight * 0.25, 12), MAX_LINE);
-  const maxLine = Math.max(Number(options.maxLine) || adaptiveMax, minLine);
-  const list = Array.isArray(rows) ? rows : [];
-  if (scrollHeight <= 0 || trackHeight <= 0 || list.length === 0) {
-    return { empty: true, lines: [], scrollHeight, trackHeight };
+  const dash = Math.max(Number(options.dashHeight) || DASH, 1);
+  const minGap = Math.max(Number(options.minGap) || MIN_GAP, 0);
+  const list = Array.isArray(entries) ? entries : [];
+  const empty = { empty: true, mode: "none", rounds: [], scrollHeight, trackHeight, dashHeight: dash };
+  if (scrollHeight <= 0 || trackHeight <= 0 || list.length === 0) return empty;
+
+  const { mode, anchors } = wheelAnchors(list);
+  if (anchors.length === 0) return empty;
+
+  const available = Math.max(trackHeight - dash, 0);
+  const gap = anchors.length > 1 ? Math.min(minGap, available / (anchors.length - 1)) : 0;
+  const tops = [];
+  let previous = Number.NEGATIVE_INFINITY;
+  for (const anchor of anchors) {
+    const offsetTop = Math.max(Number(anchor.offsetTop) || 0, 0);
+    const proportional = Math.min(offsetTop / scrollHeight, 1) * available;
+    const top = Math.max(proportional, previous + gap);
+    tops.push(top);
+    previous = top;
   }
-  const scale = trackHeight / scrollHeight;
-  const lines = [];
-  for (const row of list) {
-    if (!row || !row.key) continue;
-    const offsetTop = Math.max(Number(row.offsetTop) || 0, 0);
-    const height = Math.max(Number(row.height) || 0, 0);
-    const lineHeight = Math.min(Math.max(height * scale, minLine), maxLine);
-    // 顶对齐：线段起点与条目在内容里的起点同比例（首条线正好贴轨道顶部），
-    // 高度按比例截断到 [minLine, maxLine]。
-    const top = Math.max(0, Math.min(trackHeight - lineHeight, offsetTop * scale));
-    lines.push({
-      key: String(row.key),
-      kind: normalizeWheelKind(row.kind),
-      label: typeof row.label === "string" ? row.label : "",
-      top: round(top),
-      height: round(Math.min(lineHeight, trackHeight)),
+  // 顶到轨道底时整体回拉（自后向前收），保持相对顺序与间距。
+  let next = Number.POSITIVE_INFINITY;
+  for (let index = tops.length - 1; index >= 0; index -= 1) {
+    tops[index] = Math.min(tops[index], next - gap);
+    next = tops[index];
+  }
+  if (tops.length > 0 && tops[0] < 0) {
+    const shift = -tops[0];
+    for (let index = 0; index < tops.length; index += 1) tops[index] += shift;
+  }
+
+  const rounds = anchors.map((anchor, index) => {
+    const offsetTop = Math.max(Number(anchor.offsetTop) || 0, 0);
+    const height = Math.max(Number(anchor.height) || 0, 0);
+    const nextTop = index + 1 < anchors.length ? Math.max(Number(anchors[index + 1].offsetTop) || 0, offsetTop) : scrollHeight;
+    return {
+      index,
+      key: String(anchor.key),
+      kind: normalizeWheelKind(anchor.kind),
+      label: typeof anchor.label === "string" ? anchor.label : "",
+      top: round(Math.min(Math.max(tops[index], 0), available)),
+      height: round(dash),
       offsetTop,
-      offsetBottom: offsetTop + height,
+      offsetBottom: Math.max(nextTop, offsetTop + height),
       progress: Math.min(1, Math.max(0, offsetTop / scrollHeight))
-    });
-  }
-  return { empty: lines.length === 0, lines, scrollHeight, trackHeight };
+    };
+  });
+  return { empty: rounds.length === 0, mode, rounds, scrollHeight, trackHeight, dashHeight: dash };
 }
 
-// wheelThumb 计算视口滑柄几何（top/height 以轨道像素为单位）。
-export function wheelThumb(geometry = {}) {
-  const scrollHeight = Math.max(Number(geometry.scrollHeight) || 0, 0);
-  const clientHeight = Math.max(Number(geometry.clientHeight) || 0, 0);
-  const trackHeight = Math.max(Number(geometry.trackHeight) || 0, 0);
-  const maxScroll = Math.max(scrollHeight - clientHeight, 0);
-  if (scrollHeight <= 0 || clientHeight <= 0 || trackHeight <= 0) {
-    return { top: 0, height: trackHeight, travel: 0, maxScroll: 0, progress: 0 };
+// roundAtOffset 返回轨道 y 处命中的刻度：优先命中，其次最近的一条
+// （刻度很细时也要能悬停/点击到，手感优先）。
+export function roundAtOffset(rounds, y) {
+  const list = Array.isArray(rounds) ? rounds : [];
+  if (list.length === 0) return null;
+  const offset = Number(y) || 0;
+  let nearest = null;
+  let best = Infinity;
+  for (const round of list) {
+    if (offset >= round.top && offset <= round.top + round.height) return round;
+    const distance = Math.min(Math.abs(offset - round.top), Math.abs(offset - (round.top + round.height)));
+    if (distance < best) {
+      best = distance;
+      nearest = round;
+    }
   }
-  const ratio = Math.min(1, clientHeight / scrollHeight);
-  const height = Math.max(Math.min(trackHeight, trackHeight * ratio), Math.min(MIN_THUMB, trackHeight));
-  const travel = Math.max(trackHeight - height, 0);
-  const scrollTop = Math.min(Math.max(Number(geometry.scrollTop) || 0, 0), maxScroll);
-  const top = maxScroll > 0 ? (scrollTop / maxScroll) * travel : 0;
-  return {
-    top: round(top),
-    height: round(height),
-    travel: round(travel),
-    maxScroll,
-    progress: maxScroll > 0 ? scrollTop / maxScroll : 0
-  };
+  return nearest;
 }
 
-// scrollTopForThumbTop 由滑柄目标位置反解滚动位置（拖拽用，1:1 跟手）。
-export function scrollTopForThumbTop(thumbTop, geometry = {}) {
-  const { travel, maxScroll } = wheelThumb(geometry);
-  if (travel <= 0 || maxScroll <= 0) return 0;
-  const clamped = Math.min(Math.max(Number(thumbTop) || 0, 0), travel);
-  return (clamped / travel) * maxScroll;
+// activeRoundIndex 返回当前问答的序号：视口参考线（40% 处）落在哪个问答的
+// 区间里，就高亮哪一条；还没滚过第一条时给 0。
+export function activeRoundIndex(rounds, geometry = {}) {
+  const list = Array.isArray(rounds) ? rounds : [];
+  if (list.length === 0) return -1;
+  const reference = (Number(geometry.scrollTop) || 0) + Math.max(Number(geometry.clientHeight) || 0, 0) * ACTIVE_LINE;
+  let active = 0;
+  for (const round of list) {
+    if (round.offsetTop <= reference) active = round.index;
+    else break;
+  }
+  return active;
 }
 
 // scrollTopForFraction 由轨道比例反解滚动位置（点击轨道空白处用）。
@@ -122,44 +154,25 @@ export function scrollTopForFraction(fraction, geometry = {}) {
   return value * maxScroll;
 }
 
-// lineAtOffset 返回轨道 y 处命中的线：优先命中的线，其次最近的一条
-// （线很细时也要能悬停/点击到，手感优先）。
-export function lineAtOffset(lines, y) {
-  const list = Array.isArray(lines) ? lines : [];
-  if (list.length === 0) return null;
-  const offset = Number(y) || 0;
-  let nearest = null;
-  let best = Infinity;
-  for (const line of list) {
-    if (offset >= line.top && offset <= line.top + line.height) return line;
-    const distance = Math.min(Math.abs(offset - line.top), Math.abs(offset - (line.top + line.height)));
-    if (distance < best) {
-      best = distance;
-      nearest = line;
-    }
-  }
-  return nearest;
-}
-
-// wheelSignature 是线表的几何指纹：内容没变就不重建 DOM（避免滚动/流式期间
-// 反复 reflow）。
-export function wheelSignature(lines) {
-  const list = Array.isArray(lines) ? lines : [];
-  return list.map(line => `${line.key}:${line.top}:${line.height}:${line.kind}`).join("|");
+// wheelSignature 是刻度表的几何指纹：内容没变就不重建 DOM（避免滚动/流式
+// 期间反复 reflow）。
+export function wheelSignature(rounds) {
+  const list = Array.isArray(rounds) ? rounds : [];
+  return list.map(round => `${round.key}:${round.top}:${round.kind}`).join("|");
 }
 
 function round(value) {
   return Math.round(value * 100) / 100;
 }
 
-// createConversationWheel 绑定到滚动容器：轨道挂在容器的父元素（对话外壳）上，
-// 线表从容器当前子项真实测量——加载更早历史后无需任何显式刷新调用。
+// createConversationWheel 绑定到滚动容器：轨道挂在容器的父元素（对话外壳）
+// 上，刻度从容器当前子项真实测量——加载更早历史后无需任何显式刷新调用。
 export function createConversationWheel(container, options = {}) {
   if (!container) throw new Error("conversation wheel requires a scroll container");
   const parent = container.parentElement || container;
   const rail = document.createElement("section");
   rail.className = "conversation-wheel is-empty";
-  rail.setAttribute("aria-label", "对话时间线轮轴：拖拽滚动，点击线条跳转");
+  rail.setAttribute("aria-label", "对话导航轮轴：点击刻度跳到对应问答");
   const track = document.createElement("div");
   track.className = "wheel-track";
   track.setAttribute("role", "scrollbar");
@@ -167,21 +180,17 @@ export function createConversationWheel(container, options = {}) {
   track.setAttribute("aria-valuemin", "0");
   track.setAttribute("aria-valuemax", "100");
   track.tabIndex = 0;
-  const viewport = document.createElement("div");
-  viewport.className = "wheel-viewport";
-  const viewportCore = document.createElement("div");
-  viewportCore.className = "wheel-viewport-core";
-  viewport.appendChild(viewportCore);
   const tip = document.createElement("div");
   tip.className = "wheel-tip";
   tip.setAttribute("aria-hidden", "true");
-  track.append(viewport, tip);
+  track.appendChild(tip);
   rail.appendChild(track);
   parent.appendChild(rail);
 
-  const lineNodes = new Map();
+  const dashNodes = new Map();
   let signature = "";
-  let lines = [];
+  let rounds = [];
+  let active = -1;
   let dragging = null;
   let moved = false;
 
@@ -214,75 +223,71 @@ export function createConversationWheel(container, options = {}) {
     return rows;
   }
 
-  function renderLines(nextLines) {
-    const next = wheelSignature(nextLines);
+  function renderRounds(nextRounds) {
+    const next = wheelSignature(nextRounds);
     if (next === signature) return;
     signature = next;
     const desired = new Set();
-    for (const line of nextLines) {
-      desired.add(line.key);
-      let node = lineNodes.get(line.key);
+    for (const round of nextRounds) {
+      desired.add(round.key);
+      let node = dashNodes.get(round.key);
       if (!node) {
         node = document.createElement("button");
         node.type = "button";
-        node.className = "wheel-line";
-        node.dataset.wheelNode = line.key;
+        node.className = "wheel-dash";
+        node.dataset.wheelNode = round.key;
         node.addEventListener("click", event => {
           event.preventDefault();
-          jumpTo(line.key);
+          jumpTo(round.key);
         });
-        lineNodes.set(line.key, node);
+        dashNodes.set(round.key, node);
       }
-      if (node.dataset.wheelKind !== line.kind) node.dataset.wheelKind = line.kind;
-      node.className = `wheel-line is-${line.kind}`;
-      node.style.top = `${line.top}px`;
-      node.style.height = `${line.height}px`;
-      node.title = line.label || line.key;
-      node.setAttribute("aria-label", line.label || line.key);
+      node.className = `wheel-dash is-${round.kind}`;
+      node.style.top = `${round.top}px`;
+      node.title = round.label || round.key;
+      node.setAttribute("aria-label", round.label || round.key);
     }
-    for (const [key, node] of [...lineNodes]) {
+    for (const [key, node] of [...dashNodes]) {
       if (desired.has(key)) continue;
       node.remove();
-      lineNodes.delete(key);
+      dashNodes.delete(key);
     }
-    for (const line of nextLines) {
-      const node = lineNodes.get(line.key);
+    for (const round of nextRounds) {
+      const node = dashNodes.get(round.key);
       if (node) track.appendChild(node);
     }
-    // viewport / tip 始终在最后，避免被线条覆盖。
-    track.append(viewport, tip);
+    // tip 始终在最后，避免被刻度覆盖。
+    track.appendChild(tip);
   }
 
+  // updateViewport 只更新「当前问答」高亮：滚动路径（每帧触发）不重建刻度。
   function updateViewport() {
     const box = geometry();
-    const thumb = wheelThumb(box);
-    viewport.style.top = `${thumb.top}px`;
-    viewport.style.height = `${thumb.height}px`;
-    const percent = Math.round(thumb.progress * 100);
-    track.setAttribute("aria-valuenow", String(percent));
-    track.setAttribute("aria-valuetext", `已滚动 ${percent}%`);
-  }
-
-  // markVisibleLines 只在渲染/缩放时执行：滚动路径（每帧触发）不遍历全部
-  // 线条，只更新滑柄几何。
-  function markVisibleLines() {
-    const box = geometry();
-    for (const line of lines) {
-      const node = lineNodes.get(line.key);
-      if (!node) continue;
-      const visible = line.offsetTop < box.scrollTop + box.clientHeight && line.offsetBottom > box.scrollTop;
-      if (node.classList.contains("is-in-view") !== visible) node.classList.toggle("is-in-view", visible);
+    const next = activeRoundIndex(rounds, box);
+    if (next !== active) {
+      const previousNode = active >= 0 ? dashNodes.get(rounds[active]?.key) : null;
+      if (previousNode) previousNode.classList.remove("is-active");
+      active = next;
+      const node = active >= 0 ? dashNodes.get(rounds[active]?.key) : null;
+      if (node) node.classList.add("is-active");
     }
+    const percent = box.scrollHeight > box.clientHeight
+      ? Math.round((box.scrollTop / (box.scrollHeight - box.clientHeight)) * 100)
+      : 100;
+    track.setAttribute("aria-valuenow", String(Math.min(Math.max(percent, 0), 100)));
+    track.setAttribute("aria-valuetext", rounds.length > 0
+      ? `第 ${Math.max(active, 0) + 1} 段，共 ${rounds.length} 段问答`
+      : "暂无问答");
   }
 
   function refresh() {
     const box = geometry();
-    const result = buildWheelLines(rowsFromDOM(), box);
-    lines = result.lines;
+    const result = buildWheelRounds(rowsFromDOM(), box);
+    rounds = result.rounds;
+    active = -1;
     rail.classList.toggle("is-empty", result.empty);
-    renderLines(lines);
+    renderRounds(rounds);
     updateViewport();
-    markVisibleLines();
     return result;
   }
 
@@ -291,7 +296,8 @@ export function createConversationWheel(container, options = {}) {
     const node = container.querySelector(`[data-conversation-key="${CSS.escape(key)}"]`);
     if (!node) return;
     const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    node.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+    // 问题对齐视口上沿：它的回答正好在下面铺开。
+    node.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
     node.classList.add("is-wheel-target");
     window.setTimeout(() => node.classList.remove("is-wheel-target"), 1400);
     updateViewport();
@@ -302,13 +308,13 @@ export function createConversationWheel(container, options = {}) {
     return Math.max(0, Math.min(rect.height, event.clientY - rect.top));
   }
 
-  function showTip(line, y) {
-    if (!line) {
+  function showTip(round, y) {
+    if (!round) {
       tip.classList.remove("is-visible");
       return;
     }
-    tip.textContent = line.label || line.key;
-    tip.dataset.wheelKind = line.kind;
+    tip.textContent = round.label || round.key;
+    tip.dataset.wheelKind = round.kind;
     tip.style.top = `${Math.max(0, Math.min(track.getBoundingClientRect().height - 18, y))}px`;
     tip.classList.add("is-visible");
   }
@@ -324,26 +330,24 @@ export function createConversationWheel(container, options = {}) {
 
   track.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;
-    // 线条点击（无拖拽）走 click 的精确跳转；这里不起拖拽，也不先按点击
+    // 刻度点击（无拖拽）走 click 的精确跳转；这里不起拖拽，也不先按点击
     // 比例滚动一次，避免「跳两下」。
-    if (event.target instanceof Element && event.target.closest(".wheel-line")) {
+    if (event.target instanceof Element && event.target.closest(".wheel-dash")) {
       track.focus({ preventScroll: true });
       return;
     }
     const box = geometry();
-    const thumb = wheelThumb(box);
     const y = localY(event);
     moved = false;
-    dragging = { id: event.pointerId, y, thumbTop: thumb.top, height: thumb.height };
+    dragging = { id: event.pointerId, y, scrollTop: box.scrollTop };
     if (typeof track.setPointerCapture === "function") {
       try { track.setPointerCapture(event.pointerId); } catch { /* ignore */ }
     }
-    if (y < thumb.top || y > thumb.top + thumb.height) {
-      // 轨道空白处：视口中心对到点击位置，随后的移动即拖拽。
-      const target = scrollTopForThumbTop(y - thumb.height / 2, box);
-      scrollInstantly(target);
-      dragging.thumbTop = wheelThumb(geometry()).top;
-    }
+    // 轨道空白处：视口对到点击位置（按内容比例），随后的移动即拖拽。
+    const fraction = box.trackHeight > 0 ? y / box.trackHeight : 0;
+    scrollInstantly(scrollTopForFraction(fraction, box));
+    dragging.scrollTop = container.scrollTop;
+    updateViewport();
     event.preventDefault();
     track.focus({ preventScroll: true });
   });
@@ -351,27 +355,28 @@ export function createConversationWheel(container, options = {}) {
   track.addEventListener("pointermove", event => {
     const y = localY(event);
     if (!dragging) {
-      showTip(lineAtOffset(lines, y), y);
+      showTip(roundAtOffset(rounds, y), y);
       return;
     }
     if (dragging && dragging.id === event.pointerId) {
       if (Math.abs(event.clientY - dragging.y) > 3) moved = true;
       const box = geometry();
-      const thumb = wheelThumb(box);
-      const target = scrollTopForThumbTop(dragging.thumbTop + (y - dragging.y), box);
-      scrollInstantly(target);
+      // 1:1 跟手：指针走过的轨道比例 = 内容比例。
+      const ratio = box.trackHeight > 0 ? (y - dragging.y) / box.trackHeight : 0;
+      const maxScroll = Math.max(box.scrollHeight - box.clientHeight, 0);
+      scrollInstantly(dragging.scrollTop + ratio * maxScroll);
       updateViewport();
     }
-    showTip(lineAtOffset(lines, y), y);
+    showTip(roundAtOffset(rounds, y), y);
   });
 
   function endDrag(event) {
     if (!dragging) return;
     if (event && dragging.id !== event.pointerId) return;
     dragging = null;
-    if (!moved) {
-      const line = lineAtOffset(lines, localY(event));
-      if (line) jumpTo(line.key);
+    if (!moved && event) {
+      const round = roundAtOffset(rounds, localY(event));
+      if (round) jumpTo(round.key);
     }
   }
   track.addEventListener("pointerup", endDrag);
@@ -394,6 +399,12 @@ export function createConversationWheel(container, options = {}) {
     if (event.key in stepBy) container.scrollTop += stepBy[event.key];
     else if (event.key === "Home") container.scrollTop = 0;
     else if (event.key === "End") container.scrollTop = box.scrollHeight;
+    else if (event.key === "Enter" || event.key === " ") {
+      const round = rounds[Math.max(active, 0)];
+      if (round) jumpTo(round.key);
+      event.preventDefault();
+      return;
+    }
     else return;
     container.dispatchEvent(new Event("scroll"));
     updateViewport();

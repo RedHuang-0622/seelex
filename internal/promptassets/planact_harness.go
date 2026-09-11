@@ -63,6 +63,13 @@ func PlanActHarnessCases() []PlanActHarnessCase {
 			Required:    []string{"call `plan_run`", "inherit project scope and parent evidence", "defer a single `task_complete`"},
 		},
 		{
+			Name:        "visual-answer-uses-sandboxed-html-block",
+			Effort:      "high",
+			UserRequest: "把最近几次任务的耗时画成图给我看。",
+			Expected:    "图表类回答用 seelex-html 围栏块渲染：块自包含、无网络、无应用访问；只做装饰或 markdown 表格已足够时不使用。",
+			Required:    []string{"Rendered HTML for Visual Answers", "seelex-html", "source block", "clamped to 120–640px", "no network access"},
+		},
+		{
 			Name:        "tasklist-vs-plan-distinction",
 			Effort:      "high",
 			UserRequest: "区分串行任务清单与并行子代理计划。",

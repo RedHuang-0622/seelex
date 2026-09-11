@@ -4,6 +4,11 @@
 > 日期：2026-09-11
 > 涉及模块：`application/core`（会话历史分页与可见窗口）、`gui`（Bridge/无头命令面）、
 > `gui/frontend/dist`（分页前端接线 + 轮轴）、`tui`（回到最新出口）
+>
+> 后续：本文第 4 节的「轮轴」与恢复顺序已于同日二次改版——轮轴改为
+> **一条刻度 = 一问一答**，长会话改为**按 message 顺序恢复**。现状以
+> [`docs/devlog/2026-09-11-conversation-wheel-and-restore-order.md`](../devlog/2026-09-11-conversation-wheel-and-restore-order.md)
+> 与模块 README 为准；本文其余分页修复仍然有效。
 
 ## 1. 问题与现场
 

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const markdownSource = await readFile(new URL("./markdown.js", import.meta.url), "utf8");
+const embedURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./html-embed.js", import.meta.url), "utf8")).toString("base64")}`;
+const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url), "utf8"))
+  .replace('"./html-embed.js"', `"${embedURL}"`);
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
@@ -82,6 +84,29 @@ test("keeps chat tool rows to a single line with status", () => {
   assert.match(item.html, /class="tool-state">.*OK/);
   assert.doesNotMatch(item.html, /data-copy/);
   assert.doesNotMatch(item.html, /io-collapse/);
+});
+
+test("keeps restored tool steps in message order instead of piling tools then replies", () => {
+  // 恢复路径（sessionstore 派生 conversation）产出的事实形状：助手步骤只有
+  // 思考，工具调用与结果各自成条，回合末尾才是正文。
+  const model = renderConversationModel([
+    { id: "message-1", role: "user", content: "长会话问题" },
+    { id: "seq-2", role: "assistant", reasoning_content: "先读文件" },
+    { id: "seq-2#tool-1", role: "tool", tool: { id: "call-1", name: "read", arguments: "{}", status: "success" } },
+    { id: "message-3", role: "tool_result", content: "package a", tool: { id: "call-1", name: "read", result: "package a", status: "success" } },
+    { id: "message-4", role: "assistant", content: "结论" }
+  ]);
+
+  // 顺序 = 问题 → 助手步骤（含思考）→ 这一步的工具过程 → 正文。
+  assert.deepEqual(model.items.map(item => item.meta.kind), ["message", "message", "axis", "message"]);
+  assert.match(model.items[1].html, /先读文件/);
+  assert.match(model.items[2].html, /工具过程/);
+  assert.match(model.items[2].html, /call-1/);
+  assert.match(model.items[3].html, /结论/);
+  // 工具过程夹在步骤与正文之间，而不是被堆到整段对话末尾。
+  const html = model.items.map(item => item.html).join("");
+  assert.ok(html.indexOf("先读文件") < html.indexOf("工具过程"));
+  assert.ok(html.indexOf("工具过程") < html.indexOf("结论"));
 });
 
 test("renders thinking in its own scroll axis and keeps the reply content inline", () => {

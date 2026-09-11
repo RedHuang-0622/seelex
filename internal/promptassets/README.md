@@ -47,6 +47,17 @@ Application-side payload validation or token/checkpoint context controller.
 
 System instructions distinguish trusted installed Skill policy from user/Plan data. Active task Skills and Plan execution policy are injected as system layers and reconstructed from the persisted projection; canonical Plan data and checkpoints remain lower-priority structured context. Instructions also require Agents to treat `result_ref` warnings as omitted evidence, use `read_tool_result` or `read_plan` for targeted read-only retrieval, and never infer facts from truncated or omitted content.
 
+## Visual answers
+
+System instructions describe the one rendered-HTML surface the GUI provides:
+a `seelex-html` fenced block (optional `title=`/`height=`) that the conversation
+draws inside a sandboxed frame with no network and no application access. The
+asset states the positive cases (chart/diagram/comparison), the negative cases
+(markdown table already answers it; remote assets or fetched data), and that a
+bare ```html fence stays a source block. Runtime facts — sandbox attributes,
+CSP, height clamp — live in `gui/frontend/dist/html-embed.js`; the asset must
+not claim more than that implementation enforces.
+
 ## Verification
 
 `PlanActHarnessCases` 是确定性的提示词回归 harness。它覆盖“验证完成后交付”“导出 Markdown 后再答复”和“拒绝未计划的第二轮验证”等正反场景；它检查渲染后的 system + effort 指令仍包含这些收束契约，不以真实模型输出冒充确定性测试。

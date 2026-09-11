@@ -12,10 +12,11 @@
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
 | `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。 |
-| `dist/conversation-wheel.js` | 右侧「时间线轮轴」：从 DOM 真实几何测出每条可见条目的位置/高度（线高 = 条目占内容高度的比例），渲染类型线条（用户/Agent/思考/工具/系统）+ 视口滑柄（拖拽滚动）+ 悬停类型摘要标签 + 点击线条跳转闪烁；纯几何函数（`buildWheelLines`/`wheelThumb`/`scrollTopForThumbTop`/`lineAtOffset`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
+| `dist/conversation-wheel.js` | 右侧「对话导航轮轴」：一条刻度 = 一问一答（挂 user 轮），位置来自问题节点在内容里的真实高度比例，当前问答高亮、悬停出问题摘要、点击跳到该问答（回答在下面）；窗口内没有 user 轮时退回按助手步骤分段。纯几何函数（`buildWheelRounds`/`wheelAnchors`/`roundAtOffset`/`activeRoundIndex`/`scrollTopForFraction`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
 | `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴；轴内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）与压缩刻度（`compactionMarks`，snapshot.task.context_compactions）两条元数据轨与 `renderAxisDetail` 详情。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
+| `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码折叠；`title=`/`height=` 参数，高度钳制 120–640px。普通 ```html 仍是源码块。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
@@ -190,15 +191,32 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 分离「对话与轨迹」：LLM 正文保持内联不进滚动轴；thinking 与 tool-calling
 各自收进可展开/收起的滚动轴（thinking 轴默认展开并带滚动，工具轴默认收起，
 展开后在轴内滚动查看全部工具条目）；每条消息/工具左侧显示会话定位 id
-（`.item-id`），便于对照轨迹与记录排查。聊天区右侧的时间线轮轴是一条 minimap：每条已渲染条目按**真实
-几何**映射为一条线（线的位置 = 条目在内容里的位置，线高 = 条目占内容高度的
-比例，钳制到 [2, 48]px——上限按轨道高度自适应（约 1/4，最少 12px），类型由渲染层写进 `data-wheel-kind`/
-`data-wheel-label`（用户输入 / Agent 正文 / 思考 / 工具过程 / 系统 / 其它），
-因而与条目内容一一对应；视口滑柄表示当前可视区间，拖拽滑柄或点击轨道即
-滚动（1:1 跟手）、点击线条即跳转到该条消息并闪烁定位、悬停出类型摘要标签，
-键盘支持上下/翻页/首尾。线表随 DOM 重新测量：加载更早历史、增量新消息、
-容器缩放后自动重建，不需要任何「线条加载」状态。
+（`.item-id`），便于对照轨迹与记录排查。聊天区右侧的对话导航轮轴是一条
+**问答刻度**（对齐 DeepSeek 网页版右侧导航）：**一条刻度 = 一问一答**，刻度挂在
+每个 user 轮上，位置来自问题节点在内容里的**真实高度比例**（不是按条目权重
+均分），当前问答用主信号色加长、其余压暗；点击刻度即跳到该问题（回答正好在
+它下面铺开）并闪烁定位、悬停出问题摘要、键盘支持上下/翻页/首尾，拖动或点击
+轨道空白处按内容比例滚动。相邻刻度保持最小间距，短问答不会叠在一起。窗口里
+没有 user 轮时（长会话翻到中段）退回按助手步骤分段，右侧不会空着。刻度表随
+DOM 重新测量：加载更早历史、增量新消息、容器缩放后自动重建，不需要任何
+「刻度加载」状态。类型与摘要来自渲染层写入的 `data-wheel-kind`/`data-wheel-label`。
 轨迹子页仍保留全部工具 IN/OUT 与思考全文，不做折叠。
+
+回答里需要图表/示意图时，用显式标记的围栏块让前端渲染 HTML：
+
+````text
+```seelex-html title="任务耗时分布" height=320
+<svg viewBox="0 0 100 40">…</svg>
+```
+````
+
+渲染规则是固定的安全契约（实现见 `html-embed.js`）：HTML **只进沙箱 iframe**，
+永不注入应用 DOM；`sandbox` 只给 `allow-scripts`，不给 `allow-same-origin`
+（两者同给等于没有沙箱），因此块内脚本拿不到宿主 DOM / storage，也够不到
+Wails bridge；srcdoc 自带 CSP（`default-src 'none'`、`connect-src 'none'`、
+只允许内联样式/脚本与 `data:` 图片）断掉网络出口；不给表单/弹窗/顶层跳转。
+块内附「查看源码」（转义文本）供用户核对。普通 ```html 围栏仍然是源码块，
+不会被执行。
 
 对话区顶部是主视图页签条（`.conversation-tabs`，本地 UI 状态）；「对话 / 轨迹」
 两个会话子页可以留在主视图，也可以与右栏任一子页置换后停靠到右栏。会话类
