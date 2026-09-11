@@ -2783,11 +2783,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
    子项默认 min-width:auto 不肯收缩，于是整行溢出面板：floor 标签、序号徽标、
    删除按钮被右边缘裁掉（真机 A2A 冒烟时看到的现象）。 */
 .team-panel, .team-block, .team-order, .team-members, .team-scheduled, .team-toolbar { min-width: 0; }
-.team-order-item, .team-member, .team-scheduled-item { min-width: 0; overflow: hidden; }
-.team-order-item > *, .team-member > *, .team-scheduled-item > * { min-width: 0; }
-.team-order-role, .team-member-name { flex: 1 1 auto; min-width: 0; }
-.team-meta { min-width: 0; }
-.team-meta > * { min-width: 0; }
+.team-order-item, .team-member, .team-scheduled-item { min-width: 0; }
+.team-order-role, .team-member-name { flex: 1 1 auto; min-width: 48px; }
 
 /* 右栏/主视图页签：窄栏里逐字换行（"工作台"竖排）比横向滚动更难用 */
 .conversation-tabs, .right-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
