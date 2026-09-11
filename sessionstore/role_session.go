@@ -268,7 +268,7 @@ func readRoleDraft(roleStore *storeEngine, key Key, roleName string) ([]RoleDraf
 	path := roleDraftPath(roleStore, key, roleName)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return []RoleDraftRow{}, nil
 	}
 	if err != nil {
 		return nil, err

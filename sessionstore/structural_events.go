@@ -321,7 +321,7 @@ func readStructuralEventsFile(file *os.File) ([]structuralEvent, error) {
 		return nil, err
 	}
 	if stat.Size() == 0 {
-		return nil, nil
+		return []structuralEvent{}, nil
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
@@ -358,10 +358,10 @@ func decodeStructuralEvents(data []byte) []structuralEvent {
 // 判定只依据 head，不读任何已发布事件行。
 func (store *storeEngine) structuralEventDelta(head eventHeadRecord, events []structuralEvent, commitID string) ([]structuralEvent, error) {
 	if len(events) == 0 {
-		return nil, nil
+		return []structuralEvent{}, nil
 	}
 	if head.LastID > 0 && head.LastCommitID == commitID {
-		return nil, nil
+		return []structuralEvent{}, nil
 	}
 	next := head.LastID
 	delta := make([]structuralEvent, 0, len(events))
@@ -432,7 +432,7 @@ func (store *storeEngine) appendEventsLocked(key Key, head *eventHeadRecord, del
 func readStructuralEventsAt(path string) ([]structuralEvent, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return []structuralEvent{}, nil
 	}
 	if err != nil {
 		return nil, err

@@ -234,7 +234,7 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 		return nil, server.app.BindWorkspace(workspaceID)
 	case "UnbindWorkspace":
 		server.app.UnbindWorkspace()
-		return nil, nil
+		return map[string]any{"ok": true}, nil
 	case "WaitIdle":
 		// 异步冒烟驱动在 Submit 后等待全部已接受 chat 收敛（0/缺参回退
 		// 5 分钟默认护栏，避免控制面调用永久悬挂）。
@@ -247,7 +247,7 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 		if err := server.app.WaitForIdle(ctx); err != nil {
 			return nil, fmt.Errorf("%s 等待空闲失败: %w", method, err)
 		}
-		return nil, nil
+		return map[string]any{"ok": true}, nil
 	case "WaitCatalogRefresh":
 		// 命令（BeginNewSession/ResumeSession/ActivateSession）后等待会话
 		// 目录 worker 覆盖本次变更再读 ListSessions，避免读到旧目录。
@@ -260,7 +260,7 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 		if err := server.app.WaitCatalogRefresh(ctx); err != nil {
 			return nil, fmt.Errorf("%s 等待目录收敛失败: %w", method, err)
 		}
-		return nil, nil
+		return map[string]any{"ok": true}, nil
 	case "ResolveInteraction":
 		id, err := stringArg(0, "id")
 		if err != nil {

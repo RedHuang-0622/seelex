@@ -304,7 +304,7 @@ func (journal *jsonStackJournal) stats() stackJournalStats {
 func readStackRowsFile(path string, headSeq uint64) ([]StackItemRecord, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return []StackItemRecord{}, nil
 	}
 	if err != nil {
 		return nil, err

@@ -119,7 +119,7 @@ func (store *storeEngine) readBlob(key Key, hash string) (string, error) {
 func (store *storeEngine) listBlobHashes(key Key) ([]string, error) {
 	entries, err := os.ReadDir(store.blobDir(key))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return []string{}, nil
 	}
 	if err != nil {
 		return nil, err

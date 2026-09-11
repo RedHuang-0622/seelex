@@ -341,7 +341,7 @@ func readMessageRowsFile(file *os.File) ([]Event, error) {
 		return nil, err
 	}
 	if stat.Size() == 0 {
-		return nil, nil
+		return []Event{}, nil
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
@@ -379,7 +379,7 @@ func decodeMessageRows(data []byte) []Event {
 // 严格递增且 > head.LastSeq。返回行均已打上 commit_id。
 func (store *storeEngine) deltaRowsLocked(head messageHead, rows []Event, commitID string) ([]Event, error) {
 	if len(rows) == 0 {
-		return nil, nil
+		return []Event{}, nil
 	}
 	next := head.LastSeq
 	delta := make([]Event, 0, len(rows))
@@ -473,7 +473,7 @@ func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []E
 func readMessageRowsFileAt(path string) ([]Event, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return []Event{}, nil
 	}
 	if err != nil {
 		return nil, err

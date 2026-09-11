@@ -76,7 +76,7 @@ func (s *JSONFileStore) Load(_ context.Context) ([]*GoalRecord, error) {
 	raw, err := os.ReadFile(s.Path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return []*GoalRecord{}, nil
 		}
 		return nil, fmt.Errorf("%w: 读 %s: %v", ErrStoreUnavailable, s.Path, err)
 	}

@@ -567,7 +567,7 @@ func readCompactFrameRows(path string) ([]compactFrameRecord, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
+			return []compactFrameRecord{}, nil
 		}
 		return nil, err
 	}

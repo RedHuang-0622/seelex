@@ -167,7 +167,7 @@ func (harnessRuntime) ClearSubagentTree() error            { return nil }
 func (harnessRuntime) RestoreSubagentAnchors(string) error { return nil }
 
 func (harnessRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error) {
-	return nil, nil
+	return []dto.SubagentRecoveryView{}, nil
 }
 
 func (harnessRuntime) ResumeInterruptedSubagents(context.Context, string) (dto.SubagentResumeReport, error) {

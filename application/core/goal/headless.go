@@ -208,7 +208,7 @@ func (s *Server) dispatch(ctx context.Context, method string, args []json.RawMes
 			return nil, err
 		}
 		s.governor.Break(request.Reason)
-		return nil, nil
+		return map[string]any{"ok": true}, nil
 	default:
 		return nil, fmt.Errorf("未知 method %q（可用: goal_begin/goal_update/goal_finish/goal_abort/goal_status/goal_projection/goal_tl_*/goal_propose_finish/goal_prescreen/goal_gov_next/goal_gov_snapshot/goal_gov_break）", method)
 	}

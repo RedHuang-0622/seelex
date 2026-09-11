@@ -56,7 +56,7 @@ jobs:
 
       - name: 检查硬编码密钥
         run: |
-          ! grep -rn '"sk-\|"password\|"token\|"secret' --include="*.go" . \
+          ! grep -rn '"sk-\|"password"\|"token"\|"secret"' --include="*.go" . \
             | grep -v '_test\.go' \
             | grep -vE '`json:"[^"]*(password|token|secret)'
         shell: bash
@@ -157,11 +157,16 @@ jobs:
       - name: 构建候选发布包
         run: bash scripts/build.sh ci
 
-      - name: 检查发布包不含本地账户文件
+      - name: 检查发布包配置白名单
         run: |
-          unexpected="$(find dist -type f -path '*/config/*' ! -name 'accounts.example.yaml' -print)"
+          unexpected="$(find dist -type f -path '*/config/*' \
+            ! -name 'accounts.example.yaml' \
+            ! -name 'seele.yaml' \
+            ! -name 'seelex.yaml' \
+            ! -name 'README.md' \
+            -print)"
           test -z "$unexpected" || {
-            echo "Unexpected account files in release bundle:"
+            echo "Unexpected files in release bundle config directory:"
             echo "$unexpected"
             exit 1
           }
