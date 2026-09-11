@@ -874,7 +874,10 @@ func (port SessionPort) LoadConversationRangeWorkspace(workspaceID, id string, o
 // adaptStoredConversationMessage 把存储层 conversation DTO 转为 UI 消息
 // （Tool 指针独立拷贝，避免共享内部状态）。
 func adaptStoredConversationMessage(message sessionstore.ConversationMessage) model.Message {
-	adapted := model.Message{ID: message.ID, Role: message.Role, Content: message.Content, CreatedAt: message.CreatedAt}
+	adapted := model.Message{
+		ID: message.ID, Role: message.Role, Content: message.Content,
+		ReasoningContent: message.ReasoningContent, CreatedAt: message.CreatedAt,
+	}
 	if message.Tool != nil {
 		tool := *message.Tool
 		adapted.Tool = &model.ToolCall{

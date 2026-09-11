@@ -490,10 +490,19 @@ func (c *Coordinator) RecordConversationResumeHistory(record model.SessionRecord
 	return c.tailHistory(c.RecordConversationTranscript(record), tokenBudget, maxUnits)
 }
 
+// RecordConversationTranscript 把可见会话消息重建为 provider transcript：
+// role=tool 的调用消息还原为 assistant 的工具链轮，tool_result 还原为工具输出，
+// 只有推理没有正文的助手步骤（UI 上的「思考」）不产生空 assistant 事件。
 func (c *Coordinator) RecordConversationTranscript(record model.SessionRecord) []model.TranscriptEvent {
 	events := make([]model.TranscriptEvent, 0, len(record.Conversation.Messages))
 	for _, message := range record.Conversation.Messages {
 		if isInternalConversationMessage(message, c.isInternalContent) {
+			continue
+		}
+		// 只有推理没有正文的助手步骤（可见会话里是一段「思考」）不构成
+		// provider 历史：它不是助手对模型说的话，也无正文可回灌。放进去会
+		// 让重建的恢复历史里塞满空 assistant 事件。
+		if strings.TrimSpace(message.Content) == "" && message.Tool == nil {
 			continue
 		}
 		event := model.TranscriptEvent{

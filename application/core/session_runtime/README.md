@@ -103,7 +103,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) RecordConversation(record model.SessionRecord) []model.Message` — RecordConversation 返回去除内部消息后的可见会话消息（深拷贝 tool 引用）。
 - `func isInternalConversationMessage(message model.Message, isInternalContent func(string) bool) bool`
 - `func (c *Coordinator) RecordConversationResumeHistory(record model.SessionRecord, tokenBudget, maxUnits int) []contract.EngineMessage` — RecordConversationResumeHistory 是 durable-record 冷加载回退历史（transcript
-- `func (c *Coordinator) RecordConversationTranscript(record model.SessionRecord) []model.TranscriptEvent`
+- `func (c *Coordinator) RecordConversationTranscript(record model.SessionRecord) []model.TranscriptEvent` — RecordConversationTranscript 把可见会话消息重建为 provider transcript：role=tool 的调用消息还原为 assistant 工具链轮、tool_result 还原为工具输出，只有推理没有正文的助手步骤不产生空 assistant 事件。
 - `func (c *Coordinator) RecordConversationTail(record model.SessionRecord, window int) []model.Message` — RecordConversationTail 返回可见会话的尾部窗口消息（含 window 上限）。
 - `func CloneSessionPlanStack(stack []model.SessionPlanFrame) []model.SessionPlanFrame` — CloneSessionPlanStack 深拷贝会话 plan 栈（frame 内 Plan 单独克隆）。
 - `func (c *Coordinator) RecordReadFileLocked(arguments string)` — RecordReadFileLocked 记录一次 read 工具的文件引用（会话归档 ReadFiles）。
@@ -269,4 +269,3 @@ go test ./application/core/session_runtime -count=1
 - `func TestSessionTransitionManagerParallelAcrossKeys(t *testing.T)` — TestSessionTransitionManagerParallelAcrossKeys G5：不同 key 的命令并行
 - `func TestSessionTransitionManagerViewKeyAliasesEmpty(t *testing.T)` — TestSessionTransitionManagerViewKeyAliasesEmpty G5：空 key 与保留视图 key
 - `func TestSessionTransitionManagerCloseReleasesWaiters(t *testing.T)` — TestSessionTransitionManagerCloseReleasesWaiters G5：关闭后释放全部等待者，
-

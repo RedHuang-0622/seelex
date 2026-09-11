@@ -52,24 +52,38 @@ func TestConversationRangeFromMessageRows(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// 窗口读：offset=0, limit=2 → 前两条；total 为完整消息数。
+			// 窗口读：offset=0, limit=2 → 前两条（user 正文 + assistant 正文）；
+			// total 为完整消息数：带 tool_call 的行拆成「正文 + 每个调用」，
+			// 所以 3 行 message 事件派生 4 条可见消息。
 			messages, total, err := repository.ReadConversationRange(context.Background(), key, 0, 2)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if total != 3 || len(messages) != 2 || messages[0].ID != "message-1" || messages[1].ID != "message-2" {
-				t.Fatalf("window = %#v total=%d, want message-1..message-2 total=3", messages, total)
+			if total != 4 || len(messages) != 2 || messages[0].ID != "message-1" || messages[1].ID != "message-2" {
+				t.Fatalf("window = %#v total=%d, want message-1..message-2 total=4", messages, total)
 			}
-			// 工具消息映射完整（Tool 深拷贝语义）。
-			if messages[1].Tool == nil || messages[1].Tool.ID != "call-1" || messages[1].Tool.Name != "bash" || messages[1].Tool.Status != "success" {
-				t.Fatalf("tool message = %#v", messages[1].Tool)
+			if messages[1].Role != "assistant" || messages[1].Content != "hi" || messages[1].Tool != nil {
+				t.Fatalf("assistant body = %#v", messages[1])
 			}
-			// 尾部窗口：offset=1, limit=10 → 收敛到消息 2-3。
+			// 行内 tool_call 派生一条独立的调用消息（Tool 深拷贝语义、参数保留）。
+			calls, _, err := repository.ReadConversationRange(context.Background(), key, 2, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(calls) != 1 || calls[0].Role != "tool" || calls[0].Tool == nil {
+				t.Fatalf("tool call message = %#v", calls)
+			}
+			if calls[0].Tool.ID != "call-1" || calls[0].Tool.Name != "bash" || calls[0].Tool.Status != "success" ||
+				calls[0].Tool.Arguments != `{"cmd":"ls"}` {
+				t.Fatalf("tool call = %#v", calls[0].Tool)
+			}
+			// 尾部窗口：offset=1, limit=10 → 收敛到消息 2..3（含调用消息）。
 			messages, total, err = repository.ReadConversationRange(context.Background(), key, 1, 10)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if total != 3 || len(messages) != 2 || messages[0].ID != "message-2" || messages[1].ID != "message-3" {
+			if total != 4 || len(messages) != 3 || messages[0].ID != "message-2" ||
+				messages[1].Tool == nil || messages[2].ID != "message-3" {
 				t.Fatalf("tail window = %#v total=%d", messages, total)
 			}
 			// 越界 offset 收敛到空窗口，不报错。
@@ -77,15 +91,15 @@ func TestConversationRangeFromMessageRows(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if total != 3 || len(messages) != 0 {
-				t.Fatalf("clamped window = %#v total=%d, want empty total=3", messages, total)
+			if total != 4 || len(messages) != 0 {
+				t.Fatalf("clamped window = %#v total=%d, want empty total=4", messages, total)
 			}
 			// limit<=0 返回窗口尾段（与 ReadRange 语义一致）。
 			messages, total, err = repository.ReadConversationRange(context.Background(), key, 1, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if total != 3 || len(messages) != 2 || messages[0].ID != "message-2" {
+			if total != 4 || len(messages) != 3 || messages[0].ID != "message-2" {
 				t.Fatalf("limit<=0 window = %#v total=%d", messages, total)
 			}
 		})

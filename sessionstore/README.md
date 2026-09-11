@@ -16,6 +16,14 @@ into provider history.
 `project-*/session-meta.json`。SQLite/PostgreSQL/Redis 后端实现已退役（R1），
 新后端须按 `Repository`/`stackJournal` 接口重写。
 
+派生规则（`derivedConversationMessages`）与运行期可见投影同形，逐行保序：
+有正文或思考的行派生成一条消息（`content` 与 `reasoning_content` 分开携带）、
+行内**每个** `tool_call` 派生成一条 `role=tool` 调用消息（保留 `arguments`）、
+`role=tool` 的输出行派生成一条 `role=tool_result` 结果消息。同一行派生多条
+消息时 ID 加 `#tool-N` 后缀，避免与行 ID 撞键。行内多调用截断或把输出行拆成
+「调用 + 结果」两条，会让恢复后的长会话丢掉调用却留着结果、把同一次调用重复
+计入窗口，表现为「工具挤成一坨、助手正文掉队」。
+
 ## Unified partition and shard contract
 
 The JSON v8 backend partitions first by `project_id`, then isolates `session_id`,

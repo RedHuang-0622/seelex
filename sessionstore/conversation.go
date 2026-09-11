@@ -12,11 +12,15 @@ import (
 // 模块）。只表达跨后端契约，不依赖 application 包；字段与 UI 的
 // application.Message 一一对应。
 type ConversationMessage struct {
-	ID        string                `json:"id"`
-	Role      string                `json:"role"`
-	Content   string                `json:"content,omitempty"`
-	Tool      *ConversationToolCall `json:"tool,omitempty"`
-	CreatedAt time.Time             `json:"created_at"`
+	ID      string `json:"id"`
+	Role    string `json:"role"`
+	Content string `json:"content,omitempty"`
+	// ReasoningContent 是模型推理内容（thinking）。可见会话里与 Content
+	// 分离：聊天区只做一行带过，轨迹区完整查看。恢复路径必须带上它，否则
+	// 长会话里「助手步骤」只剩工具痕迹，读起来像工具挤成一坨。
+	ReasoningContent string                `json:"reasoning_content,omitempty"`
+	Tool             *ConversationToolCall `json:"tool,omitempty"`
+	CreatedAt        time.Time             `json:"created_at"`
 }
 
 // ConversationToolCall 是会话消息内工具调用的存储层 DTO。

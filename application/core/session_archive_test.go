@@ -560,6 +560,71 @@ func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T) {
 	}
 }
 
+// TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents 是
+// 长会话恢复顺序的回归：durable 可见会话里「助手思考步骤 → 工具调用 → 工具
+// 结果 → 助手正文」必须原样进入重建的恢复历史；只有推理没有正文的助手步骤
+// 不能变成空 assistant 事件（那正是恢复后「工具挤成一坨、正文掉队」的现场）。
+func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *testing.T) {
+	const sessionID = "session-tool-steps"
+	sessions := &archiveSessions{
+		record: SessionRecord{
+			Version: session_runtime.SessionRecordVersion,
+			ID:      sessionID,
+			Title:   SessionTitle{Value: "Tool step session", Source: "user"},
+			Conversation: ConversationRecord{Messages: []Message{
+				{ID: "message-1", Role: "user", Content: "original question"},
+				{ID: "seq-2", Role: "assistant", ReasoningContent: "先读文件"},
+				{ID: "seq-2#tool-1", Role: "tool", Tool: &ToolCall{
+					ID: "call-1", Name: "read", Arguments: `{"path":"a.go"}`, Status: "success",
+				}},
+				{ID: "message-3", Role: "tool_result", Content: "package a", Tool: &ToolCall{
+					ID: "call-1", Name: "read", Result: "package a", Status: "success",
+				}},
+				{ID: "message-4", Role: "assistant", Content: "original answer"},
+			}},
+		},
+	}
+	engine := &fakeEngine{sessionID: sessionID}
+	service := newTestService(t, engine, withTestSessions(sessions))
+
+	if err := service.ResumeSession(sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Submit(context.Background(), "continue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WaitForIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	engine.mu.Lock()
+	history := append([]EngineMessage(nil), engine.historyBeforeChat...)
+	engine.mu.Unlock()
+	callIndex, outputIndex, answerIndex := -1, -1, -1
+	for index, message := range history {
+		if len(message.ToolCalls) > 0 {
+			callIndex = index
+			if call := message.ToolCalls[0]; call.ID != "call-1" || call.Arguments != `{"path":"a.go"}` {
+				t.Fatalf("restored tool call = %#v", call)
+			}
+		}
+		if message.Role == "tool" && strings.Contains(message.Content, "package a") {
+			outputIndex = index
+		}
+		if message.Role == "assistant" && message.Content == "original answer" {
+			answerIndex = index
+		}
+		if message.Content == context_runtime.MissingHistoryContent {
+			t.Fatalf("restored history grew an empty assistant step: %#v", history)
+		}
+	}
+	// 工具链轮紧跟 user 轮（index 1）：中间不能多出一轮「只有思考、没有正文」
+	// 的助手步骤——那正是恢复历史里凭空长出来的空轮次。
+	if callIndex != 1 || outputIndex != 2 || answerIndex != 3 {
+		t.Fatalf("restored tool step order = call:%d output:%d answer:%d (%#v)", callIndex, outputIndex, answerIndex, history)
+	}
+}
+
 func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T) {
 	const sessionID = "session-trailing-user"
 	sessions := &archiveSessions{

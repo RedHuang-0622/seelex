@@ -281,9 +281,17 @@ func (repository *jsonRepository) derivedRecordPayload(key Key) ([]byte, error) 
 	return json.Marshal(payload)
 }
 
-// derivedConversationMessages 把 message 事件行派生为 conversation 消息：
-// assistant tool_call 行与 tool 行保持“调用 / 结果”两段形状（与运行期 record
-// conversation 一致，tool_result 携带 Result 正文）。
+// derivedConversationMessages 把 message 事件行派生为 conversation 消息，
+// 形状与运行期可见投影一致（application/core appendHistoryLockedFor）：
+//
+//   - 有正文或思考的行 → 一条消息（正文与 ReasoningContent 分离携带）；
+//   - 行内每个 tool_call → 一条 role=tool 的调用消息（保留 Arguments）；
+//   - role=tool 的输出行 → 一条 role=tool_result 的结果消息（Result 带正文）。
+//
+// 逐行保序、一行可以有多个调用：只取第一个 tool_call 会让恢复后的可见会话
+// 丢掉调用却留着它们的结果（工具对不上号），把 tool 行拆成「调用 + 结果」
+// 两条则会把同一次调用重复计入窗口。两者叠加就是长会话恢复时看到的
+// 「工具挤成一坨、助手正文掉队」。
 func derivedConversationMessages(rows []Event) []ConversationMessage {
 	messages := make([]ConversationMessage, 0, len(rows))
 	for _, row := range rows {
@@ -291,27 +299,33 @@ func derivedConversationMessages(rows []Event) []ConversationMessage {
 		if id == "" {
 			id = fmt.Sprintf("seq-%d", row.Seq)
 		}
-		switch {
-		case len(row.ToolCalls) > 0:
-			call := row.ToolCalls[0]
+		if row.Role != "tool" && (row.Content != "" || row.ReasoningContent != "") {
 			messages = append(messages, ConversationMessage{
-				ID: id, Role: row.Role, Content: row.Content, CreatedAt: row.CreatedAt,
+				ID: id, Role: row.Role, Content: row.Content,
+				ReasoningContent: row.ReasoningContent, CreatedAt: row.CreatedAt,
+			})
+		}
+		for index, call := range row.ToolCalls {
+			messages = append(messages, ConversationMessage{
+				ID: derivedToolCallMessageID(id, index), Role: "tool", CreatedAt: row.CreatedAt,
 				Tool: &ConversationToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
 			})
-		case row.Role == "tool":
-			call := &ConversationToolCall{ID: row.ToolCallID, Name: row.Name, Status: "success"}
-			messages = append(messages,
-				ConversationMessage{ID: id, Role: "tool", CreatedAt: row.CreatedAt, Tool: call},
-				ConversationMessage{ID: id, Role: "tool_result", Content: row.Content, CreatedAt: row.CreatedAt,
-					Tool: &ConversationToolCall{ID: call.ID, Name: call.Name, Status: "success", Result: row.Content}},
-			)
-		default:
+		}
+		if row.Role == "tool" {
 			messages = append(messages, ConversationMessage{
-				ID: id, Role: row.Role, Content: row.Content, CreatedAt: row.CreatedAt,
+				ID: id, Role: "tool_result", Content: row.Content, CreatedAt: row.CreatedAt,
+				Tool: &ConversationToolCall{ID: row.ToolCallID, Name: row.Name, Status: "success", Result: row.Content},
 			})
 		}
 	}
 	return messages
+}
+
+// derivedToolCallMessageID 给同一行派生出的调用消息分配稳定且唯一的 ID。
+// 直接用行 ID 会与同行的正文消息撞键（前端按 ID 建 DOM key，撞键会让工具
+// 行互相覆盖）；加序号后缀既稳定又不参与 message-N 派号解析。
+func derivedToolCallMessageID(rowID string, index int) string {
+	return fmt.Sprintf("%s#tool-%d", rowID, index+1)
 }
 
 // ---------- 运行期装配 API（R2 / compact / retention / lifecycle） ----------
