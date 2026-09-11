@@ -124,11 +124,19 @@ type replayAwareApplication interface {
 type agentTeamApplication interface {
 	AgentTeamPresets() []dto.TeamSpec
 	AgentTeamView(mainSessionID string) (dto.TeamView, error)
-	AgentTeamMaterializePreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)
+	MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)
 	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
 	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
 	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
 }
+
+// 编译期断言：生产 Application（application.Service = *core.Service）必须满足本
+// 接口。此前这里的方法名漂移成 AgentTeamMaterializePreset（Service 侧叫
+// MaterializeAgentTeamPreset），只有测试假实现满足它——于是 bridge 单测全绿，
+// 而真机 GUI 一调 Agent Team 就断言失败、报"当前 Application 未装配 A2A 角色
+// 管理面"（2026-09-11 修复）。用假实现顶替接口断言是这类漂移的温床，故在此
+// 用真实类型钉死。
+var _ agentTeamApplication = (*application.Service)(nil)
 
 // EventEmitter receives Application events after the Bridge has adapted them
 // to the stable desktop event names. Desktop hosts pass the function that
@@ -905,7 +913,7 @@ func (bridge *Bridge) AgentTeamMaterialize(sessionID, teamKind string, joinSeq u
 	if session == "" {
 		return dto.TeamMaterializeResult{}, errors.New("当前没有可装配的会话")
 	}
-	return app.AgentTeamMaterializePreset(session, strings.TrimSpace(teamKind), joinSeq)
+	return app.MaterializeAgentTeamPreset(session, strings.TrimSpace(teamKind), joinSeq)
 }
 
 // AgentTeamPutRole 新增/覆盖一个角色配置（前端表单只提交改动字段）。

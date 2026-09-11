@@ -40,7 +40,7 @@ func (app *fakeAgentTeamApplication) AgentTeamView(mainSessionID string) (dto.Te
 	return dto.TeamView{SessionID: mainSessionID, TeamKind: "goal-a2a", OrderRoles: []string{"user", "main", "tl"}}, nil
 }
 
-func (app *fakeAgentTeamApplication) AgentTeamMaterializePreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
+func (app *fakeAgentTeamApplication) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
 	app.materializeCalls = append(app.materializeCalls, mainSessionID+"|"+teamKind)
 	return dto.TeamMaterializeResult{Spec: dto.TeamSpec{TeamKind: teamKind}, View: dto.TeamView{SessionID: mainSessionID}}, nil
 }
