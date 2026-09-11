@@ -136,7 +136,14 @@ type agentTeamApplication interface {
 // 而真机 GUI 一调 Agent Team 就断言失败、报"当前 Application 未装配 A2A 角色
 // 管理面"（2026-09-11 修复）。用假实现顶替接口断言是这类漂移的温床，故在此
 // 用真实类型钉死。
-var _ agentTeamApplication = (*application.Service)(nil)
+var (
+	// 基础面 + 三个可选扩展面：生产 Application 必须全部满足，否则真机会在
+	// 类型断言处退化成"未装配"（agentTeamApplication 就是这么漂移过一次）。
+	_ Application             = (*application.Service)(nil)
+	_ sessionAwareApplication = (*application.Service)(nil)
+	_ replayAwareApplication  = (*application.Service)(nil)
+	_ agentTeamApplication    = (*application.Service)(nil)
+)
 
 // EventEmitter receives Application events after the Bridge has adapted them
 // to the stable desktop event names. Desktop hosts pass the function that
