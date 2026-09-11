@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,6 +41,20 @@ type NodeWorktree struct {
 // NodeWorktreeInfo 是节点 worktree 现场的只读摘要（恢复数据面）：
 // 节点失败/合并被拒时现场保留且注册表不释放——路径就是人工恢复入口。
 type NodeWorktreeInfo = dto.NodeWorktreeInfo
+
+// ErrUncommittedChanges 标记「收尾协议未执行」这一类收尾失败：子代理在自己
+// 的 worktree 里留下未提交改动（未跟踪或未暂存的产出/临时文件），且没有任何
+// 提交。现场必须保留（绝不静默删除产出），但这类失败**不代表节点的产出无效**
+// ——子代理的交付物是它的最终汇报，改动是否合并是框架的后续动作。调用方
+// （node 域）据此把它降级为显式警告，避免把一个已完成节点的结论连同同批
+// 兄弟节点的产出一起丢掉（2026-09-11 事故：lit-en 收尾失败 → fail-fast
+// 连坐 lit-cn → 整个 fork 失败，两个子代理产出全丢）。
+var ErrUncommittedChanges = errors.New("worktree finish protocol not executed")
+
+// IsUncommittedChanges 判定 err 是否属于「未提交改动」类收尾失败。
+func IsUncommittedChanges(err error) bool {
+	return errors.Is(err, ErrUncommittedChanges)
+}
 
 type WorktreeManagerDeps struct {
 	Root  func() string                                    // 项目根（原 r.projectScope.Root）
@@ -144,7 +159,7 @@ func (w *WorktreeManager) Finish(ctx context.Context, nodeID string, wt *NodeWor
 			return fmt.Errorf("worktree %q: check dirty state: %w", nodeID, err)
 		}
 		if dirty {
-			return fmt.Errorf("worktree %q: subagent left uncommitted changes (finish protocol git add -A && git commit 未执行); files preserved in %s", nodeID, wt.Path)
+			return fmt.Errorf("worktree %q: subagent left uncommitted changes (finish protocol git add -A && git commit 未执行); files preserved in %s: %w", nodeID, wt.Path, ErrUncommittedChanges)
 		}
 		return w.cleanup(root, wt)
 	}

@@ -467,6 +467,21 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		}
 	} else {
 		service.appendHistoryLockedFor(sessionID, visibleHistory)
+		// 旧格式会话（无 record）：已装载的可见条数只是「尾窗」，历史总数由
+		// historyTotal 给出。不补这两项，HistoryOffset 恒为 0、
+		// HasMoreHistory 恒为 false——长会话的「加载更早」永远点不出来
+		//（早期历史读不到），是分页链路另一半红灯。
+		if historyTotal > 0 {
+			service.components.view.SessionViewMutateLocked(sessionID, func(current *session.View) {
+				visible := view_state.DurableConversationCount(current.Conversation)
+				if historyTotal > visible {
+					current.TotalMessages = historyTotal
+					current.HistoryOffset = historyTotal - visible
+					current.HasMoreHistory = true
+				}
+			})
+			service.mirrorActiveViewLocked()
+		}
 	}
 	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	if mayActivate {
@@ -517,15 +532,30 @@ func (service *Service) ResumeSession(sessionID string) error {
 	return service.resumeSession(sessionID)
 }
 
-// LoadMoreHistory 把更早的历史页前置到可见会话。
+// LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
+// 「加载更早」按钮的应用边界）。
+//
+// 分页契约（2026-09-11 修复）：
+//   - 一页 = 一整窗（limits.history_window；入参只当上限建议）：半页会把
+//     「窗口」和「页」两个尺寸混在一起——翻一次只多出半屏又丢掉半屏；
+//   - 分页态写进**会话可见投影**（唯一事实源）后再镜像 Snapshot：只写
+//     Snapshot 会在下一次镜像（新消息/工具事件/切换）被整体抹掉，offset
+//     退回尾部，前端表现为「点了加载更早，内容回卷，再点还是同一页」；
+//   - 窗口 = 从新 HistoryOffset 起的连续一段（上限 window）：窗口整体后退
+//     一页，而不是把可见列表无限加长（WebView 渲染内存有硬上限）。
 func (service *Service) LoadMoreHistory(limit int) error {
-	if limit <= 0 {
-		limit = Limits().HistoryWindow
+	window := Limits().HistoryWindow
+	if window <= 0 {
+		window = 1
+	}
+	if limit <= 0 || limit > window {
+		limit = window
 	}
 
 	service.ViewMu.RLock()
 	offset := service.Core.Snapshot.HistoryOffset
 	sessionID := service.Core.Snapshot.Session.ID
+	workspaceID := currentWorkspaceIDLocked(service)
 	service.ViewMu.RUnlock()
 	if offset <= 0 {
 		return nil
@@ -535,50 +565,121 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	if loadOffset < 0 {
 		loadOffset = 0
 	}
-	loadLimit := offset - loadOffset
+	page, total, err := service.loadConversationPage(workspaceID, sessionID, loadOffset, offset-loadOffset)
+	if err != nil {
+		return err
+	}
+	return service.installVisibleHistory(sessionID, page, total, loadOffset, window, historyPagePrepend)
+}
 
-	workspaceID := ""
+// LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
+// 分页只移动窗口、不动数据：回到最新 = 重新读尾部窗口并贴尾；回看期间
+// 错过的新消息由这次基线一并带回。
+func (service *Service) LoadLatestHistory() error {
+	window := Limits().HistoryWindow
+	if window <= 0 {
+		window = 1
+	}
 	service.ViewMu.RLock()
-	if service.Core.Snapshot.CurrentWorkspace != nil {
-		workspaceID = service.Core.Snapshot.CurrentWorkspace.ID
-	}
+	total := service.Core.Snapshot.TotalMessages
+	sessionID := service.Core.Snapshot.Session.ID
+	workspaceID := currentWorkspaceIDLocked(service)
 	service.ViewMu.RUnlock()
-	var adapted []Message
-	total := 0
-	if store, ok := service.Deps.Sessions.(session_runtime.SessionConversationRangePort); ok {
-		messages, count, err := store.LoadConversationRangeWorkspace(workspaceID, sessionID, loadOffset, loadLimit)
-		if err != nil {
-			return fmt.Errorf("load conversation range: %w", err)
-		}
-		adapted = service.components.sessions.RecordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}})
-		total = count
-	} else {
-		history, count, err := service.components.sessions.LoadSessionHistoryRange(workspaceID, sessionID, loadOffset, loadLimit)
-		if err != nil {
-			return fmt.Errorf("load history range: %w", err)
-		}
-		total = count
-		adapted = make([]Message, 0, len(history))
-		for _, msg := range history {
-			if !isVisibleHistoryMessage(msg) {
-				continue
-			}
-			adapted = append(adapted, adaptEngineMessage(msg))
-		}
-	}
 
-	service.ViewMu.Lock()
-	for index := range adapted {
-		if adapted[index].ID == "" {
-			adapted[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqForLocked(sessionID))
+	offset := total - window
+	if offset < 0 {
+		offset = 0
+	}
+	page, count, err := service.loadConversationPage(workspaceID, sessionID, offset, window)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		total = count
+		if offset = total - window; offset < 0 {
+			offset = 0
 		}
 	}
-	service.Core.Snapshot.Conversation = append(adapted, service.Core.Snapshot.Conversation...)
-	service.Core.Snapshot.Conversation = view_state.BoundConversationHead(service.Core.Snapshot.Conversation, Limits().HistoryWindow)
-	service.Core.Snapshot.HistoryOffset = loadOffset
-	service.Core.Snapshot.TotalMessages = total
-	service.Core.Snapshot.HasMoreHistory = loadOffset > 0
-	service.Core.Snapshot.ConversationWindow = Limits().HistoryWindow
+	return service.installVisibleHistory(sessionID, page, total, offset, window, historyPageReplace)
+}
+
+// historyPageInstall 描述一页历史如何安装进可见窗口。
+type historyPageInstall int
+
+const (
+	// historyPagePrepend 更早一页：前置到当前窗口头部（窗口整体后退）。
+	historyPagePrepend historyPageInstall = iota
+	// historyPageReplace 回到最新：整窗替换为尾部窗口。
+	historyPageReplace
+)
+
+// currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
+// Core.ViewMu）。
+func currentWorkspaceIDLocked(service *Service) string {
+	if service.Core.Snapshot.CurrentWorkspace == nil {
+		return ""
+	}
+	return service.Core.Snapshot.CurrentWorkspace.ID
+}
+
+// loadConversationPage 读回一段可见历史：record conversation 模块优先
+// （长会话翻页不反序列化整份 state），旧格式会话回退 provider 历史区间。
+func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) ([]Message, int, error) {
+	if limit <= 0 {
+		return nil, 0, nil
+	}
+	if store, ok := service.Deps.Sessions.(session_runtime.SessionConversationRangePort); ok {
+		messages, count, err := store.LoadConversationRangeWorkspace(workspaceID, sessionID, offset, limit)
+		if err != nil {
+			return nil, 0, fmt.Errorf("load conversation range: %w", err)
+		}
+		return service.components.sessions.RecordConversation(SessionRecord{Conversation: ConversationRecord{Messages: messages}}), count, nil
+	}
+	history, count, err := service.components.sessions.LoadSessionHistoryRange(workspaceID, sessionID, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("load history range: %w", err)
+	}
+	adapted := make([]Message, 0, len(history))
+	for _, msg := range history {
+		if !isVisibleHistoryMessage(msg) {
+			continue
+		}
+		adapted = append(adapted, adaptEngineMessage(msg))
+	}
+	return adapted, count, nil
+}
+
+// installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
+// 窗口 → 镜像 Snapshot → bump 并发布快照变更。分页态因此随会话走，后续任何
+// 镜像（新消息/工具事件/切换）都不会把它抹掉。
+func (service *Service) installVisibleHistory(sessionID string, page []Message, total, offset, window int, mode historyPageInstall) error {
+	if window <= 0 {
+		window = 1
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	service.ViewMu.Lock()
+	for index := range page {
+		if page[index].ID == "" {
+			page[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqForLocked(sessionID))
+		}
+	}
+	service.components.view.SessionViewMutateLocked(sessionID, func(view *session.View) {
+		if mode == historyPageReplace {
+			view.Conversation = append([]Message(nil), page...)
+		} else {
+			view.Conversation = append(append([]Message(nil), page...), view.Conversation...)
+			view.Conversation = view_state.BoundConversationHead(view.Conversation, window)
+		}
+		if total > 0 {
+			view.TotalMessages = total
+		}
+		view.HistoryOffset = offset
+		view.HasMoreHistory = offset > 0
+		view.ConversationWindow = window
+	})
+	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)

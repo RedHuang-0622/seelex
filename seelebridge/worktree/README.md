@@ -43,6 +43,8 @@ worktree 为 node 提供隔离工作区；生命周期由 node 编排、根包�
 
 `Finish` 流程：`branchBehindBase` → 落后则 rebase（冲突报错保留现场）→ `commitCountSince` 判定 → 有提交则 `approve`（审批门可拒）→ merge → `cleanup`；任一步失败返回可识别错误，调用方据此保留现场。
 
+失败是**可分类**的：`commitCountSince` 判定为"工作区脏且无提交"（子代理未执行收尾协议 `git add -A && git commit`）时，返回包装了 `ErrUncommittedChanges` 的错误，并由 `IsUncommittedChanges(err)`（`errors.Is`）判定。语义边界：现场一律保留（绝不静默删除子代理产出），但该失败**不表示节点结论无效**——调用方（`node/` 域）据此把它降级为产出中的显式警告，避免 workplan fail-fast 取其失败连坐同批兄弟节点。其余失败（rebase 冲突、审批被拒、merge 冲突/失败）仍是硬失败，不可降级。
+
 ## 数据流或生命周期
 
 `Begin(scope, nodeID)`（仅 RoleSubAgent；非 git 仓库降级共享工作区）→ `NodeWorktree` 注入 `NodeScope.WorkspaceID` → 节点执行 → `Finish` 成功则 `Release` 移除注册；失败路径注册表保留（`Info` 可查，`NodeWorktreeInfoFor` 暴露恢复入口）。
@@ -67,7 +69,8 @@ worktree 为 node 提供隔离工作区；生命周期由 node 编排、根包�
 
 - 失败路径是否必然保留现场（不能误清理）；
 - 审批门拒绝/超时是否不会删除 worktree；
-- CRLF 幻影脏是否会被误判为"脏未提交"而中断节点。
+- CRLF 幻影脏是否会被误判为"脏未提交"而中断节点；
+- 脏未提交失败是否走 `ErrUncommittedChanges` 分类（调用方降级为警告），而不是与 rebase/审批/merge 硬失败混为一谈。
 
 ## 测试与验证
 

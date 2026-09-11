@@ -210,6 +210,8 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 			return nil, err
 		}
 		return nil, server.app.LoadMoreHistory(limit)
+	case "LoadLatestHistory":
+		return nil, server.app.LoadLatestHistory()
 	case "CreateWorkspace":
 		name, err := stringArg(0, "name")
 		if err != nil {

@@ -199,3 +199,20 @@ func TestHeadlessWaitRPC(t *testing.T) {
 	}
 	close(gated.idleGate)
 }
+
+// TestHeadlessPagingCommands 覆盖历史分页命令面：LoadMoreHistory(limit=0 =
+// 一整窗) 与 LoadLatestHistory（回到最新）都映射到 Application 契约。
+func TestHeadlessPagingCommands(t *testing.T) {
+	fake := newFakeApplication()
+	base := newHeadlessTestServer(t, fake)
+
+	if result := headlessRPC(t, base, "LoadMoreHistory", 0); !result.OK {
+		t.Fatalf("LoadMoreHistory failed: %s", result.Error)
+	}
+	if result := headlessRPC(t, base, "LoadLatestHistory"); !result.OK {
+		t.Fatalf("LoadLatestHistory failed: %s", result.Error)
+	}
+	if !fake.loadedLatest {
+		t.Fatal("LoadLatestHistory was not forwarded to the application")
+	}
+}

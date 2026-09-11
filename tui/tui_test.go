@@ -13,13 +13,14 @@ import (
 )
 
 type fakeApp struct {
-	snapshot  application.Snapshot
-	hub       *application.EventHub
-	submitted string
-	resolved  string
-	cancelled string
-	loadLimit int
-	submitErr error
+	snapshot     application.Snapshot
+	hub          *application.EventHub
+	submitted    string
+	resolved     string
+	cancelled    string
+	loadLimit    int
+	loadedLatest bool
+	submitErr    error
 }
 
 func newFakeApp() *fakeApp {
@@ -47,6 +48,10 @@ func (*fakeApp) SwitchPlugin(context.Context, string) error  { return nil }
 func (*fakeApp) SwitchEffort(context.Context, string) error  { return nil }
 func (app *fakeApp) LoadMoreHistory(limit int) error {
 	app.loadLimit = limit
+	return nil
+}
+func (app *fakeApp) LoadLatestHistory() error {
+	app.loadedLatest = true
 	return nil
 }
 
@@ -273,5 +278,44 @@ func TestTickRefreshesRunningSnapshot(t *testing.T) {
 	updated, command := model.Update(tickMsg(time.Now()))
 	if !updated.(Model).snapshot.Chat.Running || command == nil {
 		t.Fatal("running tick did not schedule next refresh")
+	}
+}
+
+// TestEndKeyReturnsToLatestWhileBrowsingEarlierHistory 回看更早历史（窗口未
+// 贴尾）时按下 end：既要滚到底，也要把权威窗口拉回最新一页——分页期间新消息
+// 不再把窗口拽回尾部，这是 TUI 的显式出口。
+func TestEndKeyReturnsToLatestWhileBrowsingEarlierHistory(t *testing.T) {
+	app := newFakeApp()
+	app.snapshot = application.Snapshot{
+		Conversation:   []application.Message{{Role: "assistant", Content: "old"}},
+		TotalMessages:  20,
+		HistoryOffset:  5,
+		HasMoreHistory: true,
+	}
+	model := NewModel(app)
+	ready, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	_, cmd := ready.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("end")})
+	if cmd == nil {
+		t.Fatal("end 在回看历史时必须触发放回最新一页")
+	}
+	if message, ok := cmd().(loadMoreMsg); !ok || message.err != nil {
+		t.Fatalf("end command = %#v", cmd())
+	}
+	if !app.loadedLatest {
+		t.Fatal("LoadLatestHistory was not called")
+	}
+
+	// 窗口贴尾时 end 只做 viewport 到底，不再触发窗口重载。
+	app.loadedLatest = false
+	app.snapshot = application.Snapshot{
+		Conversation:   []application.Message{{Role: "assistant", Content: "new"}},
+		TotalMessages:  10,
+		HistoryOffset:  0,
+		HasMoreHistory: true,
+	}
+	tailReady, _ := NewModel(app).Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	tailReady.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("end")})
+	if app.loadedLatest {
+		t.Fatal("贴尾时不应调用 LoadLatestHistory")
 	}
 }

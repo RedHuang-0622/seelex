@@ -1,3 +1,5 @@
+import { createConversationWheel } from "./conversation-wheel.js";
+
 const BOTTOM_THRESHOLD = 72;
 
 export function createConversationView(container, options = {}) {
@@ -32,7 +34,7 @@ export function createConversationView(container, options = {}) {
   }
   container.addEventListener("scroll", () => {
     followsTail = isNearBottom(container);
-    wheel.updateCursor(container);
+    wheel.updateViewport();
     if (container.scrollTop > 240) sentinelArmed = true;
     else if (typeof IntersectionObserver !== "function") void loadOlder();
   }, { passive: true });
@@ -41,167 +43,16 @@ export function createConversationView(container, options = {}) {
   return {
     render(model, options = {}) {
       const before = scrollState(container, followsTail);
+      const anchor = captureScrollAnchor(container);
       payloads = model.payloads;
       canLoadMore = Boolean(options.hasMoreHistory);
       reconcile(container, model.items, htmlByKey, payloads);
-      restoreScroll(container, before, options.scrollMode || "auto");
-      wheel.update(model.items);
-      wheel.updateCursor(container);
+      restoreScroll(container, before, options.scrollMode || "auto", anchor);
+      // 几何来自 DOM：加载更早历史/增量新消息/换行后线表自动重建。
+      wheel.refresh();
       followsTail = isNearBottom(container);
     },
     payload(key) { return payloads.get(key) || ""; }
-  };
-}
-
-function createConversationWheel(container) {
-  const parent = container.parentElement || container;
-  const rail = document.createElement("section");
-  rail.className = "conversation-wheel";
-  rail.setAttribute("aria-label", "对话时间线拨轮：拖拽滚动，点击线条跳转");
-  const track = document.createElement("div");
-  track.className = "wheel-track";
-  track.setAttribute("role", "slider");
-  track.setAttribute("aria-orientation", "vertical");
-  rail.appendChild(track);
-  parent.appendChild(rail);
-
-  let items = [];
-  let dragging = null;
-  let moved = false;
-
-  function trackHeight() {
-    const rect = track.getBoundingClientRect();
-    return rect.height > 0 ? rect.height : 1;
-  }
-
-  function rowsFromItems() {
-    const rows = [];
-    for (const item of items) {
-      const nodeKey = item.key;
-      const meta = item.meta || {};
-      if (meta.kind === "message") {
-        const role = meta.role || "";
-        if (role === "user") {
-          rows.push({ nodeKey, type: "user", weight: 3 });
-          continue;
-        }
-        if (role === "assistant") {
-          if (meta.hasReasoning) rows.push({ nodeKey, type: "thinking", weight: 2 });
-          if (meta.hasContent) rows.push({ nodeKey, type: "llm", weight: 2 });
-          continue;
-        }
-        rows.push({ nodeKey, type: "other", weight: 2 });
-        continue;
-      }
-      rows.push({ nodeKey, type: meta.kind === "axis" ? "tools" : "other", weight: meta.kind === "axis" ? 1 : 1 });
-    }
-    return rows;
-  }
-
-  function renderLines() {
-    track.replaceChildren();
-    const rows = rowsFromItems();
-    if (rows.length === 0) {
-      rail.classList.add("is-empty");
-      return;
-    }
-    rail.classList.remove("is-empty");
-    const totalWeight = rows.reduce((sum, row) => sum + row.weight, 0);
-    const trackH = trackHeight();
-    const step = trackH / totalWeight;
-    let cursor = 0;
-    for (const row of rows) {
-      const px = Math.max(1, row.weight * step * 0.9);
-      const center = (cursor + row.weight / 2) * step;
-      const line = document.createElement("div");
-      line.className = `wheel-line is-${row.type}`;
-      line.dataset.wheelNode = row.nodeKey;
-      line.style.top = `${Math.max(0, Math.min(trackH - px, center - px / 2))}px`;
-      line.style.height = `${px}px`;
-      line.title = row.nodeKey;
-      track.appendChild(line);
-      cursor += row.weight;
-    }
-  }
-
-  function cursorFraction(container) {
-    const max = container.scrollHeight - container.clientHeight;
-    if (max <= 0) return 0;
-    return Math.min(1, Math.max(0, container.scrollTop / max));
-  }
-
-  function updateCursor(container) {
-    rail.style.setProperty("--wheel-progress", String(cursorFraction(container)));
-  }
-
-  function scrollToFraction(fraction, container) {
-    const max = container.scrollHeight - container.clientHeight;
-    if (max <= 0) return;
-    container.scrollTop = max * Math.min(1, Math.max(0, fraction));
-    updateCursor(container);
-  }
-
-  function scrollToKey(nodeKey) {
-    if (!nodeKey) return;
-    const node = container.querySelector(`[data-conversation-key="${CSS.escape(nodeKey)}"]`);
-    if (!node) return;
-    node.scrollIntoView({ behavior: "smooth", block: "center" });
-    node.classList.add("is-wheel-target");
-    window.setTimeout(() => node.classList.remove("is-wheel-target"), 1400);
-    updateCursor(container);
-  }
-
-  function fractionFromEvent(clientY) {
-    const rect = track.getBoundingClientRect();
-    if (rect.height <= 0) return 0;
-    const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
-    return y / rect.height;
-  }
-
-  function refresh() {
-    renderLines();
-    updateCursor(container);
-  }
-
-  track.addEventListener("pointerdown", event => {
-    if (event.button !== 0) return;
-    moved = false;
-    dragging = { id: event.pointerId, startY: event.clientY };
-    if (typeof track.setPointerCapture === "function") {
-      try { track.setPointerCapture(event.pointerId); } catch { /* ignore */ }
-    }
-    scrollToFraction(fractionFromEvent(event.clientY), container);
-    event.preventDefault();
-  });
-  track.addEventListener("pointermove", event => {
-    if (!dragging || dragging.id !== event.pointerId) return;
-    if (Math.abs(event.clientY - dragging.startY) > 3) moved = true;
-    scrollToFraction(fractionFromEvent(event.clientY), container);
-    event.preventDefault();
-  });
-  track.addEventListener("pointerup", event => {
-    if (!dragging || dragging.id !== event.pointerId) return;
-    dragging = null;
-    if (!moved) {
-      const line = event.target instanceof Element ? event.target.closest(".wheel-line") : null;
-      if (line?.dataset?.wheelNode) scrollToKey(line.dataset.wheelNode);
-    }
-  });
-  track.addEventListener("pointercancel", () => { dragging = null; });
-
-  if (typeof ResizeObserver === "function") {
-    const observer = new ResizeObserver(() => refresh());
-    observer.observe(container);
-  }
-
-  return {
-    update(nextItems) {
-      items = Array.isArray(nextItems) ? nextItems : [];
-      refresh();
-    },
-    refresh,
-    updateCursor,
-    scrollToKey
   };
 }
 
@@ -357,13 +208,51 @@ function scrollState(container, followsTail) {
   };
 }
 
-function restoreScroll(container, before, mode) {
-  if (mode === "bottom" || (mode === "auto" && before.followsTail)) {
-    container.scrollTop = container.scrollHeight;
+// captureScrollAnchor 记住视口顶部第一条可见消息（key + 相对视口位置）。
+// 加载更早历史时预置的新页会让内容整体下移，靠这条锚点把用户正在读的那一条
+// 按回原处——比「按 scrollHeight 增量」稳：窗口整体后退（尾部被截）时高度几乎
+// 不变，增量算法会失效并把用户甩到别的位置。
+export function captureScrollAnchor(container) {
+  const containerTop = container.getBoundingClientRect().top;
+  for (const node of container.children) {
+    if (!node.dataset || !node.dataset.conversationKey) continue;
+    const rect = node.getBoundingClientRect();
+    if (rect.bottom <= containerTop + 1) continue;
+    return { key: node.dataset.conversationKey, top: rect.top - containerTop };
+  }
+  return null;
+}
+
+// restoreScrollAnchor 把锚点消息放回原来的视口位置；锚点已不在窗口内（被
+// 截掉的尾页/会话切换）时返回 false，调用方退回粗略的 scrollHeight 增量。
+export function restoreScrollAnchor(container, anchor) {
+  if (!anchor || !anchor.key) return false;
+  const node = container.querySelector(`[data-conversation-key="${CSS.escape(anchor.key)}"]`);
+  if (!node) return false;
+  const containerTop = container.getBoundingClientRect().top;
+  const delta = node.getBoundingClientRect().top - containerTop - anchor.top;
+  if (!delta) return true;
+  setScrollInstantly(container, container.scrollTop + delta);
+  return true;
+}
+
+// setScrollInstantly 立即设置滚动位置：.conversation 声明了
+// scroll-behavior: smooth，直接赋值会变成动画（锚点恢复、轮轴拖拽都会「飘」）。
+function setScrollInstantly(container, top) {
+  const previous = container.style.scrollBehavior;
+  container.style.scrollBehavior = "auto";
+  container.scrollTop = top;
+  container.style.scrollBehavior = previous;
+}
+
+function restoreScroll(container, before, mode, anchor) {
+  if (mode === "anchor") {
+    if (restoreScrollAnchor(container, anchor)) return;
+    setScrollInstantly(container, before.top + Math.max(container.scrollHeight - before.height, 0));
     return;
   }
-  if (mode === "anchor") {
-    container.scrollTop = before.top + Math.max(container.scrollHeight - before.height, 0);
+  if (mode === "bottom" || (mode === "auto" && before.followsTail)) {
+    setScrollInstantly(container, container.scrollHeight);
   }
 }
 

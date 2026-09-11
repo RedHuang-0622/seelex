@@ -113,6 +113,9 @@ var now = time.Now
 // Run 注入节点作用域与节点级 PromptBlocks 后委托节点 Session 执行。
 // worktree 生命周期（plan.md §3）：RoleSubAgent 节点先开 worktree 并把
 // NodeScope.WorkspaceID 指向它，执行结束后变基仓库 + 合并审批 + merge + 清理。
+// 收尾失败的处理分两类：rebase/merge/审批失败与 Chat 失败一样让节点失败；
+// 而「子代理未提交改动」只降级为产出中的显式警告（现场保留、节点成功），
+// 判定见下方 worktree.IsUncommittedChanges 分支。
 func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (string, error) {
 	scope := n.scope()
 	if scope.Role == model.RoleSubAgent {
@@ -180,13 +183,40 @@ func (n *AgentNode) Run(ctx context.Context, _ *workplanTypes.WorkflowContext) (
 	n.mergeBack(ctx, agent, n.input.Input, nodeStatusForErr(err), result)
 	if wt != nil {
 		if err == nil {
-			err = n.deps.FinishNodeWorktree(ctx, n.ID(), wt)
-		}
-		if err == nil {
-			n.deps.ReleaseNodeWorktree(n.ID())
+			finishErr := n.deps.FinishNodeWorktree(ctx, n.ID(), wt)
+			switch {
+			case finishErr == nil:
+				n.deps.ReleaseNodeWorktree(n.ID())
+			case worktree.IsUncommittedChanges(finishErr):
+				// 收尾协议未执行：子代理在自己 worktree 里留下未提交改动。
+				// 该失败只说明"改动没有合并"，不说明节点结论无效——把整节点
+				// 判失败会让 workplan fail-fast 连坐同批兄弟节点，并丢弃全部
+				// 已完成产出（2026-09-11 事故）。这里降级为显式警告：
+				//   1. 现场保留（不 Release），前端"工作区现场"仍可查、可人工恢复；
+				//   2. 警告写进节点产出，父代理/用户明确知道改动未合并及现场路径；
+				//   3. 节点按 Chat 结果判定成功，兄弟节点不再被连坐取消。
+				n.deps.AppendNodePhase(ctx, n.ID(), "worktree_unmerged")
+				result = withWorktreeUnmergedNotice(result, finishErr)
+			default:
+				err = finishErr
+			}
 		}
 	}
 	return result, err
+}
+
+// withWorktreeUnmergedNotice 在节点产出末尾附加「未合并」警告。节点结论照常
+// 交付，但父代理与用户必须知道子代理的 worktree 改动没有合并进主工作区、
+// 以及现场位置（人工检查/提交的入口）。
+// 注意：只作用于返回给调用方的产出文本；CompleteSubagentNode / mergeBack
+// 仍使用原始结论（语义结果不被警告污染）。
+func withWorktreeUnmergedNotice(result string, finishErr error) string {
+	notice := "\n\n[收尾警告] 子代理在 worktree 留下未提交改动，本次改动未合并进主工作区；" +
+		"现场已保留，可人工检查或补提交。原因：" + finishErr.Error()
+	if strings.TrimSpace(result) == "" {
+		return strings.TrimSpace(notice)
+	}
+	return result + notice
 }
 
 // mergeBack 把子代理会话的结构化上下文（Findings/Decisions/Constraints/

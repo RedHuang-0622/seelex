@@ -1,4 +1,5 @@
 import { renderConversationModel } from "./components.js";
+import { historyWindowed } from "./protocol.js";
 
 export function createChatView(elements, conversationView) {
   function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false) {
@@ -35,7 +36,12 @@ export function createChatView(elements, conversationView) {
     elements.composer.classList.toggle("is-running", running);
     elements["stop-button"].classList.toggle("hidden", !running);
     elements["connection-dot"].classList.add("online");
-    elements["history-bar"].classList.toggle("hidden", !snapshot.has_more_history);
+    // 历史栏：还有更早历史 / 正在回看更早历史（下方有更新的内容）时都常驻，
+    // 用户因此既能继续向上翻，也能一键回到最新。
+    const windowed = historyWindowed(snapshot);
+    elements["history-bar"].classList.toggle("hidden", !snapshot.has_more_history && !windowed);
+    elements["load-history"].classList.toggle("hidden", !snapshot.has_more_history);
+    elements["latest-history"].classList.toggle("hidden", !windowed);
   }
 
   return {

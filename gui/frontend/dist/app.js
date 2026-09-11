@@ -58,7 +58,7 @@ const elements = Object.fromEntries([
   "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
-  "load-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title",
+  "load-history", "latest-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
   "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
@@ -1982,12 +1982,23 @@ elements["stop-button"].addEventListener("click", async () => {
   finally { elements["stop-button"].disabled = false; }
 });
 
+// loadOlderHistory 取更早一页（sentinel 自动触发与「加载更早」按钮共用）。
+// limit=0 表示「一整窗」：半页会把窗口与页两个尺寸混在一起（翻一次只多出
+// 半屏又丢掉半屏），页大小由后端 limits.history_window 单点决定。
 async function loadOlderHistory() {
-  try { await invoke("LoadMoreHistory", 50); await refresh({ scroll: "anchor" }); }
+  try { await invoke("LoadMoreHistory", 0); await refresh({ scroll: "anchor" }); }
+  catch (error) { showToast(error); }
+}
+
+// returnToLatest 从历史浏览回到最新一页（窗口重新贴尾，回看期间的新消息
+// 由这次基线一并带回）。
+async function returnToLatest() {
+  try { await invoke("LoadLatestHistory"); await refresh({ scroll: "bottom" }); }
   catch (error) { showToast(error); }
 }
 
 elements["load-history"].addEventListener("click", loadOlderHistory);
+elements["latest-history"].addEventListener("click", returnToLatest);
 
 elements["new-session"].addEventListener("click", openNewSessionModal);
 

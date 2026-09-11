@@ -89,9 +89,36 @@ HTML 只进入离屏 `<template>` 创建单个 renderer 已生成节点，不接
 - `auto`：更新前用户距底部不超过 72px 才跟随；
 - `bottom`：新建/恢复/主动提交后强制到底部；
 - `preserve`：保持当前 scrollTop；
-- `anchor`：prepend 历史后加上 scrollHeight 增量，视觉锚点不跳。
+- `anchor`：加载更早历史时**按消息 key 锚定**——更新前记住视口顶部第一条可见
+  消息（key + 相对位置），更新后把它按回原位（`captureScrollAnchor` /
+  `restoreScrollAnchor`）；锚点被窗口截掉时退回 `scrollHeight` 增量算法。
+  仅靠增量算法不可用：分页把窗口整体后退一页时前后高度几乎不变，增量恒为 0，
+  用户会被甩到别的位置。
 
-scroll listener 只更新 `followsTail` 本地状态，不写 Core。
+所有程序化定位都走 `setScrollInstantly`（临时置 `scroll-behavior: auto`）：
+`.conversation` 声明 `scroll-behavior: smooth`，直接赋值会变成动画（锚点恢复
+与轮轴拖拽会「飘」、跟不住手）。跨消息跳转仍由 `scrollIntoView({behavior:
+"smooth"})` 显式声明。
+
+scroll listener 只更新 `followsTail` 本地状态与轮轴滑柄几何，不写 Core。
+
+## 5.1 时间线轮轴（conversation-wheel.js）
+
+实现位置：`gui/frontend/dist/conversation-wheel.js`（纯函数可单测，见
+`conversation-wheel.test.mjs`）。
+
+- 每个容器直接子项（`[data-conversation-key]`）测量真实 `offsetTop/height`，
+  映射为轨道上的一条线：位置按内容比例、线高按条目占比并钳制到
+  `[2,48]px`（上限默认 `min(max(轨道高度 × 0.25, 12), 48)`）；类型来自渲染层写入的 `data-wheel-kind`（user / agent / think /
+  tools / system / other），摘要来自 `data-wheel-label`。
+- 视口滑柄（`wheel-viewport`）表示当前可视区间，拖拽 1:1 映射回 `scrollTop`；
+  轨道空白处点击把视口中心对到点击位置；悬停出类型摘要标签；点击线条跳转到
+  该条消息并闪烁定位；键盘支持 ↑/↓/PageUp/PageDown/Home/End（`role=scrollbar`
+  + `aria-valuenow`）。
+- 线表在每次渲染与容器缩放时重建（几何指纹相同则不重写 DOM），因此加载更早
+  历史、增量新消息、换行重排后都自动与内容一致——不存在「线条加载」状态。
+- 空态只做视觉隐藏（`opacity: 0; pointer-events: none`）：`display: none` 会让
+  轨道高度量成 0，轮轴随后永远判空。
 
 ## 6. Chat 控件与活动尾部
 

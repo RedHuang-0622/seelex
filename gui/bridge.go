@@ -40,6 +40,9 @@ type Application interface {
 	SwitchEffort(context.Context, string) error
 	SwitchPlugin(context.Context, string) error
 	LoadMoreHistory(int) error
+	// LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」；
+	// 分页只移动窗口，数据不动）。
+	LoadLatestHistory() error
 	Suggestions(string) []application.Suggestion
 	DeleteSession(string) error
 	// ArchiveSession 把指定会话置为 archived（record 级状态；运行中/待批
@@ -791,6 +794,10 @@ func (bridge *Bridge) SwitchPlugin(name string) error {
 
 func (bridge *Bridge) LoadMoreHistory(limit int) error {
 	return bridge.app.LoadMoreHistory(limit)
+}
+
+func (bridge *Bridge) LoadLatestHistory() error {
+	return bridge.app.LoadLatestHistory()
 }
 
 func (bridge *Bridge) Suggestions(input string) []application.Suggestion {

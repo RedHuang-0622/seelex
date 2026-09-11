@@ -37,6 +37,7 @@ type fakeApplication struct {
 	selectedEffort    string
 	selectedPlugin    string
 	loadedHistory     int
+	loadedLatest      bool
 	suggestionsInput  string
 	beganNewSession   bool
 	composerText      string
@@ -147,6 +148,10 @@ func (fake *fakeApplication) SwitchPlugin(_ context.Context, name string) error 
 }
 func (fake *fakeApplication) LoadMoreHistory(limit int) error {
 	fake.loadedHistory = limit
+	return nil
+}
+func (fake *fakeApplication) LoadLatestHistory() error {
+	fake.loadedLatest = true
 	return nil
 }
 func (fake *fakeApplication) Suggestions(input string) []application.Suggestion {
@@ -351,6 +356,9 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	if err := bridge.LoadMoreHistory(50); err != nil {
 		t.Fatal(err)
 	}
+	if err := bridge.LoadLatestHistory(); err != nil {
+		t.Fatal(err)
+	}
 	if err := bridge.SaveComposerDraft("尚未发送的问题"); err != nil {
 		t.Fatal(err)
 	}
@@ -358,6 +366,9 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 
 	if !fake.beganNewSession || fake.resumedSession != "session-2" || fake.cancelled != "request-1" {
 		t.Fatalf("chat commands were not forwarded: %#v", fake)
+	}
+	if fake.loadedHistory != 50 || !fake.loadedLatest {
+		t.Fatalf("history paging was not forwarded: loadedHistory=%d loadedLatest=%v", fake.loadedHistory, fake.loadedLatest)
 	}
 	if fake.resolvedID != "approval-1" || fake.resolvedOption != "allow" {
 		t.Fatalf("interaction was not forwarded: %#v", fake)

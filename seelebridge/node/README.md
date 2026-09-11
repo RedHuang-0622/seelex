@@ -43,7 +43,7 @@ node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
 
 | 文件 | 职责 |
 |---|---|
-| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`NodeScopeFor`、`RoleForPlanBranch`、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
+| `agent_node.go` | `Deps`、`AgentNode`、`Run`/`mergeBack`、`withWorktreeUnmergedNotice`、`NodeScopeFor`、`RoleForPlanBranch`、`NodeSubagentCharter`、`MatchNodeSkills`、`WithNodePromptBlocks` |
 | `coordinator.go` | `SessionPort`/`TreePort`/`TaskPort` 接口、`Coordinator`（含阶段日志与语义结果委托） |
 
 ## 核心实现
@@ -51,6 +51,8 @@ node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
 `Deps` 是全部运行时能力的函数字段集合（当前 15 项：工厂、binding、worktree 三件套、会话注册/终态、父证据、merge-back、预算、PromptBlocks、Tracer），由根包 `Runtime.nodeDeps()` 闭包注入。
 
 `AgentNode.Run` 生命周期：`scope()`（惰性解析，plan_run 时 binding 已冻结）→ `BeginNodeWorktree`（RoleSubAgent）→ `WithNodeScope` → `AppendNodePhase(running)` → `WithNodePromptBlocks` → `factory.NewAgent` → `RegisterNodeSession` + `Chat` → `CompleteSubagentNode` → `mergeBack`（失败也执行，幂等）→ `FinishNodeWorktree`/`ReleaseNodeWorktree`。
+
+收尾失败分两类处理：rebase/审批/merge 失败与 `Chat` 失败一样让节点失败（现场保留）；而 `worktree.IsUncommittedChanges` 判定的"子代理未提交改动"只降级为**产出末尾的显式警告**（`withWorktreeUnmergedNotice`）——节点按 Chat 结果判定成功、不 `Release`（现场保留供人工检查或补提交）、并补记 `worktree_unmerged` 阶段事件。这样单个子代理忘记执行收尾协议不会让 workplan fail-fast 取消同批兄弟节点、丢掉它们的产出。
 
 ## 数据流或生命周期
 
@@ -63,6 +65,7 @@ node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
 ## 并发、存储、安全或错误语义
 
 - `Run` 同步执行，取消经 ctx（fork 超时/用户停止由根包级联）；
+- 收尾失败分流：只有 rebase/审批/merge 这类"改动/工作区不可用"的失败才让节点失败；"未提交改动"（`worktree.IsUncommittedChanges`）降级为产出中的 `[收尾警告]` 前缀段（含现场路径），节点仍成功——警告只加在返回给调用方的产出文本上，`mergeBack`/`NodeSemanticResult` 仍用原始结论，语义结果不被污染；
 - merge-back 不因 `Chat` 失败而跳过（长时间静置场景已积累的 Findings/Decisions 不丢）；
 - 不做持久化；子代理树/快照由根包 `session/` 域持有；
 - 节点不触碰主会话锁——回传只经 `Deps.EnqueueSubagentContext`。
@@ -82,7 +85,7 @@ node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
 
 ## 测试与验证
 
-单元测试应留在本包（当前由根包 `agent_node_test.go`/`node_scope_test.go` 经兼容别名覆盖运行时方法）。验证：
+单元测试应留在本包（当前由根包 `agent_node_test.go`/`node_scope_test.go` 经兼容别名覆盖运行时方法；收尾降级的红灯用例见根包 `agent_node_uncommitted_test.go`，用真实 worktree 复现"子代理留下未提交改动"）。验证：
 
 ```text
 go test ./seelebridge/... -count=1

@@ -25,7 +25,7 @@ Bridge 不解释 Chat、Plugin、Session 或审批业务，不缓存业务 Snaps
 | 类别 | 方法 |
 |------|------|
 | 状态 | `Snapshot`、`Subscribe`、`Info` |
-| 对话 | `Submit`、`CancelChat`、`LoadMoreHistory` |
+| 对话 | `Submit`、`CancelChat`、`LoadMoreHistory`、`LoadLatestHistory` |
 | 交互 | `ResolveInteraction` |
 | Runtime | `SelectAccount`、`SwitchEffort`、`SwitchPlugin` |
 | 指令 | `Suggestions` |
@@ -81,7 +81,7 @@ Bridge 不解释 Chat、Plugin、Session 或审批业务，不缓存业务 Snaps
   `SEELEX_HEADLESS_PORT`）。
 - `/rpc`：JSON-RPC 风格方法面，映射到 Bridge 同源的窄契约子集——
   `Snapshot` / `PerfStats` / `Submit` / `BeginNewSession` / `ResumeSession` /
-  `ForkSessionLatest` / `CancelChat` / `LoadMoreHistory` /
+  `ForkSessionLatest` / `CancelChat` / `LoadMoreHistory` / `LoadLatestHistory` /
   `ResolveInteraction` / `WaitIdle` / `WaitCatalogRefresh`，以及会话级扩展
   `ListSessions` / `SnapshotOf` / `ActivateSession`（宿主具备时）。命令全部
   走 application core，不新增业务状态机。`WaitIdle` 与 `WaitCatalogRefresh`

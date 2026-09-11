@@ -27,8 +27,10 @@ type AppController interface {
 	SelectAccount(context.Context, string) error
 	SwitchPlugin(context.Context, string) error
 	SwitchEffort(context.Context, string) error
-	// LoadMoreHistory 加载更早的消息到 Conversation，返回是否还有更多。
+	// LoadMoreHistory 加载更早的消息到 Conversation（limit<=0 = 一整窗）。
 	LoadMoreHistory(limit int) error
+	// LoadLatestHistory 把可见窗口拉回最新一页（回看历史后的出口）。
+	LoadLatestHistory() error
 }
 
 const maxPasteChars = 200 // 超过此字符数视为粘贴
@@ -128,6 +130,23 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return model, nil
 	}
+}
+
+// windowed 报告可见窗口是否已离开尾部（用户在回看更早历史）：口径与前端
+// historyWindowed 一致——durable 条数不计 system 引导消息。
+
+func (model Model) windowed() bool {
+	total := model.snapshot.TotalMessages
+	if total <= 0 {
+		return false
+	}
+	visible := 0
+	for _, message := range model.snapshot.Conversation {
+		if message.Role != "system" {
+			visible++
+		}
+	}
+	return model.snapshot.HistoryOffset+visible < total
 }
 
 func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -244,6 +263,11 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "end":
 		if model.ready {
 			model.viewport.GotoBottom()
+			// 窗口已锚定在更早历史（回看中）时，end 还要求「回到最新」：分页
+			// 不再把窗口拽回尾部，回看期间的新内容只能由这条出口带回。
+			if model.windowed() {
+				return model, loadLatestHistory(model.app)
+			}
 		}
 		return model, nil
 	case "alt+e":

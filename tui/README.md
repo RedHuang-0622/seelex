@@ -33,6 +33,10 @@ TUI local state 只包含光标、viewport、输入框、suggestion 和布局信
 ## 交互和关闭
 
 - Enter 提交原始输入。
+- 分页：`pgup`（viewport 到顶且还有更早历史时取更早一页）、`home` 同上；
+  `end` 在窗口已锚定在更早历史（回看中）时回到最新一页
+  （`LoadLatestHistory`）——后端分页在回看期间不再把窗口拽回尾部，这是
+  终端端的显式出口。`LoadMoreHistory(limit<=0)` 表示「一整窗」。
 - Ctrl+C 在 running chat 时取消对应 request，否则按产品语义处理复制/退出。
 - Interaction 键选择通过 `ResolveInteraction` 返回 Application。
 - 退出由 composition root 协调 graceful shutdown。

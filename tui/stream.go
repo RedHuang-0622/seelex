@@ -32,6 +32,10 @@ func loadMoreHistory(app AppController, limit int) tea.Cmd {
 	return func() tea.Msg { return loadMoreMsg{err: app.LoadMoreHistory(limit)} }
 }
 
+func loadLatestHistory(app AppController) tea.Cmd {
+	return func() tea.Msg { return loadMoreMsg{err: app.LoadLatestHistory()} }
+}
+
 // tickEvery 每 d 间隔发送一次 tickMsg，用于刷新界面中的时间显示等。
 func tickEvery(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })

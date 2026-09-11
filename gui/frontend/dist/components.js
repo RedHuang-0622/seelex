@@ -76,7 +76,7 @@ export function renderConversationModel(messages = [], chat = {}) {
   const activity = renderChatActivity(chat);
   if (activity) {
     const key = "chat:activity";
-    rendered.push({ key, html: `<div class="chat-activity-tail" data-conversation-key="${key}">${activity}</div>` });
+    rendered.push({ key, html: `<div class="chat-activity-tail" data-conversation-key="${key}" data-wheel-kind="system" data-wheel-label="${escapeHtml(chat.running ? "执行中" : "等待发送")}">${activity}</div>` });
   }
   return { items: rendered, payloads };
 }
@@ -165,7 +165,8 @@ function groupConversationItems(items, payloads) {
     const count = new Set(pendingTools.map(item => item.key)).size;
     const names = [...new Set(pendingTools.map(item => item.name))].join(" / ");
     const chips = pendingTools.map(item => renderToolCall(item, item.key, payloads)).join("");
-    const html = `<details class="conversation-axis is-tools" data-conversation-key="${escapeHtml(key)}">
+    const wheelLabel = `工具过程 · ${count} 次 · ${names}`;
+    const html = `<details class="conversation-axis is-tools" data-conversation-key="${escapeHtml(key)}" data-wheel-kind="tools" data-wheel-label="${escapeHtml(wheelLabel)}">
       <summary>
         <span class="axis-caret" aria-hidden="true"></span>
         <span class="axis-label">工具过程</span>
@@ -211,6 +212,13 @@ export function renderSources(sources = []) {
   }).join("");
 }
 
+// wheelSnippet 把消息正文压成轮轴标签用的一行摘要。
+export function wheelSnippet(text = "", limit = 32) {
+  const flat = String(text).replace(/\s+/g, " ").trim();
+  if (!flat) return "（空）";
+  return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
+}
+
 function renderMessage(message, key) {
   const role = message.role || "assistant";
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
@@ -227,7 +235,9 @@ function renderMessage(message, key) {
         <div class="reasoning-content is-plain">${escapeHtml(reasoning)}</div>
       </details>`
     : "";
-  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}">
+  const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
+  const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : role === "assistant" ? "Seelex" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
+  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}">
     <div class="message-debug"><code class="item-id">${escapeHtml(debugID)}</code></div>
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(time)}</span></div>
     ${thinking}

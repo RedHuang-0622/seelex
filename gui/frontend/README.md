@@ -11,7 +11,8 @@
 | `dist/app.js` | DOM 绑定、Bridge 调用、工作区/session/runtime/settings 编排。 |
 | `dist/client-state.js` | Snapshot/Event reducer、delivery_seq gap 和 resync；保留桌面进程段（`processContext`）——会话粒度基线到达时与进程段合并渲染，session-only 的 `runtime.changed` 不抖动账户/插件/技能/模型等进程面板（G3 收口）。 |
 | `dist/runtime-events.js` | Wails `EventsOn` 就绪探测、幂等绑定与 ready/event 转发。 |
-| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel、chat activity 与右侧「时间线拨轮」（拖拽滚动 / 点击线条跳转并闪烁定位）渲染。 |
+| `dist/conversation-view.js` / `chat-view.js` | 变高 keyed conversation、顶部 history sentinel、chat activity 渲染；历史加载用「按消息 key 的锚点」保持阅读位置。 |
+| `dist/conversation-wheel.js` | 右侧「时间线轮轴」：从 DOM 真实几何测出每条可见条目的位置/高度（线高 = 条目占内容高度的比例），渲染类型线条（用户/Agent/思考/工具/系统）+ 视口滑柄（拖拽滚动）+ 悬停类型摘要标签 + 点击线条跳转闪烁；纯几何函数（`buildWheelLines`/`wheelThumb`/`scrollTopForThumbTop`/`lineAtOffset`）可离线单测。空态只做视觉隐藏（`display:none` 会让轨道高度量成 0，轮轴再也出不来）。 |
 | `dist/trajectory.js` | 轨迹（Network 风格响应日志）纯函数：响应类型分类（input/llm/tool/error/system/notice；`role=system`/`kind=system` 独立成「系统」轨，`message.kind` 显式类别优先，无 kind 的旧数据回退 role 判定）、tool 请求/响应配对、过滤、统计、表格渲染与多线谱分轨上下文轴；轴内联前缀注入（`prefixLayerSegments`，Bridge.PromptLayers）与压缩刻度（`compactionMarks`，snapshot.task.context_compactions）两条元数据轨与 `renderAxisDetail` 详情。 |
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
@@ -165,15 +166,38 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 
 任务状态、白名单命令均为公开元数据，不含 secret；渲染文本全部 escape。
 
-`Snapshot.Conversation` 是后端提供的有界窗口；**窗口截断与游标（`total_messages`/`history_offset`/`has_more_history`）全部是后端 `view_state` 的投影，增量 reducer 只负责 upsert 消息**（阶段 B2：旧实现曾在 JS 里复刻一份截断+计数规则，两边一旦漂移就会出现客户端少显示历史）。回合边界的 `snapshot.changed` 会把权威窗口带回，因此一次回合内数组最多增长该回合新增的消息数。消息 DOM 使用真实内容高度的 keyed reconciliation，顶部 sentinel 接近视口时调用 `LoadMoreHistory` 并用 anchor 恢复滚动位置，不使用 `virtual-list.js` 的固定行高模型。
+`Snapshot.Conversation` 是后端提供的有界窗口；**窗口截断与游标（`total_messages`/`history_offset`/`has_more_history`）全部是后端 `view_state` 的投影，增量 reducer 只负责 upsert 消息**（阶段 B2：旧实现曾在 JS 里复刻一份截断+计数规则，两边一旦漂移就会出现客户端少显示历史）。回合边界的 `snapshot.changed` 会把权威窗口带回，因此一次回合内数组最多增长该回合新增的消息数。消息 DOM 使用真实内容高度的 keyed reconciliation，不使用 `virtual-list.js` 的固定行高模型。
+
+历史分页契约（2026-09-11 收口，前后端同口径）：
+
+- 窗口 = `[history_offset, history_offset + 窗口条数)` 的**连续区间**，窗口条数上限
+  `limits.history_window`；初始窗口贴尾（`history_offset = total - 窗口条数`）。
+- 顶部 sentinel 接近视口或点「加载更早」→ `LoadMoreHistory(0)`：**一页 = 一整窗**
+  （页大小由后端单点决定；半页会把「窗口」和「页」两个尺寸混在一起），
+  窗口整体后退一页，分页态写进后端会话可见投影（不再只写 Snapshot 镜像，
+  否则新消息/工具事件一次镜像就把分页结果抹回尾部，表现为「点了加载更早，
+  内容回卷，再点还是同一页」）。
+- 回看更早历史期间（`history_offset + 窗口条数 < total_messages`，前端判据
+  `historyWindowed()`）：尾部新消息不再把窗口拽回尾部，也**不会**被追加进
+  列表（那会在窗口与尾巴之间插出断层）；`message.added` 只记为已应用。
+- 历史栏因此常驻两个动作：「加载更早」（`has_more_history`）与「回到最新」
+  （`LoadLatestHistory`，窗口重新贴尾并带回回看期间的新消息）。
+- 滚动恢复按**消息 key 锚定**（记住视口顶部第一条消息，更新后按回原位），
+  而不是 `scrollHeight` 增量——窗口整体后退时高度几乎不变，增量算法会把
+  用户甩到别的位置。锚点已被截掉时退回增量算法。
 
 对话区聊天视图（`components.js` + `conversation-view.js`）按 Codex/Qoder 式
 分离「对话与轨迹」：LLM 正文保持内联不进滚动轴；thinking 与 tool-calling
 各自收进可展开/收起的滚动轴（thinking 轴默认展开并带滚动，工具轴默认收起，
 展开后在轴内滚动查看全部工具条目）；每条消息/工具左侧显示会话定位 id
-（`.item-id`），便于对照轨迹与记录排查。聊天区右侧的时间线拨轮把已渲染条目
-按类型映射为线条：用户输入长、tool-calling 短、thinking/llm 适中；按住
-拖拽即滚动到会话任意位置，点击某条线即把对应消息滚入视口并闪烁高亮。
+（`.item-id`），便于对照轨迹与记录排查。聊天区右侧的时间线轮轴是一条 minimap：每条已渲染条目按**真实
+几何**映射为一条线（线的位置 = 条目在内容里的位置，线高 = 条目占内容高度的
+比例，钳制到 [2, 48]px——上限按轨道高度自适应（约 1/4，最少 12px），类型由渲染层写进 `data-wheel-kind`/
+`data-wheel-label`（用户输入 / Agent 正文 / 思考 / 工具过程 / 系统 / 其它），
+因而与条目内容一一对应；视口滑柄表示当前可视区间，拖拽滑柄或点击轨道即
+滚动（1:1 跟手）、点击线条即跳转到该条消息并闪烁定位、悬停出类型摘要标签，
+键盘支持上下/翻页/首尾。线表随 DOM 重新测量：加载更早历史、增量新消息、
+容器缩放后自动重建，不需要任何「线条加载」状态。
 轨迹子页仍保留全部工具 IN/OUT 与思考全文，不做折叠。
 
 对话区顶部是主视图页签条（`.conversation-tabs`，本地 UI 状态）；「对话 / 轨迹」

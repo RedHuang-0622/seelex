@@ -305,6 +305,18 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 	view.Mutate(func(v *session.View) {
 		c.messageSeq[sessionID]++
 		next := model.Message{ID: fmt.Sprintf("message-%d", c.messageSeq[sessionID]), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
+		// 历史浏览模式（可见窗口已锚定在更早位置、未贴尾）：新消息属于窗口
+		// 之后，只推进总数，不写进可见窗口——写进去会在窗口尾部插出一个洞
+		// （前端按顺序渲染，窗口外内容缺失表现为断层），并且把正在回看的
+		// 用户强行拽回尾部、阅读位置被抢。正文由 message.added 事件带回，
+		// 前端据 total_messages 与 offset+窗口条数之差提示「下方还有新内容」。
+		if !viewWindowTailAligned(v) {
+			if role != "system" {
+				v.TotalMessages++
+			}
+			message = &next
+			return
+		}
 		v.Conversation = append(v.Conversation, next)
 		if role != "system" {
 			v.TotalMessages++
@@ -453,6 +465,31 @@ func (c *Coordinator) AdvanceMessageSeqForLocked(sessionID string, messages []mo
 func (c *Coordinator) NextMessageSeqForLocked(sessionID string) uint64 {
 	c.messageSeq[sessionID]++
 	return c.messageSeq[sessionID]
+}
+
+// viewWindowTailAligned 报告可见窗口是否贴尾（窗口末尾即 durable 末尾）。
+// 贴尾 = 跟随最新；不贴尾 = 用户正回看更早历史（分页把窗口锚定在
+// HistoryOffset），此时任何新消息都不得把窗口拽回尾部。
+func viewWindowTailAligned(view *session.View) bool {
+	return view.HistoryOffset+durableConversationCount(view.Conversation) >= view.TotalMessages
+}
+
+// SessionViewBrowsingHistoryLocked 报告指定会话是否处于「回看更早历史」状态
+// （调用方持有 Core.ViewMu）。可见窗口不贴尾即浏览态：流式增量、推理挂接等
+// 「写最新一条消息」的路径必须跳过——此时窗口里最后一条不是本轮消息，写它
+// 会把增量挂到旧消息上（内容串写）。
+func (c *Coordinator) SessionViewBrowsingHistoryLocked(sessionID string) bool {
+	browsing := false
+	c.SessionViewReadLocked(sessionID, func(view *session.View) {
+		browsing = !viewWindowTailAligned(view)
+	})
+	return browsing
+}
+
+// DurableConversationCount 返回参与历史游标的可见消息数（system 引导消息
+// 不占 durable 序号空间）。
+func DurableConversationCount(messages []model.Message) int {
+	return durableConversationCount(messages)
 }
 
 func (c *Coordinator) boundViewTailLocked(view *session.View) {

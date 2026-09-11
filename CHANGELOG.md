@@ -13,6 +13,18 @@ for this stabilization batch.
 
 ### Changed
 
+- Rebuilt the conversation timeline wheel as a real minimap: one line per
+  rendered item positioned by measured geometry (line height proportional to the
+  item's share of the scroll content), a draggable viewport handle, hover type
+  summaries, click-to-jump with flash highlight, and keyboard scrollbar
+  semantics; the line table re-measures on every render, so paging, streaming
+  deltas, and reflow stay aligned with the content.
+- `LoadMoreHistory` now pages by a full history window and persists the paging
+  state in the session view (the Snapshot is a read-only mirror), and new
+  `LoadLatestHistory` returns to the newest page after browsing earlier history.
+- GUI history loading restores the reading position by anchoring the top visible
+  message by key instead of by `scrollHeight` deltas, and disables CSS smooth
+  scrolling for programmatic positioning.
 - Reworked the repository entry documentation around verifiable Harness
   behavior, technical decisions, current limitations, and DeepSeek-compatible
   configuration.
@@ -21,6 +33,20 @@ for this stabilization batch.
 
 ### Fixed
 
+- Fixed paged history being wiped on the next session mirror: the visible window
+  of a long session lost the page loaded by `LoadMoreHistory` and fell back to
+  the tail window, so "load earlier" repeated the same page and reloaded the
+  same messages.
+- Fixed new messages re-anchoring the visible window to the tail while the user
+  is reading earlier history (and appended streaming deltas landing on the wrong
+  visible message); the window now stays anchored and the client reports that
+  newer content is available below.
+- Fixed the visible window of legacy sessions (no session record) reporting the
+  loaded page size as the total message count, which made `has_more_history`
+  permanently false and early history unreachable.
+- Fixed the client reducer appending out-of-window messages while the window is
+  anchored on earlier history, which inserted a gap between the window and the
+  tail.
 - Removed stale README claims about a local <code>go.work</code> and a
   <code>replace</code> directive. Seelex currently resolves Seele v0.1.1 from
   the Go module graph.

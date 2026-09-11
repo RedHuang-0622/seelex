@@ -13,7 +13,7 @@
 
 - `Snapshot()`：权威全量状态；
 - `Subscribe()`：有序事件流；
-- `Submit/Cancel/Resolve/Switch/LoadMoreHistory`：业务动作；
+- `Submit/Cancel/Resolve/Switch/LoadMoreHistory/LoadLatestHistory`：业务动作；
 - DTO：Snapshot、Event、Message、ToolCall、Interaction、RuntimeState。
 
 ## 2. 数据契约
@@ -31,7 +31,7 @@
 | `chat` | running、request、queue、error | 同一时刻至多一个运行请求 |
 | `runtime` | model/provider/plugin/effort/tools/plan | 以 Core 运行时为准 |
 | `interaction` | 当前审批/选择交互 | nil 表示无阻塞交互 |
-| `history_*` | 历史分页游标 | `has_more_history == history_offset > 0` |
+| `history_*` | 历史分页游标 | 窗口 = `[history_offset, history_offset + 窗口条数)` 的连续区间；`has_more_history == history_offset > 0`；`history_offset + 可见条数 < total_messages` 表示窗口已离开尾部（用户在回看更早历史，尾部新消息不回卷窗口，前端提示「回到最新」） |
 
 ### Event
 

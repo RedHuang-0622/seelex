@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/context_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
+	"github.com/RedHuang-0622/seelex/application/core/view_state"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -671,6 +672,13 @@ func (service *Service) appendVisibleDelta(requestID, chunk string) {
 		service.ViewMu.Unlock()
 		return
 	}
+	// 回看历史（窗口未贴尾）：窗口里最后一条不是本轮消息，写增量会挂到旧
+	// 消息上（内容串写）。正文仍在引擎历史/transcript 中，回到最新后由基线
+	// 重建；前端据窗口游标提示「下方还有新内容」。
+	if service.components.view.SessionViewBrowsingHistoryLocked(sessionID) {
+		service.ViewMu.Unlock()
+		return
+	}
 	messageID := ""
 	// G5 访问器化：会话 View 的写一律经 View.mu（Mutate），不再在
 	// ViewMu 下裸字段穿越——后台/活跃同会话切换期间 View.mu 是叶子锁，
@@ -699,6 +707,14 @@ func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk
 	}
 	chatState := unit.ChatState()
 	if !chatState.Running || chatState.RequestID != requestID {
+		return
+	}
+	// 后台会话同样遵守窗口锚点：回看历史时不把增量写进旧消息。
+	browsing := false
+	unit.View.Read(func(view *session.View) {
+		browsing = view.HistoryOffset+view_state.DurableConversationCount(view.Conversation) < view.TotalMessages
+	})
+	if browsing {
 		return
 	}
 	var messageID string
@@ -737,6 +753,11 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 		return
 	}
 	service.ViewMu.Lock()
+	if service.components.view.SessionViewBrowsingHistoryLocked(sessionID) {
+		// 回看历史：窗口最后一条不是本轮 assistant 消息，挂推理会写错消息。
+		service.ViewMu.Unlock()
+		return
+	}
 	messageID := ""
 	alreadyAttached := false
 	// G5 访问器化：经 View.mu 读写可见消息（Mutate 内完成查找+写入，

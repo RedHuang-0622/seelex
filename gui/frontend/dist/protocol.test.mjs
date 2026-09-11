@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./protocol.js", import.meta.url), "utf8");
-const { applyEvent, validateSnapshot } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { applyEvent, historyWindowed, validateSnapshot } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 function snapshot() {
   return {
@@ -383,4 +383,55 @@ test("leaves window counters and array bounds to the authoritative snapshot", ()
   assert.equal(result.snapshot.total_messages, 1);
   assert.equal(result.snapshot.history_offset, 0);
   assert.equal(result.snapshot.has_more_history, false);
+});
+
+// 回看更早历史（后端把窗口锚定在更早位置）时，尾部新消息不属于可见窗口：
+// 无条件 upsert 会把它追加到窗口末尾，视觉上表现为「窗口与尾巴之间缺了一
+// 大段」的断层。此时只把事件记为已应用，内容由「回到最新」的基线刷新带回。
+test("drops out-of-window messages while browsing earlier history", () => {
+  const windowed = {
+    ...snapshot(),
+    conversation_window: 2,
+    total_messages: 6,
+    history_offset: 0,
+    has_more_history: true,
+    conversation: [
+      { id: "m1", role: "user", content: "one" },
+      { id: "m2", role: "assistant", content: "two" }
+    ]
+  };
+  assert.equal(historyWindowed(windowed), true);
+
+  const added = applyEvent(windowed, {
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "message.added",
+    payload: { id: "m6", role: "assistant", content: "six" }
+  }, 0);
+  assert.equal(added.needsRefresh, false);
+  assert.deepEqual(added.snapshot.conversation.map(message => message.id), ["m1", "m2"]);
+
+  // 窗口内已有消息的 upsert 仍然生效（同一条消息的状态回写不能被吞掉）。
+  const updated = applyEvent(added.snapshot, {
+    protocol_version: 1, delivery_seq: 2, revision: 3, kind: "tool.completed",
+    payload: { id: "m2", role: "assistant", content: "two-updated" }
+  }, added.lastSeq);
+  assert.equal(updated.snapshot.conversation[1].content, "two-updated");
+  assert.equal(updated.snapshot.conversation.length, 2);
+});
+
+test("historyWindowed is false while the window still reaches the tail", () => {
+  const tail = {
+    ...snapshot(),
+    total_messages: 3,
+    history_offset: 1,
+    conversation: [
+      { id: "m2", role: "assistant", content: "two" },
+      { id: "m3", role: "assistant", content: "three" }
+    ]
+  };
+  assert.equal(historyWindowed(tail), false);
+  // system 引导消息不占 durable 序号空间（与后端同一口径）。
+  assert.equal(historyWindowed({ ...tail, conversation: [{ id: "s", role: "system", content: "已恢复" }, ...tail.conversation] }), false);
+  // 缺游标字段（旧宿主）时不启用窗口判定，保持原 upsert 语义。
+  assert.equal(historyWindowed({ ...snapshot(), total_messages: 0 }), false);
+  assert.equal(historyWindowed(null), false);
 });

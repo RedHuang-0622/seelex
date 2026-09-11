@@ -82,6 +82,10 @@ function applyIncremental(snapshot, event, payload) {
     // 窗口游标（total_messages / history_offset / has_more_history）与截断都是
     // 后端 view_state 的投影：reducer 只 upsert 消息，下一次 snapshot.changed
     // 会带回权威窗口，客户端不再复刻这份规则。
+    // 例外：窗口已离开尾部（用户回看更早历史）时，窗口之外的新消息不能
+    // 追加到列表末尾——那会在窗口与尾部之间插出断层。它由「回到最新」的
+    // 基线刷新带回；此处只把事件记为已应用。
+    if (historyWindowed(snapshot) && !hasMessage(snapshot.conversation, payload.id)) return true;
     snapshot.conversation = upsertMessage(snapshot.conversation, payload);
     flushPendingDeltasForSnapshot(snapshot, payload.id);
     return true;
@@ -151,6 +155,22 @@ function appendMessageDelta(snapshot, payload) {
   messages[index] = next;
   snapshot.conversation = messages;
   return true;
+}
+
+function hasMessage(messages, id) {
+  return (Array.isArray(messages) ? messages : []).some(message => message?.id === id);
+}
+
+// historyWindowed 判定可见窗口是否已离开尾部（后端分页锚定在更早位置）：
+// 前端据此提示「下方还有新内容 / 回到最新」。口径与后端一致——durable 条数
+// 不计 system 引导消息。
+export function historyWindowed(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.conversation)) return false;
+  const total = Number(snapshot.total_messages || 0);
+  const offset = Number(snapshot.history_offset || 0);
+  if (!(total > 0)) return false;
+  const visible = snapshot.conversation.filter(message => message?.role !== "system").length;
+  return offset + visible < total;
 }
 
 function upsertMessage(messages, message) {
