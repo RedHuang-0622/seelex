@@ -17,6 +17,9 @@
 | `dist/trajectory-view.js` | 轨迹视图组件：对话区「轨迹」子页的上下文轴（记录轨 + 前缀注入/压缩元数据轨）/轴详情/过滤条/摘要/表格 keyed 渲染，行内复制/展开/result_ref 分页读回，本地过滤状态；普通轴块点击切回全量并定位轨迹行，元数据块点击开轴详情。 |
 | `dist/components.js` | message/tool/queue 等纯渲染组件；对话滚动轴（thinking / tool 各自可展开收起，LLM 正文内联）与左侧调试 id。 |
 | `dist/html-embed.js` | 会话内 HTML 渲染块：`seelex-html`（别名 `html-preview`）围栏 → **沙箱 iframe**（`sandbox="allow-scripts"`，**无 `allow-same-origin`**）+ srcdoc 内嵌 CSP（`default-src 'none'`、断网、仅 data: 图片）+ 源码折叠；`title=`/`height=` 参数，高度钳制 120–640px。普通 ```html 仍是源码块。 |
+| `dist/theme.js` | 皮肤（材质包）加载层：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>` 与皮肤 `<link>`；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；选择记在 `localStorage["seelex.theme"]`。 |
+| `dist/themes/` | 内置皮肤包 + `manifest.json`：皮肤只覆盖语义 token（契约与 token 清单见 `themes/README.md`），不写选择器、不用 `!important`、不引远程资源。 |
+| `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`。版本与许可登记见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
@@ -217,6 +220,20 @@ Wails bridge；srcdoc 自带 CSP（`default-src 'none'`、`connect-src 'none'`�
 只允许内联样式/脚本与 `data:` 图片）断掉网络出口；不给表单/弹窗/顶层跳转。
 块内附「查看源码」（转义文本）供用户核对。普通 ```html 围栏仍然是源码块，
 不会被执行。
+
+样式分三层，改外观前先确认改哪一层（顺序不能换）：
+
+1. **组件库**（`vendor/pico.min.css`）= 元素基线与通用组件皮。它只作用于没被
+   类选择器覆盖的元素，所以引入它不会推翻既有外观；
+2. **Seelex 样式**（`styles.css`）= 语义 token + 组件样式，并把 `--pico-*`
+   桥接到 token（"组件库桥接"段），因此第三方组件跟随皮肤换色；
+3. **皮肤包**（`themes/<id>.css`）= 只覆盖语义 token 的换肤层（"皮肤选择"在
+   设置的「外观」区）。深浅色、材质包都在这一层做，组件结构不动。
+
+控件尺寸走 token（`--control-h-sm/--control-h/--control-h-lg`、`--row-min-h`），
+图标按钮、徽标、输入框、页签、主次按钮、列表行统一取这几个值——同排控件不再
+高低不齐；右栏团队区的动作按钮固定最小宽度，窄栏里不会把"删除"挤成竖排。
+微标签（数据/序号）下限 10.5px，正文 13.5px。
 
 对话区顶部是主视图页签条（`.conversation-tabs`，本地 UI 状态）；「对话 / 轨迹」
 两个会话子页可以留在主视图，也可以与右栏任一子页置换后停靠到右栏。会话类

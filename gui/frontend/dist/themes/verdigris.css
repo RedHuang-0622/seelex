@@ -1,0 +1,53 @@
+/* 皮肤包：铜绿钢青（dark）
+ *
+ * 皮肤包只覆盖 :root 上的语义 token（契约见 themes/README.md），不改任何选择器、
+ * 不写 !important。组件外观因此随皮肤走，第三方组件库（vendor/pico.min.css）
+ * 的 --pico-* 变量在 styles.css 的桥接层里指向这些 token，也会一起换。
+ */
+:root {
+  --bg: #0f191c;
+  --panel: #162429;
+  --surface: #1d2f35;
+  --surface-2: #26404a;
+  --surface-3: #32505c;
+  --border: #24404a;
+  --border-strong: #3a5c69;
+
+  --text: #e4ecec;
+  --muted: #93a6a8;
+  --faint: #74898c;
+  --text-bright: #f1f7f6;
+  --text-strong: #e4ecec;
+  --text-soft: #c3d2d3;
+  --text-mid: #b0c0c2;
+  --text-dim: #93a6a8;
+
+  --accent: #6fb58e;
+  --accent-strong: #8ccba8;
+  --on-accent: #08130d;
+
+  --status-running: #6fb58e;
+  --status-done: #7ba3c7;
+  --status-failed: #d4695f;
+  --status-info: #7ba3c7;
+  --status-idle: #74898c;
+
+  --tint-running: rgba(111, 181, 142, .12);
+  --tint-done: rgba(123, 163, 199, .12);
+  --tint-failed: rgba(212, 105, 95, .10);
+  --tint-info: rgba(123, 163, 199, .10);
+  --border-running: rgba(111, 181, 142, .45);
+  --border-done: rgba(123, 163, 199, .45);
+  --border-failed: rgba(212, 105, 95, .45);
+  --border-info: rgba(123, 163, 199, .45);
+
+  --code-bg: #0b1416;
+  --surface-blur: rgba(11, 20, 22, .94);
+  --panel-solid: rgba(22, 36, 41, .97);
+  --surface-glass: rgba(29, 47, 53, .76);
+  --overlay: rgba(4, 10, 12, .68);
+  --surface-opaque: rgba(11, 19, 21, .99);
+
+  --tick: #2c454d;
+  --tick-hot: #6fb58e;
+}

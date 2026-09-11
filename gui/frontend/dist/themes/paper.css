@@ -1,0 +1,57 @@
+/* 皮肤包：暖纸白昼（light）
+ *
+ * 同一份 token 契约的浅色实现：只覆盖语义 token。深色皮肤里靠 rgba 硬写的
+ * 半透明面（--surface-blur/--panel-solid/--surface-glass/--overlay/
+ * --surface-opaque）已经在 styles.css 里 token 化，浅色皮肤必须一并覆盖，
+ * 否则弹层会残留深色底。
+ */
+:root {
+  --bg: #f4f1ea;
+  --panel: #fbf9f5;
+  --surface: #ffffff;
+  --surface-2: #f2eee6;
+  --surface-3: #e7e1d5;
+  --border: #ddd6c8;
+  --border-strong: #c6bda9;
+
+  --text: #2a2c2e;
+  --muted: #6c6862;
+  --faint: #8b857c;
+  --text-bright: #17181a;
+  --text-strong: #2a2c2e;
+  --text-soft: #4a4741;
+  --text-mid: #5d5952;
+  --text-dim: #6c6862;
+
+  --accent: #b5762a;
+  --accent-strong: #96601f;
+  --on-accent: #fffaf0;
+
+  --status-running: #b5762a;
+  --status-done: #3f7d5c;
+  --status-failed: #b4463c;
+  --status-info: #36648f;
+  --status-idle: #8b857c;
+
+  --tint-running: rgba(181, 118, 42, .10);
+  --tint-done: rgba(63, 125, 92, .10);
+  --tint-failed: rgba(180, 70, 60, .10);
+  --tint-info: rgba(54, 100, 143, .10);
+  --border-running: rgba(181, 118, 42, .40);
+  --border-done: rgba(63, 125, 92, .40);
+  --border-failed: rgba(180, 70, 60, .40);
+  --border-info: rgba(54, 100, 143, .40);
+
+  --code-bg: #f7f4ee;
+  --surface-blur: rgba(251, 249, 245, .94);
+  --panel-solid: rgba(251, 249, 245, .97);
+  --surface-glass: rgba(242, 238, 230, .80);
+  --overlay: rgba(40, 36, 28, .32);
+  --surface-opaque: rgba(255, 255, 255, .99);
+
+  --tick: #cfc7b6;
+  --tick-hot: #b5762a;
+
+  --shadow: 0 10px 26px rgba(60, 52, 38, .14);
+  --shadow-sm: 0 3px 10px rgba(60, 52, 38, .10);
+}

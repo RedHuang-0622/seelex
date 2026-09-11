@@ -1,10 +1,13 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>Seelex</title>
+  <!-- 组件库（元素基线与通用组件皮）先加载；styles.css 的类选择器特异性更高，
+       负责 Seelex 外观；themes/<id>.css 只覆盖语义 token。顺序不要改。 -->
+  <link rel="stylesheet" href="./vendor/pico.min.css">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -201,6 +204,11 @@
       </label>
       <label id="storage-path-field" class="settings-field">本地路径<input id="storage-path" type="text" autocomplete="off"></label>
       <label id="storage-dsn-field" class="settings-field hidden">连接字符串（PostgreSQL / Redis）<input id="storage-dsn" type="password" placeholder="postgres://user:password@host:5432/database?sslmode=require 或 redis://:password@host:6379/0" autocomplete="off"></label>
+      <div class="settings-section">
+        <div class="section-title">外观</div>
+        <p class="settings-note">皮肤包只覆盖语义 token（契约见 <code>themes/README.md</code>）：组件结构、交互与可访问性不随皮肤改变。</p>
+        <div id="theme-picker" class="theme-picker" role="radiogroup" aria-label="界面皮肤"></div>
+      </div>
       <div class="settings-actions"><button id="storage-test" type="button" class="secondary">测试连接</button><button id="storage-save" type="button" class="primary">保存并切换</button></div>
       <div id="storage-status" class="muted"></div>
     </div>

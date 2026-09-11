@@ -54,6 +54,12 @@
 
   /* code & deep panels */
   --code-bg: #10161b;
+  /* translucent surfaces（皮肤包按同一组名字覆盖，浅色皮肤才成立） */
+  --surface-blur: rgba(20, 27, 33, .94);
+  --panel-solid: rgba(27, 36, 44, .97);
+  --surface-glass: rgba(34, 44, 53, .76);
+  --overlay: rgba(6, 10, 13, .66);
+  --surface-opaque: rgba(20, 24, 22, .99);
 
   /* trace：刻度线 */
   --tick: #39454f;
@@ -166,7 +172,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   justify-content: space-between;
   padding: 0 var(--sp-4);
   border-bottom: 1px solid var(--border);
-  background: rgba(20, 27, 33, .94);
+  background: var(--surface-blur);
   backdrop-filter: blur(14px);
 }
 
@@ -437,7 +443,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .reasoning-block summary::-webkit-details-marker { display: none; }
 .reasoning-chevron { width: 7px; height: 7px; border-right: 1px solid var(--muted); border-bottom: 1px solid var(--muted); transform: rotate(-45deg); transition: transform var(--dur-fast) var(--ease-out); }
 .reasoning-block[open] .reasoning-chevron { transform: rotate(45deg) translate(-1px, -1px); }
-.reasoning-state { margin-left: auto; color: var(--status-running); font-size: 9px; letter-spacing: .12em; }
+.reasoning-state { margin-left: auto; color: var(--status-running); font-size: 10.5px; letter-spacing: .12em; }
 .reasoning-content { padding: 11px 13px; border-top: 1px solid var(--border); color: var(--muted); font-size: var(--text-sm); line-height: 1.65; }
 .reasoning-content h1, .reasoning-content h2, .reasoning-content h3 { font-size: 13px; }
 .reasoning-content p { margin-bottom: 9px; }
@@ -450,8 +456,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .runtime-pulse { display: inline-flex; align-items: center; gap: 3px; }
 .runtime-pulse i { width: 3px; height: 3px; border-radius: 50%; background: var(--muted); }
 .message-queue { display: grid; gap: 6px; }
-.queued-message { overflow: hidden; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); background: rgba(34, 44, 53, .76); animation: queue-enter var(--dur-fast) var(--ease-out); }
-.queued-message header { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 5px 9px; border-bottom: 1px solid var(--border); color: var(--faint); font: 700 9px var(--font-mono); letter-spacing: .1em; }
+.queued-message { overflow: hidden; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); background: var(--surface-glass); animation: queue-enter var(--dur-fast) var(--ease-out); }
+.queued-message header { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 5px 9px; border-bottom: 1px solid var(--border); color: var(--faint); font: 700 10.5px var(--font-mono); letter-spacing: .1em; }
 .queued-message header small { margin-left: auto; color: var(--status-running); font: inherit; }
 .queued-message-body { max-height: 140px; padding: 9px 11px; overflow: auto; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
 .queued-message-body > :first-child { margin-top: 0; }
@@ -619,7 +625,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   border-radius: var(--r-md);
   color: var(--faint);
   background: var(--surface-2);
-  font: 700 9px var(--font-mono);
+  font: 700 10.5px var(--font-mono);
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -686,7 +692,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-2xl);
-  background: rgba(27, 36, 44, .97);
+  background: var(--panel-solid);
   box-shadow: var(--shadow);
 }
 .composer.is-running { border-color: var(--border-strong); }
@@ -718,7 +724,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   height: 29px;
 }
 .effort-end {
-  font: 650 9px var(--font-mono);
+  font: 650 10.5px var(--font-mono);
   text-transform: uppercase;
   letter-spacing: .04em;
   flex: none;
@@ -1336,13 +1342,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .work-table-modal-view { overflow: auto; padding: 10px; }
 
 /* ---------- 12. Modals ---------- */
-.modal { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(6, 10, 13, .66); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.modal { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--overlay); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .modal-card { width: min(620px, 100%); padding: 22px; border: 1px solid var(--border-strong); border-radius: var(--r-2xl); background: var(--surface); box-shadow: var(--shadow); }
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .modal-header h2, .modal-card h2 { margin: 2px 0 0; color: var(--text-bright); font-size: 17px; font-weight: 600; }
 .eyebrow { color: var(--muted); font: 700 10px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; }
 .modal-card p { color: var(--muted); font-size: var(--text-sm); line-height: 1.6; }
-.risk-label { display: inline-flex; padding: 3px 7px; border: 1px solid rgba(217, 166, 87, .45); border-radius: var(--r-sm); color: var(--brass); background: rgba(217, 166, 87, .08); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.risk-label { display: inline-flex; padding: 3px 7px; border: 1px solid rgba(217, 166, 87, .45); border-radius: var(--r-sm); color: var(--brass); background: rgba(217, 166, 87, .08); font-size: 10.5px; font-weight: 700; text-transform: uppercase; }
 .interaction-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 16px; }
 .interaction-options button { padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-soft); background: var(--surface-2); cursor: pointer; }
 .interaction-options button.danger { color: var(--status-failed); border-color: var(--border-failed); background: var(--tint-failed); }
@@ -1380,7 +1386,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .command-description { min-width: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .command-kind { padding: 2px 5px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--faint); font: 10px var(--font-mono); text-transform: uppercase; }
 .command-hint { margin-top: 10px; color: var(--faint); font-size: 10px; text-align: center; }
-.inline-suggestions { position: absolute; z-index: 8; left: 0; right: 0; bottom: calc(100% + 7px); max-height: 290px; overflow-y: auto; padding: 6px; border: 1px solid var(--border-strong); border-radius: var(--r-lg); background: rgba(20, 24, 22, .99); box-shadow: var(--shadow); }
+.inline-suggestions { position: absolute; z-index: 8; left: 0; right: 0; bottom: calc(100% + 7px); max-height: 290px; overflow-y: auto; padding: 6px; border: 1px solid var(--border-strong); border-radius: var(--r-lg); background: var(--surface-opaque); box-shadow: var(--shadow); }
 .toast { position: fixed; z-index: 30; right: 18px; bottom: 18px; max-width: 380px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--r-lg); color: var(--text-strong); background: var(--surface-2); box-shadow: var(--shadow); font-size: var(--text-sm); }
 
 /* ---------- 13. Plan DSL / node detail / subagent tree ---------- */
@@ -1592,7 +1598,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .plan-tree-line { display: flex; align-items: center; flex: none; }
 .plan-tree-line i { display: block; width: 14px; height: 26px; flex: none; border-left: 1px solid var(--border); }
 .plan-tree-line i.last { height: 14px; }
-.plan-tree .plan-dot { display: grid; place-items: center; width: 14px; height: 14px; flex: none; border-radius: 50%; font-size: 9px; font-weight: 700; line-height: 1; }
+.plan-tree .plan-dot { display: grid; place-items: center; width: 14px; height: 14px; flex: none; border-radius: 50%; font-size: 10.5px; font-weight: 700; line-height: 1; }
 .dot-run { color: var(--status-running); background: rgba(217, 166, 87, .12); }
 .dot-run .plan-dot { color: var(--status-running); border: 1px solid rgba(217, 166, 87, .4); }
 .dot-ok { color: var(--status-done); }
@@ -1896,7 +1902,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   border-radius: 2px;
   color: transparent;
   background: var(--tint-info);
-  font: 9px var(--font-mono);
+  font: 10.5px var(--font-mono);
   line-height: 12px;
   overflow: hidden;
   white-space: nowrap;
@@ -1936,7 +1942,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   border-radius: 999px;
   color: var(--muted);
   background: var(--surface-2);
-  font: 700 9px var(--font-mono);
+  font: 700 10.5px var(--font-mono);
 }
 .axis-segment.is-prefix {
   background: repeating-linear-gradient(135deg, var(--tint-info), var(--tint-info) 6px, var(--surface-2) 6px, var(--surface-2) 12px);
@@ -2056,7 +2062,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   max-width: 100%;
   overflow: hidden;
   color: var(--faint);
-  font: 9px/1.5 var(--font-mono);
+  font: 10.5px/1.5 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
   user-select: text;
@@ -2262,6 +2268,356 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 @media (prefers-reduced-motion: reduce) {
   .conversation .is-wheel-target { animation: none; }
 }
+
+/* ============================================================
+   12. 组件库桥接 + 外壳精致化
+   ------------------------------------------------------------
+   组件库（vendor/pico.min.css）只提供元素基线：按钮/表单/表格/折叠/对话框的
+   行为与默认皮。这里做两件事：
+     1) 把 Pico 的 --pico-* 变量接到 Seelex token 上——皮肤包换 token，第三方
+        组件一起换色，不会带进它自己的一套配色；
+     2) 在 `.app-shell` 内归零 Pico 给 section/button 的外边距（三栏网格自己
+        管布局），并给外壳加一层统一的层次与交互态。
+   规则只走 token，不写死颜色（皮肤包契约见 themes/README.md）。
+   ============================================================ */
+
+/* ---------- 12.1 token 桥接 ---------- */
+:root,
+:root[data-theme="dark"],
+:root[data-theme="light"] {
+  --pico-font-family: var(--font-ui);
+  --pico-font-family-sans-serif: var(--font-ui);
+  --pico-font-family-monospace: var(--font-mono);
+  --pico-font-size: 100%;
+  --pico-line-height: 1.5;
+
+  --pico-background-color: var(--bg);
+  --pico-color: var(--text);
+  --pico-muted-color: var(--muted);
+  --pico-muted-border-color: var(--border);
+  --pico-border-color: var(--border);
+  --pico-border-width: 1px;
+  --pico-border-radius: var(--r-md);
+  --pico-outline-width: 2px;
+  --pico-transition: var(--dur-fast) var(--ease-out);
+
+  --pico-primary: var(--accent);
+  --pico-primary-background: var(--accent);
+  --pico-primary-border: var(--accent);
+  --pico-primary-hover: var(--accent-strong);
+  --pico-primary-hover-background: var(--accent-strong);
+  --pico-primary-hover-border: var(--accent-strong);
+  --pico-primary-inverse: var(--on-accent);
+  --pico-primary-focus: var(--tint-running);
+  --pico-primary-underline: var(--border-running);
+
+  --pico-secondary: var(--text-soft);
+  --pico-secondary-background: var(--surface-2);
+  --pico-secondary-border: var(--border-strong);
+  --pico-secondary-hover-background: var(--surface-3);
+  --pico-secondary-inverse: var(--text);
+
+  --pico-card-background-color: var(--panel);
+  --pico-card-border-color: var(--border);
+  --pico-card-sectioning-background-color: var(--surface-2);
+
+  --pico-form-element-background-color: var(--surface);
+  --pico-form-element-border-color: var(--border);
+  --pico-form-element-color: var(--text);
+  --pico-form-element-placeholder-color: var(--faint);
+  --pico-form-element-active-background-color: var(--surface-2);
+  --pico-form-element-active-border-color: var(--accent);
+  --pico-form-element-focus-color: var(--accent);
+  --pico-form-element-disabled-opacity: .5;
+
+  --pico-code-background-color: var(--code-bg);
+  --pico-code-color: var(--text-soft);
+  --pico-mark-background-color: var(--tint-running);
+  --pico-mark-color: var(--text-bright);
+
+  --pico-table-border-color: var(--border);
+  --pico-table-row-stripped-background-color: var(--surface-2);
+  --pico-table-row-hover-background-color: var(--surface-2);
+
+  --pico-dropdown-background-color: var(--surface);
+  --pico-dropdown-border-color: var(--border-strong);
+  --pico-dropdown-color: var(--text);
+  --pico-modal-overlay-background-color: var(--overlay);
+  --pico-modal-overlay-backdrop-filter: blur(8px);
+}
+
+/* ---------- 12.2 归零：布局归外壳，组件库别插外边距 ---------- */
+.app-shell section,
+.app-shell article,
+.app-shell form,
+.app-shell figure,
+.app-shell h1,
+.app-shell h2,
+.app-shell h3,
+.app-shell h4,
+.app-shell h5,
+.app-shell h6 { margin-bottom: 0; }
+.app-shell button,
+.app-shell [type="button"],
+.app-shell [type="submit"],
+.app-shell [type="reset"],
+.app-shell [role="button"] { margin-bottom: 0; width: auto; font-weight: inherit; }
+.app-shell button:not(.primary-button):not(.theme-card):not(.chat-chip):not(.work-table-button) { border: 0; background: transparent; }
+.app-shell summary::after { display: none; } /* Pico 给 details summary 加装饰箭头，本产品用自己的 caret */
+
+/* ---------- 12.3 外壳层次 ---------- */
+.app-shell { background: radial-gradient(1100px 620px at 22% -12%, var(--surface-2) 0%, var(--bg) 58%); }
+.topbar {
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(to bottom, var(--surface-blur), color-mix(in srgb, var(--surface-blur) 82%, transparent));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text-bright) 4%, transparent) inset;
+}
+.brand-mark {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent), 0 6px 18px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.panel { background: linear-gradient(to bottom, var(--panel), color-mix(in srgb, var(--panel) 88%, var(--bg))); }
+.left-panel { border-right: 1px solid var(--border); }
+.right-panel { border-left: 1px solid var(--border); }
+.section-title {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.section-title::before {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 11px;
+  margin-right: 7px;
+  vertical-align: -1px;
+  border-radius: 999px;
+  background: var(--tick-hot);
+  opacity: .8;
+}
+.project-heading h2 { letter-spacing: -.01em; }
+.project-root { color: var(--faint); }
+
+/* ---------- 12.4 列表与卡片 ---------- */
+.session-row,
+.session-group {
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.session-row:hover,
+.session-group:hover { border-color: var(--border); background: var(--surface); }
+.session-row.is-active,
+.session-row[aria-current="true"] {
+  border-color: var(--border-running);
+  background: var(--tint-running);
+  box-shadow: inset 2px 0 0 var(--tick-hot);
+}
+.badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-variant-numeric: tabular-nums;
+}
+.collapse-section,
+.side-more { border-radius: var(--r-lg); }
+.collapse-summary:hover,
+.side-more-summary:hover { color: var(--text); }
+
+/* ---------- 12.5 交互控件 ---------- */
+.icon-button {
+  border-radius: var(--r-md);
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.icon-button:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+.primary-button,
+.app-shell button.primary {
+  border: 1px solid var(--accent) !important;
+  background: linear-gradient(to bottom, var(--accent-strong), var(--accent)) !important;
+  color: var(--on-accent) !important;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.primary-button:hover { filter: brightness(1.05); }
+:where(button, input, select, textarea, summary, a, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* 输入类控件统一交给组件库，只调高度与圆角 */
+.app-shell input[type="text"],
+.app-shell input[type="password"],
+.app-shell input[type="search"],
+.app-shell select,
+.app-shell textarea {
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ---------- 12.6 输入区与页签 ---------- */
+.composer {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl, 14px);
+  background: linear-gradient(to bottom, var(--surface), color-mix(in srgb, var(--surface) 86%, var(--bg)));
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--tint-running), var(--shadow);
+}
+.conversation-tabs,
+.right-tabs { border-bottom: 1px solid var(--border); }
+.conversation-tab,
+.right-tab {
+  border-radius: var(--r-md);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.conversation-tab:hover,
+.right-tab:hover { background: var(--surface-2); color: var(--text); }
+.conversation-tab.is-active,
+.right-tab.is-active { background: var(--tint-running); color: var(--text-bright); }
+
+/* ---------- 12.7 弹层与皮肤选择 ---------- */
+.modal-card { box-shadow: var(--shadow); }
+.modal-header { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.settings-section { margin: 18px 0 4px; padding-top: 16px; border-top: 1px solid var(--border); }
+.theme-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 10px; }
+.theme-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.theme-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.theme-card.is-active { border-color: var(--accent); background: var(--tint-running); box-shadow: inset 2px 0 0 var(--tick-hot); }
+.theme-swatches { display: flex; gap: 4px; }
+.theme-swatches i { width: 16px; height: 16px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--text-bright) 12%, transparent); }
+.theme-name { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
+.theme-current { padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+.theme-desc { color: var(--faint); font-size: 11px; line-height: 1.45; }
+
+/* ---------- 12.8 滚动条 ---------- */
+.panel,
+.conversation,
+.modal-card { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .session-row,
+  .theme-card,
+  .composer { transition: none; }
+  .theme-card:hover { transform: none; }
+}
+
+/* ============================================================
+   13. 控件比例（尺寸节奏）
+   ------------------------------------------------------------
+   问题：同排控件高度不齐（图标按钮 24/26/28 混用、输入框比按钮矮），窄栏
+   （右栏 Agent Team）里动作按钮被挤到换行、"删除"竖排。这里定一组控件高度
+   token 并统一到控件类上——比例是布局契约，不是各处微调。
+   ============================================================ */
+:root {
+  --control-h-sm: 24px;
+  --control-h: 28px;
+  --control-h-lg: 32px;
+  --row-min-h: 30px;
+  --control-radius: var(--r-md);
+}
+
+/* ---------- 13.1 图标按钮 / 徽标 / 文字按钮 ---------- */
+.app-shell .icon-button { width: var(--control-h); height: var(--control-h); border-radius: var(--control-radius); }
+.app-shell .icon-button.subtle { width: var(--control-h-sm); height: var(--control-h-sm); }
+.app-shell .badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+}
+.app-shell .text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: var(--r-sm);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.app-shell .perm-chip { min-height: var(--control-h-sm); padding: 0 10px; font-size: 11px; }
+
+/* ---------- 13.2 输入类控件同高 ---------- */
+.app-shell input[type="text"],
+.app-shell input[type="password"],
+.app-shell input[type="search"],
+.app-shell input[type="number"],
+.app-shell select {
+  min-height: var(--control-h);
+  padding: 0 10px;
+  font-size: 12px;
+}
+.app-shell select { padding-right: 26px; }
+.app-shell .settings-field input,
+.app-shell .settings-field select { min-height: var(--control-h-lg); font-size: 12.5px; }
+
+/* ---------- 13.3 主/次按钮 ---------- */
+.app-shell .primary-button,
+.app-shell button.primary,
+.app-shell .settings-actions button {
+  min-height: var(--control-h-lg);
+  padding: 0 16px;
+  border-radius: var(--control-radius);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.app-shell .settings-actions button.secondary {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* ---------- 13.4 页签与列表行 ---------- */
+.app-shell .conversation-tab,
+.app-shell .right-tab { min-height: var(--control-h); padding: 0 12px; border-radius: var(--control-radius); font-size: 12.5px; }
+.app-shell .session-row { min-height: var(--row-min-h); padding: 6px 8px; border-radius: var(--r-md); }
+.app-shell .session-group-head-row { min-height: 26px; }
+
+/* ---------- 13.5 Agent Team：窄栏里的动作按钮不许换行 ---------- */
+.team-order-item,
+.team-member,
+.team-scheduled-item { min-height: var(--row-min-h); padding: 5px 6px; gap: 8px; }
+.team-order-index,
+.team-member-pos,
+.team-member-state,
+.team-floor,
+.team-meta { font-size: 10.5px; }
+.team-order-role,
+.team-member-name { font-size: 11.5px; }
+.team-order-actions,
+.team-member-remove { flex: none; }
+.team-order-actions .text-button,
+.team-member .text-button { min-width: 46px; padding: 2px 8px; font-size: 10.5px; }
+.team-policy-select { min-height: 26px; padding: 2px 8px; font-size: 11.5px; }
+.team-scheduled-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+}
+.team-order-outside { font-size: 10.5px; }
 
 /* ---------- Agent Team（右侧栏 · 状态 → Agent Team） ----------
    数据源 = Application API（Bridge.AgentTeam*）；顺序事实源是会话

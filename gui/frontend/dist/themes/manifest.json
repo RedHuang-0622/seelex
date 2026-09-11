@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "default": "graphite",
+  "themes": [
+    {
+      "id": "graphite",
+      "name": "石墨黄铜",
+      "mode": "dark",
+      "description": "默认皮肤：铁蓝石墨底 + 黄铜主信号",
+      "swatches": ["#141b21", "#222c35", "#d9a657", "#e9e4d8"],
+      "file": ""
+    },
+    {
+      "id": "verdigris",
+      "name": "铜绿钢青",
+      "mode": "dark",
+      "description": "冷色信号皮肤：铜绿主信号 + 钢青信息色，底子更青",
+      "swatches": ["#0f191c", "#1d2f35", "#6fb58e", "#e4ecec"],
+      "file": "themes/verdigris.css"
+    },
+    {
+      "id": "paper",
+      "name": "暖纸白昼",
+      "mode": "light",
+      "description": "浅色皮肤：暖纸白底 + 墨黑正文，适合白天与投屏",
+      "swatches": ["#f4f1ea", "#ffffff", "#b5762a", "#2a2c2e"],
+      "file": "themes/paper.css"
+    }
+  ]
+}

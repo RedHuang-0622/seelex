@@ -18,6 +18,7 @@ import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { nextAgentTeamOrder, normalizeAgentTeam, renderAgentTeam } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
+import { createThemeController, loadThemeManifest } from "./theme.js";
 import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import {
   DOCK_STORAGE_KEY,
@@ -56,7 +57,7 @@ const elements = Object.fromEntries([
   "team-section", "team-view", "team-count",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
   "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
-  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "inline-suggestions",
+  "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
@@ -1785,6 +1786,7 @@ function closeRuntime() {
 async function openSettings() {
   setModal("settings-modal", true);
   elements["storage-status"].textContent = "";
+  renderThemePicker();
   try {
     const config = await invoke("SessionStorageConfig");
     elements["storage-backend"].value = config.backend || "json";
@@ -1796,6 +1798,53 @@ async function openSettings() {
 }
 
 function closeSettings() { setModal("settings-modal", false); }
+
+// ── 皮肤（组件库 token 层）────────────────────────────────
+// 三层分工见 themes/README.md：组件库给元素基线，styles.css 给 Seelex 外观，
+// 皮肤包只覆盖语义 token。颜色事实在皮肤 CSS 里，这里只负责选哪一套。
+let themeController = null;
+
+function themeStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null; // 隐私模式等：皮肤仍可切换，只是记不住
+  }
+}
+
+function renderThemePicker() {
+  const host = elements["theme-picker"];
+  if (!host) return;
+  if (!themeController) {
+    host.innerHTML = '<span class="muted">皮肤清单未就绪</span>';
+    return;
+  }
+  const current = themeController.current()?.id || "";
+  host.innerHTML = themeController.themes.map(theme => {
+    const active = theme.id === current;
+    const swatches = theme.swatches.map(color => `<i style="background:${escapeHtml(color)}"></i>`).join("");
+    return `<button type="button" class="theme-card${active ? " is-active" : ""}" data-theme-id="${escapeHtml(theme.id)}" role="radio" aria-checked="${active ? "true" : "false"}" title="${escapeHtml(theme.description)}">
+      <span class="theme-swatches" aria-hidden="true">${swatches}</span>
+      <span class="theme-name">${escapeHtml(theme.name)}${active ? '<span class="theme-current">当前</span>' : ""}</span>
+      <span class="theme-desc">${escapeHtml(theme.description)}</span>
+    </button>`;
+  }).join("");
+}
+
+async function initialiseTheme() {
+  const manifest = await loadThemeManifest(window.fetch.bind(window));
+  themeController = createThemeController({ document, storage: themeStorage(), manifest });
+  // 启动时套回上次的皮肤：<html data-theme> 与皮肤 <link> 都由控制器决定。
+  themeController.apply(themeController.current()?.id);
+  renderThemePicker();
+}
+
+elements["theme-picker"]?.addEventListener("click", event => {
+  const card = event.target.closest("[data-theme-id]");
+  if (!card || !themeController) return;
+  themeController.apply(card.dataset.themeId);
+  renderThemePicker();
+});
 
 function storageConfig() {
   return { backend: elements["storage-backend"].value, path: elements["storage-path"].value.trim(), dsn: elements["storage-dsn"].value.trim() };
@@ -2549,6 +2598,7 @@ async function initialise() {
   try {
     hydrateIcons();
     applyDockState();
+    await initialiseTheme();
     if (!bindRuntimeEvents(window.runtime)) {
       throw new Error("GUI event runtime 尚未就绪");
     }
