@@ -282,17 +282,17 @@ DeepSeek API 提供 OpenAI-compatible 接口时，可以继续使用 <code>provi
 ~~~yaml
 defaults:
   provider: openai
-  context_window: 128000
+  context_window: 1000000
   max_tokens: 8192
 
 roles:
   agent:
-    - model: deepseek-chat
+    - model: deepseek-flash
       base_url: https://api.deepseek.com
       api_key: replace-with-your-deepseek-api-key
 
   subagent:
-    - model: deepseek-chat
+    - model: deepseek-flash
       base_url: https://api.deepseek.com
       api_key: replace-with-your-deepseek-api-key
 ~~~

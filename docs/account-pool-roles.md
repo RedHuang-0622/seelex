@@ -96,7 +96,7 @@ accounts:
 
   - name: deepseek-flash
     provider: deepseek
-    model: deepseek-v4-flash
+    model: deepseek-flash
     base_url: https://api.deepseek.com
     api_key: sk-xxx
     role: subagent
