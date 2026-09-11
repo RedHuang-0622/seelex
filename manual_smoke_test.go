@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
-	"github.com/RedHuang-0622/seelex/application/adapters"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/internal/adapters"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 )
 

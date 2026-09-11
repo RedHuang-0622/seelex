@@ -247,3 +247,40 @@ prefix BREAK t1.iter2 → t2.iter1 : shared=12909/12968 B,
 - 新增守卫用例 `TestConcurrentSessionsKeepOwnContent`：A 后台 + B 前台交错驱动同形状的一轮（流式正文 → 工具轮宣告 → 工具起止 → 终答），断言两侧 record / 视图互不出现对方文本，且各自说明正文落在自己的工具轮事件上；该用例正是 **§7.8-2 的红灯**，修好后转绿（`-race` 通过）。
 
 **剩余边界（诚实标注）**：钩子 ctx 丢失会话 ID 时，`handleToolStart` / `handleToolCompleteObserved` / `runtimeForContextLocked` / `EnsureFinalAssistantTranscript` 都会**回退到活跃会话**。这是为兼容既有调用方（大量测试以 `context.Background()` 直接驱动钩子）刻意保留的行为，非本轮引入；生产 chat 路径始终带会话 ID。要彻底封死，需要给钩子补"请求 → 会话"的反查并在无归属时拒写——属于独立改动，本轮未做。
+
+
+---
+
+## 8. 真实 API 冒烟（2026-09-12）：投影出口不是引擎历史
+
+**方法**：在真实 provider（DeepSeek，`config/accounts.yaml`）前挂一台录制反向代理
+（`real_api_prefix_live_test.go`，`-tags manualsmoke`），逐条记录 provider 请求体与
+响应 usage，再驱动「每轮先说一句 → 再调用工具」的真实会话；用同一形状的脚本化
+mock provider 做本地确定性复现（`prefix_invariant_fullchain_test.go`）。
+
+**发现 1（已修）**：生产装配下 provider 的 `messages` 并不来自应用替换的**引擎历史**，
+而是来自框架的 WorkingHistory —— 即 `sessionstore.DurableHistory.Load` 的尾窗
+（`eventsToMessages`）：每轮收尾 `ReleaseWorkingHistoryFor` 清空工作视图，下一轮从
+durable owner 冷载（`internal/adapters/engine_port.go:631-651`）。因此 §7.6 的归零规则
+（`application/core/context_runtime.RepairEmptyHistoryContent`，作用于引擎历史）**没有
+到达 wire**：录到的跨轮请求里，工具轮 assistant 消息的正文由空变成说明文本
+（+80 / +97 字节），前缀自该消息起失效。
+
+修法：把同一条 wire 事实落到真实投影出口 ——
+`sessionstore.ProviderWireMessages`（durable 记录 → provider 请求）：携带工具调用的
+assistant 消息正文一律置空（框架 `session/loop.go:564` 构造时即 nil）。实测修复后该
+消息在每条请求里都是 `assistant+tc(0)`，7 个相邻请求对里 6 对保持全前缀。
+
+**发现 2（未修，同类"事后改写"）**：工具**失败结果**的呈现改写仍在跨轮破坏前缀。
+wire 上框架发出的是工具原始输出
+（`{"error": "project scope: no project is bound to this session"}`，63 B），而 durable
+记录里存的是应用呈现文本（`presentToolError` →
+`【模块：工具执行｜方法：handleToolComplete(read_file)】…`，181 B，
+`application/core/task_context/task_context_state.go:_RecordToolTranscriptLocked`）。
+下一轮从 durable 重投影时该 tool 消息改写（+116 字节），前缀在该点失效：实测
+`req#5→#6` 命中率 91.4% → 82.2%，且此后每一轮都要重新预热。
+
+与 §7.7（空工具结果）同族：**记录侧必须保存"已发出的字节"**，呈现文本只属于视图。
+建议修法：工具结果事件区分「provider 正文 = wire 原文」与「视图呈现 = 应用分类文本」
+（`TranscriptEvent` 增一个 provider-only 字段，或让视图侧从 `tool.Error` 渲染），
+`ProviderWireMessages` 取前者。需要 schema + 重启恢复用例一起改，本轮未做。

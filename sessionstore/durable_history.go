@@ -136,7 +136,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 		d.prepared = nil
 		d.preparedSet = false
 		d.mu.Unlock()
-		return prepared, nil
+		return ProviderWireMessages(prepared), nil
 	}
 	d.mu.Unlock()
 	if d.router == nil || d.sessionID == "" {
@@ -157,7 +157,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 				_ = err
 			}
 		}
-		return eventsToMessages(tail), nil
+		return ProviderWireMessages(eventsToMessages(tail)), nil
 	}
 	messages, err := d.router.LoadWorkspace(d.workspace(), d.sessionID)
 	if err != nil {
@@ -166,7 +166,7 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 		}
 		return nil, fmt.Errorf("durable history: load %q: %w", d.sessionID, err)
 	}
-	return messages, nil
+	return ProviderWireMessages(messages), nil
 }
 
 // eventsToMessages 把完整协议单元事件流转为 types.Message（窗口读尾的

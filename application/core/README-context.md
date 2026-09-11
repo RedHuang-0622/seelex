@@ -27,8 +27,12 @@
   迭代归位**到本次迭代的 assistant(tool_calls) 事件
   （`task_context.AttributeToolNarrationLocked`；回合收尾不再做事后填充——旧做法会
   把叙述写到别的轮次上）。归位只影响 record / 视图，投影侧仍归零，二者共同保证
-  "重投影 == 已发出"。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
-  `TestConcurrentSessionsKeepOwnContent`。
+"重投影 == 已发出"。归零有两处实现，对应两条投影出口：引擎历史路径
+（`RepairEmptyHistoryContent`）与**生产实际出口**——框架 WorkingHistory 来自
+`sessionstore.DurableHistory.Load`（尾窗重投影），归零在那里由
+`sessionstore.ProviderWireMessages` 实施（2026-09-12 真实 API 冒烟发现前者到不了
+wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
+`TestConcurrentSessionsKeepOwnContent`、`TestFullChainPrefixInvariantAcrossTurns`。
 - 红灯用例：`context_prefix_invariant_test.go`（沿生产装配路径断言「每条请求是
   上一条的前缀」，修复前在 `t1.iter3 → t2.iter1` 处 BREAK）；三臂对照组与逐边界
   数据见 `docs/research/2026-09-11-seelex-vs-codex-context-strategy-control-group.md`。
