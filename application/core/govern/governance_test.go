@@ -10,9 +10,9 @@ import (
 
 // stubSeat 是可脚本化的治理座位：按预置序列返回 TurnAction。
 type stubSeat struct {
-	name string
-	kind AgentKind
-	mu   sync.Mutex
+	name  string
+	kind  AgentKind
+	mu    sync.Mutex
 	calls []TurnAction
 	acts  int
 }
@@ -21,7 +21,7 @@ func newStubSeat(name string, kind AgentKind, calls ...TurnAction) *stubSeat {
 	return &stubSeat{name: name, kind: kind, calls: append([]TurnAction(nil), calls...)}
 }
 
-func (s *stubSeat) Name() string { return s.name }
+func (s *stubSeat) Name() string    { return s.name }
 func (s *stubSeat) Kind() AgentKind { return s.kind }
 
 func (s *stubSeat) Act(_ context.Context) (TurnAction, error) {
@@ -169,7 +169,7 @@ type failingSeat struct {
 	err  error
 }
 
-func (f *failingSeat) Name() string { return f.name }
+func (f *failingSeat) Name() string    { return f.name }
 func (f *failingSeat) Kind() AgentKind { return AgentKindExec }
 func (f *failingSeat) Act(context.Context) (TurnAction, error) {
 	return TurnAction{}, f.err

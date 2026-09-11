@@ -27,6 +27,7 @@ import (
 // TechLeaderMailbox 是 ADVISOR(b) → EXEC(a) 的有界指令队列：
 //   - PublishDirective 发布带 corr 信封的结构化指令（满丢最旧 + 计数）；
 //   - DrainDirectives 一次性排空（corr 幂等：排空即消费，重发由 corr 审计去重）。
+//
 // 不再承载"执行信号入队"（旧同会话信号队列移除——a 事件经 execSeq 账本 + 帧化，见 Notify）。
 type TechLeaderMailbox struct {
 	mu sync.Mutex
@@ -113,8 +114,8 @@ type Supervisor struct {
 
 	advisor *AdvisorSession // b（懒 bind：首次回合/快照前创建）
 
-	execSeq           uint64 // a 事件账本水位（EXEC 唯一账本源，协议 §7.1）
-	lastSyncedProgress int   // 控制器增量补帧游标（progress 条数；headless goal_update 无接线时的差异帧）
+	execSeq            uint64 // a 事件账本水位（EXEC 唯一账本源，协议 §7.1）
+	lastSyncedProgress int    // 控制器增量补帧游标（progress 条数；headless goal_update 无接线时的差异帧）
 
 	turnsSinceEval int
 	evalCount      int64
@@ -347,13 +348,13 @@ func (s *Supervisor) Snapshot() TLState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state := TLState{
-		Enabled:           s.Enabled(),
-		EvalCount:         s.evalCount,
-		LastEvalAt:        s.lastEvalAt,
-		LastEvalGoalID:    s.lastEvalGoalID,
-		PendingDirectives: s.mailbox.PendingDirectives(),
+		Enabled:            s.Enabled(),
+		EvalCount:          s.evalCount,
+		LastEvalAt:         s.lastEvalAt,
+		LastEvalGoalID:     s.lastEvalGoalID,
+		PendingDirectives:  s.mailbox.PendingDirectives(),
 		OverflowDirectives: s.mailbox.Overflow(),
-		TurnsSinceEval:    s.turnsSinceEval,
+		TurnsSinceEval:     s.turnsSinceEval,
 	}
 	if active, ok := s.ctl.ActiveGoal(); ok {
 		state.ActiveGoalID = active.ID
@@ -427,23 +428,23 @@ func commonPrefix(left, right string) string {
 // TLState 是 Supervisor 读面快照（前端 ADVISOR 面板/审计素材）。
 // 读面数值字段不带 omitempty：wire 稳定（0 也下发），避免客户端复用解码残留旧值。
 type TLState struct {
-	Enabled            bool        `json:"enabled"`
-	ActiveGoalID       string      `json:"active_goal_id,omitempty"`
-	ActiveGoalTitle    string      `json:"active_goal_title,omitempty"`
-	Peer               PeerState   `json:"peer_state"`
-	AppliedSeq         uint64      `json:"applied_seq"`
-	HeadSeq            uint64      `json:"head_seq"`
-	Behind             uint64      `json:"behind"`
-	UnbindReason       string      `json:"unbind_reason"`
-	FrameCount         int         `json:"frame_count"`
-	RoundCount         int         `json:"round_count"`
-	Cache              CacheStats  `json:"cache,omitempty"`
-	Frames             []Frame     `json:"frames,omitempty"`
-	Rounds             []Round     `json:"rounds,omitempty"`
-	EvalCount          int64       `json:"eval_count"`
-	LastEvalAt         int64       `json:"last_eval_at,omitempty"`
-	LastEvalGoalID     string      `json:"last_eval_goal_id,omitempty"`
-	PendingDirectives  int         `json:"pending_directives"`
-	OverflowDirectives int64       `json:"overflow_directives"`
-	TurnsSinceEval     int         `json:"turns_since_eval"`
+	Enabled            bool       `json:"enabled"`
+	ActiveGoalID       string     `json:"active_goal_id,omitempty"`
+	ActiveGoalTitle    string     `json:"active_goal_title,omitempty"`
+	Peer               PeerState  `json:"peer_state"`
+	AppliedSeq         uint64     `json:"applied_seq"`
+	HeadSeq            uint64     `json:"head_seq"`
+	Behind             uint64     `json:"behind"`
+	UnbindReason       string     `json:"unbind_reason"`
+	FrameCount         int        `json:"frame_count"`
+	RoundCount         int        `json:"round_count"`
+	Cache              CacheStats `json:"cache,omitempty"`
+	Frames             []Frame    `json:"frames,omitempty"`
+	Rounds             []Round    `json:"rounds,omitempty"`
+	EvalCount          int64      `json:"eval_count"`
+	LastEvalAt         int64      `json:"last_eval_at,omitempty"`
+	LastEvalGoalID     string     `json:"last_eval_goal_id,omitempty"`
+	PendingDirectives  int        `json:"pending_directives"`
+	OverflowDirectives int64      `json:"overflow_directives"`
+	TurnsSinceEval     int        `json:"turns_since_eval"`
 }

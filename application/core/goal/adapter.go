@@ -87,7 +87,7 @@ type funcSeat struct {
 	act  func(context.Context) (govern.TurnAction, error)
 }
 
-func (f funcSeat) Name() string { return f.name }
+func (f funcSeat) Name() string           { return f.name }
 func (f funcSeat) Kind() govern.AgentKind { return f.kind }
 func (f funcSeat) Act(ctx context.Context) (govern.TurnAction, error) {
 	if f.act == nil {

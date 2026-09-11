@@ -122,8 +122,8 @@ type turnGovernor struct {
 	seats     []Seat
 	maxRounds int
 
-	round       int    // 已完成的完整轮数
-	index       int    // 当前座位在 seats 中的下标
+	round       int // 已完成的完整轮数
+	index       int // 当前座位在 seats 中的下标
 	broken      bool
 	breakReason string
 }

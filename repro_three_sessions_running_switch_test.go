@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 // 复现：三个会话同时在运行（每个会话一次 LLM 请求被 provider 阻塞），期间在
 // A/B/C 之间快速切换，验证：

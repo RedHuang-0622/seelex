@@ -36,12 +36,12 @@ const (
 type FrameKind string
 
 const (
-	FrameGoalStart         FrameKind = "goal.start"          // 锚点：goal 域创建时快照（必进）
-	FrameGoalUpdated       FrameKind = "goal.update"         // 目标更新（按策略进）
-	FrameStepCheckpoint    FrameKind = "tool.checkpoint"     // 里程碑/打点（推荐进）
-	FrameContextCompacted  FrameKind = "context.compacted"   // a 上下文压缩（必进，防遗忘）
-	FrameApprovalRequested FrameKind = "approval.requested"  // 审批预筛（按策略进）
-	FrameTerminalProposed  FrameKind = "terminal.proposed"   // 终态提议（必进，触发 gate）
+	FrameGoalStart         FrameKind = "goal.start"         // 锚点：goal 域创建时快照（必进）
+	FrameGoalUpdated       FrameKind = "goal.update"        // 目标更新（按策略进）
+	FrameStepCheckpoint    FrameKind = "tool.checkpoint"    // 里程碑/打点（推荐进）
+	FrameContextCompacted  FrameKind = "context.compacted"  // a 上下文压缩（必进，防遗忘）
+	FrameApprovalRequested FrameKind = "approval.requested" // 审批预筛（按策略进）
+	FrameTerminalProposed  FrameKind = "terminal.proposed"  // 终态提议（必进，触发 gate）
 )
 
 var validFrameKinds = map[FrameKind]bool{
@@ -71,14 +71,14 @@ func (f Frame) Validate() error {
 
 // Round 是 b 自身回合段（b 上下文尾部追加的 6(b) 类内容：advisory/verdict 摘要 + 缓存观测）。
 type Round struct {
-	At            int64         `json:"at"`
-	Trigger       string        `json:"trigger,omitempty"`
-	RefSeq        uint64        `json:"ref_seq"`              // 本回合评估基于的 a 水位
-	Corr          string        `json:"corr,omitempty"`       // b→a 幂等信封 id
-	Kind          DirectiveKind `json:"kind"`
-	Summary       string        `json:"summary"`
-	InputTokens   int64         `json:"input_tokens"`
-	CachedTokens  int64         `json:"cached_input_tokens"` // 命中前缀 token（公共前缀）
+	At           int64         `json:"at"`
+	Trigger      string        `json:"trigger,omitempty"`
+	RefSeq       uint64        `json:"ref_seq"`        // 本回合评估基于的 a 水位
+	Corr         string        `json:"corr,omitempty"` // b→a 幂等信封 id
+	Kind         DirectiveKind `json:"kind"`
+	Summary      string        `json:"summary"`
+	InputTokens  int64         `json:"input_tokens"`
+	CachedTokens int64         `json:"cached_input_tokens"` // 命中前缀 token（公共前缀）
 }
 
 // CacheStats 汇总 b 的缓存命中观测（协议 §2：验证"命中回升"）。
@@ -93,18 +93,18 @@ type CacheStats struct {
 
 // AdvisorSession 是 ADVISOR(b) 的独立上下文（协议 §1/§2）。
 type AdvisorSession struct {
-	PeerID  string    `json:"peer_id"`
-	GoalID  string    `json:"goal_id,omitempty"`
-	State   PeerState `json:"state"`
-	Rebind  int       `json:"rebind,omitempty"` // 会话内 b 重建次数（goal 域同生命周期为 0/1）
+	PeerID string    `json:"peer_id"`
+	GoalID string    `json:"goal_id,omitempty"`
+	State  PeerState `json:"state"`
+	Rebind int       `json:"rebind,omitempty"` // 会话内 b 重建次数（goal 域同生命周期为 0/1）
 
-	Anchor  GoalFrame `json:"anchor"`             // 锚点快照（bind 时一次快照，不随后续 update 变化）
-	Frames  []Frame   `json:"frames"`             // 追加帧（ref_seq 严格递增；只尾部追加）
-	Rounds  []Round   `json:"rounds"`             // b 自身回合段（只尾部追加）
-	Applied uint64    `json:"applied_seq"`        // b 已应用 a 事件水位
-	Head    uint64    `json:"head_seq"`           // a 当前水位（EXEC 账本）
+	Anchor  GoalFrame  `json:"anchor"`      // 锚点快照（bind 时一次快照，不随后续 update 变化）
+	Frames  []Frame    `json:"frames"`      // 追加帧（ref_seq 严格递增；只尾部追加）
+	Rounds  []Round    `json:"rounds"`      // b 自身回合段（只尾部追加）
+	Applied uint64     `json:"applied_seq"` // b 已应用 a 事件水位
+	Head    uint64     `json:"head_seq"`    // a 当前水位（EXEC 账本）
 	Cache   CacheStats `json:"cache"`
-	Reason  string    `json:"unbind_reason,omitempty"`
+	Reason  string     `json:"unbind_reason,omitempty"`
 
 	cachedInputText string // 上一回合输入全文（缓存命中 LCP 观测用；不导出 JSON）
 	corrSeq         uint64 // b→a corr 信封自增（协议 §5 幂等）
