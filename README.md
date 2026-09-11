@@ -332,10 +332,24 @@ go run -tags "gui,desktop,production" . -frontend gui
 Windows 开发构建也可以使用：
 
 ~~~powershell
-make rebuild-gui VERSION=dev
+# 单个 GUI exe，产物落 P5 暂存分区 dist/stage-gui/
+go build -tags "gui,desktop,production" -trimpath `
+  -ldflags "-s -w -H windowsgui -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=dev -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" `
+  -o dist/stage-gui/seelex-gui.exe .
+
+# 完整 GUI 发布包（zip + sha256，只含 example 配置）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-gui.ps1 -BuildKind Publish -Version v0.1.0
 ~~~
 
 GUI 使用系统 WebView，当前仍处于 Alpha 阶段。日常开发和问题排查建议优先使用 TUI。
+
+构建脚本与 Makefile 会先校验 `dist/` 根只有规范分区（P1–P5）。若根下出现游离产物
+（例如手写 `go build -o dist\seelex-gui-pprof.exe .`），构建会以 `unexpected entry
+under dist/ (layout drift)` 中止；把产物改到 `dist/dev/`、`dist/stage-gui/` 等分区，
+或移走游离文件后重跑即可。分区总表见 [`.claude/build-convention.md`](.claude/build-convention.md)。
+
+Makefile 目标依赖 POSIX shell（`sed`/`cut`/`rm`），请在 Git Bash / WSL / MSYS 下执行；
+Windows PowerShell 或 cmd 请直接使用 `scripts/*.ps1`。
 
 ## 常用启动参数
 

@@ -73,7 +73,14 @@ function Assert-DistRootCleanLayout {
     $allowed = @($layout.AllowedDistEntries) + @($ExtraAllowed)
     foreach ($entry in Get-ChildItem -LiteralPath $DistRoot -Force) {
         if ($allowed -notcontains $entry.Name) {
-            throw ("unexpected entry under dist/ (layout drift): {0}" -f $entry.FullName)
+            # Actionable failure: every build entry point calls this guard, so a
+            # stray artifact at the dist root blocks all builds. Name the fix.
+            throw (@(
+                ("unexpected entry under dist/ (layout drift): {0}" -f $entry.FullName),
+                ("  dist/ root allows only: {0}" -f ($allowed -join ", ")),
+                "  move the artifact into the matching partition (dist/dev/, dist/stage-gui/, ...) or delete it, then re-run",
+                "  partition table: .claude/build-convention.md"
+            ) -join [Environment]::NewLine)
         }
     }
 }

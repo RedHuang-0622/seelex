@@ -13,8 +13,13 @@ go build -tags "gui,desktop,production,pprof" -trimpath `
   -ldflags "-s -w -H windowsgui `
   -X github.com/RedHuang-0622/seelex/internal/buildinfo.Version=pprof-dev `
   -X github.com/RedHuang-0622/seelex/internal/buildinfo.DefaultFrontend=gui" `
-  -o dist\seelex-gui-pprof.exe .
+  -o dist\dev\seelex-gui-pprof.exe .
 ```
+
+> 诊断二进制必须落进规范分区（这里用 P4 `dist/dev/`）。写进 `dist/` 根会让
+> 布局守卫失败，之后所有构建入口（`scripts/build.ps1`、`scripts/build-gui.ps1`、
+> `make build` / `make rebuild-gui`）都会以 `unexpected entry under dist/ (layout drift)`
+> 中止，直到游离产物被移走。分区总表见 `.claude/build-convention.md`。
 
 从仓库根启动（否则账号配置解析不到），复现卡顿后抓取全量 goroutine：
 
