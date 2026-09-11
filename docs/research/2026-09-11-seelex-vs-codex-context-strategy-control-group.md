@@ -41,6 +41,8 @@
 - 把"wire 丢正文 + 事后合并"这一件事修掉，跨轮悬崖就消失（65.9% → 98.6%）：**这正是上一份报告根因 1 的单因素验证**。
 - Codex 臂比 S-fix 略低（98.3% vs 98.6%）只因脚本里第 3 轮加了一次"世界状态变化"（尾部片段 188 tok）——动态事实按尾部追加的代价被如实计入了。
 
+> ⚠️ 本表是**修复前**的实测（2026-09-11）。2026-09-12 已按 S-fix 方向落地修复（红灯用例 → 修 `RepairEmptyHistoryContent` → 转绿），修复后 S-prod 的跨轮首请求命中 **98.5%**、失效 **371 tok**、违反 **0/3**，与 Codex 臂（98.3% / 435 tok）持平；详见 §7。
+
 ### 逐边界（横轴 = 相邻请求对，跨轮用粗体）
 
 | 边界 | S-prod | Codex | 说明 |
@@ -148,3 +150,52 @@ call-3-2 content="T3 叙述：…"            → ok
 - 未覆盖子代理/节点会话装配、GUI 多会话热切换的真实交错时序、`seelexctx/controller.go` 压缩路径的前缀代价。
 - 漂移结论经生产函数直接复现，但未跑真实进程端到端（见 §3 尾部）。
 - 工具目录在测试服务里只有 1 个 schema，常数头偏小（不影响"改动 vs 追加"的结论，但会小幅抬高两侧的绝对命中率）。
+
+---
+
+## 7. 修复记录（2026-09-12）：红灯 → 修复 → 转绿
+
+### 7.1 红灯用例
+
+`application/core/context_prefix_invariant_test.go::TestContextPrefixInvariant_CrossTurn`：沿生产装配路径（`PrepareExecutionContextFor` → `replaceEngineHistory` → `PrepareProviderHistoryFor`）驱动「第 1 轮 2 次工具调用 + 终答 → 第 2 轮继续」，断言**每一条请求的字节都以更早发出的某条请求为前缀**（相邻请求即上一条）。修复前实测（逐字摘录）：
+
+```
+prefix OK   t1.iter1  → t1.iter2  (12680 B ⊑ 22177 B)
+prefix OK   t1.iter2  → t1.iter3  (22177 B ⊑ 27811 B)
+prefix BREAK t1.iter3  → t2.iter1 : shared=12732/27811 B,
+  first_diff=msg#1(role=assistant, tool_calls=call-read-1),
+  reason=已发出字节为空、重投影时被补写正文（事后改写）
+  sent    = ""
+  rebuilt = "我先读取装配入口与回合收尾代码，核对工具轮的前缀语义。…"
+```
+
+### 7.2 修复（一处：`application/core/context_runtime/history.go`）
+
+`RepairEmptyHistoryContent` 的规则改为：**携带工具调用的 assistant 消息，其 provider 投影正文恒为空**。
+
+- 依据（wire 事实）：provider 从未收到工具轮正文——框架构造该消息时直接置 nil（`../Seele/session/loop.go:564`）。
+- 旧行为有两处补写都会让下一轮重投影 ≠ 已发出：① 空正文被注入 `ToolCallHistoryContent` 占位；② durable 转写里由 `mergeStreamedToolNarration` 补写的流式叙述进入投影。
+- 归零只作用于 provider 投影：**durable 转写照旧保留叙述**，视图/轨迹/重启恢复不变（红灯用例日志中 `transcript assistant(tool) #0 content="我先读取…"` 仍在）。
+
+### 7.3 转绿（同一用例 + 两个探针，均为本次实测）
+
+| 度量 | 修复前 | 修复后 |
+|---|---|---|
+| 前缀不变量（跨轮边界） | BREAK @msg#1 | **OK ×3/3** |
+| S-prod 全部相邻请求命中 | 83.0% | 91.5% |
+| S-prod **跨轮首请求命中** | **65.9%** | **98.5%** |
+| S-prod **跨轮失效计费** | **8,837 tok** | **371 tok** |
+| S-prod 跨轮违反 | 3/3 | **0/3** |
+| Codex 臂（对照） | 98.3% / 435 tok | 98.3% / 435 tok（不变） |
+
+`TestContextCacheDivergenceProbe_TwoTurnToolCliff` 的 A-production 臂同步转绿：`prefix_intact=true`、跨轮 `raw=100.5% / @1024=98.1%`、`invalidated=-40 tok`（失效后缀为 0）。
+
+### 7.4 修复引入的耦合（报警器，不是退化）
+
+S-fix / C 两臂（模型假设"wire 保留工具轮正文"）在修复后由 98.6% / 98.3% 掉到 **74.4% / 46.8%**：它们与本次修复对 wire 行为的假设相反，因此**变成耦合报警器**——若上游框架改为在 wire 上保留工具轮正文，必须同步取消归零；届时这两臂会重新变好而 S-prod 变差。
+
+### 7.5 仍未修（同类"事后改写"的剩余来源）
+
+1. **合并漂移**（§4）：叙述仍会被写进别的轮次的工具事件。修复后它只影响视图/轨迹准确性，不再影响 provider 字节与计费，仍需单独修。
+2. **空工具结果的占位**：`RepairEmptyHistoryContent` 对 `tool` 角色空正文仍注入 `MissingHistoryContent`；若某工具返回空结果，下一轮重投影会从 "" 变成占位（同类分叉）。**未复现，列为待验证项**。
+3. **命中观测**仍缺（`TokenAudit.ActualPromptTokens` 恒 0）：前缀不变量现在**测试内可测且被守卫**，但线上仍看不到真实命中率。

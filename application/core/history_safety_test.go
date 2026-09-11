@@ -228,14 +228,16 @@ func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T) {
 	if !bridge.Hooks().OnIterationComplete(context.Background(), 0) {
 		t.Fatal("iteration should remain available")
 	}
-	// 配对修复仍由 prepareProviderHistory 承担：assistant+tool_calls 缺正文
-	// → 工具调用配对文本（工具调用保留，不被压缩/替换）。
+	// 工具调用必须保留（配对修复的输入），正文保持为空：工具轮 assistant 正文
+	// 在 wire 上恒为空（框架 tool_calls 分支 Content=nil），投影补占位会让下一轮
+	// 重投影字节与已发出字节分叉（provider 前缀缓存自该消息起失效）。
 	history := engine.History()
 	if len(history) != 1 || len(history[0].ToolCalls) != 1 {
 		t.Fatalf("tool round must be retained for pairing repair: %#v", history)
 	}
-	if history[0].Content != context_runtime.ToolCallHistoryContent {
-		t.Fatalf("empty assistant tool-call content = %q, want pairing repair text", history[0].Content)
+	if history[0].Content != "" || history[0].ContentSet {
+		t.Fatalf("tool-call assistant content = %q (set=%v), want empty: wire carries no text with tool calls",
+			history[0].Content, history[0].ContentSet)
 	}
 }
 

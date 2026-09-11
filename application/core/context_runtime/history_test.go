@@ -7,9 +7,13 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract"
 )
 
-func TestRepairEmptyHistoryContentRepairsToolCallAssistantContent(t *testing.T) {
+func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.T) {
 	history := []contract.EngineMessage{
 		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "call-1", Name: "read_file", Arguments: `{"path":"a.go"}`}}},
+		// durable 转写可能带着回合收尾补写的视图流式正文：投影时必须归零，
+		// 否则下一轮请求字节与已发出字节分叉。
+		{Role: "assistant", Content: "我先读取装配入口。", ContentSet: true,
+			ToolCalls: []contract.EngineToolCall{{ID: "call-2", Name: "grep_search", Arguments: `{"pattern":"x"}`}}},
 		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: ""},
 		{Role: "assistant", Content: ""},
 	}
@@ -17,13 +21,16 @@ func TestRepairEmptyHistoryContentRepairsToolCallAssistantContent(t *testing.T) 
 	if !repaired {
 		t.Fatal("expected empty non-protocol messages to be repaired")
 	}
-	if prepared[0].Content != ToolCallHistoryContent || !prepared[0].ContentSet {
-		t.Fatalf("tool-call assistant was not repaired: %+v", prepared[0])
+	for _, index := range []int{0, 1} {
+		if prepared[index].Content != "" || prepared[index].ContentSet {
+			t.Fatalf("tool-call assistant %d kept provider content %q (set=%v), want empty: wire never carries text with tool calls",
+				index, prepared[index].Content, prepared[index].ContentSet)
+		}
+		if len(prepared[index].ToolCalls) != 1 {
+			t.Fatalf("tool-call assistant %d lost its protocol data: %+v", index, prepared[index])
+		}
 	}
-	if len(prepared[0].ToolCalls) != 1 || prepared[0].ToolCalls[0].ID != "call-1" {
-		t.Fatalf("tool-call assistant lost its protocol data: %+v", prepared[0])
-	}
-	for _, index := range []int{1, 2} {
+	for _, index := range []int{2, 3} {
 		if prepared[index].Content != MissingHistoryContent || !prepared[index].ContentSet {
 			t.Fatalf("message %d was not repaired: %+v", index, prepared[index])
 		}
