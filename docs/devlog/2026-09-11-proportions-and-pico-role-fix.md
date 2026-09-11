@@ -65,3 +65,44 @@ go build ./...                             # OK
 - 上下文轴：标题在左、轨道铺满整卡，标签列与轨道比例正常，前缀注入轨 4 段横跨全宽；
 - 轨迹行列表与轴在同一容器宽度内对齐；
 - 对话列：工具过程折叠头与思考块头部同高，思考正文行距舒适，消息头字号与外壳一致。
+
+## 追加：上下文轴"线谱上看不到内容"（2026-09-11 同日）
+
+用户追问："上下文轴里面各个线谱上的内容呢？"——轨道看起来是空的。
+
+### 定位
+
+先用 Node 直接跑前端纯函数复核数据侧：把真实会话的 message 行按派生规则还原成
+可见消息，再 `buildTrajectory` + `renderContextAxis`，得到
+`lane tool segments=292 / llm=1 / prefix=1`——**段是生成出来的**，问题在渲染。
+
+### 根因
+
+组件库桥接层里有一条"剥掉所有按钮边框/底色"的通配规则：
+
+```css
+.app-shell button:not(.primary-button):not(.theme-card):not(.chat-chip):not(.work-table-button) {
+  border: 0; background: transparent;
+}
+```
+
+上下文轴块本身就是 `<button class="axis-segment">`，特异性 (0,4,1) 压过
+`.axis-segment` (0,1,0) 的底色——所有块被刷成透明，只剩 `is-wide` 的文字，
+于是"轨道上有内容却看不见"。同样被误伤的还有 `.axis-detail-close`（边框被剥）。
+
+### 修复
+
+- 删除那条通配剥离规则，只保留"归零外边距与默认宽度"；自绘控件靠自己的类覆盖
+  Pico 默认值（Pico 在前、styles.css 在后，类选择器特异性也更高）；
+- 安静型文字按钮（`.text-button` / `.team-preset`）显式声明透明底、无边框；
+- 顺手把轴块的对比度做实：块色从 10% 透明度 token 改成
+  `color-mix(状态色, 轨底色)` 的实色（两端皮肤都读得出），每块加 1px 右分隔线
+  （窄到几像素时像条码），宽块（≥6% 体量）直接显示标签，不再只有悬停才可见；
+- 新增用例 `context axis marks wide blocks so the lane shows content`：
+  体量相差 40 倍的两个块，只有宽块带 `is-wide`。
+
+### 复查
+
+真机 1:1：工具轨是一条贯穿全宽的绿色块带（内含 `bash` / `read_file` /
+`search_history` 标签），输入轨与系统轨各有一块，无记录的 LLM 轨保留空轨刻度；
+前缀注入轨 4 段斜纹层跨满整轴。

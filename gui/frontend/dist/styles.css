@@ -2362,7 +2362,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .app-shell [type="submit"],
 .app-shell [type="reset"],
 .app-shell [role="button"] { margin-bottom: 0; width: auto; font-weight: inherit; }
-.app-shell button:not(.primary-button):not(.theme-card):not(.chat-chip):not(.work-table-button) { border: 0; background: transparent; }
+/* 这里只归零 Pico 给按钮的外边距与默认宽度。**不要**再用高特异性通配链
+   （`.app-shell button:not(...):not(...)`）去剥按钮的边框/底色：那会连上下文
+   轴块 `.axis-segment`、关闭按钮 `.axis-detail-close` 这些自绘控件的底色一起
+   干掉（轨道因此只剩文字、看着像空轨）。自绘控件靠自己的类覆盖 Pico 默认值，
+   Pico 文件在前、styles.css 在后，类选择器特异性也更高。 */
+.app-shell .text-button,
+.app-shell .team-preset { border: 0; background: transparent; }
 .app-shell summary::after { display: none; } /* Pico 给 details summary 加装饰箭头，本产品用自己的 caret */
 
 /* ---------- 12.3 外壳层次 ---------- */
@@ -2545,6 +2551,34 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .axis-segment.is-compress { width: 4px; min-width: 4px; }
 .context-axis-lane .axis-lane-count { font-size: 10.5px; }
+
+/* ---------- 12.11 上下文轴块的可读性 ----------
+   块的底色原来是 10% 透明度的状态色（--tint-*），在浅色皮肤、以及"一条轨道装
+   几十上百个窄块"时几乎看不见——用户看到的是一片空白。这里把块色改成"状态色
+   与轨底色混合"的实色（两端皮肤都读得出来），并给每块一条右分隔线，窄到几像素
+   时也像条码一样可辨。 */
+.axis-segment {
+  background: color-mix(in srgb, var(--status-info) 52%, var(--code-bg));
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--code-bg) 75%, transparent);
+}
+.axis-segment.is-tool.is-success { background: color-mix(in srgb, var(--status-done) 52%, var(--code-bg)); }
+.axis-segment.is-tool.is-running { background: color-mix(in srgb, var(--status-running) 58%, var(--code-bg)); }
+.axis-segment.is-tool.is-error { background: color-mix(in srgb, var(--status-failed) 62%, var(--code-bg)); }
+.axis-segment.is-llm { background: color-mix(in srgb, var(--status-info) 52%, var(--code-bg)); }
+.axis-segment.is-error { background: color-mix(in srgb, var(--status-failed) 62%, var(--code-bg)); }
+.axis-segment.is-notice { background: color-mix(in srgb, var(--status-idle) 42%, var(--code-bg)); opacity: 1; }
+.axis-segment.is-prefix {
+  background: repeating-linear-gradient(135deg,
+    color-mix(in srgb, var(--status-info) 45%, var(--code-bg)),
+    color-mix(in srgb, var(--status-info) 45%, var(--code-bg)) 6px,
+    color-mix(in srgb, var(--surface-2) 70%, var(--code-bg)) 6px,
+    color-mix(in srgb, var(--surface-2) 70%, var(--code-bg)) 12px);
+  opacity: 1;
+}
+.axis-segment.is-prefix.is-identity { background: color-mix(in srgb, var(--surface-3) 70%, var(--code-bg)); }
+.axis-segment:hover { filter: brightness(1.35); }
+/* 宽块直接显示标签：轨道因此"看得见内容"，而不是一片无字的色条 */
+.axis-segment.is-wide { color: color-mix(in srgb, var(--text-bright) 88%, transparent); }
 
 /* ============================================================
    14. 对话列比例（消息 / 思考 / 工具过程）

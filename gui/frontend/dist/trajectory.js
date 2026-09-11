@@ -436,7 +436,10 @@ export function renderContextAxis(records = [], extras) {
     const label = record.kind === "tool" ? (record.toolName || record.name) : trajectoryKindLabel(record.kind);
     const size = trajectorySize(record);
     const statusClass = statusClassName(record.status);
-    const block = `<button type="button" class="axis-segment is-${escapeHtml(record.kind)} ${statusClass}" style="--x:${x.toFixed(3)}%;--w:${width.toFixed(3)}%" data-trajectory-key="${escapeHtml(record.key)}" title="${escapeHtml(`${label} · ${size} · 点击定位轨迹行`)}" aria-label="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
+    // is-wide：块宽到能放下字时直接把标签显示出来（窄块仍只在悬停时显示），
+    // 否则一条轨道上全是"看不见的块"，看的人会以为轴是空的。
+    const wide = width >= 6 ? " is-wide" : "";
+    const block = `<button type="button" class="axis-segment is-${escapeHtml(record.kind)} ${statusClass}${wide}" style="--x:${x.toFixed(3)}%;--w:${width.toFixed(3)}%" data-trajectory-key="${escapeHtml(record.key)}" title="${escapeHtml(`${label} · ${size} · 点击定位轨迹行`)}" aria-label="${escapeHtml(label)}"><span>${escapeHtml(label)}</span></button>`;
     blocksByKind.get(record.kind)?.push(block);
   }
   const lanes = TRAJECTORY_KINDS.map(entry => {

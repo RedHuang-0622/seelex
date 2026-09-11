@@ -369,6 +369,22 @@ test("renders context axis as per-kind lanes with shared axis positions", () => 
   assert.match(html, /--w:/);
 });
 
+test("context axis marks wide blocks so the lane shows content, not blank bars", () => {
+  // 两个块的体量差 40 倍：宽块要带 is-wide（直接显示标签），窄块不带。
+  const records = buildTrajectory([
+    userMessage("u1", "短问题"),
+    llmMessage("a1", "x".repeat(4000))
+  ]);
+  const html = renderContextAxis(records);
+  const segments = [...html.matchAll(/class="axis-segment (is-[a-z]+) ([a-z-]+)( is-wide)?"[^>]*--w:([0-9.]+)%/g)];
+  assert.equal(segments.length, 2);
+  const wide = segments.filter(match => match[3] === " is-wide");
+  assert.equal(wide.length, 1, "只有宽块应带 is-wide");
+  assert.ok(Number(wide[0][4]) >= 6, `宽块占比 ${wide[0][4]}% 应 ≥6%`);
+  const narrow = segments.find(match => match[3] === undefined);
+  assert.ok(Number(narrow[4]) < 6, `窄块占比 ${narrow[4]}% 应 <6%`);
+});
+
 test("renders context axis empty state", () => {
   const html = renderContextAxis([]);
   assert.match(html, /context-axis-empty/);
