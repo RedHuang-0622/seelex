@@ -17,6 +17,8 @@
 | `role_live_probe_test.go` | R2/R4 真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `role.*` 建 TL/写 draft/sync/floor/角色 wire → `schedule.*` → goroutine/mutex/block pprof 现场。 |
 | `headless_team.go` | AgentTeam 角色管理 RPC（`team.*`）：preset 清单、装配、成员表、角色配置 CRUD、工作顺序设置。 |
 | `team_live_probe_test.go` | AgentTeam 工厂真实 API headless 冒烟（env 门控）：真实 Submit 物化主会话 → `team.materialize`（goal/review preset）→ 角色 CRUD + `order_roles` → 设计稿不变量核对 → pprof 现场。 |
+| `goal_team_wiring_live_probe_test.go` | goal → AgentTeam **自动**接线真实 API 冒烟（env 门控）：只发 `goal.begin`、全程不调 `team.materialize`，断言 `team.view` 已出现 tl 成员与 `goal_loop` 顺序。 |
+| `session_fork_live_probe_test.go` | **会话分叉**（`ForkSessionLatest`）真实 API 冒烟（env 门控）：A→B→C 分叉后制造"A 在途收尾 × C 运行"的并发窗口，断言 C 自身各轮俱在、继承前缀可见、且无 A 在途内容污染。 |
 | `seelebridge/custom_role_live_probe_test.go` | provider role 能力实验（env 门控）：把非标准逻辑角色 `tl` 放入真实请求历史，确认 provider 是否接受自定义 role 名。 |
 | [`frontend/`](frontend/README.md) | 原生 HTML/CSS/ES modules 前端。 |
 
@@ -171,6 +173,18 @@ go test ./gui -run TestRealAPIAgentTeamLiveProbe -v -count=1 -timeout 20m
 ```
 
 报告落 `tmp/headless-smoke/reports/team-live-*.json`，并抓 goroutine/mutex/block pprof。
+
+goal 自动装配与**会话分叉**的真机冒烟（默认跳过；同样需要已构建的 headless 目标）：
+
+```powershell
+# 隐式接线：只发 goal.begin，验收 team.view 自动出现 tl
+$env:SMOKE_GOAL_TEAM_LIVE='1'; $env:SMOKE_GOAL_TEAM_LIVE_PPROF='1'
+go test ./gui -run TestRealAPIGoalTeamWiringLiveProbe -v -count=1 -timeout 20m
+
+# 会话分叉：继承前缀 + 自身各轮 + 无跨会话污染
+$env:SMOKE_SESSION_FORK_LIVE='1'; $env:SMOKE_SESSION_FORK_LIVE_PPROF='1'
+go test ./gui -run TestRealAPISessionForkLiveProbe -v -count=1 -timeout 30m
+```
 
 权威设计文档位于 [`docs/gui`](../docs/gui/README.md)。
 

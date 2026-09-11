@@ -216,6 +216,7 @@ subagent 是 tool calling 能力（劳务派遣），不是 AgentTeam 成员，�
 | 修前（2026-09-10 22:09） | 28.19s | 28.19s | 42.29s（`ChatStream.deferwrap1`） |
 | 中间：只修投影（2026-09-11 00:18） | 已消失 | 27.42s | 27.42s |
 | 修后：两处都修（2026-09-11 00:44） | 已消失 | 已消失 | 206ms（退化为启动期日志） |
+| 复测：发布前冒烟（2026-09-11 12:25） | 已消失 | 已消失 | **62.6ms**（启动期 `log.Printf`）+ **6.6ms**（冷恢复读行）；block profile 头部全为 `runtime.selectgo` 空闲等待 |
 
 治理动作（由并发的另一条工作流实现，本文只做**独立复测**）：
 
@@ -235,13 +236,39 @@ subagent 是 tool calling 能力（劳务派遣），不是 AgentTeam 成员，�
 - `go test ./application/... ./sessionstore ./internal/adapters ./gui ./e2e -count=1`
   全绿；`go build ./...` 与 `go build -tags "gui,desktop,production" ./...` ok。
 
-**发布前必须收口的遗留**
+**发布前冒烟复测（2026-09-11 12:25，当前 HEAD 重建探针目标）**
 
-- `go.mod` 已指向 Seele v0.1.3（远端确已发布：模块缓存有 `v0.1.3.zip` + `.ziphash`），
-  但 **`go.sum` 里还没有 v0.1.3 的校验和**，当前只靠仓库根未跟踪的 `go.work`
-  （`replace github.com/RedHuang-0622/Seele => ../Seele`）在本机成立。离开本机或
-  CI 会变成 `missing go.sum entry` 构建失败——收口动作 = `go mod tidy`（或
-  `go mod download`）写入校验和，并确认代理可解析 v0.1.3。
+- 五条真机探针全部 PASS：`TestRealAPIAgentTeamLiveProbe`（1.98s，
+  `race_clean=true`、`real_turn{user_rows:1,assistant_rows:1}`）、
+  `TestRealAPIRoleSessionLiveProbe`（2.22s）、`TestRealAPIForkLiveProbe`
+  （N=3，7.94s，3 个子代理 7.254s 内全部收敛）、
+  `TestRealAPISubagentResumeLiveProbe`（`-race` 目标 + `GORACE=halt_on_error=1`，
+  55.96s，`converged=true` / `resumed=[smoke-sub-1]` / `race_clean=true`）、
+  `TestRealAPISessionRestoreSmoke`（`-tags manualsmoke2`，3.71s）。
+- 本轮 profile：`role-mutex-1789100700675611700.txt`（头部 62.6ms 启动期日志 +
+  6.6ms 冷恢复读行）、`role-block-1789100700725543500.txt`（头部全为 select
+  空闲等待）、报告 `subagent-live-20260911-122500.json`、
+  `team-live-20260911-122329.json`、`fork-live-gui-98876.json`。
+
+**本轮补的两条真机探针（此前无真机证据的两处）**
+
+- `TestRealAPIGoalTeamWiringLiveProbe`（`gui/goal_team_wiring_live_probe_test.go`，
+  `SMOKE_GOAL_TEAM_LIVE=1`）→ **PASS（1.62s）**：只发 `goal.begin`、全程不调
+  `team.materialize`，`team.view` 已出现 tl 成员、`order_policy=goal_loop`、
+  `order_roles=[user main tl]`、`members=3`；装配前 `team.view` 因缺
+  `lifecycle.json` 不可用（未装配态，符合预期）。这条覆盖 2026-09-11 新增的
+  **隐式接线**（既有 team 探针走显式 materialize，覆盖不到）。
+- `TestRealAPISessionForkLiveProbe`（`gui/session_fork_live_probe_test.go`，
+  `SMOKE_SESSION_FORK_LIVE=1`）→ **PASS（8.95s）**：A→B→C 分叉后制造
+  "A 在途收尾 × C 运行"的并发窗口，最终 C 会话**继承前缀可见 + 自身两轮俱在 +
+  无 A 在途内容污染**。这条补上了会话分叉长期缺失的真机覆盖（该特性在
+  2026-08-31→09-06→09-11 之间反复回归）。
+
+**发布前必须收口的遗留（已收口）**
+
+- ~~`go.sum` 缺 v0.1.3 校验和~~ → 已执行 `GOWORK=off go mod download
+  github.com/RedHuang-0622/Seele` 写入 `go.sum`（含 `v0.1.3 h1:` 与 `/go.mod`），
+  临时 `go.work` replace 已移除；`GOWORK=off go build ./...`（等价 CI 口径）通过。
 
 ## 5. 与设计稿的一致性核对
 
