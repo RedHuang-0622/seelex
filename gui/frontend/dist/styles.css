@@ -2509,6 +2509,94 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .conversation,
 .modal-card { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 
+/* ---------- 12.9 Pico 的 role 组件归位 ----------
+   Pico 把 [role=group] 定义成"输入组合"组件：`display:inline-flex` +
+   `width:100%` + `[role=group]>*{flex:1 1 auto}`。Seelex 用同一个 role 表达
+   语义分组（上下文轴 / Effort 控件 / todo 状态组），于是：
+     - 上下文轴的标题与轨道被排成左右两栏、轨道塌成一条窄带（比例错乱的根因）；
+     - Effort 控件被加了 16px 下外边距，在输入区里比同排控件高一截。
+   这里按元素归位（不用通配 role 重置，避免误伤自绘组件）。 */
+.app-shell .context-axis[role="group"] {
+  display: block;
+  width: auto;
+  margin-bottom: 0;
+  border-radius: var(--r-lg);
+}
+.app-shell .context-axis[role="group"] > * { flex: none; }
+.app-shell .work-todo-status[role="group"] { width: auto; margin-bottom: 0; }
+.app-shell .effort-control[role="group"] { margin-bottom: 0; }
+
+/* ---------- 12.10 上下文轴比例 ----------
+   分轨图的读法是"轨道 = 主线，标签 = 刻度名"，所以标签列要放得下中文（64px）、
+   轨道要够厚才能看出体量差异（16px），块间距与圆角跟控件层对齐。 */
+.context-axis { padding: 10px 12px 12px; }
+.context-axis-head { margin-bottom: 9px; }
+.context-axis-head strong { font-size: 10.5px; }
+.context-axis-head span { font-size: 10.5px; }
+.context-axis-track { gap: 3px; padding: 8px 10px; }
+.context-axis-lane { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; min-height: 20px; }
+.axis-lane-label { font-size: 10.5px; }
+.axis-lane-bar { height: 16px; }
+.axis-segment {
+  padding: 0 5px;
+  min-width: 3px;
+  border-radius: 3px;
+  line-height: 14px;
+}
+.axis-segment.is-compress { width: 4px; min-width: 4px; }
+.context-axis-lane .axis-lane-count { font-size: 10.5px; }
+
+/* ============================================================
+   14. 对话列比例（消息 / 思考 / 工具过程）
+   ------------------------------------------------------------
+   把中间对话列接进同一套节奏：正文 13.5px、辅助信息 10.5px 下限、块间距
+   26px、折叠头 34px、折叠内容 12.5px/1.7。之前这里是 10px 标签 + 22px 间距
+   各自为政，跟外壳的控件层对不上。
+   ============================================================ */
+.message, .tool-run { margin-bottom: 26px; }
+.message-head {
+  gap: 8px;
+  margin-bottom: 9px;
+  font-size: 10.5px;
+}
+.message-head strong { font-size: 10.5px; letter-spacing: .1em; }
+.message-body { line-height: 1.75; }
+.message-body p { margin: 0 0 13px; }
+.message-body h1, .message-body h2, .message-body h3,
+.message-body h4, .message-body h5, .message-body h6 { margin: 24px 0 10px; }
+.message-body ul, .message-body ol { margin: 9px 0 15px; }
+.message-body li { margin: 5px 0; }
+.message-body code { font-size: 11.5px; }
+.message-body th, .message-body td { padding: 9px 11px; }
+.message-debug { gap: 6px; margin: 0 0 4px; font-size: 10.5px; }
+
+/* 折叠块（思考 / 工具过程）：头部统一 34px，内容字号抬起 */
+.reasoning-block { margin: 14px 0 18px; }
+.reasoning-block summary,
+.conversation-axis > summary {
+  min-height: 34px;
+  padding: 8px 12px;
+  font-size: 10.5px;
+}
+.reasoning-content {
+  padding: 12px 14px;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.reasoning-content h1, .reasoning-content h2, .reasoning-content h3 { font-size: 13.5px; }
+.reasoning-content p { margin-bottom: 10px; }
+.conversation-axis { margin-bottom: 14px; }
+.axis-scroll { gap: 8px; padding: 12px; }
+
+/* 工具条与芯片：与控件层同高，长名字截断不换行 */
+.tool-run-line { padding: 9px 12px; }
+.chat-chip { min-height: 24px; padding: 4px 11px; font-size: 10.5px; }
+.io-panel header { height: 34px; padding: 5px 9px 5px 12px; }
+.io-label { font-size: 10.5px; }
+.io-meta, .io-note, .io-collapse > summary { font-size: 10.5px; }
+.io-panel pre { padding: 11px; font-size: 11.5px; line-height: 1.7; }
+.io-expand { height: 30px; font-size: 10.5px; }
+
 @media (prefers-reduced-motion: reduce) {
   .session-row,
   .theme-card,

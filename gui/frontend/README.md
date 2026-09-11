@@ -235,6 +235,17 @@ Wails bridge；srcdoc 自带 CSP（`default-src 'none'`、`connect-src 'none'`�
 高低不齐；右栏团队区的动作按钮固定最小宽度，窄栏里不会把"删除"挤成竖排。
 微标签（数据/序号）下限 10.5px，正文 13.5px。
 
+**引入组件库必须注意 role 语义冲突**：Pico 把 `[role=group]` / `[role=search]`
+当作它的"输入组合"组件（`display:inline-flex` + `width:100%` + 子项
+`flex:1 1 auto`），而 Seelex 用同一个 role 表达语义分组。凡是自绘的分组容器
+（`.context-axis`、`.effort-control`、`.work-todo-status`）都要在"Pico 的 role
+组件归位"段里显式还原布局，否则会出现"标题与轨道被排成左右两栏、轨道塌成窄
+条"这类比例错乱。新增带 role 的容器时，先检查它是否被组件库命中。
+
+对话列与上下文轴同样按这套节奏收口：消息块间距 26px、折叠头 34px、思考正文
+12.5px/1.7、工具芯片 24px 高；上下文轴用 64px 标签列 + 16px 轨道，
+块最小宽 3px（压缩刻度 4px）保证可点。
+
 对话区顶部是主视图页签条（`.conversation-tabs`，本地 UI 状态）；「对话 / 轨迹」
 两个会话子页可以留在主视图，也可以与右栏任一子页置换后停靠到右栏。会话类
 页面在主视图激活时显示底部输入框，其它主视图全宽展示时不遮挡。
