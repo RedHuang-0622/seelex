@@ -15,6 +15,7 @@ import {
   renderTrajectorySummary,
   renderTrajectoryTable,
   renderContextAxis,
+  renderTrajectoryWindowInfo,
   renderAxisDetail,
   prefixLayerSegments,
   compactionMarks
@@ -36,20 +37,29 @@ export function createTrajectoryView(container, options = {}) {
 
   // 骨架：上下文轴（记录轨 + 前缀注入/压缩元数据轨）/ 轴详情 / 过滤条 /
   // 摘要 / 表格区（各自独立更新；轴详情只在点击元数据块时展开）。
-  container.innerHTML = [
-    '<div class="trajectory-axis" data-trajectory-axis></div>',
+container.innerHTML = [
+  '<div class="trajectory-window" data-trajectory-window></div>',
+  '<div class="trajectory-axis" data-trajectory-axis></div>',
     '<div class="trajectory-axis-detail" data-axis-detail hidden></div>',
     '<div class="trajectory-filters" data-trajectory-filters></div>',
     '<div class="trajectory-summary" data-trajectory-summary></div>',
     '<div class="trajectory-list" data-trajectory-list></div>'
   ].join("");
   const axisEl = container.querySelector("[data-trajectory-axis]");
+  const windowEl = container.querySelector("[data-trajectory-window]");
   const detailEl = container.querySelector("[data-axis-detail]");
   const filtersEl = container.querySelector("[data-trajectory-filters]");
   const summaryEl = container.querySelector("[data-trajectory-summary]");
   const listEl = container.querySelector("[data-trajectory-list]");
 
   container.addEventListener("click", event => handleAction(event, () => payloads, options));
+  // 窗口边界条：轨迹只覆盖"已加载的可见窗口"，更早的回合由这里按需加载。
+  windowEl.addEventListener("click", event => {
+    if (!event.target.closest("[data-trajectory-load-earlier]")) return;
+    if (typeof options.loadMore !== "function") return;
+    event.preventDefault();
+    Promise.resolve(options.loadMore()).catch(() => {});
+  });
   filtersEl.addEventListener("click", event => {
     const button = event.target.closest("[data-trajectory-filter]");
     if (!button) return;
@@ -169,6 +179,7 @@ export function createTrajectoryView(container, options = {}) {
     axisCompactionMarks = compactionMarks(records, compactions);
     // 上下文轴始终反映完整对话顺序（与过滤状态无关）；extras 附加前缀注入
     // 与压缩两条元数据轨。
+    windowEl.innerHTML = extras?.window ? renderTrajectoryWindowInfo(extras.window) : "";
     axisEl.innerHTML = renderContextAxis(records, { prefixLayers, compactions });
     refreshOpenAxisDetail();
     const stats = trajectoryStats(records);

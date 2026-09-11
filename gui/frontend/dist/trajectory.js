@@ -133,6 +133,10 @@ export function buildTrajectory(messages = []) {
       name: tool.name || "tool",
       input: tool.arguments || "",
       output: tool.error || tool.result || (isOutput ? message.content || "" : ""),
+      // 工具步骤的思考挂在发起它的那条消息上（持久化形状：assistant/tool_call
+      // 行带 reasoning_content）。不带上它，轨迹里就只剩工具痕迹、看不到
+      // "模型这一步在想什么"。
+      reasoning: message.reasoning_content || "",
       status: tool.error ? "error"
         : (tool.status === "running" || tool.status === "pending" ? "running" : "success"),
       duration: tool.duration || 0,
@@ -143,6 +147,25 @@ export function buildTrajectory(messages = []) {
     });
   }
   return records;
+}
+
+// renderTrajectoryWindowInfo 声明轨迹的窗口边界：轨迹由可见会话窗口派生（长会话
+// 按 window 分页），所以"早期内容不在轨迹里"是分页结果、不是数据丢失。把
+// 已加载/总量与"加载更早"入口摆在最上面，用户才知道自己看到的是哪一段。
+export function renderTrajectoryWindowInfo(info = {}) {
+  const messages = Math.max(Number(info.messages) || 0, 0);
+  const total = Math.max(Number(info.total) || 0, 0);
+  const hasMore = Boolean(info.hasMore);
+  const scope = total > 0 && total !== messages
+    ? `已加载窗口 <strong>${messages}</strong> / 会话共 <strong>${total}</strong> 条消息`
+    : `已加载 <strong>${messages}</strong> 条消息`;
+  const hint = hasMore
+    ? "更早的回合尚未加载——轨迹与上下文轴只覆盖已加载的窗口"
+    : "";
+  const button = hasMore
+    ? '<button type="button" class="text-button" data-trajectory-load-earlier>加载更早</button>'
+    : "";
+  return `<span class="trajectory-window-scope">${scope}</span>${hint ? `<span class="trajectory-window-hint">${hint}</span>` : ""}${button}`;
 }
 
 // filterTrajectory 按类型过滤（"all" = 不过滤）。Network 面板的过滤语义。
@@ -540,7 +563,7 @@ function renderTrajectoryDetail({ input, output, inputKey, outputKey, record, st
   const outBody = outputView.truncated
     ? `<details class="io-collapse"><summary><span>查看输出</span><span class="io-collapse-meta">${escapeHtml(String(outputView.total))} chars</span></summary><pre>${escapeHtml(outputView.preview)}</pre></details>`
     : `<pre>${escapeHtml(outputView.preview)}</pre>`;
-  return `<div class="trajectory-io-grid">
+  return `${renderThinkPanel(record, outputKey)}<div class="trajectory-io-grid">
     <section class="io-panel" data-payload="${inputKey}">
       <header><span class="io-label">IN</span><span class="io-meta">${inputView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${inputKey}" title="复制输入" aria-label="复制输入">${svgCopy()}</button></header>
       <pre>${escapeHtml(inputView.preview)}</pre>
@@ -555,6 +578,21 @@ function renderTrajectoryDetail({ input, output, inputKey, outputKey, record, st
 }
 
 // renderTrajectoryTextDetail 非工具记录（input/llm/error/notice）详情：
+// renderThinkPanel 渲染 THINK 面板（模型推理内容）。工具步骤与文本记录共用：
+// 持久化里"这一步在想什么"挂在发起工具调用的那条消息上，两条路径都必须显示，
+// 否则轨迹上只有工具痕迹、看不到推理。
+function renderThinkPanel(record, outputKey) {
+  const think = String(record?.reasoning || "").trim();
+  if (!think) return "";
+  const thinkKey = `${outputKey}-think`;
+  const thinkView = limitText(think, 4000, 40);
+  return `<section class="io-panel trajectory-think" data-payload="${thinkKey}">
+        <header><span class="io-label">THINK</span><span class="io-meta">${thinkView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${thinkKey}" title="复制思考内容" aria-label="复制思考内容">${svgCopy()}</button></header>
+        <pre>${escapeHtml(thinkView.preview)}</pre>
+        ${thinkView.truncated ? `<button class="io-expand" type="button" data-expand="${thinkKey}" title="展开完整内容">${svgExpand()} <span>+${thinkView.hidden} chars</span></button>` : ""}
+      </section>`;
+}
+
 // 单栏全文（同样走 payload Map + 折叠预览）。
 function renderTrajectoryTextDetail({ output, outputKey, record }) {
   const view = limitText(output, 4000, 40);
@@ -562,16 +600,7 @@ function renderTrajectoryTextDetail({ output, outputKey, record }) {
   const fullButton = view.truncated
     ? `<button class="io-expand" type="button" data-expand="${outputKey}" title="展开完整内容">${svgExpand()} <span>+${view.hidden} chars</span></button>`
     : "";
-  const think = String(record.reasoning || "").trim();
-  const thinkKey = `${outputKey}-think`;
-  const thinkView = think ? limitText(think, 4000, 40) : null;
-  const thinkPanel = thinkView
-    ? `<section class="io-panel trajectory-think" data-payload="${thinkKey}">
-        <header><span class="io-label">THINK</span><span class="io-meta">${thinkView.total} chars</span><button class="icon-button subtle" type="button" data-copy="${thinkKey}" title="复制思考内容" aria-label="复制思考内容">${svgCopy()}</button></header>
-        <pre>${escapeHtml(thinkView.preview)}</pre>
-        ${thinkView.truncated ? `<button class="io-expand" type="button" data-expand="${thinkKey}" title="展开完整内容">${svgExpand()} <span>+${thinkView.hidden} chars</span></button>` : ""}
-      </section>`
-    : "";
+  const thinkPanel = renderThinkPanel(record, outputKey);
   const body = view.truncated
     ? `<details class="io-collapse"><summary><span>查看内容</span><span class="io-collapse-meta">${escapeHtml(String(view.total))} chars</span></summary><pre>${escapeHtml(view.preview)}</pre></details>`
     : `<pre>${escapeHtml(view.preview)}</pre>`;

@@ -316,7 +316,8 @@ const trajectoryView = createTrajectoryView(elements.trajectory, {
     }
   },
   resultPageLimit: 12000,
-  onFilterChange: kind => { state.trajectoryFilter = kind; }
+  onFilterChange: kind => { state.trajectoryFilter = kind; },
+  loadMore: () => loadOlderHistory()
 });
 // 性能追踪钩子：渲染进程可观测指标（DOM/JS heap/渲染耗时）与后端快照
 // 载荷对照，10s 轮询；徽标挂在顶部状态区。
@@ -568,7 +569,14 @@ function renderTrajectory(snapshot, active = isViewActive(dockState, "trajectory
   const compactions = Array.isArray(snapshot.task?.context_compactions) ? snapshot.task.context_compactions : [];
   trajectoryView.render(buildTrajectory(snapshot.conversation || []), state.trajectoryFilter, active, {
     prefixLayers: promptLayersCache || [],
-    compactions
+    compactions,
+    // 轨迹基于"已加载的可见窗口"：把窗口边界显式告诉视图，长会话才不会让人
+    // 以为轨迹丢了早期内容；hasMore 时提供"加载更早"入口。
+    window: {
+      messages: (snapshot.conversation || []).length,
+      total: Number(snapshot.total_messages || 0),
+      hasMore: Boolean(snapshot.has_more_history)
+    }
   });
 }
 

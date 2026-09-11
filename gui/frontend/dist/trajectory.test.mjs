@@ -12,6 +12,7 @@ import {
   renderTrajectoryTable,
   renderTrajectoryRow,
   renderContextAxis,
+  renderTrajectoryWindowInfo,
   renderAxisDetail,
   prefixLayerSegments,
   compactionMarks,
@@ -383,6 +384,44 @@ test("context axis marks wide blocks so the lane shows content, not blank bars",
   assert.ok(Number(wide[0][4]) >= 6, `宽块占比 ${wide[0][4]}% 应 ≥6%`);
   const narrow = segments.find(match => match[3] === undefined);
   assert.ok(Number(narrow[4]) < 6, `窄块占比 ${narrow[4]}% 应 <6%`);
+});
+
+test("tool steps keep the reasoning that produced them", () => {
+  // 持久化形状：思考挂在发起工具调用的那条消息上（assistant/tool_call 行）。
+  const records = buildTrajectory([
+    {
+      id: "m1", role: "assistant", reasoning_content: "先读文件确认结构",
+      tool: { id: "call-1", name: "read_file", arguments: "{\"path\":\"a.go\"}", status: "success" },
+      created_at: "2026-08-25T10:00:02Z"
+    },
+    {
+      id: "m2", role: "tool_result", content: "package a",
+      tool: { id: "call-1", name: "read_file", result: "package a", status: "success" },
+      created_at: "2026-08-25T10:00:03Z"
+    }
+  ]);
+  const tool = records.find(record => record.kind === "tool");
+  assert.ok(tool, "工具记录必须存在");
+  assert.equal(tool.reasoning, "先读文件确认结构");
+
+  // 工具行详情里也要有 THINK 面板，而不是只有 IN/OUT。
+  const model = renderTrajectoryTable(records);
+  const row = model.items.find(item => item.key.startsWith("tool:"));
+  assert.match(row.html, /trajectory-think/);
+  assert.match(row.html, /THINK/);
+  assert.match(row.html, /先读文件确认结构/);
+});
+
+test("trajectory window bar states which slice is loaded", () => {
+  const windowed = renderTrajectoryWindowInfo({ messages: 200, total: 830, hasMore: true });
+  assert.match(windowed, /已加载窗口 <strong>200<\/strong> \/ 会话共 <strong>830<\/strong> 条消息/);
+  assert.match(windowed, /更早的回合尚未加载/);
+  assert.match(windowed, /data-trajectory-load-earlier/);
+
+  const complete = renderTrajectoryWindowInfo({ messages: 12, total: 12, hasMore: false });
+  assert.match(complete, /已加载 <strong>12<\/strong> 条消息/);
+  assert.doesNotMatch(complete, /data-trajectory-load-earlier/);
+  assert.doesNotMatch(complete, /更早的回合尚未加载/);
 });
 
 test("renders context axis empty state", () => {

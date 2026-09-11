@@ -2019,6 +2019,27 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .trajectory-axis-detail[hidden] { display: none; }
 
+/* ---------- 轨迹窗口边界条 ----------
+   轨迹只覆盖"已加载的可见窗口"：长会话里这不是数据丢失，是分页。条上给出
+   已加载/总量与"加载更早"入口，避免"之前的内容呢"这类误判。 */
+.trajectory-window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--muted);
+  font: 10.5px var(--font-ui);
+}
+.trajectory-window:empty { display: none; }
+.trajectory-window strong { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.trajectory-window-hint { color: var(--faint); }
+.trajectory-window .text-button { margin-left: auto; }
+
 /* ---------- 轨迹行定位高亮 + THINK 完整面板 ---------- */
 .trajectory-row.is-flash { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .trajectory-row.is-flash summary { background: var(--tint-running); }
@@ -2756,6 +2777,21 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   font-size: 10.5px;
 }
 .team-order-outside { font-size: 10.5px; }
+
+/* ---------- 13.6 窄栏不裁切：flex 子项必须能收缩 ----------
+   右栏宽度可以拖到很窄。团队面板的行是「名字 + 元信息 + 动作」的 flex 布局，
+   子项默认 min-width:auto 不肯收缩，于是整行溢出面板：floor 标签、序号徽标、
+   删除按钮被右边缘裁掉（真机 A2A 冒烟时看到的现象）。 */
+.team-panel, .team-block, .team-order, .team-members, .team-scheduled, .team-toolbar { min-width: 0; }
+.team-order-item, .team-member, .team-scheduled-item { min-width: 0; overflow: hidden; }
+.team-order-item > *, .team-member > *, .team-scheduled-item > * { min-width: 0; }
+.team-order-role, .team-member-name { flex: 1 1 auto; min-width: 0; }
+.team-meta { min-width: 0; }
+.team-meta > * { min-width: 0; }
+
+/* 右栏/主视图页签：窄栏里逐字换行（"工作台"竖排）比横向滚动更难用 */
+.conversation-tabs, .right-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+.conversation-tab, .right-tab { flex: none; white-space: nowrap; }
 
 /* ---------- Agent Team（右侧栏 · 状态 → Agent Team） ----------
    数据源 = Application API（Bridge.AgentTeam*）；顺序事实源是会话
