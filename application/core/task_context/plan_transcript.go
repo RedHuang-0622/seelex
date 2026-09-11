@@ -134,13 +134,28 @@ func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits
 
 func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage {
 	message := contract.EngineMessage{
-		Role: providerRoleForTranscriptEvent(event), ReasoningContent: event.ReasoningContent, Content: event.Content,
+		Role: providerRoleForTranscriptEvent(event), ReasoningContent: event.ReasoningContent,
+		Content:    providerContentForEvent(event),
 		ContentSet: true, ToolCallID: event.ToolCallID, Name: event.Name,
 	}
 	for _, call := range event.ToolCalls {
 		message.ToolCalls = append(message.ToolCalls, contract.EngineToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments})
 	}
 	return message
+}
+
+// providerContentForEvent 返回事件在 provider wire 上的真实正文：ProviderContent
+// 非空时以它为准（记录侧保留的「已发出字节」），否则正文即 Content。视图仍读
+// Content（呈现文本）——工具失败/超限的呈现文本只属于视图，进 wire 会让下一轮
+// 重投影改写该消息、provider 前缀缓存自该点起失效。
+//
+// 与 sessionstore.providerContentOrContent 是同一规则的两处实现（应用侧投影 /
+// 存储侧投影），改动必须同步。
+func providerContentForEvent(event model.TranscriptEvent) string {
+	if event.ProviderContent != "" {
+		return event.ProviderContent
+	}
+	return event.Content
 }
 
 // providerRoleForTranscriptEvent 把 transcript 事实映射为 provider 可见 role：

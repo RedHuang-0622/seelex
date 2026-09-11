@@ -23,6 +23,18 @@
   `""` 变成占位（同族分叉）；中断工具链的协议占位由 `RepairInterruptedToolChains`
   生成，不受影响。守卫用例：
   `context_prefix_invariant_test.go::TestContextPrefixInvariant_EmptyToolResult`。
+- 同族第二处（2026-09-12 第二轮）：**工具结果的 provider 投影取 wire 原文，应用呈现
+  文本只属于视图**。工具失败时 wire 上是框架合成的 `{"error": %q}`；超限时 wire 上是
+  处理器归档引用（`result_ref=result:<callID>`），而视图/轨迹读的是应用呈现文本
+  （`presentToolError` / `tr-<digest>` 归档引用）。记录侧为此增 provider-only 字段
+  `provider_content`（`application/model/context.go` 的 `TranscriptEvent`、
+  `sessionstore/sessionstore.go` 的 `Event`），三个 provider 投影出口统一取它：
+  `sessionstore/durable_history.go` 的 `eventsToMessages`、`sessionstore/wire_assembler.go`
+  的会话 wire 装配、`application/core/task_context/plan_transcript.go` 的
+  `transcriptEventMessage`。守卫用例：
+  `prefix_invariant_fullchain_test.go::TestFullChainPrefixInvariantToolErrorAcrossTurns`
+  与 `...OversizedToolResultAcrossTurns`（比对生产路径录到的真实 wire 字节）、
+  `sessionstore/provider_content_test.go`（落盘 + 冷载 + 重启恢复）。
 - 工具轮说明正文（wire 上被丢弃、只经 `onChunk` 进视图的那段）**在工具钩子边界按
   迭代归位**到本次迭代的 assistant(tool_calls) 事件
   （`task_context.AttributeToolNarrationLocked`；回合收尾不再做事后填充——旧做法会
@@ -44,7 +56,7 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 `BackfillAssistantReasoning` 的候选匹配对**工具轮事件**必须以「引擎侧正文」为准
 ——事件侧正文现在是归位来的说明文本，若仍要求内容相等，推理草稿会静默失配、
 跨轮字节在 msg#1 分叉（研究文档 §7.8）。同一「事后改写」家族的其他来源与收口进度以
-`context_runtime/history.go` 的 doc 注释和研究文档 §7 为准（本 README 不复制易变
+`context_runtime/history.go` 的 doc 注释和研究文档 §7/§8 为准（本 README 不复制易变
 状态）。
 
 ## 文件与函数索引

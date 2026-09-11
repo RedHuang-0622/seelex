@@ -180,7 +180,7 @@ func eventsToMessages(events []Event) []types.Message {
 		message := types.Message{
 			Role:             providerRoleForEvent(event),
 			ReasoningContent: event.ReasoningContent,
-			Content:          strPtrOrNil(event.Content),
+			Content:          strPtrOrNil(providerContentOrContent(event)),
 			ToolCallID:       event.ToolCallID,
 			Name:             event.Name,
 		}
@@ -220,6 +220,17 @@ func strPtrOrNil(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+// providerContentOrContent 返回事件在 provider wire 上的真实正文：
+// ProviderContent 非空时以它为准（记录侧保留的「已发出字节」），否则正文即
+// Content。视图/轨迹仍读 Content（呈现文本），只有 provider 投影出口取这里
+// ——两处出口的分工与耦合告警见 ProviderWireMessages。
+func providerContentOrContent(event Event) string {
+	if event.ProviderContent != "" {
+		return event.ProviderContent
+	}
+	return event.Content
 }
 
 // Save 编排 ProviderHistory 持久化；若存在会话上下文存储则同步持久化

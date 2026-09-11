@@ -9,9 +9,13 @@ package main
 //
 //  1. 断言本次修复管辖的字节在跨轮投影里**逐字节不变**
 //     —— assistant(tool_calls) 正文恒为空（§7.4 归零规则）、tool 结果正文不被改写
-//     （§7.7 空结果不补占位）；
+//     （§7.7 空结果不补占位；§8 发现 2：失败工具结果保存 wire 原文，应用呈现文本
+//     只属于视图）；
 //  2. 报告相邻请求的消息前缀保持情况（首处分歧的消息下标 / 角色 / 丢失字节）；
 //  3. 报告真实 provider 的缓存命中 token（prompt_cache_hit_tokens / miss）。
+//
+// 硬断言：至少一条 wire 工具消息是失败形状（`{"error": ...}`）、wire 的 tool
+// 消息里不出现应用呈现文本（`【模块：…】`）、修复管辖字节无跨轮改写。
 //
 // 运行：
 //
@@ -339,6 +343,32 @@ func prefixLiveGovernedStability(prev, cur []prefixLiveMessage) []string {
 	return problems
 }
 
+// prefixLiveToolWireFindings 报告 wire 上「工具失败结果」的条数与**应用呈现文本
+// 泄漏**：呈现文本（`【模块：工具执行…】`）只属于视图；一旦出现在 tool 消息里，
+// 说明记录侧改写了已发出的字节（下一轮重投影分叉的根因，研究文档 §8 发现 2）。
+func prefixLiveToolWireFindings(t *testing.T, records []*prefixLiveRecord) (int, []string) {
+	t.Helper()
+	failed, leaks := 0, []string{}
+	for _, record := range records {
+		if !strings.Contains(record.path, "chat/completions") {
+			continue
+		}
+		for index, message := range prefixLiveMessages(t, record.body) {
+			if message.role != "tool" {
+				continue
+			}
+			if strings.Contains(message.content, prefixLiveModulePrefixMark) {
+				leaks = append(leaks, fmt.Sprintf("req#%d msg#%d: %s",
+					record.seq, index, prefixLiveClip(message.content, 200)))
+			}
+			if strings.HasPrefix(strings.TrimSpace(message.content), `{"error":`) {
+				failed++
+			}
+		}
+	}
+	return failed, leaks
+}
+
 func prefixLiveClip(text string, limit int) string {
 	flat := strings.ReplaceAll(text, "\n", `\n`)
 	if len(flat) <= limit {
@@ -394,7 +424,7 @@ func prefixLiveReportPath() string {
 	return filepath.Join("tmp", "prefix_smoke_report.txt")
 }
 
-func prefixLiveWriteReport(t *testing.T, sessionID string, records []*prefixLiveRecord, pairs []prefixLivePair, violations []string) string {
+func prefixLiveWriteReport(t *testing.T, sessionID string, records []*prefixLiveRecord, pairs []prefixLivePair, violations []string, failedTools int, presentedLeaks []string) string {
 	t.Helper()
 	var report strings.Builder
 	fmt.Fprintf(&report, "# 真实 API 前缀冒烟报告\n")
@@ -465,6 +495,15 @@ func prefixLiveWriteReport(t *testing.T, sessionID string, records []*prefixLive
 		fmt.Fprintf(&report, "- %s\n", violation)
 	}
 
+	fmt.Fprintf(&report, "\n## 工具失败结果（记录侧必须保存 wire 原文）\n")
+	fmt.Fprintf(&report, "wire 上的失败工具消息（`{\"error\": ...}` 形状）=%d\n", failedTools)
+	if len(presentedLeaks) == 0 {
+		fmt.Fprintf(&report, "应用呈现文本泄漏（`%s` 进入 tool 消息）=0\n", prefixLiveModulePrefixMark)
+	}
+	for _, leak := range presentedLeaks {
+		fmt.Fprintf(&report, "- 呈现文本泄漏: %s\n", leak)
+	}
+
 	path := prefixLiveReportPath()
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -530,6 +569,9 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 		submit(fmt.Sprintf("第 %d 轮：同样先写一句说明，再调用 read_file 读取 prefix_probe.txt，"+
 			"然后只回复『第%d轮已核对』。", round, round))
 	}
+	// 强制工具**失败**形状（研究文档 §8 发现 2）：读一个不存在的文件，工具返回
+	// 错误；wire 上是框架合成的 `{"error": %q}`，记录侧曾是应用分类呈现文本。
+	submit("第 4 轮：调用 read_file 读取 missing_probe.txt，然后如实向用户报告这次调用的结果，不要重试。")
 
 	sessionID := harness.app.Snapshot().Session.ID
 	if sessionID == "" {
@@ -538,6 +580,7 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 
 	records := proxy.snapshot()
 	pairs, violations := prefixLiveAnalyze(t, records)
+	failedTools, presentedLeaks := prefixLiveToolWireFindings(t, records)
 
 	toolRounds := 0
 	for _, record := range records {
@@ -550,11 +593,18 @@ func TestManualSmokeRealAccountPrefixInvariant(t *testing.T) {
 			}
 		}
 	}
-	reportPath := prefixLiveWriteReport(t, sessionID, records, pairs, violations)
-	t.Logf("report=%s requests=%d tool_round_messages=%d violations=%d", reportPath, len(records), toolRounds, len(violations))
+	reportPath := prefixLiveWriteReport(t, sessionID, records, pairs, violations, failedTools, presentedLeaks)
+	t.Logf("report=%s requests=%d tool_round_messages=%d failed_tool_messages=%d violations=%d presented_leaks=%d",
+		reportPath, len(records), toolRounds, failedTools, len(violations), len(presentedLeaks))
 
 	if toolRounds == 0 {
 		t.Fatal("live session produced no tool-round assistant message: smoke did not exercise the fix's shape")
+	}
+	if failedTools == 0 {
+		t.Fatal("live session produced no failing-tool wire message: 「工具失败结果」这一类分叉未被覆盖")
+	}
+	if len(presentedLeaks) > 0 {
+		t.Errorf("应用呈现文本进入了 wire 的 tool 消息（记录侧改写已发出字节）: %v", presentedLeaks)
 	}
 	if len(violations) > 0 {
 		t.Errorf("prefix invariant violations: %d (see %s)", len(violations), reportPath)

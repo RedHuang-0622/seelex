@@ -171,6 +171,7 @@ go test ./application/core/task_context -count=1
 - `func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model.PlanState` — ActivePlanFromStack 返回激活帧的 Plan 深拷贝（未找到 → nil）。
 - `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage` — TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
 - `func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage`
+- `func providerContentForEvent(event model.TranscriptEvent) string` — providerContentForEvent 返回事件在 provider wire 上的真实正文：ProviderContent
 - `func providerRoleForTranscriptEvent(event model.TranscriptEvent) string` — providerRoleForTranscriptEvent 把 transcript 事实映射为 provider 可见 role：
 - `func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent`
 - `func isActiveSkillEvent(event model.TranscriptEvent) bool` — isActiveSkillEvent 判定事件是否为激活技能正文 internal 轮次（ActiveSkillMarker
@@ -188,6 +189,16 @@ go test ./application/core/task_context -count=1
 - `func TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit(t *testing.T)` — TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit：激活技能 internal 事件
 - `func TestTranscriptTailHistoryEmitsActiveSkillTurn(t *testing.T)` — TestTranscriptTailHistoryEmitsActiveSkillTurn：装配输出在真实轮次之前包含
 - `func TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget(t *testing.T)` — TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget：压缩窗口/预算不足
+
+### provider_content_test.go
+
+- `func providerContentCoordinator() *Coordinator`
+- `func presentToolErrorForTest(toolName string, err error) string` — presentToolErrorForTest 复刻生产呈现形状（模块/方法/摘要/下一步），只用于
+- `func oversizedWarningForTest(name, resultRef string) string`
+- `func TestProviderContentOnToolError(t *testing.T)` — TestProviderContentOnToolError 钉住失败工具的两侧正文：Content 是分类呈现
+- `func TestProviderContentOnOversizedToolResult(t *testing.T)` — TestProviderContentOnOversizedToolResult 钉住超限结果的两侧引用：视图呈现带
+- `func TestProviderContentAbsentOnSuccessfulToolResult(t *testing.T)` — TestProviderContentAbsentOnSuccessfulToolResult 钉住常规路径不分叉：成功的
+- `func transcriptToolEvent(t *testing.T, coordinator *Coordinator, sessionID string) model.TranscriptEvent`
 
 ### provider_role_audit_test.go
 
@@ -235,6 +246,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) _EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string)`
 - `func (c *Coordinator) RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string)` — RecordToolTranscriptLocked 记录指定会话工具结果事件（错误呈现/超限引用；
 - `func (c *Coordinator) _RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string)`
+- `func frameworkToolErrorContent(err error) string` — frameworkToolErrorContent 返回框架在 wire 上为**失败工具**发出的正文：
 - `func defaultToolResultLimit() int` — defaultToolResultLimit 返回工具结果字符预算（seelex.yaml limits 段
 - `func DefaultToolResultLimit() int` — DefaultToolResultLimit 返回工具结果字符预算（导出面；根包兼容包装用）。
 - `func (c *Coordinator) StoreToolResultLocked(name, content string) model.StoredToolResult` — StoreToolResultLocked 把超限工具结果以引用形式存储（活跃会话；内容 +

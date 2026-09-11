@@ -154,16 +154,24 @@ type Event struct {
 	MessageID string `json:"message_id,omitempty"`
 	// Kind 是轨迹可见的显式类别（tool_call/llm/user_input/…）；空 = 旧数据，
 	// 用 EventKindOf 回退。
-	Kind             string          `json:"kind,omitempty"`
-	Role             string          `json:"role"`
-	ReasoningContent string          `json:"reasoning_content,omitempty"`
-	Content          string          `json:"content,omitempty"`
-	ToolCallID       string          `json:"tool_call_id,omitempty"`
-	Name             string          `json:"name,omitempty"`
-	ToolCalls        []EventToolCall `json:"tool_calls,omitempty"`
-	ResultRef        string          `json:"result_ref,omitempty"`
-	TokenCount       int             `json:"token_count"`
-	CreatedAt        time.Time       `json:"created_at"`
+	Kind             string `json:"kind,omitempty"`
+	Role             string `json:"role"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Content          string `json:"content,omitempty"`
+	// ProviderContent 是该事件在 provider wire 上**实际发出**的正文（仅当它
+	// 与 Content 不同才落盘；空 = Content 即 wire 字节）。Content 是视图/轨迹
+	// 呈现（工具失败分类文本、超限警告的应用归档引用），ProviderContent 是
+	// 「已发出字节」。provider 投影出口（eventsToMessages / 会话 wire 装配 /
+	// 应用侧 transcript 投影）必须取它，否则跨轮重投影改写该消息、前缀缓存
+	// 自该点起失效（实测 63 B → 181 B，见
+	// docs/research/2026-09-11-seelex-vs-codex-context-strategy-control-group.md §8）。
+	ProviderContent string          `json:"provider_content,omitempty"`
+	ToolCallID      string          `json:"tool_call_id,omitempty"`
+	Name            string          `json:"name,omitempty"`
+	ToolCalls       []EventToolCall `json:"tool_calls,omitempty"`
+	ResultRef       string          `json:"result_ref,omitempty"`
+	TokenCount      int             `json:"token_count"`
+	CreatedAt       time.Time       `json:"created_at"`
 	// CommitID 是 会话存储布局中"一次持久提交"的标识：同一提交内的多行事件共享
 	// 同一 commit_id；重复持久化同 commit_id 幂等（行不重复、head 不双跳）。
 	// 旧布局 transcript.log / rollout.jsonl 已随 D2/S12 退役，不再消费该

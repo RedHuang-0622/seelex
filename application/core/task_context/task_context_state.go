@@ -591,19 +591,55 @@ func (c *Coordinator) _RecordToolTranscriptLocked(sessionID, name, fallbackID, a
 		break
 	}
 	content := result
+	// providerContent 非空 = 该事件的 wire 正文与视图呈现不同，必须分开记录。
+	providerContent := ""
 	resultRef := ""
 	if toolErr != nil {
 		content = c.presentToolError(name, toolErr)
+		providerContent = frameworkToolErrorContent(toolErr)
 	} else if c.isOversized(result, defaultToolResultLimit()) {
 		stored := c.storeToolResultLocked(st, name, result)
 		resultRef = stored.Ref
 		content = c.oversizedWarning(name, resultRef)
+		// wire 上框架 ToolResultProcessor 用的是内存归档器的引用形状
+		// （"result:<callID>"）；记录侧归档引用是 "tr-<digest>"。两者只差引用，
+		// 文本其余部分同款（见 seelexctx/processor.go OversizedToolResultWarning
+		// 与框架 session/loop.go 的 toolResultProcessor.Process 调用）。
+		providerContent = c.oversizedWarning(name, wireToolResultRefPrefix+callID)
 		st.resultRefsByToolCallID[callID] = resultRef
 	}
 	c.appendTranscriptEventLocked(st, model.TranscriptEvent{
-		Role: "tool", Content: content, ToolCallID: callID, Name: name, ResultRef: resultRef,
+		Role: "tool", Content: content, ProviderContent: providerContent,
+		ToolCallID: callID, Name: name, ResultRef: resultRef,
 	})
 	return content, resultRef
+}
+
+// wireToolResultRefPrefix 是框架 ToolResultProcessor 产出引用（
+// seelexctx.InMemoryToolResultArchiver）与模型自造引用共用的 "result:" 前缀；
+// 应用侧 read_tool_result 的别名解析（Service.resolveToolResultRefAlias）
+// 也按它把 result:call_<callID> 映射回归档引用。超限工具结果的 wire 正文里
+// 带的是这个引用，记录侧呈现文本里带的是归档引用（tr-<digest>）——两者都必须
+// 如实保存，不能合并。
+const wireToolResultRefPrefix = "result:"
+
+// frameworkToolErrorContent 返回框架在 wire 上为**失败工具**发出的正文：
+// `{"error": %q}`。框架 `session/loop.go` 在 OnToolComplete 之后执行
+// `out = fmt.Sprintf("{\"error\": %q}", dErr.Error())`，ToolResultProcessor
+// 对错误结果原样透传（seelexctx/processor.go Process：`result.Err != nil` →
+// `ToolResultView{Content: result.Raw}`）。因此 wire 上是这段 JSON，而不是应用
+// 的分类呈现文本。记录侧按原样保存「已发出字节」，呈现文本（presentToolError）
+// 只留给视图。
+//
+// 与框架的这处字节级耦合由全链路 mock-provider 用例
+// （prefix_invariant_fullchain_test.go
+// ::TestFullChainPrefixInvariantToolErrorAcrossTurns，录真实 wire 字节）守卫：
+// 框架若改这里的形状，该用例先红——不要只改断言、要同步这里。
+func frameworkToolErrorContent(err error) string {
+	if err == nil {
+		return ""
+	}
+	return `{"error": ` + strconv.Quote(err.Error()) + `}`
 }
 
 // defaultToolResultLimit 返回工具结果字符预算（seelex.yaml limits 段

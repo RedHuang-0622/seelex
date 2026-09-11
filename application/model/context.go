@@ -87,15 +87,23 @@ type TranscriptEvent struct {
 	MessageID string `json:"message_id,omitempty"`
 	// Kind 是事件在多线谱中的显式类别（tool_call/llm/user_input/…）。
 	// 空串 = 旧数据未标注，消费方用 Role/ToolCalls 回退分类。
-	Kind             string               `json:"kind,omitempty"`
-	Role             string               `json:"role"`
-	ReasoningContent string               `json:"reasoning_content,omitempty"`
-	Content          string               `json:"content,omitempty"`
-	ToolCallID       string               `json:"tool_call_id,omitempty"`
-	Name             string               `json:"name,omitempty"`
-	ToolCalls        []TranscriptToolCall `json:"tool_calls,omitempty"`
-	ResultRef        string               `json:"result_ref,omitempty"`
-	TokenCount       int                  `json:"token_count"`
+	Kind             string `json:"kind,omitempty"`
+	Role             string `json:"role"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Content          string `json:"content,omitempty"`
+	// ProviderContent 是该事件在 provider wire 上**实际发出**的正文（仅当它
+	// 与 Content 不同才设置；空 = Content 即 wire 字节）。Content 是视图/轨迹
+	// 呈现（例如工具失败的分类错误文本、超限警告的归档引用），ProviderContent
+	// 是「已发出字节」——下一轮重投影必须取它，否则这条消息被改写、provider
+	// 前缀缓存自该点起全部失效。当前只有工具结果会分叉（失败：wire 是
+	// `{"error": %q}` 原始错误 JSON；超限：wire 警告里是 "result:<callID>"
+	// 引用）。见 application/core/task_context 的记录侧。
+	ProviderContent string               `json:"provider_content,omitempty"`
+	ToolCallID      string               `json:"tool_call_id,omitempty"`
+	Name            string               `json:"name,omitempty"`
+	ToolCalls       []TranscriptToolCall `json:"tool_calls,omitempty"`
+	ResultRef       string               `json:"result_ref,omitempty"`
+	TokenCount      int                  `json:"token_count"`
 	// WireMaterial 标记内部 user 材料（internal/context 行）：true = 该行
 	// 作为材料进入装配（S19/D8：检查点渲染正文等必须由生产方置位）。
 	WireMaterial bool      `json:"wire_material,omitempty"`

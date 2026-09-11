@@ -359,6 +359,8 @@ go test ./sessionstore -run 'TestV8' -count=1   # M1–M4 契约（65 条）
 
 `ReadEventTail` returns newest complete protocol units within token and unit limits. A user turn may include sequential or parallel tool rounds, but it is omitted if any tool call lacks a matching result; orphan tool events are never returned alone. `ReadToolResult` is read-only. The JSON v8 layout publishes the committed result-reference set through the module head.
 
+Message events carry two distinct text facts for tool results: `content` is what the view/trace renders (e.g. the application's classified tool-error text or the `tr-<digest>` oversized warning), while the provider-only `provider_content` is the bytes **actually sent on the wire** (the framework's `{"error": %q}` JSON for failed tools; the processor's `result_ref=result:<callID>` warning for oversized results). Provider projections must prefer `provider_content` when set: mixing them rewrites already-sent bytes on the next turn and invalidates provider prefix caching from that point (see `application/core/README-context.md` §跨轮前缀不变量与 provider 投影归零). Guards: `sessionstore/provider_content_test.go`, `prefix_invariant_fullchain_test.go`.
+
 测试覆盖 JSON v8 的 message 事件行原子性、状态 sidecar 退役、显式 workspace
 read 不污染 active scope，以及退役后端的显式错误（`TestRetiredBackendsReturnExplicitError`）。
 plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只装水位、

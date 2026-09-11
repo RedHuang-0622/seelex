@@ -242,7 +242,7 @@ func (state *wireState) consumeRow(row Event) {
 		}
 		state.emit(wireMessage{
 			Role:       wireRoleTool,
-			Content:    row.Content,
+			Content:    providerContentOrContent(row),
 			ToolCallID: row.ToolCallID,
 			Name:       row.Name,
 			ResultRef:  row.ResultRef,

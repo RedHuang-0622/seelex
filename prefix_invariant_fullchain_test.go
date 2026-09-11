@@ -211,6 +211,13 @@ func TestFullChainPrefixInvariantAcrossTurns(t *testing.T) {
 	if len(bodies) < 4 {
 		t.Fatalf("recorded %d provider requests, want >= 4", len(bodies))
 	}
+	assertFullChainPrefixInvariant(t, bodies)
+}
+
+// assertFullChainPrefixInvariant 断言相邻两次 provider 请求保持消息前缀关系，
+// 首条违反即失败并打印首个差异消息两侧的字节（红灯归因）。
+func assertFullChainPrefixInvariant(t *testing.T, bodies [][]byte) {
+	t.Helper()
 	type pair struct {
 		index int
 		prev  []fullChainPrefixMessage
@@ -250,6 +257,142 @@ func TestFullChainPrefixInvariantAcrossTurns(t *testing.T) {
 	if failures > 0 {
 		t.Fatalf("跨轮前缀不变量在 %d 处被破坏", failures)
 	}
+}
+
+// fullChainWireContent 返回第 index 次（1 起）provider 请求里指定 tool_call_id
+// 的 tool 消息正文（不存在返回空串与 false）。
+func fullChainWireContent(t *testing.T, body []byte, toolCallID string) (string, bool) {
+	t.Helper()
+	var payload struct {
+		Messages []struct {
+			Role       string `json:"role"`
+			Content    string `json:"content"`
+			ToolCallID string `json:"tool_call_id"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode provider request: %v", err)
+	}
+	for _, message := range payload.Messages {
+		if message.Role == "tool" && (toolCallID == "" || message.ToolCallID == toolCallID) {
+			return message.Content, true
+		}
+	}
+	return "", false
+}
+
+// TestFullChainPrefixInvariantToolErrorAcrossTurns 覆盖第二类跨轮「事后改写」：
+// **工具失败结果**。wire 上框架发出的是原始错误 JSON
+// （`{"error": %q}`，Seele `session/loop.go`：`out = fmt.Sprintf(...)` 后经
+// ToolResultProcessor 原样透传，seelexctx/processor.go）；而 durable 记录里存
+// 的是应用呈现文本（presentToolError →「【模块：工具执行｜…】」，181 B）。
+// 下一轮从记录重投影时这条 tool 消息被改写（63 B → 181 B），前缀自该点起失效，
+// provider 前缀缓存从这条消息起全部重新计费。
+//
+// 红灯：修复前 req#2→#3 在 tool 消息处分叉；修复后（记录侧保留 wire 原文、
+// 呈现文本只属视图）转绿。
+func TestFullChainPrefixInvariantToolErrorAcrossTurns(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	projectRoot := t.TempDir()
+	// 未绑定 project：read_file 必定失败（project scope: no project is bound to
+	// this session），使工具结果走「wire 原文 ≠ 记录侧呈现文本」这条分叉路径。
+	provider := newFullChainPrefixServer(t, "read_file", "unbound-probe.txt")
+	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", provider.URL)
+	if err := os.WriteFile(accountsPath, []byte(accounts), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	harness := newUnboundFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	submit := func(prompt string) {
+		t.Helper()
+		if err := harness.app.Submit(ctx, prompt); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		if err := harness.app.WaitForIdle(ctx); err != nil {
+			t.Fatalf("turn did not become idle: %v", err)
+		}
+		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
+		}
+	}
+	submit("第一轮：调用 read_file 读取 unbound-probe.txt，然后只回复『第一轮完成』。")
+	submit("第二轮：同样调用 read_file 读取 unbound-probe.txt，然后只回复『第二轮完成』。")
+
+	bodies := provider.recorded()
+	if len(bodies) < 4 {
+		t.Fatalf("recorded %d provider requests, want >= 4", len(bodies))
+	}
+	// 场景守卫：第二条请求（同回合）里必须带着失败工具的 wire 原文；否则本用例
+	// 没有覆盖到目标形状，前缀保持也只是假绿。
+	sent, ok := fullChainWireContent(t, bodies[1], "call_1")
+	if !ok || !strings.Contains(sent, "project scope: no project is bound to this session") {
+		t.Fatalf("same-turn tool result on the wire = %q (found=%v), want raw project-scope error JSON", sent, ok)
+	}
+	if trimmed := strings.TrimSpace(sent); !strings.HasPrefix(trimmed, `{"error":`) {
+		t.Fatalf("wire tool result = %q, want framework error JSON shape {\"error\": ...}", sent)
+	}
+	t.Logf("same-turn wire tool result (%d B): %s", len(sent), sent)
+
+	assertFullChainPrefixInvariant(t, bodies)
+}
+
+// TestFullChainPrefixInvariantOversizedToolResultAcrossTurns 覆盖同族的第三处
+// 「事后改写」：**超限工具结果**。wire 上框架 ToolResultProcessor 归档后给出省略
+// 警告，引用是处理器归档器的 "result:<callID>"（seelexctx/processor.go /
+// InMemoryToolResultArchiver）；记录侧呈现文本用的却是应用归档引用
+// "tr-<digest>"。下一轮若按呈现文本重投影，这条 tool 消息会因引用不同而改写、
+// 前缀自该点起失效。本用例用真实 wire 字节钉住两处引用形状，是这处字节级耦合的
+// 报警器。
+func TestFullChainPrefixInvariantOversizedToolResultAcrossTurns(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	projectRoot := t.TempDir()
+	probePath := filepath.Join(projectRoot, "oversized_probe.txt")
+	// 远超 max_tool_result_chars（60000），保证走归档 + 省略警告路径。
+	if err := os.WriteFile(probePath, []byte(strings.Repeat("OVERSIZED-PROBE-LINE\n", 10_000)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := newFullChainPrefixServer(t, "read_file", probePath)
+	accountsPath := filepath.Join(projectRoot, "accounts.yaml")
+	accounts := fmt.Sprintf("roles:\n  agent:\n    - model: test-model\n      base_url: %s\n      api_key: test-key\n", provider.URL)
+	if err := os.WriteFile(accountsPath, []byte(accounts), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	harness := newFullChainHarness(t, accountsPath, projectRoot, 30*time.Second)
+	submit := func(prompt string) {
+		t.Helper()
+		if err := harness.app.Submit(ctx, prompt); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		if err := harness.app.WaitForIdle(ctx); err != nil {
+			t.Fatalf("turn did not become idle: %v", err)
+		}
+		if snapshot := harness.app.Snapshot(); snapshot.Chat.Error != "" {
+			t.Fatalf("turn failed: %s", snapshot.Chat.Error)
+		}
+	}
+	submit("第一轮：调用 read_file 读取 oversized_probe.txt，然后只回复『第一轮完成』。")
+	submit("第二轮：同样调用 read_file 读取 oversized_probe.txt，然后只回复『第二轮完成』。")
+
+	bodies := provider.recorded()
+	if len(bodies) < 4 {
+		t.Fatalf("recorded %d provider requests, want >= 4", len(bodies))
+	}
+	sent, ok := fullChainWireContent(t, bodies[1], "call_1")
+	if !ok || !strings.Contains(sent, "<seelex-tool-result-omitted>") {
+		t.Fatalf("same-turn oversized tool result on the wire = %q (found=%v), want omitted warning", clipForFailure(sent, 200), ok)
+	}
+	if !strings.Contains(sent, "result_ref=result:call_1") {
+		t.Fatalf("wire oversized warning = %q, want processor 引用 result_ref=result:call_1", clipForFailure(sent, 300))
+	}
+	t.Logf("same-turn wire oversized warning (%d B): %s", len(sent), clipForFailure(sent, 200))
+
+	assertFullChainPrefixInvariant(t, bodies)
 }
 
 func clipForFailure(text string, limit int) string {

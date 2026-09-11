@@ -271,7 +271,7 @@ durable owner 冷载（`internal/adapters/engine_port.go:631-651`）。因此 §
 assistant 消息正文一律置空（框架 `session/loop.go:564` 构造时即 nil）。实测修复后该
 消息在每条请求里都是 `assistant+tc(0)`，7 个相邻请求对里 6 对保持全前缀。
 
-**发现 2（未修，同类"事后改写"）**：工具**失败结果**的呈现改写仍在跨轮破坏前缀。
+**发现 2（已修，2026-09-12 第二轮，同类"事后改写"）**：工具**失败结果**的呈现改写曾在跨轮破坏前缀（修复形状如下：记录侧保留 wire 原文，呈现只属视图）。
 wire 上框架发出的是工具原始输出
 （`{"error": "project scope: no project is bound to this session"}`，63 B），而 durable
 记录里存的是应用呈现文本（`presentToolError` →
@@ -281,6 +281,35 @@ wire 上框架发出的是工具原始输出
 `req#5→#6` 命中率 91.4% → 82.2%，且此后每一轮都要重新预热。
 
 与 §7.7（空工具结果）同族：**记录侧必须保存"已发出的字节"**，呈现文本只属于视图。
-建议修法：工具结果事件区分「provider 正文 = wire 原文」与「视图呈现 = 应用分类文本」
-（`TranscriptEvent` 增一个 provider-only 字段，或让视图侧从 `tool.Error` 渲染），
-`ProviderWireMessages` 取前者。需要 schema + 重启恢复用例一起改，本轮未做。
+修法（schema 级，落盘 + 三处 provider 投影出口一起改）：
+
+- `model.TranscriptEvent` / `sessionstore.Event` 增 provider-only 字段
+  `provider_content`（空 = Content 即 wire 字节）。工具失败时
+  `ProviderContent = {"error": %q}`（框架 `session/loop.go` 在 OnToolComplete 之后
+  合成、`seelexctx/processor.go` 对错误结果原样透传）；超限时 ProviderContent 用处理器
+  归档器的引用形状 `result_ref=result:<callID>`
+  （`seelexctx.InMemoryToolResultArchiver`），Content 仍是应用归档引用
+  `tr-<digest>` 的呈现文本。视图/轨迹继续读 Content。
+- 三个 provider 投影出口统一取 ProviderContent：`sessionstore.eventsToMessages`
+  （durable 冷载 / `Read` 派生）、`sessionstore/wire_assembler.go`（会话 wire 装配）、
+  应用侧 `task_context.transcriptEventMessage`（`TranscriptTailHistory`）。
+- 重启恢复：字段随 message 行 JSON 落盘并原样读回
+  （`internal/adapters/session_workspace_ports.go` 的
+  `storeTranscriptEvents` / `adaptTranscriptEvents`）。
+
+**实测（转绿）**：
+
+- 本地确定性回归（`prefix_invariant_fullchain_test.go`）：
+  `TestFullChainPrefixInvariantToolErrorAcrossTurns` 修复前 req#2→#3 在 tool 消息处
+  分叉（`tool(63)` → `tool(181)`），修复后 `tool(63)` 逐字节保持不变；
+  `TestFullChainPrefixInvariantOversizedToolResultAcrossTurns` 用真实 wire 字节钉住
+  超限警告的 `result_ref=result:call_1` 形状（311 B），同样跨轮不变。
+- 真实 API 冒烟（DeepSeek，4 轮 × 真实工具调用，8 条请求全 200）：
+  **7/7 个相邻请求对保持全前缀**（此前 6/7）；wire 上 9 条失败工具消息全为
+  `{"error": ...}` 形状、应用呈现文本泄漏 0 次；真实命中率 **89.5%–93.4%**（此前被
+  工具失败改写拖到 82.2%，且此后每轮重新预热）。报告：`tmp/prefix_smoke_report.txt`。
+
+**新的耦合报警器**：应用侧复刻的 `{"error": %q}`（`frameworkToolErrorContent`）与超限
+警告的 `result:<callID>` 引用形状都是对框架/处理器字节的复刻。两者各有一条硬守卫：
+全链路 mock provider 用例直接比对录到的 wire 字节——框架若改这里的形状，该用例先红，
+必须同步记录侧而不是改断言。
