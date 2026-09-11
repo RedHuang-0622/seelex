@@ -8,8 +8,19 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 本次落地的工厂/preset/注册表口径见
 [`docs/2026-09-10-a2a-agentteam-recovery/agentteam-management.md`](../../../docs/2026-09-10-a2a-agentteam-recovery/agentteam-management.md)。
 
-主要调用方：`application/core/agentteam_service.go`（窄转发 + 端口适配）与
-`gui/headless_team.go`（`team.*` RPC）。goal 的 TL 只是本包的内置 preset，不是特例。
+主要调用方：`application/core/agentteam_service.go`（窄转发 + 端口适配）、
+`gui/headless_team.go`（`team.*` RPC）与 `application/core/goal_service.go`
+（goal 创建时自动装配 `goal-a2a`，见下）。goal 的 TL 只是本包的内置 preset，
+不是特例。
+
+装配入口有两条：
+
+- **显式**：`team.materialize` / GUI 角色管理页按 preset 装配任意团队；
+- **隐式**：`GoalBeginFor` 在 goal 落栈成功后调
+  `MaterializeAgentTeamPreset(sessionID, "goal-a2a", 0)`——因为 `goal-a2a` 的
+  TL 声明了 `JoinPolicy=on_goal_create`，"goal 上线"就该把 TL 团队拉起来。
+  幂等由工厂保证（同 `(team_id, role_name)` 派生同一 `role_session_id`）；
+  宿主未装配团队存储时只记日志、不阻塞 goal（`ensureGoalAgentTeam`）。
 
 ## 职责与非职责
 

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -47,10 +48,33 @@ func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, requ
 		return nil, err
 	}
 	record, err := coordinator.Begin(ctx, sessionID, request)
-	if err == nil {
-		service.refreshGoalRuntimeProjection(sessionID)
+	if err != nil {
+		return nil, err
 	}
-	return record, err
+	// goal 上线即拉起它的 A2A 团队：goal 的 TL/ADVISOR 是 AgentTeam 工厂的
+	// 第一个实例（preset goal-a2a，TL 的 JoinPolicy=on_goal_create），因此这条
+	// 装配不该等前端手动点一次「装配团队」。
+	service.ensureGoalAgentTeam(sessionID)
+	service.refreshGoalRuntimeProjection(sessionID)
+	return record, nil
+}
+
+// ensureGoalAgentTeam 确保当前会话的 goal-a2a 团队已装配（幂等）。
+//
+// 幂等来源在工厂：同一个 (team_id, role_name) 派生稳定的 role_session_id，
+// 重复创建 goal 不会产生第二个角色会话；注册表与 lifecycle 顺序整份替换，
+// 重复装配结果一致。
+//
+// best-effort：宿主未装配团队存储（旧版本宿主、测试桩）时只记一条日志，
+// 不阻塞 goal 治理本身——goal 的 supervisor + TL 评估器链路与团队存储无关。
+// joinSeq=0 与前端「装配团队」按钮一致（新装配的角色挂在主会话可见起点）。
+func (service *Service) ensureGoalAgentTeam(sessionID string) {
+	if service == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	if _, err := service.MaterializeAgentTeamPreset(sessionID, dto.TeamKindGoalA2A, 0); err != nil {
+		log.Printf("[goal] 自动装配 %s 团队失败（session=%s）：%v", dto.TeamKindGoalA2A, sessionID, err)
+	}
 }
 
 // GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
