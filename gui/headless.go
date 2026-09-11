@@ -555,6 +555,12 @@ func (server *headlessServer) serveEvents(writer http.ResponseWriter, request *h
 		http.Error(writer, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	// 先订阅、再冲刷响应头：客户端一旦看到 `: connected` 就会认为流已建立并
+	// 立刻开始发事件；若订阅晚于首次 flush，这中间发布的事件会直接丢掉，
+	// 订阅方要等到下一次事件（或 15s 心跳）才知道——驱动侧表现为"读事件超时"
+	// （2026-09-11 偶发：TestHeadlessEventsStream 约 2% 概率卡满 5s 超时）。
+	subscription := server.app.Subscribe(headlessEventBuffer)
+	defer subscription.Close()
 	writer.Header().Set("Content-Type", "text/event-stream")
 	writer.Header().Set("Cache-Control", "no-cache")
 	writer.Header().Set("Connection", "keep-alive")
@@ -563,8 +569,6 @@ func (server *headlessServer) serveEvents(writer http.ResponseWriter, request *h
 	_, _ = fmt.Fprint(writer, ": connected\n\n")
 	flusher.Flush()
 
-	subscription := server.app.Subscribe(headlessEventBuffer)
-	defer subscription.Close()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {

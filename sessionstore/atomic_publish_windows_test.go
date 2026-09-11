@@ -66,9 +66,10 @@ func TestWriteAtomicGivesUpWithinBudgetAndLeavesNoTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := holdExclusive(t, path)
-	// 持柄时间刻意超过全部退避预算 → 必须显式失败。
-	timer := time.AfterFunc(renameBackoff[len(renameBackoff)-1]*3, release)
-	defer timer.Stop()
+	// 持柄保持到调用返回：预算内的每一次 rename 都必然失败，因此结果与调度
+	// 无关地确定为"显式失败"。原先用计时器在「最后一次退避 × 3」后释放，等于
+	// 把判定交给墙钟——机器负载高时 writeAtomic 的累计 sleep 会被拉长，释放
+	// 可能落在重试中途，剩下的重试就成功了（2026-09-11 偶发红灯）。
 	err := writeAtomic(path, []byte("v1"), 0o600)
 	if err == nil {
 		release()
