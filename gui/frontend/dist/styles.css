@@ -2571,16 +2571,32 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .app-shell .settings-field input,
 .app-shell .settings-field select { min-height: var(--control-h-lg); font-size: 12.5px; }
 
-/* ---------- 13.3 主/次按钮 ---------- */
-.app-shell .primary-button,
-.app-shell button.primary,
-.app-shell .settings-actions button {
+/* ---------- 13.3 主/次按钮 ----------
+   注意：文字按钮的内边距绝不能落到图标按钮上——`.icon-button` 是正方形 +
+   `padding: 0`，一旦再吃 `padding: 0 16px`，内容盒被挤成 0，图标会被推出按钮
+   （发送键就是这么飘走的）。所以这里的尺寸规则用 :not(.icon-button) 排除，
+   图标型主按钮单独给正方形尺寸。 */
+.app-shell .primary-button:not(.icon-button),
+.app-shell button.primary:not(.icon-button),
+.app-shell .settings-actions button:not(.icon-button) {
   min-height: var(--control-h-lg);
   padding: 0 16px;
   border-radius: var(--control-radius);
   font-size: 12.5px;
   font-weight: 600;
 }
+.app-shell .icon-button.primary-button,
+.app-shell .icon-button.action-button,
+.app-shell .icon-button.danger-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
+  padding: 0;
+  border-radius: var(--control-radius);
+}
+.app-shell .icon-button .icon { margin: 0; }
 .app-shell .settings-actions button.secondary {
   border: 1px solid var(--border-strong);
   background: var(--surface-2);
