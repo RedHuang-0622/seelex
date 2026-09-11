@@ -212,7 +212,7 @@ func abCompare(prev, cur abCall) abDivergence {
 	out := abDivergence{
 		prevLabel: prev.label, curLabel: cur.label,
 		prevTok: prev.total, curTok: cur.total,
-		sharedTok: tokens.Count(cur.bytes[:shared]),
+		sharedTok:    tokens.Count(cur.bytes[:shared]),
 		prefixIntact: shared == len(prev.bytes),
 		firstDiffIdx: index, firstDiffRole: role,
 	}
@@ -263,7 +263,7 @@ func runABProductionArm(t *testing.T, label string, script []abTurnScript, cfg p
 		}
 		harness.streamText(turn.reply)
 		harness.llmIteration(turn.reply, "", nil)
-		harness.finishTurn(turn.reply, cfg)
+		harness.finishTurn(turn.reply)
 		run.durable = append(run.durable, harness.service.components.tasks.TranscriptFor(harness.session))
 	}
 	return run
@@ -320,8 +320,8 @@ func TestContextStrategyAB_CrossTurnScript(t *testing.T) {
 		run *abRun
 		cfg prefixProbeConfig
 	}{
-		{cfg: prefixProbeConfig{name: "S-prod", engineKeepsToolContent: false, mergeNarration: true}},
-		{cfg: prefixProbeConfig{name: "S-fix", engineKeepsToolContent: true, mergeNarration: false}},
+		{cfg: prefixProbeConfig{name: "S-prod", engineKeepsToolContent: false}},
+		{cfg: prefixProbeConfig{name: "S-fix", engineKeepsToolContent: true}},
 	}
 	for index := range productions {
 		productions[index].run = runABProductionArm(t, productions[index].cfg.name, script, productions[index].cfg)
@@ -453,7 +453,7 @@ func abPreview(text string, limit int) string {
 func TestContextStrategyAB_WorkedExample(t *testing.T) {
 	script := abDemoScript()
 	prod := runABProductionArm(t, "S-prod", script,
-		prefixProbeConfig{name: "S-prod", engineKeepsToolContent: false, mergeNarration: true})
+		prefixProbeConfig{name: "S-prod", engineKeepsToolContent: false})
 	codex := runABCodexArm(t, "Codex", script, prod.system, prod.tools)
 
 	type boundary struct {
@@ -494,73 +494,69 @@ func TestContextStrategyAB_WorkedExample(t *testing.T) {
 	}
 }
 
-// ── 事后合并的跨轮漂移（直接调用生产函数，隔离测试台） ─────────────────
+// ── 说明正文的按迭代归位（修复前：回合收尾事后填充 → 叙述漂到别的轮次） ──
 
-// TestContextStrategyAB_MergeNarrationDrift 直接调用生产的
-// Coordinator.MergeToolNarration，复现"每轮收尾把整个会话视图的 assistant 正文
-// 并入**最早仍然为空**的工具轮事件"这一语义在多轮下的后果：
-// 叙述会落到不属于它的轮次上，且每轮都在改写更早的旧事件。
-func TestContextStrategyAB_MergeNarrationDrift(t *testing.T) {
+// TestStrategyAB_NarrationAttributionAcrossTurns 沿生产归位路径
+// （harness.toolRound → task_context.AttributeToolNarrationLocked）驱动 3 轮 ×
+// 每轮 2 次工具调用，打印每个工具轮 assistant 事件实际承载的说明正文。
+//
+// 修复前（回合收尾 mergeStreamedToolNarration：候选 = 整个会话视图的 assistant
+// 正文，填充时从 transcript 头部找第一个空事件）同一场景实测：
+//
+//	call-1-1 = "T1 第1次…T1 第2次…T1 结论…"   ← 整轮正文压到本轮第一个事件
+//	call-1-2 = ""
+//	call-2-1 = "T2 第1次…T2 第2次…T2 结论…"
+//	call-2-2 = "T1 第1次…T1 第2次…T1 结论…"   ← 叙述漂到别的轮次
+//	call-3-1 = "T2 第1次…T2 第2次…T2 结论…"   ← 每轮都在改写更早的旧事件
+//	call-3-2 = "T3 第1次…T3 第2次…T3 结论…"
+//
+// 修复后：每个事件恰好等于它自己那次迭代的说明文本（严格逐字断言见
+// TestToolNarrationStaysWithOwningIteration）。
+func TestStrategyAB_NarrationAttributionAcrossTurns(t *testing.T) {
 	harness := newPrefixProbeHarness(t, 1_000_000)
-	service := harness.service
-	session := harness.session
+	harness.startStream()
 
-	type turnText struct{ narration, reply string }
-	turns := []turnText{
-		{narration: "T1 叙述：我先读取装配入口。", reply: "T1 结论：回合内为纯追加。"},
-		{narration: "T2 叙述：我核对重建路径。", reply: "T2 结论：跨轮字节不一致。"},
-		{narration: "T3 叙述：我看缓存键与工具序。", reply: "T3 结论：两者都缺。"},
-	}
-
-	for index := range turns {
-		service.ViewMu.Lock()
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
-			TaskID: prefixProbeRequestID, Role: "user", Content: fmt.Sprintf("第%d轮输入", index+1),
-		})
-		for call := 0; call < 2; call++ {
-			callID := fmt.Sprintf("call-%d-%d", index+1, call+1)
-			// wire 上带 tool_calls 的 assistant 正文被丢弃 → transcript 事件正文为空
-			service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
-				TaskID: prefixProbeRequestID, Role: "assistant",
-				ToolCalls: []TranscriptToolCall{{ID: callID, Name: "read_file", Arguments: "{}"}},
-			})
-			service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
-				TaskID: prefixProbeRequestID, Role: "tool", ToolCallID: callID, Name: "read_file",
-				Content: fmt.Sprintf("round-%d tool %d result", index+1, call+1),
-			})
+	const turns = 3
+	const rounds = 2
+	owned := make(map[string]string, turns*rounds)
+	for turn := 1; turn <= turns; turn++ {
+		harness.beginTurn(fmt.Sprintf("第 %d 轮输入", turn))
+		for round := 1; round <= rounds; round++ {
+			callID := fmt.Sprintf("call-%d-%d", turn, round)
+			narration := fmt.Sprintf("T%d 第%d次工具前的说明。", turn, round)
+			arguments := fmt.Sprintf(`{"path":"file-%d-%d.go"}`, turn, round)
+			owned[callID] = narration
+			harness.streamText(narration)
+			harness.llmIteration("", "读取装配入口。", []types.ToolCall{{
+				ID: callID, Type: "function",
+				Function: types.ToolCallFunction{Name: "read_file", Arguments: arguments},
+			}})
+			harness.toolRound("read_file", callID, arguments, fmt.Sprintf("round-%d tool %d result", turn, round))
 		}
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
-			TaskID: prefixProbeRequestID, Role: "assistant", Content: turns[index].reply,
-		})
-		service.ViewMu.Unlock()
-
-		// 生产收尾 mergeStreamedToolNarration：候选 = 整个会话视图里所有非空
-		// assistant 正文（chat.go:792-812），即"前 N 轮的叙述+结论"。
-		candidates := make([]string, 0, index+1)
-		for _, prior := range turns[:index+1] {
-			candidates = append(candidates, prior.narration+prior.reply)
-		}
-		merged := service.components.tasks.MergeToolNarration(session, candidates)
-		t.Logf("第%d轮收尾：视图候选=%d 条，本次并入=%d 条", index+1, len(candidates), merged)
+		reply := fmt.Sprintf("T%d 结论：本轮结束。", turn)
+		harness.streamText(reply)
+		harness.llmIteration(reply, "整理结论。", nil)
+		harness.finishTurn(reply)
 	}
 
 	t.Logf("== 落盘 transcript 里的工具轮 assistant 事件 ==")
 	drifted := 0
-	for _, event := range service.components.tasks.TranscriptFor(session) {
+	for _, event := range harness.service.components.tasks.TranscriptFor(harness.session) {
 		if event.Role != "assistant" || len(event.ToolCalls) == 0 {
 			continue
 		}
-		id := event.ToolCalls[0].ID
-		turnNo := id[len("call-"):len("call-")+1]
-		owns := strings.Contains(event.Content, "T"+turnNo)
-		mark := "ok"
-		if !owns {
-			mark = "DRIFT(正文来自别的轮次)"
+		callID := event.ToolCalls[0].ID
+		mark := "ok(本迭代)"
+		if event.Content != owned[callID] {
+			mark = "DRIFT(正文不属于本迭代)"
 			drifted++
 		}
-		t.Logf("  %s content=%q → %s", id, abPreview(event.Content, 46), mark)
+		t.Logf("  %s content=%q → %s", callID, abPreview(event.Content, 46), mark)
 	}
-	t.Logf("== 结论：%d 个工具轮事件的正文不属于它自己的轮次（每轮收尾都会改写更早的旧事件） ==", drifted)
+	if drifted != 0 {
+		t.Fatalf("%d 个工具轮事件的说明正文不属于产生它的那次迭代", drifted)
+	}
+	t.Logf("== 结论：全部 %d 个工具轮事件正文归属正确（按迭代归位，无跨轮漂移） ==", len(owned))
 }
 
 func lastIter(run *abRun, turn int) int {

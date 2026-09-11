@@ -125,3 +125,4 @@ go test ./application/core/goal/ -run 'TestGovernor|TestAdvisorSeat' -count=1
 - `func (f *failingSeat) Name() string`
 - `func (f *failingSeat) Kind() AgentKind`
 - `func (f *failingSeat) Act(context.Context) (TurnAction, error)`
+

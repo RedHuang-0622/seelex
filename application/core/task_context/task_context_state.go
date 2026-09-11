@@ -408,6 +408,19 @@ func findReasoningCandidate(candidates []reasoningCandidate, event *model.Transc
 		if !idsMatch {
 			continue
 		}
+		if len(eventIDs) > 0 {
+			// 工具轮 assistant 事件：wire 正文恒为空（框架 Content=nil），事件
+			// 上的正文是 record-only 的流式说明文本（工具钩子边界归位，见
+			// AttributeToolNarrationLocked）。匹配以"引擎侧正文"为准并容忍
+			// 事件侧带说明文本 —— 否则说明正文一旦落盘，推理草稿就再也匹配
+			// 不上（2026-09-11 实测：归位前移到钩子边界后回填失配 → 跨轮
+			// 字节在 msg#1 处分叉，TestContextPrefixInvariant_CrossTurn）。
+			// 调用 ID 已唯一确定迭代，内容比较在此不承担区分职责。
+			if candidate.content != "" && candidate.content != normalizeReasoningContent(event.Content) {
+				continue
+			}
+			return candidate
+		}
 		if normalizeReasoningContent(event.Content) != candidate.content {
 			continue
 		}
@@ -434,63 +447,108 @@ func normalizeReasoningContent(content string) string {
 	return content
 }
 
-// MergeToolNarration 把“流式正文只进视图、引擎/转录事件只含 tool_calls”
-// 的说明文本并入对应 transcript tool_call 事件（2026-09-08：框架在
-// CompleteStream 返回 toolCalls 时丢弃 content，正文只经 onChunk 展示，
-// 不落盘则重启恢复只剩工具痕迹）。candidates 是视图里按顺序出现的
-// assistant 正文（含普通答复与工具轮说明）；只消费“在 transcript 里找不到
-// 对应正文”的候选，并按序赋给 content 为空的 tool_call 事件。
-func (c *Coordinator) MergeToolNarration(sessionID string, candidates []string) int {
+// AttributeToolNarrationLocked 把"wire 上被丢弃的迭代说明正文"归位到**产生它
+// 的那一次迭代**的 assistant(tool_calls) 事件上（2026-09-11 归属修复；调用方
+// 持有 Core.ViewMu）。
+//
+// 背景：框架在 wire 上丢弃工具轮正文（Seele `session/loop.go:564`
+// `types.Message{Role:"assistant", Content:nil, ToolCalls: toolCalls}`），说明
+// 文本只经 onChunk 进可见视图；不落盘则 record / 重启恢复只剩工具痕迹。归位
+// 必须**按迭代**进行：streamed 是本次请求截至当前的可见流式正文（视图里同一条
+// assistant 消息的累积），attributed 是本轮已经归位到 transcript 的前缀，二者
+// 之差即这一迭代新增的说明文本。
+//
+// 旧实现（回合收尾 mergeStreamedToolNarration → 本域）是"事后填充"：候选 =
+// 整个会话视图里的全部 assistant 正文，填充时从 transcript 头部找第一个空事件
+// —— 每多一轮，叙述就再往更早的轮次上叠一层，最终每个工具轮事件的正文都属于
+// 别的轮次（见
+// docs/research/2026-09-11-seelex-vs-codex-context-strategy-control-group.md §4；
+// 守卫用例 TestToolNarrationStaysWithOwningIteration）。
+//
+// 保守策略：streamed 不以已归位前缀开头时**不写**（视图滞后 / 跨请求混入）——
+// 宁可缺正文，不可写错轮次：写错会让 record 与重启恢复把别的迭代的说明挂到本
+// 工具调用上。已有正文的事件不覆盖（不做事后改写）。
+func (c *Coordinator) AttributeToolNarrationLocked(sessionID string, call model.TranscriptToolCall, streamed string) bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	return c._MergeToolNarration(sessionID, candidates)
+	return c._AttributeToolNarration(sessionID, call, streamed)
 }
 
-func (c *Coordinator) _MergeToolNarration(sessionID string, candidates []string) int {
+func (c *Coordinator) _AttributeToolNarration(sessionID string, call model.TranscriptToolCall, streamed string) bool {
+	if streamed == "" {
+		return false
+	}
 	st := c.sessionStateLocked(sessionID)
-	pending := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		content := normalizeReasoningContent(candidate)
-		if content == "" {
+	if st == nil {
+		return false
+	}
+	index := emptyToolCallEventIndex(st.transcript, c.matchingPendingCallIDLocked(st, call))
+	if index < 0 {
+		return false
+	}
+	narration, ok := iterationNarrationDelta(st.transcript, index, streamed)
+	if !ok || narration == "" {
+		return false
+	}
+	event := &st.transcript[index]
+	event.Content = narration
+	event.TokenCount = c._CountTranscriptEvent(*event)
+	return true
+}
+
+// matchingPendingCallIDLocked 返回本轮宣告里与该工具调用匹配的**框架真实调用
+// ID**：匹配规则与 EnsureToolCallTranscriptLocked / RecordToolTranscriptLocked
+// 完全一致（工具名 + 参数；pendingProviderCalls 只在此刻尚未被结果消费掉）。
+// 桥接层传入的 ID 是合成值（Seele 的 ToolCallInfo 不带 call ID），而 transcript
+// 宣告事件用的是框架的真实 ID —— 不解析就找不到要归位的事件。
+func (c *Coordinator) matchingPendingCallIDLocked(st *sessionTaskRuntime, call model.TranscriptToolCall) string {
+	for _, pending := range st.pendingProviderCalls {
+		if pending.Name != call.Name || (call.Arguments != "" && pending.Arguments != call.Arguments) {
 			continue
 		}
-		if assistantContentExists(st.transcript, content) {
-			continue
-		}
-		pending = append(pending, content)
+		return pending.ID
 	}
-	if len(pending) == 0 {
-		return 0
-	}
-	merged := 0
-	next := 0
-	for index := range st.transcript {
-		event := &st.transcript[index]
+	return call.ID
+}
+
+// emptyToolCallEventIndex 返回承载指定工具调用、且正文为空的 assistant 事件
+// 下标（-1 = 不存在，或该调用的事件已有正文 —— 已有正文不覆盖）。
+func emptyToolCallEventIndex(events []model.TranscriptEvent, callID string) int {
+	for index := range events {
+		event := events[index]
 		if event.Role != "assistant" || len(event.ToolCalls) == 0 {
 			continue
 		}
 		if strings.TrimSpace(event.Content) != "" {
 			continue
 		}
-		if next >= len(pending) {
-			break
+		for _, call := range event.ToolCalls {
+			if call.ID == callID {
+				return index
+			}
 		}
-		event.Content = pending[next]
-		event.TokenCount = c._CountTranscriptEvent(*event)
-		next++
-		merged++
 	}
-	return merged
+	return -1
 }
 
-func assistantContentExists(events []model.TranscriptEvent, content string) bool {
-	for _, event := range events {
-		if event.Role == "assistant" && len(event.ToolCalls) == 0 &&
-			normalizeReasoningContent(event.Content) == content {
-			return true
+// iterationNarrationDelta 返回本次迭代新增的说明正文：streamed 去掉"本轮在
+// target 之前已归位的事件正文"这一前缀。扫描以 transcript 的 user 事件为回合
+// 边界（更早轮次的叙述不属于本次请求）；streamed 不以前缀开头时 ok=false。
+func iterationNarrationDelta(events []model.TranscriptEvent, target int, streamed string) (string, bool) {
+	attributed := ""
+	for index := target - 1; index >= 0; index-- {
+		event := events[index]
+		if event.Role == "user" {
+			break
+		}
+		if event.Role == "assistant" && len(event.ToolCalls) > 0 {
+			attributed = event.Content + attributed
 		}
 	}
-	return false
+	if !strings.HasPrefix(streamed, attributed) {
+		return "", false
+	}
+	return streamed[len(attributed):], true
 }
 
 // EnsureToolCallTranscriptLocked 保证工具调用宣告已入指定会话 transcript

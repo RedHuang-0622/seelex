@@ -8,9 +8,10 @@
   有界摘要，rune 计数截断）与 `ResultSummaryLines`/`SummaryLineLimit`/
   `SummaryMaxLines` 截断参数。
 
-执行编排（账号/任务绑定/结果复用/worktree 生命周期）留在根包 Runtime 门面
-（`fork_tool.go`）；本包不反向依赖 `seelebridge` 根包，仅依赖 `plan` 子包
-（`SeelexNodeInput`）。根包 `fork_aliases.go` 重导出符号保持 API 兼容。
+执行编排（账号/任务绑定/结果复用/worktree 生命周期）在本包 `tool.go`
+（`Tool`/`NewTool`/`buildForkPlan`），根包 `runtime_plan.go` 只保留
+`forkSubagentsHandler` 门面转发；本包不反向依赖 `seelebridge` 根包，仅依赖
+`plan` 子包（`SeelexNodeInput`）。
 
 ## 与其它域的关系
 

@@ -15,9 +15,9 @@
   别名）的注册与 handler；todo 与 task 共用注册表，条目类型由 `Kind` 权威
   区分（todo 三态状态机，task/plan/subagent 通用迁移）。
 
-依赖方向为根 facade → task；task 不反向依赖 `seelebridge` 根包。
-根包 `task_aliases.go` 重导出全部公开类型/常量/辅助函数保持 API 兼容，
-`task_facade.go` 保留 *Runtime 门面方法（委托本包实现）。
+依赖方向为根 facade → task；task 不反向依赖 `seelebridge` 根包。根包
+`runtime.go` 持有 `*task.TaskRegistry`，`runtime_tools.go` 注册 todo/task 工具，
+门面方法与别名重导出层已删除，门面方法委托本包实现。
 
 ## 与其它域的关系
 

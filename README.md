@@ -466,7 +466,7 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - 97.6% 的消耗是**执行方会话反复携带同一段大上下文**（130+ 次工具调用的输入命中缓存），输出仅 0.6%——属于驱动/测试执行开销，不是 seelex 的成本；
 - 测试耗时 11.7 分钟（run_all 批次）已接近模型延迟下限；每样本冷启动重启 + debug 重试是可优化项，bench v3（warm 会话/轻量检测）预计 5–6 分钟可复跑。
 
-原始数据与驱动：`.seelex/perf/results/`（旧）、`.seelex/perf/results-new/`（新）、`bench.py` / `bench2.py` / `compare.py`，可复现。
+原始数据与驱动：`.seelex/perf/results/`（旧）、`.seelex/perf/results-new/`（新），驱动脚本 `.seelex/perf/bench.py` / `.seelex/perf/bench2.py` / `.seelex/perf/compare.py`（均在被 gitignore 的本地目录，随环境生成、不入库），可复现。
 
 ## 当前状态与边界
 

@@ -234,6 +234,15 @@ func RepairEmptyHistoryContent(history []contract.EngineMessage) ([]contract.Eng
 			repaired = true
 			continue
 		}
+		if message.Role == "tool" {
+			// 工具结果正文就是 wire 上的字节（框架把工具返回值原样作为 tool
+			// 消息正文发出）：**空结果在 wire 上也是空**，补占位会让下一轮
+			// 重投影 ≠ 已发出 —— 与工具轮 assistant 归零同一条规则。
+			// provider 对空 tool 正文的接受已由同回合后续请求实证（生产里
+			// 无输出的只读工具是常态）。中断链占位不走这里
+			// （RepairInterruptedToolChains 生成非空正文）。
+			continue
+		}
 		if message.Role == "system" || message.Role == "user" || message.Role == "assistant" || message.Role == "tool" {
 			message.Content = MissingHistoryContent
 			message.ContentSet = true

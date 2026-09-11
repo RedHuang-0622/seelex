@@ -10,11 +10,15 @@ Seelex is a local-first coding-agent harness built in Go. It turns LLM providers
 - optional WorkPlan DAG orchestration, typed nodes and task terminal states;
 - parallel subagents with isolated sessions, parent-evidence injection and structured merge-back;
 - context-window policy, reversible compaction, prompt stacks and externalized tool results;
-- OpenAI-compatible endpoints, including compatible DeepSeek deployments, plus Anthropic providers;
+- OpenAI-compatible endpoints, including DeepSeek deployments that satisfy the streaming and
+  tool-calling contract (the provider name is a free-form string, but only OpenAI-compatible
+  endpoints are exercised);
 - P2C account pooling, role-aware routing and lease-until-EOF streaming safety;
 - project-scoped tools, allow/ask/deny permission policy and human approval;
 - declarative plugins, Agent Skills and dynamically scoped MCP servers;
-- JSON, SQLite, PostgreSQL and Redis session persistence;
+- JSON v8 session persistence with project/session isolation and per-module head publishing
+  (the SQLite, PostgreSQL and Redis enum values are retired and fail with explicit guidance;
+  new backends wait for an interface rewrite);
 - a shared headless Application Core consumed by both TUI and GUI;
 - deterministic offline scenarios, cross-platform CI, race/coverage gates and release archive audits.
 

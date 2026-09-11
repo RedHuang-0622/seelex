@@ -131,41 +131,6 @@ go test -race ./application/core/agentteam -count=1
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
-### spec.go
-
-- `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles
-- `func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind` — resolveRoleKind 让内置角色名（user/main）永远取内置 kind
-- `func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]string, error)` — resolveOrderRoles 决定工作顺序：显式给定时必须是 [user, main + 已注册角色] 的
-- `func RoleSessionID(teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (team_id, role_name) 永远得到同一个值
-- `func needsRoleSession(kind dto.RoleKind) bool` — needsRoleSession 判定该角色是否需要独立角色会话子树
-- `func registeredRoles(spec dto.TeamSpec) []dto.RoleSpec` — registeredRoles 返回需要角色会话的已注册角色
-
-### presets.go
-
-- `func goalA2APreset() dto.TeamSpec` — goalA2APreset 是第一个实例：goal 的 user→main↔tl 固定循环
-- `func reviewTeamPreset() dto.TeamSpec` — reviewTeamPreset 是第二个实例（AT8 证据）
-- `func researchTeamPreset() dto.TeamSpec` — researchTeamPreset 演示「定时 agent 不入 order_roles」的第三形态
-- `func Preset(teamKind string) (dto.TeamSpec, error)` — Preset 返回内置团队实例（goal-a2a / review-team / research-team）
-- `func Presets() []dto.TeamSpec` — Presets 返回全部内置 preset（供前端角色管理页列出可选团队形态）
-
-### factory.go
-
-- `func NewFactory(port Port) (*Factory, error)` — NewFactory 构造工厂；port 为 nil 时显式报错（不允许静默空转）
-- `func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — Materialize 装配 TeamSpec
-- `func registryFromSpec(spec dto.TeamSpec) dto.TeamRegistry` — registryFromSpec 把 TeamSpec 投影成注册表（角色配置的持久事实）
-- `func assembleView(sessionID string, registry dto.TeamRegistry, policy string, orderRoles []string) (dto.TeamView, error)` — assembleView 把注册表 + 生命周期顺序投影成前端消费的成员表
-- `func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
-- `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色
-
-### registry.go
-
-- `func NewRegistry(port Port) (*Registry, error)` — NewRegistry 构造注册表读写面；port 为 nil 时显式报错
-- `func (registry *Registry) View(mainSessionID string) (dto.TeamView, error)` — View 返回成员表（供右侧栏「状态 → Agent Team」子页与角色管理设置读取）
-- `func (registry *Registry) PutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)` — PutRole 新增或覆盖一个角色配置（按 role_name 幂等）
-- `func (registry *Registry) DeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)` — DeleteRole 删除一个角色配置；角色仍留在工作顺序时同步摘除
-- `func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — SetOrder 写工作顺序策略
-- `func firstNonEmpty(values ...string) string`
-
 ### agentteam_test.go
 
 - `func newFakePort() *fakePort`
@@ -174,9 +139,45 @@ go test -race ./application/core/agentteam -count=1
 - `func (port *fakePort) SetLifecycleOrder(_ string, policy string, roles []string) error`
 - `func (port *fakePort) ReadTeamRegistry(string) (dto.TeamRegistry, error)`
 - `func (port *fakePort) WriteTeamRegistry(_ string, registry dto.TeamRegistry) error`
-- `func TestNormalizeDerivesOrderAndExcludesScheduledRoles(t *testing.T)` — 未给 order_roles 时按 user→main→其余角色推导；定时角色单独分区、不入工作顺序
-- `func TestNormalizeRejectsBrokenOrder(t *testing.T)` — 定时角色不得进顺序、顺序角色必须已注册、user/main 必须在列
-- `func TestGoalPresetMaterializeIsIdempotent(t *testing.T)` — goal preset 装配建 TL 角色会话、写顺序策略；重复装配不产生第二个会话
-- `func TestSecondTeamThroughSameFactory(t *testing.T)` — 同一个工厂实例化 goal 之外的第二个团队
-- `func TestResearchPresetKeepsScheduledRoleOutOfOrder(t *testing.T)` — 定时 agent 只出现在定时分区
-- `func TestRegistryCRUDAndOrder(t *testing.T)` — 角色配置 CRUD 只改注册表；顺序设置只改 lifecycle 字段
+- `func TestNormalizeDerivesOrderAndExcludesScheduledRoles(t *testing.T)` — TestNormalizeDerivesOrderAndExcludesScheduledRoles：未给 order_roles 时按
+- `func TestNormalizeRejectsBrokenOrder(t *testing.T)` — TestNormalizeRejectsBrokenOrder：定时角色不得进顺序、顺序角色必须已注册、
+- `func TestGoalPresetMaterializeIsIdempotent(t *testing.T)` — TestGoalPresetMaterializeIsIdempotent：goal preset 装配建 TL 角色会话、写顺序策略；
+- `func TestSecondTeamThroughSameFactory(t *testing.T)` — TestSecondTeamThroughSameFactory（AT8）：同一个工厂实例化 goal 之外的第二个团队，
+- `func TestResearchPresetKeepsScheduledRoleOutOfOrder(t *testing.T)` — TestResearchPresetKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
+- `func TestRegistryCRUDAndOrder(t *testing.T)` — TestRegistryCRUDAndOrder：角色配置 CRUD 只改注册表；顺序设置只改 lifecycle 字段，
+
+### factory.go
+
+- `func NewFactory(port Port) (*Factory, error)` — NewFactory 构造工厂；port 为 nil 时显式报错（不允许静默空转）。
+- `func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — Materialize 装配 TeamSpec。joinSeq 是本次装配把角色挂到主会话的可见起点
+- `func registryFromSpec(spec dto.TeamSpec) dto.TeamRegistry` — registryFromSpec 把 TeamSpec 投影成注册表（角色配置的持久事实）。
+- `func assembleView(sessionID string, registry dto.TeamRegistry, policy string, orderRoles []string) (dto.TeamView, error)` — assembleView 把注册表 + 生命周期顺序投影成前端消费的成员表。
+- `func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
+- `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色。
+
+### presets.go
+
+- `func goalA2APreset() dto.TeamSpec` — goalA2APreset 是第一个实例：goal 的 user→main↔tl 固定循环。
+- `func reviewTeamPreset() dto.TeamSpec` — reviewTeamPreset 是第二个实例（AT8 证据）：同一工厂、同一 sequencer、同一恢复
+- `func researchTeamPreset() dto.TeamSpec` — researchTeamPreset 演示「定时 agent 不入 order_roles」的第三形态。
+- `func Preset(teamKind string) (dto.TeamSpec, error)` — Preset 返回内置团队实例（goal-a2a / review-team / research-team）。
+- `func Presets() []dto.TeamSpec` — Presets 返回全部内置 preset（供前端角色管理页列出可选团队形态）。
+
+### registry.go
+
+- `func NewRegistry(port Port) (*Registry, error)` — NewRegistry 构造注册表读写面；port 为 nil 时显式报错。
+- `func (registry *Registry) View(mainSessionID string) (dto.TeamView, error)` — View 返回成员表（供右侧栏「状态 → Agent Team」子页与角色管理设置读取）。
+- `func (registry *Registry) PutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)` — PutRole 新增或覆盖一个角色配置（按 role_name 幂等）。
+- `func (registry *Registry) DeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)` — DeleteRole 删除一个角色配置；角色仍留在工作顺序时同步摘除，避免顺序里挂着
+- `func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — SetOrder 写工作顺序策略（`order_roles`）；校验角色已注册、定时角色不入顺序、
+- `func firstNonEmpty(values ...string) string`
+
+### spec.go
+
+- `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
+- `func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind` — resolveRoleKind 让内置角色名（user/main）永远取内置 kind；其它角色 kind 缺省
+- `func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]string, error)` — resolveOrderRoles 决定工作顺序：显式给定时必须是 [user, main + 已注册角色] 的
+- `func RoleSessionID(teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (team_id, role_name) 永远得到同一个值，
+- `func needsRoleSession(kind dto.RoleKind) bool` — needsRoleSession 判定该角色是否需要独立角色会话子树：user/main 复用主会话，
+- `func registeredRoles(spec dto.TeamSpec) []dto.RoleSpec` — registeredRoles 返回需要角色会话的已注册角色。
+

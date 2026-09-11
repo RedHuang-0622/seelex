@@ -2,7 +2,7 @@
 
 > 状态：**设计中，已按用户决策落地第一批（显式类别贯通 + JSON transcript append-only 日志）**。
 > 本文件是一次性工作包的方案稿，不是长期架构事实；代码与测试仍是最终事实源。
-> 关联：外部调研 [codex-session-resume.md](../../research/codex-session-resume.md)；既有已实现架构 [context-prefix-chain.md](../../arch/context-prefix-chain.md)；会话改造目标 [target-design.md](../2026-09-02-session-subsystem-remediation/target-design.md)。
+> 关联：外部调研 [codex-session-resume.md](../research/codex-session-resume.md)；既有已实现架构 [context-prefix-chain.md](../arch/context-prefix-chain.md)；会话改造目标 [target-design.md](../2026-09-02-session-subsystem-remediation/target-design.md)。
 
 ## 1. 目标（用户需求转译）
 

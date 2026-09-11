@@ -31,7 +31,7 @@
 
 ## 数据流
 
-`seelexctx/controller.go` 默认计数器、`gap.go` 兜底、`seele.go` 兼容变量 `EstimateTokens`、`compactor`、`memory/block`、`search`、`mcpstack`、`application/core` 计数器均消费本包估算；application 侧随后用 provider usage 校准（见 `application/core/token_counter.go` 的 `calibratedTokenCounter`）。
+`seelexctx/controller.go` 默认计数器、`gap.go` 兜底、`seele.go` 兼容变量 `EstimateTokens`、`compactor`、`memory/block`、`search`、`mcpstack`、`application/core` 计数器均消费本包估算；application 侧随后用 provider usage 校准（见 `application/core/task_context/token_counter.go` 的 `CalibratedTokenCounter`）。
 
 ## 依赖方向
 

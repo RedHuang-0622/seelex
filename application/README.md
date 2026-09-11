@@ -64,4 +64,4 @@ go test ./application/... -count=1
 go test ./application/... -race -count=1   # 需要 CGO/C toolchain
 ```
 
-集成入口主要位于 `core/service_test.go`、`core/command_test.go` 和 `internal/adapters/adapters_test.go`。
+集成入口主要位于 `core/service_test.go`、`core/command_registry_test.go` 和 `internal/adapters/adapters_test.go`。

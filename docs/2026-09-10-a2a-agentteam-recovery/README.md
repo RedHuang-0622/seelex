@@ -5,7 +5,7 @@ tool calling 恢复"这次用户裁决后的两条并行实现流。
 
 权威设计：
 
-- [`docs/arch/a2a-agent-team-factory.md`](../../arch/a2a-agent-team-factory.md)（本轮更新，长期边界）
+- [`docs/arch/a2a-agent-team-factory.md`](../arch/a2a-agent-team-factory.md)（本轮更新，长期边界）
 - [`docs/2026-09-08-session-storage-architecture/my_design.md`](../2026-09-08-session-storage-architecture/my_design.md)（v8.3 存储口径）
 - [`docs/2026-09-10-backend-cache-goal-session/app-layer-wiring-prompt.md`](../2026-09-10-backend-cache-goal-session/app-layer-wiring-prompt.md)（R1–R4 应用层接线口径）
 
@@ -33,7 +33,7 @@ tool calling 恢复"这次用户裁决后的两条并行实现流。
 
 两条流共享：
 
-- 权威边界只认 [`a2a-agent-team-factory.md`](../../arch/a2a-agent-team-factory.md)；
+- 权威边界只认 [`a2a-agent-team-factory.md`](../arch/a2a-agent-team-factory.md)；
   与它冲突时先改设计稿并通知对方，不允许各写一套。
 - `role_name` 是 metadata；provider role 只能 `system/user/assistant/tool`。
 - 存储/端口纪律：`application/` 只经 `application/contract` 端口与 DTO，

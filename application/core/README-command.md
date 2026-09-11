@@ -1,8 +1,10 @@
-# core/command
+# core/command（根包分卷）
 
 ## 生态位
 
 内置命令注册与执行
+
+覆盖：`command*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 

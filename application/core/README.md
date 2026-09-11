@@ -20,12 +20,15 @@
 - 零依赖叶子域：`chat/`（流式批次与可见输出）、`worktable/`（表格增量 CSP
   汇聚发布器）、`input_router/`（命令注册表 + 输入路由）、`context_control/`
   （窗口策略配置加载）、`govern/`（多代理回合制治理循环抽象：座次/轮次/
-  断环，goal 域经 adapter 接入）。
+  断环，goal 域经 adapter 接入）、`resume/`（未完成工作恢复模板：七步顺序 +
+  幂等键 + 可审计 Report，领域实现走 `Port`）。
 - 有状态域协调器：`session_runtime/`（会话持久化/目录/项目绑定）、
   `task_context/`（任务执行/checkpoint/transcript/token 审计/plan 状态）、
   `context_runtime/`（provider 上下文装配/压缩/历史安全）、`prompt_layer/`
   （system prompt 组装）、`view_state/`（Snapshot 读/写/事件发布）、
-  `subagent_view/`（子代理详情/live/树投影）。
+  `subagent_view/`（子代理详情/live/树投影）、`goal/`（Goal 状态机 +
+  DS-A2A 双会话治理 + 治理循环适配 + 会话级第五栈持久化）、
+  `agentteam/`（AgentTeam/角色会话通用装配：`TeamSpec` 工厂 + preset 注册表）。
 - 共享叶子：`internal/state`（锁 + 权威 Snapshot + 端口依赖 + 事件/审批
   内核）、`internal/limits`（运行时上限）。
 
@@ -46,21 +49,31 @@
 | 分卷 | 覆盖文件 | 生态位 |
 |---|---|---|
 | [README-service.md](README-service.md) | `service*.go` | Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具） |
-| [README-session.md](README-session.md) | `session*.go` | 会话草稿/恢复/存储用例与集成测试 |
-| [README-chat.md](README-chat.md) | `chat.go`、`visible_output_test.go` | 聊天主循环与可见输出集成 |
+| [README-session.md](README-session.md) | `session*.go` + 显式名单 | 会话草稿/恢复/存储用例与集成测试 |
+| [README-chat.md](README-chat.md) | `chat*.go`、`visible_output_test.go`、`reasoning_visible_test.go` | 聊天主循环与可见输出集成 |
 | [README-command.md](README-command.md) | `command*.go` | 内置命令注册与执行 |
 | [README-error.md](README-error.md) | `error*.go` | 错误码与面向用户的错误呈现 |
 | [README-history.md](README-history.md) | `history*.go` | 历史检索与 provider 失败恢复 |
-| [README-input.md](README-input.md) | `input.go`、`input_router_compat_test.go` | 输入分派与路由兼容测试 |
-| [README-plan.md](README-plan.md) | `plan_tools.go` | Plan 打点/分支事件/重规划 |
+| [README-input.md](README-input.md) | `input*.go` | 输入分派与路由兼容测试 |
+| [README-plan.md](README-plan.md) | `plan_*.go` | Plan 打点/分支事件/重规划 |
 | [README-reference.md](README-reference.md) | `reference*.go` | read_tool_result / read_plan 引用工具 |
 | [README-skill.md](README-skill.md) | `skill*.go` | Skill 指令信封编解码 |
-| [README-tool.md](README-tool.md) | `tool_hooks.go`、`tool_hook_diagnostic_test.go` | 工具事件钩子与诊断 |
+| [README-tool.md](README-tool.md) | `tool*.go` | 工具事件钩子与诊断 |
 | [README-work-table.md](README-work-table.md) | `work_table*.go` | 工作表格投影与测试 |
 | [README-context.md](README-context.md) | `context_*_test.go` | 上下文控制相关集成测试 |
 | [README-task.md](README-task.md) | `task_*_test.go` | 任务执行集成测试 |
 | [README-subagent.md](README-subagent.md) | `subagent_*_test.go` | 子代理投影集成测试 |
-| [README-misc.md](README-misc.md) | aliases/completion/compressed/diagnostics/limits/runtime/workspace/race | 基础与杂项 |
+| [README-goal.md](README-goal.md) | `goal_*.go` | goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归 |
+| [README-agentteam.md](README-agentteam.md) | `agentteam_service.go`、`role_session.go` | AgentTeam 装配适配与群聊角色会话透传 |
+| [README-composer.md](README-composer.md) | `composer_*.go` | 输入草稿合成器的持久化与工作区绑定 |
+| [README-archive.md](README-archive.md) | `archive_*.go`、`close_semantics_test.go` | 会话归档与收尾语义 |
+| [README-misc.md](README-misc.md) | 显式名单（aliases/completion/compressed/diagnostics/fault-guard/limits/perf/snapshot-budget/runtime/workspace/race） | 基础与杂项 |
+
+覆盖规则的唯一权威是 `scripts/gen_core_readme_index.py` 的 `ROOT_GROUPS`
+（前缀 + 显式名单），各卷首行「覆盖：」由生成器写出；每个根包 `.go` 必须
+恰好归入一卷，`verify_coverage` 自检在漏归属/重复归属时拒绝刷新（防止
+「索引静默漏文档」）。README 里引用的文件/链接是否还在，用
+`python scripts/check_readme_refs.py`（`--strict` 可用于 CI）核对。
 
 ### 叶子包 README
 
@@ -76,6 +89,10 @@
 | [prompt_layer/](prompt_layer/README.md) | system prompt 组装与引擎同步 |
 | [view_state/](view_state/README.md) | Snapshot 读/写/事件发布协调器 |
 | [subagent_view/](subagent_view/README.md) | 子代理详情/live/树投影 |
+| [goal/](goal/README.md) | Goal 状态机、DS-A2A 双会话治理、治理循环适配与会话级第五栈持久化 |
+| [agentteam/](agentteam/README.md) | A2A 角色团队通用装配（`TeamSpec` 工厂 + preset 注册表 + 幂等角色会话） |
+| [govern/](govern/README.md) | 多代理治理循环抽象（座次/轮次/行动/断环） |
+| [resume/](resume/README.md) | 未完成工作恢复模板（七步顺序 + 幂等键 + 可审计 Report） |
 | [internal/state/](internal/state/README.md) | 共享状态内核（锁 + Snapshot + 端口依赖） |
 | [internal/limits/](internal/limits/README.md) | 运行时上限（seele.yaml limits 段） |
 
@@ -269,6 +286,14 @@ history, the visible conversation, or the durable transcript.
 
 > 已实现（任务 A/B/C）：装配顺序为「system → project → memory → compact → 累积 context（达峰前 append-only 全量已定稿轮次）→ plan → task → 当前输入」，checkpoint 正常路径不再进入 LLM 上下文（异常恢复路径 provider 504 / history-safety 保留）；达峰才压缩（折叠 compact 栈顶 + context 窗口，plan/task 不参与压缩）。设计见 [docs/arch/context-prefix-chain.md](../../docs/arch/context-prefix-chain.md)。
 
+Provider 前缀不变量（2026-09-12）：每条请求的字节都以本会话更早发出的请求为
+前缀（回合边界同样成立）。带工具调用的 assistant 消息在 provider 投影里正文
+恒为空——框架构造该消息时即置 nil，provider 从未收到这段正文，事后补占位或
+流式叙述都会让重投影字节与已发出字节分叉，使该点之后的 prefix cache 全部
+失效（跨轮首请求命中 65.9% → 98.5%，失效计费 8,837 → 371 tok）。归零只作用于
+provider 投影，durable 转写仍保留叙述（视图/轨迹/重启恢复不变）。契约、耦合
+报警器与剩余同类来源见 [README-context.md](README-context.md)。
+
 The token audit counts the separately configured system prompt, message/tool-call overhead, visible tool metadata, the current input, and an output plus safety reserve. Requests that still exceed the safe budget after dropping the accumulated context (without a checkpoint fallback) are rejected before `ChatStream`; the provider-504 / history-safety recovery path then owns the bounded checkpoint continuation.
 
 Oversized tool output and oversized current input are stored through immutable `result_ref` records. Provider history and `SessionRecord` contain only the reference warning; `read_tool_result` provides bounded, read-only pagination or filtering. `read_plan` retrieves omitted canonical Plan nodes without changing Plan state.
@@ -330,11 +355,11 @@ todoState mailbox actor（Actor + Mailbox 并发安全）；plan/subagent 状态
 done 节点有界保留（`subagentTreeRetainDone`），工作表格持续展示已完成
 任务，直到显式清空。
 
-task 体系：`seelebridge/task_registry.go` 是唯一权威源（Actor + Mailbox，
+task 体系：`seelebridge/task/task.go`（`TaskRegistry` actor）是唯一权威源（Actor + Mailbox，
 保护粒度=task），todolist 融合为 kind=todo 的 task；主动 `taskadd` 与被动
 plan/subagent 生命周期同步都落到注册表；`syncTasksFromSources`（锁外外部
 端口）做幂等同步，`publishTaskDeltas` 发布 `task.changed`（逐任务）与
 `worktable.changed`（结构）；retry 计数、B6 子代理装配 task_id、SessionRecord
 快照复用 stack 存储均在此体系内。
 
-重点测试：`service_test.go` 覆盖 session/project/storage 用例，`command_test.go` 覆盖输入协议，`race_test.go` 覆盖并发与关闭。
+重点测试：`service_test.go` 覆盖 session/project/storage 用例，`command_registry_test.go` 覆盖输入协议，`race_test.go` 覆盖并发与关闭。

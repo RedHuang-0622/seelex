@@ -7,7 +7,7 @@
 - 本轮提示词：[`prompt.md`](./prompt.md)
 - 性能/IO 审查结论：[`review.md`](./review.md)
 - A2A「全员 draft→message」评估：[`a2a-draft-eval.md`](./a2a-draft-eval.md)
-- 在线文档协作模型调研：[`../../research/2026-09-10-collaborative-doc-session-model.md`](../../research/2026-09-10-collaborative-doc-session-model.md)
+- 在线文档协作模型调研：[`../../research/2026-09-10-collaborative-doc-session-model.md`](../research/2026-09-10-collaborative-doc-session-model.md)
 - 应用层业务接线提示词（R1→R4 顺序）：[`app-layer-wiring-prompt.md`](./app-layer-wiring-prompt.md)
 
 范围：R1 多后端实现收口到接口、R2 goal techleader 会话独立存储、

@@ -103,7 +103,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) RecordConversation(record model.SessionRecord) []model.Message` — RecordConversation 返回去除内部消息后的可见会话消息（深拷贝 tool 引用）。
 - `func isInternalConversationMessage(message model.Message, isInternalContent func(string) bool) bool`
 - `func (c *Coordinator) RecordConversationResumeHistory(record model.SessionRecord, tokenBudget, maxUnits int) []contract.EngineMessage` — RecordConversationResumeHistory 是 durable-record 冷加载回退历史（transcript
-- `func (c *Coordinator) RecordConversationTranscript(record model.SessionRecord) []model.TranscriptEvent` — RecordConversationTranscript 把可见会话消息重建为 provider transcript：role=tool 的调用消息还原为 assistant 工具链轮、tool_result 还原为工具输出，只有推理没有正文的助手步骤不产生空 assistant 事件。
+- `func (c *Coordinator) RecordConversationTranscript(record model.SessionRecord) []model.TranscriptEvent` — RecordConversationTranscript 把可见会话消息重建为 provider transcript：
 - `func (c *Coordinator) RecordConversationTail(record model.SessionRecord, window int) []model.Message` — RecordConversationTail 返回可见会话的尾部窗口消息（含 window 上限）。
 - `func CloneSessionPlanStack(stack []model.SessionPlanFrame) []model.SessionPlanFrame` — CloneSessionPlanStack 深拷贝会话 plan 栈（frame 内 Plan 单独克隆）。
 - `func (c *Coordinator) RecordReadFileLocked(arguments string)` — RecordReadFileLocked 记录一次 read 工具的文件引用（会话归档 ReadFiles）。
@@ -143,6 +143,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) PrepareFork(location Location, childID, parentID string, request model.ForkRequest) (ForkContext, error)` — PrepareFork 基于父会话的已发布快照构建子会话深拷贝（一期决策契约）：
 - `func (c *Coordinator) LatestForkCut(location Location, parentID string) (uint64, error)` — LatestForkCut 返回父会话最新完整段落边界（最后一个完整轮次的 EventSeq，
 - `func forkTranscriptEvents(events []sessionstore.Event) []model.TranscriptEvent`
+- `func conversationMessagesFromEvents(events []sessionstore.Event) []model.Message` — conversationMessagesFromEvents 把 message 事件行派生为 record conversation
 - `func forkStoredToolResults(results []sessionstore.ToolResult) []model.StoredToolResult`
 - `func resolveForkCut(events []sessionstore.Event, request model.ForkRequest) (uint64, *sessionstore.Event, error)` — resolveForkCut 解析 fork 切断点（EventSeq 含端点，段落边界语义）。
 - `func eventAt(events []sessionstore.Event, seq uint64) *sessionstore.Event`
@@ -159,7 +160,7 @@ go test ./application/core/session_runtime -count=1
 - `func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFileRef`
 - `func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总子会话可达的 tool-result ref：继承事件流的
 - `func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]struct{}) []model.ToolResultRef`
-- `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error)` — forkContextRecord 重写父 context 四栈为子会话独立栈起点：Plan/Task/Skill
+- `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
 - `func forkContextPlanFrames(frames []sessionstore.PlanFrame, cutTime time.Time) []sessionstore.PlanFrame`
 - `func forkContextTaskFrames(frames []sessionstore.TaskFrame, cutTime time.Time) []sessionstore.TaskFrame`
 - `func forkContextSkillFrames(frames []sessionstore.SkillFrame, cutTime time.Time) []sessionstore.SkillFrame`
@@ -269,3 +270,9 @@ go test ./application/core/session_runtime -count=1
 - `func TestSessionTransitionManagerParallelAcrossKeys(t *testing.T)` — TestSessionTransitionManagerParallelAcrossKeys G5：不同 key 的命令并行
 - `func TestSessionTransitionManagerViewKeyAliasesEmpty(t *testing.T)` — TestSessionTransitionManagerViewKeyAliasesEmpty G5：空 key 与保留视图 key
 - `func TestSessionTransitionManagerCloseReleasesWaiters(t *testing.T)` — TestSessionTransitionManagerCloseReleasesWaiters G5：关闭后释放全部等待者，
+
+### wire_history.go
+
+- `func (c *Coordinator) AssembleWireHistoryWorkspace(location Location, sessionID string, budget, k int) ([]contract.EngineMessage, bool, error)` — AssembleWireHistoryWorkspace 通过 Core.Deps.Sessions 的可选能力执行 R2
+- `func (c *Coordinator) LifecycleRecover(location Location, sessionID string) (int, bool, error)` — LifecycleRecover 重启后恢复 lifecycle 队列（发送未确认项回 queued；
+

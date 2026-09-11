@@ -21,7 +21,7 @@ state.json / history shards / transcript / UI conversation
 
 ## 2. 本批已落地（JSON 后端垂直切片）
 
-1. **Rollout 契约**（[sessionstore/rollout.go](../../sessionstore/rollout.go)）：
+1. **Rollout 契约**（[sessionstore/rollout.go](../sessionstore/rollout.go)）：
    - `SessionLogEntry{Ordinal, Seq, Kind, RequestID/TurnID/MessageID, CreatedAt, TokenCount, Payload}`；
    - 全量 kind 常量（含 request/lifecycle/compacted 等预留）；
    - 对话类 Event → Rollout kind 映射（`EventKindOf` 同源回退）；
@@ -32,7 +32,7 @@ state.json / history shards / transcript / UI conversation
    `session_meta` 追加进 `rollout.jsonl`；重复提交幂等（按 Seq 增量），
    失败不发布 manifest。旧通道（transcript.log / history / state）继续双写，
    作为兼容投影与旧会话兜底。
-3. **契约测试**（[rollout_test.go](../../sessionstore/rollout_test.go)）：
+3. **契约测试**（[rollout_test.go](../sessionstore/rollout_test.go)）：
    - `TestJSONRolloutAppendOnlyOrdinals`：meta ordinal=1、对话事件 ordinal
      连续、幂等重提不重复；
    - `TestJSONRolloutCrashTailResumes`：崩溃残尾跳过且下次提交续写无空洞。

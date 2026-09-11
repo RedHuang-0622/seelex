@@ -118,6 +118,7 @@ call-3-2 content="T3 叙述：…"            → ok
 - 两个后果：① **语义错位**——模型在新轮看到的"自己上一轮说过的话"与它当时的轮次不符（不只是钱的问题）；② **前缀失效随轮数加深**——每轮都在更早的字节上改写（S-prod 的跨轮首个差异从 msg#1 → msg#3 → msg#9 递进，raw 命中 60.5% → 63.1% → 71.5%，但每轮失效的绝对 token 量在增长：2571 → 3194 → 3072）。
 - 这是上一份报告根因 1 的**加深项**，不是替代项：即使把 wire/durable 正文对齐（S-fix），只要"逐步合并视图正文"这个机制还在，漂移仍会发生。修法应是在 wire 上就带上正文，并让合并只作用于**本轮**事件。
 - 未验证边界：本结论由生产函数 + 生产调用序在本地复原得到，未跑真实进程端到端；真实会话中若某个回合没有"叙述"文本，漂移的形状会不同（建议用真实会话 trace 复核一次）。
+- **已修（2026-09-11 第二轮）**：说明正文改为在**工具钩子边界按迭代归位**（`AttributeToolNarrationLocked`），"回合收尾事后填充"整条路径删除。复现/守卫用例：`TestStrategyAB_NarrationAttributionAcrossTurns`（探针，注释留修复前形状）、`TestToolNarrationStaysWithOwningIteration`（逐字断言）。详见 §7.6。
 
 ---
 
@@ -194,8 +195,55 @@ prefix BREAK t1.iter3  → t2.iter1 : shared=12732/27811 B,
 
 S-fix / C 两臂（模型假设"wire 保留工具轮正文"）在修复后由 98.6% / 98.3% 掉到 **74.4% / 46.8%**：它们与本次修复对 wire 行为的假设相反，因此**变成耦合报警器**——若上游框架改为在 wire 上保留工具轮正文，必须同步取消归零；届时这两臂会重新变好而 S-prod 变差。
 
-### 7.5 仍未修（同类"事后改写"的剩余来源）
+### 7.5 同类"事后改写"剩余来源（本轮结论）
 
-1. **合并漂移**（§4）：叙述仍会被写进别的轮次的工具事件。修复后它只影响视图/轨迹准确性，不再影响 provider 字节与计费，仍需单独修。
-2. **空工具结果的占位**：`RepairEmptyHistoryContent` 对 `tool` 角色空正文仍注入 `MissingHistoryContent`；若某工具返回空结果，下一轮重投影会从 "" 变成占位（同类分叉）。**未复现，列为待验证项**。
+1. **合并漂移**（§4）：**已修** —— 见 §7.6（说明正文改为在工具钩子边界按迭代归位，"回合收尾事后填充"整条路径删除）。
+2. **空工具结果的占位**：**已复现并已修** —— 见 §7.7（`RepairEmptyHistoryContent` 不再给 `tool` 角色空正文补占位）。
 3. **命中观测**仍缺（`TokenAudit.ActualPromptTokens` 恒 0）：前缀不变量现在**测试内可测且被守卫**，但线上仍看不到真实命中率。
+
+### 7.6 修复：工具轮说明正文改为**按迭代归位**（跨轮漂移根治）
+
+**问题**：wire 上工具轮正文恒为空（框架 `Content: nil`），说明文本只经 `onChunk` 进可见视图；回合收尾的 `mergeStreamedToolNarration` 拿"整个会话视图的 assistant 正文"当候选、从 transcript 头部找第一个空事件填充，于是每多一轮叙述就往更早的轮次上再叠一层（§4 实测形状）。
+
+**修法**（`task_context.AttributeToolNarrationLocked` + `handleToolStart` 边界）：
+
+- 在工具钩子边界（流式缓冲已 flush、本次迭代的 `tool_call` 事件刚就位）取本会话视图里**本轮 assistant 正文累积**作为 `streamed`，归位值 = `streamed` 去掉"本轮在目标事件之前已归位的正文"这一前缀后的增量。
+- 轮次边界由 transcript 的 `user` 事件确定；`streamed` 不以已归位前缀开头时**不写**（视图滞后 / 跨请求混入时宁缺勿错，不写错轮次）。
+- 调用 ID 解析：桥接层传入的是**合成 ID**（Seele 的 `ToolCallInfo` 不带 call ID），必须按 (name, arguments) 在 `pendingProviderCalls` 里解析出框架真实调用 ID，否则永远定位不到要归位的事件（本轮实测踩中，见 §7.8-2）。
+- 归位早于回合收尾 ⇒ **回合收尾不再有任何"事后填充"**：`mergeStreamedToolNarration` / `MergeToolNarration` / `assistantContentExists` 全部删除，`prefixProbeConfig` 的 `mergeNarration` 变体随之退场（探针臂 A/B 合并）。
+
+**守卫用例**：`TestToolNarrationStaysWithOwningIteration`（逐字断言"每个工具轮事件的正文 == 它自己那次迭代的说明文本"）、`TestStrategyAB_NarrationAttributionAcrossTurns`（多轮探针，注释里留有修复前的漂移形状）。
+
+### 7.7 修复：**空工具结果**不再补占位
+
+**问题**（§7.5-2，本轮复现）：工具返回空串时 wire 上该 tool 消息正文为空（框架把返回值原样发出）；而 `RepairEmptyHistoryContent` 对 `tool` 角色空正文注入 `MissingHistoryContent` ⇒ 下一轮重投影从 "" 变成占位，跨轮前缀在 msg#2(tool) 处分叉。修复前实测（`TestContextPrefixInvariant_EmptyToolResult`）：
+
+```
+prefix BREAK t1.iter2 → t2.iter1 : shared=12909/12968 B,
+  first_diff=msg#2(role=tool), reason=已发出字节为空、重投影时被补写正文
+  sent    = ""
+  rebuilt = "[Seelex recovery note: the previous message had no text after an interruption…"
+```
+
+**修法**：`tool` 角色空正文保持为空（与工具轮 assistant 归零同一条规则：不写 wire 上从未存在的字节）。中断工具链的协议占位由 `RepairInterruptedToolChains` 生成，不走这条路径。
+
+**依据**：**同回合的后续请求**已经带着这个空 tool 正文发出并被 provider 接受（生产里无输出的只读工具是常态）⇒ 占位对"provider 非空要求"没有贡献，只制造分叉。
+
+### 7.8 修复引入/暴露的耦合（报警器清单）
+
+这两处修复同时暴露了三处**必须同步**的耦合——它们不是退化，而是机制假设的报警器：
+
+1. **归位时机 ↔ 推理草稿回填**（本轮实测踩中）：`BackfillAssistantReasoning` 的候选匹配要求"事件正文 == 引擎侧正文"。旧顺序（回填 → 合并）让工具轮事件在回填时正文仍为空 ⇒ 匹配成功；归位前移到钩子边界后事件正文变成说明文本 ⇒ 匹配失败 ⇒ 推理草稿不再落盘、跨轮字节在 msg#1 分叉。修法：**工具轮事件（带 tool_calls）的匹配以引擎侧正文为准**（调用 ID 已唯一确定迭代，内容比较在此不承担区分职责）。若将来把归位时机再往后挪，这条放宽可以撤掉。
+2. **归位目标 ↔ 工具钩子 ID 语义**：桥接层 ID 是合成值，transcript 用框架真实 ID；任何"拿钩子 ID 直接定位 transcript 事件"的新代码都会**静默失效**（不报错，只是永远不归位）。这让 `TestToolNarrationStaysWithOwningIteration` 这类只用生产函数的单测可能漏掉真实路径——真实路径守卫靠 `TestConcurrentSessionsKeepOwnContent`（走 `handleToolStart`）。
+3. **框架 wire 行为 ↔ 归零规则**（承 §7.4）：若 Seele 改为在 wire 上保留工具轮正文，归零规则与"工具轮正文不参与推理匹配"都要同步取消；S-fix / C 两臂是这条耦合的现成报警器。
+
+### 7.9 并发会话的内容隔离（用户报告项）
+
+用户报告"多会话同时跑时容易把本会话内容漂到别的会话"。本轮定位与加固：
+
+- 生产装配把会话 ID 注入 chat ctx（`chat.go:145` `ctx = withSessionID(ctx, sessionID)`），所有会话作用域写入（transcript 事件、视图消息、说明正文归位）都以它为键。
+- `sessionViewLocked` / `SessionViewReadLocked` 对未知会话建**独立 draft 单元**，不会回退到活跃会话视图；会话级读取（含新增的 `streamedAssistantTextLocked`）因此不会读到别的会话正文。
+- 归位自带**归属校验**：只有在本会话 transcript 里找到该工具调用的宣告事件才写；找不到就什么都不写（错误的钩子会话只会"不写"，不会"写错会话"）。
+- 新增守卫用例 `TestConcurrentSessionsKeepOwnContent`：A 后台 + B 前台交错驱动同形状的一轮（流式正文 → 工具轮宣告 → 工具起止 → 终答），断言两侧 record / 视图互不出现对方文本，且各自说明正文落在自己的工具轮事件上；该用例正是 **§7.8-2 的红灯**，修好后转绿（`-race` 通过）。
+
+**剩余边界（诚实标注）**：钩子 ctx 丢失会话 ID 时，`handleToolStart` / `handleToolCompleteObserved` / `runtimeForContextLocked` / `EnsureFinalAssistantTranscript` 都会**回退到活跃会话**。这是为兼容既有调用方（大量测试以 `context.Background()` 直接驱动钩子）刻意保留的行为，非本轮引入；生产 chat 路径始终带会话 ID。要彻底封死，需要给钩子补"请求 → 会话"的反查并在无归属时拒写——属于独立改动，本轮未做。

@@ -14,6 +14,9 @@ func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.
 		// 否则下一轮请求字节与已发出字节分叉。
 		{Role: "assistant", Content: "我先读取装配入口。", ContentSet: true,
 			ToolCalls: []contract.EngineToolCall{{ID: "call-2", Name: "grep_search", Arguments: `{"pattern":"x"}`}}},
+		// 空工具结果：wire 上也是空正文（框架把工具返回值原样发出），同样不得
+		// 补占位 —— 否则下一轮重投影 ≠ 已发出（2026-09-11 空工具结果修复，
+		// 见 TestContextPrefixInvariant_EmptyToolResult）。
 		{Role: "tool", ToolCallID: "call-1", Name: "read_file", Content: ""},
 		{Role: "assistant", Content: ""},
 	}
@@ -30,10 +33,12 @@ func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.
 			t.Fatalf("tool-call assistant %d lost its protocol data: %+v", index, prepared[index])
 		}
 	}
-	for _, index := range []int{2, 3} {
-		if prepared[index].Content != MissingHistoryContent || !prepared[index].ContentSet {
-			t.Fatalf("message %d was not repaired: %+v", index, prepared[index])
-		}
+	if prepared[2].Content != "" || prepared[2].ContentSet {
+		t.Fatalf("empty tool result was given placeholder content %q (set=%v): the wire carries the tool result verbatim, empty stays empty",
+			prepared[2].Content, prepared[2].ContentSet)
+	}
+	if prepared[3].Content != MissingHistoryContent || !prepared[3].ContentSet {
+		t.Fatalf("message 3 was not repaired: %+v", prepared[3])
 	}
 }
 

@@ -68,7 +68,7 @@ go test ./application/core/task_context -count=1
 
 ### coordinator.go
 
-- `func newSessionTaskRuntime() *sessionTaskRuntime`
+- `func newSessionTaskRuntime(sessionID string) *sessionTaskRuntime`
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造任务域协调器。
 - `func (c *Coordinator) activeSessionIDLocked() string` — activeSessionIDLocked 返回当前活跃会话。G5 锁拆分过渡期统一走注入的
 - `func (c *Coordinator) sessionStateLocked(sessionID string) *sessionTaskRuntime` — sessionStateLocked 返回指定会话的运行时状态（按需创建）。调用方持有
@@ -171,17 +171,32 @@ go test ./application/core/task_context -count=1
 - `func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model.PlanState` — ActivePlanFromStack 返回激活帧的 Plan 深拷贝（未找到 → nil）。
 - `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage` — TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
 - `func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage`
+- `func providerRoleForTranscriptEvent(event model.TranscriptEvent) string` — providerRoleForTranscriptEvent 把 transcript 事实映射为 provider 可见 role：
 - `func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent`
 - `func isActiveSkillEvent(event model.TranscriptEvent) bool` — isActiveSkillEvent 判定事件是否为激活技能正文 internal 轮次（ActiveSkillMarker
-- `func transcriptUserUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool)`
-- `func nextTranscriptUserIndex(events []model.TranscriptEvent, start int) int`
+- `func transcriptUserUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int)`
 - `func transcriptToolUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool)`
+
+### plan_transcript_recovery_test.go
+
+- `func interruptedTurnEvents(withSuffixText, atTail bool) []model.TranscriptEvent` — interruptedTurn 构造"残缺工具链"回合：assistant 请求 t1/t2，只记录了 t1
+- `func TestTranscriptProtocolUnitsKeepsSuffixTextOfInterruptedChain(t *testing.T)` — TestTranscriptProtocolUnitsKeepsSuffixTextOfInterruptedChain：残缺工具链
+- `func TestTranscriptProtocolUnitsKeepsTailInterruptedChainAsOpenUnit(t *testing.T)` — TestTranscriptProtocolUnitsKeepsTailInterruptedChainAsOpenUnit：以残缺工具
 
 ### plan_transcript_test.go
 
 - `func TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit(t *testing.T)` — TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit：激活技能 internal 事件
 - `func TestTranscriptTailHistoryEmitsActiveSkillTurn(t *testing.T)` — TestTranscriptTailHistoryEmitsActiveSkillTurn：装配输出在真实轮次之前包含
 - `func TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget(t *testing.T)` — TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget：压缩窗口/预算不足
+
+### provider_role_audit_test.go
+
+- `func TestProviderRoleAuditOnlyUserInputIsUser(t *testing.T)` — TestProviderRoleAuditOnlyUserInputIsUser 钉住 provider role 口径（设计
+- `func TestProviderRoleAuditInternalMaterialIsNotUserOwned(t *testing.T)` — TestProviderRoleAuditInternalMaterialIsNotUserOwned：internal 材料即使 provider
+
+### role_fields_test.go
+
+- `func TestTranscriptRoleFieldsDefaults(t *testing.T)` — TestTranscriptRoleFieldsDefaults 钉住 R4 生产者默认：user 行开启新 round，
 
 ### task_context_state.go
 
@@ -194,16 +209,28 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent` — AppendTranscriptEventLocked 追加一条 append-only transcript 事件（seq 自增；
 - `func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent` — AppendTranscriptEventForLocked 追加一条指定会话的 transcript 事件（调用
+- `func (c *Coordinator) SeedTranscriptSeqFor(sessionID string, seq uint64)` — SeedTranscriptSeqFor 把指定会话的内存 transcript 序号基线抬到既有事件
 - `func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage)` — ImportEngineHistoryAsTranscriptLocked 把引擎既有历史导入活跃会话
 - `func (c *Coordinator) _ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage)`
 - `func (c *Coordinator) importEngineHistoryLocked(st *sessionTaskRuntime, history []contract.EngineMessage)`
+- `func (c *Coordinator) applyTranscriptRoleFieldsLocked(st *sessionTaskRuntime, event *model.TranscriptEvent)` — applyTranscriptRoleFieldsLocked 给消息行盖群聊角色归属与排序键（R4）：
 - `func (c *Coordinator) appendTranscriptEventLocked(st *sessionTaskRuntime, event model.TranscriptEvent) model.TranscriptEvent`
 - `func classifyTranscriptEventKind(event model.TranscriptEvent) string` — classifyTranscriptEventKind 返回事件的显式类别；调用方已标注 Kind 时原样保留，
 - `func (c *Coordinator) CountTranscriptEvent(event model.TranscriptEvent) int` — CountTranscriptEvent 估算一条 transcript 事件的 token 数。
 - `func (c *Coordinator) _CountTranscriptEvent(event model.TranscriptEvent) int`
 - `func (c *Coordinator) RecordLLMComplete(ctx context.Context, info session.LLMInfo)` — RecordLLMComplete 记录一次 LLM 完成（真实 usage 校准 + assistant 事件；
 - `func (c *Coordinator) _RecordLLMComplete(ctx context.Context, info session.LLMInfo)`
+- `func (c *Coordinator) BackfillAssistantReasoning(sessionID string, history []contract.EngineMessage) int` — BackfillAssistantReasoning 在聊天回合结束后，用引擎历史中的 assistant
+- `func (c *Coordinator) _BackfillAssistantReasoning(sessionID string, history []contract.EngineMessage) int`
+- `func findReasoningCandidate(candidates []reasoningCandidate, event *model.TranscriptEvent) *reasoningCandidate`
+- `func removeReasoningCandidate(candidates []reasoningCandidate, target *reasoningCandidate) []reasoningCandidate`
+- `func normalizeReasoningContent(content string) string`
+- `func (c *Coordinator) AttributeToolNarrationLocked(sessionID string, call model.TranscriptToolCall, streamed string) bool` — AttributeToolNarrationLocked 把"wire 上被丢弃的迭代说明正文"归位到**产生它
+- `func (c *Coordinator) _AttributeToolNarration(sessionID string, call model.TranscriptToolCall, streamed string) bool`
+- `func (c *Coordinator) matchingPendingCallIDLocked(st *sessionTaskRuntime, call model.TranscriptToolCall) string` — matchingPendingCallIDLocked 返回本轮宣告里与该工具调用匹配的**框架真实调用
+- `func emptyToolCallEventIndex(events []model.TranscriptEvent, callID string) int` — emptyToolCallEventIndex 返回承载指定工具调用、且正文为空的 assistant 事件
+- `func iterationNarrationDelta(events []model.TranscriptEvent, target int, streamed string) (string, bool)` — iterationNarrationDelta 返回本次迭代新增的说明正文：streamed 去掉"本轮在
 - `func (c *Coordinator) EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string)` — EnsureToolCallTranscriptLocked 保证工具调用宣告已入指定会话 transcript
 - `func (c *Coordinator) _EnsureToolCallTranscriptLocked(sessionID, name, fallbackID, arguments string)`
 - `func (c *Coordinator) RecordToolTranscriptLocked(sessionID, name, fallbackID, arguments, result string, toolErr error) (string, string)` — RecordToolTranscriptLocked 记录指定会话工具结果事件（错误呈现/超限引用；

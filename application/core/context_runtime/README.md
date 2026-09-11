@@ -3,8 +3,10 @@
 ## 生态位
 
 上下文装配与控制：provider 上下文 token 预算/压缩/result-ref
-（`ContextController`）与 provider 缓存归一化（`HistoryCoordinator`，空
-content 修复）。
+（`ContextController`）与 provider 历史归一化（`HistoryCoordinator`）。历史
+归一化遵守**跨轮前缀不变量**——每条请求都以更早发出的请求字节为前缀，
+因此 provider 投影必须等于 wire 已发出的字节：携带工具调用的 assistant
+消息正文恒为空、空工具结果不补占位（补写即让该点之后的 prefix cache 失效）。
 
 ## 职责与非职责
 
@@ -46,7 +48,8 @@ content 修复）。
 Review 重点：持锁不得调用外部端口、压缩后历史必须保留 system 前缀缓存
 友好性、内部标记不得进入可见会话、正常路径不得重新注入 checkpoint（恢复
 路径由 `history_safety.go` 单独负责）、累积段字节稳定（已定稿轮次不重排/
-不改写，压缩是唯一使前缀失效的事件）、plan/task 尾部不参与压缩。
+不改写，压缩是唯一使前缀失效的事件）、plan/task 尾部不参与压缩、provider
+投影不得事后补写（工具轮正文归零、空工具结果保持空，否则跨轮前缀失效）。
 
 ## 测试
 
@@ -54,7 +57,9 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 go test ./application/core/context_runtime -count=1
 ```
 
-根包 `context_controller_test.go`/`history_safety_test.go` 覆盖跨域集成。
+根包 `context_controller_test.go`/`history_safety_test.go` 覆盖跨域集成；
+前缀不变量与工具叙述归属分别由 `context_prefix_invariant_test.go`、
+`context_narration_attribution_test.go` 钉住。
 
 ## 文件与函数索引
 
@@ -104,17 +109,29 @@ go test ./application/core/context_runtime -count=1
 
 ### history.go
 
+- `func interruptedToolResultContent(name string) string` — interruptedToolResultContent 生成缺失 tool 结果的协议占位正文：明示该
 - `func NewHistoryCoordinator(core *state.Core) *HistoryCoordinator` — NewHistoryCoordinator 构造 history 域协调器。
 - `func (h *HistoryCoordinator) PrepareProviderHistory() error` — PrepareProviderHistory 使每条持久化消息对拒绝空 content 的 provider 安全
 - `func (h *HistoryCoordinator) PrepareProviderHistoryFor(sessionID string) error` — PrepareProviderHistoryFor 使每条持久化消息对拒绝空 content 的 provider
+- `func (h *HistoryCoordinator) PrepareNewHistoryContentFor(sessionID string) error` — PrepareNewHistoryContentFor 仅修复引擎历史中新 append 的空正文消息
 - `func (h *HistoryCoordinator) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (h *HistoryCoordinator) engineHistory(sessionID string) []contract.EngineMessage` — engineHistory 返回指定会话引擎历史（会话路由引擎用 HistoryFor，否则活跃
-- `func RepairEmptyHistoryContent(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairEmptyHistoryContent 修复空 content 消息（assistant 工具调用 /
+- `func RepairInterruptedToolChains(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairInterruptedToolChains 修复中断（残缺）工具链：assistant 消息携带
+- `func toolResultExistsLater(history []contract.EngineMessage, start int, id string) bool` — toolResultExistsLater 报告指定 tool 调用 ID 的结果是否出现在历史后文
+- `func RepairEmptyHistoryContent(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairEmptyHistoryContent 使历史对拒绝空 content 的 provider 安全
 - `func IsProviderOnlyHistoryContent(content string) bool` — IsProviderOnlyHistoryContent 识别仅用于满足 provider 非空 content 要求的
+
+### history_recovery_test.go
+
+- `func interruptedChainHistory(withSuffixText, atTail bool) []contract.EngineMessage` — interruptedChainHistory 构造残缺工具链 provider 历史（同三处探针语义）：
+- `func TestRepairInterruptedToolChainsFillsMissingResultBeforeSuffixText(t *testing.T)` — TestRepairInterruptedToolChainsFillsMissingResultBeforeSuffixText：
+- `func TestRepairInterruptedToolChainsFillsAllMissingAtTail(t *testing.T)` — TestRepairInterruptedToolChainsFillsAllMissingAtTail：会话尾以残缺链收尾
+- `func TestRepairInterruptedToolChainsSkipsCompleteChainsAndIsIdempotent(t *testing.T)` — TestRepairInterruptedToolChainsSkipsCompleteChainsAndIsIdempotent：
+- `func TestRepairInterruptedToolChainsSkipsWhenResultExistsLater(t *testing.T)` — TestRepairInterruptedToolChainsSkipsWhenResultExistsLater：缺失 ID 的结果
 
 ### history_test.go
 
-- `func TestRepairEmptyHistoryContentRepairsToolCallAssistantContent(t *testing.T)`
+- `func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.T)`
 - `func TestRetainedSystemHistoryKeepsStablePrefixAndSettledContext(t *testing.T)`
 - `func retainedContents(history []contract.EngineMessage) []string`
 - `func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T)` — TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only

@@ -82,14 +82,14 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
 | `search/` | Tavily Web Search 能力：账号池配置加载 + HTTP 客户端（自 `application/search` 迁入，见 `search/README.md`） |
 | `internal/model/` | 账号等各域共享的纯类型层（`AccountSpec`/`AccountRole`，无运行时依赖） |
 | `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`；根 facade 装配细节） |
-| `internal/storage/` | legacy shard 会话存储（`SessionStore`/`NestedSessionStore`） |
 | `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
 | `internal/telemetry/` | 内存遥测追踪器/生命周期钩子构造（`NewTracer`/`NewLifecycleHook`） |
 
-根包经 `plan_aliases.go`/`task_aliases.go`/`fork_aliases.go`/`node_aliases.go`/`security_aliases.go`/
-`model_aliases.go`/`config_aliases.go`/`storage_aliases.go`/`telemetry_aliases.go`
-重导出子包符号（`seelebridge.PlanEdge`、`seelebridge.TaskRecord`、
-`seelebridge.CommandSandbox`、`seelebridge.Message` 等）保持公共 API 兼容。
+根包只保留少量跨域**类型别名**（`ports.go`/`runtime.go`：`Account`、`MCPServer`、
+`NodeWorktree`/`NodeWorktreeInfo`、`ScheduledTask*`、`RuntimeVisibilityProjection`、
+`ParentEvidenceProjection`）；域类型由消费方直接 import 子包
+（`task.TaskRecord`、`plan.PlanEdge`、`security.CommandSandbox` 等），**不再有
+`*_aliases.go` 重导出层**。
 子包遵循"域组件禁止 import seelebridge 根包"的依赖规则，根包→子包单向依赖。
 
 ## Runtime 生命周期
@@ -155,15 +155,17 @@ AccountID 直接 pin，不占用主链路租约。节点执行事实经 `event.S
 ### Plan 执行域组件（`planExecutor`）
 
 Plan 策略、分支绑定、run ID、事件通道、重规划护栏、审批门与子代理工厂的
-状态收进 `planExecutor`（`plan_executor.go`），`Runtime` 保留公开方法委托
+状态收进 `plan.Executor`（`plan/executor.go`；Runtime 字段名仍是 `planExecutor`），
+`Runtime` 保留公开方法委托（`runtime_plan.go`）
 （`SetPlanPolicy`/`SetPlanBranchBinding`/`SetPlanApprovalGate`/
 `SetPlanNodeCallback`/`PlanNodeEventChannel`/`SetEventPersister`/
 `SetEventErrorHandler`/`ReplanMetrics`/`PrepareReplan`），
 `application/contract/ports.go` 不变。组件不持有 `*Runtime`：
 `accounts`/`loadPlanDefinition`/`dispatch`/`nodeFactory` 以 deps 闭包注入，
-`planToolProvider` 持有 `*planExecutor` 引用；节点工厂（`buildNode`/
-`nodeFactory`）仍留在 Runtime，因为 `SeelexAgentNode` 依赖 Runtime 的
-节点作用域与子代理上下文服务。
+`plan.ToolProvider`（`plan/tool_provider.go`，`plan.NewToolProvider` 绑定
+`*plan.Executor`）持有执行器引用；节点工厂（`nodeFactory`/`nodeFactoryDeps`/
+`nodeDeps`，见 `runtime_plan.go`）仍留在 Runtime，因为 `SeelexAgentNode` 依赖
+Runtime 的节点作用域与子代理上下文服务。
 
 ### `fork_subagents` 的结果边界
 
@@ -253,5 +255,5 @@ child agent) and Application drains it by discarding the content — mailbox
 content never enters engine history, the visible conversation, or storage.
 
 项目边界重点在 `project_scope_test.go`/`runtime_test.go`，Plan 内核在
-`plan_kernel_test.go`，账号池/流式租约在 `runtime_test.go`/
-`stream_completer_test.go`，存储兼容在 `storage_test.go`。
+`plan_kernel_test.go`，账号池/流式租约在 `runtime_account_test.go`/
+`internal/stream/stream_test.go`，流式端到端在 `stream_integration_test.go`。

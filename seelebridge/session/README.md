@@ -102,7 +102,7 @@ producer，fork/plan 是消费者；节点工具结果归档（result_ref）也�
   - 为什么不能读：`Session.ChatStream` 从进函数持到出函数整段持有会话锁，
     `Session.History()`/`ExportSnapshot` 用同一把锁。子代理长文流式（实测
     1200 字 ≈ 42s）期间读它会各被挡约 28s，表现为「工作表格卡住不动」。
-  - 计数来源：节点在请求装配路径（`node/coordinator.go` 的
+  - 计数来源：节点在请求装配路径（`seelebridge/node/coordinator.go` 的
     `ScopeAssembler`，即持该节点会话锁的那个 goroutine）调用
     `Coordinator.NoteProgress` 上报 `len(WorkingHistory)`，因此观测侧读到它
     是无锁的；计数变化才 notify，避免每轮装配触发一次重投影。

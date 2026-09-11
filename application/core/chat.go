@@ -178,9 +178,10 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// 落盘前回填 transcript 事件，使 record/重启恢复保留工具轮间的
 		// LLM 输出与草稿（2026-09-08 持久化缺口修复）。
 		service.components.tasks.BackfillAssistantReasoning(sessionID, service.engineHistoryFor(sessionID))
-		// 流式正文（工具调用前 LLM 输出的说明文本）只进过视图、不在引擎
-		// 消息里：落盘前把缺失正文并入对应 tool_call transcript 事件。
-		service.mergeStreamedToolNarration(sessionID)
+		// 工具轮说明正文的归位已前移到工具钩子边界
+		// （handleToolStart → AttributeToolNarrationLocked）：回合收尾不再做
+		// “事后填充”，否则叙述会落到别的轮次
+		// （application/core/context_narration_attribution_test.go）。
 		if contextErr := service.components.context.TakeContextControlFailure(requestID); contextErr != nil {
 			err = contextErr
 		}
@@ -789,28 +790,28 @@ func (service *Service) attachLatestReasoning(sessionID, requestID string) {
 	service.ViewMu.Unlock()
 }
 
-// mergeStreamedToolNarration 在持久化前把视图中“引擎消息里没有对应正文”的
-// assistant 文本并入 transcript 的 tool_call 事件（框架 CompleteStream 返回
-// toolCalls 时丢弃 content，正文只经 onChunk 进视图；不合并则 record/恢复
-// 只剩工具痕迹）。调用方已离开 ChatStream、未持 ViewMu。
-func (service *Service) mergeStreamedToolNarration(sessionID string) {
-	candidates := make([]string, 0, 4)
-	service.ViewMu.Lock()
+// streamedAssistantTextLocked 返回会话可见投影里本轮的 assistant 正文累积
+// （= 本次请求截至当前的可见流式正文）。流式增量按 appendVisibleDelta 的同一
+// 规则落在"最后一条非工具 assistant 消息"上（每轮在回合开头已有占位消息）；
+// 工具轮说明正文的**按迭代归位**以它为基准
+// （见 task_context.AttributeToolNarrationLocked）。调用方持有 Core.ViewMu
+// （工具钩子边界）。
+func (service *Service) streamedAssistantTextLocked(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	text := ""
 	service.components.view.SessionViewReadLocked(sessionID, func(view *session.View) {
-		for _, message := range view.Conversation {
+		for index := len(view.Conversation) - 1; index >= 0; index-- {
+			message := view.Conversation[index]
 			if message.Role != "assistant" || message.Tool != nil {
 				continue
 			}
-			if strings.TrimSpace(message.Content) == "" {
-				continue
-			}
-			candidates = append(candidates, message.Content)
+			text = message.Content
+			return
 		}
 	})
-	service.ViewMu.Unlock()
-	if len(candidates) > 0 {
-		service.components.tasks.MergeToolNarration(sessionID, candidates)
-	}
+	return text
 }
 
 func (service *Service) appendHistoryLocked(history []EngineMessage) {

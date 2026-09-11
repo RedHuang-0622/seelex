@@ -1,8 +1,10 @@
-# core/work-table
+# core/work-table（根包分卷）
 
 ## 生态位
 
 工作表格投影与测试
+
+覆盖：`work_table*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 

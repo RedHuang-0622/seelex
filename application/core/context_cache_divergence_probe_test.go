@@ -15,9 +15,11 @@ package core
 //  1. Seele ReAct 循环 per-iteration 追加 assistant（tool_calls 时 Content=nil，
 //     见 Seele@v0.1.3/session/loop.go callLLM 的 `msg := types.Message{Role:
 //     "assistant", Content: nil, ToolCalls: toolCalls}`）与 tool 消息；
-//  2. OnLLMComplete 钩子（ToolHookBridge.Hooks）落 transcript assistant 事件；
-//  3. 回合结束的生产收尾三连：EnsureFinalAssistantTranscript →
-//     BackfillAssistantReasoning → mergeStreamedToolNarration；
+//  2. OnLLMComplete 钩子（ToolHookBridge.Hooks）落 transcript assistant 事件，
+//     OnToolStart 钩子边界把本轮迭代的说明正文按迭代归位到该事件
+//     （AttributeToolNarrationLocked）；
+//  3. 回合结束的生产收尾两连：EnsureFinalAssistantTranscript →
+//     BackfillAssistantReasoning（说明正文的归位已前移，回合收尾不再事后填充）；
 //  4. 下一轮 PrepareExecutionContextFor 从 transcript 重建 + 空正文修复。
 //
 // 请求序列化沿用冒烟用例的 serializeRequest（system 在头部、工具目录在尾部，
@@ -59,8 +61,6 @@ type prefixProbeConfig struct {
 	// false = 生产实测（Seele loop.callLLM 在 tool_calls 时把 Content 置 nil，
 	// 正文只经 onChunk 进视图）；true = 对照（正文进引擎历史与 transcript）。
 	engineKeepsToolContent bool
-	// mergeNarration = 回合结束是否执行 mergeStreamedToolNarration。
-	mergeNarration bool
 }
 
 // prefixProbeCall 是一次「会发给 provider 的请求」快照。
@@ -191,6 +191,13 @@ func (h *prefixProbeHarness) toolRound(name, callID, arguments, result string) {
 	h.t.Helper()
 	h.service.ViewMu.Lock()
 	h.service.components.tasks.EnsureToolCallTranscriptLocked(h.session, name, callID, arguments)
+	// 生产 handleToolStart 的归位步骤：把本次迭代的说明正文（视图累积 − 本轮
+	// 已归位前缀）挂到刚就位的 tool_call 事件上——调用同一个生产方法，不在
+	// 探针里复制算法。传入的 ID 与生产同形（桥接层合成值，框架真实调用 ID 由
+	// pendingProviderCalls 解析）。
+	h.service.components.tasks.AttributeToolNarrationLocked(h.session,
+		TranscriptToolCall{ID: "tool-" + callID, Name: name, Arguments: arguments},
+		h.service.streamedAssistantTextLocked(h.session))
 	h.service.appendMessageLocked("tool", "", &ToolCall{ID: callID, Name: name, Arguments: arguments, Status: "running"})
 	providerResult, _ := h.service.components.tasks.RecordToolTranscriptLocked(h.session, name, callID, arguments, result, nil)
 	h.service.components.tasks.ObserveTool(task_context.ToolObservation{RequestID: prefixProbeRequestID, Name: name, Result: providerResult})
@@ -202,24 +209,22 @@ func (h *prefixProbeHarness) toolRound(name, callID, arguments, result string) {
 	}
 }
 
-// finishTurn 复刻 runChat 的回合收尾三连（chat.go:175/180/183）。
-func (h *prefixProbeHarness) finishTurn(reply string, cfg prefixProbeConfig) {
+// finishTurn 复刻 runChat 的回合收尾（chat.go:175/180）：补终态 assistant 事件 +
+// 回填推理草稿。工具轮说明正文的归位已前移到工具钩子边界（toolRound），回合收尾
+// 不再做“事后填充”——否则叙述会落到别的轮次/会话。
+func (h *prefixProbeHarness) finishTurn(reply string) {
 	h.t.Helper()
-	before := h.toolCallEventContents()
 	h.service.components.tasks.EnsureFinalAssistantTranscript(prefixProbeRequestID, reply)
 	h.service.components.tasks.BackfillAssistantReasoning(h.session, h.engine.History())
-	if cfg.mergeNarration {
-		h.service.mergeStreamedToolNarration(h.session)
-	}
 	after := h.toolCallEventContents()
-	merged := 0
+	attributed := 0
 	for index := range after {
-		if index < len(before) && before[index] == "" && after[index] != "" {
-			merged++
+		if after[index] != "" {
+			attributed++
 		}
 	}
-	h.t.Logf("  end-of-turn: transcript assistant(tool) events=%d narration-merged=%d view-assistant-text=%q",
-		len(after), merged, summarizeProbeText(h.visibleAssistantText()))
+	h.t.Logf("  end-of-turn: transcript assistant(tool) events=%d narration-attributed=%d view-assistant-text=%q",
+		len(after), attributed, summarizeProbeText(h.visibleAssistantText()))
 	for index := range after {
 		h.t.Logf("    transcript assistant(tool) #%d content=%q", index, summarizeProbeText(after[index]))
 	}
@@ -418,9 +423,8 @@ func logProbeDivergence(t *testing.T, kind string, divergence prefixProbeDiverge
 //   - H3：工作打点表块（请求尾部的动态块）改变是否只影响尾部。
 func TestContextCacheDivergenceProbe_TwoTurnToolCliff(t *testing.T) {
 	configs := []prefixProbeConfig{
-		{name: "A-production(drop+merge)", engineKeepsToolContent: false, mergeNarration: true},
-		{name: "B-nomerge(drop only)", engineKeepsToolContent: false, mergeNarration: false},
-		{name: "C-control(keeps content)", engineKeepsToolContent: true, mergeNarration: false},
+		{name: "A-production(drop+attribute)", engineKeepsToolContent: false},
+		{name: "C-control(keeps content)", engineKeepsToolContent: true},
 	}
 	for _, cfg := range configs {
 		t.Run(cfg.name, func(t *testing.T) { runPrefixProbeTwoTurns(t, cfg) })
@@ -469,7 +473,7 @@ func runPrefixProbeTwoTurns(t *testing.T, cfg prefixProbeConfig) {
 	// 迭代 3：最终答复（同样流式进视图：视图正文 = 说明 + 答复的拼接）。
 	harness.streamText(turnOneReply)
 	harness.llmIteration(turnOneReply, "整理结论。", nil)
-	harness.finishTurn(turnOneReply, cfg)
+	harness.finishTurn(turnOneReply)
 
 	// 回合间：工作打点表出现新条目（尾部动态块变化 → H3 观察点）。
 	harness.runtime.tasks = map[string]dto.TaskRecord{

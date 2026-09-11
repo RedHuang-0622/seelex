@@ -1,8 +1,10 @@
-# core/session
+# core/session（根包分卷）
 
 ## 生态位
 
 会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）
+
+覆盖：`session*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 历史分页契约（2026-09-11）
 
@@ -25,6 +27,36 @@
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### approval_session_ownership_test.go
+
+- `func waitApprovalCount(t *testing.T, service *Service, sessionID string, want int)` — waitApprovalCount 轮询指定会话单元的待批数直到到达目标（approval 观察
+- `func TestApprovalSessionOwnershipStatusAndSnapshot(t *testing.T)` — TestApprovalSessionOwnershipStatusAndSnapshot 波 4 approval 会话级归属：
+- `func TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById(t *testing.T)` — TestBackgroundApprovalDoesNotClobberViewSlotAndResolvesById 波 4 归属：
+- `func TestApprovalConcurrentSessionsStayAttributed(t *testing.T)` — TestApprovalConcurrentSessionsStayAttributed -race 靶场：两会话并发开
+- `func startsWithApprovalID(id, prefix string) bool`
+
+### fork_gate_test.go
+
+- `func (runtime *forkGateRuntime) ForkInFlight(string) bool`
+- `func TestSubmitRejectedWhileForkRunning(t *testing.T)` — TestSubmitRejectedWhileForkRunning 钉住“fork 运行时禁止同会话继续对话”
+
+### hot_attach_running_test.go
+
+- `func newFrameworkLockEngine() *frameworkLockEngine`
+- `func (engine *frameworkLockEngine) lockFor(sessionID string) *sync.Mutex`
+- `func (engine *frameworkLockEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)` — ChatStreamFor 持锁到 release（模拟 framework Session.ChatStream 全程持锁）。
+- `func (engine *frameworkLockEngine) SetSystemPromptFor(sessionID, prompt string)` — SetSystemPromptFor 需要会话锁：运行中会话调用会阻塞（生产死锁源）。
+- `func (engine *frameworkLockEngine) promptCallCount(sessionID string) int`
+- `func TestHotAttachRunningSessionDoesNotBlockOnEngineLock(t *testing.T)` — TestHotAttachRunningSessionDoesNotBlockOnEngineLock（生产死锁回归）：
+
+### interrupted_continue_test.go
+
+- `func TestColdResumeContinueAfterInterruptedToolChain(t *testing.T)` — TestColdResumeContinueAfterInterruptedToolChain：重启后 continue 场景端到端
+
+### message_seq_scope_test.go
+
+- `func TestVisibleMessageSeqIsScopedPerSession(t *testing.T)` — TestVisibleMessageSeqIsScopedPerSession 钉住可见消息派号的会话作用域：
 
 ### session_archive_test.go
 
@@ -53,6 +85,7 @@
 - `func TestLoadedPlanIsAppendedToSessionPlanStack(t *testing.T)`
 - `func TestResumeSessionUsesRecordWhenProviderHistoryIsUnavailable(t *testing.T)`
 - `func TestResumeSessionContinuationKeepsTranscriptHistory(t *testing.T)`
+- `func TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents(t *testing.T)` — TestResumeSessionContinuationKeepsToolStepsWithoutEmptyAssistantEvents 是
 - `func TestResumeSessionContinuationKeepsTrailingUnansweredUserInput(t *testing.T)`
 - `func TestProviderRepairNoteNeverBecomesVisibleAssistantText(t *testing.T)`
 
@@ -97,6 +130,12 @@
 - `func TestSnapshotOfColdUnknownSessionStillUnavailable(t *testing.T)` — TestSnapshotOfColdUnknownSessionStillUnavailable 钉住未知会话的失败语义
 - `func TestGetSessionTranscriptRange(t *testing.T)` — TestGetSessionTranscriptRange 钉住冷读区间语义：含端点、倒置显式报错、
 - `func TestListSessionsReturnsAuthoritativeDirectory(t *testing.T)` — TestListSessionsReturnsAuthoritativeDirectory C1：目录枚举不要求视图快照
+
+### session_concurrent_content_isolation_test.go
+
+- `func TestConcurrentSessionsKeepOwnContent(t *testing.T)`
+- `func concurrentTranscriptText(events []TranscriptEvent) string` — concurrentTranscriptText 把 transcript 拼成可搜索文本（角色 + 正文 + 调用 ID）。
+- `func concurrentViewText(service *Service, sessionID string) string` — concurrentViewText 返回指定会话可见视图的全部消息文本（用户 + assistant +
 
 ### session_ctx.go
 
@@ -471,3 +510,28 @@
 ### session_switch_running_cold_test.go
 
 - `func TestColdResumeWhileRunningIsAsync(t *testing.T)` — TestColdResumeWhileRunningIsAsync 复现“会话运行中切换到冷加载目标长期处于
+
+### shutdown_concurrent_test.go
+
+- `func (engine *cancelAwareEngine) ChatStream(ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *cancelAwareEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *cancelAwareEngine) count() int`
+- `func TestShutdownConcurrentRunningSessions(t *testing.T)` — TestShutdownConcurrentRunningSessions（R5）：运行中多会话 + 并发 Shutdown
+
+### subscribe_session_test.go
+
+- `func TestSubscribeSessionFollowsDraftMaterialization(t *testing.T)` — TestSubscribeSessionFollowsDraftMaterialization 验证早分配 SID 后，草稿
+- `func TestSubscribeSessionFollowsViewPointer(t *testing.T)` — TestSubscribeSessionFollowsViewPointer 验证空 sid 订阅（过渡口径）仍按
+
+### view_singleton_test.go
+
+- `func TestViewSingletonMirrorConsistent(t *testing.T)` — TestViewSingletonMirrorConsistent（M4/INV-M4）：V 的唯一镜像
+- `func TestDraftMaterializeStreamsMirrorToSnapshot(t *testing.T)` — TestDraftMaterializeStreamsMirrorToSnapshot：草稿物化后流式增量走活跃路径，
+
+### view_switch_isolation_test.go
+
+- `func TestLongRunningSessionSurvivesViewSwitch(t *testing.T)` — TestLongRunningSessionSurvivesViewSwitch（视图切换隔离用例）：先开启一个
+- `func readSessionView(t *testing.T, service *Service, sessionID string) []Message`
+- `func viewText(messages []Message) string`
+- `func joinHistoryText(history []EngineMessage) string`
+- `func joinTranscript(t *testing.T, service *Service, sessionID string) string`

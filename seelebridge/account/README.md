@@ -3,9 +3,9 @@
 ## 模块定位
 
 承载 Seelex 的账号装配与选择：从账号配置构造同步 Completer、注册进 P2C
-账号池、按 role+seed 稳定哈希解析节点账号。主要调用方：`runtime.go`
-（NewRuntime 装配、accountSelector）、`branch.go`（已并入 runtime.go 的
-分支账号路由）。
+账号池、按 role+seed 稳定哈希解析节点账号。主要调用方：根包 `runtime.go`
+（NewRuntime 装配与账号池注册）与 `runtime_account.go`（`accountSelector`
+与分支账号路由，原独立路由文件已并入）。
 
 ## 职责与非职责
 

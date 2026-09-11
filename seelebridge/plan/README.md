@@ -22,9 +22,10 @@
 - `branch_types.go`：`PlanBranchBinding`/`PlanBranchEvent` 分支绑定类型。
 - `authority.go`：`AuthorizePlanMutation` 变更授权钩子（当前放行）。
 
-根包 `plan_aliases.go` 全量重导出保持公共 API 兼容；Runtime 保留 plan 门面
-（`PrepareReplan`/`currentPlanPolicy`/`SetPlanPolicy`/...）+ `buildNode`/
-`nodeFactory`（SeelexAgentNode 依赖 Runtime 节点作用域服务）。
+根包 `runtime_plan.go` 保留 plan 门面
+（`PrepareReplan`/`currentPlanPolicy`/`SetPlanPolicy`/...）+ 节点工厂
+`nodeFactory`/`nodeFactoryDeps`（`SeelexAgentNode` 依赖 Runtime 节点作用域
+服务）；不再有根包重导出层。
 
 ## 与其它域的关系
 

@@ -1,8 +1,10 @@
-# core/history
+# core/history（根包分卷）
 
 ## 生态位
 
 历史检索与 provider 失败恢复
+
+覆盖：`history*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 

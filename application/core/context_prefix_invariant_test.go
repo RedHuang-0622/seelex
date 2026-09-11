@@ -6,8 +6,8 @@ package core
 // 为前缀**（相邻请求即上一条）。这是 provider 前缀缓存命中的必要条件，也是
 // Codex `core/tests/suite/prompt_caching.rs` 断言同款性质。
 //
-// 生产实测在「回合边界」被两处**事后改写**打穿（wire 上的字节从来没变，
-// 变的是下一轮重投影时被改写的那份记录）：
+// 生产实测在「回合边界」被**事后改写**打穿（wire 上的字节从来没变，变的是
+// 下一轮重投影时被改写的那份记录）：
 //
 //  1. 工具轮 assistant 正文：wire 上恒为空（Seele `session/loop.go:564`
 //     在 tool_calls 时 `Content: nil`），但回合收尾
@@ -15,10 +15,12 @@ package core
 //     下一轮从转写重投影 → 该消息字节 ≠ 已发出字节。
 //  2. 同一轮"无说明文本"的工具轮 assistant：durable 里正文为空，下一轮装配
 //     时 `RepairEmptyHistoryContent` 注入 `ToolCallHistoryContent` 占位 →
-//     同样分叉。
+//     同样分叉（同一条规则已覆盖）。
+//  3. **空工具结果**：工具返回空串时 wire 上该 tool 消息正文为空，下一轮重投影
+//     却被补成 `MissingHistoryContent` 占位 → 同类分叉（独立用例守住）。
 //
 // 断言到「相邻两条请求」的粒度，首条不满足即失败，并打印首个差异消息的
-// role / tool_calls / 两侧正文，使红灯原因可归因到上面两处。
+// role / tool_calls / 两侧正文，使红灯原因可归因。
 //
 // 运行：go test ./application/core -run ContextPrefixInvariant -v -count=1
 
@@ -60,13 +62,47 @@ func TestContextPrefixInvariant_CrossTurn(t *testing.T) {
 
 	harness.streamText(reply)
 	harness.llmIteration(reply, "整理结论。", nil)
-	harness.finishTurn(reply, prefixProbeConfig{name: "production", mergeNarration: true})
+	harness.finishTurn(reply)
 
 	// ── 第 2 轮：首个请求即"从 durable 转写重投影"出来的那条 ──
 	harness.beginTurn("第 2 轮：继续，并说明上一轮工具结果的失效影响。")
 	harness.capture(2, 1, "t2.iter1")
 
-	// ── 断言：相邻请求必须保持字节前缀 ──
+	probeAssertPrefixInvariant(t, harness)
+}
+
+// TestContextPrefixInvariant_EmptyToolResult 覆盖第 3 处事后改写：工具返回空
+// 结果时，wire 上该 tool 消息没有正文；下一轮重投影若补 `MissingHistoryContent`
+// 占位，字节就与已发出请求分叉（provider 前缀缓存自该消息起失效）。
+func TestContextPrefixInvariant_EmptyToolResult(t *testing.T) {
+	harness := newPrefixProbeHarness(t, 1_000_000)
+	harness.startStream()
+
+	toolReply := "第 1 轮结论：该工具没有任何输出。"
+	harness.beginTurn("第 1 轮：跑一个只读、无输出的工具。")
+	harness.capture(1, 1, "t1.iter1")
+
+	harness.streamText("我先跑一次只读命令。")
+	harness.llmIteration("", "只读命令无副作用。", []types.ToolCall{{
+		ID: "call-empty-1", Type: "function",
+		Function: types.ToolCallFunction{Name: "bash", Arguments: `{"command":"true"}`},
+	}})
+	harness.toolRound("bash", "call-empty-1", `{"command":"true"}`, "")
+	harness.capture(1, 2, "t1.iter2")
+
+	harness.streamText(toolReply)
+	harness.llmIteration(toolReply, "整理结论。", nil)
+	harness.finishTurn(toolReply)
+
+	harness.beginTurn("第 2 轮：继续，上一轮工具没有输出。")
+	harness.capture(2, 1, "t2.iter1")
+
+	probeAssertPrefixInvariant(t, harness)
+}
+
+// probeAssertPrefixInvariant 断言相邻请求保持字节前缀；首条违反即失败并归因。
+func probeAssertPrefixInvariant(t *testing.T, harness *prefixProbeHarness) {
+	t.Helper()
 	for index := 1; index < len(harness.calls); index++ {
 		previous, current := harness.calls[index-1], harness.calls[index]
 		if strings.HasPrefix(current.bytes, previous.bytes) {
@@ -76,10 +112,7 @@ func TestContextPrefixInvariant_CrossTurn(t *testing.T) {
 		}
 		shared := lcpBytes(previous.bytes, current.bytes)
 		messageIndex, role := prefixProbeFirstDiff(previous.messages, current.messages)
-		reason := "unknown"
-		if kind := probeFirstDiffKind(previous.messages, current.messages, messageIndex); kind != "" {
-			reason = kind
-		}
+		reason := probeFirstDiffKind(previous.messages, current.messages, messageIndex)
 		t.Logf("prefix BREAK %-9s → %-9s: shared=%d/%d B, first_diff=msg#%d(role=%s, tool_calls=%s), reason=%s",
 			previous.label, current.label, shared, len(previous.bytes), messageIndex, role,
 			probeCallIDs(probeMessageAt(previous.messages, messageIndex).ToolCalls), reason)
@@ -90,7 +123,7 @@ func TestContextPrefixInvariant_CrossTurn(t *testing.T) {
 	}
 }
 
-// probeMessageAt 返回序列化消息快照中的第 index 条（越界返回 nil 语义的空消息）。
+// probeMessageAt 返回序列化消息快照中的第 index 条（越界返回空消息）。
 func probeMessageAt(messages []EngineMessage, index int) EngineMessage {
 	if index < 0 || index >= len(messages) {
 		return EngineMessage{}

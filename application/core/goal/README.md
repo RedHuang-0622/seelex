@@ -190,14 +190,15 @@ go test -race ./application/core/goal/ -count=1
 ### audit.go
 
 - `func (e AuditEntry) normalized() AuditEntry` — normalized 返回文本字段有界的副本。
-- `func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntry) error` — AppendGoalAudit 实现 AuditAccount：映射为 sessionstore GoalAuditEntry 后追加到会话账本（写入前确保会话 context 已 Load，避免覆盖既有账本）。
+- `func truncateAuditText(value string) string`
+- `func (s *ContextStateStore) AppendGoalAudit(ctx context.Context, entry AuditEntry) error` — AppendGoalAudit 实现 AuditAccount：映射为 sessionstore GoalAuditEntry 后
 
 ### audit_test.go
 
-- `func TestControllerAuditAppendOnlyLifecycle(t *testing.T)` — TestControllerAuditAppendOnlyLifecycle 验证 Controller 自动审计：begin/update/finish 各追加一条（seq 单调）；GoalStack 活栈终态清空，而审计账本保留终态收口记录（reason/result）。
-- `func TestControllerAuditNestedRestoreAndTerminal(t *testing.T)` — TestControllerAuditNestedRestoreAndTerminal 验证嵌套治理审计：子 finish 追加 finish(child)+restore(parent)，父 finish 追加 finish(parent)；seq 严格递增且终态帧只进账本、不进活栈。
-- `func TestAuditSourceSessionProvenanceRoundTrip(t *testing.T)` — TestAuditSourceSessionProvenanceRoundTrip 验证"用户在其它会话完成 goal"的出处可审计：装配方可在收口条目携带 SourceSession，条目仍留在原会话账本（不跨会话写入），持久化/重载后出处不丢。
-- `func TestAuditPerSessionIsolation(t *testing.T)` — TestAuditPerSessionIsolation 验证审计按会话隔离：两会话各自审计独立编号，不互相串写。
+- `func TestControllerAuditAppendOnlyLifecycle(t *testing.T)` — TestControllerAuditAppendOnlyLifecycle 验证 Controller 自动审计：
+- `func TestControllerAuditNestedRestoreAndTerminal(t *testing.T)` — TestControllerAuditNestedRestoreAndTerminal 验证嵌套治理审计：子 finish
+- `func TestAuditSourceSessionProvenanceRoundTrip(t *testing.T)` — TestAuditSourceSessionProvenanceRoundTrip 验证"用户在其它会话完成 goal"
+- `func TestAuditPerSessionIsolation(t *testing.T)` — TestAuditPerSessionIsolation 验证审计按会话隔离：两会话各自审计独立
 
 ### controller.go
 
@@ -220,6 +221,7 @@ go test -race ./application/core/goal/ -count=1
 - `func (s *Subscription) Dropped() int64` — Dropped 返回因缓冲满而被丢弃的事件数（事件自带全量投影，可覆盖追平）。
 - `func (c *Controller) emitLocked(event Event)` — emitLocked 在持锁下向全部订阅者投递；不阻塞（满则 dropped++）。
 - `func (c *Controller) persistLocked(ctx context.Context) error` — persistLocked 在持锁下持久化当前栈（无 store 时为空操作）。
+- `func (c *Controller) appendAuditLocked(ctx context.Context, entry AuditEntry) error` — appendAuditLocked 在持锁下向审计账本追加一条有界审计（无 Audit 时为空
 - `func (c *Controller) Reload(ctx context.Context) error` — Reload 从 Store 装载 goal 栈（崩溃/重启恢复；design §3.7）。装载后修正：
 
 ### controller_test.go
@@ -229,8 +231,8 @@ go test -race ./application/core/goal/ -count=1
 - `func TestBeginFinishSingle(t *testing.T)` — TestBeginFinishSingle 验证会话单例主路径：begin → update → finish 弹栈删除、
 - `func TestStackDepthRejectsNested(t *testing.T)` — TestStackDepthRejectsNested 验证 D2 会话单例：depth=1 时嵌套 begin 被拒。
 - `func TestNestedDepthRestores(t *testing.T)` — TestNestedDepthRestores 验证 D2 放开嵌套（depth>1）：压栈下层 paused、
-- `func TestNestedGoalsPopLIFOUntilEmpty(t *testing.T)` — TestNestedGoalsPopLIFOUntilEmpty 验证嵌套逐层弹栈直至栈空（治理收口前提）：父→子 begin；子 finish → 父恢复 active；父 finish → 栈空、History=2、投影复位（design §2.1a 契约 1/2/6）。
-- `func TestGoalStackDepthBound(t *testing.T)` — TestGoalStackDepthBound 验证 Depth 放开后仍受 MaxStackDepth 上限约束：超限构造被夹紧，压满后继续 begin 拒绝（ErrStackFull）。
+- `func TestNestedGoalsPopLIFOUntilEmpty(t *testing.T)` — TestNestedGoalsPopLIFOUntilEmpty 验证嵌套逐层弹栈直至栈空（治理收口
+- `func TestGoalStackDepthBound(t *testing.T)` — TestGoalStackDepthBound 验证 Depth 放开后仍受 MaxStackDepth 上限约束：
 - `func TestUpdateOnlyActive(t *testing.T)` — TestUpdateOnlyActive 验证更新边界：空栈/非 active 不可更新。
 - `func TestAbortPopsAndHistory(t *testing.T)` — TestAbortPopsAndHistory 验证 abort 路径。
 - `func TestIdempotentBegin(t *testing.T)` — TestIdempotentBegin 验证同标题 active 幂等返回现有 goal。
@@ -317,6 +319,23 @@ go test -race ./application/core/goal/ -count=1
 - `func (r *GoalRecord) validateBegin() error`
 - `func newGoalRecord(id string, request BeginRequest, now int64) *GoalRecord` — newGoalRecord 由 BeginRequest 构造记录并应用默认值。
 
+### sessionstore_store.go
+
+- `func NewContextStateStore(session *sessionstore.SessionContextStore) *ContextStateStore` — NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回
+- `func (s *ContextStateStore) Load(ctx context.Context) ([]*GoalRecord, error)` — Load 实现 Store：从会话 GoalStack 读取当前栈（空栈返回空切片）。
+- `func (s *ContextStateStore) Save(ctx context.Context, records []*GoalRecord) error` — Save 实现 Store：全量替换会话 GoalStack 并持久化。写入前先确保会话
+- `func goalFramesFromRecords(records []*GoalRecord) []sessionstore.GoalFrame` — goalFramesFromRecords 把 goal 域记录投影为 sessionstore 第五栈帧
+- `func recordsFromGoalFrames(frames []sessionstore.GoalFrame) []*GoalRecord` — recordsFromGoalFrames 把 sessionstore 第五栈帧还原为 goal 域记录
+
+### sessionstore_store_test.go
+
+- `func newSessionRouterForGoalTest(t *testing.T) *sessionstore.Router`
+- `func newGoalSessionStore(t *testing.T, router *sessionstore.Router, sessionID string) *sessionstore.SessionContextStore`
+- `func TestContextStateStoreReloadRestoresNestedStack(t *testing.T)` — TestContextStateStoreReloadRestoresNestedStack 验证会话恢复：Controller
+- `func TestContextStateStoreSessionIsolation(t *testing.T)` — TestContextStateStoreSessionIsolation 验证 goal 第五栈按会话隔离：
+- `func TestContextStateStoreFinishPopsToEmpty(t *testing.T)` — TestContextStateStoreFinishPopsToEmpty 验证栈空语义落盘：子 goal 完成 →
+- `func TestContextStateStoreNilRejects(t *testing.T)` — TestContextStateStoreNilRejects 验证未装配会话上下文存储时 Store 显式失败。
+
 ### stack.go
 
 - `func (s *Stack) Len() int` — Len 返回栈中 goal 数。
@@ -337,21 +356,6 @@ go test -race ./application/core/goal/ -count=1
 - `func NewJSONFileStore(path string) *JSONFileStore` — NewJSONFileStore 构造文件存储（父目录需存在；测试用 t.TempDir()）。
 - `func (s *JSONFileStore) Load(_ context.Context) ([]*GoalRecord, error)` — Load 实现 Store；文件不存在视为空栈。
 - `func (s *JSONFileStore) Save(_ context.Context, records []*GoalRecord) error` — Save 实现 Store（原子写：同目录 temp + rename）。
-
-### sessionstore_store.go
-
-- `func NewContextStateStore(session *sessionstore.SessionContextStore) *ContextStateStore` — NewContextStateStore 构造适配器。session 为 nil 时 Load/Save 返回 ErrStoreUnavailable（未装配会话上下文存储的降级路径）。
-- `func (s *ContextStateStore) Load(ctx context.Context) ([]*GoalRecord, error)` — Load 实现 Store：从会话 GoalStack 读取当前栈（空栈返回空切片）。
-- `func (s *ContextStateStore) Save(_ context.Context, records []*GoalRecord) error` — Save 实现 Store：全量替换会话 GoalStack 并持久化。
-- `func goalFramesFromRecords(records []*GoalRecord) []sessionstore.GoalFrame` — goalFramesFromRecords 把 goal 域记录投影为 sessionstore 第五栈帧（深拷贝切片/映射；EnteredAt 由 CreatedAt 推导，fork 时间截断可用）。
-- `func recordsFromGoalFrames(frames []sessionstore.GoalFrame) []*GoalRecord` — recordsFromGoalFrames 把 sessionstore 第五栈帧还原为 goal 域记录（Reload 输入；Status 非法时保留原字符串，由 Controller.Reload 的位置语义修正 active/paused）。
-
-### sessionstore_store_test.go
-
-- `func TestContextStateStoreReloadRestoresNestedStack(t *testing.T)` — TestContextStateStoreReloadRestoresNestedStack 验证会话恢复：Controller 栈变更经 ContextStateStore 落 sessionstore GoalStack；新 Controller Reload 后恢复嵌套栈（下层 paused / 栈顶 active + progress）与 seq 续号。
-- `func TestContextStateStoreSessionIsolation(t *testing.T)` — TestContextStateStoreSessionIsolation 验证 goal 第五栈按会话隔离：会话 A 的 goal 不污染会话 B（恢复路径读各自 GoalStack）。
-- `func TestContextStateStoreFinishPopsToEmpty(t *testing.T)` — TestContextStateStoreFinishPopsToEmpty 验证栈空语义落盘：子 goal 完成 → 父恢复 active；父完成 → 栈空，重载后治理从零开始。
-- `func TestContextStateStoreNilRejects(t *testing.T)` — TestContextStateStoreNilRejects 验证未装配会话上下文存储时 Store 显式失败。
 
 ### supervisor_test.go
 
@@ -397,3 +401,4 @@ go test -race ./application/core/goal/ -count=1
 - `func newTestSupervisor(t *testing.T, ctl *Controller, window int, replies ...TLDirective) (*Supervisor, *stubEvaluator)` — newTestSupervisor 构造带 stub 评估器的监督器。
 - `func TestA2AContractValidation(t *testing.T)`
 - `func TestMailboxBoundedDirectivesAndOverflow(t *testing.T)`
+

@@ -1,8 +1,10 @@
-# core/reference
+# core/reference（根包分卷）
 
 ## 生态位
 
 read_tool_result / read_plan 引用工具
+
+覆盖：`reference*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 

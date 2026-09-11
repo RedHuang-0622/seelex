@@ -1,8 +1,10 @@
-# core/misc
+# core/misc（根包分卷）
 
 ## 生态位
 
-基础与杂项（aliases/limits/completion/compressed/diagnostics/runtime/workspace/race）
+基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
+
+覆盖：显式名单 18 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -52,10 +54,25 @@
 
 - `func RenderDiag(snap Snapshot) string` — RenderDiag 构建诊断文本。由 /diag 命令调用。
 
+### fault_guard.go
+
+- `func (service *Service) degradeAndRequestExit(reason string)` — degradeAndRequestExit 进入降级退出路径（幂等）。调用方不得持有任何锁。
+- `func (service *Service) handleLifecycleFault(recovered any)` — handleLifecycleFault 处理生命周期消费者中的并发/逻辑故障：先降级退出，
+- `func logPanicReason(recovered any) string`
+
+### fault_guard_test.go
+
+- `func TestDegradeAndRequestExitNotifiesHost(t *testing.T)` — TestDegradeAndRequestExitNotifiesHost：降级退出必须幂等、标记 closed/
+- `func TestLifecycleFaultPanicsAfterDegrade(t *testing.T)` — TestLifecycleFaultPanicsAfterDegrade：生命周期消费者中的故障不再被静默
+
 ### limits.go
 
 - `func ApplyLimits(l seelexctx.Limits)` — ApplyLimits 应用 seele.yaml limits 段（零值字段自动补默认）；
 - `func Limits() seelexctx.Limits` — Limits 返回当前生效的运行时上限（只读拷贝语义）。
+
+### perf_stats.go
+
+- `func (service *Service) PerfStats() model.PerfStats` — PerfStats 返回 GUI 性能追踪钩子的后端数据面：只上报数量/体积等无内容
 
 ### race_test.go
 
@@ -107,6 +124,38 @@
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布
 - `func latestVisibleUserGoal(messages []Message) string`
 - `func truncateRuntimeProjectionGoal(content string) string`
+
+### snapshot_budget.go
+
+- `func snapshotToolOutputLimit() int` — snapshotToolOutputLimit 返回可见会话快照单条工具输出的字符预算
+- `func toolOutputPreview(content string, limit int) (string, bool)` — toolOutputPreview 把超限工具输出截断为快照预览：取前 limit 字节（按
+- `func (service *Service) boundToolResultForSnapshot(name, content string) (visible string, ref string, truncated bool, totalChars int)` — boundToolResultForSnapshot 生成进入可见会话快照的工具输出（调用方持有
+
+### snapshot_budget_test.go
+
+- `func TestToolOutputPreviewTruncates(t *testing.T)` — TestToolOutputPreviewTruncates 验证快照预览截断：超过阈值只留前 N 字符
+- `func TestBoundToolResultForSnapshotArchives(t *testing.T)` — TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为
+- `func TestToolResultContentPagination(t *testing.T)` — TestToolResultContentPagination 验证分页读回：offset/limit/UTF-8 边界
+- `func TestSnapshotBudgetUsesConfiguredLimit(t *testing.T)` — TestSnapshotBudgetUsesConfiguredLimit 验证 limits 注入生效：设置较小
+
+### workspace_file_usecase_test.go
+
+- `func (fake *fileFakeWorkspace) ReadFile(root, relPath string, limit int64) (dto.FileContent, error)`
+- `func TestWorkspaceFileContentForwardsCurrentWorkspaceRoot(t *testing.T)`
+- `func TestWorkspaceFileContentRejectsWithoutBoundWorkspace(t *testing.T)`
+- `func TestWorkspaceFileContentFallsBackWhenBackendLacksFilePort(t *testing.T)`
+- `func TestWorkspaceFileContentUseCaseReadsRealFilesystem(t *testing.T)` — TestWorkspaceFileContentUseCaseReadsRealFilesystem 走真实 workspace.Repo
+
+### workspace_tree_usecase_test.go
+
+- `func (fake *treeFakeWorkspace) ListTree(root, relPath string, depth int) (dto.TreeListing, error)`
+- `func (fake *treeFakeWorkspace) CountFiles(root string) (dto.TreeCount, error)`
+- `func (fake *treeFakeWorkspace) GitLog(root string, limit int) (dto.GitLogResult, error)`
+- `func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T)`
+- `func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T)`
+- `func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T)`
+- `func TestWorkspaceTreeFallsBackWhenBackendLacksTreePort(t *testing.T)`
+- `func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T)` — TestWorkspaceTreeUseCaseReadsRealFilesystem 走真实 workspace.Repo（实现
 
 ### workspace_usecase.go
 

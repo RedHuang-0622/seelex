@@ -4,9 +4,9 @@
 
 承载 `plan kind:agent` 节点的子代理执行包装与节点级提示词装配。主要调用方：
 
-- 根包 `plan_factory.go` 的 `buildNode`（`node.NewAgentNode`）——plan_load 构造节点；
+- 根包 `runtime_plan.go` 的 `nodeFactoryDeps`（`NewAgentNode: seenode.NewAgentNode`）——plan_load 构造节点；
 - `fork/` 域 `buildForkPlan` 经 `Deps.NodeFactory` 复用同一构造，生成 fork DAG 的 agent 节点；
-- 根包 `agent_node.go` 门面与 `node_deps.go`（Deps 注入）。
+- 根包 `runtime_plan.go` 的 `nodeDeps()`（Deps 全为闭包，域内不依赖根包）。
 
 ## 与其它域的关系
 

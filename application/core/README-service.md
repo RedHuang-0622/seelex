@@ -1,8 +1,10 @@
-# core/service
+# core/service（根包分卷）
 
 ## 生态位
 
 Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）
+
+覆盖：`service*.go`；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -35,7 +37,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 - `func TestReActBudgetStopsOnlyAfterItsToolBudget(t *testing.T)`
 - `func TestReActBudgetUsesReservedFinalDeliveryTurn(t *testing.T)`
-- `func TestRuntimeMailboxDrainsIntoHistoryAndVisibleEvidence(t *testing.T)`
+- `func TestRuntimeMailboxDrainedAndDiscarded(t *testing.T)`
 - `func TestSessionBackedIterationInterruptsOnQueuedInput(t *testing.T)`
 - `func TestChatPublishesSnapshotWithoutUI(t *testing.T)`
 - `func TestGracefulShutdownWaitsForQueuedChat(t *testing.T)`
@@ -124,6 +126,11 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) CancelScheduledTask(id string) error`
 - `func (runtime *fakeRuntime) ClearSubagentTree() error`
 - `func (runtime *fakeRuntime) RestoreSubagentAnchors(string) error`
+- `func (runtime *fakeRuntime) ListSubagentRecovery(string) ([]dto.SubagentRecoveryView, error)`
+- `func (runtime *fakeRuntime) ResumeInterruptedSubagents(context.Context, string) (dto.SubagentResumeReport, error)`
+- `func (runtime *fakeRuntime) ResumeSubagent(context.Context, string, string) (dto.SubagentResumeResult, error)`
+- `func (runtime *fakeRuntime) ForkSubagents(context.Context, string, []dto.SubagentForkSpec) (string, error)`
+- `func (runtime *fakeRuntime) SetSubagentParentRepairer(func(string) error)`
 - `func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error)`
 - `func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error`
 - `func (runtime *fakeRuntime) UnbindProjectRoot()`
@@ -183,9 +190,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_input.go
 
-- `func (service *Service) injectPendingSubagentContexts()` — injectPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
-- `func (service *Service) injectPendingSubagentContextsFor(sessionID string)` — injectPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
-- `func (service *Service) recordSubagentEvidence(sessionID, content string)` — recordSubagentEvidence 把子代理合并回父的一条证据记录写入目标会话：
+- `func (service *Service) discardPendingSubagentContexts()` — discardPendingSubagentContexts 排空 Runtime 持有的有界邮箱（活跃会话兼容
+- `func (service *Service) discardPendingSubagentContextsFor(_ string)` — discardPendingSubagentContextsFor 排空 Runtime 持有的有界邮箱（单一来源 =
 - `func (service *Service) chatStream(ctx context.Context, sessionID, input string, onChunk func(string)) (string, error)` — chatStream 向指定会话引擎提交流式对话（会话路由引擎用 ChatStreamFor，
 - `func (service *Service) appendEngineMessage(sessionID string, msg types.Message)` — appendEngineMessage 追加消息到指定会话引擎历史。
 - `func (service *Service) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
@@ -280,15 +286,17 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection)` — applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
 - `func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message`
 - `func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message` — appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
+- `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *Message` — appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
 - `func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState)` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
 - `func (service *Service) mirrorActiveViewLocked()` — mirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot。
 - `func (service *Service) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（core 域工具/恢复路径用；
+- `func (service *Service) sessionViewEmptyLocked(sessionID string) bool` — sessionViewEmptyLocked 报告指定会话的可见会话是否为空（调用方持有
 - `func (service *Service) recordReadFileForSessionLocked(sessionID, arguments string)` — recordReadFileForSessionLocked 记录指定会话的 read 文件引用（阶段 1：
 - `func (service *Service) bumpLocked() uint64`
 - `func (service *Service) addNotice(notice string)`
 - `func (service *Service) AddNotice(notice string)` — AddNotice 追加一条系统通知（以 system 消息进入可见会话并发布
 - `func (service *Service) resetConversation(notice string)`
-- `func (service *Service) advanceMessageSeqLocked(messages []Message)` — advanceMessageSeqLocked 按既有消息 ID 推进消息序列（恢复路径委托）。
+- `func (service *Service) advanceMessageSeqLocked(sessionID string, messages []Message)` — advanceMessageSeqLocked 按既有消息 ID 推进**该会话**的消息派号（恢复路径委托）。
 
 ### service_snapshot_test.go
 
@@ -297,6 +305,14 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestMessageDeltaIncludesStableMessageID(t *testing.T)`
 - `func TestToolEventsUpdateSnapshot(t *testing.T)`
 - `func TestToolCompletionDoesNotReenterServiceLockForGoalSkillVisibility(t *testing.T)`
+
+### service_subagent_resume.go
+
+- `func (service *Service) ListSubagentRecovery(sessionID string) ([]dto.SubagentRecoveryView, error)` — ListSubagentRecovery 列出目标会话下残留子代理单元的恢复态（只读）。
+- `func (service *Service) ResumeInterruptedSubagents(ctx context.Context, sessionID string) (dto.SubagentResumeReport, error)` — ResumeInterruptedSubagents 冷恢复续跑目标会话下所有未完成子代理。
+- `func (service *Service) ResumeSubagent(ctx context.Context, sessionID, nodeID string) (dto.SubagentResumeResult, error)` — ResumeSubagent 定点续跑单个子代理（失败可重试）。
+- `func (service *Service) PrepareProviderHistory(sessionID string) error` — PrepareProviderHistory 补齐目标会话 provider 历史的残缺工具链：中断的
+- `func (service *Service) ForkSubagents(ctx context.Context, sessionID string, specs []dto.SubagentForkSpec) (string, error)` — ForkSubagents 直接派发一批子代理（自动化/冒烟入口；与模型调用
 
 ### service_test.go
 

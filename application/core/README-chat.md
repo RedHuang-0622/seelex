@@ -1,8 +1,10 @@
-# core/chat
+# core/chat（根包分卷）
 
 ## 生态位
 
 聊天主循环与可见输出集成
+
+覆盖：`chat*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -38,6 +40,7 @@
 - `func (service *Service) appendVisibleDelta(requestID, chunk string)`
 - `func (service *Service) appendVisibleDeltaBackground(sessionID, requestID, chunk string)` — appendVisibleDeltaBackground 后台会话的流式增量：仅 View.mu + 会话本地
 - `func (service *Service) attachLatestReasoning(sessionID, requestID string)` — attachLatestReasoning 在聊天回合结束后，把引擎历史中最后一次 assistant
+- `func (service *Service) streamedAssistantTextLocked(sessionID string) string` — streamedAssistantTextLocked 返回会话可见投影里本轮的 assistant 正文累积
 - `func (service *Service) appendHistoryLocked(history []EngineMessage)`
 - `func (service *Service) appendHistoryLockedFor(sessionID string, history []EngineMessage)` — appendHistoryLockedFor 把引擎历史追加为指定会话的可见消息（冷加载无
 
@@ -50,3 +53,11 @@
 ### chat_state_event_test.go
 
 - `func TestChatStateIsPublishedNotInferred(t *testing.T)` — TestChatStateIsPublishedNotInferred 验证运行态由后端下发：提交后收到
+
+### reasoning_visible_test.go
+
+- `func TestAttachLatestReasoningExposesThinkingToVisibleMessage(t *testing.T)` — TestAttachLatestReasoningExposesThinkingToVisibleMessage 验证回合结束后，
+
+### visible_output_test.go
+
+- `func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T)`

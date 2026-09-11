@@ -1,13 +1,20 @@
-# core/subagent
+# core/subagent（根包分卷）
 
 ## 生态位
 
 子代理投影集成测试
 
+覆盖：`subagent*.go`；未归属文件由覆盖自检拦下。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### subagent_detail_lock_regression_test.go
+
+- `func (engine *lockOrderEngine) SubAgentTree() []dto.SubAgentTreeNode`
+- `func TestSubagentDetailNoViewMuSessionLockInversion(t *testing.T)` — TestSubagentDetailNoViewMuSessionLockInversion 复现 2026-09-08 死锁链路：
 
 ### subagent_detail_test.go
 
@@ -18,13 +25,13 @@
 - `func TestTodoItemsProjectIntoRuntimeSnapshot(t *testing.T)` — TestTodoItemsProjectIntoRuntimeSnapshot 验证 todolist 清单经运行时投影
 - `func strPtr(value string) *string`
 
-### subagent_evidence_test.go
-
-- `func TestSubagentMailboxContentDoesNotReachFrontendOrStorage(t *testing.T)` — TestSubagentMailboxContentDoesNotReachFrontendOrStorage：mailbox 内容排空即丢弃，不进入引擎历史/可见会话/transcript
-
 ### subagent_envelope_store_test.go
 
-- `func TestInheritedContextEnvelopeNotEnteringContextStores(t *testing.T)` — TestInheritedContextEnvelopeNotEnteringContextStores：继承上下文信封不进入任何上下文存储
+- `func TestInheritedContextEnvelopeNotEnteringContextStores(t *testing.T)` — TestInheritedContextEnvelopeNotEnteringContextStores 复现：子代理 merge-back
+
+### subagent_evidence_test.go
+
+- `func TestSubagentMailboxContentDoesNotReachFrontendOrStorage(t *testing.T)`
 
 ### subagent_tree_test.go
 

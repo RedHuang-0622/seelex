@@ -2,8 +2,8 @@
 
 `seelebridge/internal/telemetry` 承载内存遥测追踪器、生命周期钩子、
 `Chain` 组合器与 `SummaryHook` 脱敏摘要的构造（薄封装 `Seele/telemetry`）。
-属于根 facade 的装配细节，置于 internal/；根包经 `telemetry_aliases.go`
-重导出保持公共 API。
+属于根 facade 的装配细节，置于 internal/；根包以 `seeletelemetry` 别名直接
+import 使用，不再有重导出层。
 
 ## 关键组件
 

@@ -9,7 +9,8 @@
 - `command_windows.go`/`command_other.go`：`ConfigureHiddenCommand`（平台构建标签）。
 
 被根包 `scoped_tools` / `runtime` / `scheduler` / `docker` / `worktree_manager` 消费；
-不反向依赖 `seelebridge` 根包。根包 `security_aliases.go` 重导出公开类型保持 API 兼容。
+不反向依赖 `seelebridge` 根包；根包直接 import `security.*`（如
+`security.CommandSandbox`），不再有重导出层。
 
 ## 验证
 
