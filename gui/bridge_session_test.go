@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application"
@@ -15,6 +16,7 @@ type sessionAwareFakeApplication struct {
 	activated          string
 	snapshotOfID       string
 	subscribeErr       error
+	subscribeMu        sync.Mutex
 	subscribeIDs       []string
 }
 
@@ -67,11 +69,21 @@ func (fake *sessionAwareFakeApplication) SnapshotOf(sessionID string) (applicati
 }
 
 func (fake *sessionAwareFakeApplication) SubscribeSession(sessionID string, buffer int) (application.Subscription, error) {
+	fake.subscribeMu.Lock()
 	fake.subscribeIDs = append(fake.subscribeIDs, sessionID)
+	fake.subscribeMu.Unlock()
 	if fake.subscribeErr != nil {
 		return application.Subscription{}, fake.subscribeErr
 	}
 	return fake.hub.SubscribeSession(sessionID, buffer), nil
+}
+
+// subscriptionKeys 返回订阅键的快照：中继 goroutine 会并发追加
+// subscribeIDs，测试读取必须走这里（-race 下裸读会报数据竞争）。
+func (fake *sessionAwareFakeApplication) subscriptionKeys() []string {
+	fake.subscribeMu.Lock()
+	defer fake.subscribeMu.Unlock()
+	return append([]string(nil), fake.subscribeIDs...)
 }
 
 func TestBridgeSessionAwareAPIsRouteToApplication(t *testing.T) {
@@ -150,8 +162,8 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	if ready := waitEmitted(t, emitted); ready.name != "seelex:ready" {
 		t.Fatalf("first event = %q, want seelex:ready", ready.name)
 	}
-	if len(app.subscribeIDs) != 1 || app.subscribeIDs[0] != "session-b" {
-		t.Fatalf("subscription keys = %v, want one explicit session-b subscription", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 1 || keys[0] != "session-b" {
+		t.Fatalf("subscription keys = %v, want one explicit session-b subscription", keys)
 	}
 
 	// 视图会话之外的事件在投递端就不属于本订阅，因此根本不到达渲染层。
@@ -179,26 +191,26 @@ func TestBridgeRelaySubscribesToViewOnce(t *testing.T) {
 	if err := bridge.ResumeSession("session-b"); err != nil {
 		t.Fatalf("ResumeSession: %v", err)
 	}
-	if len(app.subscribeIDs) != 1 {
-		t.Fatalf("resume to the same view must not rebuild the subscription: keys=%v", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 1 {
+		t.Fatalf("resume to the same view must not rebuild the subscription: keys=%v", keys)
 	}
 	if err := bridge.ActivateSession("session-c"); err != nil {
 		t.Fatalf("ActivateSession: %v", err)
 	}
-	if len(app.subscribeIDs) != 2 || app.subscribeIDs[1] != "session-c" {
-		t.Fatalf("subscription keys after ActivateSession = %v, want rebuilt for session-c", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 2 || keys[1] != "session-c" {
+		t.Fatalf("subscription keys after ActivateSession = %v, want rebuilt for session-c", keys)
 	}
 	child, err := bridge.ForkSessionLatest("session-c")
 	if err != nil {
 		t.Fatalf("ForkSessionLatest: %v", err)
 	}
-	if child != "child-session-c" || len(app.subscribeIDs) != 3 || app.subscribeIDs[2] != child {
-		t.Fatalf("subscription keys after ForkSessionLatest = %v (child=%s), want rebuilt for %s", app.subscribeIDs, child, child)
+	if keys := app.subscriptionKeys(); child != "child-session-c" || len(keys) != 3 || keys[2] != child {
+		t.Fatalf("subscription keys after ForkSessionLatest = %v (child=%s), want rebuilt for %s", keys, child, child)
 	}
 	if err := bridge.BeginNewSession(); err != nil {
 		t.Fatalf("BeginNewSession: %v", err)
 	}
-	if len(app.subscribeIDs) != 4 || app.subscribeIDs[3] != "draft-session" {
-		t.Fatalf("subscription keys after BeginNewSession = %v, want rebuilt for draft-session", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 4 || keys[3] != "draft-session" {
+		t.Fatalf("subscription keys after BeginNewSession = %v, want rebuilt for draft-session", keys)
 	}
 }

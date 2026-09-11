@@ -44,8 +44,8 @@ func TestBridgeSelfHealsSubscriptionAfterAsyncViewRollback(t *testing.T) {
 	if ready := waitEmitted(t, emitted); ready.name != "seelex:ready" {
 		t.Fatalf("first event = %q, want seelex:ready", ready.name)
 	}
-	if len(app.subscribeIDs) != 1 || app.subscribeIDs[0] != "failed-target-b" {
-		t.Fatalf("subscription keys = %v, want explicit failed-target-b subscription", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 1 || keys[0] != "failed-target-b" {
+		t.Fatalf("subscription keys = %v, want explicit failed-target-b subscription", keys)
 	}
 
 	// 应用侧后台冷恢复失败：权威视图异步回退到切换前会话 A（模拟
@@ -59,11 +59,11 @@ func TestBridgeSelfHealsSubscriptionAfterAsyncViewRollback(t *testing.T) {
 	// Bridge 必须把订阅键对齐到权威视图 A 并重建。
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if len(app.subscribeIDs) >= 2 && app.subscribeIDs[1] == "session-a" {
+		if keys := app.subscriptionKeys(); len(keys) >= 2 && keys[1] == "session-a" {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("subscription keys = %v, want rebuilt for session-a after async view rollback", app.subscribeIDs)
+			t.Fatalf("subscription keys = %v, want rebuilt for session-a after async view rollback", app.subscriptionKeys())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -124,15 +124,15 @@ func TestBridgeSameSessionRetryAfterRollbackHealsSubscription(t *testing.T) {
 	if ready := waitEmitted(t, emitted); ready.name != "seelex:ready" {
 		t.Fatalf("first event = %q, want seelex:ready", ready.name)
 	}
-	if len(app.subscribeIDs) != 1 || app.subscribeIDs[0] != "session-a" {
-		t.Fatalf("initial subscription keys = %v, want session-a", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 1 || keys[0] != "session-a" {
+		t.Fatalf("initial subscription keys = %v, want session-a", keys)
 	}
 
 	// 构造漂移：应用视图被异步切到 B 后又被 Bridge 之外的路径（无进程事件
 	// 到达的极端竞态）改回 A；Bridge 订阅仍钉在 B。
 	bridge.ResumeSession("session-b") // 正常切换：视图→B、订阅→B
-	if len(app.subscribeIDs) != 2 || app.subscribeIDs[1] != "session-b" {
-		t.Fatalf("subscription keys after switch = %v, want session-b", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 2 || keys[1] != "session-b" {
+		t.Fatalf("subscription keys after switch = %v, want session-b", keys)
 	}
 	// 应用内部把视图静默改回 A（模拟迟到回退），无任何事件先到。
 	app.snapshotMu.Lock()
@@ -143,7 +143,7 @@ func TestBridgeSameSessionRetryAfterRollbackHealsSubscription(t *testing.T) {
 	if err := bridge.ResumeSession("session-a"); err != nil {
 		t.Fatalf("ResumeSession: %v", err)
 	}
-	if len(app.subscribeIDs) != 3 || app.subscribeIDs[2] != "session-a" {
-		t.Fatalf("subscription keys after same-session retry = %v, want rebuilt for session-a", app.subscribeIDs)
+	if keys := app.subscriptionKeys(); len(keys) != 3 || keys[2] != "session-a" {
+		t.Fatalf("subscription keys after same-session retry = %v, want rebuilt for session-a", keys)
 	}
 }

@@ -337,6 +337,9 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
 - JSON 模块 head 是否最后提交；未发布行是否不可见。
 - 退役后端是否始终返回显式 `ErrBackendRetired`，没有静默回退。
 - Router 是否在任何错误路径关闭 replacement、保留 old repository。
+- Router 运行期出口是否只在 `router.mu` 读锁内取 repository 快照
+  （`jsonRepository()`）；裸读 `router.repository` 会与 `Configure`/`Close`
+  的 swap 在 `-race` 下形成数据竞争。
 - range offset/limit 和 empty history 的语义是否一致。
 - 栈通道：新增后端时 `stackJournal()` 是否实现（接口编译期强制，禁止用
   `ok=false` 兜底）；head 是否仍只装水位；写路径是否又开始解析 history。

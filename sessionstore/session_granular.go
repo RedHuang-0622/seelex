@@ -611,7 +611,7 @@ func (store *SessionGranularStore) derivedRecord(projectID, sessionID string) (R
 	status := StatusIdle
 	if archivedAt, _, err := store.router.SessionArchivedWorkspace(projectID, sessionID); err == nil && !archivedAt.IsZero() {
 		status = StatusArchived
-	} else if jsonRepository, ok := store.router.jsonRepositoryLocked(); ok && jsonRepository.hasDraft(Key{ProjectID: projectID, SessionID: sessionID}) {
+	} else if jsonRepository, ok := store.router.jsonRepository(); ok && jsonRepository.hasDraft(Key{ProjectID: projectID, SessionID: sessionID}) {
 		status = StatusDraft
 	}
 	return Record{

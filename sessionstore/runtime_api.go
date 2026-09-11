@@ -30,6 +30,15 @@ func (router *Router) jsonRepositoryLocked() (*jsonRepository, bool) {
 	return repository, ok
 }
 
+// jsonRepository 在 RLock 下返回当前 repository 快照（若为 JSON 会话存储
+// 布局）。运行期读路径必须走这里：Configure/Close 会在写锁内 swap
+// repository，裸读 router.repository 会与 swap 形成数据竞争。
+func (router *Router) jsonRepository() (*jsonRepository, bool) {
+	router.mu.RLock()
+	defer router.mu.RUnlock()
+	return router.jsonRepositoryLocked()
+}
+
 // AssembleWireWorkspace 对会话执行 wire 装配（frame 摘要 + tail + 最近 K
 // 条尝试）。非该布局返回 ok=false。
 func (router *Router) AssembleWireWorkspace(projectID, sessionID string, budget, k int) ([]types.Message, bool, error) {
