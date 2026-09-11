@@ -233,7 +233,13 @@ func TestPipelineIntervalFlush(t *testing.T) {
 	pipe := NewBatchPipeline[string](store, PipelineOptions{FlushSize: 1000, Interval: 20 * time.Millisecond})
 	defer pipe.Close()
 	pipe.Push("slow-chunk-1")
-	time.Sleep(60 * time.Millisecond) // 3 个间隔周期
+	// 轮询到落库为止，而不是"睡够 3 个间隔周期就必须已落库"：并行跑整个
+	// 测试套件时 ticker goroutine 可能被调度拖延，固定墙钟会把"慢"误判成
+	// "没落库"（2026-09-11 偶发）。真回归（间隔 flush 断了）仍会在 2s 后失败。
+	deadline := time.Now().Add(2 * time.Second)
+	for store.Count() != 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if store.Count() != 1 {
 		t.Fatalf("interval flush must persist low-traffic chunks, store=%d", store.Count())
 	}
