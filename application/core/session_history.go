@@ -441,7 +441,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		ConversationWindow: Limits().HistoryWindow,
 	}
 	if hasRecord {
-		service.advanceMessageSeqLocked(record.Conversation.Messages)
+		service.advanceMessageSeqLocked(sessionID, record.Conversation.Messages)
 		view.Conversation = append(view.Conversation, Message{Role: "system", Content: "已恢复会话: " + sessionID, CreatedAt: time.Now()})
 		view.Conversation = append(view.Conversation, service.components.sessions.RecordConversationTail(record, Limits().HistoryWindow)...)
 		view.ReadFiles = append([]ReadFileRef(nil), record.Execution.ReadFiles...)
@@ -570,7 +570,7 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	service.ViewMu.Lock()
 	for index := range adapted {
 		if adapted[index].ID == "" {
-			adapted[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqLocked())
+			adapted[index].ID = fmt.Sprintf("message-%d", service.components.view.NextMessageSeqForLocked(sessionID))
 		}
 	}
 	service.Core.Snapshot.Conversation = append(adapted, service.Core.Snapshot.Conversation...)

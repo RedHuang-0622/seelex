@@ -72,8 +72,14 @@ type Coordinator struct {
 	goals interface {
 		GoalGovernanceViewFor(sessionID string) *dto.GoalGovernanceView
 	}
-	limits     func() seelexctx.Limits
-	messageSeq uint64
+	limits func() seelexctx.Limits
+	// messageSeq 是**每会话独立**的可见消息派号（键 = 会话 ID；所有读写都在
+	// Core.ViewMu 下，与其它 *Locked 方法同一临界区）。此前是进程级单计数器：
+	// 会话 A 跑过之后新建会话 B，B 的第一条消息会接着 A 的号（例如 message-137），
+	// 而恢复路径的消息 ID 由**本会话事件 seq** 派生（message-%d）——两套空间不
+	// 一致，同一条消息跨重启还会换 ID。改为每会话派号后：新会话从 message-1 起，
+	// 且与事件 seq 空间对齐（2026-09-11 修复）。
+	messageSeq map[string]uint64
 }
 
 // NewCoordinator 构造 view 域协调器。
@@ -88,6 +94,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		tasks:                  deps.Tasks,
 		goals:                  deps.Goals,
 		limits:                 deps.Limits,
+		messageSeq:             make(map[string]uint64),
 	}
 }
 
@@ -296,8 +303,8 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 	view := c.sessionViewLocked(sessionID)
 	var message *model.Message
 	view.Mutate(func(v *session.View) {
-		c.messageSeq++
-		next := model.Message{ID: fmt.Sprintf("message-%d", c.messageSeq), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
+		c.messageSeq[sessionID]++
+		next := model.Message{ID: fmt.Sprintf("message-%d", c.messageSeq[sessionID]), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
 		v.Conversation = append(v.Conversation, next)
 		if role != "system" {
 			v.TotalMessages++
@@ -425,23 +432,27 @@ func (c *Coordinator) MirrorActiveViewLocked() {
 	c.mirrorActiveViewLocked(c.Snapshot.Session.ID, view)
 }
 
-// AdvanceMessageSeqLocked 按既有消息 ID 推进消息序列（会话恢复路径）。
-func (c *Coordinator) AdvanceMessageSeqLocked(messages []model.Message) {
+// AdvanceMessageSeqForLocked 按既有消息 ID 推进**指定会话**的消息派号
+// （会话恢复路径：重新装载后，后续新消息不得复用该会话已有的 ID）。
+func (c *Coordinator) AdvanceMessageSeqForLocked(sessionID string, messages []model.Message) {
+	current := c.messageSeq[sessionID]
 	for _, message := range messages {
 		if !strings.HasPrefix(message.ID, "message-") {
 			continue
 		}
 		sequence, err := strconv.ParseUint(strings.TrimPrefix(message.ID, "message-"), 10, 64)
-		if err == nil && sequence > c.messageSeq {
-			c.messageSeq = sequence
+		if err == nil && sequence > current {
+			current = sequence
 		}
 	}
+	c.messageSeq[sessionID] = current
 }
 
-// NextMessageSeqLocked 返回下一条消息序号并推进（分页加载 ID 分配用）。
-func (c *Coordinator) NextMessageSeqLocked() uint64 {
-	c.messageSeq++
-	return c.messageSeq
+// NextMessageSeqForLocked 返回指定会话的下一条消息序号并推进（分页加载 ID
+// 分配用）。
+func (c *Coordinator) NextMessageSeqForLocked(sessionID string) uint64 {
+	c.messageSeq[sessionID]++
+	return c.messageSeq[sessionID]
 }
 
 func (c *Coordinator) boundViewTailLocked(view *session.View) {

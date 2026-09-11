@@ -277,7 +277,7 @@ func (service *Service) resetConversation(notice string) {
 	service.components.view.ResetConversation(notice)
 }
 
-// advanceMessageSeqLocked 按既有消息 ID 推进消息序列（恢复路径委托）。
-func (service *Service) advanceMessageSeqLocked(messages []Message) {
-	service.components.view.AdvanceMessageSeqLocked(messages)
+// advanceMessageSeqLocked 按既有消息 ID 推进**该会话**的消息派号（恢复路径委托）。
+func (service *Service) advanceMessageSeqLocked(sessionID string, messages []Message) {
+	service.components.view.AdvanceMessageSeqForLocked(sessionID, messages)
 }
