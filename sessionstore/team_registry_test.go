@@ -82,6 +82,23 @@ func TestTeamRegistryRejectsUnknownSchema(t *testing.T) {
 	}
 }
 
+// TestReadLifecycleOrderToleratesMissingHead 是 Agent Team 面板报错的回归：
+// 会话没有 lifecycle head（还没编排过顺序，或工程解析为空、目录根本不存在）
+// 时，读顺序必须返回空值，而不是把
+// `open ...\metadata\lifecycle.json: The system cannot find the path specified`
+// 抛给前端——"未编排"是正常状态，不是错误。
+func TestReadLifecycleOrderToleratesMissingHead(t *testing.T) {
+	router := newTestRouter(t)
+	// 空工程 + 磁盘上不存在的会话：读取会命中 ERROR_PATH_NOT_FOUND。
+	policy, roles, err := router.ReadLifecycleOrderWorkspace("", "session-not-on-disk")
+	if err != nil {
+		t.Fatalf("缺失 lifecycle head 不是错误，实际返回：%v", err)
+	}
+	if policy != "" || len(roles) != 0 {
+		t.Fatalf("缺失 head 应返回空顺序，实际 = %q %v", policy, roles)
+	}
+}
+
 // TestEnsureRoleSessionWorkspaceIsIdempotent：重复装配同一条 TeamSpec 不产生第二个
 // 角色会话；顺序策略读写走 lifecycle head（唯一顺序事实）。
 func TestEnsureRoleSessionWorkspaceIsIdempotent(t *testing.T) {

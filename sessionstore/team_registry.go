@@ -247,6 +247,13 @@ func (router *Router) ReadLifecycleOrderWorkspace(projectID, sessionID string) (
 			return fmt.Errorf("session storage: lifecycle order requires session layout")
 		}
 		head, err := layout.layout.readLifecycleHead(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)})
+		if errors.Is(err, fs.ErrNotExist) {
+			// 会话还没有 lifecycle head（没编排过顺序），或工程解析为空、目录
+			// 根本不存在：都表示"暂无顺序"，不是错误。把它当错误抛出去会让
+			// Agent Team 面板在未装配/未编排的会话上直接报
+			// `open ...metadata/lifecycle.json: cannot find the path`。
+			return nil
+		}
 		if err != nil {
 			return err
 		}
