@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, renderAgentTeam } from "./agent-team-view.js";
+import {
+  isPinnedRole,
+  nextAgentTeamOrder,
+  normalizeAgentTeam,
+  renderAgentTeam,
+  renderRoleSessionDetail,
+  roleDisplayName
+} from "./agent-team-view.js";
 
 const goalView = {
   session_id: "main-1",
@@ -44,6 +51,50 @@ test("configured team renders order, members and the scheduled partition", () =>
   // 定时 agent 出现在独立分区，不在工作顺序列表里。
   const orderSection = html.slice(html.indexOf("工作顺序"), html.indexOf("</ol>"));
   assert.doesNotMatch(orderSection, /digest/);
+});
+
+test("team members expose distinct agent identities and role-session entry points", () => {
+  assert.equal(roleDisplayName("main", "main"), "EXEC");
+  assert.equal(roleDisplayName("tl", "techlead"), "ADVISOR");
+  assert.equal(roleDisplayName("user", "user"), "USER");
+  assert.equal(roleDisplayName("reviewer", "agent"), "reviewer");
+  const html = renderAgentTeam(goalView, presets);
+  // 两个 agent 不再是同一个 AGENT 文案：EXEC（main）与 ADVISOR（tl）分开。
+  assert.match(html, /data-team-role-open="main"/);
+  assert.match(html, /data-team-role-open="tl" data-team-role-session="goal-a2a-tl"/);
+  assert.match(html, />EXEC</);
+  assert.match(html, />ADVISOR</);
+});
+
+test("role session detail renders the agent identity, meta and its own rows", () => {
+  const html = renderRoleSessionDetail({
+    main_session_id: "main-1",
+    role_name: "tl",
+    role_session_id: "goal-a2a-tl",
+    join_seq_id: 7,
+    order_policy: "goal_loop",
+    order_roles: ["user", "main", "tl"],
+    floor: { role_name: "tl" },
+    role_rows: [{ seq: 3, role: "assistant", content: "verdict: not_done" }],
+    draft_rows: [{ event: { seq: 4, role: "assistant", content: "draft row" } }]
+  });
+  assert.match(html, /role-session-identity">ADVISOR</);
+  assert.match(html, /role-session-sid[^>]*>goal-a2a-tl</);
+  assert.match(html, /发言中 · tl/);
+  assert.match(html, /join_seq 7/);
+  assert.match(html, /verdict: not_done/);
+  assert.match(html, /draft row/);
+});
+
+test("role session detail escapes content and tolerates an empty session", () => {
+  const escaped = renderRoleSessionDetail({
+    role_name: "tl",
+    role_rows: [{ seq: 1, role: "assistant", content: "<img src=x onerror=alert(1)>" }]
+  });
+  assert.doesNotMatch(escaped, /<img src=x/);
+  assert.match(escaped, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  const empty = renderRoleSessionDetail({ role_name: "tl", role_rows: [], draft_rows: [] });
+  assert.match(empty, /还没有独立会话行/);
 });
 
 test("role names and notices are escaped, never interpolated raw", () => {

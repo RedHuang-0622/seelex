@@ -21,6 +21,9 @@ type fakeAgentTeamApplication struct {
 	putRole          dto.RoleSpec
 	deleteSession    string
 	deleteRole       string
+	roleSnapshotMain string
+	roleSnapshotRole string
+	roleSnapshotID   string
 }
 
 func newFakeAgentTeamApplication(sessionID string) *fakeAgentTeamApplication {
@@ -37,7 +40,14 @@ func (app *fakeAgentTeamApplication) AgentTeamPresets() []dto.TeamSpec {
 
 func (app *fakeAgentTeamApplication) AgentTeamView(mainSessionID string) (dto.TeamView, error) {
 	app.viewSession = mainSessionID
-	return dto.TeamView{SessionID: mainSessionID, TeamKind: "goal-a2a", OrderRoles: []string{"user", "main", "tl"}}, nil
+	return dto.TeamView{
+		SessionID: mainSessionID, TeamKind: "goal-a2a", OrderRoles: []string{"user", "main", "tl"},
+		Members: []dto.TeamMember{
+			{RoleName: "user", RoleKind: dto.RoleKindUser, InOrder: true},
+			{RoleName: "main", RoleKind: dto.RoleKindMain, InOrder: true},
+			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, RoleSessionID: "goal-a2a-tl", InOrder: true},
+		},
+	}, nil
 }
 
 func (app *fakeAgentTeamApplication) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
@@ -58,6 +68,14 @@ func (app *fakeAgentTeamApplication) AgentTeamDeleteRole(mainSessionID, roleName
 func (app *fakeAgentTeamApplication) AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error) {
 	app.orderSession, app.orderPolicy, app.orderRoles = mainSessionID, policy, orderRoles
 	return dto.TeamView{SessionID: mainSessionID, OrderPolicy: policy, OrderRoles: orderRoles}, nil
+}
+
+func (app *fakeAgentTeamApplication) RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
+	app.roleSnapshotMain, app.roleSnapshotRole, app.roleSnapshotID = mainSessionID, roleName, roleSessionID
+	return dto.RoleSnapshot{
+		MainSessionID: mainSessionID, RoleName: roleName, RoleSessionID: roleSessionID,
+		RoleRows: []dto.RoleRow{{Role: "assistant", Content: "role row", RoleName: roleName}},
+	}, nil
 }
 
 func TestBridgeAgentTeamResolvesCurrentSession(t *testing.T) {
@@ -124,6 +142,25 @@ func TestBridgeAgentTeamForwardsTrimmedArguments(t *testing.T) {
 	if err != nil || len(presets) != 2 {
 		t.Fatalf("AgentTeamPresets = %v err=%v", presets, err)
 	}
+
+	snapshot, err := bridge.AgentTeamRoleSnapshot("", " tl ", " role-1 ")
+	if err != nil {
+		t.Fatalf("AgentTeamRoleSnapshot: %v", err)
+	}
+	if app.roleSnapshotMain != "main-1" || app.roleSnapshotRole != "tl" || app.roleSnapshotID != "role-1" {
+		t.Fatalf("角色会话查看转发 = %q/%q/%q", app.roleSnapshotMain, app.roleSnapshotRole, app.roleSnapshotID)
+	}
+	if snapshot.RoleName != "tl" || len(snapshot.RoleRows) != 1 || snapshot.RoleRows[0].RoleName != "tl" {
+		t.Fatalf("角色会话查看返回 = %+v", snapshot)
+	}
+
+	// 前端只带 role_name（注册表不落盘角色会话号）时，Bridge 从成员表解析派生号。
+	if _, err := bridge.AgentTeamRoleSnapshot("", "tl", ""); err != nil {
+		t.Fatalf("AgentTeamRoleSnapshot(空会话号)必须从成员表解析: %v", err)
+	}
+	if app.roleSnapshotID != "goal-a2a-tl" {
+		t.Fatalf("派生的角色会话号 = %q, want goal-a2a-tl", app.roleSnapshotID)
+	}
 }
 
 func TestBridgeAgentTeamRequiresAssembly(t *testing.T) {
@@ -139,5 +176,8 @@ func TestBridgeAgentTeamRequiresAssembly(t *testing.T) {
 	}
 	if _, err := bridge.AgentTeamMaterialize("", "goal-a2a", 0); err == nil {
 		t.Fatal("未装配时装配调用必须报错")
+	}
+	if _, err := bridge.AgentTeamRoleSnapshot("", "tl", "role-1"); err == nil {
+		t.Fatal("未装配时角色会话查看必须报错")
 	}
 }

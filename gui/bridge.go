@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,7 @@ type agentTeamApplication interface {
 	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
 	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
 	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
+	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
 }
 
 // 编译期断言：生产 Application（application.Service = *core.Service）必须满足本
@@ -967,6 +969,43 @@ func (bridge *Bridge) AgentTeamSetOrder(sessionID, policy string, orderRoles []s
 		return dto.TeamView{}, errors.New("当前没有可配置的会话")
 	}
 	return app.AgentTeamSetOrder(session, strings.TrimSpace(policy), orderRoles)
+}
+
+// AgentTeamRoleSnapshot 读取某个角色会话的只读观察面（成员行「查看会话」）：
+// EXEC（main）与 ADVISOR（tl）等角色各自有独立会话，前端据此把两个 agent
+// 的真实行分开显示，而不是把角色正文混进主会话。只读，不写任何状态。
+func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.RoleSnapshot{}, err
+	}
+	roleName = strings.TrimSpace(roleName)
+	if roleName == "" {
+		return dto.RoleSnapshot{}, errors.New("角色名不能为空")
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.RoleSnapshot{}, errors.New("当前没有可查看的角色会话")
+	}
+	roleSessionID = strings.TrimSpace(roleSessionID)
+	if roleSessionID == "" {
+		// 前端成员行可能只带 role_name（角色会话号由工厂按 (team_id, role_name)
+		// 派生，注册表不落盘）：从成员表解析一次，避免把"缺 id"误报成存储错误。
+		view, err := app.AgentTeamView(session)
+		if err != nil {
+			return dto.RoleSnapshot{}, err
+		}
+		for _, member := range view.Members {
+			if member.RoleName == roleName {
+				roleSessionID = strings.TrimSpace(member.RoleSessionID)
+				break
+			}
+		}
+	}
+	if roleSessionID == "" {
+		return dto.RoleSnapshot{}, fmt.Errorf("角色 %s 还没有独立会话（未装配或未创建）", roleName)
+	}
+	return app.RoleSnapshot(session, roleName, roleSessionID)
 }
 
 // SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；

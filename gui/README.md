@@ -72,7 +72,8 @@ task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 rela
 
 A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
 `Bridge.AgentTeamPresets` / `AgentTeamView` / `AgentTeamMaterialize` /
-`AgentTeamPutRole` / `AgentTeamDeleteRole` / `AgentTeamSetOrder`，全部走
+`AgentTeamPutRole` / `AgentTeamDeleteRole` / `AgentTeamSetOrder` /
+`AgentTeamRoleSnapshot`，全部走
 `application/contract` 纯 DTO（S27 收口；`agentTeamApplication` 是可选能力接口，
 宿主未装配时返回可展示错误而不是空视图）。`sessionID` 传空 = 当前视图会话，
 Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
@@ -81,6 +82,14 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 定时任务 agent 单独分区、永不进入 `order_roles`（设计稿 §7.1）。前端只读渲染 +
 动作转发在 `frontend/dist/agent-team-view.js`（纯函数，含单元测试），面板 DOM 挂在
 状态子页的 `#team-section`。
+
+**两个 agent 的区分（2026-09-12）**：成员表把逻辑角色名渲染成用户可读身份
+（`main` → `EXEC`、`tl`/`techlead` → `ADVISOR`），成员行可点击打开该角色的
+**独立会话**（`AgentTeamRoleSnapshot` → `dto.RoleSnapshot`，弹窗
+`#role-session-modal`）：主对话只显示 EXEC 的可见消息，ADVISOR 自己的
+`role_rows`/`draft_rows`、`role_session_id`、join/compact 与 floor 状态在这里
+按角色身份单独展示。角色会话号由工厂按 `(team_id, role_name)` 派生、不落注册表，
+所以 Bridge 在 `roleSessionID` 为空时先读一次成员表解析，再把可展示错误返回前端。
 
 Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等敏感配置必须由 backend redaction 后再返回 renderer。
 

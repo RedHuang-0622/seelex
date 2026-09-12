@@ -16,7 +16,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
-import { nextAgentTeamOrder, normalizeAgentTeam, renderAgentTeam } from "./agent-team-view.js";
+import { nextAgentTeamOrder, normalizeAgentTeam, renderAgentTeam, renderRoleSessionDetail, roleDisplayName } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
@@ -55,6 +55,7 @@ const elements = Object.fromEntries([
   "runtime-details", "effort-control", "effort-range", "effort-value", "work-section", "work-count", "work-unread", "work-table-open", "work-table-summary", "work-table-modal", "work-table-modal-close", "work-table-modal-view", "scheduled-task-section", "scheduled-task-view", "scheduled-task-count", "new-scheduled-task", "scheduled-task-modal", "scheduled-task-close", "sched-name", "sched-kind", "sched-mode", "sched-period-value", "sched-period-unit", "sched-period-field", "sched-datetime", "sched-datetime-field", "sched-command", "sched-command-field", "sched-prompt", "sched-prompt-field", "sched-enabled", "sched-enabled-field", "sched-submit", "history-search-section", "history-search-form", "history-search-input", "history-search-view", "history-search-count", "skill-list", "history-bar",
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
   "team-section", "team-view", "team-count",
+  "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
   "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
@@ -1454,6 +1455,11 @@ elements["team-view"]?.addEventListener("click", async event => {
     await runAgentTeamAction(() => invoke("AgentTeamMaterialize", "", kind, 0));
     return;
   }
+  const openRole = event.target.closest?.("[data-team-role-open]");
+  if (openRole?.dataset.teamRoleOpen) {
+    await openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession);
+    return;
+  }
   if (event.target.closest?.("[data-team-refresh]")) {
     await refreshAgentTeam({ force: true });
     return;
@@ -1479,6 +1485,35 @@ elements["team-view"]?.addEventListener("change", async event => {
   if (!select?.value) return;
   const team = normalizeAgentTeam(agentTeamView);
   await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", select.value, team.orderRoles));
+});
+
+// openRoleSessionDetail 打开某个角色的独立会话（成员行「查看」）：DS-A2A 里
+// EXEC（main）与 ADVISOR（tl）是两个会话，主对话只显示 EXEC 的可见消息，
+// 这里按角色身份单独展示该 agent 自己的行，避免两个 agent 都渲染成 AGENT。
+async function openRoleSessionDetail(roleName, roleSessionID) {
+  const name = String(roleName || "").trim();
+  if (!name) return;
+  try {
+    const snapshot = await invoke("AgentTeamRoleSnapshot", "", name, String(roleSessionID || ""));
+    elements["role-session-modal-title"].innerHTML = `<span class="eyebrow">Agent Team · 角色会话</span><h2>${escapeHtml(roleDisplayName(name))}</h2>`;
+    elements["role-session-view"].className = "role-session-view";
+    elements["role-session-view"].innerHTML = renderRoleSessionDetail(snapshot);
+    setModal("role-session-modal", true);
+  } catch (error) {
+    showToast(error);
+  }
+}
+
+function closeRoleSessionDetail() {
+  setModal("role-session-modal", false);
+}
+
+elements["role-session-close"]?.addEventListener("click", closeRoleSessionDetail);
+elements["role-session-modal"]?.addEventListener("click", event => {
+  if (event.target === elements["role-session-modal"]) closeRoleSessionDetail();
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeRoleSessionDetail();
 });
 
 // 定时任务表格内取消按钮（事件委托挂表格容器；ID 是操作键）。
@@ -2352,7 +2387,7 @@ elements["scheduled-task-view"].addEventListener("click", async event => {
   }
 });
 
-for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal]]) {
+for (const [modalID, close] of [["runtime-modal", closeRuntime], ["command-modal", closeCommandPalette], ["settings-modal", closeSettings], ["scheduled-task-modal", closeScheduledTaskDialog], ["node-detail-modal", closeNodeDetail], ["work-table-modal", closeWorkTable], ["new-session-modal", closeNewSessionModal], ["role-session-modal", closeRoleSessionDetail]]) {
   elements[modalID].addEventListener("click", event => {
     if (event.target === elements[modalID]) close();
   });

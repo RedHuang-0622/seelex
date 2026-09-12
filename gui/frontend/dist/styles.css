@@ -2820,8 +2820,26 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .team-order-outside { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--faint); font-size: 10px; }
 .team-member { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-left: 2px solid transparent; }
 .team-member.is-floor { border-left-color: var(--status-running); }
+.team-member-name.text-button { flex: 1 1 auto; justify-content: flex-start; min-width: 48px; padding: 1px 6px; text-align: left; }
+.team-member-role { flex: none; color: var(--faint); font: 10px var(--font-mono); }
 .team-member-pos, .team-member-state { color: var(--faint); font: 10px var(--font-mono); }
 .team-member-remove { margin-left: auto; }
 .team-scheduled-item { display: flex; align-items: center; gap: 8px; padding: 4px 2px; }
 .team-scheduled-note { margin-left: auto; color: var(--faint); font-size: 10px; }
 .team-empty { padding: 8px 0; font-size: 11px; line-height: 1.5; }
+
+/* 角色会话详情（Agent Team 成员行「查看」）：EXEC(main) 与 ADVISOR(tl)
+   是两个独立会话，这里按角色身份单独展示，避免与主对话的 AGENT 混淆。 */
+.role-session-card { width: min(760px, 100%); max-height: min(80vh, 720px); overflow: auto; }
+.role-session-view { display: grid; gap: 10px; padding: 4px 2px 8px; }
+.role-session-ident { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.role-session-identity { color: var(--text-strong); font-weight: 600; }
+.role-session-name { color: var(--text-strong); font: 12px var(--font-mono); }
+.role-session-sid, .role-session-meta { color: var(--faint); font: 10.5px var(--font-mono); }
+.role-session-rows { display: grid; gap: 8px; }
+.role-session-row { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+.role-session-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 11px; }
+.role-session-text { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.55; }
+.role-session-reasoning { white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.5; }
+.role-session-tool { margin-top: 4px; font: 10.5px var(--font-mono); }
+.role-session-empty { padding: 10px 0; font-size: 11.5px; }
