@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -121,15 +122,16 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 
 	// 收集结果。
 	snapshot := harness.app.Snapshot()
+	fingerprint, ordinals := drainChainFingerprint(t, sub)
 	result := chainABResult{
 		activeID:     snapshot.Session.ID,
 		sessions:     sessionIDs(snapshot.Sessions),
 		conversation: conversationTexts(snapshot.Conversation),
-		fingerprint:  drainChainFingerprint(t, sub),
+		fingerprint:  fingerprint,
 		hotAttachMS:  hotAttachMS,
 	}
-	// 会话 ID 是运行期生成值，跨运行必然不同：统一归一化为序数后对比。
-	result.normalizeSessionIDs()
+	// 会话 ID 是运行期生成值，跨运行必然不同：统一归一化为事件指纹序数后对比。
+	result.normalizeSessionIDs(ordinals)
 	// A 对话含自身输入与 DONE_FROM_A，不含 B 输入（无串写）。
 	joined := strings.Join(result.conversation, "\n")
 	if !strings.Contains(joined, "long task A") || !strings.Contains(joined, "DONE_FROM_A") {
@@ -141,24 +143,20 @@ func runChainSwitchScenario(t *testing.T) chainABResult {
 	return result
 }
 
-// normalizeSessionIDs 把 activeID/sessions 映射为首次出现序数（与事件指纹
-// 同思路），消除运行间 ID 噪音。
-func (result *chainABResult) normalizeSessionIDs() {
-	ordinal := map[string]string{}
-	next := 0
-	for _, sid := range result.sessions {
-		if _, ok := ordinal[sid]; !ok {
-			ordinal[sid] = string(rune('0' + next))
-			next++
+// normalizeSessionIDs 用事件指纹的序数映射归一化 activeID/sessions，消除
+// 运行间 ID 噪音。序数按脚本事件首次出现顺序分配（跨运行稳定），不按会话
+// 列表的展示顺序：列表按 UpdatedAt 倒序、相等时由随机 ID 兜底，跨运行本来
+// 就不保证顺序一致，断言只关心集合与活跃会话身份。
+func (result *chainABResult) normalizeSessionIDs(ordinal map[string]string) {
+	for index := range result.sessions {
+		if mapped, ok := ordinal[result.sessions[index]]; ok {
+			result.sessions[index] = mapped
 		}
 	}
-	for index := range result.sessions {
-		result.sessions[index] = ordinal[result.sessions[index]]
+	sort.Strings(result.sessions)
+	if mapped, ok := ordinal[result.activeID]; ok {
+		result.activeID = mapped
 	}
-	if _, ok := ordinal[result.activeID]; !ok {
-		ordinal[result.activeID] = string(rune('0' + next))
-	}
-	result.activeID = ordinal[result.activeID]
 }
 
 // TestChainSwitchABStable 是 A/B 全链路对比：两遍同脚本行为一致且无死锁。
@@ -193,7 +191,7 @@ func sessionIDs(sessions []application.SessionInfo) []string {
 
 // drainChainFingerprint 把订阅事件归一化为指纹（kind + session/request/
 // message ID 序数），与 core 侧事件指纹同一方法。
-func drainChainFingerprint(t *testing.T, sub application.Subscription) []string {
+func drainChainFingerprint(t *testing.T, sub application.Subscription) ([]string, map[string]string) {
 	t.Helper()
 	ids := map[string]string{}
 	next := 0
@@ -229,7 +227,7 @@ func drainChainFingerprint(t *testing.T, sub application.Subscription) []string 
 			draining = false
 		}
 	}
-	return fingerprint
+	return fingerprint, ids
 }
 
 func chainMessageID(raw json.RawMessage) string {
