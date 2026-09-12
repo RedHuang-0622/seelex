@@ -33,7 +33,10 @@
 
 - **无重放窗口**（`Subscribe` / `SubscribeFiltered`）：排空该订阅缓冲，只保留一个
   `resync.required`，且它一律以**全局事件**投递（保留会话路由键会被本订阅自己的
-  过滤条件吞掉，客户端从此静默地看旧数据），由消费者重新获取 Snapshot。
+  过滤条件吞掉，客户端从此静默地看旧数据），由消费者重新获取 Snapshot。排空
+  必须用非阻塞接收：`deliver` 持有 subscriber 局部锁，若阻塞在接收上与并发
+  消费者抢元素，就会和等同一把锁的 `Close` 互相死锁（2026-09-12 CI
+  `application/core` 偶发挂死即此根因）。
 - **带重放窗口**（`SubscribeWithReplay`）：**不丢弃载荷、也不排空缓冲** —— 每个通过
   过滤的事件都先进入按 `DeliverySeq` 有序的窗口，再尽力写入 channel。落后消费者用
   `ReplaySince(sinceSeq)` 增量补取，`DeliveryWatermark()` 用来区分"确实没有新事件"和

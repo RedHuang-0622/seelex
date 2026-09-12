@@ -340,8 +340,16 @@ func (subscriber *eventSubscriber) deliver(event Event) {
 	select {
 	case subscriber.events <- event:
 	default:
-		for len(subscriber.events) > 0 {
-			<-subscriber.events
+		// 非阻塞排空：消费者与投递并发时 len(ch)>0 并不保证下一次接收能
+		// 立刻拿到元素；若在这里阻塞等待，持 subscriber.mu 的 deliver 会
+		// 与等同一把锁的 close 互相死锁（订阅关闭/测试退出永久挂起）。
+		for {
+			select {
+			case <-subscriber.events:
+				continue
+			default:
+			}
+			break
 		}
 		resync := event
 		resync.Kind = EventResyncRequired

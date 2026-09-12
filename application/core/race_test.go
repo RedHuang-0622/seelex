@@ -66,7 +66,19 @@ func TestEventHub_RaceSubscribeClosePublish(t *testing.T) {
 			hub.Publish(EventSnapshotChanged, 1, "", nil)
 		}()
 	}
-	wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		// 旧实现 deliver 持 subscriber.mu 用阻塞式 <-ch 排空缓冲：与并发消费者
+		// 抢读时会永久阻塞，而 close 又要等同一把锁 → 订阅关闭挂死（CI 表现
+		// 为整个 application/core 包等满 -timeout）。限时等待把 hang 变成可读失败。
+		t.Fatal("EventHub subscribe/close deadlocked（deliver 排空与 close 互等）")
+	}
 }
 
 // TestEventHub_RaceMultipleSubscribers 验证多订阅者并发订阅/关闭。
@@ -98,7 +110,16 @@ func TestEventHub_RaceMultipleSubscribers(t *testing.T) {
 		}
 	}()
 
-	wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("EventHub subscribe/close deadlocked（deliver 排空与 close 互等）")
+	}
 }
 
 // =============================================================================
