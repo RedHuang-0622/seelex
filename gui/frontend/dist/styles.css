@@ -382,6 +382,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .chat-activity-tail { max-width: 860px; margin: 0 auto 16px; }
 .message-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--muted); font: 10px var(--font-mono); }
 .message-head strong { color: var(--muted); font-size: 10px; letter-spacing: .08em; }
+.message-round { flex: none; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--faint); font: 9.5px var(--font-mono); }
+.message[data-role-name="tl"] .role-mark, .message[data-role-name="tl"] .message-head strong { color: var(--status-running); }
+.message[data-role-name="main"] .role-mark, .message[data-role-name="main"] .message-head strong { color: var(--text-strong); }
 .role-mark { display: inline-grid; place-items: center; color: var(--faint); }
 .message-body { color: var(--text-strong); font-size: var(--text-md); line-height: 1.72; overflow-wrap: anywhere; }
 .message.user .message-body {

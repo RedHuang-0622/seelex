@@ -110,6 +110,12 @@ type Message struct {
 	ReasoningContent string    `json:"reasoning_content,omitempty"`
 	Tool             *ToolCall `json:"tool,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
+	// RoleName / RoleSessionID / RoundID / UnitSeq 是群聊角色归属（my_design
+	// §8.3）：前端按"主持该轮次的 agent"渲染过程。空 = 单 agent 会话的旧数据。
+	RoleName      string `json:"role_name,omitempty"`
+	RoleSessionID string `json:"role_session_id,omitempty"`
+	RoundID       uint64 `json:"round_id,omitempty"`
+	UnitSeq       uint64 `json:"unit_seq,omitempty"`
 }
 type ToolCall struct {
 	ID        string        `json:"id"`

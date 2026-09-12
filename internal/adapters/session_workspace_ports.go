@@ -879,6 +879,8 @@ func adaptStoredConversationMessage(message sessionstore.ConversationMessage) mo
 	adapted := model.Message{
 		ID: message.ID, Role: message.Role, Content: message.Content,
 		ReasoningContent: message.ReasoningContent, CreatedAt: message.CreatedAt,
+		RoleName: message.RoleName, RoleSessionID: message.RoleSessionID,
+		RoundID: message.RoundID, UnitSeq: message.UnitSeq,
 	}
 	if message.Tool != nil {
 		tool := *message.Tool

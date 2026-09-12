@@ -303,18 +303,24 @@ func derivedConversationMessages(rows []Event) []ConversationMessage {
 			messages = append(messages, ConversationMessage{
 				ID: id, Role: row.Role, Content: row.Content,
 				ReasoningContent: row.ReasoningContent, CreatedAt: row.CreatedAt,
+				RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
+				RoundID: row.RoundID, UnitSeq: row.UnitSeq,
 			})
 		}
 		for index, call := range row.ToolCalls {
 			messages = append(messages, ConversationMessage{
 				ID: derivedToolCallMessageID(id, index), Role: "tool", CreatedAt: row.CreatedAt,
-				Tool: &ConversationToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
+				Tool:     &ConversationToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
+				RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
+				RoundID: row.RoundID, UnitSeq: row.UnitSeq,
 			})
 		}
 		if row.Role == "tool" {
 			messages = append(messages, ConversationMessage{
 				ID: id, Role: "tool_result", Content: row.Content, CreatedAt: row.CreatedAt,
-				Tool: &ConversationToolCall{ID: row.ToolCallID, Name: row.Name, Status: "success", Result: row.Content},
+				Tool:     &ConversationToolCall{ID: row.ToolCallID, Name: row.Name, Status: "success", Result: row.Content},
+				RoleName: row.RoleName, RoleSessionID: row.RoleSessionID,
+				RoundID: row.RoundID, UnitSeq: row.UnitSeq,
 			})
 		}
 	}

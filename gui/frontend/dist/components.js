@@ -222,9 +222,11 @@ export function wheelSnippet(text = "", limit = 32) {
 function renderMessage(message, key) {
   const role = message.role || "assistant";
   const time = message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-  const label = role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
+  const label = roleIdentity(message, role);
   const reasoning = String(message.reasoning_content || "").trim();
   const debugID = String(message.id || key || "");
+  const roundID = Number(message.round_id || 0);
+  const roundChip = roundID > 0 ? `<span class="message-round" title="群聊轮次（一条 user 输入开启一轮）">R${roundID}</span>` : "";
   const thinking = role === "assistant" && reasoning
     ? `<details class="reasoning-block is-thinking-axis" open data-trajectory-key="${escapeHtml(key)}">
         <summary>
@@ -236,13 +238,26 @@ function renderMessage(message, key) {
       </details>`
     : "";
   const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
-  const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : role === "assistant" ? "Seelex" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
-  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}">
+  const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
+  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}">
     <div class="message-debug"><code class="item-id">${escapeHtml(debugID)}</code></div>
-    <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong><span>${escapeHtml(time)}</span></div>
+    <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
     ${thinking}
     <div class="message-body">${markdown(message.content || "")}</div>
   </article>`;
+}
+
+// roleIdentity 返回消息所属 agent 的展示身份：群聊角色归属优先
+// （main → EXEC、tl/techlead → ADVISOR），无归属时回退到 provider role 文案。
+// 两个 agent 都渲染成同一个 AGENT/Seelex 会让"主持该轮次的 agent"不可辨。
+export function roleIdentity(message, role = message?.role || "assistant") {
+  const roleName = String(message?.role_name || "").trim();
+  if (roleName && roleName !== "user") {
+    if (roleName === "main") return "EXEC";
+    if (roleName === "tl" || roleName === "techlead") return "ADVISOR";
+    return roleName.toUpperCase();
+  }
+  return role === "user" ? "YOU" : role === "assistant" ? "AGENT" : role.toUpperCase();
 }
 
 function renderToolCall(tool, key, payloads) {

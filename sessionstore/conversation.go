@@ -21,6 +21,13 @@ type ConversationMessage struct {
 	ReasoningContent string                `json:"reasoning_content,omitempty"`
 	Tool             *ConversationToolCall `json:"tool,omitempty"`
 	CreatedAt        time.Time             `json:"created_at"`
+	// RoleName / RoleSessionID / UnitSeq 是群聊角色归属（my_design §8.3）：
+	// UI 需要按"主持该轮次的 agent"渲染过程，缺失这段归属会把 main 与 tl
+	// 的步骤渲染成同一个 AGENT。RoundID = 一条 user 输入开启的轮次。
+	RoleName      string `json:"role_name,omitempty"`
+	RoleSessionID string `json:"role_session_id,omitempty"`
+	RoundID       uint64 `json:"round_id,omitempty"`
+	UnitSeq       uint64 `json:"unit_seq,omitempty"`
 }
 
 // ConversationToolCall 是会话消息内工具调用的存储层 DTO。

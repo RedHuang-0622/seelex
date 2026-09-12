@@ -8,7 +8,25 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationModel } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationModel, roleIdentity } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+
+test("assigns each message the identity of the agent that owns the round", () => {
+  assert.equal(roleIdentity({ role: "assistant", role_name: "main" }), "EXEC");
+  assert.equal(roleIdentity({ role: "assistant", role_name: "tl" }), "ADVISOR");
+  assert.equal(roleIdentity({ role: "assistant", role_name: "techlead" }), "ADVISOR");
+  assert.equal(roleIdentity({ role: "assistant", role_name: "reviewer" }), "REVIEWER");
+  assert.equal(roleIdentity({ role: "assistant" }), "AGENT");
+  assert.equal(roleIdentity({ role: "user", role_name: "user" }), "YOU");
+
+  const rendered = renderConversationComponent(
+    [{ id: "m-1", role: "assistant", role_name: "tl", round_id: 3, content: "verdict: done" }],
+    { running: false }
+  );
+  assert.match(rendered.html, /<strong>ADVISOR<\/strong>/);
+  assert.match(rendered.html, />R3</);
+  assert.match(rendered.html, /data-role-name="tl"/);
+  assert.doesNotMatch(rendered.html, /<strong>AGENT<\/strong>/);
+});
 
 test("renders runtime activity only from active chat state", () => {
   assert.equal(renderChatActivity({ running: false }), "");
