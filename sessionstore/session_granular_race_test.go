@@ -20,6 +20,17 @@ func TestSessionGranularStoreConcurrentProjectScope(t *testing.T) {
 		t.Run(string(backend), func(t *testing.T) {
 			router := newSessionGranularRouter(t, backend)
 			store := NewSessionGranularStore(router)
+			resolver := func(sessionID string) string {
+				if sessionID == "sess-bound" {
+					return "project-A"
+				}
+				return ""
+			}
+			// 解析器必须在并发开始前安装：注入点为空时 ResolveProjectForSession
+			// 只能按默认项目/项目表回退，最早的调用会拿不到绑定而返回 ""（夹具
+			// 竞争，不是存储行为；与 TestEventStoreConcurrentAppendAndLoad 的
+			// 约定一致）。安装后仍持续重装同一实现，覆盖 resolver 字段的读写竞争。
+			store.SetWorkspaceResolver(resolver)
 			const sessionCount = 6
 			const rounds = 30
 
@@ -28,12 +39,7 @@ func TestSessionGranularStoreConcurrentProjectScope(t *testing.T) {
 			go func() {
 				defer group.Done()
 				for round := 0; round < rounds*4; round++ {
-					store.SetWorkspaceResolver(func(sessionID string) string {
-						if sessionID == "sess-bound" {
-							return "project-A"
-						}
-						return ""
-					})
+					store.SetWorkspaceResolver(resolver)
 					if round%2 == 0 {
 						router.SetWorkspace("project-A")
 					} else {
