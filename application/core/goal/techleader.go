@@ -137,6 +137,26 @@ type TLRoundRecord struct {
 // 发布到主文档 + floor；nil = 不记录）。每回合都调用，保证"存上下文原本的内容"。
 type TLRoundRecorder interface {
 	RecordTLRound(ctx context.Context, record TLRoundRecord) error
+	// RecordMainTurn 在 b 回合把发言权交还 a 时发布"本轮由 EXEC 主持"标记
+	// （TL-main loop 的收尾由 TL 裁决决定：verdict_done/escalate_human 等终态
+	// 不再交还，故不发布）。
+	RecordMainTurn(ctx context.Context, record MainTurnRecord) error
+}
+
+// MainTurnRecord 是一次 a（EXEC）回合的发布标记（b 交还发言权时产生）。
+type MainTurnRecord struct {
+	Trigger   string
+	RoundID   uint64
+	Directive DirectiveKind
+}
+
+// loopContinues 报告该裁决是否把发言权交还 EXEC（终态裁决结束循环）。
+func loopContinues(kind DirectiveKind) bool {
+	switch kind {
+	case DirectiveVerdictDone, DirectiveEscalateHuman, DirectiveDeny:
+		return false
+	}
+	return true
 }
 
 // SetRoundRecorder 注入 b 回合记录器（装配根在首次会话启动前调用；幂等）。
@@ -334,6 +354,11 @@ func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal 
 			Trigger: trigger, RefSeq: peer.Applied, Context: inputText,
 			Output: directiveText(directive),
 		})
+		if loopContinues(directive.Kind) {
+			_ = s.recorder.RecordMainTurn(ctx, MainTurnRecord{
+				Trigger: trigger, RoundID: peer.Applied, Directive: directive.Kind,
+			})
+		}
 	}
 	peer.Cache = cacheStatsOf(peer.Rounds)
 	peer.State = PeerAdvisoryPending

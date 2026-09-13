@@ -61,3 +61,35 @@ func (r goalTLRecorder) RecordTLRound(_ context.Context, record goaldomain.TLRou
 	_, err = r.service.SyncRoleDraft(r.sessionID, roleName, roleSessionID, view.OrderRoles)
 	return err
 }
+
+// RecordMainTurn 在 b 交还发言权时发布 EXEC 主持标记：main 的过程行照旧实时
+// 落盘（B 方案不藏过程），这里只补一次"本轮由 EXEC 主持 + 进度"的发布，
+// 让前端能把这一轮的过程归到 EXEC 名下。main 复用主会话（role_session_id =
+// 主会话号），标记行经同一 draft → sequencer 通道发布并更新 floor=main。
+func (r goalTLRecorder) RecordMainTurn(_ context.Context, record goaldomain.MainTurnRecord) error {
+	if r.service == nil || r.sessionID == "" {
+		return nil
+	}
+	view, err := r.service.AgentTeamView(r.sessionID)
+	if err != nil || !view.Configured {
+		return nil
+	}
+	const roleName = "main"
+	content := "本轮由 EXEC 主持（TL 交还发言权"
+	if record.Directive != "" {
+		content += "，" + string(record.Directive)
+	}
+	content += "）"
+	row := dto.RoleDraftRow{
+		RoleName: roleName, RoleSessionID: r.sessionID, UnitSeq: 1, RoundID: record.RoundID,
+		Event: dto.RoleRow{
+			Kind: "round_host", Role: "assistant", Content: content,
+			RoleName: roleName, RoleSessionID: r.sessionID, UnitSeq: 1, RoundID: record.RoundID,
+		},
+	}
+	if err := r.service.AppendRoleDraft(r.sessionID, roleName, r.sessionID, []dto.RoleDraftRow{row}); err != nil {
+		return err
+	}
+	_, err = r.service.SyncRoleDraft(r.sessionID, roleName, r.sessionID, view.OrderRoles)
+	return err
+}
