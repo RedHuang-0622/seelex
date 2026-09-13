@@ -133,6 +133,18 @@ func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event mod
 	return c._AppendTranscriptEventForLocked(sessionID, event)
 }
 
+// RoleRoundFor 返回指定会话当前的群聊轮次（user 行开启新 round；未开轮 = 0）。
+// 调用方持有 Core.ViewMu。可见会话投影用它盖 round_id：与 transcript 的 R4
+// 排序键同源，不另起一套编号，前端 R 徽标因此不会与事件行错位。
+func (c *Coordinator) RoleRoundFor(sessionID string) uint64 {
+	if c == nil {
+		return 0
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.sessionStateLocked(sessionID).roleRoundID
+}
+
 // SeedTranscriptSeqFor 把指定会话的内存 transcript 序号基线抬到既有事件
 // 的最大序号（只增不减，幂等）。fork 子会话专用：子会话的磁盘快照继承了
 // 父会话的事件序号区间，而内存状态可能没有任何基线（子引擎冷启动为空、

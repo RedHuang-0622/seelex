@@ -220,6 +220,7 @@ go test ./application/core/task_context -count=1
 - `func (c *Coordinator) AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent` — AppendTranscriptEventLocked 追加一条 append-only transcript 事件（seq 自增；
 - `func (c *Coordinator) _AppendTranscriptEventLocked(event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent` — AppendTranscriptEventForLocked 追加一条指定会话的 transcript 事件（调用
+- `func (c *Coordinator) RoleRoundFor(sessionID string) uint64` — RoleRoundFor 返回指定会话当前的群聊轮次（user 行开启新 round；未开轮 = 0）。
 - `func (c *Coordinator) SeedTranscriptSeqFor(sessionID string, seq uint64)` — SeedTranscriptSeqFor 把指定会话的内存 transcript 序号基线抬到既有事件
 - `func (c *Coordinator) _AppendTranscriptEventForLocked(sessionID string, event model.TranscriptEvent) model.TranscriptEvent`
 - `func (c *Coordinator) ImportEngineHistoryAsTranscriptLocked(history []contract.EngineMessage)` — ImportEngineHistoryAsTranscriptLocked 把引擎既有历史导入活跃会话

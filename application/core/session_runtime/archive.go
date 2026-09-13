@@ -285,10 +285,14 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 		if event.Role == "system" || c.isInternalContent(event.Content) {
 			continue
 		}
+		// 群聊归属随事件一起搬到可见消息：冷恢复后聊天区仍按"哪个 agent 主持
+		// 这一轮"渲染（role_name/round_id 是 R4 的排序与展示键）。
 		message := model.Message{
 			ID: fmt.Sprintf("message-%d", event.Seq), Role: event.Role,
 			Content: event.Content, ReasoningContent: event.ReasoningContent,
 			Kind: messageKindForEvent(event), CreatedAt: event.CreatedAt,
+			RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
+			RoundID: event.RoundID, UnitSeq: event.UnitSeq,
 		}
 		switch event.Role {
 		case "assistant":
@@ -305,6 +309,10 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 						ReasoningContent: event.ReasoningContent,
 						Kind:             model.TranscriptEventKindLLM,
 						CreatedAt:        event.CreatedAt,
+						RoleName:         event.RoleName,
+						RoleSessionID:    event.RoleSessionID,
+						RoundID:          event.RoundID,
+						UnitSeq:          event.UnitSeq,
 					})
 				}
 				for callIndex, call := range event.ToolCalls {
@@ -313,7 +321,9 @@ func (c *Coordinator) conversationFromTranscriptLocked(events []model.Transcript
 						// 消息 ID，避免前端按 ID 增量路由时串更新。
 						ID:   fmt.Sprintf("message-%d-%d", event.Seq, callIndex),
 						Role: "tool", Kind: model.TranscriptEventKindToolCall, CreatedAt: event.CreatedAt,
-						Tool: &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
+						Tool:     &model.ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"},
+						RoleName: event.RoleName, RoleSessionID: event.RoleSessionID,
+						RoundID: event.RoundID, UnitSeq: event.UnitSeq,
 					})
 				}
 				continue

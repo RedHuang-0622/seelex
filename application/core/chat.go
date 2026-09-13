@@ -78,7 +78,9 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 	}
 	taskState := service.components.tasks.BeginTaskFor(sessionID, requestID, request.displayInput, effort, previousTask, previousCheckpoint)
 	service.components.tasks.ActivateTaskSkillsLocked(taskState, request.skills)
-	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
+	// R4 群聊归属：用户行开启新 round；可见消息与 transcript 事件共用同一归属，
+	// 前端才可能按"哪个 agent 主持这一轮"渲染（app/model.MessageOrigin）。
+	userEvent := service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: requestID, Role: "user", Content: request.displayInput})
 	runtime.SetStream(chat.NewVisibleOutputStream(requestID))
 	service.markBusyLocked()
 	runtime.SetChatState(ChatState{Running: true, RequestID: requestID, StartedAt: time.Now()}, nil)
@@ -97,13 +99,20 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		}
 	}
 	var user, assistant Message
+	userOrigin := MessageOrigin{
+		RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
+		RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq,
+	}
+	// EXEC（main）的回合行：角色会话即主会话，round 与用户行同轮；正文随后由
+	// 流式增量写入同一条消息，归属字段不会丢。
+	mainOrigin := MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
 	if active {
-		user = *service.appendMessageLocked("user", request.displayInput, nil)
-		assistant = *service.appendMessageLocked("assistant", "", nil)
+		user = *service.appendMessageWithOriginLocked("user", request.displayInput, nil, userOrigin)
+		assistant = *service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
 	} else {
 		// 阶段 1：后台会话也维护自己的可见投影（hot_attach 回看有数据）。
-		user = *service.appendSessionMessageLocked(sessionID, "user", request.displayInput, nil)
-		assistant = *service.appendSessionMessageLocked(sessionID, "assistant", "", nil)
+		user = *service.appendSessionMessageWithOriginLocked(sessionID, "user", request.displayInput, nil, userOrigin)
+		assistant = *service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, mainOrigin)
 	}
 	revision := uint64(0)
 	if active {
@@ -303,17 +312,22 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		}
 		taskState := service.components.tasks.BeginTaskFor(sessionID, nextRequestID, batchRequest.displayInput, effort, previousTask, previousCheckpoint)
 		service.components.tasks.ActivateTaskSkillsLocked(taskState, batchRequest.skills)
-		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
+		userEvent := service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: nextRequestID, Role: "user", Content: batchRequest.displayInput})
 		runtime.SetStream(chat.NewVisibleOutputStream(nextRequestID))
 		runtime.SetChatState(ChatState{Running: true, RequestID: nextRequestID, StartedAt: time.Now()}, nil)
 		service.components.tasks.SetTaskStateLocked(nextRequestID, TaskProgressing, "Task is in progress.")
 		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+		userOrigin := MessageOrigin{
+			RoleName: userEvent.RoleName, RoleSessionID: userEvent.RoleSessionID,
+			RoundID: userEvent.RoundID, UnitSeq: userEvent.UnitSeq,
+		}
+		mainOrigin := MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID, RoundID: userEvent.RoundID}
 		if active {
-			nextUser = service.appendMessageLocked("user", batchRequest.displayInput, nil)
-			nextAssistant = service.appendMessageLocked("assistant", "", nil)
+			nextUser = service.appendMessageWithOriginLocked("user", batchRequest.displayInput, nil, userOrigin)
+			nextAssistant = service.appendMessageWithOriginLocked("assistant", "", nil, mainOrigin)
 		} else {
-			nextUser = service.appendSessionMessageLocked(sessionID, "user", batchRequest.displayInput, nil)
-			nextAssistant = service.appendSessionMessageLocked(sessionID, "assistant", "", nil)
+			nextUser = service.appendSessionMessageWithOriginLocked(sessionID, "user", batchRequest.displayInput, nil, userOrigin)
+			nextAssistant = service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, mainOrigin)
 		}
 	} else {
 		runtime.UpdateChat(func(chat *ChatState) { chat.Running = false }, nil)
@@ -825,26 +839,32 @@ func (service *Service) appendHistoryLockedFor(sessionID string, history []Engin
 		if !isVisibleHistoryMessage(historyMessage) {
 			continue
 		}
+		// 引擎历史只有 provider role（这里的历史全部属于 EXEC 会话），按
+		// task_context 的同一口径补默认归属，避免恢复后的旧会话又变成 AGENT。
+		origin := MessageOrigin{RoleName: RoleNameMain, RoleSessionID: sessionID}
+		if historyMessage.Role == "user" {
+			origin.RoleName = RoleNameUser
+		}
 		if historyMessage.Role != "tool" && historyMessage.Content != "" && !context_runtime.IsProviderOnlyHistoryContent(historyMessage.Content) {
 			content := historyMessage.Content
 			if historyMessage.Role == "user" {
 				content = displayUserInput(content)
 			}
-			appended := service.appendSessionMessageLocked(sessionID, historyMessage.Role, content, nil)
+			appended := service.appendSessionMessageWithOriginLocked(sessionID, historyMessage.Role, content, nil, origin)
 			if historyMessage.ReasoningContent != "" && appended != nil {
 				appended.ReasoningContent = historyMessage.ReasoningContent
 			}
 		}
 		for _, call := range historyMessage.ToolCalls {
-			service.appendSessionMessageLocked(sessionID, "tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"})
+			service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &ToolCall{ID: call.ID, Name: call.Name, Arguments: call.Arguments, Status: "success"}, origin)
 		}
 		if historyMessage.Role == "tool" {
 			visible, ref, truncated, totalChars := service.boundToolResultForSnapshot(historyMessage.Name, historyMessage.Content)
-			service.appendSessionMessageLocked(sessionID, "tool_result", visible, &ToolCall{
+			service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", visible, &ToolCall{
 				ID: historyMessage.ToolCallID, Name: historyMessage.Name,
 				Result: visible, Status: "success",
 				ResultRef: ref, Truncated: truncated, TotalChars: totalChars,
-			})
+			}, origin)
 		}
 	}
 }

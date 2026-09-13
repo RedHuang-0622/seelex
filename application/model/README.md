@@ -10,9 +10,10 @@
 - `TaskState`：最近一次请求的可观察结果，只能是 `progressing`、`completed`、`needs_user_decision`、`blocked`、`interrupted` 或 `failed`；不承载模型推理、系统提示词或原始工具日志。
 - `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题；`SessionState.Draft` 表示尚未生成 ID、不得持久化的待发送会话。可见 `Status` 含 `draft | idle | running | queued | restoring | awaiting_approval | archived`；`restoring` 是运行中切换到未驻留会话时“后台冷加载中”的权威状态（视图已切到目标空壳，内容基线由装载完成事件发布）。
 - `WorkspaceInfo`：`ID` 是唯一键，`Name` 默认来自 root basename。
-- `Message`/`ToolCall`：前端渲染的消息与工具卡片。
+- `Message`/`ToolCall`：前端渲染的消息与工具卡片。`Message` 的 `RoleName`/`RoleSessionID`/`RoundID`/`UnitSeq` 是群聊角色归属（谁主持这一轮），聊天区据此渲染 `EXEC`（`main`）/`ADVISOR`（`tl`）与轮次徽标；空值 = 单 agent 会话的旧数据，前端回退到 provider role 文案。生产者用 `MessageOrigin` 传入这段归属（见 `application/core/README-service.md` 的 `appendMessageWithOriginLocked`）。
 - `RuntimeState`/`PlanState`：模型、Provider、Plugin、Effort、权威 `full_access`、工具和 Plan DAG 的投影；嵌套 `PlanNode` 包含有界生命周期 `events` 和子代理 `tool_events`。
 - `SubagentEvent`/`SubagentToolEvent`：前端增量协议；前者携带完整节点及 Plan 进度，后者携带单次子代理工具 started/completed 状态。
+- `WorkTableEvent`：`worktable.changed` 增量载荷（`items` + 可选 `batches` + 可选 `subagent_tree`）；树只在内容变化时携带，空数组表示已清空，缺失/`null` 表示保留既有树——前端据此把工作表格行解析成详情弹窗节点。
 - `Interaction`：审批、session/account picker 等等待用户决策的状态。
 
 `ProtocolVersion` 标识不兼容协议版本。`CloneSnapshot` 和 `CloneRuntimeState` 对 slice、map 和嵌套指针做防御性复制。

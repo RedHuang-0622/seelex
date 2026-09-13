@@ -62,6 +62,7 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projection RuntimeStateProjection)` — ApplyRuntimeProjectionForLocked 应用 runtime 投影到指定会话（G1）：
 - `func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLocked 追加一条可见消息到当前活跃会话（调用方持有
 - `func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进
+- `func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — AppendMessageWithOriginLockedFor 追加一条带群聊归属的可见消息：归属字段随
 - `func (c *Coordinator) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
 - `func (c *Coordinator) SessionViewLocked(sessionID string) *session.View` — SessionViewLocked 返回指定会话的可见投影（core 域恢复/回看路径用；
 - `func (c *Coordinator) SessionViewMutateLocked(sessionID string, mutate func(*session.View))` — SessionViewMutateLocked 在指定会话可见投影的 View.mu 内应用变更（G5 访问

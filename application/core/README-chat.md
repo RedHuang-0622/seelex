@@ -2,7 +2,7 @@
 
 ## 生态位
 
-聊天主循环与可见输出集成
+聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）
 
 覆盖：`chat*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
@@ -61,3 +61,10 @@
 ### visible_output_test.go
 
 - `func TestAppendDeltaDoesNotExposeThoughtContent(t *testing.T)`
+
+### visible_role_attribution_test.go
+
+- `func TestVisibleConversationCarriesRoleAttribution(t *testing.T)` — TestVisibleConversationCarriesRoleAttribution 复现实时聊天载荷缺归属：
+- `func TestTeamDirectiveReplayCarriesAdvisorIdentity(t *testing.T)` — TestTeamDirectiveReplayCarriesAdvisorIdentity 复现 ADVISOR 不可辨：TL 回合的
+- `func visibleMessage(t *testing.T, messages []Message, match func(Message) bool) Message` — visibleMessage 取第一条满足条件的可见消息（缺失即用例失败）。
+- `func visibleConversationFor(service *Service, sessionID string) []Message` — visibleConversationFor 读取指定会话的可见投影（非活跃会话也能读）。

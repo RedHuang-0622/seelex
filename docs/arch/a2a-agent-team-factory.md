@@ -211,6 +211,11 @@ AT9  只有用户输入是 user role；task/goal/plan/subagent 状态材料与�
      system，身份靠 role_name/role_session_id 元数据表达
 AT10 中断未完成的工作统一走 §5.1 恢复模板：幂等键定位 → 补占位 → 重建现场 →
      system 注入恢复说明 → 同键重跑 → 收敛
+AT11 可见会话消息（前端 snapshot.conversation）必须携带 role_name/role_session_id/
+     round_id：聊天区据 role_name 渲染 EXEC（main）/ADVISOR（tl）、据 round_id
+     渲染轮次徽标；缺这段归属时前端只能回退 AGENT，两个 teammate 不可辨。
+     ADVISOR 的回合原文按 assistant 行 + role_name=tl 发布（不是 system 行），
+     实时流式、工具轮续写正文、冷恢复重建三条路径同口径
 ```
 
 ## 10. 参考

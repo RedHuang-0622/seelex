@@ -297,6 +297,13 @@ func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.Tool
 // 每会话 SessionView；活跃会话同步镜像 Snapshot，后台会话只写自身 scope，
 // hot_attach 回看有数据）。
 func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message {
+	return c.AppendMessageWithOriginLockedFor(sessionID, role, content, tool, model.MessageOrigin{})
+}
+
+// AppendMessageWithOriginLockedFor 追加一条带群聊归属的可见消息：归属字段随
+// 消息一起进前端载荷，聊天区据此把过程归到 EXEC/ADVISOR（my_design §8.3）。
+// 零值 origin 与 AppendMessageLockedFor 等价（旧数据仍按 provider role 渲染）。
+func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
 	if role == "assistant" || role == "tool_result" {
 		content = chat.StripThoughtBlocks(content)
 	}
@@ -304,7 +311,11 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 	var message *model.Message
 	view.Mutate(func(v *session.View) {
 		c.messageSeq[sessionID]++
-		next := model.Message{ID: fmt.Sprintf("message-%d", c.messageSeq[sessionID]), Role: role, Content: content, Tool: tool, CreatedAt: time.Now()}
+		next := model.Message{
+			ID: fmt.Sprintf("message-%d", c.messageSeq[sessionID]), Role: role, Content: content, Tool: tool, CreatedAt: time.Now(),
+			RoleName: origin.RoleName, RoleSessionID: origin.RoleSessionID,
+			RoundID: origin.RoundID, UnitSeq: origin.UnitSeq,
+		}
 		// 历史浏览模式（可见窗口已锚定在更早位置、未贴尾）：新消息属于窗口
 		// 之后，只推进总数，不写进可见窗口——写进去会在窗口尾部插出一个洞
 		// （前端按顺序渲染，窗口外内容缺失表现为断层），并且把正在回看的

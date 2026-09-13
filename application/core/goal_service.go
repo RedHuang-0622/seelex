@@ -17,6 +17,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
@@ -252,13 +253,35 @@ func (service *Service) injectGoalDirectivesFor(sessionID string) {
 	if len(texts) == 0 {
 		return
 	}
+	// 角色会话号解析走存储读（锁外完成，避免在 ViewMu 里做 I/O）。
+	advisorSessionID := service.advisorRoleSessionID(sessionID)
 	service.ViewMu.Lock()
+	origin := MessageOrigin{
+		RoleName: RoleNameTL, RoleSessionID: advisorSessionID,
+		RoundID: service.components.tasks.RoleRoundFor(sessionID),
+	}
 	for _, text := range texts {
-		service.appendSessionMessageLocked(sessionID, "system", text, nil)
+		// ADVISOR 的回合原文按 assistant 行发布（role_name=tl）：写成 system 行
+		// 会让聊天区把它渲染成「系统」，两个 agent 又变回无区别。
+		service.appendSessionMessageWithOriginLocked(sessionID, "assistant", text, nil, origin)
 	}
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+}
+
+// advisorRoleSessionID 解析 ADVISOR（tl）的角色会话号：按工厂口径
+// (team_id, role_name) 派生，与 goal 回合记录器写入 draft 的会话号同源。
+// 未装配 AgentTeam（旧会话/测试桩）时返回空——不伪造角色会话号。
+func (service *Service) advisorRoleSessionID(sessionID string) string {
+	if service == nil || strings.TrimSpace(sessionID) == "" {
+		return ""
+	}
+	view, err := service.AgentTeamView(sessionID)
+	if err != nil || !view.Configured {
+		return ""
+	}
+	return agentteam.RoleSessionID(view.TeamID, RoleNameTL)
 }
 
 // goalBeginHandler 是 goal_begin 工具 handler（main.go 注册）。

@@ -76,6 +76,7 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 	sources := map[string]string{
 		filepath.Join("application", "contract", "dto", "rolesession.go"): readRepoFile(t, "application", "contract", "dto", "rolesession.go"),
 		filepath.Join("application", "contract", "dto", "agentteam.go"):   readRepoFile(t, "application", "contract", "dto", "agentteam.go"),
+		filepath.Join("application", "model", "state.go"):                 readRepoFile(t, "application", "model", "state.go"),
 	}
 	required := map[string]map[string][]string{
 		filepath.Join("application", "contract", "dto", "rolesession.go"): {
@@ -91,6 +92,12 @@ func TestRoleSessionDTOFieldsMatchWireContract(t *testing.T) {
 			"TeamView":   {"session_id", "team_kind", "order_policy", "order_roles", "members", "scheduled", "configured", "floor_role", "design_notice"},
 			"TeamMember": {"role_name", "role_kind", "role_session_id", "order_index", "in_order", "join_policy"},
 			"RoleSpec":   {"role_name", "role_kind", "order_priority", "join_policy", "tools_policy"},
+		},
+		// 聊天区按这些字段名读可见会话消息（components.js roleIdentity 用
+		// role_name 渲染 EXEC/ADVISOR，round_id 渲染 R 徽标）：改名会让前端
+		// 又退回"两个 teammate 都叫 AGENT"。
+		filepath.Join("application", "model", "state.go"): {
+			"Message": {"role_name", "role_session_id", "round_id", "unit_seq"},
 		},
 	}
 	for path, types := range required {

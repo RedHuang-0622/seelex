@@ -117,6 +117,24 @@ type Message struct {
 	RoundID       uint64 `json:"round_id,omitempty"`
 	UnitSeq       uint64 `json:"unit_seq,omitempty"`
 }
+
+// 群聊逻辑角色名（role_name）：只做 metadata 与展示归属，provider role 仍只有
+// system/user/assistant/tool（docs/arch/a2a-agent-team-factory.md §2.1）。
+const (
+	RoleNameUser = "user"
+	RoleNameMain = "main"
+	RoleNameTL   = "tl"
+)
+
+// MessageOrigin 是可见消息的群聊归属（my_design §8.3）：谁说的（逻辑角色名）、
+// 属于哪个角色会话、哪一轮哪一单元。零值 = 单 agent 会话的旧数据，前端
+// 按 provider role 文案回退（AGENT/SYSTEM），因此生产者只在有归属时填写。
+type MessageOrigin struct {
+	RoleName      string
+	RoleSessionID string
+	RoundID       uint64
+	UnitSeq       uint64
+}
 type ToolCall struct {
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`

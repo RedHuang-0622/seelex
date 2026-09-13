@@ -32,6 +32,7 @@ type (
 	SessionState           = model.SessionState
 	SessionStatus          = model.SessionStatus
 	Message                = model.Message
+	MessageOrigin          = model.MessageOrigin
 	ToolCall               = model.ToolCall
 	ChatState              = model.ChatState
 	TaskState              = model.TaskState
@@ -105,7 +106,13 @@ const (
 	SessionStatusQueued           = model.SessionStatusQueued
 	SessionStatusAwaitingApproval = model.SessionStatusAwaitingApproval
 	SessionStatusArchived         = model.SessionStatusArchived
-	SessionStatusRestoring        = model.SessionStatusRestoring
+
+	// 群聊逻辑角色名（role_name）：可见消息归属与前端 EXEC/ADVISOR 展示口径，
+	// provider role 仍只有 system/user/assistant/tool。
+	RoleNameUser           = model.RoleNameUser
+	RoleNameMain           = model.RoleNameMain
+	RoleNameTL             = model.RoleNameTL
+	SessionStatusRestoring = model.SessionStatusRestoring
 )
 
 // 域子包内部类型的根包别名（保持 package core 内部调用面稳定）。

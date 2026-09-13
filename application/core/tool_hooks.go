@@ -39,12 +39,18 @@ func (service *Service) handleToolStart(ctx context.Context, name, id, arguments
 		TranscriptToolCall{ID: id, Name: name, Arguments: arguments},
 		service.streamedAssistantTextLocked(sessionID))
 	var message Message
+	// 工具调起/结果归属调起方（EXEC）：与同轮的 assistant 行共享 role_name 与
+	// round_id，前端把过程归到主持这一轮的 agent 名下（§2.1 表：tool → 调起方）。
+	toolOrigin := MessageOrigin{
+		RoleName: RoleNameMain, RoleSessionID: sessionID,
+		RoundID: service.components.tasks.RoleRoundFor(sessionID),
+	}
 	if active {
 		tool := &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}
-		message = *service.appendMessageLocked("tool", "", tool)
+		message = *service.appendMessageWithOriginLocked("tool", "", tool, toolOrigin)
 	} else {
 		// 阶段 1：后台会话工具消息写自身 view（hot_attach 回看可见）。
-		message = *service.appendSessionMessageLocked(sessionID, "tool", "", &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"})
+		message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool", "", &ToolCall{ID: id, Name: name, Arguments: arguments, Status: "running"}, toolOrigin)
 	}
 
 	// plan_load 启动时：解析 DAG 并初始化 PlanState（Plan 状态属活跃会话；
@@ -216,10 +222,13 @@ func (service *Service) handleToolCompleteObserved(ctx context.Context, name, id
 
 	var message Message
 	var assistant *Message
-	message = *service.appendSessionMessageLocked(sessionID, "tool_result", content, &ToolCall{
+	message = *service.appendSessionMessageWithOriginLocked(sessionID, "tool_result", content, &ToolCall{
 		ID: id, Name: name, Result: visibleContent, Error: errorText,
 		Status: status, Duration: duration,
 		ResultRef: resultRef, Truncated: truncated, TotalChars: totalChars,
+	}, MessageOrigin{
+		RoleName: RoleNameMain, RoleSessionID: sessionID,
+		RoundID: service.components.tasks.RoleRoundFor(sessionID),
 	})
 	// tool_result 之后补空 assistant 占位（活跃与后台同一语义）：后台会话若
 	// 缺占位，后续 appendVisibleDelta(Background) 会把下一段 LLM 正文并入

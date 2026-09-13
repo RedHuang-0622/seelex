@@ -271,6 +271,11 @@ go test ./application/core/session_runtime -count=1
 - `func TestSessionTransitionManagerViewKeyAliasesEmpty(t *testing.T)` — TestSessionTransitionManagerViewKeyAliasesEmpty G5：空 key 与保留视图 key
 - `func TestSessionTransitionManagerCloseReleasesWaiters(t *testing.T)` — TestSessionTransitionManagerCloseReleasesWaiters G5：关闭后释放全部等待者，
 
+### visible_role_attribution_test.go
+
+- `func TestConversationFromTranscriptPreservesRoleAttribution(t *testing.T)` — TestConversationFromTranscriptPreservesRoleAttribution 钉住事件 → 可见消息
+- `func TestConversationFromTranscriptPreservesToolRoleAttribution(t *testing.T)` — TestConversationFromTranscriptPreservesToolRoleAttribution 工具调起/结果行
+
 ### wire_history.go
 
 - `func (c *Coordinator) AssembleWireHistoryWorkspace(location Location, sessionID string, budget, k int) ([]contract.EngineMessage, bool, error)` — AssembleWireHistoryWorkspace 通过 Core.Deps.Sessions 的可选能力执行 R2

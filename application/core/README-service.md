@@ -285,7 +285,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) applyRuntimeProjectionLocked(projection view_state.RuntimeStateProjection)`
 - `func (service *Service) applyRuntimeProjectionForLocked(sessionID string, projection view_state.RuntimeStateProjection)` — applyRuntimeProjectionForLocked 应用运行时投影到指定会话槽（活跃会话由
 - `func (service *Service) appendMessageLocked(role, content string, tool *ToolCall) *Message`
+- `func (service *Service) appendMessageWithOriginLocked(role, content string, tool *ToolCall, origin MessageOrigin) *Message` — appendMessageWithOriginLocked 追加一条带群聊归属的可见消息到活跃会话
 - `func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message` — appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
+- `func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *ToolCall, origin MessageOrigin) *Message` — appendSessionMessageWithOriginLocked 追加一条带群聊归属的可见消息到指定
 - `func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID string) *Message` — appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
 - `func (service *Service) setSessionChatLockedFor(sessionID string, chat ChatState)` — setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
 - `func (service *Service) mirrorActiveViewLocked()` — mirrorActiveViewLocked 把当前活跃会话 scope 镜像到 Snapshot。

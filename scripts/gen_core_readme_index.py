@@ -61,7 +61,8 @@ MISC_FILES = [
 ROOT_GROUPS = [
     ("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ["service"], []),
     ("session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）", ["session"], SESSION_EXTRA),
-    ("chat", "聊天主循环与可见输出集成", ["chat"], ["visible_output_test.go", "reasoning_visible_test.go"]),
+    ("chat", "聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）", ["chat"],
+     ["visible_output_test.go", "reasoning_visible_test.go", "visible_role_attribution_test.go"]),
     ("command", "内置命令注册与执行", ["command"], []),
     ("error", "错误码与面向用户的错误呈现", ["error"], []),
     ("history", "历史检索与 provider 失败恢复", ["history"], []),

@@ -176,10 +176,22 @@ func (service *Service) appendMessageLocked(role, content string, tool *ToolCall
 	return service.components.view.AppendMessageLocked(role, content, tool)
 }
 
+// appendMessageWithOriginLocked 追加一条带群聊归属的可见消息到活跃会话
+// （origin 由调用方按 transcript 的 R4 归属传入，见 model.MessageOrigin）。
+func (service *Service) appendMessageWithOriginLocked(role, content string, tool *ToolCall, origin MessageOrigin) *Message {
+	return service.components.view.AppendMessageWithOriginLockedFor(service.Core.Snapshot.Session.ID, role, content, tool, origin)
+}
+
 // appendSessionMessageLocked 追加一条可见消息到指定会话（阶段 1：后台会话
 // 也维护自己的可见投影；活跃会话同步镜像 Snapshot）。
 func (service *Service) appendSessionMessageLocked(sessionID, role, content string, tool *ToolCall) *Message {
 	return service.components.view.AppendMessageLockedFor(sessionID, role, content, tool)
+}
+
+// appendSessionMessageWithOriginLocked 追加一条带群聊归属的可见消息到指定
+// 会话（后台会话同样保留归属，hot_attach 回看不会退化成 AGENT）。
+func (service *Service) appendSessionMessageWithOriginLocked(sessionID, role, content string, tool *ToolCall, origin MessageOrigin) *Message {
+	return service.components.view.AppendMessageWithOriginLockedFor(sessionID, role, content, tool, origin)
 }
 
 // appendAssistantPlaceholderAfterToolLocked 在指定会话的 tool_result 之后补一条
@@ -196,7 +208,12 @@ func (service *Service) appendAssistantPlaceholderAfterToolLocked(sessionID stri
 	if emptyAssistantTail {
 		return nil
 	}
-	return service.appendSessionMessageLocked(sessionID, "assistant", "", nil)
+	// 工具轮后的续写正文同样由 EXEC 主持：没有归属会让同一回合的后半段在聊天区
+	// 从 EXEC 掉回 AGENT。
+	return service.appendSessionMessageWithOriginLocked(sessionID, "assistant", "", nil, MessageOrigin{
+		RoleName: RoleNameMain, RoleSessionID: sessionID,
+		RoundID: service.components.tasks.RoleRoundFor(sessionID),
+	})
 }
 
 // setSessionChatLockedFor 写指定会话的聊天运行态投影（活跃会话镜像
