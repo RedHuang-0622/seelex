@@ -18,6 +18,10 @@ type TurnRequest struct {
 	RoleName      string
 	RoleSessionID string
 	RoundID       uint64
+	// Prefix 是 team work 起点到当前位置的上下文前缀（装配好的正文文本）。
+	// 链表指针移到下一个 agent 时一并传递：下一个 agent 拿到的是从 team work
+	// 起点到当前这一步的上下文，而不是只有它自己的 draft。
+	Prefix string
 }
 
 type roleNode struct {
@@ -31,6 +35,7 @@ type TurnScheduler struct {
 	mu       sync.Mutex
 	head     *roleNode
 	current  *roleNode // 上一次领取的位置；nil = 从表头开始
+	prefix   string    // team work 起点 → 当前位置的上下文前缀
 	requests chan TurnRequest
 }
 
@@ -73,13 +78,38 @@ func (s *TurnScheduler) Next() TurnRequest {
 	defer s.mu.Unlock()
 	next := s.advanceLocked(request.RoleName)
 	if next == nil {
+		request.Prefix = s.prefix
 		return request
 	}
 	request.RoleName = next.roleName
 	if next.roleSessionID != "" {
 		request.RoleSessionID = next.roleSessionID
 	}
+	// 交接即带上"team work 起点 → 当前"的前缀：sequencer 每次发布后用
+	// SetPrefix 更新，这里保证下一个 agent 拿到当前完整前缀。
+	request.Prefix = s.prefix
 	return request
+}
+
+// SetPrefix 更新 team work 起点到当前位置的上下文前缀（sequencer 每次发布后
+// 调用；Next 交接时下发）。
+func (s *TurnScheduler) SetPrefix(prefix string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.prefix = prefix
+	s.mu.Unlock()
+}
+
+// Prefix 返回当前上下文前缀快照。
+func (s *TurnScheduler) Prefix() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.prefix
 }
 
 // advanceLocked 把 current 推进到链表下一节点并按 roleName 对齐（若意向来自

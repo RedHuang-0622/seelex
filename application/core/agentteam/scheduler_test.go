@@ -51,4 +51,17 @@ func TestTurnSchedulerChainsAndAdvances(t *testing.T) {
 	if scheduler.Restore("tl") {
 		t.Fatal("重复恢复应拒绝")
 	}
+
+	// 交接上下文前缀：team work 起点 → 当前位置的文本随指针一起给下一个 agent。
+	scheduler.SetPrefix("R1 user: 目标… / main: 已读 README 首行")
+	if scheduler.Prefix() == "" {
+		t.Fatal("前缀应可读")
+	}
+	if !scheduler.Request(TurnRequest{RoleName: "main"}) {
+		t.Fatal("投递 main 失败")
+	}
+	next := scheduler.Next()
+	if next.Prefix != "R1 user: 目标… / main: 已读 README 首行" {
+		t.Fatalf("交接前缀 = %q", next.Prefix)
+	}
 }
