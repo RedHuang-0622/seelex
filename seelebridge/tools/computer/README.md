@@ -28,6 +28,7 @@
 |---|---|
 | `computer.go` | 领域类型（`Point`/`Rect`/`Capture`/`ClickOptions`）与 `Sleep`；平台无关。 |
 | `image.go` | 最近邻缩放（只影响给模型看的像素，不改坐标系）。 |
+| `view.go` | 看图原语 `ViewImageFile`：读本地图片、必要时降采样重编码；只读、不拷贝，失败原因显式分类。 |
 | `keys.go` | 虚拟键码与组合键解析（跨平台可测）。 |
 | `click.go` | 点击序列语义：按下/释放成对、失败必补释放。平台无关、可单测。 |
 | `screen_windows.go` / `stub_other.go` | 截屏与 DPI 感知（Windows 实现 / 非 Windows 返回 `ErrUnsupported`）。 |
@@ -47,12 +48,28 @@
   声明 Per-Monitor V2；不声明时 125% 缩放下注入坐标会落到目标的 80%。
 - **键盘文本**：`TypeText` 按 UTF-16 单元逐个注入（支持中文与 emoji），
   组合键由 `PressKeys` 解析后按"修饰键按下 → 主键 → 修饰键逆序释放"下发。
+- **看图只读、截图才拷贝**：`ViewImageFile` 既不写盘也不留副本，路径失效时
+  只能显式报错（`ErrImageNotFound` / `ErrImageNotFile` / `ErrImageEmpty` /
+  `ErrImageFormatUnsupported`，各自可 `errors.Is` 判定）；按 `MaxWidth`
+  降采样时只重编码「给模型看的那份字节」，原文件字节不变。
+- **MCP 侧一次调用给全「页面状态」**：`view_screen` 把截屏与虚拟桌面、光标、
+  前台窗口绑成一条工具，`view_image` 负责「入参路径、出参图像内容」；两者都
+  支持 `inline_image=false` 只回路径与尺寸，避免把图像塞进不需要它的上下文。
+  内联有 `maxInlineImageBytes`（8 MB）封顶：超限就退回文本并提示降 `max_width`，
+  而不是把一行 JSON 撑到读不回来。
 
 ## 数据流
 
 MCP 宿主 → `mcp/main.go` 解析 JSON-RPC → 校验参数 → 调用原语
-（`CaptureShot`/`Click`/`Drag`/`Scroll`/`TypeText`/`ListWindows`）→
-结果编码为 MCP `content` 文本或 PNG 保存路径 → 返回宿主。
+（`CaptureShot`/`Click`/`Drag`/`Scroll`/`TypeText`/`ListWindows`/`ViewImageFile`）
+→ 结果编码为 MCP `content` 文本、图像内容或 PNG 保存路径 → 返回宿主。
+
+- `screenshot`：截屏 → 落 PNG（默认 `%LOCALAPPDATA%\codex-computer-use\shots`）
+  → 文本（路径/区域/尺寸/缩放/光标）+ 图像内容（`inline_image` 默认 true）。
+- `view_screen`：`screenshot` 的复合形式——同一份画面外加 `describeScreenState()`
+  汇总的虚拟桌面、光标、前台窗口，一次调用即「画面 + 当前在哪」。
+- `view_image`：只读取调用方给的路径（不拷贝）→ 必要时降采样 → 图像内容。
+  截图与看图因此分工明确：截图产出资产，看图消费任意路径上的图片。
 
 ## 依赖方向
 
@@ -72,6 +89,10 @@ MCP 宿主 → `mcp/main.go` 解析 JSON-RPC → 校验参数 → 调用原语
 - 新原语：先在 `computer.go` 定义类型与语义，再在 `*_windows.go` 实现、在
   `stub_other.go` 补桩，最后在 `mcp/main.go` 的 `tools/list` 与 `tools/call`
   登记；
+- 平台无关的原语（如 `view.go` 的看图）只需新文件 + 单测，不必进
+  `stub_other.go`；
+- 新 MCP 工具同步补 `mcp/main_test.go`：直接调 `callTool` 断言 content 块，
+  测试不依赖真实桌面；
 - 只改平台实现的函数必须保持签名与坐标系语义不变（虚拟桌面物理像素）。
 
 ## Review 指南
@@ -84,10 +105,15 @@ MCP 宿主 → `mcp/main.go` 解析 JSON-RPC → 校验参数 → 调用原语
 ## 测试与验证
 
 ```text
-go test ./seelebridge/tools/computer/ -count=1
+go test ./seelebridge/tools/computer/... -count=1
 ```
 
 - `click_test.go`：点击序列（成对、失败补释放、clicks<1 归一）。
+- `view_test.go`：看图语义——原样返回文件原文、超宽降采样且**不改写原文件**、
+  各类失败可 `errors.Is` 判定。
+- `mcp/main_test.go`：MCP 工具面（不碰真实桌面）——`view_image` 的图像块可解码、
+  `max_width` 生效、`inline_image=false` 只回文本、坏路径显式报错，
+  以及 `tools/list` 里 `view_screen`/`view_image` 的描述非空。
 - `desktop_probe_test.go`：默认跳过；设 `SEELEX_COMPUTER_DESKTOP_PROBE=1`
   才会在真实桌面上点一下并断言"不报错且左键已释放"（会夺走一次点击，
   只在本机手动验证时用）。

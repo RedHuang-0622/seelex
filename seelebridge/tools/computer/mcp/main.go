@@ -28,6 +28,9 @@ const (
 	serverVersion = "0.1.0"
 	maxLineBytes  = 32 << 20
 	defaultWidth  = 1600
+	// maxInlineImageBytes 是单张图片内联为 MCP 图像内容的上限：base64 会再涨
+	// 33%，超过它就该让调用方降 max_width，而不是把一行结果撑到读不回来。
+	maxInlineImageBytes = 8 << 20
 )
 
 type rpcRequest struct {
@@ -270,6 +273,80 @@ func callTool(params json.RawMessage) (toolResult, error) {
 		}
 		return toolResult{Content: content}, nil
 
+	case "view_image":
+		var args struct {
+			Path     string `json:"path"`
+			MaxWidth int    `json:"max_width"`
+			Inline   *bool  `json:"inline_image"`
+		}
+		if len(call.Arguments) > 0 {
+			if err := json.Unmarshal(call.Arguments, &args); err != nil {
+				return toolResult{}, fmt.Errorf("view_image 参数非法: %w", err)
+			}
+		}
+		if strings.TrimSpace(args.Path) == "" {
+			return toolResult{}, fmt.Errorf("view_image 需要 path 参数")
+		}
+		viewWidth := args.MaxWidth
+		if viewWidth == 0 {
+			viewWidth = defaultWidth
+		}
+		if viewWidth < 0 {
+			viewWidth = 0
+		}
+		viewed, err := computer.ViewImageFile(computer.ViewImageOptions{Path: args.Path, MaxWidth: viewWidth})
+		if err != nil {
+			return toolResult{}, err
+		}
+		summary := fmt.Sprintf(
+			"image: %s\nmime=%s bytes=%d image=%dx%d source=%dx%d scale=%.3f\n看图只读：原文件未被拷贝或改写。",
+			viewed.Path, viewed.MimeType, len(viewed.Data), viewed.Width, viewed.Height,
+			viewed.SourceWidth, viewed.SourceHeight, viewed.Scale,
+		)
+		content := []toolContent{{Type: "text", Text: summary}}
+		if !inlineImage(args.Inline) {
+			return toolResult{Content: content}, nil
+		}
+		if len(viewed.Data) > maxInlineImageBytes {
+			content[0].Text = fmt.Sprintf(
+				"%s\n（%d 字节超过内联上限 %d，未内联；请降低 max_width 后重试）",
+				summary, len(viewed.Data), maxInlineImageBytes,
+			)
+			return toolResult{Content: content}, nil
+		}
+		content = append(content, toolContent{
+			Type:     "image",
+			Data:     base64.StdEncoding.EncodeToString(viewed.Data),
+			MimeType: viewed.MimeType,
+		})
+		return toolResult{Content: content}, nil
+
+	case "view_screen":
+		var args struct {
+			Region   *regionArg `json:"region"`
+			MaxWidth int        `json:"max_width"`
+			SavePath string     `json:"save_path"`
+			Inline   *bool      `json:"inline_image"`
+		}
+		if len(call.Arguments) > 0 {
+			if err := json.Unmarshal(call.Arguments, &args); err != nil {
+				return toolResult{}, fmt.Errorf("view_screen 参数非法: %w", err)
+			}
+		}
+		stateWidth := args.MaxWidth
+		if stateWidth == 0 {
+			stateWidth = defaultWidth
+		}
+		if stateWidth < 0 {
+			stateWidth = 0
+		}
+		content, err := captureAndEncode(args.Region.rect(), stateWidth, args.SavePath, inlineImage(args.Inline), nil)
+		if err != nil {
+			return toolResult{}, err
+		}
+		content = append([]toolContent{{Type: "text", Text: describeScreenState()}}, content...)
+		return toolResult{Content: content}, nil
+
 	case "cursor_position":
 		cursor, err := computer.CursorPosition()
 		if err != nil {
@@ -460,6 +537,34 @@ func callTool(params json.RawMessage) (toolResult, error) {
 	}
 }
 
+// describeScreenState 汇总「当前页面状态」里除画面之外的部分：虚拟桌面、光标、
+// 前台窗口。三段各自降级——某一项取不到只标注该项，不让整次调用失败：模型需要
+// 的是「画面 + 当前在哪」，任一项缺失都不该把已经拿到的信息一起丢掉。
+func describeScreenState() string {
+	var builder strings.Builder
+	builder.WriteString("当前页面状态")
+	if rect, err := computer.VirtualScreen(); err == nil {
+		fmt.Fprintf(&builder, "\n虚拟桌面=%s", rect)
+	} else {
+		fmt.Fprintf(&builder, "\n虚拟桌面=不可用(%v)", err)
+	}
+	if cursor, err := computer.CursorPosition(); err == nil {
+		fmt.Fprintf(&builder, "\n光标=(%d,%d)", cursor.X, cursor.Y)
+	} else {
+		fmt.Fprintf(&builder, "\n光标=不可用(%v)", err)
+	}
+	if window, err := computer.ForegroundWindow(); err == nil {
+		title := window.Title
+		if title == "" {
+			title = "(无标题)"
+		}
+		fmt.Fprintf(&builder, "\n前台窗口=%q %s 句柄=0x%X 最小化=%v", title, window.Rect, window.Handle, window.Minimized)
+	} else {
+		fmt.Fprintf(&builder, "\n前台窗口=不可用(%v)", err)
+	}
+	return builder.String()
+}
+
 func actionResult(summary string, withScreenshot bool, maxWidth int) (toolResult, error) {
 	if !withScreenshot {
 		return textResult("%s", summary), nil
@@ -547,6 +652,25 @@ func toolDefinitions() []toolDef {
 				"save_path":    map[string]any{"type": "string", "description": "可选：PNG 保存路径，默认落在 %LOCALAPPDATA%\\codex-computer-use\\shots"},
 				"inline_image": map[string]any{"type": "boolean", "description": "是否内联返回图像，默认 true；仅需文件路径时可设为 false"},
 			}),
+		},
+		{
+			Name:        "view_screen",
+			Description: "查看当前页面状态：一次调用同时返回屏幕画面（可选 region 裁剪与 max_width 缩放）与虚拟桌面、光标、前台窗口，省掉「先截图再逐个查状态」的多轮往返。坐标一律使用虚拟桌面物理像素。",
+			InputSchema: obj(map[string]any{
+				"region":       regionSchema,
+				"max_width":    map[string]any{"type": "integer", "description": "返回图像最大宽度，默认 1600，0 表示原尺寸"},
+				"save_path":    map[string]any{"type": "string", "description": "可选：PNG 保存路径，默认落在 %LOCALAPPDATA%\\codex-computer-use\\shots"},
+				"inline_image": map[string]any{"type": "boolean", "description": "是否内联返回图像，默认 true；仅需文件路径时可设为 false"},
+			}),
+		},
+		{
+			Name:        "view_image",
+			Description: "查看本地图片文件：入参路径、出参图像内容，用于查看已保存的截图或仓库里的图片。只读——不拷贝、不改写原文件；路径不存在或不是可解码图片时显式报错。",
+			InputSchema: obj(map[string]any{
+				"path":         map[string]any{"type": "string", "description": "本地图片路径（PNG/JPEG/GIF），只读"},
+				"max_width":    map[string]any{"type": "integer", "description": "返回图像最大宽度，默认 1600，0 表示原尺寸"},
+				"inline_image": map[string]any{"type": "boolean", "description": "是否内联返回图像，默认 true；仅需路径与尺寸时可设为 false"},
+			}, "path"),
 		},
 		{
 			Name:        "cursor_position",
