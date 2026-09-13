@@ -61,6 +61,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (service *Service) injectGoalDirectivesForStart(sessionID string)` — injectGoalDirectivesForStart 在 ChatStream 开始前把 TL 回合产生的指令
 - `func (service *Service) goalAdvanceAfterChat(ctx context.Context)` — goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进 goal 治理
 - `func (service *Service) injectGoalDirectivesFor(sessionID string)` — injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入
+- `func (service *Service) advisorRoleSessionID(sessionID string) string` — advisorRoleSessionID 解析 ADVISOR（tl）的角色会话号：按工厂口径
 - `func (service *Service) goalBeginHandler(ctx context.Context, argsJSON string) (string, error)` — goalBeginHandler 是 goal_begin 工具 handler（main.go 注册）。
 - `func (service *Service) goalUpdateHandler(ctx context.Context, argsJSON string) (string, error)` — goalUpdateHandler 是 goal_update 工具 handler。
 - `func (service *Service) goalProposeFinishHandler(ctx context.Context, argsJSON string) (string, error)` — goalProposeFinishHandler 是 goal_propose_finish 工具 handler。
@@ -70,6 +71,12 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (service *Service) GoalUpdateHandler(ctx context.Context, argsJSON string) (string, error)`
 - `func (service *Service) GoalStatusHandler(ctx context.Context, argsJSON string) (string, error)`
 - `func (service *Service) GoalProposeFinishHandler(ctx context.Context, argsJSON string) (string, error)`
+
+### goal_team_recorder.go
+
+- `func (service *Service) goalTLRecorderFor(sessionID string) goaldomain.TLRoundRecorder` — goalTLRecorderFor 是装配根注入的按会话记录器工厂。
+- `func (r goalTLRecorder) RecordTLRound(_ context.Context, record goaldomain.TLRoundRecord) error`
+- `func (r goalTLRecorder) RecordMainTurn(_ context.Context, record goaldomain.MainTurnRecord) error` — RecordMainTurn 在 b 交还发言权时发布 EXEC 主持标记：main 的过程行照旧实时
 
 ### goal_team_wiring_test.go
 

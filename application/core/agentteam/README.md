@@ -172,6 +172,28 @@ go test -race ./application/core/agentteam -count=1
 - `func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — SetOrder 写工作顺序策略（`order_roles`）；校验角色已注册、定时角色不入顺序、
 - `func firstNonEmpty(values ...string) string`
 
+### scheduler.go
+
+- `func NewTurnScheduler(order []string, sessions map[string]string, buffer int) *TurnScheduler` — NewTurnScheduler 按 order 建链；sessions 提供 role_name → role_session_id，
+- `func (s *TurnScheduler) Requests() chan<- TurnRequest` — Requests 返回发言意向投递口（参与者 actor 用；满则丢，调用方补重试）。
+- `func (s *TurnScheduler) Request(request TurnRequest) bool` — Request 非阻塞投递一条发言意向。
+- `func (s *TurnScheduler) Next() TurnRequest` — Next 领取下一个该发言的参与者：从 channel 收到意向 struct 后，按链表把
+- `func (s *TurnScheduler) SetPrefix(prefix string)` — SetPrefix 更新 team work 起点到当前位置的上下文前缀（sequencer 每次发布后
+- `func (s *TurnScheduler) Prefix() string` — Prefix 返回当前上下文前缀快照。
+- `func (s *TurnScheduler) advanceLocked(roleName string) *roleNode` — advanceLocked 把 current 推进到链表下一节点并按 roleName 对齐（若意向来自
+- `func (s *TurnScheduler) SetOrder(order []string, sessions map[string]string)` — SetOrder 整表替换顺序（前端顺序编辑的下发路径）。
+- `func (s *TurnScheduler) setOrderLocked(order []string, sessions map[string]string)`
+- `func (s *TurnScheduler) Order() []string` — Order 返回链表当前顺序（快照）。
+- `func (s *TurnScheduler) Move(roleName string, delta int) bool` — Move 上移/下移一个角色（delta<0 上移，delta>0 下移），越界返回 false。
+- `func (s *TurnScheduler) Remove(roleName string) bool` — Remove 摘除一个角色（保留注册表；顺序表移除）。
+- `func (s *TurnScheduler) Restore(roleName string) bool` — Restore 把角色追加到链尾（加入顺序末尾）。
+- `func (s *TurnScheduler) orderLocked() []string`
+- `func indexOfRole(order []string, roleName string) int`
+
+### scheduler_test.go
+
+- `func TestTurnSchedulerChainsAndAdvances(t *testing.T)` — TestTurnSchedulerChainsAndAdvances 验证 channel + 链表轮转：意向 struct 从
+
 ### spec.go
 
 - `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、

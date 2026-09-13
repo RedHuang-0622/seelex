@@ -376,6 +376,9 @@ go test -race ./application/core/goal/ -count=1
 - `func (m *TechLeaderMailbox) PendingDirectives() int` — PendingDirectives 读面计数。
 - `func (m *TechLeaderMailbox) Overflow() int64` — Overflow 返回指令溢出计数。
 - `func DefaultTechLeaderConfig() TechLeaderConfig` — DefaultTechLeaderConfig 返回生产默认（≤1 次/3-5 轮，控制 b 回合频率）。
+- `func loopContinues(kind DirectiveKind) bool` — loopContinues 报告该裁决是否把发言权交还 EXEC（终态裁决结束循环）。
+- `func (s *Supervisor) SetRoundRecorder(recorder TLRoundRecorder)` — SetRoundRecorder 注入 b 回合记录器（装配根在首次会话启动前调用；幂等）。
+- `func directiveText(directive TLDirective) string` — directiveText 把 b 的裁决渲染成原文 JSON（记录与展示用，不截断）。
 - `func NewSupervisor(ctl *Controller, evaluator TLEvaluator, cfg TechLeaderConfig) *Supervisor` — NewSupervisor 构造编排者（config 零值用默认；mailbox 自动新建）。
 - `func (s *Supervisor) Mailbox() *TechLeaderMailbox` — Mailbox 返回 b→a 指令队列（排空/读面）。
 - `func (s *Supervisor) Enabled() bool` — Enabled 报告 b 是否可用（有评估器且配置开启）。
