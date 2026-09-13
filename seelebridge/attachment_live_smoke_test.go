@@ -33,6 +33,7 @@ import (
 	"image/draw"
 	"image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
@@ -172,6 +173,83 @@ func TestAttachmentShapeLiveSmoke(t *testing.T) {
 		}
 		t.Logf("PDF 处置: %v", pdfPlan.Notes)
 	})
+
+	// 图片优先：把端点文档里「传图的三种方式」逐条用我们自己的发射代码跑一遍。
+	// 依据：api.deepseek.com「图像理解」——① 内联 base64（image_url data URL）
+	// ② file 块扁平 file_data ③ Files API 上传后扁平 file_id；格式按内容判定，
+	// detail 取 low/high/original/auto；图片只能出现在 user 消息里。
+	t.Run("图片三通道(deepseek-flash)", func(t *testing.T) {
+		question := "What color is this image? Reply with the color name only."
+		wantColor := func(label, reply, finish string) {
+			lower := strings.ToLower(reply)
+			if strings.Contains(lower, "red") || strings.Contains(lower, "crimson") {
+				t.Logf("✅ %s：模型读出颜色（%q）", label, strings.TrimSpace(reply))
+				return
+			}
+			t.Errorf("%s：模型没读出颜色（回答=%q finish=%s）", label, reply, finish)
+		}
+
+		// ① 内联 base64 + detail=low：走 Seele 的 image_url 发射。
+		inline := types.Message{Role: "user"}.WithText(question).WithFiles(types.FilePart{
+			Kind: types.FileKindImage, MimeType: "image/png", Data: pngBytes, Detail: "low", Name: "shot.png",
+		})
+		status, reply, finish, errBody, err := postChatCompletions(spec, []types.Message{inline}, 512)
+		if err != nil {
+			t.Fatalf("请求失败: %v", err)
+		}
+		if status != http.StatusOK {
+			t.Fatalf("内联图片失败：HTTP %d %s", status, strings.TrimSpace(errBody))
+		}
+		wantColor("① 内联 base64(image_url)+detail=low", reply, finish)
+
+		// ② Files API 上传 → 扁平 file_id：走 Seele 新的 file_id 发射。
+		fileID, uploadBody, err := uploadImage(spec, "shot.png", "image/png", pngBytes)
+		if err != nil {
+			t.Fatalf("上传失败: %v（响应 %s）", err, strings.TrimSpace(uploadBody))
+		}
+		t.Logf("上传得到引用 %s", fileID)
+		defer func() {
+			if code, body, err := deleteFile(spec, fileID); err != nil || code != http.StatusOK {
+				t.Logf("⚠ 清理上传失败（HTTP %d %s err=%v）：记得手动删 %s", code, strings.TrimSpace(body), err, fileID)
+			}
+		}()
+		byID := types.Message{Role: "user"}.WithText(question).WithFiles(types.FilePart{
+			Kind: types.FileKindImage, MimeType: "image/png", FileID: fileID, Name: "shot.png",
+		})
+		status, reply, finish, errBody, err = postChatCompletions(spec, []types.Message{byID}, 512)
+		if err != nil {
+			t.Fatalf("请求失败: %v", err)
+		}
+		if status != http.StatusOK {
+			t.Fatalf("file_id 引用失败：HTTP %d %s", status, strings.TrimSpace(errBody))
+		}
+		wantColor("② Files API flat file_id", reply, finish)
+
+		// ③ Anthropic 兼容端点用 image 块 + source.type=base64。
+		status, reply, stop, errBody, err := postAnthropicImage(spec, "image/png", pngBytes, question)
+		if err != nil {
+			t.Fatalf("请求失败: %v", err)
+		}
+		if status != http.StatusOK {
+			t.Fatalf("Anthropic image 块失败：HTTP %d %s", status, strings.TrimSpace(errBody))
+		}
+		wantColor("③ Anthropic image+source.base64", reply, stop)
+
+		// ④ 端点文档的限制：图片只能出现在 user 消息。这条只记录不判失败——
+		// 若将来 provider 放宽，冒烟不该因此变红，但我们要知道门控该怎么写。
+		systemImage := types.Message{Role: "system"}.WithText("天真的想法").WithFiles(types.FilePart{
+			Kind: types.FileKindImage, MimeType: "image/png", Data: pngBytes,
+		})
+		status, reply, finish, errBody, err = postChatCompletions(spec, []types.Message{systemImage}, 256)
+		if err != nil {
+			t.Fatalf("请求失败: %v", err)
+		}
+		if status == http.StatusOK {
+			t.Logf("⚠ system 消息带图竟然被接受（HTTP 200 回答=%q）——文档说该 400，若如此则不需要 user-only 门控", reply)
+		} else {
+			t.Logf("✅ 印证文档：system 消息带图被拒（HTTP %d %s）——门控应拦在本地", status, strings.TrimSpace(errBody))
+		}
+	})
 }
 
 // solidPNG 合成一张纯色 PNG：内容已知、判据可判，避免把「截图恰好糊了」算成模型失明。
@@ -293,4 +371,108 @@ func postJSON(url string, headers map[string]string, envelope any) ([]byte, int,
 		return body, response.StatusCode, string(body), nil
 	}
 	return body, response.StatusCode, "", nil
+}
+
+// uploadImage 走 Files API 上传一张图片：purpose 只能是 user_data（其余取值实测被拒）。
+func uploadImage(spec model.AccountSpec, filename, mime string, payload []byte) (string, string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("purpose", "user_data"); err != nil {
+		return "", "", err
+	}
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := part.Write(payload); err != nil {
+		return "", "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", "", err
+	}
+	// 这里不能用 postJSON：它固定 JSON 序列化，而 multipart 请求体是二进制边界流。
+	request, err := http.NewRequest(http.MethodPost, strings.TrimSuffix(spec.BaseURL, "/")+"/files", &body)
+	if err != nil {
+		return "", "", err
+	}
+	request.Header.Set("Authorization", "Bearer "+spec.APIKey)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	client := &http.Client{Timeout: 180 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = response.Body.Close() }()
+	rawBytes, _ := io.ReadAll(response.Body)
+	errBody := string(rawBytes)
+	if response.StatusCode != http.StatusOK {
+		return "", errBody, fmt.Errorf("upload HTTP %d", response.StatusCode)
+	}
+	var parsed struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rawBytes, &parsed); err != nil {
+		return "", errBody, err
+	}
+	if parsed.ID == "" {
+		return "", errBody, fmt.Errorf("上传响应里没有 id")
+	}
+	return parsed.ID, errBody, nil
+}
+
+// deleteFile 清理上传件：探针不该在别人的账号里留垃圾。
+func deleteFile(spec model.AccountSpec, fileID string) (int, string, error) {
+	req, err := http.NewRequest(http.MethodDelete, strings.TrimSuffix(spec.BaseURL, "/")+"/files/"+fileID, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+spec.APIKey)
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer func() { _ = response.Body.Close() }()
+	raw, _ := io.ReadAll(response.Body)
+	return response.StatusCode, string(raw), nil
+}
+
+// postAnthropicImage 走 /anthropic 的 image 块（source.type=base64 + media_type）。
+func postAnthropicImage(spec model.AccountSpec, mediaType string, payload []byte, question string) (int, string, string, string, error) {
+	base := strings.TrimSpace(os.Getenv("SEELEX_SMOKE_ANTHROPIC_BASE"))
+	if base == "" {
+		base = strings.TrimSuffix(spec.BaseURL, "/") + "/anthropic"
+	}
+	envelope := map[string]any{
+		"model": spec.Model, "max_tokens": 512,
+		"messages": []map[string]any{{
+			"role": "user",
+			"content": []map[string]any{
+				{"type": "text", "text": question},
+				{"type": "image", "source": map[string]any{
+					"type": "base64", "media_type": mediaType, "data": base64.StdEncoding.EncodeToString(payload),
+				}},
+			},
+		}},
+	}
+	body, status, errBody, err := postJSON(strings.TrimSuffix(base, "/")+"/v1/messages",
+		map[string]string{"x-api-key": spec.APIKey, "anthropic-version": "2023-06-01"}, envelope)
+	if err != nil {
+		return status, "", "", errBody, err
+	}
+	var parsed struct {
+		StopReason string `json:"stop_reason"`
+		Content    []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return status, "", "", errBody, fmt.Errorf("解析响应: %w", err)
+	}
+	for i := range parsed.Content {
+		if parsed.Content[i].Type == "text" {
+			return status, parsed.Content[i].Text, parsed.StopReason, errBody, nil
+		}
+	}
+	return status, "", parsed.StopReason, errBody, nil
 }
