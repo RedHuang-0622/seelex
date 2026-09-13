@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/account"
 	"github.com/RedHuang-0622/seelex/seelebridge/fork"
 	"github.com/RedHuang-0622/seelex/seelebridge/fs"
+	"github.com/RedHuang-0622/seelex/seelebridge/imageattach"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/config"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/docker"
 	seeletelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
@@ -64,6 +65,7 @@ type Runtime struct {
 	pool      *accountpool.P2CPool[agent.Completer]
 	completer agent.Completer
 	streamer  agent.StreamCompleter
+	images    *imageattach.Registry // 会话待随图队列：工具 Add，下一次请求 Take（至多送一次）
 	agt       *agent.Agent
 
 	// 会话槽化（决策契约 §决策契约 1/2）：每个逻辑会话一个独立 bundle
@@ -273,6 +275,7 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 	r := &Runtime{
 		pool:                pool,
 		model:               first.Model,
+		images:              imageattach.NewRegistry(),
 		MCPStack:            mcpstack.New(mcpStackOpts...),
 		projectScope:        security.NewProjectScope(),
 		filesystem:          fs.NewFileSystemActor(),
@@ -327,6 +330,10 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 		r.completer = &requestLogCompleter{inner: r.completer, log: logger}
 		r.streamer = &requestLogStreamCompleter{inner: r.streamer, log: logger}
 	}
+
+	// 3.1 待随图（截屏/看图 → 下一次请求随图）：包装在最靠近 provider 的一层，
+	//    且在 agent.NewWithComponents 之前——引擎按组件快照取 Completer。
+	r.wrapImageAttachments()
 
 	// 4. 可见性策略：goal skill 激活判定 + 插件过滤，经闭包注入 tools.Policy。
 	// （GoalSkillActive 是运行期状态，闭包在 Dispatch 期求值；node 可能尚未
