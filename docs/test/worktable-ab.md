@@ -15,7 +15,9 @@
 
 - `application/core/work_table_ab_test.go`（`TestWorkTablePayloadSmallerThanFullRuntime`）：
   构造 20 节点 × 30 事件/30 工具、20 todo、10 子代理的密集状态，断言
-  `worktable.changed` payload 字节 ≤ 整份 `runtime.changed` 的 30%。
+  `worktable.changed` payload 字节 ≤ 整份 `runtime.changed` 的 30%；树内容
+  变化时 payload 会附带 `subagent_tree`（详情入口数据面），该最坏情形单独
+  断言 ≤ 15%。
 - `gui/frontend/dist/work-table.test.mjs` + `protocol.test.mjs`：断言表格行
   html 只随变化行重算（html 缓存语义）、`worktable.changed` 不克隆 plan
   （plan 对象引用不变）。
@@ -34,3 +36,8 @@
 2026-08-09（Windows，Go 1.25）：密集状态（20 节点 × 60 trace/节点 + 20 todo +
 10 subagent）下 `worktable.changed` ≈ 34KB，整份 `runtime.changed` ≈ 300KB，
 比值 ≈ 0.12，显著低于 0.30 门槛。
+
+2026-09-13（Windows，Go 1.25，同夹具）：`worktable.changed` = 4432 B
+（ratio 0.02），附带 `subagent_tree` 的树变化帧 = 7609 B（ratio 0.04），整份
+`runtime.changed` = 197077 B。树只在内容签名变化时附带（`workTableEventPayload`），
+清空时显式下发空数组；后续未变化的表格增量不再重复携带树。

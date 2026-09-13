@@ -6,7 +6,7 @@ import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createEffortControl } from "./effort-control.js";
 import {
-  planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL,
+  planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode,
   nodeDetailLiveAssistantReset, nodeDetailLiveAssistantAppend, nodeDetailLiveAssistantRetain
 } from "./plan-dsl.js";
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
@@ -1577,13 +1577,19 @@ let nodeDetailRefreshTimer = 0;
 let nodeDetailLastSignature = "";
 
 // resolveNodeForDetail 解析详情弹窗的节点数据：优先 Plan DSL（活跃 Plan 的
-// 权威投影）；fork 子代理节点在 Plan 已清除时回退到子代理树投影（会话记录/
-// 上下文仍由 SubagentSessionDetail 数据面承载）。
+// 权威投影）；fork 子代理节点在 Plan 已清除时回退到子代理树投影；树同样
+// 没到（工作表格行先到：同批次还有子代理在跑，行经 worktable.changed/
+// task.changed 到达，而树只由整份快照与 runtime.changed 携带）时用行自身
+// 兜底，最后退回"仅身份"的节点——详情入口不再静默失败（2026-09-13 回归）。
+// 会话记录/上下文/工具活动始终由 SubagentSessionDetail + live 流承载。
 function resolveNodeForDetail(nodeKey) {
+  if (!nodeKey) return null;
   const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === nodeKey);
   if (node) return node;
   const treeNode = findSubagentTreeNode(nodeKey);
-  return treeNode ? subagentTreeNodeToDSL(treeNode) : null;
+  if (treeNode) return subagentTreeNodeToDSL(treeNode);
+  const row = workTableView.current().find(item => item.source_id === nodeKey || item.id === nodeKey);
+  return workItemToDetailNode(row || { id: nodeKey, source_id: nodeKey });
 }
 
 async function openNodeDetail(nodeKey) {

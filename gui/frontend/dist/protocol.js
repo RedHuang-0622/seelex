@@ -113,6 +113,13 @@ function applyIncremental(snapshot, event, payload) {
     if (Array.isArray(payload.batches)) {
       snapshot.runtime.work_table_batches = payload.batches;
     }
+    // subagent_tree 是可选增量（树生命周期：fork/完成/恢复/清空随表格增量
+    // 下发）：详情入口要先在本地把工作表格行解析成节点，而树此前只由整份
+    // 快照与 runtime.changed 携带——同一批次还有子代理在跑时行先到、树未到，
+    // 详情会打不开（2026-09-13 回归）。缺失/null 保留既有树，空数组表示清空。
+    if (Array.isArray(payload.subagent_tree)) {
+      snapshot.runtime.subagent_tree = payload.subagent_tree;
+    }
     return true;
   case "task.changed":
     if (!payload?.task || !payload.task_id || typeof payload.task !== "object") return false;

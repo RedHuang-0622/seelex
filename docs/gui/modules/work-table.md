@@ -26,8 +26,9 @@ chips 过滤。任务打点（trace）带进同一数据面。右栏为「入口
 - 后端 `application/core/work_table.go` 把 `PlanState` + `TodoItems` +
   `SubAgentTree` 投影为扁平 `WorkItem` 行，并派生批次分片头
   `WorkTableBatches`（CQRS 读模型，纯函数、有界）。
-- 后端以 `worktable.changed` 轻量增量发布表格与批次头（只含表格与批次，
-  不整份 runtime）。
+- 后端以 `worktable.changed` 轻量增量发布表格、批次头与子代理树增量
+  （不整份 runtime）：树只在内容变化时附带（清空时显式空数组），保证
+  前端解析详情节点的数据面与表格行同源同帧到达。
 - 前端 `gui/frontend/dist/work-table.js` 渲染表格、筛选、展开与行内交互；
   以 `<table class="excel-grid">` 渲染（固定表头、行 keyed reconciliation、
   表头吸顶），批次维度通过底部 sheet 页签切换（`activeBatch` 纯 UI 态），
@@ -58,8 +59,10 @@ chips 过滤。任务打点（trace）带进同一数据面。右栏为「入口
    脏标记驱动，直发 hub 不丢）；worktable 结构 → `worktable.changed`（整表，
    CSP 汇聚 latest-wins）。
 4. 前端 reducer（`protocol.js`）：`task.changed` 按 task_id 单行 upsert
-   （结构共享）；`worktable.changed` 整表替换并附加 `batches`（缺失时保留
-   既有批次头）；不克隆 plan。
+   （结构共享）；`worktable.changed` 整表替换并附加 `batches`、`subagent_tree`
+   （可选增量，缺失/null 保留既有值，空数组表示树已清空）；不克隆 plan。
+   子代理树的解析面因此与表格行同帧到达，详情入口不会出现"行可见、点开
+   无反应"（工作表格行兜底见 `app.js` `resolveNodeForDetail`）。
 5. `work-table.js` keyed reconcile：批次维度通过底部 sheet 页签切换
    （`activeBatch` 是纯 UI 态；批次失效自动回退「全部」），行在 tbody 内
    按 `data-work-row` keyed 重建，trace 展开行（`data-work-trace`）紧随
@@ -143,7 +146,8 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
   WorkTableBatch[]`（批次头，按 CreatedAt 升序，早期会话置底）。
 - 增量事件：`worktable.changed`，payload 见
   [`schemas/work-table.schema.json`](../schemas/work-table.schema.json)
-  （`items` + 可选 `batches`）。
+  （`items` + 可选 `batches` + 可选 `subagent_tree`；树仅在内容变化时下发，
+  发送侧按内容签名去重，避免运行期树把表格增量撑大）。
 - WorkItem ID 稳定键：`plan:<id>` / `todo:<index>` / `subagent:<id>` /
   `task:<n>`；Dependency 引用同命名空间的 WorkItem ID；BatchID 引用批次头
   ID（空串 = 早期会话）。
@@ -174,8 +178,9 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
 
 ## Review 指南
 
-- `worktable.changed` 是否只带表格（不整份 runtime）；revision 与内容是否
-  在同一临界区生成。
+- `worktable.changed` 是否只带表格/批次/树增量（不整份 runtime）；revision
+  与内容是否在同一临界区生成；树增量是否只在内容变化时下发、清空时是否
+  显式空数组。
 - 行 ID 与 Dependency 引用是否稳定、是否有环/悬垂。
 - 批次盖章是否一致：新条目是否归属当前 chat 请求批次；跨请求同步（plan/
   subagent 异步生命周期晚到）是否造成批次串写（v1 接受展示层偏差，批次

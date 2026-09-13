@@ -1086,6 +1086,49 @@ export function subagentTreeNodeToDSL(treeNode) {
   };
 }
 
+// workItemToDetailNode 把工作表格行映射成详情弹窗可渲染的 DSL 节点：
+// 详情入口优先用 Plan DSL / 子代理树投影解析节点，但两者都只由整份快照与
+// runtime.changed 携带；同一批次还有子代理在跑时，表格行会先经
+// worktable.changed / task.changed 到达（见 app.js resolveNodeForDetail 的
+// 兜底）。用行自身兜底即可照常打开弹窗——会话记录/上下文/工具活动仍由
+// SubagentSessionDetail + seelex:subagent_live 数据面提供，行只提供身份与
+// 展示标签；渲染层统一 escape。
+export function workItemToDetailNode(row) {
+  const source = isRecord(row) ? row : {};
+  const id = textValue(source.source_id) || textValue(source.id);
+  return {
+    type: "node",
+    key: id,
+    id,
+    parentKey: "",
+    label: outputSummary(source.task) || outputSummary(source.description) || id || "任务",
+    kind: textValue(source.kind, "auto"),
+    status: detailStatusFromWorkStatus(source.status),
+    depth: 0,
+    elapsed: textValue(source.elapsed),
+    output: textValue(source.description),
+    error: "",
+    events: [],
+    toolEvents: [],
+    incoming: [],
+    outgoing: [],
+    mode: "plan"
+  };
+}
+
+// detailStatusFromWorkStatus 把工作表格状态词汇映射到节点详情状态词汇
+// （工作表格 done/doing/error ↔ 节点详情 completed/running/failed）；未知
+// 状态按 unknown 渲染，不猜。
+function detailStatusFromWorkStatus(value) {
+  const status = textValue(value).toLowerCase();
+  return {
+    pending: "pending", queued: "queued", running: "running", doing: "running", active: "running", retry: "running",
+    completed: "completed", done: "completed", success: "completed",
+    failed: "failed", error: "failed", panicked: "failed",
+    aborted: "aborted", canceled: "canceled", skipped: "skipped", interrupted: "interrupted"
+  }[status] || "unknown";
+}
+
 // normalizeSubagentStatus 校验子代理树状态（queued/running/done/failed/
 // interrupted；非法 → unknown）。
 function normalizeSubagentStatus(value) {

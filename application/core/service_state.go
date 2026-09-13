@@ -79,6 +79,11 @@ type conversationRuntimeState struct {
 // worktable_publisher.go）。
 type workTableRuntimeState struct {
 	workTablePublisher *worktable.WorkTablePublisher
+	// lastPublishedSubagentTreeSig 是上一次随 worktable.changed 发出的子代理
+	// 树内容签名（只由工作表格发布器 goroutine 读写，见
+	// Service.workTableEventPayload）：相同签名不重复下发树，避免表格增量被
+	// 运行期树投影撑大。
+	lastPublishedSubagentTreeSig string
 }
 
 type lifecycleRuntimeState struct {

@@ -262,6 +262,65 @@ func (state *serviceState) publishWorkTable(revision uint64, requestID string, i
 	})
 }
 
+// workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
+// 子代理树增量。
+//
+// 树只在内容变化时随包下发（nil = 不带、空数组 = 已清空）：详情入口在前端
+// 要先把行解析成节点（Plan DSL / 子代理树投影），而树此前只由整份快照与
+// runtime.changed 携带；同一批次还有子代理在跑时，表格行已通过本事件到达、
+// 树却还没到，详情点开会静默失败（2026-09-13 回归）。比较基准是"上一次
+// 实际发布出去的树"，因此被 CSP 汇聚合并掉的中间更新不会漏发。
+//
+// 只由 workTablePublisher 的发布 goroutine 调用：lastPublishedSubagentTreeSig
+// 因此无需额外加锁（发布器是单 goroutine）。
+func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent {
+	service.ViewMu.RLock()
+	tree := cloneSubAgentTreeForSync(service.Core.Snapshot.Runtime.SubAgentTree)
+	service.ViewMu.RUnlock()
+	payload := WorkTableEvent{Items: update.Items, Batches: update.Batches}
+	signature := subagentTreePayloadSignature(tree)
+	if signature == service.lastPublishedSubagentTreeSig {
+		return payload
+	}
+	service.lastPublishedSubagentTreeSig = signature
+	if tree == nil {
+		// 显式空数组：前端据此清空既有树（nil/缺省 = 本次不带，保留）。
+		tree = []dto.SubAgentTreeNode{}
+	}
+	payload.SubAgentTree = tree
+	return payload
+}
+
+// subagentTreePayloadSignature 生成子代理树投影的内容签名，用于判断
+// worktable.changed 是否需要随包携带树。签名覆盖身份/状态/会话号与各文本
+// 字段、上下文计数的长度，既能识别投影内容变化，也避免为比较把整棵树
+// 序列化一遍（树是运行期唯一较重的投影，表格增量本身要保持轻量）。
+func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string {
+	var builder strings.Builder
+	var walk func(items []dto.SubAgentTreeNode)
+	walk = func(items []dto.SubAgentTreeNode) {
+		fmt.Fprintf(&builder, "%d:", len(items))
+		for _, node := range items {
+			fmt.Fprintf(&builder, "%s|%s|%s|%d|%d|%d|%d|%d;",
+				node.ID, node.Status, node.SessionID,
+				len(node.Goal), len(node.Summary), len(node.Error),
+				node.StartedAt.UnixNano(), node.EndedAt.UnixNano())
+			if node.Context != nil {
+				fmt.Fprintf(&builder, "ctx:%d|%d|%d|%d|%d|",
+					len(node.Context.Goal), node.Context.MessageCount, node.Context.TokenEstimate,
+					len(node.Context.Progress), len(node.Context.Findings))
+				for _, finding := range node.Context.Findings {
+					fmt.Fprintf(&builder, "%d|", len(finding))
+				}
+			}
+			builder.WriteString(";")
+			walk(node.Children)
+		}
+	}
+	walk(nodes)
+	return builder.String()
+}
+
 // publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 // payload 小，逐任务保证不丢）。事件携带归属会话 sid（前端按会话过滤，
 // 后台注册表变更不污染当前视图）。

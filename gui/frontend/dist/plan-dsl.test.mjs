@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
-const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderNodeWorktree, renderSubagentTree, subagentTreeNodeToDSL } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderNodeWorktree, renderSubagentTree, subagentTreeNodeToDSL, workItemToDetailNode } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -477,4 +477,39 @@ test("converts a subagent tree node into a detail DSL node", () => {
   assert.equal(subagentTreeNodeToDSL({ id: "i", status: "interrupted" }).status, "interrupted");
   assert.equal(subagentTreeNodeToDSL({ id: "z" }).status, "unknown"); // 未知状态 → unknown 徽标
   assert.equal(subagentTreeNodeToDSL({ status: "done" }).key, ""); // 缺 id → 空 key
+});
+
+test("converts a work table row into a detail DSL node for the fallback entry", () => {
+  // 工作表格行先到（树未到）时的兜底身份：source_id 是后端节点 id。
+  const row = workItemToDetailNode({
+    id: "subagent:s1", kind: "subagent", status: "done", source_id: "s1",
+    task: "调研 <作者>", description: "结论", elapsed: "2m"
+  });
+  assert.equal(row.key, "s1");
+  assert.equal(row.id, "s1");
+  assert.equal(row.kind, "subagent");
+  assert.equal(row.status, "completed"); // done → completed（详情状态词汇）
+  assert.equal(row.label, "调研 <作者>"); // 渲染层统一 escape
+  assert.equal(row.output, "结论");
+  assert.equal(row.elapsed, "2m");
+  assert.deepEqual(row.events, []);
+
+  // 缺 source_id 时退回行 id（后端按同一 key 查详情），缺 task 时退回描述。
+  const fallback = workItemToDetailNode({ id: "task:7", kind: "task", status: "doing", description: "描述" });
+  assert.equal(fallback.key, "task:7");
+  assert.equal(fallback.label, "描述");
+  assert.equal(fallback.status, "running");
+
+  // 关键词汇映射：失败/中断保留语义，未知不猜。
+  assert.equal(workItemToDetailNode({ source_id: "a", status: "failed" }).status, "failed");
+  assert.equal(workItemToDetailNode({ source_id: "b", status: "error" }).status, "failed");
+  assert.equal(workItemToDetailNode({ source_id: "c", status: "interrupted" }).status, "interrupted");
+  assert.equal(workItemToDetailNode({ source_id: "d", status: "weird" }).status, "unknown");
+  assert.equal(workItemToDetailNode({ source_id: "e" }).status, "unknown");
+
+  // 纯身份兜底（既不在 Plan DSL 也不在树、表格行也查不到时）。
+  const identity = workItemToDetailNode({ id: "orphan", source_id: "orphan" });
+  assert.equal(identity.key, "orphan");
+  assert.equal(identity.label, "orphan");
+  assert.equal(identity.kind, "auto");
 });

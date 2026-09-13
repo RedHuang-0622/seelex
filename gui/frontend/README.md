@@ -103,7 +103,8 @@ refresh）到达时，`client-state` 会按 `session.id` 变化复位已应用�
 右侧工作台由「工作表格」入口按钮统一接管：数据源 `snapshot.runtime.work_table`
 + `snapshot.runtime.work_table_batches`（权威投影）与
 `worktable.changed`/`task.changed` 增量（`worktable.changed` 附加 `batches`
-批次头，缺失时保留既有批次）。按钮常驻，带未读角标（未读 = 新增或状态/
+批次头、并在子代理树内容变化时附带 `subagent_tree`；两者都是可选增量，
+缺失时保留既有值，空数组表示树已清空）。按钮常驻，带未读角标（未读 = 新增或状态/
 retry 变化的条目，打开详情后清零）；点开按钮弹出完整多维表格弹窗（工作台
 窄，详情在弹窗内看全）。Plan 节点 / todolist 项 / task 主动条目 / fork
 子代理归一为 WorkItem 行，按批次分组（批次头可折叠）并按权威 kind 筛选；
@@ -116,7 +117,11 @@ done）只读权威 `work_table` 状态，行内按钮经 `Bridge.UpdateWorkItem
 本地猜测。状态迁移按 kind 限定（todo 仅三态；task/plan/subagent 维持通用
 迁移），非法状态由后端拒绝。
 Plan DSL（`plan-dsl.js`）保留为节点详情弹窗的数据面：`refreshPlanDetailData`
-只算 DSL 不改面板 DOM。
+只算 DSL 不改面板 DOM。详情入口按 Plan DSL → 子代理树 → 工作表格行
+（`workItemToDetailNode`）→ 仅身份节点逐级兜底打开：同一批次还有子代理在跑
+时，行会先经 `worktable.changed`/`task.changed` 到达，而树只由整份快照与
+`runtime.changed` 携带，早期版本在这种时序下会静默不弹窗；会话记录/上下文/
+工具活动始终由 `SubagentSessionDetail` + `seelex:subagent_live` 数据面提供。
 
 task 即 worktable 条目（单一注册表 actor，保护粒度=task）：主动 `taskadd`
 工具、被动 plan/subagent 生命周期同步都落到同一数据面；增量事件

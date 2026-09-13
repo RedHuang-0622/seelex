@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://seelex.dev/schemas/work-table.schema.json",
   "title": "Work table event payload",
-  "description": "worktable.changed 增量的 payload：工作台统一工作表格（plan 节点 / todolist 项 / task 主动任务 / fork 子代理 → WorkItem 行，含任务打点 trace）与批次分片头。只含表格与批次，不整份 runtime。",
+  "description": "worktable.changed 增量的 payload：工作台统一工作表格（plan 节点 / todolist 项 / task 主动任务 / fork 子代理 → WorkItem 行，含任务打点 trace）、批次分片头与可选子代理树增量。只含表格/批次/树，不整份 runtime。",
   "type": "object",
   "additionalProperties": false,
   "required": ["items"],
@@ -15,6 +15,11 @@
       "type": "array",
       "items": { "$ref": "#/$defs/workTableBatch" },
       "description": "批次分片头（可选增量）：一批 = 一次 chat 请求创建的全部条目；按 CreatedAt 升序，早期/未分批会话置底。"
+    },
+    "subagent_tree": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/subAgentTreeNode" },
+      "description": "子代理树增量（可选）：树内容变化时下发（fork/完成/恢复），null/缺省 = 本次不带（前端保留既有树），空数组 = 树已清空。前端据此把工作表格行解析成详情弹窗节点（行先到、树未到的时序不再打不开详情）。"
     }
   },
   "$defs": {
@@ -78,6 +83,35 @@
             "subagent": { "type": "integer", "minimum": 0 }
           }
         }
+      }
+    },
+    "subAgentTreeNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": { "type": "string" },
+        "parent_id": { "type": "string" },
+        "goal": { "type": "string" },
+        "status": { "enum": ["queued", "running", "done", "failed", "interrupted"] },
+        "summary": { "type": "string" },
+        "error": { "type": "string" },
+        "session_id": { "type": "string", "description": "子代理自身会话 ID（详情数据面按节点 id 读取，会话号用于身份展示）" },
+        "started_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "ended_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "紧凑上下文投影（有界：单条截断 + findings 上限），运行中实时导出、结束后快照。",
+          "properties": {
+            "goal": { "type": "string" },
+            "progress": { "type": "string" },
+            "message_count": { "type": "integer", "minimum": 0 },
+            "token_estimate": { "type": "integer", "minimum": 0 },
+            "findings": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/subAgentTreeNode" } }
       }
     }
   }

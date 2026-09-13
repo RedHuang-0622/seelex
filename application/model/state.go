@@ -489,11 +489,18 @@ type WorkTableBatch struct {
 	Counts    map[string]int `json:"counts"`
 }
 
-// WorkTableEvent 是 worktable.changed 增量的 payload（只含表格与批次头，
-// 不整份 runtime）。
+// WorkTableEvent 是 worktable.changed 增量的 payload（表格 + 批次头 +
+// 可选子代理树增量，不整份 runtime）。
+//
+// SubAgentTree 是"树内容变化时才随包下发"的增量（nil = 本次不带、前端保留
+// 既有树；空数组 = 树已清空）。详情入口在前端要先把行解析成节点（Plan DSL
+// 或子代理树投影），而树只由整份快照与 runtime.changed 携带；同一批次还有
+// 子代理在跑时，表格行已经通过本事件到达、树却还没到，详情点开会静默失败
+// （2026-09-13 回归），因此树跟随表格增量一起送达。
 type WorkTableEvent struct {
-	Items   []WorkItem       `json:"items"`
-	Batches []WorkTableBatch `json:"batches,omitempty"`
+	Items        []WorkItem             `json:"items"`
+	Batches      []WorkTableBatch       `json:"batches,omitempty"`
+	SubAgentTree []dto.SubAgentTreeNode `json:"subagent_tree"`
 }
 
 // TaskChangedEvent 是 task.changed 增量的 payload：单个 task 的内部变更

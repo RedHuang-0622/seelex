@@ -265,6 +265,47 @@ test("worktable.changed without batches keeps existing batch headers", () => {
   assert.equal(result.snapshot.runtime.work_table_batches[0].id, "chat-1");
 });
 
+test("worktable.changed carries subagent tree only when the payload includes it", () => {
+  const current = {
+    ...snapshot(),
+    runtime: {
+      work_table: [],
+      subagent_tree: [{ id: "main", status: "running", children: [{ id: "old", status: "running" }] }]
+    }
+  };
+  // 带树：子代理树随表格增量刷新（运行中"行先到、树未到"的修复面）。
+  const withTree = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 1, revision: 2, kind: "worktable.changed",
+    payload: {
+      items: [{ id: "subagent:s1", phase: "subagent", task: "调研", status: "running", kind: "subagent", source_id: "s1" }],
+      subagent_tree: [{ id: "main", status: "running", children: [{ id: "s1", status: "running", goal: "调研" }] }]
+    }
+  });
+  assert.equal(withTree.needsRefresh, false);
+  assert.equal(withTree.snapshot.runtime.subagent_tree[0].children[0].id, "s1");
+  // 结构共享：树以外不变，且旧快照未被就地改写。
+  assert.equal(current.runtime.subagent_tree[0].children[0].id, "old");
+
+  // 缺省 / null：保留既有树（表格增量不一定携带树）。
+  for (const payload of [
+    { items: [] },
+    { items: [], subagent_tree: null }
+  ]) {
+    const kept = applyEvent(withTree.snapshot, {
+      protocol_version: 1, delivery_seq: 2, revision: 3, kind: "worktable.changed", payload
+    });
+    assert.equal(kept.needsRefresh, false);
+    assert.equal(kept.snapshot.runtime.subagent_tree[0].children[0].id, "s1");
+  }
+
+  // 空数组：树已清空（后端 ClearSubagentTree / 会话切换的显式增量）。
+  const cleared = applyEvent(withTree.snapshot, {
+    protocol_version: 1, delivery_seq: 3, revision: 4, kind: "worktable.changed",
+    payload: { items: [], subagent_tree: [] }
+  });
+  assert.deepEqual(cleared.snapshot.runtime.subagent_tree, []);
+});
+
 test("applies task.changed as a single-row upsert", () => {
   const current = {
     ...snapshot(),

@@ -6,6 +6,10 @@
 
 覆盖：`work_table*.go`；未归属文件由覆盖自检拦下。
 
+`worktable.changed` 既是表格增量，也是子代理树的送达通道：树内容变化时
+随包附带 `subagent_tree`（清空时显式空数组），前端详情入口据此把工作表格行
+解析成弹窗节点，避免"行先到、树未到"时详情打不开。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -23,6 +27,8 @@
 - `func formatWorkDuration(duration time.Duration) string`
 - `func (state *serviceState) refreshWorkTableLocked(tasks []dto.TaskRecord)` — refreshWorkTableLocked 在 service.ViewMu 持锁时重建工作表格投影。
 - `func (state *serviceState) publishWorkTable(revision uint64, requestID string, items []WorkItem, batches []WorkTableBatch)` — publishWorkTable 在锁外发布整表（CSP 汇聚发布器，latest-wins；items 必须
+- `func (service *Service) workTableEventPayload(update worktable.WorkTableUpdate) WorkTableEvent` — workTableEventPayload 组装 worktable.changed 的 payload：表格 + 批次头 +
+- `func subagentTreePayloadSignature(nodes []dto.SubAgentTreeNode) string` — subagentTreePayloadSignature 生成子代理树投影的内容签名，用于判断
 - `func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint64, requestID, sessionID string)` — publishTaskChanged 发布单 task 增量（task.changed；直发 hub，不汇聚——
 - `func (service *Service) publishTaskDeltas()` — publishTaskDeltas 拉取注册表快照，锁内重建 worktable，发布
 - `func (service *Service) syncTasksFromSources()` — syncTasksFromSources 同步当前活跃会话的 plan/子代理树到其自身 task scope。
@@ -84,3 +90,4 @@
 - `func TestUpdateWorkItemStatusRejectsInvalid(t *testing.T)`
 - `func TestRefreshWorkTableSnapshotPublishesSubagentRows(t *testing.T)` — TestRefreshWorkTableSnapshotPublishesSubagentRows 验证被动触发：
 - `func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEvent`
+- `func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T)` — TestWorkTableEventCarriesSubagentTreeOnChange 验证详情入口的数据面：子代理

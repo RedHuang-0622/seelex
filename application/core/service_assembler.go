@@ -176,9 +176,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		service.ViewMu.RLock()
 		sessionID := service.Core.Snapshot.Session.ID
 		service.ViewMu.RUnlock()
-		service.publishSessionEvent(EventWorkTableChanged, update.Revision, update.RequestID, sessionID, WorkTableEvent{
-			Items: update.Items, Batches: update.Batches,
-		})
+		service.publishSessionEvent(EventWorkTableChanged, update.Revision, update.RequestID, sessionID,
+			service.workTableEventPayload(update))
 	})
 	// CSP 生命周期消费者：子代理树信号 / plan 节点事件 / task 变更经
 	// channel 流转（取代同步回调嵌套，避免锁序事故）。

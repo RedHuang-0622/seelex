@@ -333,3 +333,62 @@ func waitForWorkTableEvent(t testing.TB, subscription Subscription) WorkTableEve
 		}
 	}
 }
+
+// TestWorkTableEventCarriesSubagentTreeOnChange 验证详情入口的数据面：子代理
+// 树内容变化时随 worktable.changed 一起下发（前端据此在"同一批次还有子代理
+// 在跑"时也能解析详情节点——树此前只由整份快照/runtime.changed 携带），
+// 内容未变的后续增量不重复携带树（表格增量保持轻量），清空时显式带空数组。
+func TestWorkTableEventCarriesSubagentTreeOnChange(t *testing.T) {
+	engine := &fakeEngine{}
+	engine.mu.Lock()
+	engine.subAgentTree = []dto.SubAgentTreeNode{{
+		ID: "main",
+		Children: []dto.SubAgentTreeNode{{
+			ID: "s1", Goal: "分析作者", Status: dto.SubAgentRunning, SessionID: "node-s1", StartedAt: time.Now(),
+		}},
+	}}
+	engine.mu.Unlock()
+	service := newTestService(t, engine)
+	subscription := service.Subscribe(16)
+	defer subscription.Close()
+
+	service.RefreshWorkTableSnapshot()
+	first := waitForWorkTableEvent(t, subscription)
+	if len(first.SubAgentTree) != 1 || len(first.SubAgentTree[0].Children) != 1 ||
+		first.SubAgentTree[0].Children[0].ID != "s1" || first.SubAgentTree[0].Children[0].Status != dto.SubAgentRunning {
+		t.Fatalf("首次树增量必须随 worktable.changed 下发: %+v", first.SubAgentTree)
+	}
+
+	// 树内容未变：后续表格增量不再重复携带树（避免表格增量被运行期树撑大）。
+	service.RefreshWorkTableSnapshot()
+	unchanged := waitForWorkTableEvent(t, subscription)
+	if unchanged.SubAgentTree != nil {
+		t.Fatalf("未变化的树不得重复下发: %+v", unchanged.SubAgentTree)
+	}
+
+	// 树状态变化（子代理完成）：变化后的树重新下发。
+	engine.mu.Lock()
+	engine.subAgentTree = []dto.SubAgentTreeNode{{
+		ID: "main",
+		Children: []dto.SubAgentTreeNode{{
+			ID: "s1", Goal: "分析作者", Status: dto.SubAgentDone, Summary: "已完成",
+			SessionID: "node-s1", StartedAt: time.Now(), EndedAt: time.Now(),
+		}},
+	}}
+	engine.mu.Unlock()
+	service.RefreshWorkTableSnapshot()
+	completed := waitForWorkTableEvent(t, subscription)
+	if len(completed.SubAgentTree) != 1 || completed.SubAgentTree[0].Children[0].Status != dto.SubAgentDone {
+		t.Fatalf("变化后的树必须重新下发: %+v", completed.SubAgentTree)
+	}
+
+	// 树清空：显式携带空数组（非 nil），前端据此清掉既有树。
+	engine.mu.Lock()
+	engine.subAgentTree = nil
+	engine.mu.Unlock()
+	service.RefreshWorkTableSnapshot()
+	cleared := waitForWorkTableEvent(t, subscription)
+	if cleared.SubAgentTree == nil || len(cleared.SubAgentTree) != 0 {
+		t.Fatalf("树清空必须显式下发空数组: %#v", cleared.SubAgentTree)
+	}
+}

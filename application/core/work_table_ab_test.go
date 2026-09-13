@@ -32,6 +32,10 @@ func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workTreePayload, err := json.Marshal(WorkTableEvent{Items: table, SubAgentTree: tree})
+	if err != nil {
+		t.Fatal(err)
+	}
 	runtime := RuntimeState{Plan: plan, WorkTable: table}
 	fullPayload, err := json.Marshal(runtime)
 	if err != nil {
@@ -42,8 +46,18 @@ func TestWorkTablePayloadSmallerThanFullRuntime(t *testing.T) {
 		t.Fatalf("worktable payload ratio = %.2f (work=%d bytes, full=%d bytes), want <= 0.30",
 			ratio, len(workPayload), len(fullPayload))
 	}
+	// 树变化时 worktable.changed 会附带 subagent_tree（详情入口数据面）：
+	// 这是表格增量的最坏情形，单独设更宽的门槛，防止"顺手带上运行期树"
+	// 把轻量增量变成第二个 runtime.changed。
+	treeRatio := float64(len(workTreePayload)) / float64(len(fullPayload))
+	if treeRatio > 0.15 {
+		t.Fatalf("worktable payload with subagent_tree ratio = %.2f (work=%d bytes, full=%d bytes), want <= 0.15",
+			treeRatio, len(workTreePayload), len(fullPayload))
+	}
 	t.Logf("worktable.changed=%d bytes vs runtime.changed=%d bytes (ratio=%.2f)",
 		len(workPayload), len(fullPayload), ratio)
+	t.Logf("worktable.changed(subagent_tree)=%d bytes vs runtime.changed=%d bytes (ratio=%.2f)",
+		len(workTreePayload), len(fullPayload), treeRatio)
 }
 
 func heavyTestPlan(nodes int) *PlanState {

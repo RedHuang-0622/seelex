@@ -81,5 +81,28 @@
       "created_at": "2026-08-23T10:20:00Z",
       "counts": { "all": 1, "plan": 0, "task": 1, "todo": 0, "subagent": 0 }
     }
+  ],
+  "subagent_tree": [
+    {
+      "id": "main",
+      "status": "running",
+      "children": [
+        {
+          "id": "s1",
+          "parent_id": "main",
+          "goal": "实现后端投影",
+          "status": "running",
+          "session_id": "node-s1",
+          "started_at": "2026-08-09T09:20:00Z",
+          "context": {
+            "goal": "实现后端投影",
+            "progress": "已读取 work_table.go",
+            "message_count": 8,
+            "token_estimate": 1200,
+            "findings": ["worktable.changed 需要带树增量"]
+          }
+        }
+      ]
+    }
   ]
 }

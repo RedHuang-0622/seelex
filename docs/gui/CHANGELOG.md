@@ -2,6 +2,20 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-09-13
+
+### Fixed
+
+- 修复"同一批次还有子代理在跑时详情打不开"：详情入口此前只从 Plan DSL /
+  子代理树投影解析节点，而树只由整份快照与 `runtime.changed` 携带，表格行却
+  先经 `worktable.changed`/`task.changed` 到达，`resolveNodeForDetail` 取不到
+  节点便静默返回（点「详情」无任何反应），回合结束整份刷新后才恢复。前端入口
+  改为 Plan DSL → 子代理树 → 工作表格行（`workItemToDetailNode`）→ 仅身份
+  节点逐级兜底；后端让 `worktable.changed` 在树内容变化时附带 `subagent_tree`
+  （发送侧按内容签名去重，空数组表示已清空，缺省/null 表示保留既有树），
+  前端 reducer 同步 `snapshot.runtime.subagent_tree`。payload 契约见
+  `schemas/work-table.schema.json`；A/B 阈值与基线见 `docs/test/worktable-ab.md`。
+
 ## 2026-09-07
 
 ### Changed
