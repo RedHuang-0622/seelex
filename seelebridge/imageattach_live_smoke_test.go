@@ -62,7 +62,9 @@ func TestImageAttachLiveSmoke(t *testing.T) {
 		specs = filtered
 	}
 
-	capture, err := computer.CaptureShot(computer.ScreenshotOptions{MaxWidth: 1280})
+	// MaxWidth 0 = 不缩放：标题栏那种小字一旦被缩小就糊，模型会读错一两个字，
+	// 于是「答对」变成运气而不是证据。
+	capture, err := computer.CaptureShot(computer.ScreenshotOptions{})
 	if err != nil {
 		t.Skipf("本机截屏不可用: %v", err)
 	}
@@ -87,7 +89,7 @@ func TestImageAttachLiveSmoke(t *testing.T) {
 		registry := imageattach.NewRegistry()
 		registry.Add("smoke", imageattach.Attachment{
 			Label: fmt.Sprintf("screenshot %dx%d", width, height),
-			Image: types.ImagePart{MimeType: "image/png", Data: buffer.Bytes(), Width: width, Height: height},
+			File:  types.FilePart{Kind: types.FileKindImage, MimeType: "image/png", Data: buffer.Bytes(), Width: width, Height: height},
 		})
 		reply := askThroughWrapper(t, specs, registry, nil, question)
 		if !mentionsTitle(reply, title) {
@@ -102,12 +104,12 @@ func TestImageAttachLiveSmoke(t *testing.T) {
 		}
 		registry := imageattach.NewRegistry()
 		registry.Add("smoke", imageattach.Attachment{Ref: "media:smoke-fixture", Label: "screenshot(ref)"})
-		loader := func(context.Context, string) (types.ImagePart, error) {
+		loader := func(context.Context, string) (types.FilePart, error) {
 			data, err := os.ReadFile(path)
 			if err != nil {
-				return types.ImagePart{}, err
+				return types.FilePart{}, err
 			}
-			return types.ImagePart{MimeType: "image/png", Data: data, Width: width, Height: height}, nil
+			return types.FilePart{Kind: types.FileKindImage, MimeType: "image/png", Data: data, Width: width, Height: height}, nil
 		}
 		reply := askThroughWrapper(t, specs, registry, loader, question)
 		if !mentionsTitle(reply, title) {
@@ -121,7 +123,7 @@ func askThroughWrapper(
 	t *testing.T,
 	specs []model.AccountSpec,
 	registry *imageattach.Registry,
-	loader func(context.Context, string) (types.ImagePart, error),
+	loader func(context.Context, string) (types.FilePart, error),
 	question string,
 ) string {
 	t.Helper()

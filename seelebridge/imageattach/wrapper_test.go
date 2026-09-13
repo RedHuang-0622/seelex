@@ -45,7 +45,7 @@ func pngAttachment(label string) Attachment {
 	return Attachment{
 		Ref:   "media:abc",
 		Label: label,
-		Image: types.ImagePart{MimeType: "image/png", Data: []byte{1, 2, 3}, Width: 1280, Height: 720},
+		File:  types.FilePart{Kind: types.FileKindImage, MimeType: "image/png", Data: []byte{1, 2, 3}, Width: 1280, Height: 720},
 	}
 }
 
@@ -106,7 +106,7 @@ func TestWrapperAttachesPendingImageExactlyOnce(t *testing.T) {
 	if !strings.Contains(notice.Text(), DefaultPrompt) || !strings.Contains(notice.Text(), "screenshot 1280x720") {
 		t.Fatalf("附加消息正文 = %q, 应含提示语与来源标签", notice.Text())
 	}
-	if got := notice.Images[0].Name; got != "screenshot 1280x720" {
+	if got := notice.Files[0].Name; got != "screenshot 1280x720" {
 		t.Fatalf("图片溯源名 = %q, want 标签", got)
 	}
 	if sent[0].ImageCount() != 0 {
@@ -132,12 +132,12 @@ func TestWrapperLoadsImageByRef(t *testing.T) {
 		Pending: registry,
 		Options: Options{
 			SessionID: func(context.Context) string { return "s1" },
-			Loader: func(_ context.Context, ref string) (types.ImagePart, error) {
+			Loader: func(_ context.Context, ref string) (types.FilePart, error) {
 				loaded++
 				if ref != "media:ref-only" {
-					return types.ImagePart{}, errors.New("unexpected ref")
+					return types.FilePart{}, errors.New("unexpected ref")
 				}
-				return types.ImagePart{MimeType: "image/png", Data: []byte{9}}, nil
+				return types.FilePart{Kind: types.FileKindImage, MimeType: "image/png", Data: []byte{9}}, nil
 			},
 		},
 	}
@@ -151,7 +151,7 @@ func TestWrapperLoadsImageByRef(t *testing.T) {
 	if len(sent) != 1 || sent[0].ImageCount() != 1 {
 		t.Fatalf("加载后的消息 = %+v, want 一条带图消息", sent)
 	}
-	if got := sent[0].Images[0].MimeType; got != "image/png" {
+	if got := sent[0].Files[0].MimeType; got != "image/png" {
 		t.Fatalf("加载图片 mime = %q, want image/png", got)
 	}
 }
@@ -166,8 +166,8 @@ func TestWrapperDropsUnresolvableAttachmentWithoutBreakingRequest(t *testing.T) 
 		Pending: registry,
 		Options: Options{
 			SessionID: func(context.Context) string { return "s1" },
-			Loader: func(context.Context, string) (types.ImagePart, error) {
-				return types.ImagePart{}, errors.New("boom")
+			Loader: func(context.Context, string) (types.FilePart, error) {
+				return types.FilePart{}, errors.New("boom")
 			},
 			OnDrop: func(string, Attachment, error) { dropped++ },
 		},

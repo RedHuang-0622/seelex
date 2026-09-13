@@ -23,7 +23,7 @@ type Options struct {
 	// SessionID 从 ctx 解析会话 ID；为空时用 telemetry.SessionIDFromContext。
 	SessionID func(context.Context) string
 	// Loader 按 ref 读取图片（会话媒体分区）；为空时只用 Attachment.Image。
-	Loader func(context.Context, string) (types.ImagePart, error)
+	Loader func(context.Context, string) (types.FilePart, error)
 	// Prompt 覆盖 DefaultPrompt。
 	Prompt string
 	// OnAttach 在成功挂图后回调（诊断/事件），可为空。
@@ -131,23 +131,23 @@ func (w *Wrapper) prepare(ctx context.Context, messages []types.Message) ([]type
 		return messages, nil
 	}
 
-	images := make([]types.ImagePart, 0, len(attachments))
+	files := make([]types.FilePart, 0, len(attachments))
 	labels := make([]string, 0, len(attachments))
 	for _, attachment := range attachments {
-		image, err := w.resolve(ctx, attachment)
+		file, err := w.resolve(ctx, attachment)
 		if err != nil {
 			if w.OnDrop != nil {
 				w.OnDrop(sessionID, attachment, err)
 			}
 			continue
 		}
-		if image.Name == "" {
-			image.Name = attachment.Label
+		if file.Name == "" {
+			file.Name = attachment.Label
 		}
-		images = append(images, image)
+		files = append(files, file)
 		labels = append(labels, attachmentLabel(attachment))
 	}
-	if len(images) == 0 {
+	if len(files) == 0 {
 		return messages, nil
 	}
 
@@ -157,7 +157,7 @@ func (w *Wrapper) prepare(ctx context.Context, messages []types.Message) ([]type
 	}
 	notice := types.Message{Role: "user"}.
 		WithText(prompt + "（" + strings.Join(labels, "；") + "）").
-		WithImages(images...)
+		WithFiles(files...)
 
 	prepared := make([]types.Message, 0, len(messages)+1)
 	prepared = append(prepared, messages...)
@@ -169,18 +169,26 @@ func (w *Wrapper) prepare(ctx context.Context, messages []types.Message) ([]type
 }
 
 // resolve 取图片本体：优先内存里的字节，否则按 ref 加载。
-func (w *Wrapper) resolve(ctx context.Context, attachment Attachment) (types.ImagePart, error) {
-	image := attachment.Image
-	if len(image.Data) > 0 || image.URL != "" {
-		return image, nil
+func (w *Wrapper) resolve(ctx context.Context, attachment Attachment) (types.FilePart, error) {
+	file := attachment.File
+	if len(file.Data) > 0 || file.URL != "" {
+		// 发射前的形状检查：种类与 MIME 打架、既无字节又无地址的附件必然被 provider
+		// 拒掉，在这里失败比在 provider 那里 400 更可诊断（OnDrop 会记录原因）。
+		if err := file.Validate(); err != nil {
+			return types.FilePart{}, err
+		}
+		return file, nil
 	}
 	ref := strings.TrimSpace(attachment.Ref)
 	if ref == "" || w.Loader == nil {
-		return types.ImagePart{}, fmt.Errorf("imageattach: attachment %q has no bytes and no loader", ref)
+		return types.FilePart{}, fmt.Errorf("imageattach: attachment %q has no bytes and no loader", ref)
 	}
 	loaded, err := w.Loader(ctx, ref)
 	if err != nil {
-		return types.ImagePart{}, fmt.Errorf("imageattach: load %q: %w", ref, err)
+		return types.FilePart{}, fmt.Errorf("imageattach: load %q: %w", ref, err)
+	}
+	if err := loaded.Validate(); err != nil {
+		return types.FilePart{}, fmt.Errorf("imageattach: loaded %q: %w", ref, err)
 	}
 	return loaded, nil
 }

@@ -128,7 +128,8 @@ func askWithImage(t *testing.T, specs []model.AccountSpec, question string, pngB
 	t.Helper()
 	message := types.Message{Role: "user"}.
 		WithText(question).
-		WithImages(types.ImagePart{
+		WithFiles(types.FilePart{
+			Kind:     types.FileKindImage,
 			MimeType: "image/png",
 			Data:     pngBytes,
 			Width:    width,

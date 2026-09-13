@@ -23,8 +23,9 @@ type Attachment struct {
 	Ref string
 	// Label 是给人看的来源说明，例如 `screenshot 1280x720`。
 	Label string
-	// Image 是图片本体的投影；Ref 非空而这里为空时，由 Loader 按需加载。
-	Image types.ImagePart
+	// File 是附件本体的投影（图片或文档，Kind 决定发射哪种内容块）；
+	// Ref 非空而这里为空时，由 Loader 按需加载。
+	File types.FilePart
 	// CreatedAt 用于诊断：队列长时间积压时能看出是哪一轮留下的。
 	CreatedAt time.Time
 }
