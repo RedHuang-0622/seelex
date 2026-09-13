@@ -18,6 +18,7 @@ package goal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 )
@@ -107,6 +108,7 @@ type Supervisor struct {
 	ctl       *Controller
 	mailbox   *TechLeaderMailbox
 	evaluator TLEvaluator
+	recorder  TLRoundRecorder
 	cfg       TechLeaderConfig
 	now       func() int64
 
@@ -121,6 +123,38 @@ type Supervisor struct {
 	evalCount      int64
 	lastEvalAt     int64
 	lastEvalGoalID string
+}
+
+// TLRoundRecord 是一次 b 回合的原文（上下文 = 送给 b 的原文；输出 = b 的原始回答）。
+type TLRoundRecord struct {
+	Trigger string
+	RefSeq  uint64
+	Context string
+	Output  string
+}
+
+// TLRoundRecorder 记录 b 回合原文（装配侧注入：写入 tl 角色 draft 并由 sequencer
+// 发布到主文档 + floor；nil = 不记录）。每回合都调用，保证"存上下文原本的内容"。
+type TLRoundRecorder interface {
+	RecordTLRound(ctx context.Context, record TLRoundRecord) error
+}
+
+// SetRoundRecorder 注入 b 回合记录器（装配根在首次会话启动前调用；幂等）。
+func (s *Supervisor) SetRoundRecorder(recorder TLRoundRecorder) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.recorder = recorder
+	s.mu.Unlock()
+}
+
+// directiveText 把 b 的裁决渲染成原文 JSON（记录与展示用，不截断）。
+func directiveText(directive TLDirective) string {
+	if raw, err := json.Marshal(directive); err == nil {
+		return string(raw)
+	}
+	return directive.Summary()
 }
 
 // NewSupervisor 构造编排者（config 零值用默认；mailbox 自动新建）。
@@ -294,6 +328,13 @@ func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal 
 		CachedTokens: cached,
 	})
 	s.mailbox.PublishDirective(directive)
+	if s.recorder != nil {
+		// 每回合记录 b 看到的原文与它的原始回答（持久化/展示失败不阻断治理）。
+		_ = s.recorder.RecordTLRound(ctx, TLRoundRecord{
+			Trigger: trigger, RefSeq: peer.Applied, Context: inputText,
+			Output: directiveText(directive),
+		})
+	}
 	peer.Cache = cacheStatsOf(peer.Rounds)
 	peer.State = PeerAdvisoryPending
 	s.evalCount++

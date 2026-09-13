@@ -102,7 +102,8 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		goalStoreFor = provider.SessionContextStoreFor
 	}
 	service.components.goal = newGoalCoordinator(goalCoordinatorDeps{
-		StoreFor: goalStoreFor,
+		StoreFor:      goalStoreFor,
+		TLRecorderFor: service.goalTLRecorderFor,
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,

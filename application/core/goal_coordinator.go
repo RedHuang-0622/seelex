@@ -27,6 +27,8 @@ type goalCoordinatorDeps struct {
 	StoreFor func(sessionID string) *sessionstore.SessionContextStore
 	// Evaluator 是 TL 评估器（nil = TL 未启用，B4 直连收口语义）。
 	Evaluator goaldomain.TLEvaluator
+	// TLRecorderFor 返回指定会话的 TL 回合记录器（nil = 不记录 b 回合原文）。
+	TLRecorderFor func(sessionID string) goaldomain.TLRoundRecorder
 	// MaxRounds 是治理循环轮次护栏（≤0 = 不设上限，由裁决/Break 收束）。
 	MaxRounds int
 }
@@ -91,6 +93,9 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 	runtime := &goalSessionRuntime{
 		ctl: controller,
 		sup: goaldomain.NewSupervisor(controller, g.deps.Evaluator, goaldomain.DefaultTechLeaderConfig()),
+	}
+	if g.deps.TLRecorderFor != nil {
+		runtime.sup.SetRoundRecorder(g.deps.TLRecorderFor(sessionID))
 	}
 	g.sessions[sessionID] = runtime
 	return runtime
