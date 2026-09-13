@@ -396,3 +396,67 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 血缘 meta（`forked_from`/ForkPoint）与截断重写属于 application 层
 （`application/model` + `application/core/session_runtime`），存储层只负责
 通道与原子提交，不解释内容。
+
+## 会话媒体分区（`meta/`）
+
+### 生态位
+
+会话粒度的二进制媒体资产（截图、图片输入、其它非文本产物）落盘与取用通道。
+调用方是 Seelex 侧的工具实现（例如截屏工具）与多模态 wire 编码
+（`seelebridge/multimodal`）；`big_tool_result` 继续承载文本大结果，两者是同一套
+「会话旁路资产 + 引用 + GC」语义下的两个分区。
+
+### 布局契约
+
+```text
+<sessionRoot>/meta/<sha256>/<原名>      二进制原文（永不截断）
+<sessionRoot>/meta/<sha256>/meta.json   单条索引（MediaRef）
+<sessionRoot>/metadata/media.json       会话级索引 head（可重建派生，白名单内）
+```
+
+- 目录名 = 内容 sha256：同一份字节只落一份（重复截屏天然去重）。
+- 文件名 = 写入方给的原名（仅剥离目录与文件系统非法字符），便于人眼定位与就地替换。
+- 引用形如 `media:<sha256>`，与 `blob:<hash>`、`compressed:<segment_id>` 并列。
+- 工具结果通过 `ToolResult.Multimodal []MediaRef`（JSON `multimodal`）挂引用；
+  记录本身不复制字节。
+
+### 阈值刻意分轴
+
+`big_tool_result` 与媒体不是同一把尺子：文本按字符（≈token）计语义成本，媒体按
+字节计磁盘成本、按像素长边计视觉成本。
+
+| 维度 | `big_tool_result`（文本） | `meta/`（媒体） |
+|---|---|---|
+| 软限 | `big_tool_result_soft_limit_chars`（60000）截断正文 | **无软限** |
+| 单件硬限 | `big_tool_result_hard_limit_bytes`（16 MB） | `media_max_item_bytes`（8 MB） |
+| 像素限制 | 不适用 | `media_max_long_side`（4096），超出须先降采样 |
+| 条目数 | 不适用 | `media_max_items_per_session`（500） |
+| 会话配额 | `big_tool_result_session_quota_bytes`（64 MB） | `media_session_quota_bytes`（256 MB） |
+| 超限动作 | 截断 + `result_ref` 保留全文 | **整体拒绝**（`ErrMediaTooLarge`/`ErrMediaDimensions`/`ErrMediaQuota`） |
+
+不变式：**文本可截断，媒体永不截断**。截断一张 PNG 得到的是坏文件而不是「更短的
+图」，所以媒体没有字符软限路径；配额也只统计二进制载荷（`meta.json` 是可重建派生
+元数据，不计费）。两个分区配额独立计账，长截屏循环不会挤爆文本大结果通道。
+
+### 核心实现
+
+- `media.go`：`MediaItem`（写入请求）、`MediaRef`（引用与元数据）、`MediaStore`
+  能力接口（`WriteMedia`/`ReadMedia`/`ListMedia`/`CollectMedia`）。
+- `MediaStoreOf(repository)`：媒体是可选能力，不进 `Repository` 主契约，调用方显式取用。
+- `ReferencedMediaHashes(results []ToolResult)`：从工具结果收集引用集，供 GC 使用。
+- 尺寸校验使用调用方提供的 `Width/Height`（存储层不解码图片），因此“先降采样再写”
+  是调用方责任，例如截屏原语的 `MaxWidth` + `ScaleNearest`。
+
+### Review 风险
+
+- 写入必须走 `store.mu(key, moduleMedia)`，media 与 message 各自加锁，不要跨模块持锁。
+- 内容寻址意味着**同字节不同名只是别名**，不要假设「文件名就是唯一标识」。
+- ref 非法或缺失必须显式报错（`ErrMediaRefInvalid` / `os.ErrNotExist`），
+  不得静默退化成空结果——那会让模型以为「图里没有内容」。
+- 媒体目录属于用户数据，任何清理都必须先备份、先中文预警。
+
+### 验证
+
+```text
+go test ./sessionstore/ -run TestMedia -count=1
+```

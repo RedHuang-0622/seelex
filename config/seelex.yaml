@@ -72,6 +72,11 @@ limits:
     # big_tool_result_soft_limit_chars: 60000   # 软限截断后归档
     # big_tool_result_hard_limit_bytes: 16777216 # 硬限直接报错
     # big_tool_result_session_quota_bytes: 67108864 # 单会话配额
+    # 会话媒体分区（§10：meta/<hash>/<原名>，配额与上面独立计账）
+    # media_max_item_bytes: 8388608             # 单件硬限（8 MB）；超出直接拒绝，永不截断
+    # media_session_quota_bytes: 268435456      # 单会话媒体配额（256 MB）
+    # media_max_items_per_session: 500
+    # media_max_long_side: 4096                 # 像素长边；超出需调用方先降采样
   # fork 子代理长任务宽松预算：fork_subagents 总时长 = 子代理工作量之和，
   # 不受通用工具超时（tool_call_timeout）限制，用独立预算（默认 2 小时）。
   # 子代理循环数复用 effort 调节值（high=48 / max=96），无需单独配置。

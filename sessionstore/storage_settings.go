@@ -36,6 +36,12 @@ type storageSettings struct {
 	BlobSoftLimitChars    int    `json:"big_tool_result_soft_limit_chars,omitempty"`
 	BlobHardLimitBytes    int    `json:"big_tool_result_hard_limit_bytes,omitempty"`
 	BlobSessionQuotaBytes int    `json:"big_tool_result_session_quota_bytes,omitempty"`
+	// 媒体分区（§10）限额：只按字节与像素卡硬限，没有字符软限、永不截断。
+	// 配额与 big_tool_result 独立计账，互不挤占（见 media.go 顶部说明）。
+	MediaMaxItemBytes       int `json:"media_max_item_bytes,omitempty"`
+	MediaSessionQuotaBytes  int `json:"media_session_quota_bytes,omitempty"`
+	MediaMaxItemsPerSession int `json:"media_max_items_per_session,omitempty"`
+	MediaMaxLongSide        int `json:"media_max_long_side,omitempty"`
 	// WireBudgetTokens / WireSoftRatio / WireTargetRatio 是 §5.2 的 wire 装配
 	// 预算：软阈值触发压缩、目标阈值决定裁剪到哪。
 	WireBudgetTokens int     `json:"wire_budget_tokens,omitempty"`
@@ -69,9 +75,16 @@ func defaultStorageSettings() storageSettings {
 		BlobSoftLimitChars:    60000,
 		BlobHardLimitBytes:    16 << 20,
 		BlobSessionQuotaBytes: 64 << 20,
-		WireBudgetTokens:      200000,
-		WireSoftRatio:         0.75,
-		WireTargetRatio:       0.60,
+		// 媒体默认值（量级建议，按 4K 截屏的典型体积标定）：
+		// 单件 8 MB 能收原图又挡住异常大件；长边 4096 覆盖 4K 宽屏；
+		// 会话 256 MB ≈ 200 张 1600px 截图（每张 0.5~1.5 MB）。
+		MediaMaxItemBytes:       8 << 20,
+		MediaSessionQuotaBytes:  256 << 20,
+		MediaMaxItemsPerSession: 500,
+		MediaMaxLongSide:        4096,
+		WireBudgetTokens:        200000,
+		WireSoftRatio:           0.75,
+		WireTargetRatio:         0.60,
 	}
 }
 
@@ -125,6 +138,18 @@ func mergeStorageSettings(base, override storageSettings) storageSettings {
 	if override.BlobSessionQuotaBytes != 0 {
 		base.BlobSessionQuotaBytes = override.BlobSessionQuotaBytes
 	}
+	if override.MediaMaxItemBytes != 0 {
+		base.MediaMaxItemBytes = override.MediaMaxItemBytes
+	}
+	if override.MediaSessionQuotaBytes != 0 {
+		base.MediaSessionQuotaBytes = override.MediaSessionQuotaBytes
+	}
+	if override.MediaMaxItemsPerSession != 0 {
+		base.MediaMaxItemsPerSession = override.MediaMaxItemsPerSession
+	}
+	if override.MediaMaxLongSide != 0 {
+		base.MediaMaxLongSide = override.MediaMaxLongSide
+	}
 	if override.WireBudgetTokens != 0 {
 		base.WireBudgetTokens = override.WireBudgetTokens
 	}
@@ -156,6 +181,12 @@ func validateStorageSettings(config storageSettings) error {
 	}
 	if config.BlobSessionQuotaBytes < config.BlobHardLimitBytes {
 		return errors.New("session storage: session quota must cover hard limit")
+	}
+	if config.MediaMaxItemBytes < 1 || config.MediaMaxItemsPerSession < 1 || config.MediaMaxLongSide < 1 {
+		return errors.New("session storage: media limits must be > 0")
+	}
+	if config.MediaSessionQuotaBytes < config.MediaMaxItemBytes {
+		return errors.New("session storage: media session quota must cover media max item bytes")
 	}
 	if config.RetentionMode != retentionModeManual {
 		return errors.New("session storage: retention mode must be manual (current implementation)")

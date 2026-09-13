@@ -1453,3 +1453,40 @@ head 一推进就双双可见（→ T-STK-13 红灯）。EVENT 上是反方向�
 - `fork` 事件的凭据必须逐操作唯一（示例含子会话号 `fork-sess-c2f8`）：常量会让第二次 fork
   被 A.2 规则 3 误判重复而整次丢弃；随机会让重放认不出而多留噪音。
 - `queue/queue.jsonl` 属整份替换型：一次变更替换整个文件，“出队”= 新内容里不含该项，无需墓碑行。
+
+## 附：媒体分区实现状态与措辞更正（2026-09-13）
+
+本节记录实现落地后的状态，**就地更正**上文两处措辞；与上文冲突时以本节、代码和
+模块 README 为准。
+
+### 状态
+
+- §10「媒体（多模态）落盘规划」：**已实现**。目录与文件名约定照原设计不变
+  （`session/meta/<hash>/<原名>`），新增会话级索引 head `metadata/media.json`。
+- 实现位置：`sessionstore/media.go`（布局、引用、限额、去重、GC）；
+  模块说明见 `sessionstore/README.md` 的「会话媒体分区（meta/）」。
+- 引用形式：`media:<sha256>`，与 `blob:<hash>`、`compressed:<segment_id>` 并列；
+  工具结果通过 `ToolResult.Multimodal`（JSON `multimodal`）挂引用，记录本身不复制字节。
+
+### 措辞更正：§6 的「唯一 blob 通道」
+
+原表述应读作「**统一资产通道，含媒体分区**」：同一个会话粒度旁路机制、同一套引用与
+GC 语义下有两个分区，配额独立计账。
+
+| 分区 | 目录 | 内容 | 软限 | 单件硬限 | 会话配额 |
+|---|---|---|---|---|---|
+| 文本大结果 | `big_tool_result/` | 文本（可截断 + `result_ref` 保留全文） | 60000 chars | 16 MB | 64 MB |
+| 媒体 | `meta/<hash>/<原名>` | 二进制（**永不截断**） | 无 | 8 MB / 长边 4096 | 256 MB |
+
+理由：文本的语义成本 ≈ 字符数（token 线性），故按字符卡软限并允许截断；图片的语义
+成本由像素决定、与字节无关，磁盘成本才按字节。截断一张 PNG 得到的是坏文件，所以
+媒体没有软限路径，只能整体接受、先降采样或显式拒绝。
+
+### 验证证据（2026-09-13）
+
+- `go test ./sessionstore/ -run TestMedia -count=1`：布局契约、永不截断往返、
+  四条限额轴、内容去重、GC（含 dryRun）、配额与文本分区互不牵连，全绿。
+- 真机冒烟（`seelebridge/multimodal`，opt-in）：生成左红右蓝 PNG → 落
+  `meta/<hash>/<原名>` → 读回 → content parts → `deepseek-v4-flash` 带图请求
+  → `finish=stop`、`content="red blue"`、`prompt_tokens=249`。断言选用的颜色词
+  不出现在文字提示里，因此通过即证明图片字节确实送达模型。

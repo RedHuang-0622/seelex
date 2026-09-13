@@ -200,6 +200,10 @@ type ToolResult struct {
 	Size       int       `json:"size"`
 	TokenCount int       `json:"token_count"`
 	CreatedAt  time.Time `json:"created_at"`
+	// Multimodal 承载本次工具结果的媒体资产引用（`media:<sha256>`）。
+	// 正文仍然是 Content（文本结果或摘要），图片等二进制只以引用形式挂在
+	// 这里：记录本身不复制字节，字节在会话媒体分区（meta/<hash>/<原名>）。
+	Multimodal []MediaRef `json:"multimodal,omitempty"`
 }
 
 // Commit replaces the bounded provider cache and append-only transcript
