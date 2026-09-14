@@ -21,8 +21,11 @@ import (
 
 // Deps is the runtime callback set injected by the root package (Runtime).
 type Deps struct {
-	RegisterTool           func(name, description string, schema map[string]interface{}, handler func(ctx context.Context, argsJSON string) (string, error))
-	ProjectScope           *security.ProjectScope
+	RegisterTool func(name, description string, schema map[string]interface{}, handler func(ctx context.Context, argsJSON string) (string, error))
+	ProjectScope *security.ProjectScope
+	// SessionKey 从执行 ctx 解析会话键（生产 = telemetry.SessionIDFromContext）。
+	// 工具路径根按会话解析：后台/并行会话不得借用视图会话的项目根。
+	SessionKey             func(context.Context) string
 	FileSystem             fs.FileSystem
 	GrepMaxResults         int
 	WalkTimeoutSec         int
@@ -47,8 +50,9 @@ func NewRouter(deps Deps) *Router {
 }
 
 // resolveNodePath 解析工具路径的根：worktree 节点（NodeScope.WorkspaceID
-// 指向 worktree 根）→ 节点根；否则 ProjectScope 单根。worktree 目录由
-// git 创建（真实目录），resolveInside 内含 withinRoot 校验（越界拒绝）。
+// 指向 worktree 根）→ 节点根；否则按执行 ctx 的会话键取该会话自己的项目根
+// （会话未绑定时回退进程默认根，保持旧会话语义）。worktree 目录由 git 创建
+// （真实目录），resolveInside 内含 withinRoot 校验（越界拒绝）。
 func (r *Router) resolveNodePath(ctx context.Context, path string, forWrite bool) (string, error) {
 	if scope, ok := model.NodeScopeFromContext(ctx); ok && scope.NodeID != "" && scope.WorkspaceID != "" {
 		candidate, err := security.ResolveInside(scope.WorkspaceID, path)
@@ -58,9 +62,17 @@ func (r *Router) resolveNodePath(ctx context.Context, path string, forWrite bool
 		return candidate, nil
 	}
 	if forWrite {
-		return r.deps.ProjectScope.ResolveWrite(path)
+		return r.deps.ProjectScope.ResolveWriteFor(r.sessionKey(ctx), path)
 	}
-	return r.deps.ProjectScope.ResolveRead(path)
+	return r.deps.ProjectScope.ResolveReadFor(r.sessionKey(ctx), path)
+}
+
+// sessionKey 返回执行 ctx 的会话键；未注入解析面时返回空键（进程默认根）。
+func (r *Router) sessionKey(ctx context.Context) string {
+	if r.deps.SessionKey == nil {
+		return security.DefaultScopeKey
+	}
+	return r.deps.SessionKey(ctx)
 }
 
 // registerProjectScopedTools overrides the Seele builtin filesystem tools.
@@ -169,7 +181,7 @@ func (r *Router) scopedGrep(ctx context.Context, argsJSON string) (string, error
 		}
 		for index, line := range strings.Split(string(data), "\n") {
 			if strings.Contains(line, input.Pattern) {
-				display, _ := r.deps.ProjectScope.Relative(path)
+				display, _ := r.deps.ProjectScope.RelativeFor(r.sessionKey(ctx), path)
 				results = append(results, scopedGrepResult{Path: display, LineNum: index + 1, Content: strings.TrimSpace(line)})
 				if len(results) >= input.MaxResults {
 					return filepath.SkipAll
@@ -228,7 +240,7 @@ func (r *Router) scopedGlob(ctx context.Context, argsJSON string) (string, error
 		default:
 		}
 		if matchGlobPattern(input.Pattern, path) || matchGlobPattern(input.Pattern, info.Name()) {
-			display, _ := r.deps.ProjectScope.Relative(path)
+			display, _ := r.deps.ProjectScope.RelativeFor(r.sessionKey(ctx), path)
 			results = append(results, display)
 		}
 		return nil

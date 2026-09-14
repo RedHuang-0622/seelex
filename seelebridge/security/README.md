@@ -3,6 +3,9 @@
 `seelebridge/security` 承载项目作用域、路径门禁与命令执行隔离的安全边界：
 
 - `project_scope.go`：`ProjectScope` 项目根 containment（fail-closed，无 fallback root）。
+  根按**会话键**分格：`BindFor(sessionKey, root)` / `Resolve*For(sessionKey, …)`
+  让每个会话用自己的项目根（多项目并行/后台会话不借用视图会话的根）；空键
+  （`DefaultScopeKey`）是进程默认根（当前视图会话），未绑定会话键回退默认根。
 - `pathgate.go`：`PathGate` allow/ask/deny 权限规则（读取 `seele.yaml` permission 段）。
 - `sandbox.go`：`CommandSandbox` shell 执行隔离端口（项目 cwd 门禁 + 凭据环境清洗 +
   超时，非 OS 级隔离）；`ScrubEnvironment`/`FileExists` 供根包命令路径复用。

@@ -152,6 +152,9 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 // ID 序数归一化），见 session_decoupling_test.go TestEventFingerprintStable。
 func (service *Service) runChat(ctx context.Context, sessionID, requestID string, request chatRequest) {
 	ctx = withSessionID(ctx, sessionID)
+	// 工具面项目根按执行会话绑定：视图可能停在别的项目的会话上，后台会话
+	// 不得借用它的根（工作区污染回归，见 session_project_root_test.go）。
+	service.bindSessionProjectRoot(sessionID)
 	// 会话起步同步 plan 策略槽：plan_load/plan_run 在引擎内按执行 ctx 读取
 	// 本会话策略（含后台会话），不继承进程默认槽（G1-C）。
 	service.syncPlanPolicyFor(sessionID)

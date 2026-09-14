@@ -673,16 +673,26 @@ func (r *Runtime) ContextWindow() int { return r.currentAccountLimits().ContextW
 func (r *Runtime) MaxOutputTokens() int { return r.currentAccountLimits().MaxOutputTokens }
 
 // BindProjectRoot makes the supplied project the only root used by Seelex
-// filesystem tools for the active session.
+// filesystem tools as the process default (view session).
 func (r *Runtime) BindProjectRoot(rootPath string) error { return r.projectScope.Bind(rootPath) }
 
-// PerSessionExecution 声明宿主具备逐会话执行能力。当前 seelebridge 的
-// 工具/工作树项目根仍是进程级 projectScope（见 runtime_tools.go 的
-// ProjectScope 注入），Runtime.SetSessionWorkspace 只解决 DurableHistory 键
-// 解析——尚未满足“每会话项目根”这一放开前置条件，因此返回 false，让 core
-// 继续走全局项目根绑定 + 视图 key 语义（bindProjectRootIfSafe 保证后台运行
-// 中不重绑）。等 ProjectScope 按会话路由后（worktree/PathGuard 每会话根）
-// 再改回 true。
+// BindProjectRootFor 绑定指定会话自己的工具路径根（sessionID 为空 = 进程默认）。
+// 工具按执行 ctx 的会话键解析根（tools.Router.resolveNodePath），因此后台会话
+// 与并行会话各用自己的项目，不再借用视图会话的根。
+func (r *Runtime) BindProjectRootFor(sessionID, rootPath string) error {
+	return r.projectScope.BindFor(sessionID, rootPath)
+}
+
+// UnbindProjectRootFor 清空指定会话的工具路径根（会话解绑工作区/归档时）。
+func (r *Runtime) UnbindProjectRootFor(sessionID string) { r.projectScope.UnbindFor(sessionID) }
+
+// PerSessionExecution 声明宿主是否具备"逐会话执行"的全部前置条件。当前
+// 文件/搜索/bash 工具的项目根已按会话路由（BindProjectRootFor +
+// tools.Router 的 SessionKey 解析），但 **worktree 与 PathGuard 仍读进程级
+// projectScope.Root()**（子代理 worktree 由全局根创建，见 worktree_manager
+// 的 Root 闭包），因此这里仍返回 false：core 继续走全局项目根绑定 + 视图 key
+// 过渡锁语义（bindProjectRootIfSafe 保证后台运行中不重绑）。等 worktree/
+// PathGuard 每会话根落地后再改回 true。
 func (r *Runtime) PerSessionExecution() bool { return false }
 
 // ForkBegin 标记某会话进入 fork_subagents 执行（可嵌套，计数 +1）。

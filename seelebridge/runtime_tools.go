@@ -7,6 +7,7 @@ import (
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/docker"
+	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
 	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 )
@@ -103,8 +104,10 @@ func (r *Runtime) registerTodoTools() {
 // scopedToolsDeps 把 Runtime 能力面注入 tools 域（Deps 全部为闭包）。
 func (r *Runtime) scopedToolsDeps() seeltools.Deps {
 	return seeltools.Deps{
-		RegisterTool:           r.RegisterTool,
-		ProjectScope:           r.projectScope,
+		RegisterTool: r.RegisterTool,
+		ProjectScope: r.projectScope,
+		// 工具路径根按执行 ctx 的会话解析：后台/并行会话各用自己的项目根。
+		SessionKey:             seetelemetry.SessionIDFromContext,
 		FileSystem:             r.filesystem,
 		GrepMaxResults:         r.limits.GrepMaxResults,
 		WalkTimeoutSec:         r.limits.WalkTimeoutSec,

@@ -370,6 +370,10 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 				service.setWorkspaceWriteScope("")
 			}
 			service.Deps.Workspace.UnbindSession(sessionID)
+			if service.Deps.Runtime != nil {
+				// 该会话没有工作区：清掉按会话分格的工具根，避免解析到上一次绑定。
+				service.Deps.Runtime.UnbindProjectRootFor(sessionID)
+			}
 		}
 	}
 

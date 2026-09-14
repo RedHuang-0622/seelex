@@ -345,6 +345,16 @@
 
 - `func TestS0BackgroundSessionTaskWriteMustNotPolluteActiveRegistry(t *testing.T)`
 
+### session_project_root_test.go
+
+- `func (runtime *fakeRuntime) BindProjectRootFor(sessionID, rootPath string) error` — BindProjectRootFor / UnbindProjectRootFor 是 fakeRuntime 对生产
+- `func (runtime *fakeRuntime) UnbindProjectRootFor(sessionID string)`
+- `func (runtime *fakeRuntime) toolRootForSession(sessionID string) string` — toolRootForSession 模拟工具面的路径根解析：会话根优先，未绑定时回退进程默认
+- `func newMultiProjectWorkspace() *multiProjectWorkspace`
+- `func (repo *multiProjectWorkspace) Create(name, rootPath, gitRemote string) (WorkspaceInfo, error)`
+- `func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T)` — TestBackgroundSessionKeepsOwnProjectRoot 复现工作区污染：会话 A 绑定项目 A，
+- `func waitSessionIdle(t *testing.T, service *Service)` — waitSessionIdle 等待全部会话回合结束（多会话并行时视图 Chat 状态不代表进程空闲）。
+
 ### session_race_test.go
 
 - `func TestSnapshotBumpConcurrentWithRunChatTail(t *testing.T)` — TestSnapshotBumpConcurrentWithRunChatTail（TC-R-02）：并发 Submit（触发
@@ -382,6 +392,7 @@
 - `func (service *Service) setWorkspaceWriteScope(workspaceID string)` — setWorkspaceWriteScope 设置 legacy Router 写作用域。逐会话工具根能力
 - `func (service *Service) bindGlobalProjectRoot(rootPath string) error` — bindGlobalProjectRoot 设置进程级项目根。同上：per-session root 未实现前
 - `func (service *Service) unbindGlobalProjectRoot()` — unbindGlobalProjectRoot 清空进程级项目根。
+- `func (service *Service) bindSessionProjectRoot(sessionID string)` — bindSessionProjectRoot 把指定会话自己的项目根绑到工具面（按会话分格）。
 - `func (service *Service) transitionForKey(key string) sync.Locker` — transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会
 - `func (service *Service) sessionUnitLocked(sessionID string) *session.SessionUnit` — sessionUnitLocked 返回指定会话的会话单元（聊天运行态已收进 SessionUnit，
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布

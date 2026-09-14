@@ -164,6 +164,10 @@ func (service *Service) UnbindWorkspace() {
 	service.ViewMu.RUnlock()
 	if !draft && sessionID != "" {
 		service.Deps.Workspace.UnbindSession(sessionID)
+		if service.Deps.Runtime != nil {
+			// 该会话的项目根随绑定一起失效：留着会让归档后的会话仍解析到旧项目。
+			service.Deps.Runtime.UnbindProjectRootFor(sessionID)
+		}
 	}
 	service.setWorkspaceWriteScope("")
 	workspaceProjection := service.collectWorkspaceProjection()

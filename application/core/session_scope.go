@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,29 @@ func (service *Service) bindGlobalProjectRoot(rootPath string) error {
 // unbindGlobalProjectRoot 清空进程级项目根。
 func (service *Service) unbindGlobalProjectRoot() {
 	service.Deps.Runtime.UnbindProjectRoot()
+}
+
+// bindSessionProjectRoot 把指定会话自己的项目根绑到工具面（按会话分格）。
+// runChat 起点调用：多项目并行时，后台会话的 read_file/write_file/bash 只解析
+// 自己的项目根，而不是视图会话的根（工作区污染回归）。
+//
+// 未绑定工作区的会话保持旧语义（工具面回退进程默认根）；绑定失败只记日志，
+// 不阻塞回合——失败时该会话解析回退默认根，与修复前行为一致。
+func (service *Service) bindSessionProjectRoot(sessionID string) {
+	if service == nil || service.Deps.Runtime == nil || service.Deps.Workspace == nil {
+		return
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	workspace, ok := service.Deps.Workspace.SessionWorkspace(sessionID)
+	if !ok || strings.TrimSpace(workspace.RootPath) == "" {
+		return
+	}
+	if err := service.Deps.Runtime.BindProjectRootFor(sessionID, workspace.RootPath); err != nil {
+		log.Printf("[workspace] 会话 %s 的项目根绑定失败（工具面回退默认根）：%v", sessionID, err)
+	}
 }
 
 // transitionForKey 返回指定 key 的会话过渡锁（G5 per-session keyed）：会

@@ -99,7 +99,9 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
    租约覆盖整条流），初始化 scope 和 MCP 状态。
 2. `RegisterBuiltins` 注册 scoped tools 与 plan/task 工具 provider；不能同时
    暴露绕过 scope 的同名原始工具。
-3. Application 通过 `BindProjectRoot` 限定当前 session 的工具范围。
+3. Application 通过 `BindProjectRoot`（进程默认根）与 `BindProjectRootFor`
+   （逐会话根）限定工具范围；工具按执行 ctx 的会话键解析项目根，后台/并行
+   会话各用自己的项目（见「ProjectScope 与 PathGate」）。
 4. Plugin Manager 调用 Define/Activate 维护 include/exclude 可见性快照；
    每次请求经 `bridge.WithVisibilityPolicy` 过滤可见工具集。
 5. Tool/Plan 执行事实经 `planEventSink`（`event.Sink`）投影为
@@ -135,6 +137,14 @@ memory → 稳定前缀栈（skill/compact）→ WorkingHistory（累积 context
 ## ProjectScope 与 PathGate
 
 ProjectScope 先把用户路径解析为 canonical absolute target，再验证它位于绑定 root。read 需要目标存在；write 允许目标尚不存在但父级必须安全；workdir 必须是目录。PathGate 在 scope 内进一步给出 allow/ask/deny 意图。
+
+项目根按**会话键**分格（`ProjectScope.BindFor` + `BindProjectRootFor`）：工具从执行
+ctx 取会话键（`tools.Deps.SessionKey` = telemetry 会话 ID），只解析该会话自己的根；
+会话键未绑定时回退进程默认根（当前视图会话）。这条口径是「工作区污染」的修复：
+此前根是纯进程级，后台会话（`SubmitToSession`/冷恢复续跑）会借用视图会话的项目根，
+把文件写进别的项目。**尚未按会话路由的消费方**：子代理 worktree 与 PathGuard 仍读
+进程默认根（`worktree_manager` 的 `Root` 闭包），因此
+`Runtime.PerSessionExecution()` 仍返回 false。
 
 二者不能互相替代：scope 防越界，gate 表达策略。
 

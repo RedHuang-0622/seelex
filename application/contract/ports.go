@@ -117,6 +117,11 @@ type RuntimePort interface {
 	SetPlanBranchBinding(dto.PlanBranchBinding)
 	BindProjectRoot(rootPath string) error
 	UnbindProjectRoot()
+	// BindProjectRootFor 绑定指定会话自己的工具路径根：多项目并行时，工具按
+	// 执行 ctx 的会话解析项目根（后台会话不得借用视图会话的根）。
+	// UnbindProjectRootFor 在会话解绑工作区/归档时清空该会话的根。
+	BindProjectRootFor(sessionID, rootPath string) error
+	UnbindProjectRootFor(sessionID string)
 	// SetCurrentTaskBatch 设置会话级 task 注册表默认批次（startChat 写入
 	// requestID；按会话保存，后台会话不覆盖活跃注册表默认批次——L3）。
 	SetCurrentTaskBatch(sessionID, batchID string)

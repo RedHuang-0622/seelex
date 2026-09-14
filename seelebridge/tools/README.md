@@ -28,7 +28,10 @@ runtime ──► tools.Router（scoped 工具）
 ## 核心实现
 
 - `Router`：Deps 闭包注入 Runtime 能力（filesystem/projectScope/docker
-  恢复/诊断），注册 read/write/bash 等工具。
+  恢复/诊断），注册 read/write/bash 等工具。路径根解析顺序：worktree 节点作用域
+  （`NodeScope.WorkspaceID`）→ 执行 ctx 的**会话键**（`Deps.SessionKey`，生产为
+  telemetry 会话 ID）对应的项目根 → 进程默认根。后台/并行会话因此不会借用视图
+  会话的项目根（工作区污染回归见 `router_session_root_test.go`）。
 - `RegistryState`：framework registry 包装 + `InlineProvider` 累积
   RegisterTool 产品工具（重名覆盖、快照重建）。
 - `PermissionGate`：middleware 闭包捕获，运行时原子更新。

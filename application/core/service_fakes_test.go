@@ -312,10 +312,14 @@ type fakeRuntime struct {
 	// 生产 Runtime.ReplanMetricsFor 的会话槽语义）。
 	replanMetricsBySession map[string]dto.ReplanMetrics
 	projectRoot            string
-	currentBatch           string
-	todoMu                 sync.Mutex
-	todoItems              []dto.TodoItem
-	tasks                  map[string]dto.TaskRecord
+	// sessionProjectRoots 是按会话的工具路径根（镜像生产
+	// Runtime.BindProjectRootFor → seelebridge projectScope 的会话分格）。
+	sessionProjectRootsMu sync.Mutex
+	sessionProjectRoots   map[string]string
+	currentBatch          string
+	todoMu                sync.Mutex
+	todoItems             []dto.TodoItem
+	tasks                 map[string]dto.TaskRecord
 	// sessionTaskSnapshots 是会话切换时保存的 task 快照（镜像生产 Runtime
 	// 的按会话分片语义；阶段 0 持久化按会话取快照）。
 	sessionTaskSnapshots map[string][]dto.TaskRecord

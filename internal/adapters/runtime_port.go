@@ -56,6 +56,12 @@ func (port RuntimePort) BindProjectRoot(rootPath string) error {
 	return port.Runtime.BindProjectRoot(rootPath)
 }
 func (port RuntimePort) UnbindProjectRoot() { port.Runtime.UnbindProjectRoot() }
+func (port RuntimePort) BindProjectRootFor(sessionID, rootPath string) error {
+	return port.Runtime.BindProjectRootFor(sessionID, rootPath)
+}
+func (port RuntimePort) UnbindProjectRootFor(sessionID string) {
+	port.Runtime.UnbindProjectRootFor(sessionID)
+}
 func (port RuntimePort) SetCurrentTaskBatch(sessionID, batchID string) {
 	port.Runtime.SetCurrentTaskBatch(sessionID, batchID)
 }
