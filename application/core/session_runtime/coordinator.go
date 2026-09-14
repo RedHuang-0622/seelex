@@ -124,14 +124,56 @@ func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle {
 }
 
 // SetSessionTitleLocked 设置指定会话标题（标题表由 catalogMu 保护；调用方
-// 持有 ViewMu 时同样安全——锁序 ViewMu → catalogMu）。
+// 持有 ViewMu 时同样安全——锁序 ViewMu → catalogMu）。标题同时写穿到会话存储
+// （message head 的目录枚举面）：标题是会话级展示事实，不落盘就只能靠目录
+// 刷新读会话正文重建。
 func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle) {
+	c.catalogMu.Lock()
+	if c.catalogTitles == nil {
+		c.catalogTitles = make(map[string]model.SessionTitle)
+	}
+	c.catalogTitles[sessionID] = title
+	c.catalogMu.Unlock()
+	c.persistSessionTitle(sessionID, title)
+}
+
+// persistSessionTitle 把标题写穿到会话存储（可选能力端口）。空标题/空会话
+// 不写：草稿清理路径（SetSessionTitleLocked(draftID, SessionTitle{})）传空值，
+// 落下会造出没有数据的会话目录。写失败不阻断标题设置——标题随后会在会话落盘
+// （record/快照）时经 SaveRecordRaw 再写一次，且内存标题表已经生效。
+func (c *Coordinator) persistSessionTitle(sessionID string, title model.SessionTitle) {
+	if sessionID == "" || title.Value == "" {
+		return
+	}
+	store, ok := c.Core.Deps.Sessions.(SessionTitlePort)
+	if !ok {
+		return
+	}
+	_ = store.SaveSessionTitle(sessionID, title.Value)
+}
+
+// backfillCatalogTitles 由目录枚举行回填标题表（调用方不持 catalogMu）：存储层
+// 把标题持久化在会话头，枚举一轮即把内存标题表补齐，重启后不必等会话被打开或
+// 发首条请求，侧栏/目录就能显示标题（旧行为是 SessionTitleFor 回退到"当前活跃
+// 会话名"，后台会话会借到别人的标题）。已有值的条目不覆盖：本地写入
+// （first_request / 用户编辑）比磁盘枚举行新。
+func (c *Coordinator) backfillCatalogTitles(grid map[string][]model.SessionInfo) {
 	c.catalogMu.Lock()
 	defer c.catalogMu.Unlock()
 	if c.catalogTitles == nil {
 		c.catalogTitles = make(map[string]model.SessionTitle)
 	}
-	c.catalogTitles[sessionID] = title
+	for _, rows := range grid {
+		for _, info := range rows {
+			if info.ID == "" || info.Name == "" {
+				continue
+			}
+			if current, ok := c.catalogTitles[info.ID]; ok && current.Value != "" {
+				continue
+			}
+			c.catalogTitles[info.ID] = model.SessionTitle{Value: info.Name, Source: "session_head"}
+		}
+	}
 }
 
 // UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
@@ -363,6 +405,10 @@ func (c *Coordinator) refreshCatalogProjects(scope map[string]struct{}) {
 		// legacy 单列表端口没有项目维度：整体归入默认项目格（全量刷新语义）。
 		grid[""] = c.Core.Deps.Sessions.List()
 	}
+
+	// 标题表由枚举行回填（枚举行 = 存储层会话头的目录枚举面）：与目录缓存同一
+	// 轮刷新落地，标题因此是"枚举的副产物"，不需要额外 I/O。
+	c.backfillCatalogTitles(grid)
 
 	c.catalogMu.Lock()
 	if c.catalogGrid == nil {

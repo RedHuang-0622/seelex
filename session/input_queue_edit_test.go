@@ -130,6 +130,56 @@ func TestSessionUnitRecallAndReorder(t *testing.T) {
 	}
 }
 
+// TestQueueProjectionDefinesProjectionIndexSpace（节点 156 域层硬化）：投影
+// （ChatState.InputQueue 的唯一来源）与编辑操作共用一套下标——投影逐项、按队列
+// 顺序、不按载荷类型过滤，因此"用户看到的第 i 行"必然等于"被撤回/被移动的第
+// i 项"。载荷类型不透明（域不解释 Payload），所以任何载荷都不得从投影里消失。
+func TestQueueProjectionDefinesProjectionIndexSpace(t *testing.T) {
+	unit, err := NewSessionUnit("sess-projection")
+	if err != nil {
+		t.Fatalf("NewSessionUnit: %v", err)
+	}
+	unit.Enqueue(QueuedRequest{DisplayInput: "chat", Payload: "chat-payload"})
+	unit.Enqueue(QueuedRequest{DisplayInput: "opaque", Payload: 42}) // 非 QueuedRequest 载荷
+	unit.Enqueue(QueuedRequest{DisplayInput: "plain"})               // 无载荷
+	if _, count := unit.QueueProjection(); count != 3 {
+		t.Fatalf("projection count = %d, want 3（投影不得过滤载荷）", count)
+	}
+	assertProjection(t, unit, []string{"chat", "opaque", "plain"})
+
+	// 投影下标 i 就是编辑操作的下标 i：调换用户看到的第 1 行与第 2 行。
+	if !unit.ReorderRequests(1, 2) {
+		t.Fatal("ReorderRequests(1,2) must succeed")
+	}
+	assertProjection(t, unit, []string{"chat", "plain", "opaque"})
+
+	// 撤回用户看到的第 1 行 → 必须是被投影渲染为 "plain" 的那一条。
+	recalled, ok := unit.RecallRequest(1)
+	if !ok || recalled.DisplayInput != "plain" {
+		t.Fatalf("RecallRequest(1) = %+v ok=%v, want plain（投影下标空间错位）", recalled, ok)
+	}
+	assertProjection(t, unit, []string{"chat", "opaque"})
+
+	// nil 单元的投影为空（与 Recall/Reorder 的 nil 安全同口径）。
+	var nilUnit *SessionUnit
+	if displays, count := nilUnit.QueueProjection(); len(displays) != 0 || count != 0 {
+		t.Fatalf("nil unit projection = %v/%d, want empty", displays, count)
+	}
+}
+
+func assertProjection(t *testing.T, unit *SessionUnit, want []string) {
+	t.Helper()
+	displays, count := unit.QueueProjection()
+	if count != len(want) || len(displays) != len(want) {
+		t.Fatalf("projection = %v (count %d), want %v (%d)", displays, count, want, len(want))
+	}
+	for index, text := range want {
+		if displays[index] != text {
+			t.Fatalf("projection[%d] = %q, want %q（投影 = %v）", index, displays[index], text, displays)
+		}
+	}
+}
+
 func assertQueue(t *testing.T, queue *InputQueue, wantText []string, wantSeq []uint64) {
 	t.Helper()
 	snapshot := queue.Snapshot()

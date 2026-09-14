@@ -26,16 +26,12 @@ func TestNewTestServiceCleansUpCatalogWorker(t *testing.T) {
 func TestSessionCatalogAllowsDuplicateNamesWithDistinctIDs(t *testing.T) {
 	updatedAt := time.Unix(2, 0)
 	sessions := &scopedSessions{
+		// 展示名来自枚举行（存储层 = 会话头的目录枚举面）。目录刷新只读枚举
+		// 行，不再为标题打开会话正文（见 session_runtime 的正文读计数探针）。
 		catalog: map[string][]SessionInfo{
 			"project-1": {
-				{ID: "session-a", UpdatedAt: updatedAt},
-				{ID: "session-b", UpdatedAt: updatedAt},
-			},
-		},
-		histories: map[string]map[string][]EngineMessage{
-			"project-1": {
-				"session-a": {{Role: "user", Content: "same question"}},
-				"session-b": {{Role: "user", Content: "same question"}},
+				{ID: "session-a", Name: "same question", UpdatedAt: updatedAt},
+				{ID: "session-b", Name: "same question", UpdatedAt: updatedAt},
 			},
 		},
 	}

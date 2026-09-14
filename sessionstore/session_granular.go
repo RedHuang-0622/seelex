@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -195,22 +196,60 @@ func (store *SessionGranularStore) SaveRecordRaw(projectID, sessionID string, pa
 	}
 	projectID = store.projectID(projectID)
 	if store.router.LayoutV8() {
-		// S20：state/record 通道退役。record 只用于"首次索引 + 归档标记"：
-		// 其余字段（Title/Binding/血缘/Checkpoints…）dev 阶段丢字段已接受。
+		// S20：state/record 通道退役。record 只用于"首次索引 + 归档标记"，
+		// 外加标题写穿（head.Meta.Summary）。
 		if err := store.EnsureIndexed(projectID, sessionID); err != nil {
 			return err
 		}
 		archived := false
-		var status struct {
-			Status string `json:"status"`
+		title := ""
+		var head struct {
+			Status string          `json:"status"`
+			Title  json.RawMessage `json:"title"`
 		}
-		if len(payload) > 0 && json.Unmarshal(payload, &status) == nil {
-			archived = status.Status == string(StatusArchived)
+		if len(payload) > 0 && json.Unmarshal(payload, &head) == nil {
+			archived = head.Status == string(StatusArchived)
+			title = parseRecordTitle(head.Title)
+		}
+		// 标题写穿：record 通道退役后，标题是 head 独有的展示事实。不写穿的
+		// 后果是重启后目录拿不到标题，只能读会话正文猜（目录刷新读正文的根因）。
+		// 空标题不写——归档/后台落盘经常没有标题，落下空值会抹掉已有标题。
+		if title != "" {
+			if _, err := store.router.SetSessionTitleWorkspace(projectID, sessionID, title); err != nil {
+				return err
+			}
 		}
 		_, err := store.router.SetSessionArchivedWorkspace(projectID, sessionID, archived)
 		return err
 	}
 	return store.router.SaveStateWorkspace(projectID, sessionID, payload)
+}
+
+// SaveSessionTitle 写会话标题（v8：message head 的目录枚举面
+// head.Meta.Summary）。标题落在这里，目录枚举（读 message head）即带标题，
+// 不必为标题打开消息分片。空 sessionID/标题不落盘：草稿清理路径传空值，
+// 落下会造出没有数据的会话目录（幽灵会话）。
+func (store *SessionGranularStore) SaveSessionTitle(projectID, sessionID, title string) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	title = strings.TrimSpace(title)
+	if sessionID == "" || title == "" {
+		return nil
+	}
+	_, err := store.router.SetSessionTitleWorkspace(store.projectID(projectID), sessionID, title)
+	return err
+}
+
+// SessionTitle 只读会话标题（header-only：只打开 metadata/message.json，
+// 不读消息分片）。ok=false 表示未命中（非 v8 布局/会话头不存在），调用方按
+// "无标题"处理，不得因此退化为读正文。
+func (store *SessionGranularStore) SessionTitle(projectID, sessionID string) (string, bool, error) {
+	if store == nil || store.router == nil {
+		return "", false, nil
+	}
+	return store.router.SessionTitleWorkspace(store.projectID(projectID), sessionID)
 }
 
 // LoadRecordRaw 读取 record 通道原始字节；不存在原样返回 fs.ErrNotExist
@@ -602,7 +641,9 @@ func (store *SessionGranularStore) loadSessionLiteral(projectID, sessionID strin
 }
 
 // derivedRecord 按 §2.5.4 从 message head.Meta + lifecycle 派生会话记录
-// （S20：record 通道退役；Title/Kind/子侧血缘不再持久化，dev 已接受）。
+// （S20：record 通道退役；Kind/子侧血缘不再持久化，dev 已接受）。标题随
+// 会话头持久化（head.Meta.Summary）并在此派生回 record.Title：目录枚举
+// 只需要 head，不需要为标题打开消息分片。
 func (store *SessionGranularStore) derivedRecord(projectID, sessionID string) (Record, bool) {
 	meta, handled, err := store.router.SessionMetaWorkspace(projectID, sessionID)
 	if err != nil || !handled || meta.SessionID == "" {

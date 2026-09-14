@@ -107,10 +107,12 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
 		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
-		pending := runtime.PendingRequests()
+		// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）：
+		// 展示的行序号就是后续 ReorderQueuedInput/RecallQueuedInput 作用的下标。
+		displays, count := runtime.QueueProjection()
 		runtime.UpdateChat(func(chat *ChatState) {
-			chat.InputQueue = chatRequestDisplays(queuedChatRequests(pending))
-			chat.QueuedCount = len(pending)
+			chat.InputQueue = displays
+			chat.QueuedCount = count
 		}, nil)
 		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
 		revision := service.bumpLocked()
@@ -147,10 +149,11 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {
 		runtime.Enqueue(session.QueuedRequest{DisplayInput: request.displayInput, Payload: request})
-		pending := runtime.PendingRequests()
+		// 队列投影 = 会话域给出的同一套下标空间（见 SessionUnit.QueueProjection）。
+		displays, count := runtime.QueueProjection()
 		runtime.UpdateChat(func(chat *ChatState) {
-			chat.InputQueue = chatRequestDisplays(queuedChatRequests(pending))
-			chat.QueuedCount = len(pending)
+			chat.InputQueue = displays
+			chat.QueuedCount = count
 		}, nil)
 		if active {
 			service.setSessionChatLockedFor(sessionID, runtime.ChatState())

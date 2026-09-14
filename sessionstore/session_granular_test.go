@@ -43,11 +43,9 @@ func TestSessionGranularityPersistence(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatalf("load record ok=%v err=%v", ok, err)
 			}
-			wantTitle := "主会话"
-			if backend == BackendJSON {
-				wantTitle = "" // S20：Title 不再持久化（dev 丢字段）
-			}
-			if loaded.ID != mainID || loaded.Kind != KindMain || loaded.Title != wantTitle ||
+			// S20：Title 不再落 record 通道；但它随 message head 的目录枚举面
+			// 持久化（head.Meta.Summary），派生 record 读回同一标题。
+			if loaded.ID != mainID || loaded.Kind != KindMain || loaded.Title != "主会话" ||
 				loaded.Status != StatusIdle || loaded.Binding.WorkspaceID != projectID {
 				t.Fatalf("loaded record = %+v", loaded)
 			}
@@ -193,7 +191,7 @@ func TestPersistenceIdempotent(t *testing.T) {
 				t.Fatalf("load ok=%v err=%v", ok, err)
 			}
 			wantTitle := "幂等"
-			if backend == BackendJSON {
+			if backend != BackendJSON {
 				wantTitle = ""
 			}
 			if !reflect.DeepEqual(record.ID, loaded.ID) || loaded.Title != wantTitle ||
@@ -273,9 +271,11 @@ func TestSessionsOfToleratesProductionRecordSchema(t *testing.T) {
 	if len(infos) != 1 || infos[0].ID != sessionID {
 		t.Fatalf("catalog = %+v, want sess-prod（生产 schema 不得清空侧栏）", infos)
 	}
-	// S20：Title 不再持久化，v8 枚举标题取 message head.Meta.Summary（空）。
-	if infos[0].Title != "" {
-		t.Fatalf("title = %q, want empty（S20 派生枚举）", infos[0].Title)
+	// 目录必须能列出该会话，且标题从生产 schema 的 title 对象 value 提取：标题
+	// 随 SaveRecordRaw 写穿到 message head 的目录枚举面（生产形态不因为有额外
+	// 字段就丢标题）。
+	if infos[0].Title != "生产会话标题" {
+		t.Fatalf("title = %q, want %q（标题应写穿到会话头）", infos[0].Title, "生产会话标题")
 	}
 
 	// LoadSession 宽容：不报错，身份/标题可读。
@@ -283,7 +283,7 @@ func TestSessionsOfToleratesProductionRecordSchema(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("LoadSession(production schema) ok=%v err=%v", ok, err)
 	}
-	if record.ID != sessionID || record.Title != "" {
+	if record.ID != sessionID || record.Title != "生产会话标题" {
 		t.Fatalf("record = %+v", record)
 	}
 }

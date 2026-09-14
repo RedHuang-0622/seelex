@@ -111,6 +111,18 @@ type SessionGranularPort interface {
 	Delete(sessionID string) error
 }
 
+// SessionTitlePort 是会话标题的持久化读写面（可选能力断言）：标题随会话头
+// 落盘后，目录枚举（读会话头）即带标题，不必为标题读会话正文。
+//
+// SaveSessionTitle 是"即改即落"的写穿面（空标题 = 不写：草稿清理路径传空值，
+// 不得因此造出没有数据的会话目录）；SessionTitle 是 header-only 只读面——只
+// 打开会话头（metadata/message.json），不读任何消息分片；ok=false 表示未命中
+// （非 v8 布局/会话头不存在），调用方按"无标题"处理。
+type SessionTitlePort interface {
+	SaveSessionTitle(sessionID, title string) error
+	SessionTitle(projectID, sessionID string) (string, bool, error)
+}
+
 // SessionStoragePort 是会话存储设置面（可选能力断言）。
 type SessionStoragePort interface {
 	StorageConfig() (sessionstore.Config, error)

@@ -656,6 +656,48 @@ func (router *Router) SessionMetaWorkspace(projectID, sessionID string) (framewo
 	return meta, handled, err
 }
 
+// SetSessionTitleWorkspace 写会话标题（v8：message head 的目录枚举面
+// head.Meta.Summary）。handled=false 表示后端未 v8 化（标题沿用 record
+// 通道，调用方无需降级处理）。
+func (router *Router) SetSessionTitleWorkspace(projectID, sessionID, title string) (bool, error) {
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		return jsonRepository.layout.setMessageTitleStored(Key{ProjectID: projectID, SessionID: sessionID}, title)
+	})
+	return handled, err
+}
+
+// SessionTitleWorkspace 只读会话标题（header-only：只打开 metadata/message.json
+// 与它同文件的 payload，不读任何消息分片）。exists=false 表示后端未 v8 化或
+// 会话头不存在（调用方按"无标题"处理，不得退化为读正文）。
+func (router *Router) SessionTitleWorkspace(projectID, sessionID string) (string, bool, error) {
+	handled := false
+	title := ""
+	exists := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		value, ok, err := jsonRepository.layout.messageTitleStored(Key{ProjectID: projectID, SessionID: sessionID})
+		if err != nil {
+			return err
+		}
+		title, exists = value, ok
+		return nil
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return title, handled && exists, nil
+}
+
 // SetSessionArchivedWorkspace 写/清 lifecycle archived_at（S20：已归档判据）。
 func (router *Router) SetSessionArchivedWorkspace(projectID, sessionID string, archived bool) (bool, error) {
 	handled := false

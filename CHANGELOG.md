@@ -23,7 +23,23 @@ for this stabilization batch.
   `Service.ReorderQueuedInput` / `Service.RecallQueuedInput` (with explicit
   `ErrQueueNotRunning` / `ErrQueueIndexOutOfRange` / `ErrQueueSessionNotFound`
   semantics), bridged to the GUI as `Bridge.ReorderQueuedInput` /
-  `Bridge.RecallQueuedInput`.
+  `Bridge.RecallQueuedInput`. The list rendered to the user and the list the edit
+  operations act on are the same index space: `ChatState.InputQueue` /
+  `QueuedCount` are derived from `session.SessionUnit.QueueProjection`, so the row
+  the user points at is exactly the item that moves or is recalled (previously the
+  projection filtered by payload type, so it could be shorter than the queue and
+  the indices could target the wrong entry).
+- Session titles are now persisted with the session head
+  (`metadata/message.json` → `head.Meta.Summary`) and read back by project
+  enumeration, so titles survive a restart instead of being guessed from session
+  message bodies: refreshing the catalog for title-less sessions used to open
+  every session's history window (`sessionNameFromTail`; measured 6 body reads for
+  3 sessions) and now performs zero body reads. New store surface
+  `SetSessionTitleWorkspace` / `SessionTitleWorkspace` (header-only: never opens a
+  message shard) exposed to the application as the optional
+  `session_runtime.SessionTitlePort`; `SetSessionTitleLocked` writes the title
+  through on every change, the derived session record carries it, and it is
+  preserved when a corrupted message head is rebuilt from its shards.
 
 ### Changed
 

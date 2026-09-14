@@ -10,8 +10,13 @@ import (
 
 // sessionCatalogProject 枚举单个项目的会话集合（G6：目录按 projectID 分格，
 // 项目 = 会话集合；worker 逐项目刷新格子）。返回该项目会话行与该轮发现的工作
-// 区绑定（projectID != "" 的会话即归属该项目）。标题从 record 读取（不再走
-// workspace 粒度 tail 回退）。
+// 区绑定（projectID != "" 的会话即归属该项目）。
+//
+// 标题来源（收敛后）：枚举行自带标题——存储层把会话标题持久化在 message head
+// 的目录枚举面（head.Meta.Summary），而枚举（SessionsOf）读的就是 head。仅当
+// 枚举行仍无标题时才做 header-only 兜底（只打开 metadata/message.json）。
+// 目录面不再有"读正文猜标题"路径：旧实现（sessionNameFromTail）会为每个无标题
+// 会话打开消息分片，3 个会话就是 6 次正文读，启动/目录刷新被正文读放大。
 func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projectID string) ([]model.SessionInfo, map[string]string) {
 	discovered := map[string]string{}
 	sessions := []model.SessionInfo{}
@@ -26,10 +31,8 @@ func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projec
 			discovered[info.ID] = projectID
 		}
 		if info.Name == "" {
-			if record, ok, err := c.loadGranularRecord(info.ID); err == nil && ok && record.Title.Value != "" {
-				info.Name = record.Title.Value
-			} else if name := c.sessionNameFromTail(granular, info.ID); name != "" {
-				info.Name = name
+			if title, ok := c.sessionTitleHeader(projectID, info.ID); ok {
+				info.Name = title
 			}
 		}
 		sessions = append(sessions, info)
@@ -37,23 +40,19 @@ func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projec
 	return sessions, discovered
 }
 
-// sessionNameFromTail 从会话历史尾部窗口提取标题（会话粒度端口；
-// record 标题缺失时的回退）。
-func (c *Coordinator) sessionNameFromTail(granular SessionGranularPort, sessionID string) string {
-	window := c.limits().HistoryWindow
-	_, total, err := granular.LoadHistoryRange(sessionID, 0, 0)
-	if err != nil {
-		return ""
+// sessionTitleHeader 走 header-only 标题读（可选能力端口：只打开会话头，不读
+// 消息分片）。端口缺失/未命中/出错一律按"无标题"处理：单个会话标题读失败不得
+// 让整轮目录刷新失败，更不能退化成读正文。
+func (c *Coordinator) sessionTitleHeader(projectID, sessionID string) (string, bool) {
+	store, ok := c.Core.Deps.Sessions.(SessionTitlePort)
+	if !ok {
+		return "", false
 	}
-	offset := total - window
-	if offset < 0 {
-		offset = 0
+	title, ok, err := store.SessionTitle(projectID, sessionID)
+	if err != nil || !ok {
+		return "", false
 	}
-	history, _, err := granular.LoadHistoryRange(sessionID, offset, window)
-	if err != nil {
-		return ""
-	}
-	return SessionTitleFromHistory(history, c.displayUserInput)
+	return title, true
 }
 
 // SessionTitleFromHistory 从历史窗口内的首条可见 user 消息提取标题。
@@ -242,19 +241,4 @@ func (c *Coordinator) LoadSessionHistoryRange(workspaceID, sessionID string, off
 		return granular.LoadHistoryRange(sessionID, offset, limit)
 	}
 	return c.Core.Deps.Sessions.LoadHistoryRange(sessionID, offset, limit)
-}
-
-// loadGranularRecord 读取会话 record（会话粒度；不存在返回 false）。
-func (c *Coordinator) loadGranularRecord(sessionID string) (model.SessionRecord, bool, error) {
-	if store, ok := c.Core.Deps.Sessions.(SessionRecordPort); ok {
-		record, err := store.LoadSessionRecord(sessionID)
-		if err != nil {
-			return model.SessionRecord{}, false, err
-		}
-		if record.Version != SessionRecordVersion || record.ID != sessionID {
-			return model.SessionRecord{}, false, nil
-		}
-		return record, true, nil
-	}
-	return model.SessionRecord{}, false, nil
 }

@@ -192,9 +192,32 @@ func (unit *SessionUnit) SetRequests(requests []QueuedRequest) {
 	}
 }
 
+// QueueProjection 返回排队输入的展示投影（逐项文本 + 计数）——它是
+// ChatState.InputQueue / QueuedCount 的唯一来源，也是「投影下标空间」的定义：
+//
+//	投影下标 i == 队列下标 i（逐项、按队列顺序、不按载荷类型过滤）
+//
+// 之所以由会话域给出（而不是应用层各自拼），是因为编辑操作
+// （RecallRequest / ReorderRequests）就作用在队列下标上：只要投影与队列同源
+// 同序，"用户看到的第 i 行"就必然等于"被撤回/被移动的第 i 项"。应用层一旦
+// 自行过滤投影（例如只保留某种载荷），投影会比队列短，下标就会错位——调换
+// 看不见效果、撤回把没显示过的条目交还输入框。
+func (unit *SessionUnit) QueueProjection() ([]string, int) {
+	if unit == nil || unit.Queue == nil {
+		return nil, 0
+	}
+	snapshot := unit.Queue.Snapshot()
+	displays := make([]string, 0, len(snapshot))
+	for _, item := range snapshot {
+		displays = append(displays, item.Text)
+	}
+	return displays, len(snapshot)
+}
+
 // RecallRequest 移除并返回指定下标的排队输入（撤回编辑：调用方把
-// DisplayInput 交还输入框，引擎侧 Payload 一并丢弃）。下标越界或 nil 单元
-// 返回 false；载荷无法还原为 QueuedRequest 时以队列文本兜底重建。
+// DisplayInput 交还输入框，引擎侧 Payload 一并丢弃）。下标是「投影下标」
+// （见 QueueProjection：与队列下标同一套）。下标越界或 nil 单元返回 false；
+// 载荷无法还原为 QueuedRequest 时以队列文本兜底重建。
 func (unit *SessionUnit) RecallRequest(index int) (QueuedRequest, bool) {
 	if unit == nil || unit.Queue == nil {
 		return QueuedRequest{}, false
@@ -209,7 +232,8 @@ func (unit *SessionUnit) RecallRequest(index int) (QueuedRequest, bool) {
 	return QueuedRequest{DisplayInput: item.Text}, true
 }
 
-// ReorderRequests 把 from 下标的排队输入移动到 to 下标（调换排队顺序）。
+// ReorderRequests 把「投影下标」from 的排队输入移动到 to（调换排队顺序；
+// 下标空间见 QueueProjection：与队列下标同一套，不做载荷过滤）。
 // 越界或 nil 单元返回 false；from==to 为成功的空操作。
 func (unit *SessionUnit) ReorderRequests(from, to int) bool {
 	if unit == nil || unit.Queue == nil {

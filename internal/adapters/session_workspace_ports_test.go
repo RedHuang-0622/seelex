@@ -1,11 +1,49 @@
 package adapters
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/RedHuang-0622/seelex/session"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
+
+// TestSessionPortTitleRoundTrip：标题读写面在适配层落地——写穿到真实存储
+// （Router → message head 的目录枚举面），读回只读会话头。装配缺方法时应用层
+// 的能力断言会静默失败（标题不落盘，目录刷新又退回读正文猜标题），因此这里
+// 用真存储验证这条链。
+func TestSessionPortTitleRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = router.Close() })
+
+	const projectID = "project-adapter"
+	const sessionID = "sess-adapter"
+	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
+		Events: []sessionstore.Event{{Seq: 1, Role: "user", Content: "first"}},
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	port := SessionPort{Manager: session.NewManager().WithRouter(router)}
+	port.SetWorkspaceResolver(func(string) string { return projectID })
+	if err := port.SaveSessionTitle(sessionID, "适配器标题"); err != nil {
+		t.Fatalf("SaveSessionTitle: %v", err)
+	}
+	// 存储层（同一路径）可见：写穿生效。
+	if title, ok, err := port.granular().SessionTitle(projectID, sessionID); err != nil || !ok || title != "适配器标题" {
+		t.Fatalf("granular title = %q ok=%v err=%v, want 适配器标题", title, ok, err)
+	}
+	// 端口面（header-only）读回。
+	title, ok, err := port.SessionTitle(projectID, sessionID)
+	if err != nil || !ok || title != "适配器标题" {
+		t.Fatalf("SessionTitle = %q ok=%v err=%v, want 适配器标题", title, ok, err)
+	}
+}
 
 // TestAdaptGranularInfosCarriesTimelineFields（左侧栏日期占位回归）：目录
 // 枚举摘要从 sessionstore 适配到 model.SessionInfo 时，updated_at 与

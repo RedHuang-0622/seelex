@@ -86,12 +86,9 @@ func TestArchiveStatusRewriteKeepsFivePieces(t *testing.T) {
 			if err != nil || !ok {
 				t.Fatalf("reopen record ok=%v err=%v", ok, err)
 			}
-			wantTitle := "归档前标题"
-			if backend == BackendJSON {
-				// S20：Title 不再持久化（dev 丢字段已接受）。
-				wantTitle = ""
-			}
-			if loaded.Status != StatusArchived || loaded.Title != wantTitle {
+			// S20：Title 不落 record 通道，但会话标题随 message head 的目录
+			// 枚举面持久化（head.Meta.Summary）：归档/重开仍带标题。
+			if loaded.Status != StatusArchived || loaded.Title != "归档前标题" {
 				t.Fatalf("reopened record = %+v", loaded)
 			}
 			loadedHistory, err := store.HistoryForProject(projectID, sessionID).Load(ctx)

@@ -294,6 +294,28 @@ func (port SessionPort) MessageCount(id string) (int, error) {
 	return total, err
 }
 
+// SaveSessionTitle / SessionTitle 实现会话标题的持久化读写面
+// （session_runtime.SessionTitlePort，运行时按能力断言取用）：标题写穿会话头
+// （目录枚举面），读回只打开会话头、不读消息分片。写路径的项目归属按会话
+// 绑定解析（R3：不以 Router 活跃写作用域为准，否则视图切换会写错项目）。
+func (port SessionPort) SaveSessionTitle(sessionID, title string) error {
+	granular := port.granular()
+	return granular.SaveSessionTitle(granular.ResolveProjectForSession(sessionID), sessionID, title)
+}
+
+// SessionTitle 按调用方给出的项目（目录枚举格）只读会话标题；projectID 为空
+// 即默认项目格，不额外解析归属（枚举方已经知道项目）。
+func (port SessionPort) SessionTitle(projectID, sessionID string) (string, bool, error) {
+	return port.granular().SessionTitle(projectID, sessionID)
+}
+
+// 编译期契约：标题读写面必须在 SessionPort 上落地——运行时按能力断言取用，
+// 缺方法会让"标题持久化"静默失效（目录又退回读正文猜标题）。
+var _ interface {
+	SaveSessionTitle(sessionID, title string) error
+	SessionTitle(projectID, sessionID string) (string, bool, error)
+} = SessionPort{}
+
 // List 返回项目索引下的会话列表（project = 会话集合）。
 func (port SessionPort) List() []model.SessionInfo {
 	// List 语义 = 当前写作用域下的会话（与 Router active scope 一致）；

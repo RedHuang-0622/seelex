@@ -415,6 +415,9 @@ func (store *storeEngine) repairModuleHeadFromData(key Key, module storageModule
 // rebuildMessageHeadFromData 从 message/*.jsonl 分片重建 message head。
 func (store *storeEngine) rebuildMessageHeadFromData(key Key) (messageHead, error) {
 	head := emptyMessageHead(key)
+	// 标题只存在于 head（分片里没有它），重建前先原样取回：否则一次自愈修复
+	// 就会把会话标题抹掉，目录刷新退回"读正文猜标题"。
+	head.Meta.Summary = store.carryMessageTitle(key)
 	dir := store.messageDir(key)
 	entries, err := os.ReadDir(dir)
 	if err != nil {

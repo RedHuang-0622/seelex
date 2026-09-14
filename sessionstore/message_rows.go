@@ -105,6 +105,85 @@ func (store *storeEngine) readMessageHead(key Key) (messageHead, error) {
 	return decodeHeadPayload[messageHead](headFile)
 }
 
+// setMessageTitleStored 把会话标题写进 message head 的目录枚举面
+// （head.Meta.Summary）：标题是会话级展示事实，随 head 一次原子发布落盘，
+// 不打开任何分片、不新增 metadata 文件。head 还不存在时补一个空 head
+// （与 EnsureIndexed 同口径：让会话可被目录枚举）。
+//
+// commit_id 沿用上一次提交凭据：改名/补标题不是一次执行提交，不得让会话
+// generation（current_generation = layout:<commit_id>，fork 血缘来源）漂移。
+func (store *storeEngine) setMessageTitleStored(key Key, title string) error {
+	store.mu(key, moduleMessage).Lock()
+	defer store.mu(key, moduleMessage).Unlock()
+
+	// 只在会话已有 会话存储布局（metadata/guide.json）时写标题：标题写穿不得
+	// 自己"造"一个会话目录（幽灵会话：侧栏出现一条没有内容的行）。尚未落盘的
+	// 会话由首次提交建布局，标题随后经 record 落盘（SaveRecordRaw）写穿。
+	if !store.sessionExists(key) {
+		return nil
+	}
+	head, err := store.readMessageHead(key)
+	if err != nil {
+		return err
+	}
+	if head.Meta.Summary == title && head.Meta.SessionID == key.SessionID {
+		return nil // 幂等：标题未变不重复发布 head
+	}
+	now := time.Now().UTC()
+	head.Meta.Summary = title
+	head.Meta.SessionID = key.SessionID
+	head.Meta.UpdatedAt = now
+	if head.Meta.CreatedAt.IsZero() {
+		head.Meta.CreatedAt = now
+	}
+	if _, err := store.publishModuleHead(key, moduleMessage, head.LastCommitID, head, now); err != nil {
+		return err
+	}
+	store.rememberMessageAnchor(key, head)
+	return nil
+}
+
+// messageTitleStored 只读 message head 的标题（header-only：只打开
+// metadata/message.json 与它同文件的 payload，不读任何消息分片）。
+// exists=false 表示会话 head 不存在（未落盘）。
+func (store *storeEngine) messageTitleStored(key Key) (string, bool, error) {
+	headFile, err := store.readModuleHeadFile(key, moduleMessage)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	head, err := decodeHeadPayload[messageHead](headFile)
+	if err != nil {
+		return "", false, err
+	}
+	if head.Meta.SessionID == "" && head.SessionID == "" {
+		return "", false, nil
+	}
+	return head.Meta.Summary, true, nil
+}
+
+// carryMessageTitle 在 head 重建/自愈路径上原样取回标题：只做"读文件 +
+// 解 payload"，不做 schema/checksum 校验、不触发自愈重建（否则会递归）。
+// 拿不到（文件缺失/结构损坏）返回空串——重建是修复路径，宁可不带标题也不
+// 阻断修复。
+func (store *storeEngine) carryMessageTitle(key Key) string {
+	data, err := os.ReadFile(store.modulePath(key, moduleMessage))
+	if err != nil {
+		return ""
+	}
+	var envelope moduleHeadFile
+	if json.Unmarshal(data, &envelope) != nil {
+		return ""
+	}
+	head, err := decodeHeadPayload[messageHead](envelope)
+	if err != nil {
+		return ""
+	}
+	return head.Meta.Summary
+}
+
 // messageCommit 把一提交（可含多行事件行）append 到 message 通道并原子
 // 发布 message.json。rows 可为空（空 commit 只确保布局/索引存在）。
 //

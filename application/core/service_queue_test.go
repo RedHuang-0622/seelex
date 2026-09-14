@@ -5,7 +5,82 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	selexsession "github.com/RedHuang-0622/seelex/session"
 )
+
+// enqueueRawQueuedInput 用会话域 API 直接排队一条非 chatRequest 载荷的输入：
+// 域层 Payload 是 any（域不解释载荷），任何"投递即固化"的新载荷类型
+// （控制指令 / 系统注入 / 未来的排队对象）都从这里进队列。它只用于暴露
+// 「投影下标空间」与「队列下标空间」是否同一套。
+func enqueueRawQueuedInput(t *testing.T, service *Service, text string) {
+	t.Helper()
+	unit := service.sessionUnitLocked(service.Snapshot().Session.ID)
+	if unit == nil {
+		t.Fatal("session unit missing")
+	}
+	unit.Enqueue(selexsession.QueuedRequest{DisplayInput: text, Payload: text})
+}
+
+// TestQueueEditIndexSpaceMatchesProjection（节点 156 红线）：ChatState.InputQueue
+// 是用户看到、也是 GUI/TUI 回传的下标空间。若投影对载荷做类型过滤，投影会比
+// 真实队列短——用户看到的第 i 行不是队列第 i 项，调换"看不见效果"、撤回把没
+// 显示过的条目交还输入框。本测试断言投影与队列逐项对齐，且撤回/换序作用在
+// 用户点的那一行上。
+func TestQueueEditIndexSpaceMatchesProjection(t *testing.T) {
+	service, _ := startBlockingChat(t)
+	enqueueQueuedInputs(t, service, "second")
+	enqueueRawQueuedInput(t, service, "control")
+	if err := service.Submit(context.Background(), "fourth"); err != nil {
+		t.Fatalf("Submit(fourth): %v", err)
+	}
+
+	chat := service.Snapshot().Chat
+	want := []string{"second", "control", "fourth"}
+	if len(chat.InputQueue) != len(want) {
+		t.Fatalf("投影长度 = %d (%v), want %d (%v)：投影下标空间必须与队列下标空间逐项对齐",
+			len(chat.InputQueue), chat.InputQueue, len(want), want)
+	}
+	for index, input := range want {
+		if chat.InputQueue[index] != input {
+			t.Fatalf("投影 = %v, want %v", chat.InputQueue, want)
+		}
+	}
+	if chat.QueuedCount != len(want) {
+		t.Fatalf("QueuedCount = %d, want %d（计数口径必须与投影同源）", chat.QueuedCount, len(want))
+	}
+
+	// 撤回第 1 行 = 用户看到的 "control"。旧实现（按载荷过滤投影）会撤回队列
+	// 第 1 项却把"没显示过的条目"交还输入框。
+	text, err := service.RecallQueuedInput("", 1)
+	if err != nil {
+		t.Fatalf("RecallQueuedInput(1): %v", err)
+	}
+	if text != "control" {
+		t.Fatalf("撤回第 1 行得到 %q, want %q（下标空间错位）", text, "control")
+	}
+	chat = service.Snapshot().Chat
+	if len(chat.InputQueue) != 2 || chat.InputQueue[0] != "second" || chat.InputQueue[1] != "fourth" {
+		t.Fatalf("撤回后投影 = %v, want [second fourth]", chat.InputQueue)
+	}
+}
+
+// TestReorderQueuedInputFollowsProjectionIndex：调换的下标是投影下标——旧实现
+// 下"调换用户看到的两行"可能出现"操作成功但列表不变"（移动的是被过滤掉的行）。
+func TestReorderQueuedInputFollowsProjectionIndex(t *testing.T) {
+	service, _ := startBlockingChat(t)
+	enqueueQueuedInputs(t, service, "second")
+	enqueueRawQueuedInput(t, service, "control")
+
+	// 用户看到 [second control]，把第 0 行移到第 1 行 → 期望 [control second]。
+	if err := service.ReorderQueuedInput("", 0, 1); err != nil {
+		t.Fatalf("ReorderQueuedInput(0,1): %v", err)
+	}
+	chat := service.Snapshot().Chat
+	if len(chat.InputQueue) != 2 || chat.InputQueue[0] != "control" || chat.InputQueue[1] != "second" {
+		t.Fatalf("投影 = %v, want [control second]：调换必须作用在用户看到的那一行", chat.InputQueue)
+	}
+}
 
 // startBlockingChat 启动一个阻塞中的回合（返回可在测试里显式放开的引擎）。
 // blockCh 预建：不受 runChat goroutine 起跑时序影响，测试可确定性放开首轮。

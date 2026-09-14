@@ -21,9 +21,17 @@ import (
 // 撤回、提升四类转换点因此互斥，不会出现"撤回刚取走的条目又被提升进下一轮"
 // 或"调换与批量提升交错"的孤儿输入。
 //
-// 下标空间：对外（ChatState.InputQueue）与对内（会话队列）是同一套下标——
-// 入队载荷恒为 QueuedRequest{Payload: chatRequest}（submit 路径与 fork 深拷贝
-// 都如此），因此 PendingRequests/queuedChatRequests 不会跳过任何条目。
+// 下标空间（节点 156 硬化后的唯一约定）：对外（ChatState.InputQueue /
+// QueuedCount）与对内（会话队列）是同一套下标——投影由会话域
+// SessionUnit.QueueProjection 生成，逐项、按队列顺序、不按载荷类型过滤；域的
+// RecallRequest / ReorderRequests 直接作用在这套下标上。因此 GUI/TUI 渲染的
+// 第 i 行，就是撤回/调换操作的第 i 项，不需要任何换算。
+//
+// 反面：若在此处对载荷过滤（旧实现用 queuedChatRequests + chatRequestDisplays，
+// 只保留 chatRequest），投影会比真实队列短，用户看到的行与队列项错位——调换会
+// "操作成功但列表不变"，撤回会把没显示过的条目交还输入框。执行面（下一轮批量
+// 提升，chat.go 的 queuedChatRequests）与展示面因此解耦：展示要"看得见就能
+// 操作"，执行要"载荷类型正确"。
 
 // ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
 // （调换排队顺序；seq 身份不变，仅位置变化）。目标会话的空 sessionID 表示
@@ -115,10 +123,10 @@ func (service *Service) queuedInputUnitLocked(sessionID string) (*session.Sessio
 // （事件必须在 ViewMu 之外下发，与 submitConversation 的排队分支同口径）。
 func (service *Service) applyQueueEditLocked(unit *session.SessionUnit) {
 	sessionID := unit.ID
-	pending := unit.PendingRequests()
+	displays, count := unit.QueueProjection()
 	unit.UpdateChat(func(chat *ChatState) {
-		chat.InputQueue = chatRequestDisplays(queuedChatRequests(pending))
-		chat.QueuedCount = len(pending)
+		chat.InputQueue = displays
+		chat.QueuedCount = count
 	}, nil)
 	if service.isActiveSessionLocked(sessionID) {
 		service.setSessionChatLockedFor(sessionID, unit.ChatState())
