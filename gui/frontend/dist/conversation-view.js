@@ -14,7 +14,10 @@ export function createConversationView(container, options = {}) {
   sentinel.dataset.conversationSentinel = "top";
   sentinel.setAttribute("aria-hidden", "true");
   container.prepend(sentinel);
-  const wheel = createConversationWheel(container);
+  // 右侧「会话内全量用户输入索引」：索引本身由宿主（app.js）经
+  // invoke("SessionInputIndex", sessionID) 拉回后写入（inputIndex(...)）；
+  // 点击到尚未加载的早期输入时，轮轴经 locateInput 让宿主先回读那一页。
+  const wheel = createConversationWheel(container, { locateInput: options.locateInput });
 
   async function loadOlder() {
     if (!canLoadMore || loadingOlder || !sentinelArmed || typeof options.loadMore !== "function") return;
@@ -52,7 +55,12 @@ export function createConversationView(container, options = {}) {
       wheel.refresh();
       followsTail = isNearBottom(container);
     },
-    payload(key) { return payloads.get(key) || ""; }
+    payload(key) { return payloads.get(key) || ""; },
+    // inputIndex 写入全量用户输入索引（后端 SessionInputIndex 载荷；null =
+    // 退回「窗口内用户行」临时模式）。返回本次刻度表。
+    inputIndex(payload) { return wheel.setIndex(payload); },
+    // wheelRounds 返回当前刻度表（宿主定位编排/诊断用）。
+    wheelRounds() { return wheel.rounds(); }
   };
 }
 

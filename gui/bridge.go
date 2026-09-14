@@ -12,6 +12,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/model"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -727,6 +728,30 @@ func (bridge *Bridge) ListSessions() []application.SessionInfo {
 		return nil
 	}
 	return app.ListSessions()
+}
+
+// sessionInputIndexApplication 是 Application 的「全量用户输入索引」可选扩展面
+// （对话区右侧索引数据源）。未装配时 Bridge 方法返回可展示错误，不静默退化
+// 成「空索引」（否则右侧轨道看起来能点、其实什么都没索引到）。
+type sessionInputIndexApplication interface {
+	// SessionInputIndex 返回目标会话的**全量**用户输入索引（seq/round 序号、
+	// 有界摘要、是否在当前已加载窗口）；未驻留会话同样可用。
+	SessionInputIndex(sessionID string) (model.SessionInputIndex, error)
+}
+
+// 编译期断言：生产 Application（application.Service = *core.Service）必须满足
+// 本可选面；用假实现顶替会让真机在类型断言处退化成"未装配"。
+var _ sessionInputIndexApplication = (*application.Service)(nil)
+
+// SessionInputIndex 返回指定会话的全量用户输入索引（对话区右侧索引数据源：
+// 只索引用户输入，覆盖整会话含尚未加载到前端的早期轮次；只带摘要不带正文）。
+// Bridge 只做透传，索引语义由 application 层给出。
+func (bridge *Bridge) SessionInputIndex(sessionID string) (model.SessionInputIndex, error) {
+	app, ok := bridge.app.(sessionInputIndexApplication)
+	if !ok {
+		return model.SessionInputIndex{}, errors.New("session input index is not supported by the application")
+	}
+	return app.SessionInputIndex(sessionID)
 }
 
 // GetSessionTranscript 按 Seq 区间读取会话事件日志（C1；未驻留会话同样
