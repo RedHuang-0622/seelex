@@ -1,8 +1,12 @@
 package main
 
 // 红灯复现（用户现象）：同一会话进入“第二轮”时，runChat 在没有发出任何
-// LLM 请求的情况下失败，UI 只显示兜底文案「代理运行时 / runChat / 当前任务
-// 未能完成」（= classifyPresentedError 的 unclassifiedPresentation）。
+// LLM 请求的情况下失败。
+//
+// 现象记录时的 UI 只显示兜底文案「代理运行时 / runChat / 当前任务未能完成」
+// （= classifyPresentedError 的 unclassifiedPresentation）；自 chat 报错恢复
+// 原始正文后，该场景会直接显示 runChat 拿到的原始错误，兜底文案不再出现，
+// 但本文件的红灯判据（第二轮没有新增 provider 请求 / 会话出现 error 行）不变。
 //
 // 本文件用生产装配（真实 store / 真实引擎 / 假 provider）复刻两种“第二轮”
 // 形状，逐条排除/坐实：
@@ -10,6 +14,10 @@ package main
 //      第二轮；
 //   B. 第一轮以终态工具 task_needs_user_decision 收口（任务停在
 //      needs_user_decision，非完成）→ 用户直接发第二轮。
+//
+// 2026-09-14 复测：A/B 两形状均不复现（A: provider requests 1→2；B: 2→3，
+// chat.error 为空）。本文件保留为回归守卫，待真实现场再次出现时以原始错误
+// 正文定位。
 
 import (
 	"context"

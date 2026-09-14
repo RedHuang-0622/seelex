@@ -271,9 +271,14 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	visibleError := ""
 	if err != nil {
 		if isUnclassifiedRunChatError(err) {
+			// 分类只服务诊断日志：用户可见错误一律是原始 err 正文，
+			// 与下面三个出口（chat.Error / 会话 error 行 / EventError）同源。
 			log.Printf("[runChat] request_id=%s unclassified_error=%v", requestID, err)
 		}
-		visibleError = presentUserError(err)
+		// chat 报错恢复原始错误正文（诊断优先）：不再经 presentedError 文案
+		// 改写，UI/事件里就是 runChat 拿到的那条 err。错误分类呈现只保留给
+		// 工具错误出口（presentToolError → tool.Error 呈现文本）。
+		visibleError = err.Error()
 		runtime.UpdateChat(func(chat *ChatState) { chat.Error = visibleError }, nil)
 		service.appendSessionMessageLocked(sessionID, "error", visibleError, nil)
 	}

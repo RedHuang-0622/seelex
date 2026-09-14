@@ -25,7 +25,7 @@ func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []En
 	return errors.New("storage unavailable")
 }
 
-func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T) {
+func TestPresentedClassificationIdentifiesSourceWithoutProviderDetails(t *testing.T) {
 	tests := []struct {
 		name   string
 		err    error
@@ -85,7 +85,7 @@ func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := presentUserError(test.err)
+			got := classifyPresentedError(test.err).String()
 			for _, expected := range []string{"模块：" + test.module, "方法：" + test.method} {
 				if !strings.Contains(got, expected) {
 					t.Fatalf("presentation %q does not contain %q", got, expected)
@@ -138,7 +138,7 @@ func TestClassifyStructuredErrorsByCode(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := presentUserError(test.err)
+			got := classifyPresentedError(test.err).String()
 			for _, expected := range []string{"模块：" + test.module, "方法：" + test.method} {
 				if !strings.Contains(got, expected) {
 					t.Fatalf("presentation %q does not contain %q", got, expected)
@@ -154,12 +154,12 @@ func TestClassifyStructuredErrorsByCode(t *testing.T) {
 	}
 	// 取消语义优先于结构化分类（与旧分类顺序一致）。
 	canceled := wrapError(fmt.Errorf("plan preflight: %w", context.Canceled), errorCodePlanPreflight)
-	if got := presentUserError(canceled); !strings.Contains(got, "任务已停止") {
+	if got := classifyPresentedError(canceled).String(); !strings.Contains(got, "任务已停止") {
 		t.Fatalf("canceled plan preflight should present as 任务已停止, got %q", got)
 	}
 }
 
-func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
+func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T) {
 	engine := &fakeEngine{chatErr: errors.New(`ChatClient stream: HTTP 500: server_error request_id=req-secret`)}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
@@ -171,14 +171,15 @@ func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
 	}
 	waitForChatCompletion(t, service)
 	snapshot := service.Snapshot()
-	if strings.Contains(snapshot.Chat.Error, "HTTP") || strings.Contains(snapshot.Chat.Error, "req-secret") {
-		t.Fatalf("chat error leaks raw provider details: %q", snapshot.Chat.Error)
+	// chat 报错 = 原始 err 正文（诊断优先）：provider 细节原样可见。
+	if !strings.Contains(snapshot.Chat.Error, "HTTP 500") || !strings.Contains(snapshot.Chat.Error, "req-secret") {
+		t.Fatalf("chat error should carry the raw error text: %q", snapshot.Chat.Error)
 	}
-	if !strings.Contains(snapshot.Chat.Error, "模块：模型传输") || !strings.Contains(snapshot.Chat.Error, "方法：ChatStream") {
-		t.Fatalf("chat error = %q", snapshot.Chat.Error)
+	if strings.Contains(snapshot.Chat.Error, "模块：") {
+		t.Fatalf("chat error must not be rewritten into presented text: %q", snapshot.Chat.Error)
 	}
-	if !conversationContains(snapshot.Conversation, "error", "模块：模型传输") {
-		t.Fatalf("conversation did not contain presented error: %#v", snapshot.Conversation)
+	if !conversationContains(snapshot.Conversation, "error", "server_error") {
+		t.Fatalf("conversation did not contain the raw error: %#v", snapshot.Conversation)
 	}
 
 	var eventMessage string
@@ -198,9 +199,8 @@ func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T) {
 			t.Fatal("did not receive EventError")
 		}
 	}
-	if strings.Contains(eventMessage, "HTTP") || strings.Contains(eventMessage, "req-secret") ||
-		!strings.Contains(eventMessage, "模块：模型传输") {
-		t.Fatalf("event error leaks or lacks source: %q", eventMessage)
+	if !strings.Contains(eventMessage, "server_error") || strings.Contains(eventMessage, "模块：") {
+		t.Fatalf("event error should carry the raw error text: %q", eventMessage)
 	}
 
 	service.handleToolStart(context.Background(), "plan_load", "tool-plan", `{}`)
@@ -244,9 +244,14 @@ func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T) {
 	}
 	waitForChatCompletion(t, service)
 	got := service.Snapshot().Chat.Error
-	want := presentUserError(errors.New("persistence failed and recovery is not guaranteed"))
-	if got != want || !strings.Contains(got, "persistCurrentSession") {
-		t.Fatalf("persistence error = %q, want %q", got, want)
+	// chat 报错是原始正文：持久化失败必须自报风险，不得声称进度已保存。
+	if !strings.Contains(got, "persistence failed and recovery is not guaranteed") {
+		t.Fatalf("persistence error = %q", got)
+	}
+	for _, claim := range []string{"进度已保存", "已保留"} {
+		if strings.Contains(got, claim) {
+			t.Fatalf("persistence error claims progress was saved: %q", got)
+		}
 	}
 }
 

@@ -43,6 +43,14 @@ for this stabilization batch.
 
 ### Changed
 
+- Chat errors now surface the raw `runChat` error text instead of the rewritten
+  presentation copy. `Chat.Error`, the conversation `error` row, and the
+  `EventError` payload all carry `err.Error()` verbatim, so a field failure can
+  be diagnosed from the UI. The classified presentation (`presentedError`, and
+  the `unclassified_error` diagnostic log line) still applies to the tool-error
+  path (`presentToolError` → `ToolCall.Error`); raw error text stays view/event
+  side and never enters provider context, because the transcript assembly only
+  carries `user`/`assistant`/`tool` events.
 - Rebuilt the conversation timeline wheel as a real minimap: one line per
   rendered item positioned by measured geometry (line height proportional to the
   item's share of the scroll content), a draggable viewport handle, hover type
@@ -82,6 +90,18 @@ for this stabilization batch.
   the Go module graph.
 - Replaced the stale source release identifier with the neutral
   <code>dev</code> version. Tagged builds remain authoritative.
+
+### Known issues
+
+- Second round in an existing session can fail before any LLM request is sent,
+  leaving only a visible error row. Recorded from the field on 2026-09-14;
+  `repro_second_round_engine_released_test.go` reproduces two candidate shapes
+  with the production assembly (session engine released after round one; round
+  one closed by the terminal `task_needs_user_decision` tool) and neither trips
+  the red condition today, so the real trigger shape is unconfirmed. The defect
+  is shelved until it re-occurs; chat errors now surface the raw error text (see
+  `Changed`), which is what the next field occurrence should be diagnosed from.
+  The two shapes stay in the suite as regression guards.
 
 ## [v0.0.1_release] - 2026-08-03
 

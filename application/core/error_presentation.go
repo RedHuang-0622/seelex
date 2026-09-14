@@ -8,11 +8,16 @@ import (
 	"github.com/RedHuang-0622/seelex/application/core/task_context"
 )
 
-// presentedError is the stable, user-facing form of an internal failure. It
+// presentedError is the stable, user-facing form of a tool failure. It
 // intentionally omits provider status codes, request IDs, and raw transport
 // payloads. The original error is retained by the caller for recovery and
-// diagnostics, but never copied into a Snapshot, conversation message, or UI
-// event.
+// diagnostics.
+//
+// 适用范围：只有工具错误出口（presentToolError → ToolCall.Error 呈现文本、
+// wire 上的 {"error": ...} 合成）走这套改写；runChat 的 chat 报错不再经过
+// 本层——chat.Error / 会话 error 行 / EventError 直接是原始 err 正文，便于
+// 现场诊断（原始错误只落在视图/事件侧，不会进 provider 上下文：
+// task_context.transcriptProtocolUnits 只收 user/assistant/tool）。
 type presentedError struct {
 	module       string
 	method       string
@@ -24,10 +29,6 @@ type presentedError struct {
 func (presentation presentedError) String() string {
 	return "【模块：" + presentation.module + "｜方法：" + presentation.method + "】\n" +
 		presentation.summary + "\n" + presentation.next
-}
-
-func presentUserError(err error) string {
-	return classifyPresentedError(err).String()
 }
 
 func isUnclassifiedRunChatError(err error) bool {

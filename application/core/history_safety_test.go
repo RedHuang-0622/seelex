@@ -194,7 +194,8 @@ func TestEmptyProviderContentLeavesNextTurnWithRecoverableHistory(t *testing.T) 
 	if state := service.Snapshot().Task; state == nil || state.Status != TaskInterrupted {
 		t.Fatalf("task state = %#v, want interrupted", state)
 	}
-	if visible := service.Snapshot().Chat.Error; !strings.Contains(visible, "模块：会话安全") || strings.Contains(visible, "2013") {
+	// chat 报错是原始正文（诊断优先）：provider 细节原样可见，不做文案改写。
+	if visible := service.Snapshot().Chat.Error; !strings.Contains(visible, "chat content is empty") {
 		t.Fatalf("visible error = %q", visible)
 	}
 }
