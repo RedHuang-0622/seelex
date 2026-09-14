@@ -70,6 +70,15 @@ errors; they do not participate in range/recovery semantics.
 - LRU 行删除、draft/queue lifecycle、fork session/subagent、单会话关键词
   索引、big_tool_result blob 由 `v8_*.go` 引擎承载（契约测试 T-M1/T-R1/
   T-R2/T-R3/T-LC/T-FK/T-WM/T-EV/T-SR/T-BL/T-CFG）。
+- 会话标题是 head 的目录枚举面（`head.Meta.Summary`）：`SetSessionTitleWorkspace`/
+  `SessionTitleWorkspace` 提供写穿面与 header-only 只读面（不打开任何分片）。
+  标题写穿上线前落盘的会话没有标题，应用侧需要重建"用户第一问"时用
+  `FirstUserInputsWorkspace`/`SessionGranularStore.FirstUserInputs`：**有界读**
+  ——只打开首个消息分片（`Shards[0]`，且必须从 seq 1 起，否则说明首问已被 LRU
+  淘汰，不拿会话中段的提问冒充），从头按行扫描，够数或触到 256 KB 预算/单行
+  64 KB 上限即停（整片解码 100+ ms/会话 vs 早停扫描 ~1 ms）；跳过"以 user 身份
+  写盘"的内部注入行（`kind=internal` 或正文以 `<!-- seelex:` 开头）。返回
+  `hasLayout=false` 表示会话尚无已发布行（未落盘的新会话），调用方稍后重试。
 
 旧会话（只含 `manifest.json` / `transcript.log` 的目录）**已彻底退役（D2/
 S12）**：读路径不再判定、不再打开（返回 `fs.ErrNotExist`），目录枚举跳过并

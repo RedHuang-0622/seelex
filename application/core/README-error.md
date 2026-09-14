@@ -26,7 +26,6 @@
 ### error_presentation.go
 
 - `func (presentation presentedError) String() string`
-- `func presentUserError(err error) string`
 - `func isUnclassifiedRunChatError(err error) bool`
 - `func classifyPresentedError(err error) presentedError`
 - `func presentToolError(toolName string, err error) string`
@@ -36,9 +35,9 @@
 
 - `func (failingSnapshotSessions) SaveSessionSnapshot(string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error`
 - `func (failingSnapshotSessions) SaveSessionSnapshotWorkspace(string, string, []EngineMessage, SessionRecord, []TranscriptEvent, []StoredToolResult) error`
-- `func TestPresentUserErrorHidesProviderDetailsAndIdentifiesSource(t *testing.T)`
+- `func TestPresentedClassificationIdentifiesSourceWithoutProviderDetails(t *testing.T)`
 - `func TestClassifyStructuredErrorsByCode(t *testing.T)` — TestClassifyStructuredErrorsByCode 验证 slice 8 的结构化错误分类
-- `func TestRunChatAndToolProjectionUsePresentedErrors(t *testing.T)`
+- `func TestRunChatUsesRawErrorWhileToolProjectionUsesPresentedError(t *testing.T)`
 - `func TestRunChatLogsRawUnclassifiedError(t *testing.T)`
 - `func TestPersistenceFailureDoesNotClaimProgressWasSaved(t *testing.T)`
 - `func conversationContains(conversation []Message, role, fragment string) bool`

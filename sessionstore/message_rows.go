@@ -14,6 +14,7 @@
 package sessionstore
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -162,6 +163,113 @@ func (store *storeEngine) messageTitleStored(key Key) (string, bool, error) {
 		return "", false, nil
 	}
 	return head.Meta.Summary, true, nil
+}
+
+// internalUserInputPrefix 是"以 user 身份写盘、但属内部注入"的正文前缀
+// （写入端 classifyTranscriptEventKind 用同一条规则把这类行判为 internal：
+// 技能/上下文/恢复注入会伪装成 role=user）。标题回填必须跳过它们，否则注入
+// 正文会变成会话标题。
+const internalUserInputPrefix = "<!-- seelex:"
+
+// FirstUserInputProbeRows 是一次标题回填最多取几条候选用户输入（首个分片内的
+// 前若干条 user_input 行；会话首条用户输入通常就是第一行，预算内足够跳过
+// 注入行）。
+const FirstUserInputProbeRows = 4
+
+// userInputText 返回一条事件行作为"用户输入"的正文；非用户输入返回 ok=false。
+// 判据与写入端一致（EventKindOf/classifyTranscriptEventKind）：role=user 且类别为
+// user_input；旧行 kind 为空时按"正文非空且不以 <!-- seelex: 开头"判定。
+func userInputText(row Event) (string, bool) {
+	if row.Role != "user" || EventKindOf(row) != EventKindUserInput {
+		return "", false
+	}
+	text := strings.TrimSpace(row.Content)
+	if text == "" || strings.HasPrefix(text, internalUserInputPrefix) {
+		return "", false
+	}
+	return text, true
+}
+
+// firstUserInputProbeBytes 是一次标题回填最多扫多少字节：预算够覆盖会话最前
+// 几行（首条用户输入通常就是第一行），同时给"前面若干行都不是用户输入"的病
+// 态会话一个硬上限——不把一次目录刷新拖成整片读。
+const firstUserInputProbeBytes = 256 * 1024
+
+// firstUserInputProbeLineBytes 是单行上限：超过它的行不可能是用户输入（用户输入
+// 是短文本，长行是工具输出/大 JSON），直接停止扫描、不做解码。
+const firstUserInputProbeLineBytes = 64 * 1024
+
+// scanShardUserInputs 从分片文件**从头按行扫描**，收集前 limit 条用户输入或触到
+// 字节预算即停（不再读/解码后面的行）。首个分片里用户输入通常就是第一两行，而
+// 首片后段可能是几百 KB 的工具输出——整片读 + 全量解码会让"标题回填"退回旧兜底
+// 的读放大（实测：整片解码 100+ ms/会话，早停扫描 ~1 ms）。
+//
+// 崩溃残尾/坏行按存储既有语义跳过（decodeMessageRows 同口径）。
+func scanShardUserInputs(path string, limit int) ([]string, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	reader := bufio.NewReaderSize(file, 32*1024)
+	inputs := make([]string, 0, limit)
+	consumed := 0
+	for len(inputs) < limit && consumed < firstUserInputProbeBytes {
+		line, readErr := reader.ReadBytes('\n')
+		consumed += len(line)
+		if len(line) > firstUserInputProbeLineBytes {
+			// 巨行（工具输出/大 JSON）：不是用户输入，且已读够预算，停止。
+			break
+		}
+		if segment := bytes.TrimSpace(line); len(segment) > 0 {
+			var row Event
+			if json.Unmarshal(segment, &row) == nil {
+				if text, ok := userInputText(row); ok {
+					inputs = append(inputs, text)
+				}
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return nil, readErr
+		}
+	}
+	return inputs, nil
+}
+
+// firstShardUserInputs 读取会话**首个消息分片**里的前若干条用户输入正文
+// （标题回填用；有界读：只打开一个分片文件、只扫描到够数为止，不读尾部窗口、
+// 不解码全量历史）。
+//
+// hasLayout=false 表示会话还没有已发布行（未落盘的新会话/空会话），调用方应视为
+// "暂时没有答案"并在稍后的目录刷新重试；hasLayout=true 且返回空 = 当前可读范围
+// 内确实没有用户输入——不必再试。首问所在前缀已被 LRU 淘汰（首个分片不从 seq 1
+// 起）时也返回空：存储里已没有"用户第一问"，不拿会话中段的提问冒充标题。
+func (store *storeEngine) firstShardUserInputs(key Key, limit int) ([]string, bool, error) {
+	if limit <= 0 {
+		limit = FirstUserInputProbeRows
+	}
+	head, err := store.readMessageHead(key)
+	if err != nil {
+		return nil, false, err
+	}
+	if head.LastSeq == 0 || len(head.Shards) == 0 {
+		return nil, false, nil
+	}
+	first := head.Shards[0]
+	if first.FromSeq != 1 {
+		return nil, true, nil
+	}
+	inputs, err := scanShardUserInputs(filepath.Join(store.messageDir(key), first.Path), limit)
+	if err != nil {
+		return nil, true, err
+	}
+	return inputs, true, nil
 }
 
 // carryMessageTitle 在 head 重建/自愈路径上原样取回标题：只做"读文件 +

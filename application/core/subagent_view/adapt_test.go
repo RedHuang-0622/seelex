@@ -84,7 +84,7 @@ func TestAdaptSubagentContext(t *testing.T) {
 	}
 }
 
-// TestAdaptSubagentContext 验证上下文快照适配：截断、条目上限、空快照 → nil。
+// TestNodeStatusMappingFallbacks 验证树状态/任务状态 → 详情状态映射。
 func TestNodeStatusMappingFallbacks(t *testing.T) {
 	tests := []struct {
 		sub  dto.SubAgentNodeStatus

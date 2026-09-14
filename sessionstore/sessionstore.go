@@ -698,6 +698,33 @@ func (router *Router) SessionTitleWorkspace(projectID, sessionID string) (string
 	return title, handled && exists, nil
 }
 
+// FirstUserInputsWorkspace 读取会话最早的若干条用户输入正文（标题回填用；
+// 有界读：只打开首个消息分片，不读尾部窗口、不解码全量历史）。
+//
+// hasLayout=false 表示会话尚无已发布行（未落盘的新会话/空会话）：调用方按
+// "暂时没有答案"处理并稍后重试；true + 空 = 当前可读范围内确实没有用户输入。
+func (router *Router) FirstUserInputsWorkspace(projectID, sessionID string, limit int) ([]string, bool, error) {
+	var inputs []string
+	hasLayout := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		value, found, readErr := jsonRepository.layout.firstShardUserInputs(
+			Key{ProjectID: projectID, SessionID: sessionID}, limit)
+		if readErr != nil {
+			return readErr
+		}
+		inputs, hasLayout = value, found
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return inputs, hasLayout, nil
+}
+
 // SetSessionArchivedWorkspace 写/清 lifecycle archived_at（S20：已归档判据）。
 func (router *Router) SetSessionArchivedWorkspace(projectID, sessionID string, archived bool) (bool, error) {
 	handled := false

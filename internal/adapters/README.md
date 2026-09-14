@@ -10,6 +10,11 @@
 - 引擎适配：`EnginePort` 包装框架 `session.Session` 的 ReAct 会话面。
 - 运行时适配：`RuntimePort` 代理 `seelebridge.Runtime` 的能力面。
 - 会话/工作区/插件/Skill：对应 manager/repo/registry 的窄端口。
+- 会话标题的持久化面（`session_runtime.SessionTitlePort`）与"最早用户输入"的
+  有界读面（`session_runtime.FirstUserInputPort`）也由 `SessionPort` 落地
+  （`SaveSessionTitle`/`SessionTitle` 走会话头；`FirstUserInputs` 只打开首个
+  消息分片）。这些是可选能力断言：装配缺方法时应用层会静默降级（标题不落盘、
+  老会话标题回填失效），因此包内有编译期契约断言与真存储回归测试。
 
 ## 验证
 

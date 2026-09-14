@@ -48,6 +48,23 @@ tool-result。目录 worker 锁外做 SessionPort/WorkspacePort I/O，锁内只�
 标题读写（`SessionTitleFor`/`SetSessionTitleLocked`）不再要求调用方持有
 ViewMu。
 
+**会话标题的三层解析**（`sessionCatalogProject`；由上到下，只在上一层缺失时才走
+下一层）：
+
+1. 枚举行自带标题——存储层把标题持久化在 message head 的目录枚举面
+   （`head.Meta.Summary`），每轮刷新零额外读；
+2. header-only 兜底（`sessionTitleHeader`：只打开 `metadata/message.json`，不读
+   任何消息分片）；
+3. **一次性有界回填**（`backfillCatalogTitle` / `deriveCatalogTitle`）——标题写穿
+   上线前落盘的老会话（两层都没有标题 → 侧栏只剩会话 ID）从存储的**首个消息
+   分片**取最早的用户输入重建"用户第一问"（可选端口 `FirstUserInputPort`），并
+   写穿回会话头（此后回到第 1 层）。回填按会话记忆探针结论（`titleBackfills`）、
+   单轮刷新预算有界（`titleBackfillBudgetPerRefresh`，老库极多时按轮次摊销）；
+   存储答不上来（新会话尚无已发布行）不写负结论，留给下一轮；
+   `SetSessionTitleLocked` 写入权威标题时丢弃该会话的回填记忆
+   （`forgetTitleBackfillLocked`）。端口缺失（宿主未落地有界读面）时目录面维持
+   零正文读、标题留空由前端回退显示——应用层不猜标题。
+
 ## 依赖方向
 
 依赖 `state.Core` + `TaskPersistencePort`（消费方接口）与装配注入的跨域纯
@@ -113,11 +130,43 @@ go test ./application/core/session_runtime -count=1
 - `func TestEnrichTranscriptMessageIDsPairsEventsToMessages(t *testing.T)` — TestEnrichTranscriptMessageIDsPairsEventsToMessages 验证 event-to-message
 - `func TestEnrichTranscriptMessageIDsSkipsAmbiguousMultiCallEvents(t *testing.T)` — TestEnrichTranscriptMessageIDsSkipsAmbiguousMultiCallEvents 验证多工具调用
 
+### catalog_title_body_read_test.go
+
+- `func (s *catalogProbeSessions) SessionsOf(string) []model.SessionInfo`
+- `func (s *catalogProbeSessions) LoadHistory(string) ([]contract.EngineMessage, error)`
+- `func (s *catalogProbeSessions) LoadHistoryRange(sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)`
+- `func (s *catalogProbeSessions) LoadSessionRecord(string) (model.SessionRecord, error)`
+- `func (s *catalogProbeSessions) FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error)` — FirstUserInputs 实现 session_runtime.FirstUserInputPort（标题回填的有界读面）。
+- `func (s *catalogProbeSessions) SaveSessionTitle(sessionID, title string) error` — SaveSessionTitle / SessionTitle 实现 session_runtime.SessionTitlePort
+- `func (s *catalogProbeSessions) SessionTitle(projectID, sessionID string) (string, bool, error)`
+- `func (s *catalogNoInputPortSessions) SessionsOf(string) []model.SessionInfo`
+- `func (s *catalogNoInputPortSessions) SessionTitle(projectID, sessionID string) (string, bool, error)`
+- `func (s *catalogNoInputPortSessions) SaveSessionTitle(sessionID, title string) error`
+- `func (v *catalogProbeView) BumpLocked() uint64`
+- `func newCatalogProbeCoordinator(t *testing.T, sessions contract.SessionPort) *Coordinator`
+- `func TestCatalogRefreshResolvesTitlesWithoutBodyReads(t *testing.T)` — TestCatalogRefreshResolvesTitlesWithoutBodyReads 是节点 144 的计数探针：
+- `func TestCatalogRefreshBackfillsTitleFromStoredInput(t *testing.T)` — TestCatalogRefreshBackfillsTitleFromStoredInput：老会话（枚举行与会话头都没有
+- `func TestCatalogRefreshTitleBackfillRetriesWhenNoRowsYet(t *testing.T)` — TestCatalogRefreshTitleBackfillRetriesWhenNoRowsYet：新会话尚未落盘（没有已发布
+- `func TestCatalogRefreshWithoutInputPortKeepsTitlesEmpty(t *testing.T)` — TestCatalogRefreshWithoutInputPortKeepsTitlesEmpty：宿主未落地有界读面
+- `func TestCatalogRefreshBackfillsTitlesFromRows(t *testing.T)` — TestCatalogRefreshBackfillsTitlesFromRows 验证"标题表由枚举行回填"：枚举行
+- `func TestCatalogRefreshHeaderOnlyTitleFallback(t *testing.T)` — TestCatalogRefreshHeaderOnlyTitleFallback：枚举行没带标题时只允许 header-only
+- `func TestSetSessionTitleWritesThrough(t *testing.T)` — TestSetSessionTitleWritesThrough：标题设置即写穿存储（空标题不写：草稿清理
+
+### catalog_title_realstore_test.go
+
+- `func (s *realStoreTitleSessions) SessionsOf(projectID string) []model.SessionInfo`
+- `func (s *realStoreTitleSessions) SessionTitle(projectID, sessionID string) (string, bool, error)`
+- `func (s *realStoreTitleSessions) SaveSessionTitle(sessionID, title string) error`
+- `func (s *realStoreTitleSessions) FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error)`
+- `func TestCatalogRefreshBackfillsLegacyTitleOnRealStore(t *testing.T)` — TestCatalogRefreshBackfillsLegacyTitleOnRealStore（真存储端到端）：标题写穿
+
 ### coordinator.go
 
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造会话域协调器；Tasks 由装配根注入
 - `func (c *Coordinator) SessionTitleFor(sessionID string) model.SessionTitle` — SessionTitleFor 返回指定会话标题（G5：标题表由 catalogMu 保护，调用方
 - `func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.SessionTitle)` — SetSessionTitleLocked 设置指定会话标题（标题表由 catalogMu 保护；调用方
+- `func (c *Coordinator) persistSessionTitle(sessionID string, title model.SessionTitle)` — persistSessionTitle 把标题写穿到会话存储（可选能力端口）。空标题/空会话
+- `func (c *Coordinator) backfillCatalogTitles(grid map[string][]model.SessionInfo)` — backfillCatalogTitles 由目录枚举行回填标题表（调用方不持 catalogMu）：存储层
 - `func (c *Coordinator) UnloadSessionTitle(sessionID string)` — UnloadSessionTitle 释放指定会话的标题（阶段 2 生命周期：unload 后重开走
 - `func (c *Coordinator) catalogTitleOf(sessionID string) model.SessionTitle` — catalogTitleOf 返回标题表原始值（不回退活跃会话名；存档 record 用——
 - `func (c *Coordinator) CatalogCache() ([]model.SessionInfo, map[string]string)` — CatalogCache 返回目录 worker 最近一轮枚举结果的拷贝（catalogMu 保护；
@@ -211,7 +260,11 @@ go test ./application/core/session_runtime -count=1
 ### scope.go
 
 - `func (c *Coordinator) sessionCatalogProject(granular SessionGranularPort, projectID string) ([]model.SessionInfo, map[string]string)` — sessionCatalogProject 枚举单个项目的会话集合（G6：目录按 projectID 分格，
-- `func (c *Coordinator) sessionNameFromTail(granular SessionGranularPort, sessionID string) string` — sessionNameFromTail 从会话历史尾部窗口提取标题（会话粒度端口；
+- `func (c *Coordinator) resetTitleBackfillBudgetLocked()` — resetTitleBackfillBudgetLocked 重置本轮目录刷新的标题回填预算（调用方持有
+- `func (c *Coordinator) forgetTitleBackfillLocked(sessionID string)` — forgetTitleBackfillLocked 丢弃某会话的回填记忆（调用方持有 catalogMu）：
+- `func (c *Coordinator) backfillCatalogTitle(projectID, sessionID string) string` — backfillCatalogTitle 回填一个会话的标题（目录枚举行与会话头都没有标题时
+- `func (c *Coordinator) deriveCatalogTitle(projectID, sessionID string) (string, bool)` — deriveCatalogTitle 从存储重建会话标题（用户第一问）。返回 definitive=false
+- `func (c *Coordinator) sessionTitleHeader(projectID, sessionID string) (string, bool)` — sessionTitleHeader 走 header-only 标题读（可选能力端口：只打开会话头，不读
 - `func SessionTitleFromHistory(history []contract.EngineMessage, displayUserInput func(string) string) string` — SessionTitleFromHistory 从历史窗口内的首条可见 user 消息提取标题。
 - `func SessionTitle(input string) string` — SessionTitle 从输入首行提取会话标题（>48 rune 截断）。
 - `func (c *Coordinator) ShortSessionID(id string) string` — ShortSessionID 按 limits.session_name_runes 截断会话 ID 显示。
@@ -224,7 +277,6 @@ go test ./application/core/session_runtime -count=1
 - `func WorkspaceID(workspace *model.WorkspaceInfo) string` — WorkspaceID 返回工作区指针的 ID（nil → ""）。
 - `func (c *Coordinator) LoadSessionHistory(location Location, sessionID string) ([]contract.EngineMessage, error)` — LoadSessionHistory 加载会话 provider 历史（scoped 端口优先；回退切换写
 - `func (c *Coordinator) LoadSessionHistoryRange(workspaceID, sessionID string, offset, limit int) ([]contract.EngineMessage, int, error)` — LoadSessionHistoryRange 按偏移量窗口加载历史（scoped 端口优先）。
-- `func (c *Coordinator) loadGranularRecord(sessionID string) (model.SessionRecord, bool, error)` — loadGranularRecord 读取会话 record（会话粒度；不存在返回 false）。
 
 ### storage.go
 

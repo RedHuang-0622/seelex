@@ -309,11 +309,19 @@ func (port SessionPort) SessionTitle(projectID, sessionID string) (string, bool,
 	return port.granular().SessionTitle(projectID, sessionID)
 }
 
+// FirstUserInputs 实现 session_runtime.FirstUserInputPort：会话最早的若干条
+// 用户输入正文（标题回填用；有界读——只打开首个消息分片）。projectID 由目录
+// 枚举格显式给出（不再按会话绑定二次解析：那是一次 O(会话数) 的索引扫描）。
+func (port SessionPort) FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error) {
+	return port.granular().FirstUserInputs(projectID, sessionID, limit)
+}
+
 // 编译期契约：标题读写面必须在 SessionPort 上落地——运行时按能力断言取用，
 // 缺方法会让"标题持久化"静默失效（目录又退回读正文猜标题）。
 var _ interface {
 	SaveSessionTitle(sessionID, title string) error
 	SessionTitle(projectID, sessionID string) (string, bool, error)
+	FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error)
 } = SessionPort{}
 
 // List 返回项目索引下的会话列表（project = 会话集合）。

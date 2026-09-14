@@ -18,7 +18,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) PromptLayers() []PromptLayer` — PromptLayers 返回当前会话注入的 prompt 前缀层（system/base/effort/
 - `func (service *Service) GoalSkillActive() bool` — GoalSkillActive 返回最新的本地投影（诊断与测试用）。Runtime 经
 - `func (service *Service) PublishRuntimeProjections()` — PublishRuntimeProjections 刷新 Runtime 的不可变状态副本。供在
-- `func (service *Service) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)` — SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 只读事件通道
 - `func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent)` — HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 - `func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
 - `func (service *Service) ClearSubagentTree() error` — ClearSubagentTree 清空子代理树（GUI「清空」按钮入口：失败节点显式清走；
@@ -265,14 +264,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_queue.go
 
-> 下标空间约定（节点 156/158 硬化）：`ChatState.InputQueue` / `QueuedCount` 是
-> 队列的**同源投影**（`session.SessionUnit.QueueProjection()`：逐项、按队列顺序、
-> 不按载荷类型过滤），因此**投影下标 = 队列下标**，GUI/TUI 渲染的第 i 行就是
-> `ReorderQueuedInput` / `RecallQueuedInput` 操作的第 i 项——不需要任何换算。
-> 投影一旦自行过滤载荷（旧实现只保留 chatRequest），投影会比队列短，用户看到的
-> 行与队列项错位：调换"操作成功但列表不变"、撤回把没显示过的条目交还输入框。
-> 执行面（下一轮批量提升，`chat.go` 的 `queuedChatRequests`）与展示面解耦。
-
 - `func (service *Service) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
 - `func (service *Service) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput 把目标会话排队输入中 index 位置的条目撤回（出队）并返回
 - `func (service *Service) queueEditGuardLocked() error` — queueEditGuardLocked 是队列编辑的关闭/排空门禁（与 Submit 同口径）。
@@ -281,6 +272,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 
 ### service_queue_test.go
 
+- `func enqueueRawQueuedInput(t *testing.T, service *Service, text string)` — enqueueRawQueuedInput 用会话域 API 直接排队一条非 chatRequest 载荷的输入：
+- `func TestQueueEditIndexSpaceMatchesProjection(t *testing.T)` — TestQueueEditIndexSpaceMatchesProjection（节点 156 红线）：ChatState.InputQueue
+- `func TestReorderQueuedInputFollowsProjectionIndex(t *testing.T)` — TestReorderQueuedInputFollowsProjectionIndex：调换的下标是投影下标——旧实现
 - `func startBlockingChat(t *testing.T) (*Service, *blockingEngine)` — startBlockingChat 启动一个阻塞中的回合（返回可在测试里显式放开的引擎）。
 - `func enqueueQueuedInputs(t *testing.T, service *Service, inputs ...string)` — enqueueQueuedInputs 在运行中的会话里排队若干输入（按给定顺序）。
 - `func TestReorderQueuedInputReordersVisibleQueue(t *testing.T)` — TestReorderQueuedInputReordersVisibleQueue 调换排队顺序：可见投影
@@ -289,9 +283,6 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestQueueEditErrorSemantics(t *testing.T)` — TestQueueEditErrorSemantics 越界 / 非运行态 / 会话不存在都有明确错误。
 - `func TestQueueEditErrorsBeforeAnySession(t *testing.T)` — TestQueueEditErrorsBeforeAnySession 进程还没有任何会话单元时，视图会话按
 - `func TestConcurrentRecallQueuedInput(t *testing.T)` — TestConcurrentRecallQueuedInput（-race）并发撤回同一会话：撤回与 Enqueue /
-
-- `func TestQueueEditIndexSpaceMatchesProjection(t *testing.T)` — 投影下标空间必须与队列下标空间逐项对齐（节点 156 红线回归）
-- `func TestReorderQueuedInputFollowsProjectionIndex(t *testing.T)` — 调换下标是投影下标：旧实现可能"操作成功但列表不变"
 
 ### service_scheduler.go
 

@@ -31,6 +31,10 @@ SESSION_EXTRA = [
     "interrupted_continue_test.go",
     "fork_gate_test.go",
     "shutdown_concurrent_test.go",
+    # 会话内容 LRU（第二层内存治理：已加载正文按上限释放）与按会话的内容回读
+    # 用例：文件名前缀不表达归属（c 打头），显式挂到 session 卷。
+    "content_lru.go",
+    "content_lru_test.go",
 ]
 
 # 基础与杂项：前缀各异（或就是单文件域），用显式名单成卷

@@ -51,7 +51,6 @@ go test ./application/core/subagent_view -count=1
 - `func testCoordinator() *Coordinator`
 - `func TestAdaptSubagentConversation(t *testing.T)` — TestAdaptSubagentConversation 验证会话记录适配：截断（evidence_chars）、
 - `func TestAdaptSubagentContext(t *testing.T)` — TestAdaptSubagentContext 验证上下文快照适配：截断、条目上限、空快照 → nil。
-- `func TestBuildSubagentTimeline(t *testing.T)` — TestBuildSubagentTimeline 验证详情弹窗"事件时间线"推导：阶段日志 + 任务
 - `func TestNodeStatusMappingFallbacks(t *testing.T)` — TestNodeStatusMappingFallbacks 验证树状态/任务状态 → 详情状态映射。
 - `func TestFindSubagentTreeNodeNested(t *testing.T)` — TestFindSubagentTreeNodeNested 验证递归查找子代理树节点。
 - `func strPtr(value string) *string`
@@ -59,15 +58,13 @@ go test ./application/core/subagent_view -count=1
 ### coordinator.go
 
 - `func NewCoordinator(deps Deps) *Coordinator` — NewCoordinator 构造 subagent_view 协调器。
-- `func (c *Coordinator) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)` — SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 只读通道 +
 - `func (c *Coordinator) HandleSubagentToolEvent(e seelsession.SubagentToolEvent)` — HandleSubagentToolEvent 把 Runtime 工具分发投影进有界权威 Plan 节点快照
 - `func (c *Coordinator) upsertSubagentToolEvent(node *model.PlanNode, e model.SubagentToolEvent)`
 - `func (c *Coordinator) truncateSubagentEvidence(value string) string`
 - `func FindPlanNodeByID(nodes []model.PlanNode, nodeID string) *model.PlanNode` — FindPlanNodeByID 递归查找 Plan 节点（含子节点）。
 - `func ClonePlanNode(node model.PlanNode) model.PlanNode` — ClonePlanNode 深拷贝单个 Plan 节点（事件投影发布用）。
 - `func SubagentChangedPayload(plan *model.PlanState, planID, runID string, node model.PlanNode) model.SubagentEvent` — SubagentChangedPayload 组装子代理变更事件负载。
-- `func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentDetail 返回节点子代理详情（截断会话 + 上下文快照 + worktree 现场；
-- `func (c *Coordinator) buildSubagentTimeline(stages []dto.NodeStageLog, trace []model.WorkTracePoint) []model.PlanNodeEventInfo` — buildSubagentTimeline 由第一视角阶段日志 + 任务打点推导详情弹窗的
+- `func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, error)` — SubagentDetail 返回节点子代理详情（截断会话 + 上下文快照 + 功能打点 +
 - `func nodeStatusFromSubagentStatus(status dto.SubAgentNodeStatus) model.NodeStatus` — nodeStatusFromSubagentStatus 把子代理树状态映射为详情状态。
 - `func nodeStatusFromTaskStatus(status string) model.NodeStatus` — nodeStatusFromTaskStatus 把任务注册表状态映射为详情状态（未知 → ""）。
 - `func findSubagentTreeNode(nodes []dto.SubAgentTreeNode, nodeID string) *dto.SubAgentTreeNode` — findSubagentTreeNode 在子代理树投影中递归查找节点。

@@ -252,6 +252,17 @@ func (store *SessionGranularStore) SessionTitle(projectID, sessionID string) (st
 	return store.router.SessionTitleWorkspace(store.projectID(projectID), sessionID)
 }
 
+// FirstUserInputs 读取会话最早的若干条用户输入正文（标题回填用；有界读：
+// 只打开首个消息分片）——老会话（标题写穿上线前落盘）会话头里没有标题，
+// 目录面据此一次性重建"用户第一问"标题，不必打开尾部窗口猜标题。
+// hasLayout=false = 会话尚无已发布行，调用方稍后重试。
+func (store *SessionGranularStore) FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error) {
+	if store == nil || store.router == nil {
+		return nil, false, nil
+	}
+	return store.router.FirstUserInputsWorkspace(store.projectID(projectID), sessionID, limit)
+}
+
 // LoadRecordRaw 读取 record 通道原始字节；不存在原样返回 fs.ErrNotExist
 // （调用方按存储语义处理，如恢复路径的 record 缺失分支）。
 func (store *SessionGranularStore) LoadRecordRaw(projectID, sessionID string) ([]byte, error) {

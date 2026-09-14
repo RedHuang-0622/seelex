@@ -123,6 +123,22 @@ type SessionTitlePort interface {
 	SessionTitle(projectID, sessionID string) (string, bool, error)
 }
 
+// FirstUserInputPort 是"会话最早用户输入"的有界读面（可选能力断言）：只打开
+// 首个消息分片，取会话最前面的若干条用户输入正文。标题回填用——标题写穿是
+// 后加的持久化面，早于它的会话（会话头里没有标题）需要从存储里重建
+// "用户第一问"标题，否则目录面只剩会话 ID（侧栏显示成 ID 前缀）。
+//
+// projectID 由调用方**显式给出**（目录枚举格）：枚举已经知道会话属于哪个项目，
+// 由端口再解析一次归属会把一次 O(会话数) 的索引扫描塞进每个会话的回填里
+// （会话绑定解析要按"数据实际所在"核对项目索引）。
+//
+// hasLayout=false 表示会话尚无已发布行（未落盘的新会话/空会话）：调用方按
+// "暂时没有答案"处理并在稍后的一轮目录刷新重试；true + 空切片 = 当前可读
+// 范围内确实没有用户输入（LRU 前缀淘汰后可能如此），不必重试。
+type FirstUserInputPort interface {
+	FirstUserInputs(projectID, sessionID string, limit int) ([]string, bool, error)
+}
+
 // SessionStoragePort 是会话存储设置面（可选能力断言）。
 type SessionStoragePort interface {
 	StorageConfig() (sessionstore.Config, error)

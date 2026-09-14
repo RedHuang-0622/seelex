@@ -45,6 +45,43 @@ func TestSessionPortTitleRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSessionPortFirstUserInputs：标题回填的有界读面在适配层落地——项目归属
+// 按会话绑定解析（R3：不以 Router 活跃写作用域为准），读完只回用户输入正文
+// （跳过以 user 身份写盘的注入行）。
+func TestSessionPortFirstUserInputs(t *testing.T) {
+	root := t.TempDir()
+	router, err := sessionstore.NewRouter(filepath.Join(root, "session-storage.json"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = router.Close() })
+
+	const projectID = "project-adapter-inputs"
+	const sessionID = "sess-adapter-inputs"
+	if err := router.SaveCommitWorkspace(projectID, sessionID, sessionstore.Commit{
+		Events: []sessionstore.Event{
+			{Seq: 1, Role: "user", Kind: sessionstore.EventKindInternal, Content: "<!-- seelex:active-skill:v1 -->"},
+			{Seq: 2, Role: "user", Kind: sessionstore.EventKindUserInput, Content: "适配器层的第一问"},
+		},
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	port := SessionPort{Manager: session.NewManager().WithRouter(router)}
+	port.SetWorkspaceResolver(func(string) string { return projectID })
+
+	inputs, hasLayout, err := port.FirstUserInputs(projectID, sessionID, sessionstore.FirstUserInputProbeRows)
+	if err != nil || !hasLayout {
+		t.Fatalf("FirstUserInputs hasLayout=%v err=%v", hasLayout, err)
+	}
+	if len(inputs) != 1 || inputs[0] != "适配器层的第一问" {
+		t.Fatalf("FirstUserInputs = %q, want [适配器层的第一问]（注入行不算用户输入）", inputs)
+	}
+	if _, hasLayout, err := port.FirstUserInputs(projectID, "sess-missing", 0); err != nil || hasLayout {
+		t.Fatalf("未落盘会话 hasLayout=%v err=%v, want false", hasLayout, err)
+	}
+}
+
 // TestAdaptGranularInfosCarriesTimelineFields（左侧栏日期占位回归）：目录
 // 枚举摘要从 sessionstore 适配到 model.SessionInfo 时，updated_at 与
 // token_count 必须透传。适配层把它们置零会让快照里的 updated_at 恒为

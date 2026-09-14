@@ -104,6 +104,29 @@ for this stabilization batch.
 
 ### Fixed
 
+- Session titles no longer degrade to the session ID prefix in the left session
+  list. The title write-through added with head-persisted titles was dead on the
+  normal path — `materializeDraftSession` writes the title before the session
+  layout exists (the store correctly refuses to create a "ghost" session), and
+  the atomic persist path (`SaveCommit` → `writeCommitLayout`) never carried the
+  title into `head.Meta.Summary` (only `SaveRecordRaw` did, and v8 retired that
+  channel) — so every session that had not been re-opened since that change had
+  no stored title, and the sidebar fell back to `truncateTitle(sessionID, 5)`
+  which reads as `draft…` because pre-assigned draft IDs are literally
+  `draft_<nano>_<n>`. Now the catalog resolves titles in three layers: the
+  enumerated row, the session head, and — only when both are empty — a
+  **one-time bounded backfill** from the session's first user input
+  (`sessionstore.FirstUserInputs`: opens one message shard, scans at most 256 KB
+  / stops at the first oversized row, skips internal injections such as
+  `kind=internal` or `<!-- seelex:`-prefixed user rows, and refuses to pass off a
+  mid-conversation question when the first-shard prefix was LRU-trimmed). The
+  backfill result is written back through `SaveSessionTitle`, so the next refresh
+  (and the next process) reads it header-only: the steady state stays at zero
+  body reads (measured on a real store: 0.3 s for 13 legacy sessions on the first
+  refresh, ~20 ms per refresh afterwards; a full-shard decode costs 100+ ms per
+  session versus ~1 ms for the bounded scan). Each session is probed at most once
+  per process and a refresh does at most 16 per round, so a large backlog is
+  amortized instead of delaying one refresh.
 - Rebuilt the trajectory multi-lane score so every block's lane and position has
   a single, explainable meaning: lane definitions and their order live in
   `AXIS_LANES` (one fixed lane per response kind), block width expresses the

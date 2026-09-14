@@ -61,12 +61,20 @@ type sessionRuntimeState struct {
 	// 需求针对的是列表类缓存（catalogGrid）与其逐项目刷新。
 	catalogWorkspaces  map[string]string
 	catalogTitles      map[string]model.SessionTitle
-	catalogWaiters     []catalogWaiter
-	catalogStopped     bool
-	sessionCatalogWake chan struct{}
-	sessionCatalogStop chan struct{}
-	sessionCatalogDone chan struct{}
-	sessionCatalogOnce sync.Once
+	// titleBackfills 是"标题回填"的一次性记忆：sessionID → 回填结果（空串 =
+	// 已探过且存储里没有可用的用户输入，不重复探测）。键是全局唯一会话 ID，
+	// 与 catalogTitles 同域（catalogMu 保护）。
+	titleBackfills map[string]string
+	// titleBackfillBudget 是本轮目录刷新剩余的标题回填预算：老会话极多时按
+	// 轮次摊销（每轮有界少量），不把一轮刷新的时延拖长；未回填的在后续轮次
+	// 继续。每轮刷新开始时重置。
+	titleBackfillBudget int
+	catalogWaiters      []catalogWaiter
+	catalogStopped      bool
+	sessionCatalogWake  chan struct{}
+	sessionCatalogStop  chan struct{}
+	sessionCatalogDone  chan struct{}
+	sessionCatalogOnce  sync.Once
 }
 
 // catalogWaiter 是一次目录刷新请求的回执登记：done 在"覆盖本次请求项目
@@ -100,13 +108,15 @@ func NewCoordinator(deps Deps) *Coordinator {
 		limits:               deps.Limits,
 		displayUserInput:     deps.DisplayUserInput,
 		sessionRuntimeState: sessionRuntimeState{
-			transition:         NewSessionTransitionManager(),
-			catalogGrid:        make(map[string][]model.SessionInfo),
-			catalogWorkspaces:  make(map[string]string),
-			catalogTitles:      make(map[string]model.SessionTitle),
-			sessionCatalogWake: make(chan struct{}, 1),
-			sessionCatalogStop: make(chan struct{}),
-			sessionCatalogDone: make(chan struct{}),
+			transition:          NewSessionTransitionManager(),
+			catalogGrid:         make(map[string][]model.SessionInfo),
+			catalogWorkspaces:   make(map[string]string),
+			catalogTitles:       make(map[string]model.SessionTitle),
+			titleBackfills:      make(map[string]string),
+			titleBackfillBudget: titleBackfillBudgetPerRefresh,
+			sessionCatalogWake:  make(chan struct{}, 1),
+			sessionCatalogStop:  make(chan struct{}),
+			sessionCatalogDone:  make(chan struct{}),
 		},
 	}
 }
@@ -133,6 +143,9 @@ func (c *Coordinator) SetSessionTitleLocked(sessionID string, title model.Sessio
 		c.catalogTitles = make(map[string]model.SessionTitle)
 	}
 	c.catalogTitles[sessionID] = title
+	// 权威标题到达：丢弃该会话的回填探针记忆（回填只补"老数据没有标题"，
+	// 权威值出现后不该再被旧探针结论挡住）。
+	c.forgetTitleBackfillLocked(sessionID)
 	c.catalogMu.Unlock()
 	c.persistSessionTitle(sessionID, title)
 }
@@ -393,6 +406,11 @@ func (c *Coordinator) CatalogRefreshDone() <-chan struct{} {
 func (c *Coordinator) refreshCatalogProjects(scope map[string]struct{}) {
 	grid := make(map[string][]model.SessionInfo)
 	discoveredBindings := map[string]string{}
+	// 标题回填预算按轮重置：老会话（会话头无标题）每轮只回填有界若干个，
+	// 其余留给后续轮次，单轮刷新的时延不被会话数放大。
+	c.catalogMu.Lock()
+	c.resetTitleBackfillBudgetLocked()
+	c.catalogMu.Unlock()
 	if granular, ok := c.Core.Deps.Sessions.(SessionGranularPort); ok {
 		for _, projectID := range c.scopedProjectIDs(scope) {
 			rows, bindings := c.sessionCatalogProject(granular, projectID)

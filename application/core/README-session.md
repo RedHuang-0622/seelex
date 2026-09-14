@@ -36,6 +36,46 @@
 - `func TestApprovalConcurrentSessionsStayAttributed(t *testing.T)` — TestApprovalConcurrentSessionsStayAttributed -race 靶场：两会话并发开
 - `func startsWithApprovalID(id, prefix string) bool`
 
+### content_lru.go
+
+- `func loadedContentLimit(configured int) int` — loadedContentLimit 把配置值收敛为生效上限（<=0 = 未配置 → 默认值；与
+- `func (service *Service) touchContent(sessionID string)` — touchContent 记录一次会话可见正文使用（冷加载完成/热挂载/分页读回/回读），
+- `func (service *Service) markContentRecentLocked(sessionID string)` — markContentRecentLocked 把会话移到内容 LRU 使用序最前（索引 0 = 最近使用；
+- `func (service *Service) forgetContentLocked(sessionID string)` — forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载；调用方持有
+- `func (service *Service) pruneContentOrderLocked() int` — pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数（调用方持有
+- `func (service *Service) reconcileLoadedContentLimit(protect string)` — reconcileLoadedContentLimit 超限时按 LRU 卸载空闲会话的已加载正文（无候选
+- `func (service *Service) pickContentEvictableCandidateLocked(protect string) string` — pickContentEvictableCandidateLocked 从使用序最旧端挑一个可卸载正文的会话
+- `func (service *Service) evictLoadedContent(sessionID string) error` — evictLoadedContent 卸载一个空闲会话的已加载正文：先 flush（非活跃会话
+- `func (service *Service) sessionContentLoadedLocked(sessionID string) bool` — sessionContentLoadedLocked 报告目标会话当前是否持有已加载的可见正文
+- `func (service *Service) sessionContentUnloaded(sessionID string) bool` — sessionContentUnloaded 报告目标会话的可见正文是否已被内容 LRU 卸载（需要
+- `func (service *Service) ensureSessionContent(sessionID string) error` — ensureSessionContent 在目标会话正文已被卸载时从磁盘回读（热挂载不重建
+- `func (service *Service) reloadSessionContent(sessionID string) error` — reloadSessionContent 冷回读被卸载的可见正文窗口：按保留下来的窗口标志
+
+### content_lru_test.go
+
+- `func withContentLimit(limit int) func()` — withContentLimit 临时把进程级 loaded_content_limit 改成 limit，返回还原
+- `func newMultiPagedStore(counts map[string]int) *multiPagedStore`
+- `func (store *multiPagedStore) SessionsOf(projectID string) []SessionInfo` — SessionInfo 行只带标题（零正文读）：目录刷新不会把正文拉回内存。
+- `func (store *multiPagedStore) LoadHistory(sessionID string) ([]EngineMessage, error)`
+- `func (store *multiPagedStore) LoadHistoryRange(sessionID string, offset, limit int) ([]EngineMessage, int, error)`
+- `func (store *multiPagedStore) LoadSessionRecordWorkspace(workspaceID, sessionID string) (SessionRecord, error)`
+- `func (store *multiPagedStore) SaveSessionRecord(sessionID string, record SessionRecord) error` — SaveSessionRecord* 是 no-op：本夹具的 durable 消息由 messages 槽给出，卸载
+- `func (store *multiPagedStore) SaveSessionRecordWorkspace(workspaceID, sessionID string, record SessionRecord) error`
+- `func (store *multiPagedStore) LoadSessionRecord(sessionID string) (SessionRecord, error)`
+- `func (store *multiPagedStore) LoadConversationRangeWorkspace(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)`
+- `func (store *multiPagedStore) messageCount(sessionID string) int`
+- `func readContentState(t *testing.T, service *Service, sessionID string) contentState`
+- `func assertContentLoaded(t *testing.T, service *Service, sessionID string, want bool) contentState`
+- `func assertContentWindow(t *testing.T, service *Service, sessionID string, offset, count int)` — assertContentWindow 断言会话当前持有「尾部窗口 offset 起 count 条」的正文。
+- `func waitForContentLoaded(t *testing.T, service *Service, sessionID string) contentState` — waitForContentLoaded 轮询等待会话正文装载完成：运行中会话存在时冷加载走
+- `func waitForContentUnloaded(t *testing.T, service *Service, sessionID string) contentState` — waitForContentUnloaded 轮询等待内容 LRU 真正把正文卸载（区别于「本来就
+- `func snapshotSessions(t *testing.T, service *Service) map[string]SessionInfo` — snapshotSessions 等一轮目录收敛后返回左侧列表行（按 ID 索引）。
+- `func TestLoadedContentLimitDefaults(t *testing.T)` — TestLoadedContentLimitDefaults 内容上限默认 12（seelexctx 单一事实源），
+- `func TestContentLimitEvictsLeastRecentlyUsedIdleContent(t *testing.T)` — TestContentLimitEvictsLeastRecentlyUsedIdleContent 上限 1：冷加载第二个会话
+- `func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T)` — TestContentLimitKeepsBusyAndActiveSessions 上限 1：运行中（busy）会话与当前
+- `func TestContentEvictionColdReloadsSameWindow(t *testing.T)` — TestContentEvictionColdReloadsSameWindow 会话正文被卸载后再激活（冷回读）
+- `func TestEnsureSessionContentRebuildsEvictedWindow(t *testing.T)` — TestEnsureSessionContentRebuildsEvictedWindow 热挂载回读面
+
 ### fork_gate_test.go
 
 - `func (runtime *forkGateRuntime) ForkInFlight(string) bool`
@@ -245,7 +285,6 @@
 - `func (service *Service) ResumeSession(sessionID string) error` — ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，
 - `func (service *Service) LoadMoreHistory(limit int) error` — LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
 - `func (service *Service) LoadLatestHistory() error` — LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
-- 内容 LRU 回读接线（content_lru.go）：`LoadMoreHistory`/`LoadLatestHistory` 在 `sessionContentUnloaded` 时先 `reloadSessionContent` 整窗回读（否则分页会从一个「不在内存的窗口」出发，页错位）；`installVisibleHistory` 安装即一次 `touchContent`（内容 LRU 使用）并清除 `View.ContentUnloaded`。
 - `func currentWorkspaceIDLocked(service *Service) string` — currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
 - `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)` — loadConversationPage 读回一段可见历史：record conversation 模块优先
 - `func (service *Service) installVisibleHistory(sessionID string, page []Message, total, offset, window int, mode historyPageInstall) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛
@@ -278,6 +317,29 @@
 - `func TestLoadMoreHistoryPagesToBeginning(t *testing.T)` — TestLoadMoreHistoryPagesToBeginning 红灯 2：连续翻页必须单调向更早推进，
 - `func TestLoadLatestHistoryReturnsToTail(t *testing.T)` — TestLoadLatestHistoryReturnsToTail 红灯 3：翻到更早以后必须能一键回到最新
 - `func TestAppendWhileBrowsingHistoryKeepsWindow(t *testing.T)` — TestAppendWhileBrowsingHistoryKeepsWindow 红灯 4：正在翻更早历史时新到达的
+
+### session_input_index.go
+
+- `func (service *Service) SessionInputIndex(sessionID string) (model.SessionInputIndex, error)` — SessionInputIndex 返回目标会话的**全量**用户输入索引（含未加载的早期轮次）。
+- `func (service *Service) sessionInputIndexConversation(location session_runtime.Location, sessionID string) ([]model.Message, int, error)` — sessionInputIndexConversation 读取会话的完整可见会话（用户输入的事实源）。
+- `func (service *Service) sessionInputWindowLoaded(sessionID string, total int) (model.SessionInputWindow, []string)` — sessionInputWindowLoaded 返回目标会话的已加载窗口元数据与窗口内已加载的
+- `func buildSessionInputIndex(conversation []model.Message, loaded []string, limit int) []model.SessionInputIndexRow` — buildSessionInputIndex 从完整可见会话构建全量用户输入索引（纯函数）。
+- `func inputIndexUserText(message model.Message) string` — inputIndexUserText 返回一条可见消息作为「用户输入」的展示正文；非用户输入
+- `func summarizeInputIndexText(text string, limit int) (string, int)` — summarizeInputIndexText 把正文压成有界摘要：空白折叠 + rune 截断（末尾省略号）。
+- `func alignLoadedInputTexts(texts, loaded []string) (int, int)` — alignLoadedInputTexts 把「窗口内已加载的用户输入」对齐到全量输入序列：
+
+### session_input_index_test.go
+
+- `func inputIndexService(t *testing.T, store *pagedSessionStore) *Service` — inputIndexService 用「durable 消息 + record + conversation 窗口读」的仿真
+- `func setLoadedWindow(t *testing.T, service *Service, sessionID string, start, end int, messages []Message)` — setLoadedWindow 模拟"前端只加载了尾部一窗"：把可见窗口锚定在 [start,end)。
+- `func TestSessionInputIndexCoversUnloadedEarlyRounds(t *testing.T)` — TestSessionInputIndexCoversUnloadedEarlyRounds 全量索引必须包含尚未加载到
+- `func TestSessionInputIndexEmptySession(t *testing.T)` — TestSessionInputIndexEmptySession 空会话（无消息、无窗口）返回空索引且不报错。
+- `func TestSessionInputIndexRequiresSessionID(t *testing.T)` — TestSessionInputIndexRequiresSessionID 空 sessionID 显式失败（不静默成空索引）。
+- `func TestSessionInputIndexTruncatesSummary(t *testing.T)` — TestSessionInputIndexTruncatesSummary 摘要长度有界（rune 截断 + 原文长度留痕）。
+- `func TestSessionInputIndexSkipsNonUserAndInternalRows(t *testing.T)` — TestSessionInputIndexSkipsNonUserAndInternalRows 只索引真正的用户输入：
+- `func TestSessionInputIndexFallsBackToRecord(t *testing.T)` — TestSessionInputIndexFallsBackToRecord 会话存储没有 message 行（旧布局）时
+- `func TestAlignLoadedInputTexts(t *testing.T)` — TestAlignLoadedInputTexts 对齐算法：尾部窗口整段命中；最新一条输入尚未进入
+- `func TestBuildSessionInputIndexMarksLoadedSection(t *testing.T)` — TestBuildSessionInputIndexMarksLoadedSection 纯函数口径：只有命中已加载段
 
 ### session_lifecycle.go
 
