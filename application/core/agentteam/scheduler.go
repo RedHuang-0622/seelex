@@ -7,6 +7,12 @@ import (
 
 // scheduler.go — 群聊轮转控制（channel + 链表）。
 //
+// **接线状态（2026-09-14 复核）**：本原语尚未接线——仓库里没有任何
+// NewTurnScheduler 生产调用点（判据见 scheduler_wiring_test.go，状态声明见本包
+// README「接线现状」表）。当前真正驱动轮次的是 goal 治理的 Governor 座位
+// （exec-a + advisor-b），"team work 起点→当前位置的前缀"由 work.progress 帧承担；
+// 接上本原语需要为每个角色配独立 agent loop（Requests() 的投递方）。
+//
 // 口径（用户裁决 2026-09-13）：顺序调整环节里每个参与者先把自己的发言意向
 // struct 发到一个 channel；每个 agent loop 从 channel 领取"下一个该发言的
 // 会话"；顺序本身用**链表**维护——上移/下移/摘除/恢复只改链表指针，下一次

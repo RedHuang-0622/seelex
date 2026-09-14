@@ -196,16 +196,23 @@ def extra_prose(text: str) -> str:
     卷 README = 组概述 + 索引，但维护者会在概述后补手写契约（如历史分页
     契约、实现要点）。这类段落不属于生成器管辖，重新生成时必须原样保留，
     否则刷新索引会静默丢文档。
+
+    两个起始点：生成器写的「覆盖：」行之后（手写散文紧跟概述的常见写法），
+    或任意非「生态位」的 `## ` 子标题（手写分节）。索引段之后的内容由
+    strip_old_section 负责丢弃，不算散文。
     """
     lines = strip_old_section(text).splitlines()
     kept = []
     started = False
     for line in lines:
+        if not started and line.startswith("覆盖："):
+            started = True
+            continue
         if line.startswith("## ") and line.strip() != "## 生态位":
             started = True
         if started:
             kept.append(line)
-    return "\n".join(kept).rstrip()
+    return "\n".join(kept).strip()
 
 
 def group_section(

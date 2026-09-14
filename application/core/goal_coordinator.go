@@ -158,15 +158,16 @@ func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, err
 }
 
 // AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
-// turn_completed（exec 账本水位），若 TL 已启用则运行一轮 Governor
-// （exec 让位 → advisor 真实 TL 回合）。TL 缺席/未启用按 B4 忽略，不阻塞。
-func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID string) error {
+// turn_completed（exec 账本水位 + 本轮工作正文摘要），若 TL 已启用则运行一轮
+// Governor（exec 让位 → advisor 真实 TL 回合）。TL 缺席/未启用按 B4 忽略，不阻塞。
+// detail 为空 = 本轮无可摘要产出（信号仍登记，水位不跳）。
+func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error {
 	runtime := g.bundleFor(sessionID)
 	if runtime.ctl.Status().Active == nil {
 		return nil
 	}
 	if err := runtime.sup.Notify(ctx, goaldomain.TLEvalSignal{
-		Kind: goaldomain.SignalTurnCompleted, Source: "chat_end",
+		Kind: goaldomain.SignalTurnCompleted, Source: "chat_end", Detail: detail,
 	}); err != nil {
 		return err
 	}

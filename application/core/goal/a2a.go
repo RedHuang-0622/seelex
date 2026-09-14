@@ -27,6 +27,9 @@ const (
 	MaxDirectiveRunes = 1200
 	// MaxSignalDetailRunes 是单条信号 Detail 上限。
 	MaxSignalDetailRunes = 400
+	// MaxWorkFrames 是尚未随帧下发的 EXEC 工作进展上限（turn_completed.Detail
+	// 的待抽帧缓冲；超出丢最旧，b 上下文控量）。
+	MaxWorkFrames = 6
 	// MaxGoalFrameProgress 是锚点 goal 帧携带的 progress 条数上限。
 	MaxGoalFrameProgress = 3
 	// DefaultEvalWindow 是非关键信号自动评估的最小轮次间隔（≤1 次/3-5 轮）。
@@ -39,7 +42,7 @@ const (
 type SignalKind string
 
 const (
-	SignalTurnCompleted    SignalKind = "turn_completed"    // 每轮 mainagent 提交后（不触发评估）
+	SignalTurnCompleted    SignalKind = "turn_completed"    // 每轮 mainagent 提交后（不触发评估，带 Detail 则抽 work.progress 帧）
 	SignalStepCheckpoint   SignalKind = "step_checkpoint"   // plan 节点/task_check_node 打点（可触发）
 	SignalContextCompacted SignalKind = "context_compacted" // 压缩后（强制评估，防遗忘）
 	SignalBudgetWarning    SignalKind = "budget_warning"    // goal 预算水位（如 70%）（强制）
@@ -69,7 +72,7 @@ type TLEvalSignal struct {
 	Kind   SignalKind `json:"kind"`
 	At     int64      `json:"at,omitempty"`
 	Source string     `json:"source,omitempty"` // 来源（如 plan 节点 id / task id / tool 名）
-	Detail string     `json:"detail,omitempty"` // 有界一句话
+	Detail string     `json:"detail,omitempty"` // 有界一句话；turn_completed 上 = 本轮 EXEC 工作正文摘要
 	Ref    string     `json:"ref,omitempty"`    // 可选引用（文件/事件）
 }
 

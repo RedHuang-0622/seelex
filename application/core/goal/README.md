@@ -384,6 +384,8 @@ go test -race ./application/core/goal/ -count=1
 - `func (s *Supervisor) Enabled() bool` — Enabled 报告 b 是否可用（有评估器且配置开启）。
 - `func (s *Supervisor) advisorForLocked(active *GoalRecord) *AdvisorSession` — advisorFor 返回（必要时创建）b 会话；要求存在 active goal。调用方持 s.mu。
 - `func (s *Supervisor) Notify(ctx context.Context, signal TLEvalSignal) error` — Notify 登记一条 a 事件（EXEC 账本）并按触发策略决定是否自动执行 b 回合。
+- `func (s *Supervisor) noteWorkProgressLocked(signal TLEvalSignal)` — noteWorkProgressLocked 把 turn_completed 的工作正文摘要入待抽帧缓冲（调用方
+- `func (s *Supervisor) flushWorkProgressLocked(peer *AdvisorSession, now int64) error` — flushWorkProgressLocked 在 b 回合前把缓冲的 EXEC 工作进展一次性抽成
 - `func (s *Supervisor) maybeAutoEvalLocked(ctx context.Context, signal TLEvalSignal) error`
 - `func (s *Supervisor) RunEval(ctx context.Context, trigger string) (TLDirective, error)` — RunEval 强制执行一次 b 回合（外部/边界触发：终态 gate、审批预筛、headless goal_tl_eval）。
 - `func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal TLEvalSignal) (TLDirective, error)` — runRoundLocked 执行一次 b 回合（调用方持 s.mu）：
@@ -404,4 +406,11 @@ go test -race ./application/core/goal/ -count=1
 - `func newTestSupervisor(t *testing.T, ctl *Controller, window int, replies ...TLDirective) (*Supervisor, *stubEvaluator)` — newTestSupervisor 构造带 stub 评估器的监督器。
 - `func TestA2AContractValidation(t *testing.T)`
 - `func TestMailboxBoundedDirectivesAndOverflow(t *testing.T)`
+
+### work_progress_test.go
+
+- `func TestTurnCompletedDetailBecomesWorkProgressFrame(t *testing.T)` — TestTurnCompletedDetailBecomesWorkProgressFrame 是 ① 的核心断言：
+- `func TestTurnCompletedWithoutDetailStaysSkipped(t *testing.T)` — TestTurnCompletedWithoutDetailStaysSkipped 钉住跳帧语义：没有工作正文摘要的
+- `func TestWorkProgressBufferBoundedAndDeduped(t *testing.T)` — TestWorkProgressBufferBoundedAndDeduped 钉住有界性：内容级去重（同一轮被
+- `func countWorkProgress(frames []Frame) int`
 

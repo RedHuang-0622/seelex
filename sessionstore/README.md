@@ -317,7 +317,9 @@ R2/R4 存储侧接口已落地，应用层 actor / EVENT 生产者尚未接线�
   WAL；`AppendRoleDraftWorkspace` 写、`SyncRoleDraftWorkspace` 由 sequencer
   同步进 main message 后立即删除；半同步批按确定性 `commit_id` 幂等删除。
 - message `Event` 增加 `role_name`/`role_session_id`/`round_id`/`unit_seq`；
-  `messageHead.Floor` 随 message head 原子发布当前发言角色。
+  `messageHead.Floor` 随 message head 原子发布当前发言角色（唯一写者 =
+  sequencer）；读出口是 `ReadMessageFloorWorkspace`（Agent Team 面板的 floor
+  高亮据此填充；未 sync 过的会话返回 nil，不是错误）。
 - 群聊顺序/角色冷恢复坐标落 `lifecycle.order_policy/order_roles/join_seq_id/
   compact_ref`；定时插话 EVENT 为 `schedule.registered|cancelled|fired`。
 - R3 物化缓存接口 `MaterialCache`（进程内 LRU，失效键 = message head commit/

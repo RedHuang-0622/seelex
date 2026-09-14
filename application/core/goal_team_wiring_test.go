@@ -28,7 +28,9 @@ func (s *teamRecordingSessions) EnsureRoleSession(mainSessionID, roleName, roleS
 }
 
 func (s *teamRecordingSessions) ReadLifecycleOrder(string) (string, []string, error) {
-	return "", nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.policy, append([]string(nil), s.order...), nil
 }
 
 func (s *teamRecordingSessions) SetLifecycleOrder(_ string, policy string, roles []string) error {
@@ -40,7 +42,11 @@ func (s *teamRecordingSessions) SetLifecycleOrder(_ string, policy string, roles
 }
 
 func (s *teamRecordingSessions) ReadTeamRegistry(string) (dto.TeamRegistry, error) {
-	return dto.TeamRegistry{}, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	registry := s.registry
+	registry.Roles = append([]dto.RoleSpec(nil), s.registry.Roles...)
+	return registry, nil
 }
 
 func (s *teamRecordingSessions) WriteTeamRegistry(_ string, registry dto.TeamRegistry) error {

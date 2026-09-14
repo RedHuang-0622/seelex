@@ -11,6 +11,12 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
 
+### agentteam_floor_wiring_test.go
+
+- `func (s *floorRecordingSessions) ReadFloorRole(string) (string, error)`
+- `func TestAgentTeamViewCarriesFloorRole(t *testing.T)`
+- `func TestAgentTeamViewWithoutFloorPortStaysEmpty(t *testing.T)` — TestAgentTeamViewWithoutFloorPortStaysEmpty 钉住降级：宿主没有 floor 读面
+
 ### agentteam_service.go
 
 - `func (adapter agentTeamAdapter) EnsureRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error)`
@@ -18,6 +24,7 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (adapter agentTeamAdapter) SetLifecycleOrder(sessionID, policy string, roles []string) error`
 - `func (adapter agentTeamAdapter) ReadTeamRegistry(mainSessionID string) (dto.TeamRegistry, error)`
 - `func (adapter agentTeamAdapter) WriteTeamRegistry(mainSessionID string, registry dto.TeamRegistry) error`
+- `func (adapter agentTeamAdapter) ReadFloorRole(mainSessionID string) (string, error)` — ReadFloorRole 实现 agentteam.FloorPort：宿主端口实现了 floor 读面才转读，
 - `func (service *Service) agentTeamPorts() (agentTeamPort, contract.RoleSessionPort, error)`
 - `func (service *Service) agentTeamFactory() (*agentteam.Factory, error)`
 - `func (service *Service) agentTeamRegistry() (*agentteam.Registry, error)`

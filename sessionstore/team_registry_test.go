@@ -99,6 +99,70 @@ func TestReadLifecycleOrderToleratesMissingHead(t *testing.T) {
 	}
 }
 
+// TestReadMessageFloorWorkspaceToleratesUnstartedSession：没有 message head 的会话
+// （工程解析为空/目录不存在）读 floor 必须返回空值，不把路径错误抛给 Agent Team 面板。
+func TestReadMessageFloorWorkspaceToleratesUnstartedSession(t *testing.T) {
+	router := newTestRouter(t)
+	floor, err := router.ReadMessageFloorWorkspace("", "session-not-on-disk")
+	if err != nil {
+		t.Fatalf("未开始的会话读 floor 不应报错，实际：%v", err)
+	}
+	if floor != nil {
+		t.Fatalf("空会话 floor 应为 nil，实际：%+v", floor)
+	}
+}
+
+// TestReadMessageFloorWorkspaceFollowsSequencerSync：floor 唯一写者是 sequencer
+// （随 message head 原子发布）。sync 前无 floor；sync 后读到的就是当前发言角色——
+// 这是前端 Agent Team 面板「floor 高亮」的数据源（此前该值没有出口）。
+func TestReadMessageFloorWorkspaceFollowsSequencerSync(t *testing.T) {
+	router := newTestRouter(t)
+	projectID := "project-1"
+	mainSessionID := "main-floor"
+	router.SetWorkspace(projectID)
+	if err := router.SaveCommit(mainSessionID, Commit{Events: []Event{{
+		Seq: 1, Role: "user", Content: "start", Kind: EventKindUserInput, MessageID: "m1",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := router.EnsureRoleSessionWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := router.AppendRoleDraftWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", []RoleDraftRow{{
+		RoundID: 1, RoleName: RoleTL, RoleSessionID: "goal-a2a-tl", UnitSeq: 1, MessageID: "m2",
+		Event: Event{Role: "assistant", Content: "裁决：done", Kind: EventKindLLM},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// sync 之前：还没有人"发言"，floor 为空。
+	floor, err := router.ReadMessageFloorWorkspace(projectID, mainSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if floor != nil {
+		t.Fatalf("sync 前不应有 floor: %+v", floor)
+	}
+	if _, err := router.SyncRoleDraftWorkspace(projectID, mainSessionID, RoleTL, "goal-a2a-tl", []string{"user", "main", "tl"}); err != nil {
+		t.Fatal(err)
+	}
+	floor, err = router.ReadMessageFloorWorkspace(projectID, mainSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if floor == nil || floor.RoleName != RoleTL || floor.RoleSessionID != "goal-a2a-tl" || floor.RoundID != 1 {
+		t.Fatalf("sync 后 floor = %+v, want tl/goal-a2a-tl round=1", floor)
+	}
+	// 返回的是克隆：调用方改动不得污染 message head。
+	floor.RoleName = "tampered"
+	again, err := router.ReadMessageFloorWorkspace(projectID, mainSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again == nil || again.RoleName != RoleTL {
+		t.Fatalf("floor 必须按值返回（head 不应被外部改写）: %+v", again)
+	}
+}
+
 // TestEnsureRoleSessionWorkspaceIsIdempotent：重复装配同一条 TeamSpec 不产生第二个
 // 角色会话；顺序策略读写走 lifecycle head（唯一顺序事实）。
 func TestEnsureRoleSessionWorkspaceIsIdempotent(t *testing.T) {

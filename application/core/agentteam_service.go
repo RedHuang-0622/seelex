@@ -22,6 +22,13 @@ type agentTeamPort interface {
 	WriteTeamRegistry(mainSessionID string, registry dto.TeamRegistry) error
 }
 
+// agentTeamFloorPort 是会话端口**可选**实现的 floor 读面（message head 当前发言
+// 角色）。宿主没实现时成员表不填 floor_role——旧宿主能照常装配，不因缺一个读面
+// 而整个 Agent Team 面板报错。
+type agentTeamFloorPort interface {
+	ReadFloorRole(mainSessionID string) (string, error)
+}
+
 // agentTeamAdapter 把会话端口（DTO 形态）适配为 agentteam.Port。
 // 顺序读写复用既有 contract.RoleSessionPort.SetLifecycleOrder，避免第二套写入口。
 type agentTeamAdapter struct {
@@ -47,6 +54,16 @@ func (adapter agentTeamAdapter) ReadTeamRegistry(mainSessionID string) (dto.Team
 
 func (adapter agentTeamAdapter) WriteTeamRegistry(mainSessionID string, registry dto.TeamRegistry) error {
 	return adapter.port.WriteTeamRegistry(mainSessionID, registry)
+}
+
+// ReadFloorRole 实现 agentteam.FloorPort：宿主端口实现了 floor 读面才转读，
+// 否则返回空串（成员表 floor 留空，不报错）。
+func (adapter agentTeamAdapter) ReadFloorRole(mainSessionID string) (string, error) {
+	floor, ok := adapter.port.(agentTeamFloorPort)
+	if !ok {
+		return "", nil
+	}
+	return floor.ReadFloorRole(mainSessionID)
 }
 
 func (service *Service) agentTeamPorts() (agentTeamPort, contract.RoleSessionPort, error) {

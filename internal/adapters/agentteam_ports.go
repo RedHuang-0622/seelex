@@ -30,6 +30,23 @@ func (port SessionPort) ReadLifecycleOrder(sessionID string) (string, []string, 
 	return router.ReadLifecycleOrderWorkspace(projectID, sessionID)
 }
 
+// ReadFloorRole 读主会话 message head 的 floor 角色名（当前发言角色）。空串 =
+// 该会话还没发生过一次角色 draft sync（"还没有人发言"），不是错误。
+func (port SessionPort) ReadFloorRole(mainSessionID string) (string, error) {
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return "", err
+	}
+	floor, err := router.ReadMessageFloorWorkspace(projectID, mainSessionID)
+	if err != nil {
+		return "", err
+	}
+	if floor == nil {
+		return "", nil
+	}
+	return floor.RoleName, nil
+}
+
 // ReadTeamRegistry 读角色注册表并映射为应用层 DTO（不把 sessionstore 类型漏出去）。
 func (port SessionPort) ReadTeamRegistry(mainSessionID string) (dto.TeamRegistry, error) {
 	router, projectID, err := port.roleRouter(mainSessionID)

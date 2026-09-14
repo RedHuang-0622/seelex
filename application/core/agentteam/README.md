@@ -41,6 +41,25 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 - 不决定 provider role：`role_name` 只是 metadata，provider 侧仍只有
   `system/user/assistant/tool`。
 
+## 接线现状（2026-09-14 复核）
+
+装配得出来 ≠ 有人在干活。下表是**当前代码事实**（每条都可按"证据"列复核），写在这里
+是为了避免把"已注册/已装配"读成"已生效"：
+
+| 能力 | 现状 | 证据 |
+|---|---|---|
+| 角色会话 + 顺序策略 + 注册表 | **已接线**：goal 创建即装配 `goal-a2a`，顺序落 `lifecycle` | `application/core/goal_service.go`（`ensureGoalAgentTeam`）、`application/core/goal_team_wiring_test.go` |
+| 工作顺序（`order_policy`/`order_roles`） | **部分接线**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次** | `sessionstore/role_session.go`（`sortRoleDraftRows`） |
+| 运行时轮次驱动 | **已接线（仅 goal-a2a）**：goal 治理的 Governor 座位 `exec-a` + `advisor-b`，`tl` 的 ADVISOR 回合由 goal 域 TL 评估器执行 | `application/core/goal_coordinator.go`（`newGovernor`）、`application/core/goal/adapter.go` |
+| EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`application/core/goal/techleader.go`（`flushWorkProgressLocked`） |
+| `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `sessionstore/team_registry.go`（`ReadMessageFloorWorkspace`）、`internal/adapters/agentteam_ports.go`（`ReadFloorRole`） |
+| `TurnScheduler`（channel + 链表轮转 / team work 前缀） | **尚未接线**：本包原语，**没有任何生产调用点**（只有 `scheduler_test.go`）；"team work 起点→当前位置"的前缀语义目前由 goal 治理的 `work.progress` 帧承担 | 本包 `scheduler.go` + 守卫用例 `scheduler_wiring_test.go` |
+| `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
+
+结论口径：`TurnScheduler` 的链表顺序（`Move`/`Remove`/`Restore`）与 `SetPrefix` **目前没有
+生产消费者**；前端「工作顺序」编辑的真实生效面是 draft 排序与成员表，不是"下一个谁发言"。
+接上它需要为每个角色配独立 agent loop（`Requests()` 的投递方），属于**尚未实现**的新能力。
+
 ## 文件结构
 
 | 文件 | 职责 |
@@ -48,7 +67,8 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 | `spec.go` | `TeamSpec` 规整与校验、角色会话号派生（`RoleSessionID`） |
 | `presets.go` | 内置实例：`goal-a2a`（TL 循环）、`review-team`、`research-team`（定时分区） |
 | `factory.go` | `Port` 契约、`Factory.Materialize`、成员表投影 `assembleView` |
-| `registry.go` | `Registry`：角色配置 CRUD、`SetOrder`、`View` 只读投影 |
+| `registry.go` | `Registry`：角色配置 CRUD、`SetOrder`、`View` 只读投影（含 floor 填充） |
+| `scheduler.go` | `TurnScheduler` 轮转原语（**尚未接线**，见「接线现状」） |
 | `agentteam_test.go` | 规整/工厂幂等/第二团队（AT8）/定时分区/注册表用例 |
 
 ## 核心实现
@@ -56,6 +76,9 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 - `Port` 是唯一外部依赖面：`EnsureRoleSession`、`ReadLifecycleOrder`、
   `SetLifecycleOrder`、`Read/WriteTeamRegistry`。实现方是 `application/core` 的
   `agentTeamAdapter`（把 `internal/adapters.SessionPort` 的 DTO 形态转成工厂输入）。
+- `FloorPort`（可选）是运行态读面：`ReadFloorRole` 读主会话 `message head.floor`。
+  未实现的宿主（旧端口/测试桩）不填充 `TeamView.FloorRole`，也不报错——可选而不是
+  塞进 `Port`，是为了不给每个装配桩加编译期义务。读失败只进 `DesignNotice`。
 - `Factory.Materialize` 的幂等键是 `(team_id, role_name)` → `RoleSessionID`；重复装配
   不产生第二个角色会话，返回结果里 `TeamRoleSession.Created=false`。
 - `resolveOrderRoles` 是顺序唯一入口：定时角色（`RoleKindTimer`）不得进顺序；
@@ -63,6 +86,9 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
   `user → main → 其余角色（OrderPriority 升序）` 推导。
 - `assembleView` 只报事实不修补：已注册但不在顺序、顺序里未注册的角色写成
   `TeamView.DesignNotice`，供前端与冒烟断言。
+- 顺序里存在**没有执行者**的角色时（`reviewer`/`researcher`/自定义 agent/timer），
+  `DesignNotice` 必须明说"暂无可执行者"：执行者事实表 = `RolesWithExecutor`
+  （`user`/`main` 由宿主驱动，`tl` 由 goal 治理执行）。
 
 ## 数据流或生命周期
 
@@ -78,7 +104,8 @@ TeamSpec（preset 或前端提交）
 
 读取路径：`Registry.View` 读注册表 + `lifecycle` 顺序 → `dto.TeamView`
 （成员 + 工作顺序 + 定时分区 + 设计偏差提示）。运行态 `online`/`floor` 高亮由
-presence 与 `message head.floor` 提供，不在本包落盘。
+presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/`SetOrder`/
+`Materialize` 每次返回视图时经可选 `FloorPort` 重新读取 floor（运行态值不缓存）。
 
 ## 依赖方向
 
@@ -109,6 +136,9 @@ presence 与 `message head.floor` 提供，不在本包落盘。
 - 角色会话号是否稳定（`(team_id, role_name)`）？重复装配会不会建出第二棵子树？
 - `View` 是否偷偷写盘（读路径必须零写入）？
 - `role_name` 是否只做了 metadata：没有被当成 provider role 使用？
+- `floor_role` 是不是每次读都重新取（有没有把运行态值缓存/落盘）？读失败是否被静默吞掉？
+- 新增/删除有执行者的角色时，`RolesWithExecutor` 与 `DesignNotice` 是否同步（别让 UI 误以为有人干活）？
+- `scheduler.go` 被改动时，README「接线现状」表与 `scheduler_wiring_test.go` 是否同步？
 
 ## 测试与验证
 
@@ -122,7 +152,11 @@ go test -race ./application/core/agentteam -count=1
 ```
 
 关键测试：`agentteam_test.go`（规整/幂等/AT8 第二团队/定时分区/注册表 CRUD）、
-`sessionstore/team_registry_test.go`（注册表落盘与角色会话幂等）、
+`team_view_test.go`（floor 读面：可选端口/读失败/降级；无执行者提示）、
+`scheduler_wiring_test.go`（`TurnScheduler` 接线状态与 README 声明一致）、
+`sessionstore/team_registry_test.go`（注册表落盘、角色会话幂等、`message head.floor` 读面）、
+`application/core/goal_team_wiring_test.go`（goal → 自动装配）与
+`application/core/goal_work_summary_test.go`（EXEC 工作正文进 ADVISOR 输入）、
 `gui/headless_team_test.go`（`team.*` 契约）、
 `gui/team_live_probe_test.go`（真实 API + pprof 冒烟，env 门控）。
 
@@ -152,8 +186,11 @@ go test -race ./application/core/agentteam -count=1
 - `func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — Materialize 装配 TeamSpec。joinSeq 是本次装配把角色挂到主会话的可见起点
 - `func registryFromSpec(spec dto.TeamSpec) dto.TeamRegistry` — registryFromSpec 把 TeamSpec 投影成注册表（角色配置的持久事实）。
 - `func assembleView(sessionID string, registry dto.TeamRegistry, policy string, orderRoles []string) (dto.TeamView, error)` — assembleView 把注册表 + 生命周期顺序投影成前端消费的成员表。
+- `func applyFloor(port Port, mainSessionID string, view *dto.TeamView)` — applyFloor 用可选的 floor 读端口填充成员表的当前发言角色（只读事实，不写盘）。
 - `func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
-- `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色。
+- `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色、
+- `func teamKindOf(registry dto.TeamRegistry) string` — teamKindOf 返回可展示的团队形态名（空值不伪装）。
+- `func unexecutedRoles(orderRoles []string) []string` — unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
 
 ### presets.go
 
@@ -194,6 +231,14 @@ go test -race ./application/core/agentteam -count=1
 
 - `func TestTurnSchedulerChainsAndAdvances(t *testing.T)` — TestTurnSchedulerChainsAndAdvances 验证 channel + 链表轮转：意向 struct 从
 
+### scheduler_wiring_test.go
+
+- `func TestTurnSchedulerHasNoProductionCallSite(t *testing.T)` — TestTurnSchedulerHasNoProductionCallSite 钉住"尚未接线"。
+- `func TestTurnSchedulerUnwiredStatusIsDocumented(t *testing.T)` — TestTurnSchedulerUnwiredStatusIsDocumented 钉住文档声明：README 必须显式写明
+- `func schedulerHasCallSite(source string) bool` — schedulerHasCallSite 报告源码里是否有 `NewTurnScheduler` 的**调用**（定义不算）。
+- `func schedulerSkipDir(name string) bool` — schedulerSkipDir 报告扫描时应跳过的目录（非源码树：构建产物/临时现场/依赖缓存）。
+- `func schedulerRepoRoot(t *testing.T) string` — schedulerRepoRoot 从包工作目录向上找到含 go.mod 的仓库根。
+
 ### spec.go
 
 - `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
@@ -202,4 +247,11 @@ go test -race ./application/core/agentteam -count=1
 - `func RoleSessionID(teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (team_id, role_name) 永远得到同一个值，
 - `func needsRoleSession(kind dto.RoleKind) bool` — needsRoleSession 判定该角色是否需要独立角色会话子树：user/main 复用主会话，
 - `func registeredRoles(spec dto.TeamSpec) []dto.RoleSpec` — registeredRoles 返回需要角色会话的已注册角色。
+
+### team_view_test.go
+
+- `func (port *floorFakePort) ReadFloorRole(string) (string, error)`
+- `func TestRegistryViewFillsFloorFromOptionalPort(t *testing.T)` — TestRegistryViewFillsFloorFromOptionalPort 钉住 ②：数据在 message head 里，
+- `func TestRegistryViewReportsFloorReadFailure(t *testing.T)` — TestRegistryViewReportsFloorReadFailure 钉住错误语义：floor 是运行态读面，
+- `func TestReviewAndResearchPresetsDeclareNoExecutor(t *testing.T)` — TestReviewAndResearchPresetsDeclareNoExecutor 钉住 ④：第二个/第三个 preset 只有
 

@@ -113,7 +113,7 @@ func TestGoalCoordinatorAdvanceAfterChatRunsTLRound(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	if err := coordinator.AdvanceAfterChat(context.Background(), "session-a2a"); err != nil {
+	if err := coordinator.AdvanceAfterChat(context.Background(), "session-a2a", "本轮工作正文"); err != nil {
 		t.Fatalf("advance after chat: %v", err)
 	}
 	view := coordinator.GoalGovernanceViewFor("session-a2a")
@@ -135,7 +135,7 @@ func TestGoalCoordinatorAdvanceAfterChatTLDisabledNoError(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	if err := coordinator.AdvanceAfterChat(context.Background(), "session-a2a-off"); err != nil {
+	if err := coordinator.AdvanceAfterChat(context.Background(), "session-a2a-off", ""); err != nil {
 		t.Fatalf("TL 缺席不应阻塞回合结束: %v", err)
 	}
 }

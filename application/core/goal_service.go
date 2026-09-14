@@ -196,6 +196,7 @@ func (service *Service) GoalIterationCompleted(ctx context.Context) bool {
 	}
 	_ = coordinator.Notify(ctx, sessionID, goaldomain.TLEvalSignal{
 		Kind: goaldomain.SignalTurnCompleted, Source: "iteration_complete",
+		Detail: service.goalTurnWorkSummary(sessionID),
 	})
 	directives := coordinator.DrainDirectives(sessionID)
 	if len(directives) == 0 {
@@ -233,14 +234,15 @@ func (service *Service) injectGoalDirectivesForStart(sessionID string) {
 }
 
 // goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进 goal 治理
-// （turn 结束 → TL 回合），让 A2A 在真实会话中可见（Round/Peer/指令）。
+// （turn 结束 → TL 回合），让 A2A 在真实会话中可见（Round/Peer/指令）。本轮
+// EXEC 的工作正文摘要随 turn_completed 登记，ADVISOR 下一回合据此评审真实产出。
 func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
 	sessionID := sessionIDFromContext(ctx)
 	coordinator, err := service.goalCoordinatorFor(sessionID)
 	if err != nil {
 		return
 	}
-	_ = coordinator.AdvanceAfterChat(ctx, sessionID)
+	_ = coordinator.AdvanceAfterChat(ctx, sessionID, service.goalTurnWorkSummary(sessionID))
 }
 
 // injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入

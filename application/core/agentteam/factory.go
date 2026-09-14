@@ -22,6 +22,17 @@ type Port interface {
 	WriteTeamRegistry(mainSessionID string, registry dto.TeamRegistry) error
 }
 
+// FloorPort 是 Port 的**可选**扩展：读主会话当前发言角色（message head.floor，
+// 唯一写者 = sequencer）。实现方按需提供；未实现时成员表的 floor 高亮保持空
+// （旧宿主/测试桩），不报错、不伪造。
+//
+// 为什么可选而不是塞进 Port：floor 是运行态读面，装配面（Port）不需要它的
+// 实现者承担额外编译期义务（否则每个桩都要跟着改）。
+type FloorPort interface {
+	// ReadFloorRole 返回当前发言的角色名；空串 = 尚无发言（不是错误）。
+	ReadFloorRole(mainSessionID string) (string, error)
+}
+
 // Factory 由 TeamSpec 装配一支 AgentTeam：建角色会话 → 写注册表 → 写顺序策略。
 //
 // 幂等：同一个 (team_id, role_name) 派生同一个 role_session_id，重复装配不会产生
@@ -80,6 +91,8 @@ func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joi
 	if err != nil {
 		return dto.TeamMaterializeResult{}, err
 	}
+	// 装配回执视图也带 floor（运行态读面；装配本身不写 floor）。
+	applyFloor(factory.port, mainSessionID, &view)
 	return dto.TeamMaterializeResult{Spec: normalized, View: view, Sessions: sessions, Registry: registry}, nil
 }
 
@@ -144,6 +157,26 @@ func assembleView(sessionID string, registry dto.TeamRegistry, policy string, or
 	return view, nil
 }
 
+// applyFloor 用可选的 floor 读端口填充成员表的当前发言角色（只读事实，不写盘）。
+// 未实现 FloorPort 的宿主不填充；读取失败只进 DesignNotice，不阻断成员表。
+func applyFloor(port Port, mainSessionID string, view *dto.TeamView) {
+	if view == nil {
+		return
+	}
+	floor, ok := port.(FloorPort)
+	if !ok {
+		return
+	}
+	roleName, err := floor.ReadFloorRole(mainSessionID)
+	if err != nil {
+		view.DesignNotice = append(view.DesignNotice, fmt.Sprintf("floor 读取失败：%v", err))
+		return
+	}
+	if name := strings.TrimSpace(roleName); name != "" {
+		view.FloorRole = name
+	}
+}
+
 // builtinKinds 是 user/main 的内置角色名：它们不注册角色配置、不建角色会话。
 var builtinKinds = map[string]dto.RoleKind{
 	string(dto.RoleKindUser): dto.RoleKindUser,
@@ -177,7 +210,8 @@ func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[s
 	return member
 }
 
-// viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色。
+// viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色、
+// 顺序里没有任何执行者的团队（装配得出来但没有回合）。
 func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string {
 	inOrder := make(map[string]struct{}, len(orderRoles))
 	for _, name := range orderRoles {
@@ -210,8 +244,48 @@ func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string {
 			notices = append(notices, fmt.Sprintf("工作顺序中的 %s 尚未注册角色配置", name))
 		}
 	}
+	if unexecuted := unexecutedRoles(orderRoles); len(unexecuted) > 0 {
+		notices = append(notices, fmt.Sprintf(
+			"本团队（%s）暂无可执行者：%s 目前只有注册配置与角色会话，装配后不会自动产生回合（需要宿主为它接执行者）",
+			teamKindOf(registry), strings.Join(unexecuted, "、")))
+	}
 	if len(notices) == 0 {
 		return nil
 	}
 	return notices
+}
+
+// teamKindOf 返回可展示的团队形态名（空值不伪装）。
+func teamKindOf(registry dto.TeamRegistry) string {
+	if kind := strings.TrimSpace(registry.TeamKind); kind != "" {
+		return kind
+	}
+	return string(dto.DefaultTeamKind)
+}
+
+// RolesWithExecutor 是当前有运行时执行者的逻辑角色名（事实表，不是配置事实）：
+//
+//   - user / main：由宿主驱动（用户输入、主会话 ChatStream），不是"没人执行"；
+//   - tl：goal 治理的 ADVISOR 回合执行者（goal 域 TL 评估器真实跑一轮）。
+//
+// 其余注册角色（review-team 的 reviewer、research-team 的 researcher、自定义
+// agent/timer 角色）目前都没有执行者：角色会话建得出来、成员表列得出来，但不会
+// 自动产生回合。装配面必须把这个状态说出来（DesignNotice），否则 UI 会让人以为
+// 装配完就有人干活。
+var RolesWithExecutor = map[string]bool{
+	string(dto.RoleKindUser): true,
+	string(dto.RoleKindMain): true,
+	RoleTechlead:             true,
+}
+
+// unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
+func unexecutedRoles(orderRoles []string) []string {
+	out := make([]string, 0, len(orderRoles))
+	for _, name := range orderRoles {
+		if RolesWithExecutor[name] {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }

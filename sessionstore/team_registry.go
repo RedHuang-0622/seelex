@@ -236,6 +236,32 @@ func (router *Router) EnsureRoleSessionWorkspace(projectID, mainSessionID, roleN
 	return created, err
 }
 
+// ReadMessageFloorWorkspace 读主会话 message head 的 floor：当前轮到这里发言的
+// 角色（唯一写者 = sequencer，随 message head 原子发布）。Agent Team 面板的
+// floor 高亮由此而来——数据一直在 message head 里，缺的只是出口。
+//
+// 空值语义：会话还没发生过一次角色 draft sync（或工程解析为空、目录不存在）时
+// 返回 nil，不报错（"还没有人发言"是正常状态，不是故障）。
+func (router *Router) ReadMessageFloorWorkspace(projectID, sessionID string) (*Floor, error) {
+	var floor *Floor
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: message floor requires session layout")
+		}
+		head, err := layout.layout.readMessageHead(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)})
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		floor = cloneFloor(head.Floor)
+		return nil
+	})
+	return floor, err
+}
+
 // ReadLifecycleOrderWorkspace 读群聊顺序策略（lifecycle head 是运行时权威）。
 // 空值 = 尚未编排过顺序，不是错误。
 func (router *Router) ReadLifecycleOrderWorkspace(projectID, sessionID string) (string, []string, error) {

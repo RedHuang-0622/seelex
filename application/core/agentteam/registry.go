@@ -58,7 +58,14 @@ func (registry *Registry) View(mainSessionID string) (dto.TeamView, error) {
 	if policy == "" {
 		policy = firstNonEmpty(stored.OrderPolicy, dto.DefaultOrderPolicy)
 	}
-	return assembleView(mainSessionID, stored, policy, orderRoles)
+	view, err := assembleView(mainSessionID, stored, policy, orderRoles)
+	if err != nil {
+		return dto.TeamView{}, err
+	}
+	// floor 是运行态事实（message head），每次读视图都重新取值——不落盘、不缓存，
+	// 否则前端「floor 高亮」会停在装配那一刻。
+	applyFloor(registry.port, mainSessionID, &view)
+	return view, nil
 }
 
 // PutRole 新增或覆盖一个角色配置（按 role_name 幂等）。
@@ -182,7 +189,13 @@ func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []st
 	if err := registry.port.SetLifecycleOrder(mainSessionID, spec.OrderPolicy, spec.OrderRoles); err != nil {
 		return dto.TeamView{}, err
 	}
-	return assembleView(mainSessionID, stored, spec.OrderPolicy, spec.OrderRoles)
+	view, err := assembleView(mainSessionID, stored, spec.OrderPolicy, spec.OrderRoles)
+	if err != nil {
+		return dto.TeamView{}, err
+	}
+	// 与 View 同口径：顺序设置的回执视图也带 floor（前端据此重绘高亮）。
+	applyFloor(registry.port, mainSessionID, &view)
+	return view, nil
 }
 
 func firstNonEmpty(values ...string) string {

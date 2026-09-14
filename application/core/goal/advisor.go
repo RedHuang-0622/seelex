@@ -9,7 +9,8 @@ package goal
 //	EXEC(a)  = Controller + Supervisor 事件登记（a 事件账本水位 execSeq 单调，turn 仅推进水位不帧化）
 //	ADVISOR(b) = AdvisorSession：独立上下文 = 锚点帧(goal.start) + 追加帧（ref_seq 单调, 只尾部追加）
 //	            + b 自身回合段 selfRounds（= 用户例子中 b 的 6(b)）
-//	b 回合输入 = b 上下文自身渲染（不含 a 实时转录/尾窗）→ 前缀稳定 + 只尾部追加
+//	b 回合输入 = b 上下文自身渲染（锚点 + 帧（含 EXEC 的 work.progress 工作进展帧）
+//	          + 自身回合记忆）→ 前缀稳定 + 只尾部追加
 //	          ⇒ 相邻回合输入公共前缀记 cached_input_tokens → 命中回升可观测（协议 §2 C1-C5）
 //	b→a 产物 = corr 信封指令（幂等队列，受信注入 a，不回写 goal 共享状态）
 //	B4 铁律 = a 永不等待 b：回合失败（429/超时）→ gate 按缺席矩阵（low 放行 / high escalate）
@@ -38,6 +39,7 @@ type FrameKind string
 const (
 	FrameGoalStart         FrameKind = "goal.start"         // 锚点：goal 域创建时快照（必进）
 	FrameGoalUpdated       FrameKind = "goal.update"        // 目标更新（按策略进）
+	FrameWorkProgress      FrameKind = "work.progress"      // EXEC 本轮工作正文（turn_completed 带 detail，回合前抽帧）
 	FrameStepCheckpoint    FrameKind = "tool.checkpoint"    // 里程碑/打点（推荐进）
 	FrameContextCompacted  FrameKind = "context.compacted"  // a 上下文压缩（必进，防遗忘）
 	FrameApprovalRequested FrameKind = "approval.requested" // 审批预筛（按策略进）
@@ -45,8 +47,9 @@ const (
 )
 
 var validFrameKinds = map[FrameKind]bool{
-	FrameGoalStart: true, FrameGoalUpdated: true, FrameStepCheckpoint: true,
-	FrameContextCompacted: true, FrameApprovalRequested: true, FrameTerminalProposed: true,
+	FrameGoalStart: true, FrameGoalUpdated: true, FrameWorkProgress: true,
+	FrameStepCheckpoint: true, FrameContextCompacted: true,
+	FrameApprovalRequested: true, FrameTerminalProposed: true,
 }
 
 // Frame 是 a→b 同步单元（协议 §3/§4 信封子集；ref_seq = 基于 a 事件水位）。

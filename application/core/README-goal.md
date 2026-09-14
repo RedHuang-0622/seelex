@@ -21,7 +21,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (g *goalCoordinator) ProposeFinish(ctx context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)` — ProposeFinish 送终态 gate（TL 缺席时 OutcomeNoTL 直连收口；B4）。
 - `func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal goaldomain.TLEvalSignal) error` — Notify 登记 a 事件（exec 账本；触发策略见 Supervisor）。
 - `func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error)` — Next 推进治理循环一轮（惰性装配 EXEC+ADVISOR 双座位；返回 false = 收束）。
-- `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID string) error` — AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
+- `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error` — AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
 - `func (g *goalCoordinator) newGovernor(runtime *goalSessionRuntime) govern.Governor` — newGovernor 装配 EXEC+ADVISOR 双座位（EXEC 由外部 ChatStream 驱动，
 - `func (g *goalCoordinator) Break(_ context.Context, sessionID, reason string) error` — Break 外部中断治理循环（无 Governor 时报错，对齐 headless 未装配语义）。
 - `func (g *goalCoordinator) setEvaluator(evaluator goaldomain.TLEvaluator)` — setEvaluator 装配/替换 TL 评估器：更新后续会话 bundle 构造输入，并为已
@@ -97,3 +97,18 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (s *teamRecordingSessions) ListRoleSessions(string) ([]string, error)`
 - `func TestGoalBeginMaterializesGoalAgentTeam(t *testing.T)` — TestGoalBeginMaterializesGoalAgentTeam 钉住 goal → AgentTeam 接线：创建 goal
 - `func TestGoalBeginWithoutTeamStorageIsBestEffort(t *testing.T)` — TestGoalBeginWithoutTeamStorageIsBestEffort 钉住降级语义：宿主没有团队存储
+
+### goal_work_summary.go
+
+- `func (service *Service) goalTurnWorkSummary(sessionID string) string` — goalTurnWorkSummary 读目标会话的可见投影，返回本轮 EXEC 工作摘要（有界）。
+- `func summarizeTurnWork(messages []Message) string` — summarizeTurnWork 抽取本轮（最后一条 user 行之后）的 EXEC 产出摘要。
+- `func oneLine(text string) string` — oneLine 压掉换行/连续空白（Detail 是"有界一句话"，不是多行正文）。
+- `func truncateRunes(text string, max int) string` — truncateRunes 按 rune 截断（中文不被切半）。
+
+### goal_work_summary_test.go
+
+- `func TestSummarizeTurnWorkKeepsCurrentTurnOnly(t *testing.T)` — TestSummarizeTurnWorkKeepsCurrentTurnOnly 钉住"只取最后一条 user 行之后"：
+- `func TestSummarizeTurnWorkIsBounded(t *testing.T)` — TestSummarizeTurnWorkIsBounded 钉住有界：Detail 上限由 goal 域
+- `func (e *capturingTLEvaluator) Evaluate(_ context.Context, embed goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
+- `func TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor(t *testing.T)` — TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor 是端到端接线用例：
+- `func TestGoalAdvanceAfterChatWithoutWorkContentStaysQuiet(t *testing.T)` — TestGoalAdvanceAfterChatWithoutWorkContentStaysQuiet 钉住降级：会话没有可摘要

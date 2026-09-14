@@ -6,7 +6,9 @@ package goal
 // 重建 goal 帧 + SetSessionTail 喂 a 尾窗 + AppendDirective 把 TL 摘要写回 goal 共享指令环）：
 //
 //	Supervisor = goal 域内的 PeerSessionManager（详设 §4）：EXEC(a) 侧唯一编排者
-//	  - execSeq    : a 事件账本水位（turn/checkpoint/goal_update 均登记；turn 跳帧不帧化）
+//	  - execSeq    : a 事件账本水位（turn/checkpoint/goal_update 均登记；turn 跳帧不帧化，
+//	                 但 turn_completed 携带 Detail 时该摘要进待抽帧缓冲，回合前抽成
+//	                 work.progress 帧下发，b 因此看得到 EXEC 干的活）
 //	  - AdvisorSession(b)：独立上下文（锚点 + 帧账本 + 自身回合段），只尾部追加
 //	  - Mirror on_eval：b 回合前把区间内抽帧集一次性 append（协议 C3/C5）
 //	  - DirectiveBus = TechLeaderMailbox：b→a corr 信封队列（cap MaxDirectiveQueue，幂等 drain）
@@ -20,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -116,13 +119,21 @@ type Supervisor struct {
 
 	advisor *AdvisorSession // b（懒 bind：首次回合/快照前创建）
 
-	execSeq            uint64 // a 事件账本水位（EXEC 唯一账本源，协议 §7.1）
-	lastSyncedProgress int    // 控制器增量补帧游标（progress 条数；headless goal_update 无接线时的差异帧）
+	execSeq            uint64         // a 事件账本水位（EXEC 唯一账本源，协议 §7.1）
+	lastSyncedProgress int            // 控制器增量补帧游标（progress 条数；headless goal_update 无接线时的差异帧）
+	pendingWork        []workProgress // 待抽帧的 EXEC 工作进展（turn_completed.Detail；回合前 flush，见 MaxWorkFrames）
 
 	turnsSinceEval int
 	evalCount      int64
 	lastEvalAt     int64
 	lastEvalGoalID string
+}
+
+// workProgress 是一条待抽帧的 EXEC 工作进展（ref_seq 在 flush 时按水位分配）。
+type workProgress struct {
+	Source string
+	Detail string
+	At     int64
 }
 
 // TLRoundRecord 是一次 b 回合的原文（上下文 = 送给 b 的原文；输出 = b 的原始回答）。
@@ -222,6 +233,8 @@ func (s *Supervisor) advisorForLocked(active *GoalRecord) *AdvisorSession {
 
 // Notify 登记一条 a 事件（EXEC 账本）并按触发策略决定是否自动执行 b 回合。
 //   - turn_completed：推进水位、不帧化、不评估（用户例子中 a:6,7 而 b 不动的跳帧）；
+//     携带 Detail（本轮 EXEC 工作正文摘要）时先入待抽帧缓冲，b 下次回合前作为
+//     work.progress 帧下发——b 因此能看到 EXEC 干的活，而不只是目标陈述。
 //   - goal_updated：推进水位、不评估（差异帧在下个回合前补帧）；
 //   - step_checkpoint：受 eval_window 抑制；到窗即回合；
 //   - 关键信号（compacted/budget/approval/terminal）：立即回合。
@@ -242,7 +255,53 @@ func (s *Supervisor) Notify(ctx context.Context, signal TLEvalSignal) error {
 	if s.advisor != nil {
 		s.advisor.Head = s.execSeq
 	}
+	if signal.Kind == SignalTurnCompleted {
+		s.noteWorkProgressLocked(signal)
+	}
 	return s.maybeAutoEvalLocked(ctx, signal)
+}
+
+// noteWorkProgressLocked 把 turn_completed 的工作正文摘要入待抽帧缓冲（调用方
+// 持 s.mu）。同一内容连续上报只保留一条（iteration_complete 与 chat_end 会报
+// 同一轮），缓冲超过 MaxWorkFrames 丢最旧——b 上下文按帧数有界。
+func (s *Supervisor) noteWorkProgressLocked(signal TLEvalSignal) {
+	detail := strings.TrimSpace(signal.Detail)
+	if detail == "" {
+		return
+	}
+	if n := len(s.pendingWork); n > 0 && s.pendingWork[n-1].Detail == detail {
+		s.pendingWork[n-1].At = signal.At
+		return
+	}
+	s.pendingWork = append(s.pendingWork, workProgress{Source: signal.Source, Detail: detail, At: signal.At})
+	if len(s.pendingWork) > MaxWorkFrames {
+		s.pendingWork = append([]workProgress(nil), s.pendingWork[len(s.pendingWork)-MaxWorkFrames:]...)
+	}
+}
+
+// flushWorkProgressLocked 在 b 回合前把缓冲的 EXEC 工作进展一次性抽成
+// work.progress 帧（ref_seq 按 execSeq 水位单调分配）。调用方持 s.mu。
+func (s *Supervisor) flushWorkProgressLocked(peer *AdvisorSession, now int64) error {
+	if len(s.pendingWork) == 0 {
+		return nil
+	}
+	pending := s.pendingWork
+	s.pendingWork = nil
+	for _, item := range pending {
+		s.execSeq++
+		peer.Head = s.execSeq
+		at := item.At
+		if at <= 0 {
+			at = now
+		}
+		if _, err := peer.appendFrame(Frame{
+			Kind: FrameWorkProgress, RefSeq: s.execSeq, At: at,
+			Source: item.Source, Detail: item.Detail,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Supervisor) maybeAutoEvalLocked(ctx context.Context, signal TLEvalSignal) error {
@@ -287,6 +346,11 @@ func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal 
 
 	// 1) 补 a 差异帧（on_eval：一次性同步区间内抽帧集）。
 	if err := s.syncControllerDiffFramesLocked(peer, active, now); err != nil {
+		return TLDirective{}, err
+	}
+	// 1.5) 补 a 工作进展帧（turn_completed.Detail）：b 的输入因此包含 EXEC 实际
+	// 干了什么（正文摘要/工具名），而不是只有目标陈述与打点。
+	if err := s.flushWorkProgressLocked(peer, now); err != nil {
 		return TLDirective{}, err
 	}
 	// 2) 触发帧（本回合为何而评）。
