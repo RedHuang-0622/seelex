@@ -1,4 +1,4 @@
-import { escapeHtml, hydrateIcons, icon } from "./components.js";
+import { escapeHtml, hydrateIcons, icon, queueMoveTarget } from "./components.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { createConversationView } from "./conversation-view.js";
@@ -590,6 +590,48 @@ async function refreshPromptInjection() {
     promptLayersCache = [];
   }
   renderTrajectory(client.current());
+}
+
+// 队列条目的编辑动作（上移 / 下移 / 撤回编辑）：三处动作都只带下标，顺序
+// 事实源在后端会话队列（application/service_queue.go），渲染层不自行改本地
+// 顺序——成功后统一 refresh 拉权威快照，失败把后端错误原样提示。
+elements.conversation.addEventListener("click", async event => {
+  const button = event.target.closest?.("[data-queue-action]");
+  if (!button || button.disabled) return;
+  event.preventDefault();
+  const sessionID = client.current()?.session?.id || "";
+  const index = Number(button.dataset.queueIndex);
+  button.disabled = true;
+  try {
+    if (button.dataset.queueAction === "recall") {
+      const text = await invoke("RecallQueuedInput", sessionID, index);
+      recallQueuedInput(text);
+    } else {
+      const length = (client.current()?.chat?.input_queue || []).length;
+      const target = queueMoveTarget(button.dataset.queueAction, index, length);
+      if (!target) return;
+      await invoke("ReorderQueuedInput", sessionID, target.from, target.to);
+    }
+    await refresh({ scroll: "auto" });
+  } catch (error) {
+    showToast(error);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+// recallQueuedInput 把撤回的排队原文交还输入框重新编辑：输入框已有未发送
+// 正文时把撤回内容追加在后（不覆盖用户草稿），随后聚焦并把光标放到末尾。
+function recallQueuedInput(text) {
+  const recalled = String(text ?? "");
+  if (!recalled) return;
+  const existing = elements.prompt.value;
+  elements.prompt.value = existing.trim() ? `${existing.trimEnd()}\n${recalled}` : recalled;
+  hideInlineSuggestions();
+  resizePrompt();
+  scheduleComposerSave();
+  elements.prompt.focus();
+  elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
 }
 
 // 聊天区「一行带过」的思考/工具 chip 点击 → 切到轨迹子页并定位对应记录。

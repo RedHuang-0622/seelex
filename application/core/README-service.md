@@ -263,6 +263,25 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestHandleSubagentToolEventProjectsBoundedIncrementals(t *testing.T)`
 - `func TestToolHookBridgeAssignsUniqueStableIDs(t *testing.T)`
 
+### service_queue.go
+
+- `func (service *Service) ReorderQueuedInput(sessionID string, from, to int) error` — ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
+- `func (service *Service) RecallQueuedInput(sessionID string, index int) (string, error)` — RecallQueuedInput 把目标会话排队输入中 index 位置的条目撤回（出队）并返回
+- `func (service *Service) queueEditGuardLocked() error` — queueEditGuardLocked 是队列编辑的关闭/排空门禁（与 Submit 同口径）。
+- `func (service *Service) queuedInputUnitLocked(sessionID string) (*session.SessionUnit, error)` — queuedInputUnitLocked 解析队列编辑的目标会话单元（调用方持有 Core.ViewMu）。
+- `func (service *Service) applyQueueEditLocked(unit *session.SessionUnit)` — applyQueueEditLocked 在队列编辑成功后重投影该会话的 ChatState.InputQueue /
+
+### service_queue_test.go
+
+- `func startBlockingChat(t *testing.T) (*Service, *blockingEngine)` — startBlockingChat 启动一个阻塞中的回合（返回可在测试里显式放开的引擎）。
+- `func enqueueQueuedInputs(t *testing.T, service *Service, inputs ...string)` — enqueueQueuedInputs 在运行中的会话里排队若干输入（按给定顺序）。
+- `func TestReorderQueuedInputReordersVisibleQueue(t *testing.T)` — TestReorderQueuedInputReordersVisibleQueue 调换排队顺序：可见投影
+- `func TestReorderQueuedInputDrivesPromotedBatchOrder(t *testing.T)` — TestReorderQueuedInputDrivesPromotedBatchOrder 调换后的顺序决定下一轮
+- `func TestRecallQueuedInputPopsEntryAndReturnsText(t *testing.T)` — TestRecallQueuedInputPopsEntryAndReturnsText 撤回 = 出队 + 交还展示原文：
+- `func TestQueueEditErrorSemantics(t *testing.T)` — TestQueueEditErrorSemantics 越界 / 非运行态 / 会话不存在都有明确错误。
+- `func TestQueueEditErrorsBeforeAnySession(t *testing.T)` — TestQueueEditErrorsBeforeAnySession 进程还没有任何会话单元时，视图会话按
+- `func TestConcurrentRecallQueuedInput(t *testing.T)` — TestConcurrentRecallQueuedInput（-race）并发撤回同一会话：撤回与 Enqueue /
+
 ### service_scheduler.go
 
 - `func (service *Service) ScheduleTask(ctx context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error)` — ScheduleTask 创建并启动一个定时/周期任务（校验在 Runtime 调度器内完成）。

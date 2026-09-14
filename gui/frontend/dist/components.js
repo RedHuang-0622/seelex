@@ -22,6 +22,9 @@ const ICONS = {
   check: '<path d="m5 12 4 4L19 6"/>',
   error: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>',
   grip: '<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>',
+  "arrow-up": '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  "arrow-down": '<path d="M12 5v14M5 12l7 7 7-7"/>',
+  recall: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.5 6h4a5.5 5.5 0 0 1 3 5v-0.5a5.5 5.5 0 0 1-3 5h-4"/>'
 };
 
@@ -91,12 +94,40 @@ export function renderChatActivity(chat = {}) {
     <span class="runtime-pulse" aria-hidden="true"><i></i><i></i><i></i></span>
   </section>` : "";
   const queued = queue.length ? `<section class="message-queue" aria-label="等待发送的消息">
-    ${queue.map((input, index) => `<article class="queued-message">
-      <header><span>${icon("message", 13)}</span><strong>排队 ${String(index + 1).padStart(2, "0")}</strong><small>等待</small></header>
-      <div class="queued-message-body">${markdown(input)}</div>
-    </article>`).join("")}
+    ${queue.map((input, index) => renderQueuedMessage(input, index, queue.length)).join("")}
   </section>` : "";
   return loader + queued;
+}
+
+// renderQueuedMessage 渲染一条排队输入卡片：正文 + 三个编辑动作（上移 /
+// 下移 / 撤回编辑）。动作按钮只携带纯数据（data-queue-action/index），由
+// 渲染层（app.js）统一委托到 Bridge，组件本身不持有 invoke 依赖。
+function renderQueuedMessage(input, index, length) {
+  const label = String(index + 1).padStart(2, "0");
+  const move = (action, disabled) => `<button type="button" class="queue-action" data-queue-action="${action}" data-queue-index="${index}"
+        title="${action === "up" ? "上移" : "下移"}" aria-label="${action === "up" ? "上移" : "下移"}排队 ${label}"${disabled ? " disabled" : ""}>${icon(action === "up" ? "arrow-up" : "arrow-down", 13)}</button>`;
+  return `<article class="queued-message" data-queue-index="${index}">
+      <header><span>${icon("message", 13)}</span><strong>排队 ${label}</strong><small>等待</small>
+        <span class="queued-message-actions">
+          ${move("up", index === 0)}
+          ${move("down", index === length - 1)}
+          <button type="button" class="queue-action" data-queue-action="recall" data-queue-index="${index}"
+            title="撤回编辑" aria-label="撤回排队 ${label} 到输入框">${icon("recall", 13)}</button>
+        </span>
+      </header>
+      <div class="queued-message-body">${markdown(input)}</div>
+    </article>`;
+}
+
+// queueMoveTarget 把队列条目的 ↑/↓ 动作映射为一次调换（from → to）。边界
+// 动作（首行上移 / 末行下移）与非法下标返回 null——与渲染层按钮 disabled
+// 的判定同源，渲染层与测试共用这一份规则。
+export function queueMoveTarget(action, index, length) {
+  if (action !== "up" && action !== "down") return null;
+  if (!Number.isInteger(index) || index < 0 || index >= length) return null;
+  const to = action === "up" ? index - 1 : index + 1;
+  if (to < 0 || to >= length) return null;
+  return { from: index, to };
 }
 
 export function buildConversationItems(messages = []) {

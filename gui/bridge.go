@@ -118,6 +118,18 @@ type replayAwareApplication interface {
 	SubscribeSessionWithReplay(sessionID string, buffer, replayWindow int) (application.Subscription, error)
 }
 
+// queueAwareApplication 是 Application 的可选排队输入编辑面：调换排队顺序 +
+// 撤回到输入框。只作用于「排队中」的输入（回合运行期间的队列），不触碰正在
+// 运行的回合；未装配时 Bridge 方法返回可展示错误，不静默退化。
+type queueAwareApplication interface {
+	// ReorderQueuedInput 把目标会话排队输入中 from 位置的条目移动到 to 位置
+	//（空 sessionID = 当前视图会话）。
+	ReorderQueuedInput(sessionID string, from, to int) error
+	// RecallQueuedInput 撤回目标会话的一条排队输入并返回其展示原文（引擎侧
+	// 载荷随条目丢弃）。
+	RecallQueuedInput(sessionID string, index int) (string, error)
+}
+
 // agentTeamApplication 是 Application 的 A2A 角色管理可选扩展面（状态 →
 // Agent Team 子页数据源）。全部走 application/contract 纯 DTO；未装配时
 // Bridge 的方法返回可展示错误，不静默退化。
@@ -148,6 +160,7 @@ var (
 	_ sessionAwareApplication = (*application.Service)(nil)
 	_ replayAwareApplication  = (*application.Service)(nil)
 	_ agentTeamApplication    = (*application.Service)(nil)
+	_ queueAwareApplication   = (*application.Service)(nil)
 )
 
 // EventEmitter receives Application events after the Bridge has adapted them
@@ -722,6 +735,28 @@ func (bridge *Bridge) SubmitToSession(sessionID, text string) error {
 		return errors.New("session-scoped API is not supported by the application")
 	}
 	return app.SubmitToSession(bridge.requestContext(), sessionID, text)
+}
+
+// ReorderQueuedInput 调换目标会话排队输入的顺序（队列条目的 ↑/↓ 操作）。
+// 只作用于排队中的输入；越界/非运行态/会话不存在由 application 层给出明确
+// 错误，Bridge 只做透传（空 sessionID = 当前视图会话）。
+func (bridge *Bridge) ReorderQueuedInput(sessionID string, from, to int) error {
+	app, ok := bridge.app.(queueAwareApplication)
+	if !ok {
+		return errors.New("queued input editing is not supported by the application")
+	}
+	return app.ReorderQueuedInput(sessionID, from, to)
+}
+
+// RecallQueuedInput 撤回目标会话的一条排队输入，返回其展示原文（渲染层把
+// 原文写回 composer 重新编辑）。只作用于排队中的输入；越界/非运行态/会话
+// 不存在由 application 层给出明确错误，Bridge 只做透传。
+func (bridge *Bridge) RecallQueuedInput(sessionID string, index int) (string, error) {
+	app, ok := bridge.app.(queueAwareApplication)
+	if !ok {
+		return "", errors.New("queued input editing is not supported by the application")
+	}
+	return app.RecallQueuedInput(sessionID, index)
 }
 
 // ActivateSession 切换指定会话为当前会话（M1：切换即恢复，运行中拒绝）。

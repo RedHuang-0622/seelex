@@ -212,8 +212,13 @@ func (model Model) renderQueue() string {
 	if len(queue) == 0 {
 		return ""
 	}
+	hint := "  ·  Alt+Q 编辑"
+	if model.queueFocus {
+		hint = "  ·  ↑↓ 选择 · Shift+↑↓ 调换 · Alt+R 撤回 · Esc 退出"
+	}
+	selected := model.queueSelection()
 	var b strings.Builder
-	b.WriteString(StyleMuted.Render("  queue:"))
+	b.WriteString(StyleMuted.Render("  queue:" + hint))
 	b.WriteString("\n")
 	for i, q := range queue {
 		line := fmt.Sprintf("  %d. ", i+1)
@@ -221,7 +226,17 @@ func (model Model) renderQueue() string {
 		if len(disp) > 60 {
 			disp = disp[:60] + "..."
 		}
-		b.WriteString(StyleMuted.Render(line + disp))
+		if !model.queueFocus {
+			b.WriteString(StyleMuted.Render(line + disp))
+			b.WriteString("\n")
+			continue
+		}
+		prefix, style := "  ", StyleChoiceInactive
+		if i == selected {
+			prefix, style = " ▸ ", StyleChoiceActive
+		}
+		// 选中行高亮，同时保留与只读态一致的行首缩进（3 列）。
+		b.WriteString(style.Render(prefix + fmt.Sprintf("%d. ", i+1) + disp))
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -263,8 +278,11 @@ func (model Model) renderInteraction() string {
 	return builder.String()
 }
 
-func (Model) renderShortcuts() string {
+func (model Model) renderShortcuts() string {
 	items := []string{"Ctrl+C copy", "Ctrl+V paste", "Alt+E effort", "Ctrl+Q quit", "drag select"}
+	if model.snapshot.Chat.Running {
+		items = []string{"Ctrl+C stop", "Alt+Q queue", "Alt+E effort", "Ctrl+Q quit"}
+	}
 	var builder strings.Builder
 	for index, item := range items {
 		if index > 0 {

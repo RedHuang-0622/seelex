@@ -462,6 +462,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .queued-message { overflow: hidden; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); background: var(--surface-glass); animation: queue-enter var(--dur-fast) var(--ease-out); }
 .queued-message header { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 5px 9px; border-bottom: 1px solid var(--border); color: var(--faint); font: 700 10.5px var(--font-mono); letter-spacing: .1em; }
 .queued-message header small { margin-left: auto; color: var(--status-running); font: inherit; }
+.queued-message-actions { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
+.queue-action { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: var(--r-sm); background: transparent; color: var(--faint); font: inherit; cursor: pointer; }
+.queue-action:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); background: var(--surface-2); }
+.queue-action:disabled { opacity: .3; cursor: default; }
+.queue-action[data-queue-action="recall"]:hover:not(:disabled) { color: var(--status-running); }
 .queued-message-body { max-height: 140px; padding: 9px 11px; overflow: auto; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
 .queued-message-body > :first-child { margin-top: 0; }
 .queued-message-body > :last-child { margin-bottom: 0; }

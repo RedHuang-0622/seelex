@@ -11,6 +11,20 @@ for this stabilization batch.
 
 ## [Unreleased]
 
+### Added
+
+- Queued input editing: while a turn is running, the GUI/TUI queue entries now
+  offer reorder (move up / move down) and "recall to composer" actions. Recall
+  pops the entry from the session queue (dropping its engine-side payload) and
+  returns the original display text to the input box for editing; reordering
+  changes the position only (`seq` identity is preserved) and both operations
+  run under the same `Core.ViewMu` serialization as enqueue/promotion, so the
+  running turn itself is never touched. New application API:
+  `Service.ReorderQueuedInput` / `Service.RecallQueuedInput` (with explicit
+  `ErrQueueNotRunning` / `ErrQueueIndexOutOfRange` / `ErrQueueSessionNotFound`
+  semantics), bridged to the GUI as `Bridge.ReorderQueuedInput` /
+  `Bridge.RecallQueuedInput`.
+
 ### Changed
 
 - Rebuilt the conversation timeline wheel as a real minimap: one line per

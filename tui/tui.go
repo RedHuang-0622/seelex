@@ -33,6 +33,17 @@ type AppController interface {
 	LoadLatestHistory() error
 }
 
+// queueController 是 AppController 的可选排队输入编辑面（调换顺序 / 撤回
+// 到输入框）。只在回合运行期间生效（队列只承载运行中接受的输入）；未实现时
+// 队列编辑按键给出明确提示，不静默改本地顺序。
+type queueController interface {
+	// ReorderQueuedInput 把排队输入从 from 位置移动到 to 位置（空 sessionID
+	// = 当前视图会话）。
+	ReorderQueuedInput(sessionID string, from, to int) error
+	// RecallQueuedInput 撤回一条排队输入并返回其展示原文。
+	RecallQueuedInput(sessionID string, index int) (string, error)
+}
+
 const maxPasteChars = 200 // 超过此字符数视为粘贴
 
 type Model struct {
@@ -59,6 +70,8 @@ type Model struct {
 	pasteBuffer    string    // 折叠粘贴时暂存真实内容
 	pasteSeq       int       // 折叠计数器
 	lastKeyTime    time.Time // 上次按键时间，用于检测粘贴爆发
+	queueFocus     bool      // 队列焦点：按键改走队列编辑（↑↓ 选择 / Shift+↑↓ 调换 / Alt+R 撤回）
+	queueSel       int       // 队列焦点下的选中行
 }
 
 func NewModel(app AppController) Model {
@@ -113,6 +126,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.snapshot.Chat.Running {
 			return model, tea.Batch(waitApplicationEvent(model.subscription), tickEvery(3*time.Second))
 		}
+		model.queueFocus = false
 		return model, waitApplicationEvent(model.subscription)
 	case tickMsg:
 		model.snapshot = model.app.Snapshot()
@@ -120,6 +134,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.snapshot.Chat.Running {
 			return model, tickEvery(3 * time.Second)
 		}
+		model.queueFocus = false
 		return model, nil
 	case submitResultMsg:
 		if message.err != nil {
@@ -157,6 +172,14 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model.handleInteractionKey(message)
 	}
 	if model.snapshot.Chat.Running {
+		if model.queueFocus {
+			if handled, updated, command := model.handleQueueKey(message); handled {
+				return updated, command
+			}
+			// 未识别按键：先退出队列焦点，再按常规运行态处理——Ctrl+C 这类
+			// 全局键不被焦点吞掉。
+			model.queueFocus = false
+		}
 		switch message.String() {
 		case "ctrl+c":
 			model.app.CancelChat(model.snapshot.Chat.RequestID)
@@ -165,6 +188,15 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return model, func() tea.Msg {
 				return submitResultMsg{err: model.app.SwitchEffort(context.Background(), "cycle")}
 			}
+		case "alt+q":
+			if len(model.snapshot.Chat.InputQueue) == 0 {
+				model.uiError = "当前没有排队中的输入"
+				return model, nil
+			}
+			model.queueFocus = true
+			model.queueSel = 0
+			model.uiError = ""
+			return model, nil
 		case "enter":
 			if model.checkPaste() {
 				return model, nil
@@ -283,6 +315,95 @@ func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		model.afterInput()
 		return model, command
 	}
+}
+
+// handleQueueKey 处理「队列焦点」下的按键。handled=false 表示该键不属于队列
+// 编辑面，调用方退出焦点后按常规运行态继续处理。
+func (model Model) handleQueueKey(message tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
+	queue := model.snapshot.Chat.InputQueue
+	if len(queue) == 0 {
+		model.queueFocus = false
+		return true, model, nil
+	}
+	selected := model.queueSelection()
+	switch message.String() {
+	case "esc", "alt+q":
+		model.queueFocus = false
+		return true, model, nil
+	case "up":
+		model.queueSel = max(selected-1, 0)
+		return true, model, nil
+	case "down":
+		model.queueSel = min(selected+1, len(queue)-1)
+		return true, model, nil
+	case "shift+up":
+		updated, command := model.reorderQueued(selected, selected-1)
+		return true, updated, command
+	case "shift+down":
+		updated, command := model.reorderQueued(selected, selected+1)
+		return true, updated, command
+	case "alt+r":
+		updated, command := model.recallQueued(selected)
+		return true, updated, command
+	}
+	return false, model, nil
+}
+
+// reorderQueued 调换排队顺序（from → to）：顺序事实源在后端会话队列，TUI 不
+// 本地重排；成功后选中行跟随被移动的那条。
+func (model Model) reorderQueued(from, to int) (Model, tea.Cmd) {
+	length := len(model.snapshot.Chat.InputQueue)
+	if from < 0 || from >= length || to < 0 || to >= length || from == to {
+		return model, nil
+	}
+	controller, ok := model.app.(queueController)
+	if !ok {
+		model.uiError = "当前前端不支持队列编辑"
+		return model, nil
+	}
+	if err := controller.ReorderQueuedInput(model.snapshot.Session.ID, from, to); err != nil {
+		model.uiError = err.Error()
+		return model, nil
+	}
+	model.queueSel = to
+	model.uiError = ""
+	return model, nil
+}
+
+// recallQueued 撤回排队输入到输入框（原文追加在当前草稿之后，不覆盖），并
+// 退出队列焦点交回文本输入。
+func (model Model) recallQueued(index int) (Model, tea.Cmd) {
+	controller, ok := model.app.(queueController)
+	if !ok {
+		model.uiError = "当前前端不支持队列编辑"
+		return model, nil
+	}
+	text, err := controller.RecallQueuedInput(model.snapshot.Session.ID, index)
+	if err != nil {
+		model.uiError = err.Error()
+		return model, nil
+	}
+	existing := model.textarea.Value()
+	if strings.TrimSpace(existing) != "" && strings.TrimSpace(text) != "" {
+		text = strings.TrimRight(existing, "\n") + "\n" + text
+	} else if strings.TrimSpace(existing) != "" {
+		text = existing
+	}
+	model.textarea.SetValue(text)
+	model.textarea.CursorEnd()
+	model.afterInput()
+	model.queueFocus = false
+	model.uiError = ""
+	return model, nil
+}
+
+// queueSelection 返回队列焦点下的有效选中行（钳到 [0, len-1]）。
+func (model Model) queueSelection() int {
+	length := len(model.snapshot.Chat.InputQueue)
+	if length == 0 {
+		return 0
+	}
+	return min(max(model.queueSel, 0), length-1)
 }
 
 // copyLastResponse 复制最后一条 assistant 回复到系统剪贴板。

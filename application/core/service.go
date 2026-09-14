@@ -28,6 +28,13 @@ var (
 	ErrSessionSnapshotUnavailable = errors.New("session snapshot unavailable: no resident engine and no persisted record")
 	// ErrEmptySearchQuery 是历史检索空查询拒绝（检索必须有关键词）。
 	ErrEmptySearchQuery = errors.New("search_history: query is required")
+	// ErrQueueNotRunning 表示目标会话当前没有运行中的回合，因此不存在可
+	// 调换/撤回的「排队中」输入（队列只在回合运行期间承接输入）。
+	ErrQueueNotRunning = errors.New("no queued input: session is not running")
+	// ErrQueueIndexOutOfRange 表示调换/撤回的队列下标越界。
+	ErrQueueIndexOutOfRange = errors.New("queued input index out of range")
+	// ErrQueueSessionNotFound 表示目标会话不在会话域注册表中（不存在）。
+	ErrQueueSessionNotFound = errors.New("queue session not found")
 )
 
 // Service is the public application facade. Stateful responsibilities are

@@ -191,3 +191,29 @@ func (unit *SessionUnit) SetRequests(requests []QueuedRequest) {
 		unit.Enqueue(request)
 	}
 }
+
+// RecallRequest 移除并返回指定下标的排队输入（撤回编辑：调用方把
+// DisplayInput 交还输入框，引擎侧 Payload 一并丢弃）。下标越界或 nil 单元
+// 返回 false；载荷无法还原为 QueuedRequest 时以队列文本兜底重建。
+func (unit *SessionUnit) RecallRequest(index int) (QueuedRequest, bool) {
+	if unit == nil || unit.Queue == nil {
+		return QueuedRequest{}, false
+	}
+	item, ok := unit.Queue.RemoveAt(index)
+	if !ok {
+		return QueuedRequest{}, false
+	}
+	if request, ok := item.Payload.(QueuedRequest); ok {
+		return request, true
+	}
+	return QueuedRequest{DisplayInput: item.Text}, true
+}
+
+// ReorderRequests 把 from 下标的排队输入移动到 to 下标（调换排队顺序）。
+// 越界或 nil 单元返回 false；from==to 为成功的空操作。
+func (unit *SessionUnit) ReorderRequests(from, to int) bool {
+	if unit == nil || unit.Queue == nil {
+		return false
+	}
+	return unit.Queue.Move(from, to)
+}

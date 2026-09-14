@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -123,6 +124,44 @@ func (queue *InputQueue) Snapshot() []QueuedInput {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
 	return append([]QueuedInput(nil), queue.items...)
+}
+
+// RemoveAt 移除并返回指定下标的排队输入（撤回编辑用；载荷随元素一起返回，
+// 调用方负责丢弃或复用）。下标越界或 nil 队列返回 false，不 panic。
+func (queue *InputQueue) RemoveAt(index int) (QueuedInput, bool) {
+	if queue == nil {
+		return QueuedInput{}, false
+	}
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	if index < 0 || index >= len(queue.items) {
+		return QueuedInput{}, false
+	}
+	item := queue.items[index]
+	queue.items = append(queue.items[:index], queue.items[index+1:]...)
+	return item, true
+}
+
+// Move 把 from 下标的输入移动到 to 下标（调换排队顺序；等价于先删除 from
+// 再插入到 to 位置——from<to 时前置元素左移，from>to 时后置元素右移）。Seq
+// 是入队时分配的元素身份，随元素一起移动、不重排号；队列位置只由切片顺序
+// 表达。任一越界或 nil 队列返回 false；from==to 视为成功的空操作。
+func (queue *InputQueue) Move(from, to int) bool {
+	if queue == nil {
+		return false
+	}
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	length := len(queue.items)
+	if from < 0 || from >= length || to < 0 || to >= length {
+		return false
+	}
+	if from == to {
+		return true
+	}
+	moved := queue.items[from]
+	queue.items = slices.Insert(slices.Delete(queue.items, from, from+1), to, moved)
+	return true
 }
 
 // EnginePort 是引擎/loop 能力端口（会话性归 Seele，seelebridge 实现）。
