@@ -290,6 +290,10 @@ const conversationView = createConversationView(elements.conversation, {
   copyText: value => navigator.clipboard.writeText(value),
   notify: showToast,
   loadMore: loadOlderHistory,
+  // 右侧全量用户输入索引：刻度数据面由 refreshInputIndex 推入，点击尚未加载
+  // 的刻度时经本通道按页回读再定位（见 locateInputByReadBack；未装配时轮轴
+  // 只提示，不静默空转）。
+  locateInput: locateInputByReadBack,
   loadResultRef: async (ref, offset, limit) => {
     try {
       return await invoke("ToolResultContent", ref, offset, limit);
@@ -497,6 +501,7 @@ function render(snapshot, options = {}) {
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
   chatView.render(snapshot, options.scrollMode);
+  refreshInputIndex(snapshot);
   renderTrajectory(snapshot);
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
   renderWorkTable(snapshot.runtime?.work_table, snapshot.runtime?.work_table_batches);
@@ -516,6 +521,8 @@ function renderIncremental(snapshot, kind) {
     chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history);
     chatView.renderControls(snapshot);
     renderTrajectory(snapshot);
+    // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。
+    if (kind === "message.added") refreshInputIndex(snapshot);
     if (kind !== "message.delta") renderProject(snapshot);
     // 会话类页面不可见时强制隐藏会话专属悬浮件（空态/加载更早/输入框）。
     syncSessionChrome();
@@ -2013,6 +2020,49 @@ elements["stop-button"].addEventListener("click", async () => {
   catch (error) { showToast(error); }
   finally { elements["stop-button"].disabled = false; }
 });
+
+// ── 右侧索引（会话内全量用户输入）数据面与回读通道 ─────────────────────
+// 刻度来自后端全量索引（Bridge.SessionInputIndex）：只索引用户输入、覆盖整
+// 会话（含尚未加载到窗口的早期轮次），且只带摘要不带正文。索引不进 Snapshot，
+// 所以按「视图会话 + 已加载窗口形状」做指纹去重：指纹没变不重复拉取，会话已
+// 切走的迟到响应直接丢弃（避免旧会话刻度盖到新会话上）。
+let inputIndexSignature = "";
+let inputIndexInFlight = false;
+
+async function refreshInputIndex(snapshot) {
+  const sessionID = snapshot?.session?.id || "";
+  if (!sessionID) {
+    inputIndexSignature = "";
+    conversationView.inputIndex(null);
+    return;
+  }
+  const signature = `${sessionID}:${(snapshot.conversation || []).length}:${snapshot.has_more_history ? 1 : 0}`;
+  if (signature === inputIndexSignature || inputIndexInFlight) return;
+  inputIndexInFlight = true;
+  try {
+    const payload = await invoke("SessionInputIndex", sessionID);
+    if ((client.current()?.session?.id || "") !== sessionID) return;
+    inputIndexSignature = signature;
+    conversationView.inputIndex(payload);
+  } catch (error) {
+    // 索引是增强面：拉取失败退回「窗口内用户行」临时刻度，不打断会话；不记
+    // 指纹，下一次整份渲染会重试。
+    console.warn("[input-index]", error);
+  } finally {
+    inputIndexInFlight = false;
+  }
+}
+
+// locateInputByReadBack 是轮轴的「回读那一页」通道：点击尚未加载的刻度时按
+// 窗口步长把更早历史读进前端，并回答「是否真的多读出一页」——返回 false 让
+// 轮轴停止空翻（已到最早一页 / 回读失败）。几何与刻度表由 loadOlderHistory
+// 内的 refresh 与轮轴自身刷新接手。
+async function locateInputByReadBack() {
+  const before = (client.current()?.conversation || []).length;
+  await loadOlderHistory();
+  const after = (client.current()?.conversation || []).length;
+  return after > before;
+}
 
 // loadOlderHistory 取更早一页（sentinel 自动触发与「加载更早」按钮共用）。
 // limit=0 表示「一整窗」：半页会把窗口与页两个尺寸混在一起（翻一次只多出

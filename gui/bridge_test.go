@@ -1180,6 +1180,44 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		strings.Contains(string(planDsl), "renderNodeWorktree") {
 		t.Fatal("detail modal must not render the removed live/timeline/tools/output/worktree surfaces")
 	}
+	// 轨迹多线谱与上下文轴分页：轨定义集中在 trajectory.AXIS_LANES，轴分页由
+	// 滚轮翻页 + Shift+滚轮换页大小驱动（trajectory-view.js），页大小档位与
+	// 页窗口计算是纯函数（可脱 DOM 单测）。
+	if !strings.Contains(trajectorySource, "AXIS_LANES") ||
+		!strings.Contains(trajectorySource, "AXIS_PAGE_SIZE_STEPS") ||
+		!strings.Contains(trajectorySource, "resolveAxisPage") ||
+		!strings.Contains(trajectorySource, "axisWheelStep") {
+		t.Fatal("trajectory must define axis lanes plus wheel/page-size paging primitives")
+	}
+	trajectoryView, err := embeddedFrontend.ReadFile("frontend/dist/trajectory-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trajectoryViewSource := string(trajectoryView)
+	if !strings.Contains(trajectoryViewSource, `addEventListener("wheel"`) ||
+		!strings.Contains(trajectoryViewSource, "event.shiftKey") ||
+		!strings.Contains(trajectoryViewSource, "stepAxisPageSize") {
+		t.Fatal("context axis must page on wheel and resize the page on Shift+wheel")
+	}
+	// 右侧索引只索引会话内**全量用户输入**：数据面来自 Bridge.SessionInputIndex，
+	// 刻度表只认用户行（旧的多类别刻度归一化已删），点击未加载刻度必须经宿主
+	// 回读通道（locateInput）再定位，不静默空转。
+	if !strings.Contains(string(script), `invoke("SessionInputIndex"`) ||
+		!strings.Contains(string(script), "locateInput: locateInputByReadBack") ||
+		!strings.Contains(string(script), "conversationView.inputIndex(payload)") {
+		t.Fatal("GUI must wire the full-session user-input index and its read-back locator")
+	}
+	wheel, err := embeddedFrontend.ReadFile("frontend/dist/conversation-wheel.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wheelSource := string(wheel)
+	if !strings.Contains(wheelSource, "isUserWheelKind") ||
+		!strings.Contains(wheelSource, "planInputLocate") ||
+		!strings.Contains(wheelSource, "locateInput") ||
+		strings.Contains(wheelSource, "normalizeWheelKind") {
+		t.Fatal("conversation wheel must index user inputs only and plan read-back locating")
+	}
 	// 详情弹窗与会话记录区可调整大小：复用工作表格弹窗的 data-resizable +
 	// .modal-resize-handle 交互；内容按框内宽度自适应（width:100% +
 	// overflow-wrap:anywhere + min-width:0），长行/代码块/URL 不横向溢出。

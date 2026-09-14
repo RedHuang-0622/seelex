@@ -37,10 +37,17 @@
 record 只读基线；`Bridge.GetSessionTranscript(sessionID, fromSeq, toSeq)` 按
 Seq 区间读事件日志（`(0,0)` = 全量）。三者均不要求目标会话加载引擎。
 
-子代理详情新鲜度（G7）：`seelex:subagent_live` 除 stage/tool 外新增
-`assistant` 正文增量事件（节点 Session `ChatStream` 的流式文本分片）；前端
-详情弹窗会话记录由该事件驱动增量渲染，`nodeDetailPollTimer` 2s 轮询已删除
-（`TestEmbeddedFrontendExists` 的禁轮询断言相应启用）。
+子代理详情数据面（G7）：弹窗只保留三块权威面——会话记录 / 上下文 / 功能打点，
+全部来自 `Bridge.SubagentSessionDetail(nodeID)`（`SubagentDetail` 载荷：截断会话
++ 上下文快照 + 工作项打点）。原先驱动「第一视角」的
+`SubagentDetailStreamStart/Stop` + `seelex:subagent_live` 订阅、以及
+`nodeDetailPollTimer` 2s 轮询都已删除（`TestEmbeddedFrontendExists` 的禁流式/
+禁轮询断言相应启用）。
+
+会话内用户输入索引：`Bridge.SessionInputIndex(sessionID)` 返回该会话**全量**
+用户输入索引（seq/round 序号 + 有界摘要 + 是否在当前已加载窗口），轻量零正文
+（不依赖已加载视图，未驻留会话也可用）；前端右侧轨道据此铺满整个会话，点击未
+加载的刻度先经 `LoadMoreHistory` 回读那一页再定位。
 
 relay 只订阅一次 `SubscribeSession("")`（跟随当前视图会话）：会话归属由
 application 在事件投递端判定，Bridge 不保存 `currentSessionID` 副本，渲染层收不到

@@ -119,6 +119,32 @@
 - `func TestResidentLimitKeepsBusySessions(t *testing.T)` — TestResidentLimitKeepsBusySessions 波 4 G6 INV-G8：运行中会话不可驱逐
 - `func TestResidentLimitDefaultSix(t *testing.T)` — TestResidentLimitDefaultSix 默认 resident_limit = 6（INV-G8 口径）。
 
+### content_lru.go
+
+- `func loadedContentLimit(configured int) int` — loadedContentLimit 把配置值收敛为生效上限（<=0 = 未配置 → 默认值）
+- `func (service *Service) touchContent(sessionID string)` — touchContent 记录一次会话可见正文使用（冷加载完成/热挂载/分页读回/回读），并触发超限卸载
+- `func (service *Service) markContentRecentLocked(sessionID string)` — markContentRecentLocked 把会话移到内容 LRU 使用序最前
+- `func (service *Service) forgetContentLocked(sessionID string)` — forgetContentLocked 把会话移出内容 LRU 使用序（正文已卸载）
+- `func (service *Service) pruneContentOrderLocked() int` — pruneContentOrderLocked 收敛使用序并返回当前持有正文的会话数
+- `func (service *Service) reconcileLoadedContentLimit(protect string)` — reconcileLoadedContentLimit 超限时按 LRU 卸载空闲会话的已加载正文（无候选则容忍超限）
+- `func (service *Service) pickContentEvictableCandidateLocked(protect string) string` — pickContentEvictableCandidateLocked 从使用序最旧端挑一个可卸载正文的会话
+- `func (service *Service) evictLoadedContent(sessionID string) error` — evictLoadedContent 卸载一个空闲会话的已加载正文：先 flush 再清空 Conversation 并置 View.ContentUnloaded
+- `func (service *Service) sessionContentLoadedLocked(sessionID string) bool` — sessionContentLoadedLocked 报告目标会话当前是否持有已加载的可见正文
+- `func (service *Service) sessionContentUnloaded(sessionID string) bool` — sessionContentUnloaded 报告目标会话的可见正文是否已被内容 LRU 卸载
+- `func (service *Service) ensureSessionContent(sessionID string) error` — ensureSessionContent 在目标会话正文已被卸载时从磁盘回读（热挂载用）
+- `func (service *Service) reloadSessionContent(sessionID string) error` — reloadSessionContent 冷回读被卸载的可见正文窗口（按保留窗口标志整窗还原）
+
+### content_lru_test.go
+
+- `func withContentLimit(limit int) func()` — withContentLimit 临时把 loaded_content_limit 改成 limit，返回还原函数
+- `type contentState struct` / `func readContentState(...)` — 会话可见正文装载状态（loaded/unloaded/窗口/总数/正文）
+- `func assertContentWindow(t *testing.T, service *Service, sessionID string, offset, count int)` — 断言会话当前持有尾部窗口 offset 起 count 条正文
+- `func TestLoadedContentLimitDefaults(t *testing.T)` — 内容上限默认 12（seelexctx 单一事实源），未配置/非法回落默认
+- `func TestContentLimitEvictsLeastRecentlyUsedIdleContent(t *testing.T)` — 上限 1：冷加载第二个会话时卸载最旧空闲会话正文；窗口标志/磁盘消息/目录条目与标题不受影响
+- `func TestContentLimitKeepsBusyAndActiveSessions(t *testing.T)` — 上限 1：运行中会话与当前视图会话都不可卸载（容忍超限），只卸载空闲的非当前会话
+- `func TestContentEvictionColdReloadsSameWindow(t *testing.T)` — 正文被卸载后再激活（冷回读）还原同一窗口位置
+- `func TestEnsureSessionContentRebuildsEvictedWindow(t *testing.T)` — 热挂载回读面（ensureSessionContent → reloadSessionContent）独立还原同一窗口
+
 ### runtime_projection.go
 
 - `func (service *Service) publishRuntimeProjections()` — publishRuntimeProjections 在 service.ViewMu 下拷贝应用自有状态，释放锁后发布

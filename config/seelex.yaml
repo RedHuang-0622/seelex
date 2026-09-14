@@ -27,6 +27,7 @@ limits:
   max_replan_provider_requests: 6 # 窗口内 provider 请求预算（默认 6）
   max_replans_per_plan_chain: 2  # 单计划链 replan 次数（默认 2）
   history_window: 200            # 会话可见历史条数（默认 200）
+  loaded_content_limit: 12       # 已加载会话内容（可见正文）LRU 上限（默认 12；视图未激活且空闲的会话可被释放正文，重开冷回读）
   plan_node_events: 30           # 节点详情时间线上限（默认 30）
   plan_node_max_loops: 15        # 子代理节点循环上限（默认 15）
   evidence_chars: 800            # 证据/输出截断（默认 800）

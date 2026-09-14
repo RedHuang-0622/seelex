@@ -245,6 +245,7 @@
 - `func (service *Service) ResumeSession(sessionID string) error` — ResumeSession 是 GUI/TUI 会话选择的直接应用边界。它刻意绕过命令文本解析，
 - `func (service *Service) LoadMoreHistory(limit int) error` — LoadMoreHistory 把更早的一页历史前置到可见会话（GUI 顶部 sentinel 与
 - `func (service *Service) LoadLatestHistory() error` — LoadLatestHistory 把可见会话拉回最新一页（历史浏览后的「回到最新」）。
+- 内容 LRU 回读接线（content_lru.go）：`LoadMoreHistory`/`LoadLatestHistory` 在 `sessionContentUnloaded` 时先 `reloadSessionContent` 整窗回读（否则分页会从一个「不在内存的窗口」出发，页错位）；`installVisibleHistory` 安装即一次 `touchContent`（内容 LRU 使用）并清除 `View.ContentUnloaded`。
 - `func currentWorkspaceIDLocked(service *Service) string` — currentWorkspaceIDLocked 返回当前视图会话的 workspace ID（调用方持有
 - `func (service *Service) loadConversationPage(workspaceID, sessionID string, offset, limit int) ([]Message, int, error)` — loadConversationPage 读回一段可见历史：record conversation 模块优先
 - `func (service *Service) installVisibleHistory(sessionID string, page []Message, total, offset, window int, mode historyPageInstall) error` — installVisibleHistory 安装一页可见历史：写会话可见投影（事实源）→ 收敛

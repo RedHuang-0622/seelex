@@ -40,6 +40,23 @@ for this stabilization batch.
   `session_runtime.SessionTitlePort`; `SetSessionTitleLocked` writes the title
   through on every change, the derived session record carries it, and it is
   preserved when a corrupted message head is rebuilt from its shards.
+- Loaded session content is now LRU-managed as a second memory layer
+  (`limits.loaded_content_limit`, default 12) on top of the resident engine
+  bundle LRU (`resident_limit`): a session whose view is not switched to and
+  which is not running (running / queued / awaiting approval / restoring are
+  never candidates) releases its visible conversation window
+  (`View.ContentUnloaded`; `application/core/content_lru.go`). Only the
+  in-memory copy goes away — the window flags (total/offset/has-more), session
+  facts, title and statistics stay, the session is flushed to disk before
+  eviction, the left session list keeps its entry and title (the catalog
+  refresh reads headers only, zero body reads), and re-activating the session or
+  paging history cold-reloads the very same window
+  (`ensureSessionContent` / `reloadSessionContent`).
+- New `Bridge.SessionInputIndex(sessionID)` returns the **full-session** index of
+  user inputs (round/seq + bounded summary + whether the entry is inside the
+  currently loaded window). It is lightweight and body-free (derived from the
+  durable session facts), so inputs that were never loaded into the renderer —
+  and sessions that are not resident at all — are still indexed.
 
 ### Changed
 
@@ -51,12 +68,28 @@ for this stabilization batch.
   path (`presentToolError` → `ToolCall.Error`); raw error text stays view/event
   side and never enters provider context, because the transcript assembly only
   carries `user`/`assistant`/`tool` events.
-- Rebuilt the conversation timeline wheel as a real minimap: one line per
-  rendered item positioned by measured geometry (line height proportional to the
-  item's share of the scroll content), a draggable viewport handle, hover type
-  summaries, click-to-jump with flash highlight, and keyboard scrollbar
-  semantics; the line table re-measures on every render, so paging, streaming
-  deltas, and reflow stay aligned with the content.
+- The conversation rail is now an index of **user inputs only** and covers the
+  whole session: every tick is one user input taken from the authoritative
+  full-session index (ticks for assistant steps / thinking / tools / system rows
+  and the old "fall back to assistant steps when the window has no user turn"
+  behaviour are gone), loaded inputs are positioned by measured geometry while
+  unloaded ones are placed by a deterministic ratio, and clicking a tick that is
+  not loaded yet read-backs that page first and only then scrolls and highlights
+  (`planInputLocate` / `locateInput`); without a read-back channel the click only
+  reports the situation instead of silently doing nothing. Keyboard navigation
+  (↑/↓, PgUp/PgDn, Home/End) now applies to user-input ticks only.
+- The work-table entry detail modal keeps exactly three authoritative surfaces —
+  session transcript, context snapshot, and feature instrumentation — and is
+  user-resizable with a resize handle (same interaction as the work table modal);
+  the transcript panel auto-fits the host width (`width:100%` +
+  `overflow-wrap:anywhere` + `min-width:0`), so long lines, code blocks, tables
+  and URLs no longer overflow horizontally.
+- The trajectory context axis can be paged: the wheel pages through the axis
+  (accumulated steps per notch), `Shift`+wheel changes the page size in fixed
+  steps with visible page/page-size feedback, and the paging window is computed
+  by pure functions (`resolveAxisPage` / `axisPageWindow` / `axisPageForIndex`).
+  Paging into history that is not loaded yet reports it and reuses the existing
+  "load earlier" channel instead of silently jumping.
 - `LoadMoreHistory` now pages by a full history window and persists the paging
   state in the session view (the Snapshot is a read-only mirror), and new
   `LoadLatestHistory` returns to the newest page after browsing earlier history.
@@ -71,6 +104,12 @@ for this stabilization batch.
 
 ### Fixed
 
+- Rebuilt the trajectory multi-lane score so every block's lane and position has
+  a single, explainable meaning: lane definitions and their order live in
+  `AXIS_LANES` (one fixed lane per response kind), block width expresses the
+  record's relative weight on the axis only, and lane assignment/positioning go
+  through `axisBlocks` — the previous version mixed timeline-order positioning
+  with size-proportional widths, which made the axis look arbitrary.
 - Fixed paged history being wiped on the next session mirror: the visible window
   of a long session lost the page loaded by `LoadMoreHistory` and fell back to
   the tail window, so "load earlier" repeated the same page and reloaded the
