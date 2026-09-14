@@ -67,7 +67,8 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 ### context_budget_last_resort_test.go
 
 - `func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T)` — TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿
-- `func TestContextBudgetOvershootRefusesWhenNewestExceedsFullBudget(t *testing.T)` — TestContextBudgetOvershootRefusesWhenNewestExceedsFullBudget：最新轮本身
+- `func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T)` — TestContextBudgetProactivelyCompactsAtHardThreshold：装配结果落在硬阈值
+- `func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T)` — TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget：最新轮自身
 
 ### context_cache_divergence_probe_test.go
 
@@ -121,14 +122,28 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 - `func TestContextCacheSmoke_SkillActivationAppendOnly(t *testing.T)` — TestContextCacheSmoke_SkillActivationAppendOnly 对照场景：会话中段激活一个
 - `func TestContextCacheSmoke_ProviderCacheContentionModel(t *testing.T)` — TestContextCacheSmoke_ProviderCacheContentionModel 是一个显式标注的推演模型：
 
+### context_compact.go
+
+- `func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)` — CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
+- `func (service *Service) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)` — CompactContextHandler 实现 compact_context 工具：模型在上下文逼近上限、
+- `func newContextCompactionResult(record model.ContextCompaction) ContextCompactionResult`
+
+### context_compact_test.go
+
+- `func compactTestService(t *testing.T, requestID string) (*Service, *fakeEngine, string)` — compactTestService 构造带活跃任务执行的会话：主动压缩绑定请求纪元
+- `func TestCompactContextHandlerFoldsTranscript(t *testing.T)` — TestCompactContextHandlerFoldsTranscript：compact_context 工具（= /compact
+- `func TestCompactContextBelowThresholdIsHonestNoOp(t *testing.T)` — TestCompactContextBelowThresholdIsHonestNoOp：未达压缩阈值时不伪造压缩、
+- `func TestCompactContextWithoutTaskExecution(t *testing.T)` — TestCompactContextWithoutTaskExecution：会话没有任务执行纪元（例如刚启动
+- `func TestCompactCommandRegisteredAndSharesPath(t *testing.T)` — TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
+
 ### context_controller_test.go
 
 - `func (runtime runtimeWithContextLimits) ContextWindow() int`
 - `func (runtime runtimeWithContextLimits) MaxOutputTokens() int`
 - `func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T)`
-- `func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T)`
+- `func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T)` — TestPrepareExecutionContextCountsActiveSystemPrompt：system 提示自身就超出
 - `func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T)`
-- `func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T)`
+- `func TestPreparedRequestAutonomouslyCompactsOversizedRounds(t *testing.T)`
 - `func TestPrepareExecutionContextOrderAndNoCheckpoint(t *testing.T)`
 - `func TestTranscriptTailKeepsInterruptedRoundAndDropsOrphanToolProtocols(t *testing.T)`
 - `func TestTranscriptTailKeepsTrailingUnansweredUserInput(t *testing.T)`

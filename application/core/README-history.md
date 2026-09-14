@@ -22,7 +22,7 @@
 - `func providerRecoveryDetails(kind providerFailureKind) (prefix, heading, summary string)`
 - `func isProviderContextExhaustion(err error) bool`
 - `func (service *Service) removeProviderContextRecovery() error`
-- `func (service *Service) removeProviderContextRecoveryFor(sessionID string) error`
+- `func (service *Service) removeProviderContextRecoveryFor(sessionID string) error` — removeProviderContextRecoveryFor 清理引擎私有的上下文控制信封：provider
 
 ### history_safety_test.go
 

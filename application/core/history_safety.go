@@ -184,12 +184,17 @@ func (service *Service) removeProviderContextRecovery() error {
 	return service.removeProviderContextRecoveryFor(service.Core.Snapshot.Session.ID)
 }
 
+// removeProviderContextRecoveryFor 清理引擎私有的上下文控制信封：provider
+// 恢复说明与自主压缩帧都不属于会话事实，回合结束（err == nil）后移除，
+// 使下一轮装配从 transcript 重新构建、不在保留前缀里累积控制消息。
 func (service *Service) removeProviderContextRecoveryFor(sessionID string) error {
 	history := service.engineHistoryFor(sessionID)
 	filtered := make([]EngineMessage, 0, len(history))
 	removed := false
 	for _, message := range history {
-		if message.Role == "system" && (strings.HasPrefix(message.Content, contextRecoveryPrefix) || strings.HasPrefix(message.Content, providerRecoveryPrefix)) {
+		if message.Role == "system" && (strings.HasPrefix(message.Content, contextRecoveryPrefix) ||
+			strings.HasPrefix(message.Content, providerRecoveryPrefix) ||
+			strings.HasPrefix(message.Content, context_runtime.AutonomousCompactionPrefix)) {
 			removed = true
 			continue
 		}

@@ -73,11 +73,17 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) Ports() Ports` — Ports 是装配端口图的只读快照（组装校验/诊断用）。
 - `func (c *Coordinator) CompactTaskContext(requestID string) error` — CompactTaskContext 把整个可变 transcript 替换为一个私有、有界的 checkpoint
 - `func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error` — CompactTaskContextFor 把指定会话整个可变 transcript 替换为一个私有、有界
+- `func (c *Coordinator) forceCompactTaskContextFor(sessionID, requestID string) error` — forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
+- `func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options prepareOptions) error`
+- `func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error)` — CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
 - `func (c *Coordinator) sessionLocationLocked(sessionID string) session_runtime.Location` — sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
 - `func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (string, error)` — PrepareExecutionContext 从 durable task 状态与完整 transcript 单元重建
 - `func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error)` — PrepareExecutionContextFor 从 durable task 状态与完整 transcript 单元重建
+- `func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (string, error)`
 - `func (c *Coordinator) fitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, contextMaxUnits int, ) ([]contract.EngineMessage, int)` — fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 - `func (c *Coordinator) tryFitExecutionHistory( systemPrompt string, systems []contract.EngineMessage, planMessage string, events []model.TranscriptEvent, currentInput string, tools []model.Tool, target int, contextMaxUnits int, ) ([]contract.EngineMessage, int)` — tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token。
+- `func (c *Coordinator) compressExecutionHistory( systemPrompt string, systems []contract.EngineMessage, summary string, planMessage string, currentInput string, tools []model.Tool, budget task_context.ContextBudget, ) ([]contract.EngineMessage, int, bool)` — compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，
+- `func AutonomousCompactionMessage(summary string) string` — AutonomousCompactionMessage 渲染自主压缩帧正文（system 消息）：显式告知
 - `func retainedMatchesTranscriptPrefix(systems []contract.EngineMessage, events []model.TranscriptEvent) bool` — retainedMatchesTranscriptPrefix 判定引擎保留段（非 system 的已定稿轮次）
 - `func (c *Coordinator) planContextMessageLocked(sessionID string) string`
 - `func currentPlanSlice(arguments, currentNode string) any`
@@ -133,6 +139,7 @@ go test ./application/core/context_runtime -count=1
 
 - `func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.T)`
 - `func TestRetainedSystemHistoryKeepsStablePrefixAndSettledContext(t *testing.T)`
+- `func TestAutonomousCompactionMessageIsBoundedAndDynamicTail(t *testing.T)` — TestAutonomousCompactionMessageIsBoundedAndDynamicTail：自主压缩帧带协议
 - `func retainedContents(history []contract.EngineMessage) []string`
 - `func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T)` — TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only
 

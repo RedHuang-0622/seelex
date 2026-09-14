@@ -351,6 +351,17 @@ func registerContextReadTools(runtime *seelebridge.Runtime, app *application.Ser
 		"required": []string{"query"},
 	}
 	runtime.RegisterTool("search_history", "Search the session's long-term history: select relevant compressed segments (compact stack index) and read back the real chat records in their unit ranges, bounded by a token budget. Use it when the current context lacks relevant history the user mentioned earlier (past decisions, requirements, tool outputs).", searchHistorySchema, app.SearchHistoryHandler)
+	// compact_context：把 /compact 这条手动压缩入口同样交给模型——它可以在
+	// 上下文逼近上限、或开始一段长任务前主动收拢上下文。落点与引擎自动压缩、
+	// 命令 /compact 完全同一条（context_runtime.CompactContextNow），原始轮次
+	// 仍完整留在会话存储，细节按引用回读。
+	compactContextSchema := map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"reason": map[string]interface{}{"type": "string", "description": "为什么现在压缩（写入压缩记录，供审计与回看）"},
+		},
+	}
+	runtime.RegisterTool("compact_context", "Compact this session's context now: fold the variable transcript into a bounded checkpoint frame (stable prefix + task evidence summary + plan + current request) while every original turn stays readable by reference. Call it before a long multi-step task or when the context is close to the provider limit; it is not a substitute for finishing the current step.", compactContextSchema, app.CompactContextHandler)
 }
 
 // registerProjectRefreshTool 注册 project_refresh 产品工具：扫描模块文档目录 +

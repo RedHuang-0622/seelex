@@ -39,6 +39,9 @@ func TestRejectToolResultsPreservesPairingWithoutPreview(t *testing.T) {
 	}
 }
 
+// TestPrepareExecutionContextCountsActiveSystemPrompt：system 提示自身就超出
+// 预算时，自主压缩也无从下手（压缩只折叠 transcript，不改写 system 指令）——
+// 这种结构性超限仍必须显式返回 ErrProviderContextBudgetExceeded。
 func TestPrepareExecutionContextCountsActiveSystemPrompt(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	defer service.Shutdown()
@@ -77,16 +80,17 @@ func TestPrepareExecutionContextUsesRuntimeContextLimits(t *testing.T) {
 	}
 }
 
-func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
+func TestPreparedRequestAutonomouslyCompactsOversizedRounds(t *testing.T) {
 	engine := &fakeEngine{}
 	service := newTestService(t, engine)
 	defer service.Shutdown()
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-1"}
 	service.components.tasks.BeginTask("task-1", "inspect", "high", nil, TaskCheckpoint{})
-	// 夹具：每个已定稿轮次本身都超过全部预算（小预算兜底账号）。此时
-	// 协议单元不可拆分、没有可发送的窗口，装配必须显式拒绝（旧行为是
-	// 静默清空历史后照发，模型“失忆”，见 2026-09-08 上下文恢复评审 §3）。
+	// 夹具：每个已定稿轮次本身都超过全部预算（小预算兜底账号）。协议单元
+	// 不可拆分、没有可发送的窗口时，装配不再直接拒绝发送（旧行为：静默清空
+	// 历史或报错，见 2026-09-08 上下文恢复评审 §3）——改为自主压缩为有界
+	// checkpoint 帧后继续本轮。
 	for round := 0; round < 8; round++ {
 		callID := "call-" + string(rune('a'+round))
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{TaskID: "old-task", Role: "user", Content: strings.Repeat("request ", 2500)})
@@ -96,8 +100,21 @@ func TestPreparedRequestNeverExceedsSafeBudget(t *testing.T) {
 	}
 	service.ViewMu.Unlock()
 
-	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification"); !errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
-		t.Fatalf("prepare error = %v, want ErrProviderContextBudgetExceeded (single round exceeds full budget)", err)
+	if _, err := service.components.context.PrepareExecutionContext("task-1", "continue with verification"); err != nil {
+		t.Fatalf("prepare error = %v, want autonomous compaction (single round exceeds full budget)", err)
+	}
+	history := engine.History()
+	compacted := false
+	for _, message := range history {
+		if strings.HasPrefix(message.Content, context_runtime.AutonomousCompactionPrefix) {
+			compacted = true
+		}
+		if strings.Contains(message.Content, strings.Repeat("request ", 2500)) {
+			t.Fatal("oversized settled round must not survive the autonomous compaction")
+		}
+	}
+	if !compacted {
+		t.Fatalf("engine history has no autonomous compaction frame: %#v", history)
 	}
 }
 

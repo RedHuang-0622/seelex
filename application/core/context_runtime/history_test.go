@@ -2,6 +2,7 @@ package context_runtime
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
@@ -57,6 +58,31 @@ func TestRetainedSystemHistoryKeepsStablePrefixAndSettledContext(t *testing.T) {
 	systemOnly := RetainedSystemOnly(history)
 	if got := retainedContents(systemOnly); !reflect.DeepEqual(got, []string{"product instruction"}) {
 		t.Fatalf("recovery retention = %v, want first system instruction only", got)
+	}
+}
+
+// TestAutonomousCompactionMessageIsBoundedAndDynamicTail：自主压缩帧带协议
+// 前缀、正文由 ContextSummary 提供（空摘要也给出显式说明），且属动态尾部——
+// 保留段（稳定前缀 + 已定稿累积段）不得把它当作可复用前缀携带。
+func TestAutonomousCompactionMessageIsBoundedAndDynamicTail(t *testing.T) {
+	frame := AutonomousCompactionMessage("objective: inspect\nstatus: running")
+	if !strings.HasPrefix(frame, AutonomousCompactionPrefix) {
+		t.Fatalf("frame = %q, want prefix %q", frame, AutonomousCompactionPrefix)
+	}
+	if !strings.Contains(frame, "objective: inspect") {
+		t.Fatalf("frame lost the bounded checkpoint summary: %q", frame)
+	}
+	if empty := AutonomousCompactionMessage("   "); !strings.HasPrefix(empty, AutonomousCompactionPrefix) {
+		t.Fatalf("empty summary frame = %q, want prefix %q", empty, AutonomousCompactionPrefix)
+	}
+	history := []contract.EngineMessage{
+		{Role: "system", Content: "product instruction", ContentSet: true},
+		{Role: "user", Content: "settled request", ContentSet: true},
+		{Role: "system", Content: frame, ContentSet: true},
+	}
+	retained := RetainedSystemHistory(history)
+	if got := retainedContents(retained); !reflect.DeepEqual(got, []string{"product instruction", "settled request"}) {
+		t.Fatalf("retained history = %v, want the compaction frame dropped", got)
 	}
 }
 

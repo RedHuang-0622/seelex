@@ -58,6 +58,11 @@ permission:
     - tool: "computer_wait"
       action: allow
 
+    # ─ 上下文压缩：非破坏性（原始轮次仍在会话存储，按引用回读）→ allow ─
+    # 模型用 compact_context / 用户用 /compact，落点与自动压缩同一条。
+    - tool: "compact_context"
+      action: allow
+
     # ─ 安全的 bash 命令模式 → 直接允许 ─
     - tool: "bash"
       patterns: ["git *", "ls *", "cat *", "echo *", "head *", "tail *"]

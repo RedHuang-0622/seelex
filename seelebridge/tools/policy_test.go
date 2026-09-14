@@ -43,6 +43,24 @@ func TestPolicyHidesComputerInputToolsFromSubagents(t *testing.T) {
 	}
 }
 
+// TestPolicyHidesCompactContextFromSubagents 验证 compact_context 对子代理不可见：
+// 它折叠的是共享会话的 provider 历史（会话级单例状态），并行子代理同时压缩会
+// 互相改写主会话上下文。主代理保持可见（权限门控另行把关）。
+func TestPolicyHidesCompactContextFromSubagents(t *testing.T) {
+	policy := NewPolicy(PolicyDeps{})
+	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
+	got := policy.Filter(subCtx, []types.Tool{
+		planTool("compact_context"), planTool("read_tool_result"), planTool("bash"),
+	})
+	if len(got) != 2 || got[0].Function.Name != "read_tool_result" || got[1].Function.Name != "bash" {
+		t.Fatalf("子代理可见工具 = %v, want read_tool_result + bash", names(got))
+	}
+	mainGot := policy.Filter(context.Background(), []types.Tool{planTool("compact_context")})
+	if len(mainGot) != 1 {
+		t.Fatalf("主代理应可见 compact_context，得到 %v", names(mainGot))
+	}
+}
+
 func TestPolicyFiltersSubagentExcludedAndGoalPlanTools(t *testing.T) {
 	policy := NewPolicy(PolicyDeps{
 		GoalSkillActive: func() bool { return false },

@@ -59,6 +59,18 @@ func (service *Service) registerBuiltinCommands() error {
 		}
 		return CommandResult{Notice: trace}, nil
 	})
+	register("compact", "压缩当前上下文（折叠为有界 checkpoint，原始轮次仍可回读）", func(ctx context.Context, _ []string) (CommandResult, error) {
+		result, err := service.CompactContextNow(ctx)
+		if err != nil {
+			return CommandResult{}, err
+		}
+		if !result.Compacted {
+			return CommandResult{Notice: result.Note}, nil
+		}
+		return CommandResult{Notice: fmt.Sprintf(
+			"已压缩上下文：v%d（%s），压缩前 %d 条消息 / 估算 %d tokens；原始轮次仍可用 read_tool_result / search_history 回读",
+			result.Version, result.Reason, result.MessagesBefore, result.EstimatedTokens)}, nil
+	})
 	register("new", "准备新会话（首次发送时创建）", func(context.Context, []string) (CommandResult, error) {
 		return CommandResult{}, service.BeginNewSession()
 	})

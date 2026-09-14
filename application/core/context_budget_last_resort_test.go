@@ -1,7 +1,6 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -10,9 +9,10 @@ import (
 )
 
 // TestContextBudgetOvershootKeepsNewestSettledRound：达峰装配时单个已定稿
-// 轮次估算大于压缩目标但小于全量预算，不得静默裁掉最新轮（旧缺陷：引擎
-// 历史被替换为空，请求带空历史照发）；修复后应保留最新轮并继续，只有真正
-// 超出全量预算才返回 ErrProviderContextBudgetExceeded。
+// 轮次估算大于压缩目标但仍低于硬阈值（预算 90%），属于正常有界窗口——此时
+// 必须保留最新轮继续（旧缺陷：引擎历史被替换为空，请求带空历史照发）。
+// 真正逼近/超过硬阈值时才由 TestContextBudgetProactivelyCompactsAtHardThreshold
+// 与 TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget 覆盖。
 func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 	runtime := runtimeWithContextLimits{
 		fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192,
@@ -24,9 +24,9 @@ func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-budget-1"}
 	service.components.tasks.BeginTask("task-budget-1", "inspect", "high", nil, TaskCheckpoint{})
-	// 3 个已定稿轮：assistant 正文约 60 万 ASCII 字符（≈150k tokens，低于
-	// 全量预算 166808、高于压缩目标 100084）。
-	huge := strings.Repeat("A", 600_000)
+	// 3 个已定稿轮：assistant 正文约 52 万 ASCII 字符（≈130k tokens，介于
+	// 压缩目标 100084 与硬阈值 150127 之间）。
+	huge := strings.Repeat("A", 520_000)
 	for round := 0; round < 3; round++ {
 		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
 			TaskID: "task-budget", Role: "user", Content: fmt.Sprintf("request-%d", round),
@@ -56,10 +56,60 @@ func TestContextBudgetOvershootKeepsNewestSettledRound(t *testing.T) {
 	}
 }
 
-// TestContextBudgetOvershootRefusesWhenNewestExceedsFullBudget：最新轮本身
-// 就大于全量预算时，装配必须显式返回 ErrProviderContextBudgetExceeded，而
-// 不是带空历史继续。
-func TestContextBudgetOvershootRefusesWhenNewestExceedsFullBudget(t *testing.T) {
+// TestContextBudgetProactivelyCompactsAtHardThreshold：装配结果落在硬阈值
+// （预算 90% = 150127）与全量预算（166808）之间时，必须**探测即主动压缩**——
+// 折叠为有界 checkpoint 帧，而不是把贴着上限的历史发出去、等超过全量预算
+// 再被动兜底（旧行为：这种请求会照发，下一次超限才报错）。
+func TestContextBudgetProactivelyCompactsAtHardThreshold(t *testing.T) {
+	runtime := runtimeWithContextLimits{
+		fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192,
+	}
+	engine := &fakeEngine{}
+	service := newTestService(t, engine, withTestRuntime(runtime))
+	defer service.Shutdown()
+
+	service.ViewMu.Lock()
+	service.Core.Snapshot.Chat = ChatState{Running: true, RequestID: "task-budget-3"}
+	service.components.tasks.BeginTask("task-budget-3", "inspect", "high", nil, TaskCheckpoint{})
+	// 约 61 万 ASCII 字符 ≈152.5k tokens：高于硬阈值、低于全量预算。
+	huge := strings.Repeat("A", 610_000)
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		TaskID: "task-budget", Role: "user", Content: "last request",
+	})
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		TaskID: "task-budget", Role: "assistant", Content: huge,
+	})
+	service.ViewMu.Unlock()
+
+	if _, err := service.components.context.PrepareExecutionContext("task-budget-3", "next"); err != nil {
+		t.Fatalf("prepare error = %v, want proactive autonomous compaction", err)
+	}
+	history := engine.History()
+	frameIndex := -1
+	for index, message := range history {
+		if strings.HasPrefix(message.Content, context_runtime.AutonomousCompactionPrefix) {
+			frameIndex = index
+		}
+		if strings.Contains(message.Content, huge) {
+			t.Fatal("round above the hard threshold must be folded proactively, not sent near the budget edge")
+		}
+	}
+	if frameIndex < 0 {
+		t.Fatalf("proactive compaction frame missing from engine history: %#v", history)
+	}
+	service.ViewMu.RLock()
+	compactions := service.components.tasks.CurrentTaskExecution().ContextCompactions
+	service.ViewMu.RUnlock()
+	if len(compactions) != 1 || compactions[0].Reason != "context_budget_autonomous" {
+		t.Fatalf("context compactions = %#v, want one context_budget_autonomous record", compactions)
+	}
+}
+
+// TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget：最新轮自身
+// 就大于全量预算时，装配不得直接拒绝发送，而应自主压缩——把可变 transcript
+// 折叠为有界 checkpoint 帧（原始超限轮次不再进入 provider 历史），并留下
+// 一条自主压缩记录。
+func TestContextBudgetOvershootCompactsWhenNewestExceedsFullBudget(t *testing.T) {
 	runtime := runtimeWithContextLimits{
 		fakeRuntime: &fakeRuntime{}, window: 200_000, output: 8_192,
 	}
@@ -79,7 +129,26 @@ func TestContextBudgetOvershootRefusesWhenNewestExceedsFullBudget(t *testing.T) 
 	})
 	service.ViewMu.Unlock()
 
-	if _, err := service.components.context.PrepareExecutionContext("task-budget-2", "next"); !errors.Is(err, context_runtime.ErrProviderContextBudgetExceeded) {
-		t.Fatalf("prepare error = %v, want ErrProviderContextBudgetExceeded", err)
+	if _, err := service.components.context.PrepareExecutionContext("task-budget-2", "next"); err != nil {
+		t.Fatalf("prepare error = %v, want autonomous compaction instead of refusal", err)
+	}
+	history := engine.History()
+	frameIndex := -1
+	for index, message := range history {
+		if strings.HasPrefix(message.Content, context_runtime.AutonomousCompactionPrefix) {
+			frameIndex = index
+		}
+		if strings.Contains(message.Content, huge) {
+			t.Fatal("oversized settled round must be replaced by the bounded checkpoint, not replayed")
+		}
+	}
+	if frameIndex < 0 {
+		t.Fatalf("autonomous compaction frame missing from engine history: %#v", history)
+	}
+	service.ViewMu.RLock()
+	compactions := service.components.tasks.CurrentTaskExecution().ContextCompactions
+	service.ViewMu.RUnlock()
+	if len(compactions) != 1 || compactions[0].Reason != "context_budget_autonomous" {
+		t.Fatalf("context compactions = %#v, want one context_budget_autonomous record", compactions)
 	}
 }

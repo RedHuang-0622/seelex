@@ -28,6 +28,10 @@ const (
 	// 每轮重建的动态尾部消息，保留段照常携带（定稿轮次，字节稳定）。
 	ActiveSkillPrefix       = "<!-- seelex:active-skill:v1 -->"
 	ToolResultOmittedPrefix = "<seelex-tool-result-omitted>"
+	// AutonomousCompactionPrefix 标记自主压缩帧：正常有界窗口装不下全量预算
+	// 时，装配层主动把可变 transcript 折叠为有界 checkpoint 摘要（而不是直接
+	// 拒绝发送）。属动态尾部消息 → 不进保留前缀，回合结束由应用清理路径移除。
+	AutonomousCompactionPrefix = "<!-- seelex:context-compact:v1 -->"
 	// 恢复/预算终局前缀：与根包 history_safety.go / chat.go 同源协议字符串
 	// （context_runtime 不反向依赖 core 根包，字符串字面量在此保留）。
 	contextRecoveryPrefix         = "<!-- seelex:context-recovery:v1 -->"
@@ -95,7 +99,18 @@ func (c *Coordinator) CompactTaskContext(requestID string) error {
 // CompactTaskContextFor 把指定会话整个可变 transcript 替换为一个私有、有界
 // 的 checkpoint（引擎迭代 hook 调用，绝不持有 Core.ViewMu）。
 func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
-	_, err := c.PrepareExecutionContextFor(sessionID, requestID, "")
+	return c.compactTaskContextFor(sessionID, requestID, prepareOptions{})
+}
+
+// forceCompactTaskContextFor 是显式压缩入口（/compact、compact_context）：
+// 绕过"每个 progress epoch 只压一次"的自动节流——用户/模型明确要求现在压缩，
+// 只要上下文确实超过软阈值就执行（未达阈值仍是 no-op，不伪造压缩）。
+func (c *Coordinator) forceCompactTaskContextFor(sessionID, requestID string) error {
+	return c.compactTaskContextFor(sessionID, requestID, prepareOptions{forceCompact: true})
+}
+
+func (c *Coordinator) compactTaskContextFor(sessionID, requestID string, options prepareOptions) error {
+	_, err := c.prepareExecutionContextFor(sessionID, requestID, "", options)
 	if err != nil {
 		return err
 	}
@@ -103,6 +118,66 @@ func (c *Coordinator) CompactTaskContextFor(sessionID, requestID string) error {
 		return fmt.Errorf("persist context checkpoint: %w", err)
 	}
 	return nil
+}
+
+// CompactOutcome 是主动压缩的三种结果：已压缩 / 没有任务执行纪元 /
+// 未达压缩阈值（无需压缩）。调用方据此给出准确提示，而不是把"没做事"
+// 混成"出错了"。
+type CompactOutcome string
+
+const (
+	CompactDone           CompactOutcome = "compacted"
+	CompactNoTask         CompactOutcome = "no_task"
+	CompactBelowThreshold CompactOutcome = "below_threshold"
+)
+
+// CompactResult 是主动压缩的结果面：结果分类 + 本次压缩记录（Compacted 时）
+// + 当前装配估算与软阈值（BelowThreshold 时给用户看清楚离压缩线还有多远）。
+type CompactResult struct {
+	Outcome         CompactOutcome
+	Record          model.ContextCompaction
+	EstimatedTokens int
+	SoftThreshold   int
+}
+
+// CompactContextNow 主动压缩指定会话的可变 transcript（`/compact` 命令与
+// `compact_context` 工具的同一落点）：与引擎钩子走同一条
+// CompactTaskContextFor 路径。
+//
+// 语义边界：压缩绑定「当前任务执行」的请求纪元（TaskExecutionState.RequestID）
+// ——回合进行中由模型调用、回合结束后由用户命令触发都能命中（任务执行状态在
+// 会话内保留到重置）；会话没有任何任务执行时返回 CompactNoTask，未达软阈值时
+// 返回 CompactBelowThreshold——两种情况都不改写会话状态、不伪造压缩记录。
+func (c *Coordinator) CompactContextNow(sessionID string) (CompactResult, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return CompactResult{}, errors.New("compact context: session id is required")
+	}
+	state := c.tasks.CurrentTaskExecutionFor(sessionID)
+	if state == nil || strings.TrimSpace(state.RequestID) == "" {
+		return CompactResult{Outcome: CompactNoTask}, nil
+	}
+	requestID := state.RequestID
+	before := len(state.ContextCompactions)
+	if err := c.forceCompactTaskContextFor(sessionID, requestID); err != nil {
+		return CompactResult{}, err
+	}
+	state = c.tasks.CurrentTaskExecutionFor(sessionID)
+	if state == nil {
+		return CompactResult{Outcome: CompactNoTask}, nil
+	}
+	if len(state.ContextCompactions) <= before {
+		// 未达软阈值：装配照常完成，但没有产生新的压缩记录——如实报告。
+		return CompactResult{
+			Outcome:         CompactBelowThreshold,
+			EstimatedTokens: state.TokenAudit.EstimatedPromptTokens,
+			SoftThreshold:   state.TokenAudit.SoftThreshold,
+		}, nil
+	}
+	return CompactResult{
+		Outcome: CompactDone,
+		Record:  state.ContextCompactions[len(state.ContextCompactions)-1],
+	}, nil
 }
 
 // sessionLocationLocked 返回指定会话的持久化定位（workspace 绑定优先；
@@ -134,6 +209,18 @@ func (c *Coordinator) PrepareExecutionContext(requestID, currentInput string) (s
 // 指定会话 provider 缓存。返回可能被引用的当前输入；仍超安全预算时拒绝
 // 发送。sessionID 指明执行会话（多会话并行时目标会话）。
 func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentInput string) (string, error) {
+	return c.prepareExecutionContextFor(sessionID, requestID, currentInput, prepareOptions{})
+}
+
+// prepareOptions 是装配的可选语义（零值 = 自动路径）。
+type prepareOptions struct {
+	// forceCompact 表示调用方显式要求压缩（/compact、compact_context）：
+	// 绕过"每个 progress epoch 只压一次"的自动节流。仍以"确实超过软阈值"
+	// 为前提——未达阈值不产生压缩记录，也不改写任何状态。
+	forceCompact bool
+}
+
+func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentInput string, options prepareOptions) (string, error) {
 	if _, err := c.rejectOversizedToolResults(sessionID, task_context.DefaultToolResultLimit()); err != nil {
 		return "", err
 	}
@@ -172,13 +259,17 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 		rawTokens = cacheTokens
 	}
 	currentInput = c.protectOversizedCurrentInputLocked(sessionID, requestID, currentInput, budget)
-	newCheckpoint := rawTokens >= budget.SoftThreshold && state.CompactedEpoch != state.ProgressEpoch
+	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径只要
+	// 超过软阈值就压——用户/模型明确要求时不接受"等下一批进展再说"。
+	newCheckpoint := rawTokens >= budget.SoftThreshold &&
+		(options.forceCompact || state.CompactedEpoch != state.ProgressEpoch)
 	if newCheckpoint {
 		state.ContextVersion++
 		state.CompactedEpoch = state.ProgressEpoch
 	}
 	checkpoint := c.tasks.BuildTaskCheckpointLocked(state)
 	checkpoint.Version = state.ContextVersion
+	summary := state.ContextSummary()
 	planMessage := c.planContextMessageLocked(sessionID)
 	c.ViewMu.Unlock()
 
@@ -209,6 +300,20 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 		}
 	}
 	assembled, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, events, currentInput, tools, target, contextMaxUnits)
+	// 自主压缩（探测即主动触发）：装配结果一旦逼近硬阈值（预算 90%），说明
+	// 可变 transcript 已经压不动——此时立刻折叠为有界 checkpoint 帧（稳定
+	// system 前缀 + 任务证据摘要 + plan + 当前输入），而不是把贴着上限的历史
+	// 发出去、等下一次超过全量预算再兜底。触发点是"探测到接近上限"，不是
+	// "已经超限"：主动压缩给下一轮留出确定余量，也避免在窗口边缘反复抖动。
+	//
+	// 原始轮次仍完整留在会话存储里，模型需要细节时按结果引用/分页回读；
+	// 只有压缩形态自身仍超全量预算（如 system 指令自身超窗口）才拒绝发送。
+	autonomous := false
+	if estimated > budget.HardThreshold {
+		if compressed, compressedTokens, ok := c.compressExecutionHistory(systemPrompt, systems, summary, planMessage, currentInput, tools, budget); ok && compressedTokens < estimated {
+			assembled, estimated, autonomous = compressed, compressedTokens, true
+		}
+	}
 	if estimated > budget.Budget {
 		return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
 	}
@@ -230,10 +335,21 @@ func (c *Coordinator) PrepareExecutionContextFor(sessionID, requestID, currentIn
 			TargetAfterCompaction: budget.TargetAfterCompaction, EstimatedPromptTokens: estimated,
 			ActualPromptTokens: state.TokenAudit.ActualPromptTokens, UpdatedAt: time.Now(),
 		}
-		if newCheckpoint {
+		// 自主压缩也开启一个新压缩纪元：checkpoint 版本前进，下一轮达峰判定
+		// 与压缩记录不重复（压缩帧本身是动态尾部，不参与保留前缀）。
+		if autonomous && !newCheckpoint {
+			state.ContextVersion++
+			state.CompactedEpoch = state.ProgressEpoch
+			checkpoint.Version = state.ContextVersion
+		}
+		if newCheckpoint || autonomous {
 			c.tasks.RememberCheckpointLocked(checkpoint)
+			reason := "context_budget"
+			if autonomous {
+				reason = "context_budget_autonomous"
+			}
 			recorded = c.tasks.RecordContextCompactionLocked(requestID, model.ContextCompaction{
-				Version: checkpoint.Version, Reason: "context_budget", MessagesBefore: len(existing),
+				Version: checkpoint.Version, Reason: reason, MessagesBefore: len(existing),
 				EstimatedTokens: rawTokens, CompactedAt: time.Now(),
 			})
 			if recorded {
@@ -311,6 +427,56 @@ func (c *Coordinator) tryFitExecutionHistory(
 		history = append(history, contract.EngineMessage{Role: "system", Content: planMessage, ContentSet: true})
 	}
 	return history, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
+}
+
+// compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，
+// 把可变 transcript 折叠为「稳定 system 前缀 + 有界 checkpoint 摘要 + plan +
+// 当前输入」。摘要由 TaskExecutionState.ContextSummary 提供
+// （objective/plan/evidence/已完成工具结果的恢复材料，正文受
+// limits.max_tool_result_chars 约束）；原始轮次仍完整留在会话存储里，模型
+// 需要细节时用分页/过滤工具回读。返回 ok=false 表示连压缩形态都超预算
+// （例如 system 提示自身就超出窗口），此时调用方仍以
+// ErrProviderContextBudgetExceeded 拒绝发送。
+func (c *Coordinator) compressExecutionHistory(
+	systemPrompt string,
+	systems []contract.EngineMessage,
+	summary string,
+	planMessage string,
+	currentInput string,
+	tools []model.Tool,
+	budget task_context.ContextBudget,
+) ([]contract.EngineMessage, int, bool) {
+	history := append(RetainedSystemOnly(systems), contract.EngineMessage{
+		Role: "system", Content: AutonomousCompactionMessage(summary), ContentSet: true,
+	})
+	if planMessage != "" {
+		history = append(history, contract.EngineMessage{Role: "system", Content: planMessage, ContentSet: true})
+	}
+	estimated := c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
+	if estimated > budget.Budget {
+		return nil, estimated, false
+	}
+	return history, estimated, true
+}
+
+// AutonomousCompactionMessage 渲染自主压缩帧正文（system 消息）：显式告知
+// 模型上下文已被框架压缩、必须从有界 checkpoint 继续，并以窄化工具调用
+// 补取细节——避免模型基于想象补全被折叠的内容。
+func AutonomousCompactionMessage(summary string) string {
+	var builder strings.Builder
+	builder.WriteString(AutonomousCompactionPrefix)
+	builder.WriteString("\n## Autonomous Context Compaction\n")
+	builder.WriteString("The conversation exceeded the provider context budget and was compacted automatically. ")
+	builder.WriteString("Continue from the bounded task checkpoint below without assuming omitted details. ")
+	builder.WriteString("Reacquire omitted detail with narrow, paginated, or filtered tool calls; do not request a full large result.\n")
+	if trimmed := strings.TrimSpace(summary); trimmed != "" {
+		builder.WriteString("\n")
+		builder.WriteString(trimmed)
+		builder.WriteString("\n")
+	} else {
+		builder.WriteString("\nNo durable checkpoint evidence is available; rely on the current request and re-read as needed.\n")
+	}
+	return builder.String()
 }
 
 // retainedMatchesTranscriptPrefix 判定引擎保留段（非 system 的已定稿轮次）
@@ -554,9 +720,9 @@ func RetainedSystemOnly(history []contract.EngineMessage) []contract.EngineMessa
 }
 
 // isDynamicTailMessage 判定消息是否为动态尾部/控制消息（plan 上下文、
-// checkpoint、压缩帧标记、恢复信封、预算终局输入）：这类消息每轮重建或
-// 由恢复路径单独管理，不进入保留的稳定前缀 + 已定稿累积段。激活技能事件
-// 不在其列——它是 append-only 的定稿轮次，由保留段照常携带并计数。
+// checkpoint、压缩帧标记、恢复信封、预算终局输入、自主压缩帧）：这类消息每轮
+// 重建或由恢复路径单独管理，不进入保留的稳定前缀 + 已定稿累积段。激活技能
+// 事件不在其列——它是 append-only 的定稿轮次，由保留段照常携带并计数。
 func isDynamicTailMessage(message contract.EngineMessage) bool {
 	content := message.Content
 	return strings.HasPrefix(content, planContextPrefix) ||
@@ -564,7 +730,8 @@ func isDynamicTailMessage(message contract.EngineMessage) bool {
 		strings.HasPrefix(content, seelexctx.CompactContextMarker) ||
 		strings.HasPrefix(content, contextRecoveryPrefix) ||
 		strings.HasPrefix(content, providerRecoveryPrefix) ||
-		strings.HasPrefix(content, reactBudgetFinalizationPrefix)
+		strings.HasPrefix(content, reactBudgetFinalizationPrefix) ||
+		strings.HasPrefix(content, AutonomousCompactionPrefix)
 }
 
 // retainedContextEventCount 返回保留段中已定稿轮次的 message 数（与
