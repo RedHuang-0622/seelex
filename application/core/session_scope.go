@@ -325,10 +325,11 @@ func (service *Service) SubmitToSession(ctx context.Context, sessionID, text str
 	// 再委托 Submit（内部再读一次 current），切换落在两次读之间会把 A 的
 	// 输入路由进 B 的队列（压力测试 TestStressConcurrentSessionsDoNotPollute
 	// 抓到：queued-2 进入 sess-4 视图）。
-	if !service.sessionLoaded(sessionID) {
-		// 目标会话未加载：切换恢复后提交（旧 M1 语义；会话级门控允许运行中
-		// 恢复空闲会话）。ActivateSession 持 TransitionLock，完成后目标即
-		// 当前会话，后续显式路由不依赖 current。
+	if !service.sessionLoaded(sessionID) || service.sessionContentUnloaded(sessionID) {
+		// 目标会话未加载，或可见正文已被内容 LRU 卸载：切换恢复（含正文冷
+		// 回读）后再提交——否则新回合的可见消息会落进一个没有窗口的会话视图。
+		// ActivateSession 持 TransitionLock，完成后目标即当前会话，后续显式
+		// 路由不依赖 current。
 		if err := service.ActivateSession(sessionID); err != nil {
 			return err
 		}
@@ -366,9 +367,18 @@ func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error) {
 	service.ViewMu.RLock()
 	unit := service.sessions.Unit(sessionID)
 	resident := service.sessionResidentLocked(unit, sessionID)
+	viewSession := service.Core.Snapshot.Session.ID
 	service.ViewMu.RUnlock()
 	if !resident {
 		return service.snapshotOfCold(sessionID)
+	}
+	if sessionID != viewSession && service.sessionContentUnloaded(sessionID) {
+		// 可见正文已被内容 LRU 卸载的驻留会话：快照走持久化基线（只读 record，
+		// 不把正文拉回内存，也不解除「内容未加载」状态）；磁盘不可读时才退回
+		// 内存快照（宁可少一份基线，也不因内存治理报「快照不可用」）。
+		if snapshot, err := service.snapshotOfCold(sessionID); err == nil {
+			return snapshot, nil
+		}
 	}
 	return service.snapshotOfResident(sessionID)
 }

@@ -46,6 +46,13 @@ type View struct {
 	HasMoreHistory     bool
 	ConversationWindow int
 	Revision           uint64
+	// ContentUnloaded 标记本会话的**可见正文已从内存卸载**（application/core
+	// 的内容 LRU：视图未切换到的、且不在运行中的会话，其 Conversation 窗口
+	// 按上限做 LRU 释放）。置位时 Conversation 必为空，而 TotalMessages /
+	// HistoryOffset / HasMoreHistory / ConversationWindow / Chat / ReadFiles 等
+	// 窗口标志、统计与会话事实一律保留——磁盘是唯一事实源，再激活或分页时
+	// 经冷回读恢复同一窗口位置。
+	ContentUnloaded bool
 }
 
 // Mutate 在视图私有锁内应用变更（会话写路径；活跃镜像在 Core.ViewMu 下经 Read 克隆）。
@@ -78,6 +85,7 @@ func (view *View) Clone() *View {
 		clone.HasMoreHistory = source.HasMoreHistory
 		clone.ConversationWindow = source.ConversationWindow
 		clone.Revision = source.Revision
+		clone.ContentUnloaded = source.ContentUnloaded
 	})
 	return &clone
 }

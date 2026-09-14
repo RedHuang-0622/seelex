@@ -62,6 +62,15 @@ type Limits struct {
 	// （G6 INV-G8：默认 6；驱逐前置 = 非 running/awaiting_approval，且
 	// composer/View/Runtime 槽已 flush）。
 	ResidentSessionLimit int `yaml:"resident_limit"`
+	// LoadedContentLimit 是「已加载会话可见正文」的会话数上限（默认 12）：
+	// 视图未切换到的、且不在运行中的会话，其可见正文窗口（history_window
+	// 条）按此上限做 LRU 卸载，只释放消息正文，会话事实/元数据/标题/统计与
+	// 磁盘数据不动（application/core/content_lru.go），再激活或分页时冷回读。
+	// 取值理由：驻留引擎上限默认 6，而引擎 bundle（provider 历史 + 工具
+	// 运行时）远重于一个正文窗口；按 2× 留余量，既能覆盖「当前视图 + 最近
+	// 切换过的几个会话」（避免刚切走就卸载、把切回来的操作变成磁盘读），又
+	// 把正文内存钉在「约 12 × history_window 条消息」的量级。
+	LoadedContentLimit   int `yaml:"loaded_content_limit"`
 	HistoryWindow        int `yaml:"history_window"`          // 会话可见历史条数
 	PlanNodeEvents       int `yaml:"plan_node_events"`        // 节点详情时间线上限
 	PlanNodeMaxLoops     int `yaml:"plan_node_max_loops"`     // 子代理节点循环上限
@@ -115,6 +124,7 @@ func DefaultLimits() Limits {
 		MaxReplanProviderReqs:  6,
 		MaxReplansPerPlanChain: 2,
 		ResidentSessionLimit:   6,
+		LoadedContentLimit:     12,
 		HistoryWindow:          200,
 		PlanNodeEvents:         30,
 		PlanNodeMaxLoops:       15,
@@ -186,6 +196,9 @@ func (l Limits) WithDefaults() Limits {
 	}
 	if l.ResidentSessionLimit == 0 {
 		l.ResidentSessionLimit = def.ResidentSessionLimit
+	}
+	if l.LoadedContentLimit == 0 {
+		l.LoadedContentLimit = def.LoadedContentLimit
 	}
 	if l.HistoryWindow == 0 {
 		l.HistoryWindow = def.HistoryWindow
@@ -298,6 +311,7 @@ func LoadLimits(path string) (Limits, error) {
 	if check.ToolCallTimeoutSec < 0 || check.ApprovalTimeoutSec < 0 || check.PlanDecisionTimeoutSec < 0 ||
 		check.HeartbeatIntervalSec < 0 || check.ReplanWindowSec < 0 || check.SearchTimeoutSec < 0 || check.TavilyTimeoutSec < 0 ||
 		check.MaxConcurrentReplans < 0 || check.MaxReplansPerWindow < 0 || check.MaxReplanProviderReqs < 0 || check.MaxReplansPerPlanChain < 0 || check.ResidentSessionLimit < 0 ||
+		check.LoadedContentLimit < 0 ||
 		check.HistoryWindow < 0 || check.PlanNodeEvents < 0 || check.PlanNodeMaxLoops < 0 ||
 		check.EvidenceChars < 0 || check.ReplanEvidenceBytes < 0 || check.InputLoopLimit < 0 ||
 		check.ReferencePageSize < 0 || check.MaxReferencePageSize < 0 || check.GrepMaxResults < 0 ||

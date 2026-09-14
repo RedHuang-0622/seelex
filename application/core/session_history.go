@@ -527,6 +527,8 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	service.components.sessions.RequestCatalogRefresh()
 	// G6 驻留 LRU：冷加载完成即记录使用序并收敛超限驻留（INV-G8）。
 	service.touchResident(sessionID)
+	// 内容 LRU：冷加载装载了可见正文，记录内容使用序并收敛超限正文。
+	service.touchContent(sessionID)
 	return nil
 }
 
@@ -561,6 +563,17 @@ func (service *Service) LoadMoreHistory(limit int) error {
 	sessionID := service.Core.Snapshot.Session.ID
 	workspaceID := currentWorkspaceIDLocked(service)
 	service.ViewMu.RUnlock()
+	if service.sessionContentUnloaded(sessionID) {
+		// 内容 LRU 卸载后再分页：窗口当前不在内存，先把尾部窗口从磁盘回读
+		// （offset 回到尾部），再按本页请求向更早推进；否则「加载更早」会从
+		// 一个不存在的窗口出发（页错位）。
+		if err := service.reloadSessionContent(sessionID); err != nil {
+			return err
+		}
+		service.ViewMu.RLock()
+		offset = service.Core.Snapshot.HistoryOffset
+		service.ViewMu.RUnlock()
+	}
 	if offset <= 0 {
 		return nil
 	}
@@ -589,6 +602,11 @@ func (service *Service) LoadLatestHistory() error {
 	sessionID := service.Core.Snapshot.Session.ID
 	workspaceID := currentWorkspaceIDLocked(service)
 	service.ViewMu.RUnlock()
+	if service.sessionContentUnloaded(sessionID) {
+		// 内容 LRU 卸载后「回到最新」= 从磁盘整窗回读（回读本身按尾部窗口安装
+		// 并清除「内容未加载」标志，无需再读一次）。
+		return service.reloadSessionContent(sessionID)
+	}
 
 	offset := total - window
 	if offset < 0 {
@@ -682,11 +700,15 @@ func (service *Service) installVisibleHistory(sessionID string, page []Message, 
 		view.HistoryOffset = offset
 		view.HasMoreHistory = offset > 0
 		view.ConversationWindow = window
+		// 本路径安装了可见正文（分页/冷回读）：「内容未加载」标志随之清除。
+		view.ContentUnloaded = false
 	})
 	service.mirrorActiveViewLocked()
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
+	// 内容 LRU：分页/回读都是一次正文使用（移动到使用序最前并收敛超限）。
+	service.touchContent(sessionID)
 	return nil
 }
 

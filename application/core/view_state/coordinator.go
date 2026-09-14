@@ -310,6 +310,16 @@ func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content 
 	view := c.sessionViewLocked(sessionID)
 	var message *model.Message
 	view.Mutate(func(v *session.View) {
+		// 可见正文已被内容 LRU 卸载（视图未激活且空闲时释放）时又来了新消息：
+		// 历史窗口标志仍在，但窗口已空——把窗口原地重置为「以这条新消息为
+		// 尾」并清「内容未加载」标志。否则 append 会把新消息判成「窗口未贴尾」
+		// 而不写进窗口（前端拿不到正文），或写进一个没有历史的空窗口导致
+		// offset 自相矛盾。置位只发生在卸载，那时窗口必为空。
+		if v.ContentUnloaded {
+			v.ContentUnloaded = false
+			v.Conversation = nil
+			v.HistoryOffset = v.TotalMessages
+		}
 		c.messageSeq[sessionID]++
 		next := model.Message{
 			ID: fmt.Sprintf("message-%d", c.messageSeq[sessionID]), Role: role, Content: content, Tool: tool, CreatedAt: time.Now(),
@@ -409,6 +419,9 @@ func (c *Coordinator) SetSessionViewLocked(sessionID string, view *session.View)
 		target.HistoryOffset = view.HistoryOffset
 		target.HasMoreHistory = view.HasMoreHistory
 		target.ConversationWindow = view.ConversationWindow
+		// 内容 LRU 标志随装载复制：冷加载/恢复安装的窗口是「已加载正文」，
+		// 被卸载的会话不经此路径（卸载只清正文，不动装载入口）。
+		target.ContentUnloaded = view.ContentUnloaded
 	})
 	c.mirrorActiveViewLocked(sessionID, unit.View)
 }

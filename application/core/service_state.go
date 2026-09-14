@@ -51,6 +51,15 @@ type serviceState struct {
 	// awaiting_approval 与当前视图会话不可驱逐（INV-G8）。
 	residentOrder []string
 
+	// loadedContentOrder 是「已加载会话可见正文」的 LRU 使用序（Core.ViewMu
+	// 保护；索引 0 = 最近使用）。内容上限 = limits.loaded_content_limit
+	// （默认 12，见 seelexctx.LoadedContentLimit）；超限时按最旧优先卸载正文
+	// （application/core/content_lru.go）：视图会话 / running / queued /
+	// awaiting_approval（含待批/排队输入）/ restoring / 本已无正文的会话都
+	// 不做候选。与 residentOrder 是两层独立治理：引擎驻留与否、正文留内存
+	// 与否互不替代。
+	loadedContentOrder []string
+
 	// viewEpoch 是视图切换的单调序号（Core.ViewMu 保护）：后台冷加载在
 	// 完成时校验自己仍是“最新切换目标”，否则只完成装载、不抢占当前视图。
 	viewEpoch uint64
