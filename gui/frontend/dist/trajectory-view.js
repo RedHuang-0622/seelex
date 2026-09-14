@@ -1,13 +1,16 @@
 // 轨迹视图组件：Network 风格轨迹面板（对话区「轨迹」子页）。
 //
 // 职责：
-//  - 骨架渲染（过滤条 + 摘要条 + 表格区）；
+//  - 骨架渲染（窗口边界条 + 上下文轴 + 轴详情 + 过滤条 + 摘要条 + 表格区）；
 //  - keyed reconciliation（复用 conversation-view 的 html 缓存 + 局部 UI
 //    状态捕获/恢复，避免流式更新无意义重建大列表）；
 //  - 行内交互委托：复制 IN/OUT、展开完整内容、result_ref 分页读回；
-//  - 过滤按钮切换（本地状态，经 onFilterChange 回传给 app.js）。
-// 本地 UI 状态（当前过滤、展开、滚动）只存在前端，不进入 Snapshot。
+//  - 过滤按钮切换（本地状态，经 onFilterChange 回传给 app.js）；
+//  - 上下文轴滚轮分页：滚轮 = 翻页（上一页/下一页），Shift+滚轮 = 调整页大小
+//    档位（轴头给页码/页大小反馈）；只在轴区域内响应，不抢对话区滚轮。
+// 本地 UI 状态（当前过滤、展开、滚动、轴分页）只存在前端，不进入 Snapshot。
 import {
+  AXIS_PAGE_SIZE_DEFAULT,
   buildTrajectory,
   filterTrajectory,
   trajectoryStats,
@@ -18,7 +21,10 @@ import {
   renderTrajectoryWindowInfo,
   renderAxisDetail,
   prefixLayerSegments,
-  compactionMarks
+  compactionMarks,
+  resolveAxisPage,
+  stepAxisPageSize,
+  axisWheelStep
 } from "./trajectory.js";
 
 export function createTrajectoryView(container, options = {}) {
@@ -34,6 +40,26 @@ export function createTrajectoryView(container, options = {}) {
   let axisPrefixSegments = [];
   let axisCompactionMarks = [];
   let axisDetailKey = "";
+  // 轴分页状态（本地 UI 状态，不进 Snapshot）：
+  //  - axisPageSize：分页页大小档位（Shift+滚轮步进，默认 AXIS_PAGE_SIZE_DEFAULT）；
+  //  - axisPage / axisAnchorKey / axisTail：当前页；anchorKey 指向本页首条记录，
+  //    加载更早内容把记录整体前移时视图跟着原记录走（不跳位）；停在尾页时
+  //    tail=true 跟随新记录；
+  //  - axisNotice：瞬时反馈文案（页大小变更/更早内容未加载…），随轴头渲染保留。
+  let axisPageSize = AXIS_PAGE_SIZE_DEFAULT;
+  let axisPage = 0;
+  let axisAnchorKey = "";
+  let axisTail = true;
+  let axisNotice = "";
+  let axisNoticeTimer = null;
+  let wheelAccumulator = 0;
+  let axisHasMore = false;
+  // axisPageable：轴有可翻的页（多页）或还有未加载的更早内容——决定滚轮是否
+  // 由轴接管（单页且已全部加载时让滚轮正常滚动页面，不做无意义拦截）。
+  let axisPageable = false;
+  let axisLoadPending = false;
+  let axisLoadCooldownUntil = 0;
+  let windowInfo = null;
 
   // 骨架：上下文轴（记录轨 + 前缀注入/压缩元数据轨）/ 轴详情 / 过滤条 /
   // 摘要 / 表格区（各自独立更新；轴详情只在点击元数据块时展开）。
@@ -84,9 +110,17 @@ container.innerHTML = [
     }
     const compactIndex = segment.dataset.compactIdx;
     if (compactIndex !== undefined) {
+      // 刻度在本页是钳位标记时先跳页（显式提示，不静默位移），再打开详情——
+      // 否则用户看到的是"点了一个边界刻度却什么都没发生/看到别处的压缩"。
       const mark = axisCompactionMarks[Number(compactIndex)];
       if (mark) {
-        toggleAxisDetail(`compact:${compactIndex}`, { type: "compression", mark });
+        if (mark.anchored && mark.offPage && mark.anchorPage !== axisPage) {
+          applyAxisPage(records, resolveAxisPage(records, { pageSize: axisPageSize, page: mark.anchorPage }));
+          renderAxis();
+          setAxisNotice(`压缩 #${mark.version} 的锚点在第 ${mark.anchorPage + 1} 页，已跳转到该页`);
+        }
+        const current = axisCompactionMarks[Number(compactIndex)] || mark;
+        toggleAxisDetail(`compact:${compactIndex}`, { type: "compression", mark: current });
         return;
       }
     }
@@ -95,6 +129,131 @@ container.innerHTML = [
     if (filter !== "all") setFilter("all");
     requestAnimationFrame(() => focusRow(key));
   });
+
+  // 上下文轴滚轮（只在轴区域内响应，使用 passive:false + preventDefault，
+  // 与对话区滚轮互不抢占）：
+  //   滚轮        = 翻页（向上=更早一页，向下=更新一页；只有一页且没有更早的
+  //                 未加载内容时放行滚轮，不做无意义的拦截）
+  //   Shift+滚轮  = 调整分页页大小（档位步进，轴头给可见反馈）
+  // 累计阈值（axisWheelStep）让一次连续手势只翻一页；横向滚动不属于轴手势，
+  // 原样放行（不 preventDefault）。轴未渲染（空数据）时也不接管滚轮。
+  axisEl.addEventListener("wheel", event => {
+    if (event.ctrlKey) return;
+    if (!axisEl.querySelector(".context-axis-page")) return;
+    const vertical = Math.abs(event.deltaY) >= Math.abs(event.deltaX);
+    if (!event.shiftKey && (!vertical || !axisPageable)) return;
+    const delta = vertical ? event.deltaY : event.deltaX;
+    if (!delta) return;
+    event.preventDefault();
+    if (event.shiftKey) {
+      const stepped = stepAxisPageSize(axisPageSize, delta > 0 ? 1 : -1);
+      if (!stepped.changed) {
+        setAxisNotice(`页大小已是${stepped.atMin ? "最小" : "最大"} ${stepped.size} 条`);
+        return;
+      }
+      axisPageSize = stepped.size;
+      wheelAccumulator = 0;
+      renderAxis();
+      const current = resolveAxisPage(records, { pageSize: axisPageSize, page: axisPage, anchorKey: axisAnchorKey, tail: axisTail });
+      setAxisNotice(`页大小 ${stepped.previous} → ${stepped.size} 条：现在共 ${current.pageCount} 页，本页${axisRangeLabel(current)}`);
+      return;
+    }
+    const stepped = axisWheelStep(wheelAccumulator, delta);
+    wheelAccumulator = stepped.accumulated;
+    if (stepped.step) goToAxisPage(stepped.step);
+  }, { passive: false });
+
+  // goToAxisPage 翻页（step = +1 更新 / -1 更早）。越界一律显式提示：
+  //  - 往更早翻到边界：有 hasMore 就请求加载更早内容（既有 loadMore 接线），
+  //    没有就说明会话已全部加载——不静默跳位；
+  //  - 往更新翻到边界：提示已在最新一页。
+  function goToAxisPage(step) {
+    const current = resolveAxisPage(records, { pageSize: axisPageSize, page: axisPage, anchorKey: axisAnchorKey, tail: axisTail });
+    const target = current.page + step;
+    if (target < 0) {
+      if (requestEarlierContent()) return;
+      setAxisNotice("已到最早一页（已加载窗口内没有更早的记录）");
+      return;
+    }
+    if (target > current.pageCount - 1) {
+      setAxisNotice("已到最新一页");
+      return;
+    }
+    const next = resolveAxisPage(records, { pageSize: axisPageSize, page: target, tail: target === current.pageCount - 1 });
+    applyAxisPage(records, next);
+    renderAxis();
+  }
+
+  // applyAxisPage 把解析出的页窗口写回本地状态：停在尾页时 tail=true（跟随新
+  // 记录），否则用本页首条记录做锚点（加载更早内容后视图跟着原记录走）。
+  function applyAxisPage(list, view) {
+    axisPage = view.page;
+    axisTail = view.page === view.pageCount - 1;
+    axisAnchorKey = axisTail ? "" : (list[view.start]?.key || "");
+  }
+
+  // axisRangeLabel 本页区间文案（空页不写成"第 1–0 条"，与轴头口径一致）。
+  function axisRangeLabel(view) {
+    return view.end > view.start ? `第 ${view.start + 1}–${view.end} 条` : "为空";
+  }
+
+  // requestEarlierContent 请求加载更早内容（复用既有 app.js loadMore 接线）：
+  // 先给明确提示，再去重（加载中不重复请求）与冷却（连续滚轮不反复触发）。
+  function requestEarlierContent() {
+    if (!axisHasMore || typeof options.loadMore !== "function") return false;
+    const now = Date.now();
+    if (axisLoadPending) {
+      setAxisNotice("正在加载更早的回合…");
+      return true;
+    }
+    if (now < axisLoadCooldownUntil) {
+      setAxisNotice("更早的回合尚未加载（刚请求过，稍候再看）");
+      return true;
+    }
+    axisLoadPending = true;
+    axisLoadCooldownUntil = now + 4000;
+    setAxisNotice("更早的回合尚未加载，正在加载更早内容…");
+    Promise.resolve(options.loadMore())
+      .catch(() => setAxisNotice("加载更早内容失败"))
+      .finally(() => { axisLoadPending = false; });
+    return true;
+  }
+
+  // setAxisNotice 写瞬时反馈：直接落到轴头节点（不重新渲染），并记进状态，
+  // 这样随后的轴重渲染不会把提示吞掉；到点自动清空。
+  function setAxisNotice(text, ttl = 2800) {
+    axisNotice = text || "";
+    const node = axisEl.querySelector("[data-axis-note]");
+    if (node) node.textContent = axisNotice;
+    if (axisNoticeTimer !== null) window.clearTimeout(axisNoticeTimer);
+    axisNoticeTimer = null;
+    if (!axisNotice) return;
+    axisNoticeTimer = window.setTimeout(() => {
+      axisNoticeTimer = null;
+      axisNotice = "";
+      const current = axisEl.querySelector("[data-axis-note]");
+      if (current) current.textContent = "";
+    }, ttl);
+  }
+
+  // renderAxis 渲染上下文轴（含分页）：分页状态只在本地，过滤切换/详情开关/
+  // reconcile 重建都走这里，因此页号与页大小在这些操作后保持一致。
+  function renderAxis() {
+    const view = resolveAxisPage(records, { pageSize: axisPageSize, page: axisPage, anchorKey: axisAnchorKey, tail: axisTail });
+    axisPrefixSegments = prefixLayerSegments(prefixLayers);
+    axisCompactionMarks = compactionMarks(records, compactions, { page: view.page, pageSize: view.pageSize });
+    axisEl.innerHTML = renderContextAxis(records, {
+      prefixLayers,
+      compactions,
+      page: view.page,
+      pageSize: view.pageSize,
+      notice: axisNotice,
+      hasMore: axisHasMore
+    });
+    applyAxisPage(records, view);
+    axisPageable = view.pageCount > 1 || axisHasMore;
+    refreshOpenAxisDetail();
+  }
 
   // toggleAxisDetail 打开/关闭轴详情；再次点击同一块收起。
   function toggleAxisDetail(key, selection) {
@@ -125,7 +284,7 @@ container.innerHTML = [
   }
 
   // refreshOpenAxisDetail 在 render 重算元数据后保持已打开的详情有效（例如
-  // 压缩刻度随新消息体量归一化轻微移动）；索引仍存在则刷新内容，否则收起。
+  // 压缩刻度随分页窗口移动）；索引仍存在则刷新内容，否则收起。
   function refreshOpenAxisDetail() {
     if (!axisDetailKey) return;
     const separator = axisDetailKey.indexOf(":");
@@ -174,14 +333,17 @@ container.innerHTML = [
     // 元数据只按显式提供更新；未提供（如本地过滤切换重渲染）时沿用已缓存值。
     if (Array.isArray(extras?.prefixLayers)) prefixLayers = extras.prefixLayers;
     if (Array.isArray(extras?.compactions)) compactions = extras.compactions;
+    if (extras?.window) windowInfo = extras.window;
+    // hasMore（轴翻页到更早边界的提示与"请求加载更早"依据）优先取显式的
+    // extras.hasMore，否则与窗口边界条同源（extras.window.hasMore）。
+    if (typeof extras?.hasMore === "boolean") axisHasMore = extras.hasMore;
+    else if (extras?.window) axisHasMore = Boolean(extras.window.hasMore);
     if (!active) return;
-    axisPrefixSegments = prefixLayerSegments(prefixLayers);
-    axisCompactionMarks = compactionMarks(records, compactions);
-    // 上下文轴始终反映完整对话顺序（与过滤状态无关）；extras 附加前缀注入
-    // 与压缩两条元数据轨。
-    windowEl.innerHTML = extras?.window ? renderTrajectoryWindowInfo(extras.window) : "";
-    axisEl.innerHTML = renderContextAxis(records, { prefixLayers, compactions });
-    refreshOpenAxisDetail();
+    // 窗口边界条同样按缓存值渲染：本地过滤切换重渲染不该把"加载更早"入口抹掉。
+    windowEl.innerHTML = windowInfo ? renderTrajectoryWindowInfo(windowInfo) : "";
+    // 上下文轴始终反映完整对话顺序（与过滤状态无关），并保持本地分页状态
+    // （页号/页大小/锚点）；extras 附加前缀注入与压缩两条元数据轨。
+    renderAxis();
     const stats = trajectoryStats(records);
     filtersEl.innerHTML = renderTrajectoryFilters(records, filter);
     summaryEl.innerHTML = renderTrajectorySummary(stats);

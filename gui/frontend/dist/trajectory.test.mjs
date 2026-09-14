@@ -2,11 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  AXIS_LANES,
+  AXIS_PAGE_SIZE_DEFAULT,
+  AXIS_PAGE_SIZE_STEPS,
+  AXIS_WIDE_MIN_SLOT_PERCENT,
   TRAJECTORY_KINDS,
+  axisBlocks,
+  axisPageForIndex,
+  axisPageWindow,
+  axisWheelStep,
   buildTrajectory,
   filterTrajectory,
   trajectoryStats,
   trajectoryKindLabel,
+  normalizeAxisPageSize,
   renderTrajectoryFilters,
   renderTrajectorySummary,
   renderTrajectoryTable,
@@ -16,6 +25,8 @@ import {
   renderAxisDetail,
   prefixLayerSegments,
   compactionMarks,
+  resolveAxisPage,
+  stepAxisPageSize,
   escapeHtml
 } from "./trajectory.js";
 
@@ -370,20 +381,233 @@ test("renders context axis as per-kind lanes with shared axis positions", () => 
   assert.match(html, /--w:/);
 });
 
-test("context axis marks wide blocks so the lane shows content, not blank bars", () => {
-  // 两个块的体量差 40 倍：宽块要带 is-wide（直接显示标签），窄块不带。
+test("axis lane order is fixed, derived from the response-type table, and self-explaining", () => {
+  // 轨序 = 响应类型表顺序（单一事实源，不会两处漂移）
+  assert.deepEqual(AXIS_LANES.map(lane => lane.kind), ["input", "llm", "tool", "error", "system", "notice"]);
+  assert.deepEqual(AXIS_LANES.map(lane => lane.kind), TRAJECTORY_KINDS.map(entry => entry.kind));
+  for (const lane of AXIS_LANES) assert.ok(lane.why.length > 0, `${lane.kind} 轨必须有一句话语义`);
+
+  const records = buildTrajectory([userMessage("u1", "hi"), llmMessage("a1", "hello")]);
+  const html = renderContextAxis(records, {
+    prefixLayers: [{ kind: "identity", name: "seelex", text: "你是 Seelex。" }],
+    compactions: [{ version: 1, reason: "context_budget", compacted_at: "2026-08-25T10:00:00Z" }]
+  });
+  // 固定顺序：前缀注入（元数据轨，最上）→ 六条类型轨 → 压缩（元数据轨，最下）
+  let cursor = -1;
+  for (const marker of [
+    "context-axis-lane is-prefix",
+    ...AXIS_LANES.map(lane => `context-axis-lane is-${lane.kind}`),
+    "context-axis-lane is-compress"
+  ]) {
+    const at = html.indexOf(marker);
+    assert.ok(at > cursor, `${marker} 必须出现在上一条轨之后`);
+    cursor = at;
+  }
+  // 轨标签 title 带上"这一轨是什么"的一句话说明
+  assert.match(html, /title="输入：轮次起点：人在这一轮发出的请求/);
+});
+
+test("axis blocks enter the lane of their response kind and keep global order", () => {
+  const records = buildTrajectory([
+    userMessage("u1", "hi"),
+    llmMessage("a1", "hello"),
+    toolStart("call-1", "bash", "{}"),
+    toolEnd("call-1", "bash", "done"),
+    errorMessage("e1", "boom")
+  ]);
+  const { lanes, window } = axisBlocks(records, { pageSize: 16, page: 0 });
+  const lane = kind => lanes.find(entry => entry.kind === kind);
+  assert.deepEqual(lane("input").blocks.map(block => block.index), [0]);
+  assert.deepEqual(lane("llm").blocks.map(block => block.index), [1]);
+  assert.deepEqual(lane("tool").blocks.map(block => block.index), [2]);
+  assert.deepEqual(lane("error").blocks.map(block => block.index), [3]);
+  // 本段没有块的轨保留占位（空轨是"看得见的结论"，不是轨消失）
+  assert.equal(lane("system").empty, true);
+  assert.equal(lane("notice").empty, true);
+  // 轮次只进 tooltip、不参与分轨：第一个输入块之后都算第 1 轮
+  assert.deepEqual(lane("input").blocks.map(block => block.turn), [1]);
+  assert.deepEqual(lane("llm").blocks.map(block => block.turn), [1]);
+  // 单页装得下 → 整段铺满横轴
+  assert.deepEqual([window.total, window.pageCount, window.capacity, window.slot], [4, 1, 4, 25]);
+});
+
+test("axis block geometry is slot-only: position and width never encode volume", () => {
   const records = buildTrajectory([
     userMessage("u1", "短问题"),
-    llmMessage("a1", "x".repeat(4000))
+    llmMessage("a1", "x".repeat(4000)),
+    toolStart("call-1", "bash", "y".repeat(2000)),
+    toolEnd("call-1", "bash", "z".repeat(3000))
   ]);
+  const { lanes, window } = axisBlocks(records, { pageSize: 16, page: 0 });
+  const blocks = ["input", "llm", "tool"].map(kind => lanes.find(entry => entry.kind === kind).blocks[0]);
+  // 体量差上千倍，几何完全一致：x = 页内序号 × 槽宽，宽 = 槽宽
+  blocks.forEach((block, slotIndex) => {
+    assert.ok(Math.abs(block.x - slotIndex * window.slot) < 1e-9);
+    assert.equal(block.width, window.slot);
+  });
   const html = renderContextAxis(records);
-  const segments = [...html.matchAll(/class="axis-segment (is-[a-z]+) ([a-z-]+)( is-wide)?"[^>]*--w:([0-9.]+)%/g)];
-  assert.equal(segments.length, 2);
-  const wide = segments.filter(match => match[3] === " is-wide");
-  assert.equal(wide.length, 1, "只有宽块应带 is-wide");
-  assert.ok(Number(wide[0][4]) >= 6, `宽块占比 ${wide[0][4]}% 应 ≥6%`);
-  const narrow = segments.find(match => match[3] === undefined);
-  assert.ok(Number(narrow[4]) < 6, `窄块占比 ${narrow[4]}% 应 <6%`);
+  const widths = [...html.matchAll(/--w:([0-9.]+)%/g)].map(match => Number(match[1]));
+  assert.deepEqual(new Set(widths), new Set([Number((100 / 3).toFixed(3))]));
+  // 槽宽 33.3% ≥ 6% → 每块都直接显示标签
+  assert.equal((html.match(/ is-wide/g) || []).length, 3);
+});
+
+test("axis wide-label rule follows slot width, not content volume", () => {
+  const records = buildTrajectory(Array.from({ length: 40 }, (unused, index) => userMessage(`u${index}`, `第 ${index} 条`)));
+  // 页大小 16 → 槽宽 6.25% ≥ AXIS_WIDE_MIN_SLOT_PERCENT → 本页 16 块都显示标签
+  const small = renderContextAxis(records, { pageSize: 16 });
+  assert.equal((small.match(/ is-wide/g) || []).length, 16);
+  assert.ok(100 / 16 >= AXIS_WIDE_MIN_SLOT_PERCENT);
+  // 页大小 128（单页装 40 条）→ 槽宽 2.5% → 不显示标签（悬停才显示）
+  const large = renderContextAxis(records, { pageSize: 128 });
+  assert.equal((large.match(/ is-wide/g) || []).length, 0);
+});
+
+test("axis block tooltip explains why the block sits there in one sentence", () => {
+  const records = buildTrajectory([userMessage("u1", "hi"), llmMessage("a1", "hello")]);
+  const html = renderContextAxis(records);
+  assert.match(html, /输入轨 · 输入 · /);
+  assert.match(html, /体量 \d+ 字符（不参与位置）/);
+  assert.match(html, /第 1 轮/);
+  assert.match(html, /本页第 1 槽 \/ 共 2 槽/);
+  assert.match(html, /全局第 1 条/);
+});
+
+test("axis page window splits records into fixed-size pages with honest last page", () => {
+  assert.deepEqual(
+    { ...axisPageWindow(40, 16, 0) },
+    { total: 40, pageSize: 16, pageCount: 3, page: 0, capacity: 16, start: 0, end: 16, slot: 6.25 }
+  );
+  const last = axisPageWindow(40, 16, 2);
+  assert.deepEqual([last.start, last.end, last.pageCount], [32, 40, 3]);
+  // 页号越界/负数一律钳位（页数变小时不会停在空白页）
+  assert.equal(axisPageWindow(40, 16, 99).page, 2);
+  assert.equal(axisPageWindow(40, 16, -5).page, 0);
+  // 单页装得下 → 容量=总条数、整段铺满横轴
+  const single = axisPageWindow(5, 16, 0);
+  assert.deepEqual([single.pageCount, single.capacity, single.start, single.end, single.slot], [1, 5, 0, 5, 20]);
+  // 非法页大小归一到默认档
+  assert.equal(axisPageWindow(40, 7, 0).pageSize, AXIS_PAGE_SIZE_DEFAULT);
+  // 空数据不除零，保持一页空窗口
+  const empty = axisPageWindow(0, 16, 3);
+  assert.deepEqual([empty.pageCount, empty.page, empty.start, empty.end], [1, 0, 0, 0]);
+});
+
+test("resolveAxisPage prefers the content anchor, then the tail, then the requested page", () => {
+  const records = Array.from({ length: 40 }, (unused, index) => ({ key: `k${index}` }));
+  // 尾页跟随：停在最后一页（新记录到达时继续跟随）
+  assert.equal(resolveAxisPage(records, { pageSize: 16, tail: true }).page, 2);
+  // 锚点优先：加载更早内容把记录整体前移，视图跟着原记录走（不跳位）
+  const shifted = [{ key: "earlier" }, ...records];
+  const anchored = resolveAxisPage(shifted, { pageSize: 16, anchorKey: "k16", page: 2 });
+  assert.deepEqual([anchored.page, anchored.start, anchored.end], [1, 16, 32]);
+  const anchorIndex = shifted.findIndex(record => record.key === "k16");
+  assert.ok(anchorIndex >= anchored.start && anchorIndex < anchored.end, "锚点记录必须仍在本页窗口内");
+  // 锚点消失 → 回到期望页号（钳位）
+  assert.equal(resolveAxisPage(shifted, { pageSize: 16, anchorKey: "missing", page: 2 }).page, 2);
+  // 序号 → 页号
+  assert.deepEqual(
+    [axisPageForIndex(0, 40, 16), axisPageForIndex(16, 40, 16), axisPageForIndex(39, 40, 16), axisPageForIndex(999, 40, 16)],
+    [0, 1, 2, 2]
+  );
+});
+
+test("shift page-size ladder steps one notch and clamps visibly at both ends", () => {
+  assert.deepEqual(AXIS_PAGE_SIZE_STEPS, [8, 16, 32, 64, 128]);
+  assert.equal(AXIS_PAGE_SIZE_DEFAULT, 16);
+  assert.equal(normalizeAxisPageSize(32), 32);
+  assert.equal(normalizeAxisPageSize("16"), 16);
+  assert.equal(normalizeAxisPageSize(999), AXIS_PAGE_SIZE_DEFAULT);
+  const up = stepAxisPageSize(16, 1);
+  assert.deepEqual([up.size, up.previous, up.changed, up.atMax], [32, 16, true, false]);
+  const down = stepAxisPageSize(8, -1);
+  assert.deepEqual([down.size, down.changed, down.atMin], [8, false, true]);
+  const max = stepAxisPageSize(128, 1);
+  assert.deepEqual([max.size, max.changed, max.atMax], [128, false, true]);
+  // 非法输入先归一到默认档再步进
+  assert.equal(stepAxisPageSize(7, 1).size, 32);
+});
+
+test("axis wheel delta accumulates into one page turn per gesture", () => {
+  assert.equal(axisWheelStep(0, 12).accumulated, 12);
+  assert.equal(axisWheelStep(12, 12).step, 0);
+  const turn = axisWheelStep(24, 20);
+  assert.deepEqual(turn, { accumulated: 0, step: 1 });
+  // 反向手势清零：滚轮来回抖不翻页
+  assert.deepEqual(axisWheelStep(30, -5), { accumulated: -5, step: 0 });
+  assert.equal(axisWheelStep(0, -60).step, -1);
+  // 一次大 delta 只翻一页（不按像素数翻多页）
+  assert.equal(axisWheelStep(0, 480).step, 1);
+  assert.deepEqual(axisWheelStep(0, 0), { accumulated: 0, step: 0 });
+});
+
+test("compaction marks align to the anchored record slot and clamp at page edges", () => {
+  // 16 条记录、页大小 8（档位下限）→ 两页，每槽 12.5%
+  const records = buildTrajectory(Array.from({ length: 16 }, (unused, index) => ({
+    id: `u${index}`,
+    role: "user",
+    content: `第 ${index} 条`,
+    created_at: new Date(Date.UTC(2026, 7, 25, 10, 0, index)).toISOString()
+  })));
+  assert.equal(records.length, 16);
+  const stamp = index => new Date(Date.UTC(2026, 7, 25, 10, 0, index)).toISOString();
+  // 单页装得下（默认页大小 16）：容量=16、槽宽 6.25%，刻度=锚定记录（index 5）槽位右边界
+  const single = compactionMarks(records, [{ version: 1, reason: "context_budget", compacted_at: stamp(5) }], { pageSize: 16, page: 0 })[0];
+  assert.deepEqual([single.anchored, single.offPage, single.anchorIndex, single.x, single.anchorPage], [true, "", 5, 37.5, 0]);
+  // 分页（每页 8 条）第 1 页：锚点 5 在本页内 → 刻度落本页槽位右边界 (5+1)×12.5
+  const inPage = compactionMarks(records, [{ version: 1, reason: "context_budget", compacted_at: stamp(5) }], { pageSize: 8, page: 0 })[0];
+  assert.deepEqual([inPage.x, inPage.offPage], [75, ""]);
+  // 锚点在本页之前 → 钳到左边界并标注锚点页（点击跳页，不静默位移）
+  const before = compactionMarks(records, [{ version: 1, reason: "context_budget", compacted_at: stamp(3) }], { pageSize: 8, page: 1 })[0];
+  assert.deepEqual([before.x, before.offPage, before.anchorPage], [0, "before", 0]);
+  // 锚点在本页之后 → 钳到右边界
+  const later = compactionMarks(records, [{ version: 2, reason: "context_budget", compacted_at: stamp(9) }], { pageSize: 8, page: 0 })[0];
+  assert.deepEqual([later.x, later.offPage, later.anchorPage], [100, "after", 1]);
+  // 锚点早于已加载窗口 → 钳到轴起点并注明（旧行为保持）
+  const unknown = compactionMarks(records, [{ version: 3, reason: "context_budget", compacted_at: "2026-08-01T00:00:00Z" }], { pageSize: 8, page: 1 })[0];
+  assert.deepEqual([unknown.x, unknown.anchored, unknown.offPage], [0, false, "unknown"]);
+  // 同一锚点上的多个刻度：同一 x 但按 stack 朝轨道内侧错位（每个都点得到）
+  const duplicated = [
+    { version: 4, reason: "context_budget", compacted_at: stamp(5) },
+    { version: 5, reason: "large_tool_output", compacted_at: stamp(5) }
+  ];
+  assert.deepEqual(compactionMarks(records, duplicated, { pageSize: 8, page: 0 }).map(mark => [mark.x, mark.stack]), [[75, 0], [75, 1]]);
+  const stacked = renderContextAxis(records, { compactions: duplicated, pageSize: 8, page: 0 });
+  assert.match(stacked, /--x:75\.000%/);
+  assert.match(stacked, /transform:translateX\(calc\(-50% \+ 6px\)\)/);
+});
+
+test("axis head reports page, range, page size and transient notice", () => {
+  const records = buildTrajectory(Array.from({ length: 40 }, (unused, index) => userMessage(`u${index}`, "x")));
+  const html = renderContextAxis(records, { page: 1, pageSize: 16, notice: "页大小 16 → 32 条", hasMore: true });
+  assert.match(html, /data-axis-page="1"/);
+  assert.match(html, /data-axis-page-count="3"/);
+  assert.match(html, /data-axis-page-size="16"/);
+  assert.match(html, /第 2\/3 页/);
+  assert.match(html, /第 17–32 条/);
+  assert.match(html, /共 40 条/);
+  assert.match(html, /滚轮翻页，Shift\+滚轮调页大小/);
+  assert.match(html, /data-axis-note>页大小 16 → 32 条/);
+  // 只画本页的块：第 2 页的 data-axis-index ∈ [16, 32)
+  const indexes = [...html.matchAll(/data-axis-index="(\d+)"/g)].map(match => Number(match[1]));
+  assert.equal(indexes.length, 16);
+  assert.ok(indexes.every(index => index >= 16 && index < 32));
+  // 最早一页且有未加载的更早回合 → 明确提示（不让人以为轴丢了早期内容）
+  assert.match(renderContextAxis(records, { page: 0, pageSize: 16, hasMore: true }), /更早的回合尚未加载/);
+  assert.doesNotMatch(renderContextAxis(records, { page: 0, pageSize: 16, hasMore: false }), /更早的回合尚未加载/);
+});
+
+test("prefix lane is page-independent while record lanes follow the page", () => {
+  const layers = [{ kind: "identity", name: "seelex", text: "你是 Seelex。" }];
+  const records = buildTrajectory(Array.from({ length: 40 }, (unused, index) => userMessage(`u${index}`, "x")));
+  const page0 = renderContextAxis(records, { prefixLayers: layers, page: 0, pageSize: 16 });
+  const page1 = renderContextAxis(records, { prefixLayers: layers, page: 1, pageSize: 16 });
+  const prefixGeometry = html => (html.match(/class="axis-segment is-prefix[^"]*" style="--x:([0-9.]+)%;--w:([0-9.]+)%"/) || []).slice(1);
+  assert.equal(prefixGeometry(page0).length, 2);
+  assert.deepEqual(prefixGeometry(page0), prefixGeometry(page1));
+  assert.match(page0, /data-axis-index="0"/);
+  assert.doesNotMatch(page0, /data-axis-index="16"/);
+  assert.match(page1, /data-axis-index="16"/);
 });
 
 test("tool steps keep the reasoning that produced them", () => {
