@@ -12,6 +12,37 @@ func planTool(name string) types.Tool {
 	return types.Tool{Type: "function", Function: types.ToolFunction{Name: name}}
 }
 
+// TestPolicyHidesComputerInputToolsFromSubagents 验证 computer use 的输入注入
+// 只归主代理：并行子代理共享同一块桌面，同时注入输入会互相打断；观察类工具
+// （截图/窗口枚举/等待）对子代理保持可见。
+func TestPolicyHidesComputerInputToolsFromSubagents(t *testing.T) {
+	policy := NewPolicy(PolicyDeps{})
+	subCtx := model.WithNodeScope(context.Background(), model.NodeScope{NodeID: "s1", Role: model.RoleSubAgent})
+	got := policy.Filter(subCtx, []types.Tool{
+		planTool("computer_screenshot"), planTool("computer_windows"), planTool("computer_wait"),
+		planTool("computer_click"), planTool("computer_move"), planTool("computer_drag"),
+		planTool("computer_scroll"), planTool("computer_type"), planTool("computer_keys"),
+		planTool("computer_focus"), planTool("bash"),
+	})
+	want := []string{"computer_screenshot", "computer_windows", "computer_wait", "bash"}
+	if len(got) != len(want) {
+		t.Fatalf("子代理可见工具 = %v, want %v", names(got), want)
+	}
+	for index, name := range want {
+		if got[index].Function.Name != name {
+			t.Fatalf("子代理可见工具 = %v, want %v", names(got), want)
+		}
+	}
+
+	// 主代理：整族可见（权限门控另行把关）。
+	mainGot := policy.Filter(context.Background(), []types.Tool{
+		planTool("computer_click"), planTool("computer_type"), planTool("bash"),
+	})
+	if len(mainGot) != 3 {
+		t.Fatalf("主代理可见工具 = %v, want 全部可见", names(mainGot))
+	}
+}
+
 func TestPolicyFiltersSubagentExcludedAndGoalPlanTools(t *testing.T) {
 	policy := NewPolicy(PolicyDeps{
 		GoalSkillActive: func() bool { return false },

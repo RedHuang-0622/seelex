@@ -43,6 +43,11 @@ func (p *Policy) Filter(ctx context.Context, tools []types.Tool) []types.Tool {
 		if scope.NodeID != "" && scope.Role == model.RoleSubAgent && nodeScopeExcludedTool(name) {
 			continue
 		}
+		// computer use 的输入注入只归主代理：并行子代理共享同一块桌面，
+		// 同时注入输入会互相打断（观察类工具不受限）。
+		if scope.Role == model.RoleSubAgent && isComputerInputTool(name) {
+			continue
+		}
 		if isGoalTool(name) && (scope.Role == model.RoleSubAgent ||
 			(name != "goal_begin" && !p.goalActive())) {
 			continue
@@ -113,6 +118,20 @@ func nodeScopeExcludedTool(name string) bool {
 		"task_complete", "task_failed", "task_needs_user_decision",
 		"fork_subagents", // fork 会递归派生子代理（无深度控制），同 plan 工具族理由
 		"switch_plugin", "switch_mode", "skill_activate":
+		return true
+	default:
+		return false
+	}
+}
+
+// isComputerInputTool 判断 computer use 的输入注入工具：并行子代理共享同一块
+// 桌面，同时注入鼠标/键盘会互相打断（谁点的窗口在前台全凭运气）。观察类工具
+// （computer_screenshot / computer_windows / computer_wait）不在此列——子代理
+// 看屏幕是正当需求，截到的画面也只进它自己会话的随图队列。
+func isComputerInputTool(name string) bool {
+	switch name {
+	case "computer_click", "computer_move", "computer_drag",
+		"computer_scroll", "computer_type", "computer_keys", "computer_focus":
 		return true
 	default:
 		return false

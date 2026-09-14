@@ -421,6 +421,11 @@ plan/task/goal 三栈用例经 `forEachStackBackend` 跑 JSON 后端（head 只�
 - 引用形如 `media:<sha256>`，与 `blob:<hash>`、`compressed:<segment_id>` 并列。
 - 工具结果通过 `ToolResult.Multimodal []MediaRef`（JSON `multimodal`）挂引用；
   记录本身不复制字节。
+- 读写接缝：`Router.WriteMediaWorkspace` / `Router.ReadMediaWorkspace` 在**显式
+  项目作用域**下落盘与读回（不改 Router 的活跃写作用域），后台/并行会话各写
+  自己的 (项目, 会话) 分片；后端不支持媒体分区时返回 `ErrMediaUnsupported`
+  （`MediaStoreOf` 显式判空，不做静默降级）。截屏工具（`seelebridge`）是首个
+  调用方。
 
 ### 阈值刻意分轴
 

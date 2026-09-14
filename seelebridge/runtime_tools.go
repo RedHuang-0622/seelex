@@ -145,6 +145,10 @@ func (r *Runtime) RegisterBuiltins() {
 	r.registerForkTool()
 	r.registerTodoTools()
 	r.registerTaskTools()
+	// computer use（截屏/窗口/输入注入）：支持桌面的平台默认注册，
+	// SEELEX_COMPUTER_USE 可整体关闭；图片走会话媒体分区 + 随图队列，
+	// 权限仍由 seele.yaml 的 permission.rules 逐次把关。
+	r.registerComputerTools()
 	r.scopedToolsReady = true
 	// plan 工具（seelex-workplan provider）：plan_load/plan_clear/plan_validate/
 	// plan_status/plan_export；plan_run 的执行内核在 seele-v2 slice 4 迁移后恢复。

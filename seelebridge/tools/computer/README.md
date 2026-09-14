@@ -3,9 +3,13 @@
 ## 生态位
 
 `seelebridge/tools/computer` 提供桌面 computer use 的**原语层**：截屏、鼠标、
-键盘、窗口枚举与聚焦。主要调用方是 `computer/mcp` 这个 MCP stdio 服务端，
-由 Codex 之类的外部宿主按 MCP 协议调用；Seelex 自身的运行时**不**依赖它，
-不参与会话/工具注册链。
+键盘、窗口枚举与聚焦；同一个包再往上承载 **Seelex 侧工具族**（`tools*.go`）。
+两个消费面共用同一套原语，差异只在"图像怎么送到模型"：
+
+| 消费面 | 调用方 | 图像通道 |
+|---|---|---|
+| MCP stdio 服务端（`mcp/`） | Codex 之类的外部宿主 | base64 内联在 MCP 工具结果里，由宿主自己决定放不放上下文 |
+| Seelex 工具族（`tools*.go`） | Seelex 自己的 agent（经 `seelebridge.Runtime` 注册） | 存进会话媒体分区（`media:<hash>`），再经 `imageattach` 队列随**下一次模型请求**送入（至多送一次） |
 
 ## 职责与非职责
 
@@ -14,12 +18,15 @@
 - 把「看屏幕、动鼠标、敲键盘、找窗口」封装成可测试的 Go 函数；
 - 坐标语义统一为虚拟桌面（多显示器并集）物理像素，进程启动即声明
   Per-Monitor V2 DPI 感知（`EnableDPIAwareness`），避免坐标被系统缩放虚拟化；
-- 在 MCP 层做 JSON-RPC 编解码与工具名/参数校验。
+- 在 MCP 层做 JSON-RPC 编解码与工具名/参数校验；
+- 在工具层做参数校验、上限钳制、媒体落盘与随图入队（工具族清单见下）。
 
 刻意不做什么：
 
 - 不做业务判断、不做安全审批、不决定"该不该点"——边界由宿主与用户审批负责；
-- 不读取或修改 Seelex 会话、不注册成 Seelex 的工具（它是宿主侧能力）；
+- 工具层不依赖 `seelebridge` 上层：注册面、媒体分区、随图队列全部由 `Deps`
+  闭包注入（因此本包保持跨平台可编译、可单测）；
+- 不回写会话正文、不读取模型上下文（只把画面交给随图队列）；
 - 不实现截图压缩策略之外的图像处理。
 
 ## 文件结构
@@ -35,6 +42,36 @@
 | `input_windows.go` | 鼠标与键盘注入（SendInput）。 |
 | `window_windows.go` | 顶层窗口枚举、矩形、状态与聚焦。 |
 | `mcp/main.go` | MCP stdio 服务端：`initialize` / `tools/list` / `tools/call`。 |
+| `tools.go` | Seelex 侧工具族的装配面：`Deps`（注册面/媒体分区/随图队列）+ 十个工具名常量 + 注册 + 共享 helper。 |
+| `tools_view.go` | 观察类工具：`computer_screenshot`（截屏 → 媒体分区 → 随图）、`computer_windows`、`computer_focus`。 |
+| `tools_input.go` | 输入类工具：`computer_click` / `computer_move` / `computer_drag` / `computer_scroll` / `computer_type` / `computer_keys` / `computer_wait`。 |
+| `tools_schema.go` | 十个工具的 JSON Schema（参数名、单位与坐标语义是模型可见契约）。 |
+| `tools_test.go` | 工具层单测（原语注入假实现，任何平台都能跑）。 |
+| `tools_desktop_probe_test.go` | 真机桌面冒烟（默认跳过，`SEELEX_COMPUTER_DESKTOP_PROBE=1` 才跑）。 |
+
+### Seelex 侧工具族（`tools*.go`）
+
+| 工具 | 形状 | 说明 |
+|---|---|---|
+| `computer_screenshot` | 截屏 → `media:<hash>` + 随图 | 画面进会话媒体分区，并挂进"下一次请求"；结果只回引用、区域/缩放、光标与前台窗口 |
+| `computer_windows` | 只读 | 可见顶层窗口列表（缺省过滤不可见窗口）+ 虚拟桌面 + 前台窗口；`match` 过滤、`limit` 上限 60 |
+| `computer_focus` | 输入 | 按标题子串置前；空 match 只报告当前前台窗口 |
+| `computer_click` | 输入 | `x/y` 或 `window`（聚焦后点窗口中心）；`button` left/right/middle，`clicks` 1-3 |
+| `computer_move` | 输入 | 移动指针（hover / 拖拽预备） |
+| `computer_drag` | 输入 | 按住左键从 `from` 拖到 `to` 再释放（中途失败也补释放） |
+| `computer_scroll` | 输入 | 在 `x/y`（缺省光标处）滚轮；`delta` 以 WHEEL_DELTA=120 为单位，正数向上 |
+| `computer_type` | 输入 | 字面文本注入（UTF-16，支持中文与 emoji），单次上限 4000 字符 |
+| `computer_keys` | 输入 | 组合键（`ctrl+shift+t`、`enter`…），重复 1-10 次 |
+| `computer_wait` | 只读 | 等待 UI 稳定（上限 10s），随后应重新截图而不是假设动作生效 |
+
+开关与门控：
+
+- 平台：非 Windows 不注册（`Supported() == false`，宁可不给也不挂一串必然失败的摆设）；
+- 环境：`SEELEX_COMPUTER_USE=0|off|false|no` 整体关闭（无头/CI 场景）；
+- 权限：`config/seele.yaml` 的 `permission.rules` 逐次 allow/ask/deny（默认 `* → ask`，
+  本仓库给 `computer_*` 写了显式规则：只读观察也 ask，`computer_wait` allow）；
+- 可见性：输入注入类工具对子代理不可见（并行子代理共用一块桌面会互相打断），
+  观察类工具对子代理保持可见，且截到的画面只进**执行会话自己**的随图队列。
 
 ## 核心实现
 
@@ -71,6 +108,21 @@ MCP 宿主 → `mcp/main.go` 解析 JSON-RPC → 校验参数 → 调用原语
 - `view_image`：只读取调用方给的路径（不拷贝）→ 必要时降采样 → 图像内容。
   截图与看图因此分工明确：截图产出资产，看图消费任意路径上的图片。
 
+Seelex 侧（`tools*.go`）：
+
+```text
+computer_screenshot
+  → 原语 CaptureShot（DPI 感知 + 虚拟桌面坐标）
+  → PNG 编码（BestSpeed）→ 字节上限校验（默认 8 MiB）
+  → Deps.StoreMedia   落 (项目, 会话) 媒体分区 → media:<hash>
+  → Deps.AttachImage  入 imageattach 队列（带字节的 image FilePart）
+  → 下一次模型请求：Wrapper 把画面作为一条 user 消息附上（Take 即清空，至多一次）
+  → 回给模型的结果：ref / 尺寸 / 缩放 / 区域 / 光标 / 前台窗口（不含 base64）
+```
+
+只带 `media:<hash>`（没有字节）的附件由 `Runtime.loadSessionMedia` 按同一会话/
+项目口径读回，因此"引用"与"字节"两条路都能走通。
+
 ## 依赖方向
 
 只依赖标准库与 Win32（`user32`/`gdi32`/`kernel32`）。不允许反向依赖
@@ -83,6 +135,14 @@ MCP 宿主 → `mcp/main.go` 解析 JSON-RPC → 校验参数 → 调用原语
 - 非 Windows 平台返回 `ErrUnsupported`，不 panic；
 - 截屏写入路径由调用方给出，默认落在 `%LOCALAPPDATA%\codex-computer-use\shots`；
 - 输入注入不校验目标窗口，权限由宿主的审批策略控制。
+- Seelex 工具层：截屏没有落点（媒体分区不可用）或没有随图通道时**显式失败**，
+  不做"截了但没人看得到"的无用功；参数越界（`clicks`、`times`、`delta`、
+  文本长度、等待时长）一律报错或钳制，不静默改写用户意图；
+- 归属由执行 ctx 决定，项目解析三级：执行会话绑定 → 节点作用域的工作区
+  （子代理/Plan 节点没有独立会话绑定时用它）→ 默认项目 `""`；刻意不读 Router
+  的活跃写作用域，也不用 `MainSessionID` 兜底——并行执行期间视图可能已切走，
+  用它们解析会把截图写进另一个项目。随图队列按**执行会话**（子代理就是节点
+  会话）投递，画面送给真正干活的 agent；`session_id` 为空直接报错。
 
 ## 扩展方式
 
@@ -93,6 +153,8 @@ MCP 宿主 → `mcp/main.go` 解析 JSON-RPC → 校验参数 → 调用原语
   `stub_other.go`；
 - 新 MCP 工具同步补 `mcp/main_test.go`：直接调 `callTool` 断言 content 块，
   测试不依赖真实桌面；
+- 新 Seelex 工具：在 `tools.go` 的 `Register` 加一行 + `tools_schema.go` 补
+  schema + `tools_test.go` 补用例（原语注入假实现，任何平台都能跑）；
 - 只改平台实现的函数必须保持签名与坐标系语义不变（虚拟桌面物理像素）。
 
 ## Review 指南
@@ -117,3 +179,11 @@ go test ./seelebridge/tools/computer/... -count=1
 - `desktop_probe_test.go`：默认跳过；设 `SEELEX_COMPUTER_DESKTOP_PROBE=1`
   才会在真实桌面上点一下并断言"不报错且左键已释放"（会夺走一次点击，
   只在本机手动验证时用）。
+- `tools_test.go`：工具层契约——十个工具全部注册且描述/schema 非空；截屏落盘
+  （PNG 可解码、来源标记 screenshot、文件名带时间戳）并随图（ref/字节/尺寸
+  与落盘一致）；`max_width` 钳制与 region 校验；窗口过滤/上限/单项降级；
+  点击坐标解析（显式坐标 vs 窗口中心 vs 两者都缺）、按钮与次数校验；
+  拖拽/滚轮/文本/组合键/等待的参数边界。
+- `tools_desktop_probe_test.go`：默认跳过；`SEELEX_COMPUTER_DESKTOP_PROBE=1`
+  时用**真实桌面**跑"截屏 → PNG → 落盘 → 随图"与窗口枚举（本机实测
+  1536×864 虚拟桌面 → 1024×576 画面、82 KB PNG、10 个可见顶层窗口）。

@@ -58,6 +58,7 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | Plan 与子 Agent | 可选 WorkPlan DAG、拓扑校验、并行分支、独立节点 Session、事件投影和结果 merge-back |
 | 上下文治理 | Prompt Stack、滑动窗口、预算控制、压缩、超大工具结果归档与按需读回 |
 | 项目安全 | ProjectScope 路径约束、PathGate 规则、manual/full_access 权限模式 |
+| 桌面操作 | computer use 工具族（截屏/窗口/点击/键盘）：画面落会话媒体分区并随下一次模型请求送入，输入注入默认逐次审批，子代理只见观察类工具 |
 | 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 动态挂载与工具可见性过滤 |
 | 模型与账号 | OpenAI-compatible endpoint、按角色分组的账号池、分支确定性选路和流式租约 |
 | 持久化 | JSON v8 后端；项目与 Session 隔离、模块 head 发布与消息分片 |

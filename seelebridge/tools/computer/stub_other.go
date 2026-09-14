@@ -4,6 +4,10 @@ package computer
 
 import "time"
 
+// Supported 报告当前平台是否具备桌面 computer use 实现（非 Windows 为 false：
+// 装配层据此不注册工具族，避免把一串必然失败的工具挂进模型可见面）。
+func Supported() bool { return false }
+
 // EnableDPIAwareness 在非 Windows 平台为空实现。
 func EnableDPIAwareness() {}
 

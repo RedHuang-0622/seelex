@@ -31,6 +31,8 @@ Runtime，同时隔离上游 API 变化。
 启动警告（`Runtime.StartupWarnings()`），由装配层展示给用户；应用不再因账号
 配置损坏而启动即退出。
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
+| `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `tools/computer/tools*.go`） |
+| `runtime_image.go` | 随图链路：`AttachImage`/`PendingImageCount`/`wrapImageAttachments`（至多送一次）+ 截图媒体落盘与按 ref 读回（`storeSessionMedia`/`loadSessionMedia`/`mediaProjectIDFor`） |
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 
 ## 子包结构
@@ -51,7 +53,7 @@ Runtime，同时隔离上游 API 变化。
 | `mcp/` | MCP 服务器生命周期 Manager：provider 懒创建/breaker/lazy 登记/工具重挂载（见 `mcp/README.md`） |
 | `plugin/` | 插件 include/exclude 可见性过滤 Manager（见 `plugin/README.md`） |
 | `scheduler/` | 定时周期任务 actor：白名单命令/prompt 任务/状态快照（见 `scheduler/README.md`） |
-| `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch（见 `tools/README.md`） |
+| `tools/` | scoped 工具 Router、`RegistryState`（内联工具+权限门控）、websearch、computer use 原语与工具面（见 `tools/README.md`、`tools/computer/README.md`） |
 | `internal/model/` | 各域共享的纯类型层（`AccountSpec`/`AccountRole`/`NodeScope`，无运行时依赖） |
 | `internal/actor/` | 单消费者 actor 底座（有界命令通道 + 串行 handler + 幂等 Close；task/session 等 mailbox actor 复用，见 `internal/actor/README.md`） |
 | `internal/mapper/` | 运行态结构 ↔ `application/contract/dto` 的无业务转换（`ToolEventToDTO` 等；见 `internal/mapper/README.md`） |

@@ -112,6 +112,69 @@ func MediaStoreOf(repository Repository) (MediaStore, bool) {
 	return store, ok
 }
 
+// ErrMediaUnsupported 表示当前存储后端不提供媒体分区（旁路能力，可缺席）。
+var ErrMediaUnsupported = errors.New("session storage: media partition unavailable")
+
+// WriteMediaWorkspace 在显式项目作用域下写入一条媒体资产（截屏/看图类工具
+// 的落点）：不改变 Router 的活跃写作用域，后台会话各写自己的 (项目, 会话)
+// 分片，与 SaveCommitWorkspace/LoadRangeWorkspace 同一口径。
+func (router *Router) WriteMediaWorkspace(ctx context.Context, projectID, sessionID string, item MediaItem) (MediaRef, error) {
+	if router == nil {
+		return MediaRef{}, ErrMediaUnsupported
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return MediaRef{}, fmt.Errorf("%w: session id required", ErrMediaInvalid)
+	}
+	var ref MediaRef
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		store, ok := MediaStoreOf(repository)
+		if !ok {
+			return ErrMediaUnsupported
+		}
+		written, writeErr := store.WriteMedia(ctx, Key{ProjectID: projectID, SessionID: sessionID}, item)
+		if writeErr != nil {
+			return writeErr
+		}
+		ref = written
+		return nil
+	})
+	if err != nil {
+		return MediaRef{}, err
+	}
+	return ref, nil
+}
+
+// ReadMediaWorkspace 在显式项目作用域下按 `media:<hash>` 读回媒体资产
+// （"再看一次之前的画面"类入口；不改变活跃写作用域）。
+func (router *Router) ReadMediaWorkspace(ctx context.Context, projectID, sessionID, ref string) (MediaRef, []byte, error) {
+	if router == nil {
+		return MediaRef{}, nil, ErrMediaUnsupported
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return MediaRef{}, nil, fmt.Errorf("%w: session id required", ErrMediaInvalid)
+	}
+	var (
+		item MediaRef
+		data []byte
+	)
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		store, ok := MediaStoreOf(repository)
+		if !ok {
+			return ErrMediaUnsupported
+		}
+		read, readData, readErr := store.ReadMedia(ctx, Key{ProjectID: projectID, SessionID: sessionID}, ref)
+		if readErr != nil {
+			return readErr
+		}
+		item, data = read, readData
+		return nil
+	})
+	if err != nil {
+		return MediaRef{}, nil, err
+	}
+	return item, data, nil
+}
+
 // MediaRefHash 归一化 ref 为内容 hash；非 `media:` 引用返回空串。
 func MediaRefHash(ref string) string {
 	trimmed := strings.TrimSpace(ref)

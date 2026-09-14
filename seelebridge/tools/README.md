@@ -35,6 +35,10 @@ runtime ──► tools.Router（scoped 工具）
 - `RegistryState`：framework registry 包装 + `InlineProvider` 累积
   RegisterTool 产品工具（重名覆盖、快照重建）。
 - `PermissionGate`：middleware 闭包捕获，运行时原子更新。
+- `computer/`（子包）：桌面 computer use 原语 + Seelex 侧工具族（`computer_*`）；
+  工具面只依赖注入闭包（注册面/媒体分区/随图队列），原语平台无关桩保持跨平台
+  可编译。输入注入类工具对子代理不可见（见 `policy.go` 的
+  `isComputerInputTool`）。
 
 ## 数据流
 

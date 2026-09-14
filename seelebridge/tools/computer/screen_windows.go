@@ -61,6 +61,10 @@ type bitmapInfo struct {
 	Colors [1]uint32
 }
 
+// Supported 报告当前平台是否具备桌面 computer use 实现（Windows 为 true：
+// 装配层据此注册工具族）。
+func Supported() bool { return true }
+
 // EnableDPIAwareness 把当前进程设置为 Per-Monitor V2 DPI 感知。
 // 截图与鼠标坐标都以物理像素为准，必须在使用其它函数前调用。
 func EnableDPIAwareness() {

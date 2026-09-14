@@ -32,6 +32,32 @@ permission:
     - tool: "git_diff"
       action: allow
 
+    # ─ computer use：看屏幕只读，动鼠标键盘逐次审批 ─
+    # 截屏会把画面送进模型上下文（含屏幕上的任何内容），因此即使"只读"也
+    # 默认逐次确认；要放开可把下面两条改成 allow。
+    - tool: "computer_screenshot"
+      action: ask
+    - tool: "computer_windows"
+      action: ask
+    # 输入注入会真实改变用户桌面：保持 ask（不要改成 allow，除非明确接受
+    # 模型可无人值守操作键鼠）。
+    - tool: "computer_click"
+      action: ask
+    - tool: "computer_move"
+      action: ask
+    - tool: "computer_drag"
+      action: ask
+    - tool: "computer_scroll"
+      action: ask
+    - tool: "computer_type"
+      action: ask
+    - tool: "computer_keys"
+      action: ask
+    - tool: "computer_focus"
+      action: ask
+    - tool: "computer_wait"
+      action: allow
+
     # ─ 安全的 bash 命令模式 → 直接允许 ─
     - tool: "bash"
       patterns: ["git *", "ls *", "cat *", "echo *", "head *", "tail *"]
