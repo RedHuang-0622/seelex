@@ -6,8 +6,7 @@ import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createEffortControl } from "./effort-control.js";
 import {
-  planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode,
-  nodeDetailLiveAssistantReset, nodeDetailLiveAssistantAppend, nodeDetailLiveAssistantRetain
+  planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode
 } from "./plan-dsl.js";
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
 import { createWorkTreeView } from "./worktree-view.js";
@@ -1607,14 +1606,12 @@ function initModalResize() {
 }
 initModalResize();
 
-// openNodeDetail 渲染并打开节点详情弹窗（子代理详情页）：
-// 会话记录（invoke SubagentSessionDetail 一次）+ 事件时间线 + 状态/耗时/输出；
-// 运行中的正文增量由 seelex:subagent_live 的 assistant 事件驱动。
+// openNodeDetail 渲染并打开节点详情弹窗（子代理详情页）：三块数据面
+// （会话记录 / 上下文 / 功能打点）全部经 invoke("SubagentSessionDetail")
+// 拉取；弹窗内不再有任何实时查看通道与流式生命周期。
 let activeNodeDetailKey = "";
 let activeNodeDetailID = "";
 let nodeDetailGeneration = 0;
-let subagentLiveBound = false;
-let nodeLiveBuffer = [];
 let nodeDetailRefreshTimer = 0;
 let nodeDetailLastSignature = "";
 
@@ -1623,7 +1620,7 @@ let nodeDetailLastSignature = "";
 // 没到（工作表格行先到：同批次还有子代理在跑，行经 worktable.changed/
 // task.changed 到达，而树只由整份快照与 runtime.changed 携带）时用行自身
 // 兜底，最后退回"仅身份"的节点——详情入口不再静默失败（2026-09-13 回归）。
-// 会话记录/上下文/工具活动始终由 SubagentSessionDetail + live 流承载。
+// 会话记录/上下文/功能打点始终由 SubagentSessionDetail 数据面承载。
 function resolveNodeForDetail(nodeKey) {
   if (!nodeKey) return null;
   const node = lastPlanDsl?.nodes?.find(candidate => candidate.key === nodeKey);
@@ -1646,35 +1643,16 @@ async function openNodeDetail(nodeKey) {
   elements["node-detail-content"].innerHTML = rendered;
   elements["node-detail-title"].innerHTML = `<span class="eyebrow">Node</span>`;
   bindNodeDetailTabs(elements["node-detail-content"]);
-  nodeDetailLiveAssistantReset();
   // 子代理树节点（fork 不在 Plan 快照里）默认打开「上下文」标签：运行时
-  // 上下文查看是它的主诉求（会话记录/上下文/工具活动，实时事件驱动刷新）。
+  // 上下文查看是它的主诉求。
   if (fromTree) {
     elements["node-detail-content"].querySelector('[data-node-tab="context"]')?.click();
   }
   setModal("node-detail-modal", true);
-  // node 第一视角实时流：订阅 seelex:subagent_live（阶段/工具事件到达即显示）。
-  nodeLiveBuffer = [];
-  if (window.runtime && !subagentLiveBound) {
-    subagentLiveBound = true;
-    window.runtime.EventsOn("seelex:subagent_live", handleSubagentLive);
-  }
-  invoke("SubagentDetailStreamStart", node.id)
-    .then(history => {
-      if (node.id !== activeNodeDetailID) return;
-      // 历史回放：subagent start 以来的完整事件流 + 打开瞬间已到的实时事件。
-      nodeLiveBuffer = (history || []).concat(nodeLiveBuffer);
-      if (nodeLiveBuffer.length > 500) nodeLiveBuffer = nodeLiveBuffer.slice(-500);
-      seedNodeLiveStagesFromDetail();
-      renderLiveFeed();
-    })
-    .catch(() => {});
-  renderLiveFeed();
   await refreshNodeDetail(node.id, generation);
-  scheduleNodeDetailRefresh();
   if (nodeDetailRefreshTimer) window.clearInterval(nodeDetailRefreshTimer);
-  // 弹窗打开期间低频权威刷新：会话/上下文/打点/时间线/工具按分类补齐，
-  // 覆盖打开瞬间之后才产生的内容（第一视角的即时行仍由 live 事件驱动）。
+  // 弹窗打开期间低频权威刷新：三块数据面（会话记录/上下文/功能打点）按内容
+  // 签名变化重建，覆盖打开瞬间之后才产生的内容。
   nodeDetailRefreshTimer = window.setInterval(() => {
     if (!activeNodeDetailID || !document.querySelector("[data-node-detail]")) return;
     refreshNodeDetail(activeNodeDetailID, nodeDetailGeneration);
@@ -1689,16 +1667,13 @@ function refreshOpenNodeDetail() {
   bindNodeDetailTabs(elements["node-detail-content"]);
   const selected = elements["node-detail-content"].querySelector(`[data-node-tab="${selectedTab}"]`);
   selected?.click();
-  nodeDetailLiveAssistantRetain();
-  renderLiveFeed();
   // 快照驱动的弹窗重建会清掉详情面板占位，重建后立即按签名补一次权威
-  // 详情（会话/上下文/打点/时间线/工具分类）。
+  // 详情（会话/上下文/功能打点）。
   nodeDetailLastSignature = "";
   scheduleNodeDetailRefresh();
 }
 
-// refreshNodeDetail 拉取一次子代理详情（会话记录）并渲染。打开后的增量由
-// seelex:subagent_live 实时事件驱动，不再调度任何轮询定时器。
+// refreshNodeDetail 拉取一次子代理详情（三块数据面）并渲染。
 async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
   let detail = null;
   try {
@@ -1714,49 +1689,22 @@ async function refreshNodeDetail(nodeID, generation = nodeDetailGeneration) {
   if (signature === nodeDetailLastSignature) return;
   nodeDetailLastSignature = signature;
   setNodeDetailConversation(detail || null);
-  seedNodeLiveStagesFromDetail(detail);
 }
 
 function closeNodeDetail() {
-  const nodeID = activeNodeDetailID;
   nodeDetailGeneration += 1;
-  nodeDetailLiveAssistantReset();
   activeNodeDetailKey = "";
   activeNodeDetailID = "";
-  nodeLiveBuffer = [];
   nodeDetailLastSignature = "";
   if (nodeDetailRefreshTimer) {
     window.clearInterval(nodeDetailRefreshTimer);
     nodeDetailRefreshTimer = 0;
   }
-  if (nodeID) invoke("SubagentDetailStreamStop", nodeID).catch(() => {});
   setModal("node-detail-modal", false);
 }
 
-// ── node 第一视角实时流（即时输出：阶段/工具事件到达即渲染）──
-
-function renderLiveFeed() {
-  const feed = document.querySelector("[data-node-detail] [data-node-live-feed]");
-  if (!feed) return;
-  feed.innerHTML = nodeLiveBuffer.length === 0
-    ? '<div class="node-timeline-empty">等待实时事件（打开即订阅；阶段/工具/正文到达即显示）…</div>'
-    : nodeLiveBuffer.map(liveRowHTML).join("");
-  feed.scrollTop = feed.scrollHeight;
-}
-
-function handleSubagentLive(event) {
-  if (!event || event.node_id !== activeNodeDetailID) return;
-  if (event.kind === "assistant") {
-    nodeDetailLiveAssistantAppend(event.assistant?.text || "");
-  }
-  nodeLiveBuffer.push(event);
-  if (nodeLiveBuffer.length > 500) nodeLiveBuffer.shift();
-  renderLiveFeed();
-  scheduleNodeDetailRefresh();
-}
-
-// scheduleNodeDetailRefresh 打开详情期间的节流权威刷新（事件驱动 + 低频
-// 兜底 interval 双保险；签名不变时跳过 DOM 重建，避免打断阅读）。
+// scheduleNodeDetailRefresh 打开详情后的节流权威刷新（快照驱动弹窗重建后
+// 补一次三块数据面；签名不变时跳过 DOM 重建，避免打断阅读）。
 function scheduleNodeDetailRefresh() {
   if (!activeNodeDetailID) return;
   const generation = nodeDetailGeneration;
@@ -1766,7 +1714,7 @@ function scheduleNodeDetailRefresh() {
   }, 700);
 }
 
-// nodeDetailSignature 详情内容签名：仅在这些分类有实质变化时重建各 tab。
+// nodeDetailSignature 详情内容签名：仅在这三块数据面有实质变化时重建。
 function nodeDetailSignature(detail) {
   if (!detail) return "";
   const conversation = detail.conversation || [];
@@ -1778,64 +1726,8 @@ function nodeDetailSignature(detail) {
     last?.content?.length || 0,
     detail.context?.message_count || 0,
     (detail.tool_events || []).length,
-    (detail.trace || []).length,
-    (detail.timeline || []).length,
-    (detail.stages || []).length,
-    detail.output || "",
-    detail.summary || ""
+    (detail.trace || []).length
   ]);
-}
-
-// seedNodeLiveStagesFromDetail 打开晚于节点开始时的第一视角历史补全：
-// SubagentDetail.stages 是权威阶段历史（live dispatcher 启动前的阶段不
-// 在订阅回放里），去重后并入实时缓冲。
-function seedNodeLiveStagesFromDetail(detail) {
-  const stages = detail?.stages || [];
-  if (!stages.length) return;
-  const existing = new Set(nodeLiveBuffer
-    .filter(event => event.kind === "stage" && event.stage)
-    .map(event => `${event.stage.stage}:${event.stage.turn || 0}:${event.at || ""}`));
-  let added = 0;
-  for (const stage of stages) {
-    const key = `${stage.stage}:${stage.turn || 0}:${stage.at || ""}`;
-    if (existing.has(key)) continue;
-    existing.add(key);
-    nodeLiveBuffer.push({ kind: "stage", node_id: activeNodeDetailID, at: stage.at, stage });
-    added += 1;
-  }
-  if (!added) return;
-  nodeLiveBuffer.sort((left, right) => new Date(left.at || 0) - new Date(right.at || 0));
-  if (nodeLiveBuffer.length > 500) nodeLiveBuffer = nodeLiveBuffer.slice(-500);
-  renderLiveFeed();
-}
-
-function liveRowHTML(event) {
-  const at = liveTime(event.at);
-  if (event.kind === "assistant") {
-    const text = event.assistant?.text || "";
-    return `<div class="node-live-row"><span class="node-live-time">${escapeHtml(at)}</span><span class="node-live-kind is-assistant">正文</span><code>${escapeHtml(livePreview(text))}</code></div>`;
-  }
-  if (event.kind === "tool") {
-    const tool = event.tool || {};
-    const result = tool.result ? ` <code>${escapeHtml(livePreview(tool.result))}</code>` : "";
-    return `<div class="node-live-row"><span class="node-live-time">${escapeHtml(at)}</span><span class="node-live-kind is-tool">工具</span><strong>${escapeHtml(tool.name || "")}</strong><span class="node-live-status is-${escapeHtml(tool.status || "")}">${escapeHtml(tool.status || "")}</span>${result}</div>`;
-  }
-  const stage = event.stage || {};
-  const turn = stage.turn ? ` <em>#${stage.turn}</em>` : "";
-  const preview = stage.preview ? ` <code>${escapeHtml(livePreview(stage.preview))}</code>` : "";
-  return `<div class="node-live-row"><span class="node-live-time">${escapeHtml(at)}</span><span class="node-live-kind is-stage">阶段</span><strong>${escapeHtml(stage.stage || "")}</strong>${turn}${preview}</div>`;
-}
-
-function liveTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toTimeString().slice(0, 12) + "." + String(date.getMilliseconds()).padStart(3, "0");
-}
-
-function livePreview(value) {
-  const compact = String(value).replace(/\s+/g, " ").trim();
-  return compact.length > 140 ? compact.slice(0, 140) + "…" : compact;
 }
 
 function renderInteraction(interaction) {

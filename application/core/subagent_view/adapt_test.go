@@ -1,10 +1,8 @@
 package subagent_view
 
 import (
-	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -86,48 +84,7 @@ func TestAdaptSubagentContext(t *testing.T) {
 	}
 }
 
-// TestBuildSubagentTimeline 验证详情弹窗"事件时间线"推导：阶段日志 + 任务
-// 打点合并、按 At 升序、有界截断、未知状态安全降级。
-func TestBuildSubagentTimeline(t *testing.T) {
-	c := testCoordinator()
-	base := time.Unix(1700000000, 0)
-	stages := []dto.NodeStageLog{
-		{Stage: "spawn", Turn: 0, At: base, Preview: "start"},
-		{Stage: "turn", Turn: 2, At: base.Add(time.Second), Preview: "llm"},
-		{Stage: "result", At: base.Add(3 * time.Second), Preview: "done"},
-	}
-	trace := []model.WorkTracePoint{
-		{At: base.Add(2 * time.Second), Status: "queued", Operation: "fork scheduled", Evidence: "wait"},
-		{At: base.Add(4 * time.Second), Status: "completed", Operation: "node.lifecycle", Evidence: "ok"},
-	}
-	timeline := c.buildSubagentTimeline(stages, trace)
-	if len(timeline) != len(stages)+len(trace) {
-		t.Fatalf("timeline len = %d, want %d", len(timeline), len(stages)+len(trace))
-	}
-	if !sort.SliceIsSorted(timeline, func(i, j int) bool { return timeline[i].At.Before(timeline[j].At) }) {
-		t.Fatalf("timeline not sorted by At: %+v", timeline)
-	}
-	if timeline[0].Status != model.NodeRunning || timeline[1].Status != model.NodeRunning {
-		t.Fatalf("spawn/turn must map to running: %+v", timeline[:2])
-	}
-	var sawCompleted, sawQueued bool
-	for _, entry := range timeline {
-		if entry.Status == model.NodeCompleted {
-			sawCompleted = true
-		}
-		if entry.Status == model.NodeQueued {
-			sawQueued = true
-		}
-	}
-	if !sawCompleted || !sawQueued {
-		t.Fatalf("timeline must include completed(result/打点) and queued(打点): %+v", timeline)
-	}
-	if !strings.Contains(timeline[1].Output, "turn #2") {
-		t.Fatalf("turn output must carry turn marker: %+v", timeline[1])
-	}
-}
-
-// TestNodeStatusMappingFallbacks 验证树状态/任务状态 → 详情状态映射。
+// TestAdaptSubagentContext 验证上下文快照适配：截断、条目上限、空快照 → nil。
 func TestNodeStatusMappingFallbacks(t *testing.T) {
 	tests := []struct {
 		sub  dto.SubAgentNodeStatus

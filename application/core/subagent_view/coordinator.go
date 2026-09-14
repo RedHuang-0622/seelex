@@ -1,13 +1,12 @@
-// Package subagent_view owns the subagent detail / live / tree projection
-// surface: truncated session + context snapshot + worktree readback, live
-// subscription passthrough, and bounded tool-event increments into the
-// authoritative Plan node snapshot. It only reads Engine Node query surfaces
-// (safe read-only subagent actors) and never touches subagent execution.
+// Package subagent_view owns the subagent detail / tree projection
+// surface: truncated session + context snapshot + worktree readback, and
+// bounded tool-event increments into the authoritative Plan node snapshot. It
+// only reads Engine Node query surfaces (safe read-only subagent actors) and
+// never touches subagent execution.
 package subagent_view
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/RedHuang-0622/Seele/types"
@@ -50,18 +49,6 @@ type Coordinator struct {
 // NewCoordinator 构造 subagent_view 协调器。
 func NewCoordinator(deps Deps) *Coordinator {
 	return &Coordinator{Core: deps.Core, view: deps.View, limits: deps.Limits}
-}
-
-// SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 只读通道 +
-// 取消函数）。
-func (c *Coordinator) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
-	if c.Deps.Engine == nil {
-		return nil, nil, func() {}, fmt.Errorf("subagent live: engine unavailable")
-	}
-	if nodeID == "" {
-		return nil, nil, func() {}, fmt.Errorf("subagent live: node id required")
-	}
-	return c.Deps.Engine.SubscribeSubagentLive(nodeID)
 }
 
 // HandleSubagentToolEvent 把 Runtime 工具分发投影进有界权威 Plan 节点快照
@@ -152,11 +139,11 @@ func SubagentChangedPayload(plan *model.PlanState, planID, runID string, node mo
 	}
 }
 
-// SubagentDetail 返回节点子代理详情（截断会话 + 上下文快照 + worktree 现场；
-// 只读子代理 actor，安全）。2026-09-07 起按弹窗分类回填实时数据面：
-// 归属/Goal/SessionID 来自 SubAgentTree 或工作台行（fork 不在 Plan 快照
-// 也可展示）；Stages 来自 node 阶段日志历史；Trace 来自工作台打点；
-// Timeline 由阶段日志 + 打点推导。这些分类供 GUI 打开详情后节流刷新。
+// SubagentDetail 返回节点子代理详情（截断会话 + 上下文快照 + 功能打点 +
+// worktree 现场；只读子代理 actor，安全）。归属/Goal/SessionID 来自
+// SubAgentTree 或工作台行（fork 不在 Plan 快照也可展示）；Trace 来自工作台
+// 打点。这些数据面供 GUI 打开详情后节流刷新（弹窗只剩会话记录/上下文/
+// 功能打点三块）。
 func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("subagent detail: node id is required")
@@ -174,14 +161,13 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 	}
 	c.ViewMu.RLock()
 	var status model.NodeStatus
-	var elapsed, output string
+	var elapsed string
 	var toolEvents []model.SubagentToolEvent
 	plan := c.Snapshot.Runtime.Plan
 	if plan != nil {
 		if node := FindPlanNodeByID(plan.Nodes, nodeID); node != nil {
 			status = node.Status
 			elapsed = node.Elapsed
-			output = node.Output
 			toolEvents = append([]model.SubagentToolEvent(nil), node.ToolEvents...)
 		}
 	}
@@ -227,12 +213,6 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 	if treeNode != nil {
 		nodeError = strings.TrimSpace(treeNode.Error)
 	}
-	if output == "" && workRow != nil {
-		output = strings.TrimSpace(workRow.Description)
-	}
-	if output == "" {
-		output = summary
-	}
 	c.ViewMu.RUnlock()
 
 	conversation, ok := c.Deps.Engine.NodeSessionConversation(nodeID)
@@ -262,20 +242,10 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 			}
 		}
 	}
-	var stages []dto.NodeStageLog
-	if provider, ok := c.Deps.Engine.(interface {
-		NodeStageLogs(string) []dto.NodeStageLog
-	}); ok {
-		stages = append([]dto.NodeStageLog(nil), provider.NodeStageLogs(nodeID)...)
-		if limit := c.limits().PlanNodeEvents; limit > 0 && len(stages) > limit {
-			stages = stages[len(stages)-limit:]
-		}
-	}
 	detail := &model.SubagentDetail{
 		Running:      isRunningSubagentStatus(status),
 		Status:       status,
 		Elapsed:      elapsed,
-		Output:       output,
 		Goal:         goal,
 		SessionID:    sessionID,
 		Assignee:     assignee,
@@ -286,63 +256,9 @@ func (c *Coordinator) SubagentDetail(nodeID string) (*model.SubagentDetail, erro
 		ToolEvents:   toolEvents,
 		Context:      c.adaptSubagentContext(contextSnap),
 		Worktree:     c.nodeWorktreeInfo(nodeID),
-		Stages:       stages,
 		Trace:        trace,
-		Timeline:     c.buildSubagentTimeline(stages, trace),
 	}
 	return detail, nil
-}
-
-// buildSubagentTimeline 由第一视角阶段日志 + 任务打点推导详情弹窗的
-// "事件时间线"（按 At 升序，先阶段后打点；有界）。
-func (c *Coordinator) buildSubagentTimeline(stages []dto.NodeStageLog, trace []model.WorkTracePoint) []model.PlanNodeEventInfo {
-	timeline := make([]model.PlanNodeEventInfo, 0, len(stages)+len(trace))
-	for _, stage := range stages {
-		entry := model.PlanNodeEventInfo{At: stage.At, Output: stage.Preview}
-		switch stage.Stage {
-		case "result":
-			entry.Status = model.NodeCompleted
-		case "stopped":
-			entry.Status = model.NodeFailed
-		case "spawn", "turn", "tool":
-			entry.Status = model.NodeRunning
-		default:
-			entry.Status = model.NodeRunning
-		}
-		if stage.Turn > 0 {
-			entry.Output = fmt.Sprintf("turn #%d", stage.Turn)
-			if stage.Preview != "" {
-				entry.Output += ": " + stage.Preview
-			}
-		}
-		timeline = append(timeline, entry)
-	}
-	for _, point := range trace {
-		entry := model.PlanNodeEventInfo{At: point.At, Output: point.Evidence}
-		if mapped := nodeStatusFromTaskStatus(point.Status); mapped != "" {
-			entry.Status = mapped
-		} else {
-			entry.Status = model.NodeRunning
-		}
-		if point.Operation != "" {
-			if entry.Output != "" {
-				entry.Output = point.Operation + ": " + entry.Output
-			} else {
-				entry.Output = point.Operation
-			}
-		}
-		timeline = append(timeline, entry)
-	}
-	sort.SliceStable(timeline, func(left, right int) bool {
-		if timeline[left].At.Equal(timeline[right].At) {
-			return left < right
-		}
-		return timeline[left].At.Before(timeline[right].At)
-	})
-	if limit := c.limits().PlanNodeEvents; limit > 0 && len(timeline) > limit {
-		timeline = timeline[len(timeline)-limit:]
-	}
-	return timeline
 }
 
 // nodeStatusFromSubagentStatus 把子代理树状态映射为详情状态。

@@ -9,6 +9,24 @@
        负责 Seelex 外观；themes/<id>.css 只覆盖语义 token。顺序不要改。 -->
   <link rel="stylesheet" href="./vendor/pico.min.css">
   <link rel="stylesheet" href="./styles.css">
+  <!-- 条目详情弹窗（会话记录/上下文/功能打点）的自适应补丁：只在本文件内
+       追加，styles.css 不动。关键规则一句话——所有详情内容块
+       width/max-width:100%、长 token 用 overflow-wrap:anywhere 断行、
+       flex/grid 子项 min-width:0 才能随宿主宽度收缩；弹窗与会话记录区都
+       可拖动调整大小（data-resizable + .modal-resize-handle 与 work-table
+       弹窗同一套交互，会话区另加 resize:vertical 手柄）。 -->
+  <style>
+    /* 选择器用 .modal-card.node-detail-card（与 styles.css 的
+       .modal-card[data-resizable] 同特异性且更靠后）才能覆盖其 overflow。 */
+    .modal-card.node-detail-card { display: flex; flex-direction: column; width: min(760px, 94vw); max-height: min(84vh, 760px); overflow: hidden; }
+    .node-detail-card #node-detail-content { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; }
+    .node-detail, .node-detail > *, .node-tab-panel { min-width: 0; max-width: 100%; }
+    .node-conversation, .node-context { width: 100%; max-width: 100%; min-width: 0; max-height: min(52vh, 520px); resize: vertical; overflow: auto; }
+    .node-msg { min-width: 0; max-width: 100%; }
+    .node-msg > div, .node-msg-tool { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+    .node-context-text, .node-context-list, .node-context-list li, .node-context-meta > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+    .node-conversation pre, .node-context pre, .node-detail-error pre { max-width: 100%; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
 </head>
 <body>
   <div class="app-shell">
@@ -274,9 +292,10 @@
   </div>
 
   <div id="node-detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="node-detail-title">
-    <div class="modal-card node-detail-card">
+    <div class="modal-card node-detail-card" data-resizable>
       <div class="modal-header"><div class="node-detail-title-slot" id="node-detail-title"></div><button id="node-detail-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="node-detail-content"></div>
+      <div class="modal-resize-handle" aria-hidden="true"></div>
     </div>
   </div>
 

@@ -691,24 +691,13 @@ export function escapeHTML(value) {
     .replaceAll("'", "&#39;");
 }
 
-// renderNodeDetail 渲染节点详情页（弹窗内容）：身份信息 + 会话记录
-// （子代理对话流，detail.conversation）+ 事件时间线 + 最终输出。
-// 会话记录由 app.js 经 invoke("SubagentSessionDetail") 异步拉取后
-// 调用 setNodeDetailConversation 注入；运行中的增量由 seelex:subagent_live
-// 的 assistant 正文事件驱动（nodeDetailLiveAssistantAppend），不再轮询。
+// renderNodeDetail 渲染节点详情页（弹窗内容）：身份信息 + 三块数据面
+// （会话记录 / 上下文 / 功能打点）。三块数据都由 app.js 经
+// invoke("SubagentSessionDetail") 拉取后交给 setNodeDetailConversation 注入；
+// 弹窗内已无任何实时查看通道——第一视角(live)/事件时间线(timeline)/
+// 工具活动(tools)/最终输出(output)/worktree 现场标签及其渲染分支全部删除。
 export function renderNodeDetail(node) {
   const status = statusToken(node.status);
-  const timeline = (node.events || []).map(event => {
-    const time = formatEventTime(event.at);
-    const output = outputSummary(event.output);
-    return `<li class="node-event is-${statusToken(event.status)}" data-node-event-status="${statusToken(event.status)}">
-      <span class="node-event-dot" aria-hidden="true">${escapeHTML(statusSymbol(event.status))}</span>
-      <time class="node-event-time" datetime="${escapeHTML(event.at)}">${escapeHTML(time)}</time>
-      <span class="node-event-status">${escapeHTML(statusLabel(event.status))}</span>
-      ${output ? `<span class="node-event-output" title="${escapeHTML(event.output)}">${escapeHTML(output)}</span>` : ""}
-    </li>`;
-  }).join("");
-  const toolEvents = renderToolEvents(node.toolEvents || []);
   const instrumentation = renderInstrumentationTable(
     nodeInstrumentationRows(node, node.mode),
     "暂无节点打点；子代理运行或任务清单勾选后会显示在这里。"
@@ -724,28 +713,18 @@ export function renderNodeDetail(node) {
       <div><dt>Kind</dt><dd>${escapeHTML(node.kind || "auto")}</dd></div>
       <div><dt>耗时</dt><dd>${escapeHTML(node.elapsed || "—")}</dd></div>
       <div><dt>事件</dt><dd>${node.events ? node.events.length : 0}</dd></div>
-      <div><dt>工具</dt><dd data-node-tool-count>${node.toolEvents ? node.toolEvents.length : 0}</dd></div>
     </dl>
     <div class="node-detail-error" data-node-detail-error${node.error ? "" : " hidden"}>
       ${node.error ? renderDetailErrorText(node.error) : ""}
     </div>
     <div class="node-detail-tabs">
       <button class="node-tab is-active" data-node-tab="conversation" type="button">会话记录</button>
-      <button class="node-tab" data-node-tab="live" type="button">第一视角</button>
       <button class="node-tab" data-node-tab="context" type="button">上下文</button>
       <button class="node-tab" data-node-tab="instrumentation" type="button">功能打点</button>
-      <button class="node-tab" data-node-tab="timeline" type="button">事件时间线</button>
-      <button class="node-tab" data-node-tab="tools" type="button">工具活动</button>
-      ${node.output ? `<button class="node-tab" data-node-tab="output" type="button">最终输出</button>` : ""}
     </div>
     <div class="node-tab-panel is-active" data-node-panel="conversation">
       <div class="node-conversation" data-node-conversation>
         <div class="node-timeline-empty">加载会话记录…</div>
-      </div>
-    </div>
-    <div class="node-tab-panel" data-node-panel="live">
-      <div class="node-live-feed" data-node-live-feed>
-        <div class="node-timeline-empty">等待实时事件（打开即订阅；阶段/工具事件到达即显示）…</div>
       </div>
     </div>
     <div class="node-tab-panel" data-node-panel="context">
@@ -756,13 +735,6 @@ export function renderNodeDetail(node) {
     <div class="node-tab-panel" data-node-panel="instrumentation" data-node-instrumentation>
       ${instrumentation}
     </div>
-    <div class="node-tab-panel" data-node-panel="timeline">
-      ${timeline ? `<ol class="node-timeline">${timeline}</ol>` : '<div class="node-timeline-empty">暂无事件；任务清单模式下由 task_check_node 打点驱动</div>'}
-    </div>
-    <div class="node-tab-panel" data-node-panel="tools" data-node-tool-events>
-      ${toolEvents || '<div class="node-timeline-empty">暂无子代理工具活动</div>'}
-    </div>
-    ${node.output ? `<div class="node-tab-panel" data-node-panel="output"><div class="node-detail-output"><pre>${escapeHTML(node.output)}</pre></div></div>` : ""}
   </div>`;
 }
 
@@ -772,11 +744,14 @@ function renderDetailErrorText(text) {
   return `<strong class="node-detail-error-title">执行失败</strong><pre>${escapeHTML(text)}</pre>`;
 }
 
-// setNodeDetailConversation 渲染子代理会话记录 + 结构化上下文快照
-// （详情弹窗会话记录 / 上下文标签；数据来自 invoke SubagentSessionDetail）。
+// setNodeDetailConversation 渲染三块数据面：会话记录（detail.conversation）、
+// 上下文快照（detail.context）与功能打点（detail.trace + detail.tool_events）。
+// 数据来自 invoke SubagentSessionDetail（唯一详情数据面）。
+// 口径说明：详情弹窗的「工具活动」不再单独成 tab——它与「功能打点」是同一
+// 类节点执行打点，统一并入功能打点表（工作台 trace 与子代理工具调用合并、
+// 按时间倒序），避免同一事实两处渲染。
 export function setNodeDetailConversation(detail) {
   const container = document.querySelector("[data-node-detail] [data-node-conversation]");
-  const toolContainer = document.querySelector("[data-node-detail] [data-node-tool-events]");
   const contextContainer = document.querySelector("[data-node-detail] [data-node-context]");
   const errorContainer = document.querySelector("[data-node-detail] [data-node-detail-error]");
   if (errorContainer) {
@@ -784,14 +759,14 @@ export function setNodeDetailConversation(detail) {
     errorContainer.hidden = !error;
     if (error) errorContainer.innerHTML = renderDetailErrorText(error);
   }
-  if (!container && !toolContainer && !contextContainer) return;
+  if (!container && !contextContainer) return;
   const messages = (detail?.conversation || []);
   if (container && messages.length === 0) {
     const goal = detail?.goal ? `；目标 ${escapeHTML(outputSummary(detail.goal))}` : "";
     const status = detail?.status ? `；状态 ${escapeHTML(statusLabel(detail.status))}` : "";
     const assignee = detail?.assignee ? `；Assignee ${escapeHTML(detail.assignee)}` : "";
     container.innerHTML = goal || status || assignee
-      ? `<div class="node-timeline-empty">该节点暂无会话消息${goal}${status}${assignee}。阶段与打点见「第一视角/功能打点」标签。</div>`
+      ? `<div class="node-timeline-empty">该节点暂无会话消息${goal}${status}${assignee}。阶段与打点见「功能打点」标签。</div>`
       : '<div class="node-timeline-empty">该节点无会话记录（确定性节点或会话未落盘）</div>';
   } else if (container) {
     container.innerHTML = messages.map(msg => {
@@ -803,108 +778,48 @@ export function setNodeDetailConversation(detail) {
     }).join("");
   }
   if (contextContainer) {
-    // 工作区现场（失败/合并被拒时的恢复入口）前置在上下文快照之前。
-    contextContainer.innerHTML = renderNodeWorktree(detail?.worktree) + renderNodeContext(detail?.context);
+    contextContainer.innerHTML = renderNodeContext(detail?.context);
   }
-  if (toolContainer) {
-    const toolEvents = normalizeToolEvents(detail?.tool_events);
-    toolContainer.innerHTML = renderToolEvents(toolEvents) || '<div class="node-timeline-empty">暂无子代理工具活动</div>';
-    const count = document.querySelector("[data-node-detail] [data-node-tool-count]");
-    if (count) count.textContent = String(toolEvents.length);
-  }
-  // 功能打点 tab：工作台任务打点（派工/认领/状态/终态），不依赖会话正文。
+  // 功能打点 tab：工作台任务打点（派工/认领/状态/终态）+ 子代理工具活动
+  // 合并同一张表，不依赖会话正文。
   const instrumentationContainer = document.querySelector("[data-node-detail] [data-node-instrumentation]");
   if (instrumentationContainer) {
-    const rows = (detail?.trace || []).map((point, order) => ({
+    instrumentationContainer.innerHTML = renderInstrumentationTable(
+      subagentInstrumentationRows(detail),
+      "暂无打点；任务派工/认领/状态/完成打点到达后显示在这里。"
+    );
+  }
+}
+
+// subagentInstrumentationRows 把详情载荷的两类打点归一为功能打点表的行：
+// trace（工作台任务打点）+ tool_events（子代理工具活动），按时间倒序；
+// 无时间的行按原始次序稳定靠后（与 plan-dsl 的 instrumentationRows 同口径）。
+function subagentInstrumentationRows(detail) {
+  const rows = [];
+  (detail?.trace || []).forEach((point, order) => {
+    rows.push({
       source: "subagent",
       operation: point.operation || point.status || "task",
       status: point.status || "unknown",
       at: point.at,
       detail: point.evidence || point.duration || "",
       order
-    }));
-    instrumentationContainer.innerHTML = renderInstrumentationTable(
-      rows,
-      "暂无打点；任务派工/认领/状态/完成打点到达后显示在这里。"
-    );
-  }
-  // 事件时间线 tab：详情返回的归一化时间线（阶段日志 + 打点推导）。
-  const timelineContainer = document.querySelector("[data-node-detail] [data-node-panel='timeline']");
-  if (timelineContainer) {
-    const events = (detail?.timeline || []);
-    timelineContainer.innerHTML = events.length
-      ? `<ol class="node-timeline">${events.map(event => {
-          const time = formatEventTime(event.at);
-          const output = outputSummary(event.output);
-          return `<li class="node-event is-${statusToken(event.status)}" data-node-event-status="${statusToken(event.status)}">
-            <span class="node-event-dot" aria-hidden="true">${escapeHTML(statusSymbol(event.status))}</span>
-            <time class="node-event-time" datetime="${escapeHTML(event.at || "")}">${escapeHTML(time)}</time>
-            <span class="node-event-status">${escapeHTML(statusLabel(event.status))}</span>
-            ${output ? `<span class="node-event-output" title="${escapeHTML(event.output)}">${escapeHTML(output)}</span>` : ""}
-          </li>`;
-        }).join("")}</ol>`
-      : '<div class="node-timeline-empty">暂无事件；任务清单模式下由 task_check_node 打点驱动</div>';
-  }
-  nodeDetailLiveAssistantRetain();
-}
-
-// nodeDetailLiveAssistantText 是详情弹窗内"实时 assistant 正文"的模块态：
-// 每次权威详情刷新（setNodeDetailConversation）与弹窗重渲染
-// （nodeDetailLiveAssistantRetain）后仍保留，直到弹窗关闭/重开时重置。
-let nodeDetailLiveAssistantText = "";
-let nodeDetailLiveAssistantActive = false;
-
-export function nodeDetailLiveAssistantReset() {
-  nodeDetailLiveAssistantText = "";
-  nodeDetailLiveAssistantActive = false;
-  const container = document.querySelector("[data-node-detail] [data-node-conversation]");
-  container?.querySelector("[data-node-live-assistant]")?.remove();
-}
-
-// nodeDetailLiveAssistantAppend 追加一条 assistant 正文增量并刷新展示。
-export function nodeDetailLiveAssistantAppend(delta) {
-  if (!delta) return;
-  nodeDetailLiveAssistantText += String(delta);
-  nodeDetailLiveAssistantActive = true;
-  nodeDetailLiveAssistantRetain();
-}
-
-// nodeDetailLiveAssistantRetain 把实时 assistant 正文块重新挂到当前会话
-// 记录容器末尾（容器可能刚被权威详情刷新/弹窗重渲染替换）。
-export function nodeDetailLiveAssistantRetain() {
-  const container = document.querySelector("[data-node-detail] [data-node-conversation]");
-  if (!container) return;
-  container.querySelector("[data-node-live-assistant]")?.remove();
-  const text = String(nodeDetailLiveAssistantText || "").trim();
-  if (!nodeDetailLiveAssistantActive || !text) return;
-  const row = document.createElement("div");
-  row.className = "node-msg is-assistant is-live";
-  row.dataset.nodeLiveAssistant = "1";
-  row.innerHTML = '<span class="node-msg-role">assistant</span><div class="node-msg-live-label">实时</div>';
-  const body = document.createElement("div");
-  body.textContent = text;
-  row.appendChild(body);
-  container.appendChild(row);
-}
-
-// renderNodeWorktree 渲染节点 worktree 现场（详情弹窗"上下文"标签前置
-// section）：节点失败/合并被拒时产出文件保留在独立 worktree（未进主仓库
-// 但仍在磁盘），Path 是人工恢复入口；分支改动已提交时可 git merge 恢复。
-// 全部文本 escape；无现场 → 空串（不渲染）。
-export function renderNodeWorktree(worktree) {
-  if (!worktree || !worktree.path) return "";
-  const branch = worktree.branch || "";
-  const recoveryHint = branch
-    ? `改动已提交时可 git merge ${escapeHTML(branch)} 合并回 ${escapeHTML(worktree.main_branch || "main")}`
-    : `改动未提交时先在 ${escapeHTML(worktree.path)} 内 git add -A && git commit`;
-  return `<section class="node-context-section node-worktree-section">
-    <h3>工作区现场 (Worktree)</h3>
-    <p class="node-context-text">节点失败或合并被拒：子代理产出保留在独立 worktree，未进入主仓库但仍在磁盘，可手动恢复。</p>
-    <ul class="node-context-list">
-      <li><strong>路径</strong> ${escapeHTML(worktree.path)}</li>
-      <li><strong>分支</strong> ${escapeHTML(branch || "—")} — ${recoveryHint}</li>
-    </ul>
-  </section>`;
+    });
+  });
+  normalizeToolEvents(detail?.tool_events).forEach((event, order) => {
+    rows.push({
+      source: "subagent",
+      operation: event.name,
+      status: event.status,
+      at: event.startedAt,
+      detail: event.error || event.result || event.arguments || "",
+      order: rows.length + order
+    });
+  });
+  return rows.sort((left, right) => {
+    const delta = Date.parse(right.at || "") - Date.parse(left.at || "");
+    return Number.isFinite(delta) && delta !== 0 ? delta : left.order - right.order;
+  });
 }
 
 // renderNodeContext 渲染子代理结构化上下文快照（详情弹窗"上下文"标签）。
@@ -941,33 +856,7 @@ function formatNumber(value) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
 }
 
-function renderToolEvents(events) {
-  if (!events.length) return "";
-  return `<ol class="node-tool-list">${events.map(event => {
-    const evidence = event.error || event.result || event.arguments;
-    const evidenceKind = event.error ? "ERROR" : (event.result ? "RESULT" : "INPUT");
-    return `<li class="node-tool-event is-${statusToken(event.status)}" data-node-tool-id="${escapeHTML(event.id)}">
-      <div class="node-tool-head">
-        <span class="node-event-dot" aria-hidden="true">${escapeHTML(statusSymbol(event.status))}</span>
-        <strong>${escapeHTML(event.name)}</strong>
-        <span>${escapeHTML(statusLabel(event.status))}</span>
-        <time datetime="${escapeHTML(event.startedAt)}">${escapeHTML(formatEventTime(event.startedAt))}</time>
-        <small>${escapeHTML(formatDuration(event.duration))}</small>
-      </div>
-      ${evidence ? `<div class="node-tool-evidence"><span>${evidenceKind}</span><pre>${escapeHTML(evidence)}</pre></div>` : ""}
-    </li>`;
-  }).join("")}</ol>`;
-}
-
-function formatDuration(value) {
-  const nanoseconds = Number(value || 0);
-  if (!Number.isFinite(nanoseconds) || nanoseconds <= 0) return "";
-  const milliseconds = nanoseconds / 1e6;
-  if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
-  return `${(milliseconds / 1000).toFixed(2)}s`;
-}
-
-// bindNodeDetailTabs 切换详情弹窗标签（会话记录 / 事件时间线 / 输出）。
+// bindNodeDetailTabs 切换详情弹窗标签（会话记录 / 上下文 / 功能打点）。
 export function bindNodeDetailTabs(root) {
   root.querySelectorAll("[data-node-tab]").forEach(button => {
     button.addEventListener("click", () => {
@@ -1033,7 +922,7 @@ function renderSubagentTreeRow(item, guide) {
         <strong title="${escapeHTML(item.id)}">${escapeHTML(label)}</strong>
         <span class="plan-kind">${escapeHTML(statusLabel(subagentStatusToken(status)))}</span>
         ${item.session_id ? `<span class="subagent-session" title="${escapeHTML(item.session_id)}">${escapeHTML(shortSessionID(item.session_id))}</span>` : ""}
-        <button class="subagent-tree-detail" type="button" data-plan-node-open="${escapeHTML(item.id)}" title="查看会话记录 / 运行时上下文 / 工具活动">详情</button>
+        <button class="subagent-tree-detail" type="button" data-plan-node-open="${escapeHTML(item.id)}" title="查看会话记录 / 上下文 / 功能打点">详情</button>
       </header>
       ${goal ? `<div class="subagent-tree-goal" title="${escapeHTML(item.goal)}">${escapeHTML(goal)}</div>` : ""}
       ${renderSubagentTreeContext(item.context)}
@@ -1090,9 +979,9 @@ export function subagentTreeNodeToDSL(treeNode) {
 // 详情入口优先用 Plan DSL / 子代理树投影解析节点，但两者都只由整份快照与
 // runtime.changed 携带；同一批次还有子代理在跑时，表格行会先经
 // worktable.changed / task.changed 到达（见 app.js resolveNodeForDetail 的
-// 兜底）。用行自身兜底即可照常打开弹窗——会话记录/上下文/工具活动仍由
-// SubagentSessionDetail + seelex:subagent_live 数据面提供，行只提供身份与
-// 展示标签；渲染层统一 escape。
+// 兜底）。用行自身兜底即可照常打开弹窗——会话记录/上下文/功能打点仍由
+// SubagentSessionDetail 数据面提供，行只提供身份与展示标签；渲染层统一
+// escape。
 export function workItemToDetailNode(row) {
   const source = isRecord(row) ? row : {};
   const id = textValue(source.source_id) || textValue(source.id);

@@ -217,10 +217,6 @@ func (fake *fakeApplication) ConfigureSessionStorage(context.Context, sessionsto
 func (fake *fakeApplication) SubagentSessionDetail(string) (*application.SubagentDetail, error) {
 	return nil, nil
 }
-func (fake *fakeApplication) SubscribeSubagentLive(string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
-	ch := make(chan dto.SubagentLiveEvent, 16)
-	return nil, ch, func() {}, nil
-}
 func (fake *fakeApplication) ScheduleTask(_ context.Context, spec seelebridge.ScheduledTaskSpec) (*seelebridge.ScheduledTaskStatus, error) {
 	fake.scheduledSpec = spec
 	return &seelebridge.ScheduledTaskStatus{ID: "sched_1", Name: spec.Name, Kind: string(spec.Kind), Enabled: spec.Enabled}, nil
@@ -1119,9 +1115,16 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		strings.Contains(string(script), "refreshNodeDetail(nodeID, generation), 2000") {
 		t.Fatal("subagent detail must not fall back to 2s polling (G7)")
 	}
-	if !strings.Contains(string(script), `event.kind === "assistant"`) ||
-		!strings.Contains(string(script), "nodeDetailLiveAssistantAppend") {
-		t.Fatal("subagent detail freshness must be driven by seelex:subagent_live assistant deltas (G7)")
+	// 条目详情弹窗只保留三块数据面（会话记录/上下文/功能打点）：不再订阅
+	// 第一视角流，也不再有流式生命周期（SubagentDetailStream* / seelex:subagent_live）。
+	if !strings.Contains(string(script), `invoke("SubagentSessionDetail"`) {
+		t.Fatal("subagent detail must be pulled through the SubagentSessionDetail data surface")
+	}
+	if strings.Contains(string(script), "SubagentDetailStreamStart") ||
+		strings.Contains(string(script), "SubagentDetailStreamStop") ||
+		strings.Contains(string(script), "seelex:subagent_live") ||
+		strings.Contains(string(script), "nodeDetailLiveAssistant") {
+		t.Fatal("detail window must not subscribe live streams (only conversation/context/instrumentation)")
 	}
 	if !strings.Contains(string(script), `from "./live-diag.js"`) ||
 		!strings.Contains(string(script), "onDiag: stats => liveDiag.update(stats)") {
@@ -1164,9 +1167,28 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(planDsl), "export function nodeDetailLiveAssistantAppend") ||
-		!strings.Contains(string(planDsl), "export function nodeDetailLiveAssistantRetain") {
-		t.Fatal("plan DSL must expose live assistant conversation appends (G7)")
+	if !strings.Contains(string(planDsl), `data-node-tab="conversation"`) ||
+		!strings.Contains(string(planDsl), `data-node-tab="context"`) ||
+		!strings.Contains(string(planDsl), `data-node-tab="instrumentation"`) {
+		t.Fatal("plan DSL detail modal must expose the conversation/context/instrumentation tabs")
+	}
+	if strings.Contains(string(planDsl), `data-node-tab="live"`) ||
+		strings.Contains(string(planDsl), `data-node-tab="timeline"`) ||
+		strings.Contains(string(planDsl), `data-node-tab="tools"`) ||
+		strings.Contains(string(planDsl), `data-node-tab="output"`) ||
+		strings.Contains(string(planDsl), "nodeDetailLiveAssistant") ||
+		strings.Contains(string(planDsl), "renderNodeWorktree") {
+		t.Fatal("detail modal must not render the removed live/timeline/tools/output/worktree surfaces")
+	}
+	// 详情弹窗与会话记录区可调整大小：复用工作表格弹窗的 data-resizable +
+	// .modal-resize-handle 交互；内容按框内宽度自适应（width:100% +
+	// overflow-wrap:anywhere + min-width:0），长行/代码块/URL 不横向溢出。
+	if !strings.Contains(string(index), `class="modal-card node-detail-card" data-resizable`) ||
+		!strings.Contains(string(index), "modal-resize-handle") {
+		t.Fatal("node detail modal must be user-resizable (data-resizable + resize handle)")
+	}
+	if !strings.Contains(string(index), "overflow-wrap: anywhere") || !strings.Contains(string(index), "resize: vertical") {
+		t.Fatal("detail modal content must auto-fit the host width and expose a vertical resize grip")
 	}
 	if !strings.Contains(string(index), `data-icon="command"`) || !strings.Contains(string(index), `data-icon="send"`) {
 		t.Fatal("primary GUI actions must use icon controls")

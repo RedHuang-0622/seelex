@@ -385,13 +385,13 @@ type PlanNodeEventInfo struct {
 	Output string     `json:"output,omitempty"`
 }
 
-// SubagentDetail 是子代理详情弹窗的数据载荷（会话记录 + 状态/耗时/输出）。
-// Conversation 经应用层适配截断（单条 ≤ evidence_chars、总 ≤ 50 条）。
-// 2026-09-07 起扩展为“弹窗分类实时数据面”：除会话记录外还携带
-// Goal/SessionID/Assignee/Participants（展示归属）、Stages（第一视角历史
-// 阶段日志）、Trace（功能打点）、Timeline（事件时间线）、Summary（树/工作
-// 台摘要）。GUI 打开详情后按这些分类做节流实时刷新，不再只依赖打开瞬间的
-// 一次快照。
+// SubagentDetail 是子代理详情弹窗的数据载荷（会话记录 + 状态/耗时 +
+// 上下文快照 + 功能打点 + worktree 现场）。Conversation 经应用层适配截断
+// （单条 ≤ evidence_chars、总 ≤ 50 条）。2026-09-14 起弹窗只剩三块数据面
+// （会话记录 / 上下文 / 功能打点），因此删除了只服务已删标签的字段：
+// Output（最终输出标签）、Stages（第一视角标签）、Timeline（事件时间线
+// 标签）。Worktree 保留：它是 P2a 恢复入口契约，仍被
+// application/core/subagent_detail_test.go 断言。
 type SubagentDetail struct {
 	Conversation []Message           `json:"conversation,omitempty"`
 	ToolEvents   []SubagentToolEvent `json:"tool_events,omitempty"`
@@ -402,7 +402,6 @@ type SubagentDetail struct {
 	Running  bool                  `json:"running"`
 	Status   NodeStatus            `json:"status"`
 	Elapsed  string                `json:"elapsed,omitempty"`
-	Output   string                `json:"output,omitempty"`
 	// Goal/SessionID/Assignee/Participants 是归属与认领展示（fork 不在
 	// Plan 快照时由 SubAgentTree + 工作台回填）。
 	Goal         string   `json:"goal,omitempty"`
@@ -413,14 +412,9 @@ type SubagentDetail struct {
 	// Error 是节点失败原文（SubAgentTree.Error / 运行时错误；含账号/供应商
 	// 错误码与"未绑定工作区"等可执行原因，GUI 原样展示）。
 	Error string `json:"error,omitempty"`
-	// Stages 是第一视角（阶段）tab 的历史回放（spawn/turn/tool/result；
-	// 即使详情在运行中途打开也能补全，不受 live dispatcher 启动时刻影响）。
-	Stages []dto.NodeStageLog `json:"stages,omitempty"`
 	// Trace 是功能打点 tab 的任务打点（工作台行 trace；派工/认领/完成
-	// 即打点，不依赖会话正文）。
+	// 即打点，不依赖会话正文）。工具活动经 ToolEvents 合并进同一张打点表。
 	Trace []WorkTracePoint `json:"trace,omitempty"`
-	// Timeline 是事件时间线 tab 的归一化事件（由阶段日志 + 打点推导）。
-	Timeline []PlanNodeEventInfo `json:"timeline,omitempty"`
 }
 
 // SubagentWorktreeInfo 是节点 worktree 现场的只读摘要（详情弹窗"工作区"

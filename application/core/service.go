@@ -4,7 +4,6 @@ package core
 import (
 	"errors"
 
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 	seelsession "github.com/RedHuang-0622/seelex/seelebridge/session"
 )
@@ -77,12 +76,6 @@ func (service *Service) PublishRuntimeProjections() {
 	service.publishRuntimeProjections()
 }
 
-// SubscribeSubagentLive 订阅 node 第一视角实时流（历史回放 + 只读事件通道
-// + 取消函数，取消幂等）。
-func (service *Service) SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error) {
-	return service.components.subagent.SubscribeSubagentLive(nodeID)
-}
-
 // HandleSubagentToolEvent 把 Runtime 工具分发投影进权威 Plan 节点快照并
 // 发布一次前端增量。
 func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEvent) {
@@ -90,7 +83,7 @@ func (service *Service) HandleSubagentToolEvent(event seelsession.SubagentToolEv
 }
 
 // SubagentSessionDetail 返回节点子代理的详情数据（截断会话 + 上下文快照 +
-// worktree 现场）。
+// 功能打点）。
 func (service *Service) SubagentSessionDetail(nodeID string) (*model.SubagentDetail, error) {
 	return service.components.subagent.SubagentDetail(nodeID)
 }

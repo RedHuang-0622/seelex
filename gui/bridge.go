@@ -62,7 +62,6 @@ type Application interface {
 	TestSessionStorage(context.Context, sessionstore.Config) error
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
 	SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error)
-	SubscribeSubagentLive(nodeID string) ([]dto.SubagentLiveEvent, <-chan dto.SubagentLiveEvent, func(), error)
 	ClearSubagentTree() error
 	// UpdateWorkItemStatus 更新工作表格任务状态（v1：仅 todo 的
 	// pending/doing/done；plan/subagent 由执行器管理）。
@@ -216,7 +215,6 @@ type Bridge struct {
 	wg                  sync.WaitGroup
 	running             bool
 	emitFn              EventEmitter
-	streams             map[string]func()
 	// 事件投递回执（C4，均由 mu 保护）：Go→WebView 这条腿没有任何投递反馈
 	// （EventEmitter 无返回值），事件"发过了"不等于"渲染层应用了"。ackedSeq 是
 	// 渲染层回执的应用水位；落后于订阅水位时 Bridge 从重放窗口增量重推，
@@ -244,9 +242,6 @@ const (
 	// 真问题；下一条事件或下一次回执会重新武装。
 	eventResendMaxTries = 3
 )
-
-// subagentLiveEventName 是 node 第一视角实时流的前端事件名。
-const subagentLiveEventName = "seelex:subagent_live"
 
 func NewBridge(app Application, options Options) (*Bridge, error) {
 	if app == nil {
@@ -295,7 +290,6 @@ func (bridge *Bridge) Start(ctx context.Context, emit EventEmitter) {
 	}
 	bridge.ctx, bridge.cancel = context.WithCancel(ctx)
 	bridge.emitFn = emit
-	bridge.streams = make(map[string]func())
 	bridge.running = true
 	loopContext := bridge.ctx
 	subscription := bridge.subscribeViewLocked()
@@ -460,10 +454,6 @@ func (bridge *Bridge) Stop() {
 	bridge.ctx = nil
 	bridge.emitFn = nil
 	bridge.stopResendLocked()
-	for nodeID, cancel := range bridge.streams {
-		cancel()
-		delete(bridge.streams, nodeID)
-	}
 	bridge.mu.Unlock()
 
 	if cancel != nil {
@@ -598,64 +588,10 @@ func (bridge *Bridge) settleCatalog() {
 
 func (bridge *Bridge) Snapshot() application.Snapshot { return bridge.app.Snapshot() }
 
-// SubagentSessionDetail 返回子代理节点详情（会话记录 + 状态/耗时/输出）。
+// SubagentSessionDetail 返回子代理节点详情（会话记录 + 上下文快照 +
+// 功能打点；条目详情弹窗唯一的数据面）。
 func (bridge *Bridge) SubagentSessionDetail(nodeID string) (*application.SubagentDetail, error) {
 	return bridge.app.SubagentSessionDetail(nodeID)
-}
-
-// SubagentDetailStreamStart 订阅 node 第一视角实时流并把事件推送到前端
-// （seelex:subagent_live；阶段/工具事件到达即发，即时输出面）。返回
-// **历史回放**（subagent start 以来的有界事件缓冲），前端打开即渲染滚动
-// 上下文，之后实时事件继续追加。重复启动同 node 时先停旧流（幂等）。
-func (bridge *Bridge) SubagentDetailStreamStart(nodeID string) ([]dto.SubagentLiveEvent, error) {
-	if nodeID == "" {
-		return nil, errors.New("gui: node id required")
-	}
-	history, ch, cancel, err := bridge.app.SubscribeSubagentLive(nodeID)
-	if err != nil {
-		return nil, err
-	}
-	bridge.mu.Lock()
-	if bridge.emitFn == nil {
-		bridge.mu.Unlock()
-		cancel()
-		return nil, errors.New("gui: bridge is not started")
-	}
-	if existing := bridge.streams[nodeID]; existing != nil {
-		existing()
-	}
-	ctx := bridge.ctx
-	emit := bridge.emitFn
-	bridge.streams[nodeID] = cancel
-	bridge.wg.Add(1)
-	bridge.mu.Unlock()
-
-	go func() {
-		defer bridge.wg.Done()
-		for {
-			select {
-			case event, ok := <-ch:
-				if !ok {
-					return
-				}
-				emit(ctx, subagentLiveEventName, event)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return history, nil
-}
-
-// SubagentDetailStreamStop 停止 node 第一视角实时流（幂等）。
-func (bridge *Bridge) SubagentDetailStreamStop(nodeID string) {
-	bridge.mu.Lock()
-	cancel := bridge.streams[nodeID]
-	delete(bridge.streams, nodeID)
-	bridge.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
 }
 
 // ClearSubagentTree 清空子代理树（工作区「子代理」分区清空按钮）。

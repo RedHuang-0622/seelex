@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
-const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderNodeWorktree, renderSubagentTree, subagentTreeNodeToDSL, workItemToDetailNode } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderSubagentTree, subagentTreeNodeToDSL, workItemToDetailNode } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -143,7 +143,7 @@ test("extracts node event timeline for the detail page", () => {
   assert.match(html, /has-events/);
 });
 
-test("renders node detail timeline with escaped content", () => {
+test("renders the three detail data surfaces with escaped content", () => {
   const plan = {
     name: "detail",
     status: "completed",
@@ -160,19 +160,28 @@ test("renders node detail timeline with escaped content", () => {
   const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
 
   assert.match(detail, /data-node-detail/);
-  assert.match(detail, /node-event is-completed/);
   assert.match(detail, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.doesNotMatch(detail, /<script>/);
-  assert.match(detail, /ok &lt;b&gt;not markup&lt;\/b&gt;/);
-  assert.doesNotMatch(detail, /<b>not markup<\/b>/);
-  assert.match(detail, /data-node-event-status="completed"/);
   assert.match(detail, />TASKLIST</); // 模式徽标（completed 状态 → tasklist）
+  // 只剩三块数据面：会话记录 / 上下文 / 功能打点。
+  assert.deepEqual([...detail.matchAll(/data-node-tab="([^"]+)"/g)].map(match => match[1]), ["conversation", "context", "instrumentation"]);
+  assert.deepEqual([...detail.matchAll(/data-node-panel="([^"]+)"/g)].map(match => match[1]), ["conversation", "context", "instrumentation"]);
+  assert.match(detail, /data-node-conversation/);
+  assert.match(detail, /data-node-context/);
+  assert.match(detail, /data-node-instrumentation/);
+  assert.match(detail, /加载会话记录…/);
+  assert.match(detail, /加载上下文快照…/);
 });
 
-test("renders empty timeline hint for a node without events", () => {
-  const dsl = planToDSL({ name: "quiet", status: "pending", nodes: [{ id: "n1", status: "pending" }] });
+test("drops the removed live/timeline/tools/output/worktree surfaces from the detail modal", () => {
+  const dsl = planToDSL({ name: "quiet", status: "pending", nodes: [{ id: "n1", status: "pending", output: "final text" }] });
   const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
-  assert.match(detail, /暂无事件/);
+  assert.doesNotMatch(detail, /data-node-tab="(live|timeline|tools|output)"/);
+  assert.doesNotMatch(detail, /data-node-panel="(live|timeline|tools|output)"/);
+  assert.doesNotMatch(detail, /data-node-live-feed|node-live-row|data-node-tool-events|data-node-tool-count|node-detail-output|node-worktree-section/);
+  // 事件计数仍是身份元信息（不再有事件时间线标签）。
+  assert.match(detail, /<dt>事件<\/dt>/);
+  assert.doesNotMatch(detail, /final text/);
 });
 
 test("renders Dify-style branch flow inside nodes (outgoing targets, conditions, parallel forks)", () => {
@@ -239,7 +248,7 @@ test("renders tasklist checkpoints and subagent tool events in the function inst
   assert.match(detail, /task_check_node/);
 });
 
-test("renders worktree lifecycle states and bounded subagent tool activity", () => {
+test("merges worktree lifecycle status and subagent tool activity into the instrumentation table", () => {
   const plan = {
     name: "worktree flow", status: "running", progress: 0.5,
     nodes: [{
@@ -256,10 +265,12 @@ test("renders worktree lifecycle states and bounded subagent tool activity", () 
   assert.match(renderPlanDSL(dsl), /plan-dsl-node is-rebasing/);
   const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
   assert.match(detail, />REBASING</);
-  assert.match(detail, /data-node-tool-id="subtool-1"/);
+  // 工具活动已并入「功能打点」：操作名 + 失败证据 + 状态着色都在同一张表里。
+  assert.match(detail, /instrumentation-row is-error/);
+  assert.match(detail, /<strong>bash<\/strong>/);
   assert.match(detail, /conflict &lt;main&gt;/);
   assert.doesNotMatch(detail, /<unsafe>/);
-  assert.match(detail, /250ms/);
+  assert.doesNotMatch(detail, /data-node-tool-id=/);
 });
 
 test("renders the context tab placeholder in the node detail modal", () => {
@@ -300,32 +311,19 @@ test("renders empty context placeholder for missing or empty snapshots", () => {
   assert.match(renderNodeContext({}), /上下文快照为空/);
 });
 
-// ── 工作区现场（P2a：失败/合并被拒恢复入口）────────────────────────
+// ── 工作区现场已从详情弹窗下线（renderNodeWorktree 与其在「上下文」标签里
+// 的前置 section 一并删除；worktree 现场仍留在后端载荷，但前端不再有渲染分支）
 
-test("renders worktree recovery info with escaped content", () => {
-  const html = renderNodeWorktree({
-    path: "G:/tmp/seelex-seelex-worker",
-    branch: "seelex/worker",
-    main_branch: "main"
-  });
-  assert.match(html, /工作区现场/);
-  assert.match(html, /G:\/tmp\/seelex-seelex-worker/);
-  assert.match(html, /seelex\/worker/);
-  assert.match(html, /git merge/);
-  assert.match(html, /合并回/);
+test("no longer exports the worktree detail renderer", async () => {
+  const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  assert.equal(module.renderNodeWorktree, undefined);
 });
 
-test("renders uncommitted recovery hint when branch missing", () => {
-  const html = renderNodeWorktree({ path: "<script>x</script>" });
-  assert.match(html, /git add -A && git commit/);
-  assert.doesNotMatch(html, /<script>/);
-  assert.match(html, /&lt;script&gt;x&lt;\/script&gt;/);
-});
-
-test("renders no worktree section when absent", () => {
-  assert.equal(renderNodeWorktree(null), "");
-  assert.equal(renderNodeWorktree({}), "");
-  assert.equal(renderNodeWorktree({ path: "" }), "");
+test("keeps the detail modal free of worktree recovery markup", () => {
+  const dsl = planToDSL({ name: "recovery", status: "failed", nodes: [{ id: "worker", status: "failed" }] });
+  const detail = renderNodeDetail({ ...dsl.nodes[0], mode: dsl.mode });
+  assert.doesNotMatch(detail, /node-worktree-section|工作区现场|git merge|git add -A/);
+  assert.match(detail, /data-node-detail-error/); // 失败原文区仍在（执行失败）
 });
 
 // ── Plan 树状布局（W2：DAG → 树）──────────────────────────────────
