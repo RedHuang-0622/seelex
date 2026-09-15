@@ -62,6 +62,7 @@
 | [`2026-07-17-tui-application-core-separation-plan.md`](devlog/2026-07-17-tui-application-core-separation-plan.md) | TUI 分离实施方案 |
 | [`2026-09-15-team-work-computer-use.md`](devlog/2026-09-15-team-work-computer-use.md) | team work 接入 computer use 证据面（截图句柄/尺寸/前台窗口进 ADVISOR 输入）+ 真实 API 真机探针 |
 | [`2026-09-15-agentteam-instantiation-and-speak-schedule.md`](devlog/2026-09-15-agentteam-instantiation-and-speak-schedule.md) | Agent Team 员工一步实例化 + 发言调度运行态（含治理轮次上限与前端两栏） |
+| [`2026-09-15-agentteam-panel-optimization.md`](devlog/2026-09-15-agentteam-panel-optimization.md) | Agent Team 面板与相邻面板的可优化之处：只读审计（带证据）+ 行业对照 + 分批建议；含员工面板去小字备注的落地记录 |
 | [`2026-09-15-frontend-render-and-memory.md`](devlog/2026-09-15-frontend-render-and-memory.md) | 前端渲染与内存减负（事件委托 / 共享提示气泡 / 拓扑单传 / tree-fork 统一树轨与泳道） |
 
 ## 🔬 research/ — 调研报告

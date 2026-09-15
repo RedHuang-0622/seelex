@@ -151,8 +151,39 @@ test("hirePanel carries prompt + permission fields and closes itself", () => {
   // 新增态：空表单 + 入职按钮，角色名可写。
   const fresh = hirePanel(team, null);
   assert.match(fresh, /入职员工/);
-  assert.match(fresh, /data-team-hire-name placeholder="reviewer \/ auditor…" value="" required>/);
+  assert.match(fresh, /data-team-hire-name[^>]*placeholder="reviewer \/ auditor…"[^>]*value=""[^>]*required>/);
   assert.doesNotMatch(fresh, /data-team-hire-name[^>]*readonly/);
+});
+
+// 用户口径：员工面板（入职 / 新建员工 / 修改员工）里不摆小字备注——字段说明与
+// 底部作用域说明都撤掉，说明改走控件 hover 提示（title），选项标签自己把话说完。
+test("员工面板不摆小字备注（说明只在 title 里）", () => {
+  const team = normalizeAgentTeam(goalView);
+  const member = team.members.find(item => item.roleName === "tl");
+  const panels = [
+    hirePanel(team, member),                      // 修改员工 · ADVISOR（会话作用域）
+    hirePanel(team, null),                        // 入职员工（会话作用域新增）
+    hirePanel(team, member, "library"),           // 修改员工 · ADVISOR（员工库作用域）
+    hirePanel(team, null, "library")              // 新建员工 · 员工库
+  ];
+  for (const html of panels) {
+    assert.doesNotMatch(html, /team-field-hint/);
+    assert.doesNotMatch(html, /team-editor-hint/);
+    // 去掉 title / data-tip / placeholder（hover 与空态提示）后，可见正文里不该再出现
+    // 这些原本当小字备注的句子。
+    const visible = html.replace(/(?:title|data-tip|placeholder)="[^"]*"/g, "");
+    assert.doesNotMatch(visible, /同名角色|已装配的会话|只写员工库|小写英文|这一位用哪个模型|worker 干活|什么时候把这个员工/);
+  }
+  // 说明没丢，只是进 title：关键口径仍挂在控件/提交键上。
+  assert.match(panels[0], /data-team-hire-name[^>]*title="[^"]*同名即就地覆盖/);
+  assert.match(panels[0], /data-team-hire-tools[^>]*title="[^"]*readonly/);
+  assert.match(panels[0], /data-team-hire-submit title="[^"]*同名角色就地覆盖/);
+  assert.match(panels[2], /data-team-hire-submit title="[^"]*员工库/);
+  // 「优化提示词」的运行态回执照旧小字显示（空态不占位），它自己的类与备注分开。
+  assert.match(panels[0], /class="team-prompt-state" data-team-optimize-state/);
+  // 面板骨架与字段数不变（7 个字段一条流水线，编号还在）。
+  assert.equal((panels[0].match(/class="team-field-no"/g) || []).length, 7);
+  assert.match(panels[0], /data-team-hire-prompt/);
 });
 
 test("teamEditorPanel fills from the library entry and closes itself", () => {

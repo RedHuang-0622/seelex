@@ -31,6 +31,27 @@ for this stabilization batch.
 
 ### Changed
 
+- **Employee panels: no footnote-style hints** (follow-up of the GUI de-noising
+  round). The "修改员工 · ADVISOR / 入职员工 / 新建员工 · 员工库" cold-load
+  panels no longer render per-field hint lines or the scope sentence under the
+  submit row: the facts moved into the controls' `title` (hover-only) and the
+  select options now carry their own wording ("只读（不写文件 / 不执行命令）"
+  already says what the old hint repeated). The "优化提示词" runtime receipt got
+  its own `.team-prompt-state` class instead of borrowing the hint style, so a
+  panel can be asserted to have **no** hint spans at all. Regression: a new
+  `agent-team-view.test.mjs` case covers both scopes and all four panel
+  instances (no `team-field-hint` / `team-editor-hint`, hint sentences survive
+  in `title` only, the 7-field skeleton and numbering unchanged), and
+  `gui/bridge_test.go` pins the same invariant on the embedded bundle.
+- **Agent Team audit published**:
+  [`docs/devlog/2026-09-15-agentteam-panel-optimization.md`](docs/devlog/2026-09-15-agentteam-panel-optimization.md)
+  ranks the follow-ups found while reviewing the panel — silent field loss on
+  employee edit (`RoleSpec` 10 fields vs. `TeamMember` 7 + whole-entry replace
+  semantics), unsaved hire drafts dropped on Esc/repaint, team-draft drags
+  writing straight into the session, disabled-button reasons living on
+  `data-tip` (which a disabled element never fires), keyboard-less ordering —
+  plus the backend capability gaps and the industry comparison that says which
+  multi-agent UI patterns do *not* fit a 220–480px rail.
 - **GUI de-noising round 2** (panel annotations, session rows, message
   highlight, agent-team libraries):
   - Messages no longer carry *any* speaker colour highlight. The previous

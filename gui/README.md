@@ -139,6 +139,15 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   （拖到员工栏 = 未在编的先 `AgentTeamInstantiateRole` 落到会话，再
   `AgentTeamSetOrder` 落到位置）。
 
+**员工面板去小字（2026-09-15 第三轮）**：「入职 / 修改员工 / 新建员工」三处冷加载
+面板不再渲染字段说明与底部作用域说明（原来那批 9.5px / 10px 小字），同一批事实改挂
+控件与提交键的 `title`（hover 才出现），下拉选项标签自己把话说完（"只读（不写文件 /
+不执行命令）"）；「优化提示词」的运行态回执改用独立类 `team-prompt-state`，不再借备注
+样式。面板因此可以被断言为"零备注"：`agent-team-view.test.mjs` 覆盖两种作用域 × 四个
+面板实例，`gui/bridge_test.go` 在嵌入产物上锁同一条不变量。**团队面板（新建 / 编辑
+团队）的同类小字本轮未动**，连同其它可优化项见
+[`docs/devlog/2026-09-15-agentteam-panel-optimization.md`](../docs/devlog/2026-09-15-agentteam-panel-optimization.md)。
+
 **两个 agent 的区分（2026-09-12）**：成员表把逻辑角色名渲染成用户可读身份
 （`main` → `EXEC`、`tl`/`techlead` → `ADVISOR`），成员行可点击打开该角色的
 **独立会话**（`AgentTeamRoleSnapshot` → `dto.RoleSnapshot`，弹窗

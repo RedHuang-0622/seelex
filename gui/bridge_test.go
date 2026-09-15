@@ -1347,6 +1347,12 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if strings.Contains(teamSource, "data-team-save-current") || strings.Contains(teamSource, "team-rail-hint") {
 		t.Fatal("面板不再有「存当前会话」与栏头注释")
 	}
+	// 员工面板（入职 / 新建员工 / 修改员工）也不摆小字备注：字段说明与底部作用域说明
+	// 一律撤成 hover 提示（title）。「优化提示词」的运行态回执用独立类，不再借备注样式。
+	if !strings.Contains(teamSource, "data-team-hire-submit title=") ||
+		strings.Contains(teamSource, `class="team-editor-hint" data-team-optimize-state`) {
+		t.Fatal("员工面板的说明必须走 title，可见小字备注已撤")
+	}
 	// 右侧「状态」子页的信息也条目化（键值表格行，不是自由网格）。
 	if !strings.Contains(string(script), `class="status-table"`) {
 		t.Fatal("项目状态必须渲染成键值表格行")

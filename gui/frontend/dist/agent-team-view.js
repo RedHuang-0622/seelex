@@ -461,15 +461,16 @@ function staffRow(member, orderIndex, team, scheduled = false) {
 }
 
 // hirePanel 是「入职 / 修改员工」的冷加载面板：默认不渲染，点 + 入职 / 编辑才注入。
-// 字段**条目化 + 序列化**：一条字段一行（序号 + 标签 + 控件 + 说明），分组分节，
-// 右栏窄也读得成一条流水线，而不是并排的挤字表格。
+// 字段**条目化 + 序列化**：一条字段一行（序号 + 标签 + 控件），分组分节，右栏窄也
+// 读得成一条流水线，而不是并排的挤字表格。
+// 口径：**面板里不摆小字备注**——字段说明一律走控件的 hover 提示（title），下拉里的
+// 选项标签自己就把话说完了（"只读（不写文件 / 不执行命令）"），不再在下面复述一遍。
 // scope 决定落盘位置：session = 当前会话在编员工（入职/覆盖），library = 员工库
 // （全局事实，不装配到任何会话）——员工库的增删改与团队解耦，走的就是后者。
 export function hirePanel(team, member, scope = "session") {
   const editing = Boolean(member && member.roleName);
   const role = member || {};
   const toLibrary = scope === "library";
-  const pinnedRole = editing && !toLibrary && isPinnedRole(role.roleName);
   const kindOptions = options(ROLE_KIND_OPTIONS, role.roleKind || "agent");
   const joinOptions = options(JOIN_POLICY_OPTIONS, role.joinPolicy || "on_team_create");
   const toolsOptions = options(TOOLS_POLICY_OPTIONS, role.toolsPolicy || "");
@@ -479,22 +480,15 @@ export function hirePanel(team, member, scope = "session") {
     : (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "入职员工");
   const fields = [];
   fields.push(fieldItem(1, "角色名",
-    `<input type="text" name="role_name" data-team-hire-name placeholder="reviewer / auditor…" value="${escapeHtml(role.roleName || "")}"${editing ? " readonly" : ""} required>`,
-    "小写英文 / 下划线；同名即就地覆盖（幂等，不会新建第二个角色会话）。"));
-  fields.push(fieldItem(2, "类型", `<select name="role_kind" data-team-hire-kind>${kindOptions}</select>`,
-    "worker 干活、auditor 复核、scheduler 排期、timer 定时。"));
-  fields.push(fieldItem(3, "入职时机", `<select name="join_policy" data-team-hire-join>${joinOptions}</select>`,
-    "什么时候把这个员工拉进会话。"));
+    `<input type="text" name="role_name" data-team-hire-name placeholder="reviewer / auditor…" value="${escapeHtml(role.roleName || "")}" title="小写英文 / 下划线；同名即就地覆盖（幂等，不会新建第二个角色会话）"${editing ? " readonly" : ""} required>`));
+  fields.push(fieldItem(2, "类型", `<select name="role_kind" data-team-hire-kind title="agent 干活 / techlead 评审收口 / 定时 不参与发言顺序">${kindOptions}</select>`));
+  fields.push(fieldItem(3, "入职时机", `<select name="join_policy" data-team-hire-join title="什么时候把这个员工拉进会话（定时触发的不进发言顺序）">${joinOptions}</select>`));
   fields.push(fieldItem(4, "在席策略",
-    `<input type="text" name="presence_policy" data-team-hire-presence placeholder="留空继承（online_when_goal_active…）" value="${escapeHtml(role.presencePolicy || "")}">`,
-    "留空 = 继承团队 / 会话默认。"));
-  fields.push(fieldItem(5, "权限", `<select name="tools_policy" data-team-hire-tools>${toolsOptions}</select>`,
-    "工具集：readonly 只读、full 全权、留空继承。"));
-  fields.push(fieldItem(6, "模型", `<select name="model_policy" data-team-hire-model>${modelOptions}</select>`,
-    "这一位用哪个模型档位（供应商与模型在「账号」页配）。"));
+    `<input type="text" name="presence_policy" data-team-hire-presence placeholder="留空继承（online_when_goal_active…）" value="${escapeHtml(role.presencePolicy || "")}" title="留空 = 继承团队 / 会话默认">`));
+  fields.push(fieldItem(5, "权限", `<select name="tools_policy" data-team-hire-tools title="工具集：readonly 只读 / readwrite 读写 / full 全权；留空继承宿主默认">${toolsOptions}</select>`));
+  fields.push(fieldItem(6, "模型", `<select name="model_policy" data-team-hire-model title="这一位用哪个模型档位（供应商与模型在「账号」页配）">${modelOptions}</select>`));
   fields.push(fieldItem(7, "员工提示词",
-    `<textarea name="system_prompt" data-team-hire-prompt placeholder="这个员工怎么干活：职责边界、输入、输出格式、约束">${escapeHtml(role.systemPrompt || "")}</textarea>`,
-    "装配时会作为该角色会话的系统提示词。"));
+    `<textarea name="system_prompt" data-team-hire-prompt placeholder="这个员工怎么干活：职责边界、输入、输出格式、约束" title="装配时会作为该角色会话的系统提示词">${escapeHtml(role.systemPrompt || "")}</textarea>`));
   return `<div class="team-editor" data-team-editor="hire">
     <div class="team-editor-head">
       <span class="team-editor-title">${title}</span>
@@ -508,15 +502,14 @@ export function hirePanel(team, member, scope = "session") {
       ${fieldGroup("提示词", fields.slice(6))}
       <div class="team-prompt-actions">
         <button type="button" class="text-button" data-team-optimize="1" data-tip="让模型把这个提示词改写成更明确可执行的版本（只产出候选，点保存才落盘）">优化提示词</button>
-        <span class="team-editor-hint" data-team-optimize-state></span>
+        <span class="team-prompt-state" data-team-optimize-state></span>
       </div>
       <div class="team-editor-slot" data-team-prompt-result hidden></div>
       <div class="team-editor-actions">
-        <button type="submit" class="text-button primary team-hire-submit" data-team-hire-submit>${toLibrary ? (editing ? "保存到员工库" : "存入员工库") : (editing ? "保存修改" : "入职")}</button>
-        <button type="button" class="text-button" data-team-editor-close="1">取消</button>
-        <span class="team-editor-hint">${toLibrary
+        <button type="submit" class="text-button primary team-hire-submit" data-team-hire-submit title="${toLibrary
           ? (editing ? "改的是员工库里的这一位（全局事实）；已装配的会话读的是自己的副本，不会被动改。" : "只写员工库（全局事实），不装配到当前会话；要进会话再点「入职」或装配团队。")
-          : `${editing ? "同名角色就地覆盖" : "同名角色会被就地修改"}（幂等：不会新建第二个角色会话）。${pinnedRole ? "" : "提示词 / 权限登记在角色注册表里，装配后随会话保存。"}`}</span>
+          : "同名角色就地覆盖（幂等：不会新建第二个角色会话）；提示词 / 权限登记在角色注册表里，装配后随会话保存。"}">${toLibrary ? (editing ? "保存到员工库" : "存入员工库") : (editing ? "保存修改" : "入职")}</button>
+        <button type="button" class="text-button" data-team-editor-close="1">取消</button>
       </div>
     </form>
   </div>`;

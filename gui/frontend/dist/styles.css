@@ -3152,6 +3152,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .team-editor-close:hover { color: var(--text-strong); border-color: var(--border); }
 .team-editor-hint { color: var(--faint); font-size: 10px; line-height: 1.5; }
+/* 员工面板不摆小字备注；唯一的小字是「优化提示词」的运行态回执（空态不占位）。 */
+.team-prompt-state { color: var(--faint); font-size: 10px; line-height: 1.5; }
 .team-editor textarea {
   min-height: 92px;
   padding: 6px 8px;
