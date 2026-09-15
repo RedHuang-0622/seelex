@@ -68,6 +68,36 @@ func (registry *Registry) View(mainSessionID string) (dto.TeamView, error) {
 	return view, nil
 }
 
+// Stored 返回注册表原文（团队库"把当前团队存进库"的数据源）：成员表视图只带
+// 展示需要的字段，而库条目需要完整 RoleSpec（含提示词/权限/mirror/directive）。
+// 本方法只读，不写盘、不推导第二份事实。
+func (registry *Registry) Stored(mainSessionID string) (dto.TeamRegistry, error) {
+	if registry == nil || registry.port == nil {
+		return dto.TeamRegistry{}, errors.New("agentteam: registry is not assembled")
+	}
+	mainSessionID = strings.TrimSpace(mainSessionID)
+	if mainSessionID == "" {
+		return dto.TeamRegistry{}, errors.New("agentteam: main session ID is required")
+	}
+	return registry.port.ReadTeamRegistry(mainSessionID)
+}
+
+// PromptFor 读某个角色登记的提示词（空串 = 未登记 → 调用方用内置提示词兜底）。
+// 只读：ADVISOR 回合每次评审都要取一次，所以这里不建环、不同步运行态。
+func (registry *Registry) PromptFor(mainSessionID, roleName string) (string, error) {
+	stored, err := registry.Stored(mainSessionID)
+	if err != nil {
+		return "", err
+	}
+	roleName = strings.TrimSpace(roleName)
+	for _, role := range stored.Roles {
+		if role.RoleName == roleName {
+			return strings.TrimSpace(role.SystemPrompt), nil
+		}
+	}
+	return "", nil
+}
+
 // PutRole 新增或覆盖一个角色配置（按 role_name 幂等）。
 func (registry *Registry) PutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error) {
 	if registry == nil || registry.port == nil {

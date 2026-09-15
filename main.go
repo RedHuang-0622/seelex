@@ -234,6 +234,19 @@ func run() error {
 	registerGoalTools(runtime, app)
 	// P1：真实 TL 评估器装配（seelebridge 账号 completer → goal 域
 	// TLEvaluator）；注入发生在首次会话启动前，Supervisor 首次 bind 即启用。
+	// ADVISOR 的角色提示词来自 Agent Team 的员工登记：装配根先把"读已装配
+	// 提示词"的读面注入 Runtime（未登记 → 内置角色设定；输出契约永远追加）。
+	runtime.SetRolePromptProvider(func(roleName string) string {
+		sessionID := app.Snapshot().Session.ID
+		if sessionID == "" {
+			return ""
+		}
+		prompt, err := app.AgentTeamRolePrompt(sessionID, roleName)
+		if err != nil {
+			return ""
+		}
+		return prompt
+	})
 	if tlEvaluator := runtime.GoalTLEvaluator(); tlEvaluator != nil {
 		app.SetGoalTLEvaluator(tlEvaluator)
 	}
@@ -1092,6 +1105,9 @@ func initApplication(
 		Plugins: adapters.PluginPort{Manager: plugins}, Skills: adapters.SkillPort{Registry: skills},
 		Sessions: sessionPort, Workspace: adapters.WorkspacePort{Repo: workspaces},
 		Events: events, Approval: approval,
+		// 员工提示词的一次有界优化（Agent Team 入职面板）：实现方是 Runtime
+		// 主 completer；未配置账号/completer 时应用层返回可展示错误。
+		RolePrompt: runtime,
 	})
 }
 

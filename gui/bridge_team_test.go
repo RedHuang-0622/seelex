@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -27,6 +28,21 @@ type fakeAgentTeamApplication struct {
 	instantiateSession string
 	instantiateRole    dto.RoleSpec
 	instantiateJoinSeq uint64
+	librarySession     string
+	savedTeam          dto.TeamLibraryEntry
+	savedTeamName      string
+	savedTeamID        string
+	deletedTeamID      string
+	materializeTeam    string
+	promptSession      string
+	promptRole         string
+	optimizeRequest    dto.RolePromptOptimizeRequest
+	savedEmployee      dto.RoleSpec
+	deletedEmployee    string
+	defaultOrderPolicy string
+	defaultOrderRoles  []string
+	publishedName      string
+	publishedTeamID    string
 }
 
 func newFakeAgentTeamApplication(sessionID string) *fakeAgentTeamApplication {
@@ -92,6 +108,71 @@ func (app *fakeAgentTeamApplication) RoleSnapshot(mainSessionID, roleName, roleS
 		MainSessionID: mainSessionID, RoleName: roleName, RoleSessionID: roleSessionID,
 		RoleRows: []dto.RoleRow{{Role: "assistant", Content: "role row", RoleName: roleName}},
 	}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary, error) {
+	app.librarySession = mainSessionID
+	return dto.TeamLibrary{Configured: true, Teams: []dto.TeamLibraryEntry{{TeamID: "review-team", Name: "评审"}}}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error) {
+	app.librarySession, app.savedTeam = mainSessionID, entry
+	return dto.TeamLibrary{Configured: true}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamSaveCurrentTeam(mainSessionID, name, teamID string) (dto.TeamLibrary, error) {
+	app.librarySession, app.savedTeamName, app.savedTeamID = mainSessionID, name, teamID
+	return dto.TeamLibrary{Configured: true}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamDeleteTeam(mainSessionID, teamID string) (dto.TeamLibrary, error) {
+	app.librarySession, app.deletedTeamID = mainSessionID, teamID
+	return dto.TeamLibrary{Configured: true}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamMaterializeTeam(mainSessionID, teamID string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
+	app.materializeTeam = mainSessionID + "|" + teamID
+	return dto.TeamMaterializeResult{Spec: dto.TeamSpec{TeamID: teamID}, View: dto.TeamView{SessionID: mainSessionID}}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamGlobalConfig(mainSessionID string) (dto.TeamGlobalConfig, error) {
+	app.librarySession = mainSessionID
+	return dto.TeamGlobalConfig{
+		Library:     dto.TeamLibrary{Configured: true, Teams: []dto.TeamLibraryEntry{{TeamID: "review-team"}}},
+		Employees:   dto.EmployeeLibrary{Configured: true, Employees: []dto.RoleSpec{{RoleName: "reviewer", RoleKind: dto.RoleKindAgent}}},
+		Order:       dto.DefaultOrder{Configured: true, OrderRoles: []string{"user", "main", "reviewer"}},
+		Composition: dto.TeamComposition{SessionID: mainSessionID, Employees: []dto.RoleSpec{{RoleName: "reviewer"}}},
+	}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamSaveEmployee(mainSessionID string, role dto.RoleSpec) (dto.EmployeeLibrary, error) {
+	app.librarySession, app.savedEmployee = mainSessionID, role
+	return dto.EmployeeLibrary{Configured: true}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamDeleteEmployee(mainSessionID, roleName string) (dto.EmployeeLibrary, error) {
+	app.librarySession, app.deletedEmployee = mainSessionID, roleName
+	return dto.EmployeeLibrary{Configured: true}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamSetDefaultOrder(mainSessionID, policy string, orderRoles []string) (dto.DefaultOrder, error) {
+	app.librarySession, app.defaultOrderPolicy, app.defaultOrderRoles = mainSessionID, policy, orderRoles
+	return dto.DefaultOrder{Configured: true, OrderPolicy: policy, OrderRoles: orderRoles}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamPublishToGlobal(mainSessionID, name, teamID string) (dto.TeamGlobalConfig, error) {
+	app.librarySession, app.publishedName, app.publishedTeamID = mainSessionID, name, teamID
+	return dto.TeamGlobalConfig{Library: dto.TeamLibrary{Configured: true}}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamRolePrompt(mainSessionID, roleName string) (string, error) {
+	app.promptSession, app.promptRole = mainSessionID, roleName
+	return "你是评审员", nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamOptimizeRolePrompt(_ context.Context, mainSessionID string, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error) {
+	app.promptSession, app.optimizeRequest = mainSessionID, request
+	return dto.RolePromptOptimizeResult{RoleName: request.RoleName, Original: request.SystemPrompt, Optimized: "优化后"}, nil
 }
 
 func TestBridgeAgentTeamResolvesCurrentSession(t *testing.T) {
@@ -202,5 +283,151 @@ func TestBridgeAgentTeamRequiresAssembly(t *testing.T) {
 	}
 	if _, err := bridge.AgentTeamRoleSnapshot("", "tl", "role-1"); err == nil {
 		t.Fatal("未装配时角色会话查看必须报错")
+	}
+	if _, err := bridge.AgentTeamLibrary(""); err == nil {
+		t.Fatal("未装配时团队库读取必须报错")
+	}
+	if _, err := bridge.AgentTeamSaveTeam("", dto.TeamLibraryEntry{TeamID: "t"}); err == nil {
+		t.Fatal("未装配时团队库写入必须报错")
+	}
+	if _, err := bridge.AgentTeamMaterializeTeam("", "t", 0); err == nil {
+		t.Fatal("未装配时按库装配必须报错")
+	}
+	if _, err := bridge.AgentTeamRolePrompt("", "tl"); err == nil {
+		t.Fatal("未装配时读员工提示词必须报错")
+	}
+	if _, err := bridge.AgentTeamOptimizePrompt("", dto.RolePromptOptimizeRequest{RoleName: "tl", SystemPrompt: "x"}); err == nil {
+		t.Fatal("未装配时提示词优化必须报错")
+	}
+	if _, err := bridge.AgentTeamGlobalConfig(""); err == nil {
+		t.Fatal("未装配时读全局母本必须报错")
+	}
+	if _, err := bridge.AgentTeamSaveEmployee("", dto.RoleSpec{RoleName: "reviewer"}); err == nil {
+		t.Fatal("未装配时写员工库必须报错")
+	}
+	if _, err := bridge.AgentTeamSetDefaultOrder("", "", []string{"user", "main"}); err == nil {
+		t.Fatal("未装配时写默认顺序必须报错")
+	}
+	if _, err := bridge.AgentTeamPublishToGlobal("", "", ""); err == nil {
+		t.Fatal("未装配时普及搭配必须报错")
+	}
+}
+
+// TestBridgeAgentTeamLibraryAndPromptForwarding：团队库 CRUD / 按库装配 / 员工
+// 提示词读写都只做参数归一（trim）与窄转发，会话号空值解析为当前视图会话。
+func TestBridgeAgentTeamLibraryAndPromptForwarding(t *testing.T) {
+	app := newFakeAgentTeamApplication("main-1")
+	bridge, err := NewBridge(app, Options{})
+	if err != nil {
+		t.Fatalf("NewBridge: %v", err)
+	}
+
+	if _, err := bridge.AgentTeamLibrary(""); err != nil {
+		t.Fatalf("AgentTeamLibrary: %v", err)
+	}
+	if app.librarySession != "main-1" {
+		t.Fatalf("团队库会话解析 = %q, want main-1", app.librarySession)
+	}
+
+	if _, err := bridge.AgentTeamSaveTeam("", dto.TeamLibraryEntry{
+		TeamID: "  review-team  ", TeamKind: " review-team ", Name: " 评审 ",
+	}); err != nil {
+		t.Fatalf("AgentTeamSaveTeam: %v", err)
+	}
+	if app.savedTeam.TeamID != "review-team" || app.savedTeam.TeamKind != "review-team" || app.savedTeam.Name != "评审" {
+		t.Fatalf("团队库写入必须 trim 身份字段：%+v", app.savedTeam)
+	}
+
+	if _, err := bridge.AgentTeamSaveCurrentTeam("", " 我的队 ", " my-team "); err != nil {
+		t.Fatalf("AgentTeamSaveCurrentTeam: %v", err)
+	}
+	if app.savedTeamName != "我的队" || app.savedTeamID != "my-team" {
+		t.Fatalf("保存当前团队转发 = %q/%q", app.savedTeamName, app.savedTeamID)
+	}
+
+	if _, err := bridge.AgentTeamDeleteTeam("", " review-team "); err != nil {
+		t.Fatalf("AgentTeamDeleteTeam: %v", err)
+	}
+	if app.deletedTeamID != "review-team" {
+		t.Fatalf("团队删除转发 = %q", app.deletedTeamID)
+	}
+
+	if _, err := bridge.AgentTeamMaterializeTeam("", " review-team ", 3); err != nil {
+		t.Fatalf("AgentTeamMaterializeTeam: %v", err)
+	}
+	if app.materializeTeam != "main-1|review-team" {
+		t.Fatalf("按库装配转发 = %q", app.materializeTeam)
+	}
+
+	if _, err := bridge.AgentTeamRolePrompt("", " tl "); err != nil {
+		t.Fatalf("AgentTeamRolePrompt: %v", err)
+	}
+	if app.promptSession != "main-1" || app.promptRole != "tl" {
+		t.Fatalf("提示词读取转发 = %q/%q", app.promptSession, app.promptRole)
+	}
+
+	result, err := bridge.AgentTeamOptimizePrompt("", dto.RolePromptOptimizeRequest{
+		RoleName: " tl ", SystemPrompt: "  你是评审员  ",
+	})
+	if err != nil {
+		t.Fatalf("AgentTeamOptimizePrompt: %v", err)
+	}
+	if app.optimizeRequest.RoleName != "tl" || app.optimizeRequest.SystemPrompt != "你是评审员" {
+		t.Fatalf("提示词优化入参必须 trim：%+v", app.optimizeRequest)
+	}
+	if result.Optimized != "优化后" || result.Original != "你是评审员" {
+		t.Fatalf("提示词优化回执 = %+v", result)
+	}
+}
+
+// TestBridgeAgentTeamGlobalForwarding：全局母本读 / 员工库写 / 默认顺序写 /
+// 「确认普及搭配到全局」都只做参数归一（trim）与窄转发，会话号空值解析为当前视图会话。
+func TestBridgeAgentTeamGlobalForwarding(t *testing.T) {
+	app := newFakeAgentTeamApplication("main-1")
+	bridge, err := NewBridge(app, Options{})
+	if err != nil {
+		t.Fatalf("NewBridge: %v", err)
+	}
+
+	config, err := bridge.AgentTeamGlobalConfig("")
+	if err != nil {
+		t.Fatalf("AgentTeamGlobalConfig: %v", err)
+	}
+	if app.librarySession != "main-1" || config.Composition.SessionID != "main-1" {
+		t.Fatalf("全局母本会话解析 = %q / %q", app.librarySession, config.Composition.SessionID)
+	}
+	if len(config.Employees.Employees) != 1 || len(config.Order.OrderRoles) != 3 {
+		t.Fatalf("全局母本读回 = %+v", config)
+	}
+
+	if _, err := bridge.AgentTeamSaveEmployee("", dto.RoleSpec{RoleName: " reviewer ", RoleKind: dto.RoleKindAgent}); err != nil {
+		t.Fatalf("AgentTeamSaveEmployee: %v", err)
+	}
+	if app.librarySession != "main-1" || app.savedEmployee.RoleName != "reviewer" {
+		t.Fatalf("员工库写入转发 = %q/%+v", app.librarySession, app.savedEmployee)
+	}
+
+	if _, err := bridge.AgentTeamDeleteEmployee("", " reviewer "); err != nil {
+		t.Fatalf("AgentTeamDeleteEmployee: %v", err)
+	}
+	if app.deletedEmployee != "reviewer" {
+		t.Fatalf("员工库删除转发 = %q", app.deletedEmployee)
+	}
+	if _, err := bridge.AgentTeamDeleteEmployee("", "   "); err == nil {
+		t.Fatal("空角色名必须拒绝，不把空名转发给应用层")
+	}
+
+	if _, err := bridge.AgentTeamSetDefaultOrder("", " user_main_decided ", []string{"user", "main", "reviewer"}); err != nil {
+		t.Fatalf("AgentTeamSetDefaultOrder: %v", err)
+	}
+	if app.defaultOrderPolicy != "user_main_decided" || strings.Join(app.defaultOrderRoles, ",") != "user,main,reviewer" {
+		t.Fatalf("默认顺序转发 = %q/%v", app.defaultOrderPolicy, app.defaultOrderRoles)
+	}
+
+	if _, err := bridge.AgentTeamPublishToGlobal("", " 我的队 ", " my-team "); err != nil {
+		t.Fatalf("AgentTeamPublishToGlobal: %v", err)
+	}
+	if app.librarySession != "main-1" || app.publishedName != "我的队" || app.publishedTeamID != "my-team" {
+		t.Fatalf("普及搭配转发 = %q/%q/%q", app.librarySession, app.publishedName, app.publishedTeamID)
 	}
 }

@@ -147,6 +147,21 @@ type agentTeamApplication interface {
 	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
 	AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)
 	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
+	// 团队库（**全局**团队模板）：列表 / 保存 / 从当前会话存 / 删除 / 装配。
+	AgentTeamLibrary(mainSessionID string) (dto.TeamLibrary, error)
+	AgentTeamSaveTeam(mainSessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error)
+	AgentTeamSaveCurrentTeam(mainSessionID, name, teamID string) (dto.TeamLibrary, error)
+	AgentTeamDeleteTeam(mainSessionID, teamID string) (dto.TeamLibrary, error)
+	AgentTeamMaterializeTeam(mainSessionID, teamID string, joinSeq uint64) (dto.TeamMaterializeResult, error)
+	// 全局母本（团队库 / 员工库 / 默认顺序）+「确认普及搭配到全局」。
+	AgentTeamGlobalConfig(mainSessionID string) (dto.TeamGlobalConfig, error)
+	AgentTeamSaveEmployee(mainSessionID string, role dto.RoleSpec) (dto.EmployeeLibrary, error)
+	AgentTeamDeleteEmployee(mainSessionID, roleName string) (dto.EmployeeLibrary, error)
+	AgentTeamSetDefaultOrder(mainSessionID, policy string, orderRoles []string) (dto.DefaultOrder, error)
+	AgentTeamPublishToGlobal(mainSessionID, name, teamID string) (dto.TeamGlobalConfig, error)
+	// 角色提示词：读已装配提示词（ADVISOR 回合用）+ 一次有界 LLM 优化。
+	AgentTeamRolePrompt(mainSessionID, roleName string) (string, error)
+	AgentTeamOptimizeRolePrompt(ctx context.Context, mainSessionID string, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)
 }
 
 // 编译期断言：生产 Application（application.Service = *core.Service）必须满足本
@@ -1019,6 +1034,190 @@ func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID s
 		return dto.RoleSnapshot{}, fmt.Errorf("角色 %s 还没有独立会话（未装配或未创建）", roleName)
 	}
 	return app.RoleSnapshot(session, roleName, roleSessionID)
+}
+
+// ── 全局母本（团队库 / 员工库 / 默认顺序）与角色提示词 ──────────────
+//
+// 语义边界：团队库 / 员工库 / 默认顺序是**全局**持久事实（数据根下 `team/`，
+// 见 sessionstore/team_global.go），与会话内的角色注册表（`session/team/roles.json`）
+// 是"母本 vs 副本"的关系：
+//   - 库条目 = 可复用团队模板（角色配置集 + 顺序策略）；
+//   - 装配 = 把库条目写成会话的在编员工表 + lifecycle 顺序；
+//   - 会话内的入职/改序只改会话副本；只有「确认普及搭配到全局」才回写母本。
+// Bridge 只做参数归一与窄转发，不缓存、不推导第二份事实。
+
+// AgentTeamLibrary 读全局团队库（团队表数据源）。未建库返回空库。
+func (bridge *Bridge) AgentTeamLibrary(sessionID string) (dto.TeamLibrary, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamLibrary{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamLibrary{}, errors.New("当前没有可解析项目作用域的会话")
+	}
+	return app.AgentTeamLibrary(session)
+}
+
+// AgentTeamSaveTeam 新增/覆盖一条团队库条目（按 team_id 幂等）。
+func (bridge *Bridge) AgentTeamSaveTeam(sessionID string, entry dto.TeamLibraryEntry) (dto.TeamLibrary, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamLibrary{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamLibrary{}, errors.New("当前没有可解析项目作用域的会话")
+	}
+	entry.TeamID = strings.TrimSpace(entry.TeamID)
+	entry.TeamKind = strings.TrimSpace(entry.TeamKind)
+	entry.Name = strings.TrimSpace(entry.Name)
+	return app.AgentTeamSaveTeam(session, entry)
+}
+
+// AgentTeamSaveCurrentTeam 把当前会话在编的员工表存成一条团队库条目
+// （「把当前团队存进团队库」；团队库因此能有用户自己的团队，而不只有 preset）。
+func (bridge *Bridge) AgentTeamSaveCurrentTeam(sessionID, name, teamID string) (dto.TeamLibrary, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamLibrary{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamLibrary{}, errors.New("当前没有可保存的会话")
+	}
+	return app.AgentTeamSaveCurrentTeam(session, strings.TrimSpace(name), strings.TrimSpace(teamID))
+}
+
+// AgentTeamDeleteTeam 删除一条团队库条目（幂等）。
+func (bridge *Bridge) AgentTeamDeleteTeam(sessionID, teamID string) (dto.TeamLibrary, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamLibrary{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamLibrary{}, errors.New("当前没有可解析项目作用域的会话")
+	}
+	return app.AgentTeamDeleteTeam(session, strings.TrimSpace(teamID))
+}
+
+// AgentTeamMaterializeTeam 按团队库条目装配一支团队到当前会话。
+func (bridge *Bridge) AgentTeamMaterializeTeam(sessionID, teamID string, joinSeq uint64) (dto.TeamMaterializeResult, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamMaterializeResult{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamMaterializeResult{}, errors.New("当前没有可装配的会话")
+	}
+	return app.AgentTeamMaterializeTeam(session, strings.TrimSpace(teamID), joinSeq)
+}
+
+// AgentTeamGlobalConfig 读全局母本（团队库 / 员工库 / 默认顺序）与当前会话副本的
+// 搭配投影。只读：母本读是深拷贝，不落盘。
+func (bridge *Bridge) AgentTeamGlobalConfig(sessionID string) (dto.TeamGlobalConfig, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamGlobalConfig{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamGlobalConfig{}, errors.New("当前没有可解析全局母本的会话")
+	}
+	return app.AgentTeamGlobalConfig(session)
+}
+
+// AgentTeamSaveEmployee 新增/覆盖全局员工库里的一个员工（库管理动作，写全局母本）。
+func (bridge *Bridge) AgentTeamSaveEmployee(sessionID string, role dto.RoleSpec) (dto.EmployeeLibrary, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.EmployeeLibrary{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.EmployeeLibrary{}, errors.New("当前没有可写员工库的会话")
+	}
+	role.RoleName = strings.TrimSpace(role.RoleName)
+	return app.AgentTeamSaveEmployee(session, role)
+}
+
+// AgentTeamDeleteEmployee 删除全局员工库里的一个员工（幂等）。
+func (bridge *Bridge) AgentTeamDeleteEmployee(sessionID, roleName string) (dto.EmployeeLibrary, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.EmployeeLibrary{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.EmployeeLibrary{}, errors.New("当前没有可写员工库的会话")
+	}
+	roleName = strings.TrimSpace(roleName)
+	if roleName == "" {
+		return dto.EmployeeLibrary{}, errors.New("角色名不能为空")
+	}
+	return app.AgentTeamDeleteEmployee(session, roleName)
+}
+
+// AgentTeamSetDefaultOrder 写全局默认顺序（母本发言次序）。
+func (bridge *Bridge) AgentTeamSetDefaultOrder(sessionID, policy string, orderRoles []string) (dto.DefaultOrder, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.DefaultOrder{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.DefaultOrder{}, errors.New("当前没有可写默认顺序的会话")
+	}
+	return app.AgentTeamSetDefaultOrder(session, strings.TrimSpace(policy), orderRoles)
+}
+
+// AgentTeamPublishToGlobal 是「确认·普及搭配到全局」：把当前会话副本的 {员工, 顺序}
+// 写回全局母本（员工库 + 默认顺序 + 一条团队库条目）。只有这一步会改全局。
+func (bridge *Bridge) AgentTeamPublishToGlobal(sessionID, name, teamID string) (dto.TeamGlobalConfig, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.TeamGlobalConfig{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.TeamGlobalConfig{}, errors.New("当前没有可普及搭配的会话")
+	}
+	return app.AgentTeamPublishToGlobal(session, strings.TrimSpace(name), strings.TrimSpace(teamID))
+}
+
+// AgentTeamRolePrompt 读某角色登记的提示词（空 = 未登记）。只读查询。
+func (bridge *Bridge) AgentTeamRolePrompt(sessionID, roleName string) (string, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return "", err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return "", errors.New("当前没有可读提示词的会话")
+	}
+	roleName = strings.TrimSpace(roleName)
+	if roleName == "" {
+		return "", errors.New("角色名不能为空")
+	}
+	return app.AgentTeamRolePrompt(session, roleName)
+}
+
+// AgentTeamOptimizePrompt 跑一次有界 LLM 回合优化"待入职员工"的提示词。
+// 只返回候选文本（不落盘、不写会话消息）；落盘仍走入职/保存动作。
+func (bridge *Bridge) AgentTeamOptimizePrompt(sessionID string, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.RolePromptOptimizeResult{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.RolePromptOptimizeResult{}, errors.New("当前没有可优化的会话")
+	}
+	request.RoleName = strings.TrimSpace(request.RoleName)
+	request.SystemPrompt = strings.TrimSpace(request.SystemPrompt)
+	return app.AgentTeamOptimizeRolePrompt(bridge.requestContext(), session, request)
 }
 
 // SearchHistory 检索会话历史聊天记录（压缩栈索引 → 真实记录；

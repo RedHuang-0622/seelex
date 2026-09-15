@@ -337,6 +337,9 @@ func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[s
 		member.OrderPriority = role.OrderPriority
 		member.JoinPolicy = role.JoinPolicy
 		member.ToolsPolicy = role.ToolsPolicy
+		member.SystemPrompt = role.SystemPrompt
+		member.ModelPolicy = role.ModelPolicy
+		member.PresencePolicy = role.PresencePolicy
 		if needsRoleSession(kind) {
 			member.RoleSessionID = RoleSessionID(teamID, name)
 		}

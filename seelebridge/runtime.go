@@ -117,7 +117,12 @@ type Runtime struct {
 	// skills 是子代理 skill 目录的 actor 资源：skill.Registry 内部自锁
 	// （读写即消息进出：All/Get 读、Register/Reload 写），见 skill/skill.go。
 	// 装配一次性写入、运行期只读消费，与 filesystem actor 同构，无需外层锁。
-	skills       *skill.Registry
+	skills *skill.Registry
+	// rolePrompt 是"已装配员工提示词"的读面（装配根在首次会话启动前注入）：
+	// ADVISOR 回合用它取用户在 Agent Team 面板里登记的提示词；未注入或未登记
+	// 时回退内置提示词。读面只读角色注册表，不建环、不改任何事实。
+	rolePromptMu sync.RWMutex
+	rolePrompt   func(roleName string) string
 	projectScope *security.ProjectScope
 	filesystem   fs.FileSystem             // 文件系统 actor（写路径分片串行化，filesystem_actor.go）
 	sandbox      security.CommandSandbox   // shell 执行隔离端口（security/sandbox.go；默认 native cwd-gate）

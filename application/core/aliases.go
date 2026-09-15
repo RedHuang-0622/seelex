@@ -19,6 +19,7 @@ type (
 	EngineToolCall         = contract.EngineToolCall
 	ChatEngine             = contract.ChatEngine
 	RuntimePort            = contract.RuntimePort
+	RolePromptPort         = contract.RolePromptPort
 	PluginPort             = contract.PluginPort
 	SkillPort              = contract.SkillPort
 	SessionPort            = contract.SessionPort

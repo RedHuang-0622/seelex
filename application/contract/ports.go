@@ -294,13 +294,23 @@ type ApprovalBroker interface {
 	Shutdown()
 }
 
+// RolePromptPort 是「角色提示词一次性优化」的可选能力面（员工入职面板的
+// "提示词优化"按钮）。它是**不写会话消息**的一次有界 LLM 回合：只把候选文本
+// 返回给调用方，落盘仍走角色注册表（用户点"入职/保存"才写）。
+//
+// 未装配（nil）时应用层返回可展示错误，不静默返回原文。
+type RolePromptPort interface {
+	OptimizeRolePrompt(ctx context.Context, req dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)
+}
+
 type Dependencies struct {
-	Engine    ChatEngine
-	Runtime   RuntimePort
-	Plugins   PluginPort
-	Skills    SkillPort
-	Sessions  SessionPort
-	Workspace WorkspacePort
-	Events    event.Hub
-	Approval  ApprovalBroker
+	Engine     ChatEngine
+	Runtime    RuntimePort
+	Plugins    PluginPort
+	Skills     SkillPort
+	Sessions   SessionPort
+	Workspace  WorkspacePort
+	Events     event.Hub
+	Approval   ApprovalBroker
+	RolePrompt RolePromptPort
 }

@@ -59,8 +59,8 @@ type sessionRuntimeState struct {
 	// catalogWorkspaces / catalogTitles 以全局唯一 sessionID 为键：会话
 	// 身份唯一，这两种映射天然不构成"合并数组"，不存在跨项目串写面；分格
 	// 需求针对的是列表类缓存（catalogGrid）与其逐项目刷新。
-	catalogWorkspaces  map[string]string
-	catalogTitles      map[string]model.SessionTitle
+	catalogWorkspaces map[string]string
+	catalogTitles     map[string]model.SessionTitle
 	// titleBackfills 是"标题回填"的一次性记忆：sessionID → 回填结果（空串 =
 	// 已探过且存储里没有可用的用户输入，不重复探测）。键是全局唯一会话 ID，
 	// 与 catalogTitles 同域（catalogMu 保护）。
