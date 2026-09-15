@@ -89,10 +89,16 @@ A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
 宿主未装配时返回可展示错误而不是空视图）。`sessionID` 传空 = 当前视图会话，
 Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `lifecycle.order_policy`/`order_roles` 与角色注册表：前端只提交用户改动后的完整
-顺序表（上移/下移/摘除/恢复）或单个角色，Bridge 不缓存也不推导第二份顺序；
+顺序表（拖拽落点/摘除/恢复）或单个角色，Bridge 不缓存也不推导第二份顺序；
 定时任务 agent 单独分区、永不进入 `order_roles`（设计稿 §7.1）。前端只读渲染 +
 动作转发在 `frontend/dist/agent-team-view.js`（纯函数，含单元测试），面板 DOM 挂在
 状态子页的 `#team-section`。
+
+注（2026-09-15 第二轮）：`AgentTeamSaveCurrentTeam` / `AgentTeamPublishToGlobal` /
+`AgentTeamSetDefaultOrder` 三个"整表级"写动作**在 Bridge 面上保留**（headless、
+工具面与后续宿主仍可用），但 GUI 面板已不再暴露它们的入口——面板里的同类动作改成
+行内最小动作：员工库逐行「入库」（`AgentTeamSaveEmployee`），团队从当前会话起手走
+「团队」面板的「从当前会话填充 + 保存团队」（`AgentTeamSaveTeam`）。
 
 **员工 CRUD 与发言调度（2026-09-15）**：「增加/修改员工」走
 `AgentTeamInstantiateRole`（与 `team.put_role` 同一条幂等覆盖语义，区别只在于它还
@@ -124,6 +130,14 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   投影；`AgentTeamSaveEmployee`/`AgentTeamDeleteEmployee`/`AgentTeamSetDefaultOrder`
   是库管理（直写全局）；`AgentTeamPublishToGlobal` 是「入库当前会话」（原「确认·普及
   搭配到全局」，会话副本 → 员工库 + 默认顺序 + 团队库条目）。
+- **面板读侧口径（2026-09-15 第二轮）**：GUI 的「员工库」块展示的是**可用员工**——
+  `TeamGlobalConfig.employees`（全局母本）∪ `TeamGlobalConfig.composition.employees`
+  ∪ `TeamView.members`（本会话在编），在 `agent-team-view.js` 的 `employeePool()`
+  里读侧合并、按 `role_name` 去重、母本优先，行上标 `库` / `本会话`。合并只发生在
+  展示层：两份事实仍分属两个作用域，写动作也只写母本（`AgentTeamSaveEmployee`）。
+  这样"会话里明明有人、员工库却是 0 人"不再出现，拖拽也能直接拿这些人进发言顺序
+  （拖到员工栏 = 未在编的先 `AgentTeamInstantiateRole` 落到会话，再
+  `AgentTeamSetOrder` 落到位置）。
 
 **两个 agent 的区分（2026-09-12）**：成员表把逻辑角色名渲染成用户可读身份
 （`main` → `EXEC`、`tl`/`techlead` → `ADVISOR`），成员行可点击打开该角色的

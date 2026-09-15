@@ -31,16 +31,58 @@ for this stabilization batch.
 
 ### Changed
 
+- **GUI de-noising round 2** (panel annotations, session rows, message
+  highlight, agent-team libraries):
+  - Messages no longer carry *any* speaker colour highlight. The previous
+    batch had already dropped the block tint in favour of a 3px left status
+    rule; that rule is gone too, so EXEC / ADVISOR are distinguished by the
+    speaker name alone (`styles.css` §20).
+  - Session rows are compact (24px, 1px/4px padding) and their `⋯` button is
+    always visible. Clicking it opens a **floating menu** (`#session-menu`,
+    `position: fixed`, flipped up when it would overflow the viewport) with
+    labelled items for pin / fork / delete, instead of expanding three icon
+    buttons sideways into the row. The menu and the in-row actions share one
+    dispatcher (`dispatchSessionListAction`).
+  - The agent-team rail heads lost their annotation text ("全局·跨会话 ·
+    不依赖团队", "N 个内置形态", "拖拽行首手柄调整发言顺序", "装配与编排") and
+    the whole "default order vs this session" key/value table was deleted.
+- **Agent Team panel: libraries read as "what I actually have"**.
+  - The employee library block now shows the **merged available pool**
+    (global master ∪ this session's roster, merged read-only in
+    `employeePool()`), each row tagged `库` / `本会话`. A session with
+    employees can therefore never show "employee library: 0"; rows that only
+    exist in the session get a one-click 「入库」 (writes the global master).
+    The roster table dropped its type column (three columns: identity /
+    position / actions) so chips stop wrapping mid-word in a narrow rail.
+  - The team library lists **the user's own teams** only, one row each; the
+    name is a button that opens *that* team's cold-loaded team panel
+    (title = the team, ✕ to close). Built-in presets are demoted to a chip
+    row under the table (click = assemble in place) instead of masquerading as
+    library entries, and the 「存当前会话」/「入库当前会话」/「顺序设为默认」
+    whole-table write actions were removed from the GUI (the Bridge/Application
+    methods stay available for headless and tool surfaces).
+  - Team members can be dragged **into** the order from anywhere there is an
+    employee: the team panel's member list (row order = speaking order, ✕ to
+    remove, drop a library row before a member), and the session staff order
+    (a library-only employee is instantiated into the session first,
+    `AgentTeamInstantiateRole`, then placed with `AgentTeamSetOrder`).
+  - 「发言调度」is no longer a key/value table: it renders the order as a
+    pill chain (index + identity) with "speaking now" / "next" highlighted,
+    a round badge, and one meta line for the user seat and stop reason —
+    the interaction convention group chats use. (Research notes: SillyTavern
+    group chats express turn order as a member list with per-member
+    enable/disable plus an explicit next-speaker indicator, and show the
+    queue position as `#n`; we borrowed the position-and-number language and
+    skipped its toast-based announcements and hover-only controls.)
 - **GUI de-decoration batch**: the conversation no longer tints whole message
-  blocks by speaker (EXEC / ADVISOR keep only a left status rule plus the
-  speaker name), the shell drops its radial glow for a single `--bg`, and the
-  right-rail tab strip loses its decorative gradient. Panel collapse controls
-  moved from the topbar into each rail's own header row as `chevron-left` /
-  `chevron-right` icons; a collapsed rail keeps a 26px spine with the toggle
-  still reachable (Ctrl+B / Ctrl+J and the stored collapsed state unchanged).
-  Ad-hoc text glyphs (session row `⋯ ★ ☆ ⑂ ✕`, account marks `● ○`, the
-  full-access `✓`, the team drag handle and panel close) are now inline SVG
-  icons from the shared registry.
+  blocks by speaker, the shell drops its radial glow for a single `--bg`, and
+  the right-rail tab strip loses its decorative gradient. Panel collapse
+  controls moved from the topbar into each rail's own header row as
+  `chevron-left` / `chevron-right` icons; a collapsed rail keeps a 26px spine
+  with the toggle still reachable (Ctrl+B / Ctrl+J and the stored collapsed
+  state unchanged). Ad-hoc text glyphs (session row `⋯ ★ ☆ ⑂ ✕`, account
+  marks `● ○`, the full-access `✓`, the team drag handle and panel close) are
+  now inline SVG icons from the shared registry.
 - **Agent Team panel restructure**: the employee library is a standalone
   global block that no longer requires a selected team — employees can be
   created / edited / deleted there directly (`AgentTeamSaveEmployee` /

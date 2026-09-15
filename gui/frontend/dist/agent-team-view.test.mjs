@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   agentTeamOrderForDrag,
+  employeePool,
   hirePanel,
   isPinnedRole,
   nextAgentTeamOrder,
@@ -11,9 +12,11 @@ import {
   normalizeTeamLibrary,
   renderAgentTeam,
   renderRoleSessionDetail,
+  renderTeamMemberList,
   roleDisplayName,
   teamEditorPanel,
   teamGlobalDrift,
+  teamMemberNames,
   toolsPolicyLabel
 } from "./agent-team-view.js";
 
@@ -58,27 +61,40 @@ const library = {
 test("unconfigured session renders the empty state and team entry points", () => {
   const html = renderAgentTeam({ configured: false, members: [], scheduled: [] }, presets, null);
   assert.match(html, /当前会话未装配 AgentTeam/);
-  // 装配入口在团队库表里：内置形态给「装配」，库条目给「装配 / 编辑 / 删除」。
+  // 内置形态只留一行 chip（就地装配），库条目给「点团队名打开面板 / 装配 / 删除」。
   assert.match(html, /data-team-materialize="goal-a2a"/);
   assert.match(html, /data-team-materialize="review-team"/);
   assert.match(html, /data-team-open-team="1"/);
-  assert.match(html, /data-team-save-current="1"/);
-  assert.doesNotMatch(html, /team-order-item/);
+  // 「存当前会话」这条操作已移除（团队面板的保存取代了它）。
+  assert.doesNotMatch(html, /data-team-save-current="1"/);
+  assert.doesNotMatch(html, /data-team-form-members/);
 });
 
-test("团队库 is a small table that owns team templates (builtin included)", () => {
+test("团队库 lists the user's own teams; built-in presets are chips, not library rows", () => {
   const html = renderAgentTeam(goalView, presets, library);
   assert.match(html, /team-rail-head[\s\S]*?<span>团队库<\/span>/);
   assert.match(html, /role="table" aria-label="团队库"/);
   assert.match(html, /我的审计队/);
   assert.match(html, /data-team-materialize-team="my-team"/);
+  // 点团队名 = 打开这支团队的团队面板（唯一入口，不再另设「编辑」）。
   assert.match(html, /data-team-edit-team="my-team"/);
   assert.match(html, /data-team-delete-team="my-team"/);
-  // 内置形态在库表里以"内置"模板行出现（可装配、可存入库），不再散装成工具栏按钮。
-  assert.match(html, /data-team-library-template="review-team"/);
-  assert.match(html, /data-team-save-template="review-team"/);
-  // 当前形态的装配键禁用（重复装配幂等，但不是可点的动作）。
-  assert.match(html, /data-team-materialize="goal-a2a"[^>]*disabled/);
+  // 内置形态不再是"库条目"：没有 data-team-library-template / 存入库，
+  // 当前形态的 chip 是禁用态（重复装配幂等，但不是可点的动作）。
+  assert.doesNotMatch(html, /data-team-library-template/);
+  assert.doesNotMatch(html, /data-team-save-template/);
+  assert.match(html, /class="team-preset-chip is-active" data-team-materialize="goal-a2a"[^>]*disabled/);
+  // 「默认顺序 vs 本会话」那张 项/值 表已删除：默认顺序不再单独摆一张表。
+  assert.doesNotMatch(html, /默认顺序/);
+  assert.doesNotMatch(html, /aria-label="发言顺序（全局默认 vs 本会话）"/);
+});
+
+test("团队库 head carries no annotation text", () => {
+  const html = renderAgentTeam(goalView, presets, library, globalConfig);
+  for (const annotation of ["全局·跨会话", "不依赖团队", "3 个内置形态", "拖拽行首手柄", "装配与编排", "尚未装配团队"]) {
+    assert.doesNotMatch(html, new RegExp(annotation));
+  }
+  assert.doesNotMatch(html, /team-rail-hint/);
 });
 
 test("员工栏 holds the working order and exposes drag handles + permissions", () => {
@@ -142,10 +158,14 @@ test("hirePanel carries prompt + permission fields and closes itself", () => {
 test("teamEditorPanel fills from the library entry and closes itself", () => {
   const html = teamEditorPanel(normalizeAgentTeam(goalView), normalizeTeamLibrary(library).teams[0], presets);
   assert.match(html, /data-team-editor="team"/);
-  assert.match(html, /编辑团队 · 我的审计队/);
+  assert.match(html, /团队 · 我的审计队/);
+  assert.match(html, /data-team-editor-close="1"/);
   assert.match(html, /data-team-form-name[^>]*value="我的审计队"/);
   assert.match(html, /data-team-form-id[^>]*value="my-team"[^>]*readonly/);
-  assert.match(html, /data-team-form-members[^>]*>auditor</);
+  // 成员表：行序即发言顺序，每行可拖拽、可 ✕。
+  assert.match(html, /data-team-member-list/);
+  assert.match(html, /data-team-member-item="auditor" data-team-member-drag="auditor" draggable="true"/);
+  assert.match(html, /data-team-member-remove="auditor"/);
   assert.match(html, /data-team-form-policy[\s\S]*?<option value="user_main_decided" selected>/);
   assert.match(html, /data-team-template="review-team"/);
   assert.match(html, /data-team-form-fill-current="1"/);
@@ -154,6 +174,17 @@ test("teamEditorPanel fills from the library entry and closes itself", () => {
   const fresh = teamEditorPanel(normalizeAgentTeam(goalView), null, presets);
   assert.match(fresh, />新建团队</);
   assert.doesNotMatch(fresh, /data-team-form-id[^>]*readonly/);
+});
+
+test("teamMemberNames / renderTeamMemberList keep the team's own order without pinned roles", () => {
+  assert.deepEqual(teamMemberNames({ roles: [{ roleName: "auditor" }, { roleName: "main" }], orderRoles: ["user", "main", "auditor"] }), ["auditor"]);
+  assert.deepEqual(teamMemberNames({ roles: [{ roleName: "b" }, { roleName: "a" }], orderRoles: ["a", "b"] }), ["a", "b"]);
+  const list = renderTeamMemberList(["auditor", "tl"], [{ roleName: "tl", roleKind: "techlead" }]);
+  assert.match(list, /team-member-idx">1<\/span>[\s\S]*?team-member-label">auditor</);
+  assert.match(list, /team-member-label">ADVISOR</);
+  assert.match(list, /data-team-member-remove="tl"/);
+  assert.match(renderTeamMemberList([], []), /team-member-empty/);
+  assert.match(renderTeamMemberList(null, null), /team-member-empty/);
 });
 
 // ── 排序纯函数 ────────────────────────────────────────────────
@@ -311,27 +342,46 @@ const globalConfig = {
   }
 };
 
-test("employee library block lists employees and the library write actions", () => {
+test("employee library block lists the merged pool and the library write actions", () => {
   const html = renderAgentTeam(goalView, presets, library, globalConfig);
   assert.match(html, /员工库/);
-  assert.match(html, /全局·跨会话 · 不依赖团队/);
+  assert.doesNotMatch(html, /team-rail-hint/);
   assert.match(html, /data-team-employee-new="1"/);
-  assert.match(html, /data-team-publish-global="1"/);
-  assert.match(html, /data-team-default-order="1"/);
   assert.match(html, /data-team-employee-delete="auditor"/);
   assert.match(html, /data-team-employee-edit="auditor"/);
+  // 库里的行有 ≡（能拖进顺序）与"库"来源 chip。
+  assert.match(html, /data-team-employee-drag="auditor"[^>]*draggable="true"/);
+  assert.match(html, /team-source-chip"[^>]*>库</);
   // 员工库与团队解耦：会话没装配团队，员工库照样在、照样能增删改。
   const unconfigured = renderAgentTeam({ configured: false, members: [], scheduled: [] }, presets, library, globalConfig);
   assert.match(unconfigured, /data-team-employee-edit="auditor"/);
-  assert.match(unconfigured, /data-team-publish-global="1"/);
-  // 副本一致时不提示差异。
-  assert.match(html, /本会话在编名单与员工库一致/);
   // 旧宿主不下发员工库时不伪造写按钮（员工栏仍可增删当前会话的在编角色）。
   const withoutMaster = renderAgentTeam(goalView, presets, library);
   assert.doesNotMatch(withoutMaster, /data-team-employee-new/);
   assert.doesNotMatch(withoutMaster, /data-team-employee-edit/);
-  assert.doesNotMatch(withoutMaster, /data-team-publish-global/);
-  assert.doesNotMatch(withoutMaster, /data-team-default-order/);
+  // 母本为空也不会是 0 人空壳：本会话在编的 tl 进池（来源标"本会话"）。
+  const noMaster = renderAgentTeam(goalView, presets, library, { employees: { employees: [] }, order: {}, composition: { employees: [] } });
+  assert.match(noMaster, /team-rail-head[\s\S]*?<span>员工库<\/span>[\s\S]*?<span class="badge">1<\/span>/);
+  assert.match(noMaster, /data-team-employee-save="tl"/);
+  assert.match(noMaster, /team-source-chip is-session/);
+});
+
+test("employeePool merges the global library with the session roster", () => {
+  const pool = employeePool(normalizeTeamGlobal(globalConfig), normalizeAgentTeam(goalView));
+  assert.deepEqual(pool.map(role => [role.roleName, role.inLibrary, role.inSession]), [["auditor", true, true], ["tl", false, true]]);
+  // 同一角色在两份事实里都出现时合并成一行，母本先出。
+  const both = employeePool(
+    normalizeTeamGlobal({ employees: { employees: [{ role_name: "tl", role_kind: "techlead", tools_policy: "full" }] }, order: {}, composition: { employees: [{ role_name: "tl", role_kind: "techlead" }] } }),
+    normalizeAgentTeam(goalView)
+  );
+  assert.equal(both.length, 1);
+  assert.equal(both[0].inLibrary, true);
+  assert.equal(both[0].inSession, true);
+  assert.equal(both[0].toolsPolicy, "full");
+  // user / main / timer 不进员工库清单。
+  assert.equal(pool.some(role => role.roleName === "main" || role.roleName === "user" || role.roleName === "digest"), false);
+  // 畸形载荷 → 空池（不抛）。
+  assert.deepEqual(employeePool(null, null), []);
 });
 
 test("employee library marks drift between the session copy and the library", () => {
@@ -342,7 +392,7 @@ test("employee library marks drift between the session copy and the library", ()
   const html = renderAgentTeam(goalView, presets, library, drifted);
   assert.match(html, /本会话在编名单与员工库有差异/);
   assert.equal(teamGlobalDrift(normalizeTeamGlobal(drifted)), true);
-  assert.equal(teamGlobalDrift(normalizeTeamGlobal(globalConfig)), false);
+  assert.equal(teamGlobalDrift(normalizeTeamGlobal({ ...globalConfig, composition: { ...globalConfig.composition, employees: globalConfig.employees.employees } })), false);
 });
 
 test("normalizeTeamGlobal tolerates malformed payloads", () => {

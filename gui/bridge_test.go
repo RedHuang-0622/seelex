@@ -1320,25 +1320,32 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	if !strings.Contains(string(gitLogView), "layoutCommitGraph") || strings.Contains(string(gitLogView), "line.graph") {
 		t.Fatal("提交记录必须按 parents 拓扑画泳道，而不是贴 git --graph 的字符画")
 	}
-	// 会话条目：标题段 + ⋯ 段，时间/token 进 hover 提示（不再常显、不再砍成 5 字）。
+	// 会话条目：标题段 + 常驻 ⋯ 段，点 ⋯ 弹**浮层**菜单（不再向右撑出三个按钮）；
+	// 时间/token 进 hover 提示（不再常显、不再砍成 5 字）。
 	if !strings.Contains(string(script), "data-session-more=") ||
-		!strings.Contains(string(script), "session-more-actions") ||
+		!strings.Contains(string(script), "session-menu-item") ||
 		!strings.Contains(string(script), "paintTip") ||
 		strings.Contains(string(script), "truncateTitle") {
-		t.Fatal("会话条目必须是「标题段 + ⋯ 段」，时间/token 走 hover 提示")
+		t.Fatal("会话条目必须是「标题段 + ⋯ 浮层菜单」，时间/token 走 hover 提示")
 	}
 	if !strings.Contains(string(index), `id="ui-tooltip"`) {
 		t.Fatal("共享提示气泡宿主必须存在（一条 DOM，委托触发）")
 	}
-	// Agent Team 拆成员工栏与 Team 栏，两栏都是条目化表格。
+	// Agent Team：员工库 / 团队库 / 员工栏 / 发言调度四块——前两块是库（表格），
+	// 员工栏是发言顺序（拖拽），发言调度是运行态串珠条（不是 项/值 表）。
 	teamView, err := embeddedFrontend.ReadFile("frontend/dist/agent-team-view.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	teamSource := string(teamView)
-	if !strings.Contains(teamSource, `"员工栏"`) || !strings.Contains(teamSource, `"Team 栏"`) ||
-		!strings.Contains(teamSource, "team-table-row") {
-		t.Fatal("Agent Team 必须拆成员工栏 / Team 栏两块条目化表格")
+	if !strings.Contains(teamSource, `"员工库"`) || !strings.Contains(teamSource, `"团队库"`) ||
+		!strings.Contains(teamSource, `"员工栏"`) || !strings.Contains(teamSource, "team-table-row") ||
+		!strings.Contains(teamSource, "team-source-chip") || !strings.Contains(teamSource, "schedule-pill") {
+		t.Fatal("Agent Team 必须拆成员工库 / 团队库 / 员工栏 / 发言调度四块（顺序条目化）")
+	}
+	// 用户口径：去掉「存当前会话」操作与栏头注释（窄栏里注释比内容还长）。
+	if strings.Contains(teamSource, "data-team-save-current") || strings.Contains(teamSource, "team-rail-hint") {
+		t.Fatal("面板不再有「存当前会话」与栏头注释")
 	}
 	// 右侧「状态」子页的信息也条目化（键值表格行，不是自由网格）。
 	if !strings.Contains(string(script), `class="status-table"`) {
