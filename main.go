@@ -25,6 +25,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/console"
 	"github.com/RedHuang-0622/seelex/application/core"
+	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
 	"github.com/RedHuang-0622/seelex/gui"
 	"github.com/RedHuang-0622/seelex/internal/adapters"
@@ -280,6 +281,19 @@ func run() error {
 		TurnArchiver: &core.CompressedTurnArchiver{
 			Sessions:          sessionManager,
 			SessionIDProvider: func() string { return app.Snapshot().Session.ID },
+			// 显式项目作用域：压缩原文的落盘键必须与读面
+			// read_compressed_turn（LoadToolResultWorkspace(workspaceID, sessionID, ref)）
+			// 一致。先按会话自己的绑定解析（与 eventStore 同一解析器，R3 键漂移
+			// 修复同源），未绑定的会话退回视图当前工作区（与读面同源）。
+			ProjectIDProvider: func(sessionID string) string {
+				if workspace, ok := wsRepo.SessionWorkspace(sessionID); ok {
+					return workspace.ID
+				}
+				return ""
+			},
+			WorkspaceIDProvider: func() string {
+				return session_runtime.WorkspaceID(app.Snapshot().CurrentWorkspace)
+			},
 		},
 		ProjectKnowledge: func() *sessionstore.ProjectRecord {
 			record, readErr := store.LoadProjectRecord(store.Workspace())

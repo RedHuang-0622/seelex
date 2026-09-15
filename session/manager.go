@@ -83,6 +83,20 @@ func (m *Manager) InjectSaveLoad(saveFn, loadFn func(sessionID string) error) {
 }
 
 // SaveCurrent 持久化当前会话。
+// SaveCommitWorkspace 在**显式项目作用域**下把一个 commit 追加进会话存储
+// （append-only 通道；不改变 Router 的活跃写作用域）。
+//
+// 它是压缩归档（application/core 的 sessionCommitPort）要的那个写通道：此前
+// 装配方把 Manager 注进 CompressedTurnArchiver，但 Manager 没有这个能力，类型
+// 断言失败 → 压缩原文一律写不出去（read_compressed_turn 只剩 unrecoverable）。
+// 显式作用域是刻意的：后台会话的落盘不能跟着视图的活跃项目漂移。
+func (m *Manager) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error {
+	if m == nil || m.router == nil {
+		return fmt.Errorf("session: commit storage is unavailable (router not attached)")
+	}
+	return m.router.SaveCommitWorkspace(projectID, sessionID, commit)
+}
+
 func (m *Manager) SaveCurrent(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

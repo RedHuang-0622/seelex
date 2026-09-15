@@ -16,18 +16,57 @@ import (
 // testStringPtr 返回字符串指针（测试消息正文）。
 func testStringPtr(value string) *string { return &value }
 
-// fakeCommitSession 实现 sessionCommitPort：记录 SaveCommit 调用（含目标
-// 会话 ID —— G0a 断言压缩轮次按 ctx/兜底路由到正确会话）。
+// fakeCommitSession 实现 sessionCommitPort：记录 SaveCommitWorkspace 调用
+// （含目标会话 ID 与项目作用域 —— 压缩原文必须按显式键落盘：G0a 断言按
+// ctx/兜底路由到正确会话，作用域断言不跟着视图活跃项目漂移）。
 type fakeCommitSession struct {
 	commits          []sessionstore.Commit
 	commitSessionIDs []string
+	commitProjectIDs []string
 	providerCalls    int
 }
 
-func (f *fakeCommitSession) SaveCommit(sessionID string, commit sessionstore.Commit) error {
+func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error {
 	f.commits = append(f.commits, commit)
+	f.commitProjectIDs = append(f.commitProjectIDs, projectID)
 	f.commitSessionIDs = append(f.commitSessionIDs, sessionID)
 	return nil
+}
+
+// TestCompressedTurnArchiverScopesCommitToSessionProject 写侧项目作用域：先按
+// 会话自己的绑定解析（数据实际所在），未绑定才退回视图工作区 —— 与读面
+// LoadToolResultWorkspace(workspaceID, sessionID, ref) 同源，保证压缩原文既写得
+// 进去也读得回来。
+func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T) {
+	store := &fakeCommitSession{}
+	bound := &CompressedTurnArchiver{
+		Sessions:            store,
+		SessionIDProvider:   func() string { return "session-bound" },
+		ProjectIDProvider:   func(sessionID string) string { return "proj-" + sessionID },
+		WorkspaceIDProvider: func() string { return "proj-view" },
+	}
+	messages := []types.Message{{Role: "user", Content: testStringPtr("按会话绑定落盘")}}
+	if _, err := bound.StoreTurn(context.Background(), "seg-bound", messages); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.commitProjectIDs) != 1 || store.commitProjectIDs[0] != "proj-session-bound" {
+		t.Fatalf("project IDs = %+v, want [proj-session-bound]（会话绑定优先）", store.commitProjectIDs)
+	}
+	unbound := &CompressedTurnArchiver{
+		Sessions:            store,
+		SessionIDProvider:   func() string { return "session-unbound" },
+		ProjectIDProvider:   func(string) string { return "" },
+		WorkspaceIDProvider: func() string { return "proj-view" },
+	}
+	if _, err := unbound.StoreTurn(context.Background(), "seg-unbound", messages); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.commitProjectIDs) != 2 || store.commitProjectIDs[1] != "proj-view" {
+		t.Fatalf("project IDs = %+v, want 第二个 = proj-view（视图工作区兜底）", store.commitProjectIDs)
+	}
+	if store.commitSessionIDs[1] != "session-unbound" {
+		t.Fatalf("session IDs = %+v, want 归属仍是 ctx/provider 的会话", store.commitSessionIDs)
+	}
 }
 
 // fakeTranscriptSession 实现 sessionTranscriptPort 读侧（LoadToolResultWorkspace）。
@@ -48,7 +87,7 @@ func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (Store
 }
 
 // TestCompressedTurnArchiverPersistsOriginal 写侧：溢出轮次原文序列化后
-// 经 SaveCommit 持久化（ToolResults 通道，ref = compressed:<segment_id>）。
+// 经 SaveCommitWorkspace 持久化（ToolResults 通道，ref = compressed:<segment_id>）。
 func TestCompressedTurnArchiverPersistsOriginal(t *testing.T) {
 	store := &fakeCommitSession{}
 	archiver := &CompressedTurnArchiver{
