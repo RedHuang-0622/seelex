@@ -29,12 +29,12 @@ type TreeCount struct {
 // GitCommitNode 是 git log 一行提交的结构化元数据（hash/作者/时间/标题/
 // 父提交；不含 diff、补丁或文件内容）。
 type GitCommitNode struct {
-	Hash      string   `json:"hash"`             // 完整 commit hash
-	ShortHash string   `json:"short_hash"`       // 短 hash（前端复制/展示用）
-	Author    string   `json:"author"`           // 作者名
-	Date      string   `json:"date"`             // 短日期（MM-dd HH:mm，由 --date=format 生成）
+	Hash      string   `json:"hash"`              // 完整 commit hash
+	ShortHash string   `json:"short_hash"`        // 短 hash（前端复制/展示用）
+	Author    string   `json:"author"`            // 作者名
+	Date      string   `json:"date"`              // 短日期（MM-dd HH:mm，由 --date=format 生成）
 	Parents   []string `json:"parents,omitempty"` // 父提交 hash（顺序同 git；根提交为空）
-	Subject   string   `json:"subject"`          // 提交标题（首行）
+	Subject   string   `json:"subject"`           // 提交标题（首行）
 }
 
 // GitLogResult 是 git 提交记录树的完整查询结果（GUI 提交记录树数据源）。
