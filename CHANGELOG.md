@@ -11,6 +11,55 @@ for this stabilization batch.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Compressed-turn archiving now actually persists** (was silently unwired).
+  `CompressedTurnArchiver.StoreTurn` asserts a commit-write port on the object
+  injected at assembly; the wiring passed `*session.Manager`, which never had
+  that method, so every compression returned "durable commit storage is
+  unavailable" and the original turns of out-of-window rounds were never
+  written — `read_compressed_turn` degraded to an unrecoverable summary. The
+  write channel is now workspace-explicit
+  (`SaveCommitWorkspace(projectID, sessionID, commit)`, implemented by
+  `session.Manager` on top of `Router.SaveCommitWorkspace`) and resolves the
+  project by the session's own binding first, falling back to the view
+  workspace — the same key the read path uses
+  (`LoadToolResultWorkspace(workspaceID, sessionID, ref)`), so the archived ref
+  is both writable and readable. Regression coverage: a real-store round trip
+  through `Manager` → `Router.LoadToolResultWorkspace`, plus scope/attribution
+  assertions on the archiver.
+
+### Changed
+
+- **GUI de-decoration batch**: the conversation no longer tints whole message
+  blocks by speaker (EXEC / ADVISOR keep only a left status rule plus the
+  speaker name), the shell drops its radial glow for a single `--bg`, and the
+  right-rail tab strip loses its decorative gradient. Panel collapse controls
+  moved from the topbar into each rail's own header row as `chevron-left` /
+  `chevron-right` icons; a collapsed rail keeps a 26px spine with the toggle
+  still reachable (Ctrl+B / Ctrl+J and the stored collapsed state unchanged).
+  Ad-hoc text glyphs (session row `⋯ ★ ☆ ⑂ ✕`, account marks `● ○`, the
+  full-access `✓`, the team drag handle and panel close) are now inline SVG
+  icons from the shared registry.
+- **Agent Team panel restructure**: the employee library is a standalone
+  global block that no longer requires a selected team — employees can be
+  created / edited / deleted there directly (`AgentTeamSaveEmployee` /
+  `AgentTeamDeleteEmployee`), while teams only answer "who is assembled, in
+  what order, who is called". The in-session roster keeps drag-only ordering
+  (the `↑` / `↓` buttons are gone; `nextAgentTeamOrder` now only handles
+  detach / restore) and the hire / team editors render itemised, numbered
+  fields grouped into identity / orchestration / capability / prompt
+  sections. The accounts panel is a provider → model cascade (pick the
+  provider, then its models) with unchanged `SelectAccount` semantics.
+- **Prompt assembly follows the Claude prompt-guideline XML convention**:
+  `PromptStack.Render` wraps each layer as `<kind name="…">` instead of bare
+  `---` separators, and the seelebridge prompt surface (ADVISOR role prompt +
+  output contract, the reviewer context, and the bounded "optimise prompt"
+  meta-prompt) is sectioned with `<role>` / `<task>` / `<constraints>` /
+  `<output_contract>` / `<rewrite_checklist>` / `<output_format>` tags. The
+  JSON contracts parsed by the goal domain and the optimisation result are
+  unchanged.
+
 ### Changed
 
 - Agent Team libraries are now **global**, not project-scoped. The team

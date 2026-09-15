@@ -21,7 +21,7 @@
 | `dist/themes/` | 内置皮肤包 + `manifest.json`：皮肤只覆盖语义 token（契约与 token 清单见 `themes/README.md`），不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`。版本与许可登记见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
-| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「团队库」小表（内置形态以模板行列出，可装配 / 存入库 / 编辑 / 删除 / 新建团队）、「全局母本」（员工库 + 默认顺序 + 会话副本差异 + 「顺序设为默认」/「确认·普及搭配到全局」）、「员工栏」（在编员工 + 发言顺序，行首 ≡ 直接拖拽调序，显示类型 / 位置 / 权限 / 提示词 chip）、「Team 栏」（装配参数 / 发言调度 / 定时 agent）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + 或编辑才注入 slot，带 ✕ / Esc 关闭）。数据源是 Application API（`Bridge.AgentTeamPresets/View/Library/GlobalConfig/SaveTeam/SaveCurrentTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/SetDefaultOrder/PublishToGlobal/OptimizePrompt`）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_policy/order_roles`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `nextAgentTeamOrder` / `agentTeamOrderForDrag` / `teamGlobalDrift` 供共用）。 |
+| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「员工库」（全局·跨会话·不依赖团队：员工表 + 新建 / 修改 / 删除 + 「入库当前会话」）、「团队库」小表（内置形态以模板行列出，可装配 / 存入库 / 编辑 / 删除 / 新建团队，并列展示全局默认顺序 vs 本会话顺序）、「员工栏」（在编员工 + 发言顺序，行首手柄拖拽调序，显示类型 / 位置 / 权限 / 提示词 chip）、「Team 栏」（装配参数 / 发言调度 / 定时 agent）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + 或编辑才注入 slot，字段按 身份 / 编排 / 能力 / 提示词 分节条目化，close 图标 / Esc 关闭）。数据源是 Application API（`Bridge.AgentTeamPresets/View/Library/GlobalConfig/SaveTeam/SaveCurrentTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/SetDefaultOrder/PublishToGlobal/OptimizePrompt`）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_policy/order_roles`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `nextAgentTeamOrder` / `agentTeamOrderForDrag` / `teamGlobalDrift` 供共用）。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
@@ -185,36 +185,46 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 工作区，工作区切换时抽屉随树清空；截断文件明确提示、分页类（PDF/Word/图片）
 超限放弃渲染而非半截展示。历史检索保留在 `#side-more` 折叠区常驻。
 
-### Agent Team 面板（员工 / 团队库 / 全局母本 / 冷加载编辑）
+### Agent Team 面板（员工库 / 团队库 / 员工栏 / 冷加载编辑）
 
-面板分四块，交互口径与事实源如下（用户口径：团队不要散装、顺序在员工栏直接调、
-入职与修改走冷加载面板、母本全局而会话读深拷贝副本）：
+面板分四块，交互口径与事实源如下（用户口径：员工库与团队解耦、团队只负责"装配谁
+/ 顺序 / 呼叫谁"、顺序在员工栏直接拖、入职与修改走冷加载面板且字段条目化、母本
+全局而会话读深拷贝副本）：
 
+- **员工库（全局·跨会话·不依赖团队）**：独立一块，排在员工栏之前——不用先选团队
+  就能看到离散员工，并逐个新建（`+ 新建员工`）/ 修改（`AgentTeamSaveEmployee`）/
+  删除（`AgentTeamDeleteEmployee`）。它读的是全局母本
+  （`<root>/team/employees.json`），不是某个会话的在编名单；「入库当前会话」是唯一
+  把会话副本的 {员工, 顺序} 写回母本的动作（员工库 upsert + 默认顺序 + 一条团队库
+  条目），块底一行提示"本会话在编 N 人 · 与员工库是否一致"。宿主未下发员工库
+  （旧后端）时不渲染任何写按钮，只做只读展示。
 - **团队库（小表）**：一行一支团队，列为 团队 / 形态 / 规模 / 操作；内置形态
   （`goal-a2a` 等）以"内置"模板行列出，可「装配」或「存入库」（存入库是显式
   动作，读路径不会偷偷把 preset 写成用户数据）。「存当前会话」把当前会话在编
-  员工（含提示词/权限/顺序）原样存成一支团队；「+ 新建团队」开冷加载面板：
-  团队名 / 团队 ID / 形态 / 顺序策略 / 成员（每行一个角色名，发言顺序按行序），
-  可「从当前会话」或点内置形态名一键带入。团队库是**全局**事实
-  （数据根 `<root>/team/library.json`，跨项目/跨会话复用），与会话内的员工表是
-  两份不同的东西；「装配」= 库条目 → `TeamSpec` → 同一套工厂（建角色会话 + 写
-  会话员工表 + 写 `lifecycle` 顺序）。
-- **全局母本**：员工库（`<root>/team/employees.json`）表 + 默认顺序
-  （`<root>/team/order.json`）+ 会话副本差异提示。母本与会话副本（本会话在编员工
-  表 + `lifecycle` 顺序）并列展示；「顺序设为默认」只写默认顺序，
-  「确认·普及搭配到全局」把会话副本的 {员工, 顺序} 回写母本（员工库 upsert +
-  默认顺序 + 一条团队库条目）。旧宿主不下发母本时整块隐藏，不伪造按钮。
-- **员工栏（在编员工 + 发言顺序）**：行首 `≡` 是拖拽条，把员工拖到另一行之前
-  （或拖到底部"顺序末尾"落区）即提交整份 `order_roles`；`↑ / ↓ / ✕` 保留为键盘
-  与无障碍兜底（同一提交路径，纯函数 `agentTeamOrderForDrag` / `nextAgentTeamOrder`
-  决定新顺序，非法动作返回 null 不提交）。行内 `权限` / `提示词` chip 是登记值
-  的只读投影。
+  员工（含提示词/权限/顺序）原样存成一支团队；「顺序设为默认」只写
+  `<root>/team/order.json`；「+ 新建团队」开冷加载面板：团队名 / 团队 ID / 形态 /
+  顺序策略 / 成员（每行一个角色名，发言顺序按行序），可「从当前会话填充」或点内置
+  形态名一键带入。团队库是**全局**事实（数据根 `<root>/team/library.json`，跨项目/
+  跨会话复用）；「装配」= 库条目 → `TeamSpec` → 同一套工厂（建角色会话 + 写会话
+  员工表 + 写 `lifecycle` 顺序）。表下方并列展示"全局默认顺序 vs 本会话顺序"。
+- **员工栏（在编员工 + 发言顺序）**：行首手柄（`data-icon="grip"`）是拖拽条，把
+  员工拖到另一行之前（或拖到底部"顺序末尾"落区）即提交整份 `order_roles`；
+  **没有 ↑/↓ 按钮**——拖拽是唯一的调序通道（用户口径），`nextAgentTeamOrder` 因此
+  只处理"摘除 / 恢复"（纯函数 `agentTeamOrderForDrag` 负责位置，非法动作返回 null
+  不提交）。行内 `权限` / `提示词` chip 是登记值的只读投影；摘除 / 编辑 / 删除都是
+  图标或短文本按钮。
 - **冷加载面板**：`+ 入职` / `编辑` 打开的「入职 / 修改员工」面板与 `+ 新建团队`
   / `编辑` 打开的「新建 / 编辑团队」面板默认都不渲染——只有 `data-team-hire-slot`
-  / `data-team-team-slot` 两个隐藏占位；点开才注入表单，`✕` / 取消 / Esc 关闭。
-  员工字段：角色名（修改态只读）、类型、入职时机、**权限（`tools_policy`）**、
-  模型、在席策略、**员工提示词**。填写值来自 `TeamView.members` 的登记回读，
-  因此一次编辑不会把提示词/权限清空。
+  / `data-team-team-slot` 两个隐藏占位；点开才注入表单，关闭按钮是
+  `data-icon="close"` 图标（取消 / Esc 同样关闭）。字段**条目化 + 序列化**：一条
+  字段一行（序号 + 标签 + 控件 + 说明），按 身份 / 编排 / 能力 / 提示词 分节——右栏
+  只有 220~480px，标签与控件并排会把控件挤到 80px 宽。
+  员工字段：1 角色名（修改态只读）、2 类型、3 入职时机、4 在席策略、
+  **5 权限（`tools_policy`）**、6 模型、**7 员工提示词**。填写值来自
+  `TeamView.members`（会话作用域）或 `TeamGlobalConfig.employees`（员工库作用域）的
+  登记回读，因此一次编辑不会把提示词/权限清空；表单上的 `data-team-hire-scope`
+  决定提交走 `AgentTeamSaveEmployee`（员工库，不装配）还是
+  `AgentTeamInstantiateRole`（当前会话入职）。
 - **提示词优化**：员工面板里的「优化提示词」按钮调 `Bridge.AgentTeamOptimizePrompt`
   （一次有界 LLM 回合），结果只渲染成候选 + 改动理由，点「应用到提示词」才写回
   输入框；落盘仍走「入职 / 保存修改」。
@@ -231,10 +241,19 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   `#status-panel`、`#accounts-section`、`#team-section` 都不带 `open`，展开才拉
   数据（Agent Team 的 `toggle` 事件仍触发一次 `refreshAgentTeam`）。避免右栏一
   进来就被三张长表占满。
-- **对话里的 EXEC / ADVISOR 分区**：两个 agent 的 provider role 都是
-  `assistant`，`components.js` 按 `role_name` 给消息加 `is-exec` / `is-advisor`
-  类，`styles.css` 第 20 节据此给不同的背景带与左侧色条（EXEC 冷钢蓝、ADVISOR
-  暖黄）；无归属的普通 assistant 不套背景带，观感不变。
+- **对话里的 EXEC / ADVISOR 分区（2026-09-15 改版：取消背景色渲染）**：两个
+  agent 的 provider role 都是 `assistant`，`components.js` 按 `role_name` 给消息加
+  `is-exec` / `is-advisor` 类，`styles.css` 第 20 节只给一条左侧状态条（EXEC 冷钢
+  蓝、ADVISOR 暖黄）+ 发言人名——**不再铺整块底色**（用户口径：背景色渲染取消），
+  正文保持素底；无归属的普通 assistant 不加类，观感不变。
+- **左右栏收起按钮在栏内（2026-09-15 改版）**：收起/展开不在顶栏，而在每条栏自己
+  的 `.panel-rail-head` 一行里，图标是 `chevron-left` / `chevron-right`（展开态与
+  收起态各一枚，`html[data-left-collapsed]` / `[data-right-collapsed]` 由 CSS 切换
+  显隐）。收起后每条栏仍保留 26px 窄脊 + 那枚按钮（可达、不占位），Ctrl+B /
+  Ctrl+J 与 `seelex.*.collapsed` 记忆不变。
+- **外壳不再渲染背景渐晕**：`.app-shell` 用单一 `--bg`，层次靠各面板自己的
+  `surface` 与 1px 分隔；右栏页签条也去掉了那条装饰性渐变（选中页签的拟物书签
+  保留）。
 
 ## 定时周期任务
 

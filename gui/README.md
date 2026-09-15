@@ -122,8 +122,8 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
   （`team/order.json`）都是全局粒度；会话读的是母本**深拷贝副本**（会话在编员工表 +
   lifecycle 顺序），会话内入职/改序只改副本。`AgentTeamGlobalConfig` 读母本 + 会话副本
   投影；`AgentTeamSaveEmployee`/`AgentTeamDeleteEmployee`/`AgentTeamSetDefaultOrder`
-  是库管理（直写全局）；`AgentTeamPublishToGlobal` 是「确认·普及搭配到全局」（会话副本
-  → 员工库 + 默认顺序 + 团队库条目）。
+  是库管理（直写全局）；`AgentTeamPublishToGlobal` 是「入库当前会话」（原「确认·普及
+  搭配到全局」，会话副本 → 员工库 + 默认顺序 + 团队库条目）。
 
 **两个 agent 的区分（2026-09-12）**：成员表把逻辑角色名渲染成用户可读身份
 （`main` → `EXEC`、`tl`/`techlead` → `ADVISOR`），成员行可点击打开该角色的

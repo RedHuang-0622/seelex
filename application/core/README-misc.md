@@ -33,6 +33,7 @@
 
 ### compressed_turn.go
 
+- `func (a *CompressedTurnArchiver) resolveProjectID(sessionID string) string` — resolveProjectID 解析落盘的项目作用域：先按会话自己的绑定（数据实际所在），
 - `func (a *CompressedTurnArchiver) StoreTurn(ctx context.Context, segmentID string, messages []types.Message) (string, error)` — StoreTurn 实现 seelexctx.TurnArchiver。会话归属优先取 ctx（runChat 注入
 - `func (service *Service) ReadCompressedTurnHandler(_ context.Context, argsJSON string) (string, error)` — ReadCompressedTurnHandler 读回一次压缩的轮次原文（分页 + 过滤）。
 - `func renderCompressedTurns(messages []types.Message) string` — renderCompressedTurns 把轮次原文渲染为可读文本（按角色标记，工具链
@@ -41,7 +42,8 @@
 ### compressed_turn_test.go
 
 - `func testStringPtr(value string) *string` — testStringPtr 返回字符串指针（测试消息正文）。
-- `func (f *fakeCommitSession) SaveCommit(sessionID string, commit sessionstore.Commit) error`
+- `func (f *fakeCommitSession) SaveCommitWorkspace(projectID, sessionID string, commit sessionstore.Commit) error`
+- `func TestCompressedTurnArchiverScopesCommitToSessionProject(t *testing.T)` — TestCompressedTurnArchiverScopesCommitToSessionProject 写侧项目作用域：先按
 - `func (f *fakeTranscriptSession) LoadTranscriptTailWorkspace(_, _ string, _, _ int) ([]TranscriptEvent, error)`
 - `func (f *fakeTranscriptSession) LoadToolResultWorkspace(_, _, ref string) (StoredToolResult, error)`
 - `func TestCompressedTurnArchiverPersistsOriginal(t *testing.T)` — TestCompressedTurnArchiverPersistsOriginal 写侧：溢出轮次原文序列化后

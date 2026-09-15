@@ -215,6 +215,18 @@ go test -race ./application/core/agentteam -count=1
 - `func unexecutedRoles(orderRoles []string) []string` — unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
 - `func UnexecutedRoles(orderRoles []string) []string` — UnexecutedRoles 是 unexecutedRoles 的导出形态：发言调度运行态（runtime.go）
 
+### global.go
+
+- `func NewGlobal(port GlobalPort) (*Global, error)` — NewGlobal 构造全局母本读写面；port 为 nil 时显式报错。
+- `func (global *Global) Employees() (dto.EmployeeLibrary, error)` — Employees 返回全局员工库。读是深拷贝语义：返回的切片归消费方所有。
+- `func (global *Global) SaveEmployee(role dto.RoleSpec) (dto.EmployeeLibrary, error)` — SaveEmployee 新增/覆盖全局员工库里的一个员工（按 role_name 幂等）。
+- `func (global *Global) DeleteEmployee(roleName string) (dto.EmployeeLibrary, error)` — DeleteEmployee 删除全局员工库里的一个员工（幂等：不存在时原样返回，不报错）。
+- `func (global *Global) Order() (dto.DefaultOrder, error)` — Order 返回全局默认顺序。
+- `func (global *Global) SetOrder(policy string, orderRoles []string) (dto.DefaultOrder, error)` — SetOrder 写全局默认顺序：引用了员工库不存在的角色会被剔除，user/main 自动补齐
+- `func NormalizeEmployeeLibrary(library dto.EmployeeLibrary) (dto.EmployeeLibrary, error)` — NormalizeEmployeeLibrary 规整整份员工库：role_name 必填、内置角色剔除、同名后者
+- `func NormalizeDefaultOrder(order dto.DefaultOrder, employees []dto.RoleSpec) (dto.DefaultOrder, error)` — NormalizeDefaultOrder 规整默认顺序：策略校验、顺序表去空去重**保序**、只保留
+- `func normalizeEmployeeRole(role dto.RoleSpec) (dto.RoleSpec, error)` — normalizeEmployeeRole 规整单个员工（复用 NormalizeRole 的默认值口径）并拒绝内置
+
 ### instantiate_role_test.go
 
 - `func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T)` — TestInstantiateRoleOneStepHiresAnEmployee：一步"员工入职"——会话、注册表配置、
@@ -224,40 +236,32 @@ go test -race ./application/core/agentteam -count=1
 
 ### library.go
 
-- `var ErrUnknownTeam = errors.New("agentteam: unknown team in library")` — ErrUnknownTeam 表示请求的团队库条目不存在。
-- `type LibraryPort interface` — LibraryPort 是团队库的读写面；作用域由实现方（application 适配器）解析，
 - `func NewLibrary(port LibraryPort) (*Library, error)` — NewLibrary 构造团队库读写面；port 为 nil 时显式报错。
 - `func (library *Library) View() (dto.TeamLibrary, error)` — View 返回团队库全文（按 name 排序由存储层保证；这里只做防御性规整）。
 - `func (library *Library) Entry(teamID string) (dto.TeamLibraryEntry, error)` — Entry 读单条团队库条目（装配入口用；不存在时返回 ErrUnknownTeam）。
 - `func (library *Library) SaveTeam(entry dto.TeamLibraryEntry) (dto.TeamLibrary, error)` — SaveTeam 新增或覆盖一条团队库条目（按 team_id 幂等），返回整份库。
 - `func (library *Library) DeleteTeam(teamID string) (dto.TeamLibrary, error)` — DeleteTeam 删除一条团队库条目（幂等：不存在时原样返回，不报错）。
 - `func NormalizeLibraryEntry(entry dto.TeamLibraryEntry) (dto.TeamLibraryEntry, error)` — NormalizeLibraryEntry 规整一条团队库条目：team_id 必填（缺省由 team_kind 兜底）、
+- `func containsName(values []string, name string) bool`
+- `func indexOfName(values []string, name string) int`
+- `func isBuiltinRoleName(name string) bool`
 - `func IsBuiltinRole(roleName string) bool` — IsBuiltinRole 判定角色名是否是内置角色（user/main）。内置角色由会话本身提供，
+- `func dedupePreserveOrder(values []string) []string` — dedupePreserveOrder 去重但保序（顺序表是发言次序，不能排序）。
 - `func SpecOfEntry(entry dto.TeamLibraryEntry) dto.TeamSpec` — SpecOfEntry 把团队库条目投影成装配输入（TeamSpec）。顺序与角色配置原样带入，
 - `func EntryFromSpec(spec dto.TeamSpec, name, origin string) (dto.TeamLibraryEntry, error)` — EntryFromSpec 把一次性 TeamSpec（例如内置 preset）投影成团队库条目：前端
 - `func EntryFromRegistry(registry dto.TeamRegistry, orderRoles []string, name, teamID string) (dto.TeamLibraryEntry, error)` — EntryFromRegistry 把"某个会话当前在编的员工表"投影成一条团队库条目
 - `func OrderRolesOf(roles []dto.RoleSpec) []string` — OrderRolesOf 从角色配置推导工作顺序：user → main → 其余角色（OrderPriority
 
-### global.go
-
-- `type GlobalPort interface` — GlobalPort 是全局母本（员工库 + 默认顺序）的读写面；锚定会话在构造适配器时
-- `func NewGlobal(port GlobalPort) (*Global, error)` — NewGlobal 构造全局母本读写面；port 为 nil 时显式报错。
-- `func (global *Global) Employees() (dto.EmployeeLibrary, error)` — Employees 返回全局员工库。读是深拷贝语义：返回的切片归消费方所有。
-- `func (global *Global) SaveEmployee(role dto.RoleSpec) (dto.EmployeeLibrary, error)` — SaveEmployee 新增/覆盖全局员工库里的一个员工（按 role_name 幂等）。
-- `func (global *Global) DeleteEmployee(roleName string) (dto.EmployeeLibrary, error)` — DeleteEmployee 删除全局员工库里的一个员工（幂等：不存在时原样返回，不报错）。
-- `func (global *Global) Order() (dto.DefaultOrder, error)` — Order 返回全局默认顺序。
-- `func (global *Global) SetOrder(policy string, orderRoles []string) (dto.DefaultOrder, error)` — SetOrder 写全局默认顺序：引用了员工库不存在的角色会被剔除，user/main 自动补齐
-- `func NormalizeEmployeeLibrary(library dto.EmployeeLibrary) (dto.EmployeeLibrary, error)` — NormalizeEmployeeLibrary 规整整份员工库：role_name 必填、内置角色剔除、同名后者
-- `func NormalizeDefaultOrder(order dto.DefaultOrder, employees []dto.RoleSpec) (dto.DefaultOrder, error)` — NormalizeDefaultOrder 规整默认顺序：策略校验、顺序表去空去重**保序**、只保留
-
 ### library_test.go
 
-- `func TestLibrarySaveIsIdempotentByTeamID(t *testing.T)` — 团队库条目按 team_id 就地覆盖；删除幂等（不存在的条目删了不报错）。
-- `func TestLibraryEntryUnknownTeam(t *testing.T)` — 读不存在的团队条目必须返回 ErrUnknownTeam，不返回空配置。
-- `func TestSpecOfEntryKeepsRolesAndOrder(t *testing.T)` — 库条目 → TeamSpec 原样带入顺序与角色配置（提示词/权限不丢）。
-- `func TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts(t *testing.T)` — user/main 不进库条目；其余角色的提示词与权限保留。
-- `func TestNormalizeLibraryEntryRejectsBadInput(t *testing.T)` — 缺 team_id / 非法顺序策略显式报错；顺序表过滤未登记角色并补 user/main。
-- `func TestEntryFromSpecCopiesPreset(t *testing.T)` — 内置 preset 可复制成库条目（"以模板新建团队"）。
+- `func (port *fakeLibraryPort) ReadTeamLibrary() (dto.TeamLibrary, error)`
+- `func (port *fakeLibraryPort) WriteTeamLibrary(library dto.TeamLibrary) error`
+- `func TestLibrarySaveIsIdempotentByTeamID(t *testing.T)`
+- `func TestLibraryEntryUnknownTeam(t *testing.T)`
+- `func TestSpecOfEntryKeepsRolesAndOrder(t *testing.T)` — TestSpecOfEntryKeepsRolesAndOrder：库条目 → TeamSpec 必须原样带入顺序与角色
+- `func TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts(t *testing.T)` — TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts：把会话在编员工存进团队库时，
+- `func TestNormalizeLibraryEntryRejectsBadInput(t *testing.T)` — TestNormalizeLibraryEntryRejectsBadInput：缺 team_id / 非法顺序策略显式报错。
+- `func TestEntryFromSpecCopiesPreset(t *testing.T)` — TestEntryFromSpecCopiesPreset：内置 preset 可复制成库条目（"以模板新建团队"）。
 
 ### presets.go
 
@@ -271,6 +275,8 @@ go test -race ./application/core/agentteam -count=1
 
 - `func NewRegistry(port Port) (*Registry, error)` — NewRegistry 构造注册表读写面；port 为 nil 时显式报错。
 - `func (registry *Registry) View(mainSessionID string) (dto.TeamView, error)` — View 返回成员表（供右侧栏「状态 → Agent Team」子页与角色管理设置读取）。
+- `func (registry *Registry) Stored(mainSessionID string) (dto.TeamRegistry, error)` — Stored 返回注册表原文（团队库"把当前团队存进库"的数据源）：成员表视图只带
+- `func (registry *Registry) PromptFor(mainSessionID, roleName string) (string, error)` — PromptFor 读某个角色登记的提示词（空串 = 未登记 → 调用方用内置提示词兜底）。
 - `func (registry *Registry) PutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)` — PutRole 新增或覆盖一个角色配置（按 role_name 幂等）。
 - `func (registry *Registry) DeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)` — DeleteRole 删除一个角色配置；角色仍留在工作顺序时同步摘除，避免顺序里挂着
 - `func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — SetOrder 写工作顺序策略（`order_roles`）；校验角色已注册、定时角色不入顺序、
