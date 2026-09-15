@@ -55,6 +55,11 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 | EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
 | ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |
 | `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `sessionstore/team_registry.go`（`ReadMessageFloorWorkspace`）、`internal/adapters/agentteam_ports.go`（`ReadFloorRole`） |
+| 团队库（可复用团队模板） | **已接线**：**全局** `<root>/team/library.json`（整份替换型），条目 = 角色配置集 + 顺序策略；装配 = 条目 → `TeamSpec` → 既有工厂（建角色会话 + 写会话 registry + 写 lifecycle 顺序） | `sessionstore/team_global.go`、本包 `library.go`、`application/core/agentteam_service.go`（`AgentTeamSaveTeam`/`AgentTeamMaterializeTeam`） |
+| 全局母本（员工库 + 默认顺序） | **已接线**：`<root>/team/employees.json`（员工名册）与 `<root>/team/order.json`（默认顺序）是全局母本；会话在编员工表 + lifecycle 顺序是它的**深拷贝副本**，会话内入职/改序只改副本；只有「确认·普及搭配到全局」把副本回写母本 | `sessionstore/team_global.go`、本包 `global.go`、`application/core/agentteam_service.go`（`AgentTeamGlobalConfig`/`AgentTeamPublishToGlobal`） |
+| 员工提示词（`RoleSpec.SystemPrompt`）→ ADVISOR 回合 | **已接线**：装配根把"读已装配提示词"的读面注入 Runtime，ADVISOR 回合用它替换内置角色设定；**输出契约永远追加**（goal 域要解析 `TLDirective`，不能被员工提示词改掉输出格式） | `seelebridge/runtime_role_prompt.go`（`SetRolePromptProvider`）、`seelebridge/runtime_goal_tl.go`（`advisorSystemPrompt`）、`main.go` 装配点 |
+| 员工权限（`RoleSpec.ToolsPolicy`） | **仅登记 + 展示**：值随角色注册表落盘、在员工栏与编辑面板可见；**运行时按角色拦截还没接到运行时**（真正的工具拦截在 seelebridge `PermissionGate`，目前按会话/全局） | `application/contract/dto/agentteam.go`（`ToolPolicy*`）、`seelebridge/tools/registry_state.go`（`PermissionGate`） |
+| 员工提示词优化 | **已接线**：一次有界 LLM 回合（`RolePromptPort`），只产出候选文本 + 改动理由，不落盘、不写会话消息；落盘仍走入职/保存 | `seelebridge/runtime_role_prompt.go`（`OptimizeRolePrompt`）、`application/core/agentteam_service.go`（`AgentTeamOptimizeRolePrompt`） |
 | `TurnScheduler`（channel + 链表轮转 / team work 前缀） | **已接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序，运行时由 `Next()` 决定下一个该发言的成员；含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者）与 user 席位口径 | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（按顺序装座位） |
 | `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
 
@@ -79,7 +84,9 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 | `spec.go` | `TeamSpec` 规整与校验、角色会话号派生（`RoleSessionID`） |
 | `presets.go` | 内置实例：`goal-a2a`（TL 循环）、`review-team`、`research-team`（定时分区） |
 | `factory.go` | `Port` 契约、`Factory.Materialize`、成员表投影 `assembleView` |
-| `registry.go` | `Registry`：角色配置 CRUD、`SetOrder`、`View` 只读投影（含 floor 填充） |
+| `registry.go` | `Registry`：角色配置 CRUD、`SetOrder`、`View` 只读投影（含 floor 填充）、`Stored`/`PromptFor` 只读回读 |
+| `library.go` | 团队库读写面（条目 upsert/delete/`Entry`）与投影（`SpecOfEntry`/`EntryFromRegistry`/`EntryFromSpec`），含共用口径 `IsBuiltinRole`/`OrderRolesOf` |
+| `global.go` | `Global`：全局母本（员工库 + 默认顺序）读写面与规整（`NormalizeEmployeeLibrary`/`NormalizeDefaultOrder`） |
 | `scheduler.go` | `TurnScheduler` 轮转原语（链表轮转 + channel 投递） |
 | `runtime.go` | `Runtime`：会话级发言调度运行态（顺序同步 + user 席位 + 逃生路径），投影 `dto.TeamSchedule` |
 | `agentteam_test.go` | 规整/工厂幂等/第二团队（AT8）/定时分区/注册表用例 |
@@ -215,6 +222,43 @@ go test -race ./application/core/agentteam -count=1
 - `func TestInstantiateRoleRejectsBuiltinAndBadInput(t *testing.T)` — TestInstantiateRoleRejectsBuiltinAndBadInput：内置角色（user/main）由会话本身
 - `func TestInstantiateRoleReportsExecutorForTechlead(t *testing.T)` — TestInstantiateRoleReportsExecutorForTechlead：tl 有真实执行者（goal 治理的
 
+### library.go
+
+- `var ErrUnknownTeam = errors.New("agentteam: unknown team in library")` — ErrUnknownTeam 表示请求的团队库条目不存在。
+- `type LibraryPort interface` — LibraryPort 是团队库的读写面；作用域由实现方（application 适配器）解析，
+- `func NewLibrary(port LibraryPort) (*Library, error)` — NewLibrary 构造团队库读写面；port 为 nil 时显式报错。
+- `func (library *Library) View() (dto.TeamLibrary, error)` — View 返回团队库全文（按 name 排序由存储层保证；这里只做防御性规整）。
+- `func (library *Library) Entry(teamID string) (dto.TeamLibraryEntry, error)` — Entry 读单条团队库条目（装配入口用；不存在时返回 ErrUnknownTeam）。
+- `func (library *Library) SaveTeam(entry dto.TeamLibraryEntry) (dto.TeamLibrary, error)` — SaveTeam 新增或覆盖一条团队库条目（按 team_id 幂等），返回整份库。
+- `func (library *Library) DeleteTeam(teamID string) (dto.TeamLibrary, error)` — DeleteTeam 删除一条团队库条目（幂等：不存在时原样返回，不报错）。
+- `func NormalizeLibraryEntry(entry dto.TeamLibraryEntry) (dto.TeamLibraryEntry, error)` — NormalizeLibraryEntry 规整一条团队库条目：team_id 必填（缺省由 team_kind 兜底）、
+- `func IsBuiltinRole(roleName string) bool` — IsBuiltinRole 判定角色名是否是内置角色（user/main）。内置角色由会话本身提供，
+- `func SpecOfEntry(entry dto.TeamLibraryEntry) dto.TeamSpec` — SpecOfEntry 把团队库条目投影成装配输入（TeamSpec）。顺序与角色配置原样带入，
+- `func EntryFromSpec(spec dto.TeamSpec, name, origin string) (dto.TeamLibraryEntry, error)` — EntryFromSpec 把一次性 TeamSpec（例如内置 preset）投影成团队库条目：前端
+- `func EntryFromRegistry(registry dto.TeamRegistry, orderRoles []string, name, teamID string) (dto.TeamLibraryEntry, error)` — EntryFromRegistry 把"某个会话当前在编的员工表"投影成一条团队库条目
+- `func OrderRolesOf(roles []dto.RoleSpec) []string` — OrderRolesOf 从角色配置推导工作顺序：user → main → 其余角色（OrderPriority
+
+### global.go
+
+- `type GlobalPort interface` — GlobalPort 是全局母本（员工库 + 默认顺序）的读写面；锚定会话在构造适配器时
+- `func NewGlobal(port GlobalPort) (*Global, error)` — NewGlobal 构造全局母本读写面；port 为 nil 时显式报错。
+- `func (global *Global) Employees() (dto.EmployeeLibrary, error)` — Employees 返回全局员工库。读是深拷贝语义：返回的切片归消费方所有。
+- `func (global *Global) SaveEmployee(role dto.RoleSpec) (dto.EmployeeLibrary, error)` — SaveEmployee 新增/覆盖全局员工库里的一个员工（按 role_name 幂等）。
+- `func (global *Global) DeleteEmployee(roleName string) (dto.EmployeeLibrary, error)` — DeleteEmployee 删除全局员工库里的一个员工（幂等：不存在时原样返回，不报错）。
+- `func (global *Global) Order() (dto.DefaultOrder, error)` — Order 返回全局默认顺序。
+- `func (global *Global) SetOrder(policy string, orderRoles []string) (dto.DefaultOrder, error)` — SetOrder 写全局默认顺序：引用了员工库不存在的角色会被剔除，user/main 自动补齐
+- `func NormalizeEmployeeLibrary(library dto.EmployeeLibrary) (dto.EmployeeLibrary, error)` — NormalizeEmployeeLibrary 规整整份员工库：role_name 必填、内置角色剔除、同名后者
+- `func NormalizeDefaultOrder(order dto.DefaultOrder, employees []dto.RoleSpec) (dto.DefaultOrder, error)` — NormalizeDefaultOrder 规整默认顺序：策略校验、顺序表去空去重**保序**、只保留
+
+### library_test.go
+
+- `func TestLibrarySaveIsIdempotentByTeamID(t *testing.T)` — 团队库条目按 team_id 就地覆盖；删除幂等（不存在的条目删了不报错）。
+- `func TestLibraryEntryUnknownTeam(t *testing.T)` — 读不存在的团队条目必须返回 ErrUnknownTeam，不返回空配置。
+- `func TestSpecOfEntryKeepsRolesAndOrder(t *testing.T)` — 库条目 → TeamSpec 原样带入顺序与角色配置（提示词/权限不丢）。
+- `func TestEntryFromRegistryDropsBuiltinsAndKeepsPrompts(t *testing.T)` — user/main 不进库条目；其余角色的提示词与权限保留。
+- `func TestNormalizeLibraryEntryRejectsBadInput(t *testing.T)` — 缺 team_id / 非法顺序策略显式报错；顺序表过滤未登记角色并补 user/main。
+- `func TestEntryFromSpecCopiesPreset(t *testing.T)` — 内置 preset 可复制成库条目（"以模板新建团队"）。
+
 ### presets.go
 
 - `func goalA2APreset() dto.TeamSpec` — goalA2APreset 是第一个实例：goal 的 user→main↔tl 固定循环。
@@ -250,6 +294,18 @@ go test -race ./application/core/agentteam -count=1
 - `func (r *Runtime) Snapshot() dto.TeamSchedule` — Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
 - `func (r *Runtime) peekNext() (TurnRequest, bool)` — peekNext 在不改动游标的前提下算出"下一个谁发言"（Snapshot 用）。
 - `func cleanOrder(order []string) []string` — cleanOrder 去掉空名与重复项（顺序事实来自 lifecycle，容错但不伪造）。
+
+### runtime_test.go
+
+- `func newTestRuntime(order []string, policy string, opts RuntimeOptions) *Runtime`
+- `func TestRuntimeMaintainsRingFromRegistryOrder(t *testing.T)` — TestRuntimeMaintainsRingFromRegistryOrder：环里的员工就是注册表顺序里的员工
+- `func TestRuntimeRingsThroughExecutorsOnly(t *testing.T)` — TestRuntimeRingsThroughExecutorsOnly：按链表转一圈，只落在有执行者的角色上；
+- `func TestRuntimeUserSeatPolicy(t *testing.T)` — TestRuntimeUserSeatPolicy：user 到底算不算环里的一环，由席位口径决定——
+- `func TestUserSeatPolicyDerivesFromOrderPolicy(t *testing.T)` — TestUserSeatPolicyDerivesFromOrderPolicy：user 席位口径由 order_policy 推导，
+- `func TestRuntimeEscapeRoundLimit(t *testing.T)` — TestRuntimeEscapeRoundLimit：轮次上限是逃生路径第一道——到达即停，且原因是
+- `func TestRuntimeEscapeNoProgress(t *testing.T)` — TestRuntimeEscapeNoProgress：连续无进展是逃生路径第二道——推进一次即清零，
+- `func TestRuntimeEscapeNoExecutor(t *testing.T)` — TestRuntimeEscapeNoExecutor：环里一个能发言的都没有时显式收束（no_executor /
+- `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / TL 裁决收口 / goal.gov_break 走同一
 
 ### scheduler.go
 

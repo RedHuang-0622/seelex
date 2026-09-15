@@ -17,6 +17,20 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func TestAgentTeamViewCarriesFloorRole(t *testing.T)`
 - `func TestAgentTeamViewWithoutFloorPortStaysEmpty(t *testing.T)` — TestAgentTeamViewWithoutFloorPortStaysEmpty 钉住降级：宿主没有 floor 读面
 
+### agentteam_runtime.go
+
+- `func (store *teamRuntimeStore) get(mainSessionID string) *agentteam.Runtime`
+- `func (store *teamRuntimeStore) put(mainSessionID string, runtime *agentteam.Runtime)`
+- `func (store *teamRuntimeStore) drop(mainSessionID string)`
+- `func roleSessionsOf(view dto.TeamView) map[string]string` — roleSessionsOf 从成员表取 role_name → role_session_id（环里角色发言时的会话
+- `func (service *Service) goalLoopRoundLimitForTeam() int` — goalLoopRoundLimitForTeam 取治理循环实际生效的轮次上限：环的逃生路径第一道
+- `func (service *Service) teamRuntimeFor(mainSessionID string, view dto.TeamView) *agentteam.Runtime` — teamRuntimeFor 返回（需要时创建）指定主会话的发言调度运行态，并把注册表
+- `func (service *Service) syncTeamRuntime(mainSessionID string)` — syncTeamRuntime 在角色注册表/顺序发生变更后同步环（增删改员工与顺序调整的
+- `func (service *Service) NoteTeamUserQueued(mainSessionID string, pending bool)` — NoteTeamUserQueued 告诉该会话的环"消息队列里有没有未消费的 user 输入"。
+- `func (service *Service) teamScheduleFor(mainSessionID string) *dto.TeamSchedule` — teamScheduleFor 投影指定会话的调度运行态（nil = 该会话没有环）。
+- `func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtime` — teamRuntimeBySession 返回（需要时创建）指定会话的发言调度运行态，供治理循环
+- `func (service *Service) noteTeamUserSeat(sessionID string)` — noteTeamUserSeat 把"该会话队列里有没有未消费的 user 输入"同步给团队环：
+
 ### agentteam_service.go
 
 - `func (adapter agentTeamAdapter) EnsureRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error)`
@@ -31,10 +45,20 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (service *Service) AgentTeamPresets() []dto.TeamSpec` — AgentTeamPresets 列出内置团队形态（前端角色管理页的可选模板）。
 - `func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — MaterializeAgentTeam 按 preset/自定义 TeamSpec 装配一支 AgentTeam。
 - `func (service *Service) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)` — MaterializeAgentTeamPreset 按内置 preset 名装配（goal-a2a / review-team / research-team）。
-- `func (service *Service) AgentTeamView(mainSessionID string) (dto.TeamView, error)` — AgentTeamView 返回成员表（身份/顺序/定时分区/配置状态）。
+- `func (service *Service) AgentTeamView(mainSessionID string) (dto.TeamView, error)` — AgentTeamView 返回成员表（身份/顺序/定时分区/配置状态/发言调度运行态）。
+- `func (service *Service) agentTeamRawView(mainSessionID string) (dto.TeamView, error)` — agentTeamRawView 返回不带运行态的成员表（装配面内部用；避免
 - `func (service *Service) AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)` — AgentTeamPutRole 新增/覆盖一个角色配置。
 - `func (service *Service) AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)` — AgentTeamDeleteRole 删除一个角色配置（并把它从工作顺序里摘除）。
-- `func (service *Service) AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — AgentTeamSetOrder 写工作顺序（前端拖拽/上下移只提交这个字段）。
+- `func (service *Service) AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — AgentTeamSetOrder 写工作顺序（前端拖拽/上下移只提交这个字段）。顺序是环的
+- `func (service *Service) AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)` — AgentTeamInstantiateRole 一步实例化一个角色（"员工入职"）：规整配置 → 幂等建
+- `func (service *Service) agentTeamLibrary(mainSessionID string) (*agentteam.Library, error)` — agentTeamLibrary 构造团队库读写面（锚定会话 = 作用域解析入口）。
+- `func (service *Service) agentTeamGlobal(mainSessionID string) (*agentteam.Global, error)` — agentTeamGlobal 构造全局母本（员工库 + 默认顺序）读写面。
+- `func (service *Service) AgentTeamGlobalConfig(mainSessionID string) (dto.TeamGlobalConfig, error)` — AgentTeamGlobalConfig 读全局母本（团队库 / 员工库 / 默认顺序）与当前会话副本的
+- `func (service *Service) agentTeamComposition(mainSessionID string) (dto.TeamComposition, error)` — agentTeamComposition 投影"当前会话副本"的搭配：在编员工（不含 user/main）+ 实际
+- `func (service *Service) AgentTeamSaveEmployee(mainSessionID string, role dto.RoleSpec) (dto.EmployeeLibrary, error)` — AgentTeamSaveEmployee 新增/覆盖全局员工库里的一个员工（按 role_name 幂等）。
+- `func (service *Service) AgentTeamDeleteEmployee(mainSessionID, roleName string) (dto.EmployeeLibrary, error)` — AgentTeamDeleteEmployee 删除全局员工库里的一个员工（幂等）。
+- `func (service *Service) AgentTeamSetDefaultOrder(mainSessionID, policy string, orderRoles []string) (dto.DefaultOrder, error)` — AgentTeamSetDefaultOrder 写全局默认顺序（母本发言次序）。
+- `func (service *Service) AgentTeamPublishToGlobal(mainSessionID, name, teamID string) (dto.TeamGlobalConfig, error)` — AgentTeamPublishToGlobal 是「确认·普及搭配到全局」：把当前会话副本的
 
 ### role_session.go
 

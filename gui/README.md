@@ -78,9 +78,13 @@ task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 rela
 `taskadd` 是模型可调用的 harness 工具（注册表幂等去重），不经 Bridge。
 
 A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
-`Bridge.AgentTeamPresets` / `AgentTeamView` / `AgentTeamMaterialize` /
+`Bridge.AgentTeamPresets` / `AgentTeamView` / `AgentTeamLibrary` /
+`AgentTeamGlobalConfig` / `AgentTeamSaveTeam` / `AgentTeamSaveCurrentTeam` /
+`AgentTeamDeleteTeam` / `AgentTeamMaterialize` / `AgentTeamMaterializeTeam` /
 `AgentTeamPutRole` / `AgentTeamDeleteRole` / `AgentTeamSetOrder` /
-`AgentTeamInstantiateRole` / `AgentTeamRoleSnapshot`，全部走
+`AgentTeamInstantiateRole` / `AgentTeamSaveEmployee` / `AgentTeamDeleteEmployee` /
+`AgentTeamSetDefaultOrder` / `AgentTeamPublishToGlobal` / `AgentTeamRolePrompt` /
+`AgentTeamOptimizePrompt` / `AgentTeamRoleSnapshot`，全部走
 `application/contract` 纯 DTO（S27 收口；`agentTeamApplication` 是可选能力接口，
 宿主未装配时返回可展示错误而不是空视图）。`sessionID` 传空 = 当前视图会话，
 Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
@@ -98,6 +102,28 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 轮次/上限、user 席位口径（`queued`/`member`/`absent`）与逃生状态
 （`round_limit`/`no_progress`/`no_executor`/`empty_ring`/`external_break`）。
 前端 `agent-team-view.js` 的「发言调度」块只渲染后端事实，不下发也不缓存顺序。
+
+**员工装配（提示词/权限）与团队库（2026-09-21）**：
+
+- 「入职 / 修改员工」面板提交 `dto.RoleSpec`（含 `system_prompt` / `tools_policy` /
+  `model_policy` / `presence_policy`）；Bridge 只做 trim + 窄转发，落盘仍是会话角色
+  注册表。回读经 `TeamView.members` 的登记字段（前端编辑面板要回填，否则一次编辑会
+  把提示词/权限清空）。
+- `AgentTeamRolePrompt(sessionID, roleName)` 是只读提示词查询（ADVISOR 回合用它取
+  已装配提示词，装配根注入的读面见 `seelebridge/runtime_role_prompt.go`）；
+  `AgentTeamOptimizePrompt(sessionID, request)` 跑一次有界 LLM 回合产出候选文本 +
+  改动理由，**不落盘、不写会话消息**（落盘仍走入职/保存）。
+- 团队库（**全局** `team/library.json`）走 `AgentTeamLibrary`（列表）/
+  `AgentTeamSaveTeam`（按 `team_id` 幂等 upsert）/`AgentTeamSaveCurrentTeam`（把当前
+  会话在编员工存成库条目）/`AgentTeamDeleteTeam`（幂等）/`AgentTeamMaterializeTeam`
+  （库条目 → `TeamSpec` → 既有工厂：建角色会话 + 写会话注册表 + 写 `lifecycle` 顺序）。
+  团队库条目与会话在编员工是**两份不同的事实**（见 `sessionstore/README.md`）。
+- **全局母本（2026-09-15）**：团队库 / 员工库（`team/employees.json`）/ 默认顺序
+  （`team/order.json`）都是全局粒度；会话读的是母本**深拷贝副本**（会话在编员工表 +
+  lifecycle 顺序），会话内入职/改序只改副本。`AgentTeamGlobalConfig` 读母本 + 会话副本
+  投影；`AgentTeamSaveEmployee`/`AgentTeamDeleteEmployee`/`AgentTeamSetDefaultOrder`
+  是库管理（直写全局）；`AgentTeamPublishToGlobal` 是「确认·普及搭配到全局」（会话副本
+  → 员工库 + 默认顺序 + 团队库条目）。
 
 **两个 agent 的区分（2026-09-12）**：成员表把逻辑角色名渲染成用户可读身份
 （`main` → `EXEC`、`tl`/`techlead` → `ADVISOR`），成员行可点击打开该角色的

@@ -39,6 +39,8 @@
 | [`gui/decisions.md`](gui/decisions.md) | Wails、协议、reducer、keyed DOM、Markdown 和 CI 决策记录 |
 | [`gui/ci-and-testing.md`](gui/ci-and-testing.md) | GUI 分支 CI、测试分层和本地等价命令 |
 | [`gui/code-review.md`](gui/code-review.md) | 功能打点到详设、源码位置、测试证据的审查追溯矩阵 |
+| [`gui/modules/shell-and-interactions.md`](gui/modules/shell-and-interactions.md) | 外壳布局、左右栏收起、焦点/按压态、共享提示气泡与快捷键 |
+| [`gui/modules/right-sidebar.md`](gui/modules/right-sidebar.md) | 右栏 Files/Changes/Artifacts/索引/状态子页；提交记录与工作树走 tree-fork 树轨与泳道 |
 | [`gui/modules/dsl-card-runtime.md`](gui/modules/dsl-card-runtime.md) | JSON DSL 卡片在 Conversation 中的协议、渲染与安全设计 |
 | [`gui/modules/agent-e2e-interaction.md`](gui/modules/agent-e2e-interaction.md) | 确定性 Core scenario、Playwright 与 Wails smoke 设计 |
 | [`gui/modules/workspace-sandbox.md`](gui/modules/workspace-sandbox.md) | 右栏 Files/Changes/Artifacts 与后端路径沙盒设计 |
@@ -58,6 +60,9 @@
 | [`2026-07-17-seelex-runtime-plugin-refactor-front-review.md`](devlog/2026-07-17-seelex-runtime-plugin-refactor-front-review.md) | Plugin 重构前置审查 |
 | [`2026-07-17-tui-application-core-separation-front-review.md`](devlog/2026-07-17-tui-application-core-separation-front-review.md) | TUI/Application 分离前置审查 |
 | [`2026-07-17-tui-application-core-separation-plan.md`](devlog/2026-07-17-tui-application-core-separation-plan.md) | TUI 分离实施方案 |
+| [`2026-09-15-team-work-computer-use.md`](devlog/2026-09-15-team-work-computer-use.md) | team work 接入 computer use 证据面（截图句柄/尺寸/前台窗口进 ADVISOR 输入）+ 真实 API 真机探针 |
+| [`2026-09-15-agentteam-instantiation-and-speak-schedule.md`](devlog/2026-09-15-agentteam-instantiation-and-speak-schedule.md) | Agent Team 员工一步实例化 + 发言调度运行态（含治理轮次上限与前端两栏） |
+| [`2026-09-15-frontend-render-and-memory.md`](devlog/2026-09-15-frontend-render-and-memory.md) | 前端渲染与内存减负（事件委托 / 共享提示气泡 / 拓扑单传 / tree-fork 统一树轨与泳道） |
 
 ## 🔬 research/ — 调研报告
 
@@ -67,6 +72,7 @@
 | [`codex-session-resume.md`](research/codex-session-resume.md) | Codex 会话恢复与 rollout 有序存储调研（append-only JSONL、单 writer、前缀重放） |
 | [`approve-research.md`](research/approve-research.md) | Approve 节点选型（OpenCode vs Claude Code vs Seele） |
 | [`context-management-review.md`](research/context-management-review.md) | 上下文管理（继承/合并/压缩）实现审查与理论依据调研 |
+| [`2026-09-14-seelex-thesis-proposal-v3.md`](research/2026-09-14-seelex-thesis-proposal-v3.md) | 开题报告 v3：面向软件工程任务的 Coding Agent Harness（v2 基线 + 增量章） |
 
 ## 📊 根目录
 

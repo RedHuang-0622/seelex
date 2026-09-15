@@ -38,6 +38,10 @@
 - `func (service *Service) syncSubagentTask(sessionID string, node dto.SubAgentTreeNode, parentID string)`
 - `func taskStatusForNode(status NodeStatus) dto.TaskStatus`
 - `func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus`
+- `func planNodeIDFor(record dto.TaskRecord) string` — planNodeIDFor 返回 plan 行对应的 plan 节点 ID：SourceID 优先，缺失时
+- `func planDependencies(plan *PlanState, nodeID string) []string` — planDependencies 由 plan 邻接面取节点的前置任务 ID（plan:<前置节点>）。
+- `func mergeWorkDependencies(recorded []string, derived []string) []string` — mergeWorkDependencies 合并依赖来源（注册表记录 + plan 邻接面）：去重、
+- `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 - `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
 - `func (state *serviceState) workTableTraceBlockFor(sessionID string) string` — workTableTraceBlockFor 返回指定会话的打点表标记块：只含该会话 scope 中
 - `func clonePlanForSync(plan *PlanState) *PlanState`
@@ -63,6 +67,12 @@
 ### work_table_fuzz_test.go
 
 - `func FuzzBuildWorkTable(f *testing.F)` — FuzzBuildWorkTable 以畸形输入喂投影构建器：深层嵌套、错类型、超大文本
+
+### work_table_plan_deps_test.go
+
+- `func TestWorkTablePlanRowsCarryDAGDependencies(t *testing.T)` — TestWorkTablePlanRowsCarryDAGDependencies 投影面：平铺节点 + 边集 → 行依赖。
+- `func TestServicePlanSyncExposesDAGDependencies(t *testing.T)` — TestServicePlanSyncExposesDAGDependencies 走 Service 路径：plan 投影 → task
+- `func TestTaskChangedIncrementCarriesPlanDependencies(t *testing.T)` — TestTaskChangedIncrementCarriesPlanDependencies 增量面：task.changed 单行
 
 ### work_table_race_test.go
 

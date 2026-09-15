@@ -91,6 +91,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (*fakeRuntime) ActivePlugin() string`
 - `func (runtime *fakeRuntime) FullAccess() bool`
 - `func (runtime *fakeRuntime) SetFullAccess(on bool)`
+- `func (runtime *fakeRuntime) SetFullAccessFor(sessionID string, on bool)` — SetFullAccessFor 镜像生产权限门的会话级解析（空会话 ID = 进程级默认）：
+- `func (runtime *fakeRuntime) FullAccessFor(sessionID string) bool` — FullAccessFor 返回指定会话生效的全权模式（会话级选择优先，未选择回退
 - `func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection)` — SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
 - `func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection)`
 - `func (runtime *fakeRuntime) DrainSubagentContexts() []string` — DrainSubagentContexts 排空 merge-back 邮箱。M2 多会话并行下多个
@@ -224,7 +226,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) SelectAccount(_ context.Context, name string) error`
 - `func (service *Service) SwitchEffort(_ context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 - `func (service *Service) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
-- `func (service *Service) SetFullAccess(on bool)`
+- `func (service *Service) reapplyEffortAfterPluginSwitch()` — reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
+- `func (service *Service) SetFullAccess(on bool) bool`
 - `func (service *Service) observeInteraction(sessionID, requestID string, interaction *Interaction)` — observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
 - `func (service *Service) mirrorPendingApprovalsLocked(sessionID string)` — mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
 - `func (service *Service) openInteraction(interaction *Interaction)`
@@ -244,6 +247,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func waitUnitIdle(t *testing.T, service *Service, sessionID string)` — waitUnitIdle 轮询指定会话单元直到其聊天停止运行（后台另一会话可能仍在跑，
 - `func TestEffortAndPluginGuardsAroundRunningSessions(t *testing.T)` — TestEffortAndPluginGuardsAroundRunningSessions 覆盖 G0b 守卫：
 - `func TestEffortCommandUsesGuardedServicePath(t *testing.T)` — TestEffortCommandUsesGuardedServicePath /effort 命令必须走 SwitchEffort：
+- `func TestPluginSwitchPreservesEffort(t *testing.T)` — TestPluginSwitchPreservesEffort：插件切换只换 prompt 前缀，不得顺手把用户的
 
 ### service_notice_test.go
 

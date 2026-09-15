@@ -11,8 +11,25 @@ for this stabilization batch.
 
 ## [Unreleased]
 
+### Changed
+
+- Agent Team libraries are now **global**, not project-scoped. The team
+  library (`<root>/team/library.json`), a new employee library
+  (`<root>/team/employees.json`) and a new default order
+  (`<root>/team/order.json`) sit at the data root; sessions read a deep copy
+  (their own roster + lifecycle order) and only write the master back through
+  an explicit "confirm · publish loadout to global" action. The legacy
+  project-level team library is read through (read-only) when the global one is
+  missing, and its entries merge into the global library on the first write —
+  old files are never moved or deleted.
+
 ### Added
 
+- Global Agent Team master surface: `AgentTeamGlobalConfig`,
+  `AgentTeamSaveEmployee`, `AgentTeamDeleteEmployee`,
+  `AgentTeamSetDefaultOrder` and `AgentTeamPublishToGlobal` (Bridge + GUI
+  "全局母本" panel with the employee library, the default order, a
+  copy-vs-master drift hint and the publish action).
 - Queued input editing: while a turn is running, the GUI/TUI queue entries now
   offer reorder (move up / move down) and "recall to composer" actions. Recall
   pops the entry from the session queue (dropping its engine-side payload) and
@@ -57,6 +74,34 @@ for this stabilization batch.
   currently loaded window). It is lightweight and body-free (derived from the
   durable session facts), so inputs that were never loaded into the renderer —
   and sessions that are not resident at all — are still indexed.
+- Agent Team members can be instantiated in one step and the speaking order is now
+  observable. `team.instantiate_role` (`Service`/`Bridge.AgentTeamInstantiateRole`,
+  `dto.RoleInstantiation`) materializes a role session idempotently
+  (`(team_id, role_name)` derives the same `role_session_id`), writes the role
+  config, and lets `join_policy` decide whether the role enters the work order
+  (`immediate` / `deferred` / `timer`); the built-in names (`user` / `main`) and
+  empty input are refused at the entry. `TeamView.schedule` projects the runtime
+  speaking schedule — the next role, round / limit, the user seat
+  (`queued` / `member` / `absent`) and the escape reasons (`round_limit` /
+  `no_progress` / `no_executor` / `empty_ring` / `external_break`) — from the
+  registry order, held per main session (`serviceState.teamRuntimes`) and synced at
+  chat start, queue edit and interjection. `GoalGovernanceView.RoundLimit` (`0` =
+  explicitly unlimited) exposes the cap the goal coordinator actually enforces, so
+  the UI can render "round n/limit". The GUI Agent Team panel is now two itemized
+  tables — a member roster (identity / kind / dedicated session / join timing / tool
+  policy + the one-step instantiate form) and a team panel (shape / order policy /
+  work order / speaking schedule / timed agents) — rendering backend facts only: the
+  frontend neither sends nor caches the order.
+- `team work` carries visual evidence into the reviewing role's input.
+  `goalTurnWorkSummary` parses the public return of `computer_screenshot` (media
+  ref, width/height, foreground window title) into a bounded
+  `screen: media:… WxH foreground="…"` fragment placed before the tool-name list, so
+  ADVISOR reviews what EXEC actually saw instead of only "a screenshot tool ran".
+  Only public fields are used (no pixel content), at most two frames, titles
+  truncated to 80 runes, and the tool-name table is the part that gets dropped when
+  the sentence has to be truncated. Opt-in real-API probe:
+  `gui/team_work_computer_use_live_probe_test.go`
+  (`SMOKE_TEAM_WORK_COMPUTER_LIVE=1`).
 
 ### Changed
 
@@ -101,6 +146,31 @@ for this stabilization batch.
   configuration.
 - Started the engineering-trust remediation covering release consistency,
   error boundaries, concurrency, testing, and open-source governance.
+- The GUI frontend now only subtracts work and stops sending the same data twice.
+  Per-row actions in the session list, account bar, plugin list, command-palette
+  inline suggestions, commit log and work tree moved to one delegated listener per
+  container (a redraw no longer rebuilds N closures/listeners and leaves no orphan
+  listeners); per-row `title`/child-element tooltips were replaced by a single shared
+  `#ui-tooltip` host (`[data-tip]` delegation, `\n` line breaks), which turned session
+  entries into a two-segment row — a title segment that ellipsizes by column width
+  (the data layer no longer chops the text, so same-prefix sessions stay
+  distinguishable) plus a "…" action segment whose pin/branch/delete menu only opens
+  on click, with the full title, timestamp and token count moving into the bubble;
+  and the git log no longer ships `commits` *and* character-art `lines` —
+  `WorkspaceGitLog` emits `--topo-order` + `%P` into `dto.GitCommitNode.Parents` and
+  the `GitLogLine`/`Graph` fields are gone. All tree and fork drawing now goes
+  through the pure-function `gui/frontend/dist/tree-fork.js` (`treeRowAttrs` for
+  indent rails, `layoutCommitGraph` + `commitGraphRowHTML` for commit-lane SVG), so
+  the Plan tree, subagent tree, work tree and commit log share one geometry and the
+  `├─` / `└─` / `│` / `| \ /` character-art connectors are deleted.
+- The shell around the conversation changed: the account bar moved from the left
+  sidebar to the right sidebar's status subpage (status key/value table + itemized
+  account rows) and the left column keeps only the session tree; the left and right
+  columns can be collapsed (`Ctrl+B` / `Ctrl+J`, driven by `data-*-collapsed` without
+  dropping `--left-w`/`--right-w`, so expanding restores the original width); and
+  focus/pressed states are frame-only (1 px outline with a 0-offset halo, pressed
+  state as an inset shadow plus 1-2 px displacement, switches drawn with an inset
+  shadow) with `prefers-reduced-motion` disabling every transition and animation.
 
 ### Fixed
 
@@ -152,6 +222,48 @@ for this stabilization batch.
   the Go module graph.
 - Replaced the stale source release identifier with the neutral
   <code>dev</code> version. Tagged builds remain authoritative.
+- Full access and permission auto-approval are now owned by the session that
+  toggled them. Both the execution gate and the approval surface used to be single
+  process-wide switches: toggling full access in session A silently auto-approved
+  session B's tool approvals, and starting session B (`syncFullAccessFor` at chat
+  start) turned session A's full access back off — what users reported as "I enabled
+  full access but I am still prompted / still rejected". `PermissionGate` now
+  resolves per session (`SetFullAccessFor` / `FullAccessFor` /
+  `effectiveFullAccessLocked`, keeping the empty session ID as the process-level
+  legacy surface) and the tool middleware resolves the session from the context;
+  `ApprovalBroker` gained `SetPermissionAutoApprovalFor` / `ResolveAllFor(sessionID,
+  …)` so auto-approval and "resolve all" only touch that session's pending requests
+  (a request with no session attribution deliberately falls back to the process
+  switch instead of guessing a session). Auto-approval now answers `"allow"` instead
+  of `"always"`: full access is a session-scoped, revocable mode, so it must not
+  leave a permanent allow rule in the shared checker that keeps auto-approving other
+  sessions after the user turns full access off — persistent rules are only created
+  by an explicit `always`. `Service.SetFullAccess` / `Bridge.SetFullAccess` return the
+  **effective** value and the toggle renders that receipt instead of inverting the
+  stale local flag (a snapshot one revision behind turned "enable" into "disable"),
+  and `syncFullAccessFor(sessionID)` writes only that session's gate cell.
+- Plan work-table rows show their DAG dependencies. `plan_load` produces a flat node
+  list plus an edge set, and plan rows have no parent in the work table (dependencies
+  were derived only from tree parents), so the dependency column was permanently
+  empty and users could not see what a node was waiting for. `planDependencies` maps a
+  node's in-edges (`plan.Edges` with `To == node`) to `plan:<predecessor>` dependency
+  IDs, `mergeWorkDependencies` merges registered and derived dependencies (dedup,
+  stable sort for deterministic UI and tests, `nil` when empty so the JSON
+  `omitempty` surface still holds), and both publish paths use it — the full
+  `buildWorkTable` and the single-row `task.changed` increment
+  (`workItemForRecord(record, sessionID)` reads the session's active plan), so an
+  incremental update can no longer blank the column. `planNodeIDFor` takes the
+  record's `SourceID` and falls back to the `plan:` prefix for older records without
+  one.
+- Effort switching is steady state again: `SwitchEffort` publishes a full
+  `runtime.changed` payload instead of `nil` (a nil payload is classified as "cannot
+  apply incrementally" and forces a whole-snapshot refresh, which showed up as a
+  stuttering effort control and a flickering skill list); switching plugins
+  re-applies the user's current effort level instead of rebuilding the
+  `EffortManager` (a rebuild was silently overwritten by the default `high`); and the
+  effort entry is disabled during a running turn with an explanation, because the
+  backend is required to reject the change (G0b/INV-G7) rather than letting the user
+  drag it and see a failure toast afterwards.
 
 ### Known issues
 

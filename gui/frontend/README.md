@@ -21,7 +21,7 @@
 | `dist/themes/` | 内置皮肤包 + `manifest.json`：皮肤只覆盖语义 token（契约与 token 清单见 `themes/README.md`），不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`。版本与许可登记见 `vendor/README.md`。 |
 | `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
-| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**拆成「员工栏」（谁在编 / 类型 / 独立会话 / 入职时机 / 工具策略）与「Team 栏」（装配形态 / 顺序策略 / 工作顺序 / 发言调度 / 定时 agent）两块**，两栏都是条目化表格（`team-table` + `team-table-row`，`role=table` 语义），不再是 chip 混排的自由布局。数据源是 Application API（`Bridge.AgentTeamPresets/View/Materialize/PutRole/DeleteRole/SetOrder`）。顺序的唯一事实是会话 `lifecycle.order_policy/order_roles`，本模块不缓存顺序、不做乐观重排——每次动作后重拉视图。 |
+| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**分成「团队库」小表（内置形态以模板行列出，可装配 / 存入库 / 编辑 / 删除 / 新建团队）、「全局母本」（员工库 + 默认顺序 + 会话副本差异 + 「顺序设为默认」/「确认·普及搭配到全局」）、「员工栏」（在编员工 + 发言顺序，行首 ≡ 直接拖拽调序，显示类型 / 位置 / 权限 / 提示词 chip）、「Team 栏」（装配参数 / 发言调度 / 定时 agent）**；入职与修改员工、新建与编辑团队都是**冷加载面板**（`hirePanel` / `teamEditorPanel`，点 + 或编辑才注入 slot，带 ✕ / Esc 关闭）。数据源是 Application API（`Bridge.AgentTeamPresets/View/Library/GlobalConfig/SaveTeam/SaveCurrentTeam/DeleteTeam/MaterializeTeam/PutRole/DeleteRole/SetOrder/InstantiateRole/SaveEmployee/DeleteEmployee/SetDefaultOrder/PublishToGlobal/OptimizePrompt`）。各份事实各有归属：发言顺序 = 会话 `lifecycle.order_policy/order_roles`，员工配置（提示词/权限）= 会话角色注册表，团队库 / 员工库 / 默认顺序 = **全局**母本（数据根下 `team/`，会话读的是深拷贝副本）；本模块不缓存顺序、不做乐观重排——每次动作后重拉视图（纯函数 `nextAgentTeamOrder` / `agentTeamOrderForDrag` / `teamGlobalDrift` 供共用）。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
@@ -184,6 +184,57 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 后端 64 MiB 硬钳制）→ 按扩展名分派渲染（见 `file-preview.js`）；预览属当前
 工作区，工作区切换时抽屉随树清空；截断文件明确提示、分页类（PDF/Word/图片）
 超限放弃渲染而非半截展示。历史检索保留在 `#side-more` 折叠区常驻。
+
+### Agent Team 面板（员工 / 团队库 / 全局母本 / 冷加载编辑）
+
+面板分四块，交互口径与事实源如下（用户口径：团队不要散装、顺序在员工栏直接调、
+入职与修改走冷加载面板、母本全局而会话读深拷贝副本）：
+
+- **团队库（小表）**：一行一支团队，列为 团队 / 形态 / 规模 / 操作；内置形态
+  （`goal-a2a` 等）以"内置"模板行列出，可「装配」或「存入库」（存入库是显式
+  动作，读路径不会偷偷把 preset 写成用户数据）。「存当前会话」把当前会话在编
+  员工（含提示词/权限/顺序）原样存成一支团队；「+ 新建团队」开冷加载面板：
+  团队名 / 团队 ID / 形态 / 顺序策略 / 成员（每行一个角色名，发言顺序按行序），
+  可「从当前会话」或点内置形态名一键带入。团队库是**全局**事实
+  （数据根 `<root>/team/library.json`，跨项目/跨会话复用），与会话内的员工表是
+  两份不同的东西；「装配」= 库条目 → `TeamSpec` → 同一套工厂（建角色会话 + 写
+  会话员工表 + 写 `lifecycle` 顺序）。
+- **全局母本**：员工库（`<root>/team/employees.json`）表 + 默认顺序
+  （`<root>/team/order.json`）+ 会话副本差异提示。母本与会话副本（本会话在编员工
+  表 + `lifecycle` 顺序）并列展示；「顺序设为默认」只写默认顺序，
+  「确认·普及搭配到全局」把会话副本的 {员工, 顺序} 回写母本（员工库 upsert +
+  默认顺序 + 一条团队库条目）。旧宿主不下发母本时整块隐藏，不伪造按钮。
+- **员工栏（在编员工 + 发言顺序）**：行首 `≡` 是拖拽条，把员工拖到另一行之前
+  （或拖到底部"顺序末尾"落区）即提交整份 `order_roles`；`↑ / ↓ / ✕` 保留为键盘
+  与无障碍兜底（同一提交路径，纯函数 `agentTeamOrderForDrag` / `nextAgentTeamOrder`
+  决定新顺序，非法动作返回 null 不提交）。行内 `权限` / `提示词` chip 是登记值
+  的只读投影。
+- **冷加载面板**：`+ 入职` / `编辑` 打开的「入职 / 修改员工」面板与 `+ 新建团队`
+  / `编辑` 打开的「新建 / 编辑团队」面板默认都不渲染——只有 `data-team-hire-slot`
+  / `data-team-team-slot` 两个隐藏占位；点开才注入表单，`✕` / 取消 / Esc 关闭。
+  员工字段：角色名（修改态只读）、类型、入职时机、**权限（`tools_policy`）**、
+  模型、在席策略、**员工提示词**。填写值来自 `TeamView.members` 的登记回读，
+  因此一次编辑不会把提示词/权限清空。
+- **提示词优化**：员工面板里的「优化提示词」按钮调 `Bridge.AgentTeamOptimizePrompt`
+  （一次有界 LLM 回合），结果只渲染成候选 + 改动理由，点「应用到提示词」才写回
+  输入框；落盘仍走「入职 / 保存修改」。
+- **权限边界（如实标注）**：`tools_policy` 目前是**登记 + 展示**——值随角色注册表
+  落盘并在员工栏可见，运行时按角色的工具拦截尚未接线（真正拦截在 seelebridge
+  `PermissionGate`，按会话/全局）。
+
+### 页签与折叠口径（2026-09 交互改版）
+
+- **选中页签 = 纸质笔记本书签（拟物）**：`.right-tab.is-active` 不再是下划线，
+  而是从栏脊上探出的纸色票签（顶部高光 + 底部 `clip-path` 尖角 + 投影），未选
+  中的页保持平面文字；样式集中在 `styles.css` 第 19 节（`.right-tabs` 一节）。
+- **状态 / 账户 / Agent Team 三个折叠块默认收起**：`index.html` 里
+  `#status-panel`、`#accounts-section`、`#team-section` 都不带 `open`，展开才拉
+  数据（Agent Team 的 `toggle` 事件仍触发一次 `refreshAgentTeam`）。避免右栏一
+  进来就被三张长表占满。
+- **对话里的 EXEC / ADVISOR 分区**：两个 agent 的 provider role 都是
+  `assistant`，`components.js` 按 `role_name` 给消息加 `is-exec` / `is-advisor`
+  类，`styles.css` 第 20 节据此给不同的背景带与左侧色条（EXEC 冷钢蓝、ADVISOR
+  暖黄）；无归属的普通 assistant 不套背景带，观感不变。
 
 ## 定时周期任务
 

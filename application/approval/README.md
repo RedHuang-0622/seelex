@@ -11,7 +11,9 @@
 - `ApprovalBroker`：维护待决请求表，以 request ID 关联等待方和 UI 决议。
 - `SetObserver`：把当前 Interaction 投影给 Application Snapshot。
 
-`Request` 注册 pending request、发布打开事件并等待 context、timeout、Resolve 或 Shutdown；`Resolve` 保证请求只完成一次；`ResolveAll` 用同一显式决议原子摘取并释放全部当前 pending request。Full Access 还通过 `PermissionRequest` + `SetPermissionAutoApproval` 覆盖“切换发生在权限检查与入队之间”的窄竞态；非 permission 的 Plan/manual 审批不会被自动放行。
+`Request` 注册 pending request、发布打开事件并等待 context、timeout、Resolve 或 Shutdown；`Resolve` 保证请求只完成一次；`ResolveAll` / `ResolveAllFor(sessionID, …)` 用同一显式决议原子摘取并释放（指定会话的）全部当前 pending request。Full Access 还通过 `PermissionRequest` + `SetPermissionAutoApproval` / `SetPermissionAutoApprovalFor(sessionID, …)` 覆盖“切换发生在权限检查与入队之间”的窄竞态；非 permission 的 Plan/manual 审批不会被自动放行。
+
+**全权的会话归属**：自动放行与“全部放行”都按会话解析——`SetPermissionAutoApprovalFor` 只影响指定会话，`ResolveAllFor` 只结该会话的待批；空会话 ID = 进程级/无归属 legacy 面，不替请求猜会话（否则 A 会话点全权会替 B 会话的工具点头）。自动放行返回 `allow` 而不是 `always`：全权是会话级、可撤销的模式，不能在共享 checker 里留一条永久 allow 规则（用户关掉全权后仍会在别的会话静默生效）；持久 `always` 规则只由用户显式选择建立。回归：`approval_session_isolation_test.go`。
 
 ## 生态位与边界
 

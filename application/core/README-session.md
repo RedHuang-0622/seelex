@@ -262,6 +262,12 @@
 - `func TestForkSessionDeepCopyIsolation(t *testing.T)` — TestForkSessionDeepCopyIsolation（T2.7）：fork 子会话 record 与父数据面
 - `func TestForkSessionRejectsRunningParent(t *testing.T)` — TestForkSessionRejectsRunningParent（UC5）：父会话运行中拒绝 fork。
 
+### session_fullaccess_isolation_test.go
+
+- `func waitPendingApprovalsFor(t *testing.T, service *Service, sessionID string, want int)` — waitPendingApprovalsFor 等待指定会话的待批审批数达到 want。
+- `func TestProbeFullAccessToggleStaysWithinViewSession(t *testing.T)` — TestProbeFullAccessToggleStaysWithinViewSession：视图会话点全权只影响自己。
+- `func TestProbeFullAccessSurvivesBackgroundSessionStartSync(t *testing.T)` — TestProbeFullAccessSurvivesBackgroundSessionStartSync：别的会话起跑
+
 ### session_fullaccess_test.go
 
 - `func TestFullAccessOwnershipPerSession(t *testing.T)` — TestFullAccessOwnershipPerSession（G4）：fullAccess 选择归属进 SessionUnit
@@ -462,7 +468,7 @@
 - `func (service *Service) effortForSession(sessionID string) string` — effortForSession 返回指定会话生效的 effort 级别（G4：Unit 内选择优先；
 - `func (service *Service) syncPlanPolicyFor(sessionID string)` — syncPlanPolicyFor 按会话 effort 向引擎写入该会话的 plan 策略槽（G1-C：
 - `func (service *Service) fullAccessForSession(sessionID string) bool` — fullAccessForSession 返回指定会话生效的全权模式（G4：Unit 内选择优先；
-- `func (service *Service) syncFullAccessFor(sessionID string)` — syncFullAccessFor 按会话全权模式同步引擎门（G4：chat 起点调用，保证每个
+- `func (service *Service) syncFullAccessFor(sessionID string)` — syncFullAccessFor 按会话全权模式同步执行门（G4：chat 起点调用，保证每个
 - `func (service *Service) anyChatRunningLocked() bool` — anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 - `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态写入会话 view（阶段 1：
 - `func queuedChatRequests(requests []session.QueuedRequest) []chatRequest` — queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的

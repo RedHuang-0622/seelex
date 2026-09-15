@@ -182,6 +182,50 @@ Seelex 采用同样边界：AgentTeam 的 active/floor/presence 是运行态或 
 - 角色配置：system prompt、模型/账号、工具面、mirror 策略、directive schema；
 - subagent：只出现在执行/worktable 分区，不出现在 AgentTeam 成员表。
 
+### 7.1 已落地的管理面（2026-09 实现复核）
+
+上文是目标口径，这一节写**当前代码事实**（别把"登记了"读成"生效了"）：
+
+- **存储分成三份事实，各有唯一写者**：
+
+  | 事实 | 落点 | 作用域 |
+  |---|---|---|
+  | 会话在编员工（含提示词/权限） | `session/team/roles.json`（整份原子替换） | 会话（母本副本） |
+  | 发言顺序 | `metadata/lifecycle.json` 的 `order_policy`/`order_roles` | 会话（母本副本） |
+  | 团队模板库 | `<root>/team/library.json`（整份原子替换） | **全局** |
+  | 员工库（可复用员工名册） | `<root>/team/employees.json`（整份原子替换） | **全局** |
+  | 默认顺序 | `<root>/team/order.json`（整份原子替换） | **全局** |
+
+  全局母本（团队库 + 员工库 + 默认顺序）落在数据根 `<root>/team/`，不随项目/会话
+  分目录。**并发口径**：母本的写只有两条路径——库管理动作（直接写全局）与
+  「确认·普及搭配到全局」（把会话副本的 {员工, 顺序} 回写母本）；会话内的入职/改序
+  只写会话副本（registry + lifecycle head），读也在会话侧按深拷贝副本进行，因此
+  并发会话不争全局写锁。旧的项目级团队库（`project-<hash>/teams/library.json`）
+  只做只读回退：不搬数据、不删旧文件，回退内容在下一次整份写入里自然并入全局。
+
+  团队库条目的装配 = `entry → TeamSpec → Factory.Materialize`（建角色会话 + 写
+  `roles.json` + 写 `lifecycle`），因此"新建团队"与"员工入职"复用同一套落盘通道，
+  不产生第二份顺序或角色事实。
+
+- **提示词装配已生效（ADVISOR/TL 路径）**：`RoleSpec.SystemPrompt` 经装配根注入的
+  读面进入 ADVISOR 回合；登记了就用登记的，未登记用内置角色设定，**输出契约永远
+  追加**（goal 域要解析 `TLDirective`）。其余角色的提示词目前只是登记事实
+  （没有执行者就没有回合）。
+
+- **权限是登记 + 展示**：`tools_policy` 随注册表落盘并在管理面回读，运行时按角色
+  的工具拦截**尚未接线**（真正的拦截在 seelebridge `PermissionGate`，按会话/全局）。
+  这条边界必须保持在 UI 与文档里，否则用户会以为改完就生效。
+
+- **提示词优化是一次有界 LLM 回合**：只产出候选文本 + 改动理由，不写会话消息、
+  不落盘；落盘仍由用户在"入职/保存"里确认。
+
+- **前端交互口径**：员工栏即发言顺序（行首 `≡` 拖拽调序，`↑/↓/✕` 为键盘兜底）；
+  入职/修改员工、新建/编辑团队都是冷加载面板（点 + 或编辑才渲染，`✕`/Esc 关闭）；
+  团队用一张小表管理（内置形态以模板行列出）；「全局母本」块列出员工库 + 默认顺序 +
+  会话副本差异与「确认·普及搭配到全局」；对话区按 `role_name` 给 EXEC / ADVISOR
+  不同的背景分区（AT11 的可视化落点）。
+
+
 ## 8. Goal TL 的泛化迁移
 
 当前 `application/core/goal` 的 `Supervisor`/`AdvisorSession` 是可运行的第一实例；
@@ -216,6 +260,18 @@ AT11 可见会话消息（前端 snapshot.conversation）必须携带 role_name/
      渲染轮次徽标；缺这段归属时前端只能回退 AGENT，两个 teammate 不可辨。
      ADVISOR 的回合原文按 assistant 行 + role_name=tl 发布（不是 system 行），
      实时流式、工具轮续写正文、冷恢复重建三条路径同口径
+AT12 团队库（`<root>/team/library.json`）、员工库（`<root>/team/employees.json`）与
+     默认顺序（`<root>/team/order.json`）是**全局**母本；会话在编员工表
+     （`session/team/roles.json`）+ lifecycle 顺序是它的**深拷贝副本**。装配只能从
+     库条目派生 TeamSpec 再走 Factory，不允许把库条目直接当成员表读，也不允许在库
+     读路径上隐式落盘
+AT13 角色提示词（`RoleSpec.SystemPrompt`）属用户登记事实，只能经装配注入的读面
+     进入角色回合；回合的输出契约由宿主固定追加，员工提示词改不掉它；权限字段
+     （`tools_policy`）在接线运行时拦截之前只能作登记与展示，UI/文档必须如实标注
+AT14 母本的写只有两条路径：库管理动作（直接写全局）与「确认·普及搭配到全局」
+     （会话副本 → 母本）；会话内的入职/改序只改会话副本，绝不动母本。旧的项目级
+     团队库只做**只读回退**：不搬数据、不删旧文件，回退内容在下一次整份写入里自然
+     并入全局
 ```
 
 ## 10. 参考

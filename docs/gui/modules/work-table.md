@@ -150,7 +150,13 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
   发送侧按内容签名去重，避免运行期树把表格增量撑大）。
 - WorkItem ID 稳定键：`plan:<id>` / `todo:<index>` / `subagent:<id>` /
   `task:<n>`；Dependency 引用同命名空间的 WorkItem ID；BatchID 引用批次头
-  ID（空串 = 早期会话）。
+  ID（空串 = 早期会话）。plan 行的 Dependency 取自 **Plan DAG 的入边**：
+  `plan_load` 产出平铺节点 + 边集、plan 行没有父节点，只靠树形父子推导会
+  恒为空，因此 `planDependencies` 取 `PlanState.Edges` 中 `To == 本节点` 的边
+  映射成 `plan:<前置节点>`，`mergeWorkDependencies` 再与注册表记录合并
+  （去重 + 稳定排序，空结果返回 `nil`）；整表投影（`buildWorkTable`）与
+  `task.changed` 单行增量（`workItemForRecord` 读该会话 plan 投影）同源，
+  增量更新不会把依赖列擦空。
 - 行内打点上限：`workTableTraceLimit = 10`（概览最近 10 条；完整时间线仍
   在详情弹窗，上限 `limits.plan_node_events`）。
 

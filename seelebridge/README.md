@@ -33,6 +33,8 @@ Runtime，同时隔离上游 API 变化。
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `tools/computer/tools*.go`） |
 | `runtime_image.go` | 随图链路：`AttachImage`/`PendingImageCount`/`wrapImageAttachments`（至多送一次）+ 截图媒体落盘与按 ref 读回（`storeSessionMedia`/`loadSessionMedia`/`mediaProjectIDFor`） |
+| `runtime_role_prompt.go` | 员工提示词的装配读面与一次有界优化：`SetRolePromptProvider`/`rolePromptFor`（ADVISOR 回合取已登记提示词，未登记回退内置；装配根在 `main.go` 注入）+ `OptimizeRolePrompt`（实现 `contract.RolePromptPort`，只产出候选、不落盘、不写会话消息） |
+| `runtime_goal_tl.go` | goal 域 `TLEvaluator` 的真实实现（主 completer + `TLDirective` JSON 契约）；ADVISOR 角色设定优先取已登记的员工提示词，**输出契约永远追加**（登记提示词改不掉解析格式） |
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
 
 ## 子包结构

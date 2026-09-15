@@ -20,10 +20,16 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (g *goalCoordinator) Update(ctx context.Context, sessionID string, request goaldomain.UpdateRequest) (*goaldomain.GoalRecord, error)` — Update 更新栈顶（会话路由）。
 - `func (g *goalCoordinator) ProposeFinish(ctx context.Context, sessionID string, request goaldomain.FinishRequest) (goaldomain.FinishProposalResult, error)` — ProposeFinish 送终态 gate（TL 缺席时 OutcomeNoTL 直连收口；B4）。
 - `func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal goaldomain.TLEvalSignal) error` — Notify 登记 a 事件（exec 账本；触发策略见 Supervisor）。
-- `func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error)` — Next 推进治理循环一轮（惰性装配 EXEC+ADVISOR 双座位；返回 false = 收束）。
+- `func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error)` — Next 推进治理循环一轮（惰性装配座位；返回 false = 收束）。
 - `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error` — AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
+- `func (g *goalCoordinator) teamRuntimeFor(sessionID string) *agentteam.Runtime` — teamRuntimeFor 取该会话的团队发言调度运行态（未装配团队环 → nil）。
 - `func goalLoopRoundLimit(configured int) int` — goalLoopRoundLimit 把配置值解析成实际生效的轮次上限。
-- `func (g *goalCoordinator) newGovernor(runtime *goalSessionRuntime) govern.Governor` — newGovernor 装配 EXEC+ADVISOR 双座位（EXEC 由外部 ChatStream 驱动，
+- `func (g *goalCoordinator) newGovernor(sessionID string, runtime *goalSessionRuntime) govern.Governor` — newGovernor 装配治理循环座位。座位的**存在性**由团队工作顺序（链表）决定：
+- `func orderSeats(seats []govern.Seat) []govern.Seat` — orderSeats 把座位按 EXEC → ADVISOR 归位（同 kind 保持链表次序）。
+- `func (g *goalCoordinator) teamOrderFor(sessionID string) []string` — teamOrderFor 读该会话团队环的链表顺序（未装配团队环 → nil）。
+- `func (s teamRoleSeat) Name() string`
+- `func (s teamRoleSeat) Kind() govern.AgentKind`
+- `func (s teamRoleSeat) Act(ctx context.Context) (govern.TurnAction, error)`
 - `func (g *goalCoordinator) Break(_ context.Context, sessionID, reason string) error` — Break 外部中断治理循环（无 Governor 时报错，对齐 headless 未装配语义）。
 - `func (g *goalCoordinator) setEvaluator(evaluator goaldomain.TLEvaluator)` — setEvaluator 装配/替换 TL 评估器：更新后续会话 bundle 构造输入，并为已
 - `func (g *goalCoordinator) StatusFor(sessionID string) goaldomain.StatusView` — StatusFor 返回会话 goal 栈全量视图（无 bundle 时返回空视图）。
@@ -45,6 +51,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 
 - `func TestGoalLoopRoundLimitDefaults(t *testing.T)` — TestGoalLoopRoundLimitDefaults：治理循环的轮次上限解析——未配置（0）时落到
 - `func TestGoalGovernanceViewCarriesRoundLimit(t *testing.T)` — TestGoalGovernanceViewCarriesRoundLimit：治理视图必须把轮次上限一并下发——
+- `func TestTeamRuntimeSharesGovernorRoundLimit(t *testing.T)` — TestTeamRuntimeSharesGovernorRoundLimit：团队环的逃生上限与 Governor 的
 
 ### goal_service.go
 

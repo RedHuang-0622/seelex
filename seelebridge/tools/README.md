@@ -34,7 +34,7 @@ runtime ──► tools.Router（scoped 工具）
   会话的项目根（工作区污染回归见 `router_session_root_test.go`）。
 - `RegistryState`：framework registry 包装 + `InlineProvider` 累积
   RegisterTool 产品工具（重名覆盖、快照重建）。
-- `PermissionGate`：middleware 闭包捕获，运行时原子更新。
+- `PermissionGate`：middleware 闭包捕获，运行时原子更新。全权门**按会话解析**（`SetFullAccessFor` / `FullAccessFor` / `effectiveFullAccessLocked`，空会话 ID = 进程级 legacy 面）：middleware 由执行 ctx 取会话（`SessionFromContext`）后判定，所以 A 会话点全权不会放行 B 会话的工具，B 会话 chat 起点同步（`syncFullAccessFor`）也只写自己那一格、不会关掉 A 会话的全权（回归见 `permission_session_isolation_test.go`、`permission_state_test.go`）。
 - `computer/`（子包）：桌面 computer use 原语 + Seelex 侧工具族（`computer_*`）；
   工具面只依赖注入闭包（注册面/媒体分区/随图队列），原语平台无关桩保持跨平台
   可编译。输入注入类工具对子代理不可见（见 `policy.go` 的
