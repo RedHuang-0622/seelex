@@ -139,3 +139,67 @@ func TestGoalCoordinatorAdvanceAfterChatTLDisabledNoError(t *testing.T) {
 		t.Fatalf("TL 缺席不应阻塞回合结束: %v", err)
 	}
 }
+
+// TestGoalCoordinatorRoutineVerdictDoneClosesGoal 钉住 2026-09-15 seq-5389 的
+// 缺口：常规治理回合（AdvanceAfterChat → advisor 座位）的 verdict_done 必须
+// 直接把 goal 收口出栈，治理视图随即 Active=false。修复前它只断 governor、
+// goal 停在 active —— 面板永远"执行中"，loop 不结束。
+func TestGoalCoordinatorRoutineVerdictDoneClosesGoal(t *testing.T) {
+	coordinator := newGoalCoordinator(goalCoordinatorDeps{
+		Evaluator: &stubTLEvaluator{directives: []goaldomain.TLDirective{{
+			Kind: goaldomain.DirectiveVerdictDone, Content: "验收通过，收口",
+		}}},
+	})
+	ctx := context.Background()
+	if _, err := coordinator.Begin(ctx, "session-done", goaldomain.BeginRequest{Title: "收口目标"}); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if err := coordinator.AdvanceAfterChat(ctx, "session-done", "本轮工作正文"); err != nil {
+		t.Fatalf("advance: %v", err)
+	}
+	if status := coordinator.StatusFor("session-done"); status.Active != nil {
+		t.Fatalf("routine verdict_done 后 goal 应已出栈, 仍 active: %+v", status.Active)
+	}
+	if view := coordinator.GoalGovernanceViewFor("session-done"); view == nil || view.Active {
+		t.Fatalf("治理视图应转为 Active=false: %+v", view)
+	}
+	// 收口后 session 处于空闲治理态：再推进不应报错，也不该复活 goal。
+	if err := coordinator.AdvanceAfterChat(ctx, "session-done", "空跑"); err != nil {
+		t.Fatalf("收口后推进不应报错: %v", err)
+	}
+	if status := coordinator.StatusFor("session-done"); status.Active != nil {
+		t.Fatalf("收口后不应复活 goal: %+v", status.Active)
+	}
+}
+
+// TestGoalCoordinatorBeginResetsBrokenGovernor 验证新 goal 拿回治理循环：
+// 上一个 goal 收口断环后，同会话 begin 新 goal 仍能跑 ADVISOR 回合
+// （不会因旧 governor 已断环而恒 0 轮、永不出裁决）。
+func TestGoalCoordinatorBeginResetsBrokenGovernor(t *testing.T) {
+	coordinator := newGoalCoordinator(goalCoordinatorDeps{
+		Evaluator: &stubTLEvaluator{directives: []goaldomain.TLDirective{
+			{Kind: goaldomain.DirectiveVerdictDone, Content: "第一个目标收口"},
+			{Kind: goaldomain.DirectiveCorrect, Content: "继续推进"},
+		}},
+	})
+	ctx := context.Background()
+	if _, err := coordinator.Begin(ctx, "session-regoal", goaldomain.BeginRequest{Title: "目标一"}); err != nil {
+		t.Fatalf("begin#1: %v", err)
+	}
+	if err := coordinator.AdvanceAfterChat(ctx, "session-regoal", "工作一"); err != nil {
+		t.Fatalf("advance#1: %v", err)
+	}
+	if status := coordinator.StatusFor("session-regoal"); status.Active != nil {
+		t.Fatalf("目标一应已收口: %+v", status.Active)
+	}
+	if _, err := coordinator.Begin(ctx, "session-regoal", goaldomain.BeginRequest{Title: "目标二"}); err != nil {
+		t.Fatalf("begin#2: %v", err)
+	}
+	if err := coordinator.AdvanceAfterChat(ctx, "session-regoal", "工作二"); err != nil {
+		t.Fatalf("advance#2: %v", err)
+	}
+	directives := coordinator.DrainDirectives("session-regoal")
+	if len(directives) == 0 || directives[len(directives)-1].Content != "继续推进" {
+		t.Fatalf("新 goal 应能跑 ADVISOR 回合（旧 governor 已重置）: %+v", directives)
+	}
+}

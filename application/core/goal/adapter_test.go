@@ -135,3 +135,56 @@ func TestAdvisorSeatDisabledReportsTLDisabled(t *testing.T) {
 		t.Fatalf("无评估器时 Act 应返回 ErrTLDisabled, 得 %v", err)
 	}
 }
+
+// TestAdvisorSeatVerdictDoneClosesGoal 验证**常规治理回合**的终态裁决同样收口
+// （design §5 逃生口）：advisor 座位产出 verdict_done → 既请求断环，也把 goal
+// 收口出栈。若只断环不收口，goal 会停在 active（治理视图永远"执行中"，loop
+// 不结束），这是 2026-09-15 seq-5389 观测到的缺口。
+func TestAdvisorSeatVerdictDoneClosesGoal(t *testing.T) {
+	ctl := newTestController(t, DefaultStackDepth)
+	stub := newStubEvaluator(TLDirective{Kind: DirectiveVerdictDone, Content: "全绿收口"})
+	sup := NewSupervisor(ctl, stub, TechLeaderConfig{Enabled: true, EvalWindow: 0})
+	if _, err := ctl.Begin(testCtx, BeginRequest{Title: "发布 v1"}); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	seat := NewAdvisorSeat(sup, "")
+	action, err := seat.Act(context.Background())
+	if err != nil {
+		t.Fatalf("act: %v", err)
+	}
+	if !action.BreakLoop {
+		t.Fatalf("verdict_done 应请求断环")
+	}
+	if active, ok := ctl.ActiveGoal(); ok {
+		t.Fatalf("verdict_done 后 goal 应已出栈, 仍 active: %+v", active)
+	}
+	if history := ctl.History(); len(history) != 1 || history[0].Status != StatusCompleted {
+		t.Fatalf("历史应含 1 条 completed 记录: %+v", history)
+	}
+}
+
+// TestAdvisorSeatNonTerminalKeepsGoal 钉住反向：非终态裁决（verdict_not_done）
+// 不动 goal、不打断循环——EXEC 继续执行。
+func TestAdvisorSeatNonTerminalKeepsGoal(t *testing.T) {
+	ctl := newTestController(t, DefaultStackDepth)
+	stub := newStubEvaluator(TLDirective{Kind: DirectiveVerdictNotDone, Content: "缺负路径单测"})
+	sup := NewSupervisor(ctl, stub, TechLeaderConfig{Enabled: true, EvalWindow: 0})
+	if _, err := ctl.Begin(testCtx, BeginRequest{Title: "发布 v1"}); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	seat := NewAdvisorSeat(sup, "")
+	action, err := seat.Act(context.Background())
+	if err != nil {
+		t.Fatalf("act: %v", err)
+	}
+	if action.BreakLoop {
+		t.Fatalf("verdict_not_done 不应断环")
+	}
+	active, ok := ctl.ActiveGoal()
+	if !ok || active == nil || active.Status != StatusActive {
+		t.Fatalf("非终态裁决后 goal 应保持 active: %+v", active)
+	}
+	if history := ctl.History(); len(history) != 0 {
+		t.Fatalf("非终态裁决不应产生收口历史: %+v", history)
+	}
+}

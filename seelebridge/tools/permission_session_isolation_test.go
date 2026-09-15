@@ -30,7 +30,7 @@ func newFullAccessProbe() (*PermissionGate, frameworktools.ToolHandler, *int) {
 		Rules: []toolspermission.PermissionRule{{ToolName: "bash", Action: toolspermission.ActionDeny}},
 	}, nil)
 	ran := new(int)
-	handler := state.Middleware(time.Minute)("bash", frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
+	handler := state.Middleware(time.Minute)("bash", frameworktools.ToolMeta{}, frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
 		*ran++
 		return "ok", nil
 	}))

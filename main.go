@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/console"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
@@ -34,6 +35,7 @@ import (
 	"github.com/RedHuang-0622/seelex/plugin"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	"github.com/RedHuang-0622/seelex/seelebridge/search"
+	seeltools "github.com/RedHuang-0622/seelex/seelebridge/tools"
 	"github.com/RedHuang-0622/seelex/seelebridge/tools/websearch"
 	"github.com/RedHuang-0622/seelex/seelexctx"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
@@ -247,6 +249,30 @@ func run() error {
 			return ""
 		}
 		return prompt
+	})
+	// 员工权责接线：把"角色会话 → ToolsPolicy"的读面注入权限门。员工的工具调用
+	// 因此判成 emp_ro / emp_rw 主体：位齐按组默认/规则走，位缺（违权）走执行选择
+	// 页面提权（人类的选择页 = sudo 口令）。员工角色会话之前，员工回合执行面尚未
+	// 落 framework Session（只有 tl 的 ADVISOR 回合，且它不持工具），这条读面先接上，
+	// 执行面一旦落到同一注册表即自动受管辖。
+	runtime.SetRoleSessionPolicyResolver(func(roleSessionID string) (string, bool) {
+		if strings.TrimSpace(roleSessionID) == "" {
+			return "", false
+		}
+		sessionID := app.Snapshot().Session.ID
+		if sessionID == "" {
+			return "", false
+		}
+		view, err := app.AgentTeamView(sessionID)
+		if err != nil {
+			return "", false
+		}
+		for _, member := range append(append([]dto.TeamMember(nil), view.Members...), view.Scheduled...) {
+			if member.RoleSessionID == roleSessionID {
+				return member.ToolsPolicy, true
+			}
+		}
+		return "", false
 	})
 	if tlEvaluator := runtime.GoalTLEvaluator(); tlEvaluator != nil {
 		app.SetGoalTLEvaluator(tlEvaluator)
@@ -1174,26 +1200,47 @@ type permissionRuntime interface {
 }
 
 // setupPermissionGate 根据 -permission 标志安装权限门控。
-// 始终先安装 manual 基线，保证从 full_access 切回时能够恢复白名单与审批桥；
+// 起始先装 manual 权责基线（分组 + 主体 + 缺位口径 + 默认规则），config/seele.yaml
+// 的 permission 段按字段覆盖它（缺失/为空的字段保持默认，不再整体替换规则集）。
 // full_access 仅作为运行时覆盖层启用。
 func setupPermissionGate(runtime permissionRuntime, approval *application.ApprovalBroker) error {
 	mode, err := parsePermissionMode(*permissionMode)
 	if err != nil {
 		return err
 	}
-	cfg := toolspermission.PermissionConfig{Mode: toolspermission.ModeManual, Rules: defaultManualRules()}
-	// config/seele.yaml 的 permission 段（权限专用文件）：存在有效规则时覆盖
-	// 内置白名单；缺失/为空回退默认白名单。
-	if fileRules, loadErr := loadPermissionRules(firstExisting("config/seele.yaml", "seele.yaml")); loadErr != nil {
-		return loadErr
-	} else if len(fileRules) > 0 {
-		cfg.Rules = fileRules
+	cfg := seeltools.DefaultPermissionConfig()
+	fileCfg, err := loadPermissionConfig(firstExisting("config/seele.yaml", "seele.yaml"))
+	if err != nil {
+		return err
 	}
-	runtime.SetPermissionConfig(cfg, newPermissionBridge(approval))
+	runtime.SetPermissionConfig(mergePermissionConfig(cfg, fileCfg), newPermissionBridge(approval))
 	if mode == toolspermission.ModeFullAccess {
 		runtime.SetFullAccess(true)
 	}
 	return nil
+}
+
+// mergePermissionConfig 把 seele.yaml 的 permission 段叠加到默认权责配置上：只覆盖
+// 显式给出的字段，其余保持默认——分组表与主体授权表是产品口径（谁能用哪一族工具），
+// 不该因为一份只写了规则的旧配置就整块消失（那会让每个主体都变成"无授权"）。
+func mergePermissionConfig(base, override toolspermission.PermissionConfig) toolspermission.PermissionConfig {
+	merged := base
+	if len(override.Rules) > 0 {
+		merged.Rules = override.Rules
+	}
+	if len(override.Groups) > 0 {
+		merged.Groups = override.Groups
+	}
+	if len(override.Subjects) > 0 {
+		merged.Subjects = override.Subjects
+	}
+	if override.MissingBit != "" {
+		merged.MissingBit = override.MissingBit
+	}
+	if override.Mode != "" {
+		merged.Mode = override.Mode
+	}
+	return merged
 }
 
 // defaultManualRules 是 manual 模式的默认白名单（seele.yaml 未配置规则时回退）。
@@ -1232,25 +1279,24 @@ func defaultManualRules() []toolspermission.PermissionRule {
 	}
 }
 
-// loadPermissionRules 读取 seele.yaml 的 permission.rules（权限专用文件）。
-// 文件缺失或 permission 段缺失 → 空规则列表（回退默认白名单）；解析失败显式报错。
-func loadPermissionRules(path string) ([]toolspermission.PermissionRule, error) {
+// loadPermissionConfig 读取 seele.yaml 的 permission 段（权限专用文件）：rules /
+// groups / subjects / missing_bit / mode。文件缺失或 permission 段缺失 → 零值配置
+// （mergePermissionConfig 保持默认）；解析失败显式报错。
+func loadPermissionConfig(path string) (toolspermission.PermissionConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []toolspermission.PermissionRule{}, nil
+			return toolspermission.PermissionConfig{}, nil
 		}
-		return nil, fmt.Errorf("permission: read config: %w", err)
+		return toolspermission.PermissionConfig{}, fmt.Errorf("permission: read config: %w", err)
 	}
 	var file struct {
-		Permission struct {
-			Rules []toolspermission.PermissionRule `yaml:"rules"`
-		} `yaml:"permission"`
+		Permission toolspermission.PermissionConfig `yaml:"permission"`
 	}
 	if err := yaml.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("permission: parse config: %w", err)
+		return toolspermission.PermissionConfig{}, fmt.Errorf("permission: parse config: %w", err)
 	}
-	return file.Permission.Rules, nil
+	return file.Permission, nil
 }
 
 func parsePermissionMode(value string) (toolspermission.Mode, error) {

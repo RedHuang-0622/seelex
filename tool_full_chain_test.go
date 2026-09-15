@@ -169,6 +169,9 @@ func TestFullAccessUnboundBashFailureReachesApplication(t *testing.T) {
 type fullChainHarness struct {
 	app    *application.Service
 	events *application.EventHub
+	// runtime 是组合根的 seelebridge 实例：让用例能在装配后重新安装权限配置
+	// （harness 缺省装 full_access，权限用例要换成 manual 权责配置 + 审批桩）。
+	runtime *seelebridge.Runtime
 }
 
 func newFullChainHarness(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
@@ -251,7 +254,7 @@ func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRo
 	}
 	t.Cleanup(app.Shutdown)
 	hooks.Bind(app)
-	return fullChainHarness{app: app, events: events}
+	return fullChainHarness{app: app, events: events, runtime: runtimeBridge}
 }
 
 type bashToolChainServer struct {

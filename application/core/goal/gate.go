@@ -108,6 +108,42 @@ func boundedProposalDetail(result string) string {
 	return result
 }
 
+// CloseTopGoalOnTerminal 把一次**常规治理回合**产出的终态裁决落成 goal 收口
+// （design §5 逃生口：verdict_done → Controller.Finish → 出栈 + unbind(done) + reap）。
+//
+// 与 ProposeFinish（EXEC 提议收口的终态 gate）的区别：gate 只在 EXEC 主动提议
+// 收口时运行；本方法是"TL 在普通评审回合里直接判 done"的收口路径。二者共用
+// 同一收口语义，且互不重复——gate 已收口后 ActiveGoal 为空，这里即空操作。
+//
+// 只有 verdict_done 收口；verdict_not_done / correct / checkpoint_ok 不动 goal
+// （让位给 EXEC 继续），escalate_human 保持 active 转人工（调用方按 §5 处理）。
+// 返回 true 表示本次调用真的把 goal 收口出栈。
+func (s *Supervisor) CloseTopGoalOnTerminal(ctx context.Context, directive TLDirective) (bool, error) {
+	if directive.Kind != DirectiveVerdictDone {
+		return false, nil
+	}
+	if _, ok := s.ctl.ActiveGoal(); !ok {
+		return false, nil
+	}
+	if _, err := s.ctl.Finish(ctx, FinishRequest{
+		Reason: directive.Summary(),
+		Result: boundedFinishResult(directive.Content),
+	}); err != nil {
+		return false, err
+	}
+	s.unbindIfTerminal("done")
+	return true, nil
+}
+
+// boundedFinishResult 把裁决正文压到 Finish 允许的进度长度（result 上限
+// MaxProgressRunes）；超出截断，收口不因文案过长失败。
+func boundedFinishResult(content string) string {
+	if len([]rune(content)) > MaxProgressRunes {
+		return string([]rune(content)[:MaxProgressRunes])
+	}
+	return content
+}
+
 // ApprovalOutcome 是审批预筛结果。
 type ApprovalOutcome string
 

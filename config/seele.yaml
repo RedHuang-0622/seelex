@@ -1,46 +1,60 @@
-# ── Seele 权限配置 ──────────────────────────────────────────
-# 声明式权限规则，控制工具的 allow / ask / deny 行为。
-# 规则按顺序评估，最后匹配的规则胜出（LMRW）。
+# Seelex 权责系统 — 最细粒度覆盖层（args / 单工具级）
 #
-# 注意：最后匹配的规则覆盖之前的匹配，所以：
-#   1. 宽泛规则放在前面（默认行为）
-#   2. 精确覆盖规则放在后面
+# 三层口径（可执行形态见 seelebridge/tools/permission_policy.go，长期说明见
+# docs/arch/agent-permission-subjects.md）：
+#   主体（谁在调用）：root（主代理 / entry / goalplan）、sub（子代理）、
+#                    emp_ro / emp_rw（员工，按 ToolsPolicy）
+#   路由组（哪一族）：ro / rw / rw_session / rw_desktop / ctl / adm（按工具名 glob 路由）
+#   位（rwx）：组给 mode，主体给 grant；位齐 → 组默认动作，位缺 → 不可路由
+#   动作：组默认 allow/ask；本文件的 rules 做最细粒度覆盖（LMRW，最后匹配胜出）
 #
-# 将此文件放在 seelex 工作目录下以启用权限门控。
+# 本文件只写"覆盖"：组默认 + 主体授权表在代码里（见 DefaultPermissionGroups /
+# DefaultPermissionSubjects）。字段缺失 = 保持默认，不再整体替换默认配置。
+#
+# 三条产品口径：
+#   1. 子代理没有人类在环：位缺（违权）/ 需要问人 → 直接拒绝，不弹选择页面；
+#   2. 员工有宿主人类：位缺 → 走执行选择页面提权（人类的选择页 = sudo 口令）；
+#   3. 主代理完全落回组默认 + 本文件规则（与历史逐条行为一致）。
+#
+# 顺序即语义：先兜底 ask，再安全 allow，最后危险 deny。
 
 permission:
-  rules:
-    # ─ 默认兜底：未明确允许的工具 → ask ─
-    - tool: "*"
-      action: ask
+  # 缺位（主体没有该组位）= 不可路由（不可见）。子代理侧因此表现为直接拒绝，
+  # 员工侧由 Enforcer 改判成执行选择页面，主代理全位不受影响。
+  missing_bit: ask
 
-    # ─ 安全/只读工具 → 直接允许 ─
+  rules:
+    # 说明：这里**不写** `tool: "*"` 的兜底 ask —— 兜底由两级提供：已分封但没写
+    # 规则的工具 → 走所属组的默认动作（ro/rw/ctl = allow，adm/desktop = ask）；
+    # 未分封的工具 → 框架默认 ask。写一条 `"*"` 会把所有组默认动作覆盖掉。
+
+    # ── 只读（项目内 / 会话引用回读）→ 直接执行 ────────────────────────────
     - tool: "read_file"
       action: allow
     - tool: "glob"
       action: allow
     - tool: "grep*"
       action: allow
+    - tool: "read_plan"
+      action: allow
+    - tool: "read_tool_result"
+      action: allow
+    - tool: "read_compressed_turn"
+      action: allow
+    - tool: "search_history"
+      action: allow
     - tool: "get_time"
       action: allow
-    - tool: "mcp_load"
-      action: allow
-    - tool: "git_status"
-      action: allow
-    - tool: "git_log"
-      action: allow
-    - tool: "git_diff"
+    - tool: "web_search"
       action: allow
 
-    # ─ computer use：看屏幕只读，动鼠标键盘逐次审批 ─
-    # 截屏会把画面送进模型上下文（含屏幕上的任何内容），因此即使"只读"也
-    # 默认逐次确认；要放开可把下面两条改成 allow。
+    # ── computer use ───────────────────────────────────────────────────────
+    # 观察类（画面进上下文）仍逐次确认；输入类改桌面 = 共享外设，逐次确认；
+    # 纯节流无副作用 → 直接执行。
     - tool: "computer_screenshot"
       action: ask
     - tool: "computer_windows"
       action: ask
-    # 输入注入会真实改变用户桌面：保持 ask（不要改成 allow，除非明确接受
-    # 模型可无人值守操作键鼠）。
     - tool: "computer_click"
       action: ask
     - tool: "computer_move"
@@ -58,41 +72,53 @@ permission:
     - tool: "computer_wait"
       action: allow
 
-    # ─ 上下文压缩：非破坏性（原始轮次仍在会话存储，按引用回读）→ allow ─
-    # 模型用 compact_context / 用户用 /compact，落点与自动压缩同一条。
+    # ── 会话工作台压缩 ─────────────────────────────────────────────────────
     - tool: "compact_context"
       action: allow
 
-    # ─ 安全的 bash 命令模式 → 直接允许 ─
-    - tool: "bash"
-      patterns: ["git *", "ls *", "cat *", "echo *", "head *", "tail *"]
-      action: allow
-    - tool: "bash"
-      patterns: ["pwd", "which *", "whoami", "date", "df *", "du *", "printenv"]
-      action: allow
-
-    # ─ 写操作 → 需要审批 ─
-    - tool: "edit"
-      action: ask
+    # ── 写盘 / 扩能力的脚手架：生效前需要人类过目 ──────────────────────────
     - tool: "write_file"
       action: ask
-    - tool: "create_file"
+    - tool: "edit_file"
+      action: ask
+    - tool: "plugin_create"
+      action: ask
+    - tool: "skill_create"
       action: ask
 
+    # ── bash 能力白名单（patterns 匹配命令本体，不是工具入参 JSON）─────────
+    # 兜底：未命中白名单的命令 → 问人
     - tool: "bash"
-      patterns: ["npm install *", "go build *", "make *", "docker *"]
       action: ask
-
-    # ─ 危险操作 → 拒绝或审批 ─
+    # 安全命令 → 直接执行
     - tool: "bash"
-      patterns: ["rm -rf /*", ":(){ :|:& };:", "dd if=* of=*"]
+      patterns:
+        [
+          "git *",
+          "ls *",
+          "cat *",
+          "echo *",
+          "head *",
+          "tail *",
+          "pwd",
+          "which *",
+          "whoami",
+          "date",
+          "df *",
+          "du *",
+          "printenv",
+          "go test *",
+          "go build *",
+          "go vet *",
+          "gofmt *",
+        ]
+      action: allow
+    # 有外部副作用 / 破坏性但可解释 → 问人
+    - tool: "bash"
+      patterns: ["npm install *", "npm ci*", "make *", "docker *", "rm *", "mv *", "chmod *", "chown *"]
+      action: ask
+    # 危险命令 → 直接拒绝（放最后：LMRW 下不允许被后面的 ask 覆盖）
+    - tool: "bash"
+      patterns:
+        ["rm -rf /*", "rm -fr /*", "rm -rf ~*", "dd if=* of=*", "mkfs*", ":(){ :|:& };:", "shutdown*", "reboot*"]
       action: deny
-    - tool: "delete"
-      action: deny
-
-    - tool: "bash"
-      patterns: ["rm *", "mv *", "chmod *", "chown *"]
-      action: ask
-
-# 权限规则按顺序评估，最后匹配的规则胜出（LMRW）。
-# 运行参数（window / limits）在 seelex.yaml；本文件只放权限。

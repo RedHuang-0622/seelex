@@ -96,6 +96,40 @@ func (a *InMemoryToolResultArchiver) Read(ref string) (string, bool) {
 	return raw, ok
 }
 
+// RetainedBytes 返回当前归档保留的原始文本总字节数（生命周期记账用）。
+func (a *InMemoryToolResultArchiver) RetainedBytes() int {
+	if a == nil {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	total := 0
+	for _, raw := range a.results {
+		total += len(raw)
+	}
+	return total
+}
+
+// Release 丢弃全部归档内容并返回释放的字节数。
+//
+// 语义边界：归档内容是"被折叠进 working history 的超大工具结果原文"，只在
+// 该会话/子代理还活着的时候有意义（read_tool_result 回读、界面展开大结果）。
+// 子代理节点走到终态后这条能力已经没有消费者，而每个被折叠的结果都是整串
+// 常驻内存——所以终态即释放，避免"已完成却一直背着几十个大结果原文"。
+func (a *InMemoryToolResultArchiver) Release() int {
+	if a == nil {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	freed := 0
+	for callID, raw := range a.results {
+		freed += len(raw)
+		delete(a.results, callID)
+	}
+	return freed
+}
+
 // seelexToolResultProcessor 在结果进入 working history 前筛选：
 // 超大 → 归档 + 省略警告（result_ref 可被 read_tool_result 分页读取）；
 // 正常 → 原样透传；工具错误 → 错误 JSON 透传（保持错误可见）。

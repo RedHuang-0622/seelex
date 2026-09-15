@@ -28,7 +28,7 @@ func TestPermissionMiddlewareAttachesSessionFromContext(t *testing.T) {
 	next := frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
 		return "ok", nil
 	})
-	handler := middleware("bash", next)
+	handler := middleware("bash", frameworktools.ToolMeta{}, next)
 	out, err := handler.Execute(context.Background(), `{"cmd":"pwd"}`)
 	if err != nil {
 		t.Fatalf("handler: %v", err)
@@ -56,7 +56,7 @@ func TestPermissionMiddlewareLeavesEmptySessionWithoutResolver(t *testing.T) {
 				RequestID: ctx.Request.ID, Choice: "allow",
 			}, nil
 		})
-	handler := state.Middleware(time.Second)("bash", frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
+	handler := state.Middleware(time.Second)("bash", frameworktools.ToolMeta{}, frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
 		return "ok", nil
 	}))
 	if _, err := handler.Execute(context.Background(), `{}`); err != nil {

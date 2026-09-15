@@ -13,6 +13,26 @@ for this stabilization batch.
 
 ### Fixed
 
+- **A terminal ADVISOR verdict in a routine turn now actually ends the goal
+  loop** (the `goal_loop` governance loop could stay `active` forever). The
+  escape-hatch contract in
+  `docs/2026-09-08-govern-loop/design.md` §5 says `verdict_done` →
+  `Controller.Finish` (goal popped, peer unbound/reaped). Only the finish gate
+  (`ProposeFinish`, reached when EXEC calls `goal_propose_finish`) honoured it;
+  a `verdict_done` produced in a normal ADVISOR round
+  (`AdvanceAfterChat` → advisor seat → `RunEval`) merely broke the *governor* —
+  so the goal stayed `active`, the governance panel kept rendering "in
+  progress", and the ADVISOR was never called again (`Next` returns false while
+  broken). The advisor seat now closes the top goal on a terminal
+  `verdict_done` via `Supervisor.CloseTopGoalOnTerminal`; `verdict_not_done` /
+  `correct` / `checkpoint_ok` still leave the goal untouched and
+  `escalate_human` still keeps it `active` for a human. Also fixed alongside:
+  a new `goal_begin` in the same session now rebuilds the governor, so a goal
+  created after a previous one terminated is not silently starved of ADVISOR
+  rounds by the old, already-broken loop. Regression:
+  `TestAdvisorSeatVerdictDoneClosesGoal`, `TestAdvisorSeatNonTerminalKeepsGoal`,
+  `TestGoalCoordinatorRoutineVerdictDoneClosesGoal`,
+  `TestGoalCoordinatorBeginResetsBrokenGovernor`.
 - **Compressed-turn archiving now actually persists** (was silently unwired).
   `CompressedTurnArchiver.StoreTurn` asserts a commit-write port on the object
   injected at assembly; the wiring passed `*session.Manager`, which never had
@@ -31,6 +51,29 @@ for this stabilization batch.
 
 ### Changed
 
+- **Tool-permission decisions now come from the framework `permission.Gate`**
+  (via the local Seele replace, ahead of the next framework version).
+  `seelebridge/tools.PermissionGate` keeps owning the three harness pieces — the
+  authorization table (`PermissionChecker`), the execution-choice page
+  (`ApprovalHandler`) and the per-session elevation map — but no longer
+  hand-rolls the allow/ask/deny switch: `Middleware` is now a
+  `tools.MetaMiddleware` that hands every call to `Gate.Decide`, with the
+  session resolved from the dispatch ctx becoming both the authorization subject
+  (`WithEngine`) and the approval routing key (`WithSessionID`). That is what
+  lets a tool carry its own cluster metadata (`ToolMeta{Kind,Groups,Bits}`) into
+  the decision instead of every policy living in a name-keyed allow list.
+  Per-session full access is preserved as a `BitEnforcer` that short-circuits
+  before bits/groups/rules, and `DenyWithoutPrompt` keeps the existing contract:
+  a configured `deny` is still an immediate refusal — now classifiable with
+  `errors.Is(err, tools.ErrPermissionDenied)` / `tools.ErrToolNotVisible`
+  instead of hand-built strings. Middleware nesting is unchanged
+  (event → permission → diagnostic): the event and permission middlewares moved
+  to `WithMetaMiddleware` behind an adapter that promotes the plain event
+  middleware, so the effective order is what it was. Regression:
+  `permission_framework_gate_test.go` pins the denial classification, the
+  tool-declared-cluster routing (same tool — a granted session runs, an
+  ungranted session gets `ErrToolNotVisible`) and the framework-filled approval
+  request (`ID`, `SessionID` from ctx, `Timeout` passthrough, `Preview`/`Options`).
 - **Employee panels: no footnote-style hints** (follow-up of the GUI de-noising
   round). The "修改员工 · ADVISOR / 入职员工 / 新建员工 · 员工库" cold-load
   panels no longer render per-field hint lines or the scope sentence under the

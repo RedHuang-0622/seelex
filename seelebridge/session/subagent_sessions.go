@@ -218,6 +218,15 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		// 生命周期策略：结束即收敛——最终结论交给 mainagent（conclusionSink），
 		// 节点自己的记录文件删除（运行期记录已覆盖崩溃恢复；结束后的详情
 		// 数据面保持在内存快照，进程存活期内仍可读）。
+		//
+		// 内存释放：被折叠的超大工具结果原文（archiver）只在节点活着时有消费者
+		// （read_tool_result 回读 / 界面展开），终态即丢掉——否则每个已完成的
+		// 子代理都会把几十个大结果整串常驻内存。转录（snapshots）与阶段日志保留，
+		// 因为它们是已完成后依然会被读的证据面。
+		if arch := s.toolArchivers[cmd.nodeID]; arch != nil {
+			arch.Release()
+			delete(s.toolArchivers, cmd.nodeID)
+		}
 		s.finalizeLocked(cmd.nodeID)
 		s.reply(cmd, subagentSessionReply{snap: snap, ok: true})
 	case subagentSessionSession:

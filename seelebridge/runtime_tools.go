@@ -30,11 +30,20 @@ func (a mcpRegistryAdapter) Register(provider frameworktools.ToolProvider) error
 	return a.runtime.registry.Registry.Register(provider)
 }
 
-// SetPermissionConfig 安装权限门控：Mode + Rules + ApprovalHandler。
+// SetPermissionConfig 安装权限门控：Mode + Groups + Subjects + Rules + ApprovalHandler。
 // 门控作为 tools.Registry middleware 在每次工具调度前生效。
 func (r *Runtime) SetPermissionConfig(cfg toolspermission.PermissionConfig, handler toolspermission.ApprovalHandler) {
 	if r.permission != nil {
 		r.permission.Set(cfg, handler)
+	}
+}
+
+// SetRoleSessionPolicyResolver 注入"角色会话（员工）→ ToolsPolicy"的读面：权限门据此
+// 把员工角色会话里的工具调用判成 emp_ro / emp_rw 主体（缺位 → 执行选择页面提权）。
+// nil = 关闭员工主体识别（全部按 root 判）。读面按 TTL 缓存，每次工具调用不额外读盘。
+func (r *Runtime) SetRoleSessionPolicyResolver(resolver func(sessionID string) (string, bool)) {
+	if r.permission != nil {
+		r.permission.SetRoleSessionPolicyResolver(resolver)
 	}
 }
 

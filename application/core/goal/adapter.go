@@ -57,6 +57,12 @@ func (s *advisorSeat) Act(ctx context.Context) (govern.TurnAction, error) {
 	if err != nil {
 		return govern.TurnAction{}, err
 	}
+	// 终态裁决即收口（design §5 逃生口）：常规治理回合的 verdict_done 必须同样
+	// 把 goal 收口出栈。否则 governor 只断环、goal 停在 active——治理视图永远
+	// "执行中"（loop 不结束），且 b 不会再被叫起（Next 恒 false）。
+	if _, err := s.supervisor.CloseTopGoalOnTerminal(ctx, directive); err != nil {
+		return govern.TurnAction{}, err
+	}
 	return govern.TurnAction{
 		BreakLoop: DirectiveBreaksLoop(directive),
 		Note:      directive.Summary(),

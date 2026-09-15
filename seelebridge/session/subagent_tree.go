@@ -227,6 +227,13 @@ func (s *SubagentTree) NoteMessageCount(nodeID string, count int) {
 // ClearSubagentTree 显式清空）；失败 → failed + 错误（保留现场供排查）。
 // 终态写入后通知 observer（application 自动刷新工作表格）。非 fork 节点
 // no-op。
+//
+// 生命周期释放（内存）：节点终态 = 它的"活会话"结束。此时把记录里的
+// framework Session 引用摘掉——那个对象图带着整条 ReAct 历史、最后一次 loop
+// 的 trace 树与最近一次发布的历史快照，是每个子代理最大的一块常驻内存。已完成
+// 节点的可读会话由 SubagentSessions 的历史快照（refreshLiveHistory + snapshots）
+// 与持久化记录提供，不再需要活会话；不摘的话，只要记录还在（有界保留期内），
+// 整张对象图就永远不可回收。
 func (s *SubagentTree) CompleteSubagentNode(nodeID, summary string, runErr error) {
 	if s == nil || nodeID == "" {
 		return
@@ -239,6 +246,7 @@ func (s *SubagentTree) CompleteSubagentNode(nodeID, summary string, runErr error
 	}
 	record.summary = summary
 	record.endedAt = time.Now()
+	record.session = nil
 	if runErr != nil {
 		record.status = SubAgentFailed
 		record.errorMsg = runErr.Error()

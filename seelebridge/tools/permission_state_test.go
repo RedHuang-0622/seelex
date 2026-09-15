@@ -37,7 +37,7 @@ func TestPermissionGateFullAccessShortCircuitsBeforeChecker(t *testing.T) {
 	}, nil)
 
 	ran := 0
-	handler := state.Middleware(0)("bash", frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
+	handler := state.Middleware(0)("bash", frameworktools.ToolMeta{}, frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
 		ran++
 		return "ok", nil
 	}))
@@ -96,7 +96,7 @@ func TestPermissionGateFullAccessBeforeSetIsNotLost(t *testing.T) {
 		t.Fatal("装配 checker 后全权意图应保持")
 	}
 	ran := 0
-	handler := state.Middleware(0)("bash", frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
+	handler := state.Middleware(0)("bash", frameworktools.ToolMeta{}, frameworktools.HandlerFunc(func(context.Context, string) (string, error) {
 		ran++
 		return "ok", nil
 	}))

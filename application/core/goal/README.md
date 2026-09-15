@@ -162,7 +162,7 @@ go test -race ./application/core/goal/ -count=1
 - `func NewAdvisorSeat(supervisor *Supervisor, name string) govern.Seat` — NewAdvisorSeat 构造 Advisor 座位。supervisor 为 nil 或未启用时，Act
 - `func (s *advisorSeat) Name() string`
 - `func (s *advisorSeat) Kind() govern.AgentKind`
-- `func (s *advisorSeat) Act(ctx context.Context) (govern.TurnAction, error)`
+- `func (s *advisorSeat) Act(ctx context.Context) (govern.TurnAction, error)` — Act 触发一次真实 TL 回合；终态 `verdict_done` 会经 `CloseTopGoalOnTerminal` 直接收口 goal（只断环不收口会让 goal 停在 active）。
 - `func NewTurnGovernorForDSA2A( execName string, execAct func(context.Context) (govern.TurnAction, error), supervisor *Supervisor, maxRounds int, ) govern.Governor` — NewTurnGovernorForDSA2A 装配"EXEC + ADVISOR"两座位的治理循环：
 - `func (f funcSeat) Name() string`
 - `func (f funcSeat) Kind() govern.AgentKind`
@@ -173,6 +173,8 @@ go test -race ./application/core/goal/ -count=1
 - `func TestGovernorDrivesAdvisorRound(t *testing.T)` — TestGovernorDrivesAdvisorRound 验证治理循环能驱动真实 TL 回合：
 - `func TestGovernorBreaksOnVerdictDone(t *testing.T)` — TestGovernorBreaksOnVerdictDone 验证完整收口闭环：
 - `func TestAdvisorSeatDisabledReportsTLDisabled(t *testing.T)` — TestAdvisorSeatDisabledReportsTLDisabled 验证无评估器（TL 缺席）时
+- `func TestAdvisorSeatVerdictDoneClosesGoal(t *testing.T)` — TestAdvisorSeatVerdictDoneClosesGoal 验证常规治理回合的终态裁决同样收口（design §5 逃生口）：verdict_done → 断环 + goal 出栈。
+- `func TestAdvisorSeatNonTerminalKeepsGoal(t *testing.T)` — TestAdvisorSeatNonTerminalKeepsGoal 钉住反向：verdict_not_done 不动 goal、不打断循环。
 
 ### advisor.go
 
@@ -262,6 +264,7 @@ go test -race ./application/core/goal/ -count=1
 
 - `func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (FinishProposalResult, error)` — ProposeFinish 把 EXEC 的 goal_finish 提议送入 b 终态 gate（DS-A2A）：
 - `func boundedProposalDetail(result string) string`
+- `func (s *Supervisor) CloseTopGoalOnTerminal(ctx context.Context, directive TLDirective) (bool, error)` — CloseTopGoalOnTerminal 把一次常规治理回合产出的终态裁决落成 goal 收口（design §5 逃生口）：只有 verdict_done 收口（`Controller.Finish` + unbind(done) + reap），其余裁决不动 goal。与 `ProposeFinish`（EXEC 提议收口的终态 gate）共用同一收口语义、互不重复。
 - `func (s *Supervisor) PreScreenApproval(ctx context.Context, request ApprovalScreenRequest) (ApprovalVerdict, error)` — PreScreenApproval 在 ask_approve/ApprovalBroker 前做 b 预筛（DS-A2A + B4）：
 
 ### gate_test.go

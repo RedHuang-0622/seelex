@@ -116,11 +116,20 @@ func (g *goalCoordinator) bumpHeartbeat(sessionID string) {
 
 // Begin 注册并压栈（会话路由）。
 func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request goaldomain.BeginRequest) (*goaldomain.GoalRecord, error) {
-	record, err := g.bundleFor(sessionID).ctl.Begin(ctx, request)
-	if err == nil {
-		g.bumpHeartbeat(sessionID)
+	runtime := g.bundleFor(sessionID)
+	before, _ := runtime.ctl.ActiveGoal()
+	record, err := runtime.ctl.Begin(ctx, request)
+	if err != nil {
+		return nil, err
 	}
-	return record, err
+	// 新 goal = 新的治理循环：上一轮 goal 收口/断环留下的 governor 不能沿用到
+	// 新目标上——已断环的 governor 会让新 goal 再也等不到 ADVISOR 回合（治理
+	// 面板恒 0 轮、loop 不动）。幂等 begin（同名返回既有 active）不重置。
+	if record != nil && (before == nil || before.ID != record.ID) {
+		runtime.gov = nil
+	}
+	g.bumpHeartbeat(sessionID)
+	return record, nil
 }
 
 // Update 更新栈顶（会话路由）。

@@ -2,8 +2,9 @@ module github.com/RedHuang-0622/seelex
 
 go 1.25.8
 
-// Seele v0.1.3：发布依赖（session 观测面非阻塞读 HistoryIfAvailable）。
-// 本地 replace 已于 2026-09-11 移除，联调期间的 ../Seele 指向不再需要。
+// Seele：发布依赖走下面的 require（v0.2.0）。
+// 2026-09-15 重新加入本地 replace 指向 G:/Program/go/Seele，用于接入新版
+// 权限模型（Gate/Engine/ToolMeta）联调；发布前必须移除 replace。
 
 require (
 	github.com/RedHuang-0622/Seele v0.2.0
@@ -84,3 +85,5 @@ require (
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/RedHuang-0622/Seele => G:/Program/go/Seele
