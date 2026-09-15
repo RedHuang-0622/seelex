@@ -14,6 +14,7 @@
 | [`architecture-and-flaws.md`](arch/architecture-and-flaws.md) | 架构说明书与已知硬伤清单（初稿） |
 | [`design-decisions-mcp-storage.md`](arch/design-decisions-mcp-storage.md) | MCP 中间件从 CAD 专属→通用→存储解耦的设计推演 |
 | [`mcp-call-chain-flowchart.md`](arch/mcp-call-chain-flowchart.md) | Agent 调用 MCP 全链路函数流 + 熔断事件通道 |
+| [`agent-permission-subjects.md`](arch/agent-permission-subjects.md) | 工具权责模型：主体（root/sub/emp_ro/emp_rw）× 路由组（ro/rw/rw_session/rw_desktop/ctl/adm）× 位（rwx）+ sudo；求值顺序、错误语义、当前实现与未落地部分 |
 | [`context-improvement-plan.md`](arch/context-improvement-plan.md) | Context 包拆分为 snapshot/provider/compactor/merger 方案 |
 | [`skill-effort-architecture.md`](arch/skill-effort-architecture.md) | Effort system prompt 与 Skill 用户上下文的当前实现设计 |
 | [`agent-workbench-architecture.md`](arch/agent-workbench-architecture.md) | DSL 对话卡片、Agent E2E、Workspace 沙盒与多会话并行总体架构 |
@@ -94,6 +95,7 @@
 | [`2026-09-08-session-rollout-p2/README.md`](2026-09-08-session-rollout-p2/README.md) | Session Rollout 全序模型（历史设计）：rollout.jsonl 契约/双写/崩溃续写、生命周期 kind、resume 重放切换、P3 发送治理契约；JSON 旧链路已删除并切到 message 事件行 + 模块 head 布局，rollout 实现不再存在（文档仅作历史归档）；SQLite/Redis 等其它后端为后续项 |
 | [`2026-09-08-session-storage-architecture/README.md`](2026-09-08-session-storage-architecture/README.md) | 会话存储新架构总览：message 事件行 + metadata 模块化 head、EVENT/compact、历史分页/wire 装配/续跑读取器、lifecycle（draft/queue）、fork session/subagent、LRU/retention/检索/blob GC（M1–M4 已实现并接线为唯一 JSON 链路；my_design.md 为权威明细；impact-map.md 为波及面盘点；implementation-M1-M4.md 为实施记录；benchmarks/ 含新链路优越性、冷热切换 pprof 与性能量化成果专档） |
 | [`2026-09-08-interrupted-round-truncation/README.md`](2026-09-08-interrupted-round-truncation/README.md) | 中断轮截断策略更改：残缺工具链轮保留为开放单元、断点续扫不跳 next user；装配层补齐缺失 tool 结果（合成占位、provider-only、幂等）；重启 continue 续跑端到端（三处同构切分 + 装配 seam；字符画表达） |
+| [`2026-09-15-agent-permission-routing-groups/README.md`](2026-09-15-agent-permission-routing-groups/README.md) | Agent 权限分封：路由组式 Linux 权限模型（主体×组×位+sudo）设计与对 Seele 框架的需求单 R1–R8；落地差异见同目录 `seele-integration-status.md`，长期口径见 [`arch/agent-permission-subjects.md`](arch/agent-permission-subjects.md) |
 
 ## 🔬 调研报告
 

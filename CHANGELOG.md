@@ -180,6 +180,30 @@ for this stabilization batch.
 
 ### Added
 
+- The tool-permission authority model now has a **long-term architecture
+  document** (`docs/arch/agent-permission-subjects.md`, indexed from
+  `docs/README.md` and `docs/arch/README.md`): subjects (root / sub / emp_ro /
+  emp_rw) × route groups (ro / rw / rw_session / rw_desktop / ctl / adm) × bits
+  (r=4 / w=2 / x=1) + sudo, the per-call evaluation order, the error taxonomy
+  (`ErrToolNotVisible` = not routable for that subject vs `ErrPermissionDenied` =
+  EPERM), the three product stances (sub-agent has no human in the loop,
+  employee does, root falls back to the framework), and an explicit
+  *current implementation vs target design* table (tools still register no
+  `ToolMeta`, the employee execution face is not wired yet, the legacy
+  hard-coded sub-agent lists still coexist with the bit model, the elevation
+  ledger is still `once`).
+- The permission live smoke now runs through the **production approval bridge**
+  (`main.go:newPermissionBridge` → `application.ApprovalBroker`, the same path
+  the GUI renders and resolves) instead of an approval stub, and pins three
+  facts end to end against a real model: a whitelisted `bash` command executes
+  with the choice page never opening; an out-of-scope command opens the page
+  once (carrying `ToolName: bash`) and executes after the page allows it; a
+  `fork_subagents` round opens **zero** pages while the sub-agents still attempt
+  their writes (their bits allow them — nobody to ask). The full-chain harness
+  now exposes the broker (`fullChainHarness.approval`) so permission cases can
+  assert on the page itself rather than on a stub's call count. Measured on this
+  machine: `--- PASS: TestRealAPIPermissionSmoke (46.76s)`.
+
 - Global Agent Team master surface: `AgentTeamGlobalConfig`,
   `AgentTeamSaveEmployee`, `AgentTeamDeleteEmployee`,
   `AgentTeamSetDefaultOrder` and `AgentTeamPublishToGlobal` (Bridge + GUI

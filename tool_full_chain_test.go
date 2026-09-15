@@ -172,6 +172,10 @@ type fullChainHarness struct {
 	// runtime 是组合根的 seelebridge 实例：让用例能在装配后重新安装权限配置
 	// （harness 缺省装 full_access，权限用例要换成 manual 权责配置 + 审批桩）。
 	runtime *seelebridge.Runtime
+	// approval 是**生产审批 broker**（与 GUI/TUI 同一个实例）：权限用例可以
+	// 通过它对"执行选择页面"做端到端断言（页面是否打开、打开了几次、工具名），
+	// 而不是只在工具侧看一个桩被调了几次。
+	approval *application.ApprovalBroker
 }
 
 func newFullChainHarness(t *testing.T, accountsPath, projectRoot string, toolTimeout time.Duration) fullChainHarness {
@@ -254,7 +258,7 @@ func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRo
 	}
 	t.Cleanup(app.Shutdown)
 	hooks.Bind(app)
-	return fullChainHarness{app: app, events: events, runtime: runtimeBridge}
+	return fullChainHarness{app: app, events: events, runtime: runtimeBridge, approval: approval}
 }
 
 type bashToolChainServer struct {
