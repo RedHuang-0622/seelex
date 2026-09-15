@@ -11,17 +11,17 @@ func TestPromptStack_PushAndRender(t *testing.T) {
 	ps.Push("skill", "goal", "goal prompt")
 
 	rendered := ps.Render()
-	if !contains(rendered, "base prompt") {
-		t.Errorf("Render missing base prompt")
+	if !contains(rendered, "<base>\nbase prompt\n</base>") {
+		t.Errorf("Render missing base prompt: %q", rendered)
 	}
-	if !contains(rendered, "high instructions") {
-		t.Errorf("Render missing effort instructions")
+	if !contains(rendered, "<effort name=\"high\">\nhigh instructions\n</effort>") {
+		t.Errorf("Render missing effort instructions: %q", rendered)
 	}
 	if contains(rendered, "goal prompt") {
 		t.Errorf("Render must exclude skill prompt: %q", rendered)
 	}
-	if !contains(rendered, "---") {
-		t.Errorf("Render missing separator")
+	if !contains(rendered, "</base>") {
+		t.Errorf("Render missing closing tag: %q", rendered)
 	}
 }
 
@@ -33,7 +33,7 @@ func TestPromptStack_RenderUsesFixedSystemOrder(t *testing.T) {
 	ps.Push("base", "plugin", "plugin")
 	ps.Push("identity", "identity", "identity")
 
-	const want = "identity\n\n---\n\nplugin\n\n---\n\neffort\n\n---\n\ninstructions"
+	const want = "<identity>\nidentity\n</identity>\n\n<base name=\"plugin\">\nplugin\n</base>\n\n<effort name=\"high\">\neffort\n</effort>\n\n<instructions>\ninstructions\n</instructions>"
 	if got := ps.Render(); got != want {
 		t.Fatalf("Render() = %q, want %q", got, want)
 	}
@@ -89,7 +89,7 @@ func TestPromptStack_Reset(t *testing.T) {
 	if ps.Count() != 1 {
 		t.Errorf("Reset should leave 1 layer, got %d", ps.Count())
 	}
-	if ps.Render() != "new base" {
+	if ps.Render() != "<base>\nnew base\n</base>" {
 		t.Errorf("Reset should set new base text, got %q", ps.Render())
 	}
 }

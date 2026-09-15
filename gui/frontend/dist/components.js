@@ -25,7 +25,18 @@ const ICONS = {
   "arrow-up": '<path d="M12 19V5M5 12l7-7 7 7"/>',
   "arrow-down": '<path d="M12 5v14M5 12l7 7 7-7"/>',
   recall: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
-  branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.5 6h4a5.5 5.5 0 0 1 3 5v-0.5a5.5 5.5 0 0 1-3 5h-4"/>'
+  branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.5 6h4a5.5 5.5 0 0 1 3 5v-0.5a5.5 5.5 0 0 1-3 5h-4"/>',
+  "chevron-left": '<path d="m14.5 6-6 6 6 6"/>',
+  "chevron-right": '<path d="m9.5 6 6 6-6 6"/>',
+  "chevron-up": '<path d="m6 14.5 6-6 6 6"/>',
+  "chevron-down": '<path d="m6 9.5 6 6 6-6"/>',
+  circle: '<circle cx="12" cy="12" r="8"/>',
+  dot: '<circle cx="12" cy="12" r="4.5" fill="currentColor" stroke="none"/>',
+  more: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+  star: '<path d="m12 4 2.5 5.1 5.5.8-4 3.9.95 5.5L12 16.7l-4.95 2.6.95-5.5-4-3.9 5.5-.8z" fill="currentColor" stroke="none"/>',
+  "star-outline": '<path d="m12 4 2.5 5.1 5.5.8-4 3.9.95 5.5L12 16.7l-4.95 2.6.95-5.5-4-3.9 5.5-.8z"/>',
+  user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>',
+  layer: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>'
 };
 
 export function icon(name, size = 16) {

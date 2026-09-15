@@ -52,13 +52,36 @@ func (r *Runtime) rolePromptFor(roleName string) string {
 // rolePromptOptimizeSystemPrompt 是"优化提示词"这一次回合的元指令：要求输出
 // 单个 JSON 对象，便于调用方严格解析。它不是员工提示词本身，而是"改写器"的
 // 指令，所以固定在这里、不可被登记提示词覆盖。
-const rolePromptOptimizeSystemPrompt = `你是提示词工程助手：把用户给出的员工（agent 角色）提示词改写成更明确、可执行的版本。
-规则：
-1. 只输出一个 JSON 对象，不要 markdown 围栏、不要解释；
-2. 字段固定为 {"optimized":"...","notes":["..."]}；
-3. optimized 保留原意与语言（原文中文就写中文），补齐：职责边界、输入、输出格式、约束、不做什么；
-4. 不要编造原文没有的能力、工具或权限；
-5. notes 写最多 5 条改动理由（每条 ≤60 字）。`
+// 组织方式按 Claude 官方提示词规范：角色 → 任务 → 改写清单 → 规则 → 输出格式，
+// 每段一个 XML 标签；"要写成什么形状"用标签清单讲清，而不是靠形容词堆叠。
+const rolePromptOptimizeSystemPrompt = `<role>
+你是提示词工程助手，负责把一个「员工（agent 角色）」的系统提示词改写成更明确、可执行的版本。
+</role>
+
+<task>
+改写 <draft_prompt> 里的提示词：保留原意与原语言（原文是中文就写中文），把含糊的意图补成可执行的结构。
+</task>
+
+<rewrite_checklist>
+缺什么补什么，已经有的保留；改写结果按下面这些段组织：
+1. <role>：这个员工是谁、站在什么视角干活；
+2. <responsibilities>：职责边界——做什么、明确不做什么；
+3. <inputs>：它会收到什么材料（上游给它的输入）；
+4. <output_format>：它必须产出什么形状的结果；
+5. <constraints>：硬约束（不许做的事、必须遵守的规则）。
+</rewrite_checklist>
+
+<rules>
+- 只改写提示词本身：不要编造原文没有的能力、工具或权限；
+- 用短句与编号列表，删掉空泛形容词；
+- 不要寒暄、不要复述本指令、不要输出解释文字。
+</rules>
+
+<output_format>
+只输出一个 JSON 对象，不要 markdown 围栏、不要任何解释文字：
+{"optimized":"<改写后的完整提示词>","notes":["<改动理由>"]}
+notes 最多 5 条，每条不超过 60 字。
+</output_format>`
 
 // OptimizeRolePrompt 实现 application/contract.RolePromptPort：一次有界 LLM
 // 回合，把员工提示词改写成候选版本。
@@ -72,18 +95,19 @@ func (r *Runtime) OptimizeRolePrompt(ctx context.Context, request dto.RolePrompt
 	}
 	roleName := strings.TrimSpace(request.RoleName)
 	contextLines := []string{
-		"员工角色名：" + nonEmptyOr(roleName, "（未命名）"),
-		"角色类型：" + nonEmptyOr(strings.TrimSpace(request.RoleKind), "agent"),
-		"所属团队：" + nonEmptyOr(strings.TrimSpace(request.TeamKind), "（未装配）"),
+		"<employee_name>" + nonEmptyOr(roleName, "（未命名）") + "</employee_name>",
+		"<role_kind>" + nonEmptyOr(strings.TrimSpace(request.RoleKind), "agent") + "</role_kind>",
+		"<team_kind>" + nonEmptyOr(strings.TrimSpace(request.TeamKind), "（未装配）") + "</team_kind>",
 	}
 	if len(request.OrderRoles) > 0 {
-		contextLines = append(contextLines, "团队发言顺序："+strings.Join(request.OrderRoles, " → "))
+		contextLines = append(contextLines, "<speaking_order>"+strings.Join(request.OrderRoles, " → ")+"</speaking_order>")
 	}
 	if tools := strings.TrimSpace(request.ToolsPolicy); tools != "" {
-		contextLines = append(contextLines, "工具权限："+tools)
+		contextLines = append(contextLines, "<tools_policy>"+tools+"</tools_policy>")
 	}
-	content := "请优化下面的员工提示词并按要求输出 JSON：\n\n[员工上下文]\n" +
-		strings.Join(contextLines, "\n") + "\n\n[待优化提示词]\n" + draft
+	content := "<employee_context>\n" + strings.Join(contextLines, "\n") + "\n</employee_context>" +
+		"\n\n<draft_prompt>\n" + draft + "\n</draft_prompt>" +
+		"\n\n<task>\n按系统指令改写 <draft_prompt>，只输出规定的 JSON 对象。\n</task>"
 
 	message, err := r.completer.Complete(ctx, []types.Message{
 		{Role: "system", Content: stringPtr(rolePromptOptimizeSystemPrompt)},

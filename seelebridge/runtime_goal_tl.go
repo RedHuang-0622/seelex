@@ -28,24 +28,43 @@ type goalLLMEvaluator struct {
 }
 
 // goalAdvisorRolePrompt 是 ADVISOR(TL) 的内置角色设定（未登记员工提示词时使用）。
-// 它是"角色设定"那一段；下面的输出契约永远追加（治理要解析 TLDirective，不能被
-// 员工提示词改掉输出格式）。
-const goalAdvisorRolePrompt = `你是 Seelex 的 TechLeader(ADVISOR)：只依据 [审查上下文] 做一次有界评审。`
+// 写法按 Claude 官方提示词规范组织：先角色、再任务、再约束，每段一个 XML 标签
+// （模型能准确定位"哪一段在讲什么"，也便于人审时逐段替换）。它只是"角色设定"那
+// 一段；输出契约由 goalAdvisorOutputContract 追加，员工提示词改不掉它。
+const goalAdvisorRolePrompt = `<role>
+你是 Seelex 的 TechLeader（ADVISOR，逻辑角色名 tl）：在 goal 治理回合里做**一次**有界评审。
+</role>
+
+<task>
+只依据 <review_context> 给出的证据，判断当前 goal 是否达成，并给出下一步动作（继续 / 收口 / 转人工）。不扩大范围、不索取新证据、不调用工具。
+</task>
+
+<constraints>
+- 证据不足就不要猜：按输出契约给 escalate_human，或先要检查点；
+- 不重复裁决已经裁过的事，除非上下文里有新证据；
+- 依据必须落在仓库内可核对的事实上（refs 用相对路径）；
+- 语言跟随上下文（中文上下文用中文）。
+</constraints>`
 
 // goalAdvisorOutputContract 是 ADVISOR 回合的输出契约（登记提示词也改不掉它，
 // 否则 goal 域解析不出指令）。
-const goalAdvisorOutputContract = `规则：
-1. 只输出一个 JSON 对象，不要 markdown 围栏、不要解释；
-2. kind ∈ verdict_done|verdict_not_done|checkpoint_ok|correct|escalate_human；
-3. content ≤1200 字符，给出结论与下一步建议；
-4. refs 只放仓库内相对路径（≤16）；无法判定或越权时用 escalate_human。`
+const goalAdvisorOutputContract = `<output_contract>
+只输出一个 JSON 对象，不要 markdown 围栏、不要任何解释文字：
+{"kind":"verdict_done|verdict_not_done|checkpoint_ok|correct|escalate_human","content":"结论与下一步建议","refs":["仓库内相对路径"],"severity":"P0|P1|P2"}
+规则：
+1. kind 只能取上面五个值之一；
+2. content ≤1200 字符，写结论 + 下一步建议，不写推理过程；
+3. refs 只放仓库内相对路径，最多 16 条；
+4. 无法判定或越权时用 escalate_human。
+</output_contract>`
 
 // advisorRoleName 是 ADVISOR 的逻辑角色名（与 sessionstore.RoleTL 一致）。
 const advisorRoleName = "tl"
 
 // advisorSystemPrompt 组装 ADVISOR 回合的 system 提示词：**已登记的员工提示词
 // 优先**（Agent Team 面板"员工入职 → 提示词"），未登记时用内置角色设定；无论
-// 哪种情况都追加输出契约。
+// 哪种情况都追加输出契约。两段用 XML 标签分开——角色设定可被人替换，输出契约
+// 是治理的解析前提，标签让边界一眼可见（也是 Claude 规范推荐的分段方式）。
 func (e *goalLLMEvaluator) advisorSystemPrompt() string {
 	role := ""
 	if e.promptProvider != nil {
@@ -54,7 +73,7 @@ func (e *goalLLMEvaluator) advisorSystemPrompt() string {
 	if role == "" {
 		role = goalAdvisorRolePrompt
 	}
-	return role + "\n" + goalAdvisorOutputContract
+	return "<role_prompt>\n" + role + "\n</role_prompt>\n\n" + goalAdvisorOutputContract
 }
 
 func (e *goalLLMEvaluator) Evaluate(ctx context.Context, embed goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error) {
@@ -62,9 +81,8 @@ func (e *goalLLMEvaluator) Evaluate(ctx context.Context, embed goaldomain.TLSess
 		return goaldomain.TLDirective{}, goaldomain.ErrTLDisabled
 	}
 	systemPrompt := e.advisorSystemPrompt()
-	content := "请评审下面的 goal 治理上下文并输出 TLDirective JSON：" +
-		` {"kind":"...","content":"...","refs":[],"severity":"P0|P1|P2"}` +
-		"\n\n[审查上下文]\n" + embed.RenderText()
+	content := "<review_context>\n" + embed.RenderText() + "\n</review_context>" +
+		"\n\n<task>\n按系统提示词里的角色设定与输出契约评审以上上下文，只输出 TLDirective JSON。\n</task>"
 
 	message, err := e.completer.Complete(ctx, []types.Message{
 		{Role: "system", Content: stringPtr(systemPrompt)},

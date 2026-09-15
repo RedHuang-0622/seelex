@@ -32,10 +32,13 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
-      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="toggle-left-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开左栏 (Ctrl+B)" aria-label="收起/展开左栏" aria-pressed="false">&#8676;</button><button id="toggle-right-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开右栏 (Ctrl+J)" aria-label="收起/展开右栏" aria-pressed="false">&#8677;</button><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
+      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
     </header>
 
     <aside class="left-panel panel">
+      <div class="panel-rail-head">
+        <button id="toggle-left-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开左栏 (Ctrl+B)" aria-label="收起/展开左栏" aria-pressed="false"><span class="panel-toggle-open" data-icon="chevron-left" data-icon-size="14"></span><span class="panel-toggle-closed" data-icon="chevron-right" data-icon-size="14"></span></button>
+      </div>
       <section class="sessions-section">
         <div class="section-title">
           <span>会话</span>
@@ -93,6 +96,9 @@
     </main>
 
     <aside class="right-panel panel">
+      <div class="panel-rail-head">
+        <button id="toggle-right-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开右栏 (Ctrl+J)" aria-label="收起/展开右栏" aria-pressed="false"><span class="panel-toggle-open" data-icon="chevron-right" data-icon-size="14"></span><span class="panel-toggle-closed" data-icon="chevron-left" data-icon-size="14"></span></button>
+      </div>
       <section class="project-heading">
         <div class="section-title">项目</div>
         <h2 id="project-name">当前工作区</h2>

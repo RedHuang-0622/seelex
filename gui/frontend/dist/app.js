@@ -44,7 +44,9 @@ const state = {
   openSessionMenu: "",
   tab: "conversation",
   rightTab: "status",
-  trajectoryFilter: "all"
+  trajectoryFilter: "all",
+  // 账户是 provider → model 两级：这是"当前停在哪个供应商"的纯 UI 状态。
+  accountProvider: ""
 };
 
 const elements = Object.fromEntries([
@@ -434,6 +436,8 @@ let lastChatRunning = false;
 // promptLayersCache 是轨迹视图"前缀注入"的本地缓存（后端 PromptLayers
 // 桥接数据，不进 Snapshot；打开轨迹子页时刷新）。
 let promptLayersCache = null;
+// 账户栏的最近一次 runtime：供应商切换是纯前端视图切换，不必为它再拉一份快照。
+let lastAccountsRuntime = {};
 // composerSaveTimer 是未发送输入草稿的防抖落盘定时器（草稿会话输入后
 // 300ms 写后端，跨重启恢复；物化提交后 draft 标记消失，不再落盘）。
 let composerSaveTimer = null;
@@ -1273,14 +1277,14 @@ function sessionRow(session, currentID, nameIndex = 1) {
   const menuOpen = state.openSessionMenu !== "" && state.openSessionMenu === session.id;
   return `<div class="session-row${pinned ? " is-pinned" : ""}${menuOpen ? " is-menu-open" : ""}" data-session-row="${escapeHtml(session.id)}">
     <button class="stack-button session-button session-title ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""} data-tip="${escapeHtml(`${label}\n${tip}`)}" aria-label="${escapeHtml(`${label} · ${tip}`)}">
-      <span class="entry-name">${pinned ? '<span class="session-pin-mark" aria-hidden="true">★</span>' : ""}${icon("message", 13)} ${escapeHtml(label)}</span>${statusChip}
+      <span class="entry-name">${pinned ? `<span class="session-pin-mark" aria-hidden="true">${icon("star", 12)}</span>` : ""}${icon("message", 13)} ${escapeHtml(label)}</span>${statusChip}
     </button>
     <span class="session-more">
-      <button class="session-more-toggle" type="button" data-session-more="${escapeHtml(session.id)}" aria-expanded="${menuOpen}" aria-label="更多操作" data-tip="更多操作：置顶 / 分支 / 删除">⋯</button>
+      <button class="session-more-toggle" type="button" data-session-more="${escapeHtml(session.id)}" aria-expanded="${menuOpen}" aria-label="更多操作" data-tip="更多操作：置顶 / 分支 / 删除">${icon("more", 14)}</button>
       <span class="session-more-actions"${menuOpen ? "" : " hidden"}>
-        <button class="session-pin${pinned ? " is-on" : ""}" type="button" data-pin-session="${escapeHtml(session.id)}" aria-label="${pinned ? "取消置顶" : "置顶会话"}" data-tip="${pinned ? "取消置顶" : "置顶会话"}">${pinned ? "★" : "☆"}</button>
-        <button class="session-fork" type="button" data-fork="${escapeHtml(session.id)}" aria-label="分支出新会话" data-tip="分支出新会话">⑂</button>
-        <button class="session-del" type="button" data-session-del="${escapeHtml(session.id)}" aria-label="删除会话" data-tip="删除会话">✕</button>
+        <button class="session-pin${pinned ? " is-on" : ""}" type="button" data-pin-session="${escapeHtml(session.id)}" aria-label="${pinned ? "取消置顶" : "置顶会话"}" data-tip="${pinned ? "取消置顶" : "置顶会话"}">${icon(pinned ? "star" : "star-outline", 13)}</button>
+        <button class="session-fork" type="button" data-fork="${escapeHtml(session.id)}" aria-label="分支出新会话" data-tip="分支出新会话">${icon("branch", 13)}</button>
+        <button class="session-del" type="button" data-session-del="${escapeHtml(session.id)}" aria-label="删除会话" data-tip="删除会话">${icon("close", 12)}</button>
       </span>
     </span>
   </div>`;
@@ -1313,7 +1317,7 @@ function renderRuntime(runtime) {
 
   const fullAccess = Boolean(runtime.full_access);
   elements["perm-toggle"].classList.toggle("is-on", fullAccess);
-  elements["perm-toggle"].textContent = fullAccess ? "全权 ✓" : "全权";
+  elements["perm-toggle"].innerHTML = fullAccess ? `全权 ${icon("check", 12)}` : "全权";
 
   effortControl.setLevel(runtime.effort);
 }
@@ -1351,31 +1355,56 @@ elements["plugin-list"]?.addEventListener("click", async event => {
   }
 });
 
-// renderAccounts 渲染账户栏（右栏「状态」子页、状态一栏之下）：条目化的单列
-// 行——名字 + provider/model + 当前标记，点行即切换账户。行内不放按钮，交互走
-// 容器委托（一条监听），列表刷新不产生 N 个闭包。
+// renderAccounts 渲染账户栏（右栏「状态」子页）：**供应商 → 模型**两级级联——
+// 先按 provider 分组（分组来自数据本身，不写死），选中供应商后只列它下面的模型，
+// 一个模型一行账户，点行即切换账户（SelectAccount 收的仍是账户名）。
+// 行内不放按钮，交互走容器委托（一条监听），列表刷新不产生 N 个闭包。
 function renderAccounts(runtime) {
   const accounts = runtime.accounts || [];
+  lastAccountsRuntime = runtime;
   elements["account-count"].textContent = String(accounts.length);
-  const current = runtime.account || "";
-  elements["account-list"].innerHTML = accounts.length
-    ? accounts.map(account => {
-      const active = current === account.name;
-      // 行内只显示型号（provider 在同一批账户里通常相同，重复念出来只会挤掉
-      // 账户名）；provider · model 完整值在 hover 提示里给出。
-      const model = account.model || account.provider || "—";
-      const detail = `${account.provider || ""} ${account.model || ""}`.trim() || "—";
-      return `<button type="button" class="account-row${active ? " is-active" : ""}" data-account="${escapeHtml(account.name)}"${account.disabled ? " disabled" : ""} aria-pressed="${active}" data-tip="${escapeHtml(`${account.name}\n${detail}`)}" aria-label="${escapeHtml(`${account.name} · ${detail}`)}">
-        <span class="account-mark" aria-hidden="true">${active ? "●" : "○"}</span>
-        <span class="account-name">${escapeHtml(account.name)}</span>
-        <span class="account-meta">${escapeHtml(model)}</span>
+  if (!accounts.length) {
+    elements["account-list"].innerHTML = '<span class="muted list-empty">暂无账户</span>';
+    return;
+  }
+  const providerOf = account => account.provider || "未标注供应商";
+  const current = accounts.find(account => account.name === runtime.account) || null;
+  const providers = [];
+  for (const account of accounts) {
+    const provider = providerOf(account);
+    if (!providers.includes(provider)) providers.push(provider);
+  }
+  // 停留的供应商优先：当前账户所属 > 上次选择 > 第一个（都不合法时回落）。
+  const active = providers.includes(state.accountProvider)
+    ? state.accountProvider
+    : (current ? providerOf(current) : providers[0]);
+  state.accountProvider = active;
+  const providerRow = providers.map(provider => {
+    const count = accounts.filter(account => providerOf(account) === provider).length;
+    return `<button type="button" class="account-provider${provider === active ? " is-active" : ""}" data-account-provider="${escapeHtml(provider)}" aria-pressed="${provider === active}" data-tip="${escapeHtml(`${provider} · ${count} 个模型`)}">${escapeHtml(provider)}<span class="account-provider-count">${count}</span></button>`;
+  }).join("");
+  const rows = accounts.filter(account => providerOf(account) === active).map(account => {
+    const isActive = current && current.name === account.name;
+    const model = account.model || "—";
+    const detail = `${account.provider || ""} ${account.model || ""}`.trim() || "—";
+    return `<button type="button" class="account-row${isActive ? " is-active" : ""}" data-account="${escapeHtml(account.name)}"${account.disabled ? " disabled" : ""} aria-pressed="${isActive}" data-tip="${escapeHtml(`${account.name}\n${detail}`)}" aria-label="${escapeHtml(`${account.name} · ${detail}`)}">
+        <span class="account-mark" aria-hidden="true">${icon(isActive ? "dot" : "circle", 12)}</span>
+        <span class="account-name">${escapeHtml(model)}</span>
+        <span class="account-meta">${escapeHtml(account.name)}</span>
         ${account.disabled ? '<span class="account-lock" title="该账户当前不可用">不可用</span>' : ""}
       </button>`;
-    }).join("")
-    : '<span class="muted list-empty">暂无账户</span>';
+  }).join("");
+  elements["account-list"].innerHTML = `<div class="account-providers" role="group" aria-label="供应商">${providerRow}</div>
+    <div class="account-models" role="group" aria-label="${escapeHtml(active)} 的模型">${rows}</div>`;
 }
 
 elements["account-list"]?.addEventListener("click", async event => {
+  const providerButton = event.target?.closest?.("[data-account-provider]");
+  if (providerButton?.dataset.accountProvider) {
+    state.accountProvider = providerButton.dataset.accountProvider;
+    renderAccounts(lastAccountsRuntime);
+    return;
+  }
   const row = event.target?.closest?.(".account-row");
   const name = row?.dataset?.account;
   if (!name || row.disabled) return;
@@ -1757,12 +1786,17 @@ function closeAgentTeamEditors() {
   }
 }
 
-function openAgentTeamHire(roleName = "") {
+// openAgentTeamHire 打开入职 / 修改面板。scope=session 落在当前会话的在编员工上，
+// scope=library 落在**全局员工库**上（员工库与团队解耦：库里的增删改不依赖团队，
+// 也不动任何会话的副本；保存走 AgentTeamSaveEmployee）。
+function openAgentTeamHire(roleName = "", scope = "session") {
   const slot = agentTeamSlot("hire");
   if (!slot) return;
   const team = normalizeAgentTeam(agentTeamView);
-  const member = team.members.find(item => item.roleName === roleName) || null;
-  slot.innerHTML = hirePanel(team, member);
+  const member = scope === "library"
+    ? normalizeTeamGlobal(agentTeamGlobal).employees.find(item => item.roleName === roleName) || null
+    : team.members.find(item => item.roleName === roleName) || null;
+  slot.innerHTML = hirePanel(team, member, scope);
   slot.hidden = false;
   slot.querySelector?.("[data-team-hire-name]")?.focus?.();
 }
@@ -1870,8 +1904,18 @@ elements["team-view"]?.addEventListener("click", async event => {
   const deleteEmployee = event.target.closest?.("[data-team-employee-delete]");
   if (deleteEmployee?.dataset.teamEmployeeDelete) {
     const roleName = deleteEmployee.dataset.teamEmployeeDelete;
-    if (!confirm(`确认从全局员工库删除 ${roleName}？已装配会话的副本不受影响。`)) return;
+    if (!confirm(`确认从员工库删除 ${roleName}？已装配会话的副本不受影响。`)) return;
     await runAgentTeamAction(() => invoke("AgentTeamDeleteEmployee", "", roleName));
+    return;
+  }
+  // 员工库的建 / 改：面板落在员工库作用域上（不装配、不动会话副本）。
+  if (event.target.closest?.("[data-team-employee-new]")) {
+    openAgentTeamHire("", "library");
+    return;
+  }
+  const editEmployee = event.target.closest?.("[data-team-employee-edit]");
+  if (editEmployee?.dataset.teamEmployeeEdit) {
+    openAgentTeamHire(editEmployee.dataset.teamEmployeeEdit, "library");
     return;
   }
 
@@ -2076,6 +2120,14 @@ elements["team-view"]?.addEventListener("submit", async event => {
       system_prompt: String(hireForm.querySelector("[data-team-hire-prompt]")?.value || "").trim()
     };
     try {
+      // 员工库作用域：只写全局事实，不装配、不建角色会话；请求与"入库"同一套字段。
+      if (hireForm.dataset.teamHireScope === "library") {
+        await invoke("AgentTeamSaveEmployee", "", role);
+        showToast({ message: `${roleName} 已存入员工库（全局事实，未装配到会话）` });
+        closeAgentTeamEditors();
+        await refreshAgentTeam({ force: true });
+        return;
+      }
       const result = await invoke("AgentTeamInstantiateRole", "", role, 0);
       const notices = Array.isArray(result?.notice) ? result.notice : [];
       if (notices.length) showToast({ message: `${roleName}：${notices.join("；")}` });
@@ -3051,7 +3103,7 @@ function renderFullAccessChip(on) {
   const chip = elements["perm-toggle"];
   if (!chip) return;
   chip.classList.toggle("is-on", Boolean(on));
-  chip.textContent = on ? "全权 ✓" : "全权";
+  chip.innerHTML = on ? `全权 ${icon("check", 12)}` : "全权";
 }
 
 // ── 左右栏宽度拖拽 ─────────────────────────────────────────

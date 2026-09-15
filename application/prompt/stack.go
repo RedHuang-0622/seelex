@@ -85,7 +85,12 @@ func (ps *PromptStack) Reset(baseText string) {
 	}
 }
 
-// Render 将所有层用分隔符拼接为完整 system prompt。
+// Render 将所有层渲染为完整 system prompt。
+//
+// 分段方式遵循 Claude 官方提示词规范（"用 XML 标签把提示词切成可引用的段落"）：
+// 每层包成 <kind> 段，插件层带上 name 属性。相比裸 --- 分隔线，模型能准确说清
+// "我在改哪一段"，宿主侧也能靠标签做局部替换与审计。层的先后仍由
+// systemPromptPriority 决定（identity → base → effort → instructions）。
 func (ps *PromptStack) Render() string {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -103,10 +108,39 @@ func (ps *PromptStack) Render() string {
 		}
 		text := strings.TrimSpace(l.Text)
 		if text != "" {
-			parts = append(parts, text)
+			parts = append(parts, renderLayer(l, text))
 		}
 	}
-	return strings.Join(parts, "\n\n---\n\n")
+	return strings.Join(parts, "\n\n")
+}
+
+// renderLayer 把一层包成 XML 段；kind 不在受限词表内（如自定义层）时退回原文，
+// 不硬造标签。
+func renderLayer(l PromptLayer, text string) string {
+	tag := promptTagName(l.Kind)
+	if tag == "" {
+		return text
+	}
+	if name := promptTagName(l.Name); name != "" && name != tag {
+		return "<" + tag + ` name="` + name + `">` + "\n" + text + "\n</" + tag + ">"
+	}
+	return "<" + tag + ">\n" + text + "\n</" + tag + ">"
+}
+
+// promptTagName 把层标识归一化成安全的 XML 标签名（只留 a-z0-9_-；大写折成
+// 小写）：标签名来自宿主（kind 词表 / 插件名 / effort 级别），这里再收一次口，
+// 避免任何外来字符把标签打断。
+func promptTagName(value string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(value) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + ('a' - 'A'))
+		}
+	}
+	return b.String()
 }
 
 func systemPromptPriority(kind string) int {

@@ -1,4 +1,4 @@
-import { escapeHtml } from "./components.js";
+import { escapeHtml, icon } from "./components.js";
 
 // ── Agent Team 面板（右侧栏 · 状态 → Agent Team）──────────────
 //
@@ -173,51 +173,51 @@ export function teamGlobalDrift(global) {
   return master !== current || global.orderRoles.join(",") !== global.composition.orderRoles.join(",");
 }
 
-// globalMasterBlock 是「全局母本」块：员工库表 + 默认顺序 + 会话副本差异 +
-// 「确认·普及搭配到全局」。母本是全局粒度事实，所有会话共用一份；会话读的是它的
-// 深拷贝副本，会话内的入职/改序只改副本——只有这个按钮会把副本写回母本。
-function globalMasterBlock(global) {
+// employeeLibraryBlock 是「员工库」块（**全局**、跨会话）：员工是独立事实，和团队库
+// 解耦——不用先选一支团队就能看到离散的员工，并逐个新建 / 修改 / 删除。母本是全局
+// 粒度事实（所有会话共用一份，会话读的是它的深拷贝副本），所以这里改的是库本身，
+// 不是某个会话的在编名单；「入库当前会话」是唯一把会话副本写回母本的动作。
+// 团队的职责只有三件事：装配谁、按什么顺序回答、呼叫谁（见团队库 / 员工栏 / 发言调度）。
+function employeeLibraryBlock(global, team) {
+  const master = global && typeof global === "object"
+    ? global
+    : { employees: [], employeesConfigured: false, orderRoles: [], orderPolicy: "", composition: { orderRoles: [], orderPolicy: "", employees: [] } };
   const rows = [];
-  for (const role of global.employees) {
+  for (const role of master.employees) {
     rows.push(teamRow([
       `<span class="team-library-name" title="${escapeHtml(role.roleName)}">${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}</span>`,
       `<span class="chip">${escapeHtml(ROLE_KIND_LABEL[role.roleKind] || role.roleKind || "agent")}</span>`,
       `<span class="team-perm-chip${role.toolsPolicy ? "" : " is-inherit"}">${escapeHtml(toolsPolicyLabel(role.toolsPolicy))}</span>`,
       `<span class="team-library-actions">
-        <button type="button" class="text-button" data-team-employee-delete="${escapeHtml(role.roleName)}" data-tip="从全局员工库删除（已装配的会话副本不受影响）">删除</button>
+        <button type="button" class="image-button" data-team-employee-edit="${escapeHtml(role.roleName)}" aria-label="修改 ${escapeHtml(role.roleName)}" data-tip="修改员工库里的这个人（提示词 / 权限 / 类型）">${icon("settings", 12)}</button>
+        <button type="button" class="image-button" data-team-employee-delete="${escapeHtml(role.roleName)}" aria-label="从员工库删除 ${escapeHtml(role.roleName)}" data-tip="从员工库删除（已装配的会话副本不受影响）">${icon("close", 12)}</button>
       </span>`
     ], { className: "team-library-row", attrs: `data-team-employee="${escapeHtml(role.roleName)}"` }));
   }
-  const drift = teamGlobalDrift(global);
-  const driftNote = drift
-    ? '<span class="team-drift">会话副本与母本有差异：点「确认·普及搭配到全局」才会写回</span>'
-    : '<span class="muted">会话副本与母本一致</span>';
-  const metaRows = [
-    teamRow([
-      '<span class="team-cell-key">默认顺序</span>',
-      `<span class="team-cell-value team-schedule-order">${escapeHtml(global.orderRoles.join(" → ") || "—")}</span><span class="chip">${escapeHtml(global.orderPolicy || "—")}</span>`
-    ]),
-    teamRow([
-      '<span class="team-cell-key">会话副本</span>',
-      `<span class="team-cell-value team-schedule-order">${escapeHtml(global.composition.orderRoles.join(" → ") || "—")}</span>`
-    ]),
-    teamRow(['<span class="team-cell-key">差异</span>', driftNote])
-  ];
-  return `${teamRailHead("全局母本", global.employees.length, "全局粒度 · 会话读的是深拷贝副本",
-    `<button type="button" class="text-button" data-team-default-order="1" data-tip="只把当前会话的发言顺序设为全局默认顺序">顺序设为默认</button>
-     <button type="button" class="text-button" data-team-publish-global="1" data-tip="把当前会话的在编员工与发言顺序写回全局母本（员工库 + 默认顺序 + 一条团队库条目）">确认·普及搭配到全局</button>`)}
+  const available = Boolean(global && typeof global === "object");
+  const inSession = Array.isArray(team?.members) ? team.members.filter(member => member.roleKind !== "timer").length : 0;
+  const drift = available ? teamGlobalDrift(global) : false;
+  const driftNote = !available
+    ? '<span class="muted">宿主未下发员工库（旧版后端）：此处只读</span>'
+    : drift
+      ? '<span class="team-drift">本会话在编名单与员工库有差异：「入库当前会话」才写回</span>'
+      : '<span class="muted">本会话在编名单与员工库一致</span>';
+  const emptyNote = available
+    ? "员工库为空：点「新建员工」，或把当前会话「入库当前会话」"
+    : "员工库为空（宿主未下发）";
+  // 写按钮只在宿主真的下发了员工库时出现：旧后端不会接受这两个调用，不伪造能点的按钮。
+  const headActions = available
+    ? `<button type="button" class="text-button" data-team-employee-new="1" data-tip="在员工库新建一个员工（不装配到任何会话）">${icon("plus", 12)}新建员工</button>
+     <button type="button" class="text-button" data-team-publish-global="1" data-tip="把当前会话的在编员工与发言顺序写回员工库（员工 + 默认顺序 + 一条团队库条目）">入库当前会话</button>`
+    : '<span class="team-editor-hint muted">旧宿主：员工库不可写</span>';
+  return `${teamRailHead("员工库", master.employees.length, "全局·跨会话 · 不依赖团队", headActions)}
     ${teamTable({
-      label: "全局员工库",
-      head: ["员工（全局）", "类型", "权限", "操作"],
-      rows: rows.join("") || teamEmptyRow("全局员工库为空：点「确认·普及搭配到全局」把当前会话的员工写回母本"),
+      label: "员工库",
+      head: ["员工", "类型", "权限", "操作"],
+      rows: rows.join("") || teamEmptyRow(emptyNote),
       columns: "minmax(0, 1.5fr) 38px 64px minmax(0, 1fr)"
     })}
-    ${teamTable({
-      label: "全局默认顺序与会话副本",
-      head: ["项", "值"],
-      rows: metaRows.join(""),
-      columns: "72px minmax(0, 1fr)"
-    })}`;
+    <div class="team-lib-note muted">本会话在编 ${inSession} 人 · ${driftNote}</div>`;
 }
 
 function normalizeRoleSpecs(items) {
@@ -306,10 +306,10 @@ export function renderAgentTeam(view, presets, library, global) {
     blocks.push(`<div class="team-notice" role="status">${team.designNotice.map(escapeHtml).join("；")}</div>`);
   }
 
-  blocks.push(teamLibraryBlock(team, presetList, normalizeTeamLibrary(library)));
-  if (global && typeof global === "object") {
-    blocks.push(globalMasterBlock(normalizeTeamGlobal(global)));
-  }
+  const globalConfig = global && typeof global === "object" ? normalizeTeamGlobal(global) : null;
+  // 员工库在前、且与团队无关：不选团队也能看到离散员工并逐个增删改（解耦）。
+  blocks.push(employeeLibraryBlock(globalConfig, team));
+  blocks.push(teamLibraryBlock(team, presetList, normalizeTeamLibrary(library), globalConfig));
   if (!team.configured) {
     blocks.push('<div class="team-empty muted">当前会话未装配 AgentTeam：装配一支团队，或直接给这个会话增加员工。</div>');
   }
@@ -322,8 +322,10 @@ export function renderAgentTeam(view, presets, library, global) {
 }
 
 // teamLibraryBlock 是「团队库」表：团队模板一行一支（内置形态以"模板（未入库）"
-// 单独列出），操作是装配 / 存进团队库 / 编辑 / 删除；右上角 + 新建团队开冷加载面板。
-function teamLibraryBlock(team, presets, library) {
+// 单独列出）。团队只负责三件事——**装配谁**（装配按钮）、**按什么顺序回答**
+// （本表的顺序行 + 编辑团队里的顺序策略）、**呼叫谁**（装配后在「发言调度」里
+// 逐人呼叫/暂离）；员工本身的增删改在「员工库」块里，两者互不依赖。
+function teamLibraryBlock(team, presets, library, global) {
   const rows = [];
   for (const entry of library.teams) {
     const members = entry.roles.length;
@@ -353,24 +355,47 @@ function teamLibraryBlock(team, presets, library) {
       </span>`
     ], { className: "team-library-row", attrs: `data-team-library-template="${escapeHtml(kind)}"` }));
   }
+  const defaultOrderRoles = Array.isArray(global?.orderRoles) ? global.orderRoles : [];
+  const defaultOrderPolicy = global?.orderPolicy || "";
+  // 「顺序设为默认」写的是**全局**默认顺序：宿主没下发默认顺序时不渲染（同员工库的写按钮）。
+  const defaultOrderButton = global
+    ? `<button type="button" class="text-button" data-team-default-order="1" data-tip="只把当前会话的发言顺序设为全局默认顺序">顺序设为默认</button>
+     `
+    : "";
   return `${teamRailHead("团队库", library.teams.length, `${presets.length} 个内置形态`,
     `<button type="button" class="text-button" data-team-save-current="1" data-tip="把当前会话在编员工（含提示词/权限）存成一支团队">存当前会话</button>
-     <button type="button" class="text-button" data-team-open-team="1" data-tip="新建团队：空白 / 从当前会话 / 从内置模板">+ 新建团队</button>`)}
+     ${defaultOrderButton}<button type="button" class="text-button" data-team-open-team="1" data-tip="新建团队：空白 / 从当前会话 / 从内置模板">${icon("plus", 12)}新建团队</button>`)}
     ${teamTable({
       label: "团队库",
       head: ["团队", "形态", "规模", "操作"],
       rows: rows.join("") || teamEmptyRow("团队库为空：点「+ 新建团队」建第一支"),
       columns: "minmax(0, 1fr) minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.3fr)"
     })}
+    ${global ? teamTable({
+      label: "发言顺序（全局默认 vs 本会话）",
+      head: ["项", "值"],
+      rows: [
+        teamRow([
+          '<span class="team-cell-key">默认顺序</span>',
+          `<span class="team-cell-value team-schedule-order">${escapeHtml(defaultOrderRoles.join(" → ") || "—")}</span><span class="chip">${escapeHtml(defaultOrderPolicy || "—")}</span>`
+        ]),
+        teamRow([
+          '<span class="team-cell-key">本会话</span>',
+          `<span class="team-cell-value team-schedule-order">${escapeHtml(team.orderRoles.join(" → ") || "—")}</span><span class="chip">${escapeHtml(team.orderPolicy || "—")}</span>`
+        ])
+      ].join(""),
+      columns: "72px minmax(0, 1fr)"
+    }) : ""}
     <div class="team-editor-slot" data-team-team-slot hidden></div>`;
 }
 
-// staffSection 是「员工栏」：在编员工 + 发言顺序（同一张表：顺序就是发言次序）。
-// 拖动行首的 ≡（或键盘 ↑/↓）调整顺序；点 + 入职、点「编辑」改提示词与权限。
+// staffSection 是「员工栏」：本会话在编员工 + 发言顺序（同一张表：顺序就是发言次序）。
+// 顺序**只用拖拽**调整（用户口径：有拖拽就不需要 ↑/↓ 按钮）；点「+ 入职」加人，
+// 点「编辑」改提示词与权限。
 function staffSection(team) {
   const rows = staffRows(team);
-  return `${teamRailHead("员工栏", team.members.length, team.configured ? "拖拽 ≡ 调整发言顺序" : "尚未装配团队",
-    `<button type="button" class="text-button" data-team-open-hire="1" data-tip="入职一个新员工（角色名 / 提示词 / 权限）">+ 入职</button>`)}
+  return `${teamRailHead("员工栏", team.members.length, team.configured ? "拖拽行首手柄调整发言顺序" : "尚未装配团队",
+    `<button type="button" class="text-button" data-team-open-hire="1" data-tip="入职一个新员工（角色名 / 提示词 / 权限）">${icon("plus", 12)}入职</button>`)}
     ${teamTable({
       label: "员工栏",
       head: ["员工（拖拽调序 · 权限）", "类型", "位置", "操作"],
@@ -409,17 +434,15 @@ function staffRow(member, orderIndex, team, scheduled = false) {
     ? `<span class="team-perm-chip" title="已登记提示词（${escapeHtml(String(member.systemPrompt.length))} 字符）">提示词</span>`
     : `<span class="team-perm-chip is-inherit" title="未登记提示词">无提示词</span>`;
   const actions = [
-    `<button type="button" class="text-button" data-team-action="up" data-team-role="${escapeHtml(member.roleName)}"${!inOrder || orderIndex === 0 ? " disabled" : ""} data-tip="上移">↑</button>`,
-    `<button type="button" class="text-button" data-team-action="down" data-team-role="${escapeHtml(member.roleName)}"${!inOrder || orderIndex === team.orderRoles.length - 1 ? " disabled" : ""} data-tip="下移">↓</button>`,
     pinned
-      ? `<button type="button" class="text-button" data-team-action="remove" data-team-role="${escapeHtml(member.roleName)}" disabled title="user/main 是群聊起手与收口，不能摘除">✕</button>`
-      : `<button type="button" class="text-button" data-team-action="remove" data-team-role="${escapeHtml(member.roleName)}"${inOrder ? "" : " disabled"} data-tip="从工作顺序摘除（保留角色）">✕</button>`,
+      ? `<button type="button" class="text-button" data-team-action="remove" data-team-role="${escapeHtml(member.roleName)}" disabled title="user/main 是群聊起手与收口，不能摘除">${icon("close", 12)}</button>`
+      : `<button type="button" class="text-button" data-team-action="remove" data-team-role="${escapeHtml(member.roleName)}"${inOrder ? "" : " disabled"} aria-label="摘除 ${escapeHtml(display)}" data-tip="从工作顺序摘除（保留角色）">${icon("close", 12)}</button>`,
     `<button type="button" class="text-button team-member-edit" data-team-edit="${escapeHtml(member.roleName)}"${pinned ? ' disabled title="user/main 由会话本身提供，配置不可改"' : ' data-tip="打开编辑面板（提示词 / 权限 / 类型）"'}>编辑</button>`,
     `<button type="button" class="text-button team-member-remove" data-team-delete="${escapeHtml(member.roleName)}"${pinned ? ' disabled title="user/main 由会话本身提供，不能删除"' : ' data-tip="从注册表与工作顺序中删除该角色"'}>删除</button>`
   ].join("");
   const handle = scheduled
     ? '<span class="team-drag-handle is-static" title="定时 agent 不参与发言顺序，不能排序">·</span>'
-    : `<span class="team-drag-handle" data-team-drag="${escapeHtml(member.roleName)}" draggable="true" role="button" tabindex="0" title="拖拽调整发言顺序" aria-label="拖拽调整 ${escapeHtml(display)} 的发言顺序">≡</span>`;
+    : `<span class="team-drag-handle" data-team-drag="${escapeHtml(member.roleName)}" draggable="true" role="button" tabindex="0" title="拖拽调整发言顺序" aria-label="拖拽调整 ${escapeHtml(display)} 的发言顺序">${icon("grip", 12)}</span>`;
   return teamRow([
     `<span class="team-staff-main">
       ${handle}
@@ -438,60 +461,84 @@ function staffRow(member, orderIndex, team, scheduled = false) {
   });
 }
 
-// hirePanel 是「入职 / 修改员工」的冷加载面板：默认不渲染，点 + / 编辑才注入。
-// staff 为空 = 新增；否则回填该员工的登记值（提示词/权限必须回填，否则一次编辑
-// 就会把用户登记的东西清空）。
-export function hirePanel(team, member) {
+// hirePanel 是「入职 / 修改员工」的冷加载面板：默认不渲染，点 + 入职 / 编辑才注入。
+// 字段**条目化 + 序列化**：一条字段一行（序号 + 标签 + 控件 + 说明），分组分节，
+// 右栏窄也读得成一条流水线，而不是并排的挤字表格。
+// scope 决定落盘位置：session = 当前会话在编员工（入职/覆盖），library = 员工库
+// （全局事实，不装配到任何会话）——员工库的增删改与团队解耦，走的就是后者。
+export function hirePanel(team, member, scope = "session") {
   const editing = Boolean(member && member.roleName);
   const role = member || {};
-  const pinnedRole = editing && isPinnedRole(role.roleName);
+  const toLibrary = scope === "library";
+  const pinnedRole = editing && !toLibrary && isPinnedRole(role.roleName);
   const kindOptions = options(ROLE_KIND_OPTIONS, role.roleKind || "agent");
   const joinOptions = options(JOIN_POLICY_OPTIONS, role.joinPolicy || "on_team_create");
   const toolsOptions = options(TOOLS_POLICY_OPTIONS, role.toolsPolicy || "");
   const modelOptions = options(MODEL_POLICY_OPTIONS, role.modelPolicy || "");
+  const title = toLibrary
+    ? (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "新建员工 · 员工库")
+    : (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "入职员工");
+  const fields = [];
+  fields.push(fieldItem(1, "角色名",
+    `<input type="text" name="role_name" data-team-hire-name placeholder="reviewer / auditor…" value="${escapeHtml(role.roleName || "")}"${editing ? " readonly" : ""} required>`,
+    "小写英文 / 下划线；同名即就地覆盖（幂等，不会新建第二个角色会话）。"));
+  fields.push(fieldItem(2, "类型", `<select name="role_kind" data-team-hire-kind>${kindOptions}</select>`,
+    "worker 干活、auditor 复核、scheduler 排期、timer 定时。"));
+  fields.push(fieldItem(3, "入职时机", `<select name="join_policy" data-team-hire-join>${joinOptions}</select>`,
+    "什么时候把这个员工拉进会话。"));
+  fields.push(fieldItem(4, "在席策略",
+    `<input type="text" name="presence_policy" data-team-hire-presence placeholder="留空继承（online_when_goal_active…）" value="${escapeHtml(role.presencePolicy || "")}">`,
+    "留空 = 继承团队 / 会话默认。"));
+  fields.push(fieldItem(5, "权限", `<select name="tools_policy" data-team-hire-tools>${toolsOptions}</select>`,
+    "工具集：readonly 只读、full 全权、留空继承。"));
+  fields.push(fieldItem(6, "模型", `<select name="model_policy" data-team-hire-model>${modelOptions}</select>`,
+    "这一位用哪个模型档位（供应商与模型在「账号」页配）。"));
+  fields.push(fieldItem(7, "员工提示词",
+    `<textarea name="system_prompt" data-team-hire-prompt placeholder="这个员工怎么干活：职责边界、输入、输出格式、约束">${escapeHtml(role.systemPrompt || "")}</textarea>`,
+    "装配时会作为该角色会话的系统提示词。"));
   return `<div class="team-editor" data-team-editor="hire">
     <div class="team-editor-head">
-      <span class="team-editor-title">${editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "入职员工"}</span>
-      <button type="button" class="team-editor-close" data-team-editor-close="1" title="关闭面板（Esc）" aria-label="关闭入职面板">✕</button>
+      <span class="team-editor-title">${title}</span>
+      ${toLibrary ? '<span class="chip" title="这份面板只写员工库，不装配到当前会话">员工库</span>' : ""}
+      <button type="button" class="team-editor-close" data-team-editor-close="1" title="关闭面板（Esc）" aria-label="关闭面板">${icon("close", 12)}</button>
     </div>
-    <form class="team-hire-form" data-team-hire-form autocomplete="off">
-      <label class="team-field"><span>角色名</span>
-        <input type="text" name="role_name" data-team-hire-name placeholder="reviewer / auditor…" value="${escapeHtml(role.roleName || "")}"${editing ? " readonly" : ""} required>
-      </label>
-      <div class="team-field-row">
-        <label class="team-field"><span>类型</span>
-          <select name="role_kind" data-team-hire-kind>${kindOptions}</select>
-        </label>
-        <label class="team-field"><span>入职时机</span>
-          <select name="join_policy" data-team-hire-join>${joinOptions}</select>
-        </label>
-      </div>
-      <div class="team-field-row">
-        <label class="team-field"><span>权限</span>
-          <select name="tools_policy" data-team-hire-tools>${toolsOptions}</select>
-        </label>
-        <label class="team-field"><span>模型</span>
-          <select name="model_policy" data-team-hire-model>${modelOptions}</select>
-        </label>
-      </div>
-      <label class="team-field"><span>在席策略</span>
-        <input type="text" name="presence_policy" data-team-hire-presence placeholder="留空继承（online_when_goal_active…）" value="${escapeHtml(role.presencePolicy || "")}">
-      </label>
-      <label class="team-field"><span>员工提示词</span>
-        <textarea name="system_prompt" data-team-hire-prompt placeholder="这个员工怎么干活：职责边界、输入、输出格式、约束">${escapeHtml(role.systemPrompt || "")}</textarea>
-      </label>
+    <form class="team-hire-form" data-team-hire-form data-team-hire-scope="${toLibrary ? "library" : "session"}" autocomplete="off">
+      ${fieldGroup("身份", fields.slice(0, 2))}
+      ${fieldGroup("编排", fields.slice(2, 4))}
+      ${fieldGroup("能力", fields.slice(4, 6))}
+      ${fieldGroup("提示词", fields.slice(6))}
       <div class="team-prompt-actions">
         <button type="button" class="text-button" data-team-optimize="1" data-tip="让模型把这个提示词改写成更明确可执行的版本（只产出候选，点保存才落盘）">优化提示词</button>
         <span class="team-editor-hint" data-team-optimize-state></span>
       </div>
       <div class="team-editor-slot" data-team-prompt-result hidden></div>
       <div class="team-editor-actions">
-        <button type="submit" class="text-button primary team-hire-submit" data-team-hire-submit>${editing ? "保存修改" : "入职"}</button>
+        <button type="submit" class="text-button primary team-hire-submit" data-team-hire-submit>${toLibrary ? (editing ? "保存到员工库" : "存入员工库") : (editing ? "保存修改" : "入职")}</button>
         <button type="button" class="text-button" data-team-editor-close="1">取消</button>
-        <span class="team-editor-hint">${editing ? "同名角色就地覆盖（幂等：不会新建第二个角色会话）。" : "同名角色会被就地修改（幂等：不会新建第二个角色会话）。"}${pinnedRole ? "" : "提示词/权限登记在角色注册表里，装配后随会话保存。"}</span>
+        <span class="team-editor-hint">${toLibrary
+          ? (editing ? "改的是员工库里的这一位（全局事实）；已装配的会话读的是自己的副本，不会被动改。" : "只写员工库（全局事实），不装配到当前会话；要进会话再点「入职」或装配团队。")
+          : `${editing ? "同名角色就地覆盖" : "同名角色会被就地修改"}（幂等：不会新建第二个角色会话）。${pinnedRole ? "" : "提示词 / 权限登记在角色注册表里，装配后随会话保存。"}`}</span>
       </div>
     </form>
   </div>`;
+}
+
+// fieldItem 渲染一条"序列化字段"：序号 + 标签 + 控件 + 说明，纵向一条一行。
+// 右栏只有 220~480px，标签与控件并排会把每列挤到 80px（旧版挤字就是这个原因）。
+function fieldItem(index, label, control, hint = "") {
+  return `<label class="team-field">
+      <span class="team-field-label"><span class="team-field-no">${index}</span>${escapeHtml(label)}</span>
+      ${control}
+      ${hint ? `<span class="team-field-hint">${escapeHtml(hint)}</span>` : ""}
+    </label>`;
+}
+
+// fieldGroup 把若干条目字段收进一节（节头 + 条目），让长面板有可扫读的分段。
+function fieldGroup(title, items) {
+  return `<section class="team-field-group">
+      <div class="team-field-group-head">${escapeHtml(title)}</div>
+      ${items.join("")}
+    </section>`;
 }
 
 // teamEditorPanel 是「新建 / 编辑团队」的冷加载面板：团队库条目的增改都从这里走。
@@ -511,38 +558,29 @@ export function teamEditorPanel(team, entry, presets) {
   return `<div class="team-editor" data-team-editor="team">
     <div class="team-editor-head">
       <span class="team-editor-title">${editing ? `编辑团队 · ${escapeHtml(data.name || data.teamID)}` : "新建团队"}</span>
-      <button type="button" class="team-editor-close" data-team-editor-close="1" title="关闭面板（Esc）" aria-label="关闭团队面板">✕</button>
+      <button type="button" class="team-editor-close" data-team-editor-close="1" title="关闭面板（Esc）" aria-label="关闭团队面板">${icon("close", 12)}</button>
     </div>
     <form class="team-team-form" data-team-form autocomplete="off">
-      <div class="team-field-row">
-        <label class="team-field"><span>团队名</span>
-          <input type="text" name="name" data-team-form-name placeholder="我的评审队" value="${escapeHtml(data.name || "")}" required>
-        </label>
-        <label class="team-field"><span>团队 ID</span>
-          <input type="text" name="team_id" data-team-form-id placeholder="my-review-team" value="${escapeHtml(data.teamID || "")}"${editing ? " readonly" : ""}>
-        </label>
-      </div>
-      <div class="team-field-row">
-        <label class="team-field"><span>团队形态</span>
-          <input type="text" name="team_kind" data-team-form-kind placeholder="留空 = 用团队 ID" value="${escapeHtml(data.teamKind || "")}">
-        </label>
-        <label class="team-field"><span>顺序策略</span>
-          <select name="order_policy" data-team-form-policy>${options(POLICY_OPTIONS, data.orderPolicy || "user_main_decided")}</select>
-        </label>
-      </div>
-      <label class="team-field"><span>成员（每行一个角色名，发言顺序按行序）</span>
-        <textarea name="members" data-team-form-members placeholder="reviewer&#10;auditor">${escapeHtml(memberNames.join("\n"))}</textarea>
-      </label>
+      ${fieldGroup("身份", [
+        fieldItem(1, "团队名", `<input type="text" name="name" data-team-form-name placeholder="我的评审队" value="${escapeHtml(data.name || "")}" required>`, "会话里显示的团队名。"),
+        fieldItem(2, "团队 ID", `<input type="text" name="team_id" data-team-form-id placeholder="my-review-team" value="${escapeHtml(data.teamID || "")}"${editing ? " readonly" : ""}>`, "团队库主键；编辑时不可改（要改就新建一支）。")
+      ])}
+      ${fieldGroup("形态与顺序", [
+        fieldItem(3, "团队形态", `<input type="text" name="team_kind" data-team-form-kind placeholder="留空 = 用团队 ID" value="${escapeHtml(data.teamKind || "")}">`, "装配后写进会话的 team_kind。"),
+        fieldItem(4, "顺序策略", `<select name="order_policy" data-team-form-policy>${options(POLICY_OPTIONS, data.orderPolicy || "user_main_decided")}</select>`, "谁决定发言顺序（user_main_decided = 用户/主管点将）。")
+      ])}
+      ${fieldGroup("成员与呼叫顺序", [
+        fieldItem(5, "成员（每行一个角色名，发言顺序按行序）", `<textarea name="members" data-team-form-members placeholder="reviewer&#10;auditor">${escapeHtml(memberNames.join("\n"))}</textarea>`, "user / main 自动包含，不必填。")
+      ])}
       <div class="team-editor-actions">
-        <span class="team-editor-hint">user / main 自动包含，不必填。</span>
-        <button type="button" class="text-button" data-team-form-fill-current="1" data-tip="用当前会话在编员工填充成员">从当前会话</button>
+        <button type="button" class="text-button" data-team-form-fill-current="1" data-tip="用当前会话在编员工填充成员">从当前会话填充</button>
         ${currentMembers.length ? `<span class="team-editor-hint muted">当前会话：${escapeHtml(currentMembers.join("、"))}</span>` : ""}
       </div>
       <div class="team-template-picks">${templates}</div>
       <div class="team-editor-actions">
         <button type="submit" class="text-button primary" data-team-form-submit>${editing ? "保存团队" : "新建团队"}</button>
         <button type="button" class="text-button" data-team-editor-close="1">取消</button>
-        <span class="team-editor-hint">团队库存项目级（跨会话复用）；装配 = 把这支团队写成当前会话的在编员工表 + 发言顺序。</span>
+        <span class="team-editor-hint">团队库是项目级模板（跨会话复用）；装配 = 把这支团队写成当前会话的在编员工表 + 发言顺序。</span>
       </div>
     </form>
   </div>`;
@@ -721,8 +759,9 @@ function scheduledBlock(team) {
   </div>`;
 }
 
-// nextAgentTeamOrder 把一次顺序动作换算成新的 order_roles（纯函数，便于测试）。
-// 返回 null 表示动作非法（角色不在表内、pin 角色被摘除、越界移动）。
+// nextAgentTeamOrder 把一次"摘除 / 恢复"换算成新的 order_roles（纯函数，便于测试）。
+// 顺序**位置**的调整只有一条路：拖拽（agentTeamOrderForDrag）——按钮式 ↑/↓ 已按用户
+// 口径移除，所以这个函数只回答"在不在发言顺序里"。返回 null = 动作非法。
 export function nextAgentTeamOrder(view, action, roleName) {
   const team = normalizeAgentTeam(view);
   const order = [...team.orderRoles];
@@ -732,16 +771,13 @@ export function nextAgentTeamOrder(view, action, roleName) {
     order.push(roleName);
     return { policy: team.orderPolicy, orderRoles: order };
   }
-  if (index < 0) return null;
   if (action === "remove") {
+    if (index < 0) return null;
     if (PINNED_ROLES.has(roleName)) return null;
     order.splice(index, 1);
     return { policy: team.orderPolicy, orderRoles: order };
   }
-  const target = action === "up" ? index - 1 : action === "down" ? index + 1 : -1;
-  if (target < 0 || target >= order.length) return null;
-  [order[index], order[target]] = [order[target], order[index]];
-  return { policy: team.orderPolicy, orderRoles: order };
+  return null;
 }
 
 // agentTeamOrderForDrag 把一次拖拽换算成新的 order_roles（纯函数）：把

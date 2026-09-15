@@ -186,25 +186,20 @@ test("pinned roles cannot be removed from the working order", () => {
   assert.match(html, /data-team-action="remove" data-team-role="tl"/);
 });
 
-test("nextAgentTeamOrder only rewrites the working order", () => {
-  assert.deepEqual(nextAgentTeamOrder(goalView, "up", "tl"), {
-    policy: "goal_loop", orderRoles: ["user", "tl", "main"]
-  });
-  assert.deepEqual(nextAgentTeamOrder(goalView, "down", "user"), {
-    policy: "goal_loop", orderRoles: ["main", "user", "tl"]
-  });
+test("nextAgentTeamOrder only rewrites the working order (remove / restore)", () => {
   assert.deepEqual(nextAgentTeamOrder(goalView, "remove", "tl"), {
     policy: "goal_loop", orderRoles: ["user", "main"]
   });
   assert.deepEqual(nextAgentTeamOrder(goalView, "restore", "digest"), {
     policy: "goal_loop", orderRoles: ["user", "main", "tl", "digest"]
   });
-  // 非法动作：pin 角色摘除、边界移动、重复恢复、角色不在表内。
-  assert.equal(nextAgentTeamOrder(goalView, "remove", "main"), null);
-  assert.equal(nextAgentTeamOrder(goalView, "up", "user"), null);
+  // ↑/↓ 随按钮一起移除：拖拽是唯一的调序通道，位置类动作必须被拒。
+  assert.equal(nextAgentTeamOrder(goalView, "up", "tl"), null);
   assert.equal(nextAgentTeamOrder(goalView, "down", "tl"), null);
+  // 非法动作：pin 角色摘除、重复恢复、不在顺序里的角色摘除。
+  assert.equal(nextAgentTeamOrder(goalView, "remove", "main"), null);
+  assert.equal(nextAgentTeamOrder(goalView, "remove", "digest"), null);
   assert.equal(nextAgentTeamOrder(goalView, "restore", "tl"), null);
-  assert.equal(nextAgentTeamOrder(goalView, "up", "digest"), null);
 });
 
 // ── 角色会话详情 ──────────────────────────────────────────────
@@ -316,28 +311,36 @@ const globalConfig = {
   }
 };
 
-test("global master block lists the employee library and the publish action", () => {
+test("employee library block lists employees and the library write actions", () => {
   const html = renderAgentTeam(goalView, presets, library, globalConfig);
-  assert.match(html, /全局母本/);
-  assert.match(html, /全局粒度 · 会话读的是深拷贝副本/);
+  assert.match(html, /员工库/);
+  assert.match(html, /全局·跨会话 · 不依赖团队/);
+  assert.match(html, /data-team-employee-new="1"/);
   assert.match(html, /data-team-publish-global="1"/);
   assert.match(html, /data-team-default-order="1"/);
   assert.match(html, /data-team-employee-delete="auditor"/);
-  // 母本与会话副本一致时不提示差异。
-  assert.match(html, /会话副本与母本一致/);
-  // 旧宿主不下发全局母本时整块不渲染，也不伪造按钮。
+  assert.match(html, /data-team-employee-edit="auditor"/);
+  // 员工库与团队解耦：会话没装配团队，员工库照样在、照样能增删改。
+  const unconfigured = renderAgentTeam({ configured: false, members: [], scheduled: [] }, presets, library, globalConfig);
+  assert.match(unconfigured, /data-team-employee-edit="auditor"/);
+  assert.match(unconfigured, /data-team-publish-global="1"/);
+  // 副本一致时不提示差异。
+  assert.match(html, /本会话在编名单与员工库一致/);
+  // 旧宿主不下发员工库时不伪造写按钮（员工栏仍可增删当前会话的在编角色）。
   const withoutMaster = renderAgentTeam(goalView, presets, library);
-  assert.doesNotMatch(withoutMaster, /全局母本/);
+  assert.doesNotMatch(withoutMaster, /data-team-employee-new/);
+  assert.doesNotMatch(withoutMaster, /data-team-employee-edit/);
   assert.doesNotMatch(withoutMaster, /data-team-publish-global/);
+  assert.doesNotMatch(withoutMaster, /data-team-default-order/);
 });
 
-test("global master marks drift between the session copy and the master", () => {
+test("employee library marks drift between the session copy and the library", () => {
   const drifted = {
     ...globalConfig,
     composition: { ...globalConfig.composition, employees: [{ role_name: "reviewer", role_kind: "agent" }] }
   };
   const html = renderAgentTeam(goalView, presets, library, drifted);
-  assert.match(html, /会话副本与母本有差异/);
+  assert.match(html, /本会话在编名单与员工库有差异/);
   assert.equal(teamGlobalDrift(normalizeTeamGlobal(drifted)), true);
   assert.equal(teamGlobalDrift(normalizeTeamGlobal(globalConfig)), false);
 });
