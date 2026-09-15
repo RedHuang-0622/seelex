@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
-const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderSubagentTree, subagentTreeNodeToDSL, workItemToDetailNode } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const read = relative => readFile(new URL(`./${relative}`, import.meta.url), "utf8");
+const asModule = source => `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+// plan-dsl 依赖 tree-fork 的树轨（纯函数、无依赖），按同一约定改写成 data URL
+// 后自成模块图，测试不必依赖运行时的相对路径解析。
+const treeForkURL = asModule(await read("tree-fork.js"));
+const source = (await read("plan-dsl.js")).replace('"./tree-fork.js"', `"${treeForkURL}"`);
+const { planToDSL, renderPlanDSL, renderNodeDetail, renderNodeContext, renderSubagentTree, subagentTreeNodeToDSL, workItemToDetailNode } = await import(asModule(source));
 
 function parallelPlan(status = "queued", progress = 0) {
   return {
@@ -346,28 +351,37 @@ test("lays out a parallel DAG as a tree: topological levels, main path, side ref
   assert.deepEqual(running.nodes.map(node => node.key), dsl.nodes.map(node => node.key));
 });
 
-test("renders tree guide characters and side-ref chips for diamond joins", () => {
+test("renders tree rails and side-ref chips for diamond joins", () => {
   const dsl = planToDSL(parallelPlan("pending", 0));
   const byID = Object.fromEntries(dsl.nodes.map(node => [node.id, node]));
-  assert.equal(byID.left.treeGuide, "├─ ");
-  assert.equal(byID.right.treeGuide, "└─ ");
-  assert.equal(byID.join.treeGuide, "│  └─ ");
+  // 拓扑事实：末子标记 + 各层祖先的续行标记（交由 tree-fork 画缩进轨）。
+  assert.equal(byID.left.treeIsLast, false);
+  assert.equal(byID.right.treeIsLast, true);
+  assert.equal(byID.join.treeIsLast, true);
+  assert.deepEqual(byID.left.treeAncestors, []);
+  assert.deepEqual(byID.join.treeAncestors, [true]); // left 还有后继兄弟 right
   const html = renderPlanDSL(dsl);
-  assert.match(html, /data-plan-tree-guide/);
-  assert.match(html, />├─ </);
-  assert.match(html, />│\s+└─ </); // 引导字符白空格原样保留
+  assert.match(html, /data-plan-tree-depth="2"/);
+  assert.match(html, /tf-row--line/);  // left 非末子 → 整行竖线
+  assert.match(html, /tf-row--elbow/); // right / join 是末子 → 圆角弯头
+  assert.match(html, /--tf-depth:2/);
+  assert.match(html, /background-position:5px 0/); // level 0 续行轨（indent 12）
   assert.match(html, /data-plan-side-ref="right"/);
   assert.match(html, />旁路 right · {&quot;when&quot;:&quot;approved&quot;}/); // chip 文本（来源 + 条件标签）
-  assert.match(html, /data-plan-tree-depth="2"/);
+  // 树轨画出来了，就不该再有字符画连线。
+  assert.doesNotMatch(html, /├─/);
+  assert.doesNotMatch(html, /└─/);
 });
 
-test("keeps children-nesting depth and no tree guide when a plan has no edges", () => {
+test("keeps children-nesting depth and no tree rail when a plan has no edges", () => {
   const dsl = planToDSL({ name: "nested", status: "pending", nodes: [{ id: "fork", status: "pending", children: [{ id: "child", status: "queued" }] }] });
   assert.deepEqual(dsl.nodes.map(node => node.depth), [0, 1]);
-  assert.equal(dsl.nodes[1].treeGuide ?? "", "");
+  // 无 edges ⇒ 走 children 嵌套深度，只有深度没有父子树轨。
   assert.equal(dsl.nodes[1].treeParentID ?? "", "");
+  assert.deepEqual(dsl.nodes[1].treeAncestors ?? [], []);
   const html = renderPlanDSL(dsl);
-  assert.doesNotMatch(html, /data-plan-tree-guide/);
+  assert.match(html, /--tf-depth:1/);
+  assert.doesNotMatch(html, /├─/);
 });
 
 test("breaks DAG cycles without infinite loops and renders every node once", () => {
@@ -379,7 +393,7 @@ test("breaks DAG cycles without infinite loops and renders every node once", () 
   assert.equal(dsl.nodes.length, 2);
   // 环内节点按根处理（level 0），深度有界、无 treeParent 死循环。
   assert.deepEqual(dsl.nodes.map(node => node.depth), [0, 0]);
-  assert.ok(dsl.nodes.every(node => node.treeParentID === "" && node.treeGuide === ""));
+  assert.ok(dsl.nodes.every(node => node.treeParentID === "" && node.treeAncestors.length === 0 && node.treeIsLast === true));
   const html = renderPlanDSL(dsl);
   assert.match(html, /data-plan-node-open="a"/);
   assert.match(html, /data-plan-node-open="b"/);
@@ -425,9 +439,21 @@ test("renders the subagent tree with nesting guides, status colors, and escaped 
   assert.doesNotMatch(html, /<main>/);
   assert.match(html, /boom &lt;b&gt;/);
   assert.doesNotMatch(html, /<b>boom<\/b>/);
-  assert.match(html, />├─ </); // s1 引导字符
-  assert.match(html, />│\s+└─ </); // s1a 深层引导（│ + └─）
-  assert.match(html, />└─ </); // s2 引导字符
+  // 层级连线由 tree-fork 画（缩进轨 + 末子弯头），不再是「├─ / └─ / │」字符画。
+  assert.match(html, /tf-row--line/);   // s1 非末子（后面还有 s2）→ 整行竖线
+  assert.match(html, /tf-row--elbow/);  // 末子 → 圆角弯头
+  assert.match(html, /--tf-depth:2/);   // s1a 的深一层轨
+  assert.doesNotMatch(html, /├─/);
+  assert.doesNotMatch(html, /└─/);
+  // 祖先还有后继兄弟时，那一层的 1px 续行轨会穿透到更深的行（level 1 → x = 17）。
+  const deep = renderSubagentTree([
+    { id: "main", children: [
+      { id: "s1", children: [{ id: "s1a", children: [{ id: "s1a1" }] }] },
+      { id: "s2" }
+    ] }
+  ]);
+  assert.match(deep, /--tf-depth:3;--tf-indent:12px;background-image:linear-gradient\(var\(--tree-rail\), var\(--tree-rail\)\)/);
+  assert.match(deep, /background-position:17px 0/);
   assert.match(html, /主代理/);
   assert.match(html, /sess_012…abcdef/);
   assert.match(html, />DONE</);

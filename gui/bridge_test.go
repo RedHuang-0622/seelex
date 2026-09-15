@@ -428,9 +428,9 @@ func TestBridgeWorkspaceFileCountForwards(t *testing.T) {
 func TestBridgeWorkspaceGitLogForwardsLimit(t *testing.T) {
 	t.Parallel()
 	fake := newFakeApplication()
-	fake.gitLog = dto.GitLogResult{Lines: []dto.GitLogLine{
-		{Graph: "*", Commit: &dto.GitCommitNode{Hash: "aaaa", ShortHash: "a1b2", Author: "Alice", Date: "08-29", Subject: "fix: git log"}},
-	}, Commits: []dto.GitCommitNode{{Hash: "aaaa"}}}
+	fake.gitLog = dto.GitLogResult{Commits: []dto.GitCommitNode{
+		{Hash: "aaaa", ShortHash: "a1b2", Author: "Alice", Date: "08-29", Parents: []string{"bbbb"}, Subject: "fix: git log"},
+	}}
 	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
 	if err != nil {
 		t.Fatal(err)
@@ -443,8 +443,8 @@ func TestBridgeWorkspaceGitLogForwardsLimit(t *testing.T) {
 	if fake.gitLimit != 20 {
 		t.Fatalf("forwarded limit=%d", fake.gitLimit)
 	}
-	if len(result.Lines) != 1 || result.Lines[0].Commit == nil || result.Lines[0].Commit.Subject != "fix: git log" {
-		t.Fatalf("unexpected git log result: %+v", result.Lines)
+	if len(result.Commits) != 1 || result.Commits[0].Subject != "fix: git log" || len(result.Commits[0].Parents) != 1 {
+		t.Fatalf("unexpected git log result: %+v", result.Commits)
 	}
 }
 
@@ -1080,7 +1080,7 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	for _, name := range []string{
 		"frontend/dist/index.html", "frontend/dist/app.js", "frontend/dist/components.js",
 		"frontend/dist/protocol.js", "frontend/dist/client-state.js", "frontend/dist/conversation-view.js",
-		"frontend/dist/chat-view.js", "frontend/dist/runtime-events.js", "frontend/dist/effort-control.js", "frontend/dist/plan-dsl.js", "frontend/dist/styles.css",
+		"frontend/dist/chat-view.js", "frontend/dist/runtime-events.js", "frontend/dist/effort-control.js", "frontend/dist/plan-dsl.js", "frontend/dist/tree-fork.js", "frontend/dist/styles.css",
 	} {
 		if _, err := embeddedFrontend.ReadFile(name); err != nil {
 			t.Fatalf("embedded frontend %q: %v", name, err)
@@ -1282,6 +1282,67 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 	}
 	if !strings.Contains(html, `id="command-modal"`) || !strings.Contains(string(script), "updateInlineSuggestions") {
 		t.Fatal("embedded frontend does not include GUI command mode")
+	}
+	// 账户栏搬到右栏「状态」子页的状态一栏之下（用户口径）：左栏只留会话树。
+	if strings.Contains(leftPanel, `id="account-list"`) || !strings.Contains(rightPanel, `id="account-list"`) {
+		t.Fatal("账户栏必须挂在右栏「状态」子页，左侧栏只留会话")
+	}
+	if strings.Contains(html, `id="accounts-section" open>`) && !strings.Contains(rightPanel, `id="accounts-section"`) {
+		t.Fatal("账户区折叠块必须随账户列表一起落到右栏")
+	}
+	// 树/分叉统一走 tree-fork：不许再出现「├─ / └─ / │」这类字符画连线。
+	treeFork, err := embeddedFrontend.ReadFile("frontend/dist/tree-fork.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeForkSource := string(treeFork)
+	if !strings.Contains(treeForkSource, "export function treeRowAttrs") ||
+		!strings.Contains(treeForkSource, "export function layoutCommitGraph") {
+		t.Fatal("tree-fork 必须提供树轨与提交图泳道两套纯函数")
+	}
+	gitLogView, err := embeddedFrontend.ReadFile("frontend/dist/git-log-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreeView, err := embeddedFrontend.ReadFile("frontend/dist/worktree-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{string(planDsl), string(gitLogView), string(worktreeView)} {
+		if !strings.Contains(source, `from "./tree-fork.js"`) {
+			t.Fatal("Plan 树 / 提交记录 / 工作树都必须复用 tree-fork 的树轨")
+		}
+		if strings.Contains(source, "├─") || strings.Contains(source, "└─") {
+			t.Fatal("层级连线不许用字符画（tree-fork 画真实树轨）")
+		}
+	}
+	// 提交记录只吃结构化 parents：渲染层不再解释 --graph 的 graph 前缀。
+	if !strings.Contains(string(gitLogView), "layoutCommitGraph") || strings.Contains(string(gitLogView), "line.graph") {
+		t.Fatal("提交记录必须按 parents 拓扑画泳道，而不是贴 git --graph 的字符画")
+	}
+	// 会话条目：标题段 + ⋯ 段，时间/token 进 hover 提示（不再常显、不再砍成 5 字）。
+	if !strings.Contains(string(script), "data-session-more=") ||
+		!strings.Contains(string(script), "session-more-actions") ||
+		!strings.Contains(string(script), "paintTip") ||
+		strings.Contains(string(script), "truncateTitle") {
+		t.Fatal("会话条目必须是「标题段 + ⋯ 段」，时间/token 走 hover 提示")
+	}
+	if !strings.Contains(string(index), `id="ui-tooltip"`) {
+		t.Fatal("共享提示气泡宿主必须存在（一条 DOM，委托触发）")
+	}
+	// Agent Team 拆成员工栏与 Team 栏，两栏都是条目化表格。
+	teamView, err := embeddedFrontend.ReadFile("frontend/dist/agent-team-view.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamSource := string(teamView)
+	if !strings.Contains(teamSource, `"员工栏"`) || !strings.Contains(teamSource, `"Team 栏"`) ||
+		!strings.Contains(teamSource, "team-table-row") {
+		t.Fatal("Agent Team 必须拆成员工栏 / Team 栏两块条目化表格")
+	}
+	// 右侧「状态」子页的信息也条目化（键值表格行，不是自由网格）。
+	if !strings.Contains(string(script), `class="status-table"`) {
+		t.Fatal("项目状态必须渲染成键值表格行")
 	}
 }
 

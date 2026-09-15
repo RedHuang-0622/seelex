@@ -1,6 +1,10 @@
-// 左侧栏纯函数工具：标题截断与重名消歧编号（均为渲染期派生的显示逻辑）。
-// 会话置顶/别名不再存 localStorage —— 它们属于会话展示元数据，由后端持久化
-// 并随快照 `session.meta` 下发（见 application/core/session_meta.go）。
+// 左侧栏纯函数工具：重名消歧编号（渲染期派生的显示逻辑）。会话置顶/别名不再
+// 存 localStorage —— 它们属于会话展示元数据，由后端持久化并随快照
+// `session.meta` 下发（见 application/core/session_meta.go）。
+//
+// 标题截断（原 truncateTitle）已删除：会话条目改成「标题段 + ⋯ 段」后，标题段
+// 由 CSS 省略号按栏宽截断，完整标题 + 时间 + token 走共享提示气泡；在数据层把
+// 标题砍成固定字数会让同前缀的会话无法区分（真机上有多个「继续完善…」）。
 export const TITLE_TAILS_KEY = "seelex.session-title-tails";
 
 function defaultStorage() {
@@ -9,13 +13,6 @@ function defaultStorage() {
   } catch {
     return null;
   }
-}
-
-export function truncateTitle(name, max = 5) {
-  const text = String(name == null ? "" : name);
-  const chars = Array.from(text); // Unicode 码点迭代（代理对安全）
-  if (chars.length <= max) return text;
-  return chars.slice(0, max).join("") + "…";
 }
 
 // duplicateSuffix 为重名条目生成序号后缀：total <= 1 返回 ""；否则返回

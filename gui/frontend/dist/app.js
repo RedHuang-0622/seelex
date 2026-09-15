@@ -18,7 +18,7 @@ import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tas
 import { nextAgentTeamOrder, normalizeAgentTeam, renderAgentTeam, renderRoleSessionDetail, roleDisplayName } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
-import { truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
+import { duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import {
   DOCK_STORAGE_KEY,
   VIEW_META,
@@ -41,6 +41,7 @@ const state = {
   inlineSelected: 0,
   inlineRequest: 0,
   resumingSessionID: "",
+  openSessionMenu: "",
   tab: "conversation",
   rightTab: "status",
   trajectoryFilter: "all"
@@ -63,7 +64,8 @@ const elements = Object.fromEntries([
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
   "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
-  "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast"
+  "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast", "ui-tooltip",
+  "toggle-left-panel", "toggle-right-panel"
 ].map(id => [id, document.getElementById(id)]));
 
 // ── 子页停靠布局（主视图 / 右栏）────────────────────────────
@@ -766,14 +768,23 @@ function renderProjectStatus(snapshot, running) {
   const pendingApprovals = (snapshot.sessions || []).reduce(
     (sum, session) => sum + Number(session.approval_count || 0), 0
   );
-  elements["project-status"].innerHTML = [
+  // 条目化（键值两列）：状态信息是"一眼扫过"的清单，两列网格卡片会把
+  // 标签与数值排成自由布局，窄栏里还会错位；表格行则始终对齐。
+  const rows = [
     ["状态", running ? "Agent 执行中" : "Ready"],
     ["会话", snapshot.session?.draft ? "待发送" : shortSessionID(snapshot.session?.id || "—")],
     ["消息", String(snapshot.conversation?.length || 0)],
     ["任务", snapshot.task ? snapshot.task.status : "idle"],
     ["待审批", pendingApprovals > 0 ? `${pendingApprovals} 项` : "0"],
     ["文件数", fileCountLabel()]
-  ].map(([label, value]) => `<div class="status-item"><span>${escapeHtml(label)}</span><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
+  ];
+  elements["project-status"].innerHTML = `<div class="status-table" role="table" aria-label="项目状态">
+    <div class="status-row is-head" role="row"><span role="columnheader">项</span><span role="columnheader">值</span></div>
+    ${rows.map(([label, value]) => `<div class="status-row" role="row">
+      <span role="cell" class="status-label">${escapeHtml(label)}</span>
+      <span role="cell" class="status-value" title="${escapeHtml(value)}">${escapeHtml(value)}</span>
+    </div>`).join("")}
+  </div>`;
 }
 
 function fileCountLabel() {
@@ -882,105 +893,10 @@ function renderSessions(sessions, current, capabilities, sessionWorkspaces, work
     ? renderSessionGroups(items, currentID, sessionWorkspaces, workspaceNames, workspaceNameCounts)
     : '<span class="muted list-empty">暂无会话</span>';
 
-  elements["session-list"].querySelectorAll(".session-button:not(.session-draft)").forEach(button => {
-    button.addEventListener("click", async () => {
-      if (button.dataset.session === currentID) return;
-      if (!capabilities.session_resume) {
-        showToast(capabilities.session_resume_reason || "当前版本暂不支持恢复历史会话");
-        return;
-      }
-      const sessionID = button.dataset.session;
-      state.resumingSessionID = sessionID;
-      elements["composer-status"].textContent = "正在恢复会话…";
-      renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces);
-      try {
-        await invoke("ResumeSession", sessionID);
-        await refresh({ scroll: "bottom" });
-      } catch (error) {
-        elements["composer-status"].textContent = `恢复会话失败：${error?.message || String(error)}`;
-        showToast(error);
-        // 后端若已部分切换（迟到的失败），视图指针可能与用户所见不一致：
-        // 立即拉一次权威快照收敛（会话/聊天/输入区状态），否则后续输入会
-        // 路由进一个用户看不到的会话（“切换失败后输入发不出去/发错会话”）。
-        try { await refresh({ scroll: "preserve" }); } catch { /* 快照重拉失败按 toast 为准 */ }
-      } finally {
-        state.resumingSessionID = "";
-        const latest = client.current() || { sessions, session: current, capabilities, session_workspaces: sessionWorkspaces, workspaces };
-        renderSessions(latest.sessions || sessions, latest.session || current, latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces, latest.workspaces || workspaces);
-      }
-    });
-  });
-  elements["session-list"].querySelectorAll(".session-draft").forEach(button => {
-    button.addEventListener("click", async () => {
-      if (client.current()?.session?.draft) return; // 已在草稿，幂等
-      await beginNewSession();
-    });
-  });
-  elements["session-list"].querySelectorAll(".session-del").forEach(button => {
-    button.addEventListener("click", async event => {
-      event.stopPropagation();
-      const sessionID = button.dataset.session;
-      if (!sessionID || sessionID === currentID) {
-        showToast("不能删除当前会话");
-        return;
-      }
-      if (!confirm(`确认删除会话 ${shortSessionID(sessionID)}？`)) return;
-      try { await invoke("DeleteSession", sessionID); await refresh({ scroll: false }); }
-      catch (error) { showToast(error); }
-    });
-  });
-  elements["session-list"].querySelectorAll(".session-fork").forEach(button => {
-    button.addEventListener("click", async event => {
-      event.stopPropagation();
-      const sessionID = button.dataset.fork;
-      if (!sessionID) return;
-      if (!confirm(`从会话 ${shortSessionID(sessionID)} 分支出新会话？`)) return;
-      elements["composer-status"].textContent = "正在分支出新会话…";
-      try {
-        const childID = await invoke("ForkSessionLatest", sessionID);
-        elements["composer-status"].textContent = `已分支出新会话 ${shortSessionID(childID)}`;
-        await refresh({ scroll: "bottom" });
-      } catch (error) {
-        elements["composer-status"].textContent = `分支失败：${error?.message || String(error)}`;
-        showToast(error);
-        // 同 ResumeSession：分支可能已部分切换视图，失败后拉权威快照收敛，
-        // 避免后续输入路由到用户看不到的会话。
-        try { await refresh({ scroll: "preserve" }); } catch { /* 快照重拉失败按 toast 为准 */ }
-      } finally {
-        elements["composer-status"].textContent = "";
-        const latest = client.current() || { sessions, session: current, capabilities, session_workspaces: sessionWorkspaces, workspaces };
-        renderSessions(latest.sessions || sessions, latest.session || current, latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces, latest.workspaces || workspaces);
-      }
-    });
-  });
-  elements["session-list"].querySelectorAll("[data-collapse-group]").forEach(button => {
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      toggleWorkspaceGroup(button.dataset.collapseGroup);
-    });
-  });
-  elements["session-list"].querySelectorAll("[data-pin-session]").forEach(button => {
-    button.addEventListener("click", async event => {
-      event.stopPropagation();
-      const sessionID = button.dataset.pinSession;
-      const meta = sessionMetaByID(sessionID);
-      try {
-        // 展示元数据是后端状态（随目录下发）：写入后刷新快照即可，浏览器不再
-        // 自行记忆置顶，避免换窗口/换设备就丢失。
-        await invoke("SetSessionMeta", sessionID, !meta.pinned, meta.alias || "", meta.sort_order || 0);
-        await refresh({ scroll: false });
-      } catch (error) {
-        showToast(error);
-      }
-    });
-  });
-  elements["session-list"].querySelectorAll("[data-workspace-new-session]").forEach(button => {
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      const workspaceID = button.dataset.workspaceNewSession;
-      if (workspaceID) bindWorkspaceAndStart(workspaceID);
-    });
-  });
+  // 会话行交互统一委托（见 bindSessionListActions）：逐行 addEventListener 在
+  // 每次目录刷新时都会重建 N 个闭包与监听，条目越多越费内存，且旧监听随
+  // innerHTML 一起变成孤儿。这里只登记一次。
+  bindSessionListActions();
 }
 
 const UNBOUND_WORKSPACE = "__unbound__";
@@ -1085,12 +1001,258 @@ function sessionMetaByID(sessionID) {
   return found?.meta || {};
 }
 
+// ── 会话列表交互（一条委托监听 + ⋯ 段动作）───────────────────
+// 会话行是列表里最常重绘的区域：逐行 addEventListener 会在每次目录刷新时重建
+// N 个闭包与监听，条目越多越费内存，旧监听还会随 innerHTML 变成孤儿。动作统一
+// 委托到 #session-list 一条监听，按 data-* 键分派。
+let sessionListBound = false;
+
+function bindSessionListActions() {
+  if (sessionListBound || !elements["session-list"]) return;
+  sessionListBound = true;
+  elements["session-list"].addEventListener("click", onSessionListClick);
+}
+
+function sessionListSnapshot() {
+  return lastSessionsRender || {
+    sessions: [], current: { id: "" }, capabilities: {}, sessionWorkspaces: [], workspaces: []
+  };
+}
+
+async function onSessionListClick(event) {
+  const button = event.target?.closest?.("button");
+  if (!button || button.disabled) return;
+  const data = button.dataset || {};
+  if (data.sessionMore !== undefined) {
+    toggleSessionMenu(data.sessionMore);
+    return;
+  }
+  if (data.sessionDraft !== undefined) {
+    if (!client.current()?.session?.draft) await beginNewSession(); // 已在草稿则幂等
+    return;
+  }
+  if (data.collapseGroup !== undefined) {
+    toggleWorkspaceGroup(data.collapseGroup);
+    return;
+  }
+  if (data.workspaceNewSession) {
+    await bindWorkspaceAndStart(data.workspaceNewSession);
+    return;
+  }
+  if (data.pinSession) {
+    await toggleSessionPin(data.pinSession);
+    return;
+  }
+  if (data.fork) {
+    await forkSessionFromList(data.fork);
+    return;
+  }
+  if (data.sessionDel) {
+    await deleteSessionFromList(data.sessionDel);
+    return;
+  }
+  if (data.session !== undefined) await resumeSessionFromList(data.session);
+}
+
+// toggleSessionMenu 开合条目的 ⋯ 段：同一时刻只开一条（省 DOM，也省视觉噪音）。
+function toggleSessionMenu(sessionID) {
+  state.openSessionMenu = state.openSessionMenu === sessionID ? "" : sessionID;
+  rerenderSessions();
+}
+
+function closeSessionMenu() {
+  if (state.openSessionMenu === "") return;
+  state.openSessionMenu = "";
+  rerenderSessions();
+}
+
+async function resumeSessionFromList(sessionID) {
+  const { sessions, current, capabilities, sessionWorkspaces, workspaces } = sessionListSnapshot();
+  const currentID = current?.id || "";
+  if (!sessionID || sessionID === currentID) return;
+  closeSessionMenu();
+  if (!capabilities.session_resume) {
+    showToast(capabilities.session_resume_reason || "当前版本暂不支持恢复历史会话");
+    return;
+  }
+  state.resumingSessionID = sessionID;
+  elements["composer-status"].textContent = "正在恢复会话…";
+  rerenderSessions();
+  try {
+    await invoke("ResumeSession", sessionID);
+    await refresh({ scroll: "bottom" });
+  } catch (error) {
+    elements["composer-status"].textContent = `恢复会话失败：${error?.message || String(error)}`;
+    showToast(error);
+    // 后端若已部分切换（迟到的失败），视图指针可能与用户所见不一致：立即拉一次
+    // 权威快照收敛，否则后续输入会路由进用户看不到的会话。
+    try { await refresh({ scroll: "preserve" }); } catch { /* 快照重拉失败按 toast 为准 */ }
+  } finally {
+    state.resumingSessionID = "";
+    const latest = client.current();
+    if (latest) {
+      renderSessions(
+        latest.sessions || sessions, latest.session || current,
+        latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces,
+        latest.workspaces || workspaces
+      );
+    } else {
+      rerenderSessions();
+    }
+  }
+}
+
+async function deleteSessionFromList(sessionID) {
+  const currentID = sessionListSnapshot().current?.id || "";
+  closeSessionMenu();
+  if (!sessionID || sessionID === currentID) {
+    showToast("不能删除当前会话");
+    return;
+  }
+  if (!confirm(`确认删除会话 ${shortSessionID(sessionID)}？`)) return;
+  try {
+    await invoke("DeleteSession", sessionID);
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  }
+}
+
+async function forkSessionFromList(sessionID) {
+  const { sessions, current, capabilities, sessionWorkspaces, workspaces } = sessionListSnapshot();
+  closeSessionMenu();
+  if (!sessionID) return;
+  if (!confirm(`从会话 ${shortSessionID(sessionID)} 分支出新会话？`)) return;
+  elements["composer-status"].textContent = "正在分支出新会话…";
+  try {
+    const childID = await invoke("ForkSessionLatest", sessionID);
+    elements["composer-status"].textContent = `已分支出新会话 ${shortSessionID(childID)}`;
+    await refresh({ scroll: "bottom" });
+  } catch (error) {
+    elements["composer-status"].textContent = `分支失败：${error?.message || String(error)}`;
+    showToast(error);
+    // 同 ResumeSession：分支可能已部分切换视图，失败后拉权威快照收敛，
+    // 避免后续输入路由到用户看不到的会话。
+    try { await refresh({ scroll: "preserve" }); } catch { /* 快照重拉失败按 toast 为准 */ }
+  } finally {
+    elements["composer-status"].textContent = "";
+    const latest = client.current();
+    if (latest) {
+      renderSessions(
+        latest.sessions || sessions, latest.session || current,
+        latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces,
+        latest.workspaces || workspaces
+      );
+    } else {
+      rerenderSessions();
+    }
+  }
+}
+
+async function toggleSessionPin(sessionID) {
+  closeSessionMenu();
+  const meta = sessionMetaByID(sessionID);
+  try {
+    // 展示元数据是后端状态（随目录下发）：写入后刷新快照即可，浏览器不再自行
+    // 记忆置顶，避免换窗口/换设备就丢失。
+    await invoke("SetSessionMeta", sessionID, !meta.pinned, meta.alias || "", meta.sort_order || 0);
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  }
+}
+
+// ── 共享提示气泡（一条 DOM，委托到 [data-tip]）────────────────
+// 数据形态：data-tip 用 \n 分行——第一行通常是完整标题，第二行是时间 / token。
+// 只在停顿后显示（鼠标扫过不闪提示），并在滚动、失焦、Esc、点击时收起。
+const TIP_DELAY_MS = 320;
+let tipTarget = null;
+let tipTimer = 0;
+
+function hideTip() {
+  if (tipTimer) {
+    window.clearTimeout(tipTimer);
+    tipTimer = 0;
+  }
+  tipTarget = null;
+  elements["ui-tooltip"]?.classList.add("hidden");
+}
+
+function queueTip(target) {
+  const host = elements["ui-tooltip"];
+  if (!host || !target) {
+    hideTip();
+    return;
+  }
+  if (tipTarget === target && !host.classList.contains("hidden")) return;
+  hideTip();
+  tipTarget = target;
+  tipTimer = window.setTimeout(() => {
+    tipTimer = 0;
+    paintTip(target);
+  }, TIP_DELAY_MS);
+}
+
+function paintTip(target) {
+  const host = elements["ui-tooltip"];
+  const text = String(target?.dataset?.tip || "");
+  if (!host || !text) return;
+  // 纯文本节点拼装：提示内容来自标题/时间，绝不进 innerHTML。
+  host.replaceChildren();
+  text.split("\n").forEach((line, index) => {
+    if (index > 0) host.append(document.createElement("br"));
+    host.append(document.createTextNode(line));
+  });
+  host.classList.remove("hidden");
+  const anchor = target.getBoundingClientRect();
+  const box = host.getBoundingClientRect();
+  const margin = 8;
+  let left = anchor.left;
+  let top = anchor.bottom + 6;
+  if (left + box.width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - box.width - margin);
+  if (top + box.height > window.innerHeight - margin) top = Math.max(margin, anchor.top - box.height - 6);
+  host.style.left = `${Math.round(left)}px`;
+  host.style.top = `${Math.round(top)}px`;
+}
+
+document.addEventListener("pointerover", event => {
+  const target = event.target?.closest?.("[data-tip]");
+  if (target) queueTip(target);
+});
+document.addEventListener("pointerout", event => {
+  const target = event.target?.closest?.("[data-tip]");
+  if (!target) return;
+  if (event.relatedTarget && target.contains(event.relatedTarget)) return; // 行内移动不算离开
+  if (tipTarget === target) hideTip();
+});
+document.addEventListener("focusin", event => {
+  const target = event.target?.closest?.("[data-tip]");
+  if (target) queueTip(target); // 键盘聚焦也给同样的信息（可访问性）
+});
+document.addEventListener("focusout", hideTip);
+document.addEventListener("scroll", hideTip, true);
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  hideTip();
+  closeSessionMenu();
+});
+document.addEventListener("click", event => {
+  if (state.openSessionMenu === "") return;
+  if (event.target?.closest?.(".session-more")) return; // ⋯ 段内部的点击自己处理
+  closeSessionMenu();
+});
+
+// sessionRow 渲染一条会话条目。条目刻意分成两段（用户口径）：
+//   标题段：状态点 + 完整标题（CSS 省略号截断），**不在条目里放时间/ token**；
+//   ⋯ 段：省略号栏，点开就是原来的三个操作（置顶 / 分支 / 删除）。
+// 时间与 token 只在鼠标常驻（或键盘聚焦）时随完整标题一起出现在共享提示气泡里
+// ——data-tip 的第一行是完整标题，第二行是「时间 · tokens」。
 function sessionRow(session, currentID, nameIndex = 1) {
-  // 保留的"新建会话"草稿槽位：列表可见、可点击恢复（无 ID、不可 resume/删除/分支）。
+  // 保留的"新建会话"草稿槽位：列表可见、可点击恢复（无 ID、不可恢复/删除/分支）。
   if (session.id === "" && session.status === "draft") {
     const active = !currentID;
     return `<div class="session-row is-draft">
-      <button class="stack-button session-button session-draft ${active ? "active" : ""}" data-session-draft="1" title="恢复新建会话草稿">
+      <button class="stack-button session-button session-draft ${active ? "active" : ""}" data-session-draft="1" data-tip="恢复新建会话草稿">
         <span class="entry-name">${icon("plus", 13)} ${escapeHtml(session.name || "新会话（草稿）")}</span><small>草稿 · 尚未发送</small>
       </button>
     </div>`;
@@ -1101,20 +1263,26 @@ function sessionRow(session, currentID, nameIndex = 1) {
   const updated = session.updated_at
     ? new Date(session.updated_at).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : "当前会话";
-  const detail = session.token_count ? `${updated} · ${session.token_count} tokens` : updated;
+  const tokens = session.token_count ? `${session.token_count} tokens` : "";
+  const tip = [updated, tokens].filter(Boolean).join(" · ");
   const display = resuming ? "恢复中…" : (session.meta?.alias || session.name || shortSessionID(session.id));
-  const truncated = truncateTitle(display, 5);
-  const duplicate = titleSuffix(nameIndex);
+  const label = display + titleSuffix(nameIndex);
   const statusChip = session.status && session.status !== "idle"
     ? `<span class="session-status is-${escapeHtml(session.status)}">${sessionStatusLabel(session.status)}</span>`
     : "";
-  return `<div class="session-row${pinned ? " is-pinned" : ""}">
-    <button class="stack-button session-button ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" title="${escapeHtml(session.name || "")}" ${resuming ? "disabled" : ""}>
-      <span class="entry-name">${icon("message", 13)} ${escapeHtml(truncated + duplicate)}</span><small>${escapeHtml(detail)}${statusChip}</small>
+  const menuOpen = state.openSessionMenu !== "" && state.openSessionMenu === session.id;
+  return `<div class="session-row${pinned ? " is-pinned" : ""}${menuOpen ? " is-menu-open" : ""}" data-session-row="${escapeHtml(session.id)}">
+    <button class="stack-button session-button session-title ${active ? "active" : ""}" data-session="${escapeHtml(session.id)}" ${resuming ? "disabled" : ""} data-tip="${escapeHtml(`${label}\n${tip}`)}" aria-label="${escapeHtml(`${label} · ${tip}`)}">
+      <span class="entry-name">${pinned ? '<span class="session-pin-mark" aria-hidden="true">★</span>' : ""}${icon("message", 13)} ${escapeHtml(label)}</span>${statusChip}
     </button>
-    <button class="session-pin${pinned ? " is-on" : ""}" data-pin-session="${escapeHtml(session.id)}" title="${pinned ? "取消置顶" : "置顶会话"}" aria-label="置顶会话">📌</button>
-    <button class="session-fork" data-fork="${escapeHtml(session.id)}" title="分支出新会话" aria-label="分支出新会话">⑂</button>
-    <button class="session-del" data-session="${escapeHtml(session.id)}" title="删除会话" aria-label="删除会话">✕</button>
+    <span class="session-more">
+      <button class="session-more-toggle" type="button" data-session-more="${escapeHtml(session.id)}" aria-expanded="${menuOpen}" aria-label="更多操作" data-tip="更多操作：置顶 / 分支 / 删除">⋯</button>
+      <span class="session-more-actions"${menuOpen ? "" : " hidden"}>
+        <button class="session-pin${pinned ? " is-on" : ""}" type="button" data-pin-session="${escapeHtml(session.id)}" aria-label="${pinned ? "取消置顶" : "置顶会话"}" data-tip="${pinned ? "取消置顶" : "置顶会话"}">${pinned ? "★" : "☆"}</button>
+        <button class="session-fork" type="button" data-fork="${escapeHtml(session.id)}" aria-label="分支出新会话" data-tip="分支出新会话">⑂</button>
+        <button class="session-del" type="button" data-session-del="${escapeHtml(session.id)}" aria-label="删除会话" data-tip="删除会话">✕</button>
+      </span>
+    </span>
   </div>`;
 }
 
@@ -1157,30 +1325,67 @@ function renderPlugins(runtime) {
     <button class="stack-button ${runtime.plugin === plugin.name ? "active" : ""}" data-plugin="${escapeHtml(plugin.name)}">
       ${escapeHtml(plugin.name)}<small>${escapeHtml(plugin.description || "")}</small>
     </button>`).join("");
-  elements["plugin-list"].querySelectorAll("button").forEach(button => {
-    button.addEventListener("click", async () => {
-      try { await invoke("SwitchPlugin", button.dataset.plugin); await refresh({ scroll: false }); }
-      catch (error) { showToast(error); }
-    });
-  });
 }
 
+// 插件切换：容器上一条委托（列表每次重绘不再逐行绑监听）。单飞语义保留——
+// 切插件会附挂/卸载 MCP，重复点击只能排队等，所以命中后立刻锁住容器。
+elements["plugin-list"]?.addEventListener("click", async event => {
+  const button = event.target?.closest?.("button[data-plugin]");
+  const host = elements["plugin-list"];
+  if (!button || !host) return;
+  if (host.dataset.switching === "1") return;
+  host.dataset.switching = "1";
+  host.classList.add("is-switching");
+  button.classList.add("is-pending");
+  try {
+    await invoke("SwitchPlugin", button.dataset.plugin);
+    // 切换结果由 runtime.changed（带完整运行时）＋ snapshot.changed 事件带回；
+    // 这里再拉一次整份快照纯属叠延迟（MCP 附挂本身就可能几秒）。
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  } finally {
+    host.dataset.switching = "";
+    host.classList.remove("is-switching");
+    button.classList.remove("is-pending");
+  }
+});
+
+// renderAccounts 渲染账户栏（右栏「状态」子页、状态一栏之下）：条目化的单列
+// 行——名字 + provider/model + 当前标记，点行即切换账户。行内不放按钮，交互走
+// 容器委托（一条监听），列表刷新不产生 N 个闭包。
 function renderAccounts(runtime) {
   const accounts = runtime.accounts || [];
   elements["account-count"].textContent = String(accounts.length);
+  const current = runtime.account || "";
   elements["account-list"].innerHTML = accounts.length
-    ? accounts.map(account => `
-      <button class="stack-button ${runtime.account === account.name ? "active" : ""}" data-account="${escapeHtml(account.name)}" ${account.disabled ? "disabled" : ""}>
-        ${escapeHtml(account.name)}<small>${escapeHtml(`${account.provider || ""} ${account.model || ""}`.trim())}</small>
-      </button>`).join("")
+    ? accounts.map(account => {
+      const active = current === account.name;
+      // 行内只显示型号（provider 在同一批账户里通常相同，重复念出来只会挤掉
+      // 账户名）；provider · model 完整值在 hover 提示里给出。
+      const model = account.model || account.provider || "—";
+      const detail = `${account.provider || ""} ${account.model || ""}`.trim() || "—";
+      return `<button type="button" class="account-row${active ? " is-active" : ""}" data-account="${escapeHtml(account.name)}"${account.disabled ? " disabled" : ""} aria-pressed="${active}" data-tip="${escapeHtml(`${account.name}\n${detail}`)}" aria-label="${escapeHtml(`${account.name} · ${detail}`)}">
+        <span class="account-mark" aria-hidden="true">${active ? "●" : "○"}</span>
+        <span class="account-name">${escapeHtml(account.name)}</span>
+        <span class="account-meta">${escapeHtml(model)}</span>
+        ${account.disabled ? '<span class="account-lock" title="该账户当前不可用">不可用</span>' : ""}
+      </button>`;
+    }).join("")
     : '<span class="muted list-empty">暂无账户</span>';
-  elements["account-list"].querySelectorAll("button").forEach(button => {
-    button.addEventListener("click", async () => {
-      try { await invoke("SelectAccount", button.dataset.account); await refresh({ scroll: false }); }
-      catch (error) { showToast(error); }
-    });
-  });
 }
+
+elements["account-list"]?.addEventListener("click", async event => {
+  const row = event.target?.closest?.(".account-row");
+  const name = row?.dataset?.account;
+  if (!name || row.disabled) return;
+  try {
+    await invoke("SelectAccount", name);
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  }
+});
 
 function renderSkills(skills) {
   elements["skill-list"].innerHTML = skills.length
@@ -1971,8 +2176,14 @@ async function updateCommandResults() {
   }
 }
 
+// 建议列表（命令面板 / 内联提示共用一个渲染器）：点击走容器委托，
+// 候选数组放 WeakMap（每容器一份，随 DOM 回收，不给闭包留悬挂引用）。
+const suggestionLists = new WeakMap();
+
 function renderSuggestionList(container, suggestions, selected, trigger, limit = suggestions.length) {
   const visible = suggestions.slice(0, limit);
+  suggestionLists.set(container, { visible, trigger });
+  bindSuggestionList(container);
   container.innerHTML = visible.length
     ? visible.map((suggestion, index) => `<button class="command-result ${index === selected ? "selected" : ""}" type="button" data-index="${index}">
       <span class="command-result-icon">${icon(suggestionIcon(suggestion.kind), 14)}</span>
@@ -1981,8 +2192,16 @@ function renderSuggestionList(container, suggestions, selected, trigger, limit =
       <span class="command-kind">${escapeHtml(suggestion.kind || "command")}</span>
     </button>`).join("")
     : '<span class="muted list-empty">没有匹配的指令</span>';
-  container.querySelectorAll("button").forEach(button => {
-    button.addEventListener("click", () => acceptSuggestion(visible[Number(button.dataset.index)], trigger));
+}
+
+function bindSuggestionList(container) {
+  if (!container || container.dataset.suggestionBound === "1") return;
+  container.dataset.suggestionBound = "1";
+  container.addEventListener("click", event => {
+    const button = event.target?.closest?.("button[data-index]");
+    if (!button) return;
+    const current = suggestionLists.get(container);
+    acceptSuggestion(current?.visible?.[Number(button.dataset.index)], current?.trigger || "");
   });
 }
 
@@ -2485,12 +2704,64 @@ document.addEventListener("keydown", event => {
 
 // FA toggle
 elements["perm-toggle"].addEventListener("click", async function() {
+  if (this.classList.contains("is-pending")) return;
   const next = !Boolean(client.current()?.runtime?.full_access);
-  try { await invoke("SetFullAccess", next); await refresh({ scroll: false }); }
-  catch (error) { showToast(error); }
+  this.classList.add("is-pending");
+  try {
+    // Bridge 返回真正生效的值：直接按它渲染开关，避免快照滞后导致"点了全权仍被拒"。
+    const effective = await invoke("SetFullAccess", next);
+    renderFullAccessChip(effective);
+    await refresh({ scroll: false });
+  } catch (error) {
+    showToast(error);
+  } finally {
+    this.classList.remove("is-pending");
+  }
 });
 
+// renderFullAccessChip 只改开关本身（乐观回执），完整运行时投影仍随后端快照刷新。
+function renderFullAccessChip(on) {
+  const chip = elements["perm-toggle"];
+  if (!chip) return;
+  chip.classList.toggle("is-on", Boolean(on));
+  chip.textContent = on ? "全权 ✓" : "全权";
+}
+
 // ── 左右栏宽度拖拽 ─────────────────────────────────────────
+// ── 左右栏收起（用户需要让会话区占满屏） ────────────────────────────────────
+// 状态只写 <html> 的 data-* 与 localStorage：CSS 负责布局，JS 不碰宽度变量，
+// 因此和解拖拽调宽（--left-w/--right-w）互不覆盖——收起时记住的原宽度仍在，
+// 展开即回到原样。
+const LEFT_COLLAPSED_KEY = "seelex.left-panel-collapsed";
+const RIGHT_COLLAPSED_KEY = "seelex.right-panel-collapsed";
+
+function applyPanelCollapsed() {
+  const root = document.documentElement;
+  const left = storageGet(LEFT_COLLAPSED_KEY) === "1";
+  const right = storageGet(RIGHT_COLLAPSED_KEY) === "1";
+  root.dataset.leftCollapsed = left ? "true" : "false";
+  root.dataset.rightCollapsed = right ? "true" : "false";
+  elements["toggle-left-panel"]?.setAttribute("aria-pressed", left ? "true" : "false");
+  elements["toggle-right-panel"]?.setAttribute("aria-pressed", right ? "true" : "false");
+}
+
+function togglePanel(side) {
+  const key = side === "left" ? LEFT_COLLAPSED_KEY : RIGHT_COLLAPSED_KEY;
+  const current = storageGet(key) === "1";
+  storageSet(key, current ? "0" : "1");
+  applyPanelCollapsed();
+}
+
+elements["toggle-left-panel"]?.addEventListener("click", () => togglePanel("left"));
+elements["toggle-right-panel"]?.addEventListener("click", () => togglePanel("right"));
+document.addEventListener("keydown", event => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const key = event.key.toLowerCase();
+  if (key === "b" && !event.shiftKey) { event.preventDefault(); togglePanel("left"); }
+  if (key === "j" && !event.shiftKey) { event.preventDefault(); togglePanel("right"); }
+});
+applyPanelCollapsed();
+
 const LEFT_WIDTH_KEY = "seelex.left-panel-width";
 const RIGHT_WIDTH_KEY = "seelex.right-panel-width";
 const LEFT_WIDTH_RANGE = [200, 420];

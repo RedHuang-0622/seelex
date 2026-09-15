@@ -77,8 +77,9 @@ type Application interface {
 	WorkspaceTree(relPath string, depth int) (dto.TreeListing, error)
 	// WorkspaceFileCount 统计当前工作区文件/目录数（工作树文件数 badge）。
 	WorkspaceFileCount() (dto.TreeCount, error)
-	// WorkspaceGitLog 返回当前工作区最近 limit 条提交的拓扑树（提交记录树
-	// 数据源；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
+	// WorkspaceGitLog 返回当前工作区最近 limit 条提交（含父提交拓扑；提交
+	// 记录树数据源；只读元数据，不含 diff/文件内容；非 git 仓库返回
+	// Result.Error）。
 	WorkspaceGitLog(limit int) (dto.GitLogResult, error)
 	// WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（文件预览
 	// 数据源；root 只来自后端当前 workspace，containment/敏感过滤在
@@ -1036,8 +1037,8 @@ func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
 	return bridge.app.WorkspaceFileCount()
 }
 
-// WorkspaceGitLog 转发工作区 git 提交记录树（最近 limit 条提交的 --graph
-// 拓扑行；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
+// WorkspaceGitLog 转发工作区 git 提交记录（最近 limit 条提交 + 父提交
+// 拓扑；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
 func (bridge *Bridge) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
 	return bridge.app.WorkspaceGitLog(limit)
 }

@@ -1,7 +1,13 @@
+import { treeRowAttrs } from "./tree-fork.js";
+
 const NODE_STATUSES = new Set([
   "pending", "queued", "running", "worktree_creating", "rebasing", "merging", "completed", "failed", "aborted",
   "skipped", "canceled", "panicked"
 ]);
+
+// PLAN_TREE_INDENT 是 Plan 树 / 子代理树的层距（树轨由 tree-fork 画，12px 在
+// 窄栏与弹窗里都不会把节点卡推得太靠右）。
+const PLAN_TREE_INDENT = 12;
 
 const PLAN_STATUSES = new Set(["pending", "running", "completed", "failed", "aborted"]);
 const FAILURE_STATUSES = new Set(["failed", "aborted", "canceled", "panicked"]);
@@ -115,11 +121,12 @@ export function planToDSL(plan) {
 //     取边序第一个），其余入边记为旁路（sideRefs → 渲染"旁路"chip）——节点
 //     只渲染一次（主路径树 + 旁路引用），不死循环；
 //  3. 深度沿主路径递推（visited 防环；Kahn 未访问的环内节点按根处理）；
-//  4. 引导字符：父级 "│  " + 自身 "├─ "/"└─ "（层级连线文本）。
+//  4. 树轨：treeIsLast（末子 → 圆角弯头）+ treeAncestors（各层祖先是否续行），
+//     由 tree-fork.js 画成缩进轨（不再生成竖线与分支符号拼的字符画）。
 //
 // 无 edges 时保留 children 嵌套深度（旧契约：嵌套 children 即层级）。
-// 副作用：改写每个 node 的 depth/treeParentID/sideRefs/treeGuide，并按
-// (depth, 原序) 稳定排序 nodes（树序渲染；reconcile key 不受影响）。
+// 副作用：改写每个 node 的 depth/treeParentID/sideRefs/treeIsLast/treeAncestors，
+// 并按 (depth, 原序) 稳定排序 nodes（树序渲染；reconcile key 不受影响）。
 function layoutPlanTree(nodes, edges) {
   const byID = new Map();
   nodes.forEach(node => byID.set(node.id, node));
@@ -186,36 +193,37 @@ function layoutPlanTree(nodes, edges) {
   };
   nodes.forEach(node => computeDepth(node.id, new Set()));
 
-  // 4) 引导字符（层级连线）：父级 "│  "（父有后继兄弟）/ "   "，自身
-  //    "├─ "（非最后子节点）/ "└─ "（最后子节点）。
+  // 4) 树轨：父级续行（父有后继兄弟 → 该层竖线穿透子树）+ 自身"是否末子"
+  //    （末子圆角弯头 / 非末子整行竖线）。拓扑一律交给 tree-fork 画，不再生成
+  //    竖线与分支符号拼的字符画——字符画既撑不出真实分叉，也没法随主题换色。
   const childrenOf = new Map();
   treeParentOf.forEach((parent, id) => {
     if (!childrenOf.has(parent)) childrenOf.set(parent, []);
     childrenOf.get(parent).push(id);
   });
-  const guide = new Map();
+  const rails = new Map(); // id → {isLast, ancestorHasMore}
   nodes.forEach(node => {
-    if (!visited.has(node.id)) return; // 环内/不可达：扁平处理（无引导字符）
-    const stack = [];
+    if (!visited.has(node.id)) return; // 环内/不可达：扁平处理（无树轨）
+    const continuations = []; // 逐层往上：第 k 项 = 深度 (depth-k) 的节点是否还有后继兄弟
+    let isLast = true;
     let id = node.id;
     let parent = treeParentOf.get(id);
     const seen = new Set(); // 防环：主路径链进入环时截断
+    let first = true;
     while (parent && !seen.has(id)) {
       seen.add(id);
       const siblings = childrenOf.get(parent) || [];
-      const isLast = siblings[siblings.length - 1] === id;
-      const hasNext = siblings.some(sibling => sibling !== id);
-      stack.push({ isLast, hasNext });
+      if (first) {
+        isLast = siblings[siblings.length - 1] === id;
+        first = false;
+      }
+      continuations.push(siblings.some(sibling => sibling !== id));
       id = parent;
       parent = treeParentOf.get(id);
     }
-    const chars = [];
-    for (let index = stack.length - 1; index >= 0; index--) {
-      const step = stack[index];
-      if (index === 0) chars.push(step.isLast ? "└─ " : "├─ ");
-      else chars.push(step.hasNext ? "│  " : "   ");
-    }
-    guide.set(node.id, chars.join(""));
+    // continuations[0] 是自身层，[1..] 依次是父级、祖父级……；树轨关心的是
+    // 「祖先是否续行」，按深度升序排（level 0 = 最外层祖先）。
+    rails.set(node.id, { isLast, ancestorHasMore: continuations.slice(1).reverse() });
   });
 
   nodes.forEach(node => {
@@ -224,9 +232,11 @@ function layoutPlanTree(nodes, edges) {
       node.depth = 0;
       node.treeParentID = "";
       node.sideRefs = [];
-      node.treeGuide = "";
+      node.treeIsLast = true;
+      node.treeAncestors = [];
       return;
     }
+    const rail = rails.get(node.id) || { isLast: true, ancestorHasMore: [] };
     node.depth = Math.min(depth.get(node.id) ?? 0, 12);
     node.treeParentID = treeParentOf.get(node.id) || "";
     node.sideRefs = (sideRefsOf.get(node.id) || []).map(edge => ({
@@ -234,7 +244,8 @@ function layoutPlanTree(nodes, edges) {
       from: edge.from,
       label: edge.label || edge.condition || ""
     }));
-    node.treeGuide = guide.get(node.id) || "";
+    node.treeIsLast = rail.isLast;
+    node.treeAncestors = rail.ancestorHasMore;
   });
   // 树序渲染：按 (depth, 原序) 稳定排序（reconcile key 不变，仅移动 DOM）。
   const order = new Map(nodes.map((node, index) => [node.key, index]));
@@ -353,9 +364,9 @@ function renderNode(node) {
   const output = outputSummary(node.output);
   const branches = renderOutgoing(node);
   const sideRefs = renderSideRefs(node);
-  const guide = node.treeGuide ? `<span class="plan-tree-guide" data-plan-tree-guide>${escapeHTML(node.treeGuide)}</span>` : "";
-  return `<article class="plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-node-open="${escapeHTML(node.key)}" data-plan-status="${status}" data-plan-tree-depth="${node.depth}" style="--plan-indent:${node.depth * 9}px" tabindex="0" role="button" aria-label="查看节点 ${escapeHTML(node.label)} 的详情">
-    <div class="plan-node-connector" aria-hidden="true">${guide}<i></i><span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span></div>
+  const rail = planNodeRail(node);
+  return `<article class="${rail.className} plan-dsl-node is-${status}" data-plan-node-key="${escapeHTML(node.key)}" data-plan-node-open="${escapeHTML(node.key)}" data-plan-status="${status}" data-plan-tree-depth="${node.depth}" style="${rail.style}" tabindex="0" role="button" aria-label="查看节点 ${escapeHTML(node.label)} 的详情">
+    <span class="plan-dot">${escapeHTML(statusSymbol(node.status))}</span>
     <div class="plan-node-card">
       <header class="plan-node-head">
         <strong data-plan-node-field="label" title="${escapeHTML(node.label)}">${escapeHTML(node.label)}</strong>
@@ -370,6 +381,17 @@ function renderNode(node) {
       <div class="plan-node-output${output ? "" : " hidden"}" data-plan-node-field="output" title="${escapeHTML(node.output)}">${escapeHTML(output)}</div>
     </div>
   </article>`;
+}
+
+// planNodeRail 把节点的树轨事实（depth/treeIsLast/treeAncestors）折算成
+// tree-fork 需要的 class + 行内 style（Plan 面板用 12px 层距）。
+function planNodeRail(node) {
+  return treeRowAttrs({
+    depth: node?.depth,
+    isLast: node?.treeIsLast !== false,
+    ancestorHasMore: node?.treeAncestors,
+    indent: PLAN_TREE_INDENT
+  });
 }
 
 // renderSideRefs 渲染多入边节点的旁路标记（树主路径之外的其他入边来源）。
@@ -401,20 +423,13 @@ function renderOutgoing(node) {
 
 function updateNode(element, node) {
   const status = statusToken(node.status);
-  element.className = `plan-dsl-node is-${status}`;
+  const rail = planNodeRail(node);
+  element.className = `${rail.className} plan-dsl-node is-${status}`;
   element.dataset.planStatus = status;
   element.dataset.planNodeOpen = node.key;
   element.dataset.planTreeDepth = String(node.depth);
   element.setAttribute("aria-label", `查看节点 ${node.label} 的详情`);
-  element.style.setProperty("--plan-indent", `${node.depth * 9}px`);
-  const connector = element.querySelector(".plan-node-connector");
-  const guide = connector?.querySelector("[data-plan-tree-guide]");
-  if (node.treeGuide) {
-    if (!guide && connector) connector.insertAdjacentHTML("afterbegin", `<span class="plan-tree-guide" data-plan-tree-guide>${escapeHTML(node.treeGuide)}</span>`);
-    else if (guide) guide.textContent = node.treeGuide;
-  } else {
-    guide?.remove();
-  }
+  element.style.cssText = rail.style;
   const dot = element.querySelector(".plan-dot");
   if (dot) dot.textContent = statusSymbol(node.status);
   setNodeText(element, "label", node.label);
@@ -877,25 +892,24 @@ function formatEventTime(iso) {
 
 // ── 子代理树（fork 内存态可视化；数据源 snapshot.runtime.subagent_tree）──
 
-// renderSubagentTree 渲染 fork 子代理树：层级缩进 + 连线字符 + 状态着色 +
-// goal/会话摘要；树节点行整行可点开详情弹窗（data-plan-node-open 复用
-// 既有节点详情入口；会话记录/上下文经 SubagentSessionDetail 拉取）。
-// 全部文本 escape；空树返回 ""（外层隐藏 section）。
+// renderSubagentTree 渲染 fork 子代理树：层级缩进（tree-fork 的缩进轨，非
+// 字符画）+ 状态着色 + goal/会话摘要；树节点行整行可点开详情弹窗
+// （data-plan-node-open 复用既有节点详情入口；会话记录/上下文经
+// SubagentSessionDetail 拉取）。全部文本 escape；空树返回 ""（外层隐藏 section）。
 export function renderSubagentTree(nodes) {
   if (!Array.isArray(nodes) || !nodes.length) return "";
   const rows = [];
-  const walk = (items, depth, bars) => {
+  const walk = (items, depth, ancestors) => {
     items.forEach((item, index) => {
       if (!isRecord(item)) return;
       const isLast = index === items.length - 1;
       const children = Array.isArray(item.children) ? item.children : [];
-      const prefix = depth === 0 ? "" : `${bars}${isLast ? "└─ " : "├─ "}`;
-      const nextBars = depth === 0 ? "" : `${bars}${isLast ? "   " : "│  "}`;
-      rows.push(renderSubagentTreeRow(item, prefix));
-      walk(children, depth + 1, nextBars);
+      const rail = treeRowAttrs({ depth, isLast, ancestorHasMore: ancestors, indent: PLAN_TREE_INDENT });
+      rows.push(renderSubagentTreeRow(item, rail));
+      walk(children, depth + 1, ancestors.concat(!isLast));
     });
   };
-  walk(nodes, 0, "");
+  walk(nodes, 0, []);
   return `<section class="subagent-tree" data-subagent-tree>
     <header class="subagent-tree-head">
       <strong>子代理树</strong>
@@ -907,15 +921,14 @@ export function renderSubagentTree(nodes) {
 }
 
 // renderSubagentTreeRow 渲染一个树节点行（id + 状态 + goal/摘要/错误 +
-// 紧凑上下文）。
-function renderSubagentTreeRow(item, guide) {
+// 紧凑上下文）；rail 来自 tree-fork 的 treeRowAttrs。
+function renderSubagentTreeRow(item, rail) {
   const status = normalizeSubagentStatus(item.status);
   const goal = outputSummary(item.goal);
   const summary = outputSummary(item.summary);
   const error = outputSummary(item.error);
   const label = item.id === "main" ? "主代理" : item.id;
-  return `<div class="subagent-tree-row is-${status}" data-subagent-row data-plan-node-open="${escapeHTML(item.id)}" data-subagent-status="${status}">
-    <span class="subagent-tree-guide" aria-hidden="true">${escapeHTML(guide)}</span>
+  return `<div class="${rail.className} subagent-tree-row is-${status}"${rail.style ? ` style="${rail.style}"` : ""} data-subagent-row data-plan-node-open="${escapeHTML(item.id)}" data-subagent-status="${status}">
     <span class="plan-dot" aria-hidden="true">${escapeHTML(statusSymbol(subagentStatusToken(status)))}</span>
     <div class="subagent-tree-card">
       <header class="subagent-tree-headline">

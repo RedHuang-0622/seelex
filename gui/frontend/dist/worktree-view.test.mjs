@@ -53,8 +53,40 @@ test("renders expanded directory children recursively with counts", () => {
   const html = renderWorkTreeHTML(entries, state);
   assert.ok(html.includes("tree-count"));
   assert.ok(html.includes("main.go"));
-  assert.ok(html.includes("--tree-depth:1"));
+  // 子级行由 tree-fork 挂轨（末子圆角弯头），不再用 --tree-depth 缩进 + 字符画。
+  assert.ok(html.includes("--tf-depth:1"));
+  assert.ok(html.includes("tf-row--elbow"));
   assert.ok(!html.includes("tree-loading"));
+});
+
+test("sibling rails continue only while a later sibling exists", () => {
+  const entries = worktreeView([
+    { name: "src", path: "src", type: "dir", count: 2 },
+    { name: "test", path: "test", type: "dir", count: 1 }
+  ]);
+  const srcChildren = worktreeView([
+    { name: "pkg", path: "src/pkg", type: "dir", count: 1 },
+    { name: "z.go", path: "src/z.go", type: "file", size: 30 }
+  ]);
+  const pkgChildren = worktreeView([{ name: "a.go", path: "src/pkg/a.go", type: "file", size: 10 }]);
+  const state = sampleState({
+    expanded: new Set(["src", "src/pkg"]),
+    children: new Map([["src", srcChildren], ["src/pkg", pkgChildren]])
+  });
+  const html = renderWorkTreeHTML(entries, state);
+  // 子级里 pkg 不是末子 → 整行竖线；z.go 是末子 → 圆角弯头。
+  assert.ok(html.includes("tf-row--line"));
+  assert.ok(html.includes("tf-row--elbow"));
+  // 孙级 a.go 要拿到 level 0（src 还有后继兄弟 test）的续行轨，a.go 自己那层
+  // 由 ::before 画，所以背景轨只出现在 --tf-depth:2 的行上。
+  const at = html.indexOf('data-file-open="src/pkg/a.go"');
+  const deep = html.slice(html.lastIndexOf('<div class="tf-row', at), at + 40);
+  assert.ok(deep.includes("--tf-depth:2"));
+  assert.ok(deep.includes("background-image:linear-gradient(var(--tree-rail), var(--tree-rail))"));
+  // 拓扑一律画出来，不再出现字符画连线。
+  assert.ok(!html.includes("├─"));
+  assert.ok(!html.includes("└─"));
+  assert.ok(!html.includes("--tree-depth"));
 });
 
 test("shows loading spinner before children arrive and limit marker when truncated", () => {

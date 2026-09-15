@@ -1,4 +1,5 @@
 import { escapeHtml, icon } from "./components.js";
+import { TREE_INDENT, treeRowAttrs } from "./tree-fork.js";
 
 // ── 工作树（Work Tree）视图 ──────────────────────────────
 // 数据源：Bridge.WorkspaceTree(relPath, depth)（后端权威元数据：名称/路径/
@@ -10,8 +11,9 @@ import { escapeHtml, icon } from "./components.js";
 //  - 文件行显示名称与大小；目录行显示直接文件计数 badge；
 //  - Truncated 提示「条目过多已截断」。
 //
-// 渲染策略：展开态是纯 UI 态（视图实例持有，不写回业务状态）；节点按
-// --tree-depth 缩进，全部文本 escape。
+// 渲染策略：展开态是纯 UI 态（视图实例持有，不写回业务状态）；层级连线交给
+// tree-fork.js（祖先续行轨 + 末子圆角弯头，零额外 DOM），不再是缩进 + 字符画；
+// 全部文本 escape。
 
 const MAX_TREE_DEPTH = 32;
 
@@ -45,30 +47,31 @@ export function createWorkTreeView(container, options = {}) {
   };
   let rootEntries = [];
 
+  // 行点击走容器委托（一条监听）：树的展开/收起会重绘整棵树，逐行绑监听等于
+  // 每次展开都新建 N 个闭包 + N 个监听器（旧的那批随 innerHTML 变孤儿）。
+  container?.addEventListener("click", event => {
+    const dirButton = event.target?.closest?.("[data-tree-dir]");
+    if (dirButton) {
+      toggle(dirButton.dataset.treeDir);
+      return;
+    }
+    const fileButton = event.target?.closest?.("[data-file-open]");
+    if (!fileButton || !state.onOpenFile) return;
+    const entry = {
+      name: fileButton.dataset.fileName || "",
+      path: fileButton.dataset.fileOpen || "",
+      type: "file",
+      size: finiteNumber(fileButton.dataset.fileSize) ?? 0,
+      count: 0
+    };
+    if (entry.name && entry.path) state.onOpenFile(entry);
+  });
+
   function render() {
     if (!container) return;
     container.classList.remove("muted");
     container.classList.add("worktree-view");
     container.innerHTML = renderWorkTreeHTML(rootEntries, state);
-    container.querySelectorAll("[data-tree-dir]").forEach(button => {
-      button.addEventListener("click", () => {
-        toggle(button.dataset.treeDir);
-      });
-    });
-    if (state.onOpenFile) {
-      container.querySelectorAll("[data-file-open]").forEach(button => {
-        button.addEventListener("click", () => {
-          const entry = {
-            name: button.dataset.fileName || "",
-            path: button.dataset.fileOpen || "",
-            type: "file",
-            size: finiteNumber(button.dataset.fileSize) ?? 0,
-            count: 0
-          };
-          if (entry.name && entry.path) state.onOpenFile(entry);
-        });
-      });
-    }
   }
 
   async function toggle(path) {
@@ -114,31 +117,36 @@ export function createWorkTreeView(container, options = {}) {
 
 // renderWorkTreeHTML 渲染整棵展开树（根列表 + 已展开子级递归）。
 export function renderWorkTreeHTML(rootEntries, state) {
-  const rows = renderLevel(rootEntries, state, 0, 0);
+  const rows = renderLevel(rootEntries, state, 0, []);
   const error = state.error
     ? `<div class="worktree-error">${escapeHtml(state.error)}</div>`
     : "";
   return `${error}${rows || '<div class="worktree-empty">目录为空</div>'}`;
 }
 
-function renderLevel(entries, state, level, depth) {
-  if (depth > MAX_TREE_DEPTH) {
+// renderLevel 渲染一层条目并递归展开的子级。
+//   level     当前层级（0 = 根）
+//   ancestors 第 level 层祖先的续行标志（祖先还有后继兄弟 → 该层竖线穿透本行）
+function renderLevel(entries, state, level, ancestors) {
+  if (level > MAX_TREE_DEPTH) {
     return '<div class="worktree-limit">目录层级过深，已停止展开</div>';
   }
-  return entries.map(entry => {
+  return entries.map((entry, index) => {
     const isDir = entry.type === "dir";
+    const isLast = index === entries.length - 1;
+    const rail = treeRowAttrs({ depth: level, isLast, ancestorHasMore: ancestors, indent: TREE_INDENT });
     const expanded = isDir && state.expanded.has(entry.path);
     const children = isDir && state.children.get(entry.path);
     const loading = isDir && state.loading.has(entry.path);
     const truncated = isDir && state.truncated.get(entry.path);
     const childrenHTML = isDir && expanded && children
-      ? renderLevel(children, state, level + 1, depth + 1)
+      ? renderLevel(children, state, level + 1, ancestors.concat(!isLast))
       : "";
     const spinner = isDir && expanded && loading && !children
       ? '<span class="tree-loading" aria-label="加载中"></span>'
       : "";
-    return `<div class="tree-node" style="--tree-depth:${level}">
-      <div class="tree-row is-${isDir ? "dir" : "file"}">
+    return `<div class="tree-node">
+      <div class="${rail.className} tree-row is-${isDir ? "dir" : "file"}"${rail.style ? ` style="${rail.style}"` : ""}>
         <span class="tree-icon" aria-hidden="true">${isDir ? icon("folder", 14) : icon("file", 14)}</span>
         ${isDir
           ? `<button type="button" class="tree-toggle" data-tree-dir="${escapeHtml(entry.path)}" aria-expanded="${expanded}" title="展开/折叠 ${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</button>

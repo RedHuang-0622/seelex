@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { TITLE_TAILS_KEY, truncateTitle, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
+import { TITLE_TAILS_KEY, duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 
 function fakeStorage(initial = {}) {
   const map = new Map(Object.entries(initial));
@@ -10,21 +10,6 @@ function fakeStorage(initial = {}) {
     setItem: (key, value) => map.set(key, String(value))
   };
 }
-
-test("truncateTitle keeps short titles unchanged", () => {
-  assert.equal(truncateTitle("你好", 5), "你好");
-  assert.equal(truncateTitle("abcde", 5), "abcde");
-});
-
-test("truncateTitle cuts long titles to 5 code points plus ellipsis", () => {
-  assert.equal(truncateTitle("abcdefgh", 5), "abcde…");
-  assert.equal(truncateTitle("修复首页样式崩溃问题", 5), "修复首页样…");
-});
-
-test("truncateTitle handles surrogate pairs (emoji) without splitting", () => {
-  assert.equal(truncateTitle("😀😀😀😀😀😀", 5), "😀😀😀😀😀…");
-  assert.equal(truncateTitle("a😀b😀c😀d", 5), "a😀b😀c…");
-});
 
 test("duplicateSuffix appends ordinal only for repeated names", () => {
   assert.equal(duplicateSuffix(1, 1), "");
@@ -56,12 +41,10 @@ test("title tails persist as name -> tail number key-value pair", () => {
   assert.deepEqual(readTitleTails(broken), {});
 });
 
-test("truncateTitle tolerates null/undefined/non-string", () => {
-  assert.equal(truncateTitle(null, 5), "");
-  assert.equal(truncateTitle(undefined, 5), "");
-  assert.equal(truncateTitle(12345, 3), "123…");
-});
-
 // 置顶/别名不再是本模块职责：它们作为会话展示元数据由后端持久化，侧栏只读快照
 // 下发的 session.meta（写入经 Bridge.SetSessionMeta），因此 localStorage 辅助
 // 函数已整体删除。
+//
+// 标题截断（原 truncateTitle，把标题砍成 5 个字）也已删除：条目改成「标题段 +
+// ⋯ 段」后，标题段由 CSS 省略号按栏宽截断，完整标题与时间/token 走共享提示气泡
+// （见 app.js 的 paintTip），不再在数据层砍字——砍字会让「同名前缀会话」无法区分。

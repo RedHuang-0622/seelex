@@ -100,9 +100,9 @@ func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
 	fake := &treeFakeWorkspace{
 		fakeWorkspace: newFakeWorkspace(),
-		gitLog: dto.GitLogResult{Lines: []dto.GitLogLine{
-			{Graph: "*", Commit: &dto.GitCommitNode{Hash: "abc", ShortHash: "abc", Author: "dev", Date: "08-29 10:00", Subject: "fix: git log"}},
-		}, Commits: []dto.GitCommitNode{{Hash: "abc"}}},
+		gitLog: dto.GitLogResult{Commits: []dto.GitCommitNode{
+			{Hash: "abc", ShortHash: "abc", Author: "dev", Date: "08-29 10:00", Parents: []string{"def"}, Subject: "fix: git log"},
+		}},
 	}
 	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
 		deps.Workspace = fake
@@ -117,8 +117,8 @@ func TestWorkspaceGitLogForwardsCurrentWorkspaceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Lines) != 1 || result.Lines[0].Commit == nil || result.Lines[0].Commit.Subject != "fix: git log" {
-		t.Fatalf("unexpected git log result: %+v", result.Lines)
+	if len(result.Commits) != 1 || result.Commits[0].Subject != "fix: git log" || len(result.Commits[0].Parents) != 1 {
+		t.Fatalf("unexpected git log result: %+v", result.Commits)
 	}
 	if fake.lastRoot != root || fake.lastLimit != 10 {
 		t.Fatalf("forwarded root=%q limit=%d", fake.lastRoot, fake.lastLimit)

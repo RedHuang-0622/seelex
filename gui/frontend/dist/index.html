@@ -32,7 +32,7 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
-      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
+      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="toggle-left-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开左栏 (Ctrl+B)" aria-label="收起/展开左栏" aria-pressed="false">&#8676;</button><button id="toggle-right-panel" class="icon-button subtle panel-toggle" type="button" title="收起/展开右栏 (Ctrl+J)" aria-label="收起/展开右栏" aria-pressed="false">&#8677;</button><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
     </header>
 
     <aside class="left-panel panel">
@@ -43,10 +43,6 @@
         </div>
         <div id="session-list" class="stack-list"></div>
       </section>
-      <details class="collapse-section" id="accounts-section" open>
-        <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>账户</span><span id="account-count" class="badge">0</span></summary>
-        <div id="account-list" class="stack-list"></div>
-      </details>
     </aside>
 
     <main class="workspace">
@@ -108,16 +104,20 @@
 
       <div id="right-host" class="dock-host right-host">
         <div class="right-tabpanel" data-right-panel="status" role="tabpanel">
-        <details class="collapse-section" id="status-panel">
+        <details class="collapse-section" id="status-panel" open>
           <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>状态</span></summary>
           <div id="project-status" class="status-grid"></div>
           <div class="section-title sub-title">概要</div>
           <div id="project-overview" class="project-overview"></div>
           <div id="context-compactions" class="context-compactions hidden"></div>
         </details>
+        <details class="collapse-section" id="accounts-section" open>
+          <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>账户</span><span id="account-count" class="badge">0</span></summary>
+          <div id="account-list" class="account-list"></div>
+        </details>
         <details class="collapse-section" id="team-section">
           <summary class="collapse-summary"><span class="collapse-chevron" aria-hidden="true"></span><span>Agent Team</span><span id="team-count" class="badge">0</span></summary>
-          <div id="team-view" class="team-view muted">展开后加载成员表与工作顺序</div>
+          <div id="team-view" class="team-view muted">展开后加载员工栏与 Team 栏</div>
         </details>
         </div>
 
@@ -348,6 +348,7 @@
     </div>
   </div>
 
+  <div id="ui-tooltip" class="ui-tooltip hidden" role="tooltip"></div>
   <div id="toast" class="toast hidden"></div>
   <!-- 文件预览第三方组件（本地 vendor，离线可用；随 embed 打包进二进制）。
        顺序依赖：highlight 核心 → 语言包 → marked → DOMPurify → docx-preview

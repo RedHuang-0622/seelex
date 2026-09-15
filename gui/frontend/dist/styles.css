@@ -65,6 +65,15 @@
   --tick: #39454f;
   --tick-hot: #d9a657;
 
+  /* tree-fork：树轨与提交图泳道（VS Code 观感；皮肤包可覆盖这几个 token） */
+  --tree-rail: color-mix(in srgb, var(--border-strong) 80%, transparent);
+  --fork-lane-0: #d9a657;
+  --fork-lane-1: #7ba3c7;
+  --fork-lane-2: #6fb58e;
+  --fork-lane-3: #c58fb4;
+  --fork-lane-4: #9b8fd0;
+  --fork-lane-5: #d4695f;
+
   /* type */
   --font-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
@@ -99,6 +108,12 @@
   --dur-med: 240ms;
   --dur-slow: 400ms;
 
+  /* focus / press：焦点只在外框上聚光（0 偏移、纯发散模糊，不描内框）；
+     按压是"陷进去再弹回来"的拟物反馈（内阴影 + 极小位移）。 */
+  --focus-ring: color-mix(in srgb, var(--accent) 72%, transparent);
+  --focus-glow: 0 0 12px 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  --press-shadow: inset 0 1px 3px color-mix(in srgb, var(--bg) 60%, transparent);
+
   font-family: var(--font-ui);
   color: var(--text);
   background: var(--bg);
@@ -111,11 +126,13 @@
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 button, textarea, input, select { font: inherit; }
 button { color: inherit; }
-button:active:not(:disabled) { transform: translateY(1px); }
+button:active:not(:disabled) { transform: translateY(1px) scale(.985); box-shadow: var(--press-shadow); }
 button, input, select, textarea { border-radius: var(--r-md); }
+/* 焦点提示只作用于外框：1px 外框 + 0 偏移的高亮色发散光晕，不描内框。 */
 button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 0;
+  box-shadow: var(--focus-glow);
 }
 ::selection { background: rgba(217, 166, 87, .28); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -288,10 +305,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .stack-button.active { color: var(--text); background: var(--surface-2); }
 .stack-button small { display: block; margin: 3px 0 0 20px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .entry-name { display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-row .stack-button small,
+/* 会话条目与工作区列表的第二行缩进对齐（会话条目本身已无 small 行） */
 #workspace-list .stack-button small { margin-left: 30px; }
 .list-empty { display: block; padding: 9px 10px; font-size: var(--text-sm); }
-
 .icon-button {
   display: inline-grid;
   place-items: center;
@@ -548,7 +564,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   cursor: pointer;
 }
 .conversation-tab:hover { color: var(--text); }
-.conversation-tab:focus-visible, .right-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.conversation-tab:focus-visible, .right-tab:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; box-shadow: var(--focus-glow); }
 .conversation-tab.is-active {
   color: var(--text);
   background: var(--surface-2);
@@ -865,6 +881,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   grid-area: panes;
   min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -1066,26 +1083,25 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   color: #1a1a1a;
 }
 
-/* 提交记录树（Git Log Tree）：graph 前缀等宽渲染，保留分支拓扑 */
-.git-log-view { display: grid; gap: 1px; font-size: var(--text-sm); max-height: 320px; overflow: auto; }
+/* 提交记录（Git Log）：每行一条 tree-fork 的 SVG 分叉图 + 提交信息；
+   行高固定 22px 与 SVG 的 rowHeight 对齐，泳道才能跨行连成一条线。 */
+.git-log-view { display: grid; gap: 0; font-size: var(--text-sm); max-height: 320px; overflow: auto; }
 .git-log-line {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 2px 4px;
+  min-height: 22px;
+  padding: 0 4px;
   border-radius: var(--r-sm);
 }
 .git-log-line:hover { background: var(--surface-2); }
-.git-log-line.is-continuation { color: var(--faint); }
-.git-log-graph {
-  color: var(--faint);
-  font: 11px/1.5 var(--font-mono);
-  white-space: pre;
-  user-select: none;
-}
+.git-log-graph { display: block; flex: none; }
 .git-log-commit { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: baseline; gap: 8px; min-width: 0; }
+/* 窄右栏（~250px）里 hash/作者/时间/标题四段必须都能被压缩：子项默认
+   min-width:auto 会把标题挤成 0（真机截图里只剩 hash + 半截作者名）。 */
+.git-log-commit > * { min-width: 0; }
 .git-log-hash {
   padding: 0;
   border: 0;
@@ -1096,7 +1112,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .git-log-hash:hover { color: var(--accent); text-decoration: underline; }
 .git-log-hash.is-copied { color: var(--status-done); }
-.git-log-meta { display: inline-flex; gap: 8px; color: var(--faint); font: 10px var(--font-mono); white-space: nowrap; }
+.git-log-meta { display: inline-flex; gap: 8px; min-width: 0; overflow: hidden; color: var(--faint); font: 10px var(--font-mono); white-space: nowrap; }
+.git-log-author, .git-log-date { overflow: hidden; text-overflow: ellipsis; }
 .git-log-subject { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .git-log-error { padding: 6px 8px; border: 1px solid var(--border-failed); border-radius: var(--r-sm); color: var(--status-failed); font-size: 11px; background: var(--tint-failed); }
 .git-log-empty, .git-log-limit { padding: 6px 8px; color: var(--faint); font-size: 11px; }
@@ -1125,11 +1142,34 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 
 .project-heading h2 { margin: 0 0 7px; color: var(--text-bright); font-size: 16px; font-weight: 600; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .project-root { color: var(--faint); font: 10px/1.5 var(--font-mono); overflow-wrap: anywhere; }
-.status-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-.status-item { padding: 8px 2px; border: 0; background: transparent; }
-.status-item span, .status-item strong { display: block; }
-.status-item span { color: var(--faint); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
-.status-item strong { margin-top: 4px; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+/* 状态：键值两列表格（条目化，窄栏也不错位） */
+.status-table {
+  display: grid;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel);
+}
+.status-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 8px;
+  border-top: 1px solid var(--border);
+}
+.status-row:first-child { border-top: 0; }
+.status-row.is-head {
+  color: var(--faint);
+  background: var(--surface-2);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.status-label { color: var(--faint); font-size: 10.5px; }
+.status-value { min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 11.5px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .project-overview { padding: 2px; border: 0; color: var(--muted); background: transparent; font-size: 11.5px; line-height: 1.6; }
 .context-compactions { margin-top: 12px; display: grid; gap: 7px; }
 .context-summary-title { color: var(--faint); font: 700 10px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
@@ -1153,8 +1193,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .worktree-view { display: grid; gap: 2px; font-size: var(--text-sm); min-width: 0; }
 .worktree-error { padding: 6px 8px; border: 1px solid var(--border-failed); border-radius: var(--r-sm); color: var(--status-failed); font-size: 11px; background: var(--tint-failed); }
 .worktree-empty, .worktree-limit { padding: 6px 8px; color: var(--faint); font-size: 11px; }
-.tree-node { --tree-depth: 0; padding-left: calc(var(--tree-depth) * 14px); min-width: 0; }
-.tree-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 24px; padding: 2px 6px; border: 1px solid transparent; border-radius: var(--r-sm); }
+.tree-node { min-width: 0; }
+/* 树轨由 tree-fork 画（.tf-row--*）；--tf-pad 保留行本身的左内边距基线。 */
+.tree-row { --tf-pad: 6px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 24px; padding: 2px 6px; border: 1px solid transparent; border-radius: var(--r-sm); }
 .tree-row:hover { border-color: var(--border); background: var(--surface); }
 .tree-icon { display: inline-flex; color: var(--faint); }
 .tree-row.is-dir .tree-icon { color: var(--status-info); }
@@ -1422,17 +1463,14 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .plan-dsl-summary { display: flex; flex-wrap: wrap; gap: 5px 12px; padding: 7px 12px; border-bottom: 1px solid var(--border); color: var(--faint); font: 10px var(--font-mono); }
 .plan-dsl-nodes { display: grid; gap: 5px; padding: 9px 10px 10px; }
 .plan-dsl-empty { padding: 10px 2px; color: var(--faint); text-align: center; }
-.plan-dsl-node { --plan-indent: 0px; display: grid; grid-template-columns: calc(14px + var(--plan-indent)) minmax(0, 1fr); align-items: stretch; min-width: 0; cursor: pointer; }
+.plan-dsl-node { display: grid; grid-template-columns: 15px minmax(0, 1fr); gap: 7px; align-items: start; min-width: 0; cursor: pointer; }
 .plan-dsl-node:focus-visible .plan-node-card { outline: 2px solid var(--accent); outline-offset: 2px; }
-.plan-node-connector { position: relative; display: flex; justify-content: flex-end; padding-top: 9px; }
-.plan-node-connector i { position: absolute; top: 0; right: 7px; bottom: -6px; width: calc(var(--plan-indent) + 1px); border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); pointer-events: none; }
-.plan-dsl-node:last-child .plan-node-connector i { bottom: 50%; }
+.plan-dsl-node > .plan-dot { margin-top: 8px; }
 .plan-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 15px; height: 15px; flex: none; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--faint); background: var(--surface); font: 750 10px/1 var(--font-mono); transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 .plan-dsl-node.is-queued .plan-dot, .plan-dsl-node.is-running .plan-dot, .plan-dsl-node.is-worktree_creating .plan-dot, .plan-dsl-node.is-rebasing .plan-dot, .plan-dsl-node.is-merging .plan-dot { border-color: var(--border-running); color: var(--status-running); background: var(--tint-running); }
 .plan-dsl-node.is-completed .plan-dot, .plan-dsl-node.is-skipped .plan-dot { border-color: var(--border-done); color: var(--status-done); background: var(--tint-done); }
 .plan-dsl-node.is-failed .plan-dot, .plan-dsl-node.is-aborted .plan-dot, .plan-dsl-node.is-canceled .plan-dot, .plan-dsl-node.is-panicked .plan-dot { border-color: var(--border-failed); color: var(--status-failed); background: var(--tint-failed); }
 .plan-dsl-node.is-interrupted .plan-dot { border-color: var(--border-failed); color: var(--status-failed); background: var(--tint-failed); }
-.plan-tree-guide { position: relative; z-index: 1; flex: none; padding: 1px 0 0 4px; color: var(--faint); font: 10px/1 var(--font-mono); white-space: pre; }
 .plan-node-side { display: flex; flex-wrap: wrap; gap: 3px; padding-top: 4px; }
 .plan-side-ref { padding: 1px 5px; border: 1px solid rgba(123, 163, 199, .35); border-radius: var(--r-sm); color: var(--status-info); background: var(--tint-info); font: 700 10px var(--font-mono); text-transform: uppercase; }
 .plan-node-card { min-width: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
@@ -1579,9 +1617,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .subagent-tree-head small { overflow: hidden; color: var(--faint); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .subagent-tree-count { display: grid; place-items: center; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; color: var(--status-done); background: var(--tint-done); font: 750 10px var(--font-mono); }
 .subagent-tree-rows { display: grid; gap: 2px; padding: 6px 7px 7px; }
-.subagent-tree-row { display: grid; grid-template-columns: minmax(10px, 26px) 15px minmax(0, 1fr); gap: 5px; align-items: start; min-width: 0; padding: 4px 5px; border-radius: var(--r-md); cursor: pointer; }
+.subagent-tree-row { --tf-pad: 5px; display: grid; grid-template-columns: 15px minmax(0, 1fr); gap: 5px; align-items: start; min-width: 0; padding: 4px 5px; border-radius: var(--r-md); cursor: pointer; }
 .subagent-tree-row:hover { background: var(--surface); }
-.subagent-tree-guide { padding-top: 5px; color: var(--faint); font: 10px/1 var(--font-mono); text-align: right; white-space: pre; }
+.subagent-tree-row > .plan-dot { margin-top: 1px; }
 .subagent-tree-row .plan-dot { border-color: var(--border-strong); color: var(--faint); background: var(--surface); }
 .subagent-tree-row.is-running .plan-dot { border-color: var(--border-running); color: var(--status-running); background: var(--tint-running); }
 .subagent-tree-row.is-done .plan-dot { border-color: var(--border-done); color: var(--status-done); background: var(--tint-done); }
@@ -1664,12 +1702,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .session-group.is-collapsed .session-group-chevron { transform: rotate(-45deg); }
 .session-group.is-collapsed .session-group-body { display: none; }
 .session-group-body { display: grid; gap: 3px; }
-.session-row { display: flex; align-items: center; gap: 2px; }
-.session-row .session-button { flex: 1; min-width: 0; }
-.session-fork { display: none; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 12px; cursor: pointer; flex: none; }
-.session-del { display: none; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 12px; cursor: pointer; flex: none; }
-.session-row:hover .session-fork { display: flex; }
-.session-row:hover .session-del { display: flex; }
+/* 会话条目：两段式（标题段 + ⋯ 段）。标题段吃满剩余宽度、单行省略；⋯ 段
+   常驻一个省略号按钮，点开才是置顶/分支/删除（见第 20 节）。 */
+.session-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px; }
+.session-row .session-button { min-width: 0; }
+.session-fork, .session-del { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 12px; cursor: pointer; flex: none; }
 .session-status {
   display: inline-block;
   margin-left: 6px;
@@ -1748,9 +1785,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .session-group-add { display: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; cursor: pointer; flex: none; }
 .session-group:hover .session-group-add { display: inline-flex; }
 .session-group-add:hover { border-color: var(--border-strong); color: var(--text-strong); }
-.session-pin { display: none; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 11px; cursor: pointer; flex: none; }
-.session-row:hover .session-pin { display: inline-flex; }
-.session-row.is-pinned .session-pin { display: inline-flex; color: var(--accent); }
+.session-pin { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; font-size: 11px; cursor: pointer; flex: none; }
+.session-row.is-pinned .session-pin { color: var(--accent); }
 .session-pin:hover { border-color: var(--border-strong); color: var(--accent-strong); }
 
 /* __R_STYLES__ */
@@ -2474,9 +2510,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .primary-button:hover { filter: brightness(1.05); }
+/* 焦点统一走外框聚光（0 偏移发散光晕），不给控件描内框。 */
 :where(button, input, select, textarea, summary, a, [tabindex]):focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 0;
+  box-shadow: var(--focus-glow);
 }
 
 /* 输入类控件统一交给组件库，只调高度与圆角 */
@@ -2500,8 +2538,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .composer:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--tint-running), var(--shadow);
+  box-shadow: var(--focus-glow), var(--shadow-sm);
 }
+/* 输入框本体不描内框：容器已经有外框聚光了（用户口径：只高亮外框）。 */
+.composer textarea:focus,
+.composer textarea:focus-visible { outline: none; box-shadow: none; }
 .conversation-tabs,
 .right-tabs { border-bottom: 1px solid var(--border); }
 .conversation-tab,
@@ -2895,3 +2936,341 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .role-session-reasoning { white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.5; }
 .role-session-tool { margin-top: 4px; font: 10.5px var(--font-mono); }
 .role-session-empty { padding: 10px 0; font-size: 11.5px; }
+
+/* ---------- 18. 2026-09-15 收敛：Agent Team 管理面 / 线框降噪 / 侧栏收起 ---------- */
+/*
+ * 三条口径（都来自使用反馈）：
+ *  1. 数字角标不能贴着模块名：标题与计数之间给固定间距，计数不再被长标题挤压；
+ *  2. 少用线框：分组靠留白 + 层级 + 极轻的底色，不再一层层描边（原来每个
+ *     .team-block 都有一条 border-top，纵向看像表格线）；
+ *  3. 左右栏要能收起：布局由 <html data-left-collapsed/data-right-collapsed>
+ *     驱动，收起不碰 --left-w/--right-w，展开即回到用户拖出来的原宽度。
+ */
+
+/* 18.1 标题 / 角标间距 */
+.section-title,
+.collapse-summary { gap: 8px; }
+.section-title > span:first-child,
+.collapse-summary > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.section-title .badge,
+.collapse-summary .badge { flex: none; margin-left: auto; }
+.section-title.sub-title { margin-bottom: 6px; letter-spacing: .06em; }
+.section-title.sub-title .badge {
+  min-width: 18px;
+  padding: 1px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 18.2 线框降噪（只对 Agent Team 面板生效，不动其它页面的信息层级） */
+.team-panel { gap: 14px; }
+.team-block { gap: 6px; }
+.team-toolbar { gap: 4px 8px; }
+
+/* 18.3 入职表单（员工栏底部的一步实例化入口） */
+.team-hire-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+.app-shell .team-hire-form .team-field { display: grid; gap: 3px; min-width: 0; }
+.app-shell .team-hire-form .team-field > span { color: var(--faint); font-size: 10px; letter-spacing: .04em; }
+.app-shell .team-hire-form .team-field input,
+.app-shell .team-hire-form .team-field select {
+  width: 100%;
+  min-height: 26px;
+  padding: 2px 7px;
+  font-size: 11.5px;
+}
+.team-hire-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.app-shell .team-hire-form .team-hire-submit { min-height: 26px; padding: 2px 12px; font-size: 11px; }
+.team-hire-hint { font-size: 10px; line-height: 1.5; }
+.team-member-edit { flex: none; }
+
+/* 18.4 请求中 / 锁定态（避免"点了没反应"或"点了就变"的错觉） */
+.perm-chip.is-pending,
+.text-button.is-pending { opacity: .5; cursor: progress; }
+.app-shell #plugin-list.is-switching { opacity: .6; pointer-events: none; }
+.effort-control.is-locked { opacity: .72; }
+.effort-control.is-locked .syringe-input { cursor: not-allowed; }
+.effort-control.is-locked .syringe-barrel { border-style: dashed; }
+.effort-value {
+  flex: none;
+  min-width: 34px;
+  color: var(--effort-tone);
+  font: 700 10px var(--font-mono);
+  text-align: right;
+  text-transform: uppercase;
+}
+
+/* 18.5 左右栏收起 */
+html[data-left-collapsed="true"] .app-shell {
+  grid-template-columns: 0 0 minmax(0, 1fr) 6px var(--right-w, 300px);
+}
+html[data-right-collapsed="true"] .app-shell {
+  grid-template-columns: var(--left-w, 268px) 6px minmax(0, 1fr) 0 0;
+}
+html[data-left-collapsed="true"][data-right-collapsed="true"] .app-shell {
+  grid-template-columns: 0 0 minmax(0, 1fr) 0 0;
+}
+html[data-left-collapsed="true"] .left-panel,
+html[data-left-collapsed="true"] #left-divider,
+html[data-right-collapsed="true"] .right-panel,
+html[data-right-collapsed="true"] #right-divider { display: none; }
+.panel-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--border-running); }
+@media (max-width: 1160px) {
+  html[data-left-collapsed="true"] .app-shell { grid-template-columns: 0 0 minmax(0, 1fr); }
+}
+
+/* 18.6 会话行降噪：条目本体只留"标题 + 状态"，三个动作收进 ⋯ 段（见第 20 节） */
+.session-row .session-status {
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: 9.5px;
+  letter-spacing: .02em;
+}
+
+/* 18.7 标题对齐修正：`.section-title` 原来是 space-between，只有 ::before 刻度
+ * 与一个文字 span 时，文字会被推到最右边（"模块名跑到右边缘"）。改成左对齐 +
+ * 靠 margin-left:auto 把角标/动作组推到右侧，语义与视觉才一致。 */
+.section-title { justify-content: flex-start; }
+.section-title .section-actions { margin-left: auto; }
+.section-title > span:first-child + .badge { margin-left: 0; }
+.section-title .section-actions .badge { margin-left: 0; }
+
+/* ============================================================
+   19. tree-fork：树轨与提交图分叉（VS Code 观感，零额外 DOM）
+   ------------------------------------------------------------
+   拓扑不再用「├─ / └─ / │」和「* | \ /」这类字符画表达：
+   - 树轨：祖先续行轨 = 行内 background-image 的 1px 线（每个续行层一道），
+     自身连接轨 = ::before（末子圆角弯头，非末子整行竖线）；
+   - 提交图：每行一条 SVG（直线 + 合并贝塞尔 + 提交点），泳道走 --fork-lane-N。
+   像素几何来自 tree-fork.js 的纯函数（railOffset / laneCenter），CSS 只负责画。
+   换皮肤只换 token，不动选择器结构。
+   ============================================================ */
+.tf-row--child {
+  position: relative;
+  padding-left: calc(var(--tf-pad, 0px) + var(--tf-depth, 0) * var(--tf-indent, 14px));
+}
+.tf-row--child::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc((var(--tf-depth, 1) - 1) * var(--tf-indent, 14px) + var(--tf-indent, 14px) / 2 - 1px);
+  width: calc(var(--tf-indent, 14px) / 2);
+  border-left: 1px solid var(--tree-rail);
+  pointer-events: none;
+}
+.tf-row--line::before { bottom: 0; }
+.tf-row--elbow::before {
+  height: calc(50% + 1px);
+  border-bottom: 1px solid var(--tree-rail);
+  border-bottom-left-radius: var(--tf-elbow-r, 5px);
+}
+.tf-fork-svg { display: block; overflow: visible; }
+.tf-fork-line { fill: none; stroke-width: 1.4; stroke-linecap: round; }
+.tf-fork-dot { fill: var(--faint); stroke: var(--panel); stroke-width: 1.4; }
+.tf-fork-line[data-tf-lane="0"] { stroke: var(--fork-lane-0); }
+.tf-fork-line[data-tf-lane="1"] { stroke: var(--fork-lane-1); }
+.tf-fork-line[data-tf-lane="2"] { stroke: var(--fork-lane-2); }
+.tf-fork-line[data-tf-lane="3"] { stroke: var(--fork-lane-3); }
+.tf-fork-line[data-tf-lane="4"] { stroke: var(--fork-lane-4); }
+.tf-fork-line[data-tf-lane="5"] { stroke: var(--fork-lane-5); }
+.tf-fork-dot[data-tf-lane="0"] { fill: var(--fork-lane-0); }
+.tf-fork-dot[data-tf-lane="1"] { fill: var(--fork-lane-1); }
+.tf-fork-dot[data-tf-lane="2"] { fill: var(--fork-lane-2); }
+.tf-fork-dot[data-tf-lane="3"] { fill: var(--fork-lane-3); }
+.tf-fork-dot[data-tf-lane="4"] { fill: var(--fork-lane-4); }
+.tf-fork-dot[data-tf-lane="5"] { fill: var(--fork-lane-5); }
+
+/* ============================================================
+   20. 会话条目（两段式）与共享提示气泡
+   ------------------------------------------------------------
+   条目 = 标题段 + ⋯ 段：
+   - 标题段：状态点 + 完整标题（CSS 省略号截断），**条目里不放时间 / token**；
+   - ⋯ 段：省略号按钮，点开就是原来的三个操作（置顶 / 分支 / 删除）；
+   - 完整标题 + 时间 + token 走一条共享提示气泡（#ui-tooltip）：一条 DOM、
+     委托触发，不再给每个条目塞 title/子元素（省内存，也省得原生提示样式不可控）。
+   ============================================================ */
+.session-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.session-title .entry-name { min-width: 0; }
+.session-pin-mark { flex: none; color: var(--accent); font-size: 10px; }
+.session-more { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.session-more-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--faint);
+  background: transparent;
+  font: 700 13px/1 var(--font-mono);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.session-row:hover .session-more-toggle,
+.session-row:focus-within .session-more-toggle,
+.session-row.is-menu-open .session-more-toggle { opacity: 1; }
+.session-more-toggle:hover { color: var(--text-strong); background: var(--surface-2); }
+.session-row.is-menu-open .session-more-toggle { color: var(--accent); background: var(--surface-2); }
+.session-more-actions { display: inline-flex; align-items: center; gap: 2px; }
+.session-more-actions[hidden] { display: none; }
+.session-more-actions .session-pin,
+.session-more-actions .session-fork,
+.session-more-actions .session-del {
+  animation: session-action-in var(--dur-fast) var(--ease-out) both;
+}
+@keyframes session-action-in {
+  from { opacity: 0; transform: translateX(3px) scale(.92); }
+  to { opacity: 1; transform: none; }
+}
+@media (hover: none) {
+  .session-more-toggle { opacity: 1; }
+}
+
+.ui-tooltip {
+  position: fixed;
+  z-index: 90;
+  max-width: min(340px, 62vw);
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  color: var(--text-strong);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+  animation: tooltip-in var(--dur-fast) var(--ease-out) both;
+}
+.ui-tooltip.hidden { display: none; }
+@keyframes tooltip-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================================================
+   21. 账户栏（右栏「状态」子页 · 状态一栏之下）
+   ------------------------------------------------------------
+   账户从左侧栏底部搬到状态一栏之下（用户口径）：条目化单列行
+   「○/● 当前标记 + 名字 + provider · model（+ 不可用）」，行即按钮，
+   点行切换账户；不再用两行卡片堆叠，也不再逐个绑监听（容器委托）。
+   ============================================================ */
+.account-list { display: grid; gap: 1px; }
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--row-min-h, 30px);
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--text-soft);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.account-row:hover { border-color: var(--border); background: var(--surface); }
+.account-row.is-active { color: var(--text-strong); background: var(--surface-2); }
+.account-row[disabled] { cursor: not-allowed; opacity: .5; }
+.account-mark { flex: none; color: var(--faint); font: 700 10px var(--font-mono); }
+.account-row.is-active .account-mark { color: var(--accent); }
+.account-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.account-meta {
+  flex: 0 0 auto;
+  max-width: 46%;
+  overflow: hidden;
+  color: var(--faint);
+  font: 10px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-lock { flex: none; color: var(--status-failed); font: 700 10px var(--font-mono); }
+
+/* ============================================================
+   22. 拟物交互（北欧家居式极简 + 锤子式短促回弹）
+   ------------------------------------------------------------
+   口径：交互要有"实体感"，装饰要克制——
+   - 按压：陷进去（0 偏移内阴影 + 极小位移/缩放），松手即回弹；
+   - 开关/选中：用内阴影表示"已经按进去"，不靠颜色大喊；
+   - 层次：靠 1px 外框 + 极轻投影，不堆厚描边；
+   - 位移只有 1~2px、时长走 --dur-*，不做弹跳；reduced-motion 全关。
+   ============================================================ */
+.app-shell button,
+.app-shell .account-row,
+.app-shell .text-button,
+.app-shell .icon-button,
+.app-shell .perm-chip,
+.app-shell .team-preset {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.app-shell button:active:not(:disabled),
+.app-shell .account-row:active:not(:disabled) {
+  transform: translateY(1px) scale(.985);
+  box-shadow: var(--press-shadow);
+}
+.app-shell .icon-button:active:not(:disabled) { transform: translateY(1px) scale(.94); }
+
+/* 开关态：按下即"陷进去"（全权 / 已装配 / 已置顶） */
+.perm-chip.is-on,
+.team-preset.is-active,
+.session-more-actions .session-pin.is-on,
+.effort-control.is-locked { box-shadow: var(--press-shadow); }
+
+/* 主按钮像一片压出来的黄铜：顶部一道高光 + 轻投影，按下变成内阴影 */
+.app-shell .icon-button.primary-button {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-bright) 14%, transparent), var(--shadow-sm);
+}
+.app-shell .icon-button.primary-button:active:not(:disabled) { box-shadow: var(--press-shadow); }
+
+/* 当前项：左侧 2px 实体标记（不整块高亮，扫视时更安静） */
+.session-row.is-pinned .session-title { box-shadow: inset 2px 0 0 var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell button,
+  .app-shell .account-row,
+  .app-shell .text-button,
+  .app-shell .icon-button,
+  .app-shell .perm-chip,
+  .session-more-actions .session-pin,
+  .session-more-actions .session-fork,
+  .session-more-actions .session-del,
+  .ui-tooltip { transition: none; animation: none; }
+  .app-shell button:active:not(:disabled),
+  .app-shell .account-row:active:not(:disabled) { transform: none; }
+}

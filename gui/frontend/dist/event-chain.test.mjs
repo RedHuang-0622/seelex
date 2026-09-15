@@ -17,7 +17,9 @@ const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).t
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
 const { renderConversationModel } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
-const planSource = await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8");
+const treeForkURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./tree-fork.js", import.meta.url), "utf8")).toString("base64")}`;
+const planSource = (await readFile(new URL("./plan-dsl.js", import.meta.url), "utf8"))
+  .replace('"./tree-fork.js"', `"${treeForkURL}"`);
 const { planToDSL, renderPlanDSL } = await import(`data:text/javascript;base64,${Buffer.from(planSource).toString("base64")}`);
 
 test("relays a completed main-agent tool result through the GUI reducer and renderer", async () => {
