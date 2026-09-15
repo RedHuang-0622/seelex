@@ -77,8 +77,9 @@ func (*guiChainEngine) AppendHistory(types.Message)          {}
 func (*guiChainEngine) SubAgentTree() []dto.SubAgentTreeNode { return nil }
 
 type guiChainRuntime struct {
-	mu         sync.Mutex
-	fullAccess bool
+	mu                  sync.Mutex
+	fullAccess          bool
+	fullAccessBySession map[string]bool
 }
 
 func (*guiChainRuntime) Model() string                       { return "test-model" }
@@ -95,8 +96,18 @@ func (runtime *guiChainRuntime) FullAccess() bool {
 	return runtime.fullAccess
 }
 func (runtime *guiChainRuntime) SetFullAccess(on bool) {
+	runtime.SetFullAccessFor("", on)
+}
+func (runtime *guiChainRuntime) SetFullAccessFor(sessionID string, on bool) {
 	runtime.mu.Lock()
-	runtime.fullAccess = on
+	if sessionID == "" {
+		runtime.fullAccess = on
+	} else {
+		if runtime.fullAccessBySession == nil {
+			runtime.fullAccessBySession = map[string]bool{}
+		}
+		runtime.fullAccessBySession[sessionID] = on
+	}
 	runtime.mu.Unlock()
 }
 func (*guiChainRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
@@ -302,9 +313,10 @@ func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T) {
 		t.Fatalf("first GUI event = %q, want seelex:ready", ready.name)
 	}
 	decision := make(chan application.ApprovalDecision, 1)
+	viewSessionID := app.Snapshot().Session.ID
 	go func() {
 		value, requestErr := approval.Request(context.Background(), application.ApprovalRequest{
-			ID: "approval-gui", Question: "run tool?",
+			ID: "approval-gui", SessionID: viewSessionID, Question: "run tool?",
 			Options: []application.InteractionOption{{ID: "allow", Label: "Allow"}},
 		})
 		if requestErr == nil {
@@ -321,17 +333,36 @@ func TestGUIBackendFullAccessReleasesPendingApproval(t *testing.T) {
 	bridge.SetFullAccess(true)
 	select {
 	case value := <-decision:
-		if value.OptionID != "always" {
-			t.Fatalf("full access decision = %q, want always", value.OptionID)
+		// 全权结案只放行本笔（"allow"）：自动放行不得在共享 checker 里留
+		// 永久 allow 规则（见 approval.ApprovalBroker.ResolveAllFor）。
+		if value.OptionID != "allow" {
+			t.Fatalf("full access decision = %q, want allow", value.OptionID)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Bridge.SetFullAccess did not release pending approval")
 	}
 	autoDecision, autoErr := approval.Request(context.Background(), application.ApprovalRequest{
-		ID: "approval-after-full-access", PermissionRequest: true,
+		ID: "approval-after-full-access", SessionID: viewSessionID, PermissionRequest: true,
 	})
-	if autoErr != nil || autoDecision.OptionID != "always" {
+	if autoErr != nil || autoDecision.OptionID != "allow" {
 		t.Fatalf("post-toggle permission decision = %#v, err=%v", autoDecision, autoErr)
+	}
+	// 其它会话的权限请求不受本次全权影响（会话级归属）：它必须进入待批等
+	// 用户表态，而不是被静默放行。
+	go func() {
+		_, _ = approval.Request(context.Background(), application.ApprovalRequest{
+			ID: "approval-other-session", SessionID: "session-other", PermissionRequest: true,
+		})
+	}()
+	otherDeadline := time.Now().Add(time.Second)
+	for len(approval.PendingBySession("session-other")) == 0 && time.Now().Before(otherDeadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if pending := approval.PendingBySession("session-other"); len(pending) != 1 {
+		t.Fatal("其它会话的权限请求被视图会话的全权静默放行（跨会话污染）")
+	}
+	if err := approval.Resolve("approval-other-session", application.ApprovalDecision{OptionID: "deny"}); err != nil {
+		t.Fatal(err)
 	}
 	foundRuntimeChanged := false
 	eventDeadline := time.After(time.Second)

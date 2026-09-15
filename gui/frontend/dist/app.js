@@ -150,6 +150,9 @@ function syncSessionChrome() {
   // 输入框只在主视图处于会话类子页时显示：其它主视图（工作台/状态/资源
   // 管理器）全宽展示时不能被底部输入框遮住内容。
   elements.composer.classList.toggle("hidden", !mainShowsSession);
+  // effort 是"下一回合"设置：本回合 running 时后端按 G0b/INV-G7 拒绝切换，
+  // 因此把入口先锁上并说明原因，而不是让用户拖完再看失败提示。
+  effortControl.setEnabled(!Boolean(client.current()?.chat?.running));
   if (!conversationShown) {
     elements["empty-state"].classList.add("hidden");
     elements["history-bar"].classList.add("hidden");
@@ -437,10 +440,12 @@ const effortControl = createEffortControl({
   input: elements["effort-range"],
   output: elements["effort-value"],
   selectEffort: async level => {
-    await invoke("SwitchEffort", level);
+    // Bridge 返回后端**真正生效的值**：控件据此渲染，而不是假定请求值生效。
+    const applied = await invoke("SwitchEffort", level);
     await refresh({ scroll: false });
     // effort 改变会改写 system 前缀的 effort 层；轨迹子页激活时刷新注入层。
     if (isViewActive(dockState, "trajectory")) refreshPromptInjection();
+    return applied;
   },
   onError: showToast
 });

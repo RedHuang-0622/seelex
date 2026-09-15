@@ -120,7 +120,9 @@ func TestPermissionAutoApprovalClosesFullAccessEnqueueRace(t *testing.T) {
 	decision, err := broker.Request(context.Background(), ApprovalRequest{
 		ID: "permission-auto", PermissionRequest: true,
 	})
-	if err != nil || decision.OptionID != "always" {
+	// 自动放行只放行本笔（"allow"）：全权是会话级、可撤销的模式，不得顺手
+	// 往共享 checker 写永久 allow 规则（关掉全权后仍在别的会话生效）。
+	if err != nil || decision.OptionID != "allow" {
 		t.Fatalf("automatic permission decision = %#v, err=%v", decision, err)
 	}
 
@@ -244,9 +246,9 @@ func TestApprovalSessionAttributionAndPendingQueries(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("legacy close observer not called")
 	}
-	// 收尾：释放剩余待批，避免 goroutine 泄漏。
-	if count := broker.ResolveAll(ApprovalDecision{OptionID: "always"}); count != 1 {
-		t.Fatalf("ResolveAll count = %d, want 1", count)
+	// 收尾：释放剩余待批（会话级结案），避免 goroutine 泄漏。
+	if count := broker.ResolveAllFor("sess-a", ApprovalDecision{OptionID: "always"}); count != 1 {
+		t.Fatalf("ResolveAllFor(sess-a) count = %d, want 1", count)
 	}
 	for index := 0; index < 3; index++ {
 		select {

@@ -158,8 +158,12 @@ func (service *Service) SwitchEffort(_ context.Context, level string) error {
 	}
 	service.Core.Snapshot.Runtime.Effort = service.effortManager.Current()
 	revision := service.bumpLocked()
+	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
-	service.publishSessionEvent(EventSnapshotChanged, revision, "", service.currentViewSessionID(), nil)
+	// 下发完整运行时而不是 nil：payload 为 nil 的 runtime.changed 会被前端
+	// 判为不可增量应用 → 触发一次整份快照刷新（表现为"调 effort 卡一下、
+	// 插件/技能列表闪动"）。同 SelectAccount/SetFullAccess 的口径。
+	service.publishSessionEvent(EventRuntimeChanged, revision, "", service.currentViewSessionID(), runtime)
 	return nil
 }
 
@@ -183,7 +187,7 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 		service.Deps.Engine.ClearHistory()
 		service.promptStack.Reset("")
 		service.Deps.Engine.SetSystemPrompt("")
-		service.effortManager = NewEffortManager(service.promptStack, service.Deps.Engine)
+		service.reapplyEffortAfterPluginSwitch()
 		service.resetConversation("已停用插件")
 	} else {
 		if err := service.Deps.Plugins.Activate(ctx, name); err != nil {
@@ -193,8 +197,7 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 		if current, ok := service.Deps.Plugins.Current(); ok {
 			service.promptStack.Reset(strings.TrimSpace(current.Prompt))
 		}
-		service.effortManager = NewEffortManager(service.promptStack, service.Deps.Engine)
-		_ = service.effortManager.Apply(service.effortManager.Current())
+		service.reapplyEffortAfterPluginSwitch()
 		service.Deps.Engine.SetSystemPrompt(service.promptStack.Render())
 		service.resetConversation("已切换到 " + name + " 插件")
 	}
@@ -209,26 +212,52 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	return nil
 }
 
-func (service *Service) SetFullAccess(on bool) {
-	if service == nil {
+// SetFullAccess 切换视图会话的全权模式，并**返回真正生效的值**。
+//
+// 返回值的意义：前端不能再靠"取反本地旧状态"猜方向——快照滞后一格时，
+// 取反会把"开启"点成"关闭"，用户看到的就是"点了全权仍被拒"。
+//
+// 会话级归属（G4）：选择落在视图会话单元，执行门与审批面都按同一个会话
+// 写——A 会话点全权不得替 B 会话放行（污染），B 的起点同步也不得关掉 A
+// （失灵）。
+
+// reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
+// 等级**。
+//
+// 为什么不是重建 EffortManager：管理器持有的是同一个 promptStack 与同一个
+// engine，重建既没有必要，又会让用户选择的强度被默认值（high）吃掉，还会让
+// prompt_layer 装配期捕获的旧指针变成孤儿。插件切换只该换 prompt 前缀。
+func (service *Service) reapplyEffortAfterPluginSwitch() {
+	if service == nil || service.effortManager == nil {
 		return
 	}
-	if !on && service.Approval != nil {
-		service.Approval.SetPermissionAutoApproval(false)
+	_ = service.effortManager.Apply(service.effortManager.Current())
+}
+
+func (service *Service) SetFullAccess(on bool) bool {
+	if service == nil {
+		return false
 	}
 	viewSessionID := service.currentViewSessionID()
-	// G4：全权选择归属视图会话单元（每个会话记住自己的模式）；引擎门立即
-	// 同步（运行中开全权用于放行当前审批），chat 起点再按槽兜底同步。
+	// G4：全权选择归属视图会话单元（每个会话记住自己的模式）；执行门与
+	// 审批面同步按**本会话**写入（运行中开全权用于放行当前审批），不影响
+	// 其它会话的开关。
 	if unit := service.sessions.Unit(viewSessionID); unit != nil {
 		unit.SetFullAccessMode(on)
 	}
+	if service.Approval != nil {
+		service.Approval.SetPermissionAutoApprovalFor(viewSessionID, on)
+	}
 	if service.Deps.Runtime != nil {
-		service.Deps.Runtime.SetFullAccess(on)
+		service.Deps.Runtime.SetFullAccessFor(viewSessionID, on)
 	}
 	effective := service.fullAccessForSession(viewSessionID)
 	if effective && service.Approval != nil {
-		service.Approval.SetPermissionAutoApproval(true)
-		service.Approval.ResolveAll(ApprovalDecision{OptionID: "always"})
+		// 只结**本会话**正在等待的权限审批：全权是会话级决定，替别的会话
+		// 点头就是污染。放行用 "allow"（本笔放行）而不是 "always"——自动
+		// 放行不得在共享 checker 里留下永久 allow 规则（那是持久权限污染，
+		// 关掉全权后仍会在别的会话生效）。
+		service.Approval.ResolveAllFor(viewSessionID, ApprovalDecision{OptionID: "allow"})
 	}
 	service.ViewMu.Lock()
 	service.Core.Snapshot.Runtime.FullAccess = effective
@@ -236,6 +265,7 @@ func (service *Service) SetFullAccess(on bool) {
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", viewSessionID, runtime)
+	return effective
 }
 
 // observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话

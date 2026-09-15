@@ -107,6 +107,7 @@ func (harnessRuntime) VisibleTools(context.Context) []application.Tool          
 func (runtime harnessRuntime) ActivePlugin() string                                           { return runtime.plugin }
 func (harnessRuntime) FullAccess() bool                                                       { return false }
 func (harnessRuntime) SetFullAccess(bool)                                                     {}
+func (harnessRuntime) SetFullAccessFor(string, bool)                                          {}
 func (harnessRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
 func (harnessRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
 func (harnessRuntime) DrainSubagentContexts() []string                                        { return nil }

@@ -58,7 +58,7 @@ type Application interface {
 	CreateWorkspace(name, rootPath, gitRemote string) error
 	BindWorkspace(workspaceID string) error
 	UnbindWorkspace()
-	SetFullAccess(bool)
+	SetFullAccess(bool) bool
 	SessionStorageConfig() (sessionstore.Config, error)
 	TestSessionStorage(context.Context, sessionstore.Config) error
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
@@ -845,8 +845,10 @@ func (bridge *Bridge) UnbindWorkspace() {
 	bridge.app.UnbindWorkspace()
 }
 
-func (bridge *Bridge) SetFullAccess(on bool) {
-	bridge.app.SetFullAccess(on)
+// SetFullAccess 切换全权模式并返回**真正生效的值**：前端据此渲染开关，
+// 不再取反本地旧状态（旧状态滞后时取反会把"开启"点成"关闭"）。
+func (bridge *Bridge) SetFullAccess(on bool) bool {
+	return bridge.app.SetFullAccess(on)
 }
 
 func (bridge *Bridge) SessionStorageConfig() (sessionstore.Config, error) {

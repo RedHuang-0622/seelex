@@ -22,8 +22,11 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 	if got := service.fullAccessForSession(sessionA); !got {
 		t.Fatal("fullAccessForSession(A) = false, want true")
 	}
-	if !runtime.fullAccess {
+	if !runtime.FullAccessFor(sessionA) {
 		t.Fatal("engine gate was not synced for session A")
+	}
+	if runtime.FullAccessFor("") {
+		t.Fatal("进程级默认全权不得被会话级选择改写（未选择会话的回退面）")
 	}
 
 	if err := service.BeginNewSession(); err != nil {
@@ -35,12 +38,18 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 	} else if _, ok := unit.FullAccessMode(); ok {
 		t.Fatalf("draft must start without a full access choice (ok=%v)", ok)
 	}
-	// 引擎门仍残留 A 的 true，但未选择的草稿回退进程默认 false。
+	// 执行门按会话解析：A 的那一格仍是 true，未选择的草稿回退进程默认 false。
 	if got := service.fullAccessForSession(draftID); got {
 		t.Fatal("unset draft must fall back to the process default, not inherit A's gate")
 	}
+	if runtime.FullAccessFor(draftID) {
+		t.Fatal("未选择的草稿执行门不得继承 A 的全权")
+	}
 	if got := service.fullAccessForSession(sessionA); !got {
 		t.Fatal("A's choice must survive BeginNewSession")
+	}
+	if !runtime.FullAccessFor(sessionA) {
+		t.Fatal("A 的全权在新建会话后仍须生效")
 	}
 
 	service.SetFullAccess(false) // 视图已切到草稿：选择落在草稿上
@@ -53,14 +62,17 @@ func TestFullAccessOwnershipPerSession(t *testing.T) {
 		t.Fatal("draft toggle must not clear session A's choice")
 	}
 
-	// chat 起点同步：A 再次运行前按自己的选择恢复门。
-	service.syncFullAccessFor(sessionA)
-	if !runtime.fullAccess {
-		t.Fatal("syncFullAccessFor(A) must restore the engine gate to A's mode")
-	}
+	// chat 起点同步：按会话各写自己的那一格——草稿的起点同步不得关掉 A。
 	service.syncFullAccessFor(draftID)
-	if runtime.fullAccess {
-		t.Fatal("syncFullAccessFor(draft) must reset the engine gate to the draft's mode")
+	if runtime.FullAccessFor(draftID) {
+		t.Fatal("syncFullAccessFor(draft) must set the draft gate to the draft's own mode")
+	}
+	if !runtime.FullAccessFor(sessionA) {
+		t.Fatal("draft 的起点同步关掉了 A 的全权（跨会话覆盖）")
+	}
+	service.syncFullAccessFor(sessionA)
+	if !runtime.FullAccessFor(sessionA) {
+		t.Fatal("syncFullAccessFor(A) must keep the engine gate at A's mode")
 	}
 }
 

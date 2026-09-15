@@ -290,6 +290,9 @@ func (engine *fakeEngine) HasSession(sessionID string) bool {
 type fakeRuntime struct {
 	account    string
 	fullAccess bool
+	// fullAccessBySession 是会话级全权选择（镜像生产权限门的会话解析：
+	// 空串键不存在 → 回退 fullAccess 进程默认）。
+	fullAccessBySession map[string]bool
 	// fullAccessMu 保护 fullAccess：多个会话的 runChat 起点并发 sync
 	// 引擎门（G4 每会话选择 → 进程单例门镜像），fake 必须与生产
 	// PermissionGate（内部 RWMutex）同构，否则 -race 报竞争。
@@ -366,9 +369,33 @@ func (runtime *fakeRuntime) FullAccess() bool {
 }
 
 func (runtime *fakeRuntime) SetFullAccess(on bool) {
+	runtime.SetFullAccessFor("", on)
+}
+
+// SetFullAccessFor 镜像生产权限门的会话级解析（空会话 ID = 进程级默认）：
+// 全权是会话级用户决定，A 的开关不替 B 放行，B 的起点同步也关不掉 A。
+func (runtime *fakeRuntime) SetFullAccessFor(sessionID string, on bool) {
 	runtime.fullAccessMu.Lock()
-	runtime.fullAccess = on
-	runtime.fullAccessMu.Unlock()
+	defer runtime.fullAccessMu.Unlock()
+	if sessionID == "" {
+		runtime.fullAccess = on
+		return
+	}
+	if runtime.fullAccessBySession == nil {
+		runtime.fullAccessBySession = make(map[string]bool)
+	}
+	runtime.fullAccessBySession[sessionID] = on
+}
+
+// FullAccessFor 返回指定会话生效的全权模式（会话级选择优先，未选择回退
+// 进程级默认）——与生产 PermissionGate.fullAccessForSession 同源语义。
+func (runtime *fakeRuntime) FullAccessFor(sessionID string) bool {
+	runtime.fullAccessMu.RLock()
+	defer runtime.fullAccessMu.RUnlock()
+	if on, ok := runtime.fullAccessBySession[sessionID]; ok {
+		return on
+	}
+	return runtime.fullAccess
 }
 
 // SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的

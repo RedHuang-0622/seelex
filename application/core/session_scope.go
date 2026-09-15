@@ -164,14 +164,18 @@ func (service *Service) fullAccessForSession(sessionID string) bool {
 	return service.fullAccessDefault
 }
 
-// syncFullAccessFor 按会话全权模式同步引擎门（G4：chat 起点调用，保证每个
-// 会话都按自己的选择运行——后台/新会话不继承其它会话的遗留开关；门是进程
-// 单例执行面，单飞期间只镜像目标会话；SetFullAccess 的即时生效路径除外）。
+// syncFullAccessFor 按会话全权模式同步执行门（G4：chat 起点调用，保证每个
+// 会话都按自己的选择运行——后台/新会话不继承其它会话的遗留开关）。
+//
+// 门是**按会话解析**的（seelebridge PermissionGate.sessionFullAccess）：本
+// 调用只写目标会话那一格，不会覆盖别的会话已生效的全权——历史缺陷正是
+// 「进程级单布尔 + 起点同步」，B 会话起跑会把 A 会话的全权关掉，用户看到
+// 「点了全权仍弹审批/仍被拒」。
 func (service *Service) syncFullAccessFor(sessionID string) {
 	if service == nil || service.Deps.Runtime == nil {
 		return
 	}
-	service.Deps.Runtime.SetFullAccess(service.fullAccessForSession(sessionID))
+	service.Deps.Runtime.SetFullAccessFor(sessionID, service.fullAccessForSession(sessionID))
 }
 
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行

@@ -105,6 +105,10 @@ type RuntimePort interface {
 	ActivePlugin() string
 	FullAccess() bool
 	SetFullAccess(bool)
+	// SetFullAccessFor 按会话设置全权模式：全权是会话级用户决定（G4），
+	// 执行面按工具调度 ctx 的会话解析——A 的全权不得替 B 放行，B 的起点
+	// 同步也不得关掉 A（多会话并行）。
+	SetFullAccessFor(sessionID string, on bool)
 	SetRuntimeVisibilityProjection(dto.RuntimeVisibilityProjection)
 	SetParentEvidenceProjection(dto.ParentEvidenceProjection)
 	DrainSubagentContexts() []string
@@ -271,10 +275,18 @@ type ApprovalBroker interface {
 	// nil)；requestID 区分同会话多笔待批；sessionID 空 = 进程级/无会话
 	// 审批）。
 	SetObserver(observer func(sessionID, requestID string, interaction *model.Interaction))
+	// SetPermissionAutoApproval 进程级权限自动放行（无会话归属/legacy 面）。
 	SetPermissionAutoApproval(on bool)
+	// SetPermissionAutoApprovalFor 会话级权限自动放行（GUI 全权按钮）：
+	// 只放行指定会话的权限请求，不替其它会话放行（跨会话污染）。
+	SetPermissionAutoApprovalFor(sessionID string, on bool)
 	Request(ctx context.Context, request approval.ApprovalRequest) (approval.ApprovalDecision, error)
 	Resolve(id string, decision approval.ApprovalDecision) error
+	// ResolveAll 结掉无会话归属（进程级/legacy）的待批审批。
 	ResolveAll(decision approval.ApprovalDecision) int
+	// ResolveAllFor 结掉指定会话当前全部待批审批（会话级全权放行用；
+	// 别的会话的待批不在此列）。
+	ResolveAllFor(sessionID string, decision approval.ApprovalDecision) int
 	// Pending 返回待批审批的会话归属快照（awaiting_approval/镜像补取用）。
 	Pending() []approval.PendingApproval
 	// PendingBySession 返回指定会话的待批审批（会话激活镜像用）。

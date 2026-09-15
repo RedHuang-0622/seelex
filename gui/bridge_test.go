@@ -204,7 +204,7 @@ func (fake *fakeApplication) BindWorkspace(workspaceID string) error {
 	return nil
 }
 func (fake *fakeApplication) UnbindWorkspace()      {}
-func (fake *fakeApplication) SetFullAccess(on bool) {}
+func (fake *fakeApplication) SetFullAccess(on bool) bool { return on }
 func (fake *fakeApplication) SessionStorageConfig() (sessionstore.Config, error) {
 	return sessionstore.Config{Backend: sessionstore.BackendJSON, Path: "sessions"}, nil
 }

@@ -173,6 +173,20 @@ func (r *Runtime) SetFullAccess(on bool) {
 		r.permission.SetFullAccess(on)
 	}
 }
+
+// SetFullAccessFor 按会话设置全权模式（G4 归属面）：执行门的全权短路按
+// 工具调度 ctx 的会话解析，A 会话的决定不替 B 会话放行。
+func (r *Runtime) SetFullAccessFor(sessionID string, on bool) {
+	if r.permission != nil {
+		r.permission.SetFullAccessFor(sessionID, on)
+	}
+}
+
+// FullAccessFor 返回指定会话生效的全权模式（探针/诊断面；与 middleware
+// 同源解析）。
+func (r *Runtime) FullAccessFor(sessionID string) bool {
+	return r.permission != nil && r.permission.FullAccessFor(sessionID)
+}
 func (r *Runtime) VisibleTools(ctx context.Context) []Tool {
 	return summarizeTools(r.agt.VisibleTools(ctx))
 }

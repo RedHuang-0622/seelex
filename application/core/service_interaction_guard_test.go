@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -205,5 +206,44 @@ func TestEffortCommandUsesGuardedServicePath(t *testing.T) {
 	}
 	if got := service.effortManager.Current(); got != "medium" {
 		t.Fatalf("effort after command = %q, want medium", got)
+	}
+}
+
+// TestPluginSwitchPreservesEffort：插件切换只换 prompt 前缀，不得顺手把用户的
+// effort 强度退回默认值。
+//
+// 旧实现每次切插件都 new 一个 EffortManager（默认 high）再 Apply 它的 Current()，
+// 结果是"切了插件，强度悄悄变回 High"——用户把 effort 当会话级设置，这属于丢配置。
+func TestPluginSwitchPreservesEffort(t *testing.T) {
+	engine := newRecordingPromptEngine()
+	service := newTestService(t, engine)
+	ctx := context.Background()
+
+	if err := service.SwitchEffort(ctx, "max"); err != nil {
+		t.Fatalf("SwitchEffort(max): %v", err)
+	}
+	if current, _ := service.Deps.Plugins.Current(); current.Name != "default" {
+		t.Fatalf("precondition plugin = %q, want default", current.Name)
+	}
+
+	if err := service.SwitchPlugin(ctx, "code"); err != nil {
+		t.Fatalf("SwitchPlugin(code): %v", err)
+	}
+	if got := service.effortManager.Current(); got != "max" {
+		t.Fatalf("effort after plugin switch = %q, want max (插件切换不得重置强度)", got)
+	}
+	if got := service.Snapshot().Runtime.Effort; got != "max" {
+		t.Fatalf("snapshot runtime effort after plugin switch = %q, want max", got)
+	}
+	if prompt := service.promptStack.Render(); !strings.Contains(strings.ToLower(prompt), "## effort:") || !strings.Contains(strings.ToLower(prompt), "max") {
+		t.Fatalf("插件切换后 system prompt 丢了 effort 层: %q", prompt)
+	}
+
+	// 停用插件（off）同样不得重置强度。
+	if err := service.SwitchPlugin(ctx, "off"); err != nil {
+		t.Fatalf("SwitchPlugin(off): %v", err)
+	}
+	if got := service.effortManager.Current(); got != "max" {
+		t.Fatalf("effort after plugin deactivate = %q, want max", got)
 	}
 }

@@ -7,12 +7,19 @@ class FakeClassList {
   add(value) { this.values.add(value); }
   remove(value) { this.values.delete(value); }
   contains(value) { return this.values.has(value); }
+  toggle(value, force) {
+    const next = force === undefined ? !this.values.has(value) : Boolean(force);
+    if (next) this.values.add(value);
+    else this.values.delete(value);
+    return next;
+  }
 }
 
 class FakeElement {
   constructor(value = "0") {
     this.value = value;
     this.textContent = "";
+    this.title = "";
     this.disabled = false;
     this.dataset = {};
     this.attributes = new Map();
@@ -21,6 +28,7 @@ class FakeElement {
     this.style = { values: new Map(), setProperty: (key, next) => this.style.values.set(key, next) };
   }
   setAttribute(key, value) { this.attributes.set(key, value); }
+  removeAttribute(key) { this.attributes.delete(key); }
   addEventListener(type, listener) { this.listeners.set(type, listener); }
   dispatch(type) { return this.listeners.get(type)?.(); }
 }
@@ -74,4 +82,49 @@ test("rolls back to committed level when Bridge selection fails", async () => {
   assert.equal(root.dataset.effort, "medium");
   assert.equal(input.value, "1");
   assert.deepEqual(errors, [failure]);
+});
+
+test("ignores unknown snapshot levels instead of snapping back to Lite", () => {
+  const { control, root, input } = setup();
+  control.setLevel("high");
+  assert.equal(root.dataset.effort, "high");
+  // 快照缺 effort / 跨会话为空值：必须保持当前档位（否则用户会看到滑块自己跳回 Lite）。
+  control.setLevel("");
+  control.setLevel(undefined);
+  control.setLevel("bogus");
+  assert.equal(root.dataset.effort, "high");
+  assert.equal(input.value, "2");
+});
+
+test("locks the slider while a chat turn is running", async () => {
+  const selected = [];
+  const { control, root, input, output } = setup(async level => selected.push(level));
+  control.setLevel("high");
+  control.setEnabled(false);
+  assert.equal(input.disabled, true);
+  assert.equal(root.classList.contains("is-locked"), true);
+  assert.equal(output.title.length > 0, true);
+
+  // 锁定期内的拖动不得预览、不得提交（后端一定会拒，前端不该先答应）。
+  input.value = "3";
+  input.dispatch("input");
+  assert.equal(root.dataset.effort, "high");
+  await input.dispatch("change");
+  assert.deepEqual(selected, []);
+  assert.equal(root.dataset.effort, "high");
+
+  control.setEnabled(true);
+  assert.equal(input.disabled, false);
+  await input.dispatch("change");
+  assert.deepEqual(selected, ["max"]);
+});
+
+test("adopts the authoritative level returned by the bridge", async () => {
+  // 请求 max，后端归一化/降级成 medium → UI 必须显示真正生效的值。
+  const { root, input } = setup(async () => "medium");
+  input.value = "3";
+  input.dispatch("input");
+  await input.dispatch("change");
+  assert.equal(root.dataset.effort, "medium");
+  assert.equal(input.value, "1");
 });
