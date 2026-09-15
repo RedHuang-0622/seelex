@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  agentTeamOrderForDrag,
+  hirePanel,
   isPinnedRole,
   nextAgentTeamOrder,
   normalizeAgentTeam,
+  normalizeTeamGlobal,
+  normalizeTeamLibrary,
   renderAgentTeam,
   renderRoleSessionDetail,
-  roleDisplayName
+  roleDisplayName,
+  teamEditorPanel,
+  teamGlobalDrift,
+  toolsPolicyLabel
 } from "./agent-team-view.js";
 
 const goalView = {
@@ -20,7 +27,7 @@ const goalView = {
   members: [
     { role_name: "user", role_kind: "user", in_order: true, order_index: 0 },
     { role_name: "main", role_kind: "main", in_order: true, order_index: 1 },
-    { role_name: "tl", role_kind: "techlead", role_session_id: "goal-a2a-tl", in_order: true, order_index: 2 },
+    { role_name: "tl", role_kind: "techlead", role_session_id: "goal-a2a-tl", in_order: true, order_index: 2, tools_policy: "readonly", system_prompt: "你是评审官" },
     { role_name: "digest", role_kind: "timer", join_policy: "scheduled", in_order: false, order_index: -1 }
   ],
   scheduled: [
@@ -28,38 +35,72 @@ const goalView = {
   ]
 };
 
-const presets = [{ team_kind: "goal-a2a" }, { team_kind: "review-team" }];
+const presets = [
+  { team_kind: "goal-a2a", order_policy: "goal_loop", order_roles: ["user", "main", "tl"], roles: [{ role_name: "tl", role_kind: "techlead" }] },
+  { team_kind: "review-team", order_policy: "user_main_decided", order_roles: ["user", "main", "reviewer"], roles: [{ role_name: "reviewer", role_kind: "agent" }] }
+];
 
-test("unconfigured session renders the empty state and preset entry points", () => {
-  const html = renderAgentTeam({ configured: false, members: [], scheduled: [] }, presets);
+const library = {
+  configured: true,
+  teams: [
+    {
+      team_id: "my-team",
+      team_kind: "my-team",
+      name: "我的审计队",
+      order_policy: "user_main_decided",
+      order_roles: ["user", "main", "auditor"],
+      origin: "current-session",
+      roles: [{ role_name: "auditor", role_kind: "agent", system_prompt: "审计员", tools_policy: "readonly" }]
+    }
+  ]
+};
+
+test("unconfigured session renders the empty state and team entry points", () => {
+  const html = renderAgentTeam({ configured: false, members: [], scheduled: [] }, presets, null);
   assert.match(html, /当前会话未装配 AgentTeam/);
+  // 装配入口在团队库表里：内置形态给「装配」，库条目给「装配 / 编辑 / 删除」。
   assert.match(html, /data-team-materialize="goal-a2a"/);
   assert.match(html, /data-team-materialize="review-team"/);
+  assert.match(html, /data-team-open-team="1"/);
+  assert.match(html, /data-team-save-current="1"/);
   assert.doesNotMatch(html, /team-order-item/);
 });
 
-test("configured team splits into 员工栏 and Team 栏, both entry tables", () => {
-  const html = renderAgentTeam(goalView, presets);
-  // 两栏是两个不同的东西，各自有条目化表头。
+test("团队库 is a small table that owns team templates (builtin included)", () => {
+  const html = renderAgentTeam(goalView, presets, library);
+  assert.match(html, /team-rail-head[\s\S]*?<span>团队库<\/span>/);
+  assert.match(html, /role="table" aria-label="团队库"/);
+  assert.match(html, /我的审计队/);
+  assert.match(html, /data-team-materialize-team="my-team"/);
+  assert.match(html, /data-team-edit-team="my-team"/);
+  assert.match(html, /data-team-delete-team="my-team"/);
+  // 内置形态在库表里以"内置"模板行出现（可装配、可存入库），不再散装成工具栏按钮。
+  assert.match(html, /data-team-library-template="review-team"/);
+  assert.match(html, /data-team-save-template="review-team"/);
+  // 当前形态的装配键禁用（重复装配幂等，但不是可点的动作）。
+  assert.match(html, /data-team-materialize="goal-a2a"[^>]*disabled/);
+});
+
+test("员工栏 holds the working order and exposes drag handles + permissions", () => {
+  const html = renderAgentTeam(goalView, presets, library);
   assert.match(html, /team-rail-head[\s\S]*?<span>员工栏<\/span>/);
-  assert.match(html, /team-rail-head[\s\S]*?<span>Team 栏<\/span>/);
   assert.match(html, /role="table" aria-label="员工栏"/);
-  assert.match(html, /role="columnheader">员工</);
-  // 窄右栏的列口径：身份 / 类型 / 位置 / 操作（会话 id 进 hover 提示，不占列）。
-  assert.match(html, /role="columnheader">类型<\/span><span role="columnheader">位置<\/span><span role="columnheader">操作<\/span>/);
-  assert.match(html, /team-member-role" title="逻辑角色名（metadata，不是 provider role）">main</);
-  assert.match(html, /data-team-materialize="goal-a2a"/);
-  assert.match(html, /goal-a2a 已装配/);
-  // 工作顺序表：显示身份 + 逻辑角色名分开两列，发言中的那条带 chip。
-  assert.match(html, /team-order-role" title="user">USER</);
-  assert.match(html, /team-order-meta" title="逻辑角色名">user</);
-  assert.match(html, /team-order-role" title="tl">ADVISOR</);
-  assert.match(html, /floor/);
-  assert.match(html, /发言中/);
-  assert.match(html, /定时插话 · 不参与工作顺序/);
-  // 定时 agent 出现在独立分区，不在工作顺序表里。
-  const orderSection = html.slice(html.indexOf("<span>工作顺序</span>"), html.indexOf("<span>定时 agent</span>"));
-  assert.doesNotMatch(orderSection, /digest/);
+  assert.match(html, /role="columnheader">员工（拖拽调序 · 权限）<\/span>/);
+  assert.match(html, /role="columnheader">操作<\/span>/);
+  // 发言顺序就在员工栏里：拖拽条 + 逻辑角色名 + 位置 + 权限 chip。
+  assert.match(html, /data-team-drag="tl" draggable="true"/);
+  assert.match(html, /data-team-staff-role="tl"[^>]*data-team-order-role="tl"[^>]*data-team-in-order="1"/);
+  assert.match(html, /team-member-role" title="逻辑角色名（metadata，不是 provider role）">tl</);
+  assert.match(html, /team-member-pos" title="工作顺序位置">#3</);
+  assert.match(html, /team-perm-chip"[^>]*>只读</);
+  assert.match(html, /data-team-order-drop="end"/);
+  // 定时 agent 不在发言顺序里（它没有拖拽条，位置标"定时"）。
+  const staffSection = html.slice(html.indexOf('aria-label="员工栏"'), html.indexOf('data-team-order-drop="end"'));
+  assert.match(staffSection, /data-team-staff-role="digest"[^>]*data-team-in-order="0"/);
+  assert.doesNotMatch(staffSection, /data-team-drag="digest"/);
+  // 冷加载槽位默认空（表单不常驻）。
+  assert.match(html, /data-team-hire-slot hidden/);
+  assert.doesNotMatch(html, /data-team-hire-form/);
 });
 
 test("team members expose distinct agent identities and role-session entry points", () => {
@@ -67,13 +108,106 @@ test("team members expose distinct agent identities and role-session entry point
   assert.equal(roleDisplayName("tl", "techlead"), "ADVISOR");
   assert.equal(roleDisplayName("user", "user"), "USER");
   assert.equal(roleDisplayName("reviewer", "agent"), "reviewer");
-  const html = renderAgentTeam(goalView, presets);
+  const html = renderAgentTeam(goalView, presets, library);
   // 两个 agent 不再是同一个 AGENT 文案：EXEC（main）与 ADVISOR（tl）分开。
   assert.match(html, /data-team-role-open="main"/);
   assert.match(html, /data-team-role-open="tl" data-team-role-session="goal-a2a-tl"/);
   assert.match(html, />EXEC</);
   assert.match(html, />ADVISOR</);
 });
+
+// ── 冷加载面板 ────────────────────────────────────────────────
+
+test("hirePanel carries prompt + permission fields and closes itself", () => {
+  const team = normalizeAgentTeam(goalView);
+  const member = team.members.find(item => item.roleName === "tl");
+  const html = hirePanel(team, member);
+  assert.match(html, /data-team-editor="hire"/);
+  assert.match(html, /data-team-editor-close="1"/);
+  assert.match(html, /修改员工 · ADVISOR/);
+  assert.match(html, /data-team-hire-name[^>]*value="tl"[^>]*readonly/);
+  // 提示词与权限必须回填（否则一次编辑会把用户登记的东西清空）。
+  assert.match(html, /data-team-hire-prompt[^>]*>你是评审官</);
+  assert.match(html, /data-team-hire-tools[\s\S]*?<option value="readonly" selected>/);
+  assert.match(html, /data-team-hire-model/);
+  assert.match(html, /data-team-optimize="1"/);
+  assert.match(html, /data-team-prompt-result hidden/);
+  // 新增态：空表单 + 入职按钮，角色名可写。
+  const fresh = hirePanel(team, null);
+  assert.match(fresh, /入职员工/);
+  assert.match(fresh, /data-team-hire-name placeholder="reviewer \/ auditor…" value="" required>/);
+  assert.doesNotMatch(fresh, /data-team-hire-name[^>]*readonly/);
+});
+
+test("teamEditorPanel fills from the library entry and closes itself", () => {
+  const html = teamEditorPanel(normalizeAgentTeam(goalView), normalizeTeamLibrary(library).teams[0], presets);
+  assert.match(html, /data-team-editor="team"/);
+  assert.match(html, /编辑团队 · 我的审计队/);
+  assert.match(html, /data-team-form-name[^>]*value="我的审计队"/);
+  assert.match(html, /data-team-form-id[^>]*value="my-team"[^>]*readonly/);
+  assert.match(html, /data-team-form-members[^>]*>auditor</);
+  assert.match(html, /data-team-form-policy[\s\S]*?<option value="user_main_decided" selected>/);
+  assert.match(html, /data-team-template="review-team"/);
+  assert.match(html, /data-team-form-fill-current="1"/);
+  assert.match(html, /当前会话：tl/);
+  // 新建态：空条目、可写团队 ID。
+  const fresh = teamEditorPanel(normalizeAgentTeam(goalView), null, presets);
+  assert.match(fresh, />新建团队</);
+  assert.doesNotMatch(fresh, /data-team-form-id[^>]*readonly/);
+});
+
+// ── 排序纯函数 ────────────────────────────────────────────────
+
+test("agentTeamOrderForDrag moves a member before the drop target", () => {
+  // tl 拖到 main 之前：main 与 tl 交换。
+  assert.deepEqual(agentTeamOrderForDrag(goalView, "tl", "main"), {
+    policy: "goal_loop", orderRoles: ["user", "tl", "main"]
+  });
+  // 未排入的员工拖进顺序 = 插到落点之前（这里落点是 main）。
+  assert.deepEqual(agentTeamOrderForDrag(goalView, "digest", "main"), {
+    policy: "goal_loop", orderRoles: ["user", "digest", "main", "tl"]
+  });
+  // 拖到"顺序末尾"落区（target 空）= 排到最后。
+  assert.deepEqual(agentTeamOrderForDrag(goalView, "main", ""), {
+    policy: "goal_loop", orderRoles: ["user", "tl", "main"]
+  });
+  // 非法/无变化：拖到自己、目标不在顺序里、空源。
+  assert.equal(agentTeamOrderForDrag(goalView, "tl", "tl"), null);
+  assert.equal(agentTeamOrderForDrag(goalView, "tl", "ghost"), null);
+  assert.equal(agentTeamOrderForDrag(goalView, "", "main"), null);
+});
+
+test("pinned roles cannot be removed from the working order", () => {
+  assert.equal(isPinnedRole("user"), true);
+  assert.equal(isPinnedRole("main"), true);
+  assert.equal(isPinnedRole("tl"), false);
+  const html = renderAgentTeam(goalView, presets, library);
+  assert.match(html, /data-team-action="remove" data-team-role="user"[^>]*disabled/);
+  assert.match(html, /data-team-action="remove" data-team-role="tl"/);
+});
+
+test("nextAgentTeamOrder only rewrites the working order", () => {
+  assert.deepEqual(nextAgentTeamOrder(goalView, "up", "tl"), {
+    policy: "goal_loop", orderRoles: ["user", "tl", "main"]
+  });
+  assert.deepEqual(nextAgentTeamOrder(goalView, "down", "user"), {
+    policy: "goal_loop", orderRoles: ["main", "user", "tl"]
+  });
+  assert.deepEqual(nextAgentTeamOrder(goalView, "remove", "tl"), {
+    policy: "goal_loop", orderRoles: ["user", "main"]
+  });
+  assert.deepEqual(nextAgentTeamOrder(goalView, "restore", "digest"), {
+    policy: "goal_loop", orderRoles: ["user", "main", "tl", "digest"]
+  });
+  // 非法动作：pin 角色摘除、边界移动、重复恢复、角色不在表内。
+  assert.equal(nextAgentTeamOrder(goalView, "remove", "main"), null);
+  assert.equal(nextAgentTeamOrder(goalView, "up", "user"), null);
+  assert.equal(nextAgentTeamOrder(goalView, "down", "tl"), null);
+  assert.equal(nextAgentTeamOrder(goalView, "restore", "tl"), null);
+  assert.equal(nextAgentTeamOrder(goalView, "up", "digest"), null);
+});
+
+// ── 角色会话详情 ──────────────────────────────────────────────
 
 test("role session detail renders the agent identity, meta and its own rows", () => {
   const html = renderRoleSessionDetail({
@@ -106,7 +240,7 @@ test("role session detail escapes content and tolerates an empty session", () =>
   assert.match(empty, /还没有独立会话行/);
 });
 
-test("role names and notices are escaped, never interpolated raw", () => {
+test("role names, notices and prompts are escaped, never interpolated raw", () => {
   const html = renderAgentTeam({
     configured: true,
     order_policy: "user_main_decided",
@@ -114,41 +248,27 @@ test("role names and notices are escaped, never interpolated raw", () => {
     members: [{ role_name: "<img src=x onerror=alert(1)>", role_kind: "agent", in_order: true, order_index: 2 }],
     scheduled: [],
     design_notice: ["floor.role_name 不在 lifecycle.order_roles"]
-  }, presets);
+  }, presets, {
+    teams: [{
+      team_id: "evil",
+      name: "<script>alert(1)</script>",
+      roles: [{ role_name: "x", system_prompt: "<img src=x>" }]
+    }]
+  });
   assert.doesNotMatch(html, /<img src=x/);
+  assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.match(html, /floor\.role_name 不在 lifecycle\.order_roles/);
+  // 提示词只以"已登记/未登记"chip 出现，正文不回显到列表里。
+  const promptPanel = hirePanel(normalizeAgentTeam({
+    order_roles: ["user", "main", "x"],
+    members: [{ role_name: "x", role_kind: "agent", in_order: true, order_index: 2, system_prompt: "</textarea><script>alert(1)</script>" }]
+  }), { roleName: "x", roleKind: "agent", systemPrompt: "</textarea><script>alert(1)</script>", toolsPolicy: "" });
+  assert.doesNotMatch(promptPanel, /<script>/);
+  assert.match(promptPanel, /&lt;\/textarea&gt;&lt;script&gt;/);
 });
 
-test("pinned roles cannot be removed from the working order", () => {
-  assert.equal(isPinnedRole("user"), true);
-  assert.equal(isPinnedRole("main"), true);
-  assert.equal(isPinnedRole("tl"), false);
-  const html = renderAgentTeam(goalView, presets);
-  assert.match(html, /data-team-action="remove" data-team-role="user"[^>]*disabled/);
-  assert.match(html, /data-team-action="remove" data-team-role="tl"/);
-});
-
-test("nextAgentTeamOrder only rewrites the working order", () => {
-  assert.deepEqual(nextAgentTeamOrder(goalView, "up", "tl"), {
-    policy: "goal_loop", orderRoles: ["user", "tl", "main"]
-  });
-  assert.deepEqual(nextAgentTeamOrder(goalView, "down", "user"), {
-    policy: "goal_loop", orderRoles: ["main", "user", "tl"]
-  });
-  assert.deepEqual(nextAgentTeamOrder(goalView, "remove", "tl"), {
-    policy: "goal_loop", orderRoles: ["user", "main"]
-  });
-  assert.deepEqual(nextAgentTeamOrder(goalView, "restore", "digest"), {
-    policy: "goal_loop", orderRoles: ["user", "main", "tl", "digest"]
-  });
-  // 非法动作：pin 角色摘除、边界移动、重复恢复、角色不在表内。
-  assert.equal(nextAgentTeamOrder(goalView, "remove", "main"), null);
-  assert.equal(nextAgentTeamOrder(goalView, "up", "user"), null);
-  assert.equal(nextAgentTeamOrder(goalView, "down", "tl"), null);
-  assert.equal(nextAgentTeamOrder(goalView, "restore", "tl"), null);
-  assert.equal(nextAgentTeamOrder(goalView, "up", "digest"), null);
-});
+// ── 归一化 ────────────────────────────────────────────────────
 
 test("normalizeAgentTeam tolerates malformed payloads", () => {
   assert.deepEqual(normalizeAgentTeam(null), {
@@ -163,6 +283,90 @@ test("normalizeAgentTeam tolerates malformed payloads", () => {
   assert.deepEqual(partial.orderRoles, ["user"]);
   assert.equal(partial.members.length, 1);
   assert.equal(partial.members[0].roleName, "tl");
+  assert.equal(partial.members[0].systemPrompt, "");
   assert.deepEqual(partial.scheduled, []);
   assert.equal(partial.configured, false);
+});
+
+test("normalizeTeamLibrary tolerates malformed payloads", () => {
+  assert.deepEqual(normalizeTeamLibrary(null), { configured: false, teams: [] });
+  const parsed = normalizeTeamLibrary({ configured: true, teams: [{ team_id: "a" }, { name: "no id" }, null] });
+  assert.equal(parsed.configured, true);
+  assert.equal(parsed.teams.length, 1);
+  assert.equal(parsed.teams[0].teamID, "a");
+  assert.deepEqual(parsed.teams[0].roles, []);
+});
+
+test("toolsPolicyLabel maps registered permissions to short chips", () => {
+  assert.equal(toolsPolicyLabel("readonly"), "只读");
+  assert.equal(toolsPolicyLabel("readwrite"), "读写");
+  assert.equal(toolsPolicyLabel("full"), "完全");
+  assert.equal(toolsPolicyLabel(""), "继承");
+  assert.equal(toolsPolicyLabel("weird"), "weird");
+});
+
+const globalConfig = {
+  employees: { configured: true, employees: [{ role_name: "auditor", role_kind: "agent", tools_policy: "readonly" }] },
+  order: { configured: true, order_policy: "user_main_decided", order_roles: ["user", "main", "auditor"] },
+  composition: {
+    session_id: "main-1",
+    order_policy: "user_main_decided",
+    order_roles: ["user", "main", "auditor"],
+    employees: [{ role_name: "auditor", role_kind: "agent", tools_policy: "readonly" }]
+  }
+};
+
+test("global master block lists the employee library and the publish action", () => {
+  const html = renderAgentTeam(goalView, presets, library, globalConfig);
+  assert.match(html, /全局母本/);
+  assert.match(html, /全局粒度 · 会话读的是深拷贝副本/);
+  assert.match(html, /data-team-publish-global="1"/);
+  assert.match(html, /data-team-default-order="1"/);
+  assert.match(html, /data-team-employee-delete="auditor"/);
+  // 母本与会话副本一致时不提示差异。
+  assert.match(html, /会话副本与母本一致/);
+  // 旧宿主不下发全局母本时整块不渲染，也不伪造按钮。
+  const withoutMaster = renderAgentTeam(goalView, presets, library);
+  assert.doesNotMatch(withoutMaster, /全局母本/);
+  assert.doesNotMatch(withoutMaster, /data-team-publish-global/);
+});
+
+test("global master marks drift between the session copy and the master", () => {
+  const drifted = {
+    ...globalConfig,
+    composition: { ...globalConfig.composition, employees: [{ role_name: "reviewer", role_kind: "agent" }] }
+  };
+  const html = renderAgentTeam(goalView, presets, library, drifted);
+  assert.match(html, /会话副本与母本有差异/);
+  assert.equal(teamGlobalDrift(normalizeTeamGlobal(drifted)), true);
+  assert.equal(teamGlobalDrift(normalizeTeamGlobal(globalConfig)), false);
+});
+
+test("normalizeTeamGlobal tolerates malformed payloads", () => {
+  const empty = normalizeTeamGlobal(null);
+  assert.deepEqual(empty.employees, []);
+  assert.deepEqual(empty.orderRoles, []);
+  assert.deepEqual(empty.composition.employees, []);
+  assert.equal(empty.employeesConfigured, false);
+
+  const parsed = normalizeTeamGlobal({
+    employees: { employees: [{ role_name: "a" }, null, { name: "no role_name" }] },
+    order: { order_roles: ["user", "", "main"] },
+    composition: { order_roles: "nope" }
+  });
+  assert.equal(parsed.employees.length, 1);
+  assert.equal(parsed.employees[0].roleName, "a");
+  assert.deepEqual(parsed.orderRoles, ["user", "main"]);
+  assert.deepEqual(parsed.composition.orderRoles, []);
+});
+
+test("global master escapes employee names, never interpolates raw", () => {
+  const hostile = {
+    employees: { employees: [{ role_name: '<img src=x onerror="1">', role_kind: "agent" }] },
+    order: { order_roles: ["user", "main"] },
+    composition: { order_roles: ["user", "main"], employees: [] }
+  };
+  const html = renderAgentTeam(goalView, presets, library, hostile);
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /&lt;img src=x/);
 });

@@ -8,7 +8,7 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationModel, roleIdentity } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationModel, messageRoleClass, roleIdentity } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
 
 test("assigns each message the identity of the agent that owns the round", () => {
   assert.equal(roleIdentity({ role: "assistant", role_name: "main" }), "EXEC");
@@ -26,6 +26,23 @@ test("assigns each message the identity of the agent that owns the round", () =>
   assert.match(rendered.html, />R3</);
   assert.match(rendered.html, /data-role-name="tl"/);
   assert.doesNotMatch(rendered.html, /<strong>AGENT<\/strong>/);
+});
+
+test("distinguishes EXEC and ADVISOR rounds by their own background band", () => {
+  const rendered = renderConversationComponent([
+    { id: "m-1", role: "assistant", role_name: "tl", content: "裁决：not_done" },
+    { id: "m-2", role: "assistant", role_name: "main", content: "本轮由 EXEC 主持" },
+    { id: "m-3", role: "assistant", content: "普通回复" }
+  ], { running: false });
+  // 两个 agent 的 provider role 都是 assistant：靠归属 class 分开上色。
+  assert.match(rendered.html, /class="message assistant is-advisor"/);
+  assert.match(rendered.html, /class="message assistant is-exec"/);
+  // 无归属的普通 assistant 不套背景带（既有观感不变）。
+  assert.match(rendered.html, /class="message assistant" data-conversation-key/);
+  assert.equal(messageRoleClass({ role: "assistant" }), "");
+  assert.equal(messageRoleClass({ role_name: "tl" }), " is-advisor");
+  assert.equal(messageRoleClass({ role_name: "main" }), " is-exec");
+  assert.equal(messageRoleClass({ role_name: "reviewer" }), " is-role");
 });
 
 test("renders runtime activity only from active chat state", () => {

@@ -3017,6 +3017,202 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   text-transform: uppercase;
 }
 
+/* ---------- 19. 右栏页签：纸质笔记本书签（拟物） ----------
+   口径（用户要求）：选中的子页不再只是一条下划线，而是"夹在笔记本里的一张纸书签"——
+   纸色票签从栏脊上探出，底部收成尖角，带纸面高光与投影；未选中的页保持平面文字，
+   与选中态形成"插进去 / 没插进去"的对比。 */
+.right-tabs {
+  gap: 4px;
+  align-items: flex-end;
+  padding: 7px 14px 0;
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--surface) 45%, transparent), transparent 70%);
+}
+.right-tab {
+  padding: 6px 12px 10px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.right-tab:hover { background: color-mix(in srgb, var(--surface-2) 70%, transparent); color: var(--text); }
+.right-tab.is-active {
+  color: var(--on-accent);
+  font-weight: 650;
+  background-image: linear-gradient(180deg, var(--accent-strong), var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border-strong));
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .30), inset 0 1px 0 color-mix(in srgb, #ffffff 34%, transparent);
+  transform: translateY(1px);
+}
+/* 书签尖角：选中页签底部探出的纸质三角（背景沿父元素的书签纸色）。 */
+.right-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: -5px;
+  height: 6px;
+  background-image: inherit;
+  background-color: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .25);
+  border-radius: 0;
+}
+/* 纸面压痕：书签顶部的一线高光，让它看起来是"一张纸"而不是一块色块。 */
+.right-tab.is-active::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  right: 4px;
+  height: 1px;
+  background: color-mix(in srgb, #ffffff 42%, transparent);
+  opacity: .55;
+}
+
+/* ---------- 20. 对话里的群聊归属分区 ----------
+   EXEC（main）与 ADVISOR（tl）的 provider role 都是 assistant：背景色是"谁在
+   说话"的第一线索（只说 role 分不出来）。无归属的普通消息不加类，观感不变。 */
+.message.is-exec,
+.message.is-advisor,
+.message.is-role {
+  padding: 10px 14px 12px;
+  border-radius: var(--r-xl);
+}
+.message.is-exec {
+  background: linear-gradient(180deg, rgba(123, 163, 199, .11), rgba(123, 163, 199, .03));
+  box-shadow: inset 3px 0 0 var(--status-info);
+}
+.message.is-advisor {
+  background: linear-gradient(180deg, rgba(217, 166, 87, .13), rgba(217, 166, 87, .04));
+  box-shadow: inset 3px 0 0 var(--status-running);
+}
+.message.is-role {
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--border-strong);
+}
+.message.is-exec .message-head strong { color: var(--status-info); }
+.message.is-advisor .message-head strong { color: var(--status-running); }
+
+/* ---------- 21. Agent Team 面板（员工栏 / 团队库 / 冷加载编辑面板） ----------
+   交互口径（用户要求）：发言顺序在员工栏直接拖拽调整；入职/修改员工、新建/编辑
+   团队都是**冷加载面板**（点 + 或编辑才渲染，带关闭键）；团队用一张小表管理。 */
+.team-rail-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.team-rail-actions .text-button { padding: 1px 7px; font-size: 10.5px; }
+
+/* 员工行：左侧拖拽条（≡）是唯一调序入口，指针样式与整行拖影给出反馈。
+   窄右栏里"员工"格承担身份 + 权限 chip（可换行），类型/位置/操作各占窄列。 */
+.team-staff-row { cursor: default; }
+.team-staff-main { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; }
+.team-member-actions { flex-wrap: wrap; }
+.team-drag-handle {
+  flex: none;
+  padding: 0 2px;
+  color: var(--faint);
+  background: transparent;
+  border: 0;
+  cursor: grab;
+  font: 12px var(--font-mono);
+  line-height: 1;
+  touch-action: none;
+}
+.team-drag-handle:active { cursor: grabbing; }
+.team-staff-row:hover .team-drag-handle { color: var(--text-soft); }
+.team-staff-row.is-dragging { opacity: .45; }
+.team-staff-row.is-drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+.team-staff-row.is-drop-target::after {
+  content: attr(data-team-drop-label);
+  position: relative;
+  margin-left: 6px;
+  color: var(--accent);
+  font: 9.5px var(--font-mono);
+}
+.team-drop-end {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 18px;
+  border: 1px dashed transparent;
+  border-radius: var(--r-sm);
+  color: var(--faint);
+  font: 9.5px var(--font-mono);
+}
+.team-drop-end.is-drop-target { border-color: var(--accent); color: var(--accent); }
+.team-outside-row { color: var(--faint); }
+.team-perm-chip {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-mid);
+  font: 9.5px var(--font-mono);
+}
+.team-perm-chip.is-inherit { color: var(--faint); border-style: dashed; }
+
+/* 冷加载编辑面板：默认不渲染（占位容器 hidden），点 + / 编辑才填充。 */
+.team-editor-slot { display: block; }
+.team-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px 11px;
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.team-editor-head { display: flex; align-items: center; gap: 6px; }
+.team-editor-title { color: var(--text-strong); font: 600 11.5px var(--font-ui); }
+.team-editor-close {
+  margin-left: auto;
+  padding: 1px 6px;
+  color: var(--faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font: 12px var(--font-mono);
+}
+.team-editor-close:hover { color: var(--text-strong); border-color: var(--border); }
+.team-editor-hint { color: var(--faint); font-size: 10px; line-height: 1.5; }
+.team-field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.team-editor textarea {
+  min-height: 92px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--code-bg);
+  color: var(--text-soft);
+  font: 11px/1.6 var(--font-mono);
+  resize: vertical;
+}
+.team-editor textarea:focus-visible,
+.team-editor input:focus-visible,
+.team-editor select:focus-visible { outline: 1px solid var(--focus-ring); outline-offset: 0; }
+.team-prompt-actions { display: flex; align-items: center; gap: 6px; }
+.team-prompt-result {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--status-info);
+  border-radius: var(--r-sm);
+  background: var(--tint-info);
+  color: var(--text-soft);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+.team-prompt-result .team-prompt-text { margin-top: 4px; color: var(--text-strong); font: 10.5px/1.6 var(--font-mono); white-space: pre-wrap; }
+.team-editor-actions { display: flex; align-items: center; gap: 6px; }
+.team-editor-actions .team-editor-hint { margin-left: auto; }
+.team-library-row { align-items: center; }
+.team-library-name { color: var(--text-strong); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-library-meta { color: var(--faint); font: 9.5px var(--font-mono); }
+.team-library-actions { display: inline-flex; align-items: center; gap: 3px; justify-content: flex-end; }
+.team-library-actions .text-button { padding: 1px 5px; font-size: 10px; }
+.team-library-empty { padding: 6px 0; color: var(--faint); font-size: 10.5px; line-height: 1.5; }
+/* 全局母本：会话副本与母本有差异时的提示（只提示，不改数据）。 */
+.team-drift { color: var(--status-running); font-size: 10.5px; }
+.team-template-picks { display: flex; flex-wrap: wrap; gap: 4px; }
+.team-template-picks .text-button { padding: 1px 6px; font-size: 10px; }
+
 /* 18.5 左右栏收起 */
 html[data-left-collapsed="true"] .app-shell {
   grid-template-columns: 0 0 minmax(0, 1fr) 6px var(--right-w, 300px);

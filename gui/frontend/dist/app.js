@@ -15,7 +15,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
-import { nextAgentTeamOrder, normalizeAgentTeam, renderAgentTeam, renderRoleSessionDetail, roleDisplayName } from "./agent-team-view.js";
+import { agentTeamOrderForDrag, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, renderAgentTeam, renderRoleSessionDetail, roleDisplayName, teamEditorPanel } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import { duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
@@ -1607,17 +1607,30 @@ elements["scheduled-table-modal"]?.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") closeScheduledTable();
+  // Agent Team 的冷加载面板（入职/修改员工、新建/编辑团队）也吃 Esc：面板是
+  // 悬浮在右栏上的编辑态，Esc 关掉它比"点 ✕"更快。
+  if (event.key === "Escape") closeAgentTeamEditors();
 });
 
 // ── Agent Team（右侧栏 · 状态 → Agent Team）──────────────────
-// 数据源是 Application API（Bridge.AgentTeam*）：成员表 / 工作顺序 / 定时
-// agent 分区。顺序的唯一事实是会话 lifecycle.order_policy/order_roles，
-// 前端只提交用户改动后的完整顺序表，不做本地重排缓存；每次动作后重拉视图。
+// 数据源是 Application API（Bridge.AgentTeam*）：员工表 / 发言顺序 / 团队库 /
+// 全局母本（团队库 + 员工库 + 默认顺序）/ 定时 agent 分区。各份事实各有归属，
+// 前端只提交用户改动，不做本地缓存：
+//   - 发言顺序 = 会话 lifecycle.order_policy/order_roles（员工栏就是它，拖拽
+//     只提交整表）；
+//   - 员工配置（提示词/权限）= 会话角色注册表（session/team/roles.json）；
+//   - 团队库/员工库/默认顺序 = **全局**母本（数据根下 team/），装配 = 把库条目
+//     写成会话员工表；会话读的是母本深拷贝副本，只有「确认普及」才回写母本。
 let agentTeamPresets = null;
+let agentTeamLibrary = null;
+let agentTeamGlobal = null;
 let agentTeamView = null;
 let agentTeamSessionID = "";
 let agentTeamError = "";
 let agentTeamLoading = false;
+// agentTeamDragRole 是"正在被拖拽的员工"：拖拽只在内部状态里过渡，落点一确定就
+// 提交整表（没有乐观重排、没有第二份顺序事实）。
+let agentTeamDragRole = "";
 
 // agentTeamCurrentPolicy 取本次提交的顺序策略：优先用面板里用户选中的值，
 // 面板未渲染时回退到视图自带策略（不做隐式猜测，空值直接拒绝提交）。
@@ -1640,8 +1653,30 @@ async function loadAgentTeamPresets() {
   return agentTeamPresets;
 }
 
-// refreshAgentTeam 拉取一次成员表并重绘；force=false 且会话未变时复用上次结果
-// （面板每次 render 都会调用它，避免高频 RPC）。
+// loadAgentTeamLibrary 读全局团队库（团队表数据源）；失败不影响员工栏渲染
+// （库是可选面：旧宿主没实现时不显示团队表，而不是整块报错）。
+async function loadAgentTeamLibrary() {
+  try {
+    agentTeamLibrary = await invoke("AgentTeamLibrary", "");
+  } catch (error) {
+    agentTeamLibrary = null;
+  }
+  return agentTeamLibrary;
+}
+
+// loadAgentTeamGlobal 读全局母本（团队库 + 员工库 + 默认顺序 + 会话副本投影）。
+// 同样按可选面处理：旧宿主没实现时只隐藏「全局母本」块，不影响员工栏。
+async function loadAgentTeamGlobal() {
+  try {
+    agentTeamGlobal = await invoke("AgentTeamGlobalConfig", "");
+  } catch (error) {
+    agentTeamGlobal = null;
+  }
+  return agentTeamGlobal;
+}
+
+// refreshAgentTeam 拉取一次员工表 + 团队库 + 全局母本并重绘；force=false 且会话
+// 未变时复用上次结果（面板每次 render 都会调用它，避免高频 RPC）。
 async function refreshAgentTeam({ force = false } = {}) {
   if (agentTeamLoading) return;
   const sessionID = client.current()?.session?.id || "";
@@ -1650,6 +1685,8 @@ async function refreshAgentTeam({ force = false } = {}) {
   try {
     await loadAgentTeamPresets();
     agentTeamView = await invoke("AgentTeamView", "");
+    await loadAgentTeamLibrary();
+    await loadAgentTeamGlobal();
     agentTeamSessionID = sessionID || agentTeamSessionID;
     agentTeamError = "";
   } catch (error) {
@@ -1662,6 +1699,7 @@ async function refreshAgentTeam({ force = false } = {}) {
 }
 
 // renderAgentTeamPanel 只重绘本区块（不触发整页 render，避免与动作互锁）。
+// 冷加载面板是"按需注入"的：重绘会清掉它们，所以重绘前先复位面板状态。
 function renderAgentTeamPanel() {
   const host = elements["team-view"];
   if (!host) return;
@@ -1670,14 +1708,14 @@ function renderAgentTeamPanel() {
     : "";
   if (!agentTeamView) {
     host.className = "team-view muted";
-    host.innerHTML = failure || "展开后加载成员表与工作顺序";
+    host.innerHTML = failure || "展开后加载员工栏与团队库";
     if (elements["team-count"]) elements["team-count"].textContent = "0";
     return;
   }
   const team = normalizeAgentTeam(agentTeamView);
   host.className = "team-view";
   elements["team-count"].textContent = String(team.members.length + team.scheduled.length);
-  host.innerHTML = failure + renderAgentTeam(agentTeamView, agentTeamPresets || []);
+  host.innerHTML = failure + renderAgentTeam(agentTeamView, agentTeamPresets || [], agentTeamLibrary, agentTeamGlobal);
 }
 
 // scheduleAgentTeamRefresh 只在状态子页可见且 Agent Team 区块展开时拉取，
@@ -1702,24 +1740,145 @@ async function runAgentTeamAction(action) {
   }
 }
 
+// ── 冷加载面板（入职/修改员工、新建/编辑团队）──────────────────
+// 面板默认不渲染：点 + 或「编辑」才把表单注入 slot，关闭键（✕ / 取消 / Esc）
+// 清空 slot 并复位 hidden。这样窄右栏的常态是"两张表"，而不是常驻一张长表单。
+
+function agentTeamSlot(name) {
+  return elements["team-view"]?.querySelector?.(`[data-team-${name}-slot]`);
+}
+
+function closeAgentTeamEditors() {
+  for (const name of ["hire", "team"]) {
+    const slot = agentTeamSlot(name);
+    if (!slot) continue;
+    slot.innerHTML = "";
+    slot.hidden = true;
+  }
+}
+
+function openAgentTeamHire(roleName = "") {
+  const slot = agentTeamSlot("hire");
+  if (!slot) return;
+  const team = normalizeAgentTeam(agentTeamView);
+  const member = team.members.find(item => item.roleName === roleName) || null;
+  slot.innerHTML = hirePanel(team, member);
+  slot.hidden = false;
+  slot.querySelector?.("[data-team-hire-name]")?.focus?.();
+}
+
+function openAgentTeamTeamPanel(teamID = "") {
+  const slot = agentTeamSlot("team");
+  if (!slot) return;
+  const library = normalizeTeamLibrary(agentTeamLibrary);
+  const entry = library.teams.find(item => item.teamID === teamID) || null;
+  slot.innerHTML = teamEditorPanel(normalizeAgentTeam(agentTeamView), entry, agentTeamPresets || []);
+  slot.hidden = false;
+  slot.querySelector?.("[data-team-form-name]")?.focus?.();
+}
+
 elements["team-section"]?.addEventListener("toggle", () => {
   if (elements["team-section"].open) refreshAgentTeam();
 });
 
 elements["team-view"]?.addEventListener("click", async event => {
-  const materialize = event.target.closest?.("[data-team-materialize]");
-  if (materialize?.dataset.teamMaterialize) {
-    const kind = materialize.dataset.teamMaterialize;
+  // 1) 装配内置形态 / 按团队库条目装配。
+  const materializeTemplate = event.target.closest?.("[data-team-materialize]");
+  if (materializeTemplate?.dataset.teamMaterialize) {
+    const kind = materializeTemplate.dataset.teamMaterialize;
     await runAgentTeamAction(() => invoke("AgentTeamMaterialize", "", kind, 0));
     return;
   }
+  const materializeTeam = event.target.closest?.("[data-team-materialize-team]");
+  if (materializeTeam?.dataset.teamMaterializeTeam) {
+    const teamID = materializeTeam.dataset.teamMaterializeTeam;
+    await runAgentTeamAction(() => invoke("AgentTeamMaterializeTeam", "", teamID, 0));
+    return;
+  }
+  // 把当前会话在编员工原样存成一支团队（含提示词/权限）：后端从会话注册表取
+  // 团队 ID 与顺序，重名按 team_id 幂等覆盖。
+  if (event.target.closest?.("[data-team-save-current]")) {
+    await runAgentTeamAction(async () => {
+      const library = await invoke("AgentTeamSaveCurrentTeam", "", "", "");
+      const count = Array.isArray(library?.teams) ? library.teams.length : 0;
+      showToast({ message: `已存入团队库（当前 ${count} 支团队）` });
+    });
+    return;
+  }
+
+  // 2) 打开/关闭冷加载面板。
+  if (event.target.closest?.("[data-team-editor-close]")) {
+    closeAgentTeamEditors();
+    return;
+  }
+  if (event.target.closest?.("[data-team-open-hire]")) {
+    openAgentTeamHire("");
+    return;
+  }
+  if (event.target.closest?.("[data-team-open-team]")) {
+    openAgentTeamTeamPanel("");
+    return;
+  }
+  const editButton = event.target.closest?.("[data-team-edit]");
+  if (editButton?.dataset.teamEdit) {
+    openAgentTeamHire(editButton.dataset.teamEdit);
+    return;
+  }
+  const editTeam = event.target.closest?.("[data-team-edit-team]");
+  if (editTeam?.dataset.teamEditTeam) {
+    openAgentTeamTeamPanel(editTeam.dataset.teamEditTeam);
+    return;
+  }
+
+  // 3) 团队库动作：存内置形态 / 删条目。
+  const saveTemplate = event.target.closest?.("[data-team-save-template]");
+  if (saveTemplate?.dataset.teamSaveTemplate) {
+    const entry = agentTeamEntryFromPreset(saveTemplate.dataset.teamSaveTemplate);
+    if (!entry) return;
+    await runAgentTeamAction(() => invoke("AgentTeamSaveTeam", "", entry));
+    return;
+  }
+  const deleteTeam = event.target.closest?.("[data-team-delete-team]");
+  if (deleteTeam?.dataset.teamDeleteTeam) {
+    const teamID = deleteTeam.dataset.teamDeleteTeam;
+    if (!confirm(`确认从团队库删除 ${teamID}？已装配的会话不受影响。`)) return;
+    await runAgentTeamAction(() => invoke("AgentTeamDeleteTeam", "", teamID));
+    return;
+  }
+
+  // 3.5) 全局母本动作：确认普及搭配到全局 / 顺序设为默认 / 删全局员工。
+  // 母本是全局粒度事实：只有「确认普及」会把会话副本写回，其余动作都是库管理。
+  if (event.target.closest?.("[data-team-publish-global]")) {
+    await runAgentTeamAction(async () => {
+      const config = await invoke("AgentTeamPublishToGlobal", "", "", "");
+      const count = Array.isArray(config?.employees?.employees) ? config.employees.employees.length : 0;
+      showToast({ message: `已把当前搭配普及到全局（员工库 ${count} 人）` });
+    });
+    return;
+  }
+  if (event.target.closest?.("[data-team-default-order]")) {
+    const master = normalizeTeamGlobal(agentTeamGlobal);
+    const policy = agentTeamCurrentPolicy() || master.composition.orderPolicy;
+    const orderRoles = master.composition.orderRoles;
+    if (!policy || !orderRoles.length) return;
+    await runAgentTeamAction(async () => {
+      await invoke("AgentTeamSetDefaultOrder", "", policy, orderRoles);
+      showToast({ message: "已把当前会话顺序设为全局默认顺序" });
+    });
+    return;
+  }
+  const deleteEmployee = event.target.closest?.("[data-team-employee-delete]");
+  if (deleteEmployee?.dataset.teamEmployeeDelete) {
+    const roleName = deleteEmployee.dataset.teamEmployeeDelete;
+    if (!confirm(`确认从全局员工库删除 ${roleName}？已装配会话的副本不受影响。`)) return;
+    await runAgentTeamAction(() => invoke("AgentTeamDeleteEmployee", "", roleName));
+    return;
+  }
+
+  // 4) 员工会话查看 / 顺序调整（↑↓，与拖拽同一条提交路径）/ 删除。
   const openRole = event.target.closest?.("[data-team-role-open]");
   if (openRole?.dataset.teamRoleOpen) {
     await openRoleSessionDetail(openRole.dataset.teamRoleOpen, openRole.dataset.teamRoleSession);
-    return;
-  }
-  if (event.target.closest?.("[data-team-refresh]")) {
-    await refreshAgentTeam({ force: true });
     return;
   }
   const orderButton = event.target.closest?.("[data-team-action]");
@@ -1730,75 +1889,243 @@ elements["team-view"]?.addEventListener("click", async event => {
     await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", policy, next.orderRoles));
     return;
   }
-  const editButton = event.target.closest?.("[data-team-edit]");
-  if (editButton?.dataset.teamEdit) {
-    fillTeamHireForm(editButton.dataset);
-    return;
-  }
-  if (event.target.closest?.("[data-team-hire-cancel]")) {
-    resetTeamHireForm();
-    return;
-  }
   const deleteButton = event.target.closest?.("[data-team-delete]");
   if (deleteButton?.dataset.teamDelete) {
     const roleName = deleteButton.dataset.teamDelete;
     if (!confirm(`确认删除角色 ${roleName}？它会同时从工作顺序里摘除。`)) return;
     await runAgentTeamAction(() => invoke("AgentTeamDeleteRole", "", roleName));
+    return;
+  }
+
+  // 5) 提示词优化（冷加载面板内）：只产出候选，点「应用到提示词」才写回输入框。
+  if (event.target.closest?.("[data-team-optimize]")) {
+    await optimizeAgentTeamPrompt();
+    return;
+  }
+  if (event.target.closest?.("[data-team-optimize-apply]")) {
+    const slot = agentTeamSlot("hire");
+    const optimized = slot?.querySelector?.("[data-team-optimize-text]")?.textContent || "";
+    const prompt = slot?.querySelector?.("[data-team-hire-prompt]");
+    if (prompt && optimized) prompt.value = optimized;
+    return;
+  }
+  if (event.target.closest?.("[data-team-form-fill-current]")) {
+    const team = normalizeAgentTeam(agentTeamView);
+    const names = team.members
+      .filter(member => !isPinnedRole(member.roleName) && member.roleKind !== "timer")
+      .map(member => member.roleName);
+    const fields = agentTeamSlot("team")?.querySelector?.("[data-team-form-members]");
+    if (fields) fields.value = names.join("\n");
+    return;
+  }
+  const template = event.target.closest?.("[data-team-template]");
+  if (template?.dataset.teamTemplate) {
+    fillAgentTeamFormFromPreset(template.dataset.teamTemplate);
   }
 });
 
-// fillTeamHireForm / resetTeamHireForm：新增与修改共用同一个表单（后端
-// AgentTeamInstantiateRole 按 role_name 幂等覆盖，不需要两套入口）。
-function fillTeamHireForm(data) {
-  const view = elements["team-view"];
-  const nameInput = view?.querySelector?.("[data-team-hire-name]");
-  if (!nameInput) return;
-  nameInput.value = data.teamEdit || "";
-  view.querySelector("[data-team-hire-kind]").value = data.teamEditKind || "agent";
-  view.querySelector("[data-team-hire-join]").value = data.teamEditJoin || "on_team_create";
-  view.querySelector("[data-team-hire-tools]").value = data.teamEditTools || "";
-  const submit = view.querySelector("[data-team-hire-submit]");
-  if (submit) submit.textContent = `保存 ${data.teamEdit}`;
-  const cancel = view.querySelector("[data-team-hire-cancel]");
-  if (cancel) cancel.classList.remove("hidden");
-  nameInput.focus?.();
-}
-
-function resetTeamHireForm() {
-  const view = elements["team-view"];
-  const form = view?.querySelector?.("[data-team-hire-form]");
-  if (!form) return;
-  form.reset?.();
-  const submit = form.querySelector("[data-team-hire-submit]");
-  if (submit) submit.textContent = "入职";
-  form.querySelector("[data-team-hire-cancel]")?.classList.add("hidden");
-}
-
-// 员工入职：一步到位（建角色会话 + 落配置 + 按 join_policy 决定是否进顺序），
-// 回执里的 notice 直接呈现"谁在什么时候真的会发言"，不靠用户自己拼装结论。
-elements["team-view"]?.addEventListener("submit", async event => {
-  const form = event.target.closest?.("[data-team-hire-form]");
-  if (!form) return;
-  event.preventDefault();
-  const roleName = String(form.querySelector("[data-team-hire-name]")?.value || "").trim();
-  if (!roleName) return;
-  const role = {
-    role_name: roleName,
-    role_kind: form.querySelector("[data-team-hire-kind]")?.value || "agent",
-    join_policy: form.querySelector("[data-team-hire-join]")?.value || "on_team_create",
-    tools_policy: String(form.querySelector("[data-team-hire-tools]")?.value || "").trim()
+// agentTeamEntryFromPreset 把内置形态投影成团队库条目（用户"存入库"后才持久：
+// preset 是代码里的模板，库条目是用户数据，不在读路径上偷偷落盘）。
+function agentTeamEntryFromPreset(kind) {
+  const preset = (agentTeamPresets || []).find(item => item?.team_kind === kind);
+  if (!preset) return null;
+  const roles = (Array.isArray(preset.roles) ? preset.roles : [])
+    .filter(role => role && typeof role.role_name === "string" && role.role_name)
+    .map(role => ({
+      role_name: role.role_name,
+      role_kind: role.role_kind || "agent",
+      system_prompt: role.system_prompt || "",
+      tools_policy: role.tools_policy || "",
+      model_policy: role.model_policy || "",
+      join_policy: role.join_policy || "",
+      presence_policy: role.presence_policy || ""
+    }));
+  return {
+    team_id: kind,
+    team_kind: kind,
+    name: kind,
+    order_policy: preset.order_policy || "",
+    order_roles: Array.isArray(preset.order_roles) ? preset.order_roles : [],
+    roles,
+    origin: "preset"
   };
-  try {
-    const result = await invoke("AgentTeamInstantiateRole", "", role, 0);
-    const notices = Array.isArray(result?.notice) ? result.notice : [];
-    if (notices.length) showToast({ message: `${roleName}：${notices.join("；")}` });
-    resetTeamHireForm();
-    await refreshAgentTeam({ force: true });
-  } catch (error) {
-    agentTeamError = error?.message || String(error);
-    renderAgentTeamPanel();
+}
+
+// fillAgentTeamFormFromPreset / fillAgentTeamFormFromCurrent 只填表单（不落盘）：
+// 用户改完点「新建团队」才写团队库。
+function fillAgentTeamFormFromPreset(kind) {
+  const slot = agentTeamSlot("team");
+  const preset = (agentTeamPresets || []).find(item => item?.team_kind === kind);
+  if (!slot || !preset) return;
+  const names = (Array.isArray(preset.roles) ? preset.roles : [])
+    .map(role => role?.role_name)
+    .filter(name => typeof name === "string" && name && !isPinnedRole(name));
+  slot.querySelector("[data-team-form-name]").value = kind;
+  slot.querySelector("[data-team-form-kind]").value = kind;
+  slot.querySelector("[data-team-form-policy]").value = preset.order_policy || "user_main_decided";
+  slot.querySelector("[data-team-form-members]").value = names.join("\n");
+}
+
+// optimizeAgentTeamPrompt 跑一次有界 LLM 回合优化提示词；结果只渲染成候选
+// （应用/放弃由用户点按钮决定，不会自动改输入框）。
+async function optimizeAgentTeamPrompt() {
+  const slot = agentTeamSlot("hire");
+  if (!slot) return;
+  const state = slot.querySelector("[data-team-optimize-state]");
+  const result = slot.querySelector("[data-team-prompt-result]");
+  const roleName = String(slot.querySelector("[data-team-hire-name]")?.value || "").trim();
+  const draft = String(slot.querySelector("[data-team-hire-prompt]")?.value || "").trim();
+  if (!roleName || !draft) {
+    if (state) state.textContent = "先填角色名与提示词再优化";
+    return;
   }
+  if (state) state.textContent = "优化中…";
+  try {
+    const optimized = await invoke("AgentTeamOptimizePrompt", "", {
+      role_name: roleName,
+      role_kind: String(slot.querySelector("[data-team-hire-kind]")?.value || "agent"),
+      system_prompt: draft,
+      tools_policy: String(slot.querySelector("[data-team-hire-tools]")?.value || "")
+    });
+    if (state) state.textContent = optimized?.model ? `由 ${optimized.model} 生成` : "";
+    if (result) {
+      const notes = Array.isArray(optimized?.notes) ? optimized.notes : [];
+      result.innerHTML = `<strong>优化候选</strong>${notes.length ? `<div class="muted">${notes.map(escapeHtml).join("；")}</div>` : ""}
+        <div class="team-prompt-text" data-team-optimize-text>${escapeHtml(optimized?.optimized || "")}</div>
+        <div class="team-editor-actions"><button type="button" class="text-button" data-team-optimize-apply="1">应用到提示词</button></div>`;
+      result.hidden = false;
+    }
+  } catch (error) {
+    if (state) state.textContent = error?.message || String(error);
+  }
+}
+
+// ── 员工栏拖拽调序（发言顺序在员工栏直接调整）────────────────────
+// 源 = 行首 ≡（或整行）；落点 = 另一行（插到它之前）或"顺序末尾"落区。落点一定
+// 就提交完整顺序表，前端不缓存顺序、不乐观重排。
+elements["team-view"]?.addEventListener("dragstart", event => {
+  const handle = event.target.closest?.("[data-team-drag]");
+  const row = event.target.closest?.("[data-team-staff-role]");
+  const roleName = handle?.dataset.teamDrag || row?.dataset.teamStaffRole || "";
+  if (!roleName) return;
+  agentTeamDragRole = roleName;
+  row?.classList.add("is-dragging");
+  event.dataTransfer?.setData?.("text/plain", roleName);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
 });
+
+elements["team-view"]?.addEventListener("dragover", event => {
+  const row = event.target.closest?.("[data-team-staff-role]");
+  const endZone = event.target.closest?.("[data-team-order-drop]");
+  if (!row && !endZone) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  clearAgentTeamDropMarkers(row || endZone);
+  (row || endZone).classList.add("is-drop-target");
+});
+
+elements["team-view"]?.addEventListener("dragleave", event => {
+  const zone = event.target.closest?.("[data-team-staff-role], [data-team-order-drop]");
+  if (zone) zone.classList.remove("is-drop-target");
+});
+
+elements["team-view"]?.addEventListener("drop", async event => {
+  const row = event.target.closest?.("[data-team-staff-role]");
+  const endZone = event.target.closest?.("[data-team-order-drop]");
+  if (!row && !endZone) return;
+  event.preventDefault();
+  const source = agentTeamDragRole || event.dataTransfer?.getData?.("text/plain") || "";
+  agentTeamDragRole = "";
+  clearAgentTeamDropMarkers();
+  const target = row?.dataset.teamStaffRole || "";
+  const next = agentTeamOrderForDrag(agentTeamView, source, target);
+  const policy = agentTeamCurrentPolicy();
+  if (!next || !policy) return;
+  await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", policy, next.orderRoles));
+});
+
+elements["team-view"]?.addEventListener("dragend", () => {
+  agentTeamDragRole = "";
+  clearAgentTeamDropMarkers();
+  elements["team-view"]?.querySelectorAll?.(".is-dragging").forEach(node => node.classList.remove("is-dragging"));
+});
+
+function clearAgentTeamDropMarkers(keep = null) {
+  elements["team-view"]?.querySelectorAll?.(".is-drop-target").forEach(node => {
+    if (node !== keep) node.classList.remove("is-drop-target");
+  });
+}
+
+// 员工入职 / 修改：一步到位（建角色会话 + 落注册表含提示词与权限 + 按 join_policy
+// 决定是否进顺序），回执里的 notice 直接呈现"谁在什么时候真的会发言"。
+elements["team-view"]?.addEventListener("submit", async event => {
+  const hireForm = event.target.closest?.("[data-team-hire-form]");
+  const teamForm = event.target.closest?.("[data-team-form]");
+  if (!hireForm && !teamForm) return;
+  event.preventDefault();
+  if (hireForm) {
+    const roleName = String(hireForm.querySelector("[data-team-hire-name]")?.value || "").trim();
+    if (!roleName) return;
+    const role = {
+      role_name: roleName,
+      role_kind: hireForm.querySelector("[data-team-hire-kind]")?.value || "agent",
+      join_policy: hireForm.querySelector("[data-team-hire-join]")?.value || "on_team_create",
+      tools_policy: String(hireForm.querySelector("[data-team-hire-tools]")?.value || "").trim(),
+      model_policy: String(hireForm.querySelector("[data-team-hire-model]")?.value || "").trim(),
+      presence_policy: String(hireForm.querySelector("[data-team-hire-presence]")?.value || "").trim(),
+      system_prompt: String(hireForm.querySelector("[data-team-hire-prompt]")?.value || "").trim()
+    };
+    try {
+      const result = await invoke("AgentTeamInstantiateRole", "", role, 0);
+      const notices = Array.isArray(result?.notice) ? result.notice : [];
+      if (notices.length) showToast({ message: `${roleName}：${notices.join("；")}` });
+      closeAgentTeamEditors();
+      await refreshAgentTeam({ force: true });
+    } catch (error) {
+      agentTeamError = error?.message || String(error);
+      renderAgentTeamPanel();
+      showToast(error);
+    }
+    return;
+  }
+  const entry = agentTeamEntryFromForm(teamForm);
+  if (!entry) return;
+  await runAgentTeamAction(() => invoke("AgentTeamSaveTeam", "", entry));
+});
+
+// agentTeamEntryFromForm 把"新建/编辑团队"表单换算成团队库条目（纯函数）：
+// 成员一行一个角色名，发言顺序 = user → main → 成员表顺序。角色配置的细节
+// （提示词/权限）在员工栏里逐个编辑，团队库只回答"有谁、什么顺序"。
+function agentTeamEntryFromForm(form) {
+  const name = String(form.querySelector("[data-team-form-name]")?.value || "").trim();
+  if (!name) return null;
+  const teamID = String(form.querySelector("[data-team-form-id]")?.value || "").trim() || name;
+  const kind = String(form.querySelector("[data-team-form-kind]")?.value || "").trim() || teamID;
+  const memberNames = String(form.querySelector("[data-team-form-members]")?.value || "")
+    .split(/[\n,，、]/)
+    .map(value => value.trim())
+    .filter(Boolean)
+    .filter(uniqueValue());
+  const roles = memberNames.map(roleName => ({ role_name: roleName, role_kind: "agent" }));
+  return {
+    team_id: teamID,
+    team_kind: kind,
+    name,
+    order_policy: form.querySelector("[data-team-form-policy]")?.value || "",
+    order_roles: ["user", "main", ...memberNames],
+    roles,
+    origin: "custom"
+  };
+}
+
+function uniqueValue() {
+  const seen = new Set();
+  return value => {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  };
+}
 
 elements["team-view"]?.addEventListener("change", async event => {
   const select = event.target.closest?.("[data-team-policy]");

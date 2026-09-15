@@ -270,12 +270,25 @@ function renderMessage(message, key) {
     : "";
   const wheelKind = role === "user" ? "user" : role === "system" ? "system" : role === "assistant" ? (String(message.content || "").trim() ? "agent" : "think") : "other";
   const wheelLabel = `${role === "user" ? "你" : role === "system" ? "系统" : label} · ${wheelSnippet(String(message.content || "").trim() || reasoning)}`;
-  return `<article class="message ${escapeHtml(role)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}">
+  return `<article class="message ${escapeHtml(role)}${messageRoleClass(message)}" data-conversation-key="${escapeHtml(key)}" data-trajectory-key="${escapeHtml(key)}" data-wheel-kind="${wheelKind}" data-wheel-label="${escapeHtml(wheelLabel)}" data-role-name="${escapeHtml(String(message.role_name || ""))}" data-round-id="${roundID}">
     <div class="message-debug"><code class="item-id">${escapeHtml(debugID)}</code></div>
     <div class="message-head"><span class="role-mark">${role === "user" ? icon("message", 13) : icon("source", 13)}</span><strong>${escapeHtml(label)}</strong>${roundChip}<span>${escapeHtml(time)}</span></div>
     ${thinking}
     <div class="message-body">${markdown(message.content || "")}</div>
   </article>`;
+}
+
+// messageRoleClass 给群聊归属加一层视觉分区（CSS class 后缀）：同一轮对话里
+// EXEC（main）与 ADVISOR（tl）都是 provider role=assistant，光看 role 分不出来；
+// 背景色于是成为"谁在说话"的第一线索。无归属的消息（普通 assistant）不加类，
+// 保持既有观感不变。
+export function messageRoleClass(message) {
+  const roleName = String(message?.role_name || "").trim();
+  if (roleName === "main") return " is-exec";
+  if (roleName === "tl" || roleName === "techlead") return " is-advisor";
+  if (roleName === "user") return " is-user";
+  if (roleName) return " is-role";
+  return "";
 }
 
 // roleIdentity 返回消息所属 agent 的展示身份：群聊角色归属优先
