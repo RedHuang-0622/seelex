@@ -544,7 +544,7 @@ func (runtime *fakeRuntime) addTaskLocked(spec dto.TaskSpec) (dto.TaskRecord, bo
 	}
 	record := dto.TaskRecord{
 		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
-		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
+		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind, SourceID: spec.SourceID,
 		Dependencies: append([]string(nil), spec.Dependencies...),
 		Attachments:  append([]string(nil), spec.Attachments...),
 	}
@@ -575,7 +575,7 @@ func (runtime *fakeRuntime) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto
 	}
 	record := dto.TaskRecord{
 		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
-		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind,
+		Status: dto.TaskPending, Assignee: spec.Assignee, Kind: spec.Kind, SourceID: spec.SourceID,
 		Dependencies: append([]string(nil), spec.Dependencies...),
 		Attachments:  append([]string(nil), spec.Attachments...),
 	}

@@ -43,8 +43,11 @@ func buildWorkTable(plan *PlanState, tasks []dto.TaskRecord, subagentTree []dto.
 	for _, record := range tasks {
 		item := taskRecordToWorkItem(record)
 		if record.Kind == "plan" {
-			if node, ok := nodeByID[record.SourceID]; ok {
+			if node, ok := nodeByID[planNodeIDFor(record)]; ok {
 				item.Trace = boundWorkTrace(append(item.Trace, planNodeTrace(node, plan != nil && plan.Status != PlanRunning)...))
+				// plan 行依赖取自 plan 邻接面（plan_load 产出的是平铺节点表 +
+				// 边集，注册表按树形父子推导会让 plan 行的「依赖」列恒为空）。
+				item.Dependencies = mergeWorkDependencies(item.Dependencies, planDependencies(plan, node.ID))
 			}
 		}
 		rows = append(rows, item)
@@ -328,7 +331,9 @@ func (service *Service) publishTaskChanged(record dto.TaskRecord, revision uint6
 	if service.Events == nil {
 		return
 	}
-	item := taskRecordToWorkItem(record)
+	// 与整表投影同源补齐（plan 行依赖取自 plan 邻接面）：否则 task.changed
+	// 会把该行的依赖列擦成空。
+	item := service.workItemForRecord(record, sessionID)
 	service.publishSessionEvent(EventTaskChanged, revision, requestID, sessionID, TaskChangedEvent{TaskID: item.ID, Task: item})
 }
 
@@ -494,6 +499,79 @@ func taskStatusForSubagent(status dto.SubAgentNodeStatus) dto.TaskStatus {
 	default:
 		return dto.TaskInterrupted
 	}
+}
+
+// planNodeIDFor 返回 plan 行对应的 plan 节点 ID：SourceID 优先，缺失时
+// 回退 ID 的 plan: 前缀（恢复会话/老数据可能没有 SourceID，而 plan:<nodeID>
+// 是工作表格行的权威键）。
+func planNodeIDFor(record dto.TaskRecord) string {
+	if record.SourceID != "" {
+		return record.SourceID
+	}
+	if nodeID, ok := strings.CutPrefix(record.ID, "plan:"); ok {
+		return nodeID
+	}
+	return ""
+}
+
+// planDependencies 由 plan 邻接面取节点的前置任务 ID（plan:<前置节点>）。
+//
+// plan 的依赖是 **DAG 入边**（plan_load 的 edges），不是树形父子关系：
+// plan_load 产出的是平铺节点表 + 边集，按父子推导会让所有 plan 行的依赖
+// 恒为空——工作表格「依赖」列对 plan 行不可见（用户看不到自己在等谁）。
+func planDependencies(plan *PlanState, nodeID string) []string {
+	if plan == nil || nodeID == "" || len(plan.Edges) == 0 {
+		return nil
+	}
+	deps := make([]string, 0, 2)
+	for _, edge := range plan.Edges {
+		if edge.To != nodeID || edge.From == "" {
+			continue
+		}
+		deps = append(deps, "plan:"+edge.From)
+	}
+	return deps
+}
+
+// mergeWorkDependencies 合并依赖来源（注册表记录 + plan 邻接面）：去重、
+// 稳定排序（UI 与用例的确定性），空结果返回 nil（JSON omitempty 面）。
+func mergeWorkDependencies(recorded []string, derived []string) []string {
+	if len(derived) == 0 {
+		return recorded
+	}
+	merged := make([]string, 0, len(recorded)+len(derived))
+	seen := make(map[string]struct{}, len(recorded)+len(derived))
+	for _, source := range [][]string{recorded, derived} {
+		for _, dependency := range source {
+			if dependency == "" {
+				continue
+			}
+			if _, exists := seen[dependency]; exists {
+				continue
+			}
+			seen[dependency] = struct{}{}
+			merged = append(merged, dependency)
+		}
+	}
+	sort.Strings(merged)
+	return merged
+}
+
+// workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
+// plan 行的依赖。
+//
+// task.changed 增量与 worktable.changed 整表必须同源：增量只带单条记录
+// （没有 plan 上下文），若不补齐，前端按增量更新该行时会把依赖列擦成空。
+func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem {
+	item := taskRecordToWorkItem(record)
+	if record.Kind != "plan" {
+		return item
+	}
+	service.ViewMu.RLock()
+	plan := service.sessionActivePlanLocked(sessionID)
+	service.ViewMu.RUnlock()
+	item.Dependencies = mergeWorkDependencies(item.Dependencies, planDependencies(plan, planNodeIDFor(record)))
+	return item
 }
 
 // ── 工作打点表（上下文标记块）─────────────────────────────
