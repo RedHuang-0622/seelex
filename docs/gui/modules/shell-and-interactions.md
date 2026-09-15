@@ -21,14 +21,40 @@ Shell 模块组装页面布局、调用 Bridge、路由客户端状态到各视�
 | 区域 | 内容 | 数据源 |
 |------|------|-------|
 | Topbar | 应用版本、常驻 Effort、连接、provider/model、token | Info + Runtime |
-| 左栏 | Sessions、Accounts | Snapshot |
+| 左栏 | Sessions（条目 = 标题段 + ⋯ 段） | Snapshot |
 | 中区 | 历史分页、Conversation、Composer | Snapshot/Event |
-| 右栏 | Project 状态、概要、资料来源 | Info + Snapshot |
+| 右栏 | Project 状态（键值表）、概要、账户栏、Agent Team、资料来源 | Info + Snapshot |
 | Runtime modal | Runtime、Plugins、Plan、Skills | Runtime |
 | Command modal | `/`、`#`、`@` 搜索与选择 | Suggestions |
 | Interaction modal | 审批/选择问题与选项 | Interaction |
 
-Plugin/Skill 不常驻右栏：它们在输入框同生态位的 runtime button 中打开；右栏保留项目事实。Effort 是高频运行参数，单独常驻 topbar，详细设计见 [Effort 常驻控件](effort-control.md)。
+Plugin/Skill 不常驻右栏：它们在输入框同生态位的 runtime button 中打开；右栏保留项目事实。账号是进程级事实，落在右栏「状态」子页的状态一栏之下（模块文档见
+[右栏](right-sidebar.md)）；左栏只承载会话树。Effort 是高频运行参数，单独常驻 topbar，详细设计见 [Effort 常驻控件](effort-control.md)。
+
+### 2.1 会话条目（两段式）
+
+会话条目固定两段，别再把信息塞回单行：
+
+- **标题段**（`.session-title`）：状态点 + 完整标题（CSS 省略号按栏宽截断）+ 状态徽标。
+  条目里**不出现**时间与 token——数据层也不再砍标题（`sidebar.js` 的截断函数已删）。
+- **⋯ 段**（`.session-more`）：省略号按钮，点开显示原来的三个操作（置顶 ★ / 分支 ⑂ /
+  删除 ✕）；同一时刻只开一条，点空白、Esc 或执行动作即收起（`openSessionMenu`）。
+
+完整标题、时间与 token 由共享提示气泡给出：`#ui-tooltip` 一条 DOM，`[data-tip]`
+（`\n` 分行，首行标题、次行「时间 · tokens」）委托触发，320ms 延迟出现，滚动/
+失焦/Esc 收起。鼠标常驻与键盘聚焦都能拿到同样信息。
+
+### 2.2 焦点与按压（拟物但克制）
+
+- 焦点只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`
+  （`0 0 12px 1px`，零偏移、纯发散模糊），不描内框；输入区由容器
+  `.composer:focus-within` 聚光，内部 `textarea` 的 ring 显式清掉。
+- 按压是「陷进去再弹回来」：`:active` 用 0 偏移内阴影 `--press-shadow` +
+  `translateY(1px) scale(.985)`（图标键 .94）；开关态（全权 / 已装配 / 已置顶）也用
+  内阴影表示已经按进去。位移 1~2px、时长走 `--dur-*`，`prefers-reduced-motion`
+  全关。
+- 列表行级动作一律**容器委托**（会话列表、账户栏、插件列表、建议列表、提交记录、
+  工作树），列表重绘不重建行级监听——这是内存口径的一部分。
 
 ## 3. Composition root
 

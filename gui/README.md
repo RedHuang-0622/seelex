@@ -80,7 +80,7 @@ task 体系增量 `task.changed`（逐任务状态/打点/retry）同样经 rela
 A2A 角色管理面（右侧栏「状态 → Agent Team」子页数据源）：
 `Bridge.AgentTeamPresets` / `AgentTeamView` / `AgentTeamMaterialize` /
 `AgentTeamPutRole` / `AgentTeamDeleteRole` / `AgentTeamSetOrder` /
-`AgentTeamRoleSnapshot`，全部走
+`AgentTeamInstantiateRole` / `AgentTeamRoleSnapshot`，全部走
 `application/contract` 纯 DTO（S27 收口；`agentTeamApplication` 是可选能力接口，
 宿主未装配时返回可展示错误而不是空视图）。`sessionID` 传空 = 当前视图会话，
 Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
@@ -89,6 +89,15 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 定时任务 agent 单独分区、永不进入 `order_roles`（设计稿 §7.1）。前端只读渲染 +
 动作转发在 `frontend/dist/agent-team-view.js`（纯函数，含单元测试），面板 DOM 挂在
 状态子页的 `#team-section`。
+
+**员工 CRUD 与发言调度（2026-09-15）**：「增加/修改员工」走
+`AgentTeamInstantiateRole`（与 `team.put_role` 同一条幂等覆盖语义，区别只在于它还
+负责建角色会话并回报执行者绑定），「删除员工」走 `AgentTeamDeleteRole`，顺序编辑走
+`AgentTeamSetOrder`。`dto.TeamView.schedule` 是**运行时**的发言调度投影
+（`application/core/agentteam/runtime.go`）：链表顺序 → 下一个该发言的角色、
+轮次/上限、user 席位口径（`queued`/`member`/`absent`）与逃生状态
+（`round_limit`/`no_progress`/`no_executor`/`empty_ring`/`external_break`）。
+前端 `agent-team-view.js` 的「发言调度」块只渲染后端事实，不下发也不缓存顺序。
 
 **两个 agent 的区分（2026-09-12）**：成员表把逻辑角色名渲染成用户可读身份
 （`main` → `EXEC`、`tl`/`techlead` → `ADVISOR`），成员行可点击打开该角色的
@@ -179,6 +188,7 @@ AgentTeam 角色管理 `team.*` RPC（headless 前门禁；契约测试
 | `team.put_role` | `main_session_id`、`role` | 新增/覆盖角色配置（`role_name` 幂等） |
 | `team.delete_role` | `main_session_id`、`role_name` | 删除角色配置并同步摘除 `order_roles` |
 | `team.set_order` | `main_session_id`、`order_policy`、`order_roles` | 设置工作顺序（定时角色不得入列，未注册角色拒绝） |
+| `team.instantiate_role` | `main_session_id`、`role`、`join_seq_id` | **一步实例化一个角色**（员工入职）：幂等建角色会话 + 落配置 + 按 `join_policy` 决定是否进顺序 + 报执行者绑定（`dto.RoleInstantiation`） |
 
 真实 API 冒烟（默认跳过）：
 

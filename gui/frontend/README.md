@@ -20,19 +20,21 @@
 | `dist/theme.js` | 皮肤（材质包）加载层：读 `themes/manifest.json` → 归一化 → 切 `<html data-theme>` 与皮肤 `<link>`；id 限 `[a-z0-9-]`、路径只允许 `themes/<id>.css`（防路径逃逸）；选择记在 `localStorage["seelex.theme"]`。 |
 | `dist/themes/` | 内置皮肤包 + `manifest.json`：皮肤只覆盖语义 token（契约与 token 清单见 `themes/README.md`），不写选择器、不用 `!important`、不引远程资源。 |
 | `dist/vendor/` | 第三方资源落盘区（无 CDN、随包嵌入）：`pico.min.css` 组件库、`marked`、`highlight.js`、`DOMPurify`、`docx-preview`、`PDF.js`。版本与许可登记见 `vendor/README.md`。 |
-| `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。 |
+| `dist/plan-dsl.js` | Plan JSON DSL 归一化、DAG → 树状布局（节点详情弹窗数据面）、节点详情弹窗。树轨事实是 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行），由 `tree-fork.treeRowAttrs` 画成缩进轨；子代理树同一套。 |
+| `dist/agent-team-view.js` | Agent Team 面板渲染（右侧栏 · 状态 → Agent Team）：**拆成「员工栏」（谁在编 / 类型 / 独立会话 / 入职时机 / 工具策略）与「Team 栏」（装配形态 / 顺序策略 / 工作顺序 / 发言调度 / 定时 agent）两块**，两栏都是条目化表格（`team-table` + `team-table-row`，`role=table` 语义），不再是 chip 混排的自由布局。数据源是 Application API（`Bridge.AgentTeamPresets/View/Materialize/PutRole/DeleteRole/SetOrder`）。顺序的唯一事实是会话 `lifecycle.order_policy/order_roles`，本模块不缓存顺序、不做乐观重排——每次动作后重拉视图。 |
 | `dist/todo-view.js` | todolist 渲染组件（数据源 `runtime.todo_items` 权威投影；仍供测试与复用，右侧工作台已由工作表格接管）。 |
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
-| `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览；`--tree-depth` 缩进、全部文本 escape。 |
+| `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
+| `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览；层级连线交给 `tree-fork` 的树轨（不再是缩进 + 字符画），行点击用容器委托（展开/收起重绘不再逐行绑监听），全部文本 escape。 |
 | `dist/file-preview.js` | 文件预览控制器与纯函数（「资源管理器」子页左抽屉）：数据源 `Bridge.WorkspaceFileContent(relPath, limit)`（后端受控读取：containment/敏感过滤/上限/二进制探测，原始字节 base64 带回）；按扩展名分派渲染——markdown（marked→DOMPurify→highlight.js）、代码/文本（highlight.js 高亮或纯文本）、PDF（PDF.js canvas 分页）、Word（docx-preview）、图片（blob `<img>`）、`.doc` 提示转换；组件全部本地 vendor（`dist/vendor/`，随 embed 离线打包）；文本永不直接 innerHTML，markdown 输出先 DOMPurify 消毒。 |
-| `dist/git-log-view.js` | 提交记录树视图（「资源管理器」子页「提交记录」面板）：数据源 `Bridge.WorkspaceGitLog(limit)`（后端权威只读元数据：`git log --all --graph` 拓扑行 + hash/作者/时间/标题，不含 diff/文件内容）；graph 前缀等宽渲染保留分支拓扑、延续线（merge `| \ /`）原样保留、短 hash 点击复制完整 hash、截断提示；全部文本 escape。 |
+| `dist/git-log-view.js` | 提交记录视图（「资源管理器」子页「提交记录」面板）：数据源 `Bridge.WorkspaceGitLog(limit)`（后端权威只读元数据：按 `--topo-order` 的提交行 + 每个提交的 `parents` 父 hash，不含 diff/文件内容）。分叉不再贴 `git --graph` 的字符画：`tree-fork.layoutCommitGraph` 按 parents 算泳道，逐行 SVG 画直线/合并曲线 + 提交点；短 hash 点击复制完整 hash、截断与泳道上限提示；hash 复制走容器委托；全部文本 escape。 |
 | `dist/scheduled-tasks-view.js` | 定时/周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管；文件预览已落地）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用。 |
 | `dist/markdown.js` | 安全 Markdown、think block 和 URL 过滤。 |
 | `dist/effort-control.js` | Effort selector 状态与 rollback。 |
 | `dist/protocol.js` | protocol version 校验、conversation window 和递归 Plan 增量 reducer；不判定事件所属会话（归属由 application 在投递端过滤）。 |
 | `dist/snapshot-shape.js` | 快照分型的字段归属契约（G3）：SessionRuntime/ProcessRuntime/顶层键所有权表、`splitRuntime`/`classifySnapshot`/`assertTypedShape`/`processContextOf` 纯函数。桌面仍收联合 Snapshot 时按表区分会话与进程字段；会话/进程制品到达后做泄漏校验（INV-G1 前端镜像）。 |
-| `dist/sidebar.js` | 左栏纯显示工具：标题截断、重名消歧编号（渲染期派生）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
+| `dist/sidebar.js` | 左栏纯显示工具：重名消歧编号（渲染期派生）。标题截断已删除——会话条目改成「标题段 + ⋯ 段」后由 CSS 省略号按栏宽截断，完整标题 + 时间 + token 走共享提示气泡（数据层砍字会让同前缀会话无法区分）。会话置顶/别名**不再**存 `localStorage` —— 它们属于会话展示元数据，由后端持久化并随快照 `session.meta` 下发，写入经 `Bridge.SetSessionMeta(sessionID, pinned, alias, sortOrder)`。 |
 | `dist/dock-layout.js` | 子页停靠布局纯函数：对话/轨迹与状态/工作台/资源管理器五个子页在主视图与右栏的分区、排序、激活与置换演算（`normalizeDockState`/`swapViews`），不含 DOM、存储或 Bridge 调用，由 `app.js` 消费。 |
 | `dist/*.test.mjs` | Node 内置 test runner 契约测试。`trajectory.test.mjs` 覆盖轨迹响应类型分类、配对、过滤、统计、上下文轴分轨布局、前缀注入轨与压缩刻度、轴详情与转义安全。 |
 
@@ -51,9 +53,30 @@
   资源管理器`）同属一套停靠布局（`seelex.dock.v1` localStorage 记忆）：默认
   会话两页在主视图、右栏三页在右栏；页签可点击切换、拖拽换序、跨栏置换
   （拖到另一栏某页签上松开即与该页签互换）。「历史检索」收进 `#side-more`
-  折叠区常驻右栏子页之下；左侧栏承载会话树、工作区绑定与账户，三栏宽度可
-  拖拽调整（`--left-w`/`--right-w`，localStorage 记忆），账户区可折叠。
+  折叠区常驻右栏子页之下；左侧栏只承载会话树（工作区绑定在会话树的行内动作里），
+  三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆）。
+- 右栏「状态」子页自上而下：`状态`（键值两列表格 `status-table`）→ `账户`
+  （条目化账户栏，见下）→ `Agent Team`（员工栏 / Team 栏两块表格）。账户栏从
+  左侧栏底部搬到这里：状态区显示的就是当前账户的 provider/model，账户列表贴在
+  它下面，一眼能对上「现在是谁在跑」。
+- 会话条目（左栏）固定两段：**标题段**（状态点 + 完整标题，CSS 省略号按栏宽
+  截断，条目里不再出现时间/token）+ **⋯ 段**（省略号按钮，点开才是置顶 / 分支 /
+  删除三个操作）。时间、token 与完整标题在鼠标常驻（或键盘聚焦）时由共享提示
+  气泡（`#ui-tooltip`，一条 DOM、`[data-tip]` 委托触发、`\n` 分行）一起给出；
+  ⋯ 段同一时刻只开一条，点空白 / Esc / 执行动作即收起。
+- Agent Team 是两个东西：「员工栏」管人（员工名单表 + 一步实例化表单，
+  同名角色就地覆盖），「Team 栏」管装配与编排（装配形态、顺序策略、工作顺序表、
+  发言调度、定时 agent 表）。两栏都是条目化表格，别再往 chip 混排的自由布局里加字段。
 - 动效克制：只保留一个加载指示（`runtime-spinner`），装饰性动画（扫光、连点、辉光、呼吸）已移除；`prefers-reduced-motion` 全局生效。
+- 交互口径（拟物但克制：北欧家居式极简 + 锤子式短促回弹）：
+  - 焦点提示只作用于**外框**：`1px solid var(--focus-ring)` + `box-shadow: var(--focus-glow)`（`0 0 12px 1px`，零偏移、纯发散模糊）；输入区不描内框——容器 `.composer:focus-within` 聚光，内部 `textarea` 的 focus ring 显式清掉；
+  - 按压是「陷进去再弹回来」：`:active` 用 0 偏移内阴影 `--press-shadow` + `translateY(1px) scale(.985)`（图标键 .94），开关态（`perm-chip.is-on` / `team-preset.is-active` / 已置顶）也用内阴影表示"已经按进去"；位移都在 1~2px，不做弹跳；
+  - 层次靠 1px 外框 + 极轻投影，不堆厚描边；`prefers-reduced-motion` 关闭全部 transition/animation。
+- 内存口径（前端只做减法的三件事）：
+  - **事件委托**：会话列表、账户栏、插件列表、命令/内联建议、提交记录、工作树的行级动作都挂在容器上一条监听，列表重绘不再重建 N 个闭包与监听器，也不留孤儿监听；
+  - **一条共享提示气泡**替代每行 `title`/子元素提示（#ui-tooltip）；
+  - **拓扑只传一次**：git log 只下发 `commits`（含 parents），不再同时下发 `lines`（同一份数据发两遍）；Plan/子代理树的树轨是布尔标记而不是每节点一个引导字符串。
+  - 度量看顶部性能徽标（`perf-hooks.js` 采集 DOM 节点数等无内容指标，点击展开）。
 - 语义色映射以 `:root` token 为唯一事实来源；新增组件时先查 token，不新增同义色。
 - 会话树：会话按工作区（`session_workspaces` 投影）分组，未绑定或工作区已消失的会话收进「未关联会话」置底；工作区组头可点击折叠（localStorage 记忆）；工具 in/out 面板支持展开/收回切换。每行带可见状态徽标（`session.status`：运行中/排队/草稿/恢复中），保留的「新建会话」草稿槽位以草稿行常驻列表（点击恢复，物化后消失）。`restoring` 表示运行中切换到未驻留会话时后台冷加载中：视图已切到目标空壳，输入区禁用，装载完成后由 `snapshot.changed` 发布内容基线并回到就绪。
 - 目录形状（G6）：后端目录缓存按 projectID 分格枚举（`SessionsOf` 是唯一
@@ -152,8 +175,9 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 后端锁内快照投影，`runtime.changed` 增量携带）。无内容时整个 section 隐藏。
 
 「资源管理器」子页数据面：工作树走 `Bridge.WorkspaceTree/FileCount`（惰性目录展开），
-提交记录走 `Bridge.WorkspaceGitLog(limit)`（最近 20 条，graph 拓扑行 + hash/
-作者/时间/标题；graph 等宽渲染保留分支拓扑，短 hash 点击复制完整 hash）。
+提交记录走 `Bridge.WorkspaceGitLog(limit)`（最近 20 条：按 `--topo-order` 的提交行
++ 每个提交的 `parents` 父 hash + hash/作者/时间/标题；前端按 parents 算泳道，
+用 SVG 画直线/合并曲线 + 提交点，短 hash 点击复制完整 hash）。
 两面板在工作区切换或 chat 结束（文件/提交可能变化）时按需刷新；子页未激活时
 数据面缓存，激活时按需拉取。文件预览：点击工作树文件行 → 左抽屉经
 `Bridge.WorkspaceFileContent` 拉取受控字节（默认 4 MiB 文本 / 24 MiB 文档图片，
@@ -289,7 +313,7 @@ background:transparent }`` 这类规则特异性高于自绘控件的类规则�
 
 详情弹窗另有「上下文」标签：展示 `SubagentSessionDetail` 返回的子代理结构化上下文快照（Goal/Progress/Findings/Decisions/Constraints/PendingWork/MessageCount/TokenEstimate，运行中实时导出、结束后快照），与会话记录、工具活动共同构成运行过程的可核验证据面；快照只含公开证据，不含 prompt 原文或秘密。
 
-Plan 渲染是树状布局（不是扁平 DAG）：`plan-dsl.js` 的 `layoutPlanTree` 从无入边根节点做 Kahn 拓扑分层（level = 到根最长路径），节点按层级缩进 + 引导字符连线（`├─`/`└─`/`│`）呈现父子关系；多入边节点（菱形 join）采用「主路径树 + 旁路标记」策略——树父节点取入边源中层最深者，其余入边渲染为「旁路」chip 引用，节点只出现一次、不死循环。无 edges 的 Plan（纯 children 嵌套）保留旧缩进契约；Kahn 未访问的环内节点按根扁平处理（环防御，深度有界）。节点卡片能力（打点表、详情弹窗、工具活动）原样保留。
+Plan 渲染是树状布局（不是扁平 DAG）：`plan-dsl.js` 的 `layoutPlanTree` 从无入边根节点做 Kahn 拓扑分层（level = 到根最长路径），节点按 `treeIsLast`/`treeAncestors`（末子标记 + 各层祖先是否续行）交给 `tree-fork` 画缩进轨——末子是圆角弯头、非末子整行竖线、祖先还有后继兄弟才续行，**不再用字符画连线**；多入边节点（菱形 join）采用「主路径树 + 旁路标记」策略——树父节点取入边源中层最深者，其余入边渲染为「旁路」chip 引用，节点只出现一次、不死循环。无 edges 的 Plan（纯 children 嵌套）保留旧缩进契约；Kahn 未访问的环内节点按根扁平处理（环防御，深度有界）。节点卡片能力（打点表、详情弹窗、工具活动）原样保留。子代理树（`renderSubagentTree`）共用同一套树轨。
 
 工作表格的 `subagent` 阶段来自 `snapshot.runtime.subagent_tree` 投影（后端
 内存态，不落盘；权威 Snapshot 增量携带）。行显示状态着色（running/done/
@@ -352,8 +376,11 @@ applied 水位——否则新会话 `delivery_seq=1..N` 会被误判为重复静
 `work-table.test.mjs` 覆盖工作表格归一化、多维表格渲染（含转义）、todo 三态
 控件与打点表；`protocol.test.mjs` 断言 `worktable.changed` 只替换
 `runtime.work_table`（plan 对象引用不变）且子代理事件复用未命中分支节点
-（结构共享，无整树深拷贝）。`git-log-view.test.mjs` 覆盖提交记录树归一化
-（提交行/延续线/畸形载荷）、graph 前缀截断、全部文本 escape 与复制回调。
+（结构共享，无整树深拷贝）。`git-log-view.test.mjs` 覆盖提交记录归一化
+（提交行/畸形载荷）、parents 泳道布局（merge 分叉与 join 收口）、SVG 分叉渲染、
+截断与泳道上限提示、全部文本 escape 与复制回调；`tree-fork.test.mjs` 覆盖树轨
+几何（末子弯头 / 续行轨 / 深度与缩进钳制）与泳道算法（分叉、合并、空闲泳道复用、
+泳道打满丢弃、畸形载荷不出 NaN）。
 `file-preview.test.mjs` 覆盖预览分派（扩展名→类型/语言）、大小格式、UTF-8/
 UTF-16/GBK 解码、base64 往返与截断语义；`worktree-view.test.mjs` 断言文件行
 渲染为带路径元数据的打开按钮。后端侧：`workspace/readfile_test.go` 覆盖
@@ -374,5 +401,6 @@ but is no longer a main panel. 点击文件行会在同子页左抽屉打开文�
 64 MiB 硬上限 + 截断标记、二进制探测），原始字节只进预览抽屉，不进入
 Snapshot/业务状态；accounts.yaml 等敏感名与 .git/node_modules/.seelex 等
 忽略路径在 workspace 层直接拒绝。同一子页的「提交记录」面板经
-`Bridge.WorkspaceGitLog` 展示最近 20 条提交的 graph 拓扑树（hash/作者/时间/
-标题，只读元数据，不含 diff/文件内容）。
+`Bridge.WorkspaceGitLog` 展示最近 20 条提交的拓扑泳道图（按 `--topo-order` 的
+提交行 + 每个提交的 parents；分叉由前端 tree-fork 画 SVG，hash/作者/时间/标题
+为只读元数据，不含 diff/文件内容）。

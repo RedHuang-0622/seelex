@@ -18,11 +18,33 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 
 | 子页 | 内容 | 数据源 |
 |---|---|---|
-| **状态** | 项目状态 grid（状态/会话/消息/任务/文件数）+ 概要 + 上下文压缩时间线 | `snapshot.chat/task/conversation`、`runtime` |
+| **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + 上下文压缩时间线 + **账户栏**（状态一栏之下）+ **Agent Team**（员工栏 / Team 栏两块表格） | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
 | **工作台** | 「目标」面板 + 工作表格入口 + 定时任务面板 | `runtime.goal_skill_active`、`runtime.active_skills`、`task`、`work_table`、`scheduled_tasks` |
-| **代码** | 左：文件预览抽屉（点工作树文件打开）；右：工作树 + 提交记录树（可拖拽调换） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog` |
+| **代码** | 左：文件预览抽屉（点工作树文件打开）；右：工作树 + 提交记录（可拖拽调换） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog` |
 
 项目标题（`project-heading`）与「历史检索」折叠区跨子页常驻，不属于任何子页。
+状态子页自上而下：`状态` → `账户` → `Agent Team`。
+
+### 账户栏（状态子页）
+
+账户从左侧栏底部搬到「状态」子页的状态一栏之下：状态区显示的就是当前账户的
+provider/model，账户列表贴在它下面，一眼对得上"现在是谁在跑"。切换经
+`Bridge.SelectAccount(name)`；条目化单列表格行（○/● 当前标记 + 名字 +
+provider · model + 不可用标记），点击走 `#account-list` 容器委托（列表刷新不
+重建行级监听）。渲染见 `app.js: renderAccounts`。
+
+### Agent Team（状态子页）
+
+面板拆成两个不同的东西，各自条目化（`role=table` 的网格表格
+`.team-table/.team-table-row`）：
+
+- **员工栏** —— 员工管理：员工名单表（员工身份 / 逻辑角色名 / 类型 / 独立会话 /
+  顺序位置 / 编辑·删除）+ 一步实例化表单（同 `role_name` 幂等覆盖）；
+- **Team 栏** —— 装配与编排：装配 preset 工具栏 + 团队参数表（形态 / 顺序策略 /
+  发言权）+ 发言调度表 + 工作顺序表（含未排入顺序的"恢复"）+ 定时 agent 表。
+
+顺序的唯一事实是会话 `lifecycle.order_policy/order_roles`：前端只提交用户改动后
+的整张顺序表，不缓存、不乐观重排，每次动作后重拉视图（`Bridge.AgentTeam*`）。
 
 ### 页签停靠与置换
 
@@ -68,10 +90,13 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
   状态，工作区切换时抽屉随树清空。
 - **工作树**：`Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`
   （后端权威元数据：名称/路径/类型/大小/直接文件计数，不含文件内容）；目录行
-  惰性展开，文件行是可点击按钮（打开预览）。实现见 `worktree-view.js`。
-- **提交记录树**：`Bridge.WorkspaceGitLog(limit)`（最近 20 条，`git log --all
-  --graph` 拓扑行 + hash/作者/时间/标题；只读，不含 diff/文件内容）；graph
-  前缀等宽渲染保留分支拓扑，短 hash 可点击复制完整 hash。实现见
+  惰性展开，文件行是可点击按钮（打开预览）；层级连线用 `tree-fork` 的树轨
+  （祖先续行轨 + 末子弯头，零额外 DOM），行点击走容器委托。实现见
+  `worktree-view.js`。
+- **提交记录**：`Bridge.WorkspaceGitLog(limit)`（最近 20 条：按 `--topo-order`
+  的提交行 + 每个提交的 `parents` 父 hash + hash/作者/时间/标题；只读，不含
+  diff/文件内容）；分叉由前端算泳道并画 SVG（直线/合并曲线 + 提交点，
+  `tree-fork.layoutCommitGraph`），短 hash 可点击复制完整 hash。实现见
   `git-log-view.js`。
 
 ### 拖拽调换
@@ -83,10 +108,12 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 ### 提交记录数据面（后端）
 
 `workspace.GitLog(root, limit)` 在 workspace root 内执行**固定 argv** 的
-`git log --all --graph`（不经过 shell、带 5s 超时），解析为结构化
-`dto.GitLogResult`（`Lines[]`：graph 前缀 + 可选 `GitCommitNode`；延续线保留
-graph、无提交）。非 git 仓库 / git 不可用时以 `Result.Error` 返回展示文案
-（不是 Go error），避免 GUI toast 噪音。limit 默认 20、钳制上限 200。
+`git log --all --topo-order`（不经过 shell、带 5s 超时），取
+`%H %h %an %ad %P %s`（`\x01` 分隔，主题放最后故可含任意字符），解析为结构化
+`dto.GitLogResult`（`Commits[]`：hash/短 hash/作者/时间/`Parents[]`/标题，按拓扑序
+新→旧）。不再取 `--graph` 的字符画前缀——泳道由前端按 `Parents` 算，拓扑事实
+只有一份。非 git 仓库 / git 不可用时以 `Result.Error` 返回展示文案（不是 Go
+error），避免 GUI toast 噪音。limit 默认 20、钳制上限 200。
 接线：`workspace.Repo.GitLog` → `WorkspaceTreePort.GitLog` →
 `application.Service.WorkspaceGitLog` → `Bridge.WorkspaceGitLog`。
 
@@ -119,7 +146,9 @@ app.js（停靠布局渲染）
 - 会话类页面在主视图之外时，空态/历史按钮/输入框的显隐由
   `syncSessionChrome` 统一收敛，避免隐藏容器渲染把会话专属悬浮件带出来。
 - git log 查询是只读元数据：不得暴露 diff/补丁/文件内容；参数必须固定 argv。
-- 面板渲染文本全部 escape（graph 字符、author/subject、错误文案）。
+- 面板渲染文本全部 escape（commits 的 author/subject、错误文案）；分叉只走
+  `tree-fork`（不许再引入字符画连线）。
+- Agent Team 两栏别混：人员档案进「员工栏」，装配/顺序/调度进「Team 栏」。
 - 工作区切换 / chat 结束时工作树与提交记录都应按需刷新，避免陈旧数据。
 - 子页未激活时数据面缓存、激活时按需拉取，避免无谓请求。
 
@@ -128,11 +157,13 @@ app.js（停靠布局渲染）
 ```text
 node --test gui/frontend/dist/dock-layout.test.mjs
 node --test gui/frontend/dist/git-log-view.test.mjs
+node --test gui/frontend/dist/tree-fork.test.mjs
 go test ./workspace ./gui ./application/core -count=1
 ```
 
 关键测试：`dock-layout.test.mjs`（默认分区/同栏换序/跨栏置换/脏存储收敛/
-持久化 round-trip）、`git-log-view.test.mjs`（归一化/escape/截断/复制回调）、
-`workspace/gitlog_test.go`（解析、非 git 仓库、limit 钳制、集成）、
-`gui/bridge_test.go`（Bridge 转发）、`application/core/workspace_tree_usecase_test.go`
-（用例转发）。
+持久化 round-trip）、`git-log-view.test.mjs`（归一化/parents 泳道/SVG 渲染/
+escape/截断/复制回调）、`tree-fork.test.mjs`（树轨几何 + 泳道算法）、
+`workspace/gitlog_test.go`（解析、%P 父提交、非 git 仓库、limit 钳制、集成）、
+`gui/bridge_test.go`（Bridge 转发 + 前端契约断言）、
+`application/core/workspace_tree_usecase_test.go`（用例转发）。
