@@ -300,6 +300,8 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
 		runtime.SetRequests(nil)
+		// 队列已被整批提升进本轮：团队环的 user 席位不再有排队输入。
+		service.NoteTeamUserQueued(sessionID, false)
 		runtime.UpdateChat(func(chat *ChatState) {
 			chat.QueuedCount = 0
 			chat.InputQueue = nil

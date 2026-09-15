@@ -10,11 +10,14 @@ import (
 // 装配语义由 application/core/agentteam 与 sessionstore 的测试覆盖。
 type fakeTeamApplication struct {
 	*fakeApplication
-	materialized dto.TeamMaterializeResult
-	registry     dto.TeamRegistry
-	view         dto.TeamView
-	orderPolicy  string
-	orderRoles   []string
+	materialized       dto.TeamMaterializeResult
+	registry           dto.TeamRegistry
+	view               dto.TeamView
+	orderPolicy        string
+	orderRoles         []string
+	instantiateSession string
+	instantiateRole    dto.RoleSpec
+	instantiateJoinSeq uint64
 }
 
 func newFakeTeamApplication() *fakeTeamApplication {
@@ -59,6 +62,18 @@ func (app *fakeTeamApplication) AgentTeamPutRole(mainSessionID string, role dto.
 func (app *fakeTeamApplication) AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error) {
 	app.registry = dto.TeamRegistry{TeamKind: "review-team", Configured: true}
 	return app.registry, nil
+}
+
+func (app *fakeTeamApplication) AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error) {
+	app.instantiateSession, app.instantiateRole, app.instantiateJoinSeq = mainSessionID, role, joinSeq
+	return dto.RoleInstantiation{
+		Role:       role,
+		Session:    dto.TeamRoleSession{RoleName: role.RoleName, RoleSessionID: "review-team-" + role.RoleName, Exists: true, Created: true},
+		OrderRoles: []string{"user", "main", role.RoleName},
+		InOrder:    true,
+		OrderIndex: 2,
+		Executor:   "scheduler",
+	}, nil
 }
 
 func (app *fakeTeamApplication) AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error) {

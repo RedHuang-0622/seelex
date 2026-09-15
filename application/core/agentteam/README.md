@@ -52,13 +52,25 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 | 工作顺序（`order_policy`/`order_roles`） | **部分接线**：用于角色 draft 同步排序与成员表展示；**不驱动运行时轮次** | `sessionstore/role_session.go`（`sortRoleDraftRows`） |
 | 运行时轮次驱动 | **已接线（仅 goal-a2a）**：goal 治理的 Governor 座位 `exec-a` + `advisor-b`，`tl` 的 ADVISOR 回合由 goal 域 TL 评估器执行 | `application/core/goal_coordinator.go`（`newGovernor`）、`application/core/goal/adapter.go` |
 | EXEC 工作内容进入 ADVISOR 输入 | **已接线**：`turn_completed.Detail`（本轮正文/工具名有界摘要）→ `work.progress` 帧 → b 回合输入正文 | `application/core/goal_work_summary.go`、`application/core/goal/techleader.go`（`flushWorkProgressLocked`） |
+| EXEC 的 computer use 证据进入 ADVISOR 输入 | **已接线**：工作摘要额外带 `screen: media:… 宽x高 foreground="…"`（截图句柄 + 画面尺寸 + 前台窗口），ADVISOR 据此"看证据评审"，而不是只看到一个工具名 | `application/core/goal_work_summary.go`（`computerUseEvidence`）、`gui/team_work_computer_use_live_probe_test.go` |
+| ADVISOR 直接读画面内容 | **尚未实现**：ADVISOR 回合是一次有界 LLM 调用（`TLEvalEvaluator`，无工具循环），它拿到的是证据**句柄与元数据**，不是像素；要读图需要给 b 回合挂图（imageattach）或给角色配独立工具循环 | 见 `docs/devlog/2026-09-15-team-work-computer-use.md` |
 | `TeamView.floor_role` | **已接线**：读主会话 `message head.floor`（唯一写者 = sequencer）填成员表；宿主未实现可选读面时留空 | `sessionstore/team_registry.go`（`ReadMessageFloorWorkspace`）、`internal/adapters/agentteam_ports.go`（`ReadFloorRole`） |
-| `TurnScheduler`（channel + 链表轮转 / team work 前缀） | **尚未接线**：本包原语，**没有任何生产调用点**（只有 `scheduler_test.go`）；"team work 起点→当前位置"的前缀语义目前由 goal 治理的 `work.progress` 帧承担 | 本包 `scheduler.go` + 守卫用例 `scheduler_wiring_test.go` |
+| `TurnScheduler`（channel + 链表轮转 / team work 前缀） | **已接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序，运行时由 `Next()` 决定下一个该发言的成员；含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者）与 user 席位口径 | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（按顺序装座位） |
 | `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
 
-结论口径：`TurnScheduler` 的链表顺序（`Move`/`Remove`/`Restore`）与 `SetPrefix` **目前没有
-生产消费者**；前端「工作顺序」编辑的真实生效面是 draft 排序与成员表，不是"下一个谁发言"。
-接上它需要为每个角色配独立 agent loop（`Requests()` 的投递方），属于**尚未实现**的新能力。
+结论口径：`TurnScheduler` 的链表顺序（`Move`/`Remove`/`Restore`）与 `SetPrefix` 现在有生产消费者：
+`Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序同步成环、`Next()` 按链表推进并跳过「无执行者」角色；
+前端「工作顺序」编辑既改持久事实（`lifecycle`）也即时同步环，因此"下一个谁发言"有唯一答案。
+
+**user 算不算环里的一环**（2026-09-15 定稿）：user 永远在 `order_roles` 里（它是群聊的起手与收口），
+但"在顺序里"≠"每轮固定占位"。缺省口径 `queued`——user 通过**消息队列**插话，只有队列里存在
+未消费的 user 输入时才占位；否则调度器跳过 user 继续转，不因为"人还没说话"卡住 agent 循环。
+口径由 `order_policy` 推导，不新增第二个配置项：`goal_loop → queued`、`user_main_decided → member`
+（与员工同权固定占位）、`scheduled_only → absent`（只有定时 agent 插话）。
+
+**逃生路径**（不能不休止地转）：① 轮次上限 `round_limit`（缺省 24）；② 连续无进展上限 `no_progress`；
+③ 环内没有任何有执行者的角色 `no_executor`；④ 空环 `empty_ring`；⑤ 外部显式停止 `external_break`
+（用户中断 / TL 裁决收口 / `goal.gov_break`）。停止是正常收束而非错误，原因随 `TeamView.schedule` 下发前端。
 
 ## 文件结构
 
@@ -68,7 +80,8 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 | `presets.go` | 内置实例：`goal-a2a`（TL 循环）、`review-team`、`research-team`（定时分区） |
 | `factory.go` | `Port` 契约、`Factory.Materialize`、成员表投影 `assembleView` |
 | `registry.go` | `Registry`：角色配置 CRUD、`SetOrder`、`View` 只读投影（含 floor 填充） |
-| `scheduler.go` | `TurnScheduler` 轮转原语（**尚未接线**，见「接线现状」） |
+| `scheduler.go` | `TurnScheduler` 轮转原语（链表轮转 + channel 投递） |
+| `runtime.go` | `Runtime`：会话级发言调度运行态（顺序同步 + user 席位 + 逃生路径），投影 `dto.TeamSchedule` |
 | `agentteam_test.go` | 规整/工厂幂等/第二团队（AT8）/定时分区/注册表用例 |
 
 ## 核心实现
@@ -185,12 +198,22 @@ go test -race ./application/core/agentteam -count=1
 - `func NewFactory(port Port) (*Factory, error)` — NewFactory 构造工厂；port 为 nil 时显式报错（不允许静默空转）。
 - `func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — Materialize 装配 TeamSpec。joinSeq 是本次装配把角色挂到主会话的可见起点
 - `func registryFromSpec(spec dto.TeamSpec) dto.TeamRegistry` — registryFromSpec 把 TeamSpec 投影成注册表（角色配置的持久事实）。
+- `func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)` — InstantiateRole 一步实例化一个角色：规整/校验配置 → 幂等创建角色会话 →
+- `func placeRoleInOrder(role dto.RoleSpec, orderRoles []string) ([]string, bool, []string)` — placeRoleInOrder 按 join_policy 决定新角色是否自动进入工作顺序：
 - `func assembleView(sessionID string, registry dto.TeamRegistry, policy string, orderRoles []string) (dto.TeamView, error)` — assembleView 把注册表 + 生命周期顺序投影成前端消费的成员表。
 - `func applyFloor(port Port, mainSessionID string, view *dto.TeamView)` — applyFloor 用可选的 floor 读端口填充成员表的当前发言角色（只读事实，不写盘）。
 - `func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[string]dto.RoleSpec) dto.TeamMember`
 - `func viewNotices(registry dto.TeamRegistry, orderRoles []string) []string` — viewNotices 只报事实，不自动修补：注册了但不在顺序里的角色、顺序里未注册的角色、
 - `func teamKindOf(registry dto.TeamRegistry) string` — teamKindOf 返回可展示的团队形态名（空值不伪装）。
 - `func unexecutedRoles(orderRoles []string) []string` — unexecutedRoles 返回工作顺序里没有执行者的角色（保序、去重）。
+- `func UnexecutedRoles(orderRoles []string) []string` — UnexecutedRoles 是 unexecutedRoles 的导出形态：发言调度运行态（runtime.go）
+
+### instantiate_role_test.go
+
+- `func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T)` — TestInstantiateRoleOneStepHiresAnEmployee：一步"员工入职"——会话、注册表配置、
+- `func TestInstantiateRoleRespectsJoinPolicyAndTimer(t *testing.T)` — TestInstantiateRoleRespectsJoinPolicyAndTimer：join_policy 决定是否自动排入；
+- `func TestInstantiateRoleRejectsBuiltinAndBadInput(t *testing.T)` — TestInstantiateRoleRejectsBuiltinAndBadInput：内置角色（user/main）由会话本身
+- `func TestInstantiateRoleReportsExecutorForTechlead(t *testing.T)` — TestInstantiateRoleReportsExecutorForTechlead：tl 有真实执行者（goal 治理的
 
 ### presets.go
 
@@ -209,6 +232,25 @@ go test -race ./application/core/agentteam -count=1
 - `func (registry *Registry) SetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)` — SetOrder 写工作顺序策略（`order_roles`）；校验角色已注册、定时角色不入顺序、
 - `func firstNonEmpty(values ...string) string`
 
+### runtime.go
+
+- `func UserSeatPolicyFor(orderPolicy string) UserSeatPolicy` — UserSeatPolicyFor 由顺序策略推导 user 席位口径：顺序策略是唯一开关，不再
+- `func NewRuntime(order []string, sessions map[string]string, orderPolicy string, opts RuntimeOptions) *Runtime` — NewRuntime 构造运行态。sessions 提供 role_name → role_session_id（成员表的
+- `func (r *Runtime) SyncOrder(order []string, sessions map[string]string, orderPolicy string)` — SyncOrder 把注册表/顺序的当前事实同步进环（每次角色增删改或顺序调整后调用）。
+- `func (r *Runtime) SetUserSeat(policy UserSeatPolicy)` — SetUserSeat 显式覆盖 user 席位口径（缺省由顺序策略推导）。
+- `func (r *Runtime) NoteUserQueued(pending bool)` — NoteUserQueued 更新"消息队列里有没有未消费的 user 输入"。user 席位口径为
+- `func (r *Runtime) Order() []string` — Order 返回环当前的链表顺序（快照）。
+- `func (r *Runtime) Round() int` — Round 返回已经走过的轮数。
+- `func (r *Runtime) NoteTurn(progressed bool) (bool, string)` — noteprogress 记账一次回合：progressed=false 累计"连续无进展"，到达上限即
+- `func (r *Runtime) Stop(reason string)` — Stop 显式停止环（用户中断 / 裁决收口 / 外部 Break）。
+- `func (r *Runtime) stopLocked(reason string)`
+- `func (r *Runtime) Stopped() (bool, string)` — Stopped 返回环是否已被逃生路径收束，以及原因。
+- `func (r *Runtime) Next() (TurnRequest, bool)` — Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
+- `func (r *Runtime) skipLocked(roleName string) bool` — skipLocked 报告某个成员本轮不应占位。
+- `func (r *Runtime) Snapshot() dto.TeamSchedule` — Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
+- `func (r *Runtime) peekNext() (TurnRequest, bool)` — peekNext 在不改动游标的前提下算出"下一个谁发言"（Snapshot 用）。
+- `func cleanOrder(order []string) []string` — cleanOrder 去掉空名与重复项（顺序事实来自 lifecycle，容错但不伪造）。
+
 ### scheduler.go
 
 - `func NewTurnScheduler(order []string, sessions map[string]string, buffer int) *TurnScheduler` — NewTurnScheduler 按 order 建链；sessions 提供 role_name → role_session_id，
@@ -218,6 +260,7 @@ go test -race ./application/core/agentteam -count=1
 - `func (s *TurnScheduler) SetPrefix(prefix string)` — SetPrefix 更新 team work 起点到当前位置的上下文前缀（sequencer 每次发布后
 - `func (s *TurnScheduler) Prefix() string` — Prefix 返回当前上下文前缀快照。
 - `func (s *TurnScheduler) advanceLocked(roleName string) *roleNode` — advanceLocked 把 current 推进到链表下一节点并按 roleName 对齐（若意向来自
+- `func (s *TurnScheduler) Advance(skip func(roleName string) bool) (TurnRequest, bool)` — Advance 按链表推进一格并返回下一名**可发言**成员（不经过 channel）。
 - `func (s *TurnScheduler) SetOrder(order []string, sessions map[string]string)` — SetOrder 整表替换顺序（前端顺序编辑的下发路径）。
 - `func (s *TurnScheduler) setOrderLocked(order []string, sessions map[string]string)`
 - `func (s *TurnScheduler) Order() []string` — Order 返回链表当前顺序（快照）。
@@ -225,6 +268,7 @@ go test -race ./application/core/agentteam -count=1
 - `func (s *TurnScheduler) Remove(roleName string) bool` — Remove 摘除一个角色（保留注册表；顺序表移除）。
 - `func (s *TurnScheduler) Restore(roleName string) bool` — Restore 把角色追加到链尾（加入顺序末尾）。
 - `func (s *TurnScheduler) orderLocked() []string`
+- `func (s *TurnScheduler) sessionsLocked() map[string]string` — sessionsLocked 返回链表当前的 role_name → role_session_id 快照
 - `func indexOfRole(order []string, roleName string) int`
 
 ### scheduler_test.go
@@ -233,8 +277,8 @@ go test -race ./application/core/agentteam -count=1
 
 ### scheduler_wiring_test.go
 
-- `func TestTurnSchedulerHasNoProductionCallSite(t *testing.T)` — TestTurnSchedulerHasNoProductionCallSite 钉住"尚未接线"。
-- `func TestTurnSchedulerUnwiredStatusIsDocumented(t *testing.T)` — TestTurnSchedulerUnwiredStatusIsDocumented 钉住文档声明：README 必须显式写明
+- `func TestTurnSchedulerHasSingleProductionCallSite(t *testing.T)` — TestTurnSchedulerHasSingleProductionCallSite 钉住"已接线且只有一处"。
+- `func TestTurnSchedulerWiredStatusIsDocumented(t *testing.T)` — TestTurnSchedulerWiredStatusIsDocumented 钉住文档声明：README 必须写明接线点
 - `func schedulerHasCallSite(source string) bool` — schedulerHasCallSite 报告源码里是否有 `NewTurnScheduler` 的**调用**（定义不算）。
 - `func schedulerSkipDir(name string) bool` — schedulerSkipDir 报告扫描时应跳过的目录（非源码树：构建产物/临时现场/依赖缓存）。
 - `func schedulerRepoRoot(t *testing.T) string` — schedulerRepoRoot 从包工作目录向上找到含 go.mod 的仓库根。
@@ -242,6 +286,7 @@ go test -race ./application/core/agentteam -count=1
 ### spec.go
 
 - `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
+- `func NormalizeRole(role dto.RoleSpec) (dto.RoleSpec, error)` — NormalizeRole 规整单个角色（TeamSpec 装配与"一步实例化一个角色"共用同一套
 - `func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind` — resolveRoleKind 让内置角色名（user/main）永远取内置 kind；其它角色 kind 缺省
 - `func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]string, error)` — resolveOrderRoles 决定工作顺序：显式给定时必须是 [user, main + 已注册角色] 的
 - `func RoleSessionID(teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (team_id, role_name) 永远得到同一个值，

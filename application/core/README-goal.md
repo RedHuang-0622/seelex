@@ -22,6 +22,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal goaldomain.TLEvalSignal) error` — Notify 登记 a 事件（exec 账本；触发策略见 Supervisor）。
 - `func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error)` — Next 推进治理循环一轮（惰性装配 EXEC+ADVISOR 双座位；返回 false = 收束）。
 - `func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detail string) error` — AdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进一次治理：登记
+- `func goalLoopRoundLimit(configured int) int` — goalLoopRoundLimit 把配置值解析成实际生效的轮次上限。
 - `func (g *goalCoordinator) newGovernor(runtime *goalSessionRuntime) govern.Governor` — newGovernor 装配 EXEC+ADVISOR 双座位（EXEC 由外部 ChatStream 驱动，
 - `func (g *goalCoordinator) Break(_ context.Context, sessionID, reason string) error` — Break 外部中断治理循环（无 Governor 时报错，对齐 headless 未装配语义）。
 - `func (g *goalCoordinator) setEvaluator(evaluator goaldomain.TLEvaluator)` — setEvaluator 装配/替换 TL 评估器：更新后续会话 bundle 构造输入，并为已
@@ -39,6 +40,11 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (e *stubTLEvaluator) Evaluate(context.Context, goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
 - `func TestGoalCoordinatorAdvanceAfterChatRunsTLRound(t *testing.T)` — TestGoalCoordinatorAdvanceAfterChatRunsTLRound 验证 A2A 在真实会话边界
 - `func TestGoalCoordinatorAdvanceAfterChatTLDisabledNoError(t *testing.T)` — TestGoalCoordinatorAdvanceAfterChatTLDisabledNoError 验证 TL 未启用时
+
+### goal_loop_limit_test.go
+
+- `func TestGoalLoopRoundLimitDefaults(t *testing.T)` — TestGoalLoopRoundLimitDefaults：治理循环的轮次上限解析——未配置（0）时落到
+- `func TestGoalGovernanceViewCarriesRoundLimit(t *testing.T)` — TestGoalGovernanceViewCarriesRoundLimit：治理视图必须把轮次上限一并下发——
 
 ### goal_service.go
 
@@ -102,6 +108,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 
 - `func (service *Service) goalTurnWorkSummary(sessionID string) string` — goalTurnWorkSummary 读目标会话的可见投影，返回本轮 EXEC 工作摘要（有界）。
 - `func summarizeTurnWork(messages []Message) string` — summarizeTurnWork 抽取本轮（最后一条 user 行之后）的 EXEC 产出摘要。
+- `func computerUseEvidence(messages []Message) string` — computerUseEvidence 抽取本轮 computer use 的可审查证据：截图工具结果里的
 - `func oneLine(text string) string` — oneLine 压掉换行/连续空白（Detail 是"有界一句话"，不是多行正文）。
 - `func truncateRunes(text string, max int) string` — truncateRunes 按 rune 截断（中文不被切半）。
 
@@ -109,6 +116,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 
 - `func TestSummarizeTurnWorkKeepsCurrentTurnOnly(t *testing.T)` — TestSummarizeTurnWorkKeepsCurrentTurnOnly 钉住"只取最后一条 user 行之后"：
 - `func TestSummarizeTurnWorkIsBounded(t *testing.T)` — TestSummarizeTurnWorkIsBounded 钉住有界：Detail 上限由 goal 域
+- `func TestSummarizeTurnWorkCarriesComputerUseEvidence(t *testing.T)` — TestSummarizeTurnWorkCarriesComputerUseEvidence：EXEC 用 computer_screenshot
 - `func (e *capturingTLEvaluator) Evaluate(_ context.Context, embed goaldomain.TLSessionEmbed) (goaldomain.TLDirective, error)`
 - `func TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor(t *testing.T)` — TestGoalAdvanceAfterChatFeedsEXECWorkToAdvisor 是端到端接线用例：
 - `func TestGoalAdvanceAfterChatWithoutWorkContentStaysQuiet(t *testing.T)` — TestGoalAdvanceAfterChatWithoutWorkContentStaysQuiet 钉住降级：会话没有可摘要

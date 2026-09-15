@@ -138,4 +138,6 @@ func (service *Service) applyQueueEditLocked(unit *session.SessionUnit) {
 		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
 	}
 	service.publishChatStateFor(sessionID)
+	// 队列编辑（调换/撤回）会改变"user 是否还在排队等待发言"，同步给团队环。
+	service.noteTeamUserSeat(sessionID)
 }

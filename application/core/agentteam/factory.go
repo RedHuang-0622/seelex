@@ -109,6 +109,140 @@ func registryFromSpec(spec dto.TeamSpec) dto.TeamRegistry {
 	}
 }
 
+// InstantiateRole 一步实例化一个角色：规整/校验配置 → 幂等创建角色会话 →
+// 落注册表 → 按 join_policy 决定是否进入工作顺序 → 报告执行者绑定。
+//
+// 与 Materialize 的关系：Materialize 是"整队装配"（TeamSpec），本方法是"单个
+// 员工入职"，两者共用同一套 Normalize/顺序事实（lifecycle.order_policy/
+// order_roles 仍是唯一持久顺序，不新增第二份）。
+//
+// 内置角色（user/main）由会话本身提供，不能实例化——它们不在"员工"范围内。
+// 定时角色（timer）按约定不进工作顺序，落在 scheduled 分区（join_policy=
+// scheduled 只记录，由调度器触发）。
+func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error) {
+	if factory == nil || factory.port == nil {
+		return dto.RoleInstantiation{}, errors.New("agentteam: factory is not assembled")
+	}
+	mainSessionID = strings.TrimSpace(mainSessionID)
+	if mainSessionID == "" {
+		return dto.RoleInstantiation{}, errors.New("agentteam: main session ID is required")
+	}
+	normalized, err := NormalizeRole(role)
+	if err != nil {
+		return dto.RoleInstantiation{}, err
+	}
+	if _, ok := builtinKinds[normalized.RoleName]; ok {
+		return dto.RoleInstantiation{}, fmt.Errorf("agentteam: role %q is provided by the session and cannot be instantiated", normalized.RoleName)
+	}
+
+	registry, err := factory.port.ReadTeamRegistry(mainSessionID)
+	if err != nil {
+		return dto.RoleInstantiation{}, fmt.Errorf("agentteam: read registry: %w", err)
+	}
+	teamID := strings.TrimSpace(registry.TeamID)
+	if teamID == "" {
+		teamID = string(dto.DefaultTeamKind)
+	}
+	roleSessionID := RoleSessionID(teamID, normalized.RoleName)
+	created, err := factory.port.EnsureRoleSession(mainSessionID, normalized.RoleName, roleSessionID, joinSeq)
+	if err != nil {
+		return dto.RoleInstantiation{}, fmt.Errorf("agentteam: ensure role session %s: %w", normalized.RoleName, err)
+	}
+
+	// 注册表：整份替换语义下按 role_name 覆盖（新增与修改同一路径）。
+	roles := make([]dto.RoleSpec, 0, len(registry.Roles)+1)
+	replaced := false
+	for _, existing := range registry.Roles {
+		if existing.RoleName == normalized.RoleName {
+			roles = append(roles, normalized)
+			replaced = true
+			continue
+		}
+		roles = append(roles, existing)
+	}
+	if !replaced {
+		roles = append(roles, normalized)
+	}
+	registry.TeamID = teamID
+	registry.Roles = roles
+	registry.Configured = true
+	if strings.TrimSpace(registry.TeamKind) == "" {
+		registry.TeamKind = string(dto.DefaultTeamKind)
+	}
+	if err := factory.port.WriteTeamRegistry(mainSessionID, registry); err != nil {
+		return dto.RoleInstantiation{}, fmt.Errorf("agentteam: write registry: %w", err)
+	}
+
+	policy, orderRoles, err := factory.port.ReadLifecycleOrder(mainSessionID)
+	if err != nil {
+		return dto.RoleInstantiation{}, fmt.Errorf("agentteam: read order: %w", err)
+	}
+	if strings.TrimSpace(policy) == "" {
+		policy = registry.OrderPolicy
+	}
+	if strings.TrimSpace(policy) == "" {
+		policy = dto.DefaultOrderPolicy
+	}
+	orderRoles, placed, notice := placeRoleInOrder(normalized, orderRoles)
+	if placed {
+		if err := factory.port.SetLifecycleOrder(mainSessionID, policy, orderRoles); err != nil {
+			return dto.RoleInstantiation{}, fmt.Errorf("agentteam: write order policy: %w", err)
+		}
+	}
+
+	index := -1
+	for position, name := range orderRoles {
+		if name == normalized.RoleName {
+			index = position
+			break
+		}
+	}
+	result := dto.RoleInstantiation{
+		Role:        normalized,
+		Session:     dto.TeamRoleSession{RoleName: normalized.RoleName, RoleSessionID: roleSessionID, Exists: true, Created: created},
+		OrderPolicy: policy,
+		OrderRoles:  orderRoles,
+		InOrder:     index >= 0,
+		OrderIndex:  index,
+		Notice:      notice,
+	}
+	if RolesWithExecutor[normalized.RoleName] {
+		result.Executor = normalized.RoleName
+	} else if normalized.RoleKind == dto.RoleKindTimer {
+		result.Executor = "scheduler"
+	} else {
+		result.Notice = append(result.Notice,
+			fmt.Sprintf("角色 %s 已入职，但**当前没有运行时执行者**（不会自动产生回合）；接入执行者前请把它当只读成员。", normalized.RoleName))
+	}
+	return result, nil
+}
+
+// placeRoleInOrder 按 join_policy 决定新角色是否自动进入工作顺序：
+//
+//   - on_team_create（缺省）/ builtin：直接排到顺序末尾（幂等：已在顺序内不动）；
+//   - scheduled / timer：不进工作顺序（定时角色单独分区，由调度器触发）；
+//   - on_goal_create / on_demand / 其它：不自动排入，交由调用方显式 SetOrder
+//     （返回提示，避免"入职了却悄悄插队"）。
+func placeRoleInOrder(role dto.RoleSpec, orderRoles []string) ([]string, bool, []string) {
+	for _, name := range orderRoles {
+		if name == role.RoleName {
+			return orderRoles, false, nil
+		}
+	}
+	policy := strings.TrimSpace(role.JoinPolicy)
+	switch {
+	case role.RoleKind == dto.RoleKindTimer || policy == "scheduled":
+		return orderRoles, false, []string{
+			fmt.Sprintf("角色 %s 是定时 agent：不进工作顺序，由调度器按计划触发。", role.RoleName)}
+	case policy == "" || policy == "on_team_create" || policy == "builtin":
+		next := append(append([]string(nil), orderRoles...), role.RoleName)
+		return next, true, nil
+	default:
+		return orderRoles, false, []string{
+			fmt.Sprintf("角色 %s 的 join_policy=%s：不自动排入工作顺序，需要显式设置顺序。", role.RoleName, policy)}
+	}
+}
+
 // assembleView 把注册表 + 生命周期顺序投影成前端消费的成员表。
 func assembleView(sessionID string, registry dto.TeamRegistry, policy string, orderRoles []string) (dto.TeamView, error) {
 	if strings.TrimSpace(policy) == "" {
@@ -288,4 +422,10 @@ func unexecutedRoles(orderRoles []string) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// UnexecutedRoles 是 unexecutedRoles 的导出形态：发言调度运行态（runtime.go）
+// 与成员表投影共用同一份「谁没有执行者」事实，避免两处判定打架。
+func UnexecutedRoles(orderRoles []string) []string {
+	return unexecutedRoles(orderRoles)
 }

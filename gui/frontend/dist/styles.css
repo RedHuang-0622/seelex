@@ -2760,24 +2760,22 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .app-shell .session-row { min-height: var(--row-min-h); padding: 6px 8px; border-radius: var(--r-md); }
 .app-shell .session-group-head-row { min-height: 26px; }
 
-/* ---------- 13.5 Agent Team：窄栏里的动作按钮不许换行 ---------- */
-.team-order-item,
-.team-member,
-.team-scheduled-item { min-height: var(--row-min-h); padding: 5px 6px; gap: 8px; }
+/* ---------- 13.5 Agent Team：两栏表格的单元格不许换行 / 被挤掉 ---------- */
+.team-table-row { min-height: var(--row-min-h); }
 .team-order-index,
 .team-member-pos,
-.team-member-state,
+.team-member-role,
+.team-order-meta,
 .team-floor,
-.team-meta { font-size: 10.5px; }
+.team-rail-hint { font-size: 10.5px; }
 .team-order-role,
 .team-member-name { font-size: 11.5px; }
 .team-order-actions,
-.team-member-remove { flex: none; }
+.team-member-actions { flex: none; }
 .team-order-actions .text-button,
-.team-member .text-button { min-width: 46px; padding: 2px 8px; font-size: 10.5px; }
+.team-member-actions .text-button { min-width: 42px; padding: 2px 6px; font-size: 10.5px; }
 .team-policy-select { min-height: 26px; padding: 2px 8px; font-size: 11.5px; }
 .team-scheduled-note {
-  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -2786,55 +2784,101 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .team-order-outside { font-size: 10.5px; }
 
-/* ---------- 13.6 窄栏不裁切：flex 子项必须能收缩 ----------
-   右栏宽度可以拖到很窄。团队面板的行是「名字 + 元信息 + 动作」的 flex 布局，
-   子项默认 min-width:auto 不肯收缩，于是整行溢出面板：floor 标签、序号徽标、
-   删除按钮被右边缘裁掉（真机 A2A 冒烟时看到的现象）。 */
-.team-panel, .team-block, .team-order, .team-members, .team-scheduled, .team-toolbar { min-width: 0; }
-.team-order-item, .team-member, .team-scheduled-item { min-width: 0; }
-.team-order-role, .team-member-name { flex: 1 1 auto; min-width: 48px; }
+/* ---------- 13.6 窄栏不裁切：flex/grid 子项必须能收缩 ----------
+   右栏宽度可以拖到很窄。团队面板的行是网格，子项默认 min-width:auto 不肯收缩，
+   于是整行溢出面板（真机 A2A 冒烟时看到序号徽标、删除按钮被右边缘裁掉）。 */
+.team-panel, .team-block, .team-table, .team-table-row, .team-toolbar, .team-hire-form { min-width: 0; }
+.team-table-row > * { min-width: 0; }
 
-/* 右栏/主视图页签：窄栏里逐字换行（"工作台"竖排）比横向滚动更难用 */
-.conversation-tabs, .right-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+/* 右栏/主视图页签：窄栏里逐字换行（"工作台"竖排）比横向滚动更难用。滚动能力
+   保留（滚轮/拖拽可滚），但**滚动条本体隐藏**——10px 的系统横条会在页签下压出
+   一条灰线（真机截图里很显眼），窄栏下它还会把页签挤窄。 */
+.conversation-tabs, .right-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.conversation-tabs::-webkit-scrollbar,
+.right-tabs::-webkit-scrollbar { height: 0; width: 0; }
 .conversation-tab, .right-tab { flex: none; white-space: nowrap; }
 
 /* ---------- Agent Team（右侧栏 · 状态 → Agent Team） ----------
-   数据源 = Application API（Bridge.AgentTeam*）；顺序事实源是会话
-   lifecycle.order_policy/order_roles 与角色注册表。视觉规则与状态区一致：
-   只走 :root token、数字与序号用等宽、用 1px 分隔线而不是卡片堆叠。 */
+   两栏两个东西：员工栏（员工管理）/ Team 栏（装配与编排）。两栏都是条目化表格
+   （.team-table + .team-table-row），不再用 chip 混排的自由布局。视觉规则与状态
+   区一致：只走 :root token、序号与标识用等宽、分层靠极轻底色而不是一层层描边。 */
 .team-view { display: block; }
 .team-view.muted { color: var(--faint); font-size: 11px; line-height: 1.5; }
-.team-panel { display: grid; gap: 10px; }
-.team-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.team-panel { display: grid; gap: 14px; }
+.team-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .team-preset.is-active { color: var(--status-done); }
 .team-refresh { margin-left: auto; }
 .team-notice { padding: 6px 8px; border: 1px solid var(--border); border-left: 2px solid var(--status-running); border-radius: var(--r-sm); background: var(--tint-running); color: var(--text-soft); font-size: 11px; line-height: 1.5; }
 .team-notice.is-error { border-left-color: var(--status-failed); background: var(--tint-failed); color: var(--text-strong); }
-.team-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--faint); font-size: 10px; }
-.team-policy-label { color: var(--text-mid); }
+.team-rail-head { align-items: baseline; }
+.team-rail-hint { margin-left: auto; color: var(--faint); font-size: 10px; }
+.team-block { display: grid; gap: 6px; }
+.team-hire { padding: 9px 10px; border-radius: var(--r-md); background: var(--surface); }
+.team-empty { padding: 8px 0; font-size: 11px; line-height: 1.5; }
+
+/* 条目化表格：表头行 + 数据行。列宽由 --team-cols 给出（窄栏里等比例收缩，靠
+   .team-table-row > * { min-width: 0 } 保证不溢出）。 */
+.team-table {
+  display: grid;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel);
+}
+.team-table-row {
+  display: grid;
+  grid-template-columns: var(--team-cols, repeat(auto-fit, minmax(0, 1fr)));
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 7px;
+  border-top: 1px solid var(--border);
+}
+.team-table-row:first-child { border-top: 0; }
+.team-table-row.is-head {
+  color: var(--faint);
+  background: var(--surface-2);
+  font: 700 10px var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.team-table-row.is-head > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-table-row.is-empty { grid-template-columns: minmax(0, 1fr); color: var(--faint); font-size: 11px; }
+.team-table-row:not(.is-head):hover { background: var(--surface); }
+.team-table-row.is-floor { background: var(--tint-running); }
+.team-table-row > span { min-width: 0; overflow: hidden; }
+.team-table-row .team-order-actions,
+.team-table-row .team-member-actions,
+.team-table-row .team-floor-chip { overflow: visible; }
+.team-cell-key { color: var(--faint); font: 700 10px var(--font-mono); }
+.team-cell-value { color: var(--text-mid); font-size: 11px; overflow-wrap: anywhere; }
 .team-policy-select { padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--text-soft); font: 10px var(--font-mono); }
-.team-floor { margin-left: auto; color: var(--status-running); font: 700 10px var(--font-mono); }
-.team-block { display: grid; gap: 5px; padding-top: 8px; border-top: 1px solid var(--border); }
-.team-order, .team-members, .team-scheduled { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.team-order-item { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-left: 2px solid transparent; }
-.team-order-item.is-floor { border-left-color: var(--status-running); background: var(--tint-running); }
-.team-order-item.is-empty { border-left: 0; color: var(--faint); font-size: 11px; }
-.team-order-index { flex: none; width: 16px; color: var(--faint); font: 10px var(--font-mono); text-align: right; }
+.team-floor { color: var(--status-running); font: 700 10px var(--font-mono); }
+.team-order-index { color: var(--faint); font: 10px var(--font-mono); text-align: right; }
 .team-order-role, .team-member-name { overflow: hidden; color: var(--text-strong); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.team-order-actions { display: flex; gap: 2px; margin-left: auto; }
-.team-order-actions .text-button, .team-member .text-button { padding: 1px 5px; font-size: 10px; }
-.team-order-actions .text-button[disabled], .team-member .text-button[disabled] { color: var(--faint); cursor: not-allowed; opacity: .45; }
+.team-order-meta, .team-member-role, .team-member-pos {
+  color: var(--faint);
+  font: 10px var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-member-name.text-button { justify-content: flex-start; padding: 1px 4px; text-align: left; }
+.team-order-actions, .team-member-actions { display: inline-flex; align-items: center; gap: 2px; justify-content: flex-end; }
+.team-order-actions .text-button, .team-member-actions .text-button { padding: 1px 5px; font-size: 10px; }
+.team-order-actions .text-button[disabled], .team-member-actions .text-button[disabled] { color: var(--faint); cursor: not-allowed; opacity: .45; }
 .team-floor-chip { color: var(--status-running); }
 .team-order-outside { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--faint); font-size: 10px; }
-.team-member { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-left: 2px solid transparent; }
-.team-member.is-floor { border-left-color: var(--status-running); }
-.team-member-name.text-button { flex: 1 1 auto; justify-content: flex-start; min-width: 48px; padding: 1px 6px; text-align: left; }
-.team-member-role { flex: none; color: var(--faint); font: 10px var(--font-mono); }
-.team-member-pos, .team-member-state { color: var(--faint); font: 10px var(--font-mono); }
-.team-member-remove { margin-left: auto; }
-.team-scheduled-item { display: flex; align-items: center; gap: 8px; padding: 4px 2px; }
-.team-scheduled-note { margin-left: auto; color: var(--faint); font-size: 10px; }
-.team-empty { padding: 8px 0; font-size: 11px; line-height: 1.5; }
+.team-schedule-order { font: 10px var(--font-mono); overflow-wrap: anywhere; }
+.team-scheduled-note { color: var(--faint); font-size: 10px; }
+.team-next { color: var(--accent); }
+.team-stop { color: var(--status-failed); }
 
 /* 角色会话详情（Agent Team 成员行「查看」）：EXEC(main) 与 ADVISOR(tl)
    是两个独立会话，这里按角色身份单独展示，避免与主对话的 AGENT 混淆。 */

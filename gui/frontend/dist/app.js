@@ -1525,11 +1525,73 @@ elements["team-view"]?.addEventListener("click", async event => {
     await runAgentTeamAction(() => invoke("AgentTeamSetOrder", "", policy, next.orderRoles));
     return;
   }
+  const editButton = event.target.closest?.("[data-team-edit]");
+  if (editButton?.dataset.teamEdit) {
+    fillTeamHireForm(editButton.dataset);
+    return;
+  }
+  if (event.target.closest?.("[data-team-hire-cancel]")) {
+    resetTeamHireForm();
+    return;
+  }
   const deleteButton = event.target.closest?.("[data-team-delete]");
   if (deleteButton?.dataset.teamDelete) {
     const roleName = deleteButton.dataset.teamDelete;
     if (!confirm(`确认删除角色 ${roleName}？它会同时从工作顺序里摘除。`)) return;
     await runAgentTeamAction(() => invoke("AgentTeamDeleteRole", "", roleName));
+  }
+});
+
+// fillTeamHireForm / resetTeamHireForm：新增与修改共用同一个表单（后端
+// AgentTeamInstantiateRole 按 role_name 幂等覆盖，不需要两套入口）。
+function fillTeamHireForm(data) {
+  const view = elements["team-view"];
+  const nameInput = view?.querySelector?.("[data-team-hire-name]");
+  if (!nameInput) return;
+  nameInput.value = data.teamEdit || "";
+  view.querySelector("[data-team-hire-kind]").value = data.teamEditKind || "agent";
+  view.querySelector("[data-team-hire-join]").value = data.teamEditJoin || "on_team_create";
+  view.querySelector("[data-team-hire-tools]").value = data.teamEditTools || "";
+  const submit = view.querySelector("[data-team-hire-submit]");
+  if (submit) submit.textContent = `保存 ${data.teamEdit}`;
+  const cancel = view.querySelector("[data-team-hire-cancel]");
+  if (cancel) cancel.classList.remove("hidden");
+  nameInput.focus?.();
+}
+
+function resetTeamHireForm() {
+  const view = elements["team-view"];
+  const form = view?.querySelector?.("[data-team-hire-form]");
+  if (!form) return;
+  form.reset?.();
+  const submit = form.querySelector("[data-team-hire-submit]");
+  if (submit) submit.textContent = "入职";
+  form.querySelector("[data-team-hire-cancel]")?.classList.add("hidden");
+}
+
+// 员工入职：一步到位（建角色会话 + 落配置 + 按 join_policy 决定是否进顺序），
+// 回执里的 notice 直接呈现"谁在什么时候真的会发言"，不靠用户自己拼装结论。
+elements["team-view"]?.addEventListener("submit", async event => {
+  const form = event.target.closest?.("[data-team-hire-form]");
+  if (!form) return;
+  event.preventDefault();
+  const roleName = String(form.querySelector("[data-team-hire-name]")?.value || "").trim();
+  if (!roleName) return;
+  const role = {
+    role_name: roleName,
+    role_kind: form.querySelector("[data-team-hire-kind]")?.value || "agent",
+    join_policy: form.querySelector("[data-team-hire-join]")?.value || "on_team_create",
+    tools_policy: String(form.querySelector("[data-team-hire-tools]")?.value || "").trim()
+  };
+  try {
+    const result = await invoke("AgentTeamInstantiateRole", "", role, 0);
+    const notices = Array.isArray(result?.notice) ? result.notice : [];
+    if (notices.length) showToast({ message: `${roleName}：${notices.join("；")}` });
+    resetTeamHireForm();
+    await refreshAgentTeam({ force: true });
+  } catch (error) {
+    agentTeamError = error?.message || String(error);
+    renderAgentTeamPanel();
   }
 });
 

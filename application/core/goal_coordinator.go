@@ -12,10 +12,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
+	"github.com/RedHuang-0622/seelex/application/core/agentteam"
 	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 	"github.com/RedHuang-0622/seelex/application/core/govern"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -31,6 +33,10 @@ type goalCoordinatorDeps struct {
 	TLRecorderFor func(sessionID string) goaldomain.TLRoundRecorder
 	// MaxRounds 是治理循环轮次护栏（≤0 = 不设上限，由裁决/Break 收束）。
 	MaxRounds int
+	// TeamRuntimeFor 返回指定会话的团队发言调度运行态（链表顺序 + 逃生记账）。
+	// 治理循环据此决定"哪些座位真的存在"（顺序里没有 main/tl 就不该凭空长出
+	// 座位）；nil 或返回 nil 时退回内置的 EXEC+ADVISOR 双座位。
+	TeamRuntimeFor func(sessionID string) *agentteam.Runtime
 }
 
 // goalSessionRuntime 是一个会话的 goal 治理 bundle（会话间零共享）。
@@ -144,11 +150,11 @@ func (g *goalCoordinator) Notify(ctx context.Context, sessionID string, signal g
 	return err
 }
 
-// Next 推进治理循环一轮（惰性装配 EXEC+ADVISOR 双座位；返回 false = 收束）。
+// Next 推进治理循环一轮（惰性装配座位；返回 false = 收束）。
 func (g *goalCoordinator) Next(ctx context.Context, sessionID string) (bool, error) {
 	runtime := g.bundleFor(sessionID)
 	if runtime.gov == nil {
-		runtime.gov = g.newGovernor(runtime)
+		runtime.gov = g.newGovernor(sessionID, runtime)
 	}
 	more, err := runtime.gov.Next(ctx)
 	if err == nil {
@@ -175,7 +181,17 @@ func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detai
 		return nil
 	}
 	if runtime.gov == nil {
-		runtime.gov = g.newGovernor(runtime)
+		runtime.gov = g.newGovernor(sessionID, runtime)
+	}
+	// 逃生记账：团队环按"本轮有没有推进"记一次轮次。到达轮次上限或连续多轮
+	// 无进展时，环显式收束 → 把同一个原因交给治理循环 Break，避免"环停了但
+	// Governor 还在空转"。
+	if team := g.teamRuntimeFor(sessionID); team != nil {
+		if stopped, reason := team.NoteTurn(strings.TrimSpace(detail) != ""); stopped {
+			runtime.gov.Break(reason)
+			g.bumpHeartbeat(sessionID)
+			return nil
+		}
 	}
 	// Governor.Next 每次只推进一个座位；推进一整轮（exec 让位 → advisor
 	// TL 回合）需要执行到 Round 递增或断环为止（最多两个座位）。
@@ -196,13 +212,106 @@ func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detai
 	return nil
 }
 
-// newGovernor 装配 EXEC+ADVISOR 双座位（EXEC 由外部 ChatStream 驱动，
-// 座位只让位）。
-func (g *goalCoordinator) newGovernor(runtime *goalSessionRuntime) govern.Governor {
+// teamRuntimeFor 取该会话的团队发言调度运行态（未装配团队环 → nil）。
+func (g *goalCoordinator) teamRuntimeFor(sessionID string) *agentteam.Runtime {
+	if g.deps.TeamRuntimeFor == nil {
+		return nil
+	}
+	return g.deps.TeamRuntimeFor(sessionID)
+}
+
+// defaultGoalLoopMaxRounds 是治理循环的**默认轮次上限**（逃生路径的最后一道
+// 兜底）：deps.MaxRounds 未配置（0）时用它，避免"没人设置 = 无限循环"。
+// 显式传负数 = 主动放弃轮次上限（只保留裁决/Break 收束，属高级用法）。
+const defaultGoalLoopMaxRounds = 24
+
+// goalLoopRoundLimit 把配置值解析成实际生效的轮次上限。
+func goalLoopRoundLimit(configured int) int {
+	switch {
+	case configured > 0:
+		return configured
+	case configured < 0:
+		return 0 // 0 = 治理层不设上限（显式选择）
+	default:
+		return defaultGoalLoopMaxRounds
+	}
+}
+
+// newGovernor 装配治理循环座位。座位的**存在性**由团队工作顺序（链表）决定：
+// 顺序里有 main 才有 EXEC 座位、有 tl 才有 ADVISOR 座位；顺序里没有的座位不
+// 凭空长出来。顺序完全对不上（或宿主未装配团队环）时退回内置双座位，保证
+// goal 治理在未装配 AgentTeam 的宿主上照常工作。
+//
+// 座位名保持 "exec-a" / "advisor-b"（历史口径：headless 快照与巡检面依赖）。
+// EXEC 由外部 ChatStream 驱动，座位只让位。
+func (g *goalCoordinator) newGovernor(sessionID string, runtime *goalSessionRuntime) govern.Governor {
 	execAct := func(context.Context) (govern.TurnAction, error) {
 		return govern.TurnAction{}, nil
 	}
-	return goaldomain.NewTurnGovernorForDSA2A("exec-a", execAct, runtime.sup, g.deps.MaxRounds)
+	limit := goalLoopRoundLimit(g.deps.MaxRounds)
+	order := g.teamOrderFor(sessionID)
+	if len(order) == 0 {
+		return goaldomain.NewTurnGovernorForDSA2A("exec-a", execAct, runtime.sup, limit)
+	}
+	seats := make([]govern.Seat, 0, 2)
+	for _, roleName := range order {
+		switch {
+		case roleName == string(dto.RoleKindMain):
+			seats = append(seats, teamRoleSeat{name: "exec-a", kind: govern.AgentKindExec, act: execAct})
+		case roleName == agentteam.RoleTechlead || roleName == string(dto.RoleKindTechlead):
+			seats = append(seats, goaldomain.NewAdvisorSeat(runtime.sup, ""))
+		}
+	}
+	if len(seats) == 0 {
+		return goaldomain.NewTurnGovernorForDSA2A("exec-a", execAct, runtime.sup, limit)
+	}
+	// EXEC 必须先于 ADVISOR：治理语义是"执行让位 → 评审"，顺序里两座都在时
+	// 按这个固定相对次序排（座位的存在与否仍由链表决定）。
+	return govern.NewTurnGovernor(orderSeats(seats), limit)
+}
+
+// orderSeats 把座位按 EXEC → ADVISOR 归位（同 kind 保持链表次序）。
+func orderSeats(seats []govern.Seat) []govern.Seat {
+	out := make([]govern.Seat, 0, len(seats))
+	for _, seat := range seats {
+		if seat.Kind() == govern.AgentKindExec {
+			out = append(out, seat)
+		}
+	}
+	for _, seat := range seats {
+		if seat.Kind() != govern.AgentKindExec {
+			out = append(out, seat)
+		}
+	}
+	return out
+}
+
+// teamOrderFor 读该会话团队环的链表顺序（未装配团队环 → nil）。
+func (g *goalCoordinator) teamOrderFor(sessionID string) []string {
+	if g.deps.TeamRuntimeFor == nil {
+		return nil
+	}
+	runtime := g.deps.TeamRuntimeFor(sessionID)
+	if runtime == nil {
+		return nil
+	}
+	return runtime.Order()
+}
+
+// teamRoleSeat 是按团队顺序装出来的座位（只包一个 Act，不引入第二套座位状态）。
+type teamRoleSeat struct {
+	name string
+	kind govern.AgentKind
+	act  func(context.Context) (govern.TurnAction, error)
+}
+
+func (s teamRoleSeat) Name() string           { return s.name }
+func (s teamRoleSeat) Kind() govern.AgentKind { return s.kind }
+func (s teamRoleSeat) Act(ctx context.Context) (govern.TurnAction, error) {
+	if s.act == nil {
+		return govern.TurnAction{}, nil
+	}
+	return s.act(ctx)
 }
 
 // Break 外部中断治理循环（无 Governor 时报错，对齐 headless 未装配语义）。
@@ -286,7 +395,10 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 	}
 	status := runtime.ctl.Status()
 	if status.Active == nil {
-		return &dto.GoalGovernanceView{Active: false, HeartbeatAt: at, HeartbeatSeq: seq}
+		return &dto.GoalGovernanceView{
+			Active: false, RoundLimit: goalLoopRoundLimit(g.deps.MaxRounds),
+			HeartbeatAt: at, HeartbeatSeq: seq,
+		}
 	}
 	peer := runtime.sup.Snapshot()
 	view := &dto.GoalGovernanceView{
@@ -294,6 +406,7 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		GoalID:       status.Active.ID,
 		Title:        status.Active.Title,
 		Status:       string(status.Active.Status),
+		RoundLimit:   goalLoopRoundLimit(g.deps.MaxRounds),
 		PeerState:    string(peer.Peer),
 		HeartbeatAt:  at,
 		HeartbeatSeq: seq,

@@ -109,7 +109,16 @@ func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.Team
 	if err != nil {
 		return dto.TeamMaterializeResult{}, err
 	}
-	return factory.Materialize(mainSessionID, spec, joinSeq)
+	result, err := factory.Materialize(mainSessionID, spec, joinSeq)
+	if err != nil {
+		return dto.TeamMaterializeResult{}, err
+	}
+	// 装配即建环：新团队的"下一个谁发言"立即可观测（并带上逃生上限）。
+	service.teamRuntimeFor(mainSessionID, result.View)
+	if schedule := service.teamScheduleFor(mainSessionID); schedule != nil {
+		result.View.Schedule = schedule
+	}
+	return result, nil
 }
 
 // MaterializeAgentTeamPreset 按内置 preset 名装配（goal-a2a / review-team / research-team）。
@@ -121,8 +130,24 @@ func (service *Service) MaterializeAgentTeamPreset(mainSessionID, teamKind strin
 	return service.MaterializeAgentTeam(mainSessionID, spec, joinSeq)
 }
 
-// AgentTeamView 返回成员表（身份/顺序/定时分区/配置状态）。
+// AgentTeamView 返回成员表（身份/顺序/定时分区/配置状态/发言调度运行态）。
 func (service *Service) AgentTeamView(mainSessionID string) (dto.TeamView, error) {
+	view, err := service.agentTeamRawView(mainSessionID)
+	if err != nil {
+		return dto.TeamView{}, err
+	}
+	// 读路径也建环：前端「下一个谁发言」需要运行态；建环只读事实（链表顺序来自
+	// lifecycle），不写盘、不新增第二份顺序。
+	service.teamRuntimeFor(mainSessionID, view)
+	if schedule := service.teamScheduleFor(mainSessionID); schedule != nil {
+		view.Schedule = schedule
+	}
+	return view, nil
+}
+
+// agentTeamRawView 返回不带运行态的成员表（装配面内部用；避免
+// teamRuntimeFor ← AgentTeamView 的互相递归）。
+func (service *Service) agentTeamRawView(mainSessionID string) (dto.TeamView, error) {
 	registry, err := service.agentTeamRegistry()
 	if err != nil {
 		return dto.TeamView{}, err
@@ -136,7 +161,12 @@ func (service *Service) AgentTeamPutRole(mainSessionID string, role dto.RoleSpec
 	if err != nil {
 		return dto.TeamRegistry{}, err
 	}
-	return registry.PutRole(mainSessionID, role)
+	stored, err := registry.PutRole(mainSessionID, role)
+	if err != nil {
+		return dto.TeamRegistry{}, err
+	}
+	service.syncTeamRuntime(mainSessionID)
+	return stored, nil
 }
 
 // AgentTeamDeleteRole 删除一个角色配置（并把它从工作顺序里摘除）。
@@ -145,14 +175,45 @@ func (service *Service) AgentTeamDeleteRole(mainSessionID, roleName string) (dto
 	if err != nil {
 		return dto.TeamRegistry{}, err
 	}
-	return registry.DeleteRole(mainSessionID, roleName)
+	stored, err := registry.DeleteRole(mainSessionID, roleName)
+	if err != nil {
+		return dto.TeamRegistry{}, err
+	}
+	service.syncTeamRuntime(mainSessionID)
+	return stored, nil
 }
 
-// AgentTeamSetOrder 写工作顺序（前端拖拽/上下移只提交这个字段）。
+// AgentTeamSetOrder 写工作顺序（前端拖拽/上下移只提交这个字段）。顺序是环的
+// 唯一事实来源，写完必须同步环——否则"下一个谁发言"会停在旧次序上。
 func (service *Service) AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error) {
 	registry, err := service.agentTeamRegistry()
 	if err != nil {
 		return dto.TeamView{}, err
 	}
-	return registry.SetOrder(mainSessionID, policy, orderRoles)
+	view, err := registry.SetOrder(mainSessionID, policy, orderRoles)
+	if err != nil {
+		return dto.TeamView{}, err
+	}
+	service.teamRuntimeFor(mainSessionID, view)
+	if schedule := service.teamScheduleFor(mainSessionID); schedule != nil {
+		view.Schedule = schedule
+	}
+	return view, nil
+}
+
+// AgentTeamInstantiateRole 一步实例化一个角色（"员工入职"）：规整配置 → 幂等建
+// 角色会话 → 落注册表 → 按 join_policy 决定是否进工作顺序 → 报执行者绑定。
+// 这是 Agent Team 管理面的"增加员工"入口；修改员工走同一条路径（按 role_name
+// 覆盖），因此前端不需要"新增/编辑"两套调用。
+func (service *Service) AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error) {
+	factory, err := service.agentTeamFactory()
+	if err != nil {
+		return dto.RoleInstantiation{}, err
+	}
+	result, err := factory.InstantiateRole(mainSessionID, role, joinSeq)
+	if err != nil {
+		return dto.RoleInstantiation{}, err
+	}
+	service.syncTeamRuntime(mainSessionID)
+	return result, nil
 }

@@ -144,6 +144,7 @@ type agentTeamApplication interface {
 	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
 	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
 	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
+	AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)
 	RoleSnapshot(mainSessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error)
 }
 
@@ -972,6 +973,19 @@ func (bridge *Bridge) AgentTeamSetOrder(sessionID, policy string, orderRoles []s
 // AgentTeamRoleSnapshot 读取某个角色会话的只读观察面（成员行「查看会话」）：
 // EXEC（main）与 ADVISOR（tl）等角色各自有独立会话，前端据此把两个 agent
 // 的真实行分开显示，而不是把角色正文混进主会话。只读，不写任何状态。
+func (bridge *Bridge) AgentTeamInstantiateRole(sessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error) {
+	app, err := bridge.agentTeamApp()
+	if err != nil {
+		return dto.RoleInstantiation{}, err
+	}
+	session := bridge.agentTeamSession(sessionID)
+	if session == "" {
+		return dto.RoleInstantiation{}, errors.New("current session cannot hire a role")
+	}
+	role.RoleName = strings.TrimSpace(role.RoleName)
+	return app.AgentTeamInstantiateRole(session, role, joinSeq)
+}
+
 func (bridge *Bridge) AgentTeamRoleSnapshot(sessionID, roleName, roleSessionID string) (dto.RoleSnapshot, error) {
 	app, err := bridge.agentTeamApp()
 	if err != nil {

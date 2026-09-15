@@ -119,6 +119,9 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		service.publishChatStateFor(sessionID)
+		// user 经消息队列插话：告诉团队环"队列里有人等着发言"，user 席位
+		// （缺省 queued）据此在链表绕回环头时占位。
+		service.noteTeamUserSeat(sessionID)
 		return nil
 	}
 	service.ViewMu.Unlock()
@@ -161,11 +164,13 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 			service.publishChatStateFor(sessionID)
+			service.noteTeamUserSeat(sessionID)
 			return nil
 		}
 		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
 		service.publishChatStateFor(sessionID)
+		service.noteTeamUserSeat(sessionID)
 		return nil
 	}
 	service.ViewMu.Unlock()

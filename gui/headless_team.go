@@ -21,6 +21,7 @@ type teamRPCApplication interface {
 	AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)
 	AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error)
 	AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error)
+	AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)
 }
 
 type teamMaterializeRequest struct {
@@ -44,6 +45,12 @@ type teamOrderRequest struct {
 	MainSessionID string   `json:"main_session_id"`
 	OrderPolicy   string   `json:"order_policy,omitempty"`
 	OrderRoles    []string `json:"order_roles,omitempty"`
+}
+
+type teamInstantiateRequest struct {
+	MainSessionID string       `json:"main_session_id"`
+	Role          dto.RoleSpec `json:"role"`
+	JoinSeqID     uint64       `json:"join_seq_id,omitempty"`
 }
 
 // dispatchTeam 处理 `team.*`：装配、成员表、角色配置 CRUD、工作顺序设置。
@@ -92,6 +99,12 @@ func (server *headlessServer) dispatchTeam(method string, args []json.RawMessage
 			return nil, err
 		}
 		return app.AgentTeamSetOrder(request.MainSessionID, request.OrderPolicy, request.OrderRoles)
+	case "team.instantiate_role":
+		var request teamInstantiateRequest
+		if err := decodeHeadlessObject(method, args, &request); err != nil {
+			return nil, err
+		}
+		return app.AgentTeamInstantiateRole(request.MainSessionID, request.Role, request.JoinSeqID)
 	default:
 		return nil, fmt.Errorf("未知 team headless 方法: %s", method)
 	}

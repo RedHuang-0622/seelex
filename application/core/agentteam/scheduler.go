@@ -140,6 +140,45 @@ func (s *TurnScheduler) advanceLocked(roleName string) *roleNode {
 	return s.current
 }
 
+// Advance 按链表推进一格并返回下一名**可发言**成员（不经过 channel）。
+//
+// skip 返回 true 的成员被跳过：环内没有运行时执行者的角色、以及按 user 席位
+// 策略不该占位的 user。因为环是闭链，最多遍历一圈；一圈内全部被跳过时返回
+// ok=false（= 环内没有人能发言，调用方按逃生路径收束，不停在这里空转）。
+//
+// 与 Next 的关系：Next 是"有 actor 投递意向"的领取路径（会阻塞在 channel 上）；
+// Advance 是"调度器自己决定下一个谁发言"的推进路径。两者共用同一份链表与
+// current 游标，因此顺序事实只有一份。
+func (s *TurnScheduler) Advance(skip func(roleName string) bool) (TurnRequest, bool) {
+	if s == nil {
+		return TurnRequest{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.head == nil {
+		return TurnRequest{}, false
+	}
+	total := 0
+	for node := s.head; node != nil; node = node.next {
+		total++
+	}
+	for step := 0; step < total; step++ {
+		node := s.advanceLocked("")
+		if node == nil {
+			return TurnRequest{}, false
+		}
+		if skip != nil && skip(node.roleName) {
+			continue
+		}
+		return TurnRequest{
+			RoleName:      node.roleName,
+			RoleSessionID: node.roleSessionID,
+			Prefix:        s.prefix,
+		}, true
+	}
+	return TurnRequest{}, false
+}
+
 // SetOrder 整表替换顺序（前端顺序编辑的下发路径）。
 func (s *TurnScheduler) SetOrder(order []string, sessions map[string]string) {
 	if s == nil {
@@ -238,6 +277,16 @@ func (s *TurnScheduler) orderLocked() []string {
 		order = append(order, node.roleName)
 	}
 	return order
+}
+
+// sessionsLocked 返回链表当前的 role_name → role_session_id 快照
+// （调用方需持有 s.mu）。
+func (s *TurnScheduler) sessionsLocked() map[string]string {
+	out := make(map[string]string)
+	for node := s.head; node != nil; node = node.next {
+		out[node.roleName] = node.roleSessionID
+	}
+	return out
 }
 
 func indexOfRole(order []string, roleName string) int {

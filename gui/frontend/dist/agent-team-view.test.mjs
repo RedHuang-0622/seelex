@@ -38,18 +38,27 @@ test("unconfigured session renders the empty state and preset entry points", () 
   assert.doesNotMatch(html, /team-order-item/);
 });
 
-test("configured team renders order, members and the scheduled partition", () => {
+test("configured team splits into 员工栏 and Team 栏, both entry tables", () => {
   const html = renderAgentTeam(goalView, presets);
-  assert.match(html, /工作顺序/);
+  // 两栏是两个不同的东西，各自有条目化表头。
+  assert.match(html, /team-rail-head[\s\S]*?<span>员工栏<\/span>/);
+  assert.match(html, /team-rail-head[\s\S]*?<span>Team 栏<\/span>/);
+  assert.match(html, /role="table" aria-label="员工栏"/);
+  assert.match(html, /role="columnheader">员工</);
+  // 窄右栏的列口径：身份 / 类型 / 位置 / 操作（会话 id 进 hover 提示，不占列）。
+  assert.match(html, /role="columnheader">类型<\/span><span role="columnheader">位置<\/span><span role="columnheader">操作<\/span>/);
+  assert.match(html, /team-member-role" title="逻辑角色名（metadata，不是 provider role）">main</);
   assert.match(html, /data-team-materialize="goal-a2a"/);
   assert.match(html, /goal-a2a 已装配/);
-  assert.match(html, /team-order-role">user</);
-  assert.match(html, /team-order-role">tl</);
+  // 工作顺序表：显示身份 + 逻辑角色名分开两列，发言中的那条带 chip。
+  assert.match(html, /team-order-role" title="user">USER</);
+  assert.match(html, /team-order-meta" title="逻辑角色名">user</);
+  assert.match(html, /team-order-role" title="tl">ADVISOR</);
   assert.match(html, /floor/);
   assert.match(html, /发言中/);
   assert.match(html, /定时插话 · 不参与工作顺序/);
-  // 定时 agent 出现在独立分区，不在工作顺序列表里。
-  const orderSection = html.slice(html.indexOf("工作顺序"), html.indexOf("</ol>"));
+  // 定时 agent 出现在独立分区，不在工作顺序表里。
+  const orderSection = html.slice(html.indexOf("<span>工作顺序</span>"), html.indexOf("<span>定时 agent</span>"));
   assert.doesNotMatch(orderSection, /digest/);
 });
 
@@ -144,7 +153,7 @@ test("nextAgentTeamOrder only rewrites the working order", () => {
 test("normalizeAgentTeam tolerates malformed payloads", () => {
   assert.deepEqual(normalizeAgentTeam(null), {
     sessionID: "", teamID: "", teamKind: "", orderPolicy: "", orderRoles: [],
-    members: [], scheduled: [], configured: false, floorRole: "", designNotice: []
+    members: [], scheduled: [], configured: false, floorRole: "", schedule: null, designNotice: []
   });
   const partial = normalizeAgentTeam({
     order_roles: ["user", 7, ""],

@@ -12,18 +12,21 @@ import (
 // DTO 形态），记录每次转发的会话号与参数，便于断言 Bridge 只做归一与转发。
 type fakeAgentTeamApplication struct {
 	*fakeApplication
-	viewSession      string
-	materializeCalls []string
-	orderSession     string
-	orderPolicy      string
-	orderRoles       []string
-	putSession       string
-	putRole          dto.RoleSpec
-	deleteSession    string
-	deleteRole       string
-	roleSnapshotMain string
-	roleSnapshotRole string
-	roleSnapshotID   string
+	viewSession        string
+	materializeCalls   []string
+	orderSession       string
+	orderPolicy        string
+	orderRoles         []string
+	putSession         string
+	putRole            dto.RoleSpec
+	deleteSession      string
+	deleteRole         string
+	roleSnapshotMain   string
+	roleSnapshotRole   string
+	roleSnapshotID     string
+	instantiateSession string
+	instantiateRole    dto.RoleSpec
+	instantiateJoinSeq uint64
 }
 
 func newFakeAgentTeamApplication(sessionID string) *fakeAgentTeamApplication {
@@ -63,6 +66,19 @@ func (app *fakeAgentTeamApplication) AgentTeamPutRole(mainSessionID string, role
 func (app *fakeAgentTeamApplication) AgentTeamDeleteRole(mainSessionID, roleName string) (dto.TeamRegistry, error) {
 	app.deleteSession, app.deleteRole = mainSessionID, roleName
 	return dto.TeamRegistry{Configured: true}, nil
+}
+
+func (app *fakeAgentTeamApplication) AgentTeamInstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error) {
+	app.instantiateSession, app.instantiateRole, app.instantiateJoinSeq = mainSessionID, role, joinSeq
+	return dto.RoleInstantiation{
+		Role:        role,
+		Session:     dto.TeamRoleSession{RoleName: role.RoleName, RoleSessionID: "goal-a2a-" + role.RoleName, Exists: true, Created: true},
+		OrderPolicy: dto.OrderPolicyGoalLoop,
+		OrderRoles:  []string{"user", "main", "tl", role.RoleName},
+		InOrder:     true,
+		OrderIndex:  3,
+		Executor:    "scheduler",
+	}, nil
 }
 
 func (app *fakeAgentTeamApplication) AgentTeamSetOrder(mainSessionID, policy string, orderRoles []string) (dto.TeamView, error) {
@@ -129,6 +145,13 @@ func TestBridgeAgentTeamForwardsTrimmedArguments(t *testing.T) {
 	}
 	if app.putSession != "main-1" || app.putRole.RoleName != "auditor" {
 		t.Fatalf("角色写入转发 = %q/%+v", app.putSession, app.putRole)
+	}
+
+	if _, err := bridge.AgentTeamInstantiateRole("", dto.RoleSpec{RoleName: " reviewer ", RoleKind: dto.RoleKindAgent}, 7); err != nil {
+		t.Fatalf("AgentTeamInstantiateRole: %v", err)
+	}
+	if app.instantiateSession != "main-1" || app.instantiateRole.RoleName != "reviewer" || app.instantiateJoinSeq != 7 {
+		t.Fatalf("role instantiation forwarded = %q/%+v/%d", app.instantiateSession, app.instantiateRole, app.instantiateJoinSeq)
 	}
 
 	if _, err := bridge.AgentTeamDeleteRole("", " auditor "); err != nil {

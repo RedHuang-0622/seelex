@@ -12,11 +12,14 @@ type RuntimeVisibilityProjection struct {
 // 组装（Controller + Supervisor + Governor 读面），经 SessionRuntime 下发给
 // GUI/TUI 面板。Active=false（或 nil）表示该会话无 goal 治理，前端隐藏面板。
 type GoalGovernanceView struct {
-	Active        bool   `json:"active"`
-	GoalID        string `json:"goal_id,omitempty"`
-	Title         string `json:"title,omitempty"`
-	Status        string `json:"status,omitempty"` // goal 状态
-	Round         int    `json:"round"`            // 治理轮次
+	Active bool   `json:"active"`
+	GoalID string `json:"goal_id,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status,omitempty"` // goal 状态
+	Round  int    `json:"round"`            // 治理轮次
+	// RoundLimit 是本会话治理循环的轮次上限（逃生路径：到达即收束；
+	// 0 = 显式不设上限）。前端据此显示"轮次 n/limit"与接近上限的提示。
+	RoundLimit    int    `json:"round_limit"`
 	CurrentSeat   string `json:"current_seat,omitempty"`
 	PeerState     string `json:"peer_state,omitempty"`
 	LastDirective string `json:"last_directive,omitempty"`

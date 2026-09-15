@@ -44,10 +44,11 @@ func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error) {
 	roles := make([]dto.RoleSpec, 0, len(spec.Roles))
 	seen := make(map[string]struct{}, len(spec.Roles))
 	for _, role := range spec.Roles {
-		role.RoleName = strings.TrimSpace(role.RoleName)
-		if role.RoleName == "" {
-			return dto.TeamSpec{}, errors.New("agentteam: role_name is required")
+		normalized, err := NormalizeRole(role)
+		if err != nil {
+			return dto.TeamSpec{}, err
 		}
+		role = normalized
 		if _, ok := seen[role.RoleName]; ok {
 			return dto.TeamSpec{}, fmt.Errorf("agentteam: duplicate role %q", role.RoleName)
 		}
@@ -63,6 +64,27 @@ func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error) {
 	}
 	spec.OrderRoles = order
 	return spec, nil
+}
+
+// NormalizeRole 规整单个角色（TeamSpec 装配与"一步实例化一个角色"共用同一套
+// 口径，避免两条路径对角色配置的默认值/校验产生分歧）：
+//
+//   - role_name 必填并去空白；
+//   - 内置角色名（user/main）永远取内置 kind；
+//   - 其它角色 kind 缺省按 techlead 之外的通用 agent 处理；
+//   - join_policy / presence_policy / model_policy / tools_policy 留空 = 继承
+//     preset 默认（不在这里编造默认值）。
+func NormalizeRole(role dto.RoleSpec) (dto.RoleSpec, error) {
+	role.RoleName = strings.TrimSpace(role.RoleName)
+	if role.RoleName == "" {
+		return dto.RoleSpec{}, errors.New("agentteam: role_name is required")
+	}
+	role.RoleKind = resolveRoleKind(role.RoleName, role.RoleKind)
+	role.JoinPolicy = strings.TrimSpace(role.JoinPolicy)
+	role.PresencePolicy = strings.TrimSpace(role.PresencePolicy)
+	role.ModelPolicy = strings.TrimSpace(role.ModelPolicy)
+	role.ToolsPolicy = strings.TrimSpace(role.ToolsPolicy)
+	return role, nil
 }
 
 // resolveRoleKind 让内置角色名（user/main）永远取内置 kind；其它角色 kind 缺省

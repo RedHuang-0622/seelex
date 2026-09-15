@@ -65,6 +65,40 @@ func TestSummarizeTurnWorkIsBounded(t *testing.T) {
 	}
 }
 
+// TestSummarizeTurnWorkCarriesComputerUseEvidence：EXEC 用 computer_screenshot
+// 时，ADVISOR 的输入摘要必须带"看到了什么"（截图媒体引用 + 画面尺寸 + 前台窗口
+// 标题），而不是只有一个工具名；坏 JSON 与非 media 引用不得掺进来。
+func TestSummarizeTurnWorkCarriesComputerUseEvidence(t *testing.T) {
+	shot := `{"ref":"media:ce842be8c006587a575a8f81146e3235e945cf1b2c5e2aa0d0e0be34d09ed204",` +
+		`"name":"screenshot-20260915-120000.000.png","width":1024,"height":576,` +
+		`"foreground":{"title":"Visual Studio Code - seelex"},"cursor":{"x":1,"y":2}}`
+	summary := summarizeTurnWork([]Message{
+		{Role: "user", Content: "看看屏幕上是什么"},
+		{Role: "assistant", Tool: &ToolCall{Name: "computer_screenshot"}},
+		{Role: "tool_result", Content: shot, Tool: &ToolCall{Name: "computer_screenshot"}},
+		{Role: "tool_result", Content: "not-json-at-all", Tool: &ToolCall{Name: "bash"}},
+		{Role: "assistant", Content: "前台窗口是 Visual Studio Code"},
+	})
+	for _, want := range []string{"screen:", "media:ce842be8", "1024x576", `foreground="Visual Studio Code - seelex"`, "tools: computer_screenshot, bash"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("摘要缺少 %q：%q", want, summary)
+		}
+	}
+	if strings.Contains(summary, shot) {
+		t.Fatal("摘要不应内联整段工具结果 JSON")
+	}
+
+	// 非 media 引用（例如 blob/compressed）不算屏幕证据。
+	noise := summarizeTurnWork([]Message{
+		{Role: "user", Content: "看个文件"},
+		{Role: "tool_result", Content: `{"ref":"blob:deadbeef","name":"x"}`, Tool: &ToolCall{Name: "read_file"}},
+		{Role: "assistant", Content: "读完了"},
+	})
+	if strings.Contains(noise, "screen:") {
+		t.Fatalf("非媒体引用不应产生屏幕证据：%q", noise)
+	}
+}
+
 // capturingTLEvaluator 记录 ADVISOR 回合收到的嵌入（接线判据：输入正文）。
 type capturingTLEvaluator struct {
 	embeds []goaldomain.TLSessionEmbed
