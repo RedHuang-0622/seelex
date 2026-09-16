@@ -13,10 +13,12 @@ package gui
 //     - role.snapshot(tl)：ADVISOR 回合输入里是否带 computer use 证据
 //       （`screen: media:… 1024x576 foreground="…"`，由
 //       application/core/goal_work_summary.go 抽取）；
-//     - goal.gov_snapshot：ADVISOR 回合确实发生过（治理轮次/最近裁决）。
+//     - 主会话可见聊天里是否**已经**有 ADVISOR 裁决行（kind=tl_directive +
+//       role_name=tl）——裁决在产出它的那一回合就回放，不需要再提交一轮；
+//     - goal.gov_snapshot：裁决与治理收口语义一致。
 //
-// 断言口径：三条都是硬断言——它们只依赖"工具跑了 + 摘要把证据带上了 + 治理推进了"，
-// 不依赖模型自由发挥（EXEC 的截图动作由提示词直接指定）。
+// 断言口径：都是硬断言——只依赖"工具跑了 + 摘要把证据带上了 + 治理推进了 +
+// 裁决在产出回合就可见"，不依赖模型自由发挥（EXEC 的截图动作由提示词直接指定）。
 //
 // 运行（真实 API + 真机截屏，默认跳过）：
 //
@@ -85,6 +87,13 @@ func TestRealAPITeamWorkComputerUseLiveProbe(t *testing.T) {
 	port := forkLiveFreePort(t)
 	proc := forkLiveSpawn(t, target, repoRoot, storeDir, port, "")
 	defer proc.stop()
+	defer func() {
+		if t.Failed() {
+			// 真实 API 探针失败时，headless 的 stderr 是唯一能看到 provider/回合
+			// 错误的地方（探针不做业务日志落盘）。
+			t.Logf("[headless stderr tail]\n%s", teamWorkLogTail(proc.stderr.String(), 60))
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Minute)
 	defer cancel()
 	proc.waitHealthy(ctx, t, time.Now().Add(90*time.Second))
@@ -95,7 +104,7 @@ func TestRealAPITeamWorkComputerUseLiveProbe(t *testing.T) {
 	if _, err := proc.rpc(ctx, "Submit", "这是 team work + computer use 冒烟。请只回复 OK，不要调用任何工具。"); err != nil {
 		t.Fatalf("Submit(#1): %v", err)
 	}
-	if _, err := proc.rpc(ctx, "WaitIdle", 300); err != nil {
+	if err := teamWorkWaitIdle(ctx, t, proc, 12*time.Minute); err != nil {
 		t.Fatalf("WaitIdle(#1): %v", err)
 	}
 	mainSessionID := roleLiveSessionID(t, ctx, proc)
@@ -128,7 +137,7 @@ func TestRealAPITeamWorkComputerUseLiveProbe(t *testing.T) {
 	if _, err := proc.rpc(ctx, "Submit", workPrompt); err != nil {
 		t.Fatalf("Submit(#2 截图轮): %v", err)
 	}
-	if _, err := proc.rpc(ctx, "WaitIdle", 600); err != nil {
+	if err := teamWorkWaitIdle(ctx, t, proc, 12*time.Minute); err != nil {
 		t.Fatalf("WaitIdle(#2): %v", err)
 	}
 	snap, err := proc.snapshot(ctx)
@@ -177,7 +186,35 @@ func TestRealAPITeamWorkComputerUseLiveProbe(t *testing.T) {
 			titleMarker, truncateForLog(tlInput, 1200))
 	}
 
-	// 证据三：ADVISOR 回合确实发生过（治理推进 + 裁决原文）。
+	// 证据三：ADVISOR 裁决**在产出它的那一回合就进可见聊天**（产品改动：
+	// 回放触发点从"下一次用户回合"前移到"指令产出回合的末尾"），并与治理视图
+	// 做语义一致性断言。
+	//
+	// 2026-09-16 更新（原断言写于 09-14，早于"终态裁决真的收口 goal"修复，也早于
+	// 回放触发点前移）：
+	//   - 旧断言在终态裁决（verdict_done / escalate_human）收口 goal 之后读**在线**
+	//     治理视图（要求 Active=true 且 LastDirective 非空）——把"正确的收口"报成失败；
+	//   - 旧断言等 15 分钟再读裁决，因为裁决过去只在**下一次**用户提交时才被排空注入、
+	//     再在下一次回合尾回放——结构上等不到（这是"探针假阴性"的真因）。
+	// 现在：裁决行在 Submit #2 的回合尾（WaitIdle 返回前）就已回放，读**可见聊天**
+	// （kind=tl_directive + role_name=tl）即为持久事实，无需二次提交、无需长等待。
+	snapAfter, err := proc.snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot(证据三): %v", err)
+	}
+	directive, ok := teamWorkAdvisorVerdict(snapAfter.Conversation)
+	if !ok {
+		t.Logf("[headless stderr warnings] %v", forkLiveStderrWarnings(proc.stderr.String()))
+		t.Fatalf("本回合结束后可见聊天里没有 ADVISOR 裁决行（kind=tl_directive + role_name=tl）："+
+			"ADVISOR 回合没跑，或裁决没有在产出它的回合回放（conversation tail=%s）",
+			describeTeamWorkTail(snapAfter.Conversation, 6))
+	}
+	report["tl_directive"] = truncateForLog(directive, 400)
+	// 裁决 kind 取 ADVISOR 回合**原文**（role.snapshot 的 tl 输出 = 裁决 JSON）：
+	// 可见回放行是 `[TL 指令 corr-N] <正文>` 形式，kind 不在正文里。
+	_, advisorOutputs, _ := teamWorkTLRoundRows(tlSnapshot)
+	directiveKind := teamWorkDirectiveKind(advisorOutputs)
+	report["tl_directive_kind"] = directiveKind
 	govRaw, err := proc.rpc(ctx, "goal.gov_snapshot", map[string]any{})
 	if err != nil {
 		t.Fatalf("goal.gov_snapshot: %v", err)
@@ -192,20 +229,94 @@ func TestRealAPITeamWorkComputerUseLiveProbe(t *testing.T) {
 	report["governance_last_directive"] = gov.LastDirective
 	t.Logf("[gov] active=%v round=%d seat=%q peer=%q last_directive=%q",
 		gov.Active, gov.Round, gov.CurrentSeat, gov.PeerState, truncateForLog(gov.LastDirective, 200))
-	// 回合已发生的判据取"治理在线 + 有裁决原文"：gov.Round 记的是 EXEC 侧轮次，
-	// ADVISOR 回合本身落在 LastDirective/seat/peer_state 上（实测 round 恒为 0）。
-	if !gov.Active || strings.TrimSpace(gov.LastDirective) == "" {
-		t.Fatalf("ADVISOR 回合没有发生（治理未推进）：active=%v round=%d seat=%q peer=%q directive=%q",
-			gov.Active, gov.Round, gov.CurrentSeat, gov.PeerState, truncateForLog(gov.LastDirective, 200))
+	switch directiveKind {
+	case "verdict_done", "escalate_human":
+		// 终态裁决 = 收口：治理必须已下线（这正是 2026-09-16 的收口修复）。
+		if gov.Active {
+			t.Fatalf("终态裁决 %q 之后 goal 仍在线（收口失效）：active=%v round=%d seat=%q",
+				directiveKind, gov.Active, gov.Round, gov.CurrentSeat)
+		}
+		t.Logf("[gov] 终态裁决 %q 已收口 goal（active=false，收口语义生效）", directiveKind)
+	case "verdict_not_done", "checkpoint_ok", "correct":
+		if !gov.Active || strings.TrimSpace(gov.LastDirective) == "" {
+			t.Fatalf("非终态裁决 %q 之后治理必须仍在线且有裁决原文：active=%v round=%d seat=%q peer=%q directive=%q",
+				directiveKind, gov.Active, gov.Round, gov.CurrentSeat, gov.PeerState, truncateForLog(gov.LastDirective, 200))
+		}
+	default:
+		t.Fatalf("ADVISOR 回合原文里的裁决 kind=%q 不是已知裁决类型（回合也许没有正常产出裁决）：%s",
+			directiveKind, truncateForLog(directive, 400))
 	}
 	// 裁决必须引用了 EXEC 的截图证据（ADVISOR 是"看证据评审"，不是复述工具名）。
-	if !strings.Contains(gov.LastDirective, "screen:") && !strings.Contains(gov.LastDirective, "media:") {
+	if !strings.Contains(directive, "screen:") && !strings.Contains(directive, "media:") {
 		t.Logf("提示：裁决原文未显式引用 screen/media 片段（模型措辞差异），但输入已带证据：%q",
-			truncateForLog(gov.LastDirective, 200))
+			truncateForLog(directive, 200))
 	}
 
 	payload, _ := json.MarshalIndent(report, "", "  ")
 	t.Logf("[report]\n%s", payload)
+}
+
+// teamWorkLogTail 取日志末尾若干行（失败诊断用；避免把整段 stderr 灌进测试输出）。
+func teamWorkLogTail(text string, lines int) string {
+	parts := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(parts) > lines {
+		parts = parts[len(parts)-lines:]
+	}
+	return strings.Join(parts, "\n")
+}
+
+// teamWorkAdvisorVerdict 从主会话可见聊天里取 ADVISOR 裁决行的正文：条件是
+// kind=tl_directive 且 role_name=tl（两个字段一起钉住"这条行是 ADVISOR 的裁决"，
+// 不靠正文措辞猜）。返回 false = 本回合没有裁决行。
+func teamWorkAdvisorVerdict(conversation []model.Message) (string, bool) {
+	for index := len(conversation) - 1; index >= 0; index-- {
+		message := conversation[index]
+		if message.Kind == "tl_directive" && message.RoleName == "tl" {
+			return message.Content, true
+		}
+	}
+	return "", false
+}
+
+// teamWorkDirectiveKind 从 ADVISOR 回合原文（role.snapshot 的 tl 输出 = 裁决
+// JSON，形如 {"goal_id":…,"kind":"verdict_done","content":"…"}）解析 kind。
+//
+// 为什么不从可见裁决行解析：可见行是 `[TL 指令 corr-N] <正文>`（人读形式，
+// 与注入 EXEC 受信区的文本同源），kind 只在 ADVISOR 的原始输出里。
+func teamWorkDirectiveKind(advisorOutputs []string) string {
+	for index := len(advisorOutputs) - 1; index >= 0; index-- {
+		var directive struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal([]byte(advisorOutputs[index]), &directive); err == nil && directive.Kind != "" {
+			return directive.Kind
+		}
+	}
+	return ""
+}
+
+// teamWorkWaitIdle 轮询等待全部回合结束（成功 = 服务端报告 idle）。
+//
+// 为什么不直接一次 `WaitIdle(600)`：控制面 HTTP 客户端的单次超时是 90s，而
+// "截图轮 + ADVISOR 终态裁决"两段真实 API 调用在 provider 抖动时会超过它
+// （2026-09-17 实测一次 91.4s → 客户端先报 context deadline exceeded，把"还在跑"
+// 误报成失败）。这里改为多轮小预算 WaitIdle：每轮的服务端预算 40s < 客户端 90s，
+// 轮与轮之间重试，整体到 timeout 才判真失败（真挂住时依然会失败）。
+func teamWorkWaitIdle(ctx context.Context, t *testing.T, proc *forkLiveProc, timeout time.Duration) error {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := proc.rpc(ctx, "WaitIdle", 40); err == nil {
+			return nil
+		} else if ctx.Err() != nil {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("等待空闲超时（%s）", timeout)
+		}
+		t.Logf("WaitIdle 未收敛，2s 后重试（真实 API 抖动）")
+		time.Sleep(2 * time.Second)
+	}
 }
 
 // teamWorkScreenshotArtifacts 同时收集截图文件（磁盘）与截图媒体引用（会话记录）。
