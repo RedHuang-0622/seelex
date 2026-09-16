@@ -85,6 +85,9 @@ go.work.sum
 tmp/
 temp/
 
+# Agent/人工排查用的本地临时工作区（脚本、探针、日志、临时二进制；不属于仓库产物）
+_tmp/
+
 # ── Python 缓存 ──────────────────────────────────────────────
 __pycache__/
 *.pyc
@@ -126,6 +129,10 @@ coverage-*
 # 报告/脚本是工作区产物，需要时手动选择性提交。
 docs/swebench/
 verify_snaps.py
+
+# 仓库根散落的本地生成物/个人脚本（不属于仓库内容）
+/coverage-summary.txt
+/fk1-docs-arch-summaries.md
 
 # ── 本地个人工具目录（勿提交） ─────────────────────────────
 local/

@@ -95,10 +95,19 @@ if ($BuildKind -eq "Publish") {
     }
 }
 
+# Archive root = package name: rename the staging dir from ".stage-<pkg>" to "<pkg>"
+# before compressing, otherwise the extracted folder carries the dotted staging name
+# (.stage-seelex-v...-gui/) and diverges from the publish package layout.
+$PackRoot = Join-Path $ArchiveRoot $PackageName
+if (Test-Path -LiteralPath $PackRoot) {
+    Remove-Item -Recurse -Force -LiteralPath $PackRoot
+}
+Rename-Item -LiteralPath $StageRoot -NewName $PackageName
+
 $compressed = $false
 for ($attempt = 1; $attempt -le 5; $attempt++) {
     try {
-        Compress-Archive -Path $StageRoot -DestinationPath $ArchivePath -Force
+        Compress-Archive -Path $PackRoot -DestinationPath $ArchivePath -Force
         $compressed = $true
         break
     }
@@ -111,9 +120,11 @@ if (-not $compressed) {
     throw "failed to create GUI archive"
 }
 
-# Expanded staging dir is transient; only zip + sha256 stay in the partition.
-if (Test-Path -LiteralPath $StageRoot) {
-    Remove-Item -Recurse -Force -LiteralPath $StageRoot
+# Expanded package dir is transient; only zip + sha256 stay in the partition.
+foreach ($transient in @($StageRoot, $PackRoot)) {
+    if (Test-Path -LiteralPath $transient) {
+        Remove-Item -Recurse -Force -LiteralPath $transient
+    }
 }
 
 $hash = (Get-FileHash $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
