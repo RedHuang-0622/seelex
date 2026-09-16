@@ -193,6 +193,18 @@ type SessionMetaPort interface {
 	SessionMeta(sessionID string) (model.SessionMeta, error)
 }
 
+// SessionSettingPort 是会话端口的可选扩展：读写**会话级用户设置**（当前唯一一项
+// 是主会话权限档位）。
+//
+// 与 SessionMetaPort 共用同一份项目级 blob（物理存储同一处），但读面刻意分开：
+// 会话级设置不参与目录展示，也不该被展示元数据的写入（取消置顶/改别名）顺手清掉。
+// 未实现时应用层按"该会话从未选择"处理（档位退回内存态，不阻断切档）——最小宿主
+// 与测试桩因此不受影响。空档位 = 从未选择，运行时回退进程默认档位。
+type SessionSettingPort interface {
+	SessionPermissionTier(sessionID string) (string, error)
+	SetSessionPermissionTier(sessionID, tier string) error
+}
+
 // SessionUnit 是会话资源单元骨架：S_i=(id,K,parent,E,V,Q,C,B,status)。
 // 热/冷由 EnginePort.HasSession 判定（loaded），薄状态机只维护可见状态。
 type SessionUnit struct {

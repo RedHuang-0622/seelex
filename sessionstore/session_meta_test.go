@@ -97,3 +97,71 @@ func TestSessionMetaStoreConcurrentSets(t *testing.T) {
 		t.Fatalf("stored entries = %d, want %d（并发读改写丢失更新）", len(metas), writers)
 	}
 }
+
+// TestSessionMetaStorePermissionTierIsolation：会话级权限档位与展示元数据共用一份
+// 项目 blob，但两个写面必须互不覆盖：置顶写入/清除都不得动档位；档位写入/清除也
+// 不得动置顶与排序位。档位是"跨重启记住用户这一 session 的权限设置"的存储面。
+func TestSessionMetaStorePermissionTierIsolation(t *testing.T) {
+	router := newSessionGranularRouter(t, BackendJSON)
+	meta := NewSessionMetaStore(router)
+
+	if _, err := meta.SetPermissionTier("project-tier", "sess-a", "full"); err != nil {
+		t.Fatalf("set tier: %v", err)
+	}
+	if tier, err := meta.PermissionTier("project-tier", "sess-a"); err != nil || tier != "full" {
+		t.Fatalf("tier = %q err=%v, want full", tier, err)
+	}
+
+	// 展示写入保留档位。
+	if _, err := meta.Set("project-tier", "sess-a", SessionDisplayMeta{Pinned: true, SortOrder: 2}); err != nil {
+		t.Fatalf("set display meta: %v", err)
+	}
+	metas, err := meta.Meta("project-tier")
+	if err != nil {
+		t.Fatalf("meta read: %v", err)
+	}
+	if got := metas["sess-a"]; got.PermissionTier != "full" || !got.Pinned || got.SortOrder != 2 {
+		t.Fatalf("meta after display write = %+v, want tier kept + display written", got)
+	}
+
+	// 清展示字段（零值）不得删除带档位的条目。
+	if _, err := meta.Set("project-tier", "sess-a", SessionDisplayMeta{}); err != nil {
+		t.Fatalf("clear display meta: %v", err)
+	}
+	metas, err = meta.Meta("project-tier")
+	if err != nil {
+		t.Fatalf("meta read: %v", err)
+	}
+	if got := metas["sess-a"]; got.PermissionTier != "full" || got.Pinned || got.Alias != "" || got.SortOrder != 0 {
+		t.Fatalf("meta after display clear = %+v, want tier kept + display zeroed", got)
+	}
+
+	// 档位写入保留展示字段。
+	if _, err := meta.Set("project-tier", "sess-a", SessionDisplayMeta{Alias: "排查"}); err != nil {
+		t.Fatalf("set alias: %v", err)
+	}
+	if _, err := meta.SetPermissionTier("project-tier", "sess-a", "auto"); err != nil {
+		t.Fatalf("set tier again: %v", err)
+	}
+	metas, err = meta.Meta("project-tier")
+	if err != nil {
+		t.Fatalf("meta read: %v", err)
+	}
+	if got := metas["sess-a"]; got.PermissionTier != "auto" || got.Alias != "排查" {
+		t.Fatalf("meta after tier rewrite = %+v, want alias kept + tier updated", got)
+	}
+
+	// 清档位：条目仍有别名 → 留下；别名也清掉 → 条目消失（不留空记录）。
+	if _, err := meta.SetPermissionTier("project-tier", "sess-a", ""); err != nil {
+		t.Fatalf("clear tier: %v", err)
+	}
+	if metas, err = meta.Meta("project-tier"); err != nil || metas["sess-a"].Alias != "排查" || metas["sess-a"].PermissionTier != "" {
+		t.Fatalf("meta after tier clear = %+v err=%v, want alias kept", metas, err)
+	}
+	if _, err := meta.Set("project-tier", "sess-a", SessionDisplayMeta{}); err != nil {
+		t.Fatalf("clear everything: %v", err)
+	}
+	if metas, err = meta.Meta("project-tier"); err != nil || len(metas) != 0 {
+		t.Fatalf("meta after full clear = %+v err=%v, want empty", metas, err)
+	}
+}

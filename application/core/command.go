@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/input_router"
 )
 
@@ -175,6 +176,30 @@ func (service *Service) registerBuiltinCommands() error {
 			return CommandResult{}, err
 		}
 		return CommandResult{Notice: "Effort 已切换为: " + level}, nil
+	})
+	// 运行期切档（main.go 装配注释承诺的 CLI 面）：与 GUI chip / headless 共用
+	// SetPermissionTier 单一路径——写入侧校验、会话粒度落地（含跨重启落盘）、执行门
+	// 与审批面按本会话同步。刻意**不加 running 守卫**：运行中切档正是用来放行/收紧
+	// 当前审批的（与 /effort 的守卫语义不同）。
+	register("permission", "查看/切换本会话权限档位: /permission <manual|edit|auto|full>", func(_ context.Context, args []string) (CommandResult, error) {
+		if len(args) == 0 {
+			current := service.permissionTierForSession(service.currentViewSessionID())
+			var builder strings.Builder
+			builder.WriteString("当前档位（本会话）: " + current + "\n")
+			for _, tier := range dto.PermissionTiers() {
+				marker := "  "
+				if tier.ID == current {
+					marker = "* "
+				}
+				fmt.Fprintf(&builder, "%s%-8s %s\n", marker, tier.ID, tier.Description)
+			}
+			return CommandResult{Notice: builder.String()}, nil
+		}
+		effective, err := service.SetPermissionTier(args[0])
+		if err != nil {
+			return CommandResult{}, err
+		}
+		return CommandResult{Notice: "本会话权限档位已切换为: " + effective}, nil
 	})
 	return registrationErr
 }

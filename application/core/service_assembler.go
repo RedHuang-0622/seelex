@@ -220,6 +220,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		service.restorePersistedDraft()
 	}
 	service.components.tasks.ImportEngineHistoryAsTranscriptLocked(service.Deps.Engine.History())
+	// 需求变更（P1-1）：冷启动读回视图会话的权限档位。必须在运行时投影之前——
+	// 投影按会话读档位，恢复晚了首个快照会显示进程默认档位（重启即"丢设置"的观感）。
+	service.restorePermissionTierFor(service.currentViewSessionID())
 	if err := service.registerBuiltinCommands(); err != nil {
 		return nil, err
 	}

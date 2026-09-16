@@ -183,6 +183,27 @@ func (port SessionPort) SessionMeta(sessionID string) (model.SessionMeta, error)
 	return adaptSessionMetaFromStore(metas[sessionID]), nil
 }
 
+// SessionPermissionTier 实现 session.SessionSettingPort：读单会话的权限档位设置
+// （空 = 该会话从未选择）。
+func (port SessionPort) SessionPermissionTier(sessionID string) (string, error) {
+	if port.Meta == nil {
+		return "", errors.New("session meta storage is not assembled")
+	}
+	projectID := port.granular().ResolveProjectForSession(sessionID)
+	return port.Meta.PermissionTier(projectID, sessionID)
+}
+
+// SetSessionPermissionTier 实现 session.SessionSettingPort：写单会话的权限档位设置
+// （与展示元数据同一份项目级 blob，但只动档位字段）。
+func (port SessionPort) SetSessionPermissionTier(sessionID, tier string) error {
+	if port.Meta == nil {
+		return errors.New("session meta storage is not assembled")
+	}
+	projectID := port.granular().ResolveProjectForSession(sessionID)
+	_, err := port.Meta.SetPermissionTier(projectID, sessionID, tier)
+	return err
+}
+
 // applySessionMetas 把项目 blob 里的展示元数据盖到目录枚举结果上。缺 blob 或
 // 读失败都不阻断目录：元数据只影响排序与标题显示。
 func (port SessionPort) applySessionMetas(projectID string, infos []model.SessionInfo) []model.SessionInfo {
@@ -727,9 +748,12 @@ func roleSnapshot(snapshot sessionstore.RoleSnapshot) dto.RoleSnapshot {
 		OrderPolicy: snapshot.OrderPolicy, OrderRoles: append([]string(nil), snapshot.OrderRoles...),
 		MainHeadCommitID: snapshot.MainHeadCommitID, MainHeadSeq: snapshot.MainHeadSeq,
 		MainRows: roleRows(snapshot.MainRows), RoleRows: roleRows(snapshot.RoleRows),
-		DraftRows:          roleDraftRows(snapshot.DraftRows),
-		UnassignedRoleRows: snapshot.UnassignedRoleRows,
-		DesignWarnings:     append([]string(nil), snapshot.DesignWarnings...),
+		DraftRows:             roleDraftRows(snapshot.DraftRows),
+		PrefixCutSeq:          snapshot.PrefixCutSeq,
+		VisibleMainRows:       snapshot.VisibleMainRows,
+		OutsidePrefixMainRows: snapshot.OutsidePrefixMainRows,
+		UnassignedRoleRows:    snapshot.UnassignedRoleRows,
+		DesignWarnings:        append([]string(nil), snapshot.DesignWarnings...),
 	}
 	if snapshot.Floor != nil {
 		out.Floor = &dto.RoleFloor{

@@ -392,6 +392,9 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	// （Assignee → subagent:<节点会话ID>；重启/切页后不再停留 main）。
 	_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 	workspaceProjection := service.collectWorkspaceProjection()
+	// 需求变更（P1-1）：冷加载读回目标会话的权限档位（含磁盘读，在锁外完成；
+	// 内存态落地在下面拿到会话单元之后）。
+	storedTier := service.readStoredPermissionTier(sessionID)
 
 	service.ViewMu.Lock()
 	// 异步装载（activateEpoch>0）：仅在仍是最新切换目标且目标仍是当前视图
@@ -414,6 +417,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	}
 	resumedRuntime := service.sessionUnitLocked(sessionID)
 	resumedRuntime.SetCancel(nil)
+	service.applyStoredPermissionTier(sessionID, storedTier)
 	service.components.sessions.SetSessionTitleLocked(sessionID, SessionTitle{Value: name, Source: "legacy_history"})
 	if hasRecord {
 		service.components.sessions.SetSessionTitleLocked(sessionID, record.Title)

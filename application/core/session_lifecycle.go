@@ -56,12 +56,16 @@ func (service *Service) hotAttachSession(sessionID string) error {
 	service.Deps.Runtime.SwitchSessionTasks(sessionID, service.Deps.Runtime.TaskSnapshotFor(sessionID))
 	_ = service.Deps.Runtime.RestoreSubagentAnchors(sessionID)
 	workspaceProjection := service.collectWorkspaceProjection()
+	// 需求变更（P1-1）：热切换读回目标会话的权限档位（含磁盘读，在锁外完成；
+	// 内存态落地在下面拿到会话单元之后）。
+	storedTier := service.readStoredPermissionTier(sessionID)
 
 	service.ViewMu.Lock()
 	name := service.components.sessions.SessionTitleFor(sessionID).Value
 	service.Core.Snapshot.Session = SessionState{ID: sessionID, Name: name}
 	service.sessions.SetActive(sessionID)
 	resumedRuntime := service.sessionUnitLocked(sessionID)
+	service.applyStoredPermissionTier(sessionID, storedTier)
 	service.setSessionChatLockedFor(sessionID, resumedRuntime.ChatState())
 	service.mirrorActiveViewLocked()
 	if task := service.components.tasks.VisibleTaskStateFor(sessionID); task != nil {

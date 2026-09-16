@@ -244,6 +244,11 @@ func (service *Service) SetPermissionTier(tier string) (string, error) {
 		return "", err
 	}
 	viewSessionID := service.currentViewSessionID()
+	// 需求变更（2026-09-17）：档位是"这一 session 的权限设置"，先落盘再改内存态——
+	// 写盘失败时保持原档位并显式报错，而不是让用户看到"已切全权"、重启后又变回去。
+	if err := service.persistPermissionTier(viewSessionID, normalized); err != nil {
+		return "", err
+	}
 	// G4：档位选择归属视图会话单元（每个会话记住自己的档位）；执行门与审批面
 	// 同步按**本会话**写入（运行中切档用于放行/收紧当前审批），不影响其它会话。
 	if unit := service.sessions.Unit(viewSessionID); unit != nil {
