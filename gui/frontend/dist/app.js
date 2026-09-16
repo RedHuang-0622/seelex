@@ -62,7 +62,7 @@ const elements = Object.fromEntries([
   "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
-  "load-history", "latest-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title",
+  "load-history", "latest-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title", "permission-tier-list",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
   "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
@@ -1384,11 +1384,45 @@ function renderRuntime(runtime) {
     ["Tools", String(runtime.visible_tools?.length || 0)]
   ].map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("");
 
-  const fullAccess = Boolean(runtime.full_access);
-  elements["perm-toggle"].classList.toggle("is-on", fullAccess);
-  elements["perm-toggle"].innerHTML = fullAccess ? `全权 ${icon("check", 12)}` : "全权";
+  renderPermissionTier(runtime);
 
   effortControl.setLevel(runtime.effort);
+}
+
+// permissionTierCatalog 取后端下发的档位目录（进程级只读原件，避免前后端各写
+// 一套档位名漂移）。缺目录时返回空数组，芯片退化成"只有当前档"。
+function permissionTierCatalog(runtime) {
+  const tiers = Array.isArray(runtime.permission_tiers) ? runtime.permission_tiers : [];
+  return tiers.filter(tier => tier && tier.id);
+}
+
+// currentPermissionTier 解析本会话生效档位（permission_tier 为准；缺失时按旧的
+// 二元 full_access 回退，保兼容）。返回目录项（缺失时合成一条）。
+function currentPermissionTier(runtime) {
+  const catalog = permissionTierCatalog(runtime);
+  const id = runtime.permission_tier || (Boolean(runtime.full_access) ? "full" : "manual");
+  const found = catalog.find(tier => tier.id === id);
+  return found || { id, label: id, short: id, description: "" };
+}
+
+// renderPermissionTier 渲染权限档：composer 芯片只显示当前档短名（全权档保留 ✓，
+// 也是打开运行状态的入口），权威选择入口是运行状态弹窗里的档位列表（本会话粒度）。
+function renderPermissionTier(runtime) {
+  const tier = currentPermissionTier(runtime);
+  const chip = elements["perm-toggle"];
+  if (chip) {
+    chip.dataset.tier = tier.id;
+    chip.classList.toggle("is-on", tier.id === "full");
+    const short = escapeHtml(tier.short || tier.label || tier.id);
+    chip.innerHTML = tier.id === "full" ? `${short} ${icon("check", 12)}` : short;
+  }
+  const host = elements["permission-tier-list"];
+  if (!host) return;
+  host.innerHTML = permissionTierCatalog(runtime).map(item => `
+    <button type="button" class="tier-option ${item.id === tier.id ? "is-active" : ""}" data-tier="${escapeHtml(item.id)}" role="radio" aria-checked="${item.id === tier.id}">
+      <span class="tier-option-label">${escapeHtml(item.label || item.id)}</span>
+      <span class="tier-option-desc">${escapeHtml(item.description || "")}</span>
+    </button>`).join("");
 }
 
 function renderPlugins(runtime) {
@@ -3268,29 +3302,38 @@ document.addEventListener("keydown", event => {
   }
 });
 
-// FA toggle
-elements["perm-toggle"].addEventListener("click", async function() {
-  if (this.classList.contains("is-pending")) return;
-  const next = !Boolean(client.current()?.runtime?.full_access);
-  this.classList.add("is-pending");
+// 权限档 chip：点击打开运行状态（档位列表是权威入口；档位是**主 agent 在本会话**
+// 的粒度，chip 只做当前档指示 + 入口）。
+elements["perm-toggle"].addEventListener("click", function() {
+  openRuntime();
+});
+
+// 档位列表：点击提交 SetPermissionTier，按后端返回的**真正生效档位**渲染，再拉整份
+// 快照（档位是会话级投影，切会话即换）。
+elements["permission-tier-list"].addEventListener("click", async function(event) {
+  const button = event.target.closest("[data-tier]");
+  if (!button || button.classList.contains("is-active")) return;
+  const tier = button.dataset.tier;
   try {
-    // Bridge 返回真正生效的值：直接按它渲染开关，避免快照滞后导致"点了全权仍被拒"。
-    const effective = await invoke("SetFullAccess", next);
-    renderFullAccessChip(effective);
+    // Bridge 返回真正生效的档位：避免快照滞后造成"点了没生效"的滞后观感。
+    const effective = await invoke("SetPermissionTier", tier);
+    renderPermissionChip(effective);
     await refresh({ scroll: false });
   } catch (error) {
     showToast(error);
-  } finally {
-    this.classList.remove("is-pending");
   }
 });
 
-// renderFullAccessChip 只改开关本身（乐观回执），完整运行时投影仍随后端快照刷新。
-function renderFullAccessChip(on) {
+// renderPermissionChip 只改芯片本身（乐观回执），完整运行时投影仍随后端快照刷新。
+function renderPermissionChip(tier) {
   const chip = elements["perm-toggle"];
   if (!chip) return;
-  chip.classList.toggle("is-on", Boolean(on));
-  chip.innerHTML = on ? `全权 ${icon("check", 12)}` : "全权";
+  const id = typeof tier === "string" && tier ? tier : String(tier?.id || "");
+  const entry = permissionTierCatalog(client.current()?.runtime || {}).find(item => item.id === id);
+  chip.dataset.tier = id;
+  chip.classList.toggle("is-on", id === "full");
+  const short = escapeHtml(entry?.short || (id === "full" ? "全权" : id));
+  chip.innerHTML = id === "full" ? `${short} ${icon("check", 12)}` : short;
 }
 
 // ── 左右栏宽度拖拽 ─────────────────────────────────────────

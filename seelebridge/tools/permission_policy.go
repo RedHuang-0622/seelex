@@ -853,7 +853,7 @@ func (state *PermissionGate) ensureEmployeeSubject(subject toolspermission.Subje
 		return
 	}
 	state.cfg.Subjects[subject] = grantForEmployeeIdentity(identity)
-	state.checker = toolspermission.NewPermissionChecker(state.cfg)
+	state.rebuildLocked()
 }
 
 // grantForEmployeeIdentity 把一份员工身份落成授权条目：显式格子优先，否则按档位。

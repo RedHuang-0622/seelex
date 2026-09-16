@@ -45,7 +45,7 @@
 - `:root` 定义唯一 token 层：表面色（`--bg/panel/surface`）、文本色（`--paper` 系）、品牌色（`--accent` 黄铜）、语义色（`--status-running/done/failed/info`）、刻度线（`--tick`）、字阶、圆角与间距。组件不得硬编码色值；同义状态只允许使用对应语义变量，禁止色值漂移。
 - 字体三角色：界面正文 `--font-ui`，数据/时间戳/状态 `--font-mono`，标签与数字 `--font-display`（Bahnschrift 系测量字）；最小可见字号 10px，数据行 ≥11px，正文不低于 12px。
 - 中栏签名：`#trace-rail` 是一条垂直时间基线，消息与 Plan 卡片以打点（`::before` 圆点）挂线，工具卡片以左侧 3px 状态条标识；运行中的 Plan 节点是唯一常驻动效（黄铜扫掠 `trace-sweep`），`prefers-reduced-motion` 全局关闭。
-- 界面词统一为中文：就绪 / 执行中 / 排队 / 全权；弹窗 eyebrow 不再使用英文机器词。
+- 界面词统一为中文：就绪 / 执行中 / 排队 / 手动 / 自动改文件 / 自动执行 / 全权；弹窗 eyebrow 不再使用英文机器词。
 - 图标管线：静态按钮以 `data-icon` 占位，启动时由 `components.js` 的
   `hydrateIcons()` 注入统一 stroke SVG（ICONS 注册表）；顶部连接点
   `.status-dot` 由 `chat-view.js` 追加 `online` 类切换语义色。
@@ -107,7 +107,7 @@ Workbench 快照或进程制品）；会话粒度基线（`capabilities.session_
 3. seq 缺口先向宿主 `ReplayEvents` 增量补取；补不齐、协议不兼容或未知状态才触发完整 Snapshot resync。
 4. render functions 根据 state 投影 DOM；所有 mutation 通过 Bridge 返回 Application。
 
-Full Access 按钮不维护本地布尔状态：显示与下一次 toggle 都读取 `snapshot.runtime.full_access`，调用 `Bridge.SetFullAccess` 后重新拉取 Snapshot；后端同时发布完整 `runtime.changed` 供连续事件链更新。
+权限档位控件不维护本地状态：composer chip（`#perm-toggle`，位置沿用原"全权"chip）显示当前档短名，点击打开运行状态弹窗；弹窗里的「权限档位（本会话）」列表按后端目录 `snapshot.runtime.permission_tiers` 有序渲染，当前档由 `snapshot.runtime.permission_tier` 标记，点击调用 `Bridge.SetPermissionTier` 后按返回的**生效档位**渲染并重新拉取 Snapshot；后端同时发布完整 `runtime.changed` 供连续事件链更新。旧 `full_access` 保留为派生位（`full` 档 ⇒ true）。
 
 事件是状态更新的唯一快路径。渲染层每应用一批事件就向宿主回报应用水位
 （`Bridge.AckEvents`，密集期按 150ms 合并）；`delivery_seq` 出现缺口时先向宿主

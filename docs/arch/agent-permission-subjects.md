@@ -17,8 +17,9 @@
 | 框架（Seele） | `tools/permission/{checker,middleware,approval}.go` | 组/位/规则/审批的**判定与错误语义**；`Gate` 是唯一判定入口 |
 | 框架 | `tools/tools.go` `ToolMeta{Kind,Groups,Bits,Resource}` | 工具自报门第（**可选**，见 §7） |
 | 产品（Seelex） | `seelebridge/tools/permission_policy.go` | 授权表（路由组 + 主体位）、主体类解析、主体类策略（Enforcer） |
-| 产品 | `seelebridge/tools/registry_state.go` | 把框架 `Gate` 接进工具调度链；会话级全权短路 |
-| 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge` / `SetRoleSessionPolicyResolver`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥 + 员工 ToolsPolicy 读面 |
+| 产品 | `seelebridge/tools/permission_tiers.go` | **主会话权限档位**的覆盖实现（`ApplyTier`：只剪 ask，不碰 deny） |
+| 产品 | `seelebridge/tools/registry_state.go` | 把框架 `Gate` 接进工具调度链；会话级档位选表 + `full` 档短路 |
+| 组合根 | `main.go`（`setupPermissionGate` / `mergePermissionConfig` / `newPermissionBridge` / `SetRoleSessionPolicyResolver` / `SetRoleSessionOwnerResolver`） | 装配：默认表 + `config/seele.yaml` 覆盖 + 审批桥 + 员工 ToolsPolicy 读面 + 审批归属读面 |
 | 配置 | `config/seele.yaml` | **只写覆盖**（`missing_bit` + 最细粒度 `rules`） |
 
 分工的一句话：**框架管"位语义"，产品管"位落在哪片资源、以及各主体的默认授权"**。
@@ -97,6 +98,30 @@ nil / 未命中的读面保持旧的按会话归属（后台会话待批仍归�
 
 `config/seele.yaml` **不写** `tool: "*"` 的兜底 ask：那会把所有组的默认动作覆盖掉。
 
+### 2.5 权限档位（主 agent 的会话粒度覆盖）
+
+档位（tier）是 **root 主体在本会话的自动度**，不是新判定机制：它是把 §2.4 的 `rules`
+按档位**剪掉若干 `ask`** 的一层声明式覆盖（`ApplyTier`），**从不新增 allow、从不触碰
+deny**（危险命令段在任何档位下都硬拦）。
+
+| 档位 id | 覆盖 | 语义 |
+| --- | --- | --- |
+| `manual`（默认） | 无 | 完全按权责表问/放 |
+| `edit` | 剪 `write_file`/`edit_file` 的 ask | 项目文件写不再打断 |
+| `auto` | 再剪 `bash` 的全部 ask | 任意命令直跑（危险 deny 仍在） |
+| `full` | 执行门短路 | 本会话全部放行（= 旧 `full_access`） |
+
+- 词表（id/标签/说明）的唯一事实在 `application/contract/dto`（前端按它渲染列表）；
+  覆盖实现在 `seelebridge/tools/permission_tiers.go`。
+- **只对 root 生效**：`gate()` 按"主体类 + 会话档位"选表——非 root（`sub`/`emp_*`）
+  一律用 base 表；`full` 档的短路条件收紧为 `class == root`。因此档位只改主 agent 的
+  "问不问"，不改任何主体的"有没有位"（员工越权照旧审批提权）。
+- **会话粒度**：档位选择落在 `SessionUnit` 槽（`PermissionTier/SetPermissionTier`），
+  执行门按调度 ctx 的会话解析；A 会话切档不替 B 放行，B 的起点同步也不关掉 A。
+- 前端：composer chip 就地显示当前档短名（位置 = 原"全权"chip），运行状态弹窗里的
+  「权限档位（本会话）」列表是权威选择入口；档位目录由后端（`RuntimeState.PermissionTiers`）下发。
+- `SetFullAccess(true/false)` 保留为兼容壳（⇔ `full`/`manual` 档）。
+
 ## 3. 一次调用的求值顺序
 
 ```
@@ -105,10 +130,11 @@ Middleware(ctx, name, meta)                 # seelebridge/tools/registry_state.g
   ├─ ctx 注入 WithEngine(subject) + WithSessionID(session)
   └─ Gate.Decide(ctx, name, meta, args)     # 框架
        ├─ 1. Enforcer.Enforce(...)          # 产品挂载点（位与沙箱/路径的交界）
-       │      ├─ 会话级全权 → allow（短路；子代理不享，见 §4）
-       │      └─ 主体类策略（sub / emp_*，见 §4）；root → ok=false 落回框架
+       │      ├─ class == root 且 full 档 → allow（短路；员工/子代理不享，见 §2.5/§4）
+       │      └─ 主体类策略（sub / emp_*，见 §4）；root 非 full 档 → ok=false 落回框架
        ├─ 2. meta.Kind == control && subject != root → 不可见（目标设计，§7）
        ├─ 3. Checker.DecideForMeta：route(name) → 位与/资源 → 组默认 → rules
+       │      （root 用**本会话档位**的 checker；sub/员工用 base checker）
        └─ 4. allow → 执行；deny → 拒绝；ask → 执行选择页面（审批）
 ```
 
@@ -129,9 +155,9 @@ Middleware(ctx, name, meta)                 # seelebridge/tools/registry_state.g
 | `emp_*` | **有宿主人类**：位缺（违权）→ 走**执行选择页面提权**（人类的选择页 = sudo 口令）；位齐 → 交回框架（组默认/规则）；显式 `deny` 不因提权页面变软 | `permission_policy.go:enforceEmployee` |
 | `root` | 完全落回框架（组默认 + rules），位这一层只多一道"位必须齐"而 root 全位 | `Enforce` 返回 `ok=false` |
 
-会话级 `full_access` 降级为 `Enforcer` 里的**短路**（`PermissionGate.Enforce`）：
-它是"本次会话不做位与规则判定"的用户显式决定，**不越会话传播**，也**不把一个无权主体
-（sub）变成有权主体**。
+会话级 `full` 档降级为 `Enforcer` 里的**短路**（`PermissionGate.Enforce`）：
+它是"本次会话不做位与规则判定"的用户显式决定，**不越会话传播**，**不把一个无权主体
+（sub/员工）变成有权主体**（短路条件 = `class == root`），也是 §2.5 档位表的最右一档。
 
 ## 5. 错误语义（调用方与前端可依赖）
 
@@ -153,7 +179,8 @@ config/seele.yaml  permission.{missing_bit, rules}      # 只写覆盖
         ↓
 PermissionGate.Set(cfg, handler)                        # 重建 checker + 保留 cfg 快照
         ↓
-运行时选项：会话级 full_access（-permission full_access / 会话级开关）
+运行时选项：会话级权限档位（-permission manual|edit|auto|full，旧别名 full_access → full；
+             GUI/CLI 按会话切换；full = 执行门短路）
 员工读面：SetRoleSessionPolicyResolver(角色会话 → ToolsPolicy)，TTL 缓存 5s
 ```
 

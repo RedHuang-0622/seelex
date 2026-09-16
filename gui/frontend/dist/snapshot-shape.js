@@ -13,6 +13,7 @@
 export const SESSION_RUNTIME_KEYS = Object.freeze([
   "effort",
   "full_access",
+  "permission_tier",
   "tokens",
   "replan",
   "plan",
@@ -32,6 +33,7 @@ export const PROCESS_RUNTIME_KEYS = Object.freeze([
   "provider",
   "account",
   "plugin",
+  "permission_tiers",
   "visible_tools",
   "skills",
   "plugins",

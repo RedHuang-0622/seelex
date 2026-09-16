@@ -24,6 +24,7 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/console"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
@@ -53,7 +54,7 @@ var (
 
 	storePath      = flag.String("store", ".seelex/sessions", "持久化存储路径")
 	pluginsPaths   = flag.String("plugins", "plugins", "Plugin 加载路径（逗号分隔）")
-	permissionMode = flag.String("permission", "manual", "权限模式: manual(白名单外需审批) | full_access(全部放行)")
+	permissionMode = flag.String("permission", "manual", "权限档位: manual(默认) | edit(自动改文件) | auto(自动执行) | full(全权，旧别名 full_access)")
 	frontendMode   = flag.String("frontend", DefaultFrontend, "前端模式: tui | gui | headless | backend")
 	backendPrompt  = flag.String("backend-prompt", "", "后端诊断请求（仅 -frontend backend；为空时从标准输入逐行读取）")
 	backendTimeout = flag.Duration("backend-timeout", 2*time.Minute, "后端单次诊断请求的最大等待时间")
@@ -129,7 +130,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("权限模式无效: %w", err)
 	}
-	*permissionMode = string(mode)
+	*permissionMode = mode
 	*storePath = resolveStorePath(*storePath)
 
 	console.LogStageIf(backendTrace, "startup.runtime.begin")
@@ -1205,14 +1206,15 @@ func parseFrontendMode(value string) (string, error) {
 type permissionRuntime interface {
 	SetPermissionConfig(toolspermission.PermissionConfig, toolspermission.ApprovalHandler)
 	SetFullAccess(bool)
+	SetPermissionTierFor(sessionID, tier string) error
 }
 
-// setupPermissionGate 根据 -permission 标志安装权限门控。
+// setupPermissionGate 根据 -permission 标志安装权限门控与起始档位。
 // 起始先装 manual 权责基线（分组 + 主体 + 缺位口径 + 默认规则），config/seele.yaml
 // 的 permission 段按字段覆盖它（缺失/为空的字段保持默认，不再整体替换规则集）。
-// full_access 仅作为运行时覆盖层启用。
+// 权限档位（manual/edit/auto/full）只作为进程级默认启用；运行期由 GUI/CLI 按会话切换。
 func setupPermissionGate(runtime permissionRuntime, approval *application.ApprovalBroker) error {
-	mode, err := parsePermissionMode(*permissionMode)
+	tier, err := parsePermissionMode(*permissionMode)
 	if err != nil {
 		return err
 	}
@@ -1222,8 +1224,10 @@ func setupPermissionGate(runtime permissionRuntime, approval *application.Approv
 		return err
 	}
 	runtime.SetPermissionConfig(mergePermissionConfig(cfg, fileCfg), newPermissionBridge(approval))
-	if mode == toolspermission.ModeFullAccess {
-		runtime.SetFullAccess(true)
+	if tier != "" && tier != dto.PermissionTierManual {
+		if err := runtime.SetPermissionTierFor("", tier); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1307,14 +1311,24 @@ func loadPermissionConfig(path string) (toolspermission.PermissionConfig, error)
 	return file.Permission, nil
 }
 
-func parsePermissionMode(value string) (toolspermission.Mode, error) {
-	mode := toolspermission.Mode(strings.ToLower(strings.TrimSpace(value)))
-	switch mode {
-	case toolspermission.ModeManual, toolspermission.ModeFullAccess:
-		return mode, nil
-	default:
-		return "", fmt.Errorf("%q，允许值为 manual 或 full_access", value)
+// parsePermissionMode 解析 -permission 标志为**权限档位 id**（manual/edit/auto/
+// full；兼容旧别名 full_access → full）。空/缺省 → manual。
+//
+// 档位取代旧的二元 manual/full_access：manual/edit/auto 是对 root 规则表的声明式
+// 覆盖，full 是执行门短路放行（= 旧 full_access）。
+func parsePermissionMode(value string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return dto.PermissionTierManual, nil
 	}
+	if trimmed == string(toolspermission.ModeFullAccess) {
+		return dto.PermissionTierFull, nil
+	}
+	tier, err := dto.NormalizePermissionTier(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("%q，允许值为 manual、edit、auto、full（旧别名 full_access）", value)
+	}
+	return tier, nil
 }
 
 // newPermissionBridge 创建连接 permission.ApprovalHandler → ApprovalBroker 的桥接器。

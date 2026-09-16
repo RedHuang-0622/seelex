@@ -1,5 +1,7 @@
 package dto
 
+import "strings"
+
 // permission.go 是「员工权限装配」的跨层词汇：**路由组名 + 位值**。
 //
 // 生态位：权责模型（主体 × 路由组 × 位 × 动作）的可执行形态在
@@ -78,6 +80,108 @@ func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error
 		normalized[group] = bits
 	}
 	return normalized, nil
+}
+
+// 主会话权限档位（tier）的 id：**主 agent（root 主体）在本会话的自动度档位**。
+//
+// 档位不是新的权限机制，而是对既有权责表（分组表 + 规则表）的一层**声明式覆盖**：
+// 每个档位只做一件事——把"要问人的 ask 规则"按档位逐族剪掉，从不新增 allow、
+// 从不触碰 deny。升序 = 自动度递增；`full` 由执行门短路（等价旧的 full_access）。
+//
+// 边界（产品决定，不是可选配置）：
+//   - 档位只作用在 root（主 agent）主体上；员工/子代理的判定链一字不改
+//     （"主会话全权只管网主会话，员工越权照旧审批提权"）。
+//   - 档位是**会话粒度**（跟着 SessionUnit 的槽走，切会话即换档位）。
+//   - 共享桌面（rw_desktop）与能力面（adm）只有 full 档才放开（安全底线）。
+const (
+	PermissionTierManual = "manual" // 手动（默认）：完全按权责表问/放
+	PermissionTierEdit   = "edit"   // 自动改文件：write_file/edit_file 不再问人
+	PermissionTierAuto   = "auto"   // 自动执行：bash 不再问人（危险命令仍硬拦）
+	PermissionTierFull   = "full"   // 全权（免审）：本会话短路放行
+)
+
+// PermissionTierInfo 是一个档位的展示目录项（前端按序渲染可选列表；id 是
+// 唯一事实，标签/说明由后端下发，避免前后端各写一套档位名漂移）。
+type PermissionTierInfo struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Short       string `json:"short"`
+	Description string `json:"description"`
+}
+
+// PermissionTiers 返回规范档位目录（升序 = 自动度递增；返回新切片，调用方
+// 随自己的展示需要裁剪，不会改到词表本身）。
+func PermissionTiers() []PermissionTierInfo {
+	return []PermissionTierInfo{
+		{ID: PermissionTierManual, Label: "手动", Short: "手动",
+			Description: "写文件、命令、桌面与能力面都按权责表问人（默认）"},
+		{ID: PermissionTierEdit, Label: "自动改文件", Short: "改文件",
+			Description: "项目文件写不再打断；命令与桌面/能力面仍问人"},
+		{ID: PermissionTierAuto, Label: "自动执行", Short: "自动",
+			Description: "文件写与任意命令直跑（危险命令仍硬拦）；桌面/能力面仍问人"},
+		{ID: PermissionTierFull, Label: "全权", Short: "全权",
+			Description: "本会话全部放行（免审）；只作用于主 agent"},
+	}
+}
+
+// PermissionTierIDs 返回规范档位 id 序列（装配/校验/测试用）。
+func PermissionTierIDs() []string {
+	infos := PermissionTiers()
+	ids := make([]string, 0, len(infos))
+	for _, info := range infos {
+		ids = append(ids, info.ID)
+	}
+	return ids
+}
+
+// ValidPermissionTier 报告 tier 是否是已知档位 id。
+func ValidPermissionTier(tier string) bool {
+	for _, info := range PermissionTiers() {
+		if info.ID == tier {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizePermissionTier 规整档位 id：空（未选择）→ manual（进程默认）；未识别
+// → 报错。写入侧宁可显式失败，也不要静默落到一个用户没选的档位（fail-open 的
+// "全权"尤其不可接受）。
+func NormalizePermissionTier(tier string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(tier))
+	if normalized == "" {
+		return PermissionTierManual, nil
+	}
+	if ValidPermissionTier(normalized) {
+		return normalized, nil
+	}
+	return "", &PermissionTierError{Tier: tier}
+}
+
+// PermissionTierError 是档位 id 非法（承载原值，便于装配方/前端直接报出用户
+// 选的档位，而不是一句"参数非法"）。
+type PermissionTierError struct{ Tier string }
+
+func (e *PermissionTierError) Error() string {
+	if e == nil {
+		return "权限档位非法"
+	}
+	return "权限档位 " + e.Tier + " 非法（取值见 dto.PermissionTierIDs）"
+}
+
+// PermissionTierFromFullAccess 把旧的二元 full_access 口径映射成档位（兼容壳：
+// SetFullAccess(true/false) ⇔ full/manual）。
+func PermissionTierFromFullAccess(on bool) string {
+	if on {
+		return PermissionTierFull
+	}
+	return PermissionTierManual
+}
+
+// PermissionTierIsFullAccess 报告档位是否等价旧 full_access（诊断/兼容读面）。
+func PermissionTierIsFullAccess(tier string) bool {
+	normalized, err := NormalizePermissionTier(tier)
+	return err == nil && normalized == PermissionTierFull
 }
 
 // PermissionGroupError 是权限格子规整失败（承载坏格子，便于装配方直接报出用户

@@ -75,7 +75,7 @@
           <div class="composer-tools">
             <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
             <button id="runtime-button" class="icon-button composer-icon" type="button" title="运行状态" aria-label="运行状态" data-icon="runtime"></button>
-            <button id="perm-toggle" class="perm-chip" type="button" title="全权访问模式" aria-label="全权访问模式">全权</button>
+            <button id="perm-toggle" class="perm-chip" type="button" title="权限档位（点击在运行状态里选）" aria-label="权限档位">手动</button>
           </div>
           <span id="composer-status">READY</span>
           <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
@@ -204,6 +204,10 @@
     <div class="modal-card runtime-card">
       <div class="modal-header"><div><span class="eyebrow">运行</span><h2 id="runtime-modal-title">运行状态</h2></div><button id="runtime-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div class="runtime-grid">
+        <section class="runtime-permission">
+          <div class="section-title">权限档位（本会话）</div>
+          <div id="permission-tier-list" class="tier-list" role="radiogroup" aria-label="会话权限档位"></div>
+        </section>
         <section>
           <div class="section-title">Runtime</div>
           <dl id="runtime-details" class="details-grid"></dl>

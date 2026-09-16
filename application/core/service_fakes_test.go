@@ -404,6 +404,25 @@ func (runtime *fakeRuntime) FullAccessFor(sessionID string) bool {
 	return runtime.fullAccess
 }
 
+// PermissionTier 返回进程级默认权限档位（fake 只有二元口径：fullAccess → full）。
+func (runtime *fakeRuntime) PermissionTier() string {
+	if runtime.FullAccess() {
+		return dto.PermissionTierFull
+	}
+	return dto.PermissionTierManual
+}
+
+// SetPermissionTierFor 把档位落到 fake 的二元全权口径（full → true，其余 → false），
+// 校验档位 id（与生产 SetPermissionTierFor 同源）。
+func (runtime *fakeRuntime) SetPermissionTierFor(sessionID, tier string) error {
+	normalized, err := dto.NormalizePermissionTier(tier)
+	if err != nil {
+		return err
+	}
+	runtime.SetFullAccessFor(sessionID, normalized == dto.PermissionTierFull)
+	return nil
+}
+
 // SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
 // 多个 runChat 并发调用（M2：每个会话各自 publishRuntimeProjections），
 // 生产 Runtime 的投影存储是并发安全的；fake 需用锁镜像，否则 -race 报

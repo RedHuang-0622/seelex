@@ -108,6 +108,8 @@ func (runtime harnessRuntime) ActivePlugin() string                             
 func (harnessRuntime) FullAccess() bool                                                       { return false }
 func (harnessRuntime) SetFullAccess(bool)                                                     {}
 func (harnessRuntime) SetFullAccessFor(string, bool)                                          {}
+func (harnessRuntime) PermissionTier() string                                                 { return dto.PermissionTierManual }
+func (harnessRuntime) SetPermissionTierFor(string, string) error                              { return nil }
 func (harnessRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
 func (harnessRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
 func (harnessRuntime) DrainSubagentContexts() []string                                        { return nil }

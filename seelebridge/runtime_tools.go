@@ -260,6 +260,23 @@ func (r *Runtime) SetFullAccessFor(sessionID string, on bool) {
 func (r *Runtime) FullAccessFor(sessionID string) bool {
 	return r.permission != nil && r.permission.FullAccessFor(sessionID)
 }
+
+// PermissionTier 返回进程级默认权限档位（装配/诊断面）。
+func (r *Runtime) PermissionTier() string {
+	if r.permission == nil {
+		return dto.PermissionTierManual
+	}
+	return r.permission.PermissionTier()
+}
+
+// SetPermissionTierFor 按会话设置权限档位（G4 归属面）：执行门按工具调度 ctx
+// 的会话解析档位，A 会话的切档不替 B 会话放行。未识别的档位 id 报错。
+func (r *Runtime) SetPermissionTierFor(sessionID, tier string) error {
+	if r.permission == nil {
+		return nil
+	}
+	return r.permission.SetPermissionTierFor(sessionID, tier)
+}
 func (r *Runtime) VisibleTools(ctx context.Context) []Tool {
 	return summarizeTools(r.agt.VisibleTools(ctx))
 }

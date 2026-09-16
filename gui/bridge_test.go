@@ -36,6 +36,7 @@ type fakeApplication struct {
 	selectedAccount   string
 	selectedEffort    string
 	selectedPlugin    string
+	selectedTier      string
 	loadedHistory     int
 	loadedLatest      bool
 	suggestionsInput  string
@@ -205,6 +206,10 @@ func (fake *fakeApplication) BindWorkspace(workspaceID string) error {
 }
 func (fake *fakeApplication) UnbindWorkspace()           {}
 func (fake *fakeApplication) SetFullAccess(on bool) bool { return on }
+func (fake *fakeApplication) SetPermissionTier(tier string) (string, error) {
+	fake.selectedTier = tier
+	return tier, nil
+}
 func (fake *fakeApplication) SessionStorageConfig() (sessionstore.Config, error) {
 	return sessionstore.Config{Backend: sessionstore.BackendJSON, Path: "sessions"}, nil
 }
@@ -1131,9 +1136,10 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		t.Fatal("GUI must wire the live freshness diagnostic badge (event/refresh/gap/buffer counters)")
 	}
 	if strings.Contains(string(script), "let fullAccessOn") ||
-		!strings.Contains(string(script), `client.current()?.runtime?.full_access`) ||
+		!strings.Contains(string(script), `invoke("SetPermissionTier"`) ||
+		!strings.Contains(string(script), `runtime.permission_tier`) ||
 		!strings.Contains(string(script), `Boolean(runtime.full_access)`) {
-		t.Fatal("Full Access control must use the authoritative GUI backend snapshot")
+		t.Fatal("权限档位控件必须走后端权威快照（permission_tier/permission_tiers）与 SetPermissionTier")
 	}
 	if !strings.Contains(string(script), `from "./perf-hooks.js"`) || !strings.Contains(string(script), `createPerfHooks`) || !strings.Contains(string(script), `invoke("PerfStats")`) || !strings.Contains(string(script), `invoke("ToolResultContent"`) {
 		t.Fatal("embedded frontend must wire performance hooks and result_ref loading")
@@ -1401,5 +1407,23 @@ func TestBridgeForwardsForkSession(t *testing.T) {
 	}
 	if app.forkedSession != "session-1" || childID != "child-session-1" {
 		t.Fatalf("fork forwarded = %q child = %q", app.forkedSession, childID)
+	}
+}
+
+// TestBridgeForwardsPermissionTier：权限档位切换必须原样转发到 application 并
+// 返回**真正生效的档位**（前端据此渲染当前档，不猜方向）。
+func TestBridgeForwardsPermissionTier(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	bridge, err := NewBridge(fake, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective, err := bridge.SetPermissionTier("auto")
+	if err != nil {
+		t.Fatalf("SetPermissionTier: %v", err)
+	}
+	if effective != "auto" || fake.selectedTier != "auto" {
+		t.Fatalf("tier not forwarded: effective=%q selected=%q", effective, fake.selectedTier)
 	}
 }

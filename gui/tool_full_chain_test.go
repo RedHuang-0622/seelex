@@ -112,9 +112,25 @@ func (runtime *guiChainRuntime) SetFullAccessFor(sessionID string, on bool) {
 }
 func (*guiChainRuntime) SetRuntimeVisibilityProjection(seelebridge.RuntimeVisibilityProjection) {}
 func (*guiChainRuntime) SetParentEvidenceProjection(seelebridge.ParentEvidenceProjection)       {}
-func (*guiChainRuntime) DrainSubagentContexts() []string                                        { return nil }
-func (*guiChainRuntime) SetPlanPolicy(dto.PlanPolicy)                                           {}
-func (*guiChainRuntime) SetPlanPolicyFor(string, dto.PlanPolicy)                                {}
+func (runtime *guiChainRuntime) PermissionTier() string {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.fullAccess {
+		return dto.PermissionTierFull
+	}
+	return dto.PermissionTierManual
+}
+func (runtime *guiChainRuntime) SetPermissionTierFor(sessionID, tier string) error {
+	normalized, err := dto.NormalizePermissionTier(tier)
+	if err != nil {
+		return err
+	}
+	runtime.SetFullAccessFor(sessionID, normalized == dto.PermissionTierFull)
+	return nil
+}
+func (*guiChainRuntime) DrainSubagentContexts() []string         { return nil }
+func (*guiChainRuntime) SetPlanPolicy(dto.PlanPolicy)            {}
+func (*guiChainRuntime) SetPlanPolicyFor(string, dto.PlanPolicy) {}
 func (*guiChainRuntime) PrepareReplan(context.Context, dto.ReplanRequest) (dto.PlanPreflight, error) {
 	return dto.PlanPreflight{}, nil
 }

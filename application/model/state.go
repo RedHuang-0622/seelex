@@ -200,12 +200,18 @@ type ChatState struct {
 	InputQueue  []string  `json:"input_queue,omitempty"` // 排队消息内容（TUI 显示用）
 }
 type RuntimeState struct {
-	Model             string                     `json:"model"`
-	Provider          string                     `json:"provider"`
-	Account           string                     `json:"account,omitempty"`
-	Plugin            string                     `json:"plugin,omitempty"`
-	Effort            string                     `json:"effort"`
-	FullAccess        bool                       `json:"full_access"`
+	Model      string `json:"model"`
+	Provider   string `json:"provider"`
+	Account    string `json:"account,omitempty"`
+	Plugin     string `json:"plugin,omitempty"`
+	Effort     string `json:"effort"`
+	FullAccess bool   `json:"full_access"`
+	// PermissionTier 是本会话生效的权限档位（manual/edit/auto/full；主 agent 在
+	// 本会话的自动度）。FullAccess 保留为派生（tier==full），保前端与诊断兼容。
+	PermissionTier string `json:"permission_tier,omitempty"`
+	// PermissionTiers 是档位目录（进程级只读原件，前端据此渲染可选列表；
+	// 后端下发避免前后端各写一套档位名）。
+	PermissionTiers   []dto.PermissionTierInfo   `json:"permission_tiers,omitempty"`
 	VisibleTools      []Tool                     `json:"visible_tools"`
 	Skills            []SkillInfo                `json:"skills"`
 	Tokens            string                     `json:"tokens"`
@@ -643,12 +649,15 @@ type Capabilities struct {
 // effort/fullAccess/plan/todo/worktable/subagent 树/tokens/replan/激活 skill；
 // model/provider/account/plugin/能力清单等进程级原件不进入本结构）。
 type SessionRuntime struct {
-	Effort     string         `json:"effort"`
-	FullAccess bool           `json:"full_access"`
-	Tokens     string         `json:"tokens,omitempty"`
-	Replan     ReplanMonitor  `json:"replan"`
-	Plan       *PlanState     `json:"plan,omitempty"`
-	TodoItems  []dto.TodoItem `json:"todo_items,omitempty"`
+	Effort     string `json:"effort"`
+	FullAccess bool   `json:"full_access"`
+	// PermissionTier 是本会话生效的权限档位（full_access 的档位化形态；full 档
+	// ⇔ full_access=true）。
+	PermissionTier string         `json:"permission_tier,omitempty"`
+	Tokens         string         `json:"tokens,omitempty"`
+	Replan         ReplanMonitor  `json:"replan"`
+	Plan           *PlanState     `json:"plan,omitempty"`
+	TodoItems      []dto.TodoItem `json:"todo_items,omitempty"`
 	// SubAgentTree 是 fork 子代理树的权威投影（本会话槽）。
 	SubAgentTree    []dto.SubAgentTreeNode  `json:"subagent_tree,omitempty"`
 	GoalSkillActive bool                    `json:"goal_skill_active,omitempty"`
@@ -759,6 +768,7 @@ func CloneRuntimeState(runtime RuntimeState) RuntimeState {
 	copyRuntime.Skills = append([]SkillInfo(nil), runtime.Skills...)
 	copyRuntime.Plugins = append([]PluginInfo(nil), runtime.Plugins...)
 	copyRuntime.Accounts = append([]AccountInfo(nil), runtime.Accounts...)
+	copyRuntime.PermissionTiers = append([]dto.PermissionTierInfo(nil), runtime.PermissionTiers...)
 	copyRuntime.TodoItems = append([]dto.TodoItem(nil), runtime.TodoItems...)
 	copyRuntime.ActiveSkills = append([]string(nil), runtime.ActiveSkills...)
 	if runtime.GoalGovernance != nil {

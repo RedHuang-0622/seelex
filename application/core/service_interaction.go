@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 func (service *Service) ResolveInteraction(ctx context.Context, id, optionID string) error {
@@ -212,15 +214,6 @@ func (service *Service) SwitchPlugin(ctx context.Context, name string) error {
 	return nil
 }
 
-// SetFullAccess 切换视图会话的全权模式，并**返回真正生效的值**。
-//
-// 返回值的意义：前端不能再靠"取反本地旧状态"猜方向——快照滞后一格时，
-// 取反会把"开启"点成"关闭"，用户看到的就是"点了全权仍被拒"。
-//
-// 会话级归属（G4）：选择落在视图会话单元，执行门与审批面都按同一个会话
-// 写——A 会话点全权不得替 B 会话放行（污染），B 的起点同步也不得关掉 A
-// （失灵）。
-
 // reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
 // 等级**。
 //
@@ -234,38 +227,63 @@ func (service *Service) reapplyEffortAfterPluginSwitch() {
 	_ = service.effortManager.Apply(service.effortManager.Current())
 }
 
-func (service *Service) SetFullAccess(on bool) bool {
+// SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。
+//
+// 返回值的意义：前端不能再靠"取反本地旧状态"猜方向——快照滞后一格时，取反会把
+// "开启"点成"关闭"，用户看到的就是"点了全权仍被拒"。未识别的档位 id 报错且
+// **不改变**当前档位（写入侧显式失败）。
+//
+// 会话级归属（G4）：选择落在视图会话单元，执行门与审批面都按同一个会话写——A
+// 会话切档不得替 B 会话放行（污染），B 的起点同步也不得关掉 A（失灵）。
+func (service *Service) SetPermissionTier(tier string) (string, error) {
 	if service == nil {
-		return false
+		return "", errors.New("permission tier: nil service")
+	}
+	normalized, err := dto.NormalizePermissionTier(tier)
+	if err != nil {
+		return "", err
 	}
 	viewSessionID := service.currentViewSessionID()
-	// G4：全权选择归属视图会话单元（每个会话记住自己的模式）；执行门与
-	// 审批面同步按**本会话**写入（运行中开全权用于放行当前审批），不影响
-	// 其它会话的开关。
+	// G4：档位选择归属视图会话单元（每个会话记住自己的档位）；执行门与审批面
+	// 同步按**本会话**写入（运行中切档用于放行/收紧当前审批），不影响其它会话。
 	if unit := service.sessions.Unit(viewSessionID); unit != nil {
-		unit.SetFullAccessMode(on)
+		unit.SetPermissionTier(normalized)
 	}
+	full := dto.PermissionTierIsFullAccess(normalized)
 	if service.Approval != nil {
-		service.Approval.SetPermissionAutoApprovalFor(viewSessionID, on)
+		service.Approval.SetPermissionAutoApprovalFor(viewSessionID, full)
 	}
 	if service.Deps.Runtime != nil {
-		service.Deps.Runtime.SetFullAccessFor(viewSessionID, on)
+		if err := service.Deps.Runtime.SetPermissionTierFor(viewSessionID, normalized); err != nil {
+			return "", err
+		}
 	}
-	effective := service.fullAccessForSession(viewSessionID)
-	if effective && service.Approval != nil {
-		// 只结**本会话**正在等待的权限审批：全权是会话级决定，替别的会话
-		// 点头就是污染。放行用 "allow"（本笔放行）而不是 "always"——自动
-		// 放行不得在共享 checker 里留下永久 allow 规则（那是持久权限污染，
-		// 关掉全权后仍会在别的会话生效）。
+	effective := service.permissionTierForSession(viewSessionID)
+	if effective == dto.PermissionTierFull && service.Approval != nil {
+		// 只结**本会话**正在等待的权限审批：full 档是会话级决定，替别的会话
+		// 点头就是污染。放行用 "allow"（本笔放行）而不是 "always"——自动放行
+		// 不得在共享 checker 里留下永久 allow 规则（那是持久权限污染，切回低档
+		// 后仍会在别的会话生效）。
 		service.Approval.ResolveAllFor(viewSessionID, ApprovalDecision{OptionID: "allow"})
 	}
 	service.ViewMu.Lock()
-	service.Core.Snapshot.Runtime.FullAccess = effective
+	service.Core.Snapshot.Runtime.PermissionTier = effective
+	service.Core.Snapshot.Runtime.FullAccess = dto.PermissionTierIsFullAccess(effective)
 	revision := service.bumpLocked()
 	runtime := cloneRuntimeState(service.Core.Snapshot.Runtime)
 	service.ViewMu.Unlock()
 	service.publishSessionEvent(EventRuntimeChanged, revision, "", viewSessionID, runtime)
-	return effective
+	return effective, nil
+}
+
+// SetFullAccess 是权限档位的**兼容壳**：true → full 档、false → manual 档；返回
+// 生效档位是否等价旧的全权开启（前端按旧口径渲染时的读面）。
+func (service *Service) SetFullAccess(on bool) bool {
+	effective, err := service.SetPermissionTier(dto.PermissionTierFromFullAccess(on))
+	if err != nil {
+		return false
+	}
+	return dto.PermissionTierIsFullAccess(effective)
 }
 
 // observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话

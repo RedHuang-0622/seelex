@@ -147,35 +147,41 @@ func (service *Service) syncPlanPolicyFor(sessionID string) {
 	service.Deps.Runtime.SetPlanPolicyFor(sessionID, prompt.PlanningPolicy(service.effortForSession(sessionID)))
 }
 
-// fullAccessForSession 返回指定会话生效的全权模式（G4：Unit 内选择优先；
-// 未选择回退进程默认/引擎门值）。不持有 Core.ViewMu——Unit 自带锁，进程默认
-// 由 Runtime.FullAccess 门值提供。
-func (service *Service) fullAccessForSession(sessionID string) bool {
+// permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；
+// 未选择回退进程默认档位）。不持有 Core.ViewMu——Unit 自带锁，进程默认由
+// service.permissionTierDefault 提供。
+func (service *Service) permissionTierForSession(sessionID string) string {
 	if unit := service.sessions.Unit(sessionID); unit != nil {
-		if on, ok := unit.FullAccessMode(); ok {
-			return on
+		if tier, ok := unit.PermissionTier(); ok && tier != "" {
+			return tier
 		}
 	}
-	// 未选择：回退装配期捕获的进程级默认（不读引擎门当前值——那可能残留
-	// 别的会话的运行开关）。
 	if service == nil {
-		return false
+		return dto.PermissionTierManual
 	}
-	return service.fullAccessDefault
+	if service.permissionTierDefault != "" {
+		return service.permissionTierDefault
+	}
+	return dto.PermissionTierManual
 }
 
-// syncFullAccessFor 按会话全权模式同步执行门（G4：chat 起点调用，保证每个
-// 会话都按自己的选择运行——后台/新会话不继承其它会话的遗留开关）。
+// fullAccessForSession 是档位的**兼容派生读面**：full 档 ⇔ 旧的全权开启。
+func (service *Service) fullAccessForSession(sessionID string) bool {
+	return dto.PermissionTierIsFullAccess(service.permissionTierForSession(sessionID))
+}
+
+// syncFullAccessFor 按会话档位同步执行门（G4：chat 起点调用，保证每个
+// 会话都按自己的选择运行——后台/新会话不继承其它会话的遗留档位）。
 //
-// 门是**按会话解析**的（seelebridge PermissionGate.sessionFullAccess）：本
-// 调用只写目标会话那一格，不会覆盖别的会话已生效的全权——历史缺陷正是
-// 「进程级单布尔 + 起点同步」，B 会话起跑会把 A 会话的全权关掉，用户看到
-// 「点了全权仍弹审批/仍被拒」。
+// 门是**按会话解析**的（seelebridge PermissionGate.sessionTier）：本调用只写
+// 目标会话那一格，不会覆盖别的会话已生效的档位——历史缺陷正是「进程级单布尔
+// + 起点同步」，B 会话起跑会把 A 会话的全权关掉，用户看到「点了全权仍弹审批/
+// 仍被拒」。
 func (service *Service) syncFullAccessFor(sessionID string) {
 	if service == nil || service.Deps.Runtime == nil {
 		return
 	}
-	service.Deps.Runtime.SetFullAccessFor(sessionID, service.fullAccessForSession(sessionID))
+	_ = service.Deps.Runtime.SetPermissionTierFor(sessionID, service.permissionTierForSession(sessionID))
 }
 
 // anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
@@ -469,6 +475,7 @@ func sessionRuntimeOf(runtime RuntimeState) SessionRuntime {
 	return SessionRuntime{
 		Effort:           runtime.Effort,
 		FullAccess:       runtime.FullAccess,
+		PermissionTier:   runtime.PermissionTier,
 		Tokens:           runtime.Tokens,
 		Replan:           runtime.Replan,
 		Plan:             cloneRuntimeState(RuntimeState{Plan: runtime.Plan}).Plan,

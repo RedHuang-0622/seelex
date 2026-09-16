@@ -68,6 +68,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	// 未选择时回退该默认，而不是读取其它会话遗留的引擎门状态（G4）。
 	if service.Deps.Runtime != nil {
 		service.fullAccessDefault = service.Deps.Runtime.FullAccess()
+		// 进程级权限档位默认同样在装配期捕获一次（配置/初始引擎门值），会话
+		// 未选择时回退该默认（G4）。
+		service.permissionTierDefault = service.Deps.Runtime.PermissionTier()
 	}
 	service.components.tasks = task_context.NewCoordinator(task_context.Deps{
 		Core: kernel,
@@ -136,10 +139,11 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		DisplayUserInput:           displayUserInput,
 	})
 	service.components.view = view_state.NewCoordinator(view_state.Deps{
-		Core:              kernel,
-		Units:             sessionDomain,
-		CurrentEffort:     service.effortForSession,
-		CurrentFullAccess: service.fullAccessForSession,
+		Core:                  kernel,
+		Units:                 sessionDomain,
+		CurrentEffort:         service.effortForSession,
+		CurrentFullAccess:     service.fullAccessForSession,
+		CurrentPermissionTier: service.permissionTierForSession,
 		CurrentSessionID: func() string {
 			return service.sessions.ActiveID()
 		},

@@ -70,6 +70,10 @@ type serviceState struct {
 	// fullAccessDefault 是进程级全权默认（装配期从引擎门捕获一次；G4：
 	// 会话未选择时回退该值，不继承其它会话的遗留开关）。
 	fullAccessDefault bool
+	// permissionTierDefault 是进程级权限档位默认（装配期从引擎门捕获一次；
+	// G4：会话未选择时回退该档位）。fullAccessDefault 保留为兼容读面。
+	permissionTierDefault string
+
 	// teamRuntimes 是按主会话持有的发言调度运行态（链表顺序 + user 席位 +
 	// 逃生记账；见 application/core/agentteam_runtime.go）。它自带锁，不走
 	// Core.ViewMu——调度推进不参与视图快照事务。

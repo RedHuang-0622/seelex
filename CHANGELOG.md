@@ -11,8 +11,90 @@ for this stabilization batch.
 
 ## [Unreleased]
 
+### Added
+
+- **Session permission tiers for the main agent: the binary `full_access` toggle
+  becomes an ordered tier table `manual / edit / auto / full`, selectable per
+  session and rendered as a list in the runtime panel.** A tier is a **declarative
+  overlay on the root subject's rule table** (`seelebridge/tools/permission_tiers.go`
+  `ApplyTier`): it only **removes `ask` rules** (edit drops `write_file`/`edit_file`
+  asks; auto additionally drops `bash` asks), never adds an allow and never touches
+  a `deny` — so `rm -rf /`, `dd if=* of=*`, `mkfs*` stay hard-blocked in every tier.
+  The gate pre-builds one checker per tier (`PermissionGate.rebuildLocked`) and
+  picks the checker by **subject class + session tier** (`gate`): root reads its
+  session's tier table, `sub`/`emp_*` always read the base table. The `full`-tier
+  short-circuit in `Enforce` is **tightened from `class != sub` to `class == root`**,
+  so `full` no longer silently auto-approves employee over-reach (requirement 3):
+  employees still elevate through the existing approval panel, subagents still
+  cannot route out-of-grant tools. Tier state is per session (`SessionUnit` slot +
+  per-session gate resolution); the process default comes from `-permission`
+  (`manual|edit|auto|full`, legacy `full_access` → `full`). `SetFullAccess*` is kept
+  as a compatibility shell (`true ⇔ full`, `false ⇔ manual`). Catalog is delivered by
+  the backend (`RuntimeState.PermissionTiers`); the composer chip stays at the old
+  "full access" position and now shows the current tier, with the authoritative list
+  in the runtime panel. Evidence:
+  `seelebridge/tools/permission_tiers_test.go` (`TestTierDecisionMatrix`,
+  `TestTierDoesNotBypassEmployeeBoundary`, `TestTierDoesNotBypassSubagentBoundary`,
+  `TestTierSessionIsolation`), `application/core/session_permission_tier_test.go`,
+  `gui/bridge_test.go:TestBridgeForwardsPermissionTier`.
+- **Role-turn execution body: agent roles now really run a bounded,
+  tool-holding turn on their own session, under their own permission subject**
+  (`seelebridge.RunRoleTurn`, implementing the new `contract.RoleTurnPort`).
+  Until now only `tl`'s ADVISOR review round existed (`RolesWithExecutor` =
+  `user`/`main`/`tl`): every other registered role could get a role session and
+  a member-list row but nothing ever drove it to produce a turn, so the
+  "per-role interception" chain delivered by the same-day permission work had
+  no load-bearing surface. The body now:
+  (1) opens the role's session (own framework `Session`, node-level context
+  components so compaction never writes into the main session's stack) **and,
+  in the same action, assigns that employee's permissions** into the single
+  account table as the `emp_<role>` subject (non-assignable policies — inherit
+  / `full` / unknown — write nothing, so "inherit" really inherits);
+  (2) binds the role session's tool path root to the main session's project
+  root;
+  (3) puts the employee subject into the turn ctx **by construction**
+  (`tools.WithEmployeeSubject`), so gating and tool-face narrowing hold even
+  when the role-session → policy reverse index is cold; and
+  (4) runs one bounded round (`roleTurnMaxLoops = 12`) with the registered
+  employee prompt (or a minimal role frame). Wired through
+  `Dependencies.RoleTurn` → `goalCoordinatorDeps.RoleTurnFor`, so the goal
+  loop's `agent` seats execute; without the port, agent roles still take no
+  governance seat (pilot shape, nothing pretends to work). The round's work
+  text reaches the seat via ctx; `ReleaseRoleSessions` drops the derived
+  engines at shutdown. Evidence:
+  `seelebridge/runtime_role_turn_test.go` (8 cases: role-session identity,
+  assign-on-open, tool-face narrowing for `readonly` vs `readwrite`, engine
+  reuse, error propagation, inherited policy writes nothing, release/rebuild),
+  `application/core/role_turn_test.go` (dict ↔ request field parity, round text
+  through ctx, explicit input wins, nil runner without the port). Known gaps:
+  the real-API smoke and the computer-use live round are the *next* task (this
+  change makes them possible; their acceptance here uses a fake engine);
+  ADVISOR still holds no tools; `Progress` is the conservative "non-empty
+  conclusion" proxy, not a goal-advancement metric.
+
 ### Fixed
 
+- **Employee (role-session) escalation now reaches the existing approval panel.**
+  A role whose `tools_policy` is inherit (`""`) already inherits the host's full
+  tool face, and every call is already decided per-call by the framework `Gate`
+  (bit/group routing + rules) — but the approval request was routed to the
+  *role session id* (`goal-a2a-pm` / `advisor:<main>`). `application/core` only
+  mirrors approvals whose session is the view session (or empty) into the single
+  `Snapshot.Interaction` slot, and a role session has no session unit to carry
+  the catalog's `awaiting_approval` badge — so the escalation was invisible to
+  the host and the tool call could only wait out the approval timeout. The
+  permission gate now takes a `RoleSessionOwner` resolver (injected from
+  `main.go` via `app.RoleSessionOwner` — the same reverse index the
+  session-policy read uses) and rewrites the approval's session to the owning main
+  session, reusing the existing panel reads (single-slot modal, catalog badge,
+  session-snapshot approvals) unchanged; judgement is untouched (the subject
+  class still reads the raw dispatch session), so folding the attribution cannot
+  widen a read-only employee. A nil/unmatched resolver keeps the old
+  per-session attribution. Evidence:
+  `seelebridge/tools/permission_inherit_test.go` (inherit → full tool face,
+  per-call middleware review, owner attribution, judgement unchanged) and
+  `permission_employee_panel_test.go` (end-to-end: an employee escalation lands on
+  the owner session's pending list, and the call runs once the human allows it).
 - **A terminal ADVISOR verdict in a routine turn now actually ends the goal
   loop** (the `goal_loop` governance loop could stay `active` forever). The
   escape-hatch contract in

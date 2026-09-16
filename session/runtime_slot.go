@@ -3,6 +3,7 @@ package session
 import (
 	"time"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
@@ -49,27 +50,42 @@ func (unit *SessionUnit) SetEffortLevel(level string) {
 	unit.mu.Unlock()
 }
 
-// FullAccessMode 返回本会话的全权模式选择（ok=false = 未选择，回退进程
-// 默认/引擎门值）。G4：每个会话保存自己的选择，切换/新建后互不覆盖。
-func (unit *SessionUnit) FullAccessMode() (on bool, ok bool) {
+// PermissionTier 返回本会话的权限档位选择（ok=false = 未选择，回退进程
+// 默认）。G4：每个会话保存自己的选择，切换/新建后互不覆盖。
+func (unit *SessionUnit) PermissionTier() (tier string, ok bool) {
 	if unit == nil {
-		return false, false
+		return "", false
 	}
 	unit.mu.Lock()
 	defer unit.mu.Unlock()
-	return unit.FullAccess, unit.fullAccessSet
+	return unit.permissionTier, unit.permissionTierSet
 }
 
-// SetFullAccessMode 写入本会话的全权模式选择（chat 起点按生效模式同步
-// 引擎门；未选择会话回退进程默认，不继承其它会话的遗留开关）。
-func (unit *SessionUnit) SetFullAccessMode(on bool) {
+// SetPermissionTier 写入本会话的权限档位选择（chat 起点按生效档位同步引擎门；
+// 未选择会话回退进程默认，不继承其它会话的遗留档位）。
+func (unit *SessionUnit) SetPermissionTier(tier string) {
 	if unit == nil {
 		return
 	}
 	unit.mu.Lock()
-	unit.FullAccess = on
-	unit.fullAccessSet = true
+	unit.permissionTier = tier
+	unit.permissionTierSet = true
 	unit.mu.Unlock()
+}
+
+// FullAccessMode 是档位的**兼容派生读面**（ok=false = 未选择，回退进程默认）：
+// full 档 ⇔ 旧的全权开启。便于既有调用/测试按二元口径读会话选择。
+func (unit *SessionUnit) FullAccessMode() (on bool, ok bool) {
+	tier, ok := unit.PermissionTier()
+	if !ok {
+		return false, false
+	}
+	return tier == dto.PermissionTierFull, true
+}
+
+// SetFullAccessMode 是**兼容写面**：true → full 档、false → manual 档。
+func (unit *SessionUnit) SetFullAccessMode(on bool) {
+	unit.SetPermissionTier(dto.PermissionTierFromFullAccess(on))
 }
 
 // SetRuntimeState 把一次运行时投影写入本会话槽（深拷贝：投影的 slice

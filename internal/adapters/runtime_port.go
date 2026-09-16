@@ -21,6 +21,10 @@ func (port RuntimePort) SetFullAccess(on bool) { port.Runtime.SetFullAccess(on) 
 func (port RuntimePort) SetFullAccessFor(sessionID string, on bool) {
 	port.Runtime.SetFullAccessFor(sessionID, on)
 }
+func (port RuntimePort) PermissionTier() string { return port.Runtime.PermissionTier() }
+func (port RuntimePort) SetPermissionTierFor(sessionID, tier string) error {
+	return port.Runtime.SetPermissionTierFor(sessionID, tier)
+}
 func (port RuntimePort) PerSessionExecution() bool {
 	return port.Runtime.PerSessionExecution()
 }

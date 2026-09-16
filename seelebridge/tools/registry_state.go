@@ -11,6 +11,7 @@ import (
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/Seele/types"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 // RegistryState 包装 framework tools.Registry：内联工具 provider 由
@@ -113,11 +114,11 @@ func (p *InlineProvider) upsert(entry frameworktools.ToolEntry) {
 }
 
 // PermissionGate 是权限门控的可变状态：middleware 在注册表构造时闭包捕获
-// 它，Set/SetFullAccess* 运行时原子更新。
+// 它，Set/SetPermissionTier*（兼容壳 SetFullAccess*）运行时原子更新。
 //
-// 全权（full access）是**会话级**的用户决定（application 侧归属进
-// SessionUnit，G4）：执行面必须按工具调度 ctx 的会话归属解析，绝不能把
-// 它放进程级布尔上——进程级布尔有两个真实后果：
+// 权限档位（tier，full 档 = 旧的全权）是**会话级**的用户决定（application 侧
+// 归属进 SessionUnit，G4）：执行面必须按工具调度 ctx 的会话归属解析，绝不能把
+// 它放进程级上——进程级只有一个格子有两个真实后果：
 //   - 污染：A 会话点全权 → B 会话的工具调用被静默放行（B 未同意）；
 //   - 失灵：B 会话的 chat 起点同步（syncFullAccessFor）会把 A 的全权关掉，
 //     表现为「点了全权仍弹审批/仍被拒」——多会话并行下必现（单飞时代只是
@@ -145,14 +146,20 @@ type PermissionGate struct {
 	// 它只影响**审批呈现归属**，不影响主体判定（判定读 SessionFromContext 的原始
 	// 会话号），因此"审批在哪个面板弹"与"按谁判"是两件互不干扰的事。
 	RoleSessionOwner func(sessionID string) (string, bool)
-	// sessionFullAccess 是会话级全权选择（键 = 会话 ID）。空串键是**进程级
-	// 默认**（CLI -permission full_access / 未做会话级选择的回退面）；未选择
-	// 的会话回退进程默认，不继承别的会话的开关。
+	// sessionTier 是会话级**权限档位**选择（键 = 会话 ID，值 = 档位 id）。空串键是
+	// **进程级默认**（CLI -permission / 未做会话级选择的回退面）；未选择的会话回退
+	// 进程默认，不继承别的会话的档位。
 	//
-	// middleware **先读它**、再读 checker：用户点击全权后，即使 checker 实例
-	// 被替换（Set 重建）或 checker 尚未装配，也不会出现「权限检查还走旧
-	// manual 规则 / 落在 nil checker 上」的窗口。
-	sessionFullAccess map[string]bool
+	// 档位取代了旧的二元 full_access 布尔：`full` 档 = 旧的"全权"（执行门短路），
+	// `manual/edit/auto` 是对 root 规则表的声明式覆盖（见 permission_tiers.go）。
+	// middleware **先读它**、再读 checker：用户点击切档后，即使 checker 实例被替换
+	// （Set 重建）或 checker 尚未装配，也不会出现「权限检查还走旧档 / 落在 nil
+	// checker 上」的窗口。
+	sessionTier map[string]string
+	// tierCheckers 是按档位预构建的 checker（id → checker）：Set 时一次构建，
+	// 运行时按"会话档位 + 主体类"命中，O(1)，不引入每调用的规则重算。
+	// manual 档指向 base checker（不覆盖），其余档是 ApplyTier(base, id) 的 checker。
+	tierCheckers map[string]*toolspermission.PermissionChecker
 	// SessionFromContext 从工具调度 ctx 提取会话归属（seelebridge 根包
 	// 注入 seelebridge 会话路由键；nil = 权限审批保持进程级空归属回退）。
 	SessionFromContext func(ctx context.Context) string
@@ -180,8 +187,26 @@ func (state *PermissionGate) Set(cfg toolspermission.PermissionConfig, handler t
 	}
 	state.handler = handler
 	state.cfg = cfg
-	state.checker = toolspermission.NewPermissionChecker(state.cfg)
+	state.rebuildLocked()
 	state.mu.Unlock()
+}
+
+// rebuildLocked 重建 base checker 与**按档位预构建**的 tierCheckers（调用方持锁）。
+//
+// 这是 checker 装配的唯一落点：任何改动 cfg（Set / SetEmployeePermissions /
+// ensureEmployeeSubject）都必须走它，否则"档位表"会与"base 表"脱节——例如员工
+// 主体在运行时补了一条默认授权，却只重建了 base checker，root 在各档位下仍读旧表。
+func (state *PermissionGate) rebuildLocked() {
+	state.checker = toolspermission.NewPermissionChecker(state.cfg)
+	state.tierCheckers = make(map[string]*toolspermission.PermissionChecker, len(dto.PermissionTiers()))
+	for _, info := range dto.PermissionTiers() {
+		if info.ID == dto.PermissionTierManual {
+			// manual 不覆盖任何规则 → 复用 base checker（同一个实例，语义等价且省一份表）。
+			state.tierCheckers[info.ID] = state.checker
+			continue
+		}
+		state.tierCheckers[info.ID] = toolspermission.NewPermissionChecker(ApplyTier(state.cfg, info.ID))
+	}
 }
 
 // SetEmployeePermissions 把**装配期分配的员工权限**并入权责表：每个员工得到自己的
@@ -226,7 +251,7 @@ func (state *PermissionGate) SetEmployeePermissions(permissions []EmployeePermis
 		state.employeePermissions[subject] = permission
 		state.cfg.Subjects[subject] = grant
 	}
-	state.checker = toolspermission.NewPermissionChecker(state.cfg)
+	state.rebuildLocked()
 	return nil
 }
 
@@ -290,44 +315,81 @@ func (state *PermissionGate) approvalSessionFor(sessionID string) string {
 	return strings.TrimSpace(owner)
 }
 
-// SetFullAccess 设置**进程级默认**全权（CLI -permission full_access 与
-// 装配期基线用；等价 SetFullAccessFor("", on)）。
-func (state *PermissionGate) SetFullAccess(on bool) {
-	state.SetFullAccessFor("", on)
-}
-
-// SetFullAccessFor 设置指定会话的全权选择（空会话 ID = 进程级默认）。
-// 只影响该会话自己的工具调度，不触碰其它会话的选择。
-func (state *PermissionGate) SetFullAccessFor(sessionID string, on bool) {
+// SetPermissionTierFor 设置指定会话的**权限档位**（空会话 ID = 进程级默认）。
+// 只影响该会话自己的工具调度，不触碰其它会话的档位。未识别的档位 id 报错且
+// **不改变**当前档位（写入侧显式失败，绝不把一次拼错静默落成 manual/full）。
+func (state *PermissionGate) SetPermissionTierFor(sessionID, tier string) error {
+	normalized, err := dto.NormalizePermissionTier(tier)
+	if err != nil {
+		return err
+	}
 	state.mu.Lock()
-	if state.sessionFullAccess == nil {
-		state.sessionFullAccess = make(map[string]bool)
+	if state.sessionTier == nil {
+		state.sessionTier = make(map[string]string)
 	}
-	state.sessionFullAccess[sessionID] = on
+	state.sessionTier[sessionID] = normalized
 	state.mu.Unlock()
+	return nil
 }
 
-// FullAccess 返回进程级默认全权（装配期捕获面；未做会话级选择的回退值）。
+// PermissionTierFor 返回指定会话生效的档位（会话级选择优先，未选择回退进程
+// 默认；与 middleware 同源解析，供探针/诊断读取）。
+func (state *PermissionGate) PermissionTierFor(sessionID string) string {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return state.effectiveTierLocked(sessionID)
+}
+
+// PermissionTier 返回进程级默认档位（装配期捕获面；未做会话级选择的回退值）。
+func (state *PermissionGate) PermissionTier() string {
+	return state.PermissionTierFor("")
+}
+
+// SetFullAccess 是**兼容壳**：true → full 档、false → manual 档（进程级默认）。
+func (state *PermissionGate) SetFullAccess(on bool) {
+	_ = state.SetPermissionTierFor("", dto.PermissionTierFromFullAccess(on))
+}
+
+// SetFullAccessFor 是**兼容壳**：true → full 档、false → manual 档（指定会话）。
+func (state *PermissionGate) SetFullAccessFor(sessionID string, on bool) {
+	_ = state.SetPermissionTierFor(sessionID, dto.PermissionTierFromFullAccess(on))
+}
+
+// FullAccess 返回进程级默认是否 full 档（兼容读面）。
 func (state *PermissionGate) FullAccess() bool {
-	state.mu.RLock()
-	defer state.mu.RUnlock()
-	return state.sessionFullAccess[""]
+	return state.FullAccessFor("")
 }
 
-// FullAccessFor 返回指定会话生效的全权模式：会话级选择优先，未选择回退
-// 进程级默认（与 middleware 同源解析，供探针/诊断读取）。
+// FullAccessFor 返回指定会话生效的档位是否等价旧 full_access（兼容读面；会话级
+// 选择优先，未选择回退进程默认）。
 func (state *PermissionGate) FullAccessFor(sessionID string) bool {
-	state.mu.RLock()
-	defer state.mu.RUnlock()
-	return state.effectiveFullAccessLocked(sessionID)
+	return dto.PermissionTierIsFullAccess(state.PermissionTierFor(sessionID))
 }
 
-// effectiveFullAccessLocked 解析生效的全权模式（调用方持锁）。
-func (state *PermissionGate) effectiveFullAccessLocked(sessionID string) bool {
-	if on, ok := state.sessionFullAccess[sessionID]; ok {
-		return on
+// effectiveTierLocked 解析生效的档位（调用方持锁）：会话级选择优先，未选择回退
+// 进程默认，都没有则 manual。空字符串值（未选择）与"没有条目"是同一件事。
+func (state *PermissionGate) effectiveTierLocked(sessionID string) string {
+	if tier, ok := state.sessionTier[sessionID]; ok && tier != "" {
+		return tier
 	}
-	return state.sessionFullAccess[""]
+	if tier, ok := state.sessionTier[""]; ok && tier != "" {
+		return tier
+	}
+	return dto.PermissionTierManual
+}
+
+// checkerForLocked 按"主体类 + 会话档位"选 checker（调用方持锁）：
+//   - 非 root（sub / emp_*）一律用 base checker —— 档位只覆盖 root 的问/放，绝不
+//     改变员工/子代理的"位"（否则 auto/edit 会把员工越权静默放行，违反产品决定）；
+//   - root 用会话档位对应的 checker（manual 即 base）。
+func (state *PermissionGate) checkerForLocked(sessionID string, class SubjectClass) *toolspermission.PermissionChecker {
+	if class != SubjectClassRoot {
+		return state.checker
+	}
+	if checker, ok := state.tierCheckers[state.effectiveTierLocked(sessionID)]; ok {
+		return checker
+	}
+	return state.checker
 }
 
 // Middleware 把一次工具调用接到框架 permission.Gate 上：**判定完全交给框架**
@@ -361,7 +423,7 @@ func (state *PermissionGate) Middleware(approvalTimeout time.Duration) framework
 			if approvalSessionID := state.approvalSessionFor(sessionID); approvalSessionID != "" {
 				ctx = toolspermission.WithSessionID(ctx, approvalSessionID)
 			}
-			if err := state.gate(approvalTimeout, class).Decide(ctx, name, meta, policyArgsFor(name, argsJSON)); err != nil {
+			if err := state.gate(approvalTimeout, class, sessionID).Decide(ctx, name, meta, policyArgsFor(name, argsJSON)); err != nil {
 				return "", err
 			}
 			return next.Execute(ctx, argsJSON)
@@ -392,6 +454,10 @@ func policyArgsFor(name, argsJSON string) string {
 // gate 组装框架判定器：checker 与审批处理器在调用瞬间快照，因此 Set 重建
 // checker 不会让在途调用落在旧表或 nil 上。
 //
+// checker 的选择是"主体类 + 会话档位"的函数：root 按本会话档位选规则表
+// （permission_tiers.go 的 ApplyTier 覆盖），sub/员工一律用 base 表。这让档位
+// 只改主 agent 的"问不问"，不改任何主体的"有没有位"。
+//
 // DenyWithoutPrompt：seelex 的 deny 是用户显式配置的拒绝，维持"直接拒绝"的
 // 语义（返回可 errors.Is 归类的英文错误：策略拒绝 / 不在该 engine 的命名
 // 空间）；只有 ask（无命中规则）才呈现执行选择页面。框架默认的"拒绝也走选择
@@ -401,9 +467,12 @@ func policyArgsFor(name, argsJSON string) string {
 // 拒绝（`approve` 里 Approval==nil → DenialError），位缺（违权）本来就走
 // denyOrPrompt 的拒绝分支——即"违权操作直接拒绝"，绝不挂起等一个不会有人回答
 // 的选择页面。
-func (state *PermissionGate) gate(approvalTimeout time.Duration, class SubjectClass) *toolspermission.Gate {
+func (state *PermissionGate) gate(approvalTimeout time.Duration, class SubjectClass, sessionID string) *toolspermission.Gate {
 	state.mu.RLock()
-	checker, handler := state.checker, state.handler
+	// checker 按"主体类 + 会话档位"选：root 用本会话档位的规则表（edit/auto 剪掉
+	// 若干 ask），sub/员工一律用 base 表（档位不改变任何主体的位）。checker 与审批
+	// 处理器在调用瞬间快照，因此 Set 重建 checker 不会让在途调用落在旧表或 nil 上。
+	checker, handler := state.checkerForLocked(sessionID, class), state.handler
 	state.mu.RUnlock()
 	if class == SubjectClassSub {
 		handler = nil
@@ -419,15 +488,17 @@ func (state *PermissionGate) gate(approvalTimeout time.Duration, class SubjectCl
 
 // Enforce 实现框架 permission.BitEnforcer：在**位/组/规则之前**做两件事。
 //
-//  1. 会话级全权短路放行（全权的语义就是"本次会话不做位与规则判定"）。子代理
-//     不享全权：它自己的主体就有 ctl/adm 断位，会话的全权不该把一个无权主体
-//     变成有权主体。
+//  1. 会话级 full 档短路放行（全权的语义就是"本次会话不做位与规则判定"）。
+//     **只对 root（主 agent）主体生效**：员工（emp_*）与子代理（sub）不享全权——
+//     员工的越权照旧走执行选择页面提权、子代理的断位照旧不可路由。这条收紧正是
+//     "主会话全权只管网主会话"的落点（旧实现是 `class != sub`，会让 full 档连带
+//     放行员工越权）。
 //  2. 主体类策略：子代理（位齐放行、位缺/未分封直接拒绝、无人类可问）与员工
 //     （位齐交回框架、位缺走执行选择页面提权）见 permission_policy.go。
 //
-// 其余（root）返回 ok=false，完全落回框架判定。
+// 其余（root、非 full 档）返回 ok=false，完全落回框架判定（checker 已按档位选表）。
 func (state *PermissionGate) Enforce(ctx context.Context, subject toolspermission.Subject, meta frameworktools.ToolMeta, name, argsJSON string) (toolspermission.Action, bool) {
-	if class := state.classFor(ctx); class != SubjectClassSub && state.FullAccessFor(state.sessionFromContext(ctx)) {
+	if class := state.classFor(ctx); class == SubjectClassRoot && state.FullAccessFor(state.sessionFromContext(ctx)) {
 		return toolspermission.ActionAllow, true
 	}
 	return state.enforceClass(ctx, subject, name, meta, argsJSON)

@@ -109,6 +109,13 @@ type RuntimePort interface {
 	// 执行面按工具调度 ctx 的会话解析——A 的全权不得替 B 放行，B 的起点
 	// 同步也不得关掉 A（多会话并行）。
 	SetFullAccessFor(sessionID string, on bool)
+	// PermissionTier 返回进程级默认权限档位（manual/edit/auto/full；装配期
+	// 捕获面，未做会话级选择的回退值）。
+	PermissionTier() string
+	// SetPermissionTierFor 按会话设置权限档位（空会话 ID = 进程级默认）。
+	// 档位是会话级的用户决定（G4）：A 会话切档不得影响 B；未识别的档位 id
+	// 报错且不改变当前档位。full 档 = 旧 full_access。
+	SetPermissionTierFor(sessionID, tier string) error
 	SetRuntimeVisibilityProjection(dto.RuntimeVisibilityProjection)
 	SetParentEvidenceProjection(dto.ParentEvidenceProjection)
 	DrainSubagentContexts() []string

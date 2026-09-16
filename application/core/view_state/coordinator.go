@@ -37,6 +37,9 @@ type Deps struct {
 	// CurrentFullAccess 返回指定会话生效的全权模式（G4：会话选择优先，
 	// 未选择回退进程默认/引擎门值）。
 	CurrentFullAccess func(sessionID string) bool
+	// CurrentPermissionTier 返回指定会话生效的权限档位（G4：会话选择优先，
+	// 未选择回退进程默认档位）。它是 CurrentFullAccess 的档位化形态。
+	CurrentPermissionTier func(sessionID string) string
 	// CurrentSessionID 返回当前视图指针会话（线程安全；投影收集在锁外
 	// 读取视图归属——视图指针在 session.Domain actor，不经快照镜像）。
 	CurrentSessionID func() string
@@ -63,6 +66,7 @@ type Coordinator struct {
 	units                  *session.Domain
 	currentEffort          func(string) string
 	currentFullAccess      func(string) bool
+	currentPermissionTier  func(string) string
 	currentSessionID       func() string
 	refreshWorkTableLocked func([]dto.TaskRecord)
 	tasks                  interface {
@@ -89,6 +93,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		units:                  deps.Units,
 		currentEffort:          deps.CurrentEffort,
 		currentFullAccess:      deps.CurrentFullAccess,
+		currentPermissionTier:  deps.CurrentPermissionTier,
 		currentSessionID:       deps.CurrentSessionID,
 		refreshWorkTableLocked: deps.RefreshWorkTableLocked,
 		tasks:                  deps.Tasks,
@@ -153,6 +158,8 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 			Plugin:            c.Deps.Runtime.ActivePlugin(),
 			Effort:            effort,
 			FullAccess:        c.fullAccessFor(sessionID),
+			PermissionTier:    c.permissionTierFor(sessionID),
+			PermissionTiers:   dto.PermissionTiers(),
 			VisibleTools:      append([]model.Tool(nil), c.Deps.Runtime.VisibleTools(ctx)...),
 			Skills:            append([]model.SkillInfo(nil), c.Deps.Skills.All()...),
 			Tokens:            c.tokenCountFor(sessionID),
@@ -204,6 +211,18 @@ func (c *Coordinator) fullAccessFor(sessionID string) bool {
 		return c.currentFullAccess(sessionID)
 	}
 	return c.Deps.Runtime.FullAccess()
+}
+
+// permissionTierFor 返回指定会话生效的权限档位（G4：会话选择优先；未选择时
+// 回退进程默认档位）。
+func (c *Coordinator) permissionTierFor(sessionID string) string {
+	if c.currentPermissionTier != nil {
+		return c.currentPermissionTier(sessionID)
+	}
+	if tier := c.Deps.Runtime.PermissionTier(); tier != "" {
+		return tier
+	}
+	return dto.PermissionTierManual
 }
 
 // replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；

@@ -59,6 +59,9 @@ type Application interface {
 	BindWorkspace(workspaceID string) error
 	UnbindWorkspace()
 	SetFullAccess(bool) bool
+	// SetPermissionTier 切换视图会话的权限档位（manual/edit/auto/full）并返回
+	// 真正生效的档位；未识别的档位 id 报错。会话级归属（G4）。
+	SetPermissionTier(string) (string, error)
 	SessionStorageConfig() (sessionstore.Config, error)
 	TestSessionStorage(context.Context, sessionstore.Config) error
 	ConfigureSessionStorage(context.Context, sessionstore.Config) error
@@ -866,6 +869,13 @@ func (bridge *Bridge) UnbindWorkspace() {
 // 不再取反本地旧状态（旧状态滞后时取反会把"开启"点成"关闭"）。
 func (bridge *Bridge) SetFullAccess(on bool) bool {
 	return bridge.app.SetFullAccess(on)
+}
+
+// SetPermissionTier 切换视图会话的权限档位（manual/edit/auto/full）并返回**真正
+// 生效的档位**：前端据此渲染当前档，不再猜方向。未识别的档位 id 报错（前端展示
+// 后端错误，不静默改档）。会话级归属（G4）：只影响当前视图会话。
+func (bridge *Bridge) SetPermissionTier(tier string) (string, error) {
+	return bridge.app.SetPermissionTier(tier)
 }
 
 func (bridge *Bridge) SessionStorageConfig() (sessionstore.Config, error) {

@@ -271,6 +271,12 @@ func (server *headlessServer) dispatch(method string, args []json.RawMessage) (a
 			return nil, err
 		}
 		return nil, server.app.ResolveInteraction(context.Background(), id, optionID)
+	case "SetPermissionTier":
+		tier, err := stringArg(0, "tier")
+		if err != nil {
+			return nil, err
+		}
+		return server.app.SetPermissionTier(tier)
 	}
 
 	switch method {

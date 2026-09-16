@@ -6,6 +6,7 @@ import (
 
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 func TestParseFrontendMode(t *testing.T) {
@@ -36,10 +37,14 @@ func TestParsePermissionMode(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		input string
-		want  toolspermission.Mode
+		want  string
 	}{
-		{input: "manual", want: toolspermission.ModeManual},
-		{input: " FULL_ACCESS ", want: toolspermission.ModeFullAccess},
+		{input: "manual", want: dto.PermissionTierManual},
+		{input: "edit", want: dto.PermissionTierEdit},
+		{input: " AUTO ", want: dto.PermissionTierAuto},
+		{input: "full", want: dto.PermissionTierFull},
+		// 旧别名：full_access → full 档。
+		{input: " FULL_ACCESS ", want: dto.PermissionTierFull},
 	} {
 		got, err := parsePermissionMode(test.input)
 		if err != nil {
@@ -92,6 +97,7 @@ type permissionRuntimeRecorder struct {
 	config     toolspermission.PermissionConfig
 	handler    toolspermission.ApprovalHandler
 	fullAccess []bool
+	tiers      []string
 }
 
 func (runtime *permissionRuntimeRecorder) SetPermissionConfig(
@@ -104,6 +110,11 @@ func (runtime *permissionRuntimeRecorder) SetPermissionConfig(
 
 func (runtime *permissionRuntimeRecorder) SetFullAccess(on bool) {
 	runtime.fullAccess = append(runtime.fullAccess, on)
+}
+
+func (runtime *permissionRuntimeRecorder) SetPermissionTierFor(_ string, tier string) error {
+	runtime.tiers = append(runtime.tiers, tier)
+	return nil
 }
 
 func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
@@ -121,7 +132,8 @@ func TestFullAccessStartupKeepsManualPermissionBaseline(t *testing.T) {
 	if runtime.handler == nil {
 		t.Fatal("full-access startup discarded the manual approval bridge")
 	}
-	if len(runtime.fullAccess) != 1 || !runtime.fullAccess[0] {
-		t.Fatalf("full-access startup toggles = %#v, want [true]", runtime.fullAccess)
+	// 旧的 -permission full_access 现在落到 full 档（进程级默认）。
+	if len(runtime.tiers) != 1 || runtime.tiers[0] != dto.PermissionTierFull {
+		t.Fatalf("full-access startup tiers = %#v, want [full]", runtime.tiers)
 	}
 }

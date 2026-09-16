@@ -1406,6 +1406,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .runtime-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
 .runtime-grid section { min-width: 0; }
 .runtime-skills { grid-column: 1 / -1; }
+.runtime-permission { grid-column: 1 / -1; }
+.tier-list { display: grid; gap: 6px; }
+.tier-option { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color: var(--text); cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.tier-option:hover { border-color: var(--border-done); }
+.tier-option.is-active { border-color: var(--border-done); background: var(--tint-done); }
+.tier-option-label { font-weight: 700; font-size: var(--text-sm); }
+.tier-option-desc { font-size: var(--text-xs); color: var(--faint); }
 
 .settings-card { width: min(500px, calc(100vw - 28px)); }
 .settings-note { margin: 0 0 14px; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
