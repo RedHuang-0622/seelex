@@ -84,7 +84,29 @@ func NormalizeRole(role dto.RoleSpec) (dto.RoleSpec, error) {
 	role.PresencePolicy = strings.TrimSpace(role.PresencePolicy)
 	role.ModelPolicy = strings.TrimSpace(role.ModelPolicy)
 	role.ToolsPolicy = strings.TrimSpace(role.ToolsPolicy)
+	if !ValidToolPolicy(role.ToolsPolicy) {
+		return dto.RoleSpec{}, fmt.Errorf(
+			"agentteam: unsupported tools policy %q（取值：%q / %q / %q，空 = 继承宿主默认）",
+			role.ToolsPolicy, dto.ToolPolicyReadonly, dto.ToolPolicyReadWrite, dto.ToolPolicyFull)
+	}
 	return role, nil
+}
+
+// ValidToolPolicy 报告 tools_policy 是否落在枚举内（dto.ToolPolicy*）。
+//
+// 为什么必须在**写入侧**拦：运行时把未识别的 policy 一律映射成 root（全权，见
+// seelebridge/tools.ClassForToolsPolicy）——登记阶段的一个拼写错误（"read-only"、
+// "readOnly"、"read_only"）会静默升级成最高权限，而不是报错。NormalizeRole 是
+// 装配 / 一步入职 / 员工库共用的唯一规整入口，在这里把注水挡在外面之后，"登记的
+// 事实"与"运行时能解释的事实"才是同一个集合：映射的 default 分支从此只表示
+// "继承 / 全权"，不再兜未知值。
+func ValidToolPolicy(policy string) bool {
+	switch policy {
+	case dto.ToolPolicyInherit, dto.ToolPolicyReadonly, dto.ToolPolicyReadWrite, dto.ToolPolicyFull:
+		return true
+	default:
+		return false
+	}
 }
 
 // resolveRoleKind 让内置角色名（user/main）永远取内置 kind；其它角色 kind 缺省

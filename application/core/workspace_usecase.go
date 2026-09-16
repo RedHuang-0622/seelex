@@ -15,6 +15,8 @@ func (service *Service) DeleteSession(sessionID string) error {
 	if err := service.Deps.Sessions.Delete(sessionID); err != nil {
 		return err
 	}
+	// 会话没了就不该留着它的发言调度记账（环是派生状态，重开按落盘事实重建）。
+	service.releaseTeamRuntime(sessionID)
 	if service.Deps.Workspace != nil {
 		service.Deps.Workspace.UnbindSession(sessionID)
 		workspaceProjection := service.collectWorkspaceProjection()

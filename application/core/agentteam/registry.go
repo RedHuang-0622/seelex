@@ -114,7 +114,15 @@ func (registry *Registry) PutRole(mainSessionID string, role dto.RoleSpec) (dto.
 	if _, ok := builtinKinds[role.RoleName]; ok {
 		return dto.TeamRegistry{}, fmt.Errorf("agentteam: role %q is builtin and cannot be reconfigured", role.RoleName)
 	}
-	role.RoleKind = resolveRoleKind(role.RoleName, role.RoleKind)
+	// 规整走与装配/入职/员工库**同一个入口** NormalizeRole：权限口径与权限格子
+	// 都必须在写入侧拦下（拼写错误在运行时等价于"继承宿主默认"或"这一格没分配"，
+	// 而两条路都是静默的）。此前 PutRole 只 trim + resolve kind，是这条
+	// "唯一规整入口"承诺上的一个缺口。
+	normalized, err := NormalizeRole(role)
+	if err != nil {
+		return dto.TeamRegistry{}, err
+	}
+	role = normalized
 
 	stored, err := registry.port.ReadTeamRegistry(mainSessionID)
 	if err != nil {

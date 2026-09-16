@@ -85,6 +85,9 @@ func (service *Service) ArchiveSession(sessionID string) error {
 	if err := service.components.sessions.MarkSessionArchived(location, sessionID); err != nil {
 		return fmt.Errorf("archive %q: %w", sessionID, err)
 	}
+	// 归档 = 这一段生命结束：释放该会话的发言调度记账（环由 lifecycle 顺序 +
+	// 注册表派生，重开时按落盘事实重建；留着会让已停止的环跟到下一次打开）。
+	service.releaseTeamRuntime(sessionID)
 	// 归档状态属于该项目格子：按项目范围刷新，其它项目列表不受影响。
 	service.components.sessions.RequestCatalogRefreshProject(location.WorkspaceID)
 	return nil

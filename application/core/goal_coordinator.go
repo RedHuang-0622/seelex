@@ -127,6 +127,12 @@ func (g *goalCoordinator) Begin(ctx context.Context, sessionID string, request g
 	// 面板恒 0 轮、loop 不动）。幂等 begin（同名返回既有 active）不重置。
 	if record != nil && (before == nil || before.ID != record.ID) {
 		runtime.gov = nil
+		// 团队环的逃生结论同样只属于**上一轮** goal：环停止后 SyncOrder 不会
+		// 复活它，而 AdvanceAfterChat 每次都会先看到 stopped=true 并立刻
+		// Break 新装配的 governor——ADVISOR 因此彻底静默。新 goal 上线时把
+		// 逃生记账清零（顺序/成员不动，仍是 lifecycle 那一份事实）。
+		// 未装配团队环时 teamRuntimeFor 返回 nil，Reset 对 nil 接收者安全。
+		g.teamRuntimeFor(sessionID).Reset()
 	}
 	g.bumpHeartbeat(sessionID)
 	return record, nil

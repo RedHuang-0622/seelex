@@ -178,3 +178,59 @@ func TestRuntimeEscapeExternalStop(t *testing.T) {
 		t.Fatal("同步顺序不应复活已收束的环")
 	}
 }
+
+// TestRuntimeResetRevivesEscapeState：逃生是显式结论，但**复活也必须是显式可达
+// 的**——Reset 清停止态与轮次/无进展记账，顺序与成员不动。
+//
+// 缺口背景：停止态此前没有任何复活口（SyncOrder 不碰 stopped、NewRuntime 只在槽
+// 为空时发生、drop 无调用者），于是"上一轮 goal 的逃生结论"会传染给同会话的每一
+// 轮后续 goal：goalCoordinator.AdvanceAfterChat 每次先看到 stopped=true 就立刻
+// Break 新 governor，ADVISOR 彻底静默、goal 停在 active 无人收口。
+func TestRuntimeResetRevivesEscapeState(t *testing.T) {
+	runtime := newTestRuntime([]string{"user", "main", "tl"}, dto.OrderPolicyGoalLoop,
+		RuntimeOptions{RoundLimit: 1, NoProgressLimit: 0})
+	if stopped, _ := runtime.NoteTurn(true); !stopped {
+		t.Fatal("round_limit=1 时第一次记账就应收束")
+	}
+	if _, ok := runtime.Next(); ok {
+		t.Fatal("已收束的环不应继续发牌")
+	}
+
+	runtime.Reset()
+
+	if stopped, reason := runtime.Stopped(); stopped {
+		t.Fatalf("Reset 后不应仍是停止态（reason=%q）", reason)
+	}
+	schedule := runtime.Snapshot()
+	if schedule.Stopped || schedule.StopReason != "" {
+		t.Fatalf("Reset 后逃生投影未清零: %+v", schedule)
+	}
+	if schedule.Round != 0 || schedule.NoProgress != 0 {
+		t.Fatalf("Reset 后轮次/无进展记账未清零: round=%d noProgress=%d", schedule.Round, schedule.NoProgress)
+	}
+	request, ok := runtime.Next()
+	if !ok {
+		t.Fatal("Reset 后环应能继续发牌")
+	}
+	if request.RoleName != "main" {
+		t.Fatalf("Reset 后第一个可发言成员 = %q，want main（user 按 queued 席位跳过）", request.RoleName)
+	}
+	// Reset 不是重建环：顺序与成员必须原样保留（顺序事实只有 lifecycle 一份）。
+	if got := strings.Join(runtime.Order(), ","); got != "user,main,tl" {
+		t.Fatalf("Reset 不应改动环顺序，得到 %q", got)
+	}
+	// Reset 之后轮次上限重新计时（逃生记账按"这一次治理循环"独立）。
+	if stopped, _ := runtime.NoteTurn(true); !stopped {
+		t.Fatal("Reset 后应重新按上限计时（round_limit=1 应再次收束）")
+	}
+}
+
+// TestRuntimeResetOnNilIsSafe：Reset 走 nil 接收者安全（未装配团队环的会话在
+// goal 上线时会调到它）。
+func TestRuntimeResetOnNilIsSafe(t *testing.T) {
+	var runtime *Runtime
+	runtime.Reset()
+	if stopped, _ := runtime.Stopped(); stopped {
+		t.Fatal("nil 环不应报告已停止")
+	}
+}

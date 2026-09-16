@@ -230,6 +230,30 @@ func (r *Runtime) Stopped() (bool, string) {
 	return r.stopped, r.stopReason
 }
 
+// Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序、成员与
+// user 席位口径都不动。
+//
+// 为什么必须有它：逃生路径是**终态**——Stop 一旦发生就不会自己复活（SyncOrder
+// 只改成员与顺序，不碰 stopped）。但"终态"的适用范围是**当前这一次治理循环**，
+// 不是这个会话的余生。缺了显式的复活口，上一轮 goal 的逃生结论会传染给下一轮
+// goal：goalCoordinator.AdvanceAfterChat 每次都会先看到 stopped=true 并立刻
+// Break 新装配的 Governor，ADVISOR 从此再也不会被叫起，goal 停在 active 无人收口
+// （治理面板恒 0 轮）。
+//
+// 调用点：新 goal 上线时（goalCoordinator.Begin，与重置 gov 同一处）。顺序事实
+// 仍然只有 lifecycle.order_policy/order_roles 一份，本方法不落盘、不写 message。
+func (r *Runtime) Reset() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopped = false
+	r.stopReason = ""
+	r.round = 0
+	r.noProgress = 0
+}
+
 // Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
 // （空环 / 全员无执行者 / 已收束），调用方据此走逃生路径，不要空转。
 //

@@ -42,6 +42,8 @@ func (store *teamRuntimeStore) put(mainSessionID string, runtime *agentteam.Runt
 	store.runtimes[mainSessionID] = runtime
 }
 
+// drop 释放某个主会话的运行时槽（会话删除/归档时经 releaseTeamRuntime 调用；
+// 环是派生状态，重建即正确，留着只会把上一段生命的逃生结论一起带过来）。
 func (store *teamRuntimeStore) drop(mainSessionID string) {
 	if store == nil {
 		return
@@ -99,6 +101,19 @@ func (service *Service) syncTeamRuntime(mainSessionID string) {
 	// 角色被删除后，环里已停止的状态不再有意义（成员表变了）；但"已停止"是
 	// 显式逃生结论，不因为一次同步就被复活，因此同步而已。
 	service.teamRuntimeFor(mainSessionID, view)
+}
+
+// releaseTeamRuntime 释放某个主会话的发言调度运行态（会话删除/归档时调用）。
+//
+// 环是**派生状态**：顺序来自 lifecycle、成员来自注册表，重建即正确。此前 drop
+// 没有调用者，环因此与进程同寿，带来两个后果：① 每个见过的 sessionID 都留一条
+// 记账（内存随会话数单调增长）；② 已停止的环会永久污染该会话后续的每一次治理
+// 循环（见 Runtime.Reset 的说明）。会话消失时释放，重开时按落盘事实重建。
+func (service *Service) releaseTeamRuntime(mainSessionID string) {
+	if service == nil || strings.TrimSpace(mainSessionID) == "" {
+		return
+	}
+	service.teamRuntimes.drop(mainSessionID)
 }
 
 // NoteTeamUserQueued 告诉该会话的环"消息队列里有没有未消费的 user 输入"。

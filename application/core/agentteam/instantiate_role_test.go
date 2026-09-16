@@ -23,7 +23,7 @@ func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T) {
 		RoleName:    "reviewer",
 		RoleKind:    dto.RoleKindAgent,
 		JoinPolicy:  "on_team_create",
-		ToolsPolicy: "read-only",
+		ToolsPolicy: dto.ToolPolicyReadonly,
 		ModelPolicy: "same-as-exec",
 	}, 7)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T) {
 		t.Fatalf("注册表角色数 = %d, want 1", len(port.registry.Roles))
 	}
 	role := port.registry.Roles[0]
-	if role.RoleName != "reviewer" || role.ToolsPolicy != "read-only" || role.ModelPolicy != "same-as-exec" {
+	if role.RoleName != "reviewer" || role.ToolsPolicy != dto.ToolPolicyReadonly || role.ModelPolicy != "same-as-exec" {
 		t.Fatalf("注册表未落角色配置: %+v", role)
 	}
 	if result.Executor != "" || !strings.Contains(strings.Join(result.Notice, "；"), "没有运行时执行者") {
@@ -54,7 +54,7 @@ func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T) {
 		RoleName:    "reviewer",
 		RoleKind:    dto.RoleKindAgent,
 		JoinPolicy:  "on_team_create",
-		ToolsPolicy: "read-write",
+		ToolsPolicy: dto.ToolPolicyReadWrite,
 	}, 9)
 	if err != nil {
 		t.Fatalf("重复实例化: %v", err)
@@ -65,7 +65,7 @@ func TestInstantiateRoleOneStepHiresAnEmployee(t *testing.T) {
 	if len(updated.OrderRoles) != 3 {
 		t.Fatalf("重复实例化不应重复入顺序: %v", updated.OrderRoles)
 	}
-	if len(port.registry.Roles) != 1 || port.registry.Roles[0].ToolsPolicy != "read-write" {
+	if len(port.registry.Roles) != 1 || port.registry.Roles[0].ToolsPolicy != dto.ToolPolicyReadWrite {
 		t.Fatalf("修改应覆盖既有配置: %+v", port.registry.Roles)
 	}
 }
@@ -136,5 +136,38 @@ func TestInstantiateRoleReportsExecutorForTechlead(t *testing.T) {
 	}
 	if result.Executor != RoleTechlead {
 		t.Fatalf("tl 的执行者应为 %q，得到 %q", RoleTechlead, result.Executor)
+	}
+}
+
+// TestNormalizeRoleRejectsUnknownToolsPolicy：tools_policy 必须在枚举内。
+//
+// 判据来自运行时的实际口径（seelebridge/tools.ClassForToolsPolicy）：除
+// readonly / readwrite 外**一切**取值都映射成 root（全权）。因此"拼错的只读"
+// 与"全权"在运行时无法区分——登记阶段不拦，就等于把拼写错误静默升级为最高权限。
+func TestNormalizeRoleRejectsUnknownToolsPolicy(t *testing.T) {
+	accepted := []string{
+		dto.ToolPolicyInherit, dto.ToolPolicyReadonly, dto.ToolPolicyReadWrite, dto.ToolPolicyFull,
+	}
+	for _, policy := range accepted {
+		if _, err := NormalizeRole(dto.RoleSpec{RoleName: "reviewer", ToolsPolicy: policy}); err != nil {
+			t.Fatalf("枚举内取值 %q 不应被拒: %v", policy, err)
+		}
+	}
+	rejected := []string{"read-only", "readOnly", "read_only", "read-write", "root", "admin", "只读"}
+	for _, policy := range rejected {
+		if _, err := NormalizeRole(dto.RoleSpec{RoleName: "reviewer", ToolsPolicy: policy}); err == nil {
+			t.Fatalf("枚举外取值 %q 必须显式报错（运行时会把未识别值映射成 root 全权）", policy)
+		}
+	}
+
+	// 拒绝发生在唯一规整入口：整队装配与一步入职都不得把注水写进注册表。
+	factory, err := NewFactory(newFakePort())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := factory.InstantiateRole("sess-main", dto.RoleSpec{
+		RoleName: "reviewer", ToolsPolicy: "read-only",
+	}, 1); err == nil {
+		t.Fatal("一步入职必须拒绝枚举外的 tools_policy")
 	}
 }

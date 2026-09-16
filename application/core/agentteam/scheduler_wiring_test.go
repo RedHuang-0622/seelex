@@ -9,18 +9,23 @@ import (
 
 // scheduler_wiring_test.go — 钉住 `TurnScheduler` 的**接线状态**。
 //
-// 历史：2026-09-14 review 发现本原语在生产是死代码，前端「工作顺序」因此被当成
-// 「下一个谁发言」。当时本用例钉的是"没有任何生产调用点"。
+// 历史（值得记住的教训）：2026-09-14 review 发现本原语在生产是死代码，前端
+// 「工作顺序」因此被当成「下一个谁发言」。当时本用例钉的是"没有任何生产调用点"。
 //
-// 2026-09-15 起接线落地：`runtime.go` 的 `Runtime`（会话级发言调度运行态）是
-// 它唯一的生产调用点——注册表增删改/顺序调整时同步链表，运行时由 `Next()`
-// 决定下一个该发言的成员，并有轮次/无进展/无执行者三条逃生路径。
+// 2026-09-15 `runtime.go` 的 `Runtime`（会话级发言调度运行态）落地后，本用例被
+// 反转成"生产调用点必须存在，且只能在 runtime.go"，并禁止 README 再出现"尚未
+// 接线"。那次反转其实把守卫变成了**虚假保证**：它只证明"有人 new 了一个
+// TurnScheduler"，不证明任何消费者——而事实上 `Next()`/`Advance()` 至今没有生产
+// 调用者，README 里"Next() 决定下一个该发言的成员"是一句错的声明，且"其实没人
+// 消费 Next()"的唯一书面提示被删掉了。
 //
-// 本用例把两件事绑在一起：
+// 2026-09-16 改成两条**可证伪**的断言：
 //  1. 源码事实：生产调用点必须存在，且**只能**在 `runtime.go`（不允许在别处悄悄
 //     再建一条不共享逃生记账的环——那会长出第二份顺序事实）；
-//  2. 文档声明：本包 README 必须写清"已接线（runtime.go）+ 逃生路径"，
-//     不能仍写着"尚未接线"。
+//  2. 文档声明：README 必须点名生产消费面（`Order()` / `NoteTurn()`）并**如实**
+//     声明 `Next()`/`Advance()` 没有生产消费者。声明与代码漂移就红。
+//     注意本用例只断言"文档说了什么"，运行时的真实消费面由 `runtime_test.go` 的
+//     行为用例与 `goal_coordinator` 的调用点承担。
 
 // schedulerCallSite 是扫描结果里的一条调用点。
 type schedulerCallSite struct {
@@ -75,7 +80,7 @@ func TestTurnSchedulerHasSingleProductionCallSite(t *testing.T) {
 		production = append(production, site.path)
 	}
 	if len(production) == 0 {
-		t.Fatal("TurnScheduler 没有任何生产调用点：runtime.go 的 Runtime 必须持有它，否则链表顺序只是一张静态表")
+		t.Fatal("TurnScheduler 没有任何生产调用点：runtime.go 的 Runtime 必须持有它（顺序同步 + 逃生记账），否则链表顺序只是一张静态表")
 	}
 	if len(production) != 1 || production[0] != expected {
 		t.Fatalf("TurnScheduler 的生产调用点应为且仅为 %s，实际 %v：不许在别处再建一条不共享逃生记账的环", expected, production)
@@ -102,13 +107,13 @@ func TestTurnSchedulerWiredStatusIsDocumented(t *testing.T) {
 		t.Fatalf("读模块 README 失败: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{"TurnScheduler", "runtime.go", "逃生", "接线现状"} {
+	for _, want := range []string{"TurnScheduler", "runtime.go", "逃生", "接线现状", "Order()", "NoteTurn()", "没有生产消费者"} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("README 缺少接线状态声明 %q（TurnScheduler 的接线点与逃生路径必须写在模块 README 里）", want)
+			t.Fatalf("README 缺少接线状态声明 %q（必须写清生产消费面 Order()/NoteTurn()、Next()/Advance() 没有生产消费者，以及逃生路径）", want)
 		}
 	}
-	if strings.Contains(text, "TurnScheduler") && strings.Contains(text, "尚未接线") {
-		t.Fatal("README 仍写着 TurnScheduler「尚未接线」，与 runtime.go 的生产调用点矛盾")
+	if strings.Contains(text, "尚未接线") {
+		t.Fatal("README 仍写着 TurnScheduler「尚未接线」：它已经被 Runtime 持有（只是 Next()/Advance() 还没人消费），旧措辞与代码事实矛盾")
 	}
 }
 
