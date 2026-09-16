@@ -88,3 +88,22 @@ go build -o tmp/bin/seelex-headless.exe .
 $env:SMOKE_TEAM_WORK_COMPUTER_LIVE='1'
 go test ./gui -run TestRealAPITeamWorkComputerUseLiveProbe -v -count=1 -timeout 20m
 ```
+
+## 六、勘误（2026-09-16）
+
+第三节里把「**标题命中=true**」和「screen/media 证据进入 ADVISOR 输入」并列成
+"硬断言"，两者的强度其实**不一样**：
+
+- `screen: media:… foreground="…"` 进入 ADVISOR 输入 = **真断言**（summary 抽取
+  了工具结果里的句柄与元数据，可逐字核对）；
+- `标题命中=true` = **弱断言**：`computer_screenshot` 的工具结果文本里本来就带
+  `foreground.title`（`seelebridge/tools/computer/tools_view.go` →
+  `tools.go:246`），模型照抄文本即可命中，不构成"看过像素"。
+
+同一问题在 `computer_use_live_smoke_test.go` 里更严重——那条"回答命中"曾被当作
+"模型看图回答"的证据。该冒烟已改为以**出站 provider 请求是否携带图像**为准，
+详见 `docs/devlog/2026-09-16-computer-use-evidence-correction.md`。
+
+另外，缺 `config/accounts.yaml` 时会静默回退到空 key 的 `gpt-4o` 假账号
+（`seelebridge/internal/config/config.go` `fallbackConfig()`）——在这种装配下
+任何 computer use 验证都不接真实能力。该行为同见上篇勘误，尚未改。
