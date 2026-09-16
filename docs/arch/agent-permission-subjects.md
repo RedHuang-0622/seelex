@@ -37,6 +37,22 @@
 主体写在调度 ctx 上（`WithEngine` + `WithSessionID`），**不落在共享字段**：并行子代理 /
 并行会话同时调工具时不会互相污染。
 
+#### 2.1.1 审批归属：呈现面与判定面解耦
+
+主体（`WithEngine`）决定**按谁判**；会话归属（`WithSessionID`）只决定**审批弹在哪**。
+两者刻意分开：
+
+- **判定面**读 `SessionFromContext` 的**原始**调度会话（角色会话号）+ ctx 里的员工身份；
+- **呈现面**在写 ctx 前先按 `PermissionGate.RoleSessionOwner` 折算：角色会话
+  （`goal-a2a-<role>` / `advisor:<main>`）→ **宿主主会话**（`app.RoleSessionOwner` 反查索引，
+  与 `SetRoleSessionPolicyResolver` 同一份事实）。
+
+为什么必须折算：角色会话不是用户视图里的会话，`observeInteraction` 只把"视图会话（或空
+归属）"的待批镜像进单格 `Snapshot.Interaction`，且角色会话没有会话单元承载目录的
+`awaiting_approval`——不折算 = 员工越权提权对宿主完全不可见（只能等审批超时被拒）。
+折算后，现有面板的三条读面（单格弹窗 / 目录徽标 / `SessionSnapshot.Approvals`）原样复用。
+nil / 未命中的读面保持旧的按会话归属（后台会话待批仍归自己，不冒充别人）。
+
 ### 2.2 路由组（哪一族）—— Linux 的 group 维度
 
 按工具名 glob 路由，LMRW（最后匹配胜出，组之间不重叠）：
