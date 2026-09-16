@@ -220,6 +220,11 @@ type TLSessionEmbed struct {
 	TLMemory []string  `json:"tl_memory,omitempty"` // b 自身回合记忆（TL 记得自己说过什么，≤ MaxEmbedRounds）
 	Trigger  string    `json:"trigger,omitempty"`   // 本回合触发原因
 	Corr     string    `json:"corr,omitempty"`      // 本回合产物关联 id（协议 §5 幂等）
+	// SessionID 是这次评审所在**主会话**（工作区）的 id：评审者要能读项目才能把
+	// 裁决从"观点"变成"证据"（A2A-VALUE-REVIEW §2.5）。它不参与 RenderText
+	// （不进模型输入），只是执行面绑定项目根/角色会话的坐标。空 = 该宿主没有把
+	// 会话身份接到治理循环（执行面退回无工具评审）。
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // Validate 校验回合嵌入（有界性快检；供测试与装配护栏使用）。

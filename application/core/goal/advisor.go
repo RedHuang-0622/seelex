@@ -100,6 +100,9 @@ type AdvisorSession struct {
 	GoalID string    `json:"goal_id,omitempty"`
 	State  PeerState `json:"state"`
 	Rebind int       `json:"rebind,omitempty"` // 会话内 b 重建次数（goal 域同生命周期为 0/1）
+	// SessionID 是这次评审所在的**主会话**（工作区）id：b 的执行面据此绑定项目根与
+	// 角色会话（评审者要能读项目才能做证据判断）。空 = 宿主没把会话身份接进来。
+	SessionID string `json:"session_id,omitempty"`
 
 	Anchor  GoalFrame  `json:"anchor"`      // 锚点快照（bind 时一次快照，不随后续 update 变化）
 	Frames  []Frame    `json:"frames"`      // 追加帧（ref_seq 严格递增；只尾部追加）
@@ -171,11 +174,12 @@ func (b *AdvisorSession) RoundMemories(limit int) []string {
 // 不含 a 实时尾窗）。调用方须持 Supervisor.mu。
 func (b *AdvisorSession) renderEmbed(trigger string) (TLSessionEmbed, string) {
 	embed := TLSessionEmbed{
-		PeerID:   b.PeerID,
-		Goal:     b.Anchor,
-		Frames:   append([]Frame(nil), b.Frames...),
-		TLMemory: b.RoundMemories(MaxEmbedRounds),
-		Trigger:  trigger,
+		PeerID:    b.PeerID,
+		Goal:      b.Anchor,
+		Frames:    append([]Frame(nil), b.Frames...),
+		TLMemory:  b.RoundMemories(MaxEmbedRounds),
+		Trigger:   trigger,
+		SessionID: b.SessionID,
 	}
 	return embed, embed.RenderText()
 }

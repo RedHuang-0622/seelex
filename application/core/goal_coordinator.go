@@ -108,6 +108,9 @@ func (g *goalCoordinator) bundleFor(sessionID string) *goalSessionRuntime {
 		ctl: controller,
 		sup: goaldomain.NewSupervisor(controller, g.deps.Evaluator, goaldomain.DefaultTechLeaderConfig()),
 	}
+	// 主会话坐标：ADVISOR 回合的输入要带上"评审哪个工作区"，执行面才能绑定项目根
+	// 并给评审者只读工具（没有它，评审只能凭上下文猜，见 runtime_goal_tl.go）。
+	runtime.sup.SetSessionID(sessionID)
 	if g.deps.TLRecorderFor != nil {
 		runtime.sup.SetRoundRecorder(g.deps.TLRecorderFor(sessionID))
 	}
@@ -595,8 +598,11 @@ func (g *goalCoordinator) setEvaluator(evaluator goaldomain.TLEvaluator) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.deps.Evaluator = evaluator
-	for _, runtime := range g.sessions {
+	for sessionID, runtime := range g.sessions {
 		runtime.sup = goaldomain.NewSupervisor(runtime.ctl, evaluator, goaldomain.DefaultTechLeaderConfig())
+		// 重建 Supervisor 必须把主会话坐标重新写回：换评估器不该把"评审哪个工作区"
+		// 丢掉（丢了 = ADVISOR 退回无工具评审，静默降级）。
+		runtime.sup.SetSessionID(sessionID)
 		runtime.gov = nil
 	}
 }

@@ -117,6 +117,11 @@ type Supervisor struct {
 
 	mu sync.Mutex
 
+	// sessionID 是本次评审所在的主会话（工作区）坐标：随 b 回合输入下发（评审者
+	// 的执行面据此绑定项目根与角色会话）。空 = 宿主未接通（执行面退回无工具评审）。
+	// 由 SetSessionID 在 bundle 构造/装配点写入，与 Supervisor 同生命周期。
+	sessionID string
+
 	advisor *AdvisorSession // b（懒 bind：首次回合/快照前创建）
 
 	execSeq            uint64         // a 事件账本水位（EXEC 唯一账本源，协议 §7.1）
@@ -180,6 +185,23 @@ func (s *Supervisor) SetRoundRecorder(recorder TLRoundRecorder) {
 	s.mu.Unlock()
 }
 
+// SetSessionID 写入本次评审所在的主会话（工作区）坐标：b 回合输入会带上它，评审者
+// 的执行面（seelebridge）据此绑定同一项目根、按只读口径跑一轮带工具的评审。
+//
+// 只影响**尚未 bind** 的 b（已 bind 的 peer 保持自己的坐标），因此调用点应是
+// Supervisor 的构造/装配处，而不是每个回合。
+func (s *Supervisor) SetSessionID(sessionID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.sessionID = strings.TrimSpace(sessionID)
+	if s.advisor != nil {
+		s.advisor.SessionID = s.sessionID
+	}
+	s.mu.Unlock()
+}
+
 // directiveText 把 b 的裁决渲染成原文 JSON（记录与展示用，不截断）。
 func directiveText(directive TLDirective) string {
 	if raw, err := json.Marshal(directive); err == nil {
@@ -220,7 +242,7 @@ func (s *Supervisor) advisorForLocked(active *GoalRecord) *AdvisorSession {
 		s.advisor = nil // goal 域终态后 b 已 reap；新 goal 重新 bind
 	}
 	if s.advisor == nil {
-		peer := &AdvisorSession{State: PeerBound}
+		peer := &AdvisorSession{State: PeerBound, SessionID: s.sessionID}
 		now := s.now()
 		s.execSeq++ // a 事件：goal.start 锚点（协议 §4 必进）
 		peer.markBound(fmt.Sprintf("advisor-%s", active.ID), goalFrameOf(active), s.execSeq, now)

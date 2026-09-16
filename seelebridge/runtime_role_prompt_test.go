@@ -8,7 +8,7 @@ import (
 // TestAdvisorSystemPromptPrefersRegisteredPrompt：登记了员工提示词就用它，未登记
 // 回退内置角色设定；**两种情况都追加输出契约**（否则 goal 域解析不出指令）。
 func TestAdvisorSystemPromptPrefersRegisteredPrompt(t *testing.T) {
-	builtin := (&goalLLMEvaluator{}).advisorSystemPrompt()
+	builtin := (&goalLLMEvaluator{}).advisorSystemPrompt(false)
 	if !strings.Contains(builtin, goalAdvisorRolePrompt) || !strings.Contains(builtin, goalAdvisorOutputContract) {
 		t.Fatalf("未登记提示词时必须用内置角色设定 + 输出契约：%q", builtin)
 	}
@@ -19,7 +19,7 @@ func TestAdvisorSystemPromptPrefersRegisteredPrompt(t *testing.T) {
 		}
 		return "你是我司的评审官：先看测试证据，再看实现。"
 	}}
-	registered := evaluator.advisorSystemPrompt()
+	registered := evaluator.advisorSystemPrompt(true)
 	if !strings.Contains(registered, "你是我司的评审官") {
 		t.Fatalf("登记的提示词必须生效：%q", registered)
 	}
@@ -32,8 +32,26 @@ func TestAdvisorSystemPromptPrefersRegisteredPrompt(t *testing.T) {
 
 	// 读面返回空白 = 未登记（用内置兜底），不能让空提示词顶掉角色设定。
 	blank := &goalLLMEvaluator{promptProvider: func(string) string { return "   " }}
-	if !strings.Contains(blank.advisorSystemPrompt(), goalAdvisorRolePrompt) {
-		t.Fatalf("空白登记提示词应回退内置角色设定：%q", blank.advisorSystemPrompt())
+	if !strings.Contains(blank.advisorSystemPrompt(false), goalAdvisorRolePrompt) {
+		t.Fatalf("空白登记提示词应回退内置角色设定：%q", blank.advisorSystemPrompt(false))
+	}
+}
+
+// TestAdvisorSystemPromptReportsActualToolBoundary：工具边界必须与实际执行面**同源**
+// ——提示词说"你有只读工具"而实际没有（或反之），模型的行为就会与实际能力错位，
+// 比没有工具更糟（它会声称自己核对过文件）。
+func TestAdvisorSystemPromptReportsActualToolBoundary(t *testing.T) {
+	evaluator := &goalLLMEvaluator{}
+	withTools := evaluator.advisorSystemPrompt(true)
+	withoutTools := evaluator.advisorSystemPrompt(false)
+	if !strings.Contains(withTools, goalAdvisorToolingWithTools) || strings.Contains(withTools, goalAdvisorToolingWithoutTools) {
+		t.Fatalf("有工具时只应出现「有工具」段：%q", withTools)
+	}
+	if !strings.Contains(withoutTools, goalAdvisorToolingWithoutTools) || strings.Contains(withoutTools, goalAdvisorToolingWithTools) {
+		t.Fatalf("无工具时只应出现「无工具」段：%q", withoutTools)
+	}
+	if !strings.Contains(withTools, goalAdvisorOutputContract) || !strings.Contains(withoutTools, goalAdvisorOutputContract) {
+		t.Fatal("两种口径都必须带输出契约（否则 goal 域解析不出指令）")
 	}
 }
 
