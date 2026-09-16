@@ -2,12 +2,12 @@ module github.com/RedHuang-0622/seelex
 
 go 1.25.8
 
-// Seele：发布依赖走下面的 require（v0.2.0）。
-// 2026-09-15 重新加入本地 replace 指向 G:/Program/go/Seele，用于接入新版
-// 权限模型（Gate/Engine/ToolMeta）联调；发布前必须移除 replace。
+// Seele：发布依赖走下面的 require（v0.3.0 = Linux 式权限模型：主体×路由组×rwx
+// + sudo 与中间件判定）。2026-09-15 曾临时加本地 replace（=> G:/Program/go/Seele）
+// 联调该模型；v0.3.0 发布后 replace 已移除，回归纯净依赖。
 
 require (
-	github.com/RedHuang-0622/Seele v0.2.0
+	github.com/RedHuang-0622/Seele v0.3.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -85,5 +85,3 @@ require (
 	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/RedHuang-0622/Seele => G:/Program/go/Seele
