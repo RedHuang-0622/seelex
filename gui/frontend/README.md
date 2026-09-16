@@ -107,7 +107,7 @@ Workbench 快照或进程制品）；会话粒度基线（`capabilities.session_
 3. seq 缺口先向宿主 `ReplayEvents` 增量补取；补不齐、协议不兼容或未知状态才触发完整 Snapshot resync。
 4. render functions 根据 state 投影 DOM；所有 mutation 通过 Bridge 返回 Application。
 
-权限档位控件不维护本地状态：composer chip（`#perm-toggle`，位置沿用原"全权"chip）显示当前档短名，点击打开运行状态弹窗；弹窗里的「权限档位（本会话）」列表按后端目录 `snapshot.runtime.permission_tiers` 有序渲染，当前档由 `snapshot.runtime.permission_tier` 标记，点击调用 `Bridge.SetPermissionTier` 后按返回的**生效档位**渲染并重新拉取 Snapshot；后端同时发布完整 `runtime.changed` 供连续事件链更新。旧 `full_access` 保留为派生位（`full` 档 ⇒ true）。
+权限档位控件不维护本地状态：composer chip（`#perm-toggle`，位置沿用原"全权"chip，尾部 `▾` 表示可下拉）显示当前档短名，**点击就地展开芯片下拉**（`#perm-menu`，位于 `<div class="perm-picker">` 内、向上展开的一层浮层）；条目由 `permission-tier.js:permissionTierMenuItems` 给出，与运行状态弹窗里的列表**同源**（同一份后端目录 `snapshot.runtime.permission_tiers` + 同一份生效档 `snapshot.runtime.permission_tier`）。点一条即调用 `Bridge.SetPermissionTier`，按返回的**生效档位**渲染芯片并重新拉取 Snapshot；`applyPermissionTier` 是唯一提交路径，下拉与弹窗列表共用。键盘：`↑/↓` 循环（纯函数 `nextTierIndex`）、`Enter`/空格提交、`Esc` 或点击浮层外关闭；`aria-expanded`/`aria-haspopup` 由 `togglePermissionMenu` 维护。运行状态弹窗里的「权限档位（本会话）」列表保留为总览口。后端同时发布完整 `runtime.changed` 供连续事件链更新。旧 `full_access` 保留为派生位（`full` 档 ⇒ true）。
 
 事件是状态更新的唯一快路径。渲染层每应用一批事件就向宿主回报应用水位
 （`Bridge.AckEvents`，密集期按 150ms 合并）；`delivery_seq` 出现缺口时先向宿主

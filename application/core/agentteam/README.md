@@ -64,7 +64,7 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 | `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
 
 结论口径（2026-09-16 复核）：`TurnScheduler` 的链表顺序（`Move`/`Remove`/`Restore`）与 `SetPrefix` 现在有生产消费者：
-`Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序同步成环；生产**实际调用**的只有 `Order()`（`newGovernor` 据此决定 main/tl 座位要不要长出来）与 `NoteTurn()`（`AdvanceAfterChat` 据此收束环），`Next()` / `Advance()` 没有生产调用者；
+`Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序同步成环；生产**实际调用**的只有 `Order()`（`newGovernor` 据此决定 main/tl 座位要不要长出来）与 `NoteTurn()`（`AdvanceAfterChat` 据此收束环）与 `NoteWorkDetail()`（同一次 `AdvanceAfterChat` 把本轮正文装配成 team work 前缀 → `SetPrefix` → 交班时下发给下一名发言成员；唯一写入口在后端，前端只能 `Snapshot().Prefix` 只读查看），`Next()` / `Advance()` 没有生产调用者；
 前端「工作顺序」编辑既改持久事实（`lifecycle`）也即时同步环，因此"下一个谁发言"不是排班结果（它是把表头第一格扫出来的静态投影）；真正让角色发言的仍是 goal 治理的座位循环，逃生记账只属于**当前这一轮 goal**（新 goal 上线时 `goalCoordinator.Begin` 调 `Runtime.Reset()`，否则上一轮的逃生结论会让新 goal 的 ADVISOR 永久静默）。
 
 **user 算不算环里的一环**（2026-09-15 定稿）：user 永远在 `order_roles` 里（它是群聊的起手与收口），
@@ -233,6 +233,7 @@ go test -race ./application/core/agentteam -count=1
 - `func TestInstantiateRoleRespectsJoinPolicyAndTimer(t *testing.T)` — TestInstantiateRoleRespectsJoinPolicyAndTimer：join_policy 决定是否自动排入；
 - `func TestInstantiateRoleRejectsBuiltinAndBadInput(t *testing.T)` — TestInstantiateRoleRejectsBuiltinAndBadInput：内置角色（user/main）由会话本身
 - `func TestInstantiateRoleReportsExecutorForTechlead(t *testing.T)` — TestInstantiateRoleReportsExecutorForTechlead：tl 有真实执行者（goal 治理的
+- `func TestNormalizeRoleRejectsUnknownToolsPolicy(t *testing.T)` — TestNormalizeRoleRejectsUnknownToolsPolicy：tools_policy 必须在枚举内。
 
 ### library.go
 
@@ -263,6 +264,16 @@ go test -race ./application/core/agentteam -count=1
 - `func TestNormalizeLibraryEntryRejectsBadInput(t *testing.T)` — TestNormalizeLibraryEntryRejectsBadInput：缺 team_id / 非法顺序策略显式报错。
 - `func TestEntryFromSpecCopiesPreset(t *testing.T)` — TestEntryFromSpecCopiesPreset：内置 preset 可复制成库条目（"以模板新建团队"）。
 
+### prefix_test.go
+
+- `func TestNoteMainContextFeedsSpeakerPrefix(t *testing.T)` — TestNoteMainContextFeedsSpeakerPrefix：主会话 wire 的正文进前缀，交班时真的下发给
+- `func TestNoteMainContextProjectsWholeWire(t *testing.T)` — TestNoteMainContextProjectsWholeWire：前缀就是主会话上下文本身——本包不再二次
+- `func TestNoteMainContextEmptyWireStaysQuiet(t *testing.T)` — TestNoteMainContextEmptyWireStaysQuiet：主会话还没有可装配的正文时前缀为空，
+- `func TestTeamPrefixHasNoFrontendWriteEntry(t *testing.T)` — TestTeamPrefixHasNoFrontendWriteEntry 是**守卫用例**：前缀的写入口只能在后端，
+- `func keysOf(set map[string]bool) []string`
+- `func prefixSkipDir(name string) bool` — prefixSkipDir 报告扫描时应跳过的目录（构建产物 / 依赖缓存 / 临时现场）。
+- `func prefixRepoRoot(t *testing.T) string`
+
 ### presets.go
 
 - `func goalA2APreset() dto.TeamSpec` — goalA2APreset 是第一个实例：goal 的 user→main↔tl 固定循环。
@@ -290,11 +301,16 @@ go test -race ./application/core/agentteam -count=1
 - `func (r *Runtime) SetUserSeat(policy UserSeatPolicy)` — SetUserSeat 显式覆盖 user 席位口径（缺省由顺序策略推导）。
 - `func (r *Runtime) NoteUserQueued(pending bool)` — NoteUserQueued 更新"消息队列里有没有未消费的 user 输入"。user 席位口径为
 - `func (r *Runtime) Order() []string` — Order 返回环当前的链表顺序（快照）。
+- `func (r *Runtime) NoteMainContext(wire dto.RoleWireSnapshot)` — NoteMainContext 用「主会话上下文 + 主会话 draft」的只读装配结果刷新 team work
+- `func (r *Runtime) Prefix() string` — Prefix 返回当前正文前缀（只读；前端/巡检面用它做快照查看）。
+- `func renderMainContextPrefix(messages []dto.RoleWireMessage) (string, []string)` — renderMainContextPrefix 把主会话 wire 的正文投影成前缀文本与投影行（纯函数，
+- `func wireMessageLine(message dto.RoleWireMessage) string` — wireMessageLine 把一条 wire 正文压成一行：有正文用正文；只有工具调用时保留
 - `func (r *Runtime) Round() int` — Round 返回已经走过的轮数。
 - `func (r *Runtime) NoteTurn(progressed bool) (bool, string)` — noteprogress 记账一次回合：progressed=false 累计"连续无进展"，到达上限即
 - `func (r *Runtime) Stop(reason string)` — Stop 显式停止环（用户中断 / 裁决收口 / 外部 Break）。
 - `func (r *Runtime) stopLocked(reason string)`
 - `func (r *Runtime) Stopped() (bool, string)` — Stopped 返回环是否已被逃生路径收束，以及原因。
+- `func (r *Runtime) Reset()` — Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序、成员与
 - `func (r *Runtime) Next() (TurnRequest, bool)` — Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
 - `func (r *Runtime) skipLocked(roleName string) bool` — skipLocked 报告某个成员本轮不应占位。
 - `func (r *Runtime) Snapshot() dto.TeamSchedule` — Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
@@ -312,6 +328,8 @@ go test -race ./application/core/agentteam -count=1
 - `func TestRuntimeEscapeNoProgress(t *testing.T)` — TestRuntimeEscapeNoProgress：连续无进展是逃生路径第二道——推进一次即清零，
 - `func TestRuntimeEscapeNoExecutor(t *testing.T)` — TestRuntimeEscapeNoExecutor：环里一个能发言的都没有时显式收束（no_executor /
 - `func TestRuntimeEscapeExternalStop(t *testing.T)` — TestRuntimeEscapeExternalStop：用户中断 / TL 裁决收口 / goal.gov_break 走同一
+- `func TestRuntimeResetRevivesEscapeState(t *testing.T)` — TestRuntimeResetRevivesEscapeState：逃生是显式结论，但**复活也必须是显式可达
+- `func TestRuntimeResetOnNilIsSafe(t *testing.T)` — TestRuntimeResetOnNilIsSafe：Reset 走 nil 接收者安全（未装配团队环的会话在
 
 ### scheduler.go
 
@@ -319,7 +337,7 @@ go test -race ./application/core/agentteam -count=1
 - `func (s *TurnScheduler) Requests() chan<- TurnRequest` — Requests 返回发言意向投递口（参与者 actor 用；满则丢，调用方补重试）。
 - `func (s *TurnScheduler) Request(request TurnRequest) bool` — Request 非阻塞投递一条发言意向。
 - `func (s *TurnScheduler) Next() TurnRequest` — Next 领取下一个该发言的参与者：从 channel 收到意向 struct 后，按链表把
-- `func (s *TurnScheduler) SetPrefix(prefix string)` — SetPrefix 更新 team work 起点到当前位置的上下文前缀（sequencer 每次发布后
+- `func (s *TurnScheduler) SetPrefix(prefix string)` — SetPrefix 更新 team work 起点到当前位置的上下文前缀（装配侧每次读出新事实后
 - `func (s *TurnScheduler) Prefix() string` — Prefix 返回当前上下文前缀快照。
 - `func (s *TurnScheduler) advanceLocked(roleName string) *roleNode` — advanceLocked 把 current 推进到链表下一节点并按 roleName 对齐（若意向来自
 - `func (s *TurnScheduler) Advance(skip func(roleName string) bool) (TurnRequest, bool)` — Advance 按链表推进一格并返回下一名**可发言**成员（不经过 channel）。
@@ -343,12 +361,14 @@ go test -race ./application/core/agentteam -count=1
 - `func TestTurnSchedulerWiredStatusIsDocumented(t *testing.T)` — TestTurnSchedulerWiredStatusIsDocumented 钉住文档声明：README 必须写明接线点
 - `func schedulerHasCallSite(source string) bool` — schedulerHasCallSite 报告源码里是否有 `NewTurnScheduler` 的**调用**（定义不算）。
 - `func schedulerSkipDir(name string) bool` — schedulerSkipDir 报告扫描时应跳过的目录（非源码树：构建产物/临时现场/依赖缓存）。
-- `func schedulerRepoRoot(t *testing.T) string` — schedulerRepoRoot 从包工作目录向上找到含 go.mod 的仓库根。
+- `func TestTurnSchedulerWiredStatusIsDocumentedInSources(t *testing.T)` — schedulerRepoRoot 从包工作目录向上找到含 go.mod 的仓库根。
+- `func schedulerRepoRoot(t *testing.T) string`
 
 ### spec.go
 
 - `func Normalize(spec dto.TeamSpec) (dto.TeamSpec, error)` — Normalize 把 TeamSpec 规整成可装配形态：补默认值、去重、推导 order_roles、
 - `func NormalizeRole(role dto.RoleSpec) (dto.RoleSpec, error)` — NormalizeRole 规整单个角色（TeamSpec 装配与"一步实例化一个角色"共用同一套
+- `func ValidToolPolicy(policy string) bool` — ValidToolPolicy 报告 tools_policy 是否落在枚举内（dto.ToolPolicy*）。
 - `func resolveRoleKind(roleName string, kind dto.RoleKind) dto.RoleKind` — resolveRoleKind 让内置角色名（user/main）永远取内置 kind；其它角色 kind 缺省
 - `func resolveOrderRoles(spec dto.TeamSpec, registered map[string]struct{}) ([]string, error)` — resolveOrderRoles 决定工作顺序：显式给定时必须是 [user, main + 已注册角色] 的
 - `func RoleSessionID(teamID, roleName string) string` — RoleSessionID 派生角色会话号：同一个 (team_id, role_name) 永远得到同一个值，

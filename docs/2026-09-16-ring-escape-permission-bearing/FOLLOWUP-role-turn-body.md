@@ -83,10 +83,14 @@ go test -race ./application/core/ -run 'RoleTurn|AdvanceAfterChat' -count=3   # 
 1. **真实 API 冒烟与 computer use 实机跑一轮**是**下一件事**，不在本轮：本轮把
    "有东西可冒烟"这件事做出来了（角色回合执行体存在、有真引擎、有权责落点），但
    本轮的验收用假引擎（角色回合的正确性不该依赖一次真实 API 调用）。
-2. **ADVISOR（tl）仍然无工具**：`runtime_goal_tl.go` 的评审回合仍是一次无工具的
+2. **ADVISOR（tl）当时仍然无工具**：`runtime_goal_tl.go` 的评审回合当时仍是一次无工具的
    completer 调用。`A2A-VALUE-REVIEW.md` §3.3 建议的"给 ADVISOR 上只读工具"因此
    还没兑现；本轮的 `RunRoleTurn` 是它的现成承载体（角色会话 + 员工主体 + 工具面），
    但 ADVISOR 的座位走的是 `TLEvaluator` 另一条路，接线是独立的一件事。
+   **后续（同日 `f43f635`，2026-09-17 回填）**：这条已兑现——评审回合被授予
+   `dto.ToolPolicyReadonly`（`read_file`/`grep_search`/`glob` + 引用读面），评审者
+   能自己看树与 diff；**`bash` 属 `rw` 组不在只读面内**，所以"评审者自己跑测试/编译"
+   仍未到位（`A2A-VALUE-REVIEW.md` §3.3 第 1 步只兑现了前半句）。
 3. **`Progress` 是保守近似**：当前口径 = "本轮产出了非空结论"，不是"目标真的推进了"。
    它只用于喂环的 `no_progress` 逃生记账。
 4. **角色会话的引擎是进程内的**：不接 `DurableHistory`，重启即失忆（角色 draft

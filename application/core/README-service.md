@@ -4,12 +4,29 @@
 
 Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）
 
-覆盖：`service*.go`；未归属文件由覆盖自检拦下。
+覆盖：`service*.go` + 显式名单（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
 > 刷新方式：`python scripts/gen_core_readme_index.py`。
+
+### employee_permission_assembly_test.go
+
+- `func (recorder *recordingEmployeePermissions) AssignEmployeePermissions(roles []dto.RoleSpec) error`
+- `func (recorder *recordingEmployeePermissions) snapshot() [][]dto.RoleSpec`
+- `func withEmployeePermissions(port contract.EmployeePermissionPort) testServiceOption`
+- `func employeeRolesOf(calls [][]dto.RoleSpec) []string` — employeeRolesOf 取记录里出现过的员工角色（按出现顺序；员工 = agent/timer 角色）。
+- `func assignedRoleNames(calls [][]dto.RoleSpec) []string` — assignedRoleNames 取记录里出现过的**全部**角色名（含主代理/评审者等内置角色）：
+- `func TestAssemblyAssignsEmployeePermissions(t *testing.T)` — TestAssemblyAssignsEmployeePermissions：装配（写注册表）之后，员工权限分配被调用，
+- `func TestAssemblySurfacesEmployeePermissionFailure(t *testing.T)` — TestAssemblySurfacesEmployeePermissionFailure：分配失败必须显式上抛。
+- `func TestAssemblyWithoutEmployeePermissionsStillWorks(t *testing.T)` — TestAssemblyWithoutEmployeePermissionsStillWorks：未装配分配面时装配照常成功
+- `func TestGoalBeginAssemblyAssignsEmployeePermissions(t *testing.T)` — TestGoalBeginAssemblyAssignsEmployeePermissions：goal 创建会自动装配 goal-a2a
+
+### fixture_concurrency_test.go
+
+- `func TestTeamRecordingSessionsAccessorsAreRaceFree(t *testing.T)` — TestTeamRecordingSessionsAccessorsAreRaceFree 并发读写夹具：-race 下证明读写两侧
+- `func TestFixturesDoNotBypassLockedAccessors(t *testing.T)` — TestFixturesDoNotBypassLockedAccessors 是防复发的机械防线：AST 扫描本包测试源码，
 
 ### service.go
 
@@ -93,6 +110,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SetFullAccess(on bool)`
 - `func (runtime *fakeRuntime) SetFullAccessFor(sessionID string, on bool)` — SetFullAccessFor 镜像生产权限门的会话级解析（空会话 ID = 进程级默认）：
 - `func (runtime *fakeRuntime) FullAccessFor(sessionID string) bool` — FullAccessFor 返回指定会话生效的全权模式（会话级选择优先，未选择回退
+- `func (runtime *fakeRuntime) PermissionTier() string` — PermissionTier 返回进程级默认权限档位（fake 只有二元口径：fullAccess → full）。
+- `func (runtime *fakeRuntime) SetPermissionTierFor(sessionID, tier string) error` — SetPermissionTierFor 把档位落到 fake 的二元全权口径（full → true，其余 → false），
 - `func (runtime *fakeRuntime) SetRuntimeVisibilityProjection(projection seelebridge.RuntimeVisibilityProjection)` — SetRuntimeVisibilityProjection / SetParentEvidenceProjection 会被并行会话的
 - `func (runtime *fakeRuntime) SetParentEvidenceProjection(projection seelebridge.ParentEvidenceProjection)`
 - `func (runtime *fakeRuntime) DrainSubagentContexts() []string` — DrainSubagentContexts 排空 merge-back 邮箱。M2 多会话并行下多个
@@ -135,6 +154,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (seelexctxsearch.Result, error)`
 - `func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error`
 - `func (runtime *fakeRuntime) UnbindProjectRoot()`
+- `func (runtime *fakeRuntime) ProjectRoot() string` — ProjectRoot 读当前绑定的项目根（加锁）：写侧可能来自后台 chat goroutine，
 - `func (runtime *fakeRuntime) SetCurrentTaskBatch(sessionID, batchID string)` — SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
 - `func (runtime *goalVisibilityRuntime) VisibleTools(context.Context) []Tool`
 - `func (*fakePlugins) All() []PluginInfo`
@@ -227,7 +247,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) SwitchEffort(_ context.Context, level string) error` — SwitchEffort 切换 Effort 等级（用户级动作，作用于视图会话）。
 - `func (service *Service) SwitchPlugin(ctx context.Context, name string) error` — SwitchPlugin 切换/停用插件（进程级动作，G0b/M6）。
 - `func (service *Service) reapplyEffortAfterPluginSwitch()` — reapplyEffortAfterPluginSwitch 在插件切换后重新应用**用户当前的 effort
-- `func (service *Service) SetFullAccess(on bool) bool`
+- `func (service *Service) SetPermissionTier(tier string) (string, error)` — SetPermissionTier 切换**视图会话的权限档位**，并返回真正生效的档位。
+- `func (service *Service) SetFullAccess(on bool) bool` — SetFullAccess 是权限档位的**兼容壳**：true → full 档、false → manual 档；返回
 - `func (service *Service) observeInteraction(sessionID, requestID string, interaction *Interaction)` — observeInteraction 是 ApprovalBroker 的开/结观察回调（波 4 approval 会话
 - `func (service *Service) mirrorPendingApprovalsLocked(sessionID string)` — mirrorPendingApprovalsLocked 把指定会话当前首笔待批审批镜像到
 - `func (service *Service) openInteraction(interaction *Interaction)`

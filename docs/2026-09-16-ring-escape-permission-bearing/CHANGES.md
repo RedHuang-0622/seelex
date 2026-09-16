@@ -103,8 +103,14 @@ TL 角色一旦改名（用户改名，或自定义预设用了别的名字）�
 
 ## 已知风险与未做项（不含糊）
 
-1. **`-race` 在 `application/core` 报一处既有的测试夹具竞态**（不是本轮改动引入）：
-   `fakeRuntime.BindProjectRoot` 直接写无锁字段 `projectRoot`，而测试体内直接读它；
+1. **`-race` 在 `application/core` 报一处既有的测试夹具竞态**（不是本轮改动引入）
+   ——**已修**（2026-09-17 回填，由 `6817554` 交付）：`fakeRuntime` 现持有 `projectRootMu` 并提供
+   `ProjectRootValue()`，测试体一律走 getter（`application/core/service_fakes_test.go`），
+   另有 `application/core/fixture_concurrency_test.go` 的 AST 机械防线阻止再次直接读该字段。
+   证据：`go test -race ./application/core/ -run TestBackgroundSessionKeepsOwnProjectRoot -count=20`
+   与全量 `-race` 均无报告（Linux CI 承担 `-race`；Windows 本地 `CGO_ENABLED=1` 时同样可跑）。
+   本轮的历史描述保留，不改写记录。
+   原文：`fakeRuntime.BindProjectRoot` 直接写无锁字段 `projectRoot`，而测试体内直接读它；
    读方/写方都未经本轮改动的代码。复现：`go test -race ./application/core/ -run TestBackgroundSessionKeepsOwnProjectRoot -count=20`。
    建议修法：给 `fakeRuntime` 加 `projectRootMu` + `ProjectRootValue()`，并把 5 个测试文件里的
    12 处直接读改成 getter（纯测试夹具改动，本轮未做，避免跨文件无关 churn）。
@@ -115,6 +121,9 @@ TL 角色一旦改名（用户改名，或自定义预设用了别的名字）�
 3. **角色会话号不含主会话身份**：跨会话重号靠"取最严"兜住，要从根上消除需把主会话身份编进
    角色会话号（存储迁移），本轮未做。
 4. **ADVISOR 无工具、无法验证**：详见 `A2A-VALUE-REVIEW.md` §2.5/§3.3——这是"评鉴"部分给出的
-   最高性价比改进项，不是本轮交付。
+   最高性价比改进项，不是本轮交付。**已部分兑现**（2026-09-17 回填）：`f43f635` 给评审回合上了
+   只读工具面（`dto.ToolPolicyReadonly`：`read_file`/`grep_search`/`glob` + 引用读面），评审者
+   从此能自己看树与 diff；`bash` 属 `rw` 组**仍不在只读面内**，所以"跑测试/编译"这条
+   "可执行验证接地"仍未到位（见 `A2A-VALUE-REVIEW.md` §3.3 第 1 步的后半句）。
 5. 团队环的**座位顺序**：仍保留"EXEC 先于 ADVISOR"的相对次序（`orderSeats`），改的是
    **座位存在性**的派生依据（kind）；链序里的 EXEC/ADVISOR 相对次序这一产品语义未动。

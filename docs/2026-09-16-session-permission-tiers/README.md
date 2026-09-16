@@ -200,8 +200,10 @@ dto.PermissionTierInfo{ID,Label,Short,Description}   +  dto.PermissionTiers()   
   与本档位正交，本方案不依赖它）。
 - **不改工具可见面语义**：可见性仍由"位"决定；档位不增删任何主体的位。
 - **不改子代理**。
-- **不落盘（与现状一致）**：`effort`/`full_access` 今天都是会话槽内存态（只有 `Composer` 落盘，
-  见 `session/ports.go:228` 附近与 `composer_draft.go`），档位沿用同一口径；跨重启记忆列为决策点 D5。
+- **落盘（2026-09-17 需求变更）**：原计划沿用 `effort`/`full_access` 的内存槽口径不落盘；
+  用户口径是"这一 session 的权限设置"，跨重启必须记住，因此已改为落盘——落点是**会话级
+  用户设置**（项目级会话元数据 blob，与置顶/别名同一存储），**不是** 会话 record
+  （v8/S20 布局下 record 通道已退役，写进去读不回来，实测见 §12）。
 - **不做 OS/容器隔离**：档位是"问不问人"，不是沙箱。
 
 ---
@@ -251,7 +253,7 @@ go test ./gui/ -run "PermissionTier" -count=1
 | D2 | `auto` 是否也放开**共享桌面**（`rw_desktop`）？ | **否**：桌面与 `adm` 只在 `full` 放开（共享外设的安全底线） |
 | D3 | composer chip 行为：循环切档 vs 打开列表？ | 打开列表（列表是权威入口，chip 只显示当前档 + 一个入口）——若你偏好"最快"，则循环切档 |
 | D4 | 列表放在哪个面板？ | 运行状态（`#runtime-modal`）主位；右栏「状态」子页可选镜像 |
-| D5 | 档位是否跨重启记忆？ | 先与 `effort/full_access` 一致**不落盘**；要记忆则改会话 record（照 `Composer` 的持久化路径） |
+| D5 | 档位是否跨重启记忆？ | **已改口径（2026-09-17）**：落盘——落点是会话级用户设置（项目级 meta blob，见 §12），不是会话 record；`Composer` 的 record 路径在 v8 下已退役，照它做会写不进去 |
 | D6 | 需求 3 的收紧（`full` 不再对员工短路）确认为**行为变更** | 确认按需求收紧（今天 `full_access` 会连带放行员工越权） |
 
 ---
@@ -268,3 +270,41 @@ go test ./gui/ -run "PermissionTier" -count=1
 | bridge | `seelebridge/runtime_tools.go` | 透传 |
 | 组合根 | `main.go` | `parsePermissionMode` 放宽为档位 id；默认档 = manual |
 | 前端 | `gui/frontend/dist/{index.html,app.js,styles.css}` + `*.test.mjs` | 运行状态面板列表 + chip 改造 |
+
+---
+
+## 12. 后续变更（2026-09-17）：档位落盘 + 运行期 CLI 切档
+
+本节的每一项都在后续会话里落地并用测试钉住；§8/D5 的"不落盘"口径由此作废。
+
+**① 落点为什么不是会话 record（实测复核）**
+
+- `sessionstore/sessionstore.go` 的 `Open` 只支持 `BackendJSON`（sqlite/pg/redis 直接
+  `retiredBackendError`），后端恒为 `jsonRepository` → `LayoutV8()` 恒真；
+- v8 下 `SaveRecordRaw` 只把 payload 里的 `status`/`title` 写穿到目录面，
+  `LoadRecordRaw` 交回 `derivedRecordPayload` 派生的
+  `(version/id/status/updated_at/conversation)`。
+  即：往 `SessionRecord` 加 `PermissionTier` 字段**写不进也读不回**。方案原文"照 `Composer`
+  的 record 路径"对 v8 不成立。
+- 因此落点改为**会话级用户设置**：`sessionstore.SessionDisplayMeta.PermissionTier`
+  （项目级会话元数据 blob，与置顶/别名/排序位同一份存储；它的存在理由正是"不被回合结束的
+  整体重建覆盖、跨重启保留"）。
+
+**② 分层落点**
+
+| 层 | 文件 | 改动 |
+|----|------|------|
+| 存储 | `sessionstore/session_meta.go` | `SessionDisplayMeta.PermissionTier` + `Empty()` 纳入档位；`Set` 改为**只覆盖展示字段的合并写**（否则"取消置顶"会顺手抹掉档位）；新增 `SetPermissionTier`/`PermissionTier` |
+| 端口 | `session/ports.go` | 新增可选 `SessionSettingPort`（`SessionPermissionTier`/`SetSessionPermissionTier`）——与展示元数据共用 blob、读面分开 |
+| 适配 | `internal/adapters/session_workspace_ports.go` | 两个方法的落键（项目归属按 `ResolveProjectForSession` 解析） |
+| 应用 | `application/core/session_permission_tier.go`（新）+ `service_interaction.go`/`session_lifecycle.go`/`session_history.go`/`service_assembler.go` | 切档**先落盘再改内存态**（写失败显式报错且不改档位）；热挂载/冷加载/冷启动三处读回并落地（内存槽 + 执行门 + 审批自动放行） |
+| 前端 | `gui/frontend/dist/permission-tier.js`（新，从 app.js 抽出纯函数） | 档位列表/chip 口径可被 `node --test` 直接钉住 |
+
+**③ 边界（本轮明确不做）**
+
+- 未选择的会话仍回退进程默认档位；**显式选了 `manual` 与"从未选择"在存储上是两件事**。
+- `fork` 出的子会话不继承父会话档位（元数据按会话键，不随 record 深拷贝）→ 落回进程默认。
+- 删除会话不会清理其元数据条目（置顶/别名早已如此）——档位沿用同一现状，属既有缺口。
+- 运行期切档的三条入口：GUI chip/列表、CLI `/permission`、headless `SetPermissionTier`；
+  三者都走 `Service.SetPermissionTier` 单一路径，且**不加 running 守卫**（运行中切档正是用于
+  放行/收紧当前审批，与 `/effort` 的守卫语义不同）。

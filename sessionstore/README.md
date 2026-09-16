@@ -135,6 +135,19 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
   `main.go` 构造一次并以指针注入 `SessionPort`，值拷贝后仍共用同一把锁）。
   `TestSessionMetaStoreConcurrentSets` 在 `-race` 下断言无丢失更新。
 - 读失败或缺键一律按"无元数据"处理：展示元数据不得让会话目录整体失败。
+- **展示字段与"会话级设置"共用一个 blob、两套写面**：`Set` 只覆盖置顶/别名/排序位
+  （合并写——条目里其它字段原样保留），`SetPermissionTier` 只写权限档位。
+  这条分界是必须的：若 `Set` 整条替换，用户"取消置顶"会顺手抹掉他选的权限档位。
+  `Empty()` 纳入档位后，"清展示字段"只在条目真的无信息量时才删除条目。
+  回归用例 `TestSessionMetaStorePermissionTierIsolation`。
+- `PermissionTier` 是**主会话在本会话的权限档位**（空 = 从未选择 → 运行时回退进程
+  默认档位）。它是用户选择而非执行事实，但同样不能进 `SessionRecord`：现行 v8 布局
+  （S20）下 record 通道已退役——`SaveRecordRaw` 只写穿 `status`/`title`，
+  `LoadRecordRaw` 交回按 message head/行派生的最小 record，新增字段写不进也读不回。
+  跨重启记忆的回归在 `application/core`（`TestPermissionTierSurvivesSessionReload`）。
+
+**已知缺口**：`Delete(session)` 不清理该会话的元数据条目（置顶/别名早已如此，档位
+沿用同一现状）。条目按会话 ID 建键，删除后的 ID 不会复用，因此只是遗留垃圾而非串写。
 
 ## Seele v2 会话适配
 

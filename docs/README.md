@@ -18,6 +18,7 @@
 | [`context-improvement-plan.md`](arch/context-improvement-plan.md) | Context 包拆分为 snapshot/provider/compactor/merger 方案 |
 | [`skill-effort-architecture.md`](arch/skill-effort-architecture.md) | Effort system prompt 与 Skill 用户上下文的当前实现设计 |
 | [`agent-workbench-architecture.md`](arch/agent-workbench-architecture.md) | DSL 对话卡片、Agent E2E、Workspace 沙盒与多会话并行总体架构 |
+| [`agent-team-work-vs-market.md`](arch/agent-team-work-vs-market.md) | Agent Team「team work」与市场常见多代理方案的机制差异、收益与数据依据（含本次实测/静态度量/既有报告/外部未复核口径的分层标注与诚实局限清单） |
 
 ## 🧭 product/ — 产品规划
 
@@ -65,6 +66,7 @@
 | [`2026-09-15-agentteam-instantiation-and-speak-schedule.md`](devlog/2026-09-15-agentteam-instantiation-and-speak-schedule.md) | Agent Team 员工一步实例化 + 发言调度运行态（含治理轮次上限与前端两栏） |
 | [`2026-09-15-agentteam-panel-optimization.md`](devlog/2026-09-15-agentteam-panel-optimization.md) | Agent Team 面板与相邻面板的可优化之处：只读审计（带证据）+ 行业对照 + 分批建议；含员工面板去小字备注的落地记录 |
 | [`2026-09-15-frontend-render-and-memory.md`](devlog/2026-09-15-frontend-render-and-memory.md) | 前端渲染与内存减负（事件委托 / 共享提示气泡 / 拓扑单传 / tree-fork 统一树轨与泳道） |
+| [`2026-09-16-frontend-tables-and-chip-dropdown.md`](devlog/2026-09-16-frontend-tables-and-chip-dropdown.md) | Goal 活动栈与角色记录改专用表格（一行一帧 / 一行一车道一列一回合）、权限档 chip 就地下拉切换、Dev GUI 包归档根目录修正 |
 
 ## 🔬 research/ — 调研报告
 

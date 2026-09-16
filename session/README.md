@@ -33,8 +33,15 @@ routing、显式 project-scoped read、存储设置），自会话域重构起�
     `shared_face_test.go` 把守）。停机后 `call` 经 `stopCh` 返回零值，不挂起。
 - `SessionUnit`（`ports.go` / `runtime_slot.go`）：每个会话一份的资源单元 ——
   身份/血缘、`Runtime` 投影槽、`Revision`、`Composer` 草稿与 `Effort`/
-  `FullAccess` 会话选择（G4：未选择回退进程默认；fork 子单元不继承父的运行期
-  选择，见 `deepcopy_test.go: TestS0ForkDeepCopyIsolation`）。
+  `FullAccess`/`PermissionTier` 会话选择（G4：未选择回退进程默认；fork 子单元不继承
+  父的运行期选择，见 `deepcopy_test.go: TestS0ForkDeepCopyIsolation`）。
+- 可选扩展端口（宿主按需实现，未实现时应用层有明确降级语义）：
+  - `SessionMetaPort`：会话展示元数据（置顶/别名/排序位）的读写；
+  - `SessionSettingPort`：**会话级用户设置**（当前为 `SessionPermissionTier`/
+    `SetSessionPermissionTier`，即主会话在本会话的权限档位）。档位是用户选择而非执行
+    事实，但它必须跨重启保留，因此落在存储层的项目级会话元数据 blob 里（与展示元数据
+    同一份存储、两套写面；为什么不能进 `SessionRecord` 见 `sessionstore/README.md`）。
+    未实现该端口的宿主退回"档位只在内存"的旧语义，切档不报错。
 
 ## 生态位
 

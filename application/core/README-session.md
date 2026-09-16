@@ -406,6 +406,34 @@
 - `func TestParallelSessionsExecuteConcurrently(t *testing.T)` — TestParallelSessionsExecuteConcurrently 验证 M2 核心语义：活跃会话运行中，
 - `func TestParallelSessionsQueuedPerSession(t *testing.T)` — TestParallelSessionsQueuedPerSession 验证每个会话维护自己的输入队列：A 运行
 
+### session_permission_tier.go
+
+- `func (service *Service) settingPort() (session.SessionSettingPort, bool)` — settingPort 返回会话端口的可选"会话级用户设置"扩展（未装配 = 档位退回内存态，
+- `func (service *Service) persistPermissionTier(sessionID, tier string) error` — persistPermissionTier 把档位写进会话级设置（"" = 清除该会话的选择）。
+- `func (service *Service) readStoredPermissionTier(sessionID string) string` — readStoredPermissionTier 读取该会话持久化的权限档位（"" = 从未选择 / 未装配
+- `func (service *Service) applyStoredPermissionTier(sessionID, tier string)` — applyStoredPermissionTier 把持久化档位落到该会话的内存槽 + 执行门 + 审批自动
+- `func (service *Service) restorePermissionTierFor(sessionID string)` — restorePermissionTierFor 读回并落地该会话的档位（非锁内衔接场合的便捷入口）。
+
+### session_permission_tier_persist_test.go
+
+- `func newTierMemSessions() *tierMemSessions`
+- `func (sessions *tierMemSessions) SessionPermissionTier(sessionID string) (string, error)` — SessionPermissionTier 读回会话级档位设置（空 = 该会话从未选择，回退进程默认）。
+- `func (sessions *tierMemSessions) SetSessionPermissionTier(sessionID, tier string) error` — SetSessionPermissionTier 写入会话级档位设置。
+- `func (sessions *tierMemSessions) tierFor(sessionID string) string`
+- `func TestPermissionTierSurvivesSessionReload(t *testing.T)` — TestPermissionTierSurvivesSessionReload：选 full → 重新装配（= 重启）→ 仍是
+- `func TestPermissionTierReloadKeepsManualChoice(t *testing.T)` — TestPermissionTierReloadKeepsManualChoice：显式选了 manual 也必须记住——它不同于
+- `func TestPermissionTierWithoutSettingPortStaysInMemory(t *testing.T)` — TestPermissionTierWithoutSettingPortStaysInMemory：未装配会话级设置端口的最小宿主
+- `func TestPermissionTierSettingPortErrorSurfaces(t *testing.T)` — TestPermissionTierSettingPortErrorSurfaces：会话级设置写失败必须显式报错且**不改**
+- `func (sessions *failingTierSessions) SetSessionPermissionTier(string, string) error`
+- `func TestPermissionTierSwitchMirrorsViewSnapshot(t *testing.T)` — TestPermissionTierSwitchMirrorsViewSnapshot：切到某会话时，**目标会话**的生效
+
+### session_permission_tier_test.go
+
+- `func TestPermissionTierOwnershipPerSession(t *testing.T)` — TestPermissionTierOwnershipPerSession：档位选择归属进 SessionUnit——每个会话保存
+- `func TestPermissionTierProjectionPerSession(t *testing.T)` — TestPermissionTierProjectionPerSession：运行时投影按会话读取生效档位（view 协调器
+- `func TestSetPermissionTierRejectsUnknown(t *testing.T)` — TestSetPermissionTierRejectsUnknown：非法档位 id 报错且**不改变**当前档位。
+- `func TestSetFullAccessCompatMapsToTier(t *testing.T)` — TestSetFullAccessCompatMapsToTier：旧全权开关是档位的兼容壳（true ⇔ full，
+
 ### session_plan_switch_regression_test.go
 
 - `func TestHotAttachKeepsBackgroundPlanProgress(t *testing.T)` — TestHotAttachKeepsBackgroundPlanProgress 回归：后台会话运行期间 plan 节点
@@ -467,8 +495,9 @@
 - `func (service *Service) currentViewSessionID() string` — currentViewSessionID 返回当前视图会话 ID（读锁内快照；供解锁后发布
 - `func (service *Service) effortForSession(sessionID string) string` — effortForSession 返回指定会话生效的 effort 级别（G4：Unit 内选择优先；
 - `func (service *Service) syncPlanPolicyFor(sessionID string)` — syncPlanPolicyFor 按会话 effort 向引擎写入该会话的 plan 策略槽（G1-C：
-- `func (service *Service) fullAccessForSession(sessionID string) bool` — fullAccessForSession 返回指定会话生效的全权模式（G4：Unit 内选择优先；
-- `func (service *Service) syncFullAccessFor(sessionID string)` — syncFullAccessFor 按会话全权模式同步执行门（G4：chat 起点调用，保证每个
+- `func (service *Service) permissionTierForSession(sessionID string) string` — permissionTierForSession 返回指定会话生效的权限档位（G4：Unit 内选择优先；
+- `func (service *Service) fullAccessForSession(sessionID string) bool` — fullAccessForSession 是档位的**兼容派生读面**：full 档 ⇔ 旧的全权开启。
+- `func (service *Service) syncFullAccessFor(sessionID string)` — syncFullAccessFor 按会话档位同步执行门（G4：chat 起点调用，保证每个
 - `func (service *Service) anyChatRunningLocked() bool` — anyChatRunningLocked 报告是否存在任意会话的运行中聊天。M1 单飞执行
 - `func (service *Service) mirrorActiveChatLocked()` — mirrorActiveChatLocked 把当前活跃会话的聊天运行态写入会话 view（阶段 1：
 - `func queuedChatRequests(requests []session.QueuedRequest) []chatRequest` — queuedChatRequests 把会话域排队输入（不透明载荷）还原为执行内核的

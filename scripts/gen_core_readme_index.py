@@ -63,11 +63,11 @@ MISC_FILES = [
 # 覆盖规则 = 命中任一前缀 **或** 在显式名单中；每个根包 .go 必须恰好命中一卷，
 # 由 verify_coverage 兜底（新增文件不归卷即失败，不静默漏文档）。
 ROOT_GROUPS = [
-    ("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ["service"], []),
+    ("service", "Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/测试夹具）", ["service"], ["employee_permission_assembly_test.go", "fixture_concurrency_test.go"]),
     ("session", "会话草稿/恢复/存储用例与集成测试；运行中切到未驻留会话走异步冷加载（restoring 空壳 + 后台装载 + epoch 判定发布基线）", ["session"], SESSION_EXTRA),
     ("chat", "聊天主循环与可见输出集成（含可见会话的群聊角色归属载荷）", ["chat"],
      ["visible_output_test.go", "reasoning_visible_test.go", "visible_role_attribution_test.go"]),
-    ("command", "内置命令注册与执行", ["command"], []),
+    ("command", "内置命令注册与执行", ["command"], ["permission_command_test.go"]),
     ("error", "错误码与面向用户的错误呈现", ["error"], []),
     ("history", "历史检索与 provider 失败恢复", ["history"], []),
     ("input", "输入分派与路由兼容测试", ["input"], []),
@@ -80,7 +80,7 @@ ROOT_GROUPS = [
     ("task", "任务执行集成测试", ["task"], []),
     ("subagent", "子代理投影集成测试", ["subagent"], []),
     ("goal", "goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回归", ["goal"], []),
-    ("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ["agentteam", "role_session"], []),
+    ("agentteam", "AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数据口径）", ["agentteam", "role_session"], ["role_turn.go", "role_turn_test.go"]),
     ("composer", "输入草稿合成器的持久化与工作区绑定（重启后恢复）", ["composer"], []),
     ("archive", "会话归档与收尾语义（归档隐藏/拒绝忙碌会话、推理与工具叙述随记录持久化、运行判定与取消排空）", ["archive"], ["close_semantics_test.go"]),
     ("misc", "基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）", [], MISC_FILES),

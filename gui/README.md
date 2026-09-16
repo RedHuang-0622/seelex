@@ -158,6 +158,18 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 
 Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等敏感配置必须由 backend redaction 后再返回 renderer。
 
+**主会话权限档位（会话粒度，2026-09-16/17）**：`Bridge.SetPermissionTier(tier)`
+转发到 `Application.SetPermissionTier`，返回**真正生效**的档位（前端不得靠"取反本地
+旧状态"猜方向：快照滞后一格时会把"开启"点成"关闭"）；headless 上也暴露同名
+`SetPermissionTier` RPC（`gui/headless.go`），用例
+`gui/headless_permission_test.go:TestHeadlessSetPermissionTierDispatch`。档位目录由后端
+下发（`RuntimeState.permission_tiers`），前端只按序渲染；档位列表与 composer 芯片的
+纯解析口径抽在 `frontend/dist/permission-tier.js`（`node --test` 用例
+`frontend/dist/permission-tier.test.mjs`），app.js 只负责 DOM 写入。档位的**归属与落盘**
+不在 GUI：它由 `application/core` 按会话写入会话级设置并跨重启读回（见
+`sessionstore/README.md`），GUI 只是三个切换入口之一（chip/列表、CLI `/permission`、
+headless RPC）。
+
 ## 关闭语义
 
 Wails `BeforeClose` 首次触发时调用 `BeginGracefulShutdown`，后台等待

@@ -138,7 +138,10 @@ goal 第五栈语义边界（docs/2026-09-08-govern-loop/design.md §2.1 澄清�
 ```text
 go test ./application/core/goal/... -count=1
 go test -race ./application/core/goal/ -count=1
-真实 API 隔离冒烟：$env:SEELEX_LIVE_SMOKE=1; go test ./tmp/goal-tl-live-smoke -v
+真实 API 隔离冒烟：$env:SEELEX_LIVE_SMOKE=1; go test ./_tmp/goal-tl-live-smoke -v
+（`_tmp/` 是本地 scratch 归档（2026-09-17 由 `tmp/` 改名）：Go 工具链的
+`./...` 通配会跳过 `_` 前缀目录，避免 scratch 包污染仓库门禁；显式路径仍可
+直接 `go test`。）
 ```
 
 ## 文件与函数索引
@@ -162,7 +165,7 @@ go test -race ./application/core/goal/ -count=1
 - `func NewAdvisorSeat(supervisor *Supervisor, name string) govern.Seat` — NewAdvisorSeat 构造 Advisor 座位。supervisor 为 nil 或未启用时，Act
 - `func (s *advisorSeat) Name() string`
 - `func (s *advisorSeat) Kind() govern.AgentKind`
-- `func (s *advisorSeat) Act(ctx context.Context) (govern.TurnAction, error)` — Act 触发一次真实 TL 回合；终态 `verdict_done` 会经 `CloseTopGoalOnTerminal` 直接收口 goal（只断环不收口会让 goal 停在 active）。
+- `func (s *advisorSeat) Act(ctx context.Context) (govern.TurnAction, error)`
 - `func NewTurnGovernorForDSA2A( execName string, execAct func(context.Context) (govern.TurnAction, error), supervisor *Supervisor, maxRounds int, ) govern.Governor` — NewTurnGovernorForDSA2A 装配"EXEC + ADVISOR"两座位的治理循环：
 - `func (f funcSeat) Name() string`
 - `func (f funcSeat) Kind() govern.AgentKind`
@@ -173,8 +176,8 @@ go test -race ./application/core/goal/ -count=1
 - `func TestGovernorDrivesAdvisorRound(t *testing.T)` — TestGovernorDrivesAdvisorRound 验证治理循环能驱动真实 TL 回合：
 - `func TestGovernorBreaksOnVerdictDone(t *testing.T)` — TestGovernorBreaksOnVerdictDone 验证完整收口闭环：
 - `func TestAdvisorSeatDisabledReportsTLDisabled(t *testing.T)` — TestAdvisorSeatDisabledReportsTLDisabled 验证无评估器（TL 缺席）时
-- `func TestAdvisorSeatVerdictDoneClosesGoal(t *testing.T)` — TestAdvisorSeatVerdictDoneClosesGoal 验证常规治理回合的终态裁决同样收口（design §5 逃生口）：verdict_done → 断环 + goal 出栈。
-- `func TestAdvisorSeatNonTerminalKeepsGoal(t *testing.T)` — TestAdvisorSeatNonTerminalKeepsGoal 钉住反向：verdict_not_done 不动 goal、不打断循环。
+- `func TestAdvisorSeatVerdictDoneClosesGoal(t *testing.T)` — TestAdvisorSeatVerdictDoneClosesGoal 验证**常规治理回合**的终态裁决同样收口
+- `func TestAdvisorSeatNonTerminalKeepsGoal(t *testing.T)` — TestAdvisorSeatNonTerminalKeepsGoal 钉住反向：非终态裁决（verdict_not_done）
 
 ### advisor.go
 
@@ -260,11 +263,32 @@ go test -race ./application/core/goal/ -count=1
 - `func TestHeadlessDSA2AAdvisorSmoke(t *testing.T)`
 - `func TestHeadlessDSA2AAbsentGate(t *testing.T)`
 
+### escape.go
+
+- `func (s *Supervisor) AbortOnEscape(ctx context.Context, reason string) (EscapeResult, error)` — AbortOnEscape 收口当前 active goal，并把 b 侧会话历史归档。
+- `func (s *Supervisor) reapForArchive(reason string) TLArchiveRecord` — reapForArchive 读取 b 的会话历史快照并把 peer 标成 reaped。返回的归档素材在
+- `func boundedArchiveText(text string) (string, bool)` — boundedArchiveText 按 MaxArchiveRunes 截断归档正文，并报告是否截断。
+
+### escape_test.go
+
+- `func (r *recordingRecorder) RecordTLRound(_ context.Context, record TLRoundRecord) error`
+- `func (r *recordingRecorder) RecordMainTurn(context.Context, MainTurnRecord) error`
+- `func (r *recordingRecorder) ArchiveTLHistory(_ context.Context, record TLArchiveRecord) error`
+- `func (r *escapingRecorder) RecordTLRound(context.Context, TLRoundRecord) error`
+- `func (r *escapingRecorder) RecordMainTurn(context.Context, MainTurnRecord) error`
+- `func escapeTestFixture(t *testing.T) (*Controller, *Supervisor, *stubEvaluator, *recordingRecorder)`
+- `func TestAbortOnEscapeClosesGoalAndArchivesTLHistory(t *testing.T)` — TestAbortOnEscapeClosesGoalAndArchivesTLHistory：逃生必须收口 goal + 归档 b 历史 + reap。
+- `func TestAbortOnEscapeIsIdempotentAndKeepsRingSafe(t *testing.T)` — TestAbortOnEscapeIsIdempotentAndKeepsRingSafe：逃生可能被多处触发（环记账 +
+- `func TestEscapeDoesNotLeakTLHistoryIntoNextGoal(t *testing.T)` — TestEscapeDoesNotLeakTLHistoryIntoNextGoal：逃生收口后，下一个 goal 的 b peer
+- `func TestAbortOnEscapeWithoutArchiverStillCloses(t *testing.T)` — TestAbortOnEscapeWithoutArchiverStillCloses：未实现归档面时收口照常发生
+- `func TestAbortOnEscapeWithoutGoalIsNoop(t *testing.T)` — TestAbortOnEscapeWithoutGoalIsNoop：没有 active goal 时逃生是 no-op（不报错）。
+
 ### gate.go
 
 - `func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (FinishProposalResult, error)` — ProposeFinish 把 EXEC 的 goal_finish 提议送入 b 终态 gate（DS-A2A）：
 - `func boundedProposalDetail(result string) string`
-- `func (s *Supervisor) CloseTopGoalOnTerminal(ctx context.Context, directive TLDirective) (bool, error)` — CloseTopGoalOnTerminal 把一次常规治理回合产出的终态裁决落成 goal 收口（design §5 逃生口）：只有 verdict_done 收口（`Controller.Finish` + unbind(done) + reap），其余裁决不动 goal。与 `ProposeFinish`（EXEC 提议收口的终态 gate）共用同一收口语义、互不重复。
+- `func (s *Supervisor) CloseTopGoalOnTerminal(ctx context.Context, directive TLDirective) (bool, error)` — CloseTopGoalOnTerminal 把一次**常规治理回合**产出的终态裁决落成 goal 收口
+- `func boundedFinishResult(content string) string` — boundedFinishResult 把裁决正文压到 Finish 允许的进度长度（result 上限
 - `func (s *Supervisor) PreScreenApproval(ctx context.Context, request ApprovalScreenRequest) (ApprovalVerdict, error)` — PreScreenApproval 在 ask_approve/ApprovalBroker 前做 b 预筛（DS-A2A + B4）：
 
 ### gate_test.go
@@ -275,6 +299,11 @@ go test -race ./application/core/goal/ -count=1
 - `func TestProposeFinishNoGoalAndNoTLFallback(t *testing.T)` — TestProposeFinishNoGoalAndNoTLFallback 验证边界：无 goal → no_goal；TL 未启用 → 直连。
 - `func TestProposeFinishRejectsWrongVerdict(t *testing.T)` — TestProposeFinishRejectsWrongVerdict 验证 gate 只接受终态裁决 kinds。
 - `func TestPreScreenApproval(t *testing.T)` — TestPreScreenApproval 验证审批预筛（design §5.5）：
+
+### gate_verdict_unusable_test.go
+
+- `func (e errorEvaluator) Evaluate(context.Context, TLSessionEmbed) (TLDirective, error)`
+- `func TestProposeFinishUnusableVerdictIsNotAbsence(t *testing.T)` — TestProposeFinishUnusableVerdictIsNotAbsence 钉住"裁决不可用"与"b 缺席"在面向
 
 ### headless.go
 
@@ -376,11 +405,16 @@ go test -race ./application/core/goal/ -count=1
 - `func NewTechLeaderMailbox(maxDirectives int) *TechLeaderMailbox` — NewTechLeaderMailbox 构造有界指令队列（cap ≤0 用 MaxDirectiveQueue）。
 - `func (m *TechLeaderMailbox) PublishDirective(directive TLDirective)` — PublishDirective 发布一条 b→a 指令（corr 信封；满丢最旧并计数，不阻塞）。
 - `func (m *TechLeaderMailbox) DrainDirectives() []TLDirective` — DrainDirectives 一次性排空全部待领取指令（corr 幂等消费）。
+- `func (m *TechLeaderMailbox) PeekDirectives() []TLDirective` — PeekDirectives 读取待领取指令的副本（**不消费**）：供"指令产出后在同一个回合
 - `func (m *TechLeaderMailbox) PendingDirectives() int` — PendingDirectives 读面计数。
 - `func (m *TechLeaderMailbox) Overflow() int64` — Overflow 返回指令溢出计数。
 - `func DefaultTechLeaderConfig() TechLeaderConfig` — DefaultTechLeaderConfig 返回生产默认（≤1 次/3-5 轮，控制 b 回合频率）。
+- `func (s *Supervisor) noteInFlightLocked(delta string)` — noteInFlightLocked 记一段 b 回合的进行中正文（调用方已持 s.mu：它是同一次
+- `func (s *Supervisor) clearInFlightLocked()` — clearInFlightLocked 清空进行中正文（回合结束：权威正文是裁决行）。
+- `func boundInFlightRunes(text string, max int) string` — boundInFlightRunes 把进行中正文截到近端 max 个 rune（超出时前置省略标记）。
 - `func loopContinues(kind DirectiveKind) bool` — loopContinues 报告该裁决是否把发言权交还 EXEC（终态裁决结束循环）。
 - `func (s *Supervisor) SetRoundRecorder(recorder TLRoundRecorder)` — SetRoundRecorder 注入 b 回合记录器（装配根在首次会话启动前调用；幂等）。
+- `func (s *Supervisor) SetSessionID(sessionID string)` — SetSessionID 写入本次评审所在的主会话（工作区）坐标：b 回合输入会带上它，评审者
 - `func directiveText(directive TLDirective) string` — directiveText 把 b 的裁决渲染成原文 JSON（记录与展示用，不截断）。
 - `func NewSupervisor(ctl *Controller, evaluator TLEvaluator, cfg TechLeaderConfig) *Supervisor` — NewSupervisor 构造编排者（config 零值用默认；mailbox 自动新建）。
 - `func (s *Supervisor) Mailbox() *TechLeaderMailbox` — Mailbox 返回 b→a 指令队列（排空/读面）。
@@ -409,6 +443,19 @@ go test -race ./application/core/goal/ -count=1
 - `func newTestSupervisor(t *testing.T, ctl *Controller, window int, replies ...TLDirective) (*Supervisor, *stubEvaluator)` — newTestSupervisor 构造带 stub 评估器的监督器。
 - `func TestA2AContractValidation(t *testing.T)`
 - `func TestMailboxBoundedDirectivesAndOverflow(t *testing.T)`
+- `func TestMailboxPeekDoesNotConsume(t *testing.T)` — TestMailboxPeekDoesNotConsume：Peek 只给"看一眼"（回合尾立刻回放可见行用），
+
+### tl_stream.go
+
+- `func WithTLDeltaSink(ctx context.Context, sink TLDeltaSink) context.Context` — WithTLDeltaSink 把观察回调挂到 ctx 上（回合开始处挂，defer 清理）。
+- `func TLDeltaSinkFrom(ctx context.Context) TLDeltaSink` — TLDeltaSinkFrom 取出观察回调；未挂载时返回 nil（执行面按"不观察"处理，
+
+### tl_stream_test.go
+
+- `func (e *deltaEvaluator) Evaluate(ctx context.Context, _ TLSessionEmbed) (TLDirective, error)`
+- `func TestTLDeltaSinkRoundTrip(t *testing.T)`
+- `func TestRunRoundInstallsInFlightSinkAndClears(t *testing.T)` — TestRunRoundInstallsInFlightSinkAndClears：b 回合进行中有观察回调，回合结束清空。
+- `func TestNoteInFlightIsBoundedTail(t *testing.T)` — TestNoteInFlightIsBoundedTail：进行中正文保留近端，且读数与内容一致。
 
 ### work_progress_test.go
 

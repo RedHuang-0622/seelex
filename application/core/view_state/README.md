@@ -54,6 +54,7 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) viewSessionID() string` — viewSessionID 返回当前视图指针会话（装配注入的 Domain.ActiveID；未注入
 - `func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID string) RuntimeStateProjection` — CollectRuntimeProjectionFor 按显式会话收集 runtime 投影（G1：会话槽的
 - `func (c *Coordinator) fullAccessFor(sessionID string) bool` — fullAccessFor 返回指定会话生效的全权模式（G4：会话选择优先；未选择时
+- `func (c *Coordinator) permissionTierFor(sessionID string) string` — permissionTierFor 返回指定会话生效的权限档位（G4：会话选择优先；未选择时
 - `func (c *Coordinator) replanMetricsFor(sessionID string) dto.ReplanMetrics` — replanMetricsFor 返回指定会话的 replan 统计（per-session 端口优先；
 - `func (c *Coordinator) tokenCountFor(sessionID string) string` — tokenCountFor 返回指定会话的 token 计数（有 per-session 端口优先；
 - `func (c *Coordinator) activeSkillIDsFor(sessionID string) []string` — activeSkillIDsFor 返回指定会话的任务激活 skill ID（per-session 端口
@@ -62,7 +63,7 @@ system 引导消息、投影应用不覆盖 Plan/Account 指针。
 - `func (c *Coordinator) ApplyRuntimeProjectionForLocked(sessionID string, projection RuntimeStateProjection)` — ApplyRuntimeProjectionForLocked 应用 runtime 投影到指定会话（G1）：
 - `func (c *Coordinator) AppendMessageLocked(role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLocked 追加一条可见消息到当前活跃会话（调用方持有
 - `func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, tool *model.ToolCall) *model.Message` — AppendMessageLockedFor 追加一条可见消息到指定会话（阶段 1：可见对话收进
-- `func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — AppendMessageWithOriginLockedFor 追加一条带群聊归属的可见消息：归属字段随
+- `func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message` — AppendMessageWithOriginLockedFor 追加一条带群聊归属的可见消息：归属字段
 - `func (c *Coordinator) sessionViewLocked(sessionID string) *session.View` — sessionViewLocked 返回指定会话的可见投影（按需创建会话域单元；调用方持有
 - `func (c *Coordinator) SessionViewLocked(sessionID string) *session.View` — SessionViewLocked 返回指定会话的可见投影（core 域恢复/回看路径用；
 - `func (c *Coordinator) SessionViewMutateLocked(sessionID string, mutate func(*session.View))` — SessionViewMutateLocked 在指定会话可见投影的 View.mu 内应用变更（G5 访问

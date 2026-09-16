@@ -66,13 +66,125 @@ for this stabilization batch.
   assign-on-open, tool-face narrowing for `readonly` vs `readwrite`, engine
   reuse, error propagation, inherited policy writes nothing, release/rebuild),
   `application/core/role_turn_test.go` (dict ↔ request field parity, round text
-  through ctx, explicit input wins, nil runner without the port). Known gaps:
-  the real-API smoke and the computer-use live round are the *next* task (this
-  change makes them possible; their acceptance here uses a fake engine);
-  ADVISOR still holds no tools; `Progress` is the conservative "non-empty
-  conclusion" proxy, not a goal-advancement metric.
+  through ctx, explicit input wins, nil runner without the port). Known gaps at
+  that point: the real-API smoke and the computer-use live round are the *next*
+  task (this change makes them possible; their acceptance here uses a fake engine);
+  the ADVISOR round still held **no** tools at that commit (read-only tools landed
+  later the same day — see the ADVISOR entry below); `Progress` is the
+  conservative "non-empty conclusion" proxy, not a goal-advancement metric.
+- **The ADVISOR review round now holds read-only tools, so a verdict can be
+  grounded in evidence instead of plausibility** (`f43f635`). The evaluator's
+  round runs on its own session coordinate (`advisor:<main session>`), keeps its
+  context isolated from the executor (that isolation is why the review is worth
+  anything), and is granted the read-only tool face only
+  (`dto.ToolPolicyReadonly`: `read_file`/`grep_search`/`glob` + result/plan
+  readers) — it can inspect the tree and the diff, and deliberately **cannot**
+  run `bash` (that is the `rw` group), so "run the tests yourself" is still not
+  in reach and remains a designed-later step. Evidence:
+  `git show --stat f43f635`; the read-only face is asserted in
+  `seelebridge/runtime_goal_tl.go` (`ToolsPolicy: dto.ToolPolicyReadonly`) plus
+  the permission decision tests that pin `ro`-only visibility for that subject.
+- **The main-session permission tier now survives a restart.** Selecting a tier
+  is "this session's permission setting", so it is persisted per session instead
+  of living only in the in-memory `SessionUnit` slot. The storage target matters:
+  the v8/S20 layout **retired the record channel** (Open supports `BackendJSON`
+  only → `jsonRepository` → `LayoutV8()` is always true; `SaveRecordRaw` writes
+  through only `status`/`title` and `LoadRecordRaw` returns a *derived*
+  `(version/id/status/updated_at/conversation)` payload), so a new
+  `SessionRecord` field would silently drop. The tier therefore rides the
+  **session-level settings** channel: `sessionstore.SessionDisplayMeta` gains
+  `PermissionTier` and a dedicated `SetPermissionTier`/`PermissionTier` pair,
+  exposed to the application as the new optional `session.SessionSettingPort`
+  (`internal/adapters.SessionPort` implements it). Writes go through
+  `Service.SetPermissionTier` **before** the in-memory change (a failed write
+  reports an error and leaves the tier untouched); reads happen on cold start,
+  hot attach and cold load, and land in the unit slot + per-session gate +
+  per-session approval auto-approval. Display-meta writes are now a
+  field-merge (unpinning no longer wipes the tier). Evidence:
+  `application/core/session_permission_tier_persist_test.go`
+  (`TestPermissionTierSurvivesSessionReload`,
+  `TestPermissionTierReloadKeepsManualChoice`,
+  `TestPermissionTierWithoutSettingPortStaysInMemory`,
+  `TestPermissionTierSettingPortErrorSurfaces`),
+  `sessionstore/session_meta_test.go:TestSessionMetaStorePermissionTierIsolation`,
+  `internal/adapters/session_setting_ports_test.go:TestSessionPermissionTierRoundTrip`.
+- **Runtime tier switching is now reachable from the CLI/TUI: `/permission`
+  `<manual|edit|auto|full>`.** `main.go`'s composition comment had claimed
+  "runtime switching by GUI/CLI per session" since the tier work, but the command
+  registry only had `/effort`, so headless/TUI hosts had no way to change tiers.
+  The command shares the single `Service.SetPermissionTier` path with the GUI
+  chip/list and the headless `SetPermissionTier` RPC (write-side validation,
+  per-session landing, persistence), echoes the current tier plus the
+  backend-supplied catalog when called without arguments, and deliberately has
+  **no running guard** — switching while a turn runs is exactly how a user
+  allows or tightens the pending approval (unlike `/effort`). Evidence:
+  `application/core/permission_command_test.go`
+  (`TestPermissionCommandRegisteredInHelp`,
+  `TestPermissionCommandWithoutArgsShowsCurrentAndCatalog`,
+  `TestPermissionCommandSwitchesTier`),
+  `gui/headless_permission_test.go:TestHeadlessSetPermissionTierDispatch`.
 
 ### Fixed
+
+- **A malformed ADVISOR verdict is no longer reported as "b absent (429/timeout)",
+  and the verdict text is read leniently.** The 2026-09-16 GUI smoke run (a fresh
+  `dist/stage-gui` build, goal `g-1`) shows the goal loop classifying a
+  *content-complete* `verdict_done` as B4 absence: `goal_propose_finish` returned
+  `outcome=escalate_human` with `goal TL 输出非 JSON: invalid character 'å' after
+  object key:value pair` (`dist/stage-gui/.seelex/sessions-json/.../message_1_7.jsonl`,
+  seq 13) — `'å'` is `0xE5`, the first byte of the Chinese character that followed a
+  **prematurely closed string**: the verdict's `content` carried unescaped inner
+  quotes. The user-facing closure note therefore said the goal was "still active"
+  while the same run closed it `completed`. Two changes:
+  - `seelebridge.parseGoalDirective` (and `parseRolePromptOptimization`) now read
+    the first **balanced** JSON object with a syntax-only repair pass — unescaped
+    inner quotes, raw control bytes, invalid escapes — never touching field
+    semantics (`seelebridge/json_object.go`; table-driven tests include the
+    incident's exact byte shape that reproduced `invalid character 'å'`).
+  - `gate.ProposeFinish` and `Supervisor.runRoundLocked` now separate
+    **`ErrBadDirective` (b answered, verdict unusable)** from **absence
+    (429/timeout)**: both still keep the goal `active` (the safe default — an
+    unusable verdict never closes a goal), but the message says which one happened
+    instead of labelling a parse failure as a rate limit.
+- **The ADVISOR verdict now reaches the visible chat in the turn that produced
+  it, instead of one user turn later.** The governance round (ADVISOR) runs at
+  the *end* of a turn (`goalAdvanceAfterChat`), but its b→a directive stayed in
+  the `TechLeaderMailbox` until the **next** `Submit`: only then did
+  `injectGoalDirectivesForStart` drain it into the trusted injection zone, and
+  only at that turn's tail did `injectGoalDirectivesFor` replay it as a visible
+  row. A user (or the team-work live probe) therefore never saw the verdict after
+  submitting — the probe's bounded wait could not succeed by construction
+  (`_tmp/teamwork-computer-live.log`: `FAIL (911.47s)`, "等待 ADVISOR 裁决超时
+  （15m0s）"). A new end-of-turn step
+  (`Service.publishPendingGoalDirectivesFor`) publishes the directives the
+  governance round just produced, **without consuming them** (new
+  non-destructive `TechLeaderMailbox.PeekDirectives`): the trusted injection
+  still happens, with unchanged timing and semantics, at the next
+  `ChatStream`. Replies are deduplicated per `corr`
+  (`goalCoordinator.DirectivePublished`/`MarkDirectivePublished`), so the regular
+  replay at the next turn's tail does not write a second row. The visible row is
+  unchanged in shape (`assistant` + `role_name=tl`) and now also carries the
+  machine-readable class `kind=tl_directive` (`MessageOrigin.Kind` →
+  `model.Message.Kind`, constant `goaldomain.DirectiveRowKind`, shared with the
+  role-draft row). The probe's evidence 3 was aligned with the fix: it reads the
+  visible verdict row (kind + role) and takes the verdict `kind` from the
+  ADVISOR's raw round output (`role.snapshot(tl)` `tl_directive` row JSON), and
+  the 15-minute wait (a structural false-negative guard) is gone. Evidence:
+  `application/core/goal_directive_visible_immediately_test.go:TestAdvisorVerdictVisibleInProducingTurn`
+  (red → green: 0 rows without the wiring),
+  `application/core/goal/techleader_test.go:TestMailboxPeekDoesNotConsume`,
+  `application/core/visible_role_attribution_test.go`; see
+  `docs/devlog/2026-09-16-advisor-verdict-visible-immediately.md`.
+
+- **Scratch Go files under the git-ignored `tmp/` no longer break the repository
+  gates.** `tmp/final/*.go` mixed two packages (`dto` + `contract`), so
+  `go build ./...`, `go build -tags ...`, `go vet ./...` and `go test ./...` all
+  exited non-zero while `git status` stayed clean (the directory is ignored). The
+  scratch archive was renamed to `_tmp/` (the Go tool ignores `_`-prefixed
+  directories when expanding `./...`, while explicit paths such as
+  `go test ./_tmp/goal-tl-live-smoke` keep working; nothing was deleted). The one
+  scratch file that `gofmt -l .` flagged was reformatted. Evidence: all six
+  AGENTS §5 commands green (see `docs/devlog/2026-09-17-*.md`).
 
 - **Employee (role-session) escalation now reaches the existing approval panel.**
   A role whose `tools_policy` is inherit (`""`) already inherits the host's full
