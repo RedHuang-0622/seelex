@@ -231,9 +231,16 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// Governor（exec 让位 → advisor TL 回合），指令在下次 ChatStream 前
 	// 注入受信区。
 	service.goalAdvanceAfterChat(ctx)
-	// P1 goal：把回合内已注入引擎的 TL 指令以可见系统记录回放进目标会话
+	// 前缀的作者是主会话上下文（含主会话 draft）的只读装配：在同一个锁外安全点
+	// 读一次并在环里就位。会话没有环、或读不到事实时保持原前缀不变。
+	service.noteTeamWorkPrefix(sessionID)
+	// P1 goal：把回合内已注入引擎的 TL 指令以可见行回放进目标会话
 	// 视图（锁外安全点，Session 已释放）。
 	service.injectGoalDirectivesFor(sessionID)
+	// P1 goal：本回合末尾那轮治理（ADVISOR）刚产出的裁决立刻回放进可见
+	// 会话——不必等下一次用户提交才看得到（指令仍在待注入队列，受信注入
+	// 的时机与语义不变）。
+	service.publishPendingGoalDirectivesFor(sessionID)
 	runtimeProjection := service.collectRuntimeProjectionFor(context.Background(), sessionID)
 	if cleanupErr := service.components.context.RemoveTaskContextCheckpointsFor(sessionID); cleanupErr != nil && err == nil {
 		err = cleanupErr

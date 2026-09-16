@@ -3,6 +3,11 @@ package core
 // goal_work_summary.go — 把「EXEC 这一轮干了什么」压成有界一句话，喂给 goal
 // 治理的 ADVISOR 回合（TLEvalSignal{turn_completed}.Detail → work.progress 帧）。
 //
+// 它**不是** team work 前缀的作者：前缀是主会话上下文（含主会话 draft）在存储侧
+// 的只读装配（见 Service.noteTeamWorkPrefix / agentteam.Runtime.NoteMainContext），
+// 与 TL 对话记录同一条 engine loop 口径。本文件的摘要按轮切分，天然是"第二套叙述"，
+// 拿它当前缀会让前缀与对话记录分叉。
+//
 // 为什么在这里：EXEC 的可见会话投影是应用层事实（谁说了什么、调了哪些工具），
 // 而 goal 域只接受一句有界 Detail（MaxSignalDetailRunes）——压缩是应用层职责，
 // 治理域不读会话存储。

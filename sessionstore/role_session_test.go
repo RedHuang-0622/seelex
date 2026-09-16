@@ -214,6 +214,97 @@ func TestRoleDraftSyncOrderFloorAndIdempotency(t *testing.T) {
 	}
 }
 
+// TestRoleSnapshotMarksRowsOutsidePrefixMatch 钉住「teammate 自己那份 team work
+// 记录的起点」：装配时写入的 join_seq_id 就是它的前缀匹配切点，主会话在该切点
+// 之前的行不属于它的记录（面板以占位呈现）；main 复用主会话本身，切点恒为 0。
+func TestRoleSnapshotMarksRowsOutsidePrefixMatch(t *testing.T) {
+	store, mainKey := roleSessionFixture(t)
+	if _, _, err := store.createRoleSession(mainKey, RoleTL, "tl-1", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.messageCommit(mainKey, "turn-2", []Event{
+		{Role: "assistant", Content: "goal 这一回合", Kind: EventKindLLM},
+		{Role: "assistant", Content: "exec 这一回合", Kind: EventKindLLM},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	role, err := store.readRoleSnapshot(mainKey, RoleTL, "tl-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if role.PrefixCutSeq != 1 {
+		t.Fatalf("tl 记录起点 = %d，want 1（装配时的 join_seq_id）", role.PrefixCutSeq)
+	}
+	if role.OutsidePrefixMainRows != 1 || role.VisibleMainRows != 2 {
+		t.Fatalf("tl 记录切分 = 区间外 %d / 区间内 %d，want 1/2",
+			role.OutsidePrefixMainRows, role.VisibleMainRows)
+	}
+
+	// main 复用主会话本身：不受 join 闸门，整段都是它的上下文。
+	main, err := store.readRoleSnapshot(mainKey, RoleMain, mainKey.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if main.PrefixCutSeq != 0 || main.OutsidePrefixMainRows != 0 || main.VisibleMainRows != 3 {
+		t.Fatalf("main 记录切分错位：cut=%d 区间外 %d / 区间内 %d，want 0/0/3",
+			main.PrefixCutSeq, main.OutsidePrefixMainRows, main.VisibleMainRows)
+	}
+}
+
+// TestAssembleRoleWireForMainIsMainSessionContext 钉住「team work 前缀的作者」：
+// roleName=main 复用主会话自身的引擎与 key（roleStore），所以 main 的 wire 就是
+// 主会话上下文本身——起点（主会话第一条已发布行）+ 当前位置 + 主会话自身 pending
+// draft（<main session root>/draft/main.jsonl），且装配只读：不把 pending 写进主
+// 文档。TL 的对话记录是同一条 engine loop 写出的行，故前缀与对话记录同口径。
+func TestAssembleRoleWireForMainIsMainSessionContext(t *testing.T) {
+	store, mainKey := roleSessionFixture(t)
+	if _, err := store.messageCommit(mainKey, "turn-2", []Event{{
+		Role: "assistant", Content: "改了 chat.go 的注入顺序", Kind: EventKindLLM,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// 主会话自己的 draft：main 角色的 roleStore 就是主会话引擎。
+	if err := store.appendRoleDraftForTest(mainKey, RoleMain, mainKey.SessionID, []RoleDraftRow{{
+		RoundID: 2, RoleName: RoleMain, RoleSessionID: mainKey.SessionID, UnitSeq: 1,
+		MessageID: "m-main-1", Event: Event{Role: "assistant", Content: "主会话待同步行", Kind: EventKindLLM},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.readAllRows(mainKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := store.assembleRoleWire(mainKey, RoleMain, mainKey.SessionID, 200_000, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wire.RoleName != RoleMain || wire.MainSessionID != mainKey.SessionID {
+		t.Fatalf("main wire 坐标错位：role=%q main=%q", wire.RoleName, wire.MainSessionID)
+	}
+	// 起点→当前位置：main 不受其它角色的 join/compact_ref 闸门限制，起点必须在。
+	if len(wire.Messages) < 3 {
+		t.Fatalf("main wire 行数 = %d，主会话上下文不完整：%+v", len(wire.Messages), wire.Messages)
+	}
+	if got := wire.Messages[0].Content; got != "start" {
+		t.Fatalf("main wire 起点 = %q，want start（main 不应被 join 闸门截掉起点）", got)
+	}
+	if wire.PendingRows != 1 {
+		t.Fatalf("main wire pending = %d，want 1（主会话 draft 必须进前缀）", wire.PendingRows)
+	}
+	if got := wire.Messages[len(wire.Messages)-1].Content; got != "主会话待同步行" {
+		t.Fatalf("main wire 末行 = %q，want 主会话待同步行", got)
+	}
+	// 装配是读：pending draft 不得被写进主文档。
+	after, err := store.readAllRows(mainKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("assembleRoleWire(main) 把 pending draft 写进了主文档：before=%d after=%d", len(before), len(after))
+	}
+}
+
 func (store *storeEngine) syncRoleDraftAndEnsureNoRows(mainKey Key, roleName, roleSessionID string, order []string, rows []RoleDraftRow) error {
 	roleStore, roleKey := store.roleStore(mainKey, roleName, roleSessionID)
 	if err := appendRoleDraft(roleStore, roleKey, roleName, rows); err != nil {

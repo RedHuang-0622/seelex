@@ -121,6 +121,11 @@ const (
 
 var validSeverities = map[Severity]bool{SeverityP0: true, SeverityP1: true, SeverityP2: true}
 
+// DirectiveRowKind 是 b→a 裁决落成"可见行"时的多线谱类别（role draft 行与
+// application 侧回放的可见行共用同一个 kind 串）：轨迹区/探针按它取"这条行是
+// 裁决"，不靠正文措辞猜。落盘形状见 goal_team_recorder.go。
+const DirectiveRowKind = "tl_directive"
+
 // TLDirective 是 b(ADVISOR) → a(EXEC) 的结构化指令（协议 §5 建议帧/裁决；corr 幂等信封）。
 type TLDirective struct {
 	GoalID   string        `json:"goal_id,omitempty"`

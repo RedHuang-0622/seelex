@@ -33,6 +33,9 @@ type fakeRoleEngine struct {
 	output   string
 	err      error
 	clears   int
+	// deltas 是本桩"模型"输出的流式分片：非空时逐段回调 onChunk（钉 OnDelta 的
+	// 转发——回合执行面本来就是流式的，旧实现把 onChunk 传成 nil 会丢掉这些分片）。
+	deltas []string
 }
 
 func (engine *fakeRoleEngine) SessionID() string { return engine.id }
@@ -70,6 +73,11 @@ func (engine *fakeRoleEngine) ChatStream(ctx context.Context, input string, onCh
 	engine.ctxs = append(engine.ctxs, ctx)
 	if engine.err != nil {
 		return "", engine.err
+	}
+	for _, delta := range engine.deltas {
+		if onChunk != nil {
+			onChunk(delta)
+		}
 	}
 	return engine.output, nil
 }

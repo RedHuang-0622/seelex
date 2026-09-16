@@ -53,8 +53,8 @@ func (r goalTLRecorder) RecordTLRound(_ context.Context, record goaldomain.TLRou
 		}
 	}
 	rows := []dto.RoleDraftRow{
-		row(1, "role_context", "system", record.Context),   // b 本轮看到的原文
-		row(2, "tl_directive", "assistant", record.Output), // b 本轮回答的原文
+		row(1, "role_context", "system", record.Context),                // b 本轮看到的原文
+		row(2, goaldomain.DirectiveRowKind, "assistant", record.Output), // b 本轮回答的原文
 	}
 	if err := r.service.AppendRoleDraft(r.sessionID, roleName, roleSessionID, rows); err != nil {
 		return err

@@ -147,3 +147,23 @@ func TestMailboxBoundedDirectivesAndOverflow(t *testing.T) {
 		t.Fatalf("二次排空应为空（corr 幂等消费）")
 	}
 }
+
+// TestMailboxPeekDoesNotConsume：Peek 只给"看一眼"（回合尾立刻回放可见行用），
+// 队列必须原样留给下一次 ChatStream 前的受信注入（Drain 才是唯一消费者）。
+func TestMailboxPeekDoesNotConsume(t *testing.T) {
+	mailbox := NewTechLeaderMailbox(4)
+	mailbox.PublishDirective(TLDirective{Kind: DirectiveVerdictNotDone, Content: "补证据", Corr: "corr-1"})
+
+	peeked := mailbox.PeekDirectives()
+	if len(peeked) != 1 || peeked[0].Corr != "corr-1" {
+		t.Fatalf("Peek 应看到待领取指令: %+v", peeked)
+	}
+	if got := mailbox.PendingDirectives(); got != 1 {
+		t.Fatalf("Peek 不得消费队列（待领取应仍为 1）, 得 %d", got)
+	}
+	// Peek 返回的是副本：改写它不得污染队列内容。
+	peeked[0].Content = "被改写的副本"
+	if drained := mailbox.DrainDirectives(); len(drained) != 1 || drained[0].Content != "补证据" {
+		t.Fatalf("Peek 必须返回副本（队列内容不被改写）: %+v", drained)
+	}
+}

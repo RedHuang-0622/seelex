@@ -134,6 +134,10 @@ type MessageOrigin struct {
 	RoleSessionID string
 	RoundID       uint64
 	UnitSeq       uint64
+	// Kind 是这条可见消息的多线谱类别（同 Message.Kind）。生产者只在"这条行是
+	// 什么"不能由 Role 推断时才填（例如 b→a 的裁决行 tl_directive）——轨迹区/
+	// 探针据此按类别取行，不靠正文措辞猜。空 = 按 Role/Tool 回退分类。
+	Kind string
 }
 type ToolCall struct {
 	ID        string        `json:"id"`

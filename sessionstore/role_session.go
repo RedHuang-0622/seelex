@@ -83,6 +83,15 @@ type RoleSnapshot struct {
 	MainRows  []Event        `json:"main_rows,omitempty"`
 	RoleRows  []Event        `json:"role_rows,omitempty"`
 	DraftRows []RoleDraftRow `json:"draft_rows,omitempty"`
+	// PrefixCutSeq 是该角色**自己那份团队记录**的起点 seq：判据与 assembleRoleWire
+	// 一致（join_seq_id，有 compact_ref 时取更大的 applied_seq；main 角色复用主会话
+	// 本身，恒为 0、不受闸门）。seq <= PrefixCutSeq 的 main 行不属于它的前缀匹配
+	// 区间——那是它入伙之前、或已被压缩掉的部分，只能以占位呈现。
+	PrefixCutSeq uint64 `json:"prefix_cut_seq,omitempty"`
+	// VisibleMainRows / OutsidePrefixMainRows 是按 PrefixCutSeq 切分的 main 行计数
+	// （观察读数；正文仍以 MainRows 为准）。
+	VisibleMainRows       int `json:"visible_main_rows,omitempty"`
+	OutsidePrefixMainRows int `json:"outside_prefix_main_rows,omitempty"`
 	// UnassignedRoleRows 是 main message 中缺 role_name 的行数。它直接暴露
 	// “应用层群聊生产者尚未给所有行盖角色归属”的设计缺口。
 	UnassignedRoleRows int `json:"unassigned_role_rows,omitempty"`
@@ -452,9 +461,23 @@ func (store *storeEngine) readRoleSnapshot(mainKey Key, roleName, roleSessionID 
 		RoleRows:         roleRows,
 		DraftRows:        draftRows,
 	}
+	// 该角色记录的起点（= 它的前缀匹配切点）：判据与 assembleRoleWire 一致——
+	// join_seq_id，有 compact_ref 时取更大的 applied_seq；main 复用主会话本身，
+	// 恒为 0、不受闸门。seq <= 切点的 main 行不属于它的记录。
+	if roleName != RoleMain {
+		snapshot.PrefixCutSeq = snapshot.JoinSeqID
+		if snapshot.CompactRef != nil && snapshot.CompactRef.AppliedSeq > snapshot.PrefixCutSeq {
+			snapshot.PrefixCutSeq = snapshot.CompactRef.AppliedSeq
+		}
+	}
 	for _, row := range mainRows {
 		if row.RoleName == "" {
 			snapshot.UnassignedRoleRows++
+		}
+		if row.Seq > snapshot.PrefixCutSeq {
+			snapshot.VisibleMainRows++
+		} else {
+			snapshot.OutsidePrefixMainRows++
 		}
 	}
 	snapshot.DesignWarnings = roleSnapshotWarnings(snapshot)

@@ -23,7 +23,7 @@ package seelebridge
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -168,7 +168,8 @@ func (e *goalLLMEvaluator) Evaluate(ctx context.Context, embed goaldomain.TLSess
 		return goaldomain.TLDirective{}, err
 	}
 	if err := directive.Validate(); err != nil {
-		return goaldomain.TLDirective{}, fmt.Errorf("goal TL 输出未通过域校验: %w（原文 %q）", err, truncateRunes(raw, 200))
+		return goaldomain.TLDirective{}, fmt.Errorf("%w: goal TL 输出未通过域校验: %v（原文 %q）",
+			goaldomain.ErrBadDirective, err, truncateRunes(raw, 200))
 	}
 	return directive, nil
 }
@@ -188,6 +189,10 @@ func (e *goalLLMEvaluator) review(ctx context.Context, embed goaldomain.TLSessio
 			SystemPrompt: systemPrompt,
 			Input:        content,
 			MaxLoops:     advisorRoundMaxLoops,
+			// 评审的流式分片交给挂在 ctx 上的观察回调（goal 域在回合开始处挂）：
+			// 旧实现这里是 nil，分片被丢掉 → 前端只能等终局裁决（"渲染不及时"）。
+			// 单向：只有后端 → 观察面的推送，没有任何回写路径。
+			OnDelta: goaldomain.TLDeltaSinkFrom(ctx),
 			// 评审上下文按帧渲染（锚点 + 帧 + 自身回合记忆），回合之间不共享引擎历史：
 			// goal 收口后 peer 会被 reap，引擎历史若留着就会把上一个 goal 的评审带进来。
 			FreshContext: true,
@@ -209,16 +214,24 @@ func (e *goalLLMEvaluator) review(ctx context.Context, embed goaldomain.TLSessio
 	return *message.Content, nil
 }
 
+// parseGoalDirective 从 b 回合原文里取出 TLDirective。
+//
+// 解析失败一律包 goaldomain.ErrBadDirective：这类失败是"b 已作答、裁决不可用"，
+// 不是"b 缺席（429/超时）"。gate 依赖这个区分给用户如实的收口说明——把转义细节
+// 说成"缺席"会让人看到与实际相反的 goal 状态（事故见 json_object.go 的说明）。
+//
+// 容错只修语法（未转义引号 / 裸控制字符 / 非法转义），不改语义：kind 取值范围、
+// goal 漂移、refs 合法性仍由 TLDirective.Validate() 判定。
 func parseGoalDirective(raw string) (goaldomain.TLDirective, error) {
 	raw = strings.TrimSpace(raw)
-	start := strings.IndexByte(raw, '{')
-	end := strings.LastIndexByte(raw, '}')
-	if start < 0 || end <= start {
-		return goaldomain.TLDirective{}, fmt.Errorf("goal TL 输出缺少 JSON 对象（原文 %q）", truncateRunes(raw, 300))
-	}
 	var directive goaldomain.TLDirective
-	if err := json.Unmarshal([]byte(raw[start:end+1]), &directive); err != nil {
-		return goaldomain.TLDirective{}, fmt.Errorf("goal TL 输出非 JSON: %v（原文 %q）", err, truncateRunes(raw, 300))
+	if err := decodeJSONObjectLenient(raw, &directive); err != nil {
+		if errors.Is(err, ErrNoJSONObject) {
+			return goaldomain.TLDirective{}, fmt.Errorf("%w: goal TL 输出缺少 JSON 对象（原文 %q）",
+				goaldomain.ErrBadDirective, truncateRunes(raw, 300))
+		}
+		return goaldomain.TLDirective{}, fmt.Errorf("%w: goal TL 输出非 JSON: %v（原文 %q）",
+			goaldomain.ErrBadDirective, err, truncateRunes(raw, 300))
 	}
 	return directive, nil
 }

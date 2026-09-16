@@ -13,7 +13,6 @@ package seelebridge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -142,15 +141,17 @@ type rolePromptOptimization struct {
 
 // parseRolePromptOptimization 从模型输出里抽出 JSON 对象并校验：optimized 必填，
 // notes 去空、截断到 5 条（不因为多写几条理由就拒绝整份结果）。
+//
+// 抽取走 decodeJSONObjectLenient：optimized 是一整段**多行提示词**，值是"未转义
+// 引号 / 裸换行"的高发地带，而这里失败会让用户的白等一次模型调用白费（见
+// json_object.go 的事故说明）。
 func parseRolePromptOptimization(raw string) (string, []string, error) {
 	raw = strings.TrimSpace(raw)
-	start := strings.IndexByte(raw, '{')
-	end := strings.LastIndexByte(raw, '}')
-	if start < 0 || end <= start {
-		return "", nil, fmt.Errorf("提示词优化输出缺少 JSON 对象（原文 %q）", truncateRunes(raw, 200))
-	}
 	var parsed rolePromptOptimization
-	if err := json.Unmarshal([]byte(raw[start:end+1]), &parsed); err != nil {
+	if err := decodeJSONObjectLenient(raw, &parsed); err != nil {
+		if errors.Is(err, ErrNoJSONObject) {
+			return "", nil, fmt.Errorf("提示词优化输出缺少 JSON 对象（原文 %q）", truncateRunes(raw, 200))
+		}
 		return "", nil, fmt.Errorf("提示词优化输出非 JSON: %v（原文 %q）", err, truncateRunes(raw, 200))
 	}
 	optimized := strings.TrimSpace(parsed.Optimized)

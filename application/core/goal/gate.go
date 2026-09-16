@@ -13,6 +13,7 @@ package goal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -58,9 +59,23 @@ func (s *Supervisor) ProposeFinish(ctx context.Context, request FinishRequest) (
 	})
 	s.mu.Unlock()
 	if err != nil {
-		// B4：b 缺席（429/超时/回合失败）——goal 保持 active，转人工/由上层决定（a 不卡死）。
+		// gate 的两种失败必须分开说，否则用户看到的是与实际相反的收口状态：
+		//   - b **已作答但裁决不可用**（ErrBadDirective：原文不可解析 / 域校验不过 /
+		//     goal 漂移）—— 裁决内容可能存在，只是没能落地；
+		//   - b **缺席**（429/超时/整个回合失败）—— B4 缺席矩阵。
+		// 两者都保持 active（安全默认：不拿一份不可用的裁决去收口 goal），但说明必须
+		// 诚实。把解析失败说成"缺席"，用户就会得到"goal 仍 active"这种与实际相反的
+		// 结论（2026-09-16 事故：裁决内容上已是 verdict_done）。
 		active, _ := s.ctl.ActiveGoal()
 		s.unbindIfTerminal("evicted_round_failure")
+		if errors.Is(err, ErrBadDirective) {
+			return FinishProposalResult{
+				Outcome: OutcomeEscalate,
+				Goal:    active,
+				Message: fmt.Sprintf("b 已作答但裁决不可用（非缺席：不是 429/超时），goal 保持 active 待重新裁决: %v", err),
+			}, nil
+		}
+		// B4：b 缺席（429/超时/回合失败）——goal 保持 active，转人工/由上层决定（a 不卡死）。
 		return FinishProposalResult{
 			Outcome: OutcomeEscalate,
 			Goal:    active,

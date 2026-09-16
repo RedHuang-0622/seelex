@@ -62,7 +62,13 @@ type goalCoordinator struct {
 
 	heartbeatSeq map[string]uint64
 	heartbeatAt  map[string]int64
-	injections   map[string][]string // TL 指令已注入引擎的可见副本（回合尾展示）
+	// injections 是"已注入引擎受信区、待可见回放"的指令（回合尾回放，见
+	// Service.injectGoalDirectivesFor）。
+	injections map[string][]goaldomain.TLDirective
+	// published 记录"已回放进可见会话"的指令 corr（每会话一集）：指令产出的那一
+	// 回合就要可见（Service.publishPendingGoalDirectivesFor），而下一次回合的
+	// 常规回放不能把它再写一遍（corr 幂等）。
+	published map[string]map[string]bool
 }
 
 func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator {
@@ -72,7 +78,8 @@ func newGoalCoordinator(deps goalCoordinatorDeps) *goalCoordinator {
 		sessions:     make(map[string]*goalSessionRuntime),
 		heartbeatSeq: make(map[string]uint64),
 		heartbeatAt:  make(map[string]int64),
-		injections:   make(map[string][]string),
+		injections:   make(map[string][]goaldomain.TLDirective),
+		published:    make(map[string]map[string]bool),
 	}
 }
 
@@ -217,6 +224,13 @@ func (g *goalCoordinator) AdvanceAfterChat(ctx context.Context, sessionID, detai
 	// 会让 goal 挂在 active 等一个永远不会来的 ADVISOR 回合（面板恒 0 轮、用户
 	// 看不到收口），而且下一个 goal 可能复用上一轮 b 的锚点/帧。
 	if team := g.teamRuntimeFor(sessionID); team != nil {
+		// 逃生记账：团队环按"本轮有没有推进"记一次轮次。
+		//
+		// 这里**不再**把本轮正文摘要写进 team work 前缀——前缀的作者是主会话上下文
+		// （含主会话 draft）的只读装配（见 Service.noteTeamWorkPrefix）：TL 的对话
+		// 记录就是 engine loop 写出的行，用治理域的回合摘要当前缀会当场变成第三套
+		// 口径。detail 只用于它本来的两个用途：b（ADVISOR）评审输入与员工座位本轮
+		// 的输入。
 		if stopped, reason := team.NoteTurn(strings.TrimSpace(detail) != ""); stopped {
 			runtime.gov.Break(reason)
 			g.bumpHeartbeat(sessionID)
@@ -629,23 +643,97 @@ func (g *goalCoordinator) DrainDirectives(sessionID string) []goaldomain.TLDirec
 	return runtime.sup.Mailbox().DrainDirectives()
 }
 
-// NoteInjected 记录一次已注入引擎的 TL 指令文本（回合尾可见区回放）。
-func (g *goalCoordinator) NoteInjected(sessionID string, texts []string) {
-	if len(texts) == 0 {
+// PeekDirectives 读取该会话待注入的 b→a 指令（不消费）：回合结束时把刚产出的
+// 裁决立刻回放进可见会话用。队列本身留给下一次 ChatStream 前的受信注入消费。
+func (g *goalCoordinator) PeekDirectives(sessionID string) []goaldomain.TLDirective {
+	g.mu.Lock()
+	runtime := g.sessions[sessionID]
+	g.mu.Unlock()
+	if runtime == nil {
+		return nil
+	}
+	return runtime.sup.Mailbox().PeekDirectives()
+}
+
+// goalStackFrames 把 Controller 的活动栈投影成逐帧只读视图（栈底→栈顶，末元素
+// = active 那一帧）。
+//
+// 只读：不写回任何 goal 状态，也不新增第二份"栈事实"——事实仍是 Controller 的
+// LIFO 栈。每帧带自己的标题/陈述/状态/验收/最近进度，工作台据此按帧分块查看。
+func goalStackFrames(stack []*goaldomain.GoalRecord) []dto.GoalFrameView {
+	if len(stack) == 0 {
+		return nil
+	}
+	const frameProgressLimit = 3
+	frames := make([]dto.GoalFrameView, 0, len(stack))
+	for index, record := range stack {
+		if record == nil {
+			continue
+		}
+		frame := dto.GoalFrameView{
+			ID:         record.ID,
+			Title:      record.Title,
+			Statement:  record.Statement,
+			Status:     string(record.Status),
+			Active:     index == len(stack)-1,
+			Acceptance: append([]string(nil), record.Acceptance...),
+			UpdatedAt:  record.UpdatedAt,
+		}
+		progress := record.Progress
+		if len(progress) > frameProgressLimit {
+			progress = progress[len(progress)-frameProgressLimit:]
+		}
+		for _, item := range progress {
+			frame.Progress = append(frame.Progress, dto.GoalProgressView{
+				At: item.At, Kind: string(item.Kind), Content: item.Content,
+			})
+		}
+		frames = append(frames, frame)
+	}
+	return frames
+}
+
+// DirectivePublished 报告该 corr 的指令是否已回放进可见会话（corr 幂等去重）。
+func (g *goalCoordinator) DirectivePublished(sessionID, corr string) bool {
+	if corr == "" {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.published[sessionID][corr]
+}
+
+// MarkDirectivePublished 记录一条指令已回放进可见会话（回合结束时记，下一次
+// 回合的常规回放据此跳过它，避免同一裁决出现两行）。
+func (g *goalCoordinator) MarkDirectivePublished(sessionID, corr string) {
+	if corr == "" {
 		return
 	}
 	g.mu.Lock()
-	g.injections[sessionID] = append(g.injections[sessionID], texts...)
+	defer g.mu.Unlock()
+	if g.published[sessionID] == nil {
+		g.published[sessionID] = make(map[string]bool)
+	}
+	g.published[sessionID][corr] = true
+}
+
+// NoteInjected 记录一次已注入引擎受信区的 TL 指令（回合尾可见区回放）。
+func (g *goalCoordinator) NoteInjected(sessionID string, directives []goaldomain.TLDirective) {
+	if len(directives) == 0 {
+		return
+	}
+	g.mu.Lock()
+	g.injections[sessionID] = append(g.injections[sessionID], directives...)
 	g.mu.Unlock()
 }
 
-// TakeInjected 取走（并清空）该会话已注入的 TL 指令文本。
-func (g *goalCoordinator) TakeInjected(sessionID string) []string {
+// TakeInjected 取走（并清空）该会话已注入受信区的 TL 指令。
+func (g *goalCoordinator) TakeInjected(sessionID string) []goaldomain.TLDirective {
 	g.mu.Lock()
-	texts := g.injections[sessionID]
+	directives := g.injections[sessionID]
 	delete(g.injections, sessionID)
 	g.mu.Unlock()
-	return texts
+	return directives
 }
 
 // GoalGovernanceViewFor 组装只读治理视图（无 bundle/无 goal → nil，前端隐藏）。
@@ -674,7 +762,14 @@ func (g *goalCoordinator) GoalGovernanceViewFor(sessionID string) *dto.GoalGover
 		PeerState:    string(peer.Peer),
 		HeartbeatAt:  at,
 		HeartbeatSeq: seq,
+		// 进行中的 ADVISOR 正文（只读快照）：回合结束为空。前端据此在评审期间
+		// 轮询快照，把"评审在写什么"及时渲染出来。
+		InFlight:      peer.InFlight,
+		InFlightChars: peer.InFlightChars,
 	}
+	// 每帧的只读投影：工作台按**活动栈**分块展示（栈顶=当前目标，栈下=被嵌套
+	// 压栈而暂停的目标）。栈只有一份事实（Controller 的 LIFO 栈），这里只读。
+	view.Stack = goalStackFrames(status.Stack)
 	if runtime.gov != nil {
 		snapshot := govern.SnapshotOf(runtime.gov)
 		view.Round = snapshot.Round

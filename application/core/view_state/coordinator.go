@@ -319,9 +319,10 @@ func (c *Coordinator) AppendMessageLockedFor(sessionID, role, content string, to
 	return c.AppendMessageWithOriginLockedFor(sessionID, role, content, tool, model.MessageOrigin{})
 }
 
-// AppendMessageWithOriginLockedFor 追加一条带群聊归属的可见消息：归属字段随
-// 消息一起进前端载荷，聊天区据此把过程归到 EXEC/ADVISOR（my_design §8.3）。
-// 零值 origin 与 AppendMessageLockedFor 等价（旧数据仍按 provider role 渲染）。
+// AppendMessageWithOriginLockedFor 追加一条带群聊归属的可见消息：归属字段
+// （含多线谱类别 origin.Kind）随消息一起进前端载荷，聊天区据此把过程归到
+// EXEC/ADVISOR（my_design §8.3）。零值 origin 与 AppendMessageLockedFor 等价
+// （旧数据仍按 provider role 渲染）。
 func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content string, tool *model.ToolCall, origin model.MessageOrigin) *model.Message {
 	if role == "assistant" || role == "tool_result" {
 		content = chat.StripThoughtBlocks(content)
@@ -342,6 +343,7 @@ func (c *Coordinator) AppendMessageWithOriginLockedFor(sessionID, role, content 
 		c.messageSeq[sessionID]++
 		next := model.Message{
 			ID: fmt.Sprintf("message-%d", c.messageSeq[sessionID]), Role: role, Content: content, Tool: tool, CreatedAt: time.Now(),
+			Kind:     origin.Kind,
 			RoleName: origin.RoleName, RoleSessionID: origin.RoleSessionID,
 			RoundID: origin.RoundID, UnitSeq: origin.UnitSeq,
 		}

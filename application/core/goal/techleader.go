@@ -21,6 +21,7 @@ package goal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -76,6 +77,18 @@ func (m *TechLeaderMailbox) DrainDirectives() []TLDirective {
 	return out
 }
 
+// PeekDirectives 读取待领取指令的副本（**不消费**）：供"指令产出后在同一个回合
+// 里先回放进可见会话"使用——受信注入（下一次 ChatStream 前）仍由 DrainDirectives
+// 唯一消费，两者互不影响。
+func (m *TechLeaderMailbox) PeekDirectives() []TLDirective {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.directives) == 0 {
+		return nil
+	}
+	return append([]TLDirective(nil), m.directives...)
+}
+
 // PendingDirectives 读面计数。
 func (m *TechLeaderMailbox) PendingDirectives() int {
 	m.mu.Lock()
@@ -128,10 +141,49 @@ type Supervisor struct {
 	lastSyncedProgress int            // 控制器增量补帧游标（progress 条数；headless goal_update 无接线时的差异帧）
 	pendingWork        []workProgress // 待抽帧的 EXEC 工作进展（turn_completed.Detail；回合前 flush，见 MaxWorkFrames）
 
+	// inFlight / inFlightAt 是**当前 b 回合进行中**的正文近端（评审没结束就看得到）。
+	//
+	// 为什么要有它：b 回合的执行面是流式的（seelebridge 角色会话 ChatStream），但旧实现
+	// 把 onChunk 传成 nil——分片被丢掉，前端只能在回合结束后拿到终局裁决，于是"渲染不
+	// 及时"。这里按同一次调用内的 ctx 回调把分片收进一个**有界近端**，作为只读快照
+	// 暴露（TLState.InFlight）；前端在 peer=evaluating 期间轮询快照即可看到进行中的正文。
+	// 它不参与任何裁决：裁决仍然只来自 Evaluate 的返回值（TLDirective）。
+	inFlight   string
+	inFlightAt int64
+
 	turnsSinceEval int
 	evalCount      int64
 	lastEvalAt     int64
 	lastEvalGoalID string
+}
+
+// noteInFlightLocked 记一段 b 回合的进行中正文（调用方已持 s.mu：它是同一次
+// Evaluate 调用内的流式回调，与 runRoundLocked 同一 goroutine）。
+//
+// 只保留近端（MaxInFlightRunes）：in-flight 是"当前写到哪"的只读快照，不是完整
+// 回合正文——完整原文仍由 recorder 落 role draft。它刻意不触发任何推送：前端在
+// peer=evaluating 期间轮询快照即可，后端不需要为每个分片做一次投影。
+func (s *Supervisor) noteInFlightLocked(delta string) {
+	if strings.TrimSpace(delta) == "" {
+		return
+	}
+	s.inFlight = boundInFlightRunes(s.inFlight+delta, MaxInFlightRunes)
+	s.inFlightAt = s.now()
+}
+
+// clearInFlightLocked 清空进行中正文（回合结束：权威正文是裁决行）。
+func (s *Supervisor) clearInFlightLocked() {
+	s.inFlight = ""
+	s.inFlightAt = 0
+}
+
+// boundInFlightRunes 把进行中正文截到近端 max 个 rune（超出时前置省略标记）。
+func boundInFlightRunes(text string, max int) string {
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+	return "…" + string(runes[len(runes)-max:])
 }
 
 // workProgress 是一条待抽帧的 EXEC 工作进展（ref_seq 在 flush 时按水位分配）。
@@ -366,6 +418,12 @@ func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal 
 	peer.State = PeerEvaluating
 	now := s.now()
 
+	// 本轮的**进行中**观察面：模型分片不再被丢弃（旧实现给 ChatStream 传 nil），
+	// 而是经 ctx 回调进 in-flight 近端，作为只读快照暴露给前端（快照查看）。
+	// defer 清理：本回合任何返回路径（含错误）都不把中间态留给下一次裁决。
+	ctx = WithTLDeltaSink(ctx, s.noteInFlightLocked)
+	defer s.clearInFlightLocked()
+
 	// 1) 补 a 差异帧（on_eval：一次性同步区间内抽帧集）。
 	if err := s.syncControllerDiffFramesLocked(peer, active, now); err != nil {
 		return TLDirective{}, err
@@ -406,6 +464,12 @@ func (s *Supervisor) runRoundLocked(ctx context.Context, trigger string, signal 
 	directive, err := s.evaluator.Evaluate(ctx, embed)
 	if err != nil {
 		peer.State = PeerAdvisoryPending
+		// 分类不要在这里写死：**裁决不可用**（ErrBadDirective：原文不可解析 / 域校验
+		// 不过 / goal 漂移）与**缺席**（429/超时/回合失败）是两件事。把 429/超时的标签
+		// 贴到前者身上，用户读到的收口说明会与实际状态相反（gate.go 按同一条边界分支）。
+		if errors.Is(err, ErrBadDirective) {
+			return TLDirective{}, fmt.Errorf("b 回合已作答但裁决不可用: %w", err)
+		}
 		return TLDirective{}, fmt.Errorf("b 回合失败(429/超时 → B4 缺席矩阵): %w", err)
 	}
 	if directive.At <= 0 {
@@ -507,6 +571,9 @@ func (s *Supervisor) Snapshot() TLState {
 		PendingDirectives:  s.mailbox.PendingDirectives(),
 		OverflowDirectives: s.mailbox.Overflow(),
 		TurnsSinceEval:     s.turnsSinceEval,
+		InFlight:           s.inFlight,
+		InFlightChars:      len([]rune(s.inFlight)),
+		InFlightAt:         s.inFlightAt,
 	}
 	if active, ok := s.ctl.ActiveGoal(); ok {
 		state.ActiveGoalID = active.ID
@@ -599,4 +666,13 @@ type TLState struct {
 	PendingDirectives  int        `json:"pending_directives"`
 	OverflowDirectives int64      `json:"overflow_directives"`
 	TurnsSinceEval     int        `json:"turns_since_eval"`
+	// InFlight / InFlightChars / InFlightAt 是当前 b 回合进行中的正文近端（只读快照）。
+	// 回合结束即清空：裁决落地后，权威正文是 tl_directive 行，不是这段中间态。
+	InFlight      string `json:"in_flight,omitempty"`
+	InFlightChars int    `json:"in_flight_chars,omitempty"`
+	InFlightAt    int64  `json:"in_flight_at,omitempty"`
 }
+
+// MaxInFlightRunes 是进行中正文的可见上限（保留**近端**：in-flight 的价值在
+// "当前写到哪"，不是完整回合正文；完整原文仍由 TLRecorder 落 role draft）。
+const MaxInFlightRunes = 1200

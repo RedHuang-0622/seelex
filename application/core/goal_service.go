@@ -68,14 +68,32 @@ func (service *Service) GoalBeginFor(ctx context.Context, sessionID string, requ
 //
 // best-effort：宿主未装配团队存储（旧版本宿主、测试桩）时只记一条日志，
 // 不阻塞 goal 治理本身——goal 的 supervisor + TL 评估器链路与团队存储无关。
-// joinSeq=0 与前端「装配团队」按钮一致（新装配的角色挂在主会话可见起点）。
+//
+// joinSeq 取装配那一刻主会话已提交的 message 尾 seq：角色会话可见区间（= 它自己
+// 那份 team work 记录）的判据是 seq > join_seq_id（与 storage 侧 assembleRoleWire
+// 同一条），所以 teammate 的记录从"装配它的那一回合"开始——它入伙之前的对话不在
+// 它的前缀匹配区间里（面板上以占位呈现），而不是把整段历史都算成它记得的上下文。
 func (service *Service) ensureGoalAgentTeam(sessionID string) {
 	if service == nil || strings.TrimSpace(sessionID) == "" {
 		return
 	}
-	if _, err := service.MaterializeAgentTeamPreset(sessionID, dto.TeamKindGoalA2A, 0); err != nil {
+	if _, err := service.MaterializeAgentTeamPreset(sessionID, dto.TeamKindGoalA2A, service.teamJoinSeqFor(sessionID)); err != nil {
 		log.Printf("[goal] 自动装配 %s 团队失败（session=%s）：%v", dto.TeamKindGoalA2A, sessionID, err)
 	}
+}
+
+// teamJoinSeqFor 返回团队装配的 join 切点 = 主会话当前已提交的 message 尾 seq。
+// 读不到（宿主未装配会话存储、会话还没落行）时退回 0 = 挂在主会话可见起点：
+// 宁可让 teammate 多看到一段，也不给它一个假切点。
+func (service *Service) teamJoinSeqFor(sessionID string) uint64 {
+	if service == nil || strings.TrimSpace(sessionID) == "" {
+		return 0
+	}
+	snapshot, err := service.RoleSnapshot(sessionID, RoleNameMain, sessionID)
+	if err != nil {
+		return 0
+	}
+	return snapshot.MainHeadSeq
 }
 
 // GoalBegin 按执行 ctx 会话注册 goal（main agent 工具调用路径）。
@@ -202,19 +220,33 @@ func (service *Service) GoalIterationCompleted(ctx context.Context) bool {
 	if len(directives) == 0 {
 		return true
 	}
-	var texts []string
-	for _, directive := range directives {
-		text := "[TL 指令 " + directive.Corr + "] " + strings.TrimSpace(directive.Content)
-		texts = append(texts, text)
-		value := "〔" + text + "〕"
-		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
-	}
-	coordinator.NoteInjected(sessionID, texts)
+	service.injectGoalDirectives(sessionID, directives)
 	return true
 }
 
+// formatDirectiveText 是 b→a 指令的**单行可读形式**：引擎受信注入与可见回放
+// 共用同一份格式（两处各拼一遍字符串必然漂移，corr 是唯一的行标识）。
+func formatDirectiveText(directive goaldomain.TLDirective) string {
+	return "[TL 指令 " + directive.Corr + "] " + strings.TrimSpace(directive.Content)
+}
+
+// injectGoalDirectives 把 b→a 指令注入引擎受信区，并登记"待可见回放"：
+//
+//   - 注入：以 user 角色写进引擎历史（下一次模型调用就能看到），包在〔〕里
+//     与真实用户输入区分；
+//   - 登记：同一批指令记进 coordinator.injections，回合尾由
+//     injectGoalDirectivesFor 回放进可见会话（引擎历史不是可见投影的事实源）。
+func (service *Service) injectGoalDirectives(sessionID string, directives []goaldomain.TLDirective) {
+	for _, directive := range directives {
+		value := "〔" + formatDirectiveText(directive) + "〕"
+		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
+	}
+	service.components.goal.NoteInjected(sessionID, directives)
+}
+
 // injectGoalDirectivesForStart 在 ChatStream 开始前把 TL 回合产生的指令
-// 排空并注入引擎历史（受信注入区；visible 记录在回合尾回放）。
+// 排空并注入引擎受信区（可见副本的两种出口见 injectGoalDirectivesFor 与
+// publishPendingGoalDirectivesFor）。
 func (service *Service) injectGoalDirectivesForStart(sessionID string) {
 	if service == nil || service.components.goal == nil {
 		return
@@ -223,14 +255,7 @@ func (service *Service) injectGoalDirectivesForStart(sessionID string) {
 	if len(directives) == 0 {
 		return
 	}
-	var texts []string
-	for _, directive := range directives {
-		text := "[TL 指令 " + directive.Corr + "] " + strings.TrimSpace(directive.Content)
-		texts = append(texts, text)
-		value := "〔" + text + "〕"
-		service.appendEngineMessage(sessionID, types.Message{Role: "user", Content: &value})
-	}
-	service.components.goal.NoteInjected(sessionID, texts)
+	service.injectGoalDirectives(sessionID, directives)
 }
 
 // goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进 goal 治理
@@ -246,29 +271,64 @@ func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
 }
 
 // injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入
-// 引擎的 TL 指令以可见系统记录写入目标会话视图（仅展示，不入 goal 栈）。
+// 引擎的 TL 指令回放进可见会话（仅展示，不入 goal 栈）。
 func (service *Service) injectGoalDirectivesFor(sessionID string) {
 	if service == nil || service.components.goal == nil {
 		return
 	}
-	texts := service.components.goal.TakeInjected(sessionID)
-	if len(texts) == 0 {
+	service.publishAdvisorDirectiveRows(sessionID, service.components.goal.TakeInjected(sessionID))
+}
+
+// publishPendingGoalDirectivesFor 把治理回合**刚产出**、仍在待注入队列里的
+// b→a 指令立刻回放进可见会话。
+//
+// 为什么需要它：治理回合（ADVISOR）跑在回合末尾（goalAdvanceAfterChat），它
+// 产出的裁决过去只在**下一次**用户提交时才被排空注入、再在下一次回合尾回放
+// ——用户盯着面板也看不到裁决（2026-09-16 team work 探针实测：等满 15 分钟
+// 仍无行）。现在：裁决在产出它的那一回合就可见。
+//
+// 指令本身不消费（PeekDirectives）：受信注入仍由下一次 ChatStream 前的
+// DrainDirectives 完成，注入语义与时机不变；已回放的 corr 记账在 coordinator
+// 里，下一次回合的常规回放据此去重，同一裁决只出现一行。
+func (service *Service) publishPendingGoalDirectivesFor(sessionID string) {
+	if service == nil || service.components.goal == nil {
+		return
+	}
+	service.publishAdvisorDirectiveRows(sessionID, service.components.goal.PeekDirectives(sessionID))
+}
+
+// publishAdvisorDirectiveRows 把 b→a 指令以可见 ADVISOR 行写进目标会话：
+// role=assistant + role_name=tl + kind=tl_directive（写成 system 行会让聊天区
+// 把它渲染成「系统」，两个 agent 又变回无区别，见
+// visible_role_attribution_test.go）。同一 corr 只写一次：指令产出的那一回合
+// 就该可见，下一次回合的常规回放不得把它再写一遍。
+func (service *Service) publishAdvisorDirectiveRows(sessionID string, directives []goaldomain.TLDirective) {
+	published := make([]goaldomain.TLDirective, 0, len(directives))
+	for _, directive := range directives {
+		if service.components.goal.DirectivePublished(sessionID, directive.Corr) {
+			continue
+		}
+		published = append(published, directive)
+	}
+	if len(published) == 0 {
 		return
 	}
 	// 角色会话号解析走存储读（锁外完成，避免在 ViewMu 里做 I/O）。
 	advisorSessionID := service.advisorRoleSessionID(sessionID)
+	roundID := service.components.tasks.RoleRoundFor(sessionID)
 	service.ViewMu.Lock()
-	origin := MessageOrigin{
-		RoleName: RoleNameTL, RoleSessionID: advisorSessionID,
-		RoundID: service.components.tasks.RoleRoundFor(sessionID),
-	}
-	for _, text := range texts {
-		// ADVISOR 的回合原文按 assistant 行发布（role_name=tl）：写成 system 行
-		// 会让聊天区把它渲染成「系统」，两个 agent 又变回无区别。
-		service.appendSessionMessageWithOriginLocked(sessionID, "assistant", text, nil, origin)
+	for _, directive := range published {
+		origin := MessageOrigin{
+			RoleName: RoleNameTL, RoleSessionID: advisorSessionID,
+			RoundID: roundID, Kind: goaldomain.DirectiveRowKind,
+		}
+		service.appendSessionMessageWithOriginLocked(sessionID, "assistant", formatDirectiveText(directive), nil, origin)
 	}
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
+	for _, directive := range published {
+		service.components.goal.MarkDirectivePublished(sessionID, directive.Corr)
+	}
 	service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 }
 

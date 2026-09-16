@@ -100,6 +100,13 @@ type roleRoundSpec struct {
 	// A2A-VALUE-REVIEW §2.4 认为本设计最站得住的那一点）。清历史 = 隔离由构造保证，
 	// 而不是靠"每轮都把完整上下文重新渲染一遍"的巧合。
 	FreshContext bool
+	// OnDelta 是可选的**进行中**观察回调：本回合的流式分片逐段回调给它。
+	//
+	// 为什么要有它：执行面（引擎 ChatStream）本来就是流式的，但调用方此前把 onChunk
+	// 传成 nil，分片被丢掉——评审"正在写什么"在上层完全不可见，前端只能等终局裁决
+	// （用户看到的"渲染不及时"）。它只把**后端产生的分片单向**送出去，不接收任何
+	// 输入，也不参与回合结果（结果仍以返回值/裁决为准）。
+	OnDelta func(delta string)
 }
 
 // SetRoleEngineFactory 注入角色会话引擎的构造器（nil = 回退默认的框架 Session）。
@@ -193,7 +200,7 @@ func (r *Runtime) runRoleRound(ctx context.Context, spec roleRoundSpec) (string,
 		// 隔离由构造保证：本轮的上下文完全由 spec.Input 自带（见 roleRoundSpec.FreshContext）。
 		handle.engine.ClearHistory()
 	}
-	output, err := handle.engine.ChatStream(turnCtx, spec.Input, nil)
+	output, err := handle.engine.ChatStream(turnCtx, spec.Input, spec.OnDelta)
 	handle.mu.Unlock()
 	if err != nil {
 		// 执行面出错向上抛（治理循环透传）：不能吞成"没产出"，否则环会把它记成
