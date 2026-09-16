@@ -95,6 +95,63 @@ func (s *teamRecordingSessions) SetRoleLifecycle(string, string, string, uint64,
 	return nil
 }
 
+// 以下是夹具的**加锁存取入口**：夹具状态只允许通过它们读写。
+//
+// 为什么这不是"多此一举的封装"（夹具竞态的正解）：夹具的**读侧**是加锁的
+// （生产路径：服务/后台 goroutine 通过 SessionPort 读顺序与注册表），若测试侧
+// 直接 `sessions.order = nil`，锁就只保护了一侧。按 Go 内存模型，读与写之间
+// 没有 happens-before 关系 —— 这仍然是数据竞争，`-race` 会直接报 DATA RACE
+// （复现见 fixture_concurrency_test.go 的说明）。两侧都走同一把锁才是解。
+func (s *teamRecordingSessions) setLifecycle(policy string, order []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.policy = policy
+	s.order = append([]string(nil), order...)
+}
+
+// setOrder 只覆盖顺序（顺序策略不动）：装配前的"清现场"用它。
+func (s *teamRecordingSessions) setOrder(order []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.order = append([]string(nil), order...)
+}
+
+// setRegistry 覆盖夹具的团队注册表（加锁）。
+func (s *teamRecordingSessions) setRegistry(registry dto.TeamRegistry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.registry = registry
+}
+
+// lifecycleSnapshot 读当前顺序策略与顺序（加锁 + 深拷贝，读到的是快照）。
+func (s *teamRecordingSessions) lifecycleSnapshot() (string, []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.policy, append([]string(nil), s.order...)
+}
+
+// registrySnapshot 读当前注册表（加锁 + 拷贝角色切片）。
+func (s *teamRecordingSessions) registrySnapshot() dto.TeamRegistry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	registry := s.registry
+	registry.Roles = append([]dto.RoleSpec(nil), s.registry.Roles...)
+	return registry
+}
+
+// orderSnapshot 只读顺序（加锁 + 拷贝）。
+func (s *teamRecordingSessions) orderSnapshot() []string {
+	_, order := s.lifecycleSnapshot()
+	return order
+}
+
+// ensuredRoles 读已装配的角色会话名（加锁 + 拷贝）。
+func (s *teamRecordingSessions) ensuredRoles() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.ensured...)
+}
+
 func (s *teamRecordingSessions) ListRoleSessions(string) ([]string, error) {
 	return nil, nil
 }
@@ -110,25 +167,24 @@ func TestGoalBeginMaterializesGoalAgentTeam(t *testing.T) {
 		t.Fatalf("GoalBeginFor: %v", err)
 	}
 
-	sessions.mu.Lock()
-	defer sessions.mu.Unlock()
 	tlFound := false
-	for _, name := range sessions.ensured {
+	for _, name := range sessions.ensuredRoles() {
 		if name == "tl" {
 			tlFound = true
 		}
 	}
 	if !tlFound {
-		t.Fatalf("goal 创建未装配 TL 角色会话，ensured=%v", sessions.ensured)
+		t.Fatalf("goal 创建未装配 TL 角色会话，ensured=%v", sessions.ensuredRoles())
 	}
-	if sessions.policy != dto.OrderPolicyGoalLoop {
-		t.Fatalf("lifecycle order policy = %q, want %q", sessions.policy, dto.OrderPolicyGoalLoop)
+	policy, order := sessions.lifecycleSnapshot()
+	if policy != dto.OrderPolicyGoalLoop {
+		t.Fatalf("lifecycle order policy = %q, want %q", policy, dto.OrderPolicyGoalLoop)
 	}
-	if len(sessions.order) == 0 {
+	if len(order) == 0 {
 		t.Fatalf("lifecycle order roles 未写入")
 	}
-	if sessions.registry.TeamKind != dto.TeamKindGoalA2A {
-		t.Fatalf("registry team_kind = %q, want %q", sessions.registry.TeamKind, dto.TeamKindGoalA2A)
+	if registry := sessions.registrySnapshot(); registry.TeamKind != dto.TeamKindGoalA2A {
+		t.Fatalf("registry team_kind = %q, want %q", registry.TeamKind, dto.TeamKindGoalA2A)
 	}
 }
 

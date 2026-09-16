@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -91,5 +92,48 @@ func (r goalTLRecorder) RecordMainTurn(_ context.Context, record goaldomain.Main
 		return err
 	}
 	_, err = r.service.SyncRoleDraft(r.sessionID, roleName, r.sessionID, view.OrderRoles)
+	return err
+}
+
+// ArchiveTLHistory 把 b 侧会话历史归档进 tl 角色历史（环逃生收口时调用；实现
+// goal domain 的 TLHistoryArchiver）。
+//
+// 为什么要有这条：b 的"历史"（锚点 + 帧 + 回合摘要）只活在 Supervisor 的进程内
+// AdvisorSession 里，而逃生收口会 reap 掉它——不落一行归档，这次 goal 的审查过程
+// 就彻底查不到了（role draft 里逐回合的 role_context/tl_directive 是原文，但没有
+// "这条 goal 到此为止、原因是逃生"的收口行，事后无法按行归因）。
+//
+// 归档失败返回错误由调用方（Supervisor.AbortOnEscape）降级成 goal 终态里的说明：
+// 逃生收口本身不能因为留痕失败而失败。
+func (r goalTLRecorder) ArchiveTLHistory(_ context.Context, record goaldomain.TLArchiveRecord) error {
+	if r.service == nil || r.sessionID == "" {
+		return nil
+	}
+	view, err := r.service.AgentTeamView(r.sessionID)
+	if err != nil || !view.Configured {
+		return nil
+	}
+	const roleName = "tl"
+	roleSessionID := agentteam.RoleSessionID(view.TeamID, roleName)
+	if strings.TrimSpace(roleSessionID) == "" {
+		return nil
+	}
+	truncated := ""
+	if record.Truncated {
+		truncated = "（正文已截断）"
+	}
+	head := fmt.Sprintf("goal 逃生收口：原因 %s；goal=%s %s；b 历史 rounds=%d frames=%d%s",
+		record.Reason, record.GoalID, record.GoalTitle, record.Rounds, record.Frames, truncated)
+	row := dto.RoleDraftRow{
+		RoleName: roleName, RoleSessionID: roleSessionID, UnitSeq: 1,
+		Event: dto.RoleRow{
+			Kind: goaldomain.ArchiveKindEscape, Role: "system", Content: head + "\n\n" + record.Content,
+			RoleName: roleName, RoleSessionID: roleSessionID, UnitSeq: 1,
+		},
+	}
+	if err := r.service.AppendRoleDraft(r.sessionID, roleName, roleSessionID, []dto.RoleDraftRow{row}); err != nil {
+		return err
+	}
+	_, err = r.service.SyncRoleDraft(r.sessionID, roleName, roleSessionID, view.OrderRoles)
 	return err
 }

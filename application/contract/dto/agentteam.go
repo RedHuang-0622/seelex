@@ -101,6 +101,9 @@ type TeamMember struct {
 	SystemPrompt   string   `json:"system_prompt,omitempty"`
 	ModelPolicy    string   `json:"model_policy,omitempty"`
 	PresencePolicy string   `json:"presence_policy,omitempty"`
+	// PermissionGroups 是这条员工行**逐格装配**的权限回读（前端「编辑员工」面板
+	// 要回填原值，否则一次编辑就会把装配好的格子清空）。空 = 没显式装配。
+	PermissionGroups map[string]uint8 `json:"permission_groups,omitempty"`
 }
 
 // TeamView 是供前端「状态 → Agent Team」子页与角色管理设置消费的装配视图。

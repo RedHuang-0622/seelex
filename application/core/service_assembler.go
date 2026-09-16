@@ -105,6 +105,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		StoreFor:       goalStoreFor,
 		TLRecorderFor:  service.goalTLRecorderFor,
 		TeamRuntimeFor: service.teamRuntimeBySession,
+		RoleSeatsFor:   service.teamRoleSeatsFor,
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,

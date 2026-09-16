@@ -158,6 +158,65 @@ func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtim
 	return service.teamRuntimeFor(sessionID, view)
 }
 
+// teamRoleSeatsFor 返回该会话团队的角色座位来源（按发言链顺序），供 goal 治理循环
+// 按 **角色 kind** 派生座位，并在装配了执行面时按角色会话/权责跑员工回合。
+//
+// 关键点：顺序取 lifecycle 的 order_roles（唯一顺序事实），其余字段取成员表
+// （role_kind / role_session_id / tools_policy）——座位不按角色名匹配，
+// TL 改名或自定义预设改名都不会丢 ADVISOR 座位。
+// 未装配团队 / 读不到注册表 → nil（调用方退回退化路径）。
+func (service *Service) teamRoleSeatsFor(sessionID string) []RoleSeat {
+	if service == nil {
+		return nil
+	}
+	view, err := service.agentTeamRawView(sessionID)
+	if err != nil || !view.Configured {
+		return nil
+	}
+	members := make(map[string]dto.TeamMember, len(view.Members))
+	ordered := make([]RoleSeat, 0, len(view.Members))
+	for _, member := range view.Members {
+		roleName := strings.TrimSpace(member.RoleName)
+		if roleName == "" {
+			continue
+		}
+		members[roleName] = member
+		if !member.InOrder {
+			continue
+		}
+		ordered = append(ordered, roleSeatOf(member))
+	}
+	if len(view.OrderRoles) == 0 {
+		return ordered
+	}
+	// order_roles 是顺序事实：按它重排（不在链上的成员只用于 kind 查询）。
+	seats := make([]RoleSeat, 0, len(view.OrderRoles))
+	for _, roleName := range view.OrderRoles {
+		member, ok := members[roleName]
+		if !ok {
+			continue
+		}
+		seats = append(seats, roleSeatOf(member))
+	}
+	return seats
+}
+
+func roleSeatOf(member dto.TeamMember) RoleSeat {
+	seat := RoleSeat{
+		RoleName:      strings.TrimSpace(member.RoleName),
+		RoleKind:      member.RoleKind,
+		RoleSessionID: strings.TrimSpace(member.RoleSessionID),
+		ToolsPolicy:   member.ToolsPolicy,
+	}
+	if len(member.PermissionGroups) > 0 {
+		seat.PermissionGroups = make(map[string]uint8, len(member.PermissionGroups))
+		for group, bits := range member.PermissionGroups {
+			seat.PermissionGroups[group] = bits
+		}
+	}
+	return seat
+}
+
 // noteTeamUserSeat 把"该会话队列里有没有未消费的 user 输入"同步给团队环：
 // user 经消息队列插话时，环要据此决定 user 是否占位（缺省口径 queued）。
 func (service *Service) noteTeamUserSeat(sessionID string) {

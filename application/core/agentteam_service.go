@@ -154,7 +154,20 @@ func (service *Service) agentTeamRawView(mainSessionID string) (dto.TeamView, er
 	if err != nil {
 		return dto.TeamView{}, err
 	}
-	return registry.View(mainSessionID)
+	view, err := registry.View(mainSessionID)
+	if err != nil {
+		return dto.TeamView{}, err
+	}
+	// 每读一次注册表，就把"角色会话 → 归属主会话 + 权责"记进反向索引：权限门、审计、
+	// 角色回合执行体都只拿得到角色会话号，它们要问出归属只能靠这份索引。
+	//
+	// 缺这一步的后果是**权限面 fail-open**：索引恒空 → 按角色会话号解析恒 false →
+	// 员工的角色会话一律按 root 判（不拦），而"谁是员工"这件事只有在 ctx 里显式
+	// 带着主体时才成立。验收见 agentteam_role_index_test.go。
+	// 写入点在**读面**（而不是写面）是刻意的：顺序/成员/权责的唯一事实是注册表，
+	// 读面知道的就是最新事实；写面反而可能读到未落盘的中间态。
+	service.roleSessions.remember(mainSessionID, view)
+	return view, nil
 }
 
 // AgentTeamPutRole 新增/覆盖一个角色配置。
