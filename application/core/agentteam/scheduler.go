@@ -7,11 +7,24 @@ import (
 
 // scheduler.go — 群聊轮转控制（channel + 链表）。
 //
-// **接线状态（2026-09-14 复核）**：本原语尚未接线——仓库里没有任何
-// NewTurnScheduler 生产调用点（判据见 scheduler_wiring_test.go，状态声明见本包
-// README「接线现状」表）。当前真正驱动轮次的是 goal 治理的 Governor 座位
-// （exec-a + advisor-b），"team work 起点→当前位置的前缀"由 work.progress 帧承担；
-// 接上本原语需要为每个角色配独立 agent loop（Requests() 的投递方）。
+// **接线状态（2026-09-16 复核）**：本原语已接线，且生产调用点唯一——
+// application/core/agentteam/runtime.go 的 Runtime 持有它（Runtime 构造时建链，
+// Runtime.Next() 用 Advance 推进到下一名可发言成员，Snapshot() 投影
+// dto.TeamSchedule）。判据见 scheduler_wiring_test.go：它既钉源码只能有这一个
+// 生产调用点，也钉本包 README 与源码不得再写"本原语还没接上 / 没有生产调用点"
+// 的旧结论（测试按字面量扫描包内源码，因此本注释只陈述事实、不复述旧措辞）。
+//
+// 两条推进路径的分工（共用同一份链表与 current 游标，顺序事实只有一份）：
+//   - Advance：调度器自己决定下一个谁发言（runtime.go 用它，跳过环内无执行者
+//     的角色与不该占位的 user；一圈全被跳过 = 环内无人可发言，调用方按逃生
+//     路径收束）。
+//   - Next：等 actor 投递发言意向再领取（Requests() 的投递方 = 每个角色自己的
+//     agent loop）。**这条投递方目前仍缺**：goal-a2a 的轮次仍由 goal 治理的
+//     Governor 座位（exec-a + advisor-b）驱动，"team work 起点→当前位置"的正文
+//     前缀仍由 work.progress 帧承担，本原语的 Prefix 只是同一口径的运行时载体。
+//
+// 顺序的唯一运行时事实是链表；落盘仍是 lifecycle.order_policy/order_roles
+// （本原语不写盘）。
 //
 // 口径（用户裁决 2026-09-13）：顺序调整环节里每个参与者先把自己的发言意向
 // struct 发到一个 channel；每个 agent loop 从 channel 领取"下一个该发言的

@@ -492,3 +492,57 @@ func (state *PermissionGate) visibleFor(subject toolspermission.Subject, name st
 	}
 	return checker.VisibleForMeta(subject, name, meta)
 }
+
+// ToolFaceFor 回答"主体类的工具面上有没有这个工具"（可见性口径的静态版，供
+// 工具列表过滤用；判定口径与框架 checker 的断位一致：按名字路由到组，主体持有
+// 覆盖组 mode 的位即视为在面上）。
+//
+// 与 Enforcer 的关系：Enforcer 在**调用时**判定（位齐放行 / 位缺提权），本方法在
+// **列工具时**判定。两者读同一份 PermissionConfig，因此"面上没有的工具有人调用"
+// 只可能来自配置变更（TTL 内）或未分封的动态工具，仍由 Enforcer 兜住。
+//
+// 三条口径：
+//   - 未装配权责模型（只有旧 rules 的配置 / 只测规则的用例）→ 一律在面上，
+//     与 Enforcer 的 policyReady 同口径，不给旧配置新增限制；
+//   - 未分封（不匹配任何路由组，如动态 MCP 工具）→ 员工面上不出现：员工侧位缺
+//     落成"执行选择页面提权"，把未分封的工具摆进面上等于每次调用都顶一张页面
+//     给宿主人类。要给员工开放，先在权限配置里分封（permission.groups）；
+//   - 分封但位缺（如 emp_ro 的 rw/ctl/adm）→ 不在面上：工具面就是"授权范围内的
+//     能力清单"，位缺的能力不摆出来（提权仍可通过选择页面发生）。
+func (state *PermissionGate) ToolFaceFor(class SubjectClass, toolName string) bool {
+	if state == nil {
+		return true
+	}
+	cfg := state.configSnapshot()
+	if !state.policyReady(cfg) {
+		return true
+	}
+	group, routed := RoutePermissionGroup(cfg.Groups, toolName)
+	if !routed {
+		return false
+	}
+	grant, ok := cfg.Subjects[SubjectForClass(class)]
+	if !ok {
+		return true
+	}
+	bits := grant.Bits[group.Name].Bits
+	return bits&group.Mode == group.Mode
+}
+
+// ToolFaceForContext 是工具面过滤的入口：按 ctx 解析主体类（节点作用域 → 角色
+// 会话登记 → root，与 Enforcer 的 classFor 同一份解析），只对员工
+// （emp_ro / emp_rw）收窄工具面；root（主代理 / entry / goalplan）、sub（子代理）
+// 与未登记会话一律返回 true——它们的可见性口径仍由 tools/policy.go 的既有规则
+// 决定，本方法不新增限制。
+func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName string) bool {
+	if state == nil {
+		return true
+	}
+	class := state.classFor(ctx)
+	switch class {
+	case SubjectClassEmployeeRO, SubjectClassEmployeeRW:
+		return state.ToolFaceFor(class, toolName)
+	default:
+		return true
+	}
+}

@@ -1,0 +1,330 @@
+package tui
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
+)
+
+// goalteam_test.go — 目标/团队只读面板（Alt+G / Alt+T）的验收：
+//
+//   - 目标面板读 Snapshot.Runtime.GoalGovernance（同源投影），无活跃 goal 时给
+//     上线入口提示而不是空白；
+//   - 团队面板走一次 tea.Cmd 异步读服务层读面（*application.Service.AgentTeamView
+//     同签名），读面缺失 / 后端报错 / 未装配团队都有明确文案；
+//   - 面板高度与渲染行数一致（convHeight 依赖它，错一行就撑破 viewport）；
+//   - 面板只读：不提交输入、不改后端状态；有待批选择时不打开（键义不打架）。
+
+// teamFakeApp 在 fakeApp 之上补团队读面（*application.Service.AgentTeamView 同形）。
+type teamFakeApp struct {
+	*fakeApp
+	view      dto.TeamView
+	err       error
+	sessionID string
+}
+
+func (app *teamFakeApp) AgentTeamView(mainSessionID string) (dto.TeamView, error) {
+	app.sessionID = mainSessionID
+	return app.view, app.err
+}
+
+func goalSnapshot() application.Snapshot {
+	snapshot := application.Snapshot{Runtime: application.RuntimeState{Model: "model"}}
+	snapshot.Session.ID = "sess-main-1"
+	snapshot.Runtime.GoalGovernance = &dto.GoalGovernanceView{
+		Active:        true,
+		GoalID:        "g-1",
+		Title:         "给员工按权限开放工具",
+		Status:        "running",
+		Round:         2,
+		RoundLimit:    6,
+		CurrentSeat:   "advisor-b",
+		PeerState:     "advisory_pending",
+		LastDirective: "[verdict_done] 两条验收证据在本次 ADVISOR 输入中均可核对",
+		HeartbeatSeq:  12,
+	}
+	return snapshot
+}
+
+func teamViewFixture() dto.TeamView {
+	return dto.TeamView{
+		SessionID:   "sess-main-1",
+		TeamID:      "goal-a2a",
+		TeamKind:    "goal-a2a",
+		OrderPolicy: "goal_loop",
+		OrderRoles:  []string{"user", "main", "tl"},
+		Configured:  true,
+		FloorRole:   "main",
+		Members: []dto.TeamMember{
+			{RoleName: "user", RoleKind: dto.RoleKindUser, JoinPolicy: "builtin", OrderIndex: 0, InOrder: true},
+			{RoleName: "main", RoleKind: dto.RoleKindMain, JoinPolicy: "builtin", OrderIndex: 1, InOrder: true, RoleSessionID: "sess-main-1"},
+			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, JoinPolicy: "on_goal_create", OrderIndex: 2, InOrder: true, ToolsPolicy: "readonly", RoleSessionID: "goal-a2a-tl"},
+		},
+		Schedule: &dto.TeamSchedule{
+			OrderPolicy:     "goal_loop",
+			Order:           []string{"user", "main", "tl"},
+			NextRole:        "tl",
+			Round:           2,
+			RoundLimit:      6,
+			NoProgress:      0,
+			NoProgressLimit: 3,
+			UserSeat:        "queued",
+			Unexecuted:      []string{"tl"},
+		},
+	}
+}
+
+// altKey 造 Alt+<rune> 按键（tea 的 Alt+字母 = 带 Alt 修饰的 rune 键）。
+func altRuneKey(r rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: true}
+}
+
+func escKey() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEsc} }
+
+// press 走一次 Update，返回更新后的 Model（测试只关心面板状态与投影）。
+func press(t *testing.T, model Model, message tea.KeyMsg) (Model, tea.Cmd) {
+	t.Helper()
+	updated, command := model.Update(message)
+	result, ok := updated.(Model)
+	if !ok {
+		t.Fatalf("Update 返回的不是 Model: %T", updated)
+	}
+	return result, command
+}
+
+func TestGoalPanelRendersGovernanceProjection(t *testing.T) {
+	app := newFakeApp()
+	app.snapshot = goalSnapshot()
+	model := NewModel(app)
+	model.showLogo = false
+	model.width, model.height = 100, 40
+
+	model, command := press(t, model, altRuneKey('g'))
+	if command != nil {
+		t.Fatal("目标面板不应发起 IO（数据源是 Snapshot 投影）")
+	}
+	if model.panel != panelGoal {
+		t.Fatalf("Alt+G 后面板 = %q, want %q", model.panel, panelGoal)
+	}
+	panel := model.renderPanel()
+	for _, want := range []string{"GOAL", "running", "2/6", "advisor-b", "advisory_pending", "verdict_done", "g-1"} {
+		if !strings.Contains(panel, want) {
+			t.Fatalf("目标面板缺少 %q：\n%s", want, panel)
+		}
+	}
+
+	// Esc 关闭：面板消失，会话区行数回到无面板时的水平。
+	model, _ = press(t, model, escKey())
+	if model.panel != panelNone || model.renderPanel() != "" {
+		t.Fatalf("Esc 未关闭面板: panel=%q", model.panel)
+	}
+}
+
+func TestGoalPanelWithoutActiveGoalPointsAtEntry(t *testing.T) {
+	app := newFakeApp()
+	model := NewModel(app)
+	model.showLogo = false
+	model.width = 80
+
+	model, _ = press(t, model, altRuneKey('g'))
+	panel := model.renderPanel()
+	if !strings.Contains(panel, "没有活跃 goal") || !strings.Contains(panel, "goal_begin") {
+		t.Fatalf("无活跃 goal 时面板未给出上线提示：\n%s", panel)
+	}
+}
+
+func TestTeamPanelFetchesServiceViewOnce(t *testing.T) {
+	base := newFakeApp()
+	base.snapshot = goalSnapshot()
+	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
+	model := NewModel(app)
+	model.showLogo = false
+	model.width, model.height = 120, 40
+
+	model, command := press(t, model, altRuneKey('t'))
+	if command == nil {
+		t.Fatal("团队面板必须经 tea.Cmd 异步读取（IO 不阻塞 Update）")
+	}
+	if !model.teamLoading {
+		t.Fatal("团队面板未标记加载态")
+	}
+	// 命令跑完（阻塞点在这里，不在 Update）。
+	updated, _ := model.Update(command())
+	model = updated.(Model)
+
+	if app.sessionID != "sess-main-1" {
+		t.Fatalf("团队读面的会话 = %q, want 主会话 ID", app.sessionID)
+	}
+	panel := model.renderPanel()
+	for _, want := range []string{"TEAM", "goal-a2a", "goal_loop", "tl", "readonly", "goal-a2a-tl", "下一个 tl", "轮次 2/6", "user 席位 queued"} {
+		if !strings.Contains(panel, want) {
+			t.Fatalf("团队面板缺少 %q：\n%s", want, panel)
+		}
+	}
+	if model.teamLoading || model.teamErr != "" {
+		t.Fatalf("团队面板加载态未收敛: loading=%v err=%q", model.teamLoading, model.teamErr)
+	}
+}
+
+func TestTeamPanelReportsMissingReaderAndUnconfiguredTeam(t *testing.T) {
+	// 1) 装配根没给团队读面（TUI/GUI 装配不同的宿主）。
+	app := newFakeApp()
+	model := NewModel(app)
+	model.showLogo = false
+	model.width = 90
+	model, command := press(t, model, altRuneKey('t'))
+	updated, _ := model.Update(command())
+	model = updated.(Model)
+	if !strings.Contains(model.renderPanel(), "没有团队读面") {
+		t.Fatalf("读面缺失时面板未提示：\n%s", model.renderPanel())
+	}
+
+	// 2) 读面在，但本会话还没装配团队（未配置）。
+	base := newFakeApp()
+	base.snapshot = goalSnapshot()
+	failing := &teamFakeApp{fakeApp: base, err: errors.New("团队存储未装配")}
+	model = NewModel(failing)
+	model.showLogo = false
+	model.width = 90
+	model, command = press(t, model, altRuneKey('t'))
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	if !strings.Contains(model.renderPanel(), "读取失败") {
+		t.Fatalf("读面报错时面板未提示：\n%s", model.renderPanel())
+	}
+
+	unconfigured := &teamFakeApp{fakeApp: base, view: dto.TeamView{SessionID: "sess-main-1"}}
+	model = NewModel(unconfigured)
+	model.showLogo = false
+	model.width = 90
+	model, command = press(t, model, altRuneKey('t'))
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	if !strings.Contains(model.renderPanel(), "未装配 AgentTeam") {
+		t.Fatalf("未配置团队时面板未提示：\n%s", model.renderPanel())
+	}
+}
+
+// TestPanelHeightMatchesRenderedLines：convHeight 用 panelHeight 扣高度，两者
+// 一旦不一致就会撑破 viewport（或留下空白行）。
+func TestPanelHeightMatchesRenderedLines(t *testing.T) {
+	base := newFakeApp()
+	base.snapshot = goalSnapshot()
+	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
+	model := NewModel(app)
+	model.showLogo = false
+	model.width, model.height = 120, 40
+	model.ready = true
+
+	model, _ = press(t, model, altRuneKey('g'))
+	if got, want := model.panelHeight(), strings.Count(model.renderPanel(), "\n")+1; got != want {
+		t.Fatalf("目标面板高度 = %d, 渲染行数 = %d", got, want)
+	}
+	before := model.convHeight()
+
+	model, command := press(t, model, altRuneKey('t'))
+	if got, want := model.panelHeight(), strings.Count(model.renderPanel(), "\n")+1; got != want {
+		t.Fatalf("加载态面板高度 = %d, 渲染行数 = %d", got, want)
+	}
+	updated, _ := model.Update(command())
+	model = updated.(Model)
+	if got, want := model.panelHeight(), strings.Count(model.renderPanel(), "\n")+1; got != want {
+		t.Fatalf("团队面板高度 = %d, 渲染行数 = %d", got, want)
+	}
+	// 对话区高度必须扣掉面板占用的行数。
+	if want := max(model.height-model.topPanelH()-model.planPanelH()-model.panelHeight()-model.midPanelH()-model.bottomPanelH(), 4); model.convHeight() != want {
+		t.Fatalf("convHeight = %d, want %d", model.convHeight(), want)
+	}
+	if model.convHeight() >= before {
+		t.Fatalf("面板打开后对话区没有变矮：before=%d after=%d", before, model.convHeight())
+	}
+}
+
+// TestPanelKeysDoNotHijackInteractionOrInput：待批选择优先；普通按键进入输入框
+// （面板不吞键）；面板键在任何时候都不提交输入。
+func TestPanelKeysDoNotHijackInteractionOrInput(t *testing.T) {
+	app := newFakeApp()
+	app.snapshot = goalSnapshot()
+	app.snapshot.Interaction = &application.Interaction{
+		ID:      "ix-1",
+		Title:   "需要批准",
+		Options: []application.InteractionOption{{Label: "允许"}, {Label: "拒绝"}},
+	}
+	model := NewModel(app)
+	model.showLogo = false
+	model.width = 90
+
+	model, _ = press(t, model, altRuneKey('g'))
+	if model.panel != panelNone {
+		t.Fatalf("有待批选择时仍打开了面板: %q", model.panel)
+	}
+	if !strings.Contains(model.uiError, "待批") {
+		t.Fatalf("未给出面板与选择互斥的提示: %q", model.uiError)
+	}
+
+	// 无选择时：普通字符进入输入框，Alt+G 打开面板，且不提交任何输入。
+	app2 := newFakeApp()
+	app2.snapshot = goalSnapshot()
+	model = NewModel(app2)
+	model.showLogo = false
+	model.width = 90
+	model, _ = press(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if app2.submitted != "" {
+		t.Fatalf("按键被误提交: %q", app2.submitted)
+	}
+	model, _ = press(t, model, altRuneKey('g'))
+	if model.panel != panelGoal {
+		t.Fatalf("Alt+G 未打开目标面板: %q", model.panel)
+	}
+	if app2.submitted != "" {
+		t.Fatalf("打开面板不该提交输入: %q", app2.submitted)
+	}
+}
+
+func TestStatusBarShowsGoalBadge(t *testing.T) {
+	app := newFakeApp()
+	app.snapshot = goalSnapshot()
+	model := NewModel(app)
+	model.showLogo = false
+	model.width = 120
+	if bar := model.renderStatusBar(); !strings.Contains(bar, "goal:2") {
+		t.Fatalf("状态行缺少 goal 轮次标记：%q", bar)
+	}
+
+	// 只有 skill 激活（治理未上线）时显示裸 badge。
+	app.snapshot.Runtime.GoalGovernance = nil
+	app.snapshot.Runtime.GoalSkillActive = true
+	model = NewModel(app)
+	model.showLogo = false
+	model.width = 120
+	if bar := model.renderStatusBar(); !strings.Contains(bar, "goal") {
+		t.Fatalf("状态行缺少 goal skill 标记：%q", bar)
+	}
+}
+
+// TestAltGAndAltTAreNotGlobalShortcutNoise：面板键在 running 回合里同样可用
+// （只读面不该被运行态挡住），且不影响 Ctrl+C 取消。
+func TestPanelShortcutAvailableWhileRunning(t *testing.T) {
+	app := newFakeApp()
+	app.snapshot = goalSnapshot()
+	app.snapshot.Chat.Running = true
+	app.snapshot.Chat.RequestID = "req-1"
+	model := NewModel(app)
+	model.showLogo = false
+	model.width = 100
+
+	model, _ = press(t, model, altRuneKey('g'))
+	if model.panel != panelGoal {
+		t.Fatalf("运行态下 Alt+G 未打开目标面板: %q", model.panel)
+	}
+	model, _ = press(t, model, escKey())
+	model, _ = press(t, model, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if app.cancelled != "req-1" {
+		t.Fatalf("Ctrl+C 取消失效: %q", app.cancelled)
+	}
+}

@@ -141,6 +141,51 @@ func schedulerSkipDir(name string) bool {
 }
 
 // schedulerRepoRoot 从包工作目录向上找到含 go.mod 的仓库根。
+// TestTurnSchedulerWiredStatusIsDocumentedInSources 钉住**源码面**的接线声明与事实
+// 一致。README 面已有同口径断言，但 2026-09-16 review 发现 scheduler.go 的文件头
+// 注释仍写着"本原语尚未接线、没有任何生产调用点"——只读一次注释的人（人或子代理）
+// 会据此把已接线的原语判成死代码，判据只查 README 时漏的正是这一类漂移。
+//
+// 两条断言：
+//  1. 包内生产源码不得再出现字面量"尚未接线"（旧结论的唯一措辞）；
+//  2. scheduler.go 必须点名它的生产调用点（runtime.go）与"接线状态"口径。
+func TestTurnSchedulerWiredStatusIsDocumentedInSources(t *testing.T) {
+	root := schedulerRepoRoot(t)
+	pkgDir := filepath.Join(root, "application", "core", "agentteam")
+	entries, err := os.ReadDir(pkgDir)
+	if err != nil {
+		t.Fatalf("读调度器包目录失败: %v", err)
+	}
+	schedulerText := ""
+	scanned := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(pkgDir, name))
+		if err != nil {
+			t.Fatalf("读 %s 失败: %v", name, err)
+		}
+		text := string(data)
+		scanned++
+		if strings.Contains(text, "尚未接线") {
+			t.Fatalf("%s 仍写着 TurnScheduler「尚未接线」的旧结论，与 runtime.go 的生产调用点矛盾", name)
+		}
+		if name == "scheduler.go" {
+			schedulerText = text
+		}
+	}
+	if scanned == 0 || schedulerText == "" {
+		t.Fatal("未扫描到调度器包的生产源码")
+	}
+	for _, want := range []string{"接线状态", "生产调用点", "runtime.go"} {
+		if !strings.Contains(schedulerText, want) {
+			t.Fatalf("scheduler.go 缺少接线声明 %q：生产调用点及其唯一性必须写在该文件头", want)
+		}
+	}
+}
+
 func schedulerRepoRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()

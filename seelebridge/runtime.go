@@ -359,6 +359,14 @@ func NewRuntime(cfg RuntimeConfig) (*Runtime, error) {
 			}
 			return false
 		},
+		// 员工工具面：主体类解析与权限门同源（同一份 PermissionConfig + 同一个
+		// 角色会话读面），只对 emp_ro / emp_rw 生效。这里传闭包而不是
+		// r.permission.ToolFaceForContext 的方法值：方法值会把接收者在装配时
+		// 定住，一旦装配顺序调整（permission 后置）就会静默失效；闭包每次调用
+		// 现取字段，且 ToolFaceForContext 自带 nil 防护。
+		ToolFace: func(ctx context.Context, toolName string) bool {
+			return r.permission.ToolFaceForContext(ctx, toolName)
+		},
 		PluginFilter: r.plugins.Filter,
 	})
 

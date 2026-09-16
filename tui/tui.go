@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
 type AppController interface {
@@ -72,6 +73,12 @@ type Model struct {
 	lastKeyTime    time.Time // 上次按键时间，用于检测粘贴爆发
 	queueFocus     bool      // 队列焦点：按键改走队列编辑（↑↓ 选择 / Shift+↑↓ 调换 / Alt+R 撤回）
 	queueSel       int       // 队列焦点下的选中行
+	// 只读面板（goalteam.go）：panel 是当前打开的面板，teamView 是异步取回的
+	// 团队视图（nil = 未取/取失败），teamLoading/teamErr 是其加载态。
+	panel       string
+	teamView    *dto.TeamView
+	teamLoading bool
+	teamErr     string
 }
 
 func NewModel(app AppController) Model {
@@ -142,6 +149,10 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.syncView()
 		}
 		return model, waitApplicationEvent(model.subscription)
+	case teamViewMsg:
+		model = model.applyTeamView(message)
+		model.syncView()
+		return model, waitApplicationEvent(model.subscription)
 	default:
 		return model, nil
 	}
@@ -167,6 +178,10 @@ func (model Model) windowed() bool {
 func (model Model) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if model.quitting {
 		return model, tea.Quit
+	}
+	// 只读面板的开关键先于运行态/审批态处理：它不改任何后端状态。
+	if handled, updated, command := model.handlePanelKey(message); handled {
+		return updated, command
 	}
 	if model.snapshot.Interaction != nil {
 		return model.handleInteractionKey(message)

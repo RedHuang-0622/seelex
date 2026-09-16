@@ -7,21 +7,31 @@ import (
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
-// PolicyDeps 是可见性策略的跨域闭包（goal skill 激活判定 + 插件过滤）。
+// PolicyDeps 是可见性策略的跨域闭包（goal skill 激活判定 + 插件过滤 + 员工工具面）。
 type PolicyDeps struct {
 	GoalSkillActive func() bool
 	// GoalActive 报告 goal 治理是否激活（goal skill 激活或有活跃 goal 治理）；
 	// 控制 goal 工具族对主代理的可见性（P1 门控）。
 	GoalActive   func() bool
 	PluginFilter func([]types.Tool) []types.Tool
+	// ToolFace 回答"本次调用的主体在该工具上有没有位"（员工工具面口径）：由
+	// seelebridge/tools 的 PermissionGate.ToolFaceForContext 提供——它按 ctx 解析
+	// 主体类（root / sub / emp_ro / emp_rw），只对员工收窄，root 与 sub 一律返回
+	// true。nil = 不做员工收窄（测试桩 / 未装配权责模型的宿主）。
+	ToolFace func(ctx context.Context, toolName string) bool
 }
 
 // Policy 是 bridge.WithVisibilityPolicy 要求的函数类型策略的实现：
 // 子代理（Plan kind:agent 节点）与主代理能力一致——完整工具面 + 插件
-// include/exclude 过滤同等生效。唯一例外是操作全局状态的工具（plan 工具族、
+// include/exclude 过滤同等生效。第一类例外是操作全局状态的工具（plan 工具族、
 // task 终态工具）——并发子代理调用会污染主代理的计划状态 / 错误终结任务。
 // Dispatch 侧由 agent/bridge.RegistryRuntime 复核同一策略，隐藏工具返回
 // ErrToolNotVisible。
+//
+// 第二类例外是**员工（角色会话）的主体工具面**：这类会话的主体不是 root 而是
+// dto.RoleSpec.ToolsPolicy 决定的 emp_ro / emp_rw，面上只出现它位上有的工具
+// （判据经 PolicyDeps.ToolFace 委托给权限门的 ToolFaceForContext，读的是同一份
+// PermissionConfig）。root / sub / 未登记会话不受影响。
 type Policy struct {
 	deps PolicyDeps
 }
@@ -56,6 +66,14 @@ func (p *Policy) Filter(ctx context.Context, tools []types.Tool) []types.Tool {
 		// 仅在 goal skill 激活时可见（模型自由层默认面 = todolist + fork，
 		// 不暴露 plan DAG；entry 节点同主代理语义，避免 DAG 内递归 plan）。
 		if scope.Role != model.RoleSubAgent && isPlanTool(name) && !p.goalSkillActive() {
+			continue
+		}
+		// 员工工具面（权责模型 P1）：角色会话里的成员按 ToolsPolicy 分档
+		// （readonly → emp_ro / readwrite → emp_rw），面上只出现它位上有的工具。
+		// 位缺不是"藏起来就完事"：调用侧仍有权限门的执行选择页面兜住提权，这里
+		// 只是不让员工看见自己没授权的工具（对齐断位不在 PATH 上的口径）。
+		// root / sub / 未登记会话由 ToolFace 一律返回 true，不新增限制。
+		if p.deps.ToolFace != nil && !p.deps.ToolFace(ctx, name) {
 			continue
 		}
 		filtered = append(filtered, tool)

@@ -13,6 +13,7 @@
 | `stream.go` | Application event 到 Tea message 的桥接。 |
 | `dialog.go` | Interaction/account/session 等选择面板。 |
 | `plan.go` | 按 Effort 和终端宽度渲染 Plan 生命周期。 |
+| `goalteam.go` | 目标治理（Alt+G）与 AgentTeam（Alt+T）的只读面板：投影 + 面板键 + 团队读面的异步取值。 |
 | `suggest_view.go` | `/`、`#`、`@` suggestions。 |
 | `state.go` / `types.go` | UI cell、message 和内部状态。 |
 | `styles.go` | Lipgloss 主题。 |
@@ -33,6 +34,14 @@ TUI local state 只包含光标、viewport、输入框、suggestion 和布局信
 ## 交互和关闭
 
 - Enter 提交原始输入。
+- 只读面板：`alt+g` 目标治理（数据源 = `Snapshot.Runtime.GoalGovernance`，与 GUI
+  「目标」面板同源投影，无活跃 goal 时给上线入口提示）、`alt+t` 团队（成员/发言
+  顺序/定时 agent/调度运行态，取值走一次 `tea.Cmd` 调
+  `AppController` 的可选团队读面 `AgentTeamView(mainSessionID)`——`*application.Service`
+  已实现，与 GUI 经 Bridge 读的是同一个方法；读面缺失或后端报错时面板给出明确
+  文案）。面板只读：不提交输入、不改后端状态、不新增只对终端生效的业务事实；
+  有待批选择时不打开（键义不打架）。`esc` 关闭，`alt+t` 在团队面板上再按 = 刷新。
+  `AppController` 主接口因此**不需要**新增方法：读面是可选接口，装配根不改也能跑。
 - 分页：`pgup`（viewport 到顶且还有更早历史时取更早一页）、`home` 同上；
   `end` 在窗口已锚定在更早历史（回看中）时回到最新一页
   （`LoadLatestHistory`）——后端分页在回看期间不再把窗口拽回尾部，这是

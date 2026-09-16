@@ -18,7 +18,7 @@ const shortcutsBarH = 1
 const awaitingApprovalStatus = "awaiting_approval"
 
 func (model Model) convHeight() int {
-	return max(model.height-model.topPanelH()-model.planPanelH()-model.midPanelH()-model.bottomPanelH(), 4)
+	return max(model.height-model.topPanelH()-model.planPanelH()-model.panelHeight()-model.midPanelH()-model.bottomPanelH(), 4)
 }
 func (model Model) topPanelH() int {
 	height := 2
@@ -63,6 +63,12 @@ func (model Model) View() string {
 		builder.WriteString("\n")
 	}
 	if panel := PlanPanel(model.snapshot.Runtime.Plan, model.snapshot.Runtime.Effort, model.width); panel != "" {
+		builder.WriteString(panel)
+		builder.WriteString("\n")
+	}
+	// 目标/团队只读面板（goalteam.go）：与 plan 面板同为对话区上方的上下文面板，
+	// 高度已由 panelHeight() 从 convHeight 里扣掉。
+	if panel := model.renderPanel(); panel != "" {
 		builder.WriteString(panel)
 		builder.WriteString("\n")
 	}
@@ -199,6 +205,9 @@ func (model Model) renderStatusBar() string {
 	if sessionID := model.snapshot.Session.ID; len(sessionID) > 8 {
 		parts = append(parts, sessionID[len(sessionID)-8:])
 	}
+	if badge := goalBadge(model.snapshot); badge != "" {
+		parts = append(parts, badge)
+	}
 	if pending := model.pendingApprovalCount(); pending > 0 {
 		parts = append(parts, fmt.Sprintf("待批:%d", pending))
 	}
@@ -279,9 +288,9 @@ func (model Model) renderInteraction() string {
 }
 
 func (model Model) renderShortcuts() string {
-	items := []string{"Ctrl+C copy", "Ctrl+V paste", "Alt+E effort", "Ctrl+Q quit", "drag select"}
+	items := []string{"Ctrl+C copy", "Ctrl+V paste", "Alt+E effort", "Alt+G goal", "Alt+T team", "Ctrl+Q quit", "drag select"}
 	if model.snapshot.Chat.Running {
-		items = []string{"Ctrl+C stop", "Alt+Q queue", "Alt+E effort", "Ctrl+Q quit"}
+		items = []string{"Ctrl+C stop", "Alt+Q queue", "Alt+E effort", "Alt+G goal", "Alt+T team", "Ctrl+Q quit"}
 	}
 	var builder strings.Builder
 	for index, item := range items {
