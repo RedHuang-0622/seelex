@@ -172,6 +172,11 @@ type Runtime struct {
 
 	permission *seeltools.PermissionGate
 
+	// 角色回合执行面（runtime_role_turn.go）：角色会话 → 引擎槽。与主会话 bundles
+	// 分离——角色回合是派生的、可丢弃的执行面，不该进活跃会话/持久化路由。
+	roleTurnsMu sync.Mutex
+	roleTurns   *roleTurnState
+
 	// 上下文控制接线（seelebridge/context_components.go）：
 	// 窗口策略（RuntimeConfig.WindowConfig 构造）、会话上下文存储与
 	// ProjectKnowledge 提供者为可选注入（会话恢复流程就绪后 Attach）。
@@ -626,6 +631,8 @@ func (r *Runtime) Shutdown() {
 	}
 	r.shutdownOnce.Do(func() {
 		r.stopLiveDispatcher()
+		// 角色回合执行面是派生状态（引擎 + 内存历史）：重建即正确，收尾时释放。
+		r.ReleaseRoleSessions()
 		// 逆装配序统一关停（NewRuntime 登记）；幂等由本守卫保证。
 		for index := len(r.lifecycle) - 1; index >= 0; index-- {
 			if r.lifecycle[index] != nil {

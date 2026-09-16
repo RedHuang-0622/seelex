@@ -106,6 +106,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		TLRecorderFor:  service.goalTLRecorderFor,
 		TeamRuntimeFor: service.teamRuntimeBySession,
 		RoleSeatsFor:   service.teamRoleSeatsFor,
+		// 员工执行面：装配了 contract.RoleTurnPort 才有（见 role_turn.go）。
+		// 未装配 → nil → agent 角色不占治理座位（试水形态，不假装有人干活）。
+		RoleTurnFor: service.roleTurnRunnerFor,
 	})
 	service.components.prompts = prompt_layer.NewCoordinator(prompt_layer.Deps{
 		Core:          kernel,
