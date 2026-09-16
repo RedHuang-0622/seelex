@@ -68,7 +68,7 @@ limits:
     # queue_persist_pending: true               # 待发送队列落盘恢复
     # 数据根独占锁（§9）
     # lock_stale_after_seconds: 300             # 心跳超龄即判陈旧
-    # lock_auto_recover: false                  # 陈旧锁默认只报错不接管
+    lock_auto_recover: true                    # 陈旧锁自动接管（仅当持有者进程已消失/心跳超时）
     # 超大工具输出 blob（§2.6）
     # big_tool_result_soft_limit_chars: 60000   # 软限截断后归档
     # big_tool_result_hard_limit_bytes: 16777216 # 硬限直接报错

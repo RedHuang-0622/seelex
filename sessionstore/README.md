@@ -243,9 +243,19 @@ verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实
 - 作废点：删除会话、fork 覆盖子目录后必须 `dropSessionCaches`（快照与本进程
   写者同源，目录不在了就作废）。单数据根 = 单进程写者（§9）是该内存快照
   成立的前提：JSON 数据根在打开时抢 `<root>/lock.owner`（同进程引用计数
-  共享；跨进程存活锁立即报错，陈旧锁默认拒绝、`auto_recover=true` 才接管，
-  心跳按 `lock.stale_after_seconds/3` 续约），`jsonRepository.Close` 归还
+  共享；**跨进程存活锁一律立即报错**，绝不接管；心跳按
+  `lock.stale_after_seconds/3` 续约），`jsonRepository.Close` 归还
   （契约测试见 `data_root_lock_test.go`）。
+
+  **崩溃残留锁的默认口径（2026-09-17 起）**：默认配置写死
+  `lock_auto_recover: true`——持有者进程消失且心跳超过
+  `lock.stale_after_seconds`（默认 300）后，下一次 `Open` 直接接管陈旧锁，
+  而不是报错拒绝启动。安全前提不变：接管只在**两条陈旧判据同时成立**时发生，
+  所以"另一个还活着的 seelex 正在写同一数据根"永远不会被抢锁（这是单写者
+  不变量）；`lock_auto_recover: false` 仍可显式恢复"只报错不接管"的保守口径。
+  Windows 上 `os.FindProcess` 对已退出 pid 仍可能报存活，所以崩溃残留锁的
+  识别下限受心跳超时约束（最坏约 100s 心跳周期 + 超时判定），期间的报错是
+  `ErrDataRootLocked` 而不是 `ErrDataRootStaleLock`。
 
 ## 结构性 EVENT 通道（v8 §7 / 附录 A）
 

@@ -126,6 +126,29 @@ for this stabilization batch.
 
 ### Fixed
 
+- **A crashed dev GUI no longer blocks the next launch.** The JSON data root takes
+  a single-writer lock (`<root>/lock.owner`); a clean exit releases it
+  (`jsonRepository.Close` → `releaseDataRootLock`), but a crash or force-kill
+  leaves the file behind. With the previous default (`lock_auto_recover` unset =
+  `false`) the next `Open` treated that residue as a refusal to start and exited
+  with `session storage: stale data root lock found (set
+  session_storage.lock.auto_recover=true to take over)` — the user-visible effect
+  was "the GUI won't open again until someone deletes the lock file".
+  `config/seelex.yaml` now sets `lock_auto_recover: true` (with `config/seelex.yaml`
+  kept in sync in the dev baseline), so a lock whose owner process is gone and
+  whose heartbeat is older than `lock.stale_after_seconds` (default 300) is taken
+  over on the next start. The single-writer invariant is unchanged: takeover still
+  requires **both** staleness conditions, so a live process holding the same data
+  root continues to get an immediate error. Evidence:
+  `sessionstore/data_root_lock_test.go:TestJSONDataRootCrashedGUIResidualLockRecovered`
+  (reproduces the residue → refuses under the conservative setting → takes over
+  under the new one → releases on clean close), with the counterpart
+  `TestJSONDataRootLockForeignProcessRejected` pinning the live-holder refusal.
+  Known limit (unchanged by this fix): on Windows `os.FindProcess` can still report
+  a dead pid as alive, so stale residue is recognised only once the heartbeat
+  timeout has passed; during that window the error surfaces as
+  `ErrDataRootLocked` rather than `ErrDataRootStaleLock`.
+
 - **A malformed ADVISOR verdict is no longer reported as "b absent (429/timeout)",
   and the verdict text is read leniently.** The 2026-09-16 GUI smoke run (a fresh
   `dist/stage-gui` build, goal `g-1`) shows the goal loop classifying a
