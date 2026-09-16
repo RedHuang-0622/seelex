@@ -855,9 +855,13 @@ export function normalizeRoleSession(snapshot) {
     roleSessionID: typeof source.role_session_id === "string" ? source.role_session_id : "",
     root: typeof source.root === "string" ? source.root : "",
     joinSeqID: Number.isFinite(source.join_seq_id) ? source.join_seq_id : 0,
+    prefixCutSeq: Number.isFinite(source.prefix_cut_seq) ? source.prefix_cut_seq : 0,
     orderPolicy: typeof source.order_policy === "string" ? source.order_policy : "",
     orderRoles: Array.isArray(source.order_roles) ? source.order_roles.filter(name => typeof name === "string" && name) : [],
     floorRole: typeof floor.role_name === "string" ? floor.role_name : "",
+    mainRows: normalizeRoleRows(source.main_rows),
+    visibleMainRows: Number.isInteger(source.visible_main_rows) ? source.visible_main_rows : 0,
+    outsidePrefixMainRows: Number.isInteger(source.outside_prefix_main_rows) ? source.outside_prefix_main_rows : 0,
     roleRows: normalizeRoleRows(source.role_rows),
     draftRows: normalizeRoleRows(draftRows),
     unassignedRoleRows: Number.isInteger(source.unassigned_role_rows) ? source.unassigned_role_rows : 0,
@@ -881,7 +885,8 @@ export function renderRoleSessionDetail(snapshot) {
     <div class="role-session-meta muted">
       main ${escapeHtml(shortID(view.mainSessionID) || "—")} · join_seq ${view.joinSeqID} · policy ${escapeHtml(view.orderPolicy || "—")}${view.orderRoles.length ? ` · order ${escapeHtml(view.orderRoles.join(" → "))}` : ""}
     </div>`;
-  if (!rows.length) {
+  const record = renderRoleRecordTable(snapshot);
+  if (!rows.length && !record) {
     return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}
       <div class="role-session-empty muted">该角色还没有独立会话行（未发言或尚未同步）。</div></div>`;
   }
@@ -891,7 +896,67 @@ export function renderRoleSessionDetail(snapshot) {
       ${row.content ? `<div class="role-session-text">${escapeHtml(row.content)}</div>` : ""}
       ${row.toolCalls.map(call => `<div class="role-session-tool muted">tool ${escapeHtml(call.name || "?")} ${escapeHtml(call.arguments || "")}</div>`).join("")}
     </article>`).join("");
-  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}<div class="role-session-rows">${body}</div></div>`;
+  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}${record}<div class="role-session-rows">${body}</div></div>`;
+}
+
+// renderRoleRecordTable 用**一张专用表格**表达该 teammate 自己那份 team work 记录：
+// 一行一条车道（main 车道 / 它自己），一列一个回合（seq）。
+//
+//   main 车道 = 主会话自己的回合（整段）；
+//   自身车道 = 它入伙之后的共享回合（seq > prefix_cut_seq，标成 is-shared）
+//              + 它自己的行与未同步 draft（标成 is-own）；
+//              入伙之前（或已被压缩掉）的列渲染成占位 —（is-outside），
+//              **不冒充它记得的上下文**。
+//
+// 切点来自后端只读投影（prefix_cut_seq，判据与角色 wire 装配一致：join_seq_id，
+// compact 后取更大的 applied_seq；main 复用主会话本身、切点恒为 0）。前端只渲染，
+// 没有任何回写口——把渲染结果推回去会让后端真值变成前端派生物。
+export function renderRoleRecordTable(snapshot) {
+  const view = normalizeRoleSession(snapshot);
+  const ownRows = view.roleRows.concat(view.draftRows);
+  if (!view.mainRows.length && !ownRows.length) return "";
+  const display = roleDisplayName(view.roleName);
+  const cut = view.prefixCutSeq;
+  const mainBySeq = new Map(view.mainRows.map(row => [seqOf(row), row]));
+  const ownBySeq = new Map(ownRows.map(row => [seqOf(row), row]));
+  const seqs = [...new Set([...mainBySeq.keys(), ...ownBySeq.keys()])].sort((a, b) => a - b);
+  const head = seqs.map(seq => `<th>${seq}</th>`).join("");
+  const mainCells = seqs.map(seq => mainBySeq.has(seq)
+    ? `<td class="role-record-cell is-main" data-seq="${seq}" title="主会话自己的回合">${escapeHtml(recordCellText(mainBySeq.get(seq)))}</td>`
+    : `<td class="role-record-cell is-empty" data-seq="${seq}">·</td>`).join("");
+  const ownCells = seqs.map(seq => {
+    if (ownBySeq.has(seq)) {
+      return `<td class="role-record-cell is-own" data-seq="${seq}" title="${escapeHtml(display)} 自己的回合">${escapeHtml(recordCellText(ownBySeq.get(seq)))}</td>`;
+    }
+    if (!mainBySeq.has(seq)) return `<td class="role-record-cell is-empty" data-seq="${seq}">·</td>`;
+    if (cut > 0 && seq <= cut) {
+      return `<td class="role-record-cell is-outside" data-seq="${seq}" title="不在 ${escapeHtml(display)} 的前缀匹配区间">—</td>`;
+    }
+    return `<td class="role-record-cell is-shared" data-seq="${seq}" title="共享上下文（它能看到的 main 回合）">${escapeHtml(recordCellText(mainBySeq.get(seq)))}</td>`;
+  }).join("");
+  const legend = cut > 0
+    ? `前缀匹配自 seq ${cut + 1} 起：更早的 ${view.outsidePrefixMainRows} 行不在它的记录里（占位 —）`
+    : "该会话整段都在它的记录里";
+  return `<div class="role-record" data-record-cut="${cut}" data-record-outside="${view.outsidePrefixMainRows}" data-record-visible="${view.visibleMainRows}" data-record-own="${ownRows.length}">
+      <div class="role-record-legend muted">${escapeHtml(legend)}</div>
+      <table class="excel-grid role-record-table" data-role-record-table>
+        <thead><tr class="excel-head-row"><th class="role-record-lane-head">车道</th>${head}</tr></thead>
+        <tbody>
+          <tr class="role-record-lane is-main" data-lane="main"><th class="role-record-lane-name">main</th>${mainCells}</tr>
+          <tr class="role-record-lane is-own" data-lane="${escapeHtml(view.roleName)}"><th class="role-record-lane-name" title="${escapeHtml(display)}">${escapeHtml(view.roleName || display)}</th>${ownCells}</tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function seqOf(row) {
+  const value = Number(row?.seq);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function recordCellText(row) {
+  const value = String(row?.content || row?.reasoning || "").replace(/\s+/g, " ").trim();
+  return value.length <= 60 ? value : `${value.slice(0, 60)}…`;
 }
 
 // scheduledBlock 是 Team 栏里的定时 agent 表：定时 agent 永不进 order_roles

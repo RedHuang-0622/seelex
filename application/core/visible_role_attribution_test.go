@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 	"github.com/RedHuang-0622/seelex/session"
 )
 
@@ -74,13 +75,15 @@ func TestVisibleConversationCarriesRoleAttribution(t *testing.T) {
 func TestTeamDirectiveReplayCarriesAdvisorIdentity(t *testing.T) {
 	service := newTestService(t, &fakeEngine{})
 	const sessionID = "session-team"
-	const directive = "[TL 指令 tl-1] 先补负路径单测再收口"
+	const directive = "先补负路径单测再收口"
 
-	service.components.goal.NoteInjected(sessionID, []string{directive})
+	service.components.goal.NoteInjected(sessionID, []goaldomain.TLDirective{
+		{Kind: goaldomain.DirectiveCorrect, Corr: "tl-1", Content: directive},
+	})
 	service.injectGoalDirectivesFor(sessionID)
 
 	replay := visibleMessage(t, visibleConversationFor(service, sessionID), func(message Message) bool {
-		return strings.Contains(message.Content, "先补负路径单测再收口")
+		return strings.Contains(message.Content, directive)
 	})
 	if replay.Role != "assistant" {
 		t.Errorf("TL 指令回放 role = %q, want %q（system 行在聊天区渲染成「系统」，不是 ADVISOR）",
@@ -88,6 +91,11 @@ func TestTeamDirectiveReplayCarriesAdvisorIdentity(t *testing.T) {
 	}
 	if replay.RoleName != "tl" {
 		t.Errorf("TL 指令回放 role_name = %q, want %q", replay.RoleName, "tl")
+	}
+	// kind 是"这条行是裁决"的机器可读标识（轨迹区分类与探针取行都靠它，
+	// 不靠正文措辞）。
+	if replay.Kind != goaldomain.DirectiveRowKind {
+		t.Errorf("TL 指令回放 kind = %q, want %q", replay.Kind, goaldomain.DirectiveRowKind)
 	}
 }
 

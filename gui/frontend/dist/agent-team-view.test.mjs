@@ -297,6 +297,58 @@ test("role session detail escapes content and tolerates an empty session", () =>
   assert.match(empty, /还没有独立会话行/);
 });
 
+test("role record table lanes mark main turns outside the teammate prefix match", () => {
+  const html = renderRoleSessionDetail({
+    role_name: "tl",
+    prefix_cut_seq: 5,
+    visible_main_rows: 2,
+    outside_prefix_main_rows: 5,
+    main_rows: [
+      { seq: 1, role: "assistant", content: "goal 之前 1" },
+      { seq: 5, role: "assistant", content: "goal 之前 5" },
+      { seq: 6, role: "assistant", content: "goal 这一回合" },
+      { seq: 7, role: "assistant", content: "exec 这一回合" }
+    ],
+    role_rows: [{ seq: 8, role: "assistant", content: "tl 这一回合" }]
+  });
+  assert.match(html, /<table class="excel-grid role-record-table" data-role-record-table>/);
+  assert.match(html, /role-record-lane-head">车道</);
+  assert.match(html, /data-record-cut="5"/);
+  assert.match(html, /data-record-outside="5"/);
+  assert.match(html, /data-record-visible="2"/);
+  // 两条车道各一行，列头 = 回合号
+  assert.match(html, /<tr class="role-record-lane is-main" data-lane="main">/);
+  assert.match(html, /<tr class="role-record-lane is-own" data-lane="tl">/);
+  assert.match(html, /<th>8<\/th>/);
+  // 入伙前的两个回合在它那一行只是占位，不冒充它记得的上下文
+  assert.match(html, /class="role-record-cell is-outside" data-seq="1"/);
+  assert.match(html, /class="role-record-cell is-outside" data-seq="5"/);
+  // 占位、不冒充：它那一行的这两列只显示 —（主会话自己那一行仍显示自己的回合）
+  assert.doesNotMatch(html, /class="role-record-cell is-shared" data-seq="(?:1|5)"/);
+  // 入伙后的共享回合 + 它自己的回合都在
+  assert.match(html, /class="role-record-cell is-shared" data-seq="6"[^>]*>goal 这一回合</);
+  assert.match(html, /class="role-record-cell is-shared" data-seq="7"[^>]*>exec 这一回合</);
+  assert.match(html, /class="role-record-cell is-own" data-seq="8"[^>]*>tl 这一回合</);
+  assert.match(html, /前缀匹配自 seq 6 起/);
+});
+
+test("main role record table carries the whole session without placeholders", () => {
+  const html = renderRoleSessionDetail({
+    role_name: "main",
+    prefix_cut_seq: 0,
+    visible_main_rows: 2,
+    outside_prefix_main_rows: 0,
+    main_rows: [
+      { seq: 1, role: "user", content: "起点这一句" },
+      { seq: 2, role: "assistant", content: "当前位置这一句" }
+    ]
+  });
+  assert.doesNotMatch(html, /is-outside/);
+  assert.match(html, /该会话整段都在它的记录里/);
+  assert.match(html, /class="role-record-cell is-main" data-seq="1"[^>]*>起点这一句</);
+  assert.match(html, /class="role-record-cell is-main" data-seq="2"[^>]*>当前位置这一句</);
+});
+
 test("role names, notices and prompts are escaped, never interpolated raw", () => {
   const html = renderAgentTeam({
     configured: true,

@@ -1135,10 +1135,17 @@ func TestEmbeddedFrontendExists(t *testing.T) {
 		!strings.Contains(string(script), "onDiag: stats => liveDiag.update(stats)") {
 		t.Fatal("GUI must wire the live freshness diagnostic badge (event/refresh/gap/buffer counters)")
 	}
+	// 档位控件的读面已抽到 ./permission-tier.js（纯函数，可由 node --test 直接钉住），
+	// 因此这里既查 app.js 的接线（import + 提交路径），也查该模块的权威读面。
+	tierModule, err := embeddedFrontend.ReadFile("frontend/dist/permission-tier.js")
+	if err != nil {
+		t.Fatalf("embedded frontend permission-tier.js: %v", err)
+	}
 	if strings.Contains(string(script), "let fullAccessOn") ||
 		!strings.Contains(string(script), `invoke("SetPermissionTier"`) ||
-		!strings.Contains(string(script), `runtime.permission_tier`) ||
-		!strings.Contains(string(script), `Boolean(runtime.full_access)`) {
+		!strings.Contains(string(script), `from "./permission-tier.js"`) ||
+		!strings.Contains(string(tierModule), `runtime?.permission_tier`) ||
+		!strings.Contains(string(tierModule), `Boolean(runtime?.full_access)`) {
 		t.Fatal("权限档位控件必须走后端权威快照（permission_tier/permission_tiers）与 SetPermissionTier")
 	}
 	if !strings.Contains(string(script), `from "./perf-hooks.js"`) || !strings.Contains(string(script), `createPerfHooks`) || !strings.Contains(string(script), `invoke("PerfStats")`) || !strings.Contains(string(script), `invoke("ToolResultContent"`) {

@@ -5,6 +5,7 @@ import { createConversationView } from "./conversation-view.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
 import { createEffortControl } from "./effort-control.js";
+import { permissionTierCatalog, permissionTierChip, permissionTierChipForRuntime, permissionTierMenuItems, permissionTierOptions, nextTierIndex } from "./permission-tier.js";
 import {
   planToDSL, renderNodeDetail, setNodeDetailConversation, bindNodeDetailTabs, subagentTreeNodeToDSL, workItemToDetailNode
 } from "./plan-dsl.js";
@@ -13,6 +14,7 @@ import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
 import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
+import { renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
 import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamMemberNames } from "./agent-team-view.js";
@@ -62,7 +64,7 @@ const elements = Object.fromEntries([
   "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
-  "load-history", "latest-history", "interaction-modal", "perm-toggle", "interaction-risk", "interaction-title", "permission-tier-list",
+  "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
   "new-session-modal", "new-session-close", "new-session-task", "new-session-workspace", "new-session-back", "new-session-workspace-list", "new-session-pick-folder", "new-session-step-1", "new-session-step-2",
   "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
@@ -1389,39 +1391,49 @@ function renderRuntime(runtime) {
   effortControl.setLevel(runtime.effort);
 }
 
-// permissionTierCatalog 取后端下发的档位目录（进程级只读原件，避免前后端各写
-// 一套档位名漂移）。缺目录时返回空数组，芯片退化成"只有当前档"。
-function permissionTierCatalog(runtime) {
-  const tiers = Array.isArray(runtime.permission_tiers) ? runtime.permission_tiers : [];
-  return tiers.filter(tier => tier && tier.id);
-}
-
-// currentPermissionTier 解析本会话生效档位（permission_tier 为准；缺失时按旧的
-// 二元 full_access 回退，保兼容）。返回目录项（缺失时合成一条）。
-function currentPermissionTier(runtime) {
-  const catalog = permissionTierCatalog(runtime);
-  const id = runtime.permission_tier || (Boolean(runtime.full_access) ? "full" : "manual");
-  const found = catalog.find(tier => tier.id === id);
-  return found || { id, label: id, short: id, description: "" };
-}
-
-// renderPermissionTier 渲染权限档：composer 芯片只显示当前档短名（全权档保留 ✓，
-// 也是打开运行状态的入口），权威选择入口是运行状态弹窗里的档位列表（本会话粒度）。
+// permissionTierCatalog / currentPermissionTier 已抽到 ./permission-tier.js（纯函数，
+// 由 node --test 直接钉住）。这里只做 DOM 写入。
+//
+// renderPermissionTier 渲染权限档：composer 芯片显示当前档短名（全权档保留 ✓），
+// **芯片本身就是切换入口**——点它就地展开下拉（见下方 togglePermissionMenu），
+// 一步切档；运行状态弹窗里的档位列表仍在，两处同源（permissionTierMenuItems），
+// 所以不会出现"下拉一份、弹窗一份"的漂移。
 function renderPermissionTier(runtime) {
-  const tier = currentPermissionTier(runtime);
+  const chipModel = permissionTierChipForRuntime(runtime);
   const chip = elements["perm-toggle"];
   if (chip) {
-    chip.dataset.tier = tier.id;
-    chip.classList.toggle("is-on", tier.id === "full");
-    const short = escapeHtml(tier.short || tier.label || tier.id);
-    chip.innerHTML = tier.id === "full" ? `${short} ${icon("check", 12)}` : short;
+    chip.dataset.tier = chipModel.id;
+    chip.classList.toggle("is-on", chipModel.isFull);
+    chip.innerHTML = permissionChipInner(chipModel);
   }
+  renderPermissionMenu(runtime);
   const host = elements["permission-tier-list"];
   if (!host) return;
-  host.innerHTML = permissionTierCatalog(runtime).map(item => `
-    <button type="button" class="tier-option ${item.id === tier.id ? "is-active" : ""}" data-tier="${escapeHtml(item.id)}" role="radio" aria-checked="${item.id === tier.id}">
-      <span class="tier-option-label">${escapeHtml(item.label || item.id)}</span>
-      <span class="tier-option-desc">${escapeHtml(item.description || "")}</span>
+  host.innerHTML = permissionTierOptions(runtime).map(item => `
+    <button type="button" class="tier-option ${item.active ? "is-active" : ""}" data-tier="${escapeHtml(item.id)}" role="radio" aria-checked="${item.active}">
+      <span class="tier-option-label">${escapeHtml(item.label)}</span>
+      <span class="tier-option-desc">${escapeHtml(item.description)}</span>
+    </button>`).join("");
+}
+
+// permissionChipInner 是芯片内容：当前档短名（全权档缀 ✓）+ 下拉箭头（可点开）。
+function permissionChipInner(model) {
+  const short = escapeHtml(model.short);
+  const check = model.isFull ? ` ${icon("check", 12)}` : "";
+  return `${short}${check} <span class="perm-caret" aria-hidden="true">▾</span>`;
+}
+
+// renderPermissionMenu 把档位条目写进芯片下拉。模型来自纯函数 permissionTierMenuItems
+// （后端目录 + 本会话生效档），这里只做 DOM 写入与转义；条目的选中态由后端真值决定，
+// 前端不自己记一份"我以为选了什么"。
+function renderPermissionMenu(runtime) {
+  const menu = elements["perm-menu"];
+  if (!menu) return;
+  menu.innerHTML = permissionTierMenuItems(runtime).map(item => `
+    <button type="button" class="perm-menu-item ${item.active ? "is-active" : ""}" data-tier="${escapeHtml(item.id)}" role="menuitemradio" aria-checked="${item.active}" title="${escapeHtml(item.description)}">
+      <span class="perm-menu-label">${escapeHtml(item.label)}</span>
+      <span class="perm-menu-mark">${item.active ? icon("check", 12) : ""}</span>
+      <span class="perm-menu-desc">${escapeHtml(item.description)}</span>
     </button>`).join("");
 }
 
@@ -1555,6 +1567,8 @@ function renderGoal(snapshot) {
     stopGoalStallMonitor(view);
     return;
   }
+  // 活动栈分块：会话里嵌套压栈时，栈下目标也要能逐帧查看（不只是栈顶一帧）。
+  const stackLine = governance ? renderGoalStack(governance.stack) : "";
   view.classList.remove("muted");
   const governanceLine = governance ? renderGoalGovernance(governance) : "";
   const goalLine = goalText
@@ -1566,7 +1580,7 @@ function renderGoal(snapshot) {
   const chips = activeSkills.length
     ? `<div class="goal-skills">${activeSkills.map(skill => `<span class="chip">#${escapeHtml(skill)}</span>`).join("")}</div>`
     : "";
-  view.innerHTML = `${goalLine}${taskLine}${governanceLine}${chips}`;
+  view.innerHTML = `${stackLine}${goalLine}${taskLine}${governanceLine}${chips}`;
   if (governance) {
     startGoalStallMonitor(view, governance);
   } else {
@@ -1588,6 +1602,8 @@ function renderGoalGovernance(governance) {
   const broken = governance.broken
     ? `<div class="goal-gov-broken">断环: ${escapeHtml(governance.break_reason || "已收束")}</div>`
     : "";
+  // 进行中的 ADVISOR 正文（只读快照）：评审期间有，回合结束即清空。
+  const inFlight = renderGoalInFlight(governance);
   const meta = [
     `<span class="goal-gov-status">${status}</span>`,
     `Round ${round}`,
@@ -1595,7 +1611,26 @@ function renderGoalGovernance(governance) {
     peer ? `peer ${peer}` : "",
     `<span id="goal-stall" data-heartbeat-seq="${Number(governance.heartbeat_seq || 0)}" data-heartbeat-at="${Number(governance.heartbeat_at || 0)}"></span>`
   ].filter(Boolean).join(" · ");
-  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${directive}${broken}</div>`;
+  return `<div class="goal-governance"><div class="goal-gov-meta">${meta}</div>${inFlight}${directive}${broken}</div>`;
+}
+
+// refreshGoalInFlight 在 ADVISOR 回合进行中按节拍补一次只读快照：治理回合是
+// **同步**跑完的（后端在回合结束才推一次状态），所以进行中正文必须靠轮询快照
+// 才能及时渲染出来。只在 peer=evaluating 或已有进行中正文时拉取，避免平时空转。
+//
+// 方向性（重要）：只 invoke("Snapshot") 读，绝不回写——后端持有 goal 状态与
+// team work 前缀的唯一真值，前端渲染结果不回传（否则前缀会与后端帧账本分叉）。
+async function refreshGoalInFlight(view, governance) {
+  if (!view || !view.isConnected) return;
+  const peer = String(governance?.peer_state || "");
+  const hasInFlight = Boolean(governance?.in_flight) || Number(governance?.in_flight_chars || 0) > 0;
+  if (!hasInFlight && peer !== "evaluating") return;
+  try {
+    const snapshot = await invoke("Snapshot");
+    renderGoal(snapshot);
+  } catch {
+    // 拉取失败只放弃这一次补渲染：下一次 tick 会重试，不动已有面板内容。
+  }
 }
 
 // startGoalStallMonitor 心跳停滞提示（前端只读展示）：治理推进会带来单调
@@ -1612,6 +1647,9 @@ function startGoalStallMonitor(view, governance) {
     const stalled = now > deadline;
     stall.textContent = stalled ? "governance stalled" : `心跳 #${Number(governance.heartbeat_seq || 0)}`;
     stall.classList.toggle("goal-gov-stalled", stalled);
+    // 评审进行中：同一节拍补一次只读快照，把"评审在写什么"及时渲染出来。
+    // 每次渲染都会重建本定时器，因此闭包里的 governance 始终是最新一份。
+    void refreshGoalInFlight(view, governance);
   };
   tick();
   view.__goalStallTimer = setInterval(tick, 1000);
@@ -3291,6 +3329,7 @@ document.addEventListener("keydown", event => {
     openCommandPalette("/");
   }
   if (event.key === "Escape") {
+    closePermissionMenu();
     closeRuntime();
     closeCommandPalette();
     closeSettings();
@@ -3302,26 +3341,77 @@ document.addEventListener("keydown", event => {
   }
 });
 
-// 权限档 chip：点击打开运行状态（档位列表是权威入口；档位是**主 agent 在本会话**
-// 的粒度，chip 只做当前档指示 + 入口）。
-elements["perm-toggle"].addEventListener("click", function() {
-  openRuntime();
+// 权限档 chip：点击**就地展开下拉**切换档位（档位是**主 agent 在本会话**的粒度）。
+// 一步到位，不用先打开运行状态弹窗、再在大面板里找档位——切档不该是一次"进入配置页"。
+elements["perm-toggle"].addEventListener("click", function(event) {
+  event.stopPropagation();
+  togglePermissionMenu();
 });
 
-// 档位列表：点击提交 SetPermissionTier，按后端返回的**真正生效档位**渲染，再拉整份
-// 快照（档位是会话级投影，切会话即换）。
-elements["permission-tier-list"].addEventListener("click", async function(event) {
+// 下拉条目：点一条即提交（同 applyPermissionTier 单一路径，与运行状态里的列表共用）。
+elements["perm-menu"].addEventListener("click", async function(event) {
   const button = event.target.closest("[data-tier]");
   if (!button || button.classList.contains("is-active")) return;
-  const tier = button.dataset.tier;
+  await applyPermissionTier(button.dataset.tier);
+});
+
+// 下拉键盘：↑/↓ 在档位间循环（nextTierIndex 纯函数），Enter/空格提交。
+elements["perm-menu"].addEventListener("keydown", async function(event) {
+  if (!["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) return;
+  const items = Array.from(this.querySelectorAll(".perm-menu-item"));
+  if (!items.length) return;
+  event.preventDefault();
+  const current = items.indexOf(document.activeElement);
+  if (event.key === "Enter" || event.key === " ") {
+    const target = current >= 0 ? items[current] : null;
+    if (target) await applyPermissionTier(target.dataset.tier);
+    return;
+  }
+  items[nextTierIndex(items.length, current, event.key === "ArrowDown" ? 1 : -1)]?.focus?.();
+});
+
+// 点浮层外部收下拉（与运行状态/命令面板同一"点外面就收"语义）。
+document.addEventListener("click", event => {
+  if (!event.target.closest?.("[data-perm-picker]")) closePermissionMenu();
+});
+
+// togglePermissionMenu 只做显隐与无障碍态；条目内容永远由后端投影重绘（renderPermissionMenu），
+// 所以打开时不需要再拉一次数据，也不会出现"前端记的选中态"。
+function togglePermissionMenu(force) {
+  const menu = elements["perm-menu"];
+  const chip = elements["perm-toggle"];
+  if (!menu || !chip) return;
+  const open = typeof force === "boolean" ? force : menu.hidden;
+  menu.hidden = !open;
+  chip.setAttribute("aria-expanded", open ? "true" : "false");
+  chip.classList.toggle("is-open", open);
+  if (open) menu.querySelector(".perm-menu-item:not(.is-active)")?.focus?.();
+}
+
+function closePermissionMenu() {
+  togglePermissionMenu(false);
+}
+
+// applyPermissionTier 是唯一的切档路径（下拉与运行状态列表共用）：
+// 按 Bridge 返回的**真正生效档位**渲染芯片，再拉整份快照（档位是会话级投影，切会话即换）。
+async function applyPermissionTier(tier) {
+  if (!tier) return;
   try {
     // Bridge 返回真正生效的档位：避免快照滞后造成"点了没生效"的滞后观感。
     const effective = await invoke("SetPermissionTier", tier);
     renderPermissionChip(effective);
+    closePermissionMenu();
     await refresh({ scroll: false });
   } catch (error) {
     showToast(error);
   }
+}
+
+// 档位列表（运行状态弹窗）：与下拉同一条提交路径。
+elements["permission-tier-list"].addEventListener("click", async function(event) {
+  const button = event.target.closest("[data-tier]");
+  if (!button || button.classList.contains("is-active")) return;
+  await applyPermissionTier(button.dataset.tier);
 });
 
 // renderPermissionChip 只改芯片本身（乐观回执），完整运行时投影仍随后端快照刷新。
@@ -3329,11 +3419,10 @@ function renderPermissionChip(tier) {
   const chip = elements["perm-toggle"];
   if (!chip) return;
   const id = typeof tier === "string" && tier ? tier : String(tier?.id || "");
-  const entry = permissionTierCatalog(client.current()?.runtime || {}).find(item => item.id === id);
-  chip.dataset.tier = id;
-  chip.classList.toggle("is-on", id === "full");
-  const short = escapeHtml(entry?.short || (id === "full" ? "全权" : id));
-  chip.innerHTML = id === "full" ? `${short} ${icon("check", 12)}` : short;
+  const model = permissionTierChip(permissionTierCatalog(client.current()?.runtime || {}), id);
+  chip.dataset.tier = model.id;
+  chip.classList.toggle("is-on", model.isFull);
+  chip.innerHTML = permissionChipInner(model);
 }
 
 // ── 左右栏宽度拖拽 ─────────────────────────────────────────

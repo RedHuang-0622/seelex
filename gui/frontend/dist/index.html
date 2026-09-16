@@ -75,7 +75,10 @@
           <div class="composer-tools">
             <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
             <button id="runtime-button" class="icon-button composer-icon" type="button" title="运行状态" aria-label="运行状态" data-icon="runtime"></button>
-            <button id="perm-toggle" class="perm-chip" type="button" title="权限档位（点击在运行状态里选）" aria-label="权限档位">手动</button>
+            <div class="perm-picker" data-perm-picker>
+              <button id="perm-toggle" class="perm-chip" type="button" title="权限档位（点开就地切换）" aria-label="权限档位" aria-haspopup="menu" aria-expanded="false">手动</button>
+              <div id="perm-menu" class="perm-menu" data-perm-menu role="menu" aria-label="权限档位选择" hidden></div>
+            </div>
           </div>
           <span id="composer-status">READY</span>
           <button id="stop-button" class="icon-button action-button danger-button hidden" type="button" title="停止" aria-label="停止" data-icon="stop"></button>
