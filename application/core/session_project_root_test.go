@@ -45,7 +45,7 @@ func (runtime *fakeRuntime) toolRootForSession(sessionID string) string {
 	if root != "" {
 		return root
 	}
-	return runtime.projectRoot
+	return runtime.ProjectRoot()
 }
 
 // multiProjectWorkspace 给每个工作区分配独立 ID（fakeWorkspace.Create 固定返回
@@ -123,8 +123,8 @@ func TestBackgroundSessionKeepsOwnProjectRoot(t *testing.T) {
 	}
 	waitSessionIdle(t, service)
 	sessionB := service.Snapshot().Session.ID
-	if runtime.projectRoot != rootB {
-		t.Fatalf("前置条件不成立：进程级工具根 = %q, want %q（视图会话 B 的项目）", runtime.projectRoot, rootB)
+	if runtime.ProjectRoot() != rootB {
+		t.Fatalf("前置条件不成立：进程级工具根 = %q, want %q（视图会话 B 的项目）", runtime.ProjectRoot(), rootB)
 	}
 
 	// 后台为会话 A 续跑：工具根必须还是 A 自己的项目。

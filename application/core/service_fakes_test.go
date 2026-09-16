@@ -315,6 +315,12 @@ type fakeRuntime struct {
 	// 生产 Runtime.ReplanMetricsFor 的会话槽语义）。
 	replanMetricsBySession map[string]dto.ReplanMetrics
 	projectRoot            string
+	// projectRootMu 保护 projectRoot：后台会话的 runChat（rebindViewWorkspaceWhenIdle
+	// → bindProjectRootIfSafe）会在 chat goroutine 上写它，而用例在测试 goroutine 上
+	// 读它——不加锁就是数据竞争（-race 实报：TestBackgroundSessionKeepsOwnProjectRoot
+	// 读 vs fakeRuntime.BindProjectRoot 写）。生产 Runtime 本身线程安全，fake 必须镜像
+	// 这一点（同 SetCurrentTaskBatch 的 mailboxMu 处理）。
+	projectRootMu sync.RWMutex
 	// sessionProjectRoots 是按会话的工具路径根（镜像生产
 	// Runtime.BindProjectRootFor → seelebridge projectScope 的会话分格）。
 	sessionProjectRootsMu sync.Mutex
@@ -771,11 +777,25 @@ func (runtime *fakeRuntime) SearchHistory(_ context.Context, _ string, _ int) (s
 }
 
 func (runtime *fakeRuntime) BindProjectRoot(rootPath string) error {
+	runtime.projectRootMu.Lock()
 	runtime.projectRoot = rootPath
+	runtime.projectRootMu.Unlock()
 	return nil
 }
 
-func (runtime *fakeRuntime) UnbindProjectRoot() { runtime.projectRoot = "" }
+func (runtime *fakeRuntime) UnbindProjectRoot() {
+	runtime.projectRootMu.Lock()
+	runtime.projectRoot = ""
+	runtime.projectRootMu.Unlock()
+}
+
+// ProjectRoot 读当前绑定的项目根（加锁）：写侧可能来自后台 chat goroutine，
+// 用例读必须走同一把锁（直接读字段 = 数据竞争，-race 会报）。
+func (runtime *fakeRuntime) ProjectRoot() string {
+	runtime.projectRootMu.RLock()
+	defer runtime.projectRootMu.RUnlock()
+	return runtime.projectRoot
+}
 
 // SetCurrentTaskBatch 会被并行会话的多个 runChat 并发调用（M2：每个会话
 // 各自 SetCurrentTaskBatch），fake 需加锁镜像生产 Runtime 的线程安全。

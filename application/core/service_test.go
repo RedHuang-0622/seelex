@@ -206,8 +206,8 @@ func TestLazySessionInheritsProjectOnlyWhenMaterialized(t *testing.T) {
 	if got := workspaces.bindings[draftID]; got != "project-1" {
 		t.Fatalf("materialized session workspace = %q, want project-1; bindings=%v", got, workspaces.bindings)
 	}
-	if sessions.Workspace() != "project-1" || runtime.projectRoot != root {
-		t.Fatalf("materialized project scope: workspace=%q root=%q", sessions.Workspace(), runtime.projectRoot)
+	if sessions.Workspace() != "project-1" || runtime.ProjectRoot() != root {
+		t.Fatalf("materialized project scope: workspace=%q root=%q", sessions.Workspace(), runtime.ProjectRoot())
 	}
 	if err := service.WaitForIdle(context.Background()); err != nil {
 		t.Fatal(err)
@@ -305,8 +305,8 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	if err := service.CreateWorkspace("project", root, ""); err != nil {
 		t.Fatal(err)
 	}
-	if runtime.projectRoot != root || sessions.Workspace() != "project-1" || workspaces.bindings["session-1"] != "project-1" {
-		t.Fatalf("create project did not bind all scope state: root=%q sessionStore=%q bindings=%v", runtime.projectRoot, sessions.Workspace(), workspaces.bindings)
+	if runtime.ProjectRoot() != root || sessions.Workspace() != "project-1" || workspaces.bindings["session-1"] != "project-1" {
+		t.Fatalf("create project did not bind all scope state: root=%q sessionStore=%q bindings=%v", runtime.ProjectRoot(), sessions.Workspace(), workspaces.bindings)
 	}
 	if err := service.Submit(context.Background(), "/new"); err != nil {
 		t.Fatal(err)
@@ -325,8 +325,8 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	if _, exists := workspaces.bindings[draftID]; exists {
 		t.Fatalf("draft session bound before first request: %v", workspaces.bindings)
 	}
-	if runtime.projectRoot != "" || sessions.Workspace() != "" {
-		t.Fatalf("draft must unbind project scope: root=%q sessionStore=%q", runtime.projectRoot, sessions.Workspace())
+	if runtime.ProjectRoot() != "" || sessions.Workspace() != "" {
+		t.Fatalf("draft must unbind project scope: root=%q sessionStore=%q", runtime.ProjectRoot(), sessions.Workspace())
 	}
 	if err := service.Submit(context.Background(), "first unbound question"); err != nil {
 		t.Fatal(err)
@@ -335,8 +335,8 @@ func TestNewTaskSessionIsTrulyUnbound(t *testing.T) {
 	if got := workspaces.bindings[draftID]; got != "" {
 		t.Fatalf("materialized task session must stay unbound: %v", workspaces.bindings)
 	}
-	if sessions.Workspace() != "" || runtime.projectRoot != "" {
-		t.Fatalf("materialized task session scope: sessionStore=%q root=%q", sessions.Workspace(), runtime.projectRoot)
+	if sessions.Workspace() != "" || runtime.ProjectRoot() != "" {
+		t.Fatalf("materialized task session scope: sessionStore=%q root=%q", sessions.Workspace(), runtime.ProjectRoot())
 	}
 	if snapshot.CurrentWorkspace != nil || snapshot.SessionWorkspaces[draftID] != "" {
 		t.Fatalf("materialized snapshot = %+v", snapshot)
@@ -415,8 +415,8 @@ func TestResumeRestoresProjectScope(t *testing.T) {
 	if err := service.Submit(context.Background(), "/resume saved"); err != nil {
 		t.Fatal(err)
 	}
-	if runtime.projectRoot != root || sessions.Workspace() != "project-1" {
-		t.Fatalf("resume did not restore project scope: root=%q store=%q", runtime.projectRoot, sessions.Workspace())
+	if runtime.ProjectRoot() != root || sessions.Workspace() != "project-1" {
+		t.Fatalf("resume did not restore project scope: root=%q store=%q", runtime.ProjectRoot(), sessions.Workspace())
 	}
 }
 
@@ -476,8 +476,8 @@ func TestResumeReadsSessionFromItsPersistedWorkspace(t *testing.T) {
 	if sessions.LoadedWorkspace() != "project-1" || sessions.Workspace() != "project-1" {
 		t.Fatalf("resume read workspace=%q active=%q", sessions.LoadedWorkspace(), sessions.Workspace())
 	}
-	if runtime.projectRoot != root || engine.History()[0].Content != "project one history" {
-		t.Fatalf("resume root=%q history=%v", runtime.projectRoot, engine.History())
+	if runtime.ProjectRoot() != root || engine.History()[0].Content != "project one history" {
+		t.Fatalf("resume root=%q history=%v", runtime.ProjectRoot(), engine.History())
 	}
 }
 

@@ -8,6 +8,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/RedHuang-0622/seelex/application/contract"
@@ -36,6 +37,8 @@ type agentTeamFloorPort interface {
 type agentTeamAdapter struct {
 	port agentTeamPort
 	role contract.RoleSessionPort
+	// employees 是装配期分配员工权限的写面（未装配 → 只装配不分配，判定按档位默认）。
+	employees contract.EmployeePermissionPort
 }
 
 func (adapter agentTeamAdapter) EnsureRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error) {
@@ -55,7 +58,21 @@ func (adapter agentTeamAdapter) ReadTeamRegistry(mainSessionID string) (dto.Team
 }
 
 func (adapter agentTeamAdapter) WriteTeamRegistry(mainSessionID string, registry dto.TeamRegistry) error {
-	return adapter.port.WriteTeamRegistry(mainSessionID, registry)
+	if err := adapter.port.WriteTeamRegistry(mainSessionID, registry); err != nil {
+		return err
+	}
+	// 装配期**同时**分配员工权限：员工是在这一刻进团的（谁在编、什么权责都在
+	// registry 里），权限分配必须与它同一个动作——否则会出现"已经在编、权限还没
+	// 分配"的窗口，而员工回合在该窗口里按什么判都没有依据。
+	//
+	// 分配失败显式上抛（不静默继续）：注册表已经写下去了，但"员工权限没落上"
+	// 必须让装配方看见——静默继续等于让员工按默认口径跑，而调用方以为已经分配。
+	if adapter.employees != nil {
+		if err := adapter.employees.AssignEmployeePermissions(registry.Roles); err != nil {
+			return fmt.Errorf("分配员工权限: %w", err)
+		}
+	}
+	return nil
 }
 
 // ReadFloorRole 实现 agentteam.FloorPort：宿主端口实现了 floor 读面才转读，
@@ -88,7 +105,7 @@ func (service *Service) agentTeamFactory() (*agentteam.Factory, error) {
 	if err != nil {
 		return nil, err
 	}
-	return agentteam.NewFactory(agentTeamAdapter{port: port, role: role})
+	return agentteam.NewFactory(agentTeamAdapter{port: port, role: role, employees: service.Deps.EmployeePermissions})
 }
 
 func (service *Service) agentTeamRegistry() (*agentteam.Registry, error) {
@@ -96,7 +113,7 @@ func (service *Service) agentTeamRegistry() (*agentteam.Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return agentteam.NewRegistry(agentTeamAdapter{port: port, role: role})
+	return agentteam.NewRegistry(agentTeamAdapter{port: port, role: role, employees: service.Deps.EmployeePermissions})
 }
 
 // AgentTeamPresets 列出内置团队形态（前端角色管理页的可选模板）。

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -134,6 +135,16 @@ type PermissionGate struct {
 	RoleSessionPolicy func(sessionID string) (string, bool)
 	// rolePolicyCache 缓存 RoleSessionPolicy 的结果（含未命中），由 mu 保护。
 	rolePolicyCache map[string]rolePolicyCacheEntry
+	// RoleSessionOwner 把"角色会话（员工/评审者）"折算成**宿主主会话**：越权提权的
+	// 审批按宿主主会话归属呈现，复用现有审批面板（视图单格 + 目录 awaiting_approval
+	// + 会话快照），而不是落在一个没有面板的角色会话号上——那会让"需要人类点头的
+	// 工具"永远等不到人点，只能等到超时被拒（= 继承全量工具的员工的越权面事实上
+	// 没有 sudo 口令可用）。
+	//
+	// 由组合根（main.go，读角色注册表反查索引）注入；nil = 审批按调用会话原样归属。
+	// 它只影响**审批呈现归属**，不影响主体判定（判定读 SessionFromContext 的原始
+	// 会话号），因此"审批在哪个面板弹"与"按谁判"是两件互不干扰的事。
+	RoleSessionOwner func(sessionID string) (string, bool)
 	// sessionFullAccess 是会话级全权选择（键 = 会话 ID）。空串键是**进程级
 	// 默认**（CLI -permission full_access / 未做会话级选择的回退面）；未选择
 	// 的会话回退进程默认，不继承别的会话的开关。
@@ -145,6 +156,10 @@ type PermissionGate struct {
 	// SessionFromContext 从工具调度 ctx 提取会话归属（seelebridge 根包
 	// 注入 seelebridge 会话路由键；nil = 权限审批保持进程级空归属回退）。
 	SessionFromContext func(ctx context.Context) string
+	// employeePermissions 是装配期分配过的员工权限（主键 = 员工主体 emp_<角色>）。
+	// 保存它是为了 Set 换配置时能重新施加：装配是运行时行为，而配置可能在装配之后
+	// 才被 Set（CLI/GUI 切权限档），丢掉就等于"分配过的员工权限被一次配置刷新吃掉"。
+	employeePermissions map[toolspermission.Subject]EmployeePermission
 }
 
 // Set 装配权限配置与审批处理器。checker 只承载 manual 规则：全权由
@@ -153,10 +168,80 @@ type PermissionGate struct {
 // manual）。
 func (state *PermissionGate) Set(cfg toolspermission.PermissionConfig, handler toolspermission.ApprovalHandler) {
 	state.mu.Lock()
-	state.checker = toolspermission.NewPermissionChecker(cfg)
+	// 装配期分配过的员工权限重新施加到新配置上（分配是运行时事实，不该被一次
+	// 配置刷新吃掉）。
+	for subject, permission := range state.employeePermissions {
+		if cfg.Subjects == nil {
+			cfg.Subjects = make(map[toolspermission.Subject]toolspermission.SubjectGrant)
+		}
+		if grant, err := permission.Grant(); err == nil {
+			cfg.Subjects[subject] = grant
+		}
+	}
 	state.handler = handler
 	state.cfg = cfg
+	state.checker = toolspermission.NewPermissionChecker(state.cfg)
 	state.mu.Unlock()
+}
+
+// SetEmployeePermissions 把**装配期分配的员工权限**并入权责表：每个员工得到自己的
+// 主体条目 emp_<角色名>——与用户（root）的权限同一张表、同一种形状（主体 × 路由组 × 位）。
+//
+// 与三档 ToolsPolicy 的关系：档位只是"装配时没单独分配"的默认值（EmployeePermission
+// 的 Groups 为空时按 Policy 派生）；显式分组位永远优先。这样"给某个员工开一格能力"
+// 不必再新增档位或改判定代码——改的就是那条主体条目。
+//
+// 校验：角色名为空 / 档位不是可分配口径（空、full、未识别）而没有显式分组位 → 报错。
+// 装配路径宁可显式失败，也不要静默写进一条无意义的授权（那会变成"看起来分配了、
+// 其实按宿主默认判"）。
+func (state *PermissionGate) SetEmployeePermissions(permissions []EmployeePermission) error {
+	prepared := make(map[toolspermission.Subject]EmployeePermission, len(permissions))
+	for _, permission := range permissions {
+		subject, ok := EmployeeSubject(permission.RoleName)
+		if !ok {
+			return fmt.Errorf("员工权限分配缺角色名（收到 %+v）", permission)
+		}
+		if _, err := permission.Grant(); err != nil {
+			return err
+		}
+		prepared[subject] = permission
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(prepared) == 0 {
+		return nil
+	}
+	if state.employeePermissions == nil {
+		state.employeePermissions = make(map[toolspermission.Subject]EmployeePermission, len(prepared))
+	}
+	if state.cfg.Subjects == nil {
+		state.cfg.Subjects = make(map[toolspermission.Subject]toolspermission.SubjectGrant)
+	}
+	for subject, permission := range prepared {
+		grant, err := permission.Grant()
+		if err != nil {
+			return err
+		}
+		state.employeePermissions[subject] = permission
+		state.cfg.Subjects[subject] = grant
+	}
+	state.checker = toolspermission.NewPermissionChecker(state.cfg)
+	return nil
+}
+
+// EmployeePermissions 返回装配期分配过的员工权限（快照，供巡检/诊断读取）。
+func (state *PermissionGate) EmployeePermissions() []EmployeePermission {
+	if state == nil {
+		return nil
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	permissions := make([]EmployeePermission, 0, len(state.employeePermissions))
+	for _, permission := range state.employeePermissions {
+		permissions = append(permissions, permission)
+	}
+	return permissions
 }
 
 // SetRoleSessionPolicyResolver 注入"角色会话 → 员工权限口径（ToolsPolicy）"解析器。
@@ -167,6 +252,42 @@ func (state *PermissionGate) SetRoleSessionPolicyResolver(resolver func(sessionI
 	state.RoleSessionPolicy = resolver
 	state.rolePolicyCache = nil // 解析器换人 → 缓存作废
 	state.mu.Unlock()
+}
+
+// SetRoleSessionOwnerResolver 注入"角色会话（员工/评审者）→ 宿主主会话"的读面：
+// 越权提权的审批按宿主主会话归属呈现在**现有审批面板**上（不新建面板、不改 UI）。
+//
+// 为什么必须折算（不是锦上添花）：角色会话（`goal-a2a-pm` / `advisor:<main>`）不是
+// 用户视图里的会话，application 侧的审批归属（observeInteraction）只把"视图会话
+// （或空归属）"的待批镜像进单格 Interaction——角色会话的待批既进不了单格，也没有
+// 对应的会话单元承载 awaiting_approval，于是对宿主**完全不可见**，只能等审批超时
+// 被拒。折算到宿主主会话后，面板/目录/会话快照三条既有读面原样复用。
+//
+// 传 nil = 审批按调用会话原样归属（旧行为；未接反查索引的宿主/桩不因此改变语义）。
+func (state *PermissionGate) SetRoleSessionOwnerResolver(resolver func(sessionID string) (string, bool)) {
+	state.mu.Lock()
+	state.RoleSessionOwner = resolver
+	state.mu.Unlock()
+}
+
+// approvalSessionFor 把调用会话折算成**审批呈现归属**：注入了读面且命中时用宿主
+// 主会话，否则原样返回调用会话——"查不到归属"要知道这不是"没有会话"，按会话归属
+// 的既有行为必须保持（后台会话待批仍按自己的会话归属，不冒充别人的）。
+func (state *PermissionGate) approvalSessionFor(sessionID string) string {
+	if strings.TrimSpace(sessionID) == "" {
+		return ""
+	}
+	state.mu.RLock()
+	resolver := state.RoleSessionOwner
+	state.mu.RUnlock()
+	if resolver == nil {
+		return sessionID
+	}
+	owner, ok := resolver(sessionID)
+	if !ok || strings.TrimSpace(owner) == "" {
+		return sessionID
+	}
+	return strings.TrimSpace(owner)
 }
 
 // SetFullAccess 设置**进程级默认**全权（CLI -permission full_access 与
@@ -216,7 +337,8 @@ func (state *PermissionGate) effectiveFullAccessLocked(sessionID string) bool {
 // 会话归属与**主体**随调度 ctx 透出：会话 ID 走 WithSessionID（审批请求据此
 // 路由回正确会话视图），主体走 WithEngine（框架据此查授权表）。主体由"谁在
 // 调用"解析（见 permission_policy.go）：子代理 = sub、员工角色会话 = emp_ro /
-// emp_rw、其余 = root。
+// emp_rw、其余 = root。会话 ID 在写进 ctx 前先按 RoleSessionOwner 折算成宿主
+// 主会话（角色会话没有自己的审批面板）。
 //
 // 全权短路同样按调用 ctx 的会话归属解析（A 会话的全权不替 B 会话放行；B 的
 // 起点同步也关不掉 A）：全权是用户的显式决定，不允许任何"还没轮到规则"的
@@ -226,10 +348,18 @@ func (state *PermissionGate) Middleware(approvalTimeout time.Duration) framework
 		return frameworktools.HandlerFunc(func(ctx context.Context, argsJSON string) (string, error) {
 			sessionID := state.sessionFromContext(ctx)
 			class := state.classFor(ctx)
+			// 主体解析：员工执行面在 ctx 里带了角色名 → 落到这个员工自己的主体
+			// （emp_<角色>）；其余落回主体类对应的共享主体。判定表只有一份，
+			// 因此"给员工分配了什么权限"与"调用时按什么判"是同一条路径。
+			subject := state.resolveEmployeeSubject(ctx, class)
 			ctx = withSubjectClass(ctx, class)
-			ctx = toolspermission.WithEngine(ctx, toolspermission.Engine(SubjectForClass(class)))
-			if sessionID != "" {
-				ctx = toolspermission.WithSessionID(ctx, sessionID)
+			ctx = toolspermission.WithEngine(ctx, toolspermission.Engine(subject))
+			// 会话归属只供**审批呈现**使用：角色会话（员工/评审者）折算到宿主主会话
+			// （见 RoleSessionOwner），因此越权提权弹在宿主的面板上，而不是一个没有
+			// 面板的角色会话号上。判定读的是 SessionFromContext 的原始会话（telemetry
+			// 键），所以"按谁判"与"审批弹在哪"互不干扰。
+			if approvalSessionID := state.approvalSessionFor(sessionID); approvalSessionID != "" {
+				ctx = toolspermission.WithSessionID(ctx, approvalSessionID)
 			}
 			if err := state.gate(approvalTimeout, class).Decide(ctx, name, meta, policyArgsFor(name, argsJSON)); err != nil {
 				return "", err

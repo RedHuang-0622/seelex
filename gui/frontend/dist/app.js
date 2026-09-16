@@ -15,7 +15,7 @@ import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { createRuntimeEventBinder } from "./runtime-events.js";
 import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tasks-view.js";
-import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamMemberNames } from "./agent-team-view.js";
+import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamMemberNames } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
 import { duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
@@ -1893,7 +1893,7 @@ function agentTeamEmployeePool(team = normalizeAgentTeam(agentTeamView)) {
 function agentTeamRolePayload(roleName) {
   const found = agentTeamEmployeePool().find(role => role.roleName === roleName);
   if (!found) return null;
-  return {
+  const payload = {
     role_name: found.roleName,
     role_kind: found.roleKind || "agent",
     join_policy: found.joinPolicy || "on_team_create",
@@ -1902,6 +1902,10 @@ function agentTeamRolePayload(roleName) {
     presence_policy: found.presencePolicy || "",
     system_prompt: found.systemPrompt || ""
   };
+  // 逐格装配的权限要跟着角色一起走：入库/入职是"把这个员工搬过去"，只带档位不带
+  // 格子 = 搬过去的人被降级成档位默认（静默丢权限）。
+  if (found.permissionGroups) payload.permission_groups = found.permissionGroups;
+  return payload;
 }
 
 // ── 团队面板里的成员表（草稿，保存才落盘）────────────────────
@@ -2256,6 +2260,22 @@ function clearAgentTeamDropMarkers(keep = null) {
   });
 }
 
+// readHirePermissionGrid 读出"逐格装配"面板的勾选：**每个已知组都写一条**（未勾 = 0）,
+// 因为后端的显式格子是"这张表说了算"——只提交勾中的组，未列出的组语义会变成"没装配"
+// （而用户看到的是"没勾 = 不开"）。
+function readHirePermissionGrid(form) {
+  const groups = {};
+  for (const group of PERMISSION_GROUPS) {
+    let bits = 0;
+    for (const item of PERMISSION_BITS) {
+      const box = form.querySelector(`[data-team-hire-perm="${group.name}"][data-team-hire-perm-bit="${item.bit}"]`);
+      if (box?.checked) bits |= item.bit;
+    }
+    groups[group.name] = bits;
+  }
+  return groups;
+}
+
 // 员工入职 / 修改：一步到位（建角色会话 + 落注册表含提示词与权限 + 按 join_policy
 // 决定是否进顺序），回执里的 notice 直接呈现"谁在什么时候真的会发言"。
 elements["team-view"]?.addEventListener("submit", async event => {
@@ -2266,15 +2286,23 @@ elements["team-view"]?.addEventListener("submit", async event => {
   if (hireForm) {
     const roleName = String(hireForm.querySelector("[data-team-hire-name]")?.value || "").trim();
     if (!roleName) return;
+    const toolsValue = String(hireForm.querySelector("[data-team-hire-tools]")?.value || "").trim();
+    const customPermission = toolsValue === PERMISSION_CUSTOM_TOOLS;
     const role = {
       role_name: roleName,
       role_kind: hireForm.querySelector("[data-team-hire-kind]")?.value || "agent",
       join_policy: hireForm.querySelector("[data-team-hire-join]")?.value || "on_team_create",
-      tools_policy: String(hireForm.querySelector("[data-team-hire-tools]")?.value || "").trim(),
+      // 「逐格装配」是 UI 哨兵：它不落盘为 tools_policy，而是把勾选的格子提交成
+      // permission_groups（后端按显式格子优先于档位分配主体条目）。
+      tools_policy: customPermission ? "" : toolsValue,
+      permission_groups: customPermission ? readHirePermissionGrid(hireForm) : undefined,
       model_policy: String(hireForm.querySelector("[data-team-hire-model]")?.value || "").trim(),
       presence_policy: String(hireForm.querySelector("[data-team-hire-presence]")?.value || "").trim(),
       system_prompt: String(hireForm.querySelector("[data-team-hire-prompt]")?.value || "").trim()
     };
+    // undefined 的键在 JSON 序列化时被丢掉 = 不装配格子（继承/按档位判），
+    // 而不是提交一份空 map（那是"装配了一个空格子"的另一回事）。
+    if (!customPermission) delete role.permission_groups;
     try {
       // 员工库作用域：只写全局事实，不装配、不建角色会话；请求与"入库"同一套字段。
       if (hireForm.dataset.teamHireScope === "library") {
@@ -2313,7 +2341,11 @@ function agentTeamEntryFromForm(form) {
   const memberNames = teamFormMemberNames(form);
   const roles = memberNames.map(roleName => {
     const known = agentTeamRolePayload(roleName);
-    return { role_name: roleName, role_kind: known?.role_kind || "agent", tools_policy: known?.tools_policy || "", system_prompt: known?.system_prompt || "" };
+    const role = { role_name: roleName, role_kind: known?.role_kind || "agent", tools_policy: known?.tools_policy || "", system_prompt: known?.system_prompt || "" };
+    // 团队库条目也要带上逐格装配的权限：库里存的是一整套员工配置，装配团队时
+    // 按它复原——不带就等于"从库里装配一次，权限被降级成档位默认"。
+    if (known?.permission_groups) role.permission_groups = known.permission_groups;
+    return role;
   });
   return {
     team_id: teamID,
@@ -2327,6 +2359,14 @@ function agentTeamEntryFromForm(form) {
 }
 
 elements["team-view"]?.addEventListener("change", async event => {
+  // 权限下拉的「逐格装配」：只是**展开/收起**权限位面板（不落盘、不发请求）——
+  // 用户还没保存，只是想让格子可见。
+  const toolsSelect = event.target.closest?.("[data-team-hire-tools]");
+  if (toolsSelect) {
+    const grid = toolsSelect.closest("[data-team-hire-form]")?.querySelector("[data-team-hire-perm-grid]");
+    if (grid) grid.hidden = toolsSelect.value !== PERMISSION_CUSTOM_TOOLS;
+    return;
+  }
   const select = event.target.closest?.("[data-team-policy]");
   if (!select?.value) return;
   const team = normalizeAgentTeam(agentTeamView);

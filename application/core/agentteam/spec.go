@@ -89,6 +89,13 @@ func NormalizeRole(role dto.RoleSpec) (dto.RoleSpec, error) {
 			"agentteam: unsupported tools policy %q（取值：%q / %q / %q，空 = 继承宿主默认）",
 			role.ToolsPolicy, dto.ToolPolicyReadonly, dto.ToolPolicyReadWrite, dto.ToolPolicyFull)
 	}
+	// 逐格装配的权限同样在**写入侧**校验：组名拼错 / 位值越界必须在这里报错，
+	// 而不是写进注册表后由运行时解释成"没分配"（见 dto.NormalizePermissionGroups）。
+	groups, err := dto.NormalizePermissionGroups(role.PermissionGroups)
+	if err != nil {
+		return dto.RoleSpec{}, fmt.Errorf("agentteam: 角色 %q 的权限格子非法: %w", role.RoleName, err)
+	}
+	role.PermissionGroups = groups
 	return role, nil
 }
 

@@ -303,6 +303,21 @@ type RolePromptPort interface {
 	OptimizeRolePrompt(ctx context.Context, req dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)
 }
 
+// RoleTurnPort 是「角色（员工）回合执行体」的跨层契约：一个角色座位的一轮 =
+// 一次该角色自己的、带工具的会话回合。application/core 只声明"谁有座位"，真正
+// 的执行体（角色会话 + 工具面 + 权责落地）由 seelebridge 侧实现。
+//
+// 为什么必须有它：在它落地之前，除 tl 的 ADVISOR 评审回合外**没有任何角色会
+// 真的跑一轮**——注册表建得出角色会话、成员表列得出角色名，但轮到一个 agent
+// 角色发言时没人把它叫起来（RolesWithExecutor 事实表如实记着这件事）。没有
+// 执行体，角色就只是"发言权"而不是"做工权"。
+//
+// 实现方（seelebridge）拿到请求后应当：在该角色的会话上跑**一次有界、带工具的
+// 回合**，并保证主体类按 ToolsPolicy 落地（按构造放进 ctx，不依赖任何反查）。
+type RoleTurnPort interface {
+	RunRoleTurn(ctx context.Context, request dto.RoleTurnRequest) (dto.RoleTurnOutcome, error)
+}
+
 type Dependencies struct {
 	Engine     ChatEngine
 	Runtime    RuntimePort
@@ -313,4 +328,21 @@ type Dependencies struct {
 	Events     event.Hub
 	Approval   ApprovalBroker
 	RolePrompt RolePromptPort
+	// EmployeePermissions 是"装配员工时分配员工权限"的写面：员工权限与用户权限
+	// 走同一张权责表（主体 × 路由组 × 位），区别只是主体名（emp_<角色名>）。
+	// 未装配（nil）时装配仍成功，只是不写员工权限条目（判定按档位默认派生）。
+	EmployeePermissions EmployeePermissionPort
+	// RoleTurn 是「角色回合执行体」的写面（见 RoleTurnPort）。未装配（nil）时
+	// agent 角色只占发言位、不推进治理循环（试水形态），不得假装有人干活。
+	RoleTurn RoleTurnPort
+}
+
+// EmployeePermissionPort 把"装配团队时写入的员工角色"翻译成**员工权限分配**。
+//
+// 为什么放在装配期：员工是在装配时进入团队的（这一刻才知道"谁在编、什么权责"），
+// 权限分配必须与它同一个动作——否则就会出现"已经在编、权限还没分配"的窗口，
+// 该窗口里员工回合按什么判都没有依据。实现方（seelebridge）把每个员工写成一个
+// 主体条目，与用户权限同表同形。
+type EmployeePermissionPort interface {
+	AssignEmployeePermissions(roles []dto.RoleSpec) error
 }

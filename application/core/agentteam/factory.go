@@ -340,6 +340,14 @@ func buildMember(teamID, name string, orderIndex int, inOrder bool, byName map[s
 		member.SystemPrompt = role.SystemPrompt
 		member.ModelPolicy = role.ModelPolicy
 		member.PresencePolicy = role.PresencePolicy
+		// 权限格子回读（前端「编辑员工」要回填）：这里是成员表的唯一构造点，
+		// 少这一行就会出现"装配好的格子被一次编辑清空"的静默丢失。
+		if len(role.PermissionGroups) > 0 {
+			member.PermissionGroups = make(map[string]uint8, len(role.PermissionGroups))
+			for group, bits := range role.PermissionGroups {
+				member.PermissionGroups[group] = bits
+			}
+		}
 		if needsRoleSession(kind) {
 			member.RoleSessionID = RoleSessionID(teamID, name)
 		}

@@ -80,6 +80,14 @@ func (s *librarySessions) globalWriteCount() int {
 	return s.globalWrites
 }
 
+// writeCount 读团队库写次数（加锁：直接读 sessions.writes 与写侧没有 happens-before，
+// 那是数据竞争，见 fixture_concurrency_test.go）。
+func (s *librarySessions) writeCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.writes
+}
+
 // fakeRolePrompt 是"员工提示词一次有界优化"的端口桩。
 type fakeRolePrompt struct {
 	requests []dto.RolePromptOptimizeRequest
@@ -99,23 +107,23 @@ func withRolePrompt(port RolePromptPort) testServiceOption {
 // 装配到会话（写 registry + 写 lifecycle 顺序）。
 func TestAgentTeamSaveCurrentTeamAndMaterialize(t *testing.T) {
 	sessions := newLibrarySessions()
-	sessions.registry = dto.TeamRegistry{
+	sessions.setRegistry(dto.TeamRegistry{
 		TeamID: "review-team", TeamKind: "review-team", OrderPolicy: dto.OrderPolicyUserMainDecided,
 		Roles: []dto.RoleSpec{
 			{RoleName: "user", RoleKind: dto.RoleKindUser},
 			{RoleName: "main", RoleKind: dto.RoleKindMain},
 			{RoleName: "auditor", RoleKind: dto.RoleKindAgent, SystemPrompt: "审计员提示词", ToolsPolicy: dto.ToolPolicyReadonly},
 		},
-	}
-	sessions.policy, sessions.order = dto.OrderPolicyUserMainDecided, []string{"user", "main", "auditor"}
+	})
+	sessions.setLifecycle(dto.OrderPolicyUserMainDecided, []string{"user", "main", "auditor"})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
 	library, err := service.AgentTeamSaveCurrentTeam("main-1", "我的审计队", "")
 	if err != nil {
 		t.Fatalf("AgentTeamSaveCurrentTeam: %v", err)
 	}
-	if !library.Configured || len(library.Teams) != 1 || sessions.writes != 1 {
-		t.Fatalf("团队库应写入一条：%+v writes=%d", library, sessions.writes)
+	if !library.Configured || len(library.Teams) != 1 || sessions.writeCount() != 1 {
+		t.Fatalf("团队库应写入一条：%+v writes=%d", library, sessions.writeCount())
 	}
 	entry := library.Teams[0]
 	if entry.Name != "我的审计队" || entry.Origin != "current-session" {
@@ -130,8 +138,8 @@ func TestAgentTeamSaveCurrentTeamAndMaterialize(t *testing.T) {
 	}
 
 	// 装配回会话：重置会话现场，验证装配把库条目写成 registry + lifecycle 顺序。
-	sessions.registry = dto.TeamRegistry{}
-	sessions.order = nil
+	sessions.setRegistry(dto.TeamRegistry{})
+	sessions.setOrder(nil)
 	result, err := service.AgentTeamMaterializeTeam("main-1", entry.TeamID, 7)
 	if err != nil {
 		t.Fatalf("AgentTeamMaterializeTeam: %v", err)
@@ -139,7 +147,7 @@ func TestAgentTeamSaveCurrentTeamAndMaterialize(t *testing.T) {
 	if result.View.TeamKind != "review-team" {
 		t.Fatalf("装配视图 = %+v", result.View)
 	}
-	stored := sessions.registry
+	stored := sessions.registrySnapshot()
 	// 库条目里的角色清单就是"员工"（user/main 由会话本身提供）：装配写入 registry
 	// 的也正好是这些员工，提示词/权限原样保留。
 	if len(stored.Roles) != 1 || stored.Roles[0].RoleName != "auditor" {
@@ -148,8 +156,8 @@ func TestAgentTeamSaveCurrentTeamAndMaterialize(t *testing.T) {
 	if stored.Roles[0].SystemPrompt != "审计员提示词" || stored.Roles[0].ToolsPolicy != "readonly" {
 		t.Fatalf("装配后的 auditor 角色应保留提示词/权限：%+v", stored.Roles[0])
 	}
-	if strings.Join(sessions.order, ",") != "user,main,auditor" {
-		t.Fatalf("装配后顺序 = %v", sessions.order)
+	if strings.Join(sessions.orderSnapshot(), ",") != "user,main,auditor" {
+		t.Fatalf("装配后顺序 = %v", sessions.orderSnapshot())
 	}
 
 	// 未知团队显式报错（不是静默空装配）。
@@ -170,12 +178,12 @@ func TestAgentTeamSaveCurrentTeamAndMaterialize(t *testing.T) {
 // 优化走 RolePromptPort，未装配时显式报错。
 func TestAgentTeamRolePromptAndOptimize(t *testing.T) {
 	sessions := newLibrarySessions()
-	sessions.registry = dto.TeamRegistry{
+	sessions.setRegistry(dto.TeamRegistry{
 		TeamKind: "goal-a2a",
 		Roles: []dto.RoleSpec{
 			{RoleName: "tl", RoleKind: dto.RoleKindTechlead, SystemPrompt: "你是我司的评审官"},
 		},
-	}
+	})
 	prompt := &fakeRolePrompt{}
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions), withRolePrompt(prompt))
 
@@ -218,15 +226,15 @@ func TestAgentTeamRolePromptAndOptimize(t *testing.T) {
 // 副本的 {员工, 顺序} 写回母本（员工库 + 默认顺序 + 一条团队库条目）。
 func TestAgentTeamGlobalPublish(t *testing.T) {
 	sessions := newLibrarySessions()
-	sessions.registry = dto.TeamRegistry{
+	sessions.setRegistry(dto.TeamRegistry{
 		TeamID: "review-team", TeamKind: "review-team", OrderPolicy: dto.OrderPolicyUserMainDecided,
 		Roles: []dto.RoleSpec{
 			{RoleName: "user", RoleKind: dto.RoleKindUser},
 			{RoleName: "main", RoleKind: dto.RoleKindMain},
 			{RoleName: "auditor", RoleKind: dto.RoleKindAgent, SystemPrompt: "审计员提示词", ToolsPolicy: dto.ToolPolicyReadonly},
 		},
-	}
-	sessions.policy, sessions.order = dto.OrderPolicyUserMainDecided, []string{"user", "main", "auditor"}
+	})
+	sessions.setLifecycle(dto.OrderPolicyUserMainDecided, []string{"user", "main", "auditor"})
 	service := newTestService(t, &fakeEngine{}, withTestSessions(sessions))
 
 	config, err := service.AgentTeamGlobalConfig("main-1")

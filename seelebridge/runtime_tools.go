@@ -2,10 +2,13 @@ package seelebridge
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
 
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/docker"
 	seetelemetry "github.com/RedHuang-0622/seelex/seelebridge/internal/telemetry"
 	"github.com/RedHuang-0622/seelex/seelebridge/task"
@@ -45,6 +48,67 @@ func (r *Runtime) SetRoleSessionPolicyResolver(resolver func(sessionID string) (
 	if r.permission != nil {
 		r.permission.SetRoleSessionPolicyResolver(resolver)
 	}
+}
+
+// SetRoleSessionOwnerResolver 注入"角色会话（员工/评审者）→ 宿主主会话"的读面：
+// 员工/评审者越权提权的审批按宿主主会话归属，复用**现有审批面板**（视图单格 +
+// 目录 awaiting_approval + 会话快照），而不是弹在一个用户看不见的角色会话号上。
+//
+// 不折算的后果是可复现的：继承全量工具的员工一旦撞上"规则要求问人"的工具
+// （write_file / edit_file / bash / adm 组 / 共享外设），审批请求没有面板承载，
+// 调用只能等到审批超时被拒——员工因此事实上拿不到 sudo 口令。
+// nil = 审批按调用会话原样归属（旧行为）。
+func (r *Runtime) SetRoleSessionOwnerResolver(resolver func(sessionID string) (string, bool)) {
+	if r.permission != nil {
+		r.permission.SetRoleSessionOwnerResolver(resolver)
+	}
+}
+
+// AssignEmployeePermissions 实现 contract.EmployeePermissionPort：在**装配期**把
+// 在编员工落成各自的主体条目 emp_<角色名>（员工权限与用户权限同一张权责表）。
+//
+// 口径：
+//   - readonly / readwrite → 按档位派生默认位（与 emp_ro / emp_rw 同口径）；
+//   - **显式权限格子**（RoleSpec.PermissionGroups 非空）→ 逐格分配，优先于档位；
+//     未列出的组 = 0 位（"这一族能力明确不开"，不是"继承默认"）；
+//   - 空（inherit）/ full / 未识别且**没有**显式格子 → **不写条目**：这类员工按
+//     宿主默认判（继承就是继承，不该被一条自造的员工条目改写成"另一套语义"）。
+//
+// 返回错误只在"角色名缺失 / 权限格子非法 / 既无可用档位又无显式格子"时发生。
+// 装配方必须显式处理：静默继续的结果是"看起来分配了、其实按宿主默认判"，这是
+// 权限面上最坏的一种沉默。
+func (r *Runtime) AssignEmployeePermissions(roles []dto.RoleSpec) error {
+	if r == nil || r.permission == nil {
+		return nil
+	}
+	permissions := make([]seeltools.EmployeePermission, 0, len(roles))
+	for _, role := range roles {
+		policy := strings.ToLower(strings.TrimSpace(role.ToolsPolicy))
+		groups, err := dto.NormalizePermissionGroups(role.PermissionGroups)
+		if err != nil {
+			return fmt.Errorf("员工 %q 的权限格子非法: %w", role.RoleName, err)
+		}
+		if len(groups) == 0 && seeltools.EmployeeGroupsForPolicy(policy) == nil {
+			continue
+		}
+		permissions = append(permissions, seeltools.EmployeePermission{
+			RoleName: role.RoleName,
+			Policy:   policy,
+			Groups:   groups,
+		})
+	}
+	if len(permissions) == 0 {
+		return nil
+	}
+	return r.permission.SetEmployeePermissions(permissions)
+}
+
+// EmployeePermissions 读回装配期分配过的员工权限（巡检/诊断面）。
+func (r *Runtime) EmployeePermissions() []seeltools.EmployeePermission {
+	if r == nil || r.permission == nil {
+		return nil
+	}
+	return r.permission.EmployeePermissions()
 }
 
 // bashDiagnosticMiddleware marks entry to and exit from the framework tool

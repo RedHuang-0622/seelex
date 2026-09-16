@@ -84,6 +84,79 @@ export function toolsPolicyLabel(policy) {
   return value ? found[1].replace(/（.*/, "") : "继承";
 }
 
+// ── 员工权限的「逐格装配」（路由组 × 位）──────────────────────────────
+//
+// 两层口径，别混：
+//   - TOOLS_POLICY_OPTIONS 是**档位预设**（与后端 dto.ToolPolicy* 一一对应，落盘为
+//     tools_policy）：一键的粗粒度选择；
+//   - PERMISSION_GROUPS × PERMISSION_BITS 是**逐格装配**（落盘为 permission_groups）：
+//     用户自己给某个员工勾出"能读、能写项目、碰不到桌面"这种组合。
+//
+// 组名与位值都是**后端写入侧校验的枚举**（dto.PermissionGroup* / dto.PermissionBit*），
+// 前端只做镜像，不能自造取值——拼错的组名在后端会被显式拒绝，而不是静默变成"没装配"。
+export const PERMISSION_GROUPS = [
+  { name: "ro", label: "读", hint: "读文件 / 搜索（不改任何共享状态）" },
+  { name: "rw", label: "写项目", hint: "写文件 / 编辑 / 执行命令（限定在项目根内）" },
+  { name: "rw_session", label: "工作台", hint: "改本会话的可变工作区（如压缩上下文）" },
+  { name: "rw_desktop", label: "桌面", hint: "共享外设：鼠标 / 键盘注入（所有并行角色共用一块屏幕）" },
+  { name: "ctl", label: "叫停", hint: "结束 / 挂起 / 派生 / 装载执行结构" },
+  { name: "adm", label: "属主", hint: "改变能力面本身（换插件 / 加载技能）" }
+];
+
+export const PERMISSION_BITS = [
+  { bit: 4, label: "r", hint: "读" },
+  { bit: 2, label: "w", hint: "写" },
+  { bit: 1, label: "x", hint: "执行" }
+];
+
+// PERMISSION_CUSTOM_TOOLS 是权限下拉里的 **UI 哨兵**（不是落盘的 tools_policy 取值）：
+// 选中它 = 提交 permission_groups 而不是 tools_policy。
+export const PERMISSION_CUSTOM_TOOLS = "custom";
+
+// 档位 → 格子的默认形状：选档位时把格子摆成该档位（用户可继续精调，也可以直接
+// 用档位而不装配格子）。口径与后端 EmployeeGroupsForPolicy 一致。
+const POLICY_GROUP_PRESET = {
+  readonly: { ro: 4, rw: 0, rw_session: 0, rw_desktop: 0, ctl: 0, adm: 0 },
+  readwrite: { ro: 4, rw: 6, rw_session: 0, rw_desktop: 0, ctl: 0, adm: 0 }
+};
+
+// normalizePermissionGroups 归一后端下发的 permission_groups：只保留已知组名与
+// 0..7 的整数位；畸形/空载荷返回 null（= 没装配，不伪造成"装配了空格子"）。
+export function normalizePermissionGroups(groups) {
+  if (!groups || typeof groups !== "object" || Array.isArray(groups)) return null;
+  const known = new Set(PERMISSION_GROUPS.map(group => group.name));
+  const normalized = {};
+  let count = 0;
+  for (const [name, bits] of Object.entries(groups)) {
+    if (!known.has(name)) continue;
+    normalized[name] = typeof bits === "number" && Number.isInteger(bits) && bits >= 0 && bits <= 7 ? bits : 0;
+    count += 1;
+  }
+  return count ? normalized : null;
+}
+
+// permissionGroupsLabel 把格子映射成短标签（员工行/编辑回填的 chip）。
+export function permissionGroupsLabel(groups) {
+  const normalized = normalizePermissionGroups(groups);
+  if (!normalized) return "继承";
+  const has = (name, bit) => (Number(normalized[name] || 0) & bit) === bit;
+  const parts = [];
+  if (has("ro", 4)) parts.push("读");
+  if (has("rw", 2)) parts.push("写项目");
+  if (has("rw_session", 2)) parts.push("工作台");
+  if (has("rw_desktop", 2)) parts.push("桌面");
+  if (has("ctl", 1)) parts.push("叫停");
+  if (has("adm", 7)) parts.push("属主");
+  return parts.length ? parts.join("+") : "无权限";
+}
+
+// memberPermLabel 员工行的权限标签：**装配了格子就以格子为准**（档位只是"没精调"
+// 时的预设）；两者都没有 = 继承宿主默认。
+export function memberPermLabel(role) {
+  if (normalizePermissionGroups(role?.permissionGroups)) return permissionGroupsLabel(role.permissionGroups);
+  return toolsPolicyLabel(role?.toolsPolicy);
+}
+
 const ROLE_KIND_OPTIONS = [
   ["agent", "agent"],
   ["techlead", "techlead"],
@@ -186,11 +259,14 @@ export function employeePool(global, team) {
   const push = (role, source) => {
     if (!role || !role.roleName) return;
     const entry = pool.get(role.roleName) || {
-      roleName: role.roleName, roleKind: "", toolsPolicy: "", systemPrompt: "",
+      roleName: role.roleName, roleKind: "", toolsPolicy: "", permissionGroups: null, systemPrompt: "",
       modelPolicy: "", joinPolicy: "", presencePolicy: "", inLibrary: false, inSession: false
     };
     if (!entry.roleKind && role.roleKind) entry.roleKind = role.roleKind;
     if (!entry.toolsPolicy && role.toolsPolicy) entry.toolsPolicy = role.toolsPolicy;
+    if (!entry.permissionGroups && normalizePermissionGroups(role.permissionGroups)) {
+      entry.permissionGroups = normalizePermissionGroups(role.permissionGroups);
+    }
     if (!entry.systemPrompt && role.systemPrompt) entry.systemPrompt = role.systemPrompt;
     if (!entry.modelPolicy && role.modelPolicy) entry.modelPolicy = role.modelPolicy;
     if (!entry.joinPolicy && role.joinPolicy) entry.joinPolicy = role.joinPolicy;
@@ -225,7 +301,7 @@ function employeeLibraryBlock(global, team) {
         <span class="team-library-name" title="${escapeHtml(role.roleName)}">${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}</span>
         <span class="team-member-role" title="逻辑角色名（metadata，不是 provider role）">${escapeHtml(role.roleName)}</span>
         <span class="chip">${escapeHtml(ROLE_KIND_LABEL[role.roleKind] || role.roleKind || "agent")}</span>
-        <span class="team-perm-chip${role.toolsPolicy ? "" : " is-inherit"}">${escapeHtml(toolsPolicyLabel(role.toolsPolicy))}</span>
+        <span class="team-perm-chip${role.toolsPolicy || role.permissionGroups ? "" : " is-inherit"}" title="工具权限（登记在角色注册表）">${escapeHtml(memberPermLabel(role))}</span>
       </span>`,
       `<span class="team-source-chip${role.inLibrary ? "" : " is-session"}" title="${role.inLibrary ? "员工库（全局母本）" : "只在本会话在编名单里"}">${role.inLibrary ? "库" : "本会话"}</span>`,
       `<span class="team-library-actions">${actions.join("")}</span>`
@@ -257,6 +333,7 @@ function normalizeRoleSpecs(items) {
       roleKind: typeof item.role_kind === "string" ? item.role_kind : "",
       systemPrompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
       toolsPolicy: typeof item.tools_policy === "string" ? item.tools_policy : "",
+      permissionGroups: normalizePermissionGroups(item.permission_groups),
       modelPolicy: typeof item.model_policy === "string" ? item.model_policy : "",
       joinPolicy: typeof item.join_policy === "string" ? item.join_policy : "",
       presencePolicy: typeof item.presence_policy === "string" ? item.presence_policy : ""
@@ -309,6 +386,7 @@ function normalizeMembers(items) {
       inOrder: item.in_order === true,
       joinPolicy: typeof item.join_policy === "string" ? item.join_policy : "",
       toolsPolicy: typeof item.tools_policy === "string" ? item.tools_policy : "",
+      permissionGroups: normalizePermissionGroups(item.permission_groups),
       systemPrompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
       modelPolicy: typeof item.model_policy === "string" ? item.model_policy : "",
       presencePolicy: typeof item.presence_policy === "string" ? item.presence_policy : ""
@@ -409,7 +487,7 @@ function staffSection(team) {
 function staffRows(team) {
   const ordered = team.orderRoles.map(name => team.members.find(member => member.roleName === name) || {
     roleName: name, roleKind: "", roleSessionID: "", orderIndex: -1, inOrder: true,
-    joinPolicy: "", toolsPolicy: "", systemPrompt: "", modelPolicy: "", presencePolicy: ""
+    joinPolicy: "", toolsPolicy: "", permissionGroups: null, systemPrompt: "", modelPolicy: "", presencePolicy: ""
   });
   const outside = team.members.filter(member => !team.orderRoles.includes(member.roleName) && member.roleKind !== "timer");
   const scheduled = team.members.filter(member => member.roleKind === "timer" && !team.orderRoles.includes(member.roleName));
@@ -428,7 +506,7 @@ function staffRow(member, orderIndex, team, scheduled = false) {
   const onFloor = member.roleName === team.floorRole;
   const inOrder = orderIndex >= 0;
   const position = inOrder ? `#${orderIndex + 1}` : scheduled ? "定时" : "未排入";
-  const perm = toolsPolicyLabel(member.toolsPolicy);
+  const perm = memberPermLabel(member);
   const promptChip = member.systemPrompt
     ? `<span class="team-perm-chip" title="已登记提示词（${escapeHtml(String(member.systemPrompt.length))} 字符）">提示词</span>`
     : `<span class="team-perm-chip is-inherit" title="未登记提示词">无提示词</span>`;
@@ -473,7 +551,14 @@ export function hirePanel(team, member, scope = "session") {
   const toLibrary = scope === "library";
   const kindOptions = options(ROLE_KIND_OPTIONS, role.roleKind || "agent");
   const joinOptions = options(JOIN_POLICY_OPTIONS, role.joinPolicy || "on_team_create");
-  const toolsOptions = options(TOOLS_POLICY_OPTIONS, role.toolsPolicy || "");
+  // 权限下拉 = 登记值（与 dto.ToolPolicy* 一致的档位）+ 一个 **UI 哨兵**（"逐格装配"，
+  // 不落盘为 tools_policy）。哨兵不放进 TOOLS_POLICY_OPTIONS：那是一份与后端枚举
+  // 一一对应的词表，混进 UI 专有取值会让"登记的取值集合"变成两回事。
+  const customPermission = normalizePermissionGroups(role.permissionGroups) !== null;
+  const toolsOptions = options(
+    TOOLS_POLICY_OPTIONS.concat([[PERMISSION_CUSTOM_TOOLS, "逐格装配（在下面勾选）"]]),
+    customPermission ? PERMISSION_CUSTOM_TOOLS : (role.toolsPolicy || "")
+  );
   const modelOptions = options(MODEL_POLICY_OPTIONS, role.modelPolicy || "");
   const title = toLibrary
     ? (editing ? `修改员工 · ${escapeHtml(roleDisplayName(role.roleName, role.roleKind))}` : "新建员工 · 员工库")
@@ -485,9 +570,10 @@ export function hirePanel(team, member, scope = "session") {
   fields.push(fieldItem(3, "入职时机", `<select name="join_policy" data-team-hire-join title="什么时候把这个员工拉进会话（定时触发的不进发言顺序）">${joinOptions}</select>`));
   fields.push(fieldItem(4, "在席策略",
     `<input type="text" name="presence_policy" data-team-hire-presence placeholder="留空继承（online_when_goal_active…）" value="${escapeHtml(role.presencePolicy || "")}" title="留空 = 继承团队 / 会话默认">`));
-  fields.push(fieldItem(5, "权限", `<select name="tools_policy" data-team-hire-tools title="工具集：readonly 只读 / readwrite 读写 / full 全权；留空继承宿主默认">${toolsOptions}</select>`));
-  fields.push(fieldItem(6, "模型", `<select name="model_policy" data-team-hire-model title="这一位用哪个模型档位（供应商与模型在「账号」页配）">${modelOptions}</select>`));
-  fields.push(fieldItem(7, "员工提示词",
+  fields.push(fieldItem(5, "权限", `<select name="tools_policy" data-team-hire-tools title="档位预设：readonly 只读 / readwrite 读写 / full 全权；留空继承宿主默认。要精调就选「逐格装配」">${toolsOptions}</select>`));
+  fields.push(fieldBlock(6, "权限位", permissionGrid(role, customPermission)));
+  fields.push(fieldItem(7, "模型", `<select name="model_policy" data-team-hire-model title="这一位用哪个模型档位（供应商与模型在「账号」页配）">${modelOptions}</select>`));
+  fields.push(fieldItem(8, "员工提示词",
     `<textarea name="system_prompt" data-team-hire-prompt placeholder="这个员工怎么干活：职责边界、输入、输出格式、约束" title="装配时会作为该角色会话的系统提示词">${escapeHtml(role.systemPrompt || "")}</textarea>`));
   return `<div class="team-editor" data-team-editor="hire">
     <div class="team-editor-head">
@@ -498,8 +584,8 @@ export function hirePanel(team, member, scope = "session") {
     <form class="team-hire-form" data-team-hire-form data-team-hire-scope="${toLibrary ? "library" : "session"}" autocomplete="off">
       ${fieldGroup("身份", fields.slice(0, 2))}
       ${fieldGroup("编排", fields.slice(2, 4))}
-      ${fieldGroup("能力", fields.slice(4, 6))}
-      ${fieldGroup("提示词", fields.slice(6))}
+      ${fieldGroup("能力", fields.slice(4, 7))}
+      ${fieldGroup("提示词", fields.slice(7))}
       <div class="team-prompt-actions">
         <button type="button" class="text-button" data-team-optimize="1" data-tip="让模型把这个提示词改写成更明确可执行的版本（只产出候选，点保存才落盘）">优化提示词</button>
         <span class="team-prompt-state" data-team-optimize-state></span>
@@ -523,6 +609,30 @@ function fieldItem(index, label, control, hint = "") {
       ${control}
       ${hint ? `<span class="team-field-hint">${escapeHtml(hint)}</span>` : ""}
     </label>`;
+}
+
+// fieldBlock 与 fieldItem 同形，但用 div 而不是 label：控件里**自带 label**（例如
+// 逐格权限的每个勾选框）时不能套外层 label——HTML 不允许 label 嵌套，点一个勾选框
+// 会连带切换另一个（真是"点一下就装错权限"）。
+function fieldBlock(index, label, control, hint = "") {
+  return `<div class="team-field">
+      <span class="team-field-label"><span class="team-field-no">${index}</span>${escapeHtml(label)}</span>
+      ${control}
+      ${hint ? `<span class="team-field-hint">${escapeHtml(hint)}</span>` : ""}
+    </div>`;
+}
+
+// permissionGrid 渲染"逐格装配"的权限面板（路由组 × r/w/x）。默认隐藏：只有权限
+// 下拉选到「逐格装配」时才显示（否则用户会以为没选档位就以格子为准）。初始勾选
+// 取"已装配的格子"，没有则取当前档位的预设形状（切到逐格时是一个合理的起点）。
+function permissionGrid(role, visible) {
+  const current = normalizePermissionGroups(role?.permissionGroups) || POLICY_GROUP_PRESET[role?.toolsPolicy] || {};
+  const rows = PERMISSION_GROUPS.map(group => {
+    const bits = Number(current[group.name] || 0);
+    const boxes = PERMISSION_BITS.map(item => `<label class="team-perm-bit" title="${escapeHtml(`${group.label} · ${item.hint}`)}"><input type="checkbox" data-team-hire-perm="${escapeHtml(group.name)}" data-team-hire-perm-bit="${item.bit}"${(bits & item.bit) === item.bit ? " checked" : ""}><span>${escapeHtml(item.label)}</span></label>`).join("");
+    return `<div class="team-perm-grid-row"><span class="team-perm-grid-name" title="${escapeHtml(group.hint)}">${escapeHtml(group.label)}</span><span class="team-perm-grid-bits">${boxes}</span></div>`;
+  }).join("");
+  return `<div class="team-perm-grid" data-team-hire-perm-grid${visible ? "" : " hidden"} title="逐格装配（路由组 × 位）：勾了就按这格子判，未勾的族 = 不开；选档位预设时这几格不生效">${rows}</div>`;
 }
 
 // fieldGroup 把若干条目字段收进一节（节头 + 条目），让长面板有可扫读的分段。

@@ -24,7 +24,6 @@ import (
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/console"
-	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
 	coretask "github.com/RedHuang-0622/seelex/application/core/task_context"
@@ -252,27 +251,30 @@ func run() error {
 	})
 	// 员工权责接线：把"角色会话 → ToolsPolicy"的读面注入权限门。员工的工具调用
 	// 因此判成 emp_ro / emp_rw 主体：位齐按组默认/规则走，位缺（违权）走执行选择
-	// 页面提权（人类的选择页 = sudo 口令）。员工角色会话之前，员工回合执行面尚未
-	// 落 framework Session（只有 tl 的 ADVISOR 回合，且它不持工具），这条读面先接上，
-	// 执行面一旦落到同一注册表即自动受管辖。
+	// 页面提权（人类的选择页 = sudo 口令）。
+	//
+	// 归属解析走 application 侧的**反向索引**（角色会话 → 归属主会话 + 权责），
+	// 不再锚"当前视图会话"：角色会话可能属于后台会话，按视图会话查会查不到而落回
+	// root（= 不拦）。索引只有"读到过该角色会话的注册表"才有事实，所以角色回合
+	// 执行体仍应按构造把主体类放进 ctx（见 WithEmployeeSubjectClass）——两条路
+	// 给出同一个结论，任何一条可用即拦得住。
 	runtime.SetRoleSessionPolicyResolver(func(roleSessionID string) (string, bool) {
 		if strings.TrimSpace(roleSessionID) == "" {
 			return "", false
 		}
-		sessionID := app.Snapshot().Session.ID
-		if sessionID == "" {
+		return app.RoleSessionToolsPolicy(roleSessionID)
+	})
+	// 员工/评审者越权提权的审批归属：角色会话（goal-a2a-pm / advisor:<main>）不在
+	// 用户视图里，也没有自己的会话单元，因此它的待批请求不会进视图单格、不会进目录
+	// awaiting_approval——对宿主完全不可见，只能等审批超时被拒。折算到宿主主会话后，
+	// **现有**审批面板/目录/会话快照三条读面原样复用（不新建面板）。
+	//
+	// 与主体判定无关：判定仍按角色会话的主体（emp_<角色>）走，这里只改"审批弹在哪"。
+	runtime.SetRoleSessionOwnerResolver(func(roleSessionID string) (string, bool) {
+		if strings.TrimSpace(roleSessionID) == "" {
 			return "", false
 		}
-		view, err := app.AgentTeamView(sessionID)
-		if err != nil {
-			return "", false
-		}
-		for _, member := range append(append([]dto.TeamMember(nil), view.Members...), view.Scheduled...) {
-			if member.RoleSessionID == roleSessionID {
-				return member.ToolsPolicy, true
-			}
-		}
-		return "", false
+		return app.RoleSessionOwner(roleSessionID)
 	})
 	if tlEvaluator := runtime.GoalTLEvaluator(); tlEvaluator != nil {
 		app.SetGoalTLEvaluator(tlEvaluator)
@@ -1148,6 +1150,9 @@ func initApplication(
 		// 员工提示词的一次有界优化（Agent Team 入职面板）：实现方是 Runtime
 		// 主 completer；未配置账号/completer 时应用层返回可展示错误。
 		RolePrompt: runtime,
+		// 装配期分配员工权限（与用户权限同一张权责表）：装配团队时把在编员工落成
+		// 各自的主体条目 emp_<角色名>，员工回合的工具判定与工具面都按它生效。
+		EmployeePermissions: runtime,
 	})
 }
 

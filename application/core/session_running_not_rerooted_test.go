@@ -35,8 +35,8 @@ func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 	if got := service.bindProjectRootIfSafe("session-a", rootB); got {
 		t.Fatal("bindProjectRootIfSafe rebound global root while a session is running")
 	}
-	if runtime.projectRoot != "" {
-		t.Fatalf("global project root = %q after refused bind, want unchanged", runtime.projectRoot)
+	if runtime.ProjectRoot() != "" {
+		t.Fatalf("global project root = %q after refused bind, want unchanged", runtime.ProjectRoot())
 	}
 
 	// 进程回到完全空闲后：允许重绑（工具按当前视图会话工作区恢复的前提）。
@@ -46,7 +46,7 @@ func TestRunningSessionNotRerootedByAttach(t *testing.T) {
 	if got := service.bindProjectRootIfSafe("session-a", rootB); !got {
 		t.Fatal("bindProjectRootIfSafe refused bind while idle")
 	}
-	if runtime.projectRoot != rootB {
-		t.Fatalf("project root after idle bind = %q, want %q", runtime.projectRoot, rootB)
+	if runtime.ProjectRoot() != rootB {
+		t.Fatalf("project root after idle bind = %q, want %q", runtime.ProjectRoot(), rootB)
 	}
 }

@@ -30,8 +30,8 @@ func TestBindWorkspaceSetsProjectScope(t *testing.T) {
 	}
 	// 工具/工作树仍读进程级 projectScope：绑定后必须有根，否则工作区会话
 	// 的所有路径类工具都失效。
-	if runtime.projectRoot != root {
-		t.Fatalf("project root after BindWorkspace = %q, want %q（工作区绑定未生效；per-session root 能力未实现前不得跳过全局根）", runtime.projectRoot, root)
+	if runtime.ProjectRoot() != root {
+		t.Fatalf("project root after BindWorkspace = %q, want %q（工作区绑定未生效；per-session root 能力未实现前不得跳过全局根）", runtime.ProjectRoot(), root)
 	}
 	if sessions.Workspace() != "project-1" {
 		t.Fatalf("router write scope after BindWorkspace = %q, want project-1", sessions.Workspace())

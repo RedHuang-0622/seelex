@@ -33,8 +33,8 @@ func TestPerSessionHostDoesNotSkipGlobalScopeSideEffects(t *testing.T) {
 	if err := service.bindGlobalProjectRoot("C:\\proj"); err != nil {
 		t.Fatalf("bindGlobalProjectRoot: %v", err)
 	}
-	if runtime.projectRoot != "C:\\proj" {
-		t.Fatalf("global project root after bind = %q, want C:\\proj（不得因 PerSessionExecution 跳过）", runtime.projectRoot)
+	if runtime.ProjectRoot() != "C:\\proj" {
+		t.Fatalf("global project root after bind = %q, want C:\\proj（不得因 PerSessionExecution 跳过）", runtime.ProjectRoot())
 	}
 	service.setWorkspaceWriteScope("project-1")
 	if got := sessions.Workspace(); got != "project-1" {

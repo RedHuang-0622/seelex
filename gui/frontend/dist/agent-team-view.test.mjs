@@ -182,7 +182,7 @@ test("员工面板不摆小字备注（说明只在 title 里）", () => {
   // 「优化提示词」的运行态回执照旧小字显示（空态不占位），它自己的类与备注分开。
   assert.match(panels[0], /class="team-prompt-state" data-team-optimize-state/);
   // 面板骨架与字段数不变（7 个字段一条流水线，编号还在）。
-  assert.equal((panels[0].match(/class="team-field-no"/g) || []).length, 7);
+  assert.equal((panels[0].match(/class="team-field-no"/g) || []).length, 8);
   assert.match(panels[0], /data-team-hire-prompt/);
 });
 

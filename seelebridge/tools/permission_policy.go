@@ -2,11 +2,14 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
 	frameworktools "github.com/RedHuang-0622/Seele/tools"
 	toolspermission "github.com/RedHuang-0622/Seele/tools/permission"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/seelebridge/internal/model"
 )
 
@@ -51,13 +54,17 @@ const (
 )
 
 // 路由组名（位与默认动作见 DefaultPermissionGroupList）。
+//
+// 字面量的**唯一事实在 application/contract/dto**（dto.PermissionGroup*）：组名
+// 同时是"前端权限装配面板"的格子名与"写入侧校验"的枚举，两边必须是同一份；
+// 这里只做别名，方便本包内部引用。
 const (
-	GroupRO        = "ro"         // 读簇：不改任何共享状态
-	GroupRW        = "rw"         // 写簇：项目文件 + 自有工作台
-	GroupRWSession = "rw_session" // 写簇：本会话可变 transcript（子代理无位）
-	GroupRWDesktop = "rw_desktop" // 写簇：共享外设（一块桌面，子代理无位）
-	GroupCTL       = "ctl"        // 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构
-	GroupADM       = "adm"        // 属主簇：改变能力面本身（仅 root）
+	GroupRO        = dto.PermissionGroupRO        // 读簇：不改任何共享状态
+	GroupRW        = dto.PermissionGroupRW        // 写簇：项目文件 + 自有工作台
+	GroupRWSession = dto.PermissionGroupRWSession // 写簇：本会话可变 transcript（子代理无位）
+	GroupRWDesktop = dto.PermissionGroupRWDesktop // 写簇：共享外设（一块桌面，子代理无位）
+	GroupCTL       = dto.PermissionGroupCTL       // 叫停 loop 簇：结束 / 挂起 / 派生 / 装载执行结构
+	GroupADM       = dto.PermissionGroupADM       // 属主簇：改变能力面本身（仅 root）
 )
 
 // 位的 resource 限定口径（rw 必须落在哪片资源上）。
@@ -67,12 +74,12 @@ const (
 	ResourceDesktop = "desktop" // 共享外设：所有并行子代理共用一块桌面
 )
 
-// 位值（r=4 / w=2 / x=1）。
+// 位值（r=4 / w=2 / x=1）。字面量同样取自 dto（跨层词表），这里只是别名。
 const (
-	bitRead    uint8 = 4
-	bitWrite   uint8 = 2
-	bitExecute uint8 = 1
-	bitAll     uint8 = bitRead | bitWrite | bitExecute
+	bitRead    uint8 = dto.PermissionBitRead
+	bitWrite   uint8 = dto.PermissionBitWrite
+	bitExecute uint8 = dto.PermissionBitExecute
+	bitAll     uint8 = dto.PermissionBitAll
 )
 
 // DefaultPermissionGroupList 是默认路由组表：按工具名 glob 路由，组带对象 mode 与默认动作。
@@ -510,6 +517,15 @@ func (state *PermissionGate) visibleFor(subject toolspermission.Subject, name st
 //   - 分封但位缺（如 emp_ro 的 rw/ctl/adm）→ 不在面上：工具面就是"授权范围内的
 //     能力清单"，位缺的能力不摆出来（提权仍可通过选择页面发生）。
 func (state *PermissionGate) ToolFaceFor(class SubjectClass, toolName string) bool {
+	return state.ToolFaceForSubject(SubjectForClass(class), toolName)
+}
+
+// ToolFaceForSubject 是工具面的**主体版**判定：把主体（root / sub / emp_ro /
+// emp_rw / emp_<角色>）在授权表里的位，与该工具所属路由组要求的位对齐。
+//
+// 与类版（ToolFaceFor）的关系：类版只认共享的三档主体，适合作"批量按类"的旧调用；
+// 员工执行面要的是主体版——同一档位的两个员工可以有不同能力面（装配期各自的分配）。
+func (state *PermissionGate) ToolFaceForSubject(subject toolspermission.Subject, toolName string) bool {
 	if state == nil {
 		return true
 	}
@@ -521,7 +537,7 @@ func (state *PermissionGate) ToolFaceFor(class SubjectClass, toolName string) bo
 	if !routed {
 		return false
 	}
-	grant, ok := cfg.Subjects[SubjectForClass(class)]
+	grant, ok := cfg.Subjects[subject]
 	if !ok {
 		return true
 	}
@@ -534,6 +550,10 @@ func (state *PermissionGate) ToolFaceFor(class SubjectClass, toolName string) bo
 // （emp_ro / emp_rw）收窄工具面；root（主代理 / entry / goalplan）、sub（子代理）
 // 与未登记会话一律返回 true——它们的可见性口径仍由 tools/policy.go 的既有规则
 // 决定，本方法不新增限制。
+//
+// 员工侧的主体解析走与判定同一条路（resolveEmployeeSubject）：员工执行面在 ctx 里
+// 带了角色名时，工具面按**这个员工自己的主体**算，而不是按共享的三档类——否则
+// "给某个员工单独分配的能力面"在列工具时会被抹平（分配生效了，模型却看不到）。
 func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName string) bool {
 	if state == nil {
 		return true
@@ -541,8 +561,307 @@ func (state *PermissionGate) ToolFaceForContext(ctx context.Context, toolName st
 	class := state.classFor(ctx)
 	switch class {
 	case SubjectClassEmployeeRO, SubjectClassEmployeeRW:
-		return state.ToolFaceFor(class, toolName)
+		return state.ToolFaceForSubject(state.resolveEmployeeSubject(ctx, class), toolName)
 	default:
 		return true
 	}
+}
+
+// EmployeeSubjectPrefix 是"员工主体"的命名前缀：**一个员工 = 一个主体**，
+// 与 root / sub 平权地放在同一张授权表（主体 × 路由组 × 位）里。
+//
+// 这就是"员工的权限像用户权限一样分配"的落点：用户（root）的权限是一条主体条目，
+// 员工的权限也是——区别只有名字（emp_<角色名>）与位（按需分配），而不是"用户有
+// 一张表、员工只有三档枚举"。
+const EmployeeSubjectPrefix = "emp_"
+
+// 员工分组位的可读别名（与框架位值 r=4 / w=2 / x=1 一致）。
+const (
+	GroupBitRead    uint8 = bitRead
+	GroupBitWrite   uint8 = bitWrite
+	GroupBitExecute uint8 = bitExecute
+	GroupBitAll     uint8 = bitAll
+)
+
+// EmployeeSubjectName 把角色名规范化成员工主体名：小写，非 [a-z0-9_-] 归一为 '_'。
+//
+// 归一化是必须的——主体名会写进配置文件（permission.subjects）当键，随便什么角色名
+// 都塞进去会让配置面变成不可读的垃圾；空名不是员工。
+//
+// 但"归一"不能**丢身份**：纯非 ASCII 的角色名（中文角色名很常见）会被整串替换成
+// '_'，那样 "评审官 1" 与 "工人 1" 会归一成同一个主体——两个员工共享一条授权，
+// 权限互相泄漏。所以一旦有字符被替换（或有信息被丢掉），主体名追加角色原文的
+// 短哈希：ASCII 角色名保持可读（emp_pm），非 ASCII 角色名保持可辨认且不撞车
+// （emp_1_a1b2c3d4）。
+func EmployeeSubjectName(roleName string) string {
+	raw := strings.TrimSpace(roleName)
+	if raw == "" {
+		return ""
+	}
+	var builder strings.Builder
+	dropped := false
+	for _, symbol := range strings.ToLower(raw) {
+		switch {
+		case symbol >= 'a' && symbol <= 'z', symbol >= '0' && symbol <= '9', symbol == '_', symbol == '-':
+			builder.WriteRune(symbol)
+		default:
+			builder.WriteRune('_')
+			dropped = true
+		}
+	}
+	slug := strings.Trim(builder.String(), "_")
+	if slug == "" {
+		return EmployeeSubjectPrefix + employeeSubjectHash(raw)
+	}
+	if !dropped {
+		return EmployeeSubjectPrefix + slug
+	}
+	return EmployeeSubjectPrefix + slug + "_" + employeeSubjectHash(raw)
+}
+
+// employeeSubjectHash 是角色原文的稳定短哈希（8 位十六进制）：只在归一化丢信息时
+// 用来区分"归一后同名"的不同角色。
+func employeeSubjectHash(roleName string) string {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(roleName))
+	return fmt.Sprintf("%08x", hasher.Sum32())
+}
+
+// EmployeeSubject 返回员工的主体 id（不是员工 → ok=false）。
+func EmployeeSubject(roleName string) (toolspermission.Subject, bool) {
+	name := EmployeeSubjectName(roleName)
+	if name == "" {
+		return "", false
+	}
+	return toolspermission.Subject(name), true
+}
+
+// EmployeePermission 是**装配期给一个员工分配的权限**：与用户权限同一张表
+// （主体 × 路由组 × 位），区别只是主体名（emp_<角色名>）。
+//
+//   - Groups 非空 → 逐组给位（未列出的组 = 0 位，即该族能力不在面上）；
+//   - Groups 为空 → 按 Policy 档位派生默认位（readonly → 读位；readwrite → 读位 +
+//     项目写位），与 emp_ro / emp_rw 同口径。
+//
+// 空 / full / 未识别的 Policy 不给主体条目（"继承宿主默认"必须真的是继承宿主，
+// 拿一条自造条目冒充继承是两回事）。
+type EmployeePermission struct {
+	RoleName string
+	Policy   string
+	Groups   map[string]uint8
+}
+
+// EmployeeGroupsForPolicy 把 ToolsPolicy 档位派生成逐组位（与 emp_ro / emp_rw
+// 同口径）。未识别的口径返回 nil（= 不分配主体条目）。
+func EmployeeGroupsForPolicy(policy string) map[string]uint8 {
+	switch strings.ToLower(strings.TrimSpace(policy)) {
+	case "readonly":
+		return map[string]uint8{GroupRO: bitRead, GroupRW: 0, GroupCTL: 0, GroupADM: 0}
+	case "readwrite":
+		return map[string]uint8{GroupRO: bitRead, GroupRW: bitRead | bitWrite, GroupCTL: 0, GroupADM: 0}
+	default:
+		return nil
+	}
+}
+
+// EmployeeGrantFor 把 ToolsPolicy 档位派生成框架授权条目（未识别口径 → root 位，
+// 与 ClassForToolsPolicy 的兜底一致：给不出"员工档"时按宿主默认）。
+func EmployeeGrantFor(policy string) toolspermission.SubjectGrant {
+	groups := EmployeeGroupsForPolicy(policy)
+	if groups == nil {
+		subjects := DefaultPermissionSubjects()
+		if root, ok := subjects[SubjectForClass(SubjectClassRoot)]; ok {
+			return root
+		}
+		return toolspermission.SubjectGrant{}
+	}
+	return grantFromEmployeeGroups(groups)
+}
+
+// Grant 把一次员工权限分配落成框架授权条目。
+func (permission EmployeePermission) Grant() (toolspermission.SubjectGrant, error) {
+	if len(permission.Groups) > 0 {
+		return grantFromEmployeeGroups(permission.Groups), nil
+	}
+	groups := EmployeeGroupsForPolicy(permission.Policy)
+	if groups == nil {
+		return toolspermission.SubjectGrant{}, fmt.Errorf("员工 %q 的权责口径 %q 不是可分配档位（只读/读写/显式分组位）",
+			permission.RoleName, permission.Policy)
+	}
+	return grantFromEmployeeGroups(groups), nil
+}
+
+// grantFromEmployeeGroups 把逐组位落成授权条目，并按组补齐 resource 限定
+// （与 DefaultPermissionSubjects 同口径：rw 限项目、rw_session 限本会话、
+// rw_desktop 限共享外设；ro/ctl/adm 不限）。
+func grantFromEmployeeGroups(groups map[string]uint8) toolspermission.SubjectGrant {
+	bits := make(map[string]toolspermission.GrantBit, len(groups))
+	for group, value := range groups {
+		bits[group] = toolspermission.GrantBit{Bits: value, Resources: employeeResourcesFor(group)}
+	}
+	return toolspermission.SubjectGrant{Bits: bits}
+}
+
+func employeeResourcesFor(group string) []string {
+	switch group {
+	case GroupRW:
+		return []string{ResourceProject}
+	case GroupRWSession:
+		return []string{ResourceSession}
+	case GroupRWDesktop:
+		return []string{ResourceDesktop}
+	default:
+		return nil
+	}
+}
+
+// employeeSubjectCtxKey 携带"员工是谁"（角色名 + 权责档 + 逐格装配的权限）。放在 ctx
+// 而不是共享字段上，是因为并行会话/并行角色回合同时调工具：共享字段必被互相污染。
+type employeeSubjectCtxKey struct{}
+
+// employeeIdentity 是一次调用里已确定的员工身份。
+type employeeIdentity struct {
+	RoleName string
+	Policy   string
+	// Groups 是**逐格装配**的权限（路由组 → 位）；空 = 按 Policy 档位派生。
+	Groups map[string]uint8
+}
+
+// WithEmployeeSubjectClass 把"已经确定的员工主体类"放进 ctx：角色回合执行体
+// （员工/ADVISOR 自己的工具回合）在起手就知道自己是谁（角色会话 + ToolsPolicy），
+// 不该让下游再从会话号反查一遍归属。
+//
+// 它与 roleSessionClass（会话号 → 角色权责）给出同一个结论，但优先级更高：
+// classFor 先读 ctx。于是即使角色会话归属索引冷启动没查到（例如角色回合比它的
+// 主会话注册表先被读到），角色回合的工具调用照样按员工口径拦——"按构造授权"
+// 永远比"按反查授权"可靠。
+//
+// toolsPolicy 用注册表里的员工口径（readonly / readwrite / full|空=继承宿主默认）；
+// 无法识别的口径落回 root。写路径的枚举校验保证不会写入垃圾口径（见注册表校验）。
+//
+// 与 WithEmployeeSubject 的关系：本函数只表达**档位**（共享主体 emp_ro / emp_rw），
+// 适合"只想知道按哪档判"的调用；要按员工自己的主体分配与判定（emp_<角色名>），用
+// WithEmployeeSubject / WithEmployeeGrant（它们同时把档位写进主体类，本函数是子集）。
+func WithEmployeeSubjectClass(ctx context.Context, toolsPolicy string) context.Context {
+	return withSubjectClass(ctx, ClassForToolsPolicy(toolsPolicy))
+}
+
+// WithEmployeeSubject 把"员工是谁"放进 ctx：角色回合执行体（员工自己的工具回合）
+// 起手就知道自己是谁。
+//
+// 它与 WithEmployeeSubjectClass 的差别正是"员工权限像用户权限一样分配"所需的那一环：
+// 后者只带**权责档**（readonly/readwrite → 共享的 emp_ro / emp_rw 主体），前者多带
+// **角色名**，于是判定与工具面都落到这个员工自己的主体 emp_<角色名> 上——装配期给
+// 他分配了什么，运行时就是什么；两个同档位的员工也能有不同权限。
+// 它同时把权责档写进主体类（classFor 先读 ctx），因此员工口径的兜底（位缺提权）
+// 一并生效，不依赖会话号反查。
+func WithEmployeeSubject(ctx context.Context, roleName, toolsPolicy string) context.Context {
+	return WithEmployeeGrant(ctx, roleName, toolsPolicy, nil)
+}
+
+// WithEmployeeGrant 是 WithEmployeeSubject 的**逐格装配版**：除了角色名与档位，还带上
+// 显式分配的权限格子（路由组 → 位，见 dto.NormalizePermissionGroups）。
+//
+// 为什么必须把格子也按构造带进来：主体类（emp_ro / emp_rw）只决定"按员工这条分支判"，
+// 真正的能力面是主体条目 emp_<角色名> 的位。而"这个员工有哪些格子"只有装配期知道
+// （注册表读面给出的 ToolsPolicy 只有档位）；不按构造带，装配好的格子就会在"角色会话
+// 冷启动、反查没查到"的窗口里退化成档位默认——即"装配了但没生效"。
+//
+// 档位与格子的优先级与装配期一致：**格子非空则以格子为准**（档位只用于选分支）。
+func WithEmployeeGrant(ctx context.Context, roleName, toolsPolicy string, groups map[string]uint8) context.Context {
+	identity := employeeIdentity{
+		RoleName: strings.TrimSpace(roleName),
+		Policy:   toolsPolicy,
+		Groups:   cloneEmployeeGroups(groups),
+	}
+	ctx = context.WithValue(ctx, employeeSubjectCtxKey{}, identity)
+	return withSubjectClass(ctx, ClassForEmployeeGrant(toolsPolicy, groups))
+}
+
+// ClassForEmployeeGrant 把（档位 + 显式格子）映射成员工主体类。
+//
+// 类只用来选**分支**（员工分支 vs root 分支），不是能力面：能力面由 emp_<角色名>
+// 条目的位决定。显式格子非空时，只要有任何非 ro 能力就按读写档分支（"这是有写/执行
+// 能力的员工"），否则按只读档分支；档位为空/未识别也不会退化成 root——那会让
+// "前端装配过权限的员工"按主代理判，是 fail-open。
+func ClassForEmployeeGrant(toolsPolicy string, groups map[string]uint8) SubjectClass {
+	if len(groups) == 0 {
+		return ClassForToolsPolicy(toolsPolicy)
+	}
+	for group, bits := range groups {
+		if group == GroupRO {
+			continue
+		}
+		if bits != 0 {
+			return SubjectClassEmployeeRW
+		}
+	}
+	return SubjectClassEmployeeRO
+}
+
+// cloneEmployeeGroups 复制一份权限格子（ctx 里的身份不该与调用方的 map 共享可变状态）。
+func cloneEmployeeGroups(groups map[string]uint8) map[string]uint8 {
+	if len(groups) == 0 {
+		return nil
+	}
+	cloned := make(map[string]uint8, len(groups))
+	for group, bits := range groups {
+		cloned[group] = bits
+	}
+	return cloned
+}
+
+// employeeFromContext 取 ctx 里的员工身份（没有 → 不是员工执行面）。
+func employeeFromContext(ctx context.Context) (employeeIdentity, bool) {
+	if ctx == nil {
+		return employeeIdentity{}, false
+	}
+	identity, ok := ctx.Value(employeeSubjectCtxKey{}).(employeeIdentity)
+	if !ok || identity.RoleName == "" {
+		return employeeIdentity{}, false
+	}
+	return identity, true
+}
+
+// resolveEmployeeSubject 解析本次调用的**授权主体**：
+//   - ctx 里带员工身份（员工执行面）→ 这个员工自己的主体 emp_<角色>，
+//     缺条目时按他的（显式格子优先，其次档位）补一条默认（装配期显式分配的条目优先）；
+//   - 其余 → 主体类对应的共享主体（root / sub / emp_ro / emp_rw）。
+func (state *PermissionGate) resolveEmployeeSubject(ctx context.Context, class SubjectClass) toolspermission.Subject {
+	identity, ok := employeeFromContext(ctx)
+	if !ok {
+		return SubjectForClass(class)
+	}
+	subject, ok := EmployeeSubject(identity.RoleName)
+	if !ok {
+		return SubjectForClass(class)
+	}
+	state.ensureEmployeeSubject(subject, identity)
+	return subject
+}
+
+// ensureEmployeeSubject 保证员工主体在授权表里有条目：装配期显式分配优先，没有则按
+// （显式格子 → 档位）派生默认位。条目缺位时主体会被框架当成"未授权主体"——那会把
+// "没分配过"变成"没有任何能力"，而不是"按装配的口径判"。
+func (state *PermissionGate) ensureEmployeeSubject(subject toolspermission.Subject, identity employeeIdentity) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.cfg.Subjects == nil {
+		return
+	}
+	if _, exists := state.cfg.Subjects[subject]; exists {
+		return
+	}
+	state.cfg.Subjects[subject] = grantForEmployeeIdentity(identity)
+	state.checker = toolspermission.NewPermissionChecker(state.cfg)
+}
+
+// grantForEmployeeIdentity 把一份员工身份落成授权条目：显式格子优先，否则按档位。
+// 与装配期 Runtime.AssignEmployeePermissions 的派生口径同一套（EmployeeGrantFor /
+// grantFromEmployeeGroups），因此"装配期分配"与"运行时补默认"给出同一个结论。
+func grantForEmployeeIdentity(identity employeeIdentity) toolspermission.SubjectGrant {
+	if len(identity.Groups) > 0 {
+		return grantFromEmployeeGroups(identity.Groups)
+	}
+	return EmployeeGrantFor(identity.Policy)
 }
