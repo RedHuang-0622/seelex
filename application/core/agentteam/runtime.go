@@ -15,6 +15,7 @@ package agentteam
 // order_roles 一份，Runtime 只是它在运行时的镜像 + 记账。
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -95,6 +96,28 @@ type Runtime struct {
 	// userSeatExplicit 非 nil 表示 user 席位口径被显式覆盖过：此时顺序策略
 	// 变化不再改写它（显式选择优先于推导）。
 	userSeatExplicit *UserSeatPolicy
+
+	// prefix / prefixParts 是「team work 起点 → 当前位置」正文前缀的只读投影。
+	//
+	// **作者不在本包**：前缀是该主会话上下文（main session context）在存储侧的
+	// 一次只读装配——roleName=main 复用主会话自身的引擎与 key，wire = main
+	// compact 帧充当前缀 + seq > 切点 的已发布行 + 主会话自身 pending draft
+	// （就是主会话的 draft/main.jsonl）。它和 TL 的对话记录是同一条 engine loop
+	// 写出的正文，所以前缀与对话记录天然同口径。
+	//
+	// 本包只做两件事：把 wire 投影成可下发的正文（纯函数），再交给调度器当载体
+	// （`NoteMainContext` → `SetPrefix`）。没有任何 GUI/端口写入口——前端只能通过
+	// `Snapshot()` 读，不能回写；一旦允许前端把"它渲染出来的文本"推回来，后端真值
+	// 就变成前端派生物，前缀随即与帧账本/缓存前缀不匹配（用户明确担心的那条污染
+	// 路径）。见 prefix_test.go 的守卫用例。
+	prefixParts []string
+	prefix      string
+
+	// 前缀的口径锚点：随 wire 只读暴露，前后端据此核对"看的是同一条 wire"。
+	prefixDigest      string
+	prefixAppliedSeq  uint64
+	prefixTailSeq     uint64
+	prefixNeedCompact bool
 }
 
 // NewRuntime 构造运行态。sessions 提供 role_name → role_session_id（成员表的
@@ -161,6 +184,92 @@ func (r *Runtime) Order() []string {
 		return nil
 	}
 	return r.scheduler.Order()
+}
+
+// NoteMainContext 用「主会话上下文 + 主会话 draft」的只读装配结果刷新 team work
+// 前缀（**前缀的唯一投影点**）。
+//
+// 数据源是一次 `AssembleRoleWire(mainSessionID, "main", mainSessionID, …)` 的读：
+// main 角色复用主会话自身的引擎与 key，装配结果 = main compact 帧充当前缀 +
+// seq > 切点 的已发布行 + 主会话自身 pending draft（draft/main.jsonl）。前缀因此与
+// 主会话的对话记录（同一套 engine loop 写出的行）同源同口径，而不是本包或治理域
+// 另搓一段摘要——上一版把 chat 侧回合摘要逐轮累积当前缀，正是"第三套口径"。
+//
+// 边界交给作者：wire 装配的 budget/k 决定前缀与切点（NeedCompact 是显式信号），
+// 本包**不再二次截断**——二次截断会让前缀当场不再等于主会话上下文，前后端口径
+// 分叉。刻意不接受任何 GUI/端口参数，见 runtime.go 结构体上的说明与
+// prefix_test.go 的守卫用例。
+//
+// 只读语义：这里只写本环自己的运行态与调度器载体，不碰任何会话行。
+func (r *Runtime) NoteMainContext(wire dto.RoleWireSnapshot) {
+	if r == nil {
+		return
+	}
+	text, parts := renderMainContextPrefix(wire.Messages)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.prefix, r.prefixParts = text, parts
+	r.prefixDigest = strings.TrimSpace(wire.PrefixDigest)
+	r.prefixAppliedSeq, r.prefixTailSeq = wire.AppliedSeq, wire.TailStartSeq
+	r.prefixNeedCompact = wire.NeedCompact
+	// 调度器是前缀的运行时载体：交接（Next/Advance）时下发给下一个成员。
+	r.scheduler.SetPrefix(r.prefix)
+}
+
+// Prefix 返回当前正文前缀（只读；前端/巡检面用它做快照查看）。
+func (r *Runtime) Prefix() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.prefix
+}
+
+// renderMainContextPrefix 把主会话 wire 的正文投影成前缀文本与投影行（纯函数，
+// 便于单测钉形状）。
+//
+// 口径就是 wire 自己的 Messages：本函数不重新解释语义，只做「一行一条」的搬运
+// （装配侧已经决定了哪些行可见、切点在哪、要不要压缩）。没有正文也没有工具调用
+// 的行不占位——空行不是主会话说过的话。
+func renderMainContextPrefix(messages []dto.RoleWireMessage) (string, []string) {
+	parts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if line := wireMessageLine(message); line != "" {
+			parts = append(parts, line)
+		}
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	b.WriteString("# team work（起点 → 当前位置）")
+	for index, part := range parts {
+		b.WriteString("\n\n")
+		fmt.Fprintf(&b, "## %d\n", index+1)
+		b.WriteString(part)
+	}
+	return b.String(), parts
+}
+
+// wireMessageLine 把一条 wire 正文压成一行：有正文用正文；只有工具调用时保留
+// 工具名，否则前缀里会凭空少掉"它调了什么"这一步。
+func wireMessageLine(message dto.RoleWireMessage) string {
+	role := strings.TrimSpace(message.Role)
+	content := strings.TrimSpace(message.Content)
+	if content == "" {
+		names := make([]string, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			if name := strings.TrimSpace(call.Name); name != "" {
+				names = append(names, name)
+			}
+		}
+		if len(names) == 0 {
+			return ""
+		}
+		content = "(tool_calls: " + strings.Join(names, ", ") + ")"
+	}
+	return role + ": " + content
 }
 
 // Round 返回已经走过的轮数。
@@ -313,6 +422,9 @@ func (r *Runtime) Snapshot() dto.TeamSchedule {
 	round, roundLimit := r.round, r.roundLimit
 	noProgress, noProgressLimit := r.noProgress, r.noProgressLimit
 	stopped, reason := r.stopped, r.stopReason
+	prefix, prefixParts := r.prefix, len(r.prefixParts)
+	digest, applied, tail := r.prefixDigest, r.prefixAppliedSeq, r.prefixTailSeq
+	needCompact := r.prefixNeedCompact
 	r.mu.Unlock()
 
 	order := r.scheduler.Order()
@@ -327,6 +439,14 @@ func (r *Runtime) Snapshot() dto.TeamSchedule {
 		StopReason:      reason,
 		UserSeat:        string(seat),
 		Unexecuted:      UnexecutedRoles(order),
+		Prefix:          prefix,
+		PrefixParts:     prefixParts,
+		PrefixChars:     len([]rune(prefix)),
+
+		PrefixDigest:      digest,
+		PrefixAppliedSeq:  applied,
+		PrefixTailSeq:     tail,
+		PrefixNeedCompact: needCompact,
 	}
 	if !stopped {
 		if request, ok := r.peekNext(); ok {

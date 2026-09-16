@@ -158,6 +158,23 @@ type TeamSchedule struct {
 	UserSeat string `json:"user_seat,omitempty"`
 	// Unexecuted 是环内没有运行时执行者的角色（占位但不会自动产生回合）。
 	Unexecuted []string `json:"unexecuted,omitempty"`
+	// Prefix 是「team work 起点 → 当前位置」的正文前缀（下一个发言成员拿到的
+	// 上下文）。**只读投影**：作者是存储侧对主会话上下文（含主会话 draft）的装配
+	// （assembleRoleWire；roleName=main 复用主会话自身，与 TL 对话记录同一条
+	// engine loop 口径），投影由 agentteam.Runtime.NoteMainContext 完成。没有任何
+	// GUI/端口写入口——前端只能快照查看；若允许前端回写，后端真值会变成前端渲染
+	// 结果，前缀随即与帧账本不一致。
+	Prefix string `json:"prefix,omitempty"`
+	// PrefixParts 是前缀投影出的正文行数（前端显示"已累积 n 行"）。
+	PrefixParts int `json:"prefix_parts,omitempty"`
+	// PrefixChars 是前缀的字符数（不把整段正文塞进每个快照时的轻量读数）。
+	PrefixChars int `json:"prefix_chars,omitempty"`
+	// 下面四个是前缀的口径锚点：直接取自装配它的那条 wire，前后端据此核对
+	// "看的是同一条 wire"，而不是各自渲染一遍再对不上。
+	PrefixDigest      string `json:"prefix_digest,omitempty"`
+	PrefixAppliedSeq  uint64 `json:"prefix_applied_seq,omitempty"`
+	PrefixTailSeq     uint64 `json:"prefix_tail_seq,omitempty"`
+	PrefixNeedCompact bool   `json:"prefix_need_compact,omitempty"`
 }
 
 // User seat 口径：user 可以通过消息队列插入会话（queued），也可以与员工同权

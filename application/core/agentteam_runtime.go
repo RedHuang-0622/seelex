@@ -128,6 +128,39 @@ func (service *Service) NoteTeamUserQueued(mainSessionID string, pending bool) {
 	}
 }
 
+// noteTeamWorkPrefix 把「主会话上下文（含主会话 draft）」的只读装配喂给团队环当前缀。
+//
+// 为什么读在应用层、生产不在应用层：前缀的作者是存储侧对主会话的装配
+// （roleName=main 复用主会话自身的引擎与 key，wire = main compact 帧 + seq > 切点
+// 的已发布行 + 主会话自身 pending draft）。TL 的对话记录同样是 engine loop 写出的
+// 行，所以前缀与对话记录同口径——这也是它不能由治理域的回合摘要顶替的原因。
+//
+// 两条"宁缺勿造"：
+//   - 该会话还没有环就不建环（对齐 NoteTeamUserQueued：没有团队就没有前缀消费者）；
+//   - 读不到事实（未装配存储/会话不存在/布局不支持）就不动前缀，绝不用占位正文
+//     顶替主会话上下文——宁可让下一个成员拿到旧前缀，也不给它一段假的上下文。
+func (service *Service) noteTeamWorkPrefix(mainSessionID string) {
+	if service == nil || strings.TrimSpace(mainSessionID) == "" {
+		return
+	}
+	runtime := service.teamRuntimes.get(mainSessionID)
+	if runtime == nil {
+		return
+	}
+	wire, err := service.AssembleRoleWire(mainSessionID, RoleNameMain, mainSessionID, teamPrefixWireBudget, teamPrefixWireK)
+	if err != nil {
+		return
+	}
+	runtime.NoteMainContext(wire)
+}
+
+// 读前缀用的装配参数：与前端 role wire 探针同口径（budget=200000, k=3）。参数不
+// 一致就等于换了另一条 wire，前后端会立刻对不上。
+const (
+	teamPrefixWireBudget = 200_000
+	teamPrefixWireK      = 3
+)
+
 // teamScheduleFor 投影指定会话的调度运行态（nil = 该会话没有环）。
 func (service *Service) teamScheduleFor(mainSessionID string) *dto.TeamSchedule {
 	runtime := service.teamRuntimes.get(mainSessionID)

@@ -113,6 +113,15 @@ type RoleSnapshot struct {
 	RoleRows  []RoleRow      `json:"role_rows,omitempty"`
 	DraftRows []RoleDraftRow `json:"draft_rows,omitempty"`
 
+	// PrefixCutSeq 是该角色**自己那份团队记录**的起点 seq（判据与角色 wire 装配
+	// 一致：join_seq_id，有 compact_ref 时取更大的 applied_seq；main 角色复用主
+	// 会话本身，恒为 0）。seq <= PrefixCutSeq 的 main 行不在它的前缀匹配区间里——
+	// 前端据此把"它入伙前/已被压缩掉"的段落渲染成占位，而不是冒充它记得的上下文。
+	PrefixCutSeq uint64 `json:"prefix_cut_seq,omitempty"`
+	// VisibleMainRows / OutsidePrefixMainRows 是按 PrefixCutSeq 切分的 main 行计数。
+	VisibleMainRows       int `json:"visible_main_rows,omitempty"`
+	OutsidePrefixMainRows int `json:"outside_prefix_main_rows,omitempty"`
+
 	// UnassignedRoleRows 是 main message 中缺 role_name 的行数（R4 生产者覆盖度）。
 	UnassignedRoleRows int `json:"unassigned_role_rows,omitempty"`
 	// DesignWarnings 是存储层可判定的设计稿偏差（只报事实，不自动修补）。

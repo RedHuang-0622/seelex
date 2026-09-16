@@ -20,8 +20,12 @@ import (
 //     路径收束）。
 //   - Next：等 actor 投递发言意向再领取（Requests() 的投递方 = 每个角色自己的
 //     agent loop）。**这条投递方目前仍缺**：goal-a2a 的轮次仍由 goal 治理的
-//     Governor 座位（exec-a + advisor-b）驱动，"team work 起点→当前位置"的正文
-//     前缀仍由 work.progress 帧承担，本原语的 Prefix 只是同一口径的运行时载体。
+//     Governor 座位（exec-a + advisor-b）驱动。Prefix 不再是"没有生产者的载体"：
+//     Runtime.NoteMainContext（唯一投影点，生产调用点 = Service.noteTeamWorkPrefix）
+//     把「主会话上下文（含主会话 draft）」的只读装配投影成「起点 → 当前位置」的
+//     前缀后经 SetPrefix 交给本原语，交班时下发给下一名成员。作者是存储侧的
+//     assembleRoleWire（roleName=main 复用主会话自身），与 TL 对话记录同一条
+//     engine loop 口径；前端只能通过 team 快照只读查看——没有任何回写口。
 //
 // 顺序的唯一运行时事实是链表；落盘仍是 lifecycle.order_policy/order_roles
 // （本原语不写盘）。
@@ -38,8 +42,9 @@ type TurnRequest struct {
 	RoleSessionID string
 	RoundID       uint64
 	// Prefix 是 team work 起点到当前位置的上下文前缀（装配好的正文文本）。
-	// 链表指针移到下一个 agent 时一并传递：下一个 agent 拿到的是从 team work
-	// 起点到当前这一步的上下文，而不是只有它自己的 draft。
+	// 作者是主会话上下文的只读装配（见 Runtime.NoteMainContext）：链表指针移到
+	// 下一个 agent 时一并传递，下一个 agent 拿到的是从 team work 起点到当前这一步
+	// 的上下文，而不是只有它自己的 draft。
 	Prefix string
 }
 
@@ -110,8 +115,8 @@ func (s *TurnScheduler) Next() TurnRequest {
 	return request
 }
 
-// SetPrefix 更新 team work 起点到当前位置的上下文前缀（sequencer 每次发布后
-// 调用；Next 交接时下发）。
+// SetPrefix 更新 team work 起点到当前位置的上下文前缀（装配侧每次读出新事实后
+// 调用；Next 交接时下发）。本原语不生产正文，只当载体。
 func (s *TurnScheduler) SetPrefix(prefix string) {
 	if s == nil {
 		return
