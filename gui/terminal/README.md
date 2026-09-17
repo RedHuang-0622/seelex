@@ -58,6 +58,9 @@
   `-l`：登录 shell 会把 cwd 切到 `$HOME`，与"终端开在工作区根"冲突。
 - cwd：`Options.Dir` 只在目录真实存在时生效（`usableDir`），否则回退进程 cwd；
   桥接层传入的默认值是**当前会话绑定的工作区根**（见 `gui/terminal_bridge.go`）。
+- 标题：`titleFor` 经 `shellBase` 取基名，**刻意不用 `filepath`**——它按宿主机
+  判定分隔符（Linux 上 `\` 不是分隔符），会让 Windows 风格路径的断言在
+  ubuntu/macos 上失败；归一化分隔符后按 POSIX 规则切分，三平台同一份语义。
 
 ## 数据流与生命周期
 
@@ -166,6 +169,7 @@ go test ./gui/terminal/ -count=1 -timeout=180s
   - `func usableDir(dir string) string`：只在目录真实存在时返回它。
   - `func mergeEnv(base, extra []string) []string`：合并继承环境与附加项（后者覆盖同名键）。
   - `func titleFor(shell string, seq int) string`：给出标签默认标题（shell 基名去扩展名）。
+  - `func shellBase(shell string) string`：跨平台取 shell 基名并去扩展名（`\` 与 `/` 同等对待）。
   - `func sequenceOf(id string) int`：从 `term-<n>` 取创建序号。
 - `pty.go`
   - `type ptyProcess struct`：`process` 接口的 PTY 实现（`Close` 幂等）。

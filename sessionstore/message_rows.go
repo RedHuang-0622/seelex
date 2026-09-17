@@ -208,7 +208,10 @@ const firstUserInputProbeLineBytes = 64 * 1024
 func scanShardUserInputs(path string, limit int) ([]string, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		// 分片不存在 = 一条用户输入都没有：显式空切片（`len == 0` 与 nil 同义，
+		// 见 listBlobHashes/readMessageRowsFileAt 的同一口径），不写 `nil, nil`
+		// ——那是静态门禁禁止的"错误被吞"形态。
+		return []string{}, nil
 	}
 	if err != nil {
 		return nil, err

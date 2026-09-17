@@ -67,7 +67,10 @@ func ValidPermissionGroup(group string) bool {
 // 就没法表达——收回写权限会退化成继承默认（而默认可能恰好有写权限）。
 func NormalizePermissionGroups(groups map[string]uint8) (map[string]uint8, error) {
 	if len(groups) == 0 {
-		return nil, nil
+		// "没显式装配"用**空 map**而不是裸 `nil, nil` 表达：语义与 nil 完全等价
+		// （调用方一律看 len，见 docs 里那条"空 map / nil 同类"），但静态门禁
+		// 禁止非测试代码出现 `return nil, nil`（它通常是吞掉错误的信号）。
+		return map[string]uint8{}, nil
 	}
 	normalized := make(map[string]uint8, len(groups))
 	for group, bits := range groups {

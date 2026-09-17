@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -482,11 +482,19 @@ func mergeEnv(base, extra []string) []string {
 // titleFor 给出标签默认标题：shell 基名去扩展名（"C:\...\powershell.exe" →
 // "powershell"）；同名多开时前端另有编号，这里只保证标题不空。
 func titleFor(shell string, seq int) string {
-	name := strings.TrimSuffix(filepath.Base(shell), filepath.Ext(shell))
-	if name == "" || name == "." || name == string(filepath.Separator) {
+	name := shellBase(shell)
+	if name == "" || name == "." || name == "/" {
 		name = fmt.Sprintf("term %d", seq)
 	}
 	return name
+}
+
+// shellBase 取 shell 路径的基名并去掉扩展名。刻意不走 filepath：filepath 按宿主机
+// 判定分隔符（Linux 上 "\" 不是分隔符），而同一份断言要在三平台都成立，故先把两种
+// 分隔符归一化，再按 POSIX 规则切分。
+func shellBase(shell string) string {
+	name := path.Base(strings.ReplaceAll(shell, `\`, "/"))
+	return strings.TrimSuffix(name, path.Ext(name))
 }
 
 // sequenceOf 从 "term-<n>" 取创建序号（解析失败排最前，不 panic）。
