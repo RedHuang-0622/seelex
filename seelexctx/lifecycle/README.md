@@ -1,8 +1,23 @@
 # Context Lifecycle
 
-## 模块定位
+## 生态位
 
 `lifecycle` 是与具体消息类型无关的上下文生命周期基建。它为冷加载、滑动窗口和流式批处理提供泛型 actor/管道，供 Application 等上层组合；它不理解 Session、Plan、Provider 或前端 DTO。
+
+## 架构图
+
+```mermaid
+flowchart LR
+    CALLER["上层组合（Application 等）"] --> ACTOR["ContextActor[T]<br/>有界 mailbox，串行处理"]
+    CALLER --> PIPE["BatchPipeline[T]"]
+    ACTOR --> REQ1["append 请求"]
+    ACTOR --> REQ2["window load 请求"]
+    ACTOR --> REQ3["snapshot 请求"]
+    PIPE --> FLUSH{"FlushSize 或 Interval 触发？"}
+    FLUSH --> STORE["Storage[T].Append（冷存储）"]
+    STORE --> IMPL["调用方实现（本包只给测试用内存/丢弃实现）"]
+    NOTE["不选择数据库<br/>不持久化 Application canonical conversation<br/>不逐 chunk 保存业务记录"] -.-> STORE
+```
 
 ## 职责与边界
 

@@ -1,8 +1,58 @@
 # Plugin Runtime
 
-## 模块定位
+## 生态位
 
 `plugin` 把 `plugins/<name>/plugin.md` 声明转换为可运行的专业能力形态，并协调工具可见性（include/exclude 快照经 `ToolBackend` 交给 seelebridge 的可见性策略）、MCP servers 与 Seelex Skill registry。
+
+主要调用方：组合根 `main.go`（装配与 `switch_plugin` 工具）与 `gui`/`tui`（插件切换入口）。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    DATA["plugins/<name>/plugin.md<br/>（数据：YAML front matter 是机器契约）"] --> LOADER["Loader：多 root discovery + schema 校验"]
+    LOADER --> P["Plugin：工具过滤 + MCP servers + skills"]
+    P --> MGR["Manager"]
+
+    subgraph TX["事务（apply.go：Transaction + DiffState）"]
+        STEP["顺序执行：prepare → switch → cleanup"]
+        ROLL["任一步失败：逆序回滚"]
+    end
+
+    MGR --> TX
+    TX --> TOOL["ToolBackend：include/exclude 快照<br/>→ seelebridge 可见性策略"]
+    TX --> MCP["MCP：先准备新连接，再拆旧连接"]
+    TX --> SKILL["Skill registry：进入/退出插件 scope"]
+    TOOL --> REQ["每次请求的可见工具集"]
+    SKILL --> REQ
+```
+
+## 时序图：激活一个 Plugin
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 用户 / switch_plugin
+    participant M as plugin.Manager
+    participant X as Transaction
+    participant MCP as MCP 连接
+    participant T as Tool 可见性
+    participant S as Skill registry
+
+    U->>M: Activate(name)
+    M->>X: 开始事务
+    X->>MCP: prepare：建立目标 plugin__server 连接
+    X->>T: switch：切换 include/exclude 可见性快照
+    X->>S: switch：进入目标 plugin skill scope
+    X->>MCP: cleanup：拆除旧 MCP
+    alt 任一步失败
+        X->>X: 逆序回滚到前一个 plugin
+        X-->>M: 错误（不留下半激活状态）
+    else 全部成功
+        X-->>M: 新能力面生效
+    end
+    M-->>U: 生效的 plugin
+```
 
 ## 文件结构
 

@@ -13,6 +13,20 @@
 
 推荐顺序是 MCP 交互探索，调用过多或连续超时时切换 batch，最后才使用 headless FreeCADCmd 脚本。
 
+## 降级链
+
+```mermaid
+flowchart LR
+    TASK["CAD 任务"] --> MCP["MCP 交互探索<br/>逐步建模与 inspect"]
+    MCP -->|调用过多 / 连续超时| BATCH["cad-batch<br/>JSON 驱动批量建模"]
+    BATCH -->|批量仍不可用| HEADLESS["headless FreeCADCmd 脚本"]
+    MCP --> SKILLS["领域 Skill<br/>boolean / fillet / repair / template"]
+    BATCH --> SKILLS
+    HEADLESS --> EXPORT["产物导出：STEP / STL"]
+    SKILLS --> EXPORT
+    EXPORT --> VERIFY["cad-inspect 校验"]
+```
+
 ## 当前风险
 
 `plugin.md` 中 MCP command 仍包含开发机绝对路径，这是不可移植配置；跨平台发行前应改为环境变量、PATH discovery 或用户配置。README 和示例不得复制个人路径作为推荐值。

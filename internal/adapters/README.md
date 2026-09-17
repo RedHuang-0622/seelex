@@ -1,9 +1,33 @@
 # Adapters
 
+## 生态位
+
 `application/adapters` 将引擎、运行时、插件、Skill、会话、工作区等外部系统的
 能力适配为 `application` 依赖的窄端口。所有端口类型在此包导出（`EnginePort`、
 `RuntimePort`、`PluginPort`、`SkillPort`、`SessionPort`、`WorkspacePort`、
 `PlanApprovalGate`），composition root（`main.go`）负责装配，本包不持有生命周期。
+
+## 架构图
+
+```mermaid
+flowchart LR
+    CONTRACT["application/contract<br/>端口接口（消费方定义）"] -.->|实现| ADAPTERS["internal/adapters"]
+
+    subgraph PORTS["本包落地的端口"]
+        E["EnginePort<br/>包装框架 session.Session 的 ReAct 会话面"]
+        R["RuntimePort<br/>代理 seelebridge.Runtime 能力面"]
+        P["PluginPort / SkillPort"]
+        S["SessionPort / WorkspacePort<br/>含标题持久化面与最早用户输入读面"]
+        G["PlanApprovalGate"]
+    end
+
+    ADAPTERS --> PORTS
+    MAIN["main.go 组合根"] --> ADAPTERS
+    CORE["application/core"] --> CONTRACT
+    PORTS --> EXT["引擎 / Runtime / plugin.Manager / skill.Registry / session.Manager / workspace.Repo"]
+```
+
+本包只做形状转换与窄接口收敛，不持有生命周期，也不反向依赖 `application` 门面。
 
 ## 归属
 

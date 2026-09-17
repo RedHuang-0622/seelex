@@ -1,8 +1,38 @@
 # Skill Runtime
 
-## 模块定位
+## 生态位
 
 `skill` 加载目录化 Skill、解析 `SKILL.md`、限制资源路径，并根据当前 Plugin 计算可见 Skill 集合。
+
+主要调用方：`application/core`（任务激活时注入 skill 栈）、`plugin`（激活/停用时的可见集切换）、
+`seelebridge`（装配与调用 Skill 指令）。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph SOURCES["加载位置"]
+        PRIMARY["配置根目录：name/SKILL.md（标准）"]
+        PLUGINDIR["plugins/<plugin>/<skill>/SKILL.md"]
+        LEGACY["name.md（legacy 平铺，兼容）"]
+    end
+
+    LOADER["skill.Loader<br/>多 root 按配置顺序查找<br/>目录格式优先于 legacy"]
+    SEC["ResourcePath：拒绝绝对路径与 .. 逃逸"]
+    REG["skill.Registry<br/>manual + loader 合并（RWMutex）"]
+    PLUGINSCOPE["plugin scope<br/>激活后按插件覆盖可见集合<br/>不污染 global registry"]
+    TASK["ActivateTaskSkillsLocked<br/>task 级 skill 栈"]
+    PROMPT["prompt_layer / context_runtime<br/>进入请求上下文"]
+
+    PRIMARY --> LOADER
+    PLUGINDIR --> LOADER
+    LEGACY --> LOADER
+    LOADER --> SEC
+    SEC --> REG
+    REG --> PLUGINSCOPE
+    PLUGINSCOPE --> TASK
+    TASK --> PROMPT
+```
 
 ## 文件结构
 

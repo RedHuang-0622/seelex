@@ -1,6 +1,6 @@
 # seelexctx/memory — 历史记忆选取
 
-## 定位
+## 生态位
 
 超长会话里 CompactStack 只渲染栈顶帧（`RenderStackBlocks`），栈顶摘要递归
 内嵌全部旧摘要——既不选择也不设界。本包把「从历史 select 出相关过往记忆」
@@ -10,6 +10,19 @@
 查询（当前请求） + CompactStack 全部帧（候选）
   └─ Select：词法相关性打分（ASCII 词 + CJK bigram）→ top-K（recency 加分）
   └─ RenderMemoryBlock：token 有界的「相关记忆」PromptBlock（装配器注入）
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    QUERY["当前请求（查询词）"] --> SEL["Select"]
+    STACK["CompactStack 全部帧（候选）"] --> SEL
+    SEL --> SCORE["词法相关性打分<br/>ASCII 词 + CJK bigram"]
+    SCORE --> TOPK["top-K + recency 加分"]
+    TOPK --> RENDER["RenderMemoryBlock<br/>token 有界 PromptBlock"]
+    RENDER --> ASM["装配器注入到请求上下文"]
+    NOTE["栈顶摘要递归内嵌全部旧摘要<br/>既不选择也不设界 → 本包把「选取」做成显式一步"] -.-> STACK
 ```
 
 ## 契约

@@ -1,12 +1,48 @@
 # Seelex Context
 
-## 模块定位
+## 生态位
 
 `seelexctx` 是 Seele v2 会话上下文契约（`seelectx`）的 Seelex 适配层与跨
 父子 Agent 的上下文承袭门面。它把原始 history/遥测事件提炼为稳定
 `ContextSnapshot`，支持预算压缩和 child-to-parent merge-back；同时把主会话
 的装配/压缩/控制决策实现为 `seelectx` 的原子策略（Assembler/Processor/
 Compressor/Controller），供 `session.ContextComponents` 注入。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    HISTORY["原始事实源<br/>session history · DurableHistory · telemetry 事件"] --> PROV["provider/<br/>EngineProvider · TraceProvider"]
+    PROV --> SNAP["snapshot/<br/>ContextSnapshot + builder + validate"]
+
+    SNAP --> MEM["memory/<br/>相关记忆 top-K 选取"]
+    SNAP --> COMP["compactor/<br/>按 token budget 分层压缩"]
+    SNAP --> MERGE["merger/<br/>child → parent 结构化合并"]
+    SNAP --> SRCH["search/<br/>以压缩栈为索引读回真实记录"]
+    SNAP --> TOK["tokens/<br/>确定性 token 估算"]
+
+    MEM --> BLOCK["RenderMemoryBlock（token 有界 PromptBlock）"]
+    COMP --> INJECT["子 Agent / A2A / 长会话上下文注入"]
+    BLOCK --> INJECT
+    MERGE --> PARENT["父上下文（A2A 闭环）"]
+
+    ROOT["seelexctx 根包<br/>Assembler / Processor / Compressor / Controller"] --> PROV
+    ROOT --> COMP
+    SESSION["session.ContextComponents"] --> ROOT
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    REQ["一次模型请求"] --> ASSEMBLE["Assembler：装配稳定前缀 + 累积上下文"]
+    ASSEMBLE --> PROC["ToolResultProcessor：超大结果外化 result_ref"]
+    PROC --> THRESH{"达到预算阈值？"}
+    THRESH -->|否| SEND["发出请求"]
+    THRESH -->|是| COMPRESS["Compressor / Controller：压缩窗口外轮次"]
+    COMPRESS --> FRAME["CompactFrame（可经 search/ 读回原文）"]
+    FRAME --> SEND
+```
 
 ## 子模块
 

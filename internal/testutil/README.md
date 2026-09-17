@@ -1,10 +1,22 @@
 # internal/testutil
 
-## 定位
+## 生态位
 
 `internal/testutil` 存放**仅供测试**的共享桩（Go internal 限制，禁止进入
 产品代码路径）。目的：同一契约（如 `application/contract.ChatEngine`）的
 多份测试假实现不再每份手写全量方法，接口新增方法时只改这里一处。
+
+## 架构图
+
+```mermaid
+flowchart LR
+    IFACE["application/contract.ChatEngine"] --> EMB["testutil.EmbeddedChatEngine<br/>全方法 panic 的底座"]
+    EMB --> T1["测试引擎 A（内嵌，只覆写用到的方法）"]
+    EMB --> T2["测试引擎 B（内嵌，只覆写用到的方法）"]
+    T1 --> PANIC["未覆写方法被调用 → panic（fail fast）"]
+    T2 --> PANIC
+    NOTE["语义：接口新增方法时只需改这里一处<br/>禁止进入产品代码路径"] -.-> EMB
+```
 
 ## 内容
 

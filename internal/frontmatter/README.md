@@ -1,8 +1,24 @@
 # Front Matter Parser
 
-## 定位
+## 生态位
 
 本包解析 `---` 包围的 YAML front matter 与 Markdown body，供 Plugin manifest 和 Skill loader 复用。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    SRC["plugin.md / SKILL.md 字节"] --> PARSE["frontmatter.Parse"]
+    PARSE --> SPLIT{"有 --- 包围？"}
+    SPLIT -->|是| HEAD["header map / 目标结构（YAML）"]
+    SPLIT -->|否| NOHEAD["无 header"]
+    PARSE --> BODY["body：原样保留（不 trim）"]
+    HEAD --> PLUGIN["plugin.Loader"]
+    HEAD --> SKILL["skill.Loader"]
+    BODY --> PLUGIN
+    BODY --> SKILL
+    ERR["YAML / delimiter 错误带上下文"] -.-> PARSE
+```
 
 ## 实现与边界
 

@@ -1,6 +1,6 @@
 # Session Manager
 
-## 模块定位
+## 生态位
 
 `session` 是 Seelex 的**会话域**：会话资源（身份、可见投影、聊天运行态、
 生命周期状态机）的唯一所有者。执行内核（`application/core`）经本包暴露的
@@ -10,6 +10,47 @@
 `manager.go` 保留为 legacy 存储桥（Save/Load callback、active workspace
 routing、显式 project-scoped read、存储设置），自会话域重构起降级为迁移辅助，
 新逻辑不得依赖它。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    CORE["application/core（执行内核）"] --> PORT["session 端口与 Domain actor"]
+
+    subgraph DOMAIN["Domain（domain_actor.go）"]
+        ACTOR["单条 goroutine 独占注册表与视图指针 V<br/>方法经 channel 命令交互，域内无共享 mutex"]
+        W["写命令：Register / Remove / SetActive<br/>等 actor 回包后才返回"]
+        R["读命令：ActiveID / Unit …"]
+    end
+
+    subgraph LEGACY["legacy 存储桥（manager.go，降级为迁移辅助）"]
+        STORE["Store：List / Delete / Load / Range / Count"]
+        MGR["Manager：持有 legacy store + 可选 NestedSessionStore + sessionstore.Router"]
+        SAW["SaveCommitWorkspace / LoadEventRangeByWorkspace<br/>显式项目作用域读写（fork 深拷贝）"]
+        CFG["StorageConfig / ConfigureStorage<br/>委托 Router 原子切换 backend"]
+    end
+
+    PORT --> DOMAIN
+    PORT --> LEGACY
+    NOTE["会话之间零共享<br/>继承只走深拷贝"] -.-> DOMAIN
+```
+
+## 时序图：写命令必须等回包
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as application/core
+    participant D as session.Domain actor
+    participant E as application/event（投递端）
+
+    C->>D: SetActive(unit)
+    D->>D: 独占更新注册表与视图指针
+    D-->>C: 回包（此时视图指针已生效）
+    C->>D: ActiveID()
+    D-->>C: 新视图会话 ID
+    Note over C,E: 若写命令异步返回，紧随其后的 ActiveID/Unit 会读到旧状态，<br/>而视图指针正是事件归属的判据
+```
 
 ## 核心实现
 

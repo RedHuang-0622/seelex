@@ -1,6 +1,6 @@
 # seelexctx/search — 历史记录检索
 
-## 定位
+## 生态位
 
 超长会话里窗口外轮次被压缩成 CompactStack 摘要（栈顶递归内嵌），模型在
 请求中只剩摘要——久远但相关的细节丢失，且没有按需读回的入口。本包把
@@ -11,6 +11,26 @@
   └─ memory.Select：词法相关性选相关帧（top-K，recency 加分）
   └─ 按命中帧 [From..To] 单元范围从事件流读回真实聊天记录（clamp 到边界）
   └─ token 预算内有界返回（帧命中 + 范围 + 记录 + 相关性排序）
+```
+
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as 模型（工具调用）
+    participant S as seelexctx/search
+    participant MEM as memory.Select
+    participant EV as 事件流（transcript）
+
+    M->>S: 查询词
+    S->>MEM: 用 CompactStack 全部帧做词法相关性选取
+    MEM-->>S: 命中帧 top-K（含 [From..To] 单元范围）
+    S->>EV: 按命中范围读回真实聊天记录（clamp 到边界）
+    EV-->>S: 原始记录
+    S->>S: 按 token 预算有界组装（帧命中 + 范围 + 记录 + 相关性排序）
+    S-->>M: 有界结果
+    Note over S,M: 压缩只对外层投影生效，原文从未被删除
 ```
 
 ## 契约

@@ -1,8 +1,47 @@
 # Terminal UI
 
-## 模块定位
+## 生态位
 
 `tui` 是 Bubble Tea 终端前端。它通过 `AppController` 消费 Application Snapshot/Event 并提交用户动作，不直接调用 Seele Engine、Plugin Manager 或 Session Store。
+
+主要调用方：组合根 `main.go`（`-frontend tui`，默认入口）。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph TEA["Bubble Tea 主循环"]
+        INIT["Init：读取 Snapshot + SubscribeSession(\"\")"]
+        UPD["Update：应用 event / 用户按键"]
+        VIEW["View：纯投影，不发起 IO"]
+    end
+
+    CTRL["AppController<br/>mutation 全部回调"]
+    SVC["application.Service"]
+    EV["Application event 流（含会话归属判定）"]
+
+    subgraph PANELS["面板"]
+        CONV["conversation / input / status"]
+        PLANP["plan：按 Effort 与终端宽度渲染"]
+        GT["goalteam：Alt+G 目标治理 / Alt+T AgentTeam"]
+        SUG["suggest：/ # $ @ 前缀建议"]
+        SPL["splash：启动画面"]
+    end
+
+    INIT --> EV
+    EV --> UPD
+    UPD --> VIEW
+    UPD --> CTRL
+    CTRL --> SVC
+    VIEW --> CONV
+    VIEW --> PLANP
+    VIEW --> GT
+    VIEW --> SUG
+    SPL --> INIT
+```
+
+本地状态只含光标、viewport、输入框、suggestion 与布局；业务事实一律来自
+Snapshot/Event，会话归属由 application 投递端判定，TUI 不自行判断。
 
 ## 文件结构
 

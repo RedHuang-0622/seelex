@@ -1,8 +1,38 @@
 # MCP Stack
 
-## 模块定位
+## 生态位
 
 `mcpstack` 为 MCP 调用提供可回放的调用栈、持久化、prompt 摘要和 breaker 事件记录。它补充 Seele MCP runtime 的可观测性，不负责建立或管理 MCP 连接。
+
+## 架构图
+
+```mermaid
+flowchart LR
+    RUNTIME["seelebridge.Runtime<br/>在 MCP tool 调用周围接入"] --> BEFORE["BeforeCall / CallRecorder.AfterCall<br/>拦截器式计时与结果记录"]
+    BEFORE --> STACK["MCPStack<br/>线性 history + cursor"]
+    STACK --> CALL["MCPCall<br/>server/tool · args/result · 状态 · 耗时 · 错误 · backlink"]
+    BREAKER["Seele breaker channel"] --> LISTEN["ListenBreaker"]
+    LISTEN --> STACK
+    STACK --> SAVE["Save / Load / Marshal<br/>原子持久化调用栈"]
+    STACK --> PROMPT["ForPrompt<br/>token 预算内生成模型可读摘要"]
+    STACK --> PROV["TraceProvider<br/>转为 seelexctx/snapshot"]
+    PROMPT --> DIAG["诊断 UI / 上下文导出"]
+    PROV --> DIAG
+```
+
+## 状态语义
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: Record（cursor 指向当前 active call）
+    Active --> Undone: Undo（不删除历史）
+    Undone --> Active: Redo（仅在未发生新 Record 时有效）
+    Undone --> Truncated: Undo 后再次 Record（截断 redo branch）
+    Truncated --> Active: 新分支继续记录
+    Active --> Active: Peek / Latest / 条件查询（不移动 cursor）
+```
+
+`Snapshot` 返回深拷贝，调用方不能修改内部 args/result/tags。
 
 ## 核心实现
 

@@ -1,8 +1,65 @@
 # GUI Backend
 
-## 模块定位
+## 生态位
 
 `gui` 是 Wails/WebView 桌面适配器。它复用 `application.Service`，负责 Go/JavaScript 边界、事件转发、目录选择和关闭协调，不拥有聊天、session、project 或 Plan 业务状态。
+
+主要调用方：组合根 `main.go`（`-frontend gui`）与 `gui/frontend/dist` 前端模块。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    WEB["gui/frontend/dist<br/>原生 HTML/CSS/ES modules"] -->|Wails invoke| BR["gui.Bridge"]
+    BR --> SVC["application.Service"]
+    SVC --> HUB["application/event.Hub"]
+    HUB -->|seelex:event 推送| BR
+    BR --> WEB
+
+    subgraph FACES["Bridge 暴露的调用面"]
+        F1["聊天与会话：Submit / BeginNewSession / ResumeSession / ForkSessionLatest"]
+        F2["审批：ResolveInteraction"]
+        F3["运行时：SetPermissionTier（权限档位）"]
+        F4["团队与目标：team.* / goal.*"]
+        F5["文件：工作树列举与内容详情"]
+    end
+    BR --> FACES
+    FACES --> SVC
+
+    DLG["dialogs：平台目录选择"] --> BR
+    SHUT["shutdown：等任一会话（含后台）运行完成的 graceful close"] --> BR
+    RUN["run_wails / run_stub（build tags）"] --> BR
+```
+
+## 时序图：事件转发与重同步
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as 前端 reducer
+    participant BR as gui.Bridge
+    participant HUB as application/event.Hub
+    participant SVC as application.Service
+
+    FE->>BR: Snapshot()
+    BR->>SVC: Snapshot()
+    SVC-->>FE: 权威快照
+    FE->>BR: AckEvents(watermark)
+    BR->>HUB: 记录已确认水位
+    loop 正常路径
+        HUB-->>BR: Event 增量
+        BR-->>FE: seelex:event
+        FE->>BR: AckEvents
+    end
+    note over FE,BR: DeliverySeq 出现缺口时先增量补取
+    FE->>BR: ReplayEvents(sinceSeq)
+    BR->>HUB: ReplaySince(sinceSeq)
+    HUB-->>FE: 补发事件或 Covered=false
+    FE->>BR: Snapshot()（补不齐才整份重拉）
+```
+
+关闭路径：`CloseMainWindow` 走 graceful close（等待运行中会话收尾），
+`Stop-Process -Force` 不会释放数据根锁——残留锁由 `lock_auto_recover` 兜底。
 
 ## 文件结构
 

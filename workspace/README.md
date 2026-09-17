@@ -1,8 +1,37 @@
 # Workspace Repository
 
-## 模块定位
+## 生态位
 
 `workspace` 管理 Seelex 项目定义及 session-to-workspace binding。项目的作用是限制 session 的文件读写范围；conversation history 仍由 sessionstore 独立保存。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    CORE["application/core"] --> WS["workspace.Repo"]
+    CORE --> TREE["workspace/tree.go"]
+    WS --> INDEX["store 目录下 workspace_index.json<br/>workspaces + bindings"]
+    WS --> DUP["Create：目录校验 + absolute path + 按 root 去重 + 唯一 ID"]
+    WS --> ATOMIC["同目录临时文件 + flush + rename 原子发布<br/>保存失败回滚内存状态"]
+    WS --> BIND["SessionBinding：session ID ↔ workspace ID 一对一"]
+    TREE --> DTO["dto.TreeEntry / TreeListing / TreeCount<br/>只读元数据，绝不携带文件内容"]
+    TREE --> GATE["相对路径门禁：绝对路径与 .. 逃逸直接拒绝"]
+    DUP --> DETECT["DetectGitRemote：读 git remote -v 的 origin"]
+```
+
+名称允许重复，ID 才是唯一索引；显示名默认取 `RootPath` basename。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    CREATE["Create(root)"] --> VALIDATE["目录校验 + canonical absolute"]
+    VALIDATE --> INDEX["写入 index（原子发布）"]
+    INDEX --> BINDING["session 绑定 workspace"]
+    BINDING --> SCOPE["ProjectScope 按会话键解析项目根"]
+    SCOPE --> TOOLS["文件 / Shell 工具作用范围"]
+    TREEQ["ListTree(root, relPath, depth)"] --> LIMITS["单目录 ≤500 条 / 总预算 200k<br/>超限置 Truncated"]
+```
 
 ## 数据模型
 

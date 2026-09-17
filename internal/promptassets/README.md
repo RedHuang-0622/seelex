@@ -1,11 +1,34 @@
 # Prompt Assets
 
+## 生态位
+
 `internal/promptassets/assets/` is the source of truth for Seelex-owned
 system, effort, optional Plan prompts, and the subagent charter. Assets are
 **embedded at build time** (`//go:embed`) so a release binary has no mutable
 prompt-file dependency: 单二进制可部署、提示词与代码同版本、不被运行时
 文件系统改写。需要"不重新编译改提示词"的场景走外部覆盖层（后续扩展点），
 默认规范是内置 + 启动 `Validate()` 校验。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph ASSETS["assets/（唯一事实源）"]
+        SYS["system/：identity 与跨领域工程/证据规则"]
+        EFF["effort/：各档行为规则"]
+        PLAN["plan/：preflight / replan 模板"]
+        SUB["subagent/：子代理 charter"]
+    end
+
+    EMBED["//go:embed"] --> BIN["二进制（单文件可部署）"]
+    ASSETS --> EMBED
+    EMBED --> VAL["启动 Validate() 校验"]
+    VAL --> PROMPT["application/prompt：层组合与 effort→policy 映射"]
+    VAL --> NODE["seelebridge/node：节点 charter 渲染"]
+    PROMPT --> ENGINE["Engine system prompt"]
+    NOTE["属性：提示词与代码同版本<br/>不被运行时文件系统改写"] -.-> BIN
+    FUTURE["外部覆盖层（不重新编译改提示词）<br/>属尚未实现的扩展点"] -.-> ASSETS
+```
 
 ## Structure
 

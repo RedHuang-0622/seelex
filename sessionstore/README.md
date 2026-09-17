@@ -32,11 +32,54 @@ append-only channel, so readers observe either the preceding committed watermark
 or the next one. Retired backend enums are kept only for explicit configuration
 errors; they do not participate in range/recovery semantics.
 
-## 模块定位
+## 生态位
 
 `sessionstore` 提供统一、原子、项目作用域的会话持久化。当前实现为 JSON v8；
 调用方只依赖 `Repository`/`Router`。SQLite、PostgreSQL、Redis 枚举保留用于
 显式报错，旧实现已删除。
+
+主要调用方：`application/core/session_runtime`（持久化与会话三读）、`session`
+（fork 的显式项目作用域读写）、`internal/adapters`（DTO ↔ 存储映射）与
+`gui`/`headless`（目录与元数据读面）。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    CALLER["调用方<br/>application/core · session · internal/adapters"] --> ROUTER["sessionstore.Router"]
+
+    subgraph LAYOUT["JSON v8 分区布局"]
+        P["先按 project_id 分区"]
+        S["再按 session_id 隔离"]
+        SHARD["message 事件行按固定大小分片追加"]
+        HEAD["模块 head：只装水位"]
+    end
+
+    subgraph CHANNELS["append-only 通道"]
+        C1["message 事件行（正文事实源）"]
+        C2["plan / task / goal 三栈"]
+        C3["media 媒体分区（内容寻址）"]
+        C4["lifecycle / 元数据"]
+    end
+
+    DEP["退役后端枚举<br/>SQLite / PostgreSQL / Redis<br/>只用于显式报错"] -.-> ROUTER
+    ROUTER --> LAYOUT
+    LAYOUT --> CHANNELS
+    HEAD --> READER["读者：只能看到旧水位或新水位对应的已发布内容"]
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    APPEND["追加 message 事件行"] --> WRITE["写入分片"]
+    WRITE --> PUBLISH["模块 head 原子发布（新数据完整写入后）"]
+    PUBLISH --> READ["LoadSessionRecord / LoadHistoryTailWindow"]
+    READ --> DERIVE["派生：record 与 conversation 由 head.Meta<br/>+ 事件行 + lifecycle.archived_at 生成"]
+    DERIVE --> CALLER["application/core"]
+    FAIL["中途失败 / 未发布行"] -.->|不会被当作当前会话事实| READ
+    LOCK["数据根单写者锁 lock.owner<br/>进程消失 + 心跳超龄才可接管"] -.-> WRITE
+```
 
 ## 数据模型
 
@@ -151,7 +194,7 @@ Router 用 RWMutex 把 active repository、config 和 project ID 绑定为原子
 
 ## Seele v2 会话适配
 
-两个适配器把 Router 接到 Seele v0.0.8 的会话契约：
+两个适配器把 Router 接到 Seele（当前 `v0.3.0`，见 `go.mod`）的会话契约：
 
 - `durable_history.go` — `DurableHistory` 实现 `seelectx.DurableHistory`
   （Load/Save/Clear）：Session 每次 Chat 前 Load、结束后 Save；`Reset`

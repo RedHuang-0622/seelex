@@ -1,8 +1,24 @@
 # Context Compactor
 
-## 定位
+## 生态位
 
 Compactor 在给定 token budget 内压缩 `ContextSnapshot`，用于子 Agent、A2A 和长会话上下文注入。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    IN["ContextSnapshot<br/>（不改动输入）"] --> EST["Seele token estimator 估算"]
+    EST --> TIER{"预算内能放下哪一层？"}
+    TIER -->|完整| FULL["完整层级"]
+    TIER -->|摘要| MID["摘要层级"]
+    TIER -->|极简| MIN["极简层级"]
+    TIER -->|连最小语义都放不下| ERR["返回带上下文错误"]
+    FULL --> OUT["新 Snapshot"]
+    MID --> OUT
+    MIN --> OUT
+    KEEP["Goal 与关键约束优先保留<br/>findings / decisions / pending work 按价值与长度裁剪"] -.-> TIER
+```
 
 ## 策略
 

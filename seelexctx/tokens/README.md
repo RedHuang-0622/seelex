@@ -1,6 +1,6 @@
 # seelexctx/tokens
 
-## 模块定位
+## 生态位
 
 `seelexctx/tokens` 是 Seelex 的 token 估算基础设施：提供无外部依赖、确定性的“脚本感知”估算（CJK/ASCII/符号分别计价），替代旧 `len/3` 字节估算；被 `seelexctx` 根包、`application/core`、`mcpstack` 等消费。真实计数（provider usage）不属于本包职责，由 application 侧 `TokenAudit` 记录并反馈校准。
 
@@ -8,6 +8,21 @@
 
 - 职责：`Count` / `CountMessage` / `CountHistory` 估算；纯函数、无状态、零外部依赖。
 - 非职责：不做模型感知 BPE 分词（tiktoken 等）；不访问网络；不记账（usage 记账在 `application/core` 的 `TokenAudit`）。
+
+## 架构图
+
+```mermaid
+flowchart LR
+    TEXT["文本 / 消息 / 历史"] --> COUNT["tokens.Count / CountMessage / CountHistory<br/>纯函数、无状态、零外部依赖"]
+    COUNT --> PRICE["CJK / ASCII / 符号分别计价"]
+    PRICE --> OUT["确定性估算结果"]
+    OUT --> CTX["seelexctx 根包：窗口与预算"]
+    OUT --> CORE["application/core：上下文裁剪"]
+    OUT --> MCP["mcpstack：结果体积判断"]
+    USAGE["provider usage（真实计数）"] --> AUDIT["application/core TokenAudit<br/>记录并反馈校准"]
+    AUDIT -.->|校准估算偏差| COUNT
+    NOTE["替代旧 len/3 字节估算<br/>不做 tiktoken 级 BPE"] -.-> COUNT
+```
 
 ## 文件结构
 

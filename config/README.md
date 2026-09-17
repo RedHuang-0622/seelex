@@ -1,10 +1,26 @@
 # Configuration
 
+## 生态位
+
 `defaults.context_window` 表示模型的总上下文窗口，`defaults.max_tokens` 表示单次响应的最大输出 token。账号条目可以覆盖这两个值；Application 会从总窗口中扣除输出预留和 12.5% 安全余量后计算可用输入预算。
 
-## 模块定位
-
 `config/` 存放运行时账号配置模板、本机私有配置以及运行参数文件（`seele.yaml` 权限规则、`seelex.yaml` 窗口/limits 参数）。配置最终由 Seele ChatClient/AccountPool 读取，Seelex composition root 负责选择文件并注入 Runtime。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    TPL["accounts.example.yaml<br/>（唯一可公开复制/打包）"] -.->|用户复制| LOCAL["accounts.yaml（含密钥，不提交）"]
+    LOCAL --> LOAD["seelebridge config.LoadTolerant"]
+    LOCALOVR["*.local.yaml（机器覆盖，不发布）"] -.-> LOAD
+    LOAD --> POOL["Seele AccountPool（按角色分组）"]
+    LOAD --> BUDGET["context_window / max_tokens → 输入预算"]
+    SEELE["config/seele.yaml<br/>permission.rules + limits"] --> GATE["PermissionGate / 运行时上限"]
+    SEELEX["config/seelex.yaml<br/>window / limits"] --> WIN["窗口策略与进程上限"]
+    ROOT["main.go：选择文件并注入 Runtime"] --> LOAD
+    ROOT --> SEELE
+    ROOT --> SEELEX
+```
 
 ## 文件约定
 

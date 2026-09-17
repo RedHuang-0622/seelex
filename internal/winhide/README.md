@@ -9,6 +9,21 @@
 - 职责：对传入的 `exec.Cmd` 设置隐藏子进程窗口所需的 `SysProcAttr`。
 - 非职责：不管理子进程生命周期，不做超时或输出捕获，也不修改命令 argv。
 
+## 架构图
+
+```mermaid
+flowchart LR
+    W["workspace（git 加载）"] --> H["internal/winhide"]
+    WT["seelebridge/worktree"] --> H
+    T["seelebridge/tools（bash）"] --> H
+    SEC["seelebridge/security（沙箱命令）"] --> H
+    SCH["seelebridge/scheduler（白名单命令）"] --> H
+    H --> WIN["Windows：CREATE_NO_WINDOW"]
+    H --> OTHER["非 Windows：空操作（编译期隔离）"]
+    WIN --> CMD["exec.Cmd.SysProcAttr"]
+    NOTE["不管理子进程生命周期<br/>不做超时 / 输出捕获<br/>不修改 argv"] -.-> H
+```
+
 ## 核心实现
 
 按平台拆分文件，在编译期隔离 Windows 专属字段：

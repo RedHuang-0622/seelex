@@ -1,8 +1,48 @@
 # GUI Frontend
 
-## 模块定位
+## 生态位
 
 本目录包含被 Go `embed.FS` 打包进 Wails 的前端源码。当前没有 bundler；`dist/` 就是可维护源文件和生产资产，而不是可随意删除的生成目录。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph SHELL["外壳"]
+        HTML["index.html"]
+        APP["app.js<br/>DOM 绑定 · Bridge 调用 · 工作区/session/runtime/settings 编排"]
+        STY["CSS / 主题皮肤"]
+    end
+
+    PROTO["protocol.js<br/>协议解析与字段契约"]
+    STATE["client-state.js<br/>Snapshot/Event reducer · delivery_seq gap 与 resync"]
+    EVENTS["runtime-events.js<br/>Wails EventsOn 就绪探测与幂等绑定"]
+
+    subgraph VIEWS["视图模块"]
+        CONV["conversation-view / chat-view<br/>变高 keyed 渲染 + 历史锚点"]
+        WHEEL["conversation-wheel<br/>会话内用户输入索引"]
+        TRAJ["trajectory<br/>响应日志与多线谱上下文轴"]
+        PLANV["Plan / 团队 / 目标面板"]
+        PERM["permission-tier<br/>权限档位芯片与下拉"]
+    end
+
+    BRIDGE["Wails Bridge（Go）"]
+    SNAP["Snapshot + seelex:event"]
+
+    HTML --> APP
+    APP --> PROTO
+    APP --> STATE
+    EVENTS --> STATE
+    STATE --> VIEWS
+    APP --> VIEWS
+    PROTO --> BRIDGE
+    BRIDGE --> SNAP
+    SNAP --> EVENTS
+    VIEWS -->|invoke| BRIDGE
+```
+
+前端不维护业务镜像：权限档位、运行态、会话状态一律消费后端下发的权威字段；
+本地只保留光标、viewport、展开态与布局。
 
 ## 结构
 

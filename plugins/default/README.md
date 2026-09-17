@@ -1,6 +1,30 @@
 # Default Plugin
 
+## 生态位
+
 `default` 是未选择专业形态时的开放能力入口，允许所有已注册工具并展示全局 Skill。它适合通用对话、跨域任务和插件选择前的探索。
+
+主要消费方：`plugin.Loader`（读取 manifest）、`seelebridge.Runtime`（注册工具过滤）、
+`skill.Registry`（计算可见 Skill 集合）。
+
+## 生命周期
+
+```mermaid
+stateDiagram-v2
+    [*] --> DefaultActive: 启动基线（include / exclude 均为空）
+    DefaultActive --> Specialized: 激活专用 Plugin（如 freecad）
+    Specialized --> DefaultActive: 停用专用 Plugin
+    note right of DefaultActive
+        工具：全部已注册工具
+        Skill：default/global 集合
+    end note
+    note right of Specialized
+        工具：按插件 include / exclude 过滤
+        Skill：只展示该插件发布的集合
+    end note
+```
+
+工具可见性与执行授权是两层：`default` 不等于 full-access permission。
 
 ## 实现
 
