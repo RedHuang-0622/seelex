@@ -99,9 +99,15 @@ func TestRepairInterruptedToolChainsSkipsCompleteChainsAndIsIdempotent(t *testin
 	}
 }
 
-// TestRepairInterruptedToolChainsSkipsWhenResultExistsLater：缺失 ID 的结果
-// 若在后文存在（乱序历史）则不注入占位，避免重复/破坏既有配对。
-func TestRepairInterruptedToolChainsSkipsWhenResultExistsLater(t *testing.T) {
+// TestRepairInterruptedToolChainsReordersResultBackToDeclaration：缺失 ID 的
+// 结果若出现在后文（乱序历史），必须搬回声明之后而不是留在原处。
+//
+// 这条用例原先是「后文存在结果就不动」，那个口径会让
+// `assistant(tool_calls c1) → user → tool(c1)` 原样发给 provider，而 provider
+// 的校验是「每条 tool 消息必须紧跟在携带其 tool_calls 的 assistant 之后」——
+// 直接 400（`Messages with role 'tool' must be a response to a preceding
+// message with 'tool_calls'`，2026-09-17 实测）。搬回后序列合法，且没有丢内容。
+func TestRepairInterruptedToolChainsReordersResultBackToDeclaration(t *testing.T) {
 	history := []contract.EngineMessage{
 		{Role: "user", Content: "task", ContentSet: true},
 		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "c1", Name: "bash"}}},
@@ -109,10 +115,112 @@ func TestRepairInterruptedToolChainsSkipsWhenResultExistsLater(t *testing.T) {
 		{Role: "tool", ToolCallID: "c1", Name: "bash", Content: "later", ContentSet: true},
 	}
 	prepared, repaired := RepairInterruptedToolChains(history)
-	if repaired {
-		t.Fatal("must not inject a placeholder when the result exists later")
+	if !repaired {
+		t.Fatal("out-of-order (non-adjacent) result must be repaired")
 	}
 	if len(prepared) != len(history) {
-		t.Fatalf("length changed: %d -> %d", len(history), len(prepared))
+		t.Fatalf("reorder must not change length: %d -> %d", len(history), len(prepared))
 	}
+	if prepared[1].Role != "assistant" || prepared[2].Role != "tool" || prepared[2].ToolCallID != "c1" {
+		t.Fatalf("result must sit right after its declaration: %+v", prepared)
+	}
+	if prepared[2].Content != "later" {
+		t.Fatalf("reorder must preserve the real result content: %q", prepared[2].Content)
+	}
+	if prepared[3].Role != "user" || prepared[3].Content != "inline note" {
+		t.Fatalf("the intervening message must survive the reorder: %+v", prepared[3])
+	}
+	if !looksLikeProviderValidToolPairs(prepared) {
+		t.Fatalf("repaired history still violates the provider tool-pair rule: %+v", prepared)
+	}
+	// 幂等：重排后的序列再跑一次不变。
+	again, againRepaired := RepairInterruptedToolChains(prepared)
+	if againRepaired {
+		t.Fatal("canonical order must not report further repair")
+	}
+	if !reflect.DeepEqual(prepared, again) {
+		t.Fatalf("repair is not idempotent:\nonce=%+v\ntwice=%+v", prepared, again)
+	}
+}
+
+// TestRepairInterruptedToolChainsDropsOrphanResult：没有任何 assistant 宣告该
+// call_id 的 tool 行是无法满足 provider 协议的孤儿（它必须回应一条带 tool_calls
+// 的前一条消息），投影时必须剔除而不是原样发出。
+func TestRepairInterruptedToolChainsDropsOrphanResult(t *testing.T) {
+	history := []contract.EngineMessage{
+		{Role: "user", Content: "task", ContentSet: true},
+		{Role: "assistant", Content: "先说一句", ContentSet: true},
+		{Role: "tool", ToolCallID: "ghost", Name: "bash", Content: "orphan", ContentSet: true},
+		{Role: "assistant", Content: "继续", ContentSet: true},
+	}
+	prepared, repaired := RepairInterruptedToolChains(history)
+	if !repaired {
+		t.Fatal("orphan tool row must be repaired (dropped)")
+	}
+	if len(prepared) != 3 {
+		t.Fatalf("orphan tool row must be dropped: %+v", prepared)
+	}
+	for _, message := range prepared {
+		if message.Role == "tool" {
+			t.Fatalf("orphan tool row survived: %+v", message)
+		}
+	}
+	if !looksLikeProviderValidToolPairs(prepared) {
+		t.Fatalf("repaired history still violates the provider tool-pair rule: %+v", prepared)
+	}
+}
+
+// TestRepairInterruptedToolChainsDropsDuplicateResult：同一 call_id 的第二个结果
+// 同样没有可回应的声明位置（一条调用只有一个结果），provider 会拒绝，投影时按
+// 重复丢弃；首个结果保持原位、内容不变。
+func TestRepairInterruptedToolChainsDropsDuplicateResult(t *testing.T) {
+	history := []contract.EngineMessage{
+		{Role: "assistant", ToolCalls: []contract.EngineToolCall{{ID: "c1", Name: "bash"}}},
+		{Role: "tool", ToolCallID: "c1", Name: "bash", Content: "first", ContentSet: true},
+		{Role: "tool", ToolCallID: "c1", Name: "bash", Content: "duplicate", ContentSet: true},
+		{Role: "assistant", Content: "done", ContentSet: true},
+	}
+	prepared, repaired := RepairInterruptedToolChains(history)
+	if !repaired {
+		t.Fatal("duplicate result must be repaired (dropped)")
+	}
+	if len(prepared) != 3 {
+		t.Fatalf("duplicate result must be dropped: %+v", prepared)
+	}
+	if prepared[1].Role != "tool" || prepared[1].Content != "first" {
+		t.Fatalf("the first result must survive untouched: %+v", prepared[1])
+	}
+	if !looksLikeProviderValidToolPairs(prepared) {
+		t.Fatalf("repaired history still violates the provider tool-pair rule: %+v", prepared)
+	}
+	again, againRepaired := RepairInterruptedToolChains(prepared)
+	if againRepaired || !reflect.DeepEqual(prepared, again) {
+		t.Fatalf("duplicate repair must be idempotent: %+v", again)
+	}
+}
+
+// looksLikeProviderValidToolPairs 是 provider 工具配对规则的本地校验器：
+//
+//  1. 每条 `tool` 消息的前一条必须是携带该 call_id 的 `assistant` 消息；
+//  2. 每条携带 `tool_calls` 的 `assistant` 消息之后必须依次跟齐全部结果。
+//
+// 用它把「修完之后仍然会被 provider 拒绝」变成可断言的红灯，而不是等线上 HTTP 400。
+func looksLikeProviderValidToolPairs(history []contract.EngineMessage) bool {
+	expected := make([]string, 0, 4)
+	for _, message := range history {
+		if message.Role == "tool" {
+			if len(expected) == 0 || expected[0] != message.ToolCallID {
+				return false
+			}
+			expected = expected[1:]
+			continue
+		}
+		if len(expected) > 0 {
+			return false // 结果没跟齐就出现别的消息
+		}
+		for _, call := range message.ToolCalls {
+			expected = append(expected, call.ID)
+		}
+	}
+	return len(expected) == 0
 }

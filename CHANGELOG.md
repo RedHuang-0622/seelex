@@ -126,6 +126,29 @@ for this stabilization batch.
 
 ### Fixed
 
+- **The provider no longer rejects a turn as `Messages with role 'tool' must be
+  a response to a preceding message with 'tool_calls'` (HTTP 400).** The engine
+  history that is projected into a provider request could contain a tool result
+  that was not adjacent to the assistant message declaring that call — e.g.
+  `assistant(tool_calls c1) → user → tool(c1)` — because the durable
+  reconstruction reads each record on its own. `context_runtime`'s repair pass
+  only *filled missing* results; it documented "result exists later ⇒ leave the
+  order alone" (`TestRepairInterruptedToolChainsSkipsWhenResultExistsLater`),
+  and that shape is exactly what the provider refuses. The repair now normalises
+  the projection instead: a result that exists elsewhere is moved back to sit
+  immediately after its declaration (`TestRepairInterruptedToolChainsReorders
+  ResultBackToDeclaration`), a duplicate result for the same call id and a tool
+  row with **no** declaring assistant message are dropped from the projection
+  (`TestRepairInterruptedToolChainsDropsOrphanResult`), and a tuple that has both
+  an in-place result and a late-arriving one keeps the placeholder *after* the
+  in-place result so the result block stays contiguous. The rule is asserted by
+  `looksLikeProviderValidToolPairs`, a local encoding of the provider's own
+  ordering rule, so "repaired but still invalid" fails in tests instead of in
+  production. Scope: only the working-history projection is rewritten
+  (`EnginePort.replaceRawHistoryFor` → `prepareHistory`); the durable message
+  rows are untouched, so nothing is lost from the record — a dropped orphan is
+  re-derived (and re-dropped) on the next cold load.
+
 - **A crashed dev GUI no longer blocks the next launch.** The JSON data root takes
   a single-writer lock (`<root>/lock.owner`); a clean exit releases it
   (`jsonRepository.Close` → `releaseDataRootLock`), but a crash or force-kill

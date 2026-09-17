@@ -105,88 +105,209 @@ func (h *HistoryCoordinator) engineHistory(sessionID string) []contract.EngineMe
 // 断裂点（紧邻结果的最后一个之后、第一个非 tool 消息之前）插入合成 tool
 // 占位消息，使发送给 provider 的序列保持 assistant/tool 配对合法。
 //
+// 同时把**乱序**的 tool 结果搬回它所属的 assistant 声明之后。provider 的校验
+// 不是"历史里存在配对"而是"每条 tool 消息必须紧跟在携带其 tool_calls 的
+// assistant 消息之后"：`assistant(tool_calls c1) → user → tool(c1)` 这种历史
+// 会让整次请求 400——HTTP 400
+// `{"error":{"message":"Messages with role 'tool' must be a response to a
+// preceding message with 'tool_calls'", ...}}`（2026-09-17 实测）。旧实现只
+// "补缺失、不动顺序"，这种历史会原样发出。没有 assistant 宣告的孤儿结果同样
+// 无法满足该协议，投影时剔除（它没有任何可回应的前一条消息）。
+//
 // 幂等：已补齐的链再次执行不会重复插入；后文存在同 ID 结果时不插入（保守，
 // 避免破坏既有配对）。合成正文带 InterruptedToolResultPrefix，属于
 // provider-only，不渲染为真实工具输出。不修改入参。
 func RepairInterruptedToolChains(history []contract.EngineMessage) ([]contract.EngineMessage, bool) {
+	pairing := indexToolCallPairing(history)
 	prepared := make([]contract.EngineMessage, 0, len(history)+2)
 	repaired := false
-	for index := 0; index < len(history); {
-		message := history[index]
+	// pendingPlaceholders 缓存"本轮缺结果的合成占位"：provider 要求结果块紧跟
+	// 声明，占位若插在真结果之前会把真结果挤到非相邻位置，等于把本来合法的请求
+	// 变成 400，所以占位要等本单元的原地结果输出之后再补。
+	var pendingPlaceholders []contract.EngineMessage
+	pendingDeclarationRow := -1 // 占位属于哪个声明（-1 = 无待补占位）
+	// delayedFlush 表示占位要等"该声明的原地结果行"输出后再补（该声明同时存在
+	// 原地结果与被拉回的结果，直接补会挤掉原地结果）。
+	delayedFlush := false
+	for index, message := range history {
+		if message.Role == "tool" {
+			// tool 行原地输出的唯一情形：它是该 call_id 的首个结果，且本来就在
+			// 声明的相邻区间内。其余一律跳过：乱序行由声明处带出（位置归位、
+			// 内容不丢），重复结果与无宣告的孤儿则没有任何前一条消息可回应。
+			if !pairing.emitInPlace(index, message.ToolCallID) {
+				repaired = true
+				continue
+			}
+			prepared = append(prepared, message)
+			// 本行是某个声明里"以后出现的原地结果"：占位必须排在它之后，否则
+			// 结果块会被占位隔开（provider 只认紧跟声明的结果）。
+			if len(pendingPlaceholders) > 0 && delayedFlush &&
+				index > pendingDeclarationRow && pairing.ownerOf[message.ToolCallID] == pendingDeclarationRow {
+				prepared = append(prepared, pendingPlaceholders...)
+				pendingPlaceholders = nil
+				pendingDeclarationRow = -1
+				delayedFlush = false
+			}
+			continue
+		}
+		// 新的声明行之前，把上一个声明的待补占位清掉（正常情况下已在下方补过，
+		// 这里是防御性兜底，保证占位不会漂到别的声明后面）。
+		if len(pendingPlaceholders) > 0 {
+			prepared = append(prepared, pendingPlaceholders...)
+			pendingPlaceholders = nil
+			pendingDeclarationRow = -1
+			delayedFlush = false
+		}
 		prepared = append(prepared, message)
 		if message.Role != "assistant" || len(message.ToolCalls) == 0 {
-			index++
 			continue
 		}
 		wanted := make([]string, 0, len(message.ToolCalls))
-		names := make(map[string]string, len(message.ToolCalls))
-		wantedSet := make(map[string]struct{}, len(message.ToolCalls))
 		valid := true
 		for _, call := range message.ToolCalls {
 			if call.ID == "" {
 				valid = false // 空 ID 无法配对；链保持原样
 				break
 			}
-			if _, duplicate := wantedSet[call.ID]; duplicate {
-				valid = false // 重复 ID 无法配对；链保持原样
-				break
-			}
-			wantedSet[call.ID] = struct{}{}
 			wanted = append(wanted, call.ID)
-			names[call.ID] = call.Name
 		}
 		if !valid {
-			index++
 			continue
 		}
-		matched := make(map[string]struct{}, len(wanted))
-		next := index + 1
-		for next < len(history) && len(matched) < len(wanted) {
-			result := history[next]
-			if result.Role != "tool" {
-				break
-			}
-			if _, ok := wantedSet[result.ToolCallID]; !ok {
-				break
-			}
-			if _, duplicate := matched[result.ToolCallID]; duplicate {
-				break
-			}
-			matched[result.ToolCallID] = struct{}{}
-			prepared = append(prepared, result)
-			next++
-		}
-		index = next
-		if len(matched) == len(wanted) {
-			continue
-		}
+		// 1) 把散落在别处的同 ID 结果搬回声明之后（乱序 → 相邻）。已经在相邻
+		// 区间内、会原地输出的结果不重复带出（否则同一结果出现两次）。
 		for _, id := range wanted {
-			if _, ok := matched[id]; ok {
+			if position, ok := pairing.resultAt[id]; ok && !pairing.emitInPlace(position, id) {
+				prepared = append(prepared, history[position])
+			}
+		}
+		// 2) 既没有相邻结果、也没有后文结果的调用补合成占位。
+		needPlaceholder := false
+		for _, id := range wanted {
+			if _, ok := pairing.resultAt[id]; ok {
 				continue
 			}
-			if toolResultExistsLater(history, index, id) {
-				continue
-			}
-			content := interruptedToolResultContent(names[id])
-			prepared = append(prepared, contract.EngineMessage{
-				Role: "tool", ToolCallID: id, Name: names[id],
-				Content: content, ContentSet: true,
+			pendingPlaceholders = append(pendingPlaceholders, contract.EngineMessage{
+				Role: "tool", ToolCallID: id, Name: pairing.names[id],
+				Content: interruptedToolResultContent(pairing.names[id]), ContentSet: true,
 			})
+			needPlaceholder = true
 			repaired = true
 		}
+		if needPlaceholder {
+			if pairing.declarationHasInPlaceResult(index) {
+				// 该声明还有原地结果要输出：占位必须排在它之后，否则会把结果
+				// 挤出声明区间。
+				pendingDeclarationRow = index
+				delayedFlush = true
+			} else {
+				// 本单元的结果（若有）都已被拉回声明之后 → 占位紧跟着补，不会
+				// 挤掉任何行。
+				prepared = append(prepared, pendingPlaceholders...)
+				pendingPlaceholders = nil
+			}
+		}
 	}
-	return prepared, repaired
+	prepared = append(prepared, pendingPlaceholders...)
+	return prepared, repaired || pairing.reorder
 }
 
-// toolResultExistsLater 报告指定 tool 调用 ID 的结果是否出现在历史后文
-// （用于防重复注入：该 ID 已有记录则不需要合成占位）。
-func toolResultExistsLater(history []contract.EngineMessage, start int, id string) bool {
-	for index := start; index < len(history); index++ {
-		if history[index].Role == "tool" && history[index].ToolCallID == id {
+// toolCallPairing 是 RepairInterruptedToolChains 的配对索引：ownerOf
+// （call_id → 声明它的 assistant 行号）、resultAt（call_id → 该结果所在行号）、
+// names（call_id → 工具名）、widths（assistant 行号 → 该行 tool_calls 数量）。
+// 每个 call_id 只认**第一个**结果：provider 对同一 call_id 的重复结果同样报错，
+// 后出现的重复行按孤儿丢弃。
+type toolCallPairing struct {
+	ownerOf  map[string]int
+	resultAt map[string]int
+	names    map[string]string
+	widths   map[int]int
+	reorder  bool
+}
+
+// emitInPlace 报告某 tool 行能否原样输出：它是该 call_id 的首个结果，且位置已经
+// 落在声明的相邻区间内。重复结果、孤儿与乱序行都不满足。
+func (p toolCallPairing) emitInPlace(index int, callID string) bool {
+	if callID == "" {
+		return false
+	}
+	position, ok := p.resultAt[callID]
+	if !ok || position != index {
+		return false
+	}
+	owner, ok := p.ownerOf[callID]
+	if !ok {
+		return false
+	}
+	return position >= owner+1 && position <= owner+p.widths[owner]
+}
+
+// declarationHasInPlaceResult 报告声明行 index 的结果里是否存在"原地输出"的那
+// 一条：决定缺失占位应当紧跟声明输出，还是要等原地结果之后再补。
+func (p toolCallPairing) declarationHasInPlaceResult(index int) bool {
+	for callID, owner := range p.ownerOf {
+		if owner != index {
+			continue
+		}
+		if position, ok := p.resultAt[callID]; ok && p.emitInPlace(position, callID) {
 			return true
 		}
 	}
 	return false
+}
+
+func indexToolCallPairing(history []contract.EngineMessage) toolCallPairing {
+	pairing := toolCallPairing{
+		ownerOf:  make(map[string]int),
+		resultAt: make(map[string]int),
+		names:    make(map[string]string),
+		widths:   make(map[int]int),
+	}
+	for index, message := range history {
+		if message.Role != "assistant" {
+			continue
+		}
+		pairing.widths[index] = len(message.ToolCalls)
+		for _, call := range message.ToolCalls {
+			if call.ID == "" {
+				continue
+			}
+			if _, duplicate := pairing.ownerOf[call.ID]; duplicate {
+				continue
+			}
+			pairing.ownerOf[call.ID] = index
+			pairing.names[call.ID] = call.Name
+		}
+	}
+	for index, message := range history {
+		if message.Role != "tool" || message.ToolCallID == "" {
+			continue
+		}
+		if _, declared := pairing.ownerOf[message.ToolCallID]; !declared {
+			continue
+		}
+		if _, duplicate := pairing.resultAt[message.ToolCallID]; duplicate {
+			continue
+		}
+		pairing.resultAt[message.ToolCallID] = index
+	}
+	// 乱序判定：结果必须落在声明行之后的连续区间内（区间内先后不限，provider
+	// 只要求它们紧跟声明）；被别的消息隔开或落在区间外就必须重排。
+	for index, message := range history {
+		if message.Role != "assistant" {
+			continue
+		}
+		for _, call := range message.ToolCalls {
+			position, ok := pairing.resultAt[call.ID]
+			if !ok {
+				continue
+			}
+			if position < index+1 || position > index+len(message.ToolCalls) {
+				pairing.reorder = true
+			}
+		}
+	}
+	return pairing
 }
 
 // RepairEmptyHistoryContent 使历史对拒绝空 content 的 provider 安全

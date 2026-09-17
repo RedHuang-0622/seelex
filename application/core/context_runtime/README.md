@@ -21,6 +21,16 @@
   `TranscriptTailHistory` 降级保留最新完整单元，`fitExecutionHistory` 最终
   兜底不再走 `events=nil` 的空历史分支；真正超出全量预算时由
   `PrepareExecutionContextFor` 返回 `ErrProviderContextBudgetExceeded`。
+- 做：**工具配对归一化**（`RepairInterruptedToolChains`，随
+  `PrepareProviderHistory` 一起跑）。provider 的规则是"每条 `tool` 消息必须
+  紧跟携带其 `tool_calls` 的 assistant 消息"，不是"历史里存在配对"——历史里
+  出现 `assistant(tool_calls c1) → user → tool(c1)` 时整次请求 400
+  （`Messages with role 'tool' must be a response to a preceding message with
+  'tool_calls'`）。归一化三件事：① 被隔开的结果搬回声明之后；② 同一 call_id
+  的重复结果与无宣告的孤儿从投影里剔除；③ 缺结果的调用补
+  `InterruptedToolResultPrefix` 合成占位，且占位排在**该声明的原地结果之后**，
+  保证结果块连续。只改写工作历史投影（`EnginePort.replaceRawHistoryFor` →
+  `prepareHistory`），durable 消息行不动，因此不丢记录。
 - 不做：chat 主循环、provider 失败重试工作流（根包 `history_safety.go`）。
 
 ## 关键文件
@@ -50,6 +60,10 @@ Review 重点：持锁不得调用外部端口、压缩后历史必须保留 sys
 路径由 `history_safety.go` 单独负责）、累积段字节稳定（已定稿轮次不重排/
 不改写，压缩是唯一使前缀失效的事件）、plan/task 尾部不参与压缩、provider
 投影不得事后补写（工具轮正文归零、空工具结果保持空，否则跨轮前缀失效）。
+工具配对的两条独立要求不要混：**记录内不得留孤儿/重复**（归一化剔除）与
+**结果必须与声明相邻**（归一化重排）——只补不排就是 2026-09-17 的 400。
+新增/修改归一化规则时同步 `looksLikeProviderValidToolPairs`（provider 规则的
+本地编码），让"修完仍会被拒"在用例里红灯，而不是在线上。
 
 ## 测试
 
@@ -123,7 +137,9 @@ go test ./application/core/context_runtime -count=1
 - `func (h *HistoryCoordinator) replaceEngineHistory(sessionID string, history []contract.EngineMessage) error` — replaceEngineHistory 会话内替换指定会话引擎历史（会话路由引擎用
 - `func (h *HistoryCoordinator) engineHistory(sessionID string) []contract.EngineMessage` — engineHistory 返回指定会话引擎历史（会话路由引擎用 HistoryFor，否则活跃
 - `func RepairInterruptedToolChains(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairInterruptedToolChains 修复中断（残缺）工具链：assistant 消息携带
-- `func toolResultExistsLater(history []contract.EngineMessage, start int, id string) bool` — toolResultExistsLater 报告指定 tool 调用 ID 的结果是否出现在历史后文
+- `func (p toolCallPairing) emitInPlace(index int, callID string) bool` — emitInPlace 报告某 tool 行能否原样输出：它是该 call_id 的首个结果，且位置已经
+- `func (p toolCallPairing) declarationHasInPlaceResult(index int) bool` — declarationHasInPlaceResult 报告声明行 index 的结果里是否存在"原地输出"的那
+- `func indexToolCallPairing(history []contract.EngineMessage) toolCallPairing`
 - `func RepairEmptyHistoryContent(history []contract.EngineMessage) ([]contract.EngineMessage, bool)` — RepairEmptyHistoryContent 使历史对拒绝空 content 的 provider 安全
 - `func IsProviderOnlyHistoryContent(content string) bool` — IsProviderOnlyHistoryContent 识别仅用于满足 provider 非空 content 要求的
 
@@ -133,7 +149,10 @@ go test ./application/core/context_runtime -count=1
 - `func TestRepairInterruptedToolChainsFillsMissingResultBeforeSuffixText(t *testing.T)` — TestRepairInterruptedToolChainsFillsMissingResultBeforeSuffixText：
 - `func TestRepairInterruptedToolChainsFillsAllMissingAtTail(t *testing.T)` — TestRepairInterruptedToolChainsFillsAllMissingAtTail：会话尾以残缺链收尾
 - `func TestRepairInterruptedToolChainsSkipsCompleteChainsAndIsIdempotent(t *testing.T)` — TestRepairInterruptedToolChainsSkipsCompleteChainsAndIsIdempotent：
-- `func TestRepairInterruptedToolChainsSkipsWhenResultExistsLater(t *testing.T)` — TestRepairInterruptedToolChainsSkipsWhenResultExistsLater：缺失 ID 的结果
+- `func TestRepairInterruptedToolChainsReordersResultBackToDeclaration(t *testing.T)` — TestRepairInterruptedToolChainsReordersResultBackToDeclaration：缺失 ID 的
+- `func TestRepairInterruptedToolChainsDropsOrphanResult(t *testing.T)` — TestRepairInterruptedToolChainsDropsOrphanResult：没有任何 assistant 宣告该
+- `func TestRepairInterruptedToolChainsDropsDuplicateResult(t *testing.T)` — TestRepairInterruptedToolChainsDropsDuplicateResult：同一 call_id 的第二个结果
+- `func looksLikeProviderValidToolPairs(history []contract.EngineMessage) bool` — looksLikeProviderValidToolPairs 是 provider 工具配对规则的本地校验器：
 
 ### history_test.go
 
