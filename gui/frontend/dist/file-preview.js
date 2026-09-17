@@ -234,9 +234,10 @@ export function renderPreviewTabsHTML(tabs, activePath = "") {
 // 每个文件详情一个独立面板（切换只切显隐，不重读、不丢滚动）；写入面板前
 // 递增该面板代数，废弃未完成的异步渲染（防串台）。最后一个 chip 关闭时清空
 // 容器并回调 onEmpty（app.js 据此收起抽屉、恢复子页原来大小）。
-export function createFilePreviewController({ view, tabsHost, meta, loader, onError, onEmpty }) {
+// 没有独立的标题 / 元信息行：文件身份由 chip 标签条（tabsHost）承担。
+export function createFilePreviewController({ view, tabsHost, loader, onError, onEmpty }) {
   const tabs = [];
-  const panels = new Map(); // path -> { el, generation, cleanups: [], title }
+  const panels = new Map(); // path -> { el, generation, cleanups: [] }
   let activePath = "";
 
   if (tabsHost) {
@@ -286,11 +287,6 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
     tabsHost.classList.toggle("hidden", tabs.length === 0);
   }
 
-  function refreshMeta() {
-    const record = activePath ? panels.get(activePath) : null;
-    if (meta) meta.textContent = record ? record.title : "";
-  }
-
   function showActivePanel() {
     for (const [path, record] of panels) {
       record.el.classList.toggle("hidden", path !== activePath);
@@ -316,7 +312,7 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
     el.setAttribute("role", "tabpanel");
     el.dataset.previewPanel = tab.path;
     view?.appendChild(el);
-    const record = { el, generation: 0, cleanups: [], title: tab.path };
+    const record = { el, generation: 0, cleanups: [] };
     panels.set(tab.path, record);
     return record;
   }
@@ -340,8 +336,6 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
   async function loadInto(tab, record) {
     const generation = ++record.generation;
     runCleanups(record);
-    record.title = tab.path;
-    if (activePath === tab.path && meta) meta.textContent = `${tab.path} · 正在读取…`;
     showBusy(record.el);
     const kind = previewKindForPath(tab.path);
     const limit = PREVIEW_LIMITS[kind] || PREVIEW_LIMITS.text;
@@ -351,14 +345,10 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
       if (generation !== record.generation) return;
       if (!payload || !payload.base64) {
         renderNotice(record.el, "文件内容为空或不可读");
-        record.title = tab.path;
-        if (activePath === tab.path) refreshMeta();
         return;
       }
       const bytes = base64ToBytes(payload.base64);
       const sizeText = formatPreviewSize(payload.size);
-      record.title = `${tab.path} · ${sizeText}`;
-      if (activePath === tab.path) refreshMeta();
       if (payload.truncated && needsWholeFile(kind)) {
         renderNotice(record.el, `文件超过 ${sizeText}，暂不支持预览完整内容`);
         return;
@@ -396,8 +386,6 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
     } catch (error) {
       if (generation !== record.generation) return;
       renderNotice(record.el, `无法预览：${error?.message || String(error)}`);
-      record.title = tab.path;
-      if (activePath === tab.path) refreshMeta();
       if (onError) onError(error);
     }
   }
@@ -412,7 +400,6 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
     activePath = tab.path;
     syncChips();
     showActivePanel();
-    refreshMeta();
     if (result.added) await loadInto(tab, record);
   }
 
@@ -421,7 +408,6 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
     activePath = path;
     showActivePanel();
     syncChips();
-    refreshMeta();
   }
 
   function closeTab(path) {
@@ -440,7 +426,6 @@ export function createFilePreviewController({ view, tabsHost, meta, loader, onEr
     activePath = result.active;
     syncChips();
     showActivePanel();
-    refreshMeta();
   }
 
   // clear 由渲染层在收起抽屉 / 工作区切换时调用：清空全部文件详情，但不回调

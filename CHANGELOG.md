@@ -123,6 +123,39 @@ for this stabilization batch.
   `TestPermissionCommandWithoutArgsShowsCurrentAndCatalog`,
   `TestPermissionCommandSwitchesTier`),
   `gui/headless_permission_test.go:TestHeadlessSetPermissionTierDispatch`.
+- **Bottom terminal panel (VS Code style): a local PTY terminal docked in the
+  middle column, with multi-session tabs, collapse and drag-resize.** New
+  backend package `gui/terminal` owns the PTY lifecycle (one `go-pty` session
+  per terminal: Windows ConPTY, unix `creack/pty`), exposing
+  `Bridge.TerminalOpen/TerminalWrite/TerminalResize/TerminalClose/TerminalList`
+  and a dedicated `seelex:terminal` event (`output` with base64 bytes — PTY read
+  boundaries can split multibyte runes — and `exit` with the exit code). The
+  panel lives at the bottom of `.workspace`, remembers its layout
+  (`seelex.terminal.v1`: open/collapsed/height, height clamped to `[120px,
+  72vh]`), and is driven by `` Ctrl+` `` (toggle), `` Ctrl+Shift+` `` (new) and
+  the topbar terminal button; tabs auto-number duplicate shells and mark exited
+  ones. Rendering is xterm.js 5.3.0 + `@xterm/addon-fit` 0.10.0, vendored
+  offline under `gui/frontend/dist/vendor/xterm/` (MIT, versions/licences
+  registered). The terminal is **user-facing only**: it is not part of the agent
+  tool surface, the snapshot or the headless control plane, and its cwd comes
+  from the backend's current workspace (never from the renderer). Terminal
+  convergence is order-critical: wait for the child, close the PTY handle, drain
+  output, then emit `exit` (ConPTY does not close the output pipe when the child
+  exits; unix returns EIO on read). `Close` is `sync.Once`-guarded — a second
+  `ClosePseudoConsole` on a recycled HPCON killed the desktop process outright in
+  testing. The explorer subpage's file-detail drawer gains the mirrored
+  「收起详情，让出内容页」 control: it folds into a 28px rail so the work tree +
+  commit log own the subpage, mutually exclusive with the existing
+  hide-panes mode. Its header is now the multi-file chip strip itself — the
+  redundant 「文件详情 · <path> · <size>」 title/meta line is gone (a chip is the
+  file identity) and the action buttons sit flush right. Evidence: `gui/terminal/terminal_test.go`
+  (`TestManagerEmitsBase64OutputThenExit`,
+  `TestManagerKeepsCreationOrderAndRejectsUnknownSession`,
+  `TestManagerWritesInputAndKillsOnClose`,
+  `TestManagerRejectsOpenWithoutHandlerAndOverLimit`,
+  `TestManagerShellFailureIsReported`, `TestManagerRealShellRoundTrip`),
+  `gui/frontend/dist/terminal-panel.test.mjs`,
+  `gui/frontend/dist/terminal-panel-controller.test.mjs`.
 
 ### Fixed
 

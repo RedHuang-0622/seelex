@@ -33,6 +33,7 @@ import {
 } from "./dock-layout.js";
 import { createPerfHooks } from "./perf-hooks.js";
 import { createLiveDiag } from "./live-diag.js";
+import { createTerminalPanel } from "./terminal-panel.js";
 
 const state = {
   info: null,
@@ -61,7 +62,7 @@ const elements = Object.fromEntries([
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
-  "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider",
+  "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
@@ -69,7 +70,9 @@ const elements = Object.fromEntries([
   "scheduled-table-modal", "scheduled-table-close", "scheduled-table-open", "scheduled-table-summary", "scheduled-table-view",
   "interaction-question", "interaction-preview", "interaction-options",
   "node-detail-modal", "node-detail-close", "node-detail-title", "node-detail-content", "toast", "ui-tooltip",
-  "toggle-left-panel", "toggle-right-panel"
+  "toggle-left-panel", "toggle-right-panel",
+  "terminal-panel", "terminal-body", "terminal-tabs", "terminal-resize", "terminal-collapse",
+  "terminal-new", "terminal-close", "terminal-hide", "terminal-button"
 ].map(id => [id, document.getElementById(id)]));
 
 // ── 子页停靠布局（主视图 / 右栏）────────────────────────────
@@ -423,16 +426,20 @@ const gitLogView = createGitLogView(elements["git-log-view"], {
 const filePreviewController = createFilePreviewController({
   view: elements["file-preview-view"],
   tabsHost: elements["file-preview-tabs"],
-  meta: elements["file-preview-meta"],
   loader: async (entry, kind, limit) => invoke("WorkspaceFileContent", entry.path, limit),
   onError: showToast,
   onEmpty: () => closeFilePreview()
 });
 let previewPaneOpen = false;
 let previewPanesHidden = false;
+// previewCollapsed = 详情抽屉收成竖轨、内容页（工作树/提交记录）独占子页。
+let previewCollapsed = false;
 let previewRoot = "";
 elements["file-preview-close"].addEventListener("click", closeFilePreview);
 elements["file-preview-hide-panes"].addEventListener("click", togglePanesHidden);
+// 「收起详情，让出内容页」：抽屉收成竖轨（内容页独占），竖轨本身是展开入口。
+elements["file-preview-collapse"].addEventListener("click", togglePreviewCollapsed);
+elements["file-preview-rail"].addEventListener("click", togglePreviewCollapsed);
 // workTableSeen 是“已读”快照（status|retry_count 签名）；workTableOpen
 // 控制弹窗打开期间不显示未读角标。
 let workTableSeen = new Map();
@@ -3596,20 +3603,50 @@ function previewMaxWidth() {
 
 // syncPreviewLayout 同步代码子页布局：展开=多列（preview/divider/panes），
 // 收起=单列（panes 占满，防止预览抽屉收起后内容被裁成空白）；展开且勾选
-// 「隐藏工作树/提交记录」时 = 仅 preview。
+// 「隐藏工作树/提交记录」时 = 仅 preview；详情被「收起让出内容页」时 =
+// 28px 竖轨 + panes（详情内容不销毁，点竖轨即还原）。
 function syncPreviewLayout() {
   const split = document.getElementById("code-split");
   if (!split) return;
+  const collapsed = previewPaneOpen && previewCollapsed;
   split.classList.toggle("is-preview-open", previewPaneOpen);
-  split.classList.toggle("is-panes-hidden", previewPaneOpen && previewPanesHidden);
+  split.classList.toggle("is-preview-collapsed", collapsed);
+  split.classList.toggle("is-panes-hidden", previewPaneOpen && previewPanesHidden && !collapsed);
   syncPanesHiddenButton();
+  syncPreviewCollapseButton();
+}
+
+// syncPreviewCollapseButton 维护「收起详情，让出内容页」按钮的开关态与文案。
+function syncPreviewCollapseButton() {
+  const button = elements["file-preview-collapse"];
+  if (!button) return;
+  const collapsed = previewPaneOpen && previewCollapsed;
+  const label = collapsed ? "展开文件详情" : "收起详情，让出内容页";
+  button.setAttribute("aria-pressed", collapsed ? "true" : "false");
+  button.setAttribute("title", label);
+  button.setAttribute("aria-label", label);
+  button.classList.toggle("is-on", collapsed);
+}
+
+// togglePreviewCollapsed 只在详情抽屉展开时有意义：把详情收成一条竖轨，让
+// 工作树 / 提交记录独占子页（「躲开内容页」）；再次点击（或点竖轨）还原。
+// 这个收起态刻意**不落盘**：它只在"当前抽屉里正开着文件详情"的语境下成立
+// （打开新文件会解除它），记忆一个瞬时姿态只会让下次打开文件时莫名什么都不出。
+function togglePreviewCollapsed() {
+  if (!previewPaneOpen) return;
+  previewCollapsed = !previewCollapsed;
+  // 详情收起时「隐藏工作树/提交记录」没有意义（内容页正是被让出的那一侧），
+  // 一并复位，避免还原后出现两侧都隐蔽的空子页。
+  if (previewCollapsed) previewPanesHidden = false;
+  storageSet(FILE_PREVIEW_PANES_KEY, previewPanesHidden ? "1" : "0");
+  syncPreviewLayout();
 }
 
 // syncPanesHiddenButton 维护「隐藏工作树/提交记录」按钮的开关态与文案。
 function syncPanesHiddenButton() {
   const button = elements["file-preview-hide-panes"];
   if (!button) return;
-  const hidden = previewPaneOpen && previewPanesHidden;
+  const hidden = previewPaneOpen && previewPanesHidden && !previewCollapsed;
   const label = hidden ? "显示工作树与提交记录" : "隐藏工作树与提交记录";
   button.setAttribute("aria-pressed", hidden ? "true" : "false");
   button.setAttribute("title", label);
@@ -3617,10 +3654,10 @@ function syncPanesHiddenButton() {
   button.classList.toggle("is-on", hidden);
 }
 
-// togglePanesHidden 只在内容详情展开时有意义：隐蔽右栏（工作树 + 提交记录），
-// 让内容详情独占整个子页；再次点击恢复。
+// togglePanesHidden 只在内容详情展开（且未被收起成竖轨）时有意义：隐蔽右栏
+// （工作树 + 提交记录），让内容详情独占整个子页；再次点击恢复。
 function togglePanesHidden() {
-  if (!previewPaneOpen) return;
+  if (!previewPaneOpen || previewCollapsed) return;
   previewPanesHidden = !previewPanesHidden;
   storageSet(FILE_PREVIEW_PANES_KEY, previewPanesHidden ? "1" : "0");
   syncPreviewLayout();
@@ -3631,6 +3668,8 @@ function openFilePreview(entry) {
   const snapshot = client.current();
   previewRoot = snapshot?.current_workspace?.root_path || previewRoot;
   previewPaneOpen = true; // open must flip the state flag, otherwise closeFilePreview guard always returns and the X button never closes
+  // 打开文件 = 要看详情：把「收起让出内容页」解除（否则点了文件树却什么都不显示）。
+  previewCollapsed = false;
   const pane = elements["file-preview-pane"];
   if (pane) {
     pane.classList.remove("is-closed");
@@ -3650,6 +3689,7 @@ function closeFilePreview() {
   // 容器生命周期结束（主动收起 / 最后一个 chip 关闭）→ 恢复原来大小：
   // 工作树与提交记录重新占满子页。
   previewPanesHidden = false;
+  previewCollapsed = false;
   storageSet(FILE_PREVIEW_PANES_KEY, "0");
   if (pane) pane.classList.add("is-closed");
   syncPreviewLayout();
@@ -3717,11 +3757,39 @@ function applyPreviewWidth() {
 (function initFilePreviewPane() {
   applyPreviewWidth();
   previewPanesHidden = storageGet(FILE_PREVIEW_PANES_KEY) === "1";
+  previewCollapsed = false;
   previewPaneOpen = false;
   elements["file-preview-pane"]?.classList.add("is-closed");
   syncPreviewLayout();
 })();
 setupFilePreviewResize();
+
+// ── 下栏终端（VS Code 式面板）───────────────────────────────
+// 后端权威在 gui/terminal（PTY 会话管理：多开、读写、resize、退出码），前端
+// 只画布局：面板是否展开/收起、高度、当前标签是本页状态（localStorage 记忆），
+// 会话与输出全部来自 Bridge 与 seelex:terminal 事件。快捷键与 VS Code 对齐：
+// Ctrl+` 切换面板（已展开则收起），Ctrl+Shift+` 新建终端。
+const terminalPanel = createTerminalPanel({
+  host: elements["terminal-panel"],
+  body: elements["terminal-body"],
+  tabsHost: elements["terminal-tabs"],
+  resizeHandle: elements["terminal-resize"],
+  collapseButton: elements["terminal-collapse"],
+  newButton: elements["terminal-new"],
+  closeButton: elements["terminal-close"],
+  hideButton: elements["terminal-hide"],
+  toggleButton: elements["terminal-button"],
+  invoke,
+  onError: showToast
+});
+
+document.addEventListener("keydown", event => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (event.key !== "`" && event.key !== "~") return;
+  event.preventDefault();
+  if (event.shiftKey) terminalPanel.newTerminal();
+  else terminalPanel.toggle();
+});
 
 function resizePrompt() {
   elements.prompt.style.height = "auto";
@@ -3736,11 +3804,16 @@ async function initialise() {
     if (!bindRuntimeEvents(window.runtime)) {
       throw new Error("GUI event runtime 尚未就绪");
     }
+    // 终端输出走独立事件名（seelex:terminal），与 seelex:event 的 delivery_seq
+    // 水位无关，因此单独绑定。
+    terminalPanel.bindRuntime(window.runtime);
     const info = await invoke("Info");
     state.info = info;
     elements["app-title"].textContent = info.title || "Seelex";
     elements["app-version"].textContent = info.version || "dev";
     await refresh({ scroll: "bottom" });
+    // 面板上次是展开的就恢复展开（VS Code 同口径）：恢复时按需要新建一个终端。
+    if (terminalPanel.state().open) terminalPanel.open();
   } catch (error) {
     showToast(error);
     window.setTimeout(initialise, 600);

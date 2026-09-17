@@ -883,6 +883,17 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   grid-template-areas: "preview";
   grid-template-columns: minmax(0, 1fr);
 }
+/* 「收起详情，让出内容页」：详情退成 28px 竖轨（不是消失，竖轨就是展开入口），
+   分隔条不占位，工作树 + 提交记录独占子页。与 .is-panes-hidden 互斥（app.js
+   在收起时复位隐蔽态），因此不会出现两侧都隐蔽的空子页。 */
+.code-split.is-preview-open.is-preview-collapsed {
+  grid-template-areas: "preview panes";
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+.code-split.is-preview-collapsed #file-preview-divider { display: none; }
+.code-split.is-preview-collapsed .file-preview-pane { padding: 0; }
+.code-split.is-preview-collapsed .file-preview-pane > :not(.file-preview-rail) { display: none; }
+.code-split.is-preview-collapsed .file-preview-rail { display: flex; }
 .code-split.is-panes-hidden .file-split-divider,
 .code-split.is-panes-hidden .code-panes { display: none; }
 .code-split #file-preview-divider {
@@ -915,33 +926,57 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .file-preview-pane.is-closed { display: none; }
 .file-preview-pane .code-pane-head { margin-bottom: 0; }
-/* 头部右侧两枚动作（隐蔽工作树/提交记录、关闭全部详情）靠 .file-preview-meta
-   的 flex:1 推到最右，不再各自 margin-left:auto（两个 auto 会分掉空隙）。 */
+/* 竖轨（详情收起态）：竖排标签 + 悬停点亮，是「展开详情」的唯一入口。 */
+.file-preview-rail {
+  display: none;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  border-radius: var(--r-md);
+  color: var(--faint);
+  background: transparent;
+  cursor: pointer;
+}
+.file-preview-rail:hover { color: var(--accent); background: var(--surface-2); }
+.file-preview-rail-label {
+  writing-mode: vertical-rl;
+  letter-spacing: .12em;
+  font: 10.5px var(--font-ui);
+  white-space: nowrap;
+}
+/* 头部没有独立标题 / 元信息行：多文件 chip 标签条本身就是头部，动作按钮靠右。
+   （旧版这里有一行「文件详情 · <path> · <size>」元信息，与 chip 重复，已删。） */
 .file-preview-close { color: var(--faint); }
 .file-preview-close:hover { color: var(--muted); }
 .file-preview-hide-panes { color: var(--faint); }
 .file-preview-hide-panes:hover { color: var(--muted); }
 .file-preview-hide-panes.is-on { color: var(--accent); }
-.file-preview-meta {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--faint);
-  font: 10px/1.4 var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* 「收起详情，让出内容页」按钮：与隐蔽工作树同一套观感（黄铜 = 已处于收起态） */
+.file-preview-collapse { color: var(--faint); }
+.file-preview-collapse:hover { color: var(--muted); }
+.file-preview-collapse.is-on { color: var(--accent); }
+.file-preview-head { align-items: center; }
+.file-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-left: auto;
 }
 
-/* 多文件详情：上标 chip 条（类似网页标签）承载「已打开的文件详情」。
+/* 多文件详情：chip 标签条（头部本体）承载「已打开的文件详情」。
    一枚 chip = 一个文件详情面板；点 chip 切换，chip 尾部 ✕ 关闭单个详情，
    最后一个 chip 关闭即容器为空（生命周期结束 → 抽屉收起、子页复原）。 */
 .file-preview-tabs {
   display: flex;
-  align-items: flex-end;
-  gap: 3px;
+  align-items: center;
+  flex: 1 1 auto;
+  gap: 4px;
   min-width: 0;
-  margin-bottom: -8px;
-  padding: 0 0 1px;
+  padding: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
@@ -950,26 +985,23 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   max-width: 190px;
-  padding: 3px 4px 3px 9px;
+  padding: 2px 4px 2px 9px;
   border: 1px solid var(--border);
-  border-bottom-color: transparent;
-  border-radius: 7px 7px 0 0;
+  border-radius: 999px;
   color: var(--muted);
   background: var(--surface-2);
   font: 11px/1.4 var(--font-ui);
   cursor: pointer;
-  position: relative;
-  top: 1px;
 }
 .file-preview-chip:hover { color: var(--text-strong); }
 .file-preview-chip.is-active {
   color: var(--text-bright);
   background: var(--panel);
-  border-color: var(--border);
-  box-shadow: inset 0 1px 0 var(--accent);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 .file-preview-chip:focus-visible { outline: none; box-shadow: var(--focus-glow); }
 .file-preview-chip-label {
@@ -3878,3 +3910,134 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .goal-frame-progress { margin-top: 3px; color: var(--text-dim); font-size: 10.5px; }
 .goal-frame-progress-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .goal-gov-inflight { margin-top: 4px; color: var(--accent); font-size: 11px; line-height: 1.4; }
+
+/* ============================================================
+   25. 下栏终端面板（VS Code 式）
+   ------------------------------------------------------------
+   位置：中栏（.workspace）最后一格，与对话区同宽——终端属于"工作台底部"，
+   不占左右栏。三态：隐藏（.hidden）→ 收起（.is-collapsed：只留 30px 头部）→
+   展开；展开高度 = --terminal-h（顶边拖拽写入，localStorage 记忆），上限
+   72vh 与 terminal-panel.js 的 TERMINAL_MAX_RATIO 一致（保证对话区不被顶掉）。
+   xterm 自身配色由 JS 从同一批语义 token 读出（见 terminalTheme），此处只
+   负责容器尺寸与外壳；因此换肤不需要碰 vendor 文件。
+   ============================================================ */
+.terminal-panel {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  height: var(--terminal-h, 280px);
+  max-height: 72vh;
+  border-top: 1px solid var(--border);
+  background: var(--code-bg);
+}
+/* 收起态退化成一条头带：高度交给内容，body 不占位 */
+.terminal-panel.is-collapsed { height: auto; }
+.terminal-panel.is-collapsed .terminal-body { display: none; }
+
+/* 顶边分隔条：命中区 6px（视觉只有 1px，悬停/拖拽时才点亮黄铜） */
+.terminal-resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  height: 6px;
+  cursor: row-resize;
+  touch-action: none;
+}
+.terminal-resize::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.terminal-resize:hover::after,
+.terminal-resize.is-dragging::after { background: var(--accent); }
+.terminal-resize:focus-visible { outline: 1px solid var(--focus-ring); box-shadow: var(--focus-glow); }
+
+.terminal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 30px;
+  padding: 0 8px 0 4px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+/* 收起/展开图标按面板态二选一（同一套 panel-toggle 口径，不做 JS 换图标） */
+.terminal-collapse .terminal-collapse-closed { display: none; }
+.terminal-panel.is-collapsed .terminal-collapse .terminal-collapse-open { display: none; }
+.terminal-panel.is-collapsed .terminal-collapse .terminal-collapse-closed { display: block; }
+
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.terminal-tabs::-webkit-scrollbar { display: none; }
+.terminal-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  max-width: 190px;
+  padding: 2px 4px 2px 9px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font: 11.5px var(--font-ui);
+  cursor: pointer;
+}
+.terminal-tab:hover { color: var(--text-soft); background: var(--surface); }
+.terminal-tab.is-active {
+  color: var(--text-strong);
+  background: var(--surface-2);
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+.terminal-tab.is-exited .terminal-tab-label { color: var(--faint); text-decoration: line-through; }
+.terminal-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-tab-close {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: inherit;
+  background: transparent;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+}
+.terminal-tab:hover .terminal-tab-close,
+.terminal-tab.is-active .terminal-tab-close { opacity: .75; }
+.terminal-tab-close:hover { opacity: 1; background: var(--surface-3); }
+.terminal-empty-hint { padding-left: 8px; color: var(--faint); font: 11px var(--font-ui); }
+.terminal-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+
+.terminal-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--code-bg);
+}
+/* 每个终端一个独立宿主：绝对铺满 + 只显示当前会话（隐藏态量不到尺寸，
+   fit 由 terminal-panel.js 在切回时补做）。 */
+.terminal-view { position: absolute; inset: 0; display: none; }
+.terminal-view.is-active { display: block; }
+/* 内边距压在 xterm 元素上：addon-fit 用「宿主尺寸 − xterm 内边距」算行列，
+   放在宿主上会被算成可用空间而溢出。 */
+.terminal-view .xterm { height: 100%; padding: 6px 4px 4px 8px; }
+/* 视口底色跟随终端主题（xterm.css 的 #000 由更高特异性覆盖，不用 !important） */
+.terminal-body .xterm .xterm-viewport { background-color: transparent; }

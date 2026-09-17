@@ -13,6 +13,7 @@ import (
 	"github.com/RedHuang-0622/seelex/application"
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
+	"github.com/RedHuang-0622/seelex/gui/terminal"
 	"github.com/RedHuang-0622/seelex/seelebridge"
 	seelexctxsearch "github.com/RedHuang-0622/seelex/seelexctx/search"
 	"github.com/RedHuang-0622/seelex/sessionstore"
@@ -249,6 +250,10 @@ type Bridge struct {
 	// 迟到事件会污染新订阅从 1 重计的 delivery_seq 水位；渲染层已幂等容忍，
 	// 此处把污染源收窄到最小）。
 	relayGen uint64
+	// terminals 是下栏终端的会话管理器（termMu 保护，惰性创建）。它刻意**不**
+	// 属于会话状态：终端是用户本地 shell，与 Snapshot/revision/订阅换代无关。
+	terminals *terminal.Manager
+	termMu    sync.Mutex
 }
 
 const (
@@ -482,6 +487,9 @@ func (bridge *Bridge) Stop() {
 	}
 	subscription.Close()
 	bridge.wg.Wait()
+	// 终端随宿主退出一起结束：先杀子进程再关伪控制台，否则退出路径会留下
+	// 悬挂的 shell（Windows 上还会拖住 conhost）。
+	bridge.closeTerminals()
 }
 
 // AckEvents 是渲染层的应用回执（C4）：seq 是它已经应用过的最后一个

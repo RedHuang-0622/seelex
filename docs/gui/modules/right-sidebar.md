@@ -80,8 +80,9 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 `localStorage["seelex.preview-pane-width"]`，默认 380px）。宽度**无固定上限**：
 只按子页可视宽封顶（`calc(100% - 6px)`，拖动时 JS 与容器宽对齐），内容详情与
 工作树谁宽谁窄完全由拖动决定；左/右主栏同理（`--left-w`/`--right-w` 上界按视口
-宽动态计算）。形态三态由 `.code-split` 的类切换：收起 `.is-closed`、展开
-`.is-preview-open`、隐蔽 `.is-preview-open.is-panes-hidden`。
+宽动态计算）。形态四态由 `.code-split` 的类切换：收起 `.is-closed`、展开
+`.is-preview-open`、详情收成竖轨 `.is-preview-open.is-preview-collapsed`、
+隐蔽 `.is-preview-open.is-panes-hidden`。
 
 - **文件预览（多文件详情容器）**：点击工作树文件行 → `Bridge.WorkspaceFileContent(relPath, limit)`
   拉取受控字节（后端 workspace 域 containment/敏感过滤/上限/二进制探测；默认
@@ -91,15 +92,22 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
   图片=blob img；`.doc` 提示转换）。组件全部本地 vendor（`dist/vendor/`，
   随 embed 离线打包）。实现见 `file-preview.js`；预览内容不进入 Snapshot/业务
   状态，工作区切换时抽屉随树清空。
-  抽屉是**多文件详情容器**：每个打开的文件一枚上标 chip（`renderPreviewTabsHTML`，
-  类网页标签）+ 一个独立面板（切换只切显隐，不重读、不丢滚动位置）。点 chip
-  切换当前详情；点 chip 尾部 ✕ 关闭单个详情；再次点开同一文件只是激活，不重复
-  读盘。**生命周期以「有文件详情」为前提**：最后一个 chip 关闭（容器为空）时抽屉
-  自动收起（`onEmpty`）、子页恢复原来大小（工作树/提交记录重新占满）；因此不再
-  记忆展开态（只记忆宽度与 `seelex.preview-panes-hidden`）。标签生命周期是纯函数：
+  抽屉是**多文件详情容器**：每个打开的文件一枚 chip（`renderPreviewTabsHTML`）+
+  一个独立面板（切换只切显隐，不重读、不丢滚动位置）。抽屉**头部就是 chip 标签
+  条本身**——没有独立标题 / 元信息行（2026-09-17 删掉了「文件详情 · path · size」
+  那一行，文件身份直接由 chip 承担，动作按钮贴右）。点 chip 切换当前详情；点 chip
+  尾部 ✕ 关闭单个详情；再次点开同一文件只是激活，不重复读盘。**生命周期以「有文件
+  详情」为前提**：最后一个 chip 关闭（容器为空）时抽屉自动收起（`onEmpty`）、子页
+  恢复原来大小（工作树/提交记录重新占满）；因此不再记忆展开态（只记忆宽度与
+  `seelex.preview-panes-hidden`）。标签生命周期是纯函数：
   `previewTabLabel`/`normalizePreviewTab`/`openPreviewTab`/`closePreviewTab`。
-  抽屉头部「隐蔽工作树/提交记录」按钮（`data-icon="expand"`）让内容详情独占整个
+  头部右侧「隐蔽工作树/提交记录」按钮（`data-icon="expand"`）让内容详情独占整个
   子页，再次点击或关闭全部详情即恢复。
+  反向的「**收起详情，让出内容页**」（2026-09-17，`data-icon="chevron-left"`）把
+  抽屉折成一条 28px 竖轨（`.is-preview-collapsed`：`preview panes` 两列，分隔条不再
+  占位），工作树 + 提交记录独占子页；点竖轨（或按钮）还原。它与「隐蔽工作树/提交
+  记录」互斥（收起时复位隐蔽态），因此不会出现两侧都隐蔽的空子页。收起态是**会话内
+  状态、不落盘**：打开文件会解除它（点文件树必须能看见详情），关闭全部详情也归零。
 - **工作树**：`Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`
   （后端权威元数据：名称/路径/类型/大小/直接文件计数，不含文件内容）；目录行
   惰性展开，文件行是可点击按钮（打开预览）；层级连线用 `tree-fork` 的树轨

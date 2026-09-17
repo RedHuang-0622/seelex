@@ -507,6 +507,52 @@
         "work-table",
         "workspace-sandbox"
       ]
+    },
+    {
+      "id": "terminal-panel",
+      "name": "Bottom terminal panel (local PTY)",
+      "status": "implemented",
+      "responsibility": "Own the bottom-dock local terminal: multi-session PTY lifecycle (spawn, read/write bytes, resize, exit code) in the desktop backend, and the VS Code style panel shell (tabs, collapse, drag-resize) in the renderer. The terminal is user-facing only: it never enters the agent tool surface, the snapshot, or the headless control plane.",
+      "document": "modules/terminal-panel.md",
+      "interfaces": [
+        "gui/terminal.Manager",
+        "gui/terminal.Options",
+        "gui/terminal.Info",
+        "gui/terminal.Event",
+        "Bridge.TerminalOpen",
+        "Bridge.TerminalWrite",
+        "Bridge.TerminalResize",
+        "Bridge.TerminalClose",
+        "Bridge.TerminalList",
+        "seelex:terminal"
+      ],
+      "planned_paths": [
+        "gui/terminal/terminal.go",
+        "gui/terminal/pty.go",
+        "gui/terminal/shell.go",
+        "gui/terminal/shell_windows.go",
+        "gui/terminal/shell_other.go",
+        "gui/terminal/terminal_test.go",
+        "gui/terminal_bridge.go",
+        "gui/frontend/dist/terminal-panel.js",
+        "gui/frontend/dist/terminal-panel.test.mjs",
+        "gui/frontend/dist/terminal-panel-controller.test.mjs",
+        "gui/frontend/dist/vendor/xterm/xterm.js",
+        "gui/frontend/dist/vendor/xterm/addon-fit.js"
+      ],
+      "inputs": [
+        "user keystrokes (xterm onData)",
+        "renderer fit size (cols/rows)",
+        "current workspace root",
+        "panel layout state (localStorage)"
+      ],
+      "outputs": [
+        "modules/terminal-panel.md",
+        "seelex:terminal (output/exit events)"
+      ],
+      "depends_on": [
+        "desktop-bridge"
+      ]
     }
   ]
 }

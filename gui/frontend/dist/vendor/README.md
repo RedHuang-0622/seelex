@@ -16,6 +16,7 @@ embeddedFrontend 读取资源，**没有网络访问**。第三方样式/脚本�
 | `purify/purify.min.js` | 预览 HTML 净化（DOMPurify） | DOMPurify | Apache-2.0 / MPL-2.0 |
 | `docx-preview/docx-preview.min.js` | Word 文档预览 | docx-preview | MIT |
 | `pdfjs/pdf.min.js`、`pdf.worker.min.js` | PDF 预览 | PDF.js | Apache-2.0 |
+| `xterm/xterm.js`、`xterm.css`、`xterm/addon-fit.js` | 下栏终端仿真器 + 容器自适应插件 | xterm 5.3.0 / @xterm/addon-fit 0.10.0 | MIT（`xterm/LICENSE`、`xterm/LICENSE.addon-fit`） |
 
 > 上表中带版本的条目是本次引入时登记的（Pico）；既有条目的具体版本号在各自
 > 压缩文件的头部注释里，补充登记时一并回填。

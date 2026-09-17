@@ -66,6 +66,8 @@ sequenceDiagram
 | 文件 | 职责 |
 |---|---|
 | `bridge.go` | Wails 暴露方法、Application interface 和事件 relay。 |
+| `terminal_bridge.go` | 下栏终端的 Bridge 方法（`TerminalOpen/Write/Resize/Close/List`）与 `seelex:terminal` 事件外投；工作目录取后端当前工作区根。 |
+| [`terminal/`](terminal/README.md) | 本地终端会话管理（跨平台 PTY 多开、读写、resize、退出码）。 |
 | `assets.go` | `//go:embed frontend/dist`。 |
 | `run_wails.go` / `run_stub.go` | build tags 下的真实 GUI 与不可用 stub。 |
 | `dialogs_gui.go` / `dialogs_stub.go` | 平台目录选择适配。 |
@@ -227,6 +229,33 @@ Bridge 方法只做参数转换和调用，不维护镜像业务状态。DSN 等
 `sessionstore/README.md`），GUI 只是三个切换入口之一（chip/列表、CLI `/permission`、
 headless RPC）。
 
+## 下栏终端（本地 PTY，2026-09-17）
+
+`Bridge.TerminalOpen/TerminalWrite/TerminalResize/TerminalClose/TerminalList` 是下栏
+终端（VS Code 式面板）的**全部**后端面，实现落在 [`terminal/`](terminal/README.md)：
+
+- `TerminalOpen(TerminalOpenOptions{shell,args,dir,cols,rows})` → `TerminalSession`
+  （`id/title/shell/dir/cols/rows/running/exit_code`）。`dir` 缺省取**后端当前会话
+  绑定的工作区根**（`Snapshot.CurrentWorkspace.RootPath`），未绑定时回退启动项目根
+  ——终端的 cwd 属于后端事实，渲染层不指定路径。
+- `TerminalWrite(id, data)`：`data` 是 base64 原始字节（与输出事件同一套编码，
+  前端 `TextEncoder` 编码后直接送，不做字符串转义假设）。
+- `TerminalResize(id, cols, rows)`：前端 xterm `fit()` 后的真实行列数。
+- `TerminalClose(id)` / `TerminalList()`：结束一个会话 / 列当前会话（重连对账）。
+
+输出与退出走**独立事件名** `seelex:terminal`（不是 `seelex:event`）：负载
+`{id, kind: "output"|"exit", data?: base64, exit_code?}`。它不进 Snapshot、不占
+`delivery_seq` 水位、不参与回执重推——终端是用户的本地 shell，与会话状态无关；
+丢帧由前端重开终端兜底（面板本身不做 gap/resync）。
+
+边界（Review 时最容易被越界的三处）：
+
+1. **不进 Agent 工具面**：`fork_subagents`/工具策略里没有终端，模型无法驱动它；
+2. **不进 headless 控制面**：`gui/headless.go` 的 `dispatch` 不分发 `Terminal*`
+   （终端是本地交互能力，不是可远程编排的 API）；
+3. **随宿主退出**：`Bridge.Stop()` 调 `closeTerminals()` 杀全部子进程并关 PTY；
+   不这么做会在 Windows 上留下悬挂 shell 与 conhost。
+
 ## 关闭语义
 
 Wails `BeforeClose` 首次触发时调用 `BeginGracefulShutdown`，后台等待
@@ -261,12 +290,15 @@ WebView2（Chromium）渲染进程吃内存的根因是：每条工具输出的�
 - renderer 可见数据是否已脱敏。
 - build-tag 两套实现是否保持相同导出 API。
 - 新 Bridge 方法是否有 fakeApplication contract test。
+- 下栏终端是否仍只对渲染层开放（工具面 / headless 控制面不得出现 `Terminal*`），
+  宿主退出是否经 `closeTerminals()` 收干净。
 - 快照截断是否保持"可见会话预览 + 完整内容可读回"两条通道一致（`ToolResultContent` 与 `read_tool_result` 共用 `toolResultContent`）。
 
 ## 测试
 
 ```text
 go test ./gui -count=1
+go test ./gui/terminal -count=1
 go build -tags "gui,desktop,production" ./...
 go build -tags pprof .
 node --test gui/frontend/dist/*.test.mjs

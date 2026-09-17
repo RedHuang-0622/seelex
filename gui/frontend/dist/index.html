@@ -8,6 +8,9 @@
   <!-- 组件库（元素基线与通用组件皮）先加载；styles.css 的类选择器特异性更高，
        负责 Seelex 外观；themes/<id>.css 只覆盖语义 token。顺序不要改。 -->
   <link rel="stylesheet" href="./vendor/pico.min.css">
+  <!-- 终端仿真器样式（vendor/xterm）先于 styles.css：其后由 Seelex 的语义
+       token 覆写配色，换肤不需要改 vendor 文件。 -->
+  <link rel="stylesheet" href="./vendor/xterm/xterm.css">
   <link rel="stylesheet" href="./styles.css">
   <!-- 条目详情弹窗（会话记录/上下文/功能打点）的自适应补丁：只在本文件内
        追加，styles.css 不动。关键规则一句话——所有详情内容块
@@ -32,7 +35,7 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><div><strong id="app-title">Seelex</strong><small id="app-version">alpha</small></div></div>
-      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
+      <div class="runtime-summary"><span id="connection-dot" class="status-dot"></span><span id="provider-label">connecting</span><span id="token-label"></span><span id="perf-badge-host" class="perf-badge-host"></span><span id="live-diag-host" class="perf-badge-host"></span><button id="terminal-button" class="icon-button subtle" type="button" title="终端 (Ctrl+`)" aria-label="终端" aria-pressed="false" data-icon="terminal"></button><button id="settings-button" class="icon-button subtle" type="button" title="设置" aria-label="设置" data-icon="settings"></button></div>
     </header>
 
     <aside class="left-panel panel">
@@ -97,6 +100,22 @@
           <button id="send-button" class="icon-button action-button primary-button" type="submit" title="发送" aria-label="发送" data-icon="send"></button>
         </div>
       </form>
+      <!-- 下栏终端（VS Code 式）：顶边分隔条可拉动调高，头部可收起/展开，
+           标签条支持多开与逐个关闭。终端会话在后端（gui/terminal），这里
+           只画布局。 -->
+      <section id="terminal-panel" class="terminal-panel hidden" aria-label="终端">
+        <div id="terminal-resize" class="terminal-resize" role="separator" aria-orientation="horizontal" aria-label="调整终端高度" tabindex="0"></div>
+        <div class="terminal-head">
+          <button id="terminal-collapse" class="icon-button subtle terminal-collapse" type="button" title="收起终端" aria-label="收起终端" aria-expanded="true"><span class="terminal-collapse-open" data-icon="chevron-down" data-icon-size="14"></span><span class="terminal-collapse-closed" data-icon="chevron-up" data-icon-size="14"></span></button>
+          <div id="terminal-tabs" class="terminal-tabs" role="tablist" aria-label="终端会话"></div>
+          <div class="terminal-actions">
+            <button id="terminal-new" class="icon-button subtle" type="button" title="新建终端 (Ctrl+Shift+`)" aria-label="新建终端" data-icon="plus" data-icon-size="14"></button>
+            <button id="terminal-close" class="icon-button subtle" type="button" title="关闭当前终端" aria-label="关闭当前终端" data-icon="close" data-icon-size="14"></button>
+            <button id="terminal-hide" class="icon-button subtle" type="button" title="隐藏终端面板 (Ctrl+`)" aria-label="隐藏终端面板" data-icon="chevron-down" data-icon-size="14"></button>
+          </div>
+        </div>
+        <div id="terminal-body" class="terminal-body"></div>
+      </section>
     </main>
 
     <aside class="right-panel panel">
@@ -157,14 +176,18 @@
 
         <div class="right-tabpanel hidden" data-right-panel="code" role="tabpanel">
         <div class="code-split" id="code-split">
-          <section class="file-preview-pane is-closed" id="file-preview-pane" aria-label="文件预览">
-            <div class="code-pane-head">
-              <span class="code-pane-title">文件预览</span>
-              <span id="file-preview-meta" class="file-preview-meta"></span>
-              <button id="file-preview-hide-panes" class="icon-button subtle file-preview-hide-panes" type="button" title="隐藏工作树与提交记录" aria-label="隐藏工作树与提交记录" aria-pressed="false" data-icon="expand"></button>
-              <button id="file-preview-close" class="icon-button subtle file-preview-close" type="button" title="关闭全部文件详情" aria-label="关闭全部文件详情" data-icon="close"></button>
+          <section class="file-preview-pane is-closed" id="file-preview-pane" aria-label="文件详情">
+            <button id="file-preview-rail" class="file-preview-rail" type="button" title="展开文件详情" aria-label="展开文件详情"><span class="file-preview-rail-label">文件详情</span></button>
+            <!-- 头部没有独立标题 / 元信息行：多文件 chip 标签条本身就是头部
+                 （一枚 chip = 一个已打开的文件详情），动作按钮贴右。 -->
+            <div class="code-pane-head file-preview-head">
+              <div id="file-preview-tabs" class="file-preview-tabs" role="tablist" aria-label="已打开的文件详情"></div>
+              <div class="file-preview-actions">
+                <button id="file-preview-collapse" class="icon-button subtle file-preview-collapse" type="button" title="收起详情，让出内容页" aria-label="收起详情，让出内容页" aria-pressed="false" data-icon="chevron-left"></button>
+                <button id="file-preview-hide-panes" class="icon-button subtle file-preview-hide-panes" type="button" title="隐藏工作树与提交记录" aria-label="隐藏工作树与提交记录" aria-pressed="false" data-icon="expand"></button>
+                <button id="file-preview-close" class="icon-button subtle file-preview-close" type="button" title="关闭全部文件详情" aria-label="关闭全部文件详情" data-icon="close"></button>
+              </div>
             </div>
-            <div id="file-preview-tabs" class="file-preview-tabs hidden" role="tablist" aria-label="已打开的文件详情"></div>
             <div id="file-preview-view" class="file-preview-view muted">从工作树选择文件后在此查看详情</div>
           </section>
           <div id="file-preview-divider" class="file-split-divider" role="separator" aria-orientation="vertical" aria-label="调整文件预览宽度" tabindex="0"></div>
@@ -376,6 +399,10 @@
   <script src="./vendor/purify/purify.min.js"></script>
   <script src="./vendor/docx-preview/docx-preview.min.js"></script>
   <script src="./vendor/pdfjs/pdf.min.js"></script>
+  <!-- 下栏终端仿真器（本地 vendor，离线可用）：UMD 全局 Terminal / FitAddon
+       必须在模块脚本之前就绪。 -->
+  <script src="./vendor/xterm/xterm.js"></script>
+  <script src="./vendor/xterm/addon-fit.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

@@ -5,10 +5,17 @@ go 1.25.8
 // Seele：发布依赖走下面的 require（v0.3.0 = Linux 式权限模型：主体×路由组×rwx
 // + sudo 与中间件判定）。2026-09-15 曾临时加本地 replace（=> G:/Program/go/Seele）
 // 联调该模型；v0.3.0 发布后 replace 已移除，回归纯净依赖。
+//
+// go-pty（v0.2.3）：GUI 下栏终端的跨平台 PTY。Windows 走 ConPTY，unix 走
+// creack/pty，是唯一被维护的纯 Go 跨平台伪终端实现；自研 ConPTY 需要 unsafe
+// 组装 STARTUPINFOEX/PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE，风险高于依赖本身。
+// 它只在 gui/terminal 使用（桌面宿主），unix 构建才会连带编译 u-root 的
+// termios（其 ssh 支持所需），Windows 不受影响。
 
 require (
 	github.com/RedHuang-0622/Seele v0.3.0
 	github.com/atotto/clipboard v0.1.4
+	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -32,6 +39,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.9.0 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.5.0 // indirect
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -68,6 +76,7 @@ require (
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
+	github.com/u-root/u-root v0.16.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
