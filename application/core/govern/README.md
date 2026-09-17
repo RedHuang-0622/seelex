@@ -43,6 +43,33 @@
 `Governor.Next` 每次让当前座位行动并把发牌权交给下一座位；一轮结束后
 `Round()` 自增。错误透传不吞（座位失败由调用方决定缺席/升级策略）。
 
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as 装配方
+    participant G as TurnGovernor
+    participant S1 as Seat[0]
+    participant S2 as Seat[1]
+
+    A->>G: NewTurnGovernor(seats, maxRounds)
+    loop 第 n 轮（按注册顺序）
+        G->>S1: Act(ctx)
+        S1-->>G: TurnAction{BreakLoop, Note}
+        G->>S2: Act(ctx)
+        S2-->>G: TurnAction{BreakLoop, Note}
+    end
+    alt TurnAction.BreakLoop = true
+        G->>G: 立即收束
+    else 轮数达到 maxRounds
+        G->>G: 护栏收束（防死循环）
+    else 外部主动断环
+        A->>G: Break(reason)（幂等）
+    end
+    G-->>A: Snapshot（断环原因 / 轮次 / 当前座位）
+```
+
 ## 数据流或生命周期
 
 ```text

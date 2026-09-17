@@ -22,6 +22,54 @@
 依赖 `state.Core` + `contract.ChatEngine` Node 查询面（只读子代理 actor）+
 `ViewPort`（bump）+ `Limits`。
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    subgraph SRC["数据来源"]
+        ENGINE["contract.ChatEngine Node 查询面<br/>（锁外只读 actor）"]
+        PLAN["权威 Plan 节点投影 + SubAgentTree"]
+        LIVE["节点 live 事件（stage / tool / assistant）"]
+    end
+
+    DETAIL["SubagentDetail<br/>弹窗分类数据面"]
+    TABS["会话记录 · 第一视角阶段 · 上下文<br/>功能打点 · 事件时间线 · 工具活动 · 输出"]
+    BOUND["有界：plan_node_events / evidence_chars"]
+    BUMP["锁内改权威投影并 bump"]
+    PUB["锁外 Publish"]
+    FE["GUI 详情弹窗（低频权威刷新 + live 即时刷新）"]
+
+    ENGINE --> DETAIL
+    PLAN --> DETAIL
+    LIVE --> DETAIL
+    DETAIL --> TABS
+    DETAIL --> BOUND
+    BOUND --> BUMP
+    BUMP --> PUB
+    PUB --> FE
+```
+
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant G as GUI 详情弹窗
+    participant SV as subagent_view
+    participant E as ChatEngine Node 只读面
+    participant P as Plan 投影
+
+    G->>SV: SubagentDetail(nodeID)
+    SV->>E: 锁外查询子代理 actor 会话与上下文
+    SV->>P: 读取 Plan 节点与 SubAgentTree 兜底
+    SV-->>G: 各 tab 首屏数据（会话/阶段/上下文/打点/时间线/工具/输出）
+    loop 执行中
+        SV->>G: SubagentLiveEvent（stage / tool / assistant 增量）
+    end
+    G->>SV: 低频权威刷新
+    SV-->>G: 重新拉齐（补全中途打开也能看到的阶段）
+```
+
 ## 并发/安全语义
 
 锁内只改权威 Plan 节点投影并 bump；引擎 Node 查询在锁外（只读 actor，

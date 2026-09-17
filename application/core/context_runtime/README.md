@@ -41,6 +41,48 @@
 | `coordinator.go` | 上下文装配/压缩协调器与纯 helper（警告文本、checkpoint 判定）。 |
 | `history.go` | provider 历史归一化（`HistoryCoordinator`）。 |
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    REQ["一次模型请求"] --> PREP["PrepareExecutionContext<br/>锁内读 task 权威状态"]
+    PREP --> BUDGET["ContextBudgetFor<br/>窗口 - 输出预留 - 安全余量"]
+    BUDGET --> SOFT{"达到软阈值？"}
+    SOFT -->|否| ASC["装配：system → 累积 context（append-only）→ plan 尾部"]
+    SOFT -->|是| COMPACT["压缩：折叠 compact 栈顶 + context 窗口"]
+    COMPACT --> FRAME["RecordContextCompactionLocked<br/>发布有界 checkpoint 帧"]
+    FRAME --> ASC
+    ASC --> REPLACE["锁外 ReplaceHistory"]
+    REPLACE --> CHECK["锁内记 checkpoint"]
+    CHECK --> PUB["锁外 Publish"]
+```
+
+## 时序图：工具配对归一化
+
+provider 的规则是「每条 `tool` 消息必须**紧跟**携带其 `tool_calls` 的 assistant 消息」，
+而不是「历史里存在配对」。`RepairInterruptedToolChains` 随 `PrepareProviderHistory` 一起跑：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as PrepareProviderHistory
+    participant R as RepairInterruptedToolChains
+    participant E as EnginePort.replaceRawHistoryFor
+    participant D as durable 消息行
+
+    P->>R: 传入工作历史投影
+    R->>R: ① 被隔开的结果搬回声明之后
+    R->>R: ② 重复结果与孤儿行退出投影
+    R->>R: ③ 缺结果的调用补占位，且排在原地结果之后
+    R-->>P: 结果块连续（looksLikeProviderValidToolPairs 自校验）
+    P->>E: 只改写取出给 provider 的历史投影
+    Note over D: durable 消息行不动，因此不丢记录
+```
+
+历史归一化遵守**跨轮前缀不变量**：每条请求都以更早发出的请求字节为前缀，
+因此 provider 投影必须等于 wire 已发出的字节——携带工具调用的 assistant
+消息正文恒为空，空工具结果不补占位。
+
 ## 依赖方向
 
 依赖 `state.Core` + 消费方窄端口；token 预算/transcript 收敛复用

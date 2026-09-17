@@ -5,6 +5,20 @@
 `seele.yaml` window 配置段加载与窗口策略类型：`WindowConfig`/`WindowPolicy`/
 `LoadWindowConfig`。决策公式归属 seelexctx，本包不做实现。
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    YAML["seele.yaml window 段"] --> LOAD["LoadWindowConfig（路径门控加载）"]
+    LOAD --> CFG["WindowConfig<br/>ratio / min_rounds / max_rounds"]
+    CFG --> NEW["NewDefaultWindowPolicy"]
+    DEF["DefaultWindowConfig<br/>既定默认值"] -.->|缺省回退| NEW
+    NEW --> POL["DefaultWindowPolicy"]
+    POL --> CTX["seelexctx 决策公式<br/>窗口轮数计算"]
+```
+
+本包只做「配置装载 + 策略类型」，窗口轮数的实际计算在 `seelexctx/window.go`。
+
 ## 测试
 
 根包 `window_policy_test.go` 覆盖。

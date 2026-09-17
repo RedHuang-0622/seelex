@@ -32,6 +32,65 @@ result-ref、token 审计（`CalibratedTokenCounter`）、plan 帧状态与 ReAc
 | `token_counter.go` | 校准 token 计数器与上下文预算。 |
 | `plan_transcript.go` | Plan 投影 helper 与 transcript 协议单元收敛。 |
 
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph COORD["task_context.Coordinator（嵌入内核锁）"]
+        STATE["TaskExecutionState<br/>功能打点快照 + 终态判定"]
+        SVC["TaskService<br/>Plan 打卡 + 终态工具"]
+        CTXSTATE["task_context_state<br/>transcript / checkpoint / result-ref / token 审计"]
+        BUDGET["ReAct 预算 + plan 栈 / 重规划状态"]
+    end
+
+    TC["CalibratedTokenCounter<br/>自持 mu"] --> COORD
+    PORTS["注入端口<br/>PromptPort · Limits · 错误呈现 · 队列引用"] --> COORD
+
+    COORD -->|满足| SRP["session_runtime.TaskPersistencePort"]
+    COORD -->|满足| CRP["context_runtime.TaskPort"]
+    COORD -->|满足| PLP["prompt_layer 的 TaskContextView"]
+
+    COORD --> SNAP["权威 Snapshot（经 state.Core）"]
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    SUB["一次提交"] --> BEGIN["BeginTask"]
+    BEGIN --> SKILL["ActivateTaskSkillsLocked"]
+    BEGIN --> TR["AppendTranscriptEventLocked<br/>append-only，seq 单调"]
+    MODEL["模型输出 / 工具调用 / Plan 事件"] --> OBS["ObserveTool · PlanEvent · ModelOutput"]
+    OBS --> TR
+    OBS --> CKPT["BuildTaskCheckpointLocked<br/>有界 checkpoint"]
+    TR --> TAIL["TranscriptTailHistory<br/>协议单元不可拆分，绝不静默空历史"]
+    CKPT --> PROJ["TaskProjectionLocked"]
+    TAIL --> PROJ
+    PROJ --> TERM["VerifyAndApply<br/>终态门禁 + Plan 节点覆盖校验"]
+    TERM --> SNAP["权威 Task 状态"]
+```
+
+## 时序图：终态门禁
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as 模型
+    participant S as TaskService
+    participant P as Plan 投影
+    participant ST as 权威 Task 状态
+
+    M->>S: task_complete（终态工具）
+    S->>S: VerifyAndApply
+    S->>P: 读取已加载 Plan 的节点覆盖情况
+    alt 存在未覆盖节点
+        S-->>M: 拒绝完成（nodesNotCovered）
+    else 全部节点已打卡
+        S->>ST: applyCompleteLocked
+        S-->>M: 终态成立
+    end
+```
+
 ## 依赖方向
 
 依赖 `state.Core` + 注入端口（prompt 栈、limits、错误呈现、队列引用）；

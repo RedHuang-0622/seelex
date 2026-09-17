@@ -1,8 +1,59 @@
 # Application Prompt
 
-## 定位
+## 生态位
 
 本包管理 system prompt 的分层组合和 Effort 行为策略，为 `core.Service` 提供线程安全、可解释的 prompt 状态。
+
+主要调用方：`application/core`（`prompt_layer` 组装与引擎同步）、`gui`/`tui`（Effort 切换与展示）。
+具体提示词文本不在本包，而在 [`internal/promptassets`](../../internal/promptassets/README.md)。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph PS["PromptStack（固定渲染顺序）"]
+        L1["identity"]
+        L2["base / plugin"]
+        L3["effort"]
+        L4["instructions"]
+    end
+
+    SKILL["Skill 请求内容<br/>随 user turn 进入结构化上下文，不进 system"]
+    RENDER["Render：按固定顺序拼装"]
+    FREEZE["Layers：供输入冻结与 Skill 上下文构建"]
+    ENGINE["Engine SetSystemPrompt（内容不变不重复写）"]
+
+    subgraph EM["EffortManager"]
+        EFF["lite / medium / high / max"]
+        BUD["行为提示 + MaxLoops + ReAct budget"]
+        POL["PlanPolicy（节点数、串并行、MaxNodeLoops）"]
+    end
+
+    L1 --> RENDER
+    L2 --> RENDER
+    L3 --> RENDER
+    L4 --> RENDER
+    RENDER --> ENGINE
+    RENDER --> FREEZE
+    SKILL -.->|不写入 system| RENDER
+    EFF --> BUD
+    EFF --> POL
+    EFF --> L3
+    BUD --> ENGINE
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    OP["Push / Pop / ClearKind / Reset"] --> STACK["PromptStack 层集合"]
+    EFFORT["Apply / Cycle（effort 切换）"] --> STACK
+    EFFORT --> POLICY["PlanPolicy + 请求级 budget 快照"]
+    STACK --> RENDER["Render（确定性顺序）"]
+    RENDER --> ENGINE["Engine system prompt"]
+    POLICY --> ENGINEPOLICY["Engine MaxLoops / fork 策略"]
+    ASSETS["internal/promptassets（构建期嵌入）"] -.->|提供文本| RENDER
+```
 
 ## PromptStack
 
@@ -25,8 +76,6 @@
 
 每个 budget 同时限制工具轮数、工具调用数和连续无进展轮数；无进展只在重复工具工作未产生新事实、变更、产物或 Plan 节点状态时计数。它是最后熔断器，主路径仍是 Application 的 checkpoint 与 token 驱动上下文裁剪；长编码任务没有 wall-clock timeout。预算不会禁止 Markdown 导出等交付工具。
 
-## Review 指南
-
 ## Plan policy
 
 `PlanningPolicy` maps effort to runtime-enforced constraints for an optional
@@ -39,6 +88,8 @@ snapshots this policy with the request budget, but every normal user request
 enters the ReAct loop directly; effort does not create a mandatory preflight.
 
 When a loaded Plan fails, an explicit replan interaction uses the same `plan_load` contract to replace only the remaining recovery workflow. It carries bounded node evidence and stops before `plan_run`, so a changed recovery path is reviewed before any new side effect.
+
+## Review 指南
 
 - 不要让 map 迭代顺序影响 prompt；渲染顺序必须确定。
 - Effort 更新应同时刷新 max loops 和最终 system prompt；新增等级必须通过单一 profile 同时定义 prompt、PlanPolicy 和 budget。

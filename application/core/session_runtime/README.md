@@ -35,6 +35,41 @@
 tool-result。目录 worker 锁外做 SessionPort/WorkspacePort I/O，锁内只发布
 内存态拷贝（bump → 锁外 Publish）。
 
+### 时序图：持久化一次会话
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SVC as core.Service
+    participant C as session_runtime.Coordinator
+    participant TP as TaskPersistencePort
+    participant ST as SessionPort
+
+    SVC->>C: PersistCurrentSession
+    C->>TP: 锁外收集 task 快照
+    C->>C: 锁内构建 SessionRecord v3
+    C->>ST: 锁外合并 / 写入（原子提交）
+    C->>C: 锁内清理已提交 tool-result
+```
+
+### 数据流图：目录、标题与回执
+
+```mermaid
+flowchart LR
+    REQ["RequestCatalogRefresh()"] --> REG["登记刷新回执（先登记再唤醒）"]
+    REG --> WAKE["wake channel（容量 1）"]
+    WAKE --> WORKER["catalog worker"]
+    WORKER --> IO["锁外 SessionPort / WorkspacePort 枚举"]
+    IO --> MEM["锁内替换内存态<br/>catalogMu"]
+    MEM --> SNAP["ViewMu 短临界区发布 Snapshot 镜像"]
+    MEM --> DONE["收尾：关闭该轮回执"]
+    DONE --> WAIT["Service.WaitCatalogRefresh(ctx)"]
+    STOP["StopCatalogRefresh"] --> RELEASE["释放全部在等回执并置停止标记"]
+```
+
+目录三态（枚举缓存、标题表、回执队列）由 `catalogMu` 保护，锁序为
+`ViewMu → catalogMu`，不反向。
+
 `RequestCatalogRefresh()` 除唤醒外还返回**完成回执**（`<-chan struct{}`）：调用方
 可选地等到"某一轮刷新在该请求登记之后开始并收尾"，回执即关闭。回执先登记再
 唤醒，因此容量 1 的 wake channel 丢唤醒不会丢请求——正在排空批次的那一轮收尾时

@@ -50,6 +50,90 @@ headless 契约（`headless.go`）作为外部驱动面；
 - 不定义通用治理循环原语（那是 `application/core/govern`）；
 - 不接触 LLM provider/账号（`TLEvaluator` 由装配方注入，本包不持有凭据）。
 
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph CTRL["Controller：goal 栈与状态机"]
+        STACK["LIFO goal 栈（depth 默认 1）"]
+        SM["状态机<br/>active → reviewing → completed / aborted / failed / waiting_human"]
+        AUDIT["audit.go<br/>append-only 审计账本"]
+    end
+
+    subgraph DSA2A["DS-A2A 双会话治理"]
+        SUP["Supervisor<br/>回合前一次性同步抽帧"]
+        ADV["AdvisorSession<br/>锚点 + 追加帧 + 自身回合段"]
+        GATE["gate.go<br/>终态 gate + 审批预筛 + B4 缺席矩阵"]
+    end
+
+    STORE["sessionstore_store.go<br/>会话第五栈 GoalStack + GoalAudit"]
+    ADAPTER["adapter.go<br/>EXEC / ADVISOR → govern.Seat"]
+    TL["TLEvaluator（装配方注入）"]
+    HEADLESS["headless.go<br/>/rpc + /events"]
+    FE["GUI Goal 面板"]
+
+    HEADLESS --> CTRL
+    CTRL --> STORE
+    CTRL --> SUP
+    SUP --> ADV
+    ADV --> TL
+    SUP --> GATE
+    GATE --> CTRL
+    ADAPTER --> SUP
+    CTRL --> FE
+    GATE --> FE
+```
+
+## 时序图：一轮目标治理
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant C as Controller
+    participant E as EXEC（主代理）
+    participant S as Supervisor
+    participant A as ADVISOR（独立上下文）
+    participant G as gate
+
+    U->>C: goal_begin（目标 + 验收条件）
+    C->>C: 压栈 + 记 begin 审计
+    E->>C: goal_update（进展）
+    U->>C: goal_propose_finish
+    C->>S: 请求评估（on_eval）
+    S->>S: 一次性同步抽帧（syncControllerDiffFramesLocked）
+    S->>A: 装配 ADVISOR 输入（帧账本 + EXEC 工作摘要 + 证据句柄）
+    A->>A: 独立上下文回合（有界 LLM 调用）
+    A-->>S: TLDirective（指令 + 信号）
+    S->>G: 终态裁决
+    alt verdict = completed
+        G->>C: 弹栈 + 记 finish 审计
+    else verdict = not_done
+        G->>E: 指令邮回执行侧，继续推进
+    else verdict = escalate_human
+        G->>U: 转人工（task_needs_user_decision）
+    end
+    Note over E,G: EXEC 永不等待 ADVISOR；超时或限流按判负或转人工处理
+```
+
+## 目标生命周期
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: goal_begin 压栈
+    Active --> Reviewing: goal_propose_finish → 裁决侧评估
+    Reviewing --> Completed: 裁决 completed（弹栈 + 审计）
+    Reviewing --> Active: 裁决 not_done（指令回投）
+    Reviewing --> WaitingHuman: 裁决 escalate_human
+    WaitingHuman --> Active: 人工答复后继续
+    WaitingHuman --> Aborted: 人工终止
+    Active --> Failed: 执行侧失败
+    Active --> Aborted: goal_abort
+    Completed --> [*]
+    Failed --> [*]
+    Aborted --> [*]
+```
+
 ## 核心实现
 
 - `Controller`：goal 栈（LIFO，depth 默认 1）+ 状态机 + 事件订阅；

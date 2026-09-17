@@ -20,7 +20,14 @@ Seelex is a local-first coding-agent harness built in Go. It turns LLM providers
   endpoints are exercised);
 - P2C account pooling, role-aware routing (agent / subagent / goalplan / websearch) and lease-until-EOF
   streaming safety;
-- project-scoped tools with roots resolved per session, allow/ask/deny permission policy and human approval;
+- project-scoped tools with roots resolved per session, plus a Linux-style permission model
+  (subject × routing group × rwx bits): `root` / `sub` / `emp_ro` / `emp_rw` subjects over `ro` / `rw` /
+  `rw_session` / `rw_desktop` / `ctl` / `adm` groups, where a missing bit means the tool is simply not
+  routable for that subject (subagents structurally lack `ctl` and `adm`), and human approval covers every `ask`;
+- per-session permission tiers for the main agent (`manual` / `edit` / `auto` / `full`): a tier only
+  removes `ask` rules, never adds an allow and never touches a dangerous `deny`, so `rm -rf` roots,
+  `dd if=* of=*` and `mkfs*` stay hard-blocked in every tier; the `full` short-circuit applies to the
+  `root` subject only, so subagents and employees still escalate through the approval panel;
 - multimodal input and desktop control sharing one session media partition: screenshots are stored
   content-addressed, referenced from tool results and attached to the next model request once, while
   desktop-changing tools (focus, mouse/keyboard injection) stay approval-gated and are invisible to
@@ -58,6 +65,126 @@ For an OpenAI-compatible DeepSeek endpoint, keep `provider: openai` and configur
 
 ## Architecture
 
+### Layered architecture
+
+```mermaid
+flowchart TB
+    subgraph L1["Clients (consume Snapshot / Event, submit Actions)"]
+        TUI["TUI (Bubble Tea)"]
+        GUI["GUI (Wails / WebView)"]
+        HL["headless RPC"]
+        BE["backend console"]
+    end
+
+    subgraph L2["application/ — use-case orchestration + authoritative state"]
+        SVC["Service facade"]
+        STATE["model · event · approval · contract · prompt"]
+    end
+
+    subgraph L3["seelebridge/ — runtime anti-corruption layer"]
+        RT["Runtime assembly and shutdown"]
+        TOOLS["tools: Router · RegistryState · PermissionGate"]
+        ORCH["plan · node · fork · scheduler · task"]
+        CAP["account · mcp · plugin · session · search"]
+    end
+
+    CTX["seelexctx/ — Assembler · Compressor · DAG · Memory · Merger"]
+    PERSIST["sessionstore/ · session/ · workspace/"]
+    EXT["plugin/ · skill/ · mcpstack/"]
+    SEELE["Seele runtime: agent · session · tools · workplan · accountpool · mcp"]
+
+    TUI --> SVC
+    GUI --> SVC
+    HL --> SVC
+    BE --> SVC
+    SVC --> STATE
+    SVC --> RT
+    SVC --> CTX
+    SVC --> PERSIST
+    RT --> TOOLS
+    RT --> ORCH
+    RT --> CAP
+    CTX --> RT
+    EXT --> RT
+    TOOLS --> SEELE
+    ORCH --> SEELE
+    CAP --> SEELE
+    PERSIST -.->|history / records| RT
+```
+
+### Use cases
+
+```mermaid
+flowchart LR
+    DEV(("Developer"))
+    LEAD(("Team lead"))
+    AUTHOR(("Extension author"))
+
+    UC1(["Submit a task, watch streaming execution"])
+    UC2(["Approve tools, pick the session permission tier"])
+    UC3(["New / switch / fork / resume sessions"])
+    UC4(["Inspect subagent nodes and evidence in the Plan panel"])
+    UC5(["Register employees and teams, summon a team"])
+    UC6(["Set a goal stack judged by the ADVISOR role"])
+    UC7(["Audit the frame ledger and tool evidence"])
+    UC8(["Install plugins / skills / MCP to switch the capability surface"])
+    UC9(["Route model accounts and control cost"])
+    UC10(["Let the agent drive the desktop with screen evidence"])
+
+    SYS["Seelex Application Core"]
+
+    DEV --> UC1
+    DEV --> UC2
+    DEV --> UC3
+    DEV --> UC4
+    LEAD --> UC2
+    LEAD --> UC5
+    LEAD --> UC6
+    LEAD --> UC7
+    AUTHOR --> UC8
+    AUTHOR --> UC9
+    AUTHOR --> UC10
+    UC1 --> SYS
+    UC2 --> SYS
+    UC3 --> SYS
+    UC4 --> SYS
+    UC5 --> SYS
+    UC6 --> SYS
+    UC7 --> SYS
+    UC8 --> SYS
+    UC9 --> SYS
+    UC10 --> SYS
+```
+
+### One request, end to end
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant F as TUI / GUI
+    participant S as application.Service
+    participant R as seelebridge.Runtime
+    participant L as Seele ReActLoop
+    participant T as tools.Registry + PermissionGate
+
+    U->>F: prompt
+    F->>S: Submit
+    S->>R: startChat / ChatStreamFor
+    R->>L: agent.ChatStream
+    L-->>F: streaming tokens (via EventHub projection)
+    L->>T: tool_call
+    T->>S: Interaction approval request (ask)
+    S-->>F: approval dialog
+    U->>F: approve
+    F->>S: ResolveInteraction
+    S->>T: allow and execute
+    T-->>L: tool_result (oversized results archived as result_ref)
+    L-->>S: turn finished
+    S->>S: persist append-only order log
+    S-->>F: Snapshot + Event delta
+```
+
 ```text
 TUI / Wails GUI / headless RPC / backend console
        │ Snapshot · Event · Action
@@ -77,8 +204,14 @@ The important design choice is that frontends do not own the agent state machine
 - ProjectScope and permission rules are not an OS, container or VM sandbox.
 - There is no git checkpoint/rewind abstraction yet.
 - There is no semantic repository index, repo map or IDE extension.
-- Multi-agent orchestration is in-process and is not an A2A Protocol implementation; the team turn
-  scheduler is not wired to production yet.
+- Multi-agent orchestration is in-process and is not an A2A Protocol implementation. The team turn
+  scheduler (`TurnScheduler`) is only **partially wired**: linked-list order (`Move` / `Remove` /
+  `Restore`), `SetPrefix`, `NoteTurn`, `SyncOrder` and `Snapshot` have production consumers, while
+  `Next()` / `Advance()` are primitives without one; the goal governance seat loop is what actually
+  drives turns.
+- The `review-team` `reviewer` and `research-team` `researcher` roles only have role sessions and member
+  rows, no executor yet (`RolesWithExecutor` contains only `user` / `main` / `tl`); the assembly surface
+  states this explicitly via `DesignNotice`.
 - Standard SWE-bench or Terminal-Bench results have not been published.
 - Real WebView E2E is not yet a release gate.
 - Total statement coverage is 58.6% (2026-09-14); the TUI (35.6%) trails the core orchestration packages.

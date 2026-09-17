@@ -36,6 +36,37 @@ Locate 定位 → Decide 判定 → RepairParent 补历史 → RestoreScene 重�
 「注入说明」只进被执行单元自己的上下文；「收敛」删除临时现场并把结论按正常
 路径写回父级。
 
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as resume.Runner
+    participant U as 单元注册表（幂等键 Unit.Key）
+    participant P as 领域 Port 实现
+    participant T as 被恢复单元（subagent / role draft）
+
+    R->>U: claim(Key)
+    alt 同一 Key 已在途
+        R-->>R: 返回 Skipped（不并发重跑）
+    end
+    R->>P: Locate 定位
+    P-->>R: Unit{状态: active / done / failed}
+    alt 已终结
+        R->>P: RepairParent 补历史（provider-only 占位）
+    else active
+        R->>P: RepairParent → RestoreScene
+        R->>T: InjectNote 注入说明（只进自身上下文）
+        R->>P: Reexecute 同键重跑
+        R->>P: Converge 收敛（删除临时现场并写回父级）
+    end
+    R->>U: release(Key)
+    R-->>R: Report（Resumed / Skipped / Failed，稳定排序）
+```
+
+七步顺序由 `Order()` 固定，调用方不能自排；未装配端口时显式返回
+`ErrPortNotAssembled`，不静默空转。
+
 ## 依赖方向
 
 只依赖标准库（`context`/`errors`/`fmt`/`sort`/`sync`/`time`）。禁止反向依赖

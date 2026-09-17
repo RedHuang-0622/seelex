@@ -60,7 +60,8 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 | 代理团队与工作台 | TeamSpec 团队工厂与 preset 隐式拉起、成员与发言顺序注册表；plan / tasklist / subagent / todo 四源合一的工作台投影与 traceboard |
 | 上下文治理 | Prompt Stack 稳定前缀、滑动窗口、预算控制、压缩 DAG、超大工具结果归档为 <code>result_ref</code> 与按页/过滤读回；装配逼近硬阈值（预算 90%）时**探测即主动压缩**为有界 checkpoint 帧，<code>compact_context</code> 工具与 <code>/compact</code> 命令可手动触发同一压缩 |
 | 记忆与检索 | 相关记忆块（词法 top-K）、以压缩栈为索引的历史检索读回、跨会话稳定前缀复用、CLI/项目级 <code>MEMORY.md</code> 索引 |
-| 项目安全 | ProjectScope 按会话分格的路径约束、PathGate / LMRW 规则、<code>manual</code>/<code>full_access</code> 权限模式 |
+| 项目安全 | ProjectScope 按会话分格的路径约束、PathGate / LMRW 规则；工具权责模型为「主体 × 路由组 × 位」（root / sub / emp_ro / emp_rw，ro / rw / rw_session / rw_desktop / ctl / adm），子代理在结构上缺 <code>ctl</code>/<code>adm</code> 位 |
+| 权限档位 | 主会话有序档位表 <code>manual</code> / <code>edit</code> / <code>auto</code> / <code>full</code>，按会话解析；档位只剪掉 <code>ask</code> 规则，从不覆盖危险 <code>deny</code>，<code>full</code> 短路仅作用于 root，员工越权仍走审批提权 |
 | 多模态输入 | 图片与文档附件进入模型请求；截屏画面落会话媒体分区（内容寻址、配额独立记账）并随下一次请求送入；文档无原生解码时兜底为内联文本 |
 | 桌面操作 | computer use 工具族（截屏/窗口枚举/聚焦/点击/移动/拖拽/滚动/输入/按键/等待）：平台门控 + <code>SEELEX_COMPUTER_USE</code> 总开关，输入注入默认逐次审批，子代理只见 <code>computer_screenshot</code>/<code>computer_windows</code>/<code>computer_wait</code> |
 | 扩展系统 | 声明式 Plugin、目录化 Skill、MCP Server 冷启动登记/按需加载/重挂载与工具可见性过滤，以及 plugin/skill/mcp 自管理工具 |
@@ -76,6 +77,150 @@ Seelex 把这些能力组织成可替换、可测试的模块，而不是把它�
 Plan 是可选能力。普通请求可以直接进入主 ReAct 流程；只有在任务需要结构化拆分时才加载和执行 DAG。
 
 ## 架构
+
+### 分层架构
+
+```mermaid
+flowchart TB
+    subgraph L1["客户端（只消费 Snapshot / Event，提交 Action）"]
+        TUI["TUI（Bubble Tea）"]
+        GUI["GUI（Wails / WebView）"]
+        HL["headless 回环 RPC"]
+        BE["backend 诊断控制台"]
+    end
+
+    subgraph L2["application/ 应用层：用例编排 + 权威状态"]
+        SVC["Service 用例门面"]
+        STATE["权威状态<br/>model · event · approval · contract · prompt"]
+    end
+
+    subgraph L3["seelebridge/ 防腐层：运行时能力适配"]
+        RT["Runtime 装配与关停"]
+        TOOLS["tools：Router · RegistryState · PermissionGate"]
+        ORCH["plan · node · fork · scheduler · task"]
+        CAP["account · mcp · plugin · session · search"]
+    end
+
+    CTX["seelexctx/<br/>Assembler · Compressor · DAG · Memory · Merger"]
+    PERSIST["sessionstore/ · session/ · workspace/"]
+    EXT["plugin/ · skill/ · mcpstack/"]
+    SEELE["Seele runtime：agent · session · tools · workplan · accountpool · mcp"]
+
+    TUI --> SVC
+    GUI --> SVC
+    HL --> SVC
+    BE --> SVC
+    SVC --> STATE
+    SVC --> RT
+    SVC --> CTX
+    SVC --> PERSIST
+    RT --> TOOLS
+    RT --> ORCH
+    RT --> CAP
+    CTX --> RT
+    EXT --> RT
+    TOOLS --> SEELE
+    ORCH --> SEELE
+    CAP --> SEELE
+    PERSIST -.->|历史 / 记录| RT
+```
+
+### 用户视角用例
+
+```mermaid
+flowchart LR
+    DEV(("开发者"))
+    LEAD(("团队负责人"))
+    AUTHOR(("扩展作者"))
+
+    UC1(["提交编码任务，观察流式执行"])
+    UC2(["审批工具调用、切本会话权限档位"])
+    UC3(["新建 / 切换 / 分支 / 恢复会话"])
+    UC4(["在 Plan 面板查看子代理节点与证据"])
+    UC5(["登记员工与团队，召唤团队协作"])
+    UC6(["设定目标栈，由裁决角色评审完成"])
+    UC7(["审计帧账本与工具调用轨迹"])
+    UC8(["安装 Plugin / Skill / MCP 切换能力面"])
+    UC9(["选择模型账号与控制成本"])
+    UC10(["让 Agent 操作桌面并留下画面证据"])
+
+    SYS["Seelex 应用核心"]
+
+    DEV --> UC1
+    DEV --> UC2
+    DEV --> UC3
+    DEV --> UC4
+    LEAD --> UC2
+    LEAD --> UC5
+    LEAD --> UC6
+    LEAD --> UC7
+    AUTHOR --> UC8
+    AUTHOR --> UC9
+    AUTHOR --> UC10
+    UC1 --> SYS
+    UC2 --> SYS
+    UC3 --> SYS
+    UC4 --> SYS
+    UC5 --> SYS
+    UC6 --> SYS
+    UC7 --> SYS
+    UC8 --> SYS
+    UC9 --> SYS
+    UC10 --> SYS
+```
+
+### 一次请求的端到端时序
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant F as TUI / GUI
+    participant S as application.Service
+    participant R as seelebridge.Runtime
+    participant L as Seele ReActLoop
+    participant T as tools.Registry + PermissionGate
+
+    U->>F: 输入任务
+    F->>S: Submit
+    S->>R: startChat / ChatStreamFor
+    R->>L: agent.ChatStream
+    L-->>F: 流式 token（经 EventHub 投影）
+    L->>T: tool_call
+    T->>S: Interaction 审批请求（ask）
+    S-->>F: 审批弹窗
+    U->>F: 批准
+    F->>S: ResolveInteraction
+    S->>T: 放行并执行
+    T-->>L: tool_result（超限则归档 result_ref）
+    L-->>S: 回合结束
+    S->>S: 持久化 append-only 顺序日志
+    S-->>F: Snapshot + Event 增量
+```
+
+### 数据流全景
+
+```mermaid
+flowchart LR
+    IN["用户输入 / 附件 / 截屏"] --> ASM["上下文装配<br/>稳定前缀 + 滑动窗口"]
+    ASM --> REQ["Provider 请求"]
+    REQ --> MODEL["模型流式响应"]
+    MODEL --> DISP["工具调度"]
+    DISP -->|ask| APV["人工审批"]
+    DISP --> SCOPE["ProjectScope + PathGate"]
+    APV --> SCOPE
+    SCOPE --> TOOLR["工具结果"]
+    TOOLR --> BIG{"超出预算？"}
+    BIG -->|是| ARCH["归档 result_ref / 媒体分区"]
+    BIG -->|否| HIST["append-only 顺序日志"]
+    ARCH --> HIST
+    HIST --> WIN{"有窗口外轮次？"}
+    WIN -->|是| FRAME["CompactFrame（可读回原文）"]
+    WIN -->|否| ASM
+    FRAME --> ASM
+```
+
+### 分层结构速览（字符画）
 
 ~~~text
 ┌────────────────────────── Clients ──────────────────────────┐
@@ -110,7 +255,7 @@ plugin/ · skill/ · sessionstore/ · workspace/ · session/ · mcpstack/
 | Seele | Agent/Session 原语、ReAct 执行、工具注册与分发、WorkPlan 内核、账号租约、事件和遥测 |
 | Seelex | 工程任务语义、Plan 产品 DSL、项目作用域工具、上下文策略、Plugin/Skill/MCP 编排、持久化和前端 |
 
-Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.2.0</code>（见 <code>go.mod:9</code>；联调期的本地 <code>replace</code> 已移除）。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
+Seelex 当前依赖 <code>github.com/RedHuang-0622/Seele v0.3.0</code>（见 <code>go.mod</code>；v0.3.0 即 Linux 式权限模型：主体 × 路由组 × rwx + sudo 与中间件判定；2026-09-15 联调期的本地 <code>replace</code> 已移除）。上游能力通过 <code>seelebridge/</code> 集中适配，Application 和前端不直接依赖 Seele 的内部类型。
 
 ## 数据流与机制图
 
@@ -401,14 +546,14 @@ Windows PowerShell 或 cmd 请直接使用 `scripts/*.ps1`。
 | <code>-frontend</code> | <code>tui</code> | 选择 <code>tui</code>、<code>gui</code>、<code>headless</code> 或 <code>backend</code> |
 | <code>-store</code> | <code>.seelex/sessions</code> | 会话持久化路径 |
 | <code>-plugins</code> | <code>plugins</code> | Plugin 搜索路径，多个路径用逗号分隔 |
-| <code>-permission</code> | <code>manual</code> | <code>manual</code> 为白名单外审批；<code>full_access</code> 全部放行 |
+| <code>-permission</code> | <code>manual</code> | 进程默认权限档位，取值 <code>manual</code> / <code>edit</code> / <code>auto</code> / <code>full</code>；会话内可在运行状态面板或 composer 芯片单独切档，旧值 <code>full_access</code> 等价于 <code>full</code> |
 | <code>-backend-prompt</code> | — | 仅 <code>-frontend backend</code>：启动后立即执行的提示词 |
 | <code>-backend-timeout</code> | <code>2m</code> | 仅 <code>-frontend backend</code>：等待提示词完成的超时 |
 | <code>-backend-log</code> | — | 仅 <code>-frontend backend</code>：事件与阶段日志输出文件 |
 | <code>-backend-project</code> | — | 仅 <code>-frontend backend</code>：启动时绑定到指定项目目录 |
 | <code>-version</code> | — | 输出版本并退出 |
 
-<code>full_access</code> 会放宽工具审批，仅应在明确受控的工作区内使用。
+档位是「只剪 <code>ask</code>、不动 <code>deny</code>」的声明式覆盖：<code>edit</code> 不再打断项目文件写入，<code>auto</code> 再放开命令审批，<code>full</code> 全放行；危险命令（<code>rm -rf</code> 根目录、<code>dd if=* of=*</code>、<code>mkfs*</code>）在任何档位下仍被硬拦。<code>full</code> 与 <code>auto</code> 仅应在明确受控的工作区内使用，且不会放宽子代理与员工的权限边界。
 
 ## Plugin、Skill 与 MCP
 
@@ -574,7 +719,8 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 
 - 项目仍处于 Developer Alpha，CLI、配置字段和持久化 schema 可能继续调整。
 - TUI 是默认入口；GUI 功能较完整，但仍依赖平台 WebView，属于 Alpha，真实 WebView E2E 尚未作为发布门禁。
-- 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现；团队轮转的 <code>TurnScheduler</code> 尚未接线，<code>review-team</code>/<code>research-team</code> preset 只完成装配、还没有执行者。
+- 当前 Plan 是同一进程内由主 Agent 编排多个独立节点 Session，不是跨进程或跨组织的完整 A2A Protocol 实现。团队轮转的 <code>TurnScheduler</code> 属**部分接线**：链表顺序（<code>Move</code>/<code>Remove</code>/<code>Restore</code>）、<code>SetPrefix</code>、<code>NoteTurn</code>、<code>SyncOrder</code> 与 <code>Snapshot</code> 有生产消费者，而 <code>Next()</code>/<code>Advance()</code> 目前只是原语、没有生产消费者；真正驱动轮次的是 goal 治理的座位循环。
+- <code>review-team</code> 的 <code>reviewer</code> 与 <code>research-team</code> 的 <code>researcher</code> 目前只有角色会话与成员行，没有执行者（事实表 <code>RolesWithExecutor</code> 只含 <code>user</code>/<code>main</code>/<code>tl</code>）；装配面通过 <code>DesignNotice</code> 显式声明「谁还没有执行者」，不会让人误以为装配完就有人干活。角色回合执行体（<code>RunRoleTurn</code>）已落地，但只为拿到治理座位的 <code>agent</code> 角色提供承重面。
 - OpenAI-compatible 不等于完全行为一致；工具调用、流式协议和模型参数仍需按 provider 验证。
 - 项目尚未发布 SWE-bench、Terminal-Bench 等标准化编码基准结果。
 - 覆盖率仍是短板：2026-09-14 口径全仓 **58.6%**，TUI **35.6%** 明显低于核心编排层，前端交互的回归保护弱于后端。
@@ -594,6 +740,19 @@ Linux CI 还会执行 race detector、覆盖率和发布包安全检查。
 - [开题报告（研究文档）](docs/research/2026-09-14-seelex-thesis-proposal-v3.md)
 - [性能测试报表（历史基线，2026-08-05）](docs/test/REPORT-perf-latest.md)
 - [性能测试报表（更早构建基线）](docs/test/REPORT-perf-baseline.md)
+
+模块 README 是各章节的入口，全部以「生态位」开头，并按模块性质配有架构图、用例图、时序图或数据流图：
+
+| 层 | 模块 README |
+|---|---|
+| 应用层 | [application/](application/README.md) · [application/core/](application/core/README.md)（含分卷与叶子包） · [contract/](application/contract/README.md) · [contract/dto/](application/contract/dto/README.md) · [model/](application/model/README.md) · [event/](application/event/README.md) · [approval/](application/approval/README.md) · [prompt/](application/prompt/README.md) |
+| 运行时适配 | [seelebridge/](seelebridge/README.md) · [security/](seelebridge/security/README.md) · [tools/](seelebridge/tools/README.md) · [plan/](seelebridge/plan/README.md) · [node/](seelebridge/node/README.md) · [fork/](seelebridge/fork/README.md) · [session/](seelebridge/session/README.md) · [account/](seelebridge/account/README.md) · [mcp/](seelebridge/mcp/README.md) · [computer/](seelebridge/tools/computer/README.md) |
+| 上下文与存储 | [seelexctx/](seelexctx/README.md) · [sessionstore/](sessionstore/README.md) · [session/](session/README.md) · [workspace/](workspace/README.md) |
+| 扩展与前端 | [plugin/](plugin/README.md) · [skill/](skill/README.md) · [mcpstack/](mcpstack/README.md) · [gui/](gui/README.md) · [tui/](tui/README.md) · [plugins/](plugins/README.md) |
+| 工程基座 | [e2e/](e2e/README.md) · [scripts/](scripts/README.md) · [config/](config/README.md) · [internal/](internal/README.md) |
+
+README 内的 Mermaid 图由 `go test ./e2e/` 的结构门禁保护（fence 闭合、图类型、括号与引号配平、
+`subgraph`/`end` 成对）；本地详细报告用 `python scripts/check_mermaid.py --strict`。
 
 模块 README 描述当前实现；<code>docs/YYYY-MM-DD-topic/</code> 下的文件主要是阶段性方案与研发记录，不应被视为所有功能均已完成的证明。
 

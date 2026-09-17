@@ -10,6 +10,31 @@
 - 做：注册、查询、按路由策略分派。
 - 不做：内置命令注册（根包 `registerBuiltinCommands`）、Skill 上下文编解码。
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    IN["用户输入"] --> R["Router.Dispatch"]
+    R --> C1{"是斜杠前缀？"}
+    C1 -->|是| CMD["commandRoute<br/>CommandRegistry"]
+    C1 -->|否| C2{"是井号前缀？"}
+    C2 -->|是| PLG["pluginRoute<br/>切换插件"]
+    C2 -->|否| C3{"是美元符前缀？"}
+    C3 -->|是| SKL["skillRoute<br/>召回 Skill"]
+    C3 -->|否| C4{"是 at 前缀？"}
+    C4 -->|是| TEAM["teamRoute<br/>手动召唤团队"]
+    C4 -->|否| CONV["conversationRoute<br/>进入对话"]
+    CMD --> HIT["命中第一条规则即分派"]
+    PLG --> HIT
+    SKL --> HIT
+    TEAM --> HIT
+    CONV --> HIT
+    R -->|无命中| NIL["返回 nil（不吞输入）"]
+```
+
+前缀（sigil）契约为**一字符一含义**：`/` 命令、`#` 切换插件、`$` 召回 Skill、
+`@` 手动召唤团队；路由按固定顺序匹配，命中即分派。
+
 ## 测试
 
 ```text

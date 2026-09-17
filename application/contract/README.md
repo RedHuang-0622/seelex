@@ -1,8 +1,78 @@
 # Application Contracts
 
-## 定位
+## 生态位
 
 `contract` 定义 Application 所需的外部端口，是依赖倒置的边界。接口属于使用者，而不是 Seele、存储或前端实现方。
+
+主要调用方：`application/core`（只依赖端口）、`internal/adapters`、`seelebridge/`、
+`plugin/`、`skill/`、`session/`、`workspace/`（各自实现对应端口），以及 `e2e/scenario` 的 fake ports。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph CONSUMER["消费方（只认接口）"]
+        CORE["application/core"]
+        TEST["e2e/scenario · fake ports"]
+    end
+
+    CONTRACT["application/contract<br/>Dependencies + 端口接口"]
+
+    subgraph IMPL["实现方（按端口落地）"]
+        ENGINE["根目录 enginePort"]
+        RUNTIME["seelebridge.Runtime"]
+        PLUGIN["plugin.Manager"]
+        SKILL["skill.Registry"]
+        SESSION["session.Manager / internal/adapters"]
+        WS["workspace.Repo"]
+    end
+
+    DTO["application/contract/dto<br/>纯数据契约"]
+
+    CORE --> CONTRACT
+    TEST --> CONTRACT
+    CONTRACT --> DTO
+    CONTRACT -.->|由实现满足| ENGINE
+    CONTRACT -.->|由实现满足| RUNTIME
+    CONTRACT -.->|由实现满足| PLUGIN
+    CONTRACT -.->|由实现满足| SKILL
+    CONTRACT -.->|由实现满足| SESSION
+    CONTRACT -.->|由实现满足| WS
+```
+
+## 用例图
+
+```mermaid
+flowchart LR
+    CORE(("application/core"))
+    HOST(("组合根 main.go"))
+
+    UC1(["ChatEngine 流式聊天与历史替换"])
+    UC2(["RuntimePort 模型 / 账号 / 工具 / 项目根"])
+    UC3(["PluginPort 能力面切换"])
+    UC4(["SkillPort 查询"])
+    UC5(["SessionPort 保存 / 读取 / 分页 / 删除"])
+    UC6(["WorkspacePort 项目 CRUD 与 binding"])
+    UC7(["可选端口：RoleSessionPort / SchedulePort / RoleTurnPort"])
+    UC8(["Dependencies 装配与端口校验"])
+
+    CORE --> UC1
+    CORE --> UC2
+    CORE --> UC3
+    CORE --> UC4
+    CORE --> UC5
+    CORE --> UC6
+    CORE --> UC7
+    HOST --> UC8
+    UC1 --> CONTRACT["contract 接口集"]
+    UC2 --> CONTRACT
+    UC3 --> CONTRACT
+    UC4 --> CONTRACT
+    UC5 --> CONTRACT
+    UC6 --> CONTRACT
+    UC7 --> CONTRACT
+    UC8 --> CONTRACT
+```
 
 ## 主要端口
 
@@ -23,8 +93,10 @@
 |---|---|---|
 | `RoleSessionPort` | R2/R4 群聊角色会话：建角色会话、role draft 读写与 sequencer sync、顺序设置、角色 backup、snapshot/wire 观察面 | `internal/adapters.SessionPort`（同时实现 `SessionPort`） |
 | `SchedulePort` | 定时任务式插话的 `schedule.registered` / `schedule.cancelled` / `schedule.fired` 事件登记 | 同上 |
+| `RoleTurnPort` | 角色（员工）回合执行体：在角色自己的会话上跑一次带工具的有界回合，并保证主体类按 `ToolsPolicy` 落地 | `seelebridge.Runtime.RunRoleTurn`（经 `Dependencies.RoleTurn` 注入） |
 
-这两个端口是**可选能力**：`application/core` 用类型断言在 `Deps.Sessions` 上发现它们，
+这些端口是**可选能力**：`application/core` 用类型断言在 `Deps.Sessions` 上发现前两者，
+`RoleTurnPort` 经 `Dependencies` 显式注入，
 未装配时显式返回“不可用”，不静默退化、不新增旁路。签名只用
 `application/contract/dto` 的纯 DTO（`dto.RoleRow` / `dto.RoleDraftRow` /
 `dto.RoleSnapshot` / `dto.RoleWireSnapshot` / `dto.ScheduleEventPayload`），

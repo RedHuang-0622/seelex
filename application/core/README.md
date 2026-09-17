@@ -1,13 +1,5 @@
 # Application Core
 
-## Service 装配结构
-
-`Service` 是稳定的应用门面与跨组件编排层，本身只保存 `serviceState` 和 `serviceComponents`。共享状态按基础设施、会话、计划、任务上下文、提示词、生命周期和前端快照分组，避免继续扩张成平铺字段集合。
-
-`service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换、workspace 切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现。
-
-`service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。
-
 ## 生态位
 
 `core` 是 Seelex 的应用用例层和权威状态机。它不直接创建数据库、Wails 窗口或 Seele Agent，而是通过 `contract.Dependencies` 编排这些能力。
@@ -39,6 +31,110 @@
 > `session.Session`（`session.NewSession` 主会话）经 `enginePort` 适配满足；
 > `RuntimePort` 转发 seelebridge.Runtime（账号池/Completer/可见性/Plan
 > preflight/策略）。本模块只消费窄端口，不直接接触 Seele 会话实现。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    FACADE["application facade"] --> SVC["core.Service<br/>跨域事务编排（唯一门面）"]
+
+    subgraph ASSEMBLER["service_assembler.go 唯一组合根"]
+        COMP["组件图：prompt · context · task-context<br/>session · history-safety · view · input"]
+    end
+
+    SVC --> COMP
+
+    subgraph DOMAIN["域协调器（有状态）"]
+        SR["session_runtime<br/>会话持久化/目录/项目绑定"]
+        TC["task_context<br/>打点/终态/checkpoint/token 审计"]
+        CR["context_runtime<br/>上下文装配/压缩/历史安全"]
+        VS["view_state<br/>Snapshot 读写 + 事件发布"]
+        SV["subagent_view<br/>子代理详情/live/树投影"]
+        GOAL["goal<br/>Goal 状态机 + DS-A2A 治理"]
+        TEAM["agentteam<br/>TeamSpec 工厂 + preset"]
+        PL["prompt_layer<br/>system prompt 组装"]
+    end
+
+    subgraph LEAF["零依赖叶子域"]
+        CHAT["chat"]
+        WT["worktable"]
+        IR["input_router"]
+        CC["context_control"]
+        GOV["govern"]
+        RES["resume"]
+    end
+
+    ST["internal/state.Core<br/>唯一共享锁 + Snapshot + Deps + Events + Approval"]
+    LIM["internal/limits"]
+    PORTS["contract 端口<br/>Engine / Runtime / Plugin / Skill / Session / Workspace"]
+
+    COMP --> SR
+    COMP --> TC
+    COMP --> CR
+    COMP --> VS
+    COMP --> SV
+    COMP --> GOAL
+    COMP --> TEAM
+    COMP --> PL
+    SR --> ST
+    TC --> ST
+    CR --> ST
+    VS --> ST
+    SV --> ST
+    GOAL --> ST
+    TEAM --> ST
+    PL --> ST
+    LEAF --> ST
+    ST --> PORTS
+    ST --> LIM
+```
+
+## 用例图
+
+```mermaid
+flowchart LR
+    U(("用户"))
+    B(("GUI / TUI Bridge"))
+    H(("E2E harness"))
+
+    UC1(["Submit / 取消 / 排队"])
+    UC2(["ResolveInteraction 审批决议"])
+    UC3(["BeginNewSession / ResumeSession / ForkSessionLatest"])
+    UC4(["BindWorkspace 绑定项目"])
+    UC5(["命令与输入前缀分流"])
+    UC6(["plan_load / plan_run / replan"])
+    UC7(["goal_begin / goal_update / goal_propose_finish"])
+    UC8(["团队装配与角色登记"])
+    UC9(["Snapshot / Subscribe 读取投影"])
+
+    SVC["core.Service"]
+
+    U --> UC1
+    U --> UC2
+    U --> UC3
+    U --> UC4
+    U --> UC5
+    B --> UC9
+    H --> UC9
+    H --> UC3
+    UC1 --> SVC
+    UC2 --> SVC
+    UC3 --> SVC
+    UC4 --> SVC
+    UC5 --> SVC
+    UC6 --> SVC
+    UC7 --> SVC
+    UC8 --> SVC
+    UC9 --> SVC
+```
+
+## Service 装配结构
+
+`Service` 是稳定的应用门面与跨组件编排层，本身只保存 `serviceState` 和 `serviceComponents`。共享状态按基础设施、会话、计划、任务上下文、提示词、生命周期和前端快照分组，避免继续扩张成平铺字段集合。
+
+`service_assembler.go` 是唯一组合根，负责装配 prompt、context、task-context、session、history-safety、view 和 input 组件。组件共享同一份受锁保护的状态，但行为通过窄组件端口协作；组件不得持有完整 `*Service`。聊天执行、会话切换、workspace 切换等跨域事务仍由 `Service` 编排，单域规则由对应组件实现。
+
+`service_components_test.go` 固化两条结构约束：`Service` 只能包含状态与组件图，聚焦组件不能反向持有门面。
 
 ## 分卷 README（根包按文件前缀）
 
@@ -257,6 +353,27 @@ ForkedFrom 记录父会话 + 切点（EventSeq/轮次/RequestID/MessageID）；
 父会话未落盘（draft）时无法 fork。task 注册表按切点截断并过滤
 `kind=todo`——子会话 todolist 全新、可正常新建；血缘与 plan/task/
 checkpoint/tool-results 等其余内容仍按切点拷贝，不受过滤影响。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant S as core.Service
+    participant SR as session_runtime
+    participant ST as sessionstore.Router
+    participant NEW as 子会话
+
+    U->>S: ForkSessionLatest(父会话)
+    S->>S: 拒绝运行中 fork / 拒绝 draft 父会话
+    S->>SR: forkSessionLocked
+    SR->>ST: PrepareFork（LatestForkCut 取最新完整轮次）
+    ST-->>SR: 切点（EventSeq / 轮次 / RequestID / MessageID）
+    SR->>ST: SaveCommitWorkspace（新 session ID）
+    Note over ST: 深拷贝 record / events / tool-results / context
+    Note over ST: task 注册表按切点截断并过滤 kind=todo
+    ST-->>NEW: 子会话独立持久化 + ForkedFrom 血缘
+    NEW-->>U: 子会话可继续提交，父会话不受影响
+```
 
 ## 测试
 

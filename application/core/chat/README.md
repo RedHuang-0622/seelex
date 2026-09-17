@@ -17,6 +17,38 @@
 
 只依赖 `seelexctx/lifecycle` 与标准库；禁止反向依赖 `core` 根包。
 
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant E as Engine ChatStream
+    participant B as StreamBatcher
+    participant L as lifecycle.BatchPipeline
+    participant R as 渲染回调（appendDelta）
+    participant V as VisibleOutputStream
+
+    E-->>V: 原始 chunk（可能含 <think>）
+    V->>V: 进入前端边界前剥离推理块
+    V->>B: OnChunk(可见文本)
+    B->>B: 节流聚合（FlushSize / 时间窗）
+    B->>L: Append(items)（背压：缓冲满则等待）
+    B->>R: 渲染（批次）
+    E-->>B: 流结束
+    B->>B: Flush：幂等收尾，无 chunk 时也安全
+    B->>L: 落库尾批次
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    CHUNK["provider 流式 chunk"] --> VIS["VisibleOutputStream<br/>剥离推理块"]
+    VIS --> BAT["StreamBatcher<br/>聚合 + 背压"]
+    BAT --> RENDER["前端渲染回调"]
+    BAT --> STORE["lifecycle.BatchPipeline<br/>分段落库"]
+```
+
 ## 测试
 
 ```text

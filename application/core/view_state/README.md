@@ -23,6 +23,31 @@ revision 在此自持。
 依赖 `state.Core` + 注入端口（`CurrentEffort`、`RefreshWorkTableLocked`、
 `Limits`）。
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    MUT["AppendMessageLocked / 域协调器写入"] --> LOCK["Core.ViewMu<br/>锁内更新 Snapshot 与可见投影"]
+    LOCK --> BUMP["BumpLocked：revision 递增"]
+    BUMP --> OUT["锁外 Publish（事件发布不在锁内）"]
+    PORT["CollectRuntimeProjection<br/>锁外调用外部端口"] --> APPLY["ApplyRuntimeProjectionLocked<br/>锁内应用 + 重建工作表格"]
+    APPLY --> LOCK
+    OUT --> FE["GUI / TUI 增量"]
+    LOCK --> SNAP["SnapshotView：权威快照深拷贝"]
+    SNAP --> FE
+```
+
+## 窗口锚点状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> TailAligned: 窗口末尾 == durable 末尾
+    TailAligned --> TailAligned: 新消息追加并保持贴尾
+    TailAligned --> BrowsingHistory: 用户翻到更早位置（锚定不动）
+    BrowsingHistory --> BrowsingHistory: 新消息只推进 TotalMessages，不写进窗口
+    BrowsingHistory --> TailAligned: 用户回到尾部
+```
+
 ## 并发/安全语义
 
 视图锁（`Core.ViewMu`，保护 Snapshot 与可见投影）内 bump → 锁外 Publish；

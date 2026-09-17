@@ -1,8 +1,61 @@
 # Application Model
 
-## 定位
+## 生态位
 
 `model` 是 Application 与所有前端共享的版本化 DTO 层。这里的字段是进程内 GUI/TUI 协议的一部分，不是随意的内部结构。
+
+主要调用方：`application/core`（组装权威 `Snapshot`）、`gui` 与 `tui`（消费并渲染）、
+`application/event`（增量载荷）、`e2e/scenario`（断言可观察结果）。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph CORE["application/core（生产者）"]
+        VS["view_state：Snapshot 读写 + 事件发布"]
+        RT["session_runtime · task_context · context_runtime"]
+        GOAL["goal · agentteam · subagent_view · worktable"]
+    end
+
+    SNAP["model.Snapshot<br/>ProtocolVersion + Revision"]
+
+    subgraph PARTS["Snapshot 组成"]
+        SS["SessionState / SessionInfo"]
+        CV["Conversation + Message / ToolCall"]
+        RL["RuntimeState / PlanState"]
+        TS["TaskState / Interaction"]
+        WS["WorkspaceInfo + binding"]
+        HW["history window"]
+    end
+
+    CLONE["CloneSnapshot / CloneRuntimeState<br/>防御性复制 slice map 指针"]
+
+    FE["GUI / TUI 渲染"]
+    EV["application/event 增量载荷"]
+
+    VS --> SNAP
+    RT --> SNAP
+    GOAL --> SNAP
+    SNAP --> PARTS
+    SNAP --> CLONE
+    SNAP --> FE
+    FE -->|Snapshot 缺口时重拉| VS
+    SNAP --> EV
+    EV --> FE
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    DOMAIN["域协调器更新权威状态"] --> BUMP["revision / seq 递增"]
+    BUMP --> SNAP["Snapshot（完整事实）"]
+    BUMP --> DELTA["Event（连续增量）"]
+    SNAP -->|启动或 resync| FE["GUI / TUI"]
+    DELTA -->|正常路径| FE
+    FE -->|Action| USE["application/core 用例"]
+    USE --> DOMAIN
+```
 
 ## 权威结构
 
@@ -11,7 +64,7 @@
 - `SessionState`/`SessionInfo`：`ID` 是唯一操作键，`Name` 是允许重复的显示标题；`SessionState.Draft` 表示尚未生成 ID、不得持久化的待发送会话。可见 `Status` 含 `draft | idle | running | queued | restoring | awaiting_approval | archived`；`restoring` 是运行中切换到未驻留会话时“后台冷加载中”的权威状态（视图已切到目标空壳，内容基线由装载完成事件发布）。
 - `WorkspaceInfo`：`ID` 是唯一键，`Name` 默认来自 root basename。
 - `Message`/`ToolCall`：前端渲染的消息与工具卡片。`Message` 的 `RoleName`/`RoleSessionID`/`RoundID`/`UnitSeq` 是群聊角色归属（谁主持这一轮），聊天区据此渲染 `EXEC`（`main`）/`ADVISOR`（`tl`）与轮次徽标；空值 = 单 agent 会话的旧数据，前端回退到 provider role 文案。生产者用 `MessageOrigin` 传入这段归属（见 `application/core/README-service.md` 的 `appendMessageWithOriginLocked`）。
-- `RuntimeState`/`PlanState`：模型、Provider、Plugin、Effort、权威 `full_access`、工具和 Plan DAG 的投影；嵌套 `PlanNode` 包含有界生命周期 `events` 和子代理 `tool_events`。
+- `RuntimeState`/`PlanState`：模型、Provider、Plugin、Effort、权威**权限档位**（`permission_tier` 生效档 + `permission_tiers` 目录）、工具和 Plan DAG 的投影；嵌套 `PlanNode` 包含有界生命周期 `events` 和子代理 `tool_events`。`full_access` 保留为派生位（`full` 档 ⇒ true），不再是有独立语义的开关。
 - `SubagentEvent`/`SubagentToolEvent`：前端增量协议；前者携带完整节点及 Plan 进度，后者携带单次子代理工具 started/completed 状态。
 - `WorkTableEvent`：`worktable.changed` 增量载荷（`items` + 可选 `batches` + 可选 `subagent_tree`）；树只在内容变化时携带，空数组表示已清空，缺失/`null` 表示保留既有树——前端据此把工作表格行解析成详情弹窗节点。
 - `Interaction`：审批、session/account picker 等等待用户决策的状态。
@@ -42,7 +95,7 @@ DTO 不执行 IO、不调用 Engine，也不持有锁。它可以引用稳定的
   复用同一 ID 并用首问生成 Name；composer 未发送正文是否随 record 落盘。
 - Snapshot clone 是否仍真正隔离可变数据。
 - Plan 节点状态是否覆盖 queued/running/worktree_creating/rebasing/merging/completed/failed/skipped/aborted 生命周期。
-- Full Access 按钮是否只消费 `RuntimeState.full_access`，而不是维护前端本地镜像。
+- 权限档位控件（composer 芯片与运行状态面板列表）是否只消费 `RuntimeState.permission_tier` 与后端下发的 `permission_tiers` 目录，而不是维护前端本地镜像；旧 `full_access` 是否只作为 `full` 档的派生位出现。
 - 零值是否对旧客户端安全。
 
 ## 测试

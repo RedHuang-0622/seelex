@@ -41,6 +41,80 @@ A2A 角色团队的**通用装配能力面**：把「`TeamSpec`/`RoleSpec` → �
 - 不决定 provider role：`role_name` 只是 metadata，provider 侧仍只有
   `system/user/assistant/tool`。
 
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph SOURCE["团队规格来源"]
+        PRESET["内置 preset<br/>goal-a2a · review-team · research-team"]
+        LIB["团队库<br/>&lt;root&gt;/team/library.json"]
+        GLOBAL["全局母本<br/>employees.json + order.json"]
+        UISPEC["GUI 角色管理页 / team.materialize"]
+    end
+
+    NORM["Normalize<br/>默认值 · 角色去重 · order_roles 推导与校验"]
+    SPEC["TeamSpec / RoleSpec"]
+
+    subgraph FACTORY["Factory"]
+        MAT["Materialize<br/>幂等建角色会话"]
+        REGW["写 Registry（角色配置 + 成员表）"]
+        LIFE["写 lifecycle 顺序策略"]
+    end
+
+    REG["Registry<br/>角色 CRUD · SetOrder · View 只读投影"]
+    VIEW["TeamView / assembleView<br/>成员表 + 定时分区 + DesignNotice"]
+    RT["Runtime<br/>会话级发言调度运行态（逃生路径）"]
+    GOV["goal 治理座位循环<br/>真正驱动轮次"]
+    FE["GUI 团队面板 / headless team.*"]
+
+    PRESET --> NORM
+    LIB --> NORM
+    GLOBAL --> NORM
+    UISPEC --> NORM
+    NORM --> SPEC
+    SPEC --> MAT
+    MAT --> REGW
+    MAT --> LIFE
+    REGW --> REG
+    LIFE --> REG
+    REG --> VIEW
+    REG --> RT
+    RT --> GOV
+    VIEW --> FE
+    RT --> FE
+    GOV --> FE
+```
+
+## 时序图：装配与隐式拉起
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 用户 / GUI
+    participant S as core.Service
+    participant A as agentteam.Factory
+    participant R as Registry
+    participant L as lifecycle 顺序策略
+    participant G as goal 治理循环
+
+    Note over U,G: 显式路径
+    U->>S: team.materialize(preset) / 角色管理页
+    S->>A: Materialize(TeamSpec)
+    A->>A: Normalize 规整与校验
+    A->>A: 幂等派生 role_session_id（同 team_id + role_name 同键）
+    A->>R: 写角色配置与成员表
+    A->>L: 写 order_policy / order_roles
+    A-->>S: 成员表（TeamView）
+
+    Note over U,G: 隐式路径：goal 上线即拉起 TL 团队
+    U->>S: goal_begin
+    S->>S: goal 落栈成功
+    S->>A: MaterializeAgentTeamPreset(sessionID, "goal-a2a", 0)
+    A->>R: 幂等装配（重复调用派生同一 role_session_id）
+    A->>G: 座位按 order_roles 装配
+    Note over A,S: 宿主未装配团队存储时只记日志，不阻塞 goal
+```
+
 ## 接线现状（2026-09-14 复核）
 
 装配得出来 ≠ 有人在干活。下表是**当前代码事实**（每条都可按"证据"列复核），写在这里

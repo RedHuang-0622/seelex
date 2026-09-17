@@ -18,6 +18,39 @@
 
 只依赖 `application/model`（`WorkItem`）与标准库；禁止反向依赖 `core` 根包。
 
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as 生产者（core 根包）
+    participant PUB as WorkTablePublisher
+    participant Q as 内部缓冲
+    participant C as 消费者 goroutine
+    participant E as 发布回调（worktable.changed）
+
+    P->>PUB: Send(WorkTableUpdate{Revision, RequestID, Items})
+    PUB->>Q: 入缓冲（CSP 阻塞语义：消费者在途时等待）
+    Note over Q,C: 突发期间只保留最新一份（latest-wins）
+    C->>Q: drainLatest
+    C->>E: 发布最新表格快照
+    P->>PUB: Close
+    PUB->>Q: drainAndPublish
+    PUB->>E: 排空积压并发布尾态（best-effort）
+    Note over PUB: 关闭后 Send 快速返回，不 panic
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    BUILD["buildWorkTable 纯函数<br/>WorkItem 行投影"] --> UPD["WorkTableUpdate"]
+    UPD --> PUB["WorkTablePublisher.Send"]
+    PUB --> COAL["汇聚：latest-wins + 有界背压"]
+    COAL --> EMIT["发布 worktable.changed"]
+    EMIT --> FE["前端工作表格与详情弹窗"]
+```
+
 ## 测试
 
 ```text

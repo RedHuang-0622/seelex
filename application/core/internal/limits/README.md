@@ -11,6 +11,18 @@
 看到某个完整版本。后台会话 goroutine 会在任务收尾读上限，禁止把 `active`
 改回普通包级变量（会与 `Apply` 构成 `-race` 数据竞争）。
 
+## 架构图
+
+```mermaid
+flowchart LR
+    CFG["seele.yaml limits 段"] --> APPLY["limits.Apply<br/>零值字段补默认"]
+    APPLY --> PTR["atomic.Pointer[seelexctx.Limits]<br/>整份快照"]
+    PTR --> GET["limits.Get<br/>读到某个完整版本"]
+    GET --> ROOT["core 根包 ApplyLimits / Limits 门面"]
+    ROOT --> DOM["域包与后台会话 goroutine"]
+    PTR -.->|禁止改成普通包级变量| RACE["-race 数据竞争"]
+```
+
 ## 测试
 
 无独立测试；由 core 根包测试覆盖。

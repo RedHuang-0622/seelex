@@ -17,6 +17,23 @@ skill 层 + Plan 执行策略；前缀缓存友好（内容不变不重复 `SetS
 依赖 `state.Core` + 注入的 `PromptStack`/`EffortManager` 引用 +
 `TaskContextView` 窄只读面（`task_context.Coordinator` 满足）。
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    STACK["PromptStack（组合根注入）"] --> BUILD["BuildSystemPrompt<br/>只组装稳定 system 层"]
+    CATALOG["skillCatalogPart<br/>激活插件的可用技能目录段"] --> BUILD
+    TASK["TaskContextView<br/>活跃任务 + plan_ref"] --> BUILD
+    BUILD --> APPLY["ApplyActiveTaskSystemPrompt<br/>锁内读任务状态"]
+    APPLY --> SYNC["setEngineSystemPrompt<br/>锁外同步引擎"]
+    SYNC --> CACHE{"内容与上次相同？"}
+    CACHE -->|是| SKIP["跳过 SetSystemPrompt<br/>保住前缀缓存"]
+    CACHE -->|否| WRITE["写入引擎 system prompt"]
+```
+
+激活技能的**正文**不在这里：它由 `context_runtime` 作为请求侧上下文注入，
+避免成为持久 system 层。
+
 ## 并发/安全语义
 
 `ApplyActiveTaskSystemPrompt` 锁内读任务状态，锁外同步引擎；plan 投影只放

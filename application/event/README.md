@@ -1,8 +1,82 @@
 # Application Events
 
-## 定位
+## 生态位
 
 本包把 Application 权威状态变化发布给 TUI、GUI Bridge 和测试观察者。Snapshot 是完整事实，Event 是连续增量；Event 不能成为唯一持久状态。
+
+主要调用方：`application/core`（发布端，经 `PublishSession` 打会话路由键）、
+`gui/bridge.go`（订阅 + 重放 + 确认水位）、`tui`（订阅）与 `e2e/scenario`（观察者）。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    PROD["application/core<br/>PublishSession / Publish"] --> HUB["EventHub"]
+    HUB --> V["ValidateSessionRouting<br/>发布端白名单（kind × sessionID）"]
+    V --> SEQ["全局 seq 递增 + 复制订阅列表后释放 registry 锁"]
+    SEQ --> SUB["每个 subscriber 局部锁 + channel"]
+    SUB --> S1["Subscribe：全部事件"]
+    SUB --> S2["SubscribeSession：本会话 + 进程类全局"]
+    SUB --> S3["SubscribeFiltered：谓词筛选"]
+    SUB --> S4["SubscribeWithReplay：带重放窗口"]
+    S1 --> FE["GUI / TUI reducer"]
+    S2 --> FE
+    S3 --> FE
+    S4 --> FE
+    FE -->|ReplaySince / Ack 水位| HUB
+```
+
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CORE as application/core
+    participant HUB as EventHub
+    participant CL as gui.Bridge
+    participant FE as 前端 reducer
+
+    CL->>HUB: SubscribeWithReplay(filter, buffer, window)
+    CORE->>HUB: PublishSession(kind, sessionID, payload)
+    HUB->>HUB: 校验路由键 + 递增全局 seq
+    HUB->>CL: Event（含全局 Seq 与订阅内 DeliverySeq）
+    CL->>FE: 应用增量
+    FE->>CL: AckEvents(deliveryWatermark)
+    alt DeliverySeq 有缺口
+        FE->>CL: ReplayEvents(sinceSeq)
+        CL->>HUB: ReplaySince(sinceSeq)
+        HUB-->>CL: 补发事件或 Covered=false
+        CL-->>FE: 补齐增量，补不齐才重拉 Snapshot
+    end
+```
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    STATE["权威状态变更"] --> PUB["PublishSession / Publish"]
+    PUB --> ORDER["全局 seq 单调递增"]
+    ORDER --> FILTER["投递端过滤（会话归属只判一次）"]
+    FILTER --> WIN{"订阅类型"}
+    WIN -->|无重放窗口| DROP["溢出：排空 + 一条 resync.required"]
+    WIN -->|带重放窗口| KEEP["保留窗口 + 尽力投递"]
+    DROP --> RELOAD["客户端重拉 Snapshot"]
+    KEEP --> APPLY["客户端按 DeliverySeq 应用并去重"]
+    APPLY --> ACK["上报水位"]
+```
+
+## 溢出与重同步状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> Streaming: 订阅建立
+    Streaming --> Streaming: 事件连续（DeliverySeq 无缺口）
+    Streaming --> Playback: 出现缺口，先 ReplaySince 增量补取
+    Playback --> Streaming: 补取成功
+    Playback --> Resync: 窗口已淘汰缺口区间（Covered=false）
+    Streaming --> Resync: 无重放窗口且缓冲溢出
+    Resync --> Streaming: 重新拉取 Snapshot 后继续
+```
 
 ## 核心实现
 

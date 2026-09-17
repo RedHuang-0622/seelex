@@ -11,6 +11,34 @@ core 根门面与各域协调器嵌入 `*state.Core`，避免域间直接持有�
 - 做：内核构造（`New`）与状态集中。
 - 不做：任何域业务逻辑；不 import 任何域包。
 
+## 架构图
+
+```mermaid
+flowchart TB
+    NEW["state.New(deps contract.Dependencies)"] --> CORE["state.Core"]
+
+    subgraph KERNEL["Core 持有的共享内核"]
+        MU["Mu：唯一共享锁"]
+        SNAP["Snapshot：权威前端快照"]
+        DEPS["Deps：外部端口依赖"]
+        EV["Events：事件发布"]
+        APV["Approval：审批内核"]
+    end
+
+    CORE --> KERNEL
+
+    FACADE["core 根门面 Service"] -->|嵌入 *state.Core| CORE
+    SR["session_runtime.Coordinator"] -->|嵌入| CORE
+    TC["task_context.Coordinator"] -->|嵌入| CORE
+    CR["context_runtime.Coordinator"] -->|嵌入| CORE
+    VS["view_state.Coordinator"] -->|嵌入| CORE
+    SV["subagent_view.Coordinator"] -->|嵌入| CORE
+    PL["prompt_layer.Coordinator"] -->|嵌入| CORE
+    GOAL["goal / agentteam"] -->|嵌入| CORE
+```
+
+域包只共享这一份内核，彼此之间不直接持有实现，因此不存在域间锁序。
+
 ## 并发/安全语义
 
 `Mu` 是唯一共享锁；持锁时禁止调用外部端口（I/O、LLM、数据库）；快照
