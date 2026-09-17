@@ -26,7 +26,7 @@
 | `dist/work-table.js` | 工作表格视图（弹窗内完整多维表格：阶段/任务/描述/状态/Assignee/Dependency/附件）、批次分片（批次 = chat 请求，批次头可折叠 + 各类计数）、筛选（全部/Plan/Task/Todo/Subagent，按权威 kind）、行内打点、todo 三态更新、retry 计数（RETRY n）、plan/subagent 详情入口；行区独立滚轮滚动（表头吸顶）+ 分页查看（每页 10/20/50，页码钳制）；section/行两级 keyed reconciliation + html 缓存；`workTableSignatures`/`countUnread` 提供未读角标判据。 |
 | `dist/tree-fork.js` | 树 / 分叉的统一渲染件（VS Code 观感，纯函数）。两件事：① `treeRowAttrs` 把「层级 + 是否末子 + 祖先是否续行」折算成树轨的 class/行内 style——祖先续行轨 = 行内 1px `linear-gradient` 背景（每层一道），自身连接轨 = `::before`（末子圆角弯头 / 非末子整行竖线），**零额外 DOM**；② `layoutCommitGraph` 把 git 的 parents 拓扑算成泳道（`rows[].lane` + 每行线段 + `dropped`），`commitGraphRowHTML` 逐行画 SVG（直线 / 合并贝塞尔 + 提交点），泳道色走 `--fork-lane-0..5`。像素几何只有一份（`railOffset`/`laneCenter`），CSS 只负责画，换肤只换 token。 |
 | `dist/worktree-view.js` | 工作树视图（「资源管理器」子页「工作树」面板）：数据源 `Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`（后端权威元数据，只含名称/路径/类型/大小/计数，不含文件内容）；目录行惰性展开（首次经 `loadDir` 拉子级并缓存）、直接文件计数 badge、截断提示；文件行是可点击按钮（`data-file-open`），点击经 `options.onOpenFile` 打开文件预览；层级连线交给 `tree-fork` 的树轨（不再是缩进 + 字符画），行点击用容器委托（展开/收起重绘不再逐行绑监听），全部文本 escape。 |
-| `dist/file-preview.js` | 文件预览控制器与纯函数（「资源管理器」子页左抽屉）：数据源 `Bridge.WorkspaceFileContent(relPath, limit)`（后端受控读取：containment/敏感过滤/上限/二进制探测，原始字节 base64 带回）；按扩展名分派渲染——markdown（marked→DOMPurify→highlight.js）、代码/文本（highlight.js 高亮或纯文本）、PDF（PDF.js canvas 分页）、Word（docx-preview）、图片（blob `<img>`）、`.doc` 提示转换；组件全部本地 vendor（`dist/vendor/`，随 embed 离线打包）；文本永不直接 innerHTML，markdown 输出先 DOMPurify 消毒。 |
+| `dist/file-preview.js` | 文件预览控制器与纯函数（「资源管理器」子页左抽屉）：数据源 `Bridge.WorkspaceFileContent(relPath, limit)`（后端受控读取：containment/敏感过滤/上限/二进制探测，原始字节 base64 带回）；按扩展名分派渲染——markdown（marked→DOMPurify→highlight.js）、代码/文本（highlight.js 高亮或纯文本）、PDF（PDF.js canvas 分页）、Word（docx-preview）、图片（blob `<img>`）、`.doc` 提示转换；组件全部本地 vendor（`dist/vendor/`，随 embed 离线打包）；文本永不直接 innerHTML，markdown 输出先 DOMPurify 消毒。抽屉是**多文件详情容器**：每个打开的文件一枚上标 chip（`renderPreviewTabsHTML`，类网页标签）+ 一个独立面板（切换只切显隐，不重读、不丢滚动位置）；纯函数 `previewTabLabel`/`normalizePreviewTab`/`openPreviewTab`/`closePreviewTab` 给出标签生命周期（打开去重、关闭切邻居、关闭不同项保持当前激活）；最后一个 chip 关闭（容器为空）回调 `onEmpty` → 抽屉收起、子页恢复原来大小。 |
 | `dist/git-log-view.js` | 提交记录视图（「资源管理器」子页「提交记录」面板）：数据源 `Bridge.WorkspaceGitLog(limit)`（后端权威只读元数据：按 `--topo-order` 的提交行 + 每个提交的 `parents` 父 hash，不含 diff/文件内容）。分叉不再贴 `git --graph` 的字符画：`tree-fork.layoutCommitGraph` 按 parents 算泳道，逐行 SVG 画直线/合并曲线 + 提交点；短 hash 点击复制完整 hash、截断与泳道上限提示；hash 复制走容器委托；全部文本 escape。 |
 | `dist/scheduled-tasks-view.js` | 定时/周期任务面板渲染（数据源 `runtime.scheduled_tasks` / `runtime.scheduled_commands` 权威投影）。 |
 | `dist/read-sources.js` | **deprecated**（不再被 `app.js` 引用，右栏已由「工作树」接管；文件预览已落地）：从会话工具事件中收集成功完成的 `read_file` 路径。文件与测试保留供会话证据复用。 |
@@ -54,7 +54,8 @@
   会话两页在主视图、右栏三页在右栏；页签可点击切换、拖拽换序、跨栏置换
   （拖到另一栏某页签上松开即与该页签互换）。「历史检索」收进 `#side-more`
   折叠区常驻右栏子页之下；左侧栏只承载会话树（工作区绑定在会话树的行内动作里），
-  三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆）。
+  三栏宽度可拖拽调整（`--left-w`/`--right-w`，localStorage 记忆；**无固定上限**，
+  只按视口宽封顶，窗口越大越能拉开）。
 - 右栏「状态」子页自上而下：`状态`（键值两列表格 `status-table`）→ `账户`
   （条目化账户栏，见下）→ `Agent Team`（员工栏 / Team 栏两块表格）。账户栏从
   左侧栏底部搬到这里：状态区显示的就是当前账户的 provider/model，账户列表贴在
@@ -167,7 +168,7 @@ retry 状态展示 `RETRY n`（retry_count）。
 - **状态**：项目状态 grid（状态/会话/消息/任务/文件数）+ 概要 + 上下文压缩
   时间线（原「状态」面板整体移入）。
 - **工作台**：「目标」面板 + 工作表格入口 + 定时任务面板。
-- **代码**（资源管理器）：左右分栏——左「文件预览」抽屉 + 右「工作树」与「提交记录」两块面板。右栏两面板可拖拽调换顺序（grip 手柄，`seelex.right.codePanes` localStorage 记忆）；预览抽屉宽度可拖拽（`--preview-w`，`seelex.preview-pane-width` 记忆），可收起（`seelex.preview-pane-closed`），Esc 或关闭按钮收起。
+- **代码**（资源管理器）：左右分栏——左「内容详情」抽屉 + 右「工作树」与「提交记录」两块面板。右栏两面板可拖拽调换顺序（grip 手柄，`seelex.right.codePanes` localStorage 记忆）；内容详情抽屉宽度可拖拽（`--preview-w`，`seelex.preview-pane-width` 记忆，**无固定上限**——只受子页宽封顶，可把任一侧拉到几乎占满子页），抽屉头部一枚按钮可**隐蔽工作树与提交记录**让内容详情独占子页（`seelex.preview-panes-hidden` 记忆），另一枚按钮/Esc **关闭全部文件详情**。抽屉不再记忆展开态：容器以「有文件详情」为生命周期前提。
 
 「目标」面板（`goal-view`）展示当前任务的工程目标证据面：目标文本（最近一条
 非空用户消息）、任务状态/摘要（`snapshot.task` 权威 TaskState）、激活 skill
@@ -181,9 +182,13 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
 两面板在工作区切换或 chat 结束（文件/提交可能变化）时按需刷新；子页未激活时
 数据面缓存，激活时按需拉取。文件预览：点击工作树文件行 → 左抽屉经
 `Bridge.WorkspaceFileContent` 拉取受控字节（默认 4 MiB 文本 / 24 MiB 文档图片，
-后端 64 MiB 硬钳制）→ 按扩展名分派渲染（见 `file-preview.js`）；预览属当前
-工作区，工作区切换时抽屉随树清空；截断文件明确提示、分页类（PDF/Word/图片）
-超限放弃渲染而非半截展示。历史检索保留在 `#side-more` 折叠区常驻。
+后端 64 MiB 硬钳制）→ 按扩展名分派渲染（见 `file-preview.js`）。抽屉是**多文件
+详情容器**：每个打开的文件一枚上标 chip + 一个独立面板（点 chip 切换、点 chip
+尾部 ✕ 关闭单个详情；再次点开同一文件只是激活，不重复读盘）；最后一个 chip 关闭
+（容器为空）时容器生命周期结束——抽屉自动收起、子页恢复原来大小（工作树/提交
+记录重新占满）。预览属当前工作区，工作区切换时抽屉随树清空；截断文件明确提示、
+分页类（PDF/Word/图片）超限放弃渲染而非半截展示。历史检索保留在 `#side-more`
+折叠区常驻。
 
 ### Agent Team 面板（员工库 / 团队库 / 员工栏 / 发言调度）
 
@@ -495,8 +500,9 @@ applied 水位——否则新会话 `delivery_seq=1..N` 会被误判为重复静
 几何（末子弯头 / 续行轨 / 深度与缩进钳制）与泳道算法（分叉、合并、空闲泳道复用、
 泳道打满丢弃、畸形载荷不出 NaN）。
 `file-preview.test.mjs` 覆盖预览分派（扩展名→类型/语言）、大小格式、UTF-8/
-UTF-16/GBK 解码、base64 往返与截断语义；`worktree-view.test.mjs` 断言文件行
-渲染为带路径元数据的打开按钮。后端侧：`workspace/readfile_test.go` 覆盖
+UTF-16/GBK 解码、base64 往返与截断语义，以及多文件详情标签的纯函数（标签名、
+打开去重、关闭切邻居/保持当前项、chip 渲染与转义）；`worktree-view.test.mjs`
+断言文件行渲染为带路径元数据的打开按钮。后端侧：`workspace/readfile_test.go` 覆盖
 containment/敏感过滤/符号链接拒绝/上限钳制/截断/二进制探测，
 `application/core/workspace_file_usecase_test.go` 覆盖当前工作区 root 转发与
 后端缺文件端口时的降级，`gui/bridge_test.go` 覆盖 Bridge 参数转发。

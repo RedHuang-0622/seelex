@@ -61,7 +61,7 @@ const elements = Object.fromEntries([
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
   "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
-  "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-close", "file-preview-divider",
+  "file-preview-pane", "file-preview-meta", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
   "load-history", "latest-history", "interaction-modal", "perm-toggle", "perm-menu", "interaction-risk", "interaction-title", "permission-tier-list",
@@ -417,15 +417,22 @@ const gitLogView = createGitLogView(elements["git-log-view"], {
 });
 // 文件预览（「资源管理器」子页左抽屉）：工作树文件点击 → 后端读取受控字节
 // （containment/敏感过滤/上限在 workspace 层保证）→ 按类型分派渲染。
+// 容器是「多文件详情」：每个文件一枚上标 chip + 一个独立面板；最后一个 chip
+// 关闭（容器为空）时回调 onEmpty → 抽屉收起、子页恢复原来大小（工作树/提交
+// 记录重新占满）。
 const filePreviewController = createFilePreviewController({
   view: elements["file-preview-view"],
+  tabsHost: elements["file-preview-tabs"],
   meta: elements["file-preview-meta"],
   loader: async (entry, kind, limit) => invoke("WorkspaceFileContent", entry.path, limit),
-  onError: showToast
+  onError: showToast,
+  onEmpty: () => closeFilePreview()
 });
 let previewPaneOpen = false;
+let previewPanesHidden = false;
 let previewRoot = "";
 elements["file-preview-close"].addEventListener("click", closeFilePreview);
+elements["file-preview-hide-panes"].addEventListener("click", togglePanesHidden);
 // workTableSeen 是“已读”快照（status|retry_count 签名）；workTableOpen
 // 控制弹窗打开期间不显示未读角标。
 let workTableSeen = new Map();
@@ -1265,7 +1272,12 @@ document.addEventListener("click", event => {
 });
 // 菜单是"贴住 ⋯ 按钮"的浮层：滚动/缩放后位置会失效，直接关掉比跟错位置稳。
 document.addEventListener("scroll", () => closeSessionMenu(), true);
-window.addEventListener("resize", () => closeSessionMenu());
+window.addEventListener("resize", () => {
+  closeSessionMenu();
+  // 侧栏宽度上限按视口动态计算：窗口变小要把已存宽度收回到可用范围，避免
+  // 超出容器把主视图挤成 0（内容详情宽度由 CSS 封顶，无需在这里收回）。
+  applyPanelWidths();
+});
 
 // sessionRow 渲染一条会话条目。条目刻意分成两段（用户口径）：
 //   标题段：状态点 + 完整标题（CSS 省略号截断），**不在条目里放时间/ token**；
@@ -3479,10 +3491,12 @@ applyPanelCollapsed();
 
 const LEFT_WIDTH_KEY = "seelex.left-panel-width";
 const RIGHT_WIDTH_KEY = "seelex.right-panel-width";
-const LEFT_WIDTH_RANGE = [200, 420];
-const RIGHT_WIDTH_RANGE = [220, 480];
+// 侧栏无上限拉伸：下界保留可用最小宽，上界按视口动态计算（sidePaneMaxWidth）
+// ——窗口越大能拉开越宽，不再有固定 420/480 的硬顶。
+const LEFT_WIDTH_MIN = 200;
+const RIGHT_WIDTH_MIN = 220;
 const PREVIEW_WIDTH_KEY = "seelex.preview-pane-width";
-const PREVIEW_WIDTH_RANGE = [280, 760];
+const PREVIEW_MIN_WIDTH = 200;
 
 function storageGet(key) {
   try { return window.localStorage.getItem(key); } catch { return null; }
@@ -3493,9 +3507,15 @@ function storageSet(key, value) {
 function clampPanelWidth(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
+// sidePaneMaxWidth 侧栏宽度上限：视口宽减去中间主视图与留白（主视图至少留
+// ~280px），窗口越大侧栏能拉得越宽。
+function sidePaneMaxWidth() {
+  const viewport = window.innerWidth || 1280;
+  return Math.max(320, viewport - 280);
+}
 function applyPanelWidths() {
-  const left = clampPanelWidth(Number(storageGet(LEFT_WIDTH_KEY)) || 268, ...LEFT_WIDTH_RANGE);
-  const right = clampPanelWidth(Number(storageGet(RIGHT_WIDTH_KEY)) || 300, ...RIGHT_WIDTH_RANGE);
+  const left = clampPanelWidth(Number(storageGet(LEFT_WIDTH_KEY)) || 268, LEFT_WIDTH_MIN, sidePaneMaxWidth());
+  const right = clampPanelWidth(Number(storageGet(RIGHT_WIDTH_KEY)) || 300, RIGHT_WIDTH_MIN, sidePaneMaxWidth());
   document.documentElement.style.setProperty("--left-w", `${left}px`);
   document.documentElement.style.setProperty("--right-w", `${right}px`);
 }
@@ -3506,8 +3526,8 @@ function setupPanelDividers() {
   const rightDivider = document.getElementById("right-divider");
   if (!shell || !leftDivider || !rightDivider) return;
 
-  function setWidth(variable, key, range, width) {
-    const clamped = clampPanelWidth(width, ...range);
+  function setWidth(variable, key, min, width) {
+    const clamped = clampPanelWidth(width, min, sidePaneMaxWidth());
     document.documentElement.style.setProperty(variable, `${clamped}px`);
     storageSet(key, String(clamped));
   }
@@ -3531,10 +3551,10 @@ function setupPanelDividers() {
     };
   }
   leftDivider.addEventListener("pointerdown", beginDrag(leftDivider, event => {
-    setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_RANGE, event.clientX - shell.getBoundingClientRect().left);
+    setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, event.clientX - shell.getBoundingClientRect().left);
   }));
   rightDivider.addEventListener("pointerdown", beginDrag(rightDivider, event => {
-    setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_RANGE, shell.getBoundingClientRect().right - event.clientX);
+    setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, shell.getBoundingClientRect().right - event.clientX);
   }));
 
   function keyboardAdjust(divider, isRight) {
@@ -3544,10 +3564,10 @@ function setupPanelDividers() {
       const step = event.key === "ArrowLeft" ? -16 : 16;
       if (isRight) {
         const current = parseFloat(document.documentElement.style.getPropertyValue("--right-w")) || 300;
-        setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_RANGE, current - step);
+        setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, current - step);
       } else {
         const current = parseFloat(document.documentElement.style.getPropertyValue("--left-w")) || 268;
-        setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_RANGE, current + step);
+        setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, current + step);
       }
     });
   }
@@ -3557,18 +3577,53 @@ function setupPanelDividers() {
 setupPanelDividers();
 
 // ── 「资源管理器」文件预览抽屉（代码子页左分栏）──────────────
-// 预览抽屉是代码子页内部结构：left 预览 / divider / right（工作树+提交记录）。
-// 宽度以 CSS 变量 + localStorage 记忆（默认 380px）；展开/收起态也记忆
-// （默认收起，点文件自动展开）。关闭只收起不销毁内容，再次打开同一文件
-// 直接复用（避免重复读取）。布局两态（收起单列 / 展开三列）由
-// .code-split 上的 .is-preview-open 切换（见 styles.css「子页3」注释）。
-const FILE_PREVIEW_OPEN_KEY = "seelex.preview-pane-open";
+// 预览抽屉是代码子页内部结构：left 内容详情 / divider / right（工作树+提交记录）。
+// 抽屉宽度以 CSS 变量 + localStorage 记忆（默认 380px，无上限：拖分隔条可把
+// 任一侧拉到几乎占满子页）。内容详情是「多文件详情」容器：每个文件一枚上标
+// chip + 一个独立面板；chip 全部关闭（容器为空）时容器生命周期结束，抽屉自动
+// 收起、子页恢复原来大小。另可一键「隐藏工作树与提交记录」，让内容详情独占
+// 整个子页（`.is-panes-hidden`，见 styles.css「子页3」）。布局两态由
+// `.code-split` 上的 `.is-preview-open` 切换，抽屉内容不因收起而销毁。
+const FILE_PREVIEW_PANES_KEY = "seelex.preview-panes-hidden";
 
-// syncPreviewLayout 同步代码子页两态布局：展开=三列（preview/divider/panes），
-// 收起=单列（panes 占满，防止预览抽屉收起后内容被裁成空白）。
-function syncPreviewLayout(open) {
+// previewMaxWidth 预览列上限：子页可视宽减去分隔条（只留 6px），因此内容详情
+// 可以拉伸到几乎占满子页（「没有限制的拉伸」），不预设固定上限。
+function previewMaxWidth() {
   const split = document.getElementById("code-split");
-  if (split) split.classList.toggle("is-preview-open", Boolean(open));
+  const width = split?.getBoundingClientRect?.().width || 0;
+  return Math.max(PREVIEW_MIN_WIDTH, Math.round(width - 6));
+}
+
+// syncPreviewLayout 同步代码子页布局：展开=多列（preview/divider/panes），
+// 收起=单列（panes 占满，防止预览抽屉收起后内容被裁成空白）；展开且勾选
+// 「隐藏工作树/提交记录」时 = 仅 preview。
+function syncPreviewLayout() {
+  const split = document.getElementById("code-split");
+  if (!split) return;
+  split.classList.toggle("is-preview-open", previewPaneOpen);
+  split.classList.toggle("is-panes-hidden", previewPaneOpen && previewPanesHidden);
+  syncPanesHiddenButton();
+}
+
+// syncPanesHiddenButton 维护「隐藏工作树/提交记录」按钮的开关态与文案。
+function syncPanesHiddenButton() {
+  const button = elements["file-preview-hide-panes"];
+  if (!button) return;
+  const hidden = previewPaneOpen && previewPanesHidden;
+  const label = hidden ? "显示工作树与提交记录" : "隐藏工作树与提交记录";
+  button.setAttribute("aria-pressed", hidden ? "true" : "false");
+  button.setAttribute("title", label);
+  button.setAttribute("aria-label", label);
+  button.classList.toggle("is-on", hidden);
+}
+
+// togglePanesHidden 只在内容详情展开时有意义：隐蔽右栏（工作树 + 提交记录），
+// 让内容详情独占整个子页；再次点击恢复。
+function togglePanesHidden() {
+  if (!previewPaneOpen) return;
+  previewPanesHidden = !previewPanesHidden;
+  storageSet(FILE_PREVIEW_PANES_KEY, previewPanesHidden ? "1" : "0");
+  syncPreviewLayout();
 }
 
 function openFilePreview(entry) {
@@ -3579,10 +3634,9 @@ function openFilePreview(entry) {
   const pane = elements["file-preview-pane"];
   if (pane) {
     pane.classList.remove("is-closed");
-    syncPreviewLayout(true);
     document.documentElement.style.setProperty("--preview-w", previewPaneWidth());
+    syncPreviewLayout();
   }
-  try { window.localStorage.setItem(FILE_PREVIEW_OPEN_KEY, "1"); } catch { /* 无存储环境忽略 */ }
   filePreviewController.open(entry);
   // 资源管理器可能停靠在主视图或右栏：无论当前在哪，打开文件预览前
   // 先让该子页成为所在栏的激活页。
@@ -3593,17 +3647,21 @@ function closeFilePreview() {
   const pane = elements["file-preview-pane"];
   if (!previewPaneOpen && (!pane || pane.classList.contains("is-closed"))) return;
   previewPaneOpen = false;
-  if (pane) {
-    pane.classList.add("is-closed");
-    syncPreviewLayout(false);
-  }
-  try { window.localStorage.setItem(FILE_PREVIEW_OPEN_KEY, "0"); } catch { /* 无存储环境忽略 */ }
+  // 容器生命周期结束（主动收起 / 最后一个 chip 关闭）→ 恢复原来大小：
+  // 工作树与提交记录重新占满子页。
+  previewPanesHidden = false;
+  storageSet(FILE_PREVIEW_PANES_KEY, "0");
+  if (pane) pane.classList.add("is-closed");
+  syncPreviewLayout();
   filePreviewController.clear();
 }
 
+// previewPaneWidth 预览列宽度：只保留下界，**不设固定上限**——容器封顶交给
+// CSS 的 min(var(--preview-w), calc(100% - 6px))。因此窗口/子页变窄时不会把已存
+// 宽度改小（拉大后原样记住），拖拽时的即时钳制才用 previewMaxWidth()。
 function previewPaneWidth() {
   const stored = Number(storageGet(PREVIEW_WIDTH_KEY));
-  const width = Number.isFinite(stored) ? clampPanelWidth(stored, ...PREVIEW_WIDTH_RANGE) : 380;
+  const width = Number.isFinite(stored) && stored > 0 ? Math.max(PREVIEW_MIN_WIDTH, Math.round(stored)) : 380;
   return `${width}px`;
 }
 
@@ -3623,7 +3681,9 @@ function setupFilePreviewResize() {
     document.body.style.userSelect = "none";
     const move = moveEvent => {
       const rect = split.getBoundingClientRect();
-      const width = clampPanelWidth(moveEvent.clientX - rect.left, ...PREVIEW_WIDTH_RANGE);
+      // 无上限：只受容器宽封顶（留 6px 给分隔条），内容详情与工作树谁宽谁窄
+      // 完全由拖动决定。
+      const width = clampPanelWidth(moveEvent.clientX - rect.left, PREVIEW_MIN_WIDTH, Math.max(PREVIEW_MIN_WIDTH, rect.width - 6));
       document.documentElement.style.setProperty("--preview-w", `${width}px`);
     };
     const up = () => {
@@ -3642,36 +3702,24 @@ function setupFilePreviewResize() {
     event.preventDefault();
     const current = parseFloat(document.documentElement.style.getPropertyValue("--preview-w")) || 380;
     const step = event.key === "ArrowLeft" ? -24 : 24;
-    const width = clampPanelWidth(current + step, ...PREVIEW_WIDTH_RANGE);
+    const width = clampPanelWidth(current + step, PREVIEW_MIN_WIDTH, previewMaxWidth());
     document.documentElement.style.setProperty("--preview-w", `${width}px`);
     storageSet(PREVIEW_WIDTH_KEY, String(width));
   });
 }
 
 function applyPreviewWidth() {
-  const stored = Number(storageGet(PREVIEW_WIDTH_KEY));
-  const width = Number.isFinite(stored) ? clampPanelWidth(stored, ...PREVIEW_WIDTH_RANGE) : 380;
-  document.documentElement.style.setProperty("--preview-w", `${width}px`);
+  document.documentElement.style.setProperty("--preview-w", previewPaneWidth());
 }
 
-// 初始化：展开/收起记忆（默认收起）+ 宽度记忆；代码子页激活时惰性刷新
-// git log（原有行为）。
+// 初始化：内容详情容器默认空 → 抽屉收起（生命周期以「有文件详情」为前提，
+// 因此不记忆展开态，只记忆宽度与「隐藏工作树/提交记录」偏好）。
 (function initFilePreviewPane() {
   applyPreviewWidth();
-  const stored = (() => { try { return window.localStorage.getItem(FILE_PREVIEW_OPEN_KEY); } catch { return null; } })();
-  previewPaneOpen = stored === "1";
-  const pane = elements["file-preview-pane"];
-  if (pane) {
-    if (!previewPaneOpen) {
-      pane.classList.add("is-closed");
-      syncPreviewLayout(false);
-    } else {
-      pane.classList.remove("is-closed");
-      syncPreviewLayout(true);
-      const snapshot = client.current();
-      previewRoot = snapshot?.current_workspace?.root_path || "";
-    }
-  }
+  previewPanesHidden = storageGet(FILE_PREVIEW_PANES_KEY) === "1";
+  previewPaneOpen = false;
+  elements["file-preview-pane"]?.classList.add("is-closed");
+  syncPreviewLayout();
 })();
 setupFilePreviewResize();
 

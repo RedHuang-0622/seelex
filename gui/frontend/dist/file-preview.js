@@ -9,8 +9,13 @@
 //   - 图片 → blob URL <img>。
 // 安全：文件文本永不直接 innerHTML；marked 输出必须先经 DOMPurify 消毒；
 // 高亮只改写代码块内部（textContent → hljs 结果），不改写外层文档。
+//
+// 多文件详情：预览容器是「多文件详情」容器——每个打开的文件占一枚上标 chip
+// （类似网页标签），每枚 chip 对应一个独立面板（切换只切显隐，不重读、不丢
+// 滚动位置）；chip 关闭走「空态即生命周期结束」——最后一个 chip 关闭时容器
+// 清空并回调 onEmpty，由 app.js 收起抽屉、把子页恢复到原来大小。
 
-import { escapeHtml } from "./components.js";
+import { escapeHtml, icon } from "./components.js";
 
 // 各类型预览读取上限（字节；后端还有 64 MiB 硬钳制）。
 export const PREVIEW_LIMITS = {
@@ -157,107 +162,328 @@ export function needsWholeFile(kind) {
   return kind === "pdf" || kind === "word" || kind === "word-legacy" || kind === "image";
 }
 
+// ── 多文件详情标签（纯函数）────────────────────────────────
+// 上标 chip 条的数据面：一份「已打开文件详情」的有序列表 + 当前激活项。
+// 全部纯函数，node --test 直接覆盖，不触碰 DOM / Bridge。
+
+// previewTabLabel 取路径末段作为 chip 标签（无分隔符则原样返回）。
+export function previewTabLabel(path = "") {
+  const text = String(path);
+  const parts = text.split(/[\\/]/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : text;
+}
+
+// normalizePreviewTab 归一化一个待打开的条目；无 path 时返回 null（丢弃）。
+export function normalizePreviewTab(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const path = typeof entry.path === "string" ? entry.path : "";
+  if (!path) return null;
+  const name = typeof entry.name === "string" && entry.name ? entry.name : previewTabLabel(path);
+  return { path, name };
+}
+
+// openPreviewTab 打开一个文件详情：已在列表则原样返回（再次点击同一个文件
+// 只是把它激活，不重复读盘、不重排），否则追加到末尾。返回
+// { tabs, path, added }。
+export function openPreviewTab(tabs, entry) {
+  const list = Array.isArray(tabs) ? [...tabs] : [];
+  const tab = normalizePreviewTab(entry);
+  if (!tab) return { tabs: list, path: "", added: false };
+  if (list.some(item => item.path === tab.path)) {
+    return { tabs: list, path: tab.path, added: false };
+  }
+  list.push(tab);
+  return { tabs: list, path: tab.path, added: true };
+}
+
+// closePreviewTab 关闭一个文件详情，返回 { tabs, active }：active = 关闭后
+// 应激活的路径。
+//   - 关闭的不是当前激活项 → 保持当前激活项（关掉旁边的文件不打断正在看的）；
+//   - 关闭当前项 → 右邻居优先、其次左邻居；
+//   - 列表清空 → 空串（容器为空，生命周期结束）。
+export function closePreviewTab(tabs, path, activePath = "") {
+  const list = Array.isArray(tabs) ? [...tabs] : [];
+  const index = list.findIndex(item => item.path === path);
+  if (index < 0) return { tabs: list, active: activePath };
+  list.splice(index, 1);
+  if (list.length === 0) return { tabs: list, active: "" };
+  if (path !== activePath && list.some(item => item.path === activePath)) {
+    return { tabs: list, active: activePath };
+  }
+  return { tabs: list, active: list[Math.min(index, list.length - 1)].path };
+}
+
+// renderPreviewTabsHTML 渲染上标 chip 条：每枚 chip = 一个已打开的文件详情，
+// 尾部一枚关闭按钮。全部文本 escape。
+export function renderPreviewTabsHTML(tabs, activePath = "") {
+  const list = Array.isArray(tabs) ? tabs : [];
+  return list.map(tab => {
+    const active = tab.path === activePath;
+    const label = tab.name || previewTabLabel(tab.path);
+    return `<span class="file-preview-chip${active ? " is-active" : ""}" role="tab" aria-selected="${String(active)}" data-preview-tab="${escapeHtml(tab.path)}" title="${escapeHtml(tab.path)}" tabindex="${active ? "0" : "-1"}">
+        <span class="file-preview-chip-label">${escapeHtml(label)}</span>
+        <button type="button" class="file-preview-chip-close" data-preview-tab-close="${escapeHtml(tab.path)}" title="关闭 ${escapeHtml(tab.path)}" aria-label="关闭 ${escapeHtml(tab.path)}">${icon("close", 11)}</button>
+      </span>`;
+  }).join("");
+}
+
 // ── 控制器（DOM 依赖部分）──────────────────────────────────
 
-// createFilePreviewController 管理一次文件预览的完整生命周期：
-// loader(entry, kind, limit) → { base64, size, truncated, text_like }。
-// 打开新文件或 clear() 时递增代数，废弃未完成的异步渲染（防串台）。
-export function createFilePreviewController({ view, meta, loader, onError }) {
-  let generation = 0;
+// createFilePreviewController 管理「多文件详情」容器的完整生命周期：
+//   loader(entry, kind, limit) → { base64, size, truncated, text_like }。
+// 每个文件详情一个独立面板（切换只切显隐，不重读、不丢滚动）；写入面板前
+// 递增该面板代数，废弃未完成的异步渲染（防串台）。最后一个 chip 关闭时清空
+// 容器并回调 onEmpty（app.js 据此收起抽屉、恢复子页原来大小）。
+export function createFilePreviewController({ view, tabsHost, meta, loader, onError, onEmpty }) {
+  const tabs = [];
+  const panels = new Map(); // path -> { el, generation, cleanups: [], title }
+  let activePath = "";
 
-  function invalidate() {
-    generation += 1;
-    flushPreviewCleanups();
+  if (tabsHost) {
+    tabsHost.addEventListener("click", event => {
+      const closeButton = event.target?.closest?.("[data-preview-tab-close]");
+      if (closeButton) {
+        event.preventDefault();
+        closeTab(closeButton.dataset.previewTabClose || "");
+        return;
+      }
+      const chip = event.target?.closest?.("[data-preview-tab]");
+      if (chip) activateTab(chip.dataset.previewTab || "");
+    });
+    tabsHost.addEventListener("keydown", event => {
+      if (event.target?.closest?.("[data-preview-tab-close]")) return; // 关闭按钮交给原生 click
+      const chip = event.target?.closest?.("[data-preview-tab]");
+      if (!chip) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activateTab(chip.dataset.previewTab || "");
+        return;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const list = Array.from(tabsHost.querySelectorAll("[data-preview-tab]"));
+      const index = list.indexOf(chip);
+      if (index < 0) return;
+      const step = event.key === "ArrowRight" ? 1 : -1;
+      const target = list[(index + step + list.length) % list.length];
+      const targetPath = target?.dataset?.previewTab || "";
+      if (!targetPath) return;
+      event.preventDefault();
+      activateTab(targetPath);
+      focusChip(targetPath);
+    });
   }
 
-  async function open(entry) {
-    const current = ++generation;
-    flushPreviewCleanups();
-    if (meta) meta.textContent = entry?.path ? `${entry.path} · ` : "";
-    showBusy(view);
-    const kind = previewKindForPath(entry?.path || "");
+  function focusChip(path) {
+    if (!tabsHost) return;
+    const chip = Array.from(tabsHost.querySelectorAll("[data-preview-tab]"))
+      .find(node => node.dataset.previewTab === path);
+    chip?.focus?.();
+  }
+
+  function syncChips() {
+    if (!tabsHost) return;
+    tabsHost.innerHTML = renderPreviewTabsHTML(tabs, activePath);
+    tabsHost.classList.toggle("hidden", tabs.length === 0);
+  }
+
+  function refreshMeta() {
+    const record = activePath ? panels.get(activePath) : null;
+    if (meta) meta.textContent = record ? record.title : "";
+  }
+
+  function showActivePanel() {
+    for (const [path, record] of panels) {
+      record.el.classList.toggle("hidden", path !== activePath);
+    }
+  }
+
+  function renderEmptyState() {
+    if (!view) return;
+    view.classList.add("muted");
+    view.innerHTML = '<div class="file-preview-notice">从工作树选择文件后在此查看详情</div>';
+  }
+
+  function ensurePanel(tab) {
+    const existing = panels.get(tab.path);
+    if (existing) return existing;
+    if (tabs.length === 1 && view) {
+      // 从空态进入首个详情：清掉占位文本，容器转为「装得下多个详情」的宿主。
+      view.innerHTML = "";
+      view.classList.remove("muted");
+    }
+    const el = document.createElement("div");
+    el.className = "file-preview-panel hidden";
+    el.setAttribute("role", "tabpanel");
+    el.dataset.previewPanel = tab.path;
+    view?.appendChild(el);
+    const record = { el, generation: 0, cleanups: [], title: tab.path };
+    panels.set(tab.path, record);
+    return record;
+  }
+
+  function runCleanups(record) {
+    while (record.cleanups.length) {
+      const task = record.cleanups.pop();
+      try { task(); } catch { /* 忽略单项清理失败 */ }
+    }
+  }
+
+  function disposePanel(path) {
+    const record = panels.get(path);
+    if (!record) return;
+    record.generation += 1; // 废弃仍在飞行的异步渲染
+    runCleanups(record);
+    record.el.remove();
+    panels.delete(path);
+  }
+
+  async function loadInto(tab, record) {
+    const generation = ++record.generation;
+    runCleanups(record);
+    record.title = tab.path;
+    if (activePath === tab.path && meta) meta.textContent = `${tab.path} · 正在读取…`;
+    showBusy(record.el);
+    const kind = previewKindForPath(tab.path);
     const limit = PREVIEW_LIMITS[kind] || PREVIEW_LIMITS.text;
+    const addCleanup = task => { if (typeof task === "function") record.cleanups.push(task); };
     try {
-      const payload = await loader(entry, kind, limit);
-      if (current !== generation) return;
+      const payload = await loader(tab, kind, limit);
+      if (generation !== record.generation) return;
       if (!payload || !payload.base64) {
-        renderNotice(view, "文件内容为空或不可读");
+        renderNotice(record.el, "文件内容为空或不可读");
+        record.title = tab.path;
+        if (activePath === tab.path) refreshMeta();
         return;
       }
       const bytes = base64ToBytes(payload.base64);
       const sizeText = formatPreviewSize(payload.size);
-      if (meta) meta.textContent = `${entry.path} · ${sizeText}`;
+      record.title = `${tab.path} · ${sizeText}`;
+      if (activePath === tab.path) refreshMeta();
       if (payload.truncated && needsWholeFile(kind)) {
-        renderNotice(view, `文件超过 ${sizeText}，暂不支持预览完整内容`);
+        renderNotice(record.el, `文件超过 ${sizeText}，暂不支持预览完整内容`);
         return;
       }
       const truncated = Boolean(payload.truncated);
       switch (kind) {
         case "markdown":
-          renderMarkdown(view, bytes, truncated);
+          renderMarkdown(record.el, bytes, truncated);
           break;
         case "code":
-          renderHighlighted(view, bytes, codeLanguageForPath(entry.path), truncated);
+          renderHighlighted(record.el, bytes, codeLanguageForPath(tab.path), truncated);
           break;
         case "text":
-          renderPlainText(view, bytes, truncated);
+          renderPlainText(record.el, bytes, truncated);
           break;
         case "image":
-          renderImage(view, bytes, entry.path, sizeText);
+          renderImage(record.el, bytes, tab.path, sizeText, addCleanup);
           break;
         case "pdf":
-          await renderPDF(view, bytes, () => (current === generation));
+          await renderPDF(record.el, bytes, () => generation === record.generation, addCleanup);
           break;
         case "word":
-          await renderWord(view, bytes, () => (current === generation));
+          await renderWord(record.el, bytes, () => generation === record.generation, addCleanup);
           break;
         case "word-legacy":
-          renderNotice(view, ".doc 为旧版 Word 格式，暂无浏览器内预览组件；请用 Word 另存为 .docx 后查看。");
+          renderNotice(record.el, ".doc 为旧版 Word 格式，暂无浏览器内预览组件；请用 Word 另存为 .docx 后查看。");
           break;
         default:
           if (payload.text_like === false) {
-            renderNotice(view, "该文件是二进制文件，暂不支持预览。");
+            renderNotice(record.el, "该文件是二进制文件，暂不支持预览。");
           } else {
-            renderPlainText(view, bytes, truncated);
+            renderPlainText(record.el, bytes, truncated);
           }
       }
     } catch (error) {
-      if (current !== generation) return;
-      renderNotice(view, `无法预览：${error?.message || String(error)}`);
+      if (generation !== record.generation) return;
+      renderNotice(record.el, `无法预览：${error?.message || String(error)}`);
+      record.title = tab.path;
+      if (activePath === tab.path) refreshMeta();
       if (onError) onError(error);
     }
   }
 
-  function clear() {
-    invalidate();
-    if (meta) meta.textContent = "";
-    renderNotice(view, "从工作树选择文件后在此查看详情");
+  async function open(entry) {
+    const result = openPreviewTab(tabs, entry);
+    if (!result.path) return;
+    tabs.length = 0;
+    tabs.push(...result.tabs);
+    const tab = tabs.find(item => item.path === result.path);
+    const record = ensurePanel(tab);
+    activePath = tab.path;
+    syncChips();
+    showActivePanel();
+    refreshMeta();
+    if (result.added) await loadInto(tab, record);
   }
 
-  return { open, clear };
+  function activateTab(path) {
+    if (!panels.has(path)) return;
+    activePath = path;
+    showActivePanel();
+    syncChips();
+    refreshMeta();
+  }
+
+  function closeTab(path) {
+    if (!panels.has(path)) return;
+    const result = closePreviewTab(tabs, path, activePath);
+    tabs.length = 0;
+    tabs.push(...result.tabs);
+    disposePanel(path);
+    if (tabs.length === 0) {
+      activePath = "";
+      syncChips();
+      renderEmptyState();
+      if (onEmpty) onEmpty(); // 容器为空 → 生命周期结束，子页恢复原来大小
+      return;
+    }
+    activePath = result.active;
+    syncChips();
+    showActivePanel();
+    refreshMeta();
+  }
+
+  // clear 由渲染层在收起抽屉 / 工作区切换时调用：清空全部文件详情，但不回调
+  // onEmpty（收起是主动动作，不会递归）。
+  function clear() {
+    for (const path of Array.from(panels.keys())) disposePanel(path);
+    tabs.length = 0;
+    activePath = "";
+    syncChips();
+    renderEmptyState();
+  }
+
+  return {
+    open,
+    activateTab,
+    closeTab,
+    clear,
+    tabs: () => tabs.slice(),
+    active: () => activePath
+  };
 }
 
 // ── 渲染工具 ───────────────────────────────────────────────
 
-function showBusy(view) {
-  if (!view) return;
-  view.classList.remove("muted");
-  view.innerHTML = '<div class="file-preview-busy"><span class="tree-loading" aria-hidden="true"></span>正在读取文件…</div>';
+function showBusy(panel) {
+  if (!panel) return;
+  panel.classList.remove("muted");
+  panel.innerHTML = '<div class="file-preview-busy"><span class="tree-loading" aria-hidden="true"></span>正在读取文件…</div>';
 }
 
-export function renderNotice(view, message) {
-  if (!view) return;
-  view.classList.add("muted");
-  view.innerHTML = `<div class="file-preview-notice">${escapeHtml(message)}</div>`;
+export function renderNotice(panel, message) {
+  if (!panel) return;
+  panel.classList.add("muted");
+  panel.innerHTML = `<div class="file-preview-notice">${escapeHtml(message)}</div>`;
 }
 
-function previewShell(view, extraClass) {
-  if (!view) return null;
-  view.classList.remove("muted");
-  view.innerHTML = "";
+function previewShell(panel, extraClass) {
+  if (!panel) return null;
+  panel.classList.remove("muted");
+  panel.innerHTML = "";
   const content = document.createElement("div");
   content.className = `file-preview-content${extraClass ? ` ${extraClass}` : ""}`;
-  view.appendChild(content);
+  panel.appendChild(content);
   return content;
 }
 
@@ -269,8 +495,8 @@ function appendTruncatedBanner(content, payloadSizeText) {
   content.prepend(banner);
 }
 
-function renderPlainText(view, bytes, truncated) {
-  const content = previewShell(view, "is-plain");
+function renderPlainText(panel, bytes, truncated) {
+  const content = previewShell(panel, "is-plain");
   if (!content) return;
   const text = decodeFileText(bytes);
   const lineCount = text.split("\n").length;
@@ -279,19 +505,19 @@ function renderPlainText(view, bytes, truncated) {
   pre.textContent = text;
   content.appendChild(pre);
   if (truncated) appendTruncatedBanner(content, formatPreviewSize(bytes.length));
-  appendLineCount(view, lineCount, truncated);
+  appendLineCount(panel, lineCount, truncated);
 }
 
-function appendLineCount(view, lines) {
+function appendLineCount(panel, lines) {
   const footer = document.createElement("div");
   footer.className = "file-preview-line-count";
   footer.textContent = `${lines} 行`;
-  if (view) view.appendChild(footer);
+  if (panel) panel.appendChild(footer);
 }
 
 // renderHighlighted 代码文件：textContent 注入 + highlight.js 就地高亮。
-function renderHighlighted(view, bytes, language, truncated) {
-  const content = previewShell(view, "is-code");
+function renderHighlighted(panel, bytes, language, truncated) {
+  const content = previewShell(panel, "is-code");
   if (!content) return;
   const text = decodeFileText(bytes);
   const pre = document.createElement("pre");
@@ -303,13 +529,13 @@ function renderHighlighted(view, bytes, language, truncated) {
   content.appendChild(pre);
   highlightElement(code, language);
   if (truncated) appendTruncatedBanner(content, formatPreviewSize(bytes.length));
-  appendLineCount(view, text.split("\n").length);
+  appendLineCount(panel, text.split("\n").length);
 }
 
 // renderMarkdown markdown 文件：marked 渲染 → DOMPurify 消毒 → 代码块高亮。
 // 任一组件缺失时安全降级为纯文本（绝不 innerHTML 未消毒内容）。
-export function renderMarkdown(view, bytes, truncated) {
-  const content = previewShell(view, "is-markdown");
+export function renderMarkdown(panel, bytes, truncated) {
+  const content = previewShell(panel, "is-markdown");
   if (!content) return;
   const text = decodeFileText(bytes);
   const marked = window.marked;
@@ -324,11 +550,11 @@ export function renderMarkdown(view, bytes, truncated) {
       content.innerHTML = html;
       content.querySelectorAll("pre code").forEach(el => highlightElement(el));
       if (truncated) appendTruncatedBanner(content, formatPreviewSize(bytes.length));
-      appendLineCount(view, text.split("\n").length);
+      appendLineCount(panel, text.split("\n").length);
       return;
     } catch { /* 组件异常 → 降级纯文本 */ }
   }
-  renderPlainText(view, bytes, truncated);
+  renderPlainText(panel, bytes, truncated);
 }
 
 function highlightElement(codeElement, explicitLanguage) {
@@ -354,44 +580,35 @@ function parseCodeLanguage(codeElement) {
   return match ? match[1] : "";
 }
 
-function renderImage(view, bytes, path, sizeText) {
+function renderImage(panel, bytes, path, sizeText, addCleanup) {
   const ext = (String(path).toLowerCase().match(/\.[a-z0-9]+$/) || [""])[0];
   const mime = MIME_BY_EXT[ext] || "application/octet-stream";
   const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-  const content = previewShell(view, "is-image");
+  const content = previewShell(panel, "is-image");
   const img = document.createElement("img");
   img.className = "file-preview-image";
   img.alt = path || "预览图片";
   img.src = url;
   content.appendChild(img);
-  cleanupBlobOnClose(url);
-}
-
-// cleanupBlobOnClose 把 blob URL 注册为视图清理任务（下次 open/clear 时
-// flush 释放；beforeunload 兜底防关窗泄漏）。
-function cleanupBlobOnClose(url) {
-  if (!url) return;
-  const release = () => URL.revokeObjectURL(url);
-  window.addEventListener("beforeunload", release, { once: true });
-  const tracker = window.__seelexPreviewCleanups || (window.__seelexPreviewCleanups = []);
-  tracker.push({ url, release });
+  // blob URL 随面板生命周期释放（切换/关闭/重读该文件时回收）。
+  if (typeof addCleanup === "function") addCleanup(() => URL.revokeObjectURL(url));
 }
 
 // ── PDF（pdfjs-dist）───────────────────────────────────────
 
 const PDF_WORKER_SRC = new URL("./vendor/pdfjs/pdf.worker.min.js", import.meta.url).toString();
 
-async function renderPDF(view, bytes, isCurrent) {
+async function renderPDF(panel, bytes, isCurrent, addCleanup) {
   const pdfjsLib = window.pdfjsLib || globalThis.pdfjsLib;
   if (!pdfjsLib) {
-    renderNotice(view, "PDF 查看组件未加载（vendor/pdfjs 缺失？）");
+    renderNotice(panel, "PDF 查看组件未加载（vendor/pdfjs 缺失？）");
     return;
   }
   pdfjsLib.GlobalWorkerOptions = pdfjsLib.GlobalWorkerOptions || {};
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
   }
-  const content = previewShell(view, "is-pdf");
+  const content = previewShell(panel, "is-pdf");
   if (!content) return;
   const loadingTask = pdfjsLib.getDocument({
     data: bytes,
@@ -399,7 +616,7 @@ async function renderPDF(view, bytes, isCurrent) {
     disableAutoFetch: true
   });
   const loading = () => { try { loadingTask.destroy(); } catch { /* 已销毁 */ } };
-  registerCleanup(loading);
+  if (typeof addCleanup === "function") addCleanup(loading);
 
   const pdf = await loadingTask.promise;
   if (!isCurrent()) return;
@@ -445,7 +662,7 @@ async function renderPDF(view, bytes, isCurrent) {
       await drawPage(target);
       current = target;
     } catch (error) {
-      if (isCurrent()) renderNotice(view, `PDF 第 ${target} 页渲染失败：${error?.message || error}`);
+      if (isCurrent()) renderNotice(panel, `PDF 第 ${target} 页渲染失败：${error?.message || error}`);
     } finally {
       rendering = false;
     }
@@ -458,15 +675,15 @@ async function renderPDF(view, bytes, isCurrent) {
 
 // ── Word（docx-preview）────────────────────────────────────
 
-async function renderWord(view, bytes, isCurrent) {
+async function renderWord(panel, bytes, isCurrent, addCleanup) {
   const docx = window.docx;
   if (!docx || typeof docx.renderAsync !== "function") {
-    renderNotice(view, "Word 查看组件未加载（vendor/docx-preview 缺失？）");
+    renderNotice(panel, "Word 查看组件未加载（vendor/docx-preview 缺失？）");
     return;
   }
-  const content = previewShell(view, "is-word");
+  const content = previewShell(panel, "is-word");
   if (!content) return;
-  registerCleanup(() => { if (content) content.innerHTML = ""; });
+  if (typeof addCleanup === "function") addCleanup(() => { content.innerHTML = ""; });
   try {
     await docx.renderAsync(bytes, content, null, {
       inWrapper: true,
@@ -474,26 +691,6 @@ async function renderWord(view, bytes, isCurrent) {
       ignoreLastRenderedPageBreak: false
     });
   } catch (error) {
-    if (isCurrent()) renderNotice(view, `Word 渲染失败：${error?.message || error}`);
-  }
-}
-
-// registerCleanup 注册视图级清理任务（打开新文件或 clear 时执行一次）。
-function registerCleanup(task) {
-  const tracker = window.__seelexPreviewCleanups || (window.__seelexPreviewCleanups = []);
-  tracker.push({ task });
-}
-
-// flushPreviewCleanups 由控制器在 invalidate/clear 时调用：释放 blob URL、
-// 销毁 PDF loadingTask、清空 docx 容器。
-function flushPreviewCleanups() {
-  const tracker = window.__seelexPreviewCleanups || [];
-  while (tracker.length) {
-    const item = tracker.pop();
-    try {
-      if (item.url) URL.revokeObjectURL(item.url);
-      if (item.release) item.release();
-      if (item.task) item.task();
-    } catch { /* 忽略单项清理失败 */ }
+    if (isCurrent()) renderNotice(panel, `Word 渲染失败：${error?.message || error}`);
   }
 }

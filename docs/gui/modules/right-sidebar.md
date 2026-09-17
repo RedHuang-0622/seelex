@@ -74,13 +74,16 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 
 ## 资源管理器子页：文件预览 + 工作树 + 提交记录树
 
-子页 3 内部左右分栏（`.code-split`）：左「文件预览」抽屉（`.file-preview-pane`，
+子页 3 内部左右分栏（`.code-split`）：左「内容详情」抽屉（`.file-preview-pane`，
 默认收起、点击文件自动展开），右栏上下排列工作树与提交记录两块面板（顶部有
-拖拽手柄 grip icon）。左抽屉与右栏之间是宽度拖拽分隔条（
-`--preview-w`，`localStorage["seelex.preview-pane-width"]`，默认 380px；
-展开/收起态存 `seelex.preview-pane-open`，Esc 或关闭按钮收起）。
+拖拽手柄 grip icon）。左抽屉与右栏之间是宽度拖拽分隔条（`--preview-w`，
+`localStorage["seelex.preview-pane-width"]`，默认 380px）。宽度**无固定上限**：
+只按子页可视宽封顶（`calc(100% - 6px)`，拖动时 JS 与容器宽对齐），内容详情与
+工作树谁宽谁窄完全由拖动决定；左/右主栏同理（`--left-w`/`--right-w` 上界按视口
+宽动态计算）。形态三态由 `.code-split` 的类切换：收起 `.is-closed`、展开
+`.is-preview-open`、隐蔽 `.is-preview-open.is-panes-hidden`。
 
-- **文件预览**：点击工作树文件行 → `Bridge.WorkspaceFileContent(relPath, limit)`
+- **文件预览（多文件详情容器）**：点击工作树文件行 → `Bridge.WorkspaceFileContent(relPath, limit)`
   拉取受控字节（后端 workspace 域 containment/敏感过滤/上限/二进制探测；默认
   文本 4 MiB、文档/图片 24 MiB、后端硬钳 64 MiB，分页类超限放弃渲染并提示）→
   按扩展名分派渲染（markdown=marked→DOMPurify→highlight.js；代码/文本=
@@ -88,6 +91,15 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
   图片=blob img；`.doc` 提示转换）。组件全部本地 vendor（`dist/vendor/`，
   随 embed 离线打包）。实现见 `file-preview.js`；预览内容不进入 Snapshot/业务
   状态，工作区切换时抽屉随树清空。
+  抽屉是**多文件详情容器**：每个打开的文件一枚上标 chip（`renderPreviewTabsHTML`，
+  类网页标签）+ 一个独立面板（切换只切显隐，不重读、不丢滚动位置）。点 chip
+  切换当前详情；点 chip 尾部 ✕ 关闭单个详情；再次点开同一文件只是激活，不重复
+  读盘。**生命周期以「有文件详情」为前提**：最后一个 chip 关闭（容器为空）时抽屉
+  自动收起（`onEmpty`）、子页恢复原来大小（工作树/提交记录重新占满）；因此不再
+  记忆展开态（只记忆宽度与 `seelex.preview-panes-hidden`）。标签生命周期是纯函数：
+  `previewTabLabel`/`normalizePreviewTab`/`openPreviewTab`/`closePreviewTab`。
+  抽屉头部「隐蔽工作树/提交记录」按钮（`data-icon="expand"`）让内容详情独占整个
+  子页，再次点击或关闭全部详情即恢复。
 - **工作树**：`Bridge.WorkspaceTree(relPath, depth)` / `Bridge.WorkspaceFileCount()`
   （后端权威元数据：名称/路径/类型/大小/直接文件计数，不含文件内容）；目录行
   惰性展开，文件行是可点击按钮（打开预览）；层级连线用 `tree-fork` 的树轨

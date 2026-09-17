@@ -5,11 +5,16 @@ import {
   CODE_EXTENSIONS,
   PREVIEW_LIMITS,
   base64ToBytes,
+  closePreviewTab,
   codeLanguageForPath,
   decodeFileText,
   formatPreviewSize,
   needsWholeFile,
-  previewKindForPath
+  normalizePreviewTab,
+  openPreviewTab,
+  previewKindForPath,
+  previewTabLabel,
+  renderPreviewTabsHTML
 } from "./file-preview.js";
 
 test("previewKindForPath dispatches by extension", () => {
@@ -90,4 +95,82 @@ test("preview limits are bounded for text renderers", () => {
   assert.ok(PREVIEW_LIMITS.markdown <= 8 << 20);
   assert.ok(PREVIEW_LIMITS.code <= 8 << 20);
   assert.ok(PREVIEW_LIMITS.pdf <= 64 << 20);
+});
+
+// ── 多文件详情标签（上标 chip）────────────────────────────
+
+test("previewTabLabel takes the basename for posix and windows paths", () => {
+  assert.equal(previewTabLabel("src/main.go"), "main.go");
+  assert.equal(previewTabLabel("a\\b\\c.txt"), "c.txt");
+  assert.equal(previewTabLabel("README.md"), "README.md");
+  assert.equal(previewTabLabel(""), "");
+});
+
+test("normalizePreviewTab drops entries without a path and fills the label", () => {
+  assert.equal(normalizePreviewTab(null), null);
+  assert.equal(normalizePreviewTab("src/main.go"), null);
+  assert.equal(normalizePreviewTab({ name: "x" }), null);
+  assert.deepEqual(normalizePreviewTab({ path: "src/main.go" }), { path: "src/main.go", name: "main.go" });
+  assert.deepEqual(
+    normalizePreviewTab({ path: "src/main.go", name: "main" }),
+    { path: "src/main.go", name: "main" }
+  );
+});
+
+test("openPreviewTab appends new files and dedups by path", () => {
+  const first = openPreviewTab([], { path: "a.go", name: "a.go" });
+  assert.equal(first.added, true);
+  assert.deepEqual(first.path, "a.go");
+  assert.deepEqual(first.tabs, [{ path: "a.go", name: "a.go" }]);
+
+  const second = openPreviewTab(first.tabs, { path: "b/c.txt" });
+  assert.equal(second.added, true);
+  assert.deepEqual(second.tabs.map(item => item.path), ["a.go", "b/c.txt"]);
+
+  // 再次打开同一个文件：不重复追加（只是激活），列表与顺序不变。
+  const again = openPreviewTab(second.tabs, { path: "a.go", name: "a.go" });
+  assert.equal(again.added, false);
+  assert.deepEqual(again.tabs.map(item => item.path), ["a.go", "b/c.txt"]);
+
+  // 非法条目原样返回。
+  const invalid = openPreviewTab(second.tabs, {});
+  assert.equal(invalid.path, "");
+  assert.equal(invalid.added, false);
+  assert.equal(invalid.tabs.length, 2);
+});
+
+test("closePreviewTab activates the right neighbour, then the left, then empties", () => {
+  const tabs = [{ path: "a" }, { path: "b" }, { path: "c" }];
+  // 关闭中间：激活右邻居 c。
+  assert.deepEqual(closePreviewTab(tabs, "b"), { tabs: [{ path: "a" }, { path: "c" }], active: "c" });
+  // 关闭末位：回落到左邻居 a。
+  assert.deepEqual(closePreviewTab([{ path: "a" }, { path: "b" }], "b"), { tabs: [{ path: "a" }], active: "a" });
+  // 关闭最后一个：列表清空，active 为空串（容器生命周期结束）。
+  assert.deepEqual(closePreviewTab([{ path: "a" }], "a"), { tabs: [], active: "" });
+  // 关闭不存在的路径：原样返回。
+  assert.deepEqual(closePreviewTab(tabs, "zzz"), { tabs, active: "" });
+});
+
+test("closePreviewTab keeps the current detail when closing a different one", () => {
+  const tabs = [{ path: "a" }, { path: "b" }, { path: "c" }];
+  // 当前看 a，关掉 c：a 保持激活（关旁边的文件不打断正在看的）。
+  assert.deepEqual(closePreviewTab(tabs, "c", "a"), { tabs: [{ path: "a" }, { path: "b" }], active: "a" });
+  // 当前看 b，关掉 b：切到右邻居 c。
+  assert.deepEqual(closePreviewTab(tabs, "b", "b"), { tabs: [{ path: "a" }, { path: "c" }], active: "c" });
+});
+
+test("renderPreviewTabsHTML marks the active chip, escapes text and carries a close button", () => {
+  const html = renderPreviewTabsHTML([
+    { path: "src/a.go", name: "<b>a</b>" },
+    { path: "src/b.ts", name: "b.ts" }
+  ], "src/b.ts");
+  assert.ok(html.includes('data-preview-tab="src/a.go"'));
+  assert.ok(html.includes('data-preview-tab="src/b.ts"'));
+  assert.ok(html.includes('data-preview-tab-close="src/a.go"'));
+  assert.ok(html.includes("file-preview-chip is-active"));
+  // 文本 escape，不注入原始标签。
+  assert.ok(!html.includes("<b>a</b>"));
+  assert.ok(html.includes("&lt;b&gt;a&lt;/b&gt;"));
+  // 空列表渲染为空串。
+  assert.equal(renderPreviewTabsHTML([], ""), "");
 });

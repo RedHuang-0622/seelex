@@ -848,14 +848,16 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   padding: 10px;
 }
 
-/* 子页3：代码（资源管理器）—— 左「文件预览」抽屉 + 右「工作树/提交记录」。
-   两态 grid：
-   - 收起态（默认 .file-preview-pane.is-closed → display:none）：代码区单列
-     minmax(0,1fr)，工作树/提交记录占满整个子页宽度——修复预览抽屉收起后
-     剩余子项 auto-placement 错位、内容被裁成纯色空白（906f561 回归）。
+/* 子页3：代码（资源管理器）—— 左「内容详情」抽屉 + 右「工作树/提交记录」。
+   三态 grid：
+   - 收起态（默认 .file-preview-pane.is-closed → display:none / 容器为空）：
+     代码区单列 minmax(0,1fr)，工作树/提交记录占满整个子页宽度——修复预览
+     抽屉收起后剩余子项 auto-placement 错位、内容被裁成纯色空白（906f561 回归）。
    - 展开态（JS 同步 .is-preview-open）：preview / divider / panes 三列命名
-     区域；预览列宽受 --preview-w 控制，但以 calc(100% - 145px) 封顶，
-     保证窄右栏下工作树列仍有 ~140px 落点。 */
+     区域；预览列宽受 --preview-w 控制、以 calc(100% - 6px) 封顶（无固定上限，
+     内容详情与工作树谁宽谁窄由拖动决定）。
+   - 隐蔽态（.is-preview-open.is-panes-hidden）：工作树与提交记录隐蔽，内容详情
+     独占整个子页。 */
 .code-split {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -869,8 +871,20 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .code-split.is-preview-open {
   grid-template-areas: "preview divider panes";
-  grid-template-columns: min(var(--preview-w, 380px), calc(100% - 145px)) 5px minmax(0, 1fr);
+  /* 无上限拉伸：预览列只受容器宽度封顶（仅留 6px 给分隔条），不再按固定
+     145px 给「工作树」预留落点——内容详情与工作树的相对宽度完全交给用户，
+     拖动分隔条可把任一侧拉到几乎占满整个子页。 */
+  grid-template-columns: min(var(--preview-w, 380px), calc(100% - 6px)) 5px minmax(0, 1fr);
 }
+/* 「隐藏工作树/提交记录」：内容详情独占整个子页（工作树 + 提交记录隐蔽），
+   分隔条与右栏面板都不再占位。仅在与 .is-preview-open 同时存在时生效——
+   容器为空时抽屉收起，子页自动恢复原来大小（见 app.js closeFilePreview）。 */
+.code-split.is-preview-open.is-panes-hidden {
+  grid-template-areas: "preview";
+  grid-template-columns: minmax(0, 1fr);
+}
+.code-split.is-panes-hidden .file-split-divider,
+.code-split.is-panes-hidden .code-panes { display: none; }
 .code-split #file-preview-divider {
   display: none;
 }
@@ -887,8 +901,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .file-preview-pane {
   grid-area: preview;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   min-width: 0;
   min-height: 0;
@@ -901,8 +915,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .file-preview-pane.is-closed { display: none; }
 .file-preview-pane .code-pane-head { margin-bottom: 0; }
-.file-preview-close { margin-left: auto; color: var(--faint); }
+/* 头部右侧两枚动作（隐蔽工作树/提交记录、关闭全部详情）靠 .file-preview-meta
+   的 flex:1 推到最右，不再各自 margin-left:auto（两个 auto 会分掉空隙）。 */
+.file-preview-close { color: var(--faint); }
 .file-preview-close:hover { color: var(--muted); }
+.file-preview-hide-panes { color: var(--faint); }
+.file-preview-hide-panes:hover { color: var(--muted); }
+.file-preview-hide-panes.is-on { color: var(--accent); }
 .file-preview-meta {
   flex: 1;
   min-width: 0;
@@ -912,6 +931,69 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 多文件详情：上标 chip 条（类似网页标签）承载「已打开的文件详情」。
+   一枚 chip = 一个文件详情面板；点 chip 切换，chip 尾部 ✕ 关闭单个详情，
+   最后一个 chip 关闭即容器为空（生命周期结束 → 抽屉收起、子页复原）。 */
+.file-preview-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 0;
+  margin-bottom: -8px;
+  padding: 0 0 1px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.file-preview-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 190px;
+  padding: 3px 4px 3px 9px;
+  border: 1px solid var(--border);
+  border-bottom-color: transparent;
+  border-radius: 7px 7px 0 0;
+  color: var(--muted);
+  background: var(--surface-2);
+  font: 11px/1.4 var(--font-ui);
+  cursor: pointer;
+  position: relative;
+  top: 1px;
+}
+.file-preview-chip:hover { color: var(--text-strong); }
+.file-preview-chip.is-active {
+  color: var(--text-bright);
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: inset 0 1px 0 var(--accent);
+}
+.file-preview-chip:focus-visible { outline: none; box-shadow: var(--focus-glow); }
+.file-preview-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-preview-chip-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--faint);
+  background: transparent;
+  cursor: pointer;
+}
+.file-preview-chip-close:hover { color: var(--status-failed); background: var(--surface); }
+.file-preview-chip-close .icon { display: block; }
 .file-split-divider {
   grid-area: divider;
   cursor: col-resize;
@@ -957,15 +1039,29 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .code-pane-drag .icon { display: block; }
 
 /* 文件预览内容区 */
+/* 预览内容区是「多文件详情」容器：每个文件详情一个面板（见 file-preview.js），
+   面板各自滚动——切换 chip 只切显隐，不重读、不丢滚动位置。 */
 .file-preview-view {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   border-radius: var(--r-sm);
   background: var(--bg);
   font-size: var(--text-sm);
   line-height: 1.6;
 }
 .file-preview-view.muted {
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  color: var(--faint);
+  text-align: center;
+  font-size: 11.5px;
+}
+.file-preview-panel { min-width: 0; min-height: 0; overflow: auto; }
+.file-preview-panel.muted {
   display: grid;
   place-items: center;
   padding: 14px;
