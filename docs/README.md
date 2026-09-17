@@ -19,6 +19,7 @@
 | [`skill-effort-architecture.md`](arch/skill-effort-architecture.md) | Effort system prompt 与 Skill 用户上下文的当前实现设计 |
 | [`agent-workbench-architecture.md`](arch/agent-workbench-architecture.md) | DSL 对话卡片、Agent E2E、Workspace 沙盒与多会话并行总体架构 |
 | [`agent-team-work-vs-market.md`](arch/agent-team-work-vs-market.md) | Agent Team「team work」与市场常见多代理方案的机制差异、收益与数据依据（含本次实测/静态度量/既有报告/外部未复核口径的分层标注与诚实局限清单） |
+| [`agent-team-seat-vs-claim.md`](arch/agent-team-seat-vs-claim.md) | 席位制 team work 与认领式 teamwork（任务池/认领/并行扇出）的优势、代价与扬长避短；含作品集叙事骨架、演示脚本、主张↔证据映射与未验证清单 |
 
 ## 🧭 product/ — 产品规划
 
