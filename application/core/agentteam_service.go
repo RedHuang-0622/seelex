@@ -32,6 +32,12 @@ type agentTeamFloorPort interface {
 	ReadFloorRole(mainSessionID string) (string, error)
 }
 
+// agentTeamDismissPort 是会话端口**可选**实现的离场面（删除角色注册表）。
+// 与 floor 读面同一取舍：未实现的宿主照常装配/读取，只是不支持"团队离场"。
+type agentTeamDismissPort interface {
+	RemoveTeamRegistry(mainSessionID string) error
+}
+
 // agentTeamAdapter 把会话端口（DTO 形态）适配为 agentteam.Port。
 // 顺序读写复用既有 contract.RoleSessionPort.SetLifecycleOrder，避免第二套写入口。
 type agentTeamAdapter struct {
@@ -73,6 +79,17 @@ func (adapter agentTeamAdapter) WriteTeamRegistry(mainSessionID string, registry
 		}
 	}
 	return nil
+}
+
+// RemoveTeamRegistry 实现 agentteam.DismissPort：宿主端口暴露离场面时才转调，
+// 否则显式报错——"未实现"不能被当成"已经走人"（否则调用方会以为团队已离场，
+// 而面板里它还挂着）。
+func (adapter agentTeamAdapter) RemoveTeamRegistry(mainSessionID string) error {
+	port, ok := adapter.port.(agentTeamDismissPort)
+	if !ok {
+		return errors.New("session port does not expose agent team removal")
+	}
+	return port.RemoveTeamRegistry(mainSessionID)
 }
 
 // ReadFloorRole 实现 agentteam.FloorPort：宿主端口实现了 floor 读面才转读，
@@ -167,6 +184,29 @@ func (service *Service) MaterializeAgentTeamPreset(mainSessionID, teamKind strin
 		return dto.TeamMaterializeResult{}, err
 	}
 	return service.MaterializeAgentTeam(mainSessionID, spec, joinSeq)
+}
+
+// DismissAgentTeam 让本会话的在编团队离场（"干完就走人"）：删注册表 + 复位顺序，
+// 随后同步发言环并通告面板。
+//
+// 与 MaterializeAgentTeam 对称：装配是所有来路的共同收口（并在这里发 team.changed），
+// 离场同样只有这一个收口——`@` 召唤的团队、goal 自动装配的 goal-a2a、前端一键装配
+// 的团队都按同一条口径离场，不新增第二份"谁还算在编"的事实。
+func (service *Service) DismissAgentTeam(mainSessionID string) error {
+	if service == nil || strings.TrimSpace(mainSessionID) == "" {
+		return errors.New("agent team: main session ID is required")
+	}
+	factory, err := service.agentTeamFactory()
+	if err != nil {
+		return err
+	}
+	if err := factory.Dismiss(mainSessionID); err != nil {
+		return err
+	}
+	// 环是派生状态：注册表没了，环也要按新事实重建（空顺序 = 没有成员可发言）。
+	service.syncTeamRuntime(mainSessionID)
+	service.publishTeamChanged(mainSessionID)
+	return nil
 }
 
 // AgentTeamView 返回成员表（身份/顺序/定时分区/配置状态/发言调度运行态）。

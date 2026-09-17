@@ -33,6 +33,19 @@ type FloorPort interface {
 	ReadFloorRole(mainSessionID string) (string, error)
 }
 
+// DismissPort 是 Port 的**可选**扩展：删除角色注册表（让团队离场）。
+//
+// 与 FloorPort 同样的取舍：离场是"取消装配"，不是每条装配路径都必须承担的
+// 义务，因此做成可选面——未实现它的宿主照常装配与读取，只是不支持"走人"，
+// Factory.Dismiss 会显式报 ErrDismissUnsupported 而不是静默成功。
+type DismissPort interface {
+	// RemoveTeamRegistry 删除主会话的角色注册表（幂等：不存在不算错误）。
+	RemoveTeamRegistry(mainSessionID string) error
+}
+
+// ErrDismissUnsupported 表示宿主的装配面没有实现团队离场（DismissPort）。
+var ErrDismissUnsupported = errors.New("agentteam: 宿主未装配团队离场面（DismissPort）")
+
 // Factory 由 TeamSpec 装配一支 AgentTeam：建角色会话 → 写注册表 → 写顺序策略。
 //
 // 幂等：同一个 (team_id, role_name) 派生同一个 role_session_id，重复装配不会产生
@@ -94,6 +107,36 @@ func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joi
 	// 装配回执视图也带 floor（运行态读面；装配本身不写 floor）。
 	applyFloor(factory.port, mainSessionID, &view)
 	return dto.TeamMaterializeResult{Spec: normalized, View: view, Sessions: sessions, Registry: registry}, nil
+}
+
+// Dismiss 让一支已装配的团队离场（"干完就走人"）：删除会话角色注册表 + 复位
+// 群聊顺序策略。
+//
+// 角色会话子树留在盘上不动——装配的幂等键是 (team_id, role_name)，同一个团队
+// 再次召唤/上线时复用同一棵子树，所以"离场"改变的是"本会话还有没有在编团队"，
+// 不是把角色会话的历史抹掉。
+//
+// 顺序也一起清：只删注册表而留着 order_roles，会让"顺序里挂着未注册角色"这条
+// 设计偏差常驻成员表（viewNotices 会一直报），而它其实已经是历史结论。
+func (factory *Factory) Dismiss(mainSessionID string) error {
+	if factory == nil || factory.port == nil {
+		return errors.New("agentteam: factory is not assembled")
+	}
+	mainSessionID = strings.TrimSpace(mainSessionID)
+	if mainSessionID == "" {
+		return errors.New("agentteam: main session ID is required")
+	}
+	remover, ok := factory.port.(DismissPort)
+	if !ok {
+		return ErrDismissUnsupported
+	}
+	if err := remover.RemoveTeamRegistry(mainSessionID); err != nil {
+		return fmt.Errorf("agentteam: remove team registry: %w", err)
+	}
+	if err := factory.port.SetLifecycleOrder(mainSessionID, "", nil); err != nil {
+		return fmt.Errorf("agentteam: reset order policy: %w", err)
+	}
+	return nil
 }
 
 // registryFromSpec 把 TeamSpec 投影成注册表（角色配置的持久事实）。

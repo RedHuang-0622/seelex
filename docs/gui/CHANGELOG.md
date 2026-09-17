@@ -32,6 +32,13 @@
   决策与后果见 `docs/gui/decisions.md` ADR-GUI-021，模块口径见
   `modules/shell-and-interactions.md` 第 6 节。
 
+- `@` 召唤从"只装配"变成"召唤即干活、干完就走人"：带附言的召唤（`@<团队> <附言>`）
+  在装配后把附言**落成一个 goal**——团队里非内置的席位（`tl`/ADVISOR、员工座位）
+  只由 goal 治理驱动，只装配不落 goal 会停在"在编但没人开工"（用户实测：`@goal-a2a …`
+  后 tl 的角色会话 `total_rows=0`）。目标收口（栈里没有 active goal）后团队**离场**
+  （删角色注册表 + 复位顺序，角色会话子树保留）。不带附言仍是只装配（待命）。
+  见 `docs/devlog/2026-09-17-summon-starts-goal.md`、ADR-GUI-021。
+
 ## 2026-09-13
 
 ### Fixed

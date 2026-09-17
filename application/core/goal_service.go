@@ -128,6 +128,7 @@ func (service *Service) GoalProposeFinishFor(ctx context.Context, sessionID stri
 	result, err := coordinator.ProposeFinish(ctx, sessionID, request)
 	if err == nil {
 		service.refreshGoalRuntimeProjection(sessionID)
+		service.dismissTeamWhenGoalClosed(sessionID)
 	}
 	return result, err
 }
@@ -155,6 +156,7 @@ func (service *Service) GoalNextFor(ctx context.Context, sessionID string) (bool
 	more, err := coordinator.Next(ctx, sessionID)
 	if err == nil {
 		service.refreshGoalRuntimeProjection(sessionID)
+		service.dismissTeamWhenGoalClosed(sessionID)
 	}
 	return more, err
 }
@@ -183,6 +185,7 @@ func (service *Service) GoalBreakFor(_ context.Context, sessionID, reason string
 		return err
 	}
 	service.refreshGoalRuntimeProjection(sessionID)
+	service.dismissTeamWhenGoalClosed(sessionID)
 	return nil
 }
 
@@ -268,6 +271,34 @@ func (service *Service) goalAdvanceAfterChat(ctx context.Context) {
 		return
 	}
 	_ = coordinator.AdvanceAfterChat(ctx, sessionID, service.goalTurnWorkSummary(sessionID))
+	// "干完就走人"：这一轮把目标收口了，团队就离场（判定见 dismissTeamWhenGoalClosed）。
+	service.dismissTeamWhenGoalClosed(sessionID)
+}
+
+// dismissTeamWhenGoalClosed 让"干完就走人"成立：目标收口（栈里没有 active goal）
+// 之后，本会话的在编团队离场（删注册表 + 清顺序）。
+//
+// 判定用"栈里还有没有 active goal"而不是"是谁召唤的"：召唤与 goal 自动装配写的是
+// 同一份团队事实（同一个收口），离场也必须只有一条判据——否则 goal-a2a 自动装配的
+// 团队会永远留在会话里，而 `@` 召唤的会走，同一件事两种行为。
+//
+// 幂等且廉价失败：没有在编团队时只是一次注册表读；离场失败只记日志（下一次收口或
+// 下一次装配会再次对齐），不把治理回合的收尾变成错误路径。
+func (service *Service) dismissTeamWhenGoalClosed(sessionID string) {
+	if service == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	status, err := service.GoalStatusFor(sessionID)
+	if err != nil || status.Active != nil {
+		return
+	}
+	view, err := service.agentTeamRawView(sessionID)
+	if err != nil || !view.Configured {
+		return
+	}
+	if err := service.DismissAgentTeam(sessionID); err != nil {
+		log.Printf("[goal] 团队离场失败（session=%s）：%v", sessionID, err)
+	}
 }
 
 // injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入

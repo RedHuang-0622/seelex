@@ -28,6 +28,8 @@ type teamRecordingSessions struct {
 	// mainHeadSeq 是 RoleSnapshot 桩返回的主会话尾 seq。
 	joinSeqs    []string
 	mainHeadSeq uint64
+	// dismissed 记录"团队离场"次数（干完就走人）。
+	dismissed int
 }
 
 func (s *teamRecordingSessions) EnsureRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error) {
@@ -65,6 +67,25 @@ func (s *teamRecordingSessions) WriteTeamRegistry(_ string, registry dto.TeamReg
 	defer s.mu.Unlock()
 	s.registry = registry
 	return nil
+}
+
+// RemoveTeamRegistry 是 agentteam.DismissPort 的桩：团队离场 = 注册表清空 + 顺序复位
+// （与 sessionstore 的"删文件 = 读面 Configured=false"同一语义）。
+func (s *teamRecordingSessions) RemoveTeamRegistry(string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.registry = dto.TeamRegistry{}
+	s.policy = ""
+	s.order = nil
+	s.dismissed++
+	return nil
+}
+
+// dismissCount 返回团队离场次数。
+func (s *teamRecordingSessions) dismissCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dismissed
 }
 
 // 以下方法是 contract.RoleSessionPort 的其余成员：本用例只走

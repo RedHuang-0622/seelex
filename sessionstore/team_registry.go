@@ -182,6 +182,21 @@ func (store *storeEngine) writeTeamRegistry(key Key, registry TeamRegistry) erro
 	return writeAtomic(path, data, 0o600)
 }
 
+// removeTeamRegistry 删除角色注册表（团队离场）。文件不存在 = 已经离场（幂等，
+// 不是错误）：读面本来就以"文件不存在"表达"本会话没有团队"（Configured=false），
+// 删除是它的逆操作，两者必须是同一份判据——写一份空注册表会让读面报 Configured=true
+// 却一个成员都没有，面板会显示一支不存在的团队。
+func (store *storeEngine) removeTeamRegistry(key Key) error {
+	path := store.teamRegistryPath(key)
+	lock := teamRegistryLock(path)
+	lock.Lock()
+	defer lock.Unlock()
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // ReadTeamRegistryWorkspace 读主会话的角色注册表（项目作用域显式传入，禁止回退
 // 活跃写作用域）。
 func (router *Router) ReadTeamRegistryWorkspace(projectID, sessionID string) (TeamRegistry, error) {
@@ -206,6 +221,17 @@ func (router *Router) WriteTeamRegistryWorkspace(projectID, sessionID string, re
 			return fmt.Errorf("session storage: team registry requires session layout")
 		}
 		return layout.layout.writeTeamRegistry(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)}, registry)
+	})
+}
+
+// RemoveTeamRegistryWorkspace 删除主会话的角色注册表（团队离场；幂等）。
+func (router *Router) RemoveTeamRegistryWorkspace(projectID, sessionID string) error {
+	return router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		layout, ok := repository.(*jsonRepository)
+		if !ok {
+			return fmt.Errorf("session storage: team registry requires session layout")
+		}
+		return layout.layout.removeTeamRegistry(Key{ProjectID: projectID, SessionID: strings.TrimSpace(sessionID)})
 	})
 }
 

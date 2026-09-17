@@ -30,6 +30,7 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/core/agentteam"
+	goaldomain "github.com/RedHuang-0622/seelex/application/core/goal"
 )
 
 // teamSummonTarget 是一条可召唤团队的解析结果：内置形态（Preset）或团队库条目。
@@ -75,16 +76,72 @@ func (service *Service) submitTeam(ctx context.Context, name string) error {
 		service.addNotice(fmt.Sprintf("召唤团队 %s 失败：%v", target.displayName(), err))
 		return err
 	}
-	service.addNotice(teamSummonNotice(target, result, tail))
-	// 装配通告（team.changed）已由 MaterializeAgentTeam 这个共同收口发出：`@`、
-	// goal 自动装配与面板 RPC 走的是同一条路，面板缓存因此不依赖调用方是谁。
 	if tail == "" {
+		service.addNotice(teamSummonNotice(target, result, "", nil))
 		return nil
 	}
-	// 附言下发：原文 = 前缀 + 名字，即用户输入去掉首尾空白（`$` 同样把原文交给
-	// 会话，不裁剪出的人工文本）。
+	// 召唤即干活：先落 goal（团队的座位由 goal 治理驱动），再把附言作为一条输入
+	// 下发（原文交给会话，与 `$<skill> <args>` 同一条口径）。
+	//
+	// 顺序不能颠倒：goal 必须在主会话这一轮跑起来之前就在栈上，否则回合尾的
+	// AdvanceAfterChat 看不到 active goal，teammate 依旧不会上场。
+	record, err := service.beginGoalForSummon(ctx, sessionID, tail)
+	if err != nil {
+		// 落 goal 失败不该吞掉这次召唤：团队已经装配好了，至少把附言按旧口径
+		// 作为一条输入下发，并把失败原因明说（静默等于又把用户的话吃掉一次）。
+		service.addNotice(fmt.Sprintf("召唤团队 %s 已装配，但落 goal 失败：%v", target.displayName(), err))
+		service.prepareCompletedTaskBoundary()
+		return service.submitConversation(ctx, SigilTeam+name)
+	}
+	service.addNotice(teamSummonNotice(target, result, tail, record))
+	// 装配通告（team.changed）已由 MaterializeAgentTeam 这个共同收口发出：`@`、
+	// goal 自动装配与面板 RPC 走的是同一条路，面板缓存因此不依赖调用方是谁。
 	service.prepareCompletedTaskBoundary()
 	return service.submitConversation(ctx, SigilTeam+name)
+}
+
+// beginGoalForSummon 是"召唤即干活"的落点：`@<团队> <附言>` 里的附言是一条要干的
+// 活，而团队的座位由 goal 治理驱动——只装配不落 goal，召唤完就停在"在编但没有
+// 人开工"（这正是"teammate 没有开始工作"的根因）。
+//
+// 于是：装配成功后把附言落成一个 goal（附言 = 目标陈述），主会话随后的这一轮就是
+// EXEC 回合，回合尾的 Governor 让 teammate 上场；目标收口后团队离场（见
+// goal_service.go 的 dismissTeamWhenGoalClosed）。
+//
+// 与 goal_begin 工具路径的差别：这里**不**调 ensureGoalAgentTeam——召唤已经装配了
+// 用户点名的那支团队，再补一支 goal-a2a 等于替用户改团队（召唤 review-team 却长出
+// 一个 tl）。goal-a2a 自己那条自动装配路径仍只属于 goal_begin。
+func (service *Service) beginGoalForSummon(ctx context.Context, sessionID, tail string) (*goaldomain.GoalRecord, error) {
+	coordinator, err := service.goalCoordinatorFor(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	record, err := coordinator.Begin(ctx, sessionID, goaldomain.BeginRequest{
+		Title:     goalTitleForSummon(tail),
+		Statement: tail,
+	})
+	if err != nil {
+		return nil, err
+	}
+	service.refreshGoalRuntimeProjection(sessionID)
+	return record, nil
+}
+
+// summonGoalTitleMaxRunes 是"附言 → goal 标题"的截断上限（runes）。
+const summonGoalTitleMaxRunes = 40
+
+// goalTitleForSummon 由附言派生 goal 标题：goal_begin 要求 title 必填，而召唤场景
+// 里用户只给了那句话——取它的首行、压掉换行与多余空白，超长按 rune 截断（按字节截
+// 会把中文截成半个字）。
+func goalTitleForSummon(tail string) string {
+	title := strings.Join(strings.Fields(tail), " ")
+	if title == "" {
+		return "召唤团队"
+	}
+	if runes := []rune(title); len(runes) > summonGoalTitleMaxRunes {
+		title = strings.TrimSpace(string(runes[:summonGoalTitleMaxRunes])) + "…"
+	}
+	return title
 }
 
 // materializeTeamSummon 把解析结果装配进会话（preset 与库条目各走既有方法）。
@@ -212,8 +269,9 @@ func (target teamSummonTarget) displayName() string {
 
 // teamSummonNotice 是装配回执：团队名 + 在编席位 + 发言顺序，并把 TeamView 的
 // DesignNotice（"有装配没执行者"这类设计期提醒）原样带上——召唤完就看见，不用
-// 再去面板里找。带附言时明说附言已下发，免得用户以为那句话被吞了。
-func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string) string {
+// 再去面板里找。带附言时明说"已落目标、附言已下发、目标收口后离场"，免得用户以为
+// 那句话被吞了、或者以为召完就有人在干（两件事以前都不会被说出来）。
+func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string, record *goaldomain.GoalRecord) string {
 	lines := []string{fmt.Sprintf("已召唤团队 %s：%d 个席位在编", target.displayName(), len(result.View.Members))}
 	if roles := memberNames(result.View.Members); len(roles) > 0 {
 		lines = append(lines, "成员 "+strings.Join(roles, " · "))
@@ -223,6 +281,10 @@ func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult,
 	}
 	if tail != "" {
 		lines = append(lines, "附言已作为本会话的一条输入下发。")
+	}
+	if record != nil {
+		lines = append(lines, fmt.Sprintf(
+			"已落目标 %s「%s」：teammate 随本轮开工，目标收口后离场。", record.ID, record.Title))
 	}
 	lines = append(lines, result.View.DesignNotice...)
 	return strings.Join(lines, "\n")
@@ -266,7 +328,7 @@ func (service *Service) unknownTeamNotice(sessionID, name string) string {
 // teamSummonHelp 是 `@` 的自述：内置形态逐个列出（摘要取自形态自身的事实），
 // 并说明库条目同样可召唤。
 func teamSummonHelp() string {
-	lines := []string{fmt.Sprintf("%s 手动召唤团队：%s<团队> [附言] 把一支团队装配到当前会话（入伙切点 = 当前消息尾）；写了附言时它随召唤作为一条输入下发。", SigilTeam, SigilTeam)}
+	lines := []string{fmt.Sprintf("%s 手动召唤团队：%s<团队> [附言] 把一支团队装配到当前会话（入伙切点 = 当前消息尾）；写了附言就是「召唤即干活」——附言落成一个目标并作为一条输入下发，teammate 随本轮开工，目标收口后团队离场。", SigilTeam, SigilTeam)}
 	for _, suggestion := range teamPresetSuggestions() {
 		lines = append(lines, fmt.Sprintf("  %s%s  %s", SigilTeam, suggestion.Text, suggestion.Description))
 	}

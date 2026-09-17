@@ -78,6 +78,19 @@ func (port SessionPort) WriteTeamRegistry(mainSessionID string, registry dto.Tea
 	return router.WriteTeamRegistryWorkspace(projectID, mainSessionID, teamRegistryFromDTO(registry))
 }
 
+// RemoveTeamRegistry 删除角色注册表（团队离场；幂等）。与 WriteTeamRegistry 同一份
+// 项目作用域解析：离场改变的只是"本会话还有没有在编团队"，不是角色会话本身。
+func (port SessionPort) RemoveTeamRegistry(mainSessionID string) error {
+	if strings.TrimSpace(mainSessionID) == "" {
+		return errors.New("main session ID is required")
+	}
+	router, projectID, err := port.roleRouter(mainSessionID)
+	if err != nil {
+		return err
+	}
+	return router.RemoveTeamRegistryWorkspace(projectID, mainSessionID)
+}
+
 // teamRoleSpecToDTO / teamRoleSpecFromDTO 是角色配置的唯一映射点：注册表、团队库
 // 条目、员工库三处都复用，避免同一份字段口径散成多份（提示词/权限最容易漏）。
 func teamRoleSpecToDTO(role sessionstore.TeamRoleSpec) dto.RoleSpec {
