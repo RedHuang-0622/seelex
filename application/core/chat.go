@@ -55,6 +55,12 @@ func (service *Service) startChatFor(sessionID string, parent context.Context, r
 		service.ViewMu.Unlock()
 		return ErrApplicationDraining
 	}
+	// 恢复门兜底（TOCTOU 收口）：submitConversation/For 在释放 ViewMu 后调用
+	// 本函数，切换可能落在两次取锁之间。restoring 期间不得启动新回合。
+	if service.isRestoringLocked(sessionID) {
+		service.ViewMu.Unlock()
+		return ErrSessionRestoring
+	}
 	active := service.isActiveSessionLocked(sessionID)
 	runtime := service.sessionUnitLocked(sessionID)
 	if runtime.ChatState().Running {

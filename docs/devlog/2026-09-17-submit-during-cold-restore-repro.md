@@ -127,7 +127,10 @@ after cold load completes: view id=sess-cold status=running chat.running=true co
   这解释了症状的间歇性——**只有装载慢或失败时，锁才可见/持续**。
 - 未能现场抓到锁定时截图；上面的应用层探针是确定性复现（同一份夹具、同一分支）。
 
-## 5. 建议修法（未做，等决策）
+## 5. 建议修法（已在 [2026-09-17-submit-during-cold-restore-fix.md](2026-09-17-submit-during-cold-restore-fix.md) 落地）
+
+> 落地记录、锁竞争数据流（现状 → 修复后）与红绿验证见上述 fix 文档；本节保留当时的
+> 原始建议文本，便于对照「建议 → 实现」的取舍。
 
 1. **前端**：把「正在切换会话」也纳入输入区锁——`state.resumingSessionID` 非空时同样
    disable prompt / send（现在只 disable 目标行按钮），让锁覆盖「后端已切、前端还没渲染

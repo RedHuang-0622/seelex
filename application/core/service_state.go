@@ -66,6 +66,12 @@ type serviceState struct {
 	// restoring 是“后台冷加载中”的会话集合（Core.ViewMu 保护）：这些会话
 	// 的目录行与当前快照展示 SessionStatusRestoring，装载完成/失败即移除。
 	restoring map[string]struct{}
+	// restoreSig 是“有会话的 restoring 被清除”的广播信号（Core.ViewMu 保护）：
+	// clearRestoringLocked 关闭旧通道并重建新通道；等待方（awaitRestore）先读
+	// 通道再去睡觉，醒来后重读 restoring 复判（多会话并发装载时一个信号可能
+	// 对应别的会话，复判后继续等）。用途：把显式后台提交挂到装载完成点
+	// （SubmitToSession 非阻塞契约与“restoring 期间不得开新回合”的调和）。
+	restoreSig chan struct{}
 
 	// fullAccessDefault 是进程级全权默认（装配期从引擎门捕获一次；G4：
 	// 会话未选择时回退该值，不继承其它会话的遗留开关）。

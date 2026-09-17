@@ -137,9 +137,30 @@ func (service *Service) setRestoringLocked(sessionID string) {
 }
 
 // clearRestoringLocked 移除目标会话的后台冷加载标记（调用方持有
-// Core.ViewMu）。
+// Core.ViewMu），并广播“restoring 已清除”信号唤醒 awaitRestore 等待方。
 func (service *Service) clearRestoringLocked(sessionID string) {
 	delete(service.restoring, sessionID)
+	service.signalRestoreLocked()
+}
+
+// signalRestoreLocked 广播一次“restoring 集合已变化”（调用方持有
+// Core.ViewMu）：关闭当前信号通道并重建，等待方在通道关闭后重读集合复判。
+func (service *Service) signalRestoreLocked() {
+	if service.restoreSig == nil {
+		service.restoreSig = make(chan struct{})
+		return
+	}
+	close(service.restoreSig)
+	service.restoreSig = make(chan struct{})
+}
+
+// restoreSignalLocked 返回当前 restoring 变化信号（调用方持有 Core.ViewMu）。
+// 惰性初始化保证直接构造 serviceState 的宿主也不会拿到 nil 通道。
+func (service *Service) restoreSignalLocked() <-chan struct{} {
+	if service.restoreSig == nil {
+		service.restoreSig = make(chan struct{})
+	}
+	return service.restoreSig
 }
 
 // nextViewEpoch 推进视图切换序号并返回新值（调用方持有 Core.ViewMu）。

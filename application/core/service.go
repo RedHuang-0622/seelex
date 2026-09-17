@@ -15,6 +15,14 @@ import (
 var (
 	ErrChatRunning         = errors.New("chat is already running")
 	ErrApplicationDraining = errors.New("application is finishing active work")
+	// ErrSessionRestoring 是恢复门的兜底错误：目标会话正在后台冷加载
+	// （restoring 空壳，视图指针已切到目标、内容尚未装载完成）时**不启动新回合**。
+	// 提交入口（submitConversation / submitConversationFor）命中 restoring 走
+	// **延后**——把输入挂到装载完成点再启动（既不开空壳回合，也不丢输入）；
+	// 本错误只在更窄的 TOCTOU 窗口出现：提交通过恢复门、释放 ViewMu 之后，切换
+	// 才把目标置为 restoring（startChatFor 内二次判定）。届时宁可明确失败，也不
+	// 在空壳上开出回合——见 devlog 2026-09-17-submit-during-cold-restore-fix。
+	ErrSessionRestoring = errors.New("session is restoring; retry after the restore completes")
 	// ErrForkRunningChat 是 fork 执行门控：fork_subagents（子代理并行）仍在
 	// 该会话运行时，禁止继续对话/排队输入，避免排队内容在子代理收尾后被
 	// 误吞或与父回合语义交叠。

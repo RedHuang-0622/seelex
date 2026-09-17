@@ -177,9 +177,10 @@ function runViewActivation(view) {
       snapshot.chat || {},
       "preserve",
       snapshot.has_more_history,
-      snapshot.session?.status === "restoring"
+      snapshot.session?.status === "restoring",
+      Boolean(state.resumingSessionID)
     );
-    chatView.renderControls(snapshot);
+    chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     return;
   }
   if (view === "trajectory") {
@@ -527,7 +528,7 @@ function render(snapshot, options = {}) {
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
-  chatView.render(snapshot, options.scrollMode);
+  chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID));
   refreshInputIndex(snapshot);
   renderTrajectory(snapshot);
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
@@ -545,8 +546,8 @@ function renderIncremental(snapshot, kind) {
   if (!snapshot) return;
   const started = performance.now();
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
-    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history);
-    chatView.renderControls(snapshot);
+    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history, snapshot.session?.status === "restoring", Boolean(state.resumingSessionID));
+    chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     renderTrajectory(snapshot);
     // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。
     if (kind === "message.added") refreshInputIndex(snapshot);
@@ -1110,13 +1111,17 @@ async function resumeSessionFromList(sessionID) {
     return;
   }
   state.resumingSessionID = sessionID;
-  elements["composer-status"].textContent = "正在恢复会话…";
+  // 输入区锁（切换在途）：后端视图指针已随 ResumeSession 移动，而渲染层要等
+  // 权威快照才渲染到 restoring 空壳——这个窗口里提交会落到看不见/没装载完的
+  // 会话。显式重渲一次 composer，让锁在置位那一刻生效（不是等下一次快照）。
+  chatView.renderControls(client.current(), true);
   rerenderSessions();
+  let failureMessage = "";
   try {
     await invoke("ResumeSession", sessionID);
     await refresh({ scroll: "bottom" });
   } catch (error) {
-    elements["composer-status"].textContent = `恢复会话失败：${error?.message || String(error)}`;
+    failureMessage = `恢复会话失败：${error?.message || String(error)}`;
     showToast(error);
     // 后端若已部分切换（迟到的失败），视图指针可能与用户所见不一致：立即拉一次
     // 权威快照收敛，否则后续输入会路由进用户看不到的会话。
@@ -1130,6 +1135,11 @@ async function resumeSessionFromList(sessionID) {
         latest.capabilities || capabilities, latest.session_workspaces || sessionWorkspaces,
         latest.workspaces || workspaces
       );
+      // 解锁输入区：以最新快照重算（若后端仍在 restoring，renderControls 会
+      // 继续锁着——锁是「切换在途 ∨ 目标 restoring」的单调 OR）。
+      chatView.renderControls(latest);
+      // 失败文案写在解锁之后：renderControls 会重写 composer-status。
+      if (failureMessage) elements["composer-status"].textContent = failureMessage;
     } else {
       rerenderSessions();
     }

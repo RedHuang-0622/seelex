@@ -344,7 +344,46 @@ func (service *Service) SubmitToSession(ctx context.Context, sessionID, text str
 			return err
 		}
 	}
+	// 上面这次激活可能走**异步冷加载**（有其它会话运行中）：RPC 已把视图切到
+	// restoring 空壳就返回、装载在后台。此时不能立即开回合（restoring 期间不得
+	// 开新回合），也不能阻塞等待（本 API 契约是非阻塞后台启动，见
+	// TestParallelSessionsExecuteConcurrently）——submitConversationFor 收到
+	// restoring 时会自动把提交挂到装载完成点（deferSubmitUntilRestored）。
 	return service.submitConversationFor(ctx, sessionID, text)
+}
+
+// awaitRestore 等目标会话的后台冷加载结束（restoring 清除）后返回。多会话
+// 并发装载时信号按“集合有变化”广播，收到后重读集合复判；ctx 取消即放弃。
+func (service *Service) awaitRestore(ctx context.Context, sessionID string) error {
+	for {
+		service.ViewMu.Lock()
+		restoring := service.isRestoringLocked(sessionID)
+		signal := service.restoreSignalLocked()
+		service.ViewMu.Unlock()
+		if !restoring {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-signal:
+		}
+	}
+}
+
+// deferSubmitUntilRestored 把一次对话提交挂到后台冷加载完成点：restoring 期间
+// 不得开新回合，而提交入口又不得阻塞（交互/后台两条路径都要保持“立即受理”），
+// 因此后台等装载完成（或失败清除 restoring）后再提交。失败只记日志——装载失败
+// 时目标会话本身不可用，与既有“后台提交失败”口径一致。
+func (service *Service) deferSubmitUntilRestored(ctx context.Context, sessionID, text string) {
+	go func() {
+		if err := service.awaitRestore(ctx, sessionID); err != nil {
+			return
+		}
+		if err := service.submitConversationFor(ctx, sessionID, text); err != nil {
+			log.Printf("[submit] deferred submit to %q after restore: %v", sessionID, err)
+		}
+	}()
 }
 
 // sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
