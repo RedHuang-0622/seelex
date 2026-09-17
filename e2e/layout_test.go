@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,12 +38,158 @@ var repositoryModuleDocumentation = map[string]string{
 	".github": "AUTOMATION.md",
 }
 
+// mermaidDiagramTypes 是校验器认得的图类型首行。erDiagram / classDiagram 用
+// { } 表示实体与成员体，括号天然不成对，只做引号检查。
+var mermaidDiagramTypes = []string{
+	"flowchart", "graph", "sequenceDiagram", "stateDiagram-v2", "stateDiagram",
+	"classDiagram", "erDiagram", "journey", "gantt", "pie", "mindmap", "timeline",
+	"quadrantChart",
+}
+
 func repositoryModuleDocumentationPath(module string) string {
 	name := "README.md"
 	if configured, ok := repositoryModuleDocumentation[module]; ok {
 		name = configured
 	}
 	return filepath.Join(repoRoot(), module, name)
+}
+
+// TestModuleReadmesMermaidBlocksAreStructurallyValid 是 Mermaid 图的结构门禁：
+// fence 必须闭合、首行必须是已知图类型、引号与括号（flowchart/state/sequence）
+// 必须配平、flowchart 的 subgraph/end 必须成对。它不替代真正的渲染器，但能挡住
+// 手写图最常见的语法退化；本地详细报告见 scripts/check_mermaid.py。
+func TestModuleReadmesMermaidBlocksAreStructurallyValid(t *testing.T) {
+	root := repoRoot()
+	blocks := 0
+	files := 0
+	skipped := map[string]bool{
+		".git": true, "dist": true, "_tmp": true, "tmp": true,
+		"node_modules": true, ".gocache": true, ".venv": true,
+	}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if path != root && skipped[entry.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasPrefix(entry.Name(), "README") || !strings.HasSuffix(entry.Name(), ".md") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		count := strings.Count(string(data), "```mermaid")
+		if count == 0 {
+			return nil
+		}
+		files++
+		blocks += count
+		for _, problem := range mermaidProblems(string(data)) {
+			t.Errorf("%s: %s", filepath.ToSlash(rel), problem)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocks == 0 {
+		t.Fatal("no mermaid blocks were inspected; the walker is not matching README files")
+	}
+	t.Logf("checked %d mermaid blocks across %d README files", blocks, files)
+}
+
+func mermaidProblems(text string) []string {
+	lines := strings.Split(text, "\n")
+	var problems []string
+	for index := 0; index < len(lines); index++ {
+		if strings.TrimSpace(lines[index]) != "```mermaid" {
+			continue
+		}
+		start := index + 1
+		cursor := start
+		for cursor < len(lines) && strings.TrimSpace(lines[cursor]) != "```" {
+			cursor++
+		}
+		if cursor >= len(lines) {
+			problems = append(problems, fmt.Sprintf("line %d: mermaid fence is not closed", start))
+			return problems
+		}
+		problems = append(problems, checkMermaidBlock(start, lines[start:cursor])...)
+		index = cursor
+	}
+	return problems
+}
+
+func checkMermaidBlock(start int, block []string) []string {
+	var problems []string
+	var content []string
+	for offset, line := range block {
+		if strings.TrimSpace(line) != "" {
+			content = append(content, fmt.Sprintf("%d\x00%s", start+offset, line))
+		}
+	}
+	if len(content) == 0 {
+		return []string{fmt.Sprintf("line %d: empty mermaid block", start)}
+	}
+	first := strings.SplitN(content[0], "\x00", 2)[1]
+	header := strings.TrimSpace(first)
+	known := false
+	for _, kind := range mermaidDiagramTypes {
+		if strings.HasPrefix(header, kind) {
+			known = true
+			break
+		}
+	}
+	if !known {
+		problems = append(problems, fmt.Sprintf("line %d: unknown diagram type %q", start, header))
+	}
+	isFlowchart := strings.HasPrefix(header, "flowchart") || strings.HasPrefix(header, "graph")
+	checkBrackets := isFlowchart || strings.HasPrefix(header, "stateDiagram") ||
+		strings.HasPrefix(header, "sequenceDiagram")
+	subgraphs := 0
+	for _, entry := range content {
+		parts := strings.SplitN(entry, "\x00", 2)
+		lineNo, raw := parts[0], parts[1]
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "%%") {
+			continue
+		}
+		if isFlowchart {
+			switch {
+			case strings.HasPrefix(line, "subgraph"):
+				subgraphs++
+			case line == "end":
+				subgraphs--
+				if subgraphs < 0 {
+					problems = append(problems, fmt.Sprintf("line %s: unmatched end", lineNo))
+					subgraphs = 0
+				}
+			}
+		}
+		if strings.Count(line, `"`)%2 != 0 {
+			problems = append(problems, fmt.Sprintf("line %s: unbalanced quotes: %q", lineNo, line))
+		}
+		if checkBrackets {
+			for _, pair := range [][2]string{{"[", "]"}, {"(", ")"}, {"{", "}"}} {
+				if strings.Count(line, pair[0]) != strings.Count(line, pair[1]) {
+					problems = append(problems, fmt.Sprintf("line %s: unbalanced %s%s: %q", lineNo, pair[0], pair[1], line))
+				}
+			}
+		}
+		if strings.Contains(line, "<code>") || strings.Contains(line, "</code>") {
+			problems = append(problems, fmt.Sprintf("line %s: HTML tag inside a diagram: %q", lineNo, line))
+		}
+	}
+	if subgraphs != 0 {
+		problems = append(problems, fmt.Sprintf("line %d: subgraph/end mismatch (delta %d)", start, subgraphs))
+	}
+	return problems
 }
 
 func TestApprovalAccepted(t *testing.T) {
@@ -85,6 +232,57 @@ func TestRepositoryModulesHaveReadmes(t *testing.T) {
 		if info.Size() == 0 {
 			t.Errorf("module %q documentation %q is empty", module, path)
 		}
+	}
+}
+
+// TestEveryGoPackageDirectoryHasReadme 是 AGENTS.md「模块 README 必备内容」的
+// 机械门禁：任何含 .go 文件的目录都必须有非空 README.md。它覆盖手工维护的
+// repositoryModules 清单（新增包时不再可能静默漏文档）。
+func TestEveryGoPackageDirectoryHasReadme(t *testing.T) {
+	root := repoRoot()
+	skipped := map[string]bool{
+		".git": true, "dist": true, "_tmp": true, "tmp": true,
+		"node_modules": true, ".gocache": true, ".venv": true,
+	}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if path != root && skipped[entry.Name()] {
+			return filepath.SkipDir
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return err
+		}
+		hasGo := false
+		for _, child := range entries {
+			if !child.IsDir() && strings.HasSuffix(child.Name(), ".go") {
+				hasGo = true
+				break
+			}
+		}
+		if !hasGo {
+			return nil
+		}
+		readme := filepath.Join(path, "README.md")
+		info, err := os.Stat(readme)
+		if err != nil {
+			rel, _ := filepath.Rel(root, path)
+			t.Errorf("Go package directory %q has no README.md: %v", rel, err)
+			return nil
+		}
+		if info.Size() == 0 {
+			rel, _ := filepath.Rel(root, path)
+			t.Errorf("Go package directory %q has an empty README.md", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

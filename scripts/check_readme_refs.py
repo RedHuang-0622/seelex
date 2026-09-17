@@ -36,6 +36,10 @@ IGNORED_NAMES = {
     # 用户本地/运行时数据（.gitignore 内）：README 只作示例或路径说明
     "accounts.yaml", "workspace_index.json", "framework-events.json",
     "guide.json", "city_list.json",
+    # 会话存储里的运行时数据文件（随会话生成，不入库）
+    "metadata/message.json", "metadata/lifecycle.json", "meta.json", "roles.json",
+    "session/team/roles.json", "team/employees.json", "team/library.json",
+    "team/order.json",
 }
 # 明说「已删除/已退役」的行是在讲历史，不是在声称文件存在
 REMOVAL_MARKERS = ("已删除", "已移除", "已退役", "deleted", "removed")

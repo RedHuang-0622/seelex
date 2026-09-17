@@ -1,8 +1,30 @@
 # E2E Scenario Runtime
 
-## 定位
+## 生态位
 
 本包用声明式 `seelex.scenario/v1` JSON 驱动确定性 Agent 旅程，生态位介于 Application 单元测试与真实桌面/browser E2E 之间。
+
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as Runner
+    participant S as application.Service
+    participant E as ScriptedEngine
+    participant REC as eventRecorder
+    participant A as 断言
+
+    R->>S: NewHarnessRunner（fake ports + 真实 Service）
+    R->>S: Submit(prompt)
+    S->>E: ChatStream
+    E-->>S: 预编排的 chunk / tool call / approval / error
+    S->>REC: 发布 Application events
+    R->>S: ResolveInteraction / Cancel（as scripted）
+    S-->>R: 终态
+    R->>A: 等待预期状态并断言事件顺序与 payload
+    A-->>R: Result
+```
 
 ## 核心结构
 

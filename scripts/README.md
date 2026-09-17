@@ -1,6 +1,6 @@
 # Build and Maintenance Scripts
 
-## 模块定位
+## 生态位
 
 `scripts/` 提供开发者入口脚本，封装常用构建、跨平台打包和本机账号同步。脚本不承载 Application 业务逻辑。
 **所有构建产物路径的规范真源是 `scripts/build-layout.ps1`（PowerShell 侧单一真源），
@@ -8,6 +8,20 @@
 任何脚本不得自行发明输出目录；历史遗留目录（`staging-gui`、`tmp/smoke`、
 `tmp/stash`、dist 根下的扁平 zip/exe 等）已废除，回归测试
 `go test . -run 'BuildLayout'` 会拦截它们再次出现。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    DEV["开发者 / CI"] --> FLOW["seelex-flow.ps1"]
+    FLOW --> LAYOUT["build-layout.ps1<br/>构建产物路径的单一真源"]
+    LAYOUT --> BUILD["build.ps1 / build.sh / build-dev.sh"]
+    LAYOUT --> GUI["build-gui.ps1"]
+    BUILD --> DIST["dist/<os>-<arch>/ 平台发布树"]
+    GUI --> DEVGUI["dist/seelex-gui-dev/ 本地开发 GUI<br/>经 LOCAL_CONFIG 不透明复制真实配置"]
+    CHECK["check_readme_refs.py<br/>check_mermaid.py<br/>gen_core_readme_index.py"] --> DOCS["文档门禁与索引刷新"]
+    NOTE["公开 release 只含 accounts.example.yaml<br/>dev 产物才允许真实配置"] -.-> DEVGUI
+```
 
 ## 分区速览
 
@@ -35,6 +49,9 @@ tmp/build/                          流程中间态（可整体删除）
 | `build-gui.ps1` | Wails GUI 发布包（Publish/Dev），产物只进 `dist/archive/`。 |
 | `seelex-flow.ps1` | 分阶段构建/部署/回滚/发布流程（Stage → Smoke → Deploy → Release）。 |
 | `sync-claudecode-account.ps1` | 从本机 Claude Code 设置生成 local account 配置。 |
+| `gen_core_readme_index.py` | 生成 `application/core` 的「文件与函数索引」（根包按前缀分卷）。 |
+| `check_readme_refs.py` | README 漂移检查：链接目标与正文路径字面量是否还存在（`--strict` 可用于门禁）。 |
+| `check_mermaid.py` | Mermaid 代码块结构校验（fence / 图类型 / 括号引号 / subgraph）；`go test ./e2e/` 内有同源门禁。 |
 
 仓库级 clean/build 编排由根目录 `Makefile` 提供：
 - `make build` / `make package`：平台树进 `dist/<os>-<arch>/`，归档进 `dist/archive/`；
