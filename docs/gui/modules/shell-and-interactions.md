@@ -106,7 +106,12 @@ app.js 在启动时构造：
 - `/`：命令与工具（保留全量入口，也列 Skill）；
 - `#`：切换 Plugin（含 `#off` = 停用全部）；
 - `$`：召回 Skill（激活到当前会话）；
-- `@`：手动召唤团队（内置形态 + 团队库条目，装配到当前会话）。
+- `@`：手动召唤团队（内置形态 + 团队库条目，装配到当前会话）。写法 `@<团队> [附言]`：
+  `@goal-a2a` 只装配；`@goal-a2a 看看这个 bug` 装配后把附言作为一条输入下发。
+  团队名可以含空格（库条目由用户起名），所以路由**不**按空格切分：整段余量原样
+  交给召唤面，按「最长可命中前缀 = 名字、余下 = 附言」解析，最长优先让"更具体的
+  名字"赢；全部候选没命中时只报最可能的名字（首个 token），不把用户整句话当名字
+  回显，也不下发附言（没装配成功就不该产生输入）。
 
 Command modal 和 inline suggestions 都调用 Bridge.Suggestions，并共享 `renderSuggestionList/acceptSuggestion`。输入内容不在前端执行，选中项只写回 composer，最终仍走 Submit。
 
@@ -117,8 +122,11 @@ Command modal 和 inline suggestions 都调用 Bridge.Suggestions，并共享 `r
 
 异步 inline suggestions 使用 `inlineRequest` 序号拒绝旧请求结果，避免快速输入时结果倒序覆盖。
 
-`@` 提交成功后前端强制重取一次 Agent Team 面板（`refreshAgentTeam({force:true})`，
-仅面板展开时）：装配改的是后端团队事实，而面板缓存的是上一次读回的成员表。
+团队面板的更新由后端的 `team.changed` 事件驱动（会话级、载荷为空、revision=0）：面板数据
+（成员表/顺序/调度）不在会话快照里，两个前端都按需 RPC 拉取并按会话键缓存，所以后端在
+装配/顺序/入职/编辑成员后发一条通告，前端作废缓存并在面板可见时重取（`invalidateAgentTeam`），
+不可见时只置脏位、等下次展开。此前 GUI 靠 composer 文本以 `@` 开头来猜，漏掉 goal 自动装配、
+面板收起时的召唤等来路；TUI 只能靠用户再按一次 Alt+T。
 
 ## 7. Runtime Effort 与审批交互
 

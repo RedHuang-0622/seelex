@@ -121,6 +121,23 @@ func (service *Service) AgentTeamPresets() []dto.TeamSpec {
 	return agentteam.Presets()
 }
 
+// publishTeamChanged 通告"会话团队事实变了"（装配/工作顺序/入职/编辑成员都要发）。
+//
+// 为什么必须发：Agent Team 面板的数据（成员表/顺序/调度）**不在**会话快照里，
+// 两个前端都按需 RPC 拉取（GUI 的 status 子页 Agent Team 区块、TUI 的 Alt+T），
+// 并且各自把上一次读回的结果按会话键缓存。没有这条事件时，只有"发起这次装配的
+// 那个前端动作"会主动重取（GUI 曾靠 composer 文本以 `@` 开头来猜），因此
+// goal 自动装配、面板收起后再展开、另一个前端触发的装配都会让面板停在旧成员表。
+//
+// revision 记 0（同 chat.changed 口径）：载荷不在快照里，带上 revision 会被
+// 协议层的"快照已表示"陈旧判据丢掉，而面板缓存并不随快照翻转。
+func (service *Service) publishTeamChanged(mainSessionID string) {
+	if service == nil || strings.TrimSpace(mainSessionID) == "" {
+		return
+	}
+	service.publishSessionEvent(EventTeamChanged, 0, "", mainSessionID, nil)
+}
+
 // MaterializeAgentTeam 按 preset/自定义 TeamSpec 装配一支 AgentTeam。
 // joinSeq 是本次装配把角色挂到主会话的可见起点。
 func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error) {
@@ -137,6 +154,9 @@ func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.Team
 	if schedule := service.teamScheduleFor(mainSessionID); schedule != nil {
 		result.View.Schedule = schedule
 	}
+	// 装配是所有来路（`@` 召唤 / goal 自动 / RPC 一键装配）的共同收口：面板事实
+	// 只在这里之后成立，因此通告也钉在这里，而不是散在各个入口。
+	service.publishTeamChanged(mainSessionID)
 	return result, nil
 }
 
@@ -156,7 +176,8 @@ func (service *Service) AgentTeamView(mainSessionID string) (dto.TeamView, error
 		return dto.TeamView{}, err
 	}
 	// 读路径也建环：前端「下一个谁发言」需要运行态；建环只读事实（链表顺序来自
-	// lifecycle），不写盘、不新增第二份顺序。
+	// lifecycle），不写盘、不新增第二份顺序。读路径**不**发 team.changed：
+	// 那是"事实变了"的通告，在读到事实时发会退化成"面板重取→再通告"的自激循环。
 	service.teamRuntimeFor(mainSessionID, view)
 	if schedule := service.teamScheduleFor(mainSessionID); schedule != nil {
 		view.Schedule = schedule
@@ -198,6 +219,7 @@ func (service *Service) AgentTeamPutRole(mainSessionID string, role dto.RoleSpec
 		return dto.TeamRegistry{}, err
 	}
 	service.syncTeamRuntime(mainSessionID)
+	service.publishTeamChanged(mainSessionID)
 	return stored, nil
 }
 
@@ -212,6 +234,7 @@ func (service *Service) AgentTeamDeleteRole(mainSessionID, roleName string) (dto
 		return dto.TeamRegistry{}, err
 	}
 	service.syncTeamRuntime(mainSessionID)
+	service.publishTeamChanged(mainSessionID)
 	return stored, nil
 }
 
@@ -230,6 +253,8 @@ func (service *Service) AgentTeamSetOrder(mainSessionID, policy string, orderRol
 	if schedule := service.teamScheduleFor(mainSessionID); schedule != nil {
 		view.Schedule = schedule
 	}
+	// 顺序是环的唯一事实来源，也是面板"发言顺序"列的内容：写完就通告。
+	service.publishTeamChanged(mainSessionID)
 	return view, nil
 }
 
@@ -247,6 +272,8 @@ func (service *Service) AgentTeamInstantiateRole(mainSessionID string, role dto.
 		return dto.RoleInstantiation{}, err
 	}
 	service.syncTeamRuntime(mainSessionID)
+	// 入职/改员工都会改成员表（这是面板"增加员工"入口），装配面据此通告。
+	service.publishTeamChanged(mainSessionID)
 	return result, nil
 }
 

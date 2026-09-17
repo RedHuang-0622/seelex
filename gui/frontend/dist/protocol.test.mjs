@@ -476,3 +476,25 @@ test("historyWindowed is false while the window still reaches the tail", () => {
   assert.equal(historyWindowed({ ...snapshot(), total_messages: 0 }), false);
   assert.equal(historyWindowed(null), false);
 });
+
+// team.changed 的载荷不在快照里（团队面板按需 RPC 拉取 AgentTeamView），因此后端
+// 按 revision=0 发布：revision floor 比它新也不能把它丢掉——面板缓存不随快照翻转，
+// 丢了就等于面板停在被召唤前的成员表。
+test("dispatches team.changed without a snapshot refresh, even above the revision floor", () => {
+  const current = { ...snapshot(), revision: 9 };
+  const result = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 12, revision: 0, kind: "team.changed"
+  }, 11, 9);
+  assert.equal(result.needsRefresh, false);
+  assert.equal(result.changed, "team.changed");
+  // 事件不携带快照事实：不能把 revision 往下拉。
+  assert.equal(result.snapshot.revision, 9);
+
+  // 反面：带 revision 且低于 floor 会被判为"已由权威快照表示"而静默丢弃——这正是
+  // 发布端必须用 revision=0 的原因（同 chat.changed）。
+  const stale = applyEvent(current, {
+    protocol_version: 1, delivery_seq: 13, revision: 3, kind: "team.changed"
+  }, 12, 9);
+  assert.equal(stale.changed, undefined);
+  assert.equal(stale.needsRefresh, false);
+});

@@ -68,6 +68,9 @@ func TestInputRouterSigilOwnership(t *testing.T) {
 		{"$review strict", "skill", "review|strict|$review strict"},
 		{"@goal-a2a", "team", "goal-a2a"},
 		{"@", "team", ""}, // 空名也下发：召唤面据自述可用团队
+		// `@<团队> <附言>`：路由**不**按空格切分（团队名可以含空格），整段原样
+		// 交给召唤面；"名字 + 附言"的切分在 application/core/input_team.go 完成。
+		{"@goal-a2a 这次启动团队主要是看看整个team的工作是否打通。", "team", "goal-a2a 这次启动团队主要是看看整个team的工作是否打通。"},
 		{"看看这个 bug", "conversation", "看看这个 bug"},
 	} {
 		clear(seen)

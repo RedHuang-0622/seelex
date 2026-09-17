@@ -130,11 +130,20 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			model.quitting = true
 			return model, tea.Quit
 		}
+		// team.changed = 后端会话团队事实变了（装配/工作顺序/入职/编辑成员）。团队
+		// 面板是**按需读面**（数据不在快照里），不重取就会停在旧成员表上——此前只能
+		// 靠用户再按一次 Alt+T 才发现。GUI 的 status 子页同一口径（team.changed →
+		// 作废面板缓存，见 gui/frontend/dist/app.js 的 invalidateAgentTeam）。
+		var teamRefresh tea.Cmd
+		if model.panel == panelTeam && message.event.Kind == application.EventTeamChanged {
+			model.teamLoading = true
+			teamRefresh = fetchTeamView(model.app, model.snapshot.Session.ID)
+		}
 		if model.snapshot.Chat.Running {
-			return model, tea.Batch(waitApplicationEvent(model.subscription), tickEvery(3*time.Second))
+			return model, tea.Batch(teamRefresh, waitApplicationEvent(model.subscription), tickEvery(3*time.Second))
 		}
 		model.queueFocus = false
-		return model, waitApplicationEvent(model.subscription)
+		return model, tea.Batch(teamRefresh, waitApplicationEvent(model.subscription))
 	case tickMsg:
 		model.snapshot = model.app.Snapshot()
 		model.syncView()

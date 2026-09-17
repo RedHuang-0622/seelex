@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
@@ -33,6 +34,92 @@ func summonService(t *testing.T, sessions SessionPort) *Service {
 // noticesText 读可见会话里的系统通知（notice 的落地通道）。
 func noticesText(service *Service) string {
 	return strings.Join(conversationTexts(service.Snapshot().Conversation), "\n")
+}
+
+// waitTeamChanged 等一条 team.changed（超时即失败）。
+func waitTeamChanged(t *testing.T, subscription Subscription, sessionID string) Event {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case received := <-subscription.Events:
+			if received.Kind != EventTeamChanged {
+				continue
+			}
+			if received.SessionID != sessionID {
+				t.Fatalf("team.changed 的 sid = %q, want %q", received.SessionID, sessionID)
+			}
+			return received
+		case <-deadline:
+			t.Fatal("没收到 team.changed：面板的成员表不在快照里，没有这条事件就只能靠调用方自觉重取")
+		}
+	}
+}
+
+// TestSubmitTeamPublishesTeamChanged 钉住"召唤后面板有据可依"：装配成功必须发一条
+// 会话级 team.changed，且 **revision=0**（载荷不在快照里，带 revision 会被协议层的
+// "快照已表示"陈旧判据丢掉，而面板缓存不随快照翻转——见 publishTeamChanged）。
+func TestSubmitTeamPublishesTeamChanged(t *testing.T) {
+	sessions := &teamRecordingSessions{mainHeadSeq: 5}
+	service := summonService(t, sessions)
+	subscription, err := service.SubscribeSession("sess-summon", 64)
+	if err != nil {
+		t.Fatalf("SubscribeSession: %v", err)
+	}
+	defer subscription.Close()
+
+	if err := service.Submit(context.Background(), "@goal-a2a"); err != nil {
+		t.Fatalf("Submit(@goal-a2a): %v", err)
+	}
+	if received := waitTeamChanged(t, subscription, "sess-summon"); received.Revision != 0 {
+		t.Fatalf("team.changed 的 revision = %d, want 0", received.Revision)
+	}
+}
+
+// TestMaterializeAgentTeamPublishesTeamChanged 钉住收口位置：goal 上线自动装配与
+// 面板 RPC「一键装配」走的都是 MaterializeAgentTeam（见 goal_service.ensureGoalAgentTeam），
+// 通告钉在这条共同路径上，而不是钉在某个调用方。
+func TestMaterializeAgentTeamPublishesTeamChanged(t *testing.T) {
+	sessions := &teamRecordingSessions{}
+	service := summonService(t, sessions)
+	subscription, err := service.SubscribeSession("sess-summon", 64)
+	if err != nil {
+		t.Fatalf("SubscribeSession: %v", err)
+	}
+	defer subscription.Close()
+
+	if _, err := service.MaterializeAgentTeamPreset("sess-summon", dto.TeamKindGoalA2A, 0); err != nil {
+		t.Fatalf("MaterializeAgentTeamPreset: %v", err)
+	}
+	waitTeamChanged(t, subscription, "sess-summon")
+}
+
+// TestReadPathDoesNotPublishTeamChanged 是上一条的边界：读成员表**不**发通告。
+// 若读路径也发，客户端会陷入"收到通告→重取成员表→又收到通告"的自激循环。
+func TestReadPathDoesNotPublishTeamChanged(t *testing.T) {
+	sessions := &teamRecordingSessions{}
+	service := summonService(t, sessions)
+	subscription, err := service.SubscribeSession("sess-summon", 64)
+	if err != nil {
+		t.Fatalf("SubscribeSession: %v", err)
+	}
+	defer subscription.Close()
+
+	if _, err := service.AgentTeamView("sess-summon"); err != nil {
+		t.Fatalf("AgentTeamView: %v", err)
+	}
+	// 读路径本身可能有别的副作用事件（会话目录/标题刷新），这里只钉"不发团队通告"。
+	deadline := time.After(150 * time.Millisecond)
+	for {
+		select {
+		case received := <-subscription.Events:
+			if received.Kind == EventTeamChanged {
+				t.Fatal("读路径不该发 team.changed：会退化成「取成员表→通告→再取」的自激循环")
+			}
+		case <-deadline:
+			return
+		}
+	}
 }
 
 func TestSubmitTeamSummonsPresetTeam(t *testing.T) {
@@ -115,6 +202,112 @@ func TestSubmitTeamSummonsLibraryEntryByName(t *testing.T) {
 	}
 	if text := noticesText(service); !strings.Contains(text, "已召唤团队 审计小队") {
 		t.Fatalf("召唤回执应显示库条目名字：%q", text)
+	}
+}
+
+// TestSubmitTeamTrailingTextIsSentAsInput 钉住 `@<团队> <附言>`：附言不再被当成
+// 团队名的一部分（旧口径下整句去查库，回执是"未知团队: goal-a2a 这次启动…"，
+// 用户那句话被静默吞掉），而是装配后作为一条输入下发。
+func TestSubmitTeamTrailingTextIsSentAsInput(t *testing.T) {
+	sessions := &teamRecordingSessions{mainHeadSeq: 3}
+	service := summonService(t, sessions)
+
+	const message = "这次启动团队主要是看看整个team的工作是否打通。"
+	if err := service.Submit(context.Background(), "@goal-a2a "+message); err != nil {
+		t.Fatalf("Submit(@goal-a2a 附言): %v", err)
+	}
+	// 附言不影响装配判据：内置形态照旧装配出 techlead、顺序照旧写 lifecycle。
+	if roles := sessions.ensuredRoles(); !slices.Contains(roles, "tl") {
+		t.Fatalf("附言不该影响装配：%v", roles)
+	}
+	if joins := sessions.joinSeqSnapshot(); !slices.Contains(joins, "tl|3") {
+		t.Fatalf("入伙切点仍取装配那一刻的消息尾 seq：%v", joins)
+	}
+	if policy, order := sessions.lifecycleSnapshot(); policy != dto.OrderPolicyGoalLoop || strings.Join(order, ",") != "user,main,tl" {
+		t.Fatalf("发言顺序未写入：policy=%q order=%v", policy, order)
+	}
+	text := noticesText(service)
+	if strings.Contains(text, "未知团队") {
+		t.Fatalf("附言不该触发未知团队：%q", text)
+	}
+	if !strings.Contains(text, "已召唤团队 goal-a2a") {
+		t.Fatalf("召唤回执缺失：%q", text)
+	}
+	if !strings.Contains(text, "附言已作为本会话的一条输入下发。") {
+		t.Fatalf("附言回执缺失：%q", text)
+	}
+	// 附言作为一条输入下发，且保留用户原文（与 `$<skill> <args>` 同口径）。
+	want := "@goal-a2a " + message
+	waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+		return slices.Contains(conversationTexts(snapshot.Conversation), want)
+	})
+}
+
+// TestSubmitTeamResolvesMultiWordLibraryNameWithTrailingText 钉住另一半：
+// 团队名可以含空格，且"名字 + 附言"仍要切对——最长可命中前缀赢（整串优先，
+// 其次是逐级回退的前缀），而不是把首个 token 当名字。
+func TestSubmitTeamResolvesMultiWordLibraryNameWithTrailingText(t *testing.T) {
+	sessions := newLibrarySessions()
+	sessions.setRegistry(dto.TeamRegistry{
+		TeamID: "audit-team", TeamKind: "audit-team", OrderPolicy: dto.OrderPolicyUserMainDecided,
+		Roles: []dto.RoleSpec{
+			{RoleName: "user", RoleKind: dto.RoleKindUser},
+			{RoleName: "main", RoleKind: dto.RoleKindMain},
+			{RoleName: "auditor", RoleKind: dto.RoleKindAgent, SystemPrompt: "审计员提示词", ToolsPolicy: dto.ToolPolicyReadonly},
+		},
+	})
+	sessions.setLifecycle(dto.OrderPolicyUserMainDecided, []string{"user", "main", "auditor"})
+	service := summonService(t, sessions)
+
+	// 存一条名字**含空格**的团队条目；随后清掉会话侧现场，装配只能来自库条目。
+	if _, err := service.AgentTeamSaveCurrentTeam("sess-summon", "审计 小队", "audit-team"); err != nil {
+		t.Fatalf("AgentTeamSaveCurrentTeam: %v", err)
+	}
+	sessions.setRegistry(dto.TeamRegistry{})
+	sessions.setOrder(nil)
+
+	const message = "请审核登录逻辑"
+	if err := service.Submit(context.Background(), "@审计 小队 "+message); err != nil {
+		t.Fatalf("Submit(含空格名字 + 附言): %v", err)
+	}
+	if registry := sessions.registrySnapshot(); registry.TeamID != "audit-team" {
+		t.Fatalf("含空格的名字没命中库条目：%+v", registry)
+	}
+	if roles := sessions.ensuredRoles(); !slices.Contains(roles, "auditor") {
+		t.Fatalf("库条目里的员工没进在编表：%v", roles)
+	}
+	text := noticesText(service)
+	if !strings.Contains(text, "已召唤团队 审计 小队") {
+		t.Fatalf("召唤回执应显示含空格的库条目名：%q", text)
+	}
+	if strings.Contains(text, "未知团队") {
+		t.Fatalf("含空格的名字不该被判成未知团队：%q", text)
+	}
+	want := "@审计 小队 " + message
+	waitForSnapshot(t, service, func(snapshot Snapshot) bool {
+		return slices.Contains(conversationTexts(snapshot.Conversation), want)
+	})
+}
+
+// TestSubmitTeamUnknownNameWithTrailingTextReportsNameOnly 钉住失败口径：
+// 全部候选都没命中时只报"最可能的名字"（首个 token），不把用户整句话当名字
+// 回显，也不下发附言（没装配成功就不该有输入）。
+func TestSubmitTeamUnknownNameWithTrailingTextReportsNameOnly(t *testing.T) {
+	sessions := newLibrarySessions()
+	service := summonService(t, sessions)
+
+	if err := service.Submit(context.Background(), "@nope 顺便说一句"); err != nil {
+		t.Fatalf("未知团队只补 notice，不该返回错误：%v", err)
+	}
+	text := noticesText(service)
+	if !strings.Contains(text, "未知团队: nope") {
+		t.Fatalf("应只报首个 token 当名字：%q", text)
+	}
+	if strings.Contains(text, "顺便说一句") {
+		t.Fatalf("整句不该被当成名字回显：%q", text)
+	}
+	if roles := sessions.ensuredRoles(); len(roles) != 0 {
+		t.Fatalf("未知名不该装配任何角色：%v", roles)
 	}
 }
 

@@ -588,6 +588,13 @@ function renderIncremental(snapshot, kind) {
     return;
   }
   if (kind === "interaction.opened" || kind === "interaction.closed") renderInteraction(snapshot.interaction);
+  if (kind === "team.changed") {
+    // 团队面板的数据不在快照里（按需 RPC 拉取），这条事件只带来"变了"：作废面板
+    // 缓存，可见时立刻重取。发声方是后端装配面（MaterializeAgentTeam 等），因此
+    // `@` 召唤、goal 自动装配与面板 RPC 一键装配都走同一条路，前端不再从自己的
+    // 输入文本里猜"这次提交会不会改团队"。
+    invalidateAgentTeam();
+  }
 }
 
 // ── 对话区子页（对话 / 轨迹）──────────────────────────────
@@ -1817,6 +1824,10 @@ let agentTeamView = null;
 let agentTeamSessionID = "";
 let agentTeamError = "";
 let agentTeamLoading = false;
+// agentTeamDirty 记录"后端会话团队事实变过、本地面板数据可能过期"：置位后下一次
+// render/展开一定重取（而不是复用按会话缓存的旧成员表），但不清屏——旧数据先留在
+// 屏幕上，新数据回来再整体重绘。置位源只有后端的 team.changed 事件。
+let agentTeamDirty = false;
 // agentTeamDragRole 是"正在被拖拽的员工"：拖拽只在内部状态里过渡，落点一确定就
 // 提交整表（没有乐观重排、没有第二份顺序事实）。agentTeamDragSource 记录拖拽来源
 // （library / staff / member），落点决定这次拖拽是写会话顺序还是改团队草稿。
@@ -1867,11 +1878,12 @@ async function loadAgentTeamGlobal() {
 }
 
 // refreshAgentTeam 拉取一次员工表 + 团队库 + 全局母本并重绘；force=false 且会话
-// 未变时复用上次结果（面板每次 render 都会调用它，避免高频 RPC）。
+// 未变、也没有待作废的通告（agentTeamDirty）时复用上次结果（面板每次 render 都会
+// 调用它，避免高频 RPC）。
 async function refreshAgentTeam({ force = false } = {}) {
   if (agentTeamLoading) return;
   const sessionID = client.current()?.session?.id || "";
-  if (!force && sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
+  if (!force && !agentTeamDirty && sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
   agentTeamLoading = true;
   try {
     await loadAgentTeamPresets();
@@ -1884,9 +1896,24 @@ async function refreshAgentTeam({ force = false } = {}) {
     agentTeamView = null;
     agentTeamError = error?.message || String(error);
   } finally {
+    // 本次已经按"最新事实"取过一次：无论成败都消掉脏位，否则每个 render 都会
+    // 再发一轮 RPC（流式回合里 render 很密）。取数期间到达的新通告会重新置位。
+    agentTeamDirty = false;
     agentTeamLoading = false;
   }
   renderAgentTeamPanel();
+}
+
+// invalidateAgentTeam 作废 Agent Team 面板缓存：后端会话团队事实变了（装配/工作
+// 顺序/入职/编辑成员），而面板缓存的是上一次 RPC 读回的成员表——不置脏位的话，
+// 展开面板只会复用旧数据（面板按会话键命中缓存就早退）。
+//
+// 只在面板真的看得到时立刻取；收起或状态子页不可见时只置脏位，等下一次 render /
+// 展开再取（不可见的面板不该产生请求）。
+function invalidateAgentTeam() {
+  agentTeamDirty = true;
+  const section = elements["team-section"];
+  if (section?.open && section.offsetParent !== null) refreshAgentTeam({ force: true });
 }
 
 // renderAgentTeamPanel 只重绘本区块（不触发整页 render，避免与动作互锁）。
@@ -1909,13 +1936,14 @@ function renderAgentTeamPanel() {
   host.innerHTML = failure + renderAgentTeam(agentTeamView, agentTeamPresets || [], agentTeamLibrary, agentTeamGlobal);
 }
 
-// scheduleAgentTeamRefresh 只在状态子页可见且 Agent Team 区块展开时拉取，
-// 会话变更后下一次 render 自然刷新（切走/未展开不产生额外请求）。
+// scheduleAgentTeamRefresh 只在状态子页可见且 Agent Team 区块展开时拉取，会话变更
+// 或收到 team.changed（agentTeamDirty）后下一次 render 自然刷新（切走/未展开不产生
+// 额外请求）。
 function scheduleAgentTeamRefresh(snapshot) {
   const section = elements["team-section"];
   if (!section?.open || section.offsetParent === null) return;
   const sessionID = snapshot?.session?.id || "";
-  if (sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
+  if (!agentTeamDirty && sessionID && sessionID === agentTeamSessionID && agentTeamView) return;
   refreshAgentTeam();
 }
 
@@ -2924,11 +2952,8 @@ elements.composer.addEventListener("submit", async event => {
     elements.prompt.value = "";
     hideInlineSuggestions();
     resizePrompt();
-    // `@` = 手动召唤团队：装配改的是后端团队事实，而面板缓存的是上一次读回来的
-    // 成员表，不强制重取的话召唤完面板还停在召唤前的样子。
-    if (text.startsWith(SIGIL_TEAM) && elements["team-section"]?.open) {
-      await refreshAgentTeam({ force: true });
-    }
+    // 面板不在这里猜：`@` 召唤是否真的装了团队、goal 是否顺手拉起了 goal-a2a，
+    // 都由后端的 team.changed 事件（见 invalidateAgentTeam）告诉面板。
     await refresh({ scroll: "bottom" });
   } catch (error) { showToast(error); }
   elements.prompt.focus();

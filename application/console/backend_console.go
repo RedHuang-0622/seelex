@@ -254,6 +254,11 @@ func (logger *EventLogger) LogEvent(event application.Event) {
 		fmt.Fprintf(logger.output, "[backend] +%s request=%s stage=chat.error payload_bytes=%d\n", logger.elapsedLocked(event.RequestID), event.RequestID, len(event.Payload))
 	case application.EventSnapshotChanged:
 		fmt.Fprintf(logger.output, "[backend] +%s request=%s stage=snapshot.changed\n", logger.elapsedLocked(event.RequestID), event.RequestID)
+	case application.EventTeamChanged:
+		// 团队装配/工作顺序/入职/编辑成员改了会话团队事实（面板据此重取成员表）。
+		// `@` 召唤的"装上了"此前借 snapshot.changed 才能被看见，现在只由这条事件表示：
+		// 一次性后端探针要能观测它，否则"召唤到底成没成"在日志里消失。
+		fmt.Fprintf(logger.output, "[backend] +%s request=%s stage=team.changed\n", logger.elapsedLocked(event.RequestID), event.RequestID)
 	case application.EventSubagentToolStarted, application.EventSubagentToolCompleted:
 		fmt.Fprintf(logger.output, "[backend] +%s request=%s stage=%s payload_bytes=%d\n", logger.elapsedLocked(event.RequestID), event.RequestID, event.Kind, len(event.Payload))
 	}

@@ -14,7 +14,7 @@ func TestKindWhitelistClassification(t *testing.T) {
 		EventSubagentToolStarted, EventSubagentToolCompleted,
 		EventRuntimeChanged, EventChatChanged, EventWorkTableChanged,
 		EventTaskChanged, EventInteractionOpened, EventInteractionClosed,
-		EventError,
+		EventError, EventTeamChanged,
 	} {
 		if !KindIsSessionClass(sessionKind) {
 			t.Fatalf("kind %q must be session-class", sessionKind)

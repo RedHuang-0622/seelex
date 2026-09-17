@@ -201,6 +201,10 @@
   - `@` 与 goal 自动装配共用同一条通道（`MaterializeAgentTeam` + `teamJoinSeqFor`），
     不新增第二份团队事实；召唤面只列内置形态（零 I/O —— Suggestions 在 TUI 的 `View()`
     渲染路径上），团队库条目按 team_id 或名字同样可召唤。
+  - `@` 的载荷是 `@<团队> [附言]`：路由不按空格切分（团队名可含空格），切分在
+    `application/core/input_team.go` 按"最长可命中前缀 = 名字、余下 = 附言"完成；
+    附言按 `$<skill> <args>` 的同一条口径作为一条输入下发。这是对"整段余量当名字"
+    的修正：那句附言此前既让名字查不到（回执"未知团队: …"），又被静默丢弃。
   - 旧前缀不静默兜底：未命中时给一句迁移提示（`#review` → "召回 Skill 用 $review"）。
   - 前端 `SIGILS` 与 TUI `suggMode` 不再各写一份字符表，改由 `application.HasSigilPrefix`
     / `application.SigilOf` 判定。
@@ -208,4 +212,39 @@
   `application/core/input_router/router.go`、`gui/frontend/dist/app.js`、`tui/tui.go`。
 - 验证：`go test ./application/core/... -run 'Sigil|SubmitTeam|Suggestions'`、
   `go test ./tui/...`、`node --test gui/frontend/dist/*.test.mjs`。
+- 详设：`modules/shell-and-interactions.md` 第 6 节。
+
+## ADR-GUI-022：会话团队事实用 `team.changed` 通告，面板按需读面靠它作废缓存
+
+- 状态：已采用（2026-09-17）
+- 背景：Agent Team 面板的数据（成员表/工作顺序/发言调度）**不在**会话快照里——
+  GUI 的 status 子页与 TUI 的 Alt+T 都按 RPC `AgentTeamView` 拉取，并把结果按会话键缓存。
+  "事实变了"因此没有下行通道：GUI 曾靠 composer 文本以 `@` 开头来猜（面板收起、
+  goal 自动装配、非本 composer 的来路全漏），TUI 只能靠用户再按一次 Alt+T。
+- 决策：新增会话级事件 `team.changed`（`application/event`，载荷为空、**revision=0**），
+  由装配/顺序/入职/编辑成员的写路径发布；前端收到后**作废面板缓存**，面板可见时立即
+  重取，不可见时只置脏位等下次展开/渲染。
+  - 发布点钉在写路径，不钉在某个调用方：`MaterializeAgentTeam`（`@` 召唤 / goal 自动装配 /
+    面板 RPC 的共同收口）、`AgentTeamSetOrder`、`AgentTeamInstantiateRole`、
+    `AgentTeamPutRole`、`AgentTeamDeleteRole`。读路径（`AgentTeamView`）**不发**。
+- 理由：
+  1. 面板是"按需读面 + 客户端缓存"，缺一个权威的变更通告就只能靠猜或靠人按刷新。
+  2. 事件是既有下行口径（`worktable.changed`/`chat.changed` 同类）：不新增第二份团队事实，
+     也不让前端复刻后端判定。
+  3. revision=0 沿用 `chat.changed` 的口径：载荷不在快照里，带 revision 会被协议层的
+     "已由权威快照表示"陈旧判据丢掉，而面板缓存并不随快照翻转（召唤后调用方紧接一次
+     快照刷新是常态，那条事件会被吞）。
+- 后果：
+  - 不变量：**读路径不发 `team.changed`**（否则"取成员表→通告→再取"自激循环）。
+  - 团队库/员工库/默认顺序是**全局母本**，不在本事件范围内：母本 CRUD 的调用方按返回值刷新。
+  - 前端不再按 composer 文本猜面板刷新（GUI），TUI 面板打开时自动重取。
+- 实现：`application/event/hub.go`、`application/core/agentteam_service.go`、
+  `application/core/aliases.go`、`application/application.go`、
+  `application/console/backend_console.go`（探针可见性）、
+  `gui/frontend/dist/protocol.js`、`gui/frontend/dist/app.js`、`tui/tui.go`。
+- 验证：`go test ./application/event/ ./application/core/ -run TeamChanged`、
+  `go test ./application/console/ -run EventLogger`、`go test ./tui/ -run TeamPanel`、
+  `node --test gui/frontend/dist/protocol.test.mjs
+  gui/frontend/dist/agent-team-refresh.test.mjs`；真机探针
+  `go run . -frontend backend -backend-prompt "@goal-a2a"` → `stage=team.changed` + exit=0。
 - 详设：`modules/shell-and-interactions.md` 第 6 节。

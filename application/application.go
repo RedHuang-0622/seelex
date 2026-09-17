@@ -108,6 +108,7 @@ const (
 	EventSubagentToolStarted   = event.EventSubagentToolStarted
 	EventSubagentToolCompleted = event.EventSubagentToolCompleted
 	EventRuntimeChanged        = event.EventRuntimeChanged
+	EventTeamChanged           = event.EventTeamChanged
 	EventInteractionOpened     = event.EventInteractionOpened
 	EventInteractionClosed     = event.EventInteractionClosed
 	EventError                 = event.EventError

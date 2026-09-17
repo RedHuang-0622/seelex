@@ -83,6 +83,20 @@ func TestBackendEventLoggerLogsToolStagesWithoutPayloadContent(t *testing.T) {
 	}
 }
 
+func TestBackendEventLoggerLogsTeamChangedStage(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	now := time.Unix(0, 0)
+	logger := NewEventLogger(&output, func() time.Time { return now })
+
+	// 团队事实变更（装配/顺序/入职）在一次性探针里必须是可见的一行：`@` 召唤成功
+	// 现在只由 team.changed 表示（不再借 snapshot.changed）。
+	logger.LogEvent(application.Event{Kind: application.EventTeamChanged})
+	if got := output.String(); !strings.Contains(got, "stage=team.changed") {
+		t.Fatalf("team.changed stage log = %q", got)
+	}
+}
+
 func TestBackendConsolePromptSubmitsAndWaitsForIdle(t *testing.T) {
 	t.Parallel()
 	fake := newBackendConsoleFakeApplication()

@@ -105,6 +105,11 @@ func (route skillRoute) Dispatch(ctx context.Context, input string) error {
 //
 // 与 pluginRoute 的差别：空名字也下发（`@` 单独提交 = 让召唤面自述有哪些团队），
 // 因此这里不做空名短路。
+//
+// 与 skillRoute 的差别：**不**按空格切分。团队名可以含空格（团队库条目由用户
+// 起名），所以整段余量原样交给召唤面，由它按"最长可命中前缀 = 名字、余下 = 附言"
+// 解析（见 application/core/input_team.go 的 resolveTeamSummon）——名字后面跟的
+// 那句话因此不会被吞进名字里。
 type teamRoute struct {
 	dispatch func(context.Context, string) error
 }

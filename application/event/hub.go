@@ -32,6 +32,12 @@ const (
 	EventError             EventKind = "error"
 	EventResyncRequired    EventKind = "resync.required"
 	EventExitRequested     EventKind = "app.exit_requested"
+	// EventTeamChanged 通告"会话团队事实变了"（装配/工作顺序/入职/编辑成员）。
+	// 载荷为空：团队面板的数据不在会话快照里（TUI 与 GUI 都按 RPC 拉取
+	// AgentTeamView），这条事件只作废客户端的**面板缓存**，不改变快照——因此
+	// 发布端用 revision=0（同 chat.changed 口径），否则"快照比事件新"的陈旧
+	// 判据会把它丢掉，而面板缓存并不随快照翻转。
+	EventTeamChanged EventKind = "team.changed"
 	// EventViewSessionChanged 通告权威视图会话已被应用在内部切换（进程级、
 	// 空 sid，投递给所有订阅者）：运行中冷恢复失败把视图回退到切换前会话 /
 	// 草稿时，GUI Bridge 的事件订阅键仍钉在失败目标会话上，其订阅已永远

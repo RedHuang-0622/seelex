@@ -171,6 +171,64 @@ func TestTeamPanelFetchesServiceViewOnce(t *testing.T) {
 	}
 }
 
+// TestTeamPanelRefetchesOnTeamChanged 钉住"装配后面板自动更新"：面板打开时收到
+// team.changed 就地重取成员表；面板收起时不产生请求。装配/顺序/入职改的是后端
+// 事实（数据不在会话快照里），此前只能靠用户再按一次 Alt+T 才看得到。
+func TestTeamPanelRefetchesOnTeamChanged(t *testing.T) {
+	base := newFakeApp()
+	base.snapshot = goalSnapshot()
+	app := &teamFakeApp{fakeApp: base, view: teamViewFixture()}
+	model := NewModel(app)
+	model.showLogo = false
+	model.width, model.height = 120, 40
+
+	// 打开面板：一次异步读。
+	model, command := press(t, model, altRuneKey('t'))
+	updated, _ := model.Update(command())
+	model = updated.(Model)
+	if model.teamErr != "" {
+		t.Fatalf("打开面板读失败：%q", model.teamErr)
+	}
+
+	// 面板收起：team.changed 不产生请求（不可见的面板不该发 RPC）。
+	model.panel = panelNone
+	updated, _ = model.Update(applicationEventMsg{event: application.Event{Kind: application.EventTeamChanged}})
+	if updated.(Model).teamLoading {
+		t.Fatal("面板收起时不该重取团队成员表")
+	}
+
+	// 面板打开：team.changed 就地重取。
+	model.panel = panelTeam
+	app.sessionID = ""
+	updated, command = model.Update(applicationEventMsg{event: application.Event{Kind: application.EventTeamChanged}})
+	model = updated.(Model)
+	if !model.teamLoading {
+		t.Fatal("团队事实变了，面板必须重取（否则停在旧成员表）")
+	}
+	// 命令是 Batch（重取 + 继续等事件）：关掉订阅让等待命令立即返回，只取重取那条。
+	model.subscription.Close()
+	batch, ok := command().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("team.changed 应同时排入重取与继续等待，实际命令 = %T", command())
+	}
+	fetched := false
+	for _, inner := range batch {
+		if message, ok := inner().(teamViewMsg); ok {
+			fetched = true
+			model = model.applyTeamView(message)
+		}
+	}
+	if !fetched {
+		t.Fatal("batch 里没有团队读面命令")
+	}
+	if app.sessionID != "sess-main-1" {
+		t.Fatalf("重取用了错误的会话 ID：%q", app.sessionID)
+	}
+	if model.teamLoading || model.teamErr != "" {
+		t.Fatalf("重取后加载态未收敛: loading=%v err=%q", model.teamLoading, model.teamErr)
+	}
+}
+
 func TestTeamPanelReportsMissingReaderAndUnconfiguredTeam(t *testing.T) {
 	// 1) 装配根没给团队读面（TUI/GUI 装配不同的宿主）。
 	app := newFakeApp()

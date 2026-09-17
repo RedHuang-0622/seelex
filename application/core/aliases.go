@@ -155,6 +155,7 @@ const (
 	EventChatChanged           = event.EventChatChanged
 	EventWorkTableChanged      = event.EventWorkTableChanged
 	EventTaskChanged           = event.EventTaskChanged
+	EventTeamChanged           = event.EventTeamChanged
 	EventInteractionOpened     = event.EventInteractionOpened
 	EventInteractionClosed     = event.EventInteractionClosed
 	EventError                 = event.EventError

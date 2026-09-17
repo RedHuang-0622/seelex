@@ -4,7 +4,7 @@ const INCREMENTAL_KINDS = new Set([
   "message.added", "message.delta", "tool.started", "tool.completed",
   "subagent.changed", "subagent.tool.started", "subagent.tool.completed",
   "chat.changed", "runtime.changed", "worktable.changed", "task.changed",
-  "interaction.opened", "interaction.closed"
+  "interaction.opened", "interaction.closed", "team.changed"
 ]);
 
 // PROCESS_KINDS 是进程级事件（G2/M2）：不带会话归属（session_id 必空），
@@ -136,6 +136,11 @@ function applyIncremental(snapshot, event, payload) {
     return true;
   case "interaction.closed":
     snapshot.interaction = null;
+    return true;
+  case "team.changed":
+    // 载荷不在快照里（团队面板按需 RPC 拉取 AgentTeamView）：这条事件不带快照
+    // 事实，因此后端按 revision=0 发布（同 chat.changed 口径），陈旧判据不吃它；
+    // reducer 只需把 kind 透给 onIncremental，由应用层作废面板缓存。
     return true;
   default:
     return false;
