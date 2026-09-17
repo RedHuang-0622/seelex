@@ -525,7 +525,7 @@ func (model *Model) foldPaste(old, newVal string) {
 func (model *Model) afterInput() {
 	value := model.textarea.Value()
 	wasSuggestion := model.suggMode
-	model.suggMode = (strings.HasPrefix(value, "/") || strings.HasPrefix(value, "#") || strings.HasPrefix(value, "@")) && !strings.Contains(value, " ")
+	model.suggMode = application.HasSigilPrefix(value) && !strings.Contains(value, " ")
 	if model.suggMode && !wasSuggestion {
 		model.suggIdx, model.suggOffset = 0, 0
 	}
@@ -555,12 +555,11 @@ func (model Model) autoResizeTextarea() Model {
 }
 
 func (model Model) acceptSuggestion(suggestion application.Suggestion) Model {
-	trigger := "/"
-	switch {
-	case strings.HasPrefix(model.textarea.Value(), "#"):
-		trigger = "#"
-	case strings.HasPrefix(model.textarea.Value(), "@"):
-		trigger = "@"
+	// 前缀取自输入本身（sigil 契约是 application 的事实源，TUI 不再自持一份字符表）；
+	// 输入前缀不可解析时退回 `/`（与面板默认一致）。
+	trigger := application.SigilOf(model.textarea.Value())
+	if trigger == "" {
+		trigger = application.SigilCommand
 	}
 	model.textarea.SetValue(trigger + suggestion.Text + " ")
 	model.textarea.CursorEnd()

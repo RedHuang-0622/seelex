@@ -14,7 +14,7 @@
 | `dialog.go` | Interaction/account/session 等选择面板。 |
 | `plan.go` | 按 Effort 和终端宽度渲染 Plan 生命周期。 |
 | `goalteam.go` | 目标治理（Alt+G）与 AgentTeam（Alt+T）的只读面板：投影 + 面板键 + 团队读面的异步取值。 |
-| `suggest_view.go` | `/`、`#`、`@` suggestions。 |
+| `suggest_view.go` | `/`、`#`、`$`、`@` suggestions。 |
 | `state.go` / `types.go` | UI cell、message 和内部状态。 |
 | `styles.go` | Lipgloss 主题。 |
 | [`splash/`](splash/README.md) | 启动画面。 |
@@ -34,6 +34,11 @@ TUI local state 只包含光标、viewport、输入框、suggestion 和布局信
 ## 交互和关闭
 
 - Enter 提交原始输入。
+- 输入前缀（sigil）与后端同一张表（`application.HasSigilPrefix` / `application.SigilOf`）：
+  `/` 命令与工具、`#` 切换 Plugin、`$` 召回 Skill、`@` 手动召唤团队。前缀后无空白时
+  进入 `suggMode` 并显示 suggestions 面板（数据源 = `Suggestions`，Tab 接受）。
+  TUI 不自持字符表：**Suggestions 在 `View()` 渲染路径上**，所以后端那一侧必须保持
+  零 I/O（`@` 因此只列内置团队形态，不读团队库）。
 - 只读面板：`alt+g` 目标治理（数据源 = `Snapshot.Runtime.GoalGovernance`，与 GUI
   「目标」面板同源投影，无活跃 goal 时给上线入口提示）、`alt+t` 团队（成员/发言
   顺序/定时 agent/调度运行态，取值走一次 `tea.Cmd` 调

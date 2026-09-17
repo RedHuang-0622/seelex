@@ -71,8 +71,8 @@
 ## ADR-GUI-009：命令模式沿用 Core Suggestions
 
 - 状态：已采用
-- 决策：`/`、`#`、`@` 使用同一 Bridge.Suggestions 数据源，面板和输入框内联建议共享渲染函数。
-- 理由：GUI 与 TUI 的命令/Skill/Plugin 生态一致，避免前端硬编码清单。
+- 决策：`/`、`#`、`$`、`@` 使用同一 Bridge.Suggestions 数据源，面板和输入框内联建议共享渲染函数。
+- 理由：GUI 与 TUI 的命令/Skill/Plugin/团队生态一致，避免前端硬编码清单。
 - 后果：Suggestion DTO 是多前端契约的一部分；输入执行仍统一走 Submit。
 - 实现：`gui/bridge.go:205-207`、`gui/frontend/dist/app.js:267-353`。
 
@@ -183,3 +183,29 @@
   （不注入内容，保护子代理 prompt 格式）；`task.changed` 逐任务增量 +
   `worktable.changed` 结构增量（责任链）；task 快照复用 SessionRecord stack。
 - 详设：`modules/work-table.md`、`schemas/work-table.schema.json`。
+
+## ADR-GUI-021：输入前缀一字符一含义（`#` 换 Plugin、`$` 接管 Skill、`@` 召唤团队）
+
+- 状态：已采用（2026-09-17）
+- 决策：输入前缀与用例一一对应，不再跨域共用：
+  `/` 命令与工具、`#` 切换 Plugin、`$` 召回 Skill、`@` 手动召唤团队。
+  权威表在 `application/core/completion.go`（常量）+ `application/core/input_router/router.go`
+  （路由），前端只消费。
+- 理由：
+  1. 旧口径里 `#` 是 Skill、`@` 是 Plugin，两个高频动作挤在"看起来像标签/提醒"的字符上，
+     用户没有可推断的语义；改成 `#`=插件（进程级配置）、`$`=Skill（可召回的能力）、
+     `@`=团队（像 mention 一个人）后，符号与动作有一致的直觉。
+  2. `@` 从 Plugin 让位，是因为"手动召唤团队"此前没有入口：团队**只能**由 goal 上线时
+     自动装配（`goal_service.ensureGoalAgentTeam`），人没有对称的显式动作。
+- 后果：
+  - `@` 与 goal 自动装配共用同一条通道（`MaterializeAgentTeam` + `teamJoinSeqFor`），
+    不新增第二份团队事实；召唤面只列内置形态（零 I/O —— Suggestions 在 TUI 的 `View()`
+    渲染路径上），团队库条目按 team_id 或名字同样可召唤。
+  - 旧前缀不静默兜底：未命中时给一句迁移提示（`#review` → "召回 Skill 用 $review"）。
+  - 前端 `SIGILS` 与 TUI `suggMode` 不再各写一份字符表，改由 `application.HasSigilPrefix`
+    / `application.SigilOf` 判定。
+- 实现：`application/core/completion.go`、`application/core/input_team.go`、
+  `application/core/input_router/router.go`、`gui/frontend/dist/app.js`、`tui/tui.go`。
+- 验证：`go test ./application/core/... -run 'Sigil|SubmitTeam|Suggestions'`、
+  `go test ./tui/...`、`node --test gui/frontend/dist/*.test.mjs`。
+- 详设：`modules/shell-and-interactions.md` 第 6 节。

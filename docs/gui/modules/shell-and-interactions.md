@@ -25,7 +25,7 @@ Shell 模块组装页面布局、调用 Bridge、路由客户端状态到各视�
 | 中区 | 历史分页、Conversation、Composer | Snapshot/Event |
 | 右栏 | Project 状态（键值表）、概要、账户栏、Agent Team、资料来源 | Info + Snapshot |
 | Runtime modal | Runtime、Plugins、Plan、Skills | Runtime |
-| Command modal | `/`、`#`、`@` 搜索与选择 | Suggestions |
+| Command modal | `/`、`#`、`$`、`@` 搜索与选择 | Suggestions |
 | Interaction modal | 审批/选择问题与选项 | Interaction |
 
 Plugin/Skill 不常驻右栏：它们在输入框同生态位的 runtime button 中打开；右栏保留项目事实。账号是进程级事实，落在右栏「状态」子页的状态一栏之下（模块文档见
@@ -99,17 +99,26 @@ app.js 在启动时构造：
 
 实现位置：`gui/frontend/dist/app.js:268-354`、`gui/frontend/dist/app.js:425-473`。
 
-三种 trigger：
+输入前缀（sigil）契约 = 一条前缀一条含义，前端只消费、后端是唯一事实源
+（`application/core/completion.go` 的 `SigilCommand/SigilPlugin/SigilSkill/SigilTeam`
+与路由表 `application/core/input_router/router.go`）。四个 trigger：
 
-- `/`：命令与工具；
-- `#`：Skills；
-- `@`：Plugins。
+- `/`：命令与工具（保留全量入口，也列 Skill）；
+- `#`：切换 Plugin（含 `#off` = 停用全部）；
+- `$`：召回 Skill（激活到当前会话）；
+- `@`：手动召唤团队（内置形态 + 团队库条目，装配到当前会话）。
 
 Command modal 和 inline suggestions 都调用 Bridge.Suggestions，并共享 `renderSuggestionList/acceptSuggestion`。输入内容不在前端执行，选中项只写回 composer，最终仍走 Submit。
+
+前缀改名后旧肌肉记忆（`#review` = 曾经召回 Skill）由后端在"未命中"时补一句迁移
+提示（`sigilMigrationHint`），不静默兜底：`#review` 报"未知 Plugin"并指出 `$review`。
 
 键盘规则：ArrowUp/Down 移动，Tab 接受内联建议，Enter 提交或接受面板项，Escape 关闭，Ctrl/Cmd+K 打开命令面板。
 
 异步 inline suggestions 使用 `inlineRequest` 序号拒绝旧请求结果，避免快速输入时结果倒序覆盖。
+
+`@` 提交成功后前端强制重取一次 Agent Team 面板（`refreshAgentTeam({force:true})`，
+仅面板展开时）：装配改的是后端团队事实，而面板缓存的是上一次读回的成员表。
 
 ## 7. Runtime Effort 与审批交互
 

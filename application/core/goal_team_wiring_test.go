@@ -168,6 +168,14 @@ func (s *teamRecordingSessions) ensuredRoles() []string {
 	return append([]string(nil), s.ensured...)
 }
 
+// joinSeqSnapshot 读角色会话装配时的 join 切点（加锁 + 拷贝）：
+// "role|joinSeq" 形态，召唤/自动装配的入伙切点断言用它。
+func (s *teamRecordingSessions) joinSeqSnapshot() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.joinSeqs...)
+}
+
 func (s *teamRecordingSessions) ListRoleSessions(string) ([]string, error) {
 	return nil, nil
 }

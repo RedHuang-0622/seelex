@@ -140,6 +140,24 @@ var (
 	ErrInteractionResolved = approval.ErrInteractionResolved
 )
 
+// ── 输入前缀（sigil）契约 ────────────────────────────────────────────────
+//
+// 前缀与含义一一对应：`/` 命令面板、`#` 切换插件、`$` 召回 Skill、
+// `@` 手动召唤团队。权威说明见 docs/gui/modules/shell-and-interactions.md；
+// 前端（含 TUI）只消费这里的常量与判定，不自持第二份字符表。
+const (
+	SigilCommand = core.SigilCommand
+	SigilPlugin  = core.SigilPlugin
+	SigilSkill   = core.SigilSkill
+	SigilTeam    = core.SigilTeam
+)
+
+// HasSigilPrefix 报告输入是否以前缀开头（TUI suggMode / 前端内联建议共用）。
+func HasSigilPrefix(input string) bool { return core.HasSigilPrefix(input) }
+
+// SigilOf 返回输入的首字符前缀；不可解析时返回空串。
+func SigilOf(input string) string { return core.SigilOf(input) }
+
 func New(deps Dependencies) (*Service, error) { return core.New(deps) }
 
 func NewEventHub() *EventHub { return event.NewEventHub() }

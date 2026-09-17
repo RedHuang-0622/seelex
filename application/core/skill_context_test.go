@@ -18,7 +18,7 @@ func TestSkillSelectionKeepsUserInputPlainAndFreezesTrustedLayers(t *testing.T) 
 		{Kind: "skill", Name: "review", Text: "Check correctness.\nReport evidence."},
 		{Kind: "skill", Name: "security", Text: "Inspect inputs."},
 	}
-	const input = "#review 检查这个实现"
+	const input = "$review 检查这个实现"
 	modelInput := formatSkillUserInput(layers, input)
 	if modelInput != input {
 		t.Fatalf("trusted Skill text leaked into user input: %q", modelInput)
@@ -37,7 +37,7 @@ func TestDisplayUserInputRejectsInvalidEnvelope(t *testing.T) {
 }
 
 func TestAdaptEngineMessageRestoresOriginalUserInput(t *testing.T) {
-	const input = "#review 检查这个实现"
+	const input = "$review 检查这个实现"
 	modelInput := formatSkillUserInput([]PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}}, input)
 	adapted := adaptEngineMessage(EngineMessage{Role: "user", Content: modelInput})
 	if adapted.Content != input {
@@ -57,13 +57,13 @@ func TestDisplayUserInputHidesPrivateRecoveryEnvelopes(t *testing.T) {
 
 func TestCombineChatRequestsPreservesDisplayAndFrozenSkillLayers(t *testing.T) {
 	first := newChatRequest("plain", nil)
-	second := newChatRequest("#review focused", []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
+	second := newChatRequest("$review focused", []PromptLayer{{Kind: "skill", Name: "review", Text: "review prompt"}})
 	combined := combineChatRequests([]chatRequest{first, second})
 
-	if got, want := combined.displayInput, "plain\n---\n#review focused"; got != want {
+	if got, want := combined.displayInput, "plain\n---\n$review focused"; got != want {
 		t.Fatalf("display = %q, want %q", got, want)
 	}
-	for _, expected := range []string{"plain", "#review focused"} {
+	for _, expected := range []string{"plain", "$review focused"} {
 		if !strings.Contains(combined.modelInput, expected) {
 			t.Fatalf("combined model input missing %q:\n%s", expected, combined.modelInput)
 		}

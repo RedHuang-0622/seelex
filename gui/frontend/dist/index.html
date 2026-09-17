@@ -61,8 +61,9 @@
             <p>Seelex 会在同一个应用核心中协调 Plugin、Skill、工具调用和审批。</p>
             <div class="empty-hints">
               <span class="kbd" aria-hidden="true">/</span> 命令与工具
-              <span class="kbd" aria-hidden="true">#</span> 加载 Skill
-              <span class="kbd" aria-hidden="true">@</span> 使用 Plugin
+              <span class="kbd" aria-hidden="true">#</span> 切换 Plugin
+              <span class="kbd" aria-hidden="true">$</span> 召回 Skill
+              <span class="kbd" aria-hidden="true">@</span> 手动召唤团队
             </div>
           </div>
         </div>
@@ -70,7 +71,7 @@
       </div>
       <form id="composer" class="composer">
         <div id="inline-suggestions" class="command-suggestions inline-suggestions hidden"></div>
-        <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，输入 # 加载 Skill"></textarea>
+        <textarea id="prompt" rows="1" placeholder="描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 手动召唤团队"></textarea>
         <div class="composer-actions">
           <div class="composer-tools">
             <button id="command-button" class="icon-button composer-icon" type="button" title="命令面板 (Ctrl+K)" aria-label="命令面板 (Ctrl+K)" data-icon="command"></button>
@@ -286,8 +287,9 @@
       <div class="modal-header"><div><span class="eyebrow">指令</span><h2 id="command-modal-title">命令面板</h2></div><button id="command-close" class="icon-button" type="button" title="关闭" aria-label="关闭" data-icon="close"></button></div>
       <div id="command-triggers" class="command-triggers">
         <button class="active" type="button" data-trigger="/">/ 命令与工具</button>
-        <button type="button" data-trigger="#"># Skills</button>
-        <button type="button" data-trigger="@">@ Plugins</button>
+        <button type="button" data-trigger="#"># Plugins</button>
+        <button type="button" data-trigger="$">$ Skills</button>
+        <button type="button" data-trigger="@">@ Team</button>
       </div>
       <input id="command-search" class="command-search" value="/" autocomplete="off" spellcheck="false" aria-label="搜索命令">
       <div id="command-results" class="command-results"></div>

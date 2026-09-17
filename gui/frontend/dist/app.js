@@ -2775,8 +2775,20 @@ async function saveStorage() {
   catch (error) { elements["storage-status"].textContent = `失败：${error}`; }
 }
 
+// 输入前缀（sigil）契约：与后端 application/core/completion.go 同一条表，前端
+// 只消费不发明。权威说明见 docs/gui/modules/shell-and-interactions.md。
+//   /  命令与工具   #  切换 Plugin   $  召回 Skill   @  手动召唤团队
+const SIGIL_COMMAND = "/";
+const SIGIL_PLUGIN = "#";
+const SIGIL_SKILL = "$";
+const SIGIL_TEAM = "@";
+const SIGILS = [SIGIL_COMMAND, SIGIL_PLUGIN, SIGIL_SKILL, SIGIL_TEAM];
+
+// SIGIL_PATTERN 判定"内联建议该不该弹"：前缀开头且还没进入参数区（无空白）。
+const SIGIL_PATTERN = new RegExp(`^[${SIGILS.map(sigil => `\\${sigil}`).join("")}][^\\s]*$`);
+
 async function openCommandPalette(trigger = "/") {
-  state.commandTrigger = ["/", "#", "@"].includes(trigger) ? trigger : "/";
+  state.commandTrigger = SIGILS.includes(trigger) ? trigger : "/";
   state.commandSelected = 0;
   elements["command-search"].value = state.commandTrigger;
   syncCommandTriggers();
@@ -2798,7 +2810,7 @@ function syncCommandTriggers() {
 
 async function updateCommandResults() {
   let input = elements["command-search"].value.trimStart();
-  if (!["/", "#", "@"].includes(input[0])) {
+  if (!SIGILS.includes(input[0])) {
     input = state.commandTrigger + input;
     elements["command-search"].value = input;
   } else {
@@ -2844,7 +2856,7 @@ function bindSuggestionList(container) {
 }
 
 function suggestionIcon(kind) {
-  return ({ skill: "skill", plugin: "plugin", tool: "terminal", command: "command" })[kind] || "command";
+  return ({ skill: "skill", plugin: "plugin", tool: "terminal", command: "command", team: "team" })[kind] || "command";
 }
 
 function acceptSuggestion(suggestion, trigger) {
@@ -2859,7 +2871,7 @@ function acceptSuggestion(suggestion, trigger) {
 
 async function updateInlineSuggestions() {
   const input = elements.prompt.value.trimStart();
-  if (!/^[\/#@][^\s]*$/.test(input)) {
+  if (!SIGIL_PATTERN.test(input)) {
     hideInlineSuggestions();
     return;
   }
@@ -2893,6 +2905,11 @@ elements.composer.addEventListener("submit", async event => {
     elements.prompt.value = "";
     hideInlineSuggestions();
     resizePrompt();
+    // `@` = 手动召唤团队：装配改的是后端团队事实，而面板缓存的是上一次读回来的
+    // 成员表，不强制重取的话召唤完面板还停在召唤前的样子。
+    if (text.startsWith(SIGIL_TEAM) && elements["team-section"]?.open) {
+      await refreshAgentTeam({ force: true });
+    }
     await refresh({ scroll: "bottom" });
   } catch (error) { showToast(error); }
   elements.prompt.focus();

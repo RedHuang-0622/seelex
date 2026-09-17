@@ -227,6 +227,33 @@ func TestSuggestionNavigationAndAcceptance(t *testing.T) {
 	}
 }
 
+// TestSigilPrefixesDriveSuggestionMode 钉住四个输入前缀在 TUI 侧的同一口径：
+// `/` `#` `$` `@` 都进 suggMode（前缀表的事实源在 application，TUI 不自持一份），
+// 且接受建议时把**原来的**前缀写回（`$review` 不会被写成 `/review`）。
+func TestSigilPrefixesDriveSuggestionMode(t *testing.T) {
+	for _, sigil := range []string{"/", "#", "$", "@"} {
+		model := NewModel(newFakeApp())
+		model.textarea.SetValue(sigil)
+		model.afterInput()
+		if !model.suggMode {
+			t.Fatalf("%q 未进入建议模式", sigil)
+		}
+		updated, _ := model.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+		model = updated.(Model)
+		got := model.textarea.Value()
+		if !strings.HasPrefix(got, sigil) || !strings.HasSuffix(got, " ") || model.suggMode {
+			t.Fatalf("%q 接受建议后的输入 = %q（suggMode=%v）", sigil, got, model.suggMode)
+		}
+	}
+	// 进入参数区（含空白）不再弹建议——与后端 Suggestions 的空结果同口径。
+	model := NewModel(newFakeApp())
+	model.textarea.SetValue("#code prompt")
+	model.afterInput()
+	if model.suggMode {
+		t.Fatal("参数区不该进入建议模式")
+	}
+}
+
 func TestApplicationEventRefreshesSnapshot(t *testing.T) {
 	app := newFakeApp()
 	model := NewModel(app)

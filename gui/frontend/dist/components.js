@@ -17,6 +17,7 @@ const ICONS = {
   message: '<path d="M4 5h16v12H8l-4 4z"/>',
   skill: '<path d="M12 3 4 7v10l8 4 8-4V7z"/><path d="m4 7 8 4 8-4M12 11v10"/>',
   plugin: '<path d="M8 3v5H3v8h5v5h8v-5h5V8h-5V3z"/>',
+  team: '<circle cx="9" cy="8" r="3"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M16 6.2a3 3 0 0 1 0 5.6M20 19a6 6 0 0 0-1.6-4.1"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
   table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M3 12h18"/>',
   check: '<path d="m5 12 4 4L19 6"/>',

@@ -145,6 +145,44 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if len(suggestions) != 3 || suggestions[0].Kind != "command" || suggestions[1].Kind != "tool" || suggestions[2].Kind != "skill" {
 		t.Fatalf("unexpected suggestions: %#v", suggestions)
 	}
+	// sigil 契约：每个前缀只回自己那一域（`/` 指令 + `#` Plugin + `$` Skill +
+	// `@` 手动召唤团队），不互相兜底。`/` 是全量入口（命令/工具/Skill 混排），
+	// 因此只对它断言"含有该域候选"，其余前缀断言"整列只有一个域"。
+	for _, testCase := range []struct {
+		input, kind, member string
+		exclusive           bool
+	}{
+		{"/", SuggestionKindCommand, "help", false},
+		{"#", SuggestionKindPlugin, "code", true},
+		{"$", SuggestionKindSkill, "review", true},
+		{"@", SuggestionKindTeam, "goal-a2a", true},
+	} {
+		got := service.Suggestions(testCase.input)
+		if len(got) == 0 {
+			t.Fatalf("%q 建议为空", testCase.input)
+		}
+		names := make([]string, 0, len(got))
+		memberKind := ""
+		for _, suggestion := range got {
+			names = append(names, suggestion.Text)
+			if suggestion.Text == testCase.member {
+				memberKind = suggestion.Kind
+			}
+			if testCase.exclusive && suggestion.Kind != testCase.kind {
+				t.Fatalf("%q 建议 %q 的 kind = %q, want %q", testCase.input, suggestion.Text, suggestion.Kind, testCase.kind)
+			}
+		}
+		if memberKind != testCase.kind {
+			t.Fatalf("%q 建议里 %q 的 kind = %q, want %q（%v）", testCase.input, testCase.member, memberKind, testCase.kind, names)
+		}
+	}
+	// 未知前缀与进入参数区（含空格）都不给建议（不弹面板）。
+	if got := service.Suggestions("%review"); got != nil {
+		t.Fatalf("未知前缀不该给建议：%#v", got)
+	}
+	if got := service.Suggestions("#code prompt"); got != nil {
+		t.Fatalf("参数区不该给建议：%#v", got)
+	}
 	if err := service.Submit(context.Background(), "/review strict"); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +209,8 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	if !trustedSkillInHistory(t, firstSentHistory, "review", "review prompt") {
 		t.Fatalf("activated skill body must appear in assembled engine history: %#v", firstSentHistory)
 	}
-	if err := service.Submit(context.Background(), "#review focused"); err != nil {
+	// `$` 是 Skill 的专用前缀（`#` 改成"切换插件"后由它接管）。
+	if err := service.Submit(context.Background(), "$review focused"); err != nil {
 		t.Fatal(err)
 	}
 	waitForChatCompletion(t, service)
@@ -180,11 +219,11 @@ func TestSuggestionsAndSkillRouting(t *testing.T) {
 	modelInput = engine.lastInput
 	secondSentHistory := append([]EngineMessage(nil), engine.historyBeforeChat...)
 	engine.mu.Unlock()
-	if modelInput != "#review focused" || strings.Contains(prompt, "## Trusted Active Skill") {
-		t.Fatalf("hash Skill input=%q prompt=%q", modelInput, prompt)
+	if modelInput != "$review focused" || strings.Contains(prompt, "## Trusted Active Skill") {
+		t.Fatalf("dollar Skill input=%q prompt=%q", modelInput, prompt)
 	}
 	if !trustedSkillInHistory(t, secondSentHistory, "review", "review prompt") {
-		t.Fatalf("hash skill body must appear in assembled engine history: %#v", secondSentHistory)
+		t.Fatalf("dollar skill body must appear in assembled engine history: %#v", secondSentHistory)
 	}
 	// 被动技能目录：随插件装配自动注入（不依赖模型调用 skills_list）。
 	if !strings.Contains(prompt, "## Available Skills") || !strings.Contains(prompt, "- review: review code") {

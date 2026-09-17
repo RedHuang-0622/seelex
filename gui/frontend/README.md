@@ -277,6 +277,27 @@ chips + GOAL badge（`runtime.active_skills` / `runtime.goal_skill_active`，
   `surface` 与 1px 分隔；右栏页签条也去掉了那条装饰性渐变（选中页签的拟物书签
   保留）。
 
+## 输入前缀（sigil）与命令面板
+
+composer 的输入前缀是一份**跨前后端契约**，前端只消费不发明（权威表与理由见
+[docs/gui/modules/shell-and-interactions.md](../../docs/gui/modules/shell-and-interactions.md)
+第 6 节与 `docs/gui/decisions.md` 的 ADR-GUI-021）：
+
+| 前缀 | 作用 | 候选来源 |
+|---|---|---|
+| `/` | 命令与工具（全量入口，也列 Skill） | `Bridge.Suggestions` |
+| `#` | 切换 Plugin（含 `off`） | 同上 |
+| `$` | 召回 Skill（激活） | 同上 |
+| `@` | 手动召唤团队（内置形态 + 团队库条目） | 同上 |
+
+- 表在前端只落一处：`app.js` 的 `SIGIL_COMMAND/SIGIL_PLUGIN/SIGIL_SKILL/SIGIL_TEAM`
+  与 `SIGILS`、`SIGIL_PATTERN`（内联建议"该不该弹"的判定）。命令面板触发器按钮
+  （`index.html` 的 `data-trigger`）与内联建议共用同一组字符。
+- `@` 提交成功后**强制重取**一次 Agent Team 面板（`refreshAgentTeam({force:true})`，
+  仅在面板展开时）：装配改的是后端事实，面板缓存的是上一次读回的成员表。
+- 选中的建议只写回 composer，最终统一走 `Submit`；前端不执行任何前缀语义。
+- `suggestionIcon` 为 `team` 类建议映射 `components.js` 的 `team` 图标。
+
 ## 定时周期任务
 
 右侧栏「工作台」子页「定时任务」section 常驻（含「新建定时任务」按钮）：数据来自 `snapshot.runtime.scheduled_tasks`（seelebridge 调度器状态变化经 observer → `RefreshRuntimeSnapshot` → `runtime.changed` 增量投影，见 `seelebridge/scheduler/` 与 `application/core/service_scheduler.go`）。任务渲染只读展示：名称/类型/启用状态/下次运行/上次结果/日志尾部，取消按钮以 `data-sched-cancel` 携带任务 ID 并调用 `Bridge.CancelScheduledTask`。

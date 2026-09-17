@@ -28,6 +28,7 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (s *librarySessions) WriteDefaultOrder(_ string, order dto.DefaultOrder) error`
 - `func (s *librarySessions) globalWriteCount() int` — globalWriteCount 读当前全局母本写次数（断言"读不写盘"用）。
 - `func (s *librarySessions) writeCount() int` — writeCount 读团队库写次数（加锁：直接读 sessions.writes 与写侧没有 happens-before，
+- `func (s *librarySessions) setLibrary(library dto.TeamLibrary)` — setLibrary 覆盖夹具的团队库（加锁）：用例要先造一份"已经存过团队"的库时走它，
 - `func (p *fakeRolePrompt) OptimizeRolePrompt(_ context.Context, request dto.RolePromptOptimizeRequest) (dto.RolePromptOptimizeResult, error)`
 - `func withRolePrompt(port RolePromptPort) testServiceOption`
 - `func TestAgentTeamSaveCurrentTeamAndMaterialize(t *testing.T)` — TestAgentTeamSaveCurrentTeamAndMaterialize 是"新建团队要计入存储、并能装配回

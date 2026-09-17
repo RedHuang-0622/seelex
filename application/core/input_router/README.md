@@ -37,6 +37,7 @@ go test ./application/core/input_router -count=1
 - `func (route recordingInputRoute) Matches(string) bool`
 - `func (route recordingInputRoute) Dispatch(context.Context, string) error`
 - `func TestInputRouterDispatchesFirstMatchingStrategy(t *testing.T)`
+- `func TestInputRouterSigilOwnership(t *testing.T)` — 前缀（sigil）契约：`/` 命令、`#` 切换插件、`$` 召回 Skill、`@` 手动召唤团队，
 
 ### router.go
 
@@ -44,10 +45,12 @@ go test ./application/core/input_router -count=1
 - `func (router *Router) Dispatch(ctx context.Context, input string) error` — Dispatch 命中第一条规则后分派；无命中返回 nil。
 - `func (route commandRoute) Matches(input string) bool`
 - `func (route commandRoute) Dispatch(ctx context.Context, input string) error`
-- `func (route skillRoute) Matches(input string) bool`
-- `func (route skillRoute) Dispatch(ctx context.Context, input string) error`
 - `func (route pluginRoute) Matches(input string) bool`
 - `func (route pluginRoute) Dispatch(ctx context.Context, input string) error`
+- `func (route skillRoute) Matches(input string) bool`
+- `func (route skillRoute) Dispatch(ctx context.Context, input string) error`
+- `func (route teamRoute) Matches(input string) bool`
+- `func (route teamRoute) Dispatch(ctx context.Context, input string) error`
 - `func (conversationRoute) Matches(string) bool`
 - `func (route conversationRoute) Dispatch(ctx context.Context, input string) error`
 

@@ -29,7 +29,19 @@
 
 ### completion.go
 
-- `func (service *Service) Suggestions(input string) []Suggestion`
+- `func (service *Service) Suggestions(input string) []Suggestion` — Suggestions 按输入前缀给出候选：前缀不认识、或已经进入参数区（含空格）时
+- `func splitSigil(input string) (trigger, prefix string, ok bool)` — splitSigil 拆出输入前缀与它后面的文本（前缀不认识时 ok=false）。
+- `func HasSigilPrefix(input string) bool` — HasSigilPrefix 报告输入是否以前缀开头（TUI 的 suggMode 与前端内联建议共用同一条
+- `func SigilOf(input string) string` — SigilOf 返回输入的首字符前缀；不可解析时返回空串（调用方自行给默认值）。
+- `func (service *Service) sigilMigrationHint(used, name string) string` — sigilMigrationHint 在前缀没命中时给一句跨域迁移提示：命中**别的**域才给，
+- `func (service *Service) hasPlugin(name string) bool` — hasPlugin 报告名字是否命中已加载插件（PluginPort 没有按名查询，只能扫列表）。
+- `func (service *Service) commandSuggestions() []Suggestion`
+- `func (service *Service) skillSuggestions() []Suggestion`
+- `func (service *Service) toolSuggestions() []Suggestion`
+- `func (service *Service) pluginSuggestions() []Suggestion` — pluginSuggestions 列出可切换插件；off 是"停用全部"的内置入口（与
+- `func teamPresetSuggestions() []Suggestion` — teamPresetSuggestions 列出可召唤的内置团队形态（goal-a2a / review-team /
+- `func isPresetTeam(name string) bool` — isPresetTeam 报告名字是否命中内置团队形态（team_id 与 team_kind 同值）。
+- `func teamSpecSummary(spec dto.TeamSpec) string` — teamSpecSummary 用形态自身的事实拼一句摘要（不另写一份人为描述，避免与
 
 ### compressed_turn.go
 

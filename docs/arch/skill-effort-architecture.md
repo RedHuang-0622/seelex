@@ -17,18 +17,22 @@ Effort 和 Skill 都会影响模型行为，但二者属于不同信任与生命
 核心不变量：
 
 1. Skill 名称、描述和指令不写入 system prompt。
-2. `#skillname 需求` 中的完整原始输入必须真正发送给 Engine。
+2. `$skillname 需求` 中的完整原始输入必须真正发送给 Engine。
 3. UI、输入队列和恢复后的会话只展示用户原文，不展示内部 Skill envelope。
-4. Skill 仍然支持多层活动状态和 LIFO `#end`。
+4. Skill 仍然支持多层活动状态和 LIFO `$end`。
 5. 排队请求使用提交时的 Skill 快照，后续激活或退栈不改写它。
+
+输入前缀的权威表（`/` 命令、`#` 插件、`$` Skill、`@` 召唤团队）在
+`application/core/completion.go` 与 `application/core/input_router/router.go`，
+理由与后果见 `docs/gui/decisions.md` ADR-GUI-021；本文只描述 Skill 一条支路。
 
 ## 2. 总体数据流
 
 ```text
-TUI / GUI Submit("#review 检查并修复")
+TUI / GUI Submit("$review 检查并修复")
                  │
                  ▼
-Service.Submit ──识别 #/slash Skill──► activateSkillAndSubmit
+Service.Submit ──识别 $/slash Skill──► activateSkillAndSubmit
                  │                          │
                  │                          ├─ PromptStack.Push(kind=skill)
                  │                          └─ 有需求时继续 submitConversation
@@ -63,12 +67,12 @@ identity → plugin/base → effort → instructions
 
 | 输入 | Application 行为 | 是否启动 Chat |
 |------|------------------|:-------------:|
-| `#review 检查并修复问题` | 激活 `review`，发送完整原始输入 | 是，或进入队列 |
-| `#review` | 仅激活 `review` | 否 |
+| `$review 检查并修复问题` | 激活 `review`，发送完整原始输入 | 是，或进入队列 |
+| `$review` | 仅激活 `review` | 否 |
 | 活动后输入 `检查问题` | 携带所有活动 Skill | 是 |
-| `#end` | 退栈最后一个 Skill，恢复 Effort MaxLoops | 否 |
-| `#unknown 问题` | 添加未知 Skill notice | 否 |
-| `/review 检查问题` | slash Skill 别名，契约与 `#review` 相同 | 是，或进入队列 |
+| `$end` | 退栈最后一个 Skill，恢复 Effort MaxLoops | 否 |
+| `$unknown 问题` | 添加未知 Skill notice | 否 |
+| `/review 检查问题` | slash Skill 别名，契约与 `$review` 相同 | 是，或进入队列 |
 
 判断“是否包含需求”使用解析后的参数数量，但发送给模型的是 `strings.TrimSpace` 后的完整原始输入，不用参数重组问题，因此引号、标点和多空格之外的语义不会丢失。
 
@@ -84,7 +88,7 @@ identity → plugin/base → effort → instructions
     检查正确性并给出证据。
 
 ## User Request
-#review 检查这个实现
+$review 检查这个实现
 ```
 
 规则：
@@ -115,7 +119,7 @@ type chatRequest struct {
 3. 只生成一个外层 envelope，供最终历史恢复组合后的 display；
 4. 任何一个队列项携带 Skill 时，组合 model input 都被 envelope 包装。
 
-这样既保持原有“排队消息批量接续”语义，也不会因 `#end` 或新 Skill 改变排队期间已固化的请求。
+这样既保持原有“排队消息批量接续”语义，也不会因 `$end` 或新 Skill 改变排队期间已固化的请求。
 
 ## 7. History 与前端适配
 
@@ -138,7 +142,7 @@ Effort 继续通过 `application/prompt/effort.go` 管理 system prompt 行为�
 | high | 384 | 有 |
 | max | 768 | 有 |
 
-`goal` Skill 激活时临时设置 `MaxLoops=9999`。`#end` 会重新应用当前 Effort，从而恢复其 MaxLoops。Skill 指令仍走用户消息，Goal 的循环上限特例与提示词传输位置相互独立。
+`goal` Skill 激活时临时设置 `MaxLoops=9999`。`$end` 会重新应用当前 Effort，从而恢复其 MaxLoops。Skill 指令仍走用户消息，Goal 的循环上限特例与提示词传输位置相互独立。
 
 ## 9. 实现决策
 
@@ -153,7 +157,7 @@ Effort 继续通过 `application/prompt/effort.go` 管理 system prompt 行为�
 
 未采用的方案：
 
-- 把 Skill 写入 system prompt：不满足角色隔离要求，并会把 `#skill 需求` 中的问题提升为系统内容；
+- 把 Skill 写入 system prompt：不满足角色隔离要求，并会把 `$skill 需求` 中的问题提升为系统内容；
 - 只发送需求、不发送 Skill 指令：模型无法执行被选择的 Skill；
 - UI 直接显示 Engine input：会泄漏长 Skill 指令并破坏聊天可读性；
 - 在 Chat 执行时再读取活动 Skill：排队期间的 `#end` 会改变用户原先提交的语义。

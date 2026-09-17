@@ -32,7 +32,7 @@ export function createChatView(elements, conversationView) {
     elements.prompt.disabled = false;
     elements["send-button"].title = running ? "加入队列" : "发送";
     elements["send-button"].setAttribute("aria-label", running ? "加入队列" : "发送");
-    elements.prompt.placeholder = running ? "继续输入，Enter 加入队列" : "描述任务，输入 / 查看命令，输入 # 加载 Skill";
+    elements.prompt.placeholder = running ? "继续输入，Enter 加入队列" : "描述任务，输入 / 查看命令，# 切换插件，$ 召回 Skill，@ 手动召唤团队";
     elements.composer.classList.toggle("is-running", running);
     elements["stop-button"].classList.toggle("hidden", !running);
     elements["connection-dot"].classList.add("online");

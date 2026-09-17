@@ -2,6 +2,18 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-09-17
+
+### Changed
+
+- 输入前缀（sigil）改为**一字符一含义**：`/` 命令与工具、`#` 切换 Plugin、
+  `$` 召回 Skill、`@` 手动召唤团队。此前 `#` 是 Skill、`@` 是 Plugin；`@` 让位给
+  「手动召唤团队」是因为团队此前只能由 goal 上线时自动装配，人没有显式入口。
+  前端 `SIGILS`/`SIGIL_PATTERN`、面板 `data-trigger`、composer 占位提示同步更新；
+  旧前缀不静默兜底，未命中时后端补一句迁移提示（`#review` → "召回 Skill 用 $review"）。
+  决策与后果见 `docs/gui/decisions.md` ADR-GUI-021，模块口径见
+  `modules/shell-and-interactions.md` 第 6 节。
+
 ## 2026-09-13
 
 ### Fixed

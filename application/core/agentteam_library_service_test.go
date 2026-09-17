@@ -88,6 +88,14 @@ func (s *librarySessions) writeCount() int {
 	return s.writes
 }
 
+// setLibrary 覆盖夹具的团队库（加锁）：用例要先造一份"已经存过团队"的库时走它，
+// 不直接写字段（同见 fixture_concurrency_test.go 的守卫）。
+func (s *librarySessions) setLibrary(library dto.TeamLibrary) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.library = library
+}
+
 // fakeRolePrompt 是"员工提示词一次有界优化"的端口桩。
 type fakeRolePrompt struct {
 	requests []dto.RolePromptOptimizeRequest

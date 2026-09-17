@@ -14,9 +14,10 @@ func renderSuggestions(suggestions []application.Suggestion, selected, offset, w
 	if count == 0 {
 		return ""
 	}
-	trigger := "/"
-	if strings.HasPrefix(input, "#") {
-		trigger = "#"
+	// 前缀来自输入本身（与 acceptSuggestion 同一条口径：sigil 契约在 application）。
+	trigger := application.SigilOf(input)
+	if trigger == "" {
+		trigger = application.SigilCommand
 	}
 	if selected < offset {
 		offset = selected

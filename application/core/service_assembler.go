@@ -173,8 +173,9 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	})
 	service.components.input = newInputRouter(inputRouteHandlers{
 		Command: service.submitCommand,
+		Plugin:  service.submitPluginSwitch,
 		Skill:   service.submitSkill,
-		Plugin:  service.SwitchPlugin,
+		Team:    service.submitTeam,
 		Conversation: func(ctx context.Context, input string) error {
 			service.prepareCompletedTaskBoundary()
 			return service.submitConversation(ctx, input)

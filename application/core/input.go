@@ -52,10 +52,29 @@ func (service *Service) submitSkill(ctx context.Context, name string, args []str
 	}
 	skill, ok := service.Deps.Skills.Get(name)
 	if !ok {
-		service.addNotice("未知 Skill: " + name)
+		notice := "未知 Skill: " + name
+		if hint := service.sigilMigrationHint(SigilSkill, name); hint != "" {
+			notice += hint
+		}
+		service.addNotice(notice)
 		return nil
 	}
 	return service.activateSkillAndSubmit(ctx, skill, args, input)
+}
+
+// submitPluginSwitch 是 `#` 前缀的落点：切换/停用插件。
+//
+// 只在"名字其实属于别的域"时补一句 notice——那正是旧前缀肌肉记忆的症状
+// （`#` 曾经是"召回 Skill"）；其它失败原样返回错误，由调用方按既有口径呈现，
+// 不在这里重复一份错误文案。
+func (service *Service) submitPluginSwitch(ctx context.Context, name string) error {
+	if err := service.SwitchPlugin(ctx, name); err != nil {
+		if hint := service.sigilMigrationHint(SigilPlugin, name); hint != "" {
+			service.addNotice(fmt.Sprintf("未知 Plugin: %s%s", name, hint))
+		}
+		return err
+	}
+	return nil
 }
 
 func (service *Service) endSkill() error {

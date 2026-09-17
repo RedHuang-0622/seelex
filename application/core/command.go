@@ -26,7 +26,8 @@ func (service *Service) registerBuiltinCommands() error {
 		for _, command := range service.commands.All() {
 			fmt.Fprintf(&builder, "  /%-12s  %s\n", command.Name(), command.Description())
 		}
-		builder.WriteString("\n提示: /=命令  #=Skill")
+		builder.WriteString(fmt.Sprintf("\n提示: %s=命令  %s=切换插件  %s=召回 Skill  %s=手动召唤团队",
+			SigilCommand, SigilPlugin, SigilSkill, SigilTeam))
 		return CommandResult{Notice: builder.String()}, nil
 	})
 	register("clear", "清空对话历史", func(context.Context, []string) (CommandResult, error) {
