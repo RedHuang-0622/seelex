@@ -1,6 +1,6 @@
 # mcp 域
 
-## 模块定位
+## 生态位
 
 承载 Seelex 的 MCP 服务器生命周期：provider 懒创建、breaker 事件通道、
 lazy 冷启动登记、attach/detach/refresh、工具重挂载。主要调用方：
@@ -15,11 +15,39 @@ lazy 冷启动登记、attach/detach/refresh、工具重挂载。主要调用方
 
 ## 与其它域的关系
 
-```text
-runtime/ports.go ──► mcp.Manager ──► frameworkmcp.Provider
-     │                     │
-     │                     └──► mcpstack（ListenBreaker 记录熔断 trace）
-     └──► tools.Registry（经 RegistryPort 重挂载工具）
+```mermaid
+flowchart LR
+    RUNTIME["runtime/ports.go"] --> MGR["mcp.Manager"]
+    MAIN["main.go 冷启动装配"] --> MGR
+    MGR --> PROVIDER["frameworkmcp.Provider<br/>懒创建"]
+    MGR --> BREAKER["breaker 事件通道"]
+    BREAKER --> STACK["mcpstack：ListenBreaker 记录熔断 trace"]
+    MGR --> REG["tools.Registry（经 RegistryPort）重挂载工具"]
+    REG --> VIS["可见工具集（每次请求经可见性策略过滤）"]
+```
+
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as main.go
+    participant MGR as mcp.Manager
+    participant P as frameworkmcp.Provider
+    participant R as tools.Registry
+
+    M->>MGR: 冷启动登记（lazy：只记配置，不建连接）
+    MGR->>MGR: ToFramework（传输中立配置校验与转换）
+    Note over MGR,P: 首次真正需要时才创建 provider
+    MGR->>P: attach / refresh
+    P-->>MGR: 工具列表
+    MGR->>R: 重挂载工具（RegistryPort）
+    alt 上游不可用
+        P-->>MGR: 错误 / 熔断
+        MGR->>MGR: breaker 事件（进入 mcpstack trace）
+        MGR->>R: 撤销本次挂载
+    end
+    M->>MGR: detach / 关闭
 ```
 
 ## 核心实现

@@ -1,5 +1,7 @@
 # Plan
 
+## 生态位
+
 `seelebridge/plan` 承载 Plan 执行域（依赖方向：根 facade → plan；plan 不反向
 依赖 seelebridge 根包，共享账号类型经 `internal/model`，节点负载类型本包导出）：
 
@@ -29,16 +31,32 @@
 
 ## 与其它域的关系
 
-```text
-plan ──►(agent 节点)──► node（执行内核）
-  │                        │
-  │                        ├──► worktree（独立工作区）
-  │                        └──► task（终态打点）
-  └──► fork（编程式 DAG 特例，复用 NodeFactory）
+```mermaid
+flowchart LR
+    PLAN["plan：DAG 描述与调度"] -->|agent 节点| NODE["node：执行内核"]
+    NODE --> WT["worktree：独立工作区生命周期"]
+    NODE --> TASK["task：终态打点"]
+    PLAN -->|编程式 DAG 特例，复用 NodeFactory| FORK["fork"]
+    PLAN --> PROJ["EventSink → dto.PlanNodeEvent"]
+    PROJ --> FE["GUI / TUI Plan 面板"]
 ```
 
 plan 是 DAG 描述与调度；agent 节点委托 node 执行；fork 是 plan 的编程式
 特例；事件经 EventSink 投影为 dto.PlanNodeEvent 供前端消费。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    LOAD["plan_load<br/>NormalizePlanLoadArguments"] --> VALID["校验：节点引用 / 边 / 拓扑 / 环"]
+    VALID --> POLICY["PlanPolicy：effort 约束与并发解析"]
+    POLICY --> RUN["plan_run → Executor.RunPlan"]
+    RUN --> CKPT["运行中落 checkpoint 快照"]
+    RUN --> EV["PlanNodeEvent 事件轨（run / node 关联）"]
+    CKPT --> RESUME["ResumePlan(snapshotID) 从快照节点续跑"]
+    FAIL["节点失败"] --> REPLAN["PlanPreflight + ReplanGuard<br/>只替换剩余恢复流程"]
+    REPLAN --> RUN
+```
 
 ## 验证
 

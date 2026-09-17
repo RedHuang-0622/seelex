@@ -14,6 +14,31 @@
 `type` 指定厂商名）。选型依据见
 [docs/research/websearch-provider-design-research-2026-08.md](../../docs/research/websearch-provider-design-research-2026-08.md)。
 
+## 架构图
+
+```mermaid
+flowchart TB
+    CALLER["seelebridge/tools/websearch<br/>工具装配点"] --> STRATEGY["Strategy 统一接口"]
+    CALLER2["application 门面（兼容转发）"] --> STRATEGY
+
+    subgraph ASSEMBLE["Assemble：装配器"]
+        CFG["配置驱动选择"]
+        REG["内置适配器注册表"]
+    end
+
+    subgraph IMPL["策略实现"]
+        TAVILY["tavily 适配器"]
+        BOCHA["bochaai 适配器"]
+        SEARX["searxng 适配器"]
+        GATEWAY["标准协议端点（自建网关，零代码接入）"]
+    end
+
+    STRATEGY --> ASSEMBLE
+    ASSEMBLE --> IMPL
+    IMPL --> HTTP["HTTP 请求与响应解析"]
+    HTTP --> RESULT["统一结果（供工具返回模型）"]
+```
+
 ## 职责与非职责
 
 职责：

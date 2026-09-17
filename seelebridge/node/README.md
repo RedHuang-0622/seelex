@@ -1,6 +1,6 @@
 # seelebridge/node — 节点子代理执行域
 
-## 模块定位
+## 生态位
 
 承载 `plan kind:agent` 节点的子代理执行包装与节点级提示词装配。主要调用方：
 
@@ -10,16 +10,50 @@
 
 ## 与其它域的关系
 
-```text
-plan ──►(agent 节点)──► node ──► session（子代理会话/上下文）
-  │                        │
-  │                        ├──► worktree（独立工作区生命周期）
-  │                        └──► task（task 注册表终态打点）
-  └──► fork（构造 DAG 复用 node；subagent = node 产生的子会话执行体）
+```mermaid
+flowchart LR
+    PLAN["plan"] -->|agent 节点| NODE["node.AgentNode"]
+    FORK["fork：构造 DAG 复用 node"] --> NODE
+    NODE --> SESSION["session：子代理会话 / 上下文"]
+    NODE --> WT["worktree：独立工作区生命周期"]
+    NODE --> TASK["task：终态打点"]
+    NODE --> MB["merge-back → Runtime mailbox → 主会话下一次 ChatStream"]
 ```
 
 subagent 是 node 域产生的子代理执行体；fork 编排其并行；plan 描述 DAG；
 node 是执行内核（经 Coordinator.Deps 使用 session/worktree/task）。
+
+## 时序图：一个节点的完整生命周期
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as plan_run
+    participant N as AgentNode.Run
+    participant W as worktree
+    participant F as factory.NewAgent
+    participant S as 子代理会话
+    participant R as 根包（Runtime）
+
+    P->>N: Run(ctx)
+    N->>N: scope() 惰性解析（binding 已冻结）
+    N->>W: BeginNodeWorktree(RoleSubAgent)
+    N->>N: WithNodeScope + AppendNodePhase(running)
+    N->>N: WithNodePromptBlocks
+    N->>F: factory.NewAgent(charter + 匹配的 skills)
+    F->>S: RegisterNodeSession
+    S->>S: Chat（流式执行，工具面按 sub 主体收窄）
+    S-->>R: 阶段日志与工具活动（经 Deps 回调）
+    N->>R: CompleteSubagentNode（终态打点）
+    N->>R: mergeBack（失败也执行，幂等）
+    alt rebase / 审批 / merge 失败
+        N->>N: 节点失败，现场保留
+    else 子代理留下未提交改动
+        N->>N: 降级为产出末尾显式警告，节点仍成功
+    else 正常收尾
+        N->>W: FinishNodeWorktree / ReleaseNodeWorktree
+    end
+```
 
 ## 职责与非职责
 

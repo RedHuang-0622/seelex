@@ -1,6 +1,6 @@
 # account 域
 
-## 模块定位
+## 生态位
 
 承载 Seelex 的账号装配与选择：从账号配置构造同步 Completer、注册进 P2C
 账号池、按 role+seed 稳定哈希解析节点账号。主要调用方：根包 `runtime.go`
@@ -15,11 +15,19 @@
 
 ## 与其它域的关系
 
-```text
-runtime（组合根） ──► account ──►（accountpool / api.ChatClient）
-     │
-     └──► node ──►（节点账号路由复用 ResolveForBranch）
+```mermaid
+flowchart LR
+    CFG["账号配置<br/>config.LoadTolerant"] --> CLIENT["ClientFor(spec)<br/>每账号一个独立 ChatClient"]
+    RUNTIME["runtime（组合根）"] --> CLIENT
+    CLIENT --> POOL["accountpool.P2CPool"]
+    POOL --> ROLE["ForRole(agent / subagent / goalplan / websearch)"]
+    ROLE --> BRANCH["ResolveForBranch<br/>role + branch ID 确定性哈希"]
+    BRANCH --> NODE["node：节点账号路由"]
+    POOL --> STREAM["流式租约：保持到 EOF / 错误 / 显式 Close"]
 ```
+
+同一份 DAG 的账号路由可复现（哈希而非随机），因此并发子代理不会争用同一额度，
+也便于按角色核算成本。
 
 ## 核心实现
 

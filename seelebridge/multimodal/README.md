@@ -6,6 +6,19 @@
 最小的带图同步请求客户端。主要调用方是 Seelex 侧需要“发图给模型”的能力（例如截屏
 工具、真机冒烟测试），以及后续接入引擎对话链路的适配代码。
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    MEDIA["sessionstore.MediaStore<br/>内容寻址媒体资产"] --> SRC["ImageSource<br/>读成可下发字节"]
+    SRC --> ENC["编码 OpenAI 兼容 content parts<br/>text + image_url（data URL）"]
+    ENC --> REQ["带图请求"]
+    REQ --> CLIENT["最小带图同步客户端"]
+    CLIENT --> PROVIDER["provider endpoint"]
+    PROVIDER -->|失败| FAIL["显式失败语义（不静默降级成纯文本）"]
+    NOTE["不做：截图 / 落盘 / 配额与 GC<br/>（归 sessionstore 媒体分区）"] -.-> MEDIA
+```
+
 ## 职责与非职责
 
 职责：
@@ -17,7 +30,7 @@
 刻意不做：
 
 - 不截图、不落盘、不管配额与 GC（那是 `sessionstore` 媒体分区的事）。
-- 不替换引擎的对话循环。Seele v0.1.3 的 `types.Message.Content` 是 `*string`
+- 不替换引擎的对话循环。Seele 的 `types.Message.Content` 是 `*string`（v0.3.0 实测）
   （纯文本），带图请求无法经引擎下发；本包是这一能力缺口的 Seelex 侧适配，
   等 Seele 支持 content parts 后由引擎接管，本包只保留编码与冒烟用途。
 - 不读取账号配置、不打印凭据（`Config.APIKey` 只进 Authorization 头）。

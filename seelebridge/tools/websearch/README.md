@@ -6,6 +6,21 @@
 从账号池 YAML 的 `websearch` 段加载配置，由 `search.Assemble` 装配出代理
 策略，再注册为 `web_search` 工具。主要调用方是 composition root（`main.go`）。
 
+## 数据流图
+
+```mermaid
+flowchart LR
+    YAML["账号池 YAML 的 websearch 段"] --> LOAD["配置加载"]
+    LOAD --> ASM["search.Assemble<br/>引擎无关策略装配"]
+    ASM --> STRAT["Strategy 实现<br/>tavily / bochaai / searxng / 自建网关"]
+    STRAT --> REG["ToolRegistrar.Register<br/>web_search 工具"]
+    REG --> MODEL["模型可调用 web_search"]
+    ASM -->|没有可用策略| PLACE["注册占位工具<br/>给出 websearch.strategies 修复指引"]
+```
+
+本包只做「加载 → 装配 → 注册」，不实现搜索逻辑（归
+[`seelebridge/search`](../../search/README.md)），也不持有账号池生命周期。
+
 ## 职责与非职责
 
 职责：

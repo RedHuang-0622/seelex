@@ -1,9 +1,31 @@
 # Telemetry
 
+## 生态位
+
 `seelebridge/internal/telemetry` 承载内存遥测追踪器、生命周期钩子、
 `Chain` 组合器与 `SummaryHook` 脱敏摘要的构造（薄封装 `Seele/telemetry`）。
 属于根 facade 的装配细节，置于 internal/；根包以 `seeletelemetry` 别名直接
 import 使用，不再有重导出层。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    FRAME["Seele telemetry"] --> TRACER["NewTracer<br/>内存追踪器"]
+    FRAME --> LIFE["NewLifecycleHook<br/>llm / tool intent-effect 钩子"]
+
+    subgraph CHAIN["Chain：钩子链组合器（Wrapper 装饰器形态）"]
+        DIAG["DiagnosticHook<br/>bash 停滞诊断"]
+        STAGE["StageHook<br/>node 第一视角阶段日志"]
+        SUM["SummaryHook<br/>B 类 llm/tool 脱敏摘要"]
+    end
+
+    LIFE --> CHAIN
+    CHAIN --> OUT1["统一事件库（脱敏摘要同库持久化）"]
+    CHAIN --> OUT2["application 订阅（进度与诊断）"]
+    ERR["OnError 传播"] -->|最外层 → 最内层<br/>只发给实现 ErrorHook 的钩子| CHAIN
+    NOTE["透传、nil 兜底与 ErrorHook 传播集中在 Chain<br/>新增观察面不再手抄透传样板"] -.-> CHAIN
+```
 
 ## 关键组件
 

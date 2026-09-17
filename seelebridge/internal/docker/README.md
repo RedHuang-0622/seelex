@@ -1,6 +1,6 @@
 # internal/docker 域
 
-## 模块定位
+## 生态位
 
 承载 Docker 守护进程自动恢复（2026-08-07 根治）：bash 工具失败且错误匹配
 daemon-down 模式 → 自动启动 Docker Desktop → 轮询就绪 → 调用方重跑一次
@@ -14,11 +14,18 @@ daemon-down 模式 → 自动启动 Docker Desktop → 轮询就绪 → 调用�
 
 ## 与其它域的关系
 
-```text
-tools.Router ──► docker.EnsureForRuntime ──► Prober（docker info / Desktop 启动）
-     │                    │
-     └──► IsDaemonDown ◄──┘（bash 失败输出判定）
+```mermaid
+flowchart LR
+    ROUTER["tools.Router（bash 工具）"] --> ENSURE["docker.EnsureForRuntime"]
+    ENSURE --> JUDGE["IsDaemonDown：daemon-down 模式判定"]
+    JUDGE -->|命中| START["Prober：启动 Docker Desktop"]
+    START --> POLL["轮询 docker info 就绪"]
+    POLL --> RETRY["调用方重跑一次原命令"]
+    JUDGE -->|未命中| PASS["原错误直接上抛"]
+    RETRY --> HINT["Hint：模型可读提示"]
 ```
+
+只做「恢复守护进程」这一件事：容器编排、镜像管理等 docker 业务能力不在此域。
 
 ## 核心实现
 

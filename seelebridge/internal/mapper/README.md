@@ -1,6 +1,6 @@
 # seelebridge/internal/mapper
 
-## 定位
+## 生态位
 
 `seelebridge/internal/mapper` 是 seelebridge 内部的**无业务转换**层：集中
 运行态结构（`seelebridge/internal/model`、`seelebridge/session` 等）与对外
@@ -11,6 +11,17 @@
 
 - 职责：纯字段映射（如 `Duration` → `DurationMS`）、类型投影。
 - 非职责：不做截断、校验、权限、策略或状态迁移；这些留在调用方业务代码。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    INTERNAL["seelebridge/internal/model<br/>seelebridge/session 等运行态结构"] --> MAPPER["internal/mapper<br/>纯字段映射"]
+    MAPPER --> DTO["application/contract/dto<br/>对外契约形状"]
+    DTO --> APP["application/core"]
+    APP --> FE["GUI / TUI"]
+    NOTE["禁止：业务文件里散落内联拷贝<br/>禁止：映射层做截断 / 校验 / 权限判定"] -.-> MAPPER
+```
 
 ## 目录结构
 

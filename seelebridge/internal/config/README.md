@@ -1,5 +1,7 @@
 # Config
 
+## 生态位
+
 `seelebridge/internal/config` 承载简化账号 YAML（accounts*.yaml 角色分组格式）
 的加载：产出账号规格（`model.AccountSpec`）与 Seelex 侧上下文/输出预算
 （`Config`/`AccountLimits`）。属于根 facade 的装配细节（仅 runtime.go 使用），
@@ -12,6 +14,20 @@
 在同一失败场景下返回内置兜底账号配置，并把原始错误作为非致命启动警告交还
 调用方——配置写错时应用照常启动，错误原因由 GUI/TUI 展示，而不是启动即退出。
 配置文件缺失仍视为正常回退（无警告）。
+
+## 数据流图
+
+```mermaid
+flowchart LR
+    YAML["accounts*.yaml<br/>角色分组格式"] --> LOAD["Load（严格）"]
+    YAML --> TOL["LoadTolerant（容错）"]
+    LOAD -->|解析失败| ERR["返回错误"]
+    TOL -->|解析失败 / 未配置任何角色| FALLBACK["内置兜底账号 + 启动警告"]
+    TOL -->|正常| SPECS["model.AccountSpec[] + Config / AccountLimits"]
+    SPECS --> RUNTIME["runtime.go 装配（账号池注册）"]
+    ERR -.-> ROOT["组合根决定是否终止"]
+    FALLBACK --> RUNTIME
+```
 
 ## 账号并发租约
 

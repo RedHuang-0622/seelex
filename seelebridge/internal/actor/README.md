@@ -1,6 +1,6 @@
 # seelebridge/internal/actor
 
-## 定位
+## 生态位
 
 `seelebridge/internal/actor` 是 seelebridge 内部的**单消费者 actor 底座**：
 统一"有界命令通道 + 唯一消费者 goroutine + done 关闭 + WaitGroup + 带超时
@@ -12,6 +12,32 @@ actor 复用。handler 由调用方闭包提供，回复类型域相关由命令
 - 职责：命令投递（阻塞/超时/非阻塞）、单消费者串行不变量、关闭与等待。
 - 非职责：不感知命令语义、不管理回复类型、不做业务状态迁移。命令的
   reply 通道由各域命令结构携带，handler 负责写回复。
+
+## 架构图
+
+```mermaid
+flowchart LR
+    CALLER["调用方（task 注册表 / 子代理会话 / 上下文 mailbox）"] -->|投递命令<br/>阻塞 / 带超时 / 非阻塞| CH["有界命令通道"]
+    CH --> LOOP["唯一消费者 goroutine<br/>串行执行 handler"]
+    LOOP --> H["handler（调用方闭包）"]
+    H --> REPLY["命令自带的 reply 通道"]
+    REPLY --> CALLER
+    LOOP --> DONE["done 关闭 + WaitGroup"]
+    CLOSE["Close（幂等）"] --> DONE
+    DONE --> LEAK["不漏 goroutine、不重复关闭"]
+```
+
+## 生命周期状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running: New 启动消费者
+    Running --> Running: 投递命令 / 串行处理
+    Running --> Draining: Close（停止接收新命令）
+    Draining --> Closed: 排空在途命令并关闭 done
+    Closed --> Closed: 再次 Close 幂等返回
+    Closed --> [*]
+```
 
 ## 核心实现
 

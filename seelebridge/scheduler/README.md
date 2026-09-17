@@ -1,6 +1,6 @@
 # scheduler 域
 
-## 模块定位
+## 生态位
 
 承载 seelex 的定时/周期任务 actor：标准库 time.Ticker 驱动单循环 goroutine，
 任务两类（command 白名单命令 / prompt 复用 agent 会话），排期两种：
@@ -16,11 +16,34 @@
 
 ## 与其它域的关系
 
-```text
-runtime/ports.go ──► scheduler.State ──► security（ScrubEnvironment）
-     │
-     └──► application Submit（经 PromptExecutor 闭包注入）
+```mermaid
+flowchart LR
+    RUNTIME["runtime/ports.go"] --> ST["scheduler.State<br/>单循环 goroutine（time.Ticker）"]
+    MAIN["main.go：白名单与执行器装配"] --> ST
+    ST --> T1["command 任务<br/>白名单 argv 直传 + 环境清洗 + 超时"]
+    T1 --> SEC["security.ScrubEnvironment"]
+    ST --> T2["prompt 任务"]
+    T2 --> EXEC["PromptExecutor 闭包"]
+    EXEC --> APP["application Submit（复用会话执行器）"]
+    ST --> SNAP["状态快照 + schedule.registered / cancelled / fired 事件"]
 ```
+
+## 排期状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> Registered: 登记（sch.registered 事件）
+    Registered --> Waiting: 计算下次触发时间
+    Waiting --> Fired: 到达触发点（sch.fired 事件）
+    Fired --> Waiting: 周期任务（hour / day / week / month / Interval）
+    Fired --> Done: 一次性任务（RunAt）
+    Registered --> Cancelled: 取消（sch.cancelled 事件）
+    Waiting --> Cancelled: 取消
+    Done --> [*]
+    Cancelled --> [*]
+```
+
+`month` 是日历月：月末日期自动钳制（如 1-31 加 1 月 → 2-28/29）。
 
 ## 核心实现
 

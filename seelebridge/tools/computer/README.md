@@ -11,6 +11,55 @@
 | MCP stdio 服务端（`mcp/`） | Codex 之类的外部宿主 | base64 内联在 MCP 工具结果里，由宿主自己决定放不放上下文 |
 | Seelex 工具族（`tools*.go`） | Seelex 自己的 agent（经 `seelebridge.Runtime` 注册） | 存进会话媒体分区（`media:<hash>`），再经 `imageattach` 队列随**下一次模型请求**送入（至多送一次） |
 
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph PRIM["原语层（平台无关函数；不支持平台注册桩）"]
+        SCR["截屏"]
+        MOU["鼠标：点击 / 移动 / 拖拽 / 滚动"]
+        KEY["键盘：输入 / 按键"]
+        WIN["窗口枚举 / 聚焦 / 等待"]
+        DPI["EnableDPIAwareness<br/>Per-Monitor V2"]
+    end
+
+    subgraph MCPFACE["MCP stdio 服务端（mcp/）"]
+        RPC["JSON-RPC 编解码 + 参数校验"]
+    end
+
+    subgraph TOOLFACE["Seelex 工具族（tools*.go）"]
+        REG["经 Runtime 注册 computer_* 工具"]
+        LIMIT["参数校验 + 上限钳制"]
+        MEDIA["媒体落盘：内容寻址 media:hash"]
+        QUEUE["随图入队（至多送一次）"]
+    end
+
+    HOST["外部宿主（Codex 之类）"] --> RPC
+    RPC --> PRIM
+    AGENT["Seelex agent"] --> REG
+    REG --> LIMIT
+    LIMIT --> PRIM
+    PRIM --> SCR
+    SCR --> MEDIA
+    MEDIA --> QUEUE
+    QUEUE --> NEXT["下一次模型请求"]
+    RPC --> BASE64["base64 内联在 MCP 结果里<br/>放不放上下文由宿主决定"]
+    SCR --> BASE64
+```
+
+## 门控与权限
+
+```mermaid
+flowchart LR
+    CALL["computer_* 调用"] --> P1{"平台支持？"}
+    P1 -->|否| NO["不注册工具"]
+    P1 -->|是| P2{"SEELEX_COMPUTER_USE 总开关"}
+    P2 -->|0 / off / false / no| OFF["整体关闭"]
+    P2 -->|开| P3{"主体类"}
+    P3 -->|root| ASK["按 rules 逐次 allow / ask / deny"]
+    P3 -->|sub| READONLY["只见 computer_screenshot / computer_windows / computer_wait"]
+```
+
 ## 职责与非职责
 
 职责：

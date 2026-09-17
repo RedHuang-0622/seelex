@@ -1,6 +1,6 @@
 # plugin 域
 
-## 模块定位
+## 生态位
 
 承载 Runtime 的插件可见性**执行面**：插件不再控制 holder，而是作为
 `bridge.WithVisibilityPolicy` 的输入——激活插件时按 include/exclude 过滤
@@ -22,11 +22,19 @@
 
 ## 与其它域的关系
 
-```text
-runtime.seelexVisibilityPolicy ──► plugin.Manager.Filter ──► bridge 可见性策略
-     │
-     └──► node（GoalSkillActive 独立决定 plan 工具面）
+```mermaid
+flowchart LR
+    SOURCE["顶层 plugin.Manager<br/>manifest / skills / MCP 全量契约（事实源）"] -->|ToolBackend 单点推送| MGR["seelebridge/plugin.Manager<br/>defs 可见性投影缓存"]
+    ROOT["runtime.seelexVisibilityPolicy"] --> MGR
+    MGR --> FILTER["Filter：path.Match 通配"]
+    FILTER --> BRIDGE["bridge.WithVisibilityPolicy"]
+    BRIDGE --> REQ["每次请求的可见工具集快照"]
+    TX["plugin/apply.go Transaction"] -.->|保证更新原子| MGR
+    MGR -.->|独立决定 plan 工具面| NODE["node（GoalSkillActive）"]
 ```
+
+本包**不是**插件定义的事实源，只是可见性投影缓存；写路径只有根包一个入口，
+激活失败由事务逆序回滚。当前为单选（`active string`），多插件叠加属尚未落地的产品决策。
 
 ## 核心实现
 

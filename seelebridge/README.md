@@ -2,11 +2,49 @@
 
 ## 模块定位
 
-`seelebridge` 是 Seelex 与 Seele v0.0.8 新装配模型的防腐层。它把 Seele 的
+## 生态位
+
+`seelebridge` 是 Seelex 与 Seele（当前 `v0.3.0`，见 `go.mod`）之间的防腐层。它把 Seele 的
 `accountpool`（P2C 账号租约）、`agent`（NewWithComponents 装配）、`session`
-（主会话与节点子代理会话）、`tools`（Registry）、`workplan`（codec 导入 +
-事件投影）、`event`/`telemetry` 能力包装成 Seelex 可装配、可限制和可测试的
-Runtime，同时隔离上游 API 变化。
+（主会话与节点子代理会话）、`tools`（Registry + 主体×路由组×位的权限门）、
+`workplan`（codec 导入 + 事件投影）、`event`/`telemetry` 能力包装成 Seelex
+可装配、可限制和可测试的 Runtime，同时隔离上游 API 变化。
+
+主要调用方：根目录组合根（`main.go`）、`application/core` 经
+`application/contract` 端口消费、`gui`/`tui` 只经 Application 间接使用。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    ROOT["main.go 组合根"] --> RT["seelebridge.Runtime"]
+    APP["application/core（经 contract 端口）"] --> RT
+
+    subgraph ASSEMBLY["装配面（按域物理拆分）"]
+        R1["runtime.go：拓扑序装配链 + Shutdown 逆序关停"]
+        R2["runtime_tools / runtime_plan / runtime_context"]
+        R3["runtime_account / runtime_session / runtime_deps"]
+        R4["runtime_computer / runtime_image / runtime_role_*"]
+        R5["runtime_goal_tl：TLEvaluator 真实实现"]
+    end
+
+    subgraph DOMAIN["子包（域实现）"]
+        D1["security · fs · tools"]
+        D2["plan · node · fork · scheduler · task"]
+        D3["session · worktree · account"]
+        D4["mcp · plugin · search"]
+        D5["internal/actor · mapper · model · stream · telemetry · config · docker"]
+    end
+
+    SEELE["Seele runtime<br/>agent · session · tools · workplan · accountpool"]
+
+    RT --> ASSEMBLY
+    RT --> DOMAIN
+    D1 --> SEELE
+    D2 --> SEELE
+    D3 --> SEELE
+    D4 --> SEELE
+```
 
 ## 文件结构
 
@@ -24,12 +62,6 @@ Runtime，同时隔离上游 API 变化。
 | `events.go` | 事件体系双轨（workplan event.Sink ↔ telemetry.Hook）的短期收敛：关联字段说明 + 主会话 session_id 补全 |
 | `events_unified.go` | 统一事件库（解耦方案 §02.3/§04.7 长期形态）：B 类 llm/tool 脱敏摘要 `SummaryLog`（与 A 类事实同库持久化）+ 统一查询 `UnifiedEventReader`/`Runtime.UnifiedEvents` |
 
-## 配置容错
-
-`NewRuntime` 使用 `config.LoadTolerant` 加载账号配置：`accounts.yaml` 解析
-失败或未配置任何角色时自动退回内置兜底账号并继续装配，同时把原始错误记录为
-启动警告（`Runtime.StartupWarnings()`），由装配层展示给用户；应用不再因账号
-配置损坏而启动即退出。
 | `runtime_tools.go` | 工具注册表装配（RegistryState/内联工具/权限门）、RegisterBuiltins、可见性策略装配、Deps 闭包工厂 |
 | `runtime_computer.go` | computer use 工具族装配：`SEELEX_COMPUTER_USE` 门控 + 平台判定 + DPI 感知 + 注册（脚本面见 `tools/computer/tools*.go`） |
 | `runtime_image.go` | 随图链路：`AttachImage`/`PendingImageCount`/`wrapImageAttachments`（至多送一次）+ 截图媒体落盘与按 ref 读回（`storeSessionMedia`/`loadSessionMedia`/`mediaProjectIDFor`） |
@@ -37,6 +69,13 @@ Runtime，同时隔离上游 API 变化。
 | `runtime_goal_tl.go` | goal 域 `TLEvaluator` 的真实实现（主 completer + `TLDirective` JSON 契约）；ADVISOR 角色设定优先取已登记的员工提示词，**输出契约永远追加**（登记提示词改不掉解析格式） |
 | `runtime_role_turn.go` | **角色（员工）回合执行体**：`RunRoleTurn` 实现 `contract.RoleTurnPort`——开角色会话（独立引擎 + 角色提示）的同时把该员工的权限分配成 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx（`tools.WithEmployeeSubject`），工具面与判定因此按角色权责收窄；引擎构造可用 `SetRoleEngineFactory` 替换（测试/更严隔离面），`ReleaseRoleSessions` 在 Shutdown 释放派生执行面 |
 | `runtime_session.go` | 主会话绑定状态（sessionBindings：ctxStore/historyRouter/mainHistory/project/turnArchiver/sessionID）+ merge-back 内部方法 |
+
+## 配置容错
+
+`NewRuntime` 使用 `config.LoadTolerant` 加载账号配置：`accounts.yaml` 解析
+失败或未配置任何角色时自动退回内置兜底账号并继续装配，同时把原始错误记录为
+启动警告（`Runtime.StartupWarnings()`），由装配层展示给用户；应用不再因账号
+配置损坏而启动即退出。
 
 ## 子包结构
 
@@ -69,27 +108,6 @@ Runtime，同时隔离上游 API 变化。
 Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Router`、
 `mcp.Manager` 均为先例）。公开 DTO 统一走 `application/contract/dto`。
 
-## 子包结构
-
-`seelebridge` 根包是组合根 + 公共 facade；领域实现按模块下沉到子包：
-
-| 子包 | 内容 |
-|---|---|
-| `security/` | `ProjectScope` 项目根 containment + `PathGate` allow/ask/deny + `CommandSandbox` shell 隔离（见 `security/README.md`） |
-| `fs/` | `FileSystem` 文件系统 actor（写路径分片串行化，见 `fs/README.md`） |
-| `plan/` | Plan 执行域：`Executor`/`ToolProvider`/`PlanPolicy`/`PlanPreflight`/`PlanNodeEvent`/`ReplanGuard`/`SeelexNodeInput`/`PlanBranchBinding` 等（见 `plan/README.md`） |
-| `task/` | `TaskRegistry` actor、`TaskRecord`/`TodoItem` 共享 DTO、`TaskTerminalProvider`（见 `task/README.md`） |
-| `fork/` | `fork_subagents` 纯类型、summary 节点与执行编排 `Tool`（见 `fork/README.md`） |
-| `node/` | `kind:agent` 节点子代理执行域：`AgentNode`/`Deps`/预算/charter/skill 匹配（见 `node/README.md`） |
-| `session/` | 子代理会话注册表与父证据/merge-back 两个 actor（见 `session/README.md`） |
-| `worktree/` | 子代理 worktree 生命周期管理器（见 `worktree/README.md`） |
-| `tools/websearch/` | `web_search` 工具注册与账号池配置加载（见 `tools/websearch/README.md`） |
-| `search/` | Tavily Web Search 能力：账号池配置加载 + HTTP 客户端（自 `application/search` 迁入，见 `search/README.md`） |
-| `internal/model/` | 账号等各域共享的纯类型层（`AccountSpec`/`AccountRole`，无运行时依赖） |
-| `internal/config/` | 简化账号 YAML 加载（`Config`/`AccountLimits`/`Load`；根 facade 装配细节） |
-| `internal/stream/` | 流式账号 Completer 适配（`NewStreamingCompleter`） |
-| `internal/telemetry/` | 内存遥测追踪器/生命周期钩子构造（`NewTracer`/`NewLifecycleHook`） |
-
 根包只保留少量跨域**类型别名**（`ports.go`/`runtime.go`：`Account`、`MCPServer`、
 `NodeWorktree`/`NodeWorktreeInfo`、`ScheduledTask*`、`RuntimeVisibilityProjection`、
 `ParentEvidenceProjection`）；域类型由消费方直接 import 子包
@@ -113,7 +131,14 @@ Deps 闭包或端口接口注入（`node.Coordinator`、`fork.Tool`、`tools.Rou
    `PlanNodeEvent`，订阅者（Application）实时更新 Plan 状态与前端快照。
 6. `Shutdown` 关闭 MCP、账号池和后台资源。
 
-权限门始终保存一份 manual 基线配置。`Runtime.SetFullAccess(true)` 只把当前 checker 切到 `full_access`，`SetFullAccess(false)` 重新构造 manual checker；`Runtime.FullAccess()` 是 Application Snapshot 的权威状态来源。即使 CLI 以 `-permission full_access` 启动，composition root 也先装配 manual 规则和审批桥，再打开覆盖层，因此 GUI 可以安全切回 manual。
+权限门始终保存一份 `manual` 基线表。主会话档位是**声明式覆盖**（`permission_tiers.go:ApplyTier`）：
+只剪掉若干 `ask` 规则，从不新增 allow、从不触碰危险 `deny`，因此 `rm -rf` 根目录、
+`dd if=* of=*`、`mkfs*` 在任何档位下都保持硬拦。`Runtime.SetPermissionTierFor(sessionID, tier)`
+按会话切换 `manual` / `edit` / `auto` / `full`；`full` 档的执行门短路**只对 root 主体成立**
+（`class == root`），所以子代理与员工不会因为主会话切到 full 而被连带放行，它们仍走
+审批提权。`SetFullAccess*` / `FullAccessFor` 保留为兼容壳（`true ⇔ full`、`false ⇔ manual`），
+`Runtime.FullAccess()` 仍可作为 `full` 档的派生读面。即使 CLI 以 `-permission full` 启动，
+composition root 也先装配 `manual` 规则和审批桥，再打开覆盖层，因此 GUI 可以安全切回。
 
 主 Session 可通过 `AttachHistoryRouter` 独立装配 `sessionstore.DurableHistory`；指定恢复 ID 时 `NewMainSessionWithID` 同时用它作为框架 Session identity 和 durable key。该路径不读取或覆盖 `SessionContextStore` 的 application state blob。
 

@@ -1,5 +1,7 @@
 # Task
 
+## 生态位
+
 `seelebridge/task` 承载 worktable/task 注册表域：
 
 - `task.go`：`TaskRegistry` actor（mailbox 单消费者串行，按 task 键隔离状态）、
@@ -21,10 +23,31 @@
 
 ## 与其它域的关系
 
-```text
-node（完成/失败打点）──► task ──► application（worktable 投影）
-fork（幂等登记）────────►  │
-                            └──► tools（终态工具 provider 注册）
+```mermaid
+flowchart LR
+    NODE["node：完成/失败打点"] --> TASK["task.TaskRegistry actor"]
+    FORK["fork：幂等登记"] --> TASK
+    TODO["todo 清单族<br/>todo_init / todo_add / todo_done / todo_status"] --> TASK
+    ADD["task_add 主动任务"] --> TASK
+    TASK --> PROJ["application worktable 投影"]
+    TASK --> TERM["tools：终态工具 provider 注册<br/>task_complete / task_check_node / task_failed / task_needs_user_decision"]
+```
+
+## 状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: 登记条目
+    Pending --> Doing: 开始处理
+    Doing --> Completed: 完成
+    Completed --> Doing: retry 重开（仅前向）
+    Doing --> Failed: 失败
+    Failed --> Doing: retry 重开
+    Doing --> NeedsUserDecision: 需要人工决策
+    note right of Pending
+        kind=todo 只允许
+        pending / doing / completed 三态
+    end note
 ```
 
 task 是 worktable 状态面：node 完成/失败、fork 幂等登记均写 task；todolist

@@ -1,19 +1,40 @@
 # seelebridge/worktree — 子代理 worktree 生命周期域
 
-## 模块定位
+## 生态位
 
 承载子代理节点的独立 worktree 生命周期：创建（Begin）→ 执行期间工作区隔离 → 收尾（Finish：变基 → 提交判定 → 合并审批 → merge → 清理）→ 释放（Release）。主要调用方：根包 `worktree.go` 门面、`node/` 域 `AgentNode.Run` 经 `Deps.Begin/Finish/ReleaseNodeWorktree`。
 
 ## 与其它域的关系
 
-```text
-node ──► worktree ──► security（项目根校验）
-   │         │
-   └──► 根包接线（NodeWorktreeInfoFor / begin/finish/release）
+```mermaid
+flowchart LR
+    NODE["node"] --> WT["worktree.Manager"]
+    WT --> SEC["security：项目根校验"]
+    ROOT["根包接线<br/>NodeWorktreeInfoFor / begin / finish / release"] --> WT
+    WT --> INFO["NodeWorktreeInfo<br/>失败或被拒时现场保留"]
+    INFO --> HUMAN["人工恢复入口"]
 ```
 
 worktree 为 node 提供隔离工作区；生命周期由 node 编排、根包接线；失败/被拒
 路径现场保留供恢复（NodeWorktreeInfo）。
+
+## 生命周期状态
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created: Begin（git worktree add + 分支）
+    Created --> Running: 子代理在隔离工作区执行
+    Running --> Finishing: Finish
+    Finishing --> Rebasing: 变基到主线
+    Rebasing --> CommitCheck: 提交判定
+    CommitCheck --> Merging: 有改动 → 合并审批门
+    Merging --> Released: merge 成功 → 清理
+    CommitCheck --> Warned: 有未提交改动 → 降级为警告，现场保留
+    Rebasing --> Preserved: rebase / 审批 / merge 失败 → 节点失败，现场保留
+    Preserved --> Released: 人工处理后释放
+    Warned --> Released: 人工补提交后释放
+    Released --> [*]
+```
 
 ## 职责与非职责
 

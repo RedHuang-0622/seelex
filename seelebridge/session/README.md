@@ -1,19 +1,44 @@
 # seelebridge/session — 子代理会话与上下文 actor 域
 
-## 模块定位
+## 生态位
 
 承载子代理会话注册表与父证据/merge-back 两个 actor。主要调用方：根包 `runtime.go` 装配、`agent_node.go` 会话门面、`actor.go` 的 merge-back facade。
 
 ## 与其它域的关系
 
-```text
-node（producer）──► session（子代理会话/树/merge-back）──► fork/plan（消费者）
-                        │
-                        └──► worktree（节点会话的独立工作区）
+```mermaid
+flowchart LR
+    NODE["node（producer）"] --> SESSION["session<br/>子代理会话 / 树 / merge-back"]
+    SESSION --> CONSUMER["fork / plan（消费者）"]
+    SESSION --> WT["worktree：节点会话的独立工作区"]
+    SESSION --> ARCHIVE["节点工具结果归档 result_ref"]
+    SESSION --> MAIN["主会话下一次 ChatStream 注入"]
 ```
 
 session 承载子代理会话注册、fork 子代理树与 merge-back 队列；node 是
 producer，fork/plan 是消费者；节点工具结果归档（result_ref）也在本域托管。
+
+## 时序图
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant N as node.AgentNode
+    participant S as session.SubagentSessions
+    participant E as 引擎发布的历史检查点
+    participant M as 主会话
+
+    N->>S: RegisterNodeSession(nodeID, sessionID)
+    S->>S: 记录节点作用域与父证据
+    loop 执行中
+        N->>S: RecordStage（阶段日志，同一 node 自动补 SessionID）
+        S->>E: 读取运行中子会话历史（绝不阻塞 actor）
+    end
+    N->>S: RecordResult（预定义语义结果）
+    N->>S: CompleteSubagentNode + mergeBack
+    S->>S: 保留结束快照 + 归档节点工具结果
+    S-->>M: 经消息队列注入父会话上下文
+```
 
 ## 职责与非职责
 

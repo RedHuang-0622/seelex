@@ -1,5 +1,7 @@
 # Security
 
+## 生态位
+
 `seelebridge/security` 承载项目作用域、路径门禁与命令执行隔离的安全边界：
 
 - `project_scope.go`：`ProjectScope` 项目根 containment（fail-closed，无 fallback root）。
@@ -14,6 +16,41 @@
 被根包 `scoped_tools` / `runtime` / `scheduler` / `docker` / `worktree_manager` 消费；
 不反向依赖 `seelebridge` 根包；根包直接 import `security.*`（如
 `security.CommandSandbox`），不再有重导出层。
+
+## 架构图
+
+```mermaid
+flowchart TB
+    subgraph SCOPE["ProjectScope：物理边界（fail-closed）"]
+        BIND["BindFor(sessionKey, root)<br/>根按会话键分格"]
+        RESOLVE["ResolveRead / ResolveWriteFor<br/>canonical path 校验仍在 root 内"]
+        DEFAULT["DefaultScopeKey：进程默认根<br/>未绑定会话键回退"]
+    end
+
+    subgraph GATE["PathGate：策略边界"]
+        RULES["seele.yaml permission 段<br/>zone 级 read/write = allow / deny"]
+        DEC["AllowRead / AllowWrite"]
+    end
+
+    subgraph CMD["CommandSandbox：执行边界"]
+        CWD["项目 cwd 门禁"]
+        SCRUB["ScrubEnvironment：凭据环境清洗"]
+        TMO["超时"]
+    end
+
+    TOOL["scoped_tools / Router"] --> SCOPE
+    SCOPE --> GATE
+    GATE --> CMD
+    SCHED["scheduler / docker / worktree"] --> SCOPE
+    ROOT["seelebridge 根包"] --> SCOPE
+    ROOT --> GATE
+    ROOT --> CMD
+    NOTE["注意：CommandSandbox 不是 OS 级隔离<br/>进程一旦跑出去不受本模块约束"]
+    CMD -.-> NOTE
+```
+
+两层边界必须同时成立：`ProjectScope` 决定「能不能逃出项目目录」，
+`PathGate` 决定「项目内哪些操作仍需审批」，两者不能互相替代。
 
 ## 验证
 

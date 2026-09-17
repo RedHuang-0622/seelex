@@ -1,6 +1,6 @@
 # tools 域
 
-## 模块定位
+## 生态位
 
 承载 scoped 工具路由与工具注册表状态：受项目根限制的
 read/grep/glob/write/edit/bash 工具族（`Router`）、内联工具 provider
@@ -16,13 +16,37 @@ read/grep/glob/write/edit/bash 工具族（`Router`）、内联工具 provider
 
 ## 与其它域的关系
 
-```text
-runtime ──► tools.Router（scoped 工具）
-     │
-     └──► tools.RegistryState ──► framework tools.Registry
-                │
-                ├──► mcp（重挂载 MCP provider）
-                └──► task（终态工具 provider）
+```mermaid
+flowchart LR
+    RUNTIME["runtime（组合根）"] --> ROUTER["tools.Router<br/>scoped 工具（filesystem / projectScope / bash）"]
+    RUNTIME --> RS["tools.RegistryState"]
+    RS --> REG["framework tools.Registry"]
+    RS --> MCPD["mcp：重挂载 MCP provider"]
+    RS --> TASKD["task：终态工具 provider"]
+    ROUTER --> GATE["PermissionGate<br/>middleware"]
+    RS --> GATE
+    GATE --> REG
+```
+
+## 权限判定链（主体 × 路由组 × 位）
+
+```mermaid
+flowchart TB
+    CALL["一次工具调度"] --> CTX["从执行 ctx 取会话与主体<br/>SessionFromContext / WithEngine"]
+    CTX --> CLASS{"主体类"}
+    CLASS -->|root<br/>主代理 / plan entry / goalplan| ROOT["读本会话档位表<br/>ApplyTier 剪掉若干 ask"]
+    CLASS -->|sub<br/>节点子代理| BASE1["读 base 表（无 ctl / adm 位）"]
+    CLASS -->|emp_ro / emp_rw<br/>角色员工| BASE2["读 base 表 + 角色权责"]
+    ROOT --> GROUP["按工具名 glob 路由到组<br/>ro / rw / rw_session / rw_desktop / ctl / adm"]
+    BASE1 --> GROUP
+    BASE2 --> GROUP
+    GROUP --> BITS{"该主体有位？"}
+    BITS -->|缺位| NOWAY["该工具对该主体不可路由（≈ 不在 PATH）"]
+    BITS -->|有位| RULES["LMRW 规则：最后匹配胜出"]
+    RULES --> ACT{"判定"}
+    ACT -->|allow| RUN["执行"]
+    ACT -->|ask| APV["人工审批（approval.Broker）"]
+    ACT -->|deny| BLOCK["硬拒（危险命令在任何档位都拦）"]
 ```
 
 ## 核心实现
