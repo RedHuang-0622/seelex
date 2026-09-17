@@ -92,6 +92,7 @@ const (
 	subagentSessionNoteOutcome
 	subagentSessionRestore
 	subagentSessionConfigure
+	subagentSessionLiveOwner
 )
 
 type subagentSessionCmd struct {
@@ -128,6 +129,8 @@ type subagentSessionReply struct {
 	logs []model.NodeStageLog
 	res  *model.NodeSemanticResult
 	resq []*model.NodeSemanticResult
+	// owner 是 LiveOwner 查询的主会话 ID（配合 ok 表示"本进程仍有活会话"）。
+	owner string
 }
 
 const (
@@ -234,6 +237,14 @@ func (s *SubagentSessions) handle(cmd subagentSessionCmd) {
 		s.reply(cmd, subagentSessionReply{sess: sess, ok: sess != nil})
 	case subagentSessionCount:
 		s.reply(cmd, subagentSessionReply{n: len(s.sessions), ok: true})
+	case subagentSessionLiveOwner:
+		// 活会话判据 = 注册表里还有这个节点的会话对象（RegisterSession 写入、
+		// UnregisterNodeSession 摘除）。快照/goal 之类的残留不算活着。
+		if sess := s.sessions[cmd.nodeID]; sess != nil {
+			s.reply(cmd, subagentSessionReply{owner: s.mainSessionIDs[cmd.nodeID], ok: true})
+			return
+		}
+		s.reply(cmd, subagentSessionReply{})
 	case subagentSessionConversation:
 		if sess := s.sessions[cmd.nodeID]; sess != nil {
 			s.reply(cmd, subagentSessionReply{msgs: s.refreshLiveHistoryLocked(cmd.nodeID, sess), ok: true})
@@ -572,6 +583,27 @@ func (s *SubagentSessions) Count() int {
 		return 0
 	case <-s.actor.Done():
 		return 0
+	}
+}
+
+// LiveOwner 报告节点在本进程内是否还有**活着的**子代理会话，并返回它归属的
+// 主会话 ID（空 ID 表示未显式绑定）。恢复路径用它区分"崩溃遗留记录"与"本进程
+// 正在跑的节点"：后者不得被记录里的 running 快照覆盖成 interrupted。
+func (s *SubagentSessions) LiveOwner(nodeID string) (string, bool) {
+	if s == nil || nodeID == "" {
+		return "", false
+	}
+	reply := make(chan subagentSessionReply, 1)
+	if !s.send(subagentSessionCmd{kind: subagentSessionLiveOwner, nodeID: nodeID, reply: reply}) {
+		return "", false
+	}
+	select {
+	case result := <-reply:
+		return result.owner, result.ok
+	case <-time.After(subagentSessionCmdTimeout):
+		return "", false
+	case <-s.actor.Done():
+		return "", false
 	}
 }
 

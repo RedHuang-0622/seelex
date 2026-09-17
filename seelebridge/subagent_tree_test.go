@@ -166,12 +166,13 @@ func TestRestoredCrashLeftoversMarkedInterrupted(t *testing.T) {
 	runtime := newTestRuntime(t)
 	defer runtime.Shutdown()
 
+	// nil 谓词 = 启动期崩溃恢复口径（不过滤归属）。
 	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{
 		{NodeID: "crashed-run", SessionID: "node-crash-run", Goal: "run-crash", Status: "running"},
 		{NodeID: "crashed-queued", SessionID: "node-crash-queued", Goal: "queued-crash", Status: "queued"},
 		{NodeID: "done-node", SessionID: "node-done", Goal: "done", Status: "done", Summary: "ok"},
 		{NodeID: "mystery", SessionID: "node-mystery", Goal: "mystery", Status: ""},
-	})
+	}, nil)
 
 	tree := runtime.SubAgentTree()
 	if len(tree) != 1 {
@@ -413,4 +414,87 @@ func treeNode(t *testing.T, runtime *Runtime, id string) dto.SubAgentTreeNode {
 		return dto.SubAgentTreeNode{}
 	}
 	return find(tree)
+}
+
+// TestLiveRunningSubagentSurvivesSessionSwitchRestore 复现「一切换会话子代理就
+// 变 INTERRUPTED」：同一进程内节点仍在跑（内存态 running + 会话已注册），但
+// 切换会话会调 RestoreSubagentAnchors → SubagentTree.Restore，把运行期
+// persistLocked 写下的 Status="running" 记录直接按崩溃口径映射成 interrupted，
+// 覆盖掉内存里真实的 running。
+func TestLiveRunningSubagentSurvivesSessionSwitchRestore(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+
+	runtime.subagentTree.RegisterFork(mainAgentNodeID, []fork.SubagentSpec{{ID: "live-1", Goal: "keep working"}})
+	runtime.node.MarkStarted("live-1")
+	if got := treeNode(t, runtime, "live-1").Status; got != dto.SubAgentRunning {
+		t.Fatalf("precondition: live node status = %q, want running", got)
+	}
+
+	// 模拟切回该会话时的恢复：记录来自运行期 persistLocked（Status=running），
+	// 而节点在本进程内仍然在跑。
+	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{
+		{NodeID: "live-1", SessionID: "node-live-1", Goal: "keep working", Status: "running"},
+	}, nil)
+
+	if got := treeNode(t, runtime, "live-1").Status; got != dto.SubAgentRunning {
+		t.Fatalf("live running subagent must stay running across a session switch, got %q", got)
+	}
+}
+
+// TestRestoreSkipsRecordsOfAnotherMainSession 钉住归属过滤：运行期
+// persistLocked 把"还在跑"的节点写进它**自己主会话**的记录（Status=running），
+// 切到别的主会话时不得把那条记录当成崩溃遗留长进当前会话的树（否则工作表格
+// 会凭空多出一个 interrupted 行）。
+func TestRestoreSkipsRecordsOfAnotherMainSession(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+
+	record := sessionstore.NodeSessionRecord{
+		NodeID: "other-main-node", SessionID: "node-other", MainSessionID: "session-b",
+		Goal: "belongs to B", Status: "running",
+	}
+	belongsToA := func(candidate sessionstore.NodeSessionRecord) bool {
+		return candidate.MainSessionID != "session-b"
+	}
+
+	// 视图在 A：B 的 running 记录不属于 A → 不建节点。
+	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{record}, belongsToA)
+	if got := treeNode(t, runtime, "other-main-node"); got.ID != "" {
+		t.Fatalf("record of another main session must not enter this session's tree: %+v", got)
+	}
+
+	// 视图切到 B：同一记录按崩溃口径接管为 interrupted（它的主会话才是当前视图，
+	// 本进程没有它的活会话）。
+	runtime.subagentTree.Restore([]sessionstore.NodeSessionRecord{record}, func(sessionstore.NodeSessionRecord) bool { return true })
+	if got := treeNode(t, runtime, "other-main-node").Status; got != dto.SubAgentInterrupted {
+		t.Fatalf("restored foreign-session leftover status = %q, want interrupted", got)
+	}
+}
+
+// TestSubagentLiveOwnerTracksRegisteredSession 钉住 LiveOwner 的判据：节点注册
+// 会话时报告归属主会话，结束（Unregister）后不再报告活着。
+func TestSubagentLiveOwnerTracksRegisteredSession(t *testing.T) {
+	runtime := newTestRuntime(t)
+	defer runtime.Shutdown()
+
+	sess, err := runtime.NewSubagentSessionWithID("node-live-owner", nil)
+	if err != nil {
+		t.Fatalf("new subagent session: %v", err)
+	}
+	// 会话对象一注册进注册表就算"活着"（进程持有它），但此刻还没绑定归属主会话。
+	if owner, live := runtime.subagentSessions.LiveOwner("node-live-owner"); !live || owner != "" {
+		t.Fatalf("freshly registered session owner = (%q,%v), want (\"\",true)", owner, live)
+	}
+
+	runtime.subagentSessions.RegisterFor("session-a", "node-live-owner", sess, "goal")
+	owner, live := runtime.subagentSessions.LiveOwner("node-live-owner")
+	if !live || owner != "session-a" {
+		t.Fatalf("LiveOwner = (%q,%v), want (session-a,true)", owner, live)
+	}
+
+	runtime.node.UnregisterSession("node-live-owner")
+	if owner, live := runtime.subagentSessions.LiveOwner("node-live-owner"); live {
+		t.Fatalf("unregistered node must not report a live owner: owner=%q", owner)
+	}
 }

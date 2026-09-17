@@ -131,7 +131,7 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 		r.subagentSessions.Restore(records)
 	}
 	if r.subagentTree != nil {
-		r.subagentTree.Restore(records)
+		r.subagentTree.Restore(records, r.recordBelongsToCurrentMain)
 	}
 	if r.worktreeMgr != nil {
 		r.worktreeMgr.Restore(records)
@@ -141,9 +141,23 @@ func (r *Runtime) RestoreSubagentAnchors(sessionID string) error {
 		return fmt.Errorf("restore subagent anchors: load conclusions: %w", err)
 	}
 	if r.subagentTree != nil {
-		r.subagentTree.Restore(conclusions)
+		r.subagentTree.Restore(conclusions, r.recordBelongsToCurrentMain)
 	}
 	return nil
+}
+
+// recordBelongsToCurrentMain 判定一条持久化子代理记录是否属于**当前活着的**
+// 子代理会话，供恢复时过滤：只有"记录的主人已经不在本进程里"的记录才按崩溃
+// 口径接管（running/queued → interrupted）。本进程仍在跑的节点由内存态继续
+// 表达，恢复不得把它覆盖成中断。
+//
+// 未装配子代理会话注册表时返回 true（保持既有语义：没有内存判据时按记录恢复）。
+func (r *Runtime) recordBelongsToCurrentMain(record sessionstore.NodeSessionRecord) bool {
+	if r == nil || r.subagentSessions == nil {
+		return true
+	}
+	_, live := r.subagentSessions.LiveOwner(record.NodeID)
+	return !live
 }
 
 // loadSubagentConclusions 从主会话事件库读取子代理最终结论事件。

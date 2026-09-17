@@ -322,13 +322,30 @@ func (s *SubagentTree) Clear() error {
 // 运行中/崩溃遗留节点从 NodeSessionRecord 恢复；父级未知时统一挂到主代理
 // 根下。恢复完成后通知 observer（application 工作表格自动刷新，认领回填
 // subagent:<节点会话ID>）。
-func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord) {
+//
+// belongsToCurrent 可选：报告某条记录是否属于**当前视图的主会话**。运行期
+// persistLocked 会把还在跑的节点写进它所属主会话的记录里（Status="running"），
+// 而恢复是"切到哪个会话就按哪个会话的记录重建树"——若不过滤，别的会话的
+// running 记录会在当前会话的树上长出一个 interrupted 节点（工作表格跟着显示
+// "中断"），而那个子代理其实还在跑。nil 谓词表示不过滤（启动期崩溃恢复与
+// 既有测试口径）。
+//
+// 本进程仍在跑的节点（内存态有活会话）不被记录覆盖：崩溃口径（running →
+// interrupted）只适用于"记录的主人已经不在这个进程里"，照搬会把手头正在跑
+// 的节点显示成中断。
+func (s *SubagentTree) Restore(records []sessionstore.NodeSessionRecord, belongsToCurrent func(sessionstore.NodeSessionRecord) bool) {
 	if s == nil || len(records) == 0 {
 		return
 	}
 	s.mu.Lock()
 	for _, record := range records {
 		if record.NodeID == "" {
+			continue
+		}
+		if exists := s.nodes[record.NodeID]; exists != nil && exists.isLive() {
+			continue
+		}
+		if belongsToCurrent != nil && !belongsToCurrent(record) {
 			continue
 		}
 		node := &subagentNodeRecord{
@@ -380,6 +397,21 @@ func restoredSubAgentStatus(status string) SubAgentNodeStatus {
 	default:
 		return SubAgentInterrupted
 	}
+}
+
+// isLive 报告节点是否仍由**本进程**承载（记录只是过期快照、真实状态在本进程
+// 内存里）。两条判据任一成立即可，覆盖两类节点：
+//   - plan 节点：RegisterSession 挂上会话引用，结束经 UnregisterSession 摘除；
+//   - fork 节点：会话引用不挂树，但终态写入（CompleteSubagentNode）同时清空
+//     session 并落 endedAt —— 所以"非终态且未落结束时间"就是活着。
+func (r *subagentNodeRecord) isLive() bool {
+	if r == nil {
+		return false
+	}
+	if r.session != nil {
+		return true
+	}
+	return (r.status == SubAgentQueued || r.status == SubAgentRunning) && r.endedAt.IsZero()
 }
 
 func containsString(values []string, value string) bool {
