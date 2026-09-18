@@ -10,6 +10,10 @@
 //     （§9「默认提示拒绝」）；
 //   - 同进程内重复打开同一数据根按引用计数共享（进程本来就是同一写者）。
 //
+// 「pid 不存在」由平台实现判定：unix 用 signal 0（见 process_alive_unix.go），
+// Windows 用 WaitForSingleObject 看内核是否已终结该进程——OpenProcess 成功不足以
+// 证明存活，进程对象在句柄未释放时仍可被打开（见 process_alive_windows.go）。
+//
 // 设计稿的「pid + 启动时间戳」在这里落成 pid + owner_token + 续租年龄：
 // 进程启动时间需要平台系统调用（Linux /proc、Windows GetProcessTimes），而
 // 「必须持续续租才算活着」本来就封死了 pid 复用窗口，因此不引入 x/sys 依赖。

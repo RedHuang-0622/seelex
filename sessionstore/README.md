@@ -296,9 +296,15 @@ verify）只在 `stack_channel.go` + `stack_journal.go` 写一次，后端只实
   而不是报错拒绝启动。安全前提不变：接管只在**两条陈旧判据同时成立**时发生，
   所以"另一个还活着的 seelex 正在写同一数据根"永远不会被抢锁（这是单写者
   不变量）；`lock_auto_recover: false` 仍可显式恢复"只报错不接管"的保守口径。
-  Windows 上 `os.FindProcess` 对已退出 pid 仍可能报存活，所以崩溃残留锁的
-  识别下限受心跳超时约束（最坏约 100s 心跳周期 + 超时判定），期间的报错是
-  `ErrDataRootLocked` 而不是 `ErrDataRootStaleLock`。
+
+  **存活判定（2026-09-18 修正，`process_alive_windows.go`）**：Windows 的进程对象在
+  「进程已终结、但仍有句柄引用」时依旧可以被打开（PID 也仍被占用），因此
+  `os.FindProcess`/`OpenProcess` 成功**不能**证明持有者活着——被强杀的 dev GUI 会被
+  误判成活持有者，锁永远判不了陈旧（症状：`Open` 报 `ErrDataRootLocked`，GUI 启动即
+  退出）。现口径改为 `OpenProcess(SYNCHRONIZE|QUERY_LIMITED_INFORMATION)` +
+  `WaitForSingleObject(handle,0)`：`WAIT_TIMEOUT` 才是活着；`WAIT_OBJECT_0`（已终结）
+  算死；拒绝访问按活着保守处理（对齐 unix 的 `EPERM` 口径）。
+  回归测试见 `data_root_lock_windows_test.go`。
 
 ## 结构性 EVENT 通道（v8 §7 / 附录 A）
 

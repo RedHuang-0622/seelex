@@ -200,10 +200,25 @@ for this stabilization batch.
   (reproduces the residue → refuses under the conservative setting → takes over
   under the new one → releases on clean close), with the counterpart
   `TestJSONDataRootLockForeignProcessRejected` pinning the live-holder refusal.
-  Known limit (unchanged by this fix): on Windows `os.FindProcess` can still report
-  a dead pid as alive, so stale residue is recognised only once the heartbeat
-  timeout has passed; during that window the error surfaces as
-  `ErrDataRootLocked` rather than `ErrDataRootStaleLock`.
+  The Windows liveness probe this relied on was still wrong and is fixed below.
+
+- **The dev GUI opens again after a force-kill: the Windows process-liveness probe
+  now asks the kernel, not `OpenProcess`.** Follow-up of the bullet above. On Windows
+  a process object whose process has already terminated but whose handle is still
+  referenced by someone else can still be opened — the PID stays reserved — so
+  `os.FindProcess` + `Release` reported the dead dev GUI as a live lock holder. The
+  data root lock was therefore never judged stale (no matter how long you waited),
+  and the next launch died during storage init with `session storage: data root is
+  locked by another process` before any window appeared (`-H windowsgui` means no
+  console output either, so the symptom is just "the GUI won't open"). Liveness is
+  now `OpenProcess(SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION)` +
+  `WaitForSingleObject(handle, 0)`: only `WAIT_TIMEOUT` counts as alive, while
+  `WAIT_OBJECT_0` (terminated) counts as gone even if the handle/PID is still around;
+  an access-denied holder is treated as alive, matching the unix `EPERM` rule.
+  Evidence: `sessionstore/data_root_lock_windows_test.go:TestJSONDataRootTerminatedProcessLockIsStale`
+  (spawns a child, lets it exit while keeping its handle, and pins `processAlive ==
+  false` plus stale-then-takeover `Open` semantics). Docs:
+  `sessionstore/README.md` §并发、存储、安全.
 
 - **A malformed ADVISOR verdict is no longer reported as "b absent (429/timeout)",
   and the verdict text is read leniently.** The 2026-09-16 GUI smoke run (a fresh
