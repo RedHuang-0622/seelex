@@ -51,6 +51,15 @@ type ContextCompaction struct {
 	MessagesBefore  int       `json:"messages_before"`
 	EstimatedTokens int       `json:"estimated_tokens"`
 	CompactedAt     time.Time `json:"compacted_at"`
+	// 压缩区间（记录，不推算）：被压出保留窗口、送进 compact_context 的
+	// transcript 前缀。MessageFrom/MessageTo = UI 消息号（model.Message.ID），
+	// EventFrom/EventTo = transcript 事件序号（model.TranscriptEvent.Seq）。
+	// 边界取自窗口决策本身（保留窗口的首个事件），下游不再重算——token
+	// 窗口预算（min(配置保留窗口, 占比 × 全量上下文)）无法在事后还原。
+	MessageFrom string `json:"message_from,omitempty"`
+	MessageTo   string `json:"message_to,omitempty"`
+	EventFrom   uint64 `json:"event_from,omitempty"`
+	EventTo     uint64 `json:"event_to,omitempty"`
 }
 
 type TaskStatus string
@@ -455,6 +464,7 @@ type SubagentContext struct {
 // fork 子代理归一为同一张多维表格；Trace 是任务打点（有界，按时间倒序）。
 type WorkItem struct {
 	ID           string           `json:"id"`                     // 稳定键：plan:<id> | subagent:<id> | todo:<n> | task:<n>（自动号进程内唯一）
+	SessionID    string           `json:"session_id,omitempty"`   // 归属会话（全局台账里标注条目产自哪个会话；GUI 会话筛选轴按此判定）
 	Phase        string           `json:"phase"`                  // 展示派生字段：plan | tasklist | task | subagent
 	Task         string           `json:"task"`                   // 任务名/节点 label/goal
 	Description  string           `json:"description,omitempty"`  // 描述/output 摘要

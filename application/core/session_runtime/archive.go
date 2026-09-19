@@ -426,8 +426,9 @@ func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) e
 	return store.SaveSessionRecordWorkspace(location.WorkspaceID, sessionID, record)
 }
 
-// LoadSessionTranscript 读取会话 transcript 尾部窗口（预算 + 单元上限由
-// 装配端口提供），过滤内部标记事件。
+// LoadSessionTranscript 读取会话 transcript 尾部窗口：token 预算由装配端口
+// 给 window 段的保留窗口规则（min(retain_tokens, ratio × 账号上下文窗口)），
+// 单元上限是存储层"读哪些分片"的选择边界（0 会被判为不读），过滤内部标记事件。
 func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error) {
 	store, ok := c.Core.Deps.Sessions.(SessionTranscriptPort)
 	if !ok {

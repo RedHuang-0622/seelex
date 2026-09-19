@@ -254,7 +254,7 @@ func (state *compactionDAGState) startedCount() int {
 func (d *CompactionDAG) selectRangeNode(state *compactionDAGState) func(context.Context) error {
 	return func(context.Context) error {
 		markStarted(state, "select_range")
-		state.overflow = chatUnits(state.input.Messages)
+		state.overflow = chatUnits(state.input.Messages, dagOrdinalBase(state.prevTop))
 		state.unitCount = state.input.UnitCount
 		if state.unitCount <= 0 {
 			state.unitCount = len(state.overflow)
@@ -313,16 +313,31 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 	}
 }
 
+// dagOrdinalBase 返回本次压缩单元区号的基准 = 已被覆盖帧覆盖的单元数
+// （栈顶 To+1），无前驱 0。基准取自**已记录**的帧边界。
+func dagOrdinalBase(prevTop *sessionstore.CompactFrame) int {
+	if prevTop == nil {
+		return 0
+	}
+	return prevTop.To + 1
+}
+
 // mergeNode：拼装 CompactFrame（SegmentID/From/To/Evidence + 链锚字段 +
 // 两章节 Summary；复用 controller/gap 的覆盖语义）。
 func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Context) error {
 	return func(context.Context) error {
 		markStarted(state, "merge_frame")
+		// 帧区间记录实际被压单元的区号（不再用 unitCount 推算终点）：首/末
+		// 单元自带 ordinal；合并帧起点沿用已记录的前帧起点（综合摘要覆盖
+		// 从 From 到 To 的连续段）。
 		count := state.unitCount
 		from, to := 0, count-1
+		if len(state.overflow) > 0 {
+			from = state.overflow[0].ordinal
+			to = state.overflow[len(state.overflow)-1].ordinal
+		}
 		if state.prevTop != nil {
 			from = state.prevTop.From
-			to = state.prevTop.To + count
 		}
 		requestFrom, requestTo := state.input.RequestFrom, state.input.RequestTo
 		if requestFrom == "" || requestTo == "" {

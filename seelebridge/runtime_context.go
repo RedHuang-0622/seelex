@@ -271,15 +271,24 @@ func (r *Runtime) windowPolicy() seelexctx.WindowPolicy {
 	return r.window
 }
 
-// windowTailBudget 从窗口策略推导 Load 的读尾预算（D1，plan.md §9）：
-// maxUnits = 窗口轮数（策略推导；输入不足时保守回退 min_rounds）；
-// tokenBudget = 账号上下文窗口（上限保护，LoadEventTail 双上限取先到者）。
+// windowTailBudget 推导主会话 DurableHistory 的读尾预算（D1，plan.md §9）。
+// 它是「从磁盘读哪些分片」的宽度上限，不是压缩保留前缀的决策——保留前缀走
+// WindowConfig.RetainedContextTokens 的 min(token1, token2)。
+//   - tokenBudget = 账号上下文窗口：恒 ≥ 保留前缀（该函数已把结果夹在
+//     [1, all_context]），所以这一维实际不约束；
+//   - maxUnits = 轮数：本路径只给 ProviderContextInfo 填 ContextTokens，
+//     AvgRoundTokens/Reserved 缺省 → WindowRounds 恒走"输入缺失回退"分支，
+//     因此实际值 = window.rounds（显式配置时）或 window.min_rounds，
+//     clamp 推导在此不生效（要自适应需补估算输入，属另一条决策）。
+//
+// 两条边界：尾窗分支同时是真空区覆盖的唯一触发点（见 runtime.go 装配）；
+// selectEventTail 把 maxUnits<=0 判为"不读"（返回空历史），故 0 必须回退。
 func (r *Runtime) windowTailBudget() (tokenBudget, maxUnits int) {
 	tokenBudget = r.ContextWindow()
 	info := seelexctx.ProviderContextInfo{ContextTokens: tokenBudget}
 	rounds, _ := r.windowPolicy().WindowRounds(context.Background(), info)
 	if rounds <= 0 {
-		rounds = 4 // DefaultWindowPolicy 的 min_rounds（输入不足时同样回退）
+		rounds = seelexctx.DefaultWindowConfig().MinRounds
 	}
 	return tokenBudget, rounds
 }

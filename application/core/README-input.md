@@ -28,6 +28,8 @@
 ### input_team.go
 
 - `func (service *Service) submitTeam(ctx context.Context, name string) error` — submitTeam 是 `@` 前缀的落点：手动召唤一支团队到当前会话。
+- `func (service *Service) beginGoalForSummon(ctx context.Context, sessionID, tail string) (*goaldomain.GoalRecord, error)` — beginGoalForSummon 是"召唤即干活"的落点：`@<团队> <附言>` 里的附言是一条要干的
+- `func goalTitleForSummon(tail string) string` — goalTitleForSummon 由附言派生 goal 标题：goal_begin 要求 title 必填，而召唤场景
 - `func (service *Service) materializeTeamSummon(sessionID string, target teamSummonTarget) (dto.TeamMaterializeResult, error)` — materializeTeamSummon 把解析结果装配进会话（preset 与库条目各走既有方法）。
 - `func (service *Service) resolveTeamSummon(sessionID, name string) (teamSummonTarget, string, bool)` — resolveTeamSummon 解析"名字 + 附言"：名字命中内置形态或团队库条目时返回目标与
 - `func (service *Service) teamSummonIndex(sessionID string) teamSummonIndex` — teamSummonIndex 组装解析用的名字集合（内置形态优先，库条目一次读取）。
@@ -36,7 +38,7 @@
 - `func presumedTeamName(name string) string` — presumedTeamName 从"名字 + 附言"里取最可能的名字（首个 token）：全部候选都没
 - `func teamPresetTargets() []teamSummonTarget` — teamPresetTargets 把内置团队形态投影成召唤候选（零 I/O）。
 - `func (target teamSummonTarget) displayName() string`
-- `func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string) string` — teamSummonNotice 是装配回执：团队名 + 在编席位 + 发言顺序，并把 TeamView 的
+- `func teamSummonNotice(target teamSummonTarget, result dto.TeamMaterializeResult, tail string, record *goaldomain.GoalRecord) string` — teamSummonNotice 是装配回执：团队名 + 在编席位 + 发言顺序，并把 TeamView 的
 - `func memberNames(members []dto.TeamMember) []string` — memberNames 按成员表顺序取角色名（跳过空名）。
 - `func (service *Service) unknownTeamNotice(sessionID, name string) string` — unknownTeamNotice 在名字没命中任何团队时给出可行动提示。
 - `func teamSummonHelp() string` — teamSummonHelp 是 `@` 的自述：内置形态逐个列出（摘要取自形态自身的事实），
@@ -57,3 +59,8 @@
 - `func TestSubmitTeamUnknownNameWithTrailingTextReportsNameOnly(t *testing.T)` — TestSubmitTeamUnknownNameWithTrailingTextReportsNameOnly 钉住失败口径：
 - `func TestSubmitTeamUnknownNameGivesActionableNotice(t *testing.T)`
 - `func TestSigilMigrationHintsPointAtTheRightPrefix(t *testing.T)`
+
+### input_team_work_test.go
+
+- `func TestSubmitTeamWithTrailingTextBeginsGoalAndTeamLeaves(t *testing.T)`
+- `func TestSubmitTeamWithoutTrailingTextKeepsTeam(t *testing.T)`

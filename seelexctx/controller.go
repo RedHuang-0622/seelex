@@ -430,17 +430,13 @@ func (c *seelexContextController) compressWindowOutsideWith(ctx context.Context,
 	return seelectx.ContextDecision{ReplaceHistory: true, History: projected}, nil
 }
 
-// predictedFrameTo 按累计 ChatQueue 单元索引预测新帧 To（与 buildCompactFrame
-// / DAG merge 同一公式）：首帧 = len(overflow)-1；合并帧 = prevTop.To +
-// len(overflow)。
+// predictedFrameTo 预测新帧 To = 末个被压单元的**已记录区号**（单元自带
+// ordinal，见 chatUnits/compactedUnitBase）；不再用 len(overflow) 推算终点。
 func (c *seelexContextController) predictedFrameTo(overflow []historyUnit) int {
-	to := len(overflow) - 1
-	record := c.opts.Stacks.Snapshot()
-	if len(record.CompactStack) > 0 {
-		top := record.CompactStack[len(record.CompactStack)-1]
-		to = top.To + len(overflow)
+	if len(overflow) == 0 {
+		return -1
 	}
-	return to
+	return overflow[len(overflow)-1].ordinal
 }
 
 // buildCompactionFrame 生成压缩帧：注入 CompactionDAG 时走 workplan 图
@@ -466,12 +462,12 @@ func (c *seelexContextController) buildCompactionFrame(
 // buildCompactFrame 构造压缩帧：Summary 合并上一栈顶帧与当前溢出内容
 // （栈顶自足 = 该时刻窗口外全部轮次的综合摘要）。
 //
-// From/To 语义（审计 R1 修正）：To 是 ChatQueue 单元**累计索引**——
-// 首帧 To = len(overflow)-1；合并帧 To = prevTop.To + len(overflow)
-// （ChatQueue append-only，每次压缩的溢出单元在队列中连续追加，累计
-// To 恰为其最后一个单元的稳定索引）。From 保持合并起点（综合摘要覆盖
-// 从 From 到 To 的连续段）。消费方因此可把帧映射回持久化 ChatQueue，
-// 不再受"压缩替换工作历史导致坐标空间平移"影响。
+// From/To 语义：区间**记录**自被压单元自身的区号（historyUnit.ordinal，
+// 由 chatUnits 以已记录帧边界为基准编号），不再用 len(overflow) /
+// prevTop.To+len(overflow) 推算终点——窗口外单元不保证从 0 连续
+// （投影、覆盖缺口、冷恢复），推算值与事实会漂移。合并帧的 From 沿用
+// 已记录的前帧起点（综合摘要覆盖从 From 到 To 的连续段），To 取末个被压
+// 单元的区号。消费方（覆盖账簿/UI/fork）因此可把帧映射回持久化 ChatQueue。
 func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (sessionstore.CompactFrame, error) {
 	record := c.opts.Stacks.Snapshot()
 	var prevTop *sessionstore.CompactFrame
@@ -485,10 +481,13 @@ func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (ses
 			segmentID = fmt.Sprintf("compact-%s-%d", sessionID, time.Now().UnixMilli())
 		}
 	}
-	to := len(overflow) - 1
+	to := -1
 	from := 0
+	if len(overflow) > 0 {
+		from = overflow[0].ordinal
+		to = overflow[len(overflow)-1].ordinal
+	}
 	if prevTop != nil {
-		to = prevTop.To + len(overflow)
 		from = prevTop.From
 	}
 	requestFrom, requestTo := ChatQueueRequestLabels(from, to)
@@ -622,6 +621,10 @@ type historyUnit struct {
 	messages []types.Message
 	start    int
 	end      int
+	// ordinal 是该单元在累计 ChatQueue 单元序列里的区号（记录值）。压缩帧的
+	// From/To 直接取被压单元的区号记录，而不是用单元条数推算终点——窗口外的
+	// 单元不一定从 0 连续（投影/覆盖缺口/冷恢复），推算值会与事实漂移。
+	ordinal int
 }
 
 // chatUnits 把 working history 切分为可见协议轮次单元：user 轮、assistant
@@ -629,7 +632,12 @@ type historyUnit struct {
 // 上下文控制块不构成单元。中断（残缺）工具链轮与未回复的 user 请求仍构成
 // 开放单元 —— UI 可见的轮次不得因窗口/溢出统计而消失；缺失 tool 结果由
 // 装配层请求前补齐。
-func chatUnits(history []types.Message) []historyUnit {
+// chatUnits 把 working history 切分为可见协议单元（按 user 轮 / assistant
+// 文本轮 / assistant 工具链轮）；baseOrdinal 是首个单元的累计区号（= 已有
+// 压缩帧覆盖的单元数，冷启动 0），单元按顺序记录自己的区号。
+//
+// 单元编号只是"记录"：压缩帧的 From/To 取被压单元的区号，不再由单元条数推算。
+func chatUnits(history []types.Message, baseOrdinal int) []historyUnit {
 	var units []historyUnit
 	for index := 0; index < len(history); {
 		message := history[index]
@@ -655,12 +663,29 @@ func chatUnits(history []types.Message) []historyUnit {
 			index++ // 孤儿 tool / 控制块：不构成单元
 		}
 	}
+	// 单元按顺序记录自己的累计区号（基准 + 顺序下标）：压缩帧的 From/To 用它。
+	for index := range units {
+		units[index].ordinal = baseOrdinal + index
+	}
 	return units
 }
 
-// chatUnits 方法版委托自由函数（既有调用方/测试保持）。
+// chatUnits 方法版：区号基准取已记录帧边界的下一个区号（见 compactedUnitBase）。
 func (c *seelexContextController) chatUnits(history []types.Message) []historyUnit {
-	return chatUnits(history)
+	return chatUnits(history, c.compactedUnitBase())
+}
+
+// compactedUnitBase 返回累计单元区号基准 = 已被压缩帧覆盖的单元数（栈顶
+// To+1），冷启动 0。基准取自**已记录**的帧边界，不由当前对话轮数推算。
+func (c *seelexContextController) compactedUnitBase() int {
+	if c.opts.Stacks == nil {
+		return 0
+	}
+	record := c.opts.Stacks.Snapshot()
+	if len(record.CompactStack) == 0 {
+		return 0
+	}
+	return record.CompactStack[len(record.CompactStack)-1].To + 1
 }
 
 // userMessageUnit 用户轮：user + 直到下一个 user 或 assistant 文本收尾；

@@ -26,7 +26,15 @@ type ContextCompactionResult struct {
 	MessagesBefore  int    `json:"messages_before,omitempty"`
 	EstimatedTokens int    `json:"estimated_tokens,omitempty"`
 	CompactedAt     string `json:"compacted_at,omitempty"`
-	Note            string `json:"note"`
+	// 压缩区间（记录，不推算）：被压出保留窗口、送进 compact_context 的
+	// transcript 前缀。MessageFrom/MessageTo = UI 消息号，EventFrom/EventTo =
+	// transcript 事件序号。原始内容可用 read_compressed_turn / read_tool_result
+	// 按该区间回读。
+	MessageFrom string `json:"message_from,omitempty"`
+	MessageTo   string `json:"message_to,omitempty"`
+	EventFrom   uint64 `json:"event_from,omitempty"`
+	EventTo     uint64 `json:"event_to,omitempty"`
+	Note        string `json:"note"`
 }
 
 // CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
@@ -101,6 +109,10 @@ func newContextCompactionResult(record model.ContextCompaction) ContextCompactio
 		MessagesBefore:  record.MessagesBefore,
 		EstimatedTokens: record.EstimatedTokens,
 		CompactedAt:     record.CompactedAt.Format("2006-01-02T15:04:05Z07:00"),
+		MessageFrom:     record.MessageFrom,
+		MessageTo:       record.MessageTo,
+		EventFrom:       record.EventFrom,
+		EventTo:         record.EventTo,
 		Note: "可变 transcript 已折叠为有界 checkpoint 帧（稳定前缀 + 任务证据摘要 + plan + 当前输入）；" +
 			"原始轮次仍在会话存储里，可用 read_tool_result / read_compressed_turn / search_history 回读细节。",
 	}

@@ -149,7 +149,7 @@ go test ./application/core/session_runtime -count=1
 - `func (c *Coordinator) SessionRecordLocked(sessionID string, tasks []dto.TaskRecord) model.SessionRecord` — SessionRecordLocked 构建当前会话的归档 record（调用方持有 Core.ViewMu；
 - `func (c *Coordinator) LoadSessionRecord(location Location, sessionID string) (model.SessionRecord, bool, error)` — LoadSessionRecord 读取会话归档 record（可选能力：无 record 端口或版本/
 - `func (c *Coordinator) MarkSessionArchived(location Location, sessionID string) error` — MarkSessionArchived 把会话 record 的可见状态置为 archived（C2）。只改
-- `func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error)` — LoadSessionTranscript 读取会话 transcript 尾部窗口（预算 + 单元上限由
+- `func (c *Coordinator) LoadSessionTranscript(location Location, sessionID string) ([]model.TranscriptEvent, error)` — LoadSessionTranscript 读取会话 transcript 尾部窗口：token 预算由装配端口
 - `func recordResumeHistory(record model.SessionRecord) []contract.EngineMessage`
 - `func RecordResumeHistory(record model.SessionRecord) []contract.EngineMessage` — RecordResumeHistory 是 durable-record 冷加载兜底（仅当 transcript 与可见
 - `func (c *Coordinator) RecordConversation(record model.SessionRecord) []model.Message` — RecordConversation 返回去除内部消息后的可见会话消息（深拷贝 tool 引用）。

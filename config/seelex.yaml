@@ -5,12 +5,30 @@
 # ── 上下文滑动窗口（window）─────────────────────────────
 # 会话请求保留的最新完整轮数 N：N = clamp((上下文窗口 × ratio − 预留) ÷ 每轮 token,
 # min_rounds, max_rounds)。零值 = 未配置，使用默认值（ratio 0.7 / min_rounds 4 /
-# max_rounds 40）；rounds 显，式配置时直接覆盖推导结果。
+# max_rounds 40）；rounds 显式配置时直接覆盖推导结果。
+# 轮数公式的实际生效面：框架上下文控制器（seelexctx Controller，有每轮 token 估算）。
+# 主会话冷恢复的读分片宽度只拿得到上下文窗口一个输入，推导分支不生效，恒等于
+# min_rounds（见 seelebridge/runtime_context.go 的 windowTailBudget）。轮数也不是压缩
+# 保留前缀的口径：保留前缀只由下面的 min(token1, token2) token 规则决定。
+#
+# 压缩保留前缀窗口（软压缩）：保留前缀 token 预算 = min(token1, token2)，取两个
+# 窗口的较小者，窗口外部分尽数交给 compact_context 折叠（原始轮次仍在会话存储里）：
+#   token1 = retain_tokens（硬编码在配置里的保留窗口 token 数；0 = 未配置 → 回退账号
+#            上下文窗口 accounts.yaml context_window）
+#   token2 = ratio × all_context（全量上下文 token 数 × 可用比例）
+# 同一规则也是**读尾**（冷恢复装载 transcript/history 尾部）的 token 预算：读尾发生在
+# 请求装配之前、没有"本次要携带的上下文"可估，all_context 取账号上下文窗口——
+# 未达上限的会话不会被占比窗口误裁，读尾只做重建、不新做压缩决策。
+# 硬压缩：all_context ≥ force_compact_tokens 时必须自主压缩，不再等 provider 比例阈值
+# （0 = 未配置，压缩只由软策略驱动）。
 window:
-  rounds: 0        # 显式覆盖窗口轮数（0 = 使用 provider 推导）
-  ratio: 0.7       # 上下文窗口可用比例
-  min_rounds: 4    # 窗口下限
-  max_rounds: 40   # 窗口上限
+  rounds: 0        # 显式覆盖窗口轮数（0 = provider 推导 clamp；该推导只对框架控制器路径
+                   # 有完整输入，主会话冷读分片宽度取 min_rounds）
+  ratio: 0.7       # 上下文窗口可用比例（同时是占比窗口 token2 的比例）
+  retain_tokens: 0 # 保留窗口 token 数 token1（0 = 回退账号上下文窗口）
+  force_compact_tokens: 0 # 硬压缩阈值：all_context token 数（0 = 只走软压缩）
+  min_rounds: 4    # 轮数下限（clamp 下界；也是主会话冷读分片的实际宽度）
+  max_rounds: 40   # 轮数上限（clamp 上界，只对框架控制器路径生效）
 
 # ── 运行时上限（limits）─────────────────────────────────
 # 全部行为魔法数字收编为可调参数；缺失字段 → 默认值（与旧硬编码一致）。

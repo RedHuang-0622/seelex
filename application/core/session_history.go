@@ -288,7 +288,11 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 	}
 	engineHistory := history
 	if hasRecord {
-		budget := task_context.ContextBudgetFor(service.Deps.Runtime)
+		// 读尾预算走 window 段的保留窗口规则（min(retain_tokens, ratio × 账号
+		// 上下文窗口)）：与压缩侧同一份配置、同一实现，读尾不再是第二套硬编码
+		// 数字（旧口径 60% 预算的 TargetAfterCompaction）。单元上限仍是存储层
+		// 的分片选择边界（0 会被判为"不读"）。
+		tailBudget := RetainedReadTailBudget(service.Deps.Runtime)
 		latestUser := service.components.sessions.LatestUserContent(record.Conversation.Messages)
 		if len(transcript) == 0 || (latestUser != "" && !service.components.sessions.TranscriptContainsUser(transcript, latestUser)) {
 			// The durable Conversation is the source of truth. Rehydrate it into
@@ -297,15 +301,15 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			// the fallback history again.
 			transcript = service.components.sessions.RecordConversationTranscript(record)
 		}
-		engineHistory = task_context.TranscriptTailHistory(transcript, budget.TargetAfterCompaction, 4)
+		engineHistory = task_context.TranscriptTailHistory(transcript, tailBudget, 4)
 		// R2 运行期接线（v8 新链路）：直接装配 compact 摘要 + 尾窗 + 最近
 		// K 条尝试；非 会话存储布局 ok=false 时保留旧装配结果。
-		if wire, wireOK, wireErr := service.components.sessions.AssembleWireHistoryWorkspace(location, sessionID, budget.TargetAfterCompaction, 3); wireErr != nil {
+		if wire, wireOK, wireErr := service.components.sessions.AssembleWireHistoryWorkspace(location, sessionID, tailBudget, 3); wireErr != nil {
 			return fmt.Errorf("assemble wire history %q: %w", sessionID, wireErr)
 		} else if wireOK && len(wire) > 0 {
 			engineHistory = wire
 		}
-		recordHistory := service.components.sessions.RecordConversationResumeHistory(record, budget.TargetAfterCompaction, 4)
+		recordHistory := service.components.sessions.RecordConversationResumeHistory(record, tailBudget, 4)
 		if len(engineHistory) == 0 || (latestUser != "" && !service.components.sessions.HistoryContainsUser(engineHistory, latestUser)) {
 			engineHistory = recordHistory
 		}

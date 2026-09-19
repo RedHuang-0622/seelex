@@ -97,19 +97,26 @@ func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model
 // 历史，而是降级保留该最新单元（自 newest 起的最后一个可解析完整轮次）。
 // 这样“最新上下文”不会因预算装不下而静默消失；该轮是否真的可发送（相对
 // 真实 provider 窗口）由上层全量预算门禁决定，超限时应显式拒绝。
-func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage {
+// TranscriptTailWindow 返回 TranscriptTailHistory 的窗口结果与窗口边界：
+// 保留的引擎消息（按原序）与保留窗口在 events 中的起始下标。start 是保留段
+// 第一个事件的索引——events[:start] 是窗口外前缀（尽数送进 compact_context），
+// events[start:] 是保留的上下文前缀窗口。空 events / 预算非正时 start =
+// len(events)（未保留任何事件）。
+//
+// 边界来自窗口决策本身（被选中的尾部单元的下标），下游只记录、不重算。
+func TranscriptTailWindow(events []model.TranscriptEvent, tokenBudget, maxUnits int) ([]contract.EngineMessage, int) {
 	if len(events) == 0 || tokenBudget <= 0 {
-		return nil
+		return nil, len(events)
 	}
-	units := transcriptProtocolUnits(events)
+	units := transcriptProtocolUnitList(events)
 	if maxUnits <= 0 {
 		maxUnits = len(units) // 全量累积（append-only 已定稿轮次）
 	}
-	selected := make([][]model.TranscriptEvent, 0, maxUnits)
+	selected := make([]transcriptProtocolUnit, 0, maxUnits)
 	tokens := 0
 	for index := len(units) - 1; index >= 0 && len(selected) < maxUnits; index-- {
 		unitTokens := 0
-		for _, event := range units[index] {
+		for _, event := range units[index].events {
 			unitTokens += event.TokenCount
 		}
 		if tokens+unitTokens > tokenBudget {
@@ -125,11 +132,62 @@ func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits
 	}
 	history := make([]contract.EngineMessage, 0)
 	for index := len(selected) - 1; index >= 0; index-- {
-		for _, event := range selected[index] {
+		for _, event := range selected[index].events {
 			history = append(history, transcriptEventMessage(event))
 		}
 	}
+	if len(selected) == 0 {
+		return history, len(events)
+	}
+	return history, selected[len(selected)-1].start
+}
+
+// TranscriptTailHistory 是 TranscriptTailWindow 的窗口消息视图（多数调用方
+// 只关心历史消息，边界由压缩记录方消费）。
+func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage {
+	history, _ := TranscriptTailWindow(events, tokenBudget, maxUnits)
 	return history
+}
+
+// TranscriptEventRange 记录一段 transcript 区间的可定位边界（消息号 + 事件
+// 序号）。压缩记录在压缩发生时用它记下“从哪到哪”，下游不再推算。
+type TranscriptEventRange struct {
+	EventFrom   uint64
+	EventTo     uint64
+	MessageFrom string
+	MessageTo   string
+}
+
+// Empty 报告该区间没有任何可记录的边界。
+func (r TranscriptEventRange) Empty() bool {
+	return r.EventFrom == 0 && r.EventTo == 0 && r.MessageFrom == "" && r.MessageTo == ""
+}
+
+// TranscriptPrefixRange 记录 events[:end] 的区间边界：事件序号取首/末事件的
+// Seq（Seq 为 0 的合成事件跳过），消息号取首个/末个非空 MessageID。
+func TranscriptPrefixRange(events []model.TranscriptEvent, end int) TranscriptEventRange {
+	if end > len(events) {
+		end = len(events)
+	}
+	if end <= 0 {
+		return TranscriptEventRange{}
+	}
+	var out TranscriptEventRange
+	for _, event := range events[:end] {
+		if event.Seq > 0 {
+			if out.EventFrom == 0 {
+				out.EventFrom = event.Seq
+			}
+			out.EventTo = event.Seq
+		}
+		if event.MessageID != "" {
+			if out.MessageFrom == "" {
+				out.MessageFrom = event.MessageID
+			}
+			out.MessageTo = event.MessageID
+		}
+	}
+	return out
 }
 
 func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage {
@@ -175,8 +233,17 @@ func providerRoleForTranscriptEvent(event model.TranscriptEvent) string {
 	return event.Role
 }
 
-func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent {
-	units := make([][]model.TranscriptEvent, 0, len(events))
+// transcriptProtocolUnit 是一个协议单元及其在 events 中的起始下标。start 是
+// 压缩窗口边界的唯一来源（记录用，不重算）。
+type transcriptProtocolUnit struct {
+	start  int
+	events []model.TranscriptEvent
+}
+
+// transcriptProtocolUnitList 划分协议单元并记录每段在 events 中的起始下标
+// （TranscriptTailWindow 与 TranscriptTailHistory 共用同一划分）。
+func transcriptProtocolUnitList(events []model.TranscriptEvent) []transcriptProtocolUnit {
+	units := make([]transcriptProtocolUnit, 0, len(events))
 	for index := 0; index < len(events); {
 		event := events[index]
 		switch {
@@ -186,28 +253,28 @@ func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.Transcrip
 				// assistant 回复（transcriptUserUnit 对孤立 user 的丢弃规则
 				// 不适用），单独成单元输出 —— 保证技能正文在 wire 上每轮可见，
 				// 且随定稿轮次稳定缓存。
-				units = append(units, []model.TranscriptEvent{event})
+				units = append(units, transcriptProtocolUnit{start: index, events: []model.TranscriptEvent{event}})
 				index++
 				continue
 			}
 			unit, next := transcriptUserUnit(events, index)
 			if len(unit) > 0 {
-				units = append(units, unit)
+				units = append(units, transcriptProtocolUnit{start: index, events: unit})
 			}
 			index = next
 		case event.Role == "assistant" && len(event.ToolCalls) == 0:
-			units = append(units, []model.TranscriptEvent{event})
+			units = append(units, transcriptProtocolUnit{start: index, events: []model.TranscriptEvent{event}})
 			index++
 		case event.Role == "assistant" && len(event.ToolCalls) > 0:
 			unit, next, complete := transcriptToolUnit(events, index)
 			if complete {
-				units = append(units, unit)
+				units = append(units, transcriptProtocolUnit{start: index, events: unit})
 				index = next
 			} else if len(unit) > 0 {
 				// 残缺（中断）工具链：保留已记录部分为开放单元，从链断裂点
 				// 续扫 —— 不整体作废、不连坐跳到下一个 user。缺失的 tool 结果
 				// 由装配层 RepairInterruptedToolChains 补齐后再进 provider。
-				units = append(units, unit)
+				units = append(units, transcriptProtocolUnit{start: index, events: unit})
 				index = next
 			} else {
 				index = next
@@ -215,6 +282,16 @@ func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.Transcrip
 		default:
 			index++
 		}
+	}
+	return units
+}
+
+// transcriptProtocolUnits 只要单元内容（不关心边界）的视图。
+func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent {
+	listed := transcriptProtocolUnitList(events)
+	units := make([][]model.TranscriptEvent, 0, len(listed))
+	for _, unit := range listed {
+		units = append(units, unit.events)
 	}
 	return units
 }

@@ -34,7 +34,7 @@ func interruptedChatTurn(withSuffixText, atTail bool) []types.Message {
 // 下一轮不得被跳转丢弃（压缩溢出单元统计与投影依据）。
 func TestChatUnitsKeepsSuffixTextOfInterruptedChain(t *testing.T) {
 	history := interruptedChatTurn(true, false)
-	units := chatUnits(history)
+	units := chatUnits(history, 0)
 	if len(units) != 2 {
 		t.Fatalf("units = %d, want 2: %+v", len(units), units)
 	}
@@ -52,7 +52,7 @@ func TestChatUnitsKeepsSuffixTextOfInterruptedChain(t *testing.T) {
 // 时不会被静默丢弃（可见会话仍显示该轮）。
 func TestChatUnitsKeepsTailInterruptedChainAsOpenUnit(t *testing.T) {
 	history := interruptedChatTurn(false, true)
-	units := chatUnits(history)
+	units := chatUnits(history, 0)
 	if len(units) != 1 {
 		t.Fatalf("units = %d, want 1 open tail unit: %+v", len(units), units)
 	}

@@ -162,6 +162,13 @@ memory → 稳定前缀栈（skill/compact）→ WorkingHistory（累积 context
 的上下文逐条一致（headless 双进程回归见
 [`headless_restore_prefix_probe_test.go`](../headless_restore_prefix_probe_test.go)）。
 
+尾窗预算的边界（`windowTailBudget`）：它只决定「从磁盘读哪些分片」的宽度，
+不是压缩保留前缀的口径（那走 `WindowConfig.RetainedContextTokens` 的
+min(token1, token2)）；同时它也是真空区补压的唯一触发点。应用层每次请求装配
+都会经 `ReplaceHistoryFor` → `PrepareNextLoad` 抢先装载（会话忙时的延迟安装
+也在下一个 Run 前补装），因此尾窗分支只在「没有装配抢先装载的 Run」上决定
+模型可见历史。
+
 子代理节点通过 `NodeScope.Role == RoleSubAgent` 识别。工具 middleware 发布 `running/success/error`，worktree 编排发布 `worktree_creating/rebasing/merging`；阶段事实沿用 Plan binding，并在存在 session ID 时写入 `agent.runtime` Location。
 
 ## ProjectScope 与 PathGate
@@ -272,6 +279,7 @@ actual work, while prompt policy keeps `plan_run` out of the main workflow.
 - 节点账号/作用域是否按 binding 隔离，确定性 hash 是否稳定。
 - MCP attach/detach 失败是否留下半连接状态或 goroutine。
 - 配置 fallback 是否可能选择 disabled/错误 role 账号。
+- 窗口配置键（`rounds`/`min_rounds`/`max_rounds`）是否被误当成压缩保留前缀的口径——轮数只作用于框架侧窗口与主会话冷读分片宽度，保留前缀只由 token 规则 min(token1, token2) 决定。
 - Full Access 是否仍是 manual 基线上的可逆覆盖，且开启时 Application 会释放已经等待的审批请求。
 
 ## 测试

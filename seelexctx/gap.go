@@ -127,8 +127,10 @@ func buildGapFrame(
 		top := opts.Record.CompactStack[len(opts.Record.CompactStack)-1]
 		prevTop = &top
 	}
-	// 真空区单元原文 → 消息 → 完整协议单元（与控制器同源切分）。
-	units := chatUnits(gapUnitMessages(uncovered))
+	// 真空区单元原文 → 消息 → 完整协议单元（与控制器同源切分）。区号基准取
+	// 0：缺口帧的区间由覆盖账簿给出（gapStart/gapEnd，已是记录值），不依赖
+	// 协议单元区号。
+	units := chatUnits(gapUnitMessages(uncovered), 0)
 	from := 0
 	if prevTop != nil {
 		from = prevTop.From

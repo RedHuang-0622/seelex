@@ -32,6 +32,8 @@ flowchart LR
 
 - `func NewDefaultWindowPolicy(config WindowConfig) DefaultWindowPolicy` — NewDefaultWindowPolicy 从 window 配置段构建策略。
 - `func DefaultWindowConfig() WindowConfig` — DefaultWindowConfig 返回确认点 5 的既定默认值（ratio/min_rounds/max_rounds）。
+- `func Apply(config WindowConfig)` — Apply 应用 seele.yaml 的 window 段（未配置字段补默认值）。
+- `func Current() WindowConfig` — Current 返回当前生效的 window 段（含默认值；未注入 → 默认配置）。
 - `func LoadWindowConfig(path string) (WindowConfig, error)` — LoadWindowConfig 读取 seele.yaml 的 window 配置段（路径门控同款加载风格）。
 
 ### window_policy_test.go

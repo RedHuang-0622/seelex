@@ -199,3 +199,17 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 - `func abCodexPlacementMessages(accumulated []types.Message, fragment, query string) []types.Message` — abCodexPlacementMessages 是 arm C 的投影：常量指令 + 已发布累积 context +
 - `func abSerializeAssembled(messages []types.Message) string`
 - `func abRoleSeq(messages []types.Message) string`
+
+### context_window_rule_test.go
+
+- `func applyWindowConfig(t *testing.T, config WindowConfig)` — applyWindowConfig 应用 window 段并在测试结束恢复（进程内生效配置）。
+- `func appendWindowRounds(t *testing.T, service *Service, requestID string, rounds, answerChars int) []string` — appendWindowRounds 追加 rounds 个已定稿轮次（短问 + 长答），返回每轮标记。
+- `func retainedRounds(history []EngineMessage, marks []string) int` — retainedRounds 统计仍留在 provider 历史里的轮次数（按轮标记匹配）。
+- `func compactNow(t *testing.T, service *Service, sessionID string) ContextCompaction` — compactNow 走显式压缩落点（/compact、compact_context 同一条路径），返回
+- `func TestCompactRetainedPrefixIsMinOfTwoWindows(t *testing.T)` — TestCompactRetainedPrefixIsMinOfTwoWindows：保留前缀 = min(token1, token2)。
+- `func TestCompactHardThresholdForcesCompression(t *testing.T)` — TestCompactHardThresholdForcesCompression：window.force_compact_tokens 是硬
+- `func TestCompactHardThresholdBypassesEpochThrottle(t *testing.T)` — TestCompactHardThresholdBypassesEpochThrottle：硬压缩不被"同一批进展只压
+- `func TestReadTailBudgetFollowsRetainedWindowRule(t *testing.T)` — TestReadTailBudgetFollowsRetainedWindowRule：读尾（冷恢复装载 transcript /
+- `func compactionRecords(service *Service, sessionID string) []ContextCompaction`
+- `func lastCompactionRecord(t *testing.T, service *Service, sessionID string) ContextCompaction`
+- `func TestCompactContextHandlerReportsRecordedRange(t *testing.T)` — TestCompactContextHandlerReportsRecordedRange：compact_context 工具/命令的

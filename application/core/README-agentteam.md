@@ -83,6 +83,7 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (adapter agentTeamAdapter) SetLifecycleOrder(sessionID, policy string, roles []string) error`
 - `func (adapter agentTeamAdapter) ReadTeamRegistry(mainSessionID string) (dto.TeamRegistry, error)`
 - `func (adapter agentTeamAdapter) WriteTeamRegistry(mainSessionID string, registry dto.TeamRegistry) error`
+- `func (adapter agentTeamAdapter) RemoveTeamRegistry(mainSessionID string) error` — RemoveTeamRegistry 实现 agentteam.DismissPort：宿主端口暴露离场面时才转调，
 - `func (adapter agentTeamAdapter) ReadFloorRole(mainSessionID string) (string, error)` — ReadFloorRole 实现 agentteam.FloorPort：宿主端口实现了 floor 读面才转读，
 - `func (service *Service) agentTeamPorts() (agentTeamPort, contract.RoleSessionPort, error)`
 - `func (service *Service) agentTeamFactory() (*agentteam.Factory, error)`
@@ -91,6 +92,7 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (service *Service) publishTeamChanged(mainSessionID string)` — publishTeamChanged 通告"会话团队事实变了"（装配/工作顺序/入职/编辑成员都要发）。
 - `func (service *Service) MaterializeAgentTeam(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — MaterializeAgentTeam 按 preset/自定义 TeamSpec 装配一支 AgentTeam。
 - `func (service *Service) MaterializeAgentTeamPreset(mainSessionID, teamKind string, joinSeq uint64) (dto.TeamMaterializeResult, error)` — MaterializeAgentTeamPreset 按内置 preset 名装配（goal-a2a / review-team / research-team）。
+- `func (service *Service) DismissAgentTeam(mainSessionID string) error` — DismissAgentTeam 让本会话的在编团队离场（"干完就走人"）：删注册表 + 复位顺序，
 - `func (service *Service) AgentTeamView(mainSessionID string) (dto.TeamView, error)` — AgentTeamView 返回成员表（身份/顺序/定时分区/配置状态/发言调度运行态）。
 - `func (service *Service) agentTeamRawView(mainSessionID string) (dto.TeamView, error)` — agentTeamRawView 返回不带运行态的成员表（装配面内部用；避免
 - `func (service *Service) AgentTeamPutRole(mainSessionID string, role dto.RoleSpec) (dto.TeamRegistry, error)` — AgentTeamPutRole 新增/覆盖一个角色配置。

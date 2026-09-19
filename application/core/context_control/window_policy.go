@@ -5,6 +5,7 @@ package context_control
 import (
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 
@@ -38,6 +39,26 @@ func DefaultWindowConfig() WindowConfig {
 // windowConfigFile is the yaml envelope containing the window section.
 type windowConfigFile struct {
 	Window WindowConfig `yaml:"window"`
+}
+
+// active 保存当前生效的 window 配置段（main 启动时经 Apply 注入；未注入 →
+// DefaultWindowConfig）。用原子指针整体替换：装配 goroutine 与注入可能并发，
+// 读者只会看到某个完整版本。压缩保留窗口决策（context_runtime）经 Current
+// 读取同一份配置，避免第二套硬编码窗口数字。
+var active atomic.Pointer[seelexctx.WindowConfig]
+
+// Apply 应用 seele.yaml 的 window 段（未配置字段补默认值）。
+func Apply(config WindowConfig) {
+	applied := config.WithDefaults()
+	active.Store(&applied)
+}
+
+// Current 返回当前生效的 window 段（含默认值；未注入 → 默认配置）。
+func Current() WindowConfig {
+	if snapshot := active.Load(); snapshot != nil {
+		return *snapshot
+	}
+	return seelexctx.DefaultWindowConfig()
 }
 
 // LoadWindowConfig 读取 seele.yaml 的 window 配置段（路径门控同款加载风格）。

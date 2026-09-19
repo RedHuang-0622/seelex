@@ -130,6 +130,7 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (service *Service) injectGoalDirectives(sessionID string, directives []goaldomain.TLDirective)` — injectGoalDirectives 把 b→a 指令注入引擎受信区，并登记"待可见回放"：
 - `func (service *Service) injectGoalDirectivesForStart(sessionID string)` — injectGoalDirectivesForStart 在 ChatStream 开始前把 TL 回合产生的指令
 - `func (service *Service) goalAdvanceAfterChat(ctx context.Context)` — goalAdvanceAfterChat 在 ChatStream 返回后的锁外安全点推进 goal 治理
+- `func (service *Service) dismissTeamWhenGoalClosed(sessionID string)` — dismissTeamWhenGoalClosed 让"干完就走人"成立：目标收口（栈里没有 active goal）
 - `func (service *Service) injectGoalDirectivesFor(sessionID string)` — injectGoalDirectivesFor 在 ChatStream 结束后的锁外安全点，把本回合已注入
 - `func (service *Service) publishPendingGoalDirectivesFor(sessionID string)` — publishPendingGoalDirectivesFor 把治理回合**刚产出**、仍在待注入队列里的
 - `func (service *Service) publishAdvisorDirectiveRows(sessionID string, directives []goaldomain.TLDirective)` — publishAdvisorDirectiveRows 把 b→a 指令以可见 ADVISOR 行写进目标会话：
@@ -163,6 +164,8 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (s *teamRecordingSessions) SetLifecycleOrder(_ string, policy string, roles []string) error`
 - `func (s *teamRecordingSessions) ReadTeamRegistry(string) (dto.TeamRegistry, error)`
 - `func (s *teamRecordingSessions) WriteTeamRegistry(_ string, registry dto.TeamRegistry) error`
+- `func (s *teamRecordingSessions) RemoveTeamRegistry(string) error` — RemoveTeamRegistry 是 agentteam.DismissPort 的桩：团队离场 = 注册表清空 + 顺序复位
+- `func (s *teamRecordingSessions) dismissCount() int` — dismissCount 返回团队离场次数。
 - `func (s *teamRecordingSessions) CreateRoleSession(string, string, string, uint64) (dto.RoleSessionInfo, error)`
 - `func (s *teamRecordingSessions) AppendRoleDraft(string, string, string, []dto.RoleDraftRow) error`
 - `func (s *teamRecordingSessions) ReadRoleDraft(string, string, string) ([]dto.RoleDraftRow, error)`

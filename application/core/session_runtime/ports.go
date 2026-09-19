@@ -163,7 +163,9 @@ type Deps struct {
 	// Closed 返回应用是否已进入关闭状态；调用方持 Core.ViewMu 时读取
 	// （与 Shutdown 写 closed 同锁，避免竞态）。
 	Closed func() bool
-	// TranscriptTailBudget 返回 transcript 尾部加载的压缩后 token 预算。
+	// TranscriptTailBudget 返回 transcript 尾部加载的保留前缀 token 预算：
+	// window 段的 min(retain_tokens, ratio × 账号上下文窗口) 规则，与请求
+	// 装配侧的压缩保留窗口同一实现（core.RetainedReadTailBudget）。
 	TranscriptTailBudget func(runtime any) int
 	// IsInternalContent 判定一段内容是否为内部标记（task-context
 	// checkpoint / provider-only），会话归档与尾部加载过滤用。

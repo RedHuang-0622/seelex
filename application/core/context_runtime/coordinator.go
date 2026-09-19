@@ -10,6 +10,7 @@ import (
 
 	"github.com/RedHuang-0622/Seele/types"
 	"github.com/RedHuang-0622/seelex/application/contract"
+	"github.com/RedHuang-0622/seelex/application/core/context_control"
 	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
 	"github.com/RedHuang-0622/seelex/application/core/internal/state"
 	"github.com/RedHuang-0622/seelex/application/core/session_runtime"
@@ -259,10 +260,23 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 		rawTokens = cacheTokens
 	}
 	currentInput = c.protectOversizedCurrentInputLocked(sessionID, requestID, currentInput, budget)
+	// 压缩策略输入（同一份 window 配置段，框架侧 WindowPolicy 与这里共用）：
+	//
+	//	软压缩 = provider 比例阈值（预算 75%）+ 保留窗口规则
+	//	         保留前缀 = min(token1, token2)，token1 = 配置里硬编码的
+	//	         保留窗口 token 数（未配置回退账号上下文窗口），
+	//	         token2 = ratio × all_context（全量上下文 token 数）；
+	//	         窗口外部分尽数交给 compact_context 折叠。
+	//	硬压缩 = all_context ≥ window.force_compact_tokens（必须自主压缩，
+	//	         不再等比例阈值：长任务下比例阈值可能永远不触发）。
+	windowConfig := context_control.Current()
+	allContextTokens := c.tasks.CountRequestTokens("", fullContext, "", nil)
+	hardCompact := windowConfig.MustCompact(allContextTokens)
 	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径只要
-	// 超过软阈值就压——用户/模型明确要求时不接受"等下一批进展再说"。
-	newCheckpoint := rawTokens >= budget.SoftThreshold &&
-		(options.forceCompact || state.CompactedEpoch != state.ProgressEpoch)
+	// 超过软阈值就压——用户/模型明确要求时不接受"等下一批进展再说"；硬压缩
+	// 阈值（all_context ≥ force_compact_tokens）同样不被节流挡下（必须压）。
+	newCheckpoint := (rawTokens >= budget.SoftThreshold || hardCompact) &&
+		(options.forceCompact || hardCompact || state.CompactedEpoch != state.ProgressEpoch)
 	if newCheckpoint {
 		state.ContextVersion++
 		state.CompactedEpoch = state.ProgressEpoch
@@ -274,13 +288,21 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	c.ViewMu.Unlock()
 
 	systems := RetainedSystemHistory(c.engineHistory(sessionID))
+	// 保留前缀窗口（软压缩）：min(token1, token2)，见上方 windowConfig 注释。
+	// 窗口外部分尽数送进 compact_context；保留窗口按完整协议单元边界收敛
+	// （单元不可拆分），因此不再叠加配置单元上限做第二次截断。
+	compacting := rawTokens >= budget.SoftThreshold || hardCompact
 	target := budget.Budget
-	contextMaxUnits := 0 // 达峰前：全量累积（append-only 已定稿轮次）
-	if rawTokens >= budget.SoftThreshold {
-		target = budget.TargetAfterCompaction
-		contextMaxUnits = limits.Get().ContextMaxUnits // 压缩后：有界新鲜窗口
+	if compacting {
+		if retained := windowConfig.RetainedContextTokens(allContextTokens, budget.Window); retained > 0 {
+			target = retained
+		}
 	}
-	if contextMaxUnits == 0 {
+	// transcript 压缩区间的记事基准：累积模式可能丢掉已覆盖前缀，记录边界
+	// 时用原始 events（未裁剪）＋丢弃条数还原绝对下标。
+	transcript := events
+	discardedEvents := 0
+	if !compacting {
 		// 累积模式：保留段（稳定前缀 + 已定稿轮次）已覆盖 transcript 前缀，
 		// 只追加保留段之后的新事件（append-only，字节稳定）。
 		if covered := retainedContextEventCount(systems); covered > 0 {
@@ -293,13 +315,14 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				// 按原序重建：保留段只留 system，事件不裁剪。
 				systems = RetainedSystemOnly(systems)
 			} else if covered < len(events) {
+				discardedEvents = covered
 				events = events[covered:]
 			} else {
-				events = nil
+				events = nil // 全部事件已被保留段覆盖：本次无需追加
 			}
 		}
 	}
-	assembled, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, events, currentInput, tools, target, contextMaxUnits)
+	assembled, retainedFrom, estimated := c.fitExecutionHistory(systemPrompt, systems, planMessage, events, currentInput, tools, target, compacting, 0)
 	// 自主压缩（探测即主动触发）：装配结果一旦逼近硬阈值（预算 90%），说明
 	// 可变 transcript 已经压不动——此时立刻折叠为有界 checkpoint 帧（稳定
 	// system 前缀 + 任务证据摘要 + plan + 当前输入），而不是把贴着上限的历史
@@ -348,9 +371,19 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			if autonomous {
 				reason = "context_budget_autonomous"
 			}
+			// 压缩区间（记录，不推算）：被压出保留窗口、送进 compact_context 的
+			// transcript 前缀。自主压缩（bounded checkpoint 帧）不留 transcript
+			// 保留段 → 整个 transcript 都是被压区间。
+			compressedTo := discardedEvents + retainedFrom
+			if autonomous {
+				compressedTo = len(transcript)
+			}
+			compacted := task_context.TranscriptPrefixRange(transcript, compressedTo)
 			recorded = c.tasks.RecordContextCompactionLocked(requestID, model.ContextCompaction{
 				Version: checkpoint.Version, Reason: reason, MessagesBefore: len(existing),
 				EstimatedTokens: rawTokens, CompactedAt: time.Now(),
+				MessageFrom: compacted.MessageFrom, MessageTo: compacted.MessageTo,
+				EventFrom: compacted.EventFrom, EventTo: compacted.EventTo,
 			})
 			if recorded {
 				revision = c.view.BumpLocked()
@@ -370,8 +403,12 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 
 // fitExecutionHistory 按目标预算装配 provider 历史：稳定前缀（system）→
 // 累积 context（已定稿轮次，含 append-only 的激活技能事件）→ plan 尾部。
-// contextMaxUnits <= 0 = 全量累积（达峰前 append-only，字节稳定）；>0 =
-// 有界窗口（压缩后新鲜窗口）。
+// windowed=false = 全量累积（达峰前 append-only，字节稳定）；windowed=true =
+// 有界窗口（压缩后新鲜窗口）。maxUnits <= 0 = 只按 token 窗口截断
+// （单元不可拆分，按完整单元边界收敛）。
+//
+// 第二个返回值是保留窗口在 events 中的起始下标（events 中被保留的 transcript
+// 前缀边界）：压缩记录用它记下被压区间的结束，不再事后推算。
 func (c *Coordinator) fitExecutionHistory(
 	systemPrompt string,
 	systems []contract.EngineMessage,
@@ -380,31 +417,33 @@ func (c *Coordinator) fitExecutionHistory(
 	currentInput string,
 	tools []model.Tool,
 	target int,
-	contextMaxUnits int,
-) ([]contract.EngineMessage, int) {
+	windowed bool,
+	maxUnits int,
+) ([]contract.EngineMessage, int, int) {
 	// 压缩窗口模式：丢弃保留的累积段，从事件重建新鲜窗口（保留段只供全量
 	// 累积模式复用，避免与窗口内容重复）。
 	base := systems
-	if contextMaxUnits > 0 {
+	if windowed {
 		base = RetainedSystemOnly(systems)
 	}
-	if history, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, contextMaxUnits); estimated <= target {
-		return history, estimated
+	if history, retainedFrom, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, maxUnits); estimated <= target {
+		return history, retainedFrom, estimated
 	}
 	// 达峰回退：全量累积超预算 → 折为有界窗口；窗口仍超 → 逐级收缩。
 	// 最终兜底不“静默清空”：TranscriptTailHistory 保证至少返回最新 1 个
 	// 完整单元（即使估算超过 target），不再走 events=nil 的 system+plan
 	// 空历史分支；估算仍超出全量预算时由调用方以 ErrProviderContextBudgetExceeded
 	// 拒绝发送（拒绝优于“模型失忆”，正常路径不用 checkpoint 兜底）。
-	for maxUnits := limits.Get().ContextMaxUnits; maxUnits > 0; maxUnits-- {
-		if history, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, maxUnits); estimated <= target {
-			return history, estimated
+	for shrink := limits.Get().ContextMaxUnits; shrink > 0; shrink-- {
+		if history, retainedFrom, estimated := c.tryFitExecutionHistory(systemPrompt, base, planMessage, events, currentInput, tools, target, shrink); estimated <= target {
+			return history, retainedFrom, estimated
 		}
 	}
 	return c.tryFitExecutionHistory(systemPrompt, RetainedSystemOnly(systems), planMessage, events, currentInput, tools, target, 1)
 }
 
-// tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token。
+// tryFitExecutionHistory 装配一次 system → context → plan 历史并估算 token，
+// 同时回报保留窗口在 events 中的起始下标。
 func (c *Coordinator) tryFitExecutionHistory(
 	systemPrompt string,
 	systems []contract.EngineMessage,
@@ -413,20 +452,16 @@ func (c *Coordinator) tryFitExecutionHistory(
 	currentInput string,
 	tools []model.Tool,
 	target int,
-	contextMaxUnits int,
-) ([]contract.EngineMessage, int) {
+	maxUnits int,
+) ([]contract.EngineMessage, int, int) {
 	history := append([]contract.EngineMessage(nil), systems...)
-	if contextMaxUnits <= 0 {
-		// 全量累积（append-only 已定稿轮次）。
-		history = append(history, task_context.TranscriptTailHistory(events, target, 0)...)
-	} else {
-		history = append(history, task_context.TranscriptTailHistory(events, target, contextMaxUnits)...)
-	}
+	tail, retainedFrom := task_context.TranscriptTailWindow(events, target, maxUnits)
+	history = append(history, tail...)
 	// plan 后置贴近当前输入（LLM 循环会把当前输入追加到历史尾部）。
 	if planMessage != "" {
 		history = append(history, contract.EngineMessage{Role: "system", Content: planMessage, ContentSet: true})
 	}
-	return history, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
+	return history, retainedFrom, c.tasks.CountRequestTokens(systemPrompt, history, currentInput, tools)
 }
 
 // compressExecutionHistory 是自主压缩兜底：正常有界窗口装不下全量预算时，

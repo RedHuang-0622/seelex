@@ -228,11 +228,15 @@ go test ./application/core/task_context -count=1
 - `func ActivePlanProjection(plan *model.PlanState, activePlanID string, planSequence uint64) *model.ActivePlanProjection` — ActivePlanProjection 返回 Plan 的只读投影（Completed/Failed/Pending 节点
 - `func ActivePlanFrame(stack []model.SessionPlanFrame, activeID string) *model.SessionPlanFrame` — ActivePlanFrame 返回 plan 栈中的激活帧（未找到 → nil）。
 - `func ActivePlanFromStack(stack []model.SessionPlanFrame, activeID string) *model.PlanState` — ActivePlanFromStack 返回激活帧的 Plan 深拷贝（未找到 → nil）。
-- `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage` — TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
+- `func TranscriptTailWindow(events []model.TranscriptEvent, tokenBudget, maxUnits int) ([]contract.EngineMessage, int)` — TranscriptTailHistory 把 transcript 尾部事件按协议单元收敛为 provider
+- `func TranscriptTailHistory(events []model.TranscriptEvent, tokenBudget, maxUnits int) []contract.EngineMessage` — TranscriptTailHistory 是 TranscriptTailWindow 的窗口消息视图（多数调用方
+- `func (r TranscriptEventRange) Empty() bool` — Empty 报告该区间没有任何可记录的边界。
+- `func TranscriptPrefixRange(events []model.TranscriptEvent, end int) TranscriptEventRange` — TranscriptPrefixRange 记录 events[:end] 的区间边界：事件序号取首/末事件的
 - `func transcriptEventMessage(event model.TranscriptEvent) contract.EngineMessage`
 - `func providerContentForEvent(event model.TranscriptEvent) string` — providerContentForEvent 返回事件在 provider wire 上的真实正文：ProviderContent
 - `func providerRoleForTranscriptEvent(event model.TranscriptEvent) string` — providerRoleForTranscriptEvent 把 transcript 事实映射为 provider 可见 role：
-- `func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent`
+- `func transcriptProtocolUnitList(events []model.TranscriptEvent) []transcriptProtocolUnit` — transcriptProtocolUnitList 划分协议单元并记录每段在 events 中的起始下标
+- `func transcriptProtocolUnits(events []model.TranscriptEvent) [][]model.TranscriptEvent` — transcriptProtocolUnits 只要单元内容（不关心边界）的视图。
 - `func isActiveSkillEvent(event model.TranscriptEvent) bool` — isActiveSkillEvent 判定事件是否为激活技能正文 internal 轮次（ActiveSkillMarker
 - `func transcriptUserUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int)`
 - `func transcriptToolUnit(events []model.TranscriptEvent, start int) ([]model.TranscriptEvent, int, bool)`
@@ -248,6 +252,15 @@ go test ./application/core/task_context -count=1
 - `func TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit(t *testing.T)` — TestTranscriptProtocolUnitsKeepsActiveSkillAsOwnUnit：激活技能 internal 事件
 - `func TestTranscriptTailHistoryEmitsActiveSkillTurn(t *testing.T)` — TestTranscriptTailHistoryEmitsActiveSkillTurn：装配输出在真实轮次之前包含
 - `func TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget(t *testing.T)` — TestTranscriptTailHistorySkipsSkillWhenDroppedFromBudget：压缩窗口/预算不足
+
+### plan_transcript_window_test.go
+
+- `func windowEvents(units, unitTokens int) []model.TranscriptEvent` — windowEvents 构造 units 个已定稿轮次（user+assistant），每轮 unitTokens 个
+- `func itoa(value int) string`
+- `func TestTranscriptTailWindowReportsRetainedBoundary(t *testing.T)` — TestTranscriptTailWindowReportsRetainedBoundary：窗口边界 = 保留段首个事件
+- `func TestTranscriptTailWindowRecordsUnitCapBoundary(t *testing.T)` — TestTranscriptTailWindowRecordsUnitCapBoundary：单元上限比 token 预算更紧时
+- `func TestTranscriptTailWindowDegradesToNewestUnit(t *testing.T)` — TestTranscriptTailWindowDegradesToNewestUnit：单个最新单元自身超预算时仍保留
+- `func TestTranscriptPrefixRangeRecordsMessageNumbers(t *testing.T)` — TestTranscriptPrefixRangeRecordsMessageNumbers：压缩区间记录消息号与事件
 
 ### provider_content_test.go
 

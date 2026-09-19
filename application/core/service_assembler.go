@@ -127,9 +127,7 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 		Closed: func() bool {
 			return service.closed
 		},
-		TranscriptTailBudget: func(runtime any) int {
-			return task_context.ContextBudgetFor(runtime).TargetAfterCompaction
-		},
+		TranscriptTailBudget: RetainedReadTailBudget,
 		IsInternalContent: func(content string) bool {
 			return context_runtime.IsTaskContextCheckpoint(content) || context_runtime.IsProviderOnlyHistoryContent(content) || context_runtime.IsActiveSkillContent(content)
 		},

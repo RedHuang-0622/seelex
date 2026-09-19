@@ -57,6 +57,7 @@ MISC_FILES = [
     "workspace_usecase.go",
     "workspace_file_usecase_test.go",
     "workspace_tree_usecase_test.go",
+    "window.go",
 ]
 
 # 根包分卷：(卷名, 组概述, 前缀列表, 显式文件名列表)；卷名用于 README-<卷名>.md。

@@ -544,7 +544,7 @@ func TestControllerOrphanMessagesBetweenOverflowAndWindow(t *testing.T) {
 		textMessage("user", "轮2-用户"+big),
 		textMessage("assistant", "轮2-回复"+big),
 	}
-	units := chatUnits(history)
+	units := chatUnits(history, 0)
 	if len(units) != 4 {
 		t.Fatalf("units = %d, want 4 (round0, interrupted c0 chain, round1, round2)", len(units))
 	}

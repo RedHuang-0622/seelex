@@ -223,8 +223,10 @@ func TestSessionArchivePreservesVisibleHistoryPlanAndReadCache(t *testing.T) {
 	if len(history) != 1 || history[0].Role != "user" || history[0].Content != "Inspect the repository" {
 		t.Fatalf("engine history = %#v, want bounded durable conversation context", history)
 	}
-	if sessions.tailBudget != task_context.DefaultContextBudget().TargetAfterCompaction || sessions.tailUnits != 4 {
-		t.Fatalf("transcript tail request budget=%d units=%d", sessions.tailBudget, sessions.tailUnits)
+	// 读尾预算 = window 段的保留窗口规则（min(retain_tokens, ratio × 账号上下文
+	// 窗口)），不再是旧的"60% 预算"口径；单元上限仍是存储层分片选择边界。
+	if want := RetainedReadTailBudget(restored.Deps.Runtime); sessions.tailBudget != want || sessions.tailUnits != 4 {
+		t.Fatalf("transcript tail request budget=%d units=%d, want budget=%d units=4", sessions.tailBudget, sessions.tailUnits, want)
 	}
 }
 

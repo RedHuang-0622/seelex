@@ -4,7 +4,7 @@
 
 基础与杂项（aliases/limits/completion/compressed/diagnostics/fault-guard/perf/snapshot-budget/runtime/workspace/race）
 
-覆盖：显式名单 18 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
+覆盖：显式名单 19 个文件（见生成器 `ROOT_GROUPS`）；未归属文件由覆盖自检拦下。
 
 ## 文件与函数索引
 
@@ -151,6 +151,12 @@
 - `func TestBoundToolResultForSnapshotArchives(t *testing.T)` — TestBoundToolResultForSnapshotArchives 验证截断链入口：超限输出归档为
 - `func TestToolResultContentPagination(t *testing.T)` — TestToolResultContentPagination 验证分页读回：offset/limit/UTF-8 边界
 - `func TestSnapshotBudgetUsesConfiguredLimit(t *testing.T)` — TestSnapshotBudgetUsesConfiguredLimit 验证 limits 注入生效：设置较小
+
+### window.go
+
+- `func ApplyWindowConfig(config WindowConfig)` — ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
+- `func CurrentWindowConfig() WindowConfig` — CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
+- `func RetainedReadTailBudget(runtime any) int` — RetainedReadTailBudget 返回**读尾**（冷恢复装载 transcript/history 尾部）的
 
 ### workspace_file_usecase_test.go
 

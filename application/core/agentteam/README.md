@@ -276,10 +276,23 @@ go test -race ./application/core/agentteam -count=1
 - `func TestResearchPresetKeepsScheduledRoleOutOfOrder(t *testing.T)` — TestResearchPresetKeepsScheduledRoleOutOfOrder：定时 agent 只出现在定时分区。
 - `func TestRegistryCRUDAndOrder(t *testing.T)` — TestRegistryCRUDAndOrder：角色配置 CRUD 只改注册表；顺序设置只改 lifecycle 字段，
 
+### dismiss_test.go
+
+- `func (port *fakePort) RemoveTeamRegistry(string) error` — RemoveTeamRegistry 让工厂桩具备离场面（DismissPort）。
+- `func (port *barePort) EnsureRoleSession(string, string, string, uint64) (bool, error)`
+- `func (port *barePort) ReadLifecycleOrder(string) (string, []string, error)`
+- `func (port *barePort) SetLifecycleOrder(_ string, policy string, roles []string) error`
+- `func (port *barePort) ReadTeamRegistry(string) (dto.TeamRegistry, error)`
+- `func (port *barePort) WriteTeamRegistry(_ string, registry dto.TeamRegistry) error`
+- `func TestDismissClearsRegistryAndOrder(t *testing.T)`
+- `func TestDismissWithoutPortFailsExplicitly(t *testing.T)`
+- `func TestDismissRejectsEmptySession(t *testing.T)`
+
 ### factory.go
 
 - `func NewFactory(port Port) (*Factory, error)` — NewFactory 构造工厂；port 为 nil 时显式报错（不允许静默空转）。
 - `func (factory *Factory) Materialize(mainSessionID string, spec dto.TeamSpec, joinSeq uint64) (dto.TeamMaterializeResult, error)` — Materialize 装配 TeamSpec。joinSeq 是本次装配把角色挂到主会话的可见起点
+- `func (factory *Factory) Dismiss(mainSessionID string) error` — Dismiss 让一支已装配的团队离场（"干完就走人"）：删除会话角色注册表 + 复位
 - `func registryFromSpec(spec dto.TeamSpec) dto.TeamRegistry` — registryFromSpec 把 TeamSpec 投影成注册表（角色配置的持久事实）。
 - `func (factory *Factory) InstantiateRole(mainSessionID string, role dto.RoleSpec, joinSeq uint64) (dto.RoleInstantiation, error)` — InstantiateRole 一步实例化一个角色：规整/校验配置 → 幂等创建角色会话 →
 - `func placeRoleInOrder(role dto.RoleSpec, orderRoles []string) ([]string, bool, []string)` — placeRoleInOrder 按 join_policy 决定新角色是否自动进入工作顺序：

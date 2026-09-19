@@ -535,6 +535,9 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	runtimeLimits = limits // initStore/initEngine 等后续初始化消费
 	toolCallTimeout, _, planDecision, heartbeat, replanWindow, searchTimeout := limits.Durations()
 	core.ApplyLimits(limits)
+	// window 段同时注入应用侧压缩保留窗口决策（压缩前缀 = min(retain_tokens,
+	// ratio × 全量上下文)，硬压缩阈值 force_compact_tokens）。
+	core.ApplyWindowConfig(windowConfig)
 	search.ApplyLimits(int(searchTimeout / time.Second))
 	runtime, err := seelebridge.NewRuntime(seelebridge.RuntimeConfig{
 		AccountsPath: accountsPath(), StorePath: *storePath,
