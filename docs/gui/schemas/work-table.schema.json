@@ -29,6 +29,7 @@
       "required": ["id", "phase", "task", "status", "kind"],
       "properties": {
         "id": { "type": "string", "pattern": "^(plan|todo|subagent|task):" },
+        "session_id": { "type": "string", "description": "归属会话：全局台账里标注该行产自哪个会话（实时注册表 = 当前会话，切换保存的分区 = 分区键）；GUI 会话筛选轴（「仅本会话」）按此判定，空串 = 未归属（草稿）" },
         "phase": { "enum": ["plan", "tasklist", "task", "subagent"] },
         "task": { "type": "string" },
         "description": { "type": "string" },

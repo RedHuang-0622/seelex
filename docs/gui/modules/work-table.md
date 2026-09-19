@@ -7,10 +7,11 @@
 表格（阶段/任务/描述/状态/Assignee/Dependency/附件），并按**批次分片**：
 一批 = 一次 chat 请求创建的全部条目（BatchID = requestID，如
 `chat-<nano>`）。展示层为 Excel 化多维表格：`<table class="excel-grid">`
-固定表头（类型/任务/描述/状态/Assignee/依赖/附件/打点/操作），**批次维度
+固定表头（类型/任务/描述/状态/Assignee/会话/依赖/附件/打点/操作），**批次维度
 通过底部 sheet 页签切换**（类 Excel 切换工作表；「全部」页签居首，页签
-展示标签与各类计数），表内按权威类型（kind：plan/task/todo/subagent）
-chips 过滤。任务打点（trace）带进同一数据面。右栏为「入口按钮 + 未读
+展示标签与各类计数），表内按权威类型（kind：plan/task/todo/subagent）与
+会话维度（全部会话/仅本会话）chips 过滤，另有「实发」开关只看真正进模型
+上下文的那一层。任务打点（trace）带进同一数据面。右栏为「入口按钮 + 未读
 角标」，点开按钮弹出完整多维表格弹窗
 （工作台窄，详情在弹窗内看全）；未读 = 新增或状态/retry 变化的条目
 （`workTableSignatures`/`countUnread`，纯 UI 态，打开详情后清零）。节点
@@ -29,9 +30,24 @@ chips 过滤。任务打点（trace）带进同一数据面。右栏为「入口
   会话 scope 分区，按跨会话身份（幂等键优先、否则行 ID）去重后投影成表；
   `buildWorkTable` / `worktable.changed` / 会话快照里的 `runtime.work_table`
   都取自它。
+- **会话筛选轴**（全局口径不牺牲可判定性）：每条行带**归属会话** `session_id`
+  ——实时注册表的记录=当前会话，切换保存的分区记录=分区键；GUI 表格因此既
+  能"默认全部会话"看项目全貌，也能一键切「仅本会话」收窄到当前会话（行内另有
+  「会话」列直接可读）。筛选后类型计数、批次页签与分页都按同一 scope 重算
+  （只列该会话里有行的批次页签）。
+- **实发轴**（台账 ≠ 实发块）：台账是全局全量档案（含终态历史与其它会话的
+  行），而**真正送进模型上下文**的是渲染会话请求尾部的打点块——只含该会话
+  未终态的行（`workTableTraceBlockFor`：会话作用域 + 仅未终态）。GUI 把这条
+  差异显式化：行上带 `data-work-dispatched` 与「实发」徽标，工具栏另有「实发」
+  开关（`state.sentOnly`）只看这些行；计数、类型计数、批次页签与分页按同一
+  scope 重算。判据是纯前端的 `isDispatchedRow`（`row.session_id == 当前视图
+  会话 && 状态非终态`，终态集合 completed/failed/done），对齐后端打点块规则，
+  不改数据契约、不加字段。
 - 会话级读面 `RuntimePort.TaskSnapshotFor(sessionID)` 仍按会话取数，只服务
   两件事：**落盘**（`SessionRecord.Tasks` 是会话自己的条目）与**请求尾部
-  打点块**（注入本会话上下文的活动任务，见下）。
+  打点块**（注入本会话上下文的活动任务，见下）。它刻意**不**给记录标
+  `session_id`——归属由容器 `SessionRecord` 表达，落盘不必把会话号写进每条
+  记录。
 - 行 ID 仍是 `plan:<node_id>` / `subagent:<id>` / `todo:<n>` / `task:<n>`；其中
   自动号（`todo:<n>` / `task:<n>`）由 seelebridge 的**进程级**分配器给出，
   进程内唯一（同 ID 在台账里是同一行，注册表也以 ID 为行键）；去重身份不能

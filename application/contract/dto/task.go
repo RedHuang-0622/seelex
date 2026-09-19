@@ -43,6 +43,7 @@ type TaskTracePoint struct {
 // TaskRecord 是 task 的只读快照 DTO（字段与 worktable WorkItem 同构）。
 type TaskRecord struct {
 	ID           string           `json:"id"`                     // plan:<node_id> | subagent:<id> | todo:<n> | task:<n>（自动号进程内唯一）
+	SessionID    string           `json:"session_id,omitempty"`   // 归属会话（读面元数据：全局台账在快照时按注册表/分区标注；不参与落盘语义）
 	Key          string           `json:"key,omitempty"`          // 幂等键（归一化 goal hash / source id）
 	Phase        string           `json:"phase"`                  // 展示派生字段：plan | tasklist | task | subagent（创建时由 Kind 派生）
 	Task         string           `json:"task"`                   // goal / label / todo text

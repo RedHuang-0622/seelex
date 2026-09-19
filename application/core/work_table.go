@@ -86,7 +86,7 @@ func taskRecordToWorkItem(record dto.TaskRecord) WorkItem {
 		status = "done"
 	}
 	return WorkItem{
-		ID: record.ID, Phase: record.Phase,
+		ID: record.ID, SessionID: record.SessionID, Phase: record.Phase,
 		Task:        truncateWorkEvidence(record.Task, 200),
 		Description: truncateWorkEvidence(record.Description, Limits().EvidenceChars),
 		Status:      status, RetryCount: record.RetryCount, Assignee: record.Assignee,
@@ -563,24 +563,35 @@ func mergeWorkDependencies(recorded []string, derived []string) []string {
 // 子代理/待办文本在不同来源（实时注册表、会话分区、磁盘记录）出现时靠 Key
 // 认同一行；自动行 ID（`task:<n>`/`todo:<n>`）由进程级分配器保证进程内唯一，
 // 不会把两个会话的条目并成一行（见 seelebridge/task.NextAutoID）。
-func mergeTaskRecords(primary, secondary []dto.TaskRecord) []dto.TaskRecord {
+//
+// secondarySessionID 标注 secondary 的归属会话：磁盘记录不带会话标记（归属
+// 由容器 `SessionRecord` 表达），冷读时把该会话的持久化条目补上标记，会话
+// 筛选轴才不会把它们的行判成"无主"。
+func mergeTaskRecords(primary, secondary []dto.TaskRecord, secondarySessionID string) []dto.TaskRecord {
 	if len(secondary) == 0 {
 		return primary
 	}
 	merged := make([]dto.TaskRecord, 0, len(primary)+len(secondary))
 	seen := make(map[string]struct{}, len(primary)+len(secondary))
-	for _, source := range [][]dto.TaskRecord{primary, secondary} {
-		for _, record := range source {
-			identity := taskRecordLedgerIdentity(record)
-			if identity == "" {
-				continue
-			}
-			if _, exists := seen[identity]; exists {
-				continue
-			}
-			seen[identity] = struct{}{}
-			merged = append(merged, record)
+	appendRecord := func(record dto.TaskRecord) {
+		identity := taskRecordLedgerIdentity(record)
+		if identity == "" {
+			return
 		}
+		if _, exists := seen[identity]; exists {
+			return
+		}
+		seen[identity] = struct{}{}
+		merged = append(merged, record)
+	}
+	for _, record := range primary {
+		appendRecord(record)
+	}
+	for _, record := range secondary {
+		if record.SessionID == "" {
+			record.SessionID = secondarySessionID
+		}
+		appendRecord(record)
 	}
 	sort.SliceStable(merged, func(left, right int) bool { return merged[left].ID < merged[right].ID })
 	return merged

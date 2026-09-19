@@ -53,7 +53,7 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 	// 条目（冷会话未驻留，其条目只在 record 里），合并后投影成同一张表。
 	records := record.Tasks
 	if service.Deps.Runtime != nil {
-		records = mergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks)
+		records = mergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks, sessionID)
 	}
 	if len(records) > 0 {
 		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil)

@@ -39,6 +39,10 @@ const mainAgentNodeID = model.MainAgentNodeID
 // 切走/新建会话都不应让先前会话的条目从表里消失（用户看的是"这个项目在办
 // 什么"，不是"这个会话在办什么"）。会话级读面（持久化落盘、请求尾部打点
 // 块）走 TaskSnapshotFor，仍按会话取数。
+//
+// 每条记录带**归属会话**（SessionID：实时注册表 = 当前会话，分区 = 分区键）：
+// 台账默认全量展示，前端会话筛选轴（"仅本会话"）据此过滤——全局口径不牺牲
+// "这行是谁在办的"的可判定性。
 func (r *Runtime) TaskSnapshot() []dto.TaskRecord {
 	if r == nil || r.tasks == nil {
 		return nil
@@ -47,22 +51,28 @@ func (r *Runtime) TaskSnapshot() []dto.TaskRecord {
 }
 
 // taskSnapshotAll 合并实时注册表与所有会话分区（跨会话身份去重：有幂等键
-// 按 Key、否则按 ID；注册表记录优先）。
+// 按 Key、否则按 ID；注册表记录优先）。每条记录标注**归属会话**：实时注册表
+// 的记录归当前会话，分区记录归分区键——工作表格的会话筛选轴（默认全部、可
+// 切「仅本会话」）按此判定，否则合并后无法回答「这行是谁在办的」。
 func (r *Runtime) taskSnapshotAll() []dto.TaskRecord {
 	r.sessionTaskMu.Lock()
 	defer r.sessionTaskMu.Unlock()
-	records := r.tasks.Snapshot()
-	seen := make(map[string]struct{}, len(records))
-	for _, record := range records {
+	live := r.tasks.Snapshot()
+	records := make([]dto.TaskRecord, 0, len(live))
+	seen := make(map[string]struct{}, len(live))
+	for _, record := range live {
+		record.SessionID = r.currentTaskSessionID
 		seen[taskLedgerIdentity(record)] = struct{}{}
+		records = append(records, record)
 	}
-	for _, partition := range r.sessionTaskSnapshots {
+	for sessionID, partition := range r.sessionTaskSnapshots {
 		for _, record := range partition {
 			identity := taskLedgerIdentity(record)
 			if _, exists := seen[identity]; exists {
 				continue
 			}
 			seen[identity] = struct{}{}
+			record.SessionID = sessionID
 			records = append(records, record)
 		}
 	}
@@ -88,7 +98,9 @@ func taskLedgerIdentity(record dto.TaskRecord) string {
 // 快照；当前会话返回注册表实时快照；空会话 ID 视为当前。
 //
 // 注意：工作表格本体取全局读面（TaskSnapshot），不是这里——本方法刻意保持
-// 会话粒度，避免把别的会话的活动任务注入本会话上下文。
+// 会话粒度，避免把别的会话的活动任务注入本会话上下文；也刻意**不**标注
+// SessionID（调用方本来就知道是哪个会话，且本方法服务于落盘——归属会话由
+// 容器 `SessionRecord` 表达，不必写进每条记录）。
 func (r *Runtime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
 	if r == nil || r.tasks == nil {
 		return nil

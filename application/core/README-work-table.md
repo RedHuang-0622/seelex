@@ -41,7 +41,7 @@
 - `func planNodeIDFor(record dto.TaskRecord) string` — planNodeIDFor 返回 plan 行对应的 plan 节点 ID：SourceID 优先，缺失时
 - `func planDependencies(plan *PlanState, nodeID string) []string` — planDependencies 由 plan 邻接面取节点的前置任务 ID（plan:<前置节点>）。
 - `func mergeWorkDependencies(recorded []string, derived []string) []string` — mergeWorkDependencies 合并依赖来源（注册表记录 + plan 邻接面）：去重、
-- `func mergeTaskRecords(primary, secondary []dto.TaskRecord) []dto.TaskRecord` — mergeTaskRecords 合并两组 task 记录（按跨会话身份去重，前者优先，稳定
+- `func mergeTaskRecords(primary, secondary []dto.TaskRecord, secondarySessionID string) []dto.TaskRecord` — mergeTaskRecords 合并两组 task 记录（按跨会话身份去重，前者优先，稳定
 - `func taskRecordLedgerIdentity(record dto.TaskRecord) string` — taskRecordLedgerIdentity 返回记录在跨会话台账里的去重身份（幂等键优先、
 - `func (service *Service) workItemForRecord(record dto.TaskRecord, sessionID string) WorkItem` — workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 - `func (state *serviceState) workTableTraceBlock() string` — workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
@@ -79,6 +79,12 @@
 ### work_table_race_test.go
 
 - `func TestWorkTableRaceConcurrentMutations(t *testing.T)` — TestWorkTableRaceConcurrentMutations 并发执行工作表格三类变更路径：
+
+### work_table_session_axis_test.go
+
+- `func TestWorkItemCarriesOwningSession(t *testing.T)` — 归属会话必须从注册表记录透传到 WorkItem（GUI「会话」列与「仅本会话」筛选
+- `func TestGlobalWorkTableCarriesOwningSession(t *testing.T)` — 全局台账行带归属会话：实时注册表 = 当前会话，后台 scope 分区 = 分区键。
+- `func TestMergeTaskRecordsStampsSecondarySession(t *testing.T)` — 冷读合并：磁盘记录不带会话标记（归属由 SessionRecord 容器表达），合并时按
 
 ### work_table_session_scope_test.go
 

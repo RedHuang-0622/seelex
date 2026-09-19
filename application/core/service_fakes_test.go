@@ -529,26 +529,31 @@ func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
 }
 
 // globalSnapshotLocked 合并实时注册表与所有会话分区（跨会话身份去重：
-// 幂等键优先、否则行 ID；注册表优先）。
+// 幂等键优先、否则行 ID；注册表优先），并标注**归属会话**（实时 = 当前会话，
+// 分区 = 分区键）——镜像生产 Runtime.TaskSnapshot 的会话筛选轴数据面。
 func (runtime *fakeRuntime) globalSnapshotLocked() []dto.TaskRecord {
-	records := runtime.snapshotLocked()
-	seen := make(map[string]struct{}, len(records))
+	live := runtime.snapshotLocked()
+	records := make([]dto.TaskRecord, 0, len(live))
+	seen := make(map[string]struct{}, len(live))
 	identityOf := func(record dto.TaskRecord) string {
 		if record.Key != "" {
 			return "key:" + record.Key
 		}
 		return "id:" + record.ID
 	}
-	for _, record := range records {
+	for _, record := range live {
+		record.SessionID = runtime.currentTaskSession
 		seen[identityOf(record)] = struct{}{}
+		records = append(records, record)
 	}
-	for _, partition := range runtime.sessionTaskSnapshots {
+	for sessionID, partition := range runtime.sessionTaskSnapshots {
 		for _, record := range partition {
 			identity := identityOf(record)
 			if _, exists := seen[identity]; exists {
 				continue
 			}
 			seen[identity] = struct{}{}
+			record.SessionID = sessionID
 			records = append(records, record)
 		}
 	}
