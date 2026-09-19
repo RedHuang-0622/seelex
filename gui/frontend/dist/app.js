@@ -1,7 +1,7 @@
 import { escapeHtml, hydrateIcons, icon, queueMoveTarget } from "./components.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
-import { clearSubmittedText, composerSubmitPlan, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
+import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
 import { createConversationView } from "./conversation-view.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
@@ -474,7 +474,15 @@ let lastAccountsRuntime = {};
 let composerSaveTimer = null;
 // composerDirty 标记"输入框里有尚未落盘的本地输入"：整份快照回填草稿正文时
 // 用它挡住后端旧副本对用户正在敲的内容的覆盖（"偶发吞输入"的来源之一）。
+// 归属：它属于 composerSessionID 那个会话——切换视图会话时由 syncComposerSession
+// 按新会话有没有本地正文重算，不跨会话延续。
 let composerDirty = false;
+// composerStash / composerSessionID：输入框正文按会话归属的本地留存表与"当前
+// 归属的视图会话"（规则见 composer-input.js composerViewSwitch）。留存表只装
+// 未发送正文（有上限），因此切走再切回来时属于该会话的字还在，而它绝不会跟着
+// 视图跑到别的会话去被提交。
+let composerStash = new Map();
+let composerSessionID = "";
 // composerComposing 跟踪输入法合成态（compositionstart/end）：合成中的 Enter
 // 是确认候选词，不是发送。
 let composerComposing = false;
@@ -543,6 +551,43 @@ function scheduleComposerSave() {
   }, 300);
 }
 
+// syncComposerSession 在整份快照渲染时把「输入框正文 ↔ 视图会话」对齐：正文按
+// 会话归属（规则集中在 composer-input.js `composerViewSwitch`）。
+//
+// 存在理由（用户报告）：一个会话运行中（A），用户在它的输入框里写了插话、或撤回
+// 了一条排队消息，接着切到一个**没在运行**的会话（B）继续干活。此前输入框正文不
+// 按会话归属，A 的字跟着视图留在框里，于是按 Enter 时它被当成 B 的内容提交出去
+// （`composerSubmitPlan` 只认当前视图会话）——"运行中会话污染了空闲会话的输入框
+// 内容提交"。同一处脏位还会挡住 B 自己的草稿回填（`shouldRestoreDraft` 要求非脏），
+// 于是 B 的输入框显示的反而是 A 的字。
+//
+// 只在会话 ID 真的变了时动手（同一会话的整份渲染/事件密集期是 no-op），且必须
+// 先于 restoreComposerDraft：归属清楚之后，草稿会话的正文回填才有正确的脏位前提。
+function syncComposerSession(snapshot) {
+  const sessionID = snapshot?.session?.id || "";
+  const result = composerViewSwitch({
+    fromSessionID: composerSessionID,
+    toSessionID: sessionID,
+    current: elements.prompt.value,
+    dirty: composerDirty,
+    stash: composerStash
+  });
+  composerStash = result.stash;
+  if (!result.switched) return;
+  composerSessionID = sessionID;
+  composerDirty = result.dirty;
+  if (elements.prompt.value !== result.text) {
+    elements.prompt.value = result.text;
+    resizePrompt();
+  }
+  // 正文换了归属：上一个会话的内联建议（命令/插件/技能/团队前缀）已不适用。
+  hideInlineSuggestions();
+  // 目标会话是草稿且正文来自本地留存（dirty）：此刻后端视图会话已切到它，
+  // 落盘写的正是这份正文——把"切走时没来得及落盘"的本地草稿补上，避免
+  // 重启后这段未发送正文消失。
+  if (composerDirty && snapshot?.session?.draft) scheduleComposerSave();
+}
+
 // restoreComposerDraft 在整份快照渲染时把后端恢复的草稿正文回填输入框：
 // 仅在"没有本地未落盘输入"（未聚焦、非脏）时才回填，避免后端旧副本覆盖
 // 用户刚敲的内容（判据集中在 composer-input.js）。
@@ -561,6 +606,8 @@ function restoreComposerDraft(snapshot) {
 
 function render(snapshot, options = {}) {
   const started = performance.now();
+  // 输入框正文先按会话归属对齐，再谈草稿回填（顺序见 syncComposerSession）。
+  syncComposerSession(snapshot);
   restoreComposerDraft(snapshot);
   renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {}, snapshot.session_workspaces || {}, snapshot.workspaces || []);
   renderProject(snapshot);

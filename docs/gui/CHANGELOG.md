@@ -17,6 +17,13 @@
   输入路由器（前缀→用例的映射是路由器的职责，输入区锁覆盖切换在途窗口）。规则住在
   `composer-input.js` 的 `composerSubmitPlan`（纯函数，`node --test` 覆盖），口径见
   `modules/multi-session-pages.md` §6「新前端一律使用显式 session ID」。
+- **输入框正文按会话归属：运行中会话里未发送的字不再被当成空闲会话的提交内容。**
+  路由钉对了会话还不够——输入框正文此前是全进程共享的一份：在运行中的 A 里写了插话
+  （或撤回了 A 的排队消息），切到空闲的 B 后字还留在框里，下一次 Enter 就把它当成 B
+  的内容发出去。同一处脏位（`composerDirty`）也跨会话延续，把 B 自己的草稿正文挡在
+  `shouldRestoreDraft` 门外（用户看到 B 的框里是 A 的字）。现在正文按会话归属：
+  `composer-input.js` 新增 `composerViewSwitch`（纯函数，LRU 上限 24），app.js 的整份
+  渲染先对齐正文归属与脏位、再谈草稿回填；切回原会话时属于自己的未发送正文还在。
 
 ### Added
 

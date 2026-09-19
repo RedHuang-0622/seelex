@@ -93,7 +93,16 @@ app.js 在启动时构造：
 - 提交：`gui/frontend/dist/app.js:363-374`；
 - cancel/history/new：`gui/frontend/dist/app.js:407-421`。
 
-选择旧会话统一提交 `/resume <id>`，由 Core 完成 Engine history replacement。加载更多历史调用专用 Bridge 方法并使用 anchor scroll。提交完成后清空输入；运行中提交由 Core 加入队列。
+选择旧会话统一提交 `/resume <id>`，由 Core 完成 Engine history replacement。加载更多历史调用专用 Bridge 方法并使用 anchor scroll。提交完成后清空输入（只移除**已发送的那段**——`Submit` 是异步 RPC，往返期间用户可能已继续输入；整框清空会把这段新输入一起吞掉）；运行中提交由 Core 加入队列。
+
+输入框的编辑规则集中在 `gui/frontend/dist/composer-input.js`（纯函数 + `composer-input.test.mjs`），`app.js` 只把 DOM 事件接上去，避免"吞输入"的三个坑各写一遍：
+
+- `clearSubmittedText(current, sent)`：提交成功后只切掉已发送前缀，保留往返期间追加的新输入；
+- `shouldRestoreDraft({draft, snapshotComposer, current, focused, dirty})`：整份快照回填草稿正文时，输入框聚焦或**有未落盘的本地输入**（`composerDirty`）一律不回填——后端草稿副本可能更旧，回填等于吞掉刚敲的字；
+- `isComposingEnter(event, composing)`：输入法合成中的 Enter（`compositionstart/end` 跟踪 + `event.isComposing` + `keyCode === 229`）不是发送，只有普通 Enter 才 `requestSubmit`；
+- `composerViewSwitch({fromSessionID, toSessionID, current, dirty, stash})`：**输入框正文按会话归属**。整份渲染发现视图会话 ID 变了时才动手（同一会话的渲染/事件密集期是 no-op）；离开会话的未发送正文按 ID 留存（LRU 上限 24，空串不占位），进入会话有自己的留存就用它并置脏，没有则清空正文、**清脏位**（留出草稿回填位）；`switched=false` 表示 ID 未变、不碰输入框。
+
+为什么必须有归属这一条：`composerSubmitPlan` 只认「当前视图会话」。正文要是没跟着视图切，在运行中的 A 里写下的插话（或撤回的 A 的排队消息）就会被当成空闲 B 的内容提交出去——「运行中会话污染了空闲会话的输入框内容提交」；而跨会话延续的脏位又会把 B 自己的草稿回填挡在门外（B 的框里显示的是 A 的字）。顺序也有讲究：先归属、后回填（`render` 里 `syncComposerSession` 在 `restoreComposerDraft` 之前）。
 
 ## 6. 指令模式
 

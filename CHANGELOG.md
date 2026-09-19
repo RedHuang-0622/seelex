@@ -14,6 +14,79 @@ version when it lands.
 
 ### Fixed
 
+- **A running session no longer derails an idle session's composer submit.** Two
+  independent mechanisms, both exposed once the renderer pins every plain submit
+  to an explicit session ID (`gui/frontend/dist/composer-input.js`
+  `composerSubmitPlan` → `SubmitToSession`):
+  1. `SubmitToSession` treated an **unmaterialized draft** as "target not loaded"
+     and recovered it through `ActivateSession` → cold restore of the
+     `Status=draft` record. The whole materialization path
+     (`materializeDraftSession`: engine bundle by early-assigned SID, project
+     binding, title, composer cleanup) was skipped, so a brand-new session
+     opened with a "已恢复会话: draft_…" restore marker, the draft slot stayed
+     armed, and the already-sent text survived in the draft record — reappearing
+     in the input box after a restart. While another session ran, the same submit
+     additionally flipped the view into a `restoring` shell and parked on the load
+     completion point. `SubmitToSession` now runs a draft gate
+     (`session_draft.go` `materializeDraftForSubmit`) before the loaded check; a
+     draft that is no longer the viewed session fails explicitly
+     (`ErrDraftNotInView`) instead of being routed into some other session.
+  2. `BeginNewSession` read and cleared the engine through the **process-level
+     active alias** (`Engine.History()` / `Engine.ClearHistory()`). That alias
+     names whichever session was activated last — possibly one whose framework
+     `Session` lock `ChatStream` holds for the entire turn — so one click on
+     "new session" queued behind that turn *while holding the view transition
+     key* (the only key while `PerSessionExecution` is false: every resume,
+     unload and ambient submit waits on it), and then wiped the running
+     session's working history. Both accesses now route per session
+     (`engineHistoryFor`, new `clearEngineHistoryFor`).
+  Regression: `application/core/session_running_idle_submit_test.go`
+  (`TestSubmitToSessionMaterializesDraftWhileOtherSessionRuns`,
+  `TestSubmitToSessionMaterializesIdleDraft`,
+  `TestBeginNewSessionDoesNotSerializeBehindRunningSession`).
+  3. The **input box content was not scoped to a session**: text left unsent in a
+     running session's composer stayed in the box when the user switched to an
+     idle session, and the next Enter submitted it to that idle session
+     (`composerSubmitPlan` only honours the current view session). The same
+     global dirty flag made `shouldRestoreDraft` refuse the idle session's own
+     draft text, so the box kept showing the other session's words. Composer
+     content is now scoped per session (`gui/frontend/dist/composer-input.js`
+     `composerViewSwitch`, LRU-bounded stash of unsent text) and the render pass
+     aligns content and dirty state with the view session *before* the draft
+     restore. Regression: `gui/frontend/dist/composer-input.test.mjs`,
+     `application/core/session_running_idle_submit_test.go`
+     (`TestIdleSessionSubmitWhileOtherRunningLandsInViewSession`).
+
+- **The retained context window is one rule everywhere, and the compacted
+  range is recorded, not derived.** The compaction retained prefix was a
+  hard-coded share of the budget (`TargetAfterCompaction` = 60%) and the cold
+  restore tail reused the same number with a fixed unit cap, so the configured
+  `window.retain_tokens` / `window.ratio` knobs had no effect on either. Both
+  now go through one implementation
+  (`seelexctx.WindowConfig.RetainedContextTokens`), `min(token1, token2)`:
+  `token1 = window.retain_tokens` (unset → the account context window),
+  `token2 = window.ratio × all_context`; everything outside the retained prefix
+  is folded by `compact_context` (raw turns stay in session storage and are
+  readable by reference). Request assembly passes the assembled full context as
+  `all_context`; the read tail (cold restore of transcript / history) happens
+  before any request exists, so it uses the account context window — a session
+  below its ceiling is not truncated by the ratio window, since restoring
+  rebuilds existing history instead of making a new compaction decision
+  (`core.RetainedReadTailBudget`, `session_runtime.Deps.TranscriptTailBudget`).
+  `window.force_compact_tokens` adds the hard side: `all_context` at or above it
+  forces autonomous compaction and bypasses the progress-epoch throttle.
+  Compaction records now carry the compacted range as **recorded** data
+  (`message_from/message_to`, `event_from/event_to` on the application side;
+  `CompactFrame.From/To` taken from the compacted units' own ordinals in the
+  framework DAG), so no consumer re-derives the boundary from unit counts.
+  Regression: `application/core/context_window_rule_test.go`
+  (`TestCompactRetainedPrefixIsMinOfTwoWindows`,
+  `TestCompactHardThresholdForcesCompression`,
+  `TestCompactHardThresholdBypassesEpochThrottle`,
+  `TestCompactContextHandlerReportsRecordedRange`,
+  `TestReadTailBudgetFollowsRetainedWindowRule`),
+  `seelexctx/window_retain_test.go`.
+
 - **Wire assembly now consumes the §5.2 soft budget, so "the soft threshold
   triggers compaction" actually fires.** `Settings.WireBudgetTokens` /
   `WireSoftRatio` / `WireTargetRatio` were resolved by `wireBudget()` but read
@@ -81,6 +154,26 @@ version when it lands.
   Recorded on 2026-09-19 in
   `docs/devlog/2026-09-19-worktable-global-scope.md` §7.5; not fixed in this
   batch (separate surface: GUI contract + fakes).
+
+- **The D1 main-session tail budget never actually derives its round count.**
+  `seelebridge/runtime_context.go` `windowTailBudget` fills only
+  `ProviderContextInfo.ContextTokens`, so `AvgRoundTokens` / `ReservedTokens`
+  are absent and `seelexctx.WindowRounds` always takes its "inputs unavailable"
+  fallback: the durable-history read width is `window.rounds` when explicitly
+  configured, otherwise `window.min_rounds` — the clamp formula never runs on
+  this path, while `config/seelex.yaml` presented it as where the number comes
+  from. This batch only corrects the wording (docs/config comments, plus the
+  unreachable `rounds = 4` fallback now references
+  `DefaultWindowConfig().MinRounds` instead of duplicating the default). Two
+  consequences: `window.retain_tokens` has no effect on this path, so a Run not
+  preceded by application context assembly would carry only `min_rounds`
+  verbatim units plus summaries; and subagent sessions attach
+  `DurableHistory` without a tail budget (full load), role-turn sessions attach
+  none. Static reading finds no such un-assembled entry point in the main chat
+  flow — every assembly arms the one-shot `PrepareNextLoad` handoff, deferred
+  install included — so wiring the derivation inputs is not required yet, but
+  proving "never runs" needs runtime evidence. Recorded on 2026-09-20 in
+  `docs/devlog/2026-09-20-retained-window-and-read-tail.md` §6.
 
 ## [v0.1.0] - 2026-09-18
 

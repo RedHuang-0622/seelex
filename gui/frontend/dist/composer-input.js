@@ -62,6 +62,59 @@ export function composerSubmitPlan({ text, viewedSessionID }) {
   return { rpc: "SubmitToSession", args: [sessionID, value] };
 }
 
+// COMPOSER_STASH_LIMIT 是「输入框正文按会话留存」的上限（LRU）：正文只是未
+// 发送的本地草稿，留最近用过的这些够用，不能让一张进程级表随会话数无限长。
+const COMPOSER_STASH_LIMIT = 24;
+
+// composerViewSwitch 决定「视图会话切换时输入框正文与脏位往哪走」——**输入框
+// 正文按会话归属**：在 A 里写的未发送正文属于 A，不得跟着视图切到 B 并被当成
+// B 的提交内容（`composerSubmitPlan` 只认「当前视图会话」，正文要是没跟着切，
+// 一条会话运行中时写下的插话就会被发给另一个空闲会话）。
+//
+// 入参（都不被修改）：
+//   fromSessionID / toSessionID：切换前 / 后的视图会话 ID；
+//   current：切换前输入框里的正文（DOM 是正文的事实源）；
+//   dirty：切换前是否「有本地未落盘输入」（挡住后端旧副本回填，见
+//     shouldRestoreDraft）；
+//   stash：Map<会话 ID, 未发送正文>，本地留存表（上一次调用的返回值）。
+//
+// 返回 { stash, text, dirty, switched }：
+//   - ID 未变 / 目标为空 → 原样返回（switched=false，不动输入框）；
+//   - 离开会话的正文按 ID 留存（空串不占位子；重复写入刷新 LRU 序）；
+//   - 新会话有自己的留存 → 用它，并把脏位置真：那是本地内容，后端旧副本
+//     （草稿正文）不得覆盖它；
+//   - 新会话没有留存 → 正文置空、脏位**置假**：这条很关键，草稿会话的正文
+//     随后由 restoreComposerDraft 回填，而 shouldRestoreDraft 要求「非脏、
+//     未聚焦」——上一个会话遗留的脏位会把新会话自己的草稿正文挡在门外
+//     （用户看到的是「切过去还是上一个会话的字」）。
+export function composerViewSwitch({ fromSessionID, toSessionID, current, dirty = false, stash } = {}) {
+  const source = String(fromSessionID ?? "");
+  const target = String(toSessionID ?? "");
+  const text = String(current ?? "");
+  const next = trimComposerStash(new Map(stash instanceof Map ? stash : []));
+  if (target === "" || target === source) return { stash: next, text, dirty: Boolean(dirty), switched: false };
+  // 首次挂载（视图里还没有已知前置会话）：不动已经敲进去的内容，只把它记到
+  // 该会话名下——启动竞态里宁可保留，也不能吞掉用户刚输入的字。
+  if (source === "") {
+    if (text !== "") next.set(target, text);
+    return { stash: trimComposerStash(next), text, dirty: Boolean(dirty), switched: true };
+  }
+  // 离开的会话：正文按 ID 留存（空串不占位子；重写刷新 LRU 序 = 先删后插）。
+  next.delete(source);
+  if (text !== "") next.set(source, text);
+  // 进入的会话：有本地留存就用它并置脏（本地内容，后端旧副本不得覆盖）；
+  // 没有留存则清空正文、清脏位，把输入框交还给该会话自己（草稿正文由
+  // shouldRestoreDraft 回填）。
+  const restored = next.get(target);
+  const hasLocal = typeof restored === "string" && restored !== "";
+  return { stash: trimComposerStash(next), text: hasLocal ? restored : "", dirty: hasLocal, switched: true };
+}
+
+// trimComposerStash 把留存表收进上限（Map 迭代序 = 插入序，最旧在前）。
+function trimComposerStash(stash) {
+  while (stash.size > COMPOSER_STASH_LIMIT) stash.delete(stash.keys().next().value);
+  return stash;
+}
 
 // shouldRestoreDraft 判定整份快照渲染时要不要把后端草稿正文回填输入框。
 //   - 非草稿会话 / 后端没有草稿正文 → 不回填（无草稿归属）；
