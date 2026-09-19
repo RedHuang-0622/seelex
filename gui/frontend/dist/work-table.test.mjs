@@ -9,8 +9,10 @@ const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).t
 const componentsSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
 const componentsURL = `data:text/javascript;base64,${Buffer.from(componentsSource).toString("base64")}`;
+const motionURL = `data:text/javascript;base64,${Buffer.from(await readFile(new URL("./motion.js", import.meta.url), "utf8")).toString("base64")}`;
 const source = (await readFile(new URL("./work-table.js", import.meta.url), "utf8"))
-  .replace('"./components.js"', `"${componentsURL}"`);
+  .replace('"./components.js"', `"${componentsURL}"`)
+  .replace('"./motion.js"', `"${motionURL}"`);
 const {
   createWorkTableView,
   workTableView,
@@ -341,3 +343,174 @@ test("counts unread entries by new rows and signature changes", () => {
   const added = [...rows, { id: "task:9", status: "pending", retry_count: 0 }];
   assert.equal(countUnread(added, seen), 1);
 });
+
+// ── 会话筛选轴（跨会话台账 + 「仅本会话」）──────────────────────────
+// 工作表格是项目/全局台账：默认全部会话，会话维度只能靠这一层收窄。
+
+const crossSessionRows = () => ([
+  { id: "plan:n1", phase: "plan", task: "本会话的 plan", status: "running", kind: "plan", session_id: "sess-a", batch_id: "chat-1" },
+  { id: "task:2", phase: "task", task: "别的会话的 task", status: "pending", kind: "task", session_id: "sess-b", batch_id: "chat-2" }
+]);
+
+test("renders session filter chips with per-scope counts", () => {
+  const html = renderShellHTML(crossSessionRows(), uiState());
+  // 默认「全部会话」：类型计数是两行。
+  assert.match(html, /data-work-session-filter="all"/);
+  assert.match(html, /data-work-session-filter="mine"/);
+  assert.match(html, /全部会话 <span>2<\/span>/);
+  assert.match(html, /data-work-filter="all" data-work-count="2"/);
+  assert.match(html, />会话</);
+});
+
+test("session filter narrows rows, counts and sheet tabs to the view session", () => {
+  const batches = workTableBatches([
+    { id: "chat-1", label: "本会话批次", created_at: "", counts: { all: 1, plan: 1 } },
+    { id: "chat-2", label: "别会话批次", created_at: "", counts: { all: 1, task: 1 } }
+  ]);
+  const html = renderShellHTML(crossSessionRows(), {
+    ...uiState(),
+    sessionFilter: "mine",
+    viewSessionID: "sess-a",
+    batches
+  });
+  // 「仅本会话」激活：本会话 1 条、全部会话仍是 2 条。
+  assert.match(html, /class="work-filter is-session is-active" data-work-session-filter="mine"/);
+  assert.match(html, /data-work-session-count="1"/);
+  assert.match(html, /data-work-session-count="2"/);
+  assert.match(html, /1 项/);
+  // 类型计数随 scope 收窄（Task 行属于别会话 → 0）。
+  assert.match(html, /data-work-filter="all" data-work-count="1"/);
+  assert.match(html, /data-work-filter="task" data-work-count="0"/);
+  // 批次页签只留本会话有行的批次，「全部」页签恒在。
+  assert.match(html, /data-work-sheet="chat-1"/);
+  assert.doesNotMatch(html, /data-work-sheet="chat-2"/);
+  assert.match(html, /data-work-sheet="all"/);
+});
+
+test("session filter state tracks the current session getter on every render", () => {
+  const harness = workTableViewHarness();
+  let sessionID = "sess-a";
+  const view = createWorkTableView(harness.container, { viewSessionID: () => sessionID });
+  view.bind({ onDetail() {}, onStatus() {} });
+  view.render(crossSessionRows());
+  assert.equal(view.state.viewSessionID, "sess-a");
+
+  // 会话切换后重渲染：取值跟着变（不是创建视图时的旧会话）。
+  sessionID = "sess-b";
+  view.render(crossSessionRows());
+  assert.equal(view.state.viewSessionID, "sess-b");
+
+  // 会话筛选切换是纯 UI 态。
+  assert.equal(view.state.sessionFilter, "all");
+  harness.click({
+    target: { closest(selector) {
+      return selector === "[data-work-session-filter]" ? { dataset: { workSessionFilter: "mine" } } : null;
+    } }
+  });
+  assert.equal(view.state.sessionFilter, "mine");
+});
+
+test("row carries its owning session for the filter axis", () => {
+  const row = workTableView([{
+    id: "task:2", phase: "task", task: "别的会话的 task", status: "pending", kind: "task", session_id: "sess-b"
+  }])[0];
+  const html = renderWorkItemRow(row, uiState());
+  assert.match(html, /data-work-session="sess-b"/);
+  assert.match(html, /class="work-cell work-cell-session" title="sess-b">sess-b</);
+  assert.equal(html.includes(">sess-b</td>"), true);
+
+  // 未归属（草稿/旧数据）渲染占位符，不是空单元格。
+  const unowned = workTableView([{ id: "task:3", phase: "task", task: "x", status: "pending", kind: "task" }])[0];
+  const unownedHTML = renderWorkItemRow(unowned, uiState());
+  assert.match(unownedHTML, /data-work-session=""/);
+  assert.match(unownedHTML, /未归属（草稿）/);
+});
+
+// ── 实发轴（台账 ≠ 实发块）─────────────────────────────────────
+// 台账是全局全量档案；「实发」= 后端请求尾部打点块真正送进模型上下文的行
+// （归属当前会话且未终态）。两者必须能区分，否则会把"记在账上"当成"模型看到"。
+
+const dispatchRows = () => ([
+  { id: "plan:n1", phase: "plan", task: "本会话在跑", status: "running", kind: "plan", session_id: "sess-a" },
+  { id: "todo:0", phase: "tasklist", task: "本会话已做", status: "done", kind: "todo", session_id: "sess-a" },
+  { id: "task:2", phase: "task", task: "别会话在跑", status: "running", kind: "task", session_id: "sess-b" }
+]);
+
+test("sent chip counts only the current session's non-terminal rows", () => {
+  const html = renderShellHTML(dispatchRows(), { ...uiState(), viewSessionID: "sess-a" });
+  assert.match(html, /data-work-sent-filter="sent"/);
+  // 本会话 2 行里只有 running 那一行是实发。
+  assert.match(html, /data-work-sent-count="1"/);
+  assert.match(html, /实发 <span>1<\/span>/);
+  // 默认不开启：台账仍是三行。
+  assert.match(html, /3 项/);
+});
+
+test("row badge and attribute mark only dispatched rows", () => {
+  const rows = workTableView(dispatchRows());
+  const outgoing = renderWorkItemRow(rows[0], { ...uiState(), viewSessionID: "sess-a" });
+  assert.match(outgoing, /data-work-dispatched="1"/);
+  assert.match(outgoing, /class="work-sent-chip"/);
+  assert.match(outgoing, /实发<\/span>/);
+
+  // 同会话但已终态 → 不在实发块里。
+  const finished = renderWorkItemRow(rows[1], { ...uiState(), viewSessionID: "sess-a" });
+  assert.match(finished, /data-work-dispatched="0"/);
+  assert.doesNotMatch(finished, /work-sent-chip/);
+
+  // 别的会话的 running 行 → 台账可见，但不是本会话实发。
+  const elsewhere = renderWorkItemRow(rows[2], { ...uiState(), viewSessionID: "sess-a" });
+  assert.match(elsewhere, /data-work-dispatched="0"/);
+  assert.doesNotMatch(elsewhere, /work-sent-chip/);
+});
+
+test("sent-only scope hides ledger-only rows, counts and empty batch tabs", () => {
+  const batches = workTableBatches([
+    { id: "chat-1", label: "本会话批次", created_at: "", counts: { all: 2, plan: 1, todo: 1 } },
+    { id: "chat-2", label: "别会话批次", created_at: "", counts: { all: 1, task: 1 } }
+  ]);
+  const rows = dispatchRows().map((row, index) => ({ ...row, batch_id: index === 2 ? "chat-2" : "chat-1" }));
+  const html = renderShellHTML(rows, {
+    ...uiState(),
+    sentOnly: true,
+    viewSessionID: "sess-a",
+    batches
+  });
+  // 只剩 1 条实发行。
+  assert.match(html, /1 项/);
+  assert.match(html, /class="work-filter is-sent is-active" data-work-sent-filter="sent"/);
+  // 实发计数不受开关自身影响：仍是 scope 内的 1。
+  assert.match(html, /data-work-sent-count="1"/);
+  // 类型计数按实发 scope 收窄（Todo 已终态 → 0；别会话 Task → 0）。
+  assert.match(html, /data-work-filter="todo" data-work-count="0"/);
+  assert.match(html, /data-work-filter="task" data-work-count="0"/);
+  // 只留实发行所在的批次页签。
+  assert.match(html, /data-work-sheet="chat-1"/);
+  assert.doesNotMatch(html, /data-work-sheet="chat-2"/);
+});
+
+test("sent filter is a toggle held in pure UI state", () => {
+  const harness = workTableViewHarness();
+  const view = createWorkTableView(harness.container, { viewSessionID: () => "sess-a" });
+  view.bind({ onDetail() {}, onStatus() {} });
+  view.render(dispatchRows());
+  assert.equal(view.state.sentOnly, false);
+  const clickSent = () => harness.click({
+    target: { closest(selector) {
+      return selector === "[data-work-sent-filter]" ? { dataset: {} } : null;
+    } }
+  });
+  clickSent();
+  assert.equal(view.state.sentOnly, true);
+  clickSent();
+  assert.equal(view.state.sentOnly, false);
+});
+
+test("新插入的行 / trace 行挂一次性入场类（只有首次插入才播，替换不重播）", () => {
+  assert.ok(source.includes("markEntering(element)"), "新建主行应挂入场类");
+  assert.ok(source.includes("markEntering(traceRow)"), "新建 trace 展开行应挂入场类");
+  assert.ok(source.includes("rollNumber(total,"), "计数（N 项）应走数字滚动");
+  assert.ok(source.includes("rollNumber(span,"), "类型/会话/实发计数应走数字滚动");
+  assert.ok(source.includes('class="excel-sheets scroll-edges-x"'), "sheet 栏应是横向滚轴（滚轮/拖动可翻）");
+});
+

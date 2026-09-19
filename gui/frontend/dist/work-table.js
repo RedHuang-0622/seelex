@@ -1,4 +1,5 @@
 import { escapeHtml } from "./components.js";
+import { markEntering, rollNumber, syncScrollEdges } from "./motion.js";
 
 // ── 工作表格（Work Table）视图 ──────────────────────────────
 // 数据源：snapshot.runtime.work_table（权威投影，plan 节点 / todolist 项 /
@@ -6,9 +7,11 @@ import { escapeHtml } from "./components.js";
 //
 // Excel 化交互：
 //  - 工具栏：展开/折叠 + 类型筛选 chips（全部/Plan/Task/Todo/Subagent，
-//    按权威 kind 筛选）；
+//    按权威 kind 筛选）+ 会话筛选 chips（全部会话/仅本会话，按行归属会话
+//    session_id 筛选——表格是跨会话台账，会话维度只能靠这层收窄）+ 「实发」
+//    开关（只看真正写进当前会话请求尾部的行）；
 //  - `<table class="excel-grid">`：固定表头（类型/任务/描述/状态/Assignee/
-//    依赖/附件/打点/操作），行 keyed reconciliation；
+//    会话/依赖/附件/打点/操作），行 keyed reconciliation；
 //  - 底部 sheet 页签：批次 = 维度，「全部」页签居首，点击切换当前批次
 //    （类 Excel 切换工作表，批次维度 = 不同批次任务的表格）；
 //  - todo 行状态按钮 → Bridge.UpdateWorkItemStatus（pending/doing/done）；
@@ -16,11 +19,19 @@ import { escapeHtml } from "./components.js";
 //  - 行内「打点」→ 展开该行 trace 表（后端有界 ≤10 条）。
 //
 // 渲染策略：keyed reconciliation + html 缓存（只重建变化行）；展开/筛选/
-// 批次切换是纯 UI 态（视图实例持有），不写回业务状态。所有文本 escape。
+// 批次切换/会话筛选是纯 UI 态（视图实例持有），不写回业务状态。所有文本
+// escape。
 
 const PHASE_LABELS = { plan: "Plan", task: "Task", tasklist: "Tasklist", subagent: "Subagent" };
 // FILTERS 按权威类型（kind）筛选：全部 / Plan / Task / Todo / Subagent。
 const FILTERS = [["all", "全部"], ["plan", "Plan"], ["task", "Task"], ["todo", "Todo"], ["subagent", "Subagent"]];
+// SESSION_FILTERS 按行归属会话筛选：全部会话 / 仅本会话（视图会话）。
+// 表格是跨会话台账（默认全量），「仅本会话」把会话维度收窄回来。
+const SESSION_FILTERS = [["all", "全部会话"], ["mine", "仅本会话"]];
+// TERMINAL_STATUSES 是行的终态集合：终态行不再参与请求尾部打点块，因此不
+// 计入「实发」。后端判据是 completed/failed（workTableTraceBlockFor），前端
+// 另把 todo/subagent 的展示态 done 视同 completed。
+const TERMINAL_STATUSES = new Set(["completed", "failed", "done"]);
 const KIND_LABELS = { plan: "Plan", task: "Task", todo: "Todo", subagent: "Subagent" };
 const PAGE_SIZES = [10, 20, 50];
 const DEFAULT_PAGE_SIZE = 20;
@@ -32,7 +43,7 @@ const STATUS_LABELS = {
   retry: "RETRY", active: "ACTIVE", success: "SUCCESS", error: "ERROR"
 };
 // 表头固定列数（trace 展开行 colspan 对齐此数量）。
-const GRID_COLUMNS = 9;
+const GRID_COLUMNS = 10;
 
 // workTableView 归一化工作表格行（防畸形载荷：非数组 → []，非法行丢弃）。
 export function workTableView(items) {
@@ -44,6 +55,7 @@ export function workTableView(items) {
     description: textValue(row.description),
     status: textValue(row.status, "unknown").toLowerCase(),
     assignee: textValue(row.assignee),
+    session_id: textValue(row.session_id),
     kind: textValue(row.kind, "plan"),
     source_id: textValue(row.source_id),
     batch_id: textValue(row.batch_id),
@@ -88,11 +100,19 @@ function normalizeBatchCounts(counts) {
   return normalized;
 }
 
-// createWorkTableView 创建视图实例：持有展开/筛选/批次维度/trace 展开的纯 UI 态。
+// createWorkTableView 创建视图实例：持有展开/筛选/会话筛选/实发开关/批次
+// 维度/trace 展开的纯 UI 态。
+//
+// options.viewSessionID 是**函数**（返回当前视图会话 ID）：会话切换后
+// 视图会重渲染，取值即时——「仅本会话」筛的永远是此刻的会话，而不是创建
+// 视图时的会话。
 export function createWorkTableView(container, options = {}) {
   const state = {
     expanded: true,
     filter: "all",
+    sessionFilter: "all",
+    sentOnly: false,
+    viewSessionID: "",
     traces: new Set(),
     batches: [],
     activeBatch: "all",
@@ -104,9 +124,14 @@ export function createWorkTableView(container, options = {}) {
 
   function render(nextItems = items, nextBatches) {
     items = workTableView(nextItems);
+    if (typeof options.viewSessionID === "function") {
+      state.viewSessionID = options.viewSessionID() || "";
+    }
     if (nextBatches !== undefined) state.batches = workTableBatches(nextBatches);
-    // 批次维度失效（批次头被清空/重建）时回退「全部」页签。
-    if (state.activeBatch !== "all" && !state.batches.some(batch => batch.id === state.activeBatch)) {
+
+    // 批次维度失效（批次头被清空/重建，或会话筛选把该批次的行走空）时回退
+    // 「全部」页签。
+    if (state.activeBatch !== "all" && !batchesInScope(items, state).some(batch => batch.id === state.activeBatch)) {
       state.activeBatch = "all";
     }
     if (!container.querySelector("[data-work-table]")) {
@@ -143,6 +168,21 @@ export function createWorkTableView(container, options = {}) {
       const filter = event.target.closest?.("[data-work-filter]");
       if (filter?.dataset.workFilter) {
         state.filter = filter.dataset.workFilter;
+        state.page = 1;
+        render();
+        return;
+      }
+      const sessionFilter = event.target.closest?.("[data-work-session-filter]");
+      if (sessionFilter?.dataset.workSessionFilter) {
+        state.sessionFilter = sessionFilter.dataset.workSessionFilter;
+        state.page = 1;
+        render();
+        return;
+      }
+      const sentFilter = event.target.closest?.("[data-work-sent-filter]");
+      if (sentFilter) {
+        // 开关（不是单选组）：undefined 属性也命中，靠 toggle 翻转。
+        state.sentOnly = !state.sentOnly;
         state.page = 1;
         render();
         return;
@@ -215,17 +255,80 @@ export function countUnread(rows, seen) {
   return count;
 }
 
-// rowsForSheet 按当前批次维度过滤（「全部」/无批次时返回原列表）。
+// rowsForSheet 按当前批次维度过滤（「全部」/无批次/未设维度时返回原列表）。
 function rowsForSheet(items, state) {
-  if (state.activeBatch === "all" || !Array.isArray(state.batches) || !state.batches.length) return items;
+  if (!state.activeBatch || state.activeBatch === "all" || !Array.isArray(state.batches) || !state.batches.length) return items;
   return items.filter(row => (row.batch_id || "") === state.activeBatch);
 }
 
-// visibleRows 依次应用批次维度与类型筛选（纯客户端过滤）。
+// sessionRows 按归属会话过滤：「仅本会话」只留归属当前视图会话的行。工作表格
+// 是跨会话台账（后端读面默认全量），这是把会话维度收窄回来的唯一轴；默认
+// 「全部会话」，空串会话（草稿/未归属）在「仅本会话」下也算本会话。
+function sessionRows(rows, state) {
+  if (state?.sessionFilter !== "mine") return rows;
+  const current = state.viewSessionID || "";
+  return rows.filter(row => (row.session_id || "") === current);
+}
+
+// isDispatchedRow 判定「实发」行：归属当前视图会话且未终态——这正是后端请求
+// 尾部打点块（真正送进模型上下文的那段标记块）的筛选规则（会话作用域 + 仅
+// 未终态）。台账默认全量（含终态历史与别的会话的行），「实发」是贴在台账上
+// 最窄的一层视图，回答"模型此刻实际看到了哪些条目"。
+function isDispatchedRow(row, state) {
+  if ((row.session_id || "") !== (state?.viewSessionID || "")) return false;
+  return !TERMINAL_STATUSES.has(statusToken(row.status));
+}
+
+// dispatchRows 应用「实发」开关（关时原样返回）。
+function dispatchRows(rows, state) {
+  if (!state?.sentOnly) return rows;
+  return rows.filter(row => isDispatchedRow(row, state));
+}
+
+// scopeRows 只应用会话 + 实发两轴（不含批次维度）——供批次页签判定使用，
+// 避免把当前 sheet 的批次过滤混进"这个批次该不该出现"的判断。
+function scopeRows(items, state) {
+  return dispatchRows(sessionRows(items, state), state);
+}
+
+// scopedRows 依次应用批次维度、会话筛选与实发开关（计数、sheet 页签、可见行
+// 共用同一口径，避免"计数说 5 条、列表只显示 3 条"）。
+function scopedRows(items, state) {
+  return scopeRows(rowsForSheet(items, state), state);
+}
+
+// visibleRows 在 scope（批次 + 会话）上再应用类型筛选（纯客户端过滤）。
 function visibleRows(items, state) {
-  const sheetRows = rowsForSheet(items, state);
-  if (state.filter === "all") return sheetRows;
-  return sheetRows.filter(row => row.kind === state.filter);
+  const rows = scopedRows(items, state);
+  if (state.filter === "all") return rows;
+  return rows.filter(row => row.kind === state.filter);
+}
+
+// sessionCounts 会话筛选轴的计数：分母是批次维度内的全部行（不受会话筛选与
+// 类型筛选影响），分子是其中归属当前会话的行。实发计数（dispatchCount）同源
+// ——按批次维度内的行统计，不受「仅本会话」/「实发」自身影响，否则开启后计数
+// 会自我坍缩。
+function sessionCounts(items, state) {
+  const base = rowsForSheet(items, state);
+  const current = state?.viewSessionID || "";
+  return {
+    all: base.length,
+    mine: base.filter(row => (row.session_id || "") === current).length
+  };
+}
+
+// dispatchCount 统计批次维度内「实发」行数（本会话 + 未终态）。
+function dispatchCount(items, state) {
+  return rowsForSheet(items, state).filter(row => isDispatchedRow(row, state)).length;
+}
+
+// batchesInScope 会话/实发筛选生效时只保留「在该 scope 里有行」的批次页签
+// ——否则「仅本会话」或「实发」下会列出一堆空批次（点进去是空表）。
+function batchesInScope(items, state) {
+  const batches = Array.isArray(state?.batches) ? state.batches : [];
+  if (state?.sessionFilter !== "mine" && !state?.sentOnly) return batches;
+  const present = new Set(scopeRows(items, state).map(row => row.batch_id || ""));
+  return batches.filter(batch => present.has(batch.id));
 }
 
 // pageCount 计算分页总数（空列表也至少 1 页）。
@@ -258,18 +361,32 @@ function updateShell(container, items, state) {
     const chevron = toggle.querySelector(".work-chevron");
     if (chevron) chevron.textContent = state.expanded ? "▾" : "▸";
     const total = toggle.querySelector(".work-total");
-    if (total) total.textContent = `${rowsForSheet(items, state).length} 项`;
+    if (total) rollNumber(total, `${scopedRows(items, state).length} 项`);
     const traceTotal = toggle.querySelector(".work-trace-total");
-    if (traceTotal) traceTotal.textContent = `${countTrace(items)} 打点`;
+    if (traceTotal) rollNumber(traceTotal, `${countTrace(scopedRows(items, state))} 打点`);
   }
   container.querySelector("[data-work-entry-body]")?.classList.toggle("is-collapsed", !state.expanded);
-  const base = rowsForSheet(items, state);
+  const base = scopedRows(items, state);
   const counts = kindCounts(base);
   container.querySelectorAll("[data-work-filter]").forEach(button => {
     const key = button.dataset.workFilter;
     button.classList.toggle("is-active", state.filter === key);
     const span = button.querySelector("span");
-    if (span) span.textContent = String(counts[key] ?? 0);
+    if (span) rollNumber(span, String(counts[key] ?? 0));
+  });
+  const sessions = sessionCounts(items, state);
+  container.querySelectorAll("[data-work-session-filter]").forEach(button => {
+    const key = button.dataset.workSessionFilter;
+    button.classList.toggle("is-active", (state.sessionFilter || "all") === key);
+    const span = button.querySelector("span");
+    if (span) rollNumber(span, String(sessions[key] ?? 0));
+  });
+  const dispatched = dispatchCount(items, state);
+  container.querySelectorAll("[data-work-sent-filter]").forEach(button => {
+    button.classList.toggle("is-active", Boolean(state.sentOnly));
+    button.setAttribute("aria-pressed", String(Boolean(state.sentOnly)));
+    const span = button.querySelector("span");
+    if (span) rollNumber(span, String(dispatched));
   });
   const filtered = visibleRows(items, state);
   const pages = pageCount(filtered.length, state.pageSize);
@@ -285,8 +402,9 @@ function updateShell(container, items, state) {
 }
 
 export function renderShellHTML(items, state) {
-  const base = rowsForSheet(items, state);
+  const base = scopedRows(items, state);
   const counts = kindCounts(base);
+  const sessions = sessionCounts(items, state);
   const filtered = visibleRows(items, state);
   const pages = pageCount(filtered.length, state.pageSize);
   const page = clampPage(state.page, pages);
@@ -294,6 +412,12 @@ export function renderShellHTML(items, state) {
     const active = state.filter === key;
     return `<button type="button" class="work-filter${active ? " is-active" : ""}" data-work-filter="${key}" data-work-count="${counts[key] ?? 0}">${escapeHtml(label)} <span>${counts[key] ?? 0}</span></button>`;
   }).join("");
+  const sessionFilters = SESSION_FILTERS.map(([key, label]) => {
+    const active = (state.sessionFilter || "all") === key;
+    return `<button type="button" class="work-filter is-session${active ? " is-active" : ""}" data-work-session-filter="${key}" data-work-session-count="${sessions[key] ?? 0}">${escapeHtml(label)} <span>${sessions[key] ?? 0}</span></button>`;
+  }).join("");
+  const dispatched = dispatchCount(items, state);
+  const sentFilter = `<button type="button" class="work-filter is-sent${state.sentOnly ? " is-active" : ""}" data-work-sent-filter="sent" aria-pressed="${Boolean(state.sentOnly)}" data-work-sent-count="${dispatched}" title="只显示真正写进当前会话请求尾部的行（本会话且未终态）">实发 <span>${dispatched}</span></button>`;
   const pageSizes = PAGE_SIZES.map(size =>
     `<option value="${size}"${state.pageSize === size ? " selected" : ""}>${size} / 页</option>`
   ).join("");
@@ -305,9 +429,13 @@ export function renderShellHTML(items, state) {
         <span class="work-chevron" aria-hidden="true">${state.expanded ? "▾" : "▸"}</span>
         <strong>工作表格</strong>
         <span class="work-total">${base.length} 项</span>
-        <span class="work-trace-total">${countTrace(items)} 打点</span>
+        <span class="work-trace-total">${countTrace(base)} 打点</span>
       </button>
-      <div class="work-filters" data-work-filters>${filters}</div>
+      <div class="work-filters" data-work-filters>
+        <span class="work-filter-group" data-work-session-filters role="group" aria-label="按归属会话筛选">${sessionFilters}</span>
+        <span class="work-filter-group" data-work-scope-filters role="group" aria-label="按是否实发筛选">${sentFilter}</span>
+        <span class="work-filter-group" data-work-kind-filters role="group" aria-label="按类型筛选">${filters}</span>
+      </div>
     </header>
     <div class="work-entry-body${state.expanded ? "" : " is-collapsed"}" data-work-entry-body>
       <div class="work-table-scroll" data-work-table-scroll>
@@ -315,7 +443,7 @@ export function renderShellHTML(items, state) {
           <thead>
             <tr class="excel-head-row">
               <th>类型</th><th>任务</th><th>描述</th><th>状态</th><th>Assignee</th>
-              <th>依赖</th><th>附件</th><th>打点</th><th>操作</th>
+              <th>会话</th><th>依赖</th><th>附件</th><th>打点</th><th>操作</th>
             </tr>
           </thead>
           <tbody data-work-rows></tbody>
@@ -342,18 +470,20 @@ function kindCounts(items) {
   return counts;
 }
 
-// renderSheetTabsHTML 渲染批次 sheet 页签（「全部」居首；批次页签带
-// 权威批次计数摘要，如 Task 1 · Todo 1）。
+// renderSheetTabsHTML 渲染批次 sheet 页签（「全部」居首；批次页签带权威批次
+// 计数摘要，如 Task 1 · Todo 1）。会话筛选生效时只列该会话里有行的批次
+// （否则「仅本会话」下会点出一堆空批次），但「全部」页签恒在，DOM 结构不随
+// 筛选变化。
 function renderSheetTabsHTML(items, state) {
-  const batches = Array.isArray(state?.batches) ? state.batches : [];
-  if (!batches.length) return "";
+  const all = Array.isArray(state?.batches) ? state.batches : [];
+  if (!all.length) return "";
   const tabs = [
-    sheetTabHTML("all", "全部", `共 ${items.length} 项`, state.activeBatch === "all")
+    sheetTabHTML("all", "全部", `共 ${scopedRows(items, state).length} 项`, state.activeBatch === "all")
   ];
-  for (const batch of batches) {
+  for (const batch of batchesInScope(items, state)) {
     tabs.push(sheetTabHTML(batch.id, batch.label || "批次", batchCountsText(batch.counts), state.activeBatch === batch.id));
   }
-  return `<div class="excel-sheets" data-work-sheets>${tabs.join("")}</div>`;
+  return `<div class="excel-sheets scroll-edges-x" data-work-sheets>${tabs.join("")}</div>`;
 }
 
 function sheetTabHTML(id, label, countsText, active) {
@@ -373,7 +503,7 @@ function ensureSheetsBar(container, state) {
   }
   if (!sheetsRoot) {
     const anchor = container.querySelector("[data-excel-grid]") || container.querySelector("[data-work-table-scroll]");
-    if (anchor) anchor.insertAdjacentHTML("afterend", '<div class="excel-sheets" data-work-sheets></div>');
+    if (anchor) anchor.insertAdjacentHTML("afterend", '<div class="excel-sheets scroll-edges-x" data-work-sheets></div>');
     sheetsRoot = container.querySelector("[data-work-sheets]");
   }
   return sheetsRoot;
@@ -383,6 +513,9 @@ function reconcileSheets(sheetsRoot, items, state) {
   if (!sheetsRoot) return;
   const html = renderSheetTabsHTML(items, state);
   if (sheetsRoot.innerHTML !== html) sheetsRoot.innerHTML = html;
+  // 横条滚到中间时两端浮出内阴影（节点在 app.js 的委托滚动监听里也会更新，
+  // 这里补一次保证重绘后立即可见）。
+  syncScrollEdges(sheetsRoot, "x");
 }
 
 // batchCountsText 渲染批次各类计数（仅展示非零类型）。
@@ -420,6 +553,10 @@ function reconcileRows(rowsContainer, visible, state, htmlCache) {
     if (!element) {
       element = elementFromHTML(rowsContainer.ownerDocument, html);
       rowsContainer.append(element);
+      // 新行入场（工具过程中新出现的条目/操作类型）：只在**首次插入**时挂
+      // 一次性入场类，后续内容替换（replacement）不重播，避免行在流式更新里
+      // 反复闪。
+      markEntering(element);
     } else if (htmlCache.get(row.id) !== html) {
       const oldNext = element.nextElementSibling;
       const replacement = elementFromHTML(rowsContainer.ownerDocument, html);
@@ -462,6 +599,7 @@ function reconcileTraceRow(rowsContainer, mainRow, row, state) {
   if (state.traces.has(row.id) && !hasTraceRow) {
     const traceRow = elementFromHTML(rowsContainer.ownerDocument, renderWorkTraceRow(row));
     mainRow.after(traceRow);
+    markEntering(traceRow);
   } else if (!state.traces.has(row.id) && hasTraceRow) {
     next.remove();
   }
@@ -474,15 +612,20 @@ export function renderWorkItemRow(row, state) {
   const deps = row.dependencies || [];
   const attachments = row.attachments || [];
   const kindLabel = KIND_LABELS[row.kind] || PHASE_LABELS[row.phase] || row.kind || row.phase || "—";
+  const dispatched = isDispatchedRow(row, state);
+  const sentBadge = dispatched
+    ? '<span class="work-sent-chip" title="实发：归属本会话且未终态，已进入请求尾部打点块">实发</span>'
+    : "";
   const actions = row.kind === "todo"
     ? renderTodoStatusControl(row)
     : `<button type="button" class="work-row-detail-btn" data-plan-node-open="${escapeHtml(row.source_id || row.id)}" title="查看会话记录 / 上下文 / 打点详情">详情</button>`;
-  return `<tr class="work-row is-${status}" data-work-row="${escapeHtml(row.id)}" data-work-kind="${escapeHtml(row.kind)}">
+  return `<tr class="work-row is-${status}" data-work-row="${escapeHtml(row.id)}" data-work-kind="${escapeHtml(row.kind)}" data-work-session="${escapeHtml(row.session_id)}" data-work-dispatched="${dispatched ? "1" : "0"}">
     <td class="work-cell work-cell-kind" title="${escapeHtml(row.phase)}"><span class="work-phase-chip is-${escapeHtml(row.kind)}">${escapeHtml(kindLabel)}</span></td>
     <td class="work-cell work-cell-task" title="${escapeHtml(row.task)}">${escapeHtml(shorten(row.task, 80))}</td>
     <td class="work-cell work-cell-desc" title="${escapeHtml(row.description)}">${escapeHtml(shorten(row.description, 140)) || '<span class="muted">—</span>'}</td>
-    <td class="work-cell"><span class="work-status is-${status}">${escapeHtml(statusCellLabel(row))}</span></td>
+    <td class="work-cell"><span class="work-status is-${status}">${escapeHtml(statusCellLabel(row))}</span>${sentBadge}</td>
     <td class="work-cell work-cell-assignee" title="${escapeHtml(row.assignee)}">${escapeHtml(row.assignee || "—")}</td>
+    <td class="work-cell work-cell-session" title="${escapeHtml(row.session_id || "未归属（草稿）")}">${escapeHtml(shorten(row.session_id, 24)) || '<span class="muted">—</span>'}</td>
     <td class="work-cell work-cell-deps">${deps.length ? deps.map(dep => `<span class="work-dep" title="${escapeHtml(dep)}">${escapeHtml(shorten(dep, 24))}</span>`).join("") : '<span class="muted">—</span>'}</td>
     <td class="work-cell work-cell-attachments">${attachments.length ? attachments.map(path => `<span class="work-attachment" title="${escapeHtml(path)}">${escapeHtml(shorten(path, 24))}</span>`).join("") : '<span class="muted">—</span>'}</td>
     <td class="work-cell work-cell-trace">${trace.length ? `<button type="button" class="work-trace-toggle" data-work-trace-toggle="${escapeHtml(row.id)}" aria-expanded="${traceOpen}" title="展开任务打点">打点 ${trace.length}</button>` : '<span class="muted">—</span>'}</td>

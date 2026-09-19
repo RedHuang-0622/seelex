@@ -1,6 +1,7 @@
 import { escapeHtml, hydrateIcons, icon, queueMoveTarget } from "./components.js";
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
+import { clearSubmittedText, composerSubmitPlan, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
 import { createConversationView } from "./conversation-view.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
@@ -20,6 +21,15 @@ import { renderScheduledTasks, renderScheduledTasksTable } from "./scheduled-tas
 import { agentTeamOrderForDrag, employeePool, hirePanel, isPinnedRole, nextAgentTeamOrder, normalizeAgentTeam, normalizeTeamGlobal, normalizeTeamLibrary, PERMISSION_CUSTOM_TOOLS, PERMISSION_GROUPS, PERMISSION_BITS, renderAgentTeam, renderRoleSessionDetail, renderTeamMemberList, roleDisplayName, teamEditorPanel, teamMemberNames } from "./agent-team-view.js";
 import { renderHistorySearchResults } from "./history-search.js";
 import { createThemeController, loadThemeManifest } from "./theme.js";
+import {
+  bindHorizontalDragDelegate,
+  bindHorizontalWheelDelegate,
+  bindScrollShadows,
+  prefersReducedMotion,
+  rollNumber,
+  syncAllScrollShadows
+} from "./motion.js";
+import { flashResizePill, hideResizePill, showResizePill } from "./resize-pill.js";
 import { duplicateSuffix, titleSuffix, readTitleTails, writeTitleTails } from "./sidebar.js";
 import {
   DOCK_STORAGE_KEY,
@@ -405,7 +415,11 @@ function reportAppliedEvents(seq) {
     invoke("AckEvents", ackPendingSeq).catch(() => {});
   }, 150);
 }
-const workTableView = createWorkTableView(elements["work-table-modal-view"]);
+const workTableView = createWorkTableView(elements["work-table-modal-view"], {
+  // 会话筛选轴（「仅本会话」）按**当前视图会话**取值：表格是跨会话台账，
+  // 会话切换后 render 会重跑，用函数取值避免取到创建视图时的旧会话。
+  viewSessionID: () => client.current()?.session?.id || ""
+});
 const workTreeView = createWorkTreeView(elements["worktree-view"], {
   loadDir: async relPath => invoke("WorkspaceTree", relPath, 1),
   onOpenFile: entry => openFilePreview(entry)
@@ -458,6 +472,12 @@ let lastAccountsRuntime = {};
 // composerSaveTimer 是未发送输入草稿的防抖落盘定时器（草稿会话输入后
 // 300ms 写后端，跨重启恢复；物化提交后 draft 标记消失，不再落盘）。
 let composerSaveTimer = null;
+// composerDirty 标记"输入框里有尚未落盘的本地输入"：整份快照回填草稿正文时
+// 用它挡住后端旧副本对用户正在敲的内容的覆盖（"偶发吞输入"的来源之一）。
+let composerDirty = false;
+// composerComposing 跟踪输入法合成态（compositionstart/end）：合成中的 Enter
+// 是确认候选词，不是发送。
+let composerComposing = false;
 const effortControl = createEffortControl({
   root: elements["effort-control"],
   input: elements["effort-range"],
@@ -496,25 +516,44 @@ async function refresh(options = {}) {
   return client.refresh(options);
 }
 
+// markComposerEdited 记录一次本地编辑：置脏并按需防抖落盘。程序化写入
+// （召回排队消息、接受建议）之后也要走它，否则这些内容会被当成"没编辑过"。
+function markComposerEdited() {
+  composerDirty = true;
+  scheduleComposerSave();
+}
+
 // scheduleComposerSave 在草稿会话输入后防抖持久化未发送正文
 // （仅 draft 会话有归属；非草稿不调用后端）。
 function scheduleComposerSave() {
   const snapshot = client.current();
   if (!snapshot?.session?.draft) return;
   window.clearTimeout(composerSaveTimer);
-  composerSaveTimer = window.setTimeout(() => {
+  composerSaveTimer = window.setTimeout(async () => {
     const current = client.current();
     if (!current?.session?.draft) return;
-    invoke("SaveComposerDraft", elements.prompt.value).catch(() => {});
+    const value = elements.prompt.value;
+    try {
+      await invoke("SaveComposerDraft", value);
+      // 落盘期间用户又敲了字（输入框已变）就仍算脏，等下一轮保存。
+      if (elements.prompt.value === value) composerDirty = false;
+    } catch {
+      // 保存失败保持脏：宁可不回填旧正文，也不能吞掉本地输入。
+    }
   }, 300);
 }
 
-// restoreComposerDraft 在整份快照渲染时把后端恢复的草稿正文回填输入框
-// （仅在未聚焦输入框时生效，避免覆盖用户正在输入的内容）。
+// restoreComposerDraft 在整份快照渲染时把后端恢复的草稿正文回填输入框：
+// 仅在"没有本地未落盘输入"（未聚焦、非脏）时才回填，避免后端旧副本覆盖
+// 用户刚敲的内容（判据集中在 composer-input.js）。
 function restoreComposerDraft(snapshot) {
-  if (!snapshot?.session?.draft || !snapshot.session.composer) return;
-  if (document.activeElement === elements.prompt) return;
-  if (elements.prompt.value === snapshot.session.composer) return;
+  if (!shouldRestoreDraft({
+    draft: Boolean(snapshot?.session?.draft),
+    snapshotComposer: snapshot?.session?.composer,
+    current: elements.prompt.value,
+    focused: document.activeElement === elements.prompt,
+    dirty: composerDirty
+  })) return;
   elements.prompt.value = snapshot.session.composer;
   resizePrompt();
   elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
@@ -539,6 +578,8 @@ function render(snapshot, options = {}) {
   renderSkills(snapshot.runtime?.skills || []);
   renderInteraction(snapshot.interaction);
   syncSessionChrome();
+  // 限高滚动块刚被重绘：补一次边缘阴影（增量/滚动期间由委托监听维护）。
+  refreshScrollShadows();
   perfHooks.markRender(performance.now() - started);
 }
 
@@ -670,7 +711,7 @@ function recallQueuedInput(text) {
   elements.prompt.value = existing.trim() ? `${existing.trimEnd()}\n${recalled}` : recalled;
   hideInlineSuggestions();
   resizePrompt();
-  scheduleComposerSave();
+  markComposerEdited();
   elements.prompt.focus();
   elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
 }
@@ -1733,12 +1774,14 @@ function refreshPlanDetailData(plan, subagentTree = null) {
 function renderWorkTable(rows, batches) {
   workTableView.render(rows, batches);
   const normalized = workTableView.current();
-  elements["work-count"].textContent = String(normalized.length);
+  // 计数滚动（拟物里程表）：只在"同一个计数换了值"时滚动，首次渲染/文案不同
+  // 时直接落值（规则见 motion.js countParts/rollNumber）。
+  rollNumber(elements["work-count"], String(normalized.length));
   elements["work-table-summary"].textContent = `${normalized.length} 项任务`;
   elements["work-section"]?.classList.toggle("hidden", normalized.length === 0);
   const unread = workTableOpen ? 0 : countUnread(normalized, workTableSeen);
   elements["work-unread"]?.classList.toggle("hidden", unread === 0);
-  if (elements["work-unread"]) elements["work-unread"].textContent = `${unread} 未读`;
+  if (elements["work-unread"]) rollNumber(elements["work-unread"], `${unread} 未读`);
 }
 
 // openWorkTable 打开完整表格详情：记录当前已读快照并清角标。
@@ -2728,8 +2771,37 @@ function renderInteraction(interaction) {
   if (firstOption) setTimeout(() => firstOption.focus(), 0);
 }
 
+// setModal 统一弹窗开合：打开时摘掉收起态、移除 .hidden；关闭时先挂 .is-closing
+// 播反向"收回"动效，动画结束（或兜底超时 / 减少动效偏好）再落到 .hidden。
+// 所有弹窗都走这一条路径，所以详情、表格、设置、命令面板的开合手感一致。
+// 减少动效偏好的判据只有一处：motion.js 的 prefersReducedMotion（见 import）。
 function setModal(id, open) {
-  elements[id].classList.toggle("hidden", !open);
+  const el = elements[id];
+  if (!el) return;
+  if (open) {
+    if (el._closeTimer) { window.clearTimeout(el._closeTimer); el._closeTimer = 0; }
+    el.classList.remove("is-closing");
+    el.classList.remove("hidden");
+    // 弹窗里的限高滚动块刚从 display:none 变可见：下一拍补一次边缘阴影
+    // （几何此刻才可测）。setTimeout 同时避开模块求值期的 TDZ。
+    window.setTimeout(refreshScrollShadows, 0);
+    return;
+  }
+  if (el.classList.contains("hidden") || el.classList.contains("is-closing")) return;
+  const finish = () => {
+    if (!el.classList.contains("is-closing")) return;
+    if (el._closeTimer) { window.clearTimeout(el._closeTimer); el._closeTimer = 0; }
+    el.classList.remove("is-closing");
+    el.classList.add("hidden");
+  };
+  if (prefersReducedMotion()) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.add("is-closing");
+  el.addEventListener("animationend", finish, { once: true });
+  // 兜底：动画被吞掉（元素不可见 / 事件丢失）时也要收起，不能让弹窗卡在半开态。
+  el._closeTimer = window.setTimeout(finish, 320);
 }
 
 function openRuntime() {
@@ -2920,6 +2992,7 @@ function acceptSuggestion(suggestion, trigger) {
   if (!suggestion) return;
   elements.prompt.value = `${trigger}${suggestion.text} `;
   resizePrompt();
+  markComposerEdited();
   closeCommandPalette();
   hideInlineSuggestions();
   elements.prompt.focus();
@@ -2955,11 +3028,21 @@ function hideInlineSuggestions() {
 
 elements.composer.addEventListener("submit", async event => {
   event.preventDefault();
-  const text = elements.prompt.value.trim();
+  const sent = elements.prompt.value;
+  const text = sent.trim();
   if (!text) return;
   try {
-    await invoke("Submit", text);
-    elements.prompt.value = "";
+    // 提交路由：普通对话显式钉给**当前视图会话**（SubmitToSession），sigil
+    // 输入交回后端路由器（规则见 composer-input.js composerSubmitPlan）。这样
+    // "一个会话在跑、想发给另一个空闲会话"时，运行中会话不会因为后端视图指针
+    // 的切换窗口把输入吸进自己的队列。视图会话 ID 在 await 之前取：这是本次
+    // 提交要发往的会话，不是 RPC 回来时的会话。
+    const plan = composerSubmitPlan({ text, viewedSessionID: client.current()?.session?.id });
+    await invoke(plan.rpc, ...plan.args);
+    // 提交是异步 RPC：往返期间用户可能已继续输入，只移除已发送的那段（规则见
+    // composer-input.js），不整框清空——整框清空会把这段新输入一起吞掉。
+    elements.prompt.value = clearSubmittedText(elements.prompt.value, sent);
+    composerDirty = false;
     hideInlineSuggestions();
     resizePrompt();
     // 面板不在这里猜：`@` 召唤是否真的装了团队、goal 是否顺手拉起了 goal-a2a，
@@ -2989,15 +3072,18 @@ elements.prompt.addEventListener("keydown", event => {
       return;
     }
   }
-  // 中文输入法确认候选词时也会触发 Enter（isComposing=true），此时不能发送。
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+  // 中文输入法确认候选词时也会触发 Enter（isComposing / composition 跟踪 /
+  // keyCode 229 三重判据，见 composer-input.js），此时不能发送。
+  if (event.key === "Enter" && !event.shiftKey && !isComposingEnter(event, composerComposing)) {
     event.preventDefault();
     elements.composer.requestSubmit();
   }
 });
+elements.prompt.addEventListener("compositionstart", () => { composerComposing = true; });
+elements.prompt.addEventListener("compositionend", () => { composerComposing = false; });
 elements.prompt.addEventListener("input", () => {
   resizePrompt();
-  scheduleComposerSave();
+  markComposerEdited();
   state.inlineSelected = 0;
   updateInlineSuggestions();
 });
@@ -3561,6 +3647,9 @@ function applyPanelWidths() {
   document.documentElement.style.setProperty("--left-w", `${left}px`);
   document.documentElement.style.setProperty("--right-w", `${right}px`);
 }
+// ── 拖拽尺寸读条（拟物标尺）────────────────────────────────────────────
+// 拖动分区/终端时，在指针旁贴一枚小药丸显示当前像素尺寸；实现与终端面板
+// 共用一份（见 resize-pill.js），不在这里再造一套 DOM 与计时器。
 function setupPanelDividers() {
   applyPanelWidths();
   const shell = document.querySelector(".app-shell");
@@ -3572,19 +3661,28 @@ function setupPanelDividers() {
     const clamped = clampPanelWidth(width, min, sidePaneMaxWidth());
     document.documentElement.style.setProperty(variable, `${clamped}px`);
     storageSet(key, String(clamped));
+    return clamped;
   }
+  // beginDrag：统一拖拽骨架——挂 is-dragging（分隔条点亮）+ body 上的
+  // is-resizing-col（全局禁选/统一光标），onMove 返回新宽度用于读条。
   function beginDrag(divider, onMove) {
     return event => {
       if (event.button !== 0) return;
       event.preventDefault();
       divider.classList.add("is-dragging");
+      document.body.classList.add("is-resizing-col");
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
-      const move = moveEvent => onMove(moveEvent);
+      const move = moveEvent => {
+        const width = onMove(moveEvent);
+        if (Number.isFinite(width)) showResizePill(`${width} px`, moveEvent.clientX, moveEvent.clientY);
+      };
       const up = () => {
         divider.classList.remove("is-dragging");
+        document.body.classList.remove("is-resizing-col");
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        hideResizePill();
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
       };
@@ -3593,30 +3691,81 @@ function setupPanelDividers() {
     };
   }
   leftDivider.addEventListener("pointerdown", beginDrag(leftDivider, event => {
-    setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, event.clientX - shell.getBoundingClientRect().left);
+    return setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, event.clientX - shell.getBoundingClientRect().left);
   }));
   rightDivider.addEventListener("pointerdown", beginDrag(rightDivider, event => {
-    setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, shell.getBoundingClientRect().right - event.clientX);
+    return setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, shell.getBoundingClientRect().right - event.clientX);
   }));
+  // 双击分隔条 = 复位到默认宽度（左 268 / 右 300），拖歪了不用来回找。
+  leftDivider.addEventListener("dblclick", () => setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, 268));
+  rightDivider.addEventListener("dblclick", () => setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, 300));
 
   function keyboardAdjust(divider, isRight) {
     divider.addEventListener("keydown", event => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
       const step = event.key === "ArrowLeft" ? -16 : 16;
+      let width;
       if (isRight) {
         const current = parseFloat(document.documentElement.style.getPropertyValue("--right-w")) || 300;
-        setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, current - step);
+        width = setWidth("--right-w", RIGHT_WIDTH_KEY, RIGHT_WIDTH_MIN, current - step);
       } else {
         const current = parseFloat(document.documentElement.style.getPropertyValue("--left-w")) || 268;
-        setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, current + step);
+        width = setWidth("--left-w", LEFT_WIDTH_KEY, LEFT_WIDTH_MIN, current + step);
       }
+      const rect = divider.getBoundingClientRect();
+      flashResizePill(`${width} px`, rect.left + rect.width / 2, rect.top + rect.height / 2);
     });
   }
   keyboardAdjust(leftDivider, false);
   keyboardAdjust(rightDivider, true);
 }
 setupPanelDividers();
+
+// ── 滚动/滑动的拟物手感 ────────────────────────────────────
+// 三件事，各只写一份、都挂在同一个根容器上（委托，不逐元素绑）：
+//  1) 纵向滚动边缘阴影：容器滚到中间时，上/下沿浮出内阴影（"还有内容"），
+//     到边即隐——滚动位置自己说话，不用工具栏提示；
+//  2) 纵向滚轮 → 横向滚动：`.scroll-edges-x` 的横条（页签栏 / 工作表格 sheet
+//     栏）在鼠标滚轮下也能左右翻；到边放行给外层容器继续纵滚；
+//  3) 按住拖动 → 横向拨动：把横条当成一根可拨的滚轴（拖动过阈值才算，
+//     随后的那次 click 被吞掉，不会误切页签）。
+// 判据/几何都在 motion.js（纯函数、node --test 覆盖），这里只负责挂根监听
+// 与命中哪些容器。
+const SCROLL_SHADOW_TARGETS = [
+  ".work-table-scroll",
+  ".session-group-body",
+  "#account-list",
+  "#plugin-list",
+  "#team-view",
+  "#goal-view",
+  "#scheduled-task-view",
+  "#history-search-view",
+  "#git-log-view"
+].join(", ");
+
+function scrollAffordanceRoot() {
+  return document.querySelector(".app-shell") || document.body || document.documentElement;
+}
+
+// refreshScrollShadows 给当前所有限高滚动块补一次边缘阴影状态：整份快照重绘
+// 后、以及弹窗打开后（容器刚从 display:none 变成可见，几何才可测）调用。
+function refreshScrollShadows() {
+  return syncAllScrollShadows(document, SCROLL_SHADOW_TARGETS);
+}
+
+function setupScrollAffordances() {
+  // 边缘阴影是静态提示（不是动画）：任何偏好下都挂——长度/位置自己说话。
+  bindScrollShadows(document, SCROLL_SHADOW_TARGETS);
+  refreshScrollShadows();
+  const root = scrollAffordanceRoot();
+  if (!root) return;
+  // 滚轮翻译与按住拖动是"手势替代"：减少动效偏好下不接管，交还原生滚动。
+  if (prefersReducedMotion()) return;
+  bindHorizontalWheelDelegate(root);
+  bindHorizontalDragDelegate(root);
+}
+setupScrollAffordances();
 
 // ── 「资源管理器」文件预览抽屉（代码子页左分栏）──────────────
 // 预览抽屉是代码子页内部结构：left 内容详情 / divider / right（工作树+提交记录）。
@@ -3707,9 +3856,20 @@ function openFilePreview(entry) {
   previewCollapsed = false;
   const pane = elements["file-preview-pane"];
   if (pane) {
+    // 抽屉从"收起"到"展开"的这一次：播一遍"把文件从文件夹里抽出来摊开"的动效
+    // （打开已有抽屉里的另一个文件不重播，避免切换文件时反复抽动）。
+    const wasClosed = pane.classList.contains("is-closed");
     pane.classList.remove("is-closed");
     document.documentElement.style.setProperty("--preview-w", previewPaneWidth());
     syncPreviewLayout();
+    if (wasClosed && !prefersReducedMotion()) {
+      pane.classList.remove("is-drawing");
+      void pane.offsetWidth; // 强制重排，保证同一动画可重放
+      pane.classList.add("is-drawing");
+      const clear = () => pane.classList.remove("is-drawing");
+      pane.addEventListener("animationend", clear, { once: true });
+      window.setTimeout(clear, 420);
+    }
   }
   filePreviewController.open(entry);
   // 资源管理器可能停靠在主视图或右栏：无论当前在哪，打开文件预览前
@@ -3752,6 +3912,7 @@ function setupFilePreviewResize() {
     if (event.button !== 0) return;
     event.preventDefault();
     divider.classList.add("is-dragging");
+    document.body.classList.add("is-resizing-col");
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
     const move = moveEvent => {
@@ -3760,11 +3921,14 @@ function setupFilePreviewResize() {
       // 完全由拖动决定。
       const width = clampPanelWidth(moveEvent.clientX - rect.left, PREVIEW_MIN_WIDTH, Math.max(PREVIEW_MIN_WIDTH, rect.width - 6));
       document.documentElement.style.setProperty("--preview-w", `${width}px`);
+      showResizePill(`${width} px`, moveEvent.clientX, moveEvent.clientY);
     };
     const up = () => {
       divider.classList.remove("is-dragging");
+      document.body.classList.remove("is-resizing-col");
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      hideResizePill();
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       storageSet(PREVIEW_WIDTH_KEY, String(parseFloat(document.documentElement.style.getPropertyValue("--preview-w")) || 380));
@@ -3780,6 +3944,8 @@ function setupFilePreviewResize() {
     const width = clampPanelWidth(current + step, PREVIEW_MIN_WIDTH, previewMaxWidth());
     document.documentElement.style.setProperty("--preview-w", `${width}px`);
     storageSet(PREVIEW_WIDTH_KEY, String(width));
+    const rect = divider.getBoundingClientRect();
+    flashResizePill(`${width} px`, rect.left + rect.width / 2, rect.top + rect.height / 2);
   });
 }
 

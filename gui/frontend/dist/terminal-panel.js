@@ -10,6 +10,8 @@
 //   - 输出走独立事件名 seelex:terminal（不进 seelex:event 的 seq 水位），因此
 //     这里也不实现 gap/resync：事件按 id 追加到对应 xterm，缺失由重开终端兜底。
 
+import { flashResizePill, hideResizePill, showResizePill } from "./resize-pill.js";
+
 export const TERMINAL_STATE_KEY = "seelex.terminal.v1";
 export const TERMINAL_MIN_HEIGHT = 120;
 export const TERMINAL_DEFAULT_HEIGHT = 280;
@@ -406,11 +408,13 @@ export function createTerminalPanel(options) {
     }
   }
 
-  // beginResize：面板顶边拖动改高度（向上拉 = 变高）。
+  // beginResize：面板顶边拖动改高度（向上拉 = 变高）。拖拽时点亮分隔条、
+  // 全局切 row-resize 光标，并在指针旁贴实时高度读条；松手落盘。
   function beginResize(event) {
     if (event.button !== 0) return;
     event.preventDefault();
     resizeHandle.classList.add("is-dragging");
+    document.body.classList.add("is-resizing-row");
     document.body.style.cursor = "row-resize";
     document.body.style.userSelect = "none";
     if (state.collapsed) {
@@ -421,12 +425,15 @@ export function createTerminalPanel(options) {
     const move = moveEvent => {
       state.height = clampTerminalHeight(bottom - moveEvent.clientY, readViewport());
       document.documentElement.style.setProperty("--terminal-h", `${state.height}px`);
+      showResizePill(`${state.height} px`, moveEvent.clientX, moveEvent.clientY);
       refit();
     };
     const up = () => {
       resizeHandle.classList.remove("is-dragging");
+      document.body.classList.remove("is-resizing-row");
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      hideResizePill();
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       persist();
@@ -441,6 +448,10 @@ export function createTerminalPanel(options) {
     persist();
     applyLayout();
     refit();
+    const rect = resizeHandle?.getBoundingClientRect?.();
+    if (rect && Number.isFinite(rect.left)) {
+      flashResizePill(`${state.height} px`, rect.left + rect.width / 2, rect.top + 3);
+    }
   }
 
   function setup() {

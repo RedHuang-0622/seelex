@@ -160,6 +160,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 #right-divider { grid-column: 4; grid-row: 2; }
 .right-panel { grid-column: 5; grid-row: 2; }
 
+/* 侧栏分隔条：命中区 6px，视觉反馈是一条居中的实体竖带——
+   悬停点亮成黄铜描边并浮出"抓取把手"（居中一排小圆点），拖拽时整条变成
+   实心黄铜并向外发散光晕，读起来就是"抓住这条边在拖动"。 */
 .panel-divider {
   position: relative;
   z-index: 20;
@@ -176,9 +179,37 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
   right: 2px;
   border-radius: 999px;
   background: transparent;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.panel-divider:hover::after, .panel-divider.is-dragging::after { background: var(--border-strong); }
+/* 抓取把手：拖动前先"看见"这条边是活的（悬停才现身，拖起来就退场）。 */
+.panel-divider::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background-image: radial-gradient(circle, var(--faint) 1px, transparent 1.3px);
+  background-size: 3px 7px;
+  background-position: center;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+  pointer-events: none;
+}
+.panel-divider:hover::after { background: color-mix(in srgb, var(--accent) 55%, var(--border-strong)); }
+.panel-divider:hover::before { opacity: .75; }
+.panel-divider.is-dragging::after {
+  background: var(--accent);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.panel-divider.is-dragging::before { opacity: 0; }
+.panel-divider:focus-visible { outline: 1px solid var(--focus-ring); box-shadow: var(--focus-glow); }
+
+/* 拖拽态全局口径：禁文本选择、统一光标，宽度跟手 1:1。 */
+body.is-resizing-col { cursor: col-resize; user-select: none; -webkit-user-select: none; }
+body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-select: none; }
 
 .topbar {
   position: relative;
@@ -616,8 +647,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .trajectory-summary .is-failed { color: var(--status-failed); }
 .trajectory-summary .is-running { color: var(--status-running); }
 
-.trajectory-list { display: grid; gap: 6px; }
-.trajectory-row {
+.trajectory-list { display: grid; gap: 6px; }.trajectory-row {
   border: 1px solid var(--border);
   border-left: 3px solid var(--tick);
   border-radius: var(--r-md);
@@ -1453,11 +1483,17 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .work-chevron { color: var(--status-running); font-size: 10px; }
 .work-total, .work-trace-total { color: var(--faint); font: 10px var(--font-mono); }
 .work-total { color: var(--text-mid); }
-.work-filters { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.work-filters { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-left: auto; }
+.work-filter-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.work-filter-group + .work-filter-group { padding-left: 8px; border-left: 1px solid var(--border); }
 .work-filter { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: transparent; cursor: pointer; font: 10px var(--font-mono); }
 .work-filter:hover { color: var(--text-strong); border-color: var(--border-strong); }
 .work-filter.is-active { color: var(--status-running); border-color: var(--border-running); background: var(--tint-running); }
 .work-filter span { opacity: .8; }
+.work-filter.is-session { border-style: dashed; }
+.work-filter.is-session.is-active { border-style: solid; }
+.work-filter.is-sent::before { content: "◉"; margin-right: 4px; opacity: .7; }
+.work-filter.is-sent.is-active { color: var(--status-running); border-color: var(--border-running); background: var(--tint-running); }
 .work-entry-body.is-collapsed { display: none; }
 .work-table-scroll { max-height: min(56vh, 560px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .work-grid { display: grid; grid-template-columns: 56px minmax(90px, 1.4fr) minmax(90px, 1.6fr) 66px 72px minmax(70px, .9fr) minmax(60px, .8fr) auto; gap: 6px 8px; align-items: center; }
@@ -1469,7 +1505,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .work-cell { min-width: 0; overflow: hidden; color: var(--text-mid); font-size: 11px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .work-cell-task { color: var(--text-strong); font-weight: 600; }
 .work-cell-desc { color: var(--text-dim); }
-.work-cell-assignee, .work-cell-deps, .work-cell-attachments { min-width: 0; }
+.work-cell-assignee, .work-cell-session, .work-cell-deps, .work-cell-attachments { min-width: 0; }
+.work-cell-session { color: var(--faint); font-family: var(--font-mono); }
+.work-sent-chip { display: inline-block; margin-left: 4px; padding: 0 4px; border: 1px solid var(--border-running); border-radius: var(--r-sm); color: var(--status-running); background: var(--tint-running); font: 700 9px var(--font-mono); vertical-align: middle; }
 .work-phase-chip { display: inline-block; max-width: 100%; padding: 1px 5px; border-radius: var(--r-sm); color: var(--status-info); background: var(--tint-info); font: 700 10px var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
 .work-phase-chip.is-tasklist { color: var(--status-running); background: var(--tint-running); }
 .work-phase-chip.is-subagent { color: #b49ae0; background: #1d1729; }
@@ -1805,7 +1843,16 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .plan-card-err { padding: 8px 12px; border-top: 1px solid var(--border-failed); color: var(--status-failed); font-size: 11px; }
 
 /* ---------- 14. Session groups ---------- */
-.session-group { margin-bottom: 10px; }
+/* 每个项目是一只有界的"抽屉"：分组头是抽屉标题（常驻不滚），条目区达到
+   上限后独立滚动——项目再长也不会把左栏整体撑长，滚轮在抽屉内翻会话。
+   这是"按分片继续分块"的落点：一层是项目分片，二层是项目内限高的条目块。 */
+.session-group {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
 .session-group-head {
   display: flex;
   align-items: center;
@@ -1836,7 +1883,15 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 }
 .session-group.is-collapsed .session-group-chevron { transform: rotate(-45deg); }
 .session-group.is-collapsed .session-group-body { display: none; }
-.session-group-body { display: grid; gap: 3px; }
+.session-group-body {
+  display: grid;
+  gap: 3px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 3px 5px 5px;
+  scrollbar-width: thin;
+}
 /* 会话条目：两段式（标题段 + ⋯ 段）。标题段吃满剩余宽度、单行省略；⋯ 段
    常驻一个省略号按钮，点开才是置顶/分支/删除（见第 20 节）。 */
 .session-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px; }
@@ -1926,8 +1981,17 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .new-session-choice-desc { color: var(--faint); font-size: 10.5px; line-height: 1.45; }
 .new-session-ws { width: 100%; }
 .new-session-unbind { margin-top: 4px; }
-.session-group-head-row { display: flex; align-items: center; gap: 2px; }
+.session-group-head-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
 .session-group-head-row .session-group-head { flex: 1; min-width: 0; }
+/* 抽屉标题里的折叠按钮：悬停只提亮文字，不再压一层底色（标题条本身已有底色）。 */
+.session-group-head-row .session-group-head:hover { background: transparent; color: var(--text-strong); }
 .session-group-add { display: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--faint); background: transparent; cursor: pointer; flex: none; }
 .session-group:hover .session-group-add { display: inline-flex; }
 .session-group-add:hover { border-color: var(--border-strong); color: var(--text-strong); }
@@ -1945,13 +2009,26 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .excel-grid td.work-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .excel-grid td.work-cell-desc { max-width: 260px; }
 .excel-grid td.work-cell-deps, .excel-grid td.work-cell-attachments { max-width: 160px; }
+.excel-grid td.work-cell-session { max-width: 140px; }
 .excel-grid td.work-cell-actions { max-width: none; white-space: nowrap; }
 .excel-grid tr.work-trace-expand td { padding: 4px 10px 8px; background: var(--code-bg); }
 .excel-grid tr.work-empty-row td { padding: 14px 10px; color: var(--faint); font-size: 11px; text-align: center; }
 .work-filter { border-radius: var(--r-lg); }
 
 /* 批次 sheet 页签（切维度 = 切工作表） */
-.excel-sheets { display: flex; flex-wrap: wrap; gap: 3px; padding: 7px 10px 9px; border-top: 1px solid var(--border); background: var(--surface-2); }
+.excel-sheets {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  padding: 7px 10px 9px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  /* 批次多了不该把弹窗撑宽：sheet 栏自己横向滚（滚轮/拖拽都能翻，见第 26 节
+     的 scroll-edges-x），纵向永远不滚。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
 .excel-sheet { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 3px 3px 0 0; color: var(--muted); background: var(--surface); cursor: pointer; font: 10px var(--font-mono); }
 .excel-sheet:hover { color: var(--text-strong); border-color: var(--border-strong); }
 .excel-sheet.is-active { color: var(--text-bright); border-color: var(--border-strong); background: var(--surface); box-shadow: inset 0 -2px 0 var(--status-running); font-weight: 700; }
@@ -2616,14 +2693,19 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .project-root { color: var(--faint); }
 
 /* ---------- 12.4 列表与卡片 ---------- */
-.session-row,
-.session-group {
+.session-row {
   border: 1px solid transparent;
   border-radius: var(--r-lg);
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.session-row:hover,
-.session-group:hover { border-color: var(--border); background: var(--surface); }
+/* 项目抽屉是有界的实体块（见第 14 节）：常态即有 1px 外框与底色，
+   悬停只把外框提亮一档，不再整块换背景。 */
+.session-group {
+  border-radius: var(--r-lg);
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.session-row:hover { border-color: var(--border); background: var(--surface); }
+.session-group:hover { border-color: var(--border-strong); }
 .session-row.is-active,
 .session-row[aria-current="true"] {
   border-color: var(--border-running);
@@ -3936,14 +4018,15 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .terminal-panel.is-collapsed { height: auto; }
 .terminal-panel.is-collapsed .terminal-body { display: none; }
 
-/* 顶边分隔条：命中区 6px（视觉只有 1px，悬停/拖拽时才点亮黄铜） */
+/* 顶边分隔条：命中区 8px；悬停/拖拽时点亮成一条黄铜横带，拖拽再加光晕，
+   与左/右栏分隔条同一套"抓住并移动"的实体反馈。 */
 .terminal-resize {
   position: absolute;
-  top: -3px;
+  top: -4px;
   left: 0;
   right: 0;
   z-index: 4;
-  height: 6px;
+  height: 8px;
   cursor: row-resize;
   touch-action: none;
 }
@@ -3953,12 +4036,16 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
   top: 3px;
   left: 0;
   right: 0;
-  height: 1px;
+  height: 2px;
+  border-radius: 999px;
   background: transparent;
-  transition: background-color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.terminal-resize:hover::after,
-.terminal-resize.is-dragging::after { background: var(--accent); }
+.terminal-resize:hover::after { background: color-mix(in srgb, var(--accent) 60%, var(--border-strong)); }
+.terminal-resize.is-dragging::after {
+  background: var(--accent);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 50%, transparent);
+}
 .terminal-resize:focus-visible { outline: 1px solid var(--focus-ring); box-shadow: var(--focus-glow); }
 
 .terminal-head {
@@ -4041,3 +4128,170 @@ button.team-library-name:hover { color: var(--accent); text-decoration: underlin
 .terminal-view .xterm { height: 100%; padding: 6px 4px 4px 8px; }
 /* 视口底色跟随终端主题（xterm.css 的 #000 由更高特异性覆盖，不用 !important） */
 .terminal-body .xterm .xterm-viewport { background-color: transparent; }
+
+/* ============================================================
+   24. 分块限高：右栏 / 弹窗里的长列表也"一屏一块"
+   ------------------------------------------------------------
+   左栏项目抽屉按项目分块限高（见第 14 节）；右栏与弹窗里的长条目区照同一
+   口径处理——达到上限即在自己块内滚动，不把所在面板/弹窗整体撑长。滚轮在
+   块内翻条目，块外照常滚面板，互不打架（overscroll 不传染）。
+   ============================================================ */
+#account-list,
+#plugin-list,
+#goal-view,
+#scheduled-task-view,
+#history-search-view {
+  max-height: min(38vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+/* Agent Team 是多段表格（员工库 / 团队库 / 员工栏 / 发言调度），整段限高滚动。 */
+#team-view {
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* ============================================================
+   25. 拟物：弹出 / 收回（"从文件夹里抽出一张卡"）
+   ------------------------------------------------------------
+   口径：打开时底板轻淡入场，卡片自下向上"抽出"并带一点翻折（透视）；收起时
+   反向"塞回"。锚点都是开合本身，不干扰卡片内的滚动 / 拖拽尺寸 / 自适应。
+   开合动画由 app.js 的 setModal 统一驱动（关闭先挂 .is-closing 再落 .hidden）。
+   ============================================================ */
+.modal { perspective: 1400px; }
+.modal:not(.hidden) { animation: overlay-in var(--dur-fast) var(--ease-out); }
+.modal:not(.hidden) > .modal-card { animation: card-draw-out var(--dur-med) var(--ease-out); }
+.modal.is-closing { animation: overlay-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+.modal.is-closing > .modal-card { animation: card-draw-in var(--dur-fast) var(--ease-out) forwards; }
+
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes card-draw-out {
+  from { opacity: 0; transform: translateY(16px) scale(.97) rotateX(7deg); }
+  to { opacity: 1; transform: translateY(0) scale(1) rotateX(0deg); }
+}
+@keyframes card-draw-in {
+  from { opacity: 1; transform: translateY(0) scale(1) rotateX(0deg); }
+  to { opacity: 0; transform: translateY(12px) scale(.975) rotateX(5deg); }
+}
+
+/* 详情浮层永远压在工作表格之上：从表格里点"详情"时表格留在下层不退场，
+   关掉详情即回到表格——不必先关表格才能看详情。 */
+#node-detail-modal { z-index: 130; }
+#role-session-modal { z-index: 120; }
+
+/* 工作表页签：像文件夹里一片片立起来的标签，选中的那片"提起来"（微抬 + 底沿）。 */
+.excel-sheet {
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.excel-sheet.is-active {
+  transform: translateY(-1px);
+  box-shadow: inset 0 -2px 0 var(--status-running), var(--shadow-sm);
+}
+
+/* 文件详情抽屉"抽出"：抽屉由收起转展开的那一次，从左轨滑出摊开（一次性，
+   由 app.js 打开文件时挂 .is-drawing，动画完自动摘）。 */
+.file-preview-pane.is-drawing { animation: pane-draw-out var(--dur-med) var(--ease-out); }
+@keyframes pane-draw-out {
+  from { opacity: 0; transform: translateX(-10px) scaleX(.985); }
+  to { opacity: 1; transform: translateX(0) scaleX(1); }
+}
+
+/* 拖拽时贴在拖动处的实时尺寸读条（黄铜边 + 等宽数字）。 */
+.resize-pill {
+  position: fixed;
+  z-index: 140;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  border: 1px solid var(--border-running);
+  border-radius: 999px;
+  color: var(--text-bright);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-sm);
+  font: 700 10.5px var(--font-mono);
+  letter-spacing: .06em;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.resize-pill.hidden { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .modal:not(.hidden),
+  .modal:not(.hidden) > .modal-card,
+  .modal.is-closing,
+  .modal.is-closing > .modal-card,
+  .file-preview-pane.is-drawing { animation: none !important; }
+  .excel-sheet.is-active { transform: none; }
+}
+
+/* ============================================================
+   26. 细节动效：数字变更 / 增量入场 / 滚动边缘（拟物）
+   ------------------------------------------------------------
+   三件事都只给"看得见的反馈"，不改任何状态、不改契约：
+     a) 数字变更：计数从旧值滚到新值（里程表），滚动期间提一档色温 + 等宽
+        数字不抖动；判据在 motion.js（rollNumber），CSS 只管样子；
+     b) 增量入场：**首次插入**的表格行 / trace 行 / 会话条目闪一道黄铜底并
+        自下"抽出"；后续内容替换不重播（类由 JS 一次性挂上）；
+     c) 滚动边缘：容器滚到中间时上/下浮出内阴影（"还有内容"），到边即隐；
+        横向条（sheet 栏 / 页签栏）另有滚轮翻译 + 按住拖动（见 app.js 的
+        setupScrollAffordances）。
+   减少动效偏好下：入场动画与滚动接管都关闭，数字直接落终值。
+   ============================================================ */
+
+/* a) 数字里程表 */
+.is-rolling {
+  color: var(--status-running);
+  font-variant-numeric: tabular-nums;
+  transition: color var(--dur-med) var(--ease-out);
+}
+
+/* b) 增量入场：表格行（含 trace 展开行）在单元格上闪底色（tr 本身不参与
+   合成，动在 td 上各浏览器都稳），会话/轨迹条目整体自下抽出。 */
+@keyframes cell-enter {
+  from { background-color: var(--tint-running); }
+  to { background-color: transparent; }
+}
+@keyframes row-draw-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.work-row.is-entering > td,
+.work-trace-expand.is-entering > td { animation: cell-enter var(--dur-slow) var(--ease-out); }
+.is-entering-row { animation: row-draw-in var(--dur-med) var(--ease-out); }
+
+/* c) 滚动边缘内阴影（纵向 up/down，横向 start/end） */
+.scroll-shadows { transition: box-shadow var(--dur-fast) var(--ease-out); }
+.scroll-shadows.is-scroll-up { box-shadow: inset 0 10px 10px -10px rgba(0, 0, 0, .55); }
+.scroll-shadows.is-scroll-down { box-shadow: inset 0 -10px 10px -10px rgba(0, 0, 0, .55); }
+.scroll-shadows.is-scroll-up.is-scroll-down {
+  box-shadow: inset 0 10px 10px -10px rgba(0, 0, 0, .55), inset 0 -10px 10px -10px rgba(0, 0, 0, .55);
+}
+.scroll-edges-x.is-scroll-start { box-shadow: inset 10px 0 10px -10px rgba(0, 0, 0, .5); }
+.scroll-edges-x.is-scroll-end { box-shadow: inset -10px 0 10px -10px rgba(0, 0, 0, .5); }
+.scroll-edges-x.is-scroll-start.is-scroll-end {
+  box-shadow: inset 10px 0 10px -10px rgba(0, 0, 0, .5), inset -10px 0 10px -10px rgba(0, 0, 0, .5);
+}
+
+/* 横向条（sheet 栏 / 页签栏）：滚轮翻译成横向拨动，按住拖动就是"拨滚轴"。
+   溢出行为各条自己的规则说了算（`.excel-sheets` / `.conversation-tabs`），
+   这里只补手感与"接近整片就吸附一下"的定位感。 */
+.scroll-edges-x {
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  touch-action: pan-x;
+}
+.scroll-edges-x > * { scroll-snap-align: start; }
+.scroll-edges-x.is-drag-scrolling { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+.scroll-edges-x.is-drag-scrolling > * { pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .work-row.is-entering > td,
+  .work-trace-expand.is-entering > td,
+  .is-entering-row { animation: none !important; }
+  .is-rolling { transition: none; }
+  .scroll-shadows { transition: none; }
+}

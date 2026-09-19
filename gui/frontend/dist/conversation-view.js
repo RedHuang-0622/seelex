@@ -1,4 +1,5 @@
 import { createConversationWheel } from "./conversation-wheel.js";
+import { markEntering } from "./motion.js";
 
 const BOTTOM_THRESHOLD = 72;
 
@@ -159,6 +160,10 @@ function reconcile(container, items, htmlByKey, payloads) {
         node.replaceWith(replacement);
         restoreUIState(replacement, uiState, payloads);
         if (wasCursor) cursor = replacement;
+      } else {
+        // 新出现的条目（新消息 / 一次新的工具过程）入场一次：keyed reconcile
+        // 只在**首次插入**时挂类，后续流式替换不重播（否则工具面板会一直闪）。
+        markEntering(replacement, "is-entering-row");
       }
       node = replacement;
       htmlByKey.set(item.key, item.html);

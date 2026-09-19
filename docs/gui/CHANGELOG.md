@@ -2,6 +2,43 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-09-20
+
+### Fixed
+
+- **运行中会话不再吸走本该发给另一个会话的输入。** composer 提交此前走 ambient
+  `Submit`：它由后端按「当前视图会话」路由，而 `ResumeSession` 的切换在途存在
+  TOCTOU 窗口（后端视图指针已动、渲染层还没拿到目标快照）。「一个会话在跑、我想
+  发给另一个空闲会话」的输入因此可能落进运行中会话的队列
+  （`application/core/session_scope.go` 的 `SubmitToSession` 注释记录的压力场景：
+  `TestStressConcurrentSessionsDoNotPollute` 抓到 queued-2 进 sess-4 视图）。
+  现在普通对话输入经 `SubmitToSession(<当前视图会话 ID>, text)` 显式路由——会话 ID
+  在 RPC **之前**取，绝不重读后端 current；sigil 输入（`/` `#` `$` `@`）仍交回后端
+  输入路由器（前缀→用例的映射是路由器的职责，输入区锁覆盖切换在途窗口）。规则住在
+  `composer-input.js` 的 `composerSubmitPlan`（纯函数，`node --test` 覆盖），口径见
+  `modules/multi-session-pages.md` §6「新前端一律使用显式 session ID」。
+
+### Added
+
+- **细节动效（拟物）**：新增 `gui/frontend/dist/motion.js`（纯规则 + 只读 DOM 应用器），
+  把三类"细节"接进真实界面：
+  - **数字变更**：计数（工作表格 `N 项` / `N 打点` / 类型·会话·实发计数 / 未读角标）
+    从旧值滚到新值（里程表；`is-rolling` 期间提一档色温并用 tabular-nums 防抖）；
+  - **增量入场**：**首次插入**的表格行 / trace 展开行闪一道黄铜底、会话与轨迹条目
+    自下"抽出"；keyed reconcile 的内容替换不重播（类由 JS 一次性挂上，避免流式更新里
+    反复闪）；
+  - **滚动边缘与横向滚轴**：限高滚动块滚到中间时上/下浮出内阴影、到边即隐；sheet 栏与
+    页签栏的纵向滚轮翻译成横向滚动、按住拖动即"拨滚轴"（拖动过阈值才算，随后那次 click
+    被吞掉，不会误切页签）。
+  全部遵守 `prefers-reduced-motion`（减少动效时不接管滚轮/拖动、数字直接落终值）。
+
+### Changed
+
+- `.excel-sheets`（工作表格批次 sheet 栏）由 `flex-wrap: wrap` 改为横向滚动条
+  （`nowrap` + `overflow-x: auto`）：批次多了不再把弹窗撑高，滚轮/拖动可翻。
+- `prefersReducedMotion` 收敛为一处实现（`motion.js`）：app.js 不再自带一份，
+  减少动效判据只有唯一事实。
+
 ## 2026-09-17
 
 ### Added
