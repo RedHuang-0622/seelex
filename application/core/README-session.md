@@ -23,6 +23,31 @@
 5. 无 record 的旧格式会话冷加载同样写入 `TotalMessages/HistoryOffset`（历史
    总数来自 provider 历史），否则 `HasMoreHistory` 恒为 false，早期历史读不到。
 
+## 提交归属：草稿与运行中会话（2026-09-20）
+
+渲染层把每一条普通输入都显式钉到「当前视图会话 ID」（`SubmitToSession`），包括
+草稿的早分配 SID。本卷因此必须自己守住两条边界：
+
+1. **显式提交目标是未物化草稿时，先物化再判定是否加载**（`materializeDraftForSubmit`
+   → `materializeDraftSession`）。草稿没有可冷回读的历史：走 `ActivateSession` 会把
+   那条 `Status=draft` 的 record 当冷会话装载，新会话以「已恢复会话: draft_…」开头、
+   草稿槽位不消费、composer 不清理（重启后已发送的正文会回到输入框）。
+2. **归属不符要显式失败**：草稿槽是进程单例，物化会把共享视图镜像切到该 SID，因此
+   只有视图仍停在这份草稿上时才允许物化，否则返回 `ErrDraftNotInView`——渲染层拿着
+   过期快照提交时，明确失败比把输入投给别的会话安全。多页签各自持有 composer 后这条
+   判据要随草稿槽一起改成分布式（见 `docs/2026-09-02-session-subsystem-remediation/target-design.md`）。
+3. **任何生命周期命令都不得经进程级活跃别名读写引擎**（`Engine.History()` /
+   `ClearHistory()` / `SetSystemPrompt()`），一律用 `engineHistoryFor` /
+   `clearEngineHistoryFor` / `SetSystemPromptFor` 按会话路由。别名指向哪个会话不可
+   预期，可能是另一个正在运行的会话——它的 framework `Session` 锁被 `ChatStream` 从
+   进函数持到出函数，任何别名调用都排在整轮之后。
+4. **别名阻塞的放大效应来自过渡锁**：生产宿主 `PerSessionExecution() == false`，
+   `transitionForSession` 一律回退视图 key，所以「一次点击排在运行中会话之后」会连带
+   冻住所有会话的 resume/unload 与 ambient 提交。审查生命周期方法时先问：锁内有没有
+   可能等另一会话引擎的调用？
+5. 复现与回归：`session_running_idle_submit_test.go`（草稿显式提交物化、运行中会话
+   不挡新建会话）+ `session_submit_restoring_test.go`（restoring 期延后提交）。
+
 ## 文件与函数索引
 
 > 由源码 doc 注释自动提取（首行摘要）；描述源码行为，与实现保持同步。
@@ -198,6 +223,8 @@
 - `func (service *Service) newDraftSessionIDLocked() string` — newDraftSessionIDLocked 生成早分配的草稿会话 ID（调用方持有 Core.ViewMu）。
 - `func (service *Service) BeginNewSession() error` — BeginNewSession 进入幂等的草稿状态：早分配真实会话 ID 并建 SessionUnit
 - `func (service *Service) materializeDraftSession(firstQuestion string) error` — materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
+- `func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool` — isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
+- `func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) error` — materializeDraftForSubmit 把「显式提交的目标恰好是未物化的草稿」接回物化路径。
 
 ### session_effort_test.go
 
@@ -463,6 +490,26 @@
 - `func TestViewSwitchDoesNotMutateExecution(t *testing.T)` — TestViewSwitchDoesNotMutateExecution（TC-INV-02）：切到 B 只换视图指针，
 - `func TestPersistReadsOnlyOwnDomain(t *testing.T)` — TestPersistReadsOnlyOwnDomain（TC-INV-03）：快照/活跃槽全是 B 时，
 
+### session_running_idle_submit_test.go
+
+- `func (engine *multiSessionEngine) startedFor(sessionID string) <-chan struct` — startedFor 加锁取某会话的"回合已进入"通道（started 映射由 ChatStreamFor
+- `func waitStreamCall(t *testing.T, engine *multiSessionEngine, sessionID string)` — waitStreamCall 轮询直到目标会话的引擎被调用（延后/后台启动都要等它）。
+- `func draftRoutedFixture(t *testing.T) (*multiSessionEngine, *draftRecordStore, *Service)` — draftRoutedFixture 是「生产形状」的会话路由宿主：路由引擎 + 支持 record 读写的
+- `func assertDraftSubmitMaterialized(t *testing.T, service *Service, store *draftRecordStore, draftID string)` — assertDraftSubmitMaterialized 锁定"显式提交到草稿"必须等于物化：
+- `func TestSubmitToSessionMaterializesDraftWhileOtherSessionRuns(t *testing.T)` — TestSubmitToSessionMaterializesDraftWhileOtherSessionRuns 是用户报告的原始场景：
+- `func TestSubmitToSessionMaterializesIdleDraft(t *testing.T)` — TestSubmitToSessionMaterializesIdleDraft 是同一条判据的对照组：没有会话运行中
+- `func newAliasBusyEngine() *aliasBusyEngine`
+- `func (engine *aliasBusyEngine) setBusy(sessionID string, value bool)`
+- `func (engine *aliasBusyEngine) waitAliasFree()` — waitAliasFree 阻塞直到"活跃别名那一会话"的回合结束（= 真锁语义）。
+- `func (engine *aliasBusyEngine) ChatStreamFor(sessionID string, ctx context.Context, input string, onChunk func(string)) (string, error)`
+- `func (engine *aliasBusyEngine) History() []EngineMessage`
+- `func (engine *aliasBusyEngine) ClearHistory()`
+- `func (engine *aliasBusyEngine) aliasCalls() (int, int)`
+- `func TestBeginNewSessionDoesNotSerializeBehindRunningSession(t *testing.T)` — TestBeginNewSessionDoesNotSerializeBehindRunningSession 是 ② 的复现：
+- `func TestIdleSessionSubmitWhileOtherRunningLandsInViewSession(t *testing.T)` — TestIdleSessionSubmitWhileOtherRunningLandsInViewSession 是用户报告场景的**正面
+- `func waitSessionChatIdle(t *testing.T, service *Service, sessionID string)` — waitSessionChatIdle 轮询到指定会话自己的回合跑完（不看别的会话——后台会话
+- `func containsUserText(messages []Message, text string) bool`
+
 ### session_running_not_rerooted_test.go
 
 - `func TestRunningSessionNotRerootedByAttach(t *testing.T)` — TestRunningSessionNotRerootedByAttach 回归（复现报告中“切到其它会话后工具
@@ -508,6 +555,8 @@
 - `func (service *Service) bindProjectRootIfSafe(_ string, rootPath string) bool` — bindProjectRootIfSafe 在安全条件下重绑全局项目根（P3/G5 收口）：
 - `func (service *Service) rebindViewWorkspaceWhenIdle()` — rebindViewWorkspaceWhenIdle 在进程变为完全空闲后，把全局项目根/Router 写
 - `func (service *Service) SubmitToSession(ctx context.Context, sessionID, text string) error` — SubmitToSession 是会话级提交 API（M2：多会话并行执行）。目标会话即活跃
+- `func (service *Service) awaitRestore(ctx context.Context, sessionID string) error` — awaitRestore 等目标会话的后台冷加载结束（restoring 清除）后返回。多会话
+- `func (service *Service) deferSubmitUntilRestored(ctx context.Context, sessionID, text string)` — deferSubmitUntilRestored 把一次对话提交挂到后台冷加载完成点：restoring 期间
 - `func (service *Service) sessionLoaded(sessionID string) bool` — sessionLoaded 报告目标会话引擎是否已实例化（后台提交前置检查）。
 - `func (service *Service) ActivateSession(sessionID string) error` — ActivateSession 切换当前展示/执行会话。M1 没有每会话驻留快照，切换即
 - `func (service *Service) SnapshotOf(sessionID string) (SessionSnapshot, error)` — SnapshotOf 返回指定会话的权威**会话快照**（G3 分型：SessionSnapshot，
@@ -554,6 +603,14 @@
 ### session_stress_test.go
 
 - `func TestStressConcurrentSessionsDoNotPollute(t *testing.T)`
+
+### session_submit_restoring_test.go
+
+- `func (engine *multiSessionEngine) streamCallsFor(sessionID string) int` — streamCallsFor 读引擎在某会话上的 ChatStreamFor 调用次数（加锁；ChatStreamFor
+- `func (engine *multiSessionEngine) releaseSession(sessionID string)` — releaseSession 放行某会话的引擎回合（加锁取通道；幂等关闭）。
+- `func coldRestoreFixture(t *testing.T) (*multiSessionEngine, *gatedHistorySessions, *Service)` — coldRestoreFixture 复现「A 运行中、目标冷会话 B 的存储读被门闩限速」的
+- `func TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder(t *testing.T)` — TestSubmitDuringColdRestoreDefersAndKeepsHistoryOrder 锁定 2026-09-17 根因
+- `func TestSubmitToSessionDefersUntilRestoreCompletes(t *testing.T)` — TestSubmitToSessionDefersUntilRestoreCompletes 锁定「延后」语义的两条边界：
 
 ### session_switch_ab_test.go
 

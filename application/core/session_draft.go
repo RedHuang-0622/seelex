@@ -50,17 +50,19 @@ func (service *Service) BeginNewSession() error {
 		return nil
 	}
 
-	if !currentRunning && len(service.Deps.Engine.History()) > 0 {
+	if !currentRunning && len(service.engineHistoryFor(sessionID)) > 0 {
 		service.setWorkspaceWriteScope(currentWorkspaceID)
 		location := service.components.sessions.LocateSession(sessionID)
 		if err := service.components.sessions.PersistCurrentSession(location, sessionID); err != nil {
 			return fmt.Errorf("save current session before drafting a new one: %w", err)
 		}
 	}
-	// 离开当前会话：清空活跃引擎历史（历史已持久化；会话引擎缓存按需
-	// 由 ResumeSession 重建），防止 draft 状态串入旧会话内容。
+	// 离开当前会话：清空**该会话自己的**引擎历史（历史已持久化；会话引擎缓存按需
+	// 由 ResumeSession 重建），防止 draft 状态串入旧会话内容。禁止经进程级活跃
+	// 别名清空：别名指向哪个会话不可预期，可能是另一个正在跑的会话（其 framework
+	// Session 锁被 ChatStream 全程持有，清空会排在它后面并清掉它的运行历史）。
 	if !currentRunning {
-		service.Deps.Engine.ClearHistory()
+		service.clearEngineHistoryFor(sessionID)
 	}
 	service.promptStack.ClearKind("skill")
 	// 离开当前会话：解绑 context 模块，防止四栈串到新会话。
@@ -136,6 +138,8 @@ func (service *Service) BeginNewSession() error {
 // materializeDraftSession 为首条请求创建引擎会话与项目绑定：复用早分配
 // 的草稿 SID（支持显式 ID 建引擎的宿主经 ActivateSession 创建，旧单会话
 // 引擎退化为 StartSession 自动分配），并清空已提交的 composer 草稿。
+// ambient 提交（submitConversation）与显式提交（materializeDraftForSubmit）
+// 两条路径共用它。
 // 调用方必须持有 sessionTransitionMu。
 func (service *Service) materializeDraftSession(firstQuestion string) error {
 	service.ViewMu.RLock()
@@ -218,4 +222,46 @@ func (service *Service) materializeDraftSession(firstQuestion string) error {
 	// G6 驻留 LRU：物化完成（引擎 bundle 已建）即记录使用序并收敛超限。
 	service.touchResident(newID)
 	return nil
+}
+
+// isUnmaterializedDraftTarget 预判显式提交的目标是否就是那份尚未物化的草稿
+// （视图里的草稿，或切换走后仍留在草稿槽里的草稿）。仅作廉价闸门用，避免每次
+// 后台提交都去抢视图过渡锁；归属复判在 materializeDraftForSubmit 锁内再做。
+func (service *Service) isUnmaterializedDraftTarget(sessionID string) bool {
+	service.ViewMu.RLock()
+	defer service.ViewMu.RUnlock()
+	if service.draft != nil && service.draft.ID == sessionID {
+		return true
+	}
+	return service.Core.Snapshot.Session.Draft && service.Core.Snapshot.Session.ID == sessionID
+}
+
+// materializeDraftForSubmit 把「显式提交的目标恰好是未物化的草稿」接回物化路径。
+//
+// 存在理由：前端普通输入一律走 SubmitToSession + 显式视图会话 ID（含草稿的早分配
+// SID，见 gui/frontend/dist/composer-input.js），而草稿从来没有可冷回读的历史——
+// 不先物化，SubmitToSession 会按"目标未加载"去 ActivateSession→冷加载那份
+// Status=draft 的 record：新会话以「已恢复会话: draft_…」开头、草稿槽位不消费、
+// 草稿 record 不清理（重启后已发送的正文又回到输入框），有会话运行中时还要先经过
+// restoring 空壳与延后提交。物化是草稿首条提交的唯一正解。
+//
+// 归属：草稿槽是进程单例，物化会把共享视图镜像切到该 SID，因此只有视图仍停在这份
+// 草稿上时才允许；否则返回 ErrDraftNotInView（渲染层拿着过期快照提交，明确失败
+// 比把输入投给别的会话安全）。调用方不得持有视图过渡锁。
+func (service *Service) materializeDraftForSubmit(sessionID, firstInput string) error {
+	if !service.isUnmaterializedDraftTarget(sessionID) {
+		return nil
+	}
+	transition := service.transitionView()
+	transition.Lock()
+	defer transition.Unlock()
+	service.ViewMu.RLock()
+	mine := service.Core.Snapshot.Session.Draft &&
+		service.Core.Snapshot.Session.ID == sessionID &&
+		(service.draft == nil || service.draft.ID == sessionID)
+	service.ViewMu.RUnlock()
+	if !mine {
+		return ErrDraftNotInView
+	}
+	return service.materializeDraftSession(strings.TrimSpace(firstInput))
 }

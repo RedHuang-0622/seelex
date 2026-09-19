@@ -335,6 +335,12 @@ func (service *Service) SubmitToSession(ctx context.Context, sessionID, text str
 	// 再委托 Submit（内部再读一次 current），切换落在两次读之间会把 A 的
 	// 输入路由进 B 的队列（压力测试 TestStressConcurrentSessionsDoNotPollute
 	// 抓到：queued-2 进入 sess-4 视图）。
+	// 草稿门：显式目标可能就是视图里那份尚未物化的草稿。草稿没有可冷回读的历史，
+	// 必须先物化（建引擎 bundle、绑项目、清 composer），否则下面"目标未加载"的
+	// 判定会把它当成冷会话去 ActivateSession→冷加载那条 draft record。
+	if err := service.materializeDraftForSubmit(sessionID, text); err != nil {
+		return err
+	}
 	if !service.sessionLoaded(sessionID) || service.sessionContentUnloaded(sessionID) {
 		// 目标会话未加载，或可见正文已被内容 LRU 卸载：切换恢复（含正文冷
 		// 回读）后再提交——否则新回合的可见消息会落进一个没有窗口的会话视图。

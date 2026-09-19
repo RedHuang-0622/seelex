@@ -61,6 +61,18 @@ func (service *Service) engineHistoryFor(sessionID string) []contract.EngineMess
 	return service.Deps.Engine.History()
 }
 
+// clearEngineHistoryFor 清空指定会话引擎历史（会话路由引擎用 ClearHistoryFor，
+// 不切换活跃别名）。不要用 Engine.ClearHistory() 代替：进程级别名指向哪个会话
+// 不可预期，可能是另一个正在运行的会话，其 framework Session 锁被 ChatStream
+// 全程持有——清空会排在它后面，并在它释放后清掉它的运行历史。
+func (service *Service) clearEngineHistoryFor(sessionID string) {
+	if routed, ok := service.Deps.Engine.(contract.SessionChatEngine); ok {
+		routed.ClearHistoryFor(sessionID)
+		return
+	}
+	service.Deps.Engine.ClearHistory()
+}
+
 func (service *Service) Submit(ctx context.Context, text string) error {
 	service.ViewMu.RLock()
 	draining := service.draining

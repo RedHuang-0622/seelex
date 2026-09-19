@@ -42,6 +42,10 @@ var (
 	ErrQueueIndexOutOfRange = errors.New("queued input index out of range")
 	// ErrQueueSessionNotFound 表示目标会话不在会话域注册表中（不存在）。
 	ErrQueueSessionNotFound = errors.New("queue session not found")
+	// ErrDraftNotInView 是草稿提交的归属门：草稿槽是进程单例，只有视图指针仍停在
+	// 那份草稿上时才能就地物化（物化会把共享视图镜像切到该 SID）。渲染层拿着过期
+	// 快照把输入发给一份已不在视图里的草稿时，明确失败比"投进别的会话"安全。
+	ErrDraftNotInView = errors.New("draft session is no longer the viewed session; resubmit after the switch settles")
 )
 
 // Service is the public application facade. Stateful responsibilities are
