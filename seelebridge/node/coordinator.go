@@ -444,6 +444,13 @@ func (a ScopeAssembler) Assemble(ctx context.Context, request seelectx.AssemblyR
 		}
 	}
 	request.Blocks = merged
+	// wire 出口的 tool 配对协议规整：本装配器直接委托 DefaultRequestAssembler
+	// （不经 seelexctx 的装配器），WorkingHistory 就是节点框架会话里的历史——
+	// 控制器投影刻意保留窗口内的非单元消息（孤儿 tool 行），出口不规整就会把
+	// 它原样发到 provider（2026-09-20 现场：goalplan-1 节点会话 HTTP 400
+	// "Messages with role 'tool' must be a response to a preceding message with
+	// 'tool_calls'"）。合法历史逐字不变。
+	request.WorkingHistory = seelexctx.SanitizeProviderToolProtocol(request.WorkingHistory)
 	return seelectx.DefaultRequestAssembler{}.Assemble(ctx, request)
 }
 

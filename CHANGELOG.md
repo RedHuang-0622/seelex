@@ -14,6 +14,42 @@ version when it lands.
 
 ### Fixed
 
+- **A provider request can no longer carry a `tool` message that no assistant
+  declared, so the session loop survives the 400 instead of dying on it.** The
+  observed failure (twice, on two different account roles):
+  `session loop 15: seelebridge: stream with account "agent-1": ChatClient
+  stream: HTTP 400: {"error":{"message":"Messages with role 'tool' must be a
+  response to a preceding message with 'tool_calls'"}}` — a provider validates
+  that **every `tool` message immediately follows the assistant message that
+  declares its `tool_call_id`**, not that the history merely contains a pair.
+  Three shapes violate it: an orphan result (no assistant ever declared it), a
+  misordered result (a `user` message between declaration and result), and a
+  duplicate result. The framework-side twin of the pairing repair
+  (`seelexctx.repairInterruptedToolChains`) only *added* placeholders for
+  missing results — it never dropped orphans nor moved misordered ones — while
+  the application-side twin
+  (`context_runtime.RepairInterruptedToolChains`) had done both since the
+  2026-09-17 measurement, and neither request-assembly exit
+  (`seelexctx.NewAssembler` for main sessions, `node.ScopeAssembler` for
+  subagent sessions — the latter bypasses the former entirely) sanitised
+  `WorkingHistory` at all. The window projection keeps non-unit messages on
+  purpose (audit R3: an orphan `tool` row stays inside the window), so an
+  orphan can land at the *head* of the projected history and go out verbatim.
+  Now: `seelexctx.repairToolPairing` performs the full protocol repair (drop
+  orphans/duplicates, move misordered results back next to their declaration,
+  placeholder completion on the `ReplaceHistory` path only), both exits call
+  the exported `seelexctx.SanitizeProviderToolProtocol` (drop/move only — never
+  synthesise a placeholder, since a request may be assembled while a tool call
+  is still in flight), and a rejected wire is classified as `invalid_history`
+  so the bounded-checkpoint recovery runs instead of killing the loop.
+  Regression: `seelexctx/wire_protocol_safety_test.go` (four protocol cases
+  plus the projection-chain reproduction),
+  `seelebridge/node/coordinator_tool_protocol_test.go`,
+  `application/core/history_safety_test.go`
+  (`TestToolProtocolRejectionsAreHistoryFailures`). Legal histories are left
+  byte-identical (projection == sent bytes; prefix-cache safety).
+  See `docs/devlog/2026-09-20-wire-tool-protocol-orphan-400.md`.
+
 - **A running session no longer derails an idle session's composer submit.** Two
   independent mechanisms, both exposed once the renderer pins every plain submit
   to an explicit session ID (`gui/frontend/dist/composer-input.js`

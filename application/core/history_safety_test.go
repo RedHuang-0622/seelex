@@ -247,3 +247,18 @@ func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T) {
 		t.Fatalf("provider failure = %q, want %q", got, providerFailureServer)
 	}
 }
+
+// TestToolProtocolRejectionsAreHistoryFailures 覆盖 2026-09-20 现场那条 400：
+// provider 拒绝"孤儿 tool 消息"（没有前一条 assistant 宣告）属于**无效历史**
+// ——请求里的记录不合法，应当走有界检查点的历史恢复，而不是把会话循环判死
+// （现场中断在 session loop 15 / 22）。wire 出口已按协议剔除这种形状
+// （seelexctx 装配器的 tool 配对规整 + 本包投影修复），这里是措辞兜底。
+func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T) {
+	err := errors.New(`engine loop 15: seelebridge: stream with account "agent-1": ` +
+		`ChatClient stream: HTTP 400: {"error":{"message":"Messages with role 'tool' must be a ` +
+		`response to a preceding message with 'tool_calls'","type":"invalid_request_error",` +
+		`"param":null,"code":"invalid_request_error"}}`)
+	if got := classifyProviderFailure(err); got != providerFailureHistory {
+		t.Fatalf("provider failure = %q, want %q", got, providerFailureHistory)
+	}
+}

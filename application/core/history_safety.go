@@ -139,7 +139,12 @@ func classifyProviderFailure(err error) providerFailureKind {
 		return providerFailureNone
 	}
 	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "chat content is empty") {
+	if strings.Contains(message, "chat content is empty") ||
+		strings.Contains(message, "must be a response to a preceding message with") {
+		// 后者 = provider 拒绝 tool 配对协议（孤儿/乱序 tool 结果，2026-09-20
+		// 现场）：同属"请求里的记录不合法"，走有界检查点的历史恢复，而不是把
+		// 会话循环判死。wire 出口已按协议剔除这类形状（seelexctx 装配器），
+		// 这里保留兜底——provider 的措辞与严格度不由我们决定。
 		return providerFailureHistory
 	}
 	if strings.Contains(message, "http 504") || strings.Contains(message, "timeout_error") ||

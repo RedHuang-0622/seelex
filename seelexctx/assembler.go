@@ -102,6 +102,15 @@ func (a seelexAssembler) Assemble(ctx context.Context, request seelectx.Assembly
 		// 窗口读取失败保守回退调用方历史（请求仍可进行，与 3.7.3 的
 		// "出错时保守回退"同风格）。
 	}
+	// 6.1 wire 出口的 tool 配对协议保证（fabricate=false：只剔除孤儿/重复结果、
+	// 搬回乱序结果，绝不合成占位）。这里是发往 provider 的最后一跳：主会话与
+	// 节点会话的 AssemblerOptions 都不设 Window，WorkingHistory 就是框架会话里
+	// 的历史——控制器投影刻意保留窗口内的非单元消息（孤儿 tool 行随窗口保留），
+	// 所以出口不能指望上游每个写入点都干净（2026-09-20 现场：孤儿行落在投影后
+	// 历史最前面，provider 直接 400 "Messages with role 'tool' must be a
+	// response to a preceding message with 'tool_calls'"，会话循环中断）。
+	// 合法历史逐字不变（投影 == 已发出字节，前缀缓存不失效）。
+	history = SanitizeProviderToolProtocol(history)
 
 	// 7. 动态尾部栈块（plan/task：贴近当前输入，不参与压缩）追加到
 	// WorkingHistory 尾部：框架委托装配器总是把 WorkingHistory 放在所有
