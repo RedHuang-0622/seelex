@@ -124,8 +124,9 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (runtime *fakeRuntime) SetPlanBranchBinding(binding dto.PlanBranchBinding)`
 - `func (runtime *fakeRuntime) TodoSnapshot() []dto.TodoItem`
 - `func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) error`
-- `func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord`
-- `func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord`
+- `func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord` — TaskSnapshot 返回**项目/全局** task 表（镜像生产 Runtime：实时注册表 +
+- `func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord` — TaskSnapshotFor 保持会话粒度（持久化落盘/请求尾部打点块用）。
+- `func (runtime *fakeRuntime) globalSnapshotLocked() []dto.TaskRecord` — globalSnapshotLocked 合并实时注册表与所有会话分区（跨会话身份去重：
 - `func (runtime *fakeRuntime) snapshotLocked() []dto.TaskRecord`
 - `func (runtime *fakeRuntime) TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)`
 - `func (runtime *fakeRuntime) addTaskLocked(spec dto.TaskSpec) (dto.TaskRecord, bool, error)`
@@ -324,6 +325,8 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func (service *Service) isRestoringLocked(sessionID string) bool` — isRestoringLocked 报告目标会话是否处于后台冷加载（调用方持有
 - `func (service *Service) setRestoringLocked(sessionID string)` — setRestoringLocked 标记目标会话进入后台冷加载（调用方持有 Core.ViewMu）。
 - `func (service *Service) clearRestoringLocked(sessionID string)` — clearRestoringLocked 移除目标会话的后台冷加载标记（调用方持有
+- `func (service *Service) signalRestoreLocked()` — signalRestoreLocked 广播一次“restoring 集合已变化”（调用方持有
+- `func (service *Service) restoreSignalLocked() <-chan struct` — restoreSignalLocked 返回当前 restoring 变化信号（调用方持有 Core.ViewMu）。
 - `func (service *Service) nextViewEpochLocked() uint64` — nextViewEpoch 推进视图切换序号并返回新值（调用方持有 Core.ViewMu）。
 - `func (service *Service) Subscribe(buffer int) Subscription`
 - `func (service *Service) collectRuntimeProjection(ctx context.Context) view_state.RuntimeStateProjection`
@@ -384,7 +387,7 @@ Service 门面、装配根与跨域用例编排（输入/交互/调度/快照/�
 - `func TestSnapshotIncludesPersistedSessions(t *testing.T)`
 - `func TestSnapshotDoesNotReadBlockedSessionCatalog(t *testing.T)`
 - `func TestShutdownDoesNotWaitForBlockedSessionCatalog(t *testing.T)`
-- `func TestBeginNewSessionClearsWorkTable(t *testing.T)`
+- `func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T)` — TestBeginNewSessionKeepsGlobalWorkTable 工作表格是项目/全局台账：/new
 - `func TestResumedChatPersistsToSelectedSession(t *testing.T)`
 - `func TestLoadMoreHistoryAssignsStableMessageIDs(t *testing.T)`
 - `func TestResumeCommandOpensSessionInteraction(t *testing.T)`

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -159,10 +160,9 @@ type TaskRegistry struct {
 func NewTaskRegistry() *TaskRegistry {
 	registry := &TaskRegistry{changes: make(chan TaskRecord, 256)}
 	registry.state = &TaskRegistryState{
-		tasks:  make(map[string]*taskRecord),
-		byKey:  make(map[string]string),
-		todo:   make([]string, 0),
-		nextID: 1,
+		tasks: make(map[string]*taskRecord),
+		byKey: make(map[string]string),
+		todo:  make([]string, 0),
 	}
 	registry.mailbox = actor.New(registry.apply, actor.WithCap(0))
 	return registry
@@ -185,9 +185,8 @@ type TaskRegistryState struct {
 	tasks           map[string]*taskRecord
 	byKey           map[string]string
 	todo            []string // kind=todo 的有序 ID 列表（todolist 索引语义）
-	nextID          uint64
-	defaultIdentity string // 当前主执行身份（main:<mainSessionID>；被动 Assignee 兜底）
-	defaultBatchID  string // 当前默认批次（chat 请求 requestID；新建条目盖章）
+	defaultIdentity string   // 当前主执行身份（main:<mainSessionID>；被动 Assignee 兜底）
+	defaultBatchID  string   // 当前默认批次（chat 请求 requestID；新建条目盖章）
 }
 
 func (registry *TaskRegistry) apply(command taskCommand) {
@@ -259,6 +258,66 @@ func (registry *TaskRegistry) DroppedChanges() int64 {
 	return registry.droppedChanges.Load()
 }
 
+// ── 自动条目 ID 的分配（进程级）─────────────────────────────────
+//
+// 自动 ID（`task:<n>` / `todo:<n>`）必须**进程内唯一**，理由有二：
+//
+//   - 注册表的行键就是 ID（`state.tasks[id]`）。重发同号 = 新条目**覆盖**旧行，
+//     用户的旧任务凭空消失；
+//   - 工作表格是**跨会话台账**（实时注册表 + 各会话 scope 分区按幂等键/行 ID
+//     合并），同 ID 两行会被合并去重丢掉一行，前端也按行 ID 做 keyed
+//     reconciliation（`data-work-row`、`task.changed` 单行 upsert）。
+//
+// 因此自增源提到包级（跨注册表、跨会话分区共享），并且**装载/恢复**进来的
+// 记录（磁盘数据、上一次进程的号）经 ObserveAutoID 抬高水位——那些号不再
+// 重发。历史行为是"每个注册表/每个分区各自从 1 数"，两个会话各产一条无显式
+// ID 的条目就同号。
+var autoIDSeq atomic.Uint64
+
+// NextAutoID 返回进程内唯一的自动条目 ID（`<prefix>:<n>`，prefix = task/todo）。
+func NextAutoID(prefix string) string {
+	return fmt.Sprintf("%s:%d", prefix, autoIDSeq.Add(1))
+}
+
+// ObserveAutoID 抬高自增水位：记录（可能来自磁盘/上一次进程）占用的号不再
+// 重发。非自动格式（plan:/subagent: 等显式 ID）忽略。
+func ObserveAutoID(id string) {
+	number, ok := autoIDNumber(id)
+	if !ok {
+		return
+	}
+	for {
+		current := autoIDSeq.Load()
+		if current >= number || autoIDSeq.CompareAndSwap(current, number) {
+			return
+		}
+	}
+}
+
+// autoIDNumber 解析自动 ID 的序号（`task:<n>` / `todo:<n>`）。
+func autoIDNumber(id string) (uint64, bool) {
+	prefix, rest, ok := strings.Cut(id, ":")
+	if !ok || (prefix != "task" && prefix != "todo") {
+		return 0, false
+	}
+	number, err := strconv.ParseUint(rest, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return number, true
+}
+
+// nextFreeIDLocked 从进程级自增源取号，并跳过注册表里已占用的号（装载/恢复
+// 的记录可能比分配器水位更大——例如外部分配或跨版本的数据）。
+func nextFreeIDLocked(prefix string, state *TaskRegistryState) string {
+	for {
+		id := NextAutoID(prefix)
+		if _, exists := state.tasks[id]; !exists {
+			return id
+		}
+	}
+}
+
 func addTaskLocked(spec TaskSpec, state *TaskRegistryState) (TaskRecord, bool) {
 	key := spec.Key
 	if key == "" {
@@ -271,12 +330,11 @@ func addTaskLocked(spec TaskSpec, state *TaskRegistryState) (TaskRecord, bool) {
 	}
 	id := spec.ID
 	if id == "" {
-		id = fmt.Sprintf("task:%d", state.nextID)
-		state.nextID++
-	}
-	if spec.Kind == "todo" {
-		id = fmt.Sprintf("todo:%d", state.nextID)
-		state.nextID++
+		prefix := "task"
+		if spec.Kind == "todo" {
+			prefix = "todo"
+		}
+		id = nextFreeIDLocked(prefix, state)
 	}
 	assignee := spec.Assignee
 	if assignee == "" {
@@ -531,6 +589,8 @@ func restoreTaskLocked(id string, record TaskRecord, state *TaskRegistryState) (
 	if id == "" {
 		return TaskRecord{}, fmt.Errorf("task: restore requires id")
 	}
+	// 装载/恢复的记录占用的自动号不再重发（见 NextAutoID/ObserveAutoID）。
+	ObserveAutoID(id)
 	key := record.Key
 	if key == "" {
 		key = id

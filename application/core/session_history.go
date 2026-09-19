@@ -384,8 +384,10 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			planRestoreErr = restorer.RestorePlan(context.Background(), activePlan.Arguments)
 		}
 	}
-	// 会话级 task 隔离：切换会话时整体替换注册表（清空旧会话、恢复目标
-	// 会话 task）并清空子代理树，避免旧数据污染新会话工作台。
+	// 会话级 task 隔离：切换会话时整体替换**当前会话的实时注册表**（清空
+	// 旧会话、恢复目标会话 task）并清空子代理树——这是会话级读面（落盘/
+	// 打点）；工作表格本体是全局台账（TaskSnapshot = 注册表 + 全部分区），
+	// 不随本次切换丢行。
 	service.Deps.Runtime.SwitchSessionTasks(sessionID, record.Tasks)
 	_ = service.Deps.Runtime.ClearSubagentTree()
 	// 恢复锚点：从主会话事件库/子会话记录重建目标会话的 fork 树与认领

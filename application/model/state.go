@@ -454,7 +454,7 @@ type SubagentContext struct {
 // WorkItem 是工作台工作表格的统一只读投影行：把 plan 节点、todolist 项与
 // fork 子代理归一为同一张多维表格；Trace 是任务打点（有界，按时间倒序）。
 type WorkItem struct {
-	ID           string           `json:"id"`                     // 稳定键：plan:<id> | todo:<index> | subagent:<id>
+	ID           string           `json:"id"`                     // 稳定键：plan:<id> | subagent:<id> | todo:<n> | task:<n>（自动号进程内唯一）
 	Phase        string           `json:"phase"`                  // 展示派生字段：plan | tasklist | task | subagent
 	Task         string           `json:"task"`                   // 任务名/节点 label/goal
 	Description  string           `json:"description,omitempty"`  // 描述/output 摘要

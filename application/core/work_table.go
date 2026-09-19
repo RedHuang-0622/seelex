@@ -557,6 +557,47 @@ func mergeWorkDependencies(recorded []string, derived []string) []string {
 	return merged
 }
 
+// mergeTaskRecords 合并两组 task 记录（按跨会话身份去重，前者优先，稳定
+// 排序）：冷读面用全局表 + 会话持久化的自身条目拼一张表，保证"任何入口看到
+// 的都是同一条跨会话台账"。身份 = 幂等键优先、否则行 ID：同一 plan 节点/
+// 子代理/待办文本在不同来源（实时注册表、会话分区、磁盘记录）出现时靠 Key
+// 认同一行；自动行 ID（`task:<n>`/`todo:<n>`）由进程级分配器保证进程内唯一，
+// 不会把两个会话的条目并成一行（见 seelebridge/task.NextAutoID）。
+func mergeTaskRecords(primary, secondary []dto.TaskRecord) []dto.TaskRecord {
+	if len(secondary) == 0 {
+		return primary
+	}
+	merged := make([]dto.TaskRecord, 0, len(primary)+len(secondary))
+	seen := make(map[string]struct{}, len(primary)+len(secondary))
+	for _, source := range [][]dto.TaskRecord{primary, secondary} {
+		for _, record := range source {
+			identity := taskRecordLedgerIdentity(record)
+			if identity == "" {
+				continue
+			}
+			if _, exists := seen[identity]; exists {
+				continue
+			}
+			seen[identity] = struct{}{}
+			merged = append(merged, record)
+		}
+	}
+	sort.SliceStable(merged, func(left, right int) bool { return merged[left].ID < merged[right].ID })
+	return merged
+}
+
+// taskRecordLedgerIdentity 返回记录在跨会话台账里的去重身份（幂等键优先、
+// 否则行 ID；与 seelebridge 侧的 taskLedgerIdentity 同口径）。
+func taskRecordLedgerIdentity(record dto.TaskRecord) string {
+	if record.Key != "" {
+		return "key:" + record.Key
+	}
+	if record.ID != "" {
+		return "id:" + record.ID
+	}
+	return ""
+}
+
 // workItemForRecord 把注册表记录映射为工作表格行，并按 plan 邻接面补齐
 // plan 行的依赖。
 //
@@ -586,8 +627,8 @@ const (
 )
 
 // workTableTraceBlock 返回当前活跃会话的打点表标记块（活跃会话即
-// TaskSnapshotFor("")/TaskSnapshot 实时注册表语义；供旧调用面与进程级事件
-// 兼容，多会话路径一律走 workTableTraceBlockFor）。
+// TaskSnapshotFor("") 的实时注册表语义；供旧调用面与进程级事件兼容，
+// 多会话路径一律走 workTableTraceBlockFor）。
 func (state *serviceState) workTableTraceBlock() string {
 	return state.workTableTraceBlockFor("")
 }
@@ -596,14 +637,15 @@ func (state *serviceState) workTableTraceBlock() string {
 // 未终态任务（pending/running/doing/retry），按 id 稳定排序；无活动任务
 // 返回空串（块随任务完成自动删除）。
 //
-// 会话作用域（S1：工作表格跨会话隔离）：打点表注入在“正在组装下一次请求的
-// 会话”的上下文尾部，必须只取该会话自己的 task scope——
-//   - 活跃（视图）会话 = 进程级实时注册表（core 的 scope 真理在视图会话；
-//     runtime.SwitchSessionTasks 在每次 BeginNewSession/Resume/Activate 时
-//     与视图对齐，live registry 恒属于当前视图会话）；
+// 会话作用域（S1：打点表按会话取数）：打点表**不是**工作表格本体——工作
+// 表格是全局台账（TaskSnapshot），而打点表注入在“正在组装下一次请求的会话”
+// 的上下文尾部，必须只取该会话自己的 task scope，否则会话会读到别的会话的
+// 活动任务（历史污染/上下文串台）且看不到自己的打点：
+//   - 活跃（视图）会话 = TaskSnapshotFor("")，即实时注册表（runtime.
+//     SwitchSessionTasks 在 BeginNewSession/Resume/Activate 时与视图对齐，
+//     live registry 恒属于当前视图会话）；
 //   - 后台会话（视图已切走、它仍在并行跑） = TaskSnapshotFor(sessionID) 的
-//     scope 分区——若后台会话也读实时注册表，会把活跃会话的活动打点注入后台
-//     会话的上下文（历史污染/上下文串台），且看不到自己的打点。
+//     scope 分区。
 func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	if state == nil || state.Deps.Runtime == nil {
 		return ""
@@ -612,10 +654,13 @@ func (state *serviceState) workTableTraceBlockFor(sessionID string) string {
 	viewID := state.Snapshot.Session.ID
 	state.ViewMu.RUnlock()
 	var records []dto.TaskRecord
-	if sessionID == "" || sessionID == viewID {
-		records = state.Deps.Runtime.TaskSnapshot()
-	} else if forTasks, ok := state.Deps.Runtime.(interface{ TaskSnapshotFor(string) []dto.TaskRecord }); ok {
-		records = forTasks.TaskSnapshotFor(sessionID)
+	if forTasks, ok := state.Deps.Runtime.(interface{ TaskSnapshotFor(string) []dto.TaskRecord }); ok {
+		scope := sessionID
+		if scope == "" || scope == viewID {
+			// 视图/活跃会话的 task scope 恒为实时注册表（"" 分区）。
+			scope = ""
+		}
+		records = forTasks.TaskSnapshotFor(scope)
 	} else {
 		records = state.Deps.Runtime.TaskSnapshot()
 	}

@@ -510,12 +510,15 @@ func (runtime *fakeRuntime) SetTodoStatus(index int, status dto.TodoItemStatus) 
 	return nil
 }
 
+// TaskSnapshot 返回**项目/全局** task 表（镜像生产 Runtime：实时注册表 +
+// 各会话 scope 分区合并，按 ID 去重）——工作表格是跨会话台账。
 func (runtime *fakeRuntime) TaskSnapshot() []dto.TaskRecord {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
-	return runtime.snapshotLocked()
+	return runtime.globalSnapshotLocked()
 }
 
+// TaskSnapshotFor 保持会话粒度（持久化落盘/请求尾部打点块用）。
 func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
 	runtime.todoMu.Lock()
 	defer runtime.todoMu.Unlock()
@@ -523,6 +526,33 @@ func (runtime *fakeRuntime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
 		return runtime.snapshotLocked()
 	}
 	return append([]dto.TaskRecord(nil), runtime.sessionTaskSnapshots[sessionID]...)
+}
+
+// globalSnapshotLocked 合并实时注册表与所有会话分区（跨会话身份去重：
+// 幂等键优先、否则行 ID；注册表优先）。
+func (runtime *fakeRuntime) globalSnapshotLocked() []dto.TaskRecord {
+	records := runtime.snapshotLocked()
+	seen := make(map[string]struct{}, len(records))
+	identityOf := func(record dto.TaskRecord) string {
+		if record.Key != "" {
+			return "key:" + record.Key
+		}
+		return "id:" + record.ID
+	}
+	for _, record := range records {
+		seen[identityOf(record)] = struct{}{}
+	}
+	for _, partition := range runtime.sessionTaskSnapshots {
+		for _, record := range partition {
+			identity := identityOf(record)
+			if _, exists := seen[identity]; exists {
+				continue
+			}
+			seen[identity] = struct{}{}
+			records = append(records, record)
+		}
+	}
+	return records
 }
 
 func (runtime *fakeRuntime) snapshotLocked() []dto.TaskRecord {

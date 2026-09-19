@@ -6,9 +6,12 @@ import (
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
 
-// TestTaskAddForRoutesToOwningSessionPartition 验证 task 写按归属会话路由：
-// 后台会话 A 的写只进 A 的 scope 分区，当前注册表（B）不被污染；
-// A 的 scope 实时一致（TaskSnapshotFor(A) 能看到后台新增任务）。
+// TestTaskAddForRoutesToOwningSessionPartition 验证 task 写按归属会话路由 +
+// 工作表格的**项目/全局**读面：
+//   - 全局表（TaskSnapshot，worktable 投影数据源）是跨会话台账，切到 B 后
+//     仍看得到 A 的条目（工作表格不是会话粒度）；
+//   - 会话级读面（TaskSnapshotFor）仍按会话取数：B 的 scope 不含 A 的条目，
+//     A 的 scope 实时一致（后台写自有域）。
 func TestTaskAddForRoutesToOwningSessionPartition(t *testing.T) {
 	runtime, err := NewRuntime(RuntimeConfig{})
 	if err != nil {
@@ -28,10 +31,11 @@ func TestTaskAddForRoutesToOwningSessionPartition(t *testing.T) {
 		t.Fatalf("TaskAddFor(A, plan:n2) = created=%v err=%v", created, err)
 	}
 
-	// 当前注册表（B）必须干净
-	if got := runtime.TaskSnapshot(); len(got) != 0 {
-		t.Fatalf("current registry polluted by session A: %+v", got)
+	// 工作表格（全局台账）看得到 A 的两条——切到 B 不丢行。
+	if got := runtime.TaskSnapshot(); len(got) != 2 {
+		t.Fatalf("global work table = %+v, want A's plan:n1 + plan:n2", got)
 	}
+	// 会话级读面按会话取数：B 的 scope 不含 A 的条目。
 	if got := runtime.TaskSnapshotFor("session-b"); len(got) != 0 {
 		t.Fatalf("session B scope polluted by session A: %+v", got)
 	}

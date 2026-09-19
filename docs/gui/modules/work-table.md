@@ -19,6 +19,28 @@ chips 过滤。任务打点（trace）带进同一数据面。右栏为「入口
 主要调用方：`gui/frontend/dist/app.js`（渲染入口）、`seelebridge` 与
 `application/core`（投影与事件数据源）。
 
+### 作用域（粒度）
+
+工作表格的内容是**项目/全局**粒度，不是会话粒度：它是一条**跨会话台账**，
+会话只是条目的**产生地**。切走/新建会话都不应让先前会话的条目从表里消失
+（用户看的是"这个项目在办什么"，不是"这个会话在办什么"）。实现上：
+
+- 全局读面 `RuntimePort.TaskSnapshot()` 合并实时注册表（当前会话）与各
+  会话 scope 分区，按跨会话身份（幂等键优先、否则行 ID）去重后投影成表；
+  `buildWorkTable` / `worktable.changed` / 会话快照里的 `runtime.work_table`
+  都取自它。
+- 会话级读面 `RuntimePort.TaskSnapshotFor(sessionID)` 仍按会话取数，只服务
+  两件事：**落盘**（`SessionRecord.Tasks` 是会话自己的条目）与**请求尾部
+  打点块**（注入本会话上下文的活动任务，见下）。
+- 行 ID 仍是 `plan:<node_id>` / `subagent:<id>` / `todo:<n>` / `task:<n>`；其中
+  自动号（`todo:<n>` / `task:<n>`）由 seelebridge 的**进程级**分配器给出，
+  进程内唯一（同 ID 在台账里是同一行，注册表也以 ID 为行键）；去重身份不能
+  只按 ID——同一 plan 节点/子代理/待办文本在实时注册表、会话分区、磁盘记录
+  里是多来源，靠幂等键认同。
+- 已知问题（未修）：`todo:<n>` 的号不是待办清单索引，而三态回写按 ID 里的
+  数字当索引（`parseWorkItemID` → `SetTodoStatus(index)`），见
+  `docs/devlog/2026-09-19-worktable-global-scope.md` §7.5。
+
 ## 职责与非职责
 
 职责：
@@ -48,7 +70,10 @@ chips 过滤。任务打点（trace）带进同一数据面。右栏为「入口
 1. **task 注册表是唯一权威源**（`seelebridge/task/task.go`，Actor +
    Mailbox，保护粒度=task）：`task_add` 主动入表；todolist 融合为
    kind=todo 的 task；plan/subagent 生命周期被动同步
-   （`syncTasksFromSources`）。`startChat` 写入当前批次（`SetCurrentTaskBatch`
+   （`syncTasksFromSources`）。工作表格走**全局读面**
+   （`TaskSnapshot` = 实时注册表 + 各会话分区合并），因此表是跨会话台账、
+   不随会话切换丢行；落盘与上下文打点另走会话级读面
+   （`TaskSnapshotFor`）。`startChat` 写入当前批次（`SetCurrentTaskBatch`
    = requestID），新建条目自动盖章 `BatchID`（显式 spec.BatchID 优先；
    恢复/旧数据保留原值，空批次归入「早期任务」）。
 2. 子代理生命周期是**被动触发**：`fork_subagents` 注册/节点完成时，
@@ -148,9 +173,12 @@ task 快照随 `SessionRecord.Tasks` 复用 session stack 存储通道（与 Pla
   [`schemas/work-table.schema.json`](../schemas/work-table.schema.json)
   （`items` + 可选 `batches` + 可选 `subagent_tree`；树仅在内容变化时下发，
   发送侧按内容签名去重，避免运行期树把表格增量撑大）。
-- WorkItem ID 稳定键：`plan:<id>` / `todo:<index>` / `subagent:<id>` /
-  `task:<n>`；Dependency 引用同命名空间的 WorkItem ID；BatchID 引用批次头
-  ID（空串 = 早期会话）。plan 行的 Dependency 取自 **Plan DAG 的入边**：
+- WorkItem ID 稳定键：`plan:<id>` / `subagent:<id>` / `todo:<n>` / `task:<n>`
+  （自动号由 seelebridge 进程级分配器给出、进程内唯一）；Dependency 引用同
+  命名空间的 WorkItem ID；BatchID 引用批次头 ID（空串 = 早期会话）。已知
+  问题：`todo:<n>` 的号不是清单索引，GUI 三态回写却按索引解析它，见
+  `docs/devlog/2026-09-19-worktable-global-scope.md` §7.5。plan 行的
+  Dependency 取自 **Plan DAG 的入边**：
   `plan_load` 产出平铺节点 + 边集、plan 行没有父节点，只靠树形父子推导会
   恒为空，因此 `planDependencies` 取 `PlanState.Edges` 中 `To == 本节点` 的边
   映射成 `plan:<前置节点>`，`mergeWorkDependencies` 再与注册表记录合并

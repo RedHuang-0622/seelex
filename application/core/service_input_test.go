@@ -128,8 +128,8 @@ func TestPrepareExecutionContextCarriesWorkTableTraceBlock(t *testing.T) {
 	}
 }
 
-// TestBeginNewSessionClearsWorkTable 会话级工作台隔离：新建会话清空 task
-// 注册表与工作表格，旧会话数据不污染新会话。
+// TestBeginNewSessionKeepsGlobalWorkTable 见 service_test.go：工作表格是
+// 项目/全局台账，/new 不清空跨会话表。
 
 func TestNewRejectsMissingDependencies(t *testing.T) {
 	if _, err := New(Dependencies{}); err == nil {

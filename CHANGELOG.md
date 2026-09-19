@@ -5,11 +5,68 @@ All notable changes to Seelex are documented in this file.
 The repository is in Developer Alpha. Source builds report <code>dev</code>;
 release builds receive their version from the Git tag through ldflags.
 
-The next planned release is <code>v0.0.2</code>. The <code>v0.1.0</code>
-line is reserved for the later breaking architectural rewrite and is not used
-for this stabilization batch.
+The current release is <code>v0.1.0</code>. The stabilization batch that was
+planned under the <code>v0.0.2</code> label ships under this number; the
+breaking architectural rewrite is not yet scheduled and will take its own
+version when it lands.
 
 ## [Unreleased]
+
+### Fixed
+
+- **Work table content is a project/global ledger, not session-granular.** The
+  work table aggregates `plan` / `todo` / `task` / `subagent` rows across
+  sessions: switching (or starting) a session must not drop rows produced in
+  another session. `RuntimePort.TaskSnapshot()` (the `worktable` projection
+  source) now merges the live registry (current session) with every session
+  scope partition, de-duplicated by cross-session identity (idempotent `Key`
+  first, row ID only as fallback — auto row IDs are process-unique, see the next
+  item). Session-scoped reads stay on `TaskSnapshotFor(sessionID)`, which now
+  serves exactly two consumers: per-session persistence (`SessionRecord.Tasks`)
+  and the request-tail trace block (a session must not read another session's
+  active tasks into its context). Regression:
+  `seelebridge/worktable_global_scope_test.go`
+  (`TestWorkTableGlobalScopeRepro`, `TestWorkTableGlobalReadKeepsSessionReadScoped`).
+  Behavior change: `/new` (`BeginNewSession`) no longer wipes the ledger — it
+  only moves the current-session pointer
+  (`TestBeginNewSessionKeepsGlobalWorkTable`, formerly
+  `TestBeginNewSessionClearsWorkTable`).
+
+- **Auto work-table row IDs are allocated process-wide and never reused.**
+  `task:<n>` came from a per-registry counter and session scope partitions used
+  `task:<len(records)+1>`, so two sessions producing key-less rows received the
+  same ID: the ledger's ID-keyed merge silently dropped one row, and a session
+  switch / disk restore could re-issue an ID that was already occupied — the
+  registry is keyed by ID, so the new row **overwrote** the restored one. The
+  auto-increment source now lives in `seelebridge/task` (`NextAutoID`, shared by
+  the live registry and every session scope partition), `ObserveAutoID` raises
+  the water mark when records are loaded/restored so external numbers are never
+  re-issued, and `nextFreeIDLocked` additionally skips IDs already present
+  (`TaskRegistryState.nextID` is gone). Regression:
+  `seelebridge/worktable_ledger_identity_test.go`
+  (`TestWorkTableLedgerRowIDsUniqueAcrossSessions`,
+  `TestWorkTableLedgerNeverReusesRestoredRowID`) and
+  `seelebridge/task/auto_id_test.go`
+  (`TestRegistryAutoIDsNeverReuseRestoredIDs`).
+
+### Known issues
+
+- Work-table `todo:<n>` row IDs encode an allocator number, not the todolist
+  index, while the GUI three-state write-back parses the number as an index
+  (`parseWorkItemID` → `SetTodoStatus(index)`). The number now comes from the
+  same process-wide counter as `task:` rows, so it is unrelated to the list
+  position: one prior task allocation plus a two-item list yields `todo:2` /
+  `todo:3`, and toggling the first row (`todo:2`) resolves index 2 → out of
+  range. The `application/core` cases go
+  through `fakeRuntime`, whose `todo:<index>` IDs happen to line up, which is why
+  this has not surfaced. Fixing it means addressing the write-back by row ID
+  (auto IDs are now process-unique, so they are addressable) and routing it to
+  the owning session's scope instead of mutating the current session's list.
+  Recorded on 2026-09-19 in
+  `docs/devlog/2026-09-19-worktable-global-scope.md` §7.5; not fixed in this
+  batch (separate surface: GUI contract + fakes).
+
+## [v0.1.0] - 2026-09-18
 
 ### Added
 

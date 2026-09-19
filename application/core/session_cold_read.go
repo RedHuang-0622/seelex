@@ -49,8 +49,14 @@ func (service *Service) snapshotOfCold(sessionID string) (SessionSnapshot, error
 		ReadFiles:          append([]ReadFileRef(nil), record.Execution.ReadFiles...),
 		Resident:           false,
 	}
-	if len(record.Tasks) > 0 {
-		rows := buildWorkTable(snapshot.Runtime.Plan, record.Tasks, nil)
+	// 工作表格是项目/全局台账：冷读面 = 进程全局表 + 本会话持久化的自身
+	// 条目（冷会话未驻留，其条目只在 record 里），合并后投影成同一张表。
+	records := record.Tasks
+	if service.Deps.Runtime != nil {
+		records = mergeTaskRecords(service.Deps.Runtime.TaskSnapshot(), record.Tasks)
+	}
+	if len(records) > 0 {
+		rows := buildWorkTable(snapshot.Runtime.Plan, records, nil)
 		snapshot.Runtime.WorkTable = rows
 		snapshot.Runtime.WorkTableBatches = buildWorkTableBatches(rows)
 	}

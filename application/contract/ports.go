@@ -141,10 +141,14 @@ type RuntimePort interface {
 	// SetTodoStatus 设置待办项三态（pending/doing/done；GUI 工作表格状态
 	// 更新入口；越界/非法状态返回错误）。
 	SetTodoStatus(index int, status dto.TodoItemStatus) error
-	// TaskSnapshot 返回 task 注册表只读快照（worktable 投影数据源）。
+	// TaskSnapshot 返回**项目/全局** task 表只读快照（worktable 投影数据源）：
+	// 实时注册表（当前会话）与各会话 scope 分区合并。工作表格是跨会话台账，
+	// 不随会话切换丢行；自动条目的行 ID 由进程级分配器保证进程内唯一
+	// （同 ID 在台账里是同一行）。
 	TaskSnapshot() []dto.TaskRecord
-	// TaskSnapshotFor 返回指定会话的 task 注册表快照（会话持久化用；
-	// 后台会话收尾不得读活跃注册表，对应 R6/P2）。
+	// TaskSnapshotFor 返回指定会话的 task 注册表快照（**会话级**读面：
+	// 落盘 SessionRecord.Tasks 与请求尾部打点块用；后台会话收尾不得读活跃
+	// 注册表，对应 R6/P2）。
 	TaskSnapshotFor(sessionID string) []dto.TaskRecord
 	// TaskAdd 主动登记 task（幂等：Key 命中返回既有记录）。
 	TaskAdd(spec dto.TaskSpec) (dto.TaskRecord, bool, error)
@@ -170,8 +174,10 @@ type RuntimePort interface {
 	// PlanNodeEventChannel 返回 plan 节点事件 channel（CSP 消费者串行处理；
 	// 取代同步回调）。
 	PlanNodeEventChannel() <-chan dto.PlanNodeEvent
-	// SwitchSessionTasks 会话级 task 隔离：离开当前会话时保存其注册表
-	// 快照，切换后整体替换为目标会话 task（复用 session stack 存储）。
+	// SwitchSessionTasks 会话级 task 隔离：离开当前会话时把其注册表快照
+	// 存入该会话的 scope 分区，切换后整体替换为目标会话 task（复用 session
+	// stack 存储）。它只改变"当前会话"的实时注册表——**工作表格取全局读面**
+	// （TaskSnapshot = 实时注册表 + 全部分区），不随本调用丢行。
 	// sessionID 为空表示进入草稿（无会话归属）。
 	SwitchSessionTasks(sessionID string, records []dto.TaskRecord)
 	// SetSessionWorkspace 记录会话绑定的 workspace ID（framework

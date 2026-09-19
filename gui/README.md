@@ -126,7 +126,9 @@ application 在事件投递端判定，Bridge 不保存 `currentSessionID` 副�
 
 工作表格增量 `worktable.changed` 使用同一 relay（payload 只带表格投影，不整份
 runtime）；`Bridge.UpdateWorkItemStatus(id, status)` 只做参数透传，业务校验在
-application 层（v1 仅支持 `todo:<index>` 的 pending/doing/done）。
+application 层（v1 仅支持 `todo:` 前缀行的 pending/doing/done）。已知问题：
+todo 行 ID 的号不是清单索引，而回写按索引解析它（
+`docs/devlog/2026-09-19-worktable-global-scope.md` §7.5）。
 
 启动配置容错：`Options.StartupWarning` 非空时，窗口就绪（`OnDomReady`）后
 弹出原生错误对话框展示启动期配置警告（如 `accounts.yaml` 解析失败）。警告同时

@@ -479,4 +479,12 @@ plan/subagent 生命周期同步都落到注册表；`syncTasksFromSources`（�
 `worktable.changed`（结构）；retry 计数、B6 子代理装配 task_id、SessionRecord
 快照复用 stack 存储均在此体系内。
 
+工作表格的作用域是**项目/全局**（跨会话台账），不是会话粒度：投影数据源
+`RuntimePort.TaskSnapshot()` 合并实时注册表（当前会话）与各会话 scope 分区，
+切走/新建会话都不丢行。会话级读面 `TaskSnapshotFor(sessionID)` 只服务落盘
+（`SessionRecord.Tasks`）与请求尾部打点块（避免把别的会话的活动任务注入本
+会话上下文）。自动条目 ID（`task:<n>`/`todo:<n>`）由 seelebridge 侧的**进程级**
+分配器给出（`task.NextAutoID`，装载/恢复经 `ObserveAutoID` 抬高水位），进程内
+唯一——同 ID 在注册表里是覆盖、在台账里是丢行。
+
 重点测试：`service_test.go` 覆盖 session/project/storage 用例，`command_registry_test.go` 覆盖输入协议，`race_test.go` 覆盖并发与关闭。

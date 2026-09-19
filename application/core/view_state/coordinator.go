@@ -190,17 +190,11 @@ func (c *Coordinator) CollectRuntimeProjectionFor(ctx context.Context, sessionID
 		DuplicateRejected: metrics.DuplicateRejected, ProviderRequests: metrics.ProviderRequests,
 		ProviderWindowRequests: metrics.ProviderWindowRequests, ProviderWindowLimit: metrics.ProviderWindowLimit,
 	}
-	// 任务表收集口径：视图会话读实时注册表（materialize 后 runtime 的
-	// currentTaskSession 可能尚未切换，For 会取到空分区）；后台会话读自身
-	// 分区快照（TaskAddFor 写自有域）。
+	// 工作表格是**项目/全局**读模型（跨会话台账）：无论视图会话还是后台
+	// 会话，都取全局注册表合并快照（TaskSnapshot）——会话只是条目的产生地，
+	// 不是表格的作用域，切走/新建都不丢行。会话级读面（持久化落盘、请求
+	// 尾部打点块）另走 TaskSnapshotFor，不在这里。
 	projection.Tasks = c.Deps.Runtime.TaskSnapshot()
-	if sessionID != "" && sessionID != c.viewSessionID() {
-		if forTasks, ok := c.Deps.Runtime.(interface {
-			TaskSnapshotFor(string) []dto.TaskRecord
-		}); ok {
-			projection.Tasks = forTasks.TaskSnapshotFor(sessionID)
-		}
-	}
 	return projection
 }
 

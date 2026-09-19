@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	frameworkmcp "github.com/RedHuang-0622/Seele/tools/mcp"
@@ -28,17 +29,66 @@ const mainAgentNodeID = model.MainAgentNodeID
 
 // ── task 端口 ─────────────────────────────────────────────────────
 
-// TaskSnapshot 返回 task 注册表只读快照（worktable 投影数据源）。
+// TaskSnapshot 返回**项目/全局** task 表只读快照（worktable 投影数据源）：
+// 实时注册表（当前会话）与各会话 scope 分区合并，按跨会话身份去重（幂等键
+// 优先，否则行 ID）、稳定排序。自动条目的行 ID（`task:<n>`/`todo:<n>`）由
+// 进程级分配器给出，进程内唯一（见 task.NextAutoID）——同 ID 在台账里是同一
+// 行，重号会丢行。
+//
+// 工作表格是一条**跨会话台账**——会话只是条目的产生地，不是表格的作用域。
+// 切走/新建会话都不应让先前会话的条目从表里消失（用户看的是"这个项目在办
+// 什么"，不是"这个会话在办什么"）。会话级读面（持久化落盘、请求尾部打点
+// 块）走 TaskSnapshotFor，仍按会话取数。
 func (r *Runtime) TaskSnapshot() []dto.TaskRecord {
 	if r == nil || r.tasks == nil {
 		return nil
 	}
-	return r.tasks.Snapshot()
+	return r.taskSnapshotAll()
 }
 
-// TaskSnapshotFor 返回指定会话的 task 注册表快照（会话持久化用）。
-// 后台会话（非当前 task 会话）返回切换时保存的分片快照；当前会话返回
-// 注册表实时快照；空会话 ID 视为当前。
+// taskSnapshotAll 合并实时注册表与所有会话分区（跨会话身份去重：有幂等键
+// 按 Key、否则按 ID；注册表记录优先）。
+func (r *Runtime) taskSnapshotAll() []dto.TaskRecord {
+	r.sessionTaskMu.Lock()
+	defer r.sessionTaskMu.Unlock()
+	records := r.tasks.Snapshot()
+	seen := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		seen[taskLedgerIdentity(record)] = struct{}{}
+	}
+	for _, partition := range r.sessionTaskSnapshots {
+		for _, record := range partition {
+			identity := taskLedgerIdentity(record)
+			if _, exists := seen[identity]; exists {
+				continue
+			}
+			seen[identity] = struct{}{}
+			records = append(records, record)
+		}
+	}
+	sort.SliceStable(records, func(left, right int) bool { return records[left].ID < records[right].ID })
+	return records
+}
+
+// taskLedgerIdentity 是跨会话台账的去重身份：幂等键优先（注册表按 Key 去重，
+// plan/subagent/todo 与 task_add 都有稳定 Key），缺失时才回退行 ID。优先级
+// 不能反过来——同一 plan 节点/子代理/待办文本会在会话切换、恢复、跨进程冷读
+// 时以不同来源出现，Key 才是它们的同一性；而回退行 ID 的自动号现在由进程级
+// 分配器保证唯一（见 task.NextAutoID），不会把两个会话的条目并成一行、也不
+// 会重号丢行（外部分配/跨版本数据仍按 ObserveAutoID 抬高水位）。
+func taskLedgerIdentity(record dto.TaskRecord) string {
+	if record.Key != "" {
+		return "key:" + record.Key
+	}
+	return "id:" + record.ID
+}
+
+// TaskSnapshotFor 返回指定会话的 task 注册表快照（会话级读面：持久化落盘
+// 与请求尾部打点块用）。后台会话（非当前 task 会话）返回切换时保存的分片
+// 快照；当前会话返回注册表实时快照；空会话 ID 视为当前。
+//
+// 注意：工作表格本体取全局读面（TaskSnapshot），不是这里——本方法刻意保持
+// 会话粒度，避免把别的会话的活动任务注入本会话上下文。
 func (r *Runtime) TaskSnapshotFor(sessionID string) []dto.TaskRecord {
 	if r == nil || r.tasks == nil {
 		return nil
@@ -75,6 +125,10 @@ func (r *Runtime) TaskAddFor(sessionID string, spec dto.TaskSpec) (dto.TaskRecor
 }
 
 // addTaskPartition 把 task 写入指定会话的 scope 分区（幂等：Key 命中返回既有记录）。
+//
+// 自动 ID 取**进程级**分配器（见 task.NextAutoID）：分区里"每个会话各自从 1
+// 数"会让两个会话的无显式 ID 条目同号——跨会话台账按行 ID 去重时丢行，前端
+// keyed reconciliation 也只认一行。
 func (r *Runtime) addTaskPartition(sessionID string, spec dto.TaskSpec) (dto.TaskRecord, bool, error) {
 	r.sessionTaskMu.Lock()
 	defer r.sessionTaskMu.Unlock()
@@ -91,7 +145,12 @@ func (r *Runtime) addTaskPartition(sessionID string, spec dto.TaskSpec) (dto.Tas
 	}
 	id := spec.ID
 	if id == "" {
-		id = fmt.Sprintf("task:%d", len(records)+1)
+		id = task.NextAutoID("task")
+		for partitionOccupied(records, id) {
+			id = task.NextAutoID("task")
+		}
+	} else {
+		task.ObserveAutoID(id)
 	}
 	record := dto.TaskRecord{
 		ID: id, Key: spec.Key, Phase: spec.Phase, Task: spec.Task, Description: spec.Description,
@@ -101,6 +160,16 @@ func (r *Runtime) addTaskPartition(sessionID string, spec dto.TaskSpec) (dto.Tas
 	}
 	r.sessionTaskSnapshots[sessionID] = append(records, record)
 	return record, true, nil
+}
+
+// partitionOccupied 判断分区里是否已有同 ID 行（分区行键同样是 ID）。
+func partitionOccupied(records []dto.TaskRecord, id string) bool {
+	for _, record := range records {
+		if record.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveTaskByKey 按幂等键查 task（B6 子代理装配：查重命中 → 绑定既有 id）。
@@ -190,6 +259,9 @@ func (r *Runtime) TaskAppendTrace(id string, point dto.TaskTracePoint) (dto.Task
 // 目标会话分区记录到当前注册表。sessionID 为空 = 进入草稿（无会话归属）。
 // 与旧语义的关键差异：后台会话的 TaskAddFor 分区写不再被切换覆盖（换血
 // 只作用于当前注册表本身，分区是写自有域的权威存储）。
+//
+// 注意：本方法只改变**当前会话**的实时注册表；工作表格走全局读面
+// （TaskSnapshot = 实时注册表 + 全部分区），切走/新建都不丢行。
 func (r *Runtime) SwitchSessionTasks(sessionID string, records []dto.TaskRecord) {
 	if r == nil || r.tasks == nil {
 		return

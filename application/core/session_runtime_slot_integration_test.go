@@ -103,6 +103,8 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 	if got := snapshotB.Runtime.Tokens; got != "13" {
 		t.Fatalf("SnapshotOf(B).Runtime.Tokens = %q, want 13", got)
 	}
+	// 工作表格是项目/全局台账（跨会话）：B 的快照里也应看得到 A 的条目——
+	// 会话隔离收敛在槽位（tokens/replan），不再把表格切碎成会话粒度。
 	foundB, foundA := false, false
 	for _, row := range snapshotB.Runtime.WorkTable {
 		if row.Task == "B 节点" {
@@ -112,8 +114,8 @@ func TestBackgroundRuntimeProjectionLandsInOwnSlot(t *testing.T) {
 			foundA = true
 		}
 	}
-	if !foundB || foundA {
-		t.Fatalf("SnapshotOf(B) worktable = %+v, want plan:nb without plan:na", snapshotB.Runtime.WorkTable)
+	if !foundB || !foundA {
+		t.Fatalf("SnapshotOf(B) worktable = %+v, want global ledger (plan:nb + plan:na)", snapshotB.Runtime.WorkTable)
 	}
 
 	// 活跃快照仍是 A 的投影（B 的后台运行不污染视图 Runtime.Tokens）。

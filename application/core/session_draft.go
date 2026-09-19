@@ -123,8 +123,9 @@ func (service *Service) BeginNewSession() error {
 	revision := service.bumpLocked()
 	service.ViewMu.Unlock()
 	service.publishRuntimeProjections()
-	// 会话级工作台隔离：新会话清空 task 注册表与子代理树，避免旧会话
-	// 数据污染新会话工作台，并发布空工作表格。
+	// 会话切换：换当前会话指针并清空子代理树。工作表格是项目/全局台账
+	// （TaskSnapshot = 注册表 + 全部分区），不在此清空——/new 只切换指针，
+	// 先前会话的条目仍留在表里。
 	service.Deps.Runtime.SwitchSessionTasks(draftID, nil)
 	_ = service.Deps.Runtime.ClearSubagentTree()
 	service.refreshWorkTableFromSources()

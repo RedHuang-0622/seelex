@@ -623,8 +623,16 @@ func TestShutdownDoesNotWaitForBlockedSessionCatalog(t *testing.T) {
 	}
 }
 
-func TestBeginNewSessionClearsWorkTable(t *testing.T) {
+// TestBeginNewSessionKeepsGlobalWorkTable 工作表格是项目/全局台账：/new
+// 进入新会话不把表切碎成会话粒度——先前会话的条目仍留在全局表里（视图
+// 投影与全局读面一致）。
+//
+// 需求变更（工作表格粒度）：旧行为是"新建会话清空 task 注册表与工作表格"
+// （会话级工作台隔离）；按"工作表格内容 = 项目/全局粒度"的要求，/new 只
+// 切换当前会话指针，不清空跨会话台账。
+func TestBeginNewSessionKeepsGlobalWorkTable(t *testing.T) {
 	runtime := &fakeRuntime{}
+	runtime.currentTaskSession = "session-old"
 	runtime.tasks = map[string]dto.TaskRecord{
 		"task:a": {ID: "task:a", Phase: dto.TaskPhaseTask, Task: "a", Status: dto.TaskRunning},
 	}
@@ -636,11 +644,11 @@ func TestBeginNewSessionClearsWorkTable(t *testing.T) {
 	if err := service.BeginNewSession(); err != nil {
 		t.Fatal(err)
 	}
-	if got := runtime.TaskSnapshot(); len(got) != 0 {
-		t.Fatalf("task registry must be cleared on new session: %+v", got)
+	if got := runtime.TaskSnapshot(); len(got) != 1 {
+		t.Fatalf("global work table must keep prior rows on new session: %+v", got)
 	}
-	if got := service.Snapshot().Runtime.WorkTable; len(got) != 0 {
-		t.Fatalf("worktable must be empty on new session: %+v", got)
+	if got := service.Snapshot().Runtime.WorkTable; len(got) != 1 {
+		t.Fatalf("snapshot worktable must show the global ledger on new session: %+v", got)
 	}
 }
 
