@@ -44,10 +44,19 @@ type wireMessage struct {
 	Attempt bool `json:"attempt,omitempty"`
 }
 
+// defaultWireBudgetTokens 是 wire 装配的兜底预算（字符口径）：只在调用方既未
+// 显式给 Budget、又未按配置解析（storageSettings.applyWireBudget）时生效。
+// 生产装配路径（assembleWireWorkspace / assembleRoleWire）恒显式注入解析后的
+// 预算——不再各自硬编码。
+const defaultWireBudgetTokens = 200_000
+
 // wireParams 是 R2 请求参数（budget 为估算字符预算；K 默认 3；Repair 开关
 // 默认开）。
 type wireParams struct {
-	K      int  `json:"k,omitempty"`
+	K int `json:"k,omitempty"`
+	// Budget 是装配阈值 ＝ §5.2 的**软阈值**（WireBudgetTokens × WireSoftRatio）：
+	// 达到即在最近完整协议单元边界停止扩窗并收口，置 need_compact 由压缩路径
+	// 折叠溢出。生产路径由 storageSettings.applyWireBudget 解析后注入。
 	Budget int  `json:"budget,omitempty"`
 	Repair bool `json:"repair,omitempty"`
 }
@@ -57,7 +66,7 @@ func (params wireParams) normalized() wireParams {
 		params.K = 3
 	}
 	if params.Budget <= 0 {
-		params.Budget = 200_000
+		params.Budget = defaultWireBudgetTokens
 	}
 	params.Repair = true
 	return params
@@ -66,7 +75,8 @@ func (params wireParams) normalized() wireParams {
 // wireResult 是 R2 输出。
 type wireResult struct {
 	Messages []wireMessage `json:"messages"`
-	// NeedCompact 表示超预算且已停在完整单元边界（由压缩路径处理）。
+	// NeedCompact 表示越过装配阈值（§5.2 软阈值）且已停在完整单元边界——
+	// 溢出由压缩路径处理。
 	NeedCompact bool `json:"need_compact"`
 	// PrefixDigest 是输出版本摘要（前缀稳定性比较用）。
 	PrefixDigest string `json:"prefix_digest"`

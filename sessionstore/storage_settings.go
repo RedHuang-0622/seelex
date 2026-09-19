@@ -223,3 +223,26 @@ func (settings storageSettings) wireBudget() (int, int, int) {
 	}
 	return budget, int(float64(budget) * softRatio), int(float64(budget) * targetRatio)
 }
+
+// applyWireBudget 把 §5.2 的 wire 装配预算落到一次装配请求，返回装配实际使用的
+// **软阈值**（触发压缩的预算）：
+//   - 调用方给了绝对预算（由账号上下文窗口推导，如 budget.TargetAfterCompaction）
+//     → 按 WireSoftRatio 取软阈值，保持与调用方同轴；
+//   - 未给 → 用配置 (WireBudgetTokens × WireSoftRatio) 的绝对值。
+//
+// 这是 Settings.WireBudgetTokens/WireSoftRatio 在装配链路上的唯一消费点：此前
+// 配置侧已就位（wireBudget() = 200000/150000/120000，仅测试断言），装配侧却硬
+// 编码单一预算、软阈值从未生效——「软阈值触发压缩」因此孤立不可用。
+// WireTargetRatio（裁剪到目标）属压缩路径口径，由调用方以
+// budget.TargetAfterCompaction 消费，不在装配侧重复。
+func (settings storageSettings) applyWireBudget(base wireParams) wireParams {
+	budget, soft, _ := settings.wireBudget()
+	if base.Budget <= 0 {
+		base.Budget = soft
+		return base
+	}
+	if budget > 0 {
+		base.Budget = int(float64(base.Budget) * float64(soft) / float64(budget))
+	}
+	return base
+}

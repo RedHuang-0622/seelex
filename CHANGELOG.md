@@ -14,6 +14,22 @@ version when it lands.
 
 ### Fixed
 
+- **Wire assembly now consumes the §5.2 soft budget, so "the soft threshold
+  triggers compaction" actually fires.** `Settings.WireBudgetTokens` /
+  `WireSoftRatio` / `WireTargetRatio` were resolved by `wireBudget()` but read
+  nowhere outside tests, and the assembler hard-coded a single
+  `Budget = 200_000`: the trigger condition was isolated, so the reader only
+  ever collapsed at 100% of the budget, never at the configured 75% soft
+  threshold. `storageSettings.applyWireBudget` now turns the request's absolute
+  budget into the soft threshold (falling back to the configured value when no
+  budget is given), and `assembleWireWorkspace` / `assembleRoleWire` inject it;
+  the hard-coded default is demoted to a last-resort constant
+  (`defaultWireBudgetTokens`). Behavior change: restored engine history and role
+  wire now stop at `wire_soft_ratio` of the requested budget and set
+  `need_compact`, instead of filling the whole request budget. Regression:
+  `sessionstore/wire_soft_budget_test.go`
+  (`TestApplyWireBudgetDerivesSoftThreshold`, `TestWireAssemblyStopsAtSoftThreshold`).
+
 - **Work table content is a project/global ledger, not session-granular.** The
   work table aggregates `plan` / `todo` / `task` / `subagent` rows across
   sessions: switching (or starting) a session must not drop rows produced in

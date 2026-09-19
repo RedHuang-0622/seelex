@@ -337,12 +337,13 @@ func derivedToolCallMessageID(rowID string, index int) string {
 // ---------- 运行期装配 API（R2 / compact / retention / lifecycle） ----------
 
 // assembleWireWorkspace 对 会话执行 wire 装配（frame 摘要 + tail + 最近 K
-// 条尝试）；非 会话存储布局返回 ok=false（上层回退旧装配）。
+// 条尝试）；非 会话存储布局返回 ok=false（上层回退旧装配）。装配阈值由 §5.2
+// 配置解析为软阈值（settings.applyWireBudget），不再硬编码单一预算。
 func (repository *jsonRepository) assembleWireWorkspace(key Key, budget, k int) ([]types.Message, bool, error) {
 	if err := key.validate(); err != nil {
 		return nil, false, err
 	}
-	params := wireParams{Budget: budget, K: k}
+	params := repository.settings.applyWireBudget(wireParams{Budget: budget, K: k})
 	if repository.active(key) {
 		result, err := repository.layout.assembleWire(key, repository.attempts, params)
 		if err != nil {

@@ -540,7 +540,7 @@ func (store *storeEngine) assembleRoleWire(mainKey Key, roleName, roleSessionID 
 		pending[index].Seq = head.LastSeq + uint64(index) + 1
 	}
 	combined := append(append([]Event(nil), rows...), pending...)
-	result := assembleWireRows(frame, combined, nil, wireParams{Budget: budget, K: k})
+	result := assembleWireRows(frame, combined, nil, store.settings.applyWireBudget(wireParams{Budget: budget, K: k}))
 	snapshot := RoleWireSnapshot{
 		MainSessionID: mainKey.SessionID,
 		RoleName:      roleName,

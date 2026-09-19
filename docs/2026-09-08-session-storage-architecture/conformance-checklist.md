@@ -82,7 +82,7 @@
 | `state.json` 每轮整文件重写 | `[x]` JSON 侧 | S20：`writeCommitLayout` 停写 state；`WriteState` 空操作、`ReadState` 恒 `fs.ErrNotExist`；record/会话枚举按 §2.5.4 由 `message head.Meta` + message 事件行 + `lifecycle.archived_at` 派生（`DerivedRecordWorkspace`/`derivedRecordPayload`），conversation 同源派生；`Title`/`Kind`/子侧血缘/`ReadFiles`/`Continuation`/`Checkpoints` 不再持久化（dev 已接受），展示元数据（pin/alias/order）迁 `project-*/session-meta.json`。未 v8 化后端保留 state 通道 |
 | 队列「出队」的落盘语义（此前稿子未规定） | `[~]` | 实现是整份替换（`lifecycle.go:220`，清空即删文件 `:180`）；v8.3 §2.0 通道类型表把 `queue.jsonl` 归入**整份替换型**并写清「出队 = 新内容不含该项，无需墓碑行、无需戳号闸门」→ 语义收口，实现不动。补 T-STK-14 断言该型文件无半更新中间态 |
 | §5.3 步骤 2「tail 从 frame.message_to 下一行」 | `[x]` | `tailStart = frame.MessageToSeq + 1`（`wire_assembler.go:89`），T-R2-02 |
-| §5.2 budget 默认 200k / 软 75% / 目标 60% | `[ ]` | 配置侧已就位：`Settings.WireBudgetTokens/WireSoftRatio/WireTargetRatio` = 200000/0.75/0.60，`wireBudget()` 返回 200000/150000/120000（T-CFG-01 断言）。**装配侧未消费**：`wire_assembler.go:58` 仍硬编码单一 `Budget = 200_000`（字符口径），无软阈值触发压缩、无裁剪到目标比例 |
+| §5.2 budget 默认 200k / 软 75% / 目标 60% | `[x]` | 配置侧：`Settings.WireBudgetTokens/WireSoftRatio/WireTargetRatio` = 200000/0.75/0.60，`wireBudget()` = 200000/150000/120000（T-CFG-01）。**装配侧已消费**（2026-09-19）：`storageSettings.applyWireBudget` 把绝对预算按 `wire_soft_ratio` 解析为软阈值，`assembleWireWorkspace` / `assembleRoleWire` 注入——装配在软阈值处收口到完整单元并置 `need_compact`（`TestApplyWireBudgetDerivesSoftThreshold` / `TestWireAssemblyStopsAtSoftThreshold`）；`wire_assembler.go` 的硬编码 200_000 降级为仅无配置时的兜底常量 `defaultWireBudgetTokens`。目标比例（裁剪到哪）属压缩路径口径，由调用方以 `budget.TargetAfterCompaction` 消费 |
 
 ## 4. §2 生命周期、EVENT、blob、检索、§9、§11
 
