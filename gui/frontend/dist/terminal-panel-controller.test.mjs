@@ -90,7 +90,7 @@ class FakeElement {
   }
 }
 
-function installFakeGlobals(viewportHeight = 900) {
+function installFakeGlobals(viewportHeight = 900, tokens = {}) {
   const document = {
     documentElement: new FakeElement("html"),
     body: new FakeElement("body"),
@@ -113,8 +113,9 @@ function installFakeGlobals(viewportHeight = 900) {
   };
   globalThis.document = document;
   globalThis.window = window;
-  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
-  return { document, window };
+  // tokens 是"当前皮肤"的语义 token 表：测试改它就是模拟换肤后 token 变化。
+  globalThis.getComputedStyle = () => ({ getPropertyValue: name => tokens[name] ?? "" });
+  return { document, window, tokens };
 }
 
 // ── 假 xterm / 假 fit / 假 Bridge ────────────────────────────────────────
@@ -174,8 +175,8 @@ function createFakeFit(terminal) {
   };
 }
 
-function createHarness({ viewportHeight = 900, deferredOpen = false } = {}) {
-  installFakeGlobals(viewportHeight);
+function createHarness({ viewportHeight = 900, deferredOpen = false, tokens = {} } = {}) {
+  installFakeGlobals(viewportHeight, tokens);
   const host = new FakeElement("section");
   host.rect = { bottom: 900, top: 600, left: 0, width: 800, height: 300 };
   const body = new FakeElement("div");
@@ -224,6 +225,13 @@ function createHarness({ viewportHeight = 900, deferredOpen = false } = {}) {
     viewport: () => globalThis.window.innerHeight,
     createTerminal: () => {
       const terminal = createFakeTerminal();
+      // 与 defaultTerminalFactory 同口径：配色只在创建那一刻从 token 取一次
+      // （xterm 不会因为 CSS 变量变了就自己回溯），所以这里也快照一次。
+      terminal.options.theme = {
+        background: tokens["--code-bg"] ?? "#10161b",
+        foreground: tokens["--text"] ?? "#e9e4d8",
+        cursor: tokens["--accent"] ?? "#d9a657"
+      };
       terminals.push(terminal);
       return terminal;
     },
@@ -245,6 +253,7 @@ function createHarness({ viewportHeight = 900, deferredOpen = false } = {}) {
     calls,
     storage,
     store,
+    tokens,
     terminals,
     pendingOpen,
     invokeCalls: method => calls.filter(call => call.method === method),
@@ -409,6 +418,39 @@ test("restored layout from storage is honoured and clamped", async () => {
   });
   assert.equal(panel.state().open, true);
   assert.equal(panel.state().height, 648);
+});
+
+test("换肤后 refreshTheme 把最新 token 套回已开终端（否则终端留在旧皮肤底色）", async () => {
+  // 当前皮肤：graphite（深色）——终端创建时快照的配色也是深色
+  const harness = createHarness({
+    tokens: { "--code-bg": "#10161b", "--text": "#e9e4d8", "--accent": "#d9a657" }
+  });
+  await harness.panel.newTerminal();
+  await harness.panel.newTerminal();
+  assert.equal(harness.panel.sessionCount(), 2);
+  assert.equal(harness.terminals[0].options.theme.background, "#10161b");
+
+  // 换成银白冷钢：皮肤 <link> 换了、token 变了，但 xterm 配色是创建那刻取的
+  harness.tokens["--code-bg"] = "#e8eaed";
+  harness.tokens["--text"] = "#2b3138";
+  harness.tokens["--accent"] = "#5c6673";
+  assert.equal(
+    harness.terminals[0].options.theme.background,
+    "#10161b",
+    "换肤不会改 xterm 自带配色，必须由 refreshTheme 显式回流"
+  );
+
+  // 回流：已开的两台终端都拿到新皮肤配色
+  assert.equal(harness.panel.refreshTheme(), 2);
+  for (const terminal of harness.terminals) {
+    assert.equal(terminal.options.theme.background, "#e8eaed");
+    assert.equal(terminal.options.theme.foreground, "#2b3138");
+    assert.equal(terminal.options.theme.cursor, "#5c6673");
+  }
+
+  // 已关闭的终端不再参与回流
+  await harness.panel.closeTerminal("term-2");
+  assert.equal(harness.panel.refreshTheme(), 1);
 });
 
 test("bindRuntime subscribes to the dedicated terminal event", () => {

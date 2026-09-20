@@ -71,3 +71,6 @@ PASS  极弱 faint / bg         3.35:1   PASS  status-info / surface  5.59:1
   `:root[data-theme="light"] { color-scheme: light }` 并同时验证两套浅色皮肤。
 - **材质/纹理未做**：银白若想加磨砂/拉丝质感需要图片资源，要走嵌入式资源
   白名单（见 `themes/README.md` 的「之后要做的」），本轮只做纯色 token 皮肤。
+- **换肤回流当时未做**：终端（xterm）的配色只在创建时从 token 取一次，切到
+  浅色皮肤后终端仍是一块深色底——与皮肤包无关，是"JS 取色的消费方"漏了回流。
+  同日补记：[2026-09-20-terminal-theme-refresh.md](2026-09-20-terminal-theme-refresh.md)。

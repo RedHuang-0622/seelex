@@ -78,9 +78,13 @@ export function resolveTheme(manifest, requested, stored) {
 }
 
 // createThemeController 用注入的 document/storage 驱动换肤（便于离线单测）。
-export function createThemeController({ document: doc, storage, manifest }) {
+// onApplied(theme) 是"这套皮肤已生效"的回流口：token 的 JS 消费方（例：终端
+// xterm 的配色）只在创建时取一次 token，CSS 变量变了不会自己重取，需要在
+// 换肤后收到通知再取一次。
+export function createThemeController({ document: doc, storage, manifest, onApplied }) {
   const normalized = normalizeThemeManifest(manifest);
   let current = resolveTheme(normalized, "", readStored());
+  const appliedListeners = typeof onApplied === "function" ? [onApplied] : [];
 
   function readStored() {
     try {
@@ -95,6 +99,19 @@ export function createThemeController({ document: doc, storage, manifest }) {
       storage?.setItem?.(THEME_STORAGE_KEY, id);
     } catch {
       /* 隐私模式/配额异常：皮肤仍然生效，只是记不住 */
+    }
+  }
+
+  // notifyApplied 把「这套皮肤已生效」广播给 token 的 JS 消费方（例：终端 xterm
+  // 的配色只在创建时取一次 token，CSS 变量变了不会自己回溯）。回流方抛错不能
+  // 影响换肤本身，逐个吞掉。
+  function notifyApplied(theme) {
+    for (const listener of appliedListeners) {
+      try {
+        listener(theme);
+      } catch {
+        /* 回流方的问题不阻断换肤 */
+      }
     }
   }
 
@@ -117,6 +134,11 @@ export function createThemeController({ document: doc, storage, manifest }) {
       doc.head.appendChild(link);
     }
     current = theme;
+    // 换肤本身（<html data-theme> + 皮肤 <link>）已落地，通知消费方重取 token：
+    // 外链皮肤是异步资源，先立即兜底一次；<link> load 完成时再回流一次——那时
+    // 读到的 token 才是新皮肤的色值。
+    notifyApplied(theme);
+    if (href && link) link.onload = () => notifyApplied(theme);
     return theme;
   }
 

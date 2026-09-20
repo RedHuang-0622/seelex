@@ -454,6 +454,21 @@ export function createTerminalPanel(options) {
     }
   }
 
+  // refreshTheme 换肤回流：xterm 的配色只在创建那一刻从语义 token 取一次
+  // （见 terminalTheme），皮肤 <link> 换了不会自动回溯——浅色皮肤下终端会
+  // 留在深色底。换肤后由 theme.js 的 onApplied 调这里，把最新 token 套回
+  // 全部活着的终端；返回刷新台数，便于调用方与测试观察。
+  function refreshTheme() {
+    const theme = terminalTheme();
+    let refreshed = 0;
+    for (const session of sessions.values()) {
+      if (!session?.term?.options) continue;
+      session.term.options.theme = theme;
+      refreshed++;
+    }
+    return refreshed;
+  }
+
   function setup() {
     applyLayout();
     renderTabs();
@@ -507,6 +522,8 @@ export function createTerminalPanel(options) {
     closeTerminal,
     closeActive,
     refit,
+    // 换肤回流面（theme.js 换肤后调；见 refreshTheme 注释）
+    refreshTheme,
     // 只读视图（测试/调试）
     state: () => ({ ...state }),
     activeId: () => activeId,

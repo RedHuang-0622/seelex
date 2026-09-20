@@ -67,8 +67,26 @@ token 无关的颜色（那样切肤会漏色）。皮肤包里出现 `.foo { ..
   路径门禁与只读通道（`PathGate`），当前只有随包内置皮肤；
 - 材质/纹理类皮肤需要图片资源，同样要走嵌入式资源白名单。
 
+## 换肤回流（JS 取色的消费方）
+
+换肤本身只做两件事：改 `<html data-theme>` 与皮肤 `<link>` 的 `href`。凡是
+**在 JS 里取一次 token 就缓存下来**的消费方，CSS 变量变了它不会自己重取，必须
+在"皮肤已生效"时再取一次：
+
+- 回流口：`theme.js` 的 `createThemeController({ onApplied })`。外链皮肤在
+  `<link>` `load` 之后回调（`load` 之前读到的仍是旧 token），默认皮肤
+  （`file` 为空）立即回调；
+- 现有消费方：**下栏终端**。xterm 的 `theme` 只在创建时从
+  `--code-bg`/`--text`/`--accent`/… 取色，由 `terminal-panel.js` 的
+  `refreshTheme()` 重取，`app.js` 把它接到 `onApplied`。漏了这一步的现象是：
+  换成浅色皮肤后终端仍是一片深色底；
+- 新增"创建时读 token"的消费方时，同样接到这个回流口，别只在创建时读一次。
+
 ## Review 指南
 
 - 新皮肤是否覆盖了契约里的全部 token（`theme.test.mjs` 有清单校验）；
 - 浅色皮肤是否把半透明面 token 一起换掉（否则弹层/输入建议会漏深色底）；
-- 是否引入远程资源或选择器级 hack。
+- 是否引入远程资源或选择器级 hack；
+- 换肤回流：新皮肤在**已开终端**上是否也生效（xterm 配色靠
+  `terminalPanel.refreshTheme()` 回流，`terminal-panel-controller.test.mjs`
+  与 `theme.test.mjs` 各有一条用例守住）。

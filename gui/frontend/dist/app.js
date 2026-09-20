@@ -2969,7 +2969,15 @@ function renderThemePicker() {
 
 async function initialiseTheme() {
   const manifest = await loadThemeManifest(window.fetch.bind(window));
-  themeController = createThemeController({ document, storage: themeStorage(), manifest });
+  themeController = createThemeController({
+    document,
+    storage: themeStorage(),
+    manifest,
+    // 换肤要回流到 token 的 JS 消费方：xterm 的配色只在创建时取一次 token，
+    // 不跟 CSS 变量走，必须由这里显式通知终端面板重取（否则换浅色皮肤后
+    // 终端仍是深色底）。
+    onApplied: () => terminalPanel.refreshTheme()
+  });
   // 启动时套回上次的皮肤：<html data-theme> 与皮肤 <link> 都由控制器决定。
   themeController.apply(themeController.current()?.id);
   renderThemePicker();

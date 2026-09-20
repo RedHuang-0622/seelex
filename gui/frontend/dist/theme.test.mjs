@@ -89,6 +89,64 @@ test("theme: shipped skins cover the whole token contract", async () => {
   }
 });
 
+test("theme: 皮肤切换后把「已生效」回流给 token 消费方（外链皮肤等 CSS 落地）", () => {
+  const created = [];
+  const byId = new Map();
+  const head = { appendChild(node) { created.push(node); byId.set(node.id, node); } };
+  const doc = {
+    documentElement: { dataset: {} },
+    head,
+    createElement() {
+      return {
+        id: "", rel: "",
+        attrs: {},
+        setAttribute(name, value) { this.attrs[name] = value; },
+        remove() { byId.delete(this.id); }
+      };
+    },
+    getElementById(id) { return byId.get(id) || null; }
+  };
+  const store = new Map();
+  const storage = {
+    getItem(key) { return store.get(key) ?? null; },
+    setItem(key, value) { store.set(key, value); }
+  };
+
+  const applied = [];
+  const controller = createThemeController({
+    document: doc,
+    storage,
+    manifest,
+    onApplied: theme => applied.push(theme.id)
+  });
+
+  // 外链皮肤：换 <link href> 是异步资源，先立即回流一次兜底
+  assert.equal(controller.apply("silver").id, "silver");
+  const link = created[0];
+  assert.equal(link.attrs.href, "themes/silver.css");
+  assert.deepEqual(applied, ["silver"]);
+  // CSS 真正生效那一刻再回流一次：消费方这时读 token 才是新皮肤的色
+  assert.equal(typeof link.onload, "function");
+  applied.length = 0;
+  link.onload();
+  assert.deepEqual(applied, ["silver"]);
+
+  // 默认皮肤：token 就在 styles.css 里，没有外链，立即生效
+  applied.length = 0;
+  assert.equal(controller.apply("graphite").id, "graphite");
+  assert.deepEqual(applied, ["graphite"]);
+
+  // 回流方抛错不能把换肤本身带崩
+  const noisy = createThemeController({
+    document: doc,
+    storage,
+    manifest,
+    onApplied: () => { throw new Error("boom"); }
+  });
+  assert.equal(noisy.apply("paper").id, "paper");
+  assert.equal(doc.documentElement.dataset.theme, "light");
+});
+
 test("theme: controller switches skins, mode and persistence", () => {
   const created = [];
   const byId = new Map();
