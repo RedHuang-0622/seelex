@@ -103,6 +103,10 @@ func (port WorkspacePort) GitLog(root string, limit int) (dto.GitLogResult, erro
 	return port.Repo.GitLog(root, limit)
 }
 
+func (port WorkspacePort) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error) {
+	return port.Repo.GitChanges(root, limit)
+}
+
 // WorkspaceFilePort 实现：转发给 Repo（文件预览读取；root/relPath
 // containment、敏感过滤与上限在 workspace 域内保证）。
 func (port WorkspacePort) ReadFile(root, relPath string, limit int64) (dto.FileContent, error) {

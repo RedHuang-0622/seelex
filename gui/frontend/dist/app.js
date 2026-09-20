@@ -13,6 +13,7 @@ import {
 import { createWorkTableView, countUnread, workTableSignatures } from "./work-table.js";
 import { createWorkTreeView } from "./worktree-view.js";
 import { createGitLogView } from "./git-log-view.js";
+import { createWorkspaceChangesView } from "./workspace-changes.js";
 import { createFilePreviewController } from "./file-preview.js";
 import { renderContextCompactions } from "./context-summary.js";
 import { renderGoalInFlight, renderGoalStack } from "./goal-stack-view.js";
@@ -71,7 +72,7 @@ const elements = Object.fromEntries([
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
-  "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count",
+  "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -198,7 +199,12 @@ function runViewActivation(view) {
     refreshPromptInjection();
     return;
   }
-  if (view === "code") refreshGitLogIfStale();
+  if (view === "code") {
+    // 资源管理器子页有三个数据面：工作树（绑定工作区时已拉）、提交记录与
+    // 工作区更改（后两者按需刷新）。
+    refreshGitLogIfStale();
+    refreshChangesIfStale();
+  }
 }
 
 // applyDockState 是停靠布局的唯一渲染入口：面板归属、激活页、页签条、
@@ -432,6 +438,10 @@ const gitLogView = createGitLogView(elements["git-log-view"], {
       showToast(error);
     }
   }
+});
+// 工作区更改面板：行点击复用同一个文件详情抽屉（已删除的文件不可点）。
+const workspaceChangesView = createWorkspaceChangesView(elements["changes-view"], {
+  onOpenFile: entry => openFilePreview(entry)
 });
 // 文件预览（「资源管理器」子页左抽屉）：工作树文件点击 → 后端读取受控字节
 // （containment/敏感过滤/上限在 workspace 层保证）→ 按类型分派渲染。
@@ -784,11 +794,15 @@ elements.conversation.addEventListener("click", event => {
 const RIGHT_PANE_ORDER_KEY = "seelex.right.codePanes";
 
 // ── 子页3：工作树 / 提交记录 面板顺序（拖拽调换，localStorage 记忆）────
-const CODE_PANES = ["worktree", "gitlog"];
+const CODE_PANES = ["worktree", "gitlog", "changes"];
 // gitLogRoot / gitLogLoadedAt 记录 git log 数据面（工作区切换/chat 结束
 // 后重新拉取；子页未激活时缓存，激活时按需刷新）。
 let gitLogRoot = "";
 let gitLogLoaded = false;
+// changesRoot / changesLoaded 是同一套收敛的工作区更改数据面（同上刷新时机：
+// 绑定工作区拉一次、chat 结束与切换工作区失效）。
+let changesRoot = "";
+let changesLoaded = false;
 
 function storedPaneOrder() {
   const value = localStorage.getItem(RIGHT_PANE_ORDER_KEY);
@@ -923,6 +937,7 @@ async function refreshWorkTree(snapshot, running) {
     view.textContent = "绑定工作区后显示项目文件树";
     elements["file-count"].textContent = "0";
     resetGitLog(snapshot);
+    resetChanges(snapshot);
     return;
   }
   const chatFinished = lastChatRunning && !running;
@@ -946,6 +961,7 @@ async function refreshWorkTree(snapshot, running) {
     showToast(error);
   }
   refreshGitLog(snapshot, chatFinished);
+  refreshChanges(snapshot, chatFinished);
 }
 
 // ── 提交记录树（工作台「代码」子页）────────────────────────
@@ -979,6 +995,50 @@ function resetGitLog(snapshot) {
   gitLogLoaded = false;
   gitLogView.reset();
   elements["git-log-count"].textContent = "0";
+}
+
+// ── 工作区更改（工作台「代码」子页第三个面板）────────────────
+// refreshChanges 惰性加载未提交改动：绑定工作区后拉一次；chat 结束（改动可能
+// 已经变化：提交、还原、生成产物都会改它）或切换工作区时刷新；子页未激活时
+// 数据面缓存，激活时按需刷新。前端不解释 porcelain 语义——状态字母、分类与
+// 统计全部来自后端（Bridge.WorkspaceChanges）。
+async function refreshChanges(snapshot, force = false) {
+  const view = elements["changes-view"];
+  const rootPath = snapshot.current_workspace?.root_path || "";
+  if (!rootPath) {
+    resetChanges(snapshot);
+    return;
+  }
+  if (rootPath === changesRoot && changesLoaded && !force) return;
+  changesRoot = rootPath;
+  changesLoaded = false;
+  elements["changes-count"].textContent = "…";
+  try {
+    const result = await invoke("WorkspaceChanges", 200);
+    workspaceChangesView.renderRoot(result);
+    changesLoaded = true;
+    // badge 用后端的总数（过滤后全部条目）：截断时列表短、数字仍是真的。
+    elements["changes-count"].textContent = String(result.total ?? result.entries?.length ?? 0);
+  } catch (error) {
+    view.classList.add("muted");
+    view.textContent = "工作区更改暂不可用";
+    showToast(error);
+  }
+}
+
+function resetChanges(snapshot) {
+  changesRoot = "";
+  changesLoaded = false;
+  workspaceChangesView.reset();
+  elements["changes-count"].textContent = "0";
+}
+
+// refreshChangesIfStale 子页3激活时按需刷新（数据面未加载或已失效）。
+function refreshChangesIfStale() {
+  const snapshot = client.current();
+  const rootPath = snapshot?.current_workspace?.root_path || "";
+  if (rootPath === changesRoot && changesLoaded) return;
+  refreshChanges(snapshot, true);
 }
 
 // refreshGitLogIfStale 子页3激活时按需刷新（数据面未加载或已失效）。

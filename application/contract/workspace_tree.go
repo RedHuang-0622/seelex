@@ -17,4 +17,10 @@ type WorkspaceTreePort interface {
 	// 超时；非 git 仓库以 Result.Error 描述，不返回 Go error）。拓扑交给
 	// 前端按泳道渲染分叉，不再下发 `git --graph` 的字符画前缀。
 	GitLog(root string, limit int) (dto.GitLogResult, error)
+	// GitChanges 返回 root 内未提交改动（暂存/未暂存/未跟踪/冲突；固定 argv、
+	// 只读 --no-optional-locks、超时；非 git 仓库以 Result.Error 描述，不返回
+	// Go error）。路径以 root 为基准下发（仓库子目录即工作区根时剥掉仓库根
+	// 前缀），敏感文件名与工作区之外的路径不展示并计入 Result.Filtered；
+	// 只含路径与状态字符，绝不含文件内容或 diff。
+	GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error)
 }

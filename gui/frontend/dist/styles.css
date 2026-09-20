@@ -1276,6 +1276,53 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .git-log-error { padding: 6px 8px; border: 1px solid var(--border-failed); border-radius: var(--r-sm); color: var(--status-failed); font-size: 11px; background: var(--tint-failed); }
 .git-log-empty, .git-log-limit { padding: 6px 8px; color: var(--faint); font-size: 11px; }
 
+/* 工作区更改（Work Tree Changes）：统计行 + 一行一处未提交改动（状态字母 /
+   路径 / 重命名原路径 / 暂存标记，数据源 Bridge.WorkspaceChanges）。 */
+.changes-view { display: grid; gap: 0; font-size: var(--text-sm); max-height: 320px; overflow: auto; }
+.changes-summary { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 4px 6px 6px; font: 10px var(--font-mono); }
+.changes-branch { overflow: hidden; color: var(--text-strong); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.changes-counts { overflow: hidden; color: var(--faint); text-overflow: ellipsis; white-space: nowrap; }
+.changes-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+}
+.changes-row:hover { border-color: var(--border); background: var(--surface); }
+.changes-status { width: 12px; color: var(--faint); font: 700 10px var(--font-mono); text-align: center; }
+.changes-row.is-modified .changes-status { color: var(--status-info); }
+.changes-row.is-added .changes-status, .changes-row.is-untracked .changes-status { color: var(--status-done); }
+.changes-row.is-deleted .changes-status, .changes-row.is-conflicted .changes-status { color: var(--status-failed); }
+.changes-row.is-renamed .changes-status, .changes-row.is-copied .changes-status,
+.changes-row.is-type_changed .changes-status { color: var(--accent); }
+.changes-path {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.changes-path:hover { color: var(--accent); }
+.changes-path.is-plain { cursor: default; color: var(--faint); text-decoration: line-through; }
+.changes-dir { color: var(--faint); }
+.changes-old { overflow: hidden; color: var(--faint); font: 10px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.changes-badge { padding: 0 4px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--faint); font: 700 9.5px var(--font-mono); }
+.changes-error { padding: 6px 8px; border: 1px solid var(--border-failed); border-radius: var(--r-sm); color: var(--status-failed); font-size: 11px; background: var(--tint-failed); }
+.changes-empty, .changes-limit { padding: 6px 8px; color: var(--faint); font-size: 11px; }
+
 /* 「目标」面板（工作台子页）：目标文本 / 任务状态 / 激活 skill */
 .goal-view { display: grid; gap: 8px; }
 .goal-text {

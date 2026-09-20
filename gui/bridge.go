@@ -85,6 +85,10 @@ type Application interface {
 	// 记录树数据源；只读元数据，不含 diff/文件内容；非 git 仓库返回
 	// Result.Error）。
 	WorkspaceGitLog(limit int) (dto.GitLogResult, error)
+	// WorkspaceChanges 返回当前工作区未提交改动（工作区更改数据源；只读
+	// 元数据——路径与状态字符，不含 diff/文件内容；非 git 仓库返回
+	// Result.Error）。
+	WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error)
 	// WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（文件预览
 	// 数据源；root 只来自后端当前 workspace，containment/敏感过滤在
 	// workspace 层保证；只读受控字节，不进快照）。
@@ -1258,6 +1262,13 @@ func (bridge *Bridge) WorkspaceFileCount() (dto.TreeCount, error) {
 // 拓扑；只读元数据，不含 diff/文件内容；非 git 仓库返回 Result.Error）。
 func (bridge *Bridge) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
 	return bridge.app.WorkspaceGitLog(limit)
+}
+
+// WorkspaceChanges 转发工作区未提交改动（暂存/未暂存/未跟踪/冲突；只读
+// 元数据——路径与状态字符，不含 diff/文件内容；非 git 仓库返回
+// Result.Error 供面板显示错误态）。
+func (bridge *Bridge) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
+	return bridge.app.WorkspaceChanges(limit)
 }
 
 // WorkspaceFileContent 转发工作树文件预览读取（containment/敏感过滤/上限

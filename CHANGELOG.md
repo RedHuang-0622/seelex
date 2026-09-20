@@ -12,6 +12,40 @@ version when it lands.
 
 ## [Unreleased]
 
+### Added
+
+- **The resource explorer now has a workspace-changes pane, so uncommitted work is
+  visible without leaving the workbench.** The pane lists staged / unstaged /
+  untracked / conflicted entries (status letter, path, rename original path, staged
+  marker, plus a `branch · staged x · unstaged y · untracked z` summary) from
+  `Bridge.WorkspaceChanges`, and it is read-only metadata: no diff, no patch, no file
+  content ever leaves the backend. Backend
+  `workspace.GitChanges(root, limit)` runs a fixed argv
+  (`git --no-optional-locks -C <root> status --porcelain=v1 -b -z -uall -- .`, 8s
+  timeout) — `-z` because the default porcelain output C-escapes non-ASCII paths
+  (`\344\270...`), which the renderer would have to unescape, while `-z` returns them
+  verbatim and emits a rename as "new path NUL old path"; `-- .` because
+  `-C <subdir> status` otherwise reports changes outside the bound workspace. Two
+  differences are settled once in the workspace layer instead of in each consumer:
+  paths are rebased from the **repository root** to the **workspace root**
+  (`rev-parse --show-toplevel`, siblings dropped and counted), and the visibility
+  boundary is the same one ListTree/ReadFile already enforce (sensitive names such as
+  `accounts.yaml` / `*.local.yaml` are hidden and counted in `Result.Filtered`, which
+  the pane states explicitly rather than dropping silently). Directory noise is left to
+  git's own `.gitignore` on purpose — reusing `ignoreDirNames` (`node_modules`/`dist`/…)
+  would also hide genuinely tracked `dist/` changes. `Total` and the four counters
+  cover all post-filter entries including the ones `limit` cut, so the header describes
+  the workspace rather than the rendered rows. The porcelain XY is classified exactly
+  once (`dto.Change*`, staged side wins), and a non-git directory returns
+  `Result.Error` with the git message instead of a Go error.
+  Regression: `workspace/gitchanges_test.go` (15 cases incl. real-git integration:
+  modify/stage/delete/`git mv`/untracked/Chinese names, subdirectory root rebasing,
+  sensitive-name filtering, limit truncation, non-git `Result.Error`),
+  `application/core/workspace_tree_usecase_test.go`,
+  `gui/bridge_test.go`, `gui/frontend/dist/workspace-changes.test.mjs` (7 cases).
+  Recorded on 2026-09-20 in `docs/devlog/2026-09-20-workspace-changes-pane.md`;
+  contract documented in `docs/gui/modules/right-sidebar.md` and `workspace/README.md`.
+
 ### Fixed
 
 - **A provider request can no longer carry a `tool` message that no assistant

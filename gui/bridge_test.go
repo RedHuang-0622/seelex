@@ -59,6 +59,8 @@ type fakeApplication struct {
 	treeErr           error
 	gitLog            dto.GitLogResult
 	gitLimit          int
+	changes           dto.WorkspaceChangesResult
+	changesLimit      int
 	fileContent       dto.FileContent
 	fileRel           string
 	fileLimit         int64
@@ -257,6 +259,11 @@ func (fake *fakeApplication) WorkspaceGitLog(limit int) (dto.GitLogResult, error
 	return fake.gitLog, nil
 }
 
+func (fake *fakeApplication) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
+	fake.changesLimit = limit
+	return fake.changes, nil
+}
+
 func (fake *fakeApplication) WorkspaceFileContent(relPath string, limit int64) (dto.FileContent, error) {
 	fake.fileRel = relPath
 	fake.fileLimit = limit
@@ -450,6 +457,39 @@ func TestBridgeWorkspaceGitLogForwardsLimit(t *testing.T) {
 	}
 	if len(result.Commits) != 1 || result.Commits[0].Subject != "fix: git log" || len(result.Commits[0].Parents) != 1 {
 		t.Fatalf("unexpected git log result: %+v", result.Commits)
+	}
+}
+
+func TestBridgeWorkspaceChangesForwardsLimit(t *testing.T) {
+	t.Parallel()
+	fake := newFakeApplication()
+	fake.changes = dto.WorkspaceChangesResult{
+		Branch: "main",
+		Total:  2,
+		Entries: []dto.WorkspaceChangeEntry{
+			{Path: "src/main.go", Kind: dto.ChangeModified, Status: " M", Index: " ", Worktree: "M"},
+			{Path: "notes.md", Kind: dto.ChangeUntracked, Status: "??", Index: "?", Worktree: "?"},
+		},
+		Unstaged:  1,
+		Untracked: 1,
+	}
+	bridge, err := NewBridge(fake, Options{Title: "Seelex Test", Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := bridge.WorkspaceChanges(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.changesLimit != 50 {
+		t.Fatalf("forwarded limit=%d", fake.changesLimit)
+	}
+	if result.Branch != "main" || result.Total != 2 || len(result.Entries) != 2 {
+		t.Fatalf("unexpected changes result: %+v", result)
+	}
+	if result.Entries[0].Status != " M" || result.Entries[1].Kind != dto.ChangeUntracked {
+		t.Fatalf("unexpected entries: %+v", result.Entries)
 	}
 }
 

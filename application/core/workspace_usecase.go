@@ -215,6 +215,17 @@ func (service *Service) WorkspaceGitLog(limit int) (dto.GitLogResult, error) {
 	return port.GitLog(root, limit)
 }
 
+// WorkspaceChanges 返回当前工作区未提交的改动（GUI 工作区更改面板数据源；
+// 只读元数据——路径与状态字符，不含文件内容或 diff；root 只来自后端当前
+// workspace，路径基准归一化/敏感过滤/上限在 workspace 层保证）。
+func (service *Service) WorkspaceChanges(limit int) (dto.WorkspaceChangesResult, error) {
+	port, root, err := service.workspaceTreePort()
+	if err != nil {
+		return dto.WorkspaceChangesResult{}, err
+	}
+	return port.GitChanges(root, limit)
+}
+
 // WorkspaceFileContent 读取当前工作区某文件的前 limit 字节（GUI 文件预览
 // 数据源；root 只来自后端当前 workspace，containment/敏感过滤/上限在
 // workspace 层保证；limit ≤ 0 用默认上限）。只读受控字节，不落快照。

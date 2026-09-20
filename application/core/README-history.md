@@ -38,6 +38,7 @@
 - `func TestNonRecoverableProviderFailureMarksTaskFailed(t *testing.T)`
 - `func TestIterationRepairsNewlyAddedEmptyToolHistory(t *testing.T)`
 - `func TestServerFailuresAreRecoverableWithoutAutomaticReplay(t *testing.T)`
+- `func TestToolProtocolRejectionsAreHistoryFailures(t *testing.T)` — TestToolProtocolRejectionsAreHistoryFailures 覆盖 2026-09-20 现场那条 400：
 
 ### history_search.go
 

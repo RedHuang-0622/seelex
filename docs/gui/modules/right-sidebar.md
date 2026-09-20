@@ -7,12 +7,12 @@
 跨栏置换（拖到另一栏某页签上松开即与该页签互换位置）。布局与激活是纯 UI
 状态（`localStorage["seelex.dock.v1"]` 记忆），业务事实全部来自 Application
 Snapshot/Event 权威投影；「资源管理器」子页内另有左「文件预览」抽屉 + 右
-「工作树 / 提交记录」两面板（面板可拖拽调换顺序，预览宽度可拖，均
+「工作树 / 提交记录 / 工作区更改」三面板（面板可拖拽调换顺序，预览宽度可拖，均
 localStorage 记忆）。历史检索保留在右栏子页之下的「更多」折叠区。
 
 主要调用方：`app.js` 右侧栏渲染；数据源：`snapshot.runtime`（权威投影）与
 `Bridge.WorkspaceTree` / `Bridge.WorkspaceFileCount` / `Bridge.WorkspaceGitLog` /
-`Bridge.WorkspaceFileContent`（只读元数据/受控读取桥）。
+`Bridge.WorkspaceChanges` / `Bridge.WorkspaceFileContent`（只读元数据/受控读取桥）。
 
 ## 子页划分
 
@@ -20,7 +20,7 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 |---|---|---|
 | **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + 上下文压缩时间线 + **账户栏**（状态一栏之下）+ **Agent Team**（员工栏 / Team 栏两块表格） | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
 | **工作台** | 「目标」面板 + 工作表格入口 + 定时任务面板 | `runtime.goal_skill_active`、`runtime.active_skills`、`task`、`work_table`、`scheduled_tasks` |
-| **代码** | 左：文件预览抽屉（点工作树文件打开）；右：工作树 + 提交记录（可拖拽调换） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog` |
+| **代码** | 左：文件预览抽屉（点工作树或工作区更改的文件行打开）；右：工作树 + 提交记录 + 工作区更改（可拖拽调换） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog`、`Bridge.WorkspaceChanges` |
 
 项目标题（`project-heading`）与「历史检索」折叠区跨子页常驻，不属于任何子页。
 状态子页自上而下：`状态` → `账户` → `Agent Team`。
@@ -72,11 +72,11 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 `application/core/view_state` 收集投影（锁内快照），`runtime.changed` 增量携带，
 不需要额外 Bridge 调用。
 
-## 资源管理器子页：文件预览 + 工作树 + 提交记录树
+## 资源管理器子页：文件预览 + 工作树 + 提交记录树 + 工作区更改
 
 子页 3 内部左右分栏（`.code-split`）：左「内容详情」抽屉（`.file-preview-pane`，
-默认收起、点击文件自动展开），右栏上下排列工作树与提交记录两块面板（顶部有
-拖拽手柄 grip icon）。左抽屉与右栏之间是宽度拖拽分隔条（`--preview-w`，
+默认收起、点击文件自动展开），右栏上下排列工作树、提交记录与工作区更改三块面板
+（顶部有拖拽手柄 grip icon）。左抽屉与右栏之间是宽度拖拽分隔条（`--preview-w`，
 `localStorage["seelex.preview-pane-width"]`，默认 380px）。宽度**无固定上限**：
 只按子页可视宽封顶（`calc(100% - 6px)`，拖动时 JS 与容器宽对齐），内容详情与
 工作树谁宽谁窄完全由拖动决定；左/右主栏同理（`--left-w`/`--right-w` 上界按视口
@@ -118,12 +118,18 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
   diff/文件内容）；分叉由前端算泳道并画 SVG（直线/合并曲线 + 提交点，
   `tree-fork.layoutCommitGraph`），短 hash 可点击复制完整 hash。实现见
   `git-log-view.js`。
+- **工作区更改**：`Bridge.WorkspaceChanges(limit)`（最近 200 条未提交改动：
+  行内是状态字母/路径/重命名原路径/暂存标记，头上是「分支 · 暂存 x · 未暂存 y ·
+  未跟踪 z · 冲突 w」统计；只读元数据，**不含 diff 与文件内容**）。点文件行打开
+  预览（与工作树同一个抽屉）；已删除的文件没有字节可读，行不可点（title 说明）。
+  实现见 `workspace-changes.js`。
 
 ### 拖拽调换
 
-两面板支持 HTML5 drag & drop 调换顺序，顺序持久化到
-`localStorage["seelex.right.codePanes"]`（默认 `["worktree","gitlog"]`）。子页
-激活时按需刷新数据面（工作区切换或 chat 结束产生新提交时重新拉取）。
+三面板支持 HTML5 drag & drop 调换顺序，顺序持久化到
+`localStorage["seelex.right.codePanes"]`（默认 `["worktree","gitlog","changes"]`；
+旧的两项存储因长度不匹配自动落回默认顺序）。子页激活时按需刷新数据面（工作区
+切换或 chat 结束产生新提交/新改动时重新拉取）。
 
 ### 提交记录数据面（后端）
 
@@ -136,6 +142,40 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 error），避免 GUI toast 噪音。limit 默认 20、钳制上限 200。
 接线：`workspace.Repo.GitLog` → `WorkspaceTreePort.GitLog` →
 `application.Service.WorkspaceGitLog` → `Bridge.WorkspaceGitLog`。
+
+### 工作区更改数据面（后端）
+
+`workspace.GitChanges(root, limit)` 在 workspace root 内执行**固定 argv** 的
+`git --no-optional-locks -C <root> status --porcelain=v1 -b -z -uall -- .`
+（不经过 shell、带 8s 超时；`--no-optional-locks` 以只读方式取状态，不刷新索引、
+不抢 index 锁）。用 `-z` 而不是默认输出：NUL 分隔且**不做引号转义**，含空格/中文
+的路径原样返回，重命名是「新路径 NUL 旧路径」两条记录（默认输出会把非 ASCII
+路径写成 `\344\270...` 转义序列，前端还得反解一套 C 风格转义）。`-- .` 把范围钉在
+工作区子树内——只给 `-C 子目录` 时 git 仍会带出仓库里工作区之外的改动。
+
+两处收敛都在 workspace 层做掉，不让展示层各自实现：
+
+1. **路径基准**：git status 的路径以**仓库根**为基准，而面板以**工作区根**为基准
+   （绑定的目录可能是仓库子目录）。这里按 `rev-parse --show-toplevel` 剥掉前缀，
+   工作区之外的兄弟路径直接丢弃并计入 `Result.Filtered`。
+2. **可见性边界**：与 ListTree/ReadFile 一致——路径任一环节命中敏感文件名
+   （`accounts.yaml`、`*.local.yaml`）不展示并计入 `Filtered`（面板显式提示「另有 N
+   条未展示」，不静默）。目录噪音边界交给 git 自己的 `.gitignore`：把
+   `ignoreDirNames`（node_modules/dist/tmp…）也套上去，会连「被仓库跟踪的 dist/
+   改动」一起藏掉，那是误报而不是降噪。
+
+分类与统计只在后端解释一次：porcelain 的 XY → `dto.Change*`（modified/added/
+deleted/renamed/copied/type_changed/conflicted/untracked，暂存侧优先），`Index`/
+`Worktree` 两个单字符与 `Staged` 如实下发。`Total` 与四个计数统计的是**过滤后的
+全部条目**（含被 limit 截断、未出现在 `Entries` 里的部分）——头部说的是工作区状态，
+不是"本屏列了多少行"，列表自身的截断另有 `Truncated` 提示。limit 默认 200、钳制
+上限 1000；解析预算 20000 条（`-uall` 在未收敛的仓库上能一次吐出上百 MB）。非 git
+仓库 / git 不可用时以 `Result.Error` 返回展示文案（不是 Go error），避免 GUI toast
+噪音；空仓库的分支头（`## No commits yet on main`）与分离头指针（`## HEAD (no
+branch)`）都归一化成可展示的分支名。
+
+接线：`workspace.Repo.GitChanges` → `WorkspaceTreePort.GitChanges` →
+`application.Service.WorkspaceChanges` → `Bridge.WorkspaceChanges`。
 
 ## 历史检索
 
@@ -151,6 +191,7 @@ app.js（停靠布局渲染）
   ├── snapshot.runtime.*（状态/工作台子页，权威投影）
   ├── worktree-view.js ──► Bridge.WorkspaceTree / WorkspaceFileCount
   ├── git-log-view.js ──► Bridge.WorkspaceGitLog
+  ├── workspace-changes.js ──► Bridge.WorkspaceChanges
   └── history-search.js ──► Bridge.SearchHistory
 ```
 
@@ -166,10 +207,13 @@ app.js（停靠布局渲染）
 - 会话类页面在主视图之外时，空态/历史按钮/输入框的显隐由
   `syncSessionChrome` 统一收敛，避免隐藏容器渲染把会话专属悬浮件带出来。
 - git log 查询是只读元数据：不得暴露 diff/补丁/文件内容；参数必须固定 argv。
-- 面板渲染文本全部 escape（commits 的 author/subject、错误文案）；分叉只走
-  `tree-fork`（不许再引入字符画连线）。
+- 工作区更改查询同样是只读元数据：不得暴露 diff/补丁/文件内容/blob；参数必须
+  固定 argv，路径一律以**工作区根**为基准下发（仓库子目录即工作区根时要剥前缀），
+  敏感文件名与工作区之外的路径必须过滤并计入 `Filtered`（不许静默丢弃）。
+- 面板渲染文本全部 escape（commits 的 author/subject、改动路径/原路径、错误
+  文案）；分叉只走 `tree-fork`（不许再引入字符画连线）。
 - Agent Team 两栏别混：人员档案进「员工栏」，装配/顺序/调度进「Team 栏」。
-- 工作区切换 / chat 结束时工作树与提交记录都应按需刷新，避免陈旧数据。
+- 工作区切换 / chat 结束时工作树、提交记录与工作区更改都应按需刷新，避免陈旧数据。
 - 子页未激活时数据面缓存、激活时按需拉取，避免无谓请求。
 
 ## 测试
@@ -177,6 +221,7 @@ app.js（停靠布局渲染）
 ```text
 node --test gui/frontend/dist/dock-layout.test.mjs
 node --test gui/frontend/dist/git-log-view.test.mjs
+node --test gui/frontend/dist/workspace-changes.test.mjs
 node --test gui/frontend/dist/tree-fork.test.mjs
 go test ./workspace ./gui ./application/core -count=1
 ```

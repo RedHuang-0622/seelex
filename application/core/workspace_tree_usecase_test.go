@@ -2,7 +2,9 @@ package core
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
@@ -17,6 +19,7 @@ type treeFakeWorkspace struct {
 	listing   dto.TreeListing
 	count     dto.TreeCount
 	gitLog    dto.GitLogResult
+	changes   dto.WorkspaceChangesResult
 	listErr   error
 	countErr  error
 	lastRoot  string
@@ -41,6 +44,12 @@ func (fake *treeFakeWorkspace) GitLog(root string, limit int) (dto.GitLogResult,
 	fake.lastRoot = root
 	fake.lastLimit = limit
 	return fake.gitLog, nil
+}
+
+func (fake *treeFakeWorkspace) GitChanges(root string, limit int) (dto.WorkspaceChangesResult, error) {
+	fake.lastRoot = root
+	fake.lastLimit = limit
+	return fake.changes, nil
 }
 
 func TestWorkspaceTreeForwardsCurrentWorkspaceRoot(t *testing.T) {
@@ -94,6 +103,9 @@ func TestWorkspaceTreeRejectsWithoutBoundWorkspace(t *testing.T) {
 	}
 	if _, err := service.WorkspaceGitLog(20); err == nil {
 		t.Fatal("WorkspaceGitLog succeeded without a workspace")
+	}
+	if _, err := service.WorkspaceChanges(20); err == nil {
+		t.Fatal("WorkspaceChanges succeeded without a workspace")
 	}
 }
 
@@ -199,5 +211,103 @@ func TestWorkspaceTreeUseCaseReadsRealFilesystem(t *testing.T) {
 		if entry.Path == "src" && entry.Count != 2 {
 			t.Fatalf("src count=%d, want 2", entry.Count)
 		}
+	}
+}
+
+func TestWorkspaceChangesForwardsCurrentWorkspaceRoot(t *testing.T) {
+	fake := &treeFakeWorkspace{
+		fakeWorkspace: newFakeWorkspace(),
+		changes: dto.WorkspaceChangesResult{
+			Branch: "main",
+			Total:  1,
+			Entries: []dto.WorkspaceChangeEntry{{
+				Path: "src/main.go", Kind: dto.ChangeModified, Status: " M", Index: " ", Worktree: "M",
+			}},
+			Unstaged: 1,
+		},
+	}
+	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+		deps.Workspace = fake
+	})
+
+	root := t.TempDir()
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.WorkspaceChanges(50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Branch != "main" || result.Total != 1 || len(result.Entries) != 1 {
+		t.Fatalf("unexpected changes result: %+v", result)
+	}
+	if result.Entries[0].Kind != dto.ChangeModified || result.Entries[0].Worktree != "M" {
+		t.Fatalf("unexpected entry: %+v", result.Entries[0])
+	}
+	// root 只由后端给出（客户端不能指定路径），limit 原样转发。
+	if fake.lastRoot != root || fake.lastLimit != 50 {
+		t.Fatalf("forwarded root=%q limit=%d", fake.lastRoot, fake.lastLimit)
+	}
+}
+
+// TestWorkspaceChangesUseCaseReadsRealGitRepo 走真实 workspace.Repo（实现
+// WorkspaceTreePort），验证用例层给出的 root/limit 能被真正执行、并把
+// 未提交改动如实带回（含未跟踪文件与状态字符）。
+func TestWorkspaceChangesUseCaseReadsRealGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available in test environment")
+	}
+	root := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", args...)
+		command.Dir = root
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+		}
+	}
+	runGit("init", "-q", "-b", "main")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test Dev")
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "-A")
+	runGit("commit", "-qm", "first")
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("v2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "fresh.txt"), []byte("n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := adapters.WorkspacePort{Repo: workspace.NewRepo()}
+	service := newTestService(t, &fakeEngine{}, func(deps *Dependencies) {
+		deps.Workspace = repo
+	})
+	if err := service.CreateWorkspace("project", root, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.WorkspaceChanges(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "" {
+		t.Fatalf("changes error payload: %s", result.Error)
+	}
+	if result.Branch != "main" {
+		t.Fatalf("branch = %q, want main", result.Branch)
+	}
+	kinds := map[string]string{}
+	for _, entry := range result.Entries {
+		kinds[entry.Path] = entry.Kind
+	}
+	if kinds["tracked.txt"] != dto.ChangeModified || kinds["fresh.txt"] != dto.ChangeUntracked {
+		t.Fatalf("unexpected entries: %+v", result.Entries)
+	}
+	if result.Unstaged != 1 || result.Untracked != 1 || result.Total != 2 {
+		t.Fatalf("unexpected counts: %+v", result)
 	}
 }

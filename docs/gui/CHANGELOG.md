@@ -27,6 +27,29 @@
 
 ### Added
 
+- **工作区更改面板（资源管理器子页第三块）**：未提交改动此前落在两块面板的夹缝里——
+  工作树是当前磁盘快照（无状态），提交记录是已入库历史，而"我改了什么"两块都不说。
+  新增 `Bridge.WorkspaceChanges(limit)` → `application.Service.WorkspaceChanges` →
+  `WorkspaceTreePort.GitChanges` → `workspace.Repo.GitChanges(root, limit)`，前端新模块
+  `gui/frontend/dist/workspace-changes.js` + `code-pane[data-pane="changes"]`
+  （接进 `CODE_PANES`，与另两块面板同族的拖拽换序/按需刷新）。
+
+  只读元数据边界与另两块一致：状态字符、路径、重命名原路径、计数，**不含 diff、补丁
+  或文件内容**；命令固定 argv、不经过 shell、带 8s 超时、`--no-optional-locks` 不刷新
+  索引；非 git 仓库以 `Result.Error` 返回展示文案。三处容易做歪的地方在后端一次收敛：
+  （1）`-z` 而非默认输出——默认 porcelain 会把中文/空格路径写成 `\344\270...` 转义序列，
+  `-z` 原样返回且重命名是「新路径 NUL 旧路径」两条记录；（2）路径基准——git status 以
+  仓库根为基准，面板以工作区根为基准（绑定目录可能是仓库子目录），按
+  `rev-parse --show-toplevel` 剥前缀，工作区之外的兄弟路径丢弃并计入 `Filtered`；
+  （3）`-- .` 把范围钉在工作区子树内，否则 `-C 子目录` 仍会带出工作区之外的改动。
+  可见性边界与 `ListTree`/`ReadFile` 一致（敏感文件名过滤 + 面板显式提示「另有 N 条未
+  展示」，不静默）；目录噪音刻意交给 git 自己的 `.gitignore`——套用 `ignoreDirNames`
+  会连被跟踪的 `dist/` 改动一起藏掉。`Total` 与四个计数覆盖过滤后的全部条目（含被
+  `limit` 截断的部分），头部说的是工作区状态而不是本屏行数。
+
+  见 `docs/devlog/2026-09-20-workspace-changes-pane.md`；契约写在
+  `docs/gui/modules/right-sidebar.md` §资源管理器与 `workspace/README.md`。
+
 - **细节动效（拟物）**：新增 `gui/frontend/dist/motion.js`（纯规则 + 只读 DOM 应用器），
   把三类"细节"接进真实界面：
   - **数字变更**：计数（工作表格 `N 项` / `N 打点` / 类型·会话·实发计数 / 未读角标）
