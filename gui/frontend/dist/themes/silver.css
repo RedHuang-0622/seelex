@@ -1,0 +1,59 @@
+/* 皮肤包：银白冷钢（light）
+ *
+ * 主要色调：#EEF0F2（银白，主底）→ #C0C2C4（亮银灰，分隔）→ #9AA0A7（钢青灰，
+ * 强分隔/弱文本）；主信号取同族更深一档的钢青 #5C6673，保证按钮/链接在浅底上
+ * 有足够对比。和 paper 一样是浅色实现，必须一并覆盖 5 个半透明面 token
+ * （--surface-blur/--panel-solid/--surface-glass/--overlay/--surface-opaque），
+ * 否则弹层会残留深色底。契约见 themes/README.md：只覆盖 :root token，不写选择器，
+ * 不用 !important。
+ */
+:root {
+  --bg: #eef0f2;
+  --panel: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #e5e7ea;
+  --surface-3: #d8dbdf;
+  --border: #c0c2c4;
+  --border-strong: #9aa0a7;
+
+  --text: #2b3138;
+  --muted: #5d6570;
+  --faint: #7b838e;
+  --text-bright: #14181d;
+  --text-strong: #2b3138;
+  --text-soft: #454c55;
+  --text-mid: #525a64;
+  --text-dim: #5d6570;
+
+  --accent: #5c6673;
+  --accent-strong: #434c58;
+  --on-accent: #ffffff;
+
+  --status-running: #5c6673;
+  --status-done: #3e7a5b;
+  --status-failed: #b4463c;
+  --status-info: #3d6b98;
+  --status-idle: #8a9199;
+
+  --tint-running: rgba(92, 102, 115, .12);
+  --tint-done: rgba(62, 122, 91, .12);
+  --tint-failed: rgba(180, 70, 60, .10);
+  --tint-info: rgba(61, 107, 152, .10);
+  --border-running: rgba(92, 102, 115, .40);
+  --border-done: rgba(62, 122, 91, .40);
+  --border-failed: rgba(180, 70, 60, .40);
+  --border-info: rgba(61, 107, 152, .40);
+
+  --code-bg: #e8eaed;
+  --surface-blur: rgba(238, 240, 242, .94);
+  --panel-solid: rgba(245, 246, 248, .97);
+  --surface-glass: rgba(229, 231, 234, .80);
+  --overlay: rgba(43, 49, 56, .32);
+  --surface-opaque: rgba(255, 255, 255, .99);
+
+  --tick: #c0c2c4;
+  --tick-hot: #5c6673;
+
+  --shadow: 0 10px 26px rgba(43, 49, 56, .14);
+  --shadow-sm: 0 3px 10px rgba(43, 49, 56, .10);
+}

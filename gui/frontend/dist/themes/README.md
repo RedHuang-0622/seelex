@@ -6,6 +6,15 @@
 （`vendor/pico.min.css`）与 Seelex 自有样式（`styles.css`）之上：皮肤包只
 覆盖语义 token，组件结构、交互和可访问性都不随皮肤改变。
 
+## 随包皮肤
+
+| id | 名字 | mode | 定位 |
+|---|---|---|---|
+| `graphite` | 石墨黄铜 | dark | 默认：铁蓝石墨底 + 黄铜主信号（token 在 `styles.css` 的 `:root`） |
+| `verdigris` | 铜绿钢青 | dark | 冷色：铜绿主信号 + 钢青信息色，底子更青 |
+| `paper` | 暖纸白昼 | light | 浅色：暖纸白底 + 墨黑正文，适合白天与投屏 |
+| `silver` | 银白冷钢 | light | 浅色：银白冷灰底（`#EEF0F2`/`#C0C2C4`/`#9AA0A7`）+ 钢青主信号 |
+
 ## 皮肤包契约
 
 一个皮肤包 = 一个 CSS 文件 + `manifest.json` 里的一条登记。

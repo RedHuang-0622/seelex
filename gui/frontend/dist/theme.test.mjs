@@ -56,7 +56,7 @@ test("theme: manifest drops malformed entries and keeps a usable default", () =>
 
 test("theme: shipped manifest points at real skin files", () => {
   assert.equal(manifest.defaultId, "graphite");
-  assert.deepEqual(manifest.themes.map(theme => theme.id), ["graphite", "verdigris", "paper"]);
+  assert.deepEqual(manifest.themes.map(theme => theme.id), ["graphite", "verdigris", "paper", "silver"]);
   for (const theme of manifest.themes) {
     assert.ok(theme.name, `${theme.id} 需要名字`);
     if (!theme.file) continue;

@@ -25,6 +25,14 @@
       "description": "浅色皮肤：暖纸白底 + 墨黑正文，适合白天与投屏",
       "swatches": ["#f4f1ea", "#ffffff", "#b5762a", "#2a2c2e"],
       "file": "themes/paper.css"
+    },
+    {
+      "id": "silver",
+      "name": "银白冷钢",
+      "mode": "light",
+      "description": "浅色皮肤：银白冷灰底 + 钢青主信号，清冷克制",
+      "swatches": ["#eef0f2", "#c0c2c4", "#9aa0a7", "#5c6673"],
+      "file": "themes/silver.css"
     }
   ]
 }
