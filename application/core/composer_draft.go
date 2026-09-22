@@ -47,6 +47,10 @@ func (service *Service) SaveComposerDraft(text string) error {
 		return errors.New("composer draft requires an unmaterialized draft session")
 	}
 	service.ViewMu.Lock()
+	// 第一份未发送正文落盘：把这门草稿会话登记成槽位（目录行的草稿身份判据）。
+	if text != "" {
+		service.registerDraftSlotLocked(sessionID)
+	}
 	if unit := service.sessions.Unit(sessionID); unit != nil {
 		unit.SetComposerText(text, time.Now())
 	}
@@ -110,8 +114,16 @@ func (service *Service) persistComposerDraftIn(projectID, sessionID, text string
 }
 
 // clearComposerDraft 在草稿物化成功后清空 composer（内存 + 落盘）。
-// projectID 为物化时确定的项目（工作区草稿 = 绑定项目；任务草稿 = ""），
-// 保证清理写回同一个 record 键，不跨项目留幽灵草稿。
+// projectID 为物化时确定的项目（工作区草稿 = 绑定项目；任务草稿 = ""）。
+//
+// 落盘按**残留（权威）状态**收敛，而不是按"内存里还有没有正文"：草稿 record
+// 的项目键会随"草稿态改绑工作区"漂移——前端「在该工作区新建会话」在草稿上再
+// BindWorkspace 一次（BeginNewSession 幂等、BindWorkspace 改绑，见
+// gui/frontend/dist/app.js bindWorkspaceAndStart），旧键下那份 Status=draft 的
+// record 不会被消费。物化只清 projectID 就会把它留成幽灵草稿：重启后
+// DraftCandidates 仍把它当草稿候选，restorePersistedDraft 于是把这份**已物化**
+// 会话当草稿槽恢复回页面（草稿正文与已落盘消息混在一页、会话树里反而看不到
+// 既定消息）。因此这里清掉所有仍以 draft 标记该会话的项目键。
 func (service *Service) clearComposerDraft(sessionID, projectID string) {
 	service.ViewMu.Lock()
 	hadText := false
@@ -121,9 +133,45 @@ func (service *Service) clearComposerDraft(sessionID, projectID string) {
 	}
 	service.Core.Snapshot.Session.Composer = ""
 	service.ViewMu.Unlock()
-	if hadText {
-		_ = service.persistComposerDraftIn(projectID, sessionID, "")
+
+	keys := service.draftResidueProjects(sessionID)
+	if hadText && !containsProjectID(keys, projectID) {
+		keys = append(keys, projectID)
 	}
+	for _, key := range keys {
+		_ = service.persistComposerDraftIn(key, sessionID, "")
+	}
+}
+
+// draftResidueProjects 返回磁盘上仍以 Status=draft 标记该会话的项目键
+// （clearComposerDraft 的权威来源）。目录不支持分项目枚举（非
+// SessionGranularPort）时返回 nil：那种端口没有项目维度，清 projectID 即清
+// 该会话的 record。
+func (service *Service) draftResidueProjects(sessionID string) []string {
+	granular, ok := service.Deps.Sessions.(session_runtime.SessionGranularPort)
+	if !ok {
+		return nil
+	}
+	var keys []string
+	for _, projectID := range service.components.sessions.AllProjectIDs() {
+		for _, info := range granular.SessionsOf(projectID) {
+			if info.ID == sessionID && info.Status == SessionStatusDraft {
+				keys = append(keys, projectID)
+				break
+			}
+		}
+	}
+	return keys
+}
+
+// containsProjectID 报告项目键集合里是否已含 key（"" = 默认项目也是合法键）。
+func containsProjectID(keys []string, key string) bool {
+	for _, existing := range keys {
+		if existing == key {
+			return true
+		}
+	}
+	return false
 }
 
 // restorePersistedDraft 在冷启动（引擎未建 bundle）时恢复最近一个持久化的
@@ -186,4 +234,22 @@ func (service *Service) restorePersistedDraft() {
 	service.components.sessions.SetSessionTitleLocked(bestID, record.Title)
 	service.components.tasks.ResetForNewSessionLocked()
 	service.ViewMu.Unlock()
+}
+
+// registerDraftSlotLocked 在"当前视图就是一份尚未物化的草稿会话"时登记草稿
+// 槽位（调用方持有 Core.ViewMu）。
+//
+// 存在理由：目录行的草稿身份只由草稿槽位判定——Snapshot 按槽位补草稿行、草稿
+// 行恒为 draft，其余行按单元运行态叠加（service_snapshot.go）。而"启动即草稿"
+// 的早分配 SID 不建槽位，于是用户在这份草稿里敲了未发送正文、record 也以
+// Status=draft 落盘之后，会话树里那一行仍被叠成 idle：草稿会话在页面上看不见
+// （草稿正文只存在于输入框，页面 context 里没有它的位置）。首个未发送正文落盘
+// 即登记槽位，恰好与 record 的 Status=draft 判据（text 非空才标 draft，见
+// persistComposerDraftIn）一致；已存在的槽位（含持久化草稿恢复的）不覆盖。
+func (service *Service) registerDraftSlotLocked(sessionID string) {
+	if service.draft != nil || sessionID == "" {
+		return
+	}
+	now := time.Now()
+	service.draft = &draftSlot{ID: sessionID, CreatedAt: now, UpdatedAt: now}
 }

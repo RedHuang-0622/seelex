@@ -104,6 +104,15 @@ app.js 在启动时构造：
 
 为什么必须有归属这一条：`composerSubmitPlan` 只认「当前视图会话」。正文要是没跟着视图切，在运行中的 A 里写下的插话（或撤回的 A 的排队消息）就会被当成空闲 B 的内容提交出去——「运行中会话污染了空闲会话的输入框内容提交」；而跨会话延续的脏位又会把 B 自己的草稿回填挡在门外（B 的框里显示的是 A 的字）。顺序也有讲究：先归属、后回填（`render` 里 `syncComposerSession` 在 `restoreComposerDraft` 之前）。
 
+草稿的**生命周期与页面可见性**集中在 `gui/frontend/dist/draft-lifecycle.js`（纯函数 + `draft-lifecycle.test.mjs`，不碰 DOM / Bridge）：
+
+- `draftLifecycleFromSnapshot({sessionID, draft, composer})`：由后端权威快照派生本地草稿状态 `{sessionID, attached, text, phase}`。`attached` = 这份草稿挂在"尚未物化的草稿会话"上（只有这种会话的正文允许落盘，见 `application/core/composer_draft.go` `SaveComposerDraft`）；已物化会话不构成草稿归属。
+- `draftLifecycle(state, event)`：状态迁移的唯一入口。`append`（框内正文变化）→ `submit`（一轮提交，正文被带走，`remaining` 由 `clearSubmittedText` 算好）→ **`materialize`**（一轮完成/物化提交：已发送的正文归消息、未发送的剩余部分仍是草稿）/ **`cancel`**（一轮被取消：正文按未发送保留，不吞字）→ `clear`（权威清空）。在途（`sending`）期间继续敲字不打断轮次，收尾才回到 `unsent`/`idle`。
+- `composerDraftRows({conversation, state})`：会话页要渲染的行 = **既定 message + 本会话当前未发送的草稿行**（末尾一条 `kind: "draft"` / `draft: true` / `unsent: true`）。空草稿不出行；没有草稿归属时不会把别的会话的字留在这里。渲染层用 `kind`/`draft` 区分，不靠文本猜。
+- `draftRoundEvent({wasRunning, isRunning, cancelled})`：一轮结束翻译成收敛事件（完成 → `materialize`，被取消 → `cancel`；`cancelled` 由壳层给出——用户点了停止/取消，壳层知道这次结束不是正常收尾）。
+
+后端侧对应：`clearComposerDraft`（`application/core/composer_draft.go`）在草稿物化成功后清空内存 + 落盘，并按**残留状态**收敛掉所有仍以 `Status=draft` 标记该会话的项目键（草稿态改绑工作区会让旧项目键留下幽灵草稿，重启后 `DraftCandidates` 会把已物化会话当草稿槽恢复回页面）。首份未发送正文落盘时登记草稿槽位，会话树里那一行才是"草稿"（目录行的草稿身份只由槽位判定，否则会被叠成 `idle`）。
+
 ## 6. 指令模式
 
 实现位置：`gui/frontend/dist/app.js:268-354`、`gui/frontend/dist/app.js:425-473`。
