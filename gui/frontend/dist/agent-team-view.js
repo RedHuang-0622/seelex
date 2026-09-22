@@ -827,28 +827,68 @@ function metaRow(team) {
 // 可见消息，ADVISOR 自己的行在这里按角色身份单独列出，避免"两个 agent 都叫
 // AGENT"的歧义。纯渲染，不写任何状态。
 
+// DRAFT_KIND_LABEL 把草稿行的 kind 翻成用户可读的类别（后端 goal_team_recorder
+// 的三条生产者：role_context / tl_directive / round_host，逃生收口是 goal_archive）。
+// 未登记的 kind 原样显示——不猜。
+const DRAFT_KIND_LABEL = {
+  role_context: "本轮上下文",
+  tl_directive: "本轮裁决",
+  round_host: "本轮主持",
+  goal_archive: "收口归档"
+};
+
+function normalizeRoleRow(item) {
+  const row = item && typeof item === "object" ? item : {};
+  return {
+    seq: Number.isInteger(row.seq) ? row.seq : 0,
+    kind: typeof row.kind === "string" ? row.kind : "",
+    role: typeof row.role === "string" ? row.role : "",
+    roleName: typeof row.role_name === "string" ? row.role_name : "",
+    roleSessionID: typeof row.role_session_id === "string" ? row.role_session_id : "",
+    content: typeof row.content === "string" ? row.content : "",
+    reasoning: typeof row.reasoning_content === "string" ? row.reasoning_content : "",
+    toolCalls: Array.isArray(row.tool_calls) ? row.tool_calls.filter(call => call && typeof call === "object") : []
+  };
+}
+
+function isRenderableRoleRow(row) {
+  return Boolean(row.content || row.reasoning || row.toolCalls.length);
+}
+
 function normalizeRoleRows(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map(normalizeRoleRow).filter(isRenderableRoleRow);
+}
+
+// draftIDOf 读草稿的轮次 / 单元号：外层（sequencer 的排序凭据）优先，内层 event
+// 兜底——两边都可能是 0（"还没分配"），0 不代表任何一个回合。
+function draftIDOf(outer, inner) {
+  if (Number.isInteger(outer) && outer > 0) return outer;
+  return Number.isInteger(inner) && inner > 0 ? inner : 0;
+}
+
+// normalizeRoleDrafts 归一化**未同步草稿**（dto.RoleDraftRow）：外层是 sequencer
+// 的排序/幂等凭据，内层 event 才是将来要 append 进 message 的行。
+//
+// 为什么保留 round_id / unit_seq / kind：草稿还没有 message seq（seq 由 sequencer
+// 在同步时分配），所以它们的身份是"第几轮的第几个单元 + 类别"；把它们当普通行按
+// seq 处理会让同一批草稿全部落到 seq 0 上互相覆盖。
+function normalizeRoleDrafts(items) {
   if (!Array.isArray(items)) return [];
   return items.map(item => {
     const row = item && typeof item === "object" ? item : {};
+    const event = row.event && typeof row.event === "object" ? row.event : {};
     return {
-      seq: Number.isInteger(row.seq) ? row.seq : 0,
-      role: typeof row.role === "string" ? row.role : "",
-      roleName: typeof row.role_name === "string" ? row.role_name : "",
-      roleSessionID: typeof row.role_session_id === "string" ? row.role_session_id : "",
-      content: typeof row.content === "string" ? row.content : "",
-      reasoning: typeof row.reasoning_content === "string" ? row.reasoning_content : "",
-      toolCalls: Array.isArray(row.tool_calls) ? row.tool_calls.filter(call => call && typeof call === "object") : []
+      ...normalizeRoleRow(event),
+      roundID: draftIDOf(row.round_id, event.round_id),
+      unitSeq: draftIDOf(row.unit_seq, event.unit_seq)
     };
-  }).filter(row => row.content || row.reasoning || row.toolCalls.length);
+  }).filter(isRenderableRoleRow);
 }
 
 export function normalizeRoleSession(snapshot) {
   const source = snapshot && typeof snapshot === "object" ? snapshot : {};
   const floor = source.floor && typeof source.floor === "object" ? source.floor : {};
-  const draftRows = Array.isArray(source.draft_rows)
-    ? source.draft_rows.map(item => (item && typeof item === "object" ? item.event : null))
-    : [];
   return {
     mainSessionID: typeof source.main_session_id === "string" ? source.main_session_id : "",
     roleName: typeof source.role_name === "string" ? source.role_name : "",
@@ -863,7 +903,7 @@ export function normalizeRoleSession(snapshot) {
     visibleMainRows: Number.isInteger(source.visible_main_rows) ? source.visible_main_rows : 0,
     outsidePrefixMainRows: Number.isInteger(source.outside_prefix_main_rows) ? source.outside_prefix_main_rows : 0,
     roleRows: normalizeRoleRows(source.role_rows),
-    draftRows: normalizeRoleRows(draftRows),
+    draftRows: normalizeRoleDrafts(source.draft_rows),
     unassignedRoleRows: Number.isInteger(source.unassigned_role_rows) ? source.unassigned_role_rows : 0,
     designWarnings: Array.isArray(source.design_warnings) ? source.design_warnings.filter(item => typeof item === "string" && item) : []
   };
@@ -872,7 +912,6 @@ export function normalizeRoleSession(snapshot) {
 export function renderRoleSessionDetail(snapshot) {
   const view = normalizeRoleSession(snapshot);
   const display = roleDisplayName(view.roleName);
-  const rows = view.roleRows.concat(view.draftRows);
   const warnings = view.designWarnings.length
     ? `<div class="team-notice" role="status">${view.designWarnings.map(escapeHtml).join("；")}</div>`
     : "";
@@ -886,17 +925,60 @@ export function renderRoleSessionDetail(snapshot) {
       main ${escapeHtml(shortID(view.mainSessionID) || "—")} · join_seq ${view.joinSeqID} · policy ${escapeHtml(view.orderPolicy || "—")}${view.orderRoles.length ? ` · order ${escapeHtml(view.orderRoles.join(" → "))}` : ""}
     </div>`;
   const record = renderRoleRecordTable(snapshot);
-  if (!rows.length && !record) {
+  // 已发布的 message 行与未同步草稿**各自成区**：草稿是 sequencer 的 WAL，还没成为
+  // 这个角色的 message；混在一起时用户看不出"哪一行还没同步"。
+  const published = view.roleRows.length
+    ? `<div class="role-session-rows">${view.roleRows.map(row => renderPublishedRoleRow(row, display)).join("")}</div>`
+    : "";
+  const drafts = renderRoleDraftBlock(view, display);
+  if (!published && !drafts && !record) {
     return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}
       <div class="role-session-empty muted">该角色还没有独立会话行（未发言或尚未同步）。</div></div>`;
   }
-  const body = rows.map(row => `<article class="role-session-row">
+  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}${record}${published}${drafts}</div>`;
+}
+
+// renderPublishedRoleRow 是**已发布**的角色行（同步进 message 之后的行，有 seq）。
+function renderPublishedRoleRow(row, display) {
+  return `<article class="role-session-row">
       <div class="role-session-row-head"><strong>${escapeHtml(display)}</strong><span class="muted">seq ${row.seq}</span><span class="muted">${escapeHtml(row.role)}</span></div>
       ${row.reasoning ? `<div class="role-session-reasoning muted">${escapeHtml(row.reasoning)}</div>` : ""}
       ${row.content ? `<div class="role-session-text">${escapeHtml(row.content)}</div>` : ""}
       ${row.toolCalls.map(call => `<div class="role-session-tool muted">tool ${escapeHtml(call.name || "?")} ${escapeHtml(call.arguments || "")}</div>`).join("")}
-    </article>`).join("");
-  return `<div class="role-session-detail" data-role-session="${escapeHtml(view.roleName)}">${warnings}${header}${record}<div class="role-session-rows">${body}</div></div>`;
+    </article>`;
+}
+
+// renderRoleDraftBlock 渲染「未同步草稿」独立区：条数徽标 + 每行 is-draft 标记 +
+// 待同步文案 + 轮次/单元/类别（草稿还没有 seq，不能拿 seq 冒充身份）。
+//
+// 生命周期口径：草稿在本轮**完成**时由 sequencer 同步成 message 行（SyncRoleDraft：
+// 发布 head+floor 后删除 draft 文件），本轮**取消/结束**时同理收敛——前端只渲染后端
+// 权威投影，不自己推演"同步后应该长什么样"；草稿区消失的唯一原因是后端
+// snapshot.draft_rows 变空。
+function renderRoleDraftBlock(view, display) {
+  if (!view.draftRows.length) return "";
+  const items = view.draftRows.map((row, index) => {
+    const kind = DRAFT_KIND_LABEL[row.kind] || row.kind || "草稿";
+    return `<article class="role-session-row is-draft" data-draft-index="${index + 1}" data-draft-kind="${escapeHtml(row.kind)}" data-draft-round="${row.roundID}" data-draft-unit="${row.unitSeq}" title="未同步草稿：本轮结束（完成或取消）同步后才写进 message">
+      <div class="role-session-row-head"><strong>${escapeHtml(display)}</strong><span class="muted">${escapeHtml(draftRowMeta(row))}</span><span class="chip is-draft">待同步</span><span class="muted">${escapeHtml(kind)}</span><span class="muted">${escapeHtml(row.role)}</span></div>
+      ${row.reasoning ? `<div class="role-session-reasoning muted">${escapeHtml(row.reasoning)}</div>` : ""}
+      ${row.content ? `<div class="role-session-text">${escapeHtml(row.content)}</div>` : ""}
+      ${row.toolCalls.map(call => `<div class="role-session-tool muted">tool ${escapeHtml(call.name || "?")} ${escapeHtml(call.arguments || "")}</div>`).join("")}
+    </article>`;
+  }).join("");
+  return `<div class="team-block role-session-drafts" data-role-drafts="${view.draftRows.length}">
+    <div class="section-title sub-title"><span>未同步草稿</span><span class="badge">${view.draftRows.length}</span></div>
+    <div class="role-session-meta muted">本轮还没结束（或上一次同步没成功）：这些行还在 draft 里，同步成功后才出现在上面的 message 行中。</div>
+    <div class="role-session-rows">${items}</div>
+  </div>`;
+}
+
+// draftRowMeta 是草稿行的身份串：轮次 + 单元（后端 sequencer 的排序键）。
+function draftRowMeta(row) {
+  const parts = [];
+  if (row.roundID > 0) parts.push(`round ${row.roundID}`);
+  if (row.unitSeq > 0) parts.push(`unit ${row.unitSeq}`);
+  return parts.length ? parts.join(" · ") : "未分配回合号";
 }
 
 // renderRoleRecordTable 用**一张专用表格**表达该 teammate 自己那份 team work 记录：
@@ -904,27 +986,37 @@ export function renderRoleSessionDetail(snapshot) {
 //
 //   main 车道 = 主会话自己的回合（整段）；
 //   自身车道 = 它入伙之后的共享回合（seq > prefix_cut_seq，标成 is-shared）
-//              + 它自己的行与未同步 draft（标成 is-own）；
+//              + 它自己的行（标成 is-own）；
 //              入伙之前（或已被压缩掉）的列渲染成占位 —（is-outside），
 //              **不冒充它记得的上下文**。
+//
+// 未同步草稿单独排在右端「草稿N」列（自身的车道里，标成 is-own is-draft）：
+// 草稿还没有发布 seq（seq 由 sequencer 在同步时分配），所以它不能占一个 seq 列——
+// 早先的实现把草稿并进按 seq 索引的车道，同一批草稿（seq 全是 0）只剩最后一条，
+// 前面的行被静默吞掉。
 //
 // 切点来自后端只读投影（prefix_cut_seq，判据与角色 wire 装配一致：join_seq_id，
 // compact 后取更大的 applied_seq；main 复用主会话本身、切点恒为 0）。前端只渲染，
 // 没有任何回写口——把渲染结果推回去会让后端真值变成前端派生物。
 export function renderRoleRecordTable(snapshot) {
   const view = normalizeRoleSession(snapshot);
-  const ownRows = view.roleRows.concat(view.draftRows);
-  if (!view.mainRows.length && !ownRows.length) return "";
+  const ownRows = view.roleRows;
+  const draftRows = view.draftRows;
+  if (!view.mainRows.length && !ownRows.length && !draftRows.length) return "";
   const display = roleDisplayName(view.roleName);
   const cut = view.prefixCutSeq;
   const mainBySeq = new Map(view.mainRows.map(row => [seqOf(row), row]));
   const ownBySeq = new Map(ownRows.map(row => [seqOf(row), row]));
   const seqs = [...new Set([...mainBySeq.keys(), ...ownBySeq.keys()])].sort((a, b) => a - b);
-  const head = seqs.map(seq => `<th>${seq}</th>`).join("");
+  const draftHead = draftRows
+    .map((_, index) => `<th class="role-record-draft-head" title="未同步草稿：同步后才分配 seq">草稿${index + 1}</th>`)
+    .join("");
+  const head = seqs.map(seq => `<th>${seq}</th>`).join("") + draftHead;
+  const mainDraftCells = draftRows.map((_, index) => `<td class="role-record-cell is-empty" data-draft="${index + 1}">·</td>`).join("");
   const mainCells = seqs.map(seq => mainBySeq.has(seq)
     ? `<td class="role-record-cell is-main" data-seq="${seq}" title="主会话自己的回合">${escapeHtml(recordCellText(mainBySeq.get(seq)))}</td>`
-    : `<td class="role-record-cell is-empty" data-seq="${seq}">·</td>`).join("");
-  const ownCells = seqs.map(seq => {
+    : `<td class="role-record-cell is-empty" data-seq="${seq}">·</td>`).join("") + mainDraftCells;
+  const ownSeqCells = seqs.map(seq => {
     if (ownBySeq.has(seq)) {
       return `<td class="role-record-cell is-own" data-seq="${seq}" title="${escapeHtml(display)} 自己的回合">${escapeHtml(recordCellText(ownBySeq.get(seq)))}</td>`;
     }
@@ -934,11 +1026,18 @@ export function renderRoleRecordTable(snapshot) {
     }
     return `<td class="role-record-cell is-shared" data-seq="${seq}" title="共享上下文（它能看到的 main 回合）">${escapeHtml(recordCellText(mainBySeq.get(seq)))}</td>`;
   }).join("");
+  const ownDraftCells = draftRows.map((row, index) =>
+    `<td class="role-record-cell is-own is-draft" data-draft="${index + 1}" title="未同步草稿：本轮结束（完成或取消）同步后才写进 message">${escapeHtml(recordCellText(row))}</td>`
+  ).join("");
+  const ownCells = ownSeqCells + ownDraftCells;
   const legend = cut > 0
     ? `前缀匹配自 seq ${cut + 1} 起：更早的 ${view.outsidePrefixMainRows} 行不在它的记录里（占位 —）`
     : "该会话整段都在它的记录里";
-  return `<div class="role-record" data-record-cut="${cut}" data-record-outside="${view.outsidePrefixMainRows}" data-record-visible="${view.visibleMainRows}" data-record-own="${ownRows.length}">
-      <div class="role-record-legend muted">${escapeHtml(legend)}</div>
+  const draftNote = draftRows.length
+    ? `；右侧 ${draftRows.length} 个「草稿N」格是未同步草稿，同步后才成为 message 行（还没有 seq）`
+    : "";
+  return `<div class="role-record" data-record-cut="${cut}" data-record-outside="${view.outsidePrefixMainRows}" data-record-visible="${view.visibleMainRows}" data-record-own="${ownRows.length}" data-record-draft="${draftRows.length}">
+      <div class="role-record-legend muted">${escapeHtml(legend + draftNote)}</div>
       <table class="excel-grid role-record-table" data-role-record-table>
         <thead><tr class="excel-head-row"><th class="role-record-lane-head">车道</th>${head}</tr></thead>
         <tbody>

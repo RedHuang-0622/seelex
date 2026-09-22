@@ -284,6 +284,9 @@ test("role session detail renders the agent identity, meta and its own rows", ()
   assert.match(html, /join_seq 7/);
   assert.match(html, /verdict: not_done/);
   assert.match(html, /draft row/);
+  // 未同步草稿不再混进已发布行：它带 is-draft 标记与待同步文案（独立成区）。
+  assert.match(html, /class="role-session-row is-draft"[^>]*data-draft-kind=""/);
+  assert.match(html, /class="chip is-draft">待同步</);
 });
 
 test("role session detail escapes content and tolerates an empty session", () => {
@@ -375,6 +378,97 @@ test("role names, notices and prompts are escaped, never interpolated raw", () =
   }), { roleName: "x", roleKind: "agent", systemPrompt: "</textarea><script>alert(1)</script>", toolsPolicy: "" });
   assert.doesNotMatch(promptPanel, /<script>/);
   assert.match(promptPanel, /&lt;\/textarea&gt;&lt;script&gt;/);
+});
+
+// ── 未同步草稿（生命周期：本轮结束才同步）──────────────────────
+//
+// 形状取自后端真实生产者：application/core/goal_team_recorder.go:RecordTLRound
+// 一次 AppendRoleDraft 落两行（role_context 上下文 + tl_directive 裁决），
+// sessionstore/role_session.go:readRoleSnapshot 把它们投影成 draft_rows。
+// 关键：草稿行**还没有发布 seq**（seq 由 sequencer 在 sync 时分配），它的身份是
+// round_id / role_name / unit_seq / kind——所以表格列不能拿 seq 当键。
+function unsyncedDraftSnapshot() {
+  return {
+    main_session_id: "main-1",
+    role_name: "tl",
+    role_session_id: "goal-a2a-tl",
+    join_seq_id: 7,
+    role_rows: [{ seq: 8, role: "assistant", content: "已发布的裁决" }],
+    draft_rows: [
+      {
+        role_name: "tl", role_session_id: "goal-a2a-tl", unit_seq: 1,
+        event: {
+          kind: "role_context", role: "system", content: "本轮送给 ADVISOR 的原文",
+          role_name: "tl", role_session_id: "goal-a2a-tl", unit_seq: 1
+        }
+      },
+      {
+        role_name: "tl", role_session_id: "goal-a2a-tl", unit_seq: 2,
+        event: {
+          kind: "tl_directive", role: "assistant", content: "本轮裁决原文",
+          role_name: "tl", role_session_id: "goal-a2a-tl", unit_seq: 2
+        }
+      }
+    ]
+  };
+}
+
+test("unsynced role drafts get their own region with a count badge and pending wording", () => {
+  const html = renderRoleSessionDetail(unsyncedDraftSnapshot());
+  // 草稿独立成区：带条数徽标与「待同步」口径，不混进已发布行区域。
+  assert.match(html, /class="team-block role-session-drafts" data-role-drafts="2"/);
+  assert.match(html, /未同步草稿<\/span><span class="badge">2<\/span>/);
+  assert.match(html, /待同步/);
+  // 每条草稿一行，is-draft + 索引 + 类别可区分（草稿还没有 seq）。
+  assert.equal((html.match(/class="role-session-row is-draft"/g) || []).length, 2);
+  assert.match(html, /data-draft-index="1"[^>]*data-draft-kind="role_context"/);
+  assert.match(html, /data-draft-index="2"[^>]*data-draft-kind="tl_directive"/);
+  assert.match(html, /本轮送给 ADVISOR 的原文/);
+  assert.match(html, /本轮裁决原文/);
+  // 既定的 message 行仍是普通行：is-draft 只出现在草稿行上。
+  assert.match(html, /<article class="role-session-row">/);
+  assert.equal((html.match(/role-session-row is-draft/g) || []).length, 2);
+});
+
+test("role record table keeps draft cells but marks them is-draft, never as seq 0", () => {
+  const html = renderRoleSessionDetail(unsyncedDraftSnapshot());
+  // 列头：已发布回合用 seq，草稿列用「草稿N」——草稿没有 seq，不能冒充第 0 回合。
+  assert.match(html, /<th[^>]*>草稿1<\/th>/);
+  assert.match(html, /<th[^>]*>草稿2<\/th>/);
+  assert.doesNotMatch(html, /data-seq="0"/);
+  assert.match(html, /data-record-own="1"/);
+  assert.match(html, /data-record-draft="2"/);
+  // 两条草稿各自一格，不因 seq 相同互相吞掉（旧实现按 seq 建 map → 只剩最后一条）。
+  assert.equal((html.match(/class="role-record-cell is-own is-draft"/g) || []).length, 2);
+  assert.match(html, /class="role-record-cell is-own is-draft" data-draft="1"[^>]*title="[^"]*未同步草稿[^"]*"[^>]*>本轮送给 ADVISOR 的原文</);
+  assert.match(html, /class="role-record-cell is-own is-draft" data-draft="2"[^>]*>本轮裁决原文</);
+  // main 车道在草稿列只是空位，不冒充它记得的上下文。
+  assert.match(html, /class="role-record-cell is-empty" data-draft="1">·</);
+});
+
+test("draft content, kind and identity are escaped like any other row", () => {
+  const html = renderRoleSessionDetail({
+    role_name: "tl",
+    draft_rows: [{
+      role_name: "<b>tl</b>", unit_seq: 1,
+      event: { kind: "<svg onload=alert(1)>", role: "system", content: "<img src=x onerror=alert(1)>" }
+    }]
+  });
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.doesNotMatch(html, /<svg onload/);
+  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.match(html, /&lt;svg onload=alert\(1\)&gt;/);
+});
+
+test("a synced round leaves no draft region (本轮完成后草稿收敛)", () => {
+  const html = renderRoleSessionDetail({
+    role_name: "tl",
+    role_rows: [{ seq: 8, role: "assistant", content: "已发布的裁决" }],
+    draft_rows: []
+  });
+  assert.doesNotMatch(html, /role-session-drafts/);
+  assert.doesNotMatch(html, /is-draft/);
+  assert.match(html, /class="role-record-cell is-own" data-seq="8"[^>]*>已发布的裁决</);
 });
 
 // ── 归一化 ────────────────────────────────────────────────────
