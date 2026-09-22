@@ -43,6 +43,13 @@ type sessionRuntimeState struct {
 	// （无锁化：单 goroutine 持有 inFlight 状态，channel 命令；取代原
 	// 进程级单把 mutex，见 transition_actor.go / transition_manager.go）。
 	transition *SessionTransitionManager
+	// writers 是"会话落盘单写者"注册表（与 transition 同一 per-key actor
+	// 机制、独立实例）：key = 会话 ID，临界区 = 一次会话落盘（快照/record
+	// 写入）。作用有两点：一是把 8 个写点收口成同一条 per-session 串行链
+	// （逐步 append/发布的单写者前提：并发写会互相 reap 掉未发布草稿尾）；
+	// 二是长落盘只排队其它写点，不阻塞读侧（读路径不取这把锁）。
+	// 锁序固定 transition → writers；落盘临界区内不再取过渡锁。
+	writers *SessionTransitionManager
 	// catalogMu 保护会话目录 worker 的三类内存态：目录缓存（最近一轮枚举
 	// 结果——按 projectID 分格）、会话标题表与刷新回执队列。G5：目录枚举/
 	// 标题恢复走外部 SessionPort/WorkspacePort（阻塞 I/O），一律在锁外完成；
@@ -109,6 +116,7 @@ func NewCoordinator(deps Deps) *Coordinator {
 		displayUserInput:     deps.DisplayUserInput,
 		sessionRuntimeState: sessionRuntimeState{
 			transition:          NewSessionTransitionManager(),
+			writers:             NewSessionTransitionManager(),
 			catalogGrid:         make(map[string][]model.SessionInfo),
 			catalogWorkspaces:   make(map[string]string),
 			catalogTitles:       make(map[string]model.SessionTitle),
@@ -262,6 +270,28 @@ func (c *Coordinator) TransitionLock(key string) sync.Locker {
 	return c.transition.Lock(key)
 }
 
+// SessionWriterLock 返回指定会话的"落盘单写者"（per-session actor：同会话
+// FIFO、跨会话并行；Close 后为空操作）。写点必须整段包住自己的落盘临界区；
+// 读路径不得取它（C2：长落盘不阻塞读）。
+func (c *Coordinator) SessionWriterLock(sessionID string) sync.Locker {
+	return c.writers.Lock(sessionID)
+}
+
+// RunSessionWrite 在"会话落盘单写者"内执行一次会话落盘——**所有写点的唯一
+// 入口**：7 处 PersistCurrentSession 内部走它，fork 首次落盘子会话在调用点
+// 显式包住自己的快照写。
+//
+// 契约（违反即死锁/串行性破坏）：
+//   - write 内不得重入 RunSessionWrite 的同一 sessionID（自等）；
+//   - write 内不得取该会话的过渡锁（锁序固定 transition → writers）；
+//   - write 只做落盘：读路径与目录枚举不得借它串行化。
+func (c *Coordinator) RunSessionWrite(sessionID string, write func() error) error {
+	lock := c.SessionWriterLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	return write()
+}
+
 // BindView 注入 Snapshot revision bump 端口（装配根在 view 构造完成后调用；
 // StartCatalogRefresh 之前必须绑定）。
 func (c *Coordinator) BindView(view ViewPort) {
@@ -390,6 +420,9 @@ func (c *Coordinator) StopCatalogRefresh() {
 		// 切换互斥 actor 一并收尾（契约：调用方保证无活跃持有者；
 		// Shutdown 已取消运行中会话并等待收敛）。
 		c.transition.Close()
+		// 落盘单写者一并收尾（同一契约）：关闭后退化为空操作，退出路径上
+		// 仍在排队的写点不会因等锁卡死。
+		c.writers.Close()
 	})
 }
 

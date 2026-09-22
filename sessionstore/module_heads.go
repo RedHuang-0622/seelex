@@ -318,65 +318,158 @@ func (store *storeEngine) publishModuleHead(key Key, mod storageModule, commitID
 	return commitID, nil
 }
 
-// readModuleHeadFile 读取模块 head（缺失返回 fs.ErrNotExist）。reader
-// 校验 schema/session/module 与 checksum；一次不匹配（例如 writer 正在原子
-// 替换、读到旧文件）则重读一次（guide 自愈读语义，I9）。
+// readModuleHeadFile 读模块 head（缺失返回 fs.ErrNotExist）——自愈读的
+// **无锁入口**，供不持该模块锁的调用方使用。
+//
+// 快路径零锁：一次读成功即返回（绝大多数调用不取任何锁）。reader 校验
+// schema/session/module 与 checksum；一次不匹配（例如 writer 正在原子替换、
+// 读到旧文件）则重读一次（guide 自愈读语义，I9）。两次都失败才走重建慢路径，
+// 而重建发布**必须持该模块锁**——否则会覆盖并发 writer 刚发布的 head（丢
+// 更新），或把「append 完成但 head 未发布」的行提升为已提交（D2）。
+//
+// 取不到锁时不抢锁、不发布，只重读一次后上报原始错误。TryLock 语义使本入口
+// 在任何调用栈下都不会自锁死；代价是锁被他人持有时退化为有界失败（持锁的
+// writer 发布后 head 即自愈，下一次读即可成功）。
 func (store *storeEngine) readModuleHeadFile(key Key, module storageModule) (moduleHeadFile, error) {
-	path := store.modulePath(key, module)
-	read := func() (moduleHeadFile, error) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return moduleHeadFile{}, err
-		}
-		var head moduleHeadFile
-		if err := json.Unmarshal(data, &head); err != nil {
-			return moduleHeadFile{}, fmt.Errorf("session storage: decode %s head %q: %w", module, path, err)
-		}
-		if head.SchemaVersion != schemaVersion {
-			return moduleHeadFile{}, fmt.Errorf("session storage: %s head schema=%d want %d", module, head.SchemaVersion, schemaVersion)
-		}
-		if head.SessionID != key.SessionID {
-			return moduleHeadFile{}, fmt.Errorf("session storage: %s head session %q != %q", module, head.SessionID, key.SessionID)
-		}
-		if head.ModuleID != module {
-			return moduleHeadFile{}, fmt.Errorf("session storage: head module %q != %q", head.ModuleID, module)
-		}
-		want, err := headChecksum(head)
-		if err != nil {
-			return moduleHeadFile{}, err
-		}
-		if head.Checksum != "" && want != head.Checksum {
-			return moduleHeadFile{}, fmt.Errorf("session storage: %s head checksum mismatch", module)
-		}
-		return head, nil
-	}
-	head, err := read()
+	return store.readModuleHeadFileHeal(key, module, false)
+}
+
+// readModuleHeadFileLocked 是自愈读的**持锁入口**：调用方必须已持该模块锁
+// （与本包既有 *Locked 命名同口径）。不取锁（否则自锁死），直接在锁内重建
+// 发布——持锁的提交路径用它，head 损坏时才在原地自愈而不是把错误上抛。
+func (store *storeEngine) readModuleHeadFileLocked(key Key, module storageModule) (moduleHeadFile, error) {
+	return store.readModuleHeadFileHeal(key, module, true)
+}
+
+// readModuleHeadFileHeal 是两条自愈读入口的共享实现；lockHeld 表示调用方已持
+// 该模块锁（true 时不得再取锁）。
+func (store *storeEngine) readModuleHeadFileHeal(key Key, module storageModule, lockHeld bool) (moduleHeadFile, error) {
+	head, err := store.readModuleHeadFileRaw(key, module)
 	if err == nil || errors.Is(err, fs.ErrNotExist) {
 		return head, err
 	}
-	// 自愈读：先重读一次；仍失败才上报（校验失败可能来自并发替换的瞬时态）。
+	// 自愈读：先重读一次；仍失败才重建（校验失败可能来自并发替换的瞬时态）。
 	if hook := readSelfHealHook; hook != nil {
 		hook()
 	}
-	head, retryErr := read()
-	if retryErr != nil {
-		// §2.0 规则 3 / S15：第二次仍不匹配 → 按数据文件重建该模块 head
-		// （修补），不返回旧值也不判损坏。message/event/compact/stack_* 有
-		// 完整数据文件可重建；其余模块（lifecycle 自带 lc-repair、
-		// retention/subagent/media 无独立数据文件）保留原错误。
-		if repairErr := store.repairModuleHeadFromData(key, module); repairErr != nil {
-			return moduleHeadFile{}, err
-		}
-		head, retryErr = read()
-		if retryErr != nil {
-			return moduleHeadFile{}, err
-		}
+	head, retryErr := store.readModuleHeadFileRaw(key, module)
+	if retryErr == nil || errors.Is(retryErr, fs.ErrNotExist) {
+		return head, retryErr
+	}
+	if lockHeld {
+		return store.repairModuleHeadLocked(key, module, err)
+	}
+	lock := store.mu(key, module)
+	if !lock.TryLock() {
+		// 锁不在本调用栈可用：另一 writer 正持锁发布（其发布即自愈），或本
+		// 调用栈其实已持锁（该走 Locked 入口）。两种情况都只重读，绝不发布。
+		return store.retryRawHeadOrCause(key, module, err)
+	}
+	defer lock.Unlock()
+	if head, ok := store.retryHeadAfterLock(key, module); ok {
 		return head, nil
+	}
+	return store.repairModuleHeadLocked(key, module, err)
+}
+
+// retryRawHeadOrCause 在模块锁不可得时重读一次：成功即返回，仍失败上报原始
+// 校验错误（有界失败，优于在锁外发布）。
+func (store *storeEngine) retryRawHeadOrCause(key Key, module storageModule, cause error) (moduleHeadFile, error) {
+	head, err := store.readModuleHeadFileRaw(key, module)
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return head, err
+	}
+	return moduleHeadFile{}, cause
+}
+
+// retryHeadAfterLock 在拿到/持有模块锁后重读一次：writer 可能刚发布了合法
+// head，此时无需重建。
+func (store *storeEngine) retryHeadAfterLock(key Key, module storageModule) (moduleHeadFile, bool) {
+	head, err := store.readModuleHeadFileRaw(key, module)
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return head, true
+	}
+	return moduleHeadFile{}, false
+}
+
+// readModuleHeadFileRaw 读一次模块 head 并校验 schema/session/module/checksum。
+// 严格只读：不自愈、不取锁、不发布。
+func (store *storeEngine) readModuleHeadFileRaw(key Key, module storageModule) (moduleHeadFile, error) {
+	path := store.modulePath(key, module)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return moduleHeadFile{}, err
+	}
+	var head moduleHeadFile
+	if err := json.Unmarshal(data, &head); err != nil {
+		return moduleHeadFile{}, fmt.Errorf("session storage: decode %s head %q: %w", module, path, err)
+	}
+	if head.SchemaVersion != schemaVersion {
+		return moduleHeadFile{}, fmt.Errorf("session storage: %s head schema=%d want %d", module, head.SchemaVersion, schemaVersion)
+	}
+	if head.SessionID != key.SessionID {
+		return moduleHeadFile{}, fmt.Errorf("session storage: %s head session %q != %q", module, head.SessionID, key.SessionID)
+	}
+	if head.ModuleID != module {
+		return moduleHeadFile{}, fmt.Errorf("session storage: head module %q != %q", head.ModuleID, module)
+	}
+	want, err := headChecksum(head)
+	if err != nil {
+		return moduleHeadFile{}, err
+	}
+	if head.Checksum != "" && want != head.Checksum {
+		return moduleHeadFile{}, fmt.Errorf("session storage: %s head checksum mismatch", module)
+	}
+	return head, nil
+}
+
+// readHeadEnvelopeLenient 宽容读 head 信封（自愈重建的字段取回通道）：只要求
+// JSON 可解、模块/会话对得上；不校验 checksum、不触发自愈（否则自愈会递归）。
+func (store *storeEngine) readHeadEnvelopeLenient(key Key, module storageModule) (moduleHeadFile, bool) {
+	data, err := os.ReadFile(store.modulePath(key, module))
+	if err != nil {
+		return moduleHeadFile{}, false
+	}
+	var envelope moduleHeadFile
+	if json.Unmarshal(data, &envelope) != nil {
+		return moduleHeadFile{}, false
+	}
+	if envelope.ModuleID != module || envelope.SessionID != key.SessionID {
+		return moduleHeadFile{}, false
+	}
+	return envelope, true
+}
+
+// carryModuleHeadCommitID 从（可能已损坏的）旧 head 信封原样取回提交凭据。
+// 自愈重建不是一次执行提交，不得让会话 generation（layout-<commit_id>，
+// fork 血缘来源）漂移——与 setMessageTitleStored 的同一规则。
+func (store *storeEngine) carryModuleHeadCommitID(key Key, module storageModule) string {
+	envelope, ok := store.readHeadEnvelopeLenient(key, module)
+	if !ok {
+		return ""
+	}
+	return envelope.CommitID
+}
+
+// repairModuleHeadLocked 按数据文件重建模块 head 并原子发布（§2.0 规则 3 /
+// S15）。**调用方必须已持该模块锁**：重建结果与 writer 的发布必须互斥。cause
+// 是触发重建的原始校验错误——重建失败时原样上报，不返回旧值也不判损坏。
+//
+// message/event/compact/stack_* 有完整数据文件可重建；其余模块（lifecycle
+// 自带 lc-repair、retention/subagent/media 无独立数据文件）保留原错误。
+func (store *storeEngine) repairModuleHeadLocked(key Key, module storageModule, cause error) (moduleHeadFile, error) {
+	if err := store.repairModuleHeadFromData(key, module); err != nil {
+		return moduleHeadFile{}, cause
+	}
+	head, ok := store.retryHeadAfterLock(key, module)
+	if !ok {
+		return moduleHeadFile{}, cause
 	}
 	return head, nil
 }
 
 // repairModuleHeadFromData 按数据文件重建模块 head 并原子发布（S15）。
+// 调用方必须已持该模块锁（见 repairModuleHeadLocked）。
 func (store *storeEngine) repairModuleHeadFromData(key Key, module storageModule) error {
 	var payload any
 	switch module {
@@ -408,16 +501,37 @@ func (store *storeEngine) repairModuleHeadFromData(key Key, module storageModule
 	default:
 		return fmt.Errorf("session storage: no data-file rebuild for module %q", module)
 	}
-	_, err := store.publishModuleHead(key, module, "self-heal-repair", payload, time.Now().UTC())
+	// 提交凭据沿用旧 head：自愈重建不是一次执行提交，generation 不漂移（旧
+	// 信封不可解时才退回显式的修复标记）。
+	commitID := store.carryModuleHeadCommitID(key, module)
+	if commitID == "" {
+		commitID = "self-heal-repair"
+	}
+	_, err := store.publishModuleHead(key, module, commitID, payload, time.Now().UTC())
 	return err
 }
 
 // rebuildMessageHeadFromData 从 message/*.jsonl 分片重建 message head。
 func (store *storeEngine) rebuildMessageHeadFromData(key Key) (messageHead, error) {
 	head := emptyMessageHead(key)
-	// 标题只存在于 head（分片里没有它），重建前先原样取回：否则一次自愈修复
-	// 就会把会话标题抹掉，目录刷新退回"读正文猜标题"。
-	head.Meta.Summary = store.carryMessageTitle(key)
+	// 只存在于 head、分片文件里没有的字段，重建前先原样取回：
+	//   - Meta（标题/创建时间等目录枚举面）——否则一次自愈就把标题抹掉，
+	//     目录刷新退回"读正文猜标题"；
+	//   - Floor（当前发言角色）——否则群聊发言权高亮在自愈后消失；
+	//   - WatermarkSeq/WatermarkMessageID（LRU 淘汰水位）——否则"锚 ≤ 水位
+	//     视为已淘汰区引用"的判定失效，已回收的旧引用重新被判损坏；
+	//   - LastCommitID（本次提交凭据）。
+	// 数值派生字段（TotalRows/Shards/LastSeq/TokenCount/ShardCount/UpdatedAt）
+	// 由下面的重建覆盖，不取回。
+	if envelope, ok := store.readHeadEnvelopeLenient(key, moduleMessage); ok {
+		if carried, err := decodeHeadPayload[messageHead](envelope); err == nil {
+			head.Meta = carried.Meta
+			head.Floor = carried.Floor
+			head.WatermarkSeq = carried.WatermarkSeq
+			head.WatermarkMessageID = carried.WatermarkMessageID
+			head.LastCommitID = carried.LastCommitID
+		}
+	}
 	dir := store.messageDir(key)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -459,7 +573,9 @@ func (store *storeEngine) rebuildMessageHeadFromData(key Key) (messageHead, erro
 	head.Meta.TokenCount = tokens
 	head.Meta.ShardCount = len(head.Shards)
 	head.Meta.SessionID = key.SessionID
-	head.Meta.CreatedAt = now
+	if head.Meta.CreatedAt.IsZero() {
+		head.Meta.CreatedAt = now
+	}
 	head.Meta.UpdatedAt = now
 	return head, nil
 }
@@ -636,10 +752,21 @@ func modulePayloadCommitID(mod storageModule, payload any) string {
 }
 
 // readModuleHeadPayload 读取通用模块 head 并解码 payload；缺失时返回
-// 零值 + fs.ErrNotExist。
+// 零值 + fs.ErrNotExist。无锁入口：不持该模块锁的调用方用它。
 func readModuleHeadPayload[T any](store *storeEngine, key Key, module storageModule) (T, error) {
 	var zero T
 	headFile, err := store.readModuleHeadFile(key, module)
+	if err != nil {
+		return zero, err
+	}
+	return decodeHeadPayload[T](headFile)
+}
+
+// readModuleHeadPayloadLocked 是 readModuleHeadPayload 的持锁版本：调用方必须
+// 已持该模块锁（自愈重建会因此在锁内发布）。
+func readModuleHeadPayloadLocked[T any](store *storeEngine, key Key, module storageModule) (T, error) {
+	var zero T
+	headFile, err := store.readModuleHeadFileLocked(key, module)
 	if err != nil {
 		return zero, err
 	}

@@ -68,13 +68,11 @@ AgentTeam 装配适配与群聊角色会话透传（端口形状与 A2A 元数�
 - `func (service *Service) teamRuntimeFor(mainSessionID string, view dto.TeamView) *agentteam.Runtime` — teamRuntimeFor 返回（需要时创建）指定主会话的发言调度运行态，并把注册表
 - `func (service *Service) syncTeamRuntime(mainSessionID string)` — syncTeamRuntime 在角色注册表/顺序发生变更后同步环（增删改员工与顺序调整的
 - `func (service *Service) releaseTeamRuntime(mainSessionID string)` — releaseTeamRuntime 释放某个主会话的发言调度运行态（会话删除/归档时调用）。
-- `func (service *Service) NoteTeamUserQueued(mainSessionID string, pending bool)` — NoteTeamUserQueued 告诉该会话的环"消息队列里有没有未消费的 user 输入"。
 - `func (service *Service) noteTeamWorkPrefix(mainSessionID string)` — noteTeamWorkPrefix 把「主会话上下文（含主会话 draft）」的只读装配喂给团队环当前缀。
 - `func (service *Service) teamScheduleFor(mainSessionID string) *dto.TeamSchedule` — teamScheduleFor 投影指定会话的调度运行态（nil = 该会话没有环）。
 - `func (service *Service) teamRuntimeBySession(sessionID string) *agentteam.Runtime` — teamRuntimeBySession 返回（需要时创建）指定会话的发言调度运行态，供治理循环
 - `func (service *Service) teamRoleSeatsFor(sessionID string) []RoleSeat` — teamRoleSeatsFor 返回该会话团队的角色座位来源（按发言链顺序），供 goal 治理循环
 - `func roleSeatOf(member dto.TeamMember) RoleSeat`
-- `func (service *Service) noteTeamUserSeat(sessionID string)` — noteTeamUserSeat 把"该会话队列里有没有未消费的 user 输入"同步给团队环：
 
 ### agentteam_service.go
 

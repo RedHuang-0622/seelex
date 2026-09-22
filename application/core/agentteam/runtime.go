@@ -6,13 +6,14 @@ package agentteam
 // 它不回答三个产品问题：
 //
 //  1. **谁来维护这张成员表**——注册表每次增删改后，环里的员工必须跟着变；
-//  2. **user 算不算环里的一环**——user 可以用消息队列插话，但「作为员工一样的
-//     一环固定占位」需要有明确口径（见 UserSeatPolicy）；
+//  2. **谁在环里**——环只装「会被轮到的发言者」：user 不进环（见 ringOrder）。
+//     用户的发言机会是**回合尾消息队列被整批提升为下一轮**这一个动作（chat
+//     轮次），它不是环里的一个排班位，因此不存在「轮到 user」这类席位口径；
 //  3. **循环怎么逃生**——链表是闭链，没有上限就会一直转下去。
 //
 // Runtime 就是这三个问题的唯一落点，并把状态投影成 dto.TeamSchedule 供前端/
 // 巡检面观察。它**不新增第二份顺序事实**：顺序仍然只有 lifecycle.order_policy /
-// order_roles 一份，Runtime 只是它在运行时的镜像 + 记账。
+// order_roles 一份，Runtime 只是它在运行时的镜像（环成员 = order_roles − user）+ 记账。
 
 import (
 	"fmt"
@@ -21,38 +22,6 @@ import (
 
 	"github.com/RedHuang-0622/seelex/application/contract/dto"
 )
-
-// UserSeatPolicy 决定 user 是否作为循环里的一环参与发言。
-//
-// 背景（产品口径）：user 永远在 `order_roles` 里（它是群聊的起手与收口），
-// 但「在顺序里」不等于「每轮都固定占一个座位」：
-//
-//   - UserSeatQueued（缺省）：user 通过**消息队列**插话。只有当队列里有未消费
-//     的 user 输入时，user 才占位；否则调度器跳过 user 继续转，不阻塞 agent 循环。
-//     这样 user 可以随时插入会话，但不会因为「人还没说话」把整条环卡住。
-//   - UserSeatMember：user 与员工同权，每轮固定占位（在 user_main_decided 这类
-//     「由 user/main 编排」的策略下才成立）。
-//   - UserSeatAbsent：user 不占位（scheduled_only：只有定时 agent 插话）。
-type UserSeatPolicy string
-
-const (
-	UserSeatQueued UserSeatPolicy = dto.UserSeatQueued
-	UserSeatMember UserSeatPolicy = dto.UserSeatMember
-	UserSeatAbsent UserSeatPolicy = dto.UserSeatAbsent
-)
-
-// UserSeatPolicyFor 由顺序策略推导 user 席位口径：顺序策略是唯一开关，不再
-// 新增第二个人工配置项（口径与 order_policy 一一对应，避免两处打架）。
-func UserSeatPolicyFor(orderPolicy string) UserSeatPolicy {
-	switch strings.TrimSpace(orderPolicy) {
-	case dto.OrderPolicyUserMainDecided:
-		return UserSeatMember
-	case dto.OrderPolicyScheduledOnly:
-		return UserSeatAbsent
-	default:
-		return UserSeatQueued
-	}
-}
 
 // 逃生路径的停止原因。停止 ≠ 出错：它是循环的正常收束方式之一，调用方据此
 // 决定"让位给用户/收口/升级"。
@@ -70,21 +39,16 @@ type RuntimeOptions struct {
 	RoundLimit int
 	// NoProgressLimit ≤0 = 不设无进展上限。
 	NoProgressLimit int
-	// UserSeat 缺省由顺序策略推导（UserSeatPolicyFor）。
-	UserSeat UserSeatPolicy
 	// Buffer 是 Requests() 的 channel 缓冲（≤0 取默认 8）。
 	Buffer int
 }
 
-// Runtime 是会话级的发言调度运行态：链表顺序 + 逃生记账 + user 席位策略。
+// Runtime 是会话级的发言调度运行态：环内成员顺序 + 逃生记账。
 // 所有方法都可在多 goroutine 下调用（内部锁）。
 type Runtime struct {
 	mu        sync.Mutex
 	scheduler *TurnScheduler
 	policy    string
-	userSeat  UserSeatPolicy
-	// userQueued = 消息队列里有未消费的 user 输入（user 才占位）。
-	userQueued bool
 
 	round           int
 	roundLimit      int
@@ -93,9 +57,6 @@ type Runtime struct {
 
 	stopped    bool
 	stopReason string
-	// userSeatExplicit 非 nil 表示 user 席位口径被显式覆盖过：此时顺序策略
-	// 变化不再改写它（显式选择优先于推导）。
-	userSeatExplicit *UserSeatPolicy
 
 	// prefix / prefixParts 是「team work 起点 → 当前位置」正文前缀的只读投影。
 	//
@@ -122,20 +83,15 @@ type Runtime struct {
 
 // NewRuntime 构造运行态。sessions 提供 role_name → role_session_id（成员表的
 // 角色会话坐标）；executors 为 nil 时按包的 RolesWithExecutor 事实表判断。
+// 环成员 = order_roles 去掉 user（见 ringOrder）。
 func NewRuntime(order []string, sessions map[string]string, orderPolicy string, opts RuntimeOptions) *Runtime {
-	policy := UserSeatPolicyFor(orderPolicy)
-	if opts.UserSeat != "" {
-		policy = opts.UserSeat
-	}
 	buffer := opts.Buffer
 	if buffer < 1 {
 		buffer = 8
 	}
-	order = cleanOrder(order)
 	return &Runtime{
-		scheduler:       NewTurnScheduler(order, sessions, buffer),
+		scheduler:       NewTurnScheduler(ringOrder(order), sessions, buffer),
 		policy:          strings.TrimSpace(orderPolicy),
-		userSeat:        policy,
 		roundLimit:      opts.RoundLimit,
 		noProgressLimit: opts.NoProgressLimit,
 	}
@@ -149,36 +105,11 @@ func (r *Runtime) SyncOrder(order []string, sessions map[string]string, orderPol
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.scheduler.SetOrder(cleanOrder(order), sessions)
+	r.scheduler.SetOrder(ringOrder(order), sessions)
 	r.policy = strings.TrimSpace(orderPolicy)
-	if seat := UserSeatPolicyFor(orderPolicy); seat != "" && r.userSeatExplicit == nil {
-		r.userSeat = seat
-	}
 }
 
-// SetUserSeat 显式覆盖 user 席位口径（缺省由顺序策略推导）。
-func (r *Runtime) SetUserSeat(policy UserSeatPolicy) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	r.userSeat = policy
-	r.userSeatExplicit = &policy
-	r.mu.Unlock()
-}
-
-// NoteUserQueued 更新"消息队列里有没有未消费的 user 输入"。user 席位口径为
-// UserSeatQueued 时，这正是 user 是否占位的唯一依据。
-func (r *Runtime) NoteUserQueued(pending bool) {
-	if r == nil {
-		return
-	}
-	r.mu.Lock()
-	r.userQueued = pending
-	r.mu.Unlock()
-}
-
-// Order 返回环当前的链表顺序（快照）。
+// Order 返回环当前的链表顺序（快照；不含 user）。
 func (r *Runtime) Order() []string {
 	if r == nil {
 		return nil
@@ -339,8 +270,8 @@ func (r *Runtime) Stopped() (bool, string) {
 	return r.stopped, r.stopReason
 }
 
-// Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序、成员与
-// user 席位口径都不动。
+// Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序与成员
+// 都不动。
 //
 // 为什么必须有它：逃生路径是**终态**——Stop 一旦发生就不会自己复活（SyncOrder
 // 只改成员与顺序，不碰 stopped）。但"终态"的适用范围是**当前这一次治理循环**，
@@ -365,8 +296,6 @@ func (r *Runtime) Reset() {
 
 // Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
 // （空环 / 全员无执行者 / 已收束），调用方据此走逃生路径，不要空转。
-//
-// 推进成功时会把 user 席位对应的排队输入消费掉（user 发言一次 = 消费一次）。
 func (r *Runtime) Next() (TurnRequest, bool) {
 	if r == nil {
 		return TurnRequest{}, false
@@ -386,30 +315,15 @@ func (r *Runtime) Next() (TurnRequest, bool) {
 		}
 		return TurnRequest{}, false
 	}
-	if request.RoleName == string(dto.RoleKindUser) {
-		r.userQueued = false
-	}
 	return request, true
 }
 
-// skipLocked 报告某个成员本轮不应占位。
+// skipLocked 报告某个成员本轮不应占位：环里挂着没有执行者的角色
+// （review-team 的 reviewer 等）跳过，但会在 Snapshot().Unexecuted 里如实报出来。
+//
+// user 不适用这条判据——它根本不在环里（见 ringOrder）。
 func (r *Runtime) skipLocked(roleName string) bool {
-	if !RolesWithExecutor[roleName] {
-		// 环里挂着没有执行者的角色（review-team 的 reviewer 等）：跳过，
-		// 但会在 Snapshot().Unexecuted 里如实报出来。
-		return true
-	}
-	if roleName != string(dto.RoleKindUser) {
-		return false
-	}
-	switch r.userSeat {
-	case UserSeatAbsent:
-		return true
-	case UserSeatMember:
-		return false
-	default: // UserSeatQueued
-		return !r.userQueued
-	}
+	return !RolesWithExecutor[roleName]
 }
 
 // Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
@@ -418,7 +332,7 @@ func (r *Runtime) Snapshot() dto.TeamSchedule {
 		return dto.TeamSchedule{}
 	}
 	r.mu.Lock()
-	policy, seat := r.policy, r.userSeat
+	policy := r.policy
 	round, roundLimit := r.round, r.roundLimit
 	noProgress, noProgressLimit := r.noProgress, r.noProgressLimit
 	stopped, reason := r.stopped, r.stopReason
@@ -437,7 +351,6 @@ func (r *Runtime) Snapshot() dto.TeamSchedule {
 		NoProgressLimit: noProgressLimit,
 		Stopped:         stopped,
 		StopReason:      reason,
-		UserSeat:        string(seat),
 		Unexecuted:      UnexecutedRoles(order),
 		Prefix:          prefix,
 		PrefixParts:     prefixParts,
@@ -457,6 +370,10 @@ func (r *Runtime) Snapshot() dto.TeamSchedule {
 }
 
 // peekNext 在不改动游标的前提下算出"下一个谁发言"（Snapshot 用）。
+//
+// 口径提醒：它从**环头**开始扫，不是"当前发言者之后的下一个"——环目前没有生产
+// 推进者（Next()/Advance() 无生产消费者），游标恒为 nil，所以这条投影不随轮转
+// 变化。环成员不含 user，因此"下一个"永远不会是 user：队友的下一个只会是队友。
 func (r *Runtime) peekNext() (TurnRequest, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -487,6 +404,29 @@ func cleanOrder(order []string) []string {
 			continue
 		}
 		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
+}
+
+// ringOrder 把顺序事实（lifecycle.order_roles）投影成**发言环的成员**：去掉
+// user，其余原样保序去重。
+//
+// 为什么 user 不进环：用户的发言机会只有一个——每次 react loop 收尾时消息队列被
+// 整批提升为下一轮（chat 轮次的提交路径，见 chat.go 的队列提升点）。它是一个
+// **动作**，不是一个排班位；若把 user 留在环里，"队友的下一个"就会是 user，与
+// "其余时间都是 agent teammate 互动"的产品口径直接矛盾。
+//
+// order_roles 仍然含 user（它是群聊的起手与收口：装配侧 spec 校验要求它必须在
+// 场，见 resolveOrderRoles）：这里是「顺序事实 → 环成员」的一次投影，不是第二份
+// 顺序事实——顺序仍然只有 lifecycle 一份。
+func ringOrder(order []string) []string {
+	cleaned := cleanOrder(order)
+	out := make([]string, 0, len(cleaned))
+	for _, name := range cleaned {
+		if name == string(dto.RoleKindUser) {
+			continue
+		}
 		out = append(out, name)
 	}
 	return out

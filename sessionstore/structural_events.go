@@ -153,7 +153,7 @@ func (store *storeEngine) structuralEventCommit(key Key, commitID string, events
 }
 
 func (store *storeEngine) readEventHeadLocked(key Key) (eventHeadRecord, error) {
-	headFile, err := store.readModuleHeadFile(key, moduleEvent)
+	headFile, err := store.readModuleHeadFileLocked(key, moduleEvent)
 	if errors.Is(err, fs.ErrNotExist) {
 		return emptyEventHead(key), nil
 	}

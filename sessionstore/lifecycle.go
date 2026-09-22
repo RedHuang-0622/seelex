@@ -55,6 +55,11 @@ type queueItem struct {
 	CreatedAt time.Time      `json:"created_at"`
 	SendCount int            `json:"send_count,omitempty"`
 	Payload   map[string]any `json:"payload,omitempty"`
+	// ConsumedBy 是消费该项的那一轮 requestID（= 该轮 message 行的 TaskID）。
+	// 应用侧把队列中所有待发项**合并成一条**提升为下一轮（N 项 → 1 轮），
+	// 所以该项身份与轮身份不是一对一：确认/失败/恢复都必须以"这一轮是否已
+	// 发布"为凭据，而不是以项自己的 request_id。见 queue_consume.go。
+	ConsumedBy string `json:"consumed_by,omitempty"`
 }
 
 // lifecycleState 是 draft/queue 的权威投影（来自数据文件，不是 head）。
@@ -366,7 +371,7 @@ func (store *storeEngine) lifecycleArchivedAt(key Key) (time.Time, error) {
 }
 
 func (store *storeEngine) readLifecycleHeadLocked(key Key) (lifecycleHead, error) {
-	return readModuleHeadPayload[lifecycleHead](store, key, moduleLifecycle)
+	return readModuleHeadPayloadLocked[lifecycleHead](store, key, moduleLifecycle)
 }
 
 // ---------- 状态迁移（draft ↔ queue） ----------
@@ -545,6 +550,13 @@ func (store *storeEngine) directSendFailed(key Key, content string) error {
 func (store *storeEngine) queueRecover(key Key) ([]queueItem, error) {
 	store.mu(key, moduleLifecycle).Lock()
 	defer store.mu(key, moduleLifecycle).Unlock()
+	report := QueueRecoveryReport{SessionID: key.SessionID}
+	return store.queueRecoverLocked(key, &report)
+}
+
+// queueRecoverLocked 是恢复的锁内实现（调用方持 lifecycle 模块锁）。
+// report 非空时填充 Dropped/Pending 供上层审计（Resent 由返回值给出）。
+func (store *storeEngine) queueRecoverLocked(key Key, report *QueueRecoveryReport) ([]queueItem, error) {
 	state, err := store.readLifecycleStateLocked(key)
 	if err != nil {
 		return nil, err
@@ -565,7 +577,25 @@ func (store *storeEngine) queueRecover(key Key) ([]queueItem, error) {
 	var resent []queueItem
 	kept := state.Queue[:0]
 	for _, item := range state.Queue {
+		// 已被某轮消费的项：以"该轮是否已发布"为唯一凭据。
+		if item.ConsumedBy != "" {
+			if published[item.ConsumedBy] {
+				if report != nil {
+					report.Dropped = append(report.Dropped, queueItemView(item))
+				}
+				continue // 该轮已发布 = 最终确认，出队
+			}
+			// 该轮未发布（崩溃窗口）：回到 queued 重发，并清空消费标记。
+			item.ConsumedBy = ""
+			item.State = queueQueued
+			resent = append(resent, item)
+			kept = append(kept, item)
+			continue
+		}
 		if item.RequestID != "" && published[item.RequestID] {
+			if report != nil {
+				report.Dropped = append(report.Dropped, queueItemView(item))
+			}
 			continue // 已发布 = 最终确认，出队
 		}
 		if item.State == queueSending || item.State == queueSent {
@@ -580,6 +610,9 @@ func (store *storeEngine) queueRecover(key Key) ([]queueItem, error) {
 	}
 	if err := store.publishLifecycleLocked(key, "lc-"+randomID(), state); err != nil {
 		return nil, err
+	}
+	if report != nil {
+		report.Pending = queueItemsView(kept)
 	}
 	return resent, nil
 }

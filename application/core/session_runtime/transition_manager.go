@@ -4,11 +4,15 @@ import (
 	"sync"
 )
 
-// SessionTransitionManager 是会话过渡锁的 per-session keyed 注册表（G5）：
-// 同一 key（会话 ID；空 key = 视图过渡保留 key）的命令串行，不同 key 的
-// 命令并行。实现为每个 key 一个 SessionTransitionActor（channel 命令 +
-// 单 goroutine，无共享 mutex）；Close 幂等，关闭后 Lock/Unlock 退化为
-// 空操作（与既有 actor 语义一致，退出路径不会卡死）。
+// SessionTransitionManager 是 per-key 串行化注册表（机制）：同 key 串行、
+// 跨 key 并行。本包有两个实例、用途不同：会话过渡互斥（Coordinator.transition）
+// 与会话落盘单写者（Coordinator.writers，A3）；机制本身与用途无关，承载的是
+// "per-key 单 goroutine actor 裁决"这一件事。
+//
+// 会话过渡锁的语义（G5）：同一 key（会话 ID；空 key = 视图过渡保留 key）
+// 的命令串行，不同 key 的命令并行。实现为每个 key 一个 SessionTransitionActor
+// （channel 命令 + 单 goroutine，无共享 mutex）；Close 幂等，关闭后 Lock/Unlock
+// 退化为空操作（与既有 actor 语义一致，退出路径不会卡死）。
 //
 // 现状边界（波 3 台账）：视图指针单例 + 部分进程级引擎副作用（fork 的
 // StartSession 活跃别名、全局项目根绑定、legacy Router 写作用域）仍要求

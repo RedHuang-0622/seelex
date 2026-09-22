@@ -67,13 +67,12 @@ func teamViewFixture() dto.TeamView {
 		},
 		Schedule: &dto.TeamSchedule{
 			OrderPolicy:     "goal_loop",
-			Order:           []string{"user", "main", "tl"},
+			Order:           []string{"main", "tl"},
 			NextRole:        "tl",
 			Round:           2,
 			RoundLimit:      6,
 			NoProgress:      0,
 			NoProgressLimit: 3,
-			UserSeat:        "queued",
 			Unexecuted:      []string{"tl"},
 		},
 	}
@@ -161,7 +160,7 @@ func TestTeamPanelFetchesServiceViewOnce(t *testing.T) {
 		t.Fatalf("团队读面的会话 = %q, want 主会话 ID", app.sessionID)
 	}
 	panel := model.renderPanel()
-	for _, want := range []string{"TEAM", "goal-a2a", "goal_loop", "tl", "readonly", "goal-a2a-tl", "下一个 tl", "轮次 2/6", "user 席位 queued"} {
+	for _, want := range []string{"TEAM", "goal-a2a", "goal_loop", "tl", "readonly", "goal-a2a-tl", "下一个 tl", "轮次 2/6", "下一个 tl"} {
 		if !strings.Contains(panel, want) {
 			t.Fatalf("团队面板缺少 %q：\n%s", want, panel)
 		}

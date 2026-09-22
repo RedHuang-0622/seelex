@@ -566,6 +566,79 @@ func (store *SessionGranularStore) CurrentGeneration(projectID, sessionID string
 	return store.router.CurrentGenerationWorkspace(store.projectID(projectID), sessionID)
 }
 
+// QueueEnqueue 把一条排队输入镜像落盘（同 requestID 重放幂等）。
+func (store *SessionGranularStore) QueueEnqueue(projectID, sessionID, requestID, content string) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.QueueEnqueueWorkspace(store.projectID(projectID), sessionID, requestID, content)
+}
+
+// QueueMarkConsumed 把 lifecycle 队列中全部待发送项标记为被 turnID 消费。
+func (store *SessionGranularStore) QueueMarkConsumed(projectID, sessionID, turnID string) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.QueueMarkConsumedWorkspace(store.projectID(projectID), sessionID, turnID)
+}
+
+// QueueConfirmConsumed 该轮已发布 → 消费项出队。
+func (store *SessionGranularStore) QueueConfirmConsumed(projectID, sessionID, turnID string) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.QueueConfirmConsumedWorkspace(store.projectID(projectID), sessionID, turnID)
+}
+
+// QueueFailConsumed 该轮未发布 → 消费项内容回草稿并出队。
+func (store *SessionGranularStore) QueueFailConsumed(projectID, sessionID, turnID string) error {
+	if store == nil || store.router == nil {
+		return nil
+	}
+	return store.router.QueueFailConsumedWorkspace(store.projectID(projectID), sessionID, turnID)
+}
+
+// QueueItems 读 lifecycle 队列投影。
+func (store *SessionGranularStore) QueueItems(projectID, sessionID string) ([]QueueItem, bool, error) {
+	if store == nil || store.router == nil {
+		return nil, false, nil
+	}
+	return store.router.QueueItemsWorkspace(store.projectID(projectID), sessionID)
+}
+
+// QueueRecoverItems 重启恢复队列（条目级结果）。
+func (store *SessionGranularStore) QueueRecoverItems(projectID, sessionID string) (QueueRecoveryReport, bool, error) {
+	if store == nil || store.router == nil {
+		return QueueRecoveryReport{}, false, nil
+	}
+	return store.router.QueueRecoverItemsWorkspace(store.projectID(projectID), sessionID)
+}
+
+// PendingMessageTail 探测 message 通道草稿尾部（只读；v8 未装配返回
+// ok=false）。
+func (store *SessionGranularStore) PendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error) {
+	if store == nil || store.router == nil {
+		return PendingTailReport{}, false, nil
+	}
+	return store.router.PendingMessageTailWorkspace(store.projectID(projectID), sessionID)
+}
+
+// RecoverPendingMessageTail 显式恢复草稿尾部（基座一致才发布）。
+func (store *SessionGranularStore) RecoverPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error) {
+	if store == nil || store.router == nil {
+		return PendingTailReport{}, false, nil
+	}
+	return store.router.RecoverPendingMessageTailWorkspace(store.projectID(projectID), sessionID)
+}
+
+// DiscardPendingMessageTail 显式丢弃草稿尾部。
+func (store *SessionGranularStore) DiscardPendingMessageTail(projectID, sessionID string) (PendingTailReport, bool, error) {
+	if store == nil || store.router == nil {
+		return PendingTailReport{}, false, nil
+	}
+	return store.router.DiscardPendingMessageTailWorkspace(store.projectID(projectID), sessionID)
+}
+
 // ConversationRange 读取会话 conversation 模块窗口（只解析 conversation
 // 子树；offset/limit 语义与 Router 一致）。
 func (store *SessionGranularStore) ConversationRange(projectID, sessionID string, offset, limit int) ([]ConversationMessage, int, error) {

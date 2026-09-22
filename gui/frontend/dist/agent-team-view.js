@@ -355,7 +355,6 @@ export function normalizeSchedule(value) {
     noProgressLimit: Number.isInteger(value.no_progress_limit) ? value.no_progress_limit : 0,
     stopped: value.stopped === true,
     stopReason: typeof value.stop_reason === "string" ? value.stop_reason : "",
-    userSeat: typeof value.user_seat === "string" ? value.user_seat : "",
     unexecuted: Array.isArray(value.unexecuted) ? value.unexecuted.filter(name => typeof name === "string" && name) : []
   };
 }
@@ -366,12 +365,6 @@ const STOP_REASON_LABEL = {
   no_executor: "环内无执行者",
   empty_ring: "空环",
   external_break: "外部停止（裁决/中断）"
-};
-
-const USER_SEAT_LABEL = {
-  queued: "排队插话（有输入才占位）",
-  member: "与员工同权（每轮固定占位）",
-  absent: "不占位"
 };
 
 function normalizeMembers(items) {
@@ -402,7 +395,8 @@ function normalizeMembers(items) {
 //   「员工库」= 可用员工（全局库 ∪ 本会话在编）+ 入库/新建/编辑/删除，行首可拖进顺序；
 //   「团队库」= 用户自己的团队（点团队名开团队面板）+ 内置形态 chip + 新建团队；
 //   「员工栏」= 本会话在编员工 + 发言顺序（拖拽 ≡ 直接调序）+ 冷加载入职/修改面板；
-//   「发言调度」= 运行态：轮次 / 下一个 / 席位 / 收束（顺序串珠条，不是表格）。
+//   「发言调度」= 运行态：轮次 / 下一个 / 收束（顺序串珠条，不是表格；环成员不含
+//   user——用户经回合尾的消息队列提升发言，不占环内排班位）。
 export function renderAgentTeam(view, presets, library, global) {
   const team = normalizeAgentTeam(view);
   const presetList = Array.isArray(presets) ? presets.filter(item => item && typeof item.team_kind === "string" && item.team_kind) : [];
@@ -766,10 +760,14 @@ function teamEmptyRow(text) {
   return teamRow([`<span class="muted">${escapeHtml(text)}</span>`], { className: "is-empty" });
 }
 
-// scheduleBlock 显示**运行时的发言调度**：顺序串珠条（位置即次序）+ 轮次 / 席位 /
-// 收束。参照群聊的通用做法——顺序是一条可视的链，"下一个"与"发言中"用行尾标签与
-// 高亮表达，不摆 项/值 表（窄栏里表头比内容还宽）。没有 schedule（旧宿主/未接线）
-// 时整块隐藏，不拿静态顺序冒充运行态。
+// scheduleBlock 显示**运行时的发言调度**：顺序串珠条（位置即次序）+ 轮次 / 收束。
+// 参照群聊的通用做法——顺序是一条可视的链，"下一个"与"发言中"用行尾标签与高亮
+// 表达，不摆 项/值 表（窄栏里表头比内容还宽）。没有 schedule（旧宿主/未接线）时
+// 整块隐藏，不拿静态顺序冒充运行态。
+//
+// 串珠条就是**发言环**：成员 = order_roles − user（user 的发言机会是回合尾消息队列
+// 被整批提升为下一轮，不是排班位），所以这里不会出现 user 珠子，"下一个"也永远不
+// 会指向 user。
 function scheduleBlock(team) {
   const schedule = team.schedule;
   if (!schedule) return "";
@@ -799,7 +797,6 @@ function scheduleBlock(team) {
     <div class="schedule-strip" role="list" aria-label="发言顺序">${pills || '<span class="muted">顺序里还没有员工</span>'}</div>
     <div class="schedule-meta">
       ${stopChip}
-      <span class="schedule-seat" title="user 在群聊里的席位口径">user 席位 · ${escapeHtml(USER_SEAT_LABEL[schedule.userSeat] || schedule.userSeat || "—")}</span>
       ${schedule.unexecuted.length ? `<span class="schedule-note" title="环内没有执行者的角色：占位但不会自动产生回合">无执行者 ${escapeHtml(schedule.unexecuted.join("、"))}</span>` : ""}
     </div>
   </div>`;

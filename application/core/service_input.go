@@ -142,12 +142,26 @@ func (service *Service) submitConversation(ctx context.Context, input string) er
 		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 		service.publishChatStateFor(sessionID)
-		// user 经消息队列插话：告诉团队环"队列里有人等着发言"，user 席位
-		// （缺省 queued）据此在链表绕回环头时占位。
-		service.noteTeamUserSeat(sessionID)
+		// durable queue 镜像（先队列后草稿）：排队项正文落盘，崩溃/重启后按
+		// 「该轮是否已发布」的消费凭据恢复重发（sessionstore/queue_consume.go）。
+		// 放在 ViewMu 之外：文件 IO 不占内核锁。落盘失败不回滚内存队列——
+		// 权威是会话域队列，durable queue 只是崩溃兜底。
+		if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
+			runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
+		}
 		return nil
 	}
+	// 非运行分支：队列里可能遗留待发项（如重启回填的「已发送未确认」输入），
+	// 与本次提交合并为同一轮，否则它们永远等不到排空点。
+	merged, drained := service.drainRecoveredQueueLocked(runtime, request)
+	if drained {
+		request = merged
+		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+	}
 	service.ViewMu.Unlock()
+	if drained {
+		service.publishChatStateFor(sessionID)
+	}
 	return service.startChat(ctx, request)
 }
 
@@ -195,16 +209,30 @@ func (service *Service) submitConversationFor(ctx context.Context, sessionID, in
 			service.ViewMu.Unlock()
 			service.publishSessionEvent(EventSnapshotChanged, revision, "", sessionID, nil)
 			service.publishChatStateFor(sessionID)
-			service.noteTeamUserSeat(sessionID)
+			if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
+				runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
+			}
 			return nil
 		}
 		service.ViewMu.Unlock()
 		service.publishSessionEvent(EventSnapshotChanged, 0, "", sessionID, nil)
 		service.publishChatStateFor(sessionID)
-		service.noteTeamUserSeat(sessionID)
+		if enqueueErr := service.components.sessions.QueueEnqueueInput(service.components.sessions.LocateSession(sessionID), sessionID, request.displayInput); enqueueErr != nil {
+			runChatDebug("durable queue enqueue session=%s err=%v", sessionID, enqueueErr)
+		}
 		return nil
 	}
+	// 非运行分支：与 submitConversation 同一条提升规则（队列遗留待发项并入
+	// 本轮），后台提交路径（SubmitToSession）也经此。
+	merged, drained := service.drainRecoveredQueueLocked(runtime, request)
+	if drained {
+		request = merged
+		service.setSessionChatLockedFor(sessionID, runtime.ChatState())
+	}
 	service.ViewMu.Unlock()
+	if drained {
+		service.publishChatStateFor(sessionID)
+	}
 	return service.startChatFor(sessionID, ctx, request)
 }
 

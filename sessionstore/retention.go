@@ -48,7 +48,7 @@ func (store *storeEngine) retentionThresholds() (int, uint64) {
 }
 
 func (store *storeEngine) readRetentionHeadLocked(key Key) (retentionHead, error) {
-	return readModuleHeadPayload[retentionHead](store, key, moduleRetention)
+	return readModuleHeadPayloadLocked[retentionHead](store, key, moduleRetention)
 }
 
 // readRetentionHead 读取 retention head（缺失时先补建默认 manual head）。

@@ -27,11 +27,23 @@ const (
 // 全 For 会话读源，后台会话收尾不得读全局活跃槽）：
 // task 快照锁外收集（外部端口），锁内构建 record + 拷贝事件，锁外写入，
 // 最后锁内清理已提交 tool 结果引用。
+//
+// A3 单写者：整段落盘在"会话落盘单写者"内执行（RunSessionWrite）——7 处调用点
+// 因此汇成同一条 per-session 串行链，写点之间不再交错（逐步 append/发布协议的
+// 单写者前提）。读侧不取这把锁，长落盘只排队其它写点。
 func (c *Coordinator) PersistCurrentSession(location Location, sessionID string) error {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return errors.New("session ID is required")
 	}
+	return c.RunSessionWrite(sessionID, func() error {
+		return c.persistCurrentSessionLocked(location, sessionID)
+	})
+}
+
+// persistCurrentSessionLocked 是 PersistCurrentSession 的写者临界区实现
+// （调用方已持该会话的落盘单写者；实现内不得重入写者、不得取过渡锁）。
+func (c *Coordinator) persistCurrentSessionLocked(location Location, sessionID string) error {
 	// task 快照随会话落盘：外部端口（actor/CSP）在锁外调用，避免持锁阻塞；
 	// 按会话分片取（后台会话不读活跃注册表，对应 R6/P2）。
 	tasks := c.Core.Deps.Runtime.TaskSnapshotFor(sessionID)

@@ -264,13 +264,22 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	location := service.components.sessions.LocateSession(sessionID)
 	saveErr := service.components.sessions.PersistCurrentSession(location, sessionID)
 	if saveErr != nil {
+		// durable queue：本轮消费项所在轮的 message **未发布** → 内容回草稿
+		// （「失败回草稿」）。不留"已消费但永不重发"的死条目：进程内不重启
+		// 时它不会再被任何一轮接管（consumed_by 非空会被标记跳过）。
+		_ = service.components.sessions.QueueFailConsumedInput(location, sessionID, requestID)
 		if err != nil {
 			err = wrapError(fmt.Errorf("%w; persistence failed and recovery is not guaranteed: %v", err, saveErr), errorCodePersistenceFailed)
 		} else {
 			err = wrapError(fmt.Errorf("persistence failed and recovery is not guaranteed: %w", saveErr), errorCodePersistenceFailed)
 		}
-	} else if releaser, ok := service.Deps.Engine.(interface{ ReleaseWorkingHistoryFor(string) }); ok {
-		releaser.ReleaseWorkingHistoryFor(sessionID)
+	} else {
+		// durable queue：本轮的消费项已随 message 发布（PersistCurrentSession
+		// 成功即"该轮已发布"）= 最终确认，出队。
+		_ = service.components.sessions.QueueConfirmConsumedInput(location, sessionID, requestID)
+		if releaser, ok := service.Deps.Engine.(interface{ ReleaseWorkingHistoryFor(string) }); ok {
+			releaser.ReleaseWorkingHistoryFor(sessionID)
+		}
 	}
 	service.ViewMu.Lock()
 	active := service.isActiveSessionLocked(sessionID)
@@ -313,8 +322,9 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 		// UI 展示原始输入，模型输入使用每次 Submit 时固化的 Skill 上下文。
 		batchRequest = combineChatRequests(pendingQueue)
 		runtime.SetRequests(nil)
-		// 队列已被整批提升进本轮：团队环的 user 席位不再有排队输入。
-		service.NoteTeamUserQueued(sessionID, false)
+		// 队列被整批提升进本轮——**这就是 user 的发言机会**：团队发言环里没有
+		// user 的排班位（见 agentteam.ringOrder），用户只经这条队列提升通道
+		// 发言，环不需要被告知队列状态。
 		runtime.UpdateChat(func(chat *ChatState) {
 			chat.QueuedCount = 0
 			chat.InputQueue = nil
@@ -377,6 +387,15 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 重绑（后台会话收尾时当前视图可能已切走，工具根必须跟随当前视图会话）。
 	service.rebindViewWorkspaceWhenIdle()
 	runChatDebug("runChat tail session=%s request=%s err=%v processQueue=%v nextRequest=%q", sessionID, requestID, err, processQueue, nextRequestID)
+	// durable queue：本批排队输入已被提升为下一轮（nextRequestID = 该轮
+	// message 行的 TaskID），标记为该轮消费。放在 ViewMu 之外（文件 IO 不占
+	// 内核锁），且在下一轮 goroutine 启动之前——崩溃时最多把已消费项留在
+	// 队列（可见、不丢），不会把未发送项误判为已发送。
+	if processQueue && nextRequestID != "" {
+		if markErr := service.components.sessions.QueueMarkConsumedInput(location, sessionID, nextRequestID); markErr != nil {
+			runChatDebug("durable queue mark consumed session=%s turn=%s err=%v", sessionID, nextRequestID, markErr)
+		}
+	}
 	service.publishChatStateFor(sessionID)
 	if err != nil {
 		service.publishSessionEvent(EventError, revision, requestID, sessionID, map[string]string{"message": visibleError})

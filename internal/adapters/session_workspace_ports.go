@@ -499,6 +499,81 @@ func (port SessionPort) LifecycleRecoverWorkspace(projectID, sessionID string) (
 	return port.Manager.Router().LifecycleRecoverWorkspace(projectID, sessionID)
 }
 
+// QueueEnqueueWorkspace 把一条排队输入镜像落盘（durable queue 写入侧：
+// 会话运行中接受的输入先入队，失败时由存储层回草稿）。
+func (port SessionPort) QueueEnqueueWorkspace(projectID, sessionID, requestID, content string) error {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil
+	}
+	return port.Manager.Router().QueueEnqueueWorkspace(projectID, sessionID, requestID, content)
+}
+
+// QueueMarkConsumedWorkspace 实现 durable queue 的「消费凭据」写入侧：
+// 提升批次为下一轮时，把队列中全部待发送项标记为该轮消费。
+func (port SessionPort) QueueMarkConsumedWorkspace(projectID, sessionID, turnID string) error {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil
+	}
+	return port.Manager.Router().QueueMarkConsumedWorkspace(projectID, sessionID, turnID)
+}
+
+// QueueConfirmConsumedWorkspace 该轮 message 已发布 → 消费项出队。
+func (port SessionPort) QueueConfirmConsumedWorkspace(projectID, sessionID, turnID string) error {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil
+	}
+	return port.Manager.Router().QueueConfirmConsumedWorkspace(projectID, sessionID, turnID)
+}
+
+// QueueFailConsumedWorkspace 该轮未发布（失败）→ 消费项内容回草稿并出队。
+func (port SessionPort) QueueFailConsumedWorkspace(projectID, sessionID, turnID string) error {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil
+	}
+	return port.Manager.Router().QueueFailConsumedWorkspace(projectID, sessionID, turnID)
+}
+
+// QueueItemsWorkspace 读 lifecycle 队列投影。
+func (port SessionPort) QueueItemsWorkspace(projectID, sessionID string) ([]sessionstore.QueueItem, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return nil, false, nil
+	}
+	return port.Manager.Router().QueueItemsWorkspace(projectID, sessionID)
+}
+
+// QueueRecoverItemsWorkspace 重启恢复队列（条目级结果：重发项/出队项/待发项）。
+func (port SessionPort) QueueRecoverItemsWorkspace(projectID, sessionID string) (sessionstore.QueueRecoveryReport, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return sessionstore.QueueRecoveryReport{}, false, nil
+	}
+	return port.Manager.Router().QueueRecoverItemsWorkspace(projectID, sessionID)
+}
+
+// PendingMessageTailWorkspace 探测 message 通道草稿尾部（seq_draft 只读
+// 探测；调用方据此决定 L2 恢复策略）。
+func (port SessionPort) PendingMessageTailWorkspace(projectID, sessionID string) (sessionstore.PendingTailReport, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return sessionstore.PendingTailReport{}, false, nil
+	}
+	return port.Manager.Router().PendingMessageTailWorkspace(projectID, sessionID)
+}
+
+// RecoverPendingMessageTailWorkspace 显式恢复草稿尾部（基座一致才发布）。
+func (port SessionPort) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (sessionstore.PendingTailReport, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return sessionstore.PendingTailReport{}, false, nil
+	}
+	return port.Manager.Router().RecoverPendingMessageTailWorkspace(projectID, sessionID)
+}
+
+// DiscardPendingMessageTailWorkspace 显式丢弃草稿尾部。
+func (port SessionPort) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (sessionstore.PendingTailReport, bool, error) {
+	if port.Manager == nil || port.Manager.Router() == nil {
+		return sessionstore.PendingTailReport{}, false, nil
+	}
+	return port.Manager.Router().DiscardPendingMessageTailWorkspace(projectID, sessionID)
+}
+
 // ---------- R2/R4 群聊角色会话适配（Application 可选能力面） ----------
 
 func (port SessionPort) roleRouter(mainSessionID string) (*sessionstore.Router, string, error) {

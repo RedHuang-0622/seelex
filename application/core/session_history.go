@@ -331,11 +331,12 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 		return fmt.Errorf("replace engine history: %w", err)
 	}
 	// lifecycle 运行期接线：重启恢复队列（发送未确认项回 queued；
-	// message.json 已发布项出队）。非 会话存储布局 ok=false 为正常空操作。
-	if _, lifecycleOK, lifecycleErr := service.components.sessions.LifecycleRecover(location, sessionID); lifecycleErr != nil {
+	// message.json 已发布项出队），并把"已发送未确认"的输入回填到本会话的
+	// 内存队列（可见、可撤回；在下一次提交时随本会话一并提升发送）。
+	if resent, lifecycleOK, lifecycleErr := service.components.sessions.QueueRecoverInputs(location, sessionID); lifecycleErr != nil {
 		return fmt.Errorf("lifecycle recover %q: %w", sessionID, lifecycleErr)
-	} else {
-		_ = lifecycleOK
+	} else if lifecycleOK && len(resent) > 0 {
+		service.reEnqueueRecoveredInputs(sessionID, resent)
 	}
 	// 会话级 system prompt：切换路径必须按目标会话路由，禁止触碰全局活跃
 	// 引擎（运行中会话的 Session 锁可能被 ChatStream 全程持有，误触会阻塞

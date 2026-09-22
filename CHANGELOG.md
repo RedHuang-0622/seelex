@@ -29,6 +29,19 @@ version when it lands.
   compatibility. The `draft_<nanos>_<seq>` early allocation for a new session is
   unchanged and is the subject of the follow-up "draft = unfinished session" design
   (see `docs/devlog/2026-09-22-draft-semantics-retraction.md`).
+- **The user no longer holds a seat in the team speaking ring.** `order_roles` still
+  carries `user` (it is the chat's opening and closing turn, and `resolveOrderRoles`
+  requires it), but the ring a session runs on is now `order_roles − user`: a teammate's
+  "next speaker" can never point at the human, and the user speaks only through the
+  queue promotion at the end of a react loop (`application/core/chat.go`). The old
+  three-state "user seat" (`queued` / `member` / `absent`, derived from `order_policy`)
+  was removed because all three states assumed user occupied a ring slot — that is
+  exactly what made "next speaker" resolve to the human. Removed
+  `dto.TeamSchedule.UserSeat` and `dto.UserSeatQueued/Member/Absent`,
+  `agentteam.UserSeatPolicy` (`UserSeatPolicyFor`, `SetUserSeat`,
+  `RuntimeOptions.UserSeat`), `Runtime.NoteUserQueued`, `Service.NoteTeamUserQueued`,
+  `noteTeamUserSeat` and their call sites, plus the GUI "user 席位" chip and the TUI
+  schedule line (see `docs/devlog/2026-09-22-agentteam-ring-excludes-user.md`).
 
 ### Added
 

@@ -116,18 +116,6 @@ func (service *Service) releaseTeamRuntime(mainSessionID string) {
 	service.teamRuntimes.drop(mainSessionID)
 }
 
-// NoteTeamUserQueued 告诉该会话的环"消息队列里有没有未消费的 user 输入"。
-// user 席位口径为 queued（缺省）时，这正是 user 是否占位的唯一依据：user 可以
-// 随时经消息队列插入会话，但不会因为"人还没说话"把整条环卡住。
-//
-// 该会话还没有环时不创建（没有团队就没有环；等 teamRuntimeFor 建环时再按当时
-// 队列状态对齐）。
-func (service *Service) NoteTeamUserQueued(mainSessionID string, pending bool) {
-	if runtime := service.teamRuntimes.get(mainSessionID); runtime != nil {
-		runtime.NoteUserQueued(pending)
-	}
-}
-
 // noteTeamWorkPrefix 把「主会话上下文（含主会话 draft）」的只读装配喂给团队环当前缀。
 //
 // 为什么读在应用层、生产不在应用层：前缀的作者是存储侧对主会话的装配
@@ -136,7 +124,8 @@ func (service *Service) NoteTeamUserQueued(mainSessionID string, pending bool) {
 // 行，所以前缀与对话记录同口径——这也是它不能由治理域的回合摘要顶替的原因。
 //
 // 两条"宁缺勿造"：
-//   - 该会话还没有环就不建环（对齐 NoteTeamUserQueued：没有团队就没有前缀消费者）；
+//   - 该会话还没有环就不建环（对齐"没有环就没有消费者"：没有团队就没有前缀的
+//     接收方）；
 //   - 读不到事实（未装配存储/会话不存在/布局不支持）就不动前缀，绝不用占位正文
 //     顶替主会话上下文——宁可让下一个成员拿到旧前缀，也不给它一段假的上下文。
 func (service *Service) noteTeamWorkPrefix(mainSessionID string) {
@@ -248,17 +237,4 @@ func roleSeatOf(member dto.TeamMember) RoleSeat {
 		}
 	}
 	return seat
-}
-
-// noteTeamUserSeat 把"该会话队列里有没有未消费的 user 输入"同步给团队环：
-// user 经消息队列插话时，环要据此决定 user 是否占位（缺省口径 queued）。
-func (service *Service) noteTeamUserSeat(sessionID string) {
-	if service == nil || strings.TrimSpace(sessionID) == "" {
-		return
-	}
-	pending := 0
-	if unit := service.sessions.Unit(sessionID); unit != nil {
-		pending = len(queuedChatRequests(unit.PendingRequests()))
-	}
-	service.NoteTeamUserQueued(sessionID, pending > 0)
 }

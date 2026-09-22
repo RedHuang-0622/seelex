@@ -110,7 +110,7 @@ func (store *storeEngine) compactCommit(key Key, frame compactFrameRecord) (comp
 }
 
 func (store *storeEngine) readCompactHeadLocked(key Key) (compactHeadRecord, error) {
-	headFile, err := store.readModuleHeadFile(key, moduleCompact)
+	headFile, err := store.readModuleHeadFileLocked(key, moduleCompact)
 	if errors.Is(err, fs.ErrNotExist) {
 		return compactHeadRecord{}, nil
 	}

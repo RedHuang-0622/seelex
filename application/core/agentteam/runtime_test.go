@@ -8,8 +8,9 @@ import (
 )
 
 // runtime_test.go 钉住「会话级发言调度运行态」的三个产品口径：
-//  1. 环维护成员：注册表顺序变一次，链表跟着变一次；
-//  2. user 席位：缺省 queued（只有队列里有输入才占位），不阻塞 agent 循环；
+//  1. 环维护成员：注册表顺序变一次，链表跟着变一次；环成员 = 顺序 − user；
+//  2. user 不在环里：它的发言机会是回合尾消息队列被整批提升为下一轮（chat 轮次），
+//     不是环里的一个排班位——队友的「下一个」永远不会是 user；
 //  3. 逃生路径：轮次上限 / 连续无进展 / 无执行者 / 空环 / 外部显式停止。
 
 func newTestRuntime(order []string, policy string, opts RuntimeOptions) *Runtime {
@@ -17,20 +18,21 @@ func newTestRuntime(order []string, policy string, opts RuntimeOptions) *Runtime
 }
 
 // TestRuntimeMaintainsRingFromRegistryOrder：环里的员工就是注册表顺序里的员工
-// （顺序的唯一事实是 lifecycle；环只是运行时的镜像，不新增第二份）。
+// （顺序的唯一事实是 lifecycle；环只是运行时的镜像 + 「减去 user」的一次投影，
+// 不新增第二份顺序事实）。
 func TestRuntimeMaintainsRingFromRegistryOrder(t *testing.T) {
 	runtime := newTestRuntime([]string{"user", "main", "tl"}, dto.OrderPolicyGoalLoop, RuntimeOptions{})
-	if got := runtime.Order(); strings.Join(got, ",") != "user,main,tl" {
-		t.Fatalf("环初始顺序 = %v", got)
+	if got := runtime.Order(); strings.Join(got, ",") != "main,tl" {
+		t.Fatalf("环初始顺序 = %v（user 不落环）", got)
 	}
 	// 增加员工：reviewer 入职后顺序同步，且因没有执行者被跳过（不占位）。
 	runtime.SyncOrder([]string{"user", "main", "tl", "reviewer"}, nil, dto.OrderPolicyGoalLoop)
-	if got := strings.Join(runtime.Order(), ","); got != "user,main,tl,reviewer" {
+	if got := strings.Join(runtime.Order(), ","); got != "main,tl,reviewer" {
 		t.Fatalf("增加员工后环顺序 = %q", got)
 	}
 	// 摘除员工：环跟着变。
 	runtime.SyncOrder([]string{"user", "main", "tl"}, nil, dto.OrderPolicyGoalLoop)
-	if got := strings.Join(runtime.Order(), ","); got != "user,main,tl" {
+	if got := strings.Join(runtime.Order(), ","); got != "main,tl" {
 		t.Fatalf("摘除员工后环顺序 = %q", got)
 	}
 }
@@ -48,56 +50,39 @@ func TestRuntimeRingsThroughExecutorsOnly(t *testing.T) {
 		spoke = append(spoke, request.RoleName)
 	}
 	if got := strings.Join(spoke, ","); got != "main,tl,main" {
-		t.Fatalf("环绕次序 = %q（user 无排队输入应被跳过、reviewer 无执行者应被跳过）", got)
+		t.Fatalf("环绕次序 = %q（reviewer 无执行者应被跳过；环里没有 user）", got)
 	}
 	if unexecuted := runtime.Snapshot().Unexecuted; len(unexecuted) != 1 || unexecuted[0] != "reviewer" {
 		t.Fatalf("无执行者角色应如实报出: %v", unexecuted)
 	}
 }
 
-// TestRuntimeUserSeatPolicy：user 到底算不算环里的一环，由席位口径决定——
-// queued（缺省）只在有排队输入时占位；member 每轮固定占位；absent 永不占位。
-func TestRuntimeUserSeatPolicy(t *testing.T) {
-	queued := newTestRuntime([]string{"user", "main", "tl"}, dto.OrderPolicyGoalLoop, RuntimeOptions{})
-	if next, _ := queued.Next(); next.RoleName != "main" {
-		t.Fatalf("queued 口径下 user 无排队输入应被跳过，得到 %q", next.RoleName)
-	}
-	// 链表顺序决定"下一个谁"：user 是环头，一轮走到环尾后自然轮到 user。
-	queued.NoteUserQueued(true)
-	if next, ok := queued.Next(); !ok || next.RoleName != "tl" {
-		t.Fatalf("继续环绕应先到 tl，得到 %q ok=%v", next.RoleName, ok)
-	}
-	if next, ok := queued.Next(); !ok || next.RoleName != "user" {
-		t.Fatalf("绕回环头时排队输入应让 user 占位，得到 %q ok=%v", next.RoleName, ok)
-	}
-	if next, ok := queued.Next(); !ok || next.RoleName != "main" {
-		t.Fatalf("user 发言一次后排队输入应被消费（再绕一圈不再占位），得到 %q ok=%v", next.RoleName, ok)
-	}
-
-	member := newTestRuntime([]string{"user", "main", "tl"}, dto.OrderPolicyGoalLoop, RuntimeOptions{UserSeat: UserSeatMember})
-	first, _ := member.Next()
-	if first.RoleName != "user" {
-		t.Fatalf("member 口径下 user 应每轮固定占位，得到 %q", first.RoleName)
-	}
-
-	absent := newTestRuntime([]string{"user", "main", "tl"}, dto.OrderPolicyGoalLoop, RuntimeOptions{UserSeat: UserSeatAbsent})
-	absent.NoteUserQueued(true)
-	if next, _ := absent.Next(); next.RoleName != "main" {
-		t.Fatalf("absent 口径下 user 永不占位（即使有排队输入），得到 %q", next.RoleName)
-	}
-}
-
-// TestUserSeatPolicyDerivesFromOrderPolicy：user 席位口径由 order_policy 推导，
-// 不新增第二个人工配置项（两处开关会打架）。
-func TestUserSeatPolicyDerivesFromOrderPolicy(t *testing.T) {
-	if got := UserSeatPolicyFor(dto.OrderPolicyGoalLoop); got != UserSeatQueued {
-		t.Fatalf("goal_loop → %q, want queued", got)
-	}
-	if got := UserSeatPolicyFor(dto.OrderPolicyUserMainDecided); got != UserSeatMember {
-		t.Fatalf("user_main_decided → %q, want member", got)
-	}
-	if got := UserSeatPolicyFor(dto.OrderPolicyScheduledOnly); got != UserSeatAbsent {
-		t.Fatalf("scheduled_only → %q, want absent", got)
+// TestRuntimeRingExcludesUser：环里没有 user——user 的发言机会是回合尾消息队列
+// 被整批提升为下一轮（chat 轮次），不是一个排班位。
+//
+// 这是产品口径的硬断言：队友的「下一个」永远不会是 user。order_roles 仍然含
+// user（它是群聊的起手与收口，spec 校验也要求在场），环只是它减去 user 的投影，
+// 且与顺序策略无关（不新增第二个人工开关）。
+func TestRuntimeRingExcludesUser(t *testing.T) {
+	for _, policy := range []string{dto.OrderPolicyGoalLoop, dto.OrderPolicyUserMainDecided, dto.OrderPolicyScheduledOnly} {
+		runtime := newTestRuntime([]string{"user", "main", "tl"}, policy, RuntimeOptions{})
+		if got := strings.Join(runtime.Order(), ","); got != "main,tl" {
+			t.Fatalf("order_policy=%s 环成员 = %q，want main,tl（user 不落环）", policy, got)
+		}
+		var spoke []string
+		for i := 0; i < 3; i++ {
+			request, ok := runtime.Next()
+			if !ok {
+				t.Fatalf("order_policy=%s 第 %d 次环绕没拿到发言者", policy, i+1)
+			}
+			spoke = append(spoke, request.RoleName)
+		}
+		if got := strings.Join(spoke, ","); got != "main,tl,main" {
+			t.Fatalf("order_policy=%s 环绕次序 = %q，want main,tl,main（环里没有 user）", policy, got)
+		}
+		if next := runtime.Snapshot().NextRole; next == string(dto.RoleKindUser) {
+			t.Fatalf("order_policy=%s 快照的下一个发言者不应是 user", policy)
+		}
 	}
 }
 
@@ -159,6 +144,15 @@ func TestRuntimeEscapeNoExecutor(t *testing.T) {
 	if stopped, reason := empty.Stopped(); !stopped || reason != StopEmptyRing {
 		t.Fatalf("空环应显式收束，得到 stopped=%v reason=%q", stopped, reason)
 	}
+
+	// user 不落环：只有 user 的会话没有发言环（用户经队列提升发言，不走环）。
+	userOnly := newTestRuntime([]string{"user"}, dto.OrderPolicyGoalLoop, RuntimeOptions{})
+	if _, ok := userOnly.Next(); ok {
+		t.Fatal("user 不落环，只有 user 的会话不应返回发言者")
+	}
+	if stopped, reason := userOnly.Stopped(); !stopped || reason != StopEmptyRing {
+		t.Fatalf("user 不落环后只剩空环，应显式收束，得到 stopped=%v reason=%q", stopped, reason)
+	}
 }
 
 // TestRuntimeEscapeExternalStop：用户中断 / TL 裁决收口 / goal.gov_break 走同一
@@ -213,10 +207,10 @@ func TestRuntimeResetRevivesEscapeState(t *testing.T) {
 		t.Fatal("Reset 后环应能继续发牌")
 	}
 	if request.RoleName != "main" {
-		t.Fatalf("Reset 后第一个可发言成员 = %q，want main（user 按 queued 席位跳过）", request.RoleName)
+		t.Fatalf("Reset 后第一个可发言成员 = %q，want main（环里没有 user 的排班位）", request.RoleName)
 	}
 	// Reset 不是重建环：顺序与成员必须原样保留（顺序事实只有 lifecycle 一份）。
-	if got := strings.Join(runtime.Order(), ","); got != "user,main,tl" {
+	if got := strings.Join(runtime.Order(), ","); got != "main,tl" {
 		t.Fatalf("Reset 不应改动环顺序，得到 %q", got)
 	}
 	// Reset 之后轮次上限重新计时（逃生记账按"这一次治理循环"独立）。

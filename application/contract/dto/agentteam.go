@@ -137,8 +137,8 @@ type TeamView struct {
 // lifecycle.order_policy/order_roles 一份，这里只是运行态投影，不落盘）。
 type TeamSchedule struct {
 	OrderPolicy string `json:"order_policy,omitempty"`
-	// Order 是调度器当前维护的链表顺序（与 TeamView.OrderRoles 同源，但反映
-	// 运行态对齐后的实际次序）。
+	// Order 是调度器当前维护的**发言环成员**（= order_roles − user：user 的发言
+	// 机会是回合尾消息队列被整批提升为下一轮，不占环内座位；见 agentteam.ringOrder）。
 	Order []string `json:"order,omitempty"`
 	// NextRole 是下一次该发言的角色（空 = 环内没有人可以发言）。
 	NextRole string `json:"next_role,omitempty"`
@@ -153,9 +153,6 @@ type TeamSchedule struct {
 	// no_executor / external_break / verdict）。
 	Stopped    bool   `json:"stopped"`
 	StopReason string `json:"stop_reason,omitempty"`
-	// UserSeat 是 user 是否作为循环里的一环：queued（默认，仅当 user 有排队输入
-	// 才占位）/ member（与员工同权，每轮固定占位）/ absent（不占位）。
-	UserSeat string `json:"user_seat,omitempty"`
 	// Unexecuted 是环内没有运行时执行者的角色（占位但不会自动产生回合）。
 	Unexecuted []string `json:"unexecuted,omitempty"`
 	// Prefix 是「team work 起点 → 当前位置」的正文前缀（下一个发言成员拿到的
@@ -176,14 +173,6 @@ type TeamSchedule struct {
 	PrefixTailSeq     uint64 `json:"prefix_tail_seq,omitempty"`
 	PrefixNeedCompact bool   `json:"prefix_need_compact,omitempty"`
 }
-
-// User seat 口径：user 可以通过消息队列插入会话（queued），也可以与员工同权
-// 固定占位（member），或完全不参与 agent 循环（absent）。
-const (
-	UserSeatQueued = "queued"
-	UserSeatMember = "member"
-	UserSeatAbsent = "absent"
-)
 
 // RoleInstantiation 是「一步实例化一个角色」（员工入职）的可观测回执：配置怎么落、
 // 会话建没建、进不进工作顺序、谁在运行时执行它。没有执行者的角色在这里就说清楚，

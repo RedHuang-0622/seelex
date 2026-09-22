@@ -208,9 +208,6 @@ func (model Model) teamPanelLines() []string {
 		if schedule.NextRole != "" {
 			parts = append(parts, "下一个 "+schedule.NextRole)
 		}
-		if schedule.UserSeat != "" {
-			parts = append(parts, "user 席位 "+schedule.UserSeat)
-		}
 		parts = append(parts, fmt.Sprintf("无进展 %d/%d", schedule.NoProgress, schedule.NoProgressLimit))
 		if schedule.Stopped {
 			parts = append(parts, "已收束("+fallback(schedule.StopReason, "—")+")")

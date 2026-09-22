@@ -99,6 +99,116 @@ func (router *Router) LifecycleRecoverWorkspace(projectID, sessionID string) (in
 	return repository.lifecycleRecoverWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
 }
 
+// PendingMessageTailWorkspace 探测 message 通道的草稿尾部（seq > head
+// last_seq 的未提交行）：只读，不发布、不清理。non-v8 返回 ok=false。
+func (router *Router) PendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return PendingTailReport{}, false, nil
+	}
+	return repository.pendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+}
+
+// RecoverPendingMessageTailWorkspace 显式恢复草稿尾部（L2）：基座一致时
+// 把未提交行提升为已发布（原子发布 head）；基座断裂时只报告不发布。
+// 返回报告（Status = clean/recovered/gap）；non-v8 返回 ok=false。
+func (router *Router) RecoverPendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return PendingTailReport{}, false, nil
+	}
+	return repository.recoverPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+}
+
+// DiscardPendingMessageTailWorkspace 显式清理草稿尾部（等价于提交路径的
+// reap，但可观测、可审计）。返回被丢弃的行数；non-v8 返回 ok=false。
+func (router *Router) DiscardPendingMessageTailWorkspace(projectID, sessionID string) (PendingTailReport, bool, error) {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return PendingTailReport{}, false, nil
+	}
+	return repository.discardPendingTailWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+}
+
+// QueueEnqueueWorkspace 把一条排队输入镜像落盘（durable queue 写入侧；
+// 同 requestID 重放幂等）。非 v8 无操作。
+func (router *Router) QueueEnqueueWorkspace(projectID, sessionID, requestID, content string) error {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	_, err := repository.queueEnqueueWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, requestID, content)
+	return err
+}
+
+// QueueMarkConsumedWorkspace 把 lifecycle 队列中全部待发送项标记为被 turnID
+// 这一轮消费（提升批次时调用；非 v8 无操作）。
+func (router *Router) QueueMarkConsumedWorkspace(projectID, sessionID, turnID string) error {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	_, err := repository.queueMarkConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+	return err
+}
+
+// QueueConfirmConsumedWorkspace 该轮 message 已发布 → 消费项出队。
+func (router *Router) QueueConfirmConsumedWorkspace(projectID, sessionID, turnID string) error {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	_, err := repository.queueConfirmConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+	return err
+}
+
+// QueueFailConsumedWorkspace 该轮未发布（失败）→ 消费项内容回草稿并出队。
+func (router *Router) QueueFailConsumedWorkspace(projectID, sessionID, turnID string) error {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	_, err := repository.queueFailConsumedWorkspace(Key{ProjectID: projectID, SessionID: sessionID}, turnID)
+	return err
+}
+
+// QueueItemsWorkspace 读 lifecycle 队列投影（UI/诊断）。
+func (router *Router) QueueItemsWorkspace(projectID, sessionID string) ([]QueueItem, bool, error) {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return nil, false, nil
+	}
+	return repository.queueItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+}
+
+// QueueRecoverItemsWorkspace 重启恢复队列并返回条目级结果（重发项/出队项/
+// 仍在队列项）。
+func (router *Router) QueueRecoverItemsWorkspace(projectID, sessionID string) (QueueRecoveryReport, bool, error) {
+	router.mu.RLock()
+	repository, ok := router.jsonRepositoryLocked()
+	router.mu.RUnlock()
+	if !ok {
+		return QueueRecoveryReport{}, false, nil
+	}
+	return repository.queueRecoverItemsWorkspace(Key{ProjectID: projectID, SessionID: sessionID})
+}
+
 // ---------- 栈通道（my_design §2.4/§3.2）----------
 
 // StackPush 把一批条目压入指定栈（batchID 为空 = 本次入栈自成一批）。

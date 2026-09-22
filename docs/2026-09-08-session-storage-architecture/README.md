@@ -92,6 +92,8 @@ guide 只做版本判定，路径由模块名推导；读者路径 = guide → �
 - R2（LLM 装配）：最新 compact 摘要 + frame.message_to 之后的事件行 + 最近 K 条尝试，
   纯函数、不读 EVENT；契约见 my_design §5（用例编号 = §5.6 的 `R2-*` 与附录 D.3 的 `T-R2-*`）；
 - R3（断点续跑）：interrupted 锚点后的尾段（EVENT 只用于定位，不改变正确性）。
+- 中断恢复**顺序**（L1 发布点 → L2 草稿尾部 seq_draft → L3 在飞子代理 → L4 输入侧，
+  含基座校验与拒绝条件）见 [recovery-order.md](./recovery-order.md)（2026-09-22）。
 
 ## 5. 生命周期与容量
 

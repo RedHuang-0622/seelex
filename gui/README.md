@@ -165,10 +165,12 @@ Bridge 不保存 `currentSessionID` 副本。顺序的唯一事实是会话
 `AgentTeamInstantiateRole`（与 `team.put_role` 同一条幂等覆盖语义，区别只在于它还
 负责建角色会话并回报执行者绑定），「删除员工」走 `AgentTeamDeleteRole`，顺序编辑走
 `AgentTeamSetOrder`。`dto.TeamView.schedule` 是**运行时**的发言调度投影
-（`application/core/agentteam/runtime.go`）：链表顺序 → 下一个该发言的角色、
-轮次/上限、user 席位口径（`queued`/`member`/`absent`）与逃生状态
+（`application/core/agentteam/runtime.go`）：发言环成员（= `order_roles` − `user`）
+→ 下一个该发言的角色、轮次/上限与逃生状态
 （`round_limit`/`no_progress`/`no_executor`/`empty_ring`/`external_break`）。
-前端 `agent-team-view.js` 的「发言调度」块只渲染后端事实，不下发也不缓存顺序。
+`user` 不在环里（它的发言机会是回合尾消息队列被整批提升为下一轮），所以面板的
+「下一个」永远不会指向用户；前端 `agent-team-view.js` 的「发言调度」块只渲染后端事实，
+不下发也不缓存顺序。
 
 **员工装配（提示词/权限）与团队库（2026-09-21）**：
 

@@ -115,7 +115,13 @@ func (service *Service) forkSessionLocked(parentID string, request model.ForkReq
 	// ProviderHistory 是可重建缓存：子会话冷恢复由事件流/record 重建，
 	// 不继承父的 provider 缓存（避免消息↔事件坐标映射的不确定性）。
 	// ToolResults 为父通道全量物理复制（含 compressed:<segment_id> 原文）。
-	if err := forkPort.SaveSessionSnapshotWorkspace(location.WorkspaceID, childID, nil, forkContext.Record, forkContext.Events, forkContext.ToolResults); err != nil {
+	// A3 单写者：fork 首次落盘子会话是第 8 个写点——它不走
+	// PersistCurrentSession（子会话此时还没有可读 record，无需 record 重建），
+	// 但仍必须与其它写点共用同一把会话落盘单写者：否则 fork 快照写会与该子会话
+	// 首轮落盘交错（后写的 record/事件覆盖先写的）。
+	if err := service.components.sessions.RunSessionWrite(childID, func() error {
+		return forkPort.SaveSessionSnapshotWorkspace(location.WorkspaceID, childID, nil, forkContext.Record, forkContext.Events, forkContext.ToolResults)
+	}); err != nil {
 		return "", fmt.Errorf("write forked session snapshot: %w", err)
 	}
 	if err := forkPort.SaveContextStateWorkspace(location.WorkspaceID, childID, forkContext.Context); err != nil {

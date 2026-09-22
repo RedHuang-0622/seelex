@@ -275,26 +275,6 @@ func (store *storeEngine) firstShardUserInputs(key Key, limit int) ([]string, bo
 	return inputs, true, nil
 }
 
-// carryMessageTitle 在 head 重建/自愈路径上原样取回标题：只做"读文件 +
-// 解 payload"，不做 schema/checksum 校验、不触发自愈重建（否则会递归）。
-// 拿不到（文件缺失/结构损坏）返回空串——重建是修复路径，宁可不带标题也不
-// 阻断修复。
-func (store *storeEngine) carryMessageTitle(key Key) string {
-	data, err := os.ReadFile(store.modulePath(key, moduleMessage))
-	if err != nil {
-		return ""
-	}
-	var envelope moduleHeadFile
-	if json.Unmarshal(data, &envelope) != nil {
-		return ""
-	}
-	head, err := decodeHeadPayload[messageHead](envelope)
-	if err != nil {
-		return ""
-	}
-	return head.Meta.Summary
-}
-
 // messageCommit 把一提交（可含多行事件行）append 到 message 通道并原子
 // 发布 message.json。rows 可为空（空 commit 只确保布局/索引存在）。
 //
@@ -424,9 +404,9 @@ func (store *storeEngine) forgetMessageAnchor(key Key) {
 	store.locks(key).anchor.Store(nil)
 }
 
-// readMessageHeadLocked 是 readMessageHead 的锁内版本。
+// readMessageHeadLocked 是 readMessageHead 的锁内版本（调用方持 messageMu）。
 func (store *storeEngine) readMessageHeadLocked(key Key) (messageHead, error) {
-	headFile, err := store.readModuleHeadFile(key, moduleMessage)
+	headFile, err := store.readModuleHeadFileLocked(key, moduleMessage)
 	if errors.Is(err, fs.ErrNotExist) {
 		return emptyMessageHead(key), nil
 	}
@@ -565,21 +545,33 @@ func decodeMessageRows(data []byte) []Event {
 	return rows
 }
 
-// deltaRowsLocked 计算应 append 的行：Seq=0 → 引擎续号；显式 Seq 必须
-// 严格递增且 > head.LastSeq。返回行均已打上 commit_id。
+// deltaRowsLocked 计算应 append 的行（提交路径）：基准 = 发布点。调用方已先
+// reap 未发布尾（reapUnpublishedLocked），因此发布点 == 物理末行——提交路径的
+// 续号基准与草稿路径（appendDraftRowsLocked，基准 = 物理末行）在各自的先决条件
+// 下等价，两处共用同一套分配规则 assignRowSeqs。
 func (store *storeEngine) deltaRowsLocked(head messageHead, rows []Event, commitID string) ([]Event, error) {
+	return assignRowSeqs(rows, head.LastSeq, commitID)
+}
+
+// assignRowSeqs 是唯一的 seq 分配器：base = 该写入路径的续号基准（已落盘的
+// 物理末行 seq），Seq=0 → base 之后逐个续号；显式 Seq 必须严格递增且 > base
+// （≤ base 视为重复提交 = 幂等空操作，跳过）。返回行均已打上 commit_id。
+//
+// 「续号基准脱离发布点」的意义：逐步 append 的草稿行（seq > 发布点）已经是物理
+// 末行，后续写入必须从它们之后续号，否则草稿行与新一轮行会在同一 seq 上重叠。
+func assignRowSeqs(rows []Event, base uint64, commitID string) ([]Event, error) {
 	if len(rows) == 0 {
 		return []Event{}, nil
 	}
-	next := head.LastSeq
+	next := base
 	delta := make([]Event, 0, len(rows))
 	for _, row := range rows {
 		if row.Seq == 0 {
 			next++
 			row.Seq = next
 		} else {
-			if row.Seq <= head.LastSeq {
-				// 重复提交（head 已包含该行）= 幂等空操作，跳过。
+			if row.Seq <= base {
+				// 重复提交（基准已包含该行）= 幂等空操作，跳过。
 				continue
 			}
 			if row.Seq <= next {
@@ -594,18 +586,57 @@ func (store *storeEngine) deltaRowsLocked(head messageHead, rows []Event, commit
 }
 
 // appendRowsLocked 把 delta append 进当前分片（满片滚动到新文件），并
-// 更新 head（分片索引/计数/水位）。调用方持 messageMu；head 的发布由调用
+// 更新 head（分片索引/计数/发布点）。调用方持 messageMu；head 的发布由调用
 // 方在返回后执行。
+//
+// 先决条件：提交路径在调用前已 reap（reapUnpublishedLocked 保证物理末分片
+// == head 索引末分片）；草稿路径不满足该先决条件，它用同一个写入器但不登记
+// head（appendDraftRowsLocked）。
 func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []Event) error {
-	dir := store.messageDir(key)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if len(delta) == 0 {
+		return nil
+	}
+	written, err := store.writeShardRowsLocked(key, delta)
+	if err != nil {
 		return err
 	}
-	path := ""
-	if len(head.Shards) > 0 {
-		last := head.Shards[len(head.Shards)-1]
-		path = filepath.Join(dir, last.Path)
+	for index, info := range written {
+		if index == 0 && len(head.Shards) > 0 && head.Shards[len(head.Shards)-1].Path == info.Path {
+			// 续写既有末分片：就地更新它的区间/计数/摘要。
+			head.Shards[len(head.Shards)-1] = info
+			continue
+		}
+		head.Shards = append(head.Shards, info)
 	}
+	last := delta[len(delta)-1]
+	head.TotalRows += uint64(len(delta))
+	head.LastSeq = last.Seq
+	if last.MessageID != "" {
+		head.LastMessageID = last.MessageID
+	}
+	return nil
+}
+
+// writeShardRowsLocked 是唯一的分片写入器：把 delta 顺序写进**物理末分片**
+// （满片滚动到新文件，新文件按首/末 seq 命名），返回被写入的分片描述（按写入
+// 顺序；第一项可能是"继续写"的既有分片）。
+//
+// 它不读写 head：调用方决定这些分片是登记进 head（发布）还是只留在物理尾
+// （草稿，见 appendDraftRowsLocked）。
+func (store *storeEngine) writeShardRowsLocked(key Key, delta []Event) ([]shardInfo, error) {
+	dir := store.messageDir(key)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	last, err := store.physicalLastShardLocked(key)
+	if err != nil {
+		return nil, err
+	}
+	path := ""
+	if last != "" {
+		path = filepath.Join(dir, last)
+	}
+	written := make([]shardInfo, 0, 1)
 	for len(delta) > 0 {
 		if path == "" {
 			// 新分片名以实际写入的首/末 seq 命名（含端点）。
@@ -617,7 +648,7 @@ func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []E
 		}
 		existing, err := readMessageRowsFileAt(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(existing) >= store.settings.shardRows() {
 			path = ""
@@ -629,35 +660,33 @@ func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []E
 			batch = batch[:room]
 		}
 		if err := appendMessageRowsFile(path, batch); err != nil {
-			return err
+			return nil, err
 		}
 		all := append(existing, batch...)
-		shardPath := filepath.Base(path)
-		if len(head.Shards) > 0 && filepath.Clean(path) == filepath.Clean(filepath.Join(dir, head.Shards[len(head.Shards)-1].Path)) {
-			head.Shards[len(head.Shards)-1] = shardInfo{
-				Path:    shardPath,
-				FromSeq: all[0].Seq,
-				ToSeq:   all[len(all)-1].Seq,
-				Count:   len(all),
-				SHA256:  fileSHA256(path),
-			}
-		} else {
-			head.Shards = append(head.Shards, shardInfo{
-				Path:    shardPath,
-				FromSeq: all[0].Seq,
-				ToSeq:   all[len(all)-1].Seq,
-				Count:   len(all),
-				SHA256:  fileSHA256(path),
-			})
-		}
-		head.TotalRows += uint64(len(batch))
-		head.LastSeq = all[len(all)-1].Seq
-		if last := all[len(all)-1]; last.MessageID != "" {
-			head.LastMessageID = last.MessageID
-		}
+		written = append(written, shardInfo{
+			Path:    filepath.Base(path),
+			FromSeq: all[0].Seq,
+			ToSeq:   all[len(all)-1].Seq,
+			Count:   len(all),
+			SHA256:  fileSHA256(path),
+		})
 		delta = delta[len(batch):]
 	}
-	return nil
+	return written, nil
+}
+
+// physicalLastShardLocked 返回物理末尾分片文件名（from_seq 最大的分片；无分片
+// = ""）。草稿行可能已经在 head 未索引的新分片上，因此存在草稿时"物理末分片"
+// 与"索引末分片"不同——写入器必须接在物理末分片之后，否则会覆盖草稿。
+func (store *storeEngine) physicalLastShardLocked(key Key) (string, error) {
+	names, err := store.messageShardFilesLocked(key)
+	if err != nil {
+		return "", err
+	}
+	if len(names) == 0 {
+		return "", nil
+	}
+	return names[len(names)-1], nil
 }
 
 func readMessageRowsFileAt(path string) ([]Event, error) {

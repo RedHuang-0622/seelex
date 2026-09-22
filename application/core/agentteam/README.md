@@ -134,20 +134,25 @@ sequenceDiagram
 | 员工提示词（`RoleSpec.SystemPrompt`）→ ADVISOR 回合 | **已接线**：装配根把"读已装配提示词"的读面注入 Runtime，ADVISOR 回合用它替换内置角色设定；**输出契约永远追加**（goal 域要解析 `TLDirective`，不能被员工提示词改掉输出格式） | `seelebridge/runtime_role_prompt.go`（`SetRolePromptProvider`）、`seelebridge/runtime_goal_tl.go`（`advisorSystemPrompt`）、`main.go` 装配点 |
 | 员工权限（`RoleSpec.ToolsPolicy`） | **登记 + 写入侧枚举校验 + 运行时承载体已就位**：值随角色注册表落盘、在员工栏与编辑面板可见；写入侧经 `NormalizeRole` 只接受 `readonly`/`readwrite`/`full`/空（枚举外的拼写错误会被**显式拒绝**——运行时把未识别值映射成 root 全权，静默接受等于把拼写错误升级为最高权限）。真正的工具拦截在 seelebridge `PermissionGate`；**按角色拦截的承载体 = 角色回合执行体**（`seelebridge.RunRoleTurn`：开角色会话时分配 `emp_<角色名>` 主体，回合起手按构造把主体放进 ctx，工具面据此收窄）| `application/core/agentteam/spec.go`（`ValidToolPolicy`）、`application/contract/dto/agentteam.go`（`ToolPolicy*`）、`seelebridge/tools/permission_policy.go`（`ClassForToolsPolicy`）、`seelebridge/runtime_role_turn.go`（`RunRoleTurn`）、`seelebridge/tools/registry_state.go`（`PermissionGate`） |
 | 员工提示词优化 | **已接线**：一次有界 LLM 回合（`RolePromptPort`），只产出候选文本 + 改动理由，不落盘、不写会话消息；落盘仍走入职/保存 | `seelebridge/runtime_role_prompt.go`（`OptimizeRolePrompt`）、`application/core/agentteam_service.go`（`AgentTeamOptimizeRolePrompt`） |
-| `TurnScheduler`（channel + 链表轮转 / team work 前缀） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序；生产实际消费的是 `Order()`（座位存在性）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Next()`/`Advance()` 没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）；真正驱动轮次的是 goal 治理的座位循环（见上一行「运行时轮次驱动」）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者）与 user 席位口径 | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Next`/`Advance` 的行为用例）；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（按顺序装座位 + `NoteTurn` 逃生记账） |
+| `TurnScheduler`（channel + 链表轮转 / team work 前缀） | **部分接线**：`Runtime`（会话级发言调度运行态）持有它并同步注册表顺序（环成员 = `order_roles` − `user`）；生产实际消费的是 `Order()`（座位存在性）、`NoteTurn()`（逃生记账）、`SyncOrder()` 与 `Snapshot()`，**`Next()`/`Advance()` 没有生产消费者**（"下一个谁发言"是表头扫描的静态投影，不随轮转变化）；真正驱动轮次的是 goal 治理的座位循环（见上一行「运行时轮次驱动」）。含三条**逃生路径**（轮次上限 / 连续无进展 / 无执行者） | 本包 `runtime.go` + `scheduler.go`；守卫用例 `scheduler_wiring_test.go`、`runtime_test.go`（`Next`/`Advance` 的行为用例、`TestRuntimeRingExcludesUser`）；消费点 `application/core/agentteam_service.go`（`teamRuntimeFor`）与 `goal_coordinator.go`（按顺序装座位 + `NoteTurn` 逃生记账） |
 | `@` 召唤的"开工"判据 | **已接线（2026-09-17）**：`@<团队> <附言>` 除装配外还落一个 goal（附言 = 目标陈述），主会话这一轮即 EXEC 座位、回合尾 Governor 让 teammate 上场；不带附言仍只装配（待命） | `application/core/input_team.go`（`beginGoalForSummon`）、用例 `application/core/input_team_work_test.go` |
 | 团队离场（干完就走人） | **已接线（2026-09-17）**：目标收口（栈里没有 active goal）→ 删角色注册表 + 复位顺序；角色会话子树保留（装配幂等键 `(team_id, role_name)` 不变，再次召唤复用同一棵） | `application/core/agentteam/factory.go`（`Dismiss`/`DismissPort`）、`sessionstore/team_registry.go`（`removeTeamRegistry`）、`application/core/agentteam_service.go`（`DismissAgentTeam`）、`application/core/goal_service.go`（`dismissTeamWhenGoalClosed`） |
 | `review-team` / `research-team` 的成员 | **只有装配、没有执行者**：`reviewer`/`researcher` 建得出角色会话，但不会自动产生回合（`TeamView.DesignNotice` 会明说） | `factory.go`（`RolesWithExecutor` / `unexecutedRoles`） |
 
-结论口径（2026-09-16 复核）：`TurnScheduler` 的链表顺序（`Move`/`Remove`/`Restore`）与 `SetPrefix` 现在有生产消费者：
-`Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序同步成环；生产**实际调用**的只有 `Order()`（`newGovernor` 据此决定 main/tl 座位要不要长出来）与 `NoteTurn()`（`AdvanceAfterChat` 据此收束环）与 `NoteWorkDetail()`（同一次 `AdvanceAfterChat` 把本轮正文装配成 team work 前缀 → `SetPrefix` → 交班时下发给下一名发言成员；唯一写入口在后端，前端只能 `Snapshot().Prefix` 只读查看），`Next()` / `Advance()` 没有生产调用者；
+结论口径（2026-09-17 复核）：`TurnScheduler` 的链表顺序（`Move`/`Remove`/`Restore`）与 `SetPrefix` 现在有生产消费者：
+`Runtime`（`runtime.go`，2026-09-15 落地）把注册表顺序**减去 user** 同步成环（环成员 = 发言者集合，见 `ringOrder`）；生产**实际调用**的只有 `Order()`（`newGovernor` 据此决定 main/tl 座位要不要长出来）与 `NoteTurn()`（`AdvanceAfterChat` 据此收束环）与 `NoteWorkDetail()`（同一次 `AdvanceAfterChat` 把本轮正文装配成 team work 前缀 → `SetPrefix` → 交班时下发给下一名发言成员；唯一写入口在后端，前端只能 `Snapshot().Prefix` 只读查看），`Next()` / `Advance()` 没有生产调用者；
 前端「工作顺序」编辑既改持久事实（`lifecycle`）也即时同步环，因此"下一个谁发言"不是排班结果（它是把表头第一格扫出来的静态投影）；真正让角色发言的仍是 goal 治理的座位循环，逃生记账只属于**当前这一轮 goal**（新 goal 上线时 `goalCoordinator.Begin` 调 `Runtime.Reset()`，否则上一轮的逃生结论会让新 goal 的 ADVISOR 永久静默）。
 
-**user 算不算环里的一环**（2026-09-15 定稿）：user 永远在 `order_roles` 里（它是群聊的起手与收口），
-但"在顺序里"≠"每轮固定占位"。缺省口径 `queued`——user 通过**消息队列**插话，只有队列里存在
-未消费的 user 输入时才占位；否则调度器跳过 user 继续转，不因为"人还没说话"卡住 agent 循环。
-口径由 `order_policy` 推导，不新增第二个配置项：`goal_loop → queued`、`user_main_decided → member`
-（与员工同权固定占位）、`scheduled_only → absent`（只有定时 agent 插话）。
+**user 不在环里**（2026-09-17 定稿）：user 永远在 `order_roles` 里（它是群聊的起手与收口，
+`resolveOrderRoles` 的校验也要求它必须在场），但**顺序事实 ≠ 环成员**：环成员 = `order_roles` − `user`
+（见 `runtime.go` 的 `ringOrder`）。
+
+为什么删掉旧的「user 席位口径」：曾经有 `queued`/`member`/`absent` 三态（由 `order_policy` 推导），
+但三态都建立在同一个错误前提上——把 user 当成环里的一个排班位。后果是**队友的「下一个」会指向
+user**（环头扫描会落到它），与「其余时间都是 agent teammate 在互动」的产品口径直接矛盾。现在 user
+的发言机会只有一个：每次 react loop 收尾时**消息队列被整批提升为下一轮**（`chat.go` 的队列提升
+点）。它是一个动作，不是一个座位；环不需要知道队列状态，`NoteTeamUserQueued`/`noteTeamUserSeat`
+两条通知路径随之删除。
 
 **逃生路径**（不能不休止地转）：① 轮次上限 `round_limit`（缺省 24）；② 连续无进展上限 `no_progress`；
 ③ 环内没有任何有执行者的角色 `no_executor`；④ 空环 `empty_ring`；⑤ 外部显式停止 `external_break`
@@ -164,7 +169,7 @@ sequenceDiagram
 | `library.go` | 团队库读写面（条目 upsert/delete/`Entry`）与投影（`SpecOfEntry`/`EntryFromRegistry`/`EntryFromSpec`），含共用口径 `IsBuiltinRole`/`OrderRolesOf` |
 | `global.go` | `Global`：全局母本（员工库 + 默认顺序）读写面与规整（`NormalizeEmployeeLibrary`/`NormalizeDefaultOrder`） |
 | `scheduler.go` | `TurnScheduler` 轮转原语（链表轮转 + channel 投递） |
-| `runtime.go` | `Runtime`：会话级发言调度运行态（顺序同步 + user 席位 + 逃生路径），投影 `dto.TeamSchedule` |
+| `runtime.go` | `Runtime`：会话级发言调度运行态（环成员同步 = 顺序 − user、逃生路径、team work 前缀载体），投影 `dto.TeamSchedule` |
 | `agentteam_test.go` | 规整/工厂幂等/第二团队（AT8）/定时分区/注册表用例 |
 
 ## 核心实现
@@ -227,7 +232,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 
 ## Review 指南
 
-- 顺序是不是只落 `lifecycle`？有没有在别处复制一份 `order_roles`？
+- 顺序是不是只落 `lifecycle`？有没有在别处复制一份 `order_roles`（环成员是它的投影，不是第二份事实）？
 - 定时角色有没有漏进 `order_roles`？subagent 有没有被当成团队成员？
 - 角色会话号是否稳定（`(team_id, role_name)`）？重复装配会不会建出第二棵子树？
 - `View` 是否偷偷写盘（读路径必须零写入）？
@@ -235,6 +240,7 @@ presence 与 `message head.floor` 提供，不在本包落盘；`Registry.View`/
 - `floor_role` 是不是每次读都重新取（有没有把运行态值缓存/落盘）？读失败是否被静默吞掉？
 - 新增/删除有执行者的角色时，`RolesWithExecutor` 与 `DesignNotice` 是否同步（别让 UI 误以为有人干活）？
 - `scheduler.go` 被改动时，README「接线现状」表与 `scheduler_wiring_test.go` 是否同步？
+- 环成员是不是仍然等于「`order_roles` − `user`」？有没有哪条路径把 user 放回环里（那会让「下一个发言」指向人）？
 
 ## 测试与验证
 
@@ -384,12 +390,9 @@ go test -race ./application/core/agentteam -count=1
 
 ### runtime.go
 
-- `func UserSeatPolicyFor(orderPolicy string) UserSeatPolicy` — UserSeatPolicyFor 由顺序策略推导 user 席位口径：顺序策略是唯一开关，不再
 - `func NewRuntime(order []string, sessions map[string]string, orderPolicy string, opts RuntimeOptions) *Runtime` — NewRuntime 构造运行态。sessions 提供 role_name → role_session_id（成员表的
 - `func (r *Runtime) SyncOrder(order []string, sessions map[string]string, orderPolicy string)` — SyncOrder 把注册表/顺序的当前事实同步进环（每次角色增删改或顺序调整后调用）。
-- `func (r *Runtime) SetUserSeat(policy UserSeatPolicy)` — SetUserSeat 显式覆盖 user 席位口径（缺省由顺序策略推导）。
-- `func (r *Runtime) NoteUserQueued(pending bool)` — NoteUserQueued 更新"消息队列里有没有未消费的 user 输入"。user 席位口径为
-- `func (r *Runtime) Order() []string` — Order 返回环当前的链表顺序（快照）。
+- `func (r *Runtime) Order() []string` — Order 返回环当前的链表顺序（快照；不含 user）。
 - `func (r *Runtime) NoteMainContext(wire dto.RoleWireSnapshot)` — NoteMainContext 用「主会话上下文 + 主会话 draft」的只读装配结果刷新 team work
 - `func (r *Runtime) Prefix() string` — Prefix 返回当前正文前缀（只读；前端/巡检面用它做快照查看）。
 - `func renderMainContextPrefix(messages []dto.RoleWireMessage) (string, []string)` — renderMainContextPrefix 把主会话 wire 的正文投影成前缀文本与投影行（纯函数，
@@ -399,20 +402,20 @@ go test -race ./application/core/agentteam -count=1
 - `func (r *Runtime) Stop(reason string)` — Stop 显式停止环（用户中断 / 裁决收口 / 外部 Break）。
 - `func (r *Runtime) stopLocked(reason string)`
 - `func (r *Runtime) Stopped() (bool, string)` — Stopped 返回环是否已被逃生路径收束，以及原因。
-- `func (r *Runtime) Reset()` — Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序、成员与
+- `func (r *Runtime) Reset()` — Reset 把环恢复到"未开始"的记账状态：清停止态与轮次/无进展计数，顺序与成员
 - `func (r *Runtime) Next() (TurnRequest, bool)` — Next 推进一格并返回下一个该发言的成员。ok=false 表示环内没有人能发言
-- `func (r *Runtime) skipLocked(roleName string) bool` — skipLocked 报告某个成员本轮不应占位。
+- `func (r *Runtime) skipLocked(roleName string) bool` — skipLocked 报告某个成员本轮不应占位：环里挂着没有执行者的角色
 - `func (r *Runtime) Snapshot() dto.TeamSchedule` — Snapshot 投影成只读运行态（前端「下一个谁发言 / 第几轮 / 是否已逃生」）。
 - `func (r *Runtime) peekNext() (TurnRequest, bool)` — peekNext 在不改动游标的前提下算出"下一个谁发言"（Snapshot 用）。
 - `func cleanOrder(order []string) []string` — cleanOrder 去掉空名与重复项（顺序事实来自 lifecycle，容错但不伪造）。
+- `func ringOrder(order []string) []string` — ringOrder 把顺序事实（lifecycle.order_roles）投影成**发言环的成员**：去掉
 
 ### runtime_test.go
 
 - `func newTestRuntime(order []string, policy string, opts RuntimeOptions) *Runtime`
 - `func TestRuntimeMaintainsRingFromRegistryOrder(t *testing.T)` — TestRuntimeMaintainsRingFromRegistryOrder：环里的员工就是注册表顺序里的员工
 - `func TestRuntimeRingsThroughExecutorsOnly(t *testing.T)` — TestRuntimeRingsThroughExecutorsOnly：按链表转一圈，只落在有执行者的角色上；
-- `func TestRuntimeUserSeatPolicy(t *testing.T)` — TestRuntimeUserSeatPolicy：user 到底算不算环里的一环，由席位口径决定——
-- `func TestUserSeatPolicyDerivesFromOrderPolicy(t *testing.T)` — TestUserSeatPolicyDerivesFromOrderPolicy：user 席位口径由 order_policy 推导，
+- `func TestRuntimeRingExcludesUser(t *testing.T)` — TestRuntimeRingExcludesUser：环里没有 user——user 的发言机会是回合尾消息队列
 - `func TestRuntimeEscapeRoundLimit(t *testing.T)` — TestRuntimeEscapeRoundLimit：轮次上限是逃生路径第一道——到达即停，且原因是
 - `func TestRuntimeEscapeNoProgress(t *testing.T)` — TestRuntimeEscapeNoProgress：连续无进展是逃生路径第二道——推进一次即清零，
 - `func TestRuntimeEscapeNoExecutor(t *testing.T)` — TestRuntimeEscapeNoExecutor：环里一个能发言的都没有时显式收束（no_executor /

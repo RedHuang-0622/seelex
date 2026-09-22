@@ -19,7 +19,6 @@ package sessionstore
 import (
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
