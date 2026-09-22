@@ -75,7 +75,7 @@ func (store *draftRecordStore) SaveSessionRecordWorkspace(_ string, sessionID st
 	return nil
 }
 
-func mustDraftService(t *testing.T, store *draftRecordStore) *Service {
+func mustDraftService(t *testing.T, store SessionPort) *Service {
 	t.Helper()
 	service := mustNew(t, Dependencies{
 		Engine: &fakeEngine{lazyStart: true}, Runtime: &fakeRuntime{},

@@ -53,7 +53,7 @@ $ go test -tags draftsmoke . -run TestComposerDraftHeadlessSmoke -count=1 -v -ti
 --- PASS 前缀匹配：未发送草稿不进 provider 请求，跨轮前缀不变量成立
 --- PASS 历史的留存：重启后既有消息仍在，草稿归属可观测
 --- PASS 中断会话恢复：取消在途一轮后历史不被吞、重启后仍可继续
---- PASS 草稿的留存（观测）：重启后未发送草稿还能不能回来
+--- PASS 草稿的留存：重启后未发送草稿装回视图
 ```
 
 它只把 provider 换成本地记录型 mock（可"扣住"请求制造中断窗口），装配 / 会话单元 /
@@ -72,12 +72,13 @@ $ go test -tags draftsmoke . -run TestComposerDraftHeadlessSmoke -count=1 -v -ti
    （`chat.error = "…: context canceled"`），并留下一条空的 assistant 占位；重启恢复时
    这条空占位不被保留（空内容不构成历史），所以"逐条相同"的判据按"有正文的 user/assistant"
    取。
-4. **草稿的跨重启留存（未如约，属已记录的候选缺口）**：同一 store 再启动后，
-   **未发送草稿正文没有回来**——视图会话是另一条 `sess_…`（`draft=false`、
-   `composer=""`），草稿会话连目录行都不出现（`存在=false`）。
-   这与方向 C 记录的"引擎已带会话时（`initialDraft=false`）持久化草稿不被恢复"一致：
-   它要的是"目录里的草稿行与视图会话可分离（多草稿并行）"的设计，本轮不动，
-   冒烟把它记成观测而不是硬断言。
+4. **草稿的跨重启留存（如约，已升成硬断言）**：同一 store 再启动后，未发送草稿正文
+   回到视图：视图会话 = 那份草稿（`draft=true`、早分配 SID 不变、`composer` = 哨兵正文），
+   目录里那一行 `status=draft`，工作表格面仍是活的平面（注册台账 → 刷新投影 → 快照可见）。
+   此前记为"未如约/观测"的根因有两层：装配器只在 `initialDraft` 时恢复草稿，**且**草稿
+   正文写的是 v8 已退役的 record 通道（正文被丢弃、目录行也不标 `draft`）。修法见
+   [2026-09-22-composer-draft-restore-across-restart.md](2026-09-22-composer-draft-restore-across-restart.md)。
+   前置条件：重启后的补装是异步的（装配期不读会话目录），断言先等目录收敛再轮询视图。
 
 真实 API 前缀冒烟（既有 opt-in 用例）同样重跑：
 

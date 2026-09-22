@@ -92,11 +92,18 @@ $ go test ./application/core/ -run TestProbeColdStartDraftRowVisible -count=1 -v
 **只在首份未发送正文落盘时**登记槽位（§2.1 的修法）——空白草稿（用户还没敲字）仍不进会话树，
 与 `session_lifecycle.go:174`（卸载后空白草稿"不写槽位、不进入会话树"）的既有语义一致。
 
-另一条候选缺口（未修）：**引擎已带会话时（`initialDraft=false`）持久化草稿不被恢复**
+另一条候选缺口（**已修**，见 [2026-09-22-composer-draft-restore-across-restart.md](2026-09-22-composer-draft-restore-across-restart.md)）：**引擎已带会话时（`initialDraft=false`）持久化草稿不被恢复**
 （`service_assembler.go:218` 只在 `initialDraft` 时调用 `restorePersistedDraft`）。此时那份
 草稿的目录行会被 `enrichDirectoryRowsLocked` 叠成 `idle`（槽位不存在），而重启后它既不是
 视图会话、也不在草稿槽里 → 草稿正文无处可见。修它要引入"草稿行与视图会话可分离"的目录
 语义（多草稿并行），属设计面变更，本轮不动。
+
+> 后续（2026-09-22 晚）：该缺口已收口，且根因比这条记录更深——草稿正文此前写的是
+> **已退役的 record 通道**（v8 下正文被丢弃、目录行也不标 `draft`），因此连"草稿候选"
+> 都找不到。现在草稿正文走 sessionstore 的 lifecycle 草稿通道（`input/draft.json`，
+> 与消息通道分离），目录行的 `draft` 身份就是这份文件的存在性；`initialDraft=false`
+> 的启动形状由"目录收敛后的后台判断"补装（装配期仍不读会话目录）。详见
+> [2026-09-22-composer-draft-restore-across-restart.md](2026-09-22-composer-draft-restore-across-restart.md)。
 
 ## 3. 修法（后端，最小改动）
 

@@ -393,6 +393,18 @@ func (port SessionPort) SaveSessionRecordWorkspace(projectID, id string, record 
 	return port.granular().SaveRecordRaw(projectID, id, payload)
 }
 
+// SaveComposerDraftWorkspace / LoadComposerDraftWorkspace 实现 application/core
+// 的 composerDraftPort：未发送草稿走 sessionstore 的 lifecycle 草稿通道
+// （会话目录下 input/draft.json），与消息/事件通道分离——草稿不写消息日志，
+// 目录枚举的 Status=draft 判据就是这份草稿的存在性。content 为空 = 清草稿。
+func (port SessionPort) SaveComposerDraftWorkspace(projectID, sessionID, content string) error {
+	return port.granular().SaveComposerDraft(projectID, sessionID, content)
+}
+
+func (port SessionPort) LoadComposerDraftWorkspace(projectID, sessionID string) (string, bool, error) {
+	return port.granular().LoadComposerDraft(projectID, sessionID)
+}
+
 func (port SessionPort) SaveSessionSnapshot(
 	id string,
 	providerHistory []contract.EngineMessage,

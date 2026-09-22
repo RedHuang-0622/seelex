@@ -1,7 +1,7 @@
 //go:build draftsmoke
 
 // 草稿（composer draft）的 headless 冒烟：真实全链路（真装配 + 真 store + 真 wire
-// 组装）+ 记录型 mock provider（逐条留下 provider 请求原文），把用户口径里的三件事
+// 组装）+ 记录型 mock provider（逐条留下 provider 请求原文），把用户口径里的四件事
 // 钉成可重复的断言：
 //
 //  1. 前缀匹配：未发送草稿不进 provider 请求（草稿槽是本地事实源，不构成历史），
@@ -11,6 +11,9 @@
 //     消息对，逐条相同；
 //  3. 中断会话恢复：一轮在途被取消（用户点停止）后，已定稿的历史不被吞；重启
 //     恢复后仍可继续提交并拿到回答。
+//  4. 草稿的留存：重启后未发送草稿装回视图（草稿 SID/draft/composer 正文 + 目录
+//     行 status=draft + 工作表格面仍可用）。补装是异步的（装配期不读会话目录），
+//     断言先等目录收敛再轮询视图。
 //
 // 只换 provider（本地记录型 mock），不换任何生产路径：装配、会话单元、草稿槽、
 // rollout 落盘、wire 组装都是真的。真实 API 版本（付费、opt-in）见
@@ -39,6 +42,7 @@ import (
 	"time"
 
 	"github.com/RedHuang-0622/seelex/application"
+	"github.com/RedHuang-0622/seelex/application/contract/dto"
 	"github.com/RedHuang-0622/seelex/application/model"
 )
 
@@ -463,11 +467,14 @@ func TestComposerDraftHeadlessSmoke(t *testing.T) {
 			interruptedRetained, len(resumedPairs), len(finalPairs))
 	})
 
-	// 草稿正文的跨重启留存目前是**观测**而不是硬断言：它取决于"重启后的会话装配
-	// 路径是否把持久草稿重新装回视图"（application/core/service_assembler.go 的
-	// initialDraft 分支 + restorePersistedDraft）。把证据留在日志里，由
-	// docs/devlog 的未修清单跟。
-	t.Run("草稿的留存（观测）：重启后未发送草稿还能不能回来", func(t *testing.T) {
+	// 草稿正文的跨重启留存（如约，硬断言）：装配期不读会话目录，补装发生在目录
+	// 收敛后的一次后台判断里（application/core/composer_draft.go
+	// scheduleShellDraftRestore），所以这里等目录收敛再按判据轮询：
+	//   视图会话 = 那份草稿（draft=true、早分配 SID 不变）、composer = 未发送正文、
+	//   目录里那行 status=draft（判据 = lifecycle 草稿文件的存在性，§2.5.4）、
+	//   工作表格面仍在（恢复动作不把表面清掉；"台账装回运行时注册表"由
+	//   application/core 的 TestComposerDraftRestoreRehydratesTaskLedger 覆盖）。
+	t.Run("草稿的留存：重启后未发送草稿装回视图", func(t *testing.T) {
 		provider := newDraftSmokeProvider(t)
 		root := t.TempDir()
 		harness := newFullChainHarness(t, draftSmokeAccounts(t, provider.URL, root), root, 10*time.Second)
@@ -478,16 +485,68 @@ func TestComposerDraftHeadlessSmoke(t *testing.T) {
 		if err := harness.app.SaveComposerDraft(draftSmokeSentinel); err != nil {
 			t.Fatalf("SaveComposerDraft: %v", err)
 		}
+		if row, ok := draftSmokeDirectoryRow(harness.app.Snapshot(), draftID); !ok || row.Status != model.SessionStatusDraft {
+			t.Fatalf("重启前草稿行应当在目录里标 draft：row=%+v ok=%v", row, ok)
+		}
 		harness.app.Shutdown()
 		assertSessionStorageEvidence(t, root)
 
 		restarted := newFullChainHarness(t, draftSmokeAccounts(t, provider.URL, root), root, 10*time.Second)
 		defer restarted.app.Shutdown()
-		booted := restarted.app.Snapshot()
+		// 装配期不读会话目录：先等目录 worker 收敛，再等后台补装落到视图上。
+		if err := restarted.app.WaitCatalogRefresh(ctx); err != nil {
+			t.Fatalf("重启后目录收敛: %v", err)
+		}
+		booted := draftSmokeWaitDraftRestore(t, ctx, restarted.app, draftID)
+		if booted.Session.Composer != draftSmokeSentinel {
+			t.Fatalf("重启后草稿正文 = %q, want %q", booted.Session.Composer, draftSmokeSentinel)
+		}
 		row, ok := draftSmokeDirectoryRow(booted, draftID)
-		restored := booted.Session.Draft && strings.TrimSpace(booted.Session.Composer) != ""
-		t.Logf("重启后（未 ResumeSession）：视图会话 id=%q draft=%v composer=%q；草稿会话 %s 目录行=%+v 存在=%v",
-			booted.Session.ID, booted.Session.Draft, booted.Session.Composer, draftID, row, ok)
-		t.Logf("草稿正文是否随重启回来：%v（判据：视图会话 draft=true 且 composer 非空）", restored)
+		if !ok || row.Status != model.SessionStatusDraft {
+			t.Fatalf("重启后草稿行应当在目录里标 draft：row=%+v ok=%v", row, ok)
+		}
+		// 工作表格面（"session 下还有 worktable 的一系列内容"）：草稿恢复后仍是活
+		// 的平面——注册一条台账 → 刷新投影 → 快照里看得见它（恢复动作没有把工作
+		// 表格清掉或踢出投影）。"台账随 record 落盘 → 恢复时一并装回运行时注册表"
+		// 由 application/core 的 TestComposerDraftRestoreRehydratesTaskLedger 覆盖。
+		if _, _, err := restarted.runtime.TaskAdd(dto.TaskSpec{
+			ID: "todo:0", Kind: "todo", Task: "草稿恢复后仍要看得见的工作条目",
+		}); err != nil {
+			t.Fatalf("TaskAdd: %v", err)
+		}
+		restarted.app.RefreshWorkTableSnapshot()
+		workRowFound := false
+		for _, item := range restarted.app.Snapshot().Runtime.WorkTable {
+			if item.ID == "todo:0" {
+				workRowFound = true
+			}
+		}
+		if !workRowFound {
+			t.Fatalf("草稿恢复后工作表格没有可见内容：%+v", restarted.app.Snapshot().Runtime.WorkTable)
+		}
+		t.Logf("草稿留存通过：视图会话=%q draft=%v composer=%d 字；草稿行 status=%s；工作表格行=%d",
+			booted.Session.ID, booted.Session.Draft, len([]rune(booted.Session.Composer)), row.Status,
+			len(restarted.app.Snapshot().Runtime.WorkTable))
 	})
+}
+
+// draftSmokeWaitDraftRestore 等"重启后未发送草稿被后台补装回视图"（判据：视图
+// 会话切到草稿 SID 且 draft=true）。补装是异步的（装配期不读会话目录），超时即
+// 失败并把当时的视图会话留在报文里。
+func draftSmokeWaitDraftRestore(t *testing.T, ctx context.Context, app *application.Service, draftID string) application.Snapshot {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := app.Snapshot()
+		if snapshot.Session.Draft && snapshot.Session.ID == draftID {
+			return snapshot
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("等待草稿补装被取消：%v", ctx.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	t.Fatalf("重启后未发送草稿没有回到视图：session=%+v", app.Snapshot().Session)
+	return application.Snapshot{}
 }

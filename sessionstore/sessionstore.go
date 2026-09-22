@@ -756,6 +756,49 @@ func (router *Router) SessionArchivedWorkspace(projectID, sessionID string) (tim
 	return archivedAt, handled, err
 }
 
+// SaveComposerDraftWorkspace 写/清会话的未发送输入草稿（lifecycle 草稿通道：
+// 会话目录下 input/draft.json）。草稿与消息/事件通道分离——草稿不写消息日志，
+// 目录枚举的 Status=draft 判据正是这份草稿文件的存在性（§2.5.4），因此清草稿
+// 走同一条通道（content 为空 = 删除草稿文件，队列不动）。handled=false 表示
+// 该后端没有 lifecycle 草稿通道。
+func (router *Router) SaveComposerDraftWorkspace(projectID, sessionID, content string) (bool, error) {
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		return jsonRepository.layout.setComposerDraft(Key{ProjectID: projectID, SessionID: sessionID}, content)
+	})
+	return handled, err
+}
+
+// ComposerDraftWorkspace 读回未发送输入草稿正文（无草稿/正文全空白 =
+// ok=false）。
+func (router *Router) ComposerDraftWorkspace(projectID, sessionID string) (string, bool, error) {
+	content := ""
+	found := false
+	handled := false
+	err := router.withRepositoryAt(projectID, func(repository Repository, projectID string) error {
+		jsonRepository, ok := repository.(*jsonRepository)
+		if !ok {
+			return nil
+		}
+		handled = true
+		text, ok, err := jsonRepository.layout.lifecycleDraft(Key{ProjectID: projectID, SessionID: sessionID})
+		if err != nil {
+			return err
+		}
+		content, found = text, ok && strings.TrimSpace(text) != ""
+		return nil
+	})
+	if !handled {
+		return "", false, nil
+	}
+	return content, found, err
+}
+
 // SaveSessionDisplayMetaWorkspace / LoadSessionDisplayMetaWorkspace：项目级
 // 展示元数据（S20：JSON v8 落 project-*/session-meta.json；其余后端沿用
 // state 通道）。
@@ -1472,11 +1515,17 @@ func eventTokenCount(events []Event) int {
 	return total
 }
 
-func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
-	if tokenBudget <= 0 || maxUnits <= 0 {
-		return []Event{}
-	}
+// selectEventTailWindow 选取尾窗，并回报尾窗的起始单元下标。
+//
+// startUnit 是返回事件所属第一个单元在 CompleteEventUnits(events) 中的下标；
+// 未选中任何单元时等于单元总数（即尾窗为空，全部单元都在窗口之前）。调用方
+// 据此就能在**同一个计数空间**里确定"窗口之前"的区间，不必再把两个事件列表
+// 各自切单元后相减——那会因切分边界不一致而轻微错位。
+func selectEventTailWindow(events []Event, tokenBudget, maxUnits int) (tail []Event, startUnit int) {
 	units := CompleteEventUnits(events)
+	if tokenBudget <= 0 || maxUnits <= 0 {
+		return []Event{}, len(units)
+	}
 	capacity := maxUnits
 	if capacity > len(units) {
 		capacity = len(units) // MaxInt 全量读等大上限不得触发 makeslice panic
@@ -1495,7 +1544,12 @@ func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
 	for index := len(selected) - 1; index >= 0; index-- {
 		result = append(result, selected[index]...)
 	}
-	return result
+	return result, len(units) - len(selected)
+}
+
+func selectEventTail(events []Event, tokenBudget, maxUnits int) []Event {
+	tail, _ := selectEventTailWindow(events, tokenBudget, maxUnits)
+	return tail
 }
 
 // CompleteEventUnits 把事件流切分为可见协议轮次单元（轮）：user 轮、
