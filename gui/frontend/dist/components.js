@@ -26,6 +26,7 @@ const ICONS = {
   "arrow-up": '<path d="M12 19V5M5 12l7-7 7 7"/>',
   "arrow-down": '<path d="M12 5v14M5 12l7 7 7-7"/>',
   recall: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.4 5.7"/><path d="M20 5v6h-6"/>',
   branch: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.5 6h4a5.5 5.5 0 0 1 3 5v-0.5a5.5 5.5 0 0 1-3 5h-4"/>',
   "chevron-left": '<path d="m14.5 6-6 6 6 6"/>',
   "chevron-right": '<path d="m9.5 6 6 6-6 6"/>',
@@ -62,12 +63,20 @@ export function escapeHtml(value = "") {
 
 export const markdown = renderMarkdown;
 
-export function renderConversationComponent(messages = [], chat = {}) {
-  const model = renderConversationModel(messages, chat);
+export function renderConversationComponent(messages = [], chat = {}, draft = "") {
+  const model = renderConversationModel(messages, chat, draft);
   return { html: model.items.map(item => item.html).join(""), payloads: model.payloads };
 }
 
-export function renderConversationModel(messages = [], chat = {}) {
+// DRAFT_ROW_KEY 是页面 context 里「未发送草稿」那一行的稳定 key（渲染层据此对账
+// DOM，见 conversation-view.js reconcile）。它不属于任何 message：草稿是投影、
+// 不是消息，所以用独立的 chat: 前缀而不是 message:<id>。
+export const DRAFT_ROW_KEY = "chat:draft";
+
+// renderConversationModel 把一页的内容组装成渲染行：既定 message + （可选）本页
+// 未发送的草稿行 + 运行时活动带。draft 为空/全空白时绝不插行——页面不会凭空多出
+// 一条空白草稿（判据同 draft-lifecycle.js composerDraftRows）。
+export function renderConversationModel(messages = [], chat = {}, draft = "") {
   const payloads = new Map();
   const items = buildConversationItems(messages);
   const grouped = groupConversationItems(items, payloads);
@@ -88,6 +97,13 @@ export function renderConversationModel(messages = [], chat = {}) {
       : { kind: item.kind };
     return { key, html, meta };
   });
+  // 页面 context = 既定 message + 本页未发送的草稿：草稿排在既有消息之后、
+  // 运行时活动带之前——它是"这一页还没提交出去的那一份"（正文由壳层给出，判据
+  // 见 draft-lifecycle.js composerDraftRows）。
+  const draftText = String(draft ?? "");
+  if (draftText.trim() !== "") {
+    rendered.push({ key: DRAFT_ROW_KEY, html: renderDraftMessage(draftText, DRAFT_ROW_KEY), meta: { kind: "draft" } });
+  }
   const activity = renderChatActivity(chat);
   if (activity) {
     const key = "chat:activity";
@@ -128,6 +144,18 @@ function renderQueuedMessage(input, index, length) {
         </span>
       </header>
       <div class="queued-message-body">${markdown(input)}</div>
+    </article>`;
+}
+
+// renderDraftMessage 渲染「未发送草稿」行：本会话当前还没提交出去的正文（仍活在
+// 输入框里，生命周期见 draft-lifecycle.js）。身份有三处可判：meta.kind="draft"、
+// `is-draft` 类、`data-draft`/`data-unsent` 标记——渲染层与测试都不靠正文猜。
+// 它是投影：不进 conversation、不派 message id、也不回写输入框（输入框正文才是
+// 本地事实源）。
+function renderDraftMessage(text, key) {
+  return `<article class="queued-message draft-message is-draft" data-conversation-key="${escapeHtml(key)}" data-draft="true" data-unsent="true">
+      <header><span>${icon("message", 13)}</span><strong>未发送草稿</strong><small>待发送</small></header>
+      <div class="queued-message-body">${markdown(text)}</div>
     </article>`;
 }
 

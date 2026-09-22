@@ -8,7 +8,7 @@ const markdownSource = (await readFile(new URL("./markdown.js", import.meta.url)
 const markdownURL = `data:text/javascript;base64,${Buffer.from(markdownSource).toString("base64")}`;
 const componentSource = (await readFile(new URL("./components.js", import.meta.url), "utf8"))
   .replace('"./markdown.js"', `"${markdownURL}"`);
-const { renderChatActivity, renderConversationComponent, renderConversationModel, messageRoleClass, roleIdentity } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
+const { renderChatActivity, renderConversationComponent, renderConversationModel, messageRoleClass, roleIdentity, DRAFT_ROW_KEY } = await import(`data:text/javascript;base64,${Buffer.from(componentSource).toString("base64")}`);
 
 test("assigns each message the identity of the agent that owns the round", () => {
   assert.equal(roleIdentity({ role: "assistant", role_name: "main" }), "EXEC");
@@ -156,4 +156,55 @@ test("renders thinking in its own scroll axis and keeps the reply content inline
   assert.match(item.html, /class="item-id">a1</);
   assert.match(item.html, />reply<\/p>/);
   assert.match(item.html, /思考/);
+});
+
+// 草稿行的 helper：只关心模型层（页面 context 的第二半），渲染细节交给上面的
+// renderConversationComponent 用例。
+function renderedModel(messages, chat, draft) {
+  return renderConversationModel(messages, chat, draft);
+}
+
+test("页面 context = 既定 message + 一条可区分的未发送草稿行", () => {
+  const rendered = renderConversationComponent(
+    [{ id: "m-1", role: "user", role_name: "user", content: "既定消息" }],
+    { running: false },
+    "还没发出去的字"
+  );
+  // 两半在同一页上，且草稿排在既定消息之后。
+  assert.match(rendered.html, /既定消息/);
+  assert.match(rendered.html, /还没发出去的字/);
+  assert.ok(
+    rendered.html.indexOf("既定消息") < rendered.html.indexOf("还没发出去的字"),
+    "草稿是这一页的最后一条（还没提交出去的那一份）"
+  );
+  // 身份可判：kind=draft + is-draft 类 + data-draft/data-unsent 标记，不靠正文猜。
+  const draftItem = renderedModel([], {}, "还没发出去的字").items.at(-1);
+  assert.equal(draftItem.key, DRAFT_ROW_KEY);
+  assert.equal(draftItem.meta.kind, "draft");
+  assert.match(draftItem.html, /class="queued-message draft-message is-draft"/);
+  assert.match(draftItem.html, /data-draft="true"/);
+  assert.match(draftItem.html, /data-unsent="true"/);
+  assert.match(draftItem.html, /未发送草稿/);
+  // 草稿是投影：不派 message id（否则会被当成会话里的一条消息）。
+  assert.doesNotMatch(draftItem.html, /data-trajectory-key="message:/);
+});
+
+test("空草稿不留行：页面 context 只剩既定消息，既有 key 不受影响", () => {
+  for (const empty of ["", "   ", "\n", "\t ", undefined, null]) {
+    const model = renderConversationModel([{ id: "m-1", role: "user", content: "既有" }], {}, empty);
+    assert.equal(
+      model.items.some(item => item.meta?.kind === "draft"),
+      false,
+      `草稿=${JSON.stringify(empty)} 不该出行`
+    );
+    assert.equal(model.items.length, 1);
+    assert.match(model.items[0].html, /data-conversation-key="message:m-1"/);
+  }
+});
+
+test("草稿行按 markdown 渲染并 escape 危险文本", () => {
+  const item = renderedModel([], {}, "<img src=x onerror=alert(1)> **粗体**").items.at(-1);
+  assert.doesNotMatch(item.html, /<img/);
+  assert.match(item.html, /&lt;img/);
+  assert.match(item.html, /<strong>粗体<\/strong>/);
 });

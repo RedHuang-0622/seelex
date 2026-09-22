@@ -157,6 +157,20 @@ goal 域协调器/门面用例与「goal 上线即装配 TL 团队」接线回�
 - `func (r goalTLRecorder) RecordMainTurn(_ context.Context, record goaldomain.MainTurnRecord) error` — RecordMainTurn 在 b 交还发言权时发布 EXEC 主持标记：main 的过程行照旧实时
 - `func (r goalTLRecorder) ArchiveTLHistory(_ context.Context, record goaldomain.TLArchiveRecord) error` — ArchiveTLHistory 把 b 侧会话历史归档进 tl 角色历史（环逃生收口时调用；实现
 
+### goal_team_recorder_test.go
+
+- `func (s *draftRecordingSessions) AppendRoleDraft(_, roleName, roleSessionID string, rows []dto.RoleDraftRow) error`
+- `func (s *draftRecordingSessions) SyncRoleDraft(_, roleName, roleSessionID string, order []string) (dto.RoleDraftSyncResult, error)`
+- `func (s *draftRecordingSessions) recordedSteps() []string`
+- `func (s *draftRecordingSessions) appendedRows() []dto.RoleDraftRow`
+- `func (s *draftRecordingSessions) syncOrder() []string`
+- `func (s *draftRecordingSessions) pendingRows() int`
+- `func draftRecordingFixture(t *testing.T, sessionID string) (*draftRecordingSessions, goaldomain.TLRoundRecorder, dto.TeamView)` — draftRecordingFixture 装配一个已建 goal（= 已自动装配 goal-a2a 团队）的会话，
+- `func TestRecordTLRoundAppendsThenSyncsInTheSameRound(t *testing.T)` — TestRecordTLRoundAppendsThenSyncsInTheSameRound 钉住 b（ADVISOR）回合的记录口径：
+- `func TestRecordMainTurnPublishesHostMarkerInTheSameRound(t *testing.T)` — TestRecordMainTurnPublishesHostMarkerInTheSameRound 钉住 EXEC 主持标记：
+- `func TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled(t *testing.T)` — TestRecordTLRoundKeepsTheOriginalWhenTheRoundIsCancelled 钉住「取消不丢内容」：
+- `func TestRecordTLRoundWritesNothingWithoutATeam(t *testing.T)` — TestRecordTLRoundWritesNothingWithoutATeam 钉住降级：未装配 team 的会话不落
+
 ### goal_team_wiring_test.go
 
 - `func (s *teamRecordingSessions) EnsureRoleSession(mainSessionID, roleName, roleSessionID string, joinSeq uint64) (bool, error)`

@@ -16,7 +16,7 @@ function dataURL(source) {
 }
 
 const chatSource = (await readFile(new URL("./chat-view.js", import.meta.url), "utf8"))
-  .replace('"./components.js"', `"${dataURL("export function renderConversationModel(messages, chat) { return { messages, chat }; }")}"`)
+  .replace('"./components.js"', `"${dataURL("export function renderConversationModel(messages, chat, draft) { return { messages, chat, draft }; }")}"`)
   .replace('"./protocol.js"', `"${dataURL("export function historyWindowed() { return false; }")}"`);
 const { createChatView } = await import(dataURL(chatSource));
 
@@ -136,8 +136,8 @@ test("app.js：切换在途标志贯穿 composer 的每个渲染落点与生命�
   // agent-team-refresh.test.mjs / queue-edit.test.mjs）：只钉「哪条渲染路径
   // 带没带 switching」，行为边界由上面的 renderControls 用例覆盖。
   assert.ok(
-    appSource.includes("chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID))"),
-    "整份渲染必须把 resumingSessionID 作为 switching 传入"
+    appSource.includes("chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot))"),
+    "整份渲染必须把 resumingSessionID 作为 switching 传入，并把本页草稿传给会话行渲染"
   );
   const calls = appSource.match(/chatView\.renderControls\(([^\n]*)\)/g) || [];
   assert.ok(calls.length >= 3, `期望至少 3 个 renderControls 落点，实际 ${calls.length}`);
@@ -177,4 +177,34 @@ test("render 在 switching 窗口不闪「暂无消息」空态并锁输入", ()
   plain.view.render(snapshot({ status: "idle", conversation: [] }), "bottom", false);
   assert.equal(plain.elements["empty-state"].classList.contains("hidden"), false);
   assert.equal(plain.elements.prompt.disabled, false);
+});
+
+test("草稿会话不是空页：未发送草稿让空态消失并把草稿喂给渲染模型", () => {
+  const { view, elements, renders } = makeView();
+  view.render(snapshot({ status: "idle", conversation: [] }), "bottom", false, "还没发出去的字");
+  assert.equal(
+    elements["empty-state"].classList.contains("hidden"),
+    true,
+    "有草稿的这一页不该显示「暂无消息」空态"
+  );
+  assert.equal(renders.at(-1).model.draft, "还没发出去的字");
+
+  // 对照：同一份空会话、没有草稿 → 仍是空页。
+  const plain = makeView();
+  plain.view.render(snapshot({ status: "idle", conversation: [] }), "bottom", false, "");
+  assert.equal(plain.elements["empty-state"].classList.contains("hidden"), false);
+});
+
+test("app.js：草稿正文贯穿每一条会话行渲染落点", () => {
+  const conversationCalls = appSource.match(/chatView\.renderConversation\(\s*snapshot\.conversation \|\| \[\],[\s\S]{0,300}?\);/g) || [];
+  assert.ok(conversationCalls.length >= 2, `期望至少 2 个 renderConversation 落点，实际 ${conversationCalls.length}`);
+  for (const call of conversationCalls) {
+    assert.ok(
+      call.includes("composerDraftPageText(snapshot)"),
+      `会话行渲染落点必须带本页草稿（否则轮次结束/增量渲染会把草稿行丢掉）：${call.slice(0, 90)}…`
+    );
+  }
+  // 草稿状态在整份渲染与增量渲染里都要跟住（轮次收尾常走增量通道）。
+  const syncCalls = appSource.match(/syncComposerDraftState\(snapshot\);/g) || [];
+  assert.ok(syncCalls.length >= 2, `草稿状态必须在整份渲染与增量渲染里都同步，实际 ${syncCalls.length}`);
 });

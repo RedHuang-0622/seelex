@@ -8,10 +8,13 @@ export function createChatView(elements, conversationView) {
   // 窗口——此时提交会落到看不见/没装载完的会话，输入区同样必须锁上（见
   // docs/devlog/2026-09-17-submit-during-cold-restore-repro.md）。两者都只
   // 影响呈现；权威判据在应用层（restoring 期间拒绝输入，ErrSessionRestoring）。
-  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false) {
-    const active = messages.length > 0 || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
+  // draft：本页未发送的草稿正文（页面 context 的第二半，判据在 draft-lifecycle.js
+  // composerDraftRows）。有草稿时这一页就不是空态——草稿会话此前因此显示成空页。
+  function renderConversation(messages, chat, scrollMode = "auto", hasMoreHistory = false, restoring = false, switching = false, draft = "") {
+    const draftText = String(draft ?? "");
+    const active = messages.length > 0 || draftText.trim() !== "" || chat.running || (chat.input_queue || []).length > 0 || restoring || switching;
     elements["empty-state"].classList.toggle("hidden", active);
-    conversationView.render(renderConversationModel(messages, chat), { scrollMode, hasMoreHistory });
+    conversationView.render(renderConversationModel(messages, chat, draftText), { scrollMode, hasMoreHistory });
   }
 
   // renderControls 是输入区锁的唯一落点：restoring（目标会话恢复中）= 整块
@@ -57,14 +60,15 @@ export function createChatView(elements, conversationView) {
   }
 
   return {
-    render(snapshot, scrollMode, switching = false) {
+    render(snapshot, scrollMode, switching = false, draft = "") {
       renderConversation(
         snapshot.conversation || [],
         snapshot.chat || {},
         scrollMode,
         snapshot.has_more_history,
         snapshot.session?.status === "restoring",
-        switching
+        switching,
+        draft
       );
       renderControls(snapshot, switching);
     },

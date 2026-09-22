@@ -18,7 +18,10 @@
 - `func (service *Service) draftWorkspaceID(sessionID string) string` — draftWorkspaceID 返回当前草稿会话的绑定项目（draft 槽/视图携带；非草稿或
 - `func (service *Service) persistComposerDraftIn(projectID, sessionID, text string) error` — persistComposerDraftIn 把草稿 record 写到显式项目（"" = 默认项目）。
 - `func (service *Service) clearComposerDraft(sessionID, projectID string)` — clearComposerDraft 在草稿物化成功后清空 composer（内存 + 落盘）。
+- `func (service *Service) draftResidueProjects(sessionID string) []string` — draftResidueProjects 返回磁盘上仍以 Status=draft 标记该会话的项目键
+- `func containsProjectID(keys []string, key string) bool` — containsProjectID 报告项目键集合里是否已含 key（"" = 默认项目也是合法键）。
 - `func (service *Service) restorePersistedDraft()` — restorePersistedDraft 在冷启动（引擎未建 bundle）时恢复最近一个持久化的
+- `func (service *Service) registerDraftSlotLocked(sessionID string)` — registerDraftSlotLocked 在"当前视图就是一份尚未物化的草稿会话"时登记草稿
 
 ### composer_draft_test.go
 
@@ -36,6 +39,8 @@
 - `func (store *draftRecordStore) SaveSessionRecordWorkspace(_ string, sessionID string, record model.SessionRecord) error`
 - `func mustDraftService(t *testing.T, store *draftRecordStore) *Service`
 - `func TestComposerDraftPersistsAndRestoresAcrossRestart(t *testing.T)` — TestComposerDraftPersistsAndRestoresAcrossRestart（G4 先行第 2 片）：草稿
+- `func TestComposerDraftSessionRowVisible(t *testing.T)` — TestComposerDraftSessionRowVisible（回归，修复前 RED）：本会话有未发送草稿
+- `func TestComposerWorkspaceRebindConvergesOnMaterialize(t *testing.T)` — TestComposerWorkspaceRebindConvergesOnMaterialize（回归，修复前 RED）：草稿
 
 ### composer_workspace_draft_test.go
 

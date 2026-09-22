@@ -46,6 +46,18 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 顺序的唯一事实是会话 `lifecycle.order_policy/order_roles`：前端只提交用户改动后
 的整张顺序表，不缓存、不乐观重排，每次动作后重拉视图（`Bridge.AgentTeam*`）。
 
+角色会话详情里，**未同步草稿独立成区**（`renderRoleDraftBlock`，见
+`docs/devlog/2026-09-22-team-role-draft.md`）：草稿不混进"已发布"车道，而是排在既有
+行之后、按 `round/unit` 成列，每行带 `is-draft` 类 + 「未同步」chip +
+`data-draft-round/-unit/-kind` 凭据；记录表里对应的列头与格子同样标成草稿
+（`.role-record-draft-head` / `.role-record-cell.is-draft`，样式在 `styles.css`）。
+
+判据只来自后端投影，前端不推演：会话工作区把 `draft_rows` 与 `main_rows/role_rows`
+分列返回（`sessionstore/role_session.go` 的 `syncRoleDraft` / `readRoleSnapshot`），
+**一轮结束时**的 `SyncRoleDraft` 才把草稿发布成 message（草稿行不带 seq，发布后
+draft 文件删除）。所以「本轮完成」= 草稿变成已发布行、「本轮取消」= 草稿按未同步
+原样留着——前端只渲染这份权威投影，不做回写。
+
 ### 页签停靠与置换
 
 - 布局模型：主视图固定两个页签、右栏固定三个页签，五个视图 id 恰好各出现一次；

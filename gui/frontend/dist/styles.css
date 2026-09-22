@@ -514,6 +514,10 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .queue-action:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); background: var(--surface-2); }
 .queue-action:disabled { opacity: .3; cursor: default; }
 .queue-action[data-queue-action="recall"]:hover:not(:disabled) { color: var(--status-running); }
+/* 未发送草稿行（页面 context 的草稿投影，见 draft-lifecycle.js）：与排队卡片同族，
+   但用实心强调边 + 「待发送」标签，和既定 message 一眼可分。 */
+.draft-message { border-style: solid; border-color: var(--status-info); background: var(--surface-2); }
+.draft-message header, .draft-message header small { color: var(--status-info); }
 .queued-message-body { max-height: 140px; padding: 9px 11px; overflow: auto; color: var(--muted); font-size: var(--text-sm); line-height: 1.55; }
 .queued-message-body > :first-child { margin-top: 0; }
 .queued-message-body > :last-child { margin-bottom: 0; }
@@ -3261,6 +3265,14 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 .role-session-reasoning { white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.5; }
 .role-session-tool { margin-top: 4px; font: 10.5px var(--font-mono); }
 .role-session-empty { padding: 10px 0; font-size: 11.5px; }
+/* 未同步草稿（is-draft）：与已发布行同族但一眼可分——虚线边 + 待同步色，
+   记录表里的草稿列同理。草稿是"还没成为 message"的那份，见
+   docs/gui/modules/right-sidebar.md 的 Agent Team 小节。 */
+.role-session-row.is-draft { border-style: dashed; border-color: var(--status-running); background: var(--surface-glass); }
+.role-session-row.is-draft .role-session-row-head strong { color: var(--status-running); }
+.role-record-draft-head { color: var(--status-running); font-style: italic; }
+.role-record-cell.is-draft { color: var(--status-running); border-left: 2px dashed var(--status-running); }
+.chip.is-draft { border-color: var(--status-running); color: var(--status-running); }
 
 /* ---------- 18. 2026-09-15 收敛：Agent Team 管理面 / 线框降噪 / 侧栏收起 ---------- */
 /*

@@ -2,6 +2,7 @@ import { escapeHtml, hydrateIcons, icon, queueMoveTarget } from "./components.js
 import { createChatView } from "./chat-view.js";
 import { createGUIClient } from "./client-state.js";
 import { clearSubmittedText, composerSubmitPlan, composerViewSwitch, isComposingEnter, shouldRestoreDraft } from "./composer-input.js";
+import { DRAFT_ROW_KIND, composerDraftRows, draftLifecycle, draftLifecycleFromSnapshot, draftRoundEvent } from "./draft-lifecycle.js";
 import { createConversationView } from "./conversation-view.js";
 import { createTrajectoryView } from "./trajectory-view.js";
 import { buildTrajectory } from "./trajectory.js";
@@ -201,7 +202,8 @@ function runViewActivation(view) {
       "preserve",
       snapshot.has_more_history,
       snapshot.session?.status === "restoring",
-      Boolean(state.resumingSessionID)
+      Boolean(state.resumingSessionID),
+      composerDraftPageText(snapshot)
     );
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     return;
@@ -510,6 +512,13 @@ let composerDirty = false;
 // 视图跑到别的会话去被提交。
 let composerStash = new Map();
 let composerSessionID = "";
+// composerDraft 是本页草稿的生命周期状态（规则集中在 draft-lifecycle.js，这里只
+// 接线）：页面 context 的「未发送草稿」行、以及"本轮完成/取消"时的草稿归位都读它。
+// composerRoundRunning 记上一份快照的运行态——把"轮次收尾"翻成收敛事件靠它；
+// composerCancelled 记这次收尾是不是用户点了停止（取消不吞草稿里的字）。
+let composerDraft = draftLifecycleFromSnapshot();
+let composerRoundRunning = false;
+let composerCancelled = false;
 // composerComposing 跟踪输入法合成态（compositionstart/end）：合成中的 Enter
 // 是确认候选词，不是发送。
 let composerComposing = false;
@@ -555,6 +564,9 @@ async function refresh(options = {}) {
 // （召回排队消息、接受建议）之后也要走它，否则这些内容会被当成"没编辑过"。
 function markComposerEdited() {
   composerDirty = true;
+  // 页面上的草稿行跟着框内正文走（程序化写入也走这里，否则被召回/被接受的字
+  // 在页面上还是旧的）。
+  composerDraft = draftLifecycle(composerDraft, { type: "append", text: elements.prompt.value });
   scheduleComposerSave();
 }
 
@@ -631,17 +643,56 @@ function restoreComposerDraft(snapshot) {
   elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length);
 }
 
+// syncComposerDraftState 把「当前视图会话 + 输入框正文 + 本轮运行态」喂给草稿
+// 生命周期（规则在 draft-lifecycle.js），是页面草稿状态的唯一写入点：
+//   1) 会话换了 → 按权威快照重取草稿归属（上一个会话的字绝不算这一页的草稿）；
+//   2) 同一会话 → 看这一份快照是不是"轮次收尾"，把它翻成 materialize/cancel
+//      （完成=物化提交的终点，取消=正文按未发送留着）；
+//   3) 最后把框内正文记成这份草稿（append 幂等：同样的正文得到同样的状态）。
+// 必须在 syncComposerSession / restoreComposerDraft 之后调用：输入框正文是本地
+// 事实源，草稿状态跟着它走。
+function syncComposerDraftState(snapshot) {
+  const sessionID = snapshot?.session?.id || "";
+  const running = Boolean(snapshot?.chat?.running);
+  if (composerDraft.sessionID !== sessionID) {
+    composerDraft = draftLifecycleFromSnapshot({
+      sessionID,
+      draft: snapshot?.session?.draft,
+      composer: snapshot?.session?.composer
+    });
+    composerRoundRunning = running;
+    composerCancelled = false;
+  } else {
+    const roundEvent = draftRoundEvent({ wasRunning: composerRoundRunning, isRunning: running, cancelled: composerCancelled });
+    composerRoundRunning = running;
+    composerCancelled = false;
+    if (roundEvent) composerDraft = draftLifecycle(composerDraft, { type: roundEvent });
+  }
+  composerDraft = draftLifecycle(composerDraft, { type: "append", text: elements.prompt.value });
+}
+
+// composerDraftPageText 给出页面 context 里那条「未发送草稿」行的正文（空 = 不出
+// 行）。判据只有一处：composerDraftRows（draft-lifecycle.js）——空草稿、没有草稿
+// 归属都不出行；这里不复制那条规则。
+function composerDraftPageText(snapshot) {
+  const rows = composerDraftRows({ conversation: snapshot?.conversation || [], state: composerDraft });
+  const row = rows.find(item => item.kind === DRAFT_ROW_KIND);
+  return row ? row.text : "";
+}
+
 function render(snapshot, options = {}) {
   const started = performance.now();
-  // 输入框正文先按会话归属对齐，再谈草稿回填（顺序见 syncComposerSession）。
+  // 输入框正文先按会话归属对齐，再谈草稿回填（顺序见 syncComposerSession）；
+  // 草稿状态最后取：它读的是"对齐并回填之后"的框内正文。
   syncComposerSession(snapshot);
   restoreComposerDraft(snapshot);
+  syncComposerDraftState(snapshot);
   renderSessions(snapshot.sessions || [], snapshot.session || {}, snapshot.capabilities || {}, snapshot.session_workspaces || {}, snapshot.workspaces || []);
   renderProject(snapshot);
   renderRuntime(snapshot.runtime || {});
   renderPlugins(snapshot.runtime || {});
   renderAccounts(snapshot.runtime || {});
-  chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID));
+  chatView.render(snapshot, options.scrollMode, Boolean(state.resumingSessionID), composerDraftPageText(snapshot));
   refreshInputIndex(snapshot);
   renderTrajectory(snapshot);
   refreshPlanDetailData(snapshot.runtime?.plan, snapshot.runtime?.subagent_tree);
@@ -660,8 +711,11 @@ function render(snapshot, options = {}) {
 function renderIncremental(snapshot, kind) {
   if (!snapshot) return;
   const started = performance.now();
+  // 增量渲染也要跟住草稿：轮次收尾（materialize/cancel）常常只走增量通道，
+  // 错过它就等于"这一轮结束后草稿没归位"。
+  syncComposerDraftState(snapshot);
   if (["message.added", "message.delta", "tool.started", "tool.completed"].includes(kind)) {
-    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history, snapshot.session?.status === "restoring", Boolean(state.resumingSessionID));
+    chatView.renderConversation(snapshot.conversation || [], snapshot.chat || {}, "auto", snapshot.has_more_history, snapshot.session?.status === "restoring", Boolean(state.resumingSessionID), composerDraftPageText(snapshot));
     chatView.renderControls(snapshot, Boolean(state.resumingSessionID));
     renderTrajectory(snapshot);
     // 新用户输入会多出一条索引刻度（助手增量不动索引），按指纹去重后拉取。
@@ -3164,6 +3218,9 @@ elements.composer.addEventListener("submit", async event => {
     // 提交是异步 RPC：往返期间用户可能已继续输入，只移除已发送的那段（规则见
     // composer-input.js），不整框清空——整框清空会把这段新输入一起吞掉。
     elements.prompt.value = clearSubmittedText(elements.prompt.value, sent);
+    // 一次提交：已发送的那段归本轮带走，框里剩下的是这一页仍未发送的草稿
+    // （remaining 由 clearSubmittedText 算好；草稿状态不复制那条规则）。
+    composerDraft = draftLifecycle(composerDraft, { type: "submit", remaining: elements.prompt.value });
     composerDirty = false;
     hideInlineSuggestions();
     resizePrompt();
@@ -3218,6 +3275,10 @@ elements["stop-button"].addEventListener("click", async () => {
     // has rotated the request ID.
     const cancelled = await invoke("CancelChat", "");
     if (!cancelled) showToast("当前任务已结束或取消请求未生效");
+    // 取消成功才把"本轮结束"记成取消（请求没生效就不该改写草稿的归位语义）；
+    // 归位本身由下一次渲染的 draftRoundEvent 发出（cancel = 正文按未发送留着，
+    // 不吞字），这里不重复应用一次。
+    composerCancelled = Boolean(cancelled);
     await refresh({ scroll: false });
   }
   catch (error) { showToast(error); }
