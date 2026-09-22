@@ -600,10 +600,9 @@ func (r *Runtime) newMainSession(sessionID string, hooks *session.LoopHooks) (*s
 		history.SetTailBudget(r.windowTailBudget())
 		// 真空区覆盖：滑动窗口与压缩内容之间未压缩轮次的断档填补
 		// （seelexctx/gap.go；压缩只随活跃期事件触发，会话结束后窗口外的
-		// 未压缩轮次会被尾窗装载丢弃——Load 时以完整事件流补压合并帧）。
-		history.SetGapCoverer(func(ctx context.Context, allEvents, tailEvents []sessionstore.Event) error {
-			return r.coverHistoryGap(ctx, allEvents, tailEvents)
-		})
+		// 未压缩轮次会被尾窗装载丢弃——Load 时按尾窗起始单元下标，以完整
+		// 事件流补压合并帧）。
+		history.SetGapCoverer(r.coverHistoryGap)
 		components.History = history
 		bundle.binding.setMainHistory(history)
 	}

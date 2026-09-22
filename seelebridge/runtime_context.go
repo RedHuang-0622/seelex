@@ -43,10 +43,11 @@ func (r *Runtime) compressionSnapshot(_ string) *snapshot.ContextSnapshot {
 }
 
 // coverHistoryGap 把滑动窗口与压缩内容之间的真空区轮次压缩为合并帧
-// （seelexctx.CoverHistoryGap）：完整事件流 vs 压缩栈顶 To vs 尾窗装载量
-// 三者对齐，未覆盖区间压入会话压缩栈（state blob / 内存兜底），原文经
-// TurnArchiver 归档（read_compressed_turn 可读回）。无真空区 → 无副作用。
-func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents, tailEvents []sessionstore.Event) error {
+// （seelexctx.CoverHistoryGap）：在完整事件流的单元空间里，压缩栈顶 To 与尾窗
+// 起点 tailStartUnit 直接对齐，[栈顶To+1, tailStartUnit-1] 即未覆盖区间；它
+// 压入会话压缩栈（state blob / 内存兜底），原文经 TurnArchiver 归档
+// （read_compressed_turn 可读回）。无真空区 → 无副作用。
+func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []sessionstore.Event, tailStartUnit int) error {
 	if len(allEvents) == 0 {
 		return nil
 	}
@@ -60,12 +61,12 @@ func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents, tailEvents []s
 		return nil
 	}
 	_, err := seelexctx.CoverHistoryGap(ctx, seelexctx.GapCoverageOptions{
-		AllEvents:  allEvents,
-		TailEvents: tailEvents,
-		Record:     record,
-		Stacks:     stacks,
-		Turns:      r.getTurnArchiver(),
-		SessionID:  r.MainSessionID(),
+		AllEvents:     allEvents,
+		TailStartUnit: tailStartUnit,
+		Record:        record,
+		Stacks:        stacks,
+		Turns:         r.getTurnArchiver(),
+		SessionID:     r.MainSessionID(),
 	})
 	return err
 }

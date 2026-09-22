@@ -23,10 +23,12 @@ func isSessionNotFound(err error) bool {
 // 既不在窗口也不在任何压缩帧——冷启动/恢复时若不覆盖即从请求中永久丢失。
 //
 // allEvents 是会话完整事件流（append-only，含已压缩轮次；未经尾窗选择），
-// tailEvents 是本次 Load 实际装载进 provider 请求的窗口单元事件。实现通常
-// 把真空区轮次压缩为合并帧（PushCompact 到 state store）并可选归档原文；
-// 返回 error 时 Load 保守忽略（不因覆盖失败阻断请求）。
-type GapCoverer func(ctx context.Context, allEvents, tailEvents []Event) error
+// tailStartUnit 是本次尾窗第一个单元在 allEvents 单元空间中的下标（尾窗为空
+// 时等于单元总数），因此 [栈顶To+1, tailStartUnit-1] 就是未覆盖区间，不必对
+// 两个事件列表分别切单元后相减。实现通常把真空区轮次压缩为合并帧
+// （PushCompact 到 state store）并可选归档原文；返回 error 时 Load 保守忽略
+// （不因覆盖失败阻断请求）。
+type GapCoverer func(ctx context.Context, allEvents []Event, tailStartUnit int) error
 
 // DurableHistory 实现 seelectx.DurableHistory 契约，把 sessionstore.Router
 // 适配为 Session 的持久化所有者。Session 每次 Chat 前 Load、结束后 Save；
@@ -99,9 +101,9 @@ func (d *DurableHistory) SetTailBudget(tokenBudget, maxUnits int) {
 	d.tail = &historyTailBudget{tokenBudget: tokenBudget, maxUnits: maxUnits}
 }
 
-// SetGapCoverer 注入真空区覆盖回调：每次尾窗 Load 时携带完整事件流与
-// 实际装载的窗口事件调用；回调负责把「压缩点之后、窗口之前」的未压缩
-// 轮次压缩进 CompactStack（不修改本适配器返回的历史）。
+// SetGapCoverer 注入真空区覆盖回调：每次尾窗 Load 时携带完整事件流与尾窗
+// 起始单元下标调用；回调负责把「压缩点之后、窗口之前」的未压缩轮次压缩进
+// CompactStack（不修改本适配器返回的历史）。
 func (d *DurableHistory) SetGapCoverer(coverer GapCoverer) {
 	d.gapCoverer = coverer
 }
@@ -149,9 +151,9 @@ func (d *DurableHistory) Load(ctx context.Context) ([]types.Message, error) {
 		if err != nil {
 			return nil, err
 		}
-		tail := selectEventTail(allEvents, d.tail.tokenBudget, d.tail.maxUnits)
+		tail, tailStartUnit := selectEventTailWindow(allEvents, d.tail.tokenBudget, d.tail.maxUnits)
 		if d.gapCoverer != nil && len(allEvents) > 0 {
-			if err := d.gapCoverer(ctx, allEvents, tail); err != nil {
+			if err := d.gapCoverer(ctx, allEvents, tailStartUnit); err != nil {
 				// 覆盖失败保守忽略：窗口历史已可继续请求，真空区下次 Load
 				// 重试；不因上下文增强失败阻断 Chat。
 				_ = err

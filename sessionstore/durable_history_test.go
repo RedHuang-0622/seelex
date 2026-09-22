@@ -196,7 +196,7 @@ func TestDurableHistoryLoadUsesWindowTailBudget(t *testing.T) {
 }
 
 // TestDurableHistoryLoadInvokesGapCoverer 验证真空区覆盖钩子：尾窗 Load 时
-// 携带完整事件流 + 实际装载的窗口事件调用 GapCoverer；无覆盖器时行为不变。
+// 携带完整事件流 + 尾窗起始单元下标调用 GapCoverer；无覆盖器时行为不变。
 func TestDurableHistoryLoadInvokesGapCoverer(t *testing.T) {
 	router := newTestRouter(t)
 	events := []Event{
@@ -211,12 +211,13 @@ func TestDurableHistoryLoadInvokesGapCoverer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var gotAll, gotTail []Event
+	var gotAll []Event
+	gotStart := -1
 	history := NewDurableHistory(router, "session-gap-cover")
 	history.SetTailBudget(100, 2)
-	history.SetGapCoverer(func(_ context.Context, allEvents, tailEvents []Event) error {
+	history.SetGapCoverer(func(_ context.Context, allEvents []Event, tailStartUnit int) error {
 		gotAll = append([]Event(nil), allEvents...)
-		gotTail = append([]Event(nil), tailEvents...)
+		gotStart = tailStartUnit
 		return nil
 	})
 	window, err := history.Load(context.Background())
@@ -227,12 +228,12 @@ func TestDurableHistoryLoadInvokesGapCoverer(t *testing.T) {
 	if len(window) != 4 || window[0].Content == nil || *window[0].Content != "q2" {
 		t.Fatalf("windowed load = %d messages, want last 2 rounds", len(window))
 	}
-	// 完整事件流 = 全部 6 条事件；tail = 窗口的 4 条事件。
+	// 完整事件流 = 全部 6 条事件；3 个单元里尾窗装载最后 2 个 → 起始下标 1。
 	if len(gotAll) != 6 {
 		t.Fatalf("coverer must receive full event stream (%d), got %d", 6, len(gotAll))
 	}
-	if len(gotTail) != 4 || gotTail[0].Seq != 3 {
-		t.Fatalf("coverer must receive loaded tail events, got %+v", gotTail)
+	if gotStart != 1 {
+		t.Fatalf("coverer must receive tail start unit 1, got %d", gotStart)
 	}
 }
 
@@ -248,7 +249,7 @@ func TestDurableHistoryGapCovererErrorIsIgnored(t *testing.T) {
 	}
 	history := NewDurableHistory(router, "session-gap-fail")
 	history.SetTailBudget(100, 2)
-	history.SetGapCoverer(func(_ context.Context, _, _ []Event) error {
+	history.SetGapCoverer(func(_ context.Context, _ []Event, _ int) error {
 		return errGapCovererTest
 	})
 	window, err := history.Load(context.Background())

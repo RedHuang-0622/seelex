@@ -30,8 +30,10 @@ import (
 type GapCoverageOptions struct {
 	// AllEvents 会话完整事件流（append-only 真相源，含已压缩轮次）。
 	AllEvents []sessionstore.Event
-	// TailEvents 本次尾窗实际装载的窗口事件（selectEventTail 结果）。
-	TailEvents []sessionstore.Event
+
+	// TailStartUnit 尾窗第一个单元在 AllEvents 单元空间中的起始下标，由存储
+	// 层选窗时回报（尾窗为空时等于单元总数）。[0, TailStartUnit) 即"窗口之前"。
+	TailStartUnit int
 
 	// Record 当前压缩栈记录（Snapshot）。
 	Record sessionstore.SessionContextRecord
@@ -59,21 +61,23 @@ type GapCoverageResult struct {
 	UncoveredUnits int
 }
 
-// CoverHistoryGap 检测并覆盖真空区：完整事件单元 vs 压缩栈顶 To vs 尾窗
-// 装载量。发现未覆盖区间时构造合并帧（接续栈顶覆盖、摘要含真空区轮次、
-// 原文可选归档）并 PushCompact；无真空区或栈顶已覆盖 → Covered=false。
+// CoverHistoryGap 检测并覆盖真空区：压缩栈顶 To 与尾窗起点是否接得上。
+// 两者都在 AllEvents 的单元空间里（栈顶 To 是累计单元下标，尾窗起点由存储
+// 层选窗时回报），因此 [栈顶To+1, 尾窗起点-1] 就是未覆盖区间，不需要靠减法
+// 推算，也不存在跨空间错位。发现未覆盖区间时构造合并帧（接续栈顶覆盖、摘要
+// 含真空区轮次、原文可选归档）并 PushCompact；无真空区 → Covered=false。
+//
+// 两个下标都必须落在 AllEvents 的单元空间内；越界说明回调拿到的 AllEvents
+// 与选窗时不是同一份（不同源/被截断），或持久化记录损坏。此时任何区间都是
+// 猜测，返回错误且不落帧（调用方保守忽略，下次 Load 重试）。
 func CoverHistoryGap(ctx context.Context, opts GapCoverageOptions) (GapCoverageResult, error) {
 	if len(opts.AllEvents) == 0 {
 		return GapCoverageResult{}, nil
 	}
-	tokens := opts.Tokens
-	if tokens == nil {
-		tokens = ConservativeTokenCounter{}
+	if opts.Tokens == nil {
+		opts.Tokens = ConservativeTokenCounter{}
 	}
 	allUnits := sessionstore.CompleteEventUnits(opts.AllEvents)
-	tailUnits := sessionstore.CompleteEventUnits(opts.TailEvents)
-	totalUnits := len(allUnits)
-	loadedUnits := len(tailUnits)
 
 	// 覆盖终点 = 栈顶帧 To（累计单元索引；空栈 = -1）。
 	coverageEnd := -1
@@ -81,28 +85,29 @@ func CoverHistoryGap(ctx context.Context, opts GapCoverageOptions) (GapCoverageR
 		top := opts.Record.CompactStack[len(opts.Record.CompactStack)-1]
 		coverageEnd = top.To
 	}
-	// 尾窗起点前一个单元 = 真空区终点（totalUnits-loadedUnits-1）。
-	gapEnd := totalUnits - loadedUnits - 1
+	// 两个下标都必须落在单元空间内，否则后面的切片就是越界访问：尾窗起点越界
+	// = 回调拿到的 AllEvents 与选窗时不是同一份；To < -1 = 持久化记录损坏
+	// （累计下标自 0 起，PushCompact 也拒绝负区间）。显式拒绝而不是推算硬补，
+	// 避免 panic 打断整次 Load。
+	if opts.TailStartUnit < 0 || opts.TailStartUnit > len(allUnits) || coverageEnd < -1 {
+		return GapCoverageResult{}, fmt.Errorf(
+			"seelexctx: gap coverage inputs outside unit space (tail_start_unit=%d, units=%d, coverage_end=%d)",
+			opts.TailStartUnit, len(allUnits), coverageEnd)
+	}
+	// 尾窗起点的前一个单元 = 真空区终点。
+	gapEnd := opts.TailStartUnit - 1
 	if gapEnd < 0 {
-		return GapCoverageResult{}, nil // 全部单元都在窗口内
+		return GapCoverageResult{}, nil // 尾窗装载了全部单元
 	}
 	gapStart := coverageEnd + 1
 	if gapStart > gapEnd {
 		return GapCoverageResult{}, nil // 栈顶已覆盖到尾窗起点
-	}
-	// 保守 clamp：跨空间的单元计数可能轻微错位，只补明确未覆盖的区间。
-	if gapStart < 0 {
-		gapStart = 0
 	}
 	uncovered := allUnits[gapStart : gapEnd+1]
 
 	frame, err := buildGapFrame(ctx, opts, uncovered, gapEnd)
 	if err != nil {
 		return GapCoverageResult{}, fmt.Errorf("seelexctx: build gap frame: %w", err)
-	}
-	// 去重：新帧 To 不大于栈顶 To（跨 Load 重复覆盖同一区间）→ 跳过。
-	if prevTo := coverageEnd; frame.To <= prevTo {
-		return GapCoverageResult{}, nil
 	}
 	if opts.Stacks != nil {
 		if err := opts.Stacks.PushCompact(frame); err != nil {

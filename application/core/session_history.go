@@ -301,7 +301,7 @@ func (service *Service) resumeSessionCold(sessionID string, activateEpoch uint64
 			// the fallback history again.
 			transcript = service.components.sessions.RecordConversationTranscript(record)
 		}
-		engineHistory = task_context.TranscriptTailHistory(transcript, tailBudget, 4)
+		engineHistory = task_context.TranscriptTailHistory(transcript, tailBudget, CurrentWindowConfig().MinRounds)
 		// R2 运行期接线（v8 新链路）：直接装配 compact 摘要 + 尾窗 + 最近
 		// K 条尝试；非 会话存储布局 ok=false 时保留旧装配结果。
 		if wire, wireOK, wireErr := service.components.sessions.AssembleWireHistoryWorkspace(location, sessionID, tailBudget, 3); wireErr != nil {

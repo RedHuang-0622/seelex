@@ -46,7 +46,89 @@ version when it lands.
   Recorded on 2026-09-20 in `docs/devlog/2026-09-20-workspace-changes-pane.md`;
   contract documented in `docs/gui/modules/right-sidebar.md` and `workspace/README.md`.
 
+- **The resource explorer's three code panes became three sibling sub-pages, each with its
+  own scroll container and a refresh button.** Work tree / commit log / workspace changes no
+  longer stack vertically: one embedded tab strip (`role="tablist"`) shows a single sub-page
+  at a time, the active page and order persist in `seelex.right.explorer.v1` (the old
+  `seelex.right.codePanes` order is migrated once, then removed), and every sub-page head
+  carries a refresh button — re-activating the explorer sub-page or clicking its tab again
+  re-reads the data as well. The refresh itself is an atomic capability
+  (`gui/frontend/dist/explorer-refresh.js`): single-flight (a trigger while a refresh is in
+  flight reuses the same promise) plus generation/root-stamped commits, so a stale response
+  can never mix old and new rows across the three panes, and a failed refresh keeps the
+  previous data and only reports. Page semantics (order/active/dirty storage) are pure
+  functions in `explorer-pages.js`; `app.js` only renders what they return. Recorded in
+  `docs/devlog/2026-09-22-explorer-subpages-refresh.md`.
+- **A session's unsent input is now part of the page it belongs to.** The conversation page
+  renders the established messages plus one trailing unsent-draft row (`chat:draft`,
+  `kind="draft"`, `is-draft`, `data-draft`/`data-unsent`) whenever the current page still
+  holds text that was never submitted. Previously that text only existed in the composer, so
+  a draft session (which has no messages yet) opened as an empty page and the unsent half of
+  the page context was invisible after a switch or a restart. The rule set lives in
+  `gui/frontend/dist/draft-lifecycle.js` (`draftLifecycleFromSnapshot`, `draftLifecycle`,
+  `composerDraftRows`, `draftRoundEvent`) and is wired once in `app.js`: append on edit,
+  `submit` with the `clearSubmittedText` remainder, `materialize` when a round settles,
+  `cancel` when the user stops it. The row is a projection: it never writes back to the
+  composer. Boundary: a persisted draft is still not restored into the page when the app
+  boots with an existing session (`initialDraft=false`), so the new headless smoke records
+  that state instead of asserting it. Verified end-to-end by
+  `composer_draft_live_smoke_test.go` (`-tags draftsmoke`): the unsent draft never reaches
+  the provider, adjacent wire requests stay prefix-identical with the draft in play, history
+  survives a restart, and a cancelled round's settled history survives both the cancel and
+  the restart.
+- **Agent Team role sessions show unsynchronised role drafts in their own block instead of
+  folding them into the record table's `is-own` cells.** `renderRoleDraftBlock` lists
+  `draft_rows` after the published rows, keyed by round/unit, each row carrying `is-draft`
+  plus an "未同步" chip and `data-draft-round/-unit/-kind` credentials; the record table marks
+  the matching column head and cell as draft (`.role-record-draft-head`,
+  `.role-record-cell.is-draft`). The end of a round is the only place drafts become published
+  messages (`SyncRoleDraft` in `sessionstore/role_session.go`: sort → idempotent replay check
+  → atomic head+floor publish → delete the draft file), so a cancelled round keeps its rows
+  as drafts and the frontend only renders that authoritative projection. Regression tests:
+  `gui/frontend/dist/agent-team-view.test.mjs`,
+  `application/core/goal_team_recorder_test.go`, `sessionstore/role_session_test.go`.
+
+### Changed
+
+- **The vacuum-region boundary is now reported by the tail-window selector instead of being
+  re-derived by the coverer.** `seelexctx.GapCoverageOptions` used to receive `TailEvents` and
+  compute the uncovered range as `len(CompleteEventUnits(all)) - len(CompleteEventUnits(tail)) - 1`
+  — two separate unit spaces, which the code itself flagged as possibly "slightly misaligned" and
+  which therefore needed a conservative clamp plus a post-hoc "skip when the new frame does not
+  advance coverage" dedup. `selectEventTailWindow` now returns the index of the first selected
+  unit **in the full stream's unit space**, `sessionstore.GapCoverer` carries that index instead of
+  the tail events, and `CoverHistoryGap` computes `[top.To+1, tailStartUnit-1]` directly. The clamp
+  and the dedup are gone: `gapStart > gapEnd` now provably covers the repeat case, and
+  `TestCoverHistoryGapRestoresCoverageContiguity` asserts the invariant itself (after coverage the
+  stack top must abut the window, `top.To == tailStartUnit-1`). Because both indices now arrive
+  from outside the function, the unit-space contract is checked up front: a `tail_start_unit`
+  outside `[0, unit count]` or a stack top `To < -1` returns an error instead of reaching the
+  slice expression — the deleted clamp was what used to keep that second case from panicking on a
+  corrupted state blob. `TestCoverHistoryGapRejectsInputsOutsideUnitSpace` covers both the rejected
+  values and the still-valid boundary values (`tailStartUnit == unit count`, `To == -1`). `application/core` reads the same
+  source for its cold-restore read width — the transcript tail cap is `window.min_rounds` instead
+  of a second literal `4`. The wire assembly path still passes its own `3`: that number has no
+  documented rationale, so it was left alone rather than guessed at. Covered by
+  `seelexctx/gap_test.go` and `sessionstore/durable_history_test.go`; full suite green on
+  `go test ./... -count=1` (67 packages, 0 failures) and `go build -tags "gui,desktop,production" ./...`.
+
 ### Fixed
+
+- **A session's draft input is no longer invisible in the session tree, and materialising it
+  no longer leaves a ghost draft behind.** `SaveComposerDraft` wrote the record and the
+  in-memory unit but never registered the draft slot, while the "a draft row is always
+  `draft`" rule only applied to slot rows — so the very session the user was typing in was
+  rendered as `idle`. The first non-empty draft now registers the slot, which is the same
+  criterion the record uses (`Status=draft` only while the text is non-empty).
+  `clearComposerDraft` also converges on **residue** instead of the single project key it
+  happens to remember: rebinding a draft to another workspace (`BindWorkspace` after
+  `BeginNewSession`) used to leave a `Status=draft` record under the old project, and
+  `DraftCandidates` — which enumerates every project — then offered it as a restore
+  candidate after a restart, handing an already-materialised session back to the page as a
+  draft with stale text. Covered by `TestComposerDraftSessionRowVisible` and
+  `TestComposerWorkspaceRebindConvergesOnMaterialize`. Real-API sessions restore smoke
+  (`-tags manualsmoke2`) and the prefix smoke (`-tags manualsmoke`, 9 requests / every
+  adjacent pair prefix-identical / 92.5–96.8% prompt-cache hit) were re-run green.
 
 - **A provider request can no longer carry a `tool` message that no assistant
   declared, so the session loop survives the 400 instead of dying on it.** The
