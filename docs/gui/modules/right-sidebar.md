@@ -20,7 +20,7 @@ localStorage 记忆）。历史检索保留在右栏子页之下的「更多」�
 |---|---|---|
 | **状态** | 项目状态表（键值两列：状态/会话/消息/任务/待审批/文件数）+ 概要 + 上下文压缩时间线 + **账户栏**（状态一栏之下）+ **Agent Team**（员工栏 / Team 栏两块表格） | `snapshot.chat/task/conversation`、`runtime`（含 `runtime.accounts` / `runtime.account`） |
 | **工作台** | 「目标」面板 + 工作表格入口 + 定时任务面板 | `runtime.goal_skill_active`、`runtime.active_skills`、`task`、`work_table`、`scheduled_tasks` |
-| **代码** | 左：文件预览抽屉（点工作树或工作区更改的文件行打开）；右：工作树 + 提交记录 + 工作区更改（可拖拽调换） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog`、`Bridge.WorkspaceChanges` |
+| **资源管理器** | 左：文件预览抽屉（点工作树或工作区更改的文件行打开）；右：三个平级子页 工作树 / 提交记录 / 工作区更改（页签切换、激活态持久化，各自滚动、各自刷新按钮） | `Bridge.WorkspaceFileContent`、`Bridge.WorkspaceTree/FileCount`、`Bridge.WorkspaceGitLog`、`Bridge.WorkspaceChanges` |
 
 项目标题（`project-heading`）与「历史检索」折叠区跨子页常驻，不属于任何子页。
 状态子页自上而下：`状态` → `账户` → `Agent Team`。
@@ -72,15 +72,17 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
 `application/core/view_state` 收集投影（锁内快照），`runtime.changed` 增量携带，
 不需要额外 Bridge 调用。
 
-## 资源管理器子页：文件预览 + 工作树 + 提交记录树 + 工作区更改
+## 资源管理器子页：三个平级子页（工作树 / 提交记录 / 工作区更改）+ 文件预览
 
 子页 3 内部左右分栏（`.code-split`）：左「内容详情」抽屉（`.file-preview-pane`，
-默认收起、点击文件自动展开），右栏上下排列工作树、提交记录与工作区更改三块面板
-（顶部有拖拽手柄 grip icon）。左抽屉与右栏之间是宽度拖拽分隔条（`--preview-w`，
-`localStorage["seelex.preview-pane-width"]`，默认 380px）。宽度**无固定上限**：
-只按子页可视宽封顶（`calc(100% - 6px)`，拖动时 JS 与容器宽对齐），内容详情与
-工作树谁宽谁窄完全由拖动决定；左/右主栏同理（`--left-w`/`--right-w` 上界按视口
-宽动态计算）。形态四态由 `.code-split` 的类切换：收起 `.is-closed`、展开
+默认收起、点击文件自动展开），右栏是**三个平级子页**——上方一条内嵌页签（点击切换、
+激活态高亮并持久化），一次只显示一个子页的内容区；每个子页头部一枚刷新按钮
+（`icon-button` + `data-icon`），内容区自己就是滚动容器（`overflow-y: auto`，滚轮
+只滚本子页，不滚整栏；内容不溢出时不出滚动条）。左抽屉与右栏之间是宽度拖拽分隔条
+（`--preview-w`，`localStorage["seelex.preview-pane-width"]`，默认 380px）。宽度
+**无固定上限**：只按子页可视宽封顶（`calc(100% - 6px)`，拖动时 JS 与容器宽对齐），
+内容详情与工作树谁宽谁窄完全由拖动决定；左/右主栏同理（`--left-w`/`--right-w` 上界
+按视口宽动态计算）。形态四态由 `.code-split` 的类切换：收起 `.is-closed`、展开
 `.is-preview-open`、详情收成竖轨 `.is-preview-open.is-preview-collapsed`、
 隐蔽 `.is-preview-open.is-panes-hidden`。
 
@@ -124,12 +126,28 @@ provider · model + 不可用标记），点击走 `#account-list` 容器委托�
   预览（与工作树同一个抽屉）；已删除的文件没有字节可读，行不可点（title 说明）。
   实现见 `workspace-changes.js`。
 
-### 拖拽调换
+### 子页页签、顺序与刷新
 
-三面板支持 HTML5 drag & drop 调换顺序，顺序持久化到
-`localStorage["seelex.right.codePanes"]`（默认 `["worktree","gitlog","changes"]`；
-旧的两项存储因长度不匹配自动落回默认顺序）。子页激活时按需刷新数据面（工作区
-切换或 chat 结束产生新提交/新改动时重新拉取）。
+三个子页是同一层级的页签，不再上下堆叠：顺序与激活页是纯 UI 状态，落盘在
+`localStorage["seelex.right.explorer.v1"]`（`{"order":[...],"active":"worktree"}`；
+收敛函数在 `explorer-pages.js`：`normalizeExplorerState` / `resolveExplorerState` /
+`legacyPaneOrder` / `serializeExplorerState`）。旧版面板堆叠的拖拽顺序记忆
+`localStorage["seelex.right.codePanes"]` 一次性迁移：恰好是三个子页的一次排列就沿用
+其顺序（旧的首块面板成为激活页），旧的两项版本与任何脏值一律安全回退默认顺序；迁移
+（含回退）后旧键即删除，存储里不留第二种事实。页签切换只切显隐，不触发 Bridge 调用。
+
+刷新是**原子能力**（`gui/frontend/dist/explorer-refresh.js`）：
+
+- **single-flight**：同一时刻只有一次在飞的刷新；重复触发（重复点页签 / 连点刷新）
+  复用同一 promise，不叠加请求。飞行期间到来的新页请求在同一批内补齐，已在本次批里
+  加载过的页不重拉；
+- **根 + 代次提交**：结果按「工作区根 + generation」判定，根已变（切换工作区）或已有
+  更新代次时过期响应直接丢弃；一次刷新是一批页，整批一起提交——三个面板绝不新旧混搭；
+- **失败整批保留**：任一页失败则整批不落地（已拿到的页也不提交），只提示一次，旧数据
+  与旧计数留在面板上，不清空；
+- **触发时机**：切到「资源管理器」子页（由非激活变激活）、**再次点击已激活的
+  「资源管理器」页签**、各子页头部的刷新按钮（只刷该子页）、绑定/切换工作区、
+  一轮 chat 结束。切换子页页签本身不拉数据。
 
 ### 提交记录数据面（后端）
 

@@ -42,6 +42,18 @@ import {
   swapViews,
   isViewActive
 } from "./dock-layout.js";
+import {
+  EXPLORER_PAGES,
+  EXPLORER_PAGE_META,
+  EXPLORER_STORAGE_KEY,
+  LEGACY_PANE_ORDER_KEY,
+  isExplorerPage,
+  normalizeExplorerState,
+  resolveExplorerState,
+  serializeExplorerState,
+  withExplorerPage
+} from "./explorer-pages.js";
+import { REFRESH_STATUS, createExplorerRefresh } from "./explorer-refresh.js";
 import { createPerfHooks } from "./perf-hooks.js";
 import { createLiveDiag } from "./live-diag.js";
 import { createTerminalPanel } from "./terminal-panel.js";
@@ -72,7 +84,7 @@ const elements = Object.fromEntries([
   "project-name", "project-root", "project-status", "project-overview", "worktree-view", "file-count", "context-compactions",
   "team-section", "team-view", "team-count",
   "role-session-modal", "role-session-close", "role-session-modal-title", "role-session-view",
-  "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
+  "right-tabs", "goal-section", "goal-badge", "goal-view", "code-panes", "code-pane-tabs", "code-pane-worktree", "code-pane-gitlog", "git-log-view", "git-log-count", "code-pane-changes", "changes-view", "changes-count",
   "file-preview-pane", "file-preview-view", "file-preview-tabs", "file-preview-hide-panes", "file-preview-close", "file-preview-divider", "file-preview-collapse", "file-preview-rail",
   "runtime-button", "runtime-modal", "runtime-close", "settings-button", "settings-modal", "settings-close", "storage-backend", "storage-path", "storage-path-field", "storage-dsn", "storage-dsn-field", "storage-test", "storage-save", "storage-status", "theme-picker", "inline-suggestions",
   "command-button", "command-modal", "command-close", "command-triggers", "command-search", "command-results",
@@ -200,10 +212,9 @@ function runViewActivation(view) {
     return;
   }
   if (view === "code") {
-    // 资源管理器子页有三个数据面：工作树（绑定工作区时已拉）、提交记录与
-    // 工作区更改（后两者按需刷新）。
-    refreshGitLogIfStale();
-    refreshChangesIfStale();
+    // 「资源管理器」子页激活（含由非激活变激活、以及重新点开已激活的页签）：
+    // 整批刷新三个数据面。不能只在首次激活拉一次——工作区内容会随回合变化。
+    refreshExplorerPages(EXPLORER_PAGES);
   }
 }
 
@@ -237,7 +248,12 @@ function applyDockState() {
 
 function setDockTab(region, view) {
   if (!REGIONS.includes(region) || !dockState.layout[region].includes(view)) return;
-  if (dockState.active[region] === view) return;
+  if (dockState.active[region] === view) {
+    // 再次点击已激活的页签 = 用户明确「重新打开」：资源管理器要重拉数据面
+    // （首次切换已有 runViewActivation 那条路；这条覆盖"点同一个页签"）。
+    if (view === "code") refreshExplorerPages(EXPLORER_PAGES);
+    return;
+  }
   dockState.active[region] = view;
   applyDockState();
 }
@@ -469,8 +485,9 @@ elements["file-preview-rail"].addEventListener("click", togglePreviewCollapsed);
 // 控制弹窗打开期间不显示未读角标。
 let workTableSeen = new Map();
 let workTableOpen = false;
-// worktreeRoot 是已加载文件树的工作区 root；worktreeFileCount 是递归文件
-// 统计；lastChatRunning 用于在 chat 结束（文件可能变化）时刷新。
+// worktreeRoot 是三个数据面当前所属的工作区 root（也是刷新机的提交基准）；
+// worktreeFileCount 是递归文件统计；lastChatRunning 用于在 chat 结束（文件/
+// 提交/改动都可能变化）时整批刷新一次。
 let worktreeRoot = "";
 let worktreeFileCount = null;
 let lastChatRunning = false;
@@ -789,91 +806,161 @@ elements.conversation.addEventListener("click", event => {
   });
 });
 
-// 右栏子页归属与激活由停靠布局统一管理（见上方 dockState），这里的存储键
-// 只保留「资源管理器」子页内部工作树/提交记录两面板的顺序记忆。
-const RIGHT_PANE_ORDER_KEY = "seelex.right.codePanes";
+// ── 子页3「资源管理器」内部：三个平级子页 + 原子刷新 ──────────────
+// 「工作树 / 提交记录 / 工作区更改」是同一子页内的三个平级子页：页签切换、激活态
+// 高亮，顺序与激活落盘在 seelex.right.explorer.v1（旧版三面板堆叠的拖拽顺序记忆
+// seelex.right.codePanes 一次性迁移，收敛逻辑见 explorer-pages.js）。
+// 三个数据面都是只读元数据（Bridge.WorkspaceTree/FileCount、WorkspaceGitLog、
+// WorkspaceChanges），刷新统一走 explorerRefresh：同一时刻只有一次在飞请求，结果按
+// 「工作区根 + 代次」整批提交，过期响应直接丢弃（见 explorer-refresh.js）。
+// explorerLoadedPages 记哪些子页已经有数据面：刷新失败时这些子页保留旧数据只提示。
+const explorerLoadedPages = new Set();
 
-// ── 子页3：工作树 / 提交记录 面板顺序（拖拽调换，localStorage 记忆）────
-const CODE_PANES = ["worktree", "gitlog", "changes"];
-// gitLogRoot / gitLogLoadedAt 记录 git log 数据面（工作区切换/chat 结束
-// 后重新拉取；子页未激活时缓存，激活时按需刷新）。
-let gitLogRoot = "";
-let gitLogLoaded = false;
-// changesRoot / changesLoaded 是同一套收敛的工作区更改数据面（同上刷新时机：
-// 绑定工作区拉一次、chat 结束与切换工作区失效）。
-let changesRoot = "";
-let changesLoaded = false;
+const explorerRefresh = createExplorerRefresh({
+  load: loadExplorerPage,
+  commit: commitExplorerPages,
+  onError: reportExplorerRefreshFailure
+});
 
-function storedPaneOrder() {
-  const value = localStorage.getItem(RIGHT_PANE_ORDER_KEY);
-  if (Array.isArray(value)) {
-    const parsed = value.filter(pane => CODE_PANES.includes(pane));
-    if (parsed.length === CODE_PANES.length) return parsed;
+let explorerState = readExplorerState();
+
+// readExplorerState 读取子页状态：新键优先；缺新键时消费旧版面板顺序（含更早的
+// 两项版本——长度不匹配即安全回退默认顺序），消费过就写回新键并清掉旧键，旧值不再
+// 留在存储里充当第二种事实。
+function readExplorerState() {
+  const { state, migrated } = resolveExplorerState(
+    storageGet(EXPLORER_STORAGE_KEY),
+    storageGet(LEGACY_PANE_ORDER_KEY)
+  );
+  if (migrated) {
+    storageSet(EXPLORER_STORAGE_KEY, serializeExplorerState(state));
+    storageRemove(LEGACY_PANE_ORDER_KEY);
   }
-  return CODE_PANES;
+  return state;
 }
 
-function persistPaneOrder() {
-  const order = [];
-  elements["code-panes"].querySelectorAll("[data-pane]").forEach(section => {
-    order.push(section.dataset.pane);
-  });
-  localStorage.setItem(RIGHT_PANE_ORDER_KEY, JSON.stringify(order));
+function persistExplorerState() {
+  storageSet(EXPLORER_STORAGE_KEY, serializeExplorerState(explorerState));
 }
 
-function applyPaneOrder(order) {
-  const panes = elements["code-panes"];
-  if (!panes) return;
-  order.forEach(pane => {
-    const section = panes.querySelector(`[data-pane="${pane}"]`);
-    if (section) panes.appendChild(section);
-  });
+// renderExplorerTabs 渲染子页页签：顺序即 explorerState.order（旧顺序记忆迁移过来
+// 的结果也走这里），激活页高亮并标记 aria-selected。
+function renderExplorerTabs() {
+  const tabs = elements["code-pane-tabs"];
+  if (!tabs) return;
+  tabs.innerHTML = explorerState.order.map(page => {
+    const meta = EXPLORER_PAGE_META[page];
+    const active = page === explorerState.active;
+    return `<button class="code-pane-tab${active ? " is-active" : ""}" type="button" role="tab" `
+      + `data-explorer-page="${page}" aria-controls="${meta.panelId}" aria-selected="${String(active)}">`
+      + `${escapeHtml(meta.label)}</button>`;
+  }).join("");
 }
 
-function initCodePanes() {
-  applyPaneOrder(storedPaneOrder());
-  const handles = elements["code-panes"]?.querySelectorAll("[data-pane]");
-  handles?.forEach(section => {
-    section.setAttribute("draggable", "true");
-    section.addEventListener("dragstart", event => {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", section.dataset.pane);
-      section.classList.add("is-dragging");
-    });
-    section.addEventListener("dragend", () => {
-      section.classList.remove("is-dragging");
-      panes().forEach(other => other.classList.remove("is-drag-over"));
-    });
-    section.addEventListener("dragover", event => {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      panes().forEach(other => other.classList.toggle("is-drag-over", other === section));
-    });
-    section.addEventListener("drop", event => {
-      event.preventDefault();
-      const fromPane = event.dataTransfer.getData("text/plain");
-      const fromSection = panes().find(other => other.dataset.pane === fromPane);
-      if (!fromSection || fromSection === section) return;
-      const panesList = panes();
-      const fromIndex = panesList.indexOf(fromSection);
-      const toIndex = panesList.indexOf(section);
-      if (fromIndex < 0 || toIndex < 0) return;
-      if (fromIndex < toIndex) {
-        section.after(fromSection);
-      } else {
-        section.before(fromSection);
-      }
-      panes().forEach(other => other.classList.remove("is-drag-over"));
-      persistPaneOrder();
-    });
-  });
+// applyExplorerPageState 是子页显隐的唯一入口：一次只显示激活子页的面板（内容区
+// 自己滚动）。切换子页只动显隐，不触发任何 Bridge 调用。
+function applyExplorerPageState() {
+  explorerState = normalizeExplorerState(explorerState);
+  renderExplorerTabs();
+  for (const page of EXPLORER_PAGES) {
+    elements[EXPLORER_PAGE_META[page].panelId]?.classList.toggle("is-hidden", page !== explorerState.active);
+  }
 }
 
-function panes() {
-  return Array.from(elements["code-panes"]?.querySelectorAll("[data-pane]") || []);
+function setExplorerPage(page) {
+  if (!isExplorerPage(page) || page === explorerState.active) return;
+  explorerState = withExplorerPage(explorerState, page);
+  applyExplorerPageState();
+  persistExplorerState();
 }
 
-initCodePanes();
+// 子页内的点击走容器委托（一条监听）：页签切换 + 各子页头部的刷新按钮。页签是真
+// 按钮，Enter/Space 由浏览器转成 click，不必另写键盘分支。
+elements["code-panes"]?.addEventListener("click", event => {
+  const refreshButton = event.target.closest?.("[data-page-refresh]");
+  if (refreshButton) {
+    refreshExplorerPages([refreshButton.dataset.pageRefresh]);
+    return;
+  }
+  const tab = event.target.closest?.("[data-explorer-page]");
+  if (tab) setExplorerPage(tab.dataset.explorerPage);
+});
+
+applyExplorerPageState();
+
+// ── 资源管理器数据面：刷新入口 / 拉取 / 整批提交 / 失败提示 ──────────
+// refreshExplorerPages 是资源管理器数据面的唯一刷新入口：缺省 = 三个子页一起刷
+// （激活或重新点开子页）；单个子页的刷新按钮只刷它自己。未绑定工作区时不发请求。
+function refreshExplorerPages(pages = EXPLORER_PAGES) {
+  const list = (Array.isArray(pages) ? pages : [pages]).filter(isExplorerPage);
+  if (list.length === 0 || !explorerRefresh.currentRoot()) {
+    return Promise.resolve({ status: REFRESH_STATUS.NOOP, pages: [] });
+  }
+  markExplorerPagesLoading(list);
+  return explorerRefresh.refresh(list);
+}
+
+// markExplorerPagesLoading 只在子页还没有数据面时显示「读取中」：已有数据的子页在
+// 刷新期间保留旧内容与旧计数，不闪空。
+function markExplorerPagesLoading(pages) {
+  for (const page of pages) {
+    if (explorerLoadedPages.has(page)) continue;
+    elements[EXPLORER_PAGE_META[page].badgeId].textContent = "…";
+  }
+}
+
+// loadExplorerPage 拉取单个子页的只读元数据面：工作树一次取统计 + 根层列表，两笔
+// 请求同属一个代次（不会一半新一半旧）。失败交给刷新机整批作废（旧数据保留）。
+function loadExplorerPage(page) {
+  if (page === "worktree") {
+    return Promise.all([invoke("WorkspaceFileCount"), invoke("WorkspaceTree", "", 1)])
+      .then(([count, listing]) => ({ count, listing }));
+  }
+  if (page === "gitlog") return invoke("WorkspaceGitLog", 20);
+  if (page === "changes") return invoke("WorkspaceChanges", 200);
+  return Promise.reject(new Error(`未知的资源管理器子页：${page}`));
+}
+
+// commitExplorerPages 整批提交（刷新机只在根与代次都仍有效时调用）：三个面板要么
+// 一起换成新一代次的数据，要么一个都不动。文本一律由 view 模块 escapeHtml，
+// 前端不解释 git 语义——状态字母、分类与统计全部来自 Bridge 的下发结果。
+function commitExplorerPages(entries) {
+  for (const { page, data } of entries) {
+    if (page === "worktree") {
+      worktreeFileCount = data?.count ?? null;
+      elements["file-count"].textContent = String(data?.count?.files ?? 0);
+      workTreeView.renderRoot(data?.listing?.entries || []);
+    } else if (page === "gitlog") {
+      gitLogView.renderRoot(data);
+      elements["git-log-count"].textContent = String(data?.commits?.length ?? 0);
+    } else if (page === "changes") {
+      workspaceChangesView.renderRoot(data);
+      // badge 用后端的总数（过滤后全部条目）：截断时列表短、数字仍是真的。
+      elements["changes-count"].textContent = String(data?.total ?? data?.entries?.length ?? 0);
+    }
+    explorerLoadedPages.add(page);
+  }
+  // 文件数进「状态」子页的项目状态表：工作树提交后重算一次，两处保持同代次。
+  if (entries.some(entry => entry.page === "worktree")) {
+    const snapshot = client.current();
+    if (snapshot) renderProjectStatus(snapshot, Boolean(snapshot.chat?.running));
+  }
+}
+
+// reportExplorerRefreshFailure 失败提示：整批结果被丢弃，三个面板保留旧数据，只
+// 提示一次；从未成功加载过的子页回落到空态与 0 计数（不残留「…」）。
+function reportExplorerRefreshFailure(error, info) {
+  showToast(error);
+  for (const page of info.pages) {
+    if (explorerLoadedPages.has(page)) continue;
+    const meta = EXPLORER_PAGE_META[page];
+    elements[meta.badgeId].textContent = "0";
+    const view = elements[meta.viewId];
+    if (!view) continue;
+    view.classList.add("muted");
+    view.textContent = meta.failedHint;
+  }
+}
 
 function renderProject(snapshot) {
   const workspace = snapshot.current_workspace || null;
@@ -891,7 +978,7 @@ function renderProject(snapshot) {
     : "Select a project to define this session's read and write scope.";
   elements["context-compactions"].innerHTML = renderContextCompactions(compactions);
   elements["context-compactions"].classList.toggle("hidden", compactions.length === 0);
-  refreshWorkTree(snapshot, running);
+  syncExplorerData(snapshot, running);
 }
 
 function renderProjectStatus(snapshot, running) {
@@ -923,130 +1010,50 @@ function fileCountLabel() {
   return String(worktreeFileCount.files ?? 0);
 }
 
-// refreshWorkTree 惰性加载工作树：绑定工作区后拉一次文件统计与根目录列表；
-// chat 结束（文件可能变化）时刷新；重复 render 不重复拉取。
-async function refreshWorkTree(snapshot, running) {
-  const view = elements["worktree-view"];
+// syncExplorerData 收敛资源管理器三个数据面的刷新时机：
+// - 绑定工作区后根变了：旧根的数据面立即失效并清空，再按新根整批重拉；
+// - 一轮 chat 结束（文件/提交/改动都可能变）：整批重拉一次；
+// - 同一根、同一状态重复 render：不重复拉（render 每次快照到达都会跑）。
+// 子页未激活也照常刷新——数据面是缓存，激活时会再整批刷新一次（runViewActivation）。
+function syncExplorerData(snapshot, running) {
   const rootPath = snapshot.current_workspace?.root_path || "";
-  // 预览的文件属于旧工作区时：抽屉内容失效，随树一起清空。
+  // 预览的文件属于旧工作区时：抽屉内容失效，随数据面一起清空。
   if (previewPaneOpen && rootPath !== previewRoot) closeFilePreview();
-  if (!rootPath) {
-    worktreeRoot = "";
-    worktreeFileCount = null;
-    view.classList.add("muted");
-    view.textContent = "绑定工作区后显示项目文件树";
-    elements["file-count"].textContent = "0";
-    resetGitLog(snapshot);
-    resetChanges(snapshot);
-    return;
-  }
   const chatFinished = lastChatRunning && !running;
   lastChatRunning = running;
-  if (rootPath === worktreeRoot && !chatFinished) return;
+  if (!rootPath) {
+    if (worktreeRoot || explorerRefresh.currentRoot()) {
+      worktreeRoot = "";
+      explorerRefresh.setRoot("");
+      resetExplorerData();
+    }
+    return;
+  }
+  const rootChanged = rootPath !== worktreeRoot;
+  if (!rootChanged && !chatFinished) return;
   worktreeRoot = rootPath;
+  explorerRefresh.setRoot(rootPath);
+  if (rootChanged) resetExplorerData();
+  refreshExplorerPages(EXPLORER_PAGES);
+}
+
+// resetExplorerData 把三个面板一起清空（未绑定工作区 / 工作区已切换）：旧根的内容
+// 绝不留在面板上与新一代次的数据混搭。计数归零、工作树空态文案复位（worktree-view
+// 的 reset 只清内部状态，容器文案由这里给）。
+function resetExplorerData() {
+  explorerLoadedPages.clear();
   worktreeFileCount = null;
   workTreeView.reset();
-  elements["file-count"].textContent = "…";
-  renderProjectStatus(snapshot, running);
-  try {
-    const count = await invoke("WorkspaceFileCount");
-    worktreeFileCount = count;
-    elements["file-count"].textContent = String(count.files ?? 0);
-    renderProjectStatus(snapshot, running);
-    const listing = await invoke("WorkspaceTree", "", 1);
-    workTreeView.renderRoot(listing?.entries || []);
-  } catch (error) {
-    view.classList.add("muted");
-    view.textContent = "工作树暂不可用";
-    showToast(error);
-  }
-  refreshGitLog(snapshot, chatFinished);
-  refreshChanges(snapshot, chatFinished);
-}
-
-// ── 提交记录树（工作台「代码」子页）────────────────────────
-// refreshGitLog 惰性加载提交记录：绑定工作区后拉一次；chat 结束（可能产生
-// 新提交）或工作区切换时刷新；子页未激活时数据面缓存，激活时按需刷新。
-async function refreshGitLog(snapshot, force = false) {
-  const view = elements["git-log-view"];
-  const rootPath = snapshot.current_workspace?.root_path || "";
-  if (!rootPath) {
-    resetGitLog(snapshot);
-    return;
-  }
-  if (rootPath === gitLogRoot && gitLogLoaded && !force) return;
-  gitLogRoot = rootPath;
-  gitLogLoaded = false;
-  elements["git-log-count"].textContent = "…";
-  try {
-    const result = await invoke("WorkspaceGitLog", 20);
-    gitLogView.renderRoot(result);
-    gitLogLoaded = true;
-    elements["git-log-count"].textContent = String(result.commits?.length ?? 0);
-  } catch (error) {
-    view.classList.add("muted");
-    view.textContent = "提交记录暂不可用";
-    showToast(error);
-  }
-}
-
-function resetGitLog(snapshot) {
-  gitLogRoot = "";
-  gitLogLoaded = false;
   gitLogView.reset();
-  elements["git-log-count"].textContent = "0";
-}
-
-// ── 工作区更改（工作台「代码」子页第三个面板）────────────────
-// refreshChanges 惰性加载未提交改动：绑定工作区后拉一次；chat 结束（改动可能
-// 已经变化：提交、还原、生成产物都会改它）或切换工作区时刷新；子页未激活时
-// 数据面缓存，激活时按需刷新。前端不解释 porcelain 语义——状态字母、分类与
-// 统计全部来自后端（Bridge.WorkspaceChanges）。
-async function refreshChanges(snapshot, force = false) {
-  const view = elements["changes-view"];
-  const rootPath = snapshot.current_workspace?.root_path || "";
-  if (!rootPath) {
-    resetChanges(snapshot);
-    return;
-  }
-  if (rootPath === changesRoot && changesLoaded && !force) return;
-  changesRoot = rootPath;
-  changesLoaded = false;
-  elements["changes-count"].textContent = "…";
-  try {
-    const result = await invoke("WorkspaceChanges", 200);
-    workspaceChangesView.renderRoot(result);
-    changesLoaded = true;
-    // badge 用后端的总数（过滤后全部条目）：截断时列表短、数字仍是真的。
-    elements["changes-count"].textContent = String(result.total ?? result.entries?.length ?? 0);
-  } catch (error) {
-    view.classList.add("muted");
-    view.textContent = "工作区更改暂不可用";
-    showToast(error);
-  }
-}
-
-function resetChanges(snapshot) {
-  changesRoot = "";
-  changesLoaded = false;
   workspaceChangesView.reset();
+  elements["file-count"].textContent = "0";
+  elements["git-log-count"].textContent = "0";
   elements["changes-count"].textContent = "0";
-}
-
-// refreshChangesIfStale 子页3激活时按需刷新（数据面未加载或已失效）。
-function refreshChangesIfStale() {
-  const snapshot = client.current();
-  const rootPath = snapshot?.current_workspace?.root_path || "";
-  if (rootPath === changesRoot && changesLoaded) return;
-  refreshChanges(snapshot, true);
-}
-
-// refreshGitLogIfStale 子页3激活时按需刷新（数据面未加载或已失效）。
-function refreshGitLogIfStale() {
-  const snapshot = client.current();
-  const rootPath = snapshot?.current_workspace?.root_path || "";
-  if (rootPath === gitLogRoot && gitLogLoaded) return;
-  refreshGitLog(snapshot, true);
+  const view = elements["worktree-view"];
+  if (view) {
+    view.classList.add("muted");
+    view.textContent = "绑定工作区后显示项目文件树";
+  }
 }
 
 function renderSessions(sessions, current, capabilities, sessionWorkspaces, workspaces) {
@@ -3746,6 +3753,10 @@ function storageGet(key) {
 }
 function storageSet(key, value) {
   try { window.localStorage.setItem(key, value); } catch { /* 无存储环境忽略 */ }
+}
+// storageRemove 用于一次性迁移后清理旧键（旧值不该留在存储里当第二种事实）。
+function storageRemove(key) {
+  try { window.localStorage.removeItem(key); } catch { /* 无存储环境忽略 */ }
 }
 function clampPanelWidth(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(value)));

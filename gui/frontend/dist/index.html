@@ -191,27 +191,32 @@
             <div id="file-preview-view" class="file-preview-view muted">从工作树选择文件后在此查看详情</div>
           </section>
           <div id="file-preview-divider" class="file-split-divider" role="separator" aria-orientation="vertical" aria-label="调整文件预览宽度" tabindex="0"></div>
+          <!-- 三个平级子页（工作树 / 提交记录 / 工作区更改）：上方页签条由
+               app.js 按 explorer-pages.js 的顺序/激活渲染并持久化，一次只显示
+               一个子页内容；每页头部一枚刷新按钮（只刷新该子页数据面），内容区
+               自己就是滚动容器（滚轮只滚本页，不滚整栏）。 -->
           <div class="code-panes" id="code-panes">
-            <section class="code-pane" data-pane="worktree" id="code-pane-worktree">
+            <div class="code-pane-tabs scroll-edges-x" id="code-pane-tabs" role="tablist" aria-label="资源管理器子页"></div>
+            <section class="code-pane" id="code-pane-worktree" role="tabpanel" aria-label="工作树">
               <div class="code-pane-head">
                 <span class="code-pane-title">工作树</span><span id="file-count" class="badge">0</span>
-                <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+                <button class="icon-button subtle code-pane-refresh" type="button" data-page-refresh="worktree" title="刷新工作树" aria-label="刷新工作树" data-icon="recall"></button>
               </div>
-              <div id="worktree-view" class="worktree-view muted">绑定工作区后显示项目文件树</div>
+              <div id="worktree-view" class="code-pane-body worktree-view muted">绑定工作区后显示项目文件树</div>
             </section>
-            <section class="code-pane" data-pane="gitlog" id="code-pane-gitlog">
+            <section class="code-pane" id="code-pane-gitlog" role="tabpanel" aria-label="提交记录">
               <div class="code-pane-head">
                 <span class="code-pane-title">提交记录</span><span id="git-log-count" class="badge">0</span>
-                <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+                <button class="icon-button subtle code-pane-refresh" type="button" data-page-refresh="gitlog" title="刷新提交记录" aria-label="刷新提交记录" data-icon="recall"></button>
               </div>
-              <div id="git-log-view" class="git-log-view muted">绑定工作区后显示提交记录</div>
+              <div id="git-log-view" class="code-pane-body git-log-view muted">绑定工作区后显示提交记录</div>
             </section>
-            <section class="code-pane" data-pane="changes" id="code-pane-changes">
+            <section class="code-pane" id="code-pane-changes" role="tabpanel" aria-label="工作区更改">
               <div class="code-pane-head">
                 <span class="code-pane-title">工作区更改</span><span id="changes-count" class="badge">0</span>
-                <span class="code-pane-drag" title="拖拽调换面板顺序" aria-label="拖拽调换面板顺序" data-icon="grip"></span>
+                <button class="icon-button subtle code-pane-refresh" type="button" data-page-refresh="changes" title="刷新工作区更改" aria-label="刷新工作区更改" data-icon="recall"></button>
               </div>
-              <div id="changes-view" class="changes-view muted">绑定工作区后显示未提交改动</div>
+              <div id="changes-view" class="code-pane-body changes-view muted">绑定工作区后显示未提交改动</div>
             </section>
           </div>
         </div>

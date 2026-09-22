@@ -936,8 +936,9 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
   grid-area: panes;
   min-width: 0;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  /* 滚动交给子页内容区自己（`.code-pane-body`）：这里不再整栏滚动，滚轮只滚
+     当前子页的内容，页签条与页头始终留在原位。 */
+  overflow: hidden;
   padding-right: 2px;
 }
 .file-preview-pane {
@@ -1074,31 +1075,81 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 }
 .file-split-divider:hover::after, .file-split-divider.is-dragging::after { background: var(--accent); }
 
-/* 右侧「工作树/提交记录」面板容器与样式（沿用双面板视觉） */
-.code-panes { display: grid; gap: 12px; align-content: start; }
-.code-pane {
+/* 右侧「工作树/提交记录/工作区更改」三块平级子页：上方一条内嵌页签（点击切换、
+   激活态高亮，顺序与激活由 app.js 按 explorer-pages.js 收敛并持久化），下方是
+   当前子页的面板。容器自己不滚动——滚动交给 `.code-pane-body`。 */
+.code-panes {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
+  min-height: 0;
+}
+.code-pane-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  /* 窄栏里页签宁可横向滚（滚轮经 .scroll-edges-x 翻译成横向拨动），也不逐字换行。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.code-pane-tabs::-webkit-scrollbar { height: 0; width: 0; }
+.code-pane-tab {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: transparent;
+  font: 11.5px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.code-pane-tab:hover { color: var(--text); }
+.code-pane-tab.is-active {
+  color: var(--text-bright);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.code-pane-tab:focus-visible { outline: none; box-shadow: var(--focus-glow); }
+.code-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface);
   padding: 10px;
 }
-.code-pane.is-dragging { opacity: .55; }
-.code-pane.is-drag-over { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.code-pane-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* 一次只显示一个子页：未激活的面板整块不参与布局（不是隐藏内容区）。 */
+.code-pane.is-hidden { display: none; }
+.code-pane-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
 .code-pane-title { color: var(--text-strong); font-size: 11.5px; font-weight: 600; }
 .code-pane-head .badge { margin-left: 0; }
-.code-pane-drag {
-  margin-left: auto;
-  display: inline-flex;
-  color: var(--faint);
-  cursor: grab;
+/* 子页内容区自己就是滚动容器：内容溢出才出现滚动条，滚轮不滚整栏。 */
+.code-pane-body {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
-.code-pane-drag:active { cursor: grabbing; }
-.code-pane:hover .code-pane-drag { color: var(--muted); }
-.code-pane-drag .icon { display: block; }
+.code-pane-refresh {
+  margin-left: auto;
+  flex: none;
+  color: var(--faint);
+}
+.code-pane-refresh:hover { color: var(--accent); }
 
 /* 文件预览内容区 */
 /* 预览内容区是「多文件详情」容器：每个文件详情一个面板（见 file-preview.js），
@@ -1243,7 +1294,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 
 /* 提交记录（Git Log）：每行一条 tree-fork 的 SVG 分叉图 + 提交信息；
    行高固定 22px 与 SVG 的 rowHeight 对齐，泳道才能跨行连成一条线。 */
-.git-log-view { display: grid; gap: 0; font-size: var(--text-sm); max-height: 320px; overflow: auto; }
+.git-log-view { display: grid; gap: 0; font-size: var(--text-sm); }
 .git-log-line {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1278,7 +1329,7 @@ body.is-resizing-row { cursor: row-resize; user-select: none; -webkit-user-selec
 
 /* 工作区更改（Work Tree Changes）：统计行 + 一行一处未提交改动（状态字母 /
    路径 / 重命名原路径 / 暂存标记，数据源 Bridge.WorkspaceChanges）。 */
-.changes-view { display: grid; gap: 0; font-size: var(--text-sm); max-height: 320px; overflow: auto; }
+.changes-view { display: grid; gap: 0; font-size: var(--text-sm); }
 .changes-summary { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 4px 6px 6px; font: 10px var(--font-mono); }
 .changes-branch { overflow: hidden; color: var(--text-strong); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .changes-counts { overflow: hidden; color: var(--faint); text-overflow: ellipsis; white-space: nowrap; }
