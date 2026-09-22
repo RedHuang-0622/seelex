@@ -49,7 +49,14 @@ type ChatEngine interface {
 	TraceText() string
 	TokenCount() string
 	// AppendHistory 追加消息到引擎内部对话历史。
-	// 仅在 OnIterationComplete 回调（ChatStream 同 goroutine）中调用，不加锁。
+	//
+	// **不要在 OnIterationComplete/OnToolComplete 这类循环回调里调用它。**
+	// 那些回调是 ChatStream 同 goroutine 的同步回调，而 ChatStream 全程持有
+	// 引擎会话锁（Seele session.Session.ChatStream）；AppendHistory 走同一把
+	// 锁 = 同 goroutine 自锁死（2026-09-22 实测：会话永远「运行中」，排队输入
+	// 再也不发出去，任务关不掉）。锁内的"注入"只能落在既有的循环内数据流
+	// （ContextController 的 ReplaceHistory 决策），应用侧注入一律放到
+	// ChatStream 之前/之后的锁外安全点。
 	AppendHistory(msg types.Message)
 	// NodeSessionConversation 返回节点子代理的会话记录（运行中实时 /
 	// 结束后快照；只读子代理 actor，安全）。

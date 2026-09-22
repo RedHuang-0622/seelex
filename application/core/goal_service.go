@@ -203,9 +203,24 @@ func (service *Service) refreshGoalRuntimeProjection(sessionID string) {
 }
 
 // GoalIterationCompleted 是 ChatStream OnIterationComplete 的 goal 接线：
-// 登记 turn_completed（exec 账本水位），排空 b→a 指令并注入引擎历史
-// （Session 锁内只允许 AppendHistory，见 contract.ChatEngine 注释）。返回
-// true 不阻断主循环（B4：a 永不等待 b）。
+// 只登记 turn_completed（exec 账本水位）。返回 true 不阻断主循环（B4：
+// a 永不等待 b）。
+//
+// **本回调里不得碰引擎历史**：新 Session 装配下它在 Session 锁内同步执行
+// （framework `session.ChatStream` 从进函数持锁到出函数），而历史写面
+// （AppendHistory/History/ReplaceHistory/ClearHistory）取的就是同一把锁——
+// 锁内重入 = 同 goroutine 自锁死：这一轮永不收尾，会话永远停在"运行中"，
+// 运行期间收下的排队输入再也不会被提升发送，任务/回合也关不掉
+// （2026-09-22 队列提升轮实测现场）。
+//
+// 因此 b→a 指令**留在待注入队列里不动**，由下一个安全注入点交付——时机仍是
+// 既定的"下一次 ChatStream 前"：
+//   - 常规轮：startChatFor → injectGoalDirectivesForStart；
+//   - 队列提升出来的下一轮：runChat 起手同样注入（提升路径不经过
+//     startChatFor，少了这一处裁决就会晚一整轮）。
+//
+// 可见回放不受影响：回合尾 publishPendingGoalDirectivesFor 用非消费的
+// PeekDirectives，裁决照样在产出它的那一回合就可见。
 func (service *Service) GoalIterationCompleted(ctx context.Context) bool {
 	sessionID := sessionIDFromContext(ctx)
 	coordinator, err := service.goalCoordinatorFor(sessionID)
@@ -219,11 +234,6 @@ func (service *Service) GoalIterationCompleted(ctx context.Context) bool {
 		Kind: goaldomain.SignalTurnCompleted, Source: "iteration_complete",
 		Detail: service.goalTurnWorkSummary(sessionID),
 	})
-	directives := coordinator.DrainDirectives(sessionID)
-	if len(directives) == 0 {
-		return true
-	}
-	service.injectGoalDirectives(sessionID, directives)
 	return true
 }
 

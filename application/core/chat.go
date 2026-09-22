@@ -167,6 +167,12 @@ func (service *Service) runChat(ctx context.Context, sessionID, requestID string
 	// 会话起步同步全权门：每个会话按自己的 fullAccess 选择运行（G4），
 	// 不继承别的会话遗留的开关。
 	service.syncFullAccessFor(sessionID)
+	// 受信注入的安全点（"下一次 ChatStream 前"）：TL/ADVISOR 指令在迭代边界
+	// 只登记、不注入——那里在 Session 锁内，重入历史写面会自锁死（见
+	// GoalIterationCompleted）。常规轮已由 startChatFor 注入，但**队列提升
+	// 出来的下一轮不经过 startChatFor**（runChat 直接续跑），少了这一处，
+	// 刚产出的裁决就会晚一整轮才进模型上下文。
+	service.injectGoalDirectivesForStart(sessionID)
 	defer service.components.tasks.ClearReActBudget(requestID)
 	var err error
 	runChatDebug("runChat start session=%s request=%s input=%q", sessionID, requestID, request.displayInput)

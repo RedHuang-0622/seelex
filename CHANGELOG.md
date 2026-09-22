@@ -145,6 +145,28 @@ version when it lands.
 
 ### Fixed
 
+- **A session can no longer self-lock while injecting a TL/ADVISOR directive at a
+  tool-iteration boundary.** The `OnIterationComplete` hook runs synchronously
+  inside `session.Session.ChatStream`, which holds the framework session mutex for
+  the whole stream, and `GoalIterationCompleted` used to drain the pending TL
+  directives and append them to the engine history right there — `AppendHistory`
+  takes that same mutex, so the goroutine blocked on itself. The round never
+  finished: the session stayed "running" forever, a message queued while it ran
+  was never promoted and never sent, and the task could not be cancelled or
+  closed either (cancellation only cancels the context; the goroutine was stuck on
+  a mutex). Triggering shape: a goal/Agent-Team session whose queued input is
+  promoted into the next round — the promotion path goes straight to `runChat`
+  and skips `startChatFor`. The boundary hook now only registers
+  `turn_completed`, and the trusted injection happens at the documented safe
+  point ("before the next ChatStream") for every round, promoted rounds included
+  (`injectGoalDirectivesForStart` from `runChat` as well). The visible replay of
+  the verdict (assistant row with `role_name=tl`) is unchanged, as is the timing
+  of the trusted injection. `contract.ChatEngine.AppendHistory`'s comment now
+  states the real rule (never call it from loop callbacks). Regression:
+  `application/core/goal_directive_session_lock_test.go` (Seele v0.3.0 lock
+  discipline stub + hard timeout + goroutine dump); see
+  `docs/devlog/2026-09-23-iteration-hook-session-lock-reentry.md`.
+
 - **A session's draft input is no longer invisible in the session tree, and materialising it
   no longer leaves a ghost draft behind.** `SaveComposerDraft` wrote the record and the
   in-memory unit but never registered the draft slot, while the "a draft row is always
