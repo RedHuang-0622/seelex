@@ -415,44 +415,6 @@ func (store *storeEngine) saveDraft(key Key, content string) error {
 	return store.publishLifecycleLocked(key, "lc-"+randomID(), state)
 }
 
-// setComposerDraft 写/清会话的未发送输入草稿（composer 草稿通道）：
-// content 非空 = 草稿存在；content 为空 = 清掉草稿（队列不动）。
-//
-// 落盘由 publishLifecycleLocked 收敛：Draft=nil → 删除 input/draft.json。
-// 目录枚举的 Status=draft 判据正是这份文件的存在性（json_layout.hasDraft /
-// derivedRecord，§2.5.4），因此"清草稿"必须真的删文件，否则目录里会留一条
-// 幽灵草稿行。
-func (store *storeEngine) setComposerDraft(key Key, content string) error {
-	store.mu(key, moduleLifecycle).Lock()
-	defer store.mu(key, moduleLifecycle).Unlock()
-	state, err := store.readLifecycleStateLocked(key)
-	if err != nil {
-		return err
-	}
-	if content == "" {
-		state.Draft = nil
-	} else {
-		state.Draft = &draftItem{
-			SessionID: key.SessionID, Content: content, State: "未发送", SavedAt: time.Now().UTC(),
-		}
-	}
-	return store.publishLifecycleLocked(key, "lc-"+randomID(), state)
-}
-
-// lifecycleDraft 读未发送输入草稿正文（无草稿 = ok=false）。
-func (store *storeEngine) lifecycleDraft(key Key) (string, bool, error) {
-	store.mu(key, moduleLifecycle).Lock()
-	defer store.mu(key, moduleLifecycle).Unlock()
-	state, err := store.readLifecycleStateLocked(key)
-	if err != nil {
-		return "", false, err
-	}
-	if state.Draft == nil {
-		return "", false, nil
-	}
-	return state.Draft.Content, true, nil
-}
-
 // draftDirectSend 草稿直发：
 //   - 队列空 → 立即发送（不进队，T-LC-03）；
 //   - 队列非空 → 入队尾（不插队，T-LC-04）。

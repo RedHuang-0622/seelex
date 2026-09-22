@@ -214,11 +214,6 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.sessions.SetActive(initialSessionID)
 	service.sessionUnitLocked(initialSessionID)
 	service.mirrorActiveChatLocked()
-	// 冷启动（引擎尚未建 bundle）：视图就是早分配草稿，装配期按目录找回最近一份
-	// 持久化草稿（草稿正文跨重启恢复）；无草稿记录时保持装配器生成的空白草稿。
-	if initialDraft {
-		service.restorePersistedDraft(true)
-	}
 	service.components.tasks.ImportEngineHistoryAsTranscriptLocked(service.Deps.Engine.History())
 	// 需求变更（P1-1）：冷启动读回视图会话的权限档位。必须在运行时投影之前——
 	// 投影按会话读档位，恢复晚了首个快照会显示进程默认档位（重启即"丢设置"的观感）。
@@ -232,9 +227,6 @@ func (assembler serviceAssembler) assemble() (*Service, error) {
 	service.Core.Snapshot.Revision = 1
 	service.Approval.SetObserver(service.observeInteraction)
 	service.components.sessions.StartCatalogRefresh()
-	// 宿主在装配前已预置引擎会话（非冷启动形状）：装配期不读会话目录（目录 IO 只
-	// 由目录 worker 承担），改由目录收敛后的一次后台判断补装持久化草稿。
-	service.scheduleShellDraftRestore(initialSessionID)
 	service.publishRuntimeProjections()
 	return service, nil
 }

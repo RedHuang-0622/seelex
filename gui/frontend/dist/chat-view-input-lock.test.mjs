@@ -195,16 +195,18 @@ test("草稿会话不是空页：未发送草稿让空态消失并把草稿喂�
   assert.equal(plain.elements["empty-state"].classList.contains("hidden"), false);
 });
 
-test("app.js：草稿正文贯穿每一条会话行渲染落点", () => {
+test("app.js：已撤回「未发送草稿行」——页面草稿恒为空且不再引用 draft-lifecycle", () => {
   const conversationCalls = appSource.match(/chatView\.renderConversation\(\s*snapshot\.conversation \|\| \[\],[\s\S]{0,300}?\);/g) || [];
   assert.ok(conversationCalls.length >= 2, `期望至少 2 个 renderConversation 落点，实际 ${conversationCalls.length}`);
   for (const call of conversationCalls) {
     assert.ok(
       call.includes("composerDraftPageText(snapshot)"),
-      `会话行渲染落点必须带本页草稿（否则轮次结束/增量渲染会把草稿行丢掉）：${call.slice(0, 90)}…`
+      `会话行渲染落点必须保留统一的草稿入参：${call.slice(0, 90)}…`
     );
   }
-  // 草稿状态在整份渲染与增量渲染里都要跟住（轮次收尾常走增量通道）。
-  const syncCalls = appSource.match(/syncComposerDraftState\(snapshot\);/g) || [];
-  assert.ok(syncCalls.length >= 2, `草稿状态必须在整份渲染与增量渲染里都同步，实际 ${syncCalls.length}`);
+  // 撤回：未发送输入不再作为草稿行（composerDraftPageText 恒空），且壳层不再引用
+  // 已删除的 draft-lifecycle 模块 / 草稿生命周期同步点。
+  assert.match(appSource, /function composerDraftPageText\(\) \{\s*return "";\s*\}/);
+  assert.doesNotMatch(appSource, /draft-lifecycle\.js/);
+  assert.doesNotMatch(appSource, /syncComposerDraftState/);
 });

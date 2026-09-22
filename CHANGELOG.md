@@ -12,6 +12,24 @@ version when it lands.
 
 ## [Unreleased]
 
+### Removed
+
+- **Retracted the composer "unsent-input draft", which had conflated the input box
+  with a session identity.** An unmaterialized "draft session" that only held the
+  composer's unsent text used to appear as a session row while typing, persist that
+  text through a lifecycle draft channel, and be restored into the view on startup.
+  The product meaning of a draft is instead an **unfinished session**: a dispatched
+  task that was interrupted (shutdown / exhausted quota) and must be resumable after
+  restart or retry. Removed `SaveComposerDraft` (core + `Bridge`), `composer_draft.go`
+  (persist/restore/clear, `DraftCandidates`), the GUI draft row and
+  `draft-lifecycle.js`, the sessionstore/adapters lifecycle draft API
+  (`SaveComposerDraftWorkspace` / `LoadComposerDraftWorkspace` / `setComposerDraft` /
+  `lifecycleDraft`), and the feature's tests and devlogs. `SessionRecord.Composer`,
+  `SessionState.Composer` and `model.ComposerDraft` stay as inert fields for on-disk
+  compatibility. The `draft_<nanos>_<seq>` early allocation for a new session is
+  unchanged and is the subject of the follow-up "draft = unfinished session" design
+  (see `docs/devlog/2026-09-22-draft-semantics-retraction.md`).
+
 ### Added
 
 - **The resource explorer now has a workspace-changes pane, so uncommitted work is

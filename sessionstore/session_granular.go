@@ -287,26 +287,6 @@ func (store *SessionGranularStore) LoadRecordRaw(projectID, sessionID string) ([
 	return store.router.LoadStateWorkspace(store.projectID(projectID), sessionID)
 }
 
-// SaveComposerDraft 写/清会话的未发送输入草稿（lifecycle 草稿通道：会话目录下
-// input/draft.json）。草稿与消息/事件通道分离——草稿不写消息日志、不占 message
-// 的 IO；目录枚举的 Status=draft 判据就是这份草稿的存在性（§2.5.4）。content
-// 为空 = 清草稿（真删文件，避免留一条幽灵草稿行）。
-func (store *SessionGranularStore) SaveComposerDraft(projectID, sessionID, content string) error {
-	if store == nil || store.router == nil {
-		return nil
-	}
-	_, err := store.router.SaveComposerDraftWorkspace(store.projectID(projectID), sessionID, content)
-	return err
-}
-
-// LoadComposerDraft 读回未发送输入草稿正文（无草稿 = ok=false）。
-func (store *SessionGranularStore) LoadComposerDraft(projectID, sessionID string) (string, bool, error) {
-	if store == nil || store.router == nil {
-		return "", false, nil
-	}
-	return store.router.ComposerDraftWorkspace(store.projectID(projectID), sessionID)
-}
-
 // sessionIndexed 报告会话是否已出现在项目索引（物理实现 = Router
 // workspace 列表，即 manifest/meta 存在性）。
 func (store *SessionGranularStore) sessionIndexed(projectID, sessionID string) bool {

@@ -116,10 +116,6 @@ func (fake *fakeApplication) BeginNewSession() error {
 	fake.beganNewSession = true
 	return nil
 }
-func (fake *fakeApplication) SaveComposerDraft(text string) error {
-	fake.composerText = text
-	return nil
-}
 func (fake *fakeApplication) ResumeSession(sessionID string) error {
 	fake.resumedSession = sessionID
 	return nil
@@ -367,9 +363,6 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	if err := bridge.LoadLatestHistory(); err != nil {
 		t.Fatal(err)
 	}
-	if err := bridge.SaveComposerDraft("尚未发送的问题"); err != nil {
-		t.Fatal(err)
-	}
 	suggestions := bridge.Suggestions("/he")
 
 	if !fake.beganNewSession || fake.resumedSession != "session-2" || fake.cancelled != "request-1" {
@@ -386,9 +379,6 @@ func TestBridgeForwardsOtherCommands(t *testing.T) {
 	}
 	if fake.loadedHistory != 50 || fake.suggestionsInput != "/he" || len(suggestions) != 1 {
 		t.Fatalf("history or suggestions were not forwarded: %#v", fake)
-	}
-	if fake.composerText != "尚未发送的问题" {
-		t.Fatalf("composer draft was not forwarded: %#v", fake)
 	}
 	if bridge.Info().Title != "Seelex Test" || bridge.Snapshot().Runtime.Model != "test-model" {
 		t.Fatal("bridge metadata or snapshot mismatch")

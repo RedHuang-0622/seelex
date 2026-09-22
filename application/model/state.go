@@ -79,14 +79,13 @@ type SessionState struct {
 	Draft bool   `json:"draft,omitempty"`
 	// Status 是会话可见状态：draft | idle | running | queued | restoring。
 	Status SessionStatus `json:"status,omitempty"`
-	// Composer 是当前视图会话的未发送输入草稿正文（草稿会话跨重启恢复用；
-	// 只出现在视图当前会话，不进入目录行）。
+	// Composer 已撤回：未发送输入不再作为"草稿会话"持久化/恢复（draft 语义改由
+	// 「未完成会话」承担）。字段保留仅为落盘兼容，当前恒为空。
 	Composer string `json:"composer,omitempty"`
 }
 
-// ComposerDraft 是会话"未发送输入"草稿（G4：归属进 SessionUnit，随会话
-// record 持久化，跨重启恢复；提交成功后清空）。Text 为未发送正文；
-// 附件/排队项在后续波次扩展，JSON 结构保持可向后兼容地加字段。
+// ComposerDraft 是已撤回的「会话未发送输入草稿」载荷（字段保留仅为落盘兼容；
+// 见 docs/devlog 撤回说明）。
 type ComposerDraft struct {
 	Text      string    `json:"text,omitempty"`
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
@@ -309,8 +308,8 @@ type SessionRecord struct {
 	// Status 是会话落盘可见状态（草稿行用：draft 记录在重启后仍以
 	// status=draft 进入目录；idle/running/queued 由运行期叠加，不落盘）。
 	Status SessionStatus `json:"status,omitempty"`
-	// Composer 是会话未发送输入草稿（早分配 SID 的草稿会话跨重启恢复用；
-	// 物化提交成功后清空）。
+	// Composer 已撤回：未发送输入不再随 record 落盘（字段保留仅为落盘兼容，
+	// 当前恒为空）。
 	Composer ComposerDraft `json:"composer,omitempty"`
 	// ForkedFrom 是 fork 血缘（子会话侧事实源；nil = 非 fork 会话）。
 	// 父目录 children 索引只是可重建的展示层，不承载血缘事实。
