@@ -248,7 +248,7 @@ func (store *storeEngine) appendDraftRowsLocked(key Key, commitID string, rows [
 	if len(delta) == 0 {
 		return []Event{}, nil
 	}
-	if _, err := store.writeShardRowsLocked(key, delta); err != nil {
+	if _, err := store.writeShardRowsLocked(key, delta, nil); err != nil {
 		return nil, err
 	}
 	return delta, nil
@@ -324,6 +324,7 @@ func (store *storeEngine) publishPendingTailLocked(key Key, head messageHead, ro
 			ToSeq:   fileRows[len(fileRows)-1].Seq,
 			Count:   len(fileRows),
 			SHA256:  fileSHA256(filepath.Join(dir, name)),
+			Bytes:   fileSize(filepath.Join(dir, name)),
 		})
 		total += uint64(len(fileRows))
 	}

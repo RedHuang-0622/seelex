@@ -77,6 +77,80 @@ type shardInfo struct {
 	ToSeq   uint64 `json:"to_seq"`
 	Count   int    `json:"count"`
 	SHA256  string `json:"sha256,omitempty"`
+	// Bytes 是该分片文件的字节数（写入时落账）。它让写侧可以**不解码整片**就
+	// 判断索引是否仍然可信（见 shardTailTrust）：字节数一致 + 以换行收尾 ⇒
+	// 既没有崩溃残尾、也没有索引外的草稿行。0 表示未记账（老 head / 未重建
+	// 索引）→ 调用方退回整片读回的慢路径。
+	Bytes int64 `json:"bytes,omitempty"`
+}
+
+// fileSize 返回文件字节数（不存在/出错返回 0）。
+func fileSize(path string) int64 {
+	if path == "" {
+		return 0
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// shardTailTrust 报告"索引里的末分片项"是否**无需解码**即可信任：
+//   - Bytes 已记账（>0）；
+//   - 文件当前字节数与记账一致（草稿行 append、崩溃残尾、外部改写都会让它不等）；
+//   - 文件以换行收尾（没有未换行的崩溃残尾半行）。
+//
+// 三项全真 ⇒ 末分片的行数/区间可直接取自索引，写侧不必"整片读回 + JSON 解码"
+// （1500 行 / 8 KB 负载实测：整片解码 ≈16.9 ms／次，而原始字节读 + sha256 ≈1.1 ms）。
+// 任一不真 ⇒ 调用方退回慢路径，语义与优化前完全一致——这是本优化唯一的失效模式
+// （慢，不会错）。
+// shardTailTrustHook 是"末分片索引可信判定"的测试钩子：非 nil 且返回 false 时，
+// 强制认定索引不可信（退回整片读回的慢路径）。用于"优化前 / 优化后"在同一次
+// 运行内做 A/B（本机存在杀软扫描噪声，跨运行对比不可靠）。生产路径不设置。
+var shardTailTrustHook func() bool
+
+func shardTailTrust(path string, info shardInfo) bool {
+	if hook := shardTailTrustHook; hook != nil && !hook() {
+		return false
+	}
+	if info.Bytes <= 0 {
+		return false
+	}
+	file, err := openSharedRead(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	stat, err := file.Stat()
+	if err != nil || stat.Size() != info.Bytes {
+		return false
+	}
+	last := make([]byte, 1)
+	if _, err := file.ReadAt(last, info.Bytes-1); err != nil {
+		return false
+	}
+	return last[0] == '\n'
+}
+
+// trustedTailFor 返回提交路径可信任的末分片索引（不可信返回 nil）：
+// 索引末分片必须与发布点同坐标（该分片没有"已 append 未登记"的行），且通过
+// shardTailTrust 的字节数/收尾检查。任一不满足即返回 nil，调用方整片读回。
+func (store *storeEngine) trustedTailFor(key Key, head messageHead) *shardInfo {
+	if len(head.Shards) == 0 {
+		return nil
+	}
+	info := head.Shards[len(head.Shards)-1]
+	if info.ToSeq != head.LastSeq {
+		// 索引末分片的末行不是发布点 ⇒ 存在未登记行（草稿尾/崩溃残留），
+		// 行数不可信，必须整片读回。
+		return nil
+	}
+	path := filepath.Join(store.messageDir(key), info.Path)
+	if !shardTailTrust(path, info) {
+		return nil
+	}
+	return &info
 }
 
 // messageDir 返回 message 数据目录。
@@ -452,7 +526,7 @@ func (store *storeEngine) reapUnpublishedLocked(key Key, head messageHead) error
 	}
 	last := head.Shards[len(head.Shards)-1]
 	path := filepath.Join(dir, last.Path)
-	if err := truncateMessageRowsAfter(path, head.LastSeq); err != nil {
+	if err := truncateMessageRowsAfter(path, head.LastSeq, last); err != nil {
 		return err
 	}
 	return nil
@@ -468,7 +542,15 @@ func isMessageShardFile(name string) bool {
 
 // truncateMessageRowsAfter 截断 JSONL 文件，保留 seq <= head 的行（先跳过崩溃
 // 残尾半行，再按行内 seq 从文件尾向前删除）。
-func truncateMessageRowsAfter(path string, headSeq uint64) error {
+//
+// 快路径（免整片解码）：info 是 head 索引里的末分片项，且它的末行坐标就是发布点
+// （reapUnpublishedLocked 的调用前提）——此时只要"文件字节数与索引记账一致 + 以
+// 换行收尾"，就既没有崩溃残尾、也没有 seq > 发布点的未发布行，可以直接返回。
+// 字节数一旦不等（草稿行 append / 崩溃残尾 / 外部改写）即走慢路径，语义不变。
+func truncateMessageRowsAfter(path string, headSeq uint64, info shardInfo) error {
+	if info.ToSeq == headSeq && shardTailTrust(path, info) {
+		return nil
+	}
 	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -528,6 +610,9 @@ func readMessageRowsFile(file *os.File) ([]Event, error) {
 // decodeMessageRows 解析 JSONL 事件行（崩溃残尾跳过；坏行显式失败由调用方
 // 处理前先经 verify；这里返回可解析行）。
 func decodeMessageRows(data []byte) []Event {
+	if hook := shardDecodeHook; hook != nil {
+		hook()
+	}
 	segments := bytes.Split(data, []byte{'\n'})
 	rows := make([]Event, 0, len(segments))
 	for index, segment := range segments {
@@ -598,7 +683,8 @@ func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []E
 	if len(delta) == 0 {
 		return nil
 	}
-	written, err := store.writeShardRowsLocked(key, delta)
+	// 免整片解码：提交路径的末分片行数/区间取自可信索引（见 trustedTailFor）。
+	written, err := store.writeShardRowsLocked(key, delta, store.trustedTailFor(key, *head))
 	if err != nil {
 		return err
 	}
@@ -619,13 +705,24 @@ func (store *storeEngine) appendRowsLocked(key Key, head *messageHead, delta []E
 	return nil
 }
 
+// shardDecodeHook 是"分片行解码"的测试钩子：每次 decodeMessageRows 被调用一次
+// （生产路径不设置为 nil）。写侧"免整片解码"优化（C1/H3）用它做结构性证明：
+// 命中快路径时提交一次不该产生任何整片解码。与 publishedReadHook 同族（只读
+// 测试面，生产不设置）。
+var shardDecodeHook func()
+
 // writeShardRowsLocked 是唯一的分片写入器：把 delta 顺序写进**物理末分片**
 // （满片滚动到新文件，新文件按首/末 seq 命名），返回被写入的分片描述（按写入
 // 顺序；第一项可能是"继续写"的既有分片）。
 //
 // 它不读写 head：调用方决定这些分片是登记进 head（发布）还是只留在物理尾
 // （草稿，见 appendDraftRowsLocked）。
-func (store *storeEngine) writeShardRowsLocked(key Key, delta []Event) ([]shardInfo, error) {
+//
+// trusted 是调用方（提交路径）从 head 索引给出的**可信任末分片**（见
+// trustedTailFor）。非 nil 时本函数不再"整片读回 + JSON 解码"来确定行数/区间：
+// 行数取索引（Bytes 与文件字节数已核对），摘要用"原文件字节 + 本次追加字节"
+// 增量算出。nil 时走原路径（草稿路径必须传 nil：草稿行在索引之外，行数不可信）。
+func (store *storeEngine) writeShardRowsLocked(key Key, delta []Event, trusted *shardInfo) ([]shardInfo, error) {
 	dir := store.messageDir(key)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -648,29 +745,45 @@ func (store *storeEngine) writeShardRowsLocked(key Key, delta []Event) ([]shardI
 			}
 			path = store.shardPath(key, delta[0].Seq, delta[planned-1].Seq)
 		}
-		existing, err := readMessageRowsFileAt(path)
-		if err != nil {
-			return nil, err
+		// 末分片的行数/区间：优先取可信索引（免解码），否则整片读回。
+		count := 0
+		var fromSeq uint64
+		trustedTail := trusted != nil && path != "" && last != "" && trusted.Path == last && shardTailTrust(path, *trusted)
+		if trustedTail {
+			count, fromSeq = trusted.Count, trusted.FromSeq
+		} else {
+			existing, err := readMessageRowsFileAt(path)
+			if err != nil {
+				return nil, err
+			}
+			count = len(existing)
+			if count > 0 {
+				fromSeq = existing[0].Seq
+			}
 		}
-		if len(existing) >= store.settings.shardRows() {
+		if count >= store.settings.shardRows() {
 			path = ""
 			continue
 		}
 		batch := delta
-		room := store.settings.shardRows() - len(existing)
+		room := store.settings.shardRows() - count
 		if len(batch) > room {
 			batch = batch[:room]
 		}
-		if err := appendMessageRowsFile(path, batch); err != nil {
+		digest, err := appendRowsAndDigest(path, batch, trustedTail)
+		if err != nil {
 			return nil, err
 		}
-		all := append(existing, batch...)
+		if count == 0 {
+			fromSeq = batch[0].Seq
+		}
 		written = append(written, shardInfo{
 			Path:    filepath.Base(path),
-			FromSeq: all[0].Seq,
-			ToSeq:   all[len(all)-1].Seq,
-			Count:   len(all),
-			SHA256:  fileSHA256(path),
+			FromSeq: fromSeq,
+			ToSeq:   batch[len(batch)-1].Seq,
+			Count:   count + len(batch),
+			SHA256:  digest,
+			Bytes:   fileSize(path),
 		})
 		delta = delta[len(batch):]
 	}
@@ -707,41 +820,91 @@ func readMessageRowsFileAt(path string) ([]Event, error) {
 
 // appendMessageRowsFile 追加完整 JSONL 行（先截崩溃残尾；再 sync）。
 func appendMessageRowsFile(path string, rows []Event) error {
+	_, _, _, err := appendMessageRowsFileEx(path, rows)
+	return err
+}
+
+// appendMessageRowsFileEx 是 appendMessageRowsFile 的"带细节"版本：除追加外还
+// 返回本次真正写出的字节（供调用方增量算摘要）与 preSize（写入前、截尾之后的
+// 文件字节数）。truncated 为真表示文件带崩溃残尾被截过——此时"写入前的原始
+// 字节"已经不是文件当前内容，增量摘要的基底失效，调用方必须整片重算。
+func appendMessageRowsFileEx(path string, rows []Event) (appended []byte, preSize int64, truncated bool, err error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return err
+		return nil, 0, false, err
+	}
+	before, err := file.Seek(0, io.SeekEnd)
+	if err != nil {
+		file.Close()
+		return nil, 0, false, err
 	}
 	if err := truncateCrashTail(file); err != nil {
 		file.Close()
-		return err
+		return nil, 0, false, err
 	}
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+	after, err := file.Seek(0, io.SeekEnd)
+	if err != nil {
 		file.Close()
-		return err
+		return nil, 0, false, err
 	}
 	buffer := make([]byte, 0, 4096)
 	for _, row := range rows {
 		data, err := json.Marshal(row)
 		if err != nil {
 			file.Close()
-			return fmt.Errorf("session storage: encode message row: %w", err)
+			return nil, 0, false, fmt.Errorf("session storage: encode message row: %w", err)
 		}
 		buffer = append(buffer, data...)
 		buffer = append(buffer, '\n')
 	}
 	if _, err := file.Write(buffer); err != nil {
 		file.Close()
-		return err
+		return nil, 0, false, err
 	}
 	if err := file.Sync(); err != nil {
 		file.Close()
-		return err
+		return nil, 0, false, err
 	}
-	return file.Close()
+	if err := file.Close(); err != nil {
+		return nil, 0, false, err
+	}
+	return buffer, after, after != before, nil
 }
 
+// appendRowsAndDigest 追加 rows 到分片并返回追加后**整文件**的 sha256（head
+// 索引里的摘要字段必须覆盖整片，不能只覆盖本次追加）。
+//
+// trustedTail=true 时走增量路径：摘要 = sha256(写入前原始字节 + 本次追加字节)。
+// 前提是"写入前原始字节"确实等于文件写入前的内容——由 base 的读取长度与
+// preSize 相等、且没有截过崩溃残尾来保证；任一不成立即退回整片重算（慢路径）。
+// 语义恒等：两条路径算出的都是同一份文件内容的 sha256。
+func appendRowsAndDigest(path string, rows []Event, trustedTail bool) (string, error) {
+	var base []byte
+	if trustedTail {
+		if data, err := readSharedFile(path); err == nil {
+			base = data
+		}
+	}
+	appended, preSize, truncated, err := appendMessageRowsFileEx(path, rows)
+	if err != nil {
+		return "", err
+	}
+	if trustedTail && !truncated && base != nil && int64(len(base)) == preSize {
+		hash := sha256.New()
+		hash.Write(base)
+		hash.Write(appended)
+		return hex.EncodeToString(hash.Sum(nil)), nil
+	}
+	return fileSHA256(path), nil
+}
+
+// fileSHA256 返回整片文件的 sha256。
+//
+// 用 openSharedRead/readSharedFile 打开（带 FILE_SHARE_DELETE）：分片会被 LRU
+// 淘汰 / reap / 压缩重写删除，默认句柄（缺 DELETE 共享位）会让这些删除失败或
+// 自己撞上发布窗口（见 §5 H10 同族问题）。
 func fileSHA256(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := readSharedFile(path)
 	if err != nil {
 		return ""
 	}

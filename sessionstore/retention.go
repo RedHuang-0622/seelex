@@ -146,7 +146,7 @@ func (store *storeEngine) lRUDelete(key Key, upToSeq uint64, confirmed bool) (re
 		}
 		newHead.Shards = append(newHead.Shards, shardInfo{
 			Path: filepath.Base(shardPath), FromSeq: batch[0].Seq, ToSeq: batch[len(batch)-1].Seq,
-			Count: len(batch), SHA256: fileSHA256(shardPath),
+			Count: len(batch), SHA256: fileSHA256(shardPath), Bytes: fileSize(shardPath),
 		})
 		newHead.TotalRows += uint64(len(batch))
 		newFiles = append(newFiles, shardPath)

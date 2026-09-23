@@ -558,7 +558,7 @@ func (store *storeEngine) rebuildMessageHeadFromData(key Key) (messageHead, erro
 		}
 		shard := shardInfo{
 			Path: entry.Name(), FromSeq: rows[0].Seq, ToSeq: rows[len(rows)-1].Seq,
-			Count: len(rows),
+			Count: len(rows), Bytes: fileSize(filepath.Join(store.messageDir(key), entry.Name())),
 		}
 		head.Shards = append(head.Shards, shard)
 		head.TotalRows += uint64(len(rows))
