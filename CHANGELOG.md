@@ -12,6 +12,52 @@ version when it lands.
 
 ## [Unreleased]
 
+### Added
+
+- **Uncommitted message tails are now recovered at session load, and the user can see
+  it.** The storage layer already had the explicit probe/restore/discard entry points for
+  the `seq_draft` tail (`sessionstore/pending_tail.go` → Router → `SessionPort`), but the
+  application side had **no caller**: recovery was a port capability, not a behaviour. Cold
+  load now runs `probe → decide → restore|discard` **before** the record/history/transcript
+  reads (visibility is gated by the publish point, so recovering first is what makes the
+  restored rows land in this same load) and reports the outcome as a visible `system` row:
+  `recoverable` publishes and says how many rows came back (with the publish-point move),
+  `gap` only reports — nothing is published or cleaned (red line 3). A session whose turn is
+  still running is not touched at all, so load can never fight the in-flight writer over the
+  draft tail. New optional capability `session_runtime.SessionPendingTailPort` + pure DTO
+  `dto.PendingMessageTailReport` (the adapter maps, so no layer below the adapter leaks
+  storage types). Tests: `application/core/session_pending_tail_test.go`.
+- **C1/H3 cost breakdown probe and write-side "no whole-shard decode" commit path.**
+  `-tags lockprobe ./sessionstore -run TestProbeCommitCostBreakdown` splits a commit into
+  its phases and runs an in-run before/after A/B. Measured on 1500 rows × 8 KB (last shard
+  834 KB): **full head rewrite is 1.3–1.6 ms** (so the checklist's premise that "head is
+  rewritten in full on every commit" is the dominant cost is **wrong**), whole-shard
+  **read + JSON decode is 15–27 ms**, whole-shard sha256 2.5–3.3 ms, append + `Sync`
+  1.2–1.5 ms; head size is linear in shard count (826 B @1 → 19.8 KB @80, ≈247 B/shard).
+  Commits were paying that whole-shard decode **twice** (reap and the shard writer). The
+  writer now takes the tail shard's row count/range from the head index when it can be
+  trusted (`shardInfo.Bytes` + byte count match + newline terminator + index end == publish
+  point) and computes the digest incrementally from the bytes it already read; otherwise it
+  falls back to the old whole-shard read, so the only failure mode is "slower". A/B:
+  whole-shard decodes per commit **3 → 1** (100-row commits; 2 → 0 for single-row commits),
+  commit median **96.6 ms → 88.0 ms**.
+
+### Changed
+
+- **`-tags redprobe ./sessionstore` is green again: the failure was a runtime failure of a
+  retired probe, not a build failure.** `TestProbeStackStatusUpdateUnpublishedInvisible`
+  pinned "an unpublished status change must stay invisible after a cold reload", which
+  assumed `active.jsonl` was an append-type channel gated by a stamp. That reading was
+  withdrawn by D12 / the §2.0 channel-type table (whole-replacement: the file has no
+  "appended but unpublished" state at all), so the probe was pinning a withdrawn contract
+  and had been red since; the checklist already claimed it had been "converted to the T-STK-13
+  semantic assertion", which it had not. The probe is retired with its provenance recorded
+  and the semantics stay covered by the existing `TestStackChannelActiveWholeReplacement`
+  (T-STK-13, `channel_semantics_test.go`).
+- `snapshotFailingSessions` (A1's durable-queue test double) now embeds
+  `*queueRecordingSessions` instead of by value: `go vet ./...` flagged the by-value mutex
+  it copied into every method.
+
 ### Removed
 
 - **Retracted the composer "unsent-input draft", which had conflated the input box

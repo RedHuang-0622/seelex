@@ -173,6 +173,26 @@ stateDiagram-v2
 | fsync 策略 | 每步 append 是否 `file.Sync()`：不 sync = 进程被杀可恢复、断电丢；每步 sync = 断电可恢复、每步一次落盘 | 与应用可接受的写放大共同决定 |
 | C1/C2 | **C2 已修（2026-09-23）**：读者与写者不再同锁 —— `readRows`/`readTailRowsForSelection` 走「无锁 head 快照 + 锁外解码」（红探针 222ms/预算 30ms 已消；验收 = `sessionstore/message_read_lock_test.go`（结构性）+ `lock_hotspot_test.go`（时序预算），红→绿的有牙证明见 conformance-checklist §5 H2）。**C1 未做**：head 体积随分片数线性增长 + head 每次提交整份重写 | C1 待办：逐步草稿落地前应先修，否则把锁热点换成 IO 热点 |
 
+### 2026-09-23 更新（A3 / A4 收口，见 `docs/devlog/2026-09-23-a3-writer-and-a4-pending-tail-recovery.md`）
+
+- **写者 actor 化（A3）：已落地核实，不是"未开始"。** 8/8 写调用点都在 `RunSessionWrite`
+  的同一条 per-session 串行链上（7 处经 `PersistCurrentSession`、`session_fork.go:122`
+  显式包住）；机制验收 = `session_runtime/session_writer_test.go`（同会话 FIFO 串行、
+  跨会话并行、**读路径不被写者阻塞**、关闭后退化直通）。**未收口**：fork 之后的
+  `SaveContextStateWorkspace`（`session_fork.go:127`）与 durable queue 的 confirm/mark
+  写点（按设计在发布之后、不同锁；崩溃窗口只留"可见不丢"的队列项）。
+- **C1 前提被实测推翻**：head 整份发布只有 **1.3–1.6 ms/次**（≈提交的 5%），提交基线的
+  主成本是**分片整片读回 + JSON 解码 15–27 ms/次**（且原先做了两遍：reap 与写入器）。
+  本轮已把写侧做成"索引可信则免整片解码"（`shardInfo.Bytes` + 增量摘要；不可信退回慢路径），
+  A/B 实测整片解码 **3 → 1 次/提交**、提交中位数 **96.6 → 88.0 ms**。**仍剩**：head 体积
+  线性（≈247 B/片，已量化）、剩余 1 次解码的来路未定位、`openSharedRead` 比 `os.Open`
+  慢 4–12×（新发现的读原语成本）。
+- **应用侧装配（A4）：已装配且用户可感知。** `resumeSessionCold` 在三读**之前**跑
+  「探测 → 决策 → 恢复 | 丢弃」（可见性闸门 = 发布点），结论落成一条可见 `system` 行；
+  `gap` 只报告不发布不清理；运行中会话不触碰草稿尾。
+- **`-tags redprobe` 失败项定性**：**运行期**失败（构建干净），失败探针钉的是已被 D12
+  撤销的口径 → 退役，语义由 T-STK-13 承担；该 tag 现已 **ok**。
+
 ---
 
 ## 8. 验收证据
