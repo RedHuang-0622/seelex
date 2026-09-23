@@ -96,20 +96,31 @@
 | `go test ./application/... ./gui/... -count=1` | 全部 `ok` |
 | `node --test gui/frontend/dist/*.test.mjs` | **448 pass / 0 fail** |
 | `go test ./application/core/ -run TestExplicitCompactGateTimeline -v` | 上面那张时间线表 |
+| `go test ./application/core/ -run TestExplicitCompactGateTimeline -count=30` | **30/30 绿**（本轮之前该判据 40 次里红 3 次，见下） |
 
-有牙证明（PROBE：改回旧口径 → 测试必须变红 → 还原即绿）：
+有牙证明（PROBE：改回旧口径 → 测试必须变红 → 还原即绿。**四条今天全部重跑过**，改完都按
+备份文件校验 sha 一致后还原）：
 
-| PROBE | 改动 | 变红的测试 |
+| PROBE | 改动 | 变红的测试（今天实测） |
 |---|---|---|
-| 1 | 去掉 `progress.begin()`（不再发起手帧） | `TestExplicitCompactEmitsOrderedProgressGates`（起手帧 = 0 条）、`TestExplicitCompactGateTimeline`（第一帧不是起手帧） |
-| 2 | `elapsedLocked` 改成「从开轮算起的累计」 | `TestExplicitCompactGateTimeline`（实测一次：逐关之和 387ms ≫ 门禁段墙钟 ~65ms） |
-| 3 | 前端只按 `phase === "begin"` 判新轮 | `a new round never inherits the previous round's checklist`（清单 39 条 vs 11 条） |
-| 4 | 前端让起手帧也入清单 | `the begin frame never becomes a checklist row of its own`（判据关凭空多一行 `<1ms`） |
+| 1 | 去掉 `progress.begin()`（不再发起手帧） | `TestExplicitCompactEmitsOrderedProgressGates` 与 `TestExplicitCompactGateTimeline` **同时**红，报的都是 `起手帧 = 0 条，want 1` |
+| 2 | `elapsedLocked` 不推进基准（= 报「从开轮算起的累计」） | `TestExplicitCompactGateTimeline` 3/3 红：逐关之和 913 / 1459 / 2049ms，整轮墙钟 138 / 288 / 299ms |
+| 3 | 前端只按 `phase === "begin"` 判新轮 | `a new round never inherits the previous round's checklist`（清单 39 条 ≠ 11 条） |
+| 4 | 前端起手帧也进 `gates` 清单 | **两条**一起红：`the begin frame never becomes a checklist row of its own`（gates 多出 `{gate:'judge', ms:0}`，渲染即凭空一行 `<1ms`）、`a begin frame opens a round with nothing counted and nothing timed`（1 ≠ 0） |
 
-PROBE 2 顺带修掉了判据本身的弱点：原先拿**整轮**墙钟当上界（整轮含建服务、订阅、落记录等
-无关开销），在快机器上「累计口径」能蒙混过关；现在拿**门禁段**墙钟（起手帧到达 → 终局帧
-到达）当上界，并留「帧数 + 5ms」的取整余量，六关累计值之和（约门禁段墙钟的 3–6 倍）必然被
-抓住。这条是这一轮唯一「测试先没牙、补了牙」的地方。
+PROBE 2 的判据本身换过两次口径，这一段记录的是**撤销**而不是成就：
+
+1. 最初拿**整轮**墙钟当上界。太松——整轮含建服务、订阅、落记录等无关开销，快机器上累计口径
+   能蒙混过关。
+2. 于是改成拿**门禁段**墙钟（起手帧到达 → 终局帧到达）。这就是 flake 的来源：到达时刻含投递
+   唤醒抖动（首帧能被推迟十几毫秒），拿它当上界量的是这台机器的调度器而不是门禁，40 次红 3 次。
+3. 现在拿 `CompactContextNow` 的返回窗口当上界，并用 `drainCompactionProgress` 在**收帧线程**
+   上取帧：发布与装配同线程，所以函数返回时全部帧必已在缓冲里，帧集合是确定的整轮，不含前缀
+   截断，也不引入任何跨线程到达时刻。余量按「帧数 + 5ms」给（每帧向下取整最多少算 1ms）。
+   代价是判据变宽（累计口径仍能靠 6–7 倍的差被抓到，见 PROBE 2），换来的是同一份断言不再抖。
+
+这条是本轮唯一「测试先没牙、补了牙、又因为牙太尖而崩、最后重做」的地方——写成这样是为了让
+下一个人别再回到第 2 步：跨线程的到达时间戳不能用来约束发布侧的耗时。
 
 ## 4. 边界与未做
 

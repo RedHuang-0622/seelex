@@ -14,6 +14,9 @@ import (
 
 	"github.com/RedHuang-0622/Seele/seelectx"
 	"github.com/RedHuang-0622/Seele/types"
+
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
+	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
 // PrefixReplayInstruction 是前缀重放请求唯一新增的固定尾巴（详设 §4.4）：
@@ -113,4 +116,134 @@ func normalizeReplayChapter2(text string) string {
 		text = strings.TrimSpace(strings.TrimPrefix(text, title))
 	}
 	return text
+}
+
+// ── 分片重放链（《待落地》3）──────────────────────────────────────
+
+// ReplayChunkPlan 是一次分片重放的计划：片界落在**协议单元边界**（不切
+// message），每片的估算 token 不超过片预算。Chunks 为 nil/单元素时表示未分片，
+// 调用方走原有的单次重放（system 同字节 + 最近真实请求 History 原样 + 指令），
+// 那条路径才能吃到前缀缓存。
+type ReplayChunkPlan struct {
+	Chunks       [][]types.Message `json:"chunks,omitempty"`
+	ChunkTokens  []int             `json:"chunk_tokens,omitempty"`
+	BudgetTokens int               `json:"budget_tokens"`
+	// Chained 表示生成时携带了上一片摘要（片 2..k 的前向传递）。
+	Chained bool `json:"chained"`
+}
+
+// ChunkCount 返回片数（0 = 未分片）。
+func (p ReplayChunkPlan) ChunkCount() int { return len(p.Chunks) }
+
+// ChunkReplayMessages 把待重放的溢出区消息按协议单元切成若干片，使每片不超过
+// budgetTokens。片界一律落在协议单元边界：
+//
+//   - 单单元自身超预算时该单元独占一片（宁可单片超预算，也不切 message）——
+//     与保护区「不截断 + 至少保 1 个完整协议单元」同一条规则；切了 message
+//     既丢协议合法性（assistant/tool 配对），也没法按区间回读原文。
+//
+// budgetTokens <= 0 或消息为空 → 返回单片的空计划（调用方按未分片处理）。
+func ChunkReplayMessages(messages []types.Message, budgetTokens int) ReplayChunkPlan {
+	plan := ReplayChunkPlan{BudgetTokens: budgetTokens}
+	if budgetTokens <= 0 || len(messages) == 0 {
+		return plan
+	}
+	units := chatUnits(messages, 0)
+	chunks := make([][]types.Message, 0, len(units))
+	chunkTokens := make([]int, 0, len(units))
+	current := make([]types.Message, 0, len(messages))
+	used := 0
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		chunks = append(chunks, current)
+		chunkTokens = append(chunkTokens, used)
+		current = make([]types.Message, 0, len(messages))
+		used = 0
+	}
+	for _, unit := range units {
+		unitTokens := 0
+		for _, message := range unit.messages {
+			unitTokens += tokens.CountMessage(message)
+		}
+		if len(current) > 0 && used+unitTokens > budgetTokens {
+			flush()
+		}
+		current = append(current, unit.messages...)
+		used += unitTokens
+	}
+	flush()
+	plan.Chunks = chunks
+	plan.ChunkTokens = chunkTokens
+	return plan
+}
+
+// SummarizeChunkPlan 按分片计划逐片重放并前向传递摘要：
+//
+//	片1 = system + O[0:k1]              + 指令        → 摘要₁
+//	片2 = system + O[k1:k2] + 摘要₁     + 指令        → 摘要₂
+//	…
+//	Chapter2 = 摘要_k
+//
+// base 提供 SystemPrompt/Tools/固定指令（History 由本函数逐片替换）；片 i>1 把
+// 上一片摘要拼进指令尾巴（ReplayRequest.Instruction），因此不需要改动摘要器
+// 契约。任何一片失败即整条退出，调用方回退本地确定性折叠（绝不中断请求）。
+func SummarizeChunkPlan(
+	ctx context.Context,
+	summarizer PrefixReplaySummarizer,
+	base ReplayRequest,
+	plan ReplayChunkPlan,
+) (ReplayResult, error) {
+	if summarizer == nil {
+		return ReplayResult{}, fmt.Errorf("seelexctx: chunked replay requires a summarizer")
+	}
+	if len(plan.Chunks) == 0 {
+		return ReplayResult{}, fmt.Errorf("seelexctx: chunked replay requires at least one chunk")
+	}
+	instruction := base.Instruction
+	if strings.TrimSpace(instruction) == "" {
+		instruction = PrefixReplayInstruction
+	}
+	var summary string
+	for index, chunk := range plan.Chunks {
+		request := base
+		request.History = chunk
+		request.Instruction = instruction
+		if index > 0 {
+			request.Instruction = carryPrompt(index, len(plan.Chunks), summary) + "\n\n" + instruction
+		}
+		result, err := summarizer.Summarize(ctx, request)
+		if err != nil {
+			return ReplayResult{}, fmt.Errorf("seelexctx: replay chunk %d/%d: %w", index+1, len(plan.Chunks), err)
+		}
+		summary = strings.TrimSpace(result.Chapter2)
+		if summary == "" {
+			return ReplayResult{}, fmt.Errorf("seelexctx: replay chunk %d/%d returned an empty summary", index+1, len(plan.Chunks))
+		}
+	}
+	return ReplayResult{Chapter2: normalizeReplayChapter2(summary)}, nil
+}
+
+// carryPrompt 渲染片 i>1 的前向上下文：上一片摘要 + 明确说明它只是材料的一半。
+// 摘要是"片 i-1 的产出"，不是原始对话——不写清楚，模型会把它当作用户输入回答。
+func carryPrompt(index, total int, previous string) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "以下是你对前一片（第 %d/%d 片之前）材料生成的压缩摘要，按同一骨架继续：\n\n", index, total)
+	builder.WriteString(previous)
+	return builder.String()
+}
+
+// ReplayEvidence 把分片重放的决策事实写成帧证据（打点落点：帧持久化在会话
+// state blob 的 CompactStack 里）。未分片（片数 <= 1）时不写——没有这件事就
+// 不留痕，避免报表里出现"分片 1 片"这种无信息项。
+func ReplayEvidence(plan ReplayChunkPlan) []sessionstore.EvidenceRef {
+	if len(plan.Chunks) <= 1 {
+		return nil
+	}
+	return []sessionstore.EvidenceRef{{
+		Ref: fmt.Sprintf("replay-chunked:%d", len(plan.Chunks)),
+		Summary: fmt.Sprintf("overflow region replayed in %d protocol-unit chunks with forward-passed summaries (no prefix-cache reuse beyond chunk 1)",
+			len(plan.Chunks)),
+	}}
 }

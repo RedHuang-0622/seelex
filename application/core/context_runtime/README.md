@@ -136,6 +136,7 @@ go test ./application/core/context_runtime -count=1
 - `func (p *compactionProgress) gate(id, detail string)` — gate 通告「第 index 关收口」。未知 id 也发（序号 0 会被形状测试抓到），
 - `func (p *compactionProgress) elapsedLocked() int` — elapsedLocked 返回距上一帧的毫秒数并推进计时基准。调用方持锁。
 - `func (p *compactionProgress) setVersion(version uint64)` — setVersion 在自主压缩另开新纪元时校正本轮版本：判定关拿到的版本号可能还是
+- `func (p *compactionProgress) skip(reason string)` — skip 记下「本轮折叠了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
 - `func (p *compactionProgress) settle(err error, recorded bool, outcome string)` — settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
 - `func (p *compactionProgress) publish(payload event.CompactionProgress)`
 
@@ -165,7 +166,7 @@ go test ./application/core/context_runtime -count=1
 - `func (c *Coordinator) planContextMessageLocked(sessionID string) string`
 - `func currentPlanSlice(arguments, currentNode string) any`
 - `func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, currentInput string) []model.TranscriptEvent`
-- `func (c *Coordinator) protectOversizedCurrentInputLocked(sessionID, requestID, currentInput string, budget task_context.ContextBudget) string`
+- `func (c *Coordinator) protectOversizedCurrentInputLocked(sessionID, requestID, currentInput string, budget task_context.ContextBudget) string` — protectOversizedCurrentInputLocked 把超**单条**预算的当前输入归档为引用：
 - `func ContentReferenceWarning(resultRef string) string` — ContentReferenceWarning 是超限用户输入归档引用警告文本。
 - `func (c *Coordinator) rejectOversizedToolResults(sessionID string, maxChars int) (bool, error)` — rejectOversizedToolResults 把超限输出替换为显式重试指令（不给头部/尾部
 - `func RejectToolResults(history []contract.EngineMessage, maxChars int) ([]contract.EngineMessage, bool)` — RejectToolResults 替换超限工具结果为显式引用警告（纯函数面）。
@@ -222,6 +223,27 @@ go test ./application/core/context_runtime -count=1
 - `func TestRepairEmptyHistoryContentKeepsToolCallAssistantContentEmpty(t *testing.T)`
 - `func TestRetainedSystemHistoryKeepsStablePrefixAndSettledContext(t *testing.T)`
 - `func TestAutonomousCompactionMessageIsBoundedAndDynamicTail(t *testing.T)` — TestAutonomousCompactionMessageIsBoundedAndDynamicTail：自主压缩帧带协议
+- `func TestCompactionFrameNeverReentersFoldInput(t *testing.T)` — TestCompactionFrameNeverReentersFoldInput：帧是**终态**——一次折叠产生的帧绝不
 - `func retainedContents(history []contract.EngineMessage) []string`
 - `func TestRetainedSystemHistoryKeepsActiveSkillEvent(t *testing.T)` — TestRetainedSystemHistoryKeepsActiveSkillEvent：激活技能事件是 append-only
+
+### layout.go
+
+- `func (l ContextLayout) zone(kind string) ContextZone` — zone 返回指定 kind 的分区（缺失 → 只带 kind 的零值）。
+- `func (r RetainDecision) Terse() string` — Terse 渲染保留窗口决策的一行事实（门禁 Detail 用：短、无文案）。
+- `func (l ContextLayout) RetainTerse() string` — RetainTerse 渲染保留窗口决策的一行事实。
+- `func (l ContextLayout) ZonesTerse() string` — ZonesTerse 渲染四区 token 数的一行事实（门禁 Detail 用）。
+- `func (l ContextLayout) RenderZones() string` — RenderZones 把四区渲染为帧正文里的区块（分区 + 各区 token 数与来源）："这一轮
+- `func (c *Coordinator) buildContextLayout( systemPrompt string, assembled []contract.EngineMessage, currentInput string, ) ContextLayout` — buildContextLayout 把装配后的 provider 历史切进四区并汇总判据量：分区判据见
+- `func (c *Coordinator) countRequestTokens( systemPrompt string, history []contract.EngineMessage, currentInput string, tools []model.Tool, ) int` — countRequestTokens 适配 TaskPort.CountRequestTokens 到四区切分的计数签名。
+- `func ContextZones( systemPrompt string, assembled []contract.EngineMessage, currentInput string, count zoneCounter, ) []ContextZone` — ContextZones 把装配后的 provider 历史切进四区并给出各区 token 数、条数与来源。
+- `func retainWindowDecision( config seelexctx.WindowConfig, allContextTokens int, budget task_context.ContextBudget, floorPercent int, ) RetainDecision` — retainWindowDecision 计算保留窗口（③ 的边界）并留下决策事实：
+
+### layout_test.go
+
+- `func layoutTestCounter(systemPrompt string, history []contract.EngineMessage, currentInput string, _ []model.Tool) int` — layoutTestCounter 是四区切分的确定性计数：system 段 3、每条历史 10、当轮输入
+- `func TestContextZonesClassifiesFourZones(t *testing.T)` — TestContextZonesClassifiesFourZones：四区显式化的分区判据全部是消息自身的
+- `func TestRetainWindowDecisionRecordsFacts(t *testing.T)` — TestRetainWindowDecisionRecordsFacts：保留窗口决策把"拿什么数字比的"全部记下
+- `func TestContextLayoutTerseAndZonesRender(t *testing.T)` — TestContextLayoutTerseAndZonesRender：门禁 Detail 与帧正文读同一份 layout——
+- `func TestCompactionFrameBodyCarriesZoneLayout(t *testing.T)` — TestCompactionFrameBodyCarriesZoneLayout：帧正文必须带上四区区块——否则记录里
 

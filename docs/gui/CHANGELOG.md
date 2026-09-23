@@ -2,6 +2,29 @@
 
 本文件记录会改变模块边界、跨模块契约、兼容性、持久化或运行流程的重要设计。纯文字修正不记录。
 
+## 2026-09-23
+
+### Added
+
+- **一轮上下文压缩在右栏边走边报进度，生命周期只有一轮。** 前端消费新事件
+  `compaction.progress`（会话级、`revision=0`、载荷不进快照，与 `team.changed` 同口径）：
+  起手帧（`phase=begin`，仅显式压缩）→ 六关收口（判据估算→装配→替换 provider 历史→渲染帧→
+  存帧→写记录）→ 恰好一个终局。渲染复用 Plan 面板同款轨道 `.plan-board-progress` /
+  `.plan-board-bar`，**不自造第二套进度组件**；轨道下挂逐关耗时清单——整轮只有几十毫秒，
+  进度条不可能被肉眼看出"在走"，能回答"它干了什么、慢在哪一关"的只有每关自己的墙钟。
+  逐帧累计是纯函数 `compaction-format.mergeCompactionProgress`；撤条由视图侧定时
+  （终局后 2.5s、失败 6s）。这条 kind 刻意**不**进 `BUFFERED_INCREMENTAL_KINDS`
+  的 120ms 尾随合并：latest-wins 会把中间关吃掉，只剩首尾两帧，而"走到哪一关了"正是它
+  唯一的信息。契约见 `modules/right-sidebar.md` §上下文压缩，
+  动因与 PROBE 见 `docs/devlog/2026-09-23-compaction-progress-visible-from-first-instant.md`。
+- **折叠帧正文可以在面板里直接读，不再是一句占位话。** 压缩记录条目上的「查看帧正文」经
+  `Bridge.ToolResultContent(frame_ref, offset, 12000)` 按 ref 分页读回正文（正文不进快照，
+  与工具大输出同一条读回路径），复用轨迹详情的同一容器与分页交互
+  （`.axis-detail` / `data-compact-frame-load`），不另开面板；没有 `frame_ref` 的条目直说
+  「本次没有可回读正文」。同一条记录的展示口径（区间/原因/来源）此前在右栏与轨迹「压缩」轨
+  各写一份、已经漂成两种读法，现收敛到 `compaction-format.js` 一处。见
+  `docs/devlog/2026-09-23-compaction-frame-visibility-and-panel-drift.md`。
+
 ## 2026-09-20
 
 ### Fixed

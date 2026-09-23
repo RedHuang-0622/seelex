@@ -105,6 +105,14 @@ type CompactionDAGOptions struct {
 	// Chapter2MaxTokens 是厚摘要输出预算（≤0 → PrefixReplayMaxTokens；
 	// QuickChat 通道未透传预算时仅作记录）。
 	Chapter2MaxTokens int
+	// FrameCarryTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
+	// ≤0 → DefaultFrameCarryTokens）：本地折叠把上一栈顶帧 Chapter 2 正文并入
+	// 新帧时的并入量上限，超出退化为锚点（见 CarryPreviousChapter2）。
+	FrameCarryTokens int
+	// ReplayInputTokens 是**分片重放的片预算**（模型输入侧；≤0 → 不分片，走原有
+	// 单次重放）。溢出区自身超过它时按协议单元切片逐片重放、摘要前向传递
+	// （见 ChunkReplayMessages / SummarizeChunkPlan）。
+	ReplayInputTokens int
 }
 
 // PrefixReplayMaxTokens 是 Chapter 2 厚摘要的默认输出预算。
@@ -135,8 +143,12 @@ type compactionDAGState struct {
 	chapter2      string
 	summarySource string
 	frame         sessionstore.CompactFrame
-	started       map[string]bool
-	startedMu     sync.Mutex
+	// carry 是「上一帧 Chapter 2 并入」的决策事实（帧摘要传递上限）。
+	carry CarryDiagnostics
+	// replay 是分片重放的计划事实（未分片 → 空计划）。
+	replay    ReplayChunkPlan
+	started   map[string]bool
+	startedMu sync.Mutex
 }
 
 // Execute 运行压缩 DAG 并返回拼装完成的 CompactFrame（不含 PushCompact；
@@ -278,6 +290,10 @@ func (d *CompactionDAG) chapter1Node(state *compactionDAGState) func(context.Con
 }
 
 // chapter2Node：前缀重放厚摘要（一次重试）→ 失败/无重放素材回退本地折叠。
+//
+// 溢出区自身超过片预算（ReplayInputTokens）时走**分片重放链**：按协议单元切片
+// 逐片重放，摘要前向传递（SummarizeChunkPlan），除首片外不追求前缀缓存命中
+// （正确性与「不重复送原文」优先）。任何一片失败即整条回退本地折叠。
 func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Context) error {
 	return func(ctx context.Context) error {
 		markStarted(state, "chapter2_thick")
@@ -287,6 +303,20 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 				History:      append([]frameworktypes.Message(nil), state.input.History...),
 				Tools:        d.tools(),
 				MaxTokens:    d.chapter2MaxTokens(),
+			}
+			if plan := d.replayChunkPlan(state); plan.ChunkCount() > 1 {
+				result, err := SummarizeChunkPlan(ctx, d.opts.Summarizer, request, plan)
+				if err == nil && strings.TrimSpace(result.Chapter2) != "" {
+					state.chapter2 = normalizeReplayChapter2(result.Chapter2)
+					state.summarySource = CompactSummarySourceReplay
+					state.replay = plan
+					state.replay.Chained = true
+					return nil
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// 分片链失败 → 落回单次重放/本地折叠（不中断请求）。
 			}
 			for attempt := 0; attempt < 2; attempt++ {
 				result, err := d.opts.Summarizer.Summarize(ctx, request)
@@ -301,16 +331,29 @@ func (d *CompactionDAG) chapter2Node(state *compactionDAGState) func(context.Con
 			}
 			// 两次尝试均失败 → 本地折叠兜底（不消耗模型 token 的确定性路径）。
 		}
-		state.chapter2 = LocalChapter2(LocalFoldOptions{
-			Overflow:  state.overflow,
-			UnitCount: state.unitCount,
-			Kind:      state.input.Kind,
-			PrevTop:   state.prevTop,
-			Record:    state.record,
+		chapter2, carry := LocalChapter2WithCarry(LocalFoldOptions{
+			Overflow:         state.overflow,
+			UnitCount:        state.unitCount,
+			Kind:             state.input.Kind,
+			PrevTop:          state.prevTop,
+			CarryLimitTokens: d.frameCarryTokens(),
+			Record:           state.record,
 		})
+		state.chapter2 = chapter2
+		state.carry = carry
 		state.summarySource = CompactSummarySourceLocal
 		return nil
 	}
+}
+
+// replayChunkPlan 计算本次重放的分片计划：溢出区 token 数超过片预算
+// （ReplayInputTokens）才分片，否则返回空计划（调用方走单次重放，保住前缀缓存）。
+func (d *CompactionDAG) replayChunkPlan(state *compactionDAGState) ReplayChunkPlan {
+	budget := d.replayInputTokens()
+	if budget <= 0 {
+		return ReplayChunkPlan{}
+	}
+	return ChunkReplayMessages(overflowMessages(state.overflow), budget)
 }
 
 // dagOrdinalBase 返回本次压缩单元区号的基准 = 已被覆盖帧覆盖的单元数
@@ -351,9 +394,10 @@ func (d *CompactionDAG) mergeNode(state *compactionDAGState) func(context.Contex
 			RequestTo:     requestTo,
 			Summary:       RenderFrameSummary(state.chapter1, state.chapter2),
 			SummarySource: state.summarySource,
-			AnchorSource:  state.anchorSource,
-			Evidence:      overflowEvidence(state.overflow, state.record),
-			CompressedAt:  time.Now(),
+			AnchorSource:  AnchorSourceWithCarry(state.anchorSource, state.carry),
+			Evidence: append(overflowEvidence(state.overflow, state.record),
+				append(CarryEvidence(state.carry), ReplayEvidence(state.replay)...)...),
+			CompressedAt: time.Now(),
 		}
 		if state.prevTop != nil {
 			frame.PrevSegmentID = state.prevTop.SegmentID
@@ -398,6 +442,17 @@ func (d *CompactionDAG) chapter2MaxTokens() int {
 	}
 	return PrefixReplayMaxTokens
 }
+
+// frameCarryTokens 返回帧摘要传递上限（≤0 → DefaultFrameCarryTokens）。
+func (d *CompactionDAG) frameCarryTokens() int {
+	if d.opts.FrameCarryTokens > 0 {
+		return d.opts.FrameCarryTokens
+	}
+	return DefaultFrameCarryTokens
+}
+
+// replayInputTokens 返回分片重放的片预算（≤0 → 不分片）。
+func (d *CompactionDAG) replayInputTokens() int { return d.opts.ReplayInputTokens }
 
 // segmentID 生成帧 SegmentID（会话溯源前缀，与 controller 同风格）。
 func (d *CompactionDAG) segmentID() string {

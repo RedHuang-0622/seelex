@@ -67,6 +67,9 @@ func (r *Runtime) coverHistoryGap(ctx context.Context, allEvents []sessionstore.
 		Stacks:        stacks,
 		Turns:         r.getTurnArchiver(),
 		SessionID:     r.MainSessionID(),
+		// 帧摘要传递上限（limits.context_frame_carry_tokens）：真空区合并帧同样
+		// 受并入上限约束，避免栈顶帧随帧数无界膨胀。
+		FrameCarryTokens: r.limits.ContextFrameCarryTokens,
 	})
 	return err
 }
@@ -118,6 +121,8 @@ func (r *Runtime) nodeController() seelectx.ContextController {
 		// 暂不注入（字节级装配出口未固化，见设计 §9 风险 1）→ 本地折叠。
 		Compaction: seelexctx.NewCompactionDAG(seelexctx.CompactionDAGOptions{
 			SessionIDProvider: func() string { return "node" },
+			FrameCarryTokens:  r.limits.ContextFrameCarryTokens, // limits.context_frame_carry_tokens
+			ReplayInputTokens: r.replayInputTokens(),
 		}),
 	})
 }
@@ -201,6 +206,9 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 		Budget: runtimeBudgetProvider{runtime: r},
 		Stacks: runtimeCompactStacks{runtime: r, memory: seelexctx.NewMemoryCompactStack()},
 		Turns:  r.getTurnArchiver(),
+		// 帧摘要传递上限（limits.context_frame_carry_tokens）：本地折叠把上一栈顶
+		// 帧 Chapter 2 正文并入新帧时的并入量上限，超出退化为锚点。
+		FrameCarryTokens: r.limits.ContextFrameCarryTokens,
 		// 压缩帧 SegmentID 溯源到当前会话：每次压缩动态取值，会话切换后
 		// 仍指向正确会话（compact-<sessionID>-<ms>）。
 		SessionIDProvider: r.MainSessionID,
@@ -222,8 +230,24 @@ func (r *Runtime) seelexController() seelectx.ContextController {
 				}
 				return r.agt.VisibleTools(context.Background())
 			},
+			FrameCarryTokens:  r.limits.ContextFrameCarryTokens, // limits.context_frame_carry_tokens
+			ReplayInputTokens: r.replayInputTokens(),
 		}),
 	})
+}
+
+// replayInputTokens 返回分片重放的片预算（模型输入侧）：取账号上下文窗口减去
+// 固定开销后的保守值。≤0 → 不分片（走原有单次重放，保住前缀缓存）。
+//
+// 为什么用 ContextWindow 的保守份额而不是硬阈值：分片是"压缩区自身大到一次发不出"
+// 的容灾路径，判据应当是"这一次请求能不能装下原始溢出区"，而不是"要不要现在压缩"。
+// 取窗口的 3/4 给正文、留 1/4 给 system/tools/指令与估算偏差。
+func (r *Runtime) replayInputTokens() int {
+	window := r.ContextWindow()
+	if window <= 0 {
+		return 0
+	}
+	return window * 3 / 4
 }
 
 // sessionContextStore 返回绑定的会话上下文存储（nil = 未绑定）。

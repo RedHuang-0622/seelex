@@ -7,6 +7,55 @@ import (
 	"time"
 )
 
+// TestLoadLimitsCompactionBudgetRatios：压缩预算比例是**装配参数**（seelex.yaml
+// limits 段），不再硬编码在 task_context.newContextBudget——判据（软/硬/目标）
+// 与单条输入外置阈值必须能被同一份配置调，且缺字段回退默认（8/75/90/60/50）。
+func TestLoadLimitsCompactionBudgetRatios(t *testing.T) {
+	def := DefaultLimits()
+	if def.ContextSafetyReserveDivisor != 8 || def.ContextSoftPercent != 75 ||
+		def.ContextHardPercent != 90 || def.ContextTargetPercent != 60 ||
+		def.ContextSingleItemPercent != 50 {
+		t.Fatalf("压缩预算默认比例 = %+v", def)
+	}
+
+	path := filepath.Join(t.TempDir(), "seele.yaml")
+	content := "limits:\n" +
+		"  context_safety_reserve_divisor: 4\n" +
+		"  context_soft_percent: 60\n" +
+		"  context_hard_percent: 85\n" +
+		"  context_target_percent: 45\n" +
+		"  context_single_item_percent: 30\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadLimits(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ContextSafetyReserveDivisor != 4 || loaded.ContextSoftPercent != 60 ||
+		loaded.ContextHardPercent != 85 || loaded.ContextTargetPercent != 45 ||
+		loaded.ContextSingleItemPercent != 30 {
+		t.Fatalf("yaml 里的压缩预算比例未生效 = %+v", loaded)
+	}
+
+	// 只写一部分：LoadLimits 返回原始解析结果（未写字段为 0），默认值由
+	// WithDefaults 补（limits.Apply 走的正是这条链）——不能把 0 当"用户要 0"。
+	partial := filepath.Join(t.TempDir(), "partial.yaml")
+	if err := os.WriteFile(partial, []byte("limits:\n  context_soft_percent: 70\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = LoadLimits(partial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := loaded.WithDefaults()
+	if merged.ContextSoftPercent != 70 || merged.ContextHardPercent != 90 ||
+		merged.ContextTargetPercent != 60 || merged.ContextSingleItemPercent != 50 ||
+		merged.ContextSafetyReserveDivisor != 8 {
+		t.Fatalf("部分配置必须与默认合并 = %+v", merged)
+	}
+}
+
 // TestLoadLimitsDefaults 验证缺失文件/缺失 limits 段 → 完整默认值。
 func TestLoadLimitsDefaults(t *testing.T) {
 	limits, err := LoadLimits(filepath.Join(t.TempDir(), "missing.yaml"))

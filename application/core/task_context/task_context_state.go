@@ -19,12 +19,18 @@ import (
 
 const (
 	activeSkillVersion = "installed-v1"
-	// ActiveSkillMarker 是激活技能正文事件的内部标记。与
+	// ActiveSkillMarker 是激活技能正文事件的内部标记，与
 	// context_runtime.ActiveSkillPrefix 同源字符串（task_context 不反向依赖
-	// context_runtime）：装配根以 IsActiveSkillContent 判定 internal → 事件不
-	// 落盘、不进前端可见会话、import/压缩时跳过。正文作为一条 internal user
-	// 事件 append-only 进入 transcript，随定稿轮次作为稳定前缀缓存；压缩窗口
-	// 裁剪后技能随旧轮次自然消失（长历史由压缩帧/会话存档检索）。
+	// context_runtime）。它是一条 append-only 的 internal user 轮次，三件事的
+	// 准确答法：
+	//   - 落盘：**落**，但按 wire material 落——sessionstore 的
+	//     providerRoleForEvent 对含本标记的行保持 user 角色（不折叠成 system），
+	//     wire_assembler 以 user + Internal 回放 → resume 可回放、检索可回读；
+	//   - 可见性：前端可见会话与「用户输入」视图里没有它（装配/存档/import 以
+	//     IsActiveSkillContent 挡在可见会话之外，import 时跳过）；
+	//   - 压缩：**会被压掉**。压缩窗口裁剪后正文从 wire 消失，同任务内再次
+	//     skill_activate 不补写（去重基准是 ActiveSkills），只有运行态由投影
+	//     重建的路径强制补写；长历史由压缩帧/会话存档检索承载。
 	ActiveSkillMarker = "<!-- seelex:active-skill:v1 -->"
 )
 

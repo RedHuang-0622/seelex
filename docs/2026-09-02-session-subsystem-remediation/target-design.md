@@ -29,7 +29,9 @@
 
 ### 2.1 进程级（单例，只读原件，深拷贝进会话渲染）
 
-`Originals`：system 模板（identity/plugin/instructions + 激活 skill 文本）、project 块、
+`Originals`：system 模板（identity/plugin/instructions + 插件级 skill 目录；激活 skill
+正文不在 system —— 见 `docs/arch/context-prefix-chain.md`，它是 transcript internal
+事件）、project 块、
 memory 块、`seelexctx.Limits`、存储策略（`Router.Config`）、能力清单（插件/账号池/
 Skill/可见工具）、**model / provider / account**（本轮已定：不 per-session pin）。
 

@@ -2,6 +2,7 @@ package context_runtime
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,6 +79,10 @@ type compactionProgress struct {
 	settled bool
 	// last 是上一帧的发出时刻（逐帧计时的基准）。
 	last time.Time
+	// note 是本轮的非门禁事实（例如「被纪元节流：只折叠、不落记录」），拼进
+	// settle 的 Detail。终局必须能自答「进度条走完了，为什么没有记录」——否则
+	// 用户只能看到 ran 到 replace 的进度条然后什么都没有，合理地怀疑后端没接线。
+	note string
 }
 
 // startCompactionProgress 开启一轮门禁进度。没有会话路由键或宿主不支持按会话
@@ -164,6 +169,21 @@ func (p *compactionProgress) setVersion(version uint64) {
 	p.mu.Unlock()
 }
 
+// skip 记下「本轮折叠了但不落记录」的原因（settle 时拼进 Detail）。没有它，读者
+// 只能看到一个走到 replace 的进度条然后什么都没有。
+func (p *compactionProgress) skip(reason string) {
+	if p == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return
+	}
+	p.mu.Lock()
+	p.note = trimmed
+	p.mu.Unlock()
+}
+
 // settle 收口本轮：err 非空即失败终局（Outcome 带真实原因），否则按是否落了
 // 压缩记录给出 compacted / folded_without_record。幂等——重复调用只发一条。
 func (p *compactionProgress) settle(err error, recorded bool, outcome string) {
@@ -178,6 +198,9 @@ func (p *compactionProgress) settle(err error, recorded bool, outcome string) {
 	p.settled = true
 	total := CompactionGateTotal()
 	detail := fmt.Sprintf("reached=%d/%d", p.reached, total)
+	if p.note != "" {
+		detail += " " + p.note
+	}
 	state := event.CompactionProgressDone
 	if err != nil {
 		state = event.CompactionProgressFailed

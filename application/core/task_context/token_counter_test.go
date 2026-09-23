@@ -1,6 +1,11 @@
 package task_context
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/RedHuang-0622/seelex/application/core/internal/limits"
+	"github.com/RedHuang-0622/seelex/seelexctx"
+)
 
 type runtimeWithContextLimits struct {
 	window int
@@ -26,6 +31,54 @@ func TestContextBudgetUsesRuntimeLimits(t *testing.T) {
 func TestContextBudgetFallsBackForLegacyRuntime(t *testing.T) {
 	if got, want := ContextBudgetFor(legacyRuntime{}), DefaultContextBudget(); got != want {
 		t.Fatalf("fallback budget = %+v, want %+v", got, want)
+	}
+}
+
+// TestContextBudgetRatiosComeFromLimits：压缩预算比例是配置项（seelex.yaml
+// limits 段），不再是硬编码常量——调 context_soft_percent 必须改变软/硬/目标
+// 与单条外置阈值，且默认值保持重构前口径（窗口/8、75%、90%、60%、50%）。
+// 报表口径与判据口径必须来自同一份数字，这个用例把它钉死。
+func TestContextBudgetRatiosComeFromLimits(t *testing.T) {
+	previous := limits.Get()
+	defer limits.Apply(previous)
+	limits.Apply(seelexctx.DefaultLimits())
+
+	base := ContextBudgetFor(runtimeWithContextLimits{window: 200_000, output: 8_192})
+	if base.SafetyReserve != 25_000 || base.Budget != 166_808 {
+		t.Fatalf("默认预算基数 = %+v", base)
+	}
+	if base.SoftThreshold != 125_106 || base.HardThreshold != 150_127 {
+		t.Fatalf("默认软/硬阈值 = %+v", base)
+	}
+	if base.TargetAfterCompaction != 100_084 || base.SingleItemInputLimit != 83_404 {
+		t.Fatalf("默认目标/单条外置阈值 = %+v", base)
+	}
+
+	limits.Apply(seelexctx.Limits{
+		ContextSafetyReserveDivisor: 4,
+		ContextSoftPercent:          50,
+		ContextHardPercent:          80,
+		ContextTargetPercent:        40,
+		ContextSingleItemPercent:    25,
+	})
+	configured := ContextBudgetFor(runtimeWithContextLimits{window: 200_000, output: 8_192})
+	if configured.SafetyReserve != 50_000 {
+		t.Fatalf("安全预留未按 context_safety_reserve_divisor 生效: %+v", configured)
+	}
+	budget := 200_000 - 8_192 - 50_000
+	if configured.Budget != budget ||
+		configured.SoftThreshold != budget*50/100 ||
+		configured.HardThreshold != budget*80/100 ||
+		configured.TargetAfterCompaction != budget*40/100 ||
+		configured.SingleItemInputLimit != budget*25/100 {
+		t.Fatalf("配置比例未生效: %+v (预算 %d)", configured, budget)
+	}
+
+	// 非法比例（0/负/超 100）回退默认，不得把预算算成 0（那会让每轮都压缩）。
+	limits.Apply(seelexctx.Limits{ContextSoftPercent: 0, ContextHardPercent: 200})
+	fallback := ContextBudgetFor(runtimeWithContextLimits{window: 200_000, output: 8_192})
+	if fallback.SoftThreshold != 125_106 || fallback.HardThreshold != 150_127 {
+		t.Fatalf("非法比例未回退默认: %+v", fallback)
 	}
 }
 

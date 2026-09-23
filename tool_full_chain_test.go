@@ -256,6 +256,12 @@ func newFullChainHarnessWithProjectBinding(t *testing.T, accountsPath, projectRo
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 回读类工具（read_tool_result / read_compressed_turn / search_history /
+	// compact_context）在生产里由 main.run() 经 registerContextReadTools 登记。
+	// 测试装配必须同等登记：否则模型收到「超限输入已外置，请用 read_tool_result
+	// 回读」的告示却根本没有这个工具，只能退回 bash/computer_screenshot 去找
+	// 内容——用例测到的行为与产品不一致（冒烟里模型把截图当回读入口就是这么来的）。
+	registerContextReadTools(runtimeBridge, app)
 	t.Cleanup(app.Shutdown)
 	hooks.Bind(app)
 	return fullChainHarness{app: app, events: events, runtime: runtimeBridge, approval: approval}

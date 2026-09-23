@@ -7,6 +7,7 @@ package seelexctx
 
 import (
 	"context"
+	"fmt"
 	"math"
 )
 
@@ -108,8 +109,79 @@ func (config WindowConfig) RetainedContextTokens(allContextTokens, fallbackToken
 	return retained
 }
 
-// MustCompact 报告全量上下文 token 数（all_context）是否达到硬压缩阈值
-// window.force_compact_tokens：达到即必须自主压缩（硬策略），与 provider
+// RetainFloorTokens 返回保护区下限的**比例部分**（《压缩四区模型》边界判定）：
+//
+//	floor = max(最近 1 个完整协议单元, RetainFloorTokens(percent, 预算))
+//
+// percent 来自 limits.context_retain_floor_percent；0（未配置）或预算不可用
+// （<= 0）时返回 0 —— 此时下限只剩「至少 1 个完整协议单元」这条兜底，由
+// TranscriptTailWindow 在装配时保证，行为与引入该旋钮之前逐位一致。
+func RetainFloorTokens(percent, budgetTokens int) int {
+	if percent <= 0 || budgetTokens <= 0 {
+		return 0
+	}
+	return budgetTokens * percent / 100
+}
+
+// RetainedContextTokensWithFloor 在 min(token1, token2) 之上再套一层下限：
+//
+//	retained = clamp(min(token1, token2), floorTokens, upper)
+//	upper    = token1（已配置时；未配置回退 fallbackTokens）→ 夹到 allContextTokens
+//
+// floorTokens 是比例下限（RetainFloorTokens 的产物；0 = 未配置）。下限存在的
+// 理由：min 的坏方向是「用户把 retain_tokens 写小 → 保护区被压到失忆」，而
+// 失效方向单调 —— 保护区越小越压得动，代价只是少看一点原文（原文可检索回读）。
+//
+// floor > retain_tokens 属**非法配置**，由 ValidateRetainWindow 在装配前拦下
+// （返回错误）；这里把下限夹进 [0, upper] 只为保证返回值单调有界，不承担校验。
+func (config WindowConfig) RetainedContextTokensWithFloor(allContextTokens, fallbackTokens, floorTokens int) int {
+	if allContextTokens <= 0 {
+		return 0
+	}
+	retained := config.RetainedContextTokens(allContextTokens, fallbackTokens)
+	if floorTokens <= 0 {
+		return retained
+	}
+	applied := config.WithDefaults()
+	upper := applied.RetainTokens
+	if upper <= 0 {
+		upper = fallbackTokens
+	}
+	if upper <= 0 || upper > allContextTokens {
+		upper = allContextTokens
+	}
+	if floorTokens > upper {
+		floorTokens = upper
+	}
+	if floorTokens > retained {
+		retained = floorTokens
+	}
+	if retained < 1 {
+		retained = 1
+	}
+	return retained
+}
+
+// ValidateRetainWindow 校验「保护区下限 > 保留上限」的非法组合。floorTokens 是
+// 比例下限（RetainFloorTokens 的产物；0 = 未配置）。
+//
+// 为什么必须报错而不是静默取小：floor 与 retain_tokens 分属 limits 段与 window
+// 段两个旋钮，用户把 retain_tokens 写小、又没同步 floor 时，"谁赢"没有直觉答案；
+// 静默取小会把这个矛盾吞掉，直到保护区被压到失忆才以"模型忘了"的形式显现。
+// retain_tokens 未配置（0 → 运行时回退账号上下文窗口）时不构成非法组合。
+func (config WindowConfig) ValidateRetainWindow(floorTokens int) error {
+	if floorTokens <= 0 || config.RetainTokens <= 0 {
+		return nil
+	}
+	if floorTokens > config.RetainTokens {
+		return fmt.Errorf(
+			"window: retain floor %d tokens (limits.context_retain_floor_percent × 预算) exceeds window.retain_tokens %d tokens; lower the floor percent or raise retain_tokens",
+			floorTokens, config.RetainTokens)
+	}
+	return nil
+}
+
+// MustCompact 报告全量上下文 token 数（all_context）是否达到硬压缩阈值// window.force_compact_tokens：达到即必须自主压缩（硬策略），与 provider
 // 比例阈值无关；未配置（<= 0）时返回 false，压缩只由软策略（比例阈值 +
 // 保留窗口 min(token1, token2)）驱动。
 func (config WindowConfig) MustCompact(allContextTokens int) bool {

@@ -136,36 +136,72 @@ func TestCompactLiveSmoke(t *testing.T) {
 		return snapshot
 	}
 
-	// 累积回合直到压缩触发：单轮是否越阈值受模型自己是否多打工具影响（材料
-	// 固定、工具噪声不定），因此用有界循环"攒到压缩发生"而不是赌单轮尺寸。
-	// 每轮都对压缩记录取证：reason 前缀 context_budget（含 _autonomous）。
+	// 累积**小片**材料直到压缩触发：单条大料一进门就被"单条超预算外置"归档成
+	// result_ref（模型只收到引用告示、provider 历史里没有正文），既挤爆窗口又测不到
+	// 折叠链路。所以每轮喂若干小片（每片 < 单条外置阈值），有界循环"攒到压缩发生"。
+	// 每片都对压缩记录取证：reason 前缀 context_budget（含 _autonomous）、区间、帧。
 	var compacted model.ContextCompaction
-	accumulated := 0
-	for accumulated < 4 && compacted.Version == 0 {
-		accumulated++
-		stage := fmt.Sprintf("第 %d 轮", accumulated)
-		snapshot := submit(stage, fmt.Sprintf(
-			"这是上下文压力测试，本轮禁止调用任何工具，只回复『已记录 %d』。下面是本轮材料：\n%s",
-			accumulated, compactSmokeFiller(accumulated)))
-		if answer := lastAssistantContent(snapshot); answer == "" {
-			t.Fatalf("%s 没有助手回答；对话末尾：%s", stage, describeConversationTail(snapshot.Conversation, 4))
-		}
-		for _, record := range compactRecords(snapshot) {
-			if strings.HasPrefix(record.Reason, "context_budget") {
-				compacted = record
+	round := 0
+	for round < 3 && compacted.Version == 0 {
+		round++
+		for part := 1; part <= compactSmokePiecesPerRound; part++ {
+			stage := fmt.Sprintf("第 %d 轮第 %d 片", round, part)
+			snapshot := submit(stage, fmt.Sprintf(
+				"这是上下文压力测试，本轮禁止调用任何工具，只回复『已记录 %d-%d』。下面是本片材料：\n%s",
+				round, part, compactSmokePiece(round, part)))
+			if answer := lastAssistantContent(snapshot); answer == "" {
+				t.Fatalf("%s 没有助手回答；对话末尾：%s", stage, describeConversationTail(snapshot.Conversation, 4))
+			}
+			records := compactRecords(snapshot)
+			if len(records) > 0 {
+				// 每片材料各自成帧：记录里有区间（消息号 + 事件序号）与 frame_ref，
+				// 帧正文可按 ref 回读——这三件事齐备才算"看得见压了什么"。
+				for _, record := range records {
+					t.Logf("%s 结束：v%d origin=%s 区间=%s..%s（事件 %d..%d）frame_ref=%s bytes=%d",
+						stage, record.Version, record.Origin, record.MessageFrom, record.MessageTo,
+						record.EventFrom, record.EventTo, record.FrameRef, record.FrameBytes)
+					if strings.HasPrefix(record.Reason, "context_budget") {
+						compacted = record
+					}
+				}
 			}
 		}
-		t.Logf("%s 结束：压缩记录=%+v", stage, compactRecords(snapshot))
 	}
 	if compacted.Version == 0 {
-		t.Fatalf("累积 %d 轮真实回合仍未触发压缩（窗口=%d max_tokens=%d）——压缩链路没有触发",
-			accumulated, compactSmokeContextWindow, compactSmokeMaxTokens)
+		t.Fatalf("累积 %d 轮 × %d 片真实回合仍未触发压缩（窗口=%d max_tokens=%d）——压缩链路没有触发",
+			round, compactSmokePiecesPerRound, compactSmokeContextWindow, compactSmokeMaxTokens)
 	}
 	if compacted.EstimatedTokens <= 0 {
 		t.Fatalf("压缩记录字段不完整: %+v", compacted)
 	}
 	t.Logf("压缩记录：version=%d reason=%s messages_before=%d estimated_tokens=%d at=%s",
 		compacted.Version, compacted.Reason, compacted.MessagesBefore, compacted.EstimatedTokens, compacted.CompactedAt.Format(time.RFC3339))
+
+	// 帧纪律：一次折叠一个帧、帧是终态（不再被聚合进下一个帧）。判据取事实而非感觉：
+	//   ① 每条记录的 frame_ref 唯一（同一次折叠不会有第二个 ref）；
+	//   ② 回读帧正文，表头 "checkpoint frame v" 恰好出现一次——出现两次就意味着
+	//      上一帧的正文被当成材料又折了一遍（信息会随每次重摘要衰减）。
+	seenFrames := map[string]bool{}
+	for _, record := range compactRecords(harness.app.Snapshot()) {
+		if record.FrameRef == "" {
+			t.Fatalf("压缩记录没有 frame_ref，帧正文不可回读：%+v", record)
+		}
+		if seenFrames[record.FrameRef] {
+			t.Fatalf("同一个 frame_ref 出现在多条记录里：%s", record.FrameRef)
+		}
+		seenFrames[record.FrameRef] = true
+		page, err := harness.app.ReadToolResultHandler(ctx, fmt.Sprintf(`{"result_ref":%q,"offset":0,"limit":120}`, record.FrameRef))
+		if err != nil {
+			t.Fatalf("回读帧正文失败 %s: %v", record.FrameRef, err)
+		}
+		if got := strings.Count(page, "checkpoint frame v"); got != 1 {
+			t.Fatalf("帧 %s 的表头出现 %d 次（>1 说明帧被二次聚合）：%s",
+				record.FrameRef, got, truncateForLog(page))
+		}
+		t.Logf("帧 %s：v%d 区间=%s..%s（事件 %d..%d）%d 字节；正文=%s",
+			record.FrameRef, record.Version, record.MessageFrom, record.MessageTo,
+			record.EventFrom, record.EventTo, record.FrameBytes, truncateForLog(page))
+	}
 
 	// 压缩之后普通对话链路仍然可用（回答不为空）。
 	postCompact := submit("压缩后回合", "不要调用任何工具，只回复『继续』。")
@@ -193,11 +229,18 @@ func TestCompactLiveSmoke(t *testing.T) {
 	t.Logf("session=%s 压缩记录数=%d", afterManual.Session.ID, len(compactRecords(afterManual)))
 }
 
-// compactSmokeFiller 生成本轮材料：重复的多词句子（约 4 字符/token 量级），
-// 一轮 ≈ 十几 k token，两轮足以越过调小后的软阈值。
-func compactSmokeFiller(round int) string {
-	line := fmt.Sprintf("seelex compact smoke round %02d material: the assembly layer folds settled rounds into a bounded checkpoint frame so the provider context stays inside budget. ", round)
-	return strings.Repeat(line, 600)
+// compactSmokePiecesPerRound 是每轮喂的小片数：单片 ≈5k tokens，几片即可越过
+// 调小窗口后的软阈值——用小片累积，而不是单条大料（大料必被"单条超预算外置"
+// 拦截成 result_ref，测到的是外置链路而非折叠链路）。
+const compactSmokePiecesPerRound = 4
+
+// compactSmokePiece 生成**一小片**材料（第 round 轮第 part 片，带可检索的片号）。
+// 单片必须小于单条外置阈值 = 预算 × context_single_item_percent（默认 50%，40000
+// 窗口下约 16.5k tokens）：按 4 字符/token 估算，140 行 ≈ 21k 字符 ≈ 5k tokens，
+// 留足余量。片号进正文，便于事后在会话存储里按片核对原文。
+func compactSmokePiece(round, part int) string {
+	line := fmt.Sprintf("seelex compact smoke round %02d part %02d material: the assembly layer folds settled rounds into a bounded checkpoint frame so the provider context stays inside budget. ", round, part)
+	return strings.Repeat(line, 140)
 }
 
 func compactRecords(snapshot model.Snapshot) []model.ContextCompaction {

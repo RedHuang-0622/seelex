@@ -49,6 +49,11 @@ type GapCoverageOptions struct {
 
 	// SessionID 帧 SegmentID 溯源前缀（可空）。
 	SessionID string
+
+	// FrameCarryTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
+	// ≤0 → DefaultFrameCarryTokens）：把上一栈顶帧 Chapter 2 正文并入合并帧时的
+	// 并入量上限，超出退化为锚点（见 CarryPreviousChapter2）。
+	FrameCarryTokens int
 }
 
 // GapCoverageResult 报告覆盖结果。
@@ -144,16 +149,15 @@ func buildGapFrame(
 	if requestFrom == "" && requestTo == "" {
 		requestFrom, requestTo = ChatQueueRequestLabels(from, gapEnd)
 	}
-	summary := RenderFrameSummary(
-		RenderAnchorChapter(prevTop),
-		LocalChapter2(LocalFoldOptions{
-			Overflow:  units,
-			UnitCount: len(uncovered),
-			Kind:      CompactFoldGap,
-			PrevTop:   prevTop,
-			Record:    opts.Record,
-		}),
-	)
+	chapter2, carry := LocalChapter2WithCarry(LocalFoldOptions{
+		Overflow:         units,
+		UnitCount:        len(uncovered),
+		Kind:             CompactFoldGap,
+		PrevTop:          prevTop,
+		CarryLimitTokens: opts.FrameCarryTokens,
+		Record:           opts.Record,
+	})
+	summary := RenderFrameSummary(RenderAnchorChapter(prevTop), chapter2)
 	frame := sessionstore.CompactFrame{
 		SegmentID:     gapSegmentID(opts.SessionID),
 		From:          from,
@@ -162,8 +166,8 @@ func buildGapFrame(
 		RequestTo:     requestTo,
 		Summary:       summary,
 		SummarySource: CompactSummarySourceLocal,
-		AnchorSource:  FrameAnchorSource(prevTop),
-		Evidence:      gapEvidence(uncovered),
+		AnchorSource:  AnchorSourceWithCarry(FrameAnchorSource(prevTop), carry),
+		Evidence:      append(gapEvidence(uncovered), CarryEvidence(carry)...),
 		CompressedAt:  time.Now(),
 	}
 	if prevTop != nil {

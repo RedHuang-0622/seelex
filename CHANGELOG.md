@@ -280,6 +280,75 @@ version when it lands.
   whole-shard decodes per commit **3 → 1** (100-row commits; 2 → 0 for single-row commits),
   commit median **96.6 ms → 88.0 ms**.
 
+### Added
+
+- **The four items the prefix-chain design left open are implemented, with instrumentation
+  points, and the three gates (live smoke / `-race` / pprof lock contention) are green.**
+  `docs/arch/context-prefix-chain.md` described them under 《待落地（目标设计）》; the design
+  came first and the code matched it, so that section is now 《已落地与已决定不改》 with the
+  implementation site, the **instrumentation site** and the verification for each item.
+
+  - **Protection floor (`limits.context_retain_floor_percent`, default 0 = unconfigured).**
+    The retained prefix was `min(token1, token2)` clamped only to `[1, all_context]`: a small
+    `window.retain_tokens` (or a small `window.ratio`) could squeeze the protected window down
+    to a single unit, and the failure mode was "the model forgot". The decision is now
+    `retained = clamp(min(token1, token2), floor, token1)` with
+    `floor = max(latest complete protocol unit, percent × budget)`
+    (`seelexctx.RetainedContextTokensWithFloor` / `RetainFloorTokens`). The invalid combination
+    `floor > retain_tokens` is an **error**, not a silent `min`: `main.initRuntime` validates it
+    right after the Runtime exists (account window known, budget derived by the same formula the
+    compaction criteria use) and refuses to start; out-of-range percentage knobs
+    (`context_soft/hard/target/single_item/retain_floor_percent`) are rejected by
+    `seelexctx.LoadLimits` instead of silently falling back to the default.
+  - **Frame-summary carry cap (`limits.context_frame_carry_tokens`, default 1024).** Local
+    folding merged the previous frame's Chapter 2 body verbatim, and **that body had no length
+    limit at all** — yet it is the only frame content that enters the model context and the
+    cache prefix, so the stack top grew with every frame. The merge now goes through
+    `seelexctx.CarryPreviousChapter2` (shared by the controller, the DAG and the vacuum-gap
+    path): within the cap the body is carried verbatim, beyond it the body degrades to an
+    **anchor** (`segment_id` + request range + one-line summary + why the body is gone), with
+    `search_history` / `read_compressed_turn` for detail.
+  - **Chunked replay chain.** `seelexctx.ChunkReplayMessages` splits the overflow region on
+    **protocol-unit boundaries** (a tool chain is never cut; a single unit over budget gets its
+    own chunk) and `SummarizeChunkPlan` replays chunk by chunk, forwarding each chunk's summary
+    into the next chunk's instruction tail (no change to the summarizer contract). The chunk
+    budget comes from `CompactionDAGOptions.ReplayInputTokens`; the chunked path is started only
+    when the overflow region cannot be sent in one request, and any chunk failing exits the whole
+    chain so the caller falls back to the deterministic local fold.
+  - **Four-zone layout made explicit.** `application/core/context_runtime/layout.go` defines
+    `ContextLayout` / `ContextZone` (① `stable_prefix` ② `folded` ③ `protected_window`
+    ④ `tail` ⑤ `current_input`, each with tokens, message count and source). Criteria and report
+    read **the same** layout, sampled once per assembly, so the numbers the user sees and the
+    numbers the fold was decided on cannot drift apart. Zone classification uses facts of the
+    messages themselves (role + prefix markers), never positional inference; what this layer
+    cannot see (the project/memory/compact stack blocks rendered downstream by the framework
+    assembler) is documented as a lower bound on ① rather than papered over.
+
+  **Instrumentation sites:** the judge gate now reports
+  `all= budget= cap= ratio= floor= retained= floor_applied=` (with `floor_applied` true only
+  when the floor actually raised the result); the assemble gate reports the five zone token
+  counts; the compaction frame body (readable by `result_ref`) gained a
+  `## Context zones (四区)` block carrying the zones, their sources, the criteria and the retain
+  decision. The carry decision lands in `CompactFrame.Evidence` as
+  `frame-carry:{kept|anchor}:<carried>/<limit>` and flips `anchor_source=degraded` when it
+  degrades; a chunked replay lands as `replay-chunked:<n>` (nothing is written when the replay
+  was not chunked, so the report never carries an "1 chunk" non-fact).
+
+  **Verification:** `seelexctx/{window_floor,frame_carry,replay_chunk,contention_gate}_test.go`,
+  `application/core/context_runtime/layout_test.go`, `application/core/context_retain_floor_test.go`
+  (the floor raises the protected window from 1 to 4 settled rounds end-to-end; the frame body
+  carries the zones), the live smoke `TestPrefixChainRetainFloorLiveSmoke` (real provider:
+  baseline `retained=1361 floor=0` → floored `retained=16476 floor=16476`, `floor_applied`
+  flips, zones and gate details observed on the wire), `go test -race` across
+  `seelexctx/... application/core/... application/event/... seelebridge/... .`, and
+  `TestPrefixChainLockContentionGate` (pprof mutex/block: the changed pure functions record
+  **zero** user-level lock contention; in the shared-compact-stack arm every contention sample
+  blocks at the pre-existing `memoryCompactStack` locks, never at a changed symbol; profile text
+  dumped to `tmp/lock-contention-gate/`). The one `-race` failure seen —
+  `TestWorkspaceSwitchConcurrentWithBackgroundPersist` — reproduces **2/8 on the pre-change
+  baseline** (Windows `TempDir` cleanup racing a background persist) and is unrelated; the gate
+  runs with `-skip` for it.
+
 ### Changed
 
 - **`-tags redprobe ./sessionstore` is green again: the failure was a runtime failure of a

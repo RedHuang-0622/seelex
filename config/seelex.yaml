@@ -58,6 +58,22 @@ limits:
   session_name_runes: 16         # 会话名截断（默认 16）
   preflight_retry: 2             # preflight 重试次数（默认 2）
   output_reserve_tokens: 512     # provider 输出预留 token（默认 512）
+  # ── 上下文压缩预算比例（0 = 默认比例；预算 = 窗口 − output_reserve_tokens − 窗口/安全除数）──
+  # 这五个数此前硬编码在 task_context.newContextBudget，报表口径与判据口径分开演化的
+  # 教训就是：判据必须可调，且报表要显示同一份口径。默认值与旧硬编码逐位一致。
+  context_safety_reserve_divisor: 8   # 安全预留 = 窗口/该值（默认 8）
+  context_soft_percent: 75            # 软压缩线 = 预算 × %（默认 75）
+  context_hard_percent: 90            # 硬阈值线 = 预算 × %（默认 90；判据是装配后估算）
+  context_target_percent: 60          # 压缩后目标 = 预算 × %（默认 60）
+  context_single_item_percent: 50     # 单条输入外置阈值 = 预算 × %（默认 50；超限则归档为 result_ref）
+  # 保留区下限（占预算 %；0 = 未配置 → 下限只剩「至少 1 个完整协议单元」兜底）：
+  # 保留区 = clamp(占比 × 全量, floor, retain_tokens)，floor = max(最近 1 个完整协议单元, 该比例 × 预算)。
+  # floor > window.retain_tokens 是非法组合，启动期直接报错（不许静默取小）。
+  context_retain_floor_percent: 0
+  # 帧摘要传递上限（token；本地折叠把上一帧 Chapter 2 正文并入新帧的并入量上限，
+  # 超出部分退化为锚点：segment_id + request 首尾 + 一句话，细节靠检索回读）。
+  # 该份正文是唯一进上下文、进缓存前缀的帧内容，不设上限会随帧数膨胀。
+  context_frame_carry_tokens: 1024
   tool_token_overhead: 64        # 工具 token 估算开销（默认 64）
   context_max_units: 4           # 上下文压缩扫描单元上限（默认 4）
   message_shard_size: 100        # 会话存储分片条数（默认 100）

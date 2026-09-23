@@ -83,14 +83,35 @@ type Limits struct {
 	SessionNameRunes     int `yaml:"session_name_runes"`      // 会话名截断
 	PreflightRetry       int `yaml:"preflight_retry"`         // preflight 重试次数
 	OutputReserveTokens  int `yaml:"output_reserve_tokens"`   // provider 输出预留 token
-	ToolTokenOverhead    int `yaml:"tool_token_overhead"`     // 工具 token 估算开销
-	ContextMaxUnits      int `yaml:"context_max_units"`       // 上下文压缩扫描单元上限
-	MessageShardSize     int `yaml:"message_shard_size"`      // 会话存储分片条数
-	SummaryChars         int `yaml:"summary_chars"`           // 摘要截断字符数
-	TodoMaxItems         int `yaml:"todo_max_items"`          // todolist 清单项上限
-	WorkTableRows        int `yaml:"work_table_rows"`         // 工作表格（work table）最大行数
-	WalkTimeoutSec       int `yaml:"walk_timeout"`            // glob/grep 目录遍历超时（秒）
-	MaxToolResultChars   int `yaml:"max_tool_result_chars"`   // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
+	// ── 上下文压缩预算比例（0 = 用默认比例；见 task_context.newContextBudget）──
+	// 预算 = window − output_reserve_tokens − window/context_safety_reserve_divisor；
+	// 下面各个百分比都以此为基数。默认 8/75/90/60/50 与重构前的硬编码逐位一致。
+	// 取值超界（不在 [0,100]）在 LoadLimits 显式报错，不再静默回退默认值。
+	ContextSafetyReserveDivisor int `yaml:"context_safety_reserve_divisor"` // 安全预留除数（默认 8 → 窗口/8）
+	ContextSoftPercent          int `yaml:"context_soft_percent"`           // 软压缩线（占预算 %，默认 75）
+	ContextHardPercent          int `yaml:"context_hard_percent"`           // 硬阈值线（占预算 %，默认 90）
+	ContextTargetPercent        int `yaml:"context_target_percent"`         // 压缩后目标（占预算 %，默认 60）
+	ContextSingleItemPercent    int `yaml:"context_single_item_percent"`    // 单条输入外置阈值（占预算 %，默认 50）
+	// ── 保留区下限与帧摘要传递上限（《压缩四区模型》边界判定 / 《待落地》1、2）──
+	// ContextRetainFloorPercent 是**保护区下限**（占预算 %）：
+	//   floor = max(最近 1 个完整协议单元, 该比例 × 预算)
+	// 保留区 = clamp(占比 × 全量, floor, retain_tokens)。0 = 未配置（只保留
+	// 「至少 1 个完整协议单元」兜底，与引入该旋钮之前逐位一致）。
+	// 取值超界（不在 [0,100]）在 LoadLimits 显式报错，不再静默回退默认值。
+	ContextRetainFloorPercent int `yaml:"context_retain_floor_percent"`
+	// ContextFrameCarryTokens 是**帧摘要传递上限**（token）：本地折叠把上一帧
+	// Chapter 2 正文并入新帧时的并入量上限；超出部分退化为锚点（segment_id +
+	// request 首尾 + 一句话），细节靠 search_history / read_compressed_turn 回读。
+	// 该份正文是唯一进上下文、进缓存前缀的帧内容，不设上限会随帧数膨胀。
+	ContextFrameCarryTokens int `yaml:"context_frame_carry_tokens"`
+	ToolTokenOverhead       int `yaml:"tool_token_overhead"`   // 工具 token 估算开销
+	ContextMaxUnits         int `yaml:"context_max_units"`     // 上下文压缩扫描单元上限
+	MessageShardSize        int `yaml:"message_shard_size"`    // 会话存储分片条数
+	SummaryChars            int `yaml:"summary_chars"`         // 摘要截断字符数
+	TodoMaxItems            int `yaml:"todo_max_items"`        // todolist 清单项上限
+	WorkTableRows           int `yaml:"work_table_rows"`       // 工作表格（work table）最大行数
+	WalkTimeoutSec          int `yaml:"walk_timeout"`          // glob/grep 目录遍历超时（秒）
+	MaxToolResultChars      int `yaml:"max_tool_result_chars"` // 工具结果最大字符数（0 → 默认；超大结果归档为 result_ref）
 	// SnapshotToolOutputChars 是**可见会话快照**的单条工具输出上限（0 →
 	// 默认 8000）。超过该值的输出只把前 N 字符的预览放进快照会话
 	// （message.content / tool.result），完整内容归档为 result_ref，前端
@@ -137,13 +158,22 @@ func DefaultLimits() Limits {
 		SessionNameRunes:       16,
 		PreflightRetry:         2,
 		OutputReserveTokens:    512,
-		ToolTokenOverhead:      64,
-		ContextMaxUnits:        4,
-		MessageShardSize:       100,
-		SummaryChars:           800,
-		TodoMaxItems:           20,
-		WorkTableRows:          200,
-		WalkTimeoutSec:         30,
+		// 压缩预算比例：与重构前的硬编码一致（窗口/8、75%、90%、60%、50%）。
+		ContextSafetyReserveDivisor: 8,
+		ContextSoftPercent:          75,
+		ContextHardPercent:          90,
+		ContextTargetPercent:        60,
+		ContextSingleItemPercent:    50,
+		// 帧摘要传递上限：并入量 ≤ 1024 token（默认值即「定值」；0 = 未配置 →
+		// 本默认）。并入超限的部分退化为锚点，细节靠检索回读。
+		ContextFrameCarryTokens: 1024,
+		ToolTokenOverhead:       64,
+		ContextMaxUnits:         4,
+		MessageShardSize:        100,
+		SummaryChars:            800,
+		TodoMaxItems:            20,
+		WorkTableRows:           200,
+		WalkTimeoutSec:          30,
 		// fork 汇总窗口按子代理数 ×n 放大：4×2000 字结论 ≈ 24KB，默认
 		// 60000 字节（约 2 万汉字）给足余量——窗口是容灾上限不是截断线。
 		MaxToolResultChars:      60000,
@@ -236,6 +266,24 @@ func (l Limits) WithDefaults() Limits {
 	if l.OutputReserveTokens == 0 {
 		l.OutputReserveTokens = def.OutputReserveTokens
 	}
+	if l.ContextSafetyReserveDivisor == 0 {
+		l.ContextSafetyReserveDivisor = def.ContextSafetyReserveDivisor
+	}
+	if l.ContextSoftPercent == 0 {
+		l.ContextSoftPercent = def.ContextSoftPercent
+	}
+	if l.ContextHardPercent == 0 {
+		l.ContextHardPercent = def.ContextHardPercent
+	}
+	if l.ContextTargetPercent == 0 {
+		l.ContextTargetPercent = def.ContextTargetPercent
+	}
+	if l.ContextSingleItemPercent == 0 {
+		l.ContextSingleItemPercent = def.ContextSingleItemPercent
+	}
+	if l.ContextFrameCarryTokens == 0 {
+		l.ContextFrameCarryTokens = def.ContextFrameCarryTokens
+	}
 	if l.ToolTokenOverhead == 0 {
 		l.ToolTokenOverhead = def.ToolTokenOverhead
 	}
@@ -318,8 +366,24 @@ func LoadLimits(path string) (Limits, error) {
 		check.SessionNameRunes < 0 || check.PreflightRetry < 0 || check.OutputReserveTokens < 0 ||
 		check.ToolTokenOverhead < 0 || check.ContextMaxUnits < 0 || check.MessageShardSize < 0 || check.SummaryChars < 0 || check.TodoMaxItems < 0 || check.WorkTableRows < 0 || check.WalkTimeoutSec < 0 ||
 		check.MaxToolResultChars < 0 || check.SnapshotToolOutputChars < 0 || check.DockerStartTimeoutSec < 0 ||
-		check.ForkTimeoutSec < 0 {
+		check.ForkTimeoutSec < 0 || check.ContextRetainFloorPercent < 0 || check.ContextFrameCarryTokens < 0 {
 		return Limits{}, fmt.Errorf("limits: values must not be negative")
+	}
+	// 比例类旋钮的超界不再静默回退默认值（那会把「用户写错了」吞成「看起来生效」）：
+	// 预算比例必须落在 (0,100]，0 = 未配置（由 WithDefaults 补默认）。
+	for _, ratio := range []struct {
+		name  string
+		value int
+	}{
+		{"context_soft_percent", check.ContextSoftPercent},
+		{"context_hard_percent", check.ContextHardPercent},
+		{"context_target_percent", check.ContextTargetPercent},
+		{"context_single_item_percent", check.ContextSingleItemPercent},
+		{"context_retain_floor_percent", check.ContextRetainFloorPercent},
+	} {
+		if ratio.value < 0 || ratio.value > 100 {
+			return Limits{}, fmt.Errorf("limits: %s must be within [0,100], got %d", ratio.name, ratio.value)
+		}
 	}
 	return check, nil
 }

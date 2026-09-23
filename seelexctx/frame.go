@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/RedHuang-0622/seelex/seelexctx/tokens"
 	"github.com/RedHuang-0622/seelex/sessionstore"
 )
 
@@ -69,6 +70,91 @@ const (
 	CompactFoldGap
 )
 
+// DefaultFrameCarryTokens 是帧摘要传递上限的兜底值（limits.context_frame_carry_tokens
+// 未注入时用）：1024 ≈ 一份可读的厚摘要，足够保住「上一帧讲了什么」，又不至于
+// 让栈顶帧随帧数无界膨胀（它是唯一进上下文、进缓存前缀的那一份）。
+const DefaultFrameCarryTokens = 1024
+
+// CarryDiagnostics 是一次「把上一帧 Chapter 2 正文并入新帧」的决策事实
+// （《待落地》2 显式化）。Anchor=true 表示并入量超出上限，正文退化为锚点。
+type CarryDiagnostics struct {
+	LimitTokens   int  `json:"limit_tokens"`
+	CarriedTokens int  `json:"carried_tokens"`
+	Anchor        bool `json:"anchor"`
+}
+
+// CarryPreviousChapter2 返回并入新帧的上一帧 Chapter 2 正文：
+//
+//	并入量（token）≤ limitTokens → 原样返回；
+//	超出 → 退化为锚点（segment_id + request 首尾 + 一句话）+ 显式降级说明，
+//	        细节靠 search_history / read_compressed_turn 回读。
+//
+// 为什么必须有上限：本地折叠是把上一帧正文**原样并入**新帧，而这一份正文是唯一
+// 进模型上下文、进缓存前缀的帧内容——不设上限，栈顶帧会随帧数线性膨胀，把压缩
+// 的收益又还回去。降级方向是"少给正文、多给定位"（原文可检索回读），与保护区
+// 下限同一条取舍原则。
+//
+// 第二个返回值是决策事实（报表/门禁打点用）；prev 为 nil 或正文为空时返回空串。
+func CarryPreviousChapter2(prev *sessionstore.CompactFrame, limitTokens int) (string, CarryDiagnostics) {
+	if prev == nil {
+		return "", CarryDiagnostics{}
+	}
+	if limitTokens <= 0 {
+		limitTokens = DefaultFrameCarryTokens
+	}
+	body := strings.TrimSpace(FrameChapter2(*prev))
+	if body == "" {
+		return "", CarryDiagnostics{LimitTokens: limitTokens}
+	}
+	carried := tokens.Count(body)
+	facts := CarryDiagnostics{LimitTokens: limitTokens, CarriedTokens: carried}
+	if carried <= limitTokens {
+		return body, facts
+	}
+	facts.Anchor = true
+	return renderCarryAnchor(*prev, limitTokens, carried), facts
+}
+
+// renderCarryAnchor 渲染并入上限降级后的锚点正文：定位信息（segment_id /
+// request 首尾 / 一句话）一个不少，"正文为什么不见了"也写清楚——读的人不必
+// 猜是被裁了还是本来就没有。
+func renderCarryAnchor(prev sessionstore.CompactFrame, limitTokens, carried int) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder,
+		"先前压缩摘要超出并入上限: %d tokens > %d（limits.context_frame_carry_tokens），正文退化为锚点，细节经 search_history / read_compressed_turn 回读。\n",
+		carried, limitTokens)
+	builder.WriteString(RenderAnchorChapter(&prev))
+	return builder.String()
+}
+
+// AnchorSourceWithCarry 在链锚点质量标记之上叠加帧摘要传递的结果：并入超限
+// （正文已退化为锚点）与「提取不到一句话」同属锚点降级，因此写同一个 degraded
+// 标记——读帧的人据此知道这一帧的正文不是上一帧原文，而是一段定位信息。
+func AnchorSourceWithCarry(base string, carry CarryDiagnostics) string {
+	if carry.Anchor {
+		return CompactAnchorSourceDegraded
+	}
+	return base
+}
+
+// CarryEvidence 把帧摘要传递的决策事实写成一条证据引用——帧持久化在会话
+// state blob 的 CompactStack 里，证据列表可审计、可回读，因此不必为此新增
+// schema 字段。无上一帧（LimitTokens == 0）时不写。
+func CarryEvidence(carry CarryDiagnostics) []sessionstore.EvidenceRef {
+	if carry.LimitTokens <= 0 {
+		return nil
+	}
+	ref, summary := "kept", "previous frame chapter-2 carried into this frame (limits.context_frame_carry_tokens)"
+	if carry.Anchor {
+		ref = "anchor"
+		summary = "previous frame chapter-2 exceeded limits.context_frame_carry_tokens; degraded to anchor (read back via search_history / read_compressed_turn)"
+	}
+	return []sessionstore.EvidenceRef{{
+		Ref:     fmt.Sprintf("frame-carry:%s:%d/%d", ref, carry.CarriedTokens, carry.LimitTokens),
+		Summary: summary,
+	}}
+}
+
 // LocalFoldOptions 是本地确定性折叠的全部输入（controller/gap 共用）。
 type LocalFoldOptions struct {
 	// Overflow 本次新覆盖的完整协议单元（原文消息）。
@@ -79,7 +165,11 @@ type LocalFoldOptions struct {
 	Kind LocalFoldKind
 	// PrevTop 上一栈顶帧（非 nil 时把其 Chapter 2 正文并入 Current Work，
 	// 维持本地折叠路径的栈顶自足；不复制 Chapter 1 锚点，避免递归嵌套）。
+	// 并入量受 CarryLimitTokens 约束（超限退化为锚点，见 CarryPreviousChapter2）。
 	PrevTop *sessionstore.CompactFrame
+	// CarryLimitTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
+	// 0 → DefaultFrameCarryTokens）。
+	CarryLimitTokens int
 	// Record 会话记录快照（任务/计划栈用于目标、概念与约束小节）。
 	Record sessionstore.SessionContextRecord
 }
@@ -87,17 +177,25 @@ type LocalFoldOptions struct {
 // LocalChapter2 生成 Chapter 2 正文（不含外层 "## 压缩内容" 标题）：
 // 确定性本地折叠，按 DSH 小节骨架输出；空小节写 (none)。
 func LocalChapter2(opts LocalFoldOptions) string {
+	chapter2, _ := LocalChapter2WithCarry(opts)
+	return chapter2
+}
+
+// LocalChapter2WithCarry 与 LocalChapter2 同值，并回报「上一帧摘要并入」的决策
+// 事实（controller / DAG 在拼帧时用它打点，避免同一份并入量算两遍、两处漂移）。
+func LocalChapter2WithCarry(opts LocalFoldOptions) (string, CarryDiagnostics) {
+	currentWork, carry := localCurrentWork(opts)
 	sections := []string{
 		sectionHeading(Chapter2SectionGoal) + sectionBody(localGoal(opts.Record)),
 		sectionHeading(Chapter2SectionKeyConcepts) + sectionBody(localKeyConcepts(opts.Record)),
 		sectionHeading(Chapter2SectionFilesAndCode) + sectionBody(localFilesAndCode(opts.Overflow)),
 		sectionHeading(Chapter2SectionErrorsFixes) + sectionBody(compactEmptySection),
 		sectionHeading(Chapter2SectionPending) + sectionBody(compactEmptySection),
-		sectionHeading(Chapter2SectionCurrentWork) + sectionBody(localCurrentWork(opts)),
+		sectionHeading(Chapter2SectionCurrentWork) + sectionBody(currentWork),
 		sectionHeading(Chapter2SectionNextStep) + sectionBody(compactEmptySection),
 		sectionHeading(Chapter2SectionConstraints) + sectionBody(localConstraints(opts.Record)),
 	}
-	return strings.Join(sections, "\n\n")
+	return strings.Join(sections, "\n\n"), carry
 }
 
 // Chapter2Skeleton 返回全部小节为 (none) 的骨架正文（保留章节骨架，
@@ -175,8 +273,9 @@ func localFilesAndCode(overflow []historyUnit) string {
 }
 
 // localCurrentWork 渲染当前工作小节：轮次计数 + 逐单元行 + 上一栈顶的
-// Chapter 2 正文（本地折叠保持栈顶自足的近似手段）。
-func localCurrentWork(opts LocalFoldOptions) string {
+// Chapter 2 正文（本地折叠保持栈顶自足的近似手段）。并入量受帧摘要传递上限
+// 约束（见 CarryPreviousChapter2），第二个返回值是并入决策事实。
+func localCurrentWork(opts LocalFoldOptions) (string, CarryDiagnostics) {
 	count := opts.UnitCount
 	if count <= 0 {
 		count = len(opts.Overflow)
@@ -195,13 +294,12 @@ func localCurrentWork(opts LocalFoldOptions) string {
 			}
 		}
 	}
-	if opts.PrevTop != nil {
-		if previousBody := strings.TrimSpace(FrameChapter2(*opts.PrevTop)); previousBody != "" {
-			builder.WriteString("先前压缩摘要: ")
-			builder.WriteString(previousBody)
-		}
+	previous, carry := CarryPreviousChapter2(opts.PrevTop, opts.CarryLimitTokens)
+	if previous != "" {
+		builder.WriteString("先前压缩摘要: ")
+		builder.WriteString(previous)
 	}
-	return strings.TrimSpace(builder.String())
+	return strings.TrimSpace(builder.String()), carry
 }
 
 func localConstraints(record sessionstore.SessionContextRecord) string {

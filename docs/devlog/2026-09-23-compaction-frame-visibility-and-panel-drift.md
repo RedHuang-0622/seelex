@@ -126,13 +126,23 @@ injected: no —— 本次走保留窗口路径：provider 历史 = 稳定 syste
 
 ### 2.5 面板口径统一（F5）
 
-- `Suggestion` 增 `Executable`：命令/Skill/Plugin/团队 = true，**工具 = false**；前端在工具行加「模型侧」标记
-  （`title` 说明"由模型调用、经权限门，不能从输入框直接执行"）；
-- 兼容别名工具折叠进主名那一行（`toolAliases` 表 + 主名说明追加"（兼容别名 …）"）；**主名不可见时别名保留成行**
-  ——绝不隐藏仍然可用的能力；
-- 措辞统一：`application/application.go` 与 `application/core/input_router/router.go` 的前缀说明改成
-  "`/` 全量入口（命令 + 工具 + Skill；仅命令/Skill 可直接执行，工具由模型调用）"，与 `completion.go`、`/help`、
-  前端文档对齐（此前两处仍叫"命令面板"，是漂移）。
+本记录当时先落地的是"给工具加标记"：`Suggestion.Executable` + 前端「模型侧」徽标 + 兼容别名
+折叠进主名那一行。**这一版已被推翻**：裁定的口径是「`/` 只放能从输入框直接执行的东西——命令与
+Skill；工具要用 `/名字`，前提是它先注册成命令」。工具既然不进面板，标记与别名表就是没有读者的
+装饰，`Suggestion.Executable`、`toolAliases` 与前端徽标一并删除（契约里没有读者的字段不该留着）。
+现在的实际形态：
+
+- 建议面只出可执行入口，模型侧工具既不进建议也不进路由，钉子
+  `TestSuggestionsExcludeModelSideTools`（`application/core/completion_test.go`）；
+- 前缀契约写在 `application/core/completion.go` 头部（`/` 可执行入口、`#` Plugin、`$` Skill、
+  `@` 召唤团队），`application/application.go` 的 sigil 契约注释与之同一口径，权威说明在
+  `docs/gui/modules/shell-and-interactions.md`；
+- 用户仍然手打了工具名时，`unknownCommandNotice` 给两条提示：命中可见工具 →
+  「「x」是模型侧工具（由模型调用、经权限门），不能从输入框直接执行」；存在同名/近义命令 →
+  「你是想用 `/命令` 吗？」。不静默兜底，也不假装那是命令；
+- `/help` 与建议面板同口径（`TestHelpStatesPanelListsOnlyExecutableEntries`）；
+- TUI 建议面板读同一支 `app.Suggestions()`（`tui/tui.go`、`tui/suggest_view.go`），因此"工具不进面板"
+  这一条对两个前端一次生效——TUI 侧不需要另一套标记，也就不存在 GUI/TUI 面板口径漂移。
 
 ### 2.6 展示口径单一事实源
 
@@ -148,8 +158,11 @@ injected: no —— 本次走保留窗口路径：provider 历史 = 稳定 syste
   - `TestAutoCompactionAfterTurnKeepsRecordGate`（自动路径收尾后**仍不**补记，且断言夹具真的折叠了）；
   - `TestCompactionFrameBodyIsReadableByRef`（`frame_ref` 能经 `ToolResultContent` 读回正文，体量一致）；
   - `context_runtime/compaction_frame_test.go`（帧正文如实区分 injected=yes/no、无证据/无区间不编造）；
-  - `completion_test.go`（工具候选 `Executable=false`、别名折叠、主名缺失时别名保留）。
-- 前端 `node --test dist/*.test.mjs`：432 passed / 0 failed，其中新增压缩区间、分界虚线、帧正文分页、
+  - `completion_test.go` 的 `TestSuggestionsExcludeModelSideTools`（工具不进 `/` 建议；本记录当时它钉的是
+    "候选带 `Executable=false`"，口径改成"不列"后同一支测试改钉新口径）。
+- 前端 `node --test dist/*.test.mjs`：**448 passed / 0 failed**（写本记录时为 432，同批
+  「压缩门禁进度条」落地后新增 16 条进度累计/清单/起手帧用例；两数差即那一批，见
+  `2026-09-23-compaction-progress-visible-from-first-instant.md` §3）。其中新增压缩区间、分界虚线、帧正文分页、
   钳位刻度不画线、右栏展开读回等用例。
 - GUI 冒烟：**未在本轮执行**（运行中的 GUI 是旧构建，需要重开进程才会加载新的 `dist/*.js` 与 `styles.css`）。
 
@@ -166,5 +179,4 @@ injected: no —— 本次走保留窗口路径：provider 历史 = 稳定 syste
    **会话分叉 ForkSession**，**子代理派发 ForkSubagent** 落 `subagent_<hash>/` 子树、复用主会话
    `big_tool_result`、无独立 refs 索引，没有"按 ref 裁剪"这一层（`sessionstore/fork_store.go` 头部
    + `docs/arch/README.md` 分支链路）。子代理侧的端到端读回仍无用例（本轮只声明，不构造）。
-4. TUI 的建议面尚未显示「模型侧」标记（`Suggestion.Executable` 已在契约里，TUI 可自行消费）。
-5. 前端测试仍以纯函数为主；DOM 交互（展开/分页/虚线点击）靠人工冒烟。
+4. 前端测试仍以纯函数为主；DOM 交互（展开/分页/虚线点击）靠人工冒烟。

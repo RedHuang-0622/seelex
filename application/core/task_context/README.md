@@ -498,7 +498,8 @@ go test ./application/core/task_context -count=1
 - `func (c *CalibratedTokenCounter) Observe(estimated, actual int)` — Observe 用一次 LLM 调用的真实 usage 校准因子（EMA；clamp 保守区间）。
 - `func DefaultContextBudget() ContextBudget` — DefaultContextBudget 返回基于 seelexctx 默认窗口的预算。
 - `func ContextBudgetFor(runtime any) ContextBudget` — ContextBudgetFor 返回给定 Runtime 的上下文预算（未实现 contextLimitProvider
-- `func newContextBudget(window, outputReserve int) ContextBudget`
+- `func newContextBudget(window, outputReserve int) ContextBudget` — newContextBudget 由上下文窗口与输出预留推导压缩预算。所有比例都是**配置项**
+- `func percentOf(value, percent, fallback int) int` — percentOf 取预算的百分比；配置缺失/非法（<=0 或 >100）时回退默认比例，
 
 ### token_counter_test.go
 
@@ -506,6 +507,7 @@ go test ./application/core/task_context -count=1
 - `func (runtime runtimeWithContextLimits) MaxOutputTokens() int`
 - `func TestContextBudgetUsesRuntimeLimits(t *testing.T)`
 - `func TestContextBudgetFallsBackForLegacyRuntime(t *testing.T)`
+- `func TestContextBudgetRatiosComeFromLimits(t *testing.T)` — TestContextBudgetRatiosComeFromLimits：压缩预算比例是配置项（seelex.yaml
 - `func TestCalibratedTokenCounter_InitialFactor(t *testing.T)`
 - `func TestCalibratedTokenCounter_ObserveAdjustsFactor(t *testing.T)`
 - `func TestCalibratedTokenCounter_ObserveClamps(t *testing.T)`

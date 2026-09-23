@@ -245,7 +245,7 @@ go test ./application/core/session_runtime -count=1
 - `func forkCheckpoints(checkpoints []model.TaskCheckpoint, cut uint64) []model.TaskCheckpoint`
 - `func forkProjection(projection *model.TaskContextProjection, cut uint64, sessionID string) *model.TaskContextProjection`
 - `func forkReadFiles(files []model.ReadFileRef, cutTime time.Time) []model.ReadFileRef`
-- `func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总子会话可达的 tool-result ref：继承事件流的
+- `func reachableToolResultRefs(events []sessionstore.Event, record model.SessionRecord, frames []sessionstore.CompactFrame) map[string]struct` — reachableToolResultRefs 汇总**会话分叉（ForkSession）**子会话可达的
 - `func forkToolResultRegistry(refs []model.ToolResultRef, reachable map[string]struct{}) []model.ToolResultRef`
 - `func (c *Coordinator) forkContextRecord(location Location, parentID string, cut uint64, cutTime time.Time, cutMessageID string) ([]byte, []sessionstore.CompactFrame, error)` — forkContextRecord 重写父 context 为子会话独立起点：Skill 记录按进入时间
 - `func forkContextPlanFrames(frames []sessionstore.PlanFrame, cutTime time.Time) []sessionstore.PlanFrame`
@@ -275,6 +275,7 @@ go test ./application/core/session_runtime -count=1
 - `func newForkTestCoordinator(t *testing.T, sessions contract.SessionPort) *Coordinator`
 - `func forkTestFixture() (*forkTestSessions, time.Time)`
 - `func TestPrepareForkTruncatesToRequestBoundary(t *testing.T)`
+- `func TestForkSessionKeepsCompactionFrameRefReachable(t *testing.T)` — TestForkSessionKeepsCompactionFrameRefReachable 声明并钉住**会话分叉
 - `func TestPrepareForkRejectsInvalidCutPoints(t *testing.T)`
 - `func TestPrepareForkAtStartProducesEmptyChild(t *testing.T)`
 - `func TestForkTaskRecordsFiltersTodolist(t *testing.T)`

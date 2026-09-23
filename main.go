@@ -554,6 +554,14 @@ func initRuntime() (*seelebridge.Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("初始化 Seele Runtime 失败: %w", err)
 	}
+	// 保留窗口配置校验（《压缩四区模型》边界判定）：保护区下限（比例 × 预算）
+	// 高于保留上限 window.retain_tokens 是非法组合，必须在这里拒绝启动 ——
+	// 静默取小会把它吞成"配置看起来生效"，直到保护区被压到失忆才以"模型忘了"
+	// 的形式显现。预算口径与压缩判据同源（task_context.ContextBudgetFor）。
+	if err := core.ValidateRetainWindow(windowConfig, limits, runtime.ContextWindow()); err != nil {
+		runtime.Shutdown()
+		return nil, fmt.Errorf("加载 window 配置失败: %w", err)
+	}
 	return runtime, nil
 }
 

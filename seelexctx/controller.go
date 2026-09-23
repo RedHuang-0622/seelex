@@ -200,6 +200,11 @@ type ControllerOptions struct {
 	// MaxToolResultChars 超大工具结果判定（≤0 → seelex 生效默认
 	// DefaultToolResultLimit()，与 processor / application.core 同源）。
 	MaxToolResultChars int
+
+	// FrameCarryTokens 是帧摘要传递上限（limits.context_frame_carry_tokens；
+	// ≤0 → DefaultFrameCarryTokens）：本地折叠把上一栈顶帧的 Chapter 2 正文并入
+	// 新帧时的并入量上限，超出退化为锚点（见 CarryPreviousChapter2）。
+	FrameCarryTokens int
 }
 
 // seelexContextController 实现 seelectx.ContextController。
@@ -268,6 +273,14 @@ func (c *seelexContextController) maxToolResultChars() int {
 		return c.opts.MaxToolResultChars
 	}
 	return DefaultToolResultLimit()
+}
+
+// frameCarryTokens 返回帧摘要传递上限（≤0 → DefaultFrameCarryTokens）。
+func (c *seelexContextController) frameCarryTokens() int {
+	if c.opts.FrameCarryTokens > 0 {
+		return c.opts.FrameCarryTokens
+	}
+	return DefaultFrameCarryTokens
 }
 
 // policy 返回生效的阈值策略（Budget 提供时用其窗口/输出推导）。
@@ -491,16 +504,17 @@ func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (ses
 		from = prevTop.From
 	}
 	requestFrom, requestTo := ChatQueueRequestLabels(from, to)
+	summary, carry := c.summarizeOverflow(overflow, prevTop, record)
 	frame := sessionstore.CompactFrame{
 		SegmentID:     segmentID,
 		From:          from,
 		To:            to,
 		RequestFrom:   requestFrom,
 		RequestTo:     requestTo,
-		Summary:       RenderFrameSummary(RenderAnchorChapter(prevTop), c.summarizeOverflow(overflow, prevTop, record)),
+		Summary:       RenderFrameSummary(RenderAnchorChapter(prevTop), summary),
 		SummarySource: CompactSummarySourceLocal,
-		AnchorSource:  FrameAnchorSource(prevTop),
-		Evidence:      overflowEvidence(overflow, record),
+		AnchorSource:  AnchorSourceWithCarry(FrameAnchorSource(prevTop), carry),
+		Evidence:      append(overflowEvidence(overflow, record), CarryEvidence(carry)...),
 		CompressedAt:  time.Now(),
 	}
 	if prevTop != nil {
@@ -514,8 +528,9 @@ func (c *seelexContextController) buildCompactFrame(overflow []historyUnit) (ses
 }
 
 // summarizeOverflow 生成综合摘要：栈帧的 goal/plan/evidence（片段闭合压缩
-// 保留目标/计划/证据）+ 上一栈顶摘要 + 溢出轮次代表性内容。
-func (c *seelexContextController) summarizeOverflow(overflow []historyUnit, prevTop *sessionstore.CompactFrame, record sessionstore.SessionContextRecord) string {
+// 保留目标/计划/证据）+ 上一栈顶摘要 + 溢出轮次代表性内容。第二个返回值是
+// 「上一帧正文并入」的决策事实（帧摘要传递上限，见 CarryPreviousChapter2）。
+func (c *seelexContextController) summarizeOverflow(overflow []historyUnit, prevTop *sessionstore.CompactFrame, record sessionstore.SessionContextRecord) (string, CarryDiagnostics) {
 	var builder strings.Builder
 	if len(record.TaskStack) > 0 {
 		top := record.TaskStack[len(record.TaskStack)-1]
@@ -531,9 +546,10 @@ func (c *seelexContextController) summarizeOverflow(overflow []historyUnit, prev
 		builder.WriteString(top.Status)
 		builder.WriteString(")\n")
 	}
-	if prevTop != nil && strings.TrimSpace(prevTop.Summary) != "" {
+	previous, carry := CarryPreviousChapter2(prevTop, c.frameCarryTokens())
+	if previous != "" {
 		builder.WriteString("先前压缩摘要: ")
-		builder.WriteString(FrameChapter2(*prevTop))
+		builder.WriteString(previous)
 		builder.WriteByte('\n')
 	}
 	builder.WriteString("本轮溢出轮次: ")
@@ -542,7 +558,7 @@ func (c *seelexContextController) summarizeOverflow(overflow []historyUnit, prev
 	for _, unit := range overflow {
 		builder.WriteString(renderUnitLine(unit.messages))
 	}
-	return strings.TrimSpace(builder.String())
+	return strings.TrimSpace(builder.String()), carry
 }
 
 // renderUnitLine 渲染一个单元的单行摘要（用户输入前 80 字符 + 工具名）。

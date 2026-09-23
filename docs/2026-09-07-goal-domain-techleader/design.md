@@ -42,7 +42,7 @@
 | `application/core/runtime_projection.go` | `latestVisibleUserGoal` = 最近一条非 marker user 消息截断 200 runes → 工作台"目标" |
 | `seelebridge/tools/policy.go:46,64-81` | plan 工具族（plan_load/plan_run/…/fork_subagents 逻辑上同组）仅 `goalSkillActive()` 时对主代理可见；`isPlanTool` 判断 |
 | `application/core/task_context/coordinator.go` | `sessionStates map[string]*sessionTaskRuntime`；`sessionTaskRuntime` 含 `taskExecution/taskService/planStack/activePlanID/reactBudget/...`；`stateMu` 保护；`syncGoalSkillActiveLocked` 已有 |
-| `seelexctx/README.md`、`docs/arch/context-prefix-chain.md` | 装配顺序 `system→project→memory→compact→context(累积)→plan/task 尾部→当前输入`；plan/task 每轮重建、不参与压缩；skill 内容 = system 尾部 task 级段 |
+| `seelexctx/README.md`、`docs/arch/context-prefix-chain.md` | 装配顺序 `system→project→memory→compact→context(累积)→plan/task 尾部→当前输入`；plan/task 每轮重建、不参与压缩；system 止于**插件级 skill 目录**，激活 skill 正文是 transcript internal 事件（context 区，参与压缩）；plan 政策与 plan 同一条尾部消息 |
 | `sessionstore/README.md`、`session_context.go` | state blob 按 `(project_id, session_id)`；`SessionContextStore` 持久化 Plan/Task/Skill/Compact 四栈 + 聊天队列；schema 版本校验失败显式拒绝加载 |
 | `seelebridge/session/subagent_context.go` | CSP actor 范式：`seelactor.Actor[T]` + 有界命令通道（cap 256）+ 命令超时（10s）+ 单消费者 goroutine + atomic.Pointer 读面 + overflow 计数不丢内容 |
 | `seelebridge/runtime_tools.go:140` / `main.go:141` | `RegisterBuiltins`/`registerProductTools` 注册工具（goal 工具族在此类注册点接入） |

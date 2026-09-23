@@ -26,9 +26,10 @@ const (
 	TaskContextCheckpointPrefix = "<!-- seelex:context-checkpoint:v1 -->"
 	planContextPrefix           = "<!-- seelex:active-plan:v1 -->"
 	// ActiveSkillPrefix 标记激活技能正文 internal 事件：作为 append-only user
-	// 轮次进入 transcript（与 task_context.ActiveSkillMarker 同源字符串），
-	// 装配/存档/import 用 IsActiveSkillContent 把它挡在可见会话之外；它不是
-	// 每轮重建的动态尾部消息，保留段照常携带（定稿轮次，字节稳定）。
+	// 轮次进入 transcript（与 task_context.ActiveSkillMarker 同源字符串），并
+	// **以 wire material 落盘**（resume 回放、检索回读）；装配/存档/import 用
+	// IsActiveSkillContent 把它挡在可见会话之外；它不是每轮重建的动态尾部消息，
+	// 保留段照常携带（定稿轮次，字节稳定）。压缩窗口裁剪后不再出现在 wire 上。
 	ActiveSkillPrefix       = "<!-- seelex:active-skill:v1 -->"
 	ToolResultOmittedPrefix = "<seelex-tool-result-omitted>"
 	// AutonomousCompactionPrefix 标记自主压缩帧：正常有界窗口装不下全量预算
@@ -412,7 +413,13 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	fold := rawTokens >= budget.SoftThreshold || hardCompact || options.forceCompact
 	// 自动路径按 progress epoch 节流（同一批进展只压一次）；显式路径与硬压缩
 	// 不受节流挡下（用户/模型明确要求时不接受"等下一批进展再说"，硬阈值必须压）。
-	newCheckpoint := fold && (options.forceCompact || hardCompact || state.CompactedEpoch != state.ProgressEpoch)
+	//
+	// 额外放行"本执行还没有任何压缩记录"（len(ContextCompactions) == 0）：会话/执行的
+	// 第一次折叠必须留痕。progress epoch 与 CompactedEpoch 的初值都是"未开始"语义，
+	// 只看"两值不等"会把首轮折叠判成本纪元已压过——前三关照跑（进度报表都出来了）、
+	// 却不落记录不落帧，用户看到"压缩了"却查不到压了哪段。首压留痕，同纪元后续再挡。
+	newCheckpoint := fold && (options.forceCompact || hardCompact ||
+		state.CompactedEpoch != state.ProgressEpoch || len(state.ContextCompactions) == 0)
 	if newCheckpoint {
 		state.ContextVersion++
 		state.CompactedEpoch = state.ProgressEpoch
@@ -438,8 +445,6 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			// 否则进度条上的 #N 会缺一截，或者对到上一条压缩记录上。
 			progress.setVersion(checkpoint.Version)
 		}
-		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d all=%d soft=%d hard=%d",
-			rawTokens, allContextTokens, budget.SoftThreshold, budget.HardThreshold))
 	}
 
 	systems := RetainedSystemHistory(c.engineHistory(sessionID))
@@ -448,10 +453,19 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 	// （单元不可拆分），因此不再叠加配置单元上限做第二次截断。
 	compacting := fold
 	target := budget.Budget
+	retain := RetainDecision{}
 	if compacting {
-		if retained := windowConfig.RetainedContextTokens(allContextTokens, budget.Window); retained > 0 {
-			target = retained
+		retain = retainWindowDecision(windowConfig, allContextTokens, budget, limits.Get().ContextRetainFloorPercent)
+		if retain.Retained > 0 {
+			target = retain.Retained
 		}
+	}
+	if fold {
+		// 判据关在保留窗口决策**之后**收口：这一关的事实就是"拿什么数字比的"
+		// ——判据量 + 保留窗口决策（含保护区下限），两者同源、同一次采样
+		// （all= 由保留窗口决策给出，不在这里重复一份同值事实）。
+		progress.gate(CompactionGateJudge, fmt.Sprintf("compared=%d soft=%d hard=%d %s",
+			rawTokens, budget.SoftThreshold, budget.HardThreshold, retain.Terse()))
 	}
 	// transcript 压缩区间的记事基准：累积模式可能丢掉已覆盖前缀，记录边界
 	// 时用原始 events（未裁剪）＋丢弃条数还原绝对下标。
@@ -492,7 +506,18 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 			assembled, estimated, autonomous = compressed, compressedTokens, true
 		}
 	}
-	progress.gate(CompactionGateAssemble, fmt.Sprintf("assembled=%d target=%d autonomous=%t", estimated, target, autonomous))
+	// 四区显式化（《压缩四区模型》① ② ③ ④ + 当轮输入）：分区、各区 token 数与
+	// 来源来自**装配结果本身**，判据量与保留窗口决策同一次采样写入。门禁 Detail
+	// 与帧正文的四区区块都读这一份 layout —— 报表口径与判据口径因此不可能分叉。
+	layout := c.buildContextLayout(systemPrompt, assembled, currentInput)
+	layout.Retain = retain
+	layout.ComparedTokens = rawTokens
+	layout.EstimatedTokens = estimated
+	layout.SoftThreshold = budget.SoftThreshold
+	layout.HardThreshold = budget.HardThreshold
+	layout.Compacting = compacting
+	progress.gate(CompactionGateAssemble, fmt.Sprintf("assembled=%d target=%d autonomous=%t %s",
+		estimated, target, autonomous, layout.ZonesTerse()))
 	if estimated > budget.Budget {
 		return "", fmt.Errorf("%w: estimated=%d budget=%d", ErrProviderContextBudgetExceeded, estimated, budget.Budget)
 	}
@@ -561,6 +586,7 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				Evidence:        summary,
 				PlanMessage:     planMessage,
 				Injected:        autonomous,
+				Layout:          layout,
 			})
 			if strings.TrimSpace(frame) != "" {
 				stored := c.tasks.StoreToolResultForLocked(sessionID, compactionFrameTool, frame)
@@ -573,6 +599,12 @@ func (c *Coordinator) prepareExecutionContextFor(sessionID, requestID, currentIn
 				revision = c.view.BumpLocked()
 			}
 			progress.gate(CompactionGateRecord, fmt.Sprintf("recorded=%t version=%d", recorded, checkpoint.Version))
+		} else if fold {
+			// 折叠真的发生了（前三关照跑），但没有走到落记录：同一个 progress 纪元内
+			// 已压过、且装配后估算未越硬阈值（走进来的 autonomous 为假）。把这条原因
+			// 写进终局 Detail——进度条不该走到一半就沉默，读者需要一个能自答的句号。
+			progress.skip(fmt.Sprintf("skipped=epoch_throttled compacted_epoch=%d progress_epoch=%d context_version=%d",
+				state.CompactedEpoch, state.ProgressEpoch, state.ContextVersion))
 		}
 		if options.decision != nil {
 			// 压缩判据事实（显式入口据此如实报告，不拿别的数字反推）：
@@ -732,6 +764,10 @@ type compactionFrameInput struct {
 	Evidence        string // 有界任务证据摘要（TaskExecutionState.ContextSummary；可能为空）
 	PlanMessage     string // 随帧保留的 plan 尾部（可能为空）
 	Injected        bool   // 帧正文是否真的进了 provider 历史（自主压缩 = 是）
+	// Layout 是这次装配的四区显式化（分区 + 各区 token 数与来源）与保留窗口决策：
+	// 帧正文里必须有一处能回读到"这轮折叠把哪个区动了多少 token"，否则记录里只剩
+	// 一个总量，判据与报表对不上。
+	Layout ContextLayout
 }
 
 // compactionFrameBody 渲染「有界 checkpoint 帧」正文（供前端/审计回读的那一份）。
@@ -760,6 +796,13 @@ func compactionFrameBody(input compactionFrameInput) string {
 		builder.WriteString("injected: yes —— 帧正文（自主压缩帧）已作为 system 消息进入 provider 历史\n")
 	} else {
 		builder.WriteString("injected: no —— 本次走保留窗口路径：provider 历史 = 稳定 system 前缀 + 保留窗口 + plan，未注入下面的证据摘要\n")
+	}
+	// 四区显式化（① 绝不压前缀 / ② 被压掉 / ③ 窗口保护 / ④ 绝不压后缀 + 当轮输入）：
+	// 与判据读同一份 ContextLayout（同一轮、同一次采样），读者能把"判据说超了"
+	// 与"哪个区占了多少"对上。
+	if len(input.Layout.Zones) > 0 {
+		builder.WriteString("\n## Context zones (四区)\n")
+		builder.WriteString(input.Layout.RenderZones())
 	}
 	builder.WriteString("\n## Task evidence checkpoint\n")
 	if evidence := strings.TrimSpace(input.Evidence); evidence != "" {
@@ -870,8 +913,12 @@ func excludeCurrentInputEvent(events []model.TranscriptEvent, requestID, current
 	return events
 }
 
+// protectOversizedCurrentInputLocked 把超**单条**预算的当前输入归档为引用：
+// 阈值 = budget.SingleItemInputLimit（预算 × context_single_item_percent，默认
+// 50%）——比例来自配置，见 newContextBudget。limit <= 0 表示未设置，不做外置。
 func (c *Coordinator) protectOversizedCurrentInputLocked(sessionID, requestID, currentInput string, budget task_context.ContextBudget) string {
-	if currentInput == "" || c.tasks.CountTextTokens(currentInput) <= budget.TargetAfterCompaction/2 {
+	if currentInput == "" || budget.SingleItemInputLimit <= 0 ||
+		c.tasks.CountTextTokens(currentInput) <= budget.SingleItemInputLimit {
 		return currentInput
 	}
 	stored := c.tasks.StoreToolResultForLocked(sessionID, "user_input", currentInput)

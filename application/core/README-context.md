@@ -200,6 +200,13 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 - `func orderRoundLabels(history []EngineMessage) []string`
 - `func expectedOrderRoundLabels(rounds int) []string`
 
+### context_retain_floor_test.go
+
+- `func applyTestLimits(t *testing.T, mutate func(*seelexctx.Limits))` — applyTestLimits 在测试内改一项 limits 配置并在结束恢复（进程内生效配置）。
+- `func TestValidateRetainWindowStartupCheck(t *testing.T)` — TestValidateRetainWindowStartupCheck：《压缩四区模型》的配置校验——保护区下限
+- `func TestCompactRetainFloorRaisesProtectedWindow(t *testing.T)` — TestCompactRetainFloorRaisesProtectedWindow：保护区下限生效——同样的 transcript
+- `func TestCompactFrameBodyCarriesZoneLayout(t *testing.T)` — TestCompactFrameBodyCarriesZoneLayout：四区显式化的**报表落点**——压缩记录指向的
+
 ### context_strategy_ab_probe_test.go
 
 - `func abBody(line string, repeat int) string`

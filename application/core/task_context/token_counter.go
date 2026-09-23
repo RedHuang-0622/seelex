@@ -22,7 +22,23 @@ type ContextBudget struct {
 	SoftThreshold         int
 	HardThreshold         int
 	TargetAfterCompaction int
+	// SingleItemInputLimit 是**单条**输入（当前输入/单个事件）的超限外置阈值：
+	// 超过它就把正文归档为 result_ref，只把引用告示交给模型（见
+	// coordinator.protectOversizedCurrentInputLocked）。取值 = 预算 ×
+	// context_single_item_percent（默认 50%）。0 = 未设置（手写字面量/老装配）：
+	// 此时不外置，保持旧行为。
+	SingleItemInputLimit int
 }
+
+// 压缩预算的默认比例：config/seelex.yaml limits 段缺失/非法时回退到这里，
+// 取值与重构前的硬编码逐位一致（窗口/8、75%、90%、60%、50%）。
+const (
+	defaultSafetyReserveDivisor = 8
+	defaultSoftPercent          = 75
+	defaultHardPercent          = 90
+	defaultTargetPercent        = 60
+	defaultSingleItemPercent    = 50
+)
 
 // RequestTokenCounter 是上下文装配的 token 计数契约（可被模型 tokenizer
 // 替换而不改装配）。
@@ -162,12 +178,39 @@ func ContextBudgetFor(runtime any) ContextBudget {
 	return newContextBudget(window, outputReserve)
 }
 
+// newContextBudget 由上下文窗口与输出预留推导压缩预算。所有比例都是**配置项**
+// （config/seelex.yaml limits 段：context_safety_reserve_divisor /
+// context_soft_percent / context_hard_percent / context_target_percent /
+// context_single_item_percent），不在这里硬编码：调参不该改代码，而魔法数字一旦
+// 散在代码里，报表口径与判据口径就会各说各话（读者看到"超了硬线"却什么都没发生）。
+// 默认值与旧硬编码逐位一致：安全预留 = 窗口/8，软 75% / 硬 90% / 压缩目标 60% /
+// 单条外置 50%。
 func newContextBudget(window, outputReserve int) ContextBudget {
-	safetyReserve := window / 8
+	if window <= 0 {
+		return ContextBudget{}
+	}
+	settings := limits.Get()
+	divisor := settings.ContextSafetyReserveDivisor
+	if divisor <= 0 {
+		divisor = defaultSafetyReserveDivisor
+	}
+	safetyReserve := window / divisor
 	budget := window - outputReserve - safetyReserve
 	return ContextBudget{
 		Window: window, OutputReserve: outputReserve, SafetyReserve: safetyReserve,
-		Budget: budget, SoftThreshold: budget * 75 / 100, HardThreshold: budget * 90 / 100,
-		TargetAfterCompaction: budget * 60 / 100,
+		Budget:                budget,
+		SoftThreshold:         percentOf(budget, settings.ContextSoftPercent, defaultSoftPercent),
+		HardThreshold:         percentOf(budget, settings.ContextHardPercent, defaultHardPercent),
+		TargetAfterCompaction: percentOf(budget, settings.ContextTargetPercent, defaultTargetPercent),
+		SingleItemInputLimit:  percentOf(budget, settings.ContextSingleItemPercent, defaultSingleItemPercent),
 	}
+}
+
+// percentOf 取预算的百分比；配置缺失/非法（<=0 或 >100）时回退默认比例，
+// 保证写错配置也不会把预算算成 0（那会让每一轮都触发压缩）。
+func percentOf(value, percent, fallback int) int {
+	if percent <= 0 || percent > 100 {
+		percent = fallback
+	}
+	return value * percent / 100
 }

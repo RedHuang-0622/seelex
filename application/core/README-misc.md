@@ -164,6 +164,10 @@
 - `func ApplyWindowConfig(config WindowConfig)` — ApplyWindowConfig 应用 seele.yaml window 段（零值字段自动补默认）；
 - `func CurrentWindowConfig() WindowConfig` — CurrentWindowConfig 返回当前生效的 window 段（含默认值）。
 - `func RetainedReadTailBudget(runtime any) int` — RetainedReadTailBudget 返回**读尾**（冷恢复装载 transcript/history 尾部）的
+- `func RetainFloorTokens(budget task_context.ContextBudget) int` — RetainFloorTokens 返回当前配置下保护区下限的**比例部分**（token 数）：
+- `func ValidateRetainWindow(config WindowConfig, limits seelexctx.Limits, windowTokens int) error` — ValidateRetainWindow 校验 window 段与 limits 段的组合是否自洽（启动期调用）：
+- `func (r retainWindowLimits) ContextWindow() int`
+- `func (r retainWindowLimits) MaxOutputTokens() int`
 
 ### workspace_file_usecase_test.go
 

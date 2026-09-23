@@ -80,7 +80,14 @@ stateDiagram-v2
 
 ## 核心实现
 
-- `EventKind`：消息新增/增量、主代理工具、子代理生命周期/工具、Runtime、聊天运行态（`chat.changed`）、Interaction、Snapshot 和 Error 等事件类型。
+- `EventKind`：消息新增/增量、主代理工具、子代理生命周期/工具、Runtime、聊天运行态（`chat.changed`）、Interaction、Snapshot 和 Error 等事件类型；另有两条**载荷不进快照**的通告类 kind（`team.changed` 作废前端面板缓存、`compaction.progress` 逐关进度），二者都用 `revision = 0`。
+- `CompactionProgress`（`compaction.progress` 载荷）：一轮上下文压缩的门禁进度。`state` =
+  `running`/`done`/`failed`（三态之外没有第四种）；`phase` 为空表示"该关刚刚收口"，
+  `begin` 是起手帧（判据估算还没出结果：`index=0`、`version=0` 表示"未定"，判据关收口时才补正）；
+  `gate`/`index`/`total` 说明走到哪一关，顺序的唯一事实在
+  `application/core/context_runtime.CompactionGates`；`elapsed_ms` 是**刚刚过去那一段**的墙钟
+  （毫秒），不是从开轮算起的累计值。会话/请求归属在事件信封里（`Event.SessionID` /
+  `Event.RequestID`），载荷不重复一份同事实；`gate` 只带枚举 id，文案在前端。
 - `Event`：包含 `ProtocolVersion`、全局 `Seq`、订阅内 `DeliverySeq`、Snapshot `Revision`、request ID、会话路由键 `SessionID` 和 JSON payload。
 - `EventHub`：为每个 subscriber 分配局部锁和 channel，负责 fan-out、顺序、投递端过滤与关闭。
 - `Subscription`：暴露只读事件 channel 与幂等 `Close`。
@@ -135,6 +142,14 @@ stateDiagram-v2
   `sessionStatusLocked` 各持一份真相）。
 - 纯状态替换型事件用 `revision = 0`：它不声称推进快照版本，且若带上当前
   revision，会被客户端"已由权威快照表示"的抑制规则丢掉。
+- 进度类事件（`compaction.progress`）承载的是**过程事实**，不是状态：一轮的形状是
+  起手帧（`phase=begin`，只有显式压缩发——自动路径"要不要折叠"正是判据估算的结果）→
+  逐关收口 → 恰好一个终局（`done`/`failed`），终局后本轮生命周期即结束，中途报错也必须
+  发终局（挂着不动的进度条比没有进度条更糟）。进度帧是一次性的过程展示，不冒充可重建
+  状态：快照里对应的持久事实只有压缩记录本身（`Snapshot.Task.ContextCompactions`）。
+  它也因此**不能**进前端的 120ms 尾随合并集
+  （`gui/frontend/dist/app.js` 的 `BUFFERED_INCREMENTAL_KINDS`）：
+  latest-wins 会把中间门禁帧吃掉，只剩首尾两帧。
 - 会话级事件必须经 `PublishSession` 打会话路由键：漏打键等于全局广播，会绕过投递端
   过滤、污染其它会话的视图。
 - 修改 seq/revision/delivery_seq 含义时同步更新 `gui/frontend/dist/protocol.js`、`client-state.js` 及协议测试。
