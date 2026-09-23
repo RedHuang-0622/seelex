@@ -46,8 +46,12 @@ type TaskState struct {
 // was condensed. It intentionally contains no prompt text, checkpoint body,
 // tool argument, tool result, or conversation content.
 type ContextCompaction struct {
-	Version         uint64    `json:"version"`
-	Reason          string    `json:"reason"`
+	Version uint64 `json:"version"`
+	Reason  string `json:"reason"`
+	// MessagesBefore 是压缩发生时**装配前的引擎历史条数**（engineHistory 长度，
+	// 含 system 行）：冷加载/路由会话在该时刻合法为 0，而且它数的是引擎消息，
+	// 不是被压的 transcript 消息条数。要展示/判断"压了多少、从哪到哪"请用下面的
+	// 区间字段（与 /compact 提示同一口径）；这个数字只作诊断元数据。
 	MessagesBefore  int       `json:"messages_before"`
 	EstimatedTokens int       `json:"estimated_tokens"`
 	CompactedAt     time.Time `json:"compacted_at"`

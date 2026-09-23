@@ -33,6 +33,30 @@ version when it lands.
   `TestCompactManualFoldsBelowThreshold`, `TestCompactManualReportsFoldWithoutRecord`,
   `TestCompactContextWithoutTaskExecutionSchedulesNextAssembly` all turn red when the
   explicit path is put back behind the soft threshold.
+- **The `/compact` notice no longer prints a record-shaped sentence when no record
+  exists.** `CompactFoldedUnrecorded` sets `Compacted` (the fold really happened) but
+  deliberately leaves `Reason` and `MessagesBefore` unset, and the command only checked
+  `Compacted` — so a fold whose record was suppressed printed
+  `已压缩上下文：v3（），压缩前 0 条消息 / 估算 32295 tokens`: an empty reason and
+  "0 messages before" for a compaction that had just folded the transcript, with the
+  outcome's own `Note` (which says the fold happened and why no record was written)
+  thrown away. The command now emits the record line only when `Recorded` is true and
+  otherwise returns the outcome's `Note` — the same wording the `compact_context` tool
+  already used. Teeth: `TestCompactCommandReportsFoldWithoutRecordAsNote` (red before the
+  fix, green after).
+- **The `/compact` record line now reports the folded range, not an engine-history
+  count.** `MessagesBefore` is `len(engineHistory(sessionID))` at assembly time — engine
+  messages (system rows included), legitimately **0** for a cold-loaded/routed session —
+  so the same sentence could print `压缩前 0 条消息` for a compaction that had just folded
+  `message-1..message-103`, and `压缩前 2 条消息` when the only engine rows were system
+  prompts. The record already carries the exact boundaries (`message_from/to`,
+  `event_from/to`), so `compactionRangeLabel` renders them —
+  `已压缩上下文：v3（context_budget），被压区间 消息 message-1..message-103 / 事件 1..6，估算 4863 tokens`;
+  an empty range is skipped rather than back-filled with a count. `messages_before` stays
+  in the record/JSON as diagnostic metadata and is now documented as such in
+  `application/model/state.go`. Teeth: `TestCompactCommandNoticeReportsFoldedRange`
+  (reprinting the old `压缩前 %d 条消息` shape turns it red) plus the table-driven
+  `TestCompactionRangeLabel`.
 - **The agent-facing skill catalog told the model to use the wrong input prefix.** The
   passive `## Available Skills` hint read “ask the user to send `#<name>`”, but `#` has
   been the *plugin* sigil since the 2026-09-17 one-sigil-one-meaning change (`$` recalls a

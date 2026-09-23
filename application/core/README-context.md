@@ -124,6 +124,8 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 
 ### context_compact.go
 
+- `func compactionRangeLabel(result ContextCompactionResult) string` — compactionRangeLabel 把压缩结果面里**已有的**区间字段（MessageFrom/To、
+- `func messageRangeLabel(from, to string) string` — messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
 - `func (service *Service) CompactContextNow(ctx context.Context) (ContextCompactionResult, error)` — CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，
 - `func (service *Service) CompactContextHandler(ctx context.Context, argsJSON string) (string, error)` — CompactContextHandler 实现 compact_context 工具：模型在上下文逼近上限、
 - `func newContextCompactionResult(outcome context_runtime.CompactResult) ContextCompactionResult`
@@ -136,6 +138,9 @@ wire）。守卫用例：`TestToolNarrationStaysWithOwningIteration`、
 - `func TestCompactManualReportsFoldWithoutRecord(t *testing.T)` — TestCompactManualReportsFoldWithoutRecord：折叠发生了、记录却没产生时，
 - `func TestCompactContextWithoutTaskExecutionSchedulesNextAssembly(t *testing.T)` — TestCompactContextWithoutTaskExecutionSchedulesNextAssembly：会话没有任务
 - `func TestCompactCommandRegisteredAndSharesPath(t *testing.T)` — TestCompactCommandRegisteredAndSharesPath：/compact 命令注册成功，且与工具
+- `func TestCompactCommandNoticeReportsFoldedRange(t *testing.T)` — TestCompactCommandNoticeReportsFoldedRange：记录分支的提示只说**记录里已有的
+- `func TestCompactionRangeLabel(t *testing.T)` — TestCompactionRangeLabel：区间渲染只在**有边界**时成段——空区间返回空串
+- `func TestCompactCommandReportsFoldWithoutRecordAsNote(t *testing.T)` — TestCompactCommandReportsFoldWithoutRecordAsNote：折叠发生但**记录不产生**
 
 ### context_controller_test.go
 

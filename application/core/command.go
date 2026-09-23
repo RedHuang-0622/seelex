@@ -73,12 +73,26 @@ func (service *Service) registerBuiltinCommands() error {
 		if err != nil {
 			return CommandResult{}, err
 		}
-		if !result.Compacted {
+		if !result.Compacted || !result.Recorded {
+			// 只有真落了压缩记录才按「记录」成句。折叠已发生但记录不产生
+			// （回合已收尾：记录只在执行中写）时，结果面没有 reason 与区间
+			// （零值），套记录句式就会对用户说出
+			// 「已压缩上下文：v3（），…」——空原因，且把真正解释（Note：
+			// 折叠已发生、为何无记录）丢掉。此时回带 Note，与 compact_context
+			// 工具同一口径。
 			return CommandResult{Notice: result.Note}, nil
 		}
-		return CommandResult{Notice: fmt.Sprintf(
-			"已压缩上下文：v%d（%s），压缩前 %d 条消息 / 估算 %d tokens；原始轮次仍可用 read_tool_result / search_history 回读",
-			result.Version, result.Reason, result.MessagesBefore, result.EstimatedTokens)}, nil
+		// 折叠范围只说记录里**已有的**区间字段（message_from/to、event_from/to），
+		// 不说 messages_before：那是装配前的引擎历史条数（含 system 行、冷加载/
+		// 路由会话合法为 0），拿它当"压缩前 N 条消息"会印出与事实相反的句子
+		// （实测同一支既说过"压缩前 0 条消息"、也说过"压缩前 2 条消息"，
+		// 而真实区间是 message-1..message-103 / 事件 1..6）。
+		notice := fmt.Sprintf("已压缩上下文：v%d（%s）", result.Version, result.Reason)
+		if label := compactionRangeLabel(result); label != "" {
+			notice += "，被压区间 " + label
+		}
+		notice += fmt.Sprintf("，估算 %d tokens；原始轮次仍可用 read_tool_result / search_history 回读", result.EstimatedTokens)
+		return CommandResult{Notice: notice}, nil
 	})
 	register("new", "准备新会话（首次发送时创建）", func(context.Context, []string) (CommandResult, error) {
 		return CommandResult{}, service.BeginNewSession()

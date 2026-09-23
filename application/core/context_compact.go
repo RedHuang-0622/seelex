@@ -24,11 +24,15 @@ import (
 //	ComparedTokens  = 压缩判据量（全量累积/引擎缓存峰值的请求估算）
 //	EstimatedTokens = 装配后估算（真正发给 provider 的请求大小）
 type ContextCompactionResult struct {
-	Compacted       bool   `json:"compacted"`
-	Recorded        bool   `json:"recorded,omitempty"`
-	Scheduled       bool   `json:"scheduled,omitempty"`
-	Version         uint64 `json:"version,omitempty"`
-	Reason          string `json:"reason,omitempty"`
+	Compacted bool   `json:"compacted"`
+	Recorded  bool   `json:"recorded,omitempty"`
+	Scheduled bool   `json:"scheduled,omitempty"`
+	Version   uint64 `json:"version,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	// MessagesBefore 是**装配前的引擎历史条数**（engineHistory 长度），不是被压
+	// 的 transcript 消息数：冷加载/路由会话里它合法为 0，而同一时刻的区间字段
+	// （MessageFrom/To、EventFrom/To）仍然记得住"从哪压到哪"。用户可见的折叠
+	// 范围一律走 compactionRangeLabel，不要拿这个数字当"压缩前 N 条消息"。
 	MessagesBefore  int    `json:"messages_before,omitempty"`
 	EstimatedTokens int    `json:"estimated_tokens,omitempty"`
 	ComparedTokens  int    `json:"compared_tokens,omitempty"`
@@ -44,6 +48,41 @@ type ContextCompactionResult struct {
 	EventFrom   uint64 `json:"event_from,omitempty"`
 	EventTo     uint64 `json:"event_to,omitempty"`
 	Note        string `json:"note"`
+}
+
+// compactionRangeLabel 把压缩结果面里**已有的**区间字段（MessageFrom/To、
+// EventFrom/To）渲染成一段人可读的范围，例如
+// `消息 message-1..message-103 / 事件 1..6`。
+//
+// "压了多少"只说这两个边界，不说 MessagesBefore：后者是装配前的引擎历史条数
+// （engineHistory 长度，含 system 行、且冷加载/路由会话合法为 0），拿它当
+// "压缩前 N 条消息"会印出与事实相反的句子——2026-09-23 实测：区间
+// message-1..message-103 / 事件 1..6 配 messages_before=0，同一支还能印出
+// "压缩前 2 条消息"（2 条是引擎里的 system 行）。
+//
+// 区间为空（老记录、或这次真的没有可记的边界）时返回空串：调用方据此跳过
+// 这一段，不得改用别的量顶替。
+func compactionRangeLabel(result ContextCompactionResult) string {
+	parts := make([]string, 0, 2)
+	if label := messageRangeLabel(result.MessageFrom, result.MessageTo); label != "" {
+		parts = append(parts, "消息 "+label)
+	}
+	if result.EventFrom > 0 || result.EventTo > 0 {
+		parts = append(parts, fmt.Sprintf("事件 %d..%d", result.EventFrom, result.EventTo))
+	}
+	return strings.Join(parts, " / ")
+}
+
+// messageRangeLabel 渲染消息号区间：单号不写 `..`，只有一端就只写一端。
+func messageRangeLabel(from, to string) string {
+	switch {
+	case from == "":
+		return to
+	case to == "" || to == from:
+		return from
+	default:
+		return from + ".." + to
+	}
 }
 
 // CompactContextNow 压缩当前执行会话（命令/工具共用）：会话从 ctx 解析，

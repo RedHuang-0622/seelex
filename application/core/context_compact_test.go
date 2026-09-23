@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -230,5 +231,119 @@ func TestCompactCommandRegisteredAndSharesPath(t *testing.T) {
 	}
 	if strings.Contains(result.Notice, "未达压缩阈值") {
 		t.Fatalf("/compact 不得在显式调用下声称未达阈值：%q", result.Notice)
+	}
+}
+
+// TestCompactCommandNoticeReportsFoldedRange：记录分支的提示只说**记录里已有的
+// 区间字段**（message_from/to、event_from/to），不再印 MessagesBefore。
+//
+// 该夹具正是"装配前引擎历史为空"的场景（只往 transcript 追加事件、没有引擎
+// 历史）：MessagesBefore=0，而被压区间是完整的 message-1..message-8。旧句式
+// 「压缩前 %d 条消息」在这里会说出"压缩前 0 条消息"——一个与事实相反的数字
+// （真实用户在 2026-09-23 会话里看到的就是它，同族句式还能说出"压缩前 2 条消息"，
+// 那 2 条其实是引擎里的 system 行）。
+func TestCompactCommandNoticeReportsFoldedRange(t *testing.T) {
+	service, _, _ := compactTestService(t, "task-command-range")
+	service.ViewMu.Lock()
+	for index := 0; index < 4; index++ {
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: "task-command-range", MessageID: fmt.Sprintf("message-%d", index+1),
+			Role: "user", Content: fmt.Sprintf("q-%d", index),
+		})
+		service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+			TaskID: "task-command-range", MessageID: fmt.Sprintf("message-%d", index+101),
+			Role: "assistant", Content: fmt.Sprintf("a-%d:%s", index, strings.Repeat("A", 4_000)),
+		})
+	}
+	service.ViewMu.Unlock()
+
+	command, ok := service.commands.Get("compact")
+	if !ok {
+		t.Fatal("/compact 未注册")
+	}
+	result, err := command.Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("/compact: %v", err)
+	}
+	service.ViewMu.RLock()
+	records := service.components.tasks.CurrentTaskExecution().ContextCompactions
+	service.ViewMu.RUnlock()
+	if len(records) == 0 {
+		t.Fatal("夹具应留下压缩记录（记录分支才有记录句式）")
+	}
+	record := records[len(records)-1]
+	if record.MessageFrom == "" || record.EventFrom == 0 {
+		t.Fatalf("夹具应带非空区间：%+v", record)
+	}
+	if record.MessagesBefore != 0 {
+		t.Fatalf("夹具应是「引擎历史为空」场景（旧句式会印出压缩前 0 条消息）：%+v", record)
+	}
+	if strings.Contains(result.Notice, "压缩前") || strings.Contains(result.Notice, "条消息") {
+		t.Fatalf("提示不得再用 messages_before 当消息条数：%q", result.Notice)
+	}
+	for _, want := range []string{
+		"已压缩上下文：v", record.MessageFrom, record.MessageTo,
+		fmt.Sprintf("事件 %d..%d", record.EventFrom, record.EventTo),
+		"估算 ", "read_tool_result / search_history",
+	} {
+		if !strings.Contains(result.Notice, want) {
+			t.Fatalf("提示缺少 %q：%q", want, result.Notice)
+		}
+	}
+}
+
+// TestCompactionRangeLabel：区间渲染只在**有边界**时成段——空区间返回空串
+// （调用方据此跳过），单号不写 `..`，只有事件序号时只报事件。
+func TestCompactionRangeLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		in   ContextCompactionResult
+		want string
+	}{
+		{name: "两端", in: ContextCompactionResult{MessageFrom: "message-1", MessageTo: "message-8", EventFrom: 1, EventTo: 12}, want: "消息 message-1..message-8 / 事件 1..12"},
+		{name: "单号", in: ContextCompactionResult{MessageFrom: "message-3", MessageTo: "message-3", EventFrom: 7, EventTo: 7}, want: "消息 message-3 / 事件 7..7"},
+		{name: "只有事件", in: ContextCompactionResult{EventFrom: 2, EventTo: 5}, want: "事件 2..5"},
+		{name: "只有消息", in: ContextCompactionResult{MessageFrom: "message-4"}, want: "消息 message-4"},
+		{name: "空区间", in: ContextCompactionResult{}, want: ""},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := compactionRangeLabel(testCase.in); got != testCase.want {
+				t.Fatalf("compactionRangeLabel = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestCompactCommandReportsFoldWithoutRecordAsNote：折叠发生但**记录不产生**
+// （回合已收尾 → 记录只在执行中写）时，/compact 必须回带结果面的 Note，说明
+// “折叠已发生、为何没有记录”，不得按「压缩记录」成句。
+//
+// 该分支只填 Compacted/Version/EstimatedTokens/Note：Reason 与 MessagesBefore
+// 是零值。此前命令只看 result.Compacted 就套记录句式，于是对用户输出
+// 「已压缩上下文：v3（），压缩前 0 条消息 / 估算 32295 tokens」——空 reason、
+// 0 条消息，既与事实相反，也把真正解释（Note）丢掉了。
+func TestCompactCommandReportsFoldWithoutRecordAsNote(t *testing.T) {
+	service, _, _ := compactTestService(t, "task-command-folded-unrecorded")
+	service.ViewMu.Lock()
+	service.components.tasks.AppendTranscriptEventLocked(TranscriptEvent{
+		TaskID: "task-command", Role: "assistant", Content: strings.Repeat("C", 4_000),
+	})
+	service.components.tasks.CurrentTaskExecution().Status = task_context.StatusCompleted
+	service.ViewMu.Unlock()
+
+	command, ok := service.commands.Get("compact")
+	if !ok {
+		t.Fatal("/compact 未注册")
+	}
+	result, err := command.Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("/compact: %v", err)
+	}
+	if strings.Contains(result.Notice, "已压缩上下文：") {
+		t.Fatalf("没有压缩记录时不得按「记录」成句（会说出空 reason / 0 条消息）：%q", result.Notice)
+	}
+	if !strings.Contains(result.Notice, "已收尾") {
+		t.Fatalf("提示应说明折叠已发生、记录不产生的原因：%q", result.Notice)
 	}
 }
